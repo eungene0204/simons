@@ -599,3 +599,18 @@ def test_stale_entry_regrounds_and_merges(tmp_path, monkeypatch):
                           search_fn=search2, lexicon_path=lexicon)
     assert got2 == "소프트웨어/플랫폼"
     assert search2.calls == 0
+
+
+def test_snippet_dedupe_by_link():
+    """'관련주'+'수혜주' 이중 뉴스 쿼리(리콜 개선) — 같은 기사가 두 쿼리에 잡혀도
+    링크 dedupe로 출처 교차지지가 부풀지 않는다."""
+    from engine.term_grounding import _dedupe_snippets
+
+    snippets = [
+        {"title": "A", "link": "https://x/1"},
+        {"title": "B", "link": "https://x/2"},
+        {"title": "A(중복)", "link": "https://x/1"},
+        {"title": "무링크"}, {"title": "무링크"},
+    ]
+    deduped = _dedupe_snippets(snippets)
+    assert [s["title"] for s in deduped] == ["A", "B", "무링크"]

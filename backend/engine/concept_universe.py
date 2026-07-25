@@ -26,7 +26,10 @@ pending/rejected 엣지는 어느 층에도 불참(검증 원칙 — 그래프 �
 
 from __future__ import annotations
 
+import json
+import os
 import re
+from pathlib import Path
 from typing import Optional
 
 from engine.knowledge_graph import get_graph
@@ -40,6 +43,10 @@ _SEED_DEFAULT_SCORE = 0.70          # 시드 편입 규약상 최소 등급(Stro
 _LEARNED_BASE, _LEARNED_STEP, _LEARNED_CAP = 0.55, 0.05, 0.80
 _HOP_DECAY = 0.85
 _CATALOG_SCORE = 0.45
+# 지분 관계(회사 홉) 감쇠 — 유니버스 종목의 주주/피출자사(DART 타법인출자현황,
+# FR-STR-072b). 0.7이면 부모 점수 0.72 이상만 기본 임계(0.5)를 넘는다 — 재벌
+# 지주 관계가 모든 유니버스로 번지지 않게 고점수 부모만 전파하는 자기 제한.
+_EQUITY_DECAY = 0.70
 
 # 원장 점수 표기 — "(Core 95)"·"(Producer/Strong 72)"·"(Supplier/Core 88)" 등
 _NOTE_SCORE_RE = re.compile(r"(?:Core|Strong)\s*(\d{2,3})")
@@ -86,6 +93,42 @@ def _company_candidates_of(graph, node_id: str, node_name: str) -> list[dict]:
     return out
 
 
+# ─── 지분 관계 레이어(FR-STR-072b) — DART 타법인출자현황 산출물 ─────────────────
+# KG 그래프 본체에 합성하지 않고 여기서만 읽는다 — related_universe 확장·테마 되묻기
+# 등 기존 그래프 소비자의 의미 변화를 차단(수집·소비 범위를 Concept Universe로 한정).
+
+_EQUITY_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "kg-equity-edges.json"
+_EQUITY_CACHE: Optional[tuple[float, dict]] = None
+
+
+def _equity_neighbors_map() -> dict:
+    """symbol → [{symbol, name, note, role}] 양방향 인덱스(mtime 캐시).
+
+    A –invests_in→ B(A가 B 지분 보유): B의 이웃엔 A(role=주주), A의 이웃엔 B(role=출자사)."""
+    global _EQUITY_CACHE
+    try:
+        mtime = os.path.getmtime(_EQUITY_PATH)
+    except OSError:
+        return {}
+    if _EQUITY_CACHE is not None and _EQUITY_CACHE[0] == mtime:
+        return _EQUITY_CACHE[1]
+    try:
+        data = json.loads(_EQUITY_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    index: dict[str, list[dict]] = {}
+    for e in data.get("edges", []):
+        src, tgt = e.get("source", ""), e.get("target", "")
+        if not (src.startswith("company:") and tgt.startswith("company:")):
+            continue
+        s_sym, t_sym = src.split(":", 1)[1], tgt.split(":", 1)[1]
+        note = e.get("note", "")
+        index.setdefault(t_sym, []).append({"symbol": s_sym, "role": "주주", "note": note})
+        index.setdefault(s_sym, []).append({"symbol": t_sym, "role": "출자사", "note": note})
+    _EQUITY_CACHE = (mtime, index)
+    return index
+
+
 def _collect_candidates(graph, anchor: dict) -> list[dict]:
     """직접 상장사 + verified 개념 1홉 경유 상장사(감쇠) — 심볼별 최고 점수만 유지."""
     anchor_id = anchor["id"]
@@ -108,6 +151,29 @@ def _collect_candidates(graph, anchor: dict) -> list[dict]:
                 "score": round(c["score"] * _HOP_DECAY, 4),
                 "reason": f"{concept_name} 경유 — {c['reason']}",
             })
+
+    # 지분 관계 회사 홉(FR-STR-072b) — 위 후보들의 주주/피출자사를 ×감쇠로 1단계만
+    # 편입한다(체이닝 금지 — 스냅샷 순회). '넷마블(하이브 지분 9.2%)'이 이 경로다.
+    equity = _equity_neighbors_map()
+    if equity:
+        graph_nodes = graph.nodes
+        for parent in list(best.values()):
+            for rel in equity.get(parent["symbol"], []):
+                name = graph_nodes.get(f"company:{rel['symbol']}", {}).get("name")
+                if name is None:
+                    try:  # 그래프 밖 종목은 정본 마스터에서 — 없으면(상폐 등) 조용히 스킵
+                        from stock_analysis.symbol_resolver import resolve_by_symbol
+                        ref = resolve_by_symbol(rel["symbol"])
+                    except Exception:  # noqa: BLE001 — 마스터 미가용이 조회를 막으면 안 된다
+                        ref = None
+                    if ref is None:
+                        continue
+                    name = ref.name
+                _keep({
+                    "symbol": rel["symbol"], "name": name,
+                    "score": round(parent["score"] * _EQUITY_DECAY, 4),
+                    "reason": f"{parent['name']} {rel['role']}(공시 근거) — {rel['note']}",
+                })
     return list(best.values())
 
 

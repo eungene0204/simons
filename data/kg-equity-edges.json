@@ -1,0 +1,5567 @@
+{
+ "version": 1,
+ "source": "DART otrCprInvstmntSttus(타법인출자현황)",
+ "bsns_year": "2025",
+ "min_ratio": 5.0,
+ "generated_at": "2026-07-25T11:57:57.033891+00:00",
+ "edges": [
+  {
+   "source": "company:000070",
+   "type": "invests_in",
+   "target": "company:000050",
+   "ratio": 10.0,
+   "note": "경방 지분 10.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000070",
+   "type": "invests_in",
+   "target": "company:079980",
+   "ratio": 25.5,
+   "note": "휴비스 지분 25.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000070",
+   "type": "invests_in",
+   "target": "company:145990",
+   "ratio": 61.83,
+   "note": "삼양사 지분 61.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000070",
+   "type": "invests_in",
+   "target": "company:482630",
+   "ratio": 59.97,
+   "note": "삼양엔씨켐 지분 60.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000100",
+   "type": "invests_in",
+   "target": "company:066700",
+   "ratio": 6.7,
+   "note": "테라젠이텍스 지분 6.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000100",
+   "type": "invests_in",
+   "target": "company:110020",
+   "ratio": 5.5,
+   "note": "전진바이오팜 지분 5.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000100",
+   "type": "invests_in",
+   "target": "company:168330",
+   "ratio": 5.0,
+   "note": "내츄럴엔도텍 지분 5.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000100",
+   "type": "invests_in",
+   "target": "company:424870",
+   "ratio": 65.9,
+   "note": "이뮨온시아 지분 65.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000140",
+   "type": "invests_in",
+   "target": "company:000080",
+   "ratio": 50.86,
+   "note": "하이트진로 지분 50.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000150",
+   "type": "invests_in",
+   "target": "company:010470",
+   "ratio": 60.89,
+   "note": "오리콤 지분 60.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000150",
+   "type": "invests_in",
+   "target": "company:034020",
+   "ratio": 30.39,
+   "note": "두산에너빌리티 지분 30.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000150",
+   "type": "invests_in",
+   "target": "company:454910",
+   "ratio": 68.11,
+   "note": "두산로보틱스 지분 68.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000210",
+   "type": "invests_in",
+   "target": "company:375500",
+   "ratio": 23.15,
+   "note": "DL이앤씨 지분 23.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000230",
+   "type": "invests_in",
+   "target": "company:249420",
+   "ratio": 30.5,
+   "note": "일동제약 지분 30.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000240",
+   "type": "invests_in",
+   "target": "company:161390",
+   "ratio": 30.7,
+   "note": "한국타이어앤테크놀로지 지분 30.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000250",
+   "type": "invests_in",
+   "target": "company:131030",
+   "ratio": 39.4,
+   "note": "옵투스제약 지분 39.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000270",
+   "type": "invests_in",
+   "target": "company:000720",
+   "ratio": 5.24,
+   "note": "현대건설 지분 5.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000270",
+   "type": "invests_in",
+   "target": "company:004020",
+   "ratio": 17.27,
+   "note": "현대제철 지분 17.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000270",
+   "type": "invests_in",
+   "target": "company:011210",
+   "ratio": 13.44,
+   "note": "현대위아 지분 13.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000270",
+   "type": "invests_in",
+   "target": "company:012330",
+   "ratio": 18.1,
+   "note": "현대모비스 지분 18.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000270",
+   "type": "invests_in",
+   "target": "company:307950",
+   "ratio": 16.24,
+   "note": "현대오토에버 지분 16.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000270",
+   "type": "invests_in",
+   "target": "company:353590",
+   "ratio": 5.05,
+   "note": "오토앤 지분 5.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000300",
+   "type": "invests_in",
+   "target": "company:290120",
+   "ratio": 19.24,
+   "note": "DH오토리드 지분 19.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000320",
+   "type": "invests_in",
+   "target": "company:090350",
+   "ratio": 50.5,
+   "note": "노루페인트 지분 50.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000370",
+   "type": "invests_in",
+   "target": "company:451800",
+   "ratio": 16.0,
+   "note": "한화리츠 지분 16.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000430",
+   "type": "invests_in",
+   "target": "company:023000",
+   "ratio": 55.0,
+   "note": "삼원강재 지분 55.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000480",
+   "type": "invests_in",
+   "target": "company:310870",
+   "ratio": 12.72,
+   "note": "디와이씨 지분 12.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000480",
+   "type": "invests_in",
+   "target": "company:462520",
+   "ratio": 59.0,
+   "note": "조선내화 지분 59.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000490",
+   "type": "invests_in",
+   "target": "company:008830",
+   "ratio": 44.74,
+   "note": "대동기어 지분 44.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000490",
+   "type": "invests_in",
+   "target": "company:020400",
+   "ratio": 52.78,
+   "note": "대동금속 지분 52.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000590",
+   "type": "invests_in",
+   "target": "company:120030",
+   "ratio": 45.33,
+   "note": "조선선재 지분 45.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000640",
+   "type": "invests_in",
+   "target": "company:170900",
+   "ratio": 26.46,
+   "note": "동아에스티 지분 26.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000640",
+   "type": "invests_in",
+   "target": "company:237690",
+   "ratio": 29.46,
+   "note": "에스티팜 지분 29.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000670",
+   "type": "invests_in",
+   "target": "company:007810",
+   "ratio": 40.21,
+   "note": "코리아써키트 지분 40.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000670",
+   "type": "invests_in",
+   "target": "company:010130",
+   "ratio": 25.42,
+   "note": "고려아연 지분 25.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000680",
+   "type": "invests_in",
+   "target": "company:078020",
+   "ratio": 60.98,
+   "note": "LS증권 지분 61.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000850",
+   "type": "invests_in",
+   "target": "company:010660",
+   "ratio": 39.95,
+   "note": "화천기계 지분 40.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000850",
+   "type": "invests_in",
+   "target": "company:064850",
+   "ratio": 12.16,
+   "note": "에프앤가이드 지분 12.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000850",
+   "type": "invests_in",
+   "target": "company:100660",
+   "ratio": 32.22,
+   "note": "서암기계공업 지분 32.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000880",
+   "type": "invests_in",
+   "target": "company:0001A0",
+   "ratio": 9.09,
+   "note": "덕양에너젠 지분 9.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000880",
+   "type": "invests_in",
+   "target": "company:009830",
+   "ratio": 36.15,
+   "note": "한화솔루션 지분 36.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000880",
+   "type": "invests_in",
+   "target": "company:012450",
+   "ratio": 32.18,
+   "note": "한화에어로스페이스 지분 32.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000880",
+   "type": "invests_in",
+   "target": "company:438700",
+   "ratio": 8.11,
+   "note": "버넥트 지분 8.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000880",
+   "type": "invests_in",
+   "target": "company:452260",
+   "ratio": 36.15,
+   "note": "한화갤러리아 지분 36.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000880",
+   "type": "invests_in",
+   "target": "company:489790",
+   "ratio": 33.95,
+   "note": "한화비전 지분 34.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:000910",
+   "type": "invests_in",
+   "target": "company:047400",
+   "ratio": 40.0,
+   "note": "유니온머티리얼 지분 40.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001230",
+   "type": "invests_in",
+   "target": "company:129260",
+   "ratio": 48.34,
+   "note": "인터지스 지분 48.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001230",
+   "type": "invests_in",
+   "target": "company:460850",
+   "ratio": 33.6,
+   "note": "동국씨엠 지분 33.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001230",
+   "type": "invests_in",
+   "target": "company:460860",
+   "ratio": 33.6,
+   "note": "동국제강 지분 33.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001390",
+   "type": "invests_in",
+   "target": "company:035600",
+   "ratio": 40.09,
+   "note": "KG이니시스 지분 40.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001390",
+   "type": "invests_in",
+   "target": "company:151860",
+   "ratio": 41.34,
+   "note": "KG에코솔루션 지분 41.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001520",
+   "type": "invests_in",
+   "target": "company:004980",
+   "ratio": 6.9,
+   "note": "성신양회 지분 6.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001620",
+   "type": "invests_in",
+   "target": "company:008970",
+   "ratio": 10.1,
+   "note": "KBI동양철관 지분 10.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001620",
+   "type": "invests_in",
+   "target": "company:024840",
+   "ratio": 7.1,
+   "note": "KBI메탈 지분 7.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001630",
+   "type": "invests_in",
+   "target": "company:063160",
+   "ratio": 39.1,
+   "note": "종근당바이오 지분 39.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001630",
+   "type": "invests_in",
+   "target": "company:185750",
+   "ratio": 26.3,
+   "note": "종근당 지분 26.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001630",
+   "type": "invests_in",
+   "target": "company:214390",
+   "ratio": 43.4,
+   "note": "경보제약 지분 43.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001800",
+   "type": "invests_in",
+   "target": "company:086980",
+   "ratio": 57.47,
+   "note": "쇼박스 지분 57.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001800",
+   "type": "invests_in",
+   "target": "company:271560",
+   "ratio": 37.37,
+   "note": "오리온 지분 37.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001810",
+   "type": "invests_in",
+   "target": "company:009200",
+   "ratio": 19.65,
+   "note": "무림페이퍼 지분 19.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001820",
+   "type": "invests_in",
+   "target": "company:011230",
+   "ratio": 23.06,
+   "note": "삼화전자공업 지분 23.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:001940",
+   "type": "invests_in",
+   "target": "company:104700",
+   "ratio": 60.34,
+   "note": "한국철강 지분 60.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002020",
+   "type": "invests_in",
+   "target": "company:102940",
+   "ratio": 26.1,
+   "note": "코오롱생명과학 지분 26.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002020",
+   "type": "invests_in",
+   "target": "company:950160",
+   "ratio": 39.3,
+   "note": "코오롱티슈진 지분 39.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002030",
+   "type": "invests_in",
+   "target": "company:002310",
+   "ratio": 52.2,
+   "note": "아세아제지 지분 52.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002030",
+   "type": "invests_in",
+   "target": "company:183190",
+   "ratio": 56.91,
+   "note": "아세아시멘트 지분 56.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002070",
+   "type": "invests_in",
+   "target": "company:016670",
+   "ratio": 31.55,
+   "note": "디모아 지분 31.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002100",
+   "type": "invests_in",
+   "target": "company:001550",
+   "ratio": 55.0,
+   "note": "조비 지분 55.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002220",
+   "type": "invests_in",
+   "target": "company:071090",
+   "ratio": 15.08,
+   "note": "하이스틸 지분 15.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002380",
+   "type": "invests_in",
+   "target": "company:000320",
+   "ratio": 9.9,
+   "note": "노루홀딩스 지분 9.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002380",
+   "type": "invests_in",
+   "target": "company:011760",
+   "ratio": 12.0,
+   "note": "현대코퍼레이션 지분 12.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002380",
+   "type": "invests_in",
+   "target": "company:028260",
+   "ratio": 10.01,
+   "note": "삼성물산 지분 10.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002380",
+   "type": "invests_in",
+   "target": "company:227840",
+   "ratio": 12.0,
+   "note": "현대코퍼레이션홀딩스 지분 12.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002390",
+   "type": "invests_in",
+   "target": "company:095700",
+   "ratio": 13.28,
+   "note": "제넥신 지분 13.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002710",
+   "type": "invests_in",
+   "target": "company:004450",
+   "ratio": 7.91,
+   "note": "삼화왕관 지분 7.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002790",
+   "type": "invests_in",
+   "target": "company:090430",
+   "ratio": 14.3,
+   "note": "아모레퍼시픽 지분 14.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002810",
+   "type": "invests_in",
+   "target": "company:021650",
+   "ratio": 38.7,
+   "note": "한국큐빅 지분 38.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002840",
+   "type": "invests_in",
+   "target": "company:023450",
+   "ratio": 8.79,
+   "note": "동남합성 지분 8.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002840",
+   "type": "invests_in",
+   "target": "company:107590",
+   "ratio": 12.65,
+   "note": "미원홀딩스 지분 12.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:002990",
+   "type": "invests_in",
+   "target": "company:020560",
+   "ratio": 11.0,
+   "note": "아시아나항공 지분 11.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003030",
+   "type": "invests_in",
+   "target": "company:306200",
+   "ratio": 50.11,
+   "note": "세아제강 지분 50.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003060",
+   "type": "invests_in",
+   "target": "company:109960",
+   "ratio": 20.1,
+   "note": "앱토크롬 지분 20.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003090",
+   "type": "invests_in",
+   "target": "company:069620",
+   "ratio": 52.65,
+   "note": "대웅제약 지분 52.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003160",
+   "type": "invests_in",
+   "target": "company:092200",
+   "ratio": 66.7,
+   "note": "디아이씨 지분 66.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003200",
+   "type": "invests_in",
+   "target": "company:160190",
+   "ratio": 24.28,
+   "note": "하이젠알앤엠 지분 24.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003220",
+   "type": "invests_in",
+   "target": "company:217480",
+   "ratio": 72.9,
+   "note": "에스디생명공학 지분 72.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003300",
+   "type": "invests_in",
+   "target": "company:300720",
+   "ratio": 59.84,
+   "note": "한일시멘트 지분 59.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003350",
+   "type": "invests_in",
+   "target": "company:123690",
+   "ratio": 20.0,
+   "note": "한국화장품 지분 20.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003380",
+   "type": "invests_in",
+   "target": "company:028670",
+   "ratio": 54.72,
+   "note": "팬오션 지분 54.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003380",
+   "type": "invests_in",
+   "target": "company:036580",
+   "ratio": 56.34,
+   "note": "팜스코 지분 56.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003380",
+   "type": "invests_in",
+   "target": "company:136480",
+   "ratio": 57.37,
+   "note": "하림 지분 57.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003380",
+   "type": "invests_in",
+   "target": "company:136490",
+   "ratio": 50.0,
+   "note": "선진 지분 50.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003470",
+   "type": "invests_in",
+   "target": "company:002290",
+   "ratio": 5.6,
+   "note": "삼일기업공사 지분 5.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003490",
+   "type": "invests_in",
+   "target": "company:005430",
+   "ratio": 59.54,
+   "note": "한국공항 지분 59.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003490",
+   "type": "invests_in",
+   "target": "company:020560",
+   "ratio": 63.88,
+   "note": "아시아나항공 지분 63.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003490",
+   "type": "invests_in",
+   "target": "company:272450",
+   "ratio": 54.91,
+   "note": "진에어 지분 54.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003580",
+   "type": "invests_in",
+   "target": "company:101400",
+   "ratio": 5.0,
+   "note": "엔시트론 지분 5.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003850",
+   "type": "invests_in",
+   "target": "company:308080",
+   "ratio": 11.0,
+   "note": "바이젠셀 지분 11.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003960",
+   "type": "invests_in",
+   "target": "company:006090",
+   "ratio": 60.84,
+   "note": "사조오양 지분 60.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:003960",
+   "type": "invests_in",
+   "target": "company:008040",
+   "ratio": 26.03,
+   "note": "사조동아원 지분 26.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004020",
+   "type": "invests_in",
+   "target": "company:004560",
+   "ratio": 30.9,
+   "note": "현대비앤지스틸 지분 30.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004020",
+   "type": "invests_in",
+   "target": "company:012330",
+   "ratio": 6.1,
+   "note": "현대모비스 지분 6.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004060",
+   "type": "invests_in",
+   "target": "company:001380",
+   "ratio": 14.47,
+   "note": "SG글로벌 지분 14.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004150",
+   "type": "invests_in",
+   "target": "company:004710",
+   "ratio": 20.26,
+   "note": "한솔테크닉스 지분 20.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004150",
+   "type": "invests_in",
+   "target": "company:009180",
+   "ratio": 40.04,
+   "note": "한솔로지스틱스 지분 40.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004150",
+   "type": "invests_in",
+   "target": "company:025750",
+   "ratio": 23.32,
+   "note": "한솔홈데코 지분 23.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004150",
+   "type": "invests_in",
+   "target": "company:213500",
+   "ratio": 30.52,
+   "note": "한솔제지 지분 30.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004170",
+   "type": "invests_in",
+   "target": "company:031430",
+   "ratio": 39.3,
+   "note": "신세계인터내셔날 지분 39.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004170",
+   "type": "invests_in",
+   "target": "company:037710",
+   "ratio": 62.8,
+   "note": "광주신세계 지분 62.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004450",
+   "type": "invests_in",
+   "target": "company:018120",
+   "ratio": 12.73,
+   "note": "진로발효 지분 12.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004650",
+   "type": "invests_in",
+   "target": "company:000890",
+   "ratio": 21.7,
+   "note": "보해양조 지분 21.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004710",
+   "type": "invests_in",
+   "target": "company:114810",
+   "ratio": 36.0,
+   "note": "한솔아이원스 지분 36.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004720",
+   "type": "invests_in",
+   "target": "company:950130",
+   "ratio": 24.31,
+   "note": "엑세스바이오 지분 24.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004800",
+   "type": "invests_in",
+   "target": "company:094280",
+   "ratio": 37.0,
+   "note": "효성 ITX 지분 37.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004800",
+   "type": "invests_in",
+   "target": "company:298000",
+   "ratio": 33.0,
+   "note": "효성화학 지분 33.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004800",
+   "type": "invests_in",
+   "target": "company:298020",
+   "ratio": 21.0,
+   "note": "효성티앤씨 지분 21.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004800",
+   "type": "invests_in",
+   "target": "company:298040",
+   "ratio": 33.0,
+   "note": "효성중공업 지분 33.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004840",
+   "type": "invests_in",
+   "target": "company:163560",
+   "ratio": 44.13,
+   "note": "동일고무벨트 지분 44.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004920",
+   "type": "invests_in",
+   "target": "company:138360",
+   "ratio": 37.2,
+   "note": "앤로보틱스 지분 37.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004970",
+   "type": "invests_in",
+   "target": "company:001000",
+   "ratio": 20.6,
+   "note": "신라섬유 지분 20.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004990",
+   "type": "invests_in",
+   "target": "company:011170",
+   "ratio": 25.31,
+   "note": "롯데케미칼 지분 25.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004990",
+   "type": "invests_in",
+   "target": "company:023530",
+   "ratio": 40.0,
+   "note": "롯데쇼핑 지분 40.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004990",
+   "type": "invests_in",
+   "target": "company:214320",
+   "ratio": 5.15,
+   "note": "이노션 지분 5.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004990",
+   "type": "invests_in",
+   "target": "company:280360",
+   "ratio": 48.13,
+   "note": "롯데웰푸드 지분 48.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:004990",
+   "type": "invests_in",
+   "target": "company:286940",
+   "ratio": 66.1,
+   "note": "롯데이노베이트 지분 66.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005160",
+   "type": "invests_in",
+   "target": "company:075970",
+   "ratio": 7.0,
+   "note": "동국알앤에스 지분 7.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005180",
+   "type": "invests_in",
+   "target": "company:005740",
+   "ratio": 7.7,
+   "note": "크라운해태홀딩스 지분 7.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005250",
+   "type": "invests_in",
+   "target": "company:006280",
+   "ratio": 50.1,
+   "note": "녹십자 지분 50.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005250",
+   "type": "invests_in",
+   "target": "company:144510",
+   "ratio": 8.5,
+   "note": "지씨셀 지분 8.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005250",
+   "type": "invests_in",
+   "target": "company:234690",
+   "ratio": 12.4,
+   "note": "녹십자웰빙 지분 12.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005250",
+   "type": "invests_in",
+   "target": "company:340450",
+   "ratio": 9.5,
+   "note": "지씨지놈 지분 9.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005380",
+   "type": "invests_in",
+   "target": "company:000270",
+   "ratio": 35.17,
+   "note": "기아 지분 35.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005380",
+   "type": "invests_in",
+   "target": "company:000720",
+   "ratio": 20.95,
+   "note": "현대건설 지분 20.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005380",
+   "type": "invests_in",
+   "target": "company:001500",
+   "ratio": 22.17,
+   "note": "현대차증권 지분 22.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005380",
+   "type": "invests_in",
+   "target": "company:004020",
+   "ratio": 6.87,
+   "note": "현대제철 지분 6.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005380",
+   "type": "invests_in",
+   "target": "company:011210",
+   "ratio": 25.35,
+   "note": "현대위아 지분 25.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005380",
+   "type": "invests_in",
+   "target": "company:064350",
+   "ratio": 33.77,
+   "note": "현대로템 지분 33.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005380",
+   "type": "invests_in",
+   "target": "company:298830",
+   "ratio": 7.2,
+   "note": "슈어소프트테크 지분 7.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005380",
+   "type": "invests_in",
+   "target": "company:307950",
+   "ratio": 31.59,
+   "note": "현대오토에버 지분 31.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005380",
+   "type": "invests_in",
+   "target": "company:353590",
+   "ratio": 8.0,
+   "note": "오토앤 지분 8.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005440",
+   "type": "invests_in",
+   "target": "company:000430",
+   "ratio": 32.8,
+   "note": "대원강업 지분 32.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005440",
+   "type": "invests_in",
+   "target": "company:041440",
+   "ratio": 45.2,
+   "note": "현대에버다임 지분 45.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005440",
+   "type": "invests_in",
+   "target": "company:057050",
+   "ratio": 57.4,
+   "note": "현대홈쇼핑 지분 57.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005440",
+   "type": "invests_in",
+   "target": "company:069960",
+   "ratio": 35.1,
+   "note": "현대백화점 지분 35.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005440",
+   "type": "invests_in",
+   "target": "company:079430",
+   "ratio": 41.2,
+   "note": "현대리바트 지분 41.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005440",
+   "type": "invests_in",
+   "target": "company:090850",
+   "ratio": 50.0,
+   "note": "현대이지웰 지분 50.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005440",
+   "type": "invests_in",
+   "target": "company:126560",
+   "ratio": 5.9,
+   "note": "현대퓨처넷 지분 5.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005440",
+   "type": "invests_in",
+   "target": "company:453340",
+   "ratio": 39.3,
+   "note": "현대그린푸드 지분 39.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005490",
+   "type": "invests_in",
+   "target": "company:003670",
+   "ratio": 58.2,
+   "note": "포스코퓨처엠 지분 58.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005490",
+   "type": "invests_in",
+   "target": "company:047050",
+   "ratio": 70.7,
+   "note": "포스코인터내셔널 지분 70.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005710",
+   "type": "invests_in",
+   "target": "company:023000",
+   "ratio": 6.25,
+   "note": "삼원강재 지분 6.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005720",
+   "type": "invests_in",
+   "target": "company:002350",
+   "ratio": 46.48,
+   "note": "넥센타이어 지분 46.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005720",
+   "type": "invests_in",
+   "target": "company:058400",
+   "ratio": 39.44,
+   "note": "KNN 지분 39.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005740",
+   "type": "invests_in",
+   "target": "company:101530",
+   "ratio": 65.8,
+   "note": "해태제과식품 지분 65.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005740",
+   "type": "invests_in",
+   "target": "company:264900",
+   "ratio": 41.2,
+   "note": "크라운제과 지분 41.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005810",
+   "type": "invests_in",
+   "target": "company:103140",
+   "ratio": 38.0,
+   "note": "풍산 지분 38.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005830",
+   "type": "invests_in",
+   "target": "company:016610",
+   "ratio": 26.83,
+   "note": "DB증권 지분 26.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005830",
+   "type": "invests_in",
+   "target": "company:030210",
+   "ratio": 9.73,
+   "note": "다올투자증권 지분 9.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:006400",
+   "ratio": 19.4,
+   "note": "삼성SDI 지분 19.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:008770",
+   "ratio": 5.1,
+   "note": "호텔신라 지분 5.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:009150",
+   "ratio": 23.7,
+   "note": "삼성전기 지분 23.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:010140",
+   "ratio": 15.2,
+   "note": "삼성중공업 지분 15.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:0126Z0",
+   "ratio": 31.2,
+   "note": "삼성에피스홀딩스 지분 31.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:018260",
+   "ratio": 22.6,
+   "note": "삼성에스디에스 지분 22.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:030000",
+   "ratio": 25.2,
+   "note": "제일기획 지분 25.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:036810",
+   "ratio": 7.0,
+   "note": "에프에스티 지분 7.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:071670",
+   "ratio": 15.9,
+   "note": "에이테크솔루션 지분 15.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:083310",
+   "ratio": 7.1,
+   "note": "엘오티베큠 지분 7.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:092070",
+   "ratio": 7.0,
+   "note": "디엔에프 지분 7.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:101490",
+   "ratio": 8.0,
+   "note": "에스앤에스텍 지분 8.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:207940",
+   "ratio": 31.2,
+   "note": "삼성바이오로직스 지분 31.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:232140",
+   "ratio": 11.7,
+   "note": "와이씨 지분 11.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:277810",
+   "ratio": 35.0,
+   "note": "레인보우로보틱스 지분 35.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005930",
+   "type": "invests_in",
+   "target": "company:357780",
+   "ratio": 5.6,
+   "note": "솔브레인 지분 5.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005940",
+   "type": "invests_in",
+   "target": "company:279570",
+   "ratio": 5.52,
+   "note": "케이뱅크 지분 5.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005950",
+   "type": "invests_in",
+   "target": "company:067370",
+   "ratio": 5.0,
+   "note": "선바이오 지분 5.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005950",
+   "type": "invests_in",
+   "target": "company:086890",
+   "ratio": 32.0,
+   "note": "이수앱지스 지분 32.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:005990",
+   "type": "invests_in",
+   "target": "company:267980",
+   "ratio": 31.79,
+   "note": "매일유업 지분 31.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006040",
+   "type": "invests_in",
+   "target": "company:014820",
+   "ratio": 30.91,
+   "note": "동원시스템즈 지분 30.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006060",
+   "type": "invests_in",
+   "target": "company:013520",
+   "ratio": 9.26,
+   "note": "화승코퍼레이션 지분 9.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006060",
+   "type": "invests_in",
+   "target": "company:241590",
+   "ratio": 68.37,
+   "note": "화승엔터프라이즈 지분 68.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006090",
+   "type": "invests_in",
+   "target": "company:014710",
+   "ratio": 5.67,
+   "note": "사조씨푸드 지분 5.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006120",
+   "type": "invests_in",
+   "target": "company:018670",
+   "ratio": 72.08,
+   "note": "SK가스 지분 72.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006120",
+   "type": "invests_in",
+   "target": "company:079980",
+   "ratio": 25.5,
+   "note": "휴비스 지분 25.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006120",
+   "type": "invests_in",
+   "target": "company:210980",
+   "ratio": 31.27,
+   "note": "SK디앤디 지분 31.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006120",
+   "type": "invests_in",
+   "target": "company:285130",
+   "ratio": 40.79,
+   "note": "SK케미칼 지분 40.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006120",
+   "type": "invests_in",
+   "target": "company:475150",
+   "ratio": 30.98,
+   "note": "SK이터닉스 지분 31.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006280",
+   "type": "invests_in",
+   "target": "company:0082N0",
+   "ratio": 13.0,
+   "note": "카나프테라퓨틱스 지분 13.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006280",
+   "type": "invests_in",
+   "target": "company:142280",
+   "ratio": 40.3,
+   "note": "녹십자엠에스 지분 40.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006280",
+   "type": "invests_in",
+   "target": "company:144510",
+   "ratio": 33.3,
+   "note": "지씨셀 지분 33.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006280",
+   "type": "invests_in",
+   "target": "company:234690",
+   "ratio": 22.1,
+   "note": "녹십자웰빙 지분 22.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006280",
+   "type": "invests_in",
+   "target": "company:340450",
+   "ratio": 19.6,
+   "note": "지씨지놈 지분 19.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006360",
+   "type": "invests_in",
+   "target": "company:317400",
+   "ratio": 40.0,
+   "note": "자이에스앤디 지분 40.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006400",
+   "type": "invests_in",
+   "target": "company:012750",
+   "ratio": 11.0,
+   "note": "에스원 지분 11.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006400",
+   "type": "invests_in",
+   "target": "company:028050",
+   "ratio": 11.7,
+   "note": "삼성E&A 지분 11.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006400",
+   "type": "invests_in",
+   "target": "company:365340",
+   "ratio": 8.6,
+   "note": "성일하이텍 지분 8.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006400",
+   "type": "invests_in",
+   "target": "company:378340",
+   "ratio": 14.0,
+   "note": "필에너지 지분 14.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006490",
+   "type": "invests_in",
+   "target": "company:049180",
+   "ratio": 28.8,
+   "note": "셀루메드 지분 28.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006620",
+   "type": "invests_in",
+   "target": "company:115180",
+   "ratio": 10.8,
+   "note": "큐리언트 지분 10.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006800",
+   "type": "invests_in",
+   "target": "company:100790",
+   "ratio": 56.0,
+   "note": "미래에셋벤처투자 지분 56.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006840",
+   "type": "invests_in",
+   "target": "company:018250",
+   "ratio": 47.26,
+   "note": "애경산업 지분 47.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006840",
+   "type": "invests_in",
+   "target": "company:089590",
+   "ratio": 50.41,
+   "note": "제주항공 지분 50.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006840",
+   "type": "invests_in",
+   "target": "company:161000",
+   "ratio": 60.77,
+   "note": "애경케미칼 지분 60.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006890",
+   "type": "invests_in",
+   "target": "company:015890",
+   "ratio": 21.41,
+   "note": "태경산업 지분 21.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:006890",
+   "type": "invests_in",
+   "target": "company:171120",
+   "ratio": 21.32,
+   "note": "라이온켐텍 지분 21.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:007070",
+   "type": "invests_in",
+   "target": "company:270870",
+   "ratio": 6.0,
+   "note": "뉴트리 지분 6.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:007160",
+   "type": "invests_in",
+   "target": "company:003960",
+   "ratio": 14.76,
+   "note": "사조대림 지분 14.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:007160",
+   "type": "invests_in",
+   "target": "company:014710",
+   "ratio": 61.56,
+   "note": "사조씨푸드 지분 61.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:007210",
+   "type": "invests_in",
+   "target": "company:066130",
+   "ratio": 46.33,
+   "note": "하츠 지분 46.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:007310",
+   "type": "invests_in",
+   "target": "company:002600",
+   "ratio": 48.93,
+   "note": "조흥 지분 48.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:007460",
+   "type": "invests_in",
+   "target": "company:003060",
+   "ratio": 56.9,
+   "note": "에이프로젠바이오로직스 지분 56.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:007460",
+   "type": "invests_in",
+   "target": "company:270520",
+   "ratio": 31.6,
+   "note": "앱튼 지분 31.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:007540",
+   "type": "invests_in",
+   "target": "company:248170",
+   "ratio": 49.4,
+   "note": "샘표식품 지분 49.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:007810",
+   "type": "invests_in",
+   "target": "company:051370",
+   "ratio": 30.56,
+   "note": "인터플렉스 지분 30.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:007860",
+   "type": "invests_in",
+   "target": "company:019770",
+   "ratio": 37.5,
+   "note": "서연탑메탈 지분 37.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:007860",
+   "type": "invests_in",
+   "target": "company:200880",
+   "ratio": 48.7,
+   "note": "서연이화 지분 48.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:008060",
+   "type": "invests_in",
+   "target": "company:122990",
+   "ratio": 35.7,
+   "note": "와이솔 지분 35.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:008060",
+   "type": "invests_in",
+   "target": "company:353200",
+   "ratio": 31.5,
+   "note": "대덕전자 지분 31.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:008260",
+   "type": "invests_in",
+   "target": "company:008420",
+   "ratio": 9.44,
+   "note": "문배철강 지분 9.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:008420",
+   "type": "invests_in",
+   "target": "company:008260",
+   "ratio": 39.72,
+   "note": "NI스틸 지분 39.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:008490",
+   "type": "invests_in",
+   "target": "company:168330",
+   "ratio": 28.81,
+   "note": "내츄럴엔도텍 지분 28.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:008870",
+   "type": "invests_in",
+   "target": "company:004450",
+   "ratio": 53.43,
+   "note": "삼화왕관 지분 53.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:008930",
+   "type": "invests_in",
+   "target": "company:054950",
+   "ratio": 39.2,
+   "note": "제이브이엠 지분 39.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:008930",
+   "type": "invests_in",
+   "target": "company:128940",
+   "ratio": 41.4,
+   "note": "한미약품 지분 41.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:009190",
+   "type": "invests_in",
+   "target": "company:006740",
+   "ratio": 6.84,
+   "note": "블루산업개발 지분 6.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:009200",
+   "type": "invests_in",
+   "target": "company:009580",
+   "ratio": 66.97,
+   "note": "무림P&P 지분 67.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:009290",
+   "type": "invests_in",
+   "target": "company:004450",
+   "ratio": 5.5,
+   "note": "삼화왕관 지분 5.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:009290",
+   "type": "invests_in",
+   "target": "company:008870",
+   "ratio": 6.5,
+   "note": "금비 지분 6.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:009290",
+   "type": "invests_in",
+   "target": "company:335810",
+   "ratio": 54.7,
+   "note": "프리시젼바이오 지분 54.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:009440",
+   "type": "invests_in",
+   "target": "company:119650",
+   "ratio": 83.03,
+   "note": "KC코트렐 지분 83.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:009470",
+   "type": "invests_in",
+   "target": "company:011230",
+   "ratio": 11.24,
+   "note": "삼화전자공업 지분 11.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:009540",
+   "type": "invests_in",
+   "target": "company:071970",
+   "ratio": 35.05,
+   "note": "HD현대마린엔진 지분 35.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:009540",
+   "type": "invests_in",
+   "target": "company:322000",
+   "ratio": 53.57,
+   "note": "HD현대에너지솔루션 지분 53.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:009540",
+   "type": "invests_in",
+   "target": "company:329180",
+   "ratio": 69.23,
+   "note": "HD현대중공업 지분 69.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:009540",
+   "type": "invests_in",
+   "target": "company:460930",
+   "ratio": 20.84,
+   "note": "현대힘스 지분 20.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:009810",
+   "type": "invests_in",
+   "target": "company:086960",
+   "ratio": 25.5,
+   "note": "MDS테크 지분 25.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:009970",
+   "type": "invests_in",
+   "target": "company:111770",
+   "ratio": 50.52,
+   "note": "영원무역 지분 50.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:010060",
+   "type": "invests_in",
+   "target": "company:003000",
+   "ratio": 17.11,
+   "note": "부광약품 지분 17.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:010120",
+   "type": "invests_in",
+   "target": "company:322180",
+   "ratio": 31.82,
+   "note": "LS티라유텍 지분 31.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:010140",
+   "type": "invests_in",
+   "target": "company:0008Z0",
+   "ratio": 15.0,
+   "note": "에스엔시스 지분 15.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:010660",
+   "type": "invests_in",
+   "target": "company:064850",
+   "ratio": 9.88,
+   "note": "에프앤가이드 지분 9.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:010770",
+   "type": "invests_in",
+   "target": "company:090080",
+   "ratio": 46.31,
+   "note": "평화산업 지분 46.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:010780",
+   "type": "invests_in",
+   "target": "company:060150",
+   "ratio": 45.0,
+   "note": "인선이엔티 지분 45.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:010820",
+   "type": "invests_in",
+   "target": "company:010040",
+   "ratio": 16.17,
+   "note": "한국내화 지분 16.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:011080",
+   "type": "invests_in",
+   "target": "company:093240",
+   "ratio": 7.01,
+   "note": "형지엘리트 지분 7.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:011170",
+   "type": "invests_in",
+   "target": "company:004000",
+   "ratio": 43.5,
+   "note": "롯데정밀화학 지분 43.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:011170",
+   "type": "invests_in",
+   "target": "company:020150",
+   "ratio": 46.94,
+   "note": "롯데에너지머티리얼즈 지분 46.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:011200",
+   "type": "invests_in",
+   "target": "company:319400",
+   "ratio": 13.01,
+   "note": "현대무벡스 지분 13.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:011420",
+   "type": "invests_in",
+   "target": "company:094480",
+   "ratio": 12.35,
+   "note": "갤럭시아머니트리 지분 12.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:011930",
+   "type": "invests_in",
+   "target": "company:041190",
+   "ratio": 9.0,
+   "note": "우리기술투자 지분 9.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:012030",
+   "type": "invests_in",
+   "target": "company:000990",
+   "ratio": 20.13,
+   "note": "DB하이텍 지분 20.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:012320",
+   "type": "invests_in",
+   "target": "company:267290",
+   "ratio": 37.04,
+   "note": "경동도시가스 지분 37.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:012330",
+   "type": "invests_in",
+   "target": "company:000720",
+   "ratio": 9.0,
+   "note": "현대건설 지분 9.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:012330",
+   "type": "invests_in",
+   "target": "company:001500",
+   "ratio": 14.0,
+   "note": "현대차증권 지분 14.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:012330",
+   "type": "invests_in",
+   "target": "company:005380",
+   "ratio": 22.0,
+   "note": "현대자동차 지분 22.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:012330",
+   "type": "invests_in",
+   "target": "company:307950",
+   "ratio": 20.0,
+   "note": "현대오토에버 지분 20.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:012450",
+   "type": "invests_in",
+   "target": "company:042660",
+   "ratio": 30.44,
+   "note": "한화오션 지분 30.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:012450",
+   "type": "invests_in",
+   "target": "company:099320",
+   "ratio": 33.63,
+   "note": "쎄트렉아이 지분 33.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:012450",
+   "type": "invests_in",
+   "target": "company:272210",
+   "ratio": 47.22,
+   "note": "한화시스템 지분 47.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:012510",
+   "type": "invests_in",
+   "target": "company:006220",
+   "ratio": 14.99,
+   "note": "제주은행 지분 15.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:012630",
+   "type": "invests_in",
+   "target": "company:039570",
+   "ratio": 40.0,
+   "note": "HDC랩스 지분 40.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:012630",
+   "type": "invests_in",
+   "target": "company:089470",
+   "ratio": 48.3,
+   "note": "HDC현대EP 지분 48.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:012700",
+   "type": "invests_in",
+   "target": "company:021880",
+   "ratio": 62.99,
+   "note": "메이슨캐피탈 지분 63.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:012800",
+   "type": "invests_in",
+   "target": "company:043340",
+   "ratio": 50.0,
+   "note": "에쎈테크 지분 50.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:013520",
+   "type": "invests_in",
+   "target": "company:006060",
+   "ratio": 6.33,
+   "note": "화승인더스트리 지분 6.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:013520",
+   "type": "invests_in",
+   "target": "company:378850",
+   "ratio": 32.79,
+   "note": "화승알앤에이 지분 32.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:013570",
+   "type": "invests_in",
+   "target": "company:210540",
+   "ratio": 38.44,
+   "note": "디와이파워 지분 38.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:013810",
+   "type": "invests_in",
+   "target": "company:002450",
+   "ratio": 16.58,
+   "note": "삼익악기 지분 16.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:014280",
+   "type": "invests_in",
+   "target": "company:002140",
+   "ratio": 47.39,
+   "note": "고려산업 지분 47.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:014280",
+   "type": "invests_in",
+   "target": "company:012210",
+   "ratio": 73.45,
+   "note": "삼미금속 지분 73.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:014280",
+   "type": "invests_in",
+   "target": "company:073010",
+   "ratio": 50.16,
+   "note": "케이에스피 지분 50.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:014580",
+   "type": "invests_in",
+   "target": "company:006890",
+   "ratio": 40.95,
+   "note": "태경케미컬 지분 41.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:014580",
+   "type": "invests_in",
+   "target": "company:171120",
+   "ratio": 34.85,
+   "note": "라이온켐텍 지분 34.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:014680",
+   "type": "invests_in",
+   "target": "company:055490",
+   "ratio": 44.89,
+   "note": "테이팩스 지분 44.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:014710",
+   "type": "invests_in",
+   "target": "company:003960",
+   "ratio": 17.11,
+   "note": "사조대림 지분 17.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:014710",
+   "type": "invests_in",
+   "target": "company:008040",
+   "ratio": 26.03,
+   "note": "사조동아원 지분 26.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:014830",
+   "type": "invests_in",
+   "target": "company:005090",
+   "ratio": 5.68,
+   "note": "SGC에너지 지분 5.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:015750",
+   "type": "invests_in",
+   "target": "company:058400",
+   "ratio": 5.55,
+   "note": "KNN 지분 5.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:015760",
+   "type": "invests_in",
+   "target": "company:036460",
+   "ratio": 20.47,
+   "note": "한국가스공사 지분 20.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:015760",
+   "type": "invests_in",
+   "target": "company:051600",
+   "ratio": 51.0,
+   "note": "한전KPS 지분 51.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:015860",
+   "type": "invests_in",
+   "target": "company:103590",
+   "ratio": 49.3,
+   "note": "일진전기 지분 49.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:015890",
+   "type": "invests_in",
+   "target": "company:006890",
+   "ratio": 16.3,
+   "note": "태경케미컬 지분 16.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:015890",
+   "type": "invests_in",
+   "target": "company:014580",
+   "ratio": 43.6,
+   "note": "태경비케이 지분 43.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:016450",
+   "type": "invests_in",
+   "target": "company:069640",
+   "ratio": 69.15,
+   "note": "한세엠케이 지분 69.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:016450",
+   "type": "invests_in",
+   "target": "company:105630",
+   "ratio": 50.49,
+   "note": "한세실업 지분 50.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:016580",
+   "type": "invests_in",
+   "target": "company:007370",
+   "ratio": 5.28,
+   "note": "진양제약 지분 5.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:016580",
+   "type": "invests_in",
+   "target": "company:238200",
+   "ratio": 30.0,
+   "note": "비피도 지분 30.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:016590",
+   "type": "invests_in",
+   "target": "company:014160",
+   "ratio": 45.9,
+   "note": "대영포장 지분 45.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:016670",
+   "type": "invests_in",
+   "target": "company:307870",
+   "ratio": 9.47,
+   "note": "비투엔 지분 9.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:016710",
+   "type": "invests_in",
+   "target": "company:017390",
+   "ratio": 13.0,
+   "note": "서울도시가스 지분 13.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:016710",
+   "type": "invests_in",
+   "target": "company:117580",
+   "ratio": 71.0,
+   "note": "대성에너지 지분 71.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:016880",
+   "type": "invests_in",
+   "target": "company:095720",
+   "ratio": 58.78,
+   "note": "웅진씽크빅 지분 58.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:017670",
+   "type": "invests_in",
+   "target": "company:402030",
+   "ratio": 18.8,
+   "note": "코난테크놀로지 지분 18.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:017670",
+   "type": "invests_in",
+   "target": "company:477850",
+   "ratio": 7.8,
+   "note": "마키나락스 지분 7.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:017800",
+   "type": "invests_in",
+   "target": "company:319400",
+   "ratio": 48.87,
+   "note": "현대무벡스 지분 48.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:017940",
+   "type": "invests_in",
+   "target": "company:000680",
+   "ratio": 81.79,
+   "note": "LS네트웍스 지분 81.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:018260",
+   "type": "invests_in",
+   "target": "company:058970",
+   "ratio": 35.48,
+   "note": "엠로 지분 35.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:018260",
+   "type": "invests_in",
+   "target": "company:067280",
+   "ratio": 62.4,
+   "note": "멀티캠퍼스 지분 62.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:018620",
+   "type": "invests_in",
+   "target": "company:368970",
+   "ratio": 42.61,
+   "note": "오에스피 지분 42.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:018670",
+   "type": "invests_in",
+   "target": "company:453450",
+   "ratio": 20.83,
+   "note": "그리드위즈 지분 20.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:019680",
+   "type": "invests_in",
+   "target": "company:005940",
+   "ratio": 8.4,
+   "note": "NH투자증권 지분 8.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:020560",
+   "type": "invests_in",
+   "target": "company:298690",
+   "ratio": 41.89,
+   "note": "에어부산 지분 41.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:020710",
+   "type": "invests_in",
+   "target": "company:289010",
+   "ratio": 28.57,
+   "note": "아이스크림에듀 지분 28.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:020710",
+   "type": "invests_in",
+   "target": "company:461300",
+   "ratio": 26.17,
+   "note": "아이스크림미디어 지분 26.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:021050",
+   "type": "invests_in",
+   "target": "company:012800",
+   "ratio": 31.15,
+   "note": "대창 지분 31.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:021820",
+   "type": "invests_in",
+   "target": "company:024830",
+   "ratio": 22.8,
+   "note": "세원물산 지분 22.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:023160",
+   "type": "invests_in",
+   "target": "company:148930",
+   "ratio": 39.31,
+   "note": "에이치와이티씨 지분 39.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:023410",
+   "type": "invests_in",
+   "target": "company:001200",
+   "ratio": 28.0,
+   "note": "유진증권 지분 28.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:023410",
+   "type": "invests_in",
+   "target": "company:001520",
+   "ratio": 24.0,
+   "note": "동양 지분 24.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:023530",
+   "type": "invests_in",
+   "target": "company:071840",
+   "ratio": 65.25,
+   "note": "롯데하이마트 지분 65.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:023530",
+   "type": "invests_in",
+   "target": "company:214320",
+   "ratio": 5.15,
+   "note": "이노션 지분 5.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:023590",
+   "type": "invests_in",
+   "target": "company:039490",
+   "ratio": 11.79,
+   "note": "키움증권 지분 11.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:023590",
+   "type": "invests_in",
+   "target": "company:053300",
+   "ratio": 43.88,
+   "note": "한국정보인증 지분 43.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:023590",
+   "type": "invests_in",
+   "target": "company:143240",
+   "ratio": 32.59,
+   "note": "사람인 지분 32.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:023790",
+   "type": "invests_in",
+   "target": "company:133820",
+   "ratio": 8.29,
+   "note": "화인베스틸 지분 8.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:023800",
+   "type": "invests_in",
+   "target": "company:160980",
+   "ratio": 21.71,
+   "note": "싸이맥스 지분 21.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:024720",
+   "type": "invests_in",
+   "target": "company:161890",
+   "ratio": 26.31,
+   "note": "한국콜마 지분 26.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:024720",
+   "type": "invests_in",
+   "target": "company:200130",
+   "ratio": 44.63,
+   "note": "콜마비앤에이치 지분 44.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:024800",
+   "type": "invests_in",
+   "target": "company:035890",
+   "ratio": 34.0,
+   "note": "서희건설 지분 34.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:024880",
+   "type": "invests_in",
+   "target": "company:217590",
+   "ratio": 48.76,
+   "note": "티엠씨 지분 48.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:024880",
+   "type": "invests_in",
+   "target": "company:389500",
+   "ratio": 36.65,
+   "note": "에스비비테크 지분 36.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:024950",
+   "type": "invests_in",
+   "target": "company:094850",
+   "ratio": 43.78,
+   "note": "참좋은여행 지분 43.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:025530",
+   "type": "invests_in",
+   "target": "company:123700",
+   "ratio": 40.6,
+   "note": "에스제이엠 지분 40.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:025540",
+   "type": "invests_in",
+   "target": "company:265560",
+   "ratio": 9.26,
+   "note": "영화테크 지분 9.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:025550",
+   "type": "invests_in",
+   "target": "company:452280",
+   "ratio": 62.5,
+   "note": "한선엔지니어링 지분 62.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:025890",
+   "type": "invests_in",
+   "target": "company:101680",
+   "ratio": 13.09,
+   "note": "한국정밀기계 지분 13.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:027360",
+   "type": "invests_in",
+   "target": "company:044990",
+   "ratio": 5.61,
+   "note": "에이치엔에스하이텍 지분 5.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:027360",
+   "type": "invests_in",
+   "target": "company:084440",
+   "ratio": 10.53,
+   "note": "유비온 지분 10.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:027710",
+   "type": "invests_in",
+   "target": "company:195500",
+   "ratio": 29.45,
+   "note": "마니커에프앤지 지분 29.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:028260",
+   "type": "invests_in",
+   "target": "company:0126Z0",
+   "ratio": 43.1,
+   "note": "삼성에피스홀딩스 지분 43.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:028260",
+   "type": "invests_in",
+   "target": "company:018260",
+   "ratio": 17.1,
+   "note": "삼성에스디에스 지분 17.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:028260",
+   "type": "invests_in",
+   "target": "company:207940",
+   "ratio": 43.1,
+   "note": "삼성바이오로직스 지분 43.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:028300",
+   "type": "invests_in",
+   "target": "company:024850",
+   "ratio": 17.73,
+   "note": "HLB이노베이션 지분 17.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:028300",
+   "type": "invests_in",
+   "target": "company:046210",
+   "ratio": 8.45,
+   "note": "HLB파나진 지분 8.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:028300",
+   "type": "invests_in",
+   "target": "company:067630",
+   "ratio": 16.98,
+   "note": "HLB생명과학 지분 17.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:028300",
+   "type": "invests_in",
+   "target": "company:115450",
+   "ratio": 7.98,
+   "note": "HLB테라퓨틱스 지분 8.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:028300",
+   "type": "invests_in",
+   "target": "company:187420",
+   "ratio": 8.95,
+   "note": "HLB제넥스 지분 8.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:028300",
+   "type": "invests_in",
+   "target": "company:278650",
+   "ratio": 14.85,
+   "note": "HLB바이오스텝 지분 14.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:029460",
+   "type": "invests_in",
+   "target": "company:064760",
+   "ratio": 8.54,
+   "note": "티씨케이 지분 8.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:029460",
+   "type": "invests_in",
+   "target": "company:281820",
+   "ratio": 34.35,
+   "note": "케이씨텍 지분 34.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:029480",
+   "type": "invests_in",
+   "target": "company:051980",
+   "ratio": 14.46,
+   "note": "중앙첨단소재 지분 14.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:030200",
+   "type": "invests_in",
+   "target": "company:036030",
+   "ratio": 70.5,
+   "note": "케이티알파 지분 70.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:030200",
+   "type": "invests_in",
+   "target": "company:053210",
+   "ratio": 50.5,
+   "note": "케이티스카이라이프 지분 50.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:030200",
+   "type": "invests_in",
+   "target": "company:237820",
+   "ratio": 23.5,
+   "note": "플레이디 지분 23.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:030520",
+   "type": "invests_in",
+   "target": "company:372910",
+   "ratio": 36.13,
+   "note": "한컴라이프케어 지분 36.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:030530",
+   "type": "invests_in",
+   "target": "company:104830",
+   "ratio": 45.7,
+   "note": "원익머트리얼즈 지분 45.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:030530",
+   "type": "invests_in",
+   "target": "company:217820",
+   "ratio": 31.1,
+   "note": "원익피앤이 지분 31.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:030530",
+   "type": "invests_in",
+   "target": "company:263700",
+   "ratio": 31.8,
+   "note": "케어랩스 지분 31.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:031310",
+   "type": "invests_in",
+   "target": "company:036090",
+   "ratio": 6.69,
+   "note": "위지트 지분 6.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:031310",
+   "type": "invests_in",
+   "target": "company:066980",
+   "ratio": 8.74,
+   "note": "한성크린텍 지분 8.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:031310",
+   "type": "invests_in",
+   "target": "company:100590",
+   "ratio": 53.63,
+   "note": "머큐리 지분 53.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:031820",
+   "type": "invests_in",
+   "target": "company:010280",
+   "ratio": 38.09,
+   "note": "아이티센엔텍 지분 38.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:031820",
+   "type": "invests_in",
+   "target": "company:232830",
+   "ratio": 46.47,
+   "note": "아이티센피엔에스 지분 46.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:031980",
+   "type": "invests_in",
+   "target": "company:319660",
+   "ratio": 32.0,
+   "note": "피에스케이 지분 32.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032190",
+   "type": "invests_in",
+   "target": "company:020120",
+   "ratio": 36.56,
+   "note": "키다리스튜디오 지분 36.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032190",
+   "type": "invests_in",
+   "target": "company:023590",
+   "ratio": 45.2,
+   "note": "다우기술 지분 45.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032190",
+   "type": "invests_in",
+   "target": "company:053300",
+   "ratio": 7.61,
+   "note": "한국정보인증 지분 7.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032190",
+   "type": "invests_in",
+   "target": "company:143240",
+   "ratio": 6.24,
+   "note": "사람인 지분 6.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032560",
+   "type": "invests_in",
+   "target": "company:080010",
+   "ratio": 37.5,
+   "note": "이상네트웍스 지분 37.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032560",
+   "type": "invests_in",
+   "target": "company:263770",
+   "ratio": 66.01,
+   "note": "유에스티 지분 66.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032640",
+   "type": "invests_in",
+   "target": "company:043610",
+   "ratio": 10.0,
+   "note": "KT지니뮤직 지분 10.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032640",
+   "type": "invests_in",
+   "target": "company:443250",
+   "ratio": 8.3,
+   "note": "레뷰코퍼레이션 지분 8.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032790",
+   "type": "invests_in",
+   "target": "company:286750",
+   "ratio": 6.33,
+   "note": "나노실리칸첨단소재 지분 6.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032820",
+   "type": "invests_in",
+   "target": "company:041520",
+   "ratio": 53.0,
+   "note": "이엘씨 지분 53.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032830",
+   "type": "invests_in",
+   "target": "company:005930",
+   "ratio": 8.51,
+   "note": "삼성전자 지분 8.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032830",
+   "type": "invests_in",
+   "target": "company:008770",
+   "ratio": 7.3,
+   "note": "호텔신라 지분 7.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032830",
+   "type": "invests_in",
+   "target": "company:012750",
+   "ratio": 5.34,
+   "note": "에스원 지분 5.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032830",
+   "type": "invests_in",
+   "target": "company:016360",
+   "ratio": 29.39,
+   "note": "삼성증권 지분 29.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032830",
+   "type": "invests_in",
+   "target": "company:029780",
+   "ratio": 71.86,
+   "note": "삼성카드 지분 71.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:032940",
+   "type": "invests_in",
+   "target": "company:030530",
+   "ratio": 30.0,
+   "note": "원익홀딩스 지분 30.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:033160",
+   "type": "invests_in",
+   "target": "company:034830",
+   "ratio": 11.21,
+   "note": "한국토지신탁 지분 11.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:033310",
+   "type": "invests_in",
+   "target": "company:012700",
+   "ratio": 16.32,
+   "note": "리드코프 지분 16.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:033310",
+   "type": "invests_in",
+   "target": "company:215600",
+   "ratio": 13.57,
+   "note": "신라젠 지분 13.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:033640",
+   "type": "invests_in",
+   "target": "company:330860",
+   "ratio": 37.23,
+   "note": "네패스아크 지분 37.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:033780",
+   "type": "invests_in",
+   "target": "company:003520",
+   "ratio": 52.45,
+   "note": "영진약품 지분 52.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034020",
+   "type": "invests_in",
+   "target": "company:241560",
+   "ratio": 48.24,
+   "note": "두산밥캣 지분 48.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034020",
+   "type": "invests_in",
+   "target": "company:336260",
+   "ratio": 30.33,
+   "note": "두산퓨얼셀 지분 30.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034220",
+   "type": "invests_in",
+   "target": "company:149950",
+   "ratio": 9.0,
+   "note": "아바텍 지분 9.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034310",
+   "type": "invests_in",
+   "target": "company:036800",
+   "ratio": 42.7,
+   "note": "나이스정보통신 지분 42.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034310",
+   "type": "invests_in",
+   "target": "company:063570",
+   "ratio": 35.8,
+   "note": "NICE인프라 지분 35.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034310",
+   "type": "invests_in",
+   "target": "company:084850",
+   "ratio": 32.3,
+   "note": "아이티엠반도체 지분 32.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034310",
+   "type": "invests_in",
+   "target": "company:130580",
+   "ratio": 35.0,
+   "note": "나이스디앤비 지분 35.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034730",
+   "type": "invests_in",
+   "target": "company:0007C0",
+   "ratio": 5.47,
+   "note": "아크릴 지분 5.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034730",
+   "type": "invests_in",
+   "target": "company:001740",
+   "ratio": 43.88,
+   "note": "SK네트웍스 지분 43.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034730",
+   "type": "invests_in",
+   "target": "company:011790",
+   "ratio": 40.64,
+   "note": "SKC 지분 40.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034730",
+   "type": "invests_in",
+   "target": "company:017670",
+   "ratio": 30.57,
+   "note": "SK텔레콤 지분 30.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034730",
+   "type": "invests_in",
+   "target": "company:096770",
+   "ratio": 51.7,
+   "note": "SK이노베이션 지분 51.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034730",
+   "type": "invests_in",
+   "target": "company:402340",
+   "ratio": 32.14,
+   "note": "SK스퀘어 지분 32.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034730",
+   "type": "invests_in",
+   "target": "company:403550",
+   "ratio": 8.94,
+   "note": "쏘카 지분 8.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034810",
+   "type": "invests_in",
+   "target": "company:012200",
+   "ratio": 34.0,
+   "note": "계양전기 지분 34.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034810",
+   "type": "invests_in",
+   "target": "company:027970",
+   "ratio": 84.69,
+   "note": "한국제지 지분 84.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034810",
+   "type": "invests_in",
+   "target": "company:037230",
+   "ratio": 51.35,
+   "note": "한국팩키지 지분 51.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034810",
+   "type": "invests_in",
+   "target": "company:195870",
+   "ratio": 34.0,
+   "note": "해성디에스 지분 34.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:034950",
+   "type": "invests_in",
+   "target": "company:092130",
+   "ratio": 67.8,
+   "note": "이크레더블 지분 67.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035420",
+   "type": "invests_in",
+   "target": "company:006800",
+   "ratio": 8.15,
+   "note": "미래에셋증권 지분 8.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035420",
+   "type": "invests_in",
+   "target": "company:031430",
+   "ratio": 6.85,
+   "note": "신세계인터내셔날 지분 6.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035420",
+   "type": "invests_in",
+   "target": "company:041830",
+   "ratio": 8.5,
+   "note": "인바디 지분 8.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035420",
+   "type": "invests_in",
+   "target": "company:042000",
+   "ratio": 13.74,
+   "note": "카페24 지분 13.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035420",
+   "type": "invests_in",
+   "target": "company:253450",
+   "ratio": 6.25,
+   "note": "스튜디오드래곤 지분 6.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035610",
+   "type": "invests_in",
+   "target": "company:071200",
+   "ratio": 48.7,
+   "note": "인피니트헬스케어 지분 48.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035610",
+   "type": "invests_in",
+   "target": "company:139670",
+   "ratio": 30.5,
+   "note": "키네마스터 지분 30.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035720",
+   "type": "invests_in",
+   "target": "company:293490",
+   "ratio": 37.93,
+   "note": "카카오게임즈 지분 37.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035720",
+   "type": "invests_in",
+   "target": "company:301300",
+   "ratio": 7.6,
+   "note": "바이브컴퍼니 지분 7.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035720",
+   "type": "invests_in",
+   "target": "company:323410",
+   "ratio": 27.19,
+   "note": "카카오뱅크 지분 27.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035720",
+   "type": "invests_in",
+   "target": "company:377300",
+   "ratio": 46.14,
+   "note": "카카오페이 지분 46.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035760",
+   "type": "invests_in",
+   "target": "company:241840",
+   "ratio": 9.5,
+   "note": "에이스토리 지분 9.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035760",
+   "type": "invests_in",
+   "target": "company:251270",
+   "ratio": 17.6,
+   "note": "넷마블 지분 17.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035760",
+   "type": "invests_in",
+   "target": "company:253450",
+   "ratio": 54.4,
+   "note": "스튜디오드래곤 지분 54.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035760",
+   "type": "invests_in",
+   "target": "company:432430",
+   "ratio": 9.3,
+   "note": "와이랩 지분 9.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035810",
+   "type": "invests_in",
+   "target": "company:027710",
+   "ratio": 49.0,
+   "note": "팜스토리 지분 49.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035810",
+   "type": "invests_in",
+   "target": "company:027740",
+   "ratio": 30.0,
+   "note": "마니커 지분 30.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035810",
+   "type": "invests_in",
+   "target": "company:153710",
+   "ratio": 35.0,
+   "note": "옵티팜 지분 35.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035810",
+   "type": "invests_in",
+   "target": "company:208140",
+   "ratio": 50.0,
+   "note": "정다운 지분 50.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035810",
+   "type": "invests_in",
+   "target": "company:353810",
+   "ratio": 50.0,
+   "note": "이지바이오 지분 50.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:035900",
+   "type": "invests_in",
+   "target": "company:376300",
+   "ratio": 10.0,
+   "note": "디어유 지분 10.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:036000",
+   "type": "invests_in",
+   "target": "company:004870",
+   "ratio": 40.0,
+   "note": "티웨이홀딩스 지분 40.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:036090",
+   "type": "invests_in",
+   "target": "company:037030",
+   "ratio": 38.19,
+   "note": "파워넷 지분 38.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:036090",
+   "type": "invests_in",
+   "target": "company:057680",
+   "ratio": 30.77,
+   "note": "티사이언티픽 지분 30.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:036220",
+   "type": "invests_in",
+   "target": "company:220180",
+   "ratio": 8.77,
+   "note": "핸디소프트 지분 8.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:036530",
+   "type": "invests_in",
+   "target": "company:003570",
+   "ratio": 42.27,
+   "note": "SNT다이내믹스 지분 42.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:036530",
+   "type": "invests_in",
+   "target": "company:064960",
+   "ratio": 45.12,
+   "note": "SNT모티브 지분 45.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:036530",
+   "type": "invests_in",
+   "target": "company:099440",
+   "ratio": 13.65,
+   "note": "스맥 지분 13.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:036530",
+   "type": "invests_in",
+   "target": "company:100840",
+   "ratio": 54.36,
+   "note": "SNT에너지 지분 54.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:036570",
+   "type": "invests_in",
+   "target": "company:251270",
+   "ratio": 6.9,
+   "note": "넷마블 지분 6.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:036630",
+   "type": "invests_in",
+   "target": "company:001500",
+   "ratio": 6.47,
+   "note": "현대차증권 지분 6.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:036710",
+   "type": "invests_in",
+   "target": "company:222800",
+   "ratio": 33.19,
+   "note": "심텍 지분 33.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:036810",
+   "type": "invests_in",
+   "target": "company:322310",
+   "ratio": 33.54,
+   "note": "오로스테크놀로지 지분 33.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:036830",
+   "type": "invests_in",
+   "target": "company:101970",
+   "ratio": 39.0,
+   "note": "우양에이치씨 지분 39.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:036830",
+   "type": "invests_in",
+   "target": "company:123330",
+   "ratio": 35.0,
+   "note": "제닉 지분 35.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:036830",
+   "type": "invests_in",
+   "target": "company:357780",
+   "ratio": 31.0,
+   "note": "솔브레인 지분 31.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:037030",
+   "type": "invests_in",
+   "target": "company:031310",
+   "ratio": 34.54,
+   "note": "아이즈비전 지분 34.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:037350",
+   "type": "invests_in",
+   "target": "company:039440",
+   "ratio": 20.0,
+   "note": "에스티아이 지분 20.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:037400",
+   "type": "invests_in",
+   "target": "company:082850",
+   "ratio": 31.52,
+   "note": "우리바이오 지분 31.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:037460",
+   "type": "invests_in",
+   "target": "company:031330",
+   "ratio": 49.84,
+   "note": "에스에이엠티 지분 49.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:038010",
+   "type": "invests_in",
+   "target": "company:417500",
+   "ratio": 42.0,
+   "note": "제이아이테크 지분 42.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:038460",
+   "type": "invests_in",
+   "target": "company:032860",
+   "ratio": 28.29,
+   "note": "더라미 지분 28.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:038460",
+   "type": "invests_in",
+   "target": "company:057540",
+   "ratio": 23.36,
+   "note": "옴니시스템 지분 23.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:038460",
+   "type": "invests_in",
+   "target": "company:125020",
+   "ratio": 47.61,
+   "note": "티씨머티리얼즈 지분 47.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:038540",
+   "type": "invests_in",
+   "target": "company:001290",
+   "ratio": 57.0,
+   "note": "상상인증권 지분 57.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:038540",
+   "type": "invests_in",
+   "target": "company:019490",
+   "ratio": 8.0,
+   "note": "엑시큐어하이트론 지분 8.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:038540",
+   "type": "invests_in",
+   "target": "company:101390",
+   "ratio": 6.0,
+   "note": "아이엠 지분 6.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:038540",
+   "type": "invests_in",
+   "target": "company:203690",
+   "ratio": 5.0,
+   "note": "아크솔루션스 지분 5.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:038540",
+   "type": "invests_in",
+   "target": "company:373200",
+   "ratio": 8.0,
+   "note": "엑스플러스 지분 8.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:038680",
+   "type": "invests_in",
+   "target": "company:033230",
+   "ratio": 19.09,
+   "note": "인성정보 지분 19.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:039010",
+   "type": "invests_in",
+   "target": "company:358570",
+   "ratio": 10.0,
+   "note": "지아이이노베이션 지분 10.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:039020",
+   "type": "invests_in",
+   "target": "company:008250",
+   "ratio": 34.19,
+   "note": "이건산업 지분 34.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:039560",
+   "type": "invests_in",
+   "target": "company:154040",
+   "ratio": 8.46,
+   "note": "다산솔루에타 지분 8.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:039560",
+   "type": "invests_in",
+   "target": "company:208860",
+   "ratio": 61.53,
+   "note": "다산디엠씨 지분 61.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:039560",
+   "type": "invests_in",
+   "target": "company:220180",
+   "ratio": 6.56,
+   "note": "핸디소프트 지분 6.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:039980",
+   "type": "invests_in",
+   "target": "company:220180",
+   "ratio": 29.25,
+   "note": "핸디소프트 지분 29.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:040350",
+   "type": "invests_in",
+   "target": "company:051780",
+   "ratio": 9.96,
+   "note": "큐로홀딩스 지분 10.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:040350",
+   "type": "invests_in",
+   "target": "company:065060",
+   "ratio": 34.01,
+   "note": "지엔코 지분 34.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:041020",
+   "type": "invests_in",
+   "target": "company:234100",
+   "ratio": 34.51,
+   "note": "폴라리스세원 지분 34.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:041510",
+   "type": "invests_in",
+   "target": "company:054780",
+   "ratio": 28.22,
+   "note": "키이스트 지분 28.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:041510",
+   "type": "invests_in",
+   "target": "company:060570",
+   "ratio": 7.05,
+   "note": "드림어스컴퍼니 지분 7.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:041510",
+   "type": "invests_in",
+   "target": "company:376300",
+   "ratio": 42.58,
+   "note": "디어유 지분 42.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:041510",
+   "type": "invests_in",
+   "target": "company:458350",
+   "ratio": 18.45,
+   "note": "에스팀 지분 18.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:042040",
+   "type": "invests_in",
+   "target": "company:123840",
+   "ratio": 64.0,
+   "note": "뉴온 지분 64.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:042370",
+   "type": "invests_in",
+   "target": "company:082920",
+   "ratio": 34.84,
+   "note": "비츠로셀 지분 34.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:042370",
+   "type": "invests_in",
+   "target": "company:488900",
+   "ratio": 69.02,
+   "note": "비츠로넥스텍 지분 69.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:042420",
+   "type": "invests_in",
+   "target": "company:095660",
+   "ratio": 31.0,
+   "note": "네오위즈 지분 31.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:042600",
+   "type": "invests_in",
+   "target": "company:066970",
+   "ratio": 14.29,
+   "note": "엘앤에프 지분 14.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:043150",
+   "type": "invests_in",
+   "target": "company:228850",
+   "ratio": 30.3,
+   "note": "레이언스 지분 30.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:044820",
+   "type": "invests_in",
+   "target": "company:192820",
+   "ratio": 27.23,
+   "note": "코스맥스 지분 27.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:044820",
+   "type": "invests_in",
+   "target": "company:222040",
+   "ratio": 43.68,
+   "note": "코스맥스엔비티 지분 43.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:045970",
+   "type": "invests_in",
+   "target": "company:196450",
+   "ratio": 12.04,
+   "note": "코아시아씨엠 지분 12.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:046120",
+   "type": "invests_in",
+   "target": "company:106240",
+   "ratio": 42.09,
+   "note": "파인테크닉스 지분 42.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:046210",
+   "type": "invests_in",
+   "target": "company:187420",
+   "ratio": 8.03,
+   "note": "HLB제넥스 지분 8.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:046890",
+   "type": "invests_in",
+   "target": "company:092190",
+   "ratio": 52.0,
+   "note": "서울바이오시스 지분 52.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:047310",
+   "type": "invests_in",
+   "target": "company:065130",
+   "ratio": 9.6,
+   "note": "탑엔지니어링 지분 9.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:047560",
+   "type": "invests_in",
+   "target": "company:239340",
+   "ratio": 51.55,
+   "note": "이스트에이드 지분 51.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:047810",
+   "type": "invests_in",
+   "target": "company:361390",
+   "ratio": 37.95,
+   "note": "제노코 지분 38.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:047810",
+   "type": "invests_in",
+   "target": "company:402030",
+   "ratio": 7.1,
+   "note": "코난테크놀로지 지분 7.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:047820",
+   "type": "invests_in",
+   "target": "company:131100",
+   "ratio": 64.31,
+   "note": "티엔엔터테인먼트 지분 64.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:048870",
+   "type": "invests_in",
+   "target": "company:038540",
+   "ratio": 8.5,
+   "note": "상상인 지분 8.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:048870",
+   "type": "invests_in",
+   "target": "company:109740",
+   "ratio": 25.0,
+   "note": "디에스케이 지분 25.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:048870",
+   "type": "invests_in",
+   "target": "company:179290",
+   "ratio": 52.2,
+   "note": "엠아이텍 지분 52.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:049480",
+   "type": "invests_in",
+   "target": "company:263800",
+   "ratio": 65.47,
+   "note": "데이타솔루션 지분 65.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:051780",
+   "type": "invests_in",
+   "target": "company:040350",
+   "ratio": 20.3,
+   "note": "크레오에스지 지분 20.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:051910",
+   "type": "invests_in",
+   "target": "company:373220",
+   "ratio": 79.0,
+   "note": "LG에너지솔루션 지분 79.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:051980",
+   "type": "invests_in",
+   "target": "company:042940",
+   "ratio": 12.58,
+   "note": "상지건설 지분 12.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:052330",
+   "type": "invests_in",
+   "target": "company:054800",
+   "ratio": 5.3,
+   "note": "아이디스홀딩스 지분 5.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:052420",
+   "type": "invests_in",
+   "target": "company:061250",
+   "ratio": 26.88,
+   "note": "화일약품 지분 26.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:052420",
+   "type": "invests_in",
+   "target": "company:097780",
+   "ratio": 29.89,
+   "note": "에코볼트 지분 29.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:052420",
+   "type": "invests_in",
+   "target": "company:214330",
+   "ratio": 7.06,
+   "note": "금호에이치티 지분 7.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:052710",
+   "type": "invests_in",
+   "target": "company:357580",
+   "ratio": 18.81,
+   "note": "아모센스 지분 18.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:053030",
+   "type": "invests_in",
+   "target": "company:099750",
+   "ratio": 10.01,
+   "note": "이지케어텍 지분 10.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:053300",
+   "type": "invests_in",
+   "target": "company:273060",
+   "ratio": 30.42,
+   "note": "와이즈버즈 지분 30.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:053350",
+   "type": "invests_in",
+   "target": "company:002070",
+   "ratio": 25.31,
+   "note": "비비안 지분 25.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:053350",
+   "type": "invests_in",
+   "target": "company:377030",
+   "ratio": 9.86,
+   "note": "비트맥스 지분 9.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:053610",
+   "type": "invests_in",
+   "target": "company:147760",
+   "ratio": 46.07,
+   "note": "피엠티 지분 46.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:053950",
+   "type": "invests_in",
+   "target": "company:058450",
+   "ratio": 7.54,
+   "note": "한주에이알티 지분 7.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:053980",
+   "type": "invests_in",
+   "target": "company:036220",
+   "ratio": 15.91,
+   "note": "오상헬스케어 지분 15.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:054210",
+   "type": "invests_in",
+   "target": "company:264850",
+   "ratio": 20.77,
+   "note": "이랜시스 지분 20.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:054410",
+   "type": "invests_in",
+   "target": "company:001780",
+   "ratio": 19.11,
+   "note": "알루코 지분 19.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:054620",
+   "type": "invests_in",
+   "target": "company:265520",
+   "ratio": 25.38,
+   "note": "AP시스템 지분 25.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:054620",
+   "type": "invests_in",
+   "target": "company:348210",
+   "ratio": 8.9,
+   "note": "넥스틴 지분 8.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:054620",
+   "type": "invests_in",
+   "target": "company:391710",
+   "ratio": 41.78,
+   "note": "코닉오토메이션 지분 41.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:054800",
+   "type": "invests_in",
+   "target": "company:052330",
+   "ratio": 38.47,
+   "note": "코텍 지분 38.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:054800",
+   "type": "invests_in",
+   "target": "company:093190",
+   "ratio": 42.65,
+   "note": "빅솔론 지분 42.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:054800",
+   "type": "invests_in",
+   "target": "company:143160",
+   "ratio": 46.64,
+   "note": "아이디스 지분 46.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:054800",
+   "type": "invests_in",
+   "target": "company:332370",
+   "ratio": 46.18,
+   "note": "아이디피 지분 46.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:054920",
+   "type": "invests_in",
+   "target": "company:030520",
+   "ratio": 26.73,
+   "note": "한글과컴퓨터 지분 26.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:055550",
+   "type": "invests_in",
+   "target": "company:006220",
+   "ratio": 64.0,
+   "note": "제주은행 지분 64.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:056190",
+   "type": "invests_in",
+   "target": "company:036540",
+   "ratio": 55.2,
+   "note": "SFA반도체 지분 55.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:056190",
+   "type": "invests_in",
+   "target": "company:222080",
+   "ratio": 33.2,
+   "note": "씨아이에스 지분 33.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:057050",
+   "type": "invests_in",
+   "target": "company:000430",
+   "ratio": 7.7,
+   "note": "대원강업 지분 7.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:057050",
+   "type": "invests_in",
+   "target": "company:020000",
+   "ratio": 40.5,
+   "note": "한섬 지분 40.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:057050",
+   "type": "invests_in",
+   "target": "company:126560",
+   "ratio": 78.6,
+   "note": "현대퓨처넷 지분 78.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:057540",
+   "type": "invests_in",
+   "target": "company:032860",
+   "ratio": 24.76,
+   "note": "더라미 지분 24.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:057680",
+   "type": "invests_in",
+   "target": "company:031310",
+   "ratio": 7.11,
+   "note": "아이즈비전 지분 7.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:058650",
+   "type": "invests_in",
+   "target": "company:001430",
+   "ratio": 61.72,
+   "note": "세아베스틸지주 지분 61.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:059090",
+   "type": "invests_in",
+   "target": "company:183300",
+   "ratio": 42.65,
+   "note": "코미코 지분 42.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:060230",
+   "type": "invests_in",
+   "target": "company:054180",
+   "ratio": 27.0,
+   "note": "메디콕스 지분 27.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:061040",
+   "type": "invests_in",
+   "target": "company:058450",
+   "ratio": 24.0,
+   "note": "한주에이알티 지분 24.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:061250",
+   "type": "invests_in",
+   "target": "company:222110",
+   "ratio": 6.06,
+   "note": "팬젠 지분 6.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:063080",
+   "type": "invests_in",
+   "target": "company:078340",
+   "ratio": 33.0,
+   "note": "컴투스 지분 33.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:065060",
+   "type": "invests_in",
+   "target": "company:051780",
+   "ratio": 10.0,
+   "note": "큐로홀딩스 지분 10.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:065130",
+   "type": "invests_in",
+   "target": "company:047310",
+   "ratio": 33.75,
+   "note": "파워로직스 지분 33.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:065350",
+   "type": "invests_in",
+   "target": "company:416180",
+   "ratio": 25.91,
+   "note": "신성에스티 지분 25.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:065500",
+   "type": "invests_in",
+   "target": "company:002630",
+   "ratio": 8.09,
+   "note": "오리엔트바이오 지분 8.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:065660",
+   "type": "invests_in",
+   "target": "company:091120",
+   "ratio": 8.64,
+   "note": "이엠텍 지분 8.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:065950",
+   "type": "invests_in",
+   "target": "company:076080",
+   "ratio": 26.39,
+   "note": "웰크론한텍 지분 26.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:066410",
+   "type": "invests_in",
+   "target": "company:101140",
+   "ratio": 78.89,
+   "note": "인바이오젠 지분 78.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:066570",
+   "type": "invests_in",
+   "target": "company:0007C0",
+   "ratio": 8.0,
+   "note": "아크릴 지분 8.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:066570",
+   "type": "invests_in",
+   "target": "company:051490",
+   "ratio": 12.6,
+   "note": "나라엠앤디 지분 12.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:066570",
+   "type": "invests_in",
+   "target": "company:090360",
+   "ratio": 33.4,
+   "note": "로보스타 지분 33.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:066570",
+   "type": "invests_in",
+   "target": "company:108490",
+   "ratio": 6.6,
+   "note": "로보티즈 지분 6.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:066570",
+   "type": "invests_in",
+   "target": "company:455900",
+   "ratio": 6.3,
+   "note": "엔젤로보틱스 지분 6.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:066700",
+   "type": "invests_in",
+   "target": "company:235980",
+   "ratio": 14.38,
+   "note": "메드팩토 지분 14.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:067160",
+   "type": "invests_in",
+   "target": "company:237820",
+   "ratio": 70.4,
+   "note": "플레이디 지분 70.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:067310",
+   "type": "invests_in",
+   "target": "company:166090",
+   "ratio": 33.0,
+   "note": "하나머티리얼즈 지분 33.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:067570",
+   "type": "invests_in",
+   "target": "company:130500",
+   "ratio": 50.7,
+   "note": "GH신소재 지분 50.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:067630",
+   "type": "invests_in",
+   "target": "company:047920",
+   "ratio": 16.2,
+   "note": "HLB제약 지분 16.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:067920",
+   "type": "invests_in",
+   "target": "company:170790",
+   "ratio": 31.84,
+   "note": "파이오링크 지분 31.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:068240",
+   "type": "invests_in",
+   "target": "company:323350",
+   "ratio": 23.09,
+   "note": "다원넥스뷰 지분 23.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:068270",
+   "type": "invests_in",
+   "target": "company:068760",
+   "ratio": 54.8,
+   "note": "셀트리온제약 지분 54.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:068270",
+   "type": "invests_in",
+   "target": "company:086040",
+   "ratio": 10.22,
+   "note": "바이오톡스텍 지분 10.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:068290",
+   "type": "invests_in",
+   "target": "company:403850",
+   "ratio": 14.43,
+   "note": "더핑크퐁컴퍼니 지분 14.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:068790",
+   "type": "invests_in",
+   "target": "company:208710",
+   "ratio": 22.0,
+   "note": "포톤 지분 22.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:069460",
+   "type": "invests_in",
+   "target": "company:311390",
+   "ratio": 8.18,
+   "note": "네오크레마 지분 8.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:069540",
+   "type": "invests_in",
+   "target": "company:320000",
+   "ratio": 8.8,
+   "note": "한울반도체 지분 8.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:069620",
+   "type": "invests_in",
+   "target": "company:009420",
+   "ratio": 31.74,
+   "note": "한올바이오파마 지분 31.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:069730",
+   "type": "invests_in",
+   "target": "company:155660",
+   "ratio": 9.94,
+   "note": "DSR 지분 9.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:069960",
+   "type": "invests_in",
+   "target": "company:013890",
+   "ratio": 38.0,
+   "note": "지누스 지분 38.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:069960",
+   "type": "invests_in",
+   "target": "company:057050",
+   "ratio": 7.34,
+   "note": "현대홈쇼핑 지분 7.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:069960",
+   "type": "invests_in",
+   "target": "company:126560",
+   "ratio": 22.62,
+   "note": "현대퓨처넷 지분 22.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:071950",
+   "type": "invests_in",
+   "target": "company:196300",
+   "ratio": 8.85,
+   "note": "HLB펩 지분 8.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:072710",
+   "type": "invests_in",
+   "target": "company:004370",
+   "ratio": 32.72,
+   "note": "농심 지분 32.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:072710",
+   "type": "invests_in",
+   "target": "company:008730",
+   "ratio": 31.94,
+   "note": "율촌화학 지분 31.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:075580",
+   "type": "invests_in",
+   "target": "company:099410",
+   "ratio": 7.79,
+   "note": "동방선기 지분 7.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:075580",
+   "type": "invests_in",
+   "target": "company:333430",
+   "ratio": 54.51,
+   "note": "일승 지분 54.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:076610",
+   "type": "invests_in",
+   "target": "company:030350",
+   "ratio": 5.0,
+   "note": "드래곤플라이 지분 5.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:077360",
+   "type": "invests_in",
+   "target": "company:213420",
+   "ratio": 36.67,
+   "note": "덕산네오룩스 지분 36.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:078070",
+   "type": "invests_in",
+   "target": "company:264450",
+   "ratio": 32.92,
+   "note": "유비쿼스 지분 32.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:078140",
+   "type": "invests_in",
+   "target": "company:347740",
+   "ratio": 55.91,
+   "note": "피엔케이피부임상연구센타 지분 55.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:078340",
+   "type": "invests_in",
+   "target": "company:194480",
+   "ratio": 9.0,
+   "note": "데브시스터즈 지분 9.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:078340",
+   "type": "invests_in",
+   "target": "company:299900",
+   "ratio": 38.1,
+   "note": "위지윅스튜디오 지분 38.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:078340",
+   "type": "invests_in",
+   "target": "company:361570",
+   "ratio": 9.8,
+   "note": "알비더블유 지분 9.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:078860",
+   "type": "invests_in",
+   "target": "company:025620",
+   "ratio": 6.42,
+   "note": "차AI헬스케어 지분 6.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:078930",
+   "type": "invests_in",
+   "target": "company:001250",
+   "ratio": 50.7,
+   "note": "GS글로벌 지분 50.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:078930",
+   "type": "invests_in",
+   "target": "company:007070",
+   "ratio": 58.62,
+   "note": "GS리테일 지분 58.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:078930",
+   "type": "invests_in",
+   "target": "company:499790",
+   "ratio": 58.62,
+   "note": "GS피앤엘 지분 58.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:079940",
+   "type": "invests_in",
+   "target": "company:093320",
+   "ratio": 36.3,
+   "note": "케이아이엔엑스 지분 36.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:079940",
+   "type": "invests_in",
+   "target": "company:356680",
+   "ratio": 32.9,
+   "note": "엑스게이트 지분 32.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:080010",
+   "type": "invests_in",
+   "target": "company:408920",
+   "ratio": 60.0,
+   "note": "메쎄이상 지분 60.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:081000",
+   "type": "invests_in",
+   "target": "company:271940",
+   "ratio": 59.6,
+   "note": "일진하이솔루스 지분 59.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:082210",
+   "type": "invests_in",
+   "target": "company:101400",
+   "ratio": 5.7,
+   "note": "엔시트론 지분 5.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:082270",
+   "type": "invests_in",
+   "target": "company:001360",
+   "ratio": 10.46,
+   "note": "삼성제약 지분 10.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:082270",
+   "type": "invests_in",
+   "target": "company:041590",
+   "ratio": 13.66,
+   "note": "플래스크 지분 13.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:082270",
+   "type": "invests_in",
+   "target": "company:064800",
+   "ratio": 21.75,
+   "note": "포니링크 지분 21.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:083420",
+   "type": "invests_in",
+   "target": "company:114450",
+   "ratio": 13.0,
+   "note": "그린생명과학 지분 13.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:084010",
+   "type": "invests_in",
+   "target": "company:002460",
+   "ratio": 5.0,
+   "note": "HS화성 지분 5.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:084010",
+   "type": "invests_in",
+   "target": "company:014280",
+   "ratio": 5.0,
+   "note": "금강공업 지분 5.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:084110",
+   "type": "invests_in",
+   "target": "company:200670",
+   "ratio": 36.51,
+   "note": "휴메딕스 지분 36.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:084110",
+   "type": "invests_in",
+   "target": "company:243070",
+   "ratio": 41.89,
+   "note": "휴온스 지분 41.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:084110",
+   "type": "invests_in",
+   "target": "company:263920",
+   "ratio": 59.01,
+   "note": "휴엠앤씨 지분 59.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:084110",
+   "type": "invests_in",
+   "target": "company:432980",
+   "ratio": 5.17,
+   "note": "엠에프씨 지분 5.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:084690",
+   "type": "invests_in",
+   "target": "company:001680",
+   "ratio": 38.03,
+   "note": "대상 지분 38.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:084730",
+   "type": "invests_in",
+   "target": "company:089850",
+   "ratio": 8.96,
+   "note": "유비벨록스 지분 9.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:085620",
+   "type": "invests_in",
+   "target": "company:040300",
+   "ratio": 6.73,
+   "note": "YTN 지분 6.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:085660",
+   "type": "invests_in",
+   "target": "company:058820",
+   "ratio": 24.38,
+   "note": "CMG제약 지분 24.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:085660",
+   "type": "invests_in",
+   "target": "company:476040",
+   "ratio": 7.42,
+   "note": "오가노이드사이언스 지분 7.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:086450",
+   "type": "invests_in",
+   "target": "company:303810",
+   "ratio": 45.34,
+   "note": "동국생명과학 지분 45.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:086520",
+   "type": "invests_in",
+   "target": "company:247540",
+   "ratio": 41.0,
+   "note": "에코프로비엠 지분 41.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:086520",
+   "type": "invests_in",
+   "target": "company:383310",
+   "ratio": 31.0,
+   "note": "에코프로에이치엔 지분 31.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:086820",
+   "type": "invests_in",
+   "target": "company:084990",
+   "ratio": 18.25,
+   "note": "헬릭스미스 지분 18.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:088130",
+   "type": "invests_in",
+   "target": "company:171090",
+   "ratio": 48.71,
+   "note": "선익시스템 지분 48.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:088350",
+   "type": "invests_in",
+   "target": "company:000370",
+   "ratio": 51.36,
+   "note": "한화손해보험 지분 51.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:088350",
+   "type": "invests_in",
+   "target": "company:373160",
+   "ratio": 9.66,
+   "note": "데이원컴퍼니 지분 9.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:088350",
+   "type": "invests_in",
+   "target": "company:448730",
+   "ratio": 5.93,
+   "note": "삼성FN리츠 지분 5.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:088350",
+   "type": "invests_in",
+   "target": "company:451800",
+   "ratio": 30.18,
+   "note": "한화리츠 지분 30.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:088390",
+   "type": "invests_in",
+   "target": "company:123750",
+   "ratio": 46.66,
+   "note": "알톤 지분 46.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:088390",
+   "type": "invests_in",
+   "target": "company:272290",
+   "ratio": 27.87,
+   "note": "이녹스첨단소재 지분 27.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:089140",
+   "type": "invests_in",
+   "target": "company:025560",
+   "ratio": 32.31,
+   "note": "미래산업 지분 32.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:089140",
+   "type": "invests_in",
+   "target": "company:131400",
+   "ratio": 17.3,
+   "note": "이브이첨단소재 지분 17.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:089230",
+   "type": "invests_in",
+   "target": "company:177350",
+   "ratio": 10.22,
+   "note": "베셀 지분 10.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:089600",
+   "type": "invests_in",
+   "target": "company:237820",
+   "ratio": 46.92,
+   "note": "플레이디 지분 46.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:089850",
+   "type": "invests_in",
+   "target": "company:084730",
+   "ratio": 37.15,
+   "note": "팅크웨어 지분 37.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:089860",
+   "type": "invests_in",
+   "target": "company:403550",
+   "ratio": 25.7,
+   "note": "쏘카 지분 25.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:090150",
+   "type": "invests_in",
+   "target": "company:123010",
+   "ratio": 28.32,
+   "note": "알엔티엑스 지분 28.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:090370",
+   "type": "invests_in",
+   "target": "company:118000",
+   "ratio": 37.28,
+   "note": "메타케어 지분 37.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:090460",
+   "type": "invests_in",
+   "target": "company:064520",
+   "ratio": 33.0,
+   "note": "테크엘 지분 33.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:090460",
+   "type": "invests_in",
+   "target": "company:290550",
+   "ratio": 25.0,
+   "note": "디케이티 지분 25.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:090710",
+   "type": "invests_in",
+   "target": "company:078590",
+   "ratio": 36.57,
+   "note": "휴림에이텍 지분 36.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:091120",
+   "type": "invests_in",
+   "target": "company:065660",
+   "ratio": 7.25,
+   "note": "안트로젠 지분 7.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:091440",
+   "type": "invests_in",
+   "target": "company:320000",
+   "ratio": 21.7,
+   "note": "한울반도체 지분 21.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:091590",
+   "type": "invests_in",
+   "target": "company:111710",
+   "ratio": 24.77,
+   "note": "남화산업 지분 24.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:091700",
+   "type": "invests_in",
+   "target": "company:037950",
+   "ratio": 56.19,
+   "note": "엘컴텍 지분 56.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:092230",
+   "type": "invests_in",
+   "target": "company:025000",
+   "ratio": 52.28,
+   "note": "KPX케미칼 지분 52.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:092230",
+   "type": "invests_in",
+   "target": "company:100250",
+   "ratio": 67.12,
+   "note": "진양홀딩스 지분 67.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:092870",
+   "type": "invests_in",
+   "target": "company:252990",
+   "ratio": 20.66,
+   "note": "샘씨엔에스 지분 20.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:093240",
+   "type": "invests_in",
+   "target": "company:308100",
+   "ratio": 5.16,
+   "note": "형지글로벌 지분 5.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:093320",
+   "type": "invests_in",
+   "target": "company:356680",
+   "ratio": 21.51,
+   "note": "엑스게이트 지분 21.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:093320",
+   "type": "invests_in",
+   "target": "company:443670",
+   "ratio": 35.57,
+   "note": "에스피소프트 지분 35.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:093370",
+   "type": "invests_in",
+   "target": "company:010040",
+   "ratio": 16.31,
+   "note": "한국내화 지분 16.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:093370",
+   "type": "invests_in",
+   "target": "company:098070",
+   "ratio": 66.3,
+   "note": "한텍 지분 66.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:094840",
+   "type": "invests_in",
+   "target": "company:236200",
+   "ratio": 28.1,
+   "note": "슈프리마 지분 28.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:094850",
+   "type": "invests_in",
+   "target": "company:024950",
+   "ratio": 7.0,
+   "note": "삼천리자전거 지분 7.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:094970",
+   "type": "invests_in",
+   "target": "company:033050",
+   "ratio": 35.31,
+   "note": "제이엠아이 지분 35.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:095500",
+   "type": "invests_in",
+   "target": "company:263810",
+   "ratio": 52.0,
+   "note": "상신전자 지분 52.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:095660",
+   "type": "invests_in",
+   "target": "company:348030",
+   "ratio": 9.9,
+   "note": "모비릭스 지분 9.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:095700",
+   "type": "invests_in",
+   "target": "company:199800",
+   "ratio": 12.47,
+   "note": "툴젠 지분 12.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:096760",
+   "type": "invests_in",
+   "target": "company:067290",
+   "ratio": 30.72,
+   "note": "JW신약 지분 30.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:096760",
+   "type": "invests_in",
+   "target": "company:234080",
+   "ratio": 42.98,
+   "note": "JW생명과학 지분 43.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:096770",
+   "type": "invests_in",
+   "target": "company:361610",
+   "ratio": 53.4,
+   "note": "SK아이이테크놀로지 지분 53.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:097780",
+   "type": "invests_in",
+   "target": "company:061250",
+   "ratio": 8.0,
+   "note": "화일약품 지분 8.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:097780",
+   "type": "invests_in",
+   "target": "company:214330",
+   "ratio": 32.33,
+   "note": "금호에이치티 지분 32.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:100130",
+   "type": "invests_in",
+   "target": "company:075970",
+   "ratio": 22.4,
+   "note": "동국알앤에스 지분 22.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:100250",
+   "type": "invests_in",
+   "target": "company:003780",
+   "ratio": 51.2,
+   "note": "진양산업 지분 51.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:100250",
+   "type": "invests_in",
+   "target": "company:010640",
+   "ratio": 50.5,
+   "note": "진양폴리우레탄 지분 50.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:100250",
+   "type": "invests_in",
+   "target": "company:051630",
+   "ratio": 68.2,
+   "note": "진양화학 지분 68.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:101140",
+   "type": "invests_in",
+   "target": "company:121800",
+   "ratio": 34.25,
+   "note": "비덴트 지분 34.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:101330",
+   "type": "invests_in",
+   "target": "company:012860",
+   "ratio": 46.45,
+   "note": "모베이스전자 지분 46.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:102120",
+   "type": "invests_in",
+   "target": "company:097800",
+   "ratio": 46.8,
+   "note": "윈팩 지분 46.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:102260",
+   "type": "invests_in",
+   "target": "company:033500",
+   "ratio": 37.94,
+   "note": "동성화인텍 지분 37.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:103140",
+   "type": "invests_in",
+   "target": "company:137400",
+   "ratio": 60.0,
+   "note": "피엔티 지분 60.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:104830",
+   "type": "invests_in",
+   "target": "company:014190",
+   "ratio": 31.57,
+   "note": "원익큐브 지분 31.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:105840",
+   "type": "invests_in",
+   "target": "company:457550",
+   "ratio": 40.78,
+   "note": "우진엔텍 지분 40.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:107590",
+   "type": "invests_in",
+   "target": "company:023450",
+   "ratio": 43.97,
+   "note": "동남합성 지분 44.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:107590",
+   "type": "invests_in",
+   "target": "company:049550",
+   "ratio": 24.48,
+   "note": "잉크테크 지분 24.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:108320",
+   "type": "invests_in",
+   "target": "company:054450",
+   "ratio": 10.0,
+   "note": "텔레칩스 지분 10.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:108860",
+   "type": "invests_in",
+   "target": "company:041920",
+   "ratio": 31.69,
+   "note": "메디아나 지분 31.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:108860",
+   "type": "invests_in",
+   "target": "company:208370",
+   "ratio": 38.08,
+   "note": "셀바스헬스케어 지분 38.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:109610",
+   "type": "invests_in",
+   "target": "company:365330",
+   "ratio": 32.04,
+   "note": "에스와이스틸텍 지분 32.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:110790",
+   "type": "invests_in",
+   "target": "company:005320",
+   "ratio": 30.02,
+   "note": "온타이드 지분 30.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:110790",
+   "type": "invests_in",
+   "target": "company:206400",
+   "ratio": 5.28,
+   "note": "베노티앤알 지분 5.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:112040",
+   "type": "invests_in",
+   "target": "company:101730",
+   "ratio": 36.83,
+   "note": "위메이드맥스 지분 36.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:112610",
+   "type": "invests_in",
+   "target": "company:297090",
+   "ratio": 53.69,
+   "note": "씨에스베어링 지분 53.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:114630",
+   "type": "invests_in",
+   "target": "company:041020",
+   "ratio": 7.92,
+   "note": "폴라리스오피스 지분 7.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:117670",
+   "type": "invests_in",
+   "target": "company:032860",
+   "ratio": 10.44,
+   "note": "더라미 지분 10.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:118000",
+   "type": "invests_in",
+   "target": "company:052300",
+   "ratio": 8.93,
+   "note": "오션인더블유 지분 8.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:118990",
+   "type": "invests_in",
+   "target": "company:079900",
+   "ratio": 77.67,
+   "note": "전진건설로봇 지분 77.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:119850",
+   "type": "invests_in",
+   "target": "company:237750",
+   "ratio": 5.0,
+   "note": "피앤씨테크 지분 5.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:121440",
+   "type": "invests_in",
+   "target": "company:215000",
+   "ratio": 22.01,
+   "note": "골프존 지분 22.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:122350",
+   "type": "invests_in",
+   "target": "company:419050",
+   "ratio": 51.34,
+   "note": "삼기에너지솔루션즈 지분 51.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:122690",
+   "type": "invests_in",
+   "target": "company:038110",
+   "ratio": 31.65,
+   "note": "에코플라스틱 지분 31.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:122990",
+   "type": "invests_in",
+   "target": "company:110990",
+   "ratio": 84.0,
+   "note": "디아이티 지분 84.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:123040",
+   "type": "invests_in",
+   "target": "company:009900",
+   "ratio": 45.44,
+   "note": "명신산업 지분 45.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:124500",
+   "type": "invests_in",
+   "target": "company:031820",
+   "ratio": 25.0,
+   "note": "아이티센씨티에스 지분 25.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:126560",
+   "type": "invests_in",
+   "target": "company:052260",
+   "ratio": 35.0,
+   "note": "현대바이오랜드 지분 35.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:126600",
+   "type": "invests_in",
+   "target": "company:105330",
+   "ratio": 56.75,
+   "note": "케이엔더블유 지분 56.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:126640",
+   "type": "invests_in",
+   "target": "company:010690",
+   "ratio": 5.75,
+   "note": "화신 지분 5.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:126700",
+   "type": "invests_in",
+   "target": "company:370090",
+   "ratio": 30.5,
+   "note": "퓨런티어 지분 30.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:126720",
+   "type": "invests_in",
+   "target": "company:017550",
+   "ratio": 33.19,
+   "note": "수산세보틱스 지분 33.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:126720",
+   "type": "invests_in",
+   "target": "company:050960",
+   "ratio": 19.1,
+   "note": "수산아이앤티 지분 19.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:129920",
+   "type": "invests_in",
+   "target": "company:104040",
+   "ratio": 57.3,
+   "note": "디에스엠 지분 57.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:130740",
+   "type": "invests_in",
+   "target": "company:059270",
+   "ratio": 32.72,
+   "note": "해성에어로보틱스 지분 32.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:131100",
+   "type": "invests_in",
+   "target": "company:052300",
+   "ratio": 8.13,
+   "note": "오션인더블유 지분 8.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:131290",
+   "type": "invests_in",
+   "target": "company:096870",
+   "ratio": 43.78,
+   "note": "엘디티 지분 43.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:131290",
+   "type": "invests_in",
+   "target": "company:219130",
+   "ratio": 43.71,
+   "note": "타이거일렉 지분 43.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:131290",
+   "type": "invests_in",
+   "target": "company:446540",
+   "ratio": 56.95,
+   "note": "메가터치 지분 57.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:131400",
+   "type": "invests_in",
+   "target": "company:023960",
+   "ratio": 11.39,
+   "note": "에쓰씨엔지니어링 지분 11.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:131400",
+   "type": "invests_in",
+   "target": "company:145210",
+   "ratio": 18.92,
+   "note": "다이나믹디자인 지분 18.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:137400",
+   "type": "invests_in",
+   "target": "company:257370",
+   "ratio": 38.49,
+   "note": "피엔티엠에스 지분 38.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:138360",
+   "type": "invests_in",
+   "target": "company:029480",
+   "ratio": 14.98,
+   "note": "광무 지분 15.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:138360",
+   "type": "invests_in",
+   "target": "company:042940",
+   "ratio": 8.64,
+   "note": "상지건설 지분 8.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:139480",
+   "type": "invests_in",
+   "target": "company:031440",
+   "ratio": 55.47,
+   "note": "신세계푸드 지분 55.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:145990",
+   "type": "invests_in",
+   "target": "company:036670",
+   "ratio": 50.02,
+   "note": "삼양케이씨아이 지분 50.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:145990",
+   "type": "invests_in",
+   "target": "company:175330",
+   "ratio": 14.5,
+   "note": "JB금융지주 지분 14.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:145990",
+   "type": "invests_in",
+   "target": "company:272550",
+   "ratio": 72.72,
+   "note": "삼양패키징 지분 72.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:151860",
+   "type": "invests_in",
+   "target": "company:003620",
+   "ratio": 54.35,
+   "note": "KG모빌리티 지분 54.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:151860",
+   "type": "invests_in",
+   "target": "company:016380",
+   "ratio": 45.0,
+   "note": "KG스틸 지분 45.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:154040",
+   "type": "invests_in",
+   "target": "company:039560",
+   "ratio": 26.98,
+   "note": "다산네트웍스 지분 27.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:161390",
+   "type": "invests_in",
+   "target": "company:014530",
+   "ratio": 10.0,
+   "note": "극동유화 지분 10.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:161390",
+   "type": "invests_in",
+   "target": "company:018880",
+   "ratio": 51.1,
+   "note": "한온시스템 지분 51.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:161390",
+   "type": "invests_in",
+   "target": "company:417970",
+   "ratio": 62.9,
+   "note": "모델솔루션 지분 62.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:161580",
+   "type": "invests_in",
+   "target": "company:378340",
+   "ratio": 41.99,
+   "note": "필에너지 지분 42.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:166090",
+   "type": "invests_in",
+   "target": "company:067310",
+   "ratio": 9.77,
+   "note": "하나마이크론 지분 9.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:177830",
+   "type": "invests_in",
+   "target": "company:099520",
+   "ratio": 5.0,
+   "note": "DGI 지분 5.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:180640",
+   "type": "invests_in",
+   "target": "company:002320",
+   "ratio": 30.2,
+   "note": "한진 지분 30.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:181710",
+   "type": "invests_in",
+   "target": "company:089850",
+   "ratio": 8.5,
+   "note": "유비벨록스 지분 8.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:182360",
+   "type": "invests_in",
+   "target": "company:018290",
+   "ratio": 12.3,
+   "note": "브이티 지분 12.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:185750",
+   "type": "invests_in",
+   "target": "company:174900",
+   "ratio": 7.1,
+   "note": "앱클론 지분 7.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:187220",
+   "type": "invests_in",
+   "target": "company:383930",
+   "ratio": 31.0,
+   "note": "디티앤씨알오 지분 31.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:187790",
+   "type": "invests_in",
+   "target": "company:0004V0",
+   "ratio": 21.3,
+   "note": "엔비알모션 지분 21.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:190510",
+   "type": "invests_in",
+   "target": "company:405000",
+   "ratio": 8.0,
+   "note": "플라즈맵 지분 8.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:192250",
+   "type": "invests_in",
+   "target": "company:411080",
+   "ratio": 42.01,
+   "note": "샌즈랩 지분 42.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:192400",
+   "type": "invests_in",
+   "target": "company:284740",
+   "ratio": 40.55,
+   "note": "쿠쿠홈시스 지분 40.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:193250",
+   "type": "invests_in",
+   "target": "company:205500",
+   "ratio": 22.65,
+   "note": "넥써쓰 지분 22.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:199820",
+   "type": "invests_in",
+   "target": "company:475240",
+   "ratio": 6.24,
+   "note": "하나32호스팩 지분 6.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:200230",
+   "type": "invests_in",
+   "target": "company:042040",
+   "ratio": 14.77,
+   "note": "케이피엠테크 지분 14.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:200230",
+   "type": "invests_in",
+   "target": "company:203400",
+   "ratio": 18.2,
+   "note": "에이비온 지분 18.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:203690",
+   "type": "invests_in",
+   "target": "company:101000",
+   "ratio": 12.95,
+   "note": "KS인더스트리 지분 12.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:204320",
+   "type": "invests_in",
+   "target": "company:075180",
+   "ratio": 5.0,
+   "note": "새론오토모티브 지분 5.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:204610",
+   "type": "invests_in",
+   "target": "company:047080",
+   "ratio": 30.69,
+   "note": "한빛소프트 지분 30.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:205470",
+   "type": "invests_in",
+   "target": "company:044480",
+   "ratio": 33.92,
+   "note": "빌리언스 지분 33.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:205470",
+   "type": "invests_in",
+   "target": "company:053950",
+   "ratio": 9.67,
+   "note": "경남제약 지분 9.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:206640",
+   "type": "invests_in",
+   "target": "company:462510",
+   "ratio": 6.82,
+   "note": "라메디텍 지분 6.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:208350",
+   "type": "invests_in",
+   "target": "company:275630",
+   "ratio": 36.71,
+   "note": "에스에스알 지분 36.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:208370",
+   "type": "invests_in",
+   "target": "company:041920",
+   "ratio": 5.83,
+   "note": "메디아나 지분 5.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:214180",
+   "type": "invests_in",
+   "target": "company:234340",
+   "ratio": 38.5,
+   "note": "헥토파이낸셜 지분 38.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:214270",
+   "type": "invests_in",
+   "target": "company:065650",
+   "ratio": 33.51,
+   "note": "하이퍼코퍼레이션 지분 33.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:214330",
+   "type": "invests_in",
+   "target": "company:061250",
+   "ratio": 10.63,
+   "note": "화일약품 지분 10.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:214450",
+   "type": "invests_in",
+   "target": "company:060590",
+   "ratio": 10.6,
+   "note": "씨티씨바이오 지분 10.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:215200",
+   "type": "invests_in",
+   "target": "company:339950",
+   "ratio": 55.3,
+   "note": "아이비김영 지분 55.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:226320",
+   "type": "invests_in",
+   "target": "company:092730",
+   "ratio": 40.12,
+   "note": "네오팜 지분 40.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:227840",
+   "type": "invests_in",
+   "target": "company:011760",
+   "ratio": 23.99,
+   "note": "현대코퍼레이션 지분 24.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:230240",
+   "type": "invests_in",
+   "target": "company:069410",
+   "ratio": 26.5,
+   "note": "엔텔스 지분 26.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:230360",
+   "type": "invests_in",
+   "target": "company:204020",
+   "ratio": 11.0,
+   "note": "그리티 지분 11.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:232140",
+   "type": "invests_in",
+   "target": "company:092870",
+   "ratio": 7.75,
+   "note": "엑시콘 지분 7.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:232140",
+   "type": "invests_in",
+   "target": "company:252990",
+   "ratio": 38.16,
+   "note": "샘씨엔에스 지분 38.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:234100",
+   "type": "invests_in",
+   "target": "company:039980",
+   "ratio": 14.68,
+   "note": "폴라리스AI 지분 14.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:234100",
+   "type": "invests_in",
+   "target": "company:041910",
+   "ratio": 7.28,
+   "note": "폴라리스AI파마 지분 7.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:234100",
+   "type": "invests_in",
+   "target": "company:114630",
+   "ratio": 34.37,
+   "note": "폴라리스우노 지분 34.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:234100",
+   "type": "invests_in",
+   "target": "company:220180",
+   "ratio": 19.5,
+   "note": "핸디소프트 지분 19.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:236200",
+   "type": "invests_in",
+   "target": "company:203450",
+   "ratio": 9.0,
+   "note": "유니온바이오메트릭스 지분 9.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:237750",
+   "type": "invests_in",
+   "target": "company:017040",
+   "ratio": 23.66,
+   "note": "광명전기 지분 23.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:241710",
+   "type": "invests_in",
+   "target": "company:950140",
+   "ratio": 50.0,
+   "note": "잉글우드랩 지분 50.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:243070",
+   "type": "invests_in",
+   "target": "company:222110",
+   "ratio": 36.67,
+   "note": "팬젠 지분 36.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:244920",
+   "type": "invests_in",
+   "target": "company:039860",
+   "ratio": 25.73,
+   "note": "나노엔텍 지분 25.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:250060",
+   "type": "invests_in",
+   "target": "company:290270",
+   "ratio": 6.15,
+   "note": "휴네시온 지분 6.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:251270",
+   "type": "invests_in",
+   "target": "company:021240",
+   "ratio": 25.74,
+   "note": "코웨이 지분 25.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:251270",
+   "type": "invests_in",
+   "target": "company:193250",
+   "ratio": 9.27,
+   "note": "링크드 지분 9.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:251270",
+   "type": "invests_in",
+   "target": "company:352820",
+   "ratio": 9.23,
+   "note": "하이브 지분 9.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:256840",
+   "type": "invests_in",
+   "target": "company:219750",
+   "ratio": 79.99,
+   "note": "한국비티비 지분 80.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:259960",
+   "type": "invests_in",
+   "target": "company:217270",
+   "ratio": 45.07,
+   "note": "넵튠 지분 45.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:263600",
+   "type": "invests_in",
+   "target": "company:011690",
+   "ratio": 32.66,
+   "note": "와이투솔루션 지분 32.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:265520",
+   "type": "invests_in",
+   "target": "company:348210",
+   "ratio": 9.3,
+   "note": "넥스틴 지분 9.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:267250",
+   "type": "invests_in",
+   "target": "company:009540",
+   "ratio": 35.05,
+   "note": "HD한국조선해양 지분 35.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:267250",
+   "type": "invests_in",
+   "target": "company:267260",
+   "ratio": 35.74,
+   "note": "HD현대일렉트릭 지분 35.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:267250",
+   "type": "invests_in",
+   "target": "company:443060",
+   "ratio": 55.32,
+   "note": "HD현대마린솔루션 지분 55.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:267320",
+   "type": "invests_in",
+   "target": "company:469750",
+   "ratio": 17.05,
+   "note": "아이비젼웍스 지분 17.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:272210",
+   "type": "invests_in",
+   "target": "company:042660",
+   "ratio": 11.57,
+   "note": "한화오션 지분 11.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:272210",
+   "type": "invests_in",
+   "target": "company:105550",
+   "ratio": 8.76,
+   "note": "엣지파운드리 지분 8.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:278650",
+   "type": "invests_in",
+   "target": "company:046210",
+   "ratio": 7.21,
+   "note": "HLB파나진 지분 7.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:282880",
+   "type": "invests_in",
+   "target": "company:360070",
+   "ratio": 36.53,
+   "note": "탑머티리얼 지분 36.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:285130",
+   "type": "invests_in",
+   "target": "company:302440",
+   "ratio": 66.37,
+   "note": "SK바이오사이언스 지분 66.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:285130",
+   "type": "invests_in",
+   "target": "company:321550",
+   "ratio": 7.44,
+   "note": "티움바이오 지분 7.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:288980",
+   "type": "invests_in",
+   "target": "company:142760",
+   "ratio": 18.16,
+   "note": "모아라이프플러스 지분 18.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:290550",
+   "type": "invests_in",
+   "target": "company:064520",
+   "ratio": 11.65,
+   "note": "테크엘 지분 11.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:293480",
+   "type": "invests_in",
+   "target": "company:005500",
+   "ratio": 7.16,
+   "note": "삼진제약 지분 7.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:293490",
+   "type": "invests_in",
+   "target": "company:061090",
+   "ratio": 14.32,
+   "note": "세나테크놀로지 지분 14.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:293490",
+   "type": "invests_in",
+   "target": "company:217270",
+   "ratio": 39.39,
+   "note": "넵튠 지분 39.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:294570",
+   "type": "invests_in",
+   "target": "company:053580",
+   "ratio": 10.0,
+   "note": "웹케시 지분 10.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:298000",
+   "type": "invests_in",
+   "target": "company:056700",
+   "ratio": 20.0,
+   "note": "신화인터텍 지분 20.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:298040",
+   "type": "invests_in",
+   "target": "company:002780",
+   "ratio": 48.21,
+   "note": "진흥기업 지분 48.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:298540",
+   "type": "invests_in",
+   "target": "company:267790",
+   "ratio": 41.67,
+   "note": "배럴 지분 41.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:299900",
+   "type": "invests_in",
+   "target": "company:291230",
+   "ratio": 20.73,
+   "note": "엔피 지분 20.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:299900",
+   "type": "invests_in",
+   "target": "company:361570",
+   "ratio": 5.2,
+   "note": "알비더블유 지분 5.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:308100",
+   "type": "invests_in",
+   "target": "company:093240",
+   "ratio": 6.2,
+   "note": "형지엘리트 지분 6.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:311390",
+   "type": "invests_in",
+   "target": "company:318410",
+   "ratio": 30.88,
+   "note": "비비씨 지분 30.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:317770",
+   "type": "invests_in",
+   "target": "company:373200",
+   "ratio": 21.3,
+   "note": "엑스플러스 지분 21.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:317830",
+   "type": "invests_in",
+   "target": "company:373170",
+   "ratio": 45.61,
+   "note": "엠아이큐브솔루션 지분 45.6% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:320000",
+   "type": "invests_in",
+   "target": "company:276730",
+   "ratio": 24.18,
+   "note": "한울앤제주 지분 24.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:331380",
+   "type": "invests_in",
+   "target": "company:318020",
+   "ratio": 8.75,
+   "note": "포인트모바일 지분 8.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:331920",
+   "type": "invests_in",
+   "target": "company:461030",
+   "ratio": 9.81,
+   "note": "아이엠비디엑스 지분 9.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:333430",
+   "type": "invests_in",
+   "target": "company:099410",
+   "ratio": 20.0,
+   "note": "동방선기 지분 20.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:348370",
+   "type": "invests_in",
+   "target": "company:051980",
+   "ratio": 9.26,
+   "note": "중앙첨단소재 지분 9.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:357780",
+   "type": "invests_in",
+   "target": "company:092070",
+   "ratio": 30.1,
+   "note": "디엔에프 지분 30.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:360070",
+   "type": "invests_in",
+   "target": "company:455180",
+   "ratio": 12.8,
+   "note": "케이지에이 지분 12.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:362320",
+   "type": "invests_in",
+   "target": "company:489460",
+   "ratio": 50.85,
+   "note": "바이오비쥬 지분 50.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:363280",
+   "type": "invests_in",
+   "target": "company:009410",
+   "ratio": 58.2,
+   "note": "태영건설 지분 58.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:363280",
+   "type": "invests_in",
+   "target": "company:034120",
+   "ratio": 36.3,
+   "note": "SBS 지분 36.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:373220",
+   "type": "invests_in",
+   "target": "company:006110",
+   "ratio": 10.0,
+   "note": "삼아알미늄 지분 10.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:377300",
+   "type": "invests_in",
+   "target": "company:462860",
+   "ratio": 8.3,
+   "note": "더즌 지분 8.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:377740",
+   "type": "invests_in",
+   "target": "company:060590",
+   "ratio": 23.04,
+   "note": "씨티씨바이오 지분 23.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:377740",
+   "type": "invests_in",
+   "target": "company:137310",
+   "ratio": 38.02,
+   "note": "에스디바이오센서 지분 38.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:377740",
+   "type": "invests_in",
+   "target": "company:206650",
+   "ratio": 19.92,
+   "note": "유바이오로직스 지분 19.9% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:383800",
+   "type": "invests_in",
+   "target": "company:001120",
+   "ratio": 27.83,
+   "note": "LX인터내셔널 지분 27.8% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:383800",
+   "type": "invests_in",
+   "target": "company:108320",
+   "ratio": 33.08,
+   "note": "LX세미콘 지분 33.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:383800",
+   "type": "invests_in",
+   "target": "company:108670",
+   "ratio": 33.53,
+   "note": "LX하우시스 지분 33.5% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:389470",
+   "type": "invests_in",
+   "target": "company:348080",
+   "ratio": 19.44,
+   "note": "큐라티스 지분 19.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:393970",
+   "type": "invests_in",
+   "target": "company:106080",
+   "ratio": 6.21,
+   "note": "케이이엠텍 지분 6.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:402340",
+   "type": "invests_in",
+   "target": "company:060570",
+   "ratio": 22.2,
+   "note": "드림어스컴퍼니 지분 22.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:402340",
+   "type": "invests_in",
+   "target": "company:216050",
+   "ratio": 36.1,
+   "note": "인크로스 지분 36.1% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:425040",
+   "type": "invests_in",
+   "target": "company:241790",
+   "ratio": 33.4,
+   "note": "티이엠씨씨엔에스 지분 33.4% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:432980",
+   "type": "invests_in",
+   "target": "company:0041L0",
+   "ratio": 8.29,
+   "note": "하나35호스팩 지분 8.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:441270",
+   "type": "invests_in",
+   "target": "company:049120",
+   "ratio": 22.16,
+   "note": "파인디앤씨 지분 22.2% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:451760",
+   "type": "invests_in",
+   "target": "company:211270",
+   "ratio": 24.72,
+   "note": "AP위성 지분 24.7% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:460850",
+   "type": "invests_in",
+   "target": "company:139990",
+   "ratio": 58.29,
+   "note": "아주스틸 지분 58.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:475430",
+   "type": "invests_in",
+   "target": "company:002240",
+   "ratio": 12.32,
+   "note": "고려제강 지분 12.3% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:487570",
+   "type": "invests_in",
+   "target": "company:298050",
+   "ratio": 28.0,
+   "note": "HS효성첨단소재 지분 28.0% 보유(사업보고서 타법인출자현황 2025)"
+  },
+  {
+   "source": "company:950210",
+   "type": "invests_in",
+   "target": "company:334970",
+   "ratio": 40.03,
+   "note": "프레스티지바이오로직스 지분 40.0% 보유(사업보고서 타법인출자현황 2025)"
+  }
+ ]
+}

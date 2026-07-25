@@ -55,8 +55,15 @@ def test_select_threshold_relax_and_cap():
     assert [c["symbol"] for c in _select(tie)[0]] == ["000001", "000003", "000005"]
 
 
-def test_concept_not_sector_and_deterministic():
-    """HBM은 반도체 업종 전체가 아니라 KG 검증 관계 종목만 — 반복 호출 결과 동일."""
+def test_concept_not_sector_and_deterministic(tmp_path, monkeypatch):
+    """HBM은 반도체 업종 전체가 아니라 KG 검증 관계 종목만 — 반복 호출 결과 동일.
+
+    지분 레이어는 빈 경로로 격리한다 — 실제 kg-equity-edges.json은 수집 스윕이
+    갱신 중일 수 있어(로컬) 파일 상태에 따라 결과가 달라지면 결정성 검증이 아니다."""
+    import engine.concept_universe as cu
+
+    monkeypatch.setattr(cu, "_EQUITY_PATH", tmp_path / "no-equity.json")
+    monkeypatch.setattr(cu, "_EQUITY_CACHE", None)
     r1 = build_concept_universe("HBM")
     r2 = build_concept_universe("HBM")
     assert r1 is not None and r1 == r2
@@ -66,11 +73,16 @@ def test_concept_not_sector_and_deterministic():
     assert all(0.0 <= s["score"] <= 1.0 for s in r1["stocks"])
     # 모르는 개념은 None(억지 생성 금지)
     assert build_concept_universe("존재하지않는신조어테마") is None
+    monkeypatch.setattr(cu, "_EQUITY_CACHE", None)
 
 
 def test_learned_anchor_hop_decay_and_pending_excluded(tmp_path, monkeypatch):
     """'bts 관련주' 시나리오 — 학습 앵커의 직접 verified(출처 기반 점수) + verified 개념
     1홉 경유(원장 점수 × 감쇠)를 병합하고 심볼별 최고 점수만 남긴다. pending은 불참."""
+    import engine.concept_universe as cu
+
+    monkeypatch.setattr(cu, "_EQUITY_PATH", tmp_path / "no-equity.json")
+    monkeypatch.setattr(cu, "_EQUITY_CACHE", None)
     lexicon = tmp_path / "term_lexicon.json"
     lexicon.write_text(json.dumps({
         "bts": {"term": "BTS", "sector": "미디어/엔터",
@@ -99,3 +111,62 @@ def test_learned_anchor_hop_decay_and_pending_excluded(tmp_path, monkeypatch):
     assert "228670" not in by_symbol
 
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_equity_hop_brings_shareholder_with_decay(tmp_path, monkeypatch):
+    """지분 관계 회사 홉(FR-STR-072b) — DART 타법인출자현황 엣지로 유니버스 종목의
+    주주가 ×0.7 감쇠로 편입된다('넷마블=하이브 지분 9.2%' 실측 시나리오). 저점수
+    부모(0.6×0.7=0.42)는 기본 임계 미만이라 완화 단계에서만 나타난다(자기 제한)."""
+    import engine.concept_universe as cu
+
+    lexicon = tmp_path / "term_lexicon.json"
+    lexicon.write_text(json.dumps({
+        "빅히트뮤직": {"term": "빅히트뮤직", "sector": "미디어/엔터",
+                  "edges": [{"type": "related_to", "target": "kpop-agency",
+                             "support": 4, "status": "verified"}]},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    equity = tmp_path / "kg-equity-edges.json"
+    equity.write_text(json.dumps({
+        "version": 1, "edges": [
+            {"source": "company:251270", "type": "invests_in",
+             "target": "company:352820", "ratio": 9.2,
+             "note": "하이브 지분 9.2% 보유(사업보고서 타법인출자현황 2025)"},
+        ],
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(cu, "_EQUITY_PATH", equity)
+    monkeypatch.setattr(cu, "_EQUITY_CACHE", None)
+
+    result = build_concept_universe("빅히트뮤직 관련주")
+    by_symbol = {s["symbol"]: s for s in result["stocks"]}
+    # 하이브(0.8075) 주주 넷마블 → 0.8075 × 0.7 = 0.565 (임계 이상)
+    assert "251270" in by_symbol
+    assert abs(by_symbol["251270"]["score"] - round(0.95 * 0.85 * 0.7, 4)) < 1e-9
+    assert "주주(공시 근거)" in by_symbol["251270"]["reason"]
+    assert "9.2%" in by_symbol["251270"]["reason"]
+
+    monkeypatch.setattr(cu, "_EQUITY_CACHE", None)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+
+def test_manual_edge_note_becomes_reason(tmp_path, monkeypatch):
+    """콘솔 수동 엣지(FR-STR-070b ⑦) — 로더가 note를 그래프로 운반하고,
+    concept universe가 그 근거 문구를 이유로 표시한다(점수는 시드 최소 등급 0.70)."""
+    lexicon = tmp_path / "term_lexicon.json"
+    lexicon.write_text(json.dumps({
+        "빅히트뮤직": {"term": "빅히트뮤직", "sector": "미디어/엔터",
+                  "edges": [{"type": "related_company", "target": "company:309960",
+                             "target_name": "LB인베스트먼트", "status": "verified",
+                             "proposed_by": "manual", "note": "하이브 초기 투자사"}]},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    result = build_concept_universe("빅히트뮤직 관련주")
+    by_symbol = {s["symbol"]: s for s in result["stocks"]}
+    assert by_symbol["309960"]["score"] == 0.70
+    assert by_symbol["309960"]["reason"] == "하이브 초기 투자사"
+
+    monkeypatch.setattr(kg, "_CACHED", None)

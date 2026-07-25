@@ -50,7 +50,15 @@ export async function GET() {
   return NextResponse.json({ terms })
 }
 
-// PATCH: 학습 데이터 검토 작업 — approveEdge | rejectEdge | deleteTerm
+// 수동 엣지에 허용하는 관계 유형 — 백엔드 학습 엣지 허용 목록(_LEARNED_EDGE_TYPES)
+// + 관련 기업/지분 관계. 백엔드 KG 로더가 EDGE_TYPES·정본 심볼로 재검증하므로
+// 여기 검증은 UX용 1차 게이트다(목록 밖 유형·엉뚱한 타깃은 그래프에 합성되지 않음).
+const MANUAL_EDGE_TYPES = [
+  'related_company', 'related_to', 'is_a', 'part_of', 'belongs_to',
+  'uses', 'supplier', 'competitor', 'invests_in',
+]
+
+// PATCH: 학습 데이터 검토 작업 — approveEdge | rejectEdge | deleteTerm | addEdge
 export async function PATCH(request: NextRequest) {
   const admin = await requireAdmin()
   if (!admin) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
@@ -81,6 +89,41 @@ export async function PATCH(request: NextRequest) {
       before: entry,
     })
     return NextResponse.json({ ok: true })
+  }
+
+  if (action === 'addEdge') {
+    // 수동 엣지 추가(FR-STR-070b ⑦) — 검색·공시가 모두 놓치는 롱테일 관계
+    // (예: 'LB인베스트먼트=하이브 초기 투자사')를 관리자가 근거와 함께 직접 편입한다.
+    // 관리자 행위 자체가 사람 검증이므로 즉시 verified — 감사 로그에 남는다.
+    const { target, type, targetName, note } = body ?? {}
+    if (typeof target !== 'string' || !target || typeof type !== 'string' || !type) {
+      return NextResponse.json({ error: 'target and type are required' }, { status: 400 })
+    }
+    if (!MANUAL_EDGE_TYPES.includes(type)) {
+      return NextResponse.json({ error: `Unsupported edge type: ${type}` }, { status: 400 })
+    }
+    const edges: any[] = Array.isArray(entry.edges) ? entry.edges : []
+    if (edges.some((e) => e?.target === target && e?.type === type)) {
+      return NextResponse.json({ error: 'Edge already exists' }, { status: 409 })
+    }
+    const edge: Record<string, unknown> = {
+      type,
+      target,
+      target_name: typeof targetName === 'string' && targetName ? targetName : target,
+      status: 'verified',
+      proposed_by: 'manual',
+      evidence: [],
+    }
+    if (typeof note === 'string' && note.trim()) edge.note = note.trim()
+    entry.edges = [...edges, edge]
+    await writeLexicon(lexicon)
+    await writeAuditLog(admin, {
+      action: 'knowledge.addEdge',
+      targetType: 'edge',
+      targetId: `${key} -${type}→ ${target}`,
+      after: edge,
+    })
+    return NextResponse.json({ ok: true, edge })
   }
 
   if (action === 'approveEdge' || action === 'rejectEdge') {

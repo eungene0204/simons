@@ -13,10 +13,17 @@ interface LearnedEdge {
   type: string
   target: string
   target_name: string
-  support: number
+  support?: number // 수동 등록(proposed_by=manual) 엣지엔 출처 수가 없다
   status: 'verified' | 'pending' | 'rejected'
   evidence: string[]
+  proposed_by?: string
 }
+
+// 수동 엣지 관계 유형 — 라우트 MANUAL_EDGE_TYPES와 동일 목록(백엔드 로더가 재검증)
+const MANUAL_EDGE_TYPES = [
+  'related_company', 'related_to', 'is_a', 'part_of', 'belongs_to',
+  'uses', 'supplier', 'competitor', 'invests_in',
+]
 
 interface LearnedTerm {
   key: string
@@ -40,6 +47,85 @@ const SUB_TABS = [
 ] as const
 
 type SubTabId = (typeof SUB_TABS)[number]['id']
+
+// 수동 엣지 추가(FR-STR-070b ⑦) — 검색·공시가 모두 놓치는 롱테일 관계를 근거와 함께
+// 직접 편입한다(예: 'LB인베스트먼트=하이브 초기 투자사'). 관리자 행위=사람 검증이라
+// 즉시 verified. 타깃은 company:<종목코드> 또는 그래프 개념 id. 모듈 레벨 정의 —
+// 부모 안에 정의하면 렌더마다 새 컴포넌트 타입이 돼 입력 중 리마운트된다(아래 관례).
+function AddEdgeForm({ termKey, busy, onSubmit }: {
+  termKey: string
+  busy: boolean
+  onSubmit: (p: Record<string, unknown>) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [type, setType] = useState('related_company')
+  const [target, setTarget] = useState('')
+  const [targetName, setTargetName] = useState('')
+  const [note, setNote] = useState('')
+  if (!open) {
+    return (
+      <button
+        disabled={busy}
+        onClick={() => setOpen(true)}
+        className="rounded-lg border border-white/10 px-2.5 py-1 text-[11px] font-bold text-gray-400 hover:bg-white/5 hover:text-gray-200 disabled:opacity-50"
+      >
+        + 수동 엣지 추가
+      </button>
+    )
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-black/20 p-2">
+      <select
+        value={type}
+        onChange={(e) => setType(e.target.value)}
+        className="rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-[11px] font-bold text-gray-200"
+      >
+        {MANUAL_EDGE_TYPES.map((v) => (
+          <option key={v} value={v}>{v}</option>
+        ))}
+      </select>
+      <input
+        value={target}
+        onChange={(e) => setTarget(e.target.value)}
+        placeholder="타깃 (company:309960 또는 개념 id)"
+        className="w-56 rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-[11px] font-bold text-gray-200 placeholder:text-gray-600"
+      />
+      <input
+        value={targetName}
+        onChange={(e) => setTargetName(e.target.value)}
+        placeholder="표시명 (예: LB인베스트먼트)"
+        className="w-40 rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-[11px] font-bold text-gray-200 placeholder:text-gray-600"
+      />
+      <input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="근거 (예: 하이브 초기 투자사)"
+        className="w-64 rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-[11px] font-bold text-gray-200 placeholder:text-gray-600"
+      />
+      <button
+        disabled={busy || !target.trim()}
+        onClick={async () => {
+          await onSubmit({
+            action: 'addEdge', key: termKey, type,
+            target: target.trim(), targetName: targetName.trim(), note: note.trim(),
+          })
+          setOpen(false)
+          setTarget(''); setTargetName(''); setNote('')
+        }}
+        className="rounded-lg bg-emerald-500/10 px-2.5 py-1 text-[11px] font-bold text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-50"
+      >
+        추가
+      </button>
+      <button
+        disabled={busy}
+        onClick={() => setOpen(false)}
+        className="rounded-lg px-2 py-1 text-[11px] font-bold text-gray-500 hover:text-gray-300"
+      >
+        취소
+      </button>
+    </div>
+  )
+}
 
 export default function KnowledgeTab() {
   const [subTab, setSubTab] = useState<SubTabId>('review')
@@ -148,6 +234,7 @@ export default function KnowledgeTab() {
               용어 삭제
             </button>
           </div>
+          <AddEdgeForm termKey={t.key} busy={busy} onSubmit={patch} />
           {t.edges.length > 0 && (
             <ul className="space-y-1.5">
               {t.edges.map((e) => (
@@ -161,7 +248,9 @@ export default function KnowledgeTab() {
                   <span className={`rounded-full px-2 py-0.5 text-[11px] ${STATUS_LABEL[e.status].cls}`}>
                     {STATUS_LABEL[e.status].label}
                   </span>
-                  <span className="text-[11px] text-gray-500">출처 {e.support}개</span>
+                  <span className="text-[11px] text-gray-500">
+                    {e.proposed_by === 'manual' ? '수동 등록' : `출처 ${e.support ?? 0}개`}
+                  </span>
                   {e.status !== 'verified' && (
                     <button
                       disabled={busy}

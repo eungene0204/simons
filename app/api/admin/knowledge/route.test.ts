@@ -98,6 +98,29 @@ describe("/api/admin/knowledge", () => {
     expect(writeAuditLog).toHaveBeenCalledWith(admin, expect.objectContaining({ action: "knowledge.deleteTerm" }));
   });
 
+  it("addEdge는 수동 verified 엣지를 근거와 함께 추가한다 (FR-STR-070b ⑦)", async () => {
+    requireAdmin.mockResolvedValue(admin);
+    const res = await PATCH(patchReq({
+      action: "addEdge", key: "cowos", type: "related_company",
+      target: "company:309960", targetName: "LB인베스트먼트", note: "하이브 초기 투자사",
+    }));
+    expect(res.status).toBe(200);
+    const added = readLexicon().cowos.edges.at(-1);
+    expect(added).toMatchObject({
+      type: "related_company", target: "company:309960", target_name: "LB인베스트먼트",
+      status: "verified", proposed_by: "manual", note: "하이브 초기 투자사",
+    });
+    expect(added.support).toBeUndefined(); // 출처 수 없음 — UI는 '수동 등록' 표기
+    expect(writeAuditLog).toHaveBeenCalledWith(admin, expect.objectContaining({ action: "knowledge.addEdge" }));
+  });
+
+  it("addEdge는 중복 (type,target)·미허용 유형·필수 누락을 거절한다", async () => {
+    requireAdmin.mockResolvedValue(admin);
+    expect((await PATCH(patchReq({ action: "addEdge", key: "cowos", type: "related_to", target: "hbm" }))).status).toBe(409);
+    expect((await PATCH(patchReq({ action: "addEdge", key: "cowos", type: "recommends", target: "hbm" }))).status).toBe(400);
+    expect((await PATCH(patchReq({ action: "addEdge", key: "cowos", type: "related_to" }))).status).toBe(400);
+  });
+
   it("없는 용어·엣지·액션은 각각 404/404/400", async () => {
     requireAdmin.mockResolvedValue(admin);
     expect((await PATCH(patchReq({ action: "deleteTerm", key: "없는키" }))).status).toBe(404);

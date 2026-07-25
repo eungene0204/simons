@@ -39,7 +39,10 @@ _NAVER_ENDPOINT = "https://naverapihub.apigw.ntruss.com/search/v1/{kind}"
 _SEARCH_TIMEOUT_S = 5
 # 뉴스는 8건 — 관련 기업 엣지의 verified 승격(서로 다른 출처 2건 교차지지)이 가능하려면
 # 같은 기업이 복수 기사에 등장할 표본이 필요하다(4건에선 전부 pending로 끝나는 실측).
-_MAX_SNIPPETS = 16
+# '수혜주' 쿼리 추가(2026-07-25): '관련주' 기사 표본만으론 리콜이 부족하던 실측
+# (BTS 학습 시 넷마블(하이브 주주) 미포착 — 스니펫은 제목+요약 2줄이라 본문 종목
+# 나열이 잘린다). 쿼리를 늘려 표본을 넓히되 링크 dedupe로 교차지지 이중 계산은 없다.
+_MAX_SNIPPETS = 24
 _NEWS_DISPLAY = 8
 
 # chat은 기존 공유 파서 관례와 동일: (system_prompt, user_msg, *, max_tokens) -> str
@@ -100,8 +103,22 @@ def _naver_search_one(query: str, kind: str, display: int = 4) -> Optional[list[
     ]
 
 
+def _dedupe_snippets(snippets: list[dict]) -> list[dict]:
+    """링크 기준 중복 제거(순서 보존) — 같은 기사가 복수 쿼리에 잡혀도 출처 교차지지
+    (evidence 링크 집합)가 부풀지 않게 한다. 링크 없는 스니펫은 제목으로 근사."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for s in snippets:
+        key = s.get("link") or s.get("title", "")
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(s)
+    return out
+
+
 def _default_search(term: str) -> Optional[list[dict]]:
-    """백과사전(정의) + 뉴스('관련주' 동반 언급 기업) + 웹문서(산업 문맥) 3쿼리.
+    """백과사전(정의) + 뉴스('관련주'·'수혜주' 동반 언급 기업) + 웹문서(산업 문맥) 4쿼리.
 
     전부 실패하면 None(캐시 금지 신호). 뉴스 쿼리는 테마와 함께 언급되는 상장사를
     수집하는 용도(FR-STR-071 — 관련 기업 엣지 학습의 원천 데이터)."""
@@ -109,10 +126,12 @@ def _default_search(term: str) -> Optional[list[dict]]:
         return None
     encyc = _naver_search_one(term, "encyc")
     news = _naver_search_one(f"{term} 관련주", "news", display=_NEWS_DISPLAY)
+    news2 = _naver_search_one(f"{term} 수혜주", "news", display=_NEWS_DISPLAY)
     web = _naver_search_one(f"{term} 산업", "webkr")
-    if encyc is None and news is None and web is None:
+    if encyc is None and news is None and news2 is None and web is None:
         return None
-    return ((encyc or []) + (news or []) + (web or []))[:_MAX_SNIPPETS]
+    merged = (encyc or []) + (news or []) + (news2 or []) + (web or [])
+    return _dedupe_snippets(merged)[:_MAX_SNIPPETS]
 
 
 # ─── 어휘집(검색 결과 영속 캐시) ─────────────────────────────────────────────────

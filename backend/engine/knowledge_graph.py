@@ -397,7 +397,9 @@ def _build() -> KnowledgeGraph:
             edge = {"source": node_id, "type": e["type"], "target": target}
             # 테마 유니버스 조회가 그래프 단일 경로로 동작하도록 학습 엣지의 출처 지지 수·
             # 뉴스 최초 보도일을 함께 실어 나른다(FR-STR-071 읽기 경로 통합).
-            for extra in ("support", "first_known_date"):
+            # note는 콘솔 수동 엣지(FR-STR-070b ⑦)의 근거 문구 — concept_universe가
+            # 이유(reason)로 표시한다(자동 학습 엣지엔 note가 없다).
+            for extra in ("support", "first_known_date", "note"):
                 if e.get(extra) is not None:
                     edge[extra] = e[extra]
             edges.append(edge)
