@@ -3473,102 +3473,52 @@ def detect_unresolved_sector_clarification(
 #  · 업종 칩은 기존 섹터 어휘(_extract_sector)로 재해석된다.
 _THEME_UNIVERSE_CUE_RE = re.compile(r"관련|테마")
 _THEME_COMPANY_CHIP_MAX = 10
-# Phase 2(FR-STR-070) 공급망 확장 칩 — 직접 관련 종목+깊이 2 확장분 합계 상한.
-# 초과 시 확장분을 잘라 맞춘다(칩은 종목명 나열로 재파싱되므로 무한정 길 수 없다).
-_THEME_EXPANDED_CHIP_MAX = 15
-# via 경로("데이터센터 –requires→ 전력기기 –produced_by→ HD현대일렉트릭")에서
-# 노드 이름들만 분리하는 구분자 — expand()의 화살표 표기(–type→ / ←type–)와 일치.
-_VIA_ARROW_RE = re.compile(r"\s*(?:–[a-z_]+→|←[a-z_]+–)\s*")
 
 
-def _via_hop_label(via: str) -> str:
-    """via 경로에서 중간 개념명만 뽑아 근거 요약을 만든다('전력기기' 등). 직접 연결은 빈 문자열."""
-    parts = [p for p in _VIA_ARROW_RE.split(via or "") if p]
-    return "·".join(parts[1:-1])
+def apply_theme_universe(parsed: ParsedStrategy, user_prompt: str = "") -> Optional[str]:
+    """테마와 사업적 관련이 검증된 상장사를 대상 종목으로 자동 설정한다(FR-STR-071 ④ 개정).
 
+    'bts 관련 종목'은 업종 근사(미디어/엔터 전체)가 아니라 관련 검증 종목 제한이 문자
+    그대로의 해석이다. 종전엔 '이 종목들로만 vs 업종 전체' 되묻기였으나 사용자 결정
+    (2026-07-25)으로 자동 적용으로 전환 — 질문 없이 target_symbols를 설정하고, 무엇이
+    어떤 근거로 설정됐는지는 비차단 notices로 투명하게 알린다(침묵 적용 방지 — 목록·
+    출처 유형·시점 정보 표시는 객관적 관계 데이터이며 추천이 아니다).
 
-def detect_theme_universe_clarification(
-    parsed: ParsedStrategy, user_prompt: str = ""
-) -> tuple[Optional[str], Optional[List[str]]]:
-    """테마와 '함께 언급된 것으로 학습·검증된' 상장사가 있으면 대상 범위를 되묻는다(FR-STR-071).
-
-    '마운자로 관련주'는 업종 근사(바이오/제약 전체)보다 관련 종목 제한이 문자 그대로의
-    해석이지만, 검색 학습 목록은 오늘 기준 정보라 자동 적용하지 않는다 — 출처 교차 확인된
-    목록과 시점 편향 경고를 함께 제시하고 사용자가 고른다(객관적 관계 데이터 표시, 추천
-    아님). 종목이 이미 지정됐거나 테마 큐(관련/테마)가 없으면 침묵한다."""
+    업종 근사(sector)는 해제한다 — 관련 종목엔 타업종(넷마블=플랫폼, 신세계=유통)이
+    포함되므로 sector 필터가 남으면 방금 설정한 종목을 도로 걸러낸다(빌더 확정 경로와
+    동일 계약). 종목이 이미 지정됐거나 테마 큐(관련/테마)가 없으면 침묵한다.
+    반환: 안내 notice 문구 | None(미적용)."""
     if getattr(parsed, "target_symbols", None):
-        return (None, None)
+        return None
     # 큐리스 복합 테마구("반도체 소부장 종목")는 그 자체가 테마 의도 신호 — 큐와 동급으로 인정.
     if not (_THEME_UNIVERSE_CUE_RE.search(_compact(user_prompt))
             or _compound_theme_hint(user_prompt) is not None):
-        return (None, None)
-    from engine.knowledge_graph import theme_listed_companies
+        return None
+    # 학습 앵커는 Concept Universe(FR-STR-072) 확장 뷰로 조회한다 — 직접 학습 엣지 몇 건이
+    # 컨셉 유니버스를 대표하지 못하던 'bts 관련 종목' 사고 2차(2026-07-25) 배선.
+    from engine.knowledge_graph import theme_backtest_companies
 
     try:
-        theme = theme_listed_companies(user_prompt)
+        theme = theme_backtest_companies(user_prompt)
     except Exception:  # noqa: BLE001 — 테마 조회 실패가 파싱을 막으면 안 된다
-        return (None, None)
+        return None
     if theme is None:
-        return (None, None)
+        return None
     companies = theme["companies"][:_THEME_COMPANY_CHIP_MAX]
     names = ", ".join(c["name"] for c in companies)
     first_date = theme.get("first_known_date")
-    question = (
-        f"'{theme['term']}'와(과) 함께 언급된 것으로 확인된 상장사 {len(companies)}곳이 "
-        f"있어요(검색 출처 교차 확인): {names}. "
-        "이 종목들로만 백테스트할까요, 아니면 업종 전체로 할까요?"
+    parsed.target_symbols = [c["symbol"] for c in companies]
+    parsed.sector = None
+    notice = (
+        f"'{theme['term']}' 관련으로 확인된 상장사 {len(companies)}곳을 대상 종목으로 "
+        f"설정했어요(등록 관계·공시·검색 출처 근거): {names}."
     )
     if first_date:
-        question += (
-            f" 참고로 이 목록은 {first_date} 이후 확인된 정보예요 — 그 이전 구간까지 "
-            "백테스트하면 당시에는 알 수 없던 정보를 미리 반영하는 편향이 생길 수 있어요."
+        notice += (
+            f" 이 목록은 {first_date} 이후 확인된 정보예요 — 그 이전 구간의 결과에는 "
+            "당시 알 수 없던 정보가 반영되는 시점 편향이 있을 수 있어요."
         )
-    symbols_chip = f"{names} 종목 전체를 함께 백테스트"
-    if first_date:
-        symbols_chip = f"{names} 종목 전체를 함께 {first_date[:4]}년부터 백테스트"
-    sector = getattr(parsed, "sector", None)
-    if isinstance(sector, list):  # 다중 섹터(리스트)면 칩은 첫 섹터로(재파싱 가능한 형태 유지)
-        sector = sector[0] if sector else None
-    sector_chip = (
-        f"{sector} 업종 전체로 백테스트" if sector else "업종 상관없이 전체 시장으로 백테스트"
-    )
-    chips = [symbols_chip, sector_chip]
-
-    # Phase 2(FR-STR-070) — 공급망 확장 제안: related_universe 깊이 2가 직접 관련
-    # 종목 밖의 상장사(공급망·인프라)에 닿으면 세 번째 선택지로 제시한다. 관계 근거
-    # (via의 중간 개념)는 질문 본문에 요약 표시하고, 칩은 기존 계약대로 종목명
-    # 나열('관련주/테마' 단어 금지 — TARGET 가드)로 만들어 재파싱되게 한다.
-    # 확장은 객관적 관계 데이터의 표시이며 추천이 아니다 — 선택은 사용자가 한다.
-    try:
-        from engine.knowledge_graph import related_universe
-
-        expansion = related_universe(user_prompt)
-    except Exception:  # noqa: BLE001 — 확장 조회 실패가 기존 되묻기를 막으면 안 된다
-        expansion = None
-    if expansion:
-        direct_symbols = {c["symbol"] for c in companies}
-        added = [c for c in expansion["companies"] if c["symbol"] not in direct_symbols]
-        added = added[: max(0, _THEME_EXPANDED_CHIP_MAX - len(companies))]
-        if added:
-            added_desc = ", ".join(
-                f"{c['name']}({label})" if (label := _via_hop_label(c.get("via", ""))) else c["name"]
-                for c in added[:5]
-            )
-            more = f" 외 {len(added) - 5}곳" if len(added) > 5 else ""
-            question += (
-                f" 관계 그래프상 공급망·인프라 기업까지 넓히면 {len(companies) + len(added)}곳이에요"
-                f" — 추가: {added_desc}{more}."
-            )
-            all_names = ", ".join(
-                [c["name"] for c in companies] + [c["name"] for c in added]
-            )
-            expanded_chip = f"{all_names} 종목 전체를 함께 백테스트"
-            if first_date:
-                expanded_chip = (
-                    f"{all_names} 종목 전체를 함께 {first_date[:4]}년부터 백테스트"
-                )
-            chips.append(expanded_chip)
-    return (question, chips)
+    return notice
 
 
 # 종목명 오타 되묻기 — 흔한 조사(뒤에 붙어 자모거리를 벌리는)를 벗겨 근접 매칭 정확도를 올린다.

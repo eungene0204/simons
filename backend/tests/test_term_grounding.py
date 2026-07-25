@@ -461,11 +461,11 @@ def test_company_edges_learned_from_snippets_with_first_known_date(tmp_path, mon
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
 
 
-def test_theme_universe_clarification_chip_roundtrip(tmp_path, monkeypatch):
-    """테마 관련 상장사 되묻기(FR-STR-071) — 질문·칩 구성과 칩 왕복 재해석 계약.
+def test_theme_universe_auto_applied_with_notice(tmp_path, monkeypatch):
+    """테마 관련 검증 상장사 자동 적용(FR-STR-071 ④ 개정, 사용자 결정 2026-07-25).
 
-    종목 칩은 '종목 전체를 함께'(모호성 되묻기 억제)+'YYYY년부터'(시점 편향 가드)를
-    포함해야 하고, 지정 종목·시작일로 결정적으로 재해석돼야 한다."""
+    되묻기 없이 target_symbols를 설정하고 업종 근사를 해제하며, 목록·근거·시점 정보를
+    notice로 돌려준다. pending 엣지는 불참, 테마 큐 없음·종목 기지정 시 침묵."""
     import engine.knowledge_graph as kg
 
     lexicon = tmp_path / "lex.json"
@@ -486,41 +486,27 @@ def test_theme_universe_clarification_chip_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
     monkeypatch.setattr(kg, "_CACHED", None)
 
-    from engine.nl_parser import (
-        ParsedStrategy,
-        _extract_backtest_dates,
-        _extract_target_symbols,
-        detect_symbol_ambiguity,
-        detect_theme_universe_clarification,
-    )
+    from engine.nl_parser import ParsedStrategy, apply_theme_universe
 
     parsed = ParsedStrategy.model_validate({
         "description": "위고비 관련주 전략", "universe": ["KOSPI", "KOSDAQ"],
         "sector": "바이오/제약",
     })
-    question, chips = detect_theme_universe_clarification(parsed, "위고비 관련주 전략을 만들어보자")
-    assert question is not None and "2024-03-05" in question  # 시점 편향 경고 포함
-    assert chips is not None and len(chips) == 2
-    assert "삼성전자, 카카오" in chips[0] and "2024년부터" in chips[0]
-    assert "SK하이닉스" not in chips[0]  # pending 제외
-    assert "바이오/제약 업종 전체로" in chips[1]
+    notice = apply_theme_universe(parsed, "위고비 관련주 전략을 만들어보자")
+    assert notice is not None
+    assert "대상 종목으로 설정했어요" in notice
+    assert "2024-03-05" in notice  # 시점 편향 고지(비차단)
+    assert set(parsed.target_symbols) == {"005930", "035720"}  # pending(SK하이닉스) 불참
+    assert parsed.sector is None  # 업종 근사 해제(대상=종목 목록)
 
-    # 칩 왕복 ①: 종목 칩 → 지정 종목 + 명시적 시작일로 결정적 재해석
-    refs = _extract_target_symbols(chips[0])
-    assert refs is not None and {r.symbol for r in refs} == {"005930", "035720"}
-    start, end = _extract_backtest_dates(chips[0])
-    assert start == "2024-01-01" and end is None
-
-    # 칩 왕복 ②: '전체를 함께' 집합 의도 발화는 다종목 모호성 되묻기를 억제
-    multi = parsed.model_copy(update={"target_symbols": ["005930", "035720"]})
-    assert detect_symbol_ambiguity(multi, chips[0]) == (None, None)
-    # 집합 의도 없는 다종목 발화는 기존대로 되묻는다(FR-STR-068 계약 유지)
-    q_ambig, _ = detect_symbol_ambiguity(multi, "삼성전자 카카오 백테스트")
-    assert q_ambig is not None
-
-    # 게이트: 테마 큐 없는 발화·이미 종목이 지정된 경우엔 침묵
-    assert detect_theme_universe_clarification(parsed, "PER 10 이하 매수") == (None, None)
-    assert detect_theme_universe_clarification(multi, "위고비 관련주") == (None, None)
+    # 게이트: 테마 큐 없는 발화·이미 종목이 지정된 경우엔 침묵(미적용)
+    fresh = ParsedStrategy.model_validate({
+        "description": "전략", "universe": ["KOSPI"], "sector": "바이오/제약",
+    })
+    assert apply_theme_universe(fresh, "PER 10 이하 매수") is None
+    assert fresh.target_symbols == [] and fresh.sector == "바이오/제약"
+    already = fresh.model_copy(update={"target_symbols": ["005930"]})
+    assert apply_theme_universe(already, "위고비 관련주") is None
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
 
 

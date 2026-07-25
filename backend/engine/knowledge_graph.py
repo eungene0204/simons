@@ -477,6 +477,53 @@ def theme_listed_companies(text: str) -> Optional[dict]:
     return {"term": anchor.get("name"), "companies": companies, "first_known_date": first}
 
 
+def theme_backtest_companies(text: str) -> Optional[dict]:
+    """백테스트 대상 제안용 테마 상장사 — 되묻기(FR-STR-071)·빌더 전용 확장 뷰.
+
+    theme_listed_companies(정밀 목록 — 직접 엣지 우선, 이웃 개념 희석 금지)를 기본으로
+    하되, 학습 앵커는 Concept Universe(FR-STR-072) 결정론 선정으로 확장한다 — 'bts 관련
+    종목' 사고 2차(2026-07-25): 직접 학습 엣지 2곳(신세계·하이브)만으로는 컨셉 유니버스를
+    대표하지 못했다(기획사 1홉·지분 관계 전부 누락). 기본 임계(0.5) 이상 선정만 싣는다 —
+    최소 크기 완화 편입(score<0.5)을 백테스트 대상 제안에 섞지 않는다. 시드·카탈로그
+    앵커는 큐레이션 직접 엣지가 유니버스 정의라 확장하지 않는다(지분 홉 노이즈 차단 —
+    HBM 되묻기에 지주·계열 편입 방지). first_known_date는 직접 학습 엣지의 뉴스 보도일을
+    심볼 매칭으로 이월해 시점 편향 경고를 유지한다."""
+    base = theme_listed_companies(text)
+    graph = get_graph()
+    concepts = graph.find_concepts(text)
+    anchor = concepts[0] if concepts else None
+    if anchor is None or anchor.get("category") != "learned":
+        return base
+    try:
+        from engine.concept_universe import BASE_THRESHOLD, build_concept_universe
+
+        universe = build_concept_universe(text)
+    except Exception:  # noqa: BLE001 — 유니버스 빌더 실패가 테마 되묻기를 막으면 안 된다
+        return base
+    if not universe:
+        return base
+    picked = [s for s in universe["stocks"] if s["score"] >= BASE_THRESHOLD]
+    if not picked:
+        return base
+    direct = {c["symbol"]: c for c in (base["companies"] if base else [])}
+    companies = [
+        {
+            "symbol": s["symbol"],
+            "name": s["name"],
+            "support": direct.get(s["symbol"], {}).get("support", 1),
+            "first_known_date": direct.get(s["symbol"], {}).get("first_known_date"),
+        }
+        for s in picked
+    ]
+    dates = sorted(c["first_known_date"] for c in companies if c["first_known_date"])
+    first = (
+        dates[0] if dates
+        else (base or {}).get("first_known_date")
+        or ((anchor.get("searched_at") or "")[:10] or None)
+    )
+    return {"term": anchor.get("name"), "companies": companies, "first_known_date": first}
+
+
 def related_universe(text: str, max_depth: int = 2) -> Optional[dict]:
     """문장 속 개념을 찾아 관련 섹터·상장기업·ETF·개념을 관계 근거(via)와 함께 펼친다.
 

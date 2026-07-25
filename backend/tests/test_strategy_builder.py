@@ -590,29 +590,21 @@ def learned_theme_graph(tmp_path, monkeypatch):
     kg._CACHED = None
 
 
-def test_theme_companies_reask_then_symbol_universe(learned_theme_graph):
-    """그라운딩/그래프가 테마 관련 상장사를 알면 업종 확정 대신 '종목만 vs 업종 전체'를
-    되묻고, '이 종목들로만'이면 지정 종목 목록으로 확정된다(유니버스 질문 생략,
-    시점 편향 가드로 학습 시점 이후만 백테스트)."""
+def test_theme_companies_auto_confirmed_as_symbol_universe(learned_theme_graph):
+    """그라운딩/그래프가 테마 관련 상장사를 알면 되묻기 없이 지정 종목으로 즉시 확정한다
+    (FR-STR-071b ④ 개정, 사용자 결정 2026-07-25 — 업종 근사 해제·유니버스 질문 생략·
+    시작일 클램프 없음)."""
     state = sb.seed_state("반도체 소부장 전략을 만들자")
-    # 시드가 이미 학습된 테마를 결정적으로 인식(그래프 경유) — 되묻기 후보까지 챙긴다.
-    assert state.sector == "반도체"
-    assert state.theme_candidates and state.theme_term == "반도체 소부장"
+    # 시드가 학습된 테마를 결정적으로 인식하고 즉시 확정한다(되묻기 폐지).
+    assert state.theme_symbols == ["005290", "240810"]
+    assert state.theme_label == "동진쎄미켐, 원익IPS"
+    assert state.sector is None  # 업종 근사 해제(대상=종목 목록)
 
     first = sb.step(state, "")
-    assert "이 종목들로만 백테스트할까요" in first.reply
-    assert "동진쎄미켐" in first.reply and "원익IPS" in first.reply
-    assert "2020" in first.reply  # 시점 편향 고지
-    assert first.suggestions and "이 종목들로만 백테스트" in first.suggestions[0]
+    assert "백테스트할까요" not in (first.reply or "")  # 되묻기 없음
+    assert sb.required_missing(first.state) != "universe"  # 시장 질문 생략
 
-    second = sb.step(first.state, "이 종목들로만 백테스트")
-    st = second.state
-    assert st.theme_symbols == ["005290", "240810"]
-    assert st.sector is None  # 업종 근사 해제(대상=종목 목록)
-    assert "동진쎄미켐, 원익IPS 종목만 대상" in second.reply
-    assert sb.required_missing(st) != "universe"  # 시장 질문 생략
-
-    r = second
+    r = first
     for answer in ("모멘텀", "3개월", "2종목", "매월", "10% 손절"):
         r = sb.step(r.state, answer)
     assert r.status == "confirmed"
@@ -620,22 +612,12 @@ def test_theme_companies_reask_then_symbol_universe(learned_theme_graph):
     parsed = sb.build_parsed_strategy(r.state)
     assert parsed.target_symbols == ["005290", "240810"]
     assert parsed.sector is None
-    assert parsed.backtest_start_date == "2020-03-01"
+    # 시작일 클램프 없음 — 목록 확인 시점으로 백테스트를 조용히 자르지 않는다.
+    assert parsed.backtest_start_date is None
 
 
-def test_theme_reask_sector_choice_keeps_sector(learned_theme_graph):
-    """되묻기에서 '업종 전체'를 고르면 업종 근사를 유지하고 종목 제한 없이 진행한다."""
-    state = sb.seed_state("반도체 소부장 전략을 만들자")
-    first = sb.step(state, "")
-    second = sb.step(first.state, "반도체 업종 전체로 백테스트")
-    st = second.state
-    assert st.theme_symbols is None and st.theme_candidates is None
-    assert st.sector == "반도체"
-    assert sb.required_missing(st) == "universe"  # 시장 질문은 정상 진행
-
-
-def test_theme_reask_fires_after_grounding_resolution(tmp_path, monkeypatch):
-    """첫 발화(미학습)는 resolver(그라운딩)가 학습을 마친 뒤 같은 스텝에서 되묻는다."""
+def test_theme_auto_confirm_after_grounding_resolution(tmp_path, monkeypatch):
+    """첫 발화(미학습)도 resolver(그라운딩)가 학습을 마치면 같은 스텝에서 즉시 확정한다."""
     import json as _json
 
     from engine import knowledge_graph as kg
@@ -663,9 +645,9 @@ def test_theme_reask_fires_after_grounding_resolution(tmp_path, monkeypatch):
         state = sb.seed_state("반도체 소부장 전략을 만들자")
         assert state.sector_unresolved is True
         first = sb.step(state, "", sector_resolver=resolver)
-        assert "이 종목들로만 백테스트할까요" in first.reply
-        assert first.state.sector == "반도체"  # 업종 근사도 함께 보존(업종 전체 선택 대비)
-        assert first.state.theme_candidates == [{"symbol": "005290", "name": "동진쎄미켐"}]
+        assert "백테스트할까요" not in (first.reply or "")  # 되묻기 없음
+        assert first.state.theme_symbols == ["005290"]
+        assert first.state.sector is None  # 업종 근사 해제(대상=종목 목록)
     finally:
         kg._CACHED = None
 

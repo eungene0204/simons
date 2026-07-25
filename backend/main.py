@@ -2960,13 +2960,13 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     """
     from engine.nl_parser import (
         apply_single_asset_adjustments,
+        apply_theme_universe,
         build_unsupported_concept_notice,
         detect_etf_factor_conflict,
         detect_incomplete_backtest_conditions,
         detect_missing_entry_clarification,
         detect_symbol_ambiguity,
         detect_symbol_typo_clarification,
-        detect_theme_universe_clarification,
         detect_unresolved_sector_clarification,
         enforce_strategy_minimums,
         synthesize_risk_overrides,
@@ -2976,6 +2976,12 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 설정값 하한선 보정 — 비현실적 입력(초기자금 300원·0일 보유·3일 모멘텀·0% 손절 등)을
     # 자동 보정/제거하고 사용자에게 안내한다(모든 파싱 경로 공통).
     notices = enforce_strategy_minimums(parsed)
+    # 테마 관련 검증 상장사 자동 적용(FR-STR-071 ④ 개정, 사용자 결정 2026-07-25) —
+    # 되묻기 없이 target_symbols를 설정하고 근거·시점 정보를 비차단 notices로 알린다.
+    # DSL 변환(to_backtest_request) 전에 실행해야 지정 종목 모드로 심볼이 해석된다.
+    theme_notice = apply_theme_universe(parsed, request.prompt)
+    if theme_notice:
+        notices.append(theme_notice)
     # 지정 종목(단일 종목) 백테스트: 청산 조건 누락을 추천 기본값/안내로 보정한다(FR-STR-068).
     # 조용한 임의 실행 방지 — 무엇이 추천 적용됐는지 notices로 알린다.
     parsed, single_asset_notices = apply_single_asset_adjustments(parsed)
@@ -3025,16 +3031,9 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 미해결 업종 되묻기를 최우선으로 둔다 — 종목 범위(유니버스/섹터)가 진입 조건보다 먼저
     # 정해져야 하고, 조용한 전체 시장 강등을 막는다.
     clarification_question, clarification_suggestions = sector_reask_q, sector_reask_s
-    # 테마 관련 상장사 되묻기(FR-STR-071) — 학습·검증된 '함께 언급 상장사'가 있으면 업종
-    # 근사 대신 종목 제한 여부를 시점 편향 경고와 함께 묻는다. 유니버스 범위 질문이므로
-    # 인터프리터의 조건 질문이 덮어쓰지 않도록 우선순위를 표시한다(apply_primary_meta 가드).
+    # 테마 관련 상장사는 이제 되묻지 않고 자동 적용된다(apply_theme_universe — FR-STR-071
+    # ④ 개정). clarification_priority 필드는 응답 스키마 호환으로 유지한다(항상 None).
     clarification_priority = None
-    if clarification_question is None:
-        clarification_question, clarification_suggestions = detect_theme_universe_clarification(
-            parsed, request.prompt
-        )
-        if clarification_question is not None:
-            clarification_priority = "theme_universe"
     # 종목명 오타로 지정 종목을 잃었으면 '혹시 이 종목?'을 먼저 되묻는다 — 조용히 전체 시장으로
     # 진행하지 않도록, 진입 조건보다 앞서 종목 범위를 확정한다(자모 근접 매칭, 자동 치환 아님).
     if clarification_question is None:
@@ -3053,8 +3052,9 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
             parsed, request.prompt
         )
     # 여러 종목이 함께 지정된 경우 임의 선택하지 않고 되묻는다(그대로 진행 시 전체 테스트).
-    # '전체를 함께'처럼 집합 의도가 명시된 발화(테마 종목 칩 왕복 등)는 되묻지 않는다.
-    if clarification_question is None:
+    # '전체를 함께'처럼 집합 의도가 명시된 발화는 되묻지 않으며, 테마 자동 적용이 설정한
+    # 다종목(theme_notice)은 발화에 종목명이 없어 큐도 없다 — 집합 의도가 자명하므로 제외.
+    if clarification_question is None and not theme_notice:
         clarification_question, clarification_suggestions = detect_symbol_ambiguity(
             parsed, request.prompt
         )

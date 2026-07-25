@@ -277,6 +277,53 @@ def test_theme_companies_via_verified_concept_hop(tmp_path, monkeypatch):
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
 
 
+def test_theme_backtest_companies_expands_learned_anchor(tmp_path, monkeypatch):
+    """'bts 관련 종목' 사고 2차(2026-07-25) — 직접 verified 엣지가 몇 건 있어도 학습 앵커의
+    백테스트 제안 목록(theme_backtest_companies)은 Concept Universe(FR-STR-072, 기본 임계
+    이상)로 확장된다. 정밀 목록(theme_listed_companies)의 기존 계약(직접 엣지 우선·이웃
+    개념 희석 금지)은 그대로 유지되고, 직접 학습 엣지의 뉴스 보도일은 확장 뷰에 이월된다."""
+    import engine.concept_universe as cu
+    from engine.knowledge_graph import theme_backtest_companies, theme_listed_companies
+
+    monkeypatch.setattr(cu, "_EQUITY_PATH", tmp_path / "no-equity.json")
+    monkeypatch.setattr(cu, "_EQUITY_CACHE", None)
+    lexicon = tmp_path / "term_lexicon.json"
+    lexicon.write_text(json.dumps({
+        "빅히트뮤직": {"term": "빅히트뮤직", "sector": "미디어/엔터",
+                  "searched_at": "2026-07-25T10:10:03+00:00",
+                  "edges": [
+                      {"type": "related_to", "target": "kpop-agency",
+                       "support": 4, "status": "verified"},
+                      {"type": "related_company", "target": "company:004170",
+                       "target_name": "신세계", "support": 1, "status": "verified",
+                       "first_known_date": "2026-06-11"},
+                  ]},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    # 정밀 목록: 직접 verified 엣지만(기존 계약 불변)
+    listed = theme_listed_companies("빅히트뮤직 관련주")
+    assert {c["symbol"] for c in listed["companies"]} == {"004170"}
+    # 백테스트 제안 목록: 직접 + verified 개념 1홉(기획사) 확장 — 컨셉 유니버스 대표성
+    result = theme_backtest_companies("빅히트뮤직 관련주")
+    symbols = {c["symbol"] for c in result["companies"]}
+    assert {"004170", "352820", "041510"} <= symbols  # 신세계 + 하이브·에스엠(1홉)
+    # 직접 학습 엣지의 뉴스 보도일 이월 → 시점 편향 경고 유지
+    assert result["first_known_date"] == "2026-06-11"
+
+    monkeypatch.setattr(kg, "_CACHED", None)
+    monkeypatch.setattr(cu, "_EQUITY_CACHE", None)
+
+
+def test_theme_backtest_companies_keeps_seed_anchor_curated():
+    """시드 앵커(HBM)는 확장하지 않는다 — 큐레이션 직접 엣지가 유니버스 정의이며,
+    지분 홉 노이즈(지주·계열 편입)가 되묻기에 섞이면 안 된다."""
+    from engine.knowledge_graph import theme_backtest_companies, theme_listed_companies
+
+    assert theme_backtest_companies("HBM 관련주") == theme_listed_companies("HBM 관련주")
+
+
 def test_scan_index_includes_learned_terms_seed_wins_on_collision(tmp_path, monkeypatch):
     """읽기 경로 통합(2026-07-25) — 학습 용어도 그래프 스캔 인덱스에 포함돼 find_concepts·
     resolve_sector_from_text가 어휘집 별도 스캔 없이 해석한다. 같은 용어가 시드에도 있으면

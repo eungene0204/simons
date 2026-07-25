@@ -226,6 +226,43 @@ function createParseStreamResponseWithNonConditionClarification() {
   );
 }
 
+function createParseStreamResponseWithThemeUniverseReask() {
+  const encoder = new TextEncoder();
+  const parsed = {
+    ...incompleteParsedStrategy,
+    universe: [],
+    fundamental_filters: [],
+    sector: "미디어/엔터",
+  };
+  const themeQuestion =
+    "'BTS'와(과) 사업적 관련 근거가 확인된 상장사 3곳이 있어요(등록 관계·공시·검색 출처 근거): " +
+    "하이브, 에스엠, 넷마블. 이 종목들로만 백테스트할까요, 아니면 업종 전체로 할까요?";
+  const payload = [
+    `data: ${JSON.stringify({
+      type: "parsed_final",
+      parsed,
+      clarification_question: themeQuestion,
+      clarification_suggestions: [
+        "하이브, 에스엠, 넷마블 종목 전체를 함께 2026년부터 백테스트",
+        "미디어/엔터 업종 전체로 백테스트",
+      ],
+      clarification_priority: "theme_universe",
+    })}\n\n`,
+    `data: ${JSON.stringify({ type: "dsl_ready", backtest_request: incompleteBacktestRequest, symbol_count: 3 })}\n\n`,
+    "data: [DONE]\n\n",
+  ].join("");
+
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(payload));
+        controller.close();
+      },
+    }),
+    { status: 200 }
+  );
+}
+
 function createParseStreamResponseMissingRebalancing() {
   const encoder = new TextEncoder();
   const parsed = {
@@ -519,6 +556,52 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(compiledParsed.fundamental_filters).toEqual(
       incompleteParsedStrategy.fundamental_filters,
     );
+  });
+
+  it("테마 유니버스 되묻기(theme_universe)는 명시 설정 게이트가 삼키지 않고 먼저 보여준다", async () => {
+    // 'bts 관련 종목 전략' 사고(2026-07-25): 백엔드가 컨셉 종목 제한 되묻기를 보냈는데
+    // 프론트 explicit 게이트의 시장 질문이 이를 덮어써 업종 전체로 강등되던 회귀 가드.
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+      if (url === "/api/user") {
+        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+      }
+      if (url === "/api/query/classify") {
+        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+      }
+      if (url === "/api/strategy/parse/stream") {
+        return Promise.resolve(createParseStreamResponseWithThemeUniverseReask());
+      }
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "bts 관련 종목 전략" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    expect(
+      await screen.findByText(/이 종목들로만 백테스트할까요, 아니면 업종 전체로 할까요/),
+    ).toBeInTheDocument();
+    // 컨셉 종목 제한 칩과 업종 전체 칩이 함께 제시된다
+    expect(
+      screen.getByRole("button", {
+        name: "하이브, 에스엠, 넷마블 종목 전체를 함께 2026년부터 백테스트",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "미디어/엔터 업종 전체로 백테스트" }),
+    ).toBeInTheDocument();
+    // explicit 게이트의 시장 질문이 테마 되묻기를 덮어쓰면 안 된다
+    expect(
+      screen.queryByText("먼저 어떤 시장·종목을 대상으로 할지 정해볼까요?"),
+    ).not.toBeInTheDocument();
   });
 
   it("조건 슬롯이 완성된 전략의 종목 명확화는 전략 빌더로 보내지 않는다", async () => {

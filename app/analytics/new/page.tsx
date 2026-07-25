@@ -2121,7 +2121,19 @@ function StrategyLabContent() {
         prompt: promptContext,
         requireExplicitConfiguration: true,
       });
-      let presentedClarification = explicitMissingCondition
+      // 테마 유니버스 되묻기(FR-STR-071/072)는 유니버스 범위를 정하는 선행 결정이라
+      // explicit 설정 게이트의 시장 질문보다 먼저 보여준다 — 게이트가 이 질문을 삼키면
+      // 컨셉 종목 제한("bts 관련 종목") 선택지가 영영 사라지고 업종 전체로 강등된다.
+      const themeUniverseReask =
+        parsedPayload.clarification_priority === "theme_universe" &&
+        parsedPayload.clarification_question
+          ? {
+              question: parsedPayload.clarification_question as string,
+              suggestions: (parsedPayload.clarification_suggestions ?? []) as string[],
+              missingCondition: null,
+            }
+          : null;
+      let presentedClarification = themeUniverseReask ?? (explicitMissingCondition
         ? {
             question: explicitMissingCondition.question,
             suggestions: explicitMissingCondition.suggestions,
@@ -2132,7 +2144,7 @@ function StrategyLabContent() {
             parsed: nextParsed,
             backendQuestion: parsedPayload.clarification_question,
             backendSuggestions: parsedPayload.clarification_suggestions,
-          });
+          }));
       if (
         explicitNoRebalancingRef.current &&
         presentedClarification?.missingCondition?.field === "rebalancing"
