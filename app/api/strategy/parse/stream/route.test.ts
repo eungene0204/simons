@@ -261,6 +261,33 @@ describe("POST /api/strategy/parse/stream", () => {
     expect(order.indexOf("parsed_updated")).toBeGreaterThan(order.indexOf("dsl_ready"));
   });
 
+  it("parsed_final은 테마 되묻기 우선순위 마커(clarification_priority)를 보존한다", async () => {
+    // 프록시 화이트리스트에서 이 필드가 빠지면 프론트의 theme_universe 우선 게이트가
+    // 되묻기를 인식하지 못해 explicit 설정 질문(시장)이 덮어쓴다 — 'bts 관련 종목'이
+    // 업종 전체로 강등되던 실측 사고(2026-07-25). FR-STR-071 ⑤ 우선순위 계약의 프록시 구간.
+    fetchBackend.mockResolvedValueOnce(
+      sseBackendResponse(
+        backendResultEvents({
+          parsed: { description: "bts 관련 종목 투자 전략", universe: ["KOSPI", "KOSDAQ"] },
+          backtest_request: { strategy_id: "h", symbols: ["352820"], symbol_count: 1 },
+          clarification_question: "이 종목들로만 백테스트할까요, 아니면 업종 전체로 할까요?",
+          clarification_suggestions: ["이 종목들로만 백테스트", "업종 전체로 백테스트"],
+          clarification_priority: "theme_universe",
+        })
+      )
+    );
+
+    const response = await POST(makeRequest({ prompt: "bts 관련 종목 투자 전략" }));
+    const events = await readEvents(response);
+    const parsedFinal = events
+      .map((e) => (e === "[DONE]" ? null : JSON.parse(e)))
+      .find((e) => e?.type === "parsed_final");
+    expect(parsedFinal).toMatchObject({
+      clarification_priority: "theme_universe",
+      clarification_question: "이 종목들로만 백테스트할까요, 아니면 업종 전체로 할까요?",
+    });
+  });
+
   it("forwards backend parse errors as SSE error events", async () => {
     fetchBackend.mockResolvedValueOnce({
       ok: false,

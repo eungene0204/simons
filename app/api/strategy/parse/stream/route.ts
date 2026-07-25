@@ -136,6 +136,10 @@ export async function POST(req: NextRequest) {
             parsed: data.parsed,
             clarification_question: data.clarification_question ?? null,
             clarification_suggestions: data.clarification_suggestions ?? null,
+            // 우선순위 마커가 빠지면 프론트의 theme_universe 우선 게이트가 되묻기를
+            // 인식하지 못해 explicit 설정 질문(시장)이 덮어쓴다 — 'bts 관련 종목'이
+            // 업종 전체로 강등되던 실측 사고(2026-07-25, 프록시 화이트리스트 누락).
+            clarification_priority: data.clarification_priority ?? null,
             risk_overrides: data.risk_overrides ?? null,
             notices: data.notices ?? null,
           });
