@@ -1,0 +1,96 @@
+{
+  "concept": {
+    "id": "nuclear",
+    "canonical_name": "원자력",
+    "canonical_name_en": "Nuclear Power",
+    "abbreviation": "",
+    "aliases": ["원전"],
+    "definition": "핵분열 반응을 이용해 전력을 생산하는 발전 방식. 원전 설계·주기기 제작·계측·정비 등 전 주기 밸류체인이 있다.",
+    "investment_context": "국내에서는 원전 설계·주기기·계측기 제조사뿐 아니라, 국내 전 원전의 정비를 전담하는 정비 전문사도 별도 상장돼 있다.",
+    "industry": ["에너지/원자력"],
+    "related_keywords": ["원전", "SMR", "원전 정비", "원전 수출"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "두산에너빌리티",
+      "ticker": "034020",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "unspecified",
+      "relevance_score": null,
+      "reason": "2026-07-24 IKG 시드 최초 배치에서 편입(원전 주기기) — 이번 감사에서 별도 재조사는 하지 않음.",
+      "business_evidence": "",
+      "verified": true,
+      "sources": []
+    },
+    {
+      "company_name": "한전기술",
+      "ticker": "052690",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "unspecified",
+      "relevance_score": null,
+      "reason": "2026-07-24 IKG 시드 최초 배치에서 편입(원전 설계) — 이번 감사에서 별도 재조사는 하지 않음.",
+      "business_evidence": "",
+      "verified": true,
+      "sources": []
+    },
+    {
+      "company_name": "우진",
+      "ticker": "105840",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "unspecified",
+      "relevance_score": null,
+      "reason": "2026-07-24 IKG 시드 최초 배치에서 편입(원전 계측기) — 이번 감사에서 별도 재조사는 하지 않음.",
+      "business_evidence": "",
+      "verified": true,
+      "sources": []
+    },
+    {
+      "company_name": "한전KPS",
+      "ticker": "051600",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 87,
+      "reason": "한국전력이 전액출자한 발전설비 정비 전문사로 1978년 고리 원전 정비를 시작으로 국내 모든 원전의 정비 사업을 담당한다(정비기술 자립, 1990년대 원자력정비기술센터 설립). 2026년 상반기 매출 비중 기준 원자력발전소 정비가 34%를 차지하는 공식 확인된 핵심 사업부다. 해외 노후 원전 정비 시장으로도 확장 중.",
+      "business_evidence": "2026 상반기 매출 비중: 화력정비 42%, 원자력정비 34%, 해외 9%. 국내 전 원전 정비 담당(독점적 지위).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "비즈니스포스트",
+          "document_title": "한전KPS 원전 정비사업으로 독자 해외진출 모색, 실적 개선에 성장성도 더해",
+          "document_type": "news",
+          "url": "https://www.businesspost.co.kr/BP?command=article_view&num=410334",
+          "evidence": "2026 상반기 매출 비중(원자력 34%)·해외 진출 현황"
+        },
+        {
+          "source_name": "한전KPS",
+          "document_title": "발전설비정비(수화력, 원자력) — 주요사업",
+          "document_type": "corporate_website",
+          "url": "https://www.kps.co.kr/about/about_05_01.do",
+          "evidence": "원자력발전소 정비가 공식 핵심 사업임을 명시"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 3,
+    "recommended_backtest_universe": ["034020", "052690", "105840", "051600"]
+  },
+  "researched_at": "2026-07-24",
+  "audit_updated_at": "2026-07-25",
+  "audit_note": "이 원장은 2026-07-25 지식그래프 누락 연결 감사(배치 2)에서 처음 작성됐다. 두산에너빌리티·한전기술·우진 3종은 2026-07-24 IKG 최초 시드 배치에서 이미 편입된 항목으로, 이번 감사에서 출처·점수를 재조사하지 않아 unspecified/verified=true(사전 편입 사실)로만 표시한다. 신규 편입된 한전KPS만 이번 감사에서 실제 검증했다."
+}

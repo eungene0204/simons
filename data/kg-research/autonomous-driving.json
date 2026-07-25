@@ -1,0 +1,87 @@
+{
+  "concept": {
+    "id": "autonomous-driving",
+    "canonical_name": "자율주행",
+    "canonical_name_en": "Autonomous Driving",
+    "abbreviation": "ADAS",
+    "aliases": ["자율주행차", "ADAS", "자율주행 기술"],
+    "definition": "센서(카메라·레이더·라이다)와 소프트웨어로 차량이 스스로 주행 환경을 인지·판단·제어하는 기술. 완성차 자체가 아니라 ADAS(첨단 운전자 보조 시스템) 부품·소프트웨어 공급사의 사업과 연결된다.",
+    "investment_context": "완성차(자동차 섹터)와 별개로, ADAS 부품 공급이 주력이거나 전담 조직을 분리 설립한 부품사가 핵심 투자 대상이다.",
+    "industry": ["자동차부품"],
+    "related_keywords": ["ADAS", "라이다", "레이더", "HD맵", "HL클레무브"],
+    "sources": []
+  },
+  "related_etfs": [
+    {
+      "name": "KODEX 자율주행액티브",
+      "ticker": "385520",
+      "country": "KR",
+      "issuer": "삼성자산운용",
+      "theme_reason": "자율주행 테마 액티브 ETF, 추종지수 FnGuide K-미래차 지수(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    },
+    {
+      "name": "TIGER 글로벌자율주행&전기차SOLACTIVE",
+      "ticker": "394660",
+      "country": "KR",
+      "issuer": "미래에셋자산운용",
+      "theme_reason": "글로벌 자율주행·전기차 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    },
+    {
+      "name": "ACE 글로벌자율주행액티브",
+      "ticker": "414270",
+      "country": "KR",
+      "issuer": "한국투자신탁운용",
+      "theme_reason": "글로벌 자율주행 액티브 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    }
+  ],
+  "stocks": [
+    {
+      "company_name": "현대모비스",
+      "ticker": "012330",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "ADAS 부품을 2천만 건 이상 공급한 경험을 바탕으로 자율주행 센서·소프트웨어를 자체 개발한다. 다만 회사 전체는 자동차 부품 종합기업이라 자율주행이 유일 사업은 아니다.",
+      "business_evidence": "ADAS 부품 2천만 건 이상 공급 경험, 자율주행 솔루션 자체 개발.",
+      "verified": true,
+      "sources": []
+    },
+    {
+      "company_name": "HL만도",
+      "ticker": "204320",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 82,
+      "reason": "2021년 ADAS 사업부문과 만도헬라일렉트로닉스(MHE)를 통합해 자율주행 전문 조직 HL클레무브를 출범시켰다(HL만도는 샤시 전동화, HL클레무브는 자율주행 부품·모빌리티 서비스 집중). 2026 상반기 매출 4.67조원(전년 대비 9.8%↑), 신사업 매출을 현재 4000억원에서 2030년 2조4000억원으로 키울 계획이다.",
+      "business_evidence": "HL클레무브 출범(2021, ADAS+MHE 통합), 2026 상반기 매출 4.67조원, 신사업(자율주행 포함) 확장 계획.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "뉴스포스트",
+          "document_title": "HL만도, 시험대 오른 車 부품 사업…모빌리티 솔루션·로봇 상용화 과제",
+          "document_type": "news",
+          "url": "https://www.newspost.kr/news/articleView.html?idxno=216516",
+          "evidence": "HL클레무브 출범 배경, 2026 상반기 실적, 신사업 확장 계획"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 2,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["012330", "204320"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "누락 연결 감사에서 이어진 신규 Concept 편입(Part B, 사용자 승인 배치). judal 카탈로그의 '자율주행' 테마(34종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다."
+}

@@ -1,0 +1,77 @@
+{
+  "concept": {
+    "id": "advertising",
+    "canonical_name": "광고",
+    "canonical_name_en": "Advertising",
+    "abbreviation": "",
+    "aliases": ["광고 대행", "광고업"],
+    "definition": "브랜드 광고 기획·집행을 대행하는 산업.",
+    "investment_context": "국내 광고 시장은 대기업 계열 광고대행사(삼성 계열 제일기획, 현대차 계열 이노션 등)가 상위권을 차지한다.",
+    "industry": ["미디어/엔터"],
+    "related_keywords": ["광고대행사", "취급액", "그룹 계열 광고사"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "제일기획",
+      "ticker": "030000",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 75,
+      "reason": "삼성 계열 광고대행사로 korea-stocks.json 등록 업종 자체가 광고업이며, 2024년 기준 국내 10대 광고회사 중 취급액 1위다. 미국 시장에서도 5년간 매출총이익이 4배 증가하는 등 해외 성장세가 뚜렷하나, 최신(2026) 공식 매출 수치는 확인하지 못해 Strong으로 분류한다.",
+      "business_evidence": "등록 업종=광고업, 국내 10대 광고회사 취급액 1위(2024), 미국 시장 매출총이익 5년간 4배 성장.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "서울경제",
+          "document_title": "美 에서 질주하는 K광고...제일기획은 5년간 매출총이익 4배 증가",
+          "document_type": "news",
+          "url": "https://www.sedaily.com/article/20033035",
+          "evidence": "미국 시장 성장세, 광고대행사 사업 구조"
+        },
+        {
+          "source_name": "뉴데일리경제",
+          "document_title": "2024년 10대 광고회사 취급액 21조4610억원… 제일기획",
+          "document_type": "news",
+          "url": "https://biz.newdaily.co.kr/site/data/html/2025/04/23/2025042300467.html",
+          "evidence": "제일기획 국내 광고회사 취급액 1위"
+        }
+      ]
+    },
+    {
+      "company_name": "이노션",
+      "ticker": "214320",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 72,
+      "reason": "현대차 계열 광고대행사로 등록 업종 자체가 광고업이며, 국내 상위 4대 광고대행사에 속한다. 최신(2026) 공식 매출 수치는 확인하지 못해 Strong으로 분류한다.",
+      "business_evidence": "등록 업종=광고업, 국내 상위 4대 광고대행사(현대차 계열).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "뉴데일리경제",
+          "document_title": "2024년 10대 광고회사 취급액 21조4610억원… 제일기획",
+          "document_type": "news",
+          "url": "https://biz.newdaily.co.kr/site/data/html/2025/04/23/2025042300467.html",
+          "evidence": "이노션 국내 상위 4대 광고회사"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 0,
+    "strong_stock_count": 2,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["030000", "214320"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 5(2026-07-25, \"계속 진행\"). judal 카탈로그의 '광고' 테마(22종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다. 두 회사 다 최신 매출 공시 근거는 못 찾았으나 등록 업종 자체가 광고업이라는 정본 분류로 뒷받침."
+}

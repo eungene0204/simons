@@ -1,0 +1,145 @@
+{
+  "concept": {
+    "id": "robot-humanoid",
+    "canonical_name": "휴머노이드 로봇",
+    "canonical_name_en": "Humanoid Robot",
+    "abbreviation": "",
+    "aliases": ["휴머노이드", "휴머노이드로봇", "인간형 로봇"],
+    "definition": "인간과 유사한 형태로 이족보행·양팔 작업이 가능한 로봇. 제조 현장 자동화·가사 지원 등으로 응용이 확대되고 있다.",
+    "investment_context": "국내에서는 로봇 전문 제조사의 직접 개발뿐 아니라, 완성차·전자 대기업이 지분 인수·핵심 부품(액추에이터) 공급으로 진입하는 사례가 있다.",
+    "industry": ["로봇"],
+    "related_keywords": ["휴머노이드", "이족보행 로봇", "협동로봇", "피지컬 AI", "액추에이터"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "레인보우로보틱스",
+      "ticker": "277810",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "unspecified",
+      "relevance_score": null,
+      "reason": "2026-07-24 IKG 시드 최초 배치에서 편입(collaborative-robot 조사원장 기준 Strong 72 — 협동로봇 RB 시리즈 생산, 휴머노이드는 창업 기원(KAIST HUBO 계보) 사업이나 이번 감사에서 별도 재조사는 하지 않음).",
+      "business_evidence": "",
+      "verified": true,
+      "sources": []
+    },
+    {
+      "company_name": "두산로보틱스",
+      "ticker": "454910",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "unspecified",
+      "relevance_score": null,
+      "reason": "2026-07-24 IKG 시드 최초 배치에서 편입 — 이번 감사에서 별도 재조사는 하지 않음.",
+      "business_evidence": "",
+      "verified": true,
+      "sources": []
+    },
+    {
+      "company_name": "뉴로메카",
+      "ticker": "348340",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "unspecified",
+      "relevance_score": null,
+      "reason": "2026-07-24 IKG 시드 최초 배치에서 편입 — 이번 감사에서 별도 재조사는 하지 않음.",
+      "business_evidence": "",
+      "verified": true,
+      "sources": []
+    },
+    {
+      "company_name": "현대자동차",
+      "ticker": "005380",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Investor",
+      "relevance": "Strong",
+      "relevance_score": 78,
+      "reason": "보스턴다이내믹스 지분 100% 확보(2021년 소프트뱅크로부터 80% 인수에 1조원 투자, 2026-07 소프트뱅크의 잔여 지분 풋옵션 행사로 완전 인수) — 아틀라스 로봇을 2028년 부품 서열작업, 2030년 조립까지 생산현장에 실전 투입할 로드맵을 공식 발표했고 '피지컬 AI 전략'의 핵심으로 명시했다. 다만 보스턴다이내믹스는 미국 법인으로 로봇 매출이 현대차 국내 재무제표에 별도 세그먼트로 잡히지 않아 Producer가 아닌 Investor로 분류한다.",
+      "business_evidence": "2021년 지분 80% 인수(1조원), 2026-07 잔여 20% 인수로 100% 확보, 아틀라스 2026 FIFA 월드컵 하프타임 실전 시연, 2028~2030 생산현장 투입 로드맵 공식 발표.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "뉴스핌",
+          "document_title": "현대차, 보스턴다이내믹스 지분 100% 확보…아틀라스 사업화 가속",
+          "document_type": "news",
+          "url": "https://www.newspim.com/news/view/20260716000872",
+          "evidence": "소프트뱅크 잔여 지분 20% 인수로 100% 확보, 아틀라스 사업화 로드맵"
+        },
+        {
+          "source_name": "서울경제",
+          "document_title": "현대차그룹, 보스턴다이내믹스 지분 100% 확보...피지컬 AI 상용화 가속",
+          "document_type": "news",
+          "url": "https://www.sedaily.com/article/20068511",
+          "evidence": "2021년 80% 인수 이력, '피지컬 AI 전략' 명시"
+        }
+      ]
+    },
+    {
+      "company_name": "삼성전자",
+      "ticker": "005930",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Investor",
+      "relevance": "Strong",
+      "relevance_score": 78,
+      "reason": "2023년 유상증자로 레인보우로보틱스 지분 취득을 시작해 2024-12-31 기준 지분 35.0%까지 확대, 기존 2대 주주에서 최대주주로 등극했고 레인보우로보틱스는 삼성전자 연결재무제표상 종속회사로 편입됐다. 회계상 연결 편입은 공식 재무제표 공시 사실이라 근거 강도가 높다.",
+      "business_evidence": "2023-01 유상증자 참여(589억원, 약 10.3%), 2024-12-31 지분 35.0%로 최대주주 등극, 연결재무제표 종속회사 편입.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "헤럴드경제",
+          "document_title": "삼성전자, 레인보우로보틱스 최대주주로",
+          "document_type": "news",
+          "url": "https://biz.heraldcorp.com/article/10333179",
+          "evidence": "지분 35.0%로 최대주주 등극, 연결재무제표 자회사 편입"
+        }
+      ]
+    },
+    {
+      "company_name": "LG전자",
+      "ticker": "066570",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Supplier",
+      "relevance": "Strong",
+      "relevance_score": 70,
+      "reason": "로봇 원가의 40% 이상을 차지하는 핵심 구동계(액추에이터)를 직접 설계·생산해 글로벌 로봇 제조사에 B2B로 공급하는 사업을 공식화했다(류재철 LG전자 사장 발표, '2026년 로봇 사업 본격화 원년'). CES 2026에서 NVIDIA Jetson Thor 기반 자체 휴머노이드 '클로이드'도 시연했으나 기술검증(PoC) 단계로 매출 견인 전이다.",
+      "business_evidence": "액추에이터 B2B 공급 사업 공식화(2026), CES 2026 휴머노이드 '클로이드' 시연(PoC 단계, 미출시).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "더페어",
+          "document_title": "LG전자 \"2026년은 로봇 사업 본격화 원년\"",
+          "document_type": "news",
+          "url": "https://www.thefairnews.co.kr/news/articleView.html?idxno=72209",
+          "evidence": "액추에이터 직접 설계·생산해 글로벌 로봇 제조사에 공급"
+        },
+        {
+          "source_name": "한경비즈니스",
+          "document_title": "조용하던 LG의 반격…'가전명가' 벗고 로봇 밸류체인 완성",
+          "document_type": "news",
+          "url": "https://magazine.hankyung.com/business/article/202604165236b",
+          "evidence": "CES 2026 휴머노이드 '클로이드' 시연, PoC 단계"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 0,
+    "strong_stock_count": 3,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 3,
+    "recommended_backtest_universe": ["277810", "454910", "348340", "005380", "005930", "066570"]
+  },
+  "researched_at": "2026-07-24",
+  "audit_updated_at": "2026-07-25",
+  "audit_note": "이 원장은 2026-07-25 지식그래프 누락 연결 감사(사용자 요청 — 현대차-로봇 미연결 발견)에서 처음 작성됐다. 레인보우로보틱스·두산로보틱스·뉴로메카 3종은 2026-07-24 IKG 최초 시드 배치에서 이미 편입된 항목으로, 이번 감사에서 출처·점수를 재조사하지 않아 unspecified/verified=true(사전 편입 사실)로만 표시한다. 신규 편입된 현대자동차·삼성전자·LG전자만 이번 감사에서 실제 검증했다."
+}

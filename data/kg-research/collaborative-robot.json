@@ -119,6 +119,34 @@
           "evidence": "협동로봇 RB 시리즈 공식 제품 라인업"
         }
       ]
+    },
+    {
+      "company_name": "현대위아",
+      "ticker": "011210",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 68,
+      "reason": "모빌리솔루션사업부를 신설해 최대 15kg 페이로드의 협동로봇을 자체 개발, CES 2026에서 주차로봇·물류로봇과 함께 시연했다. 사업부 신설·시제품 시연 단계로 양산·매출은 아직 공식 확인되지 않아 Strong으로 분류한다.",
+      "business_evidence": "모빌리솔루션사업부 신설, 협동로봇(최대 15kg) 자체 개발, CES 2026 시연. 물류로봇(ARM·Picking)·필드로봇 등으로 확장 계획.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "로봇신문",
+          "document_title": "현대위아, 스마트팩토리ㆍ로봇에서 미래 비전 모색",
+          "document_type": "news",
+          "url": "https://www.irobotnews.com/news/articleView.html?idxno=25741",
+          "evidence": "모빌리솔루션사업부·협동로봇 개발 현황"
+        },
+        {
+          "source_name": "위키트리",
+          "document_title": "현대위아, 열관리·로봇 인재 확보 나선다",
+          "document_type": "news",
+          "url": "https://www.wikitree.co.kr/articles/1135423",
+          "evidence": "모바일 로봇·협동 로봇 개발 인력 채용 확대"
+        }
+      ]
     }
   ],
   "excluded_candidates": [
@@ -129,10 +157,11 @@
   ],
   "summary": {
     "core": 2,
-    "strong": 1,
+    "strong": 2,
     "moderate": 0,
     "weak": 0,
     "unverified": 0,
-    "recommended_backtest_universe": ["454910", "348340", "277810"]
-  }
+    "recommended_backtest_universe": ["454910", "348340", "277810", "011210"]
+  },
+  "audit_updated_at": "2026-07-25"
 }

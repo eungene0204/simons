@@ -1,0 +1,114 @@
+{
+  "concept": {
+    "id": "gaming",
+    "canonical_name": "게임",
+    "canonical_name_en": "Gaming",
+    "abbreviation": "",
+    "aliases": ["게임업", "게임산업", "온라인 게임", "모바일 게임"],
+    "definition": "온라인·모바일 게임을 개발·서비스하는 산업.",
+    "investment_context": "국내 게임 상장사는 게임 개발·퍼블리싱이 사업 전부인 경우가 많고, 글로벌 흥행작이 실적을 좌우한다.",
+    "industry": ["소프트웨어/플랫폼"],
+    "related_keywords": ["퍼블리싱", "IP", "글로벌 흥행", "리니지", "PUBG"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "크래프톤",
+      "ticker": "259960",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 92,
+      "reason": "PUBG(배틀그라운드) 등 게임 개발·서비스가 사업 전부다. 2026년 1분기 매출 1조3,714억원·영업이익 5,616억원으로 국내 게임사 중 영업이익 1위를 기록했다.",
+      "business_evidence": "2026 1분기 매출 1조3,714억원·영업이익 5,616억원(역대 최대 성과).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "뉴스1",
+          "document_title": "돈 잘 버는 K게임, 비결은 글로벌…매출은 넥슨, 영업익은 크래프톤",
+          "document_type": "news",
+          "url": "https://www.news1.kr/it-science/game-review/6168273",
+          "evidence": "2026 1분기 크래프톤 영업이익 1위"
+        },
+        {
+          "source_name": "EBN",
+          "document_title": "1Q 게임사 성적표 보니…매출 1등 넥슨·이익 1등 크래프톤",
+          "document_type": "news",
+          "url": "https://www.ebn.co.kr/news/articleView.html?idxno=1708923",
+          "evidence": "2026 1분기 실적 비교"
+        }
+      ]
+    },
+    {
+      "company_name": "NC",
+      "ticker": "036570",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 88,
+      "reason": "리니지 시리즈가 핵심 사업(舊 엔씨소프트, 사명 'NC'로 변경). 2026년 1분기 매출 5,574억원(전년 대비 55%↑)·영업이익 1,133억원(전분기 대비 2070%↑)으로 '리니지 클래식' 흥행에 힘입어 실적이 급반전했다.",
+      "business_evidence": "2026 1분기 매출 5,574억원·영업이익 1,133억원, 리니지 클래식 90일 누적 매출 1,924억원.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "NC 뉴스룸",
+          "document_title": "엔씨, 2026년 1분기 실적 발표",
+          "document_type": "corporate_website",
+          "url": "https://www.nc.com/newsroom/news/articles/?articleId=6a03b3dae728c75cb9d69c4a&boardLanguage=ko&locale=ko-KR",
+          "evidence": "공식 1분기 실적 발표"
+        },
+        {
+          "source_name": "데일리머니",
+          "document_title": "엔씨소프트 1분기 영업이익 1,133억 '깜짝 실적'",
+          "document_type": "news",
+          "url": "http://www.thedailymoney.com/news/articleView.html?idxno=1139960",
+          "evidence": "리니지M·리니지 클래식 매출 기여"
+        }
+      ]
+    },
+    {
+      "company_name": "넷마블",
+      "ticker": "251270",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "게임 개발·퍼블리싱이 사업 전부다. 2025년 매출 2조8,351억원·영업이익 3,525억원으로 연간·분기 모두 사상 최대 실적을 달성했다.",
+      "business_evidence": "2025년 매출 2조8,351억원·영업이익 3,525억원(사상 최대).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "청년일보",
+          "document_title": "넥슨·크래프톤, 올 1분기 '매출 1조' 양강 체제…K-게임, 체질 개선에 실적 '고공행진'",
+          "document_type": "news",
+          "url": "https://www.youthdaily.co.kr/news/article.html?no=219190",
+          "evidence": "넷마블 2025년 실적(사상 최대)"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "넥슨",
+      "reason": "매출 규모 1위(2026 1분기 1조4,201억원)이나 도쿄증권거래소 상장사로 korea-stocks.json 정본에 없어 편입 불가."
+    },
+    {
+      "company_name": "펄어비스",
+      "reason": "게임 개발사이나 이번 조사에서 구체적 최신 실적 근거를 수집하지 못함 — 재조사 대상."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 3,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["259960", "036570", "251270"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 3(2026-07-25, \"계속 진행해줘\"). judal 카탈로그의 '게임' 테마(38종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다. 넥슨은 매출 1위지만 해외(도쿄) 상장이라 가드 ①로 편입 불가 — 정본 스코프의 한계로 기록."
+}

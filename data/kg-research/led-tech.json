@@ -1,0 +1,49 @@
+{
+  "concept": {
+    "id": "led-tech",
+    "canonical_name": "LED",
+    "canonical_name_en": "Light Emitting Diode",
+    "abbreviation": "LED",
+    "aliases": ["발광다이오드", "LED 조명", "마이크로 LED", "미니 LED"],
+    "definition": "전류를 빛으로 변환하는 반도체 소자. 조명·디스플레이 백라이트·차량용 램프 등에 쓰인다.",
+    "investment_context": "국내에서는 LED 칩·패키지 제조가 전업인 전문 기업이 핵심이다.",
+    "industry": ["반도체"],
+    "related_keywords": ["LED 칩", "마이크로 LED", "차량용 LED", "UV LED"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "서울반도체",
+      "ticker": "046890",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "LED 제조·판매가 주력 사업이다. 2026년 1분기 연결 순매출 2,382억원, 2025년 연간 매출 1조135억원을 기록했다.",
+      "business_evidence": "2026 1분기 순매출 2,382억원, 2025년 연간 매출 1조135억원.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "Investing.com",
+          "document_title": "서울반도체, 2026년 1분기 실적 발표...매출 2,382억 원",
+          "document_type": "news",
+          "url": "https://kr.investing.com/news/global-filings/article-93CH-1947497",
+          "evidence": "2026 1분기 연결 순매출 공시"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["046890"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 3(2026-07-25, \"계속 진행해줘\"). judal 카탈로그의 'LED' 테마(15종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다. 1개 종목만 확정 편입(정확한 종목 우선 원칙) — 추가 후보는 재조사 대상."
+}

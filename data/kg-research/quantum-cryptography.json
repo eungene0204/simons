@@ -1,0 +1,62 @@
+{
+  "concept": {
+    "id": "quantum-cryptography",
+    "canonical_name": "양자암호통신",
+    "canonical_name_en": "Quantum Cryptography",
+    "abbreviation": "QKD",
+    "aliases": ["양자암호", "QKD", "양자키분배"],
+    "definition": "양자역학 원리(양자키분배 등)로 도청이 원천적으로 불가능한 암호 통신 기술. 양자컴퓨터(별개 개념, 연산 자체가 목적)와 달리 통신 보안이 목적이다.",
+    "investment_context": "국내에서는 통신 3사가 자체 R&D 조직과 해외 전문기업 인수로 진입했다. 국내 상장사가 직접 QKD 장비를 생산·판매하는 사례는 아직 드물다.",
+    "industry": ["통신/유틸리티"],
+    "related_keywords": ["QKD", "PQC", "양자내성암호", "양자난수생성"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "SK텔레콤",
+      "ticker": "017670",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Investor",
+      "relevance": "Strong",
+      "relevance_score": 70,
+      "reason": "세계 1위 양자암호통신 기업으로 꼽히는 스위스 IDQ(ID Quantique)를 약 700억원에 인수해 50% 이상 지분으로 1대 주주가 됐고, 자체 퀀텀테크랩을 운영하며 PQC+QKD 하이브리드 네트워크 등을 개발한다. IDQ는 해외 법인이라 매출이 국내 재무제표에 별도 세그먼트로 잡히지 않아 Investor로 분류한다.",
+      "business_evidence": "스위스 IDQ 지분 50%+ 인수(약 700억원, 1대 주주), 자체 퀀텀테크랩 운영, PQC+QKD 하이브리드 네트워크(통신망 전 구간 양자암호 적용 국내 최초 사례) 개발.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "NETMANIAS",
+          "document_title": "SK텔레콤, 세계 1위 양자암호통신 기업 'IDQ' 인수한다",
+          "document_type": "news",
+          "url": "https://netmanias.com/ko/post/operator_news/13249",
+          "evidence": "IDQ 지분 50%+ 인수(약 700억원), 1대 주주 확보"
+        },
+        {
+          "source_name": "뉴스천지",
+          "document_title": "SKT·KT '퀀텀코리아 2026'서 차세대 양자암호 기술 맞불",
+          "document_type": "news",
+          "url": "https://www.newscj.com/news/articleView.html?idxno=3413861",
+          "evidence": "PQC+QKD 하이브리드 네트워크 등 자체 기술 개발 현황"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "KT",
+      "ticker": "030200",
+      "reason": "무선 양자암호 전송 실증(2025, 대전 4.8km)·PQC 시범전환 참여 등 R&D 단계 활동은 확인되나 SK텔레콤의 IDQ 인수 같은 명확한 사업적 편입 근거(지분·인수·매출)는 확인하지 못함 — 재조사 대상."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 0,
+    "strong_stock_count": 1,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["017670"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "누락 연결 감사에서 이어진 신규 Concept 편입(Part B, 사용자 승인 배치). judal 카탈로그의 '양자암호통신' 테마(15종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다. 기존 quantum-computing(양자컴퓨터, 기업 엣지 0)과는 related_to로만 연결 — 서로 다른 응용 기술이라 is_a는 부적절."
+}

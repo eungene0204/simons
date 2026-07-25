@@ -1,0 +1,83 @@
+{
+  "concept": {
+    "id": "data-center",
+    "canonical_name": "데이터센터",
+    "canonical_name_en": "Data Center",
+    "abbreviation": "IDC",
+    "aliases": ["데이터 센터", "IDC"],
+    "definition": "서버·스토리지·네트워크 장비를 집적해 컴퓨팅 자원을 제공하는 시설. AI 학습·추론 수요 증가로 하이퍼스케일급 투자가 확대되고 있다.",
+    "investment_context": "국내 대형 IT서비스 기업이 데이터센터 설계·구축·운영(DBO) 사업으로 진입하고 있으며, 전력기기·전선 등 전력 인프라 수요와 연결된다(기존 시드 requires 엣지).",
+    "industry": ["IT 하드웨어"],
+    "related_keywords": ["IDC", "DBO", "하이퍼스케일", "AI 데이터센터", "액침냉각"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "삼성에스디에스",
+      "ticker": "018260",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 72,
+      "reason": "2025년부터 데이터센터 위탁운영(DBO) 사업에 신규 진출했고, 동탄 데이터센터에 액침냉각 시스템을 시범 적용하는 등 실제 운영 실적이 있다. 다만 회사 전체는 IT서비스(SI·클라우드)가 본업이라 데이터센터 자체 매출 비중은 공식 확인되지 않아 Strong으로 분류한다.",
+      "business_evidence": "데이터센터 DBO 사업 진출(2025), 동탄 데이터센터 액침냉각 시범 적용.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "서울경제",
+          "document_title": "[단독] 삼성SDS, 데이터센터 위탁 운영사업 진출한다",
+          "document_type": "news",
+          "url": "https://m.sedaily.com/NewsViewAmp/2K7BAHUAIF",
+          "evidence": "데이터센터 DBO 사업 신규 진출"
+        }
+      ]
+    },
+    {
+      "company_name": "LG씨엔에스",
+      "ticker": "064400",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 70,
+      "reason": "인도네시아 자카르타에 하이퍼스케일급 AI 데이터센터(약 1000억원 규모, 2026년 말 완공 목표, 수전용량 30MW→220MW 확장 계획)를 수주해 구축 중이며, 국내 데이터센터 운영 역량으로 과기정통부 표창을 받았다. 다만 회사 전체는 IT서비스가 본업이라 데이터센터 매출 비중은 공식 확인되지 않아 Strong으로 분류한다.",
+      "business_evidence": "자카르타 하이퍼스케일 AI 데이터센터 구축 수주(약 1000억원), 과기정통부 데이터센터 운영 역량 표창.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "CEOSCOREDAILY",
+          "document_title": "삼성SDS·LG CNS, AI 데이터센터 글로벌 확장…K-데이터센터, 동남아 시장 공략 본격화",
+          "document_type": "news",
+          "url": "https://m.ceoscoredaily.com/page/view/2025080616304913174",
+          "evidence": "자카르타 하이퍼스케일 데이터센터 구축 프로젝트"
+        },
+        {
+          "source_name": "보안뉴스",
+          "document_title": "LG CNS, 데이터센터 운영 역량 인정... 과기정통부 표창 수상",
+          "document_type": "news",
+          "url": "https://m.boannews.com/html/detail.html?idx=125472",
+          "evidence": "데이터센터 운영 역량 정부 표창"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "KT",
+      "ticker": "030200",
+      "reason_for_exclusion": "국내 대표 DBO 사업자는 자회사 KT클라우드이며 KT클라우드는 별도 상장돼 있지 않다(korea-stocks.json 정본 미등재) — KT 본사는 통신이 본업이라 데이터센터 직접 사업 근거로 보기엔 간접적. KT클라우드 별도 상장 시 재조사."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 0,
+    "strong_stock_count": 2,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["018260", "064400"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "이 원장은 2026-07-25 지식그래프 누락 연결 감사(배치 3)에서 처음 작성됐다. 데이터센터 개념은 2026-07-24 최초 시드 배치에 있었으나(requires→전력기기/전선, benefits_from→AI 투자 확대) 상장사 엣지가 하나도 없던 공백이었다."
+}

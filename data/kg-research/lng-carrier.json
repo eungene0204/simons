@@ -1,0 +1,91 @@
+{
+  "concept": {
+    "id": "lng-carrier",
+    "canonical_name": "LNG운반선",
+    "canonical_name_en": "LNG Carrier",
+    "abbreviation": "",
+    "aliases": ["LNG선", "LNG 운반선"],
+    "definition": "액화천연가스(LNG)를 극저온 상태로 운송하는 특수 선박. 국내 조선 3사(HD한국조선해양·한화오션·삼성중공업)가 세계 시장을 사실상 과점한다.",
+    "investment_context": "글로벌 LNG 수요 증가와 러시아산 파이프라인 가스 대체 수요로 발주가 이어지는 조선업 핵심 수주 품목.",
+    "industry": ["조선/해운"],
+    "related_keywords": ["LNG선", "LNG 화물창", "극저온 화물창", "메가야드"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "HD한국조선해양",
+      "ticker": "009540",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 88,
+      "reason": "K조선 3사 중 2026년 최대 수주목표(233억 달러)를 제시했으며, 최근 미주 선사와 초대형 LNG운반선 4척(1조4993억원) 건조 계약을 체결하는 등 LNG선이 핵심 수주 축이다. 한국의 대형 LNG선 시장 점유율은 2026년 상반기 기준 약 65%(수주잔고 기준 약 69%)에 달한다.",
+      "business_evidence": "2026-07 미주 선사 초대형 LNG운반선 4척(1조4993억원) 계약, 2026년 수주목표 233억 달러(3사 중 최대).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "서울경제",
+          "document_title": "'LNG선' 호황 누린 K조선, 반년만에 연간 수주 70% 채웠다",
+          "document_type": "news",
+          "url": "https://www.sedaily.com/article/20068641",
+          "evidence": "LNG선 수주 실적·한국 시장 점유율 65~69%"
+        }
+      ]
+    },
+    {
+      "company_name": "한화오션",
+      "ticker": "042660",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "2026년 LNG운반선 7척을 2조5891억원에 수주하는 등 LNG선이 핵심 건조 라인업이다. 2026년 수주목표 123억 달러.",
+      "business_evidence": "2026 LNG운반선 7척(2조5891억원) 수주.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "서울경제",
+          "document_title": "'LNG선' 호황 누린 K조선, 반년만에 연간 수주 70% 채웠다",
+          "document_type": "news",
+          "url": "https://www.sedaily.com/article/20068641",
+          "evidence": "한화오션 LNG운반선 7척 수주"
+        }
+      ]
+    },
+    {
+      "company_name": "삼성중공업",
+      "ticker": "010140",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "2026년 LNG운반선 4척을 1조4641억원에 추가 확보하는 등 LNG선이 핵심 건조 라인업이다. 2026년 수주목표 111억 달러.",
+      "business_evidence": "2026 LNG운반선 4척(1조4641억원) 수주.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "서울경제",
+          "document_title": "'LNG선' 호황 누린 K조선, 반년만에 연간 수주 70% 채웠다",
+          "document_type": "news",
+          "url": "https://www.sedaily.com/article/20068641",
+          "evidence": "삼성중공업 LNG운반선 4척 수주"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 3,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["009540", "042660", "010140"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "이 원장은 2026-07-25 지식그래프 누락 연결 감사(배치 2)에서 처음 작성됐다. 개념 자체는 2026-07-24 최초 시드 배치에 있었으나(requires→lng, part_of→조선/해운) 상장사 엣지가 하나도 없던 공백이었다(K조선 3사가 사실상 global LNG선 시장을 과점하는 잘 알려진 사실임에도 누락) — 사용자 제보(현대차-로봇 사례)로 시작한 감사에서 발견."
+}

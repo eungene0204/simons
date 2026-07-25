@@ -49,6 +49,34 @@
           "evidence": "루시아 4.0·AI 에이전트 전략"
         }
       ]
+    },
+    {
+      "company_name": "NAVER",
+      "ticker": "035420",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 72,
+      "reason": "하이퍼클로바X 기반 대화형 AI 에이전트 'AI 국민비서'를 행정안전부와 공동 구축해 실서비스로 공개했다. 다만 실험 서비스였던 클로바X·큐:(Cue:)는 2026-04-09 종료했고, 에이전트 기능은 검색·쇼핑 등 본 서비스에 통합하는 전략으로 전환해 '에이전트' 단독 매출·이용자 지표는 확인되지 않는다.",
+      "business_evidence": "AI 국민비서(행정안전부 협업) 공개, 하이퍼클로바X 자체 LLM 보유. 독립형 에이전트 서비스(클로바X·큐:)는 2026-04 종료.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "전자신문",
+          "document_title": "네이버, AI 국민비서 서비스 출시…하이퍼클로바X 기반 대화형 에이전트 연계",
+          "document_type": "news",
+          "url": "https://www.etnews.com/20260310000295",
+          "evidence": "행정안전부와 AI 국민비서 공동 구축·공개"
+        },
+        {
+          "source_name": "MS투데이",
+          "document_title": "네이버, 클로바X·큐 종료…\"AI 실험 마치고 에이전트로 간다\"",
+          "document_type": "news",
+          "url": "https://www.mstoday.co.kr/news/articleView.html?idxno=100674",
+          "evidence": "클로바X·큐: 2026-04-09 종료, 본 서비스 통합 전략 전환"
+        }
+      ]
     }
   ],
   "excluded_candidates": [
@@ -65,11 +93,12 @@
   ],
   "summary": {
     "core_stock_count": 0,
-    "strong_stock_count": 1,
+    "strong_stock_count": 2,
     "moderate_stock_count": 0,
     "weak_stock_count": 0,
     "unverified_stock_count": 2,
-    "recommended_backtest_universe": ["304100"]
+    "recommended_backtest_universe": ["304100", "035420"]
   },
-  "researched_at": "2026-07-25"
+  "researched_at": "2026-07-25",
+  "audit_updated_at": "2026-07-25"
 }

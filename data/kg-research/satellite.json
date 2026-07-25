@@ -112,6 +112,27 @@
       ]
     },
     {
+      "company_name": "한국항공우주",
+      "ticker": "047810",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "다목적실용위성(아리랑) 시리즈의 본체개발 주관사로 30년간 정부 위성사업에 참여해왔다. 가장 최근에는 다목적실용위성 7호 본체를 개발해 2025-12-02 발사에 성공했고, 정지궤도 복합위성·차세대중형위성·군정찰위성 개발까지 우주 사업을 확대하고 있다. 다만 회사 전체 매출의 다수는 항공기(KF-21 등 방산)가 차지해 위성이 유일한 주력은 아니다.",
+      "business_evidence": "다목적실용위성 1호부터 7호(2025-12 발사)까지 본체개발 주관, 한국항공우주연구원과 계약(본체개발+시스템 공동설계+위성체 조립시험).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "이투데이",
+          "document_title": "'KAI 본체 개발' 다목적실용위성 7호 발사 성공",
+          "document_type": "news",
+          "url": "https://www.etoday.co.kr/news/view/2531840",
+          "evidence": "다목적실용위성 7호 본체개발 주관·발사 성공"
+        }
+      ]
+    },
+    {
       "company_name": "컨텍",
       "ticker": "451760",
       "exchange": "KOSDAQ",
@@ -133,12 +154,13 @@
     }
   ],
   "summary": {
-    "core_stock_count": 2,
+    "core_stock_count": 3,
     "strong_stock_count": 1,
     "moderate_stock_count": 1,
     "weak_stock_count": 0,
     "unverified_stock_count": 1,
-    "recommended_backtest_universe": ["099320", "189300", "211270"]
+    "recommended_backtest_universe": ["099320", "189300", "211270", "047810"]
   },
-  "researched_at": "2026-07-25"
+  "researched_at": "2026-07-25",
+  "audit_updated_at": "2026-07-25"
 }

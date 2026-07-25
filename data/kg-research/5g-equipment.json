@@ -1,0 +1,76 @@
+{
+  "concept": {
+    "id": "5g-equipment",
+    "canonical_name": "5G 장비",
+    "canonical_name_en": "5G Network Equipment",
+    "abbreviation": "",
+    "aliases": ["5G 통신장비", "기지국 장비", "RF 부품"],
+    "definition": "5G 이동통신 기지국에 쓰이는 RF(무선주파수) 부품·안테나·필터 장비. 통신사(고객)와 별개로 장비 제조가 전업인 부품사가 있다.",
+    "investment_context": "국내 통신 3사뿐 아니라 삼성전자·노키아·ZTE 등 글로벌 장비사에 부품을 공급하는 수출 중심 사업 구조다.",
+    "industry": ["IT 하드웨어"],
+    "related_keywords": ["GaN", "RF 필터", "기지국 안테나", "Massive MIMO", "전력증폭기"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "RFHIC",
+      "ticker": "218410",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 88,
+      "reason": "GaN(질화갈륨) 전력증폭기·트랜지스터가 매출의 사실상 전부다(2025년 1분기 기준 GaN 전력증폭기 69.26%+GaN 트랜지스터 30.12%+GaAs MMIC 0.39%). 5G 통신 인프라 확산이 핵심 성장 동력이며, 방위산업·위성통신으로도 GaN 반도체 공급을 확대하고 있다.",
+      "business_evidence": "2025 1분기 매출 비중: GaN 전력증폭기 69.26%, GaN 트랜지스터 30.12%. 국내 유일 GaN 트랜지스터 생산.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "보숲",
+          "document_title": "RFHIC 2025년 사업보고서 분석",
+          "document_type": "research_report",
+          "url": "https://www.bosoop.com/9ccdd197-0183-435b-9984-cff0b16b07c9/",
+          "evidence": "2025 1분기 제품별 매출 비중(GaN 전력증폭기 69.26%·트랜지스터 30.12%)"
+        }
+      ]
+    },
+    {
+      "company_name": "케이엠더블유",
+      "ticker": "032500",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "기지국 안테나·RF필터·시스템이 사업 자체이며 국내 유일 5G용 대용량 다중입출력장비(Massive MIMO)를 개발했다. 국내 이통 3사뿐 아니라 삼성전자·노키아·ZTE 등 글로벌 기업에 부품을 공급하며 매출의 90%가 해외에서 발생한다.",
+      "business_evidence": "국내 유일 5G MMR 개발, 삼성전자·노키아·ZTE 공급, 매출 90% 해외(수출).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "이투데이",
+          "document_title": "[상장사재무분석] 케이엠더블유, 5G RF부품 사활",
+          "document_type": "news",
+          "url": "https://www.etoday.co.kr/news/view/1688167",
+          "evidence": "RF System/Antenna/Filter 사업 구조, 5G MMR 국내 유일 개발, 매출 90% 해외"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "에이스테크",
+      "ticker": "088800",
+      "reason": "5G·6G 테마 언급은 확인되나 이번 조사에서 구체적 매출 비중 등 공식 근거를 수집하지 못함 — 재조사 대상."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 2,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 1,
+    "recommended_backtest_universe": ["218410", "032500"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 2(2026-07-25, \"계속 진행\"). judal 카탈로그의 '5G' 테마(33종목)는 폭넓은 통신 산업 전반을 다루지만, 이 개념은 장비 제조가 전업인 기업만 다룬다 — '5G' 단독 문구는 카탈로그가, 'RF 부품'/'기지국 장비' 등 구체 문구는 이 개념이 담당(HBM 전례와 유사한 역할 분담)."
+}

@@ -1,0 +1,49 @@
+{
+  "concept": {
+    "id": "optical-communication",
+    "canonical_name": "광통신",
+    "canonical_name_en": "Optical Communication",
+    "abbreviation": "",
+    "aliases": ["광트랜시버", "광모듈", "광통신 부품"],
+    "definition": "빛(광섬유)으로 데이터를 전송하는 통신 기술. AI 데이터센터·5G 기지국 간 대용량 전송에 광트랜시버가 쓰인다.",
+    "investment_context": "AI 데이터센터 투자 확대로 광트랜시버 수요가 늘고 있으며, 일본 등 해외 고객사向 수출이 실적을 좌우한다.",
+    "industry": ["IT 하드웨어"],
+    "related_keywords": ["광트랜시버", "데이터콤", "FTTH", "AI 데이터센터"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "오이솔루션",
+      "ticker": "138080",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 80,
+      "reason": "광트랜시버(광모듈)가 사업 전부다. 2025년 매출 574억원(전년 대비 79.2%↑)을 기록했고, AI 데이터센터용 차세대 제품과 일본 NTT向 물량 확대로 2026년 매출 816억원·흑자전환이 전망된다.",
+      "business_evidence": "2025년 매출 574억원(79.2%↑), 2026년 매출 816억원 전망(흑자전환), 일본 NTT向 광트랜시버 물량 확대.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "데이터투자",
+          "document_title": "오이솔루션, 2026년 영업익 흑자 전환…매출 111% 급증 전망",
+          "document_type": "news",
+          "url": "https://www.datatooza.com/article/20260312103714253852ef36fa6c_80",
+          "evidence": "2025년 실적, 2026년 전망, 일본 NTT向 물량 확대"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["138080"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 3(2026-07-25, \"계속 진행해줘\"). judal 카탈로그의 '광통신' 테마(12종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다. data-center·5g-equipment와 related_to로 연결(AI 데이터센터·5G 기지국 간 전송 수요 공유)."
+}

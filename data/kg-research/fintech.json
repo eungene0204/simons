@@ -1,0 +1,49 @@
+{
+  "concept": {
+    "id": "fintech",
+    "canonical_name": "핀테크",
+    "canonical_name_en": "Fintech",
+    "abbreviation": "",
+    "aliases": ["간편결제", "디지털 금융"],
+    "definition": "결제·송금·대출·보험·투자를 모바일 플랫폼으로 제공하는 금융 기술 산업.",
+    "investment_context": "국내에서는 간편결제·종합 금융 플랫폼 사업자가 핵심 투자 대상이며, 결제(TPV)·거래액 지표가 실적과 직결된다.",
+    "industry": ["증권/보험"],
+    "related_keywords": ["간편결제", "TPV", "디지털 금융 플랫폼", "임베디드 금융"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "카카오페이",
+      "ticker": "377300",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "결제·금융·플랫폼 사업이 회사 전부다. 2026년 1분기 연결 매출 3,003억원(전년 대비 41.7%↑, 영업이익 630.9%↑)으로 분기 최대 실적을 경신했고, 거래액(TPV) 50.9조원(15%↑)을 기록했다. 결제·보험(카카오페이손해보험 매출 243억원, 85%↑)·증권 전 부문이 고르게 성장 중이다.",
+      "business_evidence": "2026 1분기 매출 3,003억원(역대 최대, 41.7%↑), TPV 50.9조원, 카카오페이손해보험 매출 243억원(85%↑).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "이데일리",
+          "document_title": "결제 넘어 금융·증권·보험까지…카카오페이, '종합 금융 플랫폼' 성과 본격화",
+          "document_type": "news",
+          "url": "https://edaily.co.kr/News/Read?mediaCodeNo=257&newsId=05598966645446296",
+          "evidence": "2026 1분기 실적(매출 3,003억원·TPV 50.9조원), 사업 부문별 성과"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["377300"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 2(2026-07-25, \"계속 진행\"). judal 카탈로그의 '핀테크' 테마(32종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다. 1개 종목만 확정 편입(정확한 종목 우선 원칙) — 추가 후보(토스는 비상장)는 재조사 대상."
+}

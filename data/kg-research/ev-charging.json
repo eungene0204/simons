@@ -1,0 +1,56 @@
+{
+  "concept": {
+    "id": "ev-charging",
+    "canonical_name": "전기차 충전",
+    "canonical_name_en": "EV Charging",
+    "abbreviation": "",
+    "aliases": ["전기차 충전기", "충전 인프라", "EV 충전"],
+    "definition": "전기차 충전기 제조와 충전 서비스 운영 산업. 완성차·배터리(자동차·이차전지 섹터)와 별개로 충전 인프라에 특화된 사업자가 있다.",
+    "investment_context": "충전기 제조와 충전 서비스(운영) 두 축의 매출 구조를 가지며, 국내 급속충전 시장 선두 사업자가 상장돼 있다.",
+    "industry": ["에너지/원자력"],
+    "related_keywords": ["급속충전", "완속충전", "충전 서비스", "EVSE"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "채비",
+      "ticker": "0011T0",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "전기차 충전이 사업 전부다(舊 대영채비, 2024-01 '채비'로 사명 변경). 2026년 1분기 연결 매출 207억원(전년 대비 21%↑) — 충전 서비스 사업 139억원(13%↑), 충전기 제조 사업 68억원(41%↑)으로 두 축 모두 성장 중이며 EBITDA율도 -2%까지 개선돼 흑자전환 임박.",
+      "business_evidence": "2026 1분기 매출 207억원(충전서비스 139억+제조 68억), EBITDA율 -2%(전년 대비 17%p 개선), 국내 급속충전 시장 주요 사업자.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "뉴스핌",
+          "document_title": "채비, 1분기 매출 207억원…전년대비 21% 증가",
+          "document_type": "news",
+          "url": "https://www.newspim.com/news/view/20260515001234",
+          "evidence": "2026 1분기 매출·사업부문별 실적"
+        },
+        {
+          "source_name": "머니투데이",
+          "document_title": "[더벨]채비 \"충전 서비스 사업, EBITDA 흑자전환 눈앞\"",
+          "document_type": "news",
+          "url": "https://www.mt.co.kr/amp/stock/2026/05/15/2026051516239640901",
+          "evidence": "EBITDA 흑자전환 임박, 충전 서비스 사업 현황"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["0011T0"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "누락 연결 감사에서 이어진 신규 Concept 편입(Part B, 사용자 승인 배치). judal 카탈로그의 '전기차 충전' 테마(18종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다. 1개 종목만 확정 편입 — carbon-credit 전례처럼 정확한 종목 우선 원칙 적용, 추가 후보는 재조사 대상."
+}

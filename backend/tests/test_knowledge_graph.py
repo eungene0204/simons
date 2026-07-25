@@ -282,3 +282,184 @@ def test_graph_dump_route_returns_full_graph():
     assert "hbm" in node_ids
     assert any(i.startswith("sector:") for i in node_ids)
     assert any(i.startswith("company:") for i in node_ids)
+
+
+def test_conglomerate_diversification_edges_present():
+    """누락 연결 감사(2026-07-25, 사용자 제보 — 현대차-로봇 미연결) 회귀 가드.
+
+    로봇 개념 노드에 이미 있던 전문 제조사(레인보우로보틱스 등)뿐 아니라, 지분투자·
+    핵심부품 공급으로 진입한 대기업(현대차·삼성전자·LG전자)도 연결돼야 한다. 마찬가지로
+    AI 에이전트 개념에는 NAVER(AI 국민비서)가 연결돼야 한다. 시드 편집 중 누락 연결이
+    되풀이되지 않도록 감사에서 검증한 4개 엣지를 고정한다."""
+    graph = get_graph()
+
+    def types_to(symbol: str, concept: str) -> set[str]:
+        return {t for t, other, _ in graph.neighbors(f"company:{symbol}") if other == concept}
+
+    assert "invests_in" in types_to("005380", "robot-humanoid")  # 현대자동차 — 보스턴다이내믹스
+    assert "invests_in" in types_to("005930", "robot-humanoid")  # 삼성전자 — 레인보우로보틱스 최대주주
+    assert "supplier" in types_to("066570", "robot-humanoid")  # LG전자 — 액추에이터 공급
+    assert "produced_by" in types_to("035420", "ai-agent")  # NAVER — AI 국민비서
+
+
+def test_missing_edge_audit_batch2_present():
+    """누락 연결 감사 배치 2(2026-07-25) 회귀 가드.
+
+    LNG운반선은 개념 노드는 있었지만 상장사 엣지가 하나도 없었다(K조선 3사가 세계
+    LNG선 시장을 과점하는 잘 알려진 사실인데도 누락). 원자력·협동로봇·K-팝 기획사에도
+    각각 대기업 진출·재조사 승격 사례가 빠져 있었다."""
+    graph = get_graph()
+
+    def types_to(symbol: str, concept: str) -> set[str]:
+        return {t for t, other, _ in graph.neighbors(f"company:{symbol}") if other == concept}
+
+    assert "produced_by" in types_to("009540", "lng-carrier")  # HD한국조선해양
+    assert "produced_by" in types_to("042660", "lng-carrier")  # 한화오션
+    assert "produced_by" in types_to("010140", "lng-carrier")  # 삼성중공업
+    assert "produced_by" in types_to("051600", "nuclear")  # 한전KPS — 원전 정비 34%
+    assert "produced_by" in types_to("011210", "collaborative-robot")  # 현대위아
+    assert "produced_by" in types_to("182360", "kpop-agency")  # 큐브엔터(Moderate→Core 승격)
+
+
+def test_missing_edge_audit_batch3_present():
+    """누락 연결 감사 배치 3(2026-07-25) 회귀 가드.
+
+    데이터센터 개념은 상장사 엣지가 하나도 없었다(삼성SDS·LG CNS의 실제 DBO 사업 누락).
+    인공위성 개념에는 다목적실용위성 30년 본체개발 주관사 KAI가 빠져 있었다."""
+    graph = get_graph()
+
+    def types_to(symbol: str, concept: str) -> set[str]:
+        return {t for t, other, _ in graph.neighbors(f"company:{symbol}") if other == concept}
+
+    assert "produced_by" in types_to("018260", "data-center")  # 삼성SDS
+    assert "produced_by" in types_to("064400", "data-center")  # LG CNS
+    assert "produced_by" in types_to("047810", "satellite")  # 한국항공우주(KAI)
+
+
+def test_part_b_new_concepts_batch1_present():
+    """누락 연결 감사 Part B 배치 1(2026-07-25, "PART B로 진행") 회귀 가드.
+
+    judal 카탈로그에만 있고 우리 그래프엔 대응 개념이 없던 주요 테마 4종(자율주행·
+    사이버보안·전기차 충전·양자암호통신)을 정식 Concept-Stock Builder 절차로 신규
+    편입했다. 개념 인식·회사 연결·ETF 연결이 유지되는지 고정한다."""
+    graph = get_graph()
+
+    assert any(n["id"] == "autonomous-driving" for n in graph.find_concepts("자율주행 관련주 전략"))
+    assert any(n["id"] == "cybersecurity" for n in graph.find_concepts("사이버보안 관련 종목"))
+    assert any(n["id"] == "ev-charging" for n in graph.find_concepts("전기차 충전 인프라 투자"))
+    assert any(n["id"] == "quantum-cryptography" for n in graph.find_concepts("양자암호통신 관련주"))
+
+    def types_to(symbol: str, concept: str) -> set[str]:
+        return {t for t, other, _ in graph.neighbors(f"company:{symbol}") if other == concept}
+
+    assert "produced_by" in types_to("012330", "autonomous-driving")  # 현대모비스
+    assert "produced_by" in types_to("204320", "autonomous-driving")  # HL만도
+    assert "produced_by" in types_to("053800", "cybersecurity")  # 안랩
+    assert "produced_by" in types_to("150900", "cybersecurity")  # 파수AI
+    assert "produced_by" in types_to("0011T0", "ev-charging")  # 채비
+    assert "invests_in" in types_to("017670", "quantum-cryptography")  # SK텔레콤 — IDQ
+
+
+def test_part_b_new_concepts_batch2_present():
+    """누락 연결 감사 Part B 배치 2(2026-07-25, "계속 진행") 회귀 가드.
+
+    5G 장비·핀테크·PCB 3개 신규 개념과 그 회사 연결이 유지되는지 고정한다."""
+    graph = get_graph()
+
+    assert any(n["id"] == "5g-equipment" for n in graph.find_concepts("5G 장비 관련주"))
+    assert any(n["id"] == "fintech" for n in graph.find_concepts("핀테크 관련 종목"))
+    assert any(n["id"] == "pcb" for n in graph.find_concepts("PCB 기판 관련주"))
+
+    def types_to(symbol: str, concept: str) -> set[str]:
+        return {t for t, other, _ in graph.neighbors(f"company:{symbol}") if other == concept}
+
+    assert "produced_by" in types_to("218410", "5g-equipment")  # RFHIC
+    assert "produced_by" in types_to("032500", "5g-equipment")  # 케이엠더블유
+    assert "produced_by" in types_to("377300", "fintech")  # 카카오페이
+    assert "produced_by" in types_to("222800", "pcb")  # 심텍
+    assert "produced_by" in types_to("353200", "pcb")  # 대덕전자
+
+
+def test_part_b_new_concepts_batch3_present():
+    """누락 연결 감사 Part B 배치 3(2026-07-25, "계속 진행해줘") 회귀 가드.
+
+    게임·LED·광통신 3개 신규 개념과 그 회사 연결이 유지되는지 고정한다."""
+    graph = get_graph()
+
+    assert any(n["id"] == "gaming" for n in graph.find_concepts("게임 관련주 전략"))
+    assert any(n["id"] == "led-tech" for n in graph.find_concepts("LED 관련주"))
+    assert any(n["id"] == "optical-communication" for n in graph.find_concepts("광통신 관련주"))
+
+    def types_to(symbol: str, concept: str) -> set[str]:
+        return {t for t, other, _ in graph.neighbors(f"company:{symbol}") if other == concept}
+
+    assert "produced_by" in types_to("259960", "gaming")  # 크래프톤
+    assert "produced_by" in types_to("036570", "gaming")  # NC
+    assert "produced_by" in types_to("251270", "gaming")  # 넷마블
+    assert "produced_by" in types_to("046890", "led-tech")  # 서울반도체
+    assert "produced_by" in types_to("138080", "optical-communication")  # 오이솔루션
+
+
+def test_part_b_new_concepts_batch4_present():
+    """누락 연결 감사 Part B 배치 4(2026-07-25, "계속 진행") 회귀 가드.
+
+    니켈·희토류 원자재 개념(기존 구리·리튬과 동일하게 회사 엣지 없는 순수 원자재
+    노드)이 관련 개념/섹터에 연결되는지 고정한다."""
+    graph = get_graph()
+
+    assert any(n["id"] == "nickel" for n in graph.find_concepts("니켈 관련주"))
+    assert any(n["id"] == "rare-earth" for n in graph.find_concepts("희토류 관련주"))
+
+    def out_types(node_id: str, target: str) -> set[str]:
+        return {t for t, other, d in graph.neighbors(node_id) if other == target and d == "out"}
+
+    assert "requires" in out_types("battery-cathode", "nickel")
+    assert "affected_by" in out_types("sector:자동차부품", "rare-earth")
+
+
+def test_part_b_new_concepts_batch5_present():
+    """누락 연결 감사 Part B 배치 5(2026-07-25, "계속 진행") 회귀 가드.
+
+    생체인식·렌터카·광고 3개 신규 개념과 그 회사 연결이 유지되는지 고정한다."""
+    graph = get_graph()
+
+    assert any(n["id"] == "biometrics" for n in graph.find_concepts("생체인식 관련주"))
+    assert any(n["id"] == "car-rental" for n in graph.find_concepts("렌터카 관련주"))
+    assert any(n["id"] == "advertising" for n in graph.find_concepts("광고 관련주"))
+
+    def types_to(symbol: str, concept: str) -> set[str]:
+        return {t for t, other, _ in graph.neighbors(f"company:{symbol}") if other == concept}
+
+    assert "produced_by" in types_to("236200", "biometrics")  # 슈프리마
+    assert "produced_by" in types_to("089860", "car-rental")  # 롯데렌탈
+    assert "produced_by" in types_to("030000", "advertising")  # 제일기획
+    assert "produced_by" in types_to("214320", "advertising")  # 이노션
+
+
+def test_part_b_new_concepts_batch6_present():
+    """누락 연결 감사 Part B 배치 6(2026-07-25, "계속 진행") 회귀 가드.
+
+    건강기능식품 신규 개념과 그 회사 연결이 유지되는지 고정한다."""
+    graph = get_graph()
+
+    assert any(n["id"] == "health-supplements" for n in graph.find_concepts("건강기능식품 관련주"))
+
+    def types_to(symbol: str, concept: str) -> set[str]:
+        return {t for t, other, _ in graph.neighbors(f"company:{symbol}") if other == concept}
+
+    assert "produced_by" in types_to("200130", "health-supplements")  # 콜마비앤에이치
+    assert "produced_by" in types_to("270870", "health-supplements")  # 뉴트리
+
+
+def test_part_b_new_concepts_batch7_present():
+    """누락 연결 감사 Part B 배치 7(2026-07-25, "계속 진행") 회귀 가드.
+
+    폴더블폰 신규 개념과 회사 연결(KH바텍)이 유지되는지 고정한다."""
+    graph = get_graph()
+
+    assert any(n["id"] == "foldable-phone" for n in graph.find_concepts("폴더블폰 관련주"))
+
+    def types_to(symbol: str, concept: str) -> set[str]:
+        return {t for t, other, _ in graph.neighbors(f"company:{symbol}") if other == concept}
+
+    assert "supplier" in types_to("060720", "foldable-phone")  # KH바텍

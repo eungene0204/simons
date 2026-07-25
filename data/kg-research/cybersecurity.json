@@ -1,0 +1,75 @@
+{
+  "concept": {
+    "id": "cybersecurity",
+    "canonical_name": "사이버보안",
+    "canonical_name_en": "Cybersecurity",
+    "abbreviation": "",
+    "aliases": ["정보보안", "보안 소프트웨어", "데이터보안"],
+    "definition": "네트워크·엔드포인트·데이터를 위협으로부터 보호하는 소프트웨어·서비스 산업. 백신·방화벽 등 전통 보안부터 데이터 유출 방지(DLP)까지 세부 영역이 나뉜다.",
+    "investment_context": "국내에서는 보안이 전업인 전문 기업의 매출·고객 기반이 핵심 지표다.",
+    "industry": ["소프트웨어/플랫폼"],
+    "related_keywords": ["백신", "방화벽", "DLP", "엔드포인트 보안", "제로트러스트"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "안랩",
+      "ticker": "053800",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "국내 사이버보안 상장기업 중 매출 1위(2,330억원)로 보안 소프트웨어가 전업이다.",
+      "business_evidence": "2024년 매출 2,329.8억원(국내 보안 상장사 1위), 2025년 3분기 누적 매출 전년 대비 3.4% 증가.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "보안뉴스",
+          "document_title": "빅5 보안기업, '1강 3중 1약' 성적표...작년 매출 분석",
+          "document_type": "news",
+          "url": "https://m.boannews.com/html/detail.html?mtype=1&idx=135835",
+          "evidence": "안랩 매출 2,329.8억원(국내 보안기업 1위)"
+        }
+      ]
+    },
+    {
+      "company_name": "파수AI",
+      "ticker": "150900",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 70,
+      "reason": "데이터보안(DLP)이 창사 이래(26년) 기반 사업으로 삼성·포스코·CJ 등 대기업과 중앙부처에 도입돼 안정적 고객 기반을 갖추고 있다. 2026-03 'AI기업으로 재탄생'을 표방하며 '파수AI'로 사명을 변경, AI 거버넌스·LLM 사업으로 확장 중이라 보안 단독 매출 비중은 낮아지는 추세다.",
+      "business_evidence": "삼성·포스코·CJ 등 대기업·중앙부처 데이터보안 고객 기반, 2026-03 사명 변경(파수AI) 후 AI 사업 확장.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "아주경제",
+          "document_title": "파수, '파수AI'로 사명 변경…\"보안 기업 넘어 AI기업으로 재탄생\"",
+          "document_type": "news",
+          "url": "https://www.ajunews.com/view/20260330103320984",
+          "evidence": "사명 변경 배경, 데이터보안 기반 사업"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "시큐아이",
+      "reason": "과거(2018년) 매출 1500억원 보도는 확인했으나 korea-stocks.json 정본에 심볼이 없어(비상장 또는 상장폐지 추정) 편입 불가."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 1,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["053800", "150900"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "누락 연결 감사에서 이어진 신규 Concept 편입(Part B, 사용자 승인 배치). judal 카탈로그의 '사이버 보안' 테마(38종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다."
+}

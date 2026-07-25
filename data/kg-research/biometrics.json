@@ -1,0 +1,49 @@
+{
+  "concept": {
+    "id": "biometrics",
+    "canonical_name": "생체인식",
+    "canonical_name_en": "Biometrics",
+    "abbreviation": "",
+    "aliases": ["지문인식", "얼굴인식", "바이오인식"],
+    "definition": "지문·얼굴 등 신체 특징으로 신원을 확인하는 보안 기술. 출입통제·근태관리 등에 쓰인다.",
+    "investment_context": "국내에서는 바이오인식 보안이 전업인 전문 기업이 핵심이며 수출 비중이 높다.",
+    "industry": ["IT 하드웨어"],
+    "related_keywords": ["출입통제", "근태관리", "AI 얼굴인식", "바이오인식 보안"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "슈프리마",
+      "ticker": "236200",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 88,
+      "reason": "AI 기반 출입통제·바이오인식(지문·얼굴인식) 솔루션이 사업 전부다. 2025년 기준 매출의 약 81%가 수출이며, 지문인식 알고리즘 경연대회에서 세계 1위를 4회 수상했고 A&S Magazine 기준 15년 연속 글로벌 Security Top 50 기업으로 선정됐다.",
+      "business_evidence": "매출의 81%가 수출(2025), 지문인식 알고리즘 세계 1위 4회 수상, 글로벌 Security Top 50 15년 연속 선정.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "더벨",
+          "document_title": "[시큐리티 컴퍼니 리포트] 슈프리마, 생체인식 기술로 출입보안 시장 '점령'",
+          "document_type": "news",
+          "url": "https://www.thebell.co.kr/free/content/ArticleView.asp?key=202512221054258480103672",
+          "evidence": "바이오인식 보안 전업, 수출 비중, 기술력 인정 현황"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["236200"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 5(2026-07-25, \"계속 진행\"). judal 카탈로그의 '생체인식' 테마(11종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다."
+}

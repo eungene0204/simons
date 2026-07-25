@@ -1,0 +1,55 @@
+{
+  "concept": {
+    "id": "foldable-phone",
+    "canonical_name": "폴더블폰",
+    "canonical_name_en": "Foldable Phone",
+    "abbreviation": "",
+    "aliases": ["폴더블 스마트폰", "힌지"],
+    "definition": "화면을 접을 수 있는 스마트폰. 힌지(경첩) 모듈이 핵심 부품 중 하나다.",
+    "investment_context": "삼성전자의 폴더블폰 라인업 확대와 애플의 시장 진입 전망이 힌지 등 핵심 부품사 실적의 변수다.",
+    "industry": ["디스플레이/부품"],
+    "related_keywords": ["힌지 모듈", "폴더블 디스플레이", "UTG"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "KH바텍",
+      "ticker": "060720",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Supplier",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "폴더블폰 힌지(경첩 모듈)가 사업의 핵심 축이다. 2025년 전사 매출 4,249억원 중 힌지 매출이 2,539억원(약 60%)으로, 힌지가 얇아지며 판가가 오르고 신규 폴더블폰 판매 호조로 전년 대비 44% 반등했다. 2026년 삼성전자 폴더블폰 라인업 확대와 애플 폴더블폰 출시 전망으로 성장이 이어질 것으로 예상된다.",
+      "business_evidence": "2025년 전사 매출 4,249억원 중 힌지 매출 2,539억원, 전년 대비 44% 반등, 2026년 매출 전망 4,304억원.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "ZDNet Korea",
+          "document_title": "KH바텍, 작년 삼성 폴더블폰 힌지 매출 역대 최대...2540억원",
+          "document_type": "news",
+          "url": "https://zdnet.co.kr/view/?no=20260306125346",
+          "evidence": "2025년 힌지 매출·전사 매출 상세, 2026년 전망"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "파인테크닉스",
+      "ticker": "106240",
+      "reason": "korea-stocks.json 정본 분류가 '전구 및 조명장치 제조업'으로 나타나 폴더블폰 부품 사업과의 관련성을 이번 조사에서 확인하지 못함 — 재조사 대상."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["060720"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 7(2026-07-25, \"계속 진행\"). judal 카탈로그의 '폴더블폰' 테마(18종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다. 창투사(미래에셋벤처투자·SBI인베스트먼트)는 구체적 실적 근거를 확보하지 못해 이번 배치에서는 보류."
+}

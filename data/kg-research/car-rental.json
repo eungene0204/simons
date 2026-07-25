@@ -1,0 +1,54 @@
+{
+  "concept": {
+    "id": "car-rental",
+    "canonical_name": "렌터카",
+    "canonical_name_en": "Car Rental",
+    "abbreviation": "",
+    "aliases": ["렌터카 사업", "차량 렌탈"],
+    "definition": "차량 장기·단기 대여 및 내구연한 만료 차량의 중고차 매각을 사업으로 하는 산업.",
+    "investment_context": "렌탈료와 중고차 매각(경매) 두 축으로 매출이 구성되며, 국내는 롯데렌탈·SK렌터카 양강 구도다.",
+    "industry": ["IT 하드웨어"],
+    "related_keywords": ["장기렌트", "중고차 경매", "차량 리스"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "롯데렌탈",
+      "ticker": "089860",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "국내 렌터카 시장 1위 사업자로, 차량 렌탈료(약 76%)와 내구연한 만료 차량의 중고차 매각(약 22%, 롯데오토옥션 경매 활용)이 사업 구조 전부다. 2025년 매출 2조9,188억원(전년 대비 4.5%↑)·영업이익 3,125억원(9.7%↑)을 기록했다.",
+      "business_evidence": "2025년 매출 2조9,188억원·영업이익 3,125억원, 중고차 매각 사업 매출 16.3%↑·영업이익 21.0%↑.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "서울경제",
+          "document_title": "롯데렌탈, 주인 바뀔 불확실성 정면 돌파...역대 최고 실적 갈아치워",
+          "document_type": "news",
+          "url": "https://www.sedaily.com/article/20007597",
+          "evidence": "2025년 매출·영업이익 실적, 중고차 매각 사업 성과"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "SK렌터카",
+      "reason": "매각(비상장화) 절차가 진행돼 korea-stocks.json 정본에 없음 — 상장 형태 변경 시 재조사."
+    }
+  ],
+  "summary": {
+    "core_stock_count": 1,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["089860"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 5(2026-07-25, \"계속 진행\"). judal 카탈로그의 '중고차/렌터카' 테마(10종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다."
+}

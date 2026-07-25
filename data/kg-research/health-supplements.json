@@ -1,0 +1,70 @@
+{
+  "concept": {
+    "id": "health-supplements",
+    "canonical_name": "건강기능식품",
+    "canonical_name_en": "Health Supplements",
+    "abbreviation": "",
+    "aliases": ["건기식", "이너뷰티"],
+    "definition": "인체에 유용한 기능성 원료로 만든 식품. 자체 브랜드 제조·판매사와 OEM/ODM 전문사가 있다.",
+    "investment_context": "고령화·건강 관심 증가로 시장이 성장하고 있으며, 자체 브랜드사와 OEM/ODM 전문사 두 유형의 사업 모델이 있다.",
+    "industry": ["식품/음료"],
+    "related_keywords": ["OEM/ODM", "이너뷰티", "프로바이오틱스", "콜라겐"],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "콜마비앤에이치",
+      "ticker": "200130",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "건강기능식품 OEM/ODM이 핵심 사업이다. 2026년 1분기 연결 매출 1,369억원·영업이익 103억원(전년 대비 189%↑)을 기록했고, 글로벌 고객사 제품군 확장·신규 거래처 확보로 수익성이 개선되고 있다.",
+      "business_evidence": "2026 1분기 매출 1,369억원·영업이익 103억원(189%↑), 건기식 OEM/ODM 전문.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "이투데이",
+          "document_title": "콜마비앤에이치, 1분기 영업익 103억원⋯전년比 189%↑",
+          "document_type": "news",
+          "url": "https://www.etoday.co.kr/news/view/2583564",
+          "evidence": "2026 1분기 실적, 건기식 OEM/ODM 사업 구조"
+        }
+      ]
+    },
+    {
+      "company_name": "뉴트리",
+      "ticker": "270870",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 82,
+      "reason": "에버콜라겐·판도라다이어트 등 이너뷰티 건강기능식품 자체 브랜드 제조·판매가 사업 전부다. 2025년 매출 913.8억원을 기록했으나, 2025년 3분기 누적 기준 매출 23.2%·영업이익 79.1% 감소로 최근 실적은 부진하다(관련성 평가와는 별개 사안).",
+      "business_evidence": "2025년 매출 913.8억원, 에버콜라겐 등 건기식 자체 브랜드가 사업 전부. 최근 실적 부진(2025 3분기 매출 23.2%↓).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "FnGuide Company Guide",
+          "document_title": "뉴트리(A270870) Snapshot",
+          "document_type": "research_report",
+          "url": "https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?gicode=A270870&MenuYn=Y",
+          "evidence": "2025년 매출·사업 구조, 최근 실적 부진 현황"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [],
+  "summary": {
+    "core_stock_count": 2,
+    "strong_stock_count": 0,
+    "moderate_stock_count": 0,
+    "weak_stock_count": 0,
+    "unverified_stock_count": 0,
+    "recommended_backtest_universe": ["200130", "270870"]
+  },
+  "researched_at": "2026-07-25",
+  "audit_note": "Part B 배치 6(2026-07-25, \"계속 진행\"). judal 카탈로그의 '건강기능식품' 테마(13종목)에 대응하는 개념 노드가 아예 없던 공백을 메운다. 반려동물(하림펫푸드 비상장)·3D프린터(캐리마 등 비상장)는 이번 조사에서 정본 등재 종목을 찾지 못해 편입 보류."
+}
