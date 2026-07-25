@@ -1,0 +1,139 @@
+{
+  "concept": {
+    "id": "medical-ai",
+    "canonical_name": "의료 AI",
+    "canonical_name_en": "Medical AI",
+    "abbreviation": "",
+    "aliases": [
+      "의료AI",
+      "의료 인공지능",
+      "메디컬 AI",
+      "AI 진단",
+      "AI 영상진단"
+    ],
+    "definition": "의료 영상 판독, 질환 예측, 치료 반응 분석 등에 인공지능을 적용한 소프트웨어 의료기기(SaMD) 산업. 흉부 X선·유방촬영·뇌 CT 등 영상진단 보조와 활력징후 기반 예후 예측이 주요 상용 영역이다.",
+    "investment_context": "FDA 510(k)·국내 혁신의료기기 등 인허가와 보험수가 편입이 매출을 좌우한다. 국내 상장사는 해외(미국) 보험수가 시장 진출이 핵심 성장 동인이다.",
+    "industry": ["소프트웨어/플랫폼"],
+    "related_keywords": ["SaMD", "FDA 510(k)", "보험수가", "영상진단 보조", "AI 바이오마커"],
+    "sources": [
+      {
+        "source_name": "KIWOOM 의료AI ETF",
+        "document_title": "KIWOOM 의료AI(483020)",
+        "document_type": "etf",
+        "url": "https://www.kiwoomam.com/",
+        "evidence": "국내 의료 AI 테마 ETF 존재 — 투자 테마로 성립(etf-master.json 정본 등재)",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [
+    {
+      "name": "KIWOOM 의료AI",
+      "ticker": "483020",
+      "country": "KR",
+      "issuer": "키움투자자산운용",
+      "theme_reason": "국내 의료 AI 기업 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    }
+  ],
+  "stocks": [
+    {
+      "company_name": "루닛",
+      "ticker": "328130",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 93,
+      "reason": "AI 영상진단 보조 솔루션 '루닛 인사이트'(흉부 X선·유방촬영)와 AI 바이오마커 '루닛 스코프'가 사업 전부인 의료 AI 전문 기업. 2025년 매출 831억원(전년 대비 53% 성장), 해외 매출 비중 97%.",
+      "business_evidence": "2025년 연간 매출 831억원 역대 최대. 2026년 1분기 매출 240억원(전년 대비 25% 증가), 해외 매출 232억원(97%).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "서울경제",
+          "document_title": "루닛, 1분기 매출 240억 원…역대 최대 실적",
+          "document_type": "news",
+          "url": "https://www.sedaily.com/article/20043128",
+          "evidence": "1분기 매출 240억원, 해외 비중 97%"
+        },
+        {
+          "source_name": "데일리팜",
+          "document_title": "루닛, 상반기 매출 371억 달성...영상진단 R&D 선도",
+          "document_type": "news",
+          "url": "https://dailypharm.com/user/news/3005",
+          "evidence": "루닛 인사이트·스코프 중심 매출 성장"
+        }
+      ]
+    },
+    {
+      "company_name": "뷰노",
+      "ticker": "338220",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "AI 심정지 예측 '뷰노메드 딥카스' 등 의료 AI 솔루션 전문 기업. 전체 매출 약 348억원 중 딥카스가 74%(약 257억원)를 차지하는 주력 사업. FDA 510(k)는 보완 요구(NSE)로 재신청 추진 중 — 국내 매출은 유효.",
+      "business_evidence": "연간 매출 약 348억원 중 딥카스 74%. 딥카스는 활력징후 데이터로 24시간 내 심정지를 예측하는 조기경보 소프트웨어로 국내 병원 도입 확산.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "더바이오",
+          "document_title": "뷰노 'FDA, 뷰노메드 딥카스 동등성 증빙 불충분 결정…재허가 신청할 것'",
+          "document_type": "news",
+          "url": "https://www.thebionews.net/news/articleView.html?idxno=24216",
+          "evidence": "딥카스 매출 비중 74%(약 257억원/348억원), FDA 재신청 계획"
+        },
+        {
+          "source_name": "뉴스웨이",
+          "document_title": "뷰노 '딥카스', FDA 문턱 못 넘어…美 사업화 지연 불가피",
+          "document_type": "news",
+          "url": "https://www.newsway.co.kr/news/view?ud=2026050614274655854",
+          "evidence": "딥카스가 주력 매출원 — 미국 진출 지연에도 국내 사업 지속"
+        }
+      ]
+    },
+    {
+      "company_name": "제이엘케이",
+      "ticker": "322510",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 85,
+      "reason": "뇌졸중 전주기 AI 진단 솔루션 전문 기업. JLK-LVO·JLK-ICH·JLK-CTP·JLK-PWI·JLK-NCCT 등 뇌졸중 AI 솔루션 다수가 미국 FDA 510(k) 승인을 획득했으며, 미국 보험수가(LVO 회당 $1,040) 시장 진출을 추진 중이다.",
+      "business_evidence": "뇌졸중 AI 솔루션 5종 FDA 510(k) 승인(JLK-NCCT 2026-03 포함). 미국 LVO 검출 AI 보험수가 회당 $1,040 시장 대상.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "팜이데일리",
+          "document_title": "제이엘케이, 뇌졸중 AI 솔루션 美 FDA 승인",
+          "document_type": "news",
+          "url": "https://pharm.edaily.co.kr/news/read?newsId=01777766639048984",
+          "evidence": "JLK-LVO FDA 510(k) 승인(2024-10)"
+        },
+        {
+          "source_name": "한국경제",
+          "document_title": "제이엘케이, JLK-NCCT 美 FDA 획득",
+          "document_type": "news",
+          "url": "https://www.hankyung.com/article/202603267491P",
+          "evidence": "비조영 CT 뇌졸중 분석 솔루션 FDA 510(k) 승인(2026-03) — 누적 다수"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "딥노이드",
+      "reason": "의료 AI 사업 존재하나 산업 AI(비파괴검사 등) 비중이 크고 의료 부문 매출 규모 미확인 — Moderate(원장만)"
+    }
+  ],
+  "summary": {
+    "core": 3,
+    "strong": 0,
+    "moderate": 1,
+    "weak": 0,
+    "unverified": 0,
+    "recommended_backtest_universe": ["328130", "338220", "322510"]
+  }
+}

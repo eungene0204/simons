@@ -1,0 +1,138 @@
+{
+  "concept": {
+    "id": "collaborative-robot",
+    "canonical_name": "협동로봇",
+    "canonical_name_en": "Collaborative Robot",
+    "abbreviation": "",
+    "aliases": [
+      "협동 로봇",
+      "코봇",
+      "cobot"
+    ],
+    "alias_note": "'로봇' 단독은 normalize_sector가 로봇 섹터로 해석하는 어휘라 동의어 제외(가드 ②)",
+    "definition": "안전 펜스 없이 사람과 같은 공간에서 작업하도록 설계된 산업용 로봇. 힘 제한·충돌 감지 기능을 갖추며 제조 공정 자동화와 F&B(조리) 등 서비스 영역에 쓰인다.",
+    "investment_context": "인건비 상승과 제조 인력난이 수요 동인. 국내 상장사는 협동로봇 전문 기업 구도이며 해외(북미·유럽) 시장 진출이 성장 변수다.",
+    "industry": ["로봇"],
+    "related_keywords": ["코봇", "제조 자동화", "F&B 로봇", "페이로드", "직접교시"],
+    "sources": [
+      {
+        "source_name": "삼성증권 기업분석",
+        "document_title": "두산로보틱스(454910) 해외 시장 공략하는 국내 협동로봇 1위 회사",
+        "document_type": "research_report",
+        "url": "https://www.samsungpop.com/common.do?cmd=down&contentType=application/pdf&inlineYn=Y&saveKey=research.pdf&fileName=2010/2026031015101871K_02_06.pdf",
+        "evidence": "국내 협동로봇 시장 구도·1위 사업자 분석",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [
+    {
+      "name": "KODEX 로봇액티브",
+      "ticker": "445290",
+      "country": "KR",
+      "issuer": "삼성자산운용",
+      "theme_reason": "국내 로봇 산업(협동로봇 포함) 테마(etf-master.json 정본 등재 확인). 협동로봇 전용 ETF는 부재 — 광의 테마로 연결(satellite의 우주 ETF 전례)",
+      "as_of_date": "2026-07-25"
+    }
+  ],
+  "stocks": [
+    {
+      "company_name": "두산로보틱스",
+      "ticker": "454910",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 92,
+      "reason": "협동로봇이 주력 사업 그 자체인 국내 협동로봇 시장 점유율 1위 기업. 중국 제외 글로벌 협동로봇 시장 4위(유니버설로봇·화낙·테크맨 다음). 북미 M&A(원엑시아)로 해외 공략 확대.",
+      "business_evidence": "국내 협동로봇 점유율 1위, 글로벌(중국 제외) 4위. KIND 사업보고서 공시 존재. 2025년 매출 감소·적자에도 협동로봇 단일 사업 구조 유지.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "삼성증권 기업분석",
+          "document_title": "두산로보틱스(454910) 해외 시장 공략하는 국내 협동로봇 1위 회사",
+          "document_type": "research_report",
+          "url": "https://www.samsungpop.com/common.do?cmd=down&contentType=application/pdf&inlineYn=Y&saveKey=research.pdf&fileName=2010/2026031015101871K_02_06.pdf",
+          "evidence": "국내 1위 협동로봇 회사 — 해외 시장 집중 공략"
+        },
+        {
+          "source_name": "KRX KIND",
+          "document_title": "두산로보틱스 사업보고서",
+          "document_type": "disclosure",
+          "url": "https://kind.krx.co.kr/common/disclsviewer.do?method=search&acptno=20260318002234",
+          "evidence": "사업보고서 공시(2026-03)"
+        }
+      ]
+    },
+    {
+      "company_name": "뉴로메카",
+      "ticker": "348340",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 88,
+      "reason": "AI 기반 협동로봇 '인디(Indy)'가 주력 제품인 협동로봇 전문 기업. 포스코·HD현대 생산라인 투입, 국내 협동로봇 시장 매출 1위 기록. 델타로봇·자율이동로봇 등 제품군 확장.",
+      "business_evidence": "2025년 연결 매출 252억원(전년 대비 83% 증가). 협동로봇 인디가 주력 — 산업·의료 영역 확대.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "더벨",
+          "document_title": "[피지컬AI 생태계 로드맵]'협동로봇' 뉴로메카, 산업부터 의료까지 영역 확대",
+          "document_type": "news",
+          "url": "https://www.thebell.co.kr/free/content/ArticleView.asp?key=202510161644000840107093",
+          "evidence": "협동로봇 전문 기업 — 산업·의료 영역 확대"
+        },
+        {
+          "source_name": "비즈니스포스트",
+          "document_title": "뉴로메카 AI 자동화 붐 타고 협동로봇 성장성 입증하나",
+          "document_type": "news",
+          "url": "https://www.businesspost.co.kr/BP?command=article_view&num=419092",
+          "evidence": "매출 252억원(83% 증가), 협동로봇 주력·해외 진출 추진"
+        }
+      ]
+    },
+    {
+      "company_name": "레인보우로보틱스",
+      "ticker": "277810",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 72,
+      "reason": "협동로봇 RB 시리즈를 자체 개발·생산하나, 휴머노이드·이족보행 로봇·자율이동로봇 등 다각화된 로봇 플랫폼 기업이라 협동로봇의 매출 비중이 불확정 — Strong.",
+      "business_evidence": "협동로봇 RB 시리즈(RB20-1900 등) 생산·판매, 연 1,500대 공급 목표 발표. 협동로봇 신제품 지속 출시.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "ZDNet Korea",
+          "document_title": "레인보우로보틱스, 협동·물류로봇 신제품 쏟아내...글로벌 시장 공략",
+          "document_type": "news",
+          "url": "https://zdnet.co.kr/view/?no=20240827221006",
+          "evidence": "협동로봇 신제품 출시·연 1,500대 공급 목표"
+        },
+        {
+          "source_name": "레인보우로보틱스",
+          "document_title": "협동로봇 제품 페이지",
+          "document_type": "corporate_website",
+          "url": "https://www.rainbow-robotics.com/rb",
+          "evidence": "협동로봇 RB 시리즈 공식 제품 라인업"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "유일로보틱스",
+      "reason": "산업용 로봇(다관절·직교) 중심으로 협동로봇 매출 비중 미확인 — 원장만"
+    }
+  ],
+  "summary": {
+    "core": 2,
+    "strong": 1,
+    "moderate": 0,
+    "weak": 0,
+    "unverified": 0,
+    "recommended_backtest_universe": ["454910", "348340", "277810"]
+  }
+}

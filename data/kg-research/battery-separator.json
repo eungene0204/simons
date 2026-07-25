@@ -1,0 +1,119 @@
+{
+  "concept": {
+    "id": "battery-separator",
+    "canonical_name": "배터리 분리막",
+    "canonical_name_en": "Battery Separator",
+    "abbreviation": "LiBS",
+    "aliases": [
+      "이차전지 분리막",
+      "2차전지 분리막",
+      "습식 분리막",
+      "LiBS"
+    ],
+    "alias_note": "'분리막' 단독 표현은 normalize_sector가 이차전지 섹터로 해석하는 어휘라 시드 동의어에서 제외(빌더 가드 ② — '위성' 전례)",
+    "definition": "리튬이온 배터리 내부에서 양극과 음극의 물리적 접촉을 차단하면서 리튬이온만 통과시키는 다공성 필름 소재. 습식/건식 공법으로 제조되며 배터리 안전성을 좌우하는 4대 소재(양극재·음극재·분리막·전해액) 중 하나다.",
+    "investment_context": "전기차·ESS 배터리 수요와 직결되는 소재 산업. 미국 IRA 등 공급망 규제로 비중국산 분리막 수요가 부각되며, 국내는 습식 분리막 중심의 전문 기업 구도다.",
+    "industry": ["이차전지"],
+    "related_keywords": ["습식 분리막", "건식 분리막", "세라믹 코팅", "LiBS", "4대 소재"],
+    "sources": [
+      {
+        "source_name": "헤럴드경제",
+        "document_title": "SKIET 비핵심 'FCW 사업부' 매각…분리막 사업 집중",
+        "document_type": "news",
+        "url": "https://biz.heraldcorp.com/article/10619875",
+        "evidence": "리튬이온 배터리 분리막(LiBS)이 주력 사업 — 비핵심 매각 후 집중",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [
+    {
+      "name": "TIGER 2차전지소재Fn",
+      "ticker": "462010",
+      "country": "KR",
+      "issuer": "미래에셋자산운용",
+      "theme_reason": "2차전지 소재(분리막 포함) 밸류체인 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    },
+    {
+      "name": "KODEX 2차전지핵심소재10",
+      "ticker": "461950",
+      "country": "KR",
+      "issuer": "삼성자산운용",
+      "theme_reason": "2차전지 핵심 소재 10종목 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    }
+  ],
+  "stocks": [
+    {
+      "company_name": "SK아이이테크놀로지",
+      "ticker": "361610",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 95,
+      "reason": "리튬이온 배터리 분리막(LiBS)이 회사의 주력 사업 그 자체다. 비핵심 FCW(폴더블 커버 윈도우) 사업부를 매각하고 분리막 사업에 투자 재원과 역량을 집중하기로 했다.",
+      "business_evidence": "국내 증평·중국 창저우·폴란드 실롱스크에 습식 분리막 생산 거점 보유. FCW 사업부 매각 후 리튬이온 배터리 분리막(LiBS) 본업 집중 공식화. ESS 중심 고객 다변화 진행.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "헤럴드경제",
+          "document_title": "SKIET 비핵심 'FCW 사업부' 매각…분리막 사업 집중",
+          "document_type": "news",
+          "url": "https://biz.heraldcorp.com/article/10619875",
+          "evidence": "분리막(LiBS) 주력 사업 집중을 위한 비핵심 사업 매각"
+        },
+        {
+          "source_name": "디일렉",
+          "document_title": "가동률 회복-보수적 투자...SKIET 상반기 분리막 사업 흑자전환 목표",
+          "document_type": "news",
+          "url": "https://www.thelec.kr/news/articleView.html?idxno=19725",
+          "evidence": "분리막 사업이 실적의 중심 — 가동률·흑자전환 논의 자체가 분리막 기준"
+        }
+      ]
+    },
+    {
+      "company_name": "더블유씨피",
+      "ticker": "393890",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "2016년 설립된 2차전지 분리막 개발·생산 전문 기업으로 분리막이 사실상 단일 사업이다. 국내 분리막 점유율 2위.",
+      "business_evidence": "2022년 코스닥 상장(공모가 기준 시총 약 2조원). 분리막 생산라인·코팅라인 증설로 연간 12억㎡ 생산능력 목표. 2022년 상반기 매출 1,174억원.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "더스탁",
+          "document_title": "2차전지 분리막 국내점유율 2위 '더블유씨피', 코스닥 상장 본격화",
+          "document_type": "news",
+          "url": "https://www.the-stock.kr/news/articleView.html?idxno=15779",
+          "evidence": "2차전지 분리막 전문 기업, 국내 점유율 2위"
+        },
+        {
+          "source_name": "인베스팅닷컴(더스탁)",
+          "document_title": "2차전지 분리막 '더블유씨피', 하반기 코스닥 공모",
+          "document_type": "news",
+          "url": "https://kr.investing.com/news/markets/article-808762",
+          "evidence": "분리막 개발·생산 전문 기업, 매출·영업이익 성장"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "LG화학",
+      "reason": "분리막 원단·코팅 사업이 존재하나 석유화학·첨단소재·생명과학 종합기업으로 분리막 매출 비중이 작아 Moderate 미만 — 시드 미편입"
+    }
+  ],
+  "summary": {
+    "core": 2,
+    "strong": 0,
+    "moderate": 1,
+    "weak": 0,
+    "unverified": 0,
+    "recommended_backtest_universe": ["361610", "393890"]
+  }
+}

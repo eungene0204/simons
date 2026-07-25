@@ -47,12 +47,30 @@ Investor→`invests_in`, ETF→`related_etf`. 점수·출처 요약은 엣지 `n
 | 양자컴퓨터 (`quantum-computing`) | `data/kg-research/quantum-computing.json` | **기업 엣지 0** — 핵심 기업 SDT 비상장(상장 시 재조사), 상장 테마주는 양자내성암호 인접 분야로 근거 미확인. 노드만 편입 | 2026-07-25 |
 | 인공위성 (`satellite`) | `data/kg-research/satellite.json` | 쎄트렉아이(Core 92, KAIST 공급계약 공시)·인텔리안테크(Core 85, 위성 안테나 세계 1위)·AP위성(Strong 72), ETF 0207G0. '위성' 단독은 섹터 어휘라 동의어 제외(가드 ②) | 2026-07-25 |
 | 마이크로바이옴 (`microbiome`) | `data/kg-research/microbiome.json` | CJ 바이오사이언스(Core 88)·쎌바이오텍(Core 85, DUOLAC 프로바이오틱스)·고바이오랩(Strong 68). 지놈앤컴퍼니는 전략 전환으로 Moderate | 2026-07-25 |
+| 배터리 분리막 (`battery-separator`) | `data/kg-research/battery-separator.json` | SK아이이테크놀로지(Core 95, LiBS 주력·FCW 매각)·더블유씨피(Core 90, 분리막 전업 점유율 2위), ETF 462010·461950. '분리막' 단독은 섹터 어휘라 동의어 제외(가드 ②) | 2026-07-25 |
+| 음극재 (`anode-material`) | `data/kg-research/anode-material.json` | 포스코퓨처엠(Core 90, 국내 유일 흑연계 양산·인조흑연 1조 수주)·대주전자재료(Core 90, 실리콘 음극재 세계 최초 상용화). 노드명 '음극재'는 섹터 어휘라 스캔 제외되나 앵커 유효('양극재' 전례) | 2026-07-25 |
+| 수소연료전지 (`hydrogen-fuel-cell`) | `data/kg-research/hydrogen-fuel-cell.json` | 두산퓨얼셀(Core 95, 발전용 주기기 75%+유지보수 25%)·범한퓨얼셀(Core 88, 연료전지 매출 77%·잠수함 독점)·일진하이솔루스(Supplier/Strong 76, Type4 탱크 넥쏘 전량), ETF 367770·419650. '수소'는 섹터 어휘·'그린수소'는 테스트 용어라 동의어 제외. 288620은 정본명 '에스프리즘'(구 에스퓨얼셀 추정) — Unverified 원장만 | 2026-07-25 |
+| 의료 AI (`medical-ai`) | `data/kg-research/medical-ai.json` | 루닛(Core 93, 인사이트·스코프 전업 해외 97%)·뷰노(Core 90, 딥카스 매출 74%)·제이엘케이(Core 85, 뇌졸중 FDA 5종), ETF 483020. is_a AI 체인으로 소프트웨어/플랫폼 해석(ai-agent 전례) | 2026-07-25 |
+| 협동로봇 (`collaborative-robot`) | `data/kg-research/collaborative-robot.json` | 두산로보틱스(Core 92, 국내 1위 단일사업)·뉴로메카(Core 88, '인디' 주력)·레인보우로보틱스(Strong 72, RB 시리즈 있으나 다각화), ETF 445290. '로봇' 단독은 섹터 어휘라 동의어 제외 | 2026-07-25 |
+| 미용 의료기기 (`aesthetic-medical-device`) | `data/kg-research/aesthetic-medical-device.json` | 클래시스(Core 95, HIFU 점유율 55%)·원텍(Core 88, 올리지오 47%)·에이피알(Strong 74, 뷰티 디바이스 4,070억 — 주력은 화장품), ETF 307510·479850. 비올은 정본에 심볼(335890) 부재로 편입 불가(가드 ① 실적용) | 2026-07-25 |
+| 항체약물접합체 (`adc`) | `data/kg-research/adc.json` | 리가켐바이오(Core 93, 얀센 2.2조 기술이전·6년 연속 수출). ADC 전용 ETF 부재로 미연결(탄소배출권 전례), related_to cdmo 간접 연결. 삼성바이오로직스·셀트리온은 Moderate 원장만 | 2026-07-25 |
 
 ## 다음 후보 (미처리)
 
-초기 후보 목록은 전부 처리 완료(2026-07-25, 총 14 Concept). 재조사 대기: 액침냉각(관련사
-매출·계약 확인 시), 양자컴퓨터(SDT 상장 시), 하나기술·필옵틱스(수주 공시 확인 시 Strong 승격).
-신규 발굴은 프롬프트 §1 절차(섹터 순회·ETF 테마 스캔)로 계속한다.
+초기 후보 14 Concept + 3차 배치 7 Concept(분리막·음극재·수소연료전지·의료 AI·협동로봇·
+미용 의료기기·ADC) 처리 완료(2026-07-25, 총 21). 재조사 대기: 액침냉각(관련사 매출·계약 확인
+시), 양자컴퓨터(SDT 상장 시), 하나기술·필옵틱스(수주 공시 확인 시 Strong 승격), 에스프리즘
+(288620 — 구 에스퓨얼셀 추정, 사명 변경 후 연료전지 사업 지속 확인 시), 비올(korea-stocks
+정본 등재 시). 신규 발굴은 프롬프트 §1 절차(섹터 순회·ETF 테마 스캔)로 계속한다.
+
+## 가드 ③ 확장 — 런타임 학습 용어와 테스트 격리 (2026-07-25 3차 실측)
+
+시드 용어뿐 아니라 **런타임 검색 학습이 실제 `data/term_lexicon.json`에 저장한 용어**도
+grounding·빌더 테스트의 전제를 깰 수 있다('반도체소부장' 학습 커밋 후
+`test_compound_theme_*` 2건+`test_compound_theme_not_confirmed_as_head_sector` 실패 실측 —
+①b 지식그래프 단계가 전역 어휘집 오버레이를 읽기 때문). '학습 전' 상태를 검증하는 테스트는
+`monkeypatch.setattr(kg, "_LEXICON_PATH", tmp)` + `_CACHED=None` 격리 패턴
+(test_knowledge_graph.py 전례)을 반드시 적용한다.
 
 ---
 

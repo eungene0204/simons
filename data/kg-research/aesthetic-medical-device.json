@@ -1,0 +1,155 @@
+{
+  "concept": {
+    "id": "aesthetic-medical-device",
+    "canonical_name": "미용 의료기기",
+    "canonical_name_en": "Aesthetic Medical Device",
+    "abbreviation": "",
+    "aliases": [
+      "미용의료기기",
+      "미용기기",
+      "에스테틱 기기",
+      "피부미용 기기",
+      "뷰티 디바이스"
+    ],
+    "definition": "피부 리프팅·타이트닝·색소 치료 등 미용 목적의 에너지 기반 의료기기(HIFU·고주파 RF·레이저)와 가정용 뷰티 디바이스를 포괄하는 산업. 장비 판매 후 소모품(카트리지·팁) 반복 매출이 발생하는 구조다.",
+    "investment_context": "비침습 시술 수요 확대와 해외(미국·브라질·일본) 수출이 성장 동인. 소모품 매출 비중이 수익성을 좌우하며, 미국 FDA 인허가가 주요 모멘텀이다.",
+    "industry": ["의료기기"],
+    "related_keywords": ["HIFU", "고주파 RF", "리프팅", "소모품 매출", "홈 뷰티 디바이스"],
+    "sources": [
+      {
+        "source_name": "히트뉴스",
+        "document_title": "미용의료기기 매출 견인 'HIFU·RF'... '클래시스' 제일 잘나가",
+        "document_type": "news",
+        "url": "https://www.hitnews.co.kr/news/articleView.html?idxno=63421",
+        "evidence": "HIFU·RF 미용의료기기 산업 구도와 매출 1위 기업",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [
+    {
+      "name": "TIGER 의료기기",
+      "ticker": "307510",
+      "country": "KR",
+      "issuer": "미래에셋자산운용",
+      "theme_reason": "국내 의료기기 섹터 ETF(미용 의료기기 포함 광의 테마 — etf-master.json 정본 등재 확인). 미용 전용 ETF 부재",
+      "as_of_date": "2026-07-25"
+    },
+    {
+      "name": "HANARO K-뷰티",
+      "ticker": "479850",
+      "country": "KR",
+      "issuer": "NH-Amundi자산운용",
+      "theme_reason": "K-뷰티(화장품·뷰티 디바이스) 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    }
+  ],
+  "stocks": [
+    {
+      "company_name": "클래시스",
+      "ticker": "214150",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 95,
+      "reason": "HIFU 리프팅 기기 '슈링크'와 RF 기기 '볼뉴머'가 주력인 미용 의료기기 전문 기업. 국내 HIFU 시장 점유율 55%, 비침습 리프팅 기기 부문 매출 1위. 볼뉴머 미국 FDA 허가(2024).",
+      "business_evidence": "슈링크 글로벌 누적 판매 1만8천대 돌파, 국내 HIFU 점유율 55%. 2023년 해외 매출 1,000억원+국내 631억원 — 역대 최대. 볼뉴머 미국 허가 획득.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "히트뉴스",
+          "document_title": "미용의료기기 매출 견인 'HIFU·RF'... '클래시스' 제일 잘나가",
+          "document_type": "news",
+          "url": "https://www.hitnews.co.kr/news/articleView.html?idxno=63421",
+          "evidence": "HIFU·RF 리프팅 기기 매출 1위"
+        },
+        {
+          "source_name": "팜이데일리",
+          "document_title": "美허가된 '클래시스' 피부·비만용 의료기기, 시장 출시 시점은?",
+          "document_type": "news",
+          "url": "https://pharm.edaily.co.kr/News/Read?newsId=01649846639023728",
+          "evidence": "볼뉴머 미국 FDA 허가 — 해외 확장"
+        }
+      ]
+    },
+    {
+      "company_name": "원텍",
+      "ticker": "336570",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 88,
+      "reason": "모노폴라 RF 리프팅 기기 '올리지오'가 주력인 미용 의료기기·레이저 전문 기업. 올리지오 매출 비중이 47.3%까지 확대됐고 해외 매출 비중 67%로 수출 주도 성장.",
+      "business_evidence": "2024년 올리지오 시리즈 매출 비중 34.2% → 지난해 3분기 누적 47.3%. 3분기 누적 매출 1,104억원·영업이익 394억원, 해외 비중 67.4%.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "다음뉴스(이데일리)",
+          "document_title": "원텍, 다음은 제모 레이저…1조 미국 시장 뚫는다",
+          "document_type": "news",
+          "url": "https://v.daum.net/v/20260102154745588",
+          "evidence": "올리지오 매출 비중 47.3%, 해외 비중 67.4%"
+        },
+        {
+          "source_name": "뷰티누리",
+          "document_title": "[기업분석] 원텍, 2023년 매출 1156억…전년比 41.9%↑",
+          "document_type": "news",
+          "url": "https://www.beautynury.com/news/view/104619/cat/10",
+          "evidence": "미용 의료기기 중심 매출 성장"
+        }
+      ]
+    },
+    {
+      "company_name": "에이피알",
+      "ticker": "278470",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 74,
+      "reason": "가정용 뷰티 디바이스 '메디큐브 에이지알(AGE-R)'을 자체 개발·판매. 뷰티 디바이스 매출 4,070억원으로 의미 있는 사업부이나 주력은 화장품(1조771억원)이라 Strong. 글로벌 누적 판매 500만대.",
+      "business_evidence": "뷰티 디바이스 부문 매출 4,070억원(화장품·뷰티 합산 1조4천억원 중). 에이지알 글로벌 누적 판매 500만대, 해외 비중 과반.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "에이피알 공식 블로그",
+          "document_title": "에이지알 뷰티 디바이스 글로벌 누적 판매 500만 대 돌파",
+          "document_type": "corporate_website",
+          "url": "https://apr-blog.com/device-5million",
+          "evidence": "뷰티 디바이스 누적 500만대·해외 비중 과반"
+        },
+        {
+          "source_name": "에이피알 공식 블로그",
+          "document_title": "메디큐브 단일 브랜드 매출 1조 4천억 원 돌파",
+          "document_type": "corporate_website",
+          "url": "https://apr-blog.com/medicube-2025earning",
+          "evidence": "화장품 1조771억원·뷰티 디바이스 4,070억원 매출 구성"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "비올",
+      "reason": "마이크로니들 RF 미용 의료기기 전문이나 korea-stocks.json 정본에 심볼(335890) 부재 — 가드 ① 위반으로 시드 편입 불가. 정본 등재 시 재조사"
+    },
+    {
+      "company_name": "하이로닉",
+      "reason": "미용 의료기기 전업이나 매출 규모가 작고 공식 근거 미수집 — Moderate(원장만)"
+    },
+    {
+      "company_name": "파마리서치",
+      "reason": "리쥬란 등 의료미용 '의약품·의료기기(주사제)' 중심 — 에너지 기반 기기 개념과 결이 달라 제외, 별도 개념(재생의학 에스테틱) 후보"
+    }
+  ],
+  "summary": {
+    "core": 2,
+    "strong": 1,
+    "moderate": 1,
+    "weak": 0,
+    "unverified": 0,
+    "recommended_backtest_universe": ["214150", "336570", "278470"]
+  }
+}

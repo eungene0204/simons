@@ -1,0 +1,158 @@
+{
+  "concept": {
+    "id": "hydrogen-fuel-cell",
+    "canonical_name": "수소연료전지",
+    "canonical_name_en": "Hydrogen Fuel Cell",
+    "abbreviation": "",
+    "aliases": [
+      "연료전지",
+      "수소 연료전지",
+      "SOFC",
+      "PAFC"
+    ],
+    "alias_note": "'수소' 단독은 normalize_sector가 에너지/원자력으로 해석하는 어휘라 동의어 제외(가드 ②). '그린수소'는 grounding 테스트 정본 예제 용어라 제외(가드 ③ — 검색 학습 경로 담당)",
+    "definition": "수소와 산소의 전기화학 반응으로 전기를 생산하는 발전 장치. 발전용(PAFC·SOFC), 수송용(차량·선박·잠수함), 건물용으로 나뉘며 물 이외의 배출물이 없는 청정 발전원이다.",
+    "investment_context": "청정수소 발전 의무화 제도(CHPS) 입찰 시장과 데이터센터 전력 수요가 발전용 연료전지 수요를 견인한다. 수송용은 수소차(넥쏘)·잠수함 등 방산 수요와 연결된다.",
+    "industry": ["에너지/원자력"],
+    "related_keywords": ["CHPS", "청정수소 발전 입찰", "수소차", "수소충전소", "잠수함 AIP"],
+    "sources": [
+      {
+        "source_name": "두산퓨얼셀",
+        "document_title": "두산퓨얼셀 공식 홈페이지",
+        "document_type": "corporate_website",
+        "url": "https://www.doosanfuelcell.com/kr",
+        "evidence": "발전용 연료전지(PAFC·SOFC) 사업 공식 소개",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [
+    {
+      "name": "RISE 수소경제테마",
+      "ticker": "367770",
+      "country": "KR",
+      "issuer": "KB자산운용",
+      "theme_reason": "국내 수소경제(연료전지 포함) 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    },
+    {
+      "name": "PLUS 글로벌수소&차세대연료전지",
+      "ticker": "419650",
+      "country": "KR",
+      "issuer": "한화자산운용",
+      "theme_reason": "글로벌 수소·차세대 연료전지 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    }
+  ],
+  "stocks": [
+    {
+      "company_name": "두산퓨얼셀",
+      "ticker": "336260",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 95,
+      "reason": "발전용 수소연료전지 전문 기업으로 연료전지가 사업 전부다. 매출 구성이 발전용 연료전지 주기기 공급(75.1%)과 장기유지보수 서비스(24.9%)로 이뤄진다. 영국 Ceres Power 기술협력으로 SOFC 제조기술을 도입해 신사업 매출이 발생하기 시작했다.",
+      "business_evidence": "매출 구성: 발전용 연료전지 주기기 750억원(75.1%)+장기유지보수 248억원(24.9%). 2026년 1분기 매출 1,448억원 — PAFC 납품 확대·SOFC 매출 개시.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "SK증권 기업분석",
+          "document_title": "두산퓨얼셀(336260) 연료전지가 주목받는 이유",
+          "document_type": "research_report",
+          "url": "https://www.sks.co.kr/data1/research/qna_file/20251031150026474_0_ko.pdf",
+          "evidence": "발전용 연료전지 주기기+유지보수가 매출 전부인 사업 구조"
+        },
+        {
+          "source_name": "월간수소경제",
+          "document_title": "두산퓨얼셀 실적·사업 재편",
+          "document_type": "news",
+          "url": "https://www.h2news.kr/news/articleView.html?idxno=13403",
+          "evidence": "연료전지 매출·SOFC 신사업 진행 상황"
+        }
+      ]
+    },
+    {
+      "company_name": "범한퓨얼셀",
+      "ticker": "382900",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 88,
+      "reason": "2019년 범한산업 수소연료전지 사업부를 물적분할해 설립된 연료전지 전문 기업. 매출 비중이 수소연료전지 공급 77%로 주력이며, 장보고-III급 잠수함용 연료전지 모듈을 독점 납품하고 수소충전소 구축 사업을 병행한다.",
+      "business_evidence": "매출 비중: 수소연료전지 공급 77%·수소충전소 구축 3%. 방위사업청과 장보고-III Batch-I 잠수함용 연료전지 예비품 약 70억원 공급계약(최근 매출액의 14.8%). 인천공항 액화수소충전소 사업자 선정(84억원).",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "이투데이",
+          "document_title": "범한퓨얼셀, 장보고-Ⅲ급 잠수함 연료전지 모듈 독점",
+          "document_type": "news",
+          "url": "https://www.etoday.co.kr/news/view/2605717",
+          "evidence": "2018년부터 장보고-III급 잠수함 연료전지 모듈 독점 납품"
+        },
+        {
+          "source_name": "서울경제",
+          "document_title": "범한퓨얼셀, 방사청과 64억 규모 잠수함 연료전지 예비품 수주",
+          "document_type": "news",
+          "url": "https://www.sedaily.com/article/20069539",
+          "evidence": "방위사업청 공급계약 — 최근 매출액 대비 14.8% 규모"
+        },
+        {
+          "source_name": "FnGuide",
+          "document_title": "범한퓨얼셀(A382900) Company Guide",
+          "document_type": "company_guide",
+          "url": "https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A382900",
+          "evidence": "수소연료전지 공급 매출 비중 77%"
+        }
+      ]
+    },
+    {
+      "company_name": "일진하이솔루스",
+      "ticker": "271940",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Supplier",
+      "relevance": "Strong",
+      "relevance_score": 76,
+      "reason": "수소연료전지 시스템의 핵심 부품인 Type4 수소연료탱크를 세계 최초로 차량용 양산한 기업. 현대차 수소전기차 넥쏘 1·2세대에 수소연료탱크를 전량(독점) 공급한다. 연료전지 스택 자체가 아닌 저장 부품 공급사라 Supplier로 분류.",
+      "business_evidence": "차세대 넥쏘 수소연료탱크 전량 공급(2021 공시 보도). 2014년 세계 첫 양산 수소차 투싼ix부터 공급. Type4 튜브트레일러 등 수소 저장·운송 사업 병행.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "디일렉",
+          "document_title": "일진하이솔루스, 현대차 차세대 '넥쏘'에 수소연료탱크 독점 공급",
+          "document_type": "news",
+          "url": "http://www.thelec.kr/news/articleView.html?idxno=13821",
+          "evidence": "차세대 넥쏘 수소연료탱크 독점(전량) 공급"
+        },
+        {
+          "source_name": "하나증권 기업분석",
+          "document_title": "일진하이솔루스(271940) 신형 넥쏘를 기다리며",
+          "document_type": "research_report",
+          "url": "https://www.hanaw.com/download/research/FileServer/WEB/industry/enterprise/2024/08/13/2Q24_IljinHysolus.pdf",
+          "evidence": "수소차용 연료탱크 생산업체 — Type4 세계 선도"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "에스프리즘(구 에스퓨얼셀 추정, 288620)",
+      "reason": "korea-stocks.json 정본 종목명이 '에스프리즘'으로 확인 — 사명 변경 후 연료전지 사업 지속 여부 공식 확인 필요. Unverified로 원장만 기록, 사업보고서 확인 시 재조사"
+    },
+    {
+      "company_name": "두산(지주)",
+      "reason": "두산퓨얼셀 지분 보유 지주회사 — 직접 사업 아님(Investor), 시드 미편입"
+    }
+  ],
+  "summary": {
+    "core": 2,
+    "strong": 1,
+    "moderate": 0,
+    "weak": 0,
+    "unverified": 1,
+    "recommended_backtest_universe": ["336260", "382900", "271940"]
+  }
+}

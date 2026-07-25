@@ -1,0 +1,138 @@
+{
+  "concept": {
+    "id": "anode-material",
+    "canonical_name": "음극재",
+    "canonical_name_en": "Anode Material",
+    "abbreviation": "",
+    "aliases": [
+      "음극활물질",
+      "음극소재",
+      "음극 소재",
+      "실리콘 음극재",
+      "인조흑연 음극재"
+    ],
+    "alias_note": "노드명 '음극재'는 normalize_sector가 이차전지로 해석하는 어휘라 스캔 인덱스에서 자동 제외되지만 엣지 앵커로는 유효('양극재' 노드 전례). 스캔은 동의어(음극활물질 등)가 담당",
+    "definition": "리튬이온 배터리에서 충전 시 리튬이온을 저장하는 음극의 활물질. 천연흑연·인조흑연이 주류이며, 용량이 흑연의 10배 이상인 실리콘 음극재가 차세대 소재로 상용화 단계다.",
+    "investment_context": "배터리 4대 소재 중 하나로 전기차 수요와 직결된다. 흑연계는 중국 의존도가 높아 IRA 등 공급망 규제로 비중국산 수요가 부각되며, 실리콘 음극재는 충전속도·주행거리 개선 수요로 채택이 확대되고 있다.",
+    "industry": ["이차전지"],
+    "related_keywords": ["천연흑연", "인조흑연", "실리콘 음극재", "4대 소재", "공급망 규제"],
+    "sources": [
+      {
+        "source_name": "포스코퓨처엠",
+        "document_title": "사업분야 — 이차전지소재",
+        "document_type": "corporate_website",
+        "url": "https://www.poscofuturem.com/business/energy.do",
+        "evidence": "천연흑연·인조흑연 음극재 사업 공식 소개",
+        "retrieved_at": "2026-07-25"
+      }
+    ]
+  },
+  "related_etfs": [
+    {
+      "name": "KODEX 2차전지핵심소재10",
+      "ticker": "461950",
+      "country": "KR",
+      "issuer": "삼성자산운용",
+      "theme_reason": "2차전지 핵심 소재 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    },
+    {
+      "name": "TIGER 2차전지소재Fn",
+      "ticker": "462010",
+      "country": "KR",
+      "issuer": "미래에셋자산운용",
+      "theme_reason": "2차전지 소재 밸류체인 테마(etf-master.json 정본 등재 확인)",
+      "as_of_date": "2026-07-25"
+    }
+  ],
+  "stocks": [
+    {
+      "company_name": "포스코퓨처엠",
+      "ticker": "003670",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "국내 유일의 흑연계(천연+인조) 음극재 양산 기업. 2011년 천연흑연 국산화, 2021년 포항 인조흑연 공장 준공. 글로벌 자동차사와 사업 진출 후 최대인 약 1조원 규모 인조흑연 음극재 장기 공급계약 체결.",
+      "business_evidence": "글로벌 자동차사와 약 1조149억원 규모 인조흑연 음극재 공급계약(2027–2032년 5년). 국내 유일 양·음극재 동시 생산. 실리콘 음극재 2028년 양산 추진.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "뉴스1",
+          "document_title": "포스코퓨처엠, '1조' 인조흑연 음극재 공급계약…사상 최대",
+          "document_type": "news",
+          "url": "https://www.news1.kr/industry/general-industry/6102315",
+          "evidence": "약 1조149억원 인조흑연 음극재 장기 공급계약(2026-03)"
+        },
+        {
+          "source_name": "포스코퓨처엠",
+          "document_title": "사업분야 — 이차전지소재",
+          "document_type": "corporate_website",
+          "url": "https://www.poscofuturem.com/business/energy.do",
+          "evidence": "국내 유일 흑연계 음극재 양산·양음극재 동시 생산"
+        },
+        {
+          "source_name": "한국경제",
+          "document_title": "포스코퓨처엠, 실리콘 음극재 2028년 양산",
+          "document_type": "news",
+          "url": "https://www.hankyung.com/article/2026052097371",
+          "evidence": "실리콘 음극재 사업화 추진(2026-05)"
+        }
+      ]
+    },
+    {
+      "company_name": "대주전자재료",
+      "ticker": "078600",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "실리콘 음극재를 2019년 세계 최초로 상용화(LG에너지솔루션 경유 포르쉐 타이칸 탑재)한 소재 기업. LG에너지솔루션·SK온에 이어 파나소닉(테슬라 탑재)으로 고객 확대. 양산 가능 업체가 대주전자재료와 중국 BTR 정도로 꼽히는 과점 구도.",
+      "business_evidence": "파나소닉에 실리콘 음극재 공급 — 테슬라 전기차 적용(2025-06). 실리콘 음극재 생산능력 3배 확대 공시(회사 공지). 신성장 동력으로 실리콘 음극재 본격화.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "전자신문",
+          "document_title": "대주전자재료, 파나소닉에 실리콘 음극재 공급…'中 소재 대체' 테슬라에 탑재",
+          "document_type": "news",
+          "url": "https://www.etnews.com/20250627000075",
+          "evidence": "2019년 세계 최초 상용화(포르쉐 타이칸), 파나소닉·테슬라로 확대"
+        },
+        {
+          "source_name": "대주전자재료",
+          "document_title": "실리콘 음극재 생산능력 확대 공지",
+          "document_type": "corporate_website",
+          "url": "http://www.daejoo.co.kr/kr/notice/notice_view.php?pid=609",
+          "evidence": "실리콘 음극재 생산능력 내년 3배 확대"
+        },
+        {
+          "source_name": "미래에셋증권 기업분석",
+          "document_title": "대주전자재료(078600) 커버리지 개시",
+          "document_type": "research_report",
+          "url": "https://securities.miraeasset.com/bbs/download/2129978.pdf?attachmentId=2129978",
+          "evidence": "배터리 소재(실리콘 음극재) 성장성 중심 분석"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "한솔케미칼",
+      "reason": "실리콘 음극재 사업 진입 단계로 매출 기여 미확인 — Moderate(원장만), 양산·공급계약 확인 시 재조사"
+    },
+    {
+      "company_name": "나노신소재",
+      "reason": "CNT 도전재가 주력으로 음극재 자체가 아닌 인접 소재 — 제외"
+    }
+  ],
+  "summary": {
+    "core": 2,
+    "strong": 0,
+    "moderate": 1,
+    "weak": 0,
+    "unverified": 0,
+    "recommended_backtest_universe": ["003670", "078600"]
+  }
+}
