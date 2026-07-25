@@ -522,3 +522,80 @@ def test_theme_universe_clarification_chip_roundtrip(tmp_path, monkeypatch):
     assert detect_theme_universe_clarification(parsed, "PER 10 이하 매수") == (None, None)
     assert detect_theme_universe_clarification(multi, "위고비 관련주") == (None, None)
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_relink_scan_proposes_pending_edges_for_new_nodes(tmp_path):
+    """재연결 감사(FR-STR-070b ⑥) — 학습 이후 편입된 노드가 저장 텍스트(정의·출처 제목)에
+    등장하면 pending related_to 후보를 추가한다. rejected 이력은 부활하지 않고, 두 번
+    돌려도 결과가 같다(멱등). 'bts 관련주' 사고의 역방향 공백 보정."""
+    from engine.term_grounding import relink_lexicon
+
+    lexicon = tmp_path / "lex.json"
+    lexicon.write_text(json.dumps({
+        "신조어테마": {
+            "term": "신조어테마",
+            "definition": "HBM 공급 부족과 함께 언급되는 신조어 테마",
+            "sector": None,
+            "sources": [{"title": "GPU 서버 수요 급증", "link": "https://example.com/gpu"}],
+            "searched_at": "2026-07-25T00:00:00+00:00",
+            "edges": [{"type": "related_to", "target": "hbm",
+                       "status": "rejected", "support": 2}],
+        },
+    }, ensure_ascii=False), encoding="utf-8")
+
+    report = relink_lexicon(lexicon_path=lexicon)
+    assert report["terms_updated"] == 1
+    saved = json.loads(lexicon.read_text(encoding="utf-8"))["신조어테마"]
+    by_target = {e["target"]: e for e in saved["edges"]}
+    # 출처 제목의 GPU → pending 제안(자동 verified 금지, 콘솔 승인 대상)
+    assert by_target["gpu"]["status"] == "pending"
+    assert by_target["gpu"]["proposed_by"] == "relink-scan"
+    assert by_target["gpu"]["evidence"] == ["https://example.com/gpu"]
+    # 정의의 HBM은 rejected 이력 — 부활하지 않고 그대로 보존
+    assert by_target["hbm"]["status"] == "rejected"
+
+    # 멱등: 재실행 시 새 제안 없음(이미 제안된 타깃 재제안 금지)
+    report2 = relink_lexicon(lexicon_path=lexicon)
+    assert report2["terms_updated"] == 0
+
+
+def test_stale_entry_regrounds_and_merges(tmp_path, monkeypatch):
+    """TTL 재검토(FR-STR-069 ⑦) — searched_at이 TTL을 넘긴 미해결 항목은 재언급 시
+    재검색을 허용하되, 재학습은 병합이라 기존 엣지의 검토 상태(rejected)를 보존한다.
+    TTL=0이면 기존 영구 캐시 계약 그대로(재검색 없음)."""
+    entry = {
+        "term": "메타버스", "definition": "가상 세계 서비스", "sector": None,
+        "sources": [], "searched_at": "2026-01-01T00:00:00+00:00",  # 200일 이상 경과
+        "edges": [{"type": "related_to", "target": "hbm",
+                   "status": "rejected", "support": 2}],
+    }
+    lexicon = tmp_path / "lex.json"
+    lexicon.write_text(json.dumps({"메타버스": entry}, ensure_ascii=False), encoding="utf-8")
+
+    # TTL 비활성(0) — 경과했어도 재검색하지 않는다(기존 계약)
+    monkeypatch.setenv("TERM_REGROUND_TTL_DAYS", "0")
+    search0 = _SearchStub(_SNIPPETS)
+    assert resolve_sector("메타버스 관련주 전략", _ChatStub(None, None),
+                          search_fn=search0, lexicon_path=lexicon) is None
+    assert search0.calls == 0
+
+    # TTL 90일 — 경과 항목은 재검색·병합(이번엔 업종 매핑 성공 시나리오)
+    monkeypatch.setenv("TERM_REGROUND_TTL_DAYS", "90")
+    chat = _ChatStub("메타버스", {"definition": "가상 세계 플랫폼 산업",
+                               "sector": "소프트웨어/플랫폼"})
+    search = _SearchStub(_SNIPPETS)
+    got = resolve_sector("메타버스 관련주 전략", chat, search_fn=search, lexicon_path=lexicon)
+    assert got == "소프트웨어/플랫폼"
+    assert search.calls == 1
+    saved = json.loads(lexicon.read_text(encoding="utf-8"))["메타버스"]
+    assert saved["sector"] == "소프트웨어/플랫폼"
+    assert saved["searched_at"] != entry["searched_at"]  # 재학습 시각 갱신
+    # rejected 엣지 보존(부활·강등 없음)
+    assert {(e["target"], e["status"]) for e in saved["edges"]} >= {("hbm", "rejected")}
+
+    # 갱신 직후(신선) — 다시 캐시 히트, 재검색 없음
+    search2 = _SearchStub(_SNIPPETS)
+    got2 = resolve_sector("메타버스 관련주 전략", _ChatStub(None, None),
+                          search_fn=search2, lexicon_path=lexicon)
+    assert got2 == "소프트웨어/플랫폼"
+    assert search2.calls == 0

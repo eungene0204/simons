@@ -33,6 +33,11 @@ Investor→`invests_in`, ETF→`related_etf`. 점수·출처 요약은 엣지 `n
    결정적 해석을 가로챔) — 동의어 제거로 해소. 편입 전 `grep <동의어> tests/test_term_grounding.py` 권장.
 4. **검증**: `pytest tests/test_knowledge_graph.py tests/test_term_grounding.py` +
    `resolve_sector_from_text`/`theme_listed_companies` 스모크 후 전체 스위트.
+5. **재연결 감사(신규 노드 사후 편입 공백)**: 편입 후 `python3 scripts/kg_relink_audit.py`
+   실행 — 기존 학습 어휘집 항목의 저장 텍스트(정의·출처 제목)에 새 노드가 등장하면
+   pending related_to 후보가 추가된다(콘솔 Knowledge 탭에서 승인/반려). 학습 항목은
+   학습 시점의 그래프만 알기 때문에, 나중에 편입된 개념과의 연결은 이 감사가 유일한
+   경로다(실측: 마운자로 → obesity-drug — 시드가 학습보다 늦게 편입돼 미연결이었음).
 
 ## 처리 이력
 

@@ -22,7 +22,7 @@ import re
 import threading
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -141,6 +141,49 @@ def _save_entry(path: Path, key: str, entry: dict) -> None:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(lexicon, f, ensure_ascii=False, indent=1)
         tmp.replace(path)
+
+
+# 학습 항목 재검토 TTL(일, FR-STR-069 ⑦) — 이 기간이 지난 항목은 사용자 재언급 시
+# 조건부 재검색을 허용한다(매핑 불가 부정 캐시가 세상 변화(신규 테마 부상)에 영영 갇히는
+# 문제 보정). 0 이하면 영구 캐시(기존 재검색 금지 계약 그대로). 재학습은 덮어쓰기가 아니라
+# 병합이다 — 콘솔 검토 상태(verified/rejected)를 보존한다(_merge_entry_edges).
+_REGROUND_TTL_DAYS_DEFAULT = 90.0
+
+
+def _reground_ttl_days() -> float:
+    try:
+        return float(os.getenv("TERM_REGROUND_TTL_DAYS", str(_REGROUND_TTL_DAYS_DEFAULT)))
+    except ValueError:
+        return _REGROUND_TTL_DAYS_DEFAULT
+
+
+def _entry_is_stale(entry: Optional[dict]) -> bool:
+    """TTL 경과 항목인가 — searched_at이 없거나 파싱 불가(레거시)면 재검색하지 않는다(보수)."""
+    ttl = _reground_ttl_days()
+    if ttl <= 0 or not isinstance(entry, dict):
+        return False
+    raw = entry.get("searched_at")
+    if not isinstance(raw, str) or not raw:
+        return False
+    try:
+        searched = datetime.fromisoformat(raw)
+    except ValueError:
+        return False
+    if searched.tzinfo is None:
+        searched = searched.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - searched > timedelta(days=ttl)
+
+
+def _merge_entry_edges(old_edges: list, new_edges: list) -> list[dict]:
+    """재학습/재연결 병합 — 기존 엣지의 콘솔 검토 상태(verified/rejected/pending)를 그대로
+    보존하고, 새 제안은 기존에 없는 (type, target) 조합만 추가한다(rejected 부활 금지)."""
+    merged = [dict(e) for e in old_edges if isinstance(e, dict)]
+    seen = {(e.get("type"), e.get("target")) for e in merged}
+    for e in new_edges:
+        if (e.get("type"), e.get("target")) in seen:
+            continue
+        merged.append(e)
+    return merged
 
 
 def _scan_lexicon(text: str, lexicon: dict) -> Optional[dict]:
@@ -276,8 +319,11 @@ def resolve_sector(
             return None
 
     def _search_step() -> Optional[str]:
-        # ③ 이미 검색해서 매핑 불가로 판명된 용어는 재검색하지 않는다
-        if hit is not None:
+        # ③ 이미 검색한 용어는 재검색하지 않는다 — 단 TTL(TERM_REGROUND_TTL_DAYS) 경과
+        #    항목은 조건부 재학습을 허용한다(FR-STR-069 ⑦). 성공 항목(sector 있음)은
+        #    ①에서 이미 반환돼 핫패스 재검색이 없다 — 여기 오는 건 미해결 항목뿐이고,
+        #    재학습은 병합이라 콘솔 검토 상태(verified/rejected)를 잃지 않는다.
+        if hit is not None and not _entry_is_stale(hit):
             return None
         fn = search_fn if search_fn is not None else _default_search
         if search_fn is None and not search_available():
@@ -297,9 +343,9 @@ def resolve_sector(
             return known  # 이미 정본 섹터 용어(반도체 등) — 검색·학습 불필요(어휘집 오염 방지)
         key = _term_key(term)
         entry = lexicon.get(key)  # 문장 스캔이 놓친 직접 키 조회(용어 표기 변형)
-        if entry is not None:
+        if entry is not None and not _entry_is_stale(entry):
             return entry.get("sector")
-        entry = _ground_and_learn(term, chat, fn, path)
+        entry = _ground_and_learn(term, chat, fn, path, previous=entry)
         return entry.get("sector") if entry is not None else None
 
     if _prefers_search_first(text):
@@ -488,11 +534,14 @@ def _propose_company_edges(term: str, snippets: list[dict]) -> list[dict]:
 
 
 def _ground_and_learn(
-    term: str, chat: ChatFn, fn: SearchFn, path: Path
+    term: str, chat: ChatFn, fn: SearchFn, path: Path,
+    previous: Optional[dict] = None,
 ) -> Optional[dict]:
     """검색 → 그라운딩(정의·섹터) → 관계 엣지 학습 → 어휘집 저장, 저장된 항목 반환.
 
-    검색 호출 자체가 실패하면 None(저장하지 않음 — 복구 후 재시도 가능)."""
+    검색 호출 자체가 실패하면 None(저장하지 않음 — 복구 후 재시도 가능).
+    previous가 있으면 TTL 재학습(FR-STR-069 ⑦)이다 — 기존 엣지의 검토 상태를 보존하고
+    새 제안만 추가 병합한다(rejected 부활·verified 강등 금지)."""
     snippets = fn(term)
     if snippets is None:
         logger.warning("용어 '%s' 검색 실패 — 어휘집에 저장하지 않음(복구 후 재시도 가능)", term)
@@ -500,6 +549,8 @@ def _ground_and_learn(
     definition, sector = (None, None) if not snippets else _ground(term, snippets, chat)
     edges = _propose_edges(term, definition, snippets, chat) if snippets else []
     edges += _propose_company_edges(term, snippets) if snippets else []
+    if previous is not None:
+        edges = _merge_entry_edges(previous.get("edges") or [], edges)
     entry = {
         "term": term,
         "definition": definition,
@@ -511,6 +562,81 @@ def _ground_and_learn(
     _save_entry(path, _term_key(term), entry)
     logger.info("용어 학습: %s → sector=%s, edges=%d", term, sector, len(edges))
     return entry
+
+
+# ─── 재연결 감사(FR-STR-070b ⑥) — 학습 이후 편입된 노드와의 연결 공백 보정 ─────────
+
+_RELINK_PROPOSED_BY = "relink-scan"
+
+
+def propose_relink_edges(key: str, entry: dict) -> list[dict]:
+    """학습 항목의 저장 텍스트(정의+출처 제목)를 현재 그래프로 재스캔해, 아직 연결되지
+    않은 개념 노드로 향하는 pending related_to 후보 엣지를 만든다.
+
+    학습 시점 이후 편입된 노드는 당시 _propose_edges 후보 목록에 존재하지 않아 연결
+    기회가 영영 없었다('bts 관련주' 사고의 역방향 공백 — bts가 kpop-agency 시드보다
+    먼저 학습됐다면 엣지가 생기지 않았다). LLM 무관여 결정적 스캔이며, 저장 텍스트
+    재해석으로는 출처 교차지지를 새로 셀 수 없으므로 자동 verified 없이 전부 pending
+    (콘솔 승인)이다. rejected 이력 타깃은 부활시키지 않고(기존 target 전 상태 제외),
+    company:/etf: 타깃은 제안하지 않는다 — 상장사 매칭은 종목 마스터 기준이라 그래프
+    성장과 무관하며 학습 시점 수집(_propose_company_edges)이 이미 완결이다."""
+    from engine.knowledge_graph import get_graph
+
+    graph = get_graph()
+    existing = {e.get("target") for e in entry.get("edges") or [] if isinstance(e, dict)}
+    texts: list[tuple[str, Optional[str]]] = []
+    if entry.get("definition"):
+        texts.append((entry["definition"], None))
+    for s in entry.get("sources") or []:
+        if isinstance(s, dict) and s.get("title"):
+            texts.append((s["title"], s.get("link")))
+
+    support: dict[str, set[str]] = {}
+    names: dict[str, str] = {}
+    for text, link in texts:
+        for node in graph.find_concepts(text):
+            nid = node["id"]
+            if nid == f"learned:{key}" or _term_key(node.get("name", "")) == key:
+                continue  # 자기 자신은 앵커가 아니다(_propose_edges와 동일 계약)
+            if nid in existing or nid.startswith(("company:", "etf:", "sector:")):
+                continue
+            support.setdefault(nid, set()).add(link or "")
+            names[nid] = node.get("name", nid)
+
+    edges: list[dict] = []
+    for nid in sorted(support):
+        links = sorted(link for link in support[nid] if link)
+        edges.append({
+            "type": "related_to",
+            "target": nid,
+            "target_name": names[nid],
+            "support": len(links) or 1,
+            "status": "pending",
+            "evidence": links[:3],
+            "proposed_by": _RELINK_PROPOSED_BY,
+        })
+    return edges
+
+
+def relink_lexicon(lexicon_path: Optional[Path] = None) -> dict:
+    """어휘집 전체 역스캔(멱등) — 새 후보 엣지를 pending으로 추가하고 리포트를 반환한다.
+
+    시드/카탈로그에 새 노드를 편입한 뒤(kg_concept_builder 가드 5)와 주기 감사
+    (scripts/kg_relink_audit.py) 양쪽에서 부른다. 기존 엣지의 상태는 건드리지 않으며,
+    이미 제안된 타깃은 다시 제안하지 않는다(두 번 돌려도 결과 동일)."""
+    path = lexicon_path or _LEXICON_PATH
+    lexicon = _load_lexicon(path)
+    added: dict[str, list[str]] = {}
+    for key, entry in lexicon.items():
+        if not isinstance(entry, dict):
+            continue
+        proposals = propose_relink_edges(key, entry)
+        if not proposals:
+            continue
+        entry["edges"] = _merge_entry_edges(entry.get("edges") or [], proposals)
+        _save_entry(path, key, entry)
+        added[key] = [e["target"] for e in proposals]
+    return {"terms_scanned": len(lexicon), "terms_updated": len(added), "added": added}
 
 
 def general_facts_block(
