@@ -3668,6 +3668,11 @@ def apply_theme_universe(parsed: ParsedStrategy, user_prompt: str = "") -> Optio
     반환: 안내 notice 문구 | None(미적용)."""
     if getattr(parsed, "target_symbols", None):
         return None
+    # ETF는 단독 유니버스다(주식 혼합 불가, FR-STR-067) — 테마 관련 '상장사'를 적용하면
+    # ETF 전략이 주식 유니버스로 조용히 교체된다("삼성전자 관련 etf 매수" 2026-07-27 사고).
+    # ETF 테마는 etf_theme(상품명 매칭) 소관이라 이 경로가 관여하지 않는다.
+    if list(getattr(parsed, "universe", None) or []) == ["ETF"]:
+        return None
     # 큐리스 복합 테마구("반도체 소부장 종목")는 그 자체가 테마 의도 신호 — 큐와 동급으로 인정.
     if not (_THEME_UNIVERSE_CUE_RE.search(_compact(user_prompt))
             or _compound_theme_hint(user_prompt) is not None):

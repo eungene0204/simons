@@ -599,6 +599,14 @@ prod는 레거시 파서 경로였다. 이번 전환은 dev(primary)에서 즉�
 스캔을 적용하지 않는다(실패가 전략처럼 위장 방지). 회귀:
 `tests/test_sector_term_in_chain.py`.
 
+**입력 스냅샷 계약(2026-07-26 회귀 수정)**: 체인 입력은 capability validator **검증 전**의
+`universe.sectors` 스냅샷이다. 검증기는 정본 목록 밖 섹터 표현을 미지원으로 판정하며
+목록에서 제거하므로, 검증 후 값을 읽으면 미지 테마('이재명 관련주')가 체인에 도달하지
+못하고 '지원되지 않아 반영되지 않았어요' 안내로 조용히 소실된다(테마 유니버스 전면 불능).
+ETF 유니버스는 예외 — 검증기가 테마를 `etf_theme`로 승격하므로 체인을 생략한다. 체인이
+표현을 전부 해석했으면 검증기의 해당 미지원 항목도 프루닝한다(반영된 전략과 안내 모순 방지).
+회귀: `test_strategy_conversation.py::test_primary_unknown_theme_sector_reaches_term_in_chain`.
+
 **잔여(의도적)**: 폐기 대상 함수·큐 정규식은 레거시 레인이 off/shadow의 기본 경로인
 동안 유지(1d 재정의 — 삭제 아님·사용 중지, 코드는 롤백용 보존). 수정(modify) 레인·빌더(`strategy_builder`)의 원문 학습·테마
 조회는 단계 3에서 같은 패턴으로 이관.

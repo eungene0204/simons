@@ -2829,6 +2829,19 @@ def _kick_ollama_warmup() -> None:
     threading.Thread(target=_run, name="ollama-warmup", daemon=True).start()
 
 
+def _local_preload_models(parser_model: str) -> list:
+    """로컬 Ollama startup에서 적재할 모델 목록 — 전략 인터프리터 슬롯(9B)만.
+
+    2026-07-26 모델 슬롯 분리(STRATEGY_INTERPRETER_MODEL 9B) 때 인터프리터 슬롯이
+    preload에서 빠져 첫 전략 파싱이 로드 지연을 떠안던 버그의 수정. 레거시 4B 슬롯
+    (NL_OLLAMA_MODEL)은 사용 중지 상태라 적재하지 않는다(2026-07-27 사용자 결정) —
+    잔존 레거시 경로가 호출되면 lazy 로드로 동작한다. 인터프리터 슬롯 미설정 시
+    인터프리터가 실제로 폴백하는 파서 모델을 적재한다.
+    """
+    interpreter_model = (os.environ.get("STRATEGY_INTERPRETER_MODEL") or "").strip()
+    return [interpreter_model or parser_model]
+
+
 def _kick_local_ollama_model_preload(model: str) -> None:
     """로컬 Ollama면 서버 시작 직후 백그라운드로 모델을 메모리에 적재한다(첫 호출 지연 제거).
 
@@ -2897,7 +2910,8 @@ def preload_nl_parser():
         from llm_backend import is_local_ollama
         if is_local_ollama():
             # 로컬 dev: 콜드스타트가 없으므로 모델을 즉시 메모리에 적재한다.
-            _kick_local_ollama_model_preload(parser.ollama_model)
+            for preload_model in _local_preload_models(parser.ollama_model):
+                _kick_local_ollama_model_preload(preload_model)
         else:
             # 원격(Modal): 콜드스타트 컨테이너를 GET으로 미리 깨운다.
             _kick_ollama_warmup()
@@ -3440,10 +3454,13 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
         result = _build_parse_result(
             request, backend, parsed, validation_report,
             load_ms=load_ms, parse_ms=parse_ms, request_started=request_started,
-            # 인터프리터 primary '초기 파스'는 원문 섹터/테마 스캔 대신 term-in 체인
-            # (§ 11-3)이 섹터 처리를 담당한다. 레거시 레인과 수정 레인(term-in 체인 미배선,
-            # 단계 3 이관 대상)은 원문 스캔을 유지한다.
-            scan_prompt_for_sector=(not primary_holder) or bool(request.previous_parsed),
+            # 인터프리터 primary가 처리한 턴(초기 파스·수정 모두)은 원문 섹터/테마 스캔을
+            # 끈다 — 유니버스 의미는 인터프리터 patches가 담당하며, 원문 스캔이 그 출력을
+            # 덮어쓰면 LLM 레인 해석이 소실된다(2026-07-27 사고: "삼성전자 관련 etf 매수"의
+            # etf_theme 교체 결과를 apply_theme_universe가 삼성그룹 상장사 10곳으로 교체 —
+            # ETF 단독 유니버스에 주식 혼합). 원문 스캔은 인터프리터가 처리하지 못한
+            # 레거시 레인(fast_path_first 등)에만 남는다(단계 3 이관 대상).
+            scan_prompt_for_sector=not primary_holder,
         )
         if primary_holder:
             from strategy_conversation.primary import apply_primary_meta

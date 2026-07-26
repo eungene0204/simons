@@ -31,13 +31,21 @@ _FINISH = json.dumps({"action": "finish"})
 
 # ── 정상 경로 ─────────────────────────────────────────────────────────────────
 
-def test_kg_hit_then_finish(monkeypatch):
+def _kg_miss(monkeypatch):
+    """사전 관찰(KG 조회 2종)이 전부 미스인 상태 — LLM 결정 루프로 진입한다."""
+    monkeypatch.setattr(kg, "resolve_sector_from_text", lambda text: None)
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: None)
+
+
+def test_kg_hit_resolves_without_llm(monkeypatch):
+    """사전 관찰이 섹터를 주면 LLM 턴 없이 결정적으로 종료한다."""
     monkeypatch.setattr(kg, "resolve_sector_from_text", lambda text: "반도체")
-    chat = ScriptedChat([_tool("kg_resolve_sector"), _FINISH])
+    chat = ScriptedChat([])
     result = plan_universe_resolution("미지테마", chat)
     assert result is not None and result.outcome == "resolved"
     assert result.sector == "반도체"
     assert [s.tool for s in result.steps] == ["kg_resolve_sector"]
+    assert chat.calls == 0
 
 
 def test_theme_companies_adopted_from_observation(monkeypatch):
@@ -46,16 +54,29 @@ def test_theme_companies_adopted_from_observation(monkeypatch):
         "term": "미지테마", "companies": [{"symbol": "005930", "name": "삼성전자"}],
         "first_known_date": None,
     })
-    chat = ScriptedChat([
-        _tool("kg_resolve_sector"), _tool("kg_theme_companies"), _FINISH,
-    ])
+    chat = ScriptedChat([])
     result = plan_universe_resolution("미지테마", chat)
     assert result is not None and result.outcome == "resolved"
     assert result.sector is None
     assert result.companies[0]["symbol"] == "005930"
+    assert chat.calls == 0
+
+
+def test_tool_name_in_action_field_normalized(monkeypatch):
+    """도구명을 action에 쓴 LLM 출력({"action": "ground_term"})은 형식 정규화로
+    tool 액션으로 복구한다 — 의미가 명백한 표기 변형은 결정론 보정 대상(계약 § 판정 기준)."""
+    _kg_miss(monkeypatch)
+    monkeypatch.setattr(tg, "resolve_sector", lambda text, chat, **kw: "화학")
+    chat = ScriptedChat([
+        json.dumps({"action": "ground_term", "args": {"text": "미지테마"}}),
+    ])
+    result = plan_universe_resolution("미지테마", chat)
+    assert result is not None and result.outcome == "resolved"
+    assert result.sector == "화학"
 
 
 def test_ground_term_receives_planner_chat(monkeypatch):
+    _kg_miss(monkeypatch)
     captured = {}
 
     def fake_resolve_sector(text, chat, **kwargs):
@@ -63,16 +84,15 @@ def test_ground_term_receives_planner_chat(monkeypatch):
         return "에너지/원자력"
 
     monkeypatch.setattr(tg, "resolve_sector", fake_resolve_sector)
-    chat = ScriptedChat([_tool("ground_term"), _FINISH])
+    chat = ScriptedChat([_tool("ground_term", "SMR")])
     result = plan_universe_resolution("SMR", chat)
     assert result is not None and result.sector == "에너지/원자력"
     assert captured["chat"] is chat  # 검색 그라운딩 LLM은 planner와 같은 chat 공유
 
 
 def test_clarify_decision_passes_guard(monkeypatch):
-    monkeypatch.setattr(kg, "resolve_sector_from_text", lambda text: None)
+    _kg_miss(monkeypatch)
     chat = ScriptedChat([
-        _tool("kg_resolve_sector"),
         json.dumps({"action": "clarify",
                     "question": "어떤 업종의 전략을 만들까요?"}),
     ])
@@ -83,38 +103,59 @@ def test_clarify_decision_passes_guard(monkeypatch):
 
 # ── 결정론 안전 장치(전부 None 폴백) ─────────────────────────────────────────
 
-def test_finish_without_observed_evidence_fails():
+def test_finish_without_observed_evidence_fails(monkeypatch):
+    _kg_miss(monkeypatch)
     assert plan_universe_resolution("미지테마", ScriptedChat([_FINISH])) is None
 
 
 def test_clarify_with_forbidden_phrase_fails(monkeypatch):
-    monkeypatch.setattr(kg, "resolve_sector_from_text", lambda text: None)
+    _kg_miss(monkeypatch)
     chat = ScriptedChat([
-        _tool("kg_resolve_sector"),
         json.dumps({"action": "clarify", "question": "반도체 전략 사용을 권장합니다."}),
     ])
     assert plan_universe_resolution("미지테마", chat) is None
 
 
-def test_non_whitelisted_tool_rejected():
+def test_non_whitelisted_tool_rejected(monkeypatch):
+    _kg_miss(monkeypatch)
     chat = ScriptedChat([_tool("compile_strategy")])
     assert plan_universe_resolution("미지테마", chat) is None
 
 
-def test_duplicate_call_loop_rejected(monkeypatch):
-    monkeypatch.setattr(kg, "resolve_sector_from_text", lambda text: None)
-    chat = ScriptedChat([_tool("kg_resolve_sector"), _tool("kg_resolve_sector")])
+def test_duplicate_of_seeded_call_rejected(monkeypatch):
+    """사전 관찰로 이미 실행된 KG 조회를 LLM이 다시 부르면 루프로 차단한다."""
+    _kg_miss(monkeypatch)
+    chat = ScriptedChat([_tool("kg_resolve_sector")])
     assert plan_universe_resolution("미지테마", chat) is None
 
 
-def test_step_budget_exhausted(monkeypatch):
+def test_theme_requery_after_ground_learning_deterministic(monkeypatch):
+    """검색 학습 성공 후 테마 재조회·종료는 LLM 턴 없는 결정론 절차다 — 학습이 만든
+    테마 앵커의 상장사를 확보한다(고정 체인의 학습→apply_theme_companies 재시도 계약)."""
     monkeypatch.setattr(kg, "resolve_sector_from_text", lambda text: None)
-    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: None)
-    chat = ScriptedChat([_tool("kg_resolve_sector"), _tool("kg_theme_companies")])
+    theme_hits = iter([None, {
+        "term": "미지테마", "companies": [{"symbol": "005930", "name": "삼성전자"}],
+        "first_known_date": None,
+    }])
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: next(theme_hits))
+    monkeypatch.setattr(tg, "resolve_sector", lambda text, chat, **kw: "반도체")
+    chat = ScriptedChat([_tool("ground_term")])
+    result = plan_universe_resolution("미지테마", chat)
+    assert result is not None and result.outcome == "resolved"
+    assert result.sector == "반도체"
+    assert result.companies[0]["symbol"] == "005930"
+    assert chat.calls == 1  # 검색 결정 1턴만 — 재조회·finish는 LLM 턴을 쓰지 않는다
+
+
+def test_step_budget_exhausted(monkeypatch):
+    _kg_miss(monkeypatch)
+    monkeypatch.setattr(tg, "resolve_sector", lambda text, chat, **kw: None)
+    chat = ScriptedChat([_tool("ground_term", "표현A"), _tool("ground_term", "표현B")])
     assert plan_universe_resolution("미지테마", chat, max_steps=2) is None
 
 
-def test_invalid_json_fails():
+def test_invalid_json_fails(monkeypatch):
+    _kg_miss(monkeypatch)
     assert plan_universe_resolution("미지테마", ScriptedChat(["글쎄요, 잘 모르겠네요"])) is None
 
 

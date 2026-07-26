@@ -98,6 +98,10 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             sectors=sectors,
             # 지정 종목은 코드로 왕복한다 — 수정 요청 초안에서 소실되면 지정이 풀린다.
             symbols=list(parsed.target_symbols),
+            # ETF 테마도 왕복한다 — 누락되면 etf_theme 있는 전략의 모든 수정이
+            # 라운드트립 불일치(표현 불가)로 레거시 레인에 떨어진다(2026-07-27
+            # '삼성전자 투자 etf' 사고: 인터프리터가 입력을 읽기도 전에 폴백).
+            etf_theme=parsed.etf_theme,
         ),
         entry_conditions=entry_conditions,
         exit_conditions=exit_conditions,
