@@ -1,4 +1,5 @@
-"""LLM Strategy Interpreter 프롬프트 — Qwen 3.5 4B가 StrategyIntent JSON을 출력하도록 계약.
+"""LLM Strategy Interpreter 프롬프트 — 인터프리터 LLM(STRATEGY_INTERPRETER_MODEL,
+2026-07-26부터 Qwen 3.5 9B — § 11-2 승격)이 StrategyIntent JSON을 출력하도록 계약.
 
 지원 지표 목록은 Registry에서 주입한다(프롬프트와 시스템 계약의 드리프트 방지).
 모델은 금융 용어(PER/ROE/MACD 등)를 이미 이해하므로 용어 설명은 하지 않는다 —
@@ -15,7 +16,7 @@ from strategy_conversation.registry.capability_registry import (
 )
 from strategy_conversation.registry.indicator_registry import supported_factor_lines
 
-PROMPT_VERSION = "1.4"
+PROMPT_VERSION = "1.5"
 
 _OUTPUT_SHAPE = {
     "intent": "CREATE_STRATEGY",
@@ -113,8 +114,10 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    '52주 신고가'=252, 'N주'=N×5, 'N일 고점/신고가'=N. 기간 언급이 없으면 lookback_period는
    비워 두세요(되묻기). 사용자가 '52주'처럼 기간을 말했으면 반드시 lookback_period에 넣으세요.
 5-2. '거래량이 급증/평소보다 늘어남/평균 대비 증가/터짐'은 거래량 급증 신호
-   (technical.volume_spike, 임계값 불필요)입니다 — 거래대금 절대 임계(technical.trading_value,
-   억원 값 필요)로 분류하지 마세요. 'N억 이상'처럼 절대 거래대금 기준일 때만 trading_value입니다.
+   (technical.volume_spike, 임계값 불필요)입니다 — 억원 임계가 있는 거래대금 조건으로
+   분류하지 마세요. 'N억 이상'처럼 금액 임계가 있을 때만 거래대금 조건이고, 종목을 거르는
+   기준이면 fundamental.trading_value(기본), 그 시점의 진입·청산 트리거면
+   technical.trading_value입니다. 둘 다 entry_conditions/exit_conditions에 넣습니다.
 6. universe.markets: 코스피=["KOSPI"], 코스닥=["KOSDAQ"], 대형주/KOSPI200=["KOSPI200"],
    전체/양시장=["KOSPI","KOSDAQ"]. 시장 언급이 없으면 ["KOSPI200"], 단 섹터 제한 전략이면 ["KOSPI","KOSDAQ"].
    업종/테마(반도체, 2차전지 등)는 markets가 아니라 universe.sectors에.
@@ -168,12 +171,16 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
 8. 모든 조건이 갖춰졌으면 status="READY". 모호하거나 누락이 있으면 "NEEDS_CLARIFICATION".
 9. confidence: 해석 확신도 0~1. 표현이 모호하면 낮게.
 10. MODIFY_STRATEGY는 '현재 전략 초안'이 주어진 경우에만 선택하고, patches에 JSON Patch를
-    출력하세요(예: {{"op":"replace","path":"/portfolio/rebalance_frequency","value":"monthly"}}).
+    출력하세요(예: {{"op":"replace","path":"/portfolio/rebalance_frequency","value":"monthly",
+    "source_text":"매월 리밸런싱으로"}}). **각 패치의 source_text에 그 변경을 요청한 사용자
+    원문 조각을 그대로 인용하세요** — 입력에 없는 문구를 지어내면 그 패치는 거부됩니다.
     언급되지 않은 필드는 패치하지 마세요. 초안이 없으면 CREATE_STRATEGY입니다.
     초안이 있어도 "PBR이 뭐야?", "RSI 설명해줘" 같은 용어·개념 설명 질문은 수정 요청이
     아니라 EXPLAIN_INDICATOR입니다 — patches를 만들지 말고, 설명 요청을
     unsupported_features에 넣지도 마세요(미지원 기능이 아니라 질문입니다).
 11. assumptions/missing_fields/unsupported_features는 문자열 배열입니다(객체 금지).
+    문자열 값 안에서 큰따옴표(")를 쓰지 마세요 — JSON이 깨집니다. 인용이 필요하면
+    작은따옴표(')를 쓰세요("재무가 탄탄한 회사"는 … ✗ / '재무가 탄탄한 회사'는 … ✓).
     factor가 null인 조건은 출력하지 마세요 — 미지원 개념은 unsupported_features에만.
 11-1. '당일 종가에 매수/체결', '종가 매매'처럼 종가 체결을 말하면
     backtest.execution_timing="current_close". 언급이 없으면 null(기본은 다음 날 시가).
@@ -215,16 +222,18 @@ portfolio={{"selection_count":10,"rebalance_frequency":"monthly"}}, status="READ
 {{"factor":"fundamental.roe_or_gpa","operator":">=","value":15}}], ...}}
 입력: "PER 조건은 빼줘"
 출력 요점: intent="MODIFY_STRATEGY", strategy=null,
-patches=[{{"op":"remove","path":"/entry_conditions/0"}}], status="READY".
+patches=[{{"op":"remove","path":"/entry_conditions/0","source_text":"PER 조건은 빼줘"}}], status="READY".
 입력: "ROE를 20%로 올려줘"
-출력 요점: patches=[{{"op":"replace","path":"/entry_conditions/1/value","value":20}}].
+출력 요점: patches=[{{"op":"replace","path":"/entry_conditions/1/value","value":20,
+"source_text":"ROE를 20%로"}}].
 수정 요청은 반드시 patches로만 표현하고 strategy 전체를 다시 출력하지 마세요.
 언급되지 않은 조건·필드를 패치에 포함하지 마세요.
 조건 하나만 빼려면 그 조건의 인덱스 경로를 remove하세요(예: 두 번째 조건 제거 =
 {{"op":"remove","path":"/entry_conditions/1"}}). "/entry_conditions" 전체를 remove하면
 언급하지 않은 다른 조건까지 삭제되므로 절대 금지입니다.
 새 조건을 추가할 때는 add로 배열 끝에 붙이세요(존재하지 않는 인덱스에 replace 금지):
-{{"op":"add","path":"/entry_conditions/-","value":{{"factor":"fundamental.pbr","operator":"<=","value":1}}}}
+{{"op":"add","path":"/entry_conditions/-","value":{{"factor":"fundamental.pbr","operator":"<=","value":1}},
+"source_text":"PBR 1 이하로"}}
 초안의 조건 값을 바꾸는 요청("PBR 1 이하로")인데 그 지표가 초안에 없으면 add입니다."""
 
 

@@ -185,19 +185,29 @@ def test_fast_path_first_mode_skips_the_interpreter(monkeypatch):
     assert primary.run_primary_modification("손절 10%로 바꿔줘", _previous()) is None
 
 
-def test_llm_first_mode_defers_to_fast_path_when_interpreter_yields_no_patches(monkeypatch):
-    """llm_first에서도 fast-path는 살아 있는 폴백이다 — 인터프리터가 패치를 못 내면 양보."""
+def test_llm_first_mode_delivers_llm_clarification_without_fast_path_probe(monkeypatch):
+    """llm_first에서 원문 해석 권한은 LLM뿐이다(2026-07-26 계약 전환).
+
+    과거에는 인터프리터가 패치를 못 내면 결정론 fast-path(_modify_rule_based, 원문
+    정규식)에게 처리 가능 여부를 물어 양보했다 — 원문 파서 상담 자체가 계약 위반이라
+    제거했고, LLM의 되묻기가 그대로 사용자에게 전달된다(전략은 무변경 유지).
+    """
+    from strategy_conversation.interpreter.models import StrategyIntent
+
     monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "llm_first")
 
-    class _Intent:
-        intent = "CLARIFY_STRATEGY"
-        patches: list = []
-        clarification_questions = ["몇 %로 할까요?"]
-        unsupported_features: list = []
-        confidence = 1.0
+    probe_calls: list = []
+    monkeypatch.setattr(
+        nl_parser, "_modify_rule_based",
+        lambda *a, **k: probe_calls.append(1),  # 예외는 폴백으로 삼켜지므로 호출 기록으로 검증
+    )
 
     class _Result:
-        intent = _Intent()
+        intent = StrategyIntent.model_validate({
+            "intent": "CLARIFY_STRATEGY",
+            "clarification_questions": ["몇 %로 할까요?"],
+            "confidence": 1.0,
+        })
         model_name = "test"
         prompt_version = "test"
         repair_attempts = 0
@@ -208,5 +218,9 @@ def test_llm_first_mode_defers_to_fast_path_when_interpreter_yields_no_patches(m
             return _Result()
 
     monkeypatch.setattr(primary, "_get_interpreter", lambda _cls: _Interpreter())
-    # None = "내 소관 아님" → 호출부가 결정론 fast-path(parse_modification 1단계)로 확정한다.
-    assert primary.run_primary_modification("손절 10%로 바꿔줘", _previous()) is None
+    result = primary.run_primary_modification("손절 10%로 바꿔줘", _previous())
+    assert result is not None
+    assert "몇 %로 할까요?" in result["clarification_question"]
+    assert result["parsed"].model_dump()["description"] == "PBR 1 이하 종목 10개"
+    assert result["interpreter"]["mode"] == "primary_modify_clarify"
+    assert probe_calls == []  # 원문 파서(_modify_rule_based)는 한 번도 상담되지 않았다

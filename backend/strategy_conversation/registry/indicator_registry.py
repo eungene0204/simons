@@ -139,7 +139,9 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     _fundamental("fcf_growth", "잉여현금흐름증가율", "growth", "percent", recommended=10, value_range=(-1000, 1000),
                  notes="적자↔흑자 전환기에는 증가율 대신 상태코드(턴어라운드 등)로 표현될 수 있음"),
     _fundamental("market_cap", "시가총액", "size", "억원", recommended=5000, value_range=(0, 10_000_000)),
-    _fundamental("trading_value", "일평균거래대금", "liquidity", "억원", recommended=10, value_range=(0, 1_000_000)),
+    _fundamental("trading_value", "일평균거래대금", "liquidity", "억원", recommended=10, value_range=(0, 1_000_000),
+                 notes="유동성 스크리닝용 기본값. '거래대금 N억 이상 종목만/으로 거른' 처럼 "
+                       "**종목 선정 기준**이면 technical.trading_value가 아니라 이것"),
     _fundamental("dividend_yield", "배당수익률", "dividend", "percent", recommended=3, value_range=(0, 100)),
     _fundamental("payout_rate", "배당성향", "dividend", "percent", recommended=30, value_range=(0, 1000)),
     _fundamental("dividend_growth", "배당성장률", "dividend", "percent", recommended=5, value_range=(-100, 1000)),
@@ -160,7 +162,9 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                ("crosses_above", "crosses_below", ">", "<"),
                {"short_period": ParamSpec(default=20, minimum=2, maximum=250),
                 "long_period": ParamSpec(default=60, minimum=3, maximum=500)},
-               notes=">/'<'는 가격 vs EMA 지속 상태 추세 필터(mode above/below)"),
+               notes="'20일선이 60일선 위로 올라서면'처럼 **교차 시점**이면 "
+                     "crosses_above/crosses_below. >/< 는 가격이 EMA 위/아래에 "
+                     "**머무는 상태** 필터일 때만(mode above/below)"),
     _technical("rsi", "RSI", "point", _COMPARISON_OPS,
                {"period": ParamSpec(default=14, minimum=2, maximum=250)},
                value_range=(0, 100), recommended=30),
@@ -196,14 +200,16 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                {"period": ParamSpec(default=20, minimum=2, maximum=250)},
                value_range=(-100, 1000), recommended=0),
     _technical("trading_value", "거래대금 신호", "억원", _COMPARISON_OPS, {},
-               value_range=(0, 1_000_000)),
+               value_range=(0, 1_000_000),
+               notes="당일 거래대금이 임계를 넘는 **매매 시점 트리거**일 때만"
+                     "('거래대금이 N억을 넘으면 매수'). 종목 선정 기준이면 fundamental.trading_value"),
     IndicatorSpec(
         id="technical.ai_model", display_name="AI 상승 예측", category="ai",
         supported="SUPPORTED", data_source="ai_model", value_type="percent",
         allowed_operators=(">", ">="),
         parameters={"threshold": ParamSpec(default=70, minimum=50, maximum=100)},
         value_range=(0, 100), engine_binding=("technical_signal", "ai_model"),
-        notes="진입 신호 단독 사용은 성과가 검증되지 않음(보조 용도)"),
+        notes="상승 확률 임계는 percent(0~100) — '상승 확률 80% 이상'이면 value=80"),
     IndicatorSpec(
         id="technical.ai_drop_model", display_name="AI 하락 예측 청산", category="ai",
         supported="SUPPORTED", data_source="ai_model", value_type="percent",
@@ -354,5 +360,10 @@ def supported_factor_lines() -> List[str]:
             continue
         ops = "/".join(spec.allowed_operators) if spec.allowed_operators else "-"
         unit = spec.value_type or "-"
-        lines.append(f"- {spec.id} ({spec.display_name}) 단위={unit} 연산자={ops}")
+        line = f"- {spec.id} ({spec.display_name}) 단위={unit} 연산자={ops}"
+        # notes는 선택 기준을 가르는 정보다(골든/데드크로스, 흑자·적자 부호 필터,
+        # 유동성 필터 vs 매매 신호 등) — 주입하지 않으면 LLM이 구별할 근거가 없다.
+        if spec.notes:
+            line += f" — {spec.notes}"
+        lines.append(line)
     return lines

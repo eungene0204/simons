@@ -70,8 +70,15 @@ def _compile_technical(
     elif indicator == "breakout":
         kwargs["lookback_period"] = _int_param("lookback_period")
     elif indicator in ("ai_model", "ai_drop_model"):
-        threshold = _param("threshold")
-        kwargs["threshold"] = threshold if threshold is not None else cond.value
+        # 사용자가 준 값이 Registry 기본값(70)보다 항상 우선한다. _param을 먼저 부르면
+        # 기본값이 채워져 cond.value가 영원히 무시된다 — "상승 확률 80% 이상"이 조용히
+        # 70%로 백테스트되던 실측 버그(2026-07-26 A/B, 정규식 보정이 가리고 있었다).
+        threshold = params.get("threshold")
+        if threshold is None:
+            threshold = cond.value
+        if threshold is None:
+            threshold = _param("threshold")
+        kwargs["threshold"] = threshold
     elif indicator == "trading_value":
         kwargs["operator"] = cond.operator
         kwargs["value"] = cond.value
@@ -228,15 +235,11 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
             unresolved_sectors, unresolved_symbols,
         )
 
-    # ETF 유니버스의 테마/상품명. LLM이 이해한 etf_theme를 우선 사용한다 — "반도체 종목 ETF"
-    # 처럼 테마어가 'ETF'와 인접하지 않으면 어순 기반 결정적 추출이 놓치기 때문이다. LLM이
-    # 비웠을 때만 규칙 파서와 동일한 자기검증 매칭(extract_etf_theme)으로 폴백한다.
-    etf_theme = None
-    if strategy.universe.markets == ["ETF"]:
-        etf_theme = strategy.universe.etf_theme
-        if not etf_theme:
-            from engine.universe_pit import extract_etf_theme
-            etf_theme = extract_etf_theme(user_input)
+    # ETF 유니버스의 테마/상품명은 LLM이 해석한 etf_theme만 쓴다(프롬프트 규칙 6-1).
+    # 과거의 원문 결정적 추출 폴백(extract_etf_theme)은 사용자 원문을 정규식으로 읽는
+    # 계약 위반이라 제거했다(2026-07-26, nl_interpretation_contract § 3) — LLM이 비우면
+    # 테마 제한 없는 ETF 유니버스로 두고, 누락은 프롬프트·검증 레이어에서 개선한다.
+    etf_theme = strategy.universe.etf_theme if strategy.universe.markets == ["ETF"] else None
 
     portfolio = strategy.portfolio
     risk = strategy.risk_management

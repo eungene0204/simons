@@ -596,18 +596,25 @@ Strategy Compiler (compiler/strategy_compiler.py) — 검증 READY만 컴파일(
   (mode=primary_modify_clarify) — 폴백된 기존 수정 LLM이 무변경 전략을 정상 응답처럼
   반환해 질문이 사라지던 사고 방지(FR-SA-002c-4의 백엔드 2차 방어선).
   패치 없이 EXPLAIN_INDICATOR거나 unsupported_features만 보고된 경우도 침묵 폴백하지
-  않는다 — 정의형 질문(결정적 cue is_definition_question)이면 /query/general과 동일
+  않는다 — EXPLAIN_INDICATOR(인터프리터 LLM 라벨)면 /query/general과 동일
   생성기(generate_general_answer)로 실제 설명을 notices로 답하고(primary_modify_explain,
   2026-07-19), 아니면 미반영 안내(primary_modify_unsupported). 같은 사고의 2차 —
   인터프리터가 질문 대신 unsupported_features=["PBR 개념 설명 요청"]로 보고한 실측 대응.
   프롬프트 1.2는 개념 설명 질문을 EXPLAIN_INDICATOR로 계약(unsupported_features 금지).
+  질문 판정에 쓰던 원문 결정적 cue(is_definition_question 등)는 계약이 금지한 원문 의도
+  분류라 제거했다(2026-07-26, nl_interpretation_contract § 11-4) — 라벨 드리프트는
+  프롬프트 규칙 10 소관.
+  **패치 환각 게이트(출처 대조)**: 인터프리터 패치는 `_patch_provenance_supported`가
+  거른다 — ① LLM이 `PatchOp.source_text`로 인용한 원문 조각의 실재(표기 정규화 후 포함),
+  ② 패치 수치와 입력 수치의 대조(단위 환산 포함), ③ 지정 종목의 해석 가능성(마스터 조회).
+  셋 다 근거가 없으면 환각으로 거부하고 전략 유지+미해석 안내(QA 20-3). 과거의 필드별
+  한국어 어휘 큐 스캔(_PATCH_FIELD_CUES)은 발화 어휘 스캔이라 폐기(§ 3-1 (b), 2026-07-26).
   **해석 권한 역전(2026-07-26, `STRATEGY_MODIFY_INTERPRETER_MODE`)**: 수정 경로의 최초
-  해석자를 결정론에서 LLM으로 뒤집었다. 기본값 `llm_first`는 인터프리터를 먼저 호출하고,
-  `_modify_rule_based` fast-path는 **삭제하지 않고 폴백으로 강등**한다 — 인터프리터가
-  패치를 못 내거나(패치 없음·전량 환각 거부·검증 미통과) 호출에 실패하면 그때 fast-path가
-  즉답한다(`primary.fast_path_can_handle`). `fast_path_first`로 두면 2026-07-17의 선제
-  게이트(fast-path가 인터프리터를 아예 건너뜀 — LLM 왕복 지연·수치/날짜 드리프트 회피)로
-  즉시 롤백된다.
+  해석자를 결정론에서 LLM으로 뒤집었다. 기본값 `llm_first`는 인터프리터만 호출하며
+  결정론 fast-path(`_modify_rule_based`, 원문 정규식)를 **상담하지 않는다**(2026-07-26
+  § 11-4 — LLM의 되묻기·설명이 그대로 전달되고, 미해석은 None 폴백으로 호출부 소관).
+  `fast_path_first`로 두면 2026-07-17의 선제 게이트(fast-path가 인터프리터를 아예 건너뜀 —
+  LLM 왕복 지연·수치/날짜 드리프트 회피)로 즉시 롤백된다.
   전환 근거: 얕은 결정론(문자열 cue 차감)이 최초 해석자이면서 동시에 **실패시킬 권한**을
   가진 구조가, 프론트 칩이 심은 `metric:"roe"`(정본 `roe_or_gpa`) 오염 하나로 이후 모든
   수정 요청을 HTTP 500으로 죽이는 영구 교착을 만들었다(2026-07-26 사고).

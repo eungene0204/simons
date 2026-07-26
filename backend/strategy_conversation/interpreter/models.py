@@ -1,12 +1,13 @@
 """StrategyIntent 중간 표현 — LLM 출력과 백테스트 DSL 사이의 계약.
 
-LLM(Qwen 3.5 4B)은 이 스키마의 JSON만 출력한다. LLM이 직접 백테스트 DSL
-(ParsedStrategy)을 생성하지 않으며, 검증 계층을 통과한 StrategyIntent만
-compiler가 ParsedStrategy로 변환한다.
+인터프리터 LLM(STRATEGY_INTERPRETER_MODEL, 현재 Qwen 3.5 9B)은 이 스키마의 JSON만
+출력한다. LLM이 직접 백테스트 DSL(ParsedStrategy)을 생성하지 않으며, 검증 계층을
+통과한 StrategyIntent만 compiler가 ParsedStrategy로 변환한다.
 
-4B 모델의 흔한 스키마 드리프트(숫자를 문자열로, 단일 값을 배열로, "10%" 같은
-단위 붙은 값)는 ValidationError로 통째로 버리지 않고 field validator에서
-복구한다 — 이는 자연어 해석이 아니라 형식 정규화이므로 결정론 코드의 영역이다.
+소형 로컬 모델의 흔한 스키마 드리프트(숫자를 문자열로, 단일 값을 배열로, "10%" 같은
+단위 붙은 값 — 아래 4B 실측 주석들은 당시 모델 기준 기록)는 ValidationError로 통째로
+버리지 않고 field validator에서 복구한다 — 이는 자연어 해석이 아니라 형식 정규화이므로
+결정론 코드의 영역이다.
 """
 
 from __future__ import annotations
@@ -357,6 +358,10 @@ class PatchOp(BaseModel):
     op: Literal["replace", "add", "remove"]
     path: str = Field(description="JSON Pointer 경로 (예: '/portfolio/rebalance_frequency')")
     value: Any = None
+    source_text: Optional[str] = Field(
+        default=None,
+        description="이 패치를 요청한 사용자 원문 조각(그대로 인용). 환각 게이트의 출처 대조에 쓰인다",
+    )
 
 
 # ─── 최상위 계약 ──────────────────────────────────────────────────────────────

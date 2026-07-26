@@ -1,6 +1,7 @@
 """LLM Strategy Interpreter — 사용자 자연어를 StrategyIntent JSON으로 변환.
 
-자연어 이해의 주체는 LLM(Qwen 3.5 4B)이다. 이 모듈은:
+자연어 이해의 주체는 인터프리터 LLM이다(STRATEGY_INTERPRETER_MODEL 전용 슬롯 —
+2026-07-26부터 Qwen 3.5 9B, 미설정 시 NL_OLLAMA_MODEL 폴백). 이 모듈은:
   ① Ollama /api/chat(format=json, think=false)로 구조화 출력을 요청하고
   ② JSON 추출 → Pydantic 검증 → 실패 시 오류와 함께 1회 자동 수정 요청
   ③ 다시 실패하면 InterpreterError를 던진다(호출부가 안전한 사용자 응답 담당).

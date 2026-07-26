@@ -80,9 +80,11 @@ def _collect_numbers(node: Any, acc: Set[float]) -> None:
 def _reflected_numbers(intent) -> Set[float]:
     """반영으로 인정하는 출력 영역의 수치 집합.
 
-    source_text는 제외한다 — 원문 echo이므로 포함시키면 '조건은 버렸지만 인용은 했다'가
-    반영으로 둔갑해 검사가 무력해진다. 반대로 unsupported_features/assumptions는 포함한다:
-    '표현할 수 없다'고 명시하는 것은 정당한 처리 결과다.
+    source_text와 assumptions는 제외한다 — 둘 다 자유 서술이라 포함시키면 '조건은 버렸지만
+    말로는 언급했다'가 반영으로 둔갑해 검사가 무력해진다(실측 2026-07-26: 거래대금 조건을
+    조건 배열이 아니라 assumptions="거래대금 300억 이상은 종목 선정 기준으로 해석하여
+    적용함"에 서술하고 빠져나갔다). unsupported_features는 포함한다 — '표현할 수 없다'는
+    정당한 처리 결과이고 하류에 안내 채널이 정해져 있다.
     """
     dumped = intent.model_dump()
     strategy = dumped.get("strategy") or {}
@@ -94,7 +96,6 @@ def _reflected_numbers(intent) -> Set[float]:
     _collect_numbers(strategy, acc)
     _collect_numbers(dumped.get("patches"), acc)
     _collect_numbers(dumped.get("unsupported_features"), acc)
-    _collect_numbers(dumped.get("assumptions"), acc)
     _collect_numbers(dumped.get("clarification_questions"), acc)
     return acc
 

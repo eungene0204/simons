@@ -399,14 +399,15 @@ def test_missing_parameter_question_uses_friendly_label():
 def test_breakout_lookback_filled_from_source_not_reasked():
     # 사고(2026-07-21): 사용자가 "52주 신고가"라고 명시했는데 LLM 인터프리터가 '52주'를
     # lookback_period로 옮기지 못하고 빈 파라미터를 내보내, 완결성 검증이 이미 말한 값을
-    # 되묻던 문제. 되묻기 전에 원문에서 결정적으로 채운다(명시적 기간이 있을 때만).
+    # 되묻던 문제. 되묻기 전에 조건의 source_text(LLM 인용)에서 채운다(명시적 기간이 있을
+    # 때만 — 2026-07-26 계약 전환으로 원문 폴백은 제거, LLM 출력만 읽는다).
     from strategy_conversation.primary import _fill_deterministic_condition_params
 
     intent = StrategyIntent.model_validate(_full_intent_dict(
         entry_conditions=[{"factor": "technical.breakout", "operator": "crosses_above",
                            "parameters": {}, "source_text": "52주 신고가를 새로 만들고"}],
     ))
-    _fill_deterministic_condition_params(intent, "KOSDAQ에서 52주 신고가를 새로 만든 종목")
+    _fill_deterministic_condition_params(intent)
     assert intent.strategy.entry_conditions[0].parameters.get("lookback_period") == 252
     _, report = run_validation(intent)
     assert not any(
@@ -423,7 +424,7 @@ def test_breakout_without_explicit_period_still_asks():
         entry_conditions=[{"factor": "technical.breakout", "operator": "crosses_above",
                            "parameters": {}, "source_text": "신고가 돌파 시 매수"}],
     ))
-    _fill_deterministic_condition_params(intent, "신고가 돌파 시 매수")
+    _fill_deterministic_condition_params(intent)
     assert intent.strategy.entry_conditions[0].parameters.get("lookback_period") is None
     _, report = run_validation(intent)
     assert report.status == "NEEDS_CLARIFICATION"
@@ -432,14 +433,15 @@ def test_breakout_without_explicit_period_still_asks():
 def test_volume_surge_misclassified_as_trading_value_reclassified():
     # 사고(2026-07-21): '거래량이 최근 평균보다 늘어난'을 LLM이 trading_value(거래대금 절대
     # 임계 필요)로 오분류 → 거래대금 기준값을 되물음. 최종 전략은 volume_spike로 교정되므로
-    # 질문만 헛것. 되묻기 전에 volume_spike(임계값 불필요)로 결정적으로 재분류한다.
+    # 질문만 헛것. 되묻기 전에 조건의 source_text(LLM 인용) 기준으로 volume_spike(임계값
+    # 불필요)로 재분류한다(원문은 읽지 않는다).
     from strategy_conversation.primary import _fill_deterministic_condition_params
 
     intent = StrategyIntent.model_validate(_full_intent_dict(
         entry_conditions=[{"factor": "technical.trading_value", "operator": ">",
                            "value": None, "source_text": "거래량이 최근 평균보다 늘어난"}],
     ))
-    _fill_deterministic_condition_params(intent, "거래량이 최근 평균보다 늘어난 종목")
+    _fill_deterministic_condition_params(intent)
     assert intent.strategy.entry_conditions[0].factor == "technical.volume_spike"
     assert intent.strategy.entry_conditions[0].value is None
     _, report = run_validation(intent)
@@ -456,7 +458,7 @@ def test_absolute_trading_value_threshold_not_reclassified():
         entry_conditions=[{"factor": "technical.trading_value", "operator": ">=",
                            "value": 100, "source_text": "거래대금 100억 이상"}],
     ))
-    _fill_deterministic_condition_params(intent, "거래대금 100억 이상인 종목")
+    _fill_deterministic_condition_params(intent)
     assert intent.strategy.entry_conditions[0].factor == "technical.trading_value"
     assert intent.strategy.entry_conditions[0].value == 100
 
@@ -706,13 +708,15 @@ def test_primary_unsupported_features_noticed(monkeypatch):
     assert any("FCF Yield" in n for n in result["notices"])
 
 
-def test_primary_single_asset_target_extracted(monkeypatch):
-    """[회귀] FR-STR-068 — primary 경로도 지정 종목을 결정적으로 채운다.
+def test_primary_single_asset_target_from_llm_symbols(monkeypatch):
+    """[회귀] FR-STR-068 — 지정 종목은 LLM이 universe.symbols로 넘기고 리졸버가 코드로 푼다.
 
-    StrategySpec에 지정 종목 개념이 없어 "삼성전자 골든크로스"가 유니버스 전략으로
-    조용히 넓어지고, 유니버스형 청산 되묻기(정기 리밸런싱 추천)까지 나가던 버그.
+    2026-07-26 계약 전환: 원문 정규식 추출(_apply_prompt_overrides)이 아니라 LLM 산출
+    + universe_resolver가 담당한다(nl_interpretation_contract § 3-2). 종목명→코드 매핑은
+    LLM이 대체할 수 없는 지식 조회이므로 결정론 코드가 맡되, 입력은 원문이 아닌 term이다.
     """
     data = _full_intent_dict(
+        universe={"markets": ["KOSPI"], "sectors": [], "symbols": ["삼성전자"]},
         entry_conditions=[{"factor": "technical.ma_crossover", "source_text": "골든크로스",
                            "parameters": {"short_period": 5, "long_period": 20}}],
         exit_conditions=[],
@@ -744,21 +748,39 @@ def test_primary_universe_strategy_keeps_exit_question(monkeypatch):
     assert "청산 규칙이 없습니다" in (result["clarification_question"] or "")
 
 
-def test_primary_entry_restored_by_override_drops_entry_question(monkeypatch):
+def test_primary_compiled_entry_drops_entry_question(monkeypatch):
     """[회귀] 확정된 완성 전략을 다시 '어떤 조건으로 종목을 선택할까요?'로 되묻는 사고.
 
-    인터프리터 LLM이 '흑자 기업'을 진입 조건에서 통째로 빠뜨리면 완결성 검증이 진입
-    누락 질문을 낸다. 그러나 _apply_prompt_overrides가 흑자→eps>0 필터로 결정적으로
-    되살리므로 parsed에는 진입 조건이 있다 — 이 경우 진입 되묻기는 모순이라 제거한다.
+    컴파일된 parsed에 진입 조건이 있으면 진입 되묻기는 모순이므로 제거한다
+    (_prune_clarifications_filled_by_overrides). 2026-07-26 전까지는 원문 정규식 보정이
+    조건을 되살리는 경우가 트리거였고, 보정을 끈 뒤에는 LLM 산출이 그 자리를 대신한다.
     """
+    data = _full_intent_dict(
+        entry_conditions=[{"factor": "fundamental.eps", "operator": ">", "value": 0,
+                           "source_text": "흑자 기업"}],
+        ranking=[],
+    )
+    result = _run_primary_with(
+        monkeypatch, data, "코스피 흑자 기업 매수, 손절 10% 익절 30%, 매월 리밸런싱"
+    )
+    assert result is not None
+    assert any(f.metric == "eps" for f in result["parsed"].fundamental_filters)
+    assert result["clarification_question"] is None
+
+
+def test_primary_entry_restored_by_override_when_rolled_back(monkeypatch):
+    """롤백 경로(STRATEGY_PROMPT_OVERRIDE_MODE=on)가 살아 있는지 지키는 가드.
+
+    보정을 되살리면 LLM이 '흑자 기업'을 빠뜨려도 eps>0으로 복원된다 — 탈출구가 조용히
+    썩지 않도록 계약을 고정한다(기본 경로는 off, 위 테스트).
+    """
+    monkeypatch.setenv("STRATEGY_PROMPT_OVERRIDE_MODE", "on")
     data = _full_intent_dict(entry_conditions=[], ranking=[])
     result = _run_primary_with(
         monkeypatch, data, "코스피 흑자 기업 매수, 손절 10% 익절 30%, 매월 리밸런싱"
     )
     assert result is not None
-    # 결정적 보정이 진입(eps>0)을 되살렸다
     assert any(f.metric == "eps" for f in result["parsed"].fundamental_filters)
-    # 진입이 채워졌으므로 진입 되묻기는 나가지 않는다
     assert result["clarification_question"] is None
 
 
@@ -874,8 +896,10 @@ def test_modify_primary_applies_patches(monkeypatch):
         "status": "READY",
         "confidence": 0.95,
         "patches": [
-            {"op": "replace", "path": "/entry_conditions/0/value", "value": 20},
-            {"op": "remove", "path": "/entry_conditions/1"},
+            {"op": "replace", "path": "/entry_conditions/0/value", "value": 20,
+             "source_text": "ROE를 20%로"},
+            {"op": "remove", "path": "/entry_conditions/1",
+             "source_text": "부채비율 조건은 빼줘"},
         ],
     })
     prev = _rich_parsed()
@@ -939,23 +963,85 @@ def test_modify_primary_roundtrip_guard_falls_back(monkeypatch):
     assert run_primary_modification("종목 5개로", prev.model_dump()) is None
 
 
-def test_modify_primary_rescues_deterministic_target_symbol(monkeypatch):
-    # [FR-STR-068 회귀] 종목-only 수정("삼성전자 투자 하는 전략")은 인터프리터가 유효 패치를
-    # 못 내고(StrategySpec에 지정 종목 개념 없음) _modify_rule_based fast-path도 못 잡아
-    # '해석 못 함'으로 조용히 무시되고 유니버스가 유지되던 사고. 결정적 target 추출로 구제한다.
+def test_modify_primary_target_symbol_from_patch(monkeypatch):
+    """[FR-STR-068 회귀] 종목-only 수정("삼성전자 투자 하는 전략")이 조용히 무시되던 사고.
+
+    2026-07-26 계약 전환: UniverseSpec.symbols가 생겨 인터프리터가 직접 표현하고,
+    universe_resolver가 코드로 푼다. 이전에는 원문 정규식 추출이 구제하던 경로다.
+    """
     from strategy_conversation.primary import run_primary_modification
 
-    # 발화에 cue 없는 패치(종목 수) → 환각 게이트가 전량 거부 → 결정적 구제 경로 진입.
     _stub_modify_interpreter(monkeypatch, {
         "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
-        "patches": [{"op": "replace", "path": "/portfolio/selection_count", "value": 7}],
+        "patches": [{"op": "replace", "path": "/universe/symbols", "value": ["삼성전자"]}],
     })
     prev = _rich_parsed().model_dump()
     prev["target_symbols"] = []
     result = run_primary_modification("삼성전자 투자 하는 전략", prev)
     assert result is not None
     assert result["parsed"].target_symbols == ["005930"]
-    assert result["interpreter"]["mode"] == "primary_modify_deterministic_symbol"
+
+
+def _provenance(patch, user_input: str) -> bool:
+    from engine.nl_parser import _compact
+    from strategy_conversation.primary import (
+        _input_number_candidates,
+        _patch_provenance_supported,
+    )
+
+    return _patch_provenance_supported(
+        patch, _compact(user_input), _input_number_candidates(user_input)
+    )
+
+
+def test_modify_primary_rejects_hallucinated_symbol_patch(monkeypatch):
+    """종목 패치는 키워드 큐가 아니라 **해석 가능성**으로 거른다(§ 3-2).
+
+    종목명은 열린 집합이라 큐 목록으로 열거할 수 없고, 원문 스캔은 계약 위반이다.
+    마스터에 없는 이름을 지어내면 거부된다.
+    """
+    from strategy_conversation.interpreter.models import PatchOp
+
+    real = PatchOp(op="replace", path="/universe/symbols", value=["삼성전자"])
+    fake = PatchOp(op="replace", path="/universe/symbols", value=["없는회사이름입니다"])
+    clear = PatchOp(op="replace", path="/universe/symbols", value=[])
+
+    assert _provenance(real, "손절을 10퍼센트로 바꿔줘") is True
+    assert _provenance(fake, "손절을 10퍼센트로 바꿔줘") is False
+    assert _provenance(clear, "종목 지정 풀어줘") is True
+
+
+def test_patch_provenance_gate_is_reconciliation_not_vocabulary_scan():
+    """환각 게이트는 대조(§ 3-1)다 — 어휘 스캔이 아니라 인용 실재·수치 일치로 판정한다.
+
+    2026-07-26 계약 전환: 필드별 한국어 어휘 목록(_PATCH_FIELD_CUES)은 계약이 금지한
+    발화 어휘 스캔이라 폐기. 판정 근거는 ① LLM 인용(source_text)이 입력에 실재,
+    ② 패치 수치가 입력 수치와 일치(단위 환산 포함), ③ 종목 해석 가능성뿐이다.
+    """
+    from strategy_conversation.interpreter.models import PatchOp
+
+    utter = "손절을 10퍼센트로 바꿔줘"
+    # 수치 대조: 값 10이 입력의 '10'과 일치 → 인용 없어도 근거 있음
+    assert _provenance(
+        PatchOp(op="replace", path="/risk_management/stop_loss", value=10), utter) is True
+    # 인용 대조: 무수치 패치도 인용이 실재하면 통과(표기 정규화 후 포함 — %↔퍼센트 흡수)
+    assert _provenance(
+        PatchOp(op="replace", path="/portfolio/rebalance_frequency", value="monthly",
+                source_text="매월 리밸런싱으로"),
+        "매월 리밸런싱으로 바꿔줘") is True
+    # 지어낸 인용(입력에 없는 문구)은 거부
+    assert _provenance(
+        PatchOp(op="replace", path="/portfolio/rebalance_frequency", value="monthly",
+                source_text="매월 리밸런싱으로"),
+        "다른 예는 없어?") is False
+    # 인용도 수치도 없는 패치는 환각으로 거부(QA 20-3)
+    assert _provenance(
+        PatchOp(op="replace", path="/portfolio/rebalance_frequency", value="monthly"),
+        "다른 예는 없어?") is False
+    # 단위 환산 대조: '1개월 보유'(21거래일)처럼 표기 변환된 수치도 근거로 인정
+    assert _provenance(
+        PatchOp(op="replace", path="/portfolio/hold_period_days", value=21),
+        "1개월 보유로 바꿔줘") is True
 
 
 def test_modify_primary_clarify_returns_question_with_strategy_intact(monkeypatch):
@@ -980,17 +1066,16 @@ def test_modify_primary_clarify_returns_question_with_strategy_intact(monkeypatc
 
 
 def test_modify_primary_definition_question_answered_with_strategy_intact(monkeypatch):
-    # 2026-07-17 사고 2차 재현: "pbr이 뭐야?"에 인터프리터가 질문(CLARIFY) 대신
-    # unsupported_features=["PBR 개념 설명 요청"]로만 보고(패치 없음)해도, 결정적
-    # cue(is_definition_question)로 정의형 질문임을 판정해 전략을 유지한 채 실제
-    # 설명(/query/general과 동일 생성기)을 notices로 답한다(2026-07-19 교정 —
-    # "변경하지 않았어요" 안내만 주면 질문이 답변되지 않음).
+    # 2026-07-17 사고 2차("pbr이 뭐야?"가 수정 경로로 오라우팅) — 인터프리터 LLM이
+    # EXPLAIN_INDICATOR로 라벨하면 전략을 유지한 채 실제 설명(/query/general과 동일
+    # 생성기)을 notices로 답한다(2026-07-19 교정 — "변경하지 않았어요" 안내만 주면
+    # 질문이 답변되지 않음). 질문 판정은 LLM 라벨만 쓴다 — 과거의 결정적 cue
+    # (is_definition_question, 원문 의도 분류)는 계약 위반이라 제거(2026-07-26).
     import api.intent_routes as intent_routes
     from strategy_conversation.primary import run_primary_modification
 
     _stub_modify_interpreter(monkeypatch, {
-        "intent": "MODIFY_STRATEGY", "status": "UNSUPPORTED", "confidence": 0.9,
-        "unsupported_features": ["PBR 개념 설명 요청"],
+        "intent": "EXPLAIN_INDICATOR", "status": "READY", "confidence": 0.9,
     })
     monkeypatch.setattr(
         intent_routes, "generate_general_answer",
@@ -1002,6 +1087,28 @@ def test_modify_primary_definition_question_answered_with_strategy_intact(monkey
     assert result["parsed"].model_dump() == prev.model_dump()  # 전략 무변경
     assert any("주당순자산" in n for n in result["notices"])  # 실제 설명이 전달됨
     assert result["interpreter"]["mode"] == "primary_modify_explain"
+
+
+def test_modify_primary_unsupported_label_gets_notice_not_llm_guess(monkeypatch):
+    # 계약 전환(2026-07-26): 인터프리터가 질문을 unsupported_features로만 보고하면(라벨 드리프트)
+    # 원문 cue로 질문 여부를 재해석하지 않는다 — LLM 라벨이 해석의 최종 권한이므로
+    # 전략 유지+미반영 안내로 응답한다. 드리프트 자체는 프롬프트 규칙 10이 담당.
+    import api.intent_routes as intent_routes
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "UNSUPPORTED", "confidence": 0.9,
+        "unsupported_features": ["PBR 개념 설명 요청"],
+    })
+    def _must_not_call(query, history=None):
+        raise AssertionError("EXPLAIN_INDICATOR 라벨 없이 설명 LLM이 호출됨")
+    monkeypatch.setattr(intent_routes, "generate_general_answer", _must_not_call)
+    prev = _rich_parsed()
+    result = run_primary_modification("pbr이 뭐야?", prev.model_dump())
+    assert result is not None
+    assert result["parsed"].model_dump() == prev.model_dump()  # 전략 무변경
+    assert any("반영할 수 없어" in n for n in result["notices"])
+    assert result["interpreter"]["mode"] == "primary_modify_unsupported"
 
 
 def test_modify_primary_explain_indicator_falls_back_to_notice_without_llm(monkeypatch):
@@ -1046,10 +1153,13 @@ def test_modify_primary_unsupported_condition_returns_notice(monkeypatch):
 
 
 def test_modify_primary_deterministic_fast_path_skips_interpreter(monkeypatch):
-    # 결정적 fast-path가 완전히 해석하는 수정은 인터프리터(LLM)를 아예 호출하지 않고
-    # 폴백한다 — LLM 왕복 지연과 수치·날짜 드리프트를 원천 회피(핵심은 결정적).
-    # 되묻기(CLARIFY)가 단순 수정을 가로막지 못하는 것도 이 게이트가 보장한다.
+    # **롤백 모드(fast_path_first) 전용 동작** — 결정적 fast-path가 완전히 해석하는 수정은
+    # 인터프리터(LLM)를 호출하지 않고 폴백한다(LLM 왕복 지연·수치/날짜 드리프트 회피).
+    # 기본 모드(llm_first)는 2026-07-26 계약 전환으로 fast-path를 상담하지 않는다 —
+    # 원문 해석 권한은 LLM에만 있다.
     from strategy_conversation import primary
+
+    monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "fast_path_first")
 
     class _MustNotBeCalled:
         def interpret(self, user_input, draft=None):
@@ -1058,21 +1168,24 @@ def test_modify_primary_deterministic_fast_path_skips_interpreter(monkeypatch):
     monkeypatch.setattr(primary, "_interpreter_singleton", _MustNotBeCalled())
     prev = _rich_parsed().model_dump()
     assert primary.run_primary_modification("손절 10%로 바꿔줘", prev) is None
-    # 2026-07-17 사고 입력: 월 포함 명시 날짜 범위도 이제 fast-path가 처리한다
+    # 2026-07-17 사고 입력: 월 포함 명시 날짜 범위도 fast-path가 처리한다
     assert primary.run_primary_modification(
         "백테스트를 2020년 1월 부터 2025년 12월 까지 해줘", prev
     ) is None
 
 
-def test_modify_primary_explicit_dates_override_llm_output(monkeypatch):
-    # 혼합 발화(LLM만 처리 가능한 수정 + 명시 날짜)에서 인터프리터가 종료일을 누락해도
-    # (오늘 날짜를 모르는 모델이 '2025-12=미래'로 오판하던 사고) 결정적 추출이 최종
-    # 덮어쓴다 — 명시 날짜의 단일 진실 소스는 결정론 추출이다.
+def test_modify_primary_explicit_dates_from_patches(monkeypatch):
+    # 수정 경로의 명시 날짜는 인터프리터 패치가 옮긴다(2026-07-26 계약 전환 — 이전에는
+    # 결정적 추출이 최종 덮어썼다). 모델이 오늘 날짜를 몰라 '2025-12=미래'로 오판하던
+    # 사고는 프롬프트 규칙 12 + build_user_prompt의 오늘 날짜 주입이 담당한다.
     from strategy_conversation.primary import run_primary_modification
 
     _stub_modify_interpreter(monkeypatch, {
         "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
-        "patches": [{"op": "replace", "path": "/backtest/start_date", "value": "2020-01-01"}],
+        "patches": [
+            {"op": "replace", "path": "/backtest/start_date", "value": "2020-01-01"},
+            {"op": "replace", "path": "/backtest/end_date", "value": "2025-12-31"},
+        ],
     })
     result = run_primary_modification(
         "백테스트를 2020년 1월부터 2025년 12월까지로 하고 진입 조건도 다듬어줘",
@@ -1083,11 +1196,29 @@ def test_modify_primary_explicit_dates_override_llm_output(monkeypatch):
     assert result["parsed"].backtest_end_date == "2025-12-31"
 
 
-def test_primary_parse_explicit_dates_override(monkeypatch):
-    # 초기 파스 primary 경로도 명시 날짜는 결정적 추출이 보장한다(LLM 출력 무관).
-    data = _full_intent_dict()
+def test_primary_parse_explicit_dates_from_llm(monkeypatch):
+    """명시 날짜는 LLM이 backtest.start_date/end_date로 산출하고 컴파일러가 그대로 옮긴다.
+
+    2026-07-26 계약 전환: 이전에는 원문 정규식 추출이 최종 진실이었다. 모델이 오늘 날짜를
+    몰라 종료일을 미래로 오판하던 사고는 프롬프트 규칙 12 + 오늘 날짜 주입이 담당한다.
+    """
+    data = _full_intent_dict(
+        backtest={"start_date": "2020-01-01", "end_date": "2025-12-31"},
+    )
     result = _run_primary_with(
         monkeypatch, data, "PER 10 이하, 백테스트는 2020년 1월부터 2025년 12월까지"
+    )
+    assert result is not None
+    assert result["parsed"].backtest_start_date == "2020-01-01"
+    assert result["parsed"].backtest_end_date == "2025-12-31"
+
+
+def test_primary_parse_explicit_dates_override_when_rolled_back(monkeypatch):
+    """롤백 경로 가드 — 보정을 켜면 LLM이 날짜를 비워도 원문 추출이 채운다."""
+    monkeypatch.setenv("STRATEGY_PROMPT_OVERRIDE_MODE", "on")
+    result = _run_primary_with(
+        monkeypatch, _full_intent_dict(),
+        "PER 10 이하, 백테스트는 2020년 1월부터 2025년 12월까지",
     )
     assert result is not None
     assert result["parsed"].backtest_start_date == "2020-01-01"
@@ -1115,13 +1246,32 @@ def test_modify_primary_clarify_without_questions_falls_back(monkeypatch):
 
 
 def test_modify_primary_invalid_patch_falls_back(monkeypatch):
+    # 출처 인용은 실재하지만(게이트 통과) 경로가 스키마 밖인 패치 → PatchError → 폴백.
     from strategy_conversation.primary import run_primary_modification
 
     _stub_modify_interpreter(monkeypatch, {
         "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.95,
-        "patches": [{"op": "replace", "path": "/없는경로/x", "value": 1}],
+        "patches": [{"op": "replace", "path": "/없는경로/x", "value": 1,
+                     "source_text": "수정해줘"}],
     })
     assert run_primary_modification("수정해줘", _rich_parsed().model_dump()) is None
+
+
+def test_modify_primary_groundless_patch_keeps_strategy_with_notice(monkeypatch):
+    # 인용도 수치도 없는 패치("수정해줘"에 임의 값 패치)는 환각으로 전량 거부 —
+    # 레거시 원문 파서로 폴백하지 않고 전략 유지+미해석 안내로 응답한다(계약 전환).
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.95,
+        "patches": [{"op": "replace", "path": "/risk_management/stop_loss", "value": 5}],
+    })
+    prev = _rich_parsed()
+    result = run_primary_modification("수정해줘", prev.model_dump())
+    assert result is not None
+    assert result["parsed"].model_dump() == prev.model_dump()  # 전략 무변경
+    assert any("해석하지 못해" in n for n in result["notices"])
+    assert result["interpreter"]["mode"] == "primary_modify_rejected_patches"
 
 
 def test_operator_token_drift_repaired():

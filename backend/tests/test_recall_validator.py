@@ -154,3 +154,16 @@ def test_trillion_unit_misconversion_is_caught():
         ],
     })
     assert "1조" in find_unreflected_numbers("시가총액 1조 이상", intent)
+
+
+def test_assumptions_narration_does_not_count_as_reflected():
+    """실측(2026-07-26): 거래대금 조건을 조건 배열이 아니라 assumptions 서술에 적고
+    빠져나갔다. 자유 서술은 반영이 아니다(source_text와 동일 취급)."""
+    intent = _intent(
+        {"universe": {"markets": ["KOSPI200"]},
+         "entry_conditions": [{"factor": "technical.stochastic", "operator": "<=", "value": 20}]},
+        assumptions=["거래대금 300억 이상은 종목 선정 기준으로 해석하여 기본 필터로 적용함"],
+    )
+    assert "300억" in find_unreflected_numbers(
+        "거래대금 300억 이상 종목을 대상으로 스토캐스틱 과매도에서 매수", intent
+    )

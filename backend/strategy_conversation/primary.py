@@ -128,56 +128,77 @@ def _humanize_features(features: List[str]) -> List[str]:
     ))
 
 
-# ── 수정 패치 환각 게이트(결정적) ──────────────────────────────────────────────
-# 결정적 추출의 침묵은 요청 없음의 증거가 아니지만, '필드 cue조차 없는' 패치는 환각이다
-# (FR-STR-019b와 동일 원칙). "다른 예는 없어?"라는 후속 질문에 인터프리터가 손절·리밸런싱·
-# 백테스트 날짜 패치를 지어내 전략을 임의 변형한 실측 사고(레드팀 QA 20-3) 방지 —
-# 패치가 만지는 필드의 cue가 발화에 없으면 그 패치를 거부한다.
-_SIGNAL_TERM_CUES = [
-    "per", "pbr", "psr", "roe", "roa", "rsi", "macd", "볼린저", "이동평균", "이평",
-    "골든크로스", "데드크로스", "크로스", "스토캐스틱", "cci", "adx", "mfi", "거래량",
-    "거래대금", "시총", "시가총액", "부채", "유동비율", "배당", "모멘텀", "돌파", "신고가",
-    "과매도", "과매수", "ev", "ebitda",
-]
-_PATCH_FIELD_CUES: Dict[str, List[str]] = {
-    "stop_loss": ["손절", "스탑로스", "stoploss", "손실"],
-    "take_profit": ["익절", "목표수익", "수익실현", "수익확정", "수익"],
-    "trailing_stop": ["트레일링", "최고가대비", "고점대비"],
-    "max_mdd_limit": ["mdd", "낙폭", "드로우다운", "드로다운"],
-    "max_position_weight": ["비중"],
-    "selection_count": ["종목", "개수", "포지션", "개"],
-    "weighting": ["비중", "동일비중", "가중"],
-    "rebalance_frequency": ["리밸런", "재조정", "재선정", "매일", "매주", "매월", "격월",
-                            "분기", "매년", "연간", "월간", "주간", "마다", "주기"],
-    "hold_period_days": ["보유", "들고", "유지", "홀딩"],
-    "markets": ["코스피", "코스닥", "kospi", "kosdaq", "etf", "시장", "유니버스", "전체", "대형주"],
-    "sectors": ["업종", "섹터", "관련주", "테마"],
-    "universe": ["코스피", "코스닥", "kospi", "kosdaq", "etf", "시장", "유니버스", "업종", "섹터"],
-    "entry_conditions": ["진입", "매수", "사", "조건", "신호"] + _SIGNAL_TERM_CUES,
-    "exit_conditions": ["청산", "매도", "팔", "정리", "조건", "신호"] + _SIGNAL_TERM_CUES,
-    "ranking": ["상위", "수익률", "모멘텀", "랭킹", "순위"] + _SIGNAL_TERM_CUES,
-    "backtest": ["백테스트", "기간", "년", "최근", "부터", "까지", "동안"],
-    "period": ["백테스트", "기간", "년", "최근", "동안"],
-    "name": ["이름", "명칭"],
-}
+# ── 수정 패치 환각 게이트(출처 대조) ──────────────────────────────────────────
+# "다른 예는 없어?"라는 후속 질문에 인터프리터가 손절·리밸런싱·백테스트 날짜 패치를
+# 지어내 전략을 임의 변형한 실측 사고(레드팀 QA 20-3) 방지. 판정은 해석이 아니라
+# **대조**다(nl_interpretation_contract § 3-1) — 과거의 필드별 한국어 어휘 목록 스캔은
+# 계약이 금지한 발화 어휘 스캔이라 폐기했다(2026-07-26). 남은 판정 근거 셋:
+#   ① 출처 인용 대조 — LLM이 patch.source_text로 인용한 원문 조각이 실제 입력에
+#      존재하는지 표기 정규화(_compact) 후 문자열 포함으로 확인한다. 어휘도 의미도
+#      판단하지 않는다 — LLM의 출처 주장(인용)이 실재하는지만 본다.
+#   ② 수치 대조 — 패치 값의 숫자가 입력의 숫자 표기(단위 환산 포함)와 일치하면
+#      근거 있음(recall_validator와 같은 § 3-1 대조).
+#   ③ 지정 종목 — 해석 가능성(§ 3-2 지식 조회): 마스터에 없는 이름은 환각.
 
 
-def _patch_cue_supported(patch, compact: str) -> bool:
+def _patch_value_numbers(value: Any) -> set:
+    from strategy_conversation.validation.recall_validator import _collect_numbers
+
+    acc: set = set()
+    _collect_numbers(value, acc)
+    return acc
+
+
+def _input_number_candidates(user_input: str) -> set:
+    """입력의 숫자 앵커와 그 단위 환산 후보 집합(§ 3-1 — 표기 변환일 뿐 의미 판단 아님)."""
+    from strategy_conversation.validation.recall_validator import _candidates, _input_anchors
+
+    out: set = set()
+    for _label, value, unit in _input_anchors(user_input):
+        out |= _candidates(value, unit)
+    return out
+
+
+def _patch_provenance_supported(patch, compact_input: str, input_numbers: set) -> bool:
     tokens = [t for t in patch.path.split("/") if t]
-    for token in reversed(tokens):  # 구체 필드(마지막 토큰)부터 상위 컨테이너 순으로
-        cues = _PATCH_FIELD_CUES.get(token)
-        if cues is not None:
-            return any(cue in compact for cue in cues)
-    # 매핑에 없는 경로는 판단 근거가 없다 — 보수적으로 거부하지 않고 기존 검증에 맡긴다.
-    return True
+    # 지정 종목은 열린 집합이라 인용·수치로 판정하지 않는다 — **해석 가능성**으로 거른다
+    # (§ 3-2 지식 조회): 마스터에 없는 이름을 LLM이 지어냈으면 거부, 실재 종목이면 통과.
+    if "symbols" in tokens:
+        values = patch.value if isinstance(patch.value, list) else [patch.value]
+        values = [v for v in values if isinstance(v, str) and v.strip()]
+        if not values:
+            return True  # 지정 해제(빈 배열)는 값 검증 대상이 아니다
+        from strategy_conversation.registry.universe_resolver import resolve_symbols
+
+        codes, unresolved = resolve_symbols(values)
+        return bool(codes) and not unresolved
+    from engine.nl_parser import _compact
+
+    # ① 출처 인용 대조: 인용문이 입력에 실재하면 근거 있음.
+    quote = _compact(patch.source_text) if patch.source_text else ""
+    if quote and quote in compact_input:
+        return True
+    # ② 수치 대조: 패치 값의 숫자가 입력 숫자(단위 환산 포함)에 나타나면 근거 있음.
+    #    크기만 대조한다(부호 무시 — recall_validator와 동일, 어느 필드의 값인지는 판단하지 않음).
+    patch_numbers = _patch_value_numbers(patch.value)
+    if patch_numbers and any(
+        any(abs(abs(p) - abs(c)) < 1e-6 for c in input_numbers) for p in patch_numbers
+    ):
+        return True
+    # 인용도 수치도 근거가 없으면 환각으로 거부한다. LLM이 인용을 아예 생략한
+    # 무수치 패치도 거부 대상이다 — 프롬프트가 인용을 계약으로 요구한다(규칙 10).
+    return False
 
 
 def _explicit_breakout_lookback(text: Optional[str]) -> Optional[int]:
-    """신고가/고점 돌파 원문에서 명시적 기준 기간(거래일)을 추출한다. 없으면 None.
+    """신고가/고점 돌파 조건의 source_text(LLM이 인용한 조각)에서 명시적 기준 기간(거래일)을
+    추출한다. 없으면 None.
 
-    '52주'는 거래일로 환산(52주=252, N주=N×5), 'N일'은 그대로, 단위 없는 '52'만 1년(252).
-    기간 언급이 아예 없으면(예: 그냥 '신고가 돌파') None — 조용한 기본값 확정 금지 원칙에
-    따라 되묻기에 맡긴다. 레거시 nl_parser._extract_breakout_lookback과 동일 환산 규칙.
+    입력은 LLM 출력(source_text)이지 사용자 원문이 아니다 — 범위가 LLM이 이미 '이 조건의
+    출처'라고 판정한 짧은 인용으로 한정되므로 § 3-2 지식 조회에 해당한다(2026-07-26 원문
+    폴백 제거). '52주'는 거래일로 환산(52주=252, N주=N×5), 'N일'은 그대로, 단위 없는 '52'만
+    1년(252). 기간 언급이 아예 없으면(예: 그냥 '신고가 돌파') None — 조용한 기본값 확정
+    금지 원칙에 따라 되묻기에 맡긴다.
     """
     if not text:
         return None
@@ -195,20 +216,22 @@ def _explicit_breakout_lookback(text: Optional[str]) -> Optional[int]:
     return 252 if value == 52 else value
 
 
-def _fill_deterministic_condition_params(intent: StrategyIntent, user_input: str) -> None:
-    """LLM 인터프리터가 놓치거나 오분류한 조건을 원문에서 결정적으로 교정한다(되묻기 전에 적용).
+def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
+    """LLM 인터프리터가 놓치거나 오분류한 조건을 **그 조건의 source_text**로 교정한다.
 
-    완결성 검증은 결정론 오버라이드 적용 전의 raw LLM intent에 대해 돌기 때문에, LLM의
-    누락/오분류가 '이미 사용자가 말한 값'을 되묻는 사고로 이어진다. 여기서 결정론이 확실히
-    아는 것을 미리 채워/고쳐 헛질문을 막는다.
+    입력은 사용자 원문이 아니라 LLM 출력이다 — LLM이 '이 조건의 출처'라고 인용한 짧은
+    조각 안에서만 정본을 식별하므로 § 3-2 지식 조회에 해당한다(2026-07-26 전체 입력 폴백
+    제거 — 원문 스캔은 계약 위반). LLM이 인용하지 않았으면 교정하지 않고 되묻기에 맡긴다.
 
-    ① breakout(신고가 돌파) lookback_period: 프롬프트에 '52주=252' 환산 규칙이 없어 LLM이
-       '52주 신고가'의 기간을 파라미터로 옮기지 못하고 비운다 → 원문(조건 source_text 우선,
-       없으면 전체 입력)에 명시적 기간이 있을 때만 채운다(없으면 그대로 두어 되묻기에 맡김).
+    완결성 검증은 raw LLM intent에 대해 돌기 때문에, LLM의 누락/오분류가 '이미 사용자가
+    말한 값'을 되묻는 사고로 이어진다. 여기서 인용에 남은 확실한 것을 미리 채워 헛질문을 막는다.
+
+    ① breakout(신고가 돌파) lookback_period: LLM이 '52주 신고가'의 기간을 파라미터로 옮기지
+       못하고 비우는 드리프트(프롬프트 규칙 5-1이 1차 방어) → 인용에 명시적 기간이 있을
+       때만 채운다(없으면 그대로 두어 되묻기에 맡김).
     ② trading_value 오분류: '거래량이 평균보다 늘어난' 같은 동적 급증 표현을 LLM이 종종
-       거래대금 임계 신호(trading_value=절대 억원 값 필요)로 오분류 → 거래대금 임계값을 되묻는다.
-       원문이 급증/평균대비 증가 표현이면 volume_spike(OBV, 임계값 불필요)로 결정적으로 고친다.
-       (엔진 반영값도 이 재분류와 일치 — 오버라이드의 _extract_technical_signals가 같은 규칙.)
+       거래대금 임계 신호(trading_value=절대 억원 값 필요)로 오분류(프롬프트 규칙 5-2가
+       1차 방어) → 인용이 급증 표현이면 volume_spike(임계값 불필요)로 고쳐 헛질문을 막는다.
     """
     from engine.nl_parser import _compact, _mentions_volume_surge
 
@@ -221,13 +244,10 @@ def _fill_deterministic_condition_params(intent: StrategyIntent, user_input: str
             continue
         if spec.id == "technical.breakout" and cond.parameters.get("lookback_period") is None:
             lookback = _explicit_breakout_lookback(cond.source_text)
-            if lookback is None:
-                lookback = _explicit_breakout_lookback(user_input)
             if lookback is not None:
                 cond.parameters["lookback_period"] = float(lookback)
         elif spec.id in ("technical.trading_value", "fundamental.trading_value"):
-            surge_text = _compact(cond.source_text or user_input)
-            if _mentions_volume_surge(surge_text):
+            if cond.source_text and _mentions_volume_surge(_compact(cond.source_text)):
                 cond.factor = "technical.volume_spike"
                 cond.operator = "crosses_above"
                 cond.value = None
@@ -313,7 +333,7 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         logger.warning("interpreter primary transport error, falling back | err=%r", exc)
         return None
 
-    _fill_deterministic_condition_params(result.intent, user_input)
+    _fill_deterministic_condition_params(result.intent)
     validated, report = run_validation(result.intent)
     _log_llm("✓ 검증", (
         f"status={report.status} 오류={len(report.errors)} 누락={len(report.missing_fields)} "
@@ -410,12 +430,12 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
        다르면 StrategySpec이 표현 못 하는 전략(rsi rebound/macd zero 모드 등)이므로 이관을
        거부하고 기존 modify 경로로 폴백한다(목록형 필드 소실 사고 방지의 구조적 보장).
     ② patches 필수 — LLM이 전체 전략을 재출력하면(필드 소실 위험) 수락하지 않는다.
-       예외: CLARIFY_STRATEGY(패치 없음)+질문이 있고 결정적 fast-path도 처리 못 하는
-       입력이면, 폴백해 질문을 버리는 대신 전략을 그대로 유지한 채 질문을 clarification
-       채널로 전달한다(무변경 요약만 재렌더링되던 2026-07-17 사고 방지).
+       예외: CLARIFY_STRATEGY(패치 없음)+질문이면 폴백해 질문을 버리는 대신 전략을
+       그대로 유지한 채 질문을 clarification 채널로 전달한다(무변경 요약만 재렌더링되던
+       2026-07-17 사고 방지).
        예외 2: 패치 없이 EXPLAIN_INDICATOR거나 unsupported_features만 보고된 경우도
        폴백하지 않고 전략을 유지한다(같은 사고의 2차 — 인터프리터가 질문 대신
-       unsupported_features=["PBR 개념 설명 요청"]으로 보고). 정의형 질문(결정적 cue)이면
+       unsupported_features=["PBR 개념 설명 요청"]으로 보고). EXPLAIN_INDICATOR(LLM 라벨)면
        /query/general과 같은 LLM 설명을 notices로 실제 답변하고, 아니면 미반영을 알린다.
     ③ 패치 적용 후 검증 READY일 때만 컴파일. 아니면 폴백(임계값 없는 조건 추가 등은
        상류 clarification_for_add가 이미 가로챈다).
@@ -441,9 +461,10 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         return None
 
     # 해석 권한 순서(STRATEGY_MODIFY_INTERPRETER_MODE):
-    #  · llm_first(기본) — LLM이 최초 해석자다. 결정론 fast-path는 삭제하지 않고 폴백으로
-    #    강등한다(인터프리터가 패치를 못 내거나 검증에 떨어지면 아래에서 폴백 → 호출부의
-    #    parse_modification 첫 단계가 같은 fast-path로 즉답).
+    #  · llm_first(기본) — LLM이 유일한 원문 해석자다. 이 경로는 결정론 fast-path
+    #    (_modify_rule_based, 원문 정규식)를 상담하지 않는다(2026-07-26 계약 전환).
+    #    인터프리터가 패치·질문·설명을 못 내면 None으로 폴백하고, 레거시 계층의 처리
+    #    여부는 호출부 소관이다(§ 11 격차 1·3의 이관 대상).
     #  · fast_path_first(롤백) — 기존 동작. fast-path가 완전히 해석하는 수정("손절 10%로")은
     #    인터프리터를 건너뛴다(LLM 왕복 지연·수치/날짜 드리프트 회피).
     if config.modify_interpreter_mode() == "fast_path_first":
@@ -495,18 +516,14 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         return None
 
     intent = result.intent
-    # 인터프리터가 패치를 못 냈는데 결정론 fast-path는 해석할 수 있는 발화면 그쪽에 양보한다
-    # (llm_first에서도 fast-path는 살아 있는 폴백이다 — 4B가 단순 수정을 되묻기·미지원으로
-    # 오판해 확정 가능한 요청을 막는 것을 방지).
-    if not intent.patches and fast_path_can_handle(user_input, previous_parsed):
-        _log_llm("↩ 폴백", "인터프리터 패치 없음 — 결정적 fast-path로 폴백")
-        logger.info("modify primary produced no patches, deferring to deterministic fast-path")
-        return None
+    # 2026-07-26 계약 전환: 인터프리터가 패치를 못 냈을 때 결정론 fast-path(_modify_rule_based,
+    # 원문 정규식)에게 해석 가능 여부를 묻던 상담을 제거했다 — llm_first에서 원문 해석은
+    # LLM만 한다. 인터프리터가 되묻기·설명도 내지 못한 미해석 발화는 아래 patches 미출력
+    # 폴백(None)으로 기존 경로에 넘어간다(레거시 계층 자체는 § 11 격차 1·3의 이관 대상).
     if intent.intent == "CLARIFY_STRATEGY" and not intent.patches and intent.clarification_questions:
         # 되묻기 의도를 폴백으로 버리면 기존 수정 LLM이 무변경 전략을 정상 응답처럼
-        # 반환해 질문이 사라진다(2026-07-17 "pbr이 뭐야?" 사고). 결정적 fast-path가
-        # 처리할 수 있는 입력은 바로 위 폴백 가드가 이미 넘겼으므로, 여기 도달한 되묻기는
-        # 단순 수정을 가로막을 수 없다 — 전략을 유지한 채 질문을 채널로 전달한다.
+        # 반환해 질문이 사라진다(2026-07-17 "pbr이 뭐야?" 사고). LLM의 되묻기가 곧
+        # 해석 결과다 — 전략을 유지한 채 질문을 채널로 전달한다.
         question, chips = _build_clarification(
             ValidationReport(clarification_questions=intent.clarification_questions),
             intent,
@@ -535,21 +552,15 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         # 개념 설명 질문·미지원 개념 요청을 폴백으로 버리면 기존 수정 LLM이 무변경 전략을
         # 정상 응답처럼 반환해 요청이 조용히 사라진다(2026-07-17 "pbr이 뭐야?" 사고 2차 —
         # 인터프리터가 질문을 내지 않고 unsupported_features로만 보고한 케이스). 전략은
-        # 그대로 유지하되, 정의형 질문이면 /query/general과 같은 LLM 답변을 생성해 notices로
-        # 실제 설명을 전달한다("변경하지 않았어요" 안내만 주던 2026-07-19 교정). 질문 판정은
-        # 4B 라벨이 아니라 결정적 cue(is_definition_question)가 기준 — 같은 발화를 4B가
-        # EXPLAIN_INDICATOR로도 unsupported_features로도 내는 실측 대응.
+        # 그대로 유지하되, 질문이면 /query/general과 같은 LLM 답변을 생성해 notices로
+        # 실제 설명을 전달한다("변경하지 않았어요" 안내만 주던 2026-07-19 교정).
+        # 질문 판정은 인터프리터 LLM의 라벨(EXPLAIN_INDICATOR)만 쓴다 — 원문 결정적
+        # cue(is_definition_question 등)는 계약이 금지한 원문 의도 분류라 제거했다
+        # (2026-07-26). 인터프리터가 질문을 unsupported_features로 오라벨하는 드리프트는
+        # 프롬프트 규칙 10(설명 질문=EXPLAIN_INDICATOR)이 담당한다.
         from api.intent_routes import generate_general_answer
-        from intent import platform_defaults
-        from intent.classifier import is_definition_question
 
-        is_question = (
-            intent.intent == "EXPLAIN_INDICATOR"
-            or is_definition_question(user_input)
-            # 설정 기본값 질문("슬리피지 몇 %가 기본이지?")도 수정이 아닌 질문이다 —
-            # generate_general_answer가 실제 코드 기본값으로 결정적으로 답한다.
-            or platform_defaults.is_default_question(user_input)
-        )
+        is_question = intent.intent == "EXPLAIN_INDICATOR"
         answer = generate_general_answer(user_input) if is_question else None
         if answer:
             notices = [answer]
@@ -583,13 +594,15 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         logger.info("modify primary without patches (intent=%s), falling back", intent.intent)
         return None
 
-    # 환각 게이트: 발화에 해당 필드의 cue조차 없는 패치는 지어낸 것이다 — 거부한다.
+    # 환각 게이트: 출처 인용도 수치 근거도 없는 패치는 지어낸 것이다 — 거부한다(대조, § 3-1).
     from engine.nl_parser import _compact
     compact_input = _compact(user_input)
+    input_numbers = _input_number_candidates(user_input)
     cued_patches: List[Any] = []
     rejected_patches: List[Any] = []
     for p in intent.patches:
-        (cued_patches if _patch_cue_supported(p, compact_input) else rejected_patches).append(p)
+        (cued_patches if _patch_provenance_supported(p, compact_input, input_numbers)
+         else rejected_patches).append(p)
     if rejected_patches:
         _log_llm("✗ 패치 거부", (
             "발화에 필드 cue 없음(환각 게이트): "
@@ -623,16 +636,11 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
                     "confidence": intent.confidence,
                 },
             }
-        # 패치가 전량 거부됐어도 결정론 fast-path가 해석하는 발화면 그쪽으로 폴백한다.
-        if fast_path_can_handle(user_input, previous_parsed):
-            _log_llm("↩ 폴백", "유효 패치 없음 — 결정적 fast-path로 폴백")
-            return None
-        # 전량 환각(예: 후속 질문 "다른 예는 없어?"에 임의 패치) — 전략을 그대로 유지하고,
-        # 질문성 입력이면 지식 답변을, 아니면 미해석 안내를 전달한다(QA 20-3).
-        from api.intent_routes import generate_general_answer
-        looks_like_question = bool(re.search(r"[?？]\s*$|없어\s*\??$|알려줘$", user_input.strip()))
-        answer = generate_general_answer(user_input) if looks_like_question else None
-        notices = [answer] if answer else [
+        # 전량 환각(예: 후속 질문 "다른 예는 없어?"에 임의 패치) — 전략을 그대로 유지하고
+        # 미해석을 정직하게 안내한다(QA 20-3: 임의 변형 차단이 핵심). 과거의 질문 판정
+        # 정규식(원문 의도 분류)과 fast-path 상담(원문 파서 상담)은 계약 위반이라 제거했다
+        # (2026-07-26) — 후속 질문 라우팅은 상류 분류기(history 배선, FR-SA-002c-3) 소관.
+        notices = [
             "요청을 전략 변경으로 해석하지 못해 전략은 그대로 유지했어요. "
             "바꾸고 싶은 조건(예: 손절 10%로, 종목 20개로)을 구체적으로 말씀해 주세요."
         ]
@@ -665,7 +673,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         intent="MODIFY_STRATEGY", strategy=patched_spec,
         confidence=intent.confidence, unsupported_features=intent.unsupported_features,
     )
-    _fill_deterministic_condition_params(modify_intent, user_input)
+    _fill_deterministic_condition_params(modify_intent)
     validated, report = run_validation(modify_intent)
     _log_llm("✓ 검증", (
         f"status={report.status} patches={len(cued_patches)} "

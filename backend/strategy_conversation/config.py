@@ -35,14 +35,15 @@ def modify_interpreter_mode() -> str:
 
 
 # 결정적 프롬프트 보정(_apply_prompt_overrides)의 적용 여부:
-#   on(기본) — 컴파일 결과를 사용자 원문 기반 결정적 추출로 덮어쓴다(현행)
-#   off      — LLM 해석을 최종 진실로 둔다(자연어 해석 계약 목표 상태)
-# 계약(docs/nl_interpretation_contract.md § 3)상 원문 정규식은 제거 대상이지만, 이 보정은
-# 4B의 수치 드리프트(단위·날짜·리스크 값) 방어를 겸하고 있어 A/B 실측 없이 끄면 회귀한다.
-# 플래그는 그 실측과 롤백을 위한 것이다 — 측정 후 기본값을 off로 옮긴다.
+#   off(기본) — LLM 해석을 최종 진실로 둔다(자연어 해석 계약 목표 상태)
+#   on        — 컴파일 결과를 사용자 원문 기반 결정적 추출로 덮어쓴다(롤백용)
+# 2026-07-26 기본값 전환: 계약(docs/nl_interpretation_contract.md § 3)상 원문 정규식은
+# 제거 대상이며, 사용자가 "어떤 경우라도 regex가 자연어를 해석하려 해선 안 된다"고 확정했다.
+# 합성 코퍼스 A/B는 기대값이 정규식 인코딩 관례를 담고 있어(§ 11-2) 전환 판정 기준으로
+# 쓰지 않기로 했고, 이후 개선은 실사용에서 나온 케이스로 진행한다.
 def prompt_override_mode() -> str:
-    mode = os.environ.get("STRATEGY_PROMPT_OVERRIDE_MODE", "on").strip().lower()
-    return mode if mode in ("on", "off") else "on"
+    mode = os.environ.get("STRATEGY_PROMPT_OVERRIDE_MODE", "off").strip().lower()
+    return mode if mode in ("on", "off") else "off"
 
 
 def prompt_overrides_enabled() -> bool:

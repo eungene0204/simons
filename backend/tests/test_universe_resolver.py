@@ -8,6 +8,7 @@ from strategy_conversation.compiler.strategy_compiler import compile_strategy
 from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
 from strategy_conversation.interpreter.models import (
     BacktestSpec,
+    StrategyCondition,
     StrategyIntent,
     StrategySpec,
     UniverseSpec,
@@ -240,3 +241,31 @@ def test_decompile_roundtrips_execution_timing():
         "당일 종가로 체결",
     )
     assert decompile_strategy(parsed).backtest.execution_timing == "current_close"
+
+
+# ── AI 임계값: 사용자 값이 Registry 기본값보다 우선 ──────────────────────────
+
+def _ai_intent(value):
+    return StrategyIntent(
+        intent="CREATE_STRATEGY", status="READY",
+        strategy=StrategySpec(
+            universe=UniverseSpec(markets=["KOSPI"]),
+            entry_conditions=[StrategyCondition(
+                factor="technical.ai_model", operator=">=", value=value)],
+        ),
+    )
+
+
+def test_ai_threshold_uses_user_value_not_registry_default():
+    """'상승 확률 80% 이상'이 조용히 70%로 백테스트되던 버그(2026-07-26 A/B 실측).
+
+    Registry 기본값(70)이 cond.value를 덮어쓰고 있었다 — 사용자가 말한 값이 항상 우선한다.
+    """
+    parsed = compile_strategy(_ai_intent(80), _valid_report(), "AI 상승 확률 80% 이상 매수")
+    assert [s.threshold for s in parsed.entry_signals] == [80.0]
+
+
+def test_ai_threshold_falls_back_to_registry_default_when_unstated():
+    """임계 언급이 없으면 Registry 표준값을 쓴다(경계 유지)."""
+    parsed = compile_strategy(_ai_intent(None), _valid_report(), "AI 상승 예측이 뜨면 매수")
+    assert [s.threshold for s in parsed.entry_signals] == [70.0]

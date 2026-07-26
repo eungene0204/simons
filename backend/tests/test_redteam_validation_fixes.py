@@ -266,18 +266,36 @@ def test_internal_feature_name_humanized():
     assert _humanize_features(["technical.beta"]) == ["technical.beta"]
 
 
-def test_patch_cue_gate_rejects_hallucinated_field():
-    """20-3: 발화에 필드 cue가 없는 패치(손절·리밸런싱)는 환각으로 거부."""
-    from strategy_conversation.primary import _patch_cue_supported
-    from strategy_conversation.interpreter.models import PatchOp
+def test_patch_provenance_gate_rejects_hallucinated_field():
+    """20-3: 출처 인용도 수치 근거도 없는 패치는 환각으로 거부(대조, § 3-1).
+
+    2026-07-26 계약 전환: 필드별 어휘 큐 스캔(원문 어휘 스캔)은 폐기 — 판정은
+    LLM 인용(source_text)의 실재 여부와 패치 수치의 입력 수치 일치로만 한다.
+    """
     from engine.nl_parser import _compact
-    compact = _compact("다른 예는 없어?")
-    assert not _patch_cue_supported(
-        PatchOp(op="replace", path="/risk_management/stop_loss", value=10), compact)
-    # 정상: 손절 발화에 손절 패치는 통과
-    compact2 = _compact("손절 10%로 바꿔줘")
-    assert _patch_cue_supported(
-        PatchOp(op="replace", path="/risk_management/stop_loss", value=10), compact2)
+    from strategy_conversation.interpreter.models import PatchOp
+    from strategy_conversation.primary import (
+        _input_number_candidates,
+        _patch_provenance_supported,
+    )
+
+    def gate(patch, utter):
+        return _patch_provenance_supported(
+            patch, _compact(utter), _input_number_candidates(utter))
+
+    # "다른 예는 없어?"에는 10이라는 수치도, 손절 관련 인용도 없다 → 환각 거부
+    assert not gate(
+        PatchOp(op="replace", path="/risk_management/stop_loss", value=10),
+        "다른 예는 없어?")
+    # 지어낸 인용(입력에 없는 문구)도 거부
+    assert not gate(
+        PatchOp(op="replace", path="/risk_management/stop_loss", value=10,
+                source_text="손절 10%로"),
+        "다른 예는 없어?")
+    # 정상: 발화의 수치 10과 일치하는 손절 패치는 통과(수치 대조)
+    assert gate(
+        PatchOp(op="replace", path="/risk_management/stop_loss", value=10),
+        "손절 10%로 바꿔줘")
 
 
 # ── 일반답변 사실 주입(심각도 6) ─────────────────────────────────────────────

@@ -85,7 +85,8 @@ GPU가 없으므로 로컬 LLM은 돌리지 않는다. 백테스트(vectorbt/opt
 | 소스 | [`modal_ollama.py`](../modal_ollama.py) — Ollama를 그대로 web_server로 노출(`/api/chat`, `/v1`) |
 | 배포 | `modal deploy modal_ollama.py` |
 
-> **2모델 구성(2026-07-21)**: AI 리포트(백테스트 총평)만 9B를 쓰도록 `SUMMARIZE_OLLAMA_MODEL`로 분리했다. 나머지(NL 파서/인터프리터/코치)는 `NL_OLLAMA_MODEL`(4B) 유지. Modal 볼륨에 두 모델을 모두 캐시하고, `.env`의 두 모델명이 각각 `MODELS`에 있어야 한다.
+> **2모델 구성(2026-07-21)**: AI 리포트(백테스트 총평)만 9B를 쓰도록 `SUMMARIZE_OLLAMA_MODEL`로 분리했다. 나머지(NL 파서/코치)는 `NL_OLLAMA_MODEL`(4B) 유지. Modal 볼륨에 두 모델을 모두 캐시하고, `.env`의 두 모델명이 각각 `MODELS`에 있어야 한다.
+> **인터프리터 9B 승격(2026-07-26)**: 전략 인터프리터(strategy_conversation)는 전용 슬롯 `STRATEGY_INTERPRETER_MODEL`(9B)을 쓴다 — 미설정 시 `NL_OLLAMA_MODEL`(4B)로 폴백하므로 prod `.env`에 명시해야 shadow/primary가 9B로 돈다. 9B는 SUMMARIZE와 같은 모델이라 Modal 추가 배포 불요.
 
 **모델 전환/추가 절차(3단계)**:
 1. `.venv/bin/modal run modal_ollama.py::download_model` — `MODELS`의 모든 모델을 볼륨(`simons-ollama-models`)에 캐시(~2분/모델)
@@ -137,6 +138,7 @@ Python 백엔드는 `backend/db.py`(psycopg v3 어댑터, sqlite3와 유사한 �
 | `MODAL_KEY` / `MODAL_SECRET` | Modal proxy auth (웹 콘솔 Settings에서 발급) |
 | `NL_OLLAMA_MODEL` | 파서/코치용 모델 — Modal이 서빙 중인 모델명과 반드시 동일(4B) |
 | `SUMMARIZE_OLLAMA_MODEL` | AI 리포트(백테스트 총평) 전용 모델(9B). 미설정 시 `NL_OLLAMA_MODEL`로 폴백. Modal `MODELS`에 포함돼야 함 |
+| `STRATEGY_INTERPRETER_MODEL` | 전략 인터프리터(strategy_conversation) 전용 모델(9B). 미설정 시 `NL_OLLAMA_MODEL`(4B)로 폴백 — shadow/primary 모두 이 슬롯을 읽으므로 prod에 명시 필수 |
 | `DATABASE_URL` / `DIRECT_URL` | Supabase Postgres (transaction/session pooler) |
 | `NEWSV2_PG_PASSWORD` | 로컬 news_v2 Postgres 컨테이너 비밀번호 |
 | `KRX_API_KEY` | KRX 시세 |
