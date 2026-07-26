@@ -3344,6 +3344,18 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
                     primary_holder.update(_primary_mod)
                     parsed = _primary_mod["parsed"]
             if parsed is None:
+                # 2026-07-26 사용자 지시: llm_first에서는 레거시 수정 레인(parse_modification —
+                # 결정적 원문 해석 포함)으로 폴백하지 않는다. 인터프리터가 처리하지 못한
+                # 수정은 전략 보존+되묻기로 끝낸다(FR-STR-019h 재사용 — "제주반도체 추가"가
+                # 레거시 레인에서 유니버스 교체로 처리되던 사고의 재발 방지).
+                # 롤백: STRATEGY_MODIFY_INTERPRETER_MODE=fast_path_first(레거시 전체 보존).
+                from strategy_conversation.config import modify_interpreter_mode
+                if _interp_primary_enabled() and modify_interpreter_mode() == "llm_first":
+                    fallback = _interpretation_failure_result(request, backend, request_started)
+                    if fallback is not None:
+                        _nl_parser_status["status"] = "ok"
+                        _record_ai_runtime("parse", fallback["runtime"])
+                        return fallback
                 parsed = parser.parse_modification(request.prompt, request.previous_parsed, on_stage=on_stage)
             # 코치 맥락 리스크 해석(프론트 inferPendingRiskChange 이관): 코치가 물은 리스크
             # 필드에 사용자의 "10%" 같은 필드 없는 답을 귀속한다. 백엔드가 코치 맥락으로 판단

@@ -476,7 +476,7 @@ const BACK_CONTROL_CLASS =
   "flex flex-shrink-0 items-center gap-1 rounded-xl border border-white/[0.14] bg-white/[0.05] px-2.5 py-1 text-[11px] font-bold text-gray-200 transition-colors duration-200 hover:bg-white/[0.09] hover:text-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)] disabled:opacity-40";
 // 선택 칩은 빌더 흐름의 주 경로라 3순위 컨트롤보다 무게를 올린다.
 const CHOICE_CHIP_CLASS =
-  "rounded-xl border border-white/[0.14] bg-white/[0.05] px-3.5 py-2 text-[13px] font-bold text-gray-200 text-left transition-colors duration-200 hover:border-[var(--chat-accent-line)] hover:bg-white/[0.09] hover:text-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]";
+  "rounded-lg border border-white/[0.14] bg-white/[0.05] px-2.5 py-1.5 text-[12px] font-bold text-gray-200 text-left transition-colors duration-200 hover:border-[var(--chat-accent-line)] hover:bg-white/[0.09] hover:text-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]";
 // 진입 연출은 클래스로 둔다 — 인라인 animation은 prefers-reduced-motion으로 끌 수 없다.
 const MESSAGE_ENTER_CLASS = "chat-card-enter";
 const MESSAGE_ENTER_LATE_CLASS = "chat-card-enter-late";

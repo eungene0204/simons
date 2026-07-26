@@ -464,6 +464,11 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         prev = ParsedStrategy.model_validate(previous_parsed)
     except Exception:  # noqa: BLE001 — 비정상 previous는 기존 경로가 처리
         return None
+    # None 파라미터를 엔진 실효값으로 명시 채운다(의미 불변) — 라운드트립이 Registry
+    # 표준값(20/60 등)을 채워 '표현 불가'로 오폭하던 것을 막는다(2026-07-26 제주반도체
+    # 추가 사고: 기간 없는 골든크로스 전략의 모든 수정이 레거시 레인으로 떨어짐).
+    from strategy_conversation.compiler.engine_defaults import materialize_engine_defaults
+    prev = materialize_engine_defaults(prev)
 
     # 해석 권한 순서(STRATEGY_MODIFY_INTERPRETER_MODE):
     #  · llm_first(기본) — LLM이 유일한 원문 해석자다. 이 경로는 결정론 fast-path
@@ -518,6 +523,11 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         logger.warning("modify primary interpreter failed, falling back | err=%s", str(exc)[:200])
         return None
     except Exception as exc:  # noqa: BLE001
+        if config.modify_interpreter_mode() == "llm_first" and isinstance(exc, OSError):
+            # llm_first는 레거시 수정 폴백이 없다(2026-07-26 제거) — LLM 서버 연결 장애를
+            # None(→되묻기)으로 삼키면 인프라 장애가 "입력을 바꿔라"로 위장된다.
+            # 503 경로(main._is_llm_connection_error)가 처리하도록 그대로 던진다.
+            raise
         logger.warning("modify primary transport error, falling back | err=%r", exc)
         return None
 

@@ -523,6 +523,19 @@ ON/OFF 통과시킨 결과. 기준은 `qa_complex_llm_parse.py`의 `expect`.
 `test_symbol_add_patch_compiles_to_target_union` 외 4건. 이 계열 사고의 교훈:
 **미해석 표현의 조용한 소실 지점(스키마 드롭·resolver skip·로그-only)이 곧 계약 위반이다.**
 
+**막은 구멍 3 — 수정 레거시 폴백 제거(2026-07-26 실측 사고)**:
+"제주반도체 종목도 추가해줘"가 라운드트립 가드 오폭(기간 None 신호 ↔ Registry 표준값
+채움 불일치)으로 레거시 수정 레인에 떨어졌고, 레거시 결정론은 추가/교체를 구분하지
+않으므로(합집합 의미론=LLM 소유) 테마 유니버스가 언급 종목 하나로 교체됐다. 수정:
+① `compiler/engine_defaults.py::materialize_engine_defaults` — None 파라미터를 엔진
+실효값(signals.py SOT)으로 명시 채워 의미 불변으로 라운드트립 성립(Registry 표준값과
+엔진 기본값의 이원화가 원인 — ma 20/60 vs 5/20). ② **llm_first에서 레거시 수정 폴백
+자체를 제거(사용자 지시)** — 인터프리터가 처리 못 한 수정은 원문 regex 해석 레인으로
+떨어지지 않고 전략 보존+되묻기(FR-STR-019h)로 끝난다. LLM 연결 장애는 되묻기로 위장하지
+않고 503 경로로 던진다. 롤백=`STRATEGY_MODIFY_INTERPRETER_MODE=fast_path_first`.
+§ 11 격차의 '레거시 수정 레인 이관'이 llm_first 기준으로 사실상 완료됐다(레거시 코드는
+롤백 모드 전용으로 존치). 회귀: `test_modify_roundtrip_migration.py` 7건.
+
 **롤백**: `STRATEGY_PROMPT_OVERRIDE_MODE=on`. 탈출구가 조용히 썩지 않도록
 `test_strategy_conversation.py`에 롤백 가드 테스트를 유지한다.
 
