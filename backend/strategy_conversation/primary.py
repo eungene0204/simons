@@ -360,6 +360,14 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
 
     if on_stage is not None:
         on_stage("thinking")
+    # Phase 4 shadow: DAG planner 관측 실행(기본 off, STRATEGY_DAG_PLANNER_MODE=shadow)
+    # — 대화 턴 전체를 DAG로 계획하는 실험 레인. 비차단·응답 불변, 로그만 남긴다.
+    try:
+        from strategy_conversation.planner.dag_shadow import maybe_shadow_plan_dag
+
+        maybe_shadow_plan_dag(user_input)
+    except Exception:  # noqa: BLE001 — 관측 실행 실패가 파스를 깨면 안 된다
+        logger.debug("dag planner shadow launch failed", exc_info=True)
     try:
         interpreter = _get_interpreter(StrategyInterpreter)
         result = interpreter.interpret(user_input)
@@ -369,6 +377,14 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         return None
 
     _fill_deterministic_condition_params(result.intent)
+    # 검증 전 스냅샷: capability validator는 정본 목록 밖 섹터 표현('이재명 관련주')을
+    # 미지원으로 판정하며 universe.sectors에서 제거한다. term-in 해석 체인(§ 11-3)의
+    # 입력은 'LLM이 뽑은 표현'이므로 제거 전 값을 보존해야 한다 — 검증 후 값을 읽으면
+    # 미지 테마가 체인에 도달하지 못하고 미지원 안내로 소실된다(2026-07-26 회귀).
+    pre_validation_sectors: List[str] = (
+        list(result.intent.strategy.universe.sectors)
+        if result.intent.strategy is not None else []
+    )
     validation = call_tool("validate_intent", intent=result.intent)
     validated, report = validation.intent, validation.report
     _log_llm("✓ 검증", (
@@ -417,29 +433,42 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
     sector_question: Optional[str] = None
     sector_suggestions: Optional[List[str]] = None
     unresolved_sector_terms: List[str] = []
-    if validated.strategy.universe.sectors:
+    # ETF 유니버스는 제외 — validator가 테마를 etf_theme로 승격하고 sectors를 비운다.
+    if pre_validation_sectors and "ETF" not in validated.strategy.universe.markets:
         from strategy_conversation.registry.universe_resolver import resolve_sectors
 
-        _, unresolved_sector_terms = resolve_sectors(validated.strategy.universe.sectors)
+        _, unresolved_sector_terms = resolve_sectors(pre_validation_sectors)
     if unresolved_sector_terms:
-        # Phase 3 shadow: mini-planner 관측 실행(기본 off, STRATEGY_PLANNER_MODE=shadow) —
-        # 학습 전 상태를 관측하도록 term-in 체인보다 먼저 띄운다(비차단 스레드).
-        try:
-            from strategy_conversation.planner.shadow import maybe_shadow_plan
+        if config.planner_mode() == "primary":
+            # Phase 3 승격(2026-07-26): 미해석 표현 구간을 planner가 담당 —
+            # planner 실패는 표현 단위로 아래 고정 체인 폴백(단독 실패 지점 불가).
+            sector_question, sector_suggestions = _resolve_sector_terms_planner_primary(
+                parsed, unresolved_sector_terms, notices, on_stage=on_stage,
+            )
+        else:
+            # Phase 3 shadow: mini-planner 관측 실행(기본 off, STRATEGY_PLANNER_MODE=
+            # shadow) — 학습 전 상태를 관측하도록 term-in 체인보다 먼저 띄운다(비차단).
+            try:
+                from strategy_conversation.planner.shadow import maybe_shadow_plan
 
-            maybe_shadow_plan(unresolved_sector_terms)
-        except Exception:  # noqa: BLE001 — 관측 실행 실패가 파스를 깨면 안 된다
-            logger.debug("planner shadow launch failed", exc_info=True)
-        sector_question, sector_suggestions = _resolve_sector_terms_term_in(
-            parsed, unresolved_sector_terms, notices, on_stage=on_stage,
-        )
+                maybe_shadow_plan(unresolved_sector_terms)
+            except Exception:  # noqa: BLE001 — 관측 실행 실패가 파스를 깨면 안 된다
+                logger.debug("planner shadow launch failed", exc_info=True)
+            sector_question, sector_suggestions = _resolve_sector_terms_term_in(
+                parsed, unresolved_sector_terms, notices, on_stage=on_stage,
+            )
     # 보정·term-in 체인이 섹터를 해석했으면(검색 그라운딩 학습분·테마 상장사 적용 포함)
     # 같은 테마를 가리키는 미지원 안내도 지운다 — "'마운자로 관련주'는 반영되지 않았어요"가
     # 반영된 전략과 모순.
     if (parsed.sector or parsed.target_symbols) and report.unsupported_features:
         from engine.nl_parser import _extract_sector
+        # 체인이 전부 해석했으면(sector_question 없음) 그 표현들의 미지원 항목도 지운다 —
+        # 검증기가 걸렀던 '섹터 X'가 테마 상장사로 반영됐는데 안내가 남으면 모순.
+        resolved_theme_terms = unresolved_sector_terms if sector_question is None else []
         report.unsupported_features = [
-            f for f in report.unsupported_features if _extract_sector(f) is None
+            f for f in report.unsupported_features
+            if _extract_sector(f) is None
+            and not any(t and t in f for t in resolved_theme_terms)
         ]
     if parsed.target_symbols:
         # 지정 종목 전략의 청산 누락은 호출부 공유 보정(apply_single_asset_adjustments)이
@@ -458,6 +487,15 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         # (레거시 sector_reask와 동일 계약).
         clarification_question, clarification_suggestions = sector_question, sector_suggestions
         clarification_priority = "sector_unresolved"
+    elif clarification_question is not None and config.dag_planner_mode() == "primary":
+        # Phase 4 primary(2026-07-27 사용자 결정): 되묻기 질문·칩 선택을 DAG planner가
+        # 담당한다 — 유니버스별 질문 규칙(ETF 재무 질문 금지 등)은 planner 프롬프트 계약.
+        # 우선순위 마커로 프론트 explicit 게이트(유니버스 무인지 고정 칩)의 삼킴을 막는다.
+        # planner 실패(None)·예외는 기존 고정 질문 유지(단독 실패 지점 불가).
+        dag_clarification = _dag_planner_clarification(user_input, parsed)
+        if dag_clarification is not None:
+            clarification_question, clarification_suggestions = dag_clarification
+            clarification_priority = "dag_planner"
     if report.unsupported_features:
         features = ", ".join(_humanize_features(report.unsupported_features))
         notices.append(
@@ -489,6 +527,124 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
             "confidence": validated.confidence,
         },
     })
+
+
+def _self_doubt_patch_fields(patches: List[Any], questions: List[Any]) -> List[str]:
+    """패치 대상 필드와 인터프리터 자신의 질문 필드가 겹치는 필드 목록(형식 비교만).
+
+    입력은 전부 LLM 구조화 출력이다 — 패치 경로("/universe/markets/0")와 질문 필드
+    ("universe.markets" 또는 "strategy.universe.markets")를 정규화해 비교한다.
+    """
+    def _norm_path(path: str) -> str:
+        parts = [p for p in (path or "").strip("/").split("/")
+                 if p and not p.isdigit() and p != "-"]
+        return ".".join(parts)
+
+    def _norm_field(field: str) -> str:
+        f = field or ""
+        if f.startswith("strategy."):
+            f = f[len("strategy."):]
+        return re.sub(r"\[\d+\]", "", f)
+
+    question_fields = {
+        _norm_field(getattr(q, "field", "") or "") for q in (questions or [])
+    }
+    question_fields.discard("")
+    overlaps: List[str] = []
+    for p in patches or []:
+        patch_field = _norm_path(getattr(p, "path", "") or "")
+        if patch_field and any(
+            patch_field == qf or patch_field.startswith(qf + ".")
+            or qf.startswith(patch_field + ".")
+            for qf in question_fields
+        ):
+            overlaps.append(patch_field)
+    return overlaps
+
+
+def _dag_state_summary(parsed: Any) -> Dict[str, Any]:
+    """DAG planner에 넘길 '이미 결정된 전략 State' 요약 — 재질문 방지 근거.
+
+    입력은 결정론 파이프라인 산출물(ParsedStrategy)이며 원문 해석이 아니다.
+    신호는 타입만 요약한다(planner의 판단 근거로 충분 — 프롬프트 비대 방지).
+    """
+    def _signal_types(signals: Any) -> List[str]:
+        types: List[str] = []
+        for s in signals or []:
+            t = (s.get("indicator") if isinstance(s, dict)
+                 else getattr(s, "indicator", None))
+            if t:
+                types.append(str(t))
+        return types
+
+    summary: Dict[str, Any] = {}
+    for field in ("universe", "sector", "etf_theme", "target_symbols", "max_positions",
+                  "rebalancing_period", "ranking_metric", "ranking_lookback_days",
+                  "stop_loss_pct", "take_profit_pct", "trailing_stop_pct",
+                  "hold_period_days", "backtest_period", "initial_capital"):
+        value = getattr(parsed, field, None)
+        if value:
+            summary[field] = value
+    entry_types = _signal_types(getattr(parsed, "entry_signals", None))
+    exit_types = _signal_types(getattr(parsed, "exit_signals", None))
+    filters = getattr(parsed, "fundamental_filters", None) or []
+    if entry_types:
+        summary["entry_signal_types"] = entry_types
+    if exit_types:
+        summary["exit_signal_types"] = exit_types
+    if filters:
+        summary["fundamental_filter_count"] = len(filters)
+    # 골격 슬롯 충족 판정은 결정론으로 계산해 내려준다 — 9B가 원시 필드에서 추론하게
+    # 두면 랭킹(ranking_metric)이 매수 조건 슬롯을 채운다는 것을 놓친다("최근 3개월
+    # 수익률 상위 매수" 후 매수 조건 재질문 사고). 판정 기준은 최소 조건 게이트
+    # (_missing_backtest_conditions)와 동일 계약.
+    rebalancing = summary.get("rebalancing_period")
+    has_rebalancing = bool(rebalancing and rebalancing != "none")
+    filled_slots: List[str] = []
+    if summary.get("universe") or summary.get("target_symbols") or summary.get("sector"):
+        filled_slots.append("유니버스")
+    if entry_types or filters or summary.get("ranking_metric"):
+        filled_slots.append("매수 조건")
+    if exit_types or summary.get("hold_period_days") or has_rebalancing:
+        filled_slots.append("매도 조건")
+    if summary.get("max_positions"):
+        filled_slots.append("최대 보유")
+    if has_rebalancing:
+        filled_slots.append("리밸런싱")
+    if (summary.get("stop_loss_pct") or summary.get("take_profit_pct")
+            or summary.get("trailing_stop_pct")):
+        filled_slots.append("리스크 관리")
+    if summary.get("backtest_period"):
+        filled_slots.append("백테스트 기간")
+    if summary.get("initial_capital"):
+        filled_slots.append("초기 자본")
+    summary["filled_slots"] = filled_slots
+    return summary
+
+
+def _dag_planner_clarification(
+    user_input: str, parsed: Any
+) -> Optional[tuple[str, Optional[List[str]]]]:
+    """DAG planner primary — 다음 되묻기 질문·칩을 planner가 계획한다(Phase 4).
+
+    planner 질문은 내부에서 이미 output_guard를 통과했고, 반환 후 finalize_user_response
+    관문을 한 번 더 지난다. 실패(None)·예외·ask 아닌 결과는 기존 고정 질문 유지 —
+    planner는 단독 실패 지점이 될 수 없다.
+    """
+    try:
+        from strategy_conversation.planner.dag_planner import plan_strategy_dag
+        from strategy_conversation.planner.shadow import _default_chat
+
+        result = plan_strategy_dag(
+            user_input, _default_chat(), state_summary=_dag_state_summary(parsed),
+        )
+    except Exception:  # noqa: BLE001 — planner 장애가 파스를 깨면 안 된다(기존 질문 유지)
+        logger.warning("dag planner primary 실행 실패 — 기존 질문 유지", exc_info=True)
+        return None
+    if result is None or result.outcome != "ask" or not result.question:
+        return None
+    _log_llm("? DAG planner 질문", result.question)
+    return result.question, (list(result.chips) or None)
 
 
 def _resolve_sector_terms_term_in(
@@ -549,6 +705,83 @@ def _resolve_sector_terms_term_in(
         )
     _log_llm("? 업종 되묻기", f"미해결 표현: {', '.join(still_unresolved)}")
     return SECTOR_REASK_QUESTION, list(SECTOR_REASK_SUGGESTIONS)
+
+
+def _resolve_sector_terms_planner_primary(
+    parsed: Any,
+    unresolved_terms: List[str],
+    notices: List[str],
+    on_stage=None,
+) -> tuple[Optional[str], Optional[List[str]]]:
+    """미해결 표현을 mini-planner가 담당한다(STRATEGY_PLANNER_MODE=primary, Phase 3 승격).
+
+    planner의 결정은 '검색할 가치 vs 되묻기'뿐이고 적용은 고정 체인과 같은 결정론
+    경로를 재사용한다(apply_theme_companies·_merge_learned_sector). planner 실패(None)·
+    예외는 표현 단위로 고정 체인(_resolve_sector_terms_term_in) 폴백 — planner는
+    단독 실패 지점이 될 수 없다(Phase 3 안전 계약). 반환: (질문, 칩)."""
+    from engine.nl_parser import SECTOR_REASK_SUGGESTIONS, apply_theme_companies
+
+    fallback_terms: List[str] = []
+    clarify: Optional[tuple] = None
+    for term in unresolved_terms:
+        if on_stage is not None:
+            on_stage("searching")
+        try:
+            from strategy_conversation.planner.mini_planner import plan_universe_resolution
+            from strategy_conversation.planner.shadow import _default_chat
+
+            result = plan_universe_resolution(term, _default_chat())
+        except Exception:  # noqa: BLE001 — planner 장애가 파스를 깨면 안 된다(폴백)
+            logger.warning("planner primary 실행 실패 — 고정 체인 폴백 | term=%r",
+                           term, exc_info=True)
+            result = None
+        finally:
+            if on_stage is not None:
+                on_stage("thinking")
+        if result is None:
+            fallback_terms.append(term)
+            continue
+        if result.outcome == "clarify":
+            # 되묻기 질문은 planner 내부에서 이미 output_guard를 통과했다
+            _log_llm("? planner 되묻기", f"'{term}': {result.question}")
+            if clarify is None:
+                clarify = (result.question, list(SECTOR_REASK_SUGGESTIONS))
+            continue
+        # resolved — planner의 ground_term 학습이 어휘집·KG에 반영된 뒤라 고정 체인과
+        # 같은 결정적 적용이 성립한다.
+        theme_notice = apply_theme_companies(parsed, term)
+        if theme_notice:
+            _log_llm("✓ planner 테마", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
+            notices.append(theme_notice)
+            continue
+        if result.sector:
+            _merge_learned_sector(parsed, result.sector)
+            _log_llm("✓ planner 해석", f"'{term}' → 섹터 '{result.sector}'")
+            notices.append(
+                f"'{term}'은(는) '{result.sector}' 업종 관련으로 해석했어요. "
+                "다른 업종을 원하시면 말씀해 주세요."
+            )
+            continue
+        if result.companies:
+            symbols = [c.get("symbol") for c in result.companies
+                       if isinstance(c, dict) and c.get("symbol")]
+            if symbols:
+                parsed.target_symbols = list(dict.fromkeys(
+                    [*(parsed.target_symbols or []), *symbols]))
+                _log_llm("✓ planner 상장사", f"'{term}' → 지정 종목 {len(symbols)}곳")
+                notices.append(
+                    f"'{term}'은(는) 관련 상장사 {len(symbols)}곳으로 해석해 "
+                    "지정 종목에 반영했어요."
+                )
+                continue
+        fallback_terms.append(term)  # resolved인데 관찰값 적용 실패 — 도달 불가 안전망
+    if fallback_terms:
+        question, suggestions = _resolve_sector_terms_term_in(
+            parsed, fallback_terms, notices, on_stage=on_stage,
+        )
+        if clarify is None and question:
+            clarify = (question, suggestions)
+    return clarify if clarify is not None else (None, None)
 
 
 def _ground_sector_term(term: str, on_stage=None) -> Optional[str]:
@@ -798,6 +1031,36 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
             "발화에 필드 cue 없음(환각 게이트): "
             + "; ".join(f"{p.op} {p.path}" for p in rejected_patches)
         ))
+    # 자기 의심 패치 게이트: 인터프리터가 패치 대상 필드에 스스로 질문을 낸 경우 —
+    # 모델이 자기 해석을 불확실하다고 표시한 것이다("삼성전자 관련 etf"를 KOSPI200으로
+    # 재해석하며 'KOSPI200인가요, 테마 ETF인가요?' 질문을 병행한 2026-07-27 사고).
+    # 그 패치를 적용하는 대신 그 질문을 표면화한다(전략 무변경 — 조용한 오해석 차단).
+    doubt_fields = _self_doubt_patch_fields(cued_patches, intent.clarification_questions)
+    if doubt_fields:
+        question, chips = _build_clarification(
+            ValidationReport(clarification_questions=intent.clarification_questions),
+            intent,
+        )
+        if question:
+            _log_llm("? 자기 의심 패치", (
+                f"패치 필드={', '.join(doubt_fields)}에 모델 자신의 질문 병행 — "
+                "적용 대신 되묻기(전략 유지)"
+            ))
+            return finalize_user_response({
+                "parsed": prev,
+                "clarification_question": question,
+                "clarification_suggestions": chips,
+                "notices": [],
+                "interpreter": {
+                    "mode": "primary_modify_self_doubt",
+                    "model_name": result.model_name,
+                    "prompt_version": result.prompt_version,
+                    "repair_attempts": result.repair_attempts,
+                    "llm_latency_ms": result.latency_ms,
+                    "patch_count": 0,
+                    "confidence": intent.confidence,
+                },
+            })
     if not cued_patches:
         # 인터프리터가 유효 패치를 못 냈어도, 결정적 지정 종목/섹터 변경은 StrategySpec 밖이라
         # 여기서 구제한다 — 종목-only 수정("삼성전자 투자 하는 전략")은 _modify_rule_based
@@ -870,41 +1133,53 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         f"status={report.status} patches={len(cued_patches)} "
         f"오류={len(report.errors)} 미지원={report.unsupported_features or '[]'}"
     ))
+    modification_partial = False
     if not report.is_valid:
-        # 오류 없이 질문만 남은 미완성(예: "데드크로스 청산 추가해줘" — 기간 미지정)은
-        # 폴백 대신 구체 질문+옵션 칩을 전달한다(2026-07-26 사용자 결정: 조용한 기본값
-        # 확정 금지, 옵션 제시 되묻기). 칩은 조건 전체를 담아 재전송 가능(무상태) —
-        # 전략은 무변경 유지하고 사용자의 칩/답변이 다음 수정 요청으로 조건을 채운다.
+        # 오류 없이 질문만 남은 미완성은 두 경우를 구분한다(2026-07-27 재정의):
+        #  · 질문이 이번 패치 필드 자체를 가리킴("데드크로스 청산 추가해줘" — 기간 미지정)
+        #    → 전략 무변경+구체 질문·옵션 칩(2026-07-26 계약 유지). 칩은 조건 전체를 담아
+        #    무상태 재전송으로 조건을 채운다.
+        #  · 질문이 전부 다른 슬롯의 완결성(랭킹 추가 후 "리밸런싱 주기?") → 이번 수정은
+        #    완결이므로 버리면 안 된다("최근 3개월 수익률 상위 매수" 답변이 폐기되고 매수
+        #    조건을 재질문하던 사고). 부분 컴파일로 수정을 반영하고, 다음 질문은 아래 공통
+        #    재계획 경로(DAG planner)가 갱신된 State 기준으로 담당한다.
         if not report.errors and report.clarification_questions:
-            question, chips = _build_clarification(report, validated)
-            if question:
-                _log_llm("✓ 되묻기", (
-                    f"패치 적용 후 미확정 값 질문={len(report.clarification_questions)}"
-                    " — 전략 유지, 옵션 칩과 함께 clarification 채널로"
-                ))
-                return finalize_user_response({
-                    "parsed": prev,
-                    "clarification_question": question,
-                    "clarification_suggestions": chips,
-                    "notices": [],
-                    "interpreter": {
-                        "mode": "primary_modify_needs_value",
-                        "model_name": result.model_name,
-                        "prompt_version": result.prompt_version,
-                        "repair_attempts": result.repair_attempts,
-                        "llm_latency_ms": result.latency_ms,
-                        "patch_count": len(cued_patches),
-                        "confidence": intent.confidence,
-                    },
-                })
-        _log_llm("↩ 폴백", f"패치 적용 후 검증 미통과(status={report.status}) — 기존 수정 경로로")
-        logger.info("modify primary not READY after patch (status=%s), falling back",
-                    report.status)
-        return None
+            own_field_questions = _self_doubt_patch_fields(
+                cued_patches, report.clarification_questions
+            )
+            if not own_field_questions:
+                modification_partial = True
+            else:
+                question, chips = _build_clarification(report, validated)
+                if question:
+                    _log_llm("✓ 되묻기", (
+                        f"패치 필드 미확정 값 질문={len(report.clarification_questions)}"
+                        " — 전략 유지, 옵션 칩과 함께 clarification 채널로"
+                    ))
+                    return finalize_user_response({
+                        "parsed": prev,
+                        "clarification_question": question,
+                        "clarification_suggestions": chips,
+                        "notices": [],
+                        "interpreter": {
+                            "mode": "primary_modify_needs_value",
+                            "model_name": result.model_name,
+                            "prompt_version": result.prompt_version,
+                            "repair_attempts": result.repair_attempts,
+                            "llm_latency_ms": result.latency_ms,
+                            "patch_count": len(cued_patches),
+                            "confidence": intent.confidence,
+                        },
+                    })
+        if not modification_partial:
+            _log_llm("↩ 폴백", f"패치 적용 후 검증 미통과(status={report.status}) — 기존 수정 경로로")
+            logger.info("modify primary not READY after patch (status=%s), falling back",
+                        report.status)
+            return None
     try:
         parsed = _carry_over(call_tool(
             "compile_strategy", intent=validated, report=report,
-            user_input=prev.description,
+            user_input=prev.description, partial=modification_partial,
         ).parsed)
     except StrategyCompileError as exc:
         logger.warning("modify primary compile failed, falling back | err=%s", exc)
@@ -923,10 +1198,28 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
     final_diff = _diff_fields(prev_dump, parsed.model_dump())
     _log_llm("✓ 수정 완료", f"변경 필드(원본 대비): {'; '.join(final_diff) or '없음'}")
 
+    # Phase 4 primary — 수정 턴 재계획: 최신 입력이 State를 바꿨으니(위 패치 적용),
+    # 다음 질문은 갱신된 State 기준으로 DAG planner가 다시 계획한다(유니버스가 바뀌면
+    # 후속 질문·칩도 그에 맞게 재생성 — 사용자 계약 "입력은 답변 귀속이 아니라 State
+    # 변경 판정이 먼저"). 골격 공백 여부는 결정론 게이트(detect_incomplete_backtest_
+    # conditions)가 판정하고, planner 실패 시 질문 없음 유지(기존 프론트 게이트 폴백).
+    dag_question: Optional[str] = None
+    dag_suggestions: Optional[List[str]] = None
+    dag_priority: Optional[str] = None
+    if config.dag_planner_mode() == "primary":
+        from engine.nl_parser import detect_incomplete_backtest_conditions
+        gate_question, _gate_chips = detect_incomplete_backtest_conditions(parsed)
+        if gate_question is not None:
+            dag_clarification = _dag_planner_clarification(user_input, parsed)
+            if dag_clarification is not None:
+                dag_question, dag_suggestions = dag_clarification
+                dag_priority = "dag_planner"
+
     return finalize_user_response({
         "parsed": parsed,
-        "clarification_question": None,
-        "clarification_suggestions": None,
+        "clarification_question": dag_question,
+        "clarification_suggestions": dag_suggestions,
+        "clarification_priority": dag_priority,
         "notices": list(report.warnings),
         "interpreter": {
             "mode": "primary_modify",

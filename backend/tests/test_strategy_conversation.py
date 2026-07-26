@@ -792,6 +792,33 @@ def test_primary_single_asset_target_from_llm_symbols(monkeypatch):
     assert result["clarification_question"] is None
 
 
+def test_primary_unknown_theme_sector_reaches_term_in_chain(monkeypatch):
+    """[회귀] 2026-07-26 — capability validator는 정본 목록 밖 섹터 표현('이재명 관련주')을
+    universe.sectors에서 제거한다. term-in 해석 체인(§ 11-3)은 검증 후 값이 아니라 검증 전
+    LLM 산출 표현을 받아야 한다 — 검증 후 값을 읽으면 체인이 영원히 실행되지 못하고 테마가
+    '지원되지 않아 반영되지 않았어요' 안내로 조용히 소실된다."""
+    import engine.nl_parser as nl_parser
+
+    monkeypatch.setenv("STRATEGY_PLANNER_MODE", "off")
+    seen_terms: list = []
+
+    def _fake_apply_theme(parsed, term):
+        seen_terms.append(term)
+        parsed.target_symbols = ["005930"]
+        return "'이재명' 관련 상장사 1곳을 대상 종목으로 설정했어요."
+
+    monkeypatch.setattr(nl_parser, "apply_theme_companies", _fake_apply_theme)
+    data = _full_intent_dict(
+        universe={"markets": ["KOSPI", "KOSDAQ"], "sectors": ["이재명 관련주"], "symbols": []},
+    )
+    result = _run_primary_with(monkeypatch, data, "이재명 관련주 투자 전략")
+    assert result is not None
+    assert seen_terms == ["이재명 관련주"]
+    assert result["parsed"].target_symbols == ["005930"]
+    # 반영된 테마에 검증기의 미지원 안내가 남으면 모순 — 지워져야 한다
+    assert not any("이재명" in n and "지원되지 않아" in n for n in result["notices"])
+
+
 def test_primary_universe_strategy_keeps_exit_question(monkeypatch):
     """지정 종목이 없으면 청산 누락 되묻기는 그대로 유지된다."""
     data = _full_intent_dict(

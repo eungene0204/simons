@@ -16,7 +16,7 @@ from strategy_conversation.registry.capability_registry import (
 )
 from strategy_conversation.registry.indicator_registry import supported_factor_lines
 
-PROMPT_VERSION = "1.6"
+PROMPT_VERSION = "1.7"
 
 _OUTPUT_SHAPE = {
     "intent": "CREATE_STRATEGY",
@@ -164,9 +164,12 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    기반 기술 지표(이동평균·RSI·MACD·모멘텀·볼린저 등)와 거래대금은 ETF에서도 사용 가능합니다.
    단, ETF의 업종·테마("반도체 ETF", "2차전지 ETF", "미국 ETF", "배당 ETF" 등)는 미지원이
    아닙니다 — 그 키워드를 universe.etf_theme에 넣으세요("반도체 종목 ETF"→etf_theme="반도체",
-   "KODEX 200"→etf_theme="KODEX 200"). unsupported_features나 sectors·조건으로는 넣지
-   마세요(엔진이 ETF 상품명과 매칭). '재무지표를 조건으로 쓸 수 없음'은 PER·PBR·ROE 같은
-   개별 기업 재무지표에만 해당하며, 산업/테마 구성과는 무관합니다.
+   "반도체 etf 투자 전략"→etf_theme="반도체", "KODEX 200"→etf_theme="KODEX 200").
+   unsupported_features나 sectors·조건으로는 넣지 마세요(엔진이 ETF 상품명과 매칭).
+   테마 키워드만으로 충분합니다 — 정확한 상품명(KODEX·TIGER 등)은 필요 없으므로, 사용자가
+   이미 테마를 말했으면 etf_theme을 missing_fields·clarification_questions에 넣어 상품명을
+   되묻지 마세요(이미 말한 값 되묻기 금지). '재무지표를 조건으로 쓸 수 없음'은 PER·PBR·ROE
+   같은 개별 기업 재무지표에만 해당하며, 산업/테마 구성과는 무관합니다.
 7. rebalance_frequency는 {"/".join(SUPPORTED_REBALANCE_FREQUENCIES)} 중 하나 또는 null.
 8. 모든 조건이 갖춰졌으면 status="READY". 모호하거나 누락이 있으면 "NEEDS_CLARIFICATION".
 9. confidence: 해석 확신도 0~1. 표현이 모호하면 낮게.
@@ -224,6 +227,13 @@ exit_conditions=[{{"factor":"technical.ma_crossover","operator":"crosses_below",
 출력 요점: entry_conditions=[](랭킹은 조건이 아님), ranking=[{{"metric":"return","lookback_days":60}}],
 portfolio={{"selection_count":10,"rebalance_frequency":"monthly"}}, status="READY".
 
+## 예시 4-1 (ETF 테마 — 이미 말한 테마를 되묻지 않기)
+입력: "반도체 etf 투자 전략"
+출력 요점: universe={{"markets":["ETF"],"sectors":[],"etf_theme":"반도체"}} —
+사용자가 테마(반도체)를 이미 말했으므로 etf_theme에 그대로 채우고,
+missing_fields·clarification_questions에 etf_theme을 넣지 않습니다(정확한 상품명 불필요).
+질문은 진입·청산 등 실제 누락 조건에만 만듭니다. status="NEEDS_CLARIFICATION".
+
 ## 예시 5 (수정 요청 — 현재 전략 초안이 함께 주어진 경우)
 현재 전략 초안: {{"entry_conditions":[{{"factor":"fundamental.per","operator":"<=","value":10}},
 {{"factor":"fundamental.roe_or_gpa","operator":">=","value":15}}], ...}}
@@ -235,6 +245,16 @@ patches=[{{"op":"remove","path":"/entry_conditions/0","source_text":"PER 조건�
 "source_text":"ROE를 20%로"}}].
 수정 요청은 반드시 patches로만 표현하고 strategy 전체를 다시 출력하지 마세요.
 언급되지 않은 조건·필드를 패치에 포함하지 마세요.
+
+## 예시 5-1 (ETF 유니버스 수정 — 테마 교체)
+현재 전략 초안: {{"universe":{{"markets":["ETF"],"etf_theme":"반도체"}}, ...}}
+입력: "삼성전자 관련 etf를 매수하자"
+출력 요점: patches=[{{"op":"replace","path":"/universe/etf_theme","value":"삼성전자",
+"source_text":"삼성전자 관련 etf"}}].
+ETF 유니버스에서 "X 관련 etf"는 etf_theme 교체입니다 — markets를 주식 시장·지수
+(KOSPI200 등)로 패치하거나 지수로 재해석하지 마세요(시장 전환은 사용자가 명시한
+경우만). 확신이 없으면 패치 없이 clarification_questions로만 물으세요 — 같은 필드에
+패치와 질문을 동시에 내지 마세요.
 조건 하나만 빼려면 그 조건의 인덱스 경로를 remove하세요(예: 두 번째 조건 제거 =
 {{"op":"remove","path":"/entry_conditions/1"}}). "/entry_conditions" 전체를 remove하면
 언급하지 않은 다른 조건까지 삭제되므로 절대 금지입니다.

@@ -1,9 +1,10 @@
 """Mini-Planner — 테마/유니버스 해석 구간 한정 동적 도구 계획(Planner→Tool→Responder Phase 3).
 
-LLM(전략 인터프리터와 같은 슬롯)이 미해석 테마·업종 표현에 대해 어떤 도구를 어떤
-순서로 부를지 결정한다: 지식그래프 조회 → (부족하면) 검색 그라운딩 → (그래도 안 되면)
-되묻기 결정. 고정 체인(term_grounding.resolve_sector)과 달리 순서·중단을 LLM이 정하지만,
-안전 계약은 전부 결정론이다:
+지식그래프 조회 2종(kg_resolve_sector·kg_theme_companies)은 판단이 필요 없는 결정적
+조회라 LLM 턴 없이 사전 관찰로 실행하고, 관찰이 해석을 주면 LLM 없이 종료한다.
+LLM(전략 인터프리터와 같은 슬롯)의 결정은 '검색(ground_term)할 가치가 있는 표현인가,
+사용자에게 되물을 표현인가'와 되묻기 질문 작성뿐이다. 검색 학습 성공 후 테마 재조회·
+종료도 결정론 절차다. 안전 계약은 전부 결정론이다:
 
 - 도구는 화이트리스트(_ALLOWED_TOOLS)만 — 그 밖의 요청은 즉시 실패
 - 스텝 예산(config.planner_max_steps) 초과·동일 호출 반복(루프) 즉시 실패
@@ -59,20 +60,24 @@ def _system_prompt() -> str:
     )
     return (
         "당신은 주식 백테스트 플랫폼의 유니버스 해석 플래너입니다. 사용자가 말한 "
-        "테마/업종 표현을 정본 섹터 또는 관련 상장사 목록으로 해석하기 위해 도구 호출 "
-        "순서를 결정합니다.\n\n"
+        "테마/업종 표현을 정본 섹터 또는 관련 상장사 목록으로 해석합니다. 지식그래프 "
+        "조회(kg_resolve_sector·kg_theme_companies)는 이미 실행되어 실행 기록에 관찰로 "
+        "제시됩니다 — 남은 결정은 인터넷 검색(ground_term)을 시도할지, 사용자에게 "
+        "되물을지입니다.\n\n"
         f"사용 가능한 도구:\n{tool_lines}\n\n"
         "매 턴 JSON 객체 하나만 출력하세요:\n"
         '- 도구 호출: {"action": "tool", "tool": "<이름>", "args": {"text": "<표현>"}}\n'
         '- 해석 종료: {"action": "finish"} — 지금까지의 관찰로 충분할 때\n'
         '- 되묻기: {"action": "clarify", "question": "<사용자에게 물을 질문>"}\n\n'
         "규칙:\n"
-        "1. 같은 도구를 같은 인자로 반복 호출하지 마세요.\n"
-        "2. 관찰(observation)에서 sector가 나오면 finish 하세요.\n"
-        "3. 검색(ground_term)은 비용이 크므로 지식그래프 관찰이 비었을 때만 쓰세요.\n"
-        "4. 어떤 도구로도 해석되지 않으면 clarify로 사용자에게 물으세요 — 섹터나 "
-        "종목을 지어내지 마세요.\n"
-        "5. 투자 추천·시장 전망 표현을 쓰지 마세요."
+        '1. "action" 값은 반드시 "tool"/"finish"/"clarify" 중 하나입니다 — 도구 '
+        '이름은 action이 아니라 "tool" 필드에 넣으세요.\n'
+        "2. 실행 기록에 이미 있는 도구+인자를 다시 부르지 마세요.\n"
+        "3. 관찰(observation)에서 sector나 companies가 나오면 finish 하세요.\n"
+        "4. 표현이 산업·기술·투자 테마로 해석될 여지가 있으면 ground_term(검색)을 "
+        "시도하세요. 투자와 무관하거나 무의미한 표현일 때만 clarify로 물으세요.\n"
+        "5. 섹터·종목을 지어내지 마세요 — 도구 관찰에 없는 값으로 finish 금지.\n"
+        "6. 투자 추천·시장 전망 표현을 쓰지 마세요."
     )
 
 
@@ -134,12 +139,35 @@ def plan_universe_resolution(
     def _elapsed_ms() -> int:
         return int((time.monotonic() - start) * 1000)
 
+    # 결정적 사전 관찰 — KG 조회 2종은 판단이 필요 없는 형식 조회(~ms)라 LLM 턴을
+    # 쓰지 않는다(지연 축소: LLM 결정은 '검색할 가치 vs 되묻기'에만). 관찰이 이미
+    # 해석을 주면 LLM 없이 종료한다.
+    for seed_tool in ("kg_resolve_sector", "kg_theme_companies"):
+        try:
+            observation = call_tool(seed_tool, text=term).model_dump()
+        except Exception:  # noqa: BLE001 — 도구 장애는 planner 실패로 강등(폴백)
+            logger.warning("planner 사전 관찰 실패 — 폴백 | tool=%s", seed_tool,
+                           exc_info=True)
+            return None
+        steps.append(PlannerStep("tool", seed_tool, {"text": term}, observation))
+        seen_calls.add((seed_tool, term))
+        sector, companies = _observed_resolution(steps)
+        if sector or companies:
+            return PlannerResult("resolved", sector, companies, None, steps,
+                                 _elapsed_ms())
+
     for _ in range(budget):
         decision = _extract_json(chat_fn(system_prompt, _render_state(term, steps)))
         if decision is None:
             logger.info("planner JSON 파싱 실패 — 고정 파이프라인 폴백 | term=%r", term)
             return None
         action = decision.get("action")
+        # 표기 정규화(계약 § 판정 기준 — LLM 출력 형식 보정): 도구명을 action에 쓴
+        # 출력({"action": "ground_term", ...})은 의미가 명백하다 — tool 액션으로 정규화.
+        if action in _ALLOWED_TOOLS and decision.get("tool") in (None, action):
+            decision = {"action": "tool", "tool": action,
+                        "args": decision.get("args") or {}}
+            action = "tool"
 
         if action == "finish":
             sector, companies = _observed_resolution(steps)
@@ -180,6 +208,20 @@ def plan_universe_resolution(
                                exc_info=True)
                 return None
             steps.append(PlannerStep("tool", tool_name, {"text": text}, observation))
+            if tool_name == "ground_term":
+                # 검색 학습이 테마 앵커를 새로 만들 수 있다 — 학습 후 테마 재조회와
+                # 종료는 판단이 아니라 절차라 LLM 턴 없이 결정론으로 수행한다
+                # (고정 체인의 학습→apply_theme_companies 재시도와 같은 계약).
+                try:
+                    requery = call_tool("kg_theme_companies", text=text).model_dump()
+                    steps.append(PlannerStep("tool", "kg_theme_companies",
+                                             {"text": text}, requery))
+                except Exception:  # noqa: BLE001 — 재조회 실패는 관찰 없음으로 계속
+                    logger.debug("planner 학습 후 테마 재조회 실패", exc_info=True)
+                sector, companies = _observed_resolution(steps)
+                if sector or companies:
+                    return PlannerResult("resolved", sector, companies, None, steps,
+                                         _elapsed_ms())
             continue
 
         logger.info("planner 계약 밖 액션 — 폴백 | action=%r", action)

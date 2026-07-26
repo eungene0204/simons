@@ -61,6 +61,28 @@ def _norm_key(text: str) -> str:
     return (text or "").replace(" ", "").lower()
 
 
+# ── 조회 로그 포맷터 — 무엇을 KG에서 찾았고 무엇이 나왔는지 추적(운영 관찰용) ──
+
+
+def _log_preview(text: str, limit: int = 80) -> str:
+    t = " ".join((text or "").split())
+    return t if len(t) <= limit else t[:limit] + "…"
+
+
+def _fmt_concepts(concepts: list[dict]) -> str:
+    return ", ".join(f"{n.get('name', n['id'])}[{n['id']}]" for n in concepts) or "(없음)"
+
+
+def _fmt_items(items: list[str], limit: int = 20) -> str:
+    shown = ", ".join(items[:limit])
+    extra = len(items) - limit
+    return (shown + (f" 외 {extra}건" if extra > 0 else "")) or "(없음)"
+
+
+def _fmt_companies(companies: list[dict], limit: int = 20) -> str:
+    return _fmt_items([f"{c['name']}({c['symbol']})" for c in companies], limit)
+
+
 def _load_json(path: Path, default: Any) -> Any:
     try:
         with open(path, encoding="utf-8") as f:
@@ -129,6 +151,12 @@ class KnowledgeGraph:
                 continue
             seen.add(node_id)
             found.append(self.nodes[node_id])
+        # 진입점(섹터 해석·테마 조회 등)이 INFO로 요약하므로 원시 스캔은 DEBUG만 —
+        # 학습·역스캔 루프의 대량 호출이 운영 로그를 덮지 않게 한다.
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "KG 개념 스캔: 질의=%r → %s", _log_preview(text), _fmt_concepts(found)
+            )
         return found
 
     # ── 탐색 ────────────────────────────────────────────────────────────────────
@@ -419,6 +447,14 @@ def _build() -> KnowledgeGraph:
 
     for issue in issues:
         logger.warning("지식그래프 검증: %s", issue)
+    learned = sum(1 for n in nodes if n.startswith("learned:"))
+    themed = sum(1 for n in nodes if n.startswith("theme:"))
+    auto = sum(1 for n in nodes if n.startswith(("sector:", "company:", "etf:")))
+    logger.info(
+        "지식그래프 로드: 노드 %d개(시드 %d·학습 %d·카탈로그 %d·정본자동 %d), 엣지 %d개, 검증 경고 %d건",
+        len(nodes), len(nodes) - learned - themed - auto, learned, themed, auto,
+        len(edges), len(issues),
+    )
     return KnowledgeGraph(nodes, edges, issues)
 
 
@@ -443,12 +479,20 @@ def resolve_sector_from_text(text: str) -> Optional[str]:
     개념이 없거나, 여러 개념이 서로 다른 섹터를 가리키면 None(기존 체인 폴백).
     term_grounding.resolve_sector의 ①b 단계로 배선된다."""
     graph = get_graph()
-    sectors = {
-        sector
-        for node in graph.find_concepts(text)
-        if (sector := graph.resolve_sector(node["id"])) is not None
-    }
-    return next(iter(sectors)) if len(sectors) == 1 else None
+    concepts = graph.find_concepts(text)
+    if not concepts:
+        logger.info("KG 섹터 해석: 질의=%r → 매치된 개념 없음", _log_preview(text))
+        return None
+    per_concept = {n["id"]: graph.resolve_sector(n["id"]) for n in concepts}
+    sectors = {s for s in per_concept.values() if s is not None}
+    result = next(iter(sectors)) if len(sectors) == 1 else None
+    logger.info(
+        "KG 섹터 해석: 질의=%r → 개념=%s → 소속 섹터=%s → 결과=%s",
+        _log_preview(text), _fmt_concepts(concepts),
+        {graph.nodes[nid].get("name", nid): (s or "없음") for nid, s in per_concept.items()},
+        result or ("모호(복수 섹터 %s)" % sorted(sectors) if len(sectors) > 1 else "없음"),
+    )
+    return result
 
 
 def theme_listed_companies(text: str) -> Optional[dict]:
@@ -462,18 +506,32 @@ def theme_listed_companies(text: str) -> Optional[dict]:
     graph = get_graph()
     concepts = graph.find_concepts(text)
     if not concepts:
+        logger.info("KG 테마 상장사 조회: 질의=%r → 매치된 개념 없음", _log_preview(text))
         return None
     anchor = concepts[0]
+    via = "직접 엣지"
     companies = graph.listed_companies(anchor["id"])
     if not companies and anchor.get("category") == "learned":
         # 학습 용어 한정 폴백('bts 관련주' 사고 2026-07-25) — 직접 상장사가 검증되지
         # 않았어도 verified 개념 엣지 1홉 너머의 상장사를 후보로 쓴다. 시드·카탈로그
         # 앵커는 큐레이션이 직접 엣지를 책임지므로 기존 동작(직접 엣지만)을 유지한다.
         companies = graph.listed_companies_via_concepts(anchor["id"])
+        via = "개념 1홉 폴백"
     if not companies:
+        logger.info(
+            "KG 테마 상장사 조회: 질의=%r → 앵커=%s[%s](%s) → 연결된 상장사 없음",
+            _log_preview(text), anchor.get("name"), anchor["id"],
+            anchor.get("category", "seed"),
+        )
         return None
     dates = sorted(c["first_known_date"] for c in companies if c["first_known_date"])
     first = dates[0] if dates else ((anchor.get("searched_at") or "")[:10] or None)
+    logger.info(
+        "KG 테마 상장사 조회: 질의=%r → 앵커=%s[%s](%s) → %s로 상장사 %d곳=%s, 최초 보도일=%s",
+        _log_preview(text), anchor.get("name"), anchor["id"],
+        anchor.get("category", "seed"), via, len(companies),
+        _fmt_companies(companies), first,
+    )
     return {"term": anchor.get("name"), "companies": companies, "first_known_date": first}
 
 
@@ -493,17 +551,34 @@ def theme_backtest_companies(text: str) -> Optional[dict]:
     concepts = graph.find_concepts(text)
     anchor = concepts[0] if concepts else None
     if anchor is None or anchor.get("category") != "learned":
+        if anchor is not None:
+            logger.info(
+                "KG 백테스트 테마 확장: 앵커=%s[%s](%s) → 학습 앵커 아님, 직접 목록 유지",
+                anchor.get("name"), anchor["id"], anchor.get("category", "seed"),
+            )
         return base
     try:
         from engine.concept_universe import BASE_THRESHOLD, build_concept_universe
 
         universe = build_concept_universe(text)
     except Exception:  # noqa: BLE001 — 유니버스 빌더 실패가 테마 되묻기를 막으면 안 된다
+        logger.warning(
+            "KG 백테스트 테마 확장: 앵커=%s[%s] → Concept Universe 빌드 실패, 직접 목록 유지",
+            anchor.get("name"), anchor["id"], exc_info=True,
+        )
         return base
     if not universe:
+        logger.info(
+            "KG 백테스트 테마 확장: 앵커=%s[%s] → Concept Universe 없음, 직접 목록 유지",
+            anchor.get("name"), anchor["id"],
+        )
         return base
     picked = [s for s in universe["stocks"] if s["score"] >= BASE_THRESHOLD]
     if not picked:
+        logger.info(
+            "KG 백테스트 테마 확장: 앵커=%s[%s] → 기본 임계(%.2f) 이상 선정 없음, 직접 목록 유지",
+            anchor.get("name"), anchor["id"], BASE_THRESHOLD,
+        )
         return base
     direct = {c["symbol"]: c for c in (base["companies"] if base else [])}
     companies = [
@@ -521,6 +596,11 @@ def theme_backtest_companies(text: str) -> Optional[dict]:
         else (base or {}).get("first_known_date")
         or ((anchor.get("searched_at") or "")[:10] or None)
     )
+    logger.info(
+        "KG 백테스트 테마 확장: 앵커=%s[%s] → 직접 %d곳을 Concept Universe로 확장, 상장사 %d곳=%s, 최초 보도일=%s",
+        anchor.get("name"), anchor["id"], len(direct), len(companies),
+        _fmt_companies(companies), first,
+    )
     return {"term": anchor.get("name"), "companies": companies, "first_known_date": first}
 
 
@@ -531,7 +611,19 @@ def related_universe(text: str, max_depth: int = 2) -> Optional[dict]:
     graph = get_graph()
     concepts = graph.find_concepts(text)
     if not concepts:
+        logger.info("KG 관련 유니버스: 질의=%r → 매치된 개념 없음", _log_preview(text))
         return None
     anchor = concepts[0]
     expansion = graph.expand(anchor["id"], max_depth=max_depth)
+    logger.info(
+        "KG 관련 유니버스: 질의=%r → 앵커=%s[%s], 깊이 %d 확장 → 섹터=%s / 상장사 %d곳=%s / ETF %d개=%s / 개념 %d개=%s",
+        _log_preview(text), anchor.get("name"), anchor["id"], max_depth,
+        _fmt_items([s["name"] for s in expansion["sectors"]]),
+        len(expansion["companies"]),
+        _fmt_companies(expansion["companies"]),
+        len(expansion["etfs"]),
+        _fmt_companies(expansion["etfs"]),
+        len(expansion["concepts"]),
+        _fmt_items([c["name"] for c in expansion["concepts"]]),
+    )
     return {"concept": anchor, **expansion}

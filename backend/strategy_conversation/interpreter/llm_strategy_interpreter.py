@@ -92,9 +92,9 @@ def _default_ollama_chat(model: str) -> ChatFn:
             _ollama_ensure_warm,
             _ollama_open_with_retry,
         )
-        from llm_backend import OLLAMA_BASE_URL, ollama_auth_headers
+        from llm_backend import OLLAMA_BASE_URL, is_local_ollama, ollama_auth_headers
 
-        body = json.dumps({
+        payload = {
             "model": model,
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -105,7 +105,13 @@ def _default_ollama_chat(model: str) -> ChatFn:
             "format": "json",
             "options": {"temperature": 0, "num_ctx": _OLLAMA_NUM_CTX,
                         "num_predict": max_tokens or 2048},
-        }).encode()
+        }
+        if is_local_ollama():
+            # 로컬 dev 상주 유지 — Ollama는 마지막 요청의 keep_alive로 언로드 타이머를
+            # 갱신하므로(기본 5분), startup preload(-1)만으론 첫 요청 후 다시 풀린다.
+            # 원격(Modal)은 컨테이너 수명이 별도 관리라 기본값을 유지한다.
+            payload["keep_alive"] = -1
+        body = json.dumps(payload).encode()
         _ollama_ensure_warm()
         req = urllib.request.Request(
             f"{OLLAMA_BASE_URL}/api/chat",

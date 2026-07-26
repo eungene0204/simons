@@ -27,12 +27,15 @@ pending/rejected 엣지는 어느 층에도 불참(검증 원칙 — 그래프 �
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Optional
 
 from engine.knowledge_graph import get_graph
+
+logger = logging.getLogger("concept_universe")
 
 MIN_SIZE = 10
 MAX_SIZE = 30
@@ -201,12 +204,26 @@ def build_concept_universe(concept_text: str) -> Optional[dict]:
     graph = get_graph()
     concepts = graph.find_concepts(concept_text)
     if not concepts:
+        logger.info(
+            "Concept Universe: 질의=%r → KG에 매치된 개념 없음",
+            " ".join(concept_text.split())[:80],
+        )
         return None
     anchor = concepts[0]
     candidates = _collect_candidates(graph, anchor)
     if not candidates:
+        logger.info(
+            "Concept Universe: 앵커=%s[%s] → 상장사 후보 없음",
+            anchor.get("name", anchor["id"]), anchor["id"],
+        )
         return None
     stocks, threshold = _select(candidates)
+    logger.info(
+        "Concept Universe: 앵커=%s[%s] → 후보 %d곳 → 선정 %d곳(임계 %.2f%s): %s",
+        anchor.get("name", anchor["id"]), anchor["id"], len(candidates), len(stocks),
+        threshold, ", 완화 적용" if threshold < BASE_THRESHOLD else "",
+        ", ".join(f"{s['name']}({s['symbol']}) {s['score']:.2f}" for s in stocks),
+    )
     return {
         "concept": anchor.get("name", anchor["id"]),
         "concept_id": anchor["id"],

@@ -672,17 +672,50 @@ Strategy Compiler (compiler/strategy_compiler.py) — 검증 READY만 컴파일(
 위반 없는 텍스트는 원문 그대로(무변형), 제거 발생 시 warning 로그로 관측한다.
 
 **Phase 3 — Mini-Planner (planner/, 기본 off)**: 테마/유니버스 해석 구간 한정 동적 도구
-계획. LLM(인터프리터와 같은 `STRATEGY_INTERPRETER_MODEL` 슬롯)이 미해석 테마·업종 표현에
-대해 도구 호출 순서를 결정한다(지식그래프 조회 → 검색 그라운딩 → 되묻기 결정). 안전
+계획. 지식그래프 조회 2종(kg_resolve_sector·kg_theme_companies)은 판단이 필요 없는 결정적
+조회라 LLM 턴 없이 **사전 관찰**로 실행하고 관찰이 해석을 주면 LLM 0턴 종료, 검색 학습
+성공 후 테마 재조회·종료도 결정론 절차다. LLM(인터프리터와 같은
+`STRATEGY_INTERPRETER_MODEL` 슬롯)의 결정은 '검색(ground_term)할 가치가 있는 표현인가 vs
+사용자에게 되물을 것인가'와 되묻기 질문 작성뿐이다. 도구명을 action 필드에 쓴 LLM 출력은
+표기 정규화로 복구한다(원문 해석 아님 — 계약 § 판정 기준). 안전
 계약은 전부 결정론: ① 화이트리스트 3종(kg_resolve_sector·kg_theme_companies·ground_term)만
-② 스텝 예산(`STRATEGY_PLANNER_MAX_STEPS` 기본 4, 상한 8 클램프)·동일 호출 반복(루프) 즉시
-실패 ③ **finish의 sector·companies는 LLM 주장값이 아니라 도구 관찰값에서만 채택**(근거
+② 스텝 예산(`STRATEGY_PLANNER_MAX_STEPS` 기본 6, 상한 8 클램프)·동일 호출 반복(루프) 즉시
+실패 — 단 검색 학습(ground_term) 후 kg_theme_companies 재조회는 루프가 아니다(학습이 테마
+앵커를 새로 만들 수 있어 고정 체인의 학습→재시도와 같은 계약) ③ **finish의
+sector·companies는 LLM 주장값이 아니라 도구 관찰값에서만 채택**(근거
 없는 finish는 거부 — 지어내기 구조 차단) ④ planner가 만든 되묻기 질문도 출력 관문 통과
 ⑤ 실패는 전부 None → 고정 파이프라인 폴백(planner는 단독 실패 지점이 될 수 없다).
-운영: `STRATEGY_PLANNER_MODE=off(기본)/shadow` — shadow는 `run_primary_parse`에서 고정
-체인이 해석 못 한 업종 표현이 있을 때 백그라운드 스레드로만 실행, JSONL
-(`logs/strategy_planner_shadow.jsonl`: outcome/steps/baseline_sector/latency) 기록. primary
-승격 모드는 아직 없다 — shadow 로그 비교(해석률·되묻기 품질·지연)로 판정한 뒤 별도 결정.
+운영: `STRATEGY_PLANNER_MODE=off(기본)/shadow/primary` — shadow는 `run_primary_parse`에서
+고정 체인이 해석 못 한 업종 표현이 있을 때 백그라운드 스레드로만 실행, JSONL
+(`logs/strategy_planner_shadow.jsonl`: outcome/steps/baseline_sector/latency) 기록.
+primary(2026-07-26 배치 A/B 판정 근거 dev 승격)는 미해석 표현 구간을
+`_resolve_sector_terms_planner_primary`가 담당 — planner 결과의 적용은 고정 체인과 같은
+결정론 경로(apply_theme_companies→_merge_learned_sector→상장사 반영)를 재사용하고,
+planner 실패(None)·예외는 표현 단위로 고정 체인 폴백. dev=primary(.env),
+prod=미설정(off).
+
+**Phase 4 — DAG Planner (planner/dag*.py, 기본 off)**: 대화 턴 전체를 Action DAG로
+계획한다(계약 정본: `docs/planner_dag_contract.md`). Planner LLM의 **유일한 출력은
+DAG(JSON)**이고 실행은 전부 결정론 러너다: `dag.py`가 구조 검증(비순환·id 고유·도구
+화이트리스트 7종·노드 예산·done 노드 불변·finish→compile_strategy→validate_intent
+의존 사슬 강제)과 ready 스케줄링을, `dag_planner.py`가 턴 루프(발행→검증→ready
+실행 가능 도구 전이 실행→관찰 제시)를 담당한다. ask 노드는 새 관찰이 없는 턴에만
+하나 표면화하며(관찰이 질문을 불필요하게 만들 수 있어 LLM에 수정 1턴), 질문은 출력
+관문(output_guard)을 통과한다. 동일 도구+인자는 한 번만 실행(관찰 재사용),
+ground_term 학습 후 테마 재조회는 결정론 에필로그, 확정값(sector·companies)은 도구
+관찰값에서만 채택한다. validate_intent·compile_strategy는 DAG 구조상 허용하되 러너
+보유 intent 상태가 필요해 shadow 단계에선 실행하지 않는다(primary 승격 시 배선).
+모든 실패(JSON 파싱·계약 위반·도구 장애·턴 예산 `STRATEGY_DAG_PLANNER_MAX_TURNS`
+소진·무진전 동일 발행)는 None → 기존 파이프라인이 그대로 담당. 9B 실측 교정:
+done 노드 재발행 생략은 위반이 아니라 러너 보유 사본 병합(표기 정규화), 닫는 괄호
+누락 JSON은 결정론 괄호 균형 보정, 공유 chat max_tokens=4096 명시. 운영:
+`STRATEGY_DAG_PLANNER_MODE=off(기본)/shadow/primary` — shadow는 `run_primary_parse`
+진입부에서 백그라운드 스레드로만 실행, JSONL(`logs/strategy_dag_planner_shadow.jsonl`)
+기록. primary(2026-07-27 사용자 결정, dev)는 초기 파스의 되묻기 질문·칩을
+`_dag_planner_clarification`이 대체(`_dag_state_summary`로 확정값 전달해 재질문 방지,
+sector_unresolved 우선순위 질문은 불가침)하고 `clarification_priority="dag_planner"`
+마커로 프론트 explicit 게이트의 고정 칩 삼킴을 막는다(프론트 수정 0 — 기존 우선순위
+채널 재사용). planner 실패는 기존 고정 질문 유지 폴백. prod=off.
 
 ### 4.3 백테스트 엔진 파이프라인
 

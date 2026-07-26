@@ -119,6 +119,16 @@ class _MockGen:
 
 
 @pytest.fixture(autouse=True)
+def _pin_dag_planner_off(monkeypatch):
+    """유닛 테스트를 dev .env로부터 밀폐한다 — main.py가 import 시점에 load_dotenv로
+    루트 .env를 프로세스 env에 로드하므로(STRATEGY_DAG_PLANNER_MODE=primary), 어떤
+    테스트가 main을 import하면 이후 run_primary_parse 테스트에서 DAG planner가 실제
+    LLM을 호출해 고정 질문 검증을 덮어쓴다(전체 실행에서만 실패하는 순서 의존 오염).
+    DAG planner 자체 테스트는 test_dag_planner.py가 setenv로 명시 오버라이드한다."""
+    monkeypatch.setenv("STRATEGY_DAG_PLANNER_MODE", "off")
+
+
+@pytest.fixture(autouse=True)
 def _disable_parse_validator_network(monkeypatch):
     """parse() 룰베이스 검증 LLM 레이어는 항상 인라인이지만, 유닛 테스트는 네트워크에
     의존하면 안 된다(로컬 ollama가 떠 있으면 실제 호출이 나간다). 기본적으로 LLM 도달

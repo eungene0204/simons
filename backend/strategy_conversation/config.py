@@ -67,20 +67,49 @@ def shadow_log_path() -> str:
 
 
 # ── Mini-Planner(Phase 3) — 테마/유니버스 해석 구간 한정 동적 도구 계획 ─────────
-# off(기본) / shadow(고정 파이프라인과 병행 관측만). primary 승격은 shadow 로그
-# 비교 판정 후 별도 결정 — 현재 primary 모드는 존재하지 않는다.
+# off(기본) / shadow(고정 파이프라인과 병행 관측만) / primary(미해석 업종·테마 구간을
+# planner가 담당 — 2026-07-26 배치 A/B 판정 근거 dev 승격, 실패 시 고정 체인 폴백).
 def planner_mode() -> str:
     mode = os.environ.get("STRATEGY_PLANNER_MODE", "off").strip().lower()
-    return mode if mode in ("off", "shadow") else "off"
+    return mode if mode in ("off", "shadow", "primary") else "off"
 
 
-# planner 루프 스텝 예산(무한 루프 금지). 상한 8로 클램프.
+# planner 루프 스텝 예산(무한 루프 금지). 상한 8로 클램프. 기본 6 — 전체 체인
+# (kg_resolve→kg_theme→ground_term→학습 후 kg_theme 재조회→finish)이 5결정을 쓴다.
 def planner_max_steps() -> int:
-    return max(1, min(8, int(_env_float("STRATEGY_PLANNER_MAX_STEPS", 4))))
+    return max(1, min(8, int(_env_float("STRATEGY_PLANNER_MAX_STEPS", 6))))
 
 
 def planner_shadow_log_path() -> str:
     return os.environ.get(
         "STRATEGY_PLANNER_SHADOW_LOG",
         os.path.join(os.path.dirname(__file__), "..", "logs", "strategy_planner_shadow.jsonl"),
+    )
+
+
+# ── DAG Planner(Phase 4) — 대화 턴 전체 Action DAG 계획 ────────────────────────
+# off(기본) / shadow(초기 파스와 병행 관측만 — 사용자 응답 불변) / primary(초기 파스의
+# 되묻기 질문·칩을 DAG planner가 담당 — 2026-07-27 사용자 결정으로 shadow 관측 생략
+# 승격, 실패 시 기존 고정 질문 유지 폴백. prod=off).
+def dag_planner_mode() -> str:
+    mode = os.environ.get("STRATEGY_DAG_PLANNER_MODE", "off").strip().lower()
+    return mode if mode in ("off", "shadow", "primary") else "off"
+
+
+# DAG planner LLM 턴 예산(무한 루프 금지). 상한 6으로 클램프. 기본 4 —
+# 발행→도구 관찰→수정 발행→ask 표면화가 통상 2~3턴을 쓴다.
+def dag_planner_max_turns() -> int:
+    return max(1, min(6, int(_env_float("STRATEGY_DAG_PLANNER_MAX_TURNS", 4))))
+
+
+# DAG 노드 수 예산(비대 DAG 차단). 상한 48로 클램프.
+def dag_planner_node_budget() -> int:
+    return max(4, min(48, int(_env_float("STRATEGY_DAG_PLANNER_NODE_BUDGET", 24))))
+
+
+def dag_planner_shadow_log_path() -> str:
+    return os.environ.get(
+        "STRATEGY_DAG_PLANNER_SHADOW_LOG",
+        os.path.join(os.path.dirname(__file__), "..", "logs",
+                     "strategy_dag_planner_shadow.jsonl"),
     )
