@@ -193,14 +193,23 @@ class UniverseSpec(BaseModel):
     @field_validator("sectors", "symbols", mode="before")
     @classmethod
     def _coerce_str_list(cls, v):
-        # 단일 문자열·null 드리프트 정규화. 비문자열 항목은 표현으로 쓸 수 없어 버린다
-        # (해석 실패는 universe_resolver가 unresolved로 보고한다).
+        # 단일 문자열·null 드리프트 정규화. 조건형 객체 드리프트 — /universe/symbols/- 패치
+        # 값을 {"factor":null,...,"source_text":"..."} 객체로 내는 실측(2026-07-26) — 는
+        # 그 인용(source_text)을 표현 문자열로 구제한다. 여기서 조용히 버리면 항목이
+        # universe_resolver에 도달하지 못해 unresolved 보고조차 안 되고, 종목 추가 수정이
+        # '변경 없음'으로 끝난다(테마 유니버스 종목 추가 소실 사고).
         if v is None:
             return []
         if isinstance(v, str):
             return [v]
         if isinstance(v, list):
-            return [item for item in v if isinstance(item, str)]
+            out = []
+            for item in v:
+                if isinstance(item, dict):
+                    item = item.get("source_text") or item.get("value")
+                if isinstance(item, str):
+                    out.append(item)
+            return out
         return v
 
 

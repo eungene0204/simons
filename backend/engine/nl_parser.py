@@ -1890,13 +1890,44 @@ _SECTOR_TARGET_REMOVE_RE = re.compile(
 )
 
 
+def _mask_stock_name_mentions(user_input: str) -> str:
+    """인식된 종목명 표면형(등록명·별칭·코드)을 공백으로 가린다.
+
+    종목명 안의 업종 조각('제주반도체'·'한미반도체'의 '반도체')이 섹터 판정 정규식
+    (compact 기준이라 좌측 경계가 없다)에 잡혀 업종 전환으로 오폭하는 것을 막는다
+    (2026-07-26 사고: "제주반도체도 추가해줘"가 업종 '반도체' 추가로 오판돼 테마
+    유니버스가 리셋됨). 종목 인식은 registry(korea-stocks.json) 조회라 원문 해석
+    계약을 위반하지 않는다. 일반명사 티커('대상')는 지정 의도가 없으면 가리지 않는다
+    (_extract_target_symbols와 동일 게이트)."""
+    try:
+        from stock_analysis.symbol_resolver import find_in_text
+        refs = find_in_text(user_input)
+    except Exception:  # noqa: BLE001 — 종목 마스터 미가용이 섹터 판정을 막으면 안 된다
+        return user_input
+    compact_input = _compact(user_input)
+    masked = user_input
+    for ref in refs:
+        if ref.overseas:
+            continue
+        if (ref.name in _COMMON_NOUN_TICKER_NAMES
+                and not _has_stock_designation_intent(compact_input, ref.name, ref.symbol)):
+            continue
+        for form in sorted(_target_surface_forms([ref]), key=len, reverse=True):
+            if form:
+                masked = masked.replace(form, " " * len(form))
+    return masked
+
+
 def _sector_change_from_utterance(user_input: str, previous_sector) -> tuple[bool, object]:
     """수정 발화에서 섹터 변경을 결정적으로 판정한다 → (변경 여부, 새 정규형 값).
 
     삭제 판정이 추가/교체보다 우선한다 — "반도체 업종은 빼줘"는 _extract_sector도 매칭되므로
     순서를 바꾸면 삭제가 재주입으로 되살아난다(양 경로에 있던 선행 버그). 개별 삭제 대상이
     기존 목록에 없으면 결정적으로 판단하지 않는다(전체 해제로 오폭하지 않고 LLM/안내에 위임).
+    판정 전에 인식된 종목명을 가린다(_mask_stock_name_mentions) — 종목명 안의 업종 조각이
+    섹터 변경으로 오폭하면 지정 종목 해제(4810행대 elif)까지 연쇄된다.
     """
+    user_input = _mask_stock_name_mentions(user_input)
     compact = _compact(user_input)
     prev = sector_value_as_list(previous_sector)
 
@@ -4678,7 +4709,6 @@ def _is_removal_mention(compact_input: str, ref) -> bool:
             return True
     return False
 
-
 def _removal_mentioned_target_refs(user_input: str, previous_targets: list) -> list:
     """기존 지정 종목 중 삭제어와 인접 언급된 종목 StockRef 목록. 없으면 빈 리스트."""
     if not previous_targets:
@@ -4708,6 +4738,10 @@ def _target_change_from_utterance(
 
     삭제 판정이 지정/교체보다 우선한다 — "현대약품은 빼줘"의 종목 언급을 '새 지정'으로
     오독해 10종목 유니버스가 그 한 종목으로 교체되던 사고(2026-07-26) 방지.
+    '추가'(기존 지정과의 합집합) 의미론은 여기서 판정하지 않는다 — 추가/교체 구분은 원문
+    의미 해석이라 LLM 인터프리터 경로(/universe/symbols 패치, 프롬프트 규칙 10-1)가
+    소유한다. regex 추가어 판정으로 풀려던 시도는 사용자 지시로 되돌렸다(2026-07-26,
+    자연어 해석 계약 § 3 — regex 어휘 확장 절대 금지).
     """
     removal_refs = _removal_mentioned_target_refs(user_input, previous_targets or [])
     if removal_refs:

@@ -71,7 +71,13 @@ def resolve_symbols(refs: Sequence[str]) -> Tuple[List[str], List[str]]:
     codes: List[str] = []
     unresolved: List[str] = []
     for ref in refs or []:
-        if not isinstance(ref, str) or not ref.strip():
+        # 비문자열 항목도 조용히 버리지 않는다(계약 § 3: 해석 실패는 반환·기록) — 스키마
+        # 정규화(_coerce_str_list)가 구제하지 못한 형태는 unresolved로 보고해 상류가 알린다.
+        if not isinstance(ref, str):
+            if ref is not None and str(ref) not in unresolved:
+                unresolved.append(str(ref))
+            continue
+        if not ref.strip():
             continue
         ref = ref.strip()
         resolved = (

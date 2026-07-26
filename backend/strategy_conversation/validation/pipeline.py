@@ -58,6 +58,20 @@ def run_validation(intent: StrategyIntent) -> Tuple[StrategyIntent, ValidationRe
         if feat not in report.unsupported_features:
             report.unsupported_features.append(feat)
 
+    # ── 유니버스 지정 종목 해석 가능성 — 컴파일러의 registry 해석이 실패할 표현을 조용히
+    # 흘려보내지 않는다(계약 § 3: 해석 실패는 반환·기록). 실행을 막지는 않으므로 warning
+    # (→ primary notices 채널)으로 알린다. 업종/테마 미해석은 별도 그라운딩 체인
+    # (sector_unresolved 되묻기·검색 학습)이 소유하므로 여기서 다루지 않는다.
+    if intent.strategy is not None and intent.strategy.universe.symbols:
+        from strategy_conversation.registry.universe_resolver import resolve_symbols
+
+        _, unresolved_symbols = resolve_symbols(intent.strategy.universe.symbols)
+        for term in unresolved_symbols:
+            report.warnings.append(
+                f"'{term}'은(는) 종목으로 인식되지 않아 전략에 반영하지 못했어요. "
+                "정확한 종목명이나 6자리 종목코드로 다시 말씀해 주세요."
+            )
+
     # ── Parameter 범위/단위
     report.errors.extend(validate_parameters(intent))
 

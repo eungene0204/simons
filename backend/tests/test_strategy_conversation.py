@@ -362,6 +362,66 @@ def test_unsupported_factor_suggests_alternative_without_substituting():
     assert validated.strategy.entry_conditions[0].factor == "unsupported.fcf_yield"
 
 
+def test_unresolvable_symbol_expression_surfaces_warning():
+    """지정 종목 표현을 registry가 해석하지 못하면 조용히 버리지 않고 warning으로 알린다
+    (계약 § 3 — LLM 패치 값 훼손('제주반도 semiconductor')이 무변경·무통보로 끝나던
+    2026-07-26 사고). warning은 primary notices 채널로 사용자에게 노출된다."""
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        universe={"markets": ["KOSPI"], "sectors": [],
+                  "symbols": ["005930", "제주반도 semiconductor"]},
+    ))
+    _, report = run_validation(intent)
+    assert any("제주반도 semiconductor" in w for w in report.warnings)
+
+
+def test_symbol_add_patch_compiles_to_target_union():
+    """종목 추가 수정의 계약 경로 전체: 테마 지정 전략 → /universe/symbols/- 패치(문자열 값,
+    프롬프트 규칙 10-1) → 검증 → 컴파일 = 기존 지정과의 합집합. LLM이 의미를 해석하고
+    결정론은 형식 검증·registry 조회만 한다."""
+    from engine.nl_parser import ParsedStrategy
+    from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
+    from strategy_conversation.interpreter.models import PatchOp
+
+    prev = ParsedStrategy(
+        description="이재명 관련주 투자 전략",
+        target_symbols=["005930", "000660", "004310"],
+    )
+    draft = decompile_strategy(prev)
+    patched = apply_patches(draft, [PatchOp(
+        op="add", path="/universe/symbols/-", value="제주반도체",
+        source_text="제주반도체도 추가해줘",
+    )])
+    validated, report = run_validation(
+        StrategyIntent(intent="MODIFY_STRATEGY", strategy=patched, confidence=1.0)
+    )
+    assert report.is_valid, report.errors
+    parsed = compile_strategy(validated, report, prev.description)
+    assert parsed.target_symbols == ["005930", "000660", "004310", "080220"]
+
+
+def test_symbol_add_patch_with_object_value_not_silently_lost():
+    """패치 값이 조건형 객체로 오는 드리프트도 조용히 소실되지 않는다 — source_text가
+    구제되어 해석되거나(정상 표기면 합류), 해석 불가면 warning으로 보고된다."""
+    from engine.nl_parser import ParsedStrategy
+    from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
+    from strategy_conversation.interpreter.models import PatchOp
+
+    draft = decompile_strategy(ParsedStrategy(
+        description="테마 전략", target_symbols=["005930"],
+    ))
+    patched = apply_patches(draft, [PatchOp(
+        op="add", path="/universe/symbols/-",
+        value={"factor": None, "operator": None, "value": None, "source_text": "제주반도체"},
+        source_text="제주반도체도 추가해줘",
+    )])
+    assert patched.universe.symbols == ["005930", "제주반도체"]
+    validated, report = run_validation(
+        StrategyIntent(intent="MODIFY_STRATEGY", strategy=patched, confidence=1.0)
+    )
+    parsed = compile_strategy(validated, report, "테마 전략")
+    assert parsed.target_symbols == ["005930", "080220"]
+
+
 def test_missing_threshold_generates_question_not_default():
     intent = StrategyIntent.model_validate(_full_intent_dict(
         entry_conditions=[{"factor": "fundamental.operating_margin", "operator": ">=",

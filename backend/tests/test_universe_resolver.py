@@ -80,6 +80,40 @@ def test_resolve_symbols_rejects_overseas():
     assert unresolved == ["AAPL"]
 
 
+def test_resolve_symbols_reports_non_string_items():
+    """비문자열 항목도 조용히 skip하지 않고 unresolved로 보고한다(계약 § 3).
+
+    조용히 버리면 종목 추가 패치가 '변경 없음'으로 끝나고 사용자는 이유를 모른다
+    (2026-07-26 테마 유니버스 종목 추가 소실 사고의 소실 지점 중 하나)."""
+    codes, unresolved = resolve_symbols([{"factor": None, "source_text": "제주반도체"}, None])
+    assert codes == []
+    assert len(unresolved) == 1  # None은 무의미 항목이라 보고하지 않는다
+
+
+def test_universe_spec_salvages_condition_object_symbol_drift():
+    """/universe/symbols/- 패치 값을 조건형 객체로 내는 LLM 드리프트(실측 2026-07-26)는
+    source_text 인용을 표현 문자열로 구제한다 — 스키마 검증이 조용히 버리면 resolver에
+    도달조차 못 해 unresolved 보고도 불가능하다."""
+    spec = UniverseSpec(
+        markets=["KOSPI"],
+        symbols=[{"factor": None, "operator": None, "value": None, "source_text": "제주반도체"}],
+    )
+    assert spec.symbols == ["제주반도체"]
+
+
+def test_compile_appended_symbol_joins_existing_targets():
+    """종목 추가 패치의 계약 경로: LLM이 symbols 배열에 표기를 덧붙이면 컴파일이
+    기존 지정과 합쳐 target_symbols로 배선한다(제주반도체 추가 사고의 목표 동작)."""
+    parsed = compile_strategy(
+        _intent(UniverseSpec(
+            markets=["KOSPI200"], symbols=["005930", "000660", "제주반도체"],
+        )),
+        _valid_report(),
+        "제주반도체도 추가해줘",
+    )
+    assert parsed.target_symbols == ["005930", "000660", "080220"]
+
+
 # ── 컴파일 배선 (FR-STR-068 — LLM이 종목을 지목하면 target_symbols로) ──────────
 
 def _intent(universe: UniverseSpec) -> StrategyIntent:

@@ -737,9 +737,15 @@ export function decideConversationTurn(
   }
 
   const { intent, suggestedReply = null, symbol = null } = classification;
+  // STOCK_ANALYSIS 포함: 전략이 진행 중일 때 종목명이 섞인 발화("제주반도체도 추가해줘")는
+  // 분류기가 종목 분석으로 오분류해도 수정 요청일 수 있다 — 결정론 canned 안내로 가로채지
+  // 않고 백엔드 파싱(LLM 해석)에 맡긴다(2026-07-26 종목 추가 요청 삼킴 사고).
   if (
     context.hasCurrentStrategy &&
-    (intent === "STOCK_PICK" || intent === "STRATEGY_PICK" || intent === "ONBOARDING")
+    (intent === "STOCK_PICK" ||
+      intent === "STRATEGY_PICK" ||
+      intent === "ONBOARDING" ||
+      intent === "STOCK_ANALYSIS")
   ) {
     return buildStrategyInputDecision(prompt, context, "preserve_active_strategy");
   }
@@ -779,13 +785,6 @@ export function decideConversationTurn(
   }
 
   if (intent === "STOCK_ANALYSIS") {
-    if (context.hasCurrentStrategy && !symbol) {
-      return buildStrategyInputDecision(
-        prompt,
-        context,
-        "stock_analysis_without_symbol_during_strategy",
-      );
-    }
     return {
       action: "respond_stock",
       speechAct: "ask",

@@ -510,6 +510,19 @@ ON/OFF 통과시킨 결과. 기준은 `qa_complex_llm_parse.py`의 `expect`.
 스캔은 § 3-1 위반이므로, **해석 가능성**으로 거르도록 바꿨다(§ 3-2) — 마스터에 없는
 이름을 LLM이 지어내면 거부, 실재 종목이면 통과.
 
+**막은 구멍 2 — symbols 패치 값의 조건형 객체 드리프트(2026-07-26 실측 사고)**:
+"제주반도체도 추가해줘"에 인터프리터가 의미는 정확히 해석하고도(`add /universe/symbols/-`)
+값을 조건형 객체(`{"factor":null,…,"source_text":"제주반도 semiconductor"}`)로 냈고,
+이 항목이 3중으로 **조용히 소실**됐다 — ① `UniverseSpec._coerce_str_list`가 비문자열을
+무언 드롭, ② `resolve_symbols`가 비문자열을 무언 skip(자기 docstring 위반),
+③ 컴파일러가 unresolved를 로그로만 남기고 사용자에게 미노출. 결과: '변경 없음' 재렌더링.
+수정(전부 LLM 출력 정규화·형식 검증 — § 3 허용 범위): 프롬프트 규칙 10-1(symbols 패치
+값=사용자 표기 문자열 그대로, 객체·번역 금지, PROMPT_VERSION 1.6) + 스키마 정규화가
+객체의 `source_text` 인용을 구제 + resolver가 비문자열을 unresolved로 보고 + 검증
+파이프라인이 미해석 종목 표현을 warning(→ notices 채널)으로 노출. 회귀:
+`test_symbol_add_patch_compiles_to_target_union` 외 4건. 이 계열 사고의 교훈:
+**미해석 표현의 조용한 소실 지점(스키마 드롭·resolver skip·로그-only)이 곧 계약 위반이다.**
+
 **롤백**: `STRATEGY_PROMPT_OVERRIDE_MODE=on`. 탈출구가 조용히 썩지 않도록
 `test_strategy_conversation.py`에 롤백 가드 테스트를 유지한다.
 

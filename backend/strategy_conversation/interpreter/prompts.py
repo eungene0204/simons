@@ -16,7 +16,7 @@ from strategy_conversation.registry.capability_registry import (
 )
 from strategy_conversation.registry.indicator_registry import supported_factor_lines
 
-PROMPT_VERSION = "1.5"
+PROMPT_VERSION = "1.6"
 
 _OUTPUT_SHAPE = {
     "intent": "CREATE_STRATEGY",
@@ -178,6 +178,13 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
     초안이 있어도 "PBR이 뭐야?", "RSI 설명해줘" 같은 용어·개념 설명 질문은 수정 요청이
     아니라 EXPLAIN_INDICATOR입니다 — patches를 만들지 말고, 설명 요청을
     unsupported_features에 넣지도 마세요(미지원 기능이 아니라 질문입니다).
+10-1. 지정 종목을 추가·제외하는 수정은 universe.symbols 배열을 패치하세요. 값은 사용자가
+    쓴 종목 표기 **문자열 하나 그대로**입니다 — 번역·로마자 변환·요약 금지, 조건형 객체
+    ({{"factor":...}}) 금지. 종목코드를 지어내지 마세요(코드 변환은 시스템이 합니다).
+    "제주반도체도 추가해줘" → patches=[{{"op":"add","path":"/universe/symbols/-",
+    "value":"제주반도체","source_text":"제주반도체도 추가해줘"}}]
+    초안 symbols가 ["삼성전자","SK하이닉스"]일 때 "삼성전자는 빼줘" →
+    patches=[{{"op":"remove","path":"/universe/symbols/0","source_text":"삼성전자는 빼줘"}}]
 11. assumptions/missing_fields/unsupported_features는 문자열 배열입니다(객체 금지).
     문자열 값 안에서 큰따옴표(")를 쓰지 마세요 — JSON이 깨집니다. 인용이 필요하면
     작은따옴표(')를 쓰세요("재무가 탄탄한 회사"는 … ✗ / '재무가 탄탄한 회사'는 … ✓).

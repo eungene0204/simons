@@ -275,3 +275,29 @@ def test_modify_fast_path_replacement_still_works_after_removal_branch():
     modified = _modify_rule_based("SK하이닉스로 바꿔줘", _previous_single_asset())
     assert modified is not None
     assert modified.target_symbols == ["000660"]
+
+
+# ─── 종목명 내 업종 조각 오폭 (2026-07-26 사고 회귀 2) ──────────────────────────
+# "제주반도체도 추가해줘"의 종목명 내부 조각('반도체'+'도추가')이 _SECTOR_ADDITIVE_RE에
+# 걸려 업종 '반도체' 추가로 오판되고 지정 종목 해제까지 연쇄되던 사고. 섹터 판정은 인식된
+# 종목명을 가린다(_mask_stock_name_mentions — 기존 regex의 오해석을 줄이는 방향).
+# '추가'(합집합) 의미론은 결정론이 판정하지 않는다 — LLM 인터프리터 경로가 소유한다
+# (test_strategy_conversation.py::test_symbol_add_patch_compiles_to_target_union).
+
+
+def test_sector_judgement_ignores_sector_fragment_inside_stock_name():
+    from engine.nl_parser import _sector_change_from_utterance
+
+    for utterance in ("제주반도체도 추가해줘", "한미반도체도 넣어줘", "제주반도체 주식 추가해줘"):
+        changed, value = _sector_change_from_utterance(utterance, None)
+        assert (changed, value) == (False, None), utterance
+
+
+def test_sector_judgement_still_works_with_stock_name_nearby():
+    """종목명을 가려도 진짜 업종 언급('반도체 업종')은 그대로 판정된다."""
+    from engine.nl_parser import _sector_change_from_utterance
+
+    changed, value = _sector_change_from_utterance(
+        "제주반도체가 속한 반도체 업종으로 바꿔줘", None
+    )
+    assert (changed, value) == (True, "반도체")

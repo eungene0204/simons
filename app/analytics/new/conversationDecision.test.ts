@@ -446,6 +446,26 @@ describe("decideConversationTurn", () => {
     expect(message).not.toContain("상위 5종목");
   });
 
+  // 회귀(2026-07-26): 테마 유니버스 전략 진행 중 "제주반도체도 추가해줘"가 STOCK_ANALYSIS로
+  // 분류돼 종목 추천 불가 canned 안내에 삼켜졌다 — 전략이 활성이면 종목명이 있어도 백엔드
+  // 파싱(LLM 해석)으로 보내야 한다.
+  it("routes STOCK_ANALYSIS with a symbol to strategy parsing during an active strategy", () => {
+    const decision = decideConversationTurn("제주반도체도 추가해줘", {
+      ...baseContext,
+      hasCurrentStrategy: true,
+    }, {
+      intent: "STOCK_ANALYSIS",
+      symbol: "080220",
+    });
+
+    expect(decision).toMatchObject({
+      action: "parse_strategy",
+      speechAct: "modify",
+      reason: "preserve_active_strategy",
+      strategyPrompt: "제주반도체도 추가해줘",
+    });
+  });
+
   // 회귀: 전략이 이미 있어도 정의형 질문("pbr이 뭐야?")은 수정 파싱이 아니라 지식 답변
   // 경로로 가야 한다 — 수정 파싱으로 흘리면 무변경 전략 요약만 다시 렌더링됐다.
   it("routes general knowledge to the general answer path even with an active strategy", () => {
