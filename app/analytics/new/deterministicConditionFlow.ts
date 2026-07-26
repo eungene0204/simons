@@ -31,7 +31,15 @@ const ENTRY_SIGNAL_BY_CHOICE: Record<
   string,
   ParsedSummary["entry_signals"][number]
 > = {
-  "골든크로스 발생 시 매수": { indicator: "ma_crossover", signal_type: "buy" },
+  // 기간을 칩 라벨·값에 모두 명시한다 — 기간 없는 신호는 엔진 기본값(5/20)으로 조용히
+  // 돌면서 요약 카드에 드러나지 않았고, 수정 이관 라운드트립 불일치의 씨앗이었다
+  // (2026-07-26 제주반도체 사고). 값은 엔진 실효 기본값과 동일해 백테스트 결과 불변.
+  "골든크로스(5일/20일) 발생 시 매수": {
+    indicator: "ma_crossover",
+    signal_type: "buy",
+    short_period: 5,
+    long_period: 20,
+  },
   "RSI 30 이하에서 매수": {
     indicator: "rsi",
     signal_type: "buy",
@@ -106,11 +114,16 @@ export function applyDeterministicConditionChoice({
   }
 
   if (condition.field === "exit") {
-    if (choice === "데드크로스 발생 시 매도") {
+    if (choice === "데드크로스(5일/20일) 발생 시 매도") {
       return {
         parsed: {
           ...parsed,
-          exit_signals: [{ indicator: "ma_crossover", signal_type: "sell" }],
+          exit_signals: [{
+            indicator: "ma_crossover",
+            signal_type: "sell",
+            short_period: 5,
+            long_period: 20,
+          }],
         },
       };
     }

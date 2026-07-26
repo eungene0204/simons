@@ -15,7 +15,6 @@ from engine.nl_parser import (
     TechnicalSignal,
     _apply_prompt_overrides,
     _extract_explicit_universe,
-    _build_fallback_strategy,
     detect_missing_entry_clarification,
     _extract_technical_signals,
     _extract_fundamental_filters,
@@ -61,7 +60,7 @@ def test_parse_emits_thinking_stage_before_llm_fallback(monkeypatch):
     monkeypatch.setattr(nl, "_parse_rule_based_strategy", lambda _user_input: None)
 
     parser = NLStrategyParser(backend="ollama")
-    fallback = _build_fallback_strategy("애매한 전략")
+    fallback = ParsedStrategy(description="애매한 전략")
     monkeypatch.setattr(parser, "_parse_ollama", lambda _user_input: fallback)
 
     stages = []
@@ -2302,7 +2301,7 @@ def test_incomplete_backtest_conditions_gate():
     single = ParsedStrategy(description="삼성전자", target_symbols=["005930"])
     q, chips = detect_incomplete_backtest_conditions(single, "삼성전자 투자 하는 전략")
     assert q is not None and "매수" in q and "청산" not in q
-    assert chips and "골든크로스 발생 시 매수" in chips
+    assert chips and "골든크로스(5일/20일) 발생 시 매수" in chips
 
     # 진입 신호가 채워지면 다음으로 청산을 묻는다.
     single_with_entry = single.model_copy(update={
@@ -2311,7 +2310,7 @@ def test_incomplete_backtest_conditions_gate():
     })
     q2, chips2 = detect_incomplete_backtest_conditions(single_with_entry, "삼성전자 투자 하는 전략")
     assert q2 is not None and "청산" in q2 and "손절" not in q2 and "익절" not in q2
-    assert chips2 == ["20일 보유 후 청산", "데드크로스 발생 시 매도"]
+    assert chips2 == ["20일 보유 후 청산", "데드크로스(5일/20일) 발생 시 매도"]
 
 
 def test_incomplete_conditions_theme_universe_still_requires_entry():
@@ -2330,7 +2329,7 @@ def test_incomplete_conditions_theme_universe_still_requires_entry():
     )
     q, chips = detect_incomplete_backtest_conditions(theme, "bts 관련주로 백테스트")
     assert q is not None and "매수" in q
-    assert chips and "골든크로스 발생 시 매수" in chips
+    assert chips and "골든크로스(5일/20일) 발생 시 매수" in chips
 
 
 def test_incomplete_backtest_conditions_complete_strategy_runs():

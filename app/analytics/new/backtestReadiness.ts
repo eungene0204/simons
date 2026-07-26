@@ -116,7 +116,7 @@ export function getNextMissingBacktestCondition(
       field: "entry",
       question: "매수 조건이 빠져 있습니다. 어떤 조건에서 매수할까요?",
       suggestions: [
-        "골든크로스 발생 시 매수",
+        "골든크로스(5일/20일) 발생 시 매수",
         "RSI 30 이하에서 매수",
         "MACD 골든크로스 매수",
         "볼린저밴드 하단 터치 시 매수",
@@ -131,7 +131,7 @@ export function getNextMissingBacktestCondition(
     return {
       field: "exit",
       question: "청산 조건이 빠져 있습니다. 어떤 조건에서 청산할까요?",
-      suggestions: ["데드크로스 발생 시 매도", "20일 보유 후 청산", "RSI 70 이상에서 매도"],
+      suggestions: ["데드크로스(5일/20일) 발생 시 매도", "20일 보유 후 청산", "RSI 70 이상에서 매도"],
     };
   }
   if (

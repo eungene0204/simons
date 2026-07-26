@@ -3369,14 +3369,24 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
                 parsed = parsed.model_copy(update={_field: _value})
         else:
             # LLM Interpreter Primary Mode (Phase 2): STRATEGY_INTERPRETER_MODE=primary면
-            # 초기 파스를 인터프리터 파이프라인(해석→검증→컴파일)이 담당하고, 실패/비전략
-            # intent는 기존 규칙 파서 하이브리드로 폴백한다. 질문·안내는 결과 병합 시 반영.
+            # 초기 파스를 인터프리터 파이프라인(해석→검증→컴파일)이 담당한다. 실패/비전략
+            # intent는 규칙 파서로 재해석하지 않고 실패 보고(되묻기)로 끝낸다 — "폴백은
+            # 자연어 재해석이 아니라 실패 보고"(계약 § 8, 1c 폴백 차단, 2026-07-26).
+            # 규칙 하이브리드는 primary가 꺼진 환경(off/shadow)의 기본 경로로만 동작한다.
             from strategy_conversation.primary import primary_enabled, run_primary_parse
             if primary_enabled():
                 primary = run_primary_parse(request.prompt, on_stage=on_stage)
-                if primary is not None:
-                    primary_holder.update(primary)
-            if primary_holder:
+                if primary is None:
+                    fallback = _interpretation_failure_result(request, backend, request_started)
+                    if fallback is not None:
+                        _nl_parser_status["status"] = "ok"
+                        _record_ai_runtime("parse", fallback["runtime"])
+                        return fallback
+                    raise HTTPException(
+                        status_code=500,
+                        detail="전략을 해석하지 못했습니다. 입력을 바꿔 다시 시도해 주세요.",
+                    )
+                primary_holder.update(primary)
                 parsed = primary_holder["parsed"]
             else:
                 parsed = parser.parse(

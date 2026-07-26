@@ -347,10 +347,10 @@ function createSingleAssetParseStreamResponse(complete = false) {
       parsed,
       clarification_question: complete
         ? null
-        : "청산 조건 — 언제 팔까요?\n\n예: 데드크로스 발생 시 매도, 20일 보유 후 청산",
+        : "청산 조건 — 언제 팔까요?\n\n예: 데드크로스(5일/20일) 발생 시 매도, 20일 보유 후 청산",
       clarification_suggestions: complete
         ? null
-        : ["20일 보유 후 청산", "데드크로스 발생 시 매도"],
+        : ["20일 보유 후 청산", "데드크로스(5일/20일) 발생 시 매도"],
     })}\n\n`,
     `data: ${JSON.stringify({ type: "dsl_ready", backtest_request: request, symbol_count: 1 })}\n\n`,
     "data: [DONE]\n\n",
@@ -489,7 +489,7 @@ describe("StrategyLabPage scroll behavior", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "코스피" }));
     expect(
-      await screen.findByRole("button", { name: "데드크로스 발생 시 매도" }),
+      await screen.findByRole("button", { name: "데드크로스(5일/20일) 발생 시 매도" }),
     ).toBeInTheDocument();
     // 두 번째 질문(매도 조건)부터는 '돌아가기' 버튼으로 직전 조건 버블로 되돌아갈 수 있다.
     expect(screen.getByRole("button", { name: "돌아가기" })).toBeInTheDocument();
@@ -500,10 +500,10 @@ describe("StrategyLabPage scroll behavior", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "코스피" }));
     expect(
-      await screen.findByRole("button", { name: "데드크로스 발생 시 매도" }),
+      await screen.findByRole("button", { name: "데드크로스(5일/20일) 발생 시 매도" }),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "데드크로스 발생 시 매도" }));
+    fireEvent.click(screen.getByRole("button", { name: "데드크로스(5일/20일) 발생 시 매도" }));
     expect(
       await screen.findByRole("button", { name: "최대 5종목" }),
     ).toBeInTheDocument();
@@ -584,7 +584,8 @@ describe("StrategyLabPage scroll behavior", () => {
     const compiledParsed = compileBodies[0].parsed as Record<string, any>;
     expect(compiledParsed.universe).toEqual(["KOSPI"]);
     expect(compiledParsed.exit_signals).toEqual([
-      { indicator: "ma_crossover", signal_type: "sell" },
+      // 칩 기간 명시화(2026-07-26) — 값은 엔진 실효 기본값(5/20)이라 결과 불변
+      { indicator: "ma_crossover", signal_type: "sell", short_period: 5, long_period: 20 },
     ]);
     expect(compiledParsed.max_positions).toBe(5);
     expect(compiledParsed.rebalancing_period).toBe("monthly");

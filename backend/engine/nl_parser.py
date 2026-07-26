@@ -425,8 +425,9 @@ class ParsedStrategy(BaseModel):
         """4B LLM 폴백의 흔한 스키마 드리프트를 ValidationError로 통째로 버리지 않고 복구한다.
 
         실측 사고(2026-07-12): "2차전지에 투자하는 전략" → LLM이 업종을 universe에 넣고
-        description을 빼먹어 ValidationError → _build_fallback_strategy가 LLM의 해석
-        (sector 포함)을 전부 폐기 → 업종 제한 없는 전체 시장 전략이 조용히 만들어졌다.
+        description을 빼먹어 ValidationError → 당시 원문 정규식 폴백(_build_fallback_strategy,
+        2026-07-26 제거)이 LLM의 해석(sector 포함)을 전부 폐기 → 업종 제한 없는 전체 시장
+        전략이 조용히 만들어졌다.
         ① universe 항목 중 시장이 아닌 값: 정본 업종으로 해석되면 sector로 이동(비어 있을
            때만), 한글 시장명은 영문 코드로 정규화, 그 외는 제거. 업종만 있었으면 섹터 전략
            기본 유니버스(양시장)를, 아무것도 안 남고 이동도 없었으면 스키마 기본값을 따른다.
@@ -476,7 +477,7 @@ class ParsedStrategy(BaseModel):
         desc = data.get("description")
         if (not isinstance(desc, str) or not desc.strip()) and (set(data) - {"description"}):
             # 다른 전략 내용이 있을 때만 채운다 — 빈/무의미 출력({})은 여전히 ValidationError로
-            # 결정론 폴백에 위임한다(description을 사실상 optional로 만들지 않기 위한 가드).
+            # 실패 보고에 위임한다(description을 사실상 optional로 만들지 않기 위한 가드).
             data = {**data, "description": ""}
         return data
 
@@ -1116,19 +1117,14 @@ class NLStrategyParser:
 
         if on_stage is not None:
             on_stage("thinking")
-        try:
-            if self.backend == "mlx":
-                parsed = self._parse_mlx(user_input)
-            else:
-                parsed = self._parse_ollama(user_input)
-        except ValidationError:
-            # LLM이 JSON은 냈지만 스키마 위반(필수 필드 누락·잘못된 enum·null 배열 등).
-            # 복잡한 서술형 전략에서 흔하다 → 500 대신 결정론 폴백으로 graceful 전환.
-            parsed = _build_fallback_strategy(user_input)
-        except ValueError as exc:
-            if "JSON object" not in str(exc):
-                raise
-            parsed = _build_fallback_strategy(user_input)
+        # LLM 구조화 출력이 스키마 위반(ValidationError)·JSON 부재(ValueError)면 예외를
+        # 그대로 올린다 — 원문 정규식으로 재해석하던 _build_fallback_strategy 폴백은
+        # 자연어 재해석이라 제거했다(계약 § 8, 1c 폴백 차단, 2026-07-26). 호출부(main)가
+        # 실패 보고(되묻기) 또는 503으로 변환한다.
+        if self.backend == "mlx":
+            parsed = self._parse_mlx(user_input)
+        else:
+            parsed = self._parse_ollama(user_input)
         parsed = _apply_prompt_overrides(parsed, user_input)
         # 시장 언급 없이 업종/테마를 말했으면 universe 스키마 기본(KOSPI200)을 양시장으로
         # 바꾼다 — '시장 언급 없는 섹터 전략 기본=양시장' 규칙(FR-STR-066 ③). 섹터가 결정적/
@@ -4316,35 +4312,6 @@ def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrate
     )
 
 
-def _build_fallback_strategy(user_input: str) -> ParsedStrategy:
-    """Safe non-LLM fallback when structured model output is incomplete."""
-    entry_signals, exit_signals = _extract_technical_signals(user_input)
-    hold_period_days = _extract_hold_period_days(user_input)
-    ranking_metric, ranking_lookback_days = _extract_ranking(user_input)
-    parsed = ParsedStrategy(
-        description=user_input,
-        universe=_extract_explicit_universe(user_input) or ["KOSPI200"],
-        fundamental_filters=_extract_fundamental_filters(user_input),
-        entry_signals=entry_signals,
-        exit_signals=exit_signals,
-        ranking_metric=ranking_metric,
-        ranking_lookback_days=ranking_lookback_days,
-        max_positions=_extract_max_positions(user_input) or 10,
-        hold_period_days=hold_period_days,
-        rebalancing_period=_extract_rebalancing_period(user_input, hold_period_days),
-        stop_loss_pct=None,
-        take_profit_pct=None,
-        trailing_stop_pct=_extract_trailing_stop_pct(user_input),
-        max_mdd_limit_pct=_extract_max_mdd_limit_pct(user_input),
-        backtest_period=_extract_backtest_period(user_input) or "5y",
-        initial_capital=_extract_initial_capital(user_input),
-        execution_timing=_extract_execution_timing(user_input),
-        fee_rate=_extract_rate(user_input, "수수료", 0.015),
-        slippage_rate=_extract_rate(user_input, "슬리피지", 0.05),
-    )
-    return _apply_prompt_overrides(parsed, user_input)
-
-
 def _merge_signals(
     existing: list[TechnicalSignal],
     extracted: list[TechnicalSignal],
@@ -5271,14 +5238,14 @@ def _missing_backtest_conditions(parsed: ParsedStrategy) -> list[tuple[str, str,
         missing.append(("어떤 시장·종목을 대상으로 할까요?\n\n예: 코스피200, 코스닥 전체",
                         ["코스피200 대상으로", "코스닥 전체 대상으로"]))
     if not has_entry:
-        missing.append(("어떤 조건에서 매수할까요?\n\n예: 골든크로스 발생 시 매수, PER 10 이하",
-                        ["골든크로스 발생 시 매수", "RSI 30 이하에서 매수",
+        missing.append(("어떤 조건에서 매수할까요?\n\n예: 골든크로스(5일/20일) 발생 시 매수, PER 10 이하",
+                        ["골든크로스(5일/20일) 발생 시 매수", "RSI 30 이하에서 매수",
                          "MACD 골든크로스 매수", "볼린저밴드 하단 터치 시 매수",
                          "20일 고점 돌파 시 매수", "거래량 급증 시 매수",
                          "PER 10 이하", "ROE 15% 이상"]))
     if not has_exit:
-        missing.append(("청산 조건 — 언제 팔까요?\n\n예: 데드크로스 발생 시 매도, 20일 보유 후 청산",
-                        ["20일 보유 후 청산", "데드크로스 발생 시 매도"]))
+        missing.append(("청산 조건 — 언제 팔까요?\n\n예: 데드크로스(5일/20일) 발생 시 매도, 20일 보유 후 청산",
+                        ["20일 보유 후 청산", "데드크로스(5일/20일) 발생 시 매도"]))
     if not is_single_asset and not has_rebalancing:
         missing.append(("포트폴리오 교체 주기(리밸런싱)는 얼마로 할까요?\n\n예: 매월, 분기마다",
                         ["매월 리밸런싱", "분기마다 리밸런싱"]))

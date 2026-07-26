@@ -304,7 +304,12 @@ def fast_path_can_handle(user_input: str, previous_parsed: dict) -> bool:
 
 
 def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]]:
-    """LLM Interpreter 기본 경로 실행. 성공 시 결과 dict, 폴백 필요 시 None.
+    """LLM Interpreter 기본 경로 실행. 성공 시 결과 dict, 해석 실패 시 None.
+
+    None은 "규칙 파서로 재해석하라"가 아니라 실패 보고다 — 호출부(main)는 되묻기
+    (interpretation_failed)로 끝낸다(계약 § 8, 1c 폴백 차단, 2026-07-26). LLM 서버
+    연결 장애는 None으로 삼키지 않고 그대로 던진다 — 인프라 장애가 "입력을 바꿔라"로
+    위장되지 않게 main의 503 경로(_is_llm_connection_error)가 처리한다.
 
     반환: {"parsed": ParsedStrategy, "clarification_question": str|None,
            "clarification_suggestions": [str]|None, "notices": [str],
@@ -323,11 +328,8 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         interpreter = _get_interpreter(StrategyInterpreter)
         result = interpreter.interpret(user_input)
     except InterpreterError as exc:
-        logger.warning("interpreter primary failed, falling back to rule parser | err=%s",
+        logger.warning("interpreter primary failed, reporting failure | err=%s",
                        str(exc)[:200])
-        return None
-    except Exception as exc:  # noqa: BLE001 — 연결 실패 등도 폴백(기존 경로가 503 처리)
-        logger.warning("interpreter primary transport error, falling back | err=%r", exc)
         return None
 
     _fill_deterministic_condition_params(result.intent)
@@ -338,8 +340,8 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         f"질문={len(report.clarification_questions)} 미지원={report.unsupported_features or '[]'}"
     ))
     if validated.intent not in _STRATEGY_INTENTS or validated.strategy is None:
-        _log_llm("↩ 폴백", f"전략 파이프라인 대상이 아닌 intent={validated.intent} — 규칙 파서로")
-        logger.info("interpreter primary non-strategy intent=%s, falling back",
+        _log_llm("↩ 실패 보고", f"전략 파이프라인 대상이 아닌 intent={validated.intent} — 되묻기로")
+        logger.info("interpreter primary non-strategy intent=%s, reporting failure",
                     validated.intent)
         return None
 
@@ -349,7 +351,7 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
                              user_input=user_input, partial=not report.is_valid)
         parsed, dropped = compiled.parsed, compiled.dropped
     except StrategyCompileError as exc:
-        logger.warning("interpreter primary compile failed, falling back | err=%s", exc)
+        logger.warning("interpreter primary compile failed, reporting failure | err=%s", exc)
         return None
     _log_llm("✓ 컴파일", (
         f"{'전체' if report.is_valid else '부분'} 컴파일 — 제외 조건: {', '.join(dropped) or '없음'}"
