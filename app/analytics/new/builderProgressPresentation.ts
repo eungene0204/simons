@@ -215,11 +215,17 @@ export function buildBuilderTurnPresentation({
   reply,
   parsed,
   prompt = "",
+  backtestRequest,
 }: {
   state: Record<string, any>;
   reply: string;
   parsed?: ParsedSummary | null;
   prompt?: string;
+  // 지정 종목 표시용 이름(backtest_request.target_stocks) — 없으면 코드만 표시된다.
+  backtestRequest?: {
+    symbols?: string[];
+    target_stocks?: Array<{ symbol: string; name?: string }> | null;
+  } | null;
 }): BuilderTurnPresentation {
   const summaryItems: BuilderSummaryItem[] = [];
   const targetFromState = (state.single_label
@@ -229,7 +235,8 @@ export function buildBuilderTurnPresentation({
     (state.universe ? UNIVERSE_LABELS[state.universe] ?? state.universe : null);
   const targetExplicit = Boolean(state.theme_label) || hasExplicitUniverse(prompt, parsed);
   const target = targetExplicit
-    ? targetFromState || (parsed ? getDisplayUniverseLabels(parsed).join(" · ") : null)
+    ? targetFromState ||
+      (parsed ? getDisplayUniverseLabels(parsed, backtestRequest).join(" · ") : null)
     : null;
   const entryLabel = buildEntryLabel(state, parsed);
   const exitLabels = parsed ? getDisplayExitLabels(parsed) : [];

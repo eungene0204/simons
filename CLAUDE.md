@@ -183,6 +183,54 @@ npm run test:frontend
 코드를 작성하거나 수정할 때 반드시 [`docs/coding_rules.md`](docs/coding_rules.md)의 원칙들을 준수한다.
 (SOLID, DRY, KISS, YAGNI, SoC, LoD, Composition Over Inheritance, Boy Scout Rule, Fail Fast)
 
+## 자연어 해석 구조 원칙
+
+**자연어의 의미는 LLM만 해석한다. Regex는 LLM이 생성한 제한된 구조화 출력의 형식만 검증·정규화한다.**
+
+Regex Parser가 사용자의 자연어를 직접 분석하거나 의미를 추론해서는 안 된다.
+
+```text
+사용자 자연어 입력
+    ↓
+LLM 의미 해석          (동의어·정성 표현·오타·문맥)
+    ↓
+제한된 구조화 출력      StrategyIntent JSON (schema_version 1.0)
+    ↓
+형식 검증·정규화        Regex / Pydantic field_validator
+    ↓
+Schema 검증            Pydantic StrategyIntent
+    ↓
+Domain 검증            Registry + validation/ (지표 지원 여부·범위·충돌·완결성)
+    ↓
+컴파일 → ParsedStrategy → 백테스트 엔진
+```
+
+### 역할 분담
+
+| 레이어 | 책임 |
+|---|---|
+| **LLM** | 자연어 이해, 의도 분류, 동의어·정성 표현 매핑, 조건 변환, 수정 요청 인식, 누락 정보 탐지 |
+| **Regex / 형식 정규화** | LLM 출력의 JSON 경계 추출, 코드펜스·꼬리 토큰 제거, 값·enum 표기 정규화 |
+| **Schema Validator** | 필드 타입·필수 필드·허용 enum 검증 |
+| **Domain Validator** | 지표 지원 여부, canonical 매핑, 값 범위·단위, 유니버스 호환성, 조건 충돌, 완결성·되묻기 |
+
+### 판정 기준
+
+> **입력이 사용자 원문이면 그것은 해석이다 → LLM.
+> 입력이 LLM 출력이고 표기만 보면 결정 가능하면 그것은 정규화다 → 결정론 코드.**
+
+### 금지 사항
+
+- 사용자 원문(`user_input`)을 패턴 매칭해 지표·업종·의도·수치를 추출
+- Regex로 동의어를 매핑하거나 누락 조건을 추론
+- 검증 실패 시 Regex·후처리 코드가 문자열을 임의 보정 (→ 오류를 LLM에 전달해 재생성)
+- 사용자가 말하지 않은 값을 질문 없이 기본값으로 확정 (→ 질문 / 추천값+확인 / 명시 허용 시에만 기본값)
+- 지식 조회(업종·종목 정본 매핑)를 원문에서 수행 (→ LLM이 뽑은 짧은 문자열을 입력으로 받는 registry로)
+
+상세 계약·출력 형식·코드 리뷰 체크리스트·현행 격차는 [`docs/nl_interpretation_contract.md`](docs/nl_interpretation_contract.md)를 따른다.
+`engine/nl_parser.py`·`intent/strategy_builder.py`는 아직 이 계약을 위반한 상태이며 단계적으로 이관 중이다 —
+**새로 작성하거나 수정하는 코드는 예외 없이 이 계약을 따른다.**
+
 ## 필수 규칙
 
 ### 코드 수정 후 유닛 테스트 전체 실행

@@ -47,6 +47,9 @@ ValueSource = Literal[
 
 ConditionRole = Literal["entry", "exit"]
 
+# 이벤트(교차/터치) 연산자 — 임계값 없이 방향만으로 신호가 성립한다.
+_EVENT_OPERATORS = frozenset({"crosses_above", "crosses_below"})
+
 _NUMBER_RE = re.compile(r"^-?\d+(?:[.,]\d+)?")
 
 
@@ -129,6 +132,14 @@ class UniverseSpec(BaseModel):
     sectors: List[str] = Field(
         default_factory=list, description="업종/섹터 제한. 언급 없으면 빈 배열"
     )
+    symbols: List[str] = Field(
+        default_factory=list,
+        description=(
+            "지정 종목(단일/지정 종목 백테스트). 사용자가 특정 종목을 지목하면 그 표현을 "
+            "그대로 넣는다('삼성전자', 'SK하이닉스', '005930'). 종목코드 변환은 시스템이 "
+            "하므로 코드를 지어내지 말 것. 언급 없으면 빈 배열"
+        ),
+    )
     etf_theme: Optional[str] = Field(
         default=None,
         description=(
@@ -178,13 +189,17 @@ class UniverseSpec(BaseModel):
                 return out
         return v
 
-    @field_validator("sectors", mode="before")
+    @field_validator("sectors", "symbols", mode="before")
     @classmethod
-    def _coerce_sectors(cls, v):
+    def _coerce_str_list(cls, v):
+        # 단일 문자열·null 드리프트 정규화. 비문자열 항목은 표현으로 쓸 수 없어 버린다
+        # (해석 실패는 universe_resolver가 unresolved로 보고한다).
         if v is None:
             return []
         if isinstance(v, str):
             return [v]
+        if isinstance(v, list):
+            return [item for item in v if isinstance(item, str)]
         return v
 
 
@@ -247,6 +262,13 @@ class BacktestSpec(BaseModel):
         return v
     start_date: Optional[str] = Field(default=None, description="YYYY-MM-DD")
     end_date: Optional[str] = Field(default=None, description="YYYY-MM-DD")
+    execution_timing: Optional[Literal["next_open", "current_close"]] = Field(
+        default=None,
+        description=(
+            "체결 시점. '당일 종가에 매수/체결'처럼 종가 체결을 명시하면 'current_close', "
+            "언급이 없으면 null(시스템 기본 next_open=다음 날 시가)"
+        ),
+    )
     initial_capital: Optional[float] = Field(default=None, description="초기 자본금(원)")
     fee_rate: Optional[float] = Field(default=None, description="수수료율(%)")
     slippage_rate: Optional[float] = Field(default=None, description="슬리피지율(%)")
@@ -286,11 +308,25 @@ class StrategySpec(BaseModel):
         # 조건에 그대로 복제해 출력 → 사용자가 진입에서 이미 준 값을 "청산 조건의 PER
         # 기준값?"이라며 되묻는 사고. 값이 없고 진입 팩터를 중복하는 청산 조건은 새 정보가
         # 없으므로 버린다(사용자가 실제 청산 임계값을 줬다면 value가 채워져 보존된다).
+        #
+        # 단, 이벤트 지표의 **반대 방향** 청산은 정상적인 짝이다 — 골든크로스 진입/데드크로스
+        # 청산, 볼린저 하단 매수/상단 매도는 둘 다 value가 없고 factor도 같지만 서로 다른
+        # 신호다(2026-07-26 A/B 실측: 이 가드가 정당한 청산을 삼켰고, 원문 정규식 재추출이
+        # 그것을 가리고 있었다). 진입에 없는 이벤트 연산자면 새 정보이므로 보존한다.
         if self.exit_conditions and self.entry_conditions:
-            entry_factors = {c.factor for c in self.entry_conditions}
+            entry_ops: Dict[str, set] = {}
+            for c in self.entry_conditions:
+                entry_ops.setdefault(c.factor, set()).add(c.operator)
             self.exit_conditions = [
                 c for c in self.exit_conditions
-                if not (c.value is None and c.factor in entry_factors)
+                if not (
+                    c.value is None
+                    and c.factor in entry_ops
+                    and not (
+                        c.operator in _EVENT_OPERATORS
+                        and c.operator not in entry_ops[c.factor]
+                    )
+                )
             ]
         return self
 

@@ -64,10 +64,41 @@ describe("isBacktestReady", () => {
       isBacktestReady({
         ...base,
         target_symbols: ["005930"],
+        entry_signals: [{ indicator: "ma_crossover", signal_type: "buy" }],
         exit_signals: [{ indicator: "ma_crossover", signal_type: "sell" }],
         stop_loss_pct: 10,
         take_profit_pct: 20,
       }),
+    ).toBe(true);
+  });
+
+  it("지정 종목(테마 자동 적용)이라도 매수 조건이 없으면 완성으로 판정하지 않는다", () => {
+    // [버그 2026-07-25] 테마 유니버스가 target_symbols를 채우면 진입으로 인정돼 매수 조건
+    // 질문이 생략되고 "모든 조건을 정했습니다"가 뜨던 사고 — 빈 진입은 엔진에서 0거래다.
+    const themeParsed: ParsedSummary = {
+      ...base,
+      target_symbols: ["352820", "035900", "041510"],
+      exit_signals: [{ indicator: "ma_crossover", signal_type: "sell" }],
+      stop_loss_pct: 15,
+      take_profit_pct: 30,
+      initial_capital: 50_000_000,
+    };
+    const options = {
+      requireExplicitConfiguration: true,
+      prompt: "bts 관련주로 백테스트, 손절 15%, 익절 30%, 최근 5년 데이터, 5,000만원",
+    };
+    expect(getNextMissingBacktestCondition(themeParsed, options)).toMatchObject({
+      field: "entry",
+    });
+    expect(isBacktestReady(themeParsed, options)).toBe(false);
+    expect(
+      isBacktestReady(
+        {
+          ...themeParsed,
+          entry_signals: [{ indicator: "ma_crossover", signal_type: "buy" }],
+        },
+        options,
+      ),
     ).toBe(true);
   });
 

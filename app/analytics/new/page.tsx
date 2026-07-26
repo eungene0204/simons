@@ -1214,6 +1214,8 @@ function StrategyLabContent() {
   const coachSessionIdRef = useRef<string | null>(null);
   const coachConversationRef = useRef<CoachConversationMessage[]>([]);
   const pendingPromptConsumedRef = useRef(false);
+  // 인증 하이드레이션(loading) 중에 보낸 전략 프롬프트 — 완료 후 자동 재전송/모달 분기.
+  const pendingAuthGatePromptRef = useRef<string | null>(null);
   // 진행 중이던 채팅을 한 번만 복원하기 위한 가드.
   const chatRestoredRef = useRef(false);
   const handleSendRef = useRef<(overrideText?: string) => Promise<void>>();
@@ -1513,6 +1515,7 @@ function StrategyLabContent() {
         reply: nextQuestion,
         parsed: deterministicChoice.parsed,
         prompt: nextPromptContext,
+        backtestRequest: backtestReqRef.current ?? backtestReq,
       }),
       deterministicChoice.parsed,
       backtestReqRef.current ?? backtestReq,
@@ -1711,6 +1714,7 @@ function StrategyLabContent() {
         reply,
         parsed: seedParsed ?? latestParsedRef.current,
         prompt: getStrategyPromptContext(seedText),
+        backtestRequest: seedBacktestRequest ?? backtestReqRef.current,
       });
       updateLastAssistant({
         isLoading: false,
@@ -1745,6 +1749,7 @@ function StrategyLabContent() {
         reply: fallbackQuestion,
         parsed: seedParsed ?? latestParsedRef.current,
         prompt: getStrategyPromptContext(seedText),
+        backtestRequest: seedBacktestRequest ?? backtestReqRef.current,
       });
       updateLastAssistant({
         isLoading: false,
@@ -1797,6 +1802,7 @@ function StrategyLabContent() {
         reply: data.reply,
         parsed: latestParsedRef.current,
         prompt: getStrategyPromptContext(),
+        backtestRequest: backtestReqRef.current ?? backtestReq,
       });
       updateLastAssistant({
         isLoading: false,
@@ -2121,11 +2127,13 @@ function StrategyLabContent() {
         prompt: promptContext,
         requireExplicitConfiguration: true,
       });
-      // 테마 유니버스 되묻기(FR-STR-071/072)는 유니버스 범위를 정하는 선행 결정이라
-      // explicit 설정 게이트의 시장 질문보다 먼저 보여준다 — 게이트가 이 질문을 삼키면
-      // 컨셉 종목 제한("bts 관련 종목") 선택지가 영영 사라지고 업종 전체로 강등된다.
-      const themeUniverseReask =
-        parsedPayload.clarification_priority === "theme_universe" &&
+      // 우선순위 마커(clarification_priority)가 실린 백엔드 질문 — 테마 유니버스(FR-STR-071/072)·
+      // 미해결 업종/테마(sector_unresolved: 되묻기 또는 검색 후 '관련주를 찾을 수 없음' 종결
+      // 안내) — 은 유니버스 범위를 정하는 선행 결정이라 explicit 설정 게이트의 시장 질문보다
+      // 먼저 보여준다. 게이트가 삼키면 '리센즈 관련주'처럼 검색으로도 못 찾은 테마가 조용히
+      // 일반 시장 질문으로 강등된다(2026-07-26 회귀).
+      const priorityClarification =
+        parsedPayload.clarification_priority &&
         parsedPayload.clarification_question
           ? {
               question: parsedPayload.clarification_question as string,
@@ -2133,7 +2141,7 @@ function StrategyLabContent() {
               missingCondition: null,
             }
           : null;
-      let presentedClarification = themeUniverseReask ?? (explicitMissingCondition
+      let presentedClarification = priorityClarification ?? (explicitMissingCondition
         ? {
             question: explicitMissingCondition.question,
             suggestions: explicitMissingCondition.suggestions,
@@ -2168,6 +2176,7 @@ function StrategyLabContent() {
             reply: presentedClarification.question,
             parsed: nextParsed,
             prompt: promptContext,
+            backtestRequest: nextBacktestReq,
           })
         : null;
       const clarificationText = clarificationTurn?.question ?? null;
@@ -2371,6 +2380,7 @@ function StrategyLabContent() {
         reply: missingCondition.question,
         parsed: data.parsed,
         prompt: promptContext,
+        backtestRequest: data.backtest_request,
       });
       updateLastAssistant({
         isLoading: false,
@@ -2415,6 +2425,13 @@ function StrategyLabContent() {
     setBuilderFreeTextRequested(false);
 
     if (authState !== "authenticated" && isStrategyInput) {
+      // 리로드 직후에는 /api/user 왕복이 끝날 때까지 authState가 "loading"이라
+      // 로그인 여부를 아직 모른다. 이때 모달을 띄우면 로그인된 사용자에게도
+      // 재로그인을 요구하게 되므로, 프롬프트를 보관했다가 하이드레이션 완료 후 처리한다.
+      if (authState === "loading") {
+        pendingAuthGatePromptRef.current = userText;
+        return;
+      }
       sessionStorage.setItem(PENDING_STRATEGY_PROMPT_KEY, userText);
       setIsAuthModalOpen(true);
       return;
@@ -2458,11 +2475,28 @@ function StrategyLabContent() {
     };
     let turnDecision = decideConversationTurn(userText, conversationContext);
 
+    // 결정론 즉답(respond)에도 현재 전략이 있으면 '현재까지 이해한 전략입니다' 요약 카드를
+    // 항상 함께 보여준다(사용자 결정 2026-07-26 — 종목 변경 의향 안내 등이 전략 맥락 없이
+    // 답변만 떠 있지 않도록).
+    const currentStrategyPresentation = () => {
+      const parsed = latestParsedRef.current;
+      if (!parsed) return undefined;
+      const { summaryItems, progressItems } = buildBuilderTurnPresentation({
+        state: {},
+        reply: "",
+        parsed,
+        prompt: getStrategyPromptContext(),
+        backtestRequest: backtestReqRef.current ?? backtestReq,
+      });
+      return { summaryItems, progressItems };
+    };
+
     if (turnDecision.action === "respond") {
       await appendAssistant({
         role: "assistant",
         infoText: turnDecision.message,
         infoSuggestions: turnDecision.suggestions,
+        builderPresentation: currentStrategyPresentation(),
       });
       setIsSending(false);
       return;
@@ -2622,6 +2656,7 @@ function StrategyLabContent() {
           reply: data.reply,
           parsed: currentParsed,
           prompt: getStrategyPromptContext(userText),
+          backtestRequest: backtestReqRef.current ?? backtestReq,
         });
         updateLastAssistant({
           isLoading: false,
@@ -2690,6 +2725,7 @@ function StrategyLabContent() {
         isLoading: false,
         infoText: turnDecision.message,
         infoSuggestions: turnDecision.suggestions,
+        builderPresentation: currentStrategyPresentation(),
       });
       setIsSending(false);
       return;
@@ -2794,6 +2830,21 @@ function StrategyLabContent() {
       setIsStartingGoogleLogin(false);
     }
   };
+
+  // 인증 하이드레이션 중(loading)에 막혔던 전략 프롬프트를 완료 후 처리한다 —
+  // 로그인 확인 시 자동 재전송, 비로그인 확정 시에만 로그인 모달.
+  useEffect(() => {
+    if (authState === "loading") return;
+    const blockedPrompt = pendingAuthGatePromptRef.current;
+    if (!blockedPrompt) return;
+    pendingAuthGatePromptRef.current = null;
+    if (authState === "authenticated") {
+      void handleSendRef.current?.(blockedPrompt);
+      return;
+    }
+    sessionStorage.setItem(PENDING_STRATEGY_PROMPT_KEY, blockedPrompt);
+    setIsAuthModalOpen(true);
+  }, [authState]);
 
   useEffect(() => {
     if (

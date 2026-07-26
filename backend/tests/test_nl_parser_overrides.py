@@ -2293,16 +2293,44 @@ def test_missing_entry_clarification_skipped_for_single_asset():
 
 def test_incomplete_backtest_conditions_gate():
     """[정책] 백테스트 최소 조건(유니버스·진입·청산·손절·익절)이 하나라도 없으면 채우도록
-    되묻는다. 진입은 랭킹/지정 종목도 인정한다(Q2). 여러 조건이 비어 있어도 한 번에 다
-    묻지 않고 가장 먼저 비어 있는 조건 하나만 묻는다(2026-07-22b 정책)."""
-    from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy
+    되묻는다. 진입은 신호·랭킹·재무필터만 인정한다 — 지정 종목은 매수 시점 규칙이 아니어서
+    인정하지 않는다(빈 진입=0거래, 2026-07-25 테마 유니버스 버그 수정). 여러 조건이 비어
+    있어도 한 번에 다 묻지 않고 가장 먼저 비어 있는 조건 하나만 묻는다(2026-07-22b 정책)."""
+    from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy, TechnicalSignal
 
-    # 단일 종목(진입=지정종목 인정, 유니버스=지정종목 인정) → 청산·손절·익절이 비어 있지만
-    # 가장 먼저인 청산만 묻는다.
+    # 단일 종목(유니버스=지정종목 인정)이라도 매수 시점 규칙이 없으면 진입부터 묻는다.
     single = ParsedStrategy(description="삼성전자", target_symbols=["005930"])
     q, chips = detect_incomplete_backtest_conditions(single, "삼성전자 투자 하는 전략")
-    assert q is not None and "청산" in q and "손절" not in q and "익절" not in q
-    assert chips == ["20일 보유 후 청산", "데드크로스 발생 시 매도"]
+    assert q is not None and "매수" in q and "청산" not in q
+    assert chips and "골든크로스 발생 시 매수" in chips
+
+    # 진입 신호가 채워지면 다음으로 청산을 묻는다.
+    single_with_entry = single.model_copy(update={
+        "entry_signals": [TechnicalSignal(indicator="ma_crossover", signal_type="buy",
+                                          short_period=5, long_period=20)],
+    })
+    q2, chips2 = detect_incomplete_backtest_conditions(single_with_entry, "삼성전자 투자 하는 전략")
+    assert q2 is not None and "청산" in q2 and "손절" not in q2 and "익절" not in q2
+    assert chips2 == ["20일 보유 후 청산", "데드크로스 발생 시 매도"]
+
+
+def test_incomplete_conditions_theme_universe_still_requires_entry():
+    """[버그 2026-07-25] 테마 유니버스 자동 적용(FR-STR-071 ④)이 target_symbols를 채운 전략:
+    청산·손절·익절이 모두 있어도 매수 조건이 없으면 완성으로 판정하면 안 된다 — 빈 진입
+    조건은 엔진에서 all-False 시그널이라 0거래가 된다."""
+    from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy, TechnicalSignal
+
+    theme = ParsedStrategy(
+        description="bts 관련주 전략",
+        target_symbols=["352820", "035900", "041510"],
+        exit_signals=[TechnicalSignal(indicator="ma_crossover", signal_type="sell",
+                                      short_period=5, long_period=20)],
+        stop_loss_pct=15.0, take_profit_pct=30.0,
+        backtest_period="5y", initial_capital=50_000_000,
+    )
+    q, chips = detect_incomplete_backtest_conditions(theme, "bts 관련주로 백테스트")
+    assert q is not None and "매수" in q
+    assert chips and "골든크로스 발생 시 매수" in chips
 
 
 def test_incomplete_backtest_conditions_complete_strategy_runs():
@@ -2337,7 +2365,7 @@ def test_incomplete_backtest_conditions_rebalancing_required_for_universe():
     assert q is not None and "리밸런싱" in q
     assert chips == ["매월 리밸런싱", "분기마다 리밸런싱"]
 
-    # 단독 종목은 리밸런싱을 요구하지 않는다 — 청산·손절·익절만.
+    # 단독 종목은 리밸런싱을 요구하지 않는다 — 매수·청산·손절·익절만.
     single = ParsedStrategy(description="x", target_symbols=["005930"])
     q2, _ = detect_incomplete_backtest_conditions(single, "")
     assert "리밸런싱" not in (q2 or "")
@@ -4315,6 +4343,154 @@ def test_unresolved_sector_triggers_reask_clarification():
     # 칩은 재파싱 시 결정적으로 섹터로 잡혀야 한다(되묻기 답이 실제로 반영되도록).
     assert _extract_sector("바이오/제약 관련주") == "바이오/제약"
     assert _extract_sector("반도체 관련주") == "반도체"
+
+
+def test_searched_unresolved_theme_reports_not_found(monkeypatch):
+    # [회귀 2026-07-26] '리센즈 관련주' — 검색 그라운딩까지 수행됐지만(searched_at) 업종
+    # 매핑도 관련 상장사도 못 찾은 테마는 오타 되묻기 대신 '관련주를 찾을 수 없어 이
+    # 테마로는 전략을 만들 수 없다'고 종결적으로 알린다(억지 매핑·조용한 강등 금지).
+    import engine.term_grounding as tg
+    from engine.nl_parser import ParsedStrategy, detect_unresolved_sector_clarification
+
+    entry = {"term": "리센즈", "sector": None,
+             "searched_at": "2026-07-25T14:52:26+00:00", "edges": []}
+    monkeypatch.setattr(tg, "lexicon_entry", lambda text, lexicon_path=None: entry)
+    q, s = detect_unresolved_sector_clarification(
+        ParsedStrategy(description="x"), "리센즈 관련주 투자 하는 전략"
+    )
+    assert q is not None and "리센즈" in q
+    assert "관련주를 찾을 수 없어" in q and "전략을 만들 수 없어요" in q
+    # '업종 상관없음'으로 이 테마인 채 진행하는 선택지는 주지 않는다.
+    assert "업종 상관없음" not in s
+
+
+def test_searched_unresolved_theme_skips_not_found_when_theme_applied(monkeypatch):
+    # [회귀 2026-07-26 '이재명 관련주' 사고] 테마 유니버스 자동 적용(apply_theme_universe)이
+    # 관련 상장사를 이미 설정했으면 테마 언급은 종목 목록으로 해석이 끝났다 — 같은 어휘집
+    # 항목(sector=None)이라도 종결 안내는 물론 오타 되묻기도 내지 않는다(10종목 확정 후에도
+    # 업종 되묻기가 떠 전략 만들기 흐름이 끊기던 사고).
+    import engine.term_grounding as tg
+    from engine.nl_parser import ParsedStrategy, detect_unresolved_sector_clarification
+
+    entry = {"term": "리센즈", "sector": None,
+             "searched_at": "2026-07-25T14:52:26+00:00", "edges": []}
+    monkeypatch.setattr(tg, "lexicon_entry", lambda text, lexicon_path=None: entry)
+    parsed = ParsedStrategy(description="x", target_symbols=["005930"])
+    assert detect_unresolved_sector_clarification(
+        parsed, "리센즈 관련주 투자 하는 전략"
+    ) == (None, None)
+
+
+def test_unsearched_unresolved_sector_keeps_reask(monkeypatch):
+    # 검색이 아직 수행되지 않은(어휘집 항목 없음) 미해결 언급은 기존 되묻기 유지 —
+    # 오타('재약주') 정정 기회와 검색 실패 후 재시도 여지를 남긴다.
+    import engine.term_grounding as tg
+    from engine.nl_parser import (
+        SECTOR_REASK_QUESTION, ParsedStrategy, detect_unresolved_sector_clarification,
+    )
+
+    monkeypatch.setattr(tg, "lexicon_entry", lambda text, lexicon_path=None: None)
+    q, s = detect_unresolved_sector_clarification(
+        ParsedStrategy(description="x"), "재약주 관련 전략을 만들자"
+    )
+    assert q == SECTOR_REASK_QUESTION
+    assert "업종 상관없음" in s
+
+
+def test_build_parse_result_theme_applied_continues_without_sector_reask(monkeypatch):
+    # [회귀 2026-07-26 '이재명 관련주' 사고] 테마 자동 적용이 관련 상장사를 확정한 응답에
+    # 업종 되묻기("인식하지 못했어요")·'지원되지 않아요' 안내가 함께 실리면 안 된다 —
+    # 종목을 찾았으면 다음 최소 조건 질문으로 전략 만들기를 계속한다.
+    import time
+
+    import engine.knowledge_graph as kg
+    import engine.term_grounding as tg
+    import main
+    from engine.nl_parser import ParsedStrategy
+
+    theme = {
+        "term": "이재명",
+        "companies": [
+            {"symbol": "005930", "name": "삼성전자"},
+            {"symbol": "000660", "name": "SK하이닉스"},
+        ],
+        "first_known_date": None,
+    }
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: theme)
+    entry = {"term": "이재명", "sector": None,
+             "searched_at": "2026-07-25T14:52:26+00:00", "edges": []}
+    monkeypatch.setattr(tg, "lexicon_entry", lambda text, lexicon_path=None: entry)
+    result = main._build_parse_result(
+        main.NLParseRequest(prompt="이재명 관련주 투자하는 전략", backend="ollama"),
+        "rule",
+        ParsedStrategy(description="이재명 관련주"),
+        None,
+        load_ms=0.0,
+        parse_ms=0.0,
+        request_started=time.perf_counter(),
+    )
+    assert result["parsed"]["target_symbols"] == ["005930", "000660"]
+    assert result["clarification_priority"] is None
+    q = result["clarification_question"] or ""
+    assert "인식하지 못했어요" not in q and "전략을 만들 수 없어요" not in q
+    assert any("대상 종목으로" in n for n in result["notices"])  # 테마 확정 안내는 유지
+    assert all("지원되지 않아요" not in n for n in result["notices"])
+
+
+def test_build_parse_result_multi_symbol_no_pick_one_clarification():
+    # [사용자 결정 2026-07-26 '종목을 교체 할 수 있나?' 사고] 복수 지정 종목이 있어도
+    # '한 종목만 고르기' 칩 되묻기를 내지 않는다 — 전체를 함께 백테스트하고, 축소·교체는
+    # 채팅 수정 요청으로 처리한다(LLM 수정 경로가 해석).
+    import time
+
+    import main
+    from engine.nl_parser import ParsedStrategy
+
+    parsed = ParsedStrategy(
+        description="테마 종목 전략",
+        target_symbols=["005930", "000660"],
+        entry_signals=[{"indicator": "ma_crossover", "signal_type": "buy"}],
+        stop_loss_pct=15.0,
+        take_profit_pct=30.0,
+        hold_period_days=20,
+    )
+    result = main._build_parse_result(
+        main.NLParseRequest(prompt="종목을 교체 할 수 있나?", backend="ollama"),
+        "rule",
+        parsed,
+        None,
+        load_ms=0.0,
+        parse_ms=0.0,
+        request_started=time.perf_counter(),
+    )
+    q = result["clarification_question"] or ""
+    assert "여러 종목" not in q and "한 종목만" not in q
+
+
+def test_build_parse_result_marks_sector_question_priority(monkeypatch):
+    # 미해결 업종/테마 질문(되묻기·'찾을 수 없음' 종결 안내)은 우선순위 마커를 실어
+    # 프론트 explicit 설정 게이트·primary 인터프리터 질문이 삼키지 못하게 한다
+    # ('리센즈 관련주'가 조용히 시장 질문으로 강등되던 회귀 가드, 2026-07-26).
+    import time
+
+    import engine.term_grounding as tg
+    import main
+    from engine.nl_parser import ParsedStrategy
+
+    entry = {"term": "리센즈", "sector": None,
+             "searched_at": "2026-07-25T14:52:26+00:00", "edges": []}
+    monkeypatch.setattr(tg, "lexicon_entry", lambda text, lexicon_path=None: entry)
+    result = main._build_parse_result(
+        main.NLParseRequest(prompt="리센즈 관련주 투자 하는 전략", backend="ollama"),
+        "rule",
+        ParsedStrategy(description="리센즈 관련주"),
+        None,
+        load_ms=0.0,
+        parse_ms=0.0,
+        request_started=time.perf_counter(),
+    )
+    assert result["clarification_priority"] == "sector_unresolved"
+    assert "전략을 만들 수 없어요" in result["clarification_question"]
 
 
 def test_resolved_sector_does_not_reask():

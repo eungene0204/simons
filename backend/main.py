@@ -2965,7 +2965,6 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         detect_etf_factor_conflict,
         detect_incomplete_backtest_conditions,
         detect_missing_entry_clarification,
-        detect_symbol_ambiguity,
         detect_symbol_typo_clarification,
         detect_unresolved_sector_clarification,
         enforce_strategy_minimums,
@@ -2976,6 +2975,13 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 설정값 하한선 보정 — 비현실적 입력(초기자금 300원·0일 보유·3일 모멘텀·0% 손절 등)을
     # 자동 보정/제거하고 사용자에게 안내한다(모든 파싱 경로 공통).
     notices = enforce_strategy_minimums(parsed)
+    # 스키마가 표현할 수 없는 재무 조건은 그 항목만 드롭됐다(전체 실패 금지) — 조용한 드롭은
+    # 전략 의미를 몰래 바꾸므로 비차단 안내로 알린다.
+    dropped_filters = list(getattr(parsed, "dropped_filter_notices", None) or [])
+    if dropped_filters:
+        notices.append(
+            f"'{', '.join(dropped_filters)}' 조건은 해석할 수 없어 전략에서 제외했어요."
+        )
     # 테마 관련 검증 상장사 자동 적용(FR-STR-071 ④ 개정, 사용자 결정 2026-07-25) —
     # 되묻기 없이 target_symbols를 설정하고 근거·시점 정보를 비차단 notices로 알린다.
     # DSL 변환(to_backtest_request) 전에 실행해야 지정 종목 모드로 심볼이 해석된다.
@@ -3003,9 +3009,11 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 수동 안내에서 'sector'를 빼 중복(안내 + 질문)을 피한다.
     sector_reask_q, sector_reask_s = detect_unresolved_sector_clarification(parsed, request.prompt)
     # 미지원 개념(배당·섹터·변동성 등)은 LLM 폴백조차 스키마가 표현 불가라 조용히
-    # 누락/유사 해석될 수 있다 → 침묵 왜곡 대신 비차단 안내로 알린다.
+    # 누락/유사 해석될 수 있다 → 침묵 왜곡 대신 비차단 안내로 알린다. 테마 자동 적용이
+    # 관련 상장사를 확정한 경우(theme_notice)에도 'sector'를 뺀다 — '설정했어요' 안내와
+    # '지원되지 않아요' 안내가 한 응답에 공존하는 모순 방지.
     unsupported_notice = build_unsupported_concept_notice(
-        request.prompt, exclude={"sector"} if sector_reask_q else None
+        request.prompt, exclude={"sector"} if (sector_reask_q or theme_notice) else None
     )
     if unsupported_notice:
         notices.append(unsupported_notice)
@@ -3032,8 +3040,10 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 정해져야 하고, 조용한 전체 시장 강등을 막는다.
     clarification_question, clarification_suggestions = sector_reask_q, sector_reask_s
     # 테마 관련 상장사는 이제 되묻지 않고 자동 적용된다(apply_theme_universe — FR-STR-071
-    # ④ 개정). clarification_priority 필드는 응답 스키마 호환으로 유지한다(항상 None).
-    clarification_priority = None
+    # ④ 개정). 미해결 업종/테마 질문(되묻기·검색 후 '찾을 수 없음' 종결 안내)에는 우선순위
+    # 마커를 실어 프론트 explicit 설정 게이트·primary 인터프리터 질문이 이 질문을 삼키지
+    # 않게 한다('리센즈 관련주'가 조용히 시장 질문으로 강등되던 회귀, 2026-07-26).
+    clarification_priority = "sector_unresolved" if sector_reask_q else None
     # 종목명 오타로 지정 종목을 잃었으면 '혹시 이 종목?'을 먼저 되묻는다 — 조용히 전체 시장으로
     # 진행하지 않도록, 진입 조건보다 앞서 종목 범위를 확정한다(자모 근접 매칭, 자동 치환 아님).
     if clarification_question is None:
@@ -3051,13 +3061,9 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         clarification_question, clarification_suggestions = detect_missing_entry_clarification(
             parsed, request.prompt
         )
-    # 여러 종목이 함께 지정된 경우 임의 선택하지 않고 되묻는다(그대로 진행 시 전체 테스트).
-    # '전체를 함께'처럼 집합 의도가 명시된 발화는 되묻지 않으며, 테마 자동 적용이 설정한
-    # 다종목(theme_notice)은 발화에 종목명이 없어 큐도 없다 — 집합 의도가 자명하므로 제외.
-    if clarification_question is None and not theme_notice:
-        clarification_question, clarification_suggestions = detect_symbol_ambiguity(
-            parsed, request.prompt
-        )
+    # 복수 지정 종목 '한 종목만 고르기' 되묻기(detect_symbol_ambiguity)는 폐지됐다(사용자
+    # 결정 2026-07-26 — "종목을 교체 할 수 있나?"에 종목 선택 칩이 뜨던 사고). 여러 종목이
+    # 지정되면 되묻지 않고 전체를 함께 백테스트하며, 축소·교체는 채팅 수정 요청이 처리한다.
     # 백테스트 최소 조건(유니버스·진입·청산·손절·익절)이 하나라도 비면, "현재 상태로도 실행
     # 가능"으로 진행시키지 않고 채우도록 가이드한다(2026-07-22 정책). clarification이 뜨면
     # 프론트가 실행 버튼을 숨기고 안내 칩을 보여준다. 단일 종목 '기간 종료까지 보유' 안내는
@@ -3171,6 +3177,56 @@ def _learn_unknown_sector_term(prompt: str, parser, on_stage=None) -> Optional[s
             "다른 업종을 원하시면 말씀해 주세요."
         )
     return f"말씀하신 테마를 '{sector}' 업종 관련으로 해석했어요."
+
+
+_INTERPRETATION_FAILURE_MESSAGE = (
+    "요청을 전략 조건으로 해석하지 못했어요. 바꾸거나 추가하고 싶은 내용을 조금 더 "
+    "구체적으로 알려주시면 그대로 반영할게요."
+)
+# 되묻기 칩은 백엔드 답변 프로토콜의 일부다(UI_GUIDELINES §17) — 기존 수정 되묻기와 같은
+# 라벨을 재사용한다(클릭 시 결정론 fast-path가 즉시 확정하는 완결 지시문).
+_INTERPRETATION_FAILURE_MODIFY_CHIPS = [
+    "손절을 10%로 변경", "익절을 20%로 변경", "최대 10종목으로 변경",
+    "백테스트 기간을 5년으로 변경", "직접 입력",
+]
+# 전략이 아직 없는 상태(초기 파스 실패)에는 '변경' 칩이 가리킬 대상이 없다 — 새 칩 라벨을
+# 지어내지 않고, 어떻게 말하면 되는지를 문장으로만 안내한다.
+_INTERPRETATION_FAILURE_CREATE_MESSAGE = (
+    "요청을 전략 조건으로 해석하지 못했어요. 진입·청산 규칙을 문장으로 알려주시면 그대로 "
+    "만들어 드릴게요. 예: '5일 이동평균이 20일 이동평균을 위로 뚫으면 매수하고 아래로 뚫으면 "
+    "매도, 손절 10%'"
+)
+
+
+def _interpretation_failure_result(request: NLParseRequest, backend: str, request_started: float):
+    """해석 실패를 500이 아니라 되묻기 응답으로 돌려준다(None이면 구성 실패).
+
+    해석 파이프라인의 어떤 레이어도 요청을 실패시킬 권한이 없다 — 레이어의 결과는 "처리했음"
+    또는 "내 소관 아님"뿐이고, 예외는 후자로 취급한다. 500은 인프라 장애(LLM 서버 다운 등,
+    503 경로) 전용이다. 기존 전략이 있으면 그대로 보존해 대화 교착("무엇을 입력해도 같은
+    에러", 2026-07-26)을 원천 차단한다.
+    """
+    from engine.nl_parser import ParsedStrategy
+
+    try:
+        if request.previous_parsed:
+            parsed = ParsedStrategy.model_validate(request.previous_parsed)
+            question, chips = _INTERPRETATION_FAILURE_MESSAGE, _INTERPRETATION_FAILURE_MODIFY_CHIPS
+        else:
+            parsed = ParsedStrategy(description=request.prompt)
+            question, chips = _INTERPRETATION_FAILURE_CREATE_MESSAGE, None
+        result = _build_parse_result(
+            request, backend, parsed, None,
+            load_ms=0.0, parse_ms=0.0, request_started=request_started,
+        )
+    except Exception as exc:  # noqa: BLE001 — 되묻기 구성도 실패하면 호출부가 500으로
+        print(f"[NL-PARSE] 해석 실패 되묻기 구성 실패(무시): {exc!r}", flush=True)
+        return None
+    result["clarification_question"] = question
+    result["clarification_suggestions"] = chips
+    # 우선순위 마커 — 프론트의 explicit 설정 게이트가 이 안내를 삼키지 않게 한다.
+    result["clarification_priority"] = "interpretation_failed"
+    return result
 
 
 def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | None = None):
@@ -3363,7 +3419,11 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
                 status_code=503,
                 detail="전략 분석 서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.",
             )
-        # 일회성 파싱 오류(잘못된 입력 등)는 전역 모델 상태를 건드리지 않는다.
+        # 해석 실패는 시스템 장애가 아니다 — 요청을 죽이는 대신 기존 clarification 채널로
+        # 되묻는다(전역 모델 상태도 건드리지 않는다). 되묻기 구성마저 실패한 경우에만 500.
+        fallback = _interpretation_failure_result(request, resolved_backend, request_started)
+        if fallback is not None:
+            return fallback
         raise HTTPException(
             status_code=500,
             detail="전략을 해석하지 못했습니다. 입력을 바꿔 다시 시도해 주세요.",

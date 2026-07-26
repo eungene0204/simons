@@ -10,6 +10,7 @@ StrategyIntent는 컴파일을 거부한다(Fail Fast).
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import List, Optional, Set, Tuple
 
@@ -20,6 +21,9 @@ from strategy_conversation.interpreter.models import (
     ValidationReport,
 )
 from strategy_conversation.registry.indicator_registry import REGISTRY
+from strategy_conversation.registry.universe_resolver import resolve_sectors, resolve_symbols
+
+logger = logging.getLogger("strategy_interpreter.compiler")
 
 
 class StrategyCompileError(ValueError):
@@ -135,6 +139,31 @@ def compile_strategy(
 
 # 검증 리포트의 조건 경로("strategy.entry_conditions[0].value")에서 (역할, 인덱스) 추출
 _CONDITION_FIELD_RE = re.compile(r"strategy\.(entry_conditions|exit_conditions)\[(\d+)\]")
+_CONDITION_PARAM_FIELD_RE = re.compile(
+    r"strategy\.(entry_conditions|exit_conditions)\[(\d+)\]\.parameters\.(\w+)$"
+)
+
+
+def _param_has_registry_default(field: str, strategy) -> bool:
+    """누락 필드가 '표준값이 있는 지표 파라미터'인지 판정한다.
+
+    임계값(value)이 없는 조건은 전략의 의미 자체가 미정이므로 컴파일에서 제외한다.
+    반면 이동평균 기간·신고가 룩백 같은 **계산 파라미터**는 Registry에 표준값이 있고
+    `_compile_technical`이 그 값을 채운다 — 사용자가 명시한 신호("데드크로스에 청산")를
+    기간을 안 말했다는 이유로 통째로 버리면 준 정보를 잃는다(A/B 실측 2026-07-26:
+    ma_crossover 28건·breakout 9건이 이 경로로 소실). 되묻기 질문은 그대로 유지되므로
+    사용자는 기간을 바꿀 수 있다.
+    """
+    m = _CONDITION_PARAM_FIELD_RE.search(field)
+    if not m:
+        return False
+    conditions = getattr(strategy, m.group(1), None) or []
+    index = int(m.group(2))
+    if index >= len(conditions):
+        return False
+    spec = REGISTRY.get(conditions[index].factor)
+    pspec = spec.parameters.get(m.group(3)) if spec else None
+    return pspec is not None and pspec.default is not None
 
 
 def compile_partial(
@@ -155,7 +184,7 @@ def compile_partial(
     pending: Set[Tuple[str, int]] = set()
     for field in report.missing_fields:
         m = _CONDITION_FIELD_RE.search(field)
-        if m:
+        if m and not _param_has_registry_default(field, strategy):
             pending.add((m.group(1), int(m.group(2))))
 
     buckets = {"fundamental_filters": [], "entry_signals": [], "exit_signals": []}
@@ -188,8 +217,16 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         ranking_metric = "return"
         ranking_lookback = rank.lookback_days
 
-    sectors = strategy.universe.sectors
-    sector_value = None if not sectors else (sectors[0] if len(sectors) == 1 else sectors)
+    # 업종·지정 종목은 LLM이 뽑은 표현('반도체', 'HBM', '삼성전자')을 registry가 정본 값으로
+    # 해석한다 — 사용자 원문을 다시 읽지 않는다(nl_interpretation_contract § 3).
+    sector_value, unresolved_sectors = resolve_sectors(strategy.universe.sectors)
+    target_symbols, unresolved_symbols = resolve_symbols(strategy.universe.symbols)
+    if unresolved_sectors or unresolved_symbols:
+        # 조용한 소실 방지 — 되묻기/미지원 안내 채널은 상위(primary)가 소유한다.
+        logger.info(
+            "universe resolve miss | sectors=%s symbols=%s",
+            unresolved_sectors, unresolved_symbols,
+        )
 
     # ETF 유니버스의 테마/상품명. LLM이 이해한 etf_theme를 우선 사용한다 — "반도체 종목 ETF"
     # 처럼 테마어가 'ETF'와 인접하지 않으면 어순 기반 결정적 추출이 놓치기 때문이다. LLM이
@@ -209,6 +246,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         description=user_input,
         universe=strategy.universe.markets,
         sector=sector_value,
+        target_symbols=target_symbols,
         etf_theme=etf_theme,
         fundamental_filters=buckets["fundamental_filters"],
         entry_signals=buckets["entry_signals"],
@@ -225,6 +263,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         backtest_period=bt.period or "5y",
         backtest_start_date=bt.start_date,
         backtest_end_date=bt.end_date,
+        execution_timing=bt.execution_timing or "next_open",
         initial_capital=bt.initial_capital if bt.initial_capital is not None else 10_000_000.0,
         fee_rate=bt.fee_rate if bt.fee_rate is not None else 0.015,
         slippage_rate=bt.slippage_rate if bt.slippage_rate is not None else 0.05,

@@ -15,14 +15,14 @@ from strategy_conversation.registry.capability_registry import (
 )
 from strategy_conversation.registry.indicator_registry import supported_factor_lines
 
-PROMPT_VERSION = "1.3"
+PROMPT_VERSION = "1.4"
 
 _OUTPUT_SHAPE = {
     "intent": "CREATE_STRATEGY",
     "status": "NEEDS_CLARIFICATION",
     "strategy": {
         "name": None,
-        "universe": {"markets": ["KOSPI", "KOSDAQ"], "sectors": []},
+        "universe": {"markets": ["KOSPI", "KOSDAQ"], "sectors": [], "symbols": []},
         "entry_conditions": [
             {
                 "factor": "fundamental.per",
@@ -46,6 +46,7 @@ _OUTPUT_SHAPE = {
         },
         "backtest": {
             "period": None, "start_date": None, "end_date": None,
+            "execution_timing": None,
             "initial_capital": None, "fee_rate": None, "slippage_rate": None,
         },
     },
@@ -79,6 +80,10 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
 - ranking.return: '최근 N일 수익률 상위'류 모멘텀 랭킹 → strategy.ranking에 {{"metric":"return","lookback_days":60}}
 
 ## 핵심 규칙
+0. 전략 조건을 서술하면서 '백테스트'·'테스트'·'검증'을 말한 입력은 CREATE_STRATEGY입니다
+   ("골든크로스 매수, 데드크로스 매도를 3년 백테스트" → CREATE_STRATEGY, backtest.period="3y").
+   RUN_BACKTEST는 조건 서술 없이 **이미 만든 전략의 실행만** 요청할 때입니다("이걸로 돌려줘",
+   "실행해줘"). 기간·시장 언급은 실행 요청 신호가 아니라 전략의 백테스트 설정입니다.
 1. 사용자가 말하지 않은 값을 절대 만들어내지 마세요. 값이 없으면 value=null로 두고
    missing_fields에 경로를, clarification_questions에 질문을 추가하고 status="NEEDS_CLARIFICATION".
    "RSI가 낮은", "부채비율이 높은"처럼 방향만 있고 수치가 없는 표현도 value=null입니다.
@@ -91,10 +96,19 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
 3. 위 목록에 없는 개념(FCF, 변동성, 뉴스, 수급, 정배열 등)은 조건으로 만들지 말고
    unsupported_features에 원문 표현을 넣으세요. 비슷한 지표로 조용히 대체 금지.
 4. 각 조건의 source_text에 해당 사용자 원문 조각을 넣으세요.
+4-1. 입력에 언급된 조건을 **하나도 빠뜨리지 마세요**. 재무 조건과 기술적 신호가 한 문장에
+   섞여 있으면 둘 다 출력해야 합니다("부채비율 80% 이하이고 시가총액 5000억 이상인 종목 중
+   RSI 35 이하에서 매수" → 조건 3개). 출력을 마치기 전에 입력의 각 수치·지표 언급이
+   entry_conditions/exit_conditions/risk_management/portfolio/backtest 중 하나에 반영됐는지
+   확인하세요. 표현할 수 없는 것만 unsupported_features로 보냅니다.
 5. 진입 조건은 entry_conditions, 청산 조건은 exit_conditions에 구분하세요.
    손절/익절/트레일링은 조건이 아니라 risk_management 필드입니다(% 크기만).
    '최고가 대비/최고가에서 N% 하락(밀리면) 청산'은 stop_loss가 아니라 trailing_stop입니다.
    보유 기간(hold_period_days)은 거래일 단위: 1개월=21, 3개월=63, 6개월=126, 1년=252.
+5-0. 지표의 기간(period, short_period, long_period, lookback_period)은 **사용자가 말한 경우에만**
+   parameters에 넣으세요("20일선"→short_period=20, "RSI 14일"→period=14). 기간을 말하지 않았으면
+   비워 두세요 — 시스템이 표준 기간을 적용합니다. 임의의 숫자를 지어내지 마세요("RSI 30 이하"에는
+   기간 언급이 없으므로 parameters는 비웁니다).
 5-1. 신고가/고점 돌파(technical.breakout)의 기준 기간은 parameters.lookback_period(거래일):
    '52주 신고가'=252, 'N주'=N×5, 'N일 고점/신고가'=N. 기간 언급이 없으면 lookback_period는
    비워 두세요(되묻기). 사용자가 '52주'처럼 기간을 말했으면 반드시 lookback_period에 넣으세요.
@@ -104,11 +118,41 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
 6. universe.markets: 코스피=["KOSPI"], 코스닥=["KOSDAQ"], 대형주/KOSPI200=["KOSPI200"],
    전체/양시장=["KOSPI","KOSDAQ"]. 시장 언급이 없으면 ["KOSPI200"], 단 섹터 제한 전략이면 ["KOSPI","KOSDAQ"].
    업종/테마(반도체, 2차전지 등)는 markets가 아니라 universe.sectors에.
+5-2. 경계 표현을 연산자로 정확히 옮기세요.
+   - 포함(>=, <=): '이상'·'이하'·'위로'·'아래'·'밑으로'·'넘으면'·'돌파'
+     ("ADX가 25 이상" → ">=", 25 / "RSI 30 이하" → "<=", 30)
+   - 배타(>, <): '초과'·'미만'·'넘는'(초과 의미)·'못 미치는'
+     ("PBR 0.8 미만" → "<", 0.8 / "PER 10 초과" → ">", 10)
+   기본은 포함(>=, <=)입니다 — '초과'·'미만'이라고 명시했을 때만 배타를 쓰세요.
+5-2-1. '주가가 N일선을 상향/하향 돌파'처럼 **가격과 단일 이동평균**을 비교하는 표현은
+   technical.ma_crossover의 short_period=1(가격), long_period=N으로 표현하세요
+   ("20일선을 깨고 내려오면 매도" → crosses_below, short_period=1, long_period=20).
+   단기선/장기선 두 개를 말한 경우에만 그 두 기간을 short/long에 넣습니다.
+5-3. 오실레이터(technical.rsi/stochastic/cci/adx/williams_r/mfi/roc)는 임계값 비교만 지원합니다
+   — operator는 <, <=, >, >= 중 하나이고 value에 임계값을 넣으세요. crosses_above/crosses_below를
+   쓰지 마세요(엔진이 표현할 수 없어 조건이 무의미해집니다). '과매도에서 반등하면 매수' 류는
+   그 과매도 임계값 이하(<=)로, '과매수면 매도'는 임계값 이상(>=)으로 표현하세요:
+   "스토캐스틱이 20 아래로 떨어졌다가 다시 올라오면 매수" → operator="<=", value=20.
+   crosses_above/crosses_below는 이동평균 크로스오버·MACD·볼린저·신고가 돌파 전용입니다.
 6-0. 업종/테마 제한은 지원 기능입니다 — 규칙 3의 '목록에 없는 개념'이 아닙니다(지표 목록은
    조건(factor)용이지 유니버스용이 아님). 언급된 업종을 전부 universe.sectors 배열에 넣으세요:
    "반도체와 로봇 관련 종목" → sectors=["반도체","로봇"]. unsupported_features에 넣지 말고,
    업종 선택에 대한 clarification_questions도 만들지 마세요 — 다른 조건 없이 업종만 말해도
    업종 제한 자체가 유효한 전략 조건입니다(누락 조건 질문은 규칙 1의 다른 필드가 담당).
+6-0-1. 사용자가 특정 종목을 지목하면("삼성전자에 골든크로스", "SK하이닉스랑 현대차를")
+   그 종목 표현을 universe.symbols 배열에 원문 그대로 넣으세요("삼성전자", "SK하이닉스").
+   종목코드는 시스템이 마스터에서 찾으므로 코드를 지어내지 마세요(6자리 코드를 사용자가
+   직접 말한 경우에만 그 코드를 넣습니다). 업종·테마 언급("반도체 관련주")은 종목 지정이
+   아니라 sectors입니다. 종목을 빼달라는 요청("현대약품은 빼줘")은 지정이 아닙니다 —
+   수정 요청이면 patches로 표현하세요.
+6-0-2. **모르는 고유명사도 테마 맥락이면 sectors에 넣으세요** — 이 규칙은 규칙 3(미지원 개념)보다
+   우선합니다. 'X 관련주', 'X 테마', 'X 수혜주', 'X 장비 회사', 'X 밸류체인' 형태면 X를 원문 그대로
+   universe.sectors에 넣습니다. X가 무엇인지 몰라도 마찬가지입니다 — 신약명·인물·아이돌·신기술 등
+   당신이 모르는 용어를 **시스템이 지식그래프와 검색으로 조회**하므로, 모른다는 이유로 빠뜨리거나
+   unsupported_features로 보내지 마세요("마운자로 관련주"→sectors=["마운자로"],
+   "HBM 장비 회사"→sectors=["HBM"], "리센즈 관련주"→sectors=["리센즈"]). 조회에 실패하면
+   시스템이 사용자에게 되묻습니다. unsupported_features는 **지표·기능**(FCF·뉴스 감성 등)
+   에만 쓰고, 유니버스를 가리키는 고유명사에는 쓰지 마세요.
 6-1. ETF/ETN/상장지수펀드가 대상이거나 ETF 상품명(KODEX 200, TIGER 미국S&P500 등)이
    언급되면 markets=["ETF"] 단독입니다(주식 시장과 혼합 금지 — "코스피 ETF"도 ["ETF"]).
    ETF는 여러 기업을 묶은 상품이라 기업 재무지표(PER·PBR·ROE·부채비율·배당성향 등)를
@@ -131,6 +175,8 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
     unsupported_features에 넣지도 마세요(미지원 기능이 아니라 질문입니다).
 11. assumptions/missing_fields/unsupported_features는 문자열 배열입니다(객체 금지).
     factor가 null인 조건은 출력하지 마세요 — 미지원 개념은 unsupported_features에만.
+11-1. '당일 종가에 매수/체결', '종가 매매'처럼 종가 체결을 말하면
+    backtest.execution_timing="current_close". 언급이 없으면 null(기본은 다음 날 시가).
 12. 백테스트 기간이 날짜로 명시되면 backtest.start_date/end_date를 YYYY-MM-DD로 출력하세요.
     "2020년 1월부터 2025년 12월까지" → start_date="2020-01-01", end_date="2025-12-31"
     (종료 월은 말일까지). 과거/미래 판단은 입력에 함께 주어지는 '오늘 날짜'만 기준으로

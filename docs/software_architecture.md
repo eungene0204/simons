@@ -532,6 +532,10 @@ BacktestRequest → 백테스트 엔진 실행
 Registry-driven** 파이프라인. 자연어 의미 해석은 LLM(Qwen 3.5 4B)이 전담하고,
 결정론 코드는 검증·컴파일·실행만 담당한다(Regex는 숫자/날짜/형식 정규화로 제한).
 
+이 역할 분담의 규범 계약은 [`docs/nl_interpretation_contract.md`](nl_interpretation_contract.md)에
+정의한다 — LLM/Regex/Schema/Domain 책임 경계, 출력 계약, 금지 사항 체크리스트,
+그리고 현행 `engine/nl_parser.py`와의 격차 목록을 포함한다.
+
 ```
 사용자 자연어
     ▼
@@ -597,10 +601,24 @@ Strategy Compiler (compiler/strategy_compiler.py) — 검증 READY만 컴파일(
   2026-07-19), 아니면 미반영 안내(primary_modify_unsupported). 같은 사고의 2차 —
   인터프리터가 질문 대신 unsupported_features=["PBR 개념 설명 요청"]로 보고한 실측 대응.
   프롬프트 1.2는 개념 설명 질문을 EXPLAIN_INDICATOR로 계약(unsupported_features 금지).
-  **결정적 fast-path 우선 게이트(2026-07-17)**: `_modify_rule_based`가 완전히 해석하는
-  수정("손절 10%로", 명시적 백테스트 날짜 등)은 인터프리터를 아예 호출하지 않고 폴백한다
-  (폴백 경로 첫 단계가 같은 fast-path라 즉시 확정) — LLM 왕복 지연과 수치·날짜 드리프트
-  원천 회피. 또한 primary 경로(초기 파스·수정 모두)는 컴파일 후
+  **해석 권한 역전(2026-07-26, `STRATEGY_MODIFY_INTERPRETER_MODE`)**: 수정 경로의 최초
+  해석자를 결정론에서 LLM으로 뒤집었다. 기본값 `llm_first`는 인터프리터를 먼저 호출하고,
+  `_modify_rule_based` fast-path는 **삭제하지 않고 폴백으로 강등**한다 — 인터프리터가
+  패치를 못 내거나(패치 없음·전량 환각 거부·검증 미통과) 호출에 실패하면 그때 fast-path가
+  즉답한다(`primary.fast_path_can_handle`). `fast_path_first`로 두면 2026-07-17의 선제
+  게이트(fast-path가 인터프리터를 아예 건너뜀 — LLM 왕복 지연·수치/날짜 드리프트 회피)로
+  즉시 롤백된다.
+  전환 근거: 얕은 결정론(문자열 cue 차감)이 최초 해석자이면서 동시에 **실패시킬 권한**을
+  가진 구조가, 프론트 칩이 심은 `metric:"roe"`(정본 `roe_or_gpa`) 오염 하나로 이후 모든
+  수정 요청을 HTTP 500으로 죽이는 영구 교착을 만들었다(2026-07-26 사고).
+  **레이어 권한 계약**: 해석 파이프라인의 어떤 레이어도 요청을 실패시킬 수 없다. 반환값은
+  "처리했음" 또는 "내 소관 아님(다음 레이어로)"뿐이며, **예외는 "내 소관 아님"으로 강등**
+  한다(fast-path는 `parse_modification`·`fast_path_can_handle` 양쪽에서 예외 격리).
+  모든 해석 레이어가 실패하면 500이 아니라 기존 clarification 채널로 되묻는다
+  (`main._interpretation_failure_result` — 기존 전략 보존 + 예시 칩 +
+  `clarification_priority="interpretation_failed"`). **500/503은 인프라 장애 전용**이다
+  (LLM 연결 실패 → 503 유지).
+  또한 primary 경로(초기 파스·수정 모두)는 컴파일 후
   `_override_explicit_dates`가 명시적 백테스트 날짜를 결정적으로 덮어쓴다(레거시
   `_apply_prompt_overrides`와 동형) — 오늘 날짜를 모르는 모델이 과거 연도를 미래로 오판해
   종료일을 누락하던 사고("2020년 1월~2025년 12월" → "2020~"만 표시) 방지. 인터프리터
@@ -1005,6 +1023,14 @@ class ParsedStrategy(BaseModel):
     backtest_period: Literal["1y", "3y", "5y", "full"]
     initial_capital: float
 ```
+
+**관용적 입력 수용(2026-07-26, FR-STR-019i)**: `previous_parsed`는 프론트가 만들어
+되돌려주는 신뢰할 수 없는 입력이다. 별칭 흡수는 경로별 새니타이저가 아니라 **스키마 진입
+지점 한 곳**에서 한다 — `FundamentalFilter.metric`의 `BeforeValidator`(`roe`→`roe_or_gpa`
+등 별칭 표 + 대소문자·공백·하이픈·슬래시 정규화)가 `model_validate`가 불리는 모든 지점을
+덮는다. 표에도 없는 값은 그 필터만 드롭하고(`coerce_fundamental_filters`) 비차단 notice로
+알린다 — 전체 실패(500)도, 조용한 드롭도 금지. 드롭 라벨은 직렬화 제외 필드
+(`dropped_filter_notices`)로 전달돼 DSL·캐시키·라운드트립 비교에 영향을 주지 않는다.
 
 ### 7.2 예측 AI 엔진 (`backend/ai/ai_engine.py`)
 

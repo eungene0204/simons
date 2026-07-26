@@ -561,6 +561,31 @@ describe("getModificationClarification", () => {
     });
   });
 
+  // [사용자 결정 2026-07-26] 구체 종목명 없는 종목 교체 의향은 칩 없이 채팅 입력만
+  // 안내한다 — 수정 파싱으로 흘리면 무변경 재렌더링+다음 조건 질문으로 흐름이 끊긴다.
+  it.each([
+    "종목을 변경 할 수 있나?",
+    "종목을 교체 할 수 있나?",
+    "종목 바꿀 수 있어?",
+    "다른 종목으로 하고 싶어",
+  ])("invites a chat reply for a symbols-change intent without a target: %s", (prompt) => {
+    const clarification = getModificationClarification(prompt);
+    expect(clarification).toMatchObject({
+      area: "universe",
+      reason: "missing_target_symbols_change",
+    });
+    expect(clarification!.suggestions).toEqual([]);
+  });
+
+  it.each([
+    "종목을 삼성전자로 바꿔줘", // 구체 종목명 — 어미 인접성이 깨져 수정 파싱으로 통과
+    "종목을 코스닥 걸로 바꿔줘", // 시장 언급 — 수정 파싱이 유니버스 전환 처리
+    "현대약품은 빼줘", // 제거 발화 — keep/remove 게이트로 수정 파싱 통과
+    "최대 8종목으로 변경", // 종목 수 값 칩 — 백엔드 결정론 fast-path 도달
+  ])("does not intercept a concrete symbols change: %s", (prompt) => {
+    expect(getModificationClarification(prompt)).toBeNull();
+  });
+
   // 백엔드 계약(test_nl_parser_overrides.py)의 전제: 영역 선택 칩은 재전송 시 여기서
   // 다시 가로채져 백엔드 수정 파싱에 도달하지 않는다.
   it.each([

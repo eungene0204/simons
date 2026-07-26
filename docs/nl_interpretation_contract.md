@@ -1,0 +1,522 @@
+# 자연어 해석 계약 — LLM 의미 해석 / 결정론 형식 검증
+
+> 대상: `backend/strategy_conversation/` (LLM Strategy Interpreter 파이프라인)
+> 원칙: **자연어의 의미는 LLM만 해석한다. 결정론 코드(Regex 포함)는 LLM이 생성한
+> 제한된 구조화 출력의 형식만 검증·정규화한다.**
+
+---
+
+## 0. 이 문서의 위치
+
+우리 시스템에서 "LLM이 생성하는 제한된 구조화 문자열"은 별도 DSL이 아니라
+**`StrategyIntent` JSON (schema_version 1.0)** 이다
+([interpreter/models.py](../backend/strategy_conversation/interpreter/models.py)).
+
+`UNIVERSE(...);BUY(...)` 같은 괄호 DSL을 새로 만들지 않는 이유:
+
+- 컴파일러(`compiler/strategy_compiler.py`), 검증 4단계(`validation/`), 되묻기 채널,
+  프론트 `previous_parsed` 상태가 전부 이 JSON 스키마 위에 서 있다.
+- JSON은 Pydantic이 형식을 검증하므로 Regex가 괄호·구분자를 셀 필요가 없다 —
+  "Regex를 자연어에서 떼어낸다"는 목표에 더 가까운 표현이다.
+- DSL은 문법 검증기·파서·역직렬화기를 새로 만들어야 하고, 그 파서가 다시
+  자연어 해석 코드로 비대해지는 경로(현 `nl_parser.py`)를 반복할 위험이 있다.
+
+따라서 아래 계약은 원문 스펙의 원칙을 **우리 기존 계약 위에** 재표현한 것이다.
+
+### 원문 스펙 ↔ 우리 구조 매핑
+
+| 원문 스펙 | 우리 구조 |
+|---|---|
+| 제한된 구조화 문자열 | `StrategyIntent` JSON |
+| `UNIVERSE(...)` | `strategy.universe` (`markets` / `sectors` / `etf_theme`) |
+| `BUY(...)` / `SELL(...)` | `strategy.entry_conditions[]` / `exit_conditions[]` |
+| `RISK(...)` | `strategy.risk_management` |
+| `PORTFOLIO(...)` / `REBALANCE(...)` | `strategy.portfolio` |
+| `PERIOD(...)` / `CAPITAL(...)` | `strategy.backtest` |
+| `UPDATE(field=,value=)` | `intent="MODIFY_STRATEGY"` + `patches[]` (JSON Patch) |
+| `NEED_CLARIFICATION(field=)` | `status="NEEDS_CLARIFICATION"` + `missing_fields[]` + `clarification_questions[]` |
+| `UNSUPPORTED(reason=)` | `intent="UNSUPPORTED_REQUEST"` 또는 `unsupported_features[]` |
+| `OUT_OF_SCOPE(reason=)` | `intent="NON_STRATEGY_REQUEST"` |
+| Regex 형식 검증 | `output_repair.extract_json_object` + Pydantic `field_validator` |
+| Schema Validator | Pydantic `StrategyIntent` |
+| Domain Validator | `validation/pipeline.run_validation` (4단계) + `registry/` |
+
+---
+
+## 1. 처리 구조
+
+```text
+사용자 자연어 입력
+    ↓
+LLM 의미 해석                     interpreter/llm_strategy_interpreter.py
+    ↓
+StrategyIntent JSON 생성          프롬프트 계약: interpreter/prompts.py
+    ↓
+형식 추출·정규화 (결정론)          interpreter/output_repair.py, models.py field_validator
+    ↓
+스키마 검증 (Pydantic)             interpreter/models.py
+    ↓  실패 시 → 오류 원문을 LLM에 전달해 재생성 (MAX_REPAIR_ATTEMPTS회)
+도메인 검증 (결정론)               validation/pipeline.py
+    ├ capability_validator   지원 지표인가 (registry/indicator_registry)
+    ├ parameter_validator    값·파라미터 범위/단위가 유효한가
+    ├ conflict_validator     조건이 서로 모순되는가
+    └ completeness_validator 필수값이 누락됐는가 → 되묻기 질문 생성
+    ↓
+컴파일                            compiler/strategy_compiler.py → ParsedStrategy
+    ↓
+백테스트 엔진
+```
+
+---
+
+## 2. LLM의 책임
+
+LLM은 사용자 입력에서 다음을 **의미로** 해석한다. 오타·구어체·문법 파괴가 있어도
+글자가 아니라 뜻으로 읽는다.
+
+- 투자 대상: 시장, 업종/테마, ETF 테마, 지정 종목
+- 진입 조건 / 청산 조건
+- 랭킹 선정(모멘텀 등) 기준과 기간
+- 보유 종목 수, 리밸런싱 주기, 보유 기간
+- 손절·익절·트레일링·MDD 한도
+- 백테스트 기간, 초기 자본금, 수수료·슬리피지
+- 기존 전략에 대한 수정 요청인지 신규 전략인지
+- 명시되지 않은 필수 정보
+- 서로 충돌하거나 해석 불가능한 조건
+- 전략 요청이 아닌 입력(설명 질문·추천 요청·잡담)
+
+동의어·정성 표현·관용구의 매핑은 **전적으로 LLM의 몫**이다.
+
+```text
+"작년에 흑자였던 종목"
+  → {"factor": "fundamental.eps", "operator": ">", "value": 0,
+     "source_text": "작년에 흑자였던"}
+
+"삼성전자가 20일선 넘으면 사고 다시 밑으로 내려가면 팔아줘"
+  → universe.symbols = ["005930"]        ※ 아직 미구현 — § 11-4 참조
+     entry_conditions = [{"factor": "technical.ema",
+                          "operator": "crosses_above",
+                          "parameters": {"short_period": 20}}]
+     exit_conditions  = [{"factor": "technical.ema",
+                          "operator": "crosses_below",
+                          "parameters": {"short_period": 20}}]
+
+"20일선이 60일선을 골든크로스하면 매수"
+  → entry_conditions = [{"factor": "technical.ma_crossover",
+                         "operator": "crosses_above",
+                         "value": null,
+                         "parameters": {"short_period": 20, "long_period": 60}}]
+```
+
+`factor`는 반드시 Registry의 canonical ID로 출력한다
+(`supported_factor_lines()`가 시스템 프롬프트에 주입한다). 목록에 없는 개념은
+비슷한 지표로 조용히 대체하지 말고 `unsupported_features`에 원문 표현을 넣는다.
+
+---
+
+## 3. 결정론 코드(Regex)의 책임
+
+Regex가 수행할 수 있는 작업은 **LLM 출력 문자열에 대한 다음 조작뿐**이다.
+
+- 응답에서 최상위 JSON 오브젝트 경계 추출 (`extract_json_object`)
+- 코드펜스(` ```json `)·모델 꼬리 토큰 제거
+- 토큰 붕괴 구문 복구 — 올바른 JSON에는 no-op(멱등)인 기계적 치환만
+  (실측 드리프트: `"operator">="value"` → `"operator":">=",`)
+- 값 표기 정규화: `"10%"`·`"12배"`·`"1,000"` → `float` (`_coerce_number`)
+- enum 표기 정규화: 대소문자, `"코스피"`→`"KOSPI"`, `"매월"`→`"monthly"`
+- 단일 값 ↔ 배열 드리프트 교정, 0~100 스케일 confidence 정규화
+
+이들의 공통 성질: **입력이 LLM 출력이고, 판단 근거가 표기 형식뿐이며,
+의미를 새로 만들어내지 않는다.**
+
+### Regex가 해서는 안 되는 것
+
+- 사용자 원문(`user_input`)을 패턴 매칭하는 모든 행위
+- "흑자"가 순이익 0 초과임을 판단
+- "저평가주"·"우량주"가 어떤 재무 조건인지 판단
+- "장기 투자"가 몇 개월인지 추론
+- "많이 떨어지면 매도"의 기준을 결정
+- 동의어·업종명·테마어 매핑
+- 문장의 의도(신규/수정/취소/질문) 분류
+- 누락된 조건을 추론해 채우기
+- LLM이 생성한 조건의 **의미**를 수정하거나 삭제
+- 검증 실패 시 문자열을 임의 보정
+
+경계 판정 기준 한 줄:
+
+> **입력이 사용자 원문이면 그것은 해석이다 → LLM.
+> 입력이 LLM 출력이고 표기만 보면 결정 가능하면 그것은 정규화다 → 결정론 코드.**
+
+### § 3-1. 예외: 대조(reconciliation)
+
+원문을 읽되 **해석하지 않는** 검사는 허용한다. `validation/recall_validator.py`가
+유일한 사례다 — 입력의 수치가 출력 어딘가에 반영됐는지 대조하고, 누락이면 LLM에
+재생성을 요청한다(§ 8-1).
+
+허용 조건은 **넷 다** 충족해야 한다.
+
+1. 토큰의 **의미를 결정하지 않는다** — "80이 부채비율의 임계값"이라고 판단하지 않는다.
+   숫자가 출력에 나타나는지만 본다(단위 환산은 표기 변환이므로 허용).
+2. 출력을 **생성하거나 수정하지 않는다** — 누락된 값을 채우지 않는다.
+3. 실패 시 동작이 **LLM 재생성 요청뿐**이다.
+4. 재요청 예산이 유한하고, 소진 후에도 남으면 **요청을 실패시키지 않는다**
+   (누락은 스키마 오류가 아니다).
+
+이 경계는 좁게 유지한다. **사용자 발화 전체를 어휘 목록으로 훑는 것은 허용하지 않는다** —
+"골든크로스"가 원문 어디에 있는지 코드가 찾아 대조하려면 "어떤 표현이 그 지표인가"를
+판단해야 하고, 그것이 동의어 매핑 곧 해석이다. 숫자는 표기가 곧 값이라 대조가 성립하지만
+발화 전체를 대상으로 한 어휘 스캔은 그렇지 않다.
+
+단, **범위가 다르면 성격도 다르다** — § 3-2 참조.
+
+### § 3-2. 지식 조회(knowledge lookup)
+
+LLM이 **"이 문자열이 무엇을 가리킨다"고 이미 판정해 넘긴 짧은 값**을 정본으로 푸는 것은
+해석이 아니라 사전 조회다. 의미 판단은 LLM이 끝냈고, 코드는 매핑만 한다.
+
+```text
+❌ 해석    : 원문 "마운자로 관련주에 투자하는 전략"을 코드가 훑어 '마운자로'를 찾아낸다
+✅ 지식조회 : LLM이 universe.sectors=["마운자로"]로 넘긴 값을 코드가 '바이오/제약'으로 푼다
+```
+
+이 계층이 필요한 이유는 **LLM이 대체할 수 없기 때문**이다. 4B든 9B든 '마운자로'가 어떤
+상장사와 연결되는지 모른다. 지표명을 canonical ID로 푸는 `indicator_registry`와 정확히 같은
+성격이며, 다음이 모두 여기 속한다.
+
+| 대상 | 모듈 | 입력(LLM 산출) → 출력 |
+|---|---|---|
+| 지표명 | `registry/indicator_registry.py` | "골든크로스" → `technical.ma_crossover` |
+| 업종·테마 | `registry/universe_resolver.py` | "2차전지" → "이차전지" |
+| 개념·테마 | `engine/knowledge_graph.py` | "마운자로" → 바이오/제약, "HBM 장비 회사" → 반도체 |
+| 테마 상장사 | `engine/concept_universe.py` | 개념 노드 → 심볼 + 근거 점수 |
+| 미지 용어 학습 | `engine/term_grounding.py` | 용어 → 검색 → 노드 |
+| 종목명·코드 | `stock_analysis/symbol_resolver.py` | "삼성전자" → `005930` |
+
+**입력 계약: 이 계층은 `term`을 받는다. 원문(`text`)을 받지 않는다.**
+LLM이 넘긴 짧은 값 안에서 정본을 식별하는 것(예: "HBM 장비 회사"에서 HBM 개념 인식)은
+범위가 그 값으로 한정되므로 허용한다 — 발화 전체 스캔과 구분되는 지점이 이 **범위**다.
+
+해석하지 못한 값은 조용히 버리지 않는다. 학습(검색 그라운딩)을 시도하고, 그래도 실패하면
+되묻기·미지원 안내로 사용자에게 알린다(§ 5).
+
+---
+
+## 4. 출력 계약
+
+LLM은 JSON 오브젝트 **하나만** 출력한다. 설명·마크다운·주석·자연어 문장을 섞지 않는다.
+
+```jsonc
+{
+  "schema_version": "1.0",
+  "intent": "CREATE_STRATEGY",
+  "status": "NEEDS_CLARIFICATION",
+  "strategy": {
+    "name": null,
+    "universe": {"markets": ["KOSPI", "KOSDAQ"], "sectors": [], "etf_theme": null},
+    "entry_conditions": [
+      {"factor": "fundamental.per", "operator": "<=", "value": 10,
+       "unit": "ratio", "source_text": "PER이 10보다 낮은"}
+    ],
+    "exit_conditions": [],
+    "ranking": [],
+    "portfolio": {"selection_count": null, "weighting": null,
+                  "rebalance_frequency": null, "hold_period_days": null},
+    "risk_management": {"stop_loss": null, "take_profit": null,
+                        "trailing_stop": null, "max_mdd_limit": null},
+    "backtest": {"period": null, "start_date": null, "end_date": null,
+                 "initial_capital": null, "fee_rate": null, "slippage_rate": null}
+  },
+  "patches": [],
+  "missing_fields": [],
+  "unsupported_features": [],
+  "assumptions": [],
+  "clarification_questions": [],
+  "confidence": 0.9
+}
+```
+
+### intent (하나 선택)
+
+`CREATE_STRATEGY` / `MODIFY_STRATEGY` / `EXPLAIN_INDICATOR` / `RUN_BACKTEST` /
+`COMPARE_STRATEGIES` / `CLARIFY_STRATEGY` / `CONFIRM_RECOMMENDATION` /
+`CANCEL_OPERATION` / `UNSUPPORTED_REQUEST` / `NON_STRATEGY_REQUEST`
+
+### status
+
+`READY` / `NEEDS_CLARIFICATION` / `UNSUPPORTED` / `REJECTED`
+
+### 허용 연산자
+
+- 비교: `<` `<=` `>` `>=`
+- 이벤트: `crosses_above` `crosses_below` (이때 `value`는 null, 기간은 `parameters`)
+
+허용 연산자는 지표마다 다르며 `IndicatorSpec.allowed_operators`가 최종 판정한다.
+
+### 조건 결합
+
+같은 역할(진입/청산) 안의 조건들은 **AND**로 결합된다(엔진 의미론).
+OR 결합은 현재 계약에 없다 — OR가 필요한 요청은 `unsupported_features`에 넣는다.
+
+---
+
+## 5. 값을 만들어내지 않는다
+
+사용자가 말하지 않은 값을 임의로 확정하지 않는다. 가능한 동작은 셋뿐이다.
+
+1. **질문한다** — `missing_fields`에 필드 경로, `clarification_questions`에 질문,
+   `status="NEEDS_CLARIFICATION"`
+2. **추천값을 제시한다** — `recommended_value` + `requires_confirmation=true`.
+   확정값(`value`)에는 넣지 않는다. `value_source`는 `SYSTEM_RECOMMENDED`.
+3. **사용자가 자동 설정을 명시 허용한 경우에만** 기본값을 쓴다.
+
+```text
+"많이 떨어지면 팔아줘"
+  → risk_management.stop_loss = null
+     missing_fields = ["strategy.risk_management.stop_loss"]
+     clarification_questions = [{"field": "strategy.risk_management.stop_loss",
+                                 "question": "몇 % 하락 시 손절할까요?",
+                                 "recommended_value": 10}]
+     status = "NEEDS_CLARIFICATION"
+
+"영업이익률이 높은 기업"
+  → entry_conditions = [{"factor": "fundamental.operating_margin",
+                         "operator": ">=", "value": null,
+                         "recommended_value": 10, "requires_confirmation": true,
+                         "source_text": "영업이익률이 높은"}]
+```
+
+방향만 있고 수치가 없는 표현("RSI가 낮은", "부채비율이 높은")도 `value=null`이다.
+반대로 수치가 명시된 근사 표현("8종목 정도", "10개쯤")은 그 수치로 확정하고
+질문하지 않는다.
+
+---
+
+## 6. 규제 안전 (유사투자자문업 회피)
+
+이 계약은 [CLAUDE.md](../CLAUDE.md)의 규제 원칙에 종속된다.
+
+- 종목 추천·전략 추천·섹터 추천·시장 전망·매매 시점 제안 요청은
+  `intent="UNSUPPORTED_REQUEST"`로 분류한다. 조건으로 변환하지 않는다.
+- 나이·자산 규모·소득·위험 성향 기반 맞춤 제안 요청도 동일하다.
+- `clarification_questions`의 `recommended_value`는 **파라미터 시작값 제안**이지
+  투자 판단이 아니다. 질문 문구에 우열·전망·권유 표현을 쓰지 않는다.
+  - ✅ "몇 % 하락 시 손절할까요?"
+  - ❌ "손절은 10%를 권장합니다"
+- "좋은 주식을 사줘"처럼 조건 없는 요청은 추천으로 답하지 않고
+  `NEEDS_CLARIFICATION`(진입 조건 질문)으로 되묻는다.
+
+---
+
+## 7. 수정 요청
+
+현재 전략 초안(`draft`)이 함께 주어진 경우에만 `MODIFY_STRATEGY`를 선택한다.
+초안이 없으면 `CREATE_STRATEGY`다.
+
+수정은 `strategy` 전체 재출력이 아니라 **`patches`(JSON Patch 부분집합)로만**
+표현한다. 언급되지 않은 필드는 패치하지 않는다.
+
+```text
+"종목 수를 10개로 바꿔줘"
+  → patches = [{"op": "replace", "path": "/portfolio/selection_count", "value": 10}]
+
+"PER 조건은 빼줘"           (초안 entry_conditions[0]이 PER)
+  → patches = [{"op": "remove", "path": "/entry_conditions/0"}]
+
+"PBR 1 이하도 추가해줘"      (초안에 PBR 없음)
+  → patches = [{"op": "add", "path": "/entry_conditions/-",
+                "value": {"factor": "fundamental.pbr", "operator": "<=", "value": 1}}]
+```
+
+- `op`는 `replace` / `add` / `remove`만 허용한다.
+- 배열 전체 remove(`/entry_conditions`)는 금지 — 언급하지 않은 조건까지 삭제된다.
+- 없는 인덱스에 `replace` 금지 — 새 조건은 `add`로 배열 끝(`/-`)에 붙인다.
+- **값 없는 변경 요청**("시장 바꿔줘", "손절 조정해줘")은 패치를 만들지 말고
+  `NEEDS_CLARIFICATION`으로 되묻는다.
+- 초안이 있어도 "PBR이 뭐야?" 같은 용어 질문은 수정이 아니라 `EXPLAIN_INDICATOR`다.
+
+패치 경로가 현재 전략에 실제로 존재하는지는 LLM이 아니라
+`conversation/patch_applier.py`(상태 관리 계층)가 검증한다.
+
+---
+
+## 8. 검증 실패 처리
+
+### 8-1. 스키마 검증 실패 → LLM 재생성
+
+결정론 코드는 실패한 출력을 **의미적으로 수정하지 않는다**. 원래 입력·잘못된 출력·
+Pydantic 오류 원문만 담아 재생성을 요청한다
+([output_repair.build_repair_prompt](../backend/strategy_conversation/interpreter/output_repair.py)).
+
+```text
+LLM 출력
+    ↓
+extract_json_object / Pydantic 검증 실패
+    ↓
+build_repair_prompt(user_input, bad_output, error_message, draft)
+    ↓
+LLM 재생성
+    ↓
+재검증  (최대 MAX_REPAIR_ATTEMPTS회, 기본 1 — 무한 재시도 금지)
+    ↓
+그래도 실패 → InterpreterError
+```
+
+`InterpreterError`는 삼키지 않는다. 상위(`primary.py`)가 `None`을 반환하면 호출부가
+기존 경로로 폴백하며, 이때 **폴백은 자연어 재해석이 아니라 실패 보고여야 한다.**
+
+### 8-2. 도메인 검증 실패 → 사용자에게 알림
+
+`validation/pipeline.py`는 문제를 발견해도 조용히 고치지 않는다.
+
+- 미지원 지표: `unsupported_features`에 넣고, 대체 후보가 있으면
+  `suggested_fixes`로 **제안만** 한다(조용한 대체 금지).
+- 값 범위 위반: `errors`에 기록하고 임의로 clamp하지 않는다.
+  (`enforce_strategy_minimums` 같은 명시적 하한선 정책은 예외 — `notices`로 통지)
+- 조건 충돌: 임의 수정 없이 `errors`/`warnings`로 알린다.
+- 필수값 누락: `clarification_questions`를 생성한다.
+
+유일하게 허용되는 결정론 변경은 **canonical 정규화**다
+(`capability_validator`가 factor를 canonical ID로, 주기를 엔진 enum으로).
+
+---
+
+## 9. 금지 사항 (코드 리뷰 체크리스트)
+
+아래 중 하나라도 해당하면 그 코드는 이 계약을 위반한다.
+
+- [ ] 결정론 함수가 `user_input`/`prompt`를 인자로 받아 정규식을 적용한다
+- [ ] 한국어 지표·업종·테마 어휘를 하드코딩한 정규식이 있다
+- [ ] LLM 출력을 사용자 원문 기준으로 덮어쓰거나 보강한다
+- [ ] 사용자 원문에서 의도(신규/수정/취소/질문)를 정규식으로 분류한다
+- [ ] 검증 실패 시 LLM에 되돌리지 않고 코드가 값을 채운다
+- [ ] 누락값을 질문 없이 기본값으로 확정한다
+- [ ] LLM이 Registry에 없는 factor·연산자·블록을 생성한다
+- [ ] 구조화 출력에 자연어 설명이 섞인다
+
+허용되는 유일한 정규식 대상: **LLM 출력 문자열**, 그리고 판단 근거가 **표기 형식뿐**일 것.
+
+---
+
+## 10. 역할 분담 요약
+
+| 레이어 | 파일 | 책임 |
+|---|---|---|
+| **LLM Interpreter** | `interpreter/llm_strategy_interpreter.py`, `prompts.py` | 자연어 이해, 의도 분류, 동의어 처리, 조건 변환, 수정 인식, 누락 탐지, StrategyIntent 생성 |
+| **형식 정규화** | `interpreter/output_repair.py`, `models.py` field_validator | JSON 경계 추출, 코드펜스·꼬리 토큰 제거, 토큰 드리프트 복구, 값·enum 표기 정규화 |
+| **Schema Validator** | `interpreter/models.py` (Pydantic) | 필드 타입·필수 필드·허용 enum·구조 검증 |
+| **Capability / Domain Validator** | `validation/`, `registry/` | 지표 지원 여부, canonical 매핑, 값 범위·단위, 유니버스 호환성(ETF↔재무지표), 조건 충돌, 완결성·되묻기 생성 |
+| **State Layer** | `conversation/patch_applier.py`, `strategy_draft.py` | 패치 대상 존재 검증, 초안 상태 소유 |
+| **Compiler** | `compiler/strategy_compiler.py` | StrategyIntent → ParsedStrategy(엔진 DSL) |
+
+---
+
+## 11. 현행 코드와의 격차
+
+이 계약은 `strategy_conversation/` 파이프라인에는 이미 대체로 성립하지만,
+전체 시스템은 아직 충족하지 않는다. 알려진 위반은 다음과 같다(2026-07-26 기준).
+
+1. **`engine/nl_parser.py` (5,444줄, 원문 대상 정규식 ~159곳)**
+   `_parse_rule_based_strategy` / `_extract_sector` / `_extract_technical_signals` /
+   `_extract_fundamental_filters` / `_assign_sl_tp` 등이 사용자 원문을 직접 해석한다.
+   § 3·§ 9 정면 위반.
+
+2. **`primary.py`의 결정론 재해석** — **측정 완료, 제거 보류(2026-07-26)**
+   `_apply_prompt_overrides(parsed, user_input)`와
+   `_fill_deterministic_condition_params(intent, user_input)`이 LLM 해석 결과를
+   사용자 원문 기반 정규식으로 덮어쓴다. `STRATEGY_PROMPT_OVERRIDE_MODE=off`로
+   끌 수 있고, `scripts/qa_prompt_override_ab.py`가 그 비용을 측정한다.
+   103케이스 실측 결과는 § 11-2 참조 — **현 4B 인터프리터로는 아직 끌 수 없다.**
+
+3. **`intent/strategy_builder.py` (원문 대상 정규식 ~108곳)**
+   빌더 단계 진행·삭제·정정 판정이 전부 결정적 정규식이다.
+
+4. ~~**StrategyIntent에 지정 종목 필드 부재**~~ — **해소(2026-07-26, 1a+4)**
+   `UniverseSpec.symbols` 신설 + `registry/universe_resolver.py`가 LLM이 뽑은
+   업종/종목 표현을 정본 값으로 해석하고, 컴파일러가 `sector`·`target_symbols`에
+   배선한다. 단 `_apply_prompt_overrides`가 아직 원문 정규식으로 같은 필드를
+   덮어쓰므로(2번), 원문 정규식이 침묵할 때만 LLM 경로가 확정한다.
+
+5. **모드 게이팅**
+   `.env`의 `STRATEGY_INTERPRETER_MODE=primary`는 dev 전용이며, 기본값은 `off`
+   (= 규칙 파서 우선 하이브리드). 계약을 프로덕션 진실로 만들려면 이 기본값 승격이
+   전제다.
+
+### § 11-2. 보정 제거(2+1b) 실측 — 2026-07-26
+
+`scripts/qa_prompt_override_ab.py`로 103케이스(LLM이 실제로 개입하는 복잡 전략)를
+ON/OFF 통과시킨 결과. 기준은 `qa_complex_llm_parse.py`의 `expect`.
+
+| 회차 | 조치 | ON | OFF |
+|---|---|---|---|
+| v2 | 미러 청산 가드 수정 후 | 87/103 | 36/103 |
+| v3 | + 표준값 파라미터 조건 보존, 오실레이터 연산자 규칙 | 87/103 | 47/103 |
+| v4 | + 경계 연산자·가격 vs MA 인코딩·조건 누락 방지 규칙 | 85/103 | 51/103 |
+| v5 | + **수치 반영 대조**(§ 3-1 recall_validator) | 87/103 | 58/103 |
+
+**결론: 기본값을 `off`로 옮기지 않는다.** 잔여 29건 중 20건이 "기대 신호 누락/불일치"이며,
+소실 신호는 `ma_crossover` 7·`breakout` 5처럼 **수치가 없는 신호**다. 대조 검사는 숫자
+앵커가 있어야 작동하므로 이 유형에 닿지 못한다(§ 3-1이 어휘 대조를 금지하는 이유이기도
+하다 — 어휘를 대조하려면 동의어 매핑, 곧 해석이 필요하다).
+
+**v5 대조 검사 실측**: 103케이스 중 약 21건에서 발동, 재요청 1회로 **잔존 0건**.
+`fundamental_filters` 불일치 16 → 10, `execution_timing` 불일치 2 → 0.
+ON 경로도 85 → 87로 함께 올랐다(대조는 양쪽 경로에 동일하게 적용된다).
+목표 유형(수치 누락)에 대해서는 완전히 유효하며, `_apply_prompt_overrides`가 값을
+**채우던** 일을 모델에게 **다시 시키는** 방식으로 대체했다.
+
+**보정을 끄기 전에 남은 것**:
+1. 더 큰 인터프리터 모델(8B+) 또는 파인튜닝 — 수치 없는 신호 recall이 병목이며
+   프롬프트·대조로는 넘을 수 없음이 v3~v5로 확인됐다
+2. 그 뒤 OFF ≥ ON을 재측정하고 기본값 전환
+
+**부수 성과** — 보정이 가리고 있던 결함 4종을 찾아 양쪽 경로 모두에서 수정했다
+(미러 청산 가드 오폭, 표준값 파라미터 조건 드롭, `execution_timing` 스키마 공백,
+오실레이터 연산자 미스매치). 원문 정규식이 이것들을 덮어 쓰고 있어 드러나지 않았다.
+
+### § 11-3. KG 입력 계약 전환 (1c′) — 2026-07-26 결정
+
+지식그래프·용어 그라운딩의 **모든 공개 진입점이 원문(`text`)을 받는다**. `find_concepts(text)`가
+어휘 인덱스로 발화 전체를 훑는 구조라 § 3-1이 금지하는 발화 스캔에 해당한다. KG 자체는
+§ 3-2의 정당한 지식 조회 계층이므로 **제거가 아니라 입력 계약을 뒤집는다**.
+
+**전환 대상 (text → term)**
+`knowledge_graph`: `resolve_sector_from_text` · `theme_listed_companies` ·
+`theme_backtest_companies` · `related_universe` · `KnowledgeGraph.find_concepts`
+`term_grounding`: `resolve_sector` · `_scan_lexicon` · `lexicon_entry` · `learn_sector_term`
+
+**폐기 대상 (원문 스캔 트리거)**
+`nl_parser`: `_KG_SECTOR_CUE_RE` · `_THEME_UNIVERSE_CUE_RE` · `apply_theme_universe(parsed, user_prompt)` ·
+`detect_unresolved_sector_clarification` / `intent/strategy_builder.py`의 `theme_backtest_companies` 호출부
+
+**유니버스 해석 위치 이동**: 현재 컴파일러(`_build_parsed`)에서 수행하나, 미해결 테마가
+되묻기를 만들어야 하므로 검증 단계로 옮긴다 — `clarification_questions` 표준 채널을 타야 한다.
+
+**선행 조건**: 1c(구 파서 폴백 차단). 폐기 대상 함수를 `nl_parser`가 아직 쓰고 있어,
+폴백이 살아 있는 동안 지우면 그 경로가 깨진다.
+
+**실측 근거(2026-07-26, 9B)**: 프롬프트 규칙 6-0-2("모르는 고유명사도 테마 맥락이면 sectors에,
+규칙 3보다 우선") 추가 전 테마 추출 1/3 → 추가 후 **3/3**. 리졸버가 그 용어를 실제로 푼다
+(마운자로→바이오/제약, HBM 장비 회사→반도체, 2차전지→이차전지). 미해결은 복합 테마구
+가드('2차전지 소부장')와 검색 실패 테마('리센즈')로, 둘 다 의도된 동작이다.
+
+### 마이그레이션 순서
+
+1번(`nl_parser.py`)은 독립 순번이 없다 — 나머지가 끝나면 남는 잔여물이며, 성격이 다른
+세 가지(엔진 DSL 스키마 / 지식 조회 / 자연어 해석 정규식)가 한 파일에 있어 단계마다
+쪼개진다. 유일하게 앞으로 당기는 조각은 지식 조회 분리(1a)다.
+
+```text
+1a + 4   지식 조회 레이어 분리 + UniverseSpec.symbols            ✅ 완료 (2026-07-26)
+2  + 1b  _apply_prompt_overrides 제거                            ⏸ 보류 — § 11-2 실측
+         (플래그·계측기·가려진 결함 4종 수정은 완료)
+2'a      수치 반영 대조(recall_validator)                        ✅ 완료 (2026-07-26)
+2'b      인터프리터 모델 승격 — 수치 없는 신호 recall            ⬜ ← 2의 남은 선행 조건
+5        STRATEGY_INTERPRETER_MODE 기본값 primary 승격            ⬜
+   (관찰) prod 지연·드리프트 실측
+1c       _parse_rule_based_strategy·_modify_rule_based 폴백 차단  ⬜
+1c'      KG 입력 계약 text-in → term-in (§ 11-3)                  ⬜ ← 1c 이후(폐기 대상을 구 파서가 씀)
+3        strategy_builder.py 동일 패턴 반복                       ⬜
+1d       ParsedStrategy를 engine/strategy_dsl.py로 분리 + 잔여 삭제 ⬜
+```
+
+이 문서는 **새로 작성·수정하는 코드가 따라야 할 기준선**이며, § 9 체크리스트가 그 게이트다.

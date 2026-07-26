@@ -398,6 +398,25 @@ const MODIFICATION_CLARIFICATIONS: Array<ModificationClarification & {
     message: "어떤 진입 신호로 변경할까요? 아래 옵션을 선택하거나 원하는 조건을 직접 입력해 주세요.",
     suggestions: ["진입 신호를 5일·20일 이동평균 골든크로스로 변경", "진입 신호를 RSI 30 이하 반등으로 변경", "진입 신호를 20일 신고가 돌파로 변경", "진입 신호를 MACD 골든크로스로 변경", "직접 입력"],
   },
+  // ── 대상 종목 변경 의향("종목을 변경 할 수 있나?", "종목 교체 할 수 있어?") ────
+  // 구체 종목명 없이 교체 의향만 밝힌 발화 — 수정 파싱으로 흘리면 diff가 전부 null이라
+  // 무변경 재렌더링+다음 조건 질문으로 흐름이 끊긴다(2026-07-26 사고). 칩 없이 채팅
+  // 입력만 안내한다(사용자 결정 — 특정 종목 선택지를 내밀면 추천이 될 수 있고, 교체·
+  // 제외·추가는 백엔드 수정 경로가 자유 발화로 처리한다). 구체 종목명이 함께 오면
+  // ("종목을 삼성전자로 바꿔줘") 어미 인접성이 깨져 topicPattern에 걸리지 않아 자연히
+  // 수정 파싱으로 간다.
+  {
+    area: "universe",
+    topic: "strategy",
+    topicPattern:
+      /(?:(?:종목|주식)(?:들)?\s*(?:을|를|은|는|도|만)?\s*(?:변경|교체|바꾸|바꿀|바꿔|갈아)|다른\s*(?:종목|주식))/i,
+    explicitPattern: EXPLICIT_UNIVERSE_PATTERN,
+    reason: "missing_target_symbols_change",
+    message:
+      "네, 대상 종목은 언제든 바꿀 수 있어요. 어떻게 바꿀지 채팅으로 말씀해 주세요. " +
+      "예: '삼성전자만으로 백테스트해줘', '현대약품은 빼줘', '반도체 관련주로 바꿔줘'",
+    suggestions: [],
+  },
   {
     area: "universe",
     topic: "strategy",
@@ -674,6 +693,12 @@ export function decideConversationTurn(
   // isAdvisorFollowUpPrompt(코치 후속질문)에 잡혀 조용히 넘어가던 것을 여기서 먼저 가로채,
   // 그 지표의 기준을 추천 칩으로 되묻는다. 칩은 값이 붙은 완결 지시문이라 클릭 시 일반 수정
   // 파싱으로 흘러 백엔드가 기존 필터를 보존한 채 병합한다(익절 되묻기와 동형).
+  //
+  // [이관 보류 — 백엔드에 동등물(intent/condition_builder.clarification_for_add)이 이미 있다]
+  // 이 규칙만 지우면 같은 발화가 바로 아래 answer_follow_up 분기에 삼켜져 백엔드에 도달조차
+  // 하지 못한다(실측: action=answer_follow_up). 프론트가 '어떤 발화가 백엔드에 가는가'라는
+  // 턴 중재권을 쥐고 있는 것이 선행 문제이며, 그 중재를 먼저 옮기기 전에는 개별 규칙만
+  // 떼어낼 수 없다. 순서: ① 턴 중재 이관 → ② 되묻기 규칙 이관.
   const factorPrompt = buildFundamentalFactorPrompt(prompt);
   if (context.hasCurrentStrategy && factorPrompt) {
     return {

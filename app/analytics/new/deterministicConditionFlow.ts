@@ -60,7 +60,10 @@ const ENTRY_FILTER_BY_CHOICE: Record<
   ParsedSummary["fundamental_filters"][number]
 > = {
   "PER 10 이하": { metric: "per", operator: "<=", value: 10 },
-  "ROE 15% 이상": { metric: "roe", operator: ">=", value: 15 },
+  // metric은 백엔드 스키마(FundamentalFilter.metric)의 정본 값을 쓴다 — 'roe' 같은 근사
+  // 표기를 프론트 상태에 쓰면 그 오염이 previous_parsed로 되돌아가 이후 모든 수정 요청을
+  // 검증 실패시킨다(2026-07-26 사고). 백엔드 별칭 정규화는 안전망이지 오염원의 면허가 아니다.
+  "ROE 15% 이상": { metric: "roe_or_gpa", operator: ">=", value: 15 },
   "PBR 1 이하": { metric: "pbr", operator: "<=", value: 1 },
 };
 

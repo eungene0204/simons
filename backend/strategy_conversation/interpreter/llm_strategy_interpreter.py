@@ -29,8 +29,22 @@ from strategy_conversation.interpreter.prompts import (
     build_system_prompt,
     build_user_prompt,
 )
+from strategy_conversation.validation.recall_validator import (
+    build_recall_repair_prompt,
+    find_unreflected_numbers,
+)
 
 logger = logging.getLogger("strategy_interpreter")
+
+# 대조 대상은 전략 본문을 만들어내는 intent뿐이다 — 설명 질문·비전략 요청은
+# 수치가 출력에 없는 것이 정상이다.
+_RECALL_CHECKED_INTENTS = ("CREATE_STRATEGY", "MODIFY_STRATEGY", "CLARIFY_STRATEGY")
+
+
+def _recall_gap(user_input: str, intent) -> list[str]:
+    if intent.intent not in _RECALL_CHECKED_INTENTS:
+        return []
+    return find_unreflected_numbers(user_input, intent)
 
 ChatFn = Callable[[str, str], str]  # (system_prompt, user_message) -> raw text
 
@@ -104,7 +118,14 @@ def _default_ollama_chat(model: str) -> ChatFn:
 
 class StrategyInterpreter:
     def __init__(self, chat_fn: Optional[ChatFn] = None, model: Optional[str] = None):
-        self.model_name = model or os.environ.get("NL_OLLAMA_MODEL", "qwen3:8b")
+        # 인터프리터 전용 모델 슬롯(SUMMARIZE_OLLAMA_MODEL 선례) — 파서·코치가 공유하는
+        # NL_OLLAMA_MODEL과 분리해, 해석 품질을 위해 더 큰 모델을 쓰되 다른 경로의 지연에
+        # 영향을 주지 않는다. 미설정 시 기존 동작(NL_OLLAMA_MODEL) 그대로.
+        self.model_name = (
+            model
+            or os.environ.get("STRATEGY_INTERPRETER_MODEL")
+            or os.environ.get("NL_OLLAMA_MODEL", "qwen3:8b")
+        )
         self._chat = chat_fn or _default_ollama_chat(self.model_name)
         self._system_prompt = build_system_prompt()
 
@@ -118,6 +139,7 @@ class StrategyInterpreter:
         attempts = 0
         last_error: Exception | None = None
         current_raw = raw
+        recall_retried = False
         while True:
             try:
                 intent = StrategyIntent.model_validate_json(extract_json_object(current_raw))
@@ -126,6 +148,24 @@ class StrategyInterpreter:
                 if draft is None and intent.intent in ("MODIFY_STRATEGY", "CLARIFY_STRATEGY") \
                         and intent.strategy is not None:
                     intent = intent.model_copy(update={"intent": "CREATE_STRATEGY"})
+                # 수치 반영 대조(§ 3-1). 스키마는 통과했지만 사용자가 말한 수치가 통째로
+                # 빠진 경우 — 값을 채우지 않고 모델에게 한 번 다시 시킨다. 재요청 예산은
+                # 스키마 복구와 공유하며, 재생성 후에도 남으면 그대로 진행한다(누락은
+                # 스키마 오류가 아니므로 요청을 실패시키지 않는다).
+                if not recall_retried and config.recall_check_enabled():
+                    missing = _recall_gap(user_input, intent)
+                    if missing and attempts < config.MAX_REPAIR_ATTEMPTS:
+                        recall_retried = True
+                        attempts += 1
+                        _log_llm("⟳ 수치 누락 재요청", f"미반영: {', '.join(missing)}")
+                        current_raw = self._chat(
+                            self._system_prompt,
+                            build_recall_repair_prompt(user_input, missing, current_raw),
+                        )
+                        _log_llm("◀ 재요청 응답", current_raw.strip())
+                        continue
+                    if missing:
+                        _log_llm("△ 수치 누락 잔존", f"미반영: {', '.join(missing)}")
                 _log_llm("✓ 해석", (
                     f"intent={intent.intent} status={intent.status} "
                     f"patches={len(intent.patches)} repairs={attempts} "

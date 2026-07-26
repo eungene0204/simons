@@ -8,7 +8,7 @@
   "S1_intent_STOCK_PICK": 4,
   "S1_intent_STRATEGY_PICK": 1,
   "S1_intent_STOCK_ANALYSIS": 1,
-  "total_step_calls": 15106,
+  "total_step_calls": 15197,
   "S2_confirmed": 1067,
   "S2_total": 1200,
   "S2_escalated_incomplete": 133,

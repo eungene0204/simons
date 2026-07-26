@@ -4,8 +4,8 @@
 compile_strategy의 결정론적 역함수이며, 라운드트립(decompile→compile)이 원본을
 보존해야 한다(test_strategy_conversation 라운드트립 가드).
 
-StrategySpec이 표현할 수 없는 ParsedStrategy 필드(entry_filters·execution_timing·
-description)는 여기서 다루지 않는다 — 호출부(primary.run_primary_modification)가
+StrategySpec이 표현할 수 없는 ParsedStrategy 필드(entry_filters·description)는 여기서
+다루지 않는다 — 호출부(primary.run_primary_modification)가
 컴파일 후 원본에서 이월 보존하고, 그 밖의 표현 불가 신호(rsi rebound 등)는
 라운드트립 가드가 이관을 거부(폴백)한다.
 """
@@ -93,7 +93,12 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
         ))
 
     return StrategySpec(
-        universe=UniverseSpec(markets=list(parsed.universe), sectors=sectors),
+        universe=UniverseSpec(
+            markets=list(parsed.universe),
+            sectors=sectors,
+            # 지정 종목은 코드로 왕복한다 — 수정 요청 초안에서 소실되면 지정이 풀린다.
+            symbols=list(parsed.target_symbols),
+        ),
         entry_conditions=entry_conditions,
         exit_conditions=exit_conditions,
         ranking=ranking,
@@ -114,6 +119,7 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             period=parsed.backtest_period,
             start_date=parsed.backtest_start_date,
             end_date=parsed.backtest_end_date,
+            execution_timing=parsed.execution_timing,
             initial_capital=parsed.initial_capital,
             fee_rate=parsed.fee_rate,
             slippage_rate=parsed.slippage_rate,

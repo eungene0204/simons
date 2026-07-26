@@ -1,7 +1,7 @@
 // 백테스트 최소 조건 게이트(프론트) — 유니버스·진입·청산·손절·익절이 모두 갖춰졌는지 판정한다.
 // [정책 2026-07-22] 조건이 비면 "현재 상태로도 실행 가능"으로 넘기지 않고 채우도록 가이드하며,
 // 다 채우기 전엔 '백테스트 실행' 버튼을 숨긴다. 백엔드 detect_incomplete_backtest_conditions와
-// 동일한 규칙(진입은 랭킹·재무필터·지정 종목도 인정, 청산은 매도신호·보유기간·정기 리밸런싱)을
+// 동일한 규칙(진입은 신호·랭킹·재무필터만 인정, 청산은 매도신호·보유기간·정기 리밸런싱)을
 // 프론트에도 두어, 백엔드 clarification 라우팅과 무관하게 버튼 노출을 확실히 막는다.
 
 import type { ParsedSummary } from "@/lib/strategy-summary";
@@ -80,11 +80,14 @@ export function getNextMissingBacktestCondition(
   }
   const hasUniverse =
     nonEmpty(parsed.universe) || nonEmpty(parsed.target_symbols) || nonEmpty(parsed.sector);
+  // 지정 종목(target_symbols)은 진입 조건으로 인정하지 않는다 — 종목이 정해져도 매수
+  // 시점 규칙이 없으면 엔진은 매수를 전혀 만들지 않는다(signals.py: 빈 조건 그룹=all-False,
+  // 0거래). 테마 유니버스 자동 적용(FR-STR-071 ④)이 target_symbols를 채우면서 매수 조건
+  // 질문이 통째로 생략되던 버그(2026-07-25)의 원인.
   const hasEntry =
     nonEmpty(parsed.entry_signals) ||
     nonEmpty(parsed.fundamental_filters) ||
-    Boolean(parsed.ranking_metric) ||
-    nonEmpty(parsed.target_symbols);
+    Boolean(parsed.ranking_metric);
   const rebal = parsed.rebalancing_period;
   const hasRebalancing = Boolean(rebal && rebal !== "none");
   const hasExit =

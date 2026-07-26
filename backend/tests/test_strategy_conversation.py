@@ -142,6 +142,40 @@ def test_mirrored_valueless_exit_conditions_dropped():
     )
 
 
+def test_opposite_event_exit_survives_mirror_guard():
+    """골든크로스 진입 / 데드크로스 청산은 정당한 짝이다 — 미러 가드가 삼키면 안 된다.
+
+    A/B 실측(2026-07-26): 이 가드가 청산을 삼키고 `_apply_prompt_overrides`의 원문
+    재추출이 그것을 가리고 있었다. 보정을 끄면 '데드크로스 매도'가 소실됐다.
+    """
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.ma_crossover", "operator": "crosses_above",
+             "value": None, "parameters": {"short_period": 20, "long_period": 60}},
+        ],
+        exit_conditions=[
+            {"factor": "technical.ma_crossover", "operator": "crosses_below",
+             "value": None, "parameters": {"short_period": 20, "long_period": 60}},
+        ],
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert [c.operator for c in intent.strategy.exit_conditions] == ["crosses_below"]
+
+
+def test_same_direction_event_exit_still_dropped():
+    """같은 방향 이벤트 복제는 새 정보가 없으므로 기존대로 버린다(가드 완화의 경계)."""
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.bollinger_bands", "operator": "crosses_above", "value": None},
+        ],
+        exit_conditions=[
+            {"factor": "technical.bollinger_bands", "operator": "crosses_above", "value": None},
+        ],
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert intent.strategy.exit_conditions == []
+
+
 def test_valued_exit_condition_preserved():
     # 사용자가 청산 임계값을 실제로 준 경우(RSI>=70 매도)는 진입에 RSI가 있어도 보존한다.
     data = _full_intent_dict(

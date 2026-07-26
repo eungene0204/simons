@@ -168,6 +168,88 @@ describe("StrategyLab auth entry", () => {
     );
   });
 
+  // 리로드 직후 /api/user 왕복이 끝나기 전(authState=loading)에 전략 프롬프트를 보내면
+  // 로그인된 사용자에게도 로그인 모달이 뜨던 회귀 — 하이드레이션 완료까지 보관 후 자동 전송.
+  it("does not show the login modal when sending while auth is still hydrating and the user turns out to be logged in", async () => {
+    let resolveUser!: (value: { ok: boolean; json: () => Promise<unknown> }) => void;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/model/status") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: "ready", error: null }),
+        });
+      }
+      if (url === "/api/user") {
+        return new Promise((resolve) => {
+          resolveUser = resolve;
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+
+    render(<StrategyLabPage />);
+
+    const textarea = await screen.findByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "PER 10 이하 종목 전략 만들어줘" } });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    // 하이드레이션 완료 전에는 모달을 띄우지 않는다.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveUser({ ok: true, json: async () => ({ user: { id: "u1" } }) });
+      await Promise.resolve();
+    });
+
+    // 로그인 확인 후 보관했던 프롬프트가 자동 전송된다(인트로 페이지 → 채팅 소프트 내비게이션).
+    await waitFor(() => {
+      expect(push).toHaveBeenCalledWith("/analytics?chat=1");
+    });
+    expect(window.sessionStorage.getItem("simons.pendingStrategyPrompt")).toBe(
+      "PER 10 이하 종목 전략 만들어줘"
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("shows the login modal after hydration resolves to anonymous for a prompt sent while loading", async () => {
+    let resolveUser!: (value: { ok: boolean; json: () => Promise<unknown> }) => void;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/model/status") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: "ready", error: null }),
+        });
+      }
+      if (url === "/api/user") {
+        return new Promise((resolve) => {
+          resolveUser = resolve;
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+
+    render(<StrategyLabPage />);
+
+    const textarea = await screen.findByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "PER 10 이하 종목 전략 만들어줘" } });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveUser({ ok: true, json: async () => ({ user: null }) });
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(window.sessionStorage.getItem("simons.pendingStrategyPrompt")).toBe(
+      "PER 10 이하 종목 전략 만들어줘"
+    );
+    expect(push).not.toHaveBeenCalled();
+  });
+
   it("blurs the strategy lab background while a template preview is open", async () => {
     render(<StrategyLabPage />);
 

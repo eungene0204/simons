@@ -477,6 +477,13 @@ ETF_VALUE_BLOCKED_REPLY = (
     "없어요. 다른 진입 방식을 골라 주세요."
 )
 
+# 가치 전략이 설정된 상태에서 유니버스를 ETF로 바꾸려는 경우 — 반대 방향의 같은 충돌.
+# 적용하지 않고 이유와 함께 우회 경로('전략 바꿔줘')를 안내한다(FR-SA-002e 호환성 검토).
+ETF_VALUE_UNIVERSE_BLOCKED_REPLY = (
+    "저평가 가치주 전략은 개별 기업 재무지표(PBR·ROE)를 쓰기 때문에 유니버스를 ETF로 바꿀 "
+    "수 없어요. ETF로 바꾸시려면 먼저 '전략 바꿔줘'라고 말씀해 진입 방식을 변경해 주세요."
+)
+
 # 빌더 진행 중 특정 종목 지정 요청(BF-11) — 빌더는 종목 선별 전략을 만드는 흐름이라
 # 조용히 무시하지 않고 단일 종목 흐름으로 가는 길을 안내한다.
 _SINGLE_SWITCH_CUE_RE = re.compile(r"단일|하나만|종목만|테스트|만\s*(?:하고|할래|해|사)", re.IGNORECASE)
@@ -497,7 +504,8 @@ def _is_risk_refusal(text: str) -> bool:
 
 _CORRECTION_SPLIT_RE = re.compile(r"말고|말구|아니라|대신", re.IGNORECASE)
 # 이미 채워진 필드를 바꾸려는 의도(정정/변경) 큐 — 유니버스·전략유형 덮어쓰기를 허용한다(BF-05).
-_CHANGE_CUE_RE = re.compile(r"바꾸|바꿔|변경|교체|수정|말고|말구|아니라|대신", re.IGNORECASE)
+# '바꿀래/바꿀게'류 활용형도 잡는다(바꾸/바꿔만으로는 놓친다 — FR-SA-002e).
+_CHANGE_CUE_RE = re.compile(r"바꾸|바꿔|바꿀|변경|교체|수정|말고|말구|아니라|대신", re.IGNORECASE)
 
 
 def _correction_focus(text: str) -> str:
@@ -947,6 +955,132 @@ _TYPE_PARAM_RESET: dict = {
     "trend_filter_ma": None, "liquidity_min": None, "rsi_filter": None,
 }
 
+
+# ─── 조건 삭제(REMOVE)·값 없는 변경(MODIFY) — 전략 수정 규칙(FR-SA-002e) ────────────
+# 이미 채워진 조건을 어느 단계에서든 삭제("손절 빼줘")하거나, 새 값 없이 변경 의사만
+# 밝히면("시장 바꿔줘") 해당 필드를 비워 그 질문으로 자연 복귀시킨다. 채워진 필드만
+# 대상으로 하므로 일반 어휘("코스닥 빼고")가 설정 흐름을 오염시키지 않는다.
+
+_REMOVE_CUE_RE = re.compile(r"빼|삭제|제거|없애|지워|취소", re.IGNORECASE)
+_RM_TRAILING_RE = re.compile(r"트레일링|최고가\s*대비", re.IGNORECASE)
+_RM_HOLD_RE = re.compile(r"보유\s*기간", re.IGNORECASE)
+_RM_RISK_ALL_RE = re.compile(r"청산", re.IGNORECASE)
+_RM_LIQ_RE = re.compile(r"거래\s*대금", re.IGNORECASE)
+_RM_TREND_RE = re.compile(r"추세|ema|이동\s*평균|이평", re.IGNORECASE)
+_RM_RSI_RE = re.compile(r"rsi", re.IGNORECASE)
+_RM_FILTER_RE = re.compile(r"필터", re.IGNORECASE)
+_RM_SECTOR_RE = re.compile(r"업종|섹터", re.IGNORECASE)
+_RM_THEME_RE = re.compile(r"테마", re.IGNORECASE)
+_RM_COUNT_RE = re.compile(r"종목\s*수", re.IGNORECASE)
+_RM_REBAL_RE = re.compile(r"리밸런|정기\s*교체", re.IGNORECASE)
+_RM_UNIVERSE_RE = re.compile(r"시장|유니버스", re.IGNORECASE)
+_RM_TYPE_RE = re.compile(r"전략|진입\s*방식|매매\s*방식", re.IGNORECASE)
+_RM_PERIOD_RE = re.compile(r"기간", re.IGNORECASE)
+
+
+def _parse_removal(state: BuilderState, text: str) -> tuple[dict, list[str]]:
+    """삭제 cue + 채워진 필드 지목 → (삭제 patch, 안내 문장들). 대상이 없으면 ({}, [])."""
+    t = _correction_focus(text or "")
+    if not _REMOVE_CUE_RE.search(t):
+        return {}, []
+    patch: dict = {}
+    labels: list[str] = []
+
+    # 청산 개별 조건 → 전부("청산 조건 빼줘")는 개별 매치가 없을 때만
+    if _STOP_LOSS_KW.search(t) and state.stop_loss_pct is not None:
+        patch["stop_loss_pct"] = None
+        labels.append(f"손절 {_fmt_pct(state.stop_loss_pct)}%")
+    if _TAKE_PROFIT_KW.search(t) and state.take_profit_pct is not None:
+        patch["take_profit_pct"] = None
+        labels.append(f"익절 {_fmt_pct(state.take_profit_pct)}%")
+    if _RM_TRAILING_RE.search(t) and state.trailing_stop_pct is not None:
+        patch["trailing_stop_pct"] = None
+        labels.append(f"트레일링 {_fmt_pct(state.trailing_stop_pct)}%")
+    if _RM_HOLD_RE.search(t) and state.hold_period_days is not None:
+        patch["hold_period_days"] = None
+        labels.append(f"{state.hold_period_days}거래일 보유")
+    if not patch and _RM_RISK_ALL_RE.search(t):
+        for field, label in (("stop_loss_pct", "손절"), ("take_profit_pct", "익절"),
+                             ("trailing_stop_pct", "트레일링")):
+            value = getattr(state, field)
+            if value is not None:
+                patch[field] = None
+                labels.append(f"{label} {_fmt_pct(value)}%")
+        if state.hold_period_days is not None:
+            patch["hold_period_days"] = None
+            labels.append(f"{state.hold_period_days}거래일 보유")
+
+    # 필터: 종류 지목 우선, 없으면 "필터"로 전부
+    filter_specific = False
+    if _RM_LIQ_RE.search(t) and state.liquidity_min is not None:
+        patch["liquidity_min"] = None
+        labels.append(f"거래대금 {_fmt_pct(state.liquidity_min)}억 필터")
+        filter_specific = True
+    if _RM_TREND_RE.search(t) and state.trend_filter_ma is not None:
+        patch["trend_filter_ma"] = None
+        labels.append(f"{state.trend_filter_ma}일선 필터")
+        filter_specific = True
+    if _RM_RSI_RE.search(t) and state.rsi_filter is not None:
+        patch["rsi_filter"] = None
+        labels.append(f"RSI {_fmt_pct(state.rsi_filter)} 필터")
+        filter_specific = True
+    if not filter_specific and _RM_FILTER_RE.search(t):
+        for field, phrase in (("trend_filter_ma", "{}일선"), ("liquidity_min", "거래대금 {}억"),
+                              ("rsi_filter", "RSI {}")):
+            value = getattr(state, field)
+            if value is not None:
+                patch[field] = None
+                labels.append(phrase.format(_fmt_pct(value)) + " 필터")
+
+    if _RM_SECTOR_RE.search(t) and state.sector is not None:
+        labels.append(f"{_sector_label(state)} 업종 제한")
+        patch.update({"sector": None, "sector_unresolved": False, "sector_hint": None})
+    if _RM_THEME_RE.search(t) and state.theme_symbols:
+        labels.append(f"{state.theme_label} 종목 제한")
+        patch.update({"theme_symbols": None, "theme_label": None})
+    if _RM_COUNT_RE.search(t) and state.holding_count is not None:
+        patch["holding_count"] = None
+        labels.append(f"보유 {state.holding_count}종목")
+
+    notes = ["·".join(labels) + " 조건을 제거했습니다."] if labels else []
+    # 리밸런싱 삭제 = "안 함"으로 변경(필수 항목이라 비우는 대신 명시적 값으로)
+    if _RM_REBAL_RE.search(t) and state.rebalance_cycle not in (None, "none"):
+        patch["rebalance_cycle"] = "none"
+        notes.append("정기 리밸런싱을 하지 않는 것으로 변경했습니다.")
+    return patch, notes
+
+
+def _parse_valueless_change(state: BuilderState, text: str) -> tuple[dict, list[str]]:
+    """변경 cue는 있는데 새 값이 없는 요청("시장 바꿔줘") → 해당 필드를 비워 그 질문으로
+    자연 복귀시킨다(값 없는 재렌더링 방지 — 되묻기). 값이 파싱된 턴에는 호출하지 않는다."""
+    t = text or ""
+    if not _CHANGE_CUE_RE.search(t):
+        return {}, []
+    if _RM_COUNT_RE.search(t) and state.holding_count is not None:
+        return {"holding_count": None}, []
+    # 청산 변경 의사: 기존 값은 유지한 채 청산 단계만 다시 연다(새 값이 기존을 덮어씀)
+    risk_kw = (_STOP_LOSS_KW.search(t) or _TAKE_PROFIT_KW.search(t)
+               or _RM_TRAILING_RE.search(t) or _RM_HOLD_RE.search(t) or _RM_RISK_ALL_RE.search(t))
+    if risk_kw and state.risk_done:
+        return {"risk_done": False}, ["네, 청산 조건은 마지막 단계에서 다시 여쭤볼게요."]
+    if (_RM_FILTER_RE.search(t) and state.filters_asked
+            and "filters" in STRATEGY_PARAM_STEPS.get(state.strategy_type or "", ())):
+        return {"filters_asked": False}, []
+    if _RM_REBAL_RE.search(t) and state.rebalance_cycle is not None:
+        return {"rebalance_cycle": None}, []
+    if _RM_UNIVERSE_RE.search(t) and state.universe is not None and state.single_symbol is None:
+        return {"universe": None}, []
+    if _RM_PERIOD_RE.search(t):
+        for field in ("lookback_days", "rsi_period", "volume_period"):
+            if getattr(state, field) is not None:
+                patch: dict = {field: None}
+                if field == "lookback_days":
+                    patch["lookback_label"] = None
+                return patch, []
+    if _RM_TYPE_RE.search(t) and state.strategy_type is not None:
+        return {"strategy_type": None, **_TYPE_PARAM_RESET}, []
+    return {}, []
+
 def parse_input(text: str, state: BuilderState, expecting: Optional[str]) -> dict:
     """짧은 답변을 전략 필드 patch로 해석한다. 모호한 맨숫자는 현재 묻는 필드(expecting)로 해석.
 
@@ -1010,7 +1144,7 @@ def parse_input(text: str, state: BuilderState, expecting: Optional[str]) -> dic
     from engine.nl_parser import _extract_sector, _mentioned_unsupported_concepts
 
     sector = _extract_sector(t)
-    if sector and not state.sector:
+    if sector and (not state.sector or (change_cue and sector != state.sector)):
         patch["sector"] = sector
     elif sector is None and "sector" in _mentioned_unsupported_concepts(t):
         patch["sector_unresolved"] = True
@@ -1405,6 +1539,7 @@ def next_question(
 # 확인 도입부에서 필드를 다룰 우선순위(높을수록 먼저). 직전 답변이 여럿이면 이 순서로 하나만.
 # 전략별 특화 파라미터를 공통 필드보다 앞에 둬(그 값을 방금 답한 경우가 대부분) 자연스럽게 확인한다.
 _ACK_PRIORITY = (
+    "risk_done",  # 다른 단계에서 미리 말한 청산 조건(SET-ahead) — 캡처를 확인해 준다
     "filters_asked", "rsi_overbought", "rsi_period", "ma_long", "ma_kind", "macd_mode",
     "cci_threshold", "volume_period", "value_roe",
     "rebalance_cycle", "holding_count", "lookback_days", "entry_rule", "strategy_type",
@@ -1430,8 +1565,25 @@ def _sector_label(state: BuilderState) -> str:
     return "·".join(sector_value_as_list(state.sector))
 
 
+def _risk_phrases(state: BuilderState) -> list[str]:
+    """설정된 청산 조건을 짧은 한국어 구로. 없으면 빈 리스트."""
+    parts: list[str] = []
+    if state.stop_loss_pct is not None:
+        parts.append(f"{_fmt_pct(state.stop_loss_pct)}% 손절")
+    if state.take_profit_pct is not None:
+        parts.append(f"{_fmt_pct(state.take_profit_pct)}% 익절")
+    if state.trailing_stop_pct is not None:
+        parts.append(f"최고가 대비 {_fmt_pct(state.trailing_stop_pct)}% 청산")
+    if state.hold_period_days:
+        parts.append(f"{state.hold_period_days}거래일 보유")
+    return parts
+
+
 def _ack_sentence(state: BuilderState, field: str) -> str:
     """단일 필드를 확인하는 완결 문장(마침표 없이)."""
+    if field == "risk_done":
+        phrases = _risk_phrases(state)
+        return f"{'·'.join(phrases)} 조건으로 하겠습니다" if phrases else ""
     if field == "filters_asked":
         phrases = _filter_phrases(state)
         return f"{'·'.join(phrases)} 필터를 더하겠습니다" if phrases else "추가 필터 없이 진행하겠습니다"
@@ -1492,15 +1644,7 @@ def _seed_summary(state: BuilderState) -> list[str]:
         parts.append(f"{state.holding_count}종목")
     if state.rebalance_cycle and not single:
         parts.append(_REBAL_LABEL.get(state.rebalance_cycle, "") + " 리밸런싱")
-    risk: list[str] = []
-    if state.stop_loss_pct is not None:
-        risk.append(f"{_fmt_pct(state.stop_loss_pct)}% 손절")
-    if state.take_profit_pct is not None:
-        risk.append(f"{_fmt_pct(state.take_profit_pct)}% 익절")
-    if state.trailing_stop_pct is not None:
-        risk.append(f"최고가 대비 {_fmt_pct(state.trailing_stop_pct)}% 청산")
-    if state.hold_period_days:
-        risk.append(f"{state.hold_period_days}거래일 보유")
+    risk = _risk_phrases(state)
     if risk:
         parts.append("·".join(risk))
     return parts
@@ -1923,6 +2067,11 @@ def step(
         return StepResult(state=state, reply=msg, suggestions=sug, status="collecting")
 
     ctrl = detect_control(text)
+    # 조건 삭제(FR-SA-002e): "손절 취소해줘"의 '취소'는 빌더 취소가 아니라 그 조건의 삭제다
+    # — 채워진 필드를 지목한 삭제 요청이면 취소 제어어보다 우선한다.
+    removal_patch, removal_notes = _parse_removal(state, text)
+    if ctrl == "cancel" and removal_patch:
+        ctrl = None
     if ctrl == "cancel":
         return StepResult(state=BuilderState(), reply=CANCEL_REPLY, status="exited")
     if ctrl == "exit":
@@ -2013,6 +2162,38 @@ def step(
             and _ENTRY_DESCRIPTION_CUE_RE.search(text)):
         patch = {"strategy_type": "custom", "entry_rule": text.strip()}
 
+    # SET/MODIFY(FR-SA-002e): 현재 단계와 무관하게 말한 청산·필터 값을 잃지 않는다.
+    # 청산은 키워드 앵커라 오귀속 위험이 없고, 필터는 '필터' 명시가 있을 때만 흡수한다
+    # (파라미터 단계의 "60일 이동평균" 답이 추세 필터로 새는 오염 방지).
+    if expecting not in ("risk", "entry_rule") and "entry_rule" not in patch:
+        ahead, ahead_notes = _parse_risk_ex(text)
+        if ahead:
+            patch.update(ahead)
+        risk_range_notes.extend(ahead_notes)
+        if _RM_FILTER_RE.search(text) and expecting != "filters" and not removal_patch:
+            fpatch = _parse_filters(_correction_focus(text))
+            if len(fpatch) > 1:  # 실제 필터 값이 인식된 경우만('없음' 계열 오탐 방지)
+                patch.update(fpatch)
+
+    # 가치 전략이 설정된 상태의 ETF 유니버스 변경 — 적용하지 않고 이유를 설명한다(BF-12 역방향).
+    conflict_note: Optional[str] = None
+    if (patch.get("universe") == "ETF"
+            and (patch.get("strategy_type") or state.strategy_type) == "value"):
+        patch.pop("universe", None)
+        conflict_note = ETF_VALUE_UNIVERSE_BLOCKED_REPLY
+
+    # 업종 삭제 문구("업종 제한 빼줘")의 '업종' 언급이 미지원 업종 되묻기로 새지 않게 한다.
+    if "sector" in removal_patch:
+        patch.pop("sector_unresolved", None)
+        patch.pop("sector_hint", None)
+
+    # 값 없는 변경 요청("시장 바꿔줘") — 새 값이 전혀 파싱되지 않은 턴에만 해당 필드를 비워
+    # 그 질문으로 자연 복귀시킨다(FR-SA-002e).
+    vl_patch: dict = {}
+    vl_notes: list[str] = []
+    if not patch and not removal_patch and expecting != "entry_rule":
+        vl_patch, vl_notes = _parse_valueless_change(state, text)
+
     # 청산 조건 자유 입력: 정규식이 키워드를 봤는데 값을 못 뽑았으면 LLM으로 보강·검증한다.
     if expecting == "risk" and risk_extractor is not None and _risk_needs_llm(text, patch):
         try:
@@ -2027,7 +2208,12 @@ def step(
         _, sug = next_question(state)
         return StepResult(state=state, reply=RISK_REQUIRED_REPLY, suggestions=sug, status="collecting")
 
-    new_state = state.model_copy(update=patch)
+    recognized = bool(patch) or bool(removal_patch) or bool(vl_patch) or bool(conflict_note)
+    new_state = state.model_copy(update={**removal_patch, **vl_patch, **patch})
+    # 삭제로 청산 값이 모두 사라졌으면 청산 단계를 다시 연다(청산은 필수 — FR-SA-002e).
+    if any(f in removal_patch for f in RISK_FIELDS) and not any(
+            getattr(new_state, f) is not None for f in RISK_FIELDS):
+        new_state = new_state.model_copy(update={"risk_done": False})
     notice, reask, new_state = _consume_sector_notice(new_state, sector_resolver)
     if reask:
         prompt, sug = reask
@@ -2042,11 +2228,12 @@ def step(
     # (전략 요약 카드 + 검증이 곧 확인 단계이므로 별도 텍스트 요약은 중복이다.)
     if required_missing(new_state) is None:
         return StepResult(state=new_state, status="confirmed", prompt=synthesize_prompt(new_state),
-                          notices=[n for n in [notice, *risk_range_notes] if n])
+                          notices=[n for n in [notice, *removal_notes, *vl_notes,
+                                               conflict_note, *risk_range_notes] if n])
 
     # 미인식/범위 밖 입력 안내 — 같은 질문을 말없이 반복하지 않는다(BF-09/15).
     hint: Optional[str] = None
-    if not patch:
+    if not recognized:
         new_state = new_state.model_copy(update={"miss_streak": state.miss_streak + 1})
         if risk_range_notes:
             hint = " ".join(risk_range_notes)
@@ -2060,7 +2247,7 @@ def step(
         new_state = new_state.model_copy(update={"miss_streak": 0})
 
     msg, sug = next_question(new_state, just_filled=just_filled)
-    prefix_parts = [notice] if notice else []
+    prefix_parts = [n for n in [notice, *removal_notes, *vl_notes, conflict_note] if n]
     if patch and risk_range_notes:  # 일부 값만 유효했던 경우 제외된 값의 사유를 알린다
         prefix_parts.extend(risk_range_notes)
     if hint:

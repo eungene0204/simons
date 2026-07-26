@@ -15,7 +15,6 @@ from engine.nl_parser import (
     _parse_rule_based_strategy,
     _target_change_from_utterance,
     apply_single_asset_adjustments,
-    detect_symbol_ambiguity,
 )
 from engine.strategy_converter import (
     compute_strategy_id,
@@ -175,19 +174,14 @@ def test_canonical_dsl_excludes_empty_target_and_differs_by_symbol():
     assert compute_strategy_id(a) != compute_strategy_id(base)
 
 
-# ─── 되묻기(복수 종목) ────────────────────────────────────────────────────────
+# ─── 되묻기(복수 종목) — 폐지(사용자 결정 2026-07-26) ─────────────────────────
+# '한 종목만 고르기' 칩 되묻기(detect_symbol_ambiguity)는 제거됐다 — 여러 종목이 지정되면
+# 되묻지 않고 전체를 함께 백테스트하며, 축소·교체는 채팅 수정 요청이 처리한다(아래
+# test_modify_fast_path_replaces_target 참조).
 
-def test_symbol_ambiguity_clarification():
-    parsed = ParsedStrategy(description="복수", target_symbols=["005930", "000660"])
-    question, suggestions = detect_symbol_ambiguity(parsed)
-    assert question is not None and "여러 종목" in question
-    assert any("삼성전자" in s for s in suggestions)
-    assert any("SK하이닉스" in s for s in suggestions)
-
-
-def test_no_ambiguity_for_single_target():
-    parsed = ParsedStrategy(description="단일", target_symbols=["005930"])
-    assert detect_symbol_ambiguity(parsed) == (None, None)
+def test_symbol_ambiguity_reask_removed():
+    import engine.nl_parser as nl
+    assert not hasattr(nl, "detect_symbol_ambiguity")
 
 
 # ─── 수정 경로 ───────────────────────────────────────────────────────────────
@@ -241,3 +235,43 @@ def test_overrides_sector_switch_clears_target():
     updated = _apply_prompt_overrides(parsed, "반도체 업종으로 바꿔줘", skip_signal_validation=True)
     assert updated.target_symbols == []
     assert updated.sector == "반도체"
+
+
+# ─── 지정 종목 개별 삭제 (2026-07-26 사고 회귀) ─────────────────────────────────
+# "현대약품은 빼조"(빼줘 오타)가 삭제가 아니라 '새 지정'으로 오독돼 테마 유니버스
+# 10종목이 현대약품 단일 종목으로 교체되던 사고. 삭제 판정이 지정/교체보다 우선한다.
+
+_THEME_TARGETS = ["005930", "000660", "004310", "006400", "008770"]
+
+
+def test_target_removal_keeps_remaining_symbols():
+    for utterance in ("현대약품은 빼조", "현대약품은 빼줘", "현대약품 제외해줘"):
+        changed, value = _target_change_from_utterance(utterance, list(_THEME_TARGETS))
+        assert changed is True, utterance
+        assert value == ["005930", "000660", "006400", "008770"], utterance
+
+
+def test_target_removal_not_confused_with_risk_removal():
+    """'현대약품 손절 빼줘'의 삭제어는 손절에 붙는다 — 인접 요구가 종목 삭제 오폭을 막는다."""
+    _, value = _target_change_from_utterance("현대약품 손절 빼줘", list(_THEME_TARGETS))
+    assert "004310" in value  # 현대약품이 목록에서 제거되면 안 된다
+
+
+def test_extract_target_symbols_ignores_removal_mention():
+    """삭제어 인접 종목 언급은 '지정'이 아니다 — 초기 파싱에서도 단일 종목 오폭 금지."""
+    assert _extract_target_symbols("현대약품은 빼줘") is None
+    assert _extract_target_symbols("현대약품은 빼조") is None
+
+
+def test_modify_fast_path_removes_single_target_from_list():
+    previous = _previous_single_asset()
+    previous["target_symbols"] = list(_THEME_TARGETS)
+    modified = _modify_rule_based("현대약품은 빼줘", previous)
+    assert modified is not None
+    assert modified.target_symbols == ["005930", "000660", "006400", "008770"]
+
+
+def test_modify_fast_path_replacement_still_works_after_removal_branch():
+    modified = _modify_rule_based("SK하이닉스로 바꿔줘", _previous_single_asset())
+    assert modified is not None
+    assert modified.target_symbols == ["000660"]

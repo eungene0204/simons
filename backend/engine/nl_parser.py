@@ -14,8 +14,15 @@ import os
 import re
 import time
 from datetime import date
-from typing import List, Literal, Optional, Union
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from typing import Annotated, List, Literal, Optional, Union
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from llm_backend import OLLAMA_BASE_URL, is_local_ollama, ollama_auth_headers
 from engine.universe_pit import (
@@ -205,16 +212,47 @@ def _ollama_preload_model(model: str, timeout: int = 600) -> None:
 
 # ─── 스키마 정의 ──────────────────────────────────────────────────────────────
 
+# 재무 지표 별칭 → 정본 metric. 관용적 표기(대소문자·공백·하이픈·슬래시)와 레거시 표기를
+# 스키마 진입 지점에서 한 번에 흡수한다 — 경로마다 새니타이저를 뿌리면 반드시 한 곳이
+# 빠지고(프론트 칩이 'roe'를 쓰던 2026-07-26 사고), 그 드리프트가 이후 모든 수정 요청을
+# ValidationError로 죽인다. model_validate가 불리는 모든 지점이 이 표를 공유한다.
+_FUNDAMENTAL_METRIC_ALIASES: dict[str, str] = {
+    "roe": "roe_or_gpa",
+    "gpa": "roe_or_gpa",
+    "roe_gpa": "roe_or_gpa",
+    "ev_to_ebitda": "ev_ebitda",
+    "evebitda": "ev_ebitda",
+    "ev_to_ebit": "ev_ebit",
+    "evebit": "ev_ebit",
+    "debt": "debt_ratio",
+    "market_capitalization": "market_cap",
+    "marketcap": "market_cap",
+    "operating_profit_margin": "operating_margin",
+    "net_profit_margin": "net_margin",
+    "dividend": "dividend_yield",
+    "payout_ratio": "payout_rate",
+}
+
+
+def _normalize_metric_alias(value):
+    """재무 지표 표기를 정본으로 정규화한다(관용적 입력 수용). 미지의 값은 그대로 통과시켜
+    Literal 검증에 맡긴다 — 여기서 임의 지표로 추측 치환하면 전략 의미가 몰래 바뀐다."""
+    if not isinstance(value, str):
+        return value
+    key = value.strip().lower().replace(" ", "").replace("-", "_").replace("/", "_")
+    return _FUNDAMENTAL_METRIC_ALIASES.get(key, key or value)
+
+
 class FundamentalFilter(BaseModel):
     """재무 지표 필터 조건"""
-    metric: Literal[
+    metric: Annotated[Literal[
         "per", "pbr", "psr", "ev_ebitda", "ev_ebit", "roe_or_gpa", "roa", "debt_ratio",
         "current_ratio", "quick_ratio",
         "reserve_ratio", "net_margin", "gross_margin", "operating_margin", "revenue_growth",
         "operating_income_growth", "net_income_growth", "market_cap", "trading_value",
         "dividend_yield", "payout_rate", "dividend_growth",
         "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth", "eps", "ebit",
-    ] = Field(
+    ], BeforeValidator(_normalize_metric_alias)] = Field(
         description=(
             "재무 지표 종류. "
             "per=주가수익비율, pbr=주가순자산비율, psr=주가매출비율, ev_ebitda=EV/EBITDA(배, 낮을수록 저평가), "
@@ -239,6 +277,45 @@ class FundamentalFilter(BaseModel):
         description="비교 연산자. '이하'='<=', '미만'='<', '이상'='>=', '초과'='>'"
     )
     value: float = Field(description="비교 기준값")
+
+
+def coerce_fundamental_filters(raw) -> tuple[list, list[str]]:
+    """재무 필터 목록을 관용적으로 수용한다 — 별칭은 정규화하고, 해석 불가 항목만 드롭한다.
+
+    반환: (검증 통과 항목의 원시 dict 목록, 드롭된 항목 라벨 목록).
+
+    필터 하나가 스키마 밖이라고 요청 전체를 ValidationError로 죽이지 않는 것이 목적이다.
+    previous_parsed는 프론트가 만들어 되돌려주는 **신뢰할 수 없는 입력**이며, 그 오염 하나가
+    이후 모든 수정 요청을 영구히 500으로 만들었다(2026-07-26 사고). 드롭은 조용히 하지
+    않는다 — 호출부가 라벨을 비차단 notices로 알린다.
+    """
+    if not isinstance(raw, list):
+        return raw, []
+    kept: list = []
+    dropped: list[str] = []
+    for item in raw:
+        try:
+            FundamentalFilter.model_validate(item)
+        except ValidationError:
+            dropped.append(_describe_raw_filter(item))
+            continue
+        kept.append(item)
+    return kept, dropped
+
+
+def _describe_raw_filter(item) -> str:
+    """드롭 안내용 라벨('foo >= 15'). 사용자가 무엇이 빠졌는지 알 수 있을 정도만."""
+    if isinstance(item, dict):
+        parts = [str(item.get(k)) for k in ("metric", "operator", "value") if item.get(k) is not None]
+        if parts:
+            return " ".join(parts)
+    return str(item)
+
+
+def fundamental_filters_from_raw(raw) -> list[FundamentalFilter]:
+    """원시 목록에서 검증 가능한 FundamentalFilter만 만든다(해석 불가 항목은 드롭)."""
+    kept, _ = coerce_fundamental_filters(raw or [])
+    return [FundamentalFilter.model_validate(f) for f in kept]
 
 
 class TechnicalSignal(BaseModel):
@@ -387,6 +464,15 @@ class ParsedStrategy(BaseModel):
             elif any(not isinstance(i, str) or i not in ("KOSPI", "KOSDAQ", "KOSPI200")
                      for i in raw_universe):
                 data = {k: v for k, v in data.items() if k != "universe"}
+        # ③ 해석 불가 재무 필터는 요청 전체를 죽이지 않고 그 항목만 드롭한다(별칭은
+        #    FundamentalFilter.metric의 BeforeValidator가 이미 흡수). 드롭 사실은
+        #    dropped_filter_notices로 실어 보내 호출부가 비차단 안내로 알린다.
+        kept_filters, dropped_filters = coerce_fundamental_filters(
+            data.get("fundamental_filters")
+        )
+        if dropped_filters:
+            data = {**data, "fundamental_filters": kept_filters,
+                    "dropped_filter_notices": dropped_filters}
         desc = data.get("description")
         if (not isinstance(desc, str) or not desc.strip()) and (set(data) - {"description"}):
             # 다른 전략 내용이 있을 때만 채운다 — 빈/무의미 출력({})은 여전히 ValidationError로
@@ -413,6 +499,9 @@ class ParsedStrategy(BaseModel):
         default_factory=list,
         description="재무 필터 목록. PBR, PER, ROE, 부채비율, 시가총액, 거래대금 조건"
     )
+    # 검증 단계에서 드롭된 재무 필터 라벨(비차단 안내용). 직렬화에서 제외해 전략 DSL·캐시
+    # 키·라운드트립 비교에 영향을 주지 않는다 — 순수 안내 채널이다.
+    dropped_filter_notices: List[str] = Field(default_factory=list, exclude=True)
 
     # ── 기술적 신호
     entry_signals: List[TechnicalSignal] = Field(
@@ -530,6 +619,14 @@ class ParsedStrategyDiff(BaseModel):
         return normalize_sector_value(v)
 
     fundamental_filters: Optional[List[FundamentalFilter]] = None
+
+    @field_validator("fundamental_filters", mode="before")
+    @classmethod
+    def _drop_unresolvable_filters(cls, v):
+        """해석 불가 필터 하나 때문에 LLM diff 전체를 폐기하지 않는다(항목만 드롭)."""
+        kept, _ = coerce_fundamental_filters(v)
+        return kept
+
     entry_signals: Optional[List[TechnicalSignal]] = None
     exit_signals: Optional[List[TechnicalSignal]] = None
     ranking_metric: Optional[Literal["return"]] = None
@@ -1055,7 +1152,14 @@ class NLStrategyParser:
         즉답한다(초기 parse와 동일한 하이브리드 구조). 복합·모호한 수정만 LLM으로 위임.
         on_stage: LLM diff 추출로 넘어가기 직전 호출되는 콜백(stage 문자열 전달).
         """
-        rule_based = _modify_rule_based(user_input, previous)
+        # 결정론 fast-path의 예외는 "내 소관 아님"으로 강등한다 — 해석 레이어의 예외가
+        # 요청을 죽이지 못하게(오염된 previous 하나가 이후 모든 수정을 500으로 만들던
+        # 2026-07-26 사고). 다음 레이어(LLM diff)가 그대로 이어받는다.
+        try:
+            rule_based = _modify_rule_based(user_input, previous)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("modify fast-path raised, delegating to LLM | err=%r", exc)
+            rule_based = None
         if rule_based is not None:
             return rule_based
 
@@ -1101,9 +1205,9 @@ class NLStrategyParser:
         # 갱신·새 지표 추가·기존 보존)을 적용한다. 제거/해제 발화는 LLM 출력(빠진 항목=
         # 삭제 의도일 수 있는 전체 목록)을 존중한다.
         if diff.fundamental_filters is not None and not _REMOVE_INTENT_RE.search(compact):
-            existing_filters = [
-                FundamentalFilter(**f) for f in (previous.get("fundamental_filters") or [])
-            ]
+            existing_filters = fundamental_filters_from_raw(
+                previous.get("fundamental_filters")
+            )
             merged["fundamental_filters"] = [
                 f.model_dump()
                 for f in _merge_fundamental_filters(existing_filters, diff.fundamental_filters)
@@ -3450,6 +3554,38 @@ SECTOR_REASK_SUGGESTIONS = [
     "업종 상관없음",
 ]
 
+# 검색 그라운딩(FR-STR-069)까지 실제 수행됐는데 업종 매핑도, 관련 상장사(테마 유니버스
+# 자동 적용)도 없는 테마 — 오타 정정 되묻기가 아니라 '찾을 수 없어 만들 수 없다'는 종결
+# 안내를 낸다(사용자 결정 2026-07-26: 없는 테마를 억지 매핑하거나 조용히 전체 시장 질문으로
+# 강등하지 않는다). 칩에 '업종 상관없음'은 넣지 않는다 — 이 테마로는 진행 자체가 불가.
+THEME_NOT_FOUND_QUESTION = (
+    "'{term}' 관련 상장사를 확인하지 못했어요. "
+    "관련주를 찾을 수 없어 이 테마로는 전략을 만들 수 없어요. "
+    "다른 테마나 업종을 말씀해 주시면 그 범위로 전략을 만들 수 있어요."
+)
+THEME_NOT_FOUND_SUGGESTIONS = [
+    "반도체 관련주",
+    "이차전지 관련주",
+    "바이오/제약 관련주",
+    "자동차 관련주",
+]
+
+
+def _searched_unresolved_theme_entry(user_prompt: str) -> Optional[dict]:
+    """검색이 실제 수행됐지만(searched_at — 검색 실행 원장) 업종 매핑에 실패한 어휘집 항목.
+
+    검색 자체가 실패한 경우는 어휘집에 저장되지 않으므로(term_grounding 계약) 여기 잡히지
+    않는다 — 그 경우는 기존 되묻기로 폴백해 복구 후 재시도할 수 있다."""
+    try:
+        from engine.term_grounding import lexicon_entry
+
+        entry = lexicon_entry(user_prompt)
+    except Exception:  # noqa: BLE001 — 어휘집 조회 실패가 되묻기 흐름을 막으면 안 된다
+        return None
+    if entry is not None and entry.get("searched_at") and not entry.get("sector"):
+        return entry
+    return None
+
 
 def detect_unresolved_sector_clarification(
     parsed: ParsedStrategy, user_prompt: str = ""
@@ -3457,16 +3593,31 @@ def detect_unresolved_sector_clarification(
     """업종/테마를 언급했지만 지원 섹터로 매핑하지 못했으면 되묻는다(없으면 (None, None)).
 
     parsed.sector가 이미 채워졌으면(결정적 추출·LLM 매핑 성공) 되묻지 않는다. 미해결일
-    때만 수동 안내 대신 능동적으로 정정 기회를 준다(오타·목록 밖 표현)."""
+    때만 수동 안내 대신 능동적으로 정정 기회를 준다(오타·목록 밖 표현).
+
+    검색 그라운딩까지 끝난 용어('리센즈')는 정정 기회가 무의미하다 — 관련주를 찾을 수
+    없어 전략을 만들 수 없다고 종결적으로 알린다(THEME_NOT_FOUND_QUESTION)."""
     if getattr(parsed, "sector", None):
         return (None, None)
     if "sector" not in _mentioned_unsupported_concepts(user_prompt):
         return (None, None)
+    # 테마 유니버스 자동 적용(apply_theme_universe)이 관련 상장사를 이미 설정했으면 테마
+    # 언급은 종목 목록으로 해석이 끝났다 — 되묻기·종결 안내 없이 전략 만들기를 계속한다
+    # ('이재명 관련주' 사고 2026-07-26: 10종목 확정 후에도 업종 되묻기가 떠 흐름이 끊김).
+    if getattr(parsed, "target_symbols", None):
+        return (None, None)
+    entry = _searched_unresolved_theme_entry(user_prompt)
+    if entry is not None:
+        term = entry.get("term") or "말씀하신 테마"
+        return (
+            THEME_NOT_FOUND_QUESTION.format(term=term),
+            list(THEME_NOT_FOUND_SUGGESTIONS),
+        )
     return (SECTOR_REASK_QUESTION, list(SECTOR_REASK_SUGGESTIONS))
 
 
 # 테마 유니버스 되묻기(FR-STR-071) — 칩 왕복 계약에 주의:
-#  · 종목 칩은 종목명 나열 + '종목 전체를 함께'(집합 의도 큐 — detect_symbol_ambiguity 억제)
+#  · 종목 칩은 종목명 나열 + '종목 전체를 함께'(집합 의도 큐)
 #    + 'YYYY년부터'(시점 편향 가드 — _extract_backtest_dates가 startDate로 해석).
 #    '관련주/테마/업종' 단어는 종목 칩에 넣지 않는다(_TARGET_SYMBOL_CONTEXT_GUARD_RE가
 #    종목 추출을 차단해 칩이 무효화된다).
@@ -4025,9 +4176,7 @@ def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrate
     # ('PBR 낮은' 같은 정성 표현은 숫자가 없어 추출되지 않으므로 자연히 LLM/되묻기로 빠진다.)
     extracted_filters = _extract_fundamental_filters(user_input)
     if extracted_filters:
-        existing_filters = [
-            FundamentalFilter(**f) for f in (previous.get("fundamental_filters") or [])
-        ]
+        existing_filters = fundamental_filters_from_raw(previous.get("fundamental_filters"))
         merged_filters = _merge_fundamental_filters(existing_filters, extracted_filters)
         changes["fundamental_filters"] = [f.model_dump() for f in merged_filters]
 
@@ -4061,13 +4210,21 @@ def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrate
     if sector_changed:
         changes["sector"] = sector_value
 
-    # 지정 종목 교체/지정("SK하이닉스로 바꿔줘") — 종목 표면형(등록명·별칭·코드)은 잔여
-    # 판정에서 차감해야 fast-path가 살아남는다(별칭 '하이닉스'는 등록명과 달라 별도 수집).
+    # 지정 종목 교체/지정("SK하이닉스로 바꿔줘")·개별 삭제("현대약품은 빼줘") — 종목
+    # 표면형(등록명·별칭·코드)은 잔여 판정에서 차감해야 fast-path가 살아남는다
+    # (별칭 '하이닉스'는 등록명과 달라 별도 수집). 삭제 판정이 지정/교체보다 우선한다.
     target_vocab: list[str] = []
-    target_refs = _extract_target_symbols(user_input)
-    if target_refs is not None:
-        changes["target_symbols"] = [ref.symbol for ref in target_refs]
-        target_vocab = _target_surface_forms(target_refs)
+    prev_targets = previous.get("target_symbols") or []
+    removal_refs = _removal_mentioned_target_refs(user_input, prev_targets)
+    if removal_refs:
+        removed = {ref.symbol for ref in removal_refs}
+        changes["target_symbols"] = [s for s in prev_targets if s not in removed]
+        target_vocab = _target_surface_forms(removal_refs)
+    else:
+        target_refs = _extract_target_symbols(user_input)
+        if target_refs is not None:
+            changes["target_symbols"] = [ref.symbol for ref in target_refs]
+            target_vocab = _target_surface_forms(target_refs)
 
     max_positions = _extract_max_positions(user_input)
     if max_positions is not None:
@@ -4480,6 +4637,8 @@ def _extract_target_symbols(user_input: str) -> Optional[list]:
     refs = [
         ref for ref in find_in_text(user_input)
         if not ref.overseas
+        # 삭제어 인접 언급("현대약품은 빼줘")은 지정이 아니다 — 새 지정으로 오독 금지.
+        and not _is_removal_mention(compact_input, ref)
         and (
             ref.name not in _COMMON_NOUN_TICKER_NAMES
             or _has_stock_designation_intent(compact_input, ref.name, ref.symbol)
@@ -4503,15 +4662,57 @@ def _target_surface_forms(refs: list) -> list[str]:
     return forms
 
 
+# 종목 개별 삭제 판정("현대약품은 빼줘/빼고/제외") — 종목 표면형 바로 뒤(명사·조사 허용)에
+# 삭제어가 붙어야 한다. 인접 요구가 "현대약품 손절 빼줘"(청산 조건 삭제)와의 혼동을 막는다
+# (섹터 개별 삭제 패턴과 동형, FR-STR-066 ⑦). compact(공백 제거) 기준.
+_TARGET_REMOVE_VERB = r"(?:빼|제외|제거|삭제|지워|없애|없이)"
+
+
+def _is_removal_mention(compact_input: str, ref) -> bool:
+    """종목 언급이 '삭제 대상'으로 쓰였는지(표면형+삭제어 인접) 판정한다."""
+    for form in _target_surface_forms([ref]):
+        if re.search(
+            rf"{re.escape(_compact(form))}(?:종목|주식)?[은는을를도만]?{_TARGET_REMOVE_VERB}",
+            compact_input,
+        ):
+            return True
+    return False
+
+
+def _removal_mentioned_target_refs(user_input: str, previous_targets: list) -> list:
+    """기존 지정 종목 중 삭제어와 인접 언급된 종목 StockRef 목록. 없으면 빈 리스트."""
+    if not previous_targets:
+        return []
+    try:
+        from stock_analysis.symbol_resolver import find_in_text
+    except Exception:
+        return []
+    compact_input = _compact(user_input)
+    prev = set(previous_targets)
+    return [
+        ref for ref in find_in_text(user_input)
+        if not ref.overseas and ref.symbol in prev
+        and _is_removal_mention(compact_input, ref)
+    ]
+
+
 def _target_change_from_utterance(
     user_input: str, previous_targets: Optional[list],
 ) -> tuple[bool, list[str]]:
     """수정/파싱 발화에서 지정 종목 변경을 통합 판정한다(섹터 판정과 동형).
 
+    - 기존 지정 종목의 삭제 발화("현대약품은 빼줘") → (True, 그 종목만 뺀 목록): 개별 삭제
     - 종목 언급 → (True, 코드 목록): 지정/교체
     - 명시적 시장·유니버스 발화("코스닥 전체로", "ETF로") + 종목 언급 없음 → (True, []): 해제
     - 그 외 → (False, 기존 유지)
+
+    삭제 판정이 지정/교체보다 우선한다 — "현대약품은 빼줘"의 종목 언급을 '새 지정'으로
+    오독해 10종목 유니버스가 그 한 종목으로 교체되던 사고(2026-07-26) 방지.
     """
+    removal_refs = _removal_mentioned_target_refs(user_input, previous_targets or [])
+    if removal_refs:
+        removed = {ref.symbol for ref in removal_refs}
+        return True, [s for s in (previous_targets or []) if s not in removed]
     refs = _extract_target_symbols(user_input)
     if refs is not None:
         return True, [ref.symbol for ref in refs]
@@ -4569,37 +4770,9 @@ def apply_single_asset_adjustments(parsed: ParsedStrategy) -> tuple[ParsedStrate
     return parsed, notices
 
 
-_COLLECTIVE_TARGET_CUE_RE = re.compile(r"전체|모두|함께|다같이")
-
-
-def detect_symbol_ambiguity(
-    parsed: ParsedStrategy, user_prompt: str = ""
-) -> tuple[Optional[str], Optional[List[str]]]:
-    """여러 종목이 함께 지정된 경우 임의로 하나를 고르지 않고 되묻는다(FR-STR-068).
-
-    비차단 clarification — 그대로 진행하면 언급된 종목 전체를 함께 백테스트한다.
-    '전체를 함께'처럼 여러 종목을 묶어 지정하는 의도가 발화에 명시돼 있으면 되묻지
-    않는다(테마 종목 칩 왕복 등 — FR-STR-071).
-    """
-    # getattr 방어 — 테스트 스텁·레거시 객체는 유니버스 취급(되묻기 없음).
-    if len(getattr(parsed, "target_symbols", None) or []) <= 1:
-        return (None, None)
-    if user_prompt and _COLLECTIVE_TARGET_CUE_RE.search(_compact(user_prompt)):
-        return (None, None)
-    from stock_analysis.symbol_resolver import resolve_by_symbol
-
-    labels = []
-    suggestions = []
-    for code in parsed.target_symbols:
-        ref = resolve_by_symbol(code)
-        name = ref.name if ref else code
-        labels.append(f"{name}({code})")
-        suggestions.append(f"{name}만으로 백테스트해줘")
-    question = (
-        f"여러 종목({', '.join(labels)})이 함께 언급되었습니다. 한 종목만 테스트하려면 "
-        "종목을 골라 주세요. 그대로 진행하면 언급된 종목 전체를 함께 백테스트합니다."
-    )
-    return (question, suggestions)
+# 복수 지정 종목 '한 종목만 고르기' 되묻기(detect_symbol_ambiguity)는 폐지됐다(사용자 결정
+# 2026-07-26) — 여러 종목이 지정되면 되묻지 않고 전체를 함께 백테스트하며, 축소·교체는
+# 채팅 수정 요청("삼성전자만으로 백테스트해줘"·"현대약품은 빼줘")이 처리한다.
 
 
 def _apply_prompt_overrides(
@@ -5009,9 +5182,10 @@ def detect_missing_entry_clarification(
         return (question, suggestions)
     if parsed.fundamental_filters or parsed.entry_signals or parsed.ranking_metric:
         return (None, None)
-    # 지정 종목(단일 종목) 백테스트는 '종목 선택'이 이미 끝났다 — 진입 규칙이 없으면 매수 후
-    # 보유로 실행 가능하므로(apply_single_asset_adjustments가 안내) "어떤 조건으로 종목을
-    # 선택할까요?"라는 유니버스형 질문을 던지지 않는다(FR-STR-068 — 단일 종목에 무의미).
+    # 지정 종목(단일 종목) 백테스트는 '종목 선택'이 이미 끝났다 — "어떤 조건으로 종목을
+    # 선택할까요?"라는 유니버스형 질문은 무의미하므로 던지지 않는다(FR-STR-068). 매수 시점
+    # 규칙 자체는 여전히 필수이며, 뒤이은 최소 조건 게이트(_missing_backtest_conditions)가
+    # "어떤 조건에서 매수할까요?"로 묻는다.
     if getattr(parsed, "target_symbols", None):
         return (None, None)
     if _mentions_relative_strength_ranking(compact):
@@ -5023,7 +5197,10 @@ def detect_missing_entry_clarification(
 # [정책 2026-07-22] 예전엔 조건이 비어 있어도 "현재 상태로도 실행 가능"으로 진행시켰으나,
 # 사용자가 다섯 최소 조건을 모두 명시하도록 유도하는 방향으로 변경한다. 하나라도 없으면
 # 실행 버튼 대신 채우도록 가이드하는 되묻기를 낸다(프론트는 clarification이면 버튼을 숨김).
-# 진입은 신호뿐 아니라 랭킹·재무필터·지정 종목도 인정한다(사용자 확인 Q2). 청산은 손절/익절과
+# 진입은 신호뿐 아니라 랭킹·재무필터도 인정한다(사용자 확인 Q2). 지정 종목(target_symbols)은
+# 진입으로 인정하지 않는다 — 종목이 정해져도 매수 시점 규칙이 없으면 엔진은 매수를 만들지
+# 않아 0거래가 된다(signals.py: 빈 조건 그룹=all-False). 테마 유니버스 자동 적용(FR-STR-071 ④)이
+# target_symbols를 채우면서 매수 조건 질문이 생략되던 버그(2026-07-25) 수정. 청산은 손절/익절과
 # 별개의 매도 규칙(매도 신호·보유기간·정기 리밸런싱)을 뜻한다.
 # [정책 2026-07-22b] 여러 조건이 한꺼번에 비어 있어도 한 번에 다 묻지 않고 하나씩만 묻는다
 # (사용자 지시). 프론트도 조건이 모두 채워지기 전엔 전략 요약을 만들지 않고, 마지막에만
@@ -5041,7 +5218,6 @@ def _missing_backtest_conditions(parsed: ParsedStrategy) -> list[tuple[str, str,
         parsed.entry_signals
         or parsed.fundamental_filters
         or getattr(parsed, "ranking_metric", None)
-        or getattr(parsed, "target_symbols", None)
     )
     rebal = getattr(parsed, "rebalancing_period", None)
     has_rebalancing = bool(rebal and rebal != "none")

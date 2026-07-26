@@ -84,6 +84,9 @@ export const METRIC_LABELS: Record<string, string> = {
   psr: "PSR",
   ev_ebitda: "EV/EBITDA",
   roe_or_gpa: "ROE",
+  // 레거시 표기(백엔드 별칭 정규화 이전에 저장된 전략)도 라벨 없이 'roe >= 15'로 날것
+  // 노출되지 않게 매핑한다.
+  roe: "ROE",
   roa: "ROA",
   debt_ratio: "부채비율",
   current_ratio: "유동비율",

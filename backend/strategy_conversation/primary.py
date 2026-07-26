@@ -267,6 +267,21 @@ def _diff_fields(before: Dict[str, Any], after: Dict[str, Any]) -> List[str]:
     ]
 
 
+def fast_path_can_handle(user_input: str, previous_parsed: dict) -> bool:
+    """결정론 fast-path(_modify_rule_based)가 이 수정 발화를 완전히 해석하는가?
+
+    예외는 "내 소관 아님"으로 강등한다 — 해석 레이어의 예외가 요청을 죽이지 못하게 한다
+    (오염된 previous_parsed 하나가 이후 모든 수정을 500으로 만들던 2026-07-26 사고).
+    """
+    from engine.nl_parser import _modify_rule_based
+
+    try:
+        return _modify_rule_based(user_input, previous_parsed) is not None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("modify fast-path raised, treating as not-applicable | err=%r", exc)
+        return False
+
+
 def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]]:
     """LLM Interpreter 기본 경로 실행. 성공 시 결과 dict, 폴백 필요 시 None.
 
@@ -328,12 +343,13 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
     # 시총 100조→100억 단위 오류(24-2), 슬리피지 드롭(24-10) 등 인터프리터 LLM의 수치
     # 드리프트가 그대로 노출됐다. 프롬프트에 명시된 값만 덮어쓰므로 인터프리터 해석과
     # 충돌하지 않는다(레거시 LLM 폴백과 같은 계약).
-    from engine.nl_parser import _apply_prompt_overrides
-    compiled_dump = parsed.model_dump()
-    parsed = _apply_prompt_overrides(parsed, user_input)
-    override_diff = _diff_fields(compiled_dump, parsed.model_dump())
-    if override_diff:
-        _log_llm("✓ 결정적 보정", "; ".join(override_diff))
+    if config.prompt_overrides_enabled():
+        from engine.nl_parser import _apply_prompt_overrides
+        compiled_dump = parsed.model_dump()
+        parsed = _apply_prompt_overrides(parsed, user_input)
+        override_diff = _diff_fields(compiled_dump, parsed.model_dump())
+        if override_diff:
+            _log_llm("✓ 결정적 보정", "; ".join(override_diff))
     # 보정이 결정적으로 되살린 진입/청산 조건의 되묻기 질문을 지운다 — 완성 전략을 다시
     # 되묻는 사고 방지(흑자 기업 등 LLM 누락 → eps>0 필터로 복원됐는데 진입 질문 잔존).
     _prune_clarifications_filled_by_overrides(report, parsed)
@@ -424,21 +440,23 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
     except Exception:  # noqa: BLE001 — 비정상 previous는 기존 경로가 처리
         return None
 
-    # 결정적 fast-path가 완전히 해석하는 수정("손절 10%로", 명시적 백테스트 기간 등)은
-    # 인터프리터를 건너뛴다 — 폴백 경로(parse_modification)의 첫 단계가 같은 fast-path라
-    # 즉시 확정된다. LLM 왕복 지연과 수치·날짜 드리프트(오늘 날짜를 모르는 모델이
-    # 과거 연도를 미래로 오판해 종료일을 누락하는 사고 등)를 원천 회피한다
-    # (핵심은 결정적, 긴 꼬리는 LLM).
-    from engine.nl_parser import _modify_rule_based
-    if _modify_rule_based(user_input, previous_parsed) is not None:
-        _log_llm("↩ 폴백", "결정적 fast-path 처리 가능 — 인터프리터 생략")
-        logger.info("modify primary skipped, deterministic fast-path handles input")
-        return None
+    # 해석 권한 순서(STRATEGY_MODIFY_INTERPRETER_MODE):
+    #  · llm_first(기본) — LLM이 최초 해석자다. 결정론 fast-path는 삭제하지 않고 폴백으로
+    #    강등한다(인터프리터가 패치를 못 내거나 검증에 떨어지면 아래에서 폴백 → 호출부의
+    #    parse_modification 첫 단계가 같은 fast-path로 즉답).
+    #  · fast_path_first(롤백) — 기존 동작. fast-path가 완전히 해석하는 수정("손절 10%로")은
+    #    인터프리터를 건너뛴다(LLM 왕복 지연·수치/날짜 드리프트 회피).
+    if config.modify_interpreter_mode() == "fast_path_first":
+        if fast_path_can_handle(user_input, previous_parsed):
+            _log_llm("↩ 폴백", "결정적 fast-path 처리 가능 — 인터프리터 생략")
+            logger.info("modify primary skipped, deterministic fast-path handles input")
+            return None
 
     def _carry_over(parsed):
+        # execution_timing은 BacktestSpec이 표현할 수 있게 되어(2026-07-26) draft로 왕복하므로
+        # 여기서 이월하지 않는다 — 이월하면 "당일 종가로 체결해줘" 같은 수정이 삼켜진다.
         return parsed.model_copy(update={
             "description": prev.description,
-            "execution_timing": prev.execution_timing,
             "entry_filters": prev.entry_filters,
         })
 
@@ -477,10 +495,17 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         return None
 
     intent = result.intent
+    # 인터프리터가 패치를 못 냈는데 결정론 fast-path는 해석할 수 있는 발화면 그쪽에 양보한다
+    # (llm_first에서도 fast-path는 살아 있는 폴백이다 — 4B가 단순 수정을 되묻기·미지원으로
+    # 오판해 확정 가능한 요청을 막는 것을 방지).
+    if not intent.patches and fast_path_can_handle(user_input, previous_parsed):
+        _log_llm("↩ 폴백", "인터프리터 패치 없음 — 결정적 fast-path로 폴백")
+        logger.info("modify primary produced no patches, deferring to deterministic fast-path")
+        return None
     if intent.intent == "CLARIFY_STRATEGY" and not intent.patches and intent.clarification_questions:
         # 되묻기 의도를 폴백으로 버리면 기존 수정 LLM이 무변경 전략을 정상 응답처럼
         # 반환해 질문이 사라진다(2026-07-17 "pbr이 뭐야?" 사고). 결정적 fast-path가
-        # 처리할 수 있는 입력은 상단 게이트가 이미 폴백시켰으므로, 여기 도달한 되묻기는
+        # 처리할 수 있는 입력은 바로 위 폴백 가드가 이미 넘겼으므로, 여기 도달한 되묻기는
         # 단순 수정을 가로막을 수 없다 — 전략을 유지한 채 질문을 채널로 전달한다.
         question, chips = _build_clarification(
             ValidationReport(clarification_questions=intent.clarification_questions),
@@ -577,7 +602,10 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         # 처리하면 지정 종목이 조용히 무시되고 유니버스 전략이 유지된다(FR-STR-068 회귀).
         # [[project_single_asset_backtest]]: 레거시 결정적 오버라이드는 primary에도 미러링.
         from engine.nl_parser import _apply_prompt_overrides
-        det = _apply_prompt_overrides(prev, user_input, preserve_universe=True)
+        det = (
+            _apply_prompt_overrides(prev, user_input, preserve_universe=True)
+            if config.prompt_overrides_enabled() else prev
+        )
         if det.target_symbols != prev.target_symbols or det.sector != prev.sector:
             _log_llm("✓ 결정적 종목/섹터 수정", "인터프리터 무효 패치 — 결정적 오버라이드로 구제")
             return {
@@ -595,6 +623,10 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
                     "confidence": intent.confidence,
                 },
             }
+        # 패치가 전량 거부됐어도 결정론 fast-path가 해석하는 발화면 그쪽으로 폴백한다.
+        if fast_path_can_handle(user_input, previous_parsed):
+            _log_llm("↩ 폴백", "유효 패치 없음 — 결정적 fast-path로 폴백")
+            return None
         # 전량 환각(예: 후속 질문 "다른 예는 없어?"에 임의 패치) — 전략을 그대로 유지하고,
         # 질문성 입력이면 지식 답변을, 아니면 미해석 안내를 전달한다(QA 20-3).
         from api.intent_routes import generate_general_answer
@@ -651,14 +683,15 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         return None
     # 레거시 수정 경로와 동일한 결정적 보정(신호 재검증 생략·universe 보존) — 명시된
     # 수치·날짜·리스크 값은 결정적 추출이 최종 진실이다.
-    from engine.nl_parser import _apply_prompt_overrides
-    compiled_dump = parsed.model_dump()
-    parsed = _apply_prompt_overrides(
-        parsed, user_input, skip_signal_validation=True, preserve_universe=True
-    )
-    override_diff = _diff_fields(compiled_dump, parsed.model_dump())
-    if override_diff:
-        _log_llm("✓ 결정적 보정", "; ".join(override_diff))
+    if config.prompt_overrides_enabled():
+        from engine.nl_parser import _apply_prompt_overrides
+        compiled_dump = parsed.model_dump()
+        parsed = _apply_prompt_overrides(
+            parsed, user_input, skip_signal_validation=True, preserve_universe=True
+        )
+        override_diff = _diff_fields(compiled_dump, parsed.model_dump())
+        if override_diff:
+            _log_llm("✓ 결정적 보정", "; ".join(override_diff))
     final_diff = _diff_fields(prev_dump, parsed.model_dump())
     _log_llm("✓ 수정 완료", f"변경 필드(원본 대비): {'; '.join(final_diff) or '없음'}")
 

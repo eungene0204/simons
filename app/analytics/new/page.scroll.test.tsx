@@ -263,6 +263,46 @@ function createParseStreamResponseWithThemeUniverseReask() {
   );
 }
 
+function createParseStreamResponseWithSectorNotFound() {
+  const encoder = new TextEncoder();
+  const parsed = {
+    ...incompleteParsedStrategy,
+    universe: [],
+    fundamental_filters: [],
+    sector: null,
+  };
+  const notFoundQuestion =
+    "'리센즈' 관련 상장사를 확인하지 못했어요. " +
+    "관련주를 찾을 수 없어 이 테마로는 전략을 만들 수 없어요. " +
+    "다른 테마나 업종을 말씀해 주시면 그 범위로 전략을 만들 수 있어요.";
+  const payload = [
+    `data: ${JSON.stringify({
+      type: "parsed_final",
+      parsed,
+      clarification_question: notFoundQuestion,
+      clarification_suggestions: [
+        "반도체 관련주",
+        "이차전지 관련주",
+        "바이오/제약 관련주",
+        "자동차 관련주",
+      ],
+      clarification_priority: "sector_unresolved",
+    })}\n\n`,
+    `data: ${JSON.stringify({ type: "dsl_ready", backtest_request: incompleteBacktestRequest, symbol_count: 0 })}\n\n`,
+    "data: [DONE]\n\n",
+  ].join("");
+
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(payload));
+        controller.close();
+      },
+    }),
+    { status: 200 }
+  );
+}
+
 function createParseStreamResponseMissingRebalancing() {
   const encoder = new TextEncoder();
   const parsed = {
@@ -599,6 +639,44 @@ describe("StrategyLabPage scroll behavior", () => {
       screen.getByRole("button", { name: "미디어/엔터 업종 전체로 백테스트" }),
     ).toBeInTheDocument();
     // explicit 게이트의 시장 질문이 테마 되묻기를 덮어쓰면 안 된다
+    expect(
+      screen.queryByText("먼저 어떤 시장·종목을 대상으로 할지 정해볼까요?"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("검색으로도 못 찾은 테마(sector_unresolved)는 '전략을 만들 수 없다' 안내를 게이트가 삼키지 않는다", async () => {
+    // '리센즈 관련주' 사고(2026-07-26): 검색 그라운딩까지 관련주를 못 찾아 백엔드가 종결
+    // 안내를 보냈는데, 프론트 explicit 게이트의 시장 질문이 이를 덮어써 테마가 조용히
+    // 일반 시장 질문으로 강등되던 회귀 가드.
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+      if (url === "/api/user") {
+        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+      }
+      if (url === "/api/query/classify") {
+        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+      }
+      if (url === "/api/strategy/parse/stream") {
+        return Promise.resolve(createParseStreamResponseWithSectorNotFound());
+      }
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "리센즈 관련주 투자 하는 전략" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    expect(
+      await screen.findByText(/관련주를 찾을 수 없어 이 테마로는 전략을 만들 수 없어요/),
+    ).toBeInTheDocument();
+    // explicit 게이트의 시장 질문이 종결 안내를 덮어쓰면 안 된다
     expect(
       screen.queryByText("먼저 어떤 시장·종목을 대상으로 할지 정해볼까요?"),
     ).not.toBeInTheDocument();
@@ -1405,6 +1483,72 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/strategy/parse/stream")).toHaveLength(1);
   });
 
+  it("shows a chat-only invitation with the strategy summary card for a symbols-change intent", async () => {
+    // '종목을 변경 할 수 있나?' 사고(2026-07-26): 수정 파싱으로 흘러 무변경 재렌더링+다음
+    // 조건 질문이 뜨던 회귀 가드 — 칩 없이 채팅 입력 안내만 보여주고, '현재까지 이해한
+    // 전략입니다' 요약 카드를 항상 함께 표시한다(사용자 결정).
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+      if (url === "/api/user") {
+        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+      }
+      if (url === "/api/query/classify") {
+        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+      }
+      if (url === "/api/strategy/parse/stream") {
+        return Promise.resolve(createParseStreamResponse());
+      }
+      if (url === "/api/strategy/coach") {
+        return Promise.resolve(createJsonResponse(
+          { message: "코치 응답입니다." },
+          { "X-Coach-Session-Id": "coach-session-1" }
+        ));
+      }
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: {
+        value:
+          "코스피에서 PER 10 이하, 최대 5종목, 매월 리밸런싱, 최근 5년 데이터, 초기 자금 1,000만원 전략 만들어줘",
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    expect(
+      await screen.findByText("코치 응답입니다.", undefined, { timeout: 5000 })
+    ).toBeInTheDocument();
+    const parseCallsBeforeFollowUp = fetchMock.mock.calls.filter(
+      ([input]) => String(input) === "/api/strategy/parse/stream",
+    ).length;
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "종목을 변경 할 수 있나?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    expect(
+      await screen.findByText(/네, 대상 종목은 언제든 바꿀 수 있어요/)
+    ).toBeInTheDocument();
+    // 요약 카드가 안내와 함께 표시된다
+    expect(screen.getByText("현재까지 이해한 전략입니다")).toBeInTheDocument();
+    // 칩 없이 채팅 입력만 — 종목 선택 칩·다음 조건 질문이 뜨면 안 된다
+    expect(screen.queryByText(/만으로 백테스트해줘$/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("다음으로 어떤 조건에서 매수할지 정해볼까요?"),
+    ).not.toBeInTheDocument();
+    // 재파싱 없이 결정론 즉답이어야 한다
+    expect(
+      fetchMock.mock.calls.filter(([input]) => String(input) === "/api/strategy/parse/stream"),
+    ).toHaveLength(parseCallsBeforeFollowUp);
+  });
+
   it("answers a short-term versus long-term comparison without starting the strategy builder", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
@@ -1664,6 +1808,53 @@ describe("strategy builder progress presentation", () => {
     expect(explicitCapitalResult.summaryItems).toContainEqual({
       label: "초기 자본",
       value: "50,000,000원",
+    });
+  });
+
+  it("shows target stock names from backtest_request instead of raw codes", () => {
+    const parsed = {
+      description: "bts 관련 종목 골든크로스 전략",
+      universe: [],
+      target_symbols: ["352820", "035900"],
+      fundamental_filters: [],
+      entry_signals: [{ indicator: "ma_crossover", signal_type: "buy" }],
+      exit_signals: [],
+      max_positions: 10,
+      hold_period_days: null,
+      rebalancing_period: "none",
+      stop_loss_pct: null,
+      take_profit_pct: null,
+      backtest_period: "5y",
+      initial_capital: 10000000,
+    };
+
+    const result = buildBuilderTurnPresentation({
+      state: {},
+      reply: "이제 언제 매도할지 정해볼까요?",
+      parsed,
+      prompt: "bts 관련 종목 골든크로스 전략",
+      backtestRequest: {
+        target_stocks: [
+          { symbol: "352820", name: "하이브" },
+          { symbol: "035900", name: "JYP Ent." },
+        ],
+      },
+    });
+    expect(result.summaryItems).toContainEqual({
+      label: "유니버스",
+      value: "하이브 (352820) · JYP Ent. (035900)",
+    });
+
+    // 요청 정보가 없으면 종전처럼 코드만 표시된다(이름 미해석 폴백).
+    const withoutRequest = buildBuilderTurnPresentation({
+      state: {},
+      reply: "이제 언제 매도할지 정해볼까요?",
+      parsed,
+      prompt: "bts 관련 종목 골든크로스 전략",
+    });
+    expect(withoutRequest.summaryItems).toContainEqual({
+      label: "유니버스",
+      value: "352820 · 035900",
     });
   });
 

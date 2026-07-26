@@ -415,6 +415,59 @@
       "expect": {
         "intent": "EXPLAIN_INDICATOR"
       }
+    },
+    {
+      "id": "backtest-word-is-not-run-request",
+      "category": "same_meaning_different_phrasing",
+      "input": "MACD 골든크로스에 매수하고 MACD 데드크로스에 매도하는 단순 추세 전략을 1년만 백테스트",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "technical.macd"
+        ]
+      }
+    },
+    {
+      "id": "backtest-word-with-dates-is-create",
+      "category": "same_meaning_different_phrasing",
+      "input": "대형주 중에서 골든크로스 매수, RSI 70 이상 매도하고 2002년부터 2008년까지 백테스트",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "technical.ma_crossover",
+          "technical.rsi"
+        ]
+      }
+    },
+    {
+      "id": "run-backtest-without-conditions",
+      "category": "same_meaning_different_phrasing",
+      "input": "이걸로 돌려줘",
+      "expect": {
+        "intent": "RUN_BACKTEST"
+      }
+    },
+    {
+      "id": "unknown-theme-goes-to-sectors",
+      "category": "universe",
+      "input": "마운자로 관련주에 투자하는 전략",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "sectors": [
+          "마운자로"
+        ]
+      }
+    },
+    {
+      "id": "seed-concept-theme-not-unsupported",
+      "category": "universe",
+      "input": "HBM 장비 회사 중에 골든크로스 나오면 매수",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "technical.ma_crossover"
+        ]
+      }
     }
   ]
 }
