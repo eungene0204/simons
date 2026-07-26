@@ -401,6 +401,18 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
             f"'{', '.join(unexplained_drops)}' 조건은 값 확인 전까지 전략에 반영되지 않았어요."
         )
 
+    # Phase 3 shadow: 고정 체인이 해석하지 못한 업종/테마 표현이 있으면 mini-planner를
+    # 관측 전용으로 병행 실행한다(기본 off, STRATEGY_PLANNER_MODE=shadow에서만 동작).
+    try:
+        if validated.strategy is not None and validated.strategy.universe.sectors:
+            from strategy_conversation.planner.shadow import maybe_shadow_plan
+            from strategy_conversation.registry.universe_resolver import resolve_sectors
+
+            _, unresolved_sector_terms = resolve_sectors(validated.strategy.universe.sectors)
+            maybe_shadow_plan(unresolved_sector_terms)
+    except Exception:  # noqa: BLE001 — 관측 실행 실패가 파스를 깨면 안 된다
+        logger.debug("planner shadow launch failed", exc_info=True)
+
     return finalize_user_response({
         "parsed": parsed,
         "clarification_question": clarification_question,

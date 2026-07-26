@@ -671,6 +671,19 @@ Strategy Compiler (compiler/strategy_compiler.py) — 검증 READY만 컴파일(
 ("'종목 추천' 조건은 지원되지 않아요")와 면책 문구('보장하지 않습니다')는 보존한다.
 위반 없는 텍스트는 원문 그대로(무변형), 제거 발생 시 warning 로그로 관측한다.
 
+**Phase 3 — Mini-Planner (planner/, 기본 off)**: 테마/유니버스 해석 구간 한정 동적 도구
+계획. LLM(인터프리터와 같은 `STRATEGY_INTERPRETER_MODEL` 슬롯)이 미해석 테마·업종 표현에
+대해 도구 호출 순서를 결정한다(지식그래프 조회 → 검색 그라운딩 → 되묻기 결정). 안전
+계약은 전부 결정론: ① 화이트리스트 3종(kg_resolve_sector·kg_theme_companies·ground_term)만
+② 스텝 예산(`STRATEGY_PLANNER_MAX_STEPS` 기본 4, 상한 8 클램프)·동일 호출 반복(루프) 즉시
+실패 ③ **finish의 sector·companies는 LLM 주장값이 아니라 도구 관찰값에서만 채택**(근거
+없는 finish는 거부 — 지어내기 구조 차단) ④ planner가 만든 되묻기 질문도 출력 관문 통과
+⑤ 실패는 전부 None → 고정 파이프라인 폴백(planner는 단독 실패 지점이 될 수 없다).
+운영: `STRATEGY_PLANNER_MODE=off(기본)/shadow` — shadow는 `run_primary_parse`에서 고정
+체인이 해석 못 한 업종 표현이 있을 때 백그라운드 스레드로만 실행, JSONL
+(`logs/strategy_planner_shadow.jsonl`: outcome/steps/baseline_sector/latency) 기록. primary
+승격 모드는 아직 없다 — shadow 로그 비교(해석률·되묻기 품질·지연)로 판정한 뒤 별도 결정.
+
 ### 4.3 백테스트 엔진 파이프라인
 
 ```

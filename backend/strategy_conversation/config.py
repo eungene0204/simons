@@ -61,3 +61,23 @@ def shadow_log_path() -> str:
         "STRATEGY_INTERPRETER_SHADOW_LOG",
         os.path.join(os.path.dirname(__file__), "..", "logs", "strategy_interpreter_shadow.jsonl"),
     )
+
+
+# ── Mini-Planner(Phase 3) — 테마/유니버스 해석 구간 한정 동적 도구 계획 ─────────
+# off(기본) / shadow(고정 파이프라인과 병행 관측만). primary 승격은 shadow 로그
+# 비교 판정 후 별도 결정 — 현재 primary 모드는 존재하지 않는다.
+def planner_mode() -> str:
+    mode = os.environ.get("STRATEGY_PLANNER_MODE", "off").strip().lower()
+    return mode if mode in ("off", "shadow") else "off"
+
+
+# planner 루프 스텝 예산(무한 루프 금지). 상한 8로 클램프.
+def planner_max_steps() -> int:
+    return max(1, min(8, int(_env_float("STRATEGY_PLANNER_MAX_STEPS", 4))))
+
+
+def planner_shadow_log_path() -> str:
+    return os.environ.get(
+        "STRATEGY_PLANNER_SHADOW_LOG",
+        os.path.join(os.path.dirname(__file__), "..", "logs", "strategy_planner_shadow.jsonl"),
+    )
