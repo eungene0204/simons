@@ -529,7 +529,8 @@ BacktestRequest → 백테스트 엔진 실행
 ### 4.2.1 LLM-first 전략 대화 아키텍처 (backend/strategy_conversation/, Phase 1: Shadow)
 
 4.2의 rule-first 구조를 장기적으로 대체하기 위한 **LLM-first / Validation-heavy /
-Registry-driven** 파이프라인. 자연어 의미 해석은 LLM(Qwen 3.5 4B)이 전담하고,
+Registry-driven** 파이프라인. 자연어 의미 해석은 LLM(Qwen 3.5 9B,
+`STRATEGY_INTERPRETER_MODEL` 전용 슬롯 — 2026-07-26 4B에서 승격)이 전담하고,
 결정론 코드는 검증·컴파일·실행만 담당한다(Regex는 숫자/날짜/형식 정규화로 제한).
 
 이 역할 분담의 규범 계약은 [`docs/nl_interpretation_contract.md`](nl_interpretation_contract.md)에
@@ -635,6 +636,40 @@ Strategy Compiler (compiler/strategy_compiler.py) — 검증 READY만 컴파일(
   핵심 지표: false assumption rate, missing detection recall, 미지원 오판율.
 - **마이그레이션 단계**: Phase 1 Shadow(현재) → Phase 2 LLM primary + 규칙 파서 폴백 →
   Phase 3 자연어 해석용 Regex/어휘집 제거(Registry·Validator·Compiler는 유지).
+
+### 4.2.2 Tool 레이어 (backend/strategy_conversation/tools/ — Planner→Tool→Responder 전환 Phase 1)
+
+전략 생성을 장기적으로 **Planner → Tool/Engine → Responder** 구조로 전환하기 위한
+도구 경계. 기존 서비스를 타입드 입출력 계약(pydantic — 형식 검증만, 의미 판단 없음)을
+가진 이름 있는 도구로 등록하고, 고정 파이프라인(primary.py)이 이 경계를 통해 호출한다
+(동작 변화 0). 이후 Phase에서 mini-planner(테마/유니버스 해석 구간 한정, 스텝 상한+
+고정 파이프라인 폴백+shadow 비교)가 같은 카탈로그를 소비한다.
+
+| 도구 | 위임 대상 | deterministic |
+|---|---|---|
+| `kg_resolve_sector` | engine/knowledge_graph.resolve_sector_from_text | ✅ |
+| `kg_theme_companies` | engine/knowledge_graph.theme_backtest_companies | ✅ |
+| `ground_term` | engine/term_grounding.resolve_sector (검색·LLM, chat 주입 필수) | ❌ |
+| `resolve_universe` | registry/universe_resolver (sectors+symbols) | ✅ |
+| `lookup_capabilities` | registry/capability_registry 정본 상수 | ✅ |
+| `validate_intent` | validation/pipeline.run_validation | ✅ |
+| `compile_strategy` | compiler(compile_strategy/compile_partial, `partial` 플래그) | ✅ |
+
+- 경계 규칙: 도메인 예외(StrategyCompileError 등)는 전파(폴백 판단은 호출부 소관),
+  `ToolError`는 계약 위반(미등록 이름·입출력 형식)에만. 입출력 검증은 base.py::call 단일
+  진입점이 수행한다.
+- `run_backtest` 도구는 planner가 실제 소비할 Phase에서 추가한다(현재 소비자 없음 — YAGNI).
+
+**Phase 2 — Responder 계약 + 출력 관문 (response/)**: Responder는 구조화된 결과
+(StrategyIntent·ValidationReport·notices·되묻기)만 입력으로 받아 서술한다(원문 해석 금지 —
+`response/__init__.py` 계약). 사용자에게 나가는 자유 텍스트(notices·되묻기 질문·칩)는
+`response/output_guard.py::finalize_user_response`를 반드시 통과한다 — primary.py의 반환
+6곳(초기 파스 1+수정 5)이 배선점이며, planner가 도입돼도 이 관문은 우회 불가가 계약이다.
+관문은 결정론 정규식 문장 제거: 종목 행동 지시·확정 수익(stock_analysis/guardrails.py의
+`_FORBIDDEN` 정본 공유)+전략 대화 고유 위반(전략 추천·우열 판단·시장 전망·성과 기대·보장).
+'추천' 단어 자체는 금지가 아니다 — 시스템이 추천을 **하는** 문장만 제거하고 거절 안내
+("'종목 추천' 조건은 지원되지 않아요")와 면책 문구('보장하지 않습니다')는 보존한다.
+위반 없는 텍스트는 원문 그대로(무변형), 제거 발생 시 warning 로그로 관측한다.
 
 ### 4.3 백테스트 엔진 파이프라인
 

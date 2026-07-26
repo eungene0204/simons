@@ -1449,6 +1449,19 @@ WatchlistSymbol {
 | strategy_conversation 잔여 원문 해석 5곳 제거 (2026-07-26) | 계약 수립 후 재감사에서 새 파이프라인 안에 남아 있던 원문 정규식/어휘 판정 5곳을 전부 LLM 해석(또는 § 3-1 대조/§ 3-2 지식 조회)으로 이관(계약서 § 11-4). ① **패치 환각 게이트** — 필드별 한국어 어휘 목록(`_PATCH_FIELD_CUES`) 발화 스캔 폐기 → **출처 대조**(`_patch_provenance_supported`): `PatchOp.source_text`(신설, LLM이 인용한 원문 조각) 실재 확인(표기 정규화 후 포함 — %↔퍼센트 흡수)+패치 수치의 입력 수치 대조(단위 환산, recall_validator 재사용)+종목 해석 가능성. 프롬프트 규칙 10이 패치별 인용을 계약화(PROMPT_VERSION 1.5), QA 20-3(무근거 패치 거부) 보호 유지 ② **질문 여부 판정** — `is_definition_question`·`is_default_question`·질문 정규식(원문 의도 분류) 제거 → 인터프리터 라벨(`EXPLAIN_INDICATOR`)만 신뢰, 라벨 드리프트는 프롬프트 규칙 10 소관(질문이 unsupported로 오라벨되면 미반영 안내로 강등 — 원문 cue 재해석 금지) ③ **조건 교정** — `_fill_deterministic_condition_params`의 원문 폴백 제거, 조건 `source_text`(LLM 인용)만 입력(52주 신고가 환산·거래량 급증 재분류) ④ **ETF 테마** — 컴파일러의 `extract_etf_theme(user_input)` 원문 추출 폴백 제거, LLM `universe.etf_theme`만(규칙 6-1) ⑤ **수정 fast-path 상담 제거** — llm_first에서 패치 부재·전량 거부 시 `_modify_rule_based`(원문 정규식) 상담하던 2곳 제거, LLM 되묻기가 그대로 전달·전량 환각은 정직한 미해석 안내(롤백 `fast_path_first` 모드에만 잔존). 계약서 § 3-1을 (a) 수치 대조/(b) 출처 대조로 확장, § 11 격차 2 잔여 항목 해소. 테스트: 갱신 7·신규 3(출처 대조 판정·무근거 패치 안내·llm_first 비상담) — 백엔드 2,583 전체 통과 | ✅ 완료 |
 | Phase 3 (향후) | prod shadow diff 누적 관찰(불일치 유형·오류율) + dev primary 실사용 후: **prod primary 전환**(주의: 모든 파스가 Modal 경유 — 콜드스타트 시 첫 파스 수십 초~분, warmup 로직 존재. keep-warm 검토) → 자연어 해석용 Regex·어휘집(`_RULE_GUARD_KNOWN_VOCAB`·미지원 개념 목록·Fidelity Validator) 제거 — Registry·Validator·Compiler·형식 검증 Regex는 유지 | ⬜ 예정 |
 
+### Phase 3.15: Planner → Tool/Engine → Responder 아키텍처 전환 (2026-07-26 결정)
+
+전략 생성을 에이전틱 구조로 점진 전환한다(전면 재작성 금지 — 사용자 합의). 로드맵:
+① 자연어 해석 계약 랜딩(3.14에서 완료) → ② Tool 레이어 공식화 → ③ Responder 계약 분리+규제
+가드 관문 이전 → ④ 테마/유니버스 해석 구간 한정 mini-planner(9B, 스텝 상한+고정 파이프라인
+폴백+shadow 비교) → 검증 후 확대.
+
+| 작업 | 상세 | 상태 |
+|------|------|------|
+| Phase 1: Tool 레이어 공식화 (2026-07-26) | `backend/strategy_conversation/tools/` 신설 — `base.py`(ToolSpec/등록/`call` 단일 진입점: pydantic 입력 형식 검증→실행→출력 계약 확인, 도메인 예외는 전파·`ToolError`는 계약 위반 전용)+`catalog.py`(7종: `kg_resolve_sector`·`kg_theme_companies`·`ground_term`(비결정론, chat 주입 필수)·`resolve_universe`·`lookup_capabilities`·`validate_intent`·`compile_strategy`(partial 플래그)). `primary.py`의 검증·컴파일 호출(초기 파스 2곳+수정 라운드트립·최종 컴파일 3곳)을 tools 경유로 재배선 — **동작 변화 0**(위임만), `run_backtest` 도구는 소비자(planner) 생길 때 추가(YAGNI). 테스트: 신규 13(`test_strategy_tools.py` — 카탈로그 등록·형식 위반 ToolError·도구별 위임·검증→컴파일 관통·부분 컴파일 dropped 보고) — 백엔드 2,604·프론트 1,184 전체 통과. 아키텍처 문서 § 4.2.2 | ✅ 완료 |
+| Phase 2: Responder 계약 분리 + 출력 관문 (2026-07-26) | ① `response/output_guard.py` 신설 — 결정론 규제 관문: 종목 행동 지시·확정 수익(stock_analysis/guardrails `_FORBIDDEN` 정본 공유, 중복 정의 금지)+전략 대화 고유 위반(전략 추천·우열 판단·시장 전망·성과 기대·보장) 문장 단위 제거. **'추천' 단어 자체는 금지 아님** — 시스템이 추천을 하는 문장(추천합니다·권장합니다)만 제거, 거절 안내("'종목 추천' 조건은 지원되지 않아요")·면책 문구('보장하지 않습니다' 부정형 lookahead)는 보존. 위반 없으면 원문 무변형(개행 보존 — 관문이 정상 응답을 변형하면 회귀), 제거 시 warning 로그 ② `finalize_user_response` — clarification_question·suggestions(질문 전체 제거 시 칩도 무효화)·notices 필드 관문, `primary.py` 반환 6곳(초기 파스 1+수정 경로 5: clarify/explain·unsupported/결정적 종목/전량 환각/최종) 배선 — LLM 자유 텍스트(generate_general_answer 설명 답변 포함)가 관문 없이 나가던 경로 봉쇄 ③ Responder 계약 명문화(`response/__init__.py`) — 구조화 결과만 입력(원문 해석 금지), planner 도입 후에도 관문 우회 불가. 입력측 가드(coach `_coach_scope_guard`·상류 분류기)는 별개 표면이라 이동하지 않음(코치 코드 보존 원칙). 테스트: 신규 13(`test_output_guard.py` — 위반 4종 제거·거절 안내/면책/정상 다중행 보존·질문 제거 시 칩 무효화·메타 보존) — 백엔드 2,617·프론트 1,184 전체 통과 | ✅ 완료 |
+| Phase 3: mini-planner (테마/유니버스 해석 한정) | KG 조회→검색 그라운딩→되묻기 결정을 9B가 동적 계획(스텝 상한+실패 시 고정 파이프라인 폴백+shadow 병행 비교, 기존 QA 하니스=acceptance 게이트) | ⬜ 예정 |
+
 ### Phase 4: 미구현 기능 (향후)
 
 | 작업 | 상세 | 우선순위 |

@@ -25,6 +25,7 @@ from strategy_conversation import config
 from strategy_conversation.interpreter.llm_strategy_interpreter import _log_llm
 from strategy_conversation.interpreter.models import StrategyIntent, ValidationReport
 from strategy_conversation.registry.indicator_registry import REGISTRY
+from strategy_conversation.response.output_guard import finalize_user_response
 
 logger = logging.getLogger("strategy_interpreter.primary")
 
@@ -309,16 +310,12 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
            "clarification_suggestions": [str]|None, "notices": [str],
            "interpreter": 관측 메타}
     """
-    from strategy_conversation.compiler.strategy_compiler import (
-        StrategyCompileError,
-        compile_partial,
-        compile_strategy,
-    )
+    from strategy_conversation.compiler.strategy_compiler import StrategyCompileError
     from strategy_conversation.interpreter.llm_strategy_interpreter import (
         InterpreterError,
         StrategyInterpreter,
     )
-    from strategy_conversation.validation.pipeline import run_validation
+    from strategy_conversation.tools import call as call_tool
 
     if on_stage is not None:
         on_stage("thinking")
@@ -334,7 +331,8 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         return None
 
     _fill_deterministic_condition_params(result.intent)
-    validated, report = run_validation(result.intent)
+    validation = call_tool("validate_intent", intent=result.intent)
+    validated, report = validation.intent, validation.report
     _log_llm("✓ 검증", (
         f"status={report.status} 오류={len(report.errors)} 누락={len(report.missing_fields)} "
         f"질문={len(report.clarification_questions)} 미지원={report.unsupported_features or '[]'}"
@@ -347,11 +345,9 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
 
     notices: List[str] = list(report.warnings)
     try:
-        if report.is_valid:
-            parsed = compile_strategy(validated, report, user_input)
-            dropped: List[str] = []
-        else:
-            parsed, dropped = compile_partial(validated, report, user_input)
+        compiled = call_tool("compile_strategy", intent=validated, report=report,
+                             user_input=user_input, partial=not report.is_valid)
+        parsed, dropped = compiled.parsed, compiled.dropped
     except StrategyCompileError as exc:
         logger.warning("interpreter primary compile failed, falling back | err=%s", exc)
         return None
@@ -405,7 +401,7 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
             f"'{', '.join(unexplained_drops)}' 조건은 값 확인 전까지 전략에 반영되지 않았어요."
         )
 
-    return {
+    return finalize_user_response({
         "parsed": parsed,
         "clarification_question": clarification_question,
         "clarification_suggestions": clarification_suggestions,
@@ -419,7 +415,7 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
             "validation_status": report.status,
             "confidence": validated.confidence,
         },
-    }
+    })
 
 
 def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=None) -> Optional[Dict[str, Any]]:
@@ -442,10 +438,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
     description·execution_timing·entry_filters는 StrategySpec 밖이므로 원본에서 이월.
     """
     from engine.nl_parser import ParsedStrategy
-    from strategy_conversation.compiler.strategy_compiler import (
-        StrategyCompileError,
-        compile_strategy,
-    )
+    from strategy_conversation.compiler.strategy_compiler import StrategyCompileError
     from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
     from strategy_conversation.conversation.patch_applier import PatchError, apply_patches
     from strategy_conversation.interpreter.llm_strategy_interpreter import (
@@ -453,7 +446,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         StrategyInterpreter,
     )
     from strategy_conversation.interpreter.models import StrategyIntent as _Intent
-    from strategy_conversation.validation.pipeline import run_validation
+    from strategy_conversation.tools import call as call_tool
 
     try:
         prev = ParsedStrategy.model_validate(previous_parsed)
@@ -484,10 +477,11 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
     draft_spec = decompile_strategy(prev)
     ready_report = ValidationReport(is_valid=True, status="READY")
     try:
-        roundtrip = _carry_over(compile_strategy(
-            _Intent(intent="CREATE_STRATEGY", strategy=draft_spec, confidence=1.0),
-            ready_report, prev.description,
-        ))
+        roundtrip = _carry_over(call_tool(
+            "compile_strategy",
+            intent=_Intent(intent="CREATE_STRATEGY", strategy=draft_spec, confidence=1.0),
+            report=ready_report, user_input=prev.description,
+        ).parsed)
     except StrategyCompileError:
         return None
     prev_dump = prev.model_dump()
@@ -531,7 +525,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         _log_llm("✓ 되묻기", (
             f"질문={len(intent.clarification_questions)} — 전략 유지, clarification 채널로"
         ))
-        return {
+        return finalize_user_response({
             "parsed": prev,
             "clarification_question": question,
             "clarification_suggestions": chips,
@@ -545,7 +539,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
                 "patch_count": 0,
                 "confidence": intent.confidence,
             },
-        }
+        })
     if not intent.patches and (
         intent.intent == "EXPLAIN_INDICATOR" or intent.unsupported_features
     ):
@@ -574,7 +568,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
             f"intent={intent.intent} 질문={is_question} 답변={'있음' if answer else '없음'} "
             f"미지원={intent.unsupported_features or '[]'} — 전략 유지, notices 채널로"
         ))
-        return {
+        return finalize_user_response({
             "parsed": prev,
             "clarification_question": None,
             "clarification_suggestions": None,
@@ -588,7 +582,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
                 "patch_count": 0,
                 "confidence": intent.confidence,
             },
-        }
+        })
     if intent.intent not in ("MODIFY_STRATEGY", "CLARIFY_STRATEGY") or not intent.patches:
         _log_llm("↩ 폴백", f"patches 미출력(intent={intent.intent}) — 기존 수정 경로로")
         logger.info("modify primary without patches (intent=%s), falling back", intent.intent)
@@ -621,7 +615,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         )
         if det.target_symbols != prev.target_symbols or det.sector != prev.sector:
             _log_llm("✓ 결정적 종목/섹터 수정", "인터프리터 무효 패치 — 결정적 오버라이드로 구제")
-            return {
+            return finalize_user_response({
                 "parsed": det,
                 "clarification_question": None,
                 "clarification_suggestions": None,
@@ -635,7 +629,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
                     "patch_count": 0,
                     "confidence": intent.confidence,
                 },
-            }
+            })
         # 전량 환각(예: 후속 질문 "다른 예는 없어?"에 임의 패치) — 전략을 그대로 유지하고
         # 미해석을 정직하게 안내한다(QA 20-3: 임의 변형 차단이 핵심). 과거의 질문 판정
         # 정규식(원문 의도 분류)과 fast-path 상담(원문 파서 상담)은 계약 위반이라 제거했다
@@ -644,7 +638,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
             "요청을 전략 변경으로 해석하지 못해 전략은 그대로 유지했어요. "
             "바꾸고 싶은 조건(예: 손절 10%로, 종목 20개로)을 구체적으로 말씀해 주세요."
         ]
-        return {
+        return finalize_user_response({
             "parsed": prev,
             "clarification_question": None,
             "clarification_suggestions": None,
@@ -658,7 +652,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
                 "patch_count": 0,
                 "confidence": intent.confidence,
             },
-        }
+        })
     _log_llm("✓ 패치 수락", "; ".join(
         f"{p.op} {p.path}={_short(p.value)}" for p in cued_patches
     ))
@@ -674,7 +668,8 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         confidence=intent.confidence, unsupported_features=intent.unsupported_features,
     )
     _fill_deterministic_condition_params(modify_intent)
-    validated, report = run_validation(modify_intent)
+    validation = call_tool("validate_intent", intent=modify_intent)
+    validated, report = validation.intent, validation.report
     _log_llm("✓ 검증", (
         f"status={report.status} patches={len(cued_patches)} "
         f"오류={len(report.errors)} 미지원={report.unsupported_features or '[]'}"
@@ -685,7 +680,10 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
                     report.status)
         return None
     try:
-        parsed = _carry_over(compile_strategy(validated, report, prev.description))
+        parsed = _carry_over(call_tool(
+            "compile_strategy", intent=validated, report=report,
+            user_input=prev.description,
+        ).parsed)
     except StrategyCompileError as exc:
         logger.warning("modify primary compile failed, falling back | err=%s", exc)
         return None
@@ -703,7 +701,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
     final_diff = _diff_fields(prev_dump, parsed.model_dump())
     _log_llm("✓ 수정 완료", f"변경 필드(원본 대비): {'; '.join(final_diff) or '없음'}")
 
-    return {
+    return finalize_user_response({
         "parsed": parsed,
         "clarification_question": None,
         "clarification_suggestions": None,
@@ -717,7 +715,7 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
             "patch_count": len(cued_patches),
             "confidence": intent.confidence,
         },
-    }
+    })
 
 
 _interpreter_singleton = None
