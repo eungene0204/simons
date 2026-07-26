@@ -446,8 +446,19 @@ LLM 재생성
    ~~남은 항목: `_fill_deterministic_condition_params(intent, user_input)`도 원문을 읽는다.~~
    → **해소(2026-07-26, § 11-4)**: 조건 `source_text`(LLM 인용)만 읽는다 — 원문 폴백 제거.
 
-3. **`intent/strategy_builder.py` (원문 대상 정규식 ~108곳)**
+3. **`intent/strategy_builder.py` (원문 대상 정규식 ~108곳)** — **C안으로 재정의(2026-07-26 사용자 결정)**
    빌더 단계 진행·삭제·정정 판정이 전부 결정적 정규식이다.
+   사용자 결정(C안): **칩 클릭·현재 질문에 대한 값 답변("10프로")의 결정적 처리는
+   제한된 답의 형식 정규화로 보고 목표 상태에 포함한다(위반 아님)** — 자유 서술
+   해석만 LLM으로 점진 이관한다.
+   **Phase 1 완료(2026-07-26)**: `intent/builder_interpreter.py` — 결정적 레이어가
+   아무것도 해석하지 못한 자유 서술을 LLM이 제한된 ops JSON(set/remove/reopen)으로
+   해석 → 결정적 검증(필드 화이트리스트·enum·값 범위·수치 대조·source_text 인용
+   실재·삭제=채워진 필드만) → 기존 patch 계약 적용. LLM 실패·검증 전탈락은 기존
+   미인식 안내 유지(원문 재해석 폴백 없음). **미인식 표현에 regex를 추가하는 것은
+   금지 — 긴 꼬리의 해석 책임은 이 레인에 있다.** 롤백=`BUILDER_FREETEXT_MODE=deterministic`.
+   잔여(Phase 2, 후속): 기존 결정적 자유 서술 큐 레이어(삭제·정정·SET-ahead 등
+   FR-SA-002e)의 해석 권한 역전 — LLM 레인 실사용·QA 축적 후 판정.
 
 4. ~~**StrategyIntent에 지정 종목 필드 부재**~~ — **해소(2026-07-26, 1a+4)**
    `UniverseSpec.symbols` 신설 + `registry/universe_resolver.py`가 LLM이 뽑은
@@ -456,9 +467,10 @@ LLM 재생성
    덮어쓰므로(2번), 원문 정규식이 침묵할 때만 LLM 경로가 확정한다.
 
 5. **모드 게이팅**
-   `.env`의 `STRATEGY_INTERPRETER_MODE=primary`는 dev 전용이며, 기본값은 `off`
-   (= 규칙 파서 우선 하이브리드). 계약을 프로덕션 진실로 만들려면 이 기본값 승격이
-   전제다.
+   ~~`.env`의 `STRATEGY_INTERPRETER_MODE=primary`는 dev 전용이며, 기본값은 `off`~~
+   → **해소(2026-07-26, 로드맵 5번)**: 코드 기본값을 `primary`로 승격. 명시적 env가
+   계속 우선하므로 prod는 `.env`의 `shadow`가 유지된다(prod primary 전환은 Modal
+   콜드스타트·keep-warm 검토와 함께 별도 결정). 롤백=env를 `off`로.
 
 ### § 11-2. 보정 제거(2+1b) — 2026-07-26 전환 완료
 
@@ -539,8 +551,10 @@ ON/OFF 통과시킨 결과. 기준은 `qa_complex_llm_parse.py`의 `expect`.
 **롤백**: `STRATEGY_PROMPT_OVERRIDE_MODE=on`. 탈출구가 조용히 썩지 않도록
 `test_strategy_conversation.py`에 롤백 가드 테스트를 유지한다.
 
-**프로덕션 영향 없음**: `STRATEGY_INTERPRETER_MODE` 코드 기본값이 아직 `off`라
-prod는 레거시 파서 경로다. 이번 전환은 dev(primary)에서 즉시 체감된다.
+**프로덕션 영향 없음**: 당시 `STRATEGY_INTERPRETER_MODE` 코드 기본값이 `off`라
+prod는 레거시 파서 경로였다. 이번 전환은 dev(primary)에서 즉시 체감된다.
+(기본값은 2026-07-26 로드맵 5번에서 `primary`로 승격 — prod는 명시적 `shadow` env가
+계속 우선한다.)
 
 **부수 성과** — 보정이 가리고 있던 결함 4종을 찾아 양쪽 경로 모두에서 수정했다
 (미러 청산 가드 오폭, 표준값 파라미터 조건 드롭, `execution_timing` 스키마 공백,
@@ -572,6 +586,23 @@ prod는 레거시 파서 경로다. 이번 전환은 dev(primary)에서 즉시 �
 (마운자로→바이오/제약, HBM 장비 회사→반도체, 2차전지→이차전지). 미해결은 복합 테마구
 가드('2차전지 소부장')와 검색 실패 테마('리센즈')로, 둘 다 의도된 동작이다.
 
+**전환 실행(2026-07-26) — primary 초기 파스 레인 완료**:
+`primary._resolve_sector_terms_term_in` — 컴파일 후 리졸버가 못 푼 `universe.sectors`
+표현만 입력으로 받아 ① KG 테마 상장사(`apply_theme_companies`, `apply_theme_universe`에서
+큐 게이트 없이 분리한 코어) 자동 적용 ② 검색 그라운딩 학습(`ground_term` 도구,
+`_ground_sector_term` — 원문 큐 게이트 없음: '미해결 표현' 판정은 리졸버가 이미 내림)
+후 테마 재조회→섹터 병합 ③ 끝까지 미해결이면 되묻기(검색 소진 테마는 THEME_NOT_FOUND
+종결 안내), `clarification_priority=sector_unresolved` 유지. 이에 따라 primary 초기
+파스는 `_build_parse_result`의 원문 스캔(`apply_theme_universe`·
+`detect_unresolved_sector_clarification`, `scan_prompt_for_sector=False`)과 파싱 전
+어휘집 학습(`_learn_unknown_sector_term`)을 타지 않는다. 해석 실패 보고에도 원문 테마
+스캔을 적용하지 않는다(실패가 전략처럼 위장 방지). 회귀:
+`tests/test_sector_term_in_chain.py`.
+
+**잔여(의도적)**: 폐기 대상 함수·큐 정규식은 레거시 레인이 off/shadow의 기본 경로인
+동안 유지(1d 재정의 — 삭제 아님·사용 중지, 코드는 롤백용 보존). 수정(modify) 레인·빌더(`strategy_builder`)의 원문 학습·테마
+조회는 단계 3에서 같은 패턴으로 이관.
+
 ### § 11-4. `strategy_conversation/` 잔여 원문 해석 제거 — 2026-07-26 완료
 
 계약 수립 후 재감사에서 새 파이프라인 안에 남아 있던 원문 정규식/어휘 판정 5곳을
@@ -588,6 +619,27 @@ LLM 해석(또는 § 3-1 대조 / § 3-2 지식 조회)으로 이관했다.
 의도적으로 남긴 것: 롤백 knob 2종(`STRATEGY_PROMPT_OVERRIDE_MODE=on`,
 `fast_path_first`)과 레거시 폴백 계층(§ 11 격차 1·3 — 1c에서 차단).
 
+### § 11-5. 정규식 폴백 차단 (1c) — 2026-07-26 완료
+
+"폴백은 자연어 재해석이 아니라 실패 보고"(§ 8-1)를 초기 파스 레인까지 적용해,
+LLM 실패 시 원문 정규식이 재해석자로 나서던 폴백을 모두 차단했다.
+
+| 지점 | 이전(위반) | 이후 |
+|---|---|---|
+| 초기 파스 인터프리터 실패 | primary 모드에서 `run_primary_parse`가 None이면 `parser.parse()`(규칙 하이브리드)로 폴백 — LLM 실패가 원문 정규식 재해석으로 이어짐 | 실패 보고(`interpretation_failed` 되묻기)로 종결. 규칙 하이브리드는 primary가 꺼진 환경(off/shadow)의 기본 경로로만 동작 |
+| 인터프리터 전송 오류 | 연결 장애도 None으로 삼켜 규칙 파서 폴백 → LLM 폴백 재시도 끝에 503 | None으로 위장하지 않고 그대로 던진다 — main의 503 경로(`_is_llm_connection_error`)가 처리(수정 레인 llm_first와 동일 계약) |
+| LLM 구조화 출력 불량 | `parse()`가 ValidationError/JSON 부재 시 `_build_fallback_strategy`(원문 정규식 전체 추출)로 전략을 조립 — LLM 해석 폐기+조용한 오해석의 근원 | 예외를 그대로 올려 호출부가 실패 보고(되묻기) 또는 503으로 변환. `_build_fallback_strategy` 함수 삭제(부활 방지 테스트 포함) |
+
+수정(modify) 레인의 동형 차단은 § 11-4 "막은 구멍 3"에서 선완료. 회귀 가드:
+`tests/test_parse_fallback_blocked.py`.
+
+의도적으로 남긴 것(폴백이 아니라 primary/롤백):
+- primary가 꺼진 환경(off/shadow)의 규칙 하이브리드 — 기본 경로(5번 승격·1d 이관 전까지)
+- 롤백 knob 2종과 그 안의 결정적 원문 해석(`fast_path_first`의 `_modify_rule_based` 선점,
+  `STRATEGY_PROMPT_OVERRIDE_MODE=on`의 `_apply_prompt_overrides`)
+- 룰 파스 LLM 검증 미가용 시 룰 파스 원본 유지(graceful degrade) — 규칙이 primary인
+  경로의 검증 강등이지 정규식 재해석 폴백이 아님
+
 ### 마이그레이션 순서
 
 1번(`nl_parser.py`)은 독립 순번이 없다 — 나머지가 끝나면 남는 잔여물이며, 성격이 다른
@@ -600,12 +652,16 @@ LLM 해석(또는 § 3-1 대조 / § 3-2 지식 조회)으로 이관했다.
 2'b      인터프리터 모델 슬롯 + 9B 승격                          ✅ 완료 (2026-07-26)
 2  + 1b  인터프리터 경로에서 보정 제거(기본값 off)               ✅ 완료 (2026-07-26)
          함수 삭제는 레거시 파서가 쓰는 한 불가 — 1c 이후
-5        STRATEGY_INTERPRETER_MODE 기본값 primary 승격            ⬜ ← 다음
-   (관찰) prod 지연·드리프트 실측
-1c       _parse_rule_based_strategy·_modify_rule_based 폴백 차단  ⬜
-1c'      KG 입력 계약 text-in → term-in (§ 11-3)                  ⬜ ← 1c 이후(폐기 대상을 구 파서가 씀)
-3        strategy_builder.py 동일 패턴 반복                       ⬜
-1d       ParsedStrategy를 engine/strategy_dsl.py로 분리 + 잔여 삭제 ⬜
+5        STRATEGY_INTERPRETER_MODE 기본값 primary 승격            ✅ 완료 (2026-07-26 — 명시적 env 우선, prod=shadow 유지)
+   (관찰) prod 지연·드리프트 실측 → prod primary 전환 판정        ⬜ ← 다음 (keep-warm 검토 포함)
+1c       _parse_rule_based_strategy·_modify_rule_based 폴백 차단  ✅ 완료 (2026-07-26, § 11-5 — 5번보다 먼저 랜딩)
+1c'      KG 입력 계약 text-in → term-in (§ 11-3)                  ✅ 완료 (2026-07-26 — primary 초기 파스 레인. 폐기 대상 삭제·수정/빌더 레인은 1d·3에서)
+3        strategy_builder.py 동일 패턴 반복 (C안 재정의)          🔶 Phase 1 완료 (2026-07-26 — 미해석 자유 서술 LLM 레인. 권한 역전은 실사용 후)
+1d       레거시 해석 경로 '사용 중지' (2026-07-26 재정의)          ⬜ ← prod .env를 primary로 전환하면 완료
+         · 사용자 결정: 레거시 파서 코드는 **삭제하지 않고 보존**한다(롤백 전용 —
+           off/shadow 모드로만 도달). "코드는 그대로 두고 사용만 하지 않는다."
+         · Modal scale-to-zero 유지(테스트 단계 — 콜드스타트 첫 파스 ~2분 수용,
+           keep-warm 불요). 구 계획의 'ParsedStrategy 분리+잔여 삭제'는 폐기.
 ```
 
 이 문서는 **새로 작성·수정하는 코드가 따라야 할 기준선**이며, § 9 체크리스트가 그 게이트다.

@@ -3672,12 +3672,23 @@ def apply_theme_universe(parsed: ParsedStrategy, user_prompt: str = "") -> Optio
     if not (_THEME_UNIVERSE_CUE_RE.search(_compact(user_prompt))
             or _compound_theme_hint(user_prompt) is not None):
         return None
+    return apply_theme_companies(parsed, user_prompt)
+
+
+def apply_theme_companies(parsed: ParsedStrategy, lookup_text: str) -> Optional[str]:
+    """테마 관련 검증 상장사 조회·적용 코어(큐 게이트 없음 — § 3-2 지식 조회).
+
+    lookup_text는 레거시 레인에선 사용자 원문(apply_theme_universe가 큐 게이트 후 위임),
+    인터프리터 레인에선 LLM이 universe.sectors로 뽑은 짧은 표현이다(§ 11-3 term-in).
+    반환: 안내 notice 문구 | None(미적용)."""
+    if getattr(parsed, "target_symbols", None):
+        return None
     # 학습 앵커는 Concept Universe(FR-STR-072) 확장 뷰로 조회한다 — 직접 학습 엣지 몇 건이
     # 컨셉 유니버스를 대표하지 못하던 'bts 관련 종목' 사고 2차(2026-07-25) 배선.
     from engine.knowledge_graph import theme_backtest_companies
 
     try:
-        theme = theme_backtest_companies(user_prompt)
+        theme = theme_backtest_companies(lookup_text)
     except Exception:  # noqa: BLE001 — 테마 조회 실패가 파싱을 막으면 안 된다
         return None
     if theme is None:

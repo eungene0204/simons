@@ -13,10 +13,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Callable, List, Optional, Union
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger("strategy_builder")
 
 Universe = str  # "KOSPI" | "KOSDAQ" | "KOSPI200" | "KOSPI_KOSDAQ"
 StrategyType = str  # "momentum" | "breakout" | "volume_spike" | "mean_reversion" | "custom"
@@ -2042,6 +2045,9 @@ def step(
     text: str,
     risk_extractor: Optional[Callable[[str], dict]] = None,
     sector_resolver: Optional[Callable[[str], Optional[str]]] = None,
+    freetext_interpreter: Optional[
+        Callable[[str, BuilderState], Optional[tuple[dict, list]]]
+    ] = None,
 ) -> StepResult:
     """빌더 모드의 한 턴을 처리한다.
 
@@ -2052,6 +2058,10 @@ def step(
     때 호출하는 LLM 보강 파서(text -> 청산 필드 dict). None이면 정규식만으로 동작한다.
     sector_resolver: 결정적 정규화가 실패한 업종/테마 언급을 정본 업종으로 매핑하는 LLM
     해석기(text -> 정본 섹터명|None). None이거나 실패하면 미지원 안내로 폴백한다.
+    freetext_interpreter: 결정적 레이어가 아무것도 해석하지 못한 자유 서술을 해석하는
+    LLM 레인((text, state) -> (patch, notes)|None — intent/builder_interpreter, 계약
+    단계 3 C안). None/실패면 기존 미인식 안내를 유지한다. 미인식 표현에 regex를
+    추가하는 대신 이 레인이 긴 꼬리를 맡는다.
     """
     if not (text or "").strip():
         notice, reask, state = _consume_sector_notice(state, sector_resolver)
@@ -2208,6 +2218,21 @@ def step(
         _, sug = next_question(state)
         return StepResult(state=state, reply=RISK_REQUIRED_REPLY, suggestions=sug, status="collecting")
 
+    # 자유 서술 LLM 해석(계약 단계 3 C안, 2026-07-26): 결정적 레이어가 아무것도 해석하지
+    # 못한 자유 텍스트만 LLM 레인으로 넘긴다 — 칩·값 답변은 위의 결정적 형식 정규화가
+    # 이미 즉답했다. LLM 실패/무해석은 기존 미인식 안내 유지(원문 재해석 폴백 없음).
+    # 자유 서술 진입 규칙 단계(entry_rule)는 입력 전체가 값이므로 제외.
+    llm_notes: list[str] = []
+    if (freetext_interpreter is not None and expecting != "entry_rule"
+            and not patch and not removal_patch and not vl_patch and not conflict_note):
+        try:
+            interpreted = freetext_interpreter(text, state)
+        except Exception:  # noqa: BLE001 — LLM 장애가 빌더 턴을 죽이면 안 된다
+            logger.warning("builder freetext interpreter failed", exc_info=True)
+            interpreted = None
+        if interpreted is not None:
+            patch, llm_notes = interpreted
+
     recognized = bool(patch) or bool(removal_patch) or bool(vl_patch) or bool(conflict_note)
     new_state = state.model_copy(update={**removal_patch, **vl_patch, **patch})
     # 삭제로 청산 값이 모두 사라졌으면 청산 단계를 다시 연다(청산은 필수 — FR-SA-002e).
@@ -2228,7 +2253,7 @@ def step(
     # (전략 요약 카드 + 검증이 곧 확인 단계이므로 별도 텍스트 요약은 중복이다.)
     if required_missing(new_state) is None:
         return StepResult(state=new_state, status="confirmed", prompt=synthesize_prompt(new_state),
-                          notices=[n for n in [notice, *removal_notes, *vl_notes,
+                          notices=[n for n in [notice, *removal_notes, *vl_notes, *llm_notes,
                                                conflict_note, *risk_range_notes] if n])
 
     # 미인식/범위 밖 입력 안내 — 같은 질문을 말없이 반복하지 않는다(BF-09/15).
@@ -2247,7 +2272,7 @@ def step(
         new_state = new_state.model_copy(update={"miss_streak": 0})
 
     msg, sug = next_question(new_state, just_filled=just_filled)
-    prefix_parts = [n for n in [notice, *removal_notes, *vl_notes, conflict_note] if n]
+    prefix_parts = [n for n in [notice, *removal_notes, *vl_notes, *llm_notes, conflict_note] if n]
     if patch and risk_range_notes:  # 일부 값만 유효했던 경우 제외된 값의 사유를 알린다
         prefix_parts.extend(risk_range_notes)
     if hint:

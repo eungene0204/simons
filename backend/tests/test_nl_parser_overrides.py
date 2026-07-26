@@ -1935,29 +1935,6 @@ def test_parse_modification_fundamental_filter_replaces_same_metric(monkeypatch)
     assert filters == {("pbr", "<=", 1.0)}
 
 
-def test_parse_falls_back_when_llm_output_fails_validation(monkeypatch):
-    """LLM이 스키마 위반 JSON을 내면 500 대신 결정론 폴백으로 전환한다.
-
-    회귀: 복잡한 서술형 전략에서 LLM이 description 누락·잘못된 enum(biweekly/2y)·
-    null 배열을 내 ValidationError가 parse()에서 재발생 → 프로덕션 500.
-    """
-    parser = NLStrategyParser(backend="ollama")
-    # 룰베이스가 처리하지 못하게 강제 → LLM 경로로 진입
-    monkeypatch.setattr("engine.nl_parser._parse_rule_based_strategy", lambda _u: None)
-
-    def _bad_llm(_user_input):
-        ParsedStrategy.model_validate({})  # 필수 필드(description 등) 누락 → ValidationError
-
-    monkeypatch.setattr(parser, "_parse_ollama", _bad_llm)
-
-    parsed = parser.parse("코스피200에서 분위기 좋은 종목 알아서 담는 전략, 최대 8종목, 초기자금 2억원")
-
-    # 결정론 폴백이 구체 파라미터를 정확히 복구
-    assert parsed.universe == ["KOSPI200"]
-    assert parsed.max_positions == 8
-    assert parsed.initial_capital == 200_000_000.0
-
-
 def test_parse_modification_falls_back_when_llm_diff_fails_validation(monkeypatch):
     """Keep the previous strategy without reinterpretation when the LLM diff is invalid."""
     parser = NLStrategyParser(backend="ollama")
@@ -2135,12 +2112,28 @@ def test_sector_removal_regex_ignores_symbol_exclusion_requests():
     assert _SECTOR_REMOVE_RE.search(_compact("섹터 필터 지워줘"))
 
 
-def test_build_fallback_strategy_handles_vague_prompt_without_crashing():
-    parsed = _build_fallback_strategy("좋은 저평가 전략 만들어줘")
+def test_parse_raises_on_invalid_llm_output_instead_of_regex_fallback(monkeypatch):
+    """LLM 구조화 출력 불량 시 원문 정규식 폴백(_build_fallback_strategy, 2026-07-26 제거)
+    대신 예외를 올린다 — 호출부(main)가 실패 보고(되묻기)로 변환한다(계약 § 8, 1c)."""
+    from engine import nl_parser as nl
+    from pydantic import ValidationError as _VE
 
-    assert parsed.description == "좋은 저평가 전략 만들어줘"
-    assert parsed.universe == ["KOSPI200"]
-    assert parsed.max_positions == 10
+    monkeypatch.setattr(nl, "_parse_rule_based_strategy", lambda _ui: None)
+    parser = NLStrategyParser(backend="ollama")
+
+    def _bad_llm(_ui):
+        ParsedStrategy.model_validate({})  # 빈 출력 → ValidationError
+
+    monkeypatch.setattr(parser, "_parse_ollama", _bad_llm)
+    with pytest.raises(_VE):
+        parser.parse("좋은 저평가 전략 만들어줘")
+
+    monkeypatch.setattr(
+        parser, "_parse_ollama",
+        lambda _ui: (_ for _ in ()).throw(ValueError("no JSON object found")),
+    )
+    with pytest.raises(ValueError):
+        parser.parse("좋은 저평가 전략 만들어줘")
 
 
 # ─── 상대강도(수익률 순위) 랭킹 파싱 테스트 ─────────────────────────────────
@@ -2430,7 +2423,10 @@ def test_operating_margin_without_threshold_removes_substitute_and_asks_percenta
 
 def test_operating_margin_with_threshold_becomes_entry_without_clarification():
     prompt = "영업이익률 15% 이상인 주식을 사는 전략"
-    parsed = _build_fallback_strategy(prompt)
+    parsed = ParsedStrategy(
+        description=prompt,
+        fundamental_filters=_extract_fundamental_filters(prompt),
+    )
 
     question, suggestions = detect_missing_entry_clarification(parsed, prompt)
 
@@ -3605,7 +3601,7 @@ def test_parse_routes_to_llm_when_guard_rejects(monkeypatch):
         parser, "chat",
         lambda *a, **k: '{"decision": "fallback_llm_parse", "confidence": 0.3, "reason": "x"}',
     )
-    sentinel = _build_fallback_strategy("LLM 경로 결과")
+    sentinel = ParsedStrategy(description="LLM 경로 결과")
     monkeypatch.setattr(parser, "_parse_ollama", lambda _ui: sentinel)
     result = parser.parse("골든크로스 매수, 데드크로스 매도, 손절 8%, 어쩌고저쩌고특별한무언가")
     # 룰 파스였다면 description=원문 프롬프트. LLM 경로 sentinel의 description이 보존되면 폴백됨.

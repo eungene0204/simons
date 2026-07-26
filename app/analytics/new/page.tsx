@@ -142,6 +142,11 @@ interface ChatMessage {
   // 미설정이면 기본 '분석 중...'을 표시한다(빌더/분류 등 비파싱 로딩).
   loadingStage?: "parsing" | "thinking" | "validating" | "searching" | "kg_lookup";
   error?: string;
+  // 파싱 실패 시 같은 턴을 다시 실행할 수 있는 '다시 시도' 버튼용 컨텍스트.
+  // LLM 콜드스타트(scale-to-zero, 첫 파스 ~2분)로 스트림이 타임아웃에 끊긴 경우가 주 대상 —
+  // 재시도 시점엔 서버가 웜 상태라 두 번째 시도는 수 초 안에 끝난다.
+  retryPrompt?: string;
+  retryAssumptions?: StrategyAssumptions;
   infoText?: string;  // 일반 투자 답변 또는 전략 전환 안내
   infoSuggestions?: string[];  // 전략 빌더 옵션 칩(클릭 시 그 답으로 전송)
   builderQuestion?: boolean;  // 복원 후에도 진행 중인 빌더 질문임을 식별
@@ -2264,6 +2269,15 @@ function StrategyLabContent() {
       }
     }
 
+    // 결과(parsed_final) 없이 스트림이 끝났다 = 프록시/서버 타임아웃으로 끊긴 것
+    // (LLM 콜드스타트 ~101s vs 프록시 스트림 예산 120s). 조용히 로딩 상태로 방치하지
+    // 않고 오류로 승격해 '다시 시도' 버튼이 뜨게 한다 — 재시도 시점엔 웜 상태라 빠르다.
+    if (!parsedPayload) {
+      throw new Error(
+        "분석 서버 응답이 시간 안에 도착하지 않았어요. 서버가 준비 중일 수 있으니 잠시 후 다시 시도해 주세요.",
+      );
+    }
+
     if (shouldRouteSingleAssetToBuilder && finalizedParsed) {
       builderModeRef.current = true;
       await startStrategyBuilder({
@@ -2710,7 +2724,12 @@ function StrategyLabContent() {
           turnDecision.strategyAssumptions,
         );
       } catch (e: any) {
-        updateLastAssistant({ isLoading: false, error: e.message ?? "알 수 없는 오류" });
+        updateLastAssistant({
+          isLoading: false,
+          error: e.message ?? "알 수 없는 오류",
+          retryPrompt: turnDecision.strategyPrompt,
+          retryAssumptions: turnDecision.strategyAssumptions,
+        });
       } finally {
         setIsSending(false);
       }
@@ -2799,7 +2818,18 @@ function StrategyLabContent() {
       }
     } catch (e: any) {
       setMessages(prev => prev.map((m, i) =>
-        i === prev.length - 1 ? { role: "assistant", error: e.message ?? "알 수 없는 오류" } : m
+        i === prev.length - 1
+          ? {
+              role: "assistant",
+              error: e.message ?? "알 수 없는 오류",
+              ...(turnDecision.action === "parse_strategy"
+                ? {
+                    retryPrompt: turnDecision.strategyPrompt,
+                    retryAssumptions: turnDecision.strategyAssumptions,
+                  }
+                : {}),
+            }
+          : m
       ));
     } finally {
       setIsSending(false);
@@ -2807,6 +2837,49 @@ function StrategyLabContent() {
   };
 
   handleSendRef.current = handleSend;
+
+  // 파싱 실패(주로 LLM 콜드스타트 타임아웃)의 '다시 시도' — 사용자 버블을 중복 추가하지
+  // 않고 오류 버블을 로딩 버블로 되돌린 뒤 같은 턴을 재실행한다. 분류는 건너뛴다(실패한
+  // 턴이 이미 parse_strategy로 판정된 상태의 재실행이므로).
+  const handleRetryParse = async (message: ChatMessage) => {
+    const retryPrompt = message.retryPrompt;
+    if (!retryPrompt || isSending || stage === "running") return;
+    const currentParsed = latestParsedRef.current ?? latestParsed;
+    const currentBacktestReq = backtestReqRef.current ?? backtestReq;
+    setIsSending(true);
+    // 오류 버블이 마지막이면 그 자리를 로딩 버블로 되돌리고, 아니면(뒤에 대화가 이어진
+    // 경우) 새 로딩 버블을 추가한다 — runStrategyParseFlow는 항상 마지막 assistant
+    // 버블을 갱신하므로 로딩 버블이 마지막임을 보장해야 한다.
+    setMessages(prev => {
+      const last = prev[prev.length - 1];
+      const loading: ChatMessage = { role: "assistant", isLoading: true, loadingStage: "parsing" };
+      if (last?.role === "assistant" && last.error) {
+        return prev.map((m, i) => (i === prev.length - 1 ? loading : m));
+      }
+      return [...prev, loading];
+    });
+    try {
+      await runStrategyParseFlow(
+        retryPrompt,
+        currentParsed,
+        currentBacktestReq,
+        message.retryAssumptions,
+      );
+    } catch (e: any) {
+      setMessages(prev => prev.map((m, i) =>
+        i === prev.length - 1
+          ? {
+              role: "assistant",
+              error: e.message ?? "알 수 없는 오류",
+              retryPrompt,
+              retryAssumptions: message.retryAssumptions,
+            }
+          : m
+      ));
+    } finally {
+      setIsSending(false);
+    }
+  };
 
   const handleGoogleStart = async () => {
     if (isStartingGoogleLogin || !isSupabaseConfigured()) return;
@@ -3580,6 +3653,17 @@ function StrategyLabContent() {
                             <div className="flex-1 space-y-1">
                               <p className="text-xs font-black text-[var(--error-red)]">오류 발생</p>
                               <p className="text-xs font-bold text-[var(--text-label)]">{msg.error}</p>
+                              {msg.retryPrompt && (
+                                <button
+                                  onClick={() => void handleRetryParse(msg)}
+                                  disabled={isSending}
+                                  data-testid="parse-retry"
+                                  className="mt-2 flex items-center gap-1.5 rounded-lg border border-[var(--chat-line)] bg-[var(--chat-surface)] px-3 py-1.5 text-xs font-black text-[var(--text-strong)] transition-colors duration-200 hover:brightness-110 active:translate-y-[1px] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
+                                >
+                                  <ArrowsClockwise size={12} weight="bold" />
+                                  다시 시도
+                                </button>
+                              )}
                             </div>
                           </div>
                         )}

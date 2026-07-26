@@ -2952,11 +2952,18 @@ def parse_nl_strategy(request: NLParseRequest):
 
 
 def _build_parse_result(request: NLParseRequest, backend: str, parsed, validation_report,
-                        *, load_ms: float, parse_ms: float, request_started: float) -> dict:
+                        *, load_ms: float, parse_ms: float, request_started: float,
+                        scan_prompt_for_sector: bool = True) -> dict:
     """parsed(ParsedStrategy)로부터 응답 payload를 구성한다.
 
     인라인 경로(_run_nl_parse)와 후행 검증 경로(_complete_deferred_validation)가 공유한다 —
     교정된 전략도 하한선 보정·DSL 변환·되묻기 감지를 동일하게 거치게 하기 위한 추출.
+
+    scan_prompt_for_sector: False면 원문 섹터/테마 스캔(apply_theme_universe·
+    detect_unresolved_sector_clarification)을 건너뛴다 — 인터프리터 primary 레인은
+    LLM이 뽑은 표현의 term-in 체인(§ 11-3, primary._resolve_sector_terms_term_in)이
+    담당하고, 해석 실패 결과에 원문 스캔이 전략을 만들어 붙이면 실패 의미가 왜곡된다.
+    레거시 레인(off/shadow 기본 경로·후행 검증)만 True를 유지한다(1d 이관 대상).
     """
     from engine.nl_parser import (
         apply_single_asset_adjustments,
@@ -2985,7 +2992,7 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 테마 관련 검증 상장사 자동 적용(FR-STR-071 ④ 개정, 사용자 결정 2026-07-25) —
     # 되묻기 없이 target_symbols를 설정하고 근거·시점 정보를 비차단 notices로 알린다.
     # DSL 변환(to_backtest_request) 전에 실행해야 지정 종목 모드로 심볼이 해석된다.
-    theme_notice = apply_theme_universe(parsed, request.prompt)
+    theme_notice = apply_theme_universe(parsed, request.prompt) if scan_prompt_for_sector else None
     if theme_notice:
         notices.append(theme_notice)
     # 지정 종목(단일 종목) 백테스트: 청산 조건 누락을 추천 기본값/안내로 보정한다(FR-STR-068).
@@ -3007,13 +3014,18 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 언급한 업종/테마를 지원 섹터로 매핑하지 못했으면 조용히 전체 시장으로 강등하지 않고
     # 되묻는다(오타 '재약주'→'제약주'·목록 밖 표현 정정 기회). 되묻기로 능동 처리하는 경우
     # 수동 안내에서 'sector'를 빼 중복(안내 + 질문)을 피한다.
-    sector_reask_q, sector_reask_s = detect_unresolved_sector_clarification(parsed, request.prompt)
+    if scan_prompt_for_sector:
+        sector_reask_q, sector_reask_s = detect_unresolved_sector_clarification(parsed, request.prompt)
+    else:
+        sector_reask_q, sector_reask_s = None, None
     # 미지원 개념(배당·섹터·변동성 등)은 LLM 폴백조차 스키마가 표현 불가라 조용히
     # 누락/유사 해석될 수 있다 → 침묵 왜곡 대신 비차단 안내로 알린다. 테마 자동 적용이
     # 관련 상장사를 확정한 경우(theme_notice)에도 'sector'를 뺀다 — '설정했어요' 안내와
-    # '지원되지 않아요' 안내가 한 응답에 공존하는 모순 방지.
+    # '지원되지 않아요' 안내가 한 응답에 공존하는 모순 방지. 원문 섹터 스캔을 끈 레인은
+    # term-in 체인이 섹터 처리의 단일 권위라 항상 'sector'를 뺀다(중복 안내 방지).
     unsupported_notice = build_unsupported_concept_notice(
-        request.prompt, exclude={"sector"} if (sector_reask_q or theme_notice) else None
+        request.prompt,
+        exclude={"sector"} if (sector_reask_q or theme_notice or not scan_prompt_for_sector) else None,
     )
     if unsupported_notice:
         notices.append(unsupported_notice)
@@ -3215,9 +3227,12 @@ def _interpretation_failure_result(request: NLParseRequest, backend: str, reques
         else:
             parsed = ParsedStrategy(description=request.prompt)
             question, chips = _INTERPRETATION_FAILURE_CREATE_MESSAGE, None
+        # 실패 보고에 원문 섹터/테마 스캔을 적용하지 않는다 — 해석 실패 결과에 테마
+        # 상장사가 자동 적용되면 실패가 전략처럼 위장된다(§ 11-3).
         result = _build_parse_result(
             request, backend, parsed, None,
             load_ms=0.0, parse_ms=0.0, request_started=request_started,
+            scan_prompt_for_sector=False,
         )
     except Exception as exc:  # noqa: BLE001 — 되묻기 구성도 실패하면 호출부가 500으로
         print(f"[NL-PARSE] 해석 실패 되묻기 구성 실패(무시): {exc!r}", flush=True)
@@ -3292,8 +3307,14 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
         load_ms = round((time.perf_counter() - load_started) * 1000, 2)
         # 어휘 밖 업종/테마 사전 학습(FR-STR-069) — 큐가 있는데 결정적 추출이 실패한 입력만
         # 검색 그라운딩으로 학습한다(어휘집 캐시 — 같은 용어 재검색 없음). 학습되면 아래
-        # 파싱(규칙·인터프리터·수정 모두)의 결정적 섹터 추출이 그대로 해석한다.
-        grounding_notice = _learn_unknown_sector_term(request.prompt, parser, on_stage=on_stage)
+        # 파싱(규칙·수정)의 결정적 섹터 추출이 그대로 해석한다.
+        # primary '초기 파스'는 이 원문 스캔 학습을 건너뛴다 — 인터프리터가 뽑은 미해결
+        # 표현만 term-in으로 학습한다(§ 11-3, primary._ground_sector_term). 수정 레인은
+        # 결정적 섹터 배선이 학습 어휘를 소비하므로 유지(단계 3 이관 대상).
+        from strategy_conversation.primary import primary_enabled as _primary_on
+        grounding_notice = None
+        if request.previous_parsed or not _primary_on():
+            grounding_notice = _learn_unknown_sector_term(request.prompt, parser, on_stage=on_stage)
         parse_started = time.perf_counter()
         # 룰베이스 파싱 결과의 LLM 검증 리포트(on_validation 콜백으로 수집). 스레드 로컬한
         # holder라 동시 요청 간 경합이 없다.
@@ -3419,6 +3440,10 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
         result = _build_parse_result(
             request, backend, parsed, validation_report,
             load_ms=load_ms, parse_ms=parse_ms, request_started=request_started,
+            # 인터프리터 primary '초기 파스'는 원문 섹터/테마 스캔 대신 term-in 체인
+            # (§ 11-3)이 섹터 처리를 담당한다. 레거시 레인과 수정 레인(term-in 체인 미배선,
+            # 단계 3 이관 대상)은 원문 스캔을 유지한다.
+            scan_prompt_for_sector=(not primary_holder) or bool(request.previous_parsed),
         )
         if primary_holder:
             from strategy_conversation.primary import apply_primary_meta

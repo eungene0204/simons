@@ -82,7 +82,9 @@ class InterpreterResult:
 def _default_ollama_chat(model: str) -> ChatFn:
     """기존 파서와 동일한 콜드스타트 내성 Ollama 호출(warm-up + 재시도 재사용)."""
 
-    def chat(system_prompt: str, user_message: str) -> str:
+    # 공유 chat 계약은 (system_prompt, user_msg, *, max_tokens) -> str — term_grounding
+    # 등 소비자가 max_tokens를 넘긴다(미수용 시 TypeError로 검색 그라운딩 전체가 침묵 실패).
+    def chat(system_prompt: str, user_message: str, *, max_tokens: int | None = None) -> str:
         import urllib.request
 
         from engine.nl_parser import (
@@ -101,7 +103,8 @@ def _default_ollama_chat(model: str) -> ChatFn:
             "stream": False,
             "think": False,
             "format": "json",
-            "options": {"temperature": 0, "num_ctx": _OLLAMA_NUM_CTX, "num_predict": 2048},
+            "options": {"temperature": 0, "num_ctx": _OLLAMA_NUM_CTX,
+                        "num_predict": max_tokens or 2048},
         }).encode()
         _ollama_ensure_warm()
         req = urllib.request.Request(

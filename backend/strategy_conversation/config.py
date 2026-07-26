@@ -20,9 +20,12 @@ def _env_float(name: str, default: float) -> float:
 # LLM 출력 복구 재시도 횟수(무한 재시도 금지)
 MAX_REPAIR_ATTEMPTS = int(_env_float("STRATEGY_INTERPRETER_MAX_REPAIRS", 1))
 
-# 운영 모드: off(기본) / shadow(기존 파서와 병행 실행 + diff 로그) / primary(Phase 2)
+# 운영 모드: primary(기본) / shadow(기존 파서와 병행 실행 + diff 로그) / off(레거시 하이브리드)
+# 2026-07-26 기본값 승격(로드맵 5번): 계약(docs/nl_interpretation_contract.md)상 자연어
+# 해석의 주체는 LLM 인터프리터다 — 기본값 off는 규칙 파서를 기본 해석자로 두는 과도기
+# 상태였다. 명시적 env(prod=shadow 등)는 계속 우선한다. 롤백=이 env를 off로.
 def interpreter_mode() -> str:
-    return os.environ.get("STRATEGY_INTERPRETER_MODE", "off").strip().lower()
+    return os.environ.get("STRATEGY_INTERPRETER_MODE", "primary").strip().lower()
 
 
 # 수정(modify) 경로의 해석 권한 순서:

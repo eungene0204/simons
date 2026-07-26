@@ -1,10 +1,12 @@
 """Primary Mode (Phase 2) — LLM Interpreter를 초기 파스의 기본 경로로 승격.
 
 STRATEGY_INTERPRETER_MODE=primary일 때 main.py 초기 파스가 이 모듈을 먼저 시도한다.
-None을 반환하면 호출부가 기존 규칙 파서 경로(하이브리드)로 폴백한다:
+None은 실패 보고다 — 호출부는 규칙 파서로 재해석하지 않고 되묻기(interpretation_failed)로
+끝낸다(계약 § 8 "폴백은 자연어 재해석이 아니라 실패 보고", 1c 폴백 차단, 2026-07-26):
   - LLM 호출/JSON 복구 실패
   - 전략 파이프라인 대상이 아닌 intent(비전략·설명·추천 요청 — 상류 분류기 소관)
   - strategy 본문 없음 / 컴파일 실패
+LLM 서버 연결 장애는 None으로 삼키지 않고 던진다(main의 503 경로 소관).
 
 READY면 전체 컴파일, NEEDS_CLARIFICATION이면 **미확정 조건을 제외한 부분 컴파일**
 (조용한 기본값 확정 금지) + 되묻기 질문·추천값 칩을 기존 clarification 채널로 전달.
@@ -405,9 +407,36 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
     # 보정이 결정적으로 되살린 진입/청산 조건의 되묻기 질문을 지운다 — 완성 전략을 다시
     # 되묻는 사고 방지(흑자 기업 등 LLM 누락 → eps>0 필터로 복원됐는데 진입 질문 잔존).
     _prune_clarifications_filled_by_overrides(report, parsed)
-    # 보정이 섹터를 해석했으면(검색 그라운딩 학습분 포함) 같은 테마를 가리키는 미지원
-    # 안내도 지운다 — "'마운자로 관련주'는 반영되지 않았어요"가 반영된 전략과 모순.
-    if parsed.sector and report.unsupported_features:
+    # § 11-3 (1c′, 2026-07-26): 미해결 업종/테마 표현의 term-in 해석 체인.
+    # 입력은 원문이 아니라 LLM이 universe.sectors로 뽑은 표현 중 리졸버가 못 푼 것만
+    # (§ 3-2 지식 조회). 체인: KG 테마 상장사 → 검색 그라운딩 학습 → 되묻기/종결 안내.
+    # 레거시 레인의 원문 스캔(apply_theme_universe·detect_unresolved_sector_clarification·
+    # 파싱 전 어휘집 학습)은 off/shadow 기본 경로에만 남는다(1d 이관 대상).
+    # 이 위치(미지원 프루닝·target_symbols 질문 프루닝 앞)여야 학습된 섹터·적용된 테마
+    # 종목이 아래 프루닝에 반영된다.
+    sector_question: Optional[str] = None
+    sector_suggestions: Optional[List[str]] = None
+    unresolved_sector_terms: List[str] = []
+    if validated.strategy.universe.sectors:
+        from strategy_conversation.registry.universe_resolver import resolve_sectors
+
+        _, unresolved_sector_terms = resolve_sectors(validated.strategy.universe.sectors)
+    if unresolved_sector_terms:
+        # Phase 3 shadow: mini-planner 관측 실행(기본 off, STRATEGY_PLANNER_MODE=shadow) —
+        # 학습 전 상태를 관측하도록 term-in 체인보다 먼저 띄운다(비차단 스레드).
+        try:
+            from strategy_conversation.planner.shadow import maybe_shadow_plan
+
+            maybe_shadow_plan(unresolved_sector_terms)
+        except Exception:  # noqa: BLE001 — 관측 실행 실패가 파스를 깨면 안 된다
+            logger.debug("planner shadow launch failed", exc_info=True)
+        sector_question, sector_suggestions = _resolve_sector_terms_term_in(
+            parsed, unresolved_sector_terms, notices, on_stage=on_stage,
+        )
+    # 보정·term-in 체인이 섹터를 해석했으면(검색 그라운딩 학습분·테마 상장사 적용 포함)
+    # 같은 테마를 가리키는 미지원 안내도 지운다 — "'마운자로 관련주'는 반영되지 않았어요"가
+    # 반영된 전략과 모순.
+    if (parsed.sector or parsed.target_symbols) and report.unsupported_features:
         from engine.nl_parser import _extract_sector
         report.unsupported_features = [
             f for f in report.unsupported_features if _extract_sector(f) is None
@@ -422,6 +451,13 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         ]
 
     clarification_question, clarification_suggestions = _build_clarification(report, validated)
+    clarification_priority = None
+    if sector_question is not None:
+        # 종목 범위(유니버스/섹터)는 진입 조건보다 선행 결정 사항 — 미해결 업종 질문이
+        # 조건 질문보다 우선하고, 우선순위 마커로 프론트 explicit 게이트 삼킴을 막는다
+        # (레거시 sector_reask와 동일 계약).
+        clarification_question, clarification_suggestions = sector_question, sector_suggestions
+        clarification_priority = "sector_unresolved"
     if report.unsupported_features:
         features = ", ".join(_humanize_features(report.unsupported_features))
         notices.append(
@@ -437,22 +473,11 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
             f"'{', '.join(unexplained_drops)}' 조건은 값 확인 전까지 전략에 반영되지 않았어요."
         )
 
-    # Phase 3 shadow: 고정 체인이 해석하지 못한 업종/테마 표현이 있으면 mini-planner를
-    # 관측 전용으로 병행 실행한다(기본 off, STRATEGY_PLANNER_MODE=shadow에서만 동작).
-    try:
-        if validated.strategy is not None and validated.strategy.universe.sectors:
-            from strategy_conversation.planner.shadow import maybe_shadow_plan
-            from strategy_conversation.registry.universe_resolver import resolve_sectors
-
-            _, unresolved_sector_terms = resolve_sectors(validated.strategy.universe.sectors)
-            maybe_shadow_plan(unresolved_sector_terms)
-    except Exception:  # noqa: BLE001 — 관측 실행 실패가 파스를 깨면 안 된다
-        logger.debug("planner shadow launch failed", exc_info=True)
-
     return finalize_user_response({
         "parsed": parsed,
         "clarification_question": clarification_question,
         "clarification_suggestions": clarification_suggestions,
+        "clarification_priority": clarification_priority,
         "notices": notices,
         "interpreter": {
             "mode": "primary",
@@ -464,6 +489,119 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
             "confidence": validated.confidence,
         },
     })
+
+
+def _resolve_sector_terms_term_in(
+    parsed: Any,
+    unresolved_terms: List[str],
+    notices: List[str],
+    on_stage=None,
+) -> tuple[Optional[str], Optional[List[str]]]:
+    """미해결 업종/테마 표현(LLM 추출)을 지식 조회 체인으로 해석한다(§ 11-3 term-in).
+
+    표현별 체인: ① KG 테마 상장사(apply_theme_companies) — 검증 상장사를 지정 종목으로
+    자동 적용(FR-STR-071 ④와 동일 계약, 입력만 원문→표현) ② 검색 그라운딩 학습
+    (ground_term 도구) 후 테마 재조회→섹터 병합 ③ 끝까지 미해결이면 되묻기 —
+    검색이 실제 수행됐지만 실패한 테마는 종결 안내(THEME_NOT_FOUND).
+    parsed는 제자리 변형(target_symbols/sector), 안내는 notices에 덧붙인다.
+    반환: (질문, 칩) — 전부 해석됐으면 (None, None)."""
+    from engine.nl_parser import (
+        SECTOR_REASK_QUESTION,
+        SECTOR_REASK_SUGGESTIONS,
+        THEME_NOT_FOUND_QUESTION,
+        THEME_NOT_FOUND_SUGGESTIONS,
+        apply_theme_companies,
+    )
+
+    still_unresolved: List[str] = []
+    for term in unresolved_terms:
+        theme_notice = apply_theme_companies(parsed, term)
+        if theme_notice:
+            _log_llm("✓ 테마 상장사", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
+            notices.append(theme_notice)
+            continue
+        learned = _ground_sector_term(term, on_stage=on_stage)
+        if learned:
+            # 학습이 테마 앵커를 만들었으면 상장사 적용이 우선(레거시 학습→테마 순서와 동일),
+            # 아니면 업종 근사로 병합한다.
+            theme_notice = apply_theme_companies(parsed, term)
+            if theme_notice:
+                _log_llm("✓ 검색 학습→테마", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
+                notices.append(theme_notice)
+            else:
+                _merge_learned_sector(parsed, learned)
+                _log_llm("✓ 검색 학습", f"'{term}' → 섹터 '{learned}'")
+                notices.append(
+                    f"'{term}'은(는) 인터넷 검색으로 확인해 '{learned}' 업종 관련으로 "
+                    "해석했어요. 다른 업종을 원하시면 말씀해 주세요."
+                )
+            continue
+        still_unresolved.append(term)
+    if not still_unresolved:
+        return None, None
+    term = still_unresolved[0]
+    entry = _searched_unresolved_lexicon_entry(term)
+    if entry is not None:
+        _log_llm("✗ 테마 종결", f"'{term}' — 검색 소진, 전략 불가 안내")
+        return (
+            THEME_NOT_FOUND_QUESTION.format(term=entry.get("term") or term),
+            list(THEME_NOT_FOUND_SUGGESTIONS),
+        )
+    _log_llm("? 업종 되묻기", f"미해결 표현: {', '.join(still_unresolved)}")
+    return SECTOR_REASK_QUESTION, list(SECTOR_REASK_SUGGESTIONS)
+
+
+def _ground_sector_term(term: str, on_stage=None) -> Optional[str]:
+    """표현 하나를 검색 그라운딩으로 학습한다(ground_term 도구 — 어휘집→KG→내부 LLM→검색).
+
+    레거시 파싱 전 학습(_learn_unknown_sector_term)과 달리 원문 큐 게이트가 없다 —
+    '미해결 업종 표현'이라는 판정을 리졸버가 이미 내렸다. 검색 자격 증명이 없으면
+    침묵한다(레거시와 동일 게이트). 실패는 None(되묻기 소관)."""
+    from engine.term_grounding import search_available
+
+    if not search_available():
+        return None
+    if on_stage is not None:
+        on_stage("searching")
+    try:
+        from strategy_conversation.planner.shadow import _default_chat
+        from strategy_conversation.tools import call as call_tool
+
+        return call_tool("ground_term", text=term, chat=_default_chat()).sector
+    except Exception:  # noqa: BLE001 — 그라운딩 실패가 파스를 깨면 안 된다
+        logger.debug("sector term grounding failed | term=%r", term, exc_info=True)
+        return None
+    finally:
+        if on_stage is not None:
+            on_stage("thinking")
+
+
+def _merge_learned_sector(parsed: Any, sector: str) -> None:
+    """학습된 정본 섹터를 sector 필드 계약(None/str/list, FR-STR-066 ⑦)대로 병합한다.
+
+    시장(universe)은 건드리지 않는다 — 시장 선택은 인터프리터 LLM 소유(universe.markets)로
+    해석 시점에 이미 결정됐고, 표현의 해석 성공 여부와 무관하다."""
+    current = getattr(parsed, "sector", None)
+    if current is None:
+        parsed.sector = sector
+    elif isinstance(current, str):
+        if current != sector:
+            parsed.sector = [current, sector]
+    elif sector not in current:
+        parsed.sector = [*current, sector]
+
+
+def _searched_unresolved_lexicon_entry(term: str) -> Optional[dict]:
+    """검색이 실제 수행됐지만(searched_at 원장) 업종 매핑에 실패한 어휘집 항목(term-in)."""
+    try:
+        from engine.term_grounding import lexicon_entry
+
+        entry = lexicon_entry(term)
+    except Exception:  # noqa: BLE001 — 어휘집 조회 실패가 되묻기 흐름을 막으면 안 된다
+        return None
+    if entry is not None and entry.get("searched_at") and not entry.get("sector"):
+        return entry
+    return None
 
 
 def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=None) -> Optional[Dict[str, Any]]:
@@ -823,6 +961,10 @@ def apply_primary_meta(result: dict, primary: Dict[str, Any]) -> None:
     if primary["clarification_question"] and not result.get("clarification_priority"):
         result["clarification_question"] = primary["clarification_question"]
         result["clarification_suggestions"] = primary["clarification_suggestions"]
+        # term-in 체인의 미해결 업종 질문(§ 11-3)은 우선순위 마커까지 이월한다 —
+        # 프론트 explicit 설정 게이트가 질문을 삼키지 않게(레거시 sector_reask와 동일 계약).
+        if primary.get("clarification_priority"):
+            result["clarification_priority"] = primary["clarification_priority"]
     elif primary["interpreter"]["mode"] in ("primary_modify_explain", "primary_modify_unsupported", "primary_modify_rejected_patches"):
         # 전략 무변경 + 설명/미반영 안내 응답 — 프롬프트의 지표 언급("pbr이 뭐야?")에 반응한
         # 기존 되묻기("PBR은 몇 이하로 할까요?")는 설명·안내와 모순되므로 억제한다.

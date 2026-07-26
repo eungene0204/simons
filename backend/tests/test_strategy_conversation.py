@@ -862,9 +862,14 @@ def test_primary_interpreter_error_falls_back(monkeypatch):
 
 
 def test_primary_mode_gated_by_env(monkeypatch):
+    """2026-07-26 기본값 승격(로드맵 5번): env 미설정=primary, 명시적 off/shadow가 우선."""
     from strategy_conversation.primary import primary_enabled
 
     monkeypatch.delenv("STRATEGY_INTERPRETER_MODE", raising=False)
+    assert primary_enabled()
+    monkeypatch.setenv("STRATEGY_INTERPRETER_MODE", "off")
+    assert not primary_enabled()
+    monkeypatch.setenv("STRATEGY_INTERPRETER_MODE", "shadow")
     assert not primary_enabled()
     monkeypatch.setenv("STRATEGY_INTERPRETER_MODE", "primary")
     assert primary_enabled()

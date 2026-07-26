@@ -139,6 +139,7 @@ Python 백엔드는 `backend/db.py`(psycopg v3 어댑터, sqlite3와 유사한 �
 | `NL_OLLAMA_MODEL` | 파서/코치용 모델 — Modal이 서빙 중인 모델명과 반드시 동일(4B) |
 | `SUMMARIZE_OLLAMA_MODEL` | AI 리포트(백테스트 총평) 전용 모델(9B). 미설정 시 `NL_OLLAMA_MODEL`로 폴백. Modal `MODELS`에 포함돼야 함 |
 | `STRATEGY_INTERPRETER_MODEL` | 전략 인터프리터(strategy_conversation) 전용 모델(9B). 미설정 시 `NL_OLLAMA_MODEL`(4B)로 폴백 — shadow/primary 모두 이 슬롯을 읽으므로 prod에 명시 필수 |
+| `STRATEGY_INTERPRETER_MODE` | 초기 파스 해석 주체. **코드 기본값 `primary`(2026-07-26 승격)** — prod도 `primary`(2026-07-26 사용자 결정: 레거시 파서는 코드 보존·사용 중지, 테스트 단계라 scale-to-zero 유지 — 콜드스타트 시 첫 파스 ~2분 수용, keep-warm 불요). `shadow`(레거시가 응답+LLM 관측)·`off`(레거시 전용)는 롤백용 |
 | `DATABASE_URL` / `DIRECT_URL` | Supabase Postgres (transaction/session pooler) |
 | `NEWSV2_PG_PASSWORD` | 로컬 news_v2 Postgres 컨테이너 비밀번호 |
 | `KRX_API_KEY` | KRX 시세 |

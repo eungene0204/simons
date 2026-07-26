@@ -59,7 +59,7 @@ def test_step_stream_emits_searching_stage_before_result(monkeypatch):
             time.sleep(0.25)  # 폴링(0.1s) 주기가 stage 전환을 확실히 관측하도록
             return None
 
-        return None, sector_resolver
+        return None, sector_resolver, None
 
     monkeypatch.setattr(intent_routes, "_builder_llm_helpers", fake_helpers)
     # '원자로 관련주' — 결정적 섹터 어휘 밖이라 sector_unresolved로 resolver가 호출된다
@@ -86,7 +86,7 @@ def test_step_stream_emits_kg_lookup_stage_before_result(monkeypatch):
             time.sleep(0.25)  # 폴링(0.1s) 주기가 stage 전환을 확실히 관측하도록
             return None
 
-        return None, sector_resolver
+        return None, sector_resolver, None
 
     monkeypatch.setattr(intent_routes, "_builder_llm_helpers", fake_helpers)
     with _client().stream(

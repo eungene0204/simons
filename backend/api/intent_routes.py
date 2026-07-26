@@ -96,13 +96,15 @@ class BuilderStepRequest(BaseModel):
     seed_parsed: Optional[dict] = None
 
 
-def _run_builder_step(state, input_text, risk_extractor, sector_resolver) -> strategy_builder.StepResult:
+def _run_builder_step(state, input_text, risk_extractor, sector_resolver,
+                      freetext_interpreter=None) -> strategy_builder.StepResult:
     """빌더 한 턴을 처리하고, 완성(confirmed)되면 DSL을 직접 구성해 붙인다.
 
     [전략별 특화 빌더] 한국어 재파싱 왕복 대신 build_parsed_strategy로 ParsedStrategy를
     직접 만들어(파라미터 유실 방지) 기존 to_backtest_request로 요청까지 생성한다. custom
     유형은 DSL을 만들 수 없어 parsed=None → 프론트가 prompt 재파싱 경로로 폴백한다."""
-    result = strategy_builder.step(state, input_text, risk_extractor, sector_resolver)
+    result = strategy_builder.step(state, input_text, risk_extractor, sector_resolver,
+                                   freetext_interpreter)
     if result.status == "confirmed":
         parsed = strategy_builder.build_parsed_strategy(result.state)
         if parsed is not None:
@@ -123,12 +125,15 @@ async def strategy_builder_step(req: BuilderStepRequest) -> strategy_builder.Ste
         if req.seed:
             state = strategy_builder.seed_state(req.seed)
         state = strategy_builder.apply_parsed_seed(state, req.seed_parsed)
-    risk_extractor, sector_resolver = _builder_llm_helpers()
-    return await asyncio.to_thread(_run_builder_step, state, req.input, risk_extractor, sector_resolver)
+    risk_extractor, sector_resolver, freetext_interpreter = _builder_llm_helpers()
+    return await asyncio.to_thread(
+        _run_builder_step, state, req.input, risk_extractor, sector_resolver, freetext_interpreter
+    )
 
 
 def _builder_llm_helpers(on_search=None, on_kg_lookup=None):
-    """빌더 스텝용 LLM 헬퍼 쌍 → (risk_extractor, sector_resolver). LLM 없으면 (None, None).
+    """빌더 스텝용 LLM 헬퍼 → (risk_extractor, sector_resolver, freetext_interpreter).
+    LLM 없으면 (None, None, None).
 
     청산 조건 자유 입력·미해결 업종 언급은 공유 LLM 파서로 보강·해석한다.
     업종 해석은 어휘집 → 내부 지식 LLM → 인터넷 검색 그라운딩 체인(FR-STR-069) —
@@ -137,7 +142,7 @@ def _builder_llm_helpers(on_search=None, on_kg_lookup=None):
     실제 진입 시 1회 호출된다(SSE 경로의 '검색 중...' 진행 표시). on_kg_lookup은 개념
     해석 체인 진입 시 1회 호출된다('개념 확인 중...' 표시 — 검색 진입 시 on_search가 대체)."""
     if not _llm_available():
-        return None, None
+        return None, None, None
     from engine.term_grounding import resolve_sector as _resolve_sector_grounded
 
     risk_extractor = lambda text: strategy_builder.llm_extract_risk(text, _mlx_llm)
@@ -147,7 +152,15 @@ def _builder_llm_helpers(on_search=None, on_kg_lookup=None):
         on_search=on_search,
         on_kg_lookup=on_kg_lookup,
     )
-    return risk_extractor, sector_resolver
+    # 자유 서술 LLM 레인(계약 단계 3 C안) — 결정적 레이어가 해석하지 못한 자유 텍스트를
+    # 제한된 ops JSON으로 해석한다. 롤백=BUILDER_FREETEXT_MODE=deterministic.
+    from intent.builder_interpreter import freetext_llm_enabled, interpret_utterance
+
+    freetext_interpreter = (
+        (lambda text, state: interpret_utterance(text, state, _mlx_llm))
+        if freetext_llm_enabled() else None
+    )
+    return risk_extractor, sector_resolver, freetext_interpreter
 
 
 @router.post("/strategy/builder/step-stream")
@@ -173,7 +186,7 @@ async def strategy_builder_step_stream(req: BuilderStepRequest):
     stage_holder: dict = {"stage": None}
     result_holder: dict = {}
     error_holder: dict = {}
-    risk_extractor, sector_resolver = _builder_llm_helpers(
+    risk_extractor, sector_resolver, freetext_interpreter = _builder_llm_helpers(
         on_search=lambda: stage_holder.__setitem__("stage", "searching"),
         on_kg_lookup=lambda: stage_holder.__setitem__("stage", "kg_lookup"),
     )
@@ -181,7 +194,7 @@ async def strategy_builder_step_stream(req: BuilderStepRequest):
     def run_step():
         try:
             result_holder["data"] = _run_builder_step(
-                state, req.input, risk_extractor, sector_resolver
+                state, req.input, risk_extractor, sector_resolver, freetext_interpreter
             ).model_dump()
         except Exception as exc:  # noqa: BLE001 — SSE로 에러 전달(스트림 중단 방지)
             error_holder["detail"] = str(exc)

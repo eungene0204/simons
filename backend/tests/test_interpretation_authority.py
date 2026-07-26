@@ -162,6 +162,20 @@ def test_llm_connection_failure_still_raises_503_not_a_clarification(monkeypatch
 
 # ── ④ 수정 경로 해석 권한 순서(env 플래그) ─────────────────────────────────────
 
+def test_interpreter_mode_defaults_to_primary(monkeypatch):
+    """로드맵 5번(2026-07-26): 초기 파스 해석 주체 기본값=LLM 인터프리터.
+
+    conftest가 테스트 전역에서 off로 고정하므로 여기서만 env를 걷어내고 확인한다.
+    명시적 env(prod=shadow, 롤백=off)는 계속 우선한다.
+    """
+    monkeypatch.delenv("STRATEGY_INTERPRETER_MODE", raising=False)
+    assert sc_config.interpreter_mode() == "primary"
+    monkeypatch.setenv("STRATEGY_INTERPRETER_MODE", "shadow")
+    assert sc_config.interpreter_mode() == "shadow"
+    monkeypatch.setenv("STRATEGY_INTERPRETER_MODE", "off")
+    assert sc_config.interpreter_mode() == "off"
+
+
 def test_modify_interpreter_mode_defaults_to_llm_first(monkeypatch):
     monkeypatch.delenv("STRATEGY_MODIFY_INTERPRETER_MODE", raising=False)
     assert sc_config.modify_interpreter_mode() == "llm_first"
