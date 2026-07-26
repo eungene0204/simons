@@ -79,6 +79,23 @@ def _prune_clarifications_filled_by_overrides(
         ]
 
 
+# 이동평균 크로스 기간 질문 병합 — 사용자 결정(2026-07-26): "골든크로스로 매수해줘"처럼
+# 기간 미지정 크로스는 조용한 기본값 확정 대신 **옵션을 보여주며 되묻는다**. completeness가
+# 내는 파라미터별 질문(단기/장기 각각)을 조건당 1개 질문으로 병합하고, 칩은 조건 전체를
+# 담아 무상태 재전송 가능하게 만든다(condition_builder 칩 패턴 — "골든크로스(5일/20일)
+# 발생 시 매수"는 재전송 시 수치 대조·결정적 추출 모두 통과하는 정본 표기).
+_CROSS_PERIOD_FIELD_RE = re.compile(
+    r"^strategy\.(entry|exit)_conditions\[(\d+)\]\.parameters\.(short_period|long_period)$"
+)
+_CROSS_PERIOD_OPTIONS = ((5, 20), (20, 60), (60, 120))
+
+
+def _cross_period_chip(role: str, short: int, long: int) -> str:
+    if role == "entry":
+        return f"골든크로스({short}일/{long}일) 발생 시 매수"
+    return f"데드크로스({short}일/{long}일) 발생 시 매도"
+
+
 def _build_clarification(
     report: ValidationReport, intent: StrategyIntent
 ) -> tuple[Optional[str], Optional[List[str]]]:
@@ -94,7 +111,17 @@ def _build_clarification(
                             ("exit_conditions", strategy.exit_conditions)):
             for i, cond in enumerate(conds):
                 conditions_by_field[f"strategy.{path}[{i}].value"] = cond
+                conditions_by_field[f"strategy.{path}[{i}]"] = cond
+    coalesced_cross_roles: List[str] = []
     for q in report.clarification_questions:
+        cross_match = _CROSS_PERIOD_FIELD_RE.match(q.field)
+        if cross_match:
+            role, idx = cross_match.group(1), cross_match.group(2)
+            cond = conditions_by_field.get(f"strategy.{role}_conditions[{idx}]")
+            if cond is not None and cond.factor == "technical.ma_crossover":
+                if role not in coalesced_cross_roles:
+                    coalesced_cross_roles.append(role)
+                continue  # 파라미터별 질문은 아래에서 병합 질문 1개로 대체
         line = q.question
         if q.recommended_value is not None and q.recommendation_reason:
             line += f" ({q.recommendation_reason})"
@@ -109,6 +136,13 @@ def _build_clarification(
                 # display_name의 괄호 설명은 칩에서 제거해 수정 파서 어휘와 맞춘다
                 name = spec.display_name.split("(")[0]
                 chips.append(f"{name} {q.recommended_value:g}{unit} {direction}")
+    for role in coalesced_cross_roles:
+        role_label = "매수(진입)" if role == "entry" else "매도(청산)"
+        lines.append(
+            f"{role_label} 이동평균 크로스의 기간(단기/장기)은 몇 일로 할까요? "
+            "(일반적으로 20일/60일을 많이 사용합니다)"
+        )
+        chips.extend(_cross_period_chip(role, s, l) for s, l in _CROSS_PERIOD_OPTIONS)
     return "\n".join(lines), (chips or None)
 
 
@@ -699,6 +733,32 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         f"오류={len(report.errors)} 미지원={report.unsupported_features or '[]'}"
     ))
     if not report.is_valid:
+        # 오류 없이 질문만 남은 미완성(예: "데드크로스 청산 추가해줘" — 기간 미지정)은
+        # 폴백 대신 구체 질문+옵션 칩을 전달한다(2026-07-26 사용자 결정: 조용한 기본값
+        # 확정 금지, 옵션 제시 되묻기). 칩은 조건 전체를 담아 재전송 가능(무상태) —
+        # 전략은 무변경 유지하고 사용자의 칩/답변이 다음 수정 요청으로 조건을 채운다.
+        if not report.errors and report.clarification_questions:
+            question, chips = _build_clarification(report, validated)
+            if question:
+                _log_llm("✓ 되묻기", (
+                    f"패치 적용 후 미확정 값 질문={len(report.clarification_questions)}"
+                    " — 전략 유지, 옵션 칩과 함께 clarification 채널로"
+                ))
+                return finalize_user_response({
+                    "parsed": prev,
+                    "clarification_question": question,
+                    "clarification_suggestions": chips,
+                    "notices": [],
+                    "interpreter": {
+                        "mode": "primary_modify_needs_value",
+                        "model_name": result.model_name,
+                        "prompt_version": result.prompt_version,
+                        "repair_attempts": result.repair_attempts,
+                        "llm_latency_ms": result.latency_ms,
+                        "patch_count": len(cued_patches),
+                        "confidence": intent.confidence,
+                    },
+                })
         _log_llm("↩ 폴백", f"패치 적용 후 검증 미통과(status={report.status}) — 기존 수정 경로로")
         logger.info("modify primary not READY after patch (status=%s), falling back",
                     report.status)
