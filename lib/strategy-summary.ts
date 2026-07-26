@@ -15,6 +15,10 @@ export interface ParsedSummary {
     operator?: string | null;
     value?: number | null;
     lookback_period?: number | null;
+    // 이동평균 크로스 기간(백엔드 TechnicalSignal과 동일 계약) — 크로스 칩 기간 명시화
+    // (2026-07-26)가 값으로 싣는다. 미지정이면 엔진 실효 기본값(5/20)으로 동작.
+    short_period?: number | null;
+    long_period?: number | null;
   }>;
   exit_signals: Array<{
     indicator: string;
@@ -23,6 +27,8 @@ export interface ParsedSummary {
     operator?: string | null;
     value?: number | null;
     lookback_period?: number | null;
+    short_period?: number | null;
+    long_period?: number | null;
   }>;
   // 진입 게이트 필터(추세·거래대금·RSI 결합) — 진입 신호와 AND 결합. 빌더 전용, 없으면 생략.
   entry_filters?: Array<{
