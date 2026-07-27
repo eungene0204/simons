@@ -35,7 +35,9 @@ from typing import Optional
 
 from engine.knowledge_graph import get_graph
 
-logger = logging.getLogger("concept_universe")
+from engine.console_logging import console_logger
+
+logger = console_logger("concept_universe", "KG-UNIVERSE")
 
 MIN_SIZE = 10
 MAX_SIZE = 30

@@ -1,12 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { adminFetch, ErrorNotice, formatDateTime } from './shared'
+import { adminFetch, ErrorNotice, formatDateTime, inputClass } from './shared'
 import KnowledgeGraphView from './KnowledgeGraphView'
 
 // 지식그래프 학습 검토(FR-STR-070b) — 인터넷 검색으로 학습된 용어(어휘집)와 관계
-// 엣지를 검토한다. 엣지는 출처 교차지지(≥2)로 자동 verified 승격되며, 여기서 사후
-// 반려하거나 pending을 수동 승인한다. verified만 지식그래프에 합성된다.
+// 엣지를 검토한다. 관련 기업 엣지는 네이버 금융 분류 수록 기준 자동 verified(FR-STR-071
+// ① 개정), 개념 엣지는 출처 교차지지(≥2)로 자동 승격 — 여기서 사후 반려하거나 pending을
+// 수동 승인한다. verified만 지식그래프에 합성된다. 자동 등록 이후 검토 대기열이 아니라
+// 감사·교정 도구라 용어 박스는 기본 접힘+검색이다.
 // 'KG 시각화' 서브탭(FR-STR-070c)은 합성 그래프 전체를 포스 레이아웃으로 표시한다.
 
 interface LearnedEdge {
@@ -45,6 +47,11 @@ const SUB_TABS = [
   { id: 'review', label: '학습 검토' },
   { id: 'graph', label: 'KG 시각화' },
 ] as const
+
+// 정규화 키(공백 제거·소문자화) — 검색 부분일치용, KnowledgeGraphView와 동일 관례
+function normKey(text: string): string {
+  return text.replace(/\s+/g, '').toLowerCase()
+}
 
 type SubTabId = (typeof SUB_TABS)[number]['id']
 
@@ -133,6 +140,18 @@ export default function KnowledgeTab() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  // 용어 박스 접기/펼치기 — 관련 기업 자동 등록(FR-STR-071 개정) 후 엣지가 수십 개라
+  // 기본은 전부 접고, 검토 대기 배지로 주의를 끈다. 검색 중엔 일치 항목을 자동으로 편다.
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
+  const [query, setQuery] = useState('')
+
+  const toggleExpanded = (key: string) =>
+    setExpandedKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
 
   const load = useCallback(async () => {
     setError('')
@@ -192,36 +211,70 @@ export default function KnowledgeTab() {
     if (!loaded && !error) {
       return <p className="text-sm font-bold text-gray-600">불러오는 중…</p>
     }
+    const nq = normKey(query)
+    // 용어명·정의·엣지 대상명(종목명) 부분일치 — "이 종목이 어느 테마로 학습됐나" 역조회용
+    const visibleTerms = nq
+      ? terms.filter(
+          (t) =>
+            normKey(t.term).includes(nq) ||
+            (t.definition != null && normKey(t.definition).includes(nq)) ||
+            t.edges.some((e) => normKey(e.target_name || '').includes(nq))
+        )
+      : terms
     return (
       <div className="space-y-4">
       {error && <ErrorNotice message={error} />}
       <p className="text-xs font-bold text-gray-500">
-        인터넷 검색으로 학습된 용어와 관계입니다. 관계 엣지는 서로 다른 출처 2개 이상이
-        지지하면 자동 검증되며, 검증된 엣지만 지식그래프에 편입됩니다. 잘못 학습된 용어를
-        삭제하면 다음 언급 시 재검색으로 다시 학습됩니다.
+        인터넷 검색으로 학습된 용어와 관계입니다. 관련 기업 엣지는 네이버 금융 분류 수록
+        기준으로 자동 검증 등록되고, 개념 엣지는 서로 다른 출처 2개 이상이 지지하면 자동
+        검증됩니다. 검증된 엣지만 지식그래프에 편입되며, 잘못 등록된 엣지는 여기서 사후
+        반려할 수 있습니다. 잘못 학습된 용어를 삭제하면 다음 언급 시 재검색으로 다시
+        학습됩니다.
       </p>
+      {terms.length > 0 && (
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="용어·정의·종목명 검색"
+          className={`${inputClass} w-full max-w-xs`}
+        />
+      )}
       {terms.length === 0 && (
         <p className="text-sm font-bold text-gray-600">학습된 용어가 없습니다.</p>
       )}
-      {terms.map((t) => (
+      {terms.length > 0 && visibleTerms.length === 0 && (
+        <p className="text-sm font-bold text-gray-600">일치하는 용어가 없습니다.</p>
+      )}
+      {visibleTerms.map((t) => {
+        // 검색 중엔 일치 항목을 자동으로 편다(종목명 일치가 접힌 박스 안에 숨지 않게)
+        const isOpen = nq ? true : expandedKeys.has(t.key)
+        const pendingCount = t.edges.filter((e) => e.status === 'pending').length
+        return (
         <div key={t.key} className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3">
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-black text-white">{t.term}</span>
-                {t.sector && (
-                  <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[11px] font-bold text-sky-400">
-                    {t.sector}
-                  </span>
-                )}
-                <span className="text-[11px] font-bold text-gray-500">
-                  {formatDateTime(t.searched_at)}
+            <button
+              type="button"
+              onClick={() => toggleExpanded(t.key)}
+              className="flex flex-1 flex-wrap items-center gap-2 text-left"
+            >
+              <span className="text-[11px] font-bold text-gray-500">{isOpen ? '▾' : '▸'}</span>
+              <span className="text-sm font-black text-white">{t.term}</span>
+              {t.sector && (
+                <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[11px] font-bold text-sky-400">
+                  {t.sector}
                 </span>
-              </div>
-              {t.definition && (
-                <p className="mt-1 text-xs font-bold text-gray-400">{t.definition}</p>
               )}
-            </div>
+              <span className="text-[11px] font-bold text-gray-500">
+                {formatDateTime(t.searched_at)}
+              </span>
+              <span className="text-[11px] font-bold text-gray-500">엣지 {t.edges.length}</span>
+              {pendingCount > 0 && (
+                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold text-amber-400">
+                  검토 대기 {pendingCount}
+                </span>
+              )}
+            </button>
             <button
               disabled={busy}
               onClick={() => {
@@ -234,8 +287,11 @@ export default function KnowledgeTab() {
               용어 삭제
             </button>
           </div>
-          <AddEdgeForm termKey={t.key} busy={busy} onSubmit={patch} />
-          {t.edges.length > 0 && (
+          {isOpen && t.definition && (
+            <p className="text-xs font-bold text-gray-400">{t.definition}</p>
+          )}
+          {isOpen && <AddEdgeForm termKey={t.key} busy={busy} onSubmit={patch} />}
+          {isOpen && t.edges.length > 0 && (
             <ul className="space-y-1.5">
               {t.edges.map((e) => (
                 <li
@@ -274,7 +330,8 @@ export default function KnowledgeTab() {
             </ul>
           )}
         </div>
-      ))}
+        )
+      })}
       </div>
     )
   }

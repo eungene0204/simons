@@ -18,10 +18,12 @@ from engine.term_grounding import _scan_lexicon, general_facts_block, resolve_se
 class _ChatStub:
     """(system, user, *, max_tokens) 관례의 chat 스텁 — 프롬프트 내용으로 응답을 고른다."""
 
-    def __init__(self, term: str | None, ground: dict | None, edges: list | None = None):
+    def __init__(self, term: str | None, ground: dict | None, edges: list | None = None,
+                 groups: list | None = None):
         self.term = term
         self.ground = ground
         self.edges = edges
+        self.groups = groups
         self.calls = 0
 
     def __call__(self, system_prompt: str, user_msg: str, *, max_tokens: int = 400) -> str:
@@ -30,6 +32,10 @@ class _ChatStub:
             return json.dumps({"term": self.term})
         if "관계를 고르는 도구" in system_prompt:
             return json.dumps({"edges": self.edges or []})
+        if "판별하는 도구" in system_prompt:
+            return json.dumps({"industry": True})
+        if "대조하는 도구" in system_prompt:
+            return json.dumps({"groups": self.groups or []})
         return json.dumps(self.ground or {})
 
 
@@ -422,43 +428,90 @@ def test_learn_sector_term_gate_skips_known_vocab_and_cueless(tmp_path):
 
 # ─── 관련 기업 엣지 학습 + 테마 유니버스 되묻기(FR-STR-071) ────────────────────────
 
-def test_company_edges_learned_from_snippets_with_first_known_date(tmp_path, monkeypatch):
-    """스니펫에 함께 언급된 상장사가 related_company 엣지로 학습된다(결정적, LLM 무관여).
+def test_company_edges_from_naver_groups_auto_verified(tmp_path, monkeypatch):
+    """관련 기업 엣지는 뉴스 동시언급이 아니라 네이버 금융 분류로 만든다(FR-STR-071 개정
+    2026-07-27, 사용자 지시 — 뉴스 노이즈 폐기·자동 등록).
 
-    출처 2건 교차지지 → verified, 1건 → pending. first_known_date는 뉴스 보도일 최솟값."""
+    LLM은 분류 이름 닫힌 목록에서만 고르고(목록 밖 이름·스코프 제외 분류는 드롭),
+    종목은 그 분류의 수록 목록에서 결정적으로 수집해 자동 verified로 등록한다(콘솔
+    사후 반려 가능). 뉴스 스니펫에 상장사가 함께 언급돼도 기업 엣지는 생기지 않는다."""
     import engine.knowledge_graph as kg
+    import engine.naver_theme_live as ntl
+    import engine.term_grounding as tg
 
     lexicon = tmp_path / "lex.json"
     monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
     monkeypatch.setattr(kg, "_CACHED", None)
-    snippets = [
-        {"title": "위고비 국내 시장 동향", "description": "삼성전자, 카카오 언급 기사",
-         "link": "https://a.com/1", "date": "2024-03-05"},
-        {"title": "위고비 산업 분석", "description": "삼성전자 협력 현황",
-         "link": "https://b.com/2", "date": None},
+    groups = [
+        {"no": 901, "name": "비만치료제", "kind": "theme"},
+        {"no": 902, "name": "건강기능식품", "kind": "theme"},
+        {"no": 903, "name": "정치인 인맥", "kind": "theme"},  # 스코프 제외 가드
     ]
-    chat = _ChatStub("위고비", {"definition": "주사형 비만 치료제", "sector": "바이오/제약"})
+    monkeypatch.setattr(tg, "_naver_groups_for_learning", lambda **k: groups)
+    stocks_by_no = {
+        901: [{"symbol": "005930", "name": "삼성전자"}],
+        902: [{"symbol": "005930", "name": "삼성전자"}, {"symbol": "035720", "name": "카카오"}],
+        903: [{"symbol": "000660", "name": "SK하이닉스"}],
+    }
+    monkeypatch.setattr(ntl, "fetch_group_stocks",
+                        lambda group, fetch=None: stocks_by_no.get(group["no"], []))
+
+    snippets = [
+        {"title": "위고비 국내 시장 동향", "description": "신한지주, SK하이닉스 언급 기사",
+         "link": "https://a.com/1", "date": "2024-03-05"},
+    ]
+    # LLM이 스코프 제외('정치인 인맥')·목록 밖('없는분류') 이름을 답해도 드롭된다
+    chat = _ChatStub("위고비", {"definition": "주사형 비만 치료제", "sector": "바이오/제약"},
+                     groups=["비만치료제", "건강기능식품", "정치인 인맥", "없는분류"])
     got = resolve_sector("위고비 관련주 전략을 만들어줘", chat,
                          search_fn=_SearchStub(snippets), lexicon_path=lexicon)
     assert got == "바이오/제약"
 
     saved = json.loads(lexicon.read_text(encoding="utf-8"))["위고비"]
     by_target = {e["target"]: e for e in saved["edges"] if e["type"] == "related_company"}
-    assert by_target["company:005930"]["status"] == "verified"
-    assert by_target["company:005930"]["support"] == 2
-    assert by_target["company:005930"]["first_known_date"] == "2024-03-05"
+    # 뉴스 동시언급(신한지주·SK하이닉스)은 미편입 — 분류 수록 종목만
+    assert set(by_target) == {"company:005930", "company:035720"}
+    assert all(e["status"] == "verified" for e in by_target.values())  # 자동 등록
+    assert by_target["company:005930"]["support"] == 2  # 두 분류에 수록 → 출처 2
     assert by_target["company:005930"]["target_name"] == "삼성전자"
-    assert by_target["company:035720"]["status"] == "pending"
+    assert by_target["company:035720"]["support"] == 1
 
-    # 검증(verified) 기업만 테마 유니버스 후보로 나온다 — pending은 콘솔 검토 대기.
+    # 자동 verified 기업이 즉시 테마 유니버스 후보로 나온다.
     # 읽기 경로 통합: 조회는 그래프 단일 경로(어휘집 별도 스캔 없음).
     from engine.knowledge_graph import theme_listed_companies
     theme = theme_listed_companies("위고비 관련해서 백테스트")
     assert theme is not None
     assert theme["term"] == "위고비"
-    assert [c["symbol"] for c in theme["companies"]] == ["005930"]
-    assert theme["first_known_date"] == "2024-03-05"
+    assert {c["symbol"] for c in theme["companies"]} == {"005930", "035720"}
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_naver_company_edges_blocks_listed_company_term():
+    """개별 상장사 이름은 테마가 아니다 — LLM 호출 전에 결정적으로 차단한다.
+
+    '삼성전자'가 학습 용어로 들어와 '반도체 대표주' 분류 종목으로 확장되던 사고 가드
+    (마이그레이션 dry-run 실측). 인물·그룹명은 프롬프트 규칙이 막는다(LLM 소관)."""
+    from engine.term_grounding import _naver_company_edges
+
+    def chat_must_not_run(*a, **k):
+        raise AssertionError("상장사명 용어는 LLM 매핑에 도달하면 안 된다")
+
+    groups = [{"no": 901, "name": "반도체 대표주(생산)", "kind": "theme"}]
+    assert _naver_company_edges("삼성전자", "반도체 제조 기업", groups, chat_must_not_run) == []
+
+
+def test_naver_company_edges_industry_gate_blocks_non_industry_terms():
+    """산업 분야 아님(인물·연예 그룹 등) LLM 판별이 false면 분류 매핑 없이 빈 목록 —
+    'BTS'·'리센느'가 엔터/조선 전체 종목으로 확장되던 실측 차단(단일 과제 판별 분리)."""
+    from engine.term_grounding import _naver_company_edges
+
+    def chat(system_prompt: str, user_msg: str, *, max_tokens: int = 400) -> str:
+        if "판별하는 도구" in system_prompt:
+            return json.dumps({"industry": False})
+        raise AssertionError("판별 false면 분류 매핑 LLM에 도달하면 안 된다")
+
+    groups = [{"no": 901, "name": "엔터테인먼트", "kind": "theme"}]
+    assert _naver_company_edges("리센느", "걸그룹 이름", groups, chat) == []
 
 
 def test_theme_universe_auto_applied_with_notice(tmp_path, monkeypatch):

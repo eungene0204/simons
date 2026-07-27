@@ -16,7 +16,7 @@ from strategy_conversation.registry.capability_registry import (
 )
 from strategy_conversation.registry.indicator_registry import supported_factor_lines
 
-PROMPT_VERSION = "1.7"
+PROMPT_VERSION = "1.8"
 
 _OUTPUT_SHAPE = {
     "intent": "CREATE_STRATEGY",
@@ -106,6 +106,8 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    손절/익절/트레일링은 조건이 아니라 risk_management 필드입니다(% 크기만).
    '최고가 대비/최고가에서 N% 하락(밀리면) 청산'은 stop_loss가 아니라 trailing_stop입니다.
    보유 기간(hold_period_days)은 거래일 단위: 1개월=21, 3개월=63, 6개월=126, 1년=252.
+   'N거래일 경과 시 청산'·'최대 보유 기간 N거래일'·'N일 보유 후 매도'도 exit_conditions가
+   아니라 portfolio.hold_period_days=N입니다 — time.days_held 같은 factor를 지어내지 마세요.
 5-0. 지표의 기간(period, short_period, long_period, lookback_period)은 **사용자가 말한 경우에만**
    parameters에 넣으세요("20일선"→short_period=20, "RSI 14일"→period=14). 기간을 말하지 않았으면
    비워 두세요 — 시스템이 표준 기간을 적용합니다. 임의의 숫자를 지어내지 마세요("RSI 30 이하"에는
@@ -165,6 +167,11 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    단, ETF의 업종·테마("반도체 ETF", "2차전지 ETF", "미국 ETF", "배당 ETF" 등)는 미지원이
    아닙니다 — 그 키워드를 universe.etf_theme에 넣으세요("반도체 종목 ETF"→etf_theme="반도체",
    "반도체 etf 투자 전략"→etf_theme="반도체", "KODEX 200"→etf_theme="KODEX 200").
+   'X ETF' 표기가 있으면 etf_theme=X는 **필수**입니다 — 조건이 여러 개인 긴 요청에서
+   테마를 빠뜨리면 전략이 전체 ETF로 잘못 확장됩니다. 조사가 붙거나 어순이 달라도
+   마찬가지입니다("반도체 ETF만 대상으로"→etf_theme="반도체", "배당 ETF 중에서"→
+   etf_theme="배당"). 출력을 마치기 전에 markets=["ETF"]인데 입력에 테마 키워드가 있으면
+   etf_theme이 채워졌는지 확인하세요(규칙 4-1과 같은 자기 점검).
    unsupported_features나 sectors·조건으로는 넣지 마세요(엔진이 ETF 상품명과 매칭).
    테마 키워드만으로 충분합니다 — 정확한 상품명(KODEX·TIGER 등)은 필요 없으므로, 사용자가
    이미 테마를 말했으면 etf_theme을 missing_fields·clarification_questions에 넣어 상품명을
@@ -233,6 +240,13 @@ portfolio={{"selection_count":10,"rebalance_frequency":"monthly"}}, status="READ
 사용자가 테마(반도체)를 이미 말했으므로 etf_theme에 그대로 채우고,
 missing_fields·clarification_questions에 etf_theme을 넣지 않습니다(정확한 상품명 불필요).
 질문은 진입·청산 등 실제 누락 조건에만 만듭니다. status="NEEDS_CLARIFICATION".
+
+## 예시 4-2 (ETF 테마 + 조건 여러 개 — 긴 요청에서도 테마 누락 금지)
+입력: "배당 ETF 중 20일선 위에 있는 상품만 4종목 담고, 20일선 이탈 시 청산, 손절 -10%"
+출력 요점: universe={{"markets":["ETF"],"sectors":[],"etf_theme":"배당"}},
+portfolio={{"selection_count":4}}, risk_management={{"stop_loss":-10}} — 조건·수치가 많아도
+'X ETF'의 X(배당)는 반드시 etf_theme에 채웁니다. 테마 없이 markets=["ETF"]만 출력하면
+전략이 전체 ETF로 왜곡되므로, etf_theme 누락은 조건 누락(규칙 4-1)과 같은 오류입니다.
 
 ## 예시 5 (수정 요청 — 현재 전략 초안이 함께 주어진 경우)
 현재 전략 초안: {{"entry_conditions":[{{"factor":"fundamental.per","operator":"<=","value":10}},

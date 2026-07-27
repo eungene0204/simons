@@ -141,3 +141,15 @@ def test_interpretation_failure_result_skips_prompt_theme_scan(monkeypatch):
     assert result is not None
     assert result["clarification_priority"] == "interpretation_failed"
     assert not result["parsed"]["target_symbols"]
+
+
+def test_gate_uses_validator_criterion_not_kg_resolution():
+    """'LCD 부품' 사고 2차(2026-07-27) 회귀 — 게이트 판정 기준은 검증기와 동일해야 한다.
+
+    검증기(capability_validator)는 normalize_sector만 알아 'LCD 부품'을 sectors에서
+    제거하는데, 게이트가 resolve_sectors(KG 층 포함)로 '해석 성공' 판정하면 그 표현이
+    체인(테마 상장사 적용)에 도달하지 못하고 KG 해석값도 버려져 유니버스가 통째로
+    소실된다. 정본 사전이 못 푸는 표현은 KG가 섹터를 해석할 수 있어도 체인으로 가야
+    한다(테마 상장사 적용이 섹터 근사보다 우선 — FR-STR-071c)."""
+    terms = primary._sector_terms_for_chain(["LCD 부품", "반도체", " ", "LCD 부품"])
+    assert terms == ["LCD 부품"]  # 정본 사전 해석분(반도체)·공백·중복 제외

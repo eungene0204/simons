@@ -31,6 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from engine.knowledge_graph import TEST_RESERVED_TERMS  # noqa: E402
 from engine.universe_pit import normalize_sector  # noqa: E402
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -73,11 +74,7 @@ EXCLUDE_SOURCE_ERROR = {
 }
 
 # 가드 ④ — grounding·빌더 테스트가 '그래프 밖'을 전제하는 정본 용어(_norm_key 기준).
-# 여기 있는 표현이 카탈로그 스캔 용어가 되면 검색 학습 경로 테스트가 죽는다.
-TEST_RESERVED_TERMS = {
-    "그린수소", "폐배터리", "위고비", "마운자로", "메타버스", "cowos", "신조어",
-    "반도체소부장", "ess",
-}
+# 정의는 engine/knowledge_graph.TEST_RESERVED_TERMS(로더 별칭 생성과 공유).
 
 # 괄호 안 토큰을 동의어로 승격할 때의 일반어 차단 목록(부분 문자열 오폭 방지).
 SYNONYM_STOPWORDS = {"차량용", "경구용", "원격", "소재부품", "언택트", "애그플레이션"}

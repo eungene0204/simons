@@ -26,7 +26,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
-logger = logging.getLogger("term_grounding")
+from engine.console_logging import console_logger
+
+logger = console_logger("term_grounding", "KG-GROUND")
 
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent  # 레포 루트(data/의 부모)
 _LEXICON_PATH = _BASE_DIR / "data" / "term_lexicon.json"
@@ -118,10 +120,11 @@ def _dedupe_snippets(snippets: list[dict]) -> list[dict]:
 
 
 def _default_search(term: str) -> Optional[list[dict]]:
-    """백과사전(정의) + 뉴스('관련주'·'수혜주' 동반 언급 기업) + 웹문서(산업 문맥) 4쿼리.
+    """백과사전(정의) + 뉴스('관련주'·'수혜주' 투자 문맥) + 웹문서(산업 문맥) 4쿼리.
 
-    전부 실패하면 None(캐시 금지 신호). 뉴스 쿼리는 테마와 함께 언급되는 상장사를
-    수집하는 용도(FR-STR-071 — 관련 기업 엣지 학습의 원천 데이터)."""
+    전부 실패하면 None(캐시 금지 신호). 뉴스 쿼리는 정의 그라운딩·개념 엣지 학습
+    (_propose_edges)의 원천 — 관련 '기업' 엣지는 뉴스가 아니라 네이버 금융 분류에서
+    만든다(_naver_company_edges, FR-STR-071 개정 2026-07-27)."""
     if not search_available():
         return None
     encyc = _naver_search_one(term, "encyc")
@@ -367,12 +370,41 @@ def resolve_sector(
         entry = lexicon.get(key)  # 문장 스캔이 놓친 직접 키 조회(용어 표기 변형)
         if entry is not None and not _entry_is_stale(entry):
             return entry.get("sector")
-        entry = _ground_and_learn(term, chat, fn, path, previous=entry)
+        # ④a 네이버 금융 분류 우선(사용자 지시 2026-07-27: KG에 없으면 네이버를 항상
+        # 먼저 검색해 KG에 넣는다) — 검색 그라운딩 학습 전에 네이버 테마·업종 표기 정합을
+        # 시도하고, 정합 시 카탈로그(KG) 편입으로 끝낸다. 카탈로그는 섹터 해석에
+        # 관여하지 않으므로 None을 돌려 기존 되묻기로 폴백하되, 테마 유니버스 조회는
+        # 편입 즉시 그래프가 결정적으로 해석한다(mtime 재로드). 분류 목록은 한 번만
+        # 수집해 ④b 학습(관련 기업 엣지)과 공유한다.
+        naver_groups = _naver_groups_for_learning(search_injected=search_fn is not None)
+        if naver_groups:
+            from engine.naver_theme_live import lookup_and_ingest
+
+            if lookup_and_ingest(term, groups=naver_groups):
+                return None
+        entry = _ground_and_learn(term, chat, fn, path, previous=entry,
+                                  naver_groups=naver_groups)
         return entry.get("sector") if entry is not None else None
 
     if _prefers_search_first(text):
         return _search_step() or _llm_step()
     return _llm_step() or _search_step()
+
+
+def _naver_groups_for_learning(search_injected: bool) -> Optional[list[dict]]:
+    """네이버 금융 분류 목록(테마+업종) 수집 — ④a 표기 정합과 ④b 관련 기업 엣지 학습이 공유.
+
+    search_fn 주입(테스트·대체 검색 경로) 시 None — 실네트워크 차단 계약. 수집 실패도
+    None(이번 학습은 기업 엣지 없이 진행 — 뉴스 폴백 없음, 사용자 지시 2026-07-27)."""
+    if search_injected:
+        return None
+    try:
+        from engine.naver_theme_live import fetch_group_index
+
+        return fetch_group_index()
+    except Exception:  # noqa: BLE001 — 수집 실패가 정의·섹터 학습까지 막으면 안 된다
+        logger.info("네이버 분류 목록 수집 실패 — 이번 학습은 관련 기업 엣지 없이 진행")
+        return None
 
 
 def _prefers_search_first(text: str) -> bool:
@@ -515,31 +547,94 @@ def _propose_edges(
     return edges
 
 
-def _propose_company_edges(term: str, snippets: list[dict]) -> list[dict]:
-    """검색 스니펫에 함께 언급된 국내 상장사를 related_company 후보 엣지로 학습한다(FR-STR-071).
+# 용어 하나가 대응할 수 있는 네이버 분류 상한 — 과확장(느슨한 연상 매핑) 가드
+_NAVER_GROUP_MATCH_MAX = 3
 
-    LLM 없이 정본 종목 마스터 매칭(symbol_resolver.find_in_text)만 쓴다 — '출처에 함께
-    언급됨'은 관계 유형 판단이 필요 없는 객관적 사실이라 개념 엣지(_propose_edges)와 달리
-    결정적으로 수집한다(환각 원천 차단). 신뢰도는 동일하게 출처 수 기반(≥2 자동 verified /
-    1개 pending — 콘솔 검토). first_known_date는 그 기업이 언급된 뉴스 보도일 최솟값(ISO,
-    뉴스 아닌 출처뿐이면 None) — 테마 멤버십의 시점 편향 가드 근거."""
+
+_NAVER_TERM_KIND_PROMPT = (
+    "너는 용어가 '산업/제품/기술/상품 분야'인지 판별하는 도구다.\n"
+    "인물, 정치인, 아티스트, 연예 그룹, 개별 기업 이름, 이벤트, 작품·브랜드 고유명은 "
+    "산업 분야가 아니다.\n"
+    "정의(설명)에 산업이나 수혜주 이야기가 붙어 있어도 용어 자체가 무엇인지로만 판단한다.\n"
+    '설명 없이 JSON만 출력한다. 예: {"industry": true} 또는 {"industry": false}'
+)
+
+
+def _naver_term_is_industry(term: str, definition: Optional[str], chat: ChatFn) -> bool:
+    """용어가 산업/제품/기술 분야인지 단일 과제 LLM 판별 — 인물·그룹명 매핑 차단 게이트.
+
+    분류 매핑 프롬프트에 규칙을 섞으면 소형 모델이 무시하는 실측(BTS·리센느) — 판별을
+    분리해 한 번에 한 판단만 시킨다. 판별 실패(JSON 아님)는 보수적으로 False."""
+    user = f"용어: {term}" + (f" — {definition}" if definition else "")
+    data = _extract_json(chat(_NAVER_TERM_KIND_PROMPT, user, max_tokens=30)) or {}
+    return data.get("industry") is True
+
+
+def _naver_group_match_prompt() -> str:
+    return (
+        "너는 투자 용어를 네이버 금융의 업종·테마 분류 이름 목록과 대조하는 도구다.\n"
+        "용어가 가리키는 분야를 구성하거나 의미가 실질적으로 겹치는 분류를 모두 고른다"
+        f"(최대 {_NAVER_GROUP_MATCH_MAX}개). 느슨한 연상 관계는 고르지 않는다.\n"
+        "반드시 목록에 있는 이름을 그대로 출력한다. 대응 분류가 없으면 빈 배열.\n"
+        '설명 없이 JSON만 출력한다. 예: {"groups": ["비만치료제", "건강기능식품"]} 또는 '
+        '{"groups": []}'
+    )
+
+
+def _naver_company_edges(
+    term: str, definition: Optional[str], groups: Optional[list[dict]], chat: ChatFn,
+    fetch=None,
+) -> list[dict]:
+    """네이버 금융 분류(증권) 기반 related_company 엣지 학습(FR-STR-071 개정 2026-07-27).
+
+    뉴스 동시언급 수집은 무관 종목 노이즈(금융지주·대형주가 기사에 스치기만 해도 편입)가
+    커서 폐기 — LLM은 분류 '이름' 닫힌 목록에서 용어에 대응하는 분류만 고르고(의미 매핑,
+    목록 밖 이름은 드롭), 종목은 그 분류의 수록 목록에서 결정적으로 가져온다. 네이버
+    분류 수록은 객관적 사실이므로 자동 verified로 등록한다(사용자 지시 — 콘솔에서 사후
+    반려 가능). 대응 분류 없음·수집 실패면 기업 엣지 없음(뉴스 폴백 없음)."""
+    from engine.naver_theme_live import DETAIL_URL, EXCLUDE_NAME_PATTERNS, fetch_group_stocks
+
+    if not groups:
+        return []
+    # 개별 상장사 이름은 테마가 아니다 — 결정적 차단(LLM 프롬프트 규칙의 안전망).
+    # '삼성전자'가 학습 용어로 들어와 '반도체 대표주' 같은 분류로 확장되는 것을 막는다.
     try:
         from stock_analysis.symbol_resolver import find_in_text
+
+        norm = _term_key(term)
+        if any(_term_key(ref.name) == norm for ref in find_in_text(term)):
+            return []
     except Exception:  # noqa: BLE001 — 종목 마스터 미가용이 학습을 막으면 안 된다
+        pass
+    if not _naver_term_is_industry(term, definition, chat):
+        logger.info("네이버 분류 매핑 스킵: 용어=%r — 산업 분야 아님(인물·그룹·고유명 등)", term)
         return []
+    candidates = {}
+    for g in groups:
+        if not EXCLUDE_NAME_PATTERNS.search(g["name"]):
+            candidates.setdefault(g["name"], g)
+    lines = [
+        f"용어: {term}" + (f" — {definition}" if definition else ""),
+        "분류 목록: " + json.dumps(sorted(candidates), ensure_ascii=False),
+    ]
+    data = _extract_json(chat(_naver_group_match_prompt(), "\n".join(lines), max_tokens=120)) or {}
+    raw = data.get("groups")
+    picked_names = [n for n in raw if isinstance(n, str)] if isinstance(raw, list) else []
+    picked = [candidates[n] for n in dict.fromkeys(picked_names) if n in candidates]
+    picked = picked[:_NAVER_GROUP_MATCH_MAX]
+
     support: dict[str, set[str]] = {}
     names: dict[str, str] = {}
-    first_dates: dict[str, str] = {}
-    for s in snippets:
-        text = f"{s.get('title', '')} {s.get('description', '')}"
-        for ref in find_in_text(text):
-            if ref.overseas:
-                continue
-            support.setdefault(ref.symbol, set()).add(s.get("link") or s.get("title", ""))
-            names[ref.symbol] = ref.name
-            date = s.get("date")
-            if date and (ref.symbol not in first_dates or date < first_dates[ref.symbol]):
-                first_dates[ref.symbol] = date
+    for group in picked:
+        url = DETAIL_URL.format(kind=group["kind"], no=group["no"])
+        for stock in fetch_group_stocks(group, fetch=fetch):
+            support.setdefault(stock["symbol"], set()).add(url)
+            names[stock["symbol"]] = stock["name"]
+    if picked:
+        logger.info(
+            "네이버 분류 매핑: 용어=%r → %s (종목 %d)",
+            term, ", ".join(g["name"] for g in picked), len(support),
+        )
     edges: list[dict] = []
     for symbol in sorted(support):
         links = sorted(support[symbol])
@@ -548,9 +643,9 @@ def _propose_company_edges(term: str, snippets: list[dict]) -> list[dict]:
             "target": f"company:{symbol}",
             "target_name": names[symbol],
             "support": len(links),
-            "status": "verified" if len(links) >= _EDGE_AUTO_VERIFY_SOURCES else "pending",
+            "status": "verified",
             "evidence": links[:3],
-            "first_known_date": first_dates.get(symbol),
+            "first_known_date": None,
         })
     return edges
 
@@ -558,10 +653,13 @@ def _propose_company_edges(term: str, snippets: list[dict]) -> list[dict]:
 def _ground_and_learn(
     term: str, chat: ChatFn, fn: SearchFn, path: Path,
     previous: Optional[dict] = None,
+    naver_groups: Optional[list[dict]] = None,
 ) -> Optional[dict]:
     """검색 → 그라운딩(정의·섹터) → 관계 엣지 학습 → 어휘집 저장, 저장된 항목 반환.
 
     검색 호출 자체가 실패하면 None(저장하지 않음 — 복구 후 재시도 가능).
+    관련 기업 엣지는 뉴스 스니펫이 아니라 네이버 금융 분류(naver_groups)에서 만든다 —
+    사용자 지시 2026-07-27(뉴스 동시언급 노이즈 폐기·자동 등록).
     previous가 있으면 TTL 재학습(FR-STR-069 ⑦)이다 — 기존 엣지의 검토 상태를 보존하고
     새 제안만 추가 병합한다(rejected 부활·verified 강등 금지)."""
     snippets = fn(term)
@@ -570,7 +668,7 @@ def _ground_and_learn(
         return None
     definition, sector = (None, None) if not snippets else _ground(term, snippets, chat)
     edges = _propose_edges(term, definition, snippets, chat) if snippets else []
-    edges += _propose_company_edges(term, snippets) if snippets else []
+    edges += _naver_company_edges(term, definition, naver_groups, chat)
     if previous is not None:
         edges = _merge_entry_edges(previous.get("edges") or [], edges)
     entry = {
@@ -600,8 +698,8 @@ def propose_relink_edges(key: str, entry: dict) -> list[dict]:
     먼저 학습됐다면 엣지가 생기지 않았다). LLM 무관여 결정적 스캔이며, 저장 텍스트
     재해석으로는 출처 교차지지를 새로 셀 수 없으므로 자동 verified 없이 전부 pending
     (콘솔 승인)이다. rejected 이력 타깃은 부활시키지 않고(기존 target 전 상태 제외),
-    company:/etf: 타깃은 제안하지 않는다 — 상장사 매칭은 종목 마스터 기준이라 그래프
-    성장과 무관하며 학습 시점 수집(_propose_company_edges)이 이미 완결이다."""
+    company:/etf: 타깃은 제안하지 않는다 — 상장사 편입은 네이버 분류 수록 기준
+    (_naver_company_edges)이라 그래프 성장과 무관하며 학습 시점 수집이 이미 완결이다."""
     from engine.knowledge_graph import get_graph
 
     graph = get_graph()

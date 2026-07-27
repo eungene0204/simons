@@ -1,12 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import {
   CATEGORY_STYLE,
   EXAMPLES,
   StrategyTemplatePreviewModal,
+  shuffleExamples,
   type Example,
   type ExampleCategory,
 } from "@/components/strategy/StrategyExampleTabs";
@@ -20,6 +21,8 @@ const CATEGORY_TABS: TemplateCategoryTab[] = [
   "기술분석",
   "모멘텀",
   "복합전략",
+  "ETF",
+  "테마",
 ];
 const INITIAL_TEMPLATE_COUNT = 24;
 const TEMPLATE_PAGE_SIZE = 24;
@@ -29,10 +32,16 @@ export default function StrategyTemplatesPage() {
   const [activeCategory, setActiveCategory] = useState<TemplateCategoryTab>("전체");
   const [selectedExample, setSelectedExample] = useState<Example | null>(null);
   const [visibleCount, setVisibleCount] = useState(INITIAL_TEMPLATE_COUNT);
+  const [orderedExamples, setOrderedExamples] = useState<Example[]>(EXAMPLES);
+
+  // 마운트 이후에만 섞는다 — 서버 렌더 결과와 순서가 어긋나면 하이드레이션이 깨진다.
+  useEffect(() => {
+    setOrderedExamples(shuffleExamples(EXAMPLES));
+  }, []);
 
   const filteredExamples = activeCategory === "전체"
-    ? EXAMPLES
-    : EXAMPLES.filter((example) => example.category === activeCategory);
+    ? orderedExamples
+    : orderedExamples.filter((example) => example.category === activeCategory);
   const visibleExamples = filteredExamples.slice(0, visibleCount);
   const hasMoreExamples = visibleCount < filteredExamples.length;
   const backgroundBlurClass = selectedExample
@@ -64,7 +73,7 @@ export default function StrategyTemplatesPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-1 rounded-[1.45rem] border border-white/[0.06] bg-[#101010] p-1 sm:grid-cols-5">
+          <div className="grid grid-cols-2 gap-1 rounded-[1.45rem] border border-white/[0.06] bg-[#101010] p-1 sm:grid-cols-4 lg:grid-cols-7">
             {CATEGORY_TABS.map((category) => {
               const isActive = activeCategory === category;
               const style = category === "전체" ? null : CATEGORY_STYLE[category];

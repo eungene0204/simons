@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import StrategyTemplatesPage from "./page";
+import { EXAMPLES, shuffleExamples } from "@/components/strategy/StrategyExampleTabs";
 
 const beginStrategyChatNavigation = vi.fn();
 const push = vi.fn();
@@ -34,7 +35,18 @@ vi.mock("@/components/layout/DashboardLayout", () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
+// 목록은 마운트 후 무작위로 섞인다. Fisher-Yates에서 Math.random()이 1에 수렴하면
+// 항상 j === i(자기 자신과 교환)이라 원래 순서가 유지된다 — 순서에 의존하는 아래
+// 검증들은 이 고정으로 예시 목록 정의 순서를 그대로 본다.
+function freezeExampleOrder() {
+  vi.spyOn(Math, "random").mockReturnValue(0.999999);
+}
+
 describe("StrategyTemplatesPage", () => {
+  beforeEach(() => {
+    freezeExampleOrder();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     beginStrategyChatNavigation.mockClear();
@@ -77,6 +89,34 @@ describe("StrategyTemplatesPage", () => {
 
     expect(screen.getByText("신고가 돌파주 짧게 보유")).toBeInTheDocument();
     expect(screen.queryByText("이평선 골든크로스 따라가기")).not.toBeInTheDocument();
+  });
+
+  it("마운트 후 예시 순서를 섞어서 보여준다", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const shuffled = shuffleExamples(EXAMPLES);
+    const visible = shuffled.slice(0, 24);
+    const dropped = EXAMPLES.slice(0, 24).find((example) => !visible.includes(example));
+
+    render(<StrategyTemplatesPage />);
+
+    expect(shuffled[0].title).not.toBe(EXAMPLES[0].title);
+    expect(screen.getByText(visible[0].title)).toBeInTheDocument();
+    expect(dropped).toBeDefined();
+    expect(screen.queryByText(dropped!.title)).not.toBeInTheDocument();
+  });
+
+  it("ETF·테마 탭은 해당 종류의 예시만 보여준다", () => {
+    render(<StrategyTemplatesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "ETF 백테스트 예시 보기" }));
+
+    expect(screen.getByText("ETF 골든크로스 따라가기")).toBeInTheDocument();
+    expect(screen.queryByText("저PBR 대형주 장기보유")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "테마 백테스트 예시 보기" }));
+
+    expect(screen.getByText("반도체 업종 골든크로스")).toBeInTheDocument();
+    expect(screen.queryByText("ETF 골든크로스 따라가기")).not.toBeInTheDocument();
   });
 
   it("전체 목록은 처음에 일부만 렌더링하고 더 보기로 나머지를 노출한다", () => {

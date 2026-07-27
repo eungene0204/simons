@@ -30,14 +30,34 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Optional
 
-logger = logging.getLogger("knowledge_graph")
+# 조회 로그가 dev/운영 콘솔에 항상 보이게 전용 핸들러를 단다(engine/console_logging 참고
+# — 2026-07-27 'KG 로그 안 보임' 제보).
+from engine.console_logging import console_logger
+
+logger = console_logger("knowledge_graph", "KG")
 
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent  # 레포 루트(data/의 부모)
 _SEED_PATH = _BASE_DIR / "data" / "knowledge-graph.json"
 _LEXICON_PATH = _BASE_DIR / "data" / "term_lexicon.json"
 _CATALOG_PATH = _BASE_DIR / "data" / "kg-theme-catalog.json"
+_NAVER_CATALOG_PATH = _BASE_DIR / "data" / "kg-naver-theme-catalog.json"
 _STOCKS_PATH = _BASE_DIR / "data" / "korea-stocks.json"
 _ETF_PATH = _BASE_DIR / "data" / "etf-master.json"
+
+# 테스트 정본 용어 가드 — grounding·빌더 테스트가 '그래프 밖 용어'로 전제하는 표현.
+# 카탈로그 ingest 스크립트와 로더의 별칭 생성이 공유한다(정의는 여기 한 곳) —
+# 이 표현이 카탈로그 스캔 용어가 되면 검색 학습 경로 테스트가 죽는다.
+TEST_RESERVED_TERMS: frozenset[str] = frozenset({
+    "그린수소", "폐배터리", "위고비", "마운자로", "메타버스", "cowos", "신조어",
+    "반도체소부장", "ess",
+})
+
+
+def _catalog_paths() -> tuple[Path, ...]:
+    """카탈로그 합성 순서 — 네이버 금융(업종·테마별 종목)이 사용자 지정 1순위 신뢰
+    소스(2026-07-27)라 주달보다 먼저 합성돼 같은 표기가 겹치면 네이버가 이긴다.
+    호출 시점에 전역을 읽는다(테스트가 경로를 monkeypatch할 수 있게)."""
+    return (_NAVER_CATALOG_PATH, _CATALOG_PATH)
 
 # 지원 관계 어휘 — 시드에 미지의 타입이 들어오면 검증에서 잡는다(오타 fail-fast).
 EDGE_TYPES: frozenset[str] = frozenset({
@@ -59,6 +79,44 @@ _SECTOR_MAX_DEPTH = 3
 def _norm_key(text: str) -> str:
     """스캔·비교용 키 — 공백 제거·소문자화(universe_pit._sector_key와 동일 관례)."""
     return (text or "").replace(" ", "").lower()
+
+
+# 별칭 일반어 차단 — "카메라모듈/부품"의 '부품'처럼 단독으로는 테마를 특정하지 못하는
+# 조각이 스캔 어휘가 되면 그 단어를 포함한 모든 질의에 오매칭된다("LCD 부품" 질의가
+# 카메라모듈 테마에 걸리던 사고 2026-07-27). 수식어가 붙은 별칭("반도체 부품")은 통과.
+_ALIAS_STOPWORDS: frozenset[str] = frozenset({
+    "부품", "소재", "장비", "제품", "기기", "재료",
+    # '화폐/금융자동화기기'의 '화폐' — 암호화폐·가상화폐 질의가 ATM 테마에 걸린다(2026-07-27).
+    "화폐",
+})
+
+
+def _slash_aliases(name: str) -> list[str]:
+    """복합 표기 테마명("LCD 부품/소재")의 결정적 표기 변형("LCD 부품"·"LCD 소재").
+
+    의미 해석이 아니라 표기 정규화다 — 슬래시 병기 이름은 그대로는 스캔 부분 문자열에
+    절대 걸리지 않아 도달 불가 노드가 된다('LCD 부품' 사고 2026-07-27). 괄호는 제거한
+    본체 기준으로 변형을 만든다("지능형로봇/인공지능(AI)"→지능형로봇·인공지능 — 괄호가
+    붙은 병기 이름이 통째로 도달 불가 노드가 되던 사고 2026-07-27). 괄호 안 텍스트
+    (HBM/HBM3E의 별칭 승격)는 ingest의 괄호 동의어 승격이 담당하므로 여기서 만들지 않는다.
+    섹터 어휘·테스트 정본 용어·별칭 일반어로 정규화되는 변형은 가드 계약대로 제외한다."""
+    base = re.sub(r"\([^)]*\)", "", name or "").strip()
+    m = re.fullmatch(r"(.*?)([^\s/]+(?:/[^\s/]+)+)(.*)", base)
+    if not m:
+        return []
+    from engine.universe_pit import normalize_sector  # 지연 import(무거운 엔진 모듈)
+
+    prefix, group, suffix = m.groups()
+    aliases = []
+    for part in group.split("/"):
+        alias = f"{prefix}{part}{suffix}".strip()
+        key = _norm_key(alias)
+        if len(key) < 2 or key in TEST_RESERVED_TERMS or key in _ALIAS_STOPWORDS:
+            continue
+        if normalize_sector(alias):
+            continue
+        aliases.append(alias)
+    return aliases
 
 
 # ── 조회 로그 포맷터 — 무엇을 KG에서 찾았고 무엇이 나왔는지 추적(운영 관찰용) ──
@@ -104,6 +162,33 @@ class KnowledgeGraph:
             self._out.setdefault(e["source"], []).append(e)
             self._in.setdefault(e["target"], []).append(e)
         self._scan_index = self._build_scan_index()
+        self._catalog_index = self._build_catalog_index()
+
+    # ── 카탈로그 정합 인덱스(용어 → 카탈로그 테마 노드 정확 일치) ────────────────
+    def _build_catalog_index(self) -> dict[str, list[str]]:
+        """카탈로그 테마의 이름·동의어(표기 변형 포함) → [node_id] 정확 키 인덱스.
+
+        스캔 인덱스와 달리 taken 경쟁을 하지 않는다 — 같은 표기를 학습 노드가 먼저
+        가져갔어도('LCD 부품' 사고 2026-07-27) 카탈로그 테마를 찾을 수 있어야 한다."""
+        index: dict[str, list[str]] = {}
+        for node_id, node in self.nodes.items():
+            if node.get("category") != "theme_catalog":
+                continue
+            for term in [node.get("name", "")] + list(node.get("synonyms", [])):
+                key = _norm_key(term)
+                if len(key) < 2:
+                    continue
+                bucket = index.setdefault(key, [])
+                if node_id not in bucket:
+                    bucket.append(node_id)
+        return index
+
+    def catalog_theme_nodes(self, term: str) -> list[dict]:
+        """용어와 표기가 정확히 일치하는 카탈로그 테마 노드 목록.
+
+        부분·접두 매칭 금지 — 복합 테마구 오확정 가드와 동일 원칙. 학습 앵커의
+        카탈로그 정합 우선 조회(theme_listed_companies)가 소비한다."""
+        return [self.nodes[nid] for nid in self._catalog_index.get(_norm_key(term), [])]
 
     # ── 스캔 인덱스(문장 → 개념 노드 결정적 인식) ────────────────────────────────
     def _build_scan_index(self) -> list[tuple[str, str]]:
@@ -281,7 +366,7 @@ def _mtimes() -> tuple:
             return os.path.getmtime(p)
         except OSError:
             return 0.0
-    return (mt(_SEED_PATH), mt(_LEXICON_PATH), mt(_CATALOG_PATH))
+    return (mt(_SEED_PATH), mt(_LEXICON_PATH)) + tuple(mt(p) for p in _catalog_paths())
 
 
 def _stock_names() -> dict[str, str]:
@@ -338,22 +423,30 @@ def _build() -> KnowledgeGraph:
             "searched_at": entry.get("searched_at"),
         }
 
-    # 카탈로그 오버레이 — 외부 테마 분류(주달, 사용자 지정 신뢰 소스 2026-07-25)를
-    # 최하위 순위로 편입한다. 스캔 인덱스는 삽입 순서로 시드·학습이 우선하고(taken),
-    # 소속 엣지가 없어 섹터 해석에는 관여하지 않는다 — 테마→종목 조회 전용.
-    # 수집·가드는 scripts/ingest_judal_themes.py(시드 중복·섹터 어휘·테스트 용어 제외).
-    catalog = _load_json(_CATALOG_PATH, {})
-    for theme in catalog.get("themes", []):
-        if not isinstance(theme, dict) or not theme.get("id"):
-            continue
-        node_id = f"theme:{theme['id']}"
-        if node_id in nodes:
-            continue
-        nodes[node_id] = {
-            "id": node_id, "name": theme.get("name", theme["id"]),
-            "category": "theme_catalog", "synonyms": list(theme.get("synonyms", [])),
-            "source": catalog.get("source"), "retrieved_at": catalog.get("retrieved_at"),
-        }
+    # 카탈로그 오버레이 — 외부 테마 분류(네이버 금융 업종·테마, 주달)를 최하위 순위로
+    # 편입한다. 스캔 인덱스는 삽입 순서로 시드·학습이 우선하고(taken), 소속 엣지가 없어
+    # 섹터 해석에는 관여하지 않는다 — 테마→종목 조회 전용. 카탈로그끼리는 네이버가
+    # 먼저(_CATALOG_PATHS 순서, 사용자 지정 1순위 신뢰 소스 2026-07-27).
+    # 수집·가드는 scripts/ingest_naver_themes.py·ingest_judal_themes.py
+    # (시드 중복·섹터 어휘·테스트 용어 제외). 슬래시 병기 이름("LCD 부품/소재")은
+    # 결정적 표기 변형을 동의어로 더해 스캔 도달 가능하게 한다.
+    catalog_themes: list[dict] = []
+    for path in _catalog_paths():
+        catalog = _load_json(path, {})
+        for theme in catalog.get("themes", []):
+            if not isinstance(theme, dict) or not theme.get("id"):
+                continue
+            node_id = f"theme:{theme['id']}"
+            if node_id in nodes:
+                continue
+            synonyms = list(theme.get("synonyms", []))
+            synonyms += [a for a in _slash_aliases(theme.get("name", "")) if a not in synonyms]
+            nodes[node_id] = {
+                "id": node_id, "name": theme.get("name", theme["id"]),
+                "category": "theme_catalog", "synonyms": synonyms,
+                "source": catalog.get("source"), "retrieved_at": catalog.get("retrieved_at"),
+            }
+            catalog_themes.append(theme)
 
     stock_names = _stock_names()
     etf_names = _etf_names()
@@ -434,7 +527,7 @@ def _build() -> KnowledgeGraph:
 
     # 카탈로그 엣지 — 정본에 없는 심볼은 조용히 스킵(카탈로그는 학습 데이터처럼
     # 무결성 단언 대상이 아니다 — 수집 시점 이후 마스터에서 빠진 종목 등).
-    for theme in catalog.get("themes", []):
+    for theme in catalog_themes:
         node_id = f"theme:{theme.get('id')}"
         if node_id not in nodes:
             continue
@@ -510,7 +603,30 @@ def theme_listed_companies(text: str) -> Optional[dict]:
         return None
     anchor = concepts[0]
     via = "직접 엣지"
-    companies = graph.listed_companies(anchor["id"])
+    companies: list[dict] = []
+    catalog_hit = False
+    # 카탈로그 표기 정합 우선('LCD 부품' 사고 2026-07-27, 시드 앵커 확장 2026-07-27) —
+    # 앵커 유형과 무관하게 표기가 정확히 일치하는 카탈로그 테마(네이버 금융>주달
+    # 업종/테마→종목)가 있으면 카탈로그 수록 종목이 유니버스 정의다. 사용자 지정
+    # 1순위 신뢰 소스: 관련 종목 검색은 네이버 분류가 시드 큐레이션 엣지보다 우선
+    # (온디바이스 AI — 시드 2곳 vs 네이버 24곳). 시드 직접 엣지는 카탈로그 정합이
+    # 없는 개념(HBM 등 네이버 표기 불일치)의 유니버스 정의로 유지된다.
+    # 앵커 동의어도 정합 대상이다 — 시드 'AI'(동의어 인공지능)가 네이버 '지능형로봇/
+    # 인공지능(AI)'와 이름만으로는 절대 정합하지 못해 업종 근사(소프트웨어/플랫폼)로
+    # 유니버스가 과대해지던 사고(2026-07-27). 동의어는 큐레이션된 표기 변형이므로
+    # 의미 해석이 아니라 표기 정합이다.
+    seen: set[str] = set()
+    for term in [anchor.get("name", "")] + list(anchor.get("synonyms", [])):
+        for theme_node in graph.catalog_theme_nodes(term):
+            for c in graph.listed_companies(theme_node["id"]):
+                if c["symbol"] not in seen:
+                    seen.add(c["symbol"])
+                    companies.append(c)
+    if companies:
+        catalog_hit = True
+        via = "카탈로그 표기 정합"
+    if not companies:
+        companies = graph.listed_companies(anchor["id"])
     if not companies and anchor.get("category") == "learned":
         # 학습 용어 한정 폴백('bts 관련주' 사고 2026-07-25) — 직접 상장사가 검증되지
         # 않았어도 verified 개념 엣지 1홉 너머의 상장사를 후보로 쓴다. 시드·카탈로그
@@ -525,7 +641,10 @@ def theme_listed_companies(text: str) -> Optional[dict]:
         )
         return None
     dates = sorted(c["first_known_date"] for c in companies if c["first_known_date"])
-    first = dates[0] if dates else ((anchor.get("searched_at") or "")[:10] or None)
+    # 카탈로그 정합은 큐레이션 분류라 시점 편향 경고 대상이 아니다(시드 개념과 동일).
+    first = dates[0] if dates else (
+        None if catalog_hit else ((anchor.get("searched_at") or "")[:10] or None)
+    )
     logger.info(
         "KG 테마 상장사 조회: 질의=%r → 앵커=%s[%s](%s) → %s로 상장사 %d곳=%s, 최초 보도일=%s",
         _log_preview(text), anchor.get("name"), anchor["id"],
@@ -556,6 +675,15 @@ def theme_backtest_companies(text: str) -> Optional[dict]:
                 "KG 백테스트 테마 확장: 앵커=%s[%s](%s) → 학습 앵커 아님, 직접 목록 유지",
                 anchor.get("name"), anchor["id"], anchor.get("category", "seed"),
             )
+        return base
+    if graph.catalog_theme_nodes(anchor.get("name", "")):
+        # 카탈로그 표기 정합('LCD 부품' 사고 2026-07-27) — base가 이미 카탈로그 수록
+        # 종목이다. Concept Universe 확장은 뉴스 동시언급 학습 엣지·개념 홉을 다시
+        # 끌어와 무관 종목(PCB 경유 심텍 등)을 섞으므로 하지 않는다.
+        logger.info(
+            "KG 백테스트 테마 확장: 앵커=%s[%s] → 카탈로그 표기 정합, 카탈로그 목록 유지(확장 생략)",
+            anchor.get("name"), anchor["id"],
+        )
         return base
     try:
         from engine.concept_universe import BASE_THRESHOLD, build_concept_universe

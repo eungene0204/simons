@@ -290,6 +290,16 @@ def test_is_empty_gates_seeding():
     assert sb.is_empty(sb.BuilderState(universe="KOSPI")) is False
 
 
+def test_seed_ai_theme_confirms_catalog_symbols_not_broad_sector():
+    """'인공지능 관련주 투자 전략'이 업종 소프트웨어/플랫폼(모든 소프트웨어 업체)으로
+    과대 확정되던 사고(2026-07-27) — AI는 테마: 네이버 '지능형로봇/인공지능(AI)'
+    카탈로그 수록 종목이 지정 종목 유니버스로 확정되고 업종 근사는 해제된다."""
+    state = sb.seed_state("인공지능 관련주 투자 전략")
+    assert state.theme_symbols            # 카탈로그 수록 종목으로 즉시 확정
+    assert state.sector is None           # 업종 근사 해제(대상=종목 목록)
+    assert not state.sector_unresolved    # 미해결 되묻기로도 새지 않는다
+
+
 def test_seed_state_remembers_sector_and_leading_stock_phrasing():
     """종목 질문 리다이렉트 뒤 '반도체 주도주로 전략을 만들어줘' — 업종을 기억하고
     주도주=모멘텀으로 인식해, 종목 고르는 질문(전략유형)을 다시 묻지 않는다."""

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Sparkle, X } from "phosphor-react";
 
-export type ExampleCategory = "가치투자" | "기술분석" | "모멘텀" | "복합전략";
+export type ExampleCategory = "가치투자" | "기술분석" | "모멘텀" | "복합전략" | "ETF" | "테마";
 export type ExampleLevel = "beginner" | "intermediate" | "expert";
 type StrategyTab = "examples" | "my-strategies";
 
@@ -514,13 +514,125 @@ export const EXAMPLES: Example[] = [
     title: "멀티팩터 주간 로테이션",
     prompt: "KOSPI와 KOSDAQ 공통 유니버스에서 PBR 1.5배 이하, ROE 12% 이상이면서 최근 60거래일 수익률이 상위권이고 거래대금이 50억 원 이상인 종목만 12종목 동일 비중으로 담고 싶어요. 주간 리밸런싱, 20일선 이탈 시 청산, 손절 -8%로 구성해 주세요.",
   },
+  // ── ETF 유니버스 예시 (ETF는 기업 재무제표가 없어 가격·거래대금 기반 조건만 사용) ──
+  {
+    level: "beginner",
+    category: "ETF",
+    title: "ETF 골든크로스 따라가기",
+    prompt: "개별 종목은 아직 부담스러워서 ETF로만 시작해 보고 싶어요. ETF 중에서 5일 이동평균선이 20일 이동평균선을 위로 뚫으면 매수하고, 데드크로스가 나오면 매도하는 단순한 방식으로 만들어 주세요. 최대 보유는 4종목, 손절 예시값은 -8%로 설정해 주세요.",
+  },
+  {
+    level: "beginner",
+    category: "ETF",
+    title: "반도체 ETF 60일선 위 보유",
+    prompt: "반도체 ETF만 대상으로 종가가 60일 이동평균선 위에 있을 때 보유하고, 60일선 아래로 내려오면 정리하는 전략을 만들어 주세요. 최대 보유는 3종목, 손절 예시값은 -9%로 설정해 주세요.",
+  },
+  {
+    level: "beginner",
+    category: "ETF",
+    title: "배당 ETF 추세 유지 보유",
+    prompt: "배당 ETF 중에서 종가가 20일 이동평균선 위에 있는 상품만 4종목 정도 나눠 담고 싶어요. 20일선을 이탈하면 청산하고, 최소 보유 기간은 6개월, 손절 예시값은 -10%로 설정해 주세요.",
+  },
+  {
+    level: "intermediate",
+    category: "ETF",
+    title: "헬스케어 ETF 눌림 진입",
+    prompt: "헬스케어 ETF를 대상으로 RSI가 35 아래로 내려갔다가 다시 올라오는 시점에만 매수하고 싶습니다. RSI가 65 이상으로 올라오면 매도하고, 최대 보유는 3종목, 손절 예시값은 -7%로 설정해 주세요.",
+  },
+  {
+    level: "intermediate",
+    category: "ETF",
+    title: "2차전지 ETF 거래대금 필터 모멘텀",
+    prompt: "2차전지 ETF 중 일평균 거래대금이 10억 원 이상으로 거래가 활발한 상품만 남긴 뒤, 최근 60거래일 수익률이 높은 순으로 3종목만 보유하고 싶습니다. 매월 한 번 순위를 다시 산정해 교체하고, 손절 예시값은 -9%로 설정해 주세요.",
+  },
+  {
+    level: "intermediate",
+    category: "ETF",
+    title: "KODEX 200 단일 상품 추세 매매",
+    prompt: "KODEX 200 ETF 한 상품만 가지고 20일 신고가를 돌파하면 매수하고 20일 이동평균선을 이탈하면 청산하는 방식으로 백테스트하고 싶습니다. 손절 예시값은 -6%, 최대 보유 기간은 40거래일로 설정해 주세요.",
+  },
+  {
+    level: "expert",
+    category: "ETF",
+    title: "원자력 ETF MACD·추세 이중 확인",
+    prompt: "원자력 ETF 중 MACD 골든크로스가 발생하면서 종가가 20일 이동평균선 위에 있을 때만 진입하고 싶습니다. 청산은 MACD 데드크로스 또는 20일선 이탈 중 먼저 도달하는 조건으로 하고, 최대 보유는 3종목, 손절 예시값은 -8%, 익절 예시값은 +18%로 설정해 주세요.",
+  },
+  {
+    level: "expert",
+    category: "ETF",
+    title: "방산 ETF 거래대금·EMA 크로스 스윙",
+    prompt: "방산 ETF 중 일평균 거래대금이 5억 원 이상인 상품에서 5일 EMA가 20일 EMA를 골든크로스하면 진입하고 싶습니다. EMA 데드크로스가 나오면 청산하고, 최대 보유는 3종목, 최대 보유 기간은 25거래일, 손절 예시값은 -7%, 익절 예시값은 +20%로 설정해 주세요.",
+  },
+  // ── 업종·테마 유니버스 예시 ──
+  {
+    level: "beginner",
+    category: "테마",
+    title: "반도체 업종 골든크로스",
+    prompt: "반도체 관련주만 모아서 간단하게 실험해 보고 싶어요. 반도체 업종 종목 중 골든크로스가 나오면 매수하고 데드크로스가 나오면 매도해 주세요. 최대 보유는 6종목, 손절 예시값은 -8%로 설정해 주세요.",
+  },
+  {
+    level: "beginner",
+    category: "테마",
+    title: "2차전지 업종 20일선 위 보유",
+    prompt: "2차전지 업종 종목 중 종가가 20일 이동평균선 위에 있고 거래량이 최근 평균보다 늘어난 종목만 5종목 담고 싶어요. 20일선 아래로 내려오면 정리하고, 손절 예시값은 -9%로 설정해 주세요.",
+  },
+  {
+    level: "beginner",
+    category: "테마",
+    title: "로봇 업종 신고가 돌파",
+    prompt: "로봇 관련주 중 20일 신고가를 돌파하는 종목을 매수 조건으로 설정해 주세요. 최대 보유는 5종목, 최대 보유 기간은 20거래일, 손절 예시값은 -10%로 설정해 주세요.",
+  },
+  {
+    level: "intermediate",
+    category: "테마",
+    title: "방산 업종 거래대금·추세 확인",
+    prompt: "방산 관련주 중 일평균 거래대금이 30억 원 이상인 종목만 남긴 뒤, 5일 EMA가 20일 EMA 위에 있을 때 매수하고 싶습니다. EMA 데드크로스가 나오면 청산하고, 최대 보유는 6종목, 손절 예시값은 -8%, 익절 예시값은 +18%로 설정해 주세요.",
+  },
+  {
+    level: "intermediate",
+    category: "테마",
+    title: "원자력 업종 월간 모멘텀 교체",
+    prompt: "원자력 관련주 중 최근 60거래일 수익률이 높은 상위 5종목만 동일 비중으로 보유하고, 매월 순위를 다시 산정해 기준에서 벗어난 종목을 교체해 주세요. 거래대금이 너무 적은 종목은 제외하고, 손절 예시값은 -9%로 설정해 주세요.",
+  },
+  {
+    level: "intermediate",
+    category: "테마",
+    title: "바이오 업종 과매도 반등",
+    prompt: "바이오 관련주 중 RSI가 30 아래로 내려갔다가 다시 반등하고 일평균 거래대금이 20억 원 이상인 종목만 매수하고 싶습니다. RSI가 70 이상이면 매도하고, 최대 보유는 8종목, 손절 예시값은 -10%로 설정해 주세요.",
+  },
+  {
+    level: "expert",
+    category: "테마",
+    title: "조선 업종 EMA 정배열 + 거래대금",
+    prompt: "조선 관련주 중 20일 EMA가 60일 EMA 위에 있고 당일 거래대금이 최근 20일 평균보다 많은 종목만 진입 대상으로 보고 싶습니다. 20일 EMA 이탈 시 청산하고, 최대 보유는 6종목, 주간 리밸런싱, 손절 예시값은 -7%, 익절 예시값은 +20%로 설정해 주세요.",
+  },
+  {
+    level: "expert",
+    category: "테마",
+    title: "반도체 업종 퀄리티 + 모멘텀 결합",
+    prompt: "반도체 업종 종목 중 ROE 10% 이상, 부채비율 120% 이하 조건을 먼저 적용하고, 그중 최근 60거래일 수익률이 상위권이면서 일평균 거래대금이 50억 원 이상인 종목만 8종목 동일 비중으로 담고 싶습니다. 월간 리밸런싱, 20일선 이탈 시 청산, 손절 예시값은 -8%로 설정해 주세요.",
+  },
 ];
+
+/** 예시 카드 노출 순서를 섞는다(Fisher-Yates) — 첫 화면이 항상 같은 예시만 보여주지
+ * 않도록. 서버·클라이언트가 다른 순서를 만들면 하이드레이션이 깨지므로 호출은 마운트
+ * 이후(useEffect)에만 한다. */
+export function shuffleExamples(examples: Example[]): Example[] {
+  const shuffled = [...examples];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
 
 export const CATEGORY_STYLE: Record<ExampleCategory, { label: string; color: string; bg: string; border: string }> = {
   가치투자: { label: "가치투자", color: "text-emerald-300", bg: "bg-black", border: "" },
   기술분석: { label: "기술분석", color: "text-sky-300", bg: "bg-black", border: "" },
   모멘텀: { label: "모멘텀", color: "text-violet-300", bg: "bg-black", border: "" },
   복합전략: { label: "복합전략", color: "text-amber-300", bg: "bg-black", border: "" },
+  ETF: { label: "ETF", color: "text-cyan-300", bg: "bg-black", border: "" },
+  테마: { label: "테마", color: "text-rose-300", bg: "bg-black", border: "" },
 };
 
 const TAB_META: Record<StrategyTab, { label: string }> = {
@@ -631,9 +743,15 @@ export function StrategyExampleTabs({
   const [deletingStrategyIds, setDeletingStrategyIds] = useState<Set<string>>(() => new Set());
   const [selectedExample, setSelectedExample] = useState<Example | null>(null);
   const [exampleContentHeight, setExampleContentHeight] = useState<number | null>(null);
+  const [orderedExamples, setOrderedExamples] = useState<Example[]>(EXAMPLES);
   const examplesContentRef = useRef<HTMLDivElement>(null);
 
-  const visibleExamples = EXAMPLES.slice(0, DEFAULT_VISIBLE_COUNT);
+  // 마운트 이후에만 섞는다 — 서버 렌더 결과와 순서가 어긋나면 하이드레이션이 깨진다.
+  useEffect(() => {
+    setOrderedExamples(shuffleExamples(EXAMPLES));
+  }, []);
+
+  const visibleExamples = orderedExamples.slice(0, DEFAULT_VISIBLE_COUNT);
 
   useEffect(() => {
     if (activeTab !== "my-strategies" || hasLoadedStrategies) return;

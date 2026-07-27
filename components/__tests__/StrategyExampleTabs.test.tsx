@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StrategyExampleTabs } from "@/components/strategy/StrategyExampleTabs";
 
@@ -14,7 +14,15 @@ vi.mock("next/link", () => ({
 }));
 
 describe("StrategyExampleTabs", () => {
+  beforeEach(() => {
+    // 카드는 마운트 후 무작위로 섞인다. Fisher-Yates에서 Math.random()이 1에 수렴하면
+    // 항상 j === i라 예시 정의 순서가 유지된다 — 아래 순서 의존 검증들의 전제
+    // (섞임 자체는 StrategyExampleTabs.shuffle.test.tsx가 검증).
+    vi.spyOn(Math, "random").mockReturnValue(0.999999);
+  });
+
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 

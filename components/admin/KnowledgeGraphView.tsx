@@ -7,6 +7,10 @@ import { adminFetch, ErrorNotice, inputClass } from './shared'
 // 오버레이)를 포스 레이아웃 캔버스로 표시한다. 객관적 관계 데이터의 표시일 뿐
 // 추천·전망이 아니다.
 //
+// 기본 화면은 테마 레벨(종목 숨김)이다 — 테마 카탈로그 확장으로 종목 노드가 전체의
+// 8할이라 다 그리면 헤어볼이 된다. 종목은 노드 선택 시 그 이웃만 펼치고, 범례의
+// '상장사' 토글로 전체 표시도 선택할 수 있다.
+//
 // 색상: 어두운 표면(#0f0f0f)에서 전쌍(all-pairs) 검증을 통과하는 3색(파랑·청록·주황)
 // + 중립 회색 2단만 사용한다. 기업/ETF는 회색 계열이라 도형(원/사각형)·크기·라벨·
 // 범례가 2차 인코딩으로 식별을 보장한다(색 단독 식별 금지 원칙).
@@ -54,6 +58,10 @@ interface SimNode extends KgNode {
   y: number
   vx: number
   vy: number
+  // 시뮬레이션·렌더 참여 여부 — 기본 테마 레벨에서 종목은 비활성, 선택 시 이웃만 활성
+  active: boolean
+  // 화면에 한 번이라도 배치됐는지 — 처음 펼쳐지는 종목은 연결 노드 곁에서 시작시킨다
+  placed: boolean
 }
 
 interface SimEdge extends KgEdge {
@@ -84,9 +92,22 @@ export default function KnowledgeGraphView() {
   } | null>(null)
   const [query, setQuery] = useState('')
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [showCompanies, setShowCompanies] = useState(false)
+  // resetKey 재시뮬레이션에서도 토글 상태를 유지하기 위한 ref(이펙트가 초기값으로 읽음)
+  const showCompaniesRef = useRef(false)
   // 진행 중인 포스 시뮬레이션에 명령을 보내는 통로 — 검색 결과 선택 시 레이아웃을
   // 재시작(resetKey)하지 않고 카메라만 이동시킨다(재배치는 위치가 흔들려 방해된다)
-  const controllerRef = useRef<{ selectNode: (id: string) => void } | null>(null)
+  const controllerRef = useRef<{
+    selectNode: (id: string) => void
+    setShowAll: (v: boolean) => void
+  } | null>(null)
+
+  const toggleCompanies = () => {
+    const next = !showCompaniesRef.current
+    showCompaniesRef.current = next
+    setShowCompanies(next)
+    controllerRef.current?.setShowAll(next)
+  }
 
   // 이름·별칭 부분일치 검색 — 이름 시작 일치 > 이름 포함 > 별칭 포함 순으로 정렬
   const matches = useMemo(() => {
@@ -154,15 +175,19 @@ export default function KnowledgeGraphView() {
     const nodes: SimNode[] = data.nodes.map((n, i) => {
       const angle = i * 2.39996
       const radius = 26 * Math.sqrt(i + 1)
+      const group = groupOf(n)
+      const active = group !== 'company' || showCompaniesRef.current
       const sim: SimNode = {
         ...n,
-        group: groupOf(n),
+        group,
         degree: 0,
         r: 0,
         x: Math.cos(angle) * radius,
         y: Math.sin(angle) * radius,
         vx: 0,
         vy: 0,
+        active,
+        placed: active,
       }
       nodeById.set(n.id, sim)
       return sim
@@ -176,7 +201,8 @@ export default function KnowledgeGraphView() {
       b.degree += 1
       edges.push({ ...e, a, b })
     }
-    for (const n of nodes) n.r = Math.min(4 + n.degree * 0.9, 16)
+    // sqrt 스케일 — 카탈로그 테마는 차수가 수십이라 선형 스케일이면 대부분 상한에 붙는다
+    for (const n of nodes) n.r = Math.min(3.5 + Math.sqrt(n.degree) * 1.3, 16)
 
     const neighborIds = new Map<string, Set<string>>()
     for (const e of edges) {
@@ -203,12 +229,47 @@ export default function KnowledgeGraphView() {
     let raf = 0
     let fitted = false
     let interacted = false
+    let showAll = showCompaniesRef.current
+
+    // 처음 펼쳐지는 종목은 연결된(이미 배치된) 노드 곁에서 시작한다 — 스파이럴
+    // 원점에서 날아오면 어느 테마의 종목인지 시각적으로 끊긴다
+    const place = (n: SimNode) => {
+      const ids = neighborIds.get(n.id)
+      if (ids) {
+        for (const id of ids) {
+          const nb = nodeById.get(id)
+          if (nb?.active && nb.placed) {
+            const a = Math.random() * Math.PI * 2
+            const d = 40 + Math.random() * 40
+            n.x = nb.x + Math.cos(a) * d
+            n.y = nb.y + Math.sin(a) * d
+            break
+          }
+        }
+      }
+      n.placed = true
+    }
+
+    // 기본은 테마 레벨 — 종목은 '전체 표시' 토글이 켜졌거나, 선택 노드 자신·이웃일 때만 활성
+    const updateActive = () => {
+      const neighbors = selected ? neighborIds.get(selected.id) : null
+      for (const n of nodes) {
+        const want =
+          n.group !== 'company' || showAll || n === selected || (neighbors?.has(n.id) ?? false)
+        if (want && !n.active && !n.placed) place(n)
+        n.active = want
+      }
+      alpha = Math.max(alpha, 0.3)
+      needsDraw = true
+    }
+    updateActive()
 
     // 레이아웃이 어느 정도 안정되면 전체 그래프가 보이도록 1회 자동 맞춤한다
     // (사용자가 먼저 줌/팬했으면 덮어쓰지 않는다)
     const fitToView = () => {
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
       for (const n of nodes) {
+        if (!n.active) continue
         if (n.x < minX) minX = n.x
         if (n.x > maxX) maxX = n.x
         if (n.y < minY) minY = n.y
@@ -234,29 +295,60 @@ export default function KnowledgeGraphView() {
     const observer = new ResizeObserver(resize)
     observer.observe(container)
 
+    // 반발력은 공간 그리드 근사 — 인접 9칸은 노드끼리 정확 계산, 그 밖(컷오프 400px
+    // 이내)은 칸의 무게중심×개수로 근사한다. 테마 카탈로그 확장으로 '전체 표시' 시
+    // 3천 노드 규모라 전쌍 O(n²)는 프레임을 감당하지 못한다.
+    const CELL = 80
+    const RANGE = Math.ceil(400 / CELL)
     const tick = () => {
-      // 반발력 O(n²) — 노드 수백 개 규모라 프레임당 충분히 저렴하다
-      for (let i = 0; i < nodes.length; i++) {
-        const a = nodes[i]
-        for (let j = i + 1; j < nodes.length; j++) {
-          const b = nodes[j]
-          let dx = a.x - b.x
-          let dy = a.y - b.y
-          let d2 = dx * dx + dy * dy
-          if (d2 < 1) {
-            dx = (Math.random() - 0.5) * 2
-            dy = (Math.random() - 0.5) * 2
-            d2 = dx * dx + dy * dy
+      const cells = new Map<number, { sx: number; sy: number; count: number; items: SimNode[] }>()
+      for (const n of nodes) {
+        if (!n.active) continue
+        const key = (Math.floor(n.x / CELL) + 2048) * 4096 + (Math.floor(n.y / CELL) + 2048)
+        let c = cells.get(key)
+        if (!c) cells.set(key, (c = { sx: 0, sy: 0, count: 0, items: [] }))
+        c.sx += n.x
+        c.sy += n.y
+        c.count += 1
+        c.items.push(n)
+      }
+      for (const n of nodes) {
+        if (!n.active) continue
+        const ci = Math.floor(n.x / CELL) + 2048
+        const cj = Math.floor(n.y / CELL) + 2048
+        for (let di = -RANGE; di <= RANGE; di++) {
+          for (let dj = -RANGE; dj <= RANGE; dj++) {
+            const c = cells.get((ci + di) * 4096 + (cj + dj))
+            if (!c) continue
+            if (di >= -1 && di <= 1 && dj >= -1 && dj <= 1) {
+              for (const b of c.items) {
+                if (b === n) continue
+                let dx = n.x - b.x
+                let dy = n.y - b.y
+                let d2 = dx * dx + dy * dy
+                if (d2 < 1) {
+                  dx = (Math.random() - 0.5) * 2
+                  dy = (Math.random() - 0.5) * 2
+                  d2 = dx * dx + dy * dy
+                }
+                const f = (1400 / d2) * alpha
+                n.vx += dx * f
+                n.vy += dy * f
+              }
+            } else {
+              const dx = n.x - c.sx / c.count
+              const dy = n.y - c.sy / c.count
+              const d2 = dx * dx + dy * dy
+              if (d2 < 1 || d2 > 160_000) continue
+              const f = ((1400 * c.count) / d2) * alpha
+              n.vx += dx * f
+              n.vy += dy * f
+            }
           }
-          if (d2 > 160_000) continue
-          const f = (1400 / d2) * alpha
-          a.vx += dx * f
-          a.vy += dy * f
-          b.vx -= dx * f
-          b.vy -= dy * f
         }
       }
       for (const e of edges) {
+        if (!e.a.active || !e.b.active) continue
         const dx = e.b.x - e.a.x
         const dy = e.b.y - e.a.y
         const d = Math.sqrt(dx * dx + dy * dy) || 1
@@ -267,6 +359,7 @@ export default function KnowledgeGraphView() {
         e.b.vy -= dy * f
       }
       for (const n of nodes) {
+        if (!n.active) continue
         n.vx -= n.x * 0.02 * alpha
         n.vy -= n.y * 0.02 * alpha
         if (n === dragNode) {
@@ -288,6 +381,7 @@ export default function KnowledgeGraphView() {
 
       ctx.lineWidth = 1
       for (const e of edges) {
+        if (!e.a.active || !e.b.active) continue
         const touchesSelected = selected && (e.a === selected || e.b === selected)
         ctx.strokeStyle = selected
           ? touchesSelected
@@ -301,6 +395,7 @@ export default function KnowledgeGraphView() {
       }
 
       for (const n of nodes) {
+        if (!n.active) continue
         const sx = n.x * k + ox
         const sy = n.y * k + oy
         if (sx < -30 || sx > width + 30 || sy < -30 || sy > HEIGHT + 30) continue
@@ -340,6 +435,7 @@ export default function KnowledgeGraphView() {
       ctx.font = '600 11px sans-serif'
       ctx.textBaseline = 'middle'
       for (const n of nodes) {
+        if (!n.active) continue
         const sx = n.x * k + ox
         const sy = n.y * k + oy
         if (sx < -60 || sx > width + 60 || sy < -20 || sy > HEIGHT + 20) continue
@@ -347,8 +443,12 @@ export default function KnowledgeGraphView() {
           n === hovered || n === selected || (selected && neighborsOfSelected?.has(n.id))
         const alwaysLabeled = n.group === 'concept' || n.group === 'sector' || n.group === 'learned'
         if (!alwaysLabeled && !emphasized && k < 1.5) continue
-        // 전체 보기(축소) 시에는 허브(연결 많은 노드)만 라벨링해 겹침을 줄인다
-        if (alwaysLabeled && !emphasized && k < 0.7 && n.degree < 3) continue
+        // 축소 시에는 허브(연결 많은 노드)만 라벨링해 겹침을 줄인다 — 임계 차수는 줌에
+        // 비례해 낮아진다. 학습 용어(9개 남짓)는 검토 대상이라 항상 라벨링한다.
+        if (alwaysLabeled && !emphasized && n.group !== 'learned') {
+          const minDegree = k < 0.55 ? 40 : k < 0.8 ? 20 : k < 1.2 ? 6 : 0
+          if (n.degree < minDegree) continue
+        }
         if (selected && !emphasized && n !== selected) continue
         ctx.globalAlpha = emphasized ? 1 : 0.75
         ctx.fillStyle = emphasized ? '#ffffff' : '#c3c2b7'
@@ -378,6 +478,7 @@ export default function KnowledgeGraphView() {
       let best: SimNode | null = null
       let bestD = Infinity
       for (const n of nodes) {
+        if (!n.active) continue
         const dx = n.x * k + ox - px
         const dy = n.y * k + oy - py
         const d = Math.sqrt(dx * dx + dy * dy)
@@ -449,7 +550,7 @@ export default function KnowledgeGraphView() {
         const hit = hitTest(x, y)
         selected = hit && hit !== selected ? hit : null
         setSelectedId(selected?.id ?? null)
-        needsDraw = true
+        updateActive()
       }
       dragNode = null
       panning = false
@@ -473,18 +574,24 @@ export default function KnowledgeGraphView() {
       needsDraw = true
     }
 
-    // 검색 결과 선택 → 카메라를 그 노드로 이동+확대(최소 1.1배)하고 이웃을 하이라이트
+    // 검색 결과 선택 → 카메라를 그 노드로 이동+확대(최소 1.1배)하고 이웃을 하이라이트.
+    // 숨겨진 종목 노드를 선택하면 updateActive가 먼저 배치·활성화한 뒤 카메라를 옮긴다.
     controllerRef.current = {
       selectNode: (id: string) => {
         const n = nodeById.get(id)
         if (!n) return
         selected = n
         setSelectedId(id)
+        updateActive()
         interacted = true
         k = Math.max(k, 1.1)
         ox = width / 2 - n.x * k
         oy = HEIGHT / 2 - n.y * k
         needsDraw = true
+      },
+      setShowAll: (v: boolean) => {
+        showAll = v
+        updateActive()
       },
     }
 
@@ -568,8 +675,8 @@ export default function KnowledgeGraphView() {
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-bold text-gray-400">
-        {GROUP_ORDER.map((g) => (
-          <span key={g} className="flex items-center gap-1.5">
+        {GROUP_ORDER.map((g) => {
+          const dot = (
             <span
               className={GROUPS[g].shape === 'circle' ? 'inline-block h-2.5 w-2.5 rounded-full' : 'inline-block h-2.5 w-2.5'}
               style={{
@@ -577,9 +684,32 @@ export default function KnowledgeGraphView() {
                 transform: GROUPS[g].shape === 'diamond' ? 'rotate(45deg)' : undefined,
               }}
             />
-            {GROUPS[g].label} {groupCounts[g]}
-          </span>
-        ))}
+          )
+          // 상장사는 기본 숨김(선택 시 이웃만 펼침) — 범례 칩이 전체 표시 토글을 겸한다
+          if (g === 'company') {
+            return (
+              <button
+                key={g}
+                type="button"
+                onClick={toggleCompanies}
+                className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5 ${
+                  showCompanies
+                    ? 'border-white/30 bg-white/10 text-gray-200'
+                    : 'border-white/10 text-gray-400 hover:bg-white/5'
+                }`}
+              >
+                {dot}
+                {GROUPS[g].label} {groupCounts[g]} · {showCompanies ? '전체 표시' : '선택 시 표시'}
+              </button>
+            )
+          }
+          return (
+            <span key={g} className="flex items-center gap-1.5">
+              {dot}
+              {GROUPS[g].label} {groupCounts[g]}
+            </span>
+          )
+        })}
         <span className="ml-auto text-gray-500">
           노드 {data.nodes.length} · 엣지 {data.edges.length}
         </span>

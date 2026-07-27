@@ -18,6 +18,32 @@ const TERMS = {
       sources: [],
       edges: [],
     },
+    {
+      key: "다이어트",
+      term: "다이어트",
+      definition: "체중 감량 산업",
+      sector: null,
+      searched_at: "2026-07-27T00:00:00+00:00",
+      sources: [],
+      edges: [
+        {
+          type: "related_company",
+          target: "company:353190",
+          target_name: "휴럼",
+          support: 2,
+          status: "verified",
+          evidence: [],
+        },
+        {
+          type: "related_to",
+          target: "obesity-drug",
+          target_name: "비만치료제",
+          support: 1,
+          status: "pending",
+          evidence: [],
+        },
+      ],
+    },
   ],
 };
 
@@ -58,6 +84,38 @@ describe("KnowledgeTab 서브탭", () => {
     expect(await screen.findByText("CoWoS")).toBeInTheDocument();
     expect(screen.getByText("학습 검토")).toBeInTheDocument();
     expect(screen.getByText("KG 시각화")).toBeInTheDocument();
+  });
+
+  it("학습 검토 용어 박스는 기본 접힘 — 엣지 수·검토 대기 배지만 보이고 클릭 시 펼쳐진다", async () => {
+    render(<KnowledgeTab />);
+    expect(await screen.findByText("다이어트")).toBeInTheDocument();
+    expect(screen.getByText("엣지 2")).toBeInTheDocument();
+    expect(screen.getByText("검토 대기 1")).toBeInTheDocument();
+    expect(screen.queryByText(/휴럼/)).not.toBeInTheDocument(); // 접힘: 엣지 목록 숨김
+
+    fireEvent.click(screen.getByText("다이어트"));
+    expect(await screen.findByText(/휴럼/)).toBeInTheDocument();
+    expect(screen.getByText(/비만치료제/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("다이어트"));
+    expect(screen.queryByText(/휴럼/)).not.toBeInTheDocument(); // 다시 접힘
+  });
+
+  it("학습 검토 검색 — 용어·종목명으로 필터링하고 일치 항목은 자동으로 펼친다", async () => {
+    render(<KnowledgeTab />);
+    await screen.findByText("CoWoS");
+
+    fireEvent.change(screen.getByPlaceholderText("용어·정의·종목명 검색"), {
+      target: { value: "휴럼" }, // 엣지 대상 종목명 역조회
+    });
+    expect(screen.queryByText("CoWoS")).not.toBeInTheDocument(); // 필터링
+    expect(screen.getByText("다이어트")).toBeInTheDocument();
+    expect(screen.getByText(/휴럼/)).toBeInTheDocument(); // 자동 펼침
+
+    fireEvent.change(screen.getByPlaceholderText("용어·정의·종목명 검색"), {
+      target: { value: "없는용어" },
+    });
+    expect(screen.getByText("일치하는 용어가 없습니다.")).toBeInTheDocument();
   });
 
   it("KG 시각화 탭 전환 시 그래프를 조회해 범례·카운트를 표시한다", async () => {
@@ -136,6 +194,19 @@ describe("KnowledgeTab 서브탭", () => {
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(input.value).toBe("HBM");
+  });
+
+  it("상장사 범례는 토글 — 기본 '선택 시 표시', 클릭하면 '전체 표시'로 바뀐다", async () => {
+    render(<KnowledgeTab />);
+    fireEvent.click(screen.getByText("KG 시각화"));
+    await waitFor(() => expect(screen.getByText(/노드 4 · 엣지 2/)).toBeInTheDocument());
+
+    const toggle = screen.getByRole("button", { name: /상장사 1/ });
+    expect(toggle.textContent).toContain("선택 시 표시");
+    fireEvent.click(toggle);
+    expect(toggle.textContent).toContain("전체 표시");
+    fireEvent.click(toggle);
+    expect(toggle.textContent).toContain("선택 시 표시");
   });
 
   it("그래프 조회 실패 시 에러를 표시한다", async () => {

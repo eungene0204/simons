@@ -33,7 +33,7 @@ def test_scan_terms_unique_and_exclude_sector_vocabulary():
     seen: dict[str, str] = {}
     for key, node_id in index:
         assert seen.setdefault(key, node_id) == node_id, f"중복 스캔 용어: {key}"
-    # normalize_sector가 이미 해석하는 용어(AI·인공지능·원자력 등)는 스캔에서 제외된다
+    # normalize_sector가 이미 해석하는 용어(반도체·원자력 등)는 스캔에서 제외된다
     for key, _ in index:
         assert normalize_sector(key) is None, f"섹터 어휘와 충돌하는 스캔 용어: {key}"
 
@@ -645,3 +645,168 @@ def test_part_b_batch10_and_part_a_closure_present():
 
     out = {(t, other) for t, other, d in graph.neighbors("carbon-fiber") if d == "out"}
     assert ("used_in", "hydrogen-car") in out  # 수소차 연료탱크 소재 연결
+
+
+def test_slash_alias_deterministic_variants():
+    """슬래시 병기 테마명의 표기 변형('LCD 부품' 사고 2026-07-27) — 의미 해석이 아닌
+    표기 정규화. 괄호는 제거한 본체 기준으로 변형을 만들고(괄호 안 텍스트 자체는
+    ingest 괄호 동의어 담당), 섹터 어휘로 해석되는 변형은 기존 스캔 가드 계약대로
+    제외한다."""
+    assert kg._slash_aliases("LCD 부품/소재") == ["LCD 부품", "LCD 소재"]
+    assert kg._slash_aliases("중고차/렌터카") == ["중고차", "렌터카"]
+    assert kg._slash_aliases("반도체 제품(HBM/HBM3E)") == []  # 괄호 제거 후 슬래시 없음
+    assert kg._slash_aliases("음원/음반") == ["음원"]  # '음반'은 섹터 어휘 → 제외
+    assert kg._slash_aliases("피팅") == []  # 슬래시 없음
+    # 괄호가 붙은 병기 이름 — 괄호 포함 그룹을 통째로 포기하면 도달 불가 노드가 된다
+    # ('인공지능 관련주' 유니버스 과대 사고 2026-07-27).
+    assert kg._slash_aliases("지능형로봇/인공지능(AI)") == ["지능형로봇", "인공지능"]
+    # 일반어 조각 차단 — '부품' 단독 별칭이 스캔 어휘가 되면 "LCD 부품" 질의가
+    # 카메라모듈 테마에 오매칭된다(2026-07-27). 수식어 붙은 "반도체 부품"은 통과.
+    assert kg._slash_aliases("카메라모듈/부품") == ["카메라모듈"]
+    assert kg._slash_aliases("반도체 재료/부품") == ["반도체 재료", "반도체 부품"]
+    # '화폐' 조각 차단 — "암호화폐 테마" 질의가 ATM 테마에 오매칭된다(2026-07-27).
+    assert kg._slash_aliases("화폐/금융자동화기기(디지털화폐 등)") == ["금융자동화기기"]
+
+
+def test_ai_theme_resolves_to_catalog_universe_not_broad_sector():
+    """'인공지능 관련주'가 업종 근사(소프트웨어/플랫폼 전체)로 과대 확정되던 사고
+    (2026-07-27) — AI는 업종이 아니라 테마다. ① NL 섹터 오버라이드(ai·인공지능)는
+    제거됐고(재추가 금지 — 테마 그라운딩 체인이 막힌다), ② 시드 앵커 'AI'의 동의어
+    (인공지능)가 네이버 '지능형로봇/인공지능(AI)' 카탈로그와 표기 정합해 수록 종목이
+    유니버스 정의가 된다."""
+    from engine.universe_pit import normalize_sector
+
+    assert normalize_sector("인공지능") is None
+    assert normalize_sector("AI") is None
+
+    result = kg.theme_backtest_companies("인공지능 관련주 투자 전략")
+    assert result is not None
+    assert result["term"] == "AI"
+    assert len(result["companies"]) >= 10  # 소수 큐레이션이 아닌 카탈로그 수록 종목
+
+
+def test_catalog_slash_name_reachable_via_alias(tmp_path, monkeypatch):
+    """'LCD 부품/소재'처럼 슬래시 병기 이름은 그대로는 부분 문자열 스캔에 절대 걸리지
+    않는다('LCD 부품' 사고 2026-07-27 원인 ①) — 로더가 만든 표기 변형 동의어로
+    도달 가능해야 한다(도달 불가 죽은 노드 방지)."""
+    from engine.knowledge_graph import theme_listed_companies
+
+    catalog = tmp_path / "kg-theme-catalog.json"
+    catalog.write_text(json.dumps({
+        "version": 1, "source": "judal.co.kr", "retrieved_at": "2026-07-27",
+        "themes": [
+            {"id": "judal-589", "name": "LCD 부품/소재", "synonyms": [],
+             "stocks": [{"symbol": "006400", "name": "삼성SDI"},
+                        {"symbol": "051910", "name": "LG화학"}]},
+        ],
+    }, ensure_ascii=False), encoding="utf-8")
+    lexicon = tmp_path / "term_lexicon.json"
+    lexicon.write_text("{}", encoding="utf-8")  # 학습 노드 선점 배제(격리)
+    monkeypatch.setattr(kg, "_CATALOG_PATH", catalog)
+    monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", tmp_path / "no-naver.json")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    graph = get_graph()
+    assert any(n["id"] == "theme:judal-589" for n in graph.find_concepts("LCD 부품 관련주"))
+    assert any(n["id"] == "theme:judal-589" for n in graph.find_concepts("LCD 소재 전략"))
+    result = theme_listed_companies("LCD 부품 관련주 투자 전략")
+    assert {c["symbol"] for c in result["companies"]} == {"006400", "051910"}
+
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_learned_anchor_prefers_catalog_exact_match(tmp_path, monkeypatch):
+    """'LCD 부품' 사고(2026-07-27) 회귀 — 검색 학습 노드가 스캔 키를 선점해도, 표기가
+    정확히 일치하는 카탈로그 테마가 있으면 뉴스 동시언급 학습 엣지(uses→pcb 등) 대신
+    카탈로그 수록 종목이 유니버스 정의다. 백테스트 확장 뷰도 Concept Universe로
+    확장하지 않는다(PCB 개념 홉 경유 심텍·대덕전자 오편입 방지). 카탈로그 정합은
+    큐레이션 분류라 시점 편향 경고(first_known_date) 대상이 아니다."""
+    from engine.knowledge_graph import theme_backtest_companies, theme_listed_companies
+
+    catalog = tmp_path / "kg-theme-catalog.json"
+    catalog.write_text(json.dumps({
+        "version": 1, "source": "judal.co.kr", "retrieved_at": "2026-07-27",
+        "themes": [
+            {"id": "judal-589", "name": "LCD 부품/소재", "synonyms": [],
+             "stocks": [{"symbol": "006400", "name": "삼성SDI"},
+                        {"symbol": "051910", "name": "LG화학"}]},
+        ],
+    }, ensure_ascii=False), encoding="utf-8")
+    lexicon = tmp_path / "term_lexicon.json"
+    lexicon.write_text(json.dumps({
+        "lcd부품": {"term": "LCD 부품", "sector": "디스플레이/부품",
+                  "searched_at": "2026-07-27T07:35:16+00:00",
+                  "edges": [
+                      {"type": "uses", "target": "pcb", "support": 4, "status": "verified"},
+                      {"type": "related_company", "target": "company:000660",
+                       "target_name": "SK하이닉스", "support": 2, "status": "verified",
+                       "first_known_date": "2026-05-23"},
+                  ]},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_CATALOG_PATH", catalog)
+    monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", tmp_path / "no-naver.json")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    graph = get_graph()
+    # 학습 노드가 스캔 키 'lcd부품'을 선점한다(사고 재현 조건)
+    assert any(n["id"] == "learned:lcd부품" for n in graph.find_concepts("LCD 부품 관련주"))
+
+    listed = theme_listed_companies("LCD 부품 관련주")
+    assert {c["symbol"] for c in listed["companies"]} == {"006400", "051910"}
+    assert listed["first_known_date"] is None  # 카탈로그 정합 — 시점 편향 경고 없음
+
+    result = theme_backtest_companies("LCD 부품 관련주 투자 전략")
+    symbols = {c["symbol"] for c in result["companies"]}
+    assert symbols == {"006400", "051910"}
+    # 사고의 오편입 종목(pcb 개념 홉 심텍·대덕전자, 뉴스 동시언급 SK하이닉스) 부재 확인
+    assert symbols.isdisjoint({"222800", "353200", "000660"})
+
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_naver_catalog_real_file_composed_and_wins_over_judal():
+    """네이버 금융 카탈로그(2026-07-27, 사용자 지정 1순위 신뢰 소스)가 실제로 합성되고,
+    같은 표기가 주달과 겹치면 네이버가 스캔에서 이긴다(_catalog_paths 순서 계약)."""
+    graph = get_graph()
+    naver_nodes = [n for n in graph.nodes.values()
+                   if n.get("category") == "theme_catalog"
+                   and str(n.get("source", "")).startswith("finance.naver")]
+    assert len(naver_nodes) > 100  # 2026-07-27 수집분 285개(시드 중복 가드 폐지 후)
+
+
+def test_seed_anchor_prefers_catalog_exact_match(tmp_path, monkeypatch):
+    """시드 앵커 카탈로그 정합 우선(2026-07-27 사용자 지시 — 관련 종목은 네이버 분류가
+    항상 우선). 시드 개념과 표기가 정확히 일치하는 카탈로그 테마가 있으면 시드 큐레이션
+    직접 엣지 대신 카탈로그 수록 종목이 유니버스 정의다(온디바이스 AI — 시드 2곳 vs
+    네이버 24곳). 표기 불일치 개념(HBM vs 'HBM(고대역폭메모리)')은 시드 직접 엣지 유지."""
+    from engine.knowledge_graph import theme_backtest_companies, theme_listed_companies
+
+    catalog = tmp_path / "kg-naver-theme-catalog.json"
+    catalog.write_text(json.dumps({
+        "version": 1, "source": "finance.naver.com", "retrieved_at": "2026-07-27",
+        "themes": [
+            {"id": "naver-theme-545", "name": "온디바이스 AI", "synonyms": [],
+             "stocks": [{"symbol": "005930", "name": "삼성전자"},
+                        {"symbol": "000660", "name": "SK하이닉스"},
+                        {"symbol": "394280", "name": "오픈엣지테크놀로지"}]},
+        ],
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", catalog)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    graph = get_graph()
+    # 시드가 스캔에서 이긴다(기존 계약 불변) — 앵커는 시드 노드
+    assert any(n["id"] == "on-device-ai" for n in graph.find_concepts("온디바이스 AI 관련주"))
+
+    listed = theme_listed_companies("온디바이스 AI 관련주")
+    assert {c["symbol"] for c in listed["companies"]} == {"005930", "000660", "394280"}
+    assert listed["first_known_date"] is None  # 카탈로그 분류 — 시점 편향 경고 없음
+    # 백테스트 제안 뷰도 동일(시드 앵커는 Concept Universe 확장 없음)
+    assert theme_backtest_companies("온디바이스 AI 관련주") == listed
+    # 표기 불일치 시드 개념(HBM)은 큐레이션 직접 엣지가 그대로 유니버스 정의
+    hbm = theme_listed_companies("HBM 관련주")
+    assert hbm is not None and len(hbm["companies"]) >= 1
+
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록

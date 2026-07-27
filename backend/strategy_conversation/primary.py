@@ -435,9 +435,7 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
     unresolved_sector_terms: List[str] = []
     # ETF 유니버스는 제외 — validator가 테마를 etf_theme로 승격하고 sectors를 비운다.
     if pre_validation_sectors and "ETF" not in validated.strategy.universe.markets:
-        from strategy_conversation.registry.universe_resolver import resolve_sectors
-
-        _, unresolved_sector_terms = resolve_sectors(pre_validation_sectors)
+        unresolved_sector_terms = _sector_terms_for_chain(pre_validation_sectors)
     if unresolved_sector_terms:
         if config.planner_mode() == "primary":
             # Phase 3 승격(2026-07-26): 미해석 표현 구간을 planner가 담당 —
@@ -749,6 +747,24 @@ def run_chip_answer(
             "applied_fields": diff,
         },
     })
+
+
+def _sector_terms_for_chain(pre_validation_sectors: List[str]) -> List[str]:
+    """검증기가 미지원으로 제거하는 섹터 표현만 체인에 넘긴다(게이트 판정 기준 통일).
+
+    'LCD 부품' 사고 2차(2026-07-27): 게이트가 resolve_sectors(KG 층 포함)를 쓰면 검색
+    학습 노드가 섹터를 해석하는 표현('LCD 부품'→디스플레이/부품)이 '해석 성공'으로
+    게이트를 통과해 체인에 도달하지 못한다 — 그런데 검증기(capability_validator)는
+    정본 사전(normalize_sector)만 알아 그 표현을 이미 sectors에서 제거했고 게이트의
+    해석값은 쓰이지 않아, 유니버스가 통째로 소실됐다. 게이트 기준은 검증기와 동일하게
+    normalize_sector만 본다 — KG 섹터 해석·테마 상장사 적용은 체인(§ 11-3) 소관이다."""
+    from engine.universe_pit import normalize_sector
+
+    terms = [
+        t.strip() for t in pre_validation_sectors
+        if isinstance(t, str) and t.strip() and normalize_sector(t.strip()) is None
+    ]
+    return list(dict.fromkeys(terms))
 
 
 def _resolve_sector_terms_term_in(
