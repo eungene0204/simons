@@ -288,6 +288,36 @@ describe("POST /api/strategy/parse/stream", () => {
     });
   });
 
+  it("parsed_final은 planner ask 컨텍스트(pending_ask)를 보존한다", async () => {
+    // 프록시 화이트리스트에서 이 필드가 빠지면 프론트가 다음 파스 요청에 에코할 컨텍스트가
+    // 사라져 칩 클릭의 결정론 귀속(run_chip_answer)이 조용히 죽는다 — priority 마커 누락
+    // 사고(위 테스트)와 같은 유형의 함정. Phase 4 후속 ① 계약의 프록시 구간.
+    const pendingAsk = {
+      topic: "리스크관리",
+      question: "손절·익절 기준을 정할까요?",
+      chips: ["손절 8%", "익절 20%"],
+    };
+    fetchBackend.mockResolvedValueOnce(
+      sseBackendResponse(
+        backendResultEvents({
+          parsed: { description: "반도체 etf 전략", universe: ["ETF"] },
+          backtest_request: { strategy_id: "p", symbols: ["069500"], symbol_count: 1 },
+          clarification_question: "손절·익절 기준을 정할까요?",
+          clarification_suggestions: ["손절 8%", "익절 20%"],
+          clarification_priority: "dag_planner",
+          pending_ask: pendingAsk,
+        })
+      )
+    );
+
+    const response = await POST(makeRequest({ prompt: "반도체 etf 전략" }));
+    const events = await readEvents(response);
+    const parsedFinal = events
+      .map((e) => (e === "[DONE]" ? null : JSON.parse(e)))
+      .find((e) => e?.type === "parsed_final");
+    expect(parsedFinal).toMatchObject({ pending_ask: pendingAsk });
+  });
+
   it("forwards backend parse errors as SSE error events", async () => {
     fetchBackend.mockResolvedValueOnce({
       ok: false,

@@ -7,6 +7,8 @@ type ParseStreamBody = {
   model?: string;
   previous_parsed?: Record<string, unknown>;
   previous_coach_text?: string;
+  // 직전 planner ask 컨텍스트 에코(칩 클릭의 결정론 귀속 — 백엔드 무상태 계약)
+  pending_ask?: { topic?: string | null; question: string; chips: string[] } | null;
 };
 
 function sseEvent(data: object | string): string {
@@ -140,6 +142,10 @@ export async function POST(req: NextRequest) {
             // 인식하지 못해 explicit 설정 질문(시장)이 덮어쓴다 — 'bts 관련 종목'이
             // 업종 전체로 강등되던 실측 사고(2026-07-25, 프록시 화이트리스트 누락).
             clarification_priority: data.clarification_priority ?? null,
+            // planner ask 컨텍스트 — 프론트가 다음 파스 요청의 pending_ask로 에코한다.
+            // 화이트리스트 누락 시 칩 클릭 결정론 귀속이 조용히 죽는다(priority 마커
+            // 누락 사고와 같은 함정 — 위 주석 참조).
+            pending_ask: data.pending_ask ?? null,
             risk_overrides: data.risk_overrides ?? null,
             notices: data.notices ?? null,
           });

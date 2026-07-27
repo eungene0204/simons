@@ -481,6 +481,7 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
 
     clarification_question, clarification_suggestions = _build_clarification(report, validated)
     clarification_priority = None
+    pending_ask: Optional[Dict[str, Any]] = None
     if sector_question is not None:
         # 종목 범위(유니버스/섹터)는 진입 조건보다 선행 결정 사항 — 미해결 업종 질문이
         # 조건 질문보다 우선하고, 우선순위 마커로 프론트 explicit 게이트 삼킴을 막는다
@@ -494,8 +495,11 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         # planner 실패(None)·예외는 기존 고정 질문 유지(단독 실패 지점 불가).
         dag_clarification = _dag_planner_clarification(user_input, parsed)
         if dag_clarification is not None:
-            clarification_question, clarification_suggestions = dag_clarification
+            clarification_question, clarification_suggestions, dag_topic = dag_clarification
             clarification_priority = "dag_planner"
+            pending_ask = _pending_ask_payload(
+                clarification_question, clarification_suggestions, dag_topic
+            )
     if report.unsupported_features:
         features = ", ".join(_humanize_features(report.unsupported_features))
         notices.append(
@@ -516,6 +520,7 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         "clarification_question": clarification_question,
         "clarification_suggestions": clarification_suggestions,
         "clarification_priority": clarification_priority,
+        "pending_ask": pending_ask,
         "notices": notices,
         "interpreter": {
             "mode": "primary",
@@ -624,12 +629,13 @@ def _dag_state_summary(parsed: Any) -> Dict[str, Any]:
 
 def _dag_planner_clarification(
     user_input: str, parsed: Any
-) -> Optional[tuple[str, Optional[List[str]]]]:
+) -> Optional[tuple[str, Optional[List[str]], Optional[str]]]:
     """DAG planner primary — 다음 되묻기 질문·칩을 planner가 계획한다(Phase 4).
 
     planner 질문은 내부에서 이미 output_guard를 통과했고, 반환 후 finalize_user_response
     관문을 한 번 더 지난다. 실패(None)·예외·ask 아닌 결과는 기존 고정 질문 유지 —
     planner는 단독 실패 지점이 될 수 없다.
+    반환: (질문, 칩, ask 노드의 topic) — topic은 pending_ask(칩 답변 귀속 근거)로 노출된다.
     """
     try:
         from strategy_conversation.planner.dag_planner import plan_strategy_dag
@@ -644,7 +650,105 @@ def _dag_planner_clarification(
     if result is None or result.outcome != "ask" or not result.question:
         return None
     _log_llm("? DAG planner 질문", result.question)
-    return result.question, (list(result.chips) or None)
+    return result.question, (list(result.chips) or None), result.topic
+
+
+def _pending_ask_payload(
+    question: Optional[str], chips: Optional[List[str]], topic: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    """planner ask를 프론트가 다음 턴에 에코할 pending_ask로 만든다(FR 칩 답변 귀속).
+
+    previous_coach_text(FR-STR-019e)와 같은 무상태 컨텍스트 에코 계약 — 백엔드는
+    세션을 들지 않고, 프론트가 이 blob을 다음 파스 요청에 그대로 실어 보낸다.
+    칩이 없는 질문은 에코해도 결정론 귀속(정확 일치)이 성립하지 않으므로 내지 않는다.
+    """
+    if not question or not chips:
+        return None
+    return {"topic": topic, "question": question, "chips": list(chips)}
+
+
+def _replan_next_question(
+    user_input: str, parsed: Any
+) -> tuple[Optional[str], Optional[List[str]], Optional[str], Optional[Dict[str, Any]]]:
+    """State 변경 후 다음 질문을 DAG planner로 재계획한다(§4 — 수정·칩 답변 공용).
+
+    골격 공백 여부는 결정론 게이트(detect_incomplete_backtest_conditions)가 판정하고,
+    planner 실패 시 질문 없음 유지(기존 프론트 게이트 폴백).
+    반환: (질문, 칩, 우선순위 마커, pending_ask)."""
+    if config.dag_planner_mode() != "primary":
+        return None, None, None, None
+    from engine.nl_parser import detect_incomplete_backtest_conditions
+
+    gate_question, _gate_chips = detect_incomplete_backtest_conditions(parsed)
+    if gate_question is None:
+        return None, None, None, None
+    dag_clarification = _dag_planner_clarification(user_input, parsed)
+    if dag_clarification is None:
+        return None, None, None, None
+    question, chips, topic = dag_clarification
+    return question, chips, "dag_planner", _pending_ask_payload(question, chips, topic)
+
+
+def run_chip_answer(
+    user_input: str,
+    previous_parsed: Optional[Dict[str, Any]],
+    pending_ask: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """직전 planner ask의 옵션 칩 클릭을 결정론으로 State에 반영한다(Phase 4 후속 ①).
+
+    판정은 형식 비교뿐이다: 입력이 직전 ask의 칩 문자열과 정확히 일치하면(공백 정규화)
+    그 입력은 자연어 해석 대상이 아니라 시스템이 생성한 열거형 옵션의 '선택'이다.
+    칩 텍스트는 planner LLM 출력(자기완결 정본 표기)이므로 결정적 추출로 적용하는 것은
+    원문 해석이 아니라 LLM 출력 정규화다(계약 § 판정 기준). 효과:
+    ① 오귀속 제거 — 어느 ask의 답인지 프론트 에코(pending_ask)가 확정한다
+    ② 수정 인터프리터 LLM 턴 생략(지연 절감)
+    결정적으로 적용되지 않는 칩(추출 실패)은 None — 기존 수정 인터프리터 경로가
+    처리한다(칩 자기완결 계약의 안전망). 정확 일치가 아닌 자유 서술 답변도 None —
+    §4(답변 강제 귀속 금지)에 따라 Interpreter가 State 변경을 판정한다.
+    """
+    if not previous_parsed or not isinstance(pending_ask, dict):
+        return None
+    chips = pending_ask.get("chips")
+    if not isinstance(chips, list):
+        return None
+    text = (user_input or "").strip()
+    chip_texts = {str(c).strip() for c in chips if isinstance(c, str) and str(c).strip()}
+    if not text or text not in chip_texts:
+        return None
+    from engine.nl_parser import ParsedStrategy, _apply_prompt_overrides
+
+    try:
+        prev = ParsedStrategy.model_validate(previous_parsed)
+    except Exception:  # noqa: BLE001 — 비정상 previous는 기존 경로가 처리
+        return None
+    # 수정 레인과 동일한 결정적 추출 계약(신호 재검증 생략·universe 보존) — 칩은 조건
+    # 추가/값 확정이지 유니버스 변경이 아니다.
+
+    prev_dump = prev.model_dump()
+    parsed = _apply_prompt_overrides(
+        prev, text, skip_signal_validation=True, preserve_universe=True
+    )
+    diff = _diff_fields(prev_dump, parsed.model_dump())
+    if not diff:
+        _log_llm("↩ 칩 결정론 미적용", f"칩 '{text}' 결정적 추출 무변경 — 수정 인터프리터로")
+        return None
+    _log_llm("✓ 칩 답변 확정", f"칩 '{text}' 결정적 반영(LLM 생략): {'; '.join(diff)}")
+
+    question, suggestions, priority, next_ask = _replan_next_question(user_input, parsed)
+    return finalize_user_response({
+        "parsed": parsed,
+        "clarification_question": question,
+        "clarification_suggestions": suggestions,
+        "clarification_priority": priority,
+        "pending_ask": next_ask,
+        "notices": [],
+        "interpreter": {
+            "mode": "primary_chip_answer",
+            "llm_latency_ms": 0,
+            "patch_count": 0,
+            "applied_fields": diff,
+        },
+    })
 
 
 def _resolve_sector_terms_term_in(
@@ -1201,25 +1305,17 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
     # Phase 4 primary — 수정 턴 재계획: 최신 입력이 State를 바꿨으니(위 패치 적용),
     # 다음 질문은 갱신된 State 기준으로 DAG planner가 다시 계획한다(유니버스가 바뀌면
     # 후속 질문·칩도 그에 맞게 재생성 — 사용자 계약 "입력은 답변 귀속이 아니라 State
-    # 변경 판정이 먼저"). 골격 공백 여부는 결정론 게이트(detect_incomplete_backtest_
-    # conditions)가 판정하고, planner 실패 시 질문 없음 유지(기존 프론트 게이트 폴백).
-    dag_question: Optional[str] = None
-    dag_suggestions: Optional[List[str]] = None
-    dag_priority: Optional[str] = None
-    if config.dag_planner_mode() == "primary":
-        from engine.nl_parser import detect_incomplete_backtest_conditions
-        gate_question, _gate_chips = detect_incomplete_backtest_conditions(parsed)
-        if gate_question is not None:
-            dag_clarification = _dag_planner_clarification(user_input, parsed)
-            if dag_clarification is not None:
-                dag_question, dag_suggestions = dag_clarification
-                dag_priority = "dag_planner"
+    # 변경 판정이 먼저").
+    dag_question, dag_suggestions, dag_priority, dag_pending_ask = _replan_next_question(
+        user_input, parsed
+    )
 
     return finalize_user_response({
         "parsed": parsed,
         "clarification_question": dag_question,
         "clarification_suggestions": dag_suggestions,
         "clarification_priority": dag_priority,
+        "pending_ask": dag_pending_ask,
         "notices": list(report.warnings),
         "interpreter": {
             "mode": "primary_modify",
@@ -1258,6 +1354,10 @@ def apply_primary_meta(result: dict, primary: Dict[str, Any]) -> None:
         # 프론트 explicit 설정 게이트가 질문을 삼키지 않게(레거시 sector_reask와 동일 계약).
         if primary.get("clarification_priority"):
             result["clarification_priority"] = primary["clarification_priority"]
+        # planner ask의 칩 답변 귀속 컨텍스트 — 질문이 채택된 경우에만 함께 이월한다
+        # (채택되지 않은 질문의 pending_ask를 에코하면 다음 턴 칩 판정이 어긋난다).
+        if primary.get("pending_ask"):
+            result["pending_ask"] = primary["pending_ask"]
     elif primary["interpreter"]["mode"] in ("primary_modify_explain", "primary_modify_unsupported", "primary_modify_rejected_patches"):
         # 전략 무변경 + 설명/미반영 안내 응답 — 프롬프트의 지표 언급("pbr이 뭐야?")에 반응한
         # 기존 되묻기("PBR은 몇 이하로 할까요?")는 설명·안내와 모순되므로 억제한다.

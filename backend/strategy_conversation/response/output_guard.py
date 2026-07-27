@@ -74,6 +74,14 @@ def finalize_user_response(result: Dict) -> Dict:
     elif result.get("clarification_suggestions"):
         chips = [c for c in (guard_text(c) for c in result["clarification_suggestions"]) if c]
         result["clarification_suggestions"] = chips or None
+    if result.get("pending_ask") is not None:
+        # 칩 답변 귀속 컨텍스트는 사용자가 실제로 본 질문·칩과 일치해야 한다 — 가드가
+        # 질문·칩을 바꿨으면 가드 통과본으로 재구성하고, 질문이 사라졌으면 함께 지운다.
+        result["pending_ask"] = (
+            {**result["pending_ask"], "question": question,
+             "chips": list(result.get("clarification_suggestions") or [])}
+            if question and result.get("clarification_suggestions") else None
+        )
     if result.get("notices"):
         result["notices"] = [n for n in (guard_text(n) for n in result["notices"]) if n]
     return result

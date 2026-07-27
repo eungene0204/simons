@@ -155,7 +155,9 @@ def test_modify_turn_replans_next_question_via_dag_planner(monkeypatch):
     monkeypatch.setenv("STRATEGY_DAG_PLANNER_MODE", "primary")
     monkeypatch.setattr(
         primary, "_dag_planner_clarification",
-        lambda user_input, parsed: ("어떤 조건에서 매수할까요?", ["RSI 30 이하에서 매수"]),
+        lambda user_input, parsed: (
+            "어떤 조건에서 매수할까요?", ["RSI 30 이하에서 매수"], "매수조건",
+        ),
     )
     _stub_interpreter(monkeypatch, StrategyIntent.model_validate({
         "intent": "MODIFY_STRATEGY",
@@ -172,6 +174,12 @@ def test_modify_turn_replans_next_question_via_dag_planner(monkeypatch):
     assert result["parsed"].etf_theme == "삼성전자"  # 유니버스 수정 — 매수 조건 아님
     assert result["clarification_question"] == "어떤 조건에서 매수할까요?"
     assert result["clarification_priority"] == "dag_planner"
+    # 재계획 질문의 pending_ask — 프론트가 에코해 다음 칩 클릭의 결정론 귀속에 쓴다
+    assert result["pending_ask"] == {
+        "topic": "매수조건",
+        "question": "어떤 조건에서 매수할까요?",
+        "chips": ["RSI 30 이하에서 매수"],
+    }
 
 
 def test_self_doubt_patch_surfaces_question_instead_of_applying(monkeypatch):

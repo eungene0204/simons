@@ -332,7 +332,7 @@ def test_state_summary_rendered_to_llm(monkeypatch):
 
 
 def test_primary_clarification_helper_contract(monkeypatch):
-    """_dag_planner_clarification — ask면 (질문, 칩), 그 외(None·finish·예외)는 None."""
+    """_dag_planner_clarification — ask면 (질문, 칩, topic), 그 외(None·finish·예외)는 None."""
     import strategy_conversation.planner.dag_planner as dag_mod
     import strategy_conversation.planner.shadow as shadow_mod
     from strategy_conversation.planner.dag_planner import DagPlanResult
@@ -344,10 +344,10 @@ def test_primary_clarification_helper_contract(monkeypatch):
         monkeypatch.setattr(dag_mod, "plan_strategy_dag", lambda *a, **kw: result)
 
     ask = DagPlanResult("ask", "리밸런싱 주기는 어떻게 할까요?", ["매월", "분기마다"],
-                        None, [], [])
+                        None, [], [], topic="리밸런싱")
     _plan_returns(ask)
     assert _dag_planner_clarification("반도체 etf 전략", object()) == (
-        "리밸런싱 주기는 어떻게 할까요?", ["매월", "분기마다"])
+        "리밸런싱 주기는 어떻게 할까요?", ["매월", "분기마다"], "리밸런싱")
 
     _plan_returns(None)
     assert _dag_planner_clarification("반도체 etf 전략", object()) is None

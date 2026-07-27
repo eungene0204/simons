@@ -2581,6 +2581,10 @@ class NLParseRequest(BaseModel):
     # 직전 코치 문장(수정 모드). 코치가 특정 리스크 필드 설정을 권한 뒤 사용자가 "10%"처럼
     # 필드 없이 답할 때, 백엔드가 그 답을 코치가 물은 필드로 귀속하는 데 쓴다(FR-STR-019e).
     previous_coach_text: Optional[str] = None
+    # 직전 planner ask 컨텍스트(수정 모드) — 응답의 pending_ask를 프론트가 그대로 에코한다
+    # (previous_coach_text와 같은 무상태 컨텍스트 에코 계약). 입력이 이 칩 목록과 정확히
+    # 일치하면 결정론 칩 답변 레인(run_chip_answer)이 인터프리터 없이 State에 반영한다.
+    pending_ask: Optional[dict] = None
 
 class NLParseResponse(BaseModel):
     parsed: dict
@@ -2591,6 +2595,9 @@ class NLParseResponse(BaseModel):
     # 되묻기 우선순위 표시(예: "theme_universe" — FR-STR-071 테마 관련 상장사 질문).
     # 인터프리터 질문이 유니버스 범위 질문을 덮어쓰지 않게 하는 내부 가드의 관측용 노출.
     clarification_priority: Optional[str] = None
+    # planner ask 컨텍스트 {topic, question, chips} — 프론트가 다음 파스 요청의
+    # pending_ask로 그대로 에코한다(칩 클릭의 결정론 귀속 근거).
+    pending_ask: Optional[dict] = None
     # 이번 프롬프트에서 규칙 기반으로 결정적으로 바뀐 리스크 필드 {field: value|null}.
     # 프론트가 자체 정규식으로 재추측하지 말고 이 값을 그대로 신뢰하도록 단일 진실 소스로 제공.
     risk_overrides: Optional[dict] = None
@@ -2879,15 +2886,12 @@ def preload_nl_parser():
         parser = NLStrategyParser(backend=backend)
         if backend == "ollama":
             parser._init_ollama()  # HTTP 클라이언트 준비 (모델 다운로드/접속은 첫 호출 시)
-            label = parser.ollama_model
         else:
             # MLX 명시 사용 (LLM_BACKEND=mlx 환경변수 설정 시)
             parser._init_mlx()
-            label = parser._model_log_label(parser.mlx_model)
         _nl_parsers[backend] = parser
         _nl_parser_status["status"] = "ok"
         _nl_parser_status["error"] = None
-        print(f"[startup] NL 파서 준비 완료 (backend={backend}): {label}", flush=True)
     except Exception as e:
         _nl_parser_status["status"] = "failed"
         _nl_parser_status["error"] = str(e)
@@ -3107,6 +3111,7 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         "clarification_question": clarification_question,
         "clarification_suggestions": clarification_suggestions,
         "clarification_priority": clarification_priority,
+        "pending_ask": None,  # primary 경로의 planner ask가 apply_primary_meta로 채운다
         "risk_overrides": risk_overrides,
         "parse_validation": validation_report,
         "notices": notices,
@@ -3275,7 +3280,8 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
     print(f"\n[NL-PARSE] prompt='{request.prompt}', backend={resolved_backend}", flush=True)
 
     # 캐시 조회 — 동일 프롬프트면 LLM 재호출 없이 즉시 반환
-    cache_key = nl_cache_key(request.prompt, resolved_backend, request.model, request.previous_parsed)
+    cache_key = nl_cache_key(request.prompt, resolved_backend, request.model,
+                             request.previous_parsed, request.pending_ask)
     if cache_key in _nl_parse_cache:
         print(f"[NL-PARSE] 캐시 히트 → 즉시 반환", flush=True)
         cached = dict(_nl_parse_cache[cache_key])
@@ -3339,6 +3345,19 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
             validation_holder["report"] = report
         if request.previous_parsed:
             print(f"[NL-PARSE] 수정 모드 (diff)", flush=True)
+            # Phase 4 후속 ①: planner ask 칩 클릭의 결정론 귀속. 입력이 직전 planner
+            # 질문(pending_ask 에코)의 칩과 정확히 일치하면 새 수정 요청이 아니라 열거형
+            # 옵션 선택이다 — 되묻기 가드·수정 인터프리터(LLM)보다 먼저 결정론으로 State에
+            # 반영하고 다음 질문을 재계획한다. 미일치·결정적 추출 실패는 None으로 기존
+            # 경로 그대로(칩 자기완결 계약의 안전망).
+            from strategy_conversation.primary import run_chip_answer
+            parsed = None
+            _chip_result = run_chip_answer(
+                request.prompt, request.previous_parsed, request.pending_ask
+            )
+            if _chip_result is not None:
+                primary_holder.update(_chip_result)
+                parsed = _chip_result["parsed"]
             # 재무 팩터 추가 의도인데 기준값(operator/threshold)이 없으면(예: "영업이익률을
             # 추가해 볼까?") 수정 파서로 넘기지 않고 되묻는다 — LLM이 임의 기준값을 환각하기
             # 전에 결정적으로 가로채, 추천 칩으로 슬롯을 채우게 한다(condition_builder 재사용,
@@ -3346,7 +3365,9 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
             from intent.condition_builder import clarification_for_add
             from engine.nl_parser import full_rewrite_clarification
             # "완전 다르게 해줘"류 전면 재작성 요청도 임의 해석 대신 방향을 되묻는다(QA 19-4).
-            _clar = clarification_for_add(request.prompt) or full_rewrite_clarification(request.prompt)
+            _clar = None if parsed is not None else (
+                clarification_for_add(request.prompt) or full_rewrite_clarification(request.prompt)
+            )
             if _clar is not None:
                 from engine.nl_parser import ParsedStrategy
                 prev_parsed = ParsedStrategy.model_validate(request.previous_parsed)
@@ -3370,8 +3391,7 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
                 primary_enabled as _interp_primary_enabled,
                 run_primary_modification,
             )
-            parsed = None
-            if _interp_primary_enabled():
+            if parsed is None and _interp_primary_enabled():
                 _primary_mod = run_primary_modification(
                     request.prompt, request.previous_parsed, on_stage=on_stage
                 )
@@ -3396,7 +3416,7 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
             # 필드에 사용자의 "10%" 같은 필드 없는 답을 귀속한다. 백엔드가 코치 맥락으로 판단
             # → 프론트는 파스 결과를 재판정하지 않고 그대로 신뢰한다(FR-STR-019e).
             from engine.nl_parser import resolve_coach_context_risk
-            _ctx_risk = resolve_coach_context_risk(
+            _ctx_risk = None if _chip_result is not None else resolve_coach_context_risk(
                 request.prompt, request.previous_coach_text, request.previous_parsed
             )
             if _ctx_risk is not None:

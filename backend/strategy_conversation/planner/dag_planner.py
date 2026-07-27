@@ -71,6 +71,7 @@ class DagPlanResult:
     sector: Optional[str]          # 도구 관찰값에서만 채택
     companies: List[dict]          # 도구 관찰값에서만 채택
     nodes: List[DagNode]           # 마지막 발행 DAG
+    topic: Optional[str] = None    # 표면화된 ask 노드의 슬롯(칩 답변 귀속 근거)
     executed: Dict[str, ExecutedNode] = field(default_factory=dict)
     auto_steps: List[dict] = field(default_factory=list)
     llm_turns: int = 0
@@ -115,7 +116,12 @@ def _system_prompt() -> str:
         "4. pending 노드는 자유롭게 추가·수정·삭제 — 사용자가 조건을 바꾸면 영향받는 "
         "노드만 고칩니다. DAG를 처음부터 다시 만들지 마세요.\n"
         "5. 동일 도구+동일 인자 tool 노드를 중복 생성하지 마세요.\n"
-        "6. 이미 결정된 정보(관찰·State에 있는 것)를 다시 묻는 ask 노드는 계약 위반입니다.\n\n"
+        "6. 이미 결정된 정보(관찰·State에 있는 것)를 다시 묻는 ask 노드는 계약 위반입니다.\n"
+        "7. 사용자의 최신 입력은 직전 질문에 대한 답이 아닐 수 있습니다 — State 요약이 "
+        "그 입력을 반영한 정본이니, 새로 채워진 슬롯의 ask는 삭제하고 영향받는 pending "
+        "노드만 수정하세요. 질문과 다른 답변이라는 이유로 오류 처리하지 않습니다.\n"
+        "8. 사용자에게 묻지 않고 도구로 해결할 수 있는 정보는 도구를 먼저 사용합니다 — "
+        "사용자 선택(선호)이 반드시 필요한 정보만 질문합니다.\n\n"
         "## 진행 골격 — 모든 전략의 공통 줄기(8슬롯)\n"
         "전략은 다음 슬롯을 순서대로 채우면 완성됩니다:\n"
         "유니버스 → 매수 조건 → 매도 조건 → 최대 보유 → 리밸런싱 → 리스크 관리"
@@ -145,6 +151,11 @@ def _system_prompt() -> str:
         "리밸런싱 슬롯을 스킵**합니다(종목 수·동일가중/시가총액가중·정렬 질문 생성은 "
         "계약 위반). 매수/매도 조건·리스크 관리·백테스트 기간·초기 자본만 진행하며, "
         "크로스오버 진입이면 반대 신호 청산을 chips 옵션으로 제시합니다(확정은 사용자).\n\n"
+        "## 모호성 처리\n"
+        "복수 해석이 가능한 표현(예: \"삼성전자 관련 ETF\" — 편입 비중 상위/삼성그룹/"
+        "반도체)은 해석 도구로 범위를 좁히는 tool 노드를 ask보다 먼저 두세요. 도구로도 "
+        "하나로 확정할 수 없고 전략 결과가 크게 달라지면 ask+chips로 범위를 질문합니다 — "
+        "추천이 아니라 선택지 제시입니다. 명확한 나머지 정보의 진행은 막지 않습니다.\n\n"
         "## 금지\n"
         "- 섹터·종목·전략 필드 값을 지어내지 마세요 — 확정값은 도구 관찰값에서만 "
         "채택됩니다.\n"
@@ -325,11 +336,12 @@ def plan_strategy_dag(
     llm_turns = 0
 
     def _result(outcome: str, *, question: Optional[str] = None,
-                chips: Optional[List[str]] = None) -> DagPlanResult:
+                chips: Optional[List[str]] = None,
+                topic: Optional[str] = None) -> DagPlanResult:
         sector, companies = _observed_resolution(executed, auto_steps)
         return DagPlanResult(
             outcome=outcome, question=question, chips=chips or [],
-            sector=sector, companies=companies, nodes=nodes or [],
+            sector=sector, companies=companies, nodes=nodes or [], topic=topic,
             executed=executed, auto_steps=auto_steps, llm_turns=llm_turns,
             latency_ms=int((time.monotonic() - start) * 1000),
         )
@@ -427,7 +439,8 @@ def plan_strategy_dag(
                 if not question:
                     logger.info("dag planner ask 질문 관문 전체 제거 — 폴백 | id=%s", node.id)
                     return None
-                return _result("ask", question=question, chips=list(node.chips))
+                return _result("ask", question=question, chips=list(node.chips),
+                               topic=node.topic)
             if node.type == "finish":
                 return _result("finish")
 

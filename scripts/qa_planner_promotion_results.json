@@ -1,0 +1,756 @@
+{
+  "ran_at": "2026-07-26T23:15:25",
+  "cases": [
+    {
+      "term": "반도체",
+      "note": "control — 정본 섹터 직해석, precheck 스킵 기대",
+      "search_available": true,
+      "status": "skipped_already_resolved",
+      "resolved_value": "반도체"
+    },
+    {
+      "term": "2차전지",
+      "note": "control — 정본/어휘집 해석, precheck 스킵 기대",
+      "search_available": true,
+      "status": "skipped_already_resolved",
+      "resolved_value": "이차전지"
+    },
+    {
+      "term": "ESS",
+      "note": "control — 과거 검색 학습 사례, 어휘집 히트 시 스킵",
+      "search_available": true,
+      "status": "skipped_already_resolved",
+      "resolved_value": "이차전지"
+    },
+    {
+      "term": "bts 관련주",
+      "note": "control — 테마 상장사 1홉 폴백 사례, 스킵 또는 테마 적용",
+      "search_available": true,
+      "status": "skipped_already_resolved",
+      "resolved_value": "미디어/엔터"
+    },
+    {
+      "term": "마운자로 관련주",
+      "note": "과거 사고 사례 — 학습됐으면 스킵",
+      "search_available": true,
+      "status": "skipped_already_resolved",
+      "resolved_value": "바이오/제약"
+    },
+    {
+      "term": "유리기판 관련주",
+      "expected_sector": "반도체",
+      "note": "novel 테마",
+      "search_available": true,
+      "planner": {
+        "term": "유리기판 관련주",
+        "lane": "planner",
+        "outcome": "resolved",
+        "sector": null,
+        "companies_count": 2,
+        "question": null,
+        "steps": [
+          {
+            "tool": "kg_resolve_sector",
+            "args": {
+              "text": "유리기판 관련주"
+            },
+            "observation": {
+              "sector": null
+            }
+          },
+          {
+            "tool": "kg_theme_companies",
+            "args": {
+              "text": "유리기판 관련주"
+            },
+            "observation": {
+              "found": true,
+              "term": "유리기판",
+              "companies": {
+                "count": 2,
+                "head": [
+                  "SKC",
+                  "삼성전기"
+                ]
+              },
+              "first_known_date": null
+            }
+          }
+        ],
+        "latency_ms": 13
+      },
+      "fixed": {
+        "term": "유리기판 관련주",
+        "lane": "fixed",
+        "outcome": "resolved",
+        "sector": null,
+        "companies_count": 2,
+        "question": null,
+        "suggestions": null,
+        "notices": [
+          "'유리기판' 관련으로 확인된 상장사 2곳을 대상 종목으로 설정했어요(등록 관계·공시·검색 출처 근거): SKC, 삼성전기."
+        ],
+        "latency_ms": 11
+      },
+      "status": "compared"
+    },
+    {
+      "term": "온디바이스 AI",
+      "expected_sector": "반도체",
+      "note": "novel 테마",
+      "search_available": true,
+      "planner": {
+        "term": "온디바이스 AI",
+        "lane": "planner",
+        "outcome": "resolved",
+        "sector": null,
+        "companies_count": 2,
+        "question": null,
+        "steps": [
+          {
+            "tool": "kg_resolve_sector",
+            "args": {
+              "text": "온디바이스 AI"
+            },
+            "observation": {
+              "sector": null
+            }
+          },
+          {
+            "tool": "kg_theme_companies",
+            "args": {
+              "text": "온디바이스 AI"
+            },
+            "observation": {
+              "found": true,
+              "term": "온디바이스 AI",
+              "companies": {
+                "count": 2,
+                "head": [
+                  "오픈엣지테크놀로지",
+                  "칩스앤미디어"
+                ]
+              },
+              "first_known_date": null
+            }
+          }
+        ],
+        "latency_ms": 12
+      },
+      "fixed": {
+        "term": "온디바이스 AI",
+        "lane": "fixed",
+        "outcome": "resolved",
+        "sector": null,
+        "companies_count": 2,
+        "question": null,
+        "suggestions": null,
+        "notices": [
+          "'온디바이스 AI' 관련으로 확인된 상장사 2곳을 대상 종목으로 설정했어요(등록 관계·공시·검색 출처 근거): 오픈엣지테크놀로지, 칩스앤미디어."
+        ],
+        "latency_ms": 12
+      },
+      "status": "compared"
+    },
+    {
+      "term": "CXL 관련주",
+      "expected_sector": "반도체",
+      "note": "novel 테마",
+      "search_available": true,
+      "status": "skipped_already_resolved",
+      "resolved_value": "반도체"
+    },
+    {
+      "term": "HBM 소부장",
+      "expected_sector": "반도체",
+      "note": "복합 테마구 — 과거 '반도체 소부장' 오확정 사고 유형",
+      "search_available": true,
+      "status": "skipped_already_resolved",
+      "resolved_value": "반도체"
+    },
+    {
+      "term": "전고체 배터리",
+      "expected_sector": "2차전지",
+      "note": "novel 테마",
+      "search_available": true,
+      "status": "skipped_already_resolved",
+      "resolved_value": "이차전지"
+    },
+    {
+      "term": "실리콘 음극재",
+      "expected_sector": "2차전지",
+      "note": "novel 소재 테마",
+      "search_available": true,
+      "status": "skipped_already_resolved",
+      "resolved_value": "이차전지"
+    },
+    {
+      "term": "폐배터리 리사이클링",
+      "expected_sector": "2차전지",
+      "note": "novel 테마",
+      "search_available": true,
+      "status": "skipped_already_resolved",
+      "resolved_value": "이차전지"
+    },
+    {
+      "term": "비만치료제 관련주",
+      "expected_sector": "제약/바이오",
+      "note": "novel 테마",
+      "search_available": true,
+      "status": "skipped_already_resolved",
+      "resolved_value": "바이오/제약"
+    },
+    {
+      "term": "양자컴퓨터 관련주",
+      "note": "novel 테마 — 정본 섹터 애매(IT/반도체), 수동 라벨",
+      "search_available": true,
+      "planner": {
+        "term": "양자컴퓨터 관련주",
+        "lane": "planner",
+        "outcome": "clarify",
+        "sector": null,
+        "companies_count": 0,
+        "question": "\"양자컴퓨터\"와 직접적인 연관이 없는 다른 관련 테마 (예: 양자통신, 양자센서 등) 가 있는지 확인해 주실 수 있나요?",
+        "steps": [
+          {
+            "tool": "kg_resolve_sector",
+            "args": {
+              "text": "양자컴퓨터 관련주"
+            },
+            "observation": {
+              "sector": null
+            }
+          },
+          {
+            "tool": "kg_theme_companies",
+            "args": {
+              "text": "양자컴퓨터 관련주"
+            },
+            "observation": {
+              "found": false,
+              "term": null,
+              "companies": [],
+              "first_known_date": null
+            }
+          },
+          {
+            "tool": "ground_term",
+            "args": {
+              "text": "양자컴퓨터 관련주"
+            },
+            "observation": {
+              "sector": null
+            }
+          },
+          {
+            "tool": "kg_theme_companies",
+            "args": {
+              "text": "양자컴퓨터 관련주"
+            },
+            "observation": {
+              "found": false,
+              "term": null,
+              "companies": [],
+              "first_known_date": null
+            }
+          }
+        ],
+        "latency_ms": 13116
+      },
+      "fixed": {
+        "term": "양자컴퓨터 관련주",
+        "lane": "fixed",
+        "outcome": "clarify",
+        "sector": null,
+        "companies_count": 0,
+        "question": "'양자컴퓨터' 관련 상장사를 확인하지 못했어요. 관련주를 찾을 수 없어 이 테마로는 전략을 만들 수 없어요. 다른 테마나 업종을 말씀해 주시면 그 범위로 전략을 만들 수 있어요.",
+        "suggestions": [
+          "반도체 관련주",
+          "이차전지 관련주",
+          "바이오/제약 관련주",
+          "자동차 관련주"
+        ],
+        "notices": [],
+        "latency_ms": 6670
+      },
+      "status": "compared"
+    },
+    {
+      "term": "SMR 관련주",
+      "expected_sector": "에너지",
+      "note": "소형모듈원자로 — 원자로 학습 사례 인접",
+      "search_available": true,
+      "status": "skipped_already_resolved",
+      "resolved_value": "에너지/원자력"
+    },
+    {
+      "term": "우주 발사체 관련주",
+      "note": "novel 테마 — 에어로스페이스 계열, 수동 라벨",
+      "search_available": true,
+      "status": "skipped_already_resolved",
+      "resolved_value": "우주항공/방산"
+    },
+    {
+      "term": "로봇 감속기",
+      "expected_sector": "기계/장비",
+      "note": "novel 부품 테마",
+      "search_available": true,
+      "planner": {
+        "term": "로봇 감속기",
+        "lane": "planner",
+        "outcome": "resolved",
+        "sector": "로봇",
+        "companies_count": 29,
+        "question": null,
+        "steps": [
+          {
+            "tool": "kg_resolve_sector",
+            "args": {
+              "text": "로봇 감속기"
+            },
+            "observation": {
+              "sector": null
+            }
+          },
+          {
+            "tool": "kg_theme_companies",
+            "args": {
+              "text": "로봇 감속기"
+            },
+            "observation": {
+              "found": false,
+              "term": null,
+              "companies": [],
+              "first_known_date": null
+            }
+          },
+          {
+            "tool": "ground_term",
+            "args": {
+              "text": "로봇 감속기"
+            },
+            "observation": {
+              "sector": "로봇"
+            }
+          },
+          {
+            "tool": "kg_theme_companies",
+            "args": {
+              "text": "로봇 감속기"
+            },
+            "observation": {
+              "found": true,
+              "term": "로봇 감속기",
+              "companies": {
+                "count": 29,
+                "head": [
+                  "삼성전자",
+                  "에스피지",
+                  "두산로보틱스"
+                ]
+              },
+              "first_known_date": "2026-07-15"
+            }
+          }
+        ],
+        "latency_ms": 10481
+      },
+      "fixed": {
+        "term": "로봇 감속기",
+        "lane": "fixed",
+        "outcome": "resolved",
+        "sector": null,
+        "companies_count": 10,
+        "question": null,
+        "suggestions": null,
+        "notices": [
+          "'로봇 감속기' 관련으로 확인된 상장사 10곳을 대상 종목으로 설정했어요(등록 관계·공시·검색 출처 근거): 삼성전자, 에스피지, 두산로보틱스, 뉴로메카, 레인보우로보틱스, 현대자동차, 우림피티에스, 에브리봇, 에스비비테크, 코스모로보틱스. 이 목록은 2026-07-15 이후 확인된 정보예요 — 그 이전 구간의 결과에는 당시 알 수 없던 정보가 반영되는 시점 편향이 있을 수 있어요."
+        ],
+        "latency_ms": 8341
+      },
+      "status": "compared"
+    },
+    {
+      "term": "해상풍력 하부구조물",
+      "note": "novel 복합구 — 수동 라벨",
+      "search_available": true,
+      "status": "skipped_already_resolved",
+      "resolved_value": "에너지/원자력"
+    },
+    {
+      "term": "데이터센터 액침냉각",
+      "note": "novel 복합구 — 수동 라벨",
+      "search_available": true,
+      "planner": {
+        "term": "데이터센터 액침냉각",
+        "lane": "planner",
+        "outcome": "resolved",
+        "sector": null,
+        "companies_count": 2,
+        "question": null,
+        "steps": [
+          {
+            "tool": "kg_resolve_sector",
+            "args": {
+              "text": "데이터센터 액침냉각"
+            },
+            "observation": {
+              "sector": null
+            }
+          },
+          {
+            "tool": "kg_theme_companies",
+            "args": {
+              "text": "데이터센터 액침냉각"
+            },
+            "observation": {
+              "found": true,
+              "term": "데이터센터",
+              "companies": {
+                "count": 2,
+                "head": [
+                  "삼성에스디에스",
+                  "LG씨엔에스"
+                ]
+              },
+              "first_known_date": null
+            }
+          }
+        ],
+        "latency_ms": 15
+      },
+      "fixed": {
+        "term": "데이터센터 액침냉각",
+        "lane": "fixed",
+        "outcome": "resolved",
+        "sector": null,
+        "companies_count": 2,
+        "question": null,
+        "suggestions": null,
+        "notices": [
+          "'데이터센터' 관련으로 확인된 상장사 2곳을 대상 종목으로 설정했어요(등록 관계·공시·검색 출처 근거): 삼성에스디에스, LG씨엔에스."
+        ],
+        "latency_ms": 11
+      },
+      "status": "compared"
+    },
+    {
+      "term": "전기차 충전 인프라",
+      "note": "novel 테마 — 수동 라벨",
+      "search_available": true,
+      "status": "skipped_already_resolved",
+      "resolved_value": "자동차"
+    },
+    {
+      "term": "K뷰티 ODM",
+      "expected_sector": "화장품",
+      "note": "novel 복합구",
+      "search_available": true,
+      "planner": {
+        "term": "K뷰티 ODM",
+        "lane": "planner",
+        "outcome": "resolved",
+        "sector": "화학",
+        "companies_count": 9,
+        "question": null,
+        "steps": [
+          {
+            "tool": "kg_resolve_sector",
+            "args": {
+              "text": "K뷰티 ODM"
+            },
+            "observation": {
+              "sector": null
+            }
+          },
+          {
+            "tool": "kg_theme_companies",
+            "args": {
+              "text": "K뷰티 ODM"
+            },
+            "observation": {
+              "found": false,
+              "term": null,
+              "companies": [],
+              "first_known_date": null
+            }
+          },
+          {
+            "tool": "ground_term",
+            "args": {
+              "text": "K뷰티 ODM"
+            },
+            "observation": {
+              "sector": "화학"
+            }
+          },
+          {
+            "tool": "kg_theme_companies",
+            "args": {
+              "text": "K뷰티 ODM"
+            },
+            "observation": {
+              "found": true,
+              "term": "K뷰티 ODM",
+              "companies": {
+                "count": 9,
+                "head": [
+                  "한국콜마",
+                  "코스맥스",
+                  "모나미"
+                ]
+              },
+              "first_known_date": "2026-06-19"
+            }
+          }
+        ],
+        "latency_ms": 6242
+      },
+      "fixed": {
+        "term": "K뷰티 ODM",
+        "lane": "fixed",
+        "outcome": "resolved",
+        "sector": null,
+        "companies_count": 9,
+        "question": null,
+        "suggestions": null,
+        "notices": [
+          "'K뷰티 ODM' 관련으로 확인된 상장사 9곳을 대상 종목으로 설정했어요(등록 관계·공시·검색 출처 근거): 한국콜마, 코스맥스, 모나미, 코스메카코리아, 씨앤씨인터내셔널, 뷰티스킨, 마녀공장, 콜마홀딩스, 코스맥스비티아이. 이 목록은 2026-06-19 이후 확인된 정보예요 — 그 이전 구간의 결과에는 당시 알 수 없던 정보가 반영되는 시점 편향이 있을 수 있어요."
+        ],
+        "latency_ms": 3632
+      },
+      "status": "compared"
+    },
+    {
+      "term": "STO 관련주",
+      "note": "토큰증권 — 금융 계열, 수동 라벨",
+      "search_available": true,
+      "planner": {
+        "term": "STO 관련주",
+        "lane": "planner",
+        "outcome": "resolved",
+        "sector": "소프트웨어/플랫폼",
+        "companies_count": 6,
+        "question": null,
+        "steps": [
+          {
+            "tool": "kg_resolve_sector",
+            "args": {
+              "text": "STO 관련주"
+            },
+            "observation": {
+              "sector": null
+            }
+          },
+          {
+            "tool": "kg_theme_companies",
+            "args": {
+              "text": "STO 관련주"
+            },
+            "observation": {
+              "found": false,
+              "term": null,
+              "companies": [],
+              "first_known_date": null
+            }
+          },
+          {
+            "tool": "ground_term",
+            "args": {
+              "text": "STO 관련주"
+            },
+            "observation": {
+              "sector": "소프트웨어/플랫폼"
+            }
+          },
+          {
+            "tool": "kg_theme_companies",
+            "args": {
+              "text": "STO 관련주"
+            },
+            "observation": {
+              "found": true,
+              "term": "STO",
+              "companies": {
+                "count": 6,
+                "head": [
+                  "카카오페이",
+                  "갤럭시아머니트리",
+                  "키움증권"
+                ]
+              },
+              "first_known_date": "2026-06-07"
+            }
+          }
+        ],
+        "latency_ms": 9831
+      },
+      "fixed": {
+        "term": "STO 관련주",
+        "lane": "fixed",
+        "outcome": "resolved",
+        "sector": null,
+        "companies_count": 6,
+        "question": null,
+        "suggestions": null,
+        "notices": [
+          "'STO' 관련으로 확인된 상장사 6곳을 대상 종목으로 설정했어요(등록 관계·공시·검색 출처 근거): 카카오페이, 갤럭시아머니트리, 키움증권, 신한지주, 카카오, 더즌. 이 목록은 2026-06-07 이후 확인된 정보예요 — 그 이전 구간의 결과에는 당시 알 수 없던 정보가 반영되는 시점 편향이 있을 수 있어요."
+        ],
+        "latency_ms": 7607
+      },
+      "status": "compared"
+    },
+    {
+      "term": "무지개 성장주",
+      "expected_outcome": "clarify",
+      "note": "매핑 불가 — 양쪽 다 되묻기가 정답",
+      "search_available": true,
+      "planner": {
+        "term": "무지개 성장주",
+        "lane": "planner",
+        "outcome": "clarify",
+        "sector": null,
+        "companies_count": 0,
+        "question": "\"무지개 성장주\"라는 표현이 특정 산업군이나 투자 테마를 지칭하는 것이 아니라, 개별 종목의 이름이거나 비공식적인 별명일 가능성이 있습니다. 백테스트 유니버스로 해석할 수 있는 구체적인 섹터(예: IT, 바이오 등)나 관련 키워드가 있다면 알려주세요.",
+        "steps": [
+          {
+            "tool": "kg_resolve_sector",
+            "args": {
+              "text": "무지개 성장주"
+            },
+            "observation": {
+              "sector": null
+            }
+          },
+          {
+            "tool": "kg_theme_companies",
+            "args": {
+              "text": "무지개 성장주"
+            },
+            "observation": {
+              "found": false,
+              "term": null,
+              "companies": [],
+              "first_known_date": null
+            }
+          },
+          {
+            "tool": "ground_term",
+            "args": {
+              "text": "무지개 성장주"
+            },
+            "observation": {
+              "sector": null
+            }
+          },
+          {
+            "tool": "kg_theme_companies",
+            "args": {
+              "text": "무지개 성장주"
+            },
+            "observation": {
+              "found": false,
+              "term": null,
+              "companies": [],
+              "first_known_date": null
+            }
+          }
+        ],
+        "latency_ms": 16596
+      },
+      "fixed": {
+        "term": "무지개 성장주",
+        "lane": "fixed",
+        "outcome": "clarify",
+        "sector": null,
+        "companies_count": 0,
+        "question": "'무지개 성장주' 관련 상장사를 확인하지 못했어요. 관련주를 찾을 수 없어 이 테마로는 전략을 만들 수 없어요. 다른 테마나 업종을 말씀해 주시면 그 범위로 전략을 만들 수 있어요.",
+        "suggestions": [
+          "반도체 관련주",
+          "이차전지 관련주",
+          "바이오/제약 관련주",
+          "자동차 관련주"
+        ],
+        "notices": [],
+        "latency_ms": 4895
+      },
+      "status": "compared"
+    },
+    {
+      "term": "따뜻한 감성주",
+      "expected_outcome": "clarify",
+      "note": "매핑 불가 — 양쪽 다 되묻기가 정답",
+      "search_available": true,
+      "planner": {
+        "term": "따뜻한 감성주",
+        "lane": "planner",
+        "outcome": "clarify",
+        "sector": null,
+        "companies_count": 0,
+        "question": "\"따뜻한 감성주\"라는 표현이 구체적으로 어떤 산업군이나 테마를 지칭하는지 명확히 해주세요. (예: 특정 서비스업, 문화콘텐츠, 혹은 특정 기업의 브랜드 이미지 등)",
+        "steps": [
+          {
+            "tool": "kg_resolve_sector",
+            "args": {
+              "text": "따뜻한 감성주"
+            },
+            "observation": {
+              "sector": null
+            }
+          },
+          {
+            "tool": "kg_theme_companies",
+            "args": {
+              "text": "따뜻한 감성주"
+            },
+            "observation": {
+              "found": false,
+              "term": null,
+              "companies": [],
+              "first_known_date": null
+            }
+          },
+          {
+            "tool": "ground_term",
+            "args": {
+              "text": "따뜻한 감성주"
+            },
+            "observation": {
+              "sector": null
+            }
+          },
+          {
+            "tool": "kg_theme_companies",
+            "args": {
+              "text": "따뜻한 감성주"
+            },
+            "observation": {
+              "found": false,
+              "term": null,
+              "companies": [],
+              "first_known_date": null
+            }
+          }
+        ],
+        "latency_ms": 15541
+      },
+      "fixed": {
+        "term": "따뜻한 감성주",
+        "lane": "fixed",
+        "outcome": "clarify",
+        "sector": null,
+        "companies_count": 0,
+        "question": "'감성주' 관련 상장사를 확인하지 못했어요. 관련주를 찾을 수 없어 이 테마로는 전략을 만들 수 없어요. 다른 테마나 업종을 말씀해 주시면 그 범위로 전략을 만들 수 있어요.",
+        "suggestions": [
+          "반도체 관련주",
+          "이차전지 관련주",
+          "바이오/제약 관련주",
+          "자동차 관련주"
+        ],
+        "notices": [],
+        "latency_ms": 5073
+      },
+      "status": "compared"
+    }
+  ]
+}
