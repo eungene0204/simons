@@ -8,6 +8,7 @@ import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/firebase";
 import {
   PENDING_STRATEGY_PROMPT_KEY,
   STRATEGY_CHAT_STATE_KEY,
+  requestStrategyLabChatView,
 } from "@/components/strategy/strategyTemplateSession";
 import {
   SquaresFour,
@@ -51,7 +52,7 @@ const menuItems = [
     Icon: ChartLineUp,
   },
   {
-    label: "전략모음",
+    label: "백테스트 기록",
     href: "/backtest",
     id: "backtest",
     Icon: SlidersHorizontal,
@@ -440,9 +441,12 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       return;
     }
 
-    // 전략연구소 메뉴 재진입 시에는 이전 백테스트 결과·대화를 유지한다(복원은
-    // page.tsx의 세션 스냅샷 복원 로직이 담당). 새로 시작하려면 결과 화면의
-    // 닫기 배지(전략연구소 초기 화면으로 이동)를 사용한다.
+    // 전략연구소 메뉴 재진입 시에는 이전 대화를 유지한다(복원은 page.tsx의 세션
+    // 스냅샷 복원 로직이 담당). 단, 백테스트 결과 화면이 떠 있으면 결과 화면이
+    // 그대로 남아 메뉴를 눌러도 이동이 안 된 것처럼 보이므로 대화 화면으로 내린다.
+    if (item.id === "analytics") {
+      requestStrategyLabChatView();
+    }
 
     e.preventDefault();
     router.push(item.href);

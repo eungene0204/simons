@@ -20,6 +20,7 @@ import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackgr
 import {
   PENDING_STRATEGY_PROMPT_KEY,
   STRATEGY_CHAT_STATE_KEY,
+  STRATEGY_LAB_CHAT_VIEW_EVENT,
 } from "@/components/strategy/strategyTemplateSession";
 import { BacktestResult, type OptimizationResponse } from "@/types/strategy";
 import { mapRawBacktestResult } from "./backtestResultMapper";
@@ -61,7 +62,7 @@ import {
   type AdvisorWalkForwardSettings,
   type StrategyBacktestRequest,
 } from "./parsedStrategyMerge";
-import { computeChatScrollDelta } from "./chatScroll";
+import { computeChatScrollDelta, scrollChatViewToEnd } from "./chatScroll";
 import {
   buildResearchMetricIntro,
   buildResearchMetricSummary,
@@ -1214,6 +1215,11 @@ function StrategyLabContent() {
   const chatInputRef = useRef<ChatInputHandle>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const resultScrollRef = useRef<HTMLDivElement>(null);
+  // 대화를 복원하거나 결과 화면에서 돌아온 직후 대화 끝까지 스크롤을 올린다.
+  const pendingScrollToEndRef = useRef(false);
+  // 입력창 회피 자동 스크롤은 '새 메시지'용이다. 복원·복귀 화면에서는 사용자가 다음 메시지를
+  // 보낼 때까지 꺼 두고, 위치는 위 pendingScrollToEnd(최대 스크롤)가 정한다.
+  const chatAutoScrollEnabledRef = useRef(false);
   const latestParsedRef = useRef<ParsedSummary | null>(null);
   const backtestReqRef = useRef<any>(null);
   const coachSessionIdRef = useRef<string | null>(null);
@@ -1250,6 +1256,10 @@ function StrategyLabContent() {
   const metricOptimizationDraftRef = useRef<MetricOptimizationDraft | null>(null);
   const metricOptimizationAbortRef = useRef<AbortController | null>(null);
   const explicitNoRebalancingRef = useRef(false);
+  // 직전 planner ask 컨텍스트(백엔드 pending_ask) — 다음 파스 요청에 그대로 에코해
+  // 칩 클릭의 결정론 귀속 근거로 쓴다(previous_coach_text와 같은 무상태 에코 계약).
+  // 매 파스 응답마다 덮어써 스테일 컨텍스트를 남기지 않는다.
+  const pendingAskRef = useRef<{ topic?: string | null; question: string; chips: string[] } | null>(null);
   // 빌더 칩-only 단계에서 '직접 입력'을 눌러 채팅창을 다시 띄운 상태(빌더는 진행하지 않음).
   const [builderFreeTextRequested, setBuilderFreeTextRequested] = useState(false);
   const [explicitNoRebalancing, setExplicitNoRebalancing] = useState(false);
@@ -1272,6 +1282,8 @@ function StrategyLabContent() {
       if (!raw) return;
       const snapshot = JSON.parse(raw);
       if (!Array.isArray(snapshot.messages) || snapshot.messages.length === 0) return;
+      pendingScrollToEndRef.current = true;
+      chatAutoScrollEnabledRef.current = false;
       setMessages(snapshot.messages as ChatMessage[]);
       setLatestParsed(snapshot.latestParsed ?? null);
       setBacktestReq(snapshot.backtestReq ?? null);
@@ -1407,7 +1419,21 @@ function StrategyLabContent() {
   ]);
 
   useEffect(() => {
+    if (messages.length === 0) return;
+
     const animationFrame = window.requestAnimationFrame(() => {
+      // 복원·복귀 화면은 대화 끝(최대 스크롤)에서 시작한다.
+      if (pendingScrollToEndRef.current) {
+        pendingScrollToEndRef.current = false;
+        scrollChatViewToEnd();
+        // 요약 카드·버튼이 한 박자 늦게 렌더돼 문서가 길어지면 방금 위치가 끝이 아니게 된다.
+        // 레이아웃이 자리를 잡은 뒤 한 번 더 끝으로 맞춘다.
+        window.setTimeout(scrollChatViewToEnd, 300);
+        return;
+      }
+      // 사용자가 다음 메시지를 보내기 전까지는 입력창 회피 자동 스크롤을 돌리지 않는다
+      // — 위치는 위 pendingScrollToEnd(최대 스크롤)가 정한다.
+      if (!chatAutoScrollEnabledRef.current) return;
       if (!messagesEndRef.current) return;
       const main = document.querySelector("main");
       const endRect = messagesEndRef.current.getBoundingClientRect();
@@ -1428,7 +1454,10 @@ function StrategyLabContent() {
     });
 
     return () => window.cancelAnimationFrame(animationFrame);
-  }, [messages]);
+    // messages 외의 의존성 — 마지막 버블 아래에 붙는 요소('백테스트 시작하기' 버튼 등)는
+    // 메시지가 아니라 isSending/backtestReq/stage가 바뀔 때 뒤늦게 렌더된다. 그때 다시
+    // 여유를 확인하지 않으면 새로 생긴 버튼이 고정 입력창 뒤에 걸린 채로 남는다.
+  }, [messages, isSending, backtestReq, stage]);
 
   useEffect(() => {
     latestParsedRef.current = latestParsed;
@@ -1456,6 +1485,8 @@ function StrategyLabContent() {
   }, [shouldShowChatInput, stage, result]);
 
   const handleSuggestionClick = (text: string) => {
+    // 칩 답변도 사용자가 대화를 이어가는 행동 — 자동 스크롤을 다시 켠다.
+    chatAutoScrollEnabledRef.current = true;
     if (text === BUILDER_BACK_CHIP) {
       void handleBuilderBack();
       return;
@@ -1565,6 +1596,8 @@ function StrategyLabContent() {
 
   // 사용자 입력 버블은 어떤 네트워크 호출(분류/파싱)보다 먼저, 즉시 그린다.
   const appendUserMessage = (userText: string) => {
+    // 사용자가 대화를 이어가는 순간부터 새 메시지 자동 스크롤(입력창 회피)을 다시 켠다.
+    chatAutoScrollEnabledRef.current = true;
     flushSync(() => {
       setMessages(prev => [...prev, { role: "user", content: userText }]);
     });
@@ -2033,6 +2066,9 @@ function StrategyLabContent() {
         // 코치 맥락 리스크 해석을 백엔드가 하도록 직전 코치 문장을 넘긴다(수정 모드).
         // "익절 추천" 뒤 "10%" 같은 필드 없는 답을 백엔드가 코치 맥락으로 귀속한다(FR-STR-019e).
         ...(currentParsed ? { previous_coach_text: lastCoachText() } : {}),
+        // 직전 planner ask 컨텍스트 에코 — 입력이 이 칩과 정확히 일치하면 백엔드가
+        // 결정론 칩 답변 레인(LLM 생략)으로 State에 반영한다(Phase 4 후속 ①).
+        ...(currentParsed && pendingAskRef.current ? { pending_ask: pendingAskRef.current } : {}),
       }),
     });
     if (!res.ok || !res.body) {
@@ -2137,6 +2173,9 @@ function StrategyLabContent() {
       // 안내) — 은 유니버스 범위를 정하는 선행 결정이라 explicit 설정 게이트의 시장 질문보다
       // 먼저 보여준다. 게이트가 삼키면 '리센즈 관련주'처럼 검색으로도 못 찾은 테마가 조용히
       // 일반 시장 질문으로 강등된다(2026-07-26 회귀).
+      // planner ask 컨텍스트 저장 — 다음 파스 요청이 그대로 에코한다. 없으면 null로
+      // 덮어써 이전 턴의 스테일 컨텍스트가 다음 칩 판정에 쓰이지 않게 한다.
+      pendingAskRef.current = parsedPayload.pending_ask ?? null;
       const priorityClarification =
         parsedPayload.clarification_priority &&
         parsedPayload.clarification_question
@@ -3256,6 +3295,20 @@ function StrategyLabContent() {
   const isRunning = stage === "running";
   const showingBacktestResult = (stage === "done" || isRunning) && !!result;
 
+  // 탑메뉴 '전략연구소' 클릭 → 결과 화면을 내리고 대화 화면으로 복귀(결과·대화 유지).
+  // 결과 화면은 같은 라우트의 상태라서 router.push만으로는 화면이 바뀌지 않는다.
+  // 이미 대화 화면이면 화면은 그대로고 스크롤만 대화 끝까지 올린다.
+  useEffect(() => {
+    const showChatView = () => {
+      setStage((prev) => (prev === "done" ? "ready" : prev));
+      pendingScrollToEndRef.current = true;
+      chatAutoScrollEnabledRef.current = false;
+      scrollChatViewToEnd();
+    };
+    window.addEventListener(STRATEGY_LAB_CHAT_VIEW_EVENT, showChatView);
+    return () => window.removeEventListener(STRATEGY_LAB_CHAT_VIEW_EVENT, showChatView);
+  }, []);
+
   // 결과 화면에서 브라우저 뒤로가기 → 페이지 이탈 대신 대화창으로 복귀(결과·대화 유지).
   // showingBacktestResult(boolean) 변화에만 반응하므로 running↔done 전환 시 중복 push가 없다.
   useEffect(() => {
@@ -3265,12 +3318,21 @@ function StrategyLabContent() {
 
   // 결과 화면 진입 시(또는 재실행 완료 시) 채팅 화면에서 내려가 있던 스크롤 위치가 그대로
   // 남아 결과가 아래쪽부터 보이는 문제를 막기 위해 항상 맨 위로 스크롤한다.
+  // 반대로 대화 화면으로 돌아올 때(탑메뉴 '전략연구소'·뒤로가기)는 대화 끝까지 올려
+  // 마지막 버블이 고정 입력창 뒤에 걸린 채로 남지 않게 한다.
   const wasShowingBacktestResultRef = useRef(false);
   useEffect(() => {
     const enteringResultView = showingBacktestResult && !wasShowingBacktestResultRef.current;
+    const leavingResultView = !showingBacktestResult && wasShowingBacktestResultRef.current;
     wasShowingBacktestResultRef.current = showingBacktestResult;
-    if (!enteringResultView && stage !== "done") return;
+    if (!enteringResultView && !leavingResultView && stage !== "done") return;
 
+    if (leavingResultView) {
+      pendingScrollToEndRef.current = true;
+      chatAutoScrollEnabledRef.current = false;
+      scrollChatViewToEnd();
+      return;
+    }
     document.querySelector("main")?.scrollTo({ top: 0, behavior: "auto" });
     resultScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     window.scrollTo({ top: 0, behavior: "auto" });

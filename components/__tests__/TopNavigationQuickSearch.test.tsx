@@ -318,7 +318,7 @@ describe("TopNavigation quick search", () => {
     });
   });
 
-  it("비로그인 상태에서 모의투자, 전략모음, 대시보드 메뉴를 누르면 로그인 모달을 보여준다", async () => {
+  it("비로그인 상태에서 모의투자, 백테스트 기록, 대시보드 메뉴를 누르면 로그인 모달을 보여준다", async () => {
     renderWithQueryClient(<TopNavigation />);
 
     await screen.findByRole("button", {
@@ -338,7 +338,7 @@ describe("TopNavigation quick search", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("link", { name: /전략모음/i }));
+    fireEvent.click(screen.getByRole("link", { name: /백테스트 기록/i }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
 
@@ -372,20 +372,31 @@ describe("TopNavigation quick search", () => {
     expect(pushMock).not.toHaveBeenCalledWith("/analytics?virtualAccount=open");
   });
 
-  it("백테스트 결과 화면에서 전략연구소 메뉴를 눌러도 이전 채팅 스냅샷을 유지한 채 이동한다", async () => {
+  it("백테스트 결과 화면에서 전략연구소 메뉴를 누르면 대화는 유지한 채 대화 화면으로 내린다", async () => {
     pathnameMock.current = "/analytics/new";
-    const snapshot = JSON.stringify({
-      messages: [{ role: "user", content: "PBR 1 이하" }],
-      stage: "done",
-    });
-    sessionStorage.setItem("simons.strategyChatState", snapshot);
+    const messages = [{ role: "user", content: "PBR 1 이하" }];
+    sessionStorage.setItem(
+      "simons.strategyChatState",
+      JSON.stringify({ messages, stage: "done", result: { cagr: 12.4 } })
+    );
+    const chatViewRequests = vi.fn();
+    window.addEventListener("simons:strategy-lab-chat-view", chatViewRequests);
 
     renderWithQueryClient(<TopNavigation />);
 
     fireEvent.click(await screen.findByRole("link", { name: /전략연구소/i }));
 
-    expect(sessionStorage.getItem("simons.strategyChatState")).toBe(snapshot);
+    // 대화·결과 데이터는 보존하고, 결과 화면으로 복원되지 않도록 stage만 강등한다.
+    expect(JSON.parse(sessionStorage.getItem("simons.strategyChatState")!)).toEqual({
+      messages,
+      stage: "ready",
+      result: { cagr: 12.4 },
+    });
+    // 같은 라우트에 이미 떠 있는 결과 화면은 이벤트로 내린다(router.push만으로는 안 바뀜).
+    expect(chatViewRequests).toHaveBeenCalled();
     expect(pushMock).toHaveBeenCalledWith("/analytics");
+
+    window.removeEventListener("simons:strategy-lab-chat-view", chatViewRequests);
   });
 
   it("로그인된 상태에서는 사용자 프로필 버튼과 드롭다운 메뉴를 보여준다", async () => {
