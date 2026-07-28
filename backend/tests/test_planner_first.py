@@ -37,6 +37,15 @@ from strategy_conversation.tools import call as call_tool
     ("삼성전자", "SINGLE_STOCK", "005930"),
     ("반도체 ETF", "ETF", None),
     ("보안주", "CONCEPT", None),
+    # 2026-07-28 '태양광' 사고: '태양광'은 NL_SAFE_TERMS 근사('원자력·풍력·석유' 등을
+    # 한 섹터로 묶은 MAPPING_RULES 버킷)를 거쳐 '에너지/원자력'으로 과대 확정되고 있었다
+    # — 카탈로그에 '태양광에너지'라는 더 구체적인 테마가 있는데도 섹터 판정이 선점했다.
+    # is_narrow_sector_approximation이 이런 버킷형 근사만 걸러 테마 판정으로 넘긴다.
+    ("태양광", "CONCEPT", None),
+    # 근사가 아니라 정본 섹터명 안에 표현이 그대로 들어있는 이름 표기 차이(은행→은행/
+    # 금융지주, 원자력→에너지/원자력)는 여전히 즉시 SECTOR로 확정돼야 한다(회귀 가드).
+    ("은행", "SECTOR", "은행/금융지주"),
+    ("원자력", "SECTOR", "에너지/원자력"),
 ])
 def test_classify_universe_deterministic(text, expected_type, expected_canonical):
     out = call_tool("classify_universe", text=text)

@@ -97,7 +97,8 @@ class ClassifyUniverseOut(BaseModel):
 
 
 def _classify_universe(inp: ClassifyUniverseIn) -> ClassifyUniverseOut:
-    from engine.universe_pit import normalize_sector
+    from engine.knowledge_graph import catalog_theme_candidates
+    from engine.universe_pit import is_narrow_sector_approximation, normalize_sector
     from strategy_conversation.registry.universe_resolver import resolve_symbols
 
     key = (inp.text or "").replace(" ", "").lower()
@@ -111,6 +112,14 @@ def _classify_universe(inp: ClassifyUniverseIn) -> ClassifyUniverseOut:
     if symbol_codes and not unresolved:
         return ClassifyUniverseOut(universe_type="SINGLE_STOCK", canonical=symbol_codes[0])
     sector = normalize_sector(inp.text)
+    # 표현이 정본 섹터명 밖으로 나가는 근사(예: '태양광'→'에너지/원자력', 원자력·풍력·석유
+    # 등을 한 섹터로 묶은 MAPPING_RULES 버킷에서 파생)일 때만, 더 구체적인 카탈로그 테마가
+    # 있는지 먼저 확인한다 — 있으면 근사 섹터보다 테마 판정(되묻기 체인)을 우선한다.
+    # '은행'→'은행/금융지주'처럼 표현이 정본명 안에 그대로 들어있는 이름 표기 차이는
+    # 대상이 아니다(늘 그대로 섹터 확정). 매번 어휘집에서 개별 용어를 손으로 빼는 대응
+    # (2026-07-27 'AI/인공지능')을 구조적으로 대체한다.
+    if sector and is_narrow_sector_approximation(inp.text) and catalog_theme_candidates(inp.text):
+        return ClassifyUniverseOut(universe_type="CONCEPT")
     if sector:
         return ClassifyUniverseOut(universe_type="SECTOR", canonical=sector)
     return ClassifyUniverseOut(universe_type="CONCEPT")

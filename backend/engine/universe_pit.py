@@ -378,6 +378,29 @@ def normalize_sector(raw: Optional[str]) -> Optional[str]:
     return _SECTOR_SYNONYMS.get(key)
 
 
+def is_narrow_sector_approximation(raw: Optional[str]) -> bool:
+    """근사 동의어 매칭이 원래 표현보다 넓은 섹터로 뭉뚱그린 것인지 판정한다.
+
+    normalize_sector는 정본 일치("반도체"→"반도체")와 동의어 근사(_SECTOR_SYNONYMS,
+    "태양광"→"에너지/원자력")를 구분 없이 같은 값으로 반환한다. 하지만 두 경우는 성격이
+    다르다 — "은행"→"은행/금융지주", "보험"→"증권/보험"처럼 표현이 정본 섹터명 안에 그대로
+    들어있는 근사는 이름 표기 차이일 뿐 개념이 넓어지지 않는다. 반대로 "태양광"은
+    "에너지/원자력" 어디에도 나타나지 않는다 — 원자력·풍력·석유 등 이질적인 여러 발전원을
+    한 섹터로 묶어놓은 키워드 버킷(MAPPING_RULES)에서 온 근사라 개념이 실제로 넓어진다.
+    이 경우에만 True를 반환해, classify_universe가 섹터 확정 전에 더 구체적인 카탈로그
+    테마가 있는지 먼저 확인하게 한다(2026-07-27 'AI/인공지능' 개별 제거를 대체하는 구조적
+    가드 — 새 근사 키워드가 추가돼도 정본명에 없는 표현이면 자동으로 이 경로를 탄다)."""
+    if not raw:
+        return False
+    key = _sector_key(raw)
+    if key in _CANONICAL_BY_KEY:
+        return False
+    sector = _SECTOR_SYNONYMS.get(key)
+    if not sector:
+        return False
+    return key not in _sector_key(sector).replace("/", "")
+
+
 def normalize_sector_value(raw) -> Optional[str | list[str]]:
     """sector 필드 값(str 또는 list)을 정규형으로 정규화한다(FR-STR-066 ⑦ 다중 섹터).
 
