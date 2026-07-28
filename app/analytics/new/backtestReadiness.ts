@@ -97,10 +97,14 @@ export function getNextMissingBacktestCondition(
   const hasMaxPositions = parsed.max_positions != null && parsed.max_positions > 0;
   const hasBacktestPeriod = nonEmpty(parsed.backtest_period);
   const hasInitialCapital = parsed.initial_capital != null && parsed.initial_capital > 0;
-  // 단독 종목이 아니면(유니버스/다종목) 리밸런싱 주기도 필수다(단독 종목은 교체가 없어 제외).
   const isSingleAsset = nonEmpty(parsed.target_symbols);
+  // 단독 종목(지정 1개)이 아니면(유니버스/다종목) 리밸런싱 주기도 필수다(단독 종목은 교체가
+  // 없어 제외). 지정 종목이라도 여러 개(테마 유니버스 자동 적용 등)면 포트폴리오이므로
+  // 묻는다 — '지정 종목 존재=단독'으로 판정해 질문 없이 기본값 '설정 안 함'으로 확정되던
+  // 사고(2026-07-28 '모바일솔루션 관련주'). 백엔드 _missing_backtest_conditions와 동일 규칙.
+  const isSingleSymbol = (parsed.target_symbols?.length ?? 0) === 1;
   const rebalancingOk =
-    isSingleAsset || hasRebalancing || options.allowNoRebalancing === true;
+    isSingleSymbol || hasRebalancing || options.allowNoRebalancing === true;
   const prompt = options.prompt ?? "";
   const requireExplicit = options.requireExplicitConfiguration === true;
 
@@ -146,7 +150,7 @@ export function getNextMissingBacktestCondition(
   }
   if (
     !rebalancingOk ||
-    (requireExplicit && !isSingleAsset && !hasExplicitRebalancing(prompt))
+    (requireExplicit && !isSingleSymbol && !hasExplicitRebalancing(prompt))
   ) {
     return {
       field: "rebalancing",

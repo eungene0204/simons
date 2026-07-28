@@ -626,6 +626,19 @@ def test_theme_companies_auto_confirmed_as_symbol_universe(learned_theme_graph):
     assert parsed.backtest_start_date is None
 
 
+def test_theme_patch_uses_all_companies_without_truncation():
+    """[회귀 2026-07-28 '비만치료 관련주' 사고] 빌더 레인도 관련 상장사를 종수 상한으로
+    자르지 않는다 — theme_symbols는 전체, theme_label은 synthesize_prompt 재파싱이
+    종목명 나열로 다시 잡으므로 전체 이름이어야 한다."""
+    companies = [{"symbol": f"{i:06d}", "name": f"종목{i}"} for i in range(36)]
+    patch = sb._theme_patch(
+        {"term": "비만치료", "companies": companies, "first_known_date": None}
+    )
+    assert patch["theme_symbols"] == [c["symbol"] for c in companies]
+    assert patch["theme_label"] == ", ".join(c["name"] for c in companies)
+    assert len(patch["theme_candidates"]) == 36
+
+
 def test_theme_auto_confirm_after_grounding_resolution(tmp_path, monkeypatch):
     """첫 발화(미학습)도 resolver(그라운딩)가 학습을 마치면 같은 스텝에서 즉시 확정한다."""
     import json as _json

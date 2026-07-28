@@ -96,9 +96,42 @@ describe("isBacktestReady", () => {
         {
           ...themeParsed,
           entry_signals: [{ indicator: "ma_crossover", signal_type: "buy" }],
+          rebalancing_period: "monthly",
         },
-        options,
+        { ...options, prompt: `${options.prompt}, 매월 리밸런싱` },
       ),
+    ).toBe(true);
+  });
+
+  it("지정 종목이 여러 개(테마 유니버스)면 리밸런싱을 묻는다 — 기본값 확정 금지", () => {
+    // [회귀 2026-07-28 '모바일솔루션 관련주' 사고] '지정 종목 존재=단독 종목'으로 판정해
+    // 리밸런싱 질문이 생략되고 기본값 '설정 안 함'으로 조용히 확정되던 버그.
+    const themeParsed: ParsedSummary = {
+      ...base,
+      target_symbols: ["108860", "139670", "051160"],
+      entry_signals: [{ indicator: "ma_crossover", signal_type: "buy" }],
+      exit_signals: [{ indicator: "ma_crossover", signal_type: "sell" }],
+      stop_loss_pct: 10,
+      take_profit_pct: 20,
+    };
+    const options = {
+      requireExplicitConfiguration: true,
+      prompt: "모바일솔루션 관련주 투자 전략, 손절 10%, 익절 20%, 최근 5년 데이터, 1,000만원",
+    };
+    expect(getNextMissingBacktestCondition(themeParsed, options)).toMatchObject({
+      field: "rebalancing",
+    });
+    // '안 함' 선택(allowNoRebalancing)도 사용자의 결정으로 인정한다.
+    expect(
+      isBacktestReady(themeParsed, {
+        ...options,
+        allowNoRebalancing: true,
+        prompt: `${options.prompt}\n리밸런싱 안 함`,
+      }),
+    ).toBe(true);
+    // 단독 종목(1개)은 교체가 없어 기존대로 묻지 않는다.
+    expect(
+      isBacktestReady({ ...themeParsed, target_symbols: ["005930"] }, options),
     ).toBe(true);
   });
 

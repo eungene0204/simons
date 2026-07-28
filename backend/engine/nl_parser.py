@@ -3650,7 +3650,10 @@ def detect_unresolved_sector_clarification(
 #    종목 추출을 차단해 칩이 무효화된다).
 #  · 업종 칩은 기존 섹터 어휘(_extract_sector)로 재해석된다.
 _THEME_UNIVERSE_CUE_RE = re.compile(r"관련|테마")
-_THEME_COMPANY_CHIP_MAX = 10
+# 안내문 종목명 나열 축약 상한 — 표시 전용이다. 유니버스(target_symbols)는 절단하지
+# 않는다(2026-07-28 '비만치료 관련주' 사고: 이 상한이 대상 종목까지 잘라 동률 36곳
+# 중 심볼 앞 10곳만 유니버스가 됨).
+_THEME_NOTICE_NAME_MAX = 10
 
 
 def apply_theme_universe(parsed: ParsedStrategy, user_prompt: str = "") -> Optional[str]:
@@ -3698,8 +3701,10 @@ def apply_theme_companies(parsed: ParsedStrategy, lookup_text: str) -> Optional[
         return None
     if theme is None:
         return None
-    companies = theme["companies"][:_THEME_COMPANY_CHIP_MAX]
-    names = ", ".join(c["name"] for c in companies)
+    companies = theme["companies"]
+    names = ", ".join(c["name"] for c in companies[:_THEME_NOTICE_NAME_MAX])
+    if len(companies) > _THEME_NOTICE_NAME_MAX:
+        names += f" 외 {len(companies) - _THEME_NOTICE_NAME_MAX}곳"
     first_date = theme.get("first_known_date")
     parsed.target_symbols = [c["symbol"] for c in companies]
     parsed.sector = None
@@ -5229,7 +5234,9 @@ def detect_missing_entry_clarification(
 # 요약+실행 확인을 보여준다.
 
 
-def _missing_backtest_conditions(parsed: ParsedStrategy) -> list[tuple[str, str, list[str]]]:
+def _missing_backtest_conditions(
+    parsed: ParsedStrategy, user_prompt: str = ""
+) -> list[tuple[str, str, list[str]]]:
     """아직 비어 있는 백테스트 최소 조건만 (질문, 대표 예시칩) 순서대로 반환한다."""
     has_universe = bool(
         getattr(parsed, "universe", None)
@@ -5250,9 +5257,14 @@ def _missing_backtest_conditions(parsed: ParsedStrategy) -> list[tuple[str, str,
     )
     has_stop = parsed.stop_loss_pct is not None and parsed.stop_loss_pct > 0
     has_take = parsed.take_profit_pct is not None and parsed.take_profit_pct > 0
-    # 단독 종목 백테스트(지정 종목)는 포트폴리오 교체가 없어 리밸런싱을 요구하지 않는다.
-    # 그 외(유니버스/다종목) 전략은 리밸런싱 주기도 필수다(사용자 지시 2026-07-22).
-    is_single_asset = bool(getattr(parsed, "target_symbols", None))
+    # 단독 종목 백테스트(지정 종목 1개)는 포트폴리오 교체가 없어 리밸런싱을 요구하지 않는다.
+    # 지정 종목이라도 여러 개(테마 유니버스 자동 적용 등)면 포트폴리오이므로 주기를 묻는다 —
+    # '지정 종목 존재=단독'으로 판정해 질문 없이 기본값 '설정 안 함'으로 확정되던 사고
+    # (2026-07-28 '모바일솔루션 관련주'). 그 외(유니버스/다종목) 전략은 리밸런싱 주기도
+    # 필수다(사용자 지시 2026-07-22). 명시 거부("리밸런싱 안 함")는 사용자의 결정이므로
+    # 되묻지 않는다(칩 답변이 누적 프롬프트로 재파싱될 때 같은 질문이 무한 반복되는 함정).
+    is_single_asset = len(getattr(parsed, "target_symbols", None) or []) == 1
+    declined_rebalancing = _mentions_rebalancing_negation(_compact(user_prompt))
 
     missing: list[tuple[str, str, list[str]]] = []
     if not has_universe:
@@ -5267,9 +5279,9 @@ def _missing_backtest_conditions(parsed: ParsedStrategy) -> list[tuple[str, str,
     if not has_exit:
         missing.append(("청산 조건 — 언제 팔까요?\n\n예: 데드크로스(5일/20일) 발생 시 매도, 20일 보유 후 청산",
                         ["20일 보유 후 청산", "데드크로스(5일/20일) 발생 시 매도"]))
-    if not is_single_asset and not has_rebalancing:
+    if not is_single_asset and not has_rebalancing and not declined_rebalancing:
         missing.append(("포트폴리오 교체 주기(리밸런싱)는 얼마로 할까요?\n\n예: 매월, 분기마다",
-                        ["매월 리밸런싱", "분기마다 리밸런싱"]))
+                        ["매월 리밸런싱", "분기마다 리밸런싱", "리밸런싱 안 함"]))
     if not has_stop:
         missing.append(("손절 — 손실을 제한할 비율을 정해주세요 (예: 손절 10%, 손절 5%)",
                         ["손절 10%", "손절 5%"]))
@@ -5287,7 +5299,7 @@ def detect_incomplete_backtest_conditions(
     한꺼번에 다 나열하지 않고 하나씩 순서대로 묻는다 — 답할 때마다 재파싱되어 다음 호출에서
     자연히 다음 조건을 묻게 된다. (None, None)이면 다섯 조건이 모두 충족돼 실행 가능하다는
     뜻이다. clarification이 뜨는 동안 프론트는 전략 요약을 만들지 않고 실행 버튼도 숨긴다."""
-    missing = _missing_backtest_conditions(parsed)
+    missing = _missing_backtest_conditions(parsed, user_prompt)
     if not missing:
         return (None, None)
     question, chips = missing[0]

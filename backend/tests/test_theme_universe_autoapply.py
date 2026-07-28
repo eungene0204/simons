@@ -34,3 +34,23 @@ def test_no_apply_without_theme_cue_or_unknown_concept():
     assert apply_theme_universe(parsed, "PER 10 이하 저평가 매수") is None
     assert apply_theme_universe(parsed, "존재하지않는신조어 관련주") is None
     assert parsed.target_symbols == []
+
+
+def test_all_theme_companies_applied_without_truncation(monkeypatch):
+    """[회귀 2026-07-28 '비만치료 관련주' 사고] 관련 상장사 36곳 중 심볼 앞 10곳만
+    유니버스가 되던 절단 — target_symbols는 전체, 안내문 나열만 축약(외 N곳)."""
+    companies = [
+        {"symbol": f"{i:06d}", "name": f"종목{i}", "support": 1, "first_known_date": None}
+        for i in range(36)
+    ]
+    # apply_theme_companies는 함수 내부에서 kg 모듈을 import한다 — 그 지점을 patch
+    import engine.knowledge_graph as kg
+
+    monkeypatch.setattr(
+        kg, "theme_backtest_companies",
+        lambda text: {"term": "비만치료", "companies": companies, "first_known_date": None},
+    )
+    parsed = _parsed()
+    notice = apply_theme_universe(parsed, "비만치료 관련주 전략 만들어줘")
+    assert notice is not None and "36곳" in notice and "외 26곳" in notice
+    assert parsed.target_symbols == [c["symbol"] for c in companies]

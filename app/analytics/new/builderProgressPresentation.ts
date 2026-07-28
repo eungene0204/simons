@@ -3,6 +3,7 @@ import {
   formatInitialCapital,
   getDisplayExitLabels,
   getDisplayUniverseLabels,
+  getPositionLabel,
   getRankingLabel,
   getSignalLabel,
   PERIOD_LABELS,
@@ -241,16 +242,19 @@ export function buildBuilderTurnPresentation({
   const entryLabel = buildEntryLabel(state, parsed);
   const exitLabels = parsed ? getDisplayExitLabels(parsed) : [];
   const riskLabel = buildRiskLabel(state, parsed);
+  const specifiedSymbolCount = parsed?.target_symbols?.length ?? 0;
   const holdingCountFromState = hasValue(state.holding_count);
   const holdingCount = holdingCountFromState ? state.holding_count : parsed?.max_positions;
-  const holdingCountExplicit =
-    Boolean(parsed?.target_symbols?.length) || hasExplicitMaxPositions(prompt);
+  const holdingCountExplicit = hasExplicitMaxPositions(prompt);
   const rebalanceFromState = hasValue(state.rebalance_cycle);
   const rebalanceCycle = rebalanceFromState
     ? state.rebalance_cycle
     : parsed?.rebalancing_period;
+  // 지정 종목 1개(단독 종목)만 리밸런싱을 확정 표시한다(교체가 없어 '설정 안 함'이 사실).
+  // 다종목 지정(테마 유니버스 등)은 포트폴리오라 사용자가 답하기 전까지 기본값을 확정된
+  // 것처럼 보여주지 않는다(2026-07-28 '모바일솔루션 관련주' 사고 — 질문 없이 '설정 안 함' 노출).
   const rebalanceExplicit =
-    Boolean(parsed?.target_symbols?.length) || hasExplicitRebalancing(prompt);
+    specifiedSymbolCount === 1 || hasExplicitRebalancing(prompt);
   const backtestPeriod = state.backtest_period ?? state.period ?? parsed?.backtest_period;
   const backtestPeriodExplicit = hasExplicitBacktestPeriod(prompt);
   const initialCapitalFromState = state.initial_capital ?? state.init_cash;
@@ -274,7 +278,13 @@ export function buildBuilderTurnPresentation({
   }
   if (entryLabel) summaryItems.push({ label: "매수 조건", value: entryLabel });
   if (exitLabels.length > 0) summaryItems.push({ label: "매도 조건", value: exitLabels.join(" · ") });
-  if (holdingCount && holdingCountExplicit) {
+  if (parsed && specifiedSymbolCount > 0) {
+    // 지정 종목 모드의 배분은 max_positions가 아니라 종목 수 균등이다 — 변환기가
+    // max_positions=지정 종목 수로 덮어쓴다(FR-STR-068 ①, ranking_enabled=off). 기본값
+    // '최대 보유 10종목'을 실행값처럼 보여주지 않고(2026-07-28 '모바일솔루션 관련주'
+    // 카드-실행 불일치) 실제 배분 표기(FR-STR-068 ⑧)를 쓴다 — 파싱 카드와 동일.
+    summaryItems.push({ label: "포트폴리오", value: getPositionLabel(parsed) });
+  } else if (holdingCount && holdingCountExplicit) {
     summaryItems.push({
       label: "최대 보유",
       value: `${holdingCount}종목`,
@@ -315,7 +325,11 @@ export function buildBuilderTurnPresentation({
       { label: "유니버스", complete: Boolean(target) && targetExplicit },
       { label: "매수 조건", complete: entryComplete },
       { label: "매도 조건", complete: exitComplete },
-      { label: "최대 보유", complete: Boolean(holdingCount) && holdingCountExplicit },
+      {
+        label: specifiedSymbolCount > 0 ? "포트폴리오" : "최대 보유",
+        complete:
+          specifiedSymbolCount > 0 || (Boolean(holdingCount) && holdingCountExplicit),
+      },
       { label: "리밸런싱", complete: Boolean(rebalanceCycle) && rebalanceExplicit },
       { label: "리스크 관리", complete: riskComplete },
       { label: "백테스트 기간", complete: Boolean(backtestPeriod) && backtestPeriodExplicit },

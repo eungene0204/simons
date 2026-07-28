@@ -55,6 +55,28 @@ def test_select_threshold_relax_and_cap():
     assert [c["symbol"] for c in _select(tie)[0]] == ["000001", "000003", "000005"]
 
 
+def test_select_size_bounds_do_not_split_ties():
+    """[회귀 2026-07-28 '비만치료 관련주' 사고] 크기 경계가 동점 그룹을 가르지 않는다 —
+    같은 근거 점수(학습 support 동률·카탈로그 동률)의 일부만 심볼 번호순으로 남기는
+    절단은 근거 기반 선정이 아니다."""
+    def mk(n, score):
+        return {"symbol": f"{n:06d}", "name": f"종목{n}", "score": score, "reason": "r"}
+
+    # MAX_SIZE(30) 경계가 0.60 동률 36개 한가운데 → 36개 전부(학습 엣지 동률 시나리오)
+    learned_tie = [mk(i, 0.60) for i in range(36)]
+    picked, threshold = _select(learned_tie)
+    assert len(picked) == 36 and threshold == BASE_THRESHOLD
+    # MIN_SIZE(10) 완화 중단 경계가 0.45 동률 36개 한가운데 → 36개 전부(카탈로그 시나리오)
+    catalog_tie = [mk(i, 0.45) for i in range(36)]
+    picked2, threshold2 = _select(catalog_tie)
+    assert len(picked2) == 36 and threshold2 == 0.45
+    # 동점 완결은 그 동점 그룹까지만 — 경계 밖 더 낮은 점수는 여전히 제외
+    mixed = [mk(i, 0.60) for i in range(31)] + [mk(90 + i, 0.55) for i in range(5)]
+    picked3, _ = _select(mixed)
+    assert len(picked3) == 31
+    assert all(c["score"] == 0.60 for c in picked3)
+
+
 def test_concept_not_sector_and_deterministic(tmp_path, monkeypatch):
     """HBM은 반도체 업종 전체가 아니라 KG 검증 관계 종목만 — 반복 호출 결과 동일.
 

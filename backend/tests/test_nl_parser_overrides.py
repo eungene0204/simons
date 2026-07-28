@@ -2355,11 +2355,38 @@ def test_incomplete_backtest_conditions_rebalancing_required_for_universe():
     )
     q, chips = detect_incomplete_backtest_conditions(universe, "")
     assert q is not None and "리밸런싱" in q
-    assert chips == ["매월 리밸런싱", "분기마다 리밸런싱"]
+    assert chips == ["매월 리밸런싱", "분기마다 리밸런싱", "리밸런싱 안 함"]
 
     # 단독 종목은 리밸런싱을 요구하지 않는다 — 매수·청산·손절·익절만.
     single = ParsedStrategy(description="x", target_symbols=["005930"])
     q2, _ = detect_incomplete_backtest_conditions(single, "")
+    assert "리밸런싱" not in (q2 or "")
+
+
+def test_incomplete_backtest_conditions_multi_symbol_asks_rebalancing():
+    """[회귀 2026-07-28 '모바일솔루션 관련주' 사고] 지정 종목이 여러 개(테마 유니버스 자동
+    적용 등)면 단독 종목이 아니라 포트폴리오다 — 질문 없이 기본값 '설정 안 함'으로 확정하지
+    않고 리밸런싱 주기를 묻는다. 명시 거부("리밸런싱 안 함")는 사용자의 결정이므로 같은
+    질문을 반복하지 않는다."""
+    from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy, TechnicalSignal
+
+    def _sig(st):
+        return TechnicalSignal(indicator="ma_crossover", signal_type=st, short_period=5, long_period=20)
+
+    theme = ParsedStrategy(
+        description="모바일솔루션 관련주 전략",
+        target_symbols=["108860", "139670", "051160"],
+        entry_signals=[_sig("buy")], exit_signals=[_sig("sell")],
+        stop_loss_pct=10.0, take_profit_pct=20.0,
+    )
+    q, chips = detect_incomplete_backtest_conditions(theme, "모바일솔루션 관련주 투자 전략")
+    assert q is not None and "리밸런싱" in q
+    assert chips and "리밸런싱 안 함" in chips
+
+    # 사용자가 명시적으로 거부하면 되묻지 않는다(누적 프롬프트 재파싱의 무한 반복 방지).
+    q2, _ = detect_incomplete_backtest_conditions(
+        theme, "모바일솔루션 관련주 투자 전략\n리밸런싱 안 함"
+    )
     assert "리밸런싱" not in (q2 or "")
 
 

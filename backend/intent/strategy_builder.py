@@ -1911,10 +1911,6 @@ RESTART_PREFIX = "처음부터 새로 구성해볼게요.\n\n"
 
 # ─── 오케스트레이션 ──────────────────────────────────────────────────────────────
 
-# 테마 유니버스 되묻기(FR-STR-071) — 후보 종목 수 상한(파싱 경로 _THEME_COMPANY_CHIP_MAX와 동률).
-_THEME_CHIP_MAX = 10
-
-
 def _theme_companies(text: Optional[str]) -> Optional[dict]:
     """문장 속 테마의 학습·검증된 관련 상장사 조회(없음·실패=None). knowledge_graph 위임.
 
@@ -1934,8 +1930,10 @@ def _theme_patch(theme: dict) -> dict:
     """테마 관련 검증 상장사를 되묻기 없이 지정 종목으로 즉시 확정한다(FR-STR-071b ④ 개정,
     사용자 결정 2026-07-25 — 종전 '이 종목들로만 vs 업종 전체' 되묻기 폐지). 업종 근사는
     해제한다 — 관련 종목엔 타업종(넷마블=플랫폼·신세계=유통)이 섞여 있어 sector 필터가
-    남으면 방금 확정한 종목을 도로 걸러낸다(칩 답 핸들러와 동일 계약)."""
-    companies = theme["companies"][:_THEME_CHIP_MAX]
+    남으면 방금 확정한 종목을 도로 걸러낸다(칩 답 핸들러와 동일 계약). 목록은 전체를
+    쓴다 — 종수 상한 절단 금지(2026-07-28 '비만치료 관련주' 10종목 절단 사고). theme_label은
+    synthesize_prompt 재파싱이 종목명 나열로 다시 잡으므로 전체 이름이어야 한다."""
+    companies = theme["companies"]
     return {
         "theme_term": theme.get("term"),
         "theme_candidates": [{"symbol": c["symbol"], "name": c["name"]} for c in companies],

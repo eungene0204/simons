@@ -18,7 +18,10 @@ pending/rejected 엣지는 어느 층에도 불참(검증 원칙 — 그래프 �
 선정 규칙: score >= 0.5 기본. 그 결과가 MIN_SIZE(10) 미만이면 점수순으로 floor(0.30)
 이상 후보를 추가해 10개까지 완화하되, 후보 자체가 부족하면 있는 만큼만 반환한다 —
 '최소 10개 보장'을 위해 근거 없는 종목을 지어내는 것은 억지 테마주 제외 원칙과
-모순이므로 하지 않는다. MAX_SIZE(30) 초과분은 점수순 상위 30개만.
+모순이므로 하지 않는다. MAX_SIZE(30) 초과분은 점수순 상위 30개만. 단, 크기 경계
+(완화 중단·상한)가 동점 그룹을 가르면 동점 전체를 포함한다 — 같은 근거 점수인데
+심볼 번호순으로 일부만 남기는 자의적 절단 금지(2026-07-28 '비만치료 관련주' 사고:
+동률 36곳 중 심볼 앞 10곳만 유니버스가 됨).
 
 [규제 안전] score·이유는 공시·IR·검색 출처 등 객관적 관계 근거의 표시일 뿐이며
 추천·전망이 아니다. 정렬은 관련도 기준이지 우열·수익성 판단이 아니다.
@@ -184,17 +187,26 @@ def _collect_candidates(graph, anchor: dict) -> list[dict]:
 
 def _select(candidates: list[dict]) -> tuple[list[dict], float]:
     """선정 규칙 적용 → (선정 목록, 적용 임계). 정렬은 점수 내림차순, 동점은 심볼 오름차순
-    (재현성 — 동일 입력엔 항상 동일 출력)."""
+    (재현성 — 동일 입력엔 항상 동일 출력). 크기 경계(MIN_SIZE 완화 중단·MAX_SIZE 상한)가
+    동점 그룹 한가운데를 지나면 동점 전체를 포함한다 — 같은 근거 점수의 일부만 심볼
+    번호순으로 남기는 절단은 근거 기반 선정이 아니다."""
     ranked = sorted(candidates, key=lambda c: (-c["score"], c["symbol"]))
     picked = [c for c in ranked if c["score"] >= BASE_THRESHOLD]
     threshold = BASE_THRESHOLD
     if len(picked) < MIN_SIZE:
         for c in ranked[len(picked):]:
-            if c["score"] < RELAX_FLOOR or len(picked) >= MIN_SIZE:
+            if c["score"] < RELAX_FLOOR:
+                break
+            if len(picked) >= MIN_SIZE and c["score"] < picked[-1]["score"]:
                 break
             picked.append(c)
             threshold = c["score"]
-    return picked[:MAX_SIZE], threshold
+    if len(picked) > MAX_SIZE:
+        cut = MAX_SIZE
+        while cut < len(picked) and picked[cut]["score"] == picked[MAX_SIZE - 1]["score"]:
+            cut += 1
+        picked = picked[:cut]
+    return picked, threshold
 
 
 def build_concept_universe(concept_text: str) -> Optional[dict]:
