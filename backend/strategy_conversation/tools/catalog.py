@@ -77,6 +77,60 @@ def _ground_term(inp: GroundTermIn) -> GroundTermOut:
     return GroundTermOut(sector=resolve_sector(inp.text, inp.chat))
 
 
+# ── classify_universe — 유니버스 표현의 타입 결정(Universe-first, Phase 5) ──────
+# 입력은 planner LLM이 원문에서 뽑은 유니버스 표현이다(§ 3-2 지식 조회 — 원문 해석 아님).
+_MARKET_CANONICAL = {
+    "코스피": "KOSPI", "kospi": "KOSPI", "유가증권": "KOSPI",
+    "코스닥": "KOSDAQ", "kosdaq": "KOSDAQ",
+    "코스피200": "KOSPI200", "kospi200": "KOSPI200", "대형주": "KOSPI200",
+}
+_ETF_MARKERS = ("etf", "etn", "상장지수")
+
+
+class ClassifyUniverseIn(BaseModel):
+    text: str
+
+
+class ClassifyUniverseOut(BaseModel):
+    universe_type: str  # MARKET | ETF | SINGLE_STOCK | SECTOR | CONCEPT
+    canonical: Optional[str] = None  # MARKET 시장 코드 / SINGLE_STOCK 종목코드 / SECTOR 정본명
+
+
+def _classify_universe(inp: ClassifyUniverseIn) -> ClassifyUniverseOut:
+    from engine.universe_pit import normalize_sector
+    from strategy_conversation.registry.universe_resolver import resolve_symbols
+
+    key = (inp.text or "").replace(" ", "").lower()
+    if not key:
+        return ClassifyUniverseOut(universe_type="CONCEPT")
+    if key in _MARKET_CANONICAL:
+        return ClassifyUniverseOut(universe_type="MARKET", canonical=_MARKET_CANONICAL[key])
+    if any(marker in key for marker in _ETF_MARKERS):
+        return ClassifyUniverseOut(universe_type="ETF")
+    symbol_codes, unresolved = resolve_symbols([inp.text])
+    if symbol_codes and not unresolved:
+        return ClassifyUniverseOut(universe_type="SINGLE_STOCK", canonical=symbol_codes[0])
+    sector = normalize_sector(inp.text)
+    if sector:
+        return ClassifyUniverseOut(universe_type="SECTOR", canonical=sector)
+    return ClassifyUniverseOut(universe_type="CONCEPT")
+
+
+# ── list_concept_candidates — CONCEPT 표현의 카탈로그 테마 후보(되묻기 chips 재료) ──
+class ConceptCandidatesIn(BaseModel):
+    text: str
+
+
+class ConceptCandidatesOut(BaseModel):
+    candidates: List[dict] = []  # {term: 카탈로그 정본 표기, companies: 상장사 수}
+
+
+def _list_concept_candidates(inp: ConceptCandidatesIn) -> ConceptCandidatesOut:
+    from engine.knowledge_graph import catalog_theme_candidates
+
+    return ConceptCandidatesOut(candidates=catalog_theme_candidates(inp.text))
+
+
 # ── resolve_universe — 업종/테마 표현·종목 표기 → 정본 값(조용한 소실 금지) ──────
 class ResolveUniverseIn(BaseModel):
     sectors: List[str] = []
@@ -189,6 +243,10 @@ for _spec in (
              KgResolveSectorIn, KgResolveSectorOut, _kg_resolve_sector, deterministic=True),
     ToolSpec("kg_theme_companies", "테마 표현의 관련 상장사 목록(백테스트 대상 제안 뷰)을 조회한다",
              KgThemeCompaniesIn, KgThemeCompaniesOut, _kg_theme_companies, deterministic=True),
+    ToolSpec("classify_universe", "유니버스 표현의 타입(MARKET/ETF/SINGLE_STOCK/SECTOR/CONCEPT)을 결정한다",
+             ClassifyUniverseIn, ClassifyUniverseOut, _classify_universe, deterministic=True),
+    ToolSpec("list_concept_candidates", "CONCEPT 표현의 카탈로그 테마 후보 목록(범위 되묻기 선택지)을 조회한다",
+             ConceptCandidatesIn, ConceptCandidatesOut, _list_concept_candidates, deterministic=True),
     ToolSpec("ground_term", "미지 테마 용어를 인터넷 검색으로 학습해 정본 섹터로 해석한다(어휘집 캐시)",
              GroundTermIn, GroundTermOut, _ground_term, deterministic=False),
     ToolSpec("resolve_universe", "업종/테마 표현과 종목 표기를 정본 섹터·종목코드로 해석한다",

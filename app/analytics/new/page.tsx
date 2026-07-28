@@ -2508,6 +2508,31 @@ function StrategyLabContent() {
       return;
     }
 
+    // Phase 5: 직전 planner ask 칩과 정확히 일치하는 입력은 시스템 생성 열거형 선택지의
+    // '답'이다 — 새 발화가 아니므로 의도 분류를 거치지 않고 곧장 파스 레인으로 보낸다.
+    // 분류를 거치면 금융 단서가 없는 카탈로그 테마명 칩("보안주(정보)")이 OFF_TOPIC
+    // 거절로 빠진다(2026-07-28 실측). 백엔드 결정론 칩 귀속(run_chip_answer)이
+    // pending_ask 에코로 이 입력을 처리한다(미일치·자유 서술은 기존 분류 흐름 그대로).
+    if (
+      !builderModeRef.current &&
+      currentParsed &&
+      pendingAskRef.current?.chips?.includes(userText.trim())
+    ) {
+      await appendAssistant({ role: "assistant", isLoading: true });
+      try {
+        await runStrategyParseFlow(userText, currentParsed, currentBacktestReq);
+      } catch (e: any) {
+        updateLastAssistant({
+          isLoading: false,
+          error: e.message ?? "알 수 없는 오류",
+          retryPrompt: userText,
+        });
+      } finally {
+        setIsSending(false);
+      }
+      return;
+    }
+
     const restoredBuilderQuestion = hasActiveBuilderQuestion(messages);
     const restoredBuilderProgress = hasBuilderProgress(builderStateRef.current);
     if (restoredBuilderQuestion || restoredBuilderProgress) {

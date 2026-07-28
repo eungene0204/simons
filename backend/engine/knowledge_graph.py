@@ -190,6 +190,29 @@ class KnowledgeGraph:
         카탈로그 정합 우선 조회(theme_listed_companies)가 소비한다."""
         return [self.nodes[nid] for nid in self._catalog_index.get(_norm_key(term), [])]
 
+    def catalog_theme_candidates(self, term: str) -> list[dict]:
+        """용어를 표기에 포함하는 카탈로그 테마 노드 목록(포함 일치, 정확 일치 우선 정렬).
+
+        복합 테마구 가드(부분 매칭 자동 확정 금지)와 충돌하지 않는다 — 이 결과는
+        확정이 아니라 되묻기 선택지(CONCEPT 모호성 ask의 chips) 재료다. 자동 적용
+        경로에 쓰면 안 된다: '보안주' → 보안주(정보)/보안주(물리)처럼 범위가 갈리는
+        표현은 사용자가 고른다."""
+        key = _norm_key(term)
+        if len(key) < 2:
+            return []
+        exact = set(self._catalog_index.get(key, []))
+        matched: list[tuple[int, int, str]] = []  # (정확일치 아님, 표기 길이, node_id)
+        seen: set[str] = set()
+        for index_key, node_ids in self._catalog_index.items():
+            if key not in index_key:
+                continue
+            for nid in node_ids:
+                if nid not in seen:
+                    seen.add(nid)
+                    matched.append((0 if nid in exact else 1, len(index_key), nid))
+        matched.sort()
+        return [self.nodes[nid] for _, _, nid in matched]
+
     # ── 스캔 인덱스(문장 → 개념 노드 결정적 인식) ────────────────────────────────
     def _build_scan_index(self) -> list[tuple[str, str]]:
         """개념 노드의 이름·별칭 → [(정규화 키, node_id)] (긴 키 우선).
@@ -730,6 +753,42 @@ def theme_backtest_companies(text: str) -> Optional[dict]:
         _fmt_companies(companies), first,
     )
     return {"term": anchor.get("name"), "companies": companies, "first_known_date": first}
+
+
+def catalog_theme_candidates(term: str, limit: int = 8) -> list[dict]:
+    """CONCEPT 표현의 카탈로그 테마 후보 열거 — 되묻기 선택지(chips) 전용(FR-STR-073).
+
+    '보안주' 같은 범위 갈림 표현을 자동 확정하지 않고 사용자 선택지로 제시하기 위한
+    포함 일치 조회다. 반환 항목의 name은 카탈로그 정본 표기라 그대로 chips에 실으면
+    다음 턴의 정확 일치 해석(theme_listed_companies 카탈로그 정합)이 성립한다.
+    상장사 0곳 테마는 선택지로 무의미해 제외한다.
+
+    표기 정규화가 같은 노드는 하나로 병합한다 — 같은 테마가 두 카탈로그에 수록되면
+    ('퓨리오사AI'(네이버)·'퓨리오사ai'(주달) 사고 2026-07-28) 후보 2개로 잡혀 동일
+    라벨 중 하나를 고르라는 무의미한 범위 되묻기가 나간다. 대표 표기는 네이버 우선
+    (카탈로그 우선순위 계약), 상장사 수는 병합 노드 합집합이다."""
+    graph = get_graph()
+    grouped: dict[str, list[dict]] = {}
+    for node in graph.catalog_theme_candidates(term):
+        grouped.setdefault(_norm_key(node.get("name", "")), []).append(node)
+    candidates: list[dict] = []
+    for nodes in grouped.values():
+        representative = next(
+            (n for n in nodes if "naver" in (n.get("source") or "")), nodes[0]
+        )
+        symbols: set[str] = set()
+        for node in nodes:
+            symbols.update(c["symbol"] for c in graph.listed_companies(node["id"]))
+        if not symbols:
+            continue
+        candidates.append({"term": representative.get("name"), "companies": len(symbols)})
+        if len(candidates) >= limit:
+            break
+    logger.info(
+        "KG 테마 후보 열거: 질의=%r → 후보 %d개=%s",
+        _log_preview(term), len(candidates), _fmt_items([c["term"] for c in candidates]),
+    )
+    return candidates
 
 
 def related_universe(text: str, max_depth: int = 2) -> Optional[dict]:

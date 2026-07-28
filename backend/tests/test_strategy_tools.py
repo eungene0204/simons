@@ -37,7 +37,7 @@ def test_catalog_registers_all_tools():
     assert names == {
         "kg_resolve_sector", "kg_theme_companies", "ground_term",
         "resolve_universe", "lookup_capabilities", "validate_intent",
-        "compile_strategy",
+        "compile_strategy", "classify_universe", "list_concept_candidates",
     }
 
 

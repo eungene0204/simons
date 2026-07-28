@@ -360,6 +360,13 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
 
     if on_stage is not None:
         on_stage("thinking")
+    # Phase 5(2026-07-28): 제어 역전 — planner가 파스 최선두에서 실행된다(Universe-first).
+    # 유니버스 표현의 추출·분류·해석을 planner가 소유해, 인터프리터 sectors 필드 누락이
+    # 유니버스 해석 체인 전체를 침묵시키던 '보안주' 사고를 구조적으로 차단한다.
+    # 실패(None)·비활성(off/shadow)은 현행 고정 파이프라인 그대로 — 폴백 레인 보존.
+    planner_first: Optional[Any] = None
+    if config.dag_planner_mode() == "primary":
+        planner_first = _plan_first(user_input)
     # Phase 4 shadow: DAG planner 관측 실행(기본 off, STRATEGY_DAG_PLANNER_MODE=shadow)
     # — 대화 턴 전체를 DAG로 계획하는 실험 레인. 비차단·응답 불변, 로그만 남긴다.
     try:
@@ -423,6 +430,33 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
     # 보정이 결정적으로 되살린 진입/청산 조건의 되묻기 질문을 지운다 — 완성 전략을 다시
     # 되묻는 사고 방지(흑자 기업 등 LLM 누락 → eps>0 필터로 복원됐는데 진입 질문 잔존).
     _prune_clarifications_filled_by_overrides(report, parsed)
+    # Phase 5: planner-first 관찰값의 결정론 적용 — planner가 최선두에서 해석한
+    # 유니버스(테마 상장사·학습 섹터)를 확정값으로 병합한다(관찰값에서만 채택,
+    # 적용은 고정 체인과 동일한 결정론 경로 재사용).
+    planner_resolved_terms: set = set()
+    planner_unresolved_terms: set = set()
+    if planner_first is not None:
+        planner_resolved_terms, planner_unresolved_terms = _apply_planner_first_universe(
+            planner_first, parsed, notices
+        )
+    # 범위 모호성(카탈로그 후보 2개 이상) 되묻기는 **결정론이 소유한다** — planner가
+    # 유니버스 ask를 계획하지 않고 조건 ask로 드리프트해도('미용기기' 사고 2026-07-28)
+    # 관찰된 후보가 있으면 여기서 범위 질문을 확정한다(질문 문구는 planner 유니버스
+    # ask가 있으면 그것을, 없으면 고정 템플릿).
+    planner_scope_question: Optional[str] = None
+    planner_scope_chips: Optional[List[str]] = None
+    planner_scope_terms: set = set()
+    if planner_first is not None and planner_unresolved_terms:
+        scope = _planner_scope_ask(planner_first, planner_unresolved_terms)
+        if scope is not None:
+            planner_scope_question, planner_scope_chips, planner_scope_terms = scope
+            # 범위 질문이 나가는 표현의 미지원 안내는 지운다 — 질문이 그 표현을 다루는데
+            # "반영되지 않았어요" 안내가 함께 나가면 모순.
+            if report.unsupported_features:
+                report.unsupported_features = [
+                    f for f in report.unsupported_features
+                    if not any(t and t in f for t in planner_scope_terms)
+                ]
     # § 11-3 (1c′, 2026-07-26): 미해결 업종/테마 표현의 term-in 해석 체인.
     # 입력은 원문이 아니라 LLM이 universe.sectors로 뽑은 표현 중 리졸버가 못 푼 것만
     # (§ 3-2 지식 조회). 체인: KG 테마 상장사 → 검색 그라운딩 학습 → 되묻기/종결 안내.
@@ -436,6 +470,19 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
     # ETF 유니버스는 제외 — validator가 테마를 etf_theme로 승격하고 sectors를 비운다.
     if pre_validation_sectors and "ETF" not in validated.strategy.universe.markets:
         unresolved_sector_terms = _sector_terms_for_chain(pre_validation_sectors)
+    # 체인 제외는 planner가 **실제로 종결한** 표현만: 해석 완료분 + 범위 질문이 나가는
+    # 모호 표현. planner가 건드리고도 못 푼 나머지 표현은 반드시 체인으로 흘려보낸다 —
+    # 무조건 제외하면 planner 드리프트 시 표현이 어느 레인에도 속하지 않고 증발한다
+    # ('미용기기' 사고: KG에 상장사 19곳이 있는데 검색·되묻기 없이 미지원 안내만 남음).
+    if planner_resolved_terms or planner_scope_terms:
+        handled_keys = {
+            t.replace(" ", "").lower()
+            for t in (planner_resolved_terms | planner_scope_terms)
+        }
+        unresolved_sector_terms = [
+            t for t in unresolved_sector_terms
+            if t.replace(" ", "").lower() not in handled_keys
+        ]
     if unresolved_sector_terms:
         if config.planner_mode() == "primary":
             # Phase 3 승격(2026-07-26): 미해석 표현 구간을 planner가 담당 —
@@ -489,15 +536,38 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
     clarification_question, clarification_suggestions = _build_clarification(report, validated)
     clarification_priority = None
     pending_ask: Optional[Dict[str, Any]] = None
-    if sector_question is not None:
+    if planner_scope_question is not None:
+        # Phase 5: 범위 모호성 되묻기(결정론 소유) — 유니버스 범위는 모든 조건보다
+        # 선행 결정 사항이라 어떤 질문보다 먼저 나간다. 칩은 관찰된 카탈로그 후보
+        # 표기 그대로라 클릭 시 결정론 귀속(카탈로그 정확 일치)이 성립한다.
+        clarification_question, clarification_suggestions = (
+            planner_scope_question, planner_scope_chips
+        )
+        clarification_priority = "dag_planner"
+        pending_ask = _pending_ask_payload(
+            clarification_question, clarification_suggestions, "유니버스"
+        )
+    elif sector_question is not None:
         # 종목 범위(유니버스/섹터)는 진입 조건보다 선행 결정 사항 — 미해결 업종 질문이
         # 조건 질문보다 우선하고, 우선순위 마커로 프론트 explicit 게이트 삼킴을 막는다
         # (레거시 sector_reask와 동일 계약).
         clarification_question, clarification_suggestions = sector_question, sector_suggestions
         clarification_priority = "sector_unresolved"
+    elif planner_first is not None:
+        # Phase 5: planner는 이 턴 최선두에서 이미 실행됐다 — 재계획 재호출 없이 그
+        # ask를 소비한다. 유니버스 ask는 위 범위 되묻기(결정론)가 소유하므로 여기서는
+        # 조건 슬롯 ask만, 결정론 게이트가 공백을 인정할 때 채택한다(완성 전략
+        # 재질문·관찰과 모순되는 질문 방지). 채택 불가면 검증 리포트의 고정 질문 유지.
+        planner_ask = _planner_first_ask(planner_first, parsed, user_input)
+        if planner_ask is not None:
+            clarification_question, clarification_suggestions, dag_topic = planner_ask
+            clarification_priority = "dag_planner"
+            pending_ask = _pending_ask_payload(
+                clarification_question, clarification_suggestions, dag_topic
+            )
     elif clarification_question is not None and config.dag_planner_mode() == "primary":
-        # Phase 4 primary(2026-07-27 사용자 결정): 되묻기 질문·칩 선택을 DAG planner가
-        # 담당한다 — 유니버스별 질문 규칙(ETF 재무 질문 금지 등)은 planner 프롬프트 계약.
+        # Phase 4 잔여 경로: planner-first가 실패(None)한 턴의 재시도 — 되묻기 질문·칩
+        # 선택을 DAG planner가 담당한다(유니버스별 질문 규칙은 planner 프롬프트 계약).
         # 우선순위 마커로 프론트 explicit 게이트(유니버스 무인지 고정 칩)의 삼킴을 막는다.
         # planner 실패(None)·예외는 기존 고정 질문 유지(단독 실패 지점 불가).
         dag_clarification = _dag_planner_clarification(user_input, parsed)
@@ -690,6 +760,170 @@ def _pending_ask_payload(
     return {"topic": topic, "question": question, "chips": list(chips)}
 
 
+def _plan_first(user_input: str) -> Optional[Any]:
+    """Phase 5 제어 역전(2026-07-28) — 파스 최선두에서 대화 턴을 DAG로 계획한다.
+
+    인터프리터보다 먼저 실행되어 유니버스 표현의 추출·분류·해석(Universe-first,
+    CONCEPT 후보 되묻기 포함)을 planner가 소유한다. 실패는 전부 None — 현행 고정
+    파이프라인이 그대로 담당한다(planner는 단독 실패 지점이 될 수 없다)."""
+    try:
+        from strategy_conversation.planner.dag_planner import plan_strategy_dag
+        from strategy_conversation.planner.shadow import _default_chat
+
+        result = plan_strategy_dag(user_input, _default_chat())
+    except Exception:  # noqa: BLE001 — planner 장애가 파스를 깨면 안 된다(폴백)
+        logger.warning("planner-first 실행 실패 — 고정 파이프라인 폴백", exc_info=True)
+        return None
+    if result is not None:
+        executed_tools = [e.node.tool for e in result.executed.values()
+                          if e.node.type == "tool"]
+        _log_llm("▶ planner-first", (
+            f"outcome={result.outcome} 도구={executed_tools or '없음'} "
+            f"턴={result.llm_turns} ({result.latency_ms}ms)"
+        ))
+    return result
+
+
+def _is_universe_topic(topic: Optional[str]) -> bool:
+    """유니버스 범위 ask 판정 — 9B가 '유니버스 범위'처럼 topic을 변주하는 실측 드리프트
+    때문에 정확 일치가 아니라 포함으로 본다(표기 정규화 — 의미 판단 없음)."""
+    return "유니버스" in (topic or "")
+
+
+def _planner_observations(result: Any) -> List[tuple[str, Dict[str, Any]]]:
+    """실행된 tool 노드·자동 에필로그의 (표현, 관찰값) 목록(실행 순서 보존)."""
+    observations: List[tuple[str, Dict[str, Any]]] = []
+    for entry in result.executed.values():
+        if entry.node.type == "tool" and entry.observation is not None:
+            observations.append(
+                ((entry.node.args or {}).get("text") or "", entry.observation))
+    for step in result.auto_steps:
+        observations.append(
+            ((step.get("args") or {}).get("text") or "", step.get("observation") or {}))
+    return observations
+
+
+def _ambiguous_candidate_terms(result: Any) -> Dict[str, List[str]]:
+    """표현별 카탈로그 범위 후보(2개 이상만) — '범위가 갈리는 표현' 결정론 판정 근거."""
+    ambiguous: Dict[str, List[str]] = {}
+    for term, obs in _planner_observations(result):
+        term = (term or "").strip()
+        candidates = [
+            c.get("term") for c in (obs.get("candidates") or [])
+            if isinstance(c, dict) and c.get("term")
+        ]
+        if term and len(candidates) >= 2:
+            ambiguous[term] = candidates
+    return ambiguous
+
+
+def _apply_planner_first_universe(
+    result: Any, parsed: Any, notices: List[str]
+) -> tuple[set, set]:
+    """planner-first 도구 관찰값을 결정론으로 parsed에 병합한다(관찰값에서만 채택).
+
+    적용은 고정 체인과 동일한 결정론 경로(apply_theme_companies·_merge_learned_sector)
+    재사용 — planner의 역할은 실행 흐름 계획이고 확정값 채택 규칙은 기존 계약 그대로다.
+    범위 후보가 2개 이상인 표현은 planner ask 여부와 무관하게 자동 적용을 차단한다 —
+    범위 되묻기는 결정론(_planner_scope_ask)이 항상 표면화하므로, 여기서 적용하면
+    '보안주'에 '보안' 테마를 조용히 적용하면서 범위 질문이 함께 나가는 모순이 생긴다
+    (실측 사고 2026-07-28 — 조용한 확정 금지는 결정론이 지킨다).
+    반환: (해석된 표현, 미해결 표현 — 모호 표현은 범위 되묻기, 나머지는 term-in 체인
+    소관)."""
+    from engine.nl_parser import apply_theme_companies
+
+    resolved: set = set()
+    unresolved: set = set()
+    ambiguous_terms = _ambiguous_candidate_terms(result)
+    for term, obs in _planner_observations(result):
+        term = (term or "").strip()
+        if not term:
+            continue
+        if term in ambiguous_terms:
+            # 범위 질문이 나가는 표현 — 사용자가 고르기 전까지 어떤 해석도 확정하지 않는다
+            unresolved.add(term)
+            continue
+        if term in resolved:
+            unresolved.discard(term)
+            continue
+        # MARKET/SECTOR/SINGLE_STOCK/ETF 분류는 그 자체로 해석 완료 — 인터프리터가
+        # 원래 필드(universe/sector/target_symbols)로 표현하므로 병합할 것이 없다.
+        if obs.get("universe_type") not in (None, "CONCEPT"):
+            resolved.add(term)
+            unresolved.discard(term)
+            continue
+        if obs.get("found") and obs.get("companies"):
+            theme_notice = apply_theme_companies(parsed, term)
+            if theme_notice:
+                _log_llm("✓ planner-first 테마",
+                         f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
+                notices.append(theme_notice)
+                resolved.add(term)
+                unresolved.discard(term)
+                continue
+        if obs.get("sector"):
+            _merge_learned_sector(parsed, obs["sector"])
+            _log_llm("✓ planner-first 섹터", f"'{term}' → 섹터 '{obs['sector']}'")
+            notices.append(
+                f"'{term}'은(는) '{obs['sector']}' 업종 관련으로 해석했어요. "
+                "다른 업종을 원하시면 말씀해 주세요."
+            )
+            resolved.add(term)
+            unresolved.discard(term)
+            continue
+        unresolved.add(term)
+    return resolved, unresolved
+
+
+def _planner_scope_ask(
+    result: Any, unresolved_terms: set
+) -> Optional[tuple[str, List[str], set]]:
+    """범위 모호성(카탈로그 후보 2개 이상) 되묻기의 결정론 확정.
+
+    모호성 판정은 후보 수(관찰값)로만 한다 — planner가 유니버스 ask를 계획했는지에
+    의존하지 않는다('미용기기' 사고 2026-07-28: planner가 조건 ask로 드리프트하면
+    모호 표현이 어느 레인에도 속하지 않고 증발했다). 질문 문구는 planner의 유니버스
+    ask가 있으면 재사용(이미 output_guard 통과), 없으면 고정 템플릿. 칩은 항상
+    관찰된 카탈로그 후보 표기 그대로다(9B 칩 지어내기 드리프트 차단 — 후보 표기여야
+    칩 클릭의 결정론 귀속이 성립한다).
+    반환: (질문, 칩, 질문이 다루는 표현들) | None(모호 표현 없음)."""
+    ambiguous = _ambiguous_candidate_terms(result)
+    scope_terms = {t for t in unresolved_terms if t in ambiguous}
+    if not scope_terms:
+        return None
+    chips: List[str] = []
+    for term in sorted(scope_terms):
+        chips.extend(c for c in ambiguous[term] if c not in chips)
+    if result.outcome == "ask" and _is_universe_topic(result.topic) and result.question:
+        question = result.question
+    else:
+        term_label = ", ".join(f"'{t}'" for t in sorted(scope_terms))
+        question = f"{term_label}의 범위를 어떻게 정할까요?"
+    return question, chips, scope_terms
+
+
+def _planner_first_ask(
+    result: Any, parsed: Any, user_input: str = ""
+) -> Optional[tuple[str, Optional[List[str]], Optional[str]]]:
+    """planner-first가 표면화한 조건 슬롯 ask의 채택 판정(결정론 게이트가 최종 권한).
+
+    유니버스 범위 ask는 _planner_scope_ask(결정론)가 소유하므로 여기서는 다루지
+    않는다. 조건 슬롯 ask는 결정론 게이트(detect_incomplete_backtest_conditions)가
+    공백을 인정할 때만 채택한다 — planner 계획이 인터프리터 해석 결과와 모순되면
+    (이미 채워진 슬롯 재질문 등) 게이트가 이긴다. 채택 불가는 None(검증 리포트
+    고정 질문 유지)."""
+    if result.outcome != "ask" or not result.question:
+        return None
+    if _is_universe_topic(result.topic):
+        return None
+    from engine.nl_parser import detect_incomplete_backtest_conditions
+
+    gate_question, _gate_chips = detect_incomplete_backtest_conditions(parsed, user_input)
+    if gate_question is None:
+        return None
+    return result.question, (list(result.chips) or None), result.topic
+
+
 def _replan_next_question(
     user_input: str, parsed: Any
 ) -> tuple[Optional[str], Optional[List[str]], Optional[str], Optional[Dict[str, Any]]]:
@@ -702,7 +936,7 @@ def _replan_next_question(
         return None, None, None, None
     from engine.nl_parser import detect_incomplete_backtest_conditions
 
-    gate_question, _gate_chips = detect_incomplete_backtest_conditions(parsed)
+    gate_question, _gate_chips = detect_incomplete_backtest_conditions(parsed, user_input)
     if gate_question is None:
         return None, None, None, None
     dag_clarification = _dag_planner_clarification(user_input, parsed)
@@ -744,6 +978,12 @@ def run_chip_answer(
         prev = ParsedStrategy.model_validate(previous_parsed)
     except Exception:  # noqa: BLE001 — 비정상 previous는 기존 경로가 처리
         return None
+    if _is_universe_topic(pending_ask.get("topic")):
+        # Phase 5: 유니버스 범위 칩(CONCEPT 후보) 결정론 귀속 — 칩 텍스트는
+        # list_concept_candidates 관찰의 카탈로그 정본 표기 그대로라 정확 일치 해석
+        # (테마 카탈로그 정합)이 성립한다. 원문 해석이 아니라 시스템 생성 선택지의
+        # 적용이다(계약 § 판정 기준). 적용 실패는 None — 수정 인터프리터가 처리.
+        return _apply_universe_chip(user_input, prev, text)
     # 수정 레인과 동일한 결정적 추출 계약(신호 재검증 생략·universe 보존) — 칩은 조건
     # 추가/값 확정이지 유니버스 변경이 아니다.
 
@@ -765,6 +1005,50 @@ def run_chip_answer(
         "clarification_priority": priority,
         "pending_ask": next_ask,
         "notices": [],
+        "interpreter": {
+            "mode": "primary_chip_answer",
+            "llm_latency_ms": 0,
+            "patch_count": 0,
+            "applied_fields": diff,
+        },
+    })
+
+
+def _apply_universe_chip(
+    user_input: str, prev: Any, chip_text: str
+) -> Optional[Dict[str, Any]]:
+    """유니버스 범위 칩 하나를 결정론으로 적용한다(Phase 5 — 칩 답변 결정론 계약 확장).
+
+    정본 섹터 표기는 sector 병합, 카탈로그 테마 표기는 테마 상장사 적용(고정 체인과
+    동일한 결정론 경로). 어느 쪽도 성립하지 않으면 None — 기존 수정 인터프리터가
+    처리한다('직접 입력' 등 자유 서술 안전망)."""
+    from engine.universe_pit import normalize_sector
+    from engine.nl_parser import apply_theme_companies
+
+    prev_dump = prev.model_dump()
+    notices: List[str] = []
+    sector = normalize_sector(chip_text)
+    if sector:
+        _merge_learned_sector(prev, sector)
+    else:
+        theme_notice = apply_theme_companies(prev, chip_text)
+        if theme_notice is None:
+            _log_llm("↩ 유니버스 칩 미적용",
+                     f"칩 '{chip_text}' 카탈로그 정합 실패 — 수정 인터프리터로")
+            return None
+        notices.append(theme_notice)
+    diff = _diff_fields(prev_dump, prev.model_dump())
+    if not diff:
+        return None
+    _log_llm("✓ 유니버스 칩 확정", f"칩 '{chip_text}' 결정적 반영(LLM 생략): {'; '.join(diff)}")
+    question, suggestions, priority, next_ask = _replan_next_question(user_input, prev)
+    return finalize_user_response({
+        "parsed": prev,
+        "clarification_question": question,
+        "clarification_suggestions": suggestions,
+        "clarification_priority": priority,
+        "pending_ask": next_ask,
+        "notices": notices,
         "interpreter": {
             "mode": "primary_chip_answer",
             "llm_latency_ms": 0,

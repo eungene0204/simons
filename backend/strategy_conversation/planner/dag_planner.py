@@ -44,12 +44,14 @@ logger = logging.getLogger("strategy_interpreter.planner.dag")
 
 # DAG 구조에 등장할 수 있는 도구 전체(화이트리스트).
 _ALLOWED_TOOLS = (
+    "classify_universe", "list_concept_candidates",
     "kg_resolve_sector", "kg_theme_companies", "ground_term", "resolve_universe",
     "lookup_capabilities", "validate_intent", "compile_strategy",
 )
-# 이 단계(shadow)에서 러너가 실제 실행하는 도구 — validate/compile은 러너 보유
-# intent 상태가 필요해 primary 승격 시 배선한다(구조상 노드로는 허용).
+# 러너가 실제 실행하는 도구 — validate/compile은 러너 보유 intent 상태가 필요해
+# 레인(primary.py)이 결정론으로 실행한다(구조상 노드로는 허용 — finish 사슬 계약).
 _EXECUTABLE_TOOLS = (
+    "classify_universe", "list_concept_candidates",
     "kg_resolve_sector", "kg_theme_companies", "ground_term", "resolve_universe",
     "lookup_capabilities",
 )
@@ -122,6 +124,23 @@ def _system_prompt() -> str:
         "노드만 수정하세요. 질문과 다른 답변이라는 이유로 오류 처리하지 않습니다.\n"
         "8. 사용자에게 묻지 않고 도구로 해결할 수 있는 정보는 도구를 먼저 사용합니다 — "
         "사용자 선택(선호)이 반드시 필요한 정보만 질문합니다.\n\n"
+        "## 유니버스 우선(Universe-first) — 모든 계획의 첫 Action\n"
+        "State에 유니버스가 아직 없으면, 다른 어떤 ask보다 먼저 유니버스를 결정합니다:\n"
+        "1. 사용자 요청에서 유니버스 표현을 뽑아 classify_universe tool 노드를 만드세요"
+        '(예: "보안주 관련 투자 전략" → args={"text": "보안주"}). 유니버스 표현이 전혀 '
+        "없으면 이 단계를 건너뛰고 골격 순서대로 진행합니다(시장 선택은 되묻지 않습니다).\n"
+        "2. 관찰의 universe_type이 MARKET·SECTOR·SINGLE_STOCK·ETF면 추가 해석이 필요 "
+        "없습니다 — 다음 슬롯으로 진행하세요.\n"
+        "3. universe_type이 CONCEPT면 **먼저 list_concept_candidates로 범위 후보를 "
+        "조회**하세요.\n"
+        "   - 후보가 2개 이상: 범위가 갈리는 표현입니다 — kg 해석으로 조용히 확정하지 "
+        '말고 ask(topic은 반드시 "유니버스", chips는 관찰의 후보 term 표기 그대로)로 '
+        "범위를 물으세요. 후보 표기를 바꾸거나 지어내면 안 됩니다.\n"
+        "   - 후보가 1개: 그 표기를 chips 하나로 제시해 확인받으세요(자동 확정 금지).\n"
+        "   - 후보가 0개: kg_resolve_sector·kg_theme_companies로 해석하고, 미해석이면 "
+        "ground_term(검색 학습)을 시도하세요. 그래도 미해석이면 ask로 물으세요.\n"
+        "4. 매수/매도 조건 등 모든 ask 노드는 유니버스 해석 노드(tool 또는 유니버스 ask)에 "
+        "depends_on으로 의존해야 합니다 — 유니버스가 조건보다 선행 결정 사항입니다.\n\n"
         "## 진행 골격 — 모든 전략의 공통 줄기(8슬롯)\n"
         "전략은 다음 슬롯을 순서대로 채우면 완성됩니다:\n"
         "유니버스 → 매수 조건 → 매도 조건 → 최대 보유 → 리밸런싱 → 리스크 관리"

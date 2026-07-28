@@ -295,13 +295,43 @@ FR-STR-068 반대신호 추천 notice) — 같은 골격, 디테일 분화 확�
 ### Tool 화이트리스트
 
 tool 노드에 쓸 수 있는 도구는 `backend/strategy_conversation/tools/catalog.py`에
-등록된 7종뿐이다: kg_resolve_sector, kg_theme_companies, ground_term(어휘집 캐시 —
-이미 학습된 용어 재검색 노드 금지), resolve_universe, lookup_capabilities,
-validate_intent, compile_strategy.
+등록된 9종뿐이다: classify_universe(유니버스 표현 타입 결정 —
+MARKET/ETF/SINGLE_STOCK/SECTOR/CONCEPT), list_concept_candidates(CONCEPT 표현의
+카탈로그 범위 후보 — 되묻기 chips 재료), kg_resolve_sector, kg_theme_companies,
+ground_term(어휘집 캐시 — 이미 학습된 용어 재검색 노드 금지), resolve_universe,
+lookup_capabilities, validate_intent, compile_strategy.
 
 해석 순서는 항상 지식그래프 → 인터넷 검색이다. ground_term 노드는 표현이
 산업·기술·투자 테마로 해석될 여지가 있을 때만 만들고, 투자와 무관하거나
 무의미한 표현이면 ask 노드로 되묻는다. 불필요한 검색 노드를 만들지 않는다.
+
+### Universe-first (Phase 5, 2026-07-28 — 제어 역전)
+
+planner는 `run_primary_parse` **최선두**에서 실행된다(`_plan_first`,
+`STRATEGY_DAG_PLANNER_MODE=primary`) — 인터프리터·검증·Missing Field가 만든
+질문을 다시 포장하는 후처리기가 아니라, 유니버스 표현의 추출·분류·해석과 질문
+순서(Action Dependency)를 계획하는 흐름의 주인이다. 규제 게이트(상류 intent
+분류)는 planner 앞에 유지되고, 완성 판정은 여전히 validate_intent 결정론
+게이트가 소유한다(finish 사슬 불변).
+
+- 모든 전략 계획의 첫 Action은 유니버스 결정이다. CONCEPT 표현은
+  list_concept_candidates **후보 조회가 kg 해석보다 먼저다** — 후보 2개
+  이상이면 범위가 갈리는 표현이므로 조용한 자동 확정 대신 ask(topic
+  "유니버스", chips=후보 표기 그대로)로 사용자가 고른다.
+- 관찰값 적용은 레인의 결정론 경로 재사용이다
+  (`_apply_planner_first_universe` → apply_theme_companies·
+  _merge_learned_sector). planner가 소유한 표현은 term-in 체인에서 제외된다
+  (이중 검색·이중 되묻기 방지).
+- ask 채택의 최종 권한은 결정론 게이트다(`_planner_first_ask`): 유니버스
+  ask는 미해결 planner 소유 표현이 남았을 때만, 조건 슬롯 ask는
+  detect_incomplete_backtest_conditions가 공백을 인정할 때만 나간다.
+- 9B 드리프트 결정론 교정: 범위 후보 2개 이상+유니버스 ask면 kg 테마 자동
+  적용 차단(적용과 범위 질문의 모순 방지), topic 변주("유니버스 범위")는 포함
+  판정, LLM이 지어낸 칩은 관찰된 카탈로그 후보 표기로 교체된다.
+- 유니버스 범위 칩 클릭은 `run_chip_answer`가 LLM 없이 결정론으로 귀속한다
+  (정본 섹터 병합 또는 카탈로그 정확 일치 테마 적용 → 다음 질문 재계획).
+- planner 실패(None)·예외·비활성은 현행 고정 파이프라인 그대로다 — planner는
+  어떤 경우에도 단독 실패 지점이 아니다(전면 재작성 금지, 폴백 레인 보존).
 
 ### 안전 계약 (전부 결정론 — Planner가 우회할 수 없다)
 
