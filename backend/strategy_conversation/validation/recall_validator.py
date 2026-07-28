@@ -85,6 +85,12 @@ def _reflected_numbers(intent) -> Set[float]:
     조건 배열이 아니라 assumptions="거래대금 300억 이상은 종목 선정 기준으로 해석하여
     적용함"에 서술하고 빠져나갔다). unsupported_features는 포함한다 — '표현할 수 없다'는
     정당한 처리 결과이고 하류에 안내 채널이 정해져 있다.
+
+    clarification_questions도 제외한다(2026-07-27). 이 검사가 대조하는 수치는 **입력에 이미
+    있는** 값이라 그것을 되묻는 것은 처리가 아니며, 검증 파이프라인은 READY 상태에서 LLM
+    자체 질문을 전부 폐기한다(pipeline.py — 잉여·자기회의 질문 차단) — 하류 채널이 없다.
+    실측 사고: "일평균 거래대금 50억 원 이상"을 조건 대신 "추가해 드릴까요?" 질문 +
+    recommended_value로 돌려주자 검사는 반영으로 인정하고 질문은 폐기돼 조건이 사라졌다.
     """
     dumped = intent.model_dump()
     strategy = dumped.get("strategy") or {}
@@ -96,7 +102,6 @@ def _reflected_numbers(intent) -> Set[float]:
     _collect_numbers(strategy, acc)
     _collect_numbers(dumped.get("patches"), acc)
     _collect_numbers(dumped.get("unsupported_features"), acc)
-    _collect_numbers(dumped.get("clarification_questions"), acc)
     return acc
 
 
@@ -137,14 +142,69 @@ def find_unreflected_numbers(user_input: str, intent) -> List[str]:
     return missing
 
 
-def build_recall_repair_prompt(user_input: str, missing: Iterable[str], bad_output: str) -> str:
+def labels_absent_from(labels: Iterable[str], payload: Any) -> List[str]:
+    """수치 표현 라벨 중 payload(최종 전략 dump) 어디에도 나타나지 않는 것만 남긴다.
+
+    인터프리터 단계의 미반영 목록을 **컴파일·결정적 보정까지 끝난 결과**로 다시 걸러,
+    이미 되살아난 값까지 "반영하지 못했다"고 알리는 모순을 막는다.
+    """
+    reflected: Set[float] = set()
+    _collect_numbers(payload, reflected)
+    remaining: List[str] = []
+    for label in labels:
+        m = _NUMBER_RE.match(label or "")
+        value = _to_float(m.group(1)) if m else None
+        if value is None:
+            continue
+        if any(
+            any(abs(c - abs(r)) < _TOLERANCE for r in reflected)
+            for c in _candidates(value, m.group(2))
+        ):
+            continue
+        remaining.append(label)
+    return remaining
+
+
+def build_recall_repair_prompt(
+    user_input: str,
+    missing: Iterable[str],
+    bad_output: str,
+    draft: Any = None,
+) -> str:
+    """누락 수치 재요청 프롬프트. draft가 있으면 수정 턴(patches 형식 유지)이다.
+
+    출력 형식을 명시하지 않으면 모델이 수정 턴처럼 patches만(strategy=null) 돌려주고,
+    초기 파스에서는 적용할 초안이 없어 정상 해석이 통째로 버려진다(실측 2026-07-27).
+    """
     listed = ", ".join(f"'{m}'" for m in missing)
+    if draft is not None:
+        form_rule = (
+            "직전 출력과 같은 수정 형식을 유지하세요 — 누락된 조건을 patches에 추가하고 "
+            "strategy는 null로 둡니다.\n\n"
+        )
+    else:
+        form_rule = (
+            "직전 출력의 strategy를 통째로 다시 담으세요 — 유니버스·진입·청산·랭킹·포트폴리오·"
+            "리스크 설정을 하나도 빠뜨리지 않고 그대로 유지한 뒤 누락된 조건만 더합니다. "
+            "intent는 CREATE_STRATEGY, patches는 빈 배열입니다. **strategy를 null로 두거나 "
+            "patches만 돌려주면 직전 해석 전체가 버려집니다.**\n"
+            "누락된 조건은 직접 추가하세요 — 예를 들어 '거래대금 50억 이상'이 빠졌다면 "
+            'entry_conditions에 {"factor": "fundamental.trading_value", "operator": ">=", '
+            '"value": 50, "unit": "억원", "source_text": "거래대금 50억 이상"}을 넣습니다. '
+            "'~를 추가해 드릴까요?'·'~를 사용하시겠습니까?'처럼 질문으로 돌려주거나 "
+            "assumptions에 '추가해야 합니다'라고 적으면 그 조건은 사라집니다.\n\n"
+        )
     return (
         "직전 출력에서 사용자가 말한 수치 일부가 반영되지 않았습니다. "
         f"반영되지 않은 표현: {listed}\n\n"
-        "해당 수치가 가리키는 조건을 빠짐없이 포함한 완전한 JSON 하나만 다시 출력하세요"
-        "(설명 금지). 시스템이 표현할 수 없는 개념이면 그 원문 표현을 "
-        "unsupported_features에 넣으세요 — 조용히 생략하지 마세요.\n\n"
+        + form_rule
+        + "해당 수치가 가리키는 조건을 빠짐없이 포함한 완전한 JSON 하나만 다시 출력하세요"
+        "(설명 금지). assumptions에 '종목 선정 기준으로 처리했다'처럼 말로 적는 것은 "
+        "반영이 아닙니다 — 조건 배열(entry_conditions·exit_conditions·ranking)이나 "
+        "portfolio·risk_management의 실제 항목으로 넣으세요. 사용자가 값을 이미 말한 조건은 "
+        "clarification_questions·missing_fields로 미루지 마세요 — 되묻기는 값이 실제로 비었을 "
+        "때만이고, 그렇게 미룬 조건은 사용자에게 전달되지 않고 사라집니다. 시스템이 표현할 수 "
+        "없는 개념이면 그 원문 표현을 unsupported_features에 넣으세요 — 조용히 생략하지 마세요.\n\n"
         f"## 원래 사용자 입력\n\"{user_input}\"\n\n"
         f"## 직전 출력\n{bad_output[:2000]}"
     )

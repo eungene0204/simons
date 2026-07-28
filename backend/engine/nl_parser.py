@@ -3741,6 +3741,11 @@ def detect_symbol_typo_clarification(
     """
     if getattr(parsed, "target_symbols", None):
         return (None, None)
+    # ETF 유니버스엔 애초에 '종목명'이 없다 — ETF 상품은 주식 마스터에 없으므로 자모 근접
+    # 매칭은 전부 오발동이다. 실측 사고(2026-07-27): "배당 ETF 중에서 …20일선을 이탈하면"이
+    # '오아'·'일승' 종목 오타 되묻기로 빠졌다(테마는 etf_theme로 이미 해석된 상태).
+    if "ETF" in (getattr(parsed, "universe", None) or []):
+        return (None, None)
     from stock_analysis.symbol_resolver import find_in_text, suggest_similar_stocks
 
     if find_in_text(user_prompt):  # 정확히 인식된 종목이 있으면 오타 아님

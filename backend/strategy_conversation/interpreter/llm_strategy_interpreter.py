@@ -70,6 +70,7 @@ class InterpreterResult:
         repair_attempts: int,
         latency_ms: float,
         model_name: str,
+        unreflected_numbers: Optional[list[str]] = None,
     ):
         self.intent = intent
         self.raw_output = raw_output
@@ -77,6 +78,8 @@ class InterpreterResult:
         self.latency_ms = latency_ms
         self.model_name = model_name
         self.prompt_version = PROMPT_VERSION
+        # 재요청 후에도 출력에 나타나지 않은 입력 수치 표현 — 하류가 사용자에게 알린다.
+        self.unreflected_numbers = unreflected_numbers or []
 
 
 def _default_ollama_chat(model: str) -> ChatFn:
@@ -150,6 +153,8 @@ class StrategyInterpreter:
         last_error: Exception | None = None
         current_raw = raw
         recall_retried = False
+        # 수치 재요청 직전의 유효 해석 — 재요청 결과가 더 나쁘면 되돌린다.
+        pre_recall: tuple[StrategyIntent, str] | None = None
         while True:
             try:
                 intent = StrategyIntent.model_validate_json(extract_json_object(current_raw))
@@ -158,6 +163,20 @@ class StrategyInterpreter:
                 if draft is None and intent.intent in ("MODIFY_STRATEGY", "CLARIFY_STRATEGY") \
                         and intent.strategy is not None:
                     intent = intent.model_copy(update={"intent": "CREATE_STRATEGY"})
+                # 수치 재요청이 전략을 잃어버렸으면 재요청 출력을 폐기하고 직전 해석을 쓴다.
+                # 실측 사고(2026-07-27, '반도체 업종 ROE·부채비율+모멘텀' 예시): 1차 출력은
+                # 유니버스·재무 조건·랭킹·포트폴리오까지 정상이었는데 거래대금 '50억'만 빠져
+                # 재요청 → 9B가 수정 턴처럼 patches만(strategy=null) 돌려주면서 정상 해석이
+                # 통째로 교체 → 초기 파스에는 적용할 초안이 없어 해석 실패로 종결됐다.
+                # 수치 누락은 요청을 실패시킬 사유가 아니다(§ 3-1) — 유효한 해석을 버리지 않는다.
+                # 수정 턴은 patches가 내용이므로 strategy·patches가 모두 비면 잃은 것이다.
+                repair_lost_content = (
+                    intent.strategy is None if draft is None
+                    else (intent.strategy is None and not intent.patches)
+                )
+                if pre_recall is not None and repair_lost_content:
+                    intent, current_raw = pre_recall
+                    _log_llm("△ 수치 재요청 폐기", "재요청 출력이 비어 직전 해석 유지")
                 # 수치 반영 대조(§ 3-1). 스키마는 통과했지만 사용자가 말한 수치가 통째로
                 # 빠진 경우 — 값을 채우지 않고 모델에게 한 번 다시 시킨다. 재요청 예산은
                 # 스키마 복구와 공유하며, 재생성 후에도 남으면 그대로 진행한다(누락은
@@ -167,15 +186,21 @@ class StrategyInterpreter:
                     if missing and attempts < config.MAX_REPAIR_ATTEMPTS:
                         recall_retried = True
                         attempts += 1
+                        pre_recall = (intent, current_raw)
                         _log_llm("⟳ 수치 누락 재요청", f"미반영: {', '.join(missing)}")
                         current_raw = self._chat(
                             self._system_prompt,
-                            build_recall_repair_prompt(user_input, missing, current_raw),
+                            build_recall_repair_prompt(user_input, missing, current_raw, draft),
                         )
                         _log_llm("◀ 재요청 응답", current_raw.strip())
                         continue
-                    if missing:
-                        _log_llm("△ 수치 누락 잔존", f"미반영: {', '.join(missing)}")
+                # 재요청 후에도(또는 재요청 예산이 없어) 남은 누락은 요청을 실패시키지 않되
+                # 결과에 실어 하류가 사용자에게 정직하게 알린다 — 조용한 누락 금지.
+                residual = (
+                    _recall_gap(user_input, intent) if config.recall_check_enabled() else []
+                )
+                if residual:
+                    _log_llm("△ 수치 누락 잔존", f"미반영: {', '.join(residual)}")
                 _log_llm("✓ 해석", (
                     f"intent={intent.intent} status={intent.status} "
                     f"patches={len(intent.patches)} repairs={attempts} "
@@ -187,6 +212,7 @@ class StrategyInterpreter:
                     repair_attempts=attempts,
                     latency_ms=round((time.perf_counter() - started) * 1000, 2),
                     model_name=self.model_name,
+                    unreflected_numbers=residual,
                 )
             except (ValidationError, ValueError, json.JSONDecodeError) as exc:
                 last_error = exc

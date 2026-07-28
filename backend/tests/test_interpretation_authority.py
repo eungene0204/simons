@@ -226,6 +226,7 @@ def test_llm_first_mode_delivers_llm_clarification_without_fast_path_probe(monke
         prompt_version = "test"
         repair_attempts = 0
         latency_ms = 0.0
+        unreflected_numbers = []
 
     class _Interpreter:
         def interpret(self, *_a, **_k):

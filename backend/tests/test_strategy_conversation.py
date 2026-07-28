@@ -341,6 +341,21 @@ def test_valid_complete_strategy_is_ready():
     assert report.is_valid
 
 
+def test_price_vs_ma_encoding_is_valid():
+    """'종가가 20일선 이탈'의 정본 표기는 ma_crossover(short 1 = 종가, long 20)다
+    (엔진 close_1_sma=종가, 레거시 파서와 동일). 실측 사고(2026-07-27): 레지스트리가
+    short_period 최소 2를 요구해 이 표기가 오류로 판정됐고, 오류는 사용자에게 전달되지도
+    않은 채 모든 'N일선 이탈' 전략이 부분 컴파일로 흘렀다."""
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        exit_conditions=[{"factor": "technical.ma_crossover", "operator": "crosses_below",
+                          "value": None,
+                          "parameters": {"short_period": 1, "long_period": 20}}],
+    ))
+    _, report = run_validation(intent)
+    assert report.errors == []
+    assert report.status == "READY"
+
+
 def test_unknown_factor_rejected():
     intent = StrategyIntent.model_validate(_full_intent_dict(
         entry_conditions=[{"factor": "미지의지표", "operator": ">=", "value": 1}],
@@ -717,23 +732,25 @@ def test_compile_partial_drops_pending_conditions_only():
 # ─── Primary Mode (Phase 2) ──────────────────────────────────────────────────
 
 class _StubPrimaryInterpreter:
-    def __init__(self, intent_data):
+    def __init__(self, intent_data, unreflected=None):
         from strategy_conversation.interpreter.llm_strategy_interpreter import (
             InterpreterResult,
         )
         self._result = InterpreterResult(
             intent=StrategyIntent.model_validate(intent_data),
             raw_output="{}", repair_attempts=0, latency_ms=1.0, model_name="stub",
+            unreflected_numbers=unreflected,
         )
 
     def interpret(self, user_input, draft=None):
         return self._result
 
 
-def _run_primary_with(monkeypatch, intent_data, user_input="테스트"):
+def _run_primary_with(monkeypatch, intent_data, user_input="테스트", unreflected=None):
     from strategy_conversation import primary
 
-    monkeypatch.setattr(primary, "_interpreter_singleton", _StubPrimaryInterpreter(intent_data))
+    monkeypatch.setattr(primary, "_interpreter_singleton",
+                        _StubPrimaryInterpreter(intent_data, unreflected))
     return primary.run_primary_parse(user_input)
 
 
@@ -766,6 +783,32 @@ def test_primary_unsupported_features_noticed(monkeypatch):
     result = _run_primary_with(monkeypatch, data)
     assert result is not None
     assert any("FCF Yield" in n for n in result["notices"])
+
+
+def test_primary_notices_number_the_interpreter_never_reflected(monkeypatch):
+    """재요청 후에도 반영되지 못한 수치는 조용히 사라지지 않고 안내로 나간다.
+
+    실측 사고(2026-07-27): '일평균 거래대금 50억 이상'을 9B가 조건 대신 assumptions·질문으로
+    돌려보내 조건이 사라졌는데 사용자에겐 아무 표시도 없었다(§ 3-1 — 값을 만들어 채우지
+    않는 대신 못 했다고 알린다).
+    """
+    result = _run_primary_with(
+        monkeypatch, _full_intent_dict(),
+        user_input="PER 10 이하이고 일평균 거래대금 50억 원 이상인 종목 매수",
+        unreflected=["50억"],
+    )
+    assert result is not None
+    assert any("50억" in n for n in result["notices"])
+
+
+def test_primary_does_not_notice_numbers_restored_by_the_pipeline(monkeypatch):
+    """컴파일·결정적 보정으로 되살아난 값까지 '반영하지 못했다'고 알리면 전략과 모순이다."""
+    result = _run_primary_with(
+        monkeypatch, _full_intent_dict(), user_input="PER 10 이하 20종목",
+        unreflected=["10"],  # 실제로는 fundamental_filters(per<=10)에 살아 있다
+    )
+    assert result is not None
+    assert not any("반영하지 못했어요" in n for n in result["notices"])
 
 
 def test_primary_single_asset_target_from_llm_symbols(monkeypatch):
@@ -1473,6 +1516,64 @@ def test_interpreter_fails_after_repair_budget():
         interp.interpret("PER 10 이하")
 
 
+def test_recall_repair_losing_the_strategy_keeps_the_earlier_interpretation():
+    """실측 사고(2026-07-27): 1차 출력은 정상인데 수치 하나가 빠져 재요청했더니 9B가
+    수정 턴처럼 patches만(strategy=null) 돌려줬다. 그 출력으로 교체되면 초기 파스에는
+    적용할 초안이 없어 정상 해석 전체가 해석 실패로 종결된다 — 재요청 출력을 폐기하고
+    직전 해석을 유지해야 한다(수치 누락은 요청을 실패시킬 사유가 아니다)."""
+    first = json.dumps(_full_intent_dict(
+        entry_conditions=[{"factor": "fundamental.roe_or_gpa", "operator": ">=", "value": 10}],
+    ), ensure_ascii=False)
+    patches_only = json.dumps({
+        "intent": "MODIFY_STRATEGY", "status": "READY", "strategy": None,
+        "patches": [{"op": "add", "path": "/entry_conditions/-",
+                     "value": {"factor": "fundamental.trading_value",
+                               "operator": ">=", "value": 50, "unit": "억원"}}],
+        "confidence": 1.0,
+    }, ensure_ascii=False)
+    calls = []
+
+    def chat(system, user):
+        calls.append(user)
+        return first if len(calls) == 1 else patches_only
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(
+        "ROE 10% 이상이면서 일평균 거래대금이 50억 원 이상인 종목 매수"
+    )
+    assert len(calls) == 2, "누락 수치 재요청이 실행돼야 한다"
+    assert result.repair_attempts == 1
+    # 재요청 출력이 아니라 1차 해석이 살아남는다.
+    assert result.intent.intent == "CREATE_STRATEGY"
+    assert result.intent.strategy is not None
+    assert result.intent.strategy.entry_conditions[0].factor == "fundamental.roe_or_gpa"
+    # 끝까지 반영되지 못한 수치는 결과에 실려 하류가 사용자에게 알린다(조용한 누락 금지).
+    assert result.unreflected_numbers == ["50억"]
+
+
+def test_recall_repair_full_strategy_is_adopted():
+    """재요청이 정상적으로 전체 전략을 돌려주면 그 결과를 채택한다."""
+    first = json.dumps(_full_intent_dict(
+        entry_conditions=[{"factor": "fundamental.roe_or_gpa", "operator": ">=", "value": 10}],
+    ), ensure_ascii=False)
+    repaired = json.dumps(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.roe_or_gpa", "operator": ">=", "value": 10},
+            {"factor": "fundamental.trading_value", "operator": ">=", "value": 50},
+        ],
+    ), ensure_ascii=False)
+    calls = []
+
+    def chat(system, user):
+        calls.append(user)
+        return first if len(calls) == 1 else repaired
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(
+        "ROE 10% 이상이면서 일평균 거래대금이 50억 원 이상인 종목 매수"
+    )
+    assert len(result.intent.strategy.entry_conditions) == 2
+    assert result.unreflected_numbers == []
+
+
 def test_extract_json_object_from_codefence():
     raw = "```json\n{\"a\": {\"b\": 1}}\n```"
     assert json.loads(extract_json_object(raw)) == {"a": {"b": 1}}
@@ -1605,6 +1706,38 @@ def test_etf_universe_accepts_technical_and_clears_sectors():
     # 드리프트로 sectors에 들어온 테마는 조용히 버리지 않고 etf_theme로 승격한다
     assert validated.strategy.universe.etf_theme == "반도체"
     assert not any("재무지표" in e for e in report.errors)
+
+
+def test_applied_etf_theme_clears_contradicting_unsupported_notice(monkeypatch):
+    """etf_theme으로 반영된 테마를 '미지원'으로 함께 안내하면 전략과 모순이다.
+
+    실측 사고(2026-07-27): 모델이 '배당'을 etf_theme와 unsupported_features 양쪽에 넣어
+    반영된 전략에 "'배당 조건'은 아직 지원되지 않아요" 안내가 붙었다.
+    """
+    data = _full_intent_dict(
+        universe={"markets": ["ETF"], "sectors": [], "symbols": [], "etf_theme": "배당"},
+        entry_conditions=[{"factor": "technical.ma_crossover", "operator": "crosses_above",
+                           "value": None,
+                           "parameters": {"short_period": 1, "long_period": 20}}],
+    )
+    data["unsupported_features"] = ["배당 조건"]
+    result = _run_primary_with(monkeypatch, data, "배당 ETF 중 20일선 위에 있는 상품만")
+    assert result is not None
+    assert result["parsed"].etf_theme == "배당"
+    assert not any("배당" in n for n in result["notices"])
+
+
+def test_output_shape_declares_etf_theme():
+    """출력 형태에 etf_theme 키가 있어야 한다.
+
+    실측 사고(2026-07-27): 형태 예시의 universe에 etf_theme이 없어 9B가 그 형태를 그대로
+    베끼며 테마를 통째로 빠뜨렸다 — "반도체 ETF만 대상으로"가 전체 ETF(1,384종목) 전략이
+    됐다. 규칙 문장(6-1)만으로는 형태 예시를 이기지 못한다.
+    """
+    from strategy_conversation.interpreter.prompts import build_system_prompt
+
+    prompt = build_system_prompt()
+    assert '"etf_theme"' in prompt
 
 
 def test_etf_theme_is_not_unsupported_and_compiles_to_etf_theme():

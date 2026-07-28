@@ -167,3 +167,49 @@ def test_assumptions_narration_does_not_count_as_reflected():
     assert "300억" in find_unreflected_numbers(
         "거래대금 300억 이상 종목을 대상으로 스토캐스틱 과매도에서 매수", intent
     )
+
+
+def test_clarification_question_echo_does_not_count_as_reflected():
+    """실측 사고(2026-07-27): "거래대금 50억 이상"을 조건 대신 "추가해 드릴까요?" 질문
+    + recommended_value로 돌려주자 검사가 반영으로 인정했다. 검증 파이프라인은 READY
+    상태에서 LLM 자체 질문을 폐기하므로 하류 채널이 없다 — 조건이 조용히 사라진다."""
+    intent = _intent(
+        {"universe": {"markets": ["KOSPI"]},
+         "entry_conditions": [{"factor": "fundamental.roe_or_gpa", "operator": ">=", "value": 10}]},
+        missing_fields=["strategy.entry_conditions[1].factor"],
+        clarification_questions=[{
+            "field": "strategy.entry_conditions[1]",
+            "question": "일평균 거래대금이 50억 원 이상인 조건을 추가해 드릴까요?",
+            "recommended_value": {"factor": "fundamental.trading_value",
+                                  "operator": ">=", "value": 50, "unit": "억원"},
+        }],
+    )
+    assert "50억" in find_unreflected_numbers(
+        "ROE 10% 이상이면서 일평균 거래대금이 50억 원 이상인 종목 매수", intent
+    )
+
+
+# ── 최종 전략 대조(labels_absent_from) ────────────────────────────────────────
+
+def test_labels_absent_from_keeps_only_truly_missing_labels():
+    """인터프리터 단계의 미반영 목록을 컴파일·결정적 보정까지 끝난 결과로 다시 거른다 —
+    이미 되살아난 값까지 '반영하지 못했다'고 알리면 안내가 전략과 모순된다."""
+    from strategy_conversation.validation.recall_validator import labels_absent_from
+
+    payload = {"fundamental_filters": [{"metric": "roe_or_gpa", "value": 10.0}],
+               "stop_loss_pct": 8.0}
+    assert labels_absent_from(["10%", "8%"], payload) == []
+    assert labels_absent_from(["50억"], payload) == ["50억"]
+
+
+def test_recall_repair_prompt_demands_full_strategy_on_create_turn():
+    """초기 파스 재요청에서 patches만 돌려주면 정상 해석이 통째로 버려진다 —
+    프롬프트가 형식을 명시해야 한다(2026-07-27 사고)."""
+    from strategy_conversation.validation.recall_validator import build_recall_repair_prompt
+
+    create = build_recall_repair_prompt("거래대금 50억 이상", ["50억"], "{}")
+    assert "strategy를 통째로 다시 담으세요" in create
+    assert "CREATE_STRATEGY" in create
+    # 수정 턴은 반대로 patches 형식을 유지해야 한다.
+    modify = build_recall_repair_prompt("거래대금 50억 이상", ["50억"], "{}", draft={"universe": {}})
+    assert "patches" in modify and "strategy는 null" in modify

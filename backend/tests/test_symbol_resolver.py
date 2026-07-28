@@ -102,3 +102,23 @@ def test_detect_symbol_typo_no_reask_on_valid_input():
         ParsedStrategy(description="x", target_symbols=["005930"]), "삼서전자 전략"
     )
     assert q is None
+
+
+def test_symbol_typo_reask_skipped_for_etf_universe():
+    """ETF 유니버스엔 '종목명'이 없다 — 자모 근접 매칭 되묻기는 전부 오발동이다.
+
+    실측 사고(2026-07-27): "배당 ETF 중에서 …20일선을 이탈하면 청산" 요청이 '오아'·'일승'
+    종목 오타 되묻기로 빠졌다(테마는 etf_theme로 이미 해석된 상태).
+    """
+    from engine.nl_parser import ParsedStrategy, detect_symbol_typo_clarification
+
+    prompt = "배당 ETF 중에서 종가가 20일 이동평균선 위에 있는 상품만 4종목 담고 싶어요"
+    q_stock, _ = detect_symbol_typo_clarification(
+        ParsedStrategy(description="x", universe=["KOSPI"]), "카키오로 골든크로스 전략"
+    )
+    assert q_stock is not None  # 주식 유니버스에선 기존 동작 유지
+
+    q_etf, chips = detect_symbol_typo_clarification(
+        ParsedStrategy(description="x", universe=["ETF"], etf_theme="배당"), prompt
+    )
+    assert q_etf is None and chips is None

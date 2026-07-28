@@ -468,6 +468,15 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
             if _extract_sector(f) is None
             and not any(t and t in f for t in resolved_theme_terms)
         ]
+    # ETF 테마가 반영됐으면 같은 테마를 가리키는 미지원 안내도 지운다 — 실측 사고
+    # (2026-07-27): etf_theme="배당"으로 반영된 전략에 "'배당 조건'은 아직 지원되지 않아요"
+    # 안내가 함께 나갔다(모델이 테마를 etf_theme와 unsupported_features 양쪽에 넣은 드리프트).
+    if parsed.etf_theme and report.unsupported_features:
+        theme_key = parsed.etf_theme.replace(" ", "").lower()
+        report.unsupported_features = [
+            f for f in report.unsupported_features
+            if theme_key not in (f or "").replace(" ", "").lower()
+        ]
     if parsed.target_symbols:
         # 지정 종목 전략의 청산 누락은 호출부 공유 보정(apply_single_asset_adjustments)이
         # 반대 신호 청산 추천/기간 종료 보유 안내(비차단 notices)로 처리한다(FR-STR-068) —
@@ -512,6 +521,22 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         notices.append(
             f"'{', '.join(unexplained_drops)}' 조건은 값 확인 전까지 전략에 반영되지 않았어요."
         )
+    # 재요청 후에도 인터프리터가 반영하지 못한 입력 수치 — 컴파일·결정적 보정까지 끝난
+    # 결과로 한 번 더 거른 뒤 알린다(§ 3-1: 값을 만들어 채우지 않는다, 조용한 누락 금지).
+    if result.unreflected_numbers:
+        from strategy_conversation.validation.recall_validator import labels_absent_from
+
+        # description은 사용자 원문 그대로라 대조 대상에서 뺀다 — 넣으면 입력에 있는 모든
+        # 수치가 자기 자신과 매칭돼(원문 에코) 안내가 영구히 침묵한다.
+        strategy_payload = parsed.model_dump()
+        strategy_payload.pop("description", None)
+        still_missing = labels_absent_from(result.unreflected_numbers, strategy_payload)
+        if still_missing:
+            _log_llm("△ 미반영 안내", f"{', '.join(still_missing)}")
+            notices.append(
+                f"'{', '.join(still_missing)}' 수치는 조건으로 반영하지 못했어요. "
+                "어떤 조건인지 한 문장으로 알려주시면 반영해 드릴게요."
+            )
 
     return finalize_user_response({
         "parsed": parsed,

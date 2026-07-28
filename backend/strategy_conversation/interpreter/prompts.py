@@ -16,14 +16,18 @@ from strategy_conversation.registry.capability_registry import (
 )
 from strategy_conversation.registry.indicator_registry import supported_factor_lines
 
-PROMPT_VERSION = "1.8"
+PROMPT_VERSION = "1.9"
 
 _OUTPUT_SHAPE = {
     "intent": "CREATE_STRATEGY",
     "status": "NEEDS_CLARIFICATION",
     "strategy": {
         "name": None,
-        "universe": {"markets": ["KOSPI", "KOSDAQ"], "sectors": [], "symbols": []},
+        # etf_theme을 빠뜨리면 모델이 이 형태를 그대로 베껴 ETF 테마를 통째로 잃는다 —
+        # 실측(2026-07-27): "반도체 ETF만 대상으로"가 markets=["ETF"]·etf_theme=None으로
+        # 나와 전체 ETF 1,384종목 전략이 됐다(규칙 6-1을 적어도 형태에 키가 없으면 안 채운다).
+        "universe": {"markets": ["KOSPI", "KOSDAQ"], "sectors": [], "symbols": [],
+                     "etf_theme": None},
         "entry_conditions": [
             {
                 "factor": "fundamental.per",
@@ -108,6 +112,10 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    보유 기간(hold_period_days)은 거래일 단위: 1개월=21, 3개월=63, 6개월=126, 1년=252.
    'N거래일 경과 시 청산'·'최대 보유 기간 N거래일'·'N일 보유 후 매도'도 exit_conditions가
    아니라 portfolio.hold_period_days=N입니다 — time.days_held 같은 factor를 지어내지 마세요.
+   단 **지표 기반 청산과 보유 기간은 별개 슬롯입니다** — '20일선 이탈 시 청산', '데드크로스면
+   매도', 'RSI 70 이상이면 매도'는 보유 기간을 함께 말했더라도 exit_conditions에 반드시
+   남깁니다("20일선을 이탈하면 청산하고, 최소 보유 기간은 6개월" → exit_conditions에
+   ma_crossover crosses_below(1/20) **그리고** portfolio.hold_period_days=126, 둘 다).
 5-0. 지표의 기간(period, short_period, long_period, lookback_period)은 **사용자가 말한 경우에만**
    parameters에 넣으세요("20일선"→short_period=20, "RSI 14일"→period=14). 기간을 말하지 않았으면
    비워 두세요 — 시스템이 표준 기간을 적용합니다. 임의의 숫자를 지어내지 마세요("RSI 30 이하"에는
@@ -120,9 +128,25 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    분류하지 마세요. 'N억 이상'처럼 금액 임계가 있을 때만 거래대금 조건이고, 종목을 거르는
    기준이면 fundamental.trading_value(기본), 그 시점의 진입·청산 트리거면
    technical.trading_value입니다. 둘 다 entry_conditions/exit_conditions에 넣습니다.
+5-3. '~ 위에 있을 때'·'~ 위에 있는 종목'·'정배열'처럼 두 선(또는 종가와 이동평균)의 상하
+   관계는 **crossover 표기**로 옮깁니다 — operator는 crosses_above/crosses_below, value는
+   null, 기간은 parameters에 넣습니다.
+   - '종가가 20일 이동평균선 위' → technical.ma_crossover, crosses_above,
+     parameters={{"short_period":1,"long_period":20}} (short_period=1이 종가)
+   - '20일선 이탈'·'20일선 아래로 내려오면' → 같은 factor, crosses_below, 같은 parameters
+   - '5일 EMA가 20일 EMA 위' → technical.ema, crosses_above,
+     parameters={{"short_period":5,"long_period":20}} / 'EMA 데드크로스' → crosses_below
+   두 선의 비교에는 임계값이 없습니다 — >, < 처럼 기준값을 요구하는 연산자로 쓰거나 기간을
+   비워 두면 시스템이 "기준값을 얼마로 할까요?"라고 되묻고 **사용자가 이미 말한 조건이
+   전략에서 사라집니다**. 기간을 말했으면 반드시 parameters에 담으세요.
 6. universe.markets: 코스피=["KOSPI"], 코스닥=["KOSDAQ"], 대형주/KOSPI200=["KOSPI200"],
    전체/양시장=["KOSPI","KOSDAQ"]. 시장 언급이 없으면 ["KOSPI200"], 단 섹터 제한 전략이면 ["KOSPI","KOSDAQ"].
    업종/테마(반도체, 2차전지 등)는 markets가 아니라 universe.sectors에.
+6-0. universe에는 **시장·업종·종목만** 담습니다. '조건을 먼저 적용하고', '~인 종목만',
+   '먼저 걸러서'처럼 종목을 미리 거르는 스크리닝 기준(재무 지표·거래대금 등)은 universe가
+   아니라 entry_conditions입니다 — universe에 조건을 적어 둘 자리는 없고, 시스템이 알아서
+   걸러 주지도 않습니다. assumptions에 "종목 선정 기준(universe)으로 처리했습니다"라고 쓰면
+   그 조건은 전략에서 사라집니다.
 5-2. 경계 표현을 연산자로 정확히 옮기세요.
    - 포함(>=, <=): '이상'·'이하'·'위로'·'아래'·'밑으로'·'넘으면'·'돌파'
      ("ADX가 25 이상" → ">=", 25 / "RSI 30 이하" → "<=", 30)
@@ -164,6 +188,12 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    조건으로 쓸 수 없습니다 — ETF 전략에 재무 조건을 만들지 말고, 사용자가 재무 지표를
    요구하면 그 원문을 unsupported_features에 넣으세요(조용한 대체·제거 금지). 가격·거래량
    기반 기술 지표(이동평균·RSI·MACD·모멘텀·볼린저 등)와 거래대금은 ETF에서도 사용 가능합니다.
+   **거래대금은 factor 이름이 `fundamental.trading_value`여도 ETF에서 쓸 수 있습니다** —
+   가격·거래량에서 계산되는 값이라 기업 재무제표와 무관합니다. ETF에서 금지되는 것은
+   기업 재무제표 지표(PER·PBR·ROE·부채비율·배당성향·EPS·영업이익 등)뿐이니, 'ETF 중 일평균
+   거래대금 N억 이상' 같은 유동성 조건을 이름 때문에 빠뜨리지 마세요. 그 조건도 규칙 6-0대로
+   **entry_conditions**에 넣습니다 — universe에는 필터 슬롯이 없습니다(`universe.filter`
+   같은 필드를 만들거나 assumptions에 "universe에 적용했다"고 적으면 조건이 사라집니다).
    단, ETF의 업종·테마("반도체 ETF", "2차전지 ETF", "미국 ETF", "배당 ETF" 등)는 미지원이
    아닙니다 — 그 키워드를 universe.etf_theme에 넣으세요("반도체 종목 ETF"→etf_theme="반도체",
    "반도체 etf 투자 전략"→etf_theme="반도체", "KODEX 200"→etf_theme="KODEX 200").
@@ -247,6 +277,18 @@ missing_fields·clarification_questions에 etf_theme을 넣지 않습니다(정�
 portfolio={{"selection_count":4}}, risk_management={{"stop_loss":-10}} — 조건·수치가 많아도
 'X ETF'의 X(배당)는 반드시 etf_theme에 채웁니다. 테마 없이 markets=["ETF"]만 출력하면
 전략이 전체 ETF로 왜곡되므로, etf_theme 누락은 조건 누락(규칙 4-1)과 같은 오류입니다.
+
+## 예시 4-3 (스크리닝 다단계 서술 — '먼저 걸러서 그중'도 전부 entry_conditions)
+입력: "반도체 업종 종목 중 ROE 10% 이상, 부채비율 120% 이하 조건을 먼저 적용하고, 그중
+최근 60거래일 수익률이 상위권이면서 일평균 거래대금이 50억 원 이상인 종목만 8종목 담고 싶습니다"
+출력 요점: universe={{"markets":["KOSPI","KOSDAQ"],"sectors":["반도체"]}},
+entry_conditions=[{{"factor":"fundamental.roe_or_gpa","operator":">=","value":10,"unit":"percent"}},
+{{"factor":"fundamental.debt_ratio","operator":"<=","value":120,"unit":"percent"}},
+{{"factor":"fundamental.trading_value","operator":">=","value":50,"unit":"억원"}}],
+ranking=[{{"metric":"return","lookback_days":60}}], portfolio={{"selection_count":8}},
+status="READY". '먼저 적용하고 → 그중'은 단계 서술일 뿐 세 조건 모두 entry_conditions입니다 —
+거래대금을 universe로 처리했다고 assumptions에 적거나 "추가해 드릴까요?"로 되묻지 마세요
+(사용자가 값을 이미 말했으므로 질문할 것이 없습니다).
 
 ## 예시 5 (수정 요청 — 현재 전략 초안이 함께 주어진 경우)
 현재 전략 초안: {{"entry_conditions":[{{"factor":"fundamental.per","operator":"<=","value":10}},

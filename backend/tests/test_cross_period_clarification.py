@@ -46,6 +46,7 @@ def _stub_interpreter(monkeypatch, intent: StrategyIntent):
     _Result.prompt_version = "test"
     _Result.repair_attempts = 0
     _Result.latency_ms = 0.0
+    _Result.unreflected_numbers = []
 
     class _Interpreter:
         def interpret(self, *_a, **_k):
