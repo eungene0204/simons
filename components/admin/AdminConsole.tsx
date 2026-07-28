@@ -8,6 +8,7 @@ import VirtualAccountsTab from './VirtualAccountsTab'
 import StrategiesTab from './StrategiesTab'
 import PlansTab from './PlansTab'
 import KnowledgeTab from './KnowledgeTab'
+import AgentsTab from './AgentsTab'
 import AuditLogsTab from './AuditLogsTab'
 
 const TABS = [
@@ -18,6 +19,7 @@ const TABS = [
   { id: 'strategies', label: 'Strategies' },
   { id: 'plans', label: 'Plans' },
   { id: 'knowledge', label: 'Knowledge' },
+  { id: 'agents', label: 'Agents' },
   { id: 'audit', label: 'Audit Logs' },
 ] as const
 
@@ -62,6 +64,7 @@ export default function AdminConsole({ adminEmail }: { adminEmail: string }) {
           {tab === 'strategies' && <StrategiesTab />}
           {tab === 'plans' && <PlansTab />}
           {tab === 'knowledge' && <KnowledgeTab />}
+          {tab === 'agents' && <AgentsTab />}
           {tab === 'audit' && <AuditLogsTab />}
         </main>
       </div>

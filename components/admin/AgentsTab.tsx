@@ -1,0 +1,609 @@
+'use client'
+
+import { useState } from 'react'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Agent 설계 구조 시각화 탭.
+// 코드에서 자동 추출하지 않는 정적 스냅샷이다 — 파이프라인 구조가 바뀌면 이 데이터를
+// 함께 갱신할 것. 노드 이름은 내부 변수/모듈명이 아니라 운영자가 읽는 친화 명칭을 쓴다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type NodeKind = 'input' | 'llm' | 'auto' | 'data' | 'guard' | 'ask' | 'output'
+
+interface FlowNode {
+  kind: NodeKind
+  title: string
+  desc?: string
+  items?: string[]
+}
+
+interface FlowBranch {
+  branches: { label: string; nodes: FlowNode[] }[]
+}
+
+type FlowStep = FlowNode | FlowBranch
+
+interface AgentSpec {
+  id: string
+  name: string
+  tagline: string
+  summary: string
+  flow: FlowStep[]
+  notes?: string[]
+  location: string
+}
+
+const KIND_META: Record<NodeKind, { label: string; badge: string; border: string }> = {
+  input: { label: '입력', badge: 'bg-gray-500/20 text-gray-300', border: 'border-gray-500/40' },
+  llm: { label: 'AI 판단', badge: 'bg-purple-500/20 text-purple-300', border: 'border-purple-500/40' },
+  auto: { label: '자동 규칙', badge: 'bg-sky-500/20 text-sky-300', border: 'border-sky-500/40' },
+  data: { label: '지식·데이터', badge: 'bg-emerald-500/20 text-emerald-300', border: 'border-emerald-500/40' },
+  guard: { label: '안전장치', badge: 'bg-rose-500/20 text-rose-300', border: 'border-rose-500/40' },
+  ask: { label: '사용자 확인', badge: 'bg-amber-500/20 text-amber-300', border: 'border-amber-500/40' },
+  output: { label: '결과물', badge: 'bg-white/15 text-white', border: 'border-white/30' },
+}
+
+const AGENTS: AgentSpec[] = [
+  {
+    id: 'interpreter',
+    name: '전략 해석기',
+    tagline: '자연어 → 전략 변환',
+    summary:
+      '사용자가 한국어로 쓴 전략("골든크로스에 사고 손절 5%")을 백테스트 엔진이 실행할 수 있는 구조화된 전략으로 바꾸는 핵심 파이프라인. 의미 해석은 AI만 하고, 형식 검증과 컴파일은 전부 자동 규칙이 담당한다.',
+    flow: [
+      { kind: 'input', title: '사용자 자연어 입력', desc: '"반도체 대형주를 골든크로스에 매수, 손절 5%"' },
+      {
+        kind: 'guard',
+        title: '규제 안전 게이트',
+        desc: '종목 추천·시장 전망·맞춤 조언 요청은 해석 전에 차단하고 안내로 응답',
+      },
+      {
+        kind: 'llm',
+        title: '대화 플래너 — 투자 범위 먼저 판별',
+        desc: '어떤 종목 집단(시장·업종·테마·개별 종목)을 대상으로 하는지 도구를 호출해 먼저 확정 (아래 "대화 플래너" 탭 참고)',
+      },
+      {
+        kind: 'llm',
+        title: 'AI 의미 해석',
+        desc: '동의어·정성 표현·오타·문맥을 이해해 조건·지표·수치를 뽑아 구조화된 전략 초안(JSON)으로 출력',
+      },
+      {
+        kind: 'auto',
+        title: '표기 정리 + 형식 검사',
+        desc: 'AI 출력의 껍데기 제거·값 표기 통일 후 필수 항목과 타입을 검사 — 원문을 재해석하지 않음',
+      },
+      {
+        kind: 'auto',
+        title: '지원 여부·완결성 검사',
+        items: [
+          '지표가 엔진에서 지원되는지',
+          '값 범위·단위가 올바른지',
+          '조건끼리 충돌하지 않는지',
+          '진입·청산 등 필수 조건이 다 있는지',
+          '말한 조건이 빠짐없이 반영됐는지 (누락 검사)',
+        ],
+      },
+      {
+        branches: [
+          {
+            label: '빠진 조건이 있으면',
+            nodes: [
+              {
+                kind: 'ask',
+                title: '되묻기 + 추천값 칩',
+                desc: '조용히 기본값을 채우지 않고 질문한다. 확정된 조건만 부분 반영해 보여줌',
+              },
+            ],
+          },
+          {
+            label: '완성이면',
+            nodes: [
+              { kind: 'auto', title: '전략 컴파일', desc: '구조화된 전략을 엔진 실행 형식으로 변환' },
+              { kind: 'output', title: '백테스트 실행 가능한 전략', desc: '요약 카드와 함께 사용자에게 표시' },
+            ],
+          },
+        ],
+      },
+    ],
+    notes: [
+      '해석 실패는 실패로 보고하고 되묻는다 — 옛날처럼 정규식으로 원문을 재해석하는 폴백은 금지.',
+      '수정 요청은 "전략 수정기" 파이프라인이 따로 처리한다.',
+    ],
+    location: 'backend/strategy_conversation/',
+  },
+  {
+    id: 'planner',
+    name: '대화 플래너',
+    tagline: '도구 실행 계획 수립',
+    summary:
+      '전략 해석에 필요한 사전 조사(이 용어가 업종인지 테마인지, 어떤 종목들이 해당되는지)를 AI가 계획하고, 실행은 전부 자동 러너가 대신하는 계획-실행 분리 구조. AI는 계획만 세우고 값을 직접 확정하지 못한다.',
+    flow: [
+      { kind: 'input', title: '사용자 입력', desc: '"비만치료 관련주로 전략 만들어줘"' },
+      {
+        kind: 'llm',
+        title: 'AI가 작업 계획(그래프) 작성',
+        desc: '어떤 조사 도구를 어떤 순서로 쓸지 JSON 계획으로만 출력 — 직접 실행 권한 없음',
+      },
+      {
+        kind: 'guard',
+        title: '계획 구조 검사',
+        desc: '허용된 도구만 사용했는지·순환이 없는지 자동 검증. 위반하면 즉시 고정 파이프라인으로 복귀',
+      },
+      {
+        kind: 'auto',
+        title: '도구 실행기 (자동)',
+        items: [
+          '투자 범위 분류 — 시장/업종/테마/종목 구분',
+          '테마 후보 나열 — 비슷한 테마가 여럿이면 후보 수집',
+          '업종 정본 매핑 — "이차전지" → 정식 업종명',
+          '테마 소속 기업 조회',
+          '모르는 용어 검색 학습 (테마 학습기 호출)',
+          '투자 범위 최종 확정',
+          '기능 지원 여부 조회 (예: ETF는 재무지표 불가)',
+        ],
+      },
+      {
+        kind: 'auto',
+        title: '실행 결과를 AI에게 다시 제시',
+        desc: '같은 도구+인자는 한 번만 실행(무한 반복 차단), 턴 수 예산 초과 시 자동 중단',
+      },
+      {
+        branches: [
+          {
+            label: '질문이 필요하면',
+            nodes: [
+              {
+                kind: 'ask',
+                title: '범위 확인 질문',
+                desc: '테마 후보가 2개 이상이면 임의로 고르지 않고 사용자에게 선택지를 보여줌',
+              },
+            ],
+          },
+          {
+            label: '조사가 끝나면',
+            nodes: [
+              {
+                kind: 'guard',
+                title: '확정값은 도구 결과에서만 채택',
+                desc: 'AI가 문장 속에서 주장한 값은 무시 — 환각 차단',
+              },
+              { kind: 'output', title: '확정된 투자 범위', desc: '전략 해석기에 전달' },
+            ],
+          },
+        ],
+      },
+    ],
+    notes: [
+      '어떤 실패든 고정 파이프라인이 이어받는다 — 플래너는 단독 실패 지점이 될 수 없다.',
+      '사용자에게 나가는 질문 문구는 출력 검문(규제 안전 필터)을 통과한다.',
+    ],
+    location: 'backend/strategy_conversation/planner/ · tools/',
+  },
+  {
+    id: 'classifier',
+    name: '질문 분류기',
+    tagline: '의도 분류 + 규제 가드',
+    summary:
+      '채팅 입력이 전략 설계인지, 종목 질문인지, 투자 지식 질문인지 가려서 담당 파이프라인에 배정한다. 명확한 경우는 자동 규칙이 즉시 분류하고, 애매한 긴 꼬리만 AI에게 맡긴다.',
+    flow: [
+      { kind: 'input', title: '사용자 질문', desc: '채팅창에 입력된 모든 메시지가 여기를 먼저 지나감' },
+      { kind: 'auto', title: '오타·구어 표기 보정', desc: '"5게"→"5개", "맥디"→"MACD" 같은 흔한 표기를 결정적으로 교정' },
+      {
+        kind: 'auto',
+        title: '결정적 규칙 분류 (1차)',
+        items: [
+          '전략 설계 — 전략·백테스트·리밸런싱 키워드',
+          '종목 질문 — 종목명/코드 + 매수·매도·전망 표현',
+          '투자 지식 — "~가 뭐야" 정의형 질문',
+        ],
+      },
+      {
+        kind: 'guard',
+        title: '규제 안전 가드',
+        items: [
+          '"뭐 살까?" (열린 종목 추천) → 추천 불가 안내 + 전략 설계 전환',
+          '"어떤 전략이 좋아?" → 전략 빌더로 안내',
+          '나이·자산 기반 맞춤 조언 → 정중히 거절',
+          '실전 매매 요청 → 모의투자만 가능 안내',
+          '뉴스·공시 기반 등 미제공 기능 → 안내',
+        ],
+      },
+      {
+        kind: 'llm',
+        title: '애매하면 AI 분류 (2차)',
+        desc: '규칙으로 판정 못 한 입력만 대화 맥락(직전 턴)과 함께 AI가 분류 — "다른 예는 없어?" 같은 후속 질문 처리',
+      },
+      {
+        kind: 'output',
+        title: '담당 파이프라인으로 전달',
+        desc: '전략 해석기 / 전략 빌더 / 종목 질문 도우미 / 지식 답변 중 하나로 배정',
+      },
+    ],
+    notes: ['설정 기본값 질문(수수료·슬리피지)은 AI 환각 대신 설정 원본에서 결정적으로 답한다.'],
+    location: 'backend/intent/classifier.py · scope.py',
+  },
+  {
+    id: 'builder',
+    name: '전략 빌더',
+    tagline: '단계별 문답 설계',
+    summary:
+      '"어떤 종목을 사야 해?" 같은 열린 질문을 받았을 때, 추천 대신 짧은 문답을 쌓아 사용자가 직접 전략을 완성하게 돕는 상태 머신. 선택지 답변은 자동 규칙이, 자유 서술만 AI가 해석한다.',
+    flow: [
+      { kind: 'input', title: '열린 추천 질문', desc: '"뭐 살까?" → 추천 불가 안내 후 빌더 진입' },
+      {
+        kind: 'auto',
+        title: '단계별 질문 진행',
+        desc: '시장 → 전략 유형 → 기준 기간 → 보유 종목 수 → 리밸런싱 주기. 이미 말한 정보(업종·종목)는 기억해 건너뜀',
+      },
+      {
+        branches: [
+          {
+            label: '선택지·값 답변',
+            nodes: [{ kind: 'auto', title: '자동 규칙 해석', desc: '칩 클릭·숫자 답은 형식 정규화만으로 처리' }],
+          },
+          {
+            label: '자유 서술 답변',
+            nodes: [{ kind: 'llm', title: 'AI 해석', desc: '"원자로 같은 거" → 에너지 업종처럼 미인식 표현만 AI가 매핑' }],
+          },
+          {
+            label: '조건 삭제·변경 요청',
+            nodes: [
+              {
+                kind: 'auto',
+                title: '수정 규칙 우선 처리',
+                desc: '"손절 빼줘"는 어느 단계에서든 즉시 반영. 값 없는 변경("시장 바꿔줘")은 재질문',
+              },
+            ],
+          },
+        ],
+      },
+      { kind: 'ask', title: '요약 카드 확인', desc: '누적된 전략을 보여주고 사용자가 확정' },
+      {
+        kind: 'auto',
+        title: '누적 구조를 직접 컴파일',
+        desc: '확정 시 자연어로 되돌려 재해석하지 않는다 — AI 전용 조건이 소실되던 사고 방지',
+      },
+      { kind: 'output', title: '백테스트 실행', desc: '기존 백테스트 파이프라인 재사용' },
+    ],
+    notes: [
+      '단일 종목 모드에선 종목 선별 질문을 건너뛰고 "언제 사고 언제 팔까"만 묻는다.',
+      '특정 전략 유형을 지정하면 그 유형에 맞는 파라미터만 순서대로 묻는다.',
+    ],
+    location: 'backend/intent/strategy_builder.py · builder_interpreter.py',
+  },
+  {
+    id: 'modifier',
+    name: '전략 수정기',
+    tagline: '대화로 전략 고치기',
+    summary:
+      '이미 만든 전략에 "손절을 3%로 바꿔줘" 같은 수정 요청을 반영한다. AI가 바뀐 부분만 해석하고, 환각 방지 게이트와 결정적 병합이 원본 전략을 지킨다.',
+    flow: [
+      { kind: 'input', title: '수정 요청 + 기존 전략', desc: '"손절은 3%로, 종목은 5개만"' },
+      {
+        kind: 'auto',
+        title: '수정 단서 감지',
+        desc: '어떤 필드(손절·종목 수·유니버스…)를 언급했는지 결정적으로 표시 — 이후 환각 판정의 기준',
+      },
+      {
+        kind: 'data',
+        title: '유사 수정 예시 검색',
+        desc: '검증된 수정 지식·정답 예시 코퍼스에서 비슷한 요청을 찾아 AI에게 참고자료로 제공',
+      },
+      { kind: 'llm', title: 'AI 수정 해석', desc: '바뀌는 부분만 차분(diff)으로 출력' },
+      {
+        kind: 'guard',
+        title: '환각 방지 게이트',
+        desc: '사용자가 언급하지 않은 필드를 AI가 바꾸려 하면 그 변경을 폐기',
+      },
+      {
+        kind: 'auto',
+        title: '결정적 병합',
+        desc: '차분을 원본 전략에 코드가 병합 — 목록형 조건(재무 필터 등)이 통째로 사라지는 것을 방지',
+      },
+      {
+        branches: [
+          {
+            label: '값이 없으면',
+            nodes: [{ kind: 'ask', title: '값 되묻기', desc: '"손절 바꿔줘"(값 없음)는 재질문 — 무변경 재렌더링 방지' }],
+          },
+          {
+            label: '해석 실패면',
+            nodes: [{ kind: 'ask', title: '전략 보존 + 되묻기', desc: '실패해도 기존 전략을 절대 훼손하지 않음' }],
+          },
+          {
+            label: '성공이면',
+            nodes: [{ kind: 'output', title: '수정된 전략', desc: '요약 카드와 함께 표시, 즉시 재백테스트 가능' }],
+          },
+        ],
+      },
+    ],
+    notes: ['"현대약품은 빼줘" 같은 제외 요청은 종목 지정으로 오독하지 않도록 삭제 판정이 우선한다.'],
+    location: 'backend/engine/modify_rag.py · nl_parser 수정 경로',
+  },
+  {
+    id: 'validator',
+    name: '전략 검증 도우미',
+    tagline: '실행 가능성 진단',
+    summary:
+      '완성된 전략이 백테스트를 실제로 돌릴 수 있는 상태인지 구조적으로 진단한다. 전략의 우열은 평가하지 않는다(규제 안전) — 좋은 전략인지가 아니라 돌아가는 전략인지만 본다.',
+    flow: [
+      { kind: 'input', title: '완성된 전략', desc: '전략 연구소에서 파싱·수정이 끝난 전략' },
+      {
+        kind: 'auto',
+        title: '구조 검사',
+        items: ['필수 요소(유니버스·진입·청산) 존재 여부', '지표가 엔진 지원 목록에 있는지', '값 형식·범위가 올바른지'],
+      },
+      {
+        kind: 'auto',
+        title: '실행 가능성 검사',
+        desc: '진입만 있고 청산이 없는 등 백테스트가 공회전할 조합을 찾아냄',
+      },
+      {
+        kind: 'guard',
+        title: '우열 평가 금지',
+        desc: '"좋은 전략입니다" 류의 평가·추천 표현은 구조적으로 생성하지 않음',
+      },
+      { kind: 'output', title: '검증 리포트', desc: '보완이 필요한 항목을 객관적 사실로만 나열' },
+    ],
+    notes: [
+      '과거 LLM 코칭 경로는 코드로 보존돼 있으나 현재 꺼져 있다(검증 모드가 기본). 죽은 코드로 오인해 지우지 말 것.',
+    ],
+    location: 'backend/ai/strategy_validation_agent.py · api/coach_routes.py',
+  },
+  {
+    id: 'reporter',
+    name: 'AI 리포트',
+    tagline: '백테스트 결과 해설',
+    summary:
+      '백테스트가 끝난 뒤 결과 수치를 해설하는 전문가 리포트를 만든다. 진단·점수·근거는 전부 자동 규칙이 계산하고, AI는 이미 계산된 사실을 서술문으로 풀어 쓰는 역할만 한다.',
+    flow: [
+      { kind: 'input', title: '백테스트 결과', desc: 'CAGR·MDD·샤프·거래 내역 등 엔진 산출값' },
+      {
+        kind: 'auto',
+        title: '규칙 기반 진단',
+        desc: '과최적화 징후·리스크 설정 문제·거래 빈도 이상 등을 규칙으로 탐지해 문제점 목록 생성',
+      },
+      { kind: 'auto', title: '점수 계산', desc: '전략 점수·리스크 점수·과최적화 위험도 — 전부 결정적 산식' },
+      {
+        kind: 'data',
+        title: '경험·통계 결합',
+        items: [
+          '유사 전략 실험 경험 회수 (벡터 메모리)',
+          '전체 사용자 백테스트 통계 대비 백분위 계산 (방향 명시)',
+          '뉴스 신호 정리',
+        ],
+      },
+      { kind: 'auto', title: '근거 자료 정리', desc: '리포트 각 섹션이 인용할 수치 근거를 결정적으로 조립' },
+      {
+        kind: 'llm',
+        title: 'AI 서술 생성 (9B 모델)',
+        desc: '검증 전문가 관점의 10개 섹션 리포트로 서술 — 수치를 새로 계산하지 않고 전달받은 근거만 사용',
+      },
+      { kind: 'guard', title: '표현 검문', desc: '내부 지시문 누출·추천 표현을 후처리로 제거' },
+      { kind: 'output', title: '리포트 화면', desc: '결과 페이지에 섹션별로 표시, 캐시됨' },
+    ],
+    location: 'backend/advisor/ · report_evidence',
+  },
+  {
+    id: 'grounding',
+    name: '테마 학습기',
+    tagline: '지식그래프 + 용어 학습',
+    summary:
+      'AI가 모르는 신조어 테마("마운자로 관련주")를 만나면 인터넷 검색으로 학습해 종목 집단으로 해석한다. 학습 결과는 지식그래프와 어휘집에 영속 저장되어 다음부터는 검색 없이 즉시 해석된다.',
+    flow: [
+      { kind: 'input', title: '모르는 테마 용어', desc: '"ESS 관련주", "비만치료 관련주"' },
+      { kind: 'data', title: '어휘집 캐시 조회', desc: '이미 학습한 용어면 검색·AI 없이 즉시 해석 (재검색 방지)' },
+      {
+        kind: 'data',
+        title: '지식그래프 조회',
+        items: ['운영자 시드 테마 (핵심 기업만 엄선)', '네이버 금융 테마 카탈로그 285개', '주달 테마 208개', '검색으로 학습된 기업 연결'],
+      },
+      { kind: 'data', title: '네이버 실시간 테마 조회', desc: '그래프에 없으면 네이버 금융 라이브 테마를 조회해 즉시 편입' },
+      {
+        kind: 'llm',
+        title: '뉴스 검색 학습',
+        desc: '그래도 없으면 뉴스 검색 → AI가 닫힌 업종 목록으로만 매핑. 외부 본문은 비신뢰 데이터로 취급 (프롬프트 인젝션 방어)',
+      },
+      {
+        kind: 'guard',
+        title: '정본 게이트',
+        desc: '검색 결과가 뭐라 하든 지원 업종 목록 밖 이름은 탈락 → 되묻기로 폴백. 상장사명이 테마로 오인되는 것도 차단',
+      },
+      { kind: 'data', title: '어휘집 영속 저장', desc: '성공·실패 모두 기록 (실패도 90일간 재검색 억제, 미해결 항목만 조건부 재검색)' },
+      {
+        branches: [
+          {
+            label: '해석 성공',
+            nodes: [{ kind: 'output', title: '테마 유니버스 확정', desc: '조회된 전체 종목이 백테스트 대상 (종수 상한 절단 금지)' }],
+          },
+          {
+            label: '검색 소진',
+            nodes: [{ kind: 'ask', title: '"전략 불가" 종결 안내', desc: '해석 불가 테마는 명확히 종결하고 대안 유도' }],
+          },
+        ],
+      },
+    ],
+    notes: ['운영 콘솔의 Knowledge 탭에서 실제 그래프 데이터를 조회할 수 있다.'],
+    location: 'backend/engine/term_grounding.py · knowledge_graph.py',
+  },
+  {
+    id: 'stock',
+    name: '종목 질문 도우미',
+    tagline: '개별 종목 대응',
+    summary:
+      '"삼성전자 지금 사도 돼?" 같은 개별 종목 질문에 매수·매도 판단을 제공하지 않고(규제 안전), 그 종목을 소재로 한 전략 연구로 전환시키는 안내자.',
+    flow: [
+      { kind: 'input', title: '종목 언급 질문', desc: '"삼성전자 어때?", "제주반도체로 백테스트"' },
+      {
+        kind: 'auto',
+        title: '종목명 인식',
+        desc: '전 상장 종목 사전 기반 결정적 매칭 — 조사 경계("제주반도체로"의 "로") 처리 포함',
+      },
+      {
+        kind: 'guard',
+        title: '규제 가드',
+        desc: '매수·매도·전망 판단 요청이면 판단 불가를 명확히 안내 — 종목 분석 기능은 의도적으로 제거된 상태',
+      },
+      {
+        kind: 'auto',
+        title: '전략 전환 안내',
+        desc: '그 종목의 업종을 알면 업종 전략을, 아니면 해당 종목 백테스트 예시를 제시',
+      },
+      {
+        kind: 'data',
+        title: '단일 종목 연구 프로파일',
+        desc: '과거 데이터 사전 분석(변동성·거래대금 등)을 결정론으로 계산해 문답의 근거로 사용',
+      },
+      {
+        kind: 'output',
+        title: '단일 종목 빌더 모드 진입',
+        desc: '"이 종목을 언제 사고 언제 팔까" 중심의 전략 빌더로 연결',
+      },
+    ],
+    notes: ['복수 종목을 언급하면 전체를 백테스트하고 채팅 수정으로 조정한다 — "한 종목만 고르기" 되묻기는 폐지됨.'],
+    location: 'backend/stock_analysis/ · engine/stock_profile.py',
+  },
+]
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+function NodeCard({ node }: { node: FlowNode }) {
+  const meta = KIND_META[node.kind]
+  return (
+    <div className={`rounded-lg border ${meta.border} bg-white/[0.03] px-3.5 py-2.5`}>
+      <div className="flex items-center gap-2">
+        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${meta.badge}`}>
+          {meta.label}
+        </span>
+        <span className="text-sm font-bold text-gray-100">{node.title}</span>
+      </div>
+      {node.desc && <p className="mt-1 text-xs leading-relaxed text-gray-400">{node.desc}</p>}
+      {node.items && (
+        <ul className="mt-1.5 space-y-0.5">
+          {node.items.map((item) => (
+            <li key={item} className="flex gap-1.5 text-xs leading-relaxed text-gray-400">
+              <span className="text-gray-600">·</span>
+              {item}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function Arrow() {
+  return (
+    <div className="flex justify-center py-1" aria-hidden>
+      <svg width="10" height="16" viewBox="0 0 10 16" className="text-gray-600">
+        <line x1="5" y1="0" x2="5" y2="10" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M1 9 L5 15 L9 9" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      </svg>
+    </div>
+  )
+}
+
+function BranchStep({ step }: { step: FlowBranch }) {
+  return (
+    <div
+      className="grid gap-3"
+      style={{ gridTemplateColumns: `repeat(${step.branches.length}, minmax(0, 1fr))` }}
+    >
+      {step.branches.map((branch) => (
+        <div key={branch.label} className="rounded-xl border border-dashed border-white/15 p-3">
+          <p className="mb-2 text-center text-[11px] font-bold text-gray-500">{branch.label}</p>
+          <div>
+            {branch.nodes.map((node, i) => (
+              <div key={node.title}>
+                {i > 0 && <Arrow />}
+                <NodeCard node={node} />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Legend() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+      {(Object.keys(KIND_META) as NodeKind[]).map((kind) => (
+        <span key={kind} className="flex items-center gap-1.5">
+          <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${KIND_META[kind].badge}`}>
+            {KIND_META[kind].label}
+          </span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+export default function AgentsTab() {
+  const [agentId, setAgentId] = useState(AGENTS[0].id)
+  const agent = AGENTS.find((a) => a.id === agentId) ?? AGENTS[0]
+
+  return (
+    <div>
+      <div className="mb-1 flex items-end justify-between">
+        <h2 className="text-xl font-black">Agents</h2>
+        <Legend />
+      </div>
+      <p className="mb-4 text-xs font-bold text-gray-600">
+        플랫폼에 탑재된 AI 파이프라인의 설계 구조. 코드가 아니라 운영자용 명칭으로 표기한다.
+      </p>
+
+      {/* 서브탭 */}
+      <div className="mb-5 flex flex-wrap gap-1.5">
+        {AGENTS.map((a) => (
+          <button
+            key={a.id}
+            onClick={() => setAgentId(a.id)}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${
+              a.id === agentId
+                ? 'border-white/25 bg-white/10 text-white'
+                : 'border-white/10 text-gray-500 hover:bg-white/5 hover:text-gray-300'
+            }`}
+          >
+            {a.name}
+          </button>
+        ))}
+      </div>
+
+      {/* 선택된 agent */}
+      <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
+        <div className="mb-1 flex items-baseline gap-2.5">
+          <h3 className="text-lg font-black">{agent.name}</h3>
+          <span className="text-xs font-bold text-gray-500">{agent.tagline}</span>
+        </div>
+        <p className="mb-5 max-w-3xl text-sm leading-relaxed text-gray-400">{agent.summary}</p>
+
+        <div className="mx-auto max-w-2xl">
+          {agent.flow.map((step, i) => (
+            <div key={i}>
+              {i > 0 && <Arrow />}
+              {'branches' in step ? <BranchStep step={step} /> : <NodeCard node={step} />}
+            </div>
+          ))}
+        </div>
+
+        {agent.notes && agent.notes.length > 0 && (
+          <div className="mt-6 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3">
+            <p className="mb-1.5 text-[11px] font-bold text-gray-500">운영 메모</p>
+            <ul className="space-y-1">
+              {agent.notes.map((note) => (
+                <li key={note} className="flex gap-1.5 text-xs leading-relaxed text-gray-400">
+                  <span className="text-gray-600">·</span>
+                  {note}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <p className="mt-4 text-right text-[11px] font-bold text-gray-600">구현 위치: {agent.location}</p>
+      </div>
+    </div>
+  )
+}

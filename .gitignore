@@ -19,6 +19,10 @@
 .DS_Store
 *.pem
 
+# Claude Code local-only files (project hook config in .claude/settings.json IS tracked)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
 # debug
 npm-debug.log*
 yarn-debug.log*
