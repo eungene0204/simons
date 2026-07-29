@@ -371,6 +371,30 @@ class BacktestEngine:
                 print(f"[BT-ENGINE] 섹터 필터({_sector_label}): {len(symbols)}종목 "
                       f"(업종 미상 상폐 {len(_sector_unknown)})", flush=True)
 
+            # ── 신규 상장 유니버스 (FR-STR-073) ──
+            # "2026년 신규 상장 종목"은 상장일이 그 구간에 속하는 종목 집합이다 — 종목의
+            # 상장일 하나로 결정되므로 섹터 필터와 같은 자리에서 같은 방식으로 거른다.
+            # 상장 전 구간은 가격 데이터가 없어(available_df) 매매가 생기지 않는다.
+            _listing_from = req.get('listing_from')
+            _listing_to = req.get('listing_to')
+            if _listing_from or _listing_to:
+                _listing_label = f"{_listing_from or '제한 없음'}~{_listing_to or '제한 없음'}"
+                _new_symbols, _listing_unknown = universe_pit.filter_by_listing_window(
+                    symbols, _listing_from, _listing_to
+                )
+                if not _new_symbols:
+                    raise ValueError(
+                        f"{_listing_label} 사이에 상장한 종목을 찾지 못했습니다."
+                    )
+                symbols = _new_symbols
+                if _listing_unknown:
+                    self.warnings.add(
+                        f"신규 상장 필터: 상장일을 확인할 수 없는 종목 {len(_listing_unknown)}개가 "
+                        "제외되었습니다."
+                    )
+                print(f"[BT-ENGINE] 신규 상장 필터(상장일 {_listing_label}): "
+                      f"{len(symbols)}종목 (상장일 미상 {len(_listing_unknown)})", flush=True)
+
             def _filter_to_backtest_window(df_pl: pl.DataFrame) -> pl.DataFrame:
                 if not _has_period_filter:
                     return df_pl

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import List, Tuple
 
 from strategy_conversation.interpreter.models import (
@@ -34,7 +35,7 @@ _PARAM_LABELS = {
 def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[ClarificationQuestion]]:
     """(missing_fields, clarification_questions)를 반환한다.
 
-    질문은 중요도 순(진입 조건 → 청산/보유 → 포트폴리오)으로 생성하고
+    질문은 진행 골격 순(유니버스 → 진입 조건 → 청산/보유 → 포트폴리오)으로 생성하고
     MAX_QUESTIONS_PER_TURN개로 자른다(missing_fields는 전부 보고).
     """
     missing: List[str] = []
@@ -49,7 +50,22 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
             missing.append("strategy")
         return missing, questions
 
-    # ① 진입 메커니즘 존재 여부 (조건 또는 랭킹)
+    # ① 유니버스 제한의 대상 시기 — "신규 상장 종목"에는 시기가 없으므로 날짜를 지어내지
+    # 않고 되묻는다(FR-STR-073). 개념은 universe.new_listing_only가 보존한다. 진행 골격
+    # 순서(유니버스 → 매수 조건)를 따라 진입 조건 질문보다 먼저 낸다.
+    if (strategy.universe.new_listing_only
+            and strategy.universe.listing_from is None
+            and strategy.universe.listing_to is None):
+        last_year = date.today().year - 1
+        missing.append("strategy.universe.listing_from")
+        questions.append(ClarificationQuestion(
+            field="strategy.universe.listing_from",
+            question="어느 시기에 상장한 종목을 대상으로 할까요?",
+            recommended_value=f"{last_year}년 이후 상장",
+            recommendation_reason=f"{last_year}년 이후 상장 종목을 시작값으로 사용할 수 있습니다",
+        ))
+
+    # ② 진입 메커니즘 존재 여부 (조건 또는 랭킹)
     if intent.intent == "CREATE_STRATEGY" \
             and not strategy.entry_conditions and not strategy.ranking:
         missing.append("strategy.entry_conditions")
@@ -58,7 +74,7 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
             question="어떤 조건으로 종목을 선택할까요? (예: 재무 지표 기준, 기술적 신호, 기간 수익률 상위)",
         ))
 
-    # ② 조건별 필수값 — 비교 연산 조건인데 임계값이 없으면 질문(추천값은 Registry에서)
+    # ③ 조건별 필수값 — 비교 연산 조건인데 임계값이 없으면 질문(추천값은 Registry에서)
     for role, path, conditions in (
         ("진입", "entry_conditions", strategy.entry_conditions),
         ("청산", "exit_conditions", strategy.exit_conditions),
@@ -101,7 +117,7 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                         ),
                     ))
 
-    # ③ 랭킹 전략은 회전 규칙이 필요 — 종목 수·리밸런싱 주기
+    # ④ 랭킹 전략은 회전 규칙이 필요 — 종목 수·리밸런싱 주기
     if strategy.ranking:
         if strategy.portfolio.selection_count is None:
             missing.append("strategy.portfolio.selection_count")
@@ -120,7 +136,7 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                 recommendation_reason="랭킹 전략은 월간 리밸런싱을 시작값으로 흔히 사용합니다",
             ))
 
-    # ④ 청산 규칙 부재 — 진입 조건형 전략인데 청산·보유기간·리밸런싱·리스크가 모두 없으면
+    # ⑤ 청산 규칙 부재 — 진입 조건형 전략인데 청산·보유기간·리밸런싱·리스크가 모두 없으면
     risk = strategy.risk_management
     has_exit_rule = bool(
         strategy.exit_conditions

@@ -467,6 +467,62 @@ def sector_unknown_delisted(symbols: list[str]) -> list[str]:
     return [s for s in symbols if s not in smap and s in delisted]
 
 
+# ── 신규 상장 유니버스 (FR-STR-073) ──────────────────────────────────────────
+# "2026년 신규 상장 종목"은 **상장일이 그 구간에 속하는 종목 집합(코호트)**이다. 종목의
+# 상장일 하나만 보면 결정되므로 정적 심볼 필터로 충분하다 — 섹터 필터와 같은 자리에서
+# 같은 방식으로 걸러진다. 상장 이전 구간은 애초에 가격 데이터가 없어(available_df)
+# look-ahead가 생기지 않고, 상폐 종목도 상장일을 갖고 있어(마스터의 KRX-DELISTING 백필)
+# 생존 편향 없이 당시 신규 상장 종목이 그대로 포함된다.
+
+
+def first_listed_date(stock: dict) -> Optional[str]:
+    """이 종목이 '처음 상장한 날'의 최선 추정(YYYY-MM-DD). 근거가 없으면 None.
+
+    상장일(listingDate)과 로컬 가격 데이터 시작일(dataStart) 중 **이른 쪽**을 쓴다.
+    두 값이 갈리는 경우는 이전상장·재상장이다 — KIND 상장법인목록의 상장일은 '현재
+    시장에 상장한 날'이라, 코넥스→코스닥으로 옮겨온 종목(실측: 지에프씨생명과학
+    listingDate=2025-06-30이지만 2022-12-23부터 거래)이 신규 상장으로 오인된다.
+    반대로 상장일이 없는 소수 종목은 dataStart가 상한 없는 하한 역할을 한다(로컬
+    백필 시작일이라 실제 상장일보다 늦을 수 없다).
+    """
+    candidates = [d for d in (stock.get("listingDate"), stock.get("dataStart")) if d]
+    return min(candidates) if candidates else None
+
+
+def first_listed_dates(symbols: list[str]) -> dict[str, str]:
+    """symbol -> 최초 상장일. 상장일을 추정할 수 없는 종목은 키 자체가 없다."""
+    wanted = set(symbols)
+    out: dict[str, str] = {}
+    for s in _load_master():
+        if s.get("symbol") in wanted:
+            listed = first_listed_date(s)
+            if listed:
+                out[s["symbol"]] = listed
+    return out
+
+
+def filter_by_listing_window(
+    symbols: list[str], listing_from: Optional[str], listing_to: Optional[str]
+) -> tuple[list[str], list[str]]:
+    """상장일이 [listing_from, listing_to] 구간에 속하는 종목만 남긴다(양끝 포함).
+
+    반환: (대상 심볼, 상장일 미상으로 제외된 심볼). 경계가 None이면 그쪽은 무제한이다
+    ("2026년 상장"=둘 다, "최근 1년 내 상장"=하한만).
+
+    상장일 미상 종목은 조용히 통과시키지 않고 제외한 뒤 보고한다 — 통과시키면 신규
+    상장이 아닌 종목이 섞이고, 침묵하면 사용자가 왜곡을 알 길이 없다.
+    """
+    dates = first_listed_dates(symbols)
+    kept = [
+        s for s in symbols
+        if s in dates
+        and (listing_from is None or dates[s] >= listing_from)
+        and (listing_to is None or dates[s] <= listing_to)
+    ]
+    unknown = [s for s in symbols if s not in dates]
+    return kept, unknown
+
+
 def get_delisting_dates(symbols: list[str]) -> dict[str, str]:
     """symbol -> delistingDate, only for names that actually delisted.
 

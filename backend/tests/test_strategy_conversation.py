@@ -22,6 +22,7 @@ from strategy_conversation.interpreter.llm_strategy_interpreter import (
 )
 from strategy_conversation.interpreter.models import (
     PatchOp,
+    StrategyCondition,
     StrategyIntent,
     StrategySpec,
 )
@@ -1753,6 +1754,78 @@ def test_output_shape_declares_etf_theme():
     assert '"etf_theme"' in prompt
 
 
+def test_output_shape_declares_crossover_parameters():
+    """출력 형태에 parameters를 채운 크로스오버 조건이 있어야 한다.
+
+    실측 사고(2026-07-30): 형태의 조건 예시가 재무 조건 하나뿐이라 parameters 키가
+    아예 없었고, 9B가 규칙 5-3의 상세한 매핑(short_period=1/long_period=N)을 무시한 채
+    1차 출력에서 parameters=null을 냈다. 그 결과 "20일선을 깨고 내려오면 매도"·"20일선이
+    60일선을 골든크로스"에서 **사용자가 말한 기간이 사라지고** 시스템이 "단기 기간을
+    몇으로 할까요?"라고 되물었다. etf_theme(2026-07-27)과 같은 실패 방식 —
+    형태에 없는 키는 규칙 문장으로 이길 수 없다.
+    """
+    from strategy_conversation.interpreter.prompts import build_system_prompt
+
+    prompt = build_system_prompt()
+    assert '"parameters"' in prompt
+    assert '"short_period"' in prompt and '"long_period"' in prompt
+
+
+def test_null_parameters_coerced_to_empty_dict():
+    """parameters=null 드리프트는 형식 정규화한다(복구 재요청을 태우지 않는다).
+
+    실측(2026-07-30): 9B가 기간 없는 조건에 parameters를 빈 dict가 아니라 null로 낸다.
+    그대로 두면 dict_type ValidationError로 출력 전체가 버려져 LLM 재요청 1회(수 초)를
+    무조건 태웠다. 없음의 표기 차이일 뿐이므로 결정론 코드가 흡수한다.
+    """
+    cond = StrategyCondition.model_validate({
+        "factor": "technical.ma_crossover",
+        "operator": "crosses_below",
+        "parameters": None,
+    })
+    assert cond.parameters == {}
+
+
+def test_output_shape_omits_dead_channels():
+    """LLM에게 status·missing_fields·assumptions를 요구하지 않는다(2026-07-30 정리).
+
+    셋 다 파이프라인이 읽지 않는다 — 상태는 run_validation이 오류·누락으로 재판정하고
+    (report.status), 누락 필드는 validate_completeness가 결정론으로 산출하며,
+    assumptions는 어떤 소비자도 없다(recall 검사도 명시적으로 제외). 형태에 키가 있으면
+    9B가 그 자리를 채우느라 출력 토큰만 쓰고, 조건을 서술로 흘릴 자리를 만든다.
+    되살리려면 먼저 소비자를 만들 것.
+    """
+    from strategy_conversation.interpreter.prompts import build_system_prompt
+
+    prompt = build_system_prompt()
+    assert '"missing_fields"' not in prompt
+    assert '"assumptions"' not in prompt
+    assert '"status"' not in prompt
+    # clarification_questions는 살아 있는 채널 — 수정·되묻기 답변 경로(primary.py)가 읽는다
+    assert '"clarification_questions"' in prompt
+
+
+def test_llm_missing_fields_are_ignored_by_validation():
+    """LLM이 낸 missing_fields/status는 검증 리포트에 반영되지 않는다.
+
+    이 검사가 깨지면 죽은 채널을 프롬프트에서 뺀 근거가 사라진 것이므로,
+    프롬프트 정리를 되돌리기 전에 여기부터 확인한다.
+    """
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[{"factor": "fundamental.per", "operator": "<=", "value": 10,
+                           "source_text": "PER 10 이하"}],
+        portfolio={"selection_count": 10, "rebalance_frequency": "monthly"},
+    ) | {
+        "status": "NEEDS_CLARIFICATION",
+        "missing_fields": ["strategy.risk_management.stop_loss"],
+        "assumptions": ["손절은 10%로 가정했습니다"],
+    })
+    _, report = run_validation(intent)
+
+    assert report.status == "READY"
+    assert "strategy.risk_management.stop_loss" not in report.missing_fields
+
+
 def test_etf_theme_is_not_unsupported_and_compiles_to_etf_theme():
     """ETF 테마('반도체 종목 ETF')는 미지원 개념이 아니라 etf_theme로 컴파일된다.
 
@@ -1812,3 +1885,126 @@ def test_prune_sector_question_when_deterministic_sector_filled():
     report2 = make_report()
     _prune_clarifications_filled_by_overrides(report2, unfilled)
     assert len(report2.clarification_questions) == 2
+
+
+# ── 신규 상장(IPO) 유니버스 (FR-STR-073) ─────────────────────────────────────
+# "2026년 신규 상장 종목" = 상장일이 그 구간에 속하는 종목 집합(코호트).
+
+def _new_listing_intent(**universe_overrides):
+    return StrategyIntent(**_full_intent_dict(universe={
+        "markets": [], "sectors": [], "symbols": [], "etf_theme": None,
+        "new_listing_only": True, **universe_overrides,
+    }))
+
+
+def test_new_listing_without_period_asks_instead_of_defaulting():
+    # "신규 상장 종목"에는 시기가 없다 — 날짜를 조용히 확정하지 않고 묻는다.
+    validated, report = run_validation(_new_listing_intent())
+    assert "strategy.universe.listing_from" in report.missing_fields
+    question = next(q for q in report.clarification_questions
+                    if q.field == "strategy.universe.listing_from")
+    assert "상장" in question.question
+    assert not report.is_valid
+    # 개념은 살아남고 구간은 비어 있다 — 이래야 다음 턴에 제한이 증발하지 않는다.
+    assert validated.strategy.universe.new_listing_only is True
+    assert validated.strategy.universe.listing_from is None
+
+
+def test_new_listing_year_cohort_is_ready_and_compiles():
+    intent = _new_listing_intent(listing_from="2026-01-01", listing_to="2026-12-31")
+    validated, report = run_validation(intent)
+    assert "strategy.universe.listing_from" not in report.missing_fields
+    parsed = compile_strategy(validated, report, "2026년 신규 상장 종목 전략")
+    assert parsed.new_listing_only is True
+    assert (parsed.listing_from, parsed.listing_to) == ("2026-01-01", "2026-12-31")
+    # 신규 상장은 대부분 코스닥이라 KOSPI200 기본값이면 유니버스가 비어 버린다.
+    assert parsed.universe == ["KOSPI", "KOSDAQ"]
+
+
+def test_listing_window_implies_the_concept():
+    # 구간만 내고 개념 플래그를 빠뜨리는 드리프트는 형식 정규화로 복구한다.
+    intent = StrategyIntent(**_full_intent_dict(universe={
+        "markets": ["KOSDAQ"], "sectors": [], "listing_from": "2025-01-01",
+    }))
+    assert intent.strategy.universe.new_listing_only is True
+
+
+def test_new_listing_counts_as_explicit_universe():
+    # 사용자가 대상을 말했으므로 "어떤 시장을 대상으로 할까요?"를 다시 묻지 않는다.
+    from strategy_conversation.response.provenance import explicit_fields_from_spec
+
+    spec = _new_listing_intent().strategy
+    assert "universe" in explicit_fields_from_spec(spec)
+
+
+def test_new_listing_partial_compile_leaves_engine_field_unset():
+    from strategy_conversation.compiler.strategy_compiler import compile_partial
+
+    validated, report = run_validation(_new_listing_intent())
+    parsed, _dropped = compile_partial(validated, report, "신규 상장 종목 전략")
+    # 되묻는 중에는 엔진에 아무 구간도 넘어가지 않는다(무단 확정 금지).
+    assert parsed.listing_from is None and parsed.listing_to is None
+    # 개념은 보존돼 유니버스 슬롯이 채워진 것으로 판정된다.
+    from engine import strategy_slots
+
+    assert parsed.new_listing_only is True
+    universe = next(s for s in strategy_slots.evaluate(
+        parsed, explicit_fields=["universe"], require_explicit=True,
+    ) if s.field == strategy_slots.UNIVERSE)
+    assert universe.filled is True
+
+
+def test_backtest_window_clamped_to_listing_cohort():
+    # [회귀] 2026-07-29: "2026년 신규 상장 종목"이 기본 5년 창으로 2022년부터 백테스트됐다 —
+    # 그 종목들이 존재하지도 않던 구간이다.
+    from engine.nl_parser import enforce_strategy_minimums
+
+    intent = _new_listing_intent(listing_from="2026-01-01", listing_to="2026-12-31")
+    validated, report = run_validation(intent)
+    parsed = compile_strategy(validated, report, "2026년 신규 상장 종목 전략")
+    assert parsed.backtest_start_date is None      # 사용자가 검증 기간을 말하지 않았다
+    notices = enforce_strategy_minimums(parsed)
+    assert parsed.backtest_start_date == "2026-01-01"
+    assert any("2026" in n and "시작일" in n for n in notices)
+
+
+def test_backtest_window_not_clamped_when_user_starts_later():
+    # 사용자가 상장 구간보다 늦게 시작하겠다고 했으면 그대로 둔다(하한만 방어).
+    from engine.nl_parser import enforce_strategy_minimums
+
+    intent = _new_listing_intent(listing_from="2026-01-01", listing_to="2026-12-31")
+    validated, report = run_validation(intent)
+    parsed = compile_strategy(validated, report, "2026년 신규 상장 종목 전략")
+    parsed.backtest_start_date = "2026-04-01"
+    enforce_strategy_minimums(parsed)
+    assert parsed.backtest_start_date == "2026-04-01"
+
+
+def test_etf_universe_rejects_new_listing_filter():
+    intent = StrategyIntent(**_full_intent_dict(universe={
+        "markets": ["ETF"], "sectors": [], "new_listing_only": True,
+        "listing_from": "2026-01-01", "listing_to": "2026-12-31",
+    }, entry_conditions=[
+        {"factor": "technical.rsi", "operator": "<=", "value": 30},
+    ]))
+    validated, report = run_validation(intent)
+    assert any("신규 상장" in f for f in report.unsupported_features)
+    # 조용히 무시하지 않고 제거 사실이 알려진다.
+    assert validated.strategy.universe.new_listing_only is False
+    assert validated.strategy.universe.listing_from is None
+
+
+def test_new_listing_survives_decompile_compile_roundtrip():
+    from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
+    from strategy_conversation.interpreter.models import ValidationReport
+
+    prev = _rich_parsed()
+    prev.new_listing_only = True
+    prev.listing_from = "2026-01-01"
+    prev.listing_to = "2026-12-31"
+    spec = decompile_strategy(prev)
+    intent = StrategyIntent(intent="CREATE_STRATEGY", strategy=spec, confidence=1.0)
+    roundtrip = compile_strategy(
+        intent, ValidationReport(is_valid=True, status="READY"), prev.description
+    )
+    assert roundtrip.model_dump() == prev.model_dump()

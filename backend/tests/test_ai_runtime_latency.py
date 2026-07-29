@@ -23,6 +23,8 @@ class _DummyParsed:
     fee_rate = 0.015
     slippage_rate = 0.05
     backtest_start_date = None
+    listing_from = None
+    listing_to = None
 
     def model_dump(self):
         return {"universe": ["KOSPI200"]}

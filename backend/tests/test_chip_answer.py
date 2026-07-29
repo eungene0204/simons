@@ -114,11 +114,12 @@ def test_replan_emits_next_pending_ask(monkeypatch):
     assert result is not None
     assert result["clarification_question"] == "어떤 조건에서 매도할까요?"
     assert result["clarification_priority"] == "dag_planner"
-    assert result["pending_ask"] == {
-        "topic": "매도조건",
-        "question": "어떤 조건에서 매도할까요?",
-        "chips": ["데드크로스(5일/20일) 발생 시 매도"],
-    }
+    assert result["pending_ask"]["topic"] == "매도조건"
+    assert result["pending_ask"]["question"] == "어떤 조건에서 매도할까요?"
+    assert result["pending_ask"]["chips"] == ["데드크로스(5일/20일) 발생 시 매도"]
+    # 칩=값 결속 계약 — 다음 턴의 클릭이 재해석 없이 쓸 값이 함께 실린다.
+    binding = result["pending_ask"]["chip_bindings"]["데드크로스(5일/20일) 발생 시 매도"]
+    assert binding["exit_signals"][0]["indicator"] == "ma_crossover"
 
 
 def test_replan_off_mode_returns_no_question(monkeypatch):
@@ -171,3 +172,69 @@ def test_cache_key_varies_with_pending_ask():
     with_ask = nl_cache_key("손절 8%", "ollama", None, prev,
                             _pending_ask(["손절 8%"]))
     assert base != with_ask
+
+
+# ─── 칩=값 결속 계약(2026-07-29 '거래량 급감' 사고) ──────────────────────────────
+# 칩은 우리 agent가 만들어 보여준 열거형 선택지다 — 값은 보여주는 순간 이미 알고
+# 있어야 하고, 클릭은 그 값을 꺼내 쓰는 행위여야 한다. 값이 결속되지 않는 칩은
+# 엔진이 표현할 수 없는 조건이므로 애초에 노출되지 않는다.
+
+
+def test_unbindable_chip_is_not_emitted():
+    """엔진이 표현할 수 없는 칩(거래량 급감)은 발행 단계에서 탈락한다."""
+    prev = ParsedStrategy.model_validate(_etf_strategy())
+    payload = _pending_ask_payload(
+        "언제 팔까요?",
+        ["데드크로스(5일/20일) 발생 시 매도", "거래량 급감(전일 대비 1/2 이하) 시 매도"],
+        "매도 조건",
+        prev,
+    )
+    assert payload is not None
+    assert payload["chips"] == ["데드크로스(5일/20일) 발생 시 매도"]
+    assert "거래량 급감(전일 대비 1/2 이하) 시 매도" not in payload["chip_bindings"]
+
+
+def test_all_chips_unbindable_drops_the_chip_list():
+    """전부 결속 실패면 pending_ask 자체를 내지 않는다(질문만 남고 자유 서술로)."""
+    prev = ParsedStrategy.model_validate(_etf_strategy())
+    assert _pending_ask_payload(
+        "언제 팔까요?", ["거래량 급감(전일 대비 1/2 이하) 시 매도"], "매도 조건", prev,
+    ) is None
+
+
+def test_description_only_change_is_not_an_applied_chip():
+    """description만 달라진 칩은 '반영'이 아니다 — 무변경을 확정으로 오보고하지 않는다."""
+    prev = _etf_strategy()
+    ask = _pending_ask(["거래량 급감(전일 대비 1/2 이하) 시 매도"], topic="매도 조건")
+    assert run_chip_answer("거래량 급감(전일 대비 1/2 이하) 시 매도", prev, ask) is None
+
+
+def test_click_applies_stored_binding_without_reinterpreting_the_label():
+    """클릭은 발행 때 결속한 값을 그대로 쓴다 — 칩 문구 재추출을 거치지 않는다."""
+    prev = _etf_strategy()
+    ask = {
+        "topic": "매도 조건", "question": "언제 팔까요?",
+        "chips": ["데드크로스(5일/20일) 발생 시 매도"],
+        "chip_bindings": {
+            "데드크로스(5일/20일) 발생 시 매도": {
+                "exit_signals": [{
+                    "indicator": "ma_crossover", "signal_type": "sell",
+                    "short_period": 5, "long_period": 20,
+                }],
+            },
+        },
+    }
+
+    def _fail(*args, **kwargs):
+        raise AssertionError("결속된 칩이 문구 재추출을 호출했다")
+
+    import engine.nl_parser as nl_parser_mod
+    original = nl_parser_mod._apply_prompt_overrides
+    nl_parser_mod._apply_prompt_overrides = _fail
+    try:
+        result = run_chip_answer("데드크로스(5일/20일) 발생 시 매도", prev, ask)
+    finally:
+        nl_parser_mod._apply_prompt_overrides = original
+    assert result is not None
+    assert result["parsed"].exit_signals[0].indicator == "ma_crossover"
+    assert result["parsed"].exit_signals[0].long_period == 20

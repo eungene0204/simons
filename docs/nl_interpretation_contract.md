@@ -34,7 +34,7 @@
 | `PORTFOLIO(...)` / `REBALANCE(...)` | `strategy.portfolio` |
 | `PERIOD(...)` / `CAPITAL(...)` | `strategy.backtest` |
 | `UPDATE(field=,value=)` | `intent="MODIFY_STRATEGY"` + `patches[]` (JSON Patch) |
-| `NEED_CLARIFICATION(field=)` | `status="NEEDS_CLARIFICATION"` + `missing_fields[]` + `clarification_questions[]` |
+| `NEED_CLARIFICATION(field=)` | 값을 `null`로 둔다 → 검증 계층이 `missing_fields[]` + `clarification_questions[]` 산출 |
 | `UNSUPPORTED(reason=)` | `intent="UNSUPPORTED_REQUEST"` 또는 `unsupported_features[]` |
 | `OUT_OF_SCOPE(reason=)` | `intent="NON_STRATEGY_REQUEST"` |
 | Regex 형식 검증 | `output_repair.extract_json_object` + Pydantic `field_validator` |
@@ -243,13 +243,15 @@ LLM은 JSON 오브젝트 **하나만** 출력한다. 설명·마크다운·주�
 {
   "schema_version": "1.0",
   "intent": "CREATE_STRATEGY",
-  "status": "NEEDS_CLARIFICATION",
   "strategy": {
     "name": null,
     "universe": {"markets": ["KOSPI", "KOSDAQ"], "sectors": [], "etf_theme": null},
     "entry_conditions": [
       {"factor": "fundamental.per", "operator": "<=", "value": 10,
-       "unit": "ratio", "source_text": "PER이 10보다 낮은"}
+       "unit": "ratio", "source_text": "PER이 10보다 낮은"},
+      {"factor": "technical.ma_crossover", "operator": "crosses_above", "value": null,
+       "parameters": {"short_period": 1, "long_period": 20},
+       "source_text": "20일선을 상향 돌파하면"}
     ],
     "exit_conditions": [],
     "ranking": [],
@@ -261,13 +263,24 @@ LLM은 JSON 오브젝트 **하나만** 출력한다. 설명·마크다운·주�
                  "initial_capital": null, "fee_rate": null, "slippage_rate": null}
   },
   "patches": [],
-  "missing_fields": [],
   "unsupported_features": [],
-  "assumptions": [],
   "clarification_questions": [],
   "confidence": 0.9
 }
 ```
+
+> `status`·`missing_fields`·`assumptions`는 **LLM 출력 계약이 아니다**(2026-07-30 제거).
+> 셋 다 파이프라인이 읽지 않는 죽은 채널이었다 — 상태는 `validation/pipeline.py`가
+> 오류·누락으로 재판정하고(`report.status`), 누락 필드는 `validate_completeness`가
+> 결정론으로 산출하며, `assumptions`는 어디에서도 소비되지 않는다(recall 검사도 제외).
+> `StrategyIntent` 모델에는 기본값으로 남아 있어 구버전 출력도 그대로 검증된다.
+> `clarification_questions`는 살아 있다 — 수정·되묻기 답변 경로(`primary.py`)가 읽는다.
+
+> **형태에 없는 키는 규칙 문장으로 이길 수 없다.** 조건 예시에 `parameters`가 빠져 있으면
+> 9B는 규칙 5-3의 상세한 매핑을 무시하고 `parameters: null`을 낸다 — 사용자가 말한 기간
+> ("20일선")이 사라져 시스템이 되묻는 사고로 이어진다(2026-07-30, `etf_theme` 2026-07-27과
+> 같은 실패 방식). 그래서 형태에 크로스오버 조건을 `parameters`와 함께 싣는다.
+> 새 필드를 계약에 추가할 때는 규칙 문장만 쓰지 말고 **형태에도 반드시 넣는다**.
 
 ### intent (하나 선택)
 
@@ -297,20 +310,21 @@ OR 결합은 현재 계약에 없다 — OR가 필요한 요청은 `unsupported_
 
 사용자가 말하지 않은 값을 임의로 확정하지 않는다. 가능한 동작은 셋뿐이다.
 
-1. **질문한다** — `missing_fields`에 필드 경로, `clarification_questions`에 질문,
-   `status="NEEDS_CLARIFICATION"`
+1. **질문한다** — LLM은 값을 `null`로 두기만 한다. 누락 필드 산출과 되묻기 질문 생성은
+   결정론 검증 계층(`validate_completeness`)의 책임이다(LLM이 낸 `missing_fields`는
+   읽지 않는다 — § 4 참고).
 2. **추천값을 제시한다** — `recommended_value` + `requires_confirmation=true`.
    확정값(`value`)에는 넣지 않는다. `value_source`는 `SYSTEM_RECOMMENDED`.
 3. **사용자가 자동 설정을 명시 허용한 경우에만** 기본값을 쓴다.
 
 ```text
 "많이 떨어지면 팔아줘"
-  → risk_management.stop_loss = null
-     missing_fields = ["strategy.risk_management.stop_loss"]
+  → risk_management.stop_loss = null            (LLM 출력)
+  → missing_fields = ["strategy.risk_management.stop_loss"]   (검증 계층 산출)
      clarification_questions = [{"field": "strategy.risk_management.stop_loss",
                                  "question": "몇 % 하락 시 손절할까요?",
                                  "recommended_value": 10}]
-     status = "NEEDS_CLARIFICATION"
+     report.status = "NEEDS_CLARIFICATION"
 
 "영업이익률이 높은 기업"
   → entry_conditions = [{"factor": "fundamental.operating_margin",

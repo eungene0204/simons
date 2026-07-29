@@ -194,3 +194,74 @@ def test_frontend_parity_fixture_is_current():
         "빈 슬롯 판정이 바뀌었는데 프론트 계약 픽스처가 낡았다 — "
         "python scripts/export_slot_judgments.py 로 갱신하고 프론트 parity 테스트를 확인할 것"
     )
+
+
+# ─── 시스템이 확정한 값의 재질문 금지 (FR-STR-073 ⑥, 2026-07-29) ──────────────
+
+def _cohort_strategy():
+    """신규 상장 코호트 전략 — 백테스트 창이 상장일 하한으로 확정된 상태."""
+    from engine.nl_parser import (
+        FundamentalFilter, ParsedStrategy, TechnicalSignal, enforce_strategy_minimums,
+    )
+
+    parsed = ParsedStrategy(
+        description="2026년 신규 상장 종목 투자 전략",
+        universe=["KOSPI", "KOSDAQ"], new_listing_only=True,
+        listing_from="2026-01-01", listing_to="2026-12-31",
+        fundamental_filters=[FundamentalFilter(metric="per", operator="<=", value=10)],
+        exit_signals=[TechnicalSignal(indicator="ma_crossover", signal_type="sell",
+                                      short_period=5, long_period=20)],
+        max_positions=10, rebalancing_period="none",
+        stop_loss_pct=15.0, take_profit_pct=30.0,
+    )
+    enforce_strategy_minimums(parsed)
+    return parsed
+
+
+_COHORT_KWARGS = dict(
+    explicit_fields=["universe", "max_positions", "rebalancing"],
+    require_explicit=True,
+    rebalancing_declined=True,
+)
+
+
+def test_new_listing_cohort_does_not_reask_backtest_period():
+    # [회귀] 요약 카드엔 "2026-01-01 ~ 현재"가 떠 있는데 "어느 기간의 과거 데이터로
+    # 백테스트할까요?"를 다시 묻던 사고. 창은 상장일 하한으로 확정돼 다른 답이 성립하지
+    # 않는다 — provenance("사용자가 말했나")로는 표현할 수 없어 _decided가 맡는다.
+    parsed = _cohort_strategy()
+    assert parsed.backtest_start_date == "2026-01-01"
+    status = {s.field: s.filled for s in slots.evaluate(parsed, **_COHORT_KWARGS)}
+    assert status[slots.BACKTEST_PERIOD] is True
+    assert slots.next_missing(parsed, **_COHORT_KWARGS).field == \
+        slots.INITIAL_CAPITAL
+
+
+def test_backtest_period_value_judgment_matches_provenance_fields():
+    # 값 판정(_has_value)과 provenance(explicit_fields_from_spec)는 같은 필드 집합을 봐야
+    # 한다 — 두 축이 서로 다른 필드를 보는 상태를 남겨두지 않는다는 계약. ParsedStrategy는
+    # backtest_period 기본값("5y")을 물질화하므로 이 세 필드가 모두 비는 일은 실제로는
+    # 없고(방어적 일관성), 아래는 그 계약을 직접 고정한다.
+    from engine.nl_parser import ParsedStrategy
+
+    parsed = ParsedStrategy(
+        description="명시 날짜가 있는 전략", universe=["KOSPI"],
+        backtest_start_date="2020-01-01", backtest_end_date="2024-12-31",
+    )
+    assert slots._has_value(parsed, slots.BACKTEST_PERIOD) is True
+    parsed.backtest_period = None      # 스키마상 도달 불가 — 계약만 확인한다
+    parsed.backtest_end_date = None
+    assert slots._has_value(parsed, slots.BACKTEST_PERIOD) is True
+    parsed.backtest_start_date = None
+    assert slots._has_value(parsed, slots.BACKTEST_PERIOD) is False
+
+
+def test_non_cohort_strategy_still_asks_backtest_period():
+    # 확정 근거(listing_from)가 없으면 종전대로 묻는다 — 가드가 전역으로 새지 않는다.
+    parsed = _cohort_strategy()
+    parsed.new_listing_only = False
+    parsed.listing_from = None
+    parsed.listing_to = None
+    parsed.backtest_start_date = None
+    assert slots.next_missing(parsed, **_COHORT_KWARGS).field == \
+        slots.BACKTEST_PERIOD

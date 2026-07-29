@@ -96,10 +96,13 @@ def dag_planner_mode() -> str:
     return mode if mode in ("off", "shadow", "primary") else "off"
 
 
-# DAG planner LLM 턴 예산(무한 루프 금지). 상한 6으로 클램프. 기본 4 —
-# 발행→도구 관찰→수정 발행→ask 표면화가 통상 2~3턴을 쓴다.
+# DAG planner LLM 턴 예산(무한 루프 금지). 상한 6으로 클램프. 기본 2 —
+# 발행→도구 관찰→수정 발행이 통상 흐름이고, 그 이상은 값을 거의 못 얻으면서
+# 지연만 키운다(2026-07-29 실측: warm 캐시에서도 planner 1턴 40~56초, 4턴 예산이
+# 파스 135초 중 114초를 먹었다). 예산 소진은 실패가 아니라 고정 파이프라인 폴백이므로
+# 부족하면 질문 품질이 조금 떨어질 뿐 대화가 깨지지 않는다. 롤백=STRATEGY_DAG_PLANNER_MAX_TURNS=4.
 def dag_planner_max_turns() -> int:
-    return max(1, min(6, int(_env_float("STRATEGY_DAG_PLANNER_MAX_TURNS", 4))))
+    return max(1, min(6, int(_env_float("STRATEGY_DAG_PLANNER_MAX_TURNS", 2))))
 
 
 # DAG 노드 수 예산(비대 DAG 차단). 상한 48로 클램프.

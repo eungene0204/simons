@@ -146,3 +146,54 @@ describe("buildBuilderTurnPresentation 지정 종목 배분 표시", () => {
     ).toMatchObject({ complete: true });
   });
 });
+
+describe("신규 상장 유니버스 표시 (FR-STR-073)", () => {
+  it("시장 라벨에 신규 상장 제한을 덧붙인다", () => {
+    // [회귀] 2026-07-29: "코스피·코스닥 전체"만 보여 전 종목 대상으로 읽히던 문제.
+    const presentation = buildBuilderTurnPresentation({
+      state: {
+        universe: "KOSPI_KOSDAQ",
+        new_listing_only: true,
+        listing_from: "2026-01-01",
+        listing_to: "2026-12-31",
+      },
+      reply: "",
+    });
+    const target = presentation.summaryItems.find((item) => item.label === "유니버스");
+    expect(target?.value).toBe("KOSPI·KOSDAQ 전체 · 2026년 상장");
+  });
+
+  it("제한이 없으면 시장 라벨만 남는다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: { universe: "KOSPI_KOSDAQ" },
+      reply: "",
+    });
+    const target = presentation.summaryItems.find((item) => item.label === "유니버스");
+    expect(target?.value).toBe("KOSPI·KOSDAQ 전체");
+  });
+});
+
+describe("백테스트 기간 표시 — 명시 날짜 우선 (FR-STR-073)", () => {
+  it("신규 상장 코호트로 창이 조정되면 상대 기간 라벨 대신 실제 창을 보여준다", () => {
+    // [회귀] 2026-07-29: "2026년 신규 상장"인데 기본 5년 라벨이 남아 2022년부터로 읽혔다.
+    const presentation = buildBuilderTurnPresentation({
+      state: { universe: "KOSPI_KOSDAQ", new_listing_only: true },
+      reply: "",
+      parsed: {
+        ...themeParsed,
+        target_symbols: [],
+        new_listing_only: true,
+        listing_from: "2026-01-01",
+        listing_to: "2026-12-31",
+        backtest_period: "5y",
+        backtest_start_date: "2026-01-01",
+        backtest_end_date: null,
+      },
+    });
+    const period = presentation.summaryItems.find((i) => i.label === "백테스트 기간");
+    expect(period?.value).toBe("2026-01-01 ~ 현재");
+    // [회귀] 창이 자동 확정됐는데 진행률 체크가 안 되던 사고 — 게이트와 같은 술어를 쓴다.
+    const slot = presentation.progressItems.find((i) => i.label === "백테스트 기간");
+    expect(slot?.complete).toBe(true);
+  });
+});

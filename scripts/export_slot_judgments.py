@@ -47,6 +47,8 @@ def _complete() -> dict:
         "take_profit_pct": 20.0,
         "trailing_stop_pct": None,
         "backtest_period": "5y",
+        "backtest_start_date": None,
+        "backtest_end_date": None,
         "initial_capital": 10_000_000,
     }
 
@@ -109,37 +111,58 @@ def build_cases() -> list[dict]:
             "target_symbols": ["108860", "139670"], "universe": [], "entry_signals": [],
         }),
         _case("업종만 지정", patch={"universe": [], "sector": "반도체"}),
+        # 신규 상장 유니버스(FR-STR-073) — 대상 시기를 되묻는 중이라 값이 없어도
+        # 사용자가 대상을 말한 것이므로 유니버스를 다시 묻지 않는다.
+        _case("신규 상장만 지정(대상 시기 되묻는 중)", patch={
+            "universe": [], "sector": None, "new_listing_only": True,
+            "listing_from": None, "listing_to": None,
+        }),
+        # [회귀 2026-07-29] 신규 상장 코호트는 창 시작이 상장일 하한으로 확정된다 —
+        # 시스템이 정한 값이라 provenance엔 없지만 다시 물으면 안 된다.
+        _case("신규 상장 코호트 — 백테스트 기간 재질문 금지", patch={
+            "new_listing_only": True, "listing_from": "2026-01-01",
+            "listing_to": "2026-12-31", "backtest_start_date": "2026-01-01",
+        }, explicit=[f for f in ALL_EXPLICIT if f != "backtest_period"]),
+        # 명시 날짜가 있는 창 — 날짜가 있다고 판정이 뒤집히지 않는다(회귀 고정).
+        _case("명시 날짜가 있는 백테스트 창", patch={
+            "backtest_start_date": "2020-01-01", "backtest_end_date": "2024-12-31",
+        }),
     ]
     return cases
 
 
-def judge(case: dict) -> tuple[dict, Optional[str]]:
-    """(프론트가 실제로 받는 parsed, 정본 판정). parsed는 모델 검증을 거친 dump다 —
+def judge(case: dict) -> tuple[dict, Optional[str], list[str]]:
+    """(프론트가 받는 parsed, 첫 빈 슬롯, 채워진 슬롯 라벨). parsed는 모델 검증을 거친 dump다 —
     입력값 그대로 두면 모델 보정(하한 클램프 등)이 두 런타임을 갈라놓는다."""
     from engine.nl_parser import ParsedStrategy
     from engine import strategy_slots
 
     parsed = ParsedStrategy.model_validate(case["parsed"])
-    status = strategy_slots.next_missing(
-        parsed,
+    kwargs = dict(
         explicit_fields=case["explicitFields"],
         require_explicit=True,
         rebalancing_declined=case["allowNoRebalancing"],
     )
-    return parsed.model_dump(mode="json"), (status.field if status else None)
+    status = strategy_slots.next_missing(parsed, **kwargs)
+    # 슬롯별 정답도 함께 내보낸다 — '첫 빈 슬롯' 하나만으로는 슬롯별로 표시하는 소비자
+    # (진행률 패널)를 대조할 수 없어, 게이트만 고치고 패널이 낡은 채 남았다(2026-07-29).
+    filled = strategy_slots.filled_slots(parsed, **kwargs)
+    return parsed.model_dump(mode="json"), (status.field if status else None), filled
 
 
 def build_fixture() -> dict[str, Any]:
     cases = []
     for case in build_cases():
-        parsed_dump, missing_field = judge(case)
+        parsed_dump, missing_field, filled_slots = judge(case)
         cases.append({**case, "parsed": parsed_dump,
-                      "expectedMissingField": missing_field})
+                      "expectedMissingField": missing_field,
+                      "expectedFilledSlots": filled_slots})
     return {
         "_comment": (
             "engine/strategy_slots.py(빈 슬롯 판정 SOT)가 생성한 계약 픽스처. "
             "직접 편집하지 말 것 — python scripts/export_slot_judgments.py 로 갱신한다. "
-            "프론트 게이트(backtestReadiness.ts)는 같은 입력에 같은 답을 내야 한다."
+            "프론트 게이트(backtestReadiness.ts)와 진행률 패널"
+            "(builderProgressPresentation.ts)은 같은 입력에 같은 답을 내야 한다."
         ),
         "cases": cases,
     }

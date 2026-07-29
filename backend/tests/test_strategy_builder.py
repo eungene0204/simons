@@ -1454,3 +1454,109 @@ def test_bf18_restart_seeds_from_same_message():
     # 단일 종목 모드는 재시작해도 대상 종목을 유지한다.
     single = sb.BuilderState(universe="KOSPI", single_symbol="005930", single_label="삼성전자")
     assert _step(single, "처음부터 다시").state.single_symbol == "005930"
+
+
+# ─── 신규 상장(IPO) 유니버스 (FR-STR-073) ─────────────────────────────────────
+# 실측 사고(2026-07-29): "2026년 신규 상장 종목 투자 전략"이 빌더로 넘어가면서 제한이
+# 통째로 사라져 코스피·코스닥 전 종목(삼양홀딩스·CJ대한통운 등)이 매매됐다. 빌더는
+# LLM 인터프리터의 해석을 BuilderState로 이어받아 최종 DSL까지 실어야 한다.
+
+def test_apply_parsed_seed_inherits_listing_window():
+    state = sb.apply_parsed_seed(sb.BuilderState(), {
+        "new_listing_only": True, "listing_from": "2026-01-01", "listing_to": "2026-12-31",
+    })
+    assert state.new_listing_only is True
+    assert (state.listing_from, state.listing_to) == ("2026-01-01", "2026-12-31")
+
+
+def test_apply_parsed_seed_keeps_concept_when_period_pending():
+    # 대상 시기를 되묻는 중이면 구간 없이 개념만 이어받는다 — 여기서 버리면 다음 턴에 증발한다.
+    state = sb.apply_parsed_seed(sb.BuilderState(), {"new_listing_only": True})
+    assert state.new_listing_only is True
+    assert state.listing_from is None
+
+
+def test_builder_asks_listing_period_after_universe():
+    state = sb.BuilderState(new_listing_only=True, universe="KOSPI_KOSDAQ")
+    assert sb.required_missing(state) == "listing_period"
+    question, chips = sb.next_question(state, just_filled={"universe"})
+    assert "어느 시기" in question
+    assert any("년 상장" in chip for chip in chips)
+
+
+def test_builder_listing_period_chip_answer_is_deterministic():
+    state = sb.BuilderState(new_listing_only=True, universe="KOSPI_KOSDAQ")
+    result = _step(state, "2026년 상장")
+    assert (result.state.listing_from, result.state.listing_to) == ("2026-01-01", "2026-12-31")
+    # 시기가 정해지면 더 묻지 않고 다음 슬롯으로 넘어간다.
+    assert sb.required_missing(result.state) == "strategy_type"
+    # 상장 시기가 모멘텀 룩백으로 오귀속되면 안 된다.
+    assert result.state.lookback_days is None
+
+
+def test_parse_listing_period_year_cohort():
+    assert sb._parse_listing_period("2026년 상장") == {
+        "listing_from": "2026-01-01", "listing_to": "2026-12-31",
+    }
+    # '이후/부터'가 붙으면 상한이 없다.
+    assert sb._parse_listing_period("2025년 이후 상장") == {
+        "listing_from": "2025-01-01", "listing_to": None,
+    }
+
+
+def test_parse_listing_period_relative_window():
+    from datetime import date, timedelta
+
+    result = sb._parse_listing_period("최근 1년 내 상장")
+    assert result["listing_to"] is None
+    assert result["listing_from"] == (date.today() - timedelta(days=365)).isoformat()
+
+
+def test_parse_listing_period_rejects_unrecognized_and_future():
+    from datetime import date
+
+    assert sb._parse_listing_period("아무거나") is None
+    assert sb._parse_listing_period("0개월") is None
+    # 맨숫자는 연도인지 기간인지 모호해 해석하지 않는다.
+    assert sb._parse_listing_period("2026") is None
+    # 아직 오지 않은 해엔 상장 종목이 존재할 수 없다.
+    assert sb._parse_listing_period(f"{date.today().year + 1}년 상장") is None
+
+
+def test_build_parsed_strategy_carries_listing_window():
+    state = sb.BuilderState(
+        universe="KOSPI_KOSDAQ", new_listing_only=True,
+        listing_from="2026-01-01", listing_to="2026-12-31",
+        strategy_type="golden_cross", ma_kind="sma", ma_short=5, ma_long=20,
+        holding_count=10, rebalance_cycle="none", risk_done=True,
+    )
+    parsed = sb.build_parsed_strategy(state)
+    assert parsed.new_listing_only is True
+    assert (parsed.listing_from, parsed.listing_to) == ("2026-01-01", "2026-12-31")
+    # custom 유형은 이 문장이 다시 파싱되므로 제한이 문장에도 남아야 한다.
+    assert "신규 상장" in parsed.description and "2026년 상장" in parsed.description
+
+
+def test_new_listing_not_applied_to_designated_symbols():
+    # 지정 종목/테마 목록 모드는 사용자가 종목을 직접 고른 것이라 상장 시기로 거르지 않는다.
+    state = sb.BuilderState(
+        single_symbol="005930", single_label="삼성전자",
+        new_listing_only=True, listing_from="2026-01-01", listing_to="2026-12-31",
+        strategy_type="golden_cross", ma_kind="sma", ma_short=5, ma_long=20, risk_done=True,
+    )
+    parsed = sb.build_parsed_strategy(state)
+    assert parsed.new_listing_only is False
+    assert parsed.listing_from is None
+
+
+def test_etf_universe_skips_listing_period_question():
+    # ETF엔 상장일 기반 판정이 없다 — 묻지도 않고 DSL에도 싣지 않는다.
+    state = sb.BuilderState(new_listing_only=True, universe="ETF")
+    assert sb.required_missing(state) == "strategy_type"
+    state = state.model_copy(update={
+        "strategy_type": "golden_cross", "ma_kind": "sma", "ma_short": 5, "ma_long": 20,
+        "holding_count": 5, "rebalance_cycle": "none", "risk_done": True,
+    })
+    parsed = sb.build_parsed_strategy(state)
+    assert parsed.new_listing_only is False
+    assert parsed.listing_from is None

@@ -99,6 +99,18 @@ def _cross_period_chip(role: str, short: int, long: int) -> str:
     return f"데드크로스({short}일/{long}일) 발생 시 매도"
 
 
+def _new_listing_period_chips() -> List[str]:
+    """신규 상장 대상 시기 되묻기 칩(FR-STR-073) — 최근 연도 코호트 + 상대 기간.
+
+    사용자 어휘 그대로라 그대로 재전송하면 인터프리터가 상장 구간으로 해석한다.
+    연도는 오늘 기준으로 만든다(해가 바뀌면 칩도 따라간다).
+    """
+    from datetime import date
+
+    year = date.today().year
+    return [f"{year}년 상장", f"{year - 1}년 상장", "최근 1년 내 상장", "최근 3년 내 상장"]
+
+
 def _build_clarification(
     report: ValidationReport, intent: StrategyIntent
 ) -> tuple[Optional[str], Optional[List[str]]]:
@@ -139,6 +151,9 @@ def _build_clarification(
                 # display_name의 괄호 설명은 칩에서 제거해 수정 파서 어휘와 맞춘다
                 name = spec.display_name.split("(")[0]
                 chips.append(f"{name} {q.recommended_value:g}{unit} {direction}")
+        elif q.field == "strategy.universe.listing_from":
+            # 신규 상장 대상 시기(FR-STR-073) — 사용자 어휘 그대로 되보낼 수 있는 칩.
+            chips.extend(_new_listing_period_chips())
     for role in coalesced_cross_roles:
         role_label = "매수(진입)" if role == "entry" else "매도(청산)"
         lines.append(
@@ -590,21 +605,16 @@ def run_primary_parse(
             clarification_question, clarification_suggestions, dag_topic = planner_ask
             clarification_priority = "dag_planner"
             pending_ask = _pending_ask_payload(
-                clarification_question, clarification_suggestions, dag_topic
+                clarification_question, clarification_suggestions, dag_topic, parsed
             )
-    elif clarification_question is not None and config.dag_planner_mode() == "primary":
-        # Phase 4 잔여 경로: planner-first가 실패(None)한 턴의 재시도 — 되묻기 질문·칩
-        # 선택을 DAG planner가 담당한다(유니버스별 질문 규칙은 planner 프롬프트 계약).
-        # 우선순위 마커로 프론트 explicit 게이트(유니버스 무인지 고정 칩)의 삼킴을 막는다.
-        # planner 실패(None)·예외는 기존 고정 질문 유지(단독 실패 지점 불가).
-        dag_clarification = _dag_planner_clarification(
-            user_input, parsed, turn_explicit_fields)
-        if dag_clarification is not None:
-            clarification_question, clarification_suggestions, dag_topic = dag_clarification
-            clarification_priority = "dag_planner"
-            pending_ask = _pending_ask_payload(
-                clarification_question, clarification_suggestions, dag_topic
-            )
+            # 결속된 칩만 보인다 — 전부 탈락하면 질문은 남기고 자유 서술로 받는다.
+            clarification_suggestions = pending_ask["chips"] if pending_ask else None
+    # planner-first가 실패(None)한 턴의 '재계획' 분기는 제거됐다(2026-07-29). planner는
+    # mode=primary인 모든 턴에서 이미 최선두로 돌기 때문에, 그 분기는 **실패한 계획을
+    # 처음부터 다시 세우는 재시도 전용**이었다 — 값은 거의 못 얻으면서 LLM 턴 예산을 한 벌
+    # 더 쓴다(실측: 예산 소진 → 재계획으로 planner가 한 파스에서 6회 호출, 148초 + 84초).
+    # 예산 소진은 실패가 아니라 검증 리포트의 고정 질문으로 폴백하는 정상 경로다.
+    # (_dag_planner_clarification 자체는 칩 답변 턴의 재계획 _replan_next_question이 계속 쓴다.)
     if report.unsupported_features:
         features = ", ".join(_humanize_features(report.unsupported_features))
         notices.append(
@@ -733,7 +743,8 @@ def _dag_state_summary(
         return types
 
     summary: Dict[str, Any] = {}
-    for field in ("universe", "sector", "etf_theme", "target_symbols", "max_positions",
+    for field in ("universe", "sector", "etf_theme", "target_symbols",
+                  "new_listing_only", "listing_from", "listing_to", "max_positions",
                   "rebalancing_period", "ranking_metric", "ranking_lookback_days",
                   "stop_loss_pct", "take_profit_pct", "trailing_stop_pct",
                   "hold_period_days", "backtest_period", "initial_capital"):
@@ -787,18 +798,87 @@ def _dag_planner_clarification(
     return result.question, (list(result.chips) or None), result.topic
 
 
+# 칩 결속에서 '값'으로 세지 않는 필드 — description은 발화 원문 보관용이라 전략을
+# 바꾸지 않는다. 이 필드만 달라진 칩은 결속 실패다(무변경을 반영으로 오보고하던 구멍).
+_CHIP_BINDING_IGNORED_FIELDS = frozenset({"description"})
+
+
+def _bind_chips(
+    chips: List[str], parsed: Any, topic: Optional[str]
+) -> tuple[List[str], Dict[str, Dict[str, Any]]]:
+    """칩이 뜻하는 State 변경을 **발행 시점에** 확정한다(칩=값 결속 계약).
+
+    칩은 우리 agent가 만들어 보여준 열거형 선택지다 — 값은 보여주는 순간 이미 알고
+    있어야 하고, 클릭은 그 값을 꺼내 쓰는 행위여야 한다(재해석 금지). 그래서
+    ① 결속되는 칩만 사용자에게 보이고 ② 클릭은 여기서 저장한 값을 그대로 적용한다.
+    여기서 결속하지 못한 칩은 엔진이 표현할 수 없는 조건이므로 애초에 내보내지 않는다
+    (2026-07-29 사고: planner가 지어낸 '거래량 급감(전일 대비 1/2 이하) 시 매도'가
+    그대로 노출됐고, 클릭하면 volume 하락은 registry에 없어 미해석 안내로 끝났다).
+
+    유니버스 범위 칩은 여기서 다루지 않는다 — 칩이 카탈로그 후보 표기 그대로라 결속이
+    이미 보장돼 있고(_planner_scope_ask), 결속 시도가 테마 상장사 조회를 칩 수만큼
+    반복해 발행 지연을 키운다. 클릭 시 _apply_universe_chip이 결정론으로 적용한다.
+    반환: (보여줄 칩, {칩: {필드: 값}})."""
+    if _is_universe_topic(topic):
+        return list(chips), {}
+    from engine.nl_parser import ParsedStrategy, _apply_prompt_overrides
+
+    try:
+        base = ParsedStrategy.model_validate(
+            parsed.model_dump() if hasattr(parsed, "model_dump") else parsed
+        ).model_dump()
+    except Exception:  # noqa: BLE001 — 비정상 State는 결속 없이 기존 동작 유지
+        return list(chips), {}
+
+    bound: List[str] = []
+    bindings: Dict[str, Dict[str, Any]] = {}
+    for chip in chips:
+        text = (chip or "").strip()
+        if not text:
+            continue
+        try:
+            after = _apply_prompt_overrides(
+                ParsedStrategy.model_validate(base), text,
+                skip_signal_validation=True, preserve_universe=True,
+            ).model_dump()
+        except Exception:  # noqa: BLE001 — 결속 실패는 칩 탈락이지 파스 실패가 아니다
+            logger.warning("칩 결속 실패 — 칩 제외 | chip=%s", text, exc_info=True)
+            continue
+        patch = {
+            key: value for key, value in after.items()
+            if key not in _CHIP_BINDING_IGNORED_FIELDS and base.get(key) != value
+        }
+        if not patch:
+            _log_llm("↩ 칩 결속 실패", f"칩 '{text}' 값 미결속 — 표현할 수 없어 노출 제외")
+            continue
+        bound.append(text)
+        bindings[text] = patch
+    return bound, bindings
+
+
 def _pending_ask_payload(
-    question: Optional[str], chips: Optional[List[str]], topic: Optional[str]
+    question: Optional[str], chips: Optional[List[str]], topic: Optional[str],
+    parsed: Any = None,
 ) -> Optional[Dict[str, Any]]:
     """planner ask를 프론트가 다음 턴에 에코할 pending_ask로 만든다(FR 칩 답변 귀속).
 
     previous_coach_text(FR-STR-019e)와 같은 무상태 컨텍스트 에코 계약 — 백엔드는
     세션을 들지 않고, 프론트가 이 blob을 다음 파스 요청에 그대로 실어 보낸다.
     칩이 없는 질문은 에코해도 결정론 귀속(정확 일치)이 성립하지 않으므로 내지 않는다.
+    parsed가 주어지면 칩을 값에 결속해(_bind_chips) 결속된 칩만 싣는다 — 호출자는
+    payload["chips"]를 사용자에게 보일 칩 목록의 정본으로 삼아야 한다.
     """
     if not question or not chips:
         return None
-    return {"topic": topic, "question": question, "chips": list(chips)}
+    if parsed is None:
+        return {"topic": topic, "question": question, "chips": list(chips)}
+    bound, bindings = _bind_chips(list(chips), parsed, topic)
+    if not bound:
+        return None
+    return {
+        "topic": topic, "question": question, "chips": bound,
+        "chip_bindings": bindings,
+    }
 
 
 def _plan_first(user_input: str) -> Optional[Any]:
@@ -1016,7 +1096,9 @@ def _replan_next_question(
     if dag_clarification is None:
         return None, None, None, None
     question, chips, topic = dag_clarification
-    return question, chips, "dag_planner", _pending_ask_payload(question, chips, topic)
+    next_ask = _pending_ask_payload(question, chips, topic, parsed)
+    # 결속된 칩만 보인다(_bind_chips) — 재계획 질문의 칩도 같은 계약을 따른다.
+    return question, (next_ask["chips"] if next_ask else None), "dag_planner", next_ask
 
 
 def run_chip_answer(
@@ -1032,6 +1114,9 @@ def run_chip_answer(
     원문 해석이 아니라 LLM 출력 정규화다(계약 § 판정 기준). 효과:
     ① 오귀속 제거 — 어느 ask의 답인지 프론트 에코(pending_ask)가 확정한다
     ② 수정 인터프리터 LLM 턴 생략(지연 절감)
+    칩 값은 발행 시점에 이미 결속돼 pending_ask.chip_bindings로 에코된다(_bind_chips)
+    — 클릭은 그 값을 꺼내 쓰는 것이지 칩 문구를 다시 해석하는 것이 아니다. 결속이 없는
+    구(舊) 에코만 칩 문구 결정적 추출로 강등한다(하위 호환 안전망).
     결정적으로 적용되지 않는 칩(추출 실패)은 None — 기존 수정 인터프리터 경로가
     처리한다(칩 자기완결 계약의 안전망). 정확 일치가 아닌 자유 서술 답변도 None —
     §4(답변 강제 귀속 금지)에 따라 Interpreter가 State 변경을 판정한다.
@@ -1057,15 +1142,29 @@ def run_chip_answer(
         # (테마 카탈로그 정합)이 성립한다. 원문 해석이 아니라 시스템 생성 선택지의
         # 적용이다(계약 § 판정 기준). 적용 실패는 None — 수정 인터프리터가 처리.
         return _apply_universe_chip(user_input, prev, text)
-    # 수정 레인과 동일한 결정적 추출 계약(신호 재검증 생략·universe 보존) — 칩은 조건
-    # 추가/값 확정이지 유니버스 변경이 아니다.
-
     prev_dump = prev.model_dump()
-    parsed = _apply_prompt_overrides(
-        prev, text, skip_signal_validation=True, preserve_universe=True
-    )
-    diff = _diff_fields(prev_dump, parsed.model_dump())
+    binding = (pending_ask.get("chip_bindings") or {}).get(text)
+    if isinstance(binding, dict) and binding:
+        # 발행 때 결속한 값을 그대로 적용한다 — 칩 문구 재해석 없음(칩=값 결속 계약).
+        try:
+            parsed = ParsedStrategy.model_validate({**prev_dump, **binding})
+        except Exception:  # noqa: BLE001 — 오염된 에코는 기존 경로가 처리
+            logger.warning("칩 결속값 적용 실패 — 기존 경로로 | chip=%s", text, exc_info=True)
+            return None
+    else:
+        # 하위 호환: 결속 없는 구 에코는 칩 문구 결정적 추출로 강등한다(수정 레인과 동일
+        # 계약 — 신호 재검증 생략·universe 보존). 칩은 조건 추가/값 확정이지 유니버스
+        # 변경이 아니다.
+        parsed = _apply_prompt_overrides(
+            prev, text, skip_signal_validation=True, preserve_universe=True
+        )
+    diff = [
+        d for d in _diff_fields(prev_dump, parsed.model_dump())
+        if d.split(":", 1)[0] not in _CHIP_BINDING_IGNORED_FIELDS
+    ]
     if not diff:
+        # description만 달라진 것은 '반영'이 아니다 — 전략은 그대로인데 확정으로
+        # 보고하면 사용자는 답했는데 아무것도 안 바뀐 화면을 본다(2026-07-29 사고).
         _log_llm("↩ 칩 결정론 미적용", f"칩 '{text}' 결정적 추출 무변경 — 수정 인터프리터로")
         return None
     _log_llm("✓ 칩 답변 확정", f"칩 '{text}' 결정적 반영(LLM 생략): {'; '.join(diff)}")

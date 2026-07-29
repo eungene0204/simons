@@ -112,6 +112,14 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 "이동평균·RSI·MACD·모멘텀 등 가격·기술 지표 조건으로 변경할 수 있습니다 "
                 "(사용자 확인 필요)"
             )
+        if strategy.universe.new_listing_only:
+            # ETF 마스터에는 상장일이 없고, '신규 상장 ETF'는 IPO와 성격이 다르다 —
+            # 조용히 무시하지 않고 명시적 미지원으로 알린다.
+            unsupported.append("ETF 유니버스 × 신규 상장 종목")
+            errors.append("ETF 유니버스에는 신규 상장(IPO) 제한을 적용할 수 없습니다")
+            strategy.universe.new_listing_only = False
+            strategy.universe.listing_from = None
+            strategy.universe.listing_to = None
         if strategy.universe.sectors:
             # ETF엔 종목 업종 분류가 적용되지 않는다 — 테마는 상품명 키워드(etf_theme)가
             # 담당한다. LLM이 테마를 sectors에 넣는 드리프트가 있으면 조용히 버리지 않고

@@ -243,8 +243,13 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
     # "사용자가 실제로 말했나"(provenance)가 출력에서 지워져, 되묻기 게이트가 그 답을
     # 사용자 원문 정규식으로 복원하게 된다(계약 위반 — response/provenance.py 참조).
     # 값 자체는 종전과 동일하다: 섹터 제한이 있으면 양시장, 아니면 KOSPI200.
+    # 신규 상장 종목은 대부분 코스닥에 들어오므로 KOSPI200(시총 상위 200) 기본값이면
+    # 유니버스가 거의 비어 버린다 — 섹터 전략과 같은 이유로 양시장을 기본으로 둔다.
+    new_listing_only = strategy.universe.new_listing_only
+    listing_from = strategy.universe.listing_from
+    listing_to = strategy.universe.listing_to
     markets = list(strategy.universe.markets) or (
-        ["KOSPI", "KOSDAQ"] if sector_value else ["KOSPI200"]
+        ["KOSPI", "KOSDAQ"] if (sector_value or new_listing_only) else ["KOSPI200"]
     )
     etf_theme = strategy.universe.etf_theme if markets == ["ETF"] else None
 
@@ -258,6 +263,9 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         sector=sector_value,
         target_symbols=target_symbols,
         etf_theme=etf_theme,
+        new_listing_only=new_listing_only,
+        listing_from=listing_from,
+        listing_to=listing_to,
         fundamental_filters=buckets["fundamental_filters"],
         entry_signals=buckets["entry_signals"],
         exit_signals=buckets["exit_signals"],

@@ -16,18 +16,22 @@ from strategy_conversation.registry.capability_registry import (
 )
 from strategy_conversation.registry.indicator_registry import supported_factor_lines
 
-PROMPT_VERSION = "2.1"
+PROMPT_VERSION = "2.5"
 
+# status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
+# 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
+# 결정론으로 재산출하고(report.status / validate_completeness), assumptions는 어디에서도
+# 소비되지 않는다. 형태에 키가 있으면 9B가 그 자리를 채우느라 출력 토큰만 쓴다.
 _OUTPUT_SHAPE = {
     "intent": "CREATE_STRATEGY",
-    "status": "NEEDS_CLARIFICATION",
     "strategy": {
         "name": None,
         # etf_theme을 빠뜨리면 모델이 이 형태를 그대로 베껴 ETF 테마를 통째로 잃는다 —
         # 실측(2026-07-27): "반도체 ETF만 대상으로"가 markets=["ETF"]·etf_theme=None으로
         # 나와 전체 ETF 1,384종목 전략이 됐다(규칙 6-1을 적어도 형태에 키가 없으면 안 채운다).
         "universe": {"markets": ["KOSPI", "KOSDAQ"], "sectors": [], "symbols": [],
-                     "etf_theme": None},
+                     "etf_theme": None, "new_listing_only": False,
+                     "listing_from": None, "listing_to": None},
         "entry_conditions": [
             {
                 "factor": "fundamental.per",
@@ -35,7 +39,19 @@ _OUTPUT_SHAPE = {
                 "value": 10,
                 "unit": "ratio",
                 "source_text": "PER이 10보다 낮은",
-            }
+            },
+            # 크로스오버 조건을 parameters와 **함께** 보여준다 — 형태에 parameters 키가
+            # 없으면 9B는 규칙 5-3이 아무리 자세해도 그 자리를 채우지 않고 null로 낸다
+            # (etf_theme와 같은 실패 방식). 실측(2026-07-30): 형태에 이 항목이 없을 때
+            # "20일선을 깨고 내려오면 매도"·"20일선이 60일선을 골든크로스"가 1차 출력에서
+            # parameters=null로 나와, 사용자가 말한 기간을 시스템이 되묻는 사고가 났다.
+            {
+                "factor": "technical.ma_crossover",
+                "operator": "crosses_above",
+                "value": None,
+                "parameters": {"short_period": 1, "long_period": 20},
+                "source_text": "20일선을 상향 돌파하면",
+            },
         ],
         "exit_conditions": [],
         "ranking": [],
@@ -56,9 +72,7 @@ _OUTPUT_SHAPE = {
         },
     },
     "patches": [],
-    "missing_fields": [],
     "unsupported_features": [],
-    "assumptions": [],
     "clarification_questions": [],
     "confidence": 0.9,
 }
@@ -89,8 +103,8 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    ("골든크로스 매수, 데드크로스 매도를 3년 백테스트" → CREATE_STRATEGY, backtest.period="3y").
    RUN_BACKTEST는 조건 서술 없이 **이미 만든 전략의 실행만** 요청할 때입니다("이걸로 돌려줘",
    "실행해줘"). 기간·시장 언급은 실행 요청 신호가 아니라 전략의 백테스트 설정입니다.
-1. 사용자가 말하지 않은 값을 절대 만들어내지 마세요. 값이 없으면 value=null로 두고
-   missing_fields에 경로를, clarification_questions에 질문을 추가하고 status="NEEDS_CLARIFICATION".
+1. 사용자가 말하지 않은 값을 절대 만들어내지 마세요. 값이 없으면 value=null로 두세요
+   (누락 탐지와 되묻기 질문은 시스템이 생성합니다).
    "RSI가 낮은", "부채비율이 높은"처럼 방향만 있고 수치가 없는 표현도 value=null입니다.
    단, 수치가 명시된 근사 표현은 그 수치로 확정하세요: "8종목 정도/약 10종목/10개쯤"
    → selection_count=8/10 (질문하지 말 것). "장기 보유"처럼 수치 없는 기간만 질문 대상입니다.
@@ -131,12 +145,14 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    분류하지 마세요. 'N억 이상'처럼 금액 임계가 있을 때만 거래대금 조건이고, 종목을 거르는
    기준이면 fundamental.trading_value(기본), 그 시점의 진입·청산 트리거면
    technical.trading_value입니다. 둘 다 entry_conditions/exit_conditions에 넣습니다.
-5-3. '~ 위에 있을 때'·'~ 위에 있는 종목'·'정배열'처럼 두 선(또는 종가와 이동평균)의 상하
-   관계는 **crossover 표기**로 옮깁니다 — operator는 crosses_above/crosses_below, value는
-   null, 기간은 parameters에 넣습니다.
-   - '종가가 20일 이동평균선 위' → technical.ma_crossover, crosses_above,
+5-3. '~ 위에 있을 때'·'~ 위에 있는 종목'·'정배열'·'주가가 N일선을 상향/하향 돌파'처럼
+   두 선(또는 종가와 이동평균)의 상하 관계는 **crossover 표기**로 옮깁니다 — operator는
+   crosses_above/crosses_below, value는 null, 기간은 parameters에 넣습니다(이동평균이
+   상대라면 규칙 5-4의 경계 표현보다 이 규칙이 우선입니다).
+   - '종가가 20일 이동평균선 위'·'20일선 상향 돌파' → technical.ma_crossover, crosses_above,
      parameters={{"short_period":1,"long_period":20}} (short_period=1이 종가)
-   - '20일선 이탈'·'20일선 아래로 내려오면' → 같은 factor, crosses_below, 같은 parameters
+   - '20일선 이탈'·'20일선 아래로 내려오면'·'20일선을 깨고 내려오면' → 같은 factor,
+     crosses_below, 같은 parameters
    - '5일 EMA가 20일 EMA 위' → technical.ema, crosses_above,
      parameters={{"short_period":5,"long_period":20}} / 'EMA 데드크로스' → crosses_below
    두 선의 비교에는 임계값이 없습니다 — >, < 처럼 기준값을 요구하는 연산자로 쓰거나 기간을
@@ -147,22 +163,17 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    정하므로 지어내지 마세요(빈 배열이 "사용자가 시장을 말하지 않았다"는 신호이며, 이 신호가
    없으면 시스템이 되묻지 못하고 기본값을 확정값처럼 보여주게 됩니다).
    업종/테마(반도체, 2차전지 등)는 markets가 아니라 universe.sectors에.
-6-0. universe에는 **시장·업종·종목만** 담습니다. '조건을 먼저 적용하고', '~인 종목만',
+   universe에는 **시장·업종·종목만** 담습니다 — '조건을 먼저 적용하고', '~인 종목만',
    '먼저 걸러서'처럼 종목을 미리 거르는 스크리닝 기준(재무 지표·거래대금 등)은 universe가
-   아니라 entry_conditions입니다 — universe에 조건을 적어 둘 자리는 없고, 시스템이 알아서
-   걸러 주지도 않습니다. assumptions에 "종목 선정 기준(universe)으로 처리했습니다"라고 쓰면
-   그 조건은 전략에서 사라집니다.
-5-2. 경계 표현을 연산자로 정확히 옮기세요.
+   아니라 entry_conditions입니다. universe에 조건을 적어 둘 자리는 없고, 시스템이 알아서
+   걸러 주지도 않습니다(조건 대신 처리 방식을 말로 적으면 그 조건은 전략에서 사라집니다).
+5-4. 경계 표현을 연산자로 정확히 옮기세요.
    - 포함(>=, <=): '이상'·'이하'·'위로'·'아래'·'밑으로'·'넘으면'·'돌파'
      ("ADX가 25 이상" → ">=", 25 / "RSI 30 이하" → "<=", 30)
    - 배타(>, <): '초과'·'미만'·'넘는'(초과 의미)·'못 미치는'
      ("PBR 0.8 미만" → "<", 0.8 / "PER 10 초과" → ">", 10)
    기본은 포함(>=, <=)입니다 — '초과'·'미만'이라고 명시했을 때만 배타를 쓰세요.
-5-2-1. '주가가 N일선을 상향/하향 돌파'처럼 **가격과 단일 이동평균**을 비교하는 표현은
-   technical.ma_crossover의 short_period=1(가격), long_period=N으로 표현하세요
-   ("20일선을 깨고 내려오면 매도" → crosses_below, short_period=1, long_period=20).
-   단기선/장기선 두 개를 말한 경우에만 그 두 기간을 short/long에 넣습니다.
-5-3. 오실레이터(technical.rsi/stochastic/cci/adx/williams_r/mfi/roc)는 임계값 비교만 지원합니다
+5-5. 오실레이터(technical.rsi/stochastic/cci/adx/williams_r/mfi/roc)는 임계값 비교만 지원합니다
    — operator는 <, <=, >, >= 중 하나이고 value에 임계값을 넣으세요. crosses_above/crosses_below를
    쓰지 마세요(엔진이 표현할 수 없어 조건이 무의미해집니다). '과매도에서 반등하면 매수' 류는
    그 과매도 임계값 이하(<=)로, '과매수면 매도'는 임계값 이상(>=)으로 표현하세요:
@@ -187,6 +198,22 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    "HBM 장비 회사"→sectors=["HBM"], "리센즈 관련주"→sectors=["리센즈"]). 조회에 실패하면
    시스템이 사용자에게 되묻습니다. unsupported_features는 **지표·기능**(FCF·뉴스 감성 등)
    에만 쓰고, 유니버스를 가리키는 고유명사에는 쓰지 마세요.
+6-0-3. **신규 상장(IPO) 종목 유니버스**: '신규 상장 종목', '최근 상장한 종목', '상장한 지
+   얼마 안 된 종목', '공모주', '새로 상장한 기업'처럼 상장 시기로 대상을 좁히는 표현은
+   universe.new_listing_only=true입니다(미지원 개념이 아닙니다 — 시스템이 상장일 마스터로
+   판정합니다). 대상은 **상장일이 그 구간에 속하는 종목**이므로 시기를 말했으면
+   universe.listing_from / listing_to에 YYYY-MM-DD로 넣으세요(양끝 포함):
+   - "2026년 신규 상장 종목" → listing_from="2026-01-01", listing_to="2026-12-31"
+   - "2025년 이후 상장한 종목" → listing_from="2025-01-01", listing_to=null
+   - "최근 1년 내 상장" → listing_from=오늘로부터 1년 전 날짜, listing_to=null
+   **시기를 말하지 않았으면(그냥 '신규 상장 종목') 둘 다 null로 두세요** — 시스템이
+   되묻습니다. 날짜를 지어내면 사용자가 말하지 않은 구간으로 확정됩니다.
+   **연도가 상장 시기를 가리키면 백테스트 기간이 아니라 이 필드입니다** — "2026년 신규
+   상장 종목 전략"의 2026년은 상장 시기이므로 backtest.start_date/end_date에는 넣지
+   마세요(백테스트 창은 시스템이 상장 구간에 맞춰 정합니다). '2020년부터 백테스트'처럼
+   검증 기간을 따로 말한 경우에만 backtest 날짜를 채웁니다.
+   업종·시장과 함께 쓸 수 있습니다("신규 상장 바이오 종목" → new_listing_only=true,
+   sectors=["바이오"]).
 6-1. ETF/ETN/상장지수펀드가 대상이거나 ETF 상품명(KODEX 200, TIGER 미국S&P500 등)이
    언급되면 markets=["ETF"] 단독입니다(주식 시장과 혼합 금지 — "코스피 ETF"도 ["ETF"]).
    ETF는 여러 기업을 묶은 상품이라 기업 재무지표(PER·PBR·ROE·부채비율·배당성향 등)를
@@ -196,9 +223,9 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    **거래대금은 factor 이름이 `fundamental.trading_value`여도 ETF에서 쓸 수 있습니다** —
    가격·거래량에서 계산되는 값이라 기업 재무제표와 무관합니다. ETF에서 금지되는 것은
    기업 재무제표 지표(PER·PBR·ROE·부채비율·배당성향·EPS·영업이익 등)뿐이니, 'ETF 중 일평균
-   거래대금 N억 이상' 같은 유동성 조건을 이름 때문에 빠뜨리지 마세요. 그 조건도 규칙 6-0대로
+   거래대금 N억 이상' 같은 유동성 조건을 이름 때문에 빠뜨리지 마세요. 그 조건도 규칙 6대로
    **entry_conditions**에 넣습니다 — universe에는 필터 슬롯이 없습니다(`universe.filter`
-   같은 필드를 만들거나 assumptions에 "universe에 적용했다"고 적으면 조건이 사라집니다).
+   같은 필드를 만들면 조건이 사라집니다).
    단, ETF의 업종·테마("반도체 ETF", "2차전지 ETF", "미국 ETF", "배당 ETF" 등)는 미지원이
    아닙니다 — 그 키워드를 universe.etf_theme에 넣으세요("반도체 종목 ETF"→etf_theme="반도체",
    "반도체 etf 투자 전략"→etf_theme="반도체", "KODEX 200"→etf_theme="KODEX 200").
@@ -209,12 +236,9 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    etf_theme이 채워졌는지 확인하세요(규칙 4-1과 같은 자기 점검).
    unsupported_features나 sectors·조건으로는 넣지 마세요(엔진이 ETF 상품명과 매칭).
    테마 키워드만으로 충분합니다 — 정확한 상품명(KODEX·TIGER 등)은 필요 없으므로, 사용자가
-   이미 테마를 말했으면 etf_theme을 missing_fields·clarification_questions에 넣어 상품명을
-   되묻지 마세요(이미 말한 값 되묻기 금지). '재무지표를 조건으로 쓸 수 없음'은 PER·PBR·ROE
-   같은 개별 기업 재무지표에만 해당하며, 산업/테마 구성과는 무관합니다.
+   이미 테마를 말했으면 상품명을 되묻지 마세요(이미 말한 값 되묻기 금지).
 7. rebalance_frequency는 {"/".join(SUPPORTED_REBALANCE_FREQUENCIES)} 중 하나 또는 null.
-8. 모든 조건이 갖춰졌으면 status="READY". 모호하거나 누락이 있으면 "NEEDS_CLARIFICATION".
-9. confidence: 해석 확신도 0~1. 표현이 모호하면 낮게.
+8. confidence: 해석 확신도 0~1. 표현이 모호하면 낮게.
 10. MODIFY_STRATEGY는 '현재 전략 초안'이 주어진 경우에만 선택하고, patches에 JSON Patch를
     출력하세요(예: {{"op":"replace","path":"/portfolio/rebalance_frequency","value":"monthly",
     "source_text":"매월 리밸런싱으로"}}). **각 패치의 source_text에 그 변경을 요청한 사용자
@@ -230,7 +254,7 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
     "value":"제주반도체","source_text":"제주반도체도 추가해줘"}}]
     초안 symbols가 ["삼성전자","SK하이닉스"]일 때 "삼성전자는 빼줘" →
     patches=[{{"op":"remove","path":"/universe/symbols/0","source_text":"삼성전자는 빼줘"}}]
-11. assumptions/missing_fields/unsupported_features는 문자열 배열입니다(객체 금지).
+11. unsupported_features는 문자열 배열입니다(객체 금지).
     문자열 값 안에서 큰따옴표(")를 쓰지 마세요 — JSON이 깨집니다. 인용이 필요하면
     작은따옴표(')를 쓰세요("재무가 탄탄한 회사"는 … ✗ / '재무가 탄탄한 회사'는 … ✓).
     factor가 null인 조건은 출력하지 마세요 — 미지원 개념은 unsupported_features에만.
@@ -245,16 +269,14 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
 ## 예시 1
 입력: "영업이익률이 높은 기업을 사고 싶어"
 출력 요점: entry_conditions=[{{"factor":"fundamental.operating_margin","operator":">=","value":null,
-"recommended_value":10,"requires_confirmation":true,"source_text":"영업이익률이 높은"}}],
-missing_fields=["strategy.entry_conditions[0].value"], status="NEEDS_CLARIFICATION",
-clarification_questions=[{{"field":"strategy.entry_conditions[0].value",
-"question":"영업이익률이 몇 % 이상인 기업을 선택할까요?","recommended_value":10}}]
+"recommended_value":10,"requires_confirmation":true,"source_text":"영업이익률이 높은"}}]
+— '높은'은 방향만 있고 수치가 없으므로 value=null입니다(되묻기는 시스템이 만듭니다).
 
 ## 예시 2
 입력: "PER 10 이하 저평가주를 20종목 사서 매월 리밸런싱, 손절 8%"
 출력 요점: entry_conditions=[{{"factor":"fundamental.per","operator":"<=","value":10}}],
 portfolio={{"selection_count":20,"rebalance_frequency":"monthly"}},
-risk_management={{"stop_loss":8}}, status="READY", confidence는 0.9 이상.
+risk_management={{"stop_loss":8}}, confidence는 0.9 이상.
 
 ## 예시 3
 입력: "20일선이 60일선을 골든크로스하면 사고 데드크로스하면 파는 전략"
@@ -264,24 +286,38 @@ exit_conditions=[{{"factor":"technical.ma_crossover","operator":"crosses_below",
 "value":null,"parameters":{{"short_period":20,"long_period":60}}}}].
 크로스오버는 operator가 crosses_above/crosses_below이고 value는 null, 기간은 parameters에.
 
+## 예시 3-1 (가격 vs 이동평균 한 개 — 말한 기간을 반드시 담기)
+입력: "20일선을 깨고 내려오면 매도하는 전략"
+출력 요점: exit_conditions=[{{"factor":"technical.ma_crossover","operator":"crosses_below",
+"value":null,"parameters":{{"short_period":1,"long_period":20}}}}]
+이동평균이 **한 개만** 언급된 표현('20일선을 깨고 내려오면', '주가가 20일선을 상향 돌파',
+'종가가 60일선 위')은 비교 대상이 가격이므로 short_period=1(가격), long_period=말한 기간
+입니다. parameters를 비우거나 null로 내면 시스템이 "단기 기간을 몇으로 할까요?"라고
+되묻고 **사용자가 이미 말한 20일이 사라집니다**. 기간을 말했으면 반드시 채우세요.
+
 ## 예시 4
 입력: "최근 60일 수익률 상위 10종목을 매월 리밸런싱"
 출력 요점: entry_conditions=[](랭킹은 조건이 아님), ranking=[{{"metric":"return","lookback_days":60}}],
-portfolio={{"selection_count":10,"rebalance_frequency":"monthly"}}, status="READY".
+portfolio={{"selection_count":10,"rebalance_frequency":"monthly"}}.
 
 ## 예시 4-1 (ETF 테마 — 이미 말한 테마를 되묻지 않기)
 입력: "반도체 etf 투자 전략"
 출력 요점: universe={{"markets":["ETF"],"sectors":[],"etf_theme":"반도체"}} —
-사용자가 테마(반도체)를 이미 말했으므로 etf_theme에 그대로 채우고,
-missing_fields·clarification_questions에 etf_theme을 넣지 않습니다(정확한 상품명 불필요).
-질문은 진입·청산 등 실제 누락 조건에만 만듭니다. status="NEEDS_CLARIFICATION".
+사용자가 테마(반도체)를 이미 말했으므로 etf_theme에 그대로 채우고 상품명을 되묻지
+않습니다(정확한 상품명 불필요).
 
 ## 예시 4-2 (ETF 테마 + 조건 여러 개 — 긴 요청에서도 테마 누락 금지)
 입력: "배당 ETF 중 20일선 위에 있는 상품만 4종목 담고, 20일선 이탈 시 청산, 손절 -10%"
 출력 요점: universe={{"markets":["ETF"],"sectors":[],"etf_theme":"배당"}},
+entry_conditions=[{{"factor":"technical.ma_crossover","operator":"crosses_above",
+"value":null,"parameters":{{"short_period":1,"long_period":20}}}}],
+exit_conditions=[{{"factor":"technical.ma_crossover","operator":"crosses_below",
+"value":null,"parameters":{{"short_period":1,"long_period":20}}}}],
 portfolio={{"selection_count":4}}, risk_management={{"stop_loss":-10}} — 조건·수치가 많아도
 'X ETF'의 X(배당)는 반드시 etf_theme에 채웁니다. 테마 없이 markets=["ETF"]만 출력하면
 전략이 전체 ETF로 왜곡되므로, etf_theme 누락은 조건 누락(규칙 4-1)과 같은 오류입니다.
+이동평균은 **20일선 하나만** 언급됐으므로 1/20입니다 — 60 같은 말하지 않은 기간을
+채워 넣지 마세요(다른 예시의 20/60을 습관적으로 베끼는 것은 무단 확정입니다).
 
 ## 예시 4-3 (스크리닝 다단계 서술 — '먼저 걸러서 그중'도 전부 entry_conditions)
 입력: "반도체 업종 종목 중 ROE 10% 이상, 부채비율 120% 이하 조건을 먼저 적용하고, 그중
@@ -290,17 +326,31 @@ portfolio={{"selection_count":4}}, risk_management={{"stop_loss":-10}} — 조�
 entry_conditions=[{{"factor":"fundamental.roe_or_gpa","operator":">=","value":10,"unit":"percent"}},
 {{"factor":"fundamental.debt_ratio","operator":"<=","value":120,"unit":"percent"}},
 {{"factor":"fundamental.trading_value","operator":">=","value":50,"unit":"억원"}}],
-ranking=[{{"metric":"return","lookback_days":60}}], portfolio={{"selection_count":8}},
-status="READY". '먼저 적용하고 → 그중'은 단계 서술일 뿐 세 조건 모두 entry_conditions입니다 —
-거래대금을 universe로 처리했다고 assumptions에 적거나 "추가해 드릴까요?"로 되묻지 마세요
+ranking=[{{"metric":"return","lookback_days":60}}], portfolio={{"selection_count":8}}.
+'먼저 적용하고 → 그중'은 단계 서술일 뿐 세 조건 모두 entry_conditions입니다 —
+거래대금을 universe로 처리했다고 적거나 "추가해 드릴까요?"로 되묻지 마세요
 (사용자가 값을 이미 말했으므로 질문할 것이 없습니다).
+
+## 예시 4-4 (신규 상장 유니버스 — 연도는 상장 시기)
+입력: "2026년 신규 상장 종목 투자 전략"
+출력 요점: universe={{"markets":[],"sectors":[],"symbols":[],"etf_theme":null,
+"new_listing_only":true,"listing_from":"2026-01-01","listing_to":"2026-12-31"}},
+backtest={{"start_date":null,"end_date":null}}.
+'2026년'은 **상장 시기**입니다 — backtest.start_date에 넣지 마세요. 백테스트 창은
+시스템이 상장 구간에 맞춰 정합니다(2026년 상장 종목을 2022년부터 테스트할 수는 없습니다).
+
+## 예시 4-5 (신규 상장 — 시기를 말하지 않으면 되묻기)
+입력: "신규 상장 종목으로 골든크로스 전략"
+출력 요점: universe={{"markets":[],"new_listing_only":true,"listing_from":null,
+"listing_to":null}}. 어느 시기 상장인지 말하지 않았으므로 날짜를 지어내지 않습니다
+(시기 되묻기는 시스템이 만듭니다).
 
 ## 예시 5 (수정 요청 — 현재 전략 초안이 함께 주어진 경우)
 현재 전략 초안: {{"entry_conditions":[{{"factor":"fundamental.per","operator":"<=","value":10}},
 {{"factor":"fundamental.roe_or_gpa","operator":">=","value":15}}], ...}}
 입력: "PER 조건은 빼줘"
 출력 요점: intent="MODIFY_STRATEGY", strategy=null,
-patches=[{{"op":"remove","path":"/entry_conditions/0","source_text":"PER 조건은 빼줘"}}], status="READY".
+patches=[{{"op":"remove","path":"/entry_conditions/0","source_text":"PER 조건은 빼줘"}}].
 입력: "ROE를 20%로 올려줘"
 출력 요점: patches=[{{"op":"replace","path":"/entry_conditions/1/value","value":20,
 "source_text":"ROE를 20%로"}}].

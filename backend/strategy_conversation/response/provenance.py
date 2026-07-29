@@ -48,6 +48,7 @@ def explicit_fields_from_spec(strategy: Any) -> List[str]:
         getattr(universe, "sectors", None),
         getattr(universe, "symbols", None),
         getattr(universe, "etf_theme", None),
+        getattr(universe, "new_listing_only", None),
     )):
         fields.append(UNIVERSE)
     if portfolio is not None and getattr(portfolio, "selection_count", None) is not None:

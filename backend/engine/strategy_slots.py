@@ -8,6 +8,11 @@
 - 2026-07-29 매수 조건 ①: planner가 채워진 슬롯을 재질문(프롬프트 지시로만 금지돼 있었음)
 - 2026-07-29 매수 조건 ②: 채택 관문이 "어딘가 비었나"만 물어(다른 슬롯의 공백을 근거로)
   이미 채워진 매수 조건 ask를 통과시킴 — topic은 8슬롯 어휘, 판정은 6조건 게이트
+- 2026-07-29 백테스트 기간: 판정을 이 모듈로 모은 **뒤에도** 재질문이 났다. 원인은
+  축의 부재 — 신규 상장 코호트는 백테스트 창을 **시스템이 확정**하는데, 판정 축이
+  "값이 있나"와 "사용자가 말했나" 둘뿐이라 그 값은 영원히 '미언급'으로 남았다.
+  아래 _decided(③)가 그 자리다. **판정을 한 곳에 모으는 것만으로는 부족하고, 그 곳이
+  표현할 수 있는 축이 실제 사례를 모두 덮어야 한다.**
 
 특히 기본값 취급이 갈렸다. ParsedStrategy는 유니버스·최대 보유·기간·초기 자본에
 기본값을 물질화하므로 **값의 존재는 사용자가 말했다는 증거가 아니다** — 빈 전략조차
@@ -136,7 +141,10 @@ def _has_value(parsed: Any, field: str) -> bool:
     rebal = g("rebalancing_period")
     has_rebalancing = bool(rebal and rebal != "none")
     if field == UNIVERSE:
-        return _nonempty(g("universe")) or _nonempty(g("target_symbols")) or _nonempty(g("sector"))
+        # 신규 상장 제한(FR-STR-073)도 유니버스 지정이다 — 기준 일수를 되묻는 중이라
+        # 값이 아직 없어도 사용자가 대상을 말한 것이므로 시장을 다시 묻지 않는다.
+        return (_nonempty(g("universe")) or _nonempty(g("target_symbols"))
+                or _nonempty(g("sector")) or bool(g("new_listing_only")))
     if field == ENTRY:
         # 지정 종목은 진입 조건이 아니다 — 종목이 정해져도 매수 시점 규칙이 없으면
         # 엔진은 매수를 만들지 않는다(빈 조건 그룹=all-False, 0거래).
@@ -153,7 +161,11 @@ def _has_value(parsed: Any, field: str) -> bool:
     if field == TAKE_PROFIT:
         return _positive(g("take_profit_pct"))
     if field == BACKTEST_PERIOD:
-        return _nonempty(g("backtest_period"))
+        # provenance 판정(explicit_fields_from_spec)과 같은 필드 집합을 본다. ParsedStrategy의
+        # backtest_period는 기본값 "5y"가 물질화돼 실제로 비는 일이 없으므로 이 항들은 방어적
+        # 일관성이다 — 두 축이 서로 다른 필드를 보는 상태를 남겨두지 않는다.
+        return (_nonempty(g("backtest_period")) or _nonempty(g("backtest_start_date"))
+                or _nonempty(g("backtest_end_date")))
     if field == INITIAL_CAPITAL:
         return _positive(g("initial_capital"))
     raise ValueError(f"알 수 없는 슬롯 필드: {field}")
@@ -162,16 +174,26 @@ def _has_value(parsed: Any, field: str) -> bool:
 def _decided(parsed: Any, field: str, rebalancing_declined: bool) -> bool:
     """질문이 이미 끝난 필드 — 값 유무·provenance와 무관하게 더 묻지 않는다.
 
-    ① 구성상 무의미한 질문(단독 종목의 리밸런싱), ② 사용자가 명시적으로 거부한 설정.
+    ① 구성상 무의미한 질문(단독 종목의 리밸런싱), ② 사용자가 명시적으로 거부한 설정,
+    ③ 다른 조건이 시스템 차원에서 확정해 버린 값(신규 상장 코호트의 백테스트 창).
     ②는 스펙에서 null이라 미언급과 구분되지 않으므로 호출자가 플래그로 전달한다 —
     이 판정을 provenance 쪽에 두면 require_explicit=False인 레인에서 무시돼
     같은 질문이 무한 반복된다.
+
+    ③이 provenance가 아니라 여기인 이유: provenance는 "사용자가 말했나"만 답한다.
+    시스템이 결정했고 협상 대상도 아닌 값은 그 축으로 표현할 수 없어, 영원히
+    '미언급'으로 남아 매번 다시 묻힌다(2026-07-29 사고).
     """
     symbols = getattr(parsed, "target_symbols", None) or []
     if field == REBALANCING:
         # 단독 종목(지정 1개)은 교체가 없다. 지정 종목이라도 여럿이면 포트폴리오이므로
         # 묻는다 — '지정 종목 존재=단독'으로 본 2026-07-28 사고.
         return len(symbols) == 1 or rebalancing_declined
+    if field == BACKTEST_PERIOD:
+        # 신규 상장 코호트(FR-STR-073)는 창 시작이 상장일 하한으로 확정된다 — 그 이전엔
+        # 종목이 존재하지 않아 다른 답이 성립하지 않는다. "최근 5년 데이터"를 고를 수
+        # 있는 것처럼 물으면 사용자가 고른 답을 클램프가 도로 덮어쓴다.
+        return bool(getattr(parsed, "listing_from", None))
     return False
 
 

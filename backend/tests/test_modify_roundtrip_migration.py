@@ -176,11 +176,12 @@ def test_modify_turn_replans_next_question_via_dag_planner(monkeypatch):
     assert result["clarification_question"] == "어떤 조건에서 매수할까요?"
     assert result["clarification_priority"] == "dag_planner"
     # 재계획 질문의 pending_ask — 프론트가 에코해 다음 칩 클릭의 결정론 귀속에 쓴다
-    assert result["pending_ask"] == {
-        "topic": "매수조건",
-        "question": "어떤 조건에서 매수할까요?",
-        "chips": ["RSI 30 이하에서 매수"],
-    }
+    assert result["pending_ask"]["topic"] == "매수조건"
+    assert result["pending_ask"]["question"] == "어떤 조건에서 매수할까요?"
+    assert result["pending_ask"]["chips"] == ["RSI 30 이하에서 매수"]
+    # 칩=값 결속 — 칩이 뜻하는 값을 발행 시점에 확정해 함께 싣는다(클릭 시 재해석 없음)
+    assert result["pending_ask"]["chip_bindings"]["RSI 30 이하에서 매수"][
+        "entry_signals"][0]["indicator"] == "rsi"
 
 
 def test_self_doubt_patch_surfaces_question_instead_of_applying(monkeypatch):

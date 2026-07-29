@@ -191,6 +191,9 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         "sector": sorted(strategy.sector) if isinstance(strategy.sector, list) else strategy.sector,
         # ETF 테마 필터 — None이면 _drop_none이 제거하므로 기존 전략 해시는 변하지 않는다.
         "etf_theme": strategy.etf_theme,
+        # 신규 상장 유니버스(FR-STR-073). None이면 _drop_none이 제거 → 기존 해시 불변.
+        "listing_from": strategy.listing_from,
+        "listing_to": strategy.listing_to,
         "fundamental_filters": sorted(
             [
                 {
@@ -440,6 +443,10 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "sector": None if target_symbols else strategy.sector,
         # ETF 테마/상품명 필터 — universe_id="etf"일 때 엔진이 이름 키워드로 좁힌다.
         "etf_theme": None if target_symbols else strategy.etf_theme,
+        # 신규 상장 제한 — 엔진이 상장일이 이 구간에 속하는 종목만 남긴다.
+        # 지정 종목 모드는 사용자가 종목을 직접 고른 것이므로 적용하지 않는다.
+        "listing_from": None if target_symbols else strategy.listing_from,
+        "listing_to": None if target_symbols else strategy.listing_to,
         "entry": {"conditions": entry_conditions},
         "exit": {"conditions": exit_conditions},
         "risk": risk,

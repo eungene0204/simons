@@ -2880,6 +2880,43 @@ def _kick_local_ollama_model_preload(model: str) -> None:
     threading.Thread(target=_run, name="ollama-model-preload", daemon=True).start()
 
 
+def _kick_system_prompt_prefill(model: str) -> None:
+    """전략 대화의 고정 system 프롬프트를 startup에 한 번 흘려 KV 프리픽스 캐시를 채운다.
+
+    모델 적재(_kick_local_ollama_model_preload)와 다른 문제다 — 가중치가 올라와 있어도
+    system 프롬프트 자체의 prefill은 매번 새로 계산되고, 그 비용이 지배적이다.
+    실측(2026-07-29, 로컬 9B): 인터프리터 system은 20,470자(~8,900 tok)이고
+    콜드 prefill 43.6초, 프리픽스 캐시가 살아 있으면 **0.4초**(총 호출 60.2초 → 7.5초).
+    planner system(~2,760 tok)도 같은 성질이다.
+
+    두 프롬프트는 대화마다 바뀌지 않으므로 startup에서 각각 1토큰만 생성시켜 캐시를
+    올려두면 사용자 첫 요청이 콜드 prefill을 떠안지 않는다. 실패해도 비치명적이다
+    (첫 요청이 예전처럼 콜드 prefill을 내면 그만).
+    """
+    import threading
+
+    def _run() -> None:
+        from engine.nl_parser import _ollama_prefill_system_prompt
+
+        for label, build in (
+            ("인터프리터", lambda: __import__(
+                "strategy_conversation.interpreter.prompts", fromlist=["x"]
+            ).build_system_prompt()),
+            ("planner", lambda: __import__(
+                "strategy_conversation.planner.dag_planner", fromlist=["x"]
+            )._system_prompt()),
+        ):
+            try:
+                elapsed = _ollama_prefill_system_prompt(build(), model)
+                print(f"[startup] {label} system 프롬프트 prefill 완료 ({elapsed:.1f}s)",
+                      flush=True)
+            except Exception as e:  # noqa: BLE001 — prefill 실패는 비치명적
+                print(f"[startup] {label} system 프롬프트 prefill 실패 (무시됨): {e}",
+                      flush=True)
+
+    threading.Thread(target=_run, name="system-prompt-prefill", daemon=True).start()
+
+
 @app.on_event("startup")
 def preload_nl_parser():
     """서버 시작 시 Ollama 기반 NL 파서를 준비한다.
@@ -2925,6 +2962,9 @@ def preload_nl_parser():
             # 로컬 dev: 콜드스타트가 없으므로 모델을 즉시 메모리에 적재한다.
             for preload_model in _local_preload_models(parser.ollama_model):
                 _kick_local_ollama_model_preload(preload_model)
+                # 가중치 적재만으로는 부족하다 — 고정 system 프롬프트의 prefill 비용을
+                # 여기서 선지불해 사용자 첫 요청이 콜드 prefill(실측 43초)을 떠안지 않게 한다.
+                _kick_system_prompt_prefill(preload_model)
         else:
             # 원격(Modal): 콜드스타트 컨테이너를 GET으로 미리 깨운다.
             _kick_ollama_warmup()

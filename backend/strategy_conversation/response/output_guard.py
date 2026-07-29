@@ -77,10 +77,15 @@ def finalize_user_response(result: Dict) -> Dict:
     if result.get("pending_ask") is not None:
         # 칩 답변 귀속 컨텍스트는 사용자가 실제로 본 질문·칩과 일치해야 한다 — 가드가
         # 질문·칩을 바꿨으면 가드 통과본으로 재구성하고, 질문이 사라졌으면 함께 지운다.
+        # 칩=값 결속(chip_bindings)도 살아남은 칩만 남긴다 — 가드가 문구를 바꾼 칩은
+        # 결속 키가 어긋나므로 버린다(클릭 시 결정적 추출 안전망으로 강등).
+        final_chips = list(result.get("clarification_suggestions") or [])
+        bindings = result["pending_ask"].get("chip_bindings")
         result["pending_ask"] = (
-            {**result["pending_ask"], "question": question,
-             "chips": list(result.get("clarification_suggestions") or [])}
-            if question and result.get("clarification_suggestions") else None
+            {**result["pending_ask"], "question": question, "chips": final_chips,
+             **({"chip_bindings": {c: bindings[c] for c in final_chips if c in bindings}}
+                if isinstance(bindings, dict) else {})}
+            if question and final_chips else None
         )
     if result.get("notices"):
         result["notices"] = [n for n in (guard_text(n) for n in result["notices"]) if n]

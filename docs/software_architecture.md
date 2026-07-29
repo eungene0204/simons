@@ -550,7 +550,9 @@ StrategyIntent (interpreter/models.py, schema_version 1.0)
     ├── intent Enum(CREATE/MODIFY/EXPLAIN/…/UNSUPPORTED/NON_STRATEGY)
     ├── 조건별 factor/operator/value/unit/source_text + value_source
     │   (USER_PROVIDED/…/SYSTEM_RECOMMENDED/MISSING — 추천값≠확정값 분리)
-    └── missing_fields / unsupported_features / clarification_questions / confidence
+    └── unsupported_features / clarification_questions / confidence
+        (status·missing_fields·assumptions는 LLM에 요구하지 않는다 — 검증 계층이
+         재판정·재산출하는 죽은 채널이라 2026-07-30 프롬프트에서 제거)
     ▼
 검증 계층 (validation/pipeline.py — confidence가 높아도 생략하지 않음)
     ├── Capability: IndicatorRegistry(registry/indicator_registry.py)가 지원 여부 최종

@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import date, timedelta
 from typing import Callable, List, Optional, Union
 
 from pydantic import BaseModel, Field
@@ -65,6 +66,15 @@ class BuilderState(BaseModel):
     theme_reask_done: bool = False                  # 되묻기를 보여줬는지(답 분기 게이트)
     theme_symbols: Optional[List[str]] = None       # '이 종목들로만' 선택 시 확정 심볼
     theme_label: Optional[str] = None               # 확정 종목명 나열(요약·합성용)
+    # ── 신규 상장(IPO) 유니버스(FR-STR-073) ────────────────────────────────────────
+    # 대상은 **상장일이 그 구간에 속하는 종목**이다("2026년 신규 상장"=2026-01-01~12-31).
+    # 개념(new_listing_only)과 구간(listing_from/listing_to)을 분리한다 — "신규 상장
+    # 종목"에는 시기가 없어서, 날짜를 지어내면 무단 확정이고 개념까지 비우면 사용자가
+    # 말한 유니버스 제한이 조용히 사라진다(빌더 합성 전략이 전체 시장으로 나가던 사고
+    # 2026-07-29). 개념은 시드(LLM 파싱 결과)로 받고, 구간은 전용 스텝에서 묻는다.
+    new_listing_only: bool = False
+    listing_from: Optional[str] = None   # YYYY-MM-DD (포함)
+    listing_to: Optional[str] = None     # YYYY-MM-DD (포함)
     strategy_type: Optional[StrategyType] = None
     lookback_days: Optional[int] = None       # 모멘텀/돌파 기준 기간(거래일)
     lookback_label: Optional[str] = None       # 표시용 ("3개월", "60일")
@@ -406,6 +416,46 @@ def _parse_lookback(text: str) -> Optional[dict]:
             if n <= 0:
                 return None
             return {"lookback_days": n * mult, "lookback_label": f"{n}{unit}"}
+    return None
+
+
+# 신규 상장 대상 시기 되묻기 칩(FR-STR-073) — 아래 _parse_listing_period가 그대로 해석한다.
+_LISTING_YEAR_RE = re.compile(r"(19\d{2}|20\d{2})\s*년")
+_LISTING_SINCE_CUE_RE = re.compile(r"이후|부터|이래")
+
+
+def _listing_period_chips() -> list[str]:
+    """최근 연도 코호트 + 상대 기간 칩. 해가 바뀌면 칩도 따라간다."""
+    year = date.today().year
+    return [f"{year}년 상장", f"{year - 1}년 상장", "최근 1년 내 상장", "최근 3년 내 상장"]
+
+
+def _parse_listing_period(text: str) -> Optional[dict]:
+    """'어느 시기에 상장한 종목'의 답을 상장일 구간(YYYY-MM-DD)으로 옮긴다. 실패면 None.
+
+    ① 연도("2026년 상장")는 그 해 전체가 구간이다. '이후/부터'가 붙으면 상한이 없다.
+    ② 상대 기간("최근 1년 내 상장")은 오늘로부터 거슬러 계산한 하한만 둔다 — 상한을
+       두면 '최근'이 과거 한 시점으로 굳어 뜻이 달라진다.
+    맨숫자는 해석하지 않는다(연도인지 기간인지 모호) — 4자리 연도이거나 단위가 붙어야 한다.
+    """
+    today = date.today()
+    m = _LISTING_YEAR_RE.search(text)
+    if m:
+        year = int(m.group(1))
+        if year > today.year:
+            return None       # 아직 오지 않은 해는 상장 종목이 존재할 수 없다
+        return {
+            "listing_from": f"{year}-01-01",
+            "listing_to": None if _LISTING_SINCE_CUE_RE.search(text) else f"{year}-12-31",
+        }
+    for pattern, days in ((_YEARS_RE, 365.0), (_MONTHS_RE, 365 / 12), (_DAYS_RE, 1.0)):
+        m = pattern.search(text)
+        if m:
+            n = int(m.group(1))
+            if n <= 0:
+                return None
+            start = today - timedelta(days=int(n * days + 0.5))
+            return {"listing_from": start.isoformat(), "listing_to": None}
     return None
 
 
@@ -1111,6 +1161,14 @@ def parse_input(text: str, state: BuilderState, expecting: Optional[str]) -> dic
     if expecting == "risk":
         return _parse_risk(t)
 
+    # 신규 상장 대상 시기 단계(FR-STR-073) — 이 스텝의 연도·기간 표현은 전부 상장 시기다.
+    # 아래 공통 파서로 흘리면 '3개월'이 모멘텀 룩백(lookback_days)으로 오귀속된다.
+    if expecting == "listing_period":
+        patch = _parse_listing_period(_correction_focus(t))
+        if patch or not _CHANGE_CUE_RE.search(t):
+            return patch or {}
+        # 인식 실패 + 변경 cue → 아래 공통 필드 정정으로 폴백
+
     focused = _correction_focus(t)
     change_cue = bool(_CHANGE_CUE_RE.search(t))
 
@@ -1278,6 +1336,14 @@ def apply_parsed_seed(state: BuilderState, parsed: Optional[dict]) -> BuilderSta
         canonical = normalize_sector_value(sector)
         if canonical:
             patch["sector"] = canonical
+    # 신규 상장 제한(FR-STR-073) — LLM 인터프리터만 해석하는 개념이라 결정적 시드에는
+    # 없다. 여기서 이어받지 않으면 빌더가 합성한 전략에서 통째로 사라져 전체 시장이 된다.
+    if parsed.get("new_listing_only") and not state.new_listing_only:
+        patch["new_listing_only"] = True
+        for field in ("listing_from", "listing_to"):
+            value = parsed.get(field)
+            if isinstance(value, str) and value:
+                patch[field] = value
     for field in ("stop_loss_pct", "take_profit_pct", "trailing_stop_pct"):
         v = parsed.get(field)
         if (isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
@@ -1302,6 +1368,12 @@ def required_missing(state: BuilderState) -> Optional[str]:
     # 테마 종목 목록이 확정되면 대상이 목록으로 정해져 시장(유니버스) 질문이 무의미하다.
     if not single and not state.theme_symbols and not state.universe:
         return "universe"
+    # 신규 상장 유니버스(FR-STR-073): 대상 시장 다음으로 '어느 시기 상장'인지가 정해져야
+    # 유니버스가 확정된다. 시기를 지어내지 않고 묻는다(개념만 있으면 적용 불가).
+    # ETF엔 상장일 기반 판정을 적용하지 않으므로(미지원) 묻지 않는다.
+    if (state.new_listing_only and state.listing_from is None and state.listing_to is None
+            and state.universe != "ETF" and not state.theme_symbols):
+        return "listing_period"
     if not state.strategy_type:
         return "strategy_type"
     # 전략별 특화 파라미터(순서대로 첫 미충족 스텝). 없는 유형은 프리셋이라 건너뛴다.
@@ -1434,6 +1506,8 @@ def next_question(
             prefix + "어떤 시장을 대상으로 할까요?",
             ["코스피", "코스닥", "코스피200", "코스피·코스닥 전체", "ETF"],
         )
+    if field == "listing_period":
+        return (prefix + "어느 시기에 상장한 종목을 대상으로 할까요?", _listing_period_chips())
     if field == "strategy_type":
         # 단일 종목 모드: 종목 선별형 유형(모멘텀 랭킹·재무 스크리닝 가치주)을 빼고,
         # 가능하면 종목 프로파일의 신호 발생 통계를 근거로 선택지를 설명한다.
@@ -1546,7 +1620,7 @@ _ACK_PRIORITY = (
     "filters_asked", "rsi_overbought", "rsi_period", "ma_long", "ma_kind", "macd_mode",
     "cci_threshold", "volume_period", "value_roe",
     "rebalance_cycle", "holding_count", "lookback_days", "entry_rule", "strategy_type",
-    "theme_symbols", "sector", "universe",
+    "theme_symbols", "listing_from", "sector", "universe",
 )
 
 
@@ -1580,6 +1654,20 @@ def _risk_phrases(state: BuilderState) -> list[str]:
     if state.hold_period_days:
         parts.append(f"{state.hold_period_days}거래일 보유")
     return parts
+
+
+def _listing_window_label(listing_from: Optional[str], listing_to: Optional[str]) -> str:
+    """상장 구간을 짧은 라벨로. 한 해 전체면 "2026년 상장", 아니면 시작일 기준."""
+    if not listing_from and not listing_to:
+        return ""
+    if not listing_from:
+        return f"{listing_to} 이전 상장"
+    year = listing_from[:4]
+    if listing_from == f"{year}-01-01" and listing_to == f"{year}-12-31":
+        return f"{year}년 상장"
+    if not listing_to:
+        return f"{listing_from} 이후 상장"
+    return f"{listing_from}~{listing_to} 상장"
 
 
 def _ack_sentence(state: BuilderState, field: str) -> str:
@@ -1620,6 +1708,9 @@ def _ack_sentence(state: BuilderState, field: str) -> str:
         return "말씀하신 조건으로 진입하겠습니다"
     if field == "strategy_type":
         return f"{_TYPE_LABEL.get(state.strategy_type, '')} 전략으로 구성해 볼게요"
+    if field == "listing_from":
+        return (f"{_listing_window_label(state.listing_from, state.listing_to)} "
+                "종목만 대상으로 하겠습니다")
     if field == "sector":
         return f"{_sector_label(state)} 업종 종목만 대상으로 하겠습니다"
     if field == "theme_symbols":
@@ -1639,6 +1730,9 @@ def _seed_summary(state: BuilderState) -> list[str]:
     parts: list[str] = []
     if state.sector and not single:
         parts.append(f"{_sector_label(state)} 업종 대상")
+    if state.new_listing_only and not single:
+        label = _listing_window_label(state.listing_from, state.listing_to)
+        parts.append(f"{label} 종목 대상" if label else "신규 상장 종목 대상")
     if state.strategy_type:
         parts.append(f"{_TYPE_LABEL.get(state.strategy_type, '')} 전략")
     if state.lookback_days and state.strategy_type in ("momentum", "breakout"):
@@ -1748,6 +1842,12 @@ def synthesize_prompt(state: BuilderState) -> str:
         core = f"{label} 단일 종목에 적용하는 전략: {core}"
 
     parts = [core]
+    # 신규 상장 제한(FR-STR-073)을 명시한다 — custom 유형은 DSL을 만들지 못해 이 문장이
+    # 다시 파싱되므로, 빠뜨리면 재파싱 경로에서 제한이 통째로 사라진다.
+    if state.new_listing_only and state.listing_from and not single:
+        parts.append(
+            f"{_listing_window_label(state.listing_from, state.listing_to)}한 신규 상장 종목만 대상"
+        )
     # 옵션 진입 필터를 매수 조건 뒤에 덧붙인다(설명과 DSL 일치).
     if state.trend_filter_ma:
         parts.append(f"주가가 {state.trend_filter_ma}일 지수이동평균 위에 있을 때만 매수")
@@ -1857,6 +1957,15 @@ def build_parsed_strategy(state: BuilderState):
         # 테마 종목 목록(FR-STR-071)도 같은 지정 종목 계약을 재사용한다(universe 무시).
         target_symbols=(state.theme_symbols if theme
                         else [state.single_symbol] if single else []),
+        # 신규 상장 제한(FR-STR-073) — 지정 종목/테마 목록 모드는 사용자가 종목을 직접
+        # 고른 것이라 적용하지 않고(엔진 계약도 동일: to_backtest_request가 뺀다),
+        # ETF는 상장일 기반 판정 자체가 미지원이다.
+        new_listing_only=(state.new_listing_only
+                          and not (single or theme or state.universe == "ETF")),
+        listing_from=(None if (single or theme or state.universe == "ETF")
+                      else state.listing_from),
+        listing_to=(None if (single or theme or state.universe == "ETF")
+                    else state.listing_to),
         # 시작일 클램프 없음 — 자동 적용 전환(2026-07-25) 후 목록 확인 시점(theme_first_date)
         # 으로 백테스트를 조용히 자르지 않는다(1개월짜리 침묵 축소 방지). 시점 편향은
         # 파싱 경로의 notices가 고지한다.

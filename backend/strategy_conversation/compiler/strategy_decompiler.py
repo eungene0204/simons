@@ -102,6 +102,11 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             # 라운드트립 불일치(표현 불가)로 레거시 레인에 떨어진다(2026-07-27
             # '삼성전자 투자 etf' 사고: 인터프리터가 입력을 읽기도 전에 폴백).
             etf_theme=parsed.etf_theme,
+            # 신규 상장 제한도 왕복한다 — 누락되면 수정 요청마다 유니버스 제한이 풀리고,
+            # 기준 일수를 되묻는 중이면 그 개념 자체가 다음 턴에 증발한다.
+            new_listing_only=parsed.new_listing_only,
+            listing_from=parsed.listing_from,
+            listing_to=parsed.listing_to,
         ),
         entry_conditions=entry_conditions,
         exit_conditions=exit_conditions,

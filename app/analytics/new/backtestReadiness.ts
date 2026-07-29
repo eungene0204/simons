@@ -57,142 +57,199 @@ export function isExplicit(
   return (explicitFields ?? []).includes(field);
 }
 
+/** 슬롯 하나가 채워졌는가 — 프론트의 **유일한** 빈 슬롯 술어.
+ *
+ * 백엔드 정본(engine/strategy_slots.py)의 `_decided`/`_has_value`/`_explicit_ok` 3축을
+ * 그대로 옮긴 것이며, 되묻기 게이트와 진행률 패널이 **둘 다 이 함수만** 부른다.
+ * 프론트에 사본이 둘 이상 생기면 반드시 갈라진다 — 2026-07-29: 게이트만 고치고 패널이
+ * 낡은 채 남아, 백테스트 창이 자동 확정됐는데 진행률 체크가 안 됐다. 같은 가드가
+ * 그때 함께 드러낸 기존 드리프트가 3종 더 있었다(매도 조건·리스크 관리·리밸런싱 거부).
+ *
+ * 정본과의 일치는 계약 픽스처(`__fixtures__/slot-judgments.json`)가 대조한다.
+ */
+export function isSlotFilled(
+  field: MissingBacktestCondition["field"],
+  parsed: ParsedSummary | null | undefined,
+  options: BacktestReadinessOptions = {},
+): boolean {
+  if (!parsed) return false;
+  const explicitFields = options.explicitFields;
+  const requireExplicit = options.requireExplicitConfiguration === true;
+  const targetSymbolCount = parsed.target_symbols?.length ?? 0;
+  const hasRebalancing = Boolean(
+    parsed.rebalancing_period && parsed.rebalancing_period !== "none",
+  );
+
+  // ① 질문이 이미 끝난 필드 — 값 유무·provenance와 무관하다(백엔드 _decided).
+  if (field === "rebalancing" && (targetSymbolCount === 1 || options.allowNoRebalancing === true)) {
+    return true;
+  }
+  // 신규 상장 코호트(FR-STR-073)는 창 시작이 상장일 하한으로 확정돼 다른 답이 성립하지 않는다.
+  if (field === "backtest_period" && parsed.listing_from) return true;
+
+  // ② 값이 있는가(백엔드 _has_value). 각 슬롯의 입력 필드 집합은 provenance와 같아야 한다.
+  let hasValue: boolean;
+  switch (field) {
+    case "universe":
+      hasValue =
+        nonEmpty(parsed.universe) ||
+        nonEmpty(parsed.target_symbols) ||
+        nonEmpty(parsed.sector) ||
+        Boolean(parsed.new_listing_only);
+      break;
+    case "entry":
+      // 지정 종목은 진입 조건이 아니다 — 종목이 정해져도 매수 시점 규칙이 없으면 0거래다.
+      hasValue =
+        nonEmpty(parsed.entry_signals) ||
+        nonEmpty(parsed.fundamental_filters) ||
+        Boolean(parsed.ranking_metric);
+      break;
+    case "exit":
+      // 손절·익절은 '리스크 관리' 슬롯이지 매도 조건이 아니다 — 배지엔 함께 나오지만
+      // 판정은 정본을 따른다(그러지 않으면 체크는 켜지고 시스템은 청산을 되묻는다).
+      hasValue =
+        nonEmpty(parsed.exit_signals) ||
+        (parsed.hold_period_days ?? 0) > 0 ||
+        hasRebalancing;
+      break;
+    case "max_positions":
+      hasValue = (parsed.max_positions ?? 0) > 0;
+      break;
+    case "rebalancing":
+      hasValue = hasRebalancing;
+      break;
+    case "stop_loss":
+      hasValue = (parsed.stop_loss_pct ?? 0) > 0;
+      break;
+    case "take_profit":
+      hasValue = (parsed.take_profit_pct ?? 0) > 0;
+      break;
+    case "backtest_period":
+      hasValue =
+        nonEmpty(parsed.backtest_period) ||
+        nonEmpty(parsed.backtest_start_date) ||
+        nonEmpty(parsed.backtest_end_date);
+      break;
+    case "initial_capital":
+      hasValue = (parsed.initial_capital ?? 0) > 0;
+      break;
+  }
+  if (!hasValue) return false;
+
+  // ③ 사용자가 실제로 말했는가(백엔드 _explicit_ok). 기본값이 물질화되는 필드만 본다.
+  if (!requireExplicit) return true;
+  switch (field) {
+    case "universe":
+      return isExplicit("universe", explicitFields, parsed);
+    case "max_positions":
+      return targetSymbolCount > 0 || isExplicit("max_positions", explicitFields);
+    case "rebalancing":
+      return isExplicit("rebalancing", explicitFields);
+    case "backtest_period":
+      return isExplicit("backtest_period", explicitFields);
+    case "initial_capital":
+      return isExplicit("initial_capital", explicitFields);
+    default:
+      return true;   // 진입·청산·손절·익절은 기본값이 없어 값의 존재가 곧 사용자 입력이다
+  }
+}
+
+/** 진행 골격 8칸 중 채워진 슬롯 라벨(백엔드 filled_slots와 동형 — 리스크 관리는 손절·익절 둘 다). */
+export const SLOT_LABELS: Record<MissingBacktestCondition["field"], string> = {
+  universe: "유니버스",
+  entry: "매수 조건",
+  exit: "매도 조건",
+  max_positions: "최대 보유",
+  rebalancing: "리밸런싱",
+  stop_loss: "리스크 관리",
+  take_profit: "리스크 관리",
+  backtest_period: "백테스트 기간",
+  initial_capital: "초기 자본",
+};
+
+// 슬롯별 되묻기 문구·칩. 판정(isSlotFilled)과 같은 파일에 둔다 — 백엔드 정본이
+// _QUESTIONS를 판정 옆에 두는 것과 같은 이유로, 슬롯이 늘 때 한쪽만 갱신되는 것을 막는다.
+const SLOT_PROMPTS: Record<
+  MissingBacktestCondition["field"],
+  { question: string; suggestions: string[] }
+> = {
+  universe: {
+    question: "대상 시장·종목이 빠져 있습니다. 어떤 시장·종목을 대상으로 할까요?",
+    suggestions: ["코스피200", "코스피", "코스닥", "코스피+코스닥"],
+  },
+  entry: {
+    question: "매수 조건이 빠져 있습니다. 어떤 조건에서 매수할까요?",
+    suggestions: [
+      "골든크로스(5일/20일) 발생 시 매수",
+      "RSI 30 이하에서 매수",
+      "MACD 골든크로스 매수",
+      "볼린저밴드 하단 터치 시 매수",
+      "20일 고점 돌파 시 매수",
+      "거래량 급증 시 매수",
+      "PER 10 이하",
+      "ROE 15% 이상",
+    ],
+  },
+  exit: {
+    question: "청산 조건이 빠져 있습니다. 어떤 조건에서 청산할까요?",
+    suggestions: ["데드크로스(5일/20일) 발생 시 매도", "20일 보유 후 청산", "RSI 70 이상에서 매도"],
+  },
+  max_positions: {
+    question: "포트폴리오에 최대 몇 종목을 담을까요?",
+    suggestions: ["최대 5종목", "최대 10종목", "최대 20종목"],
+  },
+  rebalancing: {
+    question: "리밸런싱 주기가 빠져 있습니다. 포트폴리오를 얼마나 자주 다시 구성할까요?",
+    suggestions: ["매주 리밸런싱", "매월 리밸런싱", "분기마다 리밸런싱", "안 함"],
+  },
+  stop_loss: {
+    question: "손절 기준이 빠져 있습니다. 손절 기준을 몇 %로 설정할까요?",
+    suggestions: ["손절 5%", "손절 10%", "손절 15%"],
+  },
+  take_profit: {
+    question: "익절 기준이 빠져 있습니다. 익절 기준을 몇 %로 설정할까요?",
+    suggestions: ["익절 10%", "익절 20%", "익절 30%"],
+  },
+  backtest_period: {
+    question: "어느 기간의 과거 데이터로 백테스트할까요?",
+    suggestions: ["최근 1년 데이터", "최근 3년 데이터", "최근 5년 데이터", "사용 가능한 전체 데이터"],
+  },
+  initial_capital: {
+    question: "초기 투자 자금을 얼마로 설정할까요?",
+    suggestions: ["500만원", "1,000만원", "3,000만원", "5,000만원"],
+  },
+};
+
+// 진행 순서 = 사용자에게 보이는 골격 순서(백엔드 FIELD_ORDER와 동일).
+export const SLOT_FIELD_ORDER: MissingBacktestCondition["field"][] = [
+  "universe", "entry", "exit", "max_positions", "rebalancing",
+  "stop_loss", "take_profit", "backtest_period", "initial_capital",
+];
+
 export function getNextMissingBacktestCondition(
   parsed: ParsedSummary | undefined | null,
   options: BacktestReadinessOptions = {},
 ): MissingBacktestCondition | null {
   if (!parsed) {
-    return {
-      field: "universe",
-      question: "대상 시장·종목이 빠져 있습니다. 어떤 시장·종목을 대상으로 할까요?",
-      suggestions: ["코스피200", "코스피", "코스닥", "코스피+코스닥"],
-    };
+    return { field: "universe", ...SLOT_PROMPTS.universe };
   }
-  const hasUniverse =
-    nonEmpty(parsed.universe) || nonEmpty(parsed.target_symbols) || nonEmpty(parsed.sector);
-  // 지정 종목(target_symbols)은 진입 조건으로 인정하지 않는다 — 종목이 정해져도 매수
-  // 시점 규칙이 없으면 엔진은 매수를 전혀 만들지 않는다(signals.py: 빈 조건 그룹=all-False,
-  // 0거래). 테마 유니버스 자동 적용(FR-STR-071 ④)이 target_symbols를 채우면서 매수 조건
-  // 질문이 통째로 생략되던 버그(2026-07-25)의 원인.
-  const hasEntry =
-    nonEmpty(parsed.entry_signals) ||
-    nonEmpty(parsed.fundamental_filters) ||
-    Boolean(parsed.ranking_metric);
-  const rebal = parsed.rebalancing_period;
-  const hasRebalancing = Boolean(rebal && rebal !== "none");
-  const hasExit =
-    nonEmpty(parsed.exit_signals) || Boolean(parsed.hold_period_days) || hasRebalancing;
-  const hasStop = parsed.stop_loss_pct != null && parsed.stop_loss_pct > 0;
-  const hasTake = parsed.take_profit_pct != null && parsed.take_profit_pct > 0;
-  const hasMaxPositions = parsed.max_positions != null && parsed.max_positions > 0;
-  const hasBacktestPeriod = nonEmpty(parsed.backtest_period);
-  const hasInitialCapital = parsed.initial_capital != null && parsed.initial_capital > 0;
-  const isSingleAsset = nonEmpty(parsed.target_symbols);
-  // 단독 종목(지정 1개)이 아니면(유니버스/다종목) 리밸런싱 주기도 필수다(단독 종목은 교체가
-  // 없어 제외). 지정 종목이라도 여러 개(테마 유니버스 자동 적용 등)면 포트폴리오이므로
-  // 묻는다 — '지정 종목 존재=단독'으로 판정해 질문 없이 기본값 '설정 안 함'으로 확정되던
-  // 사고(2026-07-28 '모바일솔루션 관련주'). 백엔드 _missing_backtest_conditions와 동일 규칙.
-  const isSingleSymbol = (parsed.target_symbols?.length ?? 0) === 1;
-  const rebalancingOk =
-    isSingleSymbol || hasRebalancing || options.allowNoRebalancing === true;
-  const explicitFields = options.explicitFields;
-  const requireExplicit = options.requireExplicitConfiguration === true;
+  const field = SLOT_FIELD_ORDER.find((f) => !isSlotFilled(f, parsed, options));
+  return field ? { field, ...SLOT_PROMPTS[field] } : null;
+}
 
-  if (!hasUniverse || (requireExplicit && !isExplicit("universe", explicitFields, parsed))) {
-    return {
-      field: "universe",
-      question: "대상 시장·종목이 빠져 있습니다. 어떤 시장·종목을 대상으로 할까요?",
-      suggestions: ["코스피200", "코스피", "코스닥", "코스피+코스닥"],
-    };
+/** 채워진 진행 골격 슬롯 라벨(순서 보존). 백엔드 filled_slots와 동형 — 리스크 관리는
+ *  손절·익절이 **둘 다** 채워져야 완료다. */
+export function getFilledSlotLabels(
+  parsed: ParsedSummary | undefined | null,
+  options: BacktestReadinessOptions = {},
+): string[] {
+  const byLabel = new Map<string, boolean>();
+  for (const field of SLOT_FIELD_ORDER) {
+    const label = SLOT_LABELS[field];
+    const filled = isSlotFilled(field, parsed, options);
+    byLabel.set(label, (byLabel.get(label) ?? true) && filled);
   }
-  if (!hasEntry) {
-    return {
-      field: "entry",
-      question: "매수 조건이 빠져 있습니다. 어떤 조건에서 매수할까요?",
-      suggestions: [
-        "골든크로스(5일/20일) 발생 시 매수",
-        "RSI 30 이하에서 매수",
-        "MACD 골든크로스 매수",
-        "볼린저밴드 하단 터치 시 매수",
-        "20일 고점 돌파 시 매수",
-        "거래량 급증 시 매수",
-        "PER 10 이하",
-        "ROE 15% 이상",
-      ],
-    };
-  }
-  if (!hasExit) {
-    return {
-      field: "exit",
-      question: "청산 조건이 빠져 있습니다. 어떤 조건에서 청산할까요?",
-      suggestions: ["데드크로스(5일/20일) 발생 시 매도", "20일 보유 후 청산", "RSI 70 이상에서 매도"],
-    };
-  }
-  if (
-    !hasMaxPositions ||
-    (requireExplicit && !isSingleAsset && !isExplicit("max_positions", explicitFields))
-  ) {
-    return {
-      field: "max_positions",
-      question: "포트폴리오에 최대 몇 종목을 담을까요?",
-      suggestions: ["최대 5종목", "최대 10종목", "최대 20종목"],
-    };
-  }
-  if (
-    !rebalancingOk ||
-    // '안 함' 선택은 사용자의 명시적 결정이지만 LLM 스펙에서는 rebalance_frequency=null이라
-    // 미언급과 구분되지 않는다 — 프론트가 그 선택을 들고 있으므로(allowNoRebalancing)
-    // provenance와 동등하게 취급한다.
-    (requireExplicit && !isSingleSymbol &&
-      !isExplicit("rebalancing", explicitFields) && options.allowNoRebalancing !== true)
-  ) {
-    return {
-      field: "rebalancing",
-      question:
-        "리밸런싱 주기가 빠져 있습니다. 포트폴리오를 얼마나 자주 다시 구성할까요?",
-      suggestions: ["매주 리밸런싱", "매월 리밸런싱", "분기마다 리밸런싱", "안 함"],
-    };
-  }
-  if (!hasStop) {
-    return {
-      field: "stop_loss",
-      question: "손절 기준이 빠져 있습니다. 손절 기준을 몇 %로 설정할까요?",
-      suggestions: ["손절 5%", "손절 10%", "손절 15%"],
-    };
-  }
-  if (!hasTake) {
-    return {
-      field: "take_profit",
-      question: "익절 기준이 빠져 있습니다. 익절 기준을 몇 %로 설정할까요?",
-      suggestions: ["익절 10%", "익절 20%", "익절 30%"],
-    };
-  }
-  if (
-    !hasBacktestPeriod ||
-    (requireExplicit && !isExplicit("backtest_period", explicitFields))
-  ) {
-    return {
-      field: "backtest_period",
-      question: "어느 기간의 과거 데이터로 백테스트할까요?",
-      suggestions: [
-        "최근 1년 데이터",
-        "최근 3년 데이터",
-        "최근 5년 데이터",
-        "사용 가능한 전체 데이터",
-      ],
-    };
-  }
-  if (
-    !hasInitialCapital ||
-    (requireExplicit && !isExplicit("initial_capital", explicitFields))
-  ) {
-    return {
-      field: "initial_capital",
-      question: "초기 투자 자금을 얼마로 설정할까요?",
-      suggestions: ["500만원", "1,000만원", "3,000만원", "5,000만원"],
-    };
-  }
-  return null;
+  return [...byLabel.entries()].filter(([, filled]) => filled).map(([label]) => label);
 }
 
 export function isBacktestReady(

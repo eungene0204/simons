@@ -17,6 +17,8 @@ export {
   formatFundamentalFilter,
   formatInitialCapital,
   formatMarketCapValue,
+  formatBacktestPeriodLabel,
+  formatNewListingLabel,
   INDICATOR_LABELS,
   METRIC_LABELS,
   PERIOD_LABELS,

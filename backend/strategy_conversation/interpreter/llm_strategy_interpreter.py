@@ -237,7 +237,7 @@ class StrategyInterpreter:
                 if residual:
                     _log_llm("△ 수치 누락 잔존", f"미반영: {', '.join(residual)}")
                 _log_llm("✓ 해석", (
-                    f"intent={intent.intent} status={intent.status} "
+                    f"intent={intent.intent} "
                     f"patches={len(intent.patches)} repairs={attempts} "
                     f"({round((time.perf_counter() - started) * 1000)}ms)"
                 ))

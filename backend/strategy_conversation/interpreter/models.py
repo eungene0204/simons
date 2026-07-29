@@ -102,6 +102,13 @@ class StrategyCondition(BaseModel):
     @field_validator("parameters", mode="before")
     @classmethod
     def _coerce_parameters(cls, v):
+        # 9B 드리프트 실측(2026-07-30): 기간을 말하지 않은 조건에 parameters를 빈 dict가
+        # 아니라 null로 낸다("20일선을 깨고 내려오면 매도" → parameters=null). 그대로
+        # 두면 dict_type ValidationError로 출력 전체가 버려져 복구 재요청 1회(수 초)를
+        # 무조건 태우고, 재요청 결과도 기간을 채워 오지 않았다. 없음의 표기 차이일 뿐이므로
+        # 형식 정규화한다(sectors·symbols의 null 처리와 동형).
+        if v is None:
+            return {}
         if isinstance(v, dict):
             return {k: _coerce_number(val) for k, val in v.items()}
         return v
@@ -151,6 +158,32 @@ class UniverseSpec(BaseModel):
         ),
     )
 
+    # 신규 상장 유니버스(FR-STR-073)는 '개념'과 '값'을 분리한다 — 조건의 factor/value와
+    # 같은 이유다. "신규 상장 종목"에는 기간 수치가 없으므로 값을 지어내면 무단 확정이
+    # 되고, 개념까지 비우면 사용자가 말한 제한이 조용히 사라진다.
+    new_listing_only: bool = Field(
+        default=False,
+        description=(
+            "신규 상장(IPO) 종목만 대상으로 하는지. '신규 상장 종목', '최근 상장한 종목', "
+            "'상장한 지 얼마 안 된 종목', '공모주' 언급 시 true. 기간 수치가 없어도 true"
+        ),
+    )
+    listing_from: Optional[str] = Field(
+        default=None,
+        description=(
+            "그 '신규'의 시기 — 상장일 하한(YYYY-MM-DD, 포함). "
+            "'2026년 신규 상장'=2026-01-01, '최근 1년 내 상장'=오늘로부터 1년 전 날짜. "
+            "시기를 말하지 않았으면 null(시스템이 되묻는다 — 날짜를 지어내지 말 것)"
+        ),
+    )
+    listing_to: Optional[str] = Field(
+        default=None,
+        description=(
+            "상장일 상한(YYYY-MM-DD, 포함). '2026년 신규 상장'=2026-12-31. "
+            "'최근 N개월 내 상장'처럼 상한이 없는 표현이면 null"
+        ),
+    )
+
     @field_validator("etf_theme", mode="before")
     @classmethod
     def _coerce_etf_theme(cls, v):
@@ -190,6 +223,14 @@ class UniverseSpec(BaseModel):
             if out:
                 return out
         return v
+
+    @model_validator(mode="after")
+    def _imply_new_listing_concept(self):
+        # 구간만 내고 개념 플래그를 빠뜨리는 드리프트("2026년 상장"→listing_from만) 정규화 —
+        # 구간이 있으면 개념은 자명하다(형식 정규화, 의미 추론 아님).
+        if self.listing_from is not None or self.listing_to is not None:
+            self.new_listing_only = True
+        return self
 
     @field_validator("sectors", "symbols", mode="before")
     @classmethod

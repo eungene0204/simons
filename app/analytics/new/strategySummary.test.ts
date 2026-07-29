@@ -9,6 +9,7 @@ import {
   formatInitialCapital,
   FUNDAMENTAL_FILTER_SECTION_LABEL,
   getDisplayExitLabels,
+  formatNewListingLabel,
   getDisplayUniverseLabels,
   getSignalLabel,
   hasBuyCriteria,
@@ -676,5 +677,58 @@ describe("단일/지정 종목 백테스트 표시 (FR-STR-068)", () => {
     } as never);
     expect(summary?.universeName).toBe("005930");
     expect(summary?.positionText).toContain("단일 종목");
+  });
+});
+
+describe("신규 상장 유니버스 표시 (FR-STR-073)", () => {
+  it("상장 구간이 한 해 전체면 연도 배지를 만든다", () => {
+    expect(
+      getDisplayUniverseLabels({
+        ...baseParsed,
+        universe: ["KOSPI", "KOSDAQ"],
+        new_listing_only: true,
+        listing_from: "2026-01-01",
+        listing_to: "2026-12-31",
+      })
+    ).toEqual(["KOSPI", "KOSDAQ", "2026년 상장"]);
+  });
+
+  it("상한이 없으면 '이후 상장'으로 표기한다", () => {
+    expect(
+      getDisplayUniverseLabels({
+        ...baseParsed,
+        universe: ["KOSDAQ"],
+        new_listing_only: true,
+        listing_from: "2025-06-01",
+      })
+    ).toEqual(["KOSDAQ", "2025-06-01 이후 상장"]);
+  });
+
+  it("대상 시기를 되묻는 중이면 개념만 배지로 남는다", () => {
+    // 구간이 없다고 배지를 지우면 사용자가 말한 제한이 화면에서 사라진다.
+    expect(
+      getDisplayUniverseLabels({
+        ...baseParsed,
+        universe: ["KOSPI", "KOSDAQ"],
+        new_listing_only: true,
+      })
+    ).toEqual(["KOSPI", "KOSDAQ", "신규 상장"]);
+  });
+
+  it("제한이 없으면 배지를 만들지 않는다", () => {
+    expect(formatNewListingLabel(baseParsed)).toBeNull();
+    expect(getDisplayUniverseLabels(baseParsed)).toEqual(["KOSPI"]);
+  });
+
+  it("실행된 요청의 상장 구간도 유니버스명에 반영한다", () => {
+    const summary = buildStrategySummaryFromRequest({
+      universe_id: "kosdaq_kospi",
+      listing_from: "2026-01-01",
+      listing_to: "2026-12-31",
+      entry: { conditions: [] },
+      exit: { conditions: [] },
+      risk: {},
+    });
+    expect(summary?.universeName).toContain("2026년 상장");
   });
 });

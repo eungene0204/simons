@@ -449,3 +449,82 @@ def test_universe_chip_without_catalog_match_falls_through(monkeypatch):
     monkeypatch.setattr(nl_parser, "apply_theme_companies", lambda p, t: None)
     prev = ParsedStrategy(description="보안주 전략").model_dump()
     assert run_chip_answer("보안주(물리)", prev, _universe_pending_ask()) is None
+
+
+# ─── 파스 지연 예산(FR-STR-019o, 2026-07-29 타임아웃 사고) ──────────────────────
+# 지연은 LLM 호출 횟수로만 결정된다(비-LLM 작업 실측 0.0%). 아래 두 계약은 호출
+# 횟수를 잠근다 — 벽시계 측정은 머신 부하에 흔들려 회귀 감시에 쓸 수 없다.
+
+
+def test_turn_budget_default_is_two():
+    """planner 턴 예산 기본값 2 — warm 캐시에서도 1턴이 40~56초라 예산이 곧 지연이다."""
+    from strategy_conversation import config
+
+    assert config.dag_planner_max_turns() == 2
+
+
+def test_front_planner_failure_does_not_trigger_a_second_planning_run(monkeypatch):
+    """planner-first가 실패(None)해도 되묻기 단계에서 다시 계획하지 않는다.
+
+    2026-07-29 사고: 턴 예산 소진 → None → elif 체인의 다음 분기가 planner를 처음부터
+    다시 돌려 한 파스에서 planner가 6회 호출됐다(148초 + 84초). 예산 소진은 실패가
+    아니라 검증 리포트 고정 질문으로 폴백하는 정상 경로다.
+    """
+    from strategy_conversation.interpreter.models import StrategyIntent
+
+    monkeypatch.setenv("STRATEGY_DAG_PLANNER_MODE", "primary")
+    front_calls: list[int] = []
+    monkeypatch.setattr(
+        primary_mod, "_plan_first",
+        lambda user_input: (front_calls.append(1), None)[1],
+    )
+
+    def _must_not_replan(*_a, **_k):
+        raise AssertionError("planner-first 실패 후 재계획이 호출됐다(지연 2배 회귀)")
+
+    monkeypatch.setattr(primary_mod, "_dag_planner_clarification", _must_not_replan)
+
+    intent = StrategyIntent.model_validate({
+        "intent": "CREATE_STRATEGY",
+        "strategy": {"universe": {"markets": ["KOSPI200"]}},
+        "confidence": 0.9,
+    })
+
+    class _Result:
+        pass
+
+    _Result.intent = intent
+    _Result.model_name = "test"
+    _Result.prompt_version = "test"
+    _Result.repair_attempts = 0
+    _Result.latency_ms = 0.0
+    _Result.unreflected_numbers = []
+
+    class _Interpreter:
+        def interpret(self, *_a, **_k):
+            return _Result()
+
+    monkeypatch.setattr(primary_mod, "_get_interpreter", lambda _cls: _Interpreter())
+
+    primary_mod.run_primary_parse("코스피200 전략 만들어줘")
+
+    # 최선두 planner는 정확히 한 번만 — 실패해도 재시도하지 않는다.
+    assert front_calls == [1]
+
+
+def test_chip_answer_turn_still_replans(monkeypatch):
+    """칩 답변 턴의 재계획(_replan_next_question)은 지연 수정과 무관하게 살아 있다."""
+    monkeypatch.setenv("STRATEGY_DAG_PLANNER_MODE", "primary")
+    monkeypatch.setattr(
+        primary_mod, "_dag_planner_clarification",
+        lambda user_input, parsed, explicit_fields=None: (
+            "언제 팔까요?", ["RSI 70 이상에서 매도"], "매도조건",
+        ),
+    )
+    prev = ParsedStrategy(universe=["KOSPI200"]).model_dump()
+    result = run_chip_answer(
+        "손절 8%", prev,
+        {"topic": "리스크관리", "question": "손절 기준은?", "chips": ["손절 8%"]},
+    )
+    assert result is not None
+    assert result["clarification_question"] == "언제 팔까요?"

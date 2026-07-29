@@ -318,3 +318,80 @@ def test_extract_etf_theme_self_validating(synthetic_etf_master):
     assert u.extract_etf_theme("KODEX 200을 골든크로스로 매매") == "KODEX 200"
     # 매칭 안 되는 선행어("사는")는 테마가 아니다.
     assert u.extract_etf_theme("etf를 사는 전략") is None
+
+
+# ── 신규 상장 유니버스 (FR-STR-073) ──────────────────────────────────────────
+
+@pytest.fixture
+def listing_master(tmp_path, monkeypatch):
+    stocks = [
+        # 오래된 종목 — 상장일이 백필 하한(dataStart)보다 훨씬 앞선다.
+        {"symbol": "OLD000", "market": "KOSPI", "delistingDate": None,
+         "listingDate": "1975-06-11", "dataStart": "2013-12-18",
+         "dataEnd": "2026-06-01", "hasOhlcv": True},
+        # 2025년 IPO — 상장일과 데이터 시작이 같다.
+        {"symbol": "IPO250", "market": "KOSDAQ", "delistingDate": None,
+         "listingDate": "2025-06-02", "dataStart": "2025-06-02",
+         "dataEnd": "2026-06-01", "hasOhlcv": True},
+        # 이전상장/재상장 — KIND 상장일은 최근이지만 그 전부터 거래됐다.
+        {"symbol": "MOVE00", "market": "KOSDAQ", "delistingDate": None,
+         "listingDate": "2025-06-30", "dataStart": "2022-12-23",
+         "dataEnd": "2026-06-01", "hasOhlcv": True},
+        # 상장일 미상(KIND 미커버) — dataStart가 하한 역할을 한다.
+        {"symbol": "NODATE", "market": "KOSDAQ", "delistingDate": None,
+         "listingDate": None, "dataStart": "2016-08-08",
+         "dataEnd": "2026-06-01", "hasOhlcv": True},
+        # 근거가 전혀 없는 종목 — 신규 상장 판정에서 제외되고 보고된다.
+        {"symbol": "UNKNWN", "market": "KOSDAQ", "delistingDate": None,
+         "listingDate": None, "dataStart": None, "dataEnd": None, "hasOhlcv": False},
+        # 기간 중 상장했다가 상폐 — 생존 편향 없이 당시 신규 상장으로 잡혀야 한다.
+        {"symbol": "GONE00", "market": "KOSDAQ", "delistingDate": "2019-06-30",
+         "listingDate": "2018-03-02", "dataStart": "2018-03-02",
+         "dataEnd": "2019-06-28", "hasOhlcv": True},
+    ]
+    path = tmp_path / "stock-master.json"
+    path.write_text(json.dumps({"stocks": stocks}), encoding="utf-8")
+    monkeypatch.setattr(u, "_MASTER_PATH", path)
+    u.reload_master()
+    yield
+    u.reload_master()
+
+
+def test_first_listed_date_prefers_earlier_evidence(listing_master):
+    # 이전상장은 KIND 상장일(2025-06-30)이 아니라 실제 거래 시작일이 최초 상장일이다 —
+    # 그러지 않으면 2022년부터 거래된 종목이 2025년 신규 상장으로 둔갑한다.
+    dates = u.first_listed_dates(["OLD000", "IPO250", "MOVE00", "NODATE", "UNKNWN"])
+    assert dates["OLD000"] == "1975-06-11"
+    assert dates["IPO250"] == "2025-06-02"
+    assert dates["MOVE00"] == "2022-12-23"
+    assert dates["NODATE"] == "2016-08-08"   # 상장일 미상 → dataStart가 하한
+    assert "UNKNWN" not in dates              # 근거 없음 → 키 자체가 없다
+
+
+def test_filter_by_listing_window_year_cohort(listing_master):
+    symbols = ["OLD000", "IPO250", "MOVE00", "NODATE", "UNKNWN"]
+    # "2025년 신규 상장" = 상장일이 2025년인 종목. 이전상장(실제 2022년 거래 시작)은 빠진다.
+    kept, unknown = u.filter_by_listing_window(symbols, "2025-01-01", "2025-12-31")
+    assert kept == ["IPO250"]
+    assert unknown == ["UNKNWN"]
+
+
+def test_filter_by_listing_window_open_upper_bound(listing_master):
+    # "2016년 이후 상장" — 상한이 없으면 그 뒤 상장분을 모두 포함한다.
+    kept, _ = u.filter_by_listing_window(
+        ["OLD000", "IPO250", "MOVE00", "NODATE"], "2016-01-01", None
+    )
+    assert kept == ["IPO250", "MOVE00", "NODATE"]
+
+
+def test_filter_by_listing_window_includes_delisted_names(listing_master):
+    # 상장 후 상폐된 종목도 그 해엔 신규 상장이었다(생존 편향 제거).
+    kept, _ = u.filter_by_listing_window(["OLD000", "GONE00"], "2018-01-01", "2018-12-31")
+    assert kept == ["GONE00"]
+
+
+def test_filter_by_listing_window_reports_unknown_listing_dates(listing_master):
+    # 상장일 근거가 없는 종목은 조용히 통과시키지 않고 제외 후 보고한다.
+    kept, unknown = u.filter_by_listing_window(["IPO250", "UNKNWN"], "2025-01-01", None)
+    assert kept == ["IPO250"]
+    assert unknown == ["UNKNWN"]

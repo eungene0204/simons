@@ -7,6 +7,11 @@ export interface ParsedSummary {
   sector?: string | string[] | null;
   // ETF 유니버스 전용 테마/상품명 필터("반도체", "KODEX 200"). 없으면 null/생략.
   etf_theme?: string | null;
+  // 신규 상장(IPO) 유니버스(FR-STR-073) — 상장일이 이 구간에 속하는 종목만 대상.
+  // 대상 시기를 되묻는 중이면 개념만 true다.
+  new_listing_only?: boolean | null;
+  listing_from?: string | null;
+  listing_to?: string | null;
   fundamental_filters: Array<{ metric: string; operator: string; value: number }>;
   entry_signals: Array<{
     indicator: string;
@@ -194,6 +199,22 @@ export const PERIOD_LABELS: Record<string, string> = {
   full: "전체",
 };
 
+// 백테스트 기간 배지. 명시 날짜가 있으면 그 창을 그대로 보여준다 — 상대 기간 라벨
+// ("5년")은 신규 상장 코호트처럼 창이 조정된 경우 실제 실행 구간과 어긋난다.
+export function formatBacktestPeriodLabel(parsed: {
+  backtest_period?: string | null;
+  backtest_start_date?: string | null;
+  backtest_end_date?: string | null;
+}): string | null {
+  const from = parsed.backtest_start_date ?? null;
+  const to = parsed.backtest_end_date ?? null;
+  if (from) return `${from} ~ ${to ?? "현재"}`;
+  if (to) return `~ ${to}`;
+  const period = parsed.backtest_period ? String(parsed.backtest_period).toLowerCase() : null;
+  if (!period) return null;
+  return PERIOD_LABELS[period] ?? period;
+}
+
 export const REBAL_LABELS: Record<string, string> = {
   none: "없음",
   daily: "매일",
@@ -321,6 +342,23 @@ function formatPercent(value: number | null | undefined): string | null {
   return Number.isInteger(value) ? value.toFixed(0) : value.toString();
 }
 
+// 신규 상장 유니버스 배지(FR-STR-073). 상장 구간이 한 해 전체면 "2026년 상장",
+// 아직 시기를 되묻는 중이면 개념만 "신규 상장". 제한이 없으면 null(배지 없음).
+export function formatNewListingLabel(parsed: {
+  new_listing_only?: boolean | null;
+  listing_from?: string | null;
+  listing_to?: string | null;
+}): string | null {
+  const from = parsed.listing_from ?? null;
+  const to = parsed.listing_to ?? null;
+  if (!parsed.new_listing_only && !from && !to) return null;
+  if (!from && !to) return "신규 상장";
+  if (!from) return `${to} 이전 상장`;
+  const year = from.slice(0, 4);
+  if (from === `${year}-01-01` && to === `${year}-12-31`) return `${year}년 상장`;
+  return to ? `${from}~${to} 상장` : `${from} 이후 상장`;
+}
+
 export function getDisplayUniverseLabels(
   parsed: ParsedSummary,
   backtestRequest?: BacktestRequestLike | null
@@ -354,6 +392,9 @@ export function getDisplayUniverseLabels(
       /[a-z]/i.test(parsed.etf_theme) ? parsed.etf_theme : `${parsed.etf_theme} 테마`
     );
   }
+
+  const newListingLabel = formatNewListingLabel(parsed);
+  if (newListingLabel) sectorLabel.push(newListingLabel);
 
   if (
     normalizedUniverses.length === 1 &&
@@ -480,6 +521,8 @@ interface ExecutedBacktestRequest {
   // 지정 종목(단일 종목) 백테스트 메타데이터(FR-STR-068). universe_id=null 대신 이걸 표시.
   target_stocks?: Array<{ symbol: string; name?: string }> | null;
   sector?: string | string[] | null;
+  listing_from?: string | null;
+  listing_to?: string | null;
   entry?: { conditions?: Array<{ id?: string; type?: string; params?: Record<string, unknown> }> } | null;
   exit?: { conditions?: Array<{ id?: string; type?: string; params?: Record<string, unknown> }> } | null;
   risk?: Record<string, unknown> | null;
@@ -559,6 +602,11 @@ export function buildStrategySummaryFromRequest(
           ...(Array.isArray(req.sector) ? req.sector : req.sector ? [req.sector] : []).map(
             (sector) => `${sector} 업종`
           ),
+          // 실행된 요청에는 확정된 상장 구간만 실린다(되묻는 중인 개념은 실행되지 않음).
+          formatNewListingLabel({
+            listing_from: req.listing_from ?? null,
+            listing_to: req.listing_to ?? null,
+          }) ?? "",
         ]
           .filter(Boolean)
           .join(" · "),

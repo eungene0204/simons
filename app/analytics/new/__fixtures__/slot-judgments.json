@@ -1,5 +1,5 @@
 {
-  "_comment": "engine/strategy_slots.py(빈 슬롯 판정 SOT)가 생성한 계약 픽스처. 직접 편집하지 말 것 — python scripts/export_slot_judgments.py 로 갱신한다. 프론트 게이트(backtestReadiness.ts)는 같은 입력에 같은 답을 내야 한다.",
+  "_comment": "engine/strategy_slots.py(빈 슬롯 판정 SOT)가 생성한 계약 픽스처. 직접 편집하지 말 것 — python scripts/export_slot_judgments.py 로 갱신한다. 프론트 게이트(backtestReadiness.ts)와 진행률 패널(builderProgressPresentation.ts)은 같은 입력에 같은 답을 내야 한다.",
   "cases": [
     {
       "name": "완성 전략",
@@ -11,6 +11,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -66,7 +69,17 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": null
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "빈 전략(기본값만)",
@@ -76,6 +89,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [],
         "exit_signals": [],
@@ -99,7 +115,8 @@
       },
       "explicitFields": [],
       "allowNoRebalancing": false,
-      "expectedMissingField": "universe"
+      "expectedMissingField": "universe",
+      "expectedFilledSlots": []
     },
     {
       "name": "유니버스 없음",
@@ -109,6 +126,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -158,7 +178,12 @@
       },
       "explicitFields": [],
       "allowNoRebalancing": false,
-      "expectedMissingField": "universe"
+      "expectedMissingField": "universe",
+      "expectedFilledSlots": [
+        "매수 조건",
+        "매도 조건",
+        "리스크 관리"
+      ]
     },
     {
       "name": "유니버스 값은 있고 미언급",
@@ -170,6 +195,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -224,7 +252,16 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": "universe"
+      "expectedMissingField": "universe",
+      "expectedFilledSlots": [
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "매수 조건 없음",
@@ -236,6 +273,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [],
         "exit_signals": [
@@ -278,7 +318,16 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": "entry"
+      "expectedMissingField": "entry",
+      "expectedFilledSlots": [
+        "유니버스",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "매수=재무 필터",
@@ -290,6 +339,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [
           {
             "metric": "per",
@@ -338,7 +390,17 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": null
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "매수=랭킹",
@@ -350,6 +412,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [],
         "exit_signals": [
@@ -392,7 +457,17 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": null
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "매도 조건 없음",
@@ -404,6 +479,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -445,7 +523,15 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": "exit"
+      "expectedMissingField": "exit",
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "최대 보유",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "매도=보유기간",
@@ -457,6 +543,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -499,7 +588,17 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": null
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "매도=정기 리밸런싱",
@@ -511,6 +610,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -553,7 +655,17 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": null
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "최대 보유 미언급",
@@ -565,6 +677,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -619,7 +734,16 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": "max_positions"
+      "expectedMissingField": "max_positions",
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "최대 보유 0은 모델이 하한으로 보정",
@@ -631,6 +755,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -686,7 +813,17 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": null
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "리밸런싱 없음",
@@ -698,6 +835,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -752,7 +892,16 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": "rebalancing"
+      "expectedMissingField": "rebalancing",
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "리밸런싱 안 함(사용자 결정)",
@@ -764,6 +913,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -818,7 +970,17 @@
         "initial_capital"
       ],
       "allowNoRebalancing": true,
-      "expectedMissingField": null
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "손절 없음",
@@ -830,6 +992,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -885,7 +1050,16 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": "stop_loss"
+      "expectedMissingField": "stop_loss",
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "익절 없음",
@@ -897,6 +1071,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -952,7 +1129,16 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": "take_profit"
+      "expectedMissingField": "take_profit",
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "트레일링만 있음",
@@ -964,6 +1150,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -1019,7 +1208,16 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": "stop_loss"
+      "expectedMissingField": "stop_loss",
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "기간 미언급",
@@ -1031,6 +1229,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -1085,7 +1286,16 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": "backtest_period"
+      "expectedMissingField": "backtest_period",
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "초기 자본"
+      ]
     },
     {
       "name": "초기 자본 미언급",
@@ -1097,6 +1307,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -1151,7 +1364,16 @@
         "backtest_period"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": "initial_capital"
+      "expectedMissingField": "initial_capital",
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간"
+      ]
     },
     {
       "name": "초기 자본 값 0",
@@ -1163,6 +1385,9 @@
         "etf_theme": null,
         "sector": null,
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -1218,7 +1443,16 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": "initial_capital"
+      "expectedMissingField": "initial_capital",
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간"
+      ]
     },
     {
       "name": "단독 종목(리밸런싱 면제)",
@@ -1230,6 +1464,9 @@
         "target_symbols": [
           "005930"
         ],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -1283,7 +1520,17 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": null
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "다종목 지정(리밸런싱 필요)",
@@ -1297,6 +1544,9 @@
           "139670",
           "051160"
         ],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -1350,7 +1600,16 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": "rebalancing"
+      "expectedMissingField": "rebalancing",
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "지정 종목인데 매수 조건 없음",
@@ -1363,6 +1622,9 @@
           "108860",
           "139670"
         ],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [],
         "exit_signals": [
@@ -1405,7 +1667,16 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": "entry"
+      "expectedMissingField": "entry",
+      "expectedFilledSlots": [
+        "유니버스",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     },
     {
       "name": "업종만 지정",
@@ -1415,6 +1686,9 @@
         "etf_theme": null,
         "sector": "반도체",
         "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
         "fundamental_filters": [],
         "entry_signals": [
           {
@@ -1470,7 +1744,254 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
-      "expectedMissingField": null
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
+    },
+    {
+      "name": "신규 상장만 지정(대상 시기 되묻는 중)",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "new_listing_only": true,
+        "listing_from": null,
+        "listing_to": null,
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
+    },
+    {
+      "name": "신규 상장 코호트 — 백테스트 기간 재질문 금지",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "new_listing_only": true,
+        "listing_from": "2026-01-01",
+        "listing_to": "2026-12-31",
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": "2026-01-01",
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
+    },
+    {
+      "name": "명시 날짜가 있는 백테스트 창",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": "2020-01-01",
+        "backtest_end_date": "2024-12-31",
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
     }
   ]
 }

@@ -58,8 +58,32 @@ def _scan_local_ohlcv_coverage() -> dict[str, tuple[str, str]]:
     return coverage
 
 
+def load_kind_listing_dates() -> dict[str, str]:
+    """symbol -> 상장일(YYYY-MM-DD) from FDR "KRX-DESC" (KIND 상장법인목록).
+
+    현행 상장 목록(StockListing("KOSPI"/"KOSDAQ"))에는 상장일 컬럼이 없어 "신규 상장
+    종목" 유니버스(FR-STR-073)를 판정할 수 없다. KIND 상장법인목록은 무료·인증 없이
+    현행 상장 보통주의 상장일을 사실상 전부 제공한다(실측 2026-07-29: 현행 상장 대비
+    99.5%). 상장일이 비어 있는 행(주로 우선주)은 제외한다.
+    """
+    import FinanceDataReader as fdr
+    import pandas as pd
+
+    df = fdr.StockListing("KRX-DESC")
+    dates = pd.to_datetime(df["ListingDate"], errors="coerce")
+    out: dict[str, str] = {}
+    for code, listed in zip(df["Code"].astype(str).str.strip(), dates):
+        if code and pd.notna(listed):
+            out[code] = str(listed)[:10]
+    return out
+
+
 def _load_active(fdr) -> dict[str, dict]:
-    """Current KOSPI/KOSDAQ commons from FDR. Code/Name/Market/Stocks."""
+    """Current KOSPI/KOSDAQ commons from FDR. Code/Name/Market/Stocks.
+
+    상장일은 현행 상장 목록에 없어 KIND 상장법인목록(KRX-DESC)에서 붙인다.
+    """
+    listing_dates = load_kind_listing_dates()
     out: dict[str, dict] = {}
     for market in ("KOSPI", "KOSDAQ"):
         df = fdr.StockListing(market)
@@ -74,7 +98,7 @@ def _load_active(fdr) -> dict[str, dict]:
                 "name": str(r.get("Name", "")).strip(),
                 "market": market,
                 "secuGroup": "주권",
-                "listingDate": None,   # active: lower bound derived from OHLCV dataStart
+                "listingDate": listing_dates.get(sym),  # 미커버 시 OHLCV dataStart가 하한
                 "delistingDate": None,
                 "shares": int(shares) if pd.notna(shares) else None,
                 "reason": None,

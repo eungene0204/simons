@@ -6,10 +6,11 @@ import {
   getPositionLabel,
   getRankingLabel,
   getSignalLabel,
-  PERIOD_LABELS,
+  formatBacktestPeriodLabel,
+  formatNewListingLabel,
   type ParsedSummary,
 } from "./strategySummary";
-import { isExplicit } from "./backtestReadiness";
+import { isExplicit, isSlotFilled } from "./backtestReadiness";
 
 export type BuilderSummaryItem = {
   label: string;
@@ -211,6 +212,7 @@ export function buildBuilderTurnPresentation({
   parsed,
   explicitFields,
   backtestRequest,
+  allowNoRebalancing,
 }: {
   state: Record<string, any>;
   reply: string;
@@ -222,13 +224,28 @@ export function buildBuilderTurnPresentation({
     symbols?: string[];
     target_stocks?: Array<{ symbol: string; name?: string }> | null;
   } | null;
+  // 사용자가 리밸런싱 '안 함'을 고른 결과(게이트와 같은 입력). LLM 스펙에서는 null이라
+  // 미언급과 구분되지 않으므로 호출자가 들고 전달한다 — 없으면 진행률이 그 답을 놓친다.
+  allowNoRebalancing?: boolean;
 }): BuilderTurnPresentation {
   const summaryItems: BuilderSummaryItem[] = [];
+  // 신규 상장 제한(FR-STR-073)은 시장 라벨에 덧붙인다 — 빼면 "코스피·코스닥 전체"만
+  // 보여 전 종목을 대상으로 하는 것처럼 읽힌다(2026-07-29 사고와 같은 오해).
+  const newListingSuffix = formatNewListingLabel({
+    new_listing_only: state.new_listing_only,
+    listing_from: state.listing_from,
+    listing_to: state.listing_to,
+  });
+  const marketFromState = state.universe
+    ? UNIVERSE_LABELS[state.universe] ?? state.universe
+    : null;
   const targetFromState = (state.single_label
     ? String(state.single_label).replace(/\s*\(\d{6}\)$/, "")
     : null) ||
     (state.theme_label ? String(state.theme_label) : null) ||
-    (state.universe ? UNIVERSE_LABELS[state.universe] ?? state.universe : null);
+    (marketFromState
+      ? [marketFromState, newListingSuffix].filter(Boolean).join(" · ")
+      : null);
   // 빌더 레인의 state 값은 사용자가 되묻기에 직접 답한 결과다 — 그 자체가 명시다.
   // (백엔드 provenance는 자유 서술 파스 레인의 판정을 담당한다. 두 레인 모두 근거는
   //  사용자의 실제 발화이고, 어느 쪽도 원문 정규식을 쓰지 않는다.)
@@ -261,9 +278,20 @@ export function buildBuilderTurnPresentation({
     rebalanceFromState ||
     isExplicit("rebalancing", explicitFields);
   const backtestPeriod = state.backtest_period ?? state.period ?? parsed?.backtest_period;
-  const backtestPeriodExplicit =
-    hasValue(state.backtest_period ?? state.period) ||
-    isExplicit("backtest_period", explicitFields);
+  // 슬롯 판정은 게이트와 **같은 술어**(isSlotFilled)에 맡기고, 빌더 state로만 알 수 있는
+  // 추가 근거(사용자가 되묻기에 직접 답한 값)를 OR로 얹는다. 판정을 여기 다시 적으면
+  // 게이트만 고쳐지고 진행률은 낡은 채 남는다 — 2026-07-29 사고와 그때 함께 드러난
+  // 기존 드리프트 3종(매도 조건·리스크 관리·리밸런싱 거부)이 전부 그 경로였다.
+  const slotOptions = {
+    explicitFields,
+    requireExplicitConfiguration: true,
+    // 빌더가 리밸런싱 '안 함'을 들고 있으면 사용자의 명시적 결정이다(게이트와 같은 계약).
+    allowNoRebalancing: allowNoRebalancing === true || state.rebalance_cycle === "none",
+  };
+  const slotFilled = (field: Parameters<typeof isSlotFilled>[0]) =>
+    isSlotFilled(field, parsed, slotOptions);
+  const backtestPeriodSettled =
+    hasValue(state.backtest_period ?? state.period) || slotFilled("backtest_period");
   const initialCapitalFromState = state.initial_capital ?? state.init_cash;
   const initialCapital = hasValue(initialCapitalFromState)
     ? Number(initialCapitalFromState)
@@ -306,12 +334,15 @@ export function buildBuilderTurnPresentation({
       value: cycle,
     });
   }
-  if (backtestPeriod && backtestPeriodExplicit) {
-    const normalizedPeriod = String(backtestPeriod).toLowerCase();
-    summaryItems.push({
-      label: "백테스트 기간",
-      value: PERIOD_LABELS[normalizedPeriod] ?? String(backtestPeriod),
-    });
+  // 명시 날짜가 있으면 상대 기간 라벨("5년") 대신 실제 창을 보여준다 — 신규 상장
+  // 코호트처럼 시스템이 창을 조정한 경우 라벨과 실행 구간이 어긋난다(FR-STR-073).
+  const periodLabel = formatBacktestPeriodLabel({
+    backtest_period: backtestPeriod,
+    backtest_start_date: parsed?.backtest_start_date,
+    backtest_end_date: parsed?.backtest_end_date,
+  });
+  if (periodLabel && backtestPeriodSettled) {
+    summaryItems.push({ label: "백테스트 기간", value: periodLabel });
   }
   if (initialCapital && initialCapitalExplicit) {
     summaryItems.push({
@@ -322,10 +353,15 @@ export function buildBuilderTurnPresentation({
   if (riskLabel) summaryItems.push({ label: "리스크 관리", value: riskLabel });
 
   const entryComplete = isEntryComplete(state, parsed);
-  const riskComplete = state.risk_done === true || Boolean(riskLabel);
-  const exitComplete = exitLabels.length > 0 ||
-    (entryComplete && PAIRED_EXIT_STRATEGIES.has(state.strategy_type)) ||
-    riskComplete;
+  // 리스크 관리 슬롯은 손절·익절이 **둘 다** 있어야 완료다(정본 계약) — 배지가 하나라도
+  // 있으면 완료로 보던 드리프트를 제거했다. 빌더가 청산 단계를 마쳤으면(risk_done)
+  // 사용자가 답을 끝낸 것이므로 그것도 완료 근거다.
+  const riskComplete =
+    state.risk_done === true || (slotFilled("stop_loss") && slotFilled("take_profit"));
+  // 매도 조건은 청산 신호·보유기간·정기 리밸런싱이다 — 손절·익절은 '리스크 관리' 슬롯이라
+  // 여기서 인정하지 않는다(체크는 켜지고 시스템은 청산을 되묻던 어긋남).
+  const exitComplete =
+    slotFilled("exit") || (entryComplete && PAIRED_EXIT_STRATEGIES.has(state.strategy_type));
 
   return {
     summaryItems,
@@ -338,9 +374,11 @@ export function buildBuilderTurnPresentation({
         complete:
           specifiedSymbolCount > 0 || (Boolean(holdingCount) && holdingCountExplicit),
       },
-      { label: "리밸런싱", complete: Boolean(rebalanceCycle) && rebalanceExplicit },
+      { label: "리밸런싱", complete: (Boolean(rebalanceCycle) && rebalanceExplicit) || slotFilled("rebalancing") },
       { label: "리스크 관리", complete: riskComplete },
-      { label: "백테스트 기간", complete: Boolean(backtestPeriod) && backtestPeriodExplicit },
+      // 게이트와 **같은 술어**를 쓴다 — 판정을 여기 다시 적으면 게이트만 고쳐지고 진행률은
+      // 낡은 채 남는다(2026-07-29: 창이 자동 확정됐는데 체크가 안 되던 사고).
+      { label: "백테스트 기간", complete: backtestPeriodSettled },
       { label: "초기 자본", complete: Boolean(initialCapital) && initialCapitalExplicit },
     ],
     question: makeBuilderQuestionFriendly(reply),

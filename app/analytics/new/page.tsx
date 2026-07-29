@@ -1293,7 +1293,14 @@ function StrategyLabContent() {
   // 직전 planner ask 컨텍스트(백엔드 pending_ask) — 다음 파스 요청에 그대로 에코해
   // 칩 클릭의 결정론 귀속 근거로 쓴다(previous_coach_text와 같은 무상태 에코 계약).
   // 매 파스 응답마다 덮어써 스테일 컨텍스트를 남기지 않는다.
-  const pendingAskRef = useRef<{ topic?: string | null; question: string; chips: string[] } | null>(null);
+  // chip_bindings는 백엔드가 칩 발행 시점에 확정한 '칩 → 전략 필드 값'이다 — 프론트는
+  // 열지 않고 그대로 되돌려 보낸다(클릭이 칩 문구 재해석 없이 그 값을 쓰게 하는 근거).
+  const pendingAskRef = useRef<{
+    topic?: string | null;
+    question: string;
+    chips: string[];
+    chip_bindings?: Record<string, Record<string, unknown>>;
+  } | null>(null);
   // 사용자가 실제로 말한 설정 필드(백엔드 provenance) — 다음 파스 요청에 에코해 누적한다.
   // ParsedStrategy 왕복은 기본값을 물질화해 이 정보를 지우므로 별도 채널이 필요하다.
   // 프론트가 원문 정규식으로 같은 판정을 하던 계약 위반(hasExplicit*)의 대체다.
@@ -1605,6 +1612,7 @@ function StrategyLabContent() {
         parsed: deterministicChoice.parsed,
         explicitFields: explicitFieldsRef.current,
         backtestRequest: backtestReqRef.current ?? backtestReq,
+        allowNoRebalancing: explicitNoRebalancingRef.current,
       }),
       deterministicChoice.parsed,
       backtestReqRef.current ?? backtestReq,
@@ -1807,6 +1815,7 @@ function StrategyLabContent() {
         parsed: seedParsed ?? latestParsedRef.current,
         explicitFields: explicitFieldsRef.current,
         backtestRequest: seedBacktestRequest ?? backtestReqRef.current,
+        allowNoRebalancing: explicitNoRebalancingRef.current,
       });
       updateLastAssistant({
         isLoading: false,
@@ -1842,6 +1851,7 @@ function StrategyLabContent() {
         parsed: seedParsed ?? latestParsedRef.current,
         explicitFields: explicitFieldsRef.current,
         backtestRequest: seedBacktestRequest ?? backtestReqRef.current,
+        allowNoRebalancing: explicitNoRebalancingRef.current,
       });
       updateLastAssistant({
         isLoading: false,
@@ -1895,6 +1905,7 @@ function StrategyLabContent() {
         parsed: latestParsedRef.current,
         explicitFields: explicitFieldsRef.current,
         backtestRequest: backtestReqRef.current ?? backtestReq,
+        allowNoRebalancing: explicitNoRebalancingRef.current,
       });
       updateLastAssistant({
         isLoading: false,
@@ -2280,6 +2291,7 @@ function StrategyLabContent() {
             parsed: nextParsed,
             explicitFields: explicitFieldsRef.current,
             backtestRequest: nextBacktestReq,
+            allowNoRebalancing: explicitNoRebalancingRef.current,
           })
         : null;
       const clarificationText = clarificationTurn?.question ?? null;
@@ -2500,6 +2512,7 @@ function StrategyLabContent() {
         parsed: data.parsed,
         explicitFields: explicitFieldsRef.current,
         backtestRequest: data.backtest_request,
+        allowNoRebalancing: explicitNoRebalancingRef.current,
       });
       updateLastAssistant({
         isLoading: false,
@@ -2631,6 +2644,7 @@ function StrategyLabContent() {
         parsed,
         explicitFields: explicitFieldsRef.current,
         backtestRequest: backtestReqRef.current ?? backtestReq,
+        allowNoRebalancing: explicitNoRebalancingRef.current,
       });
       return { summaryItems, progressItems };
     };

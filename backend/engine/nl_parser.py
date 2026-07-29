@@ -211,6 +211,41 @@ def _ollama_preload_model(model: str, timeout: int = 600) -> None:
         resp.read()
 
 
+def _ollama_prefill_system_prompt(
+    system_prompt: str, model: str, timeout: int = 900
+) -> float:
+    """고정 system 프롬프트를 한 번 흘려 KV 프리픽스 캐시를 채운다(prefill 비용 선지불).
+
+    가중치 적재(_ollama_preload_model)와는 다른 비용이다 — 모델이 메모리에 있어도
+    긴 system 프롬프트의 prefill은 호출마다 다시 계산되며, 전략 파스에서는 이 비용이
+    생성 비용보다 크다(실측 2026-07-29: 인터프리터 system ~8,900 tok, 콜드 43.6초 →
+    캐시 적중 0.4초). num_predict=1로 생성은 최소화하고 prefill만 유발한다.
+    반환: 소요 초(관측 로그용). 로컬 Ollama 전용.
+    """
+    import time
+    import urllib.request
+
+    body = json.dumps({
+        "model": model,
+        "stream": False,
+        "think": False,
+        "keep_alive": -1,
+        "messages": [{"role": "system", "content": system_prompt},
+                     {"role": "user", "content": "."}],
+        "options": {"num_predict": 1},
+    }).encode()
+    req = urllib.request.Request(
+        f"{OLLAMA_BASE_URL}/api/chat",
+        data=body,
+        headers={"Content-Type": "application/json", **ollama_auth_headers()},
+        method="POST",
+    )
+    started = time.perf_counter()
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        resp.read()
+    return time.perf_counter() - started
+
+
 # ─── 스키마 정의 ──────────────────────────────────────────────────────────────
 
 # 재무 지표 별칭 → 정본 metric. 관용적 표기(대소문자·공백·하이픈·슬래시)와 레거시 표기를
@@ -420,6 +455,24 @@ class ParsedStrategy(BaseModel):
         description="지정 종목 백테스트 대상 종목코드(시스템이 결정적으로 추출). LLM은 채우지 말 것",
     )
 
+    # ── 신규 상장 유니버스 (FR-STR-073)
+    # "2026년 신규 상장 종목"은 **상장일이 그 구간에 속하는 종목 집합(코호트)**이다.
+    # 개념(new_listing_only)과 구간(listing_from/listing_to)을 분리한다 — "신규 상장
+    # 종목"에는 시기가 없어서, 구간을 지어내면 무단 확정이고 개념까지 비우면 사용자가
+    # 말한 제한이 조용히 사라진다. 구간이 정해지기 전까지 엔진에는 아무것도 넘어가지 않는다.
+    new_listing_only: bool = Field(
+        default=False,
+        description="신규 상장(IPO) 종목만 대상으로 하는지. 대상 시기는 listing_from/listing_to",
+    )
+    listing_from: Optional[str] = Field(
+        default=None,
+        description="상장일 하한(YYYY-MM-DD, 포함). '2026년 상장'=2026-01-01. 없으면 null",
+    )
+    listing_to: Optional[str] = Field(
+        default=None,
+        description="상장일 상한(YYYY-MM-DD, 포함). '2026년 상장'=2026-12-31. 없으면 null",
+    )
+
     @model_validator(mode="before")
     @classmethod
     def _repair_llm_schema_drift(cls, data):
@@ -494,6 +547,24 @@ class ParsedStrategy(BaseModel):
                 self.sector = None
         elif self.etf_theme is not None:
             self.etf_theme = None
+        # ETF엔 상장일 기반 신규 상장 판정을 적용하지 않는다(마스터에 상장일이 없다).
+        if self.universe == ["ETF"]:
+            self.new_listing_only = False
+            self.listing_from = None
+            self.listing_to = None
+        return self
+
+    @model_validator(mode="after")
+    def _normalize_new_listing_universe(self):
+        """상장 구간이 있으면 신규 상장 개념도 켠다(FR-STR-073).
+
+        UniverseSpec의 동일 정규화와 짝이다 — 구간만 오고 개념 플래그가 빠지는 드리프트에서
+        개념이 꺼져 있으면 유니버스 슬롯이 비어 보여 대상을 다시 묻게 된다. 반대 방향
+        (개념 해제 시 구간 제거)은 '기본 False'와 '명시적 False'를 구분할 수 없어 여기서
+        다루지 않는다 — 수정 diff 병합이 그 자리를 맡는다.
+        """
+        if self.listing_from is not None or self.listing_to is not None:
+            self.new_listing_only = True
         return self
 
     # ── 재무 필터
@@ -620,6 +691,19 @@ class ParsedStrategyDiff(BaseModel):
     def _normalize_sector_name(cls, v):
         return normalize_sector_value(v)
 
+    new_listing_only: Optional[bool] = Field(
+        default=None,
+        description="신규 상장 종목 제한 변경. '신규 상장 종목만' → true, '상장 시기 제한 빼줘' → false",
+    )
+    listing_from: Optional[str] = Field(
+        default=None,
+        description="상장일 하한 변경(YYYY-MM-DD). '2025년 상장 종목으로' → 2025-01-01. 없으면 null",
+    )
+    listing_to: Optional[str] = Field(
+        default=None,
+        description="상장일 상한 변경(YYYY-MM-DD). '2025년 상장 종목으로' → 2025-12-31. 없으면 null",
+    )
+
     fundamental_filters: Optional[List[FundamentalFilter]] = None
 
     @field_validator("fundamental_filters", mode="before")
@@ -674,6 +758,14 @@ MODIFY_PROMPT = """현재 전략 JSON이 주어집니다. 사용자 수정 요�
 - '반도체 관련주만', 'IT 업종으로 바꿔줘' 같은 업종·테마 제한 요청 → sector에 업종명
 - 지원 업종: """ + sectors_for_llm_prompt() + """. 목록 밖 테마는 속하는 업종으로 매핑(예: '원자로'→'에너지/원자력'), 명백한 오타는 교정해서 매핑(예: '재약주'→'제약주'→'바이오/제약'), 연결이 어려우면 null
 - 업종만 바꾸는 요청에서 universe(시장)는 null로 유지하세요
+
+## 신규 상장(IPO) 유니버스 (new_listing_only, listing_from, listing_to)
+- 대상은 **상장일이 그 구간에 속하는 종목**입니다(양끝 포함, YYYY-MM-DD)
+- '신규 상장 종목만', '공모주만' → new_listing_only=true
+- '2026년 상장 종목으로' → listing_from="2026-01-01", listing_to="2026-12-31"
+- '2025년 이후 상장' → listing_from="2025-01-01", listing_to=null
+- 시기 언급이 없으면 두 날짜 모두 null(날짜를 지어내지 마세요)
+- '상장 시기 제한은 빼줘', '신규 상장 조건 지워줘' → new_listing_only=false
 
 ## ETF 유니버스
 - 'ETF로 바꿔줘', 'ETF 대상으로' 같은 요청 → universe=["ETF"] 단독(주식 시장과 혼합 금지)
@@ -1176,6 +1268,12 @@ class NLStrategyParser:
         for field, val in diff.model_dump().items():
             if val is not None:
                 merged[field] = val
+        # 신규 상장 제한 해제(FR-STR-073): diff가 개념을 껐는데 상장 구간이 previous에
+        # 남아 있으면 스키마 정규화가 개념을 도로 켜서 해제가 무효화된다. null="변경없음"
+        # 계약에선 값을 지울 방법이 없으므로 LLM 출력(개념=False)만 보고 함께 지운다.
+        if diff.new_listing_only is False:
+            merged["listing_from"] = None
+            merged["listing_to"] = None
 
         # 삭제 의도 명시 처리: LLM diff는 null="변경없음"으로 표현하므로 별도 감지
         compact = _compact(user_input)
@@ -3327,6 +3425,19 @@ def enforce_strategy_minimums(parsed: ParsedStrategy) -> list[str]:
         )
         parsed.slippage_rate = 0.05
 
+    # 신규 상장 코호트의 백테스트 창 하한(FR-STR-073) — "2026년 신규 상장 종목"을 2022년부터
+    # 백테스트하는 것은 불가능하다(그 종목들이 존재하지 않던 구간). 기본 기간(5년)이 그대로
+    # 남아 창이 상장 이전으로 뻗던 실측 사고 2026-07-29의 수정. 창 시작을 상장일 하한으로
+    # 끌어올리고 사실을 알린다 — 종료일은 건드리지 않는다(상장 후 보유는 정상이다).
+    if parsed.listing_from and (
+        parsed.backtest_start_date is None or parsed.backtest_start_date < parsed.listing_from
+    ):
+        parsed.backtest_start_date = parsed.listing_from
+        notices.append(
+            f"{parsed.listing_from[:4]}년 상장 종목은 그 이전에 존재하지 않아, "
+            f"백테스트 시작일을 {parsed.listing_from}로 맞췄어요."
+        )
+
     # 데이터 커버리지 안내 — 가격 데이터는 대략 1996년부터라 그 이전 시작일은 의미가 없다.
     # 날짜는 유지하고(엔진이 가용 구간부터 시작) 사실만 알린다(QA 11-4).
     if parsed.backtest_start_date is not None and parsed.backtest_start_date < DATA_FLOOR_DATE:
@@ -3711,7 +3822,7 @@ def apply_theme_companies(parsed: ParsedStrategy, lookup_text: str) -> Optional[
     반환: 안내 notice 문구 | None(미적용)."""
     if getattr(parsed, "target_symbols", None):
         return None
-    # 학습 앵커는 Concept Universe(FR-STR-072) 확장 뷰로 조회한다 — 직접 학습 엣지 몇 건이
+    # 학습 앵커는 Concept Universe(FR-STR-073) 확장 뷰로 조회한다 — 직접 학습 엣지 몇 건이
     # 컨셉 유니버스를 대표하지 못하던 'bts 관련 종목' 사고 2차(2026-07-25) 배선.
     from engine.knowledge_graph import theme_backtest_companies
 
