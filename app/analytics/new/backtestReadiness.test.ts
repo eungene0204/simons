@@ -4,6 +4,7 @@ import type { ParsedSummary } from "@/lib/strategy-summary";
 
 import {
   getNextMissingBacktestCondition,
+  hasExplicitInitialCapital,
   isBacktestReady,
 } from "./backtestReadiness";
 
@@ -161,5 +162,54 @@ describe("isBacktestReady", () => {
 
   it("parsed가 없으면 실행 불가", () => {
     expect(isBacktestReady(undefined)).toBe(false);
+  });
+});
+
+describe("hasExplicitInitialCapital", () => {
+  it("거래대금·시가총액 필터의 금액은 초기 자본 명시로 인정하지 않는다", () => {
+    // [회귀 2026-07-29 '원자력 관련주' 사고] '일평균 거래대금이 20억 원 이상'의 '20억 원'이
+    // 자본금 명시로 오인돼 초기 자금 되묻기가 생략되고 기본값 1,000만원이 확정 표시됐다.
+    expect(
+      hasExplicitInitialCapital("일평균 거래대금이 20억 원 이상인 종목만 대상으로"),
+    ).toBe(false);
+    expect(hasExplicitInitialCapital("시가총액 1조 원 이상 대형주")).toBe(false);
+    expect(hasExplicitInitialCapital("시총 5000억 원 이상")).toBe(false);
+  });
+
+  it("자본금 cue·맨 금액(칩 답변 포함)은 명시로 인정한다", () => {
+    expect(hasExplicitInitialCapital("초기 자금 500만원")).toBe(true);
+    expect(hasExplicitInitialCapital("투자 금액은 1억 원으로")).toBe(true);
+    // 되묻기 칩 답변("1,000만원")은 cue 없이 금액만 온다 — 명시로 인정해야 재질문이 없다.
+    expect(hasExplicitInitialCapital("1,000만원")).toBe(true);
+    // 필터 금액과 자본금 금액이 함께 있으면 자본금 쪽만 근거가 된다.
+    expect(
+      hasExplicitInitialCapital("거래대금 20억 원 이상, 초기 자금 3,000만원"),
+    ).toBe(true);
+  });
+
+  it("거래대금 필터만 있는 전략은 초기 자금 되묻기까지 진행된다", () => {
+    // 스크린샷 시나리오 재현: 테마 유니버스(지정 다종목)+거래대금 필터+랭킹+매월 리밸런싱.
+    const themeParsed: ParsedSummary = {
+      ...base,
+      target_symbols: ["015760", "052690", "034020"],
+      fundamental_filters: [{ metric: "trading_value", operator: ">=", value: 20 }],
+      ranking_metric: "return",
+      rebalancing_period: "monthly",
+      max_positions: 5,
+      stop_loss_pct: 9,
+      take_profit_pct: 20,
+    };
+    const prompt =
+      "원자력 관련주 중 일평균 거래대금이 20억 원 이상인 종목만 대상으로, " +
+      "최근 60거래일 수익률이 높은 상위 5종목만 동일 비중으로 보유하고 매월 순위를 " +
+      "다시 산정해 주세요. 손절 -9%, 익절 20%, 최근 5년 데이터";
+    const options = { requireExplicitConfiguration: true, prompt };
+    expect(getNextMissingBacktestCondition(themeParsed, options)).toMatchObject({
+      field: "initial_capital",
+    });
+    // 칩 답변이 프롬프트 맥락에 더해지면 완성으로 판정한다.
+    expect(
+      isBacktestReady(themeParsed, { ...options, prompt: `${prompt}\n1,000만원` }),
+    ).toBe(true);
   });
 });

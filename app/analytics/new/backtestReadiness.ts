@@ -61,9 +61,17 @@ export function hasExplicitBacktestPeriod(prompt: string): boolean {
   );
 }
 
+// 거래대금·시가총액 필터의 금액 구간("일평균 거래대금이 20억 원 이상") — 자본금 판정 전에
+// 지운다. cue 없는 맨 금액 대안이 필터 수치를 초기 자본 명시로 오인해 되묻기를 건너뛰고
+// 기본값 1,000만원을 확정 표시하던 사고(2026-07-29 '원자력 관련주') 방지. 백엔드
+// _extract_capital_amount의 _strip_amount_filter_phrases와 동일 계약(금액 지표 구간 제거).
+const AMOUNT_FILTER_PHRASE =
+  /(?:일\s*)?(?:평균\s*)?(?:거래\s*대금|시가\s*총액|시총)[^\d\n]{0,12}\d[\d,]*(?:\.\d+)?\s*(?:조|억|천만|백만|만|천)?\s*원?/gi;
+
 export function hasExplicitInitialCapital(prompt: string): boolean {
+  const scrubbed = prompt.replace(AMOUNT_FILTER_PHRASE, " ");
   return /(?:초기\s*(?:자금|자본)|투자\s*(?:금액|자금|자본)|시드\s*머니)\s*(?:은|을|:)?\s*\d[\d,]*(?:\.\d+)?\s*(?:조|억|천만|백만|만|천)?\s*원?|\d[\d,]*(?:\.\d+)?\s*(?:조|억|천만|백만|만|천)?\s*원/i.test(
-    prompt,
+    scrubbed,
   );
 }
 
