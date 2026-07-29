@@ -101,7 +101,11 @@ jobs:
         # gitignored OHLCV parquet(multi_reasons), Mac 전용 MLX 백엔드(503 vs 500). 로컬에선 통과.
 
   deploy:
-    needs: [frontend, backend]
+    # engine-version-guard도 통과해야 배포한다(2026-07-30). 종전엔 needs에 없어서
+    # 가드가 빨간불이어도 배포가 그대로 나갔다 — 실제로 c0f4eb31에서 가드 실패에도
+    # deploy=success로 프로덕션에 반영됐다. 배포 스크립트가 `git reset --hard origin/main`
+    # 이라 '배포는 됐는데 CI는 실패'인 상태가 조용히 정상처럼 보인다.
+    needs: [frontend, backend, engine-version-guard]
     runs-on: ubuntu-latest
     if: >-
       github.event_name != 'pull_request' &&

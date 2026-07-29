@@ -1771,6 +1771,74 @@ def test_output_shape_declares_crossover_parameters():
     assert '"short_period"' in prompt and '"long_period"' in prompt
 
 
+# 형태(_OUTPUT_SHAPE)에 구체적 객체로 등장하지만 **일부러 보여주지 않는** 필드와 그 이유.
+# 여기에 없는 신규 필드는 형태에도 반드시 실어야 한다(아래 테스트가 강제).
+_SHAPE_OMISSIONS: dict[str, dict[str, str]] = {
+    "risk_management": {
+        # 엔진 미지원(동일비중만) — capability_validator가 오류로 잡는다. 형태에 실으면
+        # 모델이 채우도록 유도해 매번 '지원되지 않습니다' 오류를 만든다.
+        "max_position_weight": "엔진 미지원 — 노출하면 오류 출력을 유도",
+    },
+    "entry_conditions[]": {
+        # LLM 입력이 아니라 _mark_missing_value가 계산하는 파생 필드.
+        "value_source": "모델 validator가 계산 — LLM이 낼 값이 아님",
+        # 규칙 2·예시 1이 가르치고, 없어도 정보가 사라지지 않는다 — 값 공백은 value=null이
+        # 전달하고 추천값은 Registry(completeness_validator)가 독립적으로 공급한다.
+        "recommended_value": "Registry가 독립 공급 — 누락돼도 정보 손실 없음",
+        "requires_confirmation": "Registry가 독립 공급 — 누락돼도 정보 손실 없음",
+    },
+    "clarification_questions[]": {
+        "recommendation_reason": "선택적 서술 — 소비처가 존재할 때만 사용",
+    },
+}
+
+
+def test_output_shape_objects_expose_all_live_fields():
+    """형태에 **구체적 객체로** 등장하는 모델은 살아 있는 필드를 빠짐없이 보여줘야 한다.
+
+    9B는 형태에 보인 객체의 키 집합을 '완전한 것'으로 취급한다 — 그 객체에 키가
+    빠져 있으면 규칙 문장이 아무리 상세해도 채우지 않는다(2026-07-30 `parameters`
+    사고, 2026-07-27 `etf_theme` 사고, 그리고 되묻기 `field` 사고까지 셋 다 같은 방식).
+    반대로 `ranking: []`처럼 빈 배열로만 등장하는 곳은 잘못된 키 집합을 각인시키지
+    않으므로 규칙·예시만으로도 동작한다 — 그래서 검사 대상은 '구체적 객체'뿐이다.
+
+    이 테스트는 스키마에 필드를 추가하고 형태 갱신을 잊는 회귀를 잡는다. 일부러
+    노출하지 않는 필드는 _SHAPE_OMISSIONS에 **이유와 함께** 등록해야 한다 —
+    형태에서 빼는 것이 의식적 결정이 되도록 강제하는 것이 목적이다.
+    """
+    from strategy_conversation.interpreter import models as m
+    from strategy_conversation.interpreter.prompts import _OUTPUT_SHAPE
+
+    strategy = _OUTPUT_SHAPE["strategy"]
+
+    def shown_keys(node) -> set:
+        """형태 노드가 보여주는 키 집합(리스트면 모든 항목의 합집합)."""
+        if isinstance(node, list):
+            return set().union(*[set(i.keys()) for i in node if isinstance(i, dict)]) \
+                if any(isinstance(i, dict) for i in node) else set()
+        return set(node.keys()) if isinstance(node, dict) else set()
+
+    targets = [
+        ("universe", m.UniverseSpec, strategy["universe"]),
+        ("portfolio", m.PortfolioSpec, strategy["portfolio"]),
+        ("risk_management", m.RiskSpec, strategy["risk_management"]),
+        ("backtest", m.BacktestSpec, strategy["backtest"]),
+        ("entry_conditions[]", m.StrategyCondition, strategy["entry_conditions"]),
+        ("clarification_questions[]", m.ClarificationQuestion,
+         _OUTPUT_SHAPE["clarification_questions"]),
+    ]
+
+    for path, model, node in targets:
+        shown = shown_keys(node)
+        assert shown, f"{path}: 형태에 구체적 객체가 없다 — 검사 전제가 깨졌다"
+        missing = set(model.model_fields) - shown - set(_SHAPE_OMISSIONS.get(path, {}))
+        assert not missing, (
+            f"{path}: 스키마 필드 {sorted(missing)}가 출력 형태에 없다. "
+            "9B는 형태에 보인 키 집합을 완전한 것으로 취급하므로 이 필드는 채워지지 않는다 "
+            "— 형태에 싣거나, 일부러 빼는 것이면 _SHAPE_OMISSIONS에 이유와 함께 등록할 것."
+        )
+
+
 def test_null_parameters_coerced_to_empty_dict():
     """parameters=null 드리프트는 형식 정규화한다(복구 재요청을 태우지 않는다).
 
