@@ -22,6 +22,14 @@ Backend = Literal["mlx", "ollama"]
 # Ollama HTTP 엔드포인트 (배포 시 OLLAMA_HOST 로 교체 가능)
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 
+# ── Ollama 모델 슬롯 정본 ────────────────────────────────────────────────────
+# 이 프로젝트가 쓰는 로컬 모델은 **9B와 4B 둘뿐이다**(2026-07-30 사용자 확인).
+# 코드 기본값으로 다른 모델명을 적으면 .env가 로드되지 않은 실행에서 조용히 그 모델로
+# 폴백해, 운영과 다른 모델로 검증하고도 성공한 것처럼 보이는 사고가 난다 —
+# 실제로 `qwen3:8b`라는 잘못된 기본값이 그런 사고를 냈다(FR-STR-019p ⑤).
+OLLAMA_MODEL_9B = "hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M"  # 해석(인터프리터)·AI 리포트
+OLLAMA_MODEL_4B = "hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M"  # 레거시 파서·코치 슬롯
+
 
 def ollama_auth_headers() -> dict[str, str]:
     """Ollama 요청에 실을 인증 헤더.

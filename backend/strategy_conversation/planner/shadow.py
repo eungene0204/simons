@@ -33,10 +33,11 @@ def _default_chat() -> Callable[[str, str], str]:
         _default_ollama_chat,
     )
 
-    model = (
-        os.environ.get("STRATEGY_INTERPRETER_MODEL")
-        or os.environ.get("NL_OLLAMA_MODEL", "qwen3:8b")
-    )
+    from llm_backend import OLLAMA_MODEL_9B
+
+    # 인터프리터와 같은 9B 슬롯 — 미설정 시 레거시 4B로 떨어지면 관측 로그가 운영과
+    # 다른 모델의 출력이 된다(2026-07-30, `qwen3:8b` 기본값 제거와 같은 이유).
+    model = os.environ.get("STRATEGY_INTERPRETER_MODEL") or OLLAMA_MODEL_9B
     return _default_ollama_chat(model)
 
 

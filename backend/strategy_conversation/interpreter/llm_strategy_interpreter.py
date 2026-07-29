@@ -19,6 +19,7 @@ from typing import Callable, Optional
 
 from pydantic import ValidationError
 
+from llm_backend import OLLAMA_MODEL_9B
 from strategy_conversation import config
 from strategy_conversation.interpreter.models import StrategyIntent
 from strategy_conversation.interpreter.output_repair import (
@@ -168,12 +169,31 @@ class StrategyInterpreter:
     def __init__(self, chat_fn: Optional[ChatFn] = None, model: Optional[str] = None):
         # 인터프리터 전용 모델 슬롯(SUMMARIZE_OLLAMA_MODEL 선례) — 파서·코치가 공유하는
         # NL_OLLAMA_MODEL과 분리해, 해석 품질을 위해 더 큰 모델을 쓰되 다른 경로의 지연에
-        # 영향을 주지 않는다. 미설정 시 기존 동작(NL_OLLAMA_MODEL) 그대로.
+        # 영향을 주지 않는다.
+        #
+        # 미설정 시 NL_OLLAMA_MODEL 폴백은 유지한다(기존 계약) — 다만 **아무 슬롯도
+        # 설정되지 않았으면 코드에 박힌 모델명으로 떨어지지 않고 즉시 실패한다**
+        # (2026-07-30). load_dotenv()는 main.py 임포트에만 걸려 있어 서버를 거치지 않는
+        # 스크립트(QA 하니스·진단)는 두 env가 모두 비는데, 종전엔 잘못된 기본값
+        # `qwen3:8b`로 조용히 떨어져 **운영과 다른 모델로 검증하고도 통과한 것처럼
+        # 보였다**(실제 회귀를 놓칠 뻔한 사고, FR-STR-019p ⑤).
+        #
+        # 실패 조건을 '둘 다 미설정'으로 좁힌 이유: 배포는 env_file로 .env를 주입하므로
+        # 둘 중 하나는 항상 설정돼 있다 — 인터프리터 슬롯만 비운 환경(레거시 폴백 운용)을
+        # 이 가드로 깨뜨리지 않으면서, 위 사고 경로(둘 다 빈 스크립트)는 그대로 막는다.
         self.model_name = (
             model
             or os.environ.get("STRATEGY_INTERPRETER_MODEL")
-            or os.environ.get("NL_OLLAMA_MODEL", "qwen3:8b")
+            or os.environ.get("NL_OLLAMA_MODEL")
+            or ""
         )
+        if not self.model_name.strip():
+            raise InterpreterError(
+                "해석 모델 슬롯이 설정되지 않았습니다 "
+                "(STRATEGY_INTERPRETER_MODEL 또는 NL_OLLAMA_MODEL). "
+                f"코드 기본값으로 대체하지 않습니다 — 운영 인터프리터 모델은 {OLLAMA_MODEL_9B}입니다. "
+                "서버 밖에서 실행 중이면 .env를 로드하거나 이 환경변수를 명시하세요."
+            )
         self._chat = chat_fn or _default_ollama_chat(self.model_name)
         self._system_prompt = build_system_prompt()
 

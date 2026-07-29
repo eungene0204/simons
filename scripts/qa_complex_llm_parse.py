@@ -14,7 +14,8 @@
 ----
     cd backend && python ../scripts/qa_complex_llm_parse.py [--out report.md] [--refresh] [--limit N]
 
-사전 조건: 로컬 Ollama(`ollama serve`, qwen3:8b)가 떠 있어야 한다.
+사전 조건: 로컬 Ollama(`ollama serve`)가 떠 있어야 하고, 모델 슬롯 환경변수가
+설정돼 있어야 한다(.env 로드 또는 STRATEGY_INTERPRETER_MODEL 명시 export).
 결과는 scripts/.cache/qa_complex_llm_parse.json 에 캐시된다(재실행 빠름).
 """
 

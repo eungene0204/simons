@@ -16,7 +16,7 @@ LLM(코치 / 뉴스요약 / NL 전략파서 / 설명생성)만 이 Modal 함수�
 
 모델은 앱 설정과 일치해야 한다 (불일치 시 Ollama가 "model not found"):
   앱 .env: NL_OLLAMA_MODEL(파서/코치) + SUMMARIZE_OLLAMA_MODEL(AI 리포트)  ==  아래 MODELS
-  (코드 기본값 qwen3:8b가 아니라 .env 오버라이드 값이 실제 사용 모델)
+  (이 프로젝트가 쓰는 모델은 9B와 4B 둘뿐 — 코드 기본값도 그 둘이다, llm_backend.py)
 
 배포
 ────
@@ -143,7 +143,7 @@ def download_model() -> None:
     timeout=10 * 60,
 )
 def remove_model(name: str) -> None:
-    """볼륨에서 모델 삭제.  실행: modal run modal_ollama.py::remove_model --name qwen3:8b"""
+    """볼륨에서 모델 삭제.  실행: modal run modal_ollama.py::remove_model --name <모델명>"""
     proc = subprocess.Popen(["ollama", "serve"])
     _wait_until_ready()
     subprocess.run(["ollama", "rm", name], check=True)

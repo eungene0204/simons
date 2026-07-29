@@ -1786,6 +1786,43 @@ def test_null_parameters_coerced_to_empty_dict():
     assert cond.parameters == {}
 
 
+def test_output_shape_declares_clarification_question_field_key():
+    """출력 형태의 clarification_questions에 "field" 키를 보여주는 예시가 있어야 한다.
+
+    실측 사고(2026-07-30): dead-channel 정리에서 예시 1의 clarification_questions
+    worked example("field":"strategy.entry_conditions[0].value" 포함)을 지웠는데,
+    이 예시가 프롬프트 전체에서 ClarificationQuestion 객체 형태를 보여주는 유일한
+    자리였다(형태의 clarification_questions는 원래도 빈 배열이라 형태 자체는 스키마를
+    가르치지 못한다). 그 결과 9B가 되묻기 항목을 낼 때 필수 필드 "field"를 빠뜨렸고,
+    StrategyIntent 검증 실패→복구도 실패→InterpreterError로 **전략 전체가 버려져**
+    "20일 고점을 넘기는 날 매수" 같은 완전히 파싱 가능한 입력까지 빈 전략(interpretation_
+    failed)으로 끝났다(기술분석 QA 게이트 20개 중 5개 치명). 형태에 "field" 키를 채운
+    예시를 다시 실어야 한다 — parameters(FR-STR-019p)와 같은 교훈: 형태에 없는 키는
+    규칙 문장으로 가르칠 수 없다.
+    """
+    from strategy_conversation.interpreter.prompts import build_system_prompt
+
+    prompt = build_system_prompt()
+    assert '"clarification_questions": [' in prompt or '"clarification_questions":[' in prompt
+    shape_section = prompt.split("## 지원 지표")[0]
+    assert '"field"' in shape_section
+
+
+def test_clarification_question_missing_field_key_is_rejected():
+    """ClarificationQuestion.field는 필수다 — 누락되면 스키마가 그대로 거부해야 한다.
+
+    이 테스트가 통과한다는 것은 "field 누락"이 여전히 ValidationError를 일으킨다는
+    뜻이다(모델이 필수인 이유) — 회귀를 막는 것은 위 테스트(형태에 예시가 있는지)의
+    역할이고, 이 테스트는 그 전제(필수 필드라 관대화하면 안 된다)가 유지되는지 고정한다.
+    """
+    with pytest.raises(Exception):
+        StrategyIntent.model_validate({
+            "intent": "CREATE_STRATEGY",
+            "strategy": {"entry_conditions": [], "exit_conditions": []},
+            "clarification_questions": [{"question": "몇 %로 할까요?"}],
+        })
+
+
 def test_output_shape_omits_dead_channels():
     """LLM에게 status·missing_fields·assumptions를 요구하지 않는다(2026-07-30 정리).
 

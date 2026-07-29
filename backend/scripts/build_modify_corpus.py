@@ -15,8 +15,11 @@ import sys
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from llm_backend import OLLAMA_MODEL_4B  # noqa: E402
+
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("NL_OLLAMA_MODEL", "qwen3:8b")
+OLLAMA_MODEL = os.environ.get("NL_OLLAMA_MODEL", OLLAMA_MODEL_4B)
 
 OUT_PATH = Path(__file__).resolve().parents[1] / "engine" / "data" / "modify_examples.json"
 

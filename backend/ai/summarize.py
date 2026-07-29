@@ -14,14 +14,17 @@ import json
 import re
 import ast
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from llm_backend import OLLAMA_MODEL_9B  # noqa: E402
+
 MLX_MODEL = "mlx-community/Qwen3.5-4B-4bit"
 # AI 리포트(백테스트 총평·강점·단점 서술) 전용 모델. NL 파서/인터프리터와 분리해
 # 독립적으로 교체할 수 있다(예: 리포트만 더 큰 9B). 미설정 시 시스템 공용
-# NL_OLLAMA_MODEL(없으면 qwen3:8b)로 폴백한다. prod에서 9B를 쓰려면 Modal이 해당
-# 모델도 함께 서빙해야 한다(modal_ollama.py MODELS 참고).
+# NL_OLLAMA_MODEL로, 그것도 없으면 리포트 슬롯의 운영 모델(9B)로 폴백한다.
+# prod에서 9B를 쓰려면 Modal이 해당 모델도 함께 서빙해야 한다(modal_ollama.py MODELS 참고).
 OLLAMA_MODEL = os.environ.get(
     "SUMMARIZE_OLLAMA_MODEL",
-    os.environ.get("NL_OLLAMA_MODEL", "qwen3:8b"),
+    os.environ.get("NL_OLLAMA_MODEL", OLLAMA_MODEL_9B),
 )
 # /api/generate가 아니라 /api/chat을 쓴다 — GGUF 임포트 모델(Qwen3.5)은 generate 경로에서
 # think:false가 무시되어 <think> 추론이 응답에 섞인다. chat 경로는 nl_parser에서 검증됨.

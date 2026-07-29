@@ -194,8 +194,12 @@ def test_summarize_models_point_to_qwen35_4b(monkeypatch):
     monkeypatch.delenv("NL_OLLAMA_MODEL", raising=False)
     importlib.reload(summarize_mod)
     try:
+        from llm_backend import OLLAMA_MODEL_9B
+
         assert summarize_mod.MLX_MODEL == "mlx-community/Qwen3.5-4B-4bit"
-        assert summarize_mod.OLLAMA_MODEL == "qwen3:8b"
+        # 리포트 슬롯의 폴백은 운영 모델(9B) — 종전 기본값 `qwen3:8b`는 이 프로젝트가
+        # 쓰지 않는 모델이었다(2026-07-30 제거, FR-STR-019p ⑤).
+        assert summarize_mod.OLLAMA_MODEL == OLLAMA_MODEL_9B
     finally:
         importlib.reload(summarize_mod)  # 원래 환경 기준으로 복원
 

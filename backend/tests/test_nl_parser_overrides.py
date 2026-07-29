@@ -897,9 +897,13 @@ def test_nl_strategy_parser_defaults_point_to_qwen35_4b(monkeypatch):
 
     assert parser.mlx_model == "mlx-community/Qwen3.5-4B-4bit"
     assert parser.model_32b == "mlx-community/Qwen3.5-4B-4bit"
-    # Ollama 기본값은 레지스트리에 존재하는 9B급 모델 qwen3:8b
-    assert parser.ollama_model == "qwen3:8b"
-    assert parser.ollama_model_32b == "qwen3:8b"
+    # Ollama 기본값도 레거시 파서 슬롯의 실제 모델(4B)이어야 한다 — 종전 기본값
+    # `qwen3:8b`는 이 프로젝트가 쓰지 않는 모델이라, .env 없이 도는 실행이 운영과
+    # 다른 모델로 조용히 동작했다(2026-07-30 제거, FR-STR-019p ⑤).
+    from llm_backend import OLLAMA_MODEL_4B
+
+    assert parser.ollama_model == OLLAMA_MODEL_4B
+    assert parser.ollama_model_32b == OLLAMA_MODEL_4B
 
 
 def test_nl_strategy_parser_env_overrides_mlx_model(monkeypatch):

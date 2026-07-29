@@ -16,7 +16,7 @@ modify_examples.json / modify_knowledge.json 은 **수정 요청이 결정론 fa
 
 실행:
     cd backend && python ../scripts/qa_modify_accuracy.py
-사전 조건: 로컬 Ollama(qwen3:8b) 가동.
+사전 조건: 로컬 Ollama 가동 + .env 로드(모델 슬롯은 STRATEGY_INTERPRETER_MODEL/NL_OLLAMA_MODEL).
 """
 from __future__ import annotations
 

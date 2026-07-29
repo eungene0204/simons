@@ -24,7 +24,12 @@ from pydantic import (
     model_validator,
 )
 
-from llm_backend import OLLAMA_BASE_URL, is_local_ollama, ollama_auth_headers
+from llm_backend import (
+    OLLAMA_BASE_URL,
+    OLLAMA_MODEL_4B,
+    is_local_ollama,
+    ollama_auth_headers,
+)
 from engine import strategy_slots
 from engine.universe_pit import (
     CANONICAL_SECTORS,
@@ -1040,13 +1045,13 @@ class NLStrategyParser:
         mlx_model: Optional[str] = None,
         model_32b: str = "mlx-community/Qwen3.5-4B-4bit",
         ollama_model: Optional[str] = None,
-        ollama_model_32b: str = "qwen3:8b",
+        ollama_model_32b: str = OLLAMA_MODEL_4B,
         max_retries: int = 3,
     ):
         self.backend = backend
         self.mlx_model = mlx_model or os.environ.get("NL_MLX_MODEL", "mlx-community/Qwen3.5-4B-4bit")
         self.model_32b = model_32b
-        self.ollama_model = ollama_model or os.environ.get("NL_OLLAMA_MODEL", "qwen3:8b")
+        self.ollama_model = ollama_model or os.environ.get("NL_OLLAMA_MODEL", OLLAMA_MODEL_4B)
         self.ollama_model_32b = ollama_model_32b
         self.max_retries = max_retries
         # MLX 단일 추론 게이트. main이 PriorityInferenceLock 컨텍스트 팩토리를 주입하면

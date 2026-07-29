@@ -16,7 +16,7 @@ from strategy_conversation.registry.capability_registry import (
 )
 from strategy_conversation.registry.indicator_registry import supported_factor_lines
 
-PROMPT_VERSION = "2.5"
+PROMPT_VERSION = "2.6"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -73,7 +73,14 @@ _OUTPUT_SHAPE = {
     },
     "patches": [],
     "unsupported_features": [],
-    "clarification_questions": [],
+    # 빈 배열만 두면(과거 계약) 9B가 항목을 낼 때 스키마를 스스로 지어내 "field" 키를
+    # 빠뜨린다 — StrategyIntent 검증 실패→복구도 실패→InterpreterError로 전체 해석이
+    # 버려져 사용자가 말한 조건까지 통째로 사라지는 사고(2026-07-30, 예시 1에서
+    # 이 항목 하나를 지웠을 때 재현). 형태에 필수 키(field)를 보여주는 예시를 싣는다.
+    "clarification_questions": [
+        {"field": "strategy.risk_management.stop_loss",
+         "question": "몇 % 하락 시 손절할까요?", "recommended_value": 10},
+    ],
     "confidence": 0.9,
 }
 
