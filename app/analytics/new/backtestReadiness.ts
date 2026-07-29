@@ -21,9 +21,25 @@ export type MissingBacktestCondition = {
   suggestions: string[];
 };
 
+// 사용자가 실제로 말한 설정 필드(백엔드 응답 `explicit_fields`). 판정 근거는 인터프리터
+// LLM의 구조화 출력뿐이며, 프론트는 그 결과를 읽기만 한다.
+//
+// [2026-07-29 계약 전환] 이전에는 이 파일이 사용자 원문을 정규식으로 재분석해
+// "말했나"를 스스로 판정했다(hasExplicit* 5종). 그것은 자연어 해석이므로 LLM 소관인데
+// (nl_interpretation_contract § 판정 기준), 실제로 양방향 사고를 냈다:
+//   · 오탐 — '거래대금 20억 원'을 초기 자본 명시로 오인해 되묻기를 삼킴('원자력 관련주')
+//   · 미탐 — '보유 종목은 10개'를 못 잡아 진행률 미체크('부채비율·ROE 보유 조건')
+// 두 사고 모두 원문 정규식이라는 같은 원인이라 채널 자체를 백엔드 provenance로 교체했다.
+export type ExplicitField =
+  | "universe"
+  | "max_positions"
+  | "rebalancing"
+  | "backtest_period"
+  | "initial_capital";
+
 export type BacktestReadinessOptions = {
   allowNoRebalancing?: boolean;
-  prompt?: string;
+  explicitFields?: readonly string[];
   requireExplicitConfiguration?: boolean;
 };
 
@@ -31,48 +47,14 @@ function nonEmpty(value: unknown): boolean {
   return Array.isArray(value) ? value.length > 0 : Boolean(value);
 }
 
-export function hasExplicitUniverse(
-  prompt: string,
+/** 지정 종목은 그 자체가 사용자의 유니버스 명시다(백엔드 spec의 universe.symbols와 동형). */
+export function isExplicit(
+  field: ExplicitField,
+  explicitFields: readonly string[] | undefined,
   parsed?: ParsedSummary | null,
 ): boolean {
-  return Boolean(
-    parsed?.target_symbols?.length ||
-    /코스피\s*200|코스피|코스닥|KOSPI\s*200|KOSPI|KOSDAQ|ETF|유니버스|투자\s*대상|대상\s*(?:시장|종목)/i.test(
-      prompt,
-    ),
-  );
-}
-
-export function hasExplicitMaxPositions(prompt: string): boolean {
-  return /(?:최대|상위)\s*\d+\s*(?:개|종목)|\d+\s*(?:개\s*)?종목|보유\s*(?:종목\s*)?\d+/i.test(
-    prompt,
-  );
-}
-
-export function hasExplicitRebalancing(prompt: string): boolean {
-  return /리밸런싱|리밸런스|종목\s*교체|매일|매주|매월|월마다|분기(?:마다)?|매년|연간|안\s*함|하지\s*않/i.test(
-    prompt,
-  );
-}
-
-export function hasExplicitBacktestPeriod(prompt: string): boolean {
-  return /백테스트\s*(?:기간\s*)?(?:\d+\s*(?:년|개월|일)|전체)|최근\s*\d+\s*(?:년|개월|일)|전체\s*(?:기간|데이터)|전\s*기간|\d{4}\s*년?\s*(?:부터|~|-)/i.test(
-    prompt,
-  );
-}
-
-// 거래대금·시가총액 필터의 금액 구간("일평균 거래대금이 20억 원 이상") — 자본금 판정 전에
-// 지운다. cue 없는 맨 금액 대안이 필터 수치를 초기 자본 명시로 오인해 되묻기를 건너뛰고
-// 기본값 1,000만원을 확정 표시하던 사고(2026-07-29 '원자력 관련주') 방지. 백엔드
-// _extract_capital_amount의 _strip_amount_filter_phrases와 동일 계약(금액 지표 구간 제거).
-const AMOUNT_FILTER_PHRASE =
-  /(?:일\s*)?(?:평균\s*)?(?:거래\s*대금|시가\s*총액|시총)[^\d\n]{0,12}\d[\d,]*(?:\.\d+)?\s*(?:조|억|천만|백만|만|천)?\s*원?/gi;
-
-export function hasExplicitInitialCapital(prompt: string): boolean {
-  const scrubbed = prompt.replace(AMOUNT_FILTER_PHRASE, " ");
-  return /(?:초기\s*(?:자금|자본)|투자\s*(?:금액|자금|자본)|시드\s*머니)\s*(?:은|을|:)?\s*\d[\d,]*(?:\.\d+)?\s*(?:조|억|천만|백만|만|천)?\s*원?|\d[\d,]*(?:\.\d+)?\s*(?:조|억|천만|백만|만|천)?\s*원/i.test(
-    scrubbed,
-  );
+  if (field === "universe" && parsed?.target_symbols?.length) return true;
+  return (explicitFields ?? []).includes(field);
 }
 
 export function getNextMissingBacktestCondition(
@@ -113,10 +95,10 @@ export function getNextMissingBacktestCondition(
   const isSingleSymbol = (parsed.target_symbols?.length ?? 0) === 1;
   const rebalancingOk =
     isSingleSymbol || hasRebalancing || options.allowNoRebalancing === true;
-  const prompt = options.prompt ?? "";
+  const explicitFields = options.explicitFields;
   const requireExplicit = options.requireExplicitConfiguration === true;
 
-  if (!hasUniverse || (requireExplicit && !hasExplicitUniverse(prompt, parsed))) {
+  if (!hasUniverse || (requireExplicit && !isExplicit("universe", explicitFields, parsed))) {
     return {
       field: "universe",
       question: "대상 시장·종목이 빠져 있습니다. 어떤 시장·종목을 대상으로 할까요?",
@@ -148,7 +130,7 @@ export function getNextMissingBacktestCondition(
   }
   if (
     !hasMaxPositions ||
-    (requireExplicit && !isSingleAsset && !hasExplicitMaxPositions(prompt))
+    (requireExplicit && !isSingleAsset && !isExplicit("max_positions", explicitFields))
   ) {
     return {
       field: "max_positions",
@@ -158,7 +140,11 @@ export function getNextMissingBacktestCondition(
   }
   if (
     !rebalancingOk ||
-    (requireExplicit && !isSingleSymbol && !hasExplicitRebalancing(prompt))
+    // '안 함' 선택은 사용자의 명시적 결정이지만 LLM 스펙에서는 rebalance_frequency=null이라
+    // 미언급과 구분되지 않는다 — 프론트가 그 선택을 들고 있으므로(allowNoRebalancing)
+    // provenance와 동등하게 취급한다.
+    (requireExplicit && !isSingleSymbol &&
+      !isExplicit("rebalancing", explicitFields) && options.allowNoRebalancing !== true)
   ) {
     return {
       field: "rebalancing",
@@ -183,7 +169,7 @@ export function getNextMissingBacktestCondition(
   }
   if (
     !hasBacktestPeriod ||
-    (requireExplicit && !hasExplicitBacktestPeriod(prompt))
+    (requireExplicit && !isExplicit("backtest_period", explicitFields))
   ) {
     return {
       field: "backtest_period",
@@ -198,7 +184,7 @@ export function getNextMissingBacktestCondition(
   }
   if (
     !hasInitialCapital ||
-    (requireExplicit && !hasExplicitInitialCapital(prompt))
+    (requireExplicit && !isExplicit("initial_capital", explicitFields))
   ) {
     return {
       field: "initial_capital",

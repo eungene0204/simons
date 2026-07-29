@@ -1589,6 +1589,19 @@ def test_llm_roundtrip_logged_to_console(capsys):
     assert "[LLM-INTERPRETER] ✓ 해석" in out
 
 
+def test_llm_response_logged_as_key_value_columns(capsys):
+    # raw JSON 한 줄은 읽을 수 없다(사용자 요청 2026-07-29) — 응답을 key = value 컬럼으로 펼쳐 찍는다
+    good = json.dumps(_full_intent_dict(), ensure_ascii=False)
+    StrategyInterpreter(chat_fn=lambda s, u: good, model="stub").interpret("PER 10 이하")
+    out = capsys.readouterr().out
+    assert "\n  intent" in out and '= "CREATE_STRATEGY"' in out
+    # 중첩 필드는 점 경로로, 목록 원소는 [i] 인덱스로 펼친다
+    assert "strategy.universe.markets" in out
+    assert "strategy.entry_conditions[0].factor" in out
+    # 원본 한 줄 JSON 덤프는 더 이상 찍지 않는다
+    assert f"◀ 원본 응답 {good}" not in out
+
+
 def test_llm_repair_round_logged(capsys):
     good = json.dumps(_full_intent_dict(), ensure_ascii=False)
     calls = []

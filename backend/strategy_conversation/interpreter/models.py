@@ -124,9 +124,10 @@ class RankingSpec(BaseModel):
 
 class UniverseSpec(BaseModel):
     markets: List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "ETF"]] = Field(
-        default_factory=lambda: ["KOSPI200"],
+        default_factory=list,
         description=(
-            "투자 대상 시장. 언급 없으면 ['KOSPI200']. "
+            "투자 대상 시장. **언급이 없으면 빈 배열** — 기본값은 시스템이 정하므로 "
+            "지어내지 말 것(빈 배열이 '사용자가 시장을 말하지 않았다'는 신호다). "
             "ETF/ETN/상장지수펀드 상품 대상이면 ['ETF'] 단독(주식 시장과 혼합 금지)"
         ),
     )

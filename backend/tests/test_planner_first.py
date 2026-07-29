@@ -242,6 +242,34 @@ def test_condition_ask_dropped_when_gate_says_complete(monkeypatch):
     assert _planner_first_ask(result, parsed) is not None
 
 
+def test_filled_slot_ask_rejected_even_when_other_slots_are_empty():
+    """다른 슬롯이 비었다는 이유로 이미 채워진 슬롯을 다시 묻지 않는다.
+
+    [회귀 2026-07-29 '박스권 돌파' 사고] 게이트(detect_incomplete_backtest_conditions)는
+    "어딘가 비었다"만 답한다(첫 공백 하나). planner-first는 파스보다 먼저 계획하므로
+    자기 filled_slots를 볼 수 없어 이미 반영된 매수 조건을 다시 물었고, 리밸런싱·기간이
+    비었다는 이유로 그 ask가 채택됐다 — 요약 카드엔 '매수 조건 20일 고점 돌파'가 있는데
+    "박스권 돌파 시 매수할까요?"가 뜬 화면.
+    """
+    parsed = ParsedStrategy(
+        description="테스트",
+        universe=["KOSPI"],
+        entry_signals=[{"indicator": "breakout", "signal_type": "buy",
+                        "lookback_period": 20}],
+        max_positions=8,
+        stop_loss_pct=7.0,
+    )
+    # 게이트는 여전히 공백(리밸런싱 등)을 보고한다 — 그래도 채워진 슬롯 ask는 거부한다.
+    assert nl_parser.detect_incomplete_backtest_conditions(parsed)[0] is not None
+    filled = _plan_result([], outcome="ask", question="박스권 돌파 시 매수할까요?",
+                          chips=["20일 고점 돌파 시 매수"], topic="매수조건")
+    assert _planner_first_ask(filled, parsed) is None
+    # 실제로 빈 슬롯의 ask는 그대로 채택된다(가드가 planner를 통째로 막지 않는다).
+    empty = _plan_result([], outcome="ask", question="리밸런싱 주기를 정할까요?",
+                         chips=["매월 리밸런싱"], topic="리밸런싱")
+    assert _planner_first_ask(empty, parsed) is not None
+
+
 def test_finish_outcome_yields_no_ask():
     result = _plan_result([], outcome="finish")
     assert _planner_first_ask(result, ParsedStrategy(description="t")) is None

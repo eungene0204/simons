@@ -6,7 +6,7 @@ import {
   UNIVERSE_LABELS,
   type ParsedSummary,
 } from "./strategySummary";
-import { hasExplicitUniverse } from "./backtestReadiness";
+import { isExplicit } from "./backtestReadiness";
 
 const KO_NUMBER_FORMAT = new Intl.NumberFormat("ko-KR");
 
@@ -64,8 +64,11 @@ function signalTriggerClause(labels: string[]): string {
 
 // 대상 범위 접두어: "반도체 업종에서" / "KOSDAQ에서". 시장을 명시하지 않았으면 생략한다
 // (기본값 양시장을 굳이 되풀이하지 않는다).
-function buildScope(parsed: ParsedSummary, prompt: string): string | null {
-  const universeLabels = hasExplicitUniverse(prompt, parsed)
+function buildScope(
+  parsed: ParsedSummary,
+  explicitFields: readonly string[] | undefined,
+): string | null {
+  const universeLabels = isExplicit("universe", explicitFields, parsed)
     ? parsed.universe.map((u) => UNIVERSE_LABELS[u.toLowerCase()] ?? UNIVERSE_LABELS[u] ?? u)
     : [];
   const sectors = Array.isArray(parsed.sector)
@@ -89,7 +92,7 @@ function buildScope(parsed: ParsedSummary, prompt: string): string | null {
  */
 export function buildStrategyRestatement(
   parsed: ParsedSummary | null | undefined,
-  prompt = "",
+  explicitFields?: readonly string[],
 ): string | null {
   if (!parsed) return null;
   if (parsed.target_symbols && parsed.target_symbols.length > 0) return null;
@@ -121,6 +124,6 @@ export function buildStrategyRestatement(
     return null;
   }
 
-  const scope = buildScope(parsed, prompt);
+  const scope = buildScope(parsed, explicitFields);
   return `${scope ? `${scope} ` : ""}${core} 전략이군요.`;
 }

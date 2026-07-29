@@ -452,7 +452,30 @@ def plan_strategy_dag(
             continue
 
         done_ids = set(executed)
-        for node in ready_nodes(nodes, done_ids):
+        # 재질문 결정론 가드 — State 요약의 filled_slots(결정론 판정)에 있는 슬롯의 ask는
+        # 표면화하지 않는다. "채워진 슬롯은 절대 다시 묻지 않는다"는 프롬프트 지시를 9B가
+        # 어기고 풀 골격(ask_entry부터)을 재발행하는 실측 드리프트(2026-07-29 매수 조건
+        # 재질문 사고)의 출력측 차단이다. 판정은 topic↔슬롯 라벨의 공백 무시 비교뿐이다
+        # (표기 정규화 — 의미 판단 없음). 이미 답이 있는 ask는 충족으로 흡수해 그에
+        # 의존하는 다음 빈 슬롯 ask를 연다(전부 충족이면 아래 무진전 폴백).
+        filled_slots = {
+            str(slot).replace(" ", "")
+            for slot in (state_summary or {}).get("filled_slots") or []
+        }
+        answered: set = set()
+        while True:
+            already_answered = [
+                n for n in ready_nodes(nodes, done_ids | answered)
+                if n.type == "ask" and (n.topic or "").replace(" ", "") in filled_slots
+            ]
+            if not already_answered:
+                break
+            for node in already_answered:
+                logger.info("dag planner 재질문 가드 — 채워진 슬롯 ask 건너뜀 | id=%s topic=%s",
+                            node.id, node.topic)
+            answered.update(n.id for n in already_answered)
+
+        for node in ready_nodes(nodes, done_ids | answered):
             if node.type == "ask":
                 question = guard_text((node.question or "").strip() or None)
                 if not question:

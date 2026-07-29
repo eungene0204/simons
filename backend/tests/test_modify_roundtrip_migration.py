@@ -156,7 +156,7 @@ def test_modify_turn_replans_next_question_via_dag_planner(monkeypatch):
     monkeypatch.setenv("STRATEGY_DAG_PLANNER_MODE", "primary")
     monkeypatch.setattr(
         primary, "_dag_planner_clarification",
-        lambda user_input, parsed: (
+        lambda user_input, parsed, explicit_fields=None: (
             "어떤 조건에서 매수할까요?", ["RSI 30 이하에서 매수"], "매수조건",
         ),
     )

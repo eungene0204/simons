@@ -16,7 +16,7 @@ from strategy_conversation.registry.capability_registry import (
 )
 from strategy_conversation.registry.indicator_registry import supported_factor_lines
 
-PROMPT_VERSION = "1.9"
+PROMPT_VERSION = "2.1"
 
 _OUTPUT_SHAPE = {
     "intent": "CREATE_STRATEGY",
@@ -114,8 +114,11 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    아니라 portfolio.hold_period_days=N입니다 — time.days_held 같은 factor를 지어내지 마세요.
    단 **지표 기반 청산과 보유 기간은 별개 슬롯입니다** — '20일선 이탈 시 청산', '데드크로스면
    매도', 'RSI 70 이상이면 매도'는 보유 기간을 함께 말했더라도 exit_conditions에 반드시
-   남깁니다("20일선을 이탈하면 청산하고, 최소 보유 기간은 6개월" → exit_conditions에
+   남깁니다("20일선을 이탈하면 청산하고, 최대 보유 기간은 6개월" → exit_conditions에
    ma_crossover crosses_below(1/20) **그리고** portfolio.hold_period_days=126, 둘 다).
+   hold_period_days는 **최대** 보유(만료 시 청산)입니다 — '최소 N개월 보유'·'최소 보유
+   기간 N일'(그 전에는 팔지 않기, 하한)은 지원되지 않는 개념이므로 hold_period_days로
+   뒤집어 넣지 말고 unsupported_features에 원문 표현을 넣으세요.
 5-0. 지표의 기간(period, short_period, long_period, lookback_period)은 **사용자가 말한 경우에만**
    parameters에 넣으세요("20일선"→short_period=20, "RSI 14일"→period=14). 기간을 말하지 않았으면
    비워 두세요 — 시스템이 표준 기간을 적용합니다. 임의의 숫자를 지어내지 마세요("RSI 30 이하"에는
@@ -140,7 +143,9 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    비워 두면 시스템이 "기준값을 얼마로 할까요?"라고 되묻고 **사용자가 이미 말한 조건이
    전략에서 사라집니다**. 기간을 말했으면 반드시 parameters에 담으세요.
 6. universe.markets: 코스피=["KOSPI"], 코스닥=["KOSDAQ"], 대형주/KOSPI200=["KOSPI200"],
-   전체/양시장=["KOSPI","KOSDAQ"]. 시장 언급이 없으면 ["KOSPI200"], 단 섹터 제한 전략이면 ["KOSPI","KOSDAQ"].
+   전체/양시장=["KOSPI","KOSDAQ"]. **시장 언급이 전혀 없으면 빈 배열([])** — 기본값은 시스템이
+   정하므로 지어내지 마세요(빈 배열이 "사용자가 시장을 말하지 않았다"는 신호이며, 이 신호가
+   없으면 시스템이 되묻지 못하고 기본값을 확정값처럼 보여주게 됩니다).
    업종/테마(반도체, 2차전지 등)는 markets가 아니라 universe.sectors에.
 6-0. universe에는 **시장·업종·종목만** 담습니다. '조건을 먼저 적용하고', '~인 종목만',
    '먼저 걸러서'처럼 종목을 미리 거르는 스크리닝 기준(재무 지표·거래대금 등)은 universe가

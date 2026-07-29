@@ -135,7 +135,7 @@ def _review(parsed, profile: StockResearchProfile) -> List[str]:
             notices.append(
                 f"선택한 진입 조건({label})은 연평균 약 {per_year:.0f}회로 매우 자주 발생합니다. "
                 "거래비용과 슬리피지의 영향을 크게 받을 수 있습니다. "
-                "추가 필터나 최소 보유기간 설정을 고려해 주세요."
+                "추가 필터로 조건을 좁히는 것을 고려해 주세요."
             )
 
     # 3) 재무 조건: 미보유 데이터는 지원 불가 안내, 보유 데이터는 PIT 적용 사실 안내.

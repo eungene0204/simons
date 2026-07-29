@@ -122,3 +122,45 @@ def test_symbol_typo_reask_skipped_for_etf_universe():
         ParsedStrategy(description="x", universe=["ETF"], etf_theme="배당"), prompt
     )
     assert q_etf is None and chips is None
+
+
+def test_symbol_typo_term_in_only_scans_llm_extracted_names():
+    """[회귀 2026-07-29 '박스권 돌파' 사고] 원문 전체 토큰을 마스터에 근접 매칭하면
+    일반 어절이 종목명으로 오탐된다 — "20일 고점을 **넘기는** 날"의 '넘기는'이 '삼기',
+    "박스 **안으로**"의 '안으로'가 '알트'로 잡혀 사용자 문장을 통째로 오염시킨 칩이 나갔다.
+    term-in 경로는 LLM이 종목명이라고 판정한 표현만 후보로 본다."""
+    from engine.nl_parser import ParsedStrategy, detect_symbol_typo_clarification
+
+    prompt = ("복잡한 지표는 아직 어려워서 최근 한 달 동안 가격이 갇혀 있던 박스권을 위로 "
+              "돌파하는 종목만 사고 싶어요. KOSPI 종목 중 20일 고점을 넘기는 날 매수하고 "
+              "다시 박스 안으로 내려오면 매도해 주세요. 최대 8종목, 손절은 -7%로 부탁드립니다.")
+    parsed = ParsedStrategy(description="박스권 돌파 전략", universe=["KOSPI"])
+
+    # LLM이 종목명을 뽑지 않았으면(종목 언급이 없는 전략) 되묻지 않는다.
+    assert detect_symbol_typo_clarification(parsed, prompt, terms=[]) == (None, None)
+    # 레거시 원문 스캔은 같은 입력에서 오탐한다 — 이 경로가 왜 레거시로 밀렸는지의 근거.
+    legacy_q, _ = detect_symbol_typo_clarification(parsed, prompt)
+    assert legacy_q is not None
+
+
+def test_symbol_typo_term_in_still_catches_real_typos():
+    """term-in으로 좁혀도 진짜 오타는 잡는다 — LLM이 '삼서전자'를 종목명으로 넘긴 경우."""
+    from engine.nl_parser import ParsedStrategy, detect_symbol_typo_clarification
+
+    parsed = ParsedStrategy(description="x")
+    q, chips = detect_symbol_typo_clarification(
+        parsed, "삼서전자 전략을 만들자", terms=["삼서전자"])
+    assert q is not None and "삼성전자" in q
+    # 칩은 원문에서 오타만 정정한 재제출 프롬프트다.
+    assert chips == ["삼성전자 전략을 만들자"]
+
+
+def test_symbol_typo_term_in_chip_falls_back_to_name_when_absent_from_prompt():
+    """LLM이 표기를 다듬어 넘겨 원문에 그 문자열이 없으면, 치환되지 않은 원문을 그대로
+    칩으로 내지 않는다(고르면 같은 질문이 반복된다) — 종목명만 낸다."""
+    from engine.nl_parser import ParsedStrategy, detect_symbol_typo_clarification
+
+    q, chips = detect_symbol_typo_clarification(
+        ParsedStrategy(description="x"), "그 회사로 전략 만들어줘", terms=["삼서전자"])
+    assert q is not None
+    assert chips == ["삼성전자"]

@@ -9,13 +9,7 @@ import {
   PERIOD_LABELS,
   type ParsedSummary,
 } from "./strategySummary";
-import {
-  hasExplicitBacktestPeriod,
-  hasExplicitInitialCapital,
-  hasExplicitMaxPositions,
-  hasExplicitRebalancing,
-  hasExplicitUniverse,
-} from "./backtestReadiness";
+import { isExplicit } from "./backtestReadiness";
 
 export type BuilderSummaryItem = {
   label: string;
@@ -215,13 +209,14 @@ export function buildBuilderTurnPresentation({
   state,
   reply,
   parsed,
-  prompt = "",
+  explicitFields,
   backtestRequest,
 }: {
   state: Record<string, any>;
   reply: string;
   parsed?: ParsedSummary | null;
-  prompt?: string;
+  // 사용자가 실제로 말한 설정 필드(백엔드 provenance). 원문 정규식 재분석을 대체한다.
+  explicitFields?: readonly string[];
   // 지정 종목 표시용 이름(backtest_request.target_stocks) — 없으면 코드만 표시된다.
   backtestRequest?: {
     symbols?: string[];
@@ -234,7 +229,14 @@ export function buildBuilderTurnPresentation({
     : null) ||
     (state.theme_label ? String(state.theme_label) : null) ||
     (state.universe ? UNIVERSE_LABELS[state.universe] ?? state.universe : null);
-  const targetExplicit = Boolean(state.theme_label) || hasExplicitUniverse(prompt, parsed);
+  // 빌더 레인의 state 값은 사용자가 되묻기에 직접 답한 결과다 — 그 자체가 명시다.
+  // (백엔드 provenance는 자유 서술 파스 레인의 판정을 담당한다. 두 레인 모두 근거는
+  //  사용자의 실제 발화이고, 어느 쪽도 원문 정규식을 쓰지 않는다.)
+  const targetExplicit =
+    Boolean(state.theme_label) ||
+    Boolean(state.single_label) ||
+    Boolean(state.universe) ||
+    isExplicit("universe", explicitFields, parsed);
   const target = targetExplicit
     ? targetFromState ||
       (parsed ? getDisplayUniverseLabels(parsed, backtestRequest).join(" · ") : null)
@@ -245,7 +247,8 @@ export function buildBuilderTurnPresentation({
   const specifiedSymbolCount = parsed?.target_symbols?.length ?? 0;
   const holdingCountFromState = hasValue(state.holding_count);
   const holdingCount = holdingCountFromState ? state.holding_count : parsed?.max_positions;
-  const holdingCountExplicit = hasExplicitMaxPositions(prompt);
+  const holdingCountExplicit =
+    holdingCountFromState || isExplicit("max_positions", explicitFields);
   const rebalanceFromState = hasValue(state.rebalance_cycle);
   const rebalanceCycle = rebalanceFromState
     ? state.rebalance_cycle
@@ -254,14 +257,19 @@ export function buildBuilderTurnPresentation({
   // 다종목 지정(테마 유니버스 등)은 포트폴리오라 사용자가 답하기 전까지 기본값을 확정된
   // 것처럼 보여주지 않는다(2026-07-28 '모바일솔루션 관련주' 사고 — 질문 없이 '설정 안 함' 노출).
   const rebalanceExplicit =
-    specifiedSymbolCount === 1 || hasExplicitRebalancing(prompt);
+    specifiedSymbolCount === 1 ||
+    rebalanceFromState ||
+    isExplicit("rebalancing", explicitFields);
   const backtestPeriod = state.backtest_period ?? state.period ?? parsed?.backtest_period;
-  const backtestPeriodExplicit = hasExplicitBacktestPeriod(prompt);
+  const backtestPeriodExplicit =
+    hasValue(state.backtest_period ?? state.period) ||
+    isExplicit("backtest_period", explicitFields);
   const initialCapitalFromState = state.initial_capital ?? state.init_cash;
   const initialCapital = hasValue(initialCapitalFromState)
     ? Number(initialCapitalFromState)
     : parsed?.initial_capital;
-  const initialCapitalExplicit = hasExplicitInitialCapital(prompt);
+  const initialCapitalExplicit =
+    hasValue(initialCapitalFromState) || isExplicit("initial_capital", explicitFields);
 
   if (target) {
     summaryItems.push({

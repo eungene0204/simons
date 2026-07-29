@@ -50,12 +50,47 @@ def _recall_gap(user_input: str, intent) -> list[str]:
 ChatFn = Callable[[str, str], str]  # (system_prompt, user_message) -> raw text
 
 
+def _flatten_json_columns(text: str) -> Optional[str]:
+    """JSON 객체 텍스트를 'key = value' 컬럼 목록으로 펼친다. JSON 객체가 아니면 None."""
+    try:
+        obj = json.loads(extract_json_object(text))
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(obj, dict) or not obj:
+        return None
+
+    lines: list[tuple[str, str]] = []
+
+    def walk(value, path: str) -> None:
+        if isinstance(value, dict) and value:
+            for key, child in value.items():
+                walk(child, f"{path}.{key}" if path else key)
+        elif isinstance(value, list) and any(isinstance(v, (dict, list)) for v in value):
+            for i, child in enumerate(value):
+                walk(child, f"{path}[{i}]")
+        else:
+            rendered = json.dumps(value, ensure_ascii=False)
+            if len(rendered) > 200:
+                rendered = rendered[:200] + "…"
+            lines.append((path, rendered))
+
+    walk(obj, "")
+    width = max(len(path) for path, _ in lines)
+    return "\n".join(f"  {path.ljust(width)} = {value}" for path, value in lines)
+
+
 def _log_llm(tag: str, text: str) -> None:
     """LLM 왕복을 dev 콘솔에서 눈으로 확인할 수 있게 출력한다([NL-PARSE]와 동일한 print 관례).
 
-    uvicorn 로깅 설정과 무관하게 항상 보이도록 print를 쓴다. 원본 응답은 가공 없이 그대로.
+    uvicorn 로깅 설정과 무관하게 항상 보이도록 print를 쓴다. JSON 응답은 한 줄 raw로는
+    읽을 수 없어 key = value 컬럼으로 펼쳐 찍는다(사용자 요청 2026-07-29) — 정보는 그대로,
+    JSON으로 파싱되지 않는 텍스트만 원문 그대로 찍는다(깨진 출력 디버깅용).
     """
-    print(f"[LLM-INTERPRETER] {tag} {text}", flush=True)
+    columns = _flatten_json_columns(text)
+    if columns is None:
+        print(f"[LLM-INTERPRETER] {tag} {text}", flush=True)
+    else:
+        print(f"[LLM-INTERPRETER] {tag}\n{columns}", flush=True)
 
 
 class InterpreterError(RuntimeError):

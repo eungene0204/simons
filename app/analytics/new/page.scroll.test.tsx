@@ -156,10 +156,21 @@ function createJsonResponse(body: unknown, headers?: Record<string, string>) {
   });
 }
 
+// 각 목의 explicit_fields는 그 목이 흉내 내는 **프롬프트가 실제로 말한** 설정만 담는다.
+// 값이 채워져 있어도(기본값 물질화) 사용자가 말하지 않았으면 넣지 않는다 — 이 구분이
+// 되묻기 게이트의 전부이며, 실제 백엔드는 인터프리터 LLM의 구조화 출력에서 판정한다.
+const ALL_EXPLICIT = [
+  "universe",
+  "max_positions",
+  "rebalancing",
+  "backtest_period",
+  "initial_capital",
+];
+
 function createParseStreamResponse() {
   const encoder = new TextEncoder();
   const payload = [
-    `data: ${JSON.stringify({ type: "parsed_final", parsed: parsedStrategy })}\n\n`,
+    `data: ${JSON.stringify({ type: "parsed_final", parsed: parsedStrategy, explicit_fields: ALL_EXPLICIT })}\n\n`,
     `data: ${JSON.stringify({ type: "dsl_ready", backtest_request: backtestRequest, symbol_count: 2 })}\n\n`,
     "data: [DONE]\n\n",
   ].join("");
@@ -184,6 +195,7 @@ function createParseStreamResponseWithClarification() {
     `data: ${JSON.stringify({
       type: "parsed_final",
       parsed: incompleteParsedStrategy,
+      explicit_fields: [],
       clarification_question: clarificationQuestion,
       clarification_suggestions: ["영업이익률 10% 이상", "영업이익률 15% 이상"],
     })}\n\n`,
@@ -208,6 +220,7 @@ function createParseStreamResponseWithNonConditionClarification() {
     `data: ${JSON.stringify({
       type: "parsed_final",
       parsed: parsedStrategy,
+      explicit_fields: ALL_EXPLICIT,
       clarification_question: "여러 종목이 지정되었습니다. 어느 종목을 대상으로 할까요?",
       clarification_suggestions: ["삼성전자", "SK하이닉스"],
     })}\n\n`,
@@ -241,6 +254,7 @@ function createParseStreamResponseWithThemeUniverseReask() {
     `data: ${JSON.stringify({
       type: "parsed_final",
       parsed,
+      explicit_fields: [],
       clarification_question: themeQuestion,
       clarification_suggestions: [
         "하이브, 에스엠, 넷마블 종목 전체를 함께 2026년부터 백테스트",
@@ -279,6 +293,7 @@ function createParseStreamResponseWithSectorNotFound() {
     `data: ${JSON.stringify({
       type: "parsed_final",
       parsed,
+      explicit_fields: [],
       clarification_question: notFoundQuestion,
       clarification_suggestions: [
         "반도체 관련주",
@@ -319,7 +334,7 @@ function createParseStreamResponseMissingRebalancing() {
     },
   };
   const payload = [
-    `data: ${JSON.stringify({ type: "parsed_final", parsed })}\n\n`,
+    `data: ${JSON.stringify({ type: "parsed_final", parsed, explicit_fields: ALL_EXPLICIT.filter((f) => f !== "rebalancing") })}\n\n`,
     `data: ${JSON.stringify({ type: "dsl_ready", backtest_request: request, symbol_count: 2 })}\n\n`,
     "data: [DONE]\n\n",
   ].join("");
@@ -345,6 +360,9 @@ function createSingleAssetParseStreamResponse(complete = false) {
     `data: ${JSON.stringify({
       type: "parsed_final",
       parsed,
+      // 이 목이 흉내 내는 프롬프트("…최근 5년 데이터, 초기 자금 1,000만원")가 실제로 말한 설정.
+      // 유니버스는 지정 종목(target_symbols)이 그 자체로 명시라 목록에 넣지 않는다.
+      explicit_fields: ["backtest_period", "initial_capital"],
       clarification_question: complete
         ? null
         : "청산 조건 — 언제 팔까요?\n\n예: 데드크로스(5일/20일) 발생 시 매도, 20일 보유 후 청산",
@@ -928,6 +946,8 @@ describe("StrategyLabPage scroll behavior", () => {
       latestParsed: awaitingCapital,
       backtestReq: completeSingleAssetBacktestRequest,
       stage: "ready",
+      // 초기 자금 질문에 도달한 세션이므로 그 앞 조건들은 이미 사용자가 답한 상태다.
+      explicitFields: ["universe", "backtest_period"],
     }));
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       if (String(input) === "/api/model/status") {
@@ -975,6 +995,8 @@ describe("StrategyLabPage scroll behavior", () => {
       latestParsed: incompleteSingleAssetStrategy,
       backtestReq: incompleteSingleAssetBacktestRequest,
       stage: "ready",
+      // 원문에서 사용자가 직접 말한 설정(최근 5년·1,000만원) — 복원되는 대화 상태의 일부다.
+      explicitFields: ["backtest_period", "initial_capital"],
       builderMode: false,
       builderState: {
         universe: "KOSPI200",
@@ -1093,6 +1115,8 @@ describe("StrategyLabPage scroll behavior", () => {
       latestParsed: incompleteSingleAssetStrategy,
       backtestReq: incompleteSingleAssetBacktestRequest,
       stage: "ready",
+      // 원문에서 사용자가 직접 말한 설정(최근 5년·1,000만원) — 복원되는 대화 상태의 일부다.
+      explicitFields: ["backtest_period", "initial_capital"],
       builderMode: true,
       builderState: {
         universe: "KOSPI200",
@@ -1761,7 +1785,7 @@ describe("strategy builder progress presentation", () => {
       state: {},
       reply: "청산 조건이 빠져 있습니다. 어떤 조건에서 청산할까요?",
       parsed,
-      prompt: "작년도 흑자종목을 매수 하는 전략",
+      explicitFields: [],
     });
 
     expect(result.summaryItems).toContainEqual({
@@ -1792,7 +1816,7 @@ describe("strategy builder progress presentation", () => {
       state: {},
       reply: "이제 언제 매도할지 정해볼까요?",
       parsed: { ...parsed, rebalancing_period: "weekly" },
-      prompt: "코스피200에서 최대 10종목을 보유하고 매주 리밸런싱",
+      explicitFields: ["universe", "max_positions", "rebalancing"],
     });
     expect(explicitResult.summaryItems).toEqual(expect.arrayContaining([
       { label: "유니버스", value: "KOSPI 200" },
@@ -1804,7 +1828,7 @@ describe("strategy builder progress presentation", () => {
       state: {},
       reply: "이제 언제 매도할지 정해볼까요?",
       parsed: { ...parsed, initial_capital: 50_000_000 },
-      prompt: "초기자금 5천만원으로 시작",
+      explicitFields: ["initial_capital"],
     });
     expect(explicitCapitalResult.summaryItems).toContainEqual({
       label: "초기 자본",
@@ -1833,7 +1857,7 @@ describe("strategy builder progress presentation", () => {
       state: {},
       reply: "이제 언제 매도할지 정해볼까요?",
       parsed,
-      prompt: "bts 관련 종목 골든크로스 전략",
+      explicitFields: ["universe"],
       backtestRequest: {
         target_stocks: [
           { symbol: "352820", name: "하이브" },
@@ -1851,7 +1875,7 @@ describe("strategy builder progress presentation", () => {
       state: {},
       reply: "이제 언제 매도할지 정해볼까요?",
       parsed,
-      prompt: "bts 관련 종목 골든크로스 전략",
+      explicitFields: ["universe"],
     });
     expect(withoutRequest.summaryItems).toContainEqual({
       label: "유니버스",
@@ -1866,37 +1890,42 @@ describe("strategy builder progress presentation", () => {
 
     expect(getNextMissingBacktestCondition(parsedStrategy, {
       ...explicitOptions,
-      prompt: "",
+      explicitFields: [],
     })).toMatchObject({
       field: "universe",
       suggestions: ["코스피200", "코스피", "코스닥", "코스피+코스닥"],
     });
     expect(getNextMissingBacktestCondition(parsedStrategy, {
       ...explicitOptions,
-      prompt: "코스피",
+      explicitFields: ["universe"],
     })).toMatchObject({
       field: "max_positions",
       suggestions: ["최대 5종목", "최대 10종목", "최대 20종목"],
     });
     expect(getNextMissingBacktestCondition(parsedStrategy, {
       ...explicitOptions,
-      prompt: "코스피 최대 5종목",
+      explicitFields: ["universe", "max_positions"],
     })?.field).toBe("rebalancing");
     expect(getNextMissingBacktestCondition(parsedStrategy, {
       ...explicitOptions,
-      prompt: "코스피 최대 5종목 매월 리밸런싱",
+      explicitFields: ["universe", "max_positions", "rebalancing"],
     })?.field).toBe("backtest_period");
     expect(getNextMissingBacktestCondition(parsedStrategy, {
       ...explicitOptions,
-      prompt: "코스피 최대 5종목 매월 리밸런싱 최근 5년 데이터",
+      explicitFields: ["universe", "max_positions", "rebalancing", "backtest_period"],
     })).toMatchObject({
       field: "initial_capital",
       suggestions: ["500만원", "1,000만원", "3,000만원", "5,000만원"],
     });
     expect(getNextMissingBacktestCondition(parsedStrategy, {
       ...explicitOptions,
-      prompt:
-        "코스피 최대 5종목 매월 리밸런싱 최근 5년 데이터 초기 자금 1,000만원",
+      explicitFields: [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital",
+      ],
     })).toBeNull();
   });
 
@@ -1981,7 +2010,7 @@ describe("deterministic condition selection", () => {
     };
     const condition = getNextMissingBacktestCondition(parsed, {
       requireExplicitConfiguration: true,
-      prompt: "코스피 대상으로",
+      explicitFields: ["universe"],
     });
     expect(condition?.field).toBe("entry");
     for (const choice of condition!.suggestions) {

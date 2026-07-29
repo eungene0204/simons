@@ -28,7 +28,7 @@ describe("buildBuilderTurnPresentation 리밸런싱 표시 게이트", () => {
       state: {},
       reply: "질문",
       parsed: themeParsed,
-      prompt: "모바일솔루션 관련주 투자 전략",
+      explicitFields: ["universe"],
     });
     expect(
       presentation.summaryItems.find((item) => item.label === "리밸런싱"),
@@ -40,7 +40,7 @@ describe("buildBuilderTurnPresentation 리밸런싱 표시 게이트", () => {
       state: {},
       reply: "질문",
       parsed: themeParsed,
-      prompt: "모바일솔루션 관련주 투자 전략\n리밸런싱 안 함",
+      explicitFields: ["universe", "rebalancing"],
     });
     expect(
       declined.summaryItems.find((item) => item.label === "리밸런싱"),
@@ -50,7 +50,7 @@ describe("buildBuilderTurnPresentation 리밸런싱 표시 게이트", () => {
       state: {},
       reply: "질문",
       parsed: { ...themeParsed, rebalancing_period: "monthly" } as ParsedSummary,
-      prompt: "모바일솔루션 관련주 투자 전략\n매월 리밸런싱",
+      explicitFields: ["universe", "rebalancing"],
     });
     expect(
       monthly.summaryItems.find((item) => item.label === "리밸런싱"),
@@ -62,7 +62,7 @@ describe("buildBuilderTurnPresentation 리밸런싱 표시 게이트", () => {
       state: {},
       reply: "질문",
       parsed: { ...themeParsed, target_symbols: ["005930"] } as ParsedSummary,
-      prompt: "삼성전자 골든크로스 전략",
+      explicitFields: ["universe"],
     });
     expect(
       single.summaryItems.find((item) => item.label === "리밸런싱"),
@@ -79,7 +79,7 @@ describe("buildBuilderTurnPresentation 지정 종목 배분 표시", () => {
       state: {},
       reply: "질문",
       parsed: themeParsed,
-      prompt: "모바일솔루션 관련주 투자 전략",
+      explicitFields: ["universe"],
     });
     expect(
       presentation.summaryItems.find((item) => item.label === "최대 보유"),
@@ -97,7 +97,7 @@ describe("buildBuilderTurnPresentation 지정 종목 배분 표시", () => {
       state: {},
       reply: "질문",
       parsed: { ...themeParsed, target_symbols: ["005930"] } as ParsedSummary,
-      prompt: "삼성전자 골든크로스 전략",
+      explicitFields: ["universe"],
     });
     expect(
       single.summaryItems.find((item) => item.label === "포트폴리오"),
@@ -114,7 +114,7 @@ describe("buildBuilderTurnPresentation 지정 종목 배분 표시", () => {
         universe: ["KOSPI200"],
         max_positions: 5,
       } as ParsedSummary,
-      prompt: "코스피200 골든크로스 전략, 최대 5종목",
+      explicitFields: ["universe", "max_positions"],
     });
     expect(
       universe.summaryItems.find((item) => item.label === "최대 보유"),
@@ -122,5 +122,27 @@ describe("buildBuilderTurnPresentation 지정 종목 배분 표시", () => {
     expect(
       universe.summaryItems.find((item) => item.label === "포트폴리오"),
     ).toBeUndefined();
+  });
+
+  it("백엔드가 명시로 보고한 최대 보유는 요약·진행률에 반영한다", () => {
+    // [회귀 2026-07-29 가치투자 예시 카드 사고] '최대 보유 종목은 10개'를 프론트 정규식이
+    // 미탐해 요약에서 빠지고 진행률도 미체크였다. 이제 판정은 LLM 구조화 출력에서만 온다.
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "질문",
+      parsed: {
+        ...themeParsed,
+        target_symbols: [],
+        universe: ["KOSPI"],
+        max_positions: 10,
+      } as ParsedSummary,
+      explicitFields: ["universe", "max_positions"],
+    });
+    expect(
+      presentation.summaryItems.find((item) => item.label === "최대 보유"),
+    ).toMatchObject({ value: "10종목" });
+    expect(
+      presentation.progressItems.find((item) => item.label === "최대 보유"),
+    ).toMatchObject({ complete: true });
   });
 });

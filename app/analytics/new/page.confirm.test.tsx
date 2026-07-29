@@ -88,7 +88,18 @@ function createJsonResponse(body: unknown) {
 function createParseStreamResponse() {
   const encoder = new TextEncoder();
   const payload = [
-    `data: ${JSON.stringify({ type: "parsed_final", parsed: parsedWithLlmOnlyFilter })}\n\n`,
+    // 프롬프트가 다섯 설정을 모두 말했으므로 백엔드 provenance도 전부를 명시로 보고한다.
+    `data: ${JSON.stringify({
+      type: "parsed_final",
+      parsed: parsedWithLlmOnlyFilter,
+      explicit_fields: [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital",
+      ],
+    })}\n\n`,
     `data: ${JSON.stringify({ type: "dsl_ready", backtest_request: backtestRequest, symbol_count: 2 })}\n\n`,
     "data: [DONE]\n\n",
   ].join("");

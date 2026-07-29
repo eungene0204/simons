@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
+from engine import strategy_slots
 from strategy_conversation import config
 from strategy_conversation.interpreter.llm_strategy_interpreter import _log_llm
 from strategy_conversation.interpreter.models import StrategyIntent, ValidationReport
@@ -339,7 +340,20 @@ def fast_path_can_handle(user_input: str, previous_parsed: dict) -> bool:
         return False
 
 
-def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]]:
+def _explicit_fields(strategy: Any, previous: Optional[List[str]]) -> List[str]:
+    """이번 턴 LLM 출력의 명시 필드 + 이전 턴 에코를 누적한다(provenance 단일 진실 소스)."""
+    from strategy_conversation.response.provenance import (
+        explicit_fields_from_spec,
+        merge_explicit_fields,
+    )
+
+    return merge_explicit_fields(previous, explicit_fields_from_spec(strategy))
+
+
+def run_primary_parse(
+    user_input: str, on_stage=None,
+    previous_explicit_fields: Optional[List[str]] = None,
+) -> Optional[Dict[str, Any]]:
     """LLM Interpreter 기본 경로 실행. 성공 시 결과 dict, 해석 실패 시 None.
 
     None은 "규칙 파서로 재해석하라"가 아니라 실패 보고다 — 호출부(main)는 되묻기
@@ -533,9 +547,17 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
             if q.field != "strategy.exit_conditions"
         ]
 
+    # 종목명 오타 되묻기(term-in) — 입력은 원문이 아니라 LLM이 universe.symbols로 뽑았는데
+    # 리졸버가 못 푼 표현뿐이다(계약 § 3-2). 원문 토큰을 마스터에 근접 매칭하던 레거시
+    # 스캔은 "20일 고점을 넘기는 날"의 '넘기는'을 '삼기'로 오탐했다(2026-07-29).
+    symbol_question, symbol_suggestions = _symbol_typo_term_in(validated.strategy, parsed, user_input)
+
     clarification_question, clarification_suggestions = _build_clarification(report, validated)
     clarification_priority = None
     pending_ask: Optional[Dict[str, Any]] = None
+    # 슬롯 판정(engine.strategy_slots)은 provenance를 함께 본다 — 값만 보면 기본값
+    # 물질화가 '이미 채워짐'이 돼 planner가 그 슬롯을 영영 묻지 않는다(FR-STR-019k).
+    turn_explicit_fields = _explicit_fields(validated.strategy, previous_explicit_fields)
     if planner_scope_question is not None:
         # Phase 5: 범위 모호성 되묻기(결정론 소유) — 유니버스 범위는 모든 조건보다
         # 선행 결정 사항이라 어떤 질문보다 먼저 나간다. 칩은 관찰된 카탈로그 후보
@@ -553,12 +575,17 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         # (레거시 sector_reask와 동일 계약).
         clarification_question, clarification_suggestions = sector_question, sector_suggestions
         clarification_priority = "sector_unresolved"
+    elif symbol_question is not None:
+        # 종목 범위는 조건보다 선행 결정 사항 — 조용히 전체 시장으로 강등하지 않는다.
+        clarification_question, clarification_suggestions = symbol_question, symbol_suggestions
+        clarification_priority = "sector_unresolved"
     elif planner_first is not None:
         # Phase 5: planner는 이 턴 최선두에서 이미 실행됐다 — 재계획 재호출 없이 그
         # ask를 소비한다. 유니버스 ask는 위 범위 되묻기(결정론)가 소유하므로 여기서는
         # 조건 슬롯 ask만, 결정론 게이트가 공백을 인정할 때 채택한다(완성 전략
         # 재질문·관찰과 모순되는 질문 방지). 채택 불가면 검증 리포트의 고정 질문 유지.
-        planner_ask = _planner_first_ask(planner_first, parsed, user_input)
+        planner_ask = _planner_first_ask(
+            planner_first, parsed, user_input, turn_explicit_fields)
         if planner_ask is not None:
             clarification_question, clarification_suggestions, dag_topic = planner_ask
             clarification_priority = "dag_planner"
@@ -570,7 +597,8 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         # 선택을 DAG planner가 담당한다(유니버스별 질문 규칙은 planner 프롬프트 계약).
         # 우선순위 마커로 프론트 explicit 게이트(유니버스 무인지 고정 칩)의 삼킴을 막는다.
         # planner 실패(None)·예외는 기존 고정 질문 유지(단독 실패 지점 불가).
-        dag_clarification = _dag_planner_clarification(user_input, parsed)
+        dag_clarification = _dag_planner_clarification(
+            user_input, parsed, turn_explicit_fields)
         if dag_clarification is not None:
             clarification_question, clarification_suggestions, dag_topic = dag_clarification
             clarification_priority = "dag_planner"
@@ -614,6 +642,7 @@ def run_primary_parse(user_input: str, on_stage=None) -> Optional[Dict[str, Any]
         "clarification_suggestions": clarification_suggestions,
         "clarification_priority": clarification_priority,
         "pending_ask": pending_ask,
+        "explicit_fields": turn_explicit_fields,
         "notices": notices,
         "interpreter": {
             "mode": "primary",
@@ -660,11 +689,39 @@ def _self_doubt_patch_fields(patches: List[Any], questions: List[Any]) -> List[s
     return overlaps
 
 
-def _dag_state_summary(parsed: Any) -> Dict[str, Any]:
+
+def _symbol_typo_term_in(
+    strategy: Any, parsed: Any, user_input: str
+) -> tuple[Optional[str], Optional[List[str]]]:
+    """LLM이 종목명이라고 판정한 표현 중 리졸버가 못 푼 것만 오타 되묻기 후보로 넘긴다.
+
+    이미 종목이 해석됐으면(target_symbols) 되묻지 않는다 — 일부만 실패한 경우는
+    해석된 종목으로 진행하고, 미해석 표현은 상위의 미반영 안내가 다룬다.
+    """
+    if getattr(parsed, "target_symbols", None):
+        return None, None
+    refs = list(getattr(getattr(strategy, "universe", None), "symbols", None) or [])
+    if not refs:
+        return None, None
+    from strategy_conversation.registry.universe_resolver import resolve_symbols
+
+    _codes, unresolved = resolve_symbols(refs)
+    if not unresolved:
+        return None, None
+    from engine.nl_parser import detect_symbol_typo_clarification
+
+    return detect_symbol_typo_clarification(parsed, user_input, terms=unresolved)
+
+
+def _dag_state_summary(
+    parsed: Any, explicit_fields: Optional[Iterable[str]] = None
+) -> Dict[str, Any]:
     """DAG planner에 넘길 '이미 결정된 전략 State' 요약 — 재질문 방지 근거.
 
     입력은 결정론 파이프라인 산출물(ParsedStrategy)이며 원문 해석이 아니다.
     신호는 타입만 요약한다(planner의 판단 근거로 충분 — 프롬프트 비대 방지).
+    explicit_fields는 provenance(사용자가 실제로 말한 설정) — 없으면 기본값 물질화가
+    '이미 채워짐'으로 보여 planner가 그 슬롯을 영영 묻지 않는다(FR-STR-019k).
     """
     def _signal_types(signals: Any) -> List[str]:
         types: List[str] = []
@@ -694,34 +751,17 @@ def _dag_state_summary(parsed: Any) -> Dict[str, Any]:
         summary["fundamental_filter_count"] = len(filters)
     # 골격 슬롯 충족 판정은 결정론으로 계산해 내려준다 — 9B가 원시 필드에서 추론하게
     # 두면 랭킹(ranking_metric)이 매수 조건 슬롯을 채운다는 것을 놓친다("최근 3개월
-    # 수익률 상위 매수" 후 매수 조건 재질문 사고). 판정 기준은 최소 조건 게이트
-    # (_missing_backtest_conditions)와 동일 계약.
-    rebalancing = summary.get("rebalancing_period")
-    has_rebalancing = bool(rebalancing and rebalancing != "none")
-    filled_slots: List[str] = []
-    if summary.get("universe") or summary.get("target_symbols") or summary.get("sector"):
-        filled_slots.append("유니버스")
-    if entry_types or filters or summary.get("ranking_metric"):
-        filled_slots.append("매수 조건")
-    if exit_types or summary.get("hold_period_days") or has_rebalancing:
-        filled_slots.append("매도 조건")
-    if summary.get("max_positions"):
-        filled_slots.append("최대 보유")
-    if has_rebalancing:
-        filled_slots.append("리밸런싱")
-    if (summary.get("stop_loss_pct") or summary.get("take_profit_pct")
-            or summary.get("trailing_stop_pct")):
-        filled_slots.append("리스크 관리")
-    if summary.get("backtest_period"):
-        filled_slots.append("백테스트 기간")
-    if summary.get("initial_capital"):
-        filled_slots.append("초기 자본")
+    # 수익률 상위 매수" 후 매수 조건 재질문 사고). 판정의 정본은 engine.strategy_slots
+    # 하나이며, 되묻기 게이트·프론트 진행률도 같은 술어를 쓴다.
+    filled_slots = strategy_slots.filled_slots(
+        parsed, explicit_fields=explicit_fields, require_explicit=True,
+    )
     summary["filled_slots"] = filled_slots
     return summary
 
 
 def _dag_planner_clarification(
-    user_input: str, parsed: Any
+    user_input: str, parsed: Any, explicit_fields: Optional[Iterable[str]] = None
 ) -> Optional[tuple[str, Optional[List[str]], Optional[str]]]:
     """DAG planner primary — 다음 되묻기 질문·칩을 planner가 계획한다(Phase 4).
 
@@ -735,7 +775,8 @@ def _dag_planner_clarification(
         from strategy_conversation.planner.shadow import _default_chat
 
         result = plan_strategy_dag(
-            user_input, _default_chat(), state_summary=_dag_state_summary(parsed),
+            user_input, _default_chat(),
+            state_summary=_dag_state_summary(parsed, explicit_fields),
         )
     except Exception:  # noqa: BLE001 — planner 장애가 파스를 깨면 안 된다(기존 질문 유지)
         logger.warning("dag planner primary 실행 실패 — 기존 질문 유지", exc_info=True)
@@ -782,6 +823,29 @@ def _plan_first(user_input: str) -> Optional[Any]:
             f"턴={result.llm_turns} ({result.latency_ms}ms)"
         ))
     return result
+
+
+def _is_filled_slot_topic(
+    topic: Optional[str], parsed: Any, explicit_fields: Optional[Iterable[str]] = None
+) -> bool:
+    """ask의 topic이 이미 채워진 골격 슬롯을 가리키는가(결정론 판정).
+
+    dag_planner 내부 가드(채워진 슬롯 ask 건너뛰기)와 동일 계약 — topic↔슬롯 라벨의
+    공백 무시 비교뿐이며 의미 판단은 없다. 내부 가드만으로는 부족한 이유: planner-first
+    (Phase 5)는 인터프리터보다 **먼저** 실행돼 state_summary가 없다(filled_slots가 빈
+    상태로 계획한다). 그래서 채워진 슬롯 판정은 파스 결과가 존재하는 채택 시점,
+    즉 여기서 한 번 더 해야 한다.
+    """
+    normalized = (topic or "").replace(" ", "")
+    if not normalized:
+        return False
+    filled = {
+        slot.replace(" ", "")
+        for slot in strategy_slots.filled_slots(
+            parsed, explicit_fields=explicit_fields, require_explicit=True,
+        )
+    }
+    return normalized in filled
 
 
 def _is_universe_topic(topic: Optional[str]) -> bool:
@@ -903,7 +967,8 @@ def _planner_scope_ask(
 
 
 def _planner_first_ask(
-    result: Any, parsed: Any, user_input: str = ""
+    result: Any, parsed: Any, user_input: str = "",
+    explicit_fields: Optional[Iterable[str]] = None,
 ) -> Optional[tuple[str, Optional[List[str]], Optional[str]]]:
     """planner-first가 표면화한 조건 슬롯 ask의 채택 판정(결정론 게이트가 최종 권한).
 
@@ -916,6 +981,14 @@ def _planner_first_ask(
         return None
     if _is_universe_topic(result.topic):
         return None
+    # 슬롯 단위 재질문 차단 — 게이트가 "어딘가 비었다"고만 답하므로(첫 공백 하나),
+    # 그것만으로 채택하면 **다른** 슬롯의 공백을 근거로 이미 채워진 슬롯을 다시 묻게 된다
+    # (2026-07-29 사고: 매수 조건 '20일 고점 돌파'가 반영됐는데 리밸런싱·기간이 비었다는
+    # 이유로 "박스권 돌파 시 매수할까요?"가 채택됨 — planner-first는 파스 전에 계획하므로
+    # 자기 filled_slots를 볼 수 없다).
+    if _is_filled_slot_topic(result.topic, parsed, explicit_fields):
+        logger.info("planner-first ask 채택 거부 — 이미 채워진 슬롯 | topic=%s", result.topic)
+        return None
     from engine.nl_parser import detect_incomplete_backtest_conditions
 
     gate_question, _gate_chips = detect_incomplete_backtest_conditions(parsed, user_input)
@@ -925,7 +998,7 @@ def _planner_first_ask(
 
 
 def _replan_next_question(
-    user_input: str, parsed: Any
+    user_input: str, parsed: Any, explicit_fields: Optional[Iterable[str]] = None
 ) -> tuple[Optional[str], Optional[List[str]], Optional[str], Optional[Dict[str, Any]]]:
     """State 변경 후 다음 질문을 DAG planner로 재계획한다(§4 — 수정·칩 답변 공용).
 
@@ -939,7 +1012,7 @@ def _replan_next_question(
     gate_question, _gate_chips = detect_incomplete_backtest_conditions(parsed, user_input)
     if gate_question is None:
         return None, None, None, None
-    dag_clarification = _dag_planner_clarification(user_input, parsed)
+    dag_clarification = _dag_planner_clarification(user_input, parsed, explicit_fields)
     if dag_clarification is None:
         return None, None, None, None
     question, chips, topic = dag_clarification
@@ -1266,7 +1339,10 @@ def _searched_unresolved_lexicon_entry(term: str) -> Optional[dict]:
     return None
 
 
-def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=None) -> Optional[Dict[str, Any]]:
+def run_primary_modification(
+    user_input: str, previous_parsed: dict, on_stage=None,
+    previous_explicit_fields: Optional[List[str]] = None,
+) -> Optional[Dict[str, Any]]:
     """수정 요청의 LLM Interpreter 기본 경로. 성공 시 결과 dict, 폴백 필요 시 None.
 
     안전 장치(전부 결정론):
@@ -1641,6 +1717,9 @@ def run_primary_modification(user_input: str, previous_parsed: dict, on_stage=No
         "clarification_suggestions": dag_suggestions,
         "clarification_priority": dag_priority,
         "pending_ask": dag_pending_ask,
+        # 수정 턴의 명시 필드는 패치 적용 후 State(validated.strategy)에서 판정하고
+        # 이전 턴 에코와 합집합한다 — 이전 턴에 말한 값이 이번 턴 침묵으로 지워지지 않게.
+        "explicit_fields": _explicit_fields(validated.strategy, previous_explicit_fields),
         "notices": list(report.warnings),
         "interpreter": {
             "mode": "primary_modify",
@@ -1690,4 +1769,8 @@ def apply_primary_meta(result: dict, primary: Dict[str, Any]) -> None:
         result["clarification_suggestions"] = None
     if primary["notices"]:
         result["notices"] = list(result.get("notices") or []) + primary["notices"]
+    # provenance는 인터프리터가 판정한 경로에서만 갱신한다 — 폴백 경로(질문/설명/미반영)는
+    # 이번 턴에 State를 바꾸지 않았으므로 호출부가 이전 턴 에코를 그대로 이월한다.
+    if primary.get("explicit_fields") is not None:
+        result["explicit_fields"] = primary["explicit_fields"]
     result["runtime"]["interpreter"] = primary["interpreter"]

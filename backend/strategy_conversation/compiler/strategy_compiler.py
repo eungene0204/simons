@@ -239,7 +239,14 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
     # 과거의 원문 결정적 추출 폴백(extract_etf_theme)은 사용자 원문을 정규식으로 읽는
     # 계약 위반이라 제거했다(2026-07-26, nl_interpretation_contract § 3) — LLM이 비우면
     # 테마 제한 없는 ETF 유니버스로 두고, 누락은 프롬프트·검증 레이어에서 개선한다.
-    etf_theme = strategy.universe.etf_theme if strategy.universe.markets == ["ETF"] else None
+    # 시장 미언급(markets=[])의 기본값은 **시스템이** 정한다. LLM이 기본값을 지어내면
+    # "사용자가 실제로 말했나"(provenance)가 출력에서 지워져, 되묻기 게이트가 그 답을
+    # 사용자 원문 정규식으로 복원하게 된다(계약 위반 — response/provenance.py 참조).
+    # 값 자체는 종전과 동일하다: 섹터 제한이 있으면 양시장, 아니면 KOSPI200.
+    markets = list(strategy.universe.markets) or (
+        ["KOSPI", "KOSDAQ"] if sector_value else ["KOSPI200"]
+    )
+    etf_theme = strategy.universe.etf_theme if markets == ["ETF"] else None
 
     portfolio = strategy.portfolio
     risk = strategy.risk_management
@@ -247,7 +254,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
 
     return ParsedStrategy(
         description=user_input,
-        universe=strategy.universe.markets,
+        universe=markets,
         sector=sector_value,
         target_symbols=target_symbols,
         etf_theme=etf_theme,

@@ -16,7 +16,12 @@ repo 루트에 둔다(uvicorn --reload-dir backend 감시 대상이 아니므로
 **예시를 추가·수정하면 반드시 이 스크립트로 검증한다**(2026-07-27 사고: ETF·테마 예시
 16개를 문구 검증만 하고 파싱은 돌리지 않아, 재무+랭킹 복합 예시가 해석 실패로 빈 전략을
 내보내는 것을 사용자가 먼저 발견했다). '치명' 항목(해석 실패·ETF 유니버스 오류·업종
-미반영·진입 규칙 공백)이 있으면 종료 코드 1 — 게이트로 쓴다. 코칭은 호출하지 않는다.
+미반영·되묻기 없는 진입 규칙 공백)이 있으면 종료 코드 1 — 게이트로 쓴다. 코칭은 호출하지 않는다.
+
+**되묻기는 실패가 아니다**: 값이 빠진 팩터를 묻는 것은 전략 에이전트의 정상 동작이며
+(말하지 않은 값을 기본값으로 확정하지 않는다는 계약), 이 하니스가 잡아야 하는 것은
+**조용한** 소실 — 질문도 없이 조건이 사라지거나 빈 전략이 나가는 경우다. 되묻고 있는
+팩터는 치명·미탐지 어느 쪽으로도 세지 않는다(2026-07-29 판정 수정).
 """
 
 from __future__ import annotations
@@ -150,10 +155,24 @@ class Flags:
     fatal: list[str] = field(default_factory=list)
 
 
+def asked_about(res: dict) -> str:
+    """이번 턴에 에이전트가 되물은 내용(질문+선택지)을 한 덩어리 텍스트로 모은다.
+
+    값이 빠진 팩터를 되묻는 것은 전략 에이전트의 정상 동작이다 — 사용자가 말하지 않은
+    값을 질문 없이 기본값으로 확정하지 않는다는 계약(CLAUDE.md)의 실행이다. 따라서
+    '되묻고 있는 팩터'는 소실도, 빈 전략도 아니므로 실패로 세지 않는다. 이 하니스가
+    잡아야 하는 것은 **조용한** 소실(질문도 없이 조건이 사라진 경우)이다.
+    """
+    parts = [str(res.get("clarification_question") or "")]
+    parts += [str(s) for s in (res.get("clarification_suggestions") or [])]
+    return " ".join(parts)
+
+
 def analyze(tpl: Template, res: dict) -> Flags:
     f = Flags()
     p = res.get("parsed", {})
     prompt = tpl.prompt
+    asked = asked_about(res)
 
     # ── 치명 항목: 해석 실패·유니버스 오류·진입 규칙 공백
     # 2026-07-27 사고: '반도체 업종 ROE·부채비율+모멘텀' 예시가 interpretation_failed로
@@ -182,15 +201,18 @@ def analyze(tpl: Template, res: dict) -> Flags:
                  r"(청산|매도|정리)", prompt) and not p.get("exit_signals"):
         f.fatal.append("명시 청산 규칙 소실")
 
+    # 미탐지 판정에서 '되묻고 있는 팩터'는 제외한다 — 값 없이 언급된 조건('부채비율과 ROE
+    # 조건을 충족하는 종목')을 되묻는 것은 정상 동작이지 소실이 아니다.
     for name, pat, check in COVERAGE_CHECKS:
-        if re.search(pat, prompt) and not check(p):
+        if re.search(pat, prompt) and not check(p) and not re.search(pat, asked):
             f.missing.append(name)
 
     for name, field_name, pat in RISK_KEYWORDS:
-        if re.search(pat, prompt) and p.get(field_name) is None:
+        if re.search(pat, prompt) and p.get(field_name) is None and not re.search(pat, asked):
             f.missing.append(name)
 
-    if re.search(REBAL_WORDS, prompt) and p.get("rebalancing_period") in (None, "none"):
+    if (re.search(REBAL_WORDS, prompt) and p.get("rebalancing_period") in (None, "none")
+            and not re.search(REBAL_WORDS, asked)):
         f.missing.append("리밸런싱")
 
     want = intended_positions(prompt)
@@ -201,8 +223,12 @@ def analyze(tpl: Template, res: dict) -> Flags:
         # 명시 없이 100이면 기본값 폴백(미반영) 의심
         f.position = "종목수: 파싱 100(기본값 폴백 의심)"
 
-    if not p.get("fundamental_filters") and not p.get("entry_signals") and not p.get("ranking_metric"):
-        f.fatal.append("진입 규칙 없음")
+    # 진입 규칙 공백은 **되묻지도 않고** 비어 있을 때만 치명이다. 값 없이 언급된 조건을
+    # 되묻는 중이면 전략은 아직 완성 전일 뿐 조용히 빈 전략으로 나가는 게 아니다
+    # (해석 실패로 빈 전략이 나가는 경우는 위 clarification_priority 검사가 잡는다).
+    if (not p.get("fundamental_filters") and not p.get("entry_signals")
+            and not p.get("ranking_metric") and not asked):
+        f.fatal.append("진입 규칙 없음(되묻기도 없음)")
     if res.get("clarification_question"):
         f.notes.append("clarification 되물음")
     if re.search(r"상대강도", prompt) and not p.get("ranking_metric"):

@@ -933,7 +933,7 @@ def test_rule_based_strategy_parses_pbr_particle_unit_prompt_without_llm():
     prompt = (
         "주식은 아직 초보라서 너무 복잡한 조건 말고 이해하기 쉬운 전략으로 하고 싶어요. "
         "KOSPI 대형주 중에서 PBR이 1배 이하인 종목만 골라서 8종목 정도 나눠 사고, "
-        "한 번 사면 최소 6개월은 들고 가고 싶습니다. "
+        "한 번 사면 6개월은 들고 가고 싶습니다. "
         "큰 손실은 무서우니 -12% 손절만 넣어 주세요."
     )
 
@@ -948,6 +948,9 @@ def test_rule_based_strategy_parses_pbr_particle_unit_prompt_without_llm():
     assert parsed.max_positions == 8
     assert parsed.hold_period_days == 126
     assert parsed.stop_loss_pct == 12.0
+    # 2026-07-29 계약: 같은 문장이 '최소 6개월'(하한)이면 규칙 파스는 값을 뒤집어
+    # 확정하지 않고 LLM 레인에 위임한다(미지원 개념 안내 동반).
+    assert _parse_rule_based_strategy(prompt.replace("6개월은", "최소 6개월은")) is None
 
 
 def test_rule_based_strategy_parses_trading_value_particle_prompt_without_llm():
@@ -2851,7 +2854,7 @@ def test_value_screen_with_hold_period_does_not_inject_rebalancing():
     """
     prompt = (
         "KOSPI 대형주 중에서 PBR이 1배 이하인 종목만 골라서 8종목 정도 나눠 사고, "
-        "한 번 사면 최소 6개월은 들고 가고 싶습니다. 큰 손실은 무서우니 -12% 손절만 넣어 주세요."
+        "한 번 사면 6개월은 들고 가고 싶습니다. 큰 손실은 무서우니 -12% 손절만 넣어 주세요."
     )
 
     parsed = _parse_rule_based_strategy(prompt)
@@ -3841,6 +3844,45 @@ def test_hold_period_synonyms(prompt, expected):
     from engine.nl_parser import _extract_hold_period_days
 
     assert _extract_hold_period_days(prompt) == expected
+
+
+@pytest.mark.parametrize(
+    "prompt,expected",
+    [
+        # [회귀 2026-07-29 가치투자 예시 카드 사고] '최소 보유 기간'(하한)이
+        # hold_period_days(만료 청산=상한)로 뒤집혀 '최대 63일 보유 후 매도'로 나갔다.
+        # 하한 표현은 엔진이 표현할 수 없으므로 추출하지 않는다(미반영 안내 소관).
+        ("최대 보유 종목은 10개, 최소 보유 기간은 3개월, 손절 예시값은 -10%", None),
+        ("최소 3개월 보유", None),
+        ("최소한 6개월은 보유", None),
+        # 하한 수식이 없는 보유 기간은 그대로 상한 추출
+        ("3개월 보유", 63),
+        ("최대 보유 기간은 3개월 유지", 63),
+        ("6개월 보유 후 매도", 126),
+    ],
+)
+def test_minimum_hold_period_not_flipped_to_max(prompt, expected):
+    from engine.nl_parser import _extract_hold_period_days
+
+    assert _extract_hold_period_days(prompt) == expected
+
+
+def test_minimum_hold_period_is_announced_not_silently_dropped():
+    """하한 보유 기간은 추출만 막으면 조용한 누락이다 — 미지원 개념으로 안내한다."""
+    from engine.nl_parser import (
+        _mentioned_unsupported_concepts,
+        build_unsupported_concept_notice,
+    )
+
+    assert "min_hold_period" in _mentioned_unsupported_concepts("최소 보유 기간은 3개월")
+    assert "min_hold_period" in _mentioned_unsupported_concepts("최소 6개월은 들고 가고 싶습니다")
+    notice = build_unsupported_concept_notice("최소 보유 기간은 3개월")
+    assert notice is not None and "최소 보유 기간" in notice
+
+    # 상한 표현·비보유 문맥은 미지원으로 오판하지 않는다(오폴백 방지).
+    assert "min_hold_period" not in _mentioned_unsupported_concepts("최대 보유 기간은 3개월")
+    assert "min_hold_period" not in _mentioned_unsupported_concepts("최근 3개월 이상 상승한 종목")
+    assert "min_hold_period" not in _mentioned_unsupported_concepts("최소 거래대금 20억 이상")
 
 
 @pytest.mark.parametrize(

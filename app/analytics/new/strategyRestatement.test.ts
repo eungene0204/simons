@@ -28,7 +28,7 @@ describe("buildStrategyRestatement — 자연어 전략 재정리 첫 문장", (
       ],
     };
     expect(
-      buildStrategyRestatement(parsed, "작년도 흑자 종목 중에서 PER 10 이하인 종목을 매수하고 싶어"),
+      buildStrategyRestatement(parsed),
     ).toBe("순이익이 흑자인 종목 중에서 PER이 10 이하인 종목을 매수하는 전략이군요.");
   });
 
@@ -39,7 +39,7 @@ describe("buildStrategyRestatement — 자연어 전략 재정리 첫 문장", (
       ...baseParsed,
       fundamental_filters: [{ metric: "ebit", operator: ">", value: 0 }],
     };
-    expect(buildStrategyRestatement(parsed, "영업이익 흑자인 기업 투자 전략")).toBe(
+    expect(buildStrategyRestatement(parsed)).toBe(
       "영업이익이 흑자인 종목을 매수하는 전략이군요.",
     );
   });
@@ -49,7 +49,7 @@ describe("buildStrategyRestatement — 자연어 전략 재정리 첫 문장", (
       ...baseParsed,
       fundamental_filters: [{ metric: "pbr", operator: "<=", value: 1 }],
     };
-    expect(buildStrategyRestatement(parsed, "PBR 1 이하 종목 매수")).toBe(
+    expect(buildStrategyRestatement(parsed)).toBe(
       "PBR이 1 이하인 종목을 매수하는 전략이군요.",
     );
   });
@@ -60,7 +60,7 @@ describe("buildStrategyRestatement — 자연어 전략 재정리 첫 문장", (
       fundamental_filters: [{ metric: "per", operator: "<=", value: 10 }],
       entry_signals: [{ indicator: "ma_crossover", signal_type: "buy" }],
     };
-    expect(buildStrategyRestatement(parsed, "PER 10 이하에서 골든크로스 매수")).toBe(
+    expect(buildStrategyRestatement(parsed)).toBe(
       "PER이 10 이하인 종목 중에서 MA 골든크로스가 발생하면 매수하는 전략이군요.",
     );
   });
@@ -70,7 +70,7 @@ describe("buildStrategyRestatement — 자연어 전략 재정리 첫 문장", (
       ...baseParsed,
       entry_signals: [{ indicator: "rsi", operator: "<=", value: 30 }],
     };
-    expect(buildStrategyRestatement(parsed, "RSI 30 이하면 매수")).toBe(
+    expect(buildStrategyRestatement(parsed)).toBe(
       "RSI 30 이하일 때 매수하는 전략이군요.",
     );
   });
@@ -81,7 +81,7 @@ describe("buildStrategyRestatement — 자연어 전략 재정리 첫 문장", (
       universe: ["KOSDAQ"],
       fundamental_filters: [{ metric: "roe_or_gpa", operator: ">=", value: 15 }],
     };
-    expect(buildStrategyRestatement(parsed, "코스닥에서 ROE 15 이상 매수")).toBe(
+    expect(buildStrategyRestatement(parsed, ["universe"])).toBe(
       "KOSDAQ에서 ROE가 15 이상인 종목을 매수하는 전략이군요.",
     );
   });
@@ -91,7 +91,7 @@ describe("buildStrategyRestatement — 자연어 전략 재정리 첫 문장", (
       ...baseParsed,
       fundamental_filters: [{ metric: "per", operator: "<=", value: 10 }],
     };
-    expect(buildStrategyRestatement(parsed, "PER 10 이하 매수")).toBe(
+    expect(buildStrategyRestatement(parsed)).toBe(
       "PER이 10 이하인 종목을 매수하는 전략이군요.",
     );
   });
@@ -102,7 +102,7 @@ describe("buildStrategyRestatement — 자연어 전략 재정리 첫 문장", (
       sector: "반도체",
       entry_signals: [{ indicator: "ma_crossover", signal_type: "buy" }],
     };
-    expect(buildStrategyRestatement(parsed, "반도체 골든크로스 매수")).toBe(
+    expect(buildStrategyRestatement(parsed)).toBe(
       "반도체 업종에서 MA 골든크로스가 발생하면 매수하는 전략이군요.",
     );
   });
@@ -113,7 +113,7 @@ describe("buildStrategyRestatement — 자연어 전략 재정리 첫 문장", (
       ranking_metric: "return",
       ranking_lookback_days: 60,
     };
-    expect(buildStrategyRestatement(parsed, "60일 수익률 상위 매수")).toBe(
+    expect(buildStrategyRestatement(parsed)).toBe(
       "60일 수익률 상위 종목을 매수하는 전략이군요.",
     );
   });
@@ -123,13 +123,13 @@ describe("buildStrategyRestatement — 자연어 전략 재정리 첫 문장", (
       ...baseParsed,
       fundamental_filters: [{ metric: "market_cap", operator: ">=", value: 100_000_000_000 }],
     };
-    expect(buildStrategyRestatement(parsed, "시총 1000억 이상 매수")).toBe(
+    expect(buildStrategyRestatement(parsed)).toBe(
       "시총이 1,000억 이상인 종목을 매수하는 전략이군요.",
     );
   });
 
   it("매수 기준이 없으면 재정리하지 않는다", () => {
-    expect(buildStrategyRestatement(baseParsed, "그냥 매수")).toBeNull();
+    expect(buildStrategyRestatement(baseParsed)).toBeNull();
   });
 
   it("지정 종목 백테스트는 재정리하지 않는다(별도 흐름)", () => {
@@ -138,6 +138,6 @@ describe("buildStrategyRestatement — 자연어 전략 재정리 첫 문장", (
       target_symbols: ["005930"],
       fundamental_filters: [{ metric: "per", operator: "<=", value: 10 }],
     };
-    expect(buildStrategyRestatement(parsed, "삼성전자 PER 10 이하 매수")).toBeNull();
+    expect(buildStrategyRestatement(parsed)).toBeNull();
   });
 });

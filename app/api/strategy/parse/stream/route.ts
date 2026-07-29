@@ -9,6 +9,8 @@ type ParseStreamBody = {
   previous_coach_text?: string;
   // 직전 planner ask 컨텍스트 에코(칩 클릭의 결정론 귀속 — 백엔드 무상태 계약)
   pending_ask?: { topic?: string | null; question: string; chips: string[] } | null;
+  // 이전 턴까지 사용자가 명시한 설정 필드 에코(provenance 누적 — 무상태 계약)
+  previous_explicit_fields?: string[];
 };
 
 function sseEvent(data: object | string): string {
@@ -147,6 +149,10 @@ export async function POST(req: NextRequest) {
             // 누락 사고와 같은 함정 — 위 주석 참조).
             pending_ask: data.pending_ask ?? null,
             risk_overrides: data.risk_overrides ?? null,
+            // 사용자가 실제로 말한 설정 필드(provenance). 프론트 되묻기 게이트·진행률이
+            // 이 값만 보고 판정하므로, 화이트리스트에서 빠지면 모든 설정을 "미언급"으로
+            // 보고 영원히 되묻는다(clarification_priority·pending_ask와 같은 함정).
+            explicit_fields: data.explicit_fields ?? null,
             notices: data.notices ?? null,
           });
           send({

@@ -127,7 +127,7 @@ export const EXAMPLES: Example[] = [
     level: "beginner",
     category: "가치투자",
     title: "부채비율·ROE 보유 조건",
-    prompt: "KOSPI에서 부채비율과 ROE 조건을 충족하는 종목을 대상으로 설정해 주세요. 최대 보유 종목은 10개, 최소 보유 기간은 3개월, 손절 예시값은 -10%로 설정해 주세요.",
+    prompt: "KOSPI에서 부채비율과 ROE 조건을 충족하는 종목을 대상으로 설정해 주세요. 최대 보유 종목은 10개, 최대 보유 기간은 3개월, 손절 예시값은 -10%로 설정해 주세요.",
   },
   {
     level: "intermediate",

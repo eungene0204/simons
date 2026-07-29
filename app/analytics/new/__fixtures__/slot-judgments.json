@@ -1,0 +1,1476 @@
+{
+  "_comment": "engine/strategy_slots.py(빈 슬롯 판정 SOT)가 생성한 계약 픽스처. 직접 편집하지 말 것 — python scripts/export_slot_judgments.py 로 갱신한다. 프론트 게이트(backtestReadiness.ts)는 같은 입력에 같은 답을 내야 한다.",
+  "cases": [
+    {
+      "name": "완성 전략",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": null
+    },
+    {
+      "name": "빈 전략(기본값만)",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [],
+        "exit_signals": [],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "none",
+        "stop_loss_pct": null,
+        "take_profit_pct": null,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [],
+      "allowNoRebalancing": false,
+      "expectedMissingField": "universe"
+    },
+    {
+      "name": "유니버스 없음",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [],
+      "allowNoRebalancing": false,
+      "expectedMissingField": "universe"
+    },
+    {
+      "name": "유니버스 값은 있고 미언급",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": "universe"
+    },
+    {
+      "name": "매수 조건 없음",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": "entry"
+    },
+    {
+      "name": "매수=재무 필터",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [
+          {
+            "metric": "per",
+            "operator": "<=",
+            "value": 10.0
+          }
+        ],
+        "entry_signals": [],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": null
+    },
+    {
+      "name": "매수=랭킹",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": "return",
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": null
+    },
+    {
+      "name": "매도 조건 없음",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "none",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": "exit"
+    },
+    {
+      "name": "매도=보유기간",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": 20,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": null
+    },
+    {
+      "name": "매도=정기 리밸런싱",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": null
+    },
+    {
+      "name": "최대 보유 미언급",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": "max_positions"
+    },
+    {
+      "name": "최대 보유 0은 모델이 하한으로 보정",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 1,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": null
+    },
+    {
+      "name": "리밸런싱 없음",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "none",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": "rebalancing"
+    },
+    {
+      "name": "리밸런싱 안 함(사용자 결정)",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "none",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": true,
+      "expectedMissingField": null
+    },
+    {
+      "name": "손절 없음",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": null,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": "stop_loss"
+    },
+    {
+      "name": "익절 없음",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": null,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": "take_profit"
+    },
+    {
+      "name": "트레일링만 있음",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": null,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": 10.0,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": "stop_loss"
+    },
+    {
+      "name": "기간 미언급",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": "backtest_period"
+    },
+    {
+      "name": "초기 자본 미언급",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": "initial_capital"
+    },
+    {
+      "name": "초기 자본 값 0",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 0.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": "initial_capital"
+    },
+    {
+      "name": "단독 종목(리밸런싱 면제)",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [
+          "005930"
+        ],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "none",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "max_positions",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": null
+    },
+    {
+      "name": "다종목 지정(리밸런싱 필요)",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [
+          "108860",
+          "139670",
+          "051160"
+        ],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "none",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "max_positions",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": "rebalancing"
+    },
+    {
+      "name": "지정 종목인데 매수 조건 없음",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [
+          "108860",
+          "139670"
+        ],
+        "fundamental_filters": [],
+        "entry_signals": [],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": "entry"
+    },
+    {
+      "name": "업종만 지정",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [],
+        "etf_theme": null,
+        "sector": "반도체",
+        "target_symbols": [],
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "max_positions": 10,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "expectedMissingField": null
+    }
+  ]
+}

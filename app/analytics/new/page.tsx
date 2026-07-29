@@ -105,6 +105,16 @@ import {
   type BuilderTurnPresentation,
 } from "./builderProgressPresentation";
 import { applyDeterministicConditionChoice } from "./deterministicConditionFlow";
+
+// 되묻기 게이트가 provenance(사용자가 실제로 말했나)를 요구하는 설정 필드.
+// backtestReadiness.ExplicitField와 같은 목록이며, 칩 답변을 그 채널에 기록할 때 쓴다.
+const EXPLICIT_GATE_FIELDS: readonly string[] = [
+  "universe",
+  "max_positions",
+  "rebalancing",
+  "backtest_period",
+  "initial_capital",
+];
 import { buildStrategyRestatement } from "./strategyRestatement";
 
 const BacktestDashboard = dynamic(
@@ -160,6 +170,9 @@ interface ChatMessage {
   previousStepState?: {
     parsed: ParsedSummary;
     allowNoRebalancing: boolean;
+    // 답을 되돌리면 그 필드의 '사용자가 말했다'(provenance)도 함께 되돌려야 한다 —
+    // 남겨두면 게이트가 되돌아온 질문을 이미 답한 것으로 보고 건너뛴다.
+    explicitFields: string[];
   };
   // 전략 요약을 막지 않는 보정 안내(예: 초기자금 하한선 보정). 요약 카드와 함께 표시된다.
   notices?: string[];
@@ -221,6 +234,27 @@ const BUILDER_SLOT_KEYS = [
 
 function hasBuilderSlotValue(value: unknown): boolean {
   return value !== null && value !== undefined && value !== "" && value !== false;
+}
+
+// 빌더 슬롯 → 게이트 필드 provenance. 빌더는 슬롯을 하나씩 묻고 채우는 대화라
+// 채워진 슬롯 자체가 "사용자가 답했다"는 기록이다(LLM 레인의 explicit_fields와 같은 역할).
+// 기간·초기 자본은 빌더가 묻지 않으므로 파스 레인의 explicit_fields가 담당한다.
+const BUILDER_SLOT_EXPLICIT_FIELDS: Record<string, string> = {
+  universe: "universe",
+  sector: "universe",
+  single_symbol: "universe",
+  holding_count: "max_positions",
+  rebalance_cycle: "rebalancing",
+};
+
+function builderStateExplicitFields(state: Record<string, any>): string[] {
+  return Array.from(
+    new Set(
+      Object.entries(BUILDER_SLOT_EXPLICIT_FIELDS)
+        .filter(([slot]) => hasBuilderSlotValue(state?.[slot]))
+        .map(([, field]) => field),
+    ),
+  );
 }
 
 function mergeBuilderState(
@@ -1260,6 +1294,10 @@ function StrategyLabContent() {
   // 칩 클릭의 결정론 귀속 근거로 쓴다(previous_coach_text와 같은 무상태 에코 계약).
   // 매 파스 응답마다 덮어써 스테일 컨텍스트를 남기지 않는다.
   const pendingAskRef = useRef<{ topic?: string | null; question: string; chips: string[] } | null>(null);
+  // 사용자가 실제로 말한 설정 필드(백엔드 provenance) — 다음 파스 요청에 에코해 누적한다.
+  // ParsedStrategy 왕복은 기본값을 물질화해 이 정보를 지우므로 별도 채널이 필요하다.
+  // 프론트가 원문 정규식으로 같은 판정을 하던 계약 위반(hasExplicit*)의 대체다.
+  const explicitFieldsRef = useRef<string[]>([]);
   // 빌더 칩-only 단계에서 '직접 입력'을 눌러 채팅창을 다시 띄운 상태(빌더는 진행하지 않음).
   const [builderFreeTextRequested, setBuilderFreeTextRequested] = useState(false);
   const [explicitNoRebalancing, setExplicitNoRebalancing] = useState(false);
@@ -1304,6 +1342,9 @@ function StrategyLabContent() {
       const restoredNoRebalancing = snapshot.explicitNoRebalancing === true;
       explicitNoRebalancingRef.current = restoredNoRebalancing;
       setExplicitNoRebalancing(restoredNoRebalancing);
+      explicitFieldsRef.current = Array.isArray(snapshot.explicitFields)
+        ? snapshot.explicitFields.filter((f: unknown): f is string => typeof f === "string")
+        : [];
       pendingHoldingPeriodPromptRef.current = snapshot.pendingHoldingPeriodPrompt ?? null;
       pendingHoldingPeriodHorizonRef.current = snapshot.pendingHoldingPeriodHorizon ?? null;
       pendingMetricResearchPromptRef.current = snapshot.pendingMetricResearchPrompt ?? null;
@@ -1397,6 +1438,9 @@ function StrategyLabContent() {
         builderState: builderStateRef.current,
         builderHistory: builderHistoryRef.current,
         explicitNoRebalancing,
+        // provenance는 대화 상태의 일부다 — 복원하지 않으면 이미 답한 조건을 다시 묻거나,
+        // 답한 조건의 칩을 눌러도 게이트가 다른 조건을 기대해 결정적 적용이 빗나간다.
+        explicitFields: explicitFieldsRef.current,
         pendingHoldingPeriodPrompt: pendingHoldingPeriodPromptRef.current,
         pendingHoldingPeriodHorizon: pendingHoldingPeriodHorizonRef.current,
         pendingMetricResearchPrompt: pendingMetricResearchPromptRef.current,
@@ -1504,7 +1548,7 @@ function StrategyLabContent() {
     const promptContext = getStrategyPromptContext();
     const missingCondition = getNextMissingBacktestCondition(currentParsed, {
       allowNoRebalancing: explicitNoRebalancingRef.current,
-      prompt: promptContext,
+      explicitFields: explicitFieldsRef.current,
       requireExplicitConfiguration: true,
     });
     const deterministicChoice = currentParsed && missingCondition &&
@@ -1527,11 +1571,20 @@ function StrategyLabContent() {
       : text;
     const nextPromptContext = [promptContext, userChoice].filter(Boolean).join("\n");
     const previousAllowNoRebalancing = explicitNoRebalancingRef.current;
+    const previousExplicitFields = [...explicitFieldsRef.current];
     const allowNoRebalancing = missingCondition.field === "rebalancing"
       ? deterministicChoice.allowNoRebalancing === true
       : previousAllowNoRebalancing;
     explicitNoRebalancingRef.current = allowNoRebalancing;
     setExplicitNoRebalancing(allowNoRebalancing);
+    // 칩 답변은 백엔드 왕복 없이 여기서 State에 적용된다 — 사용자가 바로 그 질문에
+    // 답했으므로 그 필드를 명시로 기록하지 않으면 게이트가 같은 질문을 무한 반복한다.
+    // (자유 서술은 파스 응답의 explicit_fields가 담당한다.)
+    if (EXPLICIT_GATE_FIELDS.includes(missingCondition.field)) {
+      explicitFieldsRef.current = Array.from(
+        new Set([...explicitFieldsRef.current, missingCondition.field]),
+      );
+    }
     latestParsedRef.current = deterministicChoice.parsed;
     setLatestParsed(deterministicChoice.parsed);
 
@@ -1539,7 +1592,7 @@ function StrategyLabContent() {
       deterministicChoice.parsed,
       {
         allowNoRebalancing,
-        prompt: nextPromptContext,
+        explicitFields: explicitFieldsRef.current,
         requireExplicitConfiguration: true,
       },
     );
@@ -1550,7 +1603,7 @@ function StrategyLabContent() {
         state: {},
         reply: nextQuestion,
         parsed: deterministicChoice.parsed,
-        prompt: nextPromptContext,
+        explicitFields: explicitFieldsRef.current,
         backtestRequest: backtestReqRef.current ?? backtestReq,
       }),
       deterministicChoice.parsed,
@@ -1576,6 +1629,7 @@ function StrategyLabContent() {
         previousStepState: {
           parsed: currentParsed,
           allowNoRebalancing: previousAllowNoRebalancing,
+          explicitFields: previousExplicitFields,
         },
       },
     ]);
@@ -1751,7 +1805,7 @@ function StrategyLabContent() {
         state: builderStateRef.current,
         reply,
         parsed: seedParsed ?? latestParsedRef.current,
-        prompt: getStrategyPromptContext(seedText),
+        explicitFields: explicitFieldsRef.current,
         backtestRequest: seedBacktestRequest ?? backtestReqRef.current,
       });
       updateLastAssistant({
@@ -1786,7 +1840,7 @@ function StrategyLabContent() {
         state: builderStateRef.current,
         reply: fallbackQuestion,
         parsed: seedParsed ?? latestParsedRef.current,
-        prompt: getStrategyPromptContext(seedText),
+        explicitFields: explicitFieldsRef.current,
         backtestRequest: seedBacktestRequest ?? backtestReqRef.current,
       });
       updateLastAssistant({
@@ -1839,7 +1893,7 @@ function StrategyLabContent() {
         state: builderStateRef.current,
         reply: data.reply,
         parsed: latestParsedRef.current,
-        prompt: getStrategyPromptContext(),
+        explicitFields: explicitFieldsRef.current,
         backtestRequest: backtestReqRef.current ?? backtestReq,
       });
       updateLastAssistant({
@@ -2069,6 +2123,7 @@ function StrategyLabContent() {
         // 직전 planner ask 컨텍스트 에코 — 입력이 이 칩과 정확히 일치하면 백엔드가
         // 결정론 칩 답변 레인(LLM 생략)으로 State에 반영한다(Phase 4 후속 ①).
         ...(currentParsed && pendingAskRef.current ? { pending_ask: pendingAskRef.current } : {}),
+        previous_explicit_fields: explicitFieldsRef.current,
       }),
     });
     if (!res.ok || !res.body) {
@@ -2163,9 +2218,13 @@ function StrategyLabContent() {
       });
       setStage("ready");
 
+      // provenance 누적을 되묻기 게이트 계산보다 **먼저** 갱신한다 — 순서가 뒤바뀌면
+      // 게이트가 이전 턴(빈) 목록을 보고 이미 답한 설정을 다시 묻는다.
+      explicitFieldsRef.current = parsedPayload.explicit_fields ?? explicitFieldsRef.current;
+
       const promptContext = getStrategyPromptContext(promptText);
       const explicitMissingCondition = getNextMissingBacktestCondition(nextParsed, {
-        prompt: promptContext,
+        explicitFields: explicitFieldsRef.current,
         requireExplicitConfiguration: true,
       });
       // 우선순위 마커(clarification_priority)가 실린 백엔드 질문 — 테마 유니버스(FR-STR-071/072)·
@@ -2203,7 +2262,7 @@ function StrategyLabContent() {
       ) {
         const nextMissingCondition = getNextMissingBacktestCondition(nextParsed, {
           allowNoRebalancing: true,
-          prompt: promptContext,
+          explicitFields: explicitFieldsRef.current,
           requireExplicitConfiguration: true,
         });
         presentedClarification = nextMissingCondition
@@ -2219,7 +2278,7 @@ function StrategyLabContent() {
             state: {},
             reply: presentedClarification.question,
             parsed: nextParsed,
-            prompt: promptContext,
+            explicitFields: explicitFieldsRef.current,
             backtestRequest: nextBacktestReq,
           })
         : null;
@@ -2239,7 +2298,7 @@ function StrategyLabContent() {
       // 지표 연구 질문(researchMetric)은 전략 선언이 아니므로 제외한다.
       const restatement = researchMetricRef.current
         ? null
-        : buildStrategyRestatement(nextParsed, promptContext);
+        : buildStrategyRestatement(nextParsed, explicitFieldsRef.current);
       applySummaryPatch({
         isLoading: false,
         restatement: restatement ?? undefined,
@@ -2387,6 +2446,7 @@ function StrategyLabContent() {
     setLatestParsed(previous.parsed);
     explicitNoRebalancingRef.current = previous.allowNoRebalancing;
     setExplicitNoRebalancing(previous.allowNoRebalancing);
+    explicitFieldsRef.current = [...previous.explicitFields];
     setMessages((previousMessages) => {
       const currentIndex = previousMessages.length - 1;
       const selectedConditionIndex = previousMessages
@@ -2418,10 +2478,16 @@ function StrategyLabContent() {
       slippagePct: 0.05,
     });
     setStage("ready");
+    explicitFieldsRef.current = Array.from(
+      new Set([
+        ...explicitFieldsRef.current,
+        ...builderStateExplicitFields(builderStateRef.current),
+      ]),
+    );
     const promptContext = getStrategyPromptContext(currentPrompt);
     const missingCondition = getNextMissingBacktestCondition(data.parsed, {
       allowNoRebalancing: explicitNoRebalancingRef.current,
-      prompt: promptContext,
+      explicitFields: explicitFieldsRef.current,
       requireExplicitConfiguration: true,
     });
     if (missingCondition) {
@@ -2432,7 +2498,7 @@ function StrategyLabContent() {
         state: {},
         reply: missingCondition.question,
         parsed: data.parsed,
-        prompt: promptContext,
+        explicitFields: explicitFieldsRef.current,
         backtestRequest: data.backtest_request,
       });
       updateLastAssistant({
@@ -2563,7 +2629,7 @@ function StrategyLabContent() {
         state: {},
         reply: "",
         parsed,
-        prompt: getStrategyPromptContext(),
+        explicitFields: explicitFieldsRef.current,
         backtestRequest: backtestReqRef.current ?? backtestReq,
       });
       return { summaryItems, progressItems };
@@ -2733,7 +2799,7 @@ function StrategyLabContent() {
           state: builderStateRef.current,
           reply: data.reply,
           parsed: currentParsed,
-          prompt: getStrategyPromptContext(userText),
+          explicitFields: explicitFieldsRef.current,
           backtestRequest: backtestReqRef.current ?? backtestReq,
         });
         updateLastAssistant({
@@ -3287,6 +3353,7 @@ function StrategyLabContent() {
     builderHistoryRef.current = [];
     explicitNoRebalancingRef.current = false;
     setExplicitNoRebalancing(false);
+    explicitFieldsRef.current = [];
     pendingHoldingPeriodPromptRef.current = null;
     pendingHoldingPeriodHorizonRef.current = null;
     pendingMetricResearchPromptRef.current = null;
@@ -3715,7 +3782,7 @@ function StrategyLabContent() {
                           runButtonPlacement(msg) !== null &&
                           isBacktestReady(msg.parsed ?? latestParsed, {
                             allowNoRebalancing: explicitNoRebalancing,
-                            prompt: getStrategyPromptContext(),
+                            explicitFields: explicitFieldsRef.current,
                             requireExplicitConfiguration: true,
                           }) && (
                             <div

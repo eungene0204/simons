@@ -2585,6 +2585,10 @@ class NLParseRequest(BaseModel):
     # (previous_coach_text와 같은 무상태 컨텍스트 에코 계약). 입력이 이 칩 목록과 정확히
     # 일치하면 결정론 칩 답변 레인(run_chip_answer)이 인터프리터 없이 State에 반영한다.
     pending_ask: Optional[dict] = None
+    # 이전 턴까지 "사용자가 명시한" 설정 필드 목록 — 응답의 explicit_fields를 프론트가
+    # 그대로 에코한다(pending_ask와 같은 무상태 컨텍스트 에코 계약). ParsedStrategy 왕복은
+    # 기본값을 물질화해 provenance를 지우므로, 누적은 이 에코로만 가능하다.
+    previous_explicit_fields: Optional[List[str]] = None
 
 class NLParseResponse(BaseModel):
     parsed: dict
@@ -2601,6 +2605,11 @@ class NLParseResponse(BaseModel):
     # 이번 프롬프트에서 규칙 기반으로 결정적으로 바뀐 리스크 필드 {field: value|null}.
     # 프론트가 자체 정규식으로 재추측하지 말고 이 값을 그대로 신뢰하도록 단일 진실 소스로 제공.
     risk_overrides: Optional[dict] = None
+    # 사용자가 **실제로 말한** 설정 필드(universe/max_positions/rebalancing/backtest_period/
+    # initial_capital). 판정 근거는 인터프리터 LLM의 구조화 출력뿐이다 — 프론트가 사용자
+    # 원문을 정규식으로 재분석해 되묻기 여부를 정하던 계약 위반(hasExplicit*)의 대체
+    # 채널이며, risk_overrides와 동일한 "단일 진실 소스" 계약이다.
+    explicit_fields: Optional[List[str]] = None
     # 룰 파싱의 LLM 검증 리포트(Parse Fidelity Validator). 검증이 안 돌았으면 None.
     parse_validation: Optional[dict] = None
     # 하한선 보정 안내(비차단 notices 채널, 예: 초기자금 100만원 보정).
@@ -2977,8 +2986,8 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     인라인 경로(_run_nl_parse)와 후행 검증 경로(_complete_deferred_validation)가 공유한다 —
     교정된 전략도 하한선 보정·DSL 변환·되묻기 감지를 동일하게 거치게 하기 위한 추출.
 
-    scan_prompt_for_sector: False면 원문 섹터/테마 스캔(apply_theme_universe·
-    detect_unresolved_sector_clarification)을 건너뛴다 — 인터프리터 primary 레인은
+    scan_prompt_for_sector: False면 원문 스캔(apply_theme_universe·
+    detect_unresolved_sector_clarification·detect_symbol_typo_clarification)을 건너뛴다 — 인터프리터 primary 레인은
     LLM이 뽑은 표현의 term-in 체인(§ 11-3, primary._resolve_sector_terms_term_in)이
     담당하고, 해석 실패 결과에 원문 스캔이 전략을 만들어 붙이면 실패 의미가 왜곡된다.
     레거시 레인(off/shadow 기본 경로·후행 검증)만 True를 유지한다(1d 이관 대상).
@@ -3076,7 +3085,9 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     clarification_priority = "sector_unresolved" if sector_reask_q else None
     # 종목명 오타로 지정 종목을 잃었으면 '혹시 이 종목?'을 먼저 되묻는다 — 조용히 전체 시장으로
     # 진행하지 않도록, 진입 조건보다 앞서 종목 범위를 확정한다(자모 근접 매칭, 자동 치환 아님).
-    if clarification_question is None:
+    # 원문 스캔은 레거시 레인 전용이다(§ 11-3 섹터 이관과 동일) — primary 레인은 LLM이
+    # universe.symbols로 뽑은 표현만 후보로 보는 term-in 경로가 담당한다.
+    if clarification_question is None and scan_prompt_for_sector:
         clarification_question, clarification_suggestions = detect_symbol_typo_clarification(
             parsed, request.prompt
         )
@@ -3393,7 +3404,8 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
             )
             if parsed is None and _interp_primary_enabled():
                 _primary_mod = run_primary_modification(
-                    request.prompt, request.previous_parsed, on_stage=on_stage
+                    request.prompt, request.previous_parsed, on_stage=on_stage,
+                    previous_explicit_fields=request.previous_explicit_fields,
                 )
                 if _primary_mod is not None:
                     primary_holder.update(_primary_mod)
@@ -3430,7 +3442,10 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
             # 규칙 하이브리드는 primary가 꺼진 환경(off/shadow)의 기본 경로로만 동작한다.
             from strategy_conversation.primary import primary_enabled, run_primary_parse
             if primary_enabled():
-                primary = run_primary_parse(request.prompt, on_stage=on_stage)
+                primary = run_primary_parse(
+                    request.prompt, on_stage=on_stage,
+                    previous_explicit_fields=request.previous_explicit_fields,
+                )
                 if primary is None:
                     fallback = _interpretation_failure_result(request, backend, request_started)
                     if fallback is not None:
@@ -3487,6 +3502,10 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
             apply_primary_meta(result, primary_holder)
         if grounding_notice:
             result["notices"] = [grounding_notice] + list(result.get("notices") or [])
+        # provenance 이월 — 인터프리터가 판정하지 않은 턴(폴백·레거시 레인)에서도 이전
+        # 턴까지의 명시 필드를 잃지 않는다(프론트 에코 계약의 무상태 누적).
+        if result.get("explicit_fields") is None:
+            result["explicit_fields"] = list(request.previous_explicit_fields or [])
         _record_ai_runtime("parse", result["runtime"])
         _store_nl_parse_cache(cache_key, result)
         return result

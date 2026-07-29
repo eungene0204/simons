@@ -102,9 +102,12 @@ class TestParserCoverage:
 
     def test_hold_period_with_holding_verb_unchanged(self):
         # '6개월은 들고 가고'는 보유기간이며 리밸런싱이 아니다.
-        prompt = "PBR 1배 이하, 8종목, 최소 6개월은 들고 가고 싶습니다"
+        prompt = "PBR 1배 이하, 8종목, 6개월은 들고 가고 싶습니다"
         assert _extract_hold_period_days(prompt) == 126
         assert _extract_rebalancing_period(prompt, 126) == "none"
+        # 단 '최소 6개월'(하한)은 hold_period_days(만료 청산=상한)로 뒤집지 않는다
+        # (2026-07-29 계약 — 보유 동사가 있어도 하한 수식이 붙으면 추출 대상 아님).
+        assert _extract_hold_period_days("PBR 1배 이하, 최소 6개월은 들고 가고 싶습니다") is None
 
     def test_roe_and_debt_ratio_with_particle(self):
         # 'ROE가 10% 이상이고 부채비율이 100% 이하' — 조사(이/가)가 붙어도 잡혀야 한다.

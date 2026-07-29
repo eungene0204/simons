@@ -25,6 +25,7 @@ from pydantic import (
 )
 
 from llm_backend import OLLAMA_BASE_URL, is_local_ollama, ollama_auth_headers
+from engine import strategy_slots
 from engine.universe_pit import (
     CANONICAL_SECTORS,
     normalize_sector,
@@ -2845,8 +2846,23 @@ def _extract_max_positions(user_input: str) -> Optional[int]:
     return None
 
 
+# '최소 보유 기간 3개월'·'최소 6개월은 들고'처럼 보유 기간의 **하한**(그 전엔 팔지 않기)을
+# 지정하는 표현. hold_period_days는 만료 시 강제 청산(상한)이라 하한을 표현할 수 없다 —
+# 상한으로 뒤집어 확정하면 조용한 오해석이므로(2026-07-29 사고: '최소 3개월'이 '최대 63일
+# 보유 후 매도'로 나감) 추출에서 제외하고 미지원 개념 안내(min_hold_period)로 알린다.
+# 보유 동사·'보유 기간' 명사가 붙은 형태만 잡는다 — '최소 3개월 이상 상승'(모멘텀 룩백)
+# 같은 비보유 문맥을 미지원으로 오판하지 않기 위해서다.
+_MIN_HOLD_PERIOD_PATTERN = (
+    r"최소한?[은는]?(?:보유)?기간[은는]?\d+(?:개월|년|주일?|거래일|일)"
+    r"|최소한?\d+(?:개월|년|주일?|거래일|일)(?:간|동안)?[은는]?(?:보유|유지|들고|가지고|가져)"
+)
+_MIN_HOLD_PERIOD_RE = re.compile(_MIN_HOLD_PERIOD_PATTERN)
+
+
 def _extract_hold_period_days(user_input: str) -> Optional[int]:
     compact = _compact(user_input)
+    # 하한 수식 구간만 지우고 나머지는 그대로 본다(같은 문장의 상한 표현은 보존).
+    compact = _MIN_HOLD_PERIOD_RE.sub(" ", compact)
     # 'N개월마다 점검/리밸런싱'·'점검 주기는 N개월'·'N개월 주기'는 보유기간이 아니라 정기 재선정
     # 주기다. 보유 동사가 없으면 보유기간으로 잡지 않는다.
     periodic = _extract_cycle_months(compact) is not None or re.search(
@@ -3418,6 +3434,9 @@ _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     # 여전히 표현 불가이므로 그 형태만 잡는다(추출 가드와 동일 패턴 공유).
     ("profitability_transition", _PROFITABILITY_TIMESERIES_PATTERN),
     ("ema_alignment", r"정배열|역배열"),
+    # 보유 기간 하한('최소 3개월 보유') — hold_period_days는 만료 청산(상한)만 표현한다.
+    # 상한으로 뒤집는 대신 안내한다(2026-07-29 사고). 상한 표현은 지원 개념이므로 제외.
+    ("min_hold_period", _MIN_HOLD_PERIOD_PATTERN),
     ("partial_exit", r"분할매[도수]|절반[^,]{0,3}(?:익절|매도|청산)|일부[^,]{0,3}(?:익절|청산)"),
     ("new_low", r"신저가"),
     # 리스크/실행 방식 계열 — 조용히 드롭되던 실측 사고(레드팀 QA 14-3/14-6/12-5) 보정.
@@ -3469,6 +3488,7 @@ _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
     "supply_demand": "수급(외국인·기관·공매도 등) 조건",
     "profitability_transition": "흑자/적자 전환·연속(턴어라운드, N년 연속 흑자 등) 조건",
     "ema_alignment": "정배열/역배열 조건",
+    "min_hold_period": "최소 보유 기간(하한) 조건 — 최대 보유 기간(만료 시 청산)만 지원",
     "partial_exit": "분할 매도/부분 청산",
     "new_low": "신저가 조건",
     "volume_multiple": "거래량 배수 조건(평소 대비 N배)",
@@ -3736,13 +3756,21 @@ def _strip_trailing_josa(token: str) -> str:
 
 
 def detect_symbol_typo_clarification(
-    parsed: ParsedStrategy, user_prompt: str = ""
+    parsed: ParsedStrategy, user_prompt: str = "",
+    terms: Optional[List[str]] = None,
 ) -> tuple[Optional[str], Optional[List[str]]]:
     """종목명을 오타로 입력해 해석하지 못했으면 '혹시 이 종목?'을 되묻는다(없으면 (None, None)).
 
     조용히 종목을 버리고 전체 시장으로 진행하는 대신, 자모 편집거리로 찾은 확신 있는 후보를
     확인용으로 제시한다(오교정이 아니라 사용자 선택 — '삼서전자'는 삼성전자·삼지전자 이웃이라
     자동 치환은 위험). 이미 종목이 해석됐거나(target_symbols) 정확 매칭이 있으면 되묻지 않는다.
+
+    terms: LLM이 '이건 종목명'이라고 판정해 넘긴 짧은 문자열만 후보로 본다(term-in,
+    계약 § 3-2 지식 조회). 이것이 정식 경로다 — 원문 전체를 토큰으로 쪼개 마스터에
+    근접 매칭하는 것은 자연어 해석이고, 실제로 "20일 고점을 **넘기는** 날"의 '넘기는'을
+    '삼기', "박스 **안으로**"의 '안으로'를 '알트'로 오탐해 사용자 문장을 통째로 오염시킨
+    칩을 내보냈다(2026-07-29). terms=None인 원문 스캔은 LLM 레인이 없는 레거시 경로에만
+    남는다(§ 11-3 섹터 이관과 같은 형태, 1d 이관 대상).
     """
     if getattr(parsed, "target_symbols", None):
         return (None, None)
@@ -3753,14 +3781,18 @@ def detect_symbol_typo_clarification(
         return (None, None)
     from stock_analysis.symbol_resolver import find_in_text, suggest_similar_stocks
 
-    if find_in_text(user_prompt):  # 정확히 인식된 종목이 있으면 오타 아님
+    if terms is None and find_in_text(user_prompt):  # 정확히 인식된 종목이 있으면 오타 아님
         return (None, None)
+
+    if terms is None:
+        # 레거시 원문 스캔 — 3자 이상 한글 토큰 전부가 후보다(오탐의 근원).
+        candidates = [t for t in re.findall(r"[가-힣]+", user_prompt or "") if len(t) >= 3]
+    else:
+        candidates = [t.strip() for t in terms if isinstance(t, str) and t.strip()]
 
     seen: set[str] = set()
     corrections: list[tuple[str, str]] = []  # (원본 토큰, 정정 종목명)
-    for token in re.findall(r"[가-힣]+", user_prompt or ""):
-        if len(token) < 3:
-            continue
+    for token in candidates:
         forms = {token, _strip_trailing_josa(token)}
         # 알려진 전략 어휘·업종어는 종목 후보가 아니다(오발동 방지 — 매처도 정밀하지만 이중 방어).
         if any(f in _RULE_GUARD_KNOWN_VOCAB for f in forms) or _extract_sector(token) is not None:
@@ -3784,9 +3816,12 @@ def detect_symbol_typo_clarification(
         "아래에서 고르거나, 다른 종목명을 다시 입력해 주세요."
     )
     # 칩은 원문에서 오타 토큰만 정정한 재제출 프롬프트 — 고르면 그대로 재파싱돼 해석된다.
+    # 원문에 토큰이 없으면(LLM이 표기를 다듬어 넘긴 경우) 종목명만 낸다 — 치환이 일어나지
+    # 않은 원문을 그대로 칩으로 내면 같은 질문이 반복된다.
     suggestions: list[str] = []
     for token, name in corrections:
-        suggestions.append((user_prompt or name).replace(token, name, 1))
+        prompt = user_prompt or ""
+        suggestions.append(prompt.replace(token, name, 1) if token in prompt else name)
     return (question, suggestions)
 
 
@@ -5234,61 +5269,34 @@ def detect_missing_entry_clarification(
 # 요약+실행 확인을 보여준다.
 
 
+# 백엔드 되묻기 게이트가 담당하는 범위. 최대 보유·기간·초기 자본은 provenance 없이는
+# 판정할 수 없어(기본값 물질화) 이 레인에서 묻지 않는다 — 그 셋은 explicit_fields를 가진
+# 호출자(프론트 게이트·planner State)가 require_explicit=True로 판정한다.
+_GATE_FIELDS: tuple[str, ...] = (
+    strategy_slots.UNIVERSE, strategy_slots.ENTRY, strategy_slots.EXIT,
+    strategy_slots.REBALANCING, strategy_slots.STOP_LOSS, strategy_slots.TAKE_PROFIT,
+)
+
+
 def _missing_backtest_conditions(
     parsed: ParsedStrategy, user_prompt: str = ""
-) -> list[tuple[str, str, list[str]]]:
-    """아직 비어 있는 백테스트 최소 조건만 (질문, 대표 예시칩) 순서대로 반환한다."""
-    has_universe = bool(
-        getattr(parsed, "universe", None)
-        or getattr(parsed, "target_symbols", None)
-        or getattr(parsed, "sector", None)
-    )
-    has_entry = bool(
-        parsed.entry_signals
-        or parsed.fundamental_filters
-        or getattr(parsed, "ranking_metric", None)
-    )
-    rebal = getattr(parsed, "rebalancing_period", None)
-    has_rebalancing = bool(rebal and rebal != "none")
-    has_exit = bool(
-        parsed.exit_signals
-        or getattr(parsed, "hold_period_days", None)
-        or has_rebalancing
-    )
-    has_stop = parsed.stop_loss_pct is not None and parsed.stop_loss_pct > 0
-    has_take = parsed.take_profit_pct is not None and parsed.take_profit_pct > 0
-    # 단독 종목 백테스트(지정 종목 1개)는 포트폴리오 교체가 없어 리밸런싱을 요구하지 않는다.
-    # 지정 종목이라도 여러 개(테마 유니버스 자동 적용 등)면 포트폴리오이므로 주기를 묻는다 —
-    # '지정 종목 존재=단독'으로 판정해 질문 없이 기본값 '설정 안 함'으로 확정되던 사고
-    # (2026-07-28 '모바일솔루션 관련주'). 그 외(유니버스/다종목) 전략은 리밸런싱 주기도
-    # 필수다(사용자 지시 2026-07-22). 명시 거부("리밸런싱 안 함")는 사용자의 결정이므로
-    # 되묻지 않는다(칩 답변이 누적 프롬프트로 재파싱될 때 같은 질문이 무한 반복되는 함정).
-    is_single_asset = len(getattr(parsed, "target_symbols", None) or []) == 1
-    declined_rebalancing = _mentions_rebalancing_negation(_compact(user_prompt))
+) -> list[tuple[str, list[str]]]:
+    """아직 비어 있는 백테스트 최소 조건만 (질문, 대표 예시칩) 순서대로 반환한다.
 
-    missing: list[tuple[str, str, list[str]]] = []
-    if not has_universe:
-        missing.append(("어떤 시장·종목을 대상으로 할까요?\n\n예: 코스피200, 코스닥 전체",
-                        ["코스피200 대상으로", "코스닥 전체 대상으로"]))
-    if not has_entry:
-        missing.append(("어떤 조건에서 매수할까요?\n\n예: 골든크로스(5일/20일) 발생 시 매수, PER 10 이하",
-                        ["골든크로스(5일/20일) 발생 시 매수", "RSI 30 이하에서 매수",
-                         "MACD 골든크로스 매수", "볼린저밴드 하단 터치 시 매수",
-                         "20일 고점 돌파 시 매수", "거래량 급증 시 매수",
-                         "PER 10 이하", "ROE 15% 이상"]))
-    if not has_exit:
-        missing.append(("청산 조건 — 언제 팔까요?\n\n예: 데드크로스(5일/20일) 발생 시 매도, 20일 보유 후 청산",
-                        ["20일 보유 후 청산", "데드크로스(5일/20일) 발생 시 매도"]))
-    if not is_single_asset and not has_rebalancing and not declined_rebalancing:
-        missing.append(("포트폴리오 교체 주기(리밸런싱)는 얼마로 할까요?\n\n예: 매월, 분기마다",
-                        ["매월 리밸런싱", "분기마다 리밸런싱", "리밸런싱 안 함"]))
-    if not has_stop:
-        missing.append(("손절 — 손실을 제한할 비율을 정해주세요 (예: 손절 10%, 손절 5%)",
-                        ["손절 10%", "손절 5%"]))
-    if not has_take:
-        missing.append(("익절 — 목표 수익 비율을 정해주세요 (예: 익절 20%, 익절 10%)",
-                        ["익절 20%", "익절 10%"]))
-    return missing
+    판정·질문 문구는 engine.strategy_slots(SOT)에서 온다 — 같은 판정을 네 곳에 복제해
+    두던 시절의 어긋남(2026-07-28·07-29 사고)을 없애기 위해 이 함수는 범위 지정과
+    레인별 입력(리밸런싱 명시 거부) 전달만 한다.
+    """
+    # 명시 거부("리밸런싱 안 함")는 사용자의 결정이므로 되묻지 않는다 — 칩 답변이 누적
+    # 프롬프트로 재파싱될 때 같은 질문이 무한 반복되는 함정. (원문 판정은 이 레거시
+    # 레인의 잔여물이며, provenance를 가진 레인은 explicit_fields로 같은 결정을 전달한다.)
+    declined = _mentions_rebalancing_negation(_compact(user_prompt))
+    return [
+        (status.question, list(status.suggestions))
+        for status in strategy_slots.missing(
+            parsed, fields=_GATE_FIELDS, rebalancing_declined=declined
+        )
+    ]
 
 
 def detect_incomplete_backtest_conditions(

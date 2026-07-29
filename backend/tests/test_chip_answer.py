@@ -105,7 +105,7 @@ def test_replan_emits_next_pending_ask(monkeypatch):
     monkeypatch.setenv("STRATEGY_DAG_PLANNER_MODE", "primary")
     monkeypatch.setattr(
         primary_mod, "_dag_planner_clarification",
-        lambda user_input, parsed: (
+        lambda user_input, parsed, explicit_fields=None: (
             "어떤 조건에서 매도할까요?", ["데드크로스(5일/20일) 발생 시 매도"], "매도조건",
         ),
     )

@@ -188,7 +188,9 @@ describe("StrategyLab unknown intent fallback", () => {
           }));
         }
         return Promise.resolve(createJsonResponse({
-          state: {},
+          // 빌더가 누적한 슬롯 = 사용자가 답했다는 기록(유니버스는 칩, 나머지는 원문 시드).
+          // 기간·초기 자본은 빌더에 슬롯 자체가 없어 게이트가 따로 묻는다.
+          state: { universe: "kospi", holding_count: 5, rebalance_cycle: "monthly" },
           status: "confirmed",
           parsed,
           backtest_request: backtestRequest,
@@ -243,6 +245,10 @@ describe("StrategyLab unknown intent fallback", () => {
     expect(screen.queryByText(/현재 상태로도 백테스트를 실행할 수 있습니다/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "백테스트 시작하기" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "익절 20%" }));
+    // 빌더 단독 진입(파스 없음)이라 기간·초기 자본은 사용자가 말했다는 근거가 없다 —
+    // 기본값으로 조용히 확정하지 않고 묻는다.
+    fireEvent.click(await screen.findByRole("button", { name: "최근 5년 데이터" }));
+    fireEvent.click(await screen.findByRole("button", { name: "1,000만원" }));
     fireEvent.click(
       await screen.findByRole("button", { name: "이 전략으로 확정" }),
     );

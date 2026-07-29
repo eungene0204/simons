@@ -292,8 +292,8 @@ def select_stock_questions(
         elif per_year is not None and per_year > FREQUENT_SIGNAL_PER_YEAR:
             warning = (
                 f"이 조건은 연평균 약 {per_year:.0f}회로 매우 자주 발생합니다. "
-                "거래비용과 슬리피지의 영향을 크게 받을 수 있으니 추가 필터나 "
-                "최소 보유기간 설정을 고려해 주세요."
+                "거래비용과 슬리피지의 영향을 크게 받을 수 있으니 조건을 "
+                "좁히는 것을 고려해 주세요."
             )
 
         recommended.append(SelectedQuestion(

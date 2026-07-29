@@ -331,6 +331,49 @@ def test_state_summary_rendered_to_llm(monkeypatch):
     assert all("반도체" in m for m in seen_messages)
 
 
+def test_filled_slot_ask_skipped_surfaces_next_empty_slot():
+    """filled_slots에 있는 슬롯의 ask는 결정론 가드가 건너뛰고 다음 빈 슬롯 ask를
+    표면화한다 — 프롬프트 지시를 어기고 풀 골격(ask_entry부터)을 재발행하는 9B
+    드리프트로 매수 조건을 재질문하던 2026-07-29 사고의 회귀. topic 표기의 공백
+    차이(매수조건 ↔ 매수 조건)는 정규화로 흡수한다."""
+    dag = _dag_json(
+        _ask_node("ask_entry", "어떤 조건에서 매수할까요?",
+                  chips=["부채비율 200% 이하, ROE 5% 이상", "PER 15 배 이하"],
+                  topic="매수조건"),
+        _ask_node("ask_exit", "어떤 조건에서 매도할까요?", deps=["ask_entry"],
+                  topic="매도조건"),
+        _ask_node("ask_positions", "최대 몇 종목을 보유할까요?", deps=["ask_exit"],
+                  chips=["최대 5종목", "최대 10종목"], topic="최대보유"),
+        *_finish_chain(deps=["ask_positions"]),
+    )
+    result = plan_strategy_dag(
+        "부채비율 200% 이하, ROE 5% 이상", ScriptedChat([dag]),
+        state_summary={"filled_slots": ["유니버스", "매수 조건", "매도 조건", "리스크 관리"]},
+    )
+    assert result is not None and result.outcome == "ask"
+    assert result.topic == "최대보유"
+    assert result.question == "최대 몇 종목을 보유할까요?"
+    assert result.chips == ["최대 5종목", "최대 10종목"]
+
+
+def test_all_asks_filled_falls_back_without_reask():
+    """발행된 ask가 전부 채워진 슬롯이면 어떤 재질문도 표면화하지 않는다 —
+    무진전 폴백(None)으로 강등되고 레인의 기존 질문 유지 계약이 이어받는다."""
+    dag = _dag_json(
+        _ask_node("ask_entry", "어떤 조건에서 매수할까요?", topic="매수 조건"),
+        _ask_node("ask_exit", "어떤 조건에서 매도할까요?", deps=["ask_entry"],
+                  topic="매도조건"),
+        *_finish_chain(deps=["ask_exit"]),
+    )
+    chat = ScriptedChat([dag, dag])
+    result = plan_strategy_dag(
+        "손절 10%로 바꿔줘", chat,
+        state_summary={"filled_slots": ["매수 조건", "매도 조건"]},
+    )
+    assert result is None
+    assert chat.calls == 2
+
+
 def test_primary_clarification_helper_contract(monkeypatch):
     """_dag_planner_clarification — ask면 (질문, 칩, topic), 그 외(None·finish·예외)는 None."""
     import strategy_conversation.planner.dag_planner as dag_mod
@@ -371,13 +414,29 @@ def test_dag_state_summary_from_parsed():
         entry_signals=[{"indicator": "ma_crossover", "signal_type": "buy",
                         "short_period": 5, "long_period": 20}],
     )
-    summary = _dag_state_summary(parsed)
+    # provenance를 함께 넘긴다 — 유니버스는 사용자가 말한 설정이라야 '채워짐'이다.
+    summary = _dag_state_summary(parsed, ["universe"])
     assert summary["universe"] == ["ETF"]
     assert summary["etf_theme"] == "반도체"
     assert summary["entry_signal_types"] == ["ma_crossover"]
     assert "exit_signal_types" not in summary  # 빈 필드는 요약에 넣지 않는다
     assert "유니버스" in summary["filled_slots"] and "매수 조건" in summary["filled_slots"]
     assert "매도 조건" not in summary["filled_slots"]
+
+
+def test_dag_state_summary_does_not_count_materialized_defaults_as_filled():
+    """[회귀 2026-07-29] ParsedStrategy는 유니버스·최대 보유·기간·초기 자본에 기본값을
+    물질화한다 — 값만 보면 **빈 전략조차 4/8 완료**로 보여 planner가 그 슬롯을 영영
+    묻지 않는다. 판정은 provenance(explicit_fields)를 함께 봐야 한다."""
+    from engine.nl_parser import ParsedStrategy
+    from strategy_conversation.primary import _dag_state_summary
+
+    empty = ParsedStrategy(description="빈 전략")
+    # 기본값은 실제로 채워져 있다(값 존재 ≠ 사용자 언급).
+    assert empty.universe and empty.max_positions and empty.backtest_period
+    assert _dag_state_summary(empty, [])["filled_slots"] == []
+    # 사용자가 말한 설정만 채워짐으로 올라온다.
+    assert _dag_state_summary(empty, ["universe", "초기 자본"])["filled_slots"] == ["유니버스"]
 
 
 def test_dag_state_summary_ranking_fills_entry_slot():
