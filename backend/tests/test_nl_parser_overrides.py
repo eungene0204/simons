@@ -4847,3 +4847,50 @@ def test_bf19_korean_percent_notation_normalized_in_compact():
     )
     assert parsed is not None
     assert parsed.stop_loss_pct == 10.0 and parsed.take_profit_pct == 20.0
+
+
+# ─── Ollama 워밍업: 추론과 동일한 num_ctx 회귀 ────────────────────────────────
+
+
+def _capture_warmup_body(monkeypatch, call) -> dict:
+    """워밍업 호출(_ollama_preload_model / _ollama_prefill_system_prompt) body를 가로챈다."""
+    import json as _json
+    from contextlib import contextmanager
+
+    captured: dict = {}
+
+    class _FakeResp:
+        def read(self):
+            return b'{"message": {"content": ""}, "done": true}'
+
+    @contextmanager
+    def _fake_urlopen(req, timeout=600):
+        captured["body"] = _json.loads(req.data.decode())
+        yield _FakeResp()
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    call()
+    return captured["body"]
+
+
+def test_ollama_warmup_uses_same_num_ctx_as_inference(monkeypatch):
+    """startup 워밍업은 추론 호출과 **같은 num_ctx**로 러너를 띄워야 한다.
+
+    회귀(2026-07-30 실측): 워밍업이 num_ctx 없이 keep_alive=-1로 적재해 러너가 모델
+    최대 컨텍스트(262144)로 영구 고정됐고, 이후 num_ctx=16384 추론 요청은 러너 교체를
+    기다리다 240초+ 무응답 → 프론트 프록시 120초 abort("The operation was aborted due
+    to timeout")로 전략 파싱이 전부 실패했다. 옵션을 맞추면 같은 요청이 0.6초다.
+    """
+    from engine.nl_parser import (
+        _OLLAMA_NUM_CTX,
+        _ollama_preload_model,
+        _ollama_prefill_system_prompt,
+    )
+
+    preload = _capture_warmup_body(monkeypatch, lambda: _ollama_preload_model("m"))
+    assert preload["options"]["num_ctx"] == _OLLAMA_NUM_CTX
+
+    prefill = _capture_warmup_body(
+        monkeypatch, lambda: _ollama_prefill_system_prompt("sys", "m")
+    )
+    assert prefill["options"]["num_ctx"] == _OLLAMA_NUM_CTX

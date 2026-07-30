@@ -202,10 +202,21 @@ def _ollama_preload_model(model: str, timeout: int = 600) -> None:
     프롬프트 없는 POST /api/generate는 생성 없이 모델만 로드하고 즉시 반환한다
     (done_reason="load"). keep_alive=-1은 idle 언로드(기본 5분)를 막아 dev 중 모델을
     항상 상주시킨다. 로컬 Ollama 전용 — 원격(Modal)은 _ollama_ensure_warm을 쓴다.
+
+    **num_ctx는 추론 호출과 반드시 같아야 한다**(_OLLAMA_NUM_CTX). Ollama는 러너를
+    적재 시점 옵션으로 띄우고, 다른 num_ctx 요청이 오면 러너를 갈아끼운다 —
+    그런데 이 적재는 keep_alive=-1로 영구 고정이라 교체가 끝나지 않고 요청이
+    무한 대기한다(실측 2026-07-30: num_ctx 미지정 적재 → 러너 ctx=262144 고정 →
+    이후 num_ctx=16384 요청 전부 240초+ 무응답, 프록시 120초 abort로 사용자에게
+    "operation was aborted due to timeout"). 옵션을 맞추면 같은 요청이 0.6초다.
     """
     import urllib.request
 
-    body = json.dumps({"model": model, "keep_alive": -1}).encode()
+    body = json.dumps({
+        "model": model,
+        "keep_alive": -1,
+        "options": {"num_ctx": _OLLAMA_NUM_CTX},
+    }).encode()
     req = urllib.request.Request(
         f"{OLLAMA_BASE_URL}/api/generate",
         data=body,
@@ -226,6 +237,9 @@ def _ollama_prefill_system_prompt(
     생성 비용보다 크다(실측 2026-07-29: 인터프리터 system ~8,900 tok, 콜드 43.6초 →
     캐시 적중 0.4초). num_predict=1로 생성은 최소화하고 prefill만 유발한다.
     반환: 소요 초(관측 로그용). 로컬 Ollama 전용.
+
+    num_ctx는 추론 호출과 같아야 한다 — 다르면 KV 프리픽스 캐시가 다른 러너에 쌓여
+    무의미할 뿐 아니라, 러너 교체 대기로 이후 요청이 멈춘다(_ollama_preload_model 주석).
     """
     import time
     import urllib.request
@@ -237,7 +251,7 @@ def _ollama_prefill_system_prompt(
         "keep_alive": -1,
         "messages": [{"role": "system", "content": system_prompt},
                      {"role": "user", "content": "."}],
-        "options": {"num_predict": 1},
+        "options": {"num_predict": 1, "num_ctx": _OLLAMA_NUM_CTX},
     }).encode()
     req = urllib.request.Request(
         f"{OLLAMA_BASE_URL}/api/chat",

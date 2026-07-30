@@ -25,14 +25,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def _ollama_chat(system_prompt: str, user_msg: str, *, max_tokens: int = 400) -> str:
-    """신규 Ollama 호출 규약 — /api/chat + think:false(<think> 누출 사고 재발 방지)."""
+    """신규 Ollama 호출 규약 — /api/chat + think:false(<think> 누출 사고 재발 방지).
+
+    num_ctx는 앱 추론 본경로와 같은 값을 쓴다(FR-STR-019o ⑥) — 같은 9B 슬롯이라
+    다른 값을 보내면 dev 서버가 keep_alive=-1로 고정해 둔 러너를 갈아끼우려다
+    이 스크립트가 무한 대기한다.
+    """
+    from engine.nl_parser import _OLLAMA_NUM_CTX
+
     host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     model = os.getenv("STRATEGY_INTERPRETER_MODEL", "hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M")
     body = json.dumps({
         "model": model, "stream": False, "think": False,
         "messages": [{"role": "system", "content": system_prompt},
                      {"role": "user", "content": user_msg}],
-        "options": {"temperature": 0, "num_predict": max_tokens},
+        "options": {"temperature": 0, "num_predict": max_tokens,
+                    "num_ctx": _OLLAMA_NUM_CTX},
     }).encode()
     req = urllib.request.Request(f"{host}/api/chat", data=body,
                                  headers={"Content-Type": "application/json"})
