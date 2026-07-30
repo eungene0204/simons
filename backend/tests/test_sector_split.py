@@ -233,3 +233,62 @@ def test_financial_holding_is_distinct_from_general_holding():
     assert "지주회사" in CANONICAL_SECTORS and "금융지주" in CANONICAL_SECTORS
     symbols = list(_load_sector_map())
     assert not set(filter_by_sector(symbols, "지주회사")) & set(filter_by_sector(symbols, "금융지주"))
+
+
+# ── 지식그래프: 섹터 노드(업종) vs 테마 노드 구분 ──────────────────────────────
+
+def test_kg_sector_nodes_are_distinct_from_theme_nodes():
+    """섹터는 전수 분류(모든 종목이 하나에 속함), 테마는 큐레이션된 부분집합이다.
+    KG에서 category로 구분된다 — industry vs theme/theme_catalog."""
+    from engine.knowledge_graph import get_graph
+
+    graph = get_graph()
+    sectors = {k: v for k, v in graph.nodes.items() if k.startswith("sector:")}
+    assert len(sectors) == len(CANONICAL_SECTORS)
+    assert all(v.get("category") == "industry" for v in sectors.values())
+    themes = [v for v in graph.nodes.values() if v.get("category") in ("theme", "theme_catalog")]
+    assert themes, "테마 노드가 있어야 대비가 성립한다"
+    assert not any(v.get("category") == "industry" for v in themes)
+
+
+def test_kg_sector_nodes_carry_metadata_derived_from_canonical_sources():
+    """섹터 노드는 메타(동의어·KSIC 코드·종목 수·구성 안내)를 정본에서 파생해 담는다 —
+    손으로 두 번 적지 않는다. 종목 소속 자체는 KG에 복제하지 않는다."""
+    from engine.knowledge_graph import get_graph
+
+    nodes = get_graph().nodes
+    energy = nodes["sector:에너지/원자력"]
+    assert energy["is_combined"] is True
+    assert energy["member_count"] > 0
+    assert "원자력" in energy["synonyms"] and "태양광" in energy["synonyms"]
+    assert energy["ksic_codes"]
+    assert "정유" in energy["composition_note"]        # 묶음 섹터는 구성 안내를 갖는다
+    cosmetics = nodes["sector:화장품"]
+    assert cosmetics["is_combined"] is False
+    assert "composition_note" not in cosmetics         # 분할 완료 섹터는 안내 없음
+    assert "20423" in cosmetics["ksic_codes"]          # 화장품 제조업 코드
+
+
+def test_kg_sector_nodes_do_not_duplicate_stock_membership():
+    """섹터↔종목 엣지는 만들지 않는다 — 소속 정본은 korea-stocks.json이고
+    filter_by_sector가 직접 읽는다(KG에 복제하면 두 곳이 어긋난다)."""
+    from engine.knowledge_graph import get_graph
+
+    graph = get_graph()
+    links = [
+        e for e in graph.edges
+        if {str(e.get("source", ""))[:7], str(e.get("target", ""))[:8]} & {"sector:"}
+        and (str(e.get("source", "")).startswith("company:")
+             or str(e.get("target", "")).startswith("company:"))
+    ]
+    assert not links, f"섹터↔종목 직접 엣지가 생겼다: {links[:3]}"
+
+
+def test_kg_concept_edges_follow_sector_moves():
+    """섹터를 옮기면 개념 엣지도 따라가야 한다 — 카지노를 레저로 옮겼는데
+    casino 엣지가 미디어/엔터를 가리키고 있었다(2026-07-30)."""
+    from engine.knowledge_graph import get_graph, resolve_sector_from_text
+
+    assert resolve_sector_from_text("카지노 관련주") == "레저"
+    assert resolve_sector_from_text("여행사 관련주") == "여행"
+    assert get_graph().issues == [], "시드 엣지가 존재하지 않는 노드를 참조한다"

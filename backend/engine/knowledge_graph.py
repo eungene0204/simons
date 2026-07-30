@@ -402,6 +402,48 @@ def _etf_names() -> dict[str, str]:
     return {e["symbol"]: e["name"] for e in data.get("etfs", []) if e.get("symbol")}
 
 
+# ── 섹터 노드 (테마와 구분되는 '업종' 노드) ──────────────────────────────────────
+# category="industry" — 테마(category="theme"·"theme_catalog")와 명확히 구분된다.
+# 섹터는 **전수 분류**(모든 종목이 정확히 하나에 속함)이고 테마는 **큐레이션된 부분집합**
+# (근거 있는 종목만)이라 성격이 다르다. 섹터 소속의 정본은 korea-stocks.json의 sector
+# 필드이며 KG는 그것을 복제하지 않는다 — 여기 담는 것은 섹터 자체의 메타(동의어·KSIC
+# 코드·구성)이고, 종목 소속은 filter_by_sector가 정본에서 직접 읽는다.
+#
+# 값은 전부 기존 정본에서 파생한다(손으로 두 번 적지 않는다):
+#   synonyms         ← universe_pit._SECTOR_SYNONYMS 역방향
+#   ksic_codes       ← ksic_sectors.KSIC_SECTOR 역방향 (2026-07-30 코드 기반 전환)
+#   member_count     ← universe_pit._load_sector_map
+#   composition_note ← universe_pit.SECTOR_COMPOSITION_NOTES (묶음 섹터만)
+
+
+def _sector_node(sector: str) -> dict:
+    from engine.ksic_sectors import KSIC_SECTOR
+    from engine.universe_pit import (
+        SECTOR_COMPOSITION_NOTES,
+        _SECTOR_SYNONYMS,
+        _load_sector_map,
+    )
+
+    synonyms = sorted({term for term, target in _SECTOR_SYNONYMS.items() if target == sector})
+    codes = sorted({code for code, target in KSIC_SECTOR.items() if target == sector})
+    members = sum(1 for value in _load_sector_map().values() if value == sector)
+    node = {
+        "id": f"sector:{sector}",
+        "name": sector,
+        "category": "industry",
+        "is_combined": "/" in sector,   # 아직 분할하지 않은 묶음 섹터인가
+        "member_count": members,
+    }
+    if synonyms:
+        node["synonyms"] = synonyms
+    if codes:
+        node["ksic_codes"] = codes
+    note = SECTOR_COMPOSITION_NOTES.get(sector)
+    if note:
+        node["composition_note"] = note
+    return node
+
+
 def _build() -> KnowledgeGraph:
     from engine.universe_pit import CANONICAL_SECTORS
 
@@ -410,9 +452,7 @@ def _build() -> KnowledgeGraph:
     nodes: dict[str, dict] = {}
 
     for sector in CANONICAL_SECTORS:
-        nodes[f"sector:{sector}"] = {
-            "id": f"sector:{sector}", "name": sector, "category": "industry",
-        }
+        nodes[f"sector:{sector}"] = _sector_node(sector)
 
     for raw in seed.get("nodes", []):
         node_id = raw.get("id")
