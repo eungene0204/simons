@@ -34,6 +34,7 @@ from strategy_conversation.planner.dag import (
     DagContractError,
     DagNode,
     parse_dag,
+    invalidated_by_state_change,
     ready_nodes,
     validate_dag,
 )
@@ -348,6 +349,9 @@ def plan_strategy_dag(
     start = time.monotonic()
 
     executed: Dict[str, ExecutedNode] = {}
+    # 무효화된 노드 id(설계 스펙 § 12.2) — 목록에서 지우지 않고 여기 모아 둔다.
+    # 지우면 무엇이 왜 취소됐는지 추적할 수 없고, LLM이 같은 노드를 다시 발행한다.
+    invalidated: set = set()
     call_cache: Dict[str, Optional[Dict[str, Any]]] = {}
     auto_steps: List[dict] = []
     nodes: Optional[List[DagNode]] = None
@@ -429,7 +433,7 @@ def plan_strategy_dag(
         progressed = False
         while True:
             done_ids = set(executed)
-            batch = [n for n in ready_nodes(nodes, done_ids)
+            batch = [n for n in ready_nodes(nodes, done_ids, excluded_ids=invalidated)
                      if n.type == "tool" and n.tool in _EXECUTABLE_TOOLS]
             if not batch:
                 break
@@ -437,6 +441,19 @@ def plan_strategy_dag(
                 try:
                     if _execute(node):
                         progressed = True
+                        # 이 도구가 채운 State 필드가 이미 완료된 노드의 전제를 깼는가
+                        # (설계 스펙 § 12.1). 무효 노드는 목록에서 지우지 않고 표시만
+                        # 한다 — 지우면 무엇이 왜 취소됐는지 추적할 수 없다(§ 12.2).
+                        newly_invalid = invalidated_by_state_change(
+                            nodes, set(node.produces), set(executed) - {node.id},
+                        )
+                        if newly_invalid - invalidated:
+                            logger.info(
+                                "dag planner 노드 무효화 | 원인=%s(%s) 무효=%s",
+                                node.id, ", ".join(node.produces),
+                                ", ".join(sorted(newly_invalid - invalidated)),
+                            )
+                            invalidated |= newly_invalid
                 except ToolError as exc:
                     logger.info("dag planner 도구 계약 위반 — 폴백 | %s", exc)
                     return None
@@ -465,7 +482,8 @@ def plan_strategy_dag(
         answered: set = set()
         while True:
             already_answered = [
-                n for n in ready_nodes(nodes, done_ids | answered)
+                n for n in ready_nodes(nodes, done_ids | answered,
+                                       excluded_ids=invalidated)
                 if n.type == "ask" and (n.topic or "").replace(" ", "") in filled_slots
             ]
             if not already_answered:
@@ -475,7 +493,8 @@ def plan_strategy_dag(
                             node.id, node.topic)
             answered.update(n.id for n in already_answered)
 
-        for node in ready_nodes(nodes, done_ids | answered):
+        for node in ready_nodes(nodes, done_ids | answered,
+                                excluded_ids=invalidated):
             if node.type == "ask":
                 question = guard_text((node.question or "").strip() or None)
                 if not question:

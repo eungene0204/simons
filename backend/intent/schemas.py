@@ -63,6 +63,10 @@ class WorkflowEffect(str, Enum):
     # 직전 변경을 되돌린다. 어디로 되돌릴지는 /strategy/rollback/resolve가 정하고,
     # 복원은 변경 이력을 들고 있는 프론트가 결정론으로 수행한다(설계 스펙 § 19).
     ROLLBACK = "ROLLBACK"
+    # 직전 해석이 틀렸다는 정정. 되돌린 **뒤** 이 발화로 다시 해석한다(설계 스펙 § 20).
+    # ROLLBACK과의 차이는 새 지시가 함께 있는지다 — '아까 거 취소해'는 되돌리고 끝이고,
+    # '아니 그런 뜻이 아니라 X야'는 되돌린 자리에 X를 적용해야 한다.
+    CORRECT = "CORRECT"
 
 
 class WorkflowStatus(str, Enum):

@@ -963,6 +963,46 @@ Investor 3·Infrastructure 1`이었다. 목록을 데이터에 맞춰 고쳤다 
 회귀: `tests/test_kg_research.py` 16건(원장 읽기·직접 관계 구분·규제 어휘 가드·
 그래프/유니버스 배선).
 
+### § 11-13. 정정과 Action 메타데이터 (2026-07-30 완료)
+
+설계 스펙 § 20(사용자 정정)과 § 12.1·12.2(Action 메타데이터·상태)의 구현.
+
+**정정(CORRECT)** — `workflow_effect`에 값 하나를 더했다. ROLLBACK과의 경계는
+**올바른 지시가 함께 있는가**다: "아까 바꾼 거 취소해"는 되돌리고 끝(ROLLBACK),
+"아니 ETF로 바꾸라는 게 아니라 관련 ETF를 후보에 추가하라는 거야"는 되돌린 자리에
+새 해석을 적용해야 한다(CORRECT). 되돌릴 지점은 **LLM에 묻지 않는다** — 정정은 언제나
+방금 한 해석을 겨냥하므로 직전 변경으로 결정론이 정해진다(과거 어느 지점이든 가리킬 수
+있는 ROLLBACK과 다른 점). 스펙 § 20의 "잘못 해석한 내용을 변명하지 마라"에 따라 사과·
+해명 문구를 붙이지 않는다 — 되돌린 자리의 재해석 결과가 그대로 답이다(분류기에 CORRECT
+canned 문구를 두지 않은 이유). 실측(4B): CORRECT·ROLLBACK·UPDATE 경계 포함 17/17.
+
+**Action 메타데이터** — `requires`/`produces`/`invalidated_by`를 노드에 더했다.
+**LLM에 묻지 않는다**: "kg_theme_companies가 무엇을 만들고 언제 무효가 되는가"는 도구의
+정적 성질이지 이번 턴의 판단이 아니다. 프롬프트 출력 형태에 필드를 늘리면 9B가 그 자리를
+채우려 잡음을 내고 prefill 예산만 먹는다(§ FR-STR-019o·019p) — `dag._TOOL_EFFECTS`
+정적 표가 채우고, LLM이 실어 보내도 알려진 도구면 표가 이긴다.
+
+**Action 상태 8종** — 완료 집합(done_ids)만으로는 "왜 이 노드가 실행되지 않았나"를
+구분할 수 없었다(의존 미완료인지·무효인지·실패인지가 전부 '아직 안 됨'). `node_statuses`가
+PENDING/READY/RUNNING/COMPLETED/BLOCKED/INVALIDATED/FAILED/SKIPPED를 계산한다.
+**무효 노드는 목록에서 지우지 않고 INVALIDATED로 남긴다**(스펙 § 12.2) — 지우면 무엇이
+왜 취소됐는지 추적할 수 없고 LLM이 같은 노드를 다시 발행한다.
+
+무효화 씨앗은 **이미 완료된** 노드뿐이다. 실행 전 노드까지 씨앗으로 삼으면 정상 선행
+실행이 무효로 잡힌다 — `classify_universe`(produces `universe.type`)가 먼저 돌면 그 값에
+기대는 `kg_theme_companies`가 시작도 전에 무효가 된다. 무효화는 의존 방향으로 연쇄한다.
+
+**`preconditions`는 구현하지 않았다.** 스펙 § 12.1의 `"universe.type == etf"` 형식을
+평가하려면 표현식 미니 DSL이 필요한데, LLM이 그 문법을 지어낼 여지가 크고 평가 실패는
+전부 '무시'로 떨어져 장식용 필드가 된다. 같은 제약은 이미 `depends_on` 사슬과
+`validate_intent`/`compile_strategy` 게이트가 구조로 강제한다.
+
+**적용 범위의 한계**: DAG는 파스 1회 안에서만 산다(턴 간 영속 아님). 따라서 무효화가
+다루는 것은 한 파스 안에서 도구 관찰이 앞선 관찰의 전제를 깨는 경우다.
+
+회귀: `tests/test_dag_planner.py` 8건, `tests/test_intent_interpreter.py` 5건,
+`app/analytics/new/rollback.test.ts` 3건.
+
 ### 마이그레이션 순서
 
 1번(`nl_parser.py`)은 독립 순번이 없다 — 나머지가 끝나면 남는 잔여물이며, 성격이 다른

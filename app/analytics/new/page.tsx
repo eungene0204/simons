@@ -68,6 +68,7 @@ import {
   appendChangeLog,
   applyRollback,
   describeRollback,
+  stateBeforeLastChange,
   toResolvePayload,
   type ChangeLogEntry,
 } from "./rollback";
@@ -3094,6 +3095,40 @@ function StrategyLabContent() {
     traceTurn("post-classify", userText, turnDecision, classification);
 
     if (turnDecision.action === "control_workflow") {
+      // CORRECT(§ 20) — 직전 해석이 틀렸다는 정정. 되돌린 **뒤** 이 발화로 다시
+      // 해석한다. 되돌릴 지점은 언제나 직전 변경이라 LLM에 묻지 않는다(정정은 방금 한
+      // 해석을 겨냥한다 — 과거 어느 지점이든 가리킬 수 있는 ROLLBACK과 다르다).
+      // 사과·해명을 덧붙이지 않는다: 재해석 결과가 그대로 답이다(스펙 § 20).
+      if (turnDecision.effect === "CORRECT") {
+        const before = stateBeforeLastChange(changeLogRef.current);
+        if (before) {
+          setLatestParsed(before.parsed);
+          latestParsedRef.current = before.parsed;
+          setBacktestReq(before.backtestReq);
+          backtestReqRef.current = before.backtestReq;
+          explicitFieldsRef.current = [...before.explicitFields];
+          changeLogRef.current = changeLogRef.current.filter(
+            (e) => e.index <= before.index,
+          );
+        }
+        // 되돌린 자리(또는 되돌릴 이력이 없으면 현 상태) 위에서 정정 발화를 재해석한다.
+        try {
+          await runStrategyParseFlow(
+            userText,
+            before ? before.parsed : currentParsed,
+            before ? before.backtestReq : currentBacktestReq,
+          );
+        } catch (e: any) {
+          updateLastAssistant({
+            isLoading: false,
+            error: e.message ?? "알 수 없는 오류",
+            retryPrompt: userText,
+          });
+        } finally {
+          setIsSending(false);
+        }
+        return;
+      }
       // ROLLBACK(§ 19) — 변경 이력에서 되돌린다. 어디로 되돌릴지는 백엔드 LLM 레인이
       // 정하고(원문 해석), 복원은 스냅샷을 들고 있는 여기가 결정론으로 수행한다.
       if (turnDecision.effect === "ROLLBACK") {

@@ -19,9 +19,37 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Dict, List, Optional, Sequence, Set
 
 _VALID_TYPES = ("tool", "ask", "finish")
+
+
+class NodeStatus(str, Enum):
+    """Action 상태(설계 스펙 § 12.2).
+
+    러너는 완료 집합(done_ids)만으로 스케줄링해 왔다. 그러면 "왜 이 노드가 실행되지
+    않았나"를 구분할 수 없다 — 의존이 안 끝난 것인지, 무효화된 것인지, 실패한 것인지가
+    전부 '아직 안 됨' 하나였다. 이 축이 그 구분을 만든다.
+
+    **무효화된 노드는 삭제하지 않고 INVALIDATED로 남긴다**(스펙 § 12.2) — 지우면
+    무엇이 왜 취소됐는지 추적할 수 없다.
+    """
+
+    PENDING = "PENDING"          # 의존이 아직 안 끝났다
+    READY = "READY"              # 의존이 전부 끝나 실행할 수 있다
+    RUNNING = "RUNNING"          # 실행 중
+    COMPLETED = "COMPLETED"      # 실행 완료(관찰값 확보)
+    BLOCKED = "BLOCKED"          # 의존 노드가 무효·실패해 영영 실행될 수 없다
+    INVALIDATED = "INVALIDATED"  # State 변경으로 전제가 깨졌다(이력 보존용으로 남긴다)
+    FAILED = "FAILED"            # 실행했으나 실패
+    SKIPPED = "SKIPPED"          # 실행할 필요가 없어졌다(이미 채워진 슬롯 질문 등)
+
+
+# 다시 실행될 수 없는 상태 — ready 후보에서 제외되고, 이 노드에 의존하는 노드는 BLOCKED.
+_DEAD_STATUSES = frozenset({
+    NodeStatus.BLOCKED, NodeStatus.INVALIDATED, NodeStatus.FAILED, NodeStatus.SKIPPED,
+})
 
 
 class DagContractError(Exception):
@@ -38,6 +66,12 @@ class DagNode:
     topic: Optional[str] = None
     question: Optional[str] = None
     chips: List[str] = field(default_factory=list)
+    # ── Action 메타데이터(설계 스펙 § 12.1) ────────────────────────────────────
+    # depends_on이 '어떤 노드 뒤에 오는가'라면, 아래는 '어떤 State를 쓰고 만드는가'다.
+    # 둘을 구분해야 State 변경이 어떤 Action을 무효로 만드는지 계산할 수 있다.
+    requires: List[str] = field(default_factory=list)        # 필요한 State 필드
+    produces: List[str] = field(default_factory=list)        # 이 Action이 채우는 필드
+    invalidated_by: List[str] = field(default_factory=list)  # 이 필드가 바뀌면 무효
 
     def call_key(self) -> str:
         """동일 도구+인자 판정용 정본 키(실행 중복 방지)."""
@@ -47,6 +81,52 @@ class DagNode:
         """done 불변성 비교 대상 — 의존 관계 재배선은 허용, 내용 변경은 위반."""
         return {"type": self.type, "tool": self.tool,
                 "args": json.dumps(self.args, ensure_ascii=False, sort_keys=True)}
+
+
+# 도구별 Action 효과(설계 스펙 § 12.1) — **정적 사실이므로 LLM에 묻지 않는다.**
+# "kg_theme_companies가 무엇을 만들고 언제 무효가 되는가"는 도구의 성질이지 이번 턴의
+# 판단이 아니다. 프롬프트 출력 형태에 필드를 늘리면 9B가 그 자리를 채우려 잡음을 내고
+# prefill 예산만 먹는다(FR-STR-019o·019p) — 대신 여기서 결정론으로 채운다.
+_TOOL_EFFECTS: Dict[str, Dict[str, List[str]]] = {
+    "classify_universe": {
+        "produces": ["universe.type"], "invalidated_by": ["universe.term"],
+    },
+    "list_concept_candidates": {
+        "requires": ["universe.type"], "produces": ["universe.candidates"],
+        "invalidated_by": ["universe.term", "universe.type"],
+    },
+    "kg_resolve_sector": {
+        "produces": ["universe.sectors"], "invalidated_by": ["universe.term"],
+    },
+    "kg_theme_companies": {
+        "produces": ["universe.symbols"],
+        "invalidated_by": ["universe.term", "universe.type", "universe.sectors"],
+    },
+    "ground_term": {
+        "produces": ["universe.term_definition"], "invalidated_by": ["universe.term"],
+    },
+    "resolve_universe": {
+        "requires": ["universe.type"], "produces": ["universe.symbols"],
+        "invalidated_by": ["universe.term", "universe.type", "universe.sectors"],
+    },
+    "lookup_capabilities": {
+        "requires": ["universe.type"], "produces": ["capabilities"],
+        "invalidated_by": ["universe.type"],
+    },
+    "validate_intent": {
+        "produces": ["validation"],
+        "invalidated_by": ["universe.type", "universe.symbols", "conditions"],
+    },
+    "compile_strategy": {
+        "requires": ["validation"], "produces": ["strategy"],
+        "invalidated_by": ["universe.type", "universe.symbols", "conditions"],
+    },
+}
+
+
+def tool_effects(tool: Optional[str]) -> Dict[str, List[str]]:
+    """도구의 정적 Action 효과. 모르는 도구는 빈 효과(지어내지 않는다)."""
+    return _TOOL_EFFECTS.get(tool or "", {})
 
 
 def parse_dag(data: Dict) -> List[DagNode]:
@@ -75,10 +155,20 @@ def parse_dag(data: Dict) -> List[DagNode]:
         chips = raw.get("chips") or []
         if not isinstance(chips, list) or not all(isinstance(c, str) for c in chips):
             raise DagContractError(f"chips 형식 위반: {node_id}")
+        # 메타데이터는 도구의 정적 사실이 정본이다. LLM이 실어 보내도(스펙 § 12.1 형식)
+        # 형식만 검증하고, 알려진 도구면 정적 표로 덮어쓴다 — 도구가 무엇을 만드는지를
+        # LLM이 이번 턴에 다시 정하게 두지 않는다.
+        effects = tool_effects(raw.get("tool"))
+        meta = {}
+        for key in ("requires", "produces", "invalidated_by"):
+            value = raw.get(key) or []
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                raise DagContractError(f"{key} 형식 위반: {node_id}")
+            meta[key] = list(effects.get(key, [v.strip() for v in value if v.strip()]))
         nodes.append(DagNode(
             id=node_id.strip(), type=node_type, depends_on=list(depends_on),
             tool=raw.get("tool"), args=args, topic=raw.get("topic"),
-            question=raw.get("question"), chips=chips,
+            question=raw.get("question"), chips=chips, **meta,
         ))
     return nodes
 
@@ -174,7 +264,95 @@ def validate_dag(
             raise DagContractError(f"done 노드 변경: {done_id}")
 
 
-def ready_nodes(nodes: Sequence[DagNode], done_ids: Set[str]) -> List[DagNode]:
-    """의존이 전부 done인 미완료 노드(발행 순서 유지)."""
+def invalidated_by_state_change(
+    nodes: Sequence[DagNode], changed_fields: Set[str], done_ids: Set[str]
+) -> Set[str]:
+    """State 변경으로 전제가 깨진 노드 id(설계 스펙 § 12.1 invalidated_by).
+
+    완료된 노드도 무효화 대상이다 — 유니버스가 바뀌면 그 전에 조회한 테마 상장사
+    관찰값은 더 이상 이 전략의 것이 아니다. 무효화는 **연쇄**한다: 무효 노드의 관찰에
+    기대던 노드도 함께 무효다(그 관찰이 사라졌으므로).
+
+    LLM의 판단이 아니라 노드가 선언한 invalidated_by와 실제 변경 필드의 대조다.
+    선언하지 않은 노드는 무효화되지 않는다 — 지어내서 지우지 않는다.
+    """
+    if not changed_fields:
+        return set()
+    # 씨앗은 **이미 완료된** 노드뿐이다. 아직 실행 전인 노드까지 씨앗으로 삼으면 정상
+    # 선행 실행이 무효로 잡힌다 — classify_universe(produces universe.type)가 먼저 돌면
+    # 그 값에 기대는 kg_theme_companies가 시작도 전에 무효가 된다.
+    invalid = {
+        n.id for n in nodes
+        if n.id in done_ids
+        and n.invalidated_by and changed_fields.intersection(n.invalidated_by)
+    }
+    # 연쇄 — 무효 노드에 의존하는 노드도 무효(고정점까지 반복).
+    while True:
+        cascaded = {
+            n.id for n in nodes
+            if n.id not in invalid and invalid.intersection(n.depends_on)
+        }
+        if not cascaded:
+            return invalid
+        invalid |= cascaded
+
+
+def node_statuses(
+    nodes: Sequence[DagNode],
+    done_ids: Set[str],
+    invalidated_ids: Optional[Set[str]] = None,
+    failed_ids: Optional[Set[str]] = None,
+    skipped_ids: Optional[Set[str]] = None,
+) -> Dict[str, NodeStatus]:
+    """노드별 상태(설계 스펙 § 12.2). 무효·실패 노드는 목록에서 지우지 않고 표시한다.
+
+    의존 노드가 다시 실행될 수 없는 상태면 BLOCKED다 — '아직 안 됨'(PENDING)과 구분해야
+    러너가 영영 오지 않을 노드를 기다리지 않는다.
+    """
+    invalidated = invalidated_ids or set()
+    failed = failed_ids or set()
+    skipped = skipped_ids or set()
+    result: Dict[str, NodeStatus] = {}
+    for node in nodes:
+        if node.id in invalidated:
+            result[node.id] = NodeStatus.INVALIDATED
+        elif node.id in failed:
+            result[node.id] = NodeStatus.FAILED
+        elif node.id in skipped:
+            result[node.id] = NodeStatus.SKIPPED
+        elif node.id in done_ids:
+            result[node.id] = NodeStatus.COMPLETED
+        else:
+            result[node.id] = NodeStatus.PENDING
+    # 죽은 의존을 가진 노드는 BLOCKED — 고정점까지 전파한다.
+    while True:
+        changed = False
+        for node in nodes:
+            if result[node.id] is not NodeStatus.PENDING:
+                continue
+            if any(result.get(d) in _DEAD_STATUSES for d in node.depends_on):
+                result[node.id] = NodeStatus.BLOCKED
+                changed = True
+        if not changed:
+            break
+    for node in nodes:
+        if result[node.id] is NodeStatus.PENDING and all(
+            d in done_ids for d in node.depends_on
+        ):
+            result[node.id] = NodeStatus.READY
+    return result
+
+
+def ready_nodes(
+    nodes: Sequence[DagNode],
+    done_ids: Set[str],
+    excluded_ids: Optional[Set[str]] = None,
+) -> List[DagNode]:
+    """의존이 전부 done인 미완료 노드(발행 순서 유지).
+
+    excluded_ids(무효·실패·스킵)는 후보에서 빠지고, 그 노드를 의존으로 가진 노드도
+    영영 ready가 되지 않는다(BLOCKED — node_statuses가 같은 판정을 이름으로 준다).
+    """
     return [n for n in nodes
-            if n.id not in done_ids and all(d in done_ids for d in n.depends_on)]
+            if n.id not in done_ids and n.id not in (excluded_ids or set())
+            and all(d in done_ids for d in n.depends_on)]

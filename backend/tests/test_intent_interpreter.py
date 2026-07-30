@@ -320,3 +320,53 @@ def test_workflow_status_survives_interpretation_failure():
 def test_effect_is_sent_in_output_contract():
     """프롬프트의 출력 형태에 제어 키가 있어야 작은 모델이 그 필드를 채운다."""
     assert '"workflow_effect"' in interpreter.SYSTEM_PROMPT
+
+
+# ── 정정(설계 스펙 § 20) ──────────────────────────────────────────────────────
+# CORRECT는 되돌리기와 다르다: 되돌린 **자리에 새 지시를 적용**한다.
+
+
+def test_correct_requires_something_to_correct():
+    """되돌릴 State가 없으면 정정이 아니라 그냥 새 요청이다 — NONE 강등 후 일반 파스."""
+    result = classify(
+        "아니 그런 뜻이 아니라 ETF도 후보에 넣어줘",
+        llm=stub_llm("STRATEGY_ADVICE", workflow_effect="CORRECT"),
+        active_strategy=False,
+    )
+    assert result.workflow_effect == WorkflowEffect.NONE
+
+
+def test_correct_keeps_workflow_active():
+    """정정은 작업을 계속한다 — 되돌리고 끝나는 ROLLBACK과 다르다."""
+    result = classify(
+        "아니 그런 뜻이 아니라 ETF도 후보에 넣어줘",
+        llm=stub_llm("STRATEGY_ADVICE", workflow_effect="CORRECT"),
+        active_strategy=True,
+    )
+    assert result.workflow_effect == WorkflowEffect.CORRECT
+    assert result.workflow_status == WorkflowStatus.ACTIVE
+
+
+def test_correct_carries_no_canned_reply():
+    """[스펙 § 20] 잘못 해석한 것을 변명하지 않는다 — 재해석 결과가 그대로 답이다."""
+    result = classify(
+        "아니 그게 아니라 관련 ETF를 추가하라는 거야",
+        llm=stub_llm("STRATEGY_ADVICE", workflow_effect="CORRECT"),
+        active_strategy=True,
+    )
+    assert result.suggested_reply is None
+
+
+def test_correct_is_blocked_on_regulatory_gate_labels():
+    result = classify(
+        "아니 그게 아니라",
+        llm=stub_llm("PERSONAL_ADVICE", workflow_effect="CORRECT"),
+        active_strategy=True,
+    )
+    assert result.workflow_effect == WorkflowEffect.NONE
+
+
+def test_prompt_separates_correct_from_rollback_and_update():
+    """실측에서 갈릴 두 경계를 프롬프트가 명시한다."""
+    assert "올바른 지시가 함께 있는가" in interpreter.SYSTEM_PROMPT
+    assert "직전 해석이" in interpreter.SYSTEM_PROMPT

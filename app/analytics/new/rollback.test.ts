@@ -5,6 +5,7 @@ import type { ParsedSummary } from "@/lib/strategy-summary";
 import {
   appendChangeLog,
   applyRollback,
+  stateBeforeLastChange,
   toResolvePayload,
   type ChangeLogEntry,
 } from "./rollback";
@@ -163,5 +164,22 @@ describe("applyRollback — 안전 강등", () => {
   it("turn_index가 없으면 되묻는다", () => {
     const result = applyRollback(LOG[2].parsed, [], LOG, { action: "turn" });
     expect(result.status).toBe("clarify");
+  });
+});
+
+describe("stateBeforeLastChange — 정정(§20)의 되돌림 지점", () => {
+  it("직전 변경 '직전' 상태를 LLM 없이 결정론으로 고른다", () => {
+    // 정정은 언제나 방금 한 해석을 겨냥하므로 대상 판정이 필요 없다.
+    expect(stateBeforeLastChange(LOG)?.index).toBe(2);
+  });
+
+  it("변경이 없는 턴은 건너뛴다", () => {
+    const withNoop = [...LOG, { ...LOG[2], index: 4, changedFields: [] }];
+    expect(stateBeforeLastChange(withNoop)?.index).toBe(2);
+  });
+
+  it("되돌릴 변경이 없으면 null — 정정이 아니라 새 요청이다", () => {
+    expect(stateBeforeLastChange([LOG[0]])).toBeNull();
+    expect(stateBeforeLastChange([])).toBeNull();
   });
 });

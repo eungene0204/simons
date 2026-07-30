@@ -480,3 +480,93 @@ def test_dag_shadow_runs_and_logs(monkeypatch, tmp_path):
     assert record["llm_turns"] == 2
     assert record["error"] is None
     assert "latency_ms" in record
+
+
+# ── Action 메타데이터·상태(설계 스펙 § 12.1·12.2) ──────────────────────────────
+# 계약: ① 도구 효과는 정적 사실이라 LLM이 이번 턴에 다시 정하지 않는다
+#       ② 무효화된 노드는 삭제하지 않고 INVALIDATED로 남긴다(이력 추적)
+#       ③ 정상 선행 실행이 무효화로 잡히지 않는다
+
+from strategy_conversation.planner.dag import (  # noqa: E402
+    NodeStatus,
+    invalidated_by_state_change,
+    node_statuses,
+    parse_dag,
+    ready_nodes,
+    tool_effects,
+)
+
+
+def _dag(*nodes):
+    return parse_dag({"dag": {"nodes": list(nodes)}})
+
+
+def test_tool_effects_are_filled_deterministically_not_by_llm():
+    """LLM이 엉뚱한 효과를 실어 보내도 도구의 정적 사실이 이긴다."""
+    nodes = _dag({
+        "id": "t1", "type": "tool", "tool": "kg_theme_companies",
+        "produces": ["엉뚱한필드"], "invalidated_by": [],
+    })
+    assert nodes[0].produces == ["universe.symbols"]
+    assert "universe.type" in nodes[0].invalidated_by
+
+
+def test_unknown_tool_keeps_llm_declared_meta_without_inventing():
+    nodes = _dag({"id": "a1", "type": "ask", "question": "?", "produces": ["x"]})
+    assert nodes[0].produces == ["x"]
+    assert nodes[0].invalidated_by == []
+
+
+def test_meta_format_violation_is_a_contract_error():
+    import pytest as _pytest
+
+    with _pytest.raises(Exception):
+        _dag({"id": "a1", "type": "ask", "question": "?", "requires": "문자열"})
+
+
+def test_completed_node_is_invalidated_when_its_premise_changes():
+    nodes = _dag(
+        {"id": "t1", "type": "tool", "tool": "kg_theme_companies"},
+        {"id": "a1", "type": "ask", "question": "?", "depends_on": ["t1"]},
+    )
+    invalid = invalidated_by_state_change(nodes, {"universe.type"}, {"t1"})
+    # 완료된 조회가 무효가 되고, 그 관찰에 기대던 질문도 함께 무효다.
+    assert invalid == {"t1", "a1"}
+
+
+def test_pending_node_is_not_invalidated_by_its_own_dependency():
+    """정상 선행 실행이 무효화로 잡히면 DAG가 시작조차 못 한다."""
+    nodes = _dag(
+        {"id": "t0", "type": "tool", "tool": "classify_universe"},
+        {"id": "t1", "type": "tool", "tool": "kg_theme_companies", "depends_on": ["t0"]},
+    )
+    # classify_universe가 universe.type을 만들었지만 t1은 아직 실행 전이다.
+    assert invalidated_by_state_change(nodes, {"universe.type"}, {"t0"}) == set()
+
+
+def test_nodes_without_declared_invalidation_are_never_invalidated():
+    nodes = _dag({"id": "a1", "type": "ask", "question": "?"})
+    assert invalidated_by_state_change(nodes, {"universe.type"}, {"a1"}) == set()
+
+
+def test_statuses_name_why_a_node_will_not_run():
+    nodes = _dag(
+        {"id": "t1", "type": "tool", "tool": "kg_theme_companies"},
+        {"id": "t2", "type": "tool", "tool": "lookup_capabilities"},
+        {"id": "a1", "type": "ask", "question": "?", "depends_on": ["t1"]},
+        {"id": "a2", "type": "ask", "question": "?", "depends_on": ["t2"]},
+    )
+    statuses = node_statuses(nodes, done_ids={"t2"}, invalidated_ids={"t1"})
+    assert statuses["t1"] is NodeStatus.INVALIDATED   # 삭제하지 않고 남긴다
+    assert statuses["a1"] is NodeStatus.BLOCKED       # 영영 오지 않을 의존
+    assert statuses["t2"] is NodeStatus.COMPLETED
+    assert statuses["a2"] is NodeStatus.READY
+
+
+def test_invalidated_nodes_are_excluded_from_ready():
+    nodes = _dag(
+        {"id": "t1", "type": "tool", "tool": "kg_theme_companies"},
+        {"id": "a1", "type": "ask", "question": "?", "depends_on": ["t1"]},
+    )
+    assert [n.id for n in ready_nodes(nodes, set())] == ["t1"]
+    assert ready_nodes(nodes, set(), excluded_ids={"t1"}) == []

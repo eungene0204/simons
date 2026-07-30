@@ -573,9 +573,11 @@ _EFFECT_REPLIES: dict[WorkflowEffect, str] = {
     WorkflowEffect.RESTART: (
         "지금까지의 전략을 지우고 처음부터 시작할게요. 어떤 조건으로 만들어 볼까요?"
     ),
-    # ROLLBACK은 여기 없다 — 안내 문구가 되돌리기 **결과**에 달려 있고(어느 변경을
+    # ROLLBACK·CORRECT는 여기 없다 — 안내 문구가 **결과**에 달려 있고(어느 변경을
     # 되돌렸는지·되물어야 하는지), 그 결과는 변경 이력을 들고 있는 프론트가 복원을
     # 마친 뒤에야 정해진다(설계 스펙 § 19, /strategy/rollback/resolve).
+    # CORRECT는 되돌린 자리에 재해석 결과가 그대로 답이 된다 — 정정을 사과하거나
+    # 설명하지 않는다(설계 스펙 § 20 "잘못 해석한 내용을 변명하지 마라").
 }
 
 # 제어 효과를 인정하지 않는 라벨 — 규제·범위 게이트라 정형 안내가 반드시 나가야 한다.
@@ -594,16 +596,21 @@ _EFFECT_BLOCKED_INTENTS = frozenset({
 })
 
 # 진행 중인 전략이 있어야 성립하는 효과 — 없으면 되돌리거나 멈출 대상이 없다.
+# CORRECT도 여기 든다: 정정은 직전 해석을 겨냥하므로 되돌릴 State가 있어야 한다
+# (없으면 그냥 새 요청이므로 NONE으로 강등돼 일반 파스로 흐른다).
 _REQUIRES_ACTIVE_STRATEGY = frozenset({
     WorkflowEffect.PAUSE,
     WorkflowEffect.CANCEL,
     WorkflowEffect.RESTART,
     WorkflowEffect.ROLLBACK,
+    WorkflowEffect.CORRECT,
 })
 
 # 효과 → 이 턴 이후의 워크플로 상태. ROLLBACK은 실행되지 않으므로 상태를 바꾸지 않는다.
 _EFFECT_TRANSITIONS: dict[WorkflowEffect, WorkflowStatus] = {
     WorkflowEffect.UPDATE: WorkflowStatus.ACTIVE,
+    # 정정은 되돌린 자리에 새 해석을 적용하므로 작업이 계속된다.
+    WorkflowEffect.CORRECT: WorkflowStatus.ACTIVE,
     WorkflowEffect.PAUSE: WorkflowStatus.PAUSED,
     WorkflowEffect.RESUME: WorkflowStatus.ACTIVE,
     WorkflowEffect.CANCEL: WorkflowStatus.CANCELLED,

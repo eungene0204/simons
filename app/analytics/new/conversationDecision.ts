@@ -52,7 +52,8 @@ export type WorkflowEffect =
   | "RESUME"
   | "CANCEL"
   | "RESTART"
-  | "ROLLBACK";
+  | "ROLLBACK"
+  | "CORRECT";
 
 export type WorkflowStatus = "IDLE" | "ACTIVE" | "PAUSED" | "CANCELLED";
 
@@ -65,6 +66,7 @@ const WORKFLOW_CONTROL_EFFECTS: readonly WorkflowControlEffect[] = [
   "CANCEL",
   "RESTART",
   "ROLLBACK",
+  "CORRECT",
 ];
 
 export type SemanticClassification = {

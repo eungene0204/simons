@@ -139,6 +139,19 @@ export function applyRollback(
   };
 }
 
+/**
+ * 정정(설계 스펙 § 20)의 되돌림 지점 — 직전 변경 **직전** 상태.
+ *
+ * 되돌릴 지점을 LLM에 묻지 않는다. 정정은 언제나 방금 한 해석을 겨냥하므로 대상이
+ * 결정론으로 정해진다(ROLLBACK과 다른 점 — 거기서는 사용자가 과거 어느 지점이든
+ * 가리킬 수 있어 판정이 필요하다). 되돌릴 변경이 없으면 null.
+ */
+export function stateBeforeLastChange(log: ChangeLogEntry[]): ChangeLogEntry | null {
+  const ordered = [...log].sort((a, b) => a.index - b.index);
+  const last = [...ordered].reverse().find((e) => e.changedFields.length > 0);
+  return last ? stateBefore(ordered, last.index) : null;
+}
+
 /** 복원 결과를 사용자에게 알리는 문장. 되돌린 사실만 서술한다(평가·권유 없음). */
 export function describeRollback(result: Extract<RollbackResult, { status: "restored" }>): string {
   if (result.scope === "turn") {
