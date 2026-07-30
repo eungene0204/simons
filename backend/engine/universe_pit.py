@@ -544,19 +544,43 @@ def sector_value_as_list(value) -> list[str]:
     return list(value) if isinstance(value, list) else [value]
 
 
-@lru_cache(maxsize=1)
-def _load_sector_map() -> dict[str, str]:
-    # 마스터(상폐 종목 sector 백필)를 깔고 korea-stocks.json(현재 상장 SOT)으로 덮는다.
+
+def _sector_map_from_graph() -> dict[str, str]:
+    """지식그래프의 belongs_to 엣지에서 symbol → 섹터를 읽는다(정본 경로).
+
+    KG 로드 실패·오버레이 부재 시 빈 dict를 반환해 호출부가 파일로 폴백한다.
+    순환 import를 피하려고 지연 import한다(knowledge_graph가 universe_pit을 참조한다)."""
+    try:
+        from engine.knowledge_graph import get_graph
+
+        graph = get_graph()
+    except Exception:  # noqa: BLE001 — KG 문제가 백테스트를 막으면 안 된다(파일 폴백)
+        return {}
+    smap: dict[str, str] = {}
+    for edge in graph.edges:
+        if edge.get("type") != "belongs_to":
+            continue
+        source, target = str(edge.get("source", "")), str(edge.get("target", ""))
+        if source.startswith("company:") and target.startswith("sector:"):
+            smap[source.split(":", 1)[1]] = target.split(":", 1)[1]
+    return smap
+
+
+def sector_map_from_files() -> dict[str, str]:
+    """symbol → 섹터를 원본 파일에서 병합한다 — 소속 오버레이 생성과 부트스트랩 폴백의
+    **공용 구현**(같은 병합 규칙을 두 곳에 적지 않는다).
+
+    ① 마스터(상폐 종목 sector 백필)를 깔고 ② korea-stocks.json(현재 상장)으로 덮은 뒤
+    ③ 우선주(끝자리≠0)에 모주(prefix+'0') 섹터를 상속한다 — 섹터 분류는 회사 단위인데
+    korea-stocks.json은 보통주만 담아 우선주가 전부 미상이 된다.
+    """
     smap: dict[str, str] = {
         s["symbol"]: s["sector"] for s in _load_master() if s.get("symbol") and s.get("sector")
     }
     if _KOREA_STOCKS_PATH.exists():
         stocks = json.loads(_KOREA_STOCKS_PATH.read_text(encoding="utf-8"))
-        smap.update(
-            {s["symbol"]: s["sector"] for s in stocks if s.get("symbol") and s.get("sector")}
-        )
-    # 우선주(끝자리≠0, '00088K' 신형 포함)는 모주(prefix+'0')의 섹터를 물려받는다 —
-    # 섹터 분류는 회사 단위인데 korea-stocks.json은 보통주만 담아 우선주가 전부 미상이 된다.
+        rows = stocks if isinstance(stocks, list) else stocks.get("stocks", [])
+        smap.update({s["symbol"]: s["sector"] for s in rows if s.get("symbol") and s.get("sector")})
     for s in _load_master():
         sym = s.get("symbol") or ""
         if len(sym) == 6 and sym[-1] != "0" and sym not in smap:
@@ -564,6 +588,18 @@ def _load_sector_map() -> dict[str, str]:
             if parent:
                 smap[sym] = parent
     return smap
+
+
+@lru_cache(maxsize=1)
+def _load_sector_map() -> dict[str, str]:
+    """symbol → 정본 섹터. **정본은 지식그래프**다(2026-07-30 전환).
+
+    인터프리터가 지식을 찾는 곳이 KG이므로 섹터 소속도 KG가 권위여야 한다 — 종전에는
+    소속이 korea-stocks.json에만 있어 `related_universe('원자력')`이 빈 결과를 냈다.
+    KG의 `company -belongs_to→ sector` 엣지(data/kg-sector-membership.json 오버레이)를
+    읽고, 오버레이가 없는 환경(신규 클론·부트스트랩)에서만 파일로 폴백한다.
+    """
+    return _sector_map_from_graph() or sector_map_from_files()
 
 
 def filter_by_sector(symbols: list[str], sector: str | list[str]) -> list[str]:

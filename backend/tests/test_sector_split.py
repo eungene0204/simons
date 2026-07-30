@@ -269,19 +269,68 @@ def test_kg_sector_nodes_carry_metadata_derived_from_canonical_sources():
     assert "20423" in cosmetics["ksic_codes"]          # 화장품 제조업 코드
 
 
-def test_kg_sector_nodes_do_not_duplicate_stock_membership():
-    """섹터↔종목 엣지는 만들지 않는다 — 소속 정본은 korea-stocks.json이고
-    filter_by_sector가 직접 읽는다(KG에 복제하면 두 곳이 어긋난다)."""
-    from engine.knowledge_graph import get_graph
+def test_kg_is_the_sector_membership_sot():
+    """[2026-07-30 정본 전환] 섹터 소속의 정본은 KG다.
 
-    graph = get_graph()
-    links = [
-        e for e in graph.edges
-        if {str(e.get("source", ""))[:7], str(e.get("target", ""))[:8]} & {"sector:"}
-        and (str(e.get("source", "")).startswith("company:")
-             or str(e.get("target", "")).startswith("company:"))
+    인터프리터가 지식을 찾는 곳이 KG이므로 "이 섹터에 어떤 종목이 있나"도 그래프로
+    답할 수 있어야 한다 — 종전에는 소속이 korea-stocks.json에만 있어 KG가 몰랐다.
+    (직전 커밋의 test_kg_sector_nodes_do_not_duplicate_stock_membership을 대체한다:
+    '복제하면 어긋난다'는 우려는 파일을 파생 캐시로 강등해 해소했다.)"""
+    from engine.knowledge_graph import get_graph
+    from engine.universe_pit import _load_sector_map, _sector_map_from_graph
+
+    from_graph = _sector_map_from_graph()
+    assert from_graph, "KG에 belongs_to 소속 엣지가 없다"
+    assert _load_sector_map() == from_graph, "filter_by_sector가 KG를 읽지 않는다"
+
+    edges = [
+        e for e in get_graph().edges
+        if e.get("type") == "belongs_to" and str(e.get("source", "")).startswith("company:")
     ]
-    assert not links, f"섹터↔종목 직접 엣지가 생겼다: {links[:3]}"
+    assert len(edges) == len(from_graph)
+
+
+def test_kg_membership_covers_delisted_and_preferred_shares():
+    """상폐 종목과 우선주가 소속에서 빠지면 섹터 유니버스에 생존 편향·누락이 생긴다
+    (FR-STR-066 ④-1). 실측 회귀: 오버레이가 상폐를 버려 에너지/원자력 72→66,
+    우선주 상속을 빠뜨려 다시 72→66이 됐다."""
+    import json as _json
+    from pathlib import Path as _P
+
+    from engine.universe_pit import filter_by_sector, _load_sector_map
+
+    master = _json.loads(
+        (_P(__file__).resolve().parents[2] / "data" / "stock-master.json").read_text(encoding="utf-8")
+    )["stocks"]
+    smap = _load_sector_map()
+    delisted_with_sector = [s["symbol"] for s in master if s.get("delistingDate") and s.get("sector")]
+    assert delisted_with_sector, "상폐 종목 sector 백필이 없다면 이 가드는 무의미하다"
+    covered = [s for s in delisted_with_sector if s in smap]
+    assert len(covered) == len(delisted_with_sector), (
+        f"소속에서 빠진 상폐 종목 {len(delisted_with_sector) - len(covered)}건"
+    )
+    preferred = [s for s in smap if len(s) == 6 and s[-1] != "0"]
+    assert preferred, "우선주가 소속에 하나도 없다 — 모주 상속이 누락됐다"
+    # 대표 실측치: 상폐·우선주가 모두 들어와야 나오는 숫자
+    assert len(filter_by_sector(list(smap), "에너지/원자력")) == 72
+
+
+def test_stock_file_sector_is_a_derived_cache_of_the_kg():
+    """korea-stocks.json의 sector 필드는 정본이 아니라 파생 캐시다(참조부 71곳 호환).
+    KG와 어긋나면 잡는다 — 어긋난 채로 두면 어느 쪽이 맞는지 알 수 없다."""
+    import json as _json
+
+    from engine.universe_pit import _sector_map_from_graph
+
+    rows = _json.loads(_KOREA_STOCKS.read_text(encoding="utf-8"))
+    rows = rows if isinstance(rows, list) else rows["stocks"]
+    graph_map = _sector_map_from_graph()
+    drift = [
+        (r["symbol"], r.get("name"), r.get("sector"), graph_map.get(r["symbol"]))
+        for r in rows
+        if r.get("sector") and graph_map.get(r["symbol"]) != r["sector"]
+    ]
+    assert not drift, f"KG와 파일 캐시 불일치 {len(drift)}건: {drift[:3]}"
 
 
 def test_kg_concept_edges_follow_sector_moves():

@@ -41,6 +41,9 @@ _SEED_PATH = _BASE_DIR / "data" / "knowledge-graph.json"
 _LEXICON_PATH = _BASE_DIR / "data" / "term_lexicon.json"
 _CATALOG_PATH = _BASE_DIR / "data" / "kg-theme-catalog.json"
 _NAVER_CATALOG_PATH = _BASE_DIR / "data" / "kg-naver-theme-catalog.json"
+# 섹터 소속 정본(SOT) — scripts/build_sector_membership.py 생성.
+# 시드(손 큐레이션)와 분리된 오버레이다: 3천여 소속 엣지가 시드 파일을 덮지 않게 한다.
+_SECTOR_MEMBERSHIP_PATH = _BASE_DIR / "data" / "kg-sector-membership.json"
 _STOCKS_PATH = _BASE_DIR / "data" / "korea-stocks.json"
 _ETF_PATH = _BASE_DIR / "data" / "etf-master.json"
 
@@ -397,6 +400,17 @@ def _stock_names() -> dict[str, str]:
     return {s["symbol"]: s["name"] for s in stocks if isinstance(s, dict) and s.get("symbol")}
 
 
+def _delisted_stock_names() -> dict[str, str]:
+    """상폐 종목 symbol → 이름(stock-master.json). 섹터 소속 엣지가 상폐 종목을 버리지
+    않게 하기 위한 이름 공급원 — 버리면 생존 편향이 되살아난다(FR-STR-066 ④-1)."""
+    master = _load_json(_BASE_DIR / "data" / "stock-master.json", {})
+    return {
+        s["symbol"]: s.get("name") or s["symbol"]
+        for s in master.get("stocks", [])
+        if isinstance(s, dict) and s.get("symbol")
+    }
+
+
 def _etf_names() -> dict[str, str]:
     data = _load_json(_ETF_PATH, {})
     return {e["symbol"]: e["name"] for e in data.get("etfs", []) if e.get("symbol")}
@@ -405,9 +419,14 @@ def _etf_names() -> dict[str, str]:
 # ── 섹터 노드 (테마와 구분되는 '업종' 노드) ──────────────────────────────────────
 # category="industry" — 테마(category="theme"·"theme_catalog")와 명확히 구분된다.
 # 섹터는 **전수 분류**(모든 종목이 정확히 하나에 속함)이고 테마는 **큐레이션된 부분집합**
-# (근거 있는 종목만)이라 성격이 다르다. 섹터 소속의 정본은 korea-stocks.json의 sector
-# 필드이며 KG는 그것을 복제하지 않는다 — 여기 담는 것은 섹터 자체의 메타(동의어·KSIC
-# 코드·구성)이고, 종목 소속은 filter_by_sector가 정본에서 직접 읽는다.
+# (근거 있는 종목만 — 없다는 것은 '테마 밖'이라는 올바른 답)이라 성격이 다르다.
+#
+# [2026-07-30 정본 전환] 섹터 소속(company -belongs_to→ sector)의 정본은 **KG**다.
+# 인터프리터가 지식을 찾는 곳이 KG이므로 "이 섹터에 어떤 종목이 있나"도 그래프로 답할
+# 수 있어야 한다 — 종전에는 소속이 korea-stocks.json에만 있어 KG가 몰랐다. 소속 데이터는
+# data/kg-sector-membership.json 오버레이에 두고(3천여 엣지가 손 큐레이션 시드를 덮지
+# 않게), universe_pit._load_sector_map이 그 엣지를 읽는다. korea-stocks.json의 sector
+# 필드는 파생 캐시로 강등됐다(참조부 71곳 호환 — test_stock_file_sector_is_a_derived_cache).
 #
 # 값은 전부 기존 정본에서 파생한다(손으로 두 번 적지 않는다):
 #   synonyms         ← universe_pit._SECTOR_SYNONYMS 역방향
@@ -416,17 +435,17 @@ def _etf_names() -> dict[str, str]:
 #   composition_note ← universe_pit.SECTOR_COMPOSITION_NOTES (묶음 섹터만)
 
 
-def _sector_node(sector: str) -> dict:
+def _sector_node(sector: str, membership: dict[str, str]) -> dict:
+    """섹터 노드 하나를 만든다.
+
+    member_count는 **소속 오버레이에서 직접** 센다 — universe_pit._load_sector_map을
+    쓰면 그쪽이 get_graph()를 호출하므로 순환 재귀에 빠진다(정본이 KG로 옮겨간 결과)."""
     from engine.ksic_sectors import KSIC_SECTOR
-    from engine.universe_pit import (
-        SECTOR_COMPOSITION_NOTES,
-        _SECTOR_SYNONYMS,
-        _load_sector_map,
-    )
+    from engine.universe_pit import SECTOR_COMPOSITION_NOTES, _SECTOR_SYNONYMS
 
     synonyms = sorted({term for term, target in _SECTOR_SYNONYMS.items() if target == sector})
     codes = sorted({code for code, target in KSIC_SECTOR.items() if target == sector})
-    members = sum(1 for value in _load_sector_map().values() if value == sector)
+    members = sum(1 for value in membership.values() if value == sector)
     node = {
         "id": f"sector:{sector}",
         "name": sector,
@@ -451,8 +470,11 @@ def _build() -> KnowledgeGraph:
     issues: list[str] = []
     nodes: dict[str, dict] = {}
 
+    # 섹터 소속 정본 — 섹터 노드의 member_count와 belongs_to 엣지가 함께 쓴다.
+    membership: dict[str, str] = _load_json(_SECTOR_MEMBERSHIP_PATH, {}).get("membership", {})
+
     for sector in CANONICAL_SECTORS:
-        nodes[f"sector:{sector}"] = _sector_node(sector)
+        nodes[f"sector:{sector}"] = _sector_node(sector, membership)
 
     for raw in seed.get("nodes", []):
         node_id = raw.get("id")
@@ -514,6 +536,31 @@ def _build() -> KnowledgeGraph:
     stock_names = _stock_names()
     etf_names = _etf_names()
 
+    # ── 섹터 소속 편입 (정본) ────────────────────────────────────────────────
+    # company -belongs_to→ sector 엣지. 인터프리터가 지식을 찾는 곳이 KG이므로
+    # "이 섹터에 어떤 종목이 있나"도 그래프로 답할 수 있어야 한다(2026-07-30 정본 전환).
+    # 종전에는 소속이 korea-stocks.json에만 있어 related_universe('원자력')이 빈 결과였다.
+    delisted_names = _delisted_stock_names()
+    membership_edges: list[dict] = []
+    for symbol, sector in membership.items():
+        sector_id = f"sector:{sector}"
+        if sector_id not in nodes:
+            continue  # 정본 섹터 목록에서 사라진 이름(분할 전 구 섹터 등)은 버린다
+        company_id = f"company:{symbol}"
+        if company_id not in nodes:
+            # 상폐 종목도 반드시 포함한다 — 섹터 유니버스에서 빠지면 생존 편향이 되살아난다
+            # (FR-STR-066 ④-1). 이름은 현재 상장분 → 상폐 마스터 순으로 찾는다.
+            name = stock_names.get(symbol) or delisted_names.get(symbol)
+            if not name:
+                continue
+            nodes[company_id] = {
+                "id": company_id, "name": name, "category": "company",
+                **({"delisted": True} if symbol not in stock_names else {}),
+            }
+        membership_edges.append(
+            {"source": company_id, "type": "belongs_to", "target": sector_id}
+        )
+
     def resolve_endpoint(ref: str, report: bool = True) -> bool:
         """엣지 끝점을 검증하고, 정본 참조(company:/etf:)면 노드를 자동 생성한다.
 
@@ -550,6 +597,10 @@ def _build() -> KnowledgeGraph:
         if not resolve_endpoint(source) or not resolve_endpoint(target):
             continue
         edges.append(raw)
+
+    # 섹터 소속(정본 오버레이) — 시드 엣지 뒤에 붙인다. 끝점은 위에서 이미 노드로
+    # 만들었으므로 resolve_endpoint를 다시 태우지 않는다(3천여 건 불필요한 검증 회피).
+    edges.extend(membership_edges)
 
     for key, entry in _load_json(_LEXICON_PATH, {}).items():
         node_id = f"learned:{key}"
