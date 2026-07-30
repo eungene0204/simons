@@ -6,6 +6,7 @@ import {
   attachFieldStates,
   buildBuilderTurnPresentation,
   countProgress,
+  progressStatusText,
 } from "./builderProgressPresentation";
 
 const themeParsed: ParsedSummary = {
@@ -226,20 +227,28 @@ describe("손절 표시 — 항상 마이너스 부호 (2026-07-30)", () => {
   });
 });
 
-describe("attachFieldStates — 백엔드 상태 축 부착", () => {
+describe("attachFieldStates — 백엔드 두 상태 축 부착", () => {
   const items = [
     { label: "유니버스", complete: true },
     { label: "최대 보유", complete: true },
     { label: "리밸런싱", complete: true },
   ];
 
-  it("슬롯 이름이 일치하면 상태를 붙인다", () => {
+  it("슬롯 이름이 일치하면 두 축을 각각 붙인다", () => {
     expect(
-      attachFieldStates(items, { 유니버스: "CONFIRMED", 리밸런싱: "NOT_APPLICABLE" }),
+      attachFieldStates(items, {
+        유니버스: { value: "CONFIRMED", derived: "APPLICABLE" },
+        리밸런싱: { value: "PROVISIONAL", derived: "NOT_APPLICABLE" },
+      }),
     ).toEqual([
-      { label: "유니버스", complete: true, status: "CONFIRMED" },
+      { label: "유니버스", complete: true, valueStatus: "CONFIRMED", derivedStatus: "APPLICABLE" },
       { label: "최대 보유", complete: true },
-      { label: "리밸런싱", complete: true, status: "NOT_APPLICABLE" },
+      {
+        label: "리밸런싱",
+        complete: true,
+        valueStatus: "PROVISIONAL",
+        derivedStatus: "NOT_APPLICABLE",
+      },
     ]);
   });
 
@@ -247,9 +256,9 @@ describe("attachFieldStates — 백엔드 상태 축 부착", () => {
     // 지정 종목 전략에서 '최대 보유'는 '포트폴리오'로 표시된다.
     expect(
       attachFieldStates([{ label: "포트폴리오", complete: true }], {
-        "최대 보유": "NOT_APPLICABLE",
+        "최대 보유": { derived: "NOT_APPLICABLE" },
       }),
-    ).toEqual([{ label: "포트폴리오", complete: true, status: "NOT_APPLICABLE" }]);
+    ).toEqual([{ label: "포트폴리오", complete: true, derivedStatus: "NOT_APPLICABLE" }]);
   });
 
   it("상태 맵이 없으면 원본을 그대로 둔다(표시가 예전 동작으로 회귀)", () => {
@@ -257,8 +266,8 @@ describe("attachFieldStates — 백엔드 상태 축 부착", () => {
     expect(attachFieldStates(items, undefined)).toBe(items);
   });
 
-  it("맵에 없는 슬롯은 status 없이 남는다", () => {
-    expect(attachFieldStates(items, { 없는슬롯: "CONFIRMED" })).toEqual(items);
+  it("맵에 없는 슬롯은 상태 없이 남는다", () => {
+    expect(attachFieldStates(items, { 없는슬롯: { value: "CONFIRMED" } })).toEqual(items);
   });
 });
 
@@ -266,9 +275,9 @@ describe("countProgress — '해당 없음'은 분모에서 뺀다", () => {
   it("해당 없음 칸은 분자·분모 양쪽에서 빠진다", () => {
     expect(
       countProgress([
-        { label: "유니버스", complete: true, status: "CONFIRMED" },
-        { label: "매수 조건", complete: false, status: "UNKNOWN" },
-        { label: "리밸런싱", complete: true, status: "NOT_APPLICABLE" },
+        { label: "유니버스", complete: true, valueStatus: "CONFIRMED" },
+        { label: "매수 조건", complete: false, valueStatus: "UNKNOWN" },
+        { label: "리밸런싱", complete: true, derivedStatus: "NOT_APPLICABLE" },
       ]),
     ).toEqual({ completed: 1, total: 2 });
   });
@@ -285,9 +294,49 @@ describe("countProgress — '해당 없음'은 분모에서 뺀다", () => {
   it("확인 필요(INVALID·CONFLICTED)는 분모에 남는다 — 해결해야 할 칸이다", () => {
     expect(
       countProgress([
-        { label: "매수 조건", complete: true, status: "CONFLICTED" },
-        { label: "매도 조건", complete: true, status: "INVALID" },
+        { label: "매수 조건", complete: true, derivedStatus: "CONFLICTED" },
+        { label: "매도 조건", complete: true, derivedStatus: "INVALID" },
       ]),
     ).toEqual({ completed: 2, total: 2 });
+  });
+});
+
+describe("progressStatusText — 두 축을 화면 문구 하나로", () => {
+  it("파생 축이 값 축보다 앞선다 — 지금 못 쓰는 칸은 값이 확정이어도 손이 필요하다", () => {
+    expect(
+      progressStatusText({
+        label: "매수 조건",
+        complete: true,
+        valueStatus: "CONFIRMED",
+        derivedStatus: "INVALID",
+      }),
+    ).toBe("확인 필요");
+    expect(
+      progressStatusText({
+        label: "리밸런싱",
+        complete: true,
+        valueStatus: "CONFIRMED",
+        derivedStatus: "NOT_APPLICABLE",
+      }),
+    ).toBe("해당 없음");
+  });
+
+  it("성립하는 칸은 값 축이 문구를 정한다", () => {
+    expect(
+      progressStatusText({
+        label: "최대 보유",
+        complete: true,
+        valueStatus: "PROVISIONAL",
+        derivedStatus: "APPLICABLE",
+      }),
+    ).toBe("미확인");
+    expect(
+      progressStatusText({
+        label: "최대 보유",
+        complete: true,
+        valueStatus: "CONFIRMED",
+        derivedStatus: "APPLICABLE",
+      }),
+    ).toBeUndefined();
   });
 });

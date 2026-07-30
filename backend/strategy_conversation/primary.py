@@ -366,24 +366,59 @@ def _explicit_fields(strategy: Any, previous: Optional[List[str]]) -> List[str]:
     return merge_explicit_fields(previous, explicit_fields_from_spec(strategy))
 
 
+def derive_field_states(
+    parsed: Any, explicit_fields: Optional[Iterable[str]] = None,
+) -> Dict[str, Dict[str, str]]:
+    """파이프라인 불변조건 — **어느 레인이 응답을 만들었든** 파생 상태를 매 턴 재계산한다.
+
+    파생 상태는 저장되지 않는다. 그래서 "이번 턴에 계산하지 않았다"는 곧 프론트가 직전
+    턴의 사본을 계속 들고 있다는 뜻이고, 전략이 바뀐 턴에서는 그것이 틀린 표시가 된다
+    (실측: 칩 답변으로 최대 보유가 10→5로 바뀌어도 상태 맵은 이전 턴 것이 그대로 남았다).
+    그래서 이 계산은 planner·인터프리터의 출력 여부와 무관하게 항상 돈다.
+
+    ParsedStrategy만으로 시작해 StrategySpec을 되짚고(decompile) 검증기를 돌려 파생 축을
+    채운다 — 인터프리터 레인이 이미 (strategy, report)를 들고 있으면 그쪽을 쓰는 것이 싸므로
+    `_field_states`를 직접 호출한다. 되짚기·검증 실패는 오버라이드 없음으로 강등한다
+    (값 축과 NOT_APPLICABLE은 ParsedStrategy만으로 성립하므로 계산 자체는 살아남는다).
+    """
+    strategy = report = None
+    try:
+        from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
+        from strategy_conversation.interpreter.models import StrategyIntent
+        from strategy_conversation.validation.pipeline import run_validation
+
+        strategy = decompile_strategy(parsed)
+        _, report = run_validation(
+            StrategyIntent(intent="CREATE_STRATEGY", strategy=strategy, confidence=1.0))
+    except Exception:  # noqa: BLE001 — 되짚기 실패는 파생 축의 범위를 좁힐 뿐이다
+        logger.warning("파생 상태 재검증 실패 — 오버라이드 없이 계산", exc_info=True)
+        strategy = report = None
+    return _field_states(parsed, strategy, report, explicit_fields)
+
+
 def _field_states(
     parsed: Any, strategy: Any, report: Any, explicit_fields: Optional[Iterable[str]],
-) -> Dict[str, str]:
-    """진행 골격 8칸의 상태 축(설계 스펙 § 5)을 계산해 응답에 실을 형태로 만든다.
+) -> Dict[str, Dict[str, str]]:
+    """진행 골격 8칸의 두 상태 축(설계 스펙 § 5)을 계산해 응답에 실을 형태로 만든다.
 
     `filled_slots`(완료/미완료)가 뭉개던 것을 나눠 준다 — 해당 없음(단독 종목의 최대
     보유·리밸런싱), 값은 있으나 미확인(기본값 물질화), 확인 필요(미지원 지표·모순).
     되묻기 게이트와 실행 버튼은 이 값을 쓰지 않는다(표시 전용 — 흐름 동작 불변).
 
+    반환 형태는 슬롯 → {"value": …, "derived": …}. 두 축을 하나로 줄이지 않는 이유는
+    "값은 확정인데 지금 유니버스에서 못 쓴다"가 표현돼야 하기 때문이다.
+
     검증 실패로 리포트·spec이 없어도 진행은 막지 않는다 — 상태 축은 부가 정보다.
+    strategy·report가 없는 레인(칩 답변 등)에서도 값 축은 계산되고, 파생 축은
+    오버라이드 없이 ParsedStrategy만으로 산출된다(계산의 누락이 아니라 입력의 범위).
     """
     from strategy_conversation.validation.field_state import slot_status_overrides
 
     try:
         overrides = slot_status_overrides(strategy, report)
         return {
-            slot: status.value
-            for slot, status in strategy_slots.slot_statuses(
+            slot: state.as_payload()
+            for slot, state in strategy_slots.slot_statuses(
                 parsed,
                 explicit_fields=explicit_fields,
                 require_explicit=True,
@@ -835,10 +870,56 @@ def _dag_planner_clarification(
 # 바꾸지 않는다. 이 필드만 달라진 칩은 결속 실패다(무변경을 반영으로 오보고하던 구멍).
 _CHIP_BINDING_IGNORED_FIELDS = frozenset({"description"})
 
+# 확정 판정용 프로브 — 필드 ↔ (ParsedStrategy 속성, 현재값과 반드시 다른 유효 대체값).
+# 대체값은 스키마가 허용하는 값 중 현재값이 아닌 것을 고른다(Literal은 다른 멤버, 수치는
+# 범위 안의 다른 값). 물질화 기본값과 같은 칩을 눌렀을 때 "이 칩이 정말 이 필드를
+# 그 값으로 정하는가"를 확인하는 데만 쓰인다.
+_CONFIRM_PROBES: Dict[str, tuple[str, Any, Any]] = {
+    strategy_slots.MAX_POSITIONS: ("max_positions", 1, 2),
+    strategy_slots.REBALANCING: ("rebalancing_period", "monthly", "quarterly"),
+    strategy_slots.BACKTEST_PERIOD: ("backtest_period", "1y", "3y"),
+    strategy_slots.INITIAL_CAPITAL: ("initial_capital", 5_000_000.0, 30_000_000.0),
+}
+
+
+def _confirm_target(base: Dict[str, Any], chip_text: str, topic: Optional[str]) -> Optional[str]:
+    """값을 바꾸지 않는 칩이 '현재값 확정'인지 판정한다(설계 스펙 § 7 CONFIRM).
+
+    값이 안 바뀌는 칩에는 두 가지가 섞여 있다 — ① 엔진이 표현할 수 없는 칩(결속 실패)과
+    ② **이미 물질화된 기본값과 같은 값을 가리키는 칩**이다. 둘을 구분하지 않고 전부
+    떨어뜨리면, 우리가 물어놓고 화면에 보여준 그 값을 사용자가 선택할 방법이 사라진다
+    (실측: "최대 몇 종목?"에서 '최대 10종목', "초기 자금?"에서 '1,000만원'이 사라짐 —
+    현재값과 같다는 이유로 "표현할 수 없어 노출 제외"로 기록되고 있었다).
+
+    구분은 프로브로 한다: 그 필드를 **현재값이 아닌 값**으로 바꿔 둔 State에 칩을 적용해
+    현재값으로 되돌아오면, 그 칩은 그 필드를 그 값으로 정하는 칩이다(② 확정). 되돌아오지
+    않으면 그 필드를 정하지 못하는 칩이다(① 결속 실패 — 기존대로 탈락).
+    "패치가 비었으니 topic의 확정"으로 추정하지 않는 이유는, 그 추정이 아무 뜻도 결속되지
+    않은 칩을 사용자 확정으로 둔갑시켜 되묻기를 삼키기 때문이다(말하지 않은 값 확정 금지).
+    """
+    field = strategy_slots.confirmable_field_for_topic(topic)
+    probe = _CONFIRM_PROBES.get(field or "")
+    if probe is None:
+        return None
+    from engine.nl_parser import ParsedStrategy, _apply_prompt_overrides
+
+    attr, first, second = probe
+    current = base.get(attr)
+    probe_value = second if first == current else first
+    try:
+        after = _apply_prompt_overrides(
+            ParsedStrategy.model_validate({**base, attr: probe_value}), chip_text,
+            skip_signal_validation=True, preserve_universe=True,
+        )
+    except Exception:  # noqa: BLE001 — 프로브 실패는 확정 불가일 뿐 파스 실패가 아니다
+        logger.warning("확정 칩 프로브 실패 | chip=%s field=%s", chip_text, field, exc_info=True)
+        return None
+    return field if getattr(after, attr, None) == current else None
+
 
 def _bind_chips(
     chips: List[str], parsed: Any, topic: Optional[str]
-) -> tuple[List[str], Dict[str, Dict[str, Any]]]:
+) -> tuple[List[str], Dict[str, Dict[str, Any]], Dict[str, str]]:
     """칩이 뜻하는 State 변경을 **발행 시점에** 확정한다(칩=값 결속 계약).
 
     칩은 우리 agent가 만들어 보여준 열거형 선택지다 — 값은 보여주는 순간 이미 알고
@@ -851,9 +932,13 @@ def _bind_chips(
     유니버스 범위 칩은 여기서 다루지 않는다 — 칩이 카탈로그 후보 표기 그대로라 결속이
     이미 보장돼 있고(_planner_scope_ask), 결속 시도가 테마 상장사 조회를 칩 수만큼
     반복해 발행 지연을 키운다. 클릭 시 _apply_universe_chip이 결정론으로 적용한다.
-    반환: (보여줄 칩, {칩: {필드: 값}})."""
+
+    값을 바꾸지 않는 칩 중 현재값을 그대로 가리키는 것은 탈락시키지 않고 **확정 칩**으로
+    결속한다(_confirm_target, § 7 CONFIRM) — 값은 그대로 두고 상태만 PROVISIONAL →
+    CONFIRMED로 올린다.
+    반환: (보여줄 칩, {칩: {필드: 값}}, {칩: 확정 필드})."""
     if _is_universe_topic(topic):
-        return list(chips), {}
+        return list(chips), {}, {}
     from engine.nl_parser import ParsedStrategy, _apply_prompt_overrides
 
     try:
@@ -861,10 +946,11 @@ def _bind_chips(
             parsed.model_dump() if hasattr(parsed, "model_dump") else parsed
         ).model_dump()
     except Exception:  # noqa: BLE001 — 비정상 State는 결속 없이 기존 동작 유지
-        return list(chips), {}
+        return list(chips), {}, {}
 
     bound: List[str] = []
     bindings: Dict[str, Dict[str, Any]] = {}
+    confirms: Dict[str, str] = {}
     for chip in chips:
         text = (chip or "").strip()
         if not text:
@@ -882,11 +968,17 @@ def _bind_chips(
             if key not in _CHIP_BINDING_IGNORED_FIELDS and base.get(key) != value
         }
         if not patch:
+            confirm_field = _confirm_target(base, text, topic)
+            if confirm_field is not None:
+                _log_llm("✓ 확정 칩 결속", f"칩 '{text}' = 현재값 — {confirm_field} 확정용으로 노출")
+                bound.append(text)
+                confirms[text] = confirm_field
+                continue
             _log_llm("↩ 칩 결속 실패", f"칩 '{text}' 값 미결속 — 표현할 수 없어 노출 제외")
             continue
         bound.append(text)
         bindings[text] = patch
-    return bound, bindings
+    return bound, bindings, confirms
 
 
 def _pending_ask_payload(
@@ -905,13 +997,18 @@ def _pending_ask_payload(
         return None
     if parsed is None:
         return {"topic": topic, "question": question, "chips": list(chips)}
-    bound, bindings = _bind_chips(list(chips), parsed, topic)
+    bound, bindings, confirms = _bind_chips(list(chips), parsed, topic)
     if not bound:
         return None
-    return {
+    payload = {
         "topic": topic, "question": question, "chips": bound,
         "chip_bindings": bindings,
     }
+    if confirms:
+        # 값이 아니라 상태만 올리는 칩(§ 7 CONFIRM) — chip_bindings와 섞으면 무변경
+        # 패치가 되어 '반영 없음'으로 떨어진다. 채널을 나눠 클릭 시 확정으로 처리한다.
+        payload["chip_confirms"] = confirms
+    return payload
 
 
 def _plan_first(user_input: str) -> Optional[Any]:
@@ -1138,6 +1235,7 @@ def run_chip_answer(
     user_input: str,
     previous_parsed: Optional[Dict[str, Any]],
     pending_ask: Optional[Dict[str, Any]],
+    previous_explicit_fields: Optional[List[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """직전 planner ask의 옵션 칩 클릭을 결정론으로 State에 반영한다(Phase 4 후속 ①).
 
@@ -1153,6 +1251,9 @@ def run_chip_answer(
     결정적으로 적용되지 않는 칩(추출 실패)은 None — 기존 수정 인터프리터 경로가
     처리한다(칩 자기완결 계약의 안전망). 정확 일치가 아닌 자유 서술 답변도 None —
     §4(답변 강제 귀속 금지)에 따라 Interpreter가 State 변경을 판정한다.
+
+    확정 칩(chip_confirms, § 7 CONFIRM)은 값이 아니라 상태를 바꾼다 — 전략은 그대로 두고
+    그 필드를 explicit_fields에 넣어 PROVISIONAL → CONFIRMED로 올린다.
     """
     if not previous_parsed or not isinstance(pending_ask, dict):
         return None
@@ -1175,6 +1276,31 @@ def run_chip_answer(
         # (테마 카탈로그 정합)이 성립한다. 원문 해석이 아니라 시스템 생성 선택지의
         # 적용이다(계약 § 판정 기준). 적용 실패는 None — 수정 인터프리터가 처리.
         return _apply_universe_chip(user_input, prev, text)
+    confirm_field = (pending_ask.get("chip_confirms") or {}).get(text)
+    if isinstance(confirm_field, str) and confirm_field:
+        # § 7 CONFIRM — 값은 그대로, 상태 축만 PROVISIONAL → CONFIRMED.
+        # 값 패치 경로로 보내면 "변경 없음"이 되어 미해석 안내로 끝난다(확정도 응답이다).
+        from strategy_conversation.response.provenance import merge_explicit_fields
+
+        explicit = merge_explicit_fields(previous_explicit_fields, [confirm_field])
+        _log_llm("✓ 확정 칩 클릭", f"칩 '{text}' — {confirm_field} 현재값 확정(값 불변)")
+        question, suggestions, priority, next_ask = _replan_next_question(
+            user_input, prev, explicit)
+        return finalize_user_response({
+            "parsed": prev,
+            "clarification_question": question,
+            "clarification_suggestions": suggestions,
+            "clarification_priority": priority,
+            "pending_ask": next_ask,
+            "explicit_fields": explicit,
+            "notices": [],
+            "interpreter": {
+                "mode": "primary_chip_confirm",
+                "llm_latency_ms": 0,
+                "patch_count": 0,
+                "confirmed_fields": [confirm_field],
+            },
+        })
     prev_dump = prev.model_dump()
     binding = (pending_ask.get("chip_bindings") or {}).get(text)
     if isinstance(binding, dict) and binding:
@@ -1560,6 +1686,7 @@ def _resolve_theme_change(
 def run_primary_modification(
     user_input: str, previous_parsed: dict, on_stage=None,
     previous_explicit_fields: Optional[List[str]] = None,
+    pending_ask: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """수정 요청의 LLM Interpreter 기본 경로. 성공 시 결과 dict, 폴백 필요 시 None.
 
@@ -1737,6 +1864,42 @@ def run_primary_modification(
                 "confidence": intent.confidence,
             },
         })
+    if intent.intent == "CONFIRM_RECOMMENDATION" and not intent.patches:
+        # § 7 CONFIRM의 자유 서술 레인("응 그걸로", "그대로 좋아"). 확정이라는 판정은
+        # 원문 해석이므로 LLM만 한다(intent 라벨). **무엇을** 확정했는지는 묻지 않는다 —
+        # 확정은 언제나 우리가 방금 던진 질문에 대한 답이므로 pending_ask.topic으로
+        # 결정론이 정한다(§ 20 정정이 되돌림 지점을 LLM에 묻지 않는 것과 같은 이유).
+        # 물어본 적이 없거나 확정 가능 필드가 아니면 무엇을 확정했는지 알 수 없다 —
+        # 임의로 고르지 말고 기존 경로로 넘긴다(말하지 않은 값 확정 금지).
+        confirm_field = strategy_slots.confirmable_field_for_topic(
+            (pending_ask or {}).get("topic"))
+        if confirm_field is not None:
+            from strategy_conversation.response.provenance import merge_explicit_fields
+
+            explicit = merge_explicit_fields(previous_explicit_fields, [confirm_field])
+            _log_llm("✓ 추천값 수락", f"{confirm_field} 현재값 확정(값 불변) — topic={pending_ask.get('topic')}")
+            question, suggestions, priority, next_ask = _replan_next_question(
+                user_input, prev, explicit)
+            return finalize_user_response({
+                "parsed": prev,
+                "clarification_question": question,
+                "clarification_suggestions": suggestions,
+                "clarification_priority": priority,
+                "pending_ask": next_ask,
+                "explicit_fields": explicit,
+                "notices": [],
+                "interpreter": {
+                    "mode": "primary_modify_confirm",
+                    "model_name": result.model_name,
+                    "prompt_version": result.prompt_version,
+                    "repair_attempts": result.repair_attempts,
+                    "llm_latency_ms": result.latency_ms,
+                    "patch_count": 0,
+                    "confidence": intent.confidence,
+                    "confirmed_fields": [confirm_field],
+                },
+            })
+        _log_llm("↩ 폴백", "추천값 수락이지만 직전 질문이 없어 확정 대상 불명 — 기존 경로로")
     if intent.intent not in ("MODIFY_STRATEGY", "CLARIFY_STRATEGY") or not intent.patches:
         _log_llm("↩ 폴백", f"patches 미출력(intent={intent.intent}) — 기존 수정 경로로")
         logger.info("modify primary without patches (intent=%s), falling back", intent.intent)

@@ -81,10 +81,14 @@ def finalize_user_response(result: Dict) -> Dict:
         # 결속 키가 어긋나므로 버린다(클릭 시 결정적 추출 안전망으로 강등).
         final_chips = list(result.get("clarification_suggestions") or [])
         bindings = result["pending_ask"].get("chip_bindings")
+        confirms = result["pending_ask"].get("chip_confirms")
         result["pending_ask"] = (
             {**result["pending_ask"], "question": question, "chips": final_chips,
              **({"chip_bindings": {c: bindings[c] for c in final_chips if c in bindings}}
-                if isinstance(bindings, dict) else {})}
+                if isinstance(bindings, dict) else {}),
+             # 확정 칩(§ 7 CONFIRM)도 값 결속과 같은 계약 — 살아남은 칩만 남긴다.
+             **({"chip_confirms": {c: confirms[c] for c in final_chips if c in confirms}}
+                if isinstance(confirms, dict) else {})}
             if question and final_chips else None
         )
     if result.get("notices"):

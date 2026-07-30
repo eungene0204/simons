@@ -415,8 +415,26 @@ class ClarificationQuestion(BaseModel):
         return _coerce_number(v)
 
 
+# Planner/Interpreter가 제안할 수 있는 연산의 전부(2026-07-30 하이브리드 상태 모델).
+# **상태를 바꾸는 연산은 여기 없다.** MARK_NOT_APPLICABLE·MARK_INVALID·MARK_CONFLICT·
+# REVALIDATE를 추가하지 않는 것은 누락이 아니라 계약이다:
+#   · NOT_APPLICABLE·INVALID·CONFLICTED는 저장하지 않는 파생 상태이고, 판정은 매 턴
+#     결정론 evaluator(validation/pipeline.py → field_state.py → strategy_slots.py)가
+#     현재 전략 전체를 보고 다시 내린다. 패치로 기록하면 같은 판정이 두 곳에서 갈라지고,
+#     되돌림 패치를 LLM이 빠뜨리는 순간 멀쩡한 조건에 '적용 불가'가 영구히 남는다.
+#   · REVALIDATE는 파이프라인이 무조건 수행하는 일이라 지시할 대상이 없다 — 필드를
+#     만들면 LLM이 그것을 **빠뜨릴 수 있게** 되어 없을 때보다 나빠진다.
+# 도메인 의미가 더 분명한 Patch DSL이 필요해지면 별도 마이그레이션으로 분리한다
+# (지금 개명하면 수정 RAG 코퍼스·프롬프트 예시·9B 수정 레인을 전부 재검증해야 한다).
+ALLOWED_PATCH_OPS: frozenset[str] = frozenset({"add", "replace", "remove"})
+
+
 class PatchOp(BaseModel):
-    """기존 StrategyDraft에 적용할 수정 연산(JSON Patch 부분집합)."""
+    """기존 StrategyDraft에 적용할 수정 연산(JSON Patch 부분집합).
+
+    wire format은 JSON Patch를 유지한다 — 코퍼스와 프롬프트 예시가 이 어휘를 가르친다.
+    허용 연산은 ALLOWED_PATCH_OPS가 정본이며, 상태 표시 연산은 포함하지 않는다.
+    """
 
     op: Literal["replace", "add", "remove"]
     path: str = Field(description="JSON Pointer 경로 (예: '/portfolio/rebalance_frequency')")

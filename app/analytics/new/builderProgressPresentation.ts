@@ -18,24 +18,41 @@ export type BuilderSummaryItem = {
   value: string;
 };
 
-// 진행 골격 8칸의 상태 축(백엔드 engine/strategy_slots.py FieldStatus와 동일).
+// 진행 골격 8칸의 두 상태 축(백엔드 engine/strategy_slots.py와 동일).
 // complete(불리언)가 뭉개던 것을 나눈다 — 특히 '해당 없음'과 '완료'의 구분.
-export type FieldStatus =
-  | "UNKNOWN"
-  | "CONFIRMED"
-  | "INFERRED"
-  | "PROVISIONAL"
+//
+// 두 축을 분리해 두는 이유: 값 축은 사용자 소유의 **영속** 상태이고, 파생 축은
+// 현재 전략 전체를 기준으로 백엔드가 **매 턴 다시 계산**하는 값이다. 하나로 합치면
+// "값은 확정인데 지금 유니버스에서 못 쓴다"가 표현되지 않는다.
+export type ValueStatus = "UNKNOWN" | "INFERRED" | "PROVISIONAL" | "CONFIRMED";
+export type DerivedStatus =
+  | "APPLICABLE"
+  | "NOT_APPLICABLE"
   | "INVALID"
-  | "CONFLICTED"
-  | "NOT_APPLICABLE";
+  | "CONFLICTED";
+
+/** 백엔드 field_states 페이로드의 슬롯 하나. */
+export type SlotState = { value?: ValueStatus; derived?: DerivedStatus };
 
 export type BuilderProgressItem = {
   label: string;
   complete: boolean;
   // 백엔드가 계산한 상태(없으면 기존 complete 표시 그대로). 판정은 백엔드 SOT가
   // 소유하며 프론트는 표시만 한다 — 같은 판정의 두 번째 구현을 만들지 않는다.
-  status?: FieldStatus;
+  valueStatus?: ValueStatus;
+  derivedStatus?: DerivedStatus;
 };
+
+/** 두 축을 화면 문구 하나로 줄인다(표시 전용 — 판정이 아니다).
+ *  파생 축이 먼저다: 지금 못 쓰는 칸은 값이 확정이어도 손이 필요하다. */
+export function progressStatusText(item: BuilderProgressItem): string | undefined {
+  if (item.derivedStatus === "NOT_APPLICABLE") return "해당 없음";
+  if (item.derivedStatus === "INVALID" || item.derivedStatus === "CONFLICTED") {
+    return "확인 필요";
+  }
+  if (item.valueStatus === "PROVISIONAL") return "미확인";
+  return undefined;
+}
 
 // 진행률 카드가 슬롯 이름을 상황에 따라 바꿔 다는 자리 — 백엔드 슬롯 어휘로 되돌린다.
 const PROGRESS_LABEL_TO_SLOT: Record<string, string> = {
@@ -48,23 +65,28 @@ const PROGRESS_LABEL_TO_SLOT: Record<string, string> = {
 export function countProgress(
   items: BuilderProgressItem[],
 ): { completed: number; total: number } {
-  const applicable = items.filter((item) => item.status !== "NOT_APPLICABLE");
+  const applicable = items.filter((item) => item.derivedStatus !== "NOT_APPLICABLE");
   return {
     completed: applicable.filter((item) => item.complete).length,
     total: applicable.length,
   };
 }
 
-/** 백엔드 상태 맵을 진행률 항목에 붙인다. 없는 항목은 status 없이 남는다. */
+/** 백엔드 상태 맵을 진행률 항목에 붙인다. 없는 항목은 상태 없이 남는다. */
 export function attachFieldStates(
   items: BuilderProgressItem[],
-  fieldStates: Record<string, string> | null | undefined,
+  fieldStates: Record<string, SlotState> | null | undefined,
 ): BuilderProgressItem[] {
   if (!fieldStates) return items;
   return items.map((item) => {
     const slot = PROGRESS_LABEL_TO_SLOT[item.label] ?? item.label;
-    const status = fieldStates[slot];
-    return status ? { ...item, status: status as FieldStatus } : item;
+    const state = fieldStates[slot];
+    if (!state) return item;
+    return {
+      ...item,
+      ...(state.value ? { valueStatus: state.value } : {}),
+      ...(state.derived ? { derivedStatus: state.derived } : {}),
+    };
   });
 }
 

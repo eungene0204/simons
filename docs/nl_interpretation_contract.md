@@ -1003,6 +1003,130 @@ PENDING/READY/RUNNING/COMPLETED/BLOCKED/INVALIDATED/FAILED/SKIPPED를 계산한�
 회귀: `tests/test_dag_planner.py` 8건, `tests/test_intent_interpreter.py` 5건,
 `app/analytics/new/rollback.test.ts` 3건.
 
+### § 11-14. 확정(CONFIRM) — 값이 아니라 상태를 바꾸는 답 (2026-07-30 완료)
+
+설계 스펙 § 7(State Patch 연산)의 구현. 스펙은 `ADD`·`REPLACE`·`REMOVE` 위에
+`CONFIRM`·`INVALIDATE`·`MARK_CONFLICT`·`MARK_NOT_APPLICABLE`·`REVALIDATE`·`ROLLBACK`
+여섯을 더 요구하지만, **이 코드베이스에서 새 능력인 것은 `CONFIRM` 하나다.**
+
+| 스펙 연산 | 현행 | 판단 |
+|---|---|---|
+| `CONFIRM` | 없음 | **구현** — 아래 |
+| `INVALIDATE` | `validate_capability`가 매 턴 전략 전체에 재실행 | 저장하면 **판정의 두 번째 구현** |
+| `MARK_CONFLICT` | `validate_conflicts` → `report.conflicted_slots` 매 턴 | 〃 |
+| `MARK_NOT_APPLICABLE` | `field_state.slot_status_overrides` 매 턴 | 〃 |
+| `REVALIDATE` | 파이프라인이 매 턴 무조건 재검증 | 지시할 것이 없다(무동작) |
+| `ROLLBACK` | § 11-11에서 턴·필드 단위로 구현 | 표기만 다른 같은 것 |
+
+상태는 이 코드베이스에서 **저장되지 않고 계산된다**(`strategy_slots.evaluate`,
+`field_state.slot_status_overrides`). 상태를 패치로 기록하면 같은 판정이 두 곳에서
+갈라지고, 그것이 `strategy_slots`를 SOT로 모은 이유 자체를 되돌린다
+(`field_state.py` 머리주석: "같은 규칙의 두 번째 구현을 만들면 반드시 갈라진다").
+스펙이 `MARK_*`를 요구하는 것은 스펙의 State가 상태를 **저장**하기 때문이며,
+계산하는 구조에서 그 연산의 등가물은 "값 패치 적용 → 상태 재산출"로 이미 매 턴 돈다.
+
+**CONFIRM만 다른 이유**: 확정은 값에서 **유도되지 않는다**. 물질화된 기본값
+(`max_positions=10`)과 사용자가 10을 골라 확정한 값은 값이 같고 상태만 다르다
+(PROVISIONAL vs CONFIRMED). 그 차이를 나르는 축이 `explicit_fields`(provenance)이고,
+확정은 값을 그대로 둔 채 그 축만 올리는 연산이다.
+
+**실측 결함(구현 동기)** — 확정 경로가 없어서 `_bind_chips`가 현재값과 같은 칩을
+"표현할 수 없어 노출 제외"로 **탈락**시키고 있었다. 우리가 물어놓고 화면에 보여준 값을
+사용자가 선택할 방법이 없었다는 뜻이다:
+
+| 질문 | 사라진 선택지 | 현재값 |
+|---|---|---|
+| 최대 몇 종목을 담을까요? | `최대 10종목` | 10 |
+| 초기 투자 자금은? | `1,000만원` | 10,000,000 |
+| 어느 기간으로 백테스트할까요? | `최근 5년 데이터` | `5y` |
+
+**두 레인**
+
+- **결정론(칩)** — `_confirm_target`. 값이 안 바뀌는 칩에는 ①표현 불가와 ②현재값 지시가
+  섞여 있어, 구분을 **프로브**로 한다: 그 필드를 현재값이 아닌 값으로 바꿔 둔 State에
+  칩을 적용해 현재값으로 되돌아오면 ②다. "패치가 비었으니 topic의 확정"으로 추정하지
+  않는다 — 그 추정은 아무 뜻도 결속되지 않은 칩을 사용자 확정으로 둔갑시켜 되묻기를
+  삼킨다(말하지 않은 값 확정 금지). 확정 칩은 `pending_ask.chip_confirms`로 값 결속과
+  **채널을 나눠** 에코한다(섞으면 무변경 패치가 되어 '반영 없음'으로 떨어진다).
+- **LLM(자유 서술)** — `CONFIRM_RECOMMENDATION`. 라벨은 `IntentType`과 프롬프트에
+  이미 있었으나 **어디서도 처리되지 않아** "응 그걸로"가 patches 없는 의도로 떨어져
+  "해석하지 못했어요"로 끝났다(선언만 있고 배선이 없는 라벨). 확정이라는 판정은 원문
+  해석이므로 LLM이 하고, **무엇을 확정했는지는 묻지 않는다** — 확정은 언제나 우리가
+  방금 던진 질문에 대한 답이므로 `pending_ask.topic`으로 결정론이 정한다(§ 11-13의
+  정정이 되돌림 지점을 LLM에 묻지 않는 것과 같은 이유). 물어본 적이 없으면 임의로
+  고르지 않고 기존 경로로 넘긴다.
+
+**확정 가능 필드는 4개**(`strategy_slots.CONFIRMABLE_FIELDS`): 최대 보유·리밸런싱·
+백테스트 기간·초기 자본. 물질화 기본값이 없는 필드(진입·청산·손절·익절)에는 확정할
+대상이 없고, `universe`는 시장·업종·종목 여러 속성의 합이라 '그 값 그대로'가 하나로
+정해지지 않는다(유니버스 범위 칩은 `_apply_universe_chip`의 값 적용 레인).
+
+**미해결 잔여**: 리밸런싱의 `리밸런싱 안 함` 칩은 여전히 탈락한다 — 결정적 칩 추출기가
+그 문구를 인식하지 못하는데, 인식시키려면 `_extract_rebalancing_period`(**사용자 원문**에
+쓰이는 추출기)의 어휘를 넓혀야 하고 그것은 대원칙 1 위반이다. 올바른 해법은 칩 문구
+재추출이 아니라 planner가 칩 발행 시 값을 함께 선언하는 구조다.
+
+회귀: `tests/test_chip_answer.py` 7건, `tests/test_modify_roundtrip_migration.py` 2건.
+
+### § 11-15. 하이브리드 상태 모델 — 영속·계산·산출물 (2026-07-30 완료)
+
+설계 스펙 § 5·§ 7의 재정의. 스펙은 모든 필드 상태를 State에 저장하라고 요구하지만,
+**저장할 것과 계산할 것을 나눈다**(2026-07-30 사용자 결정).
+
+| 종류 | 상태 값 | 정본(SOT) | 저장? |
+|---|---|---|---|
+| **Persisted User State** | `ValueStatus` 4종 | `ParsedStrategy`(값) + `explicit_fields`(provenance) | ✅ |
+| **Derived Runtime State** | `DerivedStatus` 4종 | `validation/pipeline.py` → `field_state.py` → `strategy_slots.evaluate` | ❌ 매 턴 계산 |
+| **Persisted Artifact State** | `ArtifactStatus` 4종 | `conversation/artifacts.py` | ✅ 근거만 |
+
+**나누는 기준은 재계산 비용이다.** 파생 상태는 전략을 보면 공짜로 다시 나온다(실측
+0.12ms) — 저장하면 판정이 두 곳에서 갈라질 뿐 얻는 것이 없다. Artifact는 지식그래프
+조회·외부 검색이 필요해 "아직 맞나"를 재실행으로 확인할 수 없다 — 그래서 **무엇을
+근거로 만들었는지**(`source_key`)를 남기고 근거만 대조한다.
+
+**가역성이 이 설계의 시험대다.** 유니버스를 ETF로 바꾸면 기존 PER 조건은
+NOT_APPLICABLE로 계산되지만 원본 값은 그대로 보존되고, 다시 코스피로 되돌리면
+**역방향 패치 없이** APPLICABLE로 돌아온다. 상태를 저장했다면 그 되돌림을 LLM이
+발행해야 하고, 빠뜨리면 멀쩡한 조건에 '적용 불가'가 영구히 남는다
+(회귀: `test_derived_status_is_reversible_without_a_reverse_patch`).
+
+**타입을 가른 이유**: 기존 `FieldStatus` 7종은 두 축이 섞여 있어 "값은 확정인데 지금
+유니버스에서 못 쓴다"를 표현할 수 없었다. 이제 `SlotStatus`가 두 필드를 갖고,
+`field_states` 페이로드는 슬롯 → `{value, derived}`다. `NodeStatus`(작업을 실행했나)와
+`ArtifactStatus`(그 결과가 아직 유효한가)도 이름을 겹치지 않게 분리했다.
+
+**파이프라인 불변조건**: 파생 상태 계산은 planner·인터프리터 출력과 무관하게 매 턴 돈다
+(`main._finalize_parse_result` — 모든 반환 지점이 여기를 지난다). 이전에는 계산하는
+레인이 초기 파스와 수정 성공 **둘뿐**이어서, 칩 답변·확정·유니버스 칩·설명·되묻기
+레인에서는 프론트가 직전 턴 사본을 계속 썼다(전략이 바뀐 턴에서는 틀린 표시).
+
+**Patch 허용목록**: `add`/`replace`/`remove`(JSON Patch wire format 유지 — 수정 RAG
+코퍼스와 프롬프트 예시가 이 어휘를 가르친다). `MARK_NOT_APPLICABLE`·`MARK_INVALID`·
+`MARK_CONFLICT`·`REVALIDATE`는 **추가하지 않는 것이 계약**이며 `ALLOWED_PATCH_OPS`와
+`patch_applier._reject_state_ops`가 그것을 코드에 남긴다. `REVALIDATE`는 파이프라인이
+무조건 하는 일이라 지시할 대상이 없다 — 필드를 만들면 LLM이 그것을 **빠뜨릴 수 있게**
+되어 없을 때보다 나빠진다.
+
+**비권위 메타데이터**: `field_metadata`(`source`·`updated_at`·`confidence`)는 저장하되
+판정에 쓰지 않는다. `explicit_fields`와 채널을 섞지 않은 이유는, 게이트가 읽는 권위
+축에 비권위 값을 넣으면 언젠가 판정에 새어 들기 때문이다(회귀 테스트가 판정 경로 4개
+파일에 이 이름이 등장하지 않음을 확인한다). **`confidence`는 필드별 producer가 없다** —
+인터프리터는 턴 하나에 값 하나를 내므로, 여기 실리는 것은 '이 필드를 마지막으로 바꾼
+해석의 확신도'이지 필드 자체의 확신도가 아니다.
+
+**`INFERRED`는 producer가 없다** — enum과 스키마에만 유지한다. 정성 표현 매핑·암시적
+유니버스 추론을 이 상태로 잇는 것은 별도 단계다(이번 작업의 목표는 상태 모델 정리이지
+새 추론 기능 추가가 아니다).
+
+**Artifact 대조의 한계**: STALE 판정은 "요구한 테마"와 "산출물이 만들어진 테마"가 각각
+저장돼 있을 때만 가능하다. 정본 업종('반도체')은 `parsed.sector`에 남지만 미지
+테마('쿠팡 관련주')는 `sector` 검증을 통과하지 못해 요청이 어디에도 남지 않는다 —
+그 경우 VALID는 '확인했다'가 아니라 '반증이 없다'는 뜻이며 `basis_verified=False`로
+드러낸다. 드러내지 않으면 검증되지 않은 산출물이 검증된 것처럼 보인다.
+
+회귀: `tests/test_field_state.py` 27건, `tests/test_strategy_slots.py`,
+`app/analytics/new/builderProgressPresentation.test.ts`.
+
 ### 마이그레이션 순서
 
 1번(`nl_parser.py`)은 독립 순번이 없다 — 나머지가 끝나면 남는 잔여물이며, 성격이 다른

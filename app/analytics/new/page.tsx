@@ -114,6 +114,8 @@ import {
   attachFieldStates,
   countProgress,
   getDisplayBuilderProgressItems,
+  progressStatusText,
+  type SlotState,
   type BuilderProgressItem,
   type BuilderSummaryItem,
   type BuilderTurnPresentation,
@@ -1200,13 +1202,6 @@ function BuilderStrategyOverview({
 }
 
 // 상태 축이 붙은 항목의 표시 문안. status가 없으면 기존 complete 표시 그대로다.
-const PROGRESS_STATUS_TEXT: Record<string, string> = {
-  NOT_APPLICABLE: "해당 없음",
-  INVALID: "확인 필요",
-  CONFLICTED: "확인 필요",
-  PROVISIONAL: "미확인",
-};
-
 function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
   const { completed: completedCount, total: applicableCount } = countProgress(items);
   const displayItems = getDisplayBuilderProgressItems(items);
@@ -1228,8 +1223,8 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
       </div>
       <ol className="mt-3 flex flex-col gap-2" data-testid="strategy-progress-list">
         {displayItems.map((item) => {
-          const notApplicable = item.status === "NOT_APPLICABLE";
-          const statusText = item.status ? PROGRESS_STATUS_TEXT[item.status] : undefined;
+          const notApplicable = item.derivedStatus === "NOT_APPLICABLE";
+          const statusText = progressStatusText(item);
           // '해당 없음'은 완료도 미완료도 아니다 — 체크도 빈 원도 달지 않고 흐리게 둔다.
           const showCheck = item.complete && !notApplicable;
           return (
@@ -1247,7 +1242,8 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
             }`}
             data-complete={item.complete ? "true" : "false"}
             data-progress-label={item.label}
-            data-progress-status={item.status ?? ""}
+            data-progress-derived={item.derivedStatus ?? ""}
+            data-progress-value={item.valueStatus ?? ""}
           >
             {showCheck ? (
               <CheckCircle
@@ -1367,9 +1363,19 @@ function StrategyLabContent() {
   // ParsedStrategy 왕복은 기본값을 물질화해 이 정보를 지우므로 별도 채널이 필요하다.
   // 프론트가 원문 정규식으로 같은 판정을 하던 계약 위반(hasExplicit*)의 대체다.
   const explicitFieldsRef = useRef<string[]>([]);
-  // 진행 골격 8칸의 상태 축(백엔드 field_states) — 진행률 카드 표시 전용이다.
+  // 진행 골격 8칸의 두 상태 축(백엔드 field_states) — 진행률 카드 표시 전용이다.
   // 되묻기 게이트·실행 버튼은 이 값을 보지 않는다(판정 정본은 explicit_fields+isSlotFilled).
-  const fieldStatesRef = useRef<Record<string, string> | null>(null);
+  // 파생 축은 **저장하지 않는 계산값**이라 백엔드가 매 턴 새로 보낸다 — 여기 남은 값은
+  // 직전 응답의 사본일 뿐이며 프론트가 스스로 갱신하지 않는다.
+  const fieldStatesRef = useRef<Record<string, SlotState> | null>(null);
+  // 값 변경 추적 메타데이터(백엔드 field_metadata) — {필드: {source, updated_at, confidence}}.
+  // **비권위**: 되묻기·진행률·실행 가능 여부 판정은 이 값을 읽지 않는다. 소비자가 생기기
+  // 전까지 추적·디버깅용 기록이며, 프론트는 무상태 에코만 담당한다.
+  const fieldMetadataRef = useRef<Record<string, unknown> | null>(null);
+  // 영속 Artifact 상태(백엔드 artifacts) — {산출물: {status, produced_by, source_key}}.
+  // 파생 상태와 달리 저장된다: 지식그래프 조회 결과가 아직 맞는지 확인하려고 다시
+  // 조회할 수는 없으므로 근거를 남겨 두고 대조한다.
+  const artifactsRef = useRef<Record<string, unknown> | null>(null);
   // 변경 이력(설계 스펙 § 19) — 턴마다 "무엇이 바뀌었나"와 그 시점 스냅샷을 쌓는다.
   // 되돌리기는 이 스택에서 결정론으로 복원한다(대상 판정만 백엔드 LLM 레인).
   // 백엔드에 세션이 없으므로 보관은 여기이며, 세션 스냅샷에 함께 저장된다.
@@ -1400,6 +1406,8 @@ function StrategyLabContent() {
     explicitNoRebalancingRef.current = false;
     explicitFieldsRef.current = [];
     fieldStatesRef.current = null;
+    fieldMetadataRef.current = null;
+    artifactsRef.current = null;
     changeLogRef.current = [];
     pendingAskRef.current = null;
     pendingHoldingPeriodPromptRef.current = null;
@@ -2329,6 +2337,8 @@ function StrategyLabContent() {
         // 결정론 칩 답변 레인(LLM 생략)으로 State에 반영한다(Phase 4 후속 ①).
         ...(currentParsed && pendingAskRef.current ? { pending_ask: pendingAskRef.current } : {}),
         previous_explicit_fields: explicitFieldsRef.current,
+        previous_field_metadata: fieldMetadataRef.current,
+        previous_artifacts: artifactsRef.current,
       }),
     });
     if (!res.ok || !res.body) {
@@ -2429,6 +2439,11 @@ function StrategyLabContent() {
       // 진행 골격 8칸의 상태 축(표시 전용). 아래 게이트 계산에는 쓰지 않는다 —
       // 되묻기·실행 판정의 정본은 여전히 explicit_fields + isSlotFilled다.
       fieldStatesRef.current = parsedPayload.field_states ?? fieldStatesRef.current;
+      // 값 변경 추적 메타데이터(비권위) — 어디서도 판정에 쓰지 않는다. 백엔드가 누적을
+      // 소유하므로 여기서는 받은 것을 보관해 다음 턴에 그대로 되돌려줄 뿐이다.
+      fieldMetadataRef.current = parsedPayload.field_metadata ?? fieldMetadataRef.current;
+      // 영속 Artifact 상태 — 백엔드가 매 턴 근거 대조로 판정하고, 프론트는 에코만 한다.
+      artifactsRef.current = parsedPayload.artifacts ?? null;
       // 변경 이력에 이번 턴을 쌓는다(§ 19). 스냅샷은 **이 턴이 끝난 뒤** 상태이고,
       // changed_fields가 비면 되돌릴 것이 없는 턴이다(최초 파스·무변경 수정).
       changeLogRef.current = appendChangeLog(changeLogRef.current, {
@@ -3646,6 +3661,8 @@ function StrategyLabContent() {
     setExplicitNoRebalancing(false);
     explicitFieldsRef.current = [];
     fieldStatesRef.current = null;
+    fieldMetadataRef.current = null;
+    artifactsRef.current = null;
     changeLogRef.current = [];
     workflowStatusRef.current = "IDLE";
     pendingHoldingPeriodPromptRef.current = null;

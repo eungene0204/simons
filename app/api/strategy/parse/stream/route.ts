@@ -11,6 +11,10 @@ type ParseStreamBody = {
   pending_ask?: { topic?: string | null; question: string; chips: string[] } | null;
   // 이전 턴까지 사용자가 명시한 설정 필드 에코(provenance 누적 — 무상태 계약)
   previous_explicit_fields?: string[];
+  // 값 변경 추적 메타데이터 에코(비권위 — 판정에 쓰지 않는다)
+  previous_field_metadata?: Record<string, unknown> | null;
+  // 영속 Artifact 상태 에코(비싼 도구 산출물의 근거·유효성)
+  previous_artifacts?: Record<string, unknown> | null;
 };
 
 function sseEvent(data: object | string): string {
@@ -161,6 +165,12 @@ export async function POST(req: NextRequest) {
             // 쓴다. 누락되면 이력이 "무엇이 바뀌었는지 모르는" 상태가 돼 되돌리기가
             // 항상 되묻기로 강등된다.
             changed_fields: data.changed_fields ?? null,
+            // 값 변경 추적 메타데이터(비권위) — 어느 턴에 무엇이 왜 바뀌었는지의 기록.
+            // 판정에 쓰지 않으므로 누락돼도 동작은 그대로다(추적 정보만 끊긴다).
+            field_metadata: data.field_metadata ?? null,
+            // 영속 Artifact 상태 — 비싼 도구 산출물(테마 종목)의 근거와 유효성.
+            // 재조회가 비싸 "아직 맞나"를 재실행으로 확인할 수 없어 기록으로 나른다.
+            artifacts: data.artifacts ?? null,
             notices: data.notices ?? null,
           });
           send({

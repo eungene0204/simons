@@ -9,11 +9,27 @@ from __future__ import annotations
 import copy
 from typing import Any, List
 
-from strategy_conversation.interpreter.models import PatchOp, StrategySpec
+from strategy_conversation.interpreter.models import ALLOWED_PATCH_OPS, PatchOp, StrategySpec
 
 
 class PatchError(ValueError):
     pass
+
+
+def _reject_state_ops(patches: List[PatchOp]) -> None:
+    """허용목록 밖 연산을 거부한다 — 특히 상태를 쓰려는 연산.
+
+    Pydantic Literal이 이미 대부분을 막지만, 이 검사는 **계약을 코드에 남기기 위한
+    것**이다: 파생 상태(NOT_APPLICABLE·INVALID·CONFLICTED)는 패치로 기록되지 않고
+    결정론 evaluator가 매 턴 계산한다. 이 자리에 MARK_* 를 더하고 싶어질 때 여기서
+    막힌다(허용목록을 늘리는 것이 곧 그 계약을 깨는 일임을 드러낸다).
+    """
+    unknown = sorted({p.op for p in patches if p.op not in ALLOWED_PATCH_OPS})
+    if unknown:
+        raise PatchError(
+            f"허용되지 않은 패치 연산입니다: {', '.join(unknown)} — "
+            "상태(적용 불가·모순·미지원)는 패치가 아니라 매 턴 결정론 계산이 정합니다"
+        )
 
 
 def _resolve_parent(doc: Any, path: str):
@@ -41,6 +57,7 @@ def _resolve_parent(doc: Any, path: str):
 
 def apply_patches(strategy: StrategySpec, patches: List[PatchOp]) -> StrategySpec:
     """패치를 적용한 새 StrategySpec을 반환한다(원본 불변). 실패 시 PatchError."""
+    _reject_state_ops(patches)
     doc = copy.deepcopy(strategy.model_dump())
     for patch in patches:
         parent, last = _resolve_parent(doc, patch.path)

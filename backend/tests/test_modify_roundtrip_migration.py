@@ -412,3 +412,39 @@ def test_unapplied_modify_clarification_carries_priority_marker(monkeypatch):
     )
     assert result["interpreter"]["mode"] == "primary_modify_self_doubt"
     assert result["clarification_priority"] == "modify_unapplied"
+
+
+# ── § 7 CONFIRM: 추천값 수락(자유 서술 레인) ────────────────────────────────────
+# CONFIRM_RECOMMENDATION은 IntentType·프롬프트에는 있었지만 어디서도 처리되지 않아,
+# "응 그걸로 해줘"가 patches 없는 의도로 떨어져 "해석하지 못했어요"로 끝났다.
+
+def _confirm_intent() -> StrategyIntent:
+    return StrategyIntent.model_validate(
+        {"intent": "CONFIRM_RECOMMENDATION", "patches": [], "confidence": 1.0})
+
+
+def test_confirmation_promotes_the_asked_field_without_changing_the_value(monkeypatch):
+    """확정 대상은 LLM에 묻지 않는다 — 직전 질문(pending_ask.topic)이 결정론으로 정한다."""
+    _stub_interpreter(monkeypatch, _confirm_intent())
+    prev = ParsedStrategy.model_validate({"description": "테스트 전략"})
+    result = primary.run_primary_modification(
+        "응 그걸로 해줘", prev.model_dump(),
+        previous_explicit_fields=["universe"],
+        pending_ask={"topic": "최대 보유", "question": "몇 종목?", "chips": ["최대 5종목"]},
+    )
+    assert result is not None
+    assert result["interpreter"]["mode"] == "primary_modify_confirm"
+    assert result["parsed"].max_positions == prev.max_positions
+    assert result["explicit_fields"] == ["universe", "max_positions"]
+
+
+def test_confirmation_without_a_prior_question_does_not_guess_a_field(monkeypatch):
+    """무엇을 확정했는지 알 수 없으면 임의로 고르지 않고 기존 경로로 넘긴다."""
+    _stub_interpreter(monkeypatch, _confirm_intent())
+    prev = ParsedStrategy.model_validate({"description": "테스트 전략"})
+    assert primary.run_primary_modification(
+        "응 그걸로 해줘", prev.model_dump(), pending_ask=None) is None
+    # 확정 가능 슬롯이 아닌 질문(매수 조건)도 마찬가지 — 확정할 스칼라 기본값이 없다.
+    assert primary.run_primary_modification(
+        "응 그걸로 해줘", prev.model_dump(),
+        pending_ask={"topic": "매수 조건", "question": "?", "chips": []}) is None

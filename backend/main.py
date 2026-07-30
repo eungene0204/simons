@@ -41,7 +41,7 @@ from engine.watchdog import (
     walk_forward_timeout_s,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime
+from datetime import datetime, timezone
 import uvicorn
 import time
 import asyncio
@@ -2589,6 +2589,11 @@ class NLParseRequest(BaseModel):
     # 그대로 에코한다(pending_ask와 같은 무상태 컨텍스트 에코 계약). ParsedStrategy 왕복은
     # 기본값을 물질화해 provenance를 지우므로, 누적은 이 에코로만 가능하다.
     previous_explicit_fields: Optional[List[str]] = None
+    # 값 변경 추적 메타데이터(비권위) — explicit_fields와 같은 무상태 에코 계약.
+    # {필드: {source, updated_at, confidence}}. 판정에는 쓰지 않는다.
+    previous_field_metadata: Optional[dict] = None
+    # 영속 Artifact 상태 에코 — 비싼 도구 산출물의 근거와 유효성 기록.
+    previous_artifacts: Optional[dict] = None
 
 class NLParseResponse(BaseModel):
     parsed: dict
@@ -2610,6 +2615,12 @@ class NLParseResponse(BaseModel):
     # 원문을 정규식으로 재분석해 되묻기 여부를 정하던 계약 위반(hasExplicit*)의 대체
     # 채널이며, risk_overrides와 동일한 "단일 진실 소스" 계약이다.
     explicit_fields: Optional[List[str]] = None
+    # 값 변경 추적 메타데이터(비권위, {필드: {source, updated_at, confidence}}).
+    # 디버깅·추적 전용 — 되묻기·진행률·실행 가능 여부 판정은 이 값을 보지 않는다.
+    field_metadata: Optional[dict] = None
+    # 영속 Artifact 상태({산출물: {status, produced_by, source_key}}).
+    # 파생 상태와 달리 저장한다 — 재조회가 비싸 "아직 맞나"를 재실행으로 확인할 수 없다.
+    artifacts: Optional[dict] = None
     # 룰 파싱의 LLM 검증 리포트(Parse Fidelity Validator). 검증이 안 돌았으면 None.
     parse_validation: Optional[dict] = None
     # 하한선 보정 안내(비차단 notices 채널, 예: 초기자금 100만원 보정).
@@ -3018,6 +3029,95 @@ def parse_nl_strategy(request: NLParseRequest):
     return _run_nl_parse(request)
 
 
+def _finalize_parse_result(result: dict, request: NLParseRequest) -> dict:
+    """파스 응답의 공통 마무리 — **모든 반환 지점이 여기를 지난다**.
+
+    provenance 이월과 파생 상태 재계산을 개별 반환 지점에 흩어 두면 새 레인이 생길 때마다
+    빠뜨린다(실제로 field_states가 레인 2곳에만 있었다). 순서가 중요하다: 값 축이
+    explicit_fields를 입력으로 쓰므로 provenance가 먼저 확정돼야 한다.
+    """
+    # provenance 이월 — 인터프리터가 판정하지 않은 턴(폴백·레거시 레인)에서도 이전
+    # 턴까지의 명시 필드를 잃지 않는다(프론트 에코 계약의 무상태 누적).
+    if result.get("explicit_fields") is None:
+        result["explicit_fields"] = list(request.previous_explicit_fields or [])
+    _ensure_field_states(result)
+    _ensure_field_metadata(result, request)
+    _ensure_artifacts(result, request)
+    return result
+
+
+def _ensure_artifacts(result: dict, request: NLParseRequest) -> None:
+    """영속 Artifact 상태 — 비싼 도구 산출물이 아직 유효한지 근거 대조로 판정한다.
+
+    파생 상태와 달리 **저장한다**: 지식그래프 조회 결과를 "아직 맞나" 확인하려고 다시
+    조회할 수는 없으므로, 무엇을 근거로 만들었는지를 남겨 두고 근거만 대조한다.
+    """
+    try:
+        from strategy_conversation.conversation.artifacts import evaluate_artifacts
+
+        result["artifacts"] = evaluate_artifacts(
+            result.get("parsed"), request.previous_artifacts)
+    except Exception:  # noqa: BLE001 — 추적 정보가 파스를 깨면 안 된다
+        logger.warning("Artifact 상태 판정 실패 — 생략", exc_info=True)
+
+
+# 값이 사용자 발화가 아니라 지식 조회에서 온 필드 — 테마 유니버스가 채운 종목 목록이다.
+# 이 구분은 저장된 구조(theme_universe 출처 표기)를 읽을 뿐 원문을 보지 않는다.
+_KG_SOURCED_FIELDS = frozenset({"target_symbols", "theme_universe"})
+
+
+def _ensure_field_metadata(result: dict, request: NLParseRequest) -> None:
+    """값 변경 추적 메타데이터(비권위) — 이번 턴에 바뀐 필드에 출처·시각을 기록한다.
+
+    **판정에 쓰지 않는다.** 되묻기·진행률·실행 가능 여부·분기는 값과 explicit_fields만
+    본다(2026-07-30 사용자 결정 — 소비자가 생기기 전까지 비권위 메타데이터).
+    바뀐 필드가 없으면 이전 기록을 그대로 이월한다.
+    """
+    from strategy_conversation.response.provenance import merge_field_metadata
+
+    changed = result.get("changed_fields")
+    previous = request.previous_field_metadata
+    if not changed:
+        result["field_metadata"] = dict(previous) if isinstance(previous, dict) else None
+        return
+    parsed = result.get("parsed")
+    theme = getattr(parsed, "theme_universe", None)
+    interpreter_meta = (result.get("runtime") or {}).get("interpreter") or {}
+    kg_changed = [f for f in changed if theme and f in _KG_SOURCED_FIELDS]
+    user_changed = [f for f in changed if f not in kg_changed]
+    now = datetime.now(timezone.utc).isoformat()
+    confidence = interpreter_meta.get("confidence")
+    metadata = merge_field_metadata(
+        previous, user_changed, source="USER", updated_at=now, confidence=confidence)
+    metadata = merge_field_metadata(
+        metadata, kg_changed, source="KNOWLEDGE_GRAPH", updated_at=now,
+        confidence=confidence)
+    result["field_metadata"] = metadata or None
+
+
+def _ensure_field_states(result: dict) -> None:
+    """파이프라인 불변조건 — 모든 응답은 **이번 턴의 State로 계산한** 파생 상태를 싣는다.
+
+    파생 상태(NOT_APPLICABLE·INVALID·CONFLICTED)는 저장하지 않는 계산값이다. 그래서
+    어떤 레인이 계산을 건너뛰면 값이 비는 게 아니라 **프론트가 직전 턴의 사본을 계속
+    쓴다** — 전략이 바뀐 턴에서는 그것이 틀린 표시가 된다(실측: 칩 답변으로 최대 보유가
+    10→5로 바뀌어도 상태 맵은 이전 턴 것이 그대로 남았다. 계산하는 레인은 초기 파스와
+    수정 성공 둘뿐이었고, 칩 답변·확정·유니버스 칩·설명·되묻기 레인은 전부 빠져 있었다).
+
+    인터프리터 레인은 (strategy, report)를 이미 들고 있어 같은 계산을 더 싸게 마쳤다 —
+    그 결과가 있으면 그대로 둔다(계산을 건너뛰는 것이 아니라 재사용하는 것이다).
+    """
+    if result.get("field_states"):
+        return
+    try:
+        from strategy_conversation.primary import derive_field_states
+
+        result["field_states"] = derive_field_states(
+            result["parsed"], result.get("explicit_fields")) or None
+    except Exception:  # noqa: BLE001 — 표시용 부가 정보가 파스를 깨면 안 된다
+        logger.warning("파생 상태 계산 실패 — 생략", exc_info=True)
+
+
 def _build_parse_result(request: NLParseRequest, backend: str, parsed, validation_report,
                         *, load_ms: float, parse_ms: float, request_started: float,
                         scan_prompt_for_sector: bool = True) -> dict:
@@ -3163,12 +3263,16 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         "clarification_suggestions": clarification_suggestions,
         "clarification_priority": clarification_priority,
         "pending_ask": None,  # primary 경로의 planner ask가 apply_primary_meta로 채운다
-        # 진행 골격 8칸의 상태 축(설계 스펙 § 5) — primary 경로가 apply_primary_meta로
-        # 채운다. 표시 전용이며 되묻기·실행 게이트는 이 값을 쓰지 않는다.
+        # 진행 골격 8칸의 두 상태 축(설계 스펙 § 5) — 응답 조립 끝에서 불변조건으로
+        # 채워진다(_ensure_field_states). 여기서는 자리만 잡는다.
         "field_states": None,
         # 이 턴이 바꾼 필드 이름(설계 스펙 § 19) — 프론트가 변경 이력에 쌓아 되돌리기의
         # 근거로 쓴다. 수정 턴에서만 채워진다(최초 파스는 되돌릴 이전 상태가 없다).
         "changed_fields": None,
+        # 값 변경 추적 메타데이터(비권위) — _finalize_parse_result가 채운다.
+        "field_metadata": None,
+        # 영속 Artifact 상태 — _finalize_parse_result가 채운다.
+        "artifacts": None,
         "risk_overrides": risk_overrides,
         "parse_validation": validation_report,
         "notices": notices,
@@ -3213,6 +3317,7 @@ def _complete_deferred_validation(defer_ctx: dict):
     extra_notices = defer_ctx.get("extra_notices") or []
     if extra_notices:
         result["notices"] = extra_notices + list(result.get("notices") or [])
+    _finalize_parse_result(result, defer_ctx["request"])
     _store_nl_parse_cache(cache_key, result)
     return result
 
@@ -3317,7 +3422,7 @@ def _interpretation_failure_result(request: NLParseRequest, backend: str, reques
     result["clarification_suggestions"] = chips
     # 우선순위 마커 — 프론트의 explicit 설정 게이트가 이 안내를 삼키지 않게 한다.
     result["clarification_priority"] = "interpretation_failed"
-    return result
+    return _finalize_parse_result(result, request)
 
 
 def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | None = None):
@@ -3410,7 +3515,8 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
             from strategy_conversation.primary import run_chip_answer
             parsed = None
             _chip_result = run_chip_answer(
-                request.prompt, request.previous_parsed, request.pending_ask
+                request.prompt, request.previous_parsed, request.pending_ask,
+                previous_explicit_fields=request.previous_explicit_fields,
             )
             if _chip_result is not None:
                 primary_holder.update(_chip_result)
@@ -3438,6 +3544,7 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
                 result["clarification_question"] = _clar["question"]
                 result["clarification_suggestions"] = _clar["suggestions"]
                 _nl_parser_status["status"] = "ok"
+                _finalize_parse_result(result, request)
                 _record_ai_runtime("parse", result["runtime"])
                 _store_nl_parse_cache(cache_key, result)
                 return result
@@ -3452,6 +3559,7 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
                 _primary_mod = run_primary_modification(
                     request.prompt, request.previous_parsed, on_stage=on_stage,
                     previous_explicit_fields=request.previous_explicit_fields,
+                    pending_ask=request.pending_ask,
                 )
                 if _primary_mod is not None:
                     primary_holder.update(_primary_mod)
@@ -3550,8 +3658,7 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
             result["notices"] = [grounding_notice] + list(result.get("notices") or [])
         # provenance 이월 — 인터프리터가 판정하지 않은 턴(폴백·레거시 레인)에서도 이전
         # 턴까지의 명시 필드를 잃지 않는다(프론트 에코 계약의 무상태 누적).
-        if result.get("explicit_fields") is None:
-            result["explicit_fields"] = list(request.previous_explicit_fields or [])
+        _finalize_parse_result(result, request)
         _record_ai_runtime("parse", result["runtime"])
         _store_nl_parse_cache(cache_key, result)
         return result

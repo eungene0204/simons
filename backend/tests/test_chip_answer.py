@@ -250,3 +250,84 @@ def test_click_applies_stored_binding_without_reinterpreting_the_label():
     assert result is not None
     assert result["parsed"].exit_signals[0].indicator == "ma_crossover"
     assert result["parsed"].exit_signals[0].long_period == 20
+
+
+# ── 확정 칩(§ 7 CONFIRM) ────────────────────────────────────────────────────────
+# 값이 안 바뀌는 칩에는 두 종류가 섞여 있다: 표현할 수 없는 칩(탈락)과 이미 물질화된
+# 기본값을 그대로 가리키는 칩(확정). 후자를 함께 떨어뜨리면 우리가 물어놓고 화면에
+# 보여준 값을 사용자가 선택할 방법이 사라진다.
+
+
+def _blank_strategy() -> ParsedStrategy:
+    return ParsedStrategy.model_validate({"description": "테스트 전략"})
+
+
+@pytest.mark.parametrize(
+    "topic,chips,default_chip,field",
+    [
+        ("최대 보유", ["최대 5종목", "최대 10종목", "최대 20종목"], "최대 10종목", "max_positions"),
+        ("초기 자본", ["500만원", "1,000만원", "3,000만원"], "1,000만원", "initial_capital"),
+        ("백테스트 기간", ["최근 1년 데이터", "최근 5년 데이터"], "최근 5년 데이터",
+         "backtest_period"),
+    ],
+)
+def test_default_valued_chip_is_offered_as_a_confirm_chip(topic, chips, default_chip, field):
+    """현재값과 같은 칩은 탈락이 아니라 확정 칩으로 노출된다."""
+    payload = _pending_ask_payload("?", chips, topic, _blank_strategy())
+    assert payload is not None
+    assert default_chip in payload["chips"]
+    assert payload["chip_confirms"] == {default_chip: field}
+    # 값 결속과 섞이지 않는다 — 섞이면 무변경 패치가 되어 '반영 없음'으로 떨어진다.
+    assert default_chip not in payload["chip_bindings"]
+
+
+def test_confirm_chip_click_keeps_the_value_and_promotes_provenance():
+    """확정 칩 클릭은 값을 바꾸지 않고 상태만 올린다(PROVISIONAL → CONFIRMED)."""
+    prev = _blank_strategy()
+    ask = _pending_ask_payload(
+        "몇 종목?", ["최대 5종목", "최대 10종목"], "최대 보유", prev)
+    result = run_chip_answer(
+        "최대 10종목", prev.model_dump(), ask, previous_explicit_fields=["universe"])
+    assert result is not None
+    assert result["interpreter"]["mode"] == "primary_chip_confirm"
+    assert result["parsed"].max_positions == prev.max_positions
+    assert result["explicit_fields"] == ["universe", "max_positions"]
+
+
+def test_inexpressible_chip_is_still_dropped_under_a_confirmable_topic():
+    """확정 가능한 topic이어도 그 필드를 정하지 못하는 칩은 확정이 아니다.
+
+    '패치가 비었으니 topic의 확정'으로 추정하면 아무 뜻도 결속되지 않은 칩이 사용자
+    확정으로 둔갑해 되묻기를 삼킨다(말하지 않은 값 확정 금지).
+    """
+    payload = _pending_ask_payload(
+        "몇 종목?", ["최대 5종목", "거래량 급감(전일 대비 1/2 이하) 시 매도"],
+        "최대 보유", _blank_strategy(),
+    )
+    assert payload is not None
+    assert payload["chips"] == ["최대 5종목"]
+    assert not payload.get("chip_confirms")
+
+
+def test_confirm_chips_survive_the_output_guard():
+    """가드가 pending_ask를 재구성해도 확정 채널이 사라지지 않는다."""
+    prev = _blank_strategy()
+    ask = _pending_ask_payload(
+        "몇 종목?", ["최대 5종목", "최대 10종목"], "최대 보유", prev)
+    finalized = finalize_user_response({
+        "clarification_question": ask["question"],
+        "clarification_suggestions": list(ask["chips"]),
+        "pending_ask": ask,
+    })
+    assert finalized["pending_ask"]["chip_confirms"] == {"최대 10종목": "max_positions"}
+
+
+def test_unknown_topic_cannot_confirm():
+    """직전 질문이 확정 가능 슬롯을 가리키지 않으면 확정 대상이 없다."""
+    from engine.strategy_slots import confirmable_field_for_topic
+
+    assert confirmable_field_for_topic(None) is None
+    assert confirmable_field_for_topic("매수 조건") is None
+    assert confirmable_field_for_topic("유니버스") is None
+    # planner가 라벨을 늘려 써도 정본 라벨에 맞춘다(표기 정규화).
+    assert confirmable_field_for_topic("최대 보유 종목 수") == "max_positions"

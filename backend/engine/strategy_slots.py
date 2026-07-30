@@ -30,12 +30,16 @@ from enum import Enum
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 
-class FieldStatus(str, Enum):
-    """필드의 상태 — `filled` 불리언이 뭉개던 정보를 되살린 축(설계 스펙 § 5).
+class ValueStatus(str, Enum):
+    """사용자 값의 확정도 — **영속 상태**(설계 스펙 § 5, 2026-07-30 하이브리드 재정의).
 
     `filled`는 "더 물을 것이 없다"만 답한다. 그래서 **해당 없음과 완료가 같은 True**로
     보였고(단독 종목의 리밸런싱이 진행률에 체크로 표시), 기본값이 물질화된 값과 사용자가
     말한 값도 구분되지 않았다. 이 축은 그 셋을 나눈다.
+
+    이 축의 정본 담지자는 값(`ParsedStrategy`)과 provenance 사이드카(`explicit_fields`)다
+    — 값을 `{value, status, ...}`로 감싸지 않는다(컴파일러·디컴파일러·patch_applier·
+    엔진 변환기·프론트를 전부 깨뜨린다).
 
     `filled`의 판정은 바뀌지 않는다 — 이 축은 옆에 붙는 정보이며, 기존 게이트·진행률의
     통과 여부를 바꾸지 않는다(되묻기 흐름 무영향).
@@ -43,23 +47,44 @@ class FieldStatus(str, Enum):
 
     # 값이 없고 아직 결정되지 않았다.
     UNKNOWN = "UNKNOWN"
-    # 사용자가 직접 제공했거나 시스템이 확정해 협상 대상이 아니다.
-    CONFIRMED = "CONFIRMED"
     # 문맥에서 추론한 값. 확정값처럼 취급하지 않는다.
+    # **현재 producer 없음** — 스키마로만 유지한다(2026-07-30 사용자 결정). 정성 표현
+    # 매핑·암시적 유니버스 추론을 이 상태로 잇는 것은 별도 단계다. 외부에서 들어오면
+    # 값 출처가 LLM_INFERENCE인지 검사하고 텔레메트리에 남긴다.
     INFERRED = "INFERRED"
     # 값은 있으나 사용자가 확인하지 않았다(기본값 물질화·추천값).
     PROVISIONAL = "PROVISIONAL"
-    # 값이 있으나 현재 실행할 수 없다(미지원·미해석 지표).
+    # 사용자가 직접 제공했거나 시스템이 확정해 협상 대상이 아니다.
+    CONFIRMED = "CONFIRMED"
+
+
+class DerivedStatus(str, Enum):
+    """파생 런타임 상태 — **저장하지 않는다. 매 턴 전략 전체를 보고 계산한다.**
+
+    ValueStatus와 축이 다르다: 저쪽은 "이 값이 어디서 왔나"(사용자 소유, 영속),
+    이쪽은 "지금 이 전략에서 그 값이 성립하나"(시스템 판정, 계산).
+
+    영속화하지 않는 이유가 이 타입의 존재 이유다. 유니버스를 ETF로 바꾸면 기존 PER
+    조건은 NOT_APPLICABLE이 되지만, **원본 값은 지우지도 표시를 저장하지도 않는다** —
+    다시 코스피로 되돌리면 역방향 패치 없이 APPLICABLE로 돌아와야 한다. 상태를 저장하면
+    그 되돌림을 누군가(=LLM) 발행해야 하고, 빠뜨리면 멀쩡한 조건에 '적용 불가' 표시가
+    영구히 남는다(2026-07-30 설계 결정).
+    """
+
+    # 현재 전략에서 그대로 성립한다(기본값).
+    APPLICABLE = "APPLICABLE"
+    # 현재 전략 유형·유니버스에서는 적용할 수 없어 물을 대상이 아니다.
+    # 해결책은 유니버스를 바꾸는 것이다(값을 바꾸는 것이 아니다).
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+    # 값이 있으나 엔진이 실행할 수 없다(미지원·미해석 지표). 해결책은 지표 교체다.
     INVALID = "INVALID"
     # 다른 값이나 조건과 모순된다.
     CONFLICTED = "CONFLICTED"
-    # 현재 전략 유형·유니버스에서는 적용할 수 없어 물을 대상이 아니다.
-    NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
 # 값이 있으나 사용자·시스템의 개입이 필요한 상태 — 진행률에서 '확인 필요'로 묶인다.
-NEEDS_ATTENTION: frozenset[FieldStatus] = frozenset(
-    {FieldStatus.INVALID, FieldStatus.CONFLICTED}
+NEEDS_ATTENTION: frozenset[DerivedStatus] = frozenset(
+    {DerivedStatus.INVALID, DerivedStatus.CONFLICTED}
 )
 
 # ── 필드(판정 단위) ─────────────────────────────────────────────────────────────
@@ -104,6 +129,45 @@ PROVENANCE_FIELDS: frozenset[str] = frozenset(
     {UNIVERSE, MAX_POSITIONS, REBALANCING, BACKTEST_PERIOD, INITIAL_CAPITAL}
 )
 
+# 확정(CONFIRM, 설계 스펙 § 7)이 성립하는 필드 — 값이 이미 물질화돼 PROVISIONAL로 남는
+# 단일 스칼라 설정이다. "값은 그대로 두고 상태만 CONFIRMED로 올린다"가 확정의 정의이므로,
+# 물질화 기본값이 없는 필드(진입·청산·손절·익절)에는 확정할 대상이 없다.
+# universe는 시장·업종·종목 여러 속성의 합이라 '그 값 그대로'가 하나로 정해지지 않아
+# 제외한다(유니버스 범위 칩은 _apply_universe_chip이 값 적용으로 처리하는 별도 레인).
+CONFIRMABLE_FIELDS: tuple[str, ...] = (
+    MAX_POSITIONS, REBALANCING, BACKTEST_PERIOD, INITIAL_CAPITAL,
+)
+
+
+def confirmable_field_for_topic(topic: Optional[str]) -> Optional[str]:
+    """ask의 topic이 가리키는 확정 가능 필드(없으면 None).
+
+    topic은 planner LLM이 낸 슬롯 라벨이므로 표기 정규화(공백 무시·부분 일치)로 정본
+    라벨에 맞춘다 — 원문 해석이 아니라 LLM 출력 정규화다(계약 § 판정 기준).
+    9B가 'ㅤ최대 보유 종목 수'처럼 라벨을 늘려 쓰는 실측 드리프트 때문에 정확 일치가
+    아니라 포함으로 본다(_is_universe_topic과 같은 계약).
+    """
+    normalized = (topic or "").replace(" ", "")
+    if not normalized:
+        return None
+    for field in CONFIRMABLE_FIELDS:
+        label = SLOT_LABELS[field].replace(" ", "")
+        if label in normalized or normalized in label:
+            return field
+    return None
+
+
+@dataclass(frozen=True)
+class SlotState:
+    """한 슬롯의 두 상태 축. 영속(value)과 계산(derived)을 같은 이름으로 섞지 않는다."""
+
+    value_status: ValueStatus = ValueStatus.UNKNOWN
+    derived_status: DerivedStatus = DerivedStatus.APPLICABLE
+
+    def as_payload(self) -> Dict[str, str]:
+        """프론트로 나가는 표현(진행률 카드 전용)."""
+        return {"value": self.value_status.value, "derived": self.derived_status.value}
+
 
 @dataclass(frozen=True)
 class SlotStatus:
@@ -112,9 +176,10 @@ class SlotStatus:
     filled: bool
     question: str
     suggestions: tuple[str, ...]
-    # 상태 축(§ 5). filled와 독립이다 — require_explicit=False 레인에서 기본값이
-    # 물질화된 필드는 filled=True이면서 status=PROVISIONAL이다(둘 다 사실이다).
-    status: FieldStatus = FieldStatus.UNKNOWN
+    # 상태 두 축(§ 5). filled와 독립이다 — require_explicit=False 레인에서 기본값이
+    # 물질화된 필드는 filled=True이면서 value_status=PROVISIONAL이다(둘 다 사실이다).
+    value_status: ValueStatus = ValueStatus.UNKNOWN
+    derived_status: DerivedStatus = DerivedStatus.APPLICABLE
 
 
 # 되묻기 문구는 판정과 함께 둔다 — 판정과 질문이 떨어져 있으면 슬롯이 늘 때
@@ -208,14 +273,23 @@ def _has_value(parsed: Any, field: str) -> bool:
     raise ValueError(f"알 수 없는 슬롯 필드: {field}")
 
 
-def _decided(parsed: Any, field: str, rebalancing_declined: bool) -> Optional[FieldStatus]:
+@dataclass(frozen=True)
+class _Decided:
+    """질문이 끝난 이유. `filled`(=이 값의 존재 자체)와 두 상태 축을 함께 나른다."""
+
+    value: Optional[ValueStatus] = None
+    not_applicable: bool = False
+
+
+def _decided(parsed: Any, field: str, rebalancing_declined: bool) -> Optional[_Decided]:
     """질문이 이미 끝난 필드 — 값 유무·provenance와 무관하게 더 묻지 않는다.
 
-    None이면 '아직 결정되지 않음'이고, FieldStatus면 결정된 이유다. 세 경우가 있고
+    None이면 '아직 결정되지 않음'이고, _Decided면 결정된 이유다. 세 경우가 있고
     **서로 다른 상태**다 — 이전에는 셋 다 filled=True 하나로 뭉개져 있었다:
 
-    ① 구성상 무의미한 질문(단독 종목의 리밸런싱) → NOT_APPLICABLE.
-       값이 없는 것이 정상이며, 진행률의 분모에서도 빠져야 한다.
+    ① 구성상 무의미한 질문(단독 종목의 리밸런싱) → NOT_APPLICABLE(파생 축).
+       값이 없는 것이 정상이며, 진행률의 분모에서도 빠져야 한다. **값 축에는 아무
+       주장도 하지 않는다** — 물을 대상이 아닌 것과 값이 확정된 것은 다르다.
     ② 사용자가 명시적으로 거부한 설정(리밸런싱 안 함) → CONFIRMED.
        사용자가 '안 함'을 결정한 것이므로 확정값이다. 스펙에서 null이라 미언급과
        구분되지 않으므로 호출자가 플래그로 전달한다 — 이 판정을 provenance 쪽에 두면
@@ -234,16 +308,16 @@ def _decided(parsed: Any, field: str, rebalancing_declined: bool) -> Optional[Fi
         # 단독 종목(지정 1개)은 교체가 없다. 지정 종목이라도 여럿이면 포트폴리오이므로
         # 묻는다 — '지정 종목 존재=단독'으로 본 2026-07-28 사고.
         if len(symbols) == 1:
-            return FieldStatus.NOT_APPLICABLE
+            return _Decided(not_applicable=True)
         if rebalancing_declined:
-            return FieldStatus.CONFIRMED
+            return _Decided(value=ValueStatus.CONFIRMED)
         return None
     if field == BACKTEST_PERIOD:
         # 신규 상장 코호트(FR-STR-073)는 창 시작이 상장일 하한으로 확정된다 — 그 이전엔
         # 종목이 존재하지 않아 다른 답이 성립하지 않는다. "최근 5년 데이터"를 고를 수
         # 있는 것처럼 물으면 사용자가 고른 답을 클램프가 도로 덮어쓴다.
         if getattr(parsed, "listing_from", None):
-            return FieldStatus.CONFIRMED
+            return _Decided(value=ValueStatus.CONFIRMED)
     return None
 
 
@@ -278,7 +352,7 @@ def evaluate(
     require_explicit: bool = False,
     rebalancing_declined: bool = False,
     fields: Optional[Iterable[str]] = None,
-    status_overrides: Optional[Dict[str, FieldStatus]] = None,
+    status_overrides: Optional[Dict[str, DerivedStatus]] = None,
 ) -> List[SlotStatus]:
     """골격 필드별 충족 상태를 진행 순서대로 반환한다.
 
@@ -287,7 +361,7 @@ def evaluate(
     fields로 판정 범위를 좁힐 수 있다(레거시 게이트의 6조건 등).
 
     status_overrides는 이 모듈이 볼 수 없는 상위 판정(검증 리포트의 INVALID·CONFLICTED)을
-    상태 축에만 덮어쓴다 — `filled`는 바꾸지 않는다. 지표 미지원·조건 모순은
+    **파생 축에만** 덮어쓴다 — `filled`도 값 축도 바꾸지 않는다. 지표 미지원·조건 모순은
     ParsedStrategy가 아니라 StrategySpec 검증 단계에서만 알 수 있기 때문이다.
     """
     explicit = list(explicit_fields or [])
@@ -307,29 +381,35 @@ def evaluate(
             filled = has_value
             if filled and require_explicit:
                 filled = explicit_ok
-        # ── 상태 축: filled와 독립으로 산출한다 ────────────────────────────────
-        if decided is not None:
-            status = decided
-        elif _status_only_not_applicable(parsed, field):
-            status = FieldStatus.NOT_APPLICABLE
+        # ── 값 축(영속): filled와 독립으로 산출한다 ─────────────────────────────
+        if decided is not None and decided.value is not None:
+            value_status = decided.value
         elif not has_value:
-            status = FieldStatus.UNKNOWN
+            value_status = ValueStatus.UNKNOWN
         elif explicit_ok:
-            status = FieldStatus.CONFIRMED
+            value_status = ValueStatus.CONFIRMED
         else:
             # 값은 있으나 사용자가 말한 적 없다 — ParsedStrategy가 물질화한 기본값이다.
             # require_explicit 레인에서 되묻는 대상이 바로 이것이다.
-            status = FieldStatus.PROVISIONAL
-        # 상위 검증 판정은 값의 존재를 전제하므로 UNKNOWN·NOT_APPLICABLE은 덮지 않는다.
-        override = overrides.get(field)
-        if override is not None and status not in (
-            FieldStatus.UNKNOWN, FieldStatus.NOT_APPLICABLE
+            value_status = ValueStatus.PROVISIONAL
+        # ── 파생 축(계산): 저장하지 않는다. 매 턴 여기서 다시 정해진다 ──────────
+        if (decided is not None and decided.not_applicable) or _status_only_not_applicable(
+            parsed, field
         ):
-            status = override
+            derived_status = DerivedStatus.NOT_APPLICABLE
+        else:
+            # 상위 검증 판정은 값의 존재를 전제한다 — 값이 없으면 모순일 수도
+            # 미지원일 수도 없다(판정 대상 자체가 없다).
+            override = overrides.get(field)
+            derived_status = (
+                override if override is not None and value_status is not ValueStatus.UNKNOWN
+                else DerivedStatus.APPLICABLE
+            )
         question, suggestions = _QUESTIONS[field]
         statuses.append(SlotStatus(
             field=field, slot=SLOT_LABELS[field], filled=filled,
-            question=question, suggestions=suggestions, status=status,
+            question=question, suggestions=suggestions,
+            value_status=value_status, derived_status=derived_status,
         ))
     return statuses
 
@@ -346,40 +426,58 @@ def next_missing(parsed: Any, **kwargs: Any) -> Optional[SlotStatus]:
 
 
 # 슬롯 묶음(리스크 관리)의 대표 상태를 고르는 우선순위 — 가장 손이 필요한 것이 이긴다.
-# NOT_APPLICABLE은 여기 없다: 구성원 전부가 해당 없음일 때만 슬롯이 해당 없음이므로
-# 별도로 처리한다(하나만 해당 없음인 것은 나머지 구성원의 상태로 대표된다).
-_STATUS_PRECEDENCE: tuple[FieldStatus, ...] = (
-    FieldStatus.INVALID,
-    FieldStatus.CONFLICTED,
-    FieldStatus.UNKNOWN,
-    FieldStatus.PROVISIONAL,
-    FieldStatus.INFERRED,
-    FieldStatus.CONFIRMED,
+# NOT_APPLICABLE은 파생 축 목록에 없다: 구성원 전부가 해당 없음일 때만 슬롯이 해당
+# 없음이므로 별도로 처리한다(하나만 해당 없음인 것은 나머지 구성원의 상태로 대표된다).
+_DERIVED_PRECEDENCE: tuple[DerivedStatus, ...] = (
+    DerivedStatus.INVALID,
+    DerivedStatus.CONFLICTED,
+    DerivedStatus.APPLICABLE,
+)
+_VALUE_PRECEDENCE: tuple[ValueStatus, ...] = (
+    ValueStatus.UNKNOWN,
+    ValueStatus.PROVISIONAL,
+    ValueStatus.INFERRED,
+    ValueStatus.CONFIRMED,
 )
 
 
-def slot_statuses(parsed: Any, **kwargs: Any) -> Dict[str, FieldStatus]:
+def slot_statuses(parsed: Any, **kwargs: Any) -> Dict[str, SlotState]:
     """진행 골격 8칸의 대표 상태(진행 순서). 진행률 표시의 입력이다.
 
     `filled_slots`가 답하지 못하던 것을 답한다 — 어떤 칸이 '해당 없음'이라 분모에서
     빠져야 하고, 어떤 칸이 '값은 있으나 미확인'인지. 리스크 관리 슬롯만 손절·익절 두
-    필드를 묶으므로 대표 상태를 고른다.
+    필드를 묶으므로 대표 상태를 고른다. 두 축은 **각자** 대표를 고른다 — 섞어서 하나로
+    줄이면 "값은 확정인데 지금 유니버스에서 못 쓴다" 같은 조합이 표현되지 않는다.
     """
-    per_field = {s.field: s.status for s in evaluate(parsed, **kwargs)}
-    result: Dict[str, FieldStatus] = {}
+    per_field = {s.field: s for s in evaluate(parsed, **kwargs)}
+    result: Dict[str, SlotState] = {}
     for slot in SLOT_ORDER:
         members = [per_field[f] for f in FIELD_ORDER
                    if SLOT_LABELS[f] == slot and f in per_field]
         if not members:
             continue
-        if all(m is FieldStatus.NOT_APPLICABLE for m in members):
-            result[slot] = FieldStatus.NOT_APPLICABLE
+        na = DerivedStatus.NOT_APPLICABLE
+        applicable = [m for m in members if m.derived_status is not na]
+        if not applicable:
+            result[slot] = SlotState(
+                value_status=_pick(_VALUE_PRECEDENCE,
+                                   [m.value_status for m in members], ValueStatus.CONFIRMED),
+                derived_status=na,
+            )
             continue
-        applicable = [m for m in members if m is not FieldStatus.NOT_APPLICABLE]
-        result[slot] = next(
-            (s for s in _STATUS_PRECEDENCE if s in applicable), FieldStatus.CONFIRMED
+        result[slot] = SlotState(
+            value_status=_pick(_VALUE_PRECEDENCE,
+                               [m.value_status for m in applicable], ValueStatus.CONFIRMED),
+            derived_status=_pick(_DERIVED_PRECEDENCE,
+                                 [m.derived_status for m in applicable],
+                                 DerivedStatus.APPLICABLE),
         )
     return result
+
+
+def _pick(precedence: tuple, members: list, fallback):
+    """우선순위 목록에서 구성원에 실제로 있는 첫 값을 고른다."""
+    return next((s for s in precedence if s in members), fallback)
 
 
 def filled_slots(parsed: Any, **kwargs: Any) -> List[str]:
