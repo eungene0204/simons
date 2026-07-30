@@ -52,7 +52,7 @@ def test_resolve_sector_from_text():
     assert resolve_sector_from_text("SMR 관련 투자") == "에너지/원자력"  # is_a 원자력 경유 2단계
     assert resolve_sector_from_text("휴머노이드 로봇 기업에 투자") == "로봇"
     assert resolve_sector_from_text("변압기 만드는 회사들") == "에너지/원자력"
-    assert resolve_sector_from_text("생성형 AI 전략") == "소프트웨어/플랫폼"
+    assert resolve_sector_from_text("생성형 AI 전략") == "소프트웨어"
     # 다업종 테마(데이터센터)는 의도적으로 소속 엣지가 없다 → None(되묻기/LLM 폴백)
     assert resolve_sector_from_text("데이터센터 관련주") is None
     # 서로 다른 섹터의 개념이 함께 오면 모호 → None

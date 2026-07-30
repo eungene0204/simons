@@ -621,13 +621,13 @@ def test_stale_entry_regrounds_and_merges(tmp_path, monkeypatch):
     # TTL 90일 — 경과 항목은 재검색·병합(이번엔 업종 매핑 성공 시나리오)
     monkeypatch.setenv("TERM_REGROUND_TTL_DAYS", "90")
     chat = _ChatStub("메타버스", {"definition": "가상 세계 플랫폼 산업",
-                               "sector": "소프트웨어/플랫폼"})
+                               "sector": "소프트웨어"})
     search = _SearchStub(_SNIPPETS)
     got = resolve_sector("메타버스 관련주 전략", chat, search_fn=search, lexicon_path=lexicon)
-    assert got == "소프트웨어/플랫폼"
+    assert got == "소프트웨어"
     assert search.calls == 1
     saved = json.loads(lexicon.read_text(encoding="utf-8"))["메타버스"]
-    assert saved["sector"] == "소프트웨어/플랫폼"
+    assert saved["sector"] == "소프트웨어"
     assert saved["searched_at"] != entry["searched_at"]  # 재학습 시각 갱신
     # rejected 엣지 보존(부활·강등 없음)
     assert {(e["target"], e["status"]) for e in saved["edges"]} >= {("hbm", "rejected")}
@@ -636,7 +636,7 @@ def test_stale_entry_regrounds_and_merges(tmp_path, monkeypatch):
     search2 = _SearchStub(_SNIPPETS)
     got2 = resolve_sector("메타버스 관련주 전략", _ChatStub(None, None),
                           search_fn=search2, lexicon_path=lexicon)
-    assert got2 == "소프트웨어/플랫폼"
+    assert got2 == "소프트웨어"
     assert search2.calls == 0
 
 

@@ -1,15 +1,19 @@
 """
-Query Intent 분류기 — 결정적 우선 하이브리드.
+Query Intent 분류기.
 
-원칙(feedback_nl_parser_hybrid): 핵심은 결정적 규칙으로 처리하고, 애매한 긴 꼬리만
-LLM에 위임한다. phrasing마다 regex를 늘리지 않는다.
+기본(contract) 레인 — CLAUDE.md 자연어 해석 구조 원칙 준수:
 
-분류 우선순위:
-  1. STRATEGY_ADVICE  — '전략/백테스트/유니버스/리밸런싱' 등 전략 설계 키워드
-  2. STOCK_ANALYSIS   — 특정 종목명/코드 + 매수·매도·보유·전망·리스크 질문.
-     [규제 안전] 판단·추천을 제공하지 않고 suggested_reply로 전략 설계 전환을 안내한다.
-  3. GENERAL_INVESTMENT — 'X가 뭐야/뜻/설명/차이' 정의형 질문
-  4. (애매) LLM 폴백 → 실패 시 UNKNOWN
+    원문 → LLM 의미 해석(interpreter) → 제한된 구조화 출력
+         → 형식 정규화 → Schema 검증 → Domain 정책(라벨 → 정형 응답)
+
+원문에는 정규식을 걸지 않는다. 종목 정본 매핑도 원문 스캔이 아니라 LLM이 뽑은
+짧은 문자열을 registry에 넘겨 수행한다. 해석 실패는 UNKNOWN 실패 보고로 끝나며,
+정규식이 재해석자로 나서는 폴백은 없다(계약 § 8-1).
+
+--- 아래 `_classify_deterministic` / `_classify_with_llm`과 그 정규식들은 레거시다 ---
+INTENT_CLASSIFIER_MODE=legacy 롤백 경로에서만 실행된다. 원문을 패턴 매칭해 의도·지표·
+업종을 추출하므로 계약 위반 상태이며, 보존만 하고 기본 경로로 되돌리지 않는다.
+새 판정 규칙은 여기 추가하지 말고 interpreter.SYSTEM_PROMPT와 도메인 정책에 넣는다.
 """
 
 from __future__ import annotations
@@ -19,9 +23,11 @@ import logging
 import re
 from typing import Callable, Optional
 
+from engine.console_logging import console_logger
 from stock_analysis.symbol_resolver import StockRef, find_in_text, resolve_by_symbol
 
-from . import platform_defaults
+from . import interpreter, platform_defaults
+from .config import classifier_mode
 from .schemas import ChatTurn, DetectedSymbol, IntentResult, QueryIntent
 from .scope import (
     LIVE_TRADING_REPLY,
@@ -46,7 +52,10 @@ from .scope import (
     stock_question_redirect,
 )
 
-logger = logging.getLogger(__name__)
+# 분류 판정 경로를 콘솔에 상시 노출한다 — 어떤 결정 규칙이 잡았는지/LLM 폴백이 무엇을
+# 뱉었는지/안전망이 걸렸는지가 안 보이면, 정상 요청이 OFF_TOPIC 거절로 새도 원인을 추적할
+# 수 없다(2026-07-30 '원자력 업종만 테스트 하고 싶어' 거절 제보).
+logger = console_logger(__name__, "INTENT")
 
 LLMFn = Callable[[str, str], str]  # (system_prompt, user_msg) -> raw text
 
@@ -478,13 +487,19 @@ def _classify_with_llm(
         raw or "",
     )
     if not match:
+        logger.info("  LLM 폴백 파싱 실패 raw=%r", (raw or "")[:200])
         return None
     intent = QueryIntent(match.group(1))
+    logger.info("  LLM 폴백 → %s (history=%d턴, raw=%r)",
+                intent.value, len(history or []), (raw or "").strip()[:120])
     # [안전망] LLM이 OFF_TOPIC으로 분류해도 입력에 금융 신호(PER/PBR/ROE/CAGR 등)가 있으면
     # 거절하지 않는다. 'roe를 5% 이상으로'처럼 짧은 전략 수정은 문맥이 적어 작은 모델이 자주
     # 역할 밖으로 오판하는데, 금융 용어가 있으면 전략 흐름으로 넘겨 파싱이 처리하게 한다.
     if intent == QueryIntent.OFF_TOPIC and has_finance_cue(query):
+        logger.info("  안전망: 금융 신호 있음 → OFF_TOPIC을 STRATEGY_ADVICE로 강등")
         intent = QueryIntent.STRATEGY_ADVICE
+    elif intent == QueryIntent.OFF_TOPIC:
+        logger.info("  안전망 미적용(finance_cue=False) → OFF_TOPIC 유지, 정형 거절 응답")
     # [안전망] LLM이 GREETING으로 분류했지만 인사가 아니라 요청 어미("엄청 안전한 걸로
     # 부탁해")면 인사말로 요청을 무시하게 된다 — 막연한 요청으로 보고 빌더 유도(ONBOARDING)로
     # 강등한다(레드팀 QA 15-2). 순수 인사("어이~ 반가워이")는 요청 cue가 없어 그대로 둔다.
@@ -525,29 +540,152 @@ def _classify_with_llm(
     )
 
 
+# ── Domain 정책 (입력이 LLM 출력이므로 결정론 코드 소관) ──────────────────────
+# 라벨 → 정형 응답 매핑. 원문을 다시 읽지 않는다 — LLM이 정한 의미만 소비한다.
+# [규제 안전] 추천·맞춤 조언·미제공 기능 안내 문구는 LLM에 맡기지 않고 여기서 확정한다.
+_LABEL_REPLIES: dict[QueryIntent, str] = {
+    QueryIntent.OFF_TOPIC: OFFTOPIC_REFUSAL,
+    QueryIntent.STRATEGY_PICK: STRATEGY_PICK_REPLY,
+    QueryIntent.PERSONAL_ADVICE: PERSONAL_ADVICE_REPLY,
+    QueryIntent.LIVE_TRADING: LIVE_TRADING_REPLY,
+    QueryIntent.ONBOARDING: ONBOARDING_REPLY,
+    QueryIntent.UNSUPPORTED_FEATURE: UNSUPPORTED_FEATURE_REPLY,
+}
+
+
+def _resolve_stock(
+    interp: interpreter.IntentInterpretation, last_symbol: Optional[str]
+) -> Optional[StockRef]:
+    """LLM이 뽑은 종목 표기를 registry 정본으로 매핑한다.
+
+    입력은 원문이 아니라 LLM 출력(짧은 문자열)이다 — 지식 조회를 원문에서 수행하지
+    말라는 금지 사항 5의 규정 방식 그대로다. 지시어('이 종목')는 LLM이
+    refers_to_last_stock으로 알려주고, 실제 종목은 직전 컨텍스트에서 가져온다."""
+    if interp.stock_name:
+        refs = find_in_text(interp.stock_name)
+        if refs:
+            return refs[0]
+    if interp.refers_to_last_stock and last_symbol:
+        return resolve_by_symbol(last_symbol)
+    return None
+
+
+# 종목 정본 매핑이 의미 있는 라벨만 registry를 조회한다(불필요한 조회 방지).
+_STOCK_BEARING_INTENTS = frozenset({QueryIntent.STOCK_ANALYSIS, QueryIntent.STRATEGY_ADVICE})
+
+
+def _apply_domain_policy(
+    interp: interpreter.IntentInterpretation, last_symbol: Optional[str], query: str
+) -> IntentResult:
+    """구조화 출력에 도메인 정책을 적용해 최종 IntentResult를 만든다.
+
+    query는 여러 문안 중 하나를 고르는 해시 씨앗으로만 쓴다(같은 입력에 같은 문구 —
+    캐시 친화). 원문에서 의미를 읽지 않으므로 해석이 아니다."""
+    intent = interp.intent
+    ref = _resolve_stock(interp, last_symbol) if intent in _STOCK_BEARING_INTENTS else None
+    if intent == QueryIntent.STOCK_ANALYSIS:
+        suggested_reply = stock_question_redirect(
+            ref.name if ref else None,
+            ref.market if ref else None,
+            ref.sector if ref else None,
+            overseas=ref.overseas if ref else False,
+        )
+    elif intent == QueryIntent.GREETING:
+        suggested_reply = greeting_reply(query)
+    elif intent == QueryIntent.STOCK_PICK:
+        suggested_reply = stock_pick_reply(query)
+    else:
+        suggested_reply = _LABEL_REPLIES.get(intent)
+    return IntentResult(
+        intent=intent,
+        symbols=_to_detected([ref] if ref else []),
+        suggested_reply=suggested_reply,
+        confidence=0.8,
+        reason="LLM 의미 해석",
+        deterministic=False,
+    )
+
+
 def classify(
     query: str,
     *,
     last_symbol: Optional[str] = None,
     llm: Optional[LLMFn] = None,
     history: Optional[list[ChatTurn]] = None,
+    active_strategy: bool = False,
 ) -> IntentResult:
-    """입력을 QueryIntent로 분류한다. 결정적 규칙 우선, 애매하면 llm 폴백.
-    history(최근 대화 턴)는 LLM 폴백에서만 쓴다 — 결정적 규칙은 현재 입력만 본다."""
+    """입력을 QueryIntent로 분류한다.
+
+    계약 레인(기본): 원문 → LLM 의미 해석 → 구조화 출력 → 형식 정규화 → 도메인 정책.
+    원문에 정규식을 걸지 않는다. 해석 실패는 UNKNOWN 실패 보고로 끝나며, 정규식이
+    재해석자로 나서는 폴백은 없다(계약 § 8-1).
+
+    롤백(INTENT_CLASSIFIER_MODE=legacy): 아래 원문 정규식 레인. 계약 위반 상태로
+    보존만 하며 기본 경로가 아니다."""
+    if classifier_mode() == "legacy":
+        return _classify_legacy(query, last_symbol, llm, history)
+
+    logger.info("query=%r active_strategy=%s", query, active_strategy)
+    if llm is None:
+        return _log_result(IntentResult(
+            intent=QueryIntent.UNKNOWN,
+            confidence=0.0,
+            reason="LLM 미가용 — 해석 실패 보고",
+            deterministic=False,
+        ))
+    try:
+        interp = interpreter.interpret(query, llm, history, active_strategy)
+    except Exception:
+        logger.exception("의도 해석 LLM 호출 실패")
+        raise
+    if interp is None:
+        return _log_result(IntentResult(
+            intent=QueryIntent.UNKNOWN,
+            confidence=0.0,
+            reason="LLM 구조화 출력 해석 실패",
+            deterministic=False,
+        ))
+    logger.info("  LLM 해석 → %s stock_name=%r refers_to_last=%s",
+                interp.intent.value, interp.stock_name, interp.refers_to_last_stock)
+    return _log_result(_apply_domain_policy(interp, last_symbol, query))
+
+
+def _classify_legacy(
+    query: str,
+    last_symbol: Optional[str],
+    llm: Optional[LLMFn],
+    history: Optional[list[ChatTurn]],
+) -> IntentResult:
+    """[레거시·롤백 전용] 원문 정규식 우선 레인 — 자연어 해석 계약 위반 상태.
+
+    INTENT_CLASSIFIER_MODE=legacy 로만 진입한다. 삭제하지 않고 보존하는 것은
+    롤백 경로를 남기기 위함이며, 기본 경로로 되돌리지 않는다."""
     query = _correct_count_typo(query)
+    logger.info("[legacy] query=%r", query)
     deterministic = _classify_deterministic(query, last_symbol)
     if deterministic is not None:
-        return deterministic
+        return _log_result(deterministic)
 
     if llm is not None:
         llm_result = _classify_with_llm(query, llm, history)
         if llm_result is not None:
-            return llm_result
+            return _log_result(llm_result)
 
-    return IntentResult(
+    return _log_result(IntentResult(
         intent=QueryIntent.UNKNOWN,
         symbols=_to_detected(find_in_text(query or "")),
         confidence=0.3,
         reason="결정적 규칙·LLM 모두 분류 실패",
         deterministic=False,
+    ))
+
+
+def _log_result(result: IntentResult) -> IntentResult:
+    """최종 판정을 한 줄로 남긴다. canned=정형 응답을 붙여 보냈다는 뜻 —
+    프론트가 이 문구를 그대로 띄우고 전략 파싱(인터프리터)에는 도달하지 않는다."""
+    logger.info(
+        "→ intent=%s deterministic=%s reason=%s canned=%s",
+        result.intent.value, result.deterministic, result.reason,
+        bool(result.suggested_reply),
     )
+    return result

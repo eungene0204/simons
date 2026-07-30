@@ -25,7 +25,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from engine.console_logging import console_logger
 from engine.sector_mapper import MAPPING_RULES, NL_SAFE_TERMS
+
+logger = console_logger(__name__, "UNIVERSE")
 
 _MASTER_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "stock-master.json"
 _KOREA_STOCKS_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "korea-stocks.json"
@@ -49,6 +52,7 @@ def reload_master() -> None:
     """Drop the cached master (call after regenerating the file)."""
     _load_master.cache_clear()
     _load_sector_map.cache_clear()
+    _SECTOR_MAP_SOURCE.update({"source": None, "reason": None})
     _load_etf_master.cache_clear()
     _etf_symbol_set.cache_clear()
 
@@ -261,18 +265,38 @@ def get_shares(symbols: list[str]) -> dict[str, float]:
 # 커버한다. 그래도 업종 미상으로 남는 종목은 필터에서 빠지므로, 엔진은 그런 종목이
 # 실제로 있을 때만 생존 편향 경고를 남긴다(sector_unknown_symbols).
 
-# korea-stocks.json sector 필드의 전체 값(39개). 파서·프롬프트·검증이 공유하는 정본.
+# korea-stocks.json sector 필드의 전체 값(45개). 파서·프롬프트·검증이 공유하는 정본.
 # '로봇'(2026-07-13 신설)은 KSIC 공식 분류에 없어 사명(로봇/로보틱스) 기준으로 분류된
 # 독립 섹터다(sector_mapper.MAPPING_RULES["로봇"] 참조).
+#
+# 2026-07-30 묶음 섹터 분할: KSIC 산업분류가 두 갈래를 깨끗하게 가르는 6쌍만 독립
+# 섹터로 나눴다(scripts/split_combined_sectors.py). 나머지 12쌍은 분류 데이터가 구분을
+# 주지 않거나(에너지/원자력 — KSIC에 원자력 코드 없음, 미디어/엔터) 두 낱말이 포함·동의
+# 관계라(철강⊂금속, 기계≈장비, 디스플레이/'부품') 분할하지 않았다.
 CANONICAL_SECTORS: tuple[str, ...] = (
-    "IT 하드웨어", "가구/인테리어", "건설", "교육", "기계/장비", "기타 서비스",
-    "기타 제조업", "디스플레이/부품", "로봇", "목재", "미디어/엔터", "바이오/제약",
-    "반도체", "반도체 소재", "부동산", "사료/축산", "소프트웨어/플랫폼", "수산",
-    "수산가공", "시멘트", "식품/음료", "에너지/원자력", "욕실", "우주항공/방산",
-    "운송/물류", "유통/상사", "은행/금융지주", "의료기기", "이차전지", "자동차",
-    "자동차부품", "조선/해운", "종이", "증권/보험", "지주회사", "철강/금속",
-    "통신/유틸리티", "화장품/패션", "화학",
+    "IT 하드웨어", "가구/인테리어", "건설", "교육", "금융지주", "기계/장비",
+    "기타 서비스", "기타 제조업", "디스플레이", "로봇", "목재", "미디어/엔터",
+    "바이오/제약", "반도체", "반도체 소재", "보험", "부동산", "사료", "소프트웨어",
+    "레저",
+    "수산", "수산가공", "시멘트", "식품", "에너지/원자력", "욕실", "우주항공/방산",
+    "운송/물류", "여행", "유통/상사", "은행", "음료", "의료기기", "이차전지", "자동차",
+    "자동차부품", "조선", "종이", "증권", "지주회사", "철강/금속", "축산",
+    "전자부품", "통신/유틸리티", "패션", "플랫폼", "해운", "화장품", "화학",
 )
+
+# [하위 호환] 분할 전 구 섹터명 → 신규 두 섹터. 저장된 전략·백테스트 이력·PIT 유니버스
+# 스냅샷이 구 이름을 그대로 들고 있으므로, 구 이름이 들어오면 두 신규 섹터의 합집합으로
+# 해석해 과거 결과가 계속 재현되게 한다(사용자 결정 2026-07-30 — 하드 컷 대신 별칭 유지).
+LEGACY_COMBINED_SECTORS: dict[str, tuple[str, str]] = {
+    "증권/보험": ("증권", "보험"),
+    "은행/금융지주": ("은행", "금융지주"),
+    "조선/해운": ("조선", "해운"),
+    "식품/음료": ("식품", "음료"),
+    "소프트웨어/플랫폼": ("소프트웨어", "플랫폼"),
+    "사료/축산": ("사료", "축산"),
+    "화장품/패션": ("화장품", "패션"),
+    "디스플레이/부품": ("디스플레이", "전자부품"),
+}
 
 # 사용자 통칭 → 정본 섹터명 '오버라이드'. 여기에는 MAPPING_RULES(산업분류 어휘)에 없거나
 # 그와 다르게 불러야 하는 '사용자 전용 통칭'만 손으로 넣는다(2차전지·리츠·AI 등). MAPPING_RULES에
@@ -284,20 +308,23 @@ _SECTOR_SYNONYM_OVERRIDES: dict[str, str] = {
     "제약": "바이오/제약", "바이오": "바이오/제약", "바이오제약": "바이오/제약",
     "반도체소재": "반도체 소재",
     "it하드웨어": "IT 하드웨어",
-    "소프트웨어": "소프트웨어/플랫폼", "플랫폼": "소프트웨어/플랫폼", "인터넷": "소프트웨어/플랫폼",
-    "은행": "은행/금융지주", "금융지주": "은행/금융지주",
-    "증권": "증권/보험", "보험": "증권/보험",
-    "화장품": "화장품/패션", "패션": "화장품/패션", "의류": "화장품/패션",
-    "식품": "식품/음료", "음료": "식품/음료",
+    "인터넷": "플랫폼",  # 포털·정보매개 — 패키지/게임 개발사(소프트웨어)와 구분
+    # '카지노'·'여행사'는 지식그래프에 큐레이션 개념(casino·travel-agency)이 있어
+    # 여기 넣지 않는다 — 섹터 동의어로 등록하면 KG 스캔 인덱스에서 제외돼
+    # (FR-STR-070 ③) 더 구체적인 개념 조회를 가린다.
+    "관광": "여행",
+    "호텔": "레저", "리조트": "레저", "숙박": "레저",
+    # 은행·금융지주·증권·보험·식품·음료·조선·해운·소프트웨어·플랫폼·사료·축산은
+    # 2026-07-30 분할로 전부 정본 섹터명이 됐다 — _CANONICAL_BY_KEY가 직접 잡으므로
+    # 여기 동의어로 중복 기입하지 않는다(구 묶음명은 LEGACY_COMBINED_SECTORS 소관).
+    "의류": "패션", "의복": "패션",  # 화장품·패션은 2026-07-30 분할로 정본명이 됐다
     "엔터": "미디어/엔터", "엔터테인먼트": "미디어/엔터", "미디어": "미디어/엔터",
     "통신": "통신/유틸리티",
     "에너지": "에너지/원자력", "원자력": "에너지/원자력",
-    "조선": "조선/해운", "해운": "조선/해운",
     "철강": "철강/금속",
     "방산": "우주항공/방산", "우주항공": "우주항공/방산", "항공우주": "우주항공/방산",
     # '로봇'·'로보틱스'는 MAPPING_RULES 파생(NL_SAFE_TERMS)으로 자동 인식 — 여기 중복 기입 금지.
     "기계": "기계/장비", "기계장비": "기계/장비",
-    "디스플레이": "디스플레이/부품",
     "리츠": "부동산",
     "물류": "운송/물류", "운송": "운송/물류",
     "유통": "유통/상사",
@@ -320,9 +347,80 @@ _SECTOR_SYNONYM_OVERRIDES: dict[str, str] = {
 _SECTOR_LLM_GLOSSES: dict[str, str] = {
     "통신/유틸리티": "통신사와 한국전력 등 전력·가스 판매 사업자만. 설비 제조는 아님",
     "에너지/원자력": "발전·원전 + 변압기·전력설비 등 전력기기 제조 포함",
-    "IT 하드웨어": "전자부품·전선 제조 포함",
+    "IT 하드웨어": "통신·방송장비, 정밀기기, 컴퓨터, 전선 제조. 개별 전자부품은 전자부품 업종",
     "로봇": "로봇 전문기업(산업용·협동·서비스 로봇). 일반 자동화 설비·공작기계는 기계/장비",
 }
+
+
+# [사용자 노출] 묶음 섹터('A/B')의 구성 안내. 사용자가 묶음의 한쪽('원자력')을 말했을 때
+# "그 업종은 따로 없고 이렇게 묶여 있으며 이런 것도 함께 들어 있다"를 밝히기 위한 문구다 —
+# 조건이 조용히 넓어지는 것을 막는다(2026-07-30).
+#
+# 문구를 손으로 쓰는 이유: KSIC 코드명을 그대로 노출할 수 없다('전동기, 발전기 및 전기
+# 변환·공급·제어 장치 제조업'). 종목 수는 결정론이 채우고 사람은 구성만 적는다 —
+# LLM이 지어낼 여지를 두지 않는다(_SECTOR_LLM_GLOSSES와 같은 관례, 그쪽은 프롬프트용).
+#
+# 묶음의 성격이 셋으로 갈려 문구도 다르다:
+#   ① 진짜 혼재 — 여러 갈래가 실제로 섞임. "~도 함께 들어 있습니다"
+#   ② 사실상 한쪽뿐 — 이름만 묶음. "이름은 A/B지만 사실상 전부 A입니다"
+#   ③ 두 낱말이 같은 분류 — 나눌 '나머지'가 없음. "B가 따로 있는 게 아니라 ~"
+# 각 값은 "…묶여 있어요. " 뒤에 그대로 붙는 완결 문장이다(유형마다 어순이 달라
+# 고정 접두사를 쓸 수 없다 — "이 업종에는 이름은 철강/금속이지만…"처럼 깨진다).
+SECTOR_COMPOSITION_NOTES: dict[str, str] = {
+    # ① 진짜 혼재
+    "에너지/원자력": (
+        "이 업종에는 원전 관련 기업 외에 변압기·발전기 같은 전력기기 제조사가 가장 많고, "
+        "정유·도시가스 회사도 함께 들어 있습니다"
+    ),
+    "미디어/엔터": (
+        "이 업종에는 방송·영화 제작사와 광고대행사, 출판사, 음반·매니지먼트사가 "
+        "함께 들어 있습니다"
+    ),
+    "바이오/제약": "이 업종에는 의약품 제조사가 대부분이고, 신약 연구개발 기업도 함께 들어 있습니다",
+    "유통/상사": "이 업종에는 종합상사·도매업과 백화점·편의점 같은 소매업이 함께 들어 있습니다",
+    "우주항공/방산": (
+        "이 업종에는 항공기·우주선 부품 제조와 무기 제조에 더해 "
+        "항공사(여객 운송)도 함께 들어 있습니다"
+    ),
+    "운송/물류": "이 업종에는 화물·여객 운송과 창고·운송주선 같은 물류 서비스가 함께 들어 있습니다",
+    "통신/유틸리티": (
+        "이 업종에는 통신사와 전기·가스 공급 사업자, 전기·통신 공사업체가 함께 들어 있습니다"
+        " — 전력설비를 만드는 제조사는 에너지/원자력에 있습니다"
+    ),
+    "가구/인테리어": "이 업종에는 가구 제조사와 조명·전구 제조사가 함께 들어 있습니다",
+    # ② 사실상 한쪽뿐
+    "철강/금속": "이름은 철강/금속이지만 사실상 전부 1차 철강 제조사입니다",
+    # ③ 두 낱말이 같은 분류
+    "기계/장비": (
+        "'장비'가 따로 있는 게 아니라 특수·일반 목적용 기계 제조가 한 업종으로 묶여 있습니다"
+    ),
+}
+
+
+def _topic_particle(word: str) -> str:
+    """주제 조사(은/는)를 마지막 글자의 받침 유무로 고른다. 한글이 아니면 '은(는)'."""
+    last = (word or "")[-1:]
+    if not last or not ("가" <= last <= "힣"):
+        return "은(는)"
+    return "은" if (ord(last) - ord("가")) % 28 else "는"
+
+
+def sector_composition_notice(raw: Optional[str], count: Optional[int] = None) -> Optional[str]:
+    """사용자가 말한 업종 표현이 묶음 섹터로 넓어질 때 보여줄 안내문. 아니면 None.
+
+    count(해당 섹터의 종목 수)는 호출부가 filter_by_sector 결과로 넘긴다 — 이 모듈이
+    유니버스를 다시 계산하지 않게 해 PIT 시점·시장 조건을 호출부가 통제한다."""
+    if not raw or not is_narrow_sector_approximation(raw):
+        return None
+    sector = normalize_sector(raw)
+    note = SECTOR_COMPOSITION_NOTES.get(sector or "")
+    if not note:
+        return None
+    tail = f"(총 {count}종목)" if count is not None else ""
+    return (
+        f"'{raw}'{_topic_particle(raw)} 별도 업종으로 분류돼 있지 않고 "
+        f"{sector} 업종에 묶여 있어요. {note}{tail}."
+    )
 
 
 def sectors_for_llm_prompt() -> str:
@@ -379,17 +477,20 @@ def normalize_sector(raw: Optional[str]) -> Optional[str]:
 
 
 def is_narrow_sector_approximation(raw: Optional[str]) -> bool:
-    """근사 동의어 매칭이 원래 표현보다 넓은 섹터로 뭉뚱그린 것인지 판정한다.
+    """동의어 매칭이 사용자가 말한 것보다 넓은 섹터로 뭉뚱그렸는지 판정한다.
 
-    normalize_sector는 정본 일치("반도체"→"반도체")와 동의어 근사(_SECTOR_SYNONYMS,
-    "태양광"→"에너지/원자력")를 구분 없이 같은 값으로 반환한다. 하지만 두 경우는 성격이
-    다르다 — "은행"→"은행/금융지주", "보험"→"증권/보험"처럼 표현이 정본 섹터명 안에 그대로
-    들어있는 근사는 이름 표기 차이일 뿐 개념이 넓어지지 않는다. 반대로 "태양광"은
-    "에너지/원자력" 어디에도 나타나지 않는다 — 원자력·풍력·석유 등 이질적인 여러 발전원을
-    한 섹터로 묶어놓은 키워드 버킷(MAPPING_RULES)에서 온 근사라 개념이 실제로 넓어진다.
-    이 경우에만 True를 반환해, classify_universe가 섹터 확정 전에 더 구체적인 카탈로그
-    테마가 있는지 먼저 확인하게 한다(2026-07-27 'AI/인공지능' 개별 제거를 대체하는 구조적
-    가드 — 새 근사 키워드가 추가돼도 정본명에 없는 표현이면 자동으로 이 경로를 탄다)."""
+    normalize_sector는 정본 일치("반도체"→"반도체")와 동의어 근사("태양광"→"에너지/원자력")를
+    구분 없이 같은 값으로 반환한다. 이 함수는 후자만 True로 걸러, classify_universe가 섹터
+    확정 전에 더 구체적인 카탈로그 테마가 있는지 먼저 확인하게 한다.
+
+    판정: 정본 그대로면 False. 그 외에 **묶음 섹터('A/B')로 매핑되면 항상 True**다 —
+    묶음 섹터는 성격이 다른 둘 이상을 한 이름에 담고 있어서, 사용자가 그중 한쪽('원자력')을
+    말했든 아예 다른 표현('태양광')을 썼든 실제로 개념이 넓어지기 때문이다.
+
+    [2026-07-30 수정] 종전 판정은 "표현이 정본명 글자 안에 있으면 이름 표기 차이"로 보고
+    False를 냈다. 그 근거였던 '은행'→'은행/금융지주'·'보험'→'증권/보험'은 묶음 섹터 분할로
+    전부 정본명이 됐고, 남은 글자-포함 케이스는 전부 진짜 좁힘 요청이었다 — '원자력'(→72종목,
+    정유·도시가스 포함)·'미디어'(→111)·'기계'(→217)가 조용히 넓어지고 있었다."""
     if not raw:
         return False
     key = _sector_key(raw)
@@ -398,7 +499,9 @@ def is_narrow_sector_approximation(raw: Optional[str]) -> bool:
     sector = _SECTOR_SYNONYMS.get(key)
     if not sector:
         return False
-    return key not in _sector_key(sector).replace("/", "")
+    if "/" in sector:
+        return True
+    return key not in _sector_key(sector)
 
 
 def normalize_sector_value(raw) -> Optional[str | list[str]]:
@@ -410,12 +513,32 @@ def normalize_sector_value(raw) -> Optional[str | list[str]]:
     items = raw if isinstance(raw, list) else [raw]
     seen: list[str] = []
     for item in items:
-        canonical = normalize_sector(item) if isinstance(item, (str, type(None))) else None
-        if canonical and canonical not in seen:
-            seen.append(canonical)
+        if not isinstance(item, (str, type(None))):
+            continue
+        for canonical in expand_legacy_sector(item):
+            if canonical not in seen:
+                seen.append(canonical)
     if not seen:
         return None
     return seen[0] if len(seen) == 1 else seen
+
+
+_LEGACY_BY_KEY = {_sector_key(k): v for k, v in LEGACY_COMBINED_SECTORS.items()}
+
+
+def expand_legacy_sector(raw: Optional[str]) -> tuple[str, ...]:
+    """섹터 표현 하나를 정본 섹터 튜플로 편다.
+
+    분할 전 구 묶음명('증권/보험')은 신규 두 섹터의 합집합으로 편다 — 저장된 전략·백테스트
+    이력·PIT 스냅샷이 구 이름을 들고 있어도 같은 종목 집합이 나오게 하기 위함이다.
+    그 외에는 normalize_sector 결과 0개 또는 1개."""
+    if not raw:
+        return ()
+    legacy = _LEGACY_BY_KEY.get(_sector_key(raw))
+    if legacy:
+        return legacy
+    canonical = normalize_sector(raw)
+    return (canonical,) if canonical else ()
 
 
 def sector_value_as_list(value) -> list[str]:
@@ -425,19 +548,67 @@ def sector_value_as_list(value) -> list[str]:
     return list(value) if isinstance(value, list) else [value]
 
 
-@lru_cache(maxsize=1)
-def _load_sector_map() -> dict[str, str]:
-    # 마스터(상폐 종목 sector 백필)를 깔고 korea-stocks.json(현재 상장 SOT)으로 덮는다.
+
+# 섹터 소속을 어디서 읽었는지 — 폴백이 조용히 도는 것을 막기 위한 출처 기록.
+# 정본(KG)이 아닌 경로로 백테스트가 돌면 사용자가 알아야 한다(엔진이 경고로 노출).
+_SECTOR_MAP_SOURCE: dict[str, Optional[str]] = {"source": None, "reason": None}
+
+
+def sector_map_source() -> dict[str, Optional[str]]:
+    """마지막으로 로드한 섹터 소속의 출처. {"source": "graph"|"files", "reason": str|None}.
+
+    source="files"면 정본(KG)을 못 읽어 파생 캐시로 폴백한 것이다 — 호출부(엔진)가
+    사용자에게 고지해야 한다. 아직 로드 전이면 source=None."""
+    if _SECTOR_MAP_SOURCE["source"] is None:
+        _load_sector_map()
+    return dict(_SECTOR_MAP_SOURCE)
+
+
+def _sector_map_from_graph() -> dict[str, str]:
+    """지식그래프의 belongs_to 엣지에서 symbol → 섹터를 읽는다(정본 경로).
+
+    실패는 **조용히 넘기지 않는다** — 예외는 스택과 함께 로그로 남기고 사유를
+    _SECTOR_MAP_SOURCE에 기록해 엔진이 사용자에게 고지할 수 있게 한다. 그래도 빈 dict를
+    반환해 호출부가 파일로 폴백하는 것은 유지한다(KG 문제로 백테스트가 아예 막히면 안 된다).
+    순환 import를 피하려고 지연 import한다(knowledge_graph가 universe_pit을 참조한다)."""
+    try:
+        from engine.knowledge_graph import get_graph
+
+        graph = get_graph()
+    except Exception as exc:  # noqa: BLE001 — 폴백은 하되 침묵하지 않는다
+        logger.exception("섹터 소속 정본(지식그래프) 로드 실패 — 파일 캐시로 폴백")
+        _SECTOR_MAP_SOURCE["reason"] = f"지식그래프 로드 실패: {type(exc).__name__}: {exc}"
+        return {}
+    smap: dict[str, str] = {}
+    for edge in graph.edges:
+        if edge.get("type") != "belongs_to":
+            continue
+        source, target = str(edge.get("source", "")), str(edge.get("target", ""))
+        if source.startswith("company:") and target.startswith("sector:"):
+            smap[source.split(":", 1)[1]] = target.split(":", 1)[1]
+    if not smap:
+        _SECTOR_MAP_SOURCE["reason"] = (
+            "지식그래프에 섹터 소속 엣지가 없습니다 — data/kg-sector-membership.json 미생성"
+            "(backend/scripts/build_sector_membership.py --apply)"
+        )
+    return smap
+
+
+def sector_map_from_files() -> dict[str, str]:
+    """symbol → 섹터를 원본 파일에서 병합한다 — 소속 오버레이 생성과 부트스트랩 폴백의
+    **공용 구현**(같은 병합 규칙을 두 곳에 적지 않는다).
+
+    ① 마스터(상폐 종목 sector 백필)를 깔고 ② korea-stocks.json(현재 상장)으로 덮은 뒤
+    ③ 우선주(끝자리≠0)에 모주(prefix+'0') 섹터를 상속한다 — 섹터 분류는 회사 단위인데
+    korea-stocks.json은 보통주만 담아 우선주가 전부 미상이 된다.
+    """
     smap: dict[str, str] = {
         s["symbol"]: s["sector"] for s in _load_master() if s.get("symbol") and s.get("sector")
     }
     if _KOREA_STOCKS_PATH.exists():
         stocks = json.loads(_KOREA_STOCKS_PATH.read_text(encoding="utf-8"))
-        smap.update(
-            {s["symbol"]: s["sector"] for s in stocks if s.get("symbol") and s.get("sector")}
-        )
-    # 우선주(끝자리≠0, '00088K' 신형 포함)는 모주(prefix+'0')의 섹터를 물려받는다 —
-    # 섹터 분류는 회사 단위인데 korea-stocks.json은 보통주만 담아 우선주가 전부 미상이 된다.
+        rows = stocks if isinstance(stocks, list) else stocks.get("stocks", [])
+        smap.update({s["symbol"]: s["sector"] for s in rows if s.get("symbol") and s.get("sector")})
     for s in _load_master():
         sym = s.get("symbol") or ""
         if len(sym) == 6 and sym[-1] != "0" and sym not in smap:
@@ -447,10 +618,35 @@ def _load_sector_map() -> dict[str, str]:
     return smap
 
 
+@lru_cache(maxsize=1)
+def _load_sector_map() -> dict[str, str]:
+    """symbol → 정본 섹터. **정본은 지식그래프**다(2026-07-30 전환).
+
+    인터프리터가 지식을 찾는 곳이 KG이므로 섹터 소속도 KG가 권위여야 한다 — 종전에는
+    소속이 korea-stocks.json에만 있어 `related_universe('원자력')`이 빈 결과를 냈다.
+    KG의 `company -belongs_to→ sector` 엣지(data/kg-sector-membership.json 오버레이)를
+    읽고, 오버레이가 없는 환경(신규 클론·부트스트랩)에서만 파일로 폴백한다.
+    """
+    _SECTOR_MAP_SOURCE["reason"] = None
+    smap = _sector_map_from_graph()
+    if smap:
+        _SECTOR_MAP_SOURCE["source"] = "graph"
+        return smap
+    _SECTOR_MAP_SOURCE["source"] = "files"
+    logger.warning(
+        "섹터 소속을 정본(지식그래프)이 아니라 파일 캐시에서 읽습니다 — %s",
+        _SECTOR_MAP_SOURCE["reason"] or "사유 불명",
+    )
+    return sector_map_from_files()
+
+
 def filter_by_sector(symbols: list[str], sector: str | list[str]) -> list[str]:
-    """심볼 목록을 정본 섹터명(단일 또는 복수의 합집합)으로 필터링한다(섹터 미상 종목은 제외)."""
+    """심볼 목록을 정본 섹터명(단일 또는 복수의 합집합)으로 필터링한다(섹터 미상 종목은 제외).
+
+    분할 전 구 묶음명('증권/보험')이 들어와도 신규 두 섹터의 합집합으로 편다 —
+    저장된 백테스트가 같은 종목 집합으로 재현되게 하기 위함이다."""
     canonicals = {
-        c for c in (normalize_sector(s) for s in sector_value_as_list(sector)) if c is not None
+        c for s in sector_value_as_list(sector) for c in expand_legacy_sector(s)
     }
     if not canonicals:
         return []

@@ -81,7 +81,11 @@ def test_reply_none_for_non_default_question():
     assert platform_defaults.reply("모멘텀 전략 만들어줘") is None
 
 
-# ─── 분류 라우팅 — LLM 없이 결정적으로 GENERAL_INVESTMENT ────────────────────
+# ─── 분류 라우팅 — [레거시 레인] LLM 없이 결정적으로 GENERAL_INVESTMENT ──────
+# 계약 레인에서는 분류기가 원문을 읽지 않는다. 설정 기본값 질문은 LLM이
+# GENERAL_INVESTMENT로 분류하고, 실제 값 답변은 /query/general이
+# platform_defaults.reply로 결정적으로 낸다
+# (test_generate_general_answer_deterministic_without_llm 이 그 경로를 보증).
 
 @pytest.mark.parametrize(
     "query",
@@ -91,7 +95,8 @@ def test_reply_none_for_non_default_question():
         "백테스트 수수료 기본값은?",  # '백테스트' 전략 키워드가 섞여도 설정 질문 우선
     ],
 )
-def test_classify_routes_to_general_with_reply(query):
+def test_classify_routes_to_general_with_reply(query, monkeypatch):
+    monkeypatch.setenv("INTENT_CLASSIFIER_MODE", "legacy")
     result = classify(query)
     assert result.intent == QueryIntent.GENERAL_INVESTMENT
     assert result.suggested_reply and "0.0" in result.suggested_reply

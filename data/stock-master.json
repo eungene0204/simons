@@ -39,7 +39,7 @@
       "dataEnd": "2019-02-12",
       "hasOhlcv": true,
       "industry": "은행",
-      "sector": "은행/금융지주"
+      "sector": "은행"
     },
     {
       "symbol": "000040",
@@ -83,7 +83,7 @@
       "dataEnd": "2023-02-20",
       "hasOhlcv": true,
       "industry": "보험",
-      "sector": "증권/보험"
+      "sector": "보험"
     },
     {
       "symbol": "000070",
@@ -113,7 +113,7 @@
       "dataEnd": "2025-08-19",
       "hasOhlcv": true,
       "industry": "기타금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "000080",
@@ -465,7 +465,7 @@
       "dataEnd": "2017-09-27",
       "hasOhlcv": true,
       "industry": "기타금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "000360",
@@ -727,7 +727,7 @@
       "dataEnd": "2023-07-14",
       "hasOhlcv": true,
       "industry": "보험",
-      "sector": "증권/보험"
+      "sector": "보험"
     },
     {
       "symbol": "000590",
@@ -1089,7 +1089,7 @@
       "dataEnd": "2015-07-14",
       "hasOhlcv": true,
       "industry": "음식료·담배",
-      "sector": "식품/음료"
+      "sector": "음료"
     },
     {
       "symbol": "0008Z0",
@@ -2009,7 +2009,7 @@
       "dataEnd": "2017-04-27",
       "hasOhlcv": true,
       "industry": "음식료·담배",
-      "sector": "식품/음료"
+      "sector": "식품"
     },
     {
       "symbol": "001720",
@@ -2039,7 +2039,7 @@
       "dataEnd": "2024-04-25",
       "hasOhlcv": true,
       "industry": "증권",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "001740",
@@ -2169,7 +2169,7 @@
       "dataEnd": "2020-04-07",
       "hasOhlcv": true,
       "industry": "음식료·담배",
-      "sector": "식품/음료"
+      "sector": "식품"
     },
     {
       "symbol": "0017J0",
@@ -2515,7 +2515,7 @@
       "dataEnd": "2022-07-19",
       "hasOhlcv": true,
       "industry": "음식료·담배",
-      "sector": "식품/음료"
+      "sector": "식품"
     },
     {
       "symbol": "002290",
@@ -2715,7 +2715,7 @@
       "dataEnd": "2017-07-20",
       "hasOhlcv": true,
       "industry": "보험",
-      "sector": "증권/보험"
+      "sector": "보험"
     },
     {
       "symbol": "002600",
@@ -3437,7 +3437,7 @@
       "dataEnd": "2016-10-31",
       "hasOhlcv": true,
       "industry": "증권",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "003457",
@@ -3453,7 +3453,7 @@
       "dataEnd": "2015-01-12",
       "hasOhlcv": true,
       "industry": "증권",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "003460",
@@ -3967,7 +3967,7 @@
       "dataEnd": "2016-01-20",
       "hasOhlcv": true,
       "industry": "음식료·담배",
-      "sector": "식품/음료"
+      "sector": "식품"
     },
     {
       "symbol": "003945",
@@ -3983,7 +3983,7 @@
       "dataEnd": "2016-01-20",
       "hasOhlcv": true,
       "industry": "음식료·담배",
-      "sector": "식품/음료"
+      "sector": "식품"
     },
     {
       "symbol": "003960",
@@ -6988,7 +6988,7 @@
       "dataEnd": "2023-04-24",
       "hasOhlcv": true,
       "industry": "증권",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "008600",
@@ -7090,7 +7090,7 @@
       "dataEnd": "2021-06-04",
       "hasOhlcv": true,
       "industry": "음식료·담배",
-      "sector": "식품/음료"
+      "sector": "식품"
     },
     {
       "symbol": "008830",
@@ -7360,7 +7360,7 @@
       "dataEnd": "2022-07-14",
       "hasOhlcv": true,
       "industry": "섬유·의류",
-      "sector": "화장품/패션"
+      "sector": "패션"
     },
     {
       "symbol": "009290",
@@ -7824,7 +7824,7 @@
       "dataEnd": "2023-08-25",
       "hasOhlcv": true,
       "industry": "기타금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "010060",
@@ -9988,7 +9988,7 @@
       "dataEnd": "2015-01-19",
       "hasOhlcv": true,
       "industry": "증권",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "016450",
@@ -10326,7 +10326,7 @@
       "dataEnd": "2019-11-19",
       "hasOhlcv": true,
       "industry": "섬유·의류",
-      "sector": "화장품/패션"
+      "sector": "패션"
     },
     {
       "symbol": "017800",
@@ -10780,7 +10780,7 @@
       "dataEnd": "2025-09-05",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "019660",
@@ -11104,7 +11104,7 @@
       "dataEnd": "2017-07-20",
       "hasOhlcv": true,
       "industry": "기타금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "022100",
@@ -11262,7 +11262,7 @@
       "dataEnd": "2025-07-11",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "023530",
@@ -11518,7 +11518,7 @@
       "dataEnd": "2018-07-13",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "024720",
@@ -11732,7 +11732,7 @@
       "dataEnd": "2016-08-17",
       "hasOhlcv": true,
       "industry": "섬유·의류",
-      "sector": "화장품/패션"
+      "sector": "패션"
     },
     {
       "symbol": "025320",
@@ -12030,7 +12030,7 @@
       "dataEnd": "2019-07-16",
       "hasOhlcv": true,
       "industry": "컴퓨터서비스",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "소프트웨어"
     },
     {
       "symbol": "026260",
@@ -12518,7 +12518,7 @@
       "dataEnd": "2020-05-20",
       "hasOhlcv": true,
       "industry": "섬유·의류",
-      "sector": "화장품/패션"
+      "sector": "패션"
     },
     {
       "symbol": "030350",
@@ -13476,7 +13476,7 @@
       "dataEnd": "2021-08-26",
       "hasOhlcv": true,
       "industry": "기타금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "033780",
@@ -14626,7 +14626,7 @@
       "dataEnd": "2017-01-19",
       "hasOhlcv": true,
       "industry": "증권",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "037710",
@@ -14740,7 +14740,7 @@
       "dataEnd": "2021-08-20",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "038290",
@@ -15400,7 +15400,7 @@
       "dataEnd": "2022-04-14",
       "hasOhlcv": true,
       "industry": "디지털컨텐츠",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "소프트웨어"
     },
     {
       "symbol": "041190",
@@ -16308,7 +16308,7 @@
       "dataEnd": "2022-10-04",
       "hasOhlcv": true,
       "industry": "컴퓨터서비스",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "소프트웨어"
     },
     {
       "symbol": "046120",
@@ -16905,7 +16905,7 @@
       "dataEnd": "2025-07-30",
       "hasOhlcv": true,
       "industry": "음식료·담배",
-      "sector": "식품/음료"
+      "sector": "식품"
     },
     {
       "symbol": "049800",
@@ -17679,7 +17679,7 @@
       "dataEnd": "2022-09-06",
       "hasOhlcv": true,
       "industry": "디지털컨텐츠",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "소프트웨어"
     },
     {
       "symbol": "053160",
@@ -18357,7 +18357,7 @@
       "dataEnd": "2023-03-29",
       "hasOhlcv": true,
       "industry": "디지털컨텐츠",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "소프트웨어"
     },
     {
       "symbol": "056080",
@@ -19965,7 +19965,7 @@
       "dataEnd": "2017-02-24",
       "hasOhlcv": true,
       "industry": "인터넷",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "플랫폼"
     },
     {
       "symbol": "066310",
@@ -21534,7 +21534,7 @@
       "dataEnd": "2020-01-15",
       "hasOhlcv": true,
       "industry": "소프트웨어",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "소프트웨어"
     },
     {
       "symbol": "077360",
@@ -21948,7 +21948,7 @@
       "dataEnd": "2020-02-13",
       "hasOhlcv": true,
       "industry": "보험",
-      "sector": "증권/보험"
+      "sector": "보험"
     },
     {
       "symbol": "079550",
@@ -21992,7 +21992,7 @@
       "dataEnd": "2019-06-25",
       "hasOhlcv": true,
       "industry": "음식료·담배",
-      "sector": "식품/음료"
+      "sector": "식품"
     },
     {
       "symbol": "079810",
@@ -22335,7 +22335,7 @@
       "dataEnd": "2018-10-10",
       "hasOhlcv": true,
       "industry": "소프트웨어",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "소프트웨어"
     },
     {
       "symbol": "082210",
@@ -25637,7 +25637,7 @@
       "dataEnd": "2025-11-27",
       "hasOhlcv": true,
       "industry": "섬유·의류",
-      "sector": "화장품/패션"
+      "sector": "패션"
     },
     {
       "symbol": "102370",
@@ -26478,7 +26478,7 @@
       "dataEnd": "2021-09-29",
       "hasOhlcv": true,
       "industry": "인터넷",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "플랫폼"
     },
     {
       "symbol": "111870",
@@ -26913,7 +26913,7 @@
       "dataEnd": "2017-03-06",
       "hasOhlcv": true,
       "industry": "운송·창고",
-      "sector": "조선/해운"
+      "sector": "해운"
     },
     {
       "symbol": "118000",
@@ -28484,7 +28484,7 @@
       "dataEnd": "2026-05-07",
       "hasOhlcv": true,
       "industry": "IT 서비스",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "소프트웨어"
     },
     {
       "symbol": "139130",
@@ -30580,7 +30580,7 @@
       "dataEnd": "2015-06-22",
       "hasOhlcv": true,
       "industry": "은행",
-      "sector": "은행/금융지주"
+      "sector": "은행"
     },
     {
       "symbol": "192530",
@@ -30596,7 +30596,7 @@
       "dataEnd": "2018-10-25",
       "hasOhlcv": true,
       "industry": "은행",
-      "sector": "은행/금융지주"
+      "sector": "은행"
     },
     {
       "symbol": "192650",
@@ -30682,7 +30682,7 @@
       "dataEnd": "2020-09-08",
       "hasOhlcv": true,
       "industry": "디지털컨텐츠",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "소프트웨어"
     },
     {
       "symbol": "194610",
@@ -30728,7 +30728,7 @@
       "dataEnd": "2021-06-09",
       "hasOhlcv": true,
       "industry": "소프트웨어",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "소프트웨어"
     },
     {
       "symbol": "195500",
@@ -31250,7 +31250,7 @@
       "dataEnd": "2017-05-26",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "204610",
@@ -31310,7 +31310,7 @@
       "dataEnd": "2017-07-06",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "204760",
@@ -31326,7 +31326,7 @@
       "dataEnd": "2017-06-14",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "204840",
@@ -31470,7 +31470,7 @@
       "dataEnd": "2017-10-19",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "207720",
@@ -31486,7 +31486,7 @@
       "dataEnd": "2017-10-13",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "207760",
@@ -31516,7 +31516,7 @@
       "dataEnd": "2017-11-03",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "207940",
@@ -31646,7 +31646,7 @@
       "dataEnd": "2017-07-28",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "209640",
@@ -31774,7 +31774,7 @@
       "dataEnd": "2021-10-01",
       "hasOhlcv": true,
       "industry": "소프트웨어",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "소프트웨어"
     },
     {
       "symbol": "213420",
@@ -32131,7 +32131,7 @@
       "dataEnd": "2017-12-22",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "215600",
@@ -32161,7 +32161,7 @@
       "dataEnd": "2018-01-03",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "215790",
@@ -32349,7 +32349,7 @@
       "dataEnd": "2018-01-18",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "217820",
@@ -32407,7 +32407,7 @@
       "dataEnd": "2018-02-13",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "219130",
@@ -32465,7 +32465,7 @@
       "dataEnd": "2018-02-06",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "219750",
@@ -32495,7 +32495,7 @@
       "dataEnd": "2018-02-28",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "219960",
@@ -32511,7 +32511,7 @@
       "dataEnd": "2018-02-22",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "220100",
@@ -32585,7 +32585,7 @@
       "dataEnd": "2018-04-16",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "221610",
@@ -32645,7 +32645,7 @@
       "dataEnd": "2018-03-29",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "221980",
@@ -32731,7 +32731,7 @@
       "dataEnd": "2018-03-12",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "222420",
@@ -32805,7 +32805,7 @@
       "dataEnd": "2018-03-29",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "223250",
@@ -32935,7 +32935,7 @@
       "dataEnd": "2018-05-25",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "225530",
@@ -33127,7 +33127,7 @@
       "dataEnd": "2018-06-04",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "226950",
@@ -33325,7 +33325,7 @@
       "dataEnd": "2018-07-25",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "230980",
@@ -33341,7 +33341,7 @@
       "dataEnd": "2026-06-04",
       "hasOhlcv": true,
       "industry": "IT 서비스",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "소프트웨어"
     },
     {
       "symbol": "232140",
@@ -33371,7 +33371,7 @@
       "dataEnd": "2018-10-11",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "232330",
@@ -33387,7 +33387,7 @@
       "dataEnd": "2019-08-29",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "232680",
@@ -33530,7 +33530,7 @@
       "dataEnd": "2018-10-11",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "235980",
@@ -33742,7 +33742,7 @@
       "dataEnd": "2019-01-28",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "240550",
@@ -34472,7 +34472,7 @@
       "dataEnd": "2019-09-30",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "258610",
@@ -34656,7 +34656,7 @@
       "dataEnd": "2019-10-08",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "262840",
@@ -34870,7 +34870,7 @@
       "dataEnd": "2019-12-05",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "264450",
@@ -34956,7 +34956,7 @@
       "dataEnd": "2020-01-02",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "265520",
@@ -35014,7 +35014,7 @@
       "dataEnd": "2020-01-14",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "267250",
@@ -35242,7 +35242,7 @@
       "dataEnd": "2020-03-02",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "271830",
@@ -35468,7 +35468,7 @@
       "dataEnd": "2020-06-17",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "277070",
@@ -35512,7 +35512,7 @@
       "dataEnd": "2020-08-19",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "277810",
@@ -35599,7 +35599,7 @@
       "dataEnd": "2020-07-02",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "279570",
@@ -35657,7 +35657,7 @@
       "dataEnd": "2020-07-24",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "281740",
@@ -36071,7 +36071,7 @@
       "dataEnd": "2022-12-15",
       "hasOhlcv": true,
       "industry": "소프트웨어",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "소프트웨어"
     },
     {
       "symbol": "290520",
@@ -36213,7 +36213,7 @@
       "dataEnd": "2021-01-14",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "291230",
@@ -36607,7 +36607,7 @@
       "dataEnd": "2023-08-25",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "299030",
@@ -36679,7 +36679,7 @@
       "dataEnd": "2025-02-13",
       "hasOhlcv": true,
       "industry": "IT 서비스",
-      "sector": "소프트웨어/플랫폼"
+      "sector": "소프트웨어"
     },
     {
       "symbol": "300080",
@@ -36947,7 +36947,7 @@
       "dataEnd": "2021-07-12",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "307160",
@@ -36963,7 +36963,7 @@
       "dataEnd": "2021-07-07",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "307180",
@@ -37189,7 +37189,7 @@
       "dataEnd": "2021-09-17",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "310870",
@@ -37219,7 +37219,7 @@
       "dataEnd": "2021-07-30",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "311320",
@@ -37291,7 +37291,7 @@
       "dataEnd": "2021-12-06",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "313760",
@@ -37391,7 +37391,7 @@
       "dataEnd": "2021-11-03",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "317120",
@@ -37435,7 +37435,7 @@
       "dataEnd": "2021-12-06",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "317330",
@@ -37829,7 +37829,7 @@
       "dataEnd": "2022-02-16",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "323230",
@@ -37845,7 +37845,7 @@
       "dataEnd": "2025-06-18",
       "hasOhlcv": true,
       "industry": "섬유·의류",
-      "sector": "화장품/패션"
+      "sector": "패션"
     },
     {
       "symbol": "323280",
@@ -37903,7 +37903,7 @@
       "dataEnd": "2022-02-03",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "323990",
@@ -38003,7 +38003,7 @@
       "dataEnd": "2022-04-01",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "330350",
@@ -38075,7 +38075,7 @@
       "dataEnd": "2022-05-06",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "331380",
@@ -38189,7 +38189,7 @@
       "dataEnd": "2022-09-23",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "333050",
@@ -38445,7 +38445,7 @@
       "dataEnd": "2022-10-17",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "337930",
@@ -38545,7 +38545,7 @@
       "dataEnd": "2022-07-27",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "340350",
@@ -38561,7 +38561,7 @@
       "dataEnd": "2022-10-17",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "340360",
@@ -38661,7 +38661,7 @@
       "dataEnd": "2022-12-22",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "342550",
@@ -38677,7 +38677,7 @@
       "dataEnd": "2022-12-28",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "342870",
@@ -38707,7 +38707,7 @@
       "dataEnd": "2023-02-28",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "344050",
@@ -38723,7 +38723,7 @@
       "dataEnd": "2023-02-16",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "344820",
@@ -38781,7 +38781,7 @@
       "dataEnd": "2022-10-28",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "347700",
@@ -38994,7 +38994,7 @@
       "dataEnd": "2022-12-23",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "350520",
@@ -39052,7 +39052,7 @@
       "dataEnd": "2023-02-20",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "351870",
@@ -39180,7 +39180,7 @@
       "dataEnd": "2023-09-21",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "353070",
@@ -39196,7 +39196,7 @@
       "dataEnd": "2023-03-09",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "353190",
@@ -39254,7 +39254,7 @@
       "dataEnd": "2023-05-16",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "353590",
@@ -39830,7 +39830,7 @@
       "dataEnd": "2023-09-15",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "367000",
@@ -39860,7 +39860,7 @@
       "dataEnd": "2023-07-14",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "367360",
@@ -39876,7 +39876,7 @@
       "dataEnd": "2023-11-23",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "367460",
@@ -39892,7 +39892,7 @@
       "dataEnd": "2022-12-07",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "367480",
@@ -39908,7 +39908,7 @@
       "dataEnd": "2023-09-07",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "368600",
@@ -40022,7 +40022,7 @@
       "dataEnd": "2024-02-16",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "372320",
@@ -40150,7 +40150,7 @@
       "dataEnd": "2023-12-12",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "375500",
@@ -40392,7 +40392,7 @@
       "dataEnd": "2024-01-24",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "377450",
@@ -40450,7 +40450,7 @@
       "dataEnd": "2023-12-26",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "377740",
@@ -40522,7 +40522,7 @@
       "dataEnd": "2024-01-22",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "380440",
@@ -40538,7 +40538,7 @@
       "dataEnd": "2023-12-28",
       "hasOhlcv": true,
       "industry": "기타금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "380540",
@@ -40765,7 +40765,7 @@
       "dataEnd": "2024-06-14",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "387310",
@@ -40781,7 +40781,7 @@
       "dataEnd": "2023-03-15",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "387570",
@@ -40839,7 +40839,7 @@
       "dataEnd": "2023-05-22",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "388610",
@@ -40898,7 +40898,7 @@
       "dataEnd": "2024-07-01",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "388870",
@@ -41040,7 +41040,7 @@
       "dataEnd": "2024-05-13",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "391710",
@@ -41084,7 +41084,7 @@
       "dataEnd": "2024-04-29",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "393890",
@@ -41240,7 +41240,7 @@
       "dataEnd": "2023-04-27",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "397030",
@@ -41270,7 +41270,7 @@
       "dataEnd": "2023-03-08",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "397810",
@@ -41300,7 +41300,7 @@
       "dataEnd": "2024-03-22",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "398120",
@@ -41344,7 +41344,7 @@
       "dataEnd": "2023-09-18",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "400760",
@@ -41374,7 +41374,7 @@
       "dataEnd": "2024-07-25",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "402030",
@@ -41488,7 +41488,7 @@
       "dataEnd": "2024-01-03",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "404990",
@@ -41546,7 +41546,7 @@
       "dataEnd": "2023-11-02",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "405640",
@@ -41562,7 +41562,7 @@
       "dataEnd": "2024-06-10",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "405920",
@@ -41592,7 +41592,7 @@
       "dataEnd": "2024-12-24",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "406820",
@@ -41678,7 +41678,7 @@
       "dataEnd": "2023-08-30",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "411080",
@@ -41736,7 +41736,7 @@
       "dataEnd": "2025-01-20",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "413390",
@@ -41766,7 +41766,7 @@
       "dataEnd": "2025-02-27",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "413630",
@@ -41824,7 +41824,7 @@
       "dataEnd": "2024-12-03",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "415640",
@@ -41994,7 +41994,7 @@
       "dataEnd": "2024-12-18",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "418210",
@@ -42010,7 +42010,7 @@
       "dataEnd": "2025-04-03",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "418250",
@@ -42138,7 +42138,7 @@
       "dataEnd": "2024-04-24",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "419530",
@@ -42210,7 +42210,7 @@
       "dataEnd": "2024-11-18",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "422040",
@@ -42226,7 +42226,7 @@
       "dataEnd": "2025-02-07",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "424140",
@@ -42242,7 +42242,7 @@
       "dataEnd": "2025-02-03",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "424760",
@@ -42328,7 +42328,7 @@
       "dataEnd": "2025-02-10",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "425420",
@@ -42358,7 +42358,7 @@
       "dataEnd": "2024-02-14",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "426670",
@@ -42374,7 +42374,7 @@
       "dataEnd": "2023-04-19",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "427950",
@@ -42390,7 +42390,7 @@
       "dataEnd": "2024-01-31",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "429270",
@@ -42420,7 +42420,7 @@
       "dataEnd": "2025-08-21",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "430230",
@@ -42436,7 +42436,7 @@
       "dataEnd": "2024-09-02",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "430460",
@@ -42452,7 +42452,7 @@
       "dataEnd": "2024-12-12",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "430690",
@@ -42482,7 +42482,7 @@
       "dataEnd": "2025-03-14",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "431190",
@@ -42582,7 +42582,7 @@
       "dataEnd": "2025-03-06",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "434480",
@@ -42612,7 +42612,7 @@
       "dataEnd": "2025-05-13",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "435570",
@@ -42642,7 +42642,7 @@
       "dataEnd": "2025-05-23",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "435870",
@@ -42658,7 +42658,7 @@
       "dataEnd": "2025-05-15",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "436530",
@@ -42674,7 +42674,7 @@
       "dataEnd": "2024-05-02",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "436610",
@@ -42690,7 +42690,7 @@
       "dataEnd": "2024-09-26",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "437730",
@@ -42720,7 +42720,7 @@
       "dataEnd": "2025-05-23",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "438220",
@@ -42736,7 +42736,7 @@
       "dataEnd": "2024-11-19",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "438580",
@@ -42752,7 +42752,7 @@
       "dataEnd": "2025-06-10",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "438700",
@@ -42796,7 +42796,7 @@
       "dataEnd": "2025-05-30",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "439260",
@@ -42826,7 +42826,7 @@
       "dataEnd": "2025-07-07",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "439580",
@@ -42856,7 +42856,7 @@
       "dataEnd": "2025-05-30",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "439960",
@@ -42901,7 +42901,7 @@
       "dataEnd": "2023-11-02",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "440290",
@@ -42945,7 +42945,7 @@
       "dataEnd": "2025-07-10",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "440820",
@@ -42961,7 +42961,7 @@
       "dataEnd": "2025-07-18",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "441270",
@@ -42991,7 +42991,7 @@
       "dataEnd": "2025-07-08",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "442310",
@@ -43007,7 +43007,7 @@
       "dataEnd": "2025-07-10",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "442770",
@@ -43023,7 +43023,7 @@
       "dataEnd": "2025-11-14",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "442900",
@@ -43039,7 +43039,7 @@
       "dataEnd": "2025-10-22",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "443060",
@@ -43111,7 +43111,7 @@
       "dataEnd": "2026-04-03",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "445090",
@@ -43155,7 +43155,7 @@
       "dataEnd": "2025-07-25",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "445680",
@@ -43185,7 +43185,7 @@
       "dataEnd": "2025-07-31",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "446070",
@@ -43215,7 +43215,7 @@
       "dataEnd": "2026-01-27",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "446190",
@@ -43231,7 +43231,7 @@
       "dataEnd": "2025-09-08",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "446540",
@@ -43261,7 +43261,7 @@
       "dataEnd": "2025-10-15",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "446840",
@@ -43305,7 +43305,7 @@
       "dataEnd": "2025-11-12",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "448710",
@@ -43349,7 +43349,7 @@
       "dataEnd": "2025-10-13",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "448760",
@@ -43365,7 +43365,7 @@
       "dataEnd": "2025-12-26",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "448830",
@@ -43381,7 +43381,7 @@
       "dataEnd": "2026-01-13",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "448900",
@@ -43411,7 +43411,7 @@
       "dataEnd": "2025-10-02",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "450050",
@@ -43427,7 +43427,7 @@
       "dataEnd": "2026-01-28",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "450080",
@@ -43503,7 +43503,7 @@
       "dataEnd": "2023-12-20",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "450520",
@@ -43533,7 +43533,7 @@
       "dataEnd": "2026-03-04",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "450950",
@@ -43591,7 +43591,7 @@
       "dataEnd": "2026-06-09",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "451760",
@@ -43775,7 +43775,7 @@
       "dataEnd": "2026-04-20",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "452980",
@@ -43791,7 +43791,7 @@
       "dataEnd": "2026-05-06",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "453340",
@@ -43849,7 +43849,7 @@
       "dataEnd": "2026-02-03",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "454750",
@@ -43865,7 +43865,7 @@
       "dataEnd": "2025-10-24",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "454910",
@@ -43910,7 +43910,7 @@
       "dataEnd": "2026-01-27",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "455310",
@@ -43926,7 +43926,7 @@
       "dataEnd": "2026-04-13",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "455900",
@@ -43957,7 +43957,7 @@
       "dataEnd": "2026-03-03",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "456010",
@@ -44029,7 +44029,7 @@
       "dataEnd": "2025-05-15",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "456490",
@@ -44045,7 +44045,7 @@
       "dataEnd": "2026-02-09",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "457190",
@@ -44089,7 +44089,7 @@
       "dataEnd": "2025-05-14",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "457550",
@@ -44133,7 +44133,7 @@
       "dataEnd": "2026-04-13",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "457940",
@@ -44149,7 +44149,7 @@
       "dataEnd": "2026-03-13",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "458320",
@@ -44165,7 +44165,7 @@
       "dataEnd": "2025-03-27",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "458350",
@@ -44195,7 +44195,7 @@
       "dataEnd": "2026-04-02",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "458650",
@@ -44395,7 +44395,7 @@
       "dataEnd": "2026-05-15",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "462310",
@@ -44621,7 +44621,7 @@
       "dataEnd": "2026-06-08",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "465320",
@@ -44722,7 +44722,7 @@
       "dataEnd": "2026-05-15",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "467930",
@@ -44752,7 +44752,7 @@
       "dataEnd": "2025-06-16",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "468530",
@@ -44964,7 +44964,7 @@
       "dataEnd": "2026-04-02",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "473950",
@@ -45303,7 +45303,7 @@
       "dataEnd": "2025-07-08",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "476830",
@@ -45375,7 +45375,7 @@
       "dataEnd": "2025-04-28",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "477760",
@@ -45489,7 +45489,7 @@
       "dataEnd": "2026-01-13",
       "hasOhlcv": true,
       "industry": "금융",
-      "sector": "증권/보험"
+      "sector": "증권"
     },
     {
       "symbol": "479880",

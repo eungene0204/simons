@@ -360,6 +360,15 @@ class BacktestEngine:
                 # 복수 섹터는 합집합 필터(FR-STR-066 ⑦ — "반도체 + 기계/장비 업종").
                 _sector_label = "·".join(universe_pit.sector_value_as_list(_sector))
                 _sector_unknown = universe_pit.sector_unknown_delisted(symbols)
+                # 섹터 소속의 정본은 지식그래프다(FR-STR-070 ⑦-2). 정본을 못 읽어 파일
+                # 캐시로 폴백했다면 조용히 넘기지 않고 사용자에게 고지한다 — 정본이 아닌
+                # 데이터로 유니버스가 확정되면 결과가 달라질 수 있다.
+                _sector_src = universe_pit.sector_map_source()
+                if _sector_src.get("source") == "files":
+                    self.warnings.add(
+                        f"섹터({_sector_label}) 분류를 정본(지식그래프)이 아니라 파일 캐시에서 "
+                        f"읽었습니다 — {_sector_src.get('reason') or '사유 불명'}"
+                    )
                 symbols = universe_pit.filter_by_sector(symbols, _sector)
                 if not symbols:
                     raise ValueError(f"'{_sector_label}' 섹터에 해당하는 종목을 찾지 못했습니다.")

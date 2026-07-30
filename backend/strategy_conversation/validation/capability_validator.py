@@ -130,16 +130,18 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
 
     # 유니버스 섹터 — 정본 섹터명 화이트리스트로 판정(조용한 왜곡 방지)
     if strategy.universe.sectors:
-        from engine.universe_pit import normalize_sector
+        from engine.universe_pit import expand_legacy_sector
 
         normalized_sectors: List[str] = []
         for sector in strategy.universe.sectors:
-            canonical = normalize_sector(sector)
-            if canonical is None:
+            # 분할 전 구 묶음명('증권/보험')은 신규 두 섹터로 펴서 통과시킨다 —
+            # 저장된 전략이 미지원 섹터로 판정돼 유니버스를 잃지 않도록.
+            canonical = expand_legacy_sector(sector)
+            if not canonical:
                 unsupported.append(f"섹터 '{sector}'")
                 errors.append(f"'{sector}'은(는) 지원 섹터 목록에 없습니다")
-            else:
-                normalized_sectors.append(canonical)
+                continue
+            normalized_sectors.extend(c for c in canonical if c not in normalized_sectors)
         strategy.universe.sectors = normalized_sectors
 
     # 포트폴리오 기능

@@ -676,6 +676,32 @@ describe("getModificationClarification", () => {
   });
 });
 
+describe("규제 안전 라벨 — 전략 진행 중에도 정형 안내가 나간다", () => {
+  // [규제 안전] 맞춤 조언·실계좌 매매 안내는 백엔드 도메인 정책이 확정한 문구를 그대로
+  // 띄운다. LLM이 문구를 짓게 두거나 전략 파싱으로 흘리면 안 된다.
+  it.each([
+    ["PERSONAL_ADVICE", "개인 상황에 맞춘 전략이나 종목 추천은 제공하지 않아요"],
+    ["LIVE_TRADING", "실제 계좌로 매매를 실행하거나"],
+  ] as const)("routes %s to a canned response", (intent, marker) => {
+    const decision = decideConversationTurn(
+      "아무 말",
+      { ...baseContext, hasCurrentStrategy: true },
+      { intent, suggestedReply: null },
+    );
+    expect(decision.action).toBe("respond");
+    expect(decision.action === "respond" && decision.message).toContain(marker);
+  });
+
+  it("prefers the backend suggested reply over the local fallback", () => {
+    const decision = decideConversationTurn(
+      "내 돈 대신 굴려줘",
+      baseContext,
+      { intent: "LIVE_TRADING", suggestedReply: "백엔드가 확정한 문구" },
+    );
+    expect(decision.action === "respond" && decision.message).toBe("백엔드가 확정한 문구");
+  });
+});
+
 describe("parseHoldingPeriodDays", () => {
   it.each([
     ["252거래일 (1년)", 252],

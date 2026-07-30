@@ -201,6 +201,10 @@ def synthetic_sector_sources(tmp_path, monkeypatch):
     korea_path.write_text(json.dumps(korea), encoding="utf-8")
     monkeypatch.setattr(u, "_MASTER_PATH", master_path)
     monkeypatch.setattr(u, "_KOREA_STOCKS_PATH", korea_path)
+    # 섹터 소속의 정본은 KG다(2026-07-30). 이 픽스처는 **파일 병합 규칙**
+    # (마스터→korea-stocks 우선순위·우선주 상속)을 검증하므로 KG 경로를 비워
+    # sector_map_from_files 폴백이 합성 데이터를 읽게 한다.
+    monkeypatch.setattr(u, "_sector_map_from_graph", lambda: {})
     u.reload_master()
     yield
     u.reload_master()

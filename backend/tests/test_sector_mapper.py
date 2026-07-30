@@ -4,7 +4,7 @@ engine/sector_mapper.get_sector_from_industry() 회귀 테스트.
 2026-07-05 사고: KRX KIND 업종 데이터에서 지주회사(홀딩스)는 실제 영위 사업과
 무관하게 "기타 금융업"/"회사 본부 및 경영 컨설팅 서비스업"으로 등록되는데,
 과거 매핑 규칙의 "지주"/"기타 금융" 키워드가 이를 그대로 잡아 SK·GS·한진칼·
-롯데지주 등 산업 지주회사 191개가 전부 "은행/금융지주"로 잘못 표시되었다.
+롯데지주 등 산업 지주회사 191개가 전부 "은행"로 잘못 표시되었다.
 "메리츠화재"처럼 회사명에 "리츠"가 우연히 포함되어 "부동산"으로 오분류되는
 문제도 함께 발견되어 수정했다.
 """
@@ -26,7 +26,8 @@ def test_industrial_holding_company_is_not_bank_or_financial_holding():
 
 
 def test_genuine_financial_holding_company_stays_bank_sector():
-    """실제 은행/금융 지주회사는 은행/금융지주로 유지되어야 한다 (OVERRIDDEN_SYMBOLS)."""
+    """실제 금융 지주회사는 '금융지주'로 유지되어야 한다 (OVERRIDDEN_SYMBOLS).
+    2026-07-30 분할로 은행(예금취급기관)과 금융지주가 별개 섹터가 됐다."""
     for symbol, name in [
         ("316140", "우리금융지주"),
         ("055550", "신한지주"),
@@ -34,18 +35,24 @@ def test_genuine_financial_holding_company_stays_bank_sector():
         ("086790", "하나금융지주"),
         ("138040", "메리츠금융지주"),
     ]:
-        assert get_sector_from_industry(symbol, "기타 금융업", name) == "은행/금융지주"
+        assert get_sector_from_industry(symbol, "기타 금융업", name) == "금융지주"
+
+
+def test_deposit_taking_bank_is_bank_sector_not_holding():
+    """예금취급기관은 '은행' — 금융지주와 섞이지 않는다(분할 회귀)."""
+    assert get_sector_from_industry("323410", "은행 및 저축기관", "카카오뱅크") == "은행"
+    assert get_sector_from_industry("024110", "은행 및 저축기관", "기업은행") == "은행"
 
 
 def test_securities_and_brokerage_industry_text_routes_to_securities_sector():
-    """'금융 지원 서비스업'(증권사 KSIC 텍스트)은 은행/금융지주가 아니라 증권/보험으로 분류되어야 한다."""
-    assert get_sector_from_industry("039490", "금융 지원 서비스업", "키움증권") == "증권/보험"
-    assert get_sector_from_industry("006800", "금융 지원 서비스업", "미래에셋증권") == "증권/보험"
+    """'금융 지원 서비스업'(증권사 KSIC 텍스트)은 은행이 아니라 증권으로 분류되어야 한다."""
+    assert get_sector_from_industry("039490", "금융 지원 서비스업", "키움증권") == "증권"
+    assert get_sector_from_industry("006800", "금융 지원 서비스업", "미래에셋증권") == "증권"
 
 
 def test_venture_capital_named_with_investment_keyword_routes_to_securities_sector():
-    assert get_sector_from_industry("041190", "기타 금융업", "우리기술투자") == "증권/보험"
-    assert get_sector_from_industry("023760", "기타 금융업", "한국캐피탈") == "증권/보험"
+    assert get_sector_from_industry("041190", "기타 금융업", "우리기술투자") == "증권"
+    assert get_sector_from_industry("023760", "기타 금융업", "한국캐피탈") == "증권"
 
 
 def test_reit_suffix_does_not_collide_with_meritz_group_name():
@@ -91,7 +98,7 @@ def test_krx_short_industry_overrides_fix_systematic_mismatches():
         ("운송장비·부품", "삼목강업", "자동차부품"),
         ("의료·정밀기기", "디오텍", "의료기기"),
         ("IT부품", "멜파스", "IT 하드웨어"),
-        ("디지털컨텐츠", "네오위즈아이엔에스", "소프트웨어/플랫폼"),
+        ("디지털컨텐츠", "네오위즈아이엔에스", "소프트웨어"),
         ("종이·목재", "한국제지", "종이"),             # 목재 우선순위 매칭으로 새던 케이스
         ("전기·가스", "부산도시가스", "통신/유틸리티"),  # 판매 사업자 관례(제조는 에너지/원자력)
     ]
@@ -101,7 +108,7 @@ def test_krx_short_industry_overrides_fix_systematic_mismatches():
 
 def test_krx_short_industry_spac_follows_active_spac_convention():
     # '금융'은 대부분 스팩(기업인수목적회사) — 현재 상장 스팩의 분류(증권/보험)와 일관되게 간다.
-    assert get_sector_from_krx_industry("000000", "금융", "미래에셋대우스팩1호") == "증권/보험"
+    assert get_sector_from_krx_industry("000000", "금융", "미래에셋대우스팩1호") == "증권"
 
 
 def test_krx_short_industry_falls_back_to_keyword_mapper():
@@ -123,7 +130,7 @@ def test_aerospace_names_are_not_fishery():
     cases = [
         ("012450", "항공기,우주선 및 부품 제조업", "한화에어로스페이스", "우주항공/방산"),
         ("274090", "항공기,우주선 및 부품 제조업", "켄코아에어로스페이스", "우주항공/방산"),
-        ("466690", "금융 지원 서비스업", "키움히어로제1호스팩", "증권/보험"),
+        ("466690", "금융 지원 서비스업", "키움히어로제1호스팩", "증권"),
     ]
     for symbol, industry, name, expected in cases:
         assert get_sector_from_industry(symbol, industry, name) == expected, name
@@ -155,4 +162,4 @@ def test_misassigned_override_symbols_corrected():
     ) == "에너지/원자력"  # 전력기기 제조 — 화학 '금속' 오귀속도 오버라이드로 교정
     assert get_sector_from_industry(
         "006980", "곡물가공품, 전분 및 전분제품 제조업", "우성"
-    ) == "사료/축산"
+    ) == "사료"
