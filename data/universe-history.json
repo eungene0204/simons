@@ -51,6 +51,17 @@
       "delisted": []
     },
     {
+      "date": "2026-06-16",
+      "syncedAt": "2026-06-16T00:00:04.809242+09:00",
+      "totalCount": 2655,
+      "kospiCount": 836,
+      "kosdaqCount": 1819,
+      "addedCount": 0,
+      "delistedCount": 0,
+      "added": [],
+      "delisted": []
+    },
+    {
       "date": "2026-06-15",
       "syncedAt": "2026-06-15T00:00:04.852528+09:00",
       "totalCount": 2655,
