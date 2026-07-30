@@ -28,7 +28,14 @@ from stock_analysis.symbol_resolver import StockRef, find_in_text, resolve_by_sy
 
 from . import interpreter, platform_defaults
 from .config import classifier_mode
-from .schemas import ChatTurn, DetectedSymbol, IntentResult, QueryIntent
+from .schemas import (
+    ChatTurn,
+    DetectedSymbol,
+    IntentResult,
+    QueryIntent,
+    WorkflowEffect,
+    WorkflowStatus,
+)
 from .scope import (
     LIVE_TRADING_REPLY,
     METRIC_NUM_GAP,
@@ -553,6 +560,79 @@ _LABEL_REPLIES: dict[QueryIntent, str] = {
 }
 
 
+# 워크플로 제어 효과 → 정형 안내 문구. 라벨을 키로 정해진 문구를 고르는 결정론 매핑이다
+# (원문을 다시 읽지 않는다). RESUME은 안내 없이 이어서 진행하므로 문구가 없다.
+_EFFECT_REPLIES: dict[WorkflowEffect, str] = {
+    WorkflowEffect.PAUSE: (
+        "전략 작성을 잠시 멈췄습니다. 지금까지 정한 조건은 그대로 유지돼요. "
+        "이어서 하시려면 말씀해 주세요."
+    ),
+    WorkflowEffect.CANCEL: (
+        "전략 작성을 취소했습니다. 새로 만들고 싶으실 때 언제든 말씀해 주세요."
+    ),
+    WorkflowEffect.RESTART: (
+        "지금까지의 전략을 지우고 처음부터 시작할게요. 어떤 조건으로 만들어 볼까요?"
+    ),
+    # ROLLBACK은 여기 없다 — 안내 문구가 되돌리기 **결과**에 달려 있고(어느 변경을
+    # 되돌렸는지·되물어야 하는지), 그 결과는 변경 이력을 들고 있는 프론트가 복원을
+    # 마친 뒤에야 정해진다(설계 스펙 § 19, /strategy/rollback/resolve).
+}
+
+# 제어 효과를 인정하지 않는 라벨 — 규제·범위 게이트라 정형 안내가 반드시 나가야 한다.
+# 여기에 제어를 허용하면 "그만할래" 한마디로 맞춤 조언·실계좌 매매 안내가 삼켜진다.
+# 제어가 유효한 라벨은 전략 대화 맥락인 STRATEGY_ADVICE·GENERAL_INVESTMENT·UNKNOWN뿐이다.
+_EFFECT_BLOCKED_INTENTS = frozenset({
+    QueryIntent.STOCK_ANALYSIS,
+    QueryIntent.STOCK_PICK,
+    QueryIntent.STRATEGY_PICK,
+    QueryIntent.ONBOARDING,
+    QueryIntent.PERSONAL_ADVICE,
+    QueryIntent.LIVE_TRADING,
+    QueryIntent.UNSUPPORTED_FEATURE,
+    QueryIntent.GREETING,
+    QueryIntent.OFF_TOPIC,
+})
+
+# 진행 중인 전략이 있어야 성립하는 효과 — 없으면 되돌리거나 멈출 대상이 없다.
+_REQUIRES_ACTIVE_STRATEGY = frozenset({
+    WorkflowEffect.PAUSE,
+    WorkflowEffect.CANCEL,
+    WorkflowEffect.RESTART,
+    WorkflowEffect.ROLLBACK,
+})
+
+# 효과 → 이 턴 이후의 워크플로 상태. ROLLBACK은 실행되지 않으므로 상태를 바꾸지 않는다.
+_EFFECT_TRANSITIONS: dict[WorkflowEffect, WorkflowStatus] = {
+    WorkflowEffect.UPDATE: WorkflowStatus.ACTIVE,
+    WorkflowEffect.PAUSE: WorkflowStatus.PAUSED,
+    WorkflowEffect.RESUME: WorkflowStatus.ACTIVE,
+    WorkflowEffect.CANCEL: WorkflowStatus.CANCELLED,
+    WorkflowEffect.RESTART: WorkflowStatus.IDLE,
+}
+
+
+def _resolve_workflow(
+    interp: interpreter.IntentInterpretation,
+    active_strategy: bool,
+    workflow_status: WorkflowStatus,
+) -> tuple[WorkflowEffect, WorkflowStatus]:
+    """LLM이 제안한 제어 효과를 결정론으로 검증하고 다음 상태를 계산한다.
+
+    LLM은 효과를 제안만 하고, 성립 여부는 코드가 정한다(스펙 §18 — LLM이 State를 직접
+    바꾸지 않는다). 성립하지 않는 효과는 거부가 아니라 NONE 강등이다 — 제어가 사라져도
+    기존 대화 흐름은 그대로 이어진다."""
+    effect = interp.workflow_effect
+    if interp.intent in _EFFECT_BLOCKED_INTENTS:
+        # 규제·범위 게이트가 제어보다 우선한다.
+        return WorkflowEffect.NONE, workflow_status
+    if effect in _REQUIRES_ACTIVE_STRATEGY and not active_strategy:
+        return WorkflowEffect.NONE, workflow_status
+    if effect is WorkflowEffect.RESUME and workflow_status is not WorkflowStatus.PAUSED:
+        # 멈춘 적이 없으면 이어갈 것도 없다.
+        return WorkflowEffect.NONE, workflow_status
+    return effect, _EFFECT_TRANSITIONS.get(effect, workflow_status)
+
+
 def _resolve_stock(
     interp: interpreter.IntentInterpretation, last_symbol: Optional[str]
 ) -> Optional[StockRef]:
@@ -575,13 +655,18 @@ _STOCK_BEARING_INTENTS = frozenset({QueryIntent.STOCK_ANALYSIS, QueryIntent.STRA
 
 
 def _apply_domain_policy(
-    interp: interpreter.IntentInterpretation, last_symbol: Optional[str], query: str
+    interp: interpreter.IntentInterpretation,
+    last_symbol: Optional[str],
+    query: str,
+    active_strategy: bool = False,
+    workflow_status: WorkflowStatus = WorkflowStatus.IDLE,
 ) -> IntentResult:
     """구조화 출력에 도메인 정책을 적용해 최종 IntentResult를 만든다.
 
     query는 여러 문안 중 하나를 고르는 해시 씨앗으로만 쓴다(같은 입력에 같은 문구 —
     캐시 친화). 원문에서 의미를 읽지 않으므로 해석이 아니다."""
     intent = interp.intent
+    effect, next_status = _resolve_workflow(interp, active_strategy, workflow_status)
     ref = _resolve_stock(interp, last_symbol) if intent in _STOCK_BEARING_INTENTS else None
     if intent == QueryIntent.STOCK_ANALYSIS:
         suggested_reply = stock_question_redirect(
@@ -596,6 +681,11 @@ def _apply_domain_policy(
         suggested_reply = stock_pick_reply(query)
     else:
         suggested_reply = _LABEL_REPLIES.get(intent)
+    # 워크플로 제어가 성립하면 그 안내가 라벨 안내를 대신한다 — 제어는 라벨과 직교하지만
+    # 사용자에게 보일 문장은 하나뿐이고, 제어 결과를 알리는 쪽이 우선이다. 규제 게이트
+    # 라벨은 _resolve_workflow가 이미 NONE으로 강등했으므로 여기 도달하지 않는다.
+    if effect in _EFFECT_REPLIES:
+        suggested_reply = _EFFECT_REPLIES[effect]
     return IntentResult(
         intent=intent,
         symbols=_to_detected([ref] if ref else []),
@@ -603,6 +693,8 @@ def _apply_domain_policy(
         confidence=0.8,
         reason="LLM 의미 해석",
         deterministic=False,
+        workflow_effect=effect,
+        workflow_status=next_status,
     )
 
 
@@ -613,6 +705,7 @@ def classify(
     llm: Optional[LLMFn] = None,
     history: Optional[list[ChatTurn]] = None,
     active_strategy: bool = False,
+    workflow_status: WorkflowStatus = WorkflowStatus.IDLE,
 ) -> IntentResult:
     """입력을 QueryIntent로 분류한다.
 
@@ -620,18 +713,24 @@ def classify(
     원문에 정규식을 걸지 않는다. 해석 실패는 UNKNOWN 실패 보고로 끝나며, 정규식이
     재해석자로 나서는 폴백은 없다(계약 § 8-1).
 
-    롤백(INTENT_CLASSIFIER_MODE=legacy): 아래 원문 정규식 레인. 계약 위반 상태로
-    보존만 하며 기본 경로가 아니다."""
-    if classifier_mode() == "legacy":
-        return _classify_legacy(query, last_symbol, llm, history)
+    workflow_status는 직전 턴의 워크플로 상태다(무상태 에코). 해석에 실패해도 이 값을
+    잃지 않는다 — 분류 실패가 사용자의 '멈춤' 상태를 조용히 해제하면 안 된다.
 
-    logger.info("query=%r active_strategy=%s", query, active_strategy)
+    롤백(INTENT_CLASSIFIER_MODE=legacy): 아래 원문 정규식 레인. 계약 위반 상태로
+    보존만 하며 기본 경로가 아니다. 워크플로 제어는 지원하지 않고 상태만 통과시킨다."""
+    if classifier_mode() == "legacy":
+        legacy = _classify_legacy(query, last_symbol, llm, history)
+        return legacy.model_copy(update={"workflow_status": workflow_status})
+
+    logger.info("query=%r active_strategy=%s workflow_status=%s",
+                query, active_strategy, workflow_status.value)
     if llm is None:
         return _log_result(IntentResult(
             intent=QueryIntent.UNKNOWN,
             confidence=0.0,
             reason="LLM 미가용 — 해석 실패 보고",
             deterministic=False,
+            workflow_status=workflow_status,
         ))
     try:
         interp = interpreter.interpret(query, llm, history, active_strategy)
@@ -644,10 +743,14 @@ def classify(
             confidence=0.0,
             reason="LLM 구조화 출력 해석 실패",
             deterministic=False,
+            workflow_status=workflow_status,
         ))
-    logger.info("  LLM 해석 → %s stock_name=%r refers_to_last=%s",
-                interp.intent.value, interp.stock_name, interp.refers_to_last_stock)
-    return _log_result(_apply_domain_policy(interp, last_symbol, query))
+    logger.info("  LLM 해석 → %s stock_name=%r refers_to_last=%s effect=%s",
+                interp.intent.value, interp.stock_name, interp.refers_to_last_stock,
+                interp.workflow_effect.value)
+    return _log_result(_apply_domain_policy(
+        interp, last_symbol, query, active_strategy, workflow_status,
+    ))
 
 
 def _classify_legacy(
@@ -684,8 +787,9 @@ def _log_result(result: IntentResult) -> IntentResult:
     """최종 판정을 한 줄로 남긴다. canned=정형 응답을 붙여 보냈다는 뜻 —
     프론트가 이 문구를 그대로 띄우고 전략 파싱(인터프리터)에는 도달하지 않는다."""
     logger.info(
-        "→ intent=%s deterministic=%s reason=%s canned=%s",
+        "→ intent=%s deterministic=%s reason=%s canned=%s effect=%s status=%s",
         result.intent.value, result.deterministic, result.reason,
         bool(result.suggested_reply),
+        result.workflow_effect.value, result.workflow_status.value,
     )
     return result

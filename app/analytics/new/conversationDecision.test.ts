@@ -719,3 +719,59 @@ describe("parseHoldingPeriodDays", () => {
     expect(parseHoldingPeriodDays("코스피")).toBeNull();
   });
 });
+
+describe("워크플로 제어(백엔드 분류 결과 소비)", () => {
+  const activeContext: ConversationContext = {
+    ...baseContext,
+    stage: "ready",
+    hasCurrentStrategy: true,
+  };
+
+  it("제어 효과가 라벨 분기보다 먼저 처리된다", () => {
+    expect(
+      decideConversationTurn("그만할래", activeContext, {
+        intent: "STRATEGY_ADVICE",
+        workflowEffect: "CANCEL",
+        suggestedReply: "전략 작성을 취소했습니다.",
+      }),
+    ).toMatchObject({
+      action: "control_workflow",
+      effect: "CANCEL",
+      message: "전략 작성을 취소했습니다.",
+    });
+  });
+
+  it.each(["PAUSE", "RESUME", "RESTART", "ROLLBACK"] as const)(
+    "%s도 제어 결정으로 이어진다",
+    (effect) => {
+      expect(
+        decideConversationTurn("...", activeContext, {
+          intent: "STRATEGY_ADVICE",
+          workflowEffect: effect,
+        }),
+      ).toMatchObject({ action: "control_workflow", effect });
+    },
+  );
+
+  it("NONE·UPDATE·미지정은 기존 흐름을 바꾸지 않는다", () => {
+    for (const workflowEffect of ["NONE", "UPDATE", undefined] as const) {
+      expect(
+        decideConversationTurn("RSI 30 이하 매수 전략", activeContext, {
+          intent: "STRATEGY_ADVICE",
+          workflowEffect,
+        }).action,
+      ).not.toBe("control_workflow");
+    }
+  });
+
+  it("[규제 안전] 게이트 라벨은 제어로 우회되지 않는다", () => {
+    // 백엔드가 게이트 라벨에서 효과를 NONE으로 강등하므로 정형 안내가 그대로 나간다.
+    expect(
+      decideConversationTurn("그만할래", activeContext, {
+        intent: "PERSONAL_ADVICE",
+        workflowEffect: "NONE",
+        suggestedReply: "맞춤 조언은 제공하지 않아요.",
+      }),
+    ).toMatchObject({ action: "respond", message: "맞춤 조언은 제공하지 않아요." });
+  });
+});

@@ -65,6 +65,13 @@ import {
 } from "./parsedStrategyMerge";
 import { computeChatScrollDelta, scrollChatViewToEnd } from "./chatScroll";
 import {
+  appendChangeLog,
+  applyRollback,
+  describeRollback,
+  toResolvePayload,
+  type ChangeLogEntry,
+} from "./rollback";
+import {
   buildResearchMetricIntro,
   buildResearchMetricSummary,
   decideConversationTurn,
@@ -76,6 +83,8 @@ import {
   type HoldingPeriodHorizon,
   type SemanticClassification,
   type StrategyAssumptions,
+  type WorkflowEffect,
+  type WorkflowStatus,
 } from "./conversationDecision";
 import {
   getNextMissingBacktestCondition,
@@ -101,6 +110,8 @@ import { selectClassifierHistory } from "./chatHistory";
 import { applyParsedValueStrategySeed } from "./builderSeed";
 import {
   buildBuilderTurnPresentation,
+  attachFieldStates,
+  countProgress,
   getDisplayBuilderProgressItems,
   type BuilderProgressItem,
   type BuilderSummaryItem,
@@ -1187,8 +1198,16 @@ function BuilderStrategyOverview({
   );
 }
 
+// 상태 축이 붙은 항목의 표시 문안. status가 없으면 기존 complete 표시 그대로다.
+const PROGRESS_STATUS_TEXT: Record<string, string> = {
+  NOT_APPLICABLE: "해당 없음",
+  INVALID: "확인 필요",
+  CONFLICTED: "확인 필요",
+  PROVISIONAL: "미확인",
+};
+
 function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
-  const completedCount = items.filter((item) => item.complete).length;
+  const { completed: completedCount, total: applicableCount } = countProgress(items);
   const displayItems = getDisplayBuilderProgressItems(items);
 
   return (
@@ -1203,21 +1222,33 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
           전략 진행률
         </h2>
         <span className="font-outfit text-[11px] font-black tabular-nums text-[var(--text-label)]">
-          {completedCount}/{items.length}
+          {completedCount}/{applicableCount}
         </span>
       </div>
       <ol className="mt-3 flex flex-col gap-2" data-testid="strategy-progress-list">
-        {displayItems.map((item) => (
+        {displayItems.map((item) => {
+          const notApplicable = item.status === "NOT_APPLICABLE";
+          const statusText = item.status ? PROGRESS_STATUS_TEXT[item.status] : undefined;
+          // '해당 없음'은 완료도 미완료도 아니다 — 체크도 빈 원도 달지 않고 흐리게 둔다.
+          const showCheck = item.complete && !notApplicable;
+          return (
           <li
             key={item.label}
-            aria-label={`${item.label}: ${item.complete ? "완료" : "진행 전"}`}
+            aria-label={`${item.label}: ${
+              statusText ?? (item.complete ? "완료" : "진행 전")
+            }`}
             className={`flex items-center gap-2 text-xs font-bold transition-colors duration-200 ${
-              item.complete ? "text-[var(--chat-accent)]" : "text-[var(--text-label)]"
+              notApplicable
+                ? "text-[var(--text-label)] opacity-50"
+                : item.complete
+                  ? "text-[var(--chat-accent)]"
+                  : "text-[var(--text-label)]"
             }`}
             data-complete={item.complete ? "true" : "false"}
             data-progress-label={item.label}
+            data-progress-status={item.status ?? ""}
           >
-            {item.complete ? (
+            {showCheck ? (
               <CheckCircle
                 aria-hidden="true"
                 className="flex-shrink-0 text-[var(--chat-accent)]"
@@ -1227,12 +1258,20 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
             ) : (
               <span
                 aria-hidden="true"
-                className="h-[15px] w-[15px] flex-shrink-0 rounded-full border border-white/20"
+                className={`h-[15px] w-[15px] flex-shrink-0 rounded-full border ${
+                  notApplicable ? "border-white/10 border-dashed" : "border-white/20"
+                }`}
               />
             )}
             <span>{item.label}</span>
+            {notApplicable ? (
+              <span className="ml-auto text-[10px] font-semibold opacity-70">
+                해당 없음
+              </span>
+            ) : null}
           </li>
-        ))}
+          );
+        })}
       </ol>
     </aside>
   );
@@ -1320,13 +1359,57 @@ function StrategyLabContent() {
     chips: string[];
     chip_bindings?: Record<string, Record<string, unknown>>;
   } | null>(null);
+  // 전략 작성 워크플로 상태(백엔드 무상태 에코 계약) — 분류 요청에 그대로 되돌려 보낸다.
+  // PAUSED가 아니면 '이어서 하자'(RESUME)가 성립하지 않으므로 직전 상태가 판정 입력이다.
+  const workflowStatusRef = useRef<WorkflowStatus>("IDLE");
   // 사용자가 실제로 말한 설정 필드(백엔드 provenance) — 다음 파스 요청에 에코해 누적한다.
   // ParsedStrategy 왕복은 기본값을 물질화해 이 정보를 지우므로 별도 채널이 필요하다.
   // 프론트가 원문 정규식으로 같은 판정을 하던 계약 위반(hasExplicit*)의 대체다.
   const explicitFieldsRef = useRef<string[]>([]);
+  // 진행 골격 8칸의 상태 축(백엔드 field_states) — 진행률 카드 표시 전용이다.
+  // 되묻기 게이트·실행 버튼은 이 값을 보지 않는다(판정 정본은 explicit_fields+isSlotFilled).
+  const fieldStatesRef = useRef<Record<string, string> | null>(null);
+  // 변경 이력(설계 스펙 § 19) — 턴마다 "무엇이 바뀌었나"와 그 시점 스냅샷을 쌓는다.
+  // 되돌리기는 이 스택에서 결정론으로 복원한다(대상 판정만 백엔드 LLM 레인).
+  // 백엔드에 세션이 없으므로 보관은 여기이며, 세션 스냅샷에 함께 저장된다.
+  const changeLogRef = useRef<ChangeLogEntry[]>([]);
   // 빌더 칩-only 단계에서 '직접 입력'을 눌러 채팅창을 다시 띄운 상태(빌더는 진행하지 않음).
   const [builderFreeTextRequested, setBuilderFreeTextRequested] = useState(false);
   const [explicitNoRebalancing, setExplicitNoRebalancing] = useState(false);
+
+  // 진행 중인 전략 초안만 비운다 — 대화 기록(messages)과 화면은 그대로 둔다.
+  // handleReset은 페이지 전체를 초기화하고 목록으로 되돌아가므로, 대화를 이어가면서
+  // 전략만 버리는 워크플로 제어(CANCEL·RESTART)에는 쓸 수 없다.
+  const clearStrategyDraft = useCallback(() => {
+    setStage("idle");
+    setLatestParsed(null);
+    setBacktestReq(null);
+    setCurrentOptions(null);
+    setResult(null);
+    setExecutedReq(null);
+    setBuilderFreeTextRequested(false);
+    setExplicitNoRebalancing(false);
+    latestParsedRef.current = null;
+    backtestReqRef.current = null;
+    coachSessionIdRef.current = null;
+    coachConversationRef.current = [];
+    builderModeRef.current = false;
+    builderStateRef.current = {};
+    builderHistoryRef.current = [];
+    explicitNoRebalancingRef.current = false;
+    explicitFieldsRef.current = [];
+    fieldStatesRef.current = null;
+    changeLogRef.current = [];
+    pendingAskRef.current = null;
+    pendingHoldingPeriodPromptRef.current = null;
+    pendingHoldingPeriodHorizonRef.current = null;
+    pendingMetricResearchPromptRef.current = null;
+    researchMetricRef.current = null;
+    metricOptimizationDraftRef.current = null;
+    metricOptimizationAbortRef.current?.abort();
+    metricOptimizationAbortRef.current = null;
+    setMetricOptimizationProgress(null);
+  }, []);
 
   useEffect(() => {
     fetch("/api/model/status")
@@ -1368,6 +1451,11 @@ function StrategyLabContent() {
       const restoredNoRebalancing = snapshot.explicitNoRebalancing === true;
       explicitNoRebalancingRef.current = restoredNoRebalancing;
       setExplicitNoRebalancing(restoredNoRebalancing);
+      changeLogRef.current = Array.isArray(snapshot.changeLog)
+        ? (snapshot.changeLog as ChangeLogEntry[]).filter(
+            (e) => e && typeof e.index === "number" && Array.isArray(e.changedFields),
+          )
+        : [];
       explicitFieldsRef.current = Array.isArray(snapshot.explicitFields)
         ? snapshot.explicitFields.filter((f: unknown): f is string => typeof f === "string")
         : [];
@@ -1467,6 +1555,9 @@ function StrategyLabContent() {
         // provenance는 대화 상태의 일부다 — 복원하지 않으면 이미 답한 조건을 다시 묻거나,
         // 답한 조건의 칩을 눌러도 게이트가 다른 조건을 기대해 결정적 적용이 빗나간다.
         explicitFields: explicitFieldsRef.current,
+        // 변경 이력도 대화 상태다 — 복원하지 않으면 새로고침 후 "아까 바꾼 거 되돌려"가
+        // 되돌릴 이력을 잃는다(§ 19).
+        changeLog: changeLogRef.current,
         pendingHoldingPeriodPrompt: pendingHoldingPeriodPromptRef.current,
         pendingHoldingPeriodHorizon: pendingHoldingPeriodHorizonRef.current,
         pendingMetricResearchPrompt: pendingMetricResearchPromptRef.current,
@@ -2102,6 +2193,80 @@ function StrategyLabContent() {
     });
   };
 
+  // 되돌리기 실행(설계 스펙 § 19). 대상 판정은 백엔드 LLM 레인(원문 해석), 복원은
+  // 여기서 결정론으로 한다 — 스냅샷을 들고 있는 쪽이 클라이언트이기 때문이다.
+  // 실패는 전부 되묻기로 강등한다: 추측으로 사용자가 쌓아온 전략을 지우지 않는다.
+  const resolveAndApplyRollback = async (userText: string): Promise<{ message: string }> => {
+    let decision: any;
+    try {
+      const res = await fetch("/api/strategy/rollback/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: userText,
+          events: toResolvePayload(changeLogRef.current),
+        }),
+      });
+      if (!res.ok) throw new Error();
+      decision = await res.json();
+    } catch {
+      return {
+        message:
+          "되돌릴 지점을 확인하지 못했어요. 어떤 변경을 되돌릴지 말씀해 주시면 반영해 드릴게요.",
+      };
+    }
+
+    const result = applyRollback(
+      latestParsedRef.current,
+      explicitFieldsRef.current,
+      changeLogRef.current,
+      decision,
+    );
+    if (result.status === "clarify") return { message: result.question };
+
+    // 필드 단위 복원은 전략이 새 조합이라 백테스트 요청을 다시 만들어야 한다.
+    let nextBacktestReq = result.backtestReq;
+    if (nextBacktestReq === null) {
+      try {
+        const res = await fetch("/api/strategy/compile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ parsed: result.parsed }),
+        });
+        if (!res.ok) throw new Error();
+        nextBacktestReq = (await res.json()).backtest_request;
+      } catch {
+        // 되돌린 전략을 실행 불가 상태로 남기느니 복원 자체를 포기한다(현 상태 유지).
+        return {
+          message:
+            "되돌린 전략으로 백테스트 요청을 다시 만들지 못했어요. 전략은 그대로 두었으니 바꾸고 싶은 조건을 말씀해 주세요.",
+        };
+      }
+    }
+
+    setLatestParsed(result.parsed);
+    latestParsedRef.current = result.parsed;
+    setBacktestReq(nextBacktestReq);
+    backtestReqRef.current = nextBacktestReq;
+    explicitFieldsRef.current = result.explicitFields;
+    // 되돌린 시점 이후의 이력은 더 이상 유효하지 않다 — 남겨두면 존재하지 않는 상태로
+    // 되돌리는 판정이 나온다. 되돌림 자체도 하나의 턴으로 이력에 남긴다.
+    const keptUpTo = (decision.turn_index as number) - (result.scope === "turn" ? 1 : 0);
+    changeLogRef.current = appendChangeLog(
+      changeLogRef.current.filter((e) => e.index <= keptUpTo),
+      {
+        index: changeLogRef.current.length + 1,
+        userText,
+        parsed: result.parsed,
+        backtestReq: nextBacktestReq,
+        explicitFields: [...result.explicitFields],
+        changedFields: result.restoredFields,
+      },
+    );
+    setStage("ready");
+    return { message: describeRollback(result) };
+  };
+
   const classifyConversationPrompt = async (userText: string) => {
     const history = selectClassifierHistory(messages);
     try {
@@ -2115,14 +2280,20 @@ function StrategyLabContent() {
           // 전략 카드가 떠 있으면 짧고 모호한 발화도 그 전략을 다듬는 요청일 수 있다 —
           // 분류 LLM이 역할 밖으로 오판하지 않도록 맥락으로 넘긴다.
           active_strategy: Boolean(latestParsedRef.current),
+          // 무상태 에코 — 직전 워크플로 상태가 있어야 '이어서 하자'(RESUME)가 성립한다.
+          workflow_status: workflowStatusRef.current,
         }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
+      // 백엔드가 계산한 다음 상태를 그대로 보관한다 — 프론트가 재판정하지 않는다.
+      workflowStatusRef.current = (data.workflow_status ?? "IDLE") as WorkflowStatus;
       const classification: SemanticClassification = {
         intent: data.intent,
         symbol: data.symbols?.[0]?.symbol ?? null,
         suggestedReply: data.suggested_reply ?? null,
+        workflowEffect: (data.workflow_effect ?? "NONE") as WorkflowEffect,
+        workflowStatus: workflowStatusRef.current,
       };
       return { classification, history };
     } catch {
@@ -2254,6 +2425,21 @@ function StrategyLabContent() {
       // provenance 누적을 되묻기 게이트 계산보다 **먼저** 갱신한다 — 순서가 뒤바뀌면
       // 게이트가 이전 턴(빈) 목록을 보고 이미 답한 설정을 다시 묻는다.
       explicitFieldsRef.current = parsedPayload.explicit_fields ?? explicitFieldsRef.current;
+      // 진행 골격 8칸의 상태 축(표시 전용). 아래 게이트 계산에는 쓰지 않는다 —
+      // 되묻기·실행 판정의 정본은 여전히 explicit_fields + isSlotFilled다.
+      fieldStatesRef.current = parsedPayload.field_states ?? fieldStatesRef.current;
+      // 변경 이력에 이번 턴을 쌓는다(§ 19). 스냅샷은 **이 턴이 끝난 뒤** 상태이고,
+      // changed_fields가 비면 되돌릴 것이 없는 턴이다(최초 파스·무변경 수정).
+      changeLogRef.current = appendChangeLog(changeLogRef.current, {
+        index: changeLogRef.current.length + 1,
+        userText: promptText,
+        parsed: nextParsed,
+        backtestReq: nextBacktestReq,
+        explicitFields: [...explicitFieldsRef.current],
+        changedFields: Array.isArray(parsedPayload.changed_fields)
+          ? parsedPayload.changed_fields
+          : [],
+      });
 
       const promptContext = getStrategyPromptContext(promptText);
       const explicitMissingCondition = getNextMissingBacktestCondition(nextParsed, {
@@ -2907,6 +3093,38 @@ function StrategyLabContent() {
     turnDecision = decideConversationTurn(userText, conversationContext, classification);
     traceTurn("post-classify", userText, turnDecision, classification);
 
+    if (turnDecision.action === "control_workflow") {
+      // ROLLBACK(§ 19) — 변경 이력에서 되돌린다. 어디로 되돌릴지는 백엔드 LLM 레인이
+      // 정하고(원문 해석), 복원은 스냅샷을 들고 있는 여기가 결정론으로 수행한다.
+      if (turnDecision.effect === "ROLLBACK") {
+        const restored = await resolveAndApplyRollback(userText);
+        updateLastAssistant({
+          isLoading: false,
+          infoText: restored.message,
+          builderPresentation: currentStrategyPresentation(),
+        });
+        setIsSending(false);
+        return;
+      }
+      // CANCEL·RESTART만 전략 초안을 버린다. PAUSE는 보존이 목적이고 RESUME은 이어간다.
+      if (turnDecision.effect === "CANCEL" || turnDecision.effect === "RESTART") {
+        clearStrategyDraft();
+      }
+      updateLastAssistant({
+        isLoading: false,
+        infoText:
+          turnDecision.message ??
+          "이어서 진행할게요. 다음으로 정할 조건을 말씀해 주세요.",
+        // 전략을 버린 경우 전략 카드를 함께 내린다.
+        builderPresentation:
+          turnDecision.effect === "CANCEL" || turnDecision.effect === "RESTART"
+            ? undefined
+            : currentStrategyPresentation(),
+      });
+      setIsSending(false);
+      return;
+    }
+
     if (turnDecision.action === "respond") {
       updateLastAssistant({
         isLoading: false,
@@ -3392,6 +3610,9 @@ function StrategyLabContent() {
     explicitNoRebalancingRef.current = false;
     setExplicitNoRebalancing(false);
     explicitFieldsRef.current = [];
+    fieldStatesRef.current = null;
+    changeLogRef.current = [];
+    workflowStatusRef.current = "IDLE";
     pendingHoldingPeriodPromptRef.current = null;
     pendingHoldingPeriodHorizonRef.current = null;
     pendingMetricResearchPromptRef.current = null;
@@ -3547,7 +3768,11 @@ function StrategyLabContent() {
         {shouldShowIntro && <StrategyWaveBackground />}
 
         {activeStrategyProgressItems && (
-          <StrategyProgressPanel items={activeStrategyProgressItems} />
+          // 상태 축은 렌더 직전에 붙인다 — buildBuilderTurnPresentation 호출부 8곳에
+          // 같은 인자를 늘리는 대신, 표시 전용 정보를 표시하는 곳에서 합친다.
+          <StrategyProgressPanel
+            items={attachFieldStates(activeStrategyProgressItems, fieldStatesRef.current)}
+          />
         )}
 
         {/* ── 채팅 영역 ── */}

@@ -41,10 +41,38 @@ export type SemanticIntent =
   | "UNKNOWN"
   | "STRATEGY_ADVICE";
 
+// 입력이 진행 중인 전략 작성 워크플로에 일으키는 효과(백엔드 intent/schemas.py와 동일).
+// SemanticIntent와 직교하는 축이다 — 라벨은 '무엇에 대한 발화인가', 이 값은 '워크플로를
+// 어떻게 제어하는가'를 말한다. 판정은 전적으로 백엔드 분류 LLM이 하며, 프론트는 정규식으로
+// 재판정하지 않는다(정규식이 LLM의 의미 판정을 재심하는 구조 금지 — 자연어 해석 계약).
+export type WorkflowEffect =
+  | "NONE"
+  | "UPDATE"
+  | "PAUSE"
+  | "RESUME"
+  | "CANCEL"
+  | "RESTART"
+  | "ROLLBACK";
+
+export type WorkflowStatus = "IDLE" | "ACTIVE" | "PAUSED" | "CANCELLED";
+
+// 대화 흐름을 실제로 제어하는 효과 — NONE/UPDATE는 기존 흐름 그대로다.
+export type WorkflowControlEffect = Exclude<WorkflowEffect, "NONE" | "UPDATE">;
+
+const WORKFLOW_CONTROL_EFFECTS: readonly WorkflowControlEffect[] = [
+  "PAUSE",
+  "RESUME",
+  "CANCEL",
+  "RESTART",
+  "ROLLBACK",
+];
+
 export type SemanticClassification = {
   intent: SemanticIntent;
   symbol?: string | null;
   suggestedReply?: string | null;
+  workflowEffect?: WorkflowEffect;
+  workflowStatus?: WorkflowStatus;
 };
 
 export type StrategyAssumptions = {
@@ -70,6 +98,11 @@ export type ConversationDecision =
       suggestions?: string[];
     })
   | (DecisionBase & { action: "run_backtest" })
+  | (DecisionBase & {
+      action: "control_workflow";
+      effect: WorkflowControlEffect;
+      message: string | null;
+    })
   | (DecisionBase & { action: "continue_builder" })
   | (DecisionBase & { action: "answer_follow_up" })
   | (DecisionBase & { action: "classify" })
@@ -745,6 +778,23 @@ export function decideConversationTurn(
   }
 
   const { intent, suggestedReply = null, symbol = null } = classification;
+
+  // 워크플로 제어(멈춤·재개·취소·초기화·되돌리기)는 라벨 분기보다 먼저 처리한다. 백엔드가
+  // 이미 규제 게이트 라벨에서는 효과를 NONE으로 강등했으므로, 여기 도달하는 제어는 전략
+  // 대화 맥락에서만 나온다 — 정형 안내를 제어가 삼킬 수 없다.
+  const workflowEffect = classification.workflowEffect ?? "NONE";
+  if (WORKFLOW_CONTROL_EFFECTS.includes(workflowEffect as WorkflowControlEffect)) {
+    return {
+      action: "control_workflow",
+      effect: workflowEffect as WorkflowControlEffect,
+      speechAct: "unknown",
+      topic: "strategy",
+      confidence: 1,
+      reason: `workflow_${workflowEffect.toLowerCase()}`,
+      message: suggestedReply,
+    };
+  }
+
   // STOCK_ANALYSIS 포함: 전략이 진행 중일 때 종목명이 섞인 발화("제주반도체도 추가해줘")는
   // 분류기가 종목 분석으로 오분류해도 수정 요청일 수 있다 — 결정론 canned 안내로 가로채지
   // 않고 백엔드 파싱(LLM 해석)에 맡긴다(2026-07-26 종목 추가 요청 삼킴 사고).

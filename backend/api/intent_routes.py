@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -73,8 +73,9 @@ def _llm_available() -> bool:
 
 @router.post("/query/classify", response_model=IntentResult)
 async def classify_query(req: IntentRequest) -> IntentResult:
-    # 구조화 출력(intent + stock_name + refers_to_last_stock)을 담을 만큼의 토큰을 준다.
-    llm = (lambda s, u: _mlx_llm(s, u, max_tokens=120)) if _llm_available() else None
+    # 구조화 출력(intent + stock_name + refers_to_last_stock + workflow_effect)을 담을 만큼의
+    # 토큰을 준다. 필드가 늘면 JSON이 절단돼 해석 실패(UNKNOWN)로 떨어지므로 여유를 둔다.
+    llm = (lambda s, u: _mlx_llm(s, u, max_tokens=180)) if _llm_available() else None
     return await asyncio.to_thread(
         classify,
         req.query,
@@ -82,6 +83,7 @@ async def classify_query(req: IntentRequest) -> IntentResult:
         llm=llm,
         history=req.history,
         active_strategy=req.active_strategy,
+        workflow_status=req.workflow_status,
     )
 
 
@@ -355,6 +357,59 @@ async def general_answer(req: GeneralQueryRequest) -> GeneralQueryResponse:
     return GeneralQueryResponse(
         answer="해당 주제에 대한 일반적인 설명을 준비하지 못했습니다. 질문을 좀 더 구체적으로 입력해 주세요."
     )
+
+
+# ─── /strategy/rollback/resolve ─────────────────────────────────────────────────
+# [설계 스펙 § 19] 되돌리기 대상 판정. 대화는 무상태이므로 변경 이력은 프론트가 보관하고
+# 요청에 실어 보낸다(pending_ask·explicit_fields와 같은 에코 계약). 여기서는 "어디로
+# 되돌릴지"만 정하고, 실제 복원은 스냅샷을 들고 있는 프론트가 결정론으로 수행한다.
+
+
+def _rollback_llm():
+    """되돌리기 판정용 9B chat. 준비 안 됐으면 None(되묻기로 강등된다)."""
+    try:
+        from strategy_conversation.planner.shadow import _default_chat
+
+        return _default_chat()
+    except Exception:  # noqa: BLE001 — LLM 준비 실패가 500이 되면 안 된다
+        logger.warning("되돌리기 판정 LLM 준비 실패 — 되묻기로 강등", exc_info=True)
+        return None
+
+
+class RollbackChangeEvent(BaseModel):
+    """변경 이력 한 항목. 값은 싣지 않는다 — 판정에 필요한 것은 무엇이 바뀌었나뿐이다."""
+
+    index: int
+    user_text: str = ""
+    changed_fields: List[str] = Field(default_factory=list)
+
+
+class RollbackResolveRequest(BaseModel):
+    query: str
+    events: List[RollbackChangeEvent] = Field(default_factory=list)
+
+
+class RollbackResolveResponse(BaseModel):
+    action: str
+    turn_index: Optional[int] = None
+    fields: List[str] = Field(default_factory=list)
+    question: Optional[str] = None
+    reason: str = ""
+
+
+@router.post("/strategy/rollback/resolve", response_model=RollbackResolveResponse)
+async def resolve_rollback(req: RollbackResolveRequest) -> RollbackResolveResponse:
+    from strategy_conversation.conversation.rollback import resolve
+
+    # [모델 슬롯] 인터프리터와 같은 9B를 쓴다. 이 판정은 분류가 아니라 이력 목록 위의
+    # 추론이라 4B(레거시 파서·코치 슬롯)로는 성립하지 않는다 — 실측 2026-07-30:
+    # 4B 1/7 vs 9B 5/7(같은 프롬프트·같은 이력). 잘못 고른 턴은 사용자가 쌓아온 전략을
+    # 지우므로, 여기서 슬롯을 아끼면 안 된다.
+    llm = _rollback_llm()
+    decision = await asyncio.to_thread(
+        resolve, req.query, [e.model_dump() for e in req.events], llm
+    )
+    return RollbackResolveResponse(**decision.model_dump())
 
 
 # ─── /knowledge/graph ───────────────────────────────────────────────────────────

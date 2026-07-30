@@ -507,3 +507,7 @@ class ValidationReport(BaseModel):
     unsupported_features: List[str] = Field(default_factory=list)
     suggested_fixes: List[str] = Field(default_factory=list)
     clarification_questions: List[ClarificationQuestion] = Field(default_factory=list)
+    # 모순이 발견된 진행 골격 슬롯 필드(engine.strategy_slots 어휘: 'entry'/'exit').
+    # 오류 문장만으로는 어느 필드가 모순인지 알 수 없어 상태 축(§ 5 CONFLICTED)을
+    # 붙일 수 없다 — 판정한 자리에서 함께 기록한다.
+    conflicted_slots: List[str] = Field(default_factory=list)

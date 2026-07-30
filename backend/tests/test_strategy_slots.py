@@ -265,3 +265,106 @@ def test_non_cohort_strategy_still_asks_backtest_period():
     parsed.backtest_start_date = None
     assert slots.next_missing(parsed, **_COHORT_KWARGS).field == \
         slots.BACKTEST_PERIOD
+
+
+# ── 상태 축 (설계 스펙 § 5) ────────────────────────────────────────────────────
+# `filled` 불리언이 뭉개던 정보를 되살린 축이다. 핵심 계약은 두 가지:
+#   ① 상태를 추가해도 filled 판정은 바뀌지 않는다(되묻기·실행 게이트 동작 불변)
+#   ② '해당 없음'과 '완료'가 더는 같은 값으로 보이지 않는다
+
+
+def _status(parsed, field, **kwargs):
+    return next(s for s in slots.evaluate(parsed, **kwargs) if s.field == field).status
+
+
+def test_single_symbol_rebalancing_is_not_applicable_not_complete():
+    """단독 종목은 교체가 없다 — 이전에는 filled=True 하나뿐이라 '완료'로 보였다."""
+    parsed = ParsedStrategy(description="단일 종목", target_symbols=["005930"])
+    assert _status(parsed, slots.REBALANCING) is slots.FieldStatus.NOT_APPLICABLE
+    # filled 판정은 그대로다(더 묻지 않는다).
+    assert next(s for s in slots.evaluate(parsed) if s.field == slots.REBALANCING).filled
+
+
+def test_declined_rebalancing_is_confirmed_not_not_applicable():
+    """사용자가 '안 함'을 고른 것은 확정값이다 — 구성상 무의미한 것과 다르다."""
+    parsed = ParsedStrategy(description="리밸런싱 거부", universe=["KOSPI"])
+    assert _status(
+        parsed, slots.REBALANCING, rebalancing_declined=True
+    ) is slots.FieldStatus.CONFIRMED
+
+
+def test_materialized_default_is_provisional_not_confirmed():
+    """값은 있으나 사용자가 말한 적 없다 — 확정값과 구분된다."""
+    empty = ParsedStrategy(description="빈 전략")
+    assert empty.max_positions  # 기본값이 물질화돼 있다
+    assert _status(empty, slots.MAX_POSITIONS) is slots.FieldStatus.PROVISIONAL
+
+
+def test_user_provided_value_is_confirmed():
+    parsed = _complete()
+    assert _status(
+        parsed, slots.MAX_POSITIONS, explicit_fields=ALL_EXPLICIT
+    ) is slots.FieldStatus.CONFIRMED
+
+
+def test_absent_value_is_unknown():
+    parsed = ParsedStrategy(description="진입 없음", universe=["KOSPI"])
+    assert _status(parsed, slots.ENTRY) is slots.FieldStatus.UNKNOWN
+
+
+def test_specified_symbols_make_max_positions_not_applicable():
+    """지정 종목 모드는 보유 수가 종목 수로 확정된다 — 물을 대상이 아니다."""
+    parsed = ParsedStrategy(description="지정 종목", target_symbols=["005930", "000660"])
+    assert _status(parsed, slots.MAX_POSITIONS) is slots.FieldStatus.NOT_APPLICABLE
+
+
+def test_status_only_not_applicable_does_not_change_filled():
+    """표시 축이 되묻기 흐름을 바꾸면 안 된다 — MAX_POSITIONS는 filled 판정 불변."""
+    parsed = ParsedStrategy(description="지정 종목", target_symbols=["005930", "000660"])
+    before = next(s for s in slots.evaluate(parsed) if s.field == slots.MAX_POSITIONS)
+    assert before.filled is slots._has_value(parsed, slots.MAX_POSITIONS)
+
+
+def test_listing_cohort_backtest_window_is_confirmed():
+    """신규 상장 코호트의 창은 시스템이 확정한다 — 추천값(PROVISIONAL)이 아니다."""
+    parsed = ParsedStrategy(
+        description="신규 상장", universe=["KOSPI"],
+        new_listing_only=True, listing_from="2024-01-01",
+    )
+    assert _status(parsed, slots.BACKTEST_PERIOD) is slots.FieldStatus.CONFIRMED
+
+
+def test_overrides_apply_to_status_only():
+    """상위 검증 판정(INVALID·CONFLICTED)은 상태만 덮고 filled는 건드리지 않는다."""
+    parsed = _complete()
+    entry = next(s for s in slots.evaluate(
+        parsed, explicit_fields=ALL_EXPLICIT,
+        status_overrides={slots.ENTRY: slots.FieldStatus.CONFLICTED},
+    ) if s.field == slots.ENTRY)
+    assert entry.status is slots.FieldStatus.CONFLICTED
+    assert entry.filled is True
+
+
+def test_overrides_do_not_resurrect_empty_fields():
+    """값이 없는 필드는 모순일 수 없다 — UNKNOWN은 덮이지 않는다."""
+    parsed = ParsedStrategy(description="진입 없음", universe=["KOSPI"])
+    assert _status(
+        parsed, slots.ENTRY, status_overrides={slots.ENTRY: slots.FieldStatus.INVALID}
+    ) is slots.FieldStatus.UNKNOWN
+
+
+def test_slot_statuses_rolls_up_risk_slot():
+    """리스크 관리는 손절·익절 둘을 묶는다 — 한쪽만 있으면 아직 물을 것이 남았다."""
+    parsed = _complete().model_copy(update={"take_profit_pct": None})
+    assert slot_status_of(parsed, "리스크 관리") is slots.FieldStatus.UNKNOWN
+    assert slot_status_of(_complete(), "리스크 관리") is slots.FieldStatus.CONFIRMED
+
+
+def slot_status_of(parsed, slot, **kwargs):
+    return slots.slot_statuses(parsed, explicit_fields=ALL_EXPLICIT, **kwargs)[slot]
+
+
+def test_slot_statuses_covers_eight_slots():
+    assert list(slots.slot_statuses(_complete(), explicit_fields=ALL_EXPLICIT)) == list(
+        slots.SLOT_ORDER
+    )

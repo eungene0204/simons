@@ -402,7 +402,7 @@ interface BacktestResult {
 **질문 의도 분류 / 일반 질문 (intent_routes)**
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
-| POST | `/query/classify` | 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / STOCK_PICK / GENERAL). [규제 안전] STOCK_ANALYSIS(특정 종목 매수·매도 질문)는 종목 분석 대신 '추천 불가 안내 + 그 종목에서 출발한 전략 설계 전환' 문구(suggested_reply)를 동반한다 — 개별 종목 분석 기능(/stock/analyze)은 제거됨. 요청 `history`(최근 대화 턴, `ChatTurn[]`)를 받아 LLM 폴백이 "다른 예는 없어?" 같은 후속 질문을 직전 주제의 연속으로 분류한다(FR-SA-002c-3, 결정적 규칙은 현재 입력만 봄) |
+| POST | `/query/classify` | 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / STOCK_PICK / GENERAL). [규제 안전] STOCK_ANALYSIS(특정 종목 매수·매도 질문)는 종목 분석 대신 '추천 불가 안내 + 그 종목에서 출발한 전략 설계 전환' 문구(suggested_reply)를 동반한다 — 개별 종목 분석 기능(/stock/analyze)은 제거됨. 요청 `history`(최근 대화 턴, `ChatTurn[]`)를 받아 LLM 폴백이 "다른 예는 없어?" 같은 후속 질문을 직전 주제의 연속으로 분류한다(FR-SA-002c-3, 결정적 규칙은 현재 입력만 봄). 라벨과 직교하는 **워크플로 제어 축**(`workflow_effect`: 멈춤·이어하기·취소·초기화·되돌리기)을 같은 LLM 호출로 함께 판정하고, 성립 여부는 결정론 코드가 정한다(규제 게이트 라벨은 제어 거부, 불성립은 NONE 강등). 상태(`workflow_status`)는 서버에 저장하지 않고 프론트가 매 요청에 에코한다 — FR-SA-007 |
 | POST | `/query/general` | 분류·종목 비매칭 일반 질문 응답. `history`를 받아 후속 질문이면 직전 답변과 겹치지 않게 이어서 답한다 |
 | POST | `/strategy/builder/step` | 전략 빌더 모드 한 턴 — 열린 추천(STOCK_PICK) 전환 직후 짧은 답변을 전략 필드로 누적하고, 완성 시 백테스트 프롬프트 합성. 결정적 상태 머신 `intent/strategy_builder.py`(무상태). 프론트 `builderModeRef`/`builderStateRef`가 상태 보관·재전송 |
 
@@ -905,7 +905,8 @@ Client polling으로 진행률/로그/리더보드 반영
 
 **전략**
 - `POST /api/strategy/parse` — NL → DSL 파싱 프록시
-- `POST /api/strategy/parse/stream` — accepted/skeleton/parsed_final/dsl_ready 이벤트를 보내는 자연어 파싱 SSE 프록시
+- `POST /api/strategy/parse/stream` — accepted/skeleton/parsed_final/dsl_ready 이벤트를 보내는 자연어 파싱 SSE 프록시. `parsed_final`은 화이트리스트라 필드를 명시적으로 실어야 한다(`clarification_priority`·`pending_ask`·`explicit_fields`·`field_states`). `field_states`는 진행 골격 8칸의 상태 축(완료/미확인/해당 없음/확인 필요, FR-STR-019q)으로 진행률 카드 표시 전용이며 되묻기·실행 게이트는 쓰지 않는다
+- `POST /api/strategy/rollback/resolve` — 되돌릴 지점 판정(FR-SA-008). 변경 이력을 요청에 실어 보내고(백엔드 무상태) 판정만 받는다 — 복원은 스냅샷을 보유한 클라이언트가 결정론으로 수행한다. 판정 실패는 전부 되묻기로 강등(임의 보정 금지)
 - `POST /api/strategy/backtest-stream` — 단일 전략 SSE 백테스트. 동일 strategy_id/cacheKey라도 항상 엔진을 재실행하고, 결과는 cacheKey로 upsert 저장(재사용 목적 아닌 dedup 저장용)
 - `POST /api/strategy/save-with-backtest` — 전략 저장 + 백테스트 동시 실행
 - `GET/POST /api/strategy/batch-runs` — 배치 실행 시작/상세 조회/최근 이력/취소

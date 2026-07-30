@@ -18,7 +18,7 @@ from typing import Callable, Optional
 
 from pydantic import BaseModel, ValidationError
 
-from .schemas import ChatTurn, QueryIntent
+from .schemas import ChatTurn, QueryIntent, WorkflowEffect
 
 INTENT_SCHEMA_VERSION = "1.0"
 
@@ -65,9 +65,29 @@ SYSTEM_PROMPT = (
     "   다듬는 요청일 가능성이 높다 — 함부로 OFF_TOPIC으로 보내지 마라.\n"
     "4. 투자와 무관함이 분명할 때만 OFF_TOPIC을 쓴다. 애매하면 UNKNOWN이다.\n"
     "\n"
+    "라벨과 별개로, 이 입력이 진행 중인 전략 작성을 어떻게 제어하는지도 고른다.\n"
+    "\n"
+    "NONE — 워크플로를 제어하지 않는다. 용어 질문·잡담·일반 질문처럼 전략을 그대로\n"
+    "  두는 입력은 전부 NONE이다(기본값).\n"
+    "UPDATE — 전략의 조건을 추가·변경·삭제하는 요청.\n"
+    "PAUSE — 진행을 잠시 멈춰 달라는 명시적 요청('잠깐 멈춰', '이따 이어서 할게').\n"
+    "RESUME — 멈춘 작업을 다시 이어 달라는 요청('아까 하던 거 계속하자').\n"
+    "CANCEL — 전략 작성을 그만두겠다는 요청('그만할래', '취소').\n"
+    "RESTART — 지금 전략을 버리고 처음부터 다시 하겠다는 요청('처음부터 다시 하자').\n"
+    "ROLLBACK — 직전 변경을 되돌려 달라는 요청('아까 바꾼 거 취소해', '그 전으로').\n"
+    "\n"
+    "제어 판단 규칙:\n"
+    "5. 확실할 때만 NONE이 아닌 값을 고른다. 애매하면 NONE이다 — 잘못된 취소·초기화는\n"
+    "   사용자가 쌓아온 전략을 잃게 만든다.\n"
+    "6. 조건을 지우는 것(UPDATE)과 작업을 되돌리는 것(ROLLBACK)은 다르다.\n"
+    "   'PER 조건 빼줘'는 UPDATE이고, 'PER 조건 지운 거 되돌려'는 ROLLBACK이다.\n"
+    "7. 전체를 버리는 것(RESTART)과 일부를 바꾸는 것(UPDATE)은 다르다.\n"
+    "   '유니버스만 다시 정하자'는 UPDATE이고, '전략 다 지우고 새로 하자'는 RESTART다.\n"
+    "\n"
     "출력 형식(JSON 한 줄, 다른 말 금지):\n"
     '{"intent": "<라벨>", "stock_name": "<원문에 나온 종목명 또는 null>", '
-    '"refers_to_last_stock": <직전에 다루던 종목을 \'이 종목\'처럼 가리키면 true, 아니면 false>}'
+    '"refers_to_last_stock": <직전에 다루던 종목을 \'이 종목\'처럼 가리키면 true, 아니면 false>, '
+    '"workflow_effect": "<제어 값>"}'
 )
 
 
@@ -78,6 +98,9 @@ class IntentInterpretation(BaseModel):
     # 원문에 등장한 종목 표기. registry 정본 매핑의 입력으로만 쓴다(원문 스캔 대체).
     stock_name: Optional[str] = None
     refers_to_last_stock: bool = False
+    # 워크플로 제어 효과. 표기 불량·미출력은 NONE으로 떨어진다 — 라벨 분류를 실패로
+    # 만들지 않는다(효과는 부가 축이고, NONE이 기존 동작 그대로라 안전 방향이다).
+    workflow_effect: WorkflowEffect = WorkflowEffect.NONE
 
 
 # ── 형식 정규화 (입력이 LLM 출력이므로 결정론 코드 소관) ─────────────────────
@@ -109,6 +132,22 @@ def normalize_intent_label(value: object) -> Optional[str]:
         return None
     label = _LABEL_SEPARATORS.sub("_", value.strip()).upper()
     return label if label in QueryIntent.__members__ else None
+
+
+def normalize_workflow_effect(value: object) -> WorkflowEffect:
+    """제어 값 표기를 enum으로 정규화한다('roll back'·소문자 → ROLLBACK).
+
+    입력이 LLM 출력이므로 표기 정규화는 결정론 코드 소관이다. 목록 밖 표기는 NONE —
+    모르는 값을 제어 동작으로 승격하지 않는다."""
+    if not isinstance(value, str):
+        return WorkflowEffect.NONE
+    label = _LABEL_SEPARATORS.sub("_", value.strip()).upper()
+    # 값이 전부 한 단어라 구분자를 밑줄로 바꾸면 오히려 안 맞는다('roll back' → ROLL_BACK).
+    # 밑줄을 지운 형태도 대조한다.
+    for candidate in (label, label.replace("_", "")):
+        if candidate in WorkflowEffect.__members__:
+            return WorkflowEffect[candidate]
+    return WorkflowEffect.NONE
 
 
 def _clean_stock_name(value: object) -> Optional[str]:
@@ -180,6 +219,7 @@ def interpret(
             intent=QueryIntent(label),
             stock_name=_clean_stock_name(payload.get("stock_name")),
             refers_to_last_stock=bool(payload.get("refers_to_last_stock")),
+            workflow_effect=normalize_workflow_effect(payload.get("workflow_effect")),
         )
     except ValidationError:
         return None

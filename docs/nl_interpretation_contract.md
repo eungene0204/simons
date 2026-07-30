@@ -798,6 +798,171 @@ fixture로 legacy 고정).
 회귀: `tests/test_modify_roundtrip_migration.py`의 테마 6건.
 **잔여**: 빌더(`strategy_builder`) 레인의 원문 학습·테마 조회는 여전히 단계 3 대상.
 
+### § 11-9. 워크플로 제어 축 추가 (2026-07-30 완료)
+
+State-Aware Strategy Agent 설계 스펙 § 4(Conversation Mode / Workflow Effect 분리)의
+구현. 이전에는 **"이 발화가 진행 중인 전략 작성을 어떻게 제어하는가"를 표현할 자리가
+없었다** — "잠깐 멈춰"·"그만할래"·"처음부터 다시"·"아까 바꾼 거 되돌려"는 전부 일반
+전략 발화로 흘러 조건 수정으로 해석되거나 조용히 무시됐다.
+
+**축을 하나 늘리되 레인은 늘리지 않는다.** 스펙의 conversation_mode 8종 중 4종
+(TASK/EXPLANATION/CASUAL/UNSUPPORTED)은 이미 `QueryIntent`와 중복이라 새 필드로 받지
+않는다 — 같은 원문을 두 축으로 두 번 판정하면 `intent=OFF_TOPIC` + `mode=TASK` 같은
+모순 조합을 조정하는 규칙이 필요해진다. 실제로 없던 것은 workflow_effect 하나이고,
+이것은 라벨과 직교하므로(한 발화가 전략 요청이면서 동시에 취소일 수 없다) 중복이
+생기지 않는다. REVIEW/CORRECTION 등 나머지 4종이 필요해지면 `QueryIntent` 라벨로
+추가한다(라벨 체계는 하나로 유지).
+
+| 지점 | 처리 |
+|---|---|
+| 판정 | `intent/interpreter.py` — 기존 의도 분류 LLM의 **출력 형태에 `workflow_effect` 키 1개 추가**. LLM 호출은 늘지 않는다. 원문 정규식은 여전히 0 |
+| 형식 정규화 | `normalize_workflow_effect` — LLM 출력에만 동작. 목록 밖 표기·미출력은 `NONE`(모르는 값을 제어 동작으로 승격하지 않는다). 효과 파싱 실패가 라벨 분류를 실패로 만들지 않는다 |
+| 성립 검증 | `classifier._resolve_workflow` — LLM은 제안만 하고 성립 여부는 결정론 코드가 정한다(스펙 § 18). ① 규제 게이트 라벨 9종은 제어 거부 ② 진행 중인 전략이 없으면 PAUSE/CANCEL/RESTART/ROLLBACK 불성립 ③ 직전 상태가 PAUSED가 아니면 RESUME 불성립. 불성립은 거부가 아니라 **NONE 강등**(제어가 사라져도 기존 흐름은 이어진다) |
+| 상태 보관 | 백엔드 무상태 유지 — `IntentRequest.workflow_status`를 프론트가 매 요청에 에코한다(`previous_explicit_fields`·`pending_ask`와 같은 계약). 분류 실패 시에도 이 값을 잃지 않는다 |
+| 실행 | 프론트 `decideConversationTurn` → `action: "control_workflow"`. CANCEL/RESTART만 전략 초안을 비우고(`clearStrategyDraft` — 대화 기록은 유지), PAUSE는 보존, RESUME은 진행, ROLLBACK은 미실행 |
+
+**스펙 내부 모순 1건을 § 21 쪽으로 해소했다.** 스펙 § 4의 예시는 "PER이 뭐야?"를
+`workflow_effect=PAUSE`로 적었지만, 같은 스펙 § 21은 "부가 질문은 기존 워크플로를
+유지한다"고 규정한다. 설명마다 워크플로가 멈추면 명시적 RESUME 없이는 진행되지
+않으므로 § 21을 따랐다 — **PAUSE는 사용자가 명시적으로 요청했을 때만** 쓰고, 용어
+질문·잡담은 `NONE`이다.
+
+**ROLLBACK은 감지하되 실행하지 않는다.** 변경 이력(Event Sourcing, 스펙 § 19)이 없어
+되돌릴 대상을 특정할 수 없다. 거절로 끝내지 않고 지원 가능한 가장 가까운 형태를
+안내한다(스펙 § 28). § 19 구현 시 `_EFFECT_TRANSITIONS`와 프론트 실행부만 배선하면
+된다 — 판정·검증 레인은 그대로다.
+
+회귀: `tests/test_intent_interpreter.py`의 워크플로 제어 11건(규제 게이트 우회 차단
+9라벨 파라미터 포함), `app/analytics/new/conversationDecision.test.ts` 4건.
+
+### § 11-10. 필드 상태 축 (2026-07-30 완료)
+
+State-Aware Strategy Agent 설계 스펙 § 5(Field Status 7종)의 구현. 진행 골격 판정이
+`filled: bool` 하나였고, 그 불리언이 **서로 다른 세 가지를 같은 값으로 뭉갰다**:
+
+| 실제 사실 | 이전 표현 | 증상 |
+|---|---|---|
+| 사용자가 말한 값 | `filled=True` | — |
+| 기본값이 물질화된 값(미확인) | `filled=True`(require_explicit=False 레인) | 빈 전략이 채워진 것처럼 보임 |
+| 물을 대상이 아닌 항목 | `filled=True` | **단일 종목 전략의 리밸런싱 칸에 완료 체크가 켜짐** |
+
+`strategy_slots.py`의 도입 배경 주석이 이미 같은 진단을 남겨 뒀다 — "판정을 한 곳에
+모으는 것만으로는 부족하고, **그 곳이 표현할 수 있는 축이 실제 사례를 모두 덮어야
+한다**". 이번 작업은 그 축을 늘린 것이다.
+
+**스키마를 감싸지 않았다.** 스펙 § 5는 모든 필드를 `{value, status, source, ...}`로
+감싸라고 하지만, 그러면 컴파일러·디컴파일러·patch_applier·엔진 변환기·프론트가 전부
+깨진다. 값의 표현은 그대로 두고 **상태만 옆에 다는 사이드카**로 만들었다.
+
+| 상태 | 산출 위치 | 근거 |
+|---|---|---|
+| UNKNOWN / CONFIRMED / PROVISIONAL | `engine/strategy_slots.py`(SOT) | 기존 3축(`_decided`·`_has_value`·`_explicit_ok`)을 그대로 재사용 — 새 판정을 만들지 않았다 |
+| NOT_APPLICABLE | 같음 + `_status_only_not_applicable` | 단독 종목의 리밸런싱, 지정 종목의 최대 보유 |
+| INVALID / NOT_APPLICABLE(조건) | `validation/field_state.py` | 검증 후 spec에서 구조적으로 재판정 — 지표 미해석·미지원은 INVALID, ETF×기업 재무지표는 NOT_APPLICABLE(해결책이 다르다: 전자는 지표를 바꾸고 후자는 유니버스를 바꾼다) |
+| CONFLICTED | `conflict_validator` → `ValidationReport.conflicted_slots` | 오류 문장만으로는 어느 필드가 모순인지 알 수 없어 **판정한 자리에서** 슬롯을 함께 기록 |
+
+**`filled` 판정은 한 줄도 바뀌지 않았다.** 상태 축은 표시 전용이고, 되묻기 게이트·
+백테스트 실행 버튼·planner의 `filled_slots`는 이전과 동일하게 동작한다. 계약 픽스처
+(`__fixtures__/slot-judgments.json`)를 재생성해 **무변동**임을 확인했다 — 이것이
+회귀 없음의 근거다. `status_overrides`도 상태만 덮으며 `filled`를 건드리지 않고,
+값이 없는 필드(UNKNOWN)는 덮지 않는다(모순일 수 없다).
+
+소비자는 진행률 카드 하나다: '해당 없음'을 분모에서 빼고(`countProgress`) 흐리게
+표시한다. 이전에는 완료로 세어 진행률이 실제보다 높게 보였다.
+
+**남은 격차(스펙 § 5 대비)**: `source`·`confidence`·`updated_at`·`dependencies`·
+`invalidated_by` 메타데이터는 미구현(현행 `ValueSource`·provenance가 source의 부분
+집합을 이미 담당). INFERRED는 열거형에 정의만 하고 산출하지 않는다 —
+`ConditionValue.value_source`가 조건 단위로 갖고 있으나 슬롯 단위로 롤업하는
+소비자가 없다(없는 소비자를 위해 미리 만들지 않는다).
+
+회귀: `tests/test_strategy_slots.py` 상태 축 12건, `tests/test_field_state.py` 11건,
+`app/analytics/new/builderProgressPresentation.test.ts` 7건.
+
+### § 11-11. 되돌리기 — 변경 이력과 대상 판정 (2026-07-30 완료)
+
+설계 스펙 § 19(Event-Sourced State Management)의 구현. § 11-9가 `ROLLBACK` 효과를
+**감지만 하고 실행하지 않던** 것을 닫았다.
+
+**이벤트 소싱의 전체 구현이 아니다.** 상태 재구성(replay)이 아니라 **스냅샷 되감기**이며,
+그것이 이 대화 모델에 필요한 전부다 — 각 턴의 ParsedStrategy 전체가 이미 스냅샷이라
+이벤트를 되감아 상태를 만들 필요가 없다. 문서에 "이벤트 소싱"이라고 적지 않는 이유다.
+
+| 레인 | 담당 |
+|---|---|
+| 변경 산출 | `conversation/change_log.py::changed_field_names` — 수정 턴마다 값이 달라진 최상위 필드 **이름**. 기존 `_diff_fields`는 "max_positions: 10 → 5" 같은 로그 문장이라 되돌리기 대상으로 쓸 수 없다 |
+| 보관 | **프론트**(`changeLogRef`) + 세션 스냅샷. 백엔드에 세션이 없다는 계약을 유지한다 — `pending_ask`·`explicit_fields`·`workflow_status`와 같은 에코 |
+| 대상 판정 | **LLM**(`conversation/rollback.py`, `/strategy/rollback/resolve`). "아까 바꾼 거"·"ETF로 바꾸기 전으로"·"PER 조건 지운 것만"은 전부 원문 해석이다 |
+| 대조 | 결정론 — LLM이 고른 턴 번호가 이력에 있는지, 필드가 **그 턴의 변경 목록**에 있는지. 어긋나면 임의 보정 없이 되묻기 강등 |
+| 복원 | **프론트**(`rollback.ts`) — 스냅샷을 들고 있는 쪽이 한다. 턴 단위는 그 변경 직전 스냅샷 전체, 필드 단위는 그 필드만 |
+
+**임의 보정을 금지한 이유가 이 기능의 핵심이다.** 지어낸 턴 번호를 "가장 최근 턴"으로
+떨어뜨리면 사용자가 의도하지 않은 변경이 조용히 사라진다 — 되돌리기는 작업을 지우는
+동작이라 다른 레인보다 폴백이 더 보수적이어야 한다. 모든 실패는 되묻기로 끝난다.
+
+**provenance도 함께 되돌린다.** 남겨두면 되돌아온 질문을 이미 답한 것으로 보고
+건너뛴다 — 조건 옵션 되돌리기(`previousStepState`)가 이미 겪은 함정이다. 필드 단위
+복원은 되돌린 필드의 provenance만 맞추고 나머지는 유지한다(이후 턴의 답변은 여전히
+유효하다).
+
+**실측이 설계를 두 번 고쳤다**(2026-07-30, 로컬 Ollama):
+
+1. **모델 슬롯** — 처음엔 분류기와 같은 4B 슬롯(`_mlx_llm`)을 썼는데 **1/7**이었다.
+   이 판정은 라벨 분류가 아니라 이력 목록 위의 추론이다. 9B(인터프리터 슬롯)로 옮겨
+   5/7 → 최종 7/7. 4B도 아래 ②③ 수정 후 5/7까지 올랐지만 슬롯은 9B로 둔다 —
+   잘못 고른 턴은 사용자가 쌓아온 전략을 지운다.
+2. **필드 라벨** — 이력에 영문 필드명만 실었더니 "손절 바꾼 거 되돌려"가
+   `stop_loss_pct`와 이어지지 않아 9B가 재무 조건 턴을 골랐다. 이력을
+   `stop_loss_pct(손절)` 형태로 싣는다(`change_log._FIELD_LABELS`) — 라벨을 키로 정해진
+   문구를 고르는 결정론 매핑이며 원문 해석이 아니다.
+3. **대상 없는 요청** — "되돌려"에 모델이 임의의 중간 턴을 골랐다. 규칙 4로
+   "가리키는 대상이 없으면 가장 큰 번호"를 명시했다(Ctrl+Z와 같은 의미).
+
+회귀: `tests/test_rollback.py` 19건, `app/analytics/new/rollback.test.ts` 13건.
+
+### § 11-12. 개념↔종목 관계의 근거·관련도 (2026-07-30 완료)
+
+설계 스펙 § 8.5("Concept와 종목의 관계에는 반드시 근거와 관련도를 저장한다",
+"직접적인 사업 관계와 단순 테마성 관계를 구분한다")의 구현.
+
+**대부분 이미 있었고, 런타임에 도달하지 못하고 있었다.** 조사 원장
+(`data/kg-research/*.json`, 129건)에는 `relation_type`·`relevance`·`relevance_score`·
+`reason`·`business_evidence`·`sources`·`verified`가 이미 적혀 있다. 그런데 시드 그래프로
+옮길 때 **관계 종류(엣지 타입)와 한 줄 `note`만 남고 나머지가 사라졌다** —
+`grep kg-research engine/` 결과가 0이었다(원장은 런타임에서 한 번도 읽히지 않았다).
+
+| 지점 | 이전 | 이후 |
+|---|---|---|
+| 원장 | 사람이 조사해 Core/Strong만 손으로 시드에 옮김. 런타임 미사용 | `engine/kg_research.py`가 mtime 캐시로 읽어 `(concept, symbol) → 관계 메타` 인덱스 |
+| 엣지 | `{source, target, type, note}` | 원장이 있으면 `relation` 부착(없으면 부착하지 않음 — 근거를 지어내지 않는다) |
+| 런타임 | `listed_companies`가 symbol·name·support만 반환 | `relation`·`direct`·`evidence_source` 추가 |
+| 점수 산출 | `concept_universe`가 note 문자열에서 정규식으로 `"(Core 95)"` 되파싱 | 원장의 `relevance_score`를 그대로 사용(원장 없을 때만 기존 되파싱) |
+
+**어휘를 정하고 데이터를 맞추지 않았다.** 처음엔 스펙의 10개 관계 유형을 그대로 상수로
+적었는데, 원장 전수 확인 결과 실제 어휘는 `Producer 104·Supplier 15·Related 6·
+Investor 3·Infrastructure 1`이었다. 목록을 데이터에 맞춰 고쳤다 — 원장이 정본이다.
+목록 밖 유형도 버리지 않고 `relation_known=False`로 표시만 한다(걸러내면 새 유형을
+추가할 때 관계가 조용히 사라진다).
+
+**§ 8.5의 핵심 구분**은 `direct` 하나로 표현했다: `Producer`·`Supplier`만 직접 사업
+관계이고, `Investor`·`Infrastructure`·`Related`는 사실이되 직접 생산·공급이 아니다.
+출처는 `evidence_source`로 나눈다 — `research`(원장 근거) / `seed`(큐레이션이나 근거
+미기재) / `catalog`(네이버 테마 수록) / `learned`(검색 학습). **출처는 빌드 시점에
+표기한다** — 읽는 시점에 추론했더니 근거 없는 시드 엣지(HBM)가 카탈로그로 잘못
+표기됐다.
+
+**[규제 안전] 도입하지 않은 것.** 스펙 § 8.5의 관계 유형 중 **'정책 수혜 가능성'은
+구현하지 않는다.** 미래 전망이라 근거로 표기하는 순간 객관적 데이터 표시가 아니라
+전망 제공이 된다(CLAUDE.md 규제 안전 원칙 — 시장 전망 금지). 회귀 테스트가 전망성
+어휘(Policy·Beneficiary·Expected·Outlook·Forecast)의 유입을 막고, 별도 테스트가 배포된
+원장의 관계 유형이 전부 등록된 사실 유형인지 상시 확인한다.
+
+**하지 않은 것 하나 더**: 관련도 기반 종목 절단·정렬은 넣지 않았다 —
+"테마 유니버스 종수 상한 절단 금지"가 이미 선 사용자 결정이다.
+
+회귀: `tests/test_kg_research.py` 16건(원장 읽기·직접 관계 구분·규제 어휘 가드·
+그래프/유니버스 배선).
+
 ### 마이그레이션 순서
 
 1번(`nl_parser.py`)은 독립 순번이 없다 — 나머지가 끝나면 남는 잔여물이며, 성격이 다른

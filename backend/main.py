@@ -3163,6 +3163,12 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         "clarification_suggestions": clarification_suggestions,
         "clarification_priority": clarification_priority,
         "pending_ask": None,  # primary 경로의 planner ask가 apply_primary_meta로 채운다
+        # 진행 골격 8칸의 상태 축(설계 스펙 § 5) — primary 경로가 apply_primary_meta로
+        # 채운다. 표시 전용이며 되묻기·실행 게이트는 이 값을 쓰지 않는다.
+        "field_states": None,
+        # 이 턴이 바꾼 필드 이름(설계 스펙 § 19) — 프론트가 변경 이력에 쌓아 되돌리기의
+        # 근거로 쓴다. 수정 턴에서만 채워진다(최초 파스는 되돌릴 이전 상태가 없다).
+        "changed_fields": None,
         "risk_overrides": risk_overrides,
         "parse_validation": validation_report,
         "notices": notices,

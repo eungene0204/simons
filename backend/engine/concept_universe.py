@@ -95,9 +95,29 @@ def _company_candidates_of(graph, node_id: str, node_name: str) -> list[dict]:
             score = _learned_score(support)
             reason = f"검색 출처 {support}건에서 '{node_name}'와(과) 함께 언급 확인"
         else:  # 시드 엣지(수동 큐레이션 원장)
-            score = _score_from_note(note)
-            reason = _strip_score_suffix(note) if note else f"'{node_name}' 등록 관계({edge.get('type')})"
-        out.append({"symbol": symbol, "name": name, "score": score, "reason": reason})
+            # 관계 원장(kg-research)이 있으면 구조화된 점수·근거를 그대로 쓴다.
+            # 없을 때만 note 문자열에서 점수를 되파싱한다 — 원장이 정본이고, 문자열
+            # 파싱은 원장이 시드 note로 옮겨지며 잃은 구조를 복원하던 임시방편이다.
+            relation = edge.get("relation")
+            if relation and isinstance(relation.get("relevance_score"), (int, float)):
+                score = min(float(relation["relevance_score"]), 100.0) / 100.0
+                reason = relation.get("reason") or _strip_score_suffix(note or "") or (
+                    f"'{node_name}' 등록 관계({edge.get('type')})"
+                )
+            else:
+                score = _score_from_note(note)
+                reason = _strip_score_suffix(note) if note else f"'{node_name}' 등록 관계({edge.get('type')})"
+        candidate = {"symbol": symbol, "name": name, "score": score, "reason": reason}
+        # 관계의 성격(직접 생산·공급 vs 그 밖의 연관)과 근거 출처를 함께 싣는다 —
+        # 설계 스펙 § 8.5 "직접적인 사업 관계와 단순 테마성 관계를 구분한다".
+        relation = edge.get("relation")
+        if relation:
+            candidate["relation_type"] = relation.get("relation_type")
+            candidate["relevance"] = relation.get("relevance")
+            candidate["direct"] = bool(relation.get("direct"))
+            candidate["verified"] = bool(relation.get("verified"))
+            candidate["business_evidence"] = relation.get("business_evidence")
+        out.append(candidate)
     return out
 
 

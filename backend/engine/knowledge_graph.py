@@ -304,7 +304,11 @@ class KnowledgeGraph:
         """개념에 직접(깊이 1) 연결된 상장사 이웃 — 테마 유니버스 후보(FR-STR-071).
 
         학습 엣지가 실어온 출처 지지 수(support)·뉴스 최초 보도일(first_known_date)을
-        함께 돌려준다(시드 엣지엔 없음). 공급망 전체로 번지지 않도록 깊이 1만 본다."""
+        함께 돌려준다(시드 엣지엔 없음). 공급망 전체로 번지지 않도록 깊이 1만 본다.
+
+        관계 원장이 있는 엣지는 근거·관련도(relation)와 '직접 사업 관계인가'(direct)를
+        함께 돌려준다(설계 스펙 § 8.5). 원장이 없으면 두 값 모두 없음이다 —
+        **근거 없음과 근거 있음을 같은 모양으로 내보내지 않는다.**"""
         result: list[dict] = []
         seen: set[str] = set()
         for e in self._out.get(node_id, []) + self._in.get(node_id, []):
@@ -312,11 +316,21 @@ class KnowledgeGraph:
             if not other.startswith("company:") or other in seen:
                 continue
             seen.add(other)
+            relation = e.get("relation")
             result.append({
                 "symbol": other.split(":", 1)[1],
                 "name": self.nodes.get(other, {}).get("name", other),
                 "support": e.get("support", 1),
                 "first_known_date": e.get("first_known_date"),
+                # 관계 근거·관련도(원장이 있을 때만). 없으면 None —
+                # 소비자가 "근거가 확인된 관계"와 "테마 목록에 함께 있을 뿐인 관계"를
+                # 구분할 수 있어야 한다.
+                "relation": relation,
+                "direct": bool(relation and relation.get("direct")),
+                # 이 관계가 어디서 왔는가. 시드+원장(근거 확인) / 카탈로그·학습(테마성).
+                # 빌드 시점에 붙인 출처 표기를 그대로 쓴다. 읽는 시점에 추론하면
+                # 근거 없는 시드 엣지(예: HBM)가 카탈로그로 잘못 표기된다.
+                "evidence_source": "research" if relation else e.get("origin", "seed"),
             })
         return result
 
@@ -463,6 +477,30 @@ def _sector_node(sector: str, membership: dict[str, str]) -> dict:
     return node
 
 
+def _with_relation_meta(raw: dict, source: str, target: str) -> dict:
+    """시드 엣지에 관계 원장의 근거·관련도를 붙인다(설계 스펙 § 8.5).
+
+    시드 엣지는 관계의 **종류**(produced_by·supplier)와 한 줄 note만 갖는다. 원장
+    (`data/kg-research/*.json`)에는 같은 관계의 관련도 등급·점수·사업 근거가 이미 있는데
+    시드로 옮길 때 사라졌다 — 런타임이 "직접 생산"과 "그 밖의 연관"을 구분할 수 없던 이유다.
+
+    원장에 없는 관계에는 아무것도 붙이지 않는다(근거를 지어내지 않는다).
+    """
+    from engine import kg_research
+
+    company, concept = (
+        (target, source) if target.startswith("company:") else (source, target)
+    )
+    if not company.startswith("company:") or concept.startswith("company:"):
+        return raw
+    meta = kg_research.lookup(concept, company.split(":", 1)[1])
+    if meta is None:
+        return raw
+    merged = dict(raw)
+    merged["relation"] = meta
+    return merged
+
+
 def _build() -> KnowledgeGraph:
     from engine.universe_pit import CANONICAL_SECTORS
 
@@ -558,7 +596,8 @@ def _build() -> KnowledgeGraph:
                 **({"delisted": True} if symbol not in stock_names else {}),
             }
         membership_edges.append(
-            {"source": company_id, "type": "belongs_to", "target": sector_id}
+            {"source": company_id, "type": "belongs_to", "target": sector_id,
+             "origin": "membership"}
         )
 
     def resolve_endpoint(ref: str, report: bool = True) -> bool:
@@ -596,7 +635,7 @@ def _build() -> KnowledgeGraph:
             continue
         if not resolve_endpoint(source) or not resolve_endpoint(target):
             continue
-        edges.append(raw)
+        edges.append(_with_relation_meta(raw, source, target))
 
     # 섹터 소속(정본 오버레이) — 시드 엣지 뒤에 붙인다. 끝점은 위에서 이미 노드로
     # 만들었으므로 resolve_endpoint를 다시 태우지 않는다(3천여 건 불필요한 검증 회피).
@@ -629,7 +668,8 @@ def _build() -> KnowledgeGraph:
                     and resolve_endpoint(target, report=False)
                 ):
                     continue
-            edge = {"source": node_id, "type": e["type"], "target": target}
+            edge = {"source": node_id, "type": e["type"], "target": target,
+                    "origin": "learned"}
             # 테마 유니버스 조회가 그래프 단일 경로로 동작하도록 학습 엣지의 출처 지지 수·
             # 뉴스 최초 보도일을 함께 실어 나른다(FR-STR-071 읽기 경로 통합).
             # note는 콘솔 수동 엣지(FR-STR-070b ⑦)의 근거 문구 — concept_universe가
@@ -650,7 +690,8 @@ def _build() -> KnowledgeGraph:
             target = f"company:{symbol}"
             if not symbol or (target not in nodes and not resolve_endpoint(target, report=False)):
                 continue
-            edges.append({"source": node_id, "type": "related_company", "target": target})
+            edges.append({"source": node_id, "type": "related_company",
+                          "target": target, "origin": "catalog"})
 
     for issue in issues:
         logger.warning("지식그래프 검증: %s", issue)

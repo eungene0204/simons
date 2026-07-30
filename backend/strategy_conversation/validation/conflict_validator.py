@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from strategy_conversation.interpreter.models import StrategyCondition, StrategyIntent
 from strategy_conversation.registry.capability_registry import REBALANCE_FREQUENCY_DAYS
@@ -21,7 +21,10 @@ def _interval_for(op: str, value: float) -> Tuple[float, float]:
     return (value, math.inf)
 
 
-def _check_and_intersection(role: str, conditions: List[StrategyCondition], errors: List[str]) -> None:
+def _check_and_intersection(
+    role: str, conditions: List[StrategyCondition], errors: List[str],
+    conflicted: Optional[Set[str]] = None, slot: Optional[str] = None,
+) -> None:
     by_factor: Dict[str, List[StrategyCondition]] = {}
     for cond in conditions:
         if cond.operator in ("<", "<=", ">", ">=") and cond.value is not None:
@@ -38,28 +41,39 @@ def _check_and_intersection(role: str, conditions: List[StrategyCondition], erro
             name = spec.display_name if spec else factor
             described = " AND ".join(f"{name} {c.operator} {c.value}" for c in conds)
             errors.append(f"{role} 조건이 서로 모순되어 만족하는 종목이 없습니다: {described}")
+            if conflicted is not None and slot is not None:
+                conflicted.add(slot)
 
 
-def validate_conflicts(intent: StrategyIntent) -> Tuple[List[str], List[str]]:
-    """(errors, warnings)를 반환한다."""
+def validate_conflicts(intent: StrategyIntent) -> Tuple[List[str], List[str], List[str]]:
+    """(errors, warnings, conflicted_slots)를 반환한다.
+
+    conflicted_slots는 모순이 발견된 진행 골격 슬롯 필드다(engine.strategy_slots 어휘:
+    'entry'/'exit'). 오류 문장만으로는 어느 필드가 모순인지 알 수 없어 상태 축(§ 5의
+    CONFLICTED)을 붙일 수 없으므로, 판정한 자리에서 함께 기록한다.
+    """
     errors: List[str] = []
     warnings: List[str] = []
+    conflicted: Set[str] = set()
     strategy = intent.strategy
     if strategy is None:
-        return errors, warnings
+        return errors, warnings, []
 
-    _check_and_intersection("진입", strategy.entry_conditions, errors)
-    _check_and_intersection("청산", strategy.exit_conditions, errors)
+    _check_and_intersection("진입", strategy.entry_conditions, errors, conflicted, "entry")
+    _check_and_intersection("청산", strategy.exit_conditions, errors, conflicted, "exit")
 
     # 크로스오버 단기/장기 파라미터 순서
-    for cond in strategy.entry_conditions + strategy.exit_conditions:
-        short = cond.parameters.get("short_period")
-        long = cond.parameters.get("long_period")
-        if short is not None and long is not None and short >= long:
-            errors.append(
-                f"'{cond.factor}'의 단기 기간({short:g})이 장기 기간({long:g}) 이상입니다 — "
-                "단기 < 장기여야 합니다"
-            )
+    for slot, conditions in (("entry", strategy.entry_conditions),
+                             ("exit", strategy.exit_conditions)):
+        for cond in conditions:
+            short = cond.parameters.get("short_period")
+            long = cond.parameters.get("long_period")
+            if short is not None and long is not None and short >= long:
+                errors.append(
+                    f"'{cond.factor}'의 단기 기간({short:g})이 장기 기간({long:g}) 이상입니다 — "
+                    "단기 < 장기여야 합니다"
+                )
+                conflicted.add(slot)
 
     # 보유 기간 vs 리밸런싱 주기
     portfolio = strategy.portfolio
@@ -84,4 +98,4 @@ def validate_conflicts(intent: StrategyIntent) -> Tuple[List[str], List[str]]:
                 "매수 직후 매도될 수 있습니다"
             )
 
-    return errors, warnings
+    return errors, warnings, sorted(conflicted)

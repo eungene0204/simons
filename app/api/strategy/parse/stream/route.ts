@@ -153,6 +153,14 @@ export async function POST(req: NextRequest) {
             // 이 값만 보고 판정하므로, 화이트리스트에서 빠지면 모든 설정을 "미언급"으로
             // 보고 영원히 되묻는다(clarification_priority·pending_ask와 같은 함정).
             explicit_fields: data.explicit_fields ?? null,
+            // 진행 골격 8칸의 상태 축(완료/미확인/해당 없음/확인 필요). 진행률 카드가
+            // '해당 없음'을 '완료'로 위장하지 않기 위한 표시 전용 정보다 — 되묻기·실행
+            // 게이트는 쓰지 않으므로 누락돼도 흐름은 그대로다(카드 표시만 예전으로 회귀).
+            field_states: data.field_states ?? null,
+            // 이 턴이 바꾼 필드(§ 19) — 클라이언트가 변경 이력에 쌓아 되돌리기의 근거로
+            // 쓴다. 누락되면 이력이 "무엇이 바뀌었는지 모르는" 상태가 돼 되돌리기가
+            // 항상 되묻기로 강등된다.
+            changed_fields: data.changed_fields ?? null,
             notices: data.notices ?? null,
           });
           send({

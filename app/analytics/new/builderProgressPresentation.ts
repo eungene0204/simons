@@ -18,10 +18,55 @@ export type BuilderSummaryItem = {
   value: string;
 };
 
+// 진행 골격 8칸의 상태 축(백엔드 engine/strategy_slots.py FieldStatus와 동일).
+// complete(불리언)가 뭉개던 것을 나눈다 — 특히 '해당 없음'과 '완료'의 구분.
+export type FieldStatus =
+  | "UNKNOWN"
+  | "CONFIRMED"
+  | "INFERRED"
+  | "PROVISIONAL"
+  | "INVALID"
+  | "CONFLICTED"
+  | "NOT_APPLICABLE";
+
 export type BuilderProgressItem = {
   label: string;
   complete: boolean;
+  // 백엔드가 계산한 상태(없으면 기존 complete 표시 그대로). 판정은 백엔드 SOT가
+  // 소유하며 프론트는 표시만 한다 — 같은 판정의 두 번째 구현을 만들지 않는다.
+  status?: FieldStatus;
 };
+
+// 진행률 카드가 슬롯 이름을 상황에 따라 바꿔 다는 자리 — 백엔드 슬롯 어휘로 되돌린다.
+const PROGRESS_LABEL_TO_SLOT: Record<string, string> = {
+  포트폴리오: "최대 보유",
+  "투자 대상": "유니버스",
+};
+
+/** 진행률 분자·분모. '해당 없음'은 물을 대상이 아니므로 양쪽 모두에서 뺀다 —
+ * 완료로 세면 진행률이 실제보다 높게 보이고, 미완료로 세면 영원히 채울 수 없다. */
+export function countProgress(
+  items: BuilderProgressItem[],
+): { completed: number; total: number } {
+  const applicable = items.filter((item) => item.status !== "NOT_APPLICABLE");
+  return {
+    completed: applicable.filter((item) => item.complete).length,
+    total: applicable.length,
+  };
+}
+
+/** 백엔드 상태 맵을 진행률 항목에 붙인다. 없는 항목은 status 없이 남는다. */
+export function attachFieldStates(
+  items: BuilderProgressItem[],
+  fieldStates: Record<string, string> | null | undefined,
+): BuilderProgressItem[] {
+  if (!fieldStates) return items;
+  return items.map((item) => {
+    const slot = PROGRESS_LABEL_TO_SLOT[item.label] ?? item.label;
+    const status = fieldStates[slot];
+    return status ? { ...item, status: status as FieldStatus } : item;
+  });
+}
 
 export type BuilderTurnPresentation = {
   summaryItems: BuilderSummaryItem[];

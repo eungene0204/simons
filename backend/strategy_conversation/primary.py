@@ -25,6 +25,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from engine import strategy_slots
 from strategy_conversation import config
+from strategy_conversation.conversation.change_log import changed_field_names
 from strategy_conversation.interpreter.llm_strategy_interpreter import _log_llm
 from strategy_conversation.interpreter.models import StrategyIntent, ValidationReport
 from strategy_conversation.registry.indicator_registry import REGISTRY
@@ -365,6 +366,35 @@ def _explicit_fields(strategy: Any, previous: Optional[List[str]]) -> List[str]:
     return merge_explicit_fields(previous, explicit_fields_from_spec(strategy))
 
 
+def _field_states(
+    parsed: Any, strategy: Any, report: Any, explicit_fields: Optional[Iterable[str]],
+) -> Dict[str, str]:
+    """진행 골격 8칸의 상태 축(설계 스펙 § 5)을 계산해 응답에 실을 형태로 만든다.
+
+    `filled_slots`(완료/미완료)가 뭉개던 것을 나눠 준다 — 해당 없음(단독 종목의 최대
+    보유·리밸런싱), 값은 있으나 미확인(기본값 물질화), 확인 필요(미지원 지표·모순).
+    되묻기 게이트와 실행 버튼은 이 값을 쓰지 않는다(표시 전용 — 흐름 동작 불변).
+
+    검증 실패로 리포트·spec이 없어도 진행은 막지 않는다 — 상태 축은 부가 정보다.
+    """
+    from strategy_conversation.validation.field_state import slot_status_overrides
+
+    try:
+        overrides = slot_status_overrides(strategy, report)
+        return {
+            slot: status.value
+            for slot, status in strategy_slots.slot_statuses(
+                parsed,
+                explicit_fields=explicit_fields,
+                require_explicit=True,
+                status_overrides=overrides,
+            ).items()
+        }
+    except Exception:  # noqa: BLE001 — 표시용 부가 정보가 파스를 깨면 안 된다
+        logger.warning("필드 상태 축 계산 실패 — 생략", exc_info=True)
+        return {}
+
+
 def run_primary_parse(
     user_input: str, on_stage=None,
     previous_explicit_fields: Optional[List[str]] = None,
@@ -653,6 +683,9 @@ def run_primary_parse(
         "clarification_priority": clarification_priority,
         "pending_ask": pending_ask,
         "explicit_fields": turn_explicit_fields,
+        "field_states": _field_states(
+            parsed, validated.strategy, report, turn_explicit_fields
+        ),
         "notices": notices,
         "interpreter": {
             "mode": "primary",
@@ -1981,6 +2014,14 @@ def run_primary_modification(
         # 수정 턴의 명시 필드는 패치 적용 후 State(validated.strategy)에서 판정하고
         # 이전 턴 에코와 합집합한다 — 이전 턴에 말한 값이 이번 턴 침묵으로 지워지지 않게.
         "explicit_fields": _explicit_fields(validated.strategy, previous_explicit_fields),
+        "field_states": _field_states(
+            parsed, validated.strategy, report,
+            _explicit_fields(validated.strategy, previous_explicit_fields),
+        ),
+        # 되돌리기(§ 19)의 근거 — 이 턴이 바꾼 필드 이름. 프론트가 변경 이력에 쌓고
+        # 다음 턴에 에코한다(무상태 계약). _diff_fields는 사람이 읽는 로그 문장이라
+        # 되돌리기 대상으로 쓸 수 없어 구조화 이름을 따로 낸다.
+        "changed_fields": changed_field_names(prev_dump, parsed.model_dump()),
         "notices": notices,
         "interpreter": {
             "mode": "primary_modify",
@@ -2034,4 +2075,11 @@ def apply_primary_meta(result: dict, primary: Dict[str, Any]) -> None:
     # 이번 턴에 State를 바꾸지 않았으므로 호출부가 이전 턴 에코를 그대로 이월한다.
     if primary.get("explicit_fields") is not None:
         result["explicit_fields"] = primary["explicit_fields"]
+    # 상태 축(§ 5)도 같은 계약 — 인터프리터가 State를 판정한 턴에서만 갱신한다.
+    if primary.get("field_states"):
+        result["field_states"] = primary["field_states"]
+    # 변경 이력(§ 19)도 같은 계약. 빈 목록도 유효한 값이라 None만 걸러낸다 —
+    # "이 턴은 아무것도 바꾸지 않았다"는 사실 자체가 이력에 남아야 한다.
+    if primary.get("changed_fields") is not None:
+        result["changed_fields"] = primary["changed_fields"]
     result["runtime"]["interpreter"] = primary["interpreter"]

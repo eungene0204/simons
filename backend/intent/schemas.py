@@ -34,6 +34,51 @@ class QueryIntent(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+class WorkflowEffect(str, Enum):
+    """입력이 진행 중인 전략 작성 워크플로에 일으키는 효과.
+
+    QueryIntent와 직교하는 축이다 — 라벨은 "무엇에 대한 발화인가"를, 이 값은 "그
+    발화가 워크플로를 어떻게 제어하는가"를 말한다. 한 발화가 전략 요청이면서 동시에
+    취소일 수는 없으므로 두 축은 겹치지 않는다(설계 스펙 §4).
+
+    기본값 NONE은 안전 방향이다 — LLM이 이 필드를 채우지 못하면 워크플로 제어가
+    일어나지 않고 기존 동작 그대로 흐른다.
+    """
+
+    # 워크플로에 영향 없음. 부가 질문·잡담이어도 진행 중인 전략 State는 유지된다.
+    # 스펙 §4 예시는 용어 설명을 PAUSE로 적었으나, 같은 스펙 §21이 "부가 질문은 기존
+    # 워크플로를 유지한다"고 규정한다. 설명마다 워크플로를 멈추면 명시적 RESUME이
+    # 있어야 진행되므로 §21을 따르고, PAUSE는 명시적 중지 요청에만 쓴다.
+    NONE = "NONE"
+    # 전략 State를 갱신하는 요청(조건 추가·변경·삭제).
+    UPDATE = "UPDATE"
+    # 사용자가 명시적으로 진행을 멈춘 상태. 전략 State는 보존된다.
+    PAUSE = "PAUSE"
+    # 멈춘 워크플로를 다시 진행한다.
+    RESUME = "RESUME"
+    # 전략 작성을 그만둔다. State를 버린다.
+    CANCEL = "CANCEL"
+    # 전략을 버리고 처음부터 다시 시작한다.
+    RESTART = "RESTART"
+    # 직전 변경을 되돌린다. 어디로 되돌릴지는 /strategy/rollback/resolve가 정하고,
+    # 복원은 변경 이력을 들고 있는 프론트가 결정론으로 수행한다(설계 스펙 § 19).
+    ROLLBACK = "ROLLBACK"
+
+
+class WorkflowStatus(str, Enum):
+    """전략 작성 워크플로의 현재 진행 상태.
+
+    백엔드는 세션을 갖지 않는다 — 프론트가 previous_explicit_fields·pending_ask와 같은
+    무상태 에코 계약으로 이 값을 매 턴 돌려준다. PAUSE 없이는 RESUME이 성립하지 않으므로
+    효과 판정에는 직전 상태가 필요하다.
+    """
+
+    IDLE = "IDLE"
+    ACTIVE = "ACTIVE"
+    PAUSED = "PAUSED"
+    CANCELLED = "CANCELLED"
+
+
 class DetectedSymbol(BaseModel):
     symbol: str
     name: str
@@ -49,6 +94,11 @@ class IntentResult(BaseModel):
     deterministic: bool = True
     # GREETING/OFF_TOPIC처럼 곧바로 보여줄 정해진 응답 문구(없으면 None).
     suggested_reply: Optional[str] = None
+    # 워크플로 제어 효과(QueryIntent와 직교). 규제 게이트 라벨에서는 항상 NONE으로
+    # 강제된다 — 정형 안내가 워크플로 제어로 우회되지 않게 한다.
+    workflow_effect: WorkflowEffect = WorkflowEffect.NONE
+    # 이 턴 이후의 워크플로 상태. 프론트가 다음 요청에 그대로 에코한다.
+    workflow_status: WorkflowStatus = WorkflowStatus.IDLE
 
 
 class ChatTurn(BaseModel):
@@ -68,3 +118,6 @@ class IntentRequest(BaseModel):
     # 화면에 진행 중인 전략이 떠 있는지. 짧고 모호한 발화('원자력 업종만 테스트 하고 싶어')를
     # 역할 밖 잡담이 아니라 전략 수정 요청으로 읽을 근거를 LLM에 준다.
     active_strategy: bool = False
+    # 직전 턴의 워크플로 상태(무상태 에코 계약). PAUSED일 때만 RESUME이 성립하므로
+    # 효과 판정의 입력으로 쓴다. 프론트가 응답의 workflow_status를 그대로 돌려준다.
+    workflow_status: WorkflowStatus = WorkflowStatus.IDLE

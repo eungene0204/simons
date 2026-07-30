@@ -76,9 +76,10 @@ def run_validation(intent: StrategyIntent) -> Tuple[StrategyIntent, ValidationRe
     report.errors.extend(validate_parameters(intent))
 
     # ── 논리 충돌
-    conflict_errors, conflict_warnings = validate_conflicts(intent)
+    conflict_errors, conflict_warnings, conflicted_slots = validate_conflicts(intent)
     report.errors.extend(conflict_errors)
     report.warnings.extend(conflict_warnings)
+    report.conflicted_slots.extend(conflicted_slots)
 
     # ── Completeness (누락 → 질문)
     missing, questions = validate_completeness(intent)

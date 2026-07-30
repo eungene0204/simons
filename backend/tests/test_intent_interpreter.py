@@ -13,7 +13,7 @@ import pytest
 
 from intent import interpreter
 from intent.classifier import classify
-from intent.schemas import ChatTurn, QueryIntent
+from intent.schemas import ChatTurn, QueryIntent, WorkflowEffect, WorkflowStatus
 
 
 def stub_llm(intent: str, **extra):
@@ -185,3 +185,138 @@ def test_prompt_does_not_receive_regex_derived_hints():
     assert "PBR 1 이하 저평가 종목" in seen["user"]
     for leaked in ("screening=", "finance_cue=", "strategy_kw="):
         assert leaked not in seen["user"]
+
+
+# ── 워크플로 제어(설계 스펙 §4 — Conversation Mode / Workflow Effect 분리) ─────
+# 제어 효과는 라벨과 직교하는 축이다. LLM은 효과를 '제안'만 하고, 성립 여부와 다음
+# 상태는 결정론 코드가 정한다(스펙 §18 — LLM이 State를 직접 바꾸지 않는다).
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("CANCEL", WorkflowEffect.CANCEL),
+        ("cancel", WorkflowEffect.CANCEL),
+        ("roll back", WorkflowEffect.ROLLBACK),
+        ("roll-back", WorkflowEffect.ROLLBACK),
+        # 목록 밖 표기를 제어 동작으로 승격하지 않는다.
+        ("DESTROY", WorkflowEffect.NONE),
+        ("", WorkflowEffect.NONE),
+        (None, WorkflowEffect.NONE),
+        (3, WorkflowEffect.NONE),
+    ],
+)
+def test_workflow_effect_label_normalization(raw, expected):
+    assert interpreter.normalize_workflow_effect(raw) == expected
+
+
+def test_missing_effect_field_does_not_fail_intent_classification():
+    """효과 미출력은 라벨 분류를 실패로 만들지 않는다 — NONE이 기존 동작 그대로다."""
+    result = classify("RSI 30 이하 매수 전략", llm=stub_llm("STRATEGY_ADVICE"))
+    assert result.intent == QueryIntent.STRATEGY_ADVICE
+    assert result.workflow_effect == WorkflowEffect.NONE
+
+
+def test_cancel_requires_active_strategy():
+    """되돌리거나 멈출 전략이 없으면 제어는 성립하지 않고 NONE으로 강등된다."""
+    result = classify(
+        "그만할래",
+        llm=stub_llm("STRATEGY_ADVICE", workflow_effect="CANCEL"),
+        active_strategy=False,
+    )
+    assert result.workflow_effect == WorkflowEffect.NONE
+    assert result.workflow_status == WorkflowStatus.IDLE
+
+
+def test_cancel_with_active_strategy_transitions_and_explains():
+    result = classify(
+        "그만할래",
+        llm=stub_llm("STRATEGY_ADVICE", workflow_effect="CANCEL"),
+        active_strategy=True,
+    )
+    assert result.workflow_effect == WorkflowEffect.CANCEL
+    assert result.workflow_status == WorkflowStatus.CANCELLED
+    assert result.suggested_reply is not None
+
+
+def test_resume_requires_paused_status():
+    """멈춘 적이 없으면 이어갈 것도 없다 — 직전 상태가 판정 입력이다."""
+    stub = stub_llm("STRATEGY_ADVICE", workflow_effect="RESUME")
+    assert classify(
+        "아까 하던 거 계속하자", llm=stub, active_strategy=True,
+        workflow_status=WorkflowStatus.ACTIVE,
+    ).workflow_effect == WorkflowEffect.NONE
+    resumed = classify(
+        "아까 하던 거 계속하자", llm=stub, active_strategy=True,
+        workflow_status=WorkflowStatus.PAUSED,
+    )
+    assert resumed.workflow_effect == WorkflowEffect.RESUME
+    assert resumed.workflow_status == WorkflowStatus.ACTIVE
+
+
+def test_pause_preserves_status_transition():
+    result = classify(
+        "잠깐 멈춰줘",
+        llm=stub_llm("STRATEGY_ADVICE", workflow_effect="PAUSE"),
+        active_strategy=True,
+    )
+    assert result.workflow_effect == WorkflowEffect.PAUSE
+    assert result.workflow_status == WorkflowStatus.PAUSED
+
+
+def test_rollback_carries_no_canned_reply():
+    """되돌리기 안내 문구는 **결과**에 달려 있다(어느 변경을 되돌렸는지·되물어야 하는지).
+
+    그 결과는 변경 이력을 들고 있는 프론트가 복원을 마친 뒤에야 정해지므로, 분류기가
+    미리 문구를 정하면 실제 결과와 어긋난다(§ 19). 상태는 바꾸지 않는다 — 되돌리기의
+    성공 여부를 여기서 알 수 없기 때문이다."""
+    result = classify(
+        "아까 바꾼 거 되돌려",
+        llm=stub_llm("STRATEGY_ADVICE", workflow_effect="ROLLBACK"),
+        active_strategy=True,
+        workflow_status=WorkflowStatus.ACTIVE,
+    )
+    assert result.workflow_effect == WorkflowEffect.ROLLBACK
+    assert result.workflow_status == WorkflowStatus.ACTIVE
+    assert result.suggested_reply is None
+
+
+@pytest.mark.parametrize(
+    "intent",
+    [
+        "PERSONAL_ADVICE",
+        "LIVE_TRADING",
+        "UNSUPPORTED_FEATURE",
+        "STOCK_PICK",
+        "STRATEGY_PICK",
+        "OFF_TOPIC",
+        "GREETING",
+        "ONBOARDING",
+        "STOCK_ANALYSIS",
+    ],
+)
+def test_regulatory_gate_labels_reject_workflow_control(intent):
+    """[규제 안전] 제어가 정형 안내를 삼키지 못한다 — 게이트 라벨에서는 항상 NONE."""
+    result = classify(
+        "그만할래",
+        llm=stub_llm(intent, workflow_effect="CANCEL"),
+        active_strategy=True,
+    )
+    assert result.workflow_effect == WorkflowEffect.NONE
+    # 라벨이 정한 안내는 그대로 나간다(제어 안내로 대체되지 않는다).
+    assert "취소했습니다" not in (result.suggested_reply or "")
+
+
+def test_workflow_status_survives_interpretation_failure():
+    """분류 실패가 사용자의 '멈춤' 상태를 조용히 해제하면 안 된다."""
+    result = classify(
+        "???", llm=lambda s, u: "무슨 말인지 모르겠어요",
+        workflow_status=WorkflowStatus.PAUSED,
+    )
+    assert result.intent == QueryIntent.UNKNOWN
+    assert result.workflow_status == WorkflowStatus.PAUSED
+
+
+def test_effect_is_sent_in_output_contract():
+    """프롬프트의 출력 형태에 제어 키가 있어야 작은 모델이 그 필드를 채운다."""
+    assert '"workflow_effect"' in interpreter.SYSTEM_PROMPT
