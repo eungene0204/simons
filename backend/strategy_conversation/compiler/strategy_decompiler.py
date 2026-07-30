@@ -102,6 +102,10 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             # 라운드트립 불일치(표현 불가)로 레거시 레인에 떨어진다(2026-07-27
             # '삼성전자 투자 etf' 사고: 인터프리터가 입력을 읽기도 전에 폴백).
             etf_theme=parsed.etf_theme,
+            # 테마 유니버스 출처도 왕복한다 — 초안의 symbols는 해석이 끝난 종목코드라
+            # 그것만으로는 "이 종목들이 어느 테마에서 왔는지"를 알 수 없다. 이 표기가
+            # 있어야 수정 인터프리터가 테마 교체를 /universe/theme 패치로 표현한다.
+            theme=parsed.theme_universe,
             # 신규 상장 제한도 왕복한다 — 누락되면 수정 요청마다 유니버스 제한이 풀리고,
             # 기준 일수를 되묻는 중이면 그 개념 자체가 다음 턴에 증발한다.
             new_listing_only=parsed.new_listing_only,

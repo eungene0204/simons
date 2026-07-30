@@ -311,8 +311,20 @@ def test_kg_membership_covers_delisted_and_preferred_shares():
     )
     preferred = [s for s in smap if len(s) == 6 and s[-1] != "0"]
     assert preferred, "우선주가 소속에 하나도 없다 — 모주 상속이 누락됐다"
-    # 대표 실측치: 상폐·우선주가 모두 들어와야 나오는 숫자
-    assert len(filter_by_sector(list(smap), "에너지/원자력")) == 72
+
+    # 매직 넘버로 고정하지 않는다 — 정당한 재귀속에도 깨진다(실측: 재귀속 63건 반영 후
+    # 에너지/원자력 72→58). 대신 **정본(KG)과 파일 병합 결과가 일치하는가**로 본다.
+    # 상폐·우선주가 KG 쪽에서 빠지면 두 결과가 어긋나므로 같은 회귀를 그대로 잡는다.
+    from engine.universe_pit import sector_map_from_files
+
+    from_files = sector_map_from_files()
+    assert smap == from_files, (
+        f"KG 소속과 파일 병합 결과 불일치 — KG {len(smap)} / 파일 {len(from_files)}"
+    )
+    # 대표 섹터에 상폐·우선주가 실제로 섞여 있는지도 확인(둘 다 0이면 가드가 무의미하다)
+    semis = filter_by_sector(list(smap), "반도체")
+    assert any(s in smap and any(m["symbol"] == s and m.get("delistingDate") for m in master)
+               for s in semis), "반도체 유니버스에 상폐 종목이 없다"
 
 
 def test_stock_file_sector_is_a_derived_cache_of_the_kg():

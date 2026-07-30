@@ -473,6 +473,16 @@ class ParsedStrategy(BaseModel):
         default_factory=list,
         description="지정 종목 백테스트 대상 종목코드(시스템이 결정적으로 추출). LLM은 채우지 말 것",
     )
+    # 테마 유니버스 출처(FR-STR-071 ⑤) — target_symbols가 테마 조회(apply_theme_companies)로
+    # 채워졌을 때 그 테마의 정본 표기('토스(toss)'). 종목이 **어디서 왔는지**를 남기지
+    # 않으면 다음 턴에 테마를 바꿀 수 없다(2026-07-30 사고: "쿠팡 관련주로 수정해줘"가
+    # 토스 종목 6개만 든 초안을 받아, 인터프리터가 바꿀 대상을 종목코드로 오해하고
+    # 기존 코드를 그대로 복사한 무변경 패치를 냄). None = 사용자가 직접 지정한 종목이거나
+    # 테마 유니버스가 아님 — 이 구분이 테마 교체 시 '무엇을 비워도 되는지'를 결정한다.
+    theme_universe: Optional[str] = Field(
+        default=None,
+        description="테마 유래 지정 종목의 출처 테마 정본 표기(시스템이 채움). LLM은 채우지 말 것",
+    )
 
     # ── 신규 상장 유니버스 (FR-STR-073)
     # "2026년 신규 상장 종목"은 **상장일이 그 구간에 속하는 종목 집합(코호트)**이다.
@@ -3858,6 +3868,9 @@ def apply_theme_companies(parsed: ParsedStrategy, lookup_text: str) -> Optional[
     first_date = theme.get("first_known_date")
     parsed.target_symbols = [c["symbol"] for c in companies]
     parsed.sector = None
+    # 종목의 출처를 남긴다 — 다음 턴의 테마 교체("쿠팡 관련주로")가 무엇을 비워도 되는지
+    # 판정하는 유일한 근거다(replace_theme_universe).
+    parsed.theme_universe = theme["term"]
     notice = (
         f"'{theme['term']}' 관련으로 확인된 상장사 {len(companies)}곳을 대상 종목으로 "
         f"설정했어요(등록 관계·공시·검색 출처 근거): {names}."
@@ -3867,6 +3880,28 @@ def apply_theme_companies(parsed: ParsedStrategy, lookup_text: str) -> Optional[
             f" 이 목록은 {first_date} 이후 확인된 정보예요 — 그 이전 구간의 결과에는 "
             "당시 알 수 없던 정보가 반영되는 시점 편향이 있을 수 있어요."
         )
+    return notice
+
+
+def replace_theme_universe(parsed: ParsedStrategy, lookup_text: str) -> Optional[str]:
+    """테마 유래 지정 종목을 새 테마의 상장사로 **교체**한다(수정 턴 전용).
+
+    apply_theme_companies는 target_symbols가 있으면 적용하지 않는다 — 사용자가 직접
+    지목한 종목("삼성전자만")을 테마 조회가 덮지 않게 하는 가드다. 그 가드 때문에
+    테마 전략의 테마 교체("토스 관련주"→"쿠팡 관련주")도 함께 막혀 있었다(2026-07-30).
+    여기서는 **테마에서 온 종목일 때만**(theme_universe가 있을 때만) 비우고 재조회한다.
+    사용자가 직접 지정한 종목(theme_universe=None)은 그대로 두므로 원래 가드는 유지된다.
+    새 테마 조회가 실패하면 원상복구하고 None — 기존 테마를 잃지 않는다.
+    반환: 안내 notice 문구 | None(미적용)."""
+    prior_symbols = list(getattr(parsed, "target_symbols", None) or [])
+    prior_theme = getattr(parsed, "theme_universe", None)
+    if prior_theme and prior_symbols:
+        parsed.target_symbols = []
+        parsed.theme_universe = None
+    notice = apply_theme_companies(parsed, lookup_text)
+    if notice is None and prior_theme and prior_symbols:
+        parsed.target_symbols = prior_symbols
+        parsed.theme_universe = prior_theme
     return notice
 
 
@@ -5003,6 +5038,10 @@ def _apply_prompt_overrides(
         # 업종 제한으로 전환하는 발화("반도체 업종으로 바꿔줘")는 문맥 가드('업종')에 걸려
         # 종목 추출이 침묵하므로, 섹터 변경 판정을 신뢰해 종목 지정을 해제한다.
         updates["target_symbols"] = []
+    if "target_symbols" in updates:
+        # 종목 구성이 이 발화로 바뀌면 더 이상 기존 테마의 상장사 목록이 아니다 —
+        # 출처 표기를 남기면 다음 턴의 테마 교체가 남의 종목을 비운다.
+        updates["theme_universe"] = None
 
     # ── ETF 유니버스 정규화 ──
     # model_copy(update=...)는 검증기를 다시 돌리지 않으므로 _normalize_etf_universe와

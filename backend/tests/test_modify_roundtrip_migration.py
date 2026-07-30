@@ -297,3 +297,118 @@ def test_fast_path_first_rollback_keeps_legacy_lane(monkeypatch):
     # 롤백 모드에서는 레거시 결정적 수정이 그대로 동작한다
     assert result.get("clarification_priority") != "interpretation_failed"
     assert result["parsed"]["stop_loss_pct"] == 10.0
+
+
+# ── ④ 테마 유니버스 교체 (2026-07-30 "쿠팡 관련주로 수정해줘" 사고 회귀) ─────────
+#
+# 사고: 토스 관련주 6종목으로 만들어진 전략에 "쿠팡 관려주로 수정해줘"를 넣자 전략이
+# 토스 그대로 유지됐다. 원인 3겹 — ① 테마로 종목을 채운 뒤 테마 이름을 지워(sector=None)
+# 초안에 "이 종목들이 어디서 왔는지"가 남지 않았고 ② 수정 레인에는 지식 조회(KG) 체인
+# 자체가 없어 인터프리터가 종목코드를 직접 알아내야 하는 처지가 됐으며(실제로는 기존
+# 코드를 그대로 복사한 무변경 패치를 냈다) ③ 그 결과 나간 되묻기는 우선순위 마커가 없어
+# 프론트 설정 게이트("어떤 조건에서 매수할지…")에 덮여 사라졌다.
+
+def _theme_strategy(term: str = "토스(toss)") -> ParsedStrategy:
+    from engine.nl_parser import apply_theme_companies
+
+    parsed = _prev_cross_strategy(target_symbols=[])
+    assert apply_theme_companies(parsed, term), f"카탈로그에 '{term}' 테마가 있어야 한다"
+    return parsed
+
+
+def test_theme_origin_survives_modify_roundtrip():
+    """테마 출처가 초안까지 왕복해야 인터프리터가 테마 교체를 표현할 수 있다."""
+    from strategy_conversation.compiler.strategy_compiler import compile_strategy
+    from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
+    from strategy_conversation.interpreter.models import ValidationReport
+
+    prev = materialize_engine_defaults(_theme_strategy())
+    assert prev.theme_universe == "토스(toss)"
+    spec = decompile_strategy(prev)
+    assert spec.universe.theme == "토스(toss)", "초안에 테마 출처가 실려야 한다"
+    roundtrip = compile_strategy(
+        StrategyIntent(intent="CREATE_STRATEGY", strategy=spec, confidence=1.0),
+        ValidationReport(is_valid=True, status="READY"),
+        prev.description,
+    ).model_copy(update={
+        "description": prev.description, "entry_filters": prev.entry_filters,
+    })
+    assert roundtrip.model_dump() == prev.model_dump()
+
+
+def test_theme_replacement_asks_scope_and_keeps_strategy(monkeypatch):
+    """테마 교체 패치는 지식 조회 체인으로 넘어가고, 확정 전까지 전략은 무변경이다."""
+    _stub_interpreter(monkeypatch, StrategyIntent.model_validate({
+        "intent": "MODIFY_STRATEGY",
+        "patches": [{"op": "replace", "path": "/universe/sectors",
+                     "value": ["쿠팡"], "source_text": "쿠팡 관려주로"}],
+        "confidence": 0.8,
+    }))
+    prev = _theme_strategy()
+    result = primary.run_primary_modification("쿠팡 관려주로 수정해줘", prev.model_dump())
+    assert result is not None
+    assert result["interpreter"]["mode"] == "primary_modify_theme_ask"
+    # 카탈로그 정본 표기를 칩으로 제시하고 확인받는다(생성 경로와 같은 계약 — 자동 확정 금지)
+    assert result["clarification_suggestions"] == ["쿠팡(coupang)"]
+    assert result["pending_ask"]["topic"] == "유니버스"
+    # 확정 전까지 전략은 이전 테마 그대로 — 조용한 오해석도, 조용한 소실도 없다
+    assert result["parsed"].theme_universe == "토스(toss)"
+    assert result["parsed"].target_symbols == prev.target_symbols
+    # 유니버스 범위 질문은 조건 질문보다 선행 — 프론트 게이트가 삼키지 않게 마커를 단다
+    assert result["clarification_priority"] == "sector_unresolved"
+
+
+def test_theme_scope_chip_replaces_only_theme_origin_symbols():
+    """범위 칩 클릭은 이전 **테마에서 온** 종목만 새 테마의 상장사로 교체한다."""
+    prev = _theme_strategy()
+    result = primary.run_chip_answer(
+        "쿠팡(coupang)", prev.model_dump(),
+        {"topic": "유니버스", "question": "이 범위로 바꿀까요?", "chips": ["쿠팡(coupang)"]},
+    )
+    assert result is not None
+    parsed = result["parsed"]
+    assert parsed.theme_universe == "쿠팡(coupang)"
+    assert set(parsed.target_symbols) != set(prev.target_symbols)
+    assert len(parsed.target_symbols) > len(prev.target_symbols)
+
+
+def test_theme_replacement_never_touches_user_specified_symbols():
+    """사용자가 직접 지목한 종목은 테마 교체가 건드리지 않는다(기존 가드 유지)."""
+    from engine.nl_parser import replace_theme_universe
+
+    parsed = _prev_cross_strategy()  # target_symbols=삼성전자·SK하이닉스, 테마 출처 없음
+    assert replace_theme_universe(parsed, "쿠팡(coupang)") is None
+    assert parsed.target_symbols == ["005930", "000660"]
+    assert parsed.theme_universe is None
+
+
+def test_failed_theme_replacement_restores_previous_theme():
+    """새 테마 조회가 실패하면 기존 테마 종목을 잃지 않는다(원상복구)."""
+    from engine.nl_parser import replace_theme_universe
+
+    parsed = _theme_strategy()
+    before = list(parsed.target_symbols)
+    assert replace_theme_universe(parsed, "존재하지않는테마xyz") is None
+    assert parsed.target_symbols == before
+    assert parsed.theme_universe == "토스(toss)"
+
+
+def test_unapplied_modify_clarification_carries_priority_marker(monkeypatch):
+    """전략 무변경 되묻기는 우선순위 마커를 달고 나간다 — 프론트 설정 게이트가
+    자기 질문으로 덮어쓰면 '요청이 반영되지 않았다'는 사실이 화면에서 사라진다."""
+    _stub_interpreter(monkeypatch, StrategyIntent.model_validate({
+        "intent": "MODIFY_STRATEGY",
+        "patches": [{"op": "replace", "path": "/universe/markets/0",
+                     "value": "KOSPI200", "source_text": "삼성전자 관련 etf"}],
+        "clarification_questions": [{
+            "field": "universe.markets",
+            "question": "'삼성전자 관련 ETF'는 지수를 뜻하시나요, 테마 ETF를 뜻하시나요?",
+        }],
+        "confidence": 0.8,
+    }))
+    prev = _prev_cross_strategy(universe=["ETF"], etf_theme="반도체", target_symbols=[])
+    result = primary.run_primary_modification(
+        "삼성전자 관련 etf를 매수하자", prev.model_dump(),
+    )
+    assert result["interpreter"]["mode"] == "primary_modify_self_doubt"
+    assert result["clarification_priority"] == "modify_unapplied"

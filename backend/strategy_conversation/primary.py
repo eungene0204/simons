@@ -1195,7 +1195,7 @@ def _apply_universe_chip(
     동일한 결정론 경로). 어느 쪽도 성립하지 않으면 None — 기존 수정 인터프리터가
     처리한다('직접 입력' 등 자유 서술 안전망)."""
     from engine.universe_pit import normalize_sector
-    from engine.nl_parser import apply_theme_companies
+    from engine.nl_parser import replace_theme_universe
 
     prev_dump = prev.model_dump()
     notices: List[str] = []
@@ -1203,7 +1203,11 @@ def _apply_universe_chip(
     if sector:
         _merge_learned_sector(prev, sector)
     else:
-        theme_notice = apply_theme_companies(prev, chip_text)
+        # replace_theme_universe: 테마 확인·범위 칩은 **교체**일 수도 있다(테마 전략의
+        # "쿠팡 관련주로" 되묻기에 답하는 칩) — 이전 테마에서 온 종목만 비우고 재조회한다.
+        # 사용자가 직접 지목한 종목은 그대로 두므로 기존 가드(테마가 지정 종목을 덮지
+        # 않는다)는 유지된다.
+        theme_notice = replace_theme_universe(prev, chip_text)
         if theme_notice is None:
             _log_llm("↩ 유니버스 칩 미적용",
                      f"칩 '{chip_text}' 카탈로그 정합 실패 — 수정 인터프리터로")
@@ -1438,6 +1442,88 @@ def _searched_unresolved_lexicon_entry(term: str) -> Optional[dict]:
     return None
 
 
+def _changed_universe_terms(patched: Any, previous: Any) -> List[str]:
+    """이번 수정이 **새로 넣은** 유니버스 표현(초안에 없던 sectors 항목).
+
+    수정 인터프리터는 테마 교체를 universe.sectors 패치로 표현한다(실측 2026-07-30:
+    '쿠팡 관련주로 수정해줘' → replace /universe/sectors/- = '쿠팡'). 생성 경로 규칙
+    6-0-2('X 관련주'→sectors)와 같은 출력이라 별도 필드를 두는 것보다 안전하다 —
+    형태에 없는 키는 9B가 채우지 않는다는 성질([[project_interpreter_output_shape_authority]]).
+    이미 초안에 있던 표현은 제외한다(이번 턴의 변경만이 해석 대상)."""
+    before = {t.strip() for t in (previous.sectors or []) if isinstance(t, str)}
+    return [
+        t.strip() for t in (patched.sectors or [])
+        if isinstance(t, str) and t.strip() and t.strip() not in before
+    ]
+
+
+def _resolve_theme_change(
+    parsed: Any, term: str, notices: List[str], on_stage=None,
+) -> Optional[tuple[str, List[str]]]:
+    """수정 턴의 테마 교체 표현을 지식 조회 체인으로 해석한다(§ 11-3 term-in, 수정 레인).
+
+    생성 경로(planner Universe-first)와 **같은 계약**을 따른다 — 수정 턴만 다르게
+    판정하면 "생성 때는 되는데 수정 때는 안 되는" 비대칭이 다시 생긴다(2026-07-30 사고의
+    본체는 수정 레인에 이 체인 자체가 없었다는 것):
+      ① 카탈로그 후보 2개 이상 = 범위가 갈리는 표현 → 조용히 확정하지 않고 범위 되묻기
+      ② 후보 1개 → 그 정본 표기를 칩 하나로 제시해 확인받는다(자동 확정 금지)
+      ③ 후보 0개 → 지식그래프 직접 조회 → 미해석이면 검색 학습 후 재조회 → 그래도
+         미해석이면 되묻기(검색이 소진된 표현은 종결 안내)
+    적용은 replace_theme_universe — 이전 **테마에서 온** 종목만 교체하고, 사용자가 직접
+    지목한 종목은 건드리지 않는다. parsed는 제자리 변형, 안내는 notices에 덧붙인다.
+    반환: None(적용 완료) | (질문, 칩) — 되묻기(호출부가 전략을 무변경으로 유지한다)."""
+    from engine.knowledge_graph import catalog_theme_candidates
+    from engine.nl_parser import (
+        SECTOR_REASK_QUESTION,
+        SECTOR_REASK_SUGGESTIONS,
+        THEME_NOT_FOUND_QUESTION,
+        THEME_NOT_FOUND_SUGGESTIONS,
+        replace_theme_universe,
+    )
+
+    try:
+        candidates = [c["term"] for c in catalog_theme_candidates(term) if c.get("term")]
+    except Exception:  # noqa: BLE001 — 후보 열거 실패가 교체 자체를 막으면 안 된다
+        logger.warning("테마 후보 열거 실패 | term=%r", term, exc_info=True)
+        candidates = []
+    if len(candidates) >= 2:
+        _log_llm("? 테마 범위 되묻기", f"'{term}' 후보 {len(candidates)}개 — 조용한 확정 금지")
+        return f"'{term}'의 범위를 어떻게 정할까요?", candidates
+    if len(candidates) == 1:
+        _log_llm("? 테마 확인 되묻기", f"'{term}' → 카탈로그 '{candidates[0]}' 확인 요청")
+        return (
+            f"'{term}' 관련주는 '{candidates[0]}' 테마로 정리되어 있어요. "
+            "이 범위로 바꿀까요?",
+            candidates,
+        )
+    notice = replace_theme_universe(parsed, term)
+    if notice is None:
+        learned = _ground_sector_term(term, on_stage=on_stage)
+        if learned:
+            notice = replace_theme_universe(parsed, term)
+            if notice is None:
+                _merge_learned_sector(parsed, learned)
+                _log_llm("✓ 검색 학습(테마 교체)", f"'{term}' → 섹터 '{learned}'")
+                notices.append(
+                    f"'{term}'은(는) 인터넷 검색으로 확인해 '{learned}' 업종 관련으로 "
+                    "해석했어요. 다른 업종을 원하시면 말씀해 주세요."
+                )
+                return None
+    if notice is None:
+        entry = _searched_unresolved_lexicon_entry(term)
+        if entry is not None:
+            _log_llm("✗ 테마 교체 종결", f"'{term}' — 검색 소진, 전략 불가 안내")
+            return (
+                THEME_NOT_FOUND_QUESTION.format(term=entry.get("term") or term),
+                list(THEME_NOT_FOUND_SUGGESTIONS),
+            )
+        _log_llm("? 테마 교체 되묻기", f"'{term}' 미해석 — 전략 유지")
+        return SECTOR_REASK_QUESTION, list(SECTOR_REASK_SUGGESTIONS)
+    _log_llm("✓ 테마 교체", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
+    notices.append(notice)
+    return None
+
+
 def run_primary_modification(
     user_input: str, previous_parsed: dict, on_stage=None,
     previous_explicit_fields: Optional[List[str]] = None,
@@ -1562,6 +1648,8 @@ def run_primary_modification(
             "parsed": prev,
             "clarification_question": question,
             "clarification_suggestions": chips,
+            # 무변경 되묻기 공통 계약 — 프론트 설정 게이트가 삼키면 질문이 사라진다.
+            "clarification_priority": "modify_unapplied",
             "notices": [],
             "interpreter": {
                 "mode": "primary_modify_clarify",
@@ -1654,6 +1742,11 @@ def run_primary_modification(
                 "parsed": prev,
                 "clarification_question": question,
                 "clarification_suggestions": chips,
+                # 전략을 바꾸지 않았다는 사실은 이 질문으로만 드러난다 — 마커가 없으면
+                # 프론트 explicit 설정 게이트가 자기 질문("어떤 조건에서 매수할지…")으로
+                # 덮어써, 요청이 반영되지 않은 것을 사용자가 알 방법이 사라진다
+                # (2026-07-30 사고: 쿠팡 요청이 화면에서 통째로 증발).
+                "clarification_priority": "modify_unapplied",
                 "notices": [],
                 "interpreter": {
                     "mode": "primary_modify_self_doubt",
@@ -1726,6 +1819,26 @@ def run_primary_modification(
         logger.warning("modify primary patch rejected, falling back | err=%s", exc)
         return None
 
+    # 이번 턴이 새로 넣은 유니버스 표현 중 정본 섹터로 풀리지 않는 것(= 테마 표현)은
+    # **미지원이 아니라 지식 조회 대상**이다. 검증기(정본 사전만 안다)에 그대로 넘기면
+    # 오류로 판정돼 이 레인 전체가 폴백하고, 요청은 무변경으로 끝난다(2026-07-30 사고).
+    # 생성 경로에서 검증기가 sectors를 비우고 pre-validation 스냅샷으로 체인을 돌리는
+    # 것과 같은 구조 — 여기서는 표현을 미리 떼어 두고 컴파일 뒤 체인에 넘긴다.
+    theme_terms = (
+        _sector_terms_for_chain(_changed_universe_terms(
+            patched_spec.universe, draft_spec.universe))
+        if "ETF" not in patched_spec.universe.markets else []
+    )
+    universe_changed = bool(
+        _changed_universe_terms(patched_spec.universe, draft_spec.universe))
+    if theme_terms:
+        pending_theme = {t.replace(" ", "").lower() for t in theme_terms}
+        patched_spec.universe.sectors = [
+            s for s in patched_spec.universe.sectors
+            if s.replace(" ", "").lower() not in pending_theme
+        ]
+        _log_llm("▶ 테마 표현 감지", f"{', '.join(theme_terms)} — 검증 대신 지식 조회로")
+
     modify_intent = _Intent(
         intent="MODIFY_STRATEGY", strategy=patched_spec,
         confidence=intent.confidence, unsupported_features=intent.unsupported_features,
@@ -1764,6 +1877,9 @@ def run_primary_modification(
                         "parsed": prev,
                         "clarification_question": question,
                         "clarification_suggestions": chips,
+                        # 자기 의심 분기와 같은 이유 — 전략 무변경 되묻기는 프론트 게이트에
+                        # 삼켜지면 "요청이 사라진" 것과 구분되지 않는다.
+                        "clarification_priority": "modify_unapplied",
                         "notices": [],
                         "interpreter": {
                             "mode": "primary_modify_needs_value",
@@ -1799,6 +1915,52 @@ def run_primary_modification(
         override_diff = _diff_fields(compiled_dump, parsed.model_dump())
         if override_diff:
             _log_llm("✓ 결정적 보정", "; ".join(override_diff))
+    # 테마 유니버스 교체(§ 11-3 수정 레인) — 컴파일은 테마 **표기**를 옮길 뿐이고,
+    # 그 테마의 상장사를 찾는 것은 지식 조회다. 이 체인이 없으면 인터프리터가 종목코드를
+    # 스스로 알아내야 하는 처지가 되어, 모르는 테마의 교체 요청이 무변경으로 끝난다
+    # (2026-07-30 "쿠팡 관련주로 수정해줘" 사고).
+    notices = list(report.warnings)
+    if (universe_changed and prev.theme_universe
+            and set(parsed.target_symbols) <= set(prev.target_symbols)):
+        # 유니버스를 바꾸는 턴인데 남은 종목이 전부 이전 테마의 목록이다 — 지정 종목이
+        # 우선하므로 그대로 두면 새 업종/테마가 아무 효과 없이 삼켜진다(인터프리터가
+        # symbols 일부만 remove하는 실측 드리프트도 여기서 함께 정리된다). 사용자가 이번
+        # 턴에 새 종목을 지목했으면(이전 목록 밖 코드가 있으면) 건드리지 않는다.
+        parsed.target_symbols = []
+        parsed.theme_universe = None
+        _log_llm("✓ 이전 테마 종목 해제", f"'{prev.theme_universe}' 유래 지정 종목 비움")
+    if theme_terms:
+        # 교체 체인의 입력 상태를 이전 테마로 되돌린다 — replace_theme_universe가
+        # "무엇을 비워도 되는지"를 이 출처 표기로 판정한다.
+        parsed.theme_universe = prev.theme_universe
+        parsed.target_symbols = list(prev.target_symbols)
+        theme_ask = _resolve_theme_change(parsed, theme_terms[0], notices, on_stage)
+        if theme_ask is not None:
+            # 해석 못 한 테마로 전략을 바꾸지 않는다 — 전략은 그대로 두고 범위를 묻는다.
+            # 우선순위 마커: 유니버스 범위는 조건 질문보다 선행 결정 사항이라, 프론트
+            # explicit 설정 게이트가 이 질문을 삼키면 요청이 조용히 사라진다.
+            question, chips = theme_ask
+            return finalize_user_response({
+                "parsed": prev,
+                "clarification_question": question,
+                "clarification_suggestions": chips,
+                "clarification_priority": "sector_unresolved",
+                "pending_ask": _pending_ask_payload(question, chips, "유니버스"),
+                "notices": [],
+                "interpreter": {
+                    "mode": "primary_modify_theme_ask",
+                    "model_name": result.model_name,
+                    "prompt_version": result.prompt_version,
+                    "repair_attempts": result.repair_attempts,
+                    "llm_latency_ms": result.latency_ms,
+                    "patch_count": 0,
+                    "confidence": intent.confidence,
+                },
+            })
+    elif parsed.target_symbols == prev.target_symbols:
+        # 종목 구성이 그대로면 출처 표기도 그대로 — 컴파일이 초안 표기를 옮겨 놓았을 뿐
+        # 이므로 원본 값으로 확정한다(종목이 바뀐 턴이면 위에서 이미 None으로 비웠다).
+        parsed.theme_universe = prev.theme_universe
     final_diff = _diff_fields(prev_dump, parsed.model_dump())
     _log_llm("✓ 수정 완료", f"변경 필드(원본 대비): {'; '.join(final_diff) or '없음'}")
 
@@ -1819,7 +1981,7 @@ def run_primary_modification(
         # 수정 턴의 명시 필드는 패치 적용 후 State(validated.strategy)에서 판정하고
         # 이전 턴 에코와 합집합한다 — 이전 턴에 말한 값이 이번 턴 침묵으로 지워지지 않게.
         "explicit_fields": _explicit_fields(validated.strategy, previous_explicit_fields),
-        "notices": list(report.warnings),
+        "notices": notices,
         "interpreter": {
             "mode": "primary_modify",
             "model_name": result.model_name,

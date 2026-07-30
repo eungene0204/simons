@@ -263,6 +263,10 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         sector=sector_value,
         target_symbols=target_symbols,
         etf_theme=etf_theme,
+        # 테마 출처는 지정 종목이 있을 때만 통과시킨다 — 이 필드는 "이 종목들이 어느
+        # 테마에서 왔는가"라는 출처 표기이므로 종목 없이 표기만 남으면 거짓이 된다.
+        # (표기를 종목 목록으로 바꾸는 것은 컴파일이 아니라 지식 조회 — primary의 테마 체인.)
+        theme_universe=strategy.universe.theme if target_symbols else None,
         new_listing_only=new_listing_only,
         listing_from=listing_from,
         listing_to=listing_to,

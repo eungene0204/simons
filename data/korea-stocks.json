@@ -220,7 +220,7 @@
     "symbol": "465770",
     "name": "STX그린로지스",
     "market": "KOSPI",
-    "sector": "운송/물류",
+    "sector": "해운",
     "industry": "해상 운송업"
   },
   {
@@ -493,7 +493,7 @@
     "symbol": "137310",
     "name": "에스디바이오센서",
     "market": "KOSPI",
-    "sector": "바이오/제약",
+    "sector": "의료기기",
     "industry": "의료용 기기 제조업"
   },
   {
@@ -1998,7 +1998,7 @@
     "symbol": "101140",
     "name": "인바이오젠",
     "market": "KOSPI",
-    "sector": "바이오/제약",
+    "sector": "IT 하드웨어",
     "industry": "기계장비 및 관련 물품 도매업"
   },
   {
@@ -2012,7 +2012,7 @@
     "symbol": "100840",
     "name": "SNT에너지",
     "market": "KOSPI",
-    "sector": "에너지/원자력",
+    "sector": "기계/장비",
     "industry": "일반 목적용 기계 제조업"
   },
   {
@@ -2082,7 +2082,7 @@
     "symbol": "028670",
     "name": "팬오션",
     "market": "KOSPI",
-    "sector": "운송/물류",
+    "sector": "해운",
     "industry": "해상 운송업"
   },
   {
@@ -2950,7 +2950,7 @@
     "symbol": "018670",
     "name": "SK가스",
     "market": "KOSPI",
-    "sector": "에너지/원자력",
+    "sector": "유통/상사",
     "industry": "기타 전문 도매업"
   },
   {
@@ -3279,7 +3279,7 @@
     "symbol": "011200",
     "name": "HMM",
     "market": "KOSPI",
-    "sector": "운송/물류",
+    "sector": "해운",
     "industry": "해상 운송업"
   },
   {
@@ -3328,7 +3328,7 @@
     "symbol": "025620",
     "name": "차AI헬스케어",
     "market": "KOSPI",
-    "sector": "소프트웨어",
+    "sector": "화학",
     "industry": "기타 화학제품 제조업"
   },
   {
@@ -3412,7 +3412,7 @@
     "symbol": "009190",
     "name": "대양금속",
     "market": "KOSPI",
-    "sector": "화학",
+    "sector": "철강/금속",
     "industry": "1차 철강 제조업"
   },
   {
@@ -3888,7 +3888,7 @@
     "symbol": "009320",
     "name": "아진전자부품",
     "market": "KOSPI",
-    "sector": "전자부품",
+    "sector": "자동차",
     "industry": "자동차 신품 부품 제조업"
   },
   {
@@ -4077,7 +4077,7 @@
     "symbol": "011150",
     "name": "CJ씨푸드",
     "market": "KOSPI",
-    "sector": "수산가공",
+    "sector": "식품",
     "industry": "기타 식품 제조업"
   },
   {
@@ -4336,7 +4336,7 @@
     "symbol": "006340",
     "name": "대원전선",
     "market": "KOSPI",
-    "sector": "에너지/원자력",
+    "sector": "IT 하드웨어",
     "industry": "절연선 및 케이블 제조업"
   },
   {
@@ -4371,7 +4371,7 @@
     "symbol": "011780",
     "name": "금호석유화학",
     "market": "KOSPI",
-    "sector": "에너지/원자력",
+    "sector": "화학",
     "industry": "기초 화학물질 제조업"
   },
   {
@@ -4602,7 +4602,7 @@
     "symbol": "002360",
     "name": "SH에너지화학",
     "market": "KOSPI",
-    "sector": "에너지/원자력",
+    "sector": "화학",
     "industry": "기초 화학물질 제조업"
   },
   {
@@ -4854,7 +4854,7 @@
     "symbol": "004090",
     "name": "한국석유공업",
     "market": "KOSPI",
-    "sector": "에너지/원자력",
+    "sector": "화학",
     "industry": "기타 비금속 광물제품 제조업"
   },
   {
@@ -5554,7 +5554,7 @@
     "symbol": "001210",
     "name": "금호전기",
     "market": "KOSPI",
-    "sector": "통신/유틸리티",
+    "sector": "가구/인테리어",
     "industry": "전구 및 조명장치 제조업"
   },
   {
@@ -5666,7 +5666,7 @@
     "symbol": "002790",
     "name": "아모레퍼시픽홀딩스",
     "market": "KOSPI",
-    "sector": "화학",
+    "sector": "지주회사",
     "industry": "기타 화학제품 제조업"
   },
   {
@@ -5757,7 +5757,7 @@
     "symbol": "003030",
     "name": "세아제강지주",
     "market": "KOSPI",
-    "sector": "철강/금속",
+    "sector": "지주회사",
     "industry": "기타 금융업"
   },
   {
@@ -6534,7 +6534,7 @@
     "symbol": "489460",
     "name": "바이오비쥬",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "화학",
     "industry": "기타 화학제품 제조업"
   },
   {
@@ -6548,7 +6548,7 @@
     "symbol": "188040",
     "name": "바이오포트",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "식품",
     "industry": "기타 식품 제조업"
   },
   {
@@ -7171,7 +7171,7 @@
     "symbol": "389650",
     "name": "넥스트바이오메디컬",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "의료기기",
     "industry": "의료용 기기 제조업"
   },
   {
@@ -7332,7 +7332,7 @@
     "symbol": "477760",
     "name": "디비금융스팩12호",
     "market": "KOSDAQ",
-    "sector": "지주회사",
+    "sector": "증권",
     "industry": "기타 금융업"
   },
   {
@@ -7479,7 +7479,7 @@
     "symbol": "420570",
     "name": "제이투케이바이오",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "화장품",
     "industry": "기타 화학제품 제조업"
   },
   {
@@ -7864,7 +7864,7 @@
     "symbol": "246250",
     "name": "에스엘에스바이오",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "기타 서비스",
     "industry": "그외 기타 전문, 과학 및 기술 서비스업"
   },
   {
@@ -7976,7 +7976,7 @@
     "symbol": "445680",
     "name": "큐리옥스바이오시스템즈",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "의료기기",
     "industry": "의료용 기기 제조업"
   },
   {
@@ -8046,7 +8046,7 @@
     "symbol": "378340",
     "name": "필에너지",
     "market": "KOSDAQ",
-    "sector": "에너지/원자력",
+    "sector": "기계/장비",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -8186,7 +8186,7 @@
     "symbol": "318160",
     "name": "셀바이오휴먼텍",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "패션",
     "industry": "기타 섬유제품 제조업"
   },
   {
@@ -8249,7 +8249,7 @@
     "symbol": "344860",
     "name": "이노진",
     "market": "KOSDAQ",
-    "sector": "화학",
+    "sector": "화장품",
     "industry": "기타 화학제품 제조업"
   },
   {
@@ -8305,7 +8305,7 @@
     "symbol": "254490",
     "name": "미래반도체",
     "market": "KOSDAQ",
-    "sector": "반도체",
+    "sector": "유통/상사",
     "industry": "기타 전문 도매업"
   },
   {
@@ -8676,7 +8676,7 @@
     "symbol": "389260",
     "name": "대명에너지",
     "market": "KOSDAQ",
-    "sector": "에너지/원자력",
+    "sector": "건설",
     "industry": "건물 건설업"
   },
   {
@@ -9012,7 +9012,7 @@
     "symbol": "377220",
     "name": "프롬바이오",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "식품",
     "industry": "기타 식품 제조업"
   },
   {
@@ -9215,7 +9215,7 @@
     "symbol": "059270",
     "name": "해성에어로보틱스",
     "market": "KOSDAQ",
-    "sector": "로봇",
+    "sector": "화학",
     "industry": "기타 금속 가공제품 제조업"
   },
   {
@@ -9250,7 +9250,7 @@
     "symbol": "314930",
     "name": "바이오다인",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "의료기기",
     "industry": "의료용 기기 제조업"
   },
   {
@@ -9418,7 +9418,7 @@
     "symbol": "335810",
     "name": "프리시젼바이오",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "의료기기",
     "industry": "의료용 기기 제조업"
   },
   {
@@ -9453,14 +9453,14 @@
     "symbol": "352940",
     "name": "인바이오",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "화학",
     "industry": "비료, 농약 및 살균, 살충제 제조업"
   },
   {
     "symbol": "354200",
     "name": "엔젠바이오",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "기타 서비스",
     "industry": "그외 기타 전문, 과학 및 기술 서비스업"
   },
   {
@@ -9656,7 +9656,7 @@
     "symbol": "347740",
     "name": "피엔케이피부임상연구센타",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "기타 서비스",
     "industry": "그외 기타 전문, 과학 및 기술 서비스업"
   },
   {
@@ -9831,7 +9831,7 @@
     "symbol": "353810",
     "name": "이지바이오",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "사료",
     "industry": "동물용 사료 및 조제식품 제조업"
   },
   {
@@ -10062,7 +10062,7 @@
     "symbol": "084850",
     "name": "아이티엠반도체",
     "market": "KOSDAQ",
-    "sector": "반도체",
+    "sector": "전자부품",
     "industry": "전자부품 제조업"
   },
   {
@@ -10118,7 +10118,7 @@
     "symbol": "317870",
     "name": "엔바이오니아",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "기타 제조업",
     "industry": "그외 기타 제품 제조업"
   },
   {
@@ -10223,7 +10223,7 @@
     "symbol": "317830",
     "name": "에스피시스템스",
     "market": "KOSDAQ",
-    "sector": "기계/장비",
+    "sector": "로봇",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -10559,7 +10559,7 @@
     "symbol": "110020",
     "name": "전진바이오팜",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "화학",
     "industry": "기타 화학제품 제조업"
   },
   {
@@ -10755,7 +10755,7 @@
     "symbol": "110790",
     "name": "크리스에프앤씨",
     "market": "KOSDAQ",
-    "sector": "증권",
+    "sector": "패션",
     "industry": "봉제의복 제조업"
   },
   {
@@ -11427,7 +11427,7 @@
     "symbol": "217480",
     "name": "에스디생명공학",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "화장품",
     "industry": "기타 화학제품 제조업"
   },
   {
@@ -11511,7 +11511,7 @@
     "symbol": "203450",
     "name": "유니온바이오메트릭스",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "IT 하드웨어",
     "industry": "통신 및 방송 장비 제조업"
   },
   {
@@ -11924,7 +11924,7 @@
     "symbol": "047920",
     "name": "HLB제약",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "기타 서비스",
     "industry": "자연과학 및 공학 연구개발업"
   },
   {
@@ -12078,14 +12078,14 @@
     "symbol": "225430",
     "name": "케이엠제약",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "화학",
     "industry": "기타 화학제품 제조업"
   },
   {
     "symbol": "225590",
     "name": "패션플랫폼",
     "market": "KOSDAQ",
-    "sector": "소프트웨어",
+    "sector": "패션",
     "industry": "봉제의복 제조업"
   },
   {
@@ -12337,7 +12337,7 @@
     "symbol": "215200",
     "name": "메가스터디교육",
     "market": "KOSDAQ",
-    "sector": "에너지/원자력",
+    "sector": "교육",
     "industry": "일반 교습 학원"
   },
   {
@@ -12365,7 +12365,7 @@
     "symbol": "195990",
     "name": "에이비프로바이오",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "기계/장비",
     "industry": "특수 목적용 기계 제조업"
   },
   {
@@ -13870,7 +13870,7 @@
     "symbol": "114190",
     "name": "강원에너지",
     "market": "KOSDAQ",
-    "sector": "에너지/원자력",
+    "sector": "IT 하드웨어",
     "industry": "기타 전기장비 제조업"
   },
   {
@@ -14199,7 +14199,7 @@
     "symbol": "101670",
     "name": "하이드로리튬",
     "market": "KOSDAQ",
-    "sector": "이차전지",
+    "sector": "화학",
     "industry": "구조용 금속제품, 탱크 및 증기발생기 제조업"
   },
   {
@@ -15067,7 +15067,7 @@
     "symbol": "038070",
     "name": "서린바이오",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "유통/상사",
     "industry": "기타 전문 도매업"
   },
   {
@@ -15130,7 +15130,7 @@
     "symbol": "082850",
     "name": "우리바이오",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "식품",
     "industry": "기타 식품 제조업"
   },
   {
@@ -15263,7 +15263,7 @@
     "symbol": "072870",
     "name": "메가스터디",
     "market": "KOSDAQ",
-    "sector": "에너지/원자력",
+    "sector": "미디어/엔터",
     "industry": "서적, 잡지 및 기타 인쇄물 출판업"
   },
   {
@@ -15284,7 +15284,7 @@
     "symbol": "078600",
     "name": "대주전자재료",
     "market": "KOSDAQ",
-    "sector": "반도체 소재",
+    "sector": "전자부품",
     "industry": "전자부품 제조업"
   },
   {
@@ -15466,7 +15466,7 @@
     "symbol": "073570",
     "name": "리튬포어스",
     "market": "KOSDAQ",
-    "sector": "이차전지",
+    "sector": "기타 제조업",
     "industry": "그외 기타 제품 제조업"
   },
   {
@@ -15865,14 +15865,14 @@
     "symbol": "039980",
     "name": "폴라리스AI",
     "market": "KOSDAQ",
-    "sector": "소프트웨어",
+    "sector": "IT 하드웨어",
     "industry": "컴퓨터 프로그래밍, 시스템 통합 및 관리업"
   },
   {
     "symbol": "048410",
     "name": "현대바이오",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "화학",
     "industry": "기타 화학제품 제조업"
   },
   {
@@ -16698,7 +16698,7 @@
     "symbol": "052260",
     "name": "현대바이오랜드",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "화학",
     "industry": "기타 화학제품 제조업"
   },
   {
@@ -16999,7 +16999,7 @@
     "symbol": "043100",
     "name": "알파AI",
     "market": "KOSDAQ",
-    "sector": "소프트웨어",
+    "sector": "의료기기",
     "industry": "의료용 기기 제조업"
   },
   {
@@ -17139,7 +17139,7 @@
     "symbol": "038530",
     "name": "케이바이오랩스",
     "market": "KOSDAQ",
-    "sector": "바이오/제약",
+    "sector": "유통/상사",
     "industry": "생활용품 도매업"
   },
   {
@@ -18175,7 +18175,7 @@
     "symbol": "024060",
     "name": "흥구석유",
     "market": "KOSDAQ",
-    "sector": "에너지/원자력",
+    "sector": "유통/상사",
     "industry": "기타 전문 도매업"
   },
   {
