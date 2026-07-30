@@ -89,7 +89,9 @@ def build_strategy_summary(intent: StrategyIntent, warnings: Optional[List[str]]
         for label, value in (("손절", risk.stop_loss), ("익절", risk.take_profit),
                              ("트레일링 스탑", risk.trailing_stop)):
             if value is not None:
-                parts.append(f"- {label}: {value:g}%")
+                # 손절·트레일링은 하락 방향이라 부호를 붙여 표기한다(FR-STR-030b).
+                sign = "-" if label != "익절" and value > 0 else ""
+                parts.append(f"- {label}: {sign}{value:g}%")
     if warnings:
         parts.append("")
         parts.extend(f"⚠ {w}" for w in warnings)

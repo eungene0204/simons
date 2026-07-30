@@ -197,3 +197,27 @@ describe("백테스트 기간 표시 — 명시 날짜 우선 (FR-STR-073)", () 
     expect(slot?.complete).toBe(true);
   });
 });
+
+describe("손절 표시 — 항상 마이너스 부호 (2026-07-30)", () => {
+  it("리스크 관리 요약은 손절을 '-8%'로, 익절은 부호 없이 표시한다", () => {
+    // [회귀] 요약 카드가 '손절 8%'로만 표시해 방향을 알 수 없었다 — 매도 조건 라벨
+    // ('손절 -8% 하락시 매도')과도 어긋났다.
+    const presentation = buildBuilderTurnPresentation({
+      state: { stop_loss_pct: 8, take_profit_pct: 30 },
+      reply: "",
+      parsed: null,
+    });
+    const risk = presentation.summaryItems.find((item) => item.label === "리스크 관리");
+    expect(risk?.value).toBe("손절 -8% · 익절 30%");
+  });
+
+  it("트레일링 스탑도 하락 방향이라 '-10%'로 표시한다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: { stop_loss_pct: 8, take_profit_pct: 30, trailing_stop_pct: 10 },
+      reply: "",
+      parsed: null,
+    });
+    const risk = presentation.summaryItems.find((item) => item.label === "리스크 관리");
+    expect(risk?.value).toBe("손절 -8% · 익절 30% · 트레일링 스탑 -10%");
+  });
+});

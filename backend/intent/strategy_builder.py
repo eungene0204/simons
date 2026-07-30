@@ -1042,7 +1042,7 @@ def _parse_removal(state: BuilderState, text: str) -> tuple[dict, list[str]]:
     # 청산 개별 조건 → 전부("청산 조건 빼줘")는 개별 매치가 없을 때만
     if _STOP_LOSS_KW.search(t) and state.stop_loss_pct is not None:
         patch["stop_loss_pct"] = None
-        labels.append(f"손절 {_fmt_pct(state.stop_loss_pct)}%")
+        labels.append(f"손절 -{_fmt_pct(state.stop_loss_pct)}%")
     if _TAKE_PROFIT_KW.search(t) and state.take_profit_pct is not None:
         patch["take_profit_pct"] = None
         labels.append(f"익절 {_fmt_pct(state.take_profit_pct)}%")
@@ -1601,13 +1601,13 @@ def next_question(
         msg = (
             prefix + "마지막으로 청산 조건을 정해 주세요. 손절·익절·트레일링 스탑·보유기간 중 "
             "하나 이상을 자유롭게 말씀해 주세요.\n"
-            "(예: '10% 손절', '20% 익절', '최고가 대비 10% 하락 시 청산', '20일 보유 후 청산')"
+            "(예: '-10% 손절', '20% 익절', '최고가 대비 10% 하락 시 청산', '20일 보유 후 청산')"
         )
         # "직접 입력"은 빌더 답변이 아니라 프론트에서 채팅창을 다시 띄우는 토글 칩이다
         # (청산 조건은 자유 서술을 인라인으로 받으므로 별도 질문 없이 사용자가 직접 타이핑).
         return (
             msg,
-            ["10% 손절", "10% 손절·20% 익절", "최고가 대비 10% 하락 시 청산", "직접 입력"],
+            ["-10% 손절", "-10% 손절·20% 익절", "최고가 대비 10% 하락 시 청산", "직접 입력"],
         )
     # 필드가 다 찼으면 step()이 confirmed로 보내므로 여기 도달하지 않는다.
     return ("", [])
@@ -1646,7 +1646,7 @@ def _risk_phrases(state: BuilderState) -> list[str]:
     """설정된 청산 조건을 짧은 한국어 구로. 없으면 빈 리스트."""
     parts: list[str] = []
     if state.stop_loss_pct is not None:
-        parts.append(f"{_fmt_pct(state.stop_loss_pct)}% 손절")
+        parts.append(f"-{_fmt_pct(state.stop_loss_pct)}% 손절")
     if state.take_profit_pct is not None:
         parts.append(f"{_fmt_pct(state.take_profit_pct)}% 익절")
     if state.trailing_stop_pct is not None:

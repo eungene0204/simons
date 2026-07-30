@@ -59,6 +59,18 @@ def test_exact_chip_click_applies_without_llm():
     assert len(result["parsed"].entry_signals) == 1
 
 
+def test_signed_risk_chip_binds_to_magnitude():
+    """손절·트레일링 칩은 마이너스로 표기하지만(FR-STR-030b) 적용 값은 크기다."""
+    prev = _etf_strategy()
+    result = run_chip_answer("손절 -8%", prev, _pending_ask(["손절 -8%"]))
+    assert result is not None and result["parsed"].stop_loss_pct == 8.0
+
+    result = run_chip_answer(
+        "트레일링 스탑 -10%", prev, _pending_ask(["트레일링 스탑 -10%"]),
+    )
+    assert result is not None and result["parsed"].trailing_stop_pct == 10.0
+
+
 def test_chip_click_with_whitespace_still_matches():
     prev = _etf_strategy()
     result = run_chip_answer("  손절 8%  ", prev, _pending_ask(["손절 8%"]))

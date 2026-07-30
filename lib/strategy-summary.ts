@@ -342,6 +342,15 @@ function formatPercent(value: number | null | undefined): string | null {
   return Number.isInteger(value) ? value.toFixed(0) : value.toString();
 }
 
+/** 하락 방향 비율(손절·트레일링 스탑)은 항상 마이너스 부호를 붙여 표기한다 — 부호 없는
+ *  "손절 8%"는 방향이 드러나지 않아 익절과 구분되지 않는다(2026-07-30 지적). 값은 크기로
+ *  저장되므로 표기 시점에 부호를 붙이고, 이미 음수로 들어온 값에는 중복해서 붙이지 않는다. */
+export function formatDownsidePercent(value: number | null | undefined): string | null {
+  const pct = formatPercent(value);
+  if (pct === null) return null;
+  return pct.startsWith("-") ? pct : `-${pct}`;
+}
+
 // 신규 상장 유니버스 배지(FR-STR-073). 상장 구간이 한 해 전체면 "2026년 상장",
 // 아직 시기를 되묻는 중이면 개념만 "신규 상장". 제한이 없으면 null(배지 없음).
 export function formatNewListingLabel(parsed: {
@@ -448,17 +457,17 @@ export function getDisplayExitLabels(parsed: ParsedSummary): string[] {
   }
 
   const takeProfitPct = formatPercent(parsed.take_profit_pct);
-  const stopLossPct = formatPercent(parsed.stop_loss_pct);
-  const trailingStopPct = formatPercent(parsed.trailing_stop_pct);
+  const stopLossPct = formatDownsidePercent(parsed.stop_loss_pct);
+  const trailingStopPct = formatDownsidePercent(parsed.trailing_stop_pct);
 
   if (stopLossPct) {
-    labels.push(`손절 -${stopLossPct}% 하락시 매도`);
+    labels.push(`손절 ${stopLossPct}% 하락시 매도`);
   }
   if (takeProfitPct) {
     labels.push(`익절 ${takeProfitPct}% 이상 수익시 매도`);
   }
   if (trailingStopPct) {
-    labels.push(`트레일링 스탑 -${trailingStopPct}% 하락시 매도`);
+    labels.push(`트레일링 스탑 ${trailingStopPct}% 하락시 매도`);
   }
   if (parsed.hold_period_days) {
     labels.push(`최대 ${parsed.hold_period_days}일 보유 후 매도`);
@@ -474,9 +483,9 @@ export function buildStrategySummary(
   if (!parsed) return undefined;
 
   const exitLabels = getDisplayExitLabels(parsed);
-  const stopLossPct = formatPercent(parsed.stop_loss_pct);
+  const stopLossPct = formatDownsidePercent(parsed.stop_loss_pct);
   const takeProfitPct = formatPercent(parsed.take_profit_pct);
-  const trailingStopPct = formatPercent(parsed.trailing_stop_pct);
+  const trailingStopPct = formatDownsidePercent(parsed.trailing_stop_pct);
 
   // 재무 필터(PBR 등)도 매수 기준이므로 진입 신호 배지에 포함한다.
   // 기술적 진입 신호만 넣으면, 재무 필터 단독 전략에서 entryBlocks가 비어
@@ -583,9 +592,9 @@ export function buildStrategySummaryFromRequest(
     initial_capital: 0,
   });
 
-  const stopLossPct = formatPercent(stopLoss);
+  const stopLossPct = formatDownsidePercent(stopLoss);
   const takeProfitPct = formatPercent(takeProfit);
-  const trailingStopPct = formatPercent(trailingStop);
+  const trailingStopPct = formatDownsidePercent(trailingStop);
 
   // 지정 종목(단일 종목) 백테스트: 유니버스 라벨 대신 종목명 배지("삼성전자 (005930)").
   const targetStockLabels = (req.target_stocks ?? []).map((s) =>
@@ -821,9 +830,9 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
   const maxHoldingDays = strategy.risk?.max_holding_days ?? legacyStrategy.hold_period_days;
   const maxPositions = strategy.risk?.max_positions ?? legacyStrategy.max_positions;
   const rebalancingPeriod = strategy.risk?.rebalancing_period ?? legacyStrategy.rebalancing_period;
-  const stopLossPct = formatPercent(stopLossValue);
+  const stopLossPct = formatDownsidePercent(stopLossValue);
   const takeProfitPct = formatPercent(takeProfitValue);
-  const trailingStopPct = formatPercent(trailingStopValue);
+  const trailingStopPct = formatDownsidePercent(trailingStopValue);
   const conditionEntryBlocks =
     strategy.entry?.conditions?.map(conditionToEntryLabel).filter((label): label is string => Boolean(label)) ?? [];
   const legacyFundamentalBlocks =

@@ -42,6 +42,7 @@ import {
   FUNDAMENTAL_FILTER_SECTION_LABEL,
   formatFundamentalFilter,
   formatInitialCapital,
+  formatDownsidePercent,
   getDisplayExitLabels,
   getDisplayUniverseLabels,
   getPositionLabel,
@@ -1141,9 +1142,9 @@ function ParsedSummaryBubble({
           <div className="flex flex-wrap gap-1.5 items-center">
             <span className="w-14 flex-shrink-0 text-[11px] font-bold text-[var(--text-label)]">리스크</span>
             <div className="flex flex-wrap gap-1">
-              {parsed.stop_loss_pct && <FilterBadge label={`손절 ${parsed.stop_loss_pct}%`} />}
+              {parsed.stop_loss_pct && <FilterBadge label={`손절 ${formatDownsidePercent(parsed.stop_loss_pct)}%`} />}
               {parsed.take_profit_pct && <FilterBadge label={`익절 ${parsed.take_profit_pct}%`} />}
-              {parsed.trailing_stop_pct && <FilterBadge label={`트레일링 스탑 ${parsed.trailing_stop_pct}%`} />}
+              {parsed.trailing_stop_pct && <FilterBadge label={`트레일링 스탑 ${formatDownsidePercent(parsed.trailing_stop_pct)}%`} />}
             </div>
           </div>
         )}

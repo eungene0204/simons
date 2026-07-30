@@ -29,7 +29,7 @@ def test_remove_stop_loss_keeps_take_profit():
     assert res.state.stop_loss_pct is None
     assert res.state.take_profit_pct == 20.0
     assert res.state.risk_done is True  # 익절이 남아 청산 단계는 유지
-    assert "손절 10%" in res.reply and "제거" in res.reply
+    assert "손절 -10%" in res.reply and "제거" in res.reply  # 손절은 항상 마이너스 표기
     assert "종목" in res.reply  # 기존 진행 위치(보유 종목 수 질문)로 복귀
 
 

@@ -1,6 +1,7 @@
 import {
   formatFundamentalFilter,
   formatInitialCapital,
+  formatDownsidePercent,
   getDisplayExitLabels,
   getDisplayUniverseLabels,
   getPositionLabel,
@@ -153,9 +154,9 @@ function buildRiskLabel(state: Record<string, any>, parsed?: ParsedSummary | nul
   const takeProfit = state.take_profit_pct ?? parsed?.take_profit_pct;
   const trailingStop = state.trailing_stop_pct ?? parsed?.trailing_stop_pct;
   const holdPeriod = state.hold_period_days ?? parsed?.hold_period_days;
-  if (hasValue(stopLoss)) labels.push(`손절 ${stopLoss}%`);
+  if (hasValue(stopLoss)) labels.push(`손절 ${formatDownsidePercent(stopLoss)}%`);
   if (hasValue(takeProfit)) labels.push(`익절 ${takeProfit}%`);
-  if (hasValue(trailingStop)) labels.push(`트레일링 스탑 ${trailingStop}%`);
+  if (hasValue(trailingStop)) labels.push(`트레일링 스탑 ${formatDownsidePercent(trailingStop)}%`);
   if (hasValue(holdPeriod)) labels.push(`${holdPeriod}일 보유`);
   return labels.length > 0 ? labels.join(" · ") : null;
 }

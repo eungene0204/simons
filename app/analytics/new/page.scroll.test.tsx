@@ -533,10 +533,10 @@ describe("StrategyLabPage scroll behavior", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "매월 리밸런싱" }));
     expect(
-      await screen.findByRole("button", { name: "손절 10%" }),
+      await screen.findByRole("button", { name: "손절 -10%" }),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "손절 10%" }));
+    fireEvent.click(screen.getByRole("button", { name: "손절 -10%" }));
     expect(
       await screen.findByRole("button", { name: "익절 20%" }),
     ).toBeInTheDocument();
@@ -1971,7 +1971,7 @@ describe("deterministic condition selection", () => {
     choose("exit", "RSI 70 이상에서 매도");
     choose("max_positions", "최대 20종목");
     const rebalancing = choose("rebalancing", "안 함");
-    choose("stop_loss", "손절 15%");
+    choose("stop_loss", "손절 -15%");   // 부호는 표기 — 적용 값은 크기(15)
     choose("take_profit", "익절 30%");
     choose("backtest_period", "사용 가능한 전체 데이터");
     choose("initial_capital", "5,000만원");

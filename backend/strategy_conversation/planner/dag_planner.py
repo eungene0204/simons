@@ -104,7 +104,7 @@ def _system_prompt() -> str:
         "- tool: 러너가 실행할 도구 호출. 결과는 observation으로 돌아옵니다.\n"
         "- ask: 사용자에게 물을 질문 하나. 한 노드에 여러 질문 금지. chips는 클릭 시 "
         "그대로 메시지로 재전송되므로 칩 텍스트만으로 의미가 완전해야 합니다"
-        "(예: \"모멘텀 3개월\", \"손절 5%\" — \"3개월\", \"5%\" 단독 금지).\n"
+        "(예: \"모멘텀 3개월\", \"손절 -5%\" — \"3개월\", \"5%\" 단독 금지).\n"
         "- finish: 전략 정의 완성 선언 — 반드시 validate_intent에 의존하는 "
         "compile_strategy tool 노드에 의존해야 합니다.\n\n"
         f"## 도구 화이트리스트\n{tool_lines}\n"
@@ -199,7 +199,7 @@ def _system_prompt() -> str:
         '"chips": ["매월 리밸런싱", "분기마다 리밸런싱"], "depends_on": ["ask_positions"]},\n'
         '  {"id": "ask_risk", "type": "ask", "topic": "리스크관리", '
         '"question": "손절·익절 기준을 정할까요?", '
-        '"chips": ["손절 8%", "익절 20%", "손절 8% 익절 20%"], '
+        '"chips": ["손절 -8%", "익절 20%", "손절 -8% 익절 20%"], '
         '"depends_on": ["ask_rebalance"]},\n'
         '  {"id": "validate", "type": "tool", "tool": "validate_intent", "args": {}, '
         '"depends_on": ["ask_risk"]},\n'

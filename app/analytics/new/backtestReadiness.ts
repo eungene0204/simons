@@ -204,7 +204,7 @@ const SLOT_PROMPTS: Record<
   },
   stop_loss: {
     question: "손절 기준이 빠져 있습니다. 손절 기준을 몇 %로 설정할까요?",
-    suggestions: ["손절 5%", "손절 10%", "손절 15%"],
+    suggestions: ["손절 -5%", "손절 -10%", "손절 -15%"],
   },
   take_profit: {
     question: "익절 기준이 빠져 있습니다. 익절 기준을 몇 %로 설정할까요?",

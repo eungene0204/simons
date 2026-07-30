@@ -370,7 +370,7 @@ describe("decideConversationTurn", () => {
     ["유니버스를 바꾸고 싶어", "missing_universe_definition", "유니버스를 KOSPI200으로 변경"],
     ["청산 신호를 변경해줘", "missing_exit_signal_definition", "청산 신호를 RSI 70 이상으로 변경"],
     ["포트폴리오를 수정하고 싶어", "missing_portfolio_definition", "최대 5종목으로 변경"],
-    ["리스크 옵션을 보여줘", "missing_risk_definition", "손절을 10%로 변경"],
+    ["리스크 옵션을 보여줘", "missing_risk_definition", "손절을 -10%로 변경"],
     ["리스트를 바꾸고 싶어", "missing_risk_definition", "MDD 20% 한도로 변경"],
   ])("clarifies an underspecified strategy section: %s", (prompt, reason, suggestion) => {
     const decision = decideConversationTurn(prompt, {

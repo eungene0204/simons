@@ -2408,7 +2408,8 @@ def test_incomplete_backtest_conditions_momentum_entry_recognized():
     )
     q, chips = detect_incomplete_backtest_conditions(momentum, "")
     assert q is not None and "손절" in q and "익절" not in q
-    assert chips == ["손절 10%", "손절 5%"]  # 진입·청산·리밸런싱은 충족, 남은 것 중 손절이 먼저
+    # 손절 칩은 마이너스 표기(FR-STR-030b) — 진입·청산·리밸런싱은 충족, 남은 것 중 손절이 먼저
+    assert chips == ["손절 -10%", "손절 -5%"]
 
 
 def test_missing_entry_clarification_asks_numbers_for_qualitative_metrics():
@@ -3382,14 +3383,15 @@ STRATEGY_UI_SETTING_SUGGESTIONS = [
     ("최대 5종목으로 변경", "max_positions", 5),
     ("분기 리밸런싱으로 변경", "rebalancing_period", "quarterly"),
     ("초기자금 1000만원으로 변경", "initial_capital", 10_000_000.0),
-    ("손절을 10%로 변경", "stop_loss_pct", 10.0),
+    # 손절·트레일링 칩은 마이너스 표기지만 적용 값은 크기다(FR-STR-030b).
+    ("손절을 -10%로 변경", "stop_loss_pct", 10.0),
     ("익절을 20%로 변경", "take_profit_pct", 20.0),
-    ("트레일링 스탑을 10%로 변경", "trailing_stop_pct", 10.0),
+    ("트레일링 스탑을 -10%로 변경", "trailing_stop_pct", 10.0),
     ("MDD 20% 한도로 변경", "max_mdd_limit_pct", 20.0),
     # 필드 언급+값 없음 되묻기("손절 바꿔줘")의 값 칩(FR-STR-019f ⑥ 필드 층).
-    ("손절을 5%로 변경", "stop_loss_pct", 5.0),
-    ("손절을 15%로 변경", "stop_loss_pct", 15.0),
-    ("트레일링 스탑을 5%로 변경", "trailing_stop_pct", 5.0),
+    ("손절을 -5%로 변경", "stop_loss_pct", 5.0),
+    ("손절을 -15%로 변경", "stop_loss_pct", 15.0),
+    ("트레일링 스탑을 -5%로 변경", "trailing_stop_pct", 5.0),
     ("MDD 30% 한도로 변경", "max_mdd_limit_pct", 30.0),
     ("최대 10종목으로 변경", "max_positions", 10),
     ("최대 20종목으로 변경", "max_positions", 20),

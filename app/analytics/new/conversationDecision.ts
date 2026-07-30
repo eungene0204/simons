@@ -325,7 +325,7 @@ const MODIFICATION_CLARIFICATIONS: Array<ModificationClarification & {
     explicitPattern: /\d/,
     reason: "missing_stop_loss_value",
     message: "손절 기준을 몇 %로 변경할까요? 아래에서 선택하거나 원하는 값을 직접 입력해 주세요.",
-    suggestions: ["손절을 5%로 변경", "손절을 10%로 변경", "손절을 15%로 변경", "직접 입력"],
+    suggestions: ["손절을 -5%로 변경", "손절을 -10%로 변경", "손절을 -15%로 변경", "직접 입력"],
   },
   {
     area: "risk",
@@ -334,7 +334,7 @@ const MODIFICATION_CLARIFICATIONS: Array<ModificationClarification & {
     explicitPattern: /\d/,
     reason: "missing_trailing_stop_value",
     message: "트레일링 스탑 기준을 몇 %로 변경할까요? 아래에서 선택하거나 원하는 값을 직접 입력해 주세요.",
-    suggestions: ["트레일링 스탑을 5%로 변경", "트레일링 스탑을 10%로 변경", "직접 입력"],
+    suggestions: ["트레일링 스탑을 -5%로 변경", "트레일링 스탑을 -10%로 변경", "직접 입력"],
   },
   {
     area: "risk",
@@ -453,7 +453,7 @@ const MODIFICATION_CLARIFICATIONS: Array<ModificationClarification & {
     explicitPattern: EXPLICIT_RISK_PATTERN,
     reason: "missing_risk_definition",
     message: "어떤 리스크 설정을 변경할까요? 아래 옵션을 선택하거나 원하는 기준을 직접 입력해 주세요.",
-    suggestions: ["손절을 10%로 변경", "익절을 20%로 변경", "트레일링 스탑을 10%로 변경", "MDD 20% 한도로 변경", "직접 입력"],
+    suggestions: ["손절을 -10%로 변경", "익절을 20%로 변경", "트레일링 스탑을 -10%로 변경", "MDD 20% 한도로 변경", "직접 입력"],
   },
   // 영역 미지정 조건 변경("조건을 변경할 수 있어?") — 어느 영역 topicPattern에도 안 걸려
   // 수정 파싱으로 흘러가면 LLM diff가 전부 null이라 무변경 전략만 조용히 재렌더링된다.

@@ -888,7 +888,7 @@ def test_risk_step_offered_after_rebalance():
     """리밸런싱을 채우면 청산 조건 질문이 칩과 함께 제시된다(청산 조건은 필수)."""
     msg, suggestions = sb.next_question(_ready_for_risk())
     assert "청산 조건" in msg
-    assert "10% 손절" in suggestions
+    assert "-10% 손절" in suggestions
     # 청산 조건은 필수이므로 '청산 조건 없음' 칩은 제공하지 않는다.
     assert "청산 조건 없음" not in suggestions
 
@@ -952,7 +952,7 @@ def test_glossary_question_mid_builder_answers_and_reasks(question, term):
     assert r.state == state  # 상태 불변
     assert term in r.reply.split("\n\n")[0]  # 앞부분이 정의문
     assert "청산 조건" in r.reply  # 뒤에 현재 질문이 이어짐
-    assert "10% 손절" in r.suggestions
+    assert "-10% 손절" in r.suggestions
 
 
 def test_glossary_does_not_intercept_normal_answers():
@@ -972,7 +972,7 @@ def test_risk_step_refusal_explains_why_required(answer):
     assert r.status == "collecting"
     assert r.state.risk_done is False
     assert r.reply == sb.RISK_REQUIRED_REPLY
-    assert "10% 손절" in r.suggestions
+    assert "-10% 손절" in r.suggestions
 
 
 def test_risk_step_llm_recovers_value_regex_missed():

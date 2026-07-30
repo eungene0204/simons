@@ -262,7 +262,27 @@ describe("strategySummary", () => {
       "손절 -7% 하락시 매도",
       "익절 10% 이상 수익시 매도",
     ]);
-    expect(summary?.riskText).toBe("손절 7%, 익절 10%");
+    expect(summary?.riskText).toBe("손절 -7%, 익절 10%");
+  });
+
+  it("손절 값이 이미 음수로 들어와도 부호를 중복해서 붙이지 않는다", () => {
+    const summary = buildStrategySummary({
+      ...baseParsed,
+      stop_loss_pct: -7,
+    });
+
+    expect(summary?.exitBlocks).toContain("손절 -7% 하락시 매도");
+    expect(summary?.riskText).toBe("손절 -7%");
+  });
+
+  it("트레일링 스탑도 하락 방향이라 riskText에 마이너스로 표기한다", () => {
+    const summary = buildStrategySummary({
+      ...baseParsed,
+      trailing_stop_pct: 10,
+    });
+
+    expect(summary?.exitBlocks).toContain("트레일링 스탑 -10% 하락시 매도");
+    expect(summary?.riskText).toBe("트레일링 스탑 -10%");
   });
 
   it("재무 필터 단독 전략도 진입 신호(entryBlocks)에 필터를 포함한다 (청산 배지 누출 방지)", () => {
@@ -342,7 +362,7 @@ describe("strategySummary", () => {
       "최대 182일 보유 후 매도",
     ]);
     expect(summary?.positionText).toBe("포지션/비중 최대 8종목 · 182일 보유");
-    expect(summary?.riskText).toBe("손절 12%, 익절 10%");
+    expect(summary?.riskText).toBe("손절 -12%, 익절 10%");
   });
 
   it("legacy 전략은 description에서 유니버스를 추론한다", () => {
@@ -413,7 +433,7 @@ describe("strategySummary", () => {
     expect(summary?.exitBlocks).toContain("최대 182일 보유 후 매도");
     expect(summary?.exitBlocks).toContain("손절 -12% 하락시 매도");
     expect(summary?.positionText).toBe("포지션/비중 최대 8종목 · 182일 보유");
-    expect(summary?.riskText).toBe("손절 12%");
+    expect(summary?.riskText).toBe("손절 -12%");
   });
 
   it("심볼 CSV는 운용 전략 유니버스 배지로 표시하지 않는다", () => {
@@ -422,7 +442,7 @@ describe("strategySummary", () => {
       entryBlocks: ["PBR <= 1"],
       exitBlocks: ["손절 -12% 하락시 매도"],
       positionText: "최대 8종목 · 126일 보유",
-      riskText: "손절 12%",
+      riskText: "손절 -12%",
     });
 
     expect(chips).not.toContain("유니버스 000020,000040,000050");
@@ -430,7 +450,7 @@ describe("strategySummary", () => {
       "PBR <= 1",
       "손절 -12% 하락시 매도",
       "최대 8종목 · 126일 보유",
-      "리스크 관리 손절 12%",
+      "리스크 관리 손절 -12%",
     ]);
   });
 
@@ -440,7 +460,7 @@ describe("strategySummary", () => {
       entryBlocks: ["126일 수익률 상위"],
       exitBlocks: ["손절 -10% 하락시 매도", "익절 20% 이상 수익시 매도"],
       positionText: "최대 5종목",
-      riskText: "손절 10%, 익절 20%",
+      riskText: "손절 -10%, 익절 20%",
     });
 
     expect(groups).toEqual([
@@ -448,7 +468,7 @@ describe("strategySummary", () => {
       { label: "진입신호", chips: ["126일 수익률 상위"] },
       { label: "청산신호", chips: ["손절 -10% 하락시 매도", "익절 20% 이상 수익시 매도"] },
       { label: "리스트", chips: ["최대 5종목"] },
-      { label: "리스크 관리", chips: ["손절 10%, 익절 20%"] },
+      { label: "리스크 관리", chips: ["손절 -10%, 익절 20%"] },
     ]);
   });
 
@@ -522,7 +542,7 @@ describe("buildStrategySummaryFromRequest (실행된 요청 기반 배지)", () 
     ]);
     expect(summary?.positionText).toBe("최대 5종목");
     expect(summary?.rebalancingText).toBe("매월 리밸런싱");
-    expect(summary?.riskText).toBe("손절 10%, 익절 20%");
+    expect(summary?.riskText).toBe("손절 -10%, 익절 20%");
   });
 
   it("랭킹·진입 조건이 모두 없는 요청은 진입 배지를 비워 0거래와 일관되게 표시한다", () => {
