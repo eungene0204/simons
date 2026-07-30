@@ -199,6 +199,24 @@ def test_original_value_survives_a_not_applicable_universe():
     assert parsed.fundamental_filters[0].value == 10.0
 
 
+def test_dict_parsed_yields_the_same_states_as_the_model():
+    """[2026-07-31 회귀] 응답 payload의 parsed는 dict다 — 그대로 넘겨도 같은 결과여야 한다.
+
+    호출부(main._ensure_field_states)는 result["parsed"](model_dump 결과)를 넘긴다.
+    dict를 정규화하지 않으면 되짚기가 AttributeError로 죽는 데서 끝나지 않고 값 축까지
+    전부 UNKNOWN이 되어, 인터프리터 레인 밖의 모든 턴이 빈 상태 표시를 받았다.
+    """
+    from strategy_conversation.primary import derive_field_states
+
+    parsed = _value_strategy(["ETF"])
+    assert derive_field_states(parsed.model_dump(), ["universe"]) == derive_field_states(
+        parsed, ["universe"]
+    )
+    assert derive_field_states(parsed.model_dump(), ["universe"])["매수 조건"] == {
+        "value": "CONFIRMED", "derived": "NOT_APPLICABLE",
+    }
+
+
 def test_derived_state_never_carries_over_from_a_previous_turn():
     """파이프라인 불변조건 — 응답 조립은 항상 이번 턴의 State로 파생 상태를 계산한다.
 

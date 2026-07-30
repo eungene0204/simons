@@ -56,6 +56,16 @@ def _decompile_technical(sig: TechnicalSignal) -> StrategyCondition:
     elif sig.indicator == "trading_value":
         operator = sig.operator
         value = sig.value
+    elif sig.indicator == "bollinger_bands":
+        # 볼린저는 방향을 operator가 아니라 signal_type으로 표현한다(엔진: buy=하단 터치,
+        # sell=상단 터치, signals.py). 그대로 operator=None으로 되짚으면 진입/청산이 둘 다
+        # "값 없는 같은 팩터"가 되어 StrategySpec의 미러 청산 가드가 청산을 삼키고,
+        # 라운드트립 불일치로 **모든 수정 요청**이 인터프리터에 닿기도 전에 폴백한다
+        # (2026-07-31 사고: 볼린저 상/하단 전략에서 "코스닥으로 유니버스 변경"이 해석 실패).
+        # 그 가드의 예외 조항이 요구하는 방향 표기를 여기서 결정론적으로 복원한다.
+        operator = "crosses_below" if sig.signal_type == "buy" else "crosses_above"
+        if sig.period is not None:
+            parameters["period"] = float(sig.period)
     else:
         # rsi/stochastic/cci/adx/williams_r/mfi/roc/volume_spike/bollinger_bands
         operator = sig.operator

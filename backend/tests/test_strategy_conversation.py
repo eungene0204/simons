@@ -1099,6 +1099,41 @@ def test_modify_primary_roundtrip_guard_falls_back(monkeypatch):
     assert run_primary_modification("종목 5개로", prev.model_dump()) is None
 
 
+def test_modify_primary_survives_bollinger_entry_exit_pair(monkeypatch):
+    """[2026-07-31 회귀] 볼린저 상/하단 전략의 **모든** 수정이 해석 실패로 끝나던 사고.
+
+    볼린저는 방향을 signal_type으로만 표현한다(operator 없음). 되짚기가 그것을 그대로
+    None으로 옮기면 진입/청산이 "값 없는 같은 팩터"가 되어 미러 청산 가드가 청산을 삼키고,
+    라운드트립 불일치로 인터프리터가 입력을 읽기도 전에 폴백했다("코스닥으로 유니버스를
+    변경해줘"가 '요청을 전략 조건으로 해석하지 못했어요'로 응답).
+    """
+    from engine.nl_parser import ParsedStrategy
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.95,
+        "patches": [{"op": "replace", "path": "/universe/markets", "value": ["KOSDAQ"],
+                     "source_text": "코스닥으로 유니버스를 변경"}],
+    })
+    prev_data = _rich_parsed().model_dump()
+    prev_data["fundamental_filters"] = []
+    prev_data["entry_signals"] = [
+        {"indicator": "bollinger_bands", "signal_type": "buy", "period": 20},
+        {"indicator": "volume_spike", "signal_type": "buy", "period": 20},
+    ]
+    prev_data["exit_signals"] = [
+        {"indicator": "bollinger_bands", "signal_type": "sell", "period": 20},
+    ]
+    prev = ParsedStrategy.model_validate(prev_data)
+    result = run_primary_modification("코스닥으로 유니버스를 변경해줘", prev.model_dump())
+    assert result is not None, "라운드트립 불일치로 폴백하면 안 된다"
+    assert result["parsed"].universe == ["KOSDAQ"]
+    # 청산 볼린저가 되짚기에서 사라지지 않는다.
+    assert [(s.indicator, s.signal_type) for s in result["parsed"].exit_signals] == [
+        ("bollinger_bands", "sell")
+    ]
+
+
 def test_modify_primary_target_symbol_from_patch(monkeypatch):
     """[FR-STR-068 회귀] 종목-only 수정("삼성전자 투자 하는 전략")이 조용히 무시되던 사고.
 

@@ -380,7 +380,16 @@ def derive_field_states(
     채운다 — 인터프리터 레인이 이미 (strategy, report)를 들고 있으면 그쪽을 쓰는 것이 싸므로
     `_field_states`를 직접 호출한다. 되짚기·검증 실패는 오버라이드 없음으로 강등한다
     (값 축과 NOT_APPLICABLE은 ParsedStrategy만으로 성립하므로 계산 자체는 살아남는다).
+
+    입력은 ParsedStrategy로 정규화한다 — 응답 payload의 `parsed`는 dict(model_dump)라
+    호출부(main._ensure_field_states)가 그대로 넘긴다. dict를 그냥 흘리면 되짚기가
+    AttributeError로 죽고 값 축까지 전부 UNKNOWN으로 무너져(모든 슬롯 실측), 인터프리터
+    레인 밖의 모든 턴이 빈 상태 표시를 받는다(2026-07-31 실측).
     """
+    from engine.nl_parser import ParsedStrategy
+
+    if isinstance(parsed, dict):
+        parsed = ParsedStrategy.model_validate(parsed)
     strategy = report = None
     try:
         from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
