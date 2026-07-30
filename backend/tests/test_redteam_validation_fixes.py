@@ -12,6 +12,14 @@ from intent.classifier import classify
 from intent.schemas import QueryIntent
 
 
+@pytest.fixture(autouse=True)
+def _legacy_lane(monkeypatch):
+    """분류기 라우팅 검증은 [레거시 레인](원문 정규식) 대상이다 — 롤백 경로 보증용.
+    계약 레인에서 같은 요구사항(맞춤 조언·실계좌 매매 안내 등)이 지켜지는지는
+    tests/test_intent_interpreter.py가 라벨→정책 매핑으로 검증한다."""
+    monkeypatch.setenv("INTENT_CLASSIFIER_MODE", "legacy")
+
+
 # ── 분류기 라우팅(심각도 1·5) ────────────────────────────────────────────────
 
 def test_personal_advice_is_not_general_llm_answer():

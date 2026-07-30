@@ -34,6 +34,8 @@ export type SemanticIntent =
   | "STRATEGY_PICK"
   | "ONBOARDING"
   | "UNSUPPORTED_FEATURE"
+  | "PERSONAL_ADVICE"
+  | "LIVE_TRADING"
   | "STOCK_ANALYSIS"
   | "GENERAL_INVESTMENT"
   | "UNKNOWN"
@@ -567,6 +569,12 @@ function fallbackMessage(intent: SemanticIntent): string {
   if (intent === "ONBOARDING") {
     return "처음이시거나 어디서부터 시작할지 막막하시면 제가 단계별로 함께 전략을 만들어 드릴게요. 몇 가지만 골라 주시면 바로 백테스트까지 이어집니다.";
   }
+  if (intent === "PERSONAL_ADVICE") {
+    return "나이·자산·직업 같은 개인 상황에 맞춘 전략이나 종목 추천은 제공하지 않아요. 모든 투자 판단은 직접 내리셔야 하지만, 원하시는 조건을 하나씩 골라 전략을 만들고 과거 데이터로 검증해보실 수는 있어요. 제가 단계별로 여쭤볼 테니 골라 주시면 바로 백테스트까지 이어집니다.";
+  }
+  if (intent === "LIVE_TRADING") {
+    return "실제 계좌로 매매를 실행하거나 자금을 대신 운용하는 기능은 제공하지 않아요. 이 서비스는 전략을 설계하고 과거 데이터로 검증하는 연구 도구예요. 대신 전략을 만들어 백테스트한 뒤, 가상계좌 모의투자로 실전처럼 시뮬레이션해볼 수 있어요.";
+  }
   return "저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트와 관련된 질문은 도와드릴 수 있습니다.";
 }
 
@@ -757,10 +765,16 @@ export function decideConversationTurn(
     return buildStrategyInputDecision(prompt, context, "named_stock_strategy_request");
   }
 
+  // [규제 안전] 맞춤 조언·실계좌 매매·미제공 기능 안내는 전략 진행 중에도 반드시 나간다.
+  // OFF_TOPIC도 여기서 끝낸다 — 분류 LLM은 진행 중인 전략 여부(active_strategy)를 알고
+  // 판정하므로, 그 위에 프론트가 정규식/조건으로 판정을 뒤집으면 "정규식이 LLM의 의미
+  // 판정을 재심하는" 구조가 되살아난다(자연어 해석 계약 위반).
   if (
     intent === "GREETING" ||
     intent === "OFF_TOPIC" ||
-    intent === "UNSUPPORTED_FEATURE"
+    intent === "UNSUPPORTED_FEATURE" ||
+    intent === "PERSONAL_ADVICE" ||
+    intent === "LIVE_TRADING"
   ) {
     return {
       action: "respond",

@@ -73,9 +73,15 @@ def _llm_available() -> bool:
 
 @router.post("/query/classify", response_model=IntentResult)
 async def classify_query(req: IntentRequest) -> IntentResult:
-    llm = (lambda s, u: _mlx_llm(s, u, max_tokens=40)) if _llm_available() else None
+    # 구조화 출력(intent + stock_name + refers_to_last_stock)을 담을 만큼의 토큰을 준다.
+    llm = (lambda s, u: _mlx_llm(s, u, max_tokens=120)) if _llm_available() else None
     return await asyncio.to_thread(
-        classify, req.query, last_symbol=req.last_symbol, llm=llm, history=req.history
+        classify,
+        req.query,
+        last_symbol=req.last_symbol,
+        llm=llm,
+        history=req.history,
+        active_strategy=req.active_strategy,
     )
 
 

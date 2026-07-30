@@ -1,4 +1,12 @@
-"""Query Intent 분류기 테스트 — 스펙 예시 + 결정적 규칙 + LLM 폴백."""
+"""Query Intent 분류기 — [레거시 레인] 원문 정규식 규칙 + LLM 폴백 회귀.
+
+이 파일이 검증하는 `_classify_deterministic`/`_classify_with_llm`은 원문을 패턴 매칭해
+의도를 판정하는 계약 위반 레인이며, 현재 기본 경로가 아니다(INTENT_CLASSIFIER_MODE=legacy
+롤백 전용). 롤백해도 동작이 보장되도록 커버리지를 유지한다.
+
+계약 레인(기본)의 테스트는 tests/test_intent_interpreter.py에 있다.
+새 판정 규칙은 이 파일이 아니라 그쪽에 추가한다.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +14,11 @@ import pytest
 
 from intent.classifier import classify, format_history_context, _correct_count_typo
 from intent.schemas import ChatTurn, QueryIntent
+
+
+@pytest.fixture(autouse=True)
+def _legacy_lane(monkeypatch):
+    monkeypatch.setenv("INTENT_CLASSIFIER_MODE", "legacy")
 
 
 @pytest.mark.parametrize(

@@ -39,5 +39,9 @@ def test_ambiguous_input_not_arbitrarily_resolved(case):
 
 
 @pytest.mark.parametrize("case", _DATASET["intent"], ids=lambda c: c["input"])
-def test_intent_classification(case):
+def test_intent_classification(case, monkeypatch):
+    # [레거시 레인] 이 케이스들은 원문 정규식이 의도를 판정하던 시절의 회귀 자산이다.
+    # 계약 레인에서 의도 판정은 LLM 소관이라 결정적으로 단정할 수 없다 — 그쪽 정확도는
+    # scripts/qa_stock_recognition.py 하니스가 실측한다.
+    monkeypatch.setenv("INTENT_CLASSIFIER_MODE", "legacy")
     assert classify(case["input"]).intent.value == case["expected_intent"], case.get("note", "")

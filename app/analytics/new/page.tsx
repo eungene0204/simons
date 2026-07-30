@@ -69,6 +69,7 @@ import {
   decideConversationTurn,
   getResearchMetricLabel,
   parseMetricOptimizationRange,
+  type ConversationDecision,
   type MetricOptimizationRange,
   type ResearchMetric,
   type HoldingPeriodHorizon,
@@ -234,6 +235,23 @@ const BUILDER_SLOT_KEYS = [
 
 function hasBuilderSlotValue(value: unknown): boolean {
   return value !== null && value !== undefined && value !== "" && value !== false;
+}
+
+// 턴 중재 판정을 브라우저 콘솔에 남긴다. '어떤 발화가 백엔드 파싱(인터프리터)까지 가고
+// 어떤 발화가 프론트에서 정형 응답으로 끝났는가'가 안 보이면, 정상 요청이 조용히 삼켜져도
+// 서버 로그만으로는 원인을 못 찾는다(2026-07-30 '원자력 업종만 테스트 하고 싶어' 거절 제보).
+// action=respond면 그 턴은 백엔드 전략 파싱에 도달하지 않았다는 뜻이다.
+function traceTurn(
+  phase: string,
+  userText: string,
+  decision: ConversationDecision,
+  classification?: SemanticClassification,
+) {
+  console.debug(
+    `[TURN] ${phase} action=${decision.action} reason=${decision.reason}` +
+      (classification ? ` intent=${classification.intent}` : "") +
+      ` input=${JSON.stringify(userText)}`,
+  );
 }
 
 // 빌더 슬롯 → 게이트 필드 provenance. 빌더는 슬롯을 하나씩 묻고 채우는 대화라
@@ -2093,6 +2111,9 @@ function StrategyLabContent() {
           query: userText,
           last_symbol: lastAnalyzedSymbolRef.current,
           history,
+          // 전략 카드가 떠 있으면 짧고 모호한 발화도 그 전략을 다듬는 요청일 수 있다 —
+          // 분류 LLM이 역할 밖으로 오판하지 않도록 맥락으로 넘긴다.
+          active_strategy: Boolean(latestParsedRef.current),
         }),
       });
       if (!res.ok) throw new Error();
@@ -2631,6 +2652,7 @@ function StrategyLabContent() {
       pendingResearchMetricPrompt: pendingMetricResearchPromptRef.current,
     };
     let turnDecision = decideConversationTurn(userText, conversationContext);
+    traceTurn("pre-classify", userText, turnDecision);
 
     // 결정론 즉답(respond)에도 현재 전략이 있으면 '현재까지 이해한 전략입니다' 요약 카드를
     // 항상 함께 보여준다(사용자 결정 2026-07-26 — 종목 변경 의향 안내 등이 전략 맥락 없이
@@ -2882,6 +2904,7 @@ function StrategyLabContent() {
 
     const { classification, history } = await classifyConversationPrompt(userText);
     turnDecision = decideConversationTurn(userText, conversationContext, classification);
+    traceTurn("post-classify", userText, turnDecision, classification);
 
     if (turnDecision.action === "respond") {
       updateLastAssistant({

@@ -728,6 +728,45 @@ term-in으로 좁혀도 진짜 오타는 그대로 잡는다(실측: "삼서전�
 "혹시 '삼성전자'를 말씀하신 건가요?"). 회귀 가드: `tests/test_symbol_resolver.py`의
 term-in 3건(오탐 없음·진짜 오타 검출·칩 폴백).
 
+### § 11-7. 의도 분류 레인 이관 (2026-07-30 완료)
+
+계약 수립 이후에도 **`intent/classifier.py`·`intent/scope.py`는 격차 목록에 오른 적이 없었다.**
+§ 11-3~11-6이 전부 파이프라인 *내부*를 다루는 동안, 파이프라인에 진입할지를 정하는 상류
+게이트가 원문 정규식 31개(classifier 14 + scope 17)로 남아 있었다.
+
+발견 경위 — 2026-07-30 사용자 제보. 전략 카드가 떠 있는 상태에서 "원자력 업종만 테스트
+하고 싶어"가 정형 거절(`OFFTOPIC_REFUSAL`)로 끝났다. 3단 실패:
+
+1. `_classify_deterministic`의 규칙이 하나도 안 걸림(`_STRATEGY_KEYWORDS`에 '테스트' 없음,
+   `_THEME_INVEST_CUE`에 '업종' 없음) → LLM 폴백으로 이월
+2. 소형 분류 모델이 `OFF_TOPIC` 반환(진행 중인 전략 맥락을 받지 못한 상태)
+3. `_FINANCE_CUE`에 '업종'이 없어 안전망이 판정을 못 뒤집음 → 거절 확정
+
+이 레인의 실패 모드는 '틀린 전략'이 아니라 **'인터프리터 미도달'** 이다 — 파이프라인보다
+앞에 있어서, 오판이 조용한 침묵으로 나타난다.
+
+| 지점 | 이전(위반) | 이후 |
+|---|---|---|
+| 의도 판정 | `_classify_deterministic` — 원문에 정규식 14종을 걸어 의도·지표·업종·수정 여부 추출 | `intent/interpreter.py` — 원문은 LLM만 읽고 제한된 구조화 출력(`IntentInterpretation`: intent + stock_name + refers_to_last_stock) 생성 |
+| LLM 출력 처리 | 라벨 1개를 정규식으로 긁어냄 | JSON 경계 추출 → 코드펜스/`<think>` 제거 → 라벨 표기 정규화 → Pydantic 검증(입력이 LLM 출력이므로 정규화 레인) |
+| 안전망 | `has_finance_cue(원문)`이 LLM의 `OFF_TOPIC` 판정을 재심해 뒤집음 — 정규식이 의미 판정의 상급심 | 폐지. 대신 `active_strategy` 맥락을 LLM 입력에 넣어 **판정 단계에서** 오판을 줄인다 |
+| 종목 인식 | `find_in_text(user_input)` — 원문 전체 스캔(금지 사항 5) | LLM이 뽑은 `stock_name` 문자열만 registry에 조회. 지시어는 LLM의 `refers_to_last_stock` + `last_symbol` |
+| 규제 안전 안내 | 원문 정규식 예측자(`is_personal_advice_request`·`is_live_trading_request` 등)가 판정 | LLM 라벨(`PERSONAL_ADVICE`·`LIVE_TRADING` 신설)로 승격 → 라벨 키 도메인 정책이 확정 문구 선택 |
+| 폴백 | 규칙 미스 → LLM → 실패 시 UNKNOWN(+원문 스캔) | LLM 미가용·출력 불량 = **실패 보고**(UNKNOWN, canned 없음). 연결 오류는 그대로 전파(503). 정규식 재해석 없음 |
+
+프론트도 함께: `decideConversationTurn`이 `OFF_TOPIC`을 즉시 정형 응답으로 끝내는 분기는
+**유지**한다 — 분류 LLM이 `active_strategy`를 알고 판정하므로, 그 위에 프론트가 조건으로
+뒤집으면 "결정론이 LLM의 의미 판정을 재심"하는 같은 역전이 프론트에 재발한다.
+
+**롤백**: `INTENT_CLASSIFIER_MODE=legacy` — 이전 레인 전체가 살아 있다(코드 삭제 아님·사용
+중지, 1d와 같은 관례). 회귀 가드: `tests/test_intent_interpreter.py`(계약 레인),
+`tests/test_intent_classifier.py`·`test_redteam_validation_fixes.py`(레거시 레인 — autouse
+fixture로 legacy 고정).
+
+**남은 격차**: `api/coach_routes.py::_coach_scope_guard`가 `intent/scope.py`의 원문 예측자를
+그대로 호출한다(동일 위반의 두 번째 인스턴스). `intent/platform_defaults.py`는 `/query/general`
+경로에서 원문으로 설정 항목을 추출한다. 둘 다 미이관.
+
 ### 마이그레이션 순서
 
 1번(`nl_parser.py`)은 독립 순번이 없다 — 나머지가 끝나면 남는 잔여물이며, 성격이 다른
