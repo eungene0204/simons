@@ -4308,7 +4308,7 @@ def test_extract_sector_deterministic():
     assert _extract_sector("반도체 관련주 매수") == "반도체"
     assert _extract_sector("2차전지 업종만 대상으로") == "이차전지"
     assert _extract_sector("제약주 위주로") == "바이오/제약"
-    assert _extract_sector("AI 관련주") == "소프트웨어/플랫폼"
+    assert _extract_sector("AI 관련주") == "소프트웨어"
     # '중심/위주'도 범위를 좁히는 업종 큐다 — "반도체 중심으로 전략을 만들어줘".
     assert _extract_sector("반도체 중심으로 전략을 만들어줘") == "반도체"
     assert _extract_sector("2차전지 위주로 골라줘") == "이차전지"

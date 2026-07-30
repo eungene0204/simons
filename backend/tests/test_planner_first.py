@@ -42,10 +42,14 @@ from strategy_conversation.tools import call as call_tool
     # — 카탈로그에 '태양광에너지'라는 더 구체적인 테마가 있는데도 섹터 판정이 선점했다.
     # is_narrow_sector_approximation이 이런 버킷형 근사만 걸러 테마 판정으로 넘긴다.
     ("태양광", "CONCEPT", None),
-    # 근사가 아니라 정본 섹터명 안에 표현이 그대로 들어있는 이름 표기 차이(은행→은행/
-    # 금융지주, 원자력→에너지/원자력)는 여전히 즉시 SECTOR로 확정돼야 한다(회귀 가드).
-    ("은행", "SECTOR", "은행/금융지주"),
-    ("원자력", "SECTOR", "에너지/원자력"),
+    # 정본 섹터명 그대로면 즉시 SECTOR로 확정된다(오탐 방지 회귀 가드).
+    # '은행'은 2026-07-30 묶음 분할로 정본명이 됐다(종전 '은행/금융지주' 근사).
+    ("은행", "SECTOR", "은행"),
+    # [2026-07-30] '원자력'도 CONCEPT다. 종전에는 표현이 정본명 글자 안에 있다는 이유로
+    # ('원자력'⊂'에너지원자력') 이름 표기 차이로 보고 SECTOR 확정했는데, 실제로는 개념이
+    # 넓어지고 있었다 — 에너지/원자력 72종목에는 정유·도시가스가 섞여 있다. 카탈로그에
+    # '원자력발전'(50종목) 같은 더 구체적인 테마가 있으므로 테마 판정으로 넘긴다.
+    ("원자력", "CONCEPT", None),
 ])
 def test_classify_universe_deterministic(text, expected_type, expected_canonical):
     out = call_tool("classify_universe", text=text)

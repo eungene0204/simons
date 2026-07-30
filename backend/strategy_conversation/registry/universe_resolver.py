@@ -30,7 +30,7 @@ def resolve_sectors(terms: Sequence[str]) -> Tuple[SectorValue, List[str]]:
     정규형은 없음=None / 단일=str / 복수=list(순서 보존 dedup)로, 기존 sector 필드
     계약(FR-STR-066 ⑦)과 동일하다. 해석하지 못한 표현은 조용히 버리지 않고 반환한다.
     """
-    from engine.universe_pit import normalize_sector, normalize_sector_value
+    from engine.universe_pit import expand_legacy_sector, normalize_sector_value
 
     resolved: List[str] = []
     unresolved: List[str] = []
@@ -38,12 +38,19 @@ def resolve_sectors(terms: Sequence[str]) -> Tuple[SectorValue, List[str]]:
         if not isinstance(term, str) or not term.strip():
             continue
         term = term.strip()
-        canonical = normalize_sector(term) or _resolve_via_knowledge_graph(term)
-        if canonical is None:
+        # expand_legacy_sector: 정본·동의어는 1개, 분할 전 구 묶음명('증권/보험')은
+        # 신규 두 섹터로 편다(저장된 전략의 유니버스가 좁아지지 않게).
+        canonical = expand_legacy_sector(term)
+        if not canonical:
+            via_kg = _resolve_via_knowledge_graph(term)
+            canonical = (via_kg,) if via_kg else ()
+        if not canonical:
             if term not in unresolved:
                 unresolved.append(term)
-        elif canonical not in resolved:
-            resolved.append(canonical)
+            continue
+        for item in canonical:
+            if item not in resolved:
+                resolved.append(item)
     return normalize_sector_value(resolved), unresolved
 
 
