@@ -148,24 +148,20 @@ describe("레이아웃 기본", () => {
     );
   });
 
-  // 사용자 발화·산출물·산문이 같은 표면을 쓰면 화자와 블록 종류가 구별되지 않는다
+  // 사용자 발화와 산출물이 같은 표면을 쓰면 화자와 블록 종류가 구별되지 않는다
   // (이전에는 USER_CHAT_BUBBLE_CLASS와 COACH_CHAT_BUBBLE_CLASS가 문자열까지 같았다).
-  it("사용자 발화는 채워진 면, 산출물은 테두리 카드, 산문은 맨 텍스트다", () => {
+  it("사용자 발화는 채워진 면, 산출물은 테두리 카드다", () => {
     const userClass = page.match(/const USER_CHAT_BUBBLE_CLASS = "([^"]*)"/)?.[1];
     const cardClass = page.match(/const ARTIFACT_CARD_CLASS =\s*"?\s*"([^"]*)"/)?.[1];
     expect(userClass).toContain("bg-[var(--chat-user-surface)]");
     expect(cardClass).toContain("border");
     expect(userClass).not.toEqual(cardClass);
+  });
 
-    // 재진술은 산문이므로 카드/사용자 표면으로 감싸지 않는다.
-    const beforeRestatement = page.slice(
-      0,
-      page.indexOf('data-testid="strategy-restatement"'),
-    );
-    const wrapper = beforeRestatement.slice(-600);
-    expect(wrapper).not.toContain("ARTIFACT_CARD_CLASS");
-    expect(wrapper).not.toContain("USER_CHAT_BUBBLE_CLASS");
-    // 카드도 레일도 없으므로 닷이 블록 시작점을 표시한다.
-    expect(wrapper).toContain('data-testid="strategy-restatement-dot"');
+  // 전략 재진술 첫 문장("…전략이군요.")은 요약 카드와 같은 내용을 반복해 정보값이
+  // 없다는 사용자 판단으로 제거됐다(2026-07-31). 다시 살아나지 않게 고정한다.
+  it("전략 재진술 문장을 렌더링하지 않는다", () => {
+    expect(page).not.toContain("strategy-restatement");
+    expect(page).not.toContain("buildStrategyRestatement");
   });
 });

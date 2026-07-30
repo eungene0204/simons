@@ -874,7 +874,7 @@ className="[&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full 
 | 표면 | 상수 | 담는 것 |
 |------|------|---------|
 | 사용자 발화 | `USER_CHAT_BUBBLE_CLASS` | 우측 정렬 단색 카드(`--chat-user-surface`) |
-| 대화 산문 | (표면 없음) | 어시스턴트 설명·재진술·로딩 상태. **카드도 레일도 없는 맨 텍스트** |
+| 대화 산문 | (표면 없음) | 어시스턴트 설명·로딩 상태. **카드도 레일도 없는 맨 텍스트** |
 | 산출물 카드 | `ARTIFACT_CARD_CLASS` | 전략 요약, 빌더 요약, 전략 검증, 공지, 되묻기, 전략 확인 |
 | 오류 카드 | (인라인) | `--error-red` 테두리. 의미색 |
 | 선택 칩 | `CHOICE_CHIP_CLASS` | 빌더의 주 경로이므로 3순위 컨트롤보다 무게를 올린다 |

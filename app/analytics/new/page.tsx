@@ -131,7 +131,6 @@ const EXPLICIT_GATE_FIELDS: readonly string[] = [
   "backtest_period",
   "initial_capital",
 ];
-import { buildStrategyRestatement } from "./strategyRestatement";
 
 const BacktestDashboard = dynamic(
   () => import("@/components/strategy/backtest/BacktestDashboard"),
@@ -192,8 +191,6 @@ interface ChatMessage {
   };
   // 전략 요약을 막지 않는 보정 안내(예: 초기자금 하한선 보정). 요약 카드와 함께 표시된다.
   notices?: string[];
-  // 사용자의 자연어를 백테스트 가능한 전략 개념으로 재정리한 첫 문장("…전략이군요.").
-  restatement?: string;
 }
 
 type MetricOptimizationProgressState = {
@@ -2533,14 +2530,8 @@ function StrategyLabContent() {
       if (shouldRouteSingleAssetToBuilder) {
         return;
       }
-      // 첫 문장으로 사용자의 자연어를 전략 개념으로 재정리해 되돌려준다("…전략이군요.").
-      // 지표 연구 질문(researchMetric)은 전략 선언이 아니므로 제외한다.
-      const restatement = researchMetricRef.current
-        ? null
-        : buildStrategyRestatement(nextParsed, explicitFieldsRef.current);
       applySummaryPatch({
         isLoading: false,
-        restatement: restatement ?? undefined,
         infoText: researchMetricRef.current
           ? `${buildResearchMetricSummary(researchMetricRef.current)}${
               optimizationDraft
@@ -3944,26 +3935,6 @@ function StrategyLabContent() {
                         )}
                         {msg.parsed && (
                           <>
-                            {/* 사용자의 자연어를 전략 개념으로 재정리한 첫 문장 — 요약 카드·되묻기보다 먼저 보여준다. */}
-                            {msg.restatement && (
-                              <div
-                                className={`flex max-w-[88%] items-start gap-2.5 py-0.5 ${MESSAGE_ENTER_CLASS}`}
-                              >
-                                {/* 산문은 카드도 레일도 없으므로 닷이 블록 시작점을 표시한다.
-                                    강조색은 '사용자 차례'에 예약돼 있어 중립 톤을 쓴다. */}
-                                <span
-                                  aria-hidden="true"
-                                  data-testid="strategy-restatement-dot"
-                                  className="mt-[7px] h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[var(--text-label)]"
-                                />
-                                <p
-                                  data-testid="strategy-restatement"
-                                  className="text-sm font-bold text-white leading-relaxed"
-                                >
-                                  {msg.restatement}
-                                </p>
-                              </div>
-                            )}
                             {/* 백테스트 최소 조건을 채우는 중(clarification 대기)에는 전략 요약을
                                 미리 보여주지 않는다 — 모든 조건에 답한 뒤 한 번에 요약을 만든다. */}
                             {!msg.clarification && (
