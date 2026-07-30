@@ -25,7 +25,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from engine.console_logging import console_logger
 from engine.sector_mapper import MAPPING_RULES, NL_SAFE_TERMS
+
+logger = console_logger(__name__, "UNIVERSE")
 
 _MASTER_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "stock-master.json"
 _KOREA_STOCKS_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "korea-stocks.json"
@@ -49,6 +52,7 @@ def reload_master() -> None:
     """Drop the cached master (call after regenerating the file)."""
     _load_master.cache_clear()
     _load_sector_map.cache_clear()
+    _SECTOR_MAP_SOURCE.update({"source": None, "reason": None})
     _load_etf_master.cache_clear()
     _etf_symbol_set.cache_clear()
 
@@ -545,16 +549,35 @@ def sector_value_as_list(value) -> list[str]:
 
 
 
+# 섹터 소속을 어디서 읽었는지 — 폴백이 조용히 도는 것을 막기 위한 출처 기록.
+# 정본(KG)이 아닌 경로로 백테스트가 돌면 사용자가 알아야 한다(엔진이 경고로 노출).
+_SECTOR_MAP_SOURCE: dict[str, Optional[str]] = {"source": None, "reason": None}
+
+
+def sector_map_source() -> dict[str, Optional[str]]:
+    """마지막으로 로드한 섹터 소속의 출처. {"source": "graph"|"files", "reason": str|None}.
+
+    source="files"면 정본(KG)을 못 읽어 파생 캐시로 폴백한 것이다 — 호출부(엔진)가
+    사용자에게 고지해야 한다. 아직 로드 전이면 source=None."""
+    if _SECTOR_MAP_SOURCE["source"] is None:
+        _load_sector_map()
+    return dict(_SECTOR_MAP_SOURCE)
+
+
 def _sector_map_from_graph() -> dict[str, str]:
     """지식그래프의 belongs_to 엣지에서 symbol → 섹터를 읽는다(정본 경로).
 
-    KG 로드 실패·오버레이 부재 시 빈 dict를 반환해 호출부가 파일로 폴백한다.
+    실패는 **조용히 넘기지 않는다** — 예외는 스택과 함께 로그로 남기고 사유를
+    _SECTOR_MAP_SOURCE에 기록해 엔진이 사용자에게 고지할 수 있게 한다. 그래도 빈 dict를
+    반환해 호출부가 파일로 폴백하는 것은 유지한다(KG 문제로 백테스트가 아예 막히면 안 된다).
     순환 import를 피하려고 지연 import한다(knowledge_graph가 universe_pit을 참조한다)."""
     try:
         from engine.knowledge_graph import get_graph
 
         graph = get_graph()
-    except Exception:  # noqa: BLE001 — KG 문제가 백테스트를 막으면 안 된다(파일 폴백)
+    except Exception as exc:  # noqa: BLE001 — 폴백은 하되 침묵하지 않는다
+        logger.exception("섹터 소속 정본(지식그래프) 로드 실패 — 파일 캐시로 폴백")
+        _SECTOR_MAP_SOURCE["reason"] = f"지식그래프 로드 실패: {type(exc).__name__}: {exc}"
         return {}
     smap: dict[str, str] = {}
     for edge in graph.edges:
@@ -563,6 +586,11 @@ def _sector_map_from_graph() -> dict[str, str]:
         source, target = str(edge.get("source", "")), str(edge.get("target", ""))
         if source.startswith("company:") and target.startswith("sector:"):
             smap[source.split(":", 1)[1]] = target.split(":", 1)[1]
+    if not smap:
+        _SECTOR_MAP_SOURCE["reason"] = (
+            "지식그래프에 섹터 소속 엣지가 없습니다 — data/kg-sector-membership.json 미생성"
+            "(backend/scripts/build_sector_membership.py --apply)"
+        )
     return smap
 
 
@@ -599,7 +627,17 @@ def _load_sector_map() -> dict[str, str]:
     KG의 `company -belongs_to→ sector` 엣지(data/kg-sector-membership.json 오버레이)를
     읽고, 오버레이가 없는 환경(신규 클론·부트스트랩)에서만 파일로 폴백한다.
     """
-    return _sector_map_from_graph() or sector_map_from_files()
+    _SECTOR_MAP_SOURCE["reason"] = None
+    smap = _sector_map_from_graph()
+    if smap:
+        _SECTOR_MAP_SOURCE["source"] = "graph"
+        return smap
+    _SECTOR_MAP_SOURCE["source"] = "files"
+    logger.warning(
+        "섹터 소속을 정본(지식그래프)이 아니라 파일 캐시에서 읽습니다 — %s",
+        _SECTOR_MAP_SOURCE["reason"] or "사유 불명",
+    )
+    return sector_map_from_files()
 
 
 def filter_by_sector(symbols: list[str], sector: str | list[str]) -> list[str]:

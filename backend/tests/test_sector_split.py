@@ -341,3 +341,48 @@ def test_kg_concept_edges_follow_sector_moves():
     assert resolve_sector_from_text("카지노 관련주") == "레저"
     assert resolve_sector_from_text("여행사 관련주") == "여행"
     assert get_graph().issues == [], "시드 엣지가 존재하지 않는 노드를 참조한다"
+
+
+def test_sector_map_source_reports_the_canonical_path():
+    """정상 상태에서는 정본(지식그래프)에서 읽었다고 보고해야 한다."""
+    from engine.universe_pit import sector_map_source
+
+    assert sector_map_source() == {"source": "graph", "reason": None}
+
+
+def test_fallback_to_file_cache_is_not_silent(monkeypatch, caplog):
+    """KG를 못 읽으면 파일로 폴백하되 **조용히 넘기지 않는다**.
+
+    정본이 아닌 데이터로 유니버스가 확정되면 결과가 달라지므로, 출처와 사유를 남겨
+    엔진이 사용자에게 고지할 수 있어야 한다(backtest_engine의 warnings)."""
+    import logging
+
+    from engine import knowledge_graph as kg
+    from engine import universe_pit as u
+
+    def boom():
+        raise RuntimeError("KG 로드 실패 재현")
+
+    monkeypatch.setattr(kg, "get_graph", boom)
+    u.reload_master()
+    try:
+        with caplog.at_level(logging.WARNING):
+            smap = u._load_sector_map()
+        source = u.sector_map_source()
+        assert source["source"] == "files"
+        assert "KG 로드 실패 재현" in (source["reason"] or "")
+        assert smap, "폴백 결과가 비었다 — KG 문제로 백테스트가 아예 막히면 안 된다"
+    finally:
+        monkeypatch.undo()
+        u.reload_master()
+
+
+def test_engine_warns_when_sector_source_is_not_canonical():
+    """폴백 시 엔진이 사용자 경고를 추가하도록 배선돼 있어야 한다."""
+    import inspect
+
+    import backtest_engine
+
+    source = inspect.getsource(backtest_engine)
+    assert "sector_map_source()" in source
+    assert "정본(지식그래프)이 아니라 파일 캐시에서" in source
