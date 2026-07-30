@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from engine.nl_parser import ParsedStrategy, TechnicalSignal
+from engine.selection_scope import SelectionScope, selection_scope
 
 logger = logging.getLogger(__name__)
 
@@ -392,12 +393,20 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
 
     # 지정 종목 모드: 종목 선정(횡단면 랭킹)이 없고, 자금은 지정 종목 수만큼 균등 배분한다
     # (단일 종목이면 100%). max_positions 기본값(10)을 그대로 두면 1종목에 10%만 투자된다.
-    if target_symbols:
+    #
+    # **후보군 모드는 여기서 갈린다**(설계 스펙 § 6 selection_scope): 테마 조회가 채운
+    # 종목에 사용자가 선정 기준(랭킹)을 얹었으면 그 목록은 지정이 아니라 고를 대상이다.
+    # 구분하지 않으면 사용자가 말한 랭킹과 보유 수가 **동시에 조용히 사라진다** —
+    # 실측: "이차전지 관련주 중 최근 60일 수익률 상위 10종목"이 랭킹 없이 36종목
+    # 전부 매수로 나갔다(ranking_enabled=False, max_positions=36).
+    scope = selection_scope(strategy)
+    explicit_symbols = scope is SelectionScope.EXPLICIT
+    if explicit_symbols:
         position_size_pct = round(100.0 / len(target_symbols), 2)
 
     risk = {
         "position_size_pct": position_size_pct,
-        "max_positions": len(target_symbols) if target_symbols else strategy.max_positions,
+        "max_positions": len(target_symbols) if explicit_symbols else strategy.max_positions,
         "stop_loss_pct": strategy.stop_loss_pct,
         "take_profit_pct": strategy.take_profit_pct,
         "trailing_stop_pct": strategy.trailing_stop_pct,
@@ -405,7 +414,7 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "max_holding_days": max_holding_days,
         "rebalancing_period": strategy.rebalancing_period,
         "init_cash": strategy.initial_capital,
-        "ranking_enabled": not target_symbols,
+        "ranking_enabled": not explicit_symbols,
         "ranking_weight_value": 0.5,
         "ranking_weight_quality": 0.5,
         "ranking_metric": strategy.ranking_metric,

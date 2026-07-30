@@ -1127,6 +1127,140 @@ NOT_APPLICABLE로 계산되지만 원본 값은 그대로 보존되고, 다시 �
 회귀: `tests/test_field_state.py` 27건, `tests/test_strategy_slots.py`,
 `app/analytics/new/builderProgressPresentation.test.ts`.
 
+### § 11-16. 검색 목적 구조화 — 관계 근거 검증 상태 노출 (2026-07-31 완료, 부분)
+
+설계 스펙 § 16("검색 결과를 바로 State에 CONFIRMED로 저장하지 마라 — 검증되지 않은
+값은 PROVISIONAL 또는 INFERRED로 저장한다")의 구현. 유일한 실제 검색 경로인
+`engine/term_grounding.py`(823줄)를 분석한 결과, §16이 요구하는 검증 단계 대부분은
+**이미 도메인 특화 형태로 있었다** — 이번 작업은 그중 실제로 비어 있던 한 칸만 채웠다.
+
+**이미 있던 것**(§16 대조):
+
+| §16 요구 | 기존 구현 |
+|---|---|
+| 결과를 바로 CONFIRMED로 안 씀 | 섹터는 `normalize_sector`(닫힌 목록) 통과해야만 반영 |
+| 관계 근거·중복 검증 | `_propose_edges` — 서로 다른 출처 2건 이상 교차지지해야 `verified`, 미만은 `pending`(그래프 빌드 시점에 제외 — § knowledge_graph.py 526행대) |
+| 사실 vs 테마성 추정 구분 | `_naver_term_is_industry` 게이트 — 인물·그룹명이 산업으로 둔갑하는 것 차단 |
+| 최신성 | `TERM_REGROUND_TTL_DAYS` — 캐시 재검색 시점 관리, `first_known_date` 시점 편향 notice |
+
+**빠져 있던 것**: `theme_listed_companies()`가 반환하는 회사별 관계 근거
+(`relation`: `kg_research`/§8.5의 `relation_type`·`direct`·`verified`·`source_count`)가
+`apply_theme_companies`에서 `target_symbols = [c["symbol"] for c in companies]`로
+**평탄화되며 통째로 버려지고 있었다.** §8.5에서 어렵게 나눠 둔 "직접 사업 관계로
+교차검증됨"과 "테마 성격의 간접 연관·근거 미검증"의 구분이, 정작 사용자에게 보이는
+안내 문구에서는 "등록 관계·공시·검색 출처 근거"라는 균질한 한 문장으로 뭉개졌다.
+
+**의도적으로 하지 않은 것**: `search_goal`/`queries`를 LLM이 매 검색마다 새로 정하게
+바꾸지 않았다. 현재 고정 4쿼리 템플릿(`term`, `term+관련주`, `term+수혜주`, `term+산업`)은
+FR-STR-069 실측(프롬프트 규칙 추가 전후 1/3→3/3)으로 튜닝된 값이라, LLM에 맡기면
+지연 증가와 회귀 위험만 지고 얻는 것이 없다. 사용자 결정(2026-07-31)으로 이번 작업은
+**검증 상태 노출만**으로 범위를 좁혔다.
+
+**구현**: `_relation_evidence_disclosure(companies)`(`engine/nl_parser.py`)가 새 판정을
+하지 않고 kg_research가 이미 계산한 `relation.direct`/`relation.verified`만 읽어
+"사업 관계가 확인된 N곳 · 테마 성격의 간접 연관이거나 근거가 아직 검증되지 않은 M곳"으로
+가른다. 관계 원장이 없는 종목(카탈로그 공식 분류·시드 큐레이션)은 이미 다른 경로로
+신뢰 등급이 확립돼 있어 disclosure를 붙이지 않는다(원장 미가입=미검증으로 오판하지
+않는다). 전부 직접·교차검증이면 구분해서 얻을 정보가 없으므로 문구를 늘리지 않는다.
+
+**남은 §16 격차**: `search_goal`/`queries`/`required_evidence` 구조를 코드에 타입으로
+명시하지 않았다(고정 함수 안에 암묵적으로만 존재). ETF 후보 검색(§16 워크드 예시 —
+"삼성전자 관련 ETF 확인")처럼 지금 코드베이스에 없는 새 검색 유형은 이번 범위 밖이다.
+
+회귀: `tests/test_theme_universe_autoapply.py` 4건 추가.
+
+### § 11-17. 종목 선정 범위 — 지정인가 후보군인가 (2026-07-31 완료)
+
+설계 스펙 § 6의 `universe.selection_scope` 구현. **스펙 항목이 실제 버그를 가리킨 사례다.**
+
+`target_symbols`에는 성격이 다른 두 가지가 같은 모양으로 들어간다 — ① 사용자가 직접
+지목한 종목("삼성전자랑 SK하이닉스로") ② 테마 조회가 채운 관련 상장사("이차전지
+관련주" → 36곳). 변환기는 이를 구분하지 않고 `if target_symbols:` 하나로 "지정 모드"를
+판정했다(`ranking_enabled=False`, `max_positions=len(symbols)`).
+
+**실측 결함**: "이차전지 관련주 중 최근 60일 수익률 상위 10종목"을 넣으면 테마가
+`target_symbols`를 36곳으로 채우고, 그 순간 **사용자가 말한 두 가지가 동시에 사라진다** —
+
+```
+ranking_enabled = False   ← "수익률 상위"가 증발
+max_positions   = 36      ← "10종목"이 증발 (사용자가 말한 값은 10)
+position_size%  = 2.78    ← 36등분
+```
+
+**판정**(`engine/selection_scope.py`, 저장하지 않고 계산 — § 11-15 ②와 같은 계약):
+
+| 조건 | 범위 | 동작 |
+|---|---|---|
+| `target_symbols` 없음 | `UNIVERSE` | 유니버스 전체가 선정 대상 |
+| `theme_universe` **그리고** `ranking_metric` | `CANDIDATE_POOL` | 후보군에서 선정(랭킹·보유 수 유지) |
+| 그 외 | `EXPLICIT` | 전부 매수(선정 없음) |
+
+**테마 유래여도 랭킹이 없으면 `EXPLICIT`으로 둔다** — 선정 기준이 없으면 36곳 중 무엇을
+기준으로 자를지 아무도 말하지 않은 것이고, 임의로 상위 N곳만 남기면 테마 유니버스를
+자르지 않기로 한 결정(2026-07-28 '비만치료 관련주' 절단 사고)을 뒤집게 된다. 구분의
+근거는 이미 State에 있다 — `theme_universe`(종목이 어느 조회에서 왔는지)가 그것이다.
+
+**프론트 배지도 함께 고쳤다**: `getPositionLabel`이 `target_symbols.length > 1`만 보고
+"지정 종목 36개 균등 투자"를 표시하고 있었다. 백엔드만 고치면 **화면이 거짓말을 한다**
+(배지는 36개 균등, 엔진은 랭킹으로 10개). `lib/strategy-summary.ts`의
+`getSelectionScope`는 백엔드 판정의 **미러**이며 정본이 아니다 — 규칙을 바꿀 때는
+양쪽을 함께 고친다(양쪽 테스트가 같은 조합을 쓴다).
+
+**`goal`은 구현하지 않았다** — 스펙 § 6의 나머지 항목. 소비자가 없다:
+`ParsedStrategy.description`(사용자 원문)과 빌더의 `strategy_type`이 이미 그 자리를
+차지하고 있고, 목표를 구조화해서 읽을 코드가 없다. § 10(질문 우선순위 동적화)이 유일한
+소비자 후보였으나 사용자가 하지 않기로 결정했다. 소비자 없는 필드는 만들지 않는다
+(§ 11-15의 `MARK_*`·`REVALIDATE`와 같은 판단).
+
+회귀: `tests/test_selection_scope.py` 12건, `lib/strategy-summary.selection-scope.test.ts` 7건.
+
+### § 11-18. 변경 영향 범위 — 내부 출력의 잔여 칸 (2026-07-31 완료, 부분)
+
+설계 스펙 § 30(Planner 내부 출력 형식)과 § 8(변경 영향 범위)의 구현. **§ 30의 7개
+블록 중 6개는 이미 있었다** — 이번 작업은 실제로 비어 있던 `impact` 하나를 채웠다.
+
+| § 30 블록 | 현행 |
+|---|---|
+| `interpretation.workflow_effect` | `IntentResult.workflow_effect`(§ 11-9) |
+| `interpretation.operations` / `state_patch` | `StrategyIntent.patches`(허용목록 § 11-15 ⑥) |
+| `interpretation.user_question` | `clarification_questions` |
+| `interpretation.unknown_terms` | `unsupported_features` + 미해결 테마 체인 |
+| `interpretation.conflicts` | `ValidationReport.conflicted_slots`(§ 11-10) |
+| `validation` | `ValidationReport(is_valid, errors, warnings)` — 형태까지 일치 |
+| `dag_changes` | `NodeStatus` 8종 + `invalidated_by_state_change`(§ 11-13) |
+| `next_action` | `ready_nodes()` + planner ask |
+| **`impact`** | **없었다 → 이번 구현** |
+| `response_plan` | 채널 4개가 이미 분리돼 있다(notices·clarification_question·요약 카드·수정 안내) — 한 구조로 묶는 것은 동작 이득 없는 리팩터라 하지 않았다 |
+
+**`impact`가 왜 유일한 실제 갭인가**: `changed_fields`(§ 11-11)는 *값이 달라진 필드*를
+답한다. 하지만 유니버스를 ETF로 바꾸면 값이 바뀐 것은 `universe` 하나인데 영향은 기존
+PER 조건까지 번진다. 그리고 파생 상태는 **저장하지 않으므로**(§ 11-15 ②) 현재 값만 보면
+*"원래부터 안 되던 것"*과 *"방금 안 되게 된 것"*이 구분되지 않는다 — 전이는 직전 턴의
+계산 결과와 대조해야만 관측된다. 그래서 입력이 `previous_field_states` 에코다
+(`explicit_fields`·`pending_ask`와 같은 무상태 계약).
+
+```
+affected_fields    값이 달라진 필드(= changed_fields)
+invalidated_fields 쓸 수 있던 칸이 쓸 수 없게 됨   (APPLICABLE → NOT_APPLICABLE·INVALID·CONFLICTED)
+revalidated_fields 쓸 수 없던 칸이 다시 쓸 수 있게 됨
+```
+
+`revalidated_fields`를 함께 내는 이유: **되돌림이 일어났다는 증거가 여기에만 남는다.**
+파생 상태를 저장하지 않기로 한 대가로 "ETF→코스피로 되돌려 PER 조건이 다시 유효해졌다"는
+사실이 어디에도 기록되지 않는데, 두 계산 결과의 차이가 그것을 복원한다.
+
+**사용자 문구를 만들지 않는다.** ETF에 재무 조건을 쓸 수 없다는 안내는 capability
+validator가 이미 한다 — 여기서 또 알리면 같은 말이 두 번 나간다. 스펙 § 30의 규정
+("이 내부 출력은 사용자가 요청하지 않는 한 그대로 노출하지 않는다")을 그대로 따라
+추적용 구조화 기록으로 둔다.
+
+**`revalidated_fields`를 "전부"로 채우지 않은 이유**: 스펙 § 30은 재검증된 필드 목록을
+요구하지만, 이 파이프라인은 매 턴 전략 **전체**를 재검증한다(§ 11-15 ⑤ 불변조건).
+그러면 그 목록은 항상 모든 필드라 아무 정보도 주지 않는다 — 상태가 실제로 좋아진 칸만
+싣는다.
+
+회귀: `tests/test_impact.py` 6건.
+
 ### 마이그레이션 순서
 
 1번(`nl_parser.py`)은 독립 순번이 없다 — 나머지가 끝나면 남는 잔여물이며, 성격이 다른

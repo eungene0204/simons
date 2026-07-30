@@ -54,3 +54,79 @@ def test_all_theme_companies_applied_without_truncation(monkeypatch):
     notice = apply_theme_universe(parsed, "비만치료 관련주 전략 만들어줘")
     assert notice is not None and "36곳" in notice and "외 26곳" in notice
     assert parsed.target_symbols == [c["symbol"] for c in companies]
+
+
+# ── § 16 검증 상태 노출 (2026-07-31) ────────────────────────────────────────────
+# kg_research 관계 원장이 있는 종목만 direct/verified 구분이 가능하다. 원장이 없는
+# 종목(카탈로그·시드)은 기존 문구 그대로 — 새 판정을 추가하지 않는다.
+
+def _company(symbol, name, relation=None):
+    return {"symbol": symbol, "name": name, "support": 1,
+            "first_known_date": None, "relation": relation}
+
+
+def test_notice_discloses_the_split_between_direct_and_thematic_evidence(monkeypatch):
+    """직접·교차검증 종목과 간접·미검증 종목이 섞이면 그 구성을 밝힌다."""
+    import engine.knowledge_graph as kg
+
+    companies = [
+        _company("000001", "직접공급사",
+                 relation={"direct": True, "verified": True}),
+        _company("000002", "테마관련사",
+                 relation={"direct": False, "verified": True}),
+    ]
+    monkeypatch.setattr(
+        kg, "theme_backtest_companies",
+        lambda text: {"term": "테스트테마", "companies": companies, "first_known_date": None},
+    )
+    parsed = _parsed()
+    notice = apply_theme_universe(parsed, "테스트테마 관련주 전략")
+    assert notice is not None
+    assert "사업 관계가 확인된 1곳" in notice
+    assert "간접 연관이거나 근거가 아직 검증되지 않은 1곳" in notice
+
+
+def test_notice_stays_unchanged_when_no_relation_ledger_exists(monkeypatch):
+    """관계 원장이 없는 종목(카탈로그·시드)뿐이면 문구를 바꾸지 않는다."""
+    import engine.knowledge_graph as kg
+
+    companies = [_company("000001", "카탈로그종목")]  # relation=None
+    monkeypatch.setattr(
+        kg, "theme_backtest_companies",
+        lambda text: {"term": "테스트테마", "companies": companies, "first_known_date": None},
+    )
+    parsed = _parsed()
+    notice = apply_theme_universe(parsed, "테스트테마 관련주 전략")
+    assert notice is not None
+    assert "이 중" not in notice
+
+
+def test_notice_stays_unchanged_when_all_relations_are_direct_and_verified(monkeypatch):
+    """전부 직접·교차검증이면 구분해서 얻을 정보가 없다 — 문구를 늘리지 않는다."""
+    import engine.knowledge_graph as kg
+
+    companies = [
+        _company("000001", "공급사1", relation={"direct": True, "verified": True}),
+        _company("000002", "공급사2", relation={"direct": True, "verified": True}),
+    ]
+    monkeypatch.setattr(
+        kg, "theme_backtest_companies",
+        lambda text: {"term": "테스트테마", "companies": companies, "first_known_date": None},
+    )
+    parsed = _parsed()
+    notice = apply_theme_universe(parsed, "테스트테마 관련주 전략")
+    assert notice is not None
+    assert "이 중" not in notice
+
+
+def test_relation_evidence_disclosure_is_a_pure_text_helper():
+    """판정을 새로 하지 않는다 — kg_research가 이미 계산한 direct/verified를 읽기만 한다."""
+    from engine.nl_parser import _relation_evidence_disclosure
+
+    assert _relation_evidence_disclosure([]) is None
+    assert _relation_evidence_disclosure([_company("1", "a")]) is None
+    result = _relation_evidence_disclosure([
+        _company("1", "a", relation={"direct": True, "verified": True}),
+        _company("2", "b", relation={"direct": True, "verified": False}),
+    ])
+    assert result == "사업 관계가 확인된 1곳 · 테마 성격의 간접 연관이거나 근거가 아직 검증되지 않은 1곳"

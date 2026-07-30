@@ -2339,6 +2339,9 @@ function StrategyLabContent() {
         previous_explicit_fields: explicitFieldsRef.current,
         previous_field_metadata: fieldMetadataRef.current,
         previous_artifacts: artifactsRef.current,
+        // 파생 상태는 저장되지 않으므로, 무효화·재유효화 전이는 직전 턴 계산 결과와
+        // 대조해야만 알 수 있다(§ 8 변경 영향 범위).
+        previous_field_states: fieldStatesRef.current,
       }),
     });
     if (!res.ok || !res.body) {

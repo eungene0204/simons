@@ -3843,6 +3843,34 @@ def apply_theme_universe(parsed: ParsedStrategy, user_prompt: str = "") -> Optio
     return apply_theme_companies(parsed, user_prompt)
 
 
+def _relation_evidence_disclosure(companies: List[dict]) -> Optional[str]:
+    """관계 근거의 검증 수준을 문구로 나눈다(설계 스펙 § 16 — '검증되지 않은 값은
+    PROVISIONAL/INFERRED로 저장하라'의 노출 축, 2026-07-31).
+
+    관계 원장(kg_research, § 8.5)이 있는 종목만 `relation` 필드를 갖는다. 원장이
+    없는 종목(카탈로그 공식 분류·시드 큐레이션 소속)은 이미 다른 경로로 신뢰 등급이
+    확립돼 있어(_naver_company_edges의 자동 verified 등) 여기서 새로 판정하지 않는다
+    — relation이 하나도 없으면 disclosure 없음(None, 기존 문구 그대로).
+
+    있는 종목 중에서도 '직접 사업 관계 + 교차검증됨'과 나머지(간접 연관·근거 미검증)를
+    가른다. 전부를 "관계가 확인됨" 한 문구로 뭉뚱그리면 §8.5가 어렵게 구분해 둔 근거
+    등급이 사용자에게 도로 지워진다 — 계산은 이미 kg_research._relation_record가
+    끝냈고, 여기서는 그 결과를 문구로 옮기기만 한다(판정 재구현 없음)."""
+    with_relation = [c for c in companies if c.get("relation")]
+    if not with_relation:
+        return None
+    strong = {c["symbol"] for c in with_relation
+              if c["relation"].get("direct") and c["relation"].get("verified")}
+    weak = [c for c in with_relation if c["symbol"] not in strong]
+    if not weak:
+        return None  # 전부 직접·교차검증 — 추가 구분이 줄 정보가 없다
+    parts = []
+    if strong:
+        parts.append(f"사업 관계가 확인된 {len(strong)}곳")
+    parts.append(f"테마 성격의 간접 연관이거나 근거가 아직 검증되지 않은 {len(weak)}곳")
+    return " · ".join(parts)
+
+
 def apply_theme_companies(parsed: ParsedStrategy, lookup_text: str) -> Optional[str]:
     """테마 관련 검증 상장사 조회·적용 코어(큐 게이트 없음 — § 3-2 지식 조회).
 
@@ -3875,6 +3903,9 @@ def apply_theme_companies(parsed: ParsedStrategy, lookup_text: str) -> Optional[
         f"'{theme['term']}' 관련으로 확인된 상장사 {len(companies)}곳을 대상 종목으로 "
         f"설정했어요(등록 관계·공시·검색 출처 근거): {names}."
     )
+    evidence_split = _relation_evidence_disclosure(companies)
+    if evidence_split:
+        notice += f" 이 중 {evidence_split}으로 나뉘어요."
     if first_date:
         notice += (
             f" 이 목록은 {first_date} 이후 확인된 정보예요 — 그 이전 구간의 결과에는 "

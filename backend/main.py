@@ -2594,6 +2594,9 @@ class NLParseRequest(BaseModel):
     previous_field_metadata: Optional[dict] = None
     # 영속 Artifact 상태 에코 — 비싼 도구 산출물의 근거와 유효성 기록.
     previous_artifacts: Optional[dict] = None
+    # 직전 턴의 파생 상태 에코 — 변경 영향(무효화·재유효화) 전이 판정의 유일한 입력이다.
+    # 파생 상태는 저장하지 않으므로 현재 값만으로는 '방금 그렇게 됐다'를 알 수 없다.
+    previous_field_states: Optional[dict] = None
 
 class NLParseResponse(BaseModel):
     parsed: dict
@@ -2621,6 +2624,9 @@ class NLParseResponse(BaseModel):
     # 영속 Artifact 상태({산출물: {status, produced_by, source_key}}).
     # 파생 상태와 달리 저장한다 — 재조회가 비싸 "아직 맞나"를 재실행으로 확인할 수 없다.
     artifacts: Optional[dict] = None
+    # 변경 영향 범위(설계 스펙 § 8·§ 30) — 이번 턴이 무엇을 쓸 수 없게/있게 만들었나.
+    # 내부 추적용이며 사용자 문구를 만들지 않는다(안내는 검증기가 이미 담당).
+    impact: Optional[dict] = None
     # 룰 파싱의 LLM 검증 리포트(Parse Fidelity Validator). 검증이 안 돌았으면 None.
     parse_validation: Optional[dict] = None
     # 하한선 보정 안내(비차단 notices 채널, 예: 초기자금 100만원 보정).
@@ -3043,7 +3049,22 @@ def _finalize_parse_result(result: dict, request: NLParseRequest) -> dict:
     _ensure_field_states(result)
     _ensure_field_metadata(result, request)
     _ensure_artifacts(result, request)
+    _ensure_impact(result, request)
     return result
+
+
+def _ensure_impact(result: dict, request: NLParseRequest) -> None:
+    """변경 영향 범위 — 파생 상태가 확정된 **뒤에** 직전 턴과 대조한다."""
+    try:
+        from strategy_conversation.conversation.impact import compute_impact
+
+        result["impact"] = compute_impact(
+            request.previous_field_states,
+            result.get("field_states"),
+            result.get("changed_fields"),
+        )
+    except Exception:  # noqa: BLE001 — 추적 정보가 파스를 깨면 안 된다
+        logger.warning("변경 영향 계산 실패 — 생략", exc_info=True)
 
 
 def _ensure_artifacts(result: dict, request: NLParseRequest) -> None:
@@ -3273,6 +3294,8 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         "field_metadata": None,
         # 영속 Artifact 상태 — _finalize_parse_result가 채운다.
         "artifacts": None,
+        # 변경 영향 범위 — _finalize_parse_result가 채운다.
+        "impact": None,
         "risk_overrides": risk_overrides,
         "parse_validation": validation_report,
         "notices": notices,

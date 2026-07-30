@@ -47,6 +47,9 @@ export interface ParsedSummary {
   ranking_lookback_days?: number | null;
   // 지정 종목(단일 종목) 백테스트 대상 종목코드(FR-STR-068). 비어 있으면 유니버스 전략.
   target_symbols?: string[];
+  // 지정 종목이 어느 테마 조회에서 왔는지(없으면 사용자가 직접 지목한 종목).
+  // 선정 범위 판정의 입력이다 — getSelectionScope 참조.
+  theme_universe?: string | null;
   max_positions: number;
   hold_period_days: number | null;
   rebalancing_period: string;
@@ -432,12 +435,30 @@ export function hasBuyCriteria(parsed: ParsedSummary | null | undefined): boolea
   );
 }
 
+/** 종목 선정 범위 — 백엔드 `engine/selection_scope.py`의 판정을 그대로 옮긴 것.
+ *
+ * **판정 정본은 백엔드다.** 여기 있는 것은 배지 문구를 고르기 위한 미러이며, 규칙이
+ * 갈리면 화면과 실제 실행이 어긋난다(테마 후보군을 "36개 균등 투자"로 표시해 놓고
+ * 엔진은 랭킹으로 10개만 사는 상태). 규칙을 바꿀 때는 양쪽을 함께 고친다. */
+export type SelectionScope = "EXPLICIT" | "CANDIDATE_POOL" | "UNIVERSE";
+
+export function getSelectionScope(parsed: ParsedSummary): SelectionScope {
+  if (!(parsed.target_symbols?.length ?? 0)) return "UNIVERSE";
+  // 테마 유래 종목이라도 선정 기준(랭킹)이 있을 때만 후보군이다 — 기준이 없으면
+  // 무엇을 기준으로 자를지 아무도 말하지 않았으므로 전부 매수한다.
+  if (parsed.theme_universe && parsed.ranking_metric) return "CANDIDATE_POOL";
+  return "EXPLICIT";
+}
+
 // 포트폴리오(보유 종목 수) 배지 문구. 지정 종목 백테스트는 "최대 N종목"(유니버스 선정)이
-// 아니라 지정 종목 집중 투자임을 드러낸다.
+// 아니라 지정 종목 집중 투자임을 드러낸다. 테마 후보군에서 선정하는 전략은 지정이 아니므로
+// 유니버스 전략과 같은 문구를 쓴다(실제로 그 종목 수만큼만 산다).
 export function getPositionLabel(parsed: ParsedSummary): string {
+  const scope = getSelectionScope(parsed);
   const targetCount = parsed.target_symbols?.length ?? 0;
-  if (targetCount === 1) return "단일 종목 집중 투자";
-  if (targetCount > 1) return `지정 종목 ${targetCount}개 균등 투자`;
+  if (scope === "EXPLICIT") {
+    return targetCount === 1 ? "단일 종목 집중 투자" : `지정 종목 ${targetCount}개 균등 투자`;
+  }
   return `최대 ${parsed.max_positions}종목`;
 }
 

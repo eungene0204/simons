@@ -15,6 +15,8 @@ type ParseStreamBody = {
   previous_field_metadata?: Record<string, unknown> | null;
   // 영속 Artifact 상태 에코(비싼 도구 산출물의 근거·유효성)
   previous_artifacts?: Record<string, unknown> | null;
+  // 직전 턴 파생 상태 에코(무효화·재유효화 전이 판정의 유일한 입력)
+  previous_field_states?: Record<string, unknown> | null;
 };
 
 function sseEvent(data: object | string): string {
@@ -171,6 +173,9 @@ export async function POST(req: NextRequest) {
             // 영속 Artifact 상태 — 비싼 도구 산출물(테마 종목)의 근거와 유효성.
             // 재조회가 비싸 "아직 맞나"를 재실행으로 확인할 수 없어 기록으로 나른다.
             artifacts: data.artifacts ?? null,
+            // 변경 영향 범위(§ 8·§ 30) — 이번 턴이 무엇을 쓸 수 없게/있게 만들었나.
+            // 내부 추적용이며 사용자 문구를 만들지 않는다(안내는 검증기 담당).
+            impact: data.impact ?? null,
             notices: data.notices ?? null,
           });
           send({
