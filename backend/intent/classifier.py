@@ -640,6 +640,24 @@ def _resolve_workflow(
     return effect, _EFFECT_TRANSITIONS.get(effect, workflow_status)
 
 
+def _resolve_clarify_target(
+    interp: interpreter.IntentInterpretation, active_strategy: bool
+) -> Optional[str]:
+    """LLM이 지목한 되묻기 대상을 결정론으로 검증한다(성립하지 않으면 None 강등).
+
+    _resolve_workflow와 같은 계약이다 — LLM은 대상을 제안만 하고 성립 여부는 코드가 정한다.
+    None 강등은 거부가 아니라 기존 흐름(전략 파싱으로 통과) 유지이므로 안전 방향이다."""
+    if interp.clarify_target is None:
+        return None
+    if interp.intent in _EFFECT_BLOCKED_INTENTS:
+        # 규제·범위 게이트 안내가 되묻기로 삼켜지지 않게 한다(제어 축과 같은 이유).
+        return None
+    if not active_strategy:
+        # 진행 중인 전략이 없으면 바꿀 대상도 없다 — 첫 발화는 파싱으로 흐른다.
+        return None
+    return interp.clarify_target
+
+
 def _resolve_stock(
     interp: interpreter.IntentInterpretation, last_symbol: Optional[str]
 ) -> Optional[StockRef]:
@@ -674,6 +692,7 @@ def _apply_domain_policy(
     캐시 친화). 원문에서 의미를 읽지 않으므로 해석이 아니다."""
     intent = interp.intent
     effect, next_status = _resolve_workflow(interp, active_strategy, workflow_status)
+    clarify_target = _resolve_clarify_target(interp, active_strategy)
     ref = _resolve_stock(interp, last_symbol) if intent in _STOCK_BEARING_INTENTS else None
     if intent == QueryIntent.STOCK_ANALYSIS:
         suggested_reply = stock_question_redirect(
@@ -702,6 +721,7 @@ def _apply_domain_policy(
         deterministic=False,
         workflow_effect=effect,
         workflow_status=next_status,
+        clarify_target=clarify_target,
     )
 
 
@@ -713,6 +733,7 @@ def classify(
     history: Optional[list[ChatTurn]] = None,
     active_strategy: bool = False,
     workflow_status: WorkflowStatus = WorkflowStatus.IDLE,
+    pending_question: Optional[str] = None,
 ) -> IntentResult:
     """입력을 QueryIntent로 분류한다.
 
@@ -729,8 +750,8 @@ def classify(
         legacy = _classify_legacy(query, last_symbol, llm, history)
         return legacy.model_copy(update={"workflow_status": workflow_status})
 
-    logger.info("query=%r active_strategy=%s workflow_status=%s",
-                query, active_strategy, workflow_status.value)
+    logger.info("query=%r active_strategy=%s workflow_status=%s pending_question=%r",
+                query, active_strategy, workflow_status.value, pending_question)
     if llm is None:
         return _log_result(IntentResult(
             intent=QueryIntent.UNKNOWN,
@@ -740,7 +761,9 @@ def classify(
             workflow_status=workflow_status,
         ))
     try:
-        interp = interpreter.interpret(query, llm, history, active_strategy)
+        interp = interpreter.interpret(
+            query, llm, history, active_strategy, pending_question,
+        )
     except Exception:
         logger.exception("의도 해석 LLM 호출 실패")
         raise

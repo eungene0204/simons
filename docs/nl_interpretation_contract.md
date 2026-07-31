@@ -1261,6 +1261,75 @@ validator가 이미 한다 — 여기서 또 알리면 같은 말이 두 번 나
 
 회귀: `tests/test_impact.py` 6건.
 
+### § 11-19. 턴 중재 구조화 — 이관 대상을 계층으로 드러냄 (2026-07-31 완료)
+
+프론트 `decideConversationTurn`이 "어떤 발화가 백엔드에 가는가"를 정하는 **턴 중재자**이며,
+그 판정 대부분이 원문 정규식이라는 것은 이 문서가 이미 지적한 선행 문제다(§ 11 격차 —
+"프론트가 턴 중재권을 쥐고 있는 것이 선행 문제이며, 그 중재를 먼저 옮기기 전에는 개별
+규칙만 떼어낼 수 없다. 순서: ① 턴 중재 이관 → ② 되묻기 규칙 이관").
+
+이번 작업은 **①의 준비**다 — 이관을 수행하지 않았고, 대신 중재자를 이관 가능한 형태로
+정리했다(SRS FR-SA-017).
+
+| 계층 | 판정 입력 | 계약상 지위 |
+|---|---|---|
+| L0 워크플로 제어 | 분류 LLM `workflow_effect` | 정상(§ 11-9) |
+| L1 진행 중 하위 대화 | 상태(보류 프롬프트·빌더 세션) | 정상 — 원문 해석 아님 |
+| **L2 발화 지목 규칙** | **원문 정규식 7종** | **위반 — 이관 대상** |
+| L3 라벨 분기 | 분류 LLM `intent` | 정상(§ 11-8) |
+| L4 상태 기본 액션 | 상태(다음에 정할 조건) | 정상 — 판정은 슬롯 술어뿐 |
+| L5 파싱 폴백 | — (파서 LLM에 넘김) | 정상 |
+
+L2의 잔여 정규식: `backtestPeriodTooShort` · `isBacktestConfirmation` ·
+`researchMetricDecision` · `buildStrategyHorizonComparisonResponse` ·
+`getModificationClarification` · `buildTakeProfitPercentagePrompt` ·
+`buildFundamentalFactorPrompt`, 그리고 L4 진입 판정 `isAdvisorFollowUpPrompt`.
+**새 규칙을 L2에 추가하지 않는다** — 늘리면 이관 표면이 함께 늘어난다.
+
+이관의 형태는 분류 LLM 호출에 축을 하나 더 다는 것이다(`workflow_effect` 선례와 동일:
+출력 형태에 키 추가, LLM 호출 증가 0회). 다만 **L2는 현재 분류를 거치지 않는 즉답
+경로**라, 이관하면 그 턴들에 분류 왕복이 새로 생긴다 — 지연 비용을 실측해 판정해야 한다.
+
+### § 11-20. 되묻기 판정 부분 이관 — clarify_target 축 (2026-07-31 완료, 부분)
+
+§ 11-19가 정리한 L2(발화 지목 규칙) 중 **되묻기 성격 3종**을 LLM 레인으로 옮겼다
+(사용자 결정: 부분 이관). 나머지 L2(기간 하한·실행 확인·연구 지표·기간 비교)는 남는다.
+
+| 이관 전(원문 정규식) | 이관 후 |
+|---|---|
+| `getModificationClarification(prompt)` — 15종 패턴 | 분류 LLM `clarify_target` |
+| `buildTakeProfitPercentagePrompt(prompt)` | 〃 (`take_profit`) |
+| `buildFundamentalFactorPrompt(prompt)` — 지표 16종 패턴 | 〃 (지표 키) |
+
+**형태는 `workflow_effect` 선례와 같다**(§ 11-9): 같은 분류 호출의 출력 형태에 키 하나를
+추가하므로 LLM 호출 증가는 0회다. `max_tokens` 180→220(필드 증가로 JSON 절단 시 UNKNOWN
+실패로 떨어짐).
+
+① **LLM은 대상만 고른다** — 닫힌 목록(`intent/clarify_targets.py`: 설정 9 + 영역 7 +
+재무 지표 키 26)에서 하나를 고르거나 null이다. 목록 밖 표기는 정규화 단계에서 None으로
+떨어진다(모르는 값을 되묻기 대상으로 승격하지 않는다).
+② **성립 검증은 결정론이 한다**(`_resolve_clarify_target`) — 규제 게이트 라벨 9종이면
+None(정형 안내가 되묻기로 삼켜지지 않게), 진행 중인 전략이 없으면 None. None 강등은
+거부가 아니라 기존 흐름(파싱으로 통과) 유지다.
+③ **문구는 LLM이 짓지 않는다** — 프론트의 기존 표가 라벨을 키로 문구·선택지를 고른다
+(`clarificationForTarget`). 허용 패턴("라벨을 키로 정해진 안내 문구를 고른다")이며 표현이
+바뀌지 않는다. 재무 지표 문구는 `data/fundamental-factors.json` 정본에서 생성한다.
+④ **프론트는 재심하지 않는다** — 백엔드가 성립 검증을 마친 라벨을 그대로 쓴다. 정규식이
+LLM 판정을 뒤집는 안전망은 두지 않는다(§ 11-8과 같은 계약).
+⑤ **순서 변화 1건** — 되묻기 판정이 분류 이후에만 가능하므로, 원래 그보다 뒤에 있던
+후속 질문 분기(`isAdvisorFollowUpPrompt` → 상태 기본 액션)도 분류 뒤로 내렸다. 그러지
+않으면 '영업이익률을 추가해 볼까?'처럼 지목과 후속 질문 표현이 겹치는 발화를 진행 순서가
+가로챈다(이관 전 주석이 예고한 그 충돌이다).
+⑥ **지연** — 이 3종은 이관 전 분류를 거치지 않는 즉답 경로였다. 이제 분류 왕복 1회가
+생긴다(사용자가 비용을 알고 선택). 남은 L2는 그대로 즉답이다.
+⑦ **잔여** — `isAdvisorFollowUpPrompt`·`backtestPeriodTooShort`·`isBacktestConfirmation`·
+`researchMetricDecision`·`buildStrategyHorizonComparisonResponse`, 그리고 레거시 함수
+`getModificationClarification`/`buildTakeProfitPercentagePrompt`/
+`buildFundamentalFactorPrompt`(턴 중재에서 미사용, 삭제하지 않고 사용만 중지).
+
+회귀: `backend/tests/test_intent_interpreter.py`(정규화·성립 검증 24건),
+`app/analytics/new/conversationDecision.test.ts`(라벨 → 문구 매핑).
+
 ### 마이그레이션 순서
 
 1번(`nl_parser.py`)은 독립 순번이 없다 — 나머지가 끝나면 남는 잔여물이며, 성격이 다른

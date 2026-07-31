@@ -226,6 +226,14 @@ export const SLOT_FIELD_ORDER: MissingBacktestCondition["field"][] = [
   "stop_loss", "take_profit", "backtest_period", "initial_capital",
 ];
 
+/** 슬롯 하나의 되묻기 문구·선택지(정본 표에서 그대로). 재질문 큐가 이미 채워진 슬롯을
+ *  다시 물을 때 쓴다 — getNextMissingBacktestCondition은 '비어 있는 첫 슬롯'만 내므로. */
+export function promptForSlot(
+  field: MissingBacktestCondition["field"],
+): MissingBacktestCondition {
+  return { field, ...SLOT_PROMPTS[field] };
+}
+
 export function getNextMissingBacktestCondition(
   parsed: ParsedSummary | undefined | null,
   options: BacktestReadinessOptions = {},

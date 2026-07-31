@@ -307,12 +307,14 @@ describe("decideConversationTurn", () => {
   });
 
   it("asks which entry signal to use instead of reparsing an underspecified change", () => {
-    const decision = decideConversationTurn("진입 신호를 바꾸고 싶어", {
-      ...baseContext,
-      hasCurrentStrategy: true,
-    });
+    // 되묻기 판정은 LLM 레인(clarify_target)이 한다 — 프론트는 라벨로 문구를 고른다.
+    const decision = decideConversationTurn(
+      "진입 신호를 바꾸고 싶어",
+      { ...baseContext, hasCurrentStrategy: true },
+      { intent: "STRATEGY_ADVICE", clarifyTarget: "entry_signal" },
+    );
 
-    expect(decision).toEqual({
+    expect(decision).toMatchObject({
       action: "respond",
       speechAct: "modify",
       topic: "strategy",
@@ -332,10 +334,11 @@ describe("decideConversationTurn", () => {
   it("clarifies a value-less fundamental factor add instead of a coach follow-up", () => {
     // 스크린샷 회귀: "영업이익률을 추가해 볼까?"가 물음표 때문에 answer_follow_up으로 새어
     // 조용히 넘어가던 것 — 이제 그 지표 기준을 추천 칩으로 되묻는다.
-    const decision = decideConversationTurn("영업이익률을 추가해 볼까?", {
-      ...baseContext,
-      hasCurrentStrategy: true,
-    });
+    const decision = decideConversationTurn(
+      "영업이익률을 추가해 볼까?",
+      { ...baseContext, hasCurrentStrategy: true },
+      { intent: "STRATEGY_ADVICE", clarifyTarget: "operating_margin" },
+    );
     expect(decision).toMatchObject({
       action: "respond",
       speechAct: "modify",
@@ -367,16 +370,17 @@ describe("decideConversationTurn", () => {
   });
 
   it.each([
-    ["유니버스를 바꾸고 싶어", "missing_universe_definition", "유니버스를 KOSPI200으로 변경"],
-    ["청산 신호를 변경해줘", "missing_exit_signal_definition", "청산 신호를 RSI 70 이상으로 변경"],
-    ["포트폴리오를 수정하고 싶어", "missing_portfolio_definition", "최대 5종목으로 변경"],
-    ["리스크 옵션을 보여줘", "missing_risk_definition", "손절을 -10%로 변경"],
-    ["리스트를 바꾸고 싶어", "missing_risk_definition", "MDD 20% 한도로 변경"],
-  ])("clarifies an underspecified strategy section: %s", (prompt, reason, suggestion) => {
-    const decision = decideConversationTurn(prompt, {
-      ...baseContext,
-      hasCurrentStrategy: true,
-    });
+    ["유니버스를 바꾸고 싶어", "universe", "missing_universe_definition", "유니버스를 KOSPI200으로 변경"],
+    ["청산 신호를 변경해줘", "exit_signal", "missing_exit_signal_definition", "청산 신호를 RSI 70 이상으로 변경"],
+    ["포트폴리오를 수정하고 싶어", "portfolio", "missing_portfolio_definition", "최대 5종목으로 변경"],
+    ["리스크 옵션을 보여줘", "risk", "missing_risk_definition", "손절을 -10%로 변경"],
+    ["리스트를 바꾸고 싶어", "risk", "missing_risk_definition", "MDD 20% 한도로 변경"],
+  ])("clarifies an underspecified strategy section: %s", (prompt, target, reason, suggestion) => {
+    const decision = decideConversationTurn(
+      prompt,
+      { ...baseContext, hasCurrentStrategy: true },
+      { intent: "STRATEGY_ADVICE", clarifyTarget: target },
+    );
     expect(decision).toMatchObject({ action: "respond", speechAct: "modify", reason });
     expect(decision.action === "respond" ? decision.suggestions : []).toEqual(
       expect.arrayContaining([suggestion, "직접 입력"]),
@@ -384,10 +388,11 @@ describe("decideConversationTurn", () => {
   });
 
   it("clarifies a missing take-profit percentage for an active strategy", () => {
-    const decision = decideConversationTurn("이익이 나면 일정 비율에서 팔고 싶어", {
-      ...baseContext,
-      hasCurrentStrategy: true,
-    });
+    const decision = decideConversationTurn(
+      "이익이 나면 일정 비율에서 팔고 싶어",
+      { ...baseContext, hasCurrentStrategy: true },
+      { intent: "STRATEGY_ADVICE", clarifyTarget: "take_profit" },
+    );
 
     expect(decision).toMatchObject({
       action: "respond",
@@ -492,14 +497,22 @@ describe("decideConversationTurn", () => {
     });
   });
 
-  it("answers active-strategy follow-up questions without classification", () => {
-    expect(decideConversationTurn("어디를 개선해 볼까?", {
-      ...baseContext,
-      hasCurrentStrategy: true,
-    })).toMatchObject({
+  it("answers active-strategy follow-up questions after classification", () => {
+    // 되묻기 판정이 LLM 레인으로 이관되면서 후속 질문도 분류 뒤에 판정된다 — 지목된
+    // 대상('영업이익률을 추가해 볼까?')이 후속 질문 표현과 겹쳐 먼저 이겨야 하기 때문이다.
+    expect(decideConversationTurn(
+      "어디를 개선해 볼까?",
+      { ...baseContext, hasCurrentStrategy: true },
+      { intent: "STRATEGY_ADVICE" },
+    )).toMatchObject({
       action: "answer_follow_up",
       reason: "active_strategy_follow_up",
     });
+    // 분류 전에는 판정을 미룬다(분류 요청).
+    expect(decideConversationTurn("어디를 개선해 볼까?", {
+      ...baseContext,
+      hasCurrentStrategy: true,
+    })).toMatchObject({ action: "classify" });
   });
 });
 
@@ -664,13 +677,16 @@ describe("getModificationClarification", () => {
 
   it("responds with condition options when a strategy exists", () => {
     expect(
-      decideConversationTurn("조건을 변경 할 수 있어?", {
-        ...baseContext,
-        hasCurrentStrategy: true,
-      }),
+      decideConversationTurn(
+        "조건을 변경 할 수 있어?",
+        { ...baseContext, hasCurrentStrategy: true },
+        { intent: "STRATEGY_ADVICE", clarifyTarget: "condition" },
+      ),
     ).toMatchObject({
-      action: "respond",
-      reason: "missing_condition_target",
+      // 무엇을 바꿀지 안 말한 메타 요청은 '지금 설정된 항목' 체크박스 목록으로 받는다
+      // (FR-SA-020). 보여줄 항목이 없을 때만 기존 영역 칩으로 되돌아간다.
+      action: "ask_keep_items",
+      reason: "keep_or_change_selection",
       suggestions: expect.arrayContaining(["리스크 설정 변경", "직접 입력"]),
     });
   });
@@ -773,5 +789,73 @@ describe("워크플로 제어(백엔드 분류 결과 소비)", () => {
         suggestedReply: "맞춤 조언은 제공하지 않아요.",
       }),
     ).toMatchObject({ action: "respond", message: "맞춤 조언은 제공하지 않아요." });
+  });
+});
+
+// ── 액션 계층(FR-SA-017) ───────────────────────────────────────────
+// "지금 무엇을 할 수 있는가"는 상태가 답한다. 단, 사용자가 특정 항목을 지목했으면(L2)
+// 그 규칙이 진행 순서를 이긴다 — 지목한 질문을 진행 순서가 덮어쓰면 질문이 무시된다.
+describe("액션 계층 — 상태 기본 액션(L4)과 발화 지목 규칙(L2)", () => {
+  const rebalancingNext = {
+    field: "rebalancing",
+    question: "리밸런싱 주기가 빠져 있습니다. 포트폴리오를 얼마나 자주 다시 구성할까요?",
+    suggestions: ["매주 리밸런싱", "매월 리밸런싱", "분기마다 리밸런싱", "안 함"],
+  };
+  const activeContext: ConversationContext = {
+    ...baseContext,
+    stage: "ready",
+    hasCurrentStrategy: true,
+    slots: { next: rebalancingNext },
+  };
+
+  it("후속 질문에는 다음에 정할 조건을 묻는다 — 질문과 선택지가 같은 판정에서 나온다", () => {
+    // 되묻기 이관 이후 후속 질문 판정은 분류 뒤에 온다(지목 대상이 먼저 이길 수 있어야 하므로).
+    const decision = decideConversationTurn("어떻게 해야 할까?", activeContext, {
+      intent: "STRATEGY_ADVICE",
+    });
+    expect(decision).toMatchObject({
+      action: "ask_next_condition",
+      field: "rebalancing",
+      message: rebalancingNext.question,
+      suggestions: rebalancingNext.suggestions,
+    });
+  });
+
+  it("정할 것이 다 정해졌으면 검증 도우미에게 넘긴다", () => {
+    expect(
+      decideConversationTurn(
+        "어떻게 해야 할까?",
+        { ...activeContext, slots: { next: null } },
+        { intent: "STRATEGY_ADVICE" },
+      ),
+    ).toMatchObject({ action: "answer_follow_up" });
+  });
+
+  it("발화가 특정 항목을 지목하면 진행 순서보다 그 규칙이 이긴다", () => {
+    // 다음 차례는 리밸런싱이지만 사용자가 손절을 지목했다 — 손절을 되묻는다.
+    const decision = decideConversationTurn("손절 바꿔줘", activeContext, {
+      intent: "STRATEGY_ADVICE",
+      clarifyTarget: "stop_loss",
+    });
+    expect(decision).toMatchObject({ action: "respond", reason: "missing_stop_loss_value" });
+  });
+
+  it("새 조건을 말한 발화는 상태 기본 액션이 가로채지 않고 파싱으로 간다", () => {
+    const decision = decideConversationTurn(
+      "RSI 30 이하에서 매수하도록 바꿔줘",
+      activeContext,
+      { intent: "STRATEGY_ADVICE" },
+    );
+    expect(decision.action).toBe("parse_strategy");
+  });
+
+  it("전략이 없으면 상태 기본 액션이 성립하지 않는다", () => {
+    expect(
+      decideConversationTurn(
+        "어떻게 해야 할까?",
+        { ...baseContext, slots: null },
+        { intent: "STRATEGY_ADVICE" },
+      ).action,
+    ).not.toBe("ask_next_condition");
   });
 });

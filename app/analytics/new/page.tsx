@@ -84,12 +84,21 @@ import {
   type HoldingPeriodHorizon,
   type SemanticClassification,
   type StrategyAssumptions,
+  type StrategySlotState,
   type WorkflowEffect,
   type WorkflowStatus,
 } from "./conversationDecision";
+import { buildTurnMessage, type TurnPresentation } from "./turnMessage";
+import {
+  clearStrategyItems,
+  listStrategyItems,
+  reaskQueueFor,
+  type StrategyItem,
+} from "./strategyItems";
 import {
   getNextMissingBacktestCondition,
   isBacktestReady,
+  promptForSlot,
 } from "./backtestReadiness";
 import {
   presentStrategyClarification,
@@ -191,6 +200,8 @@ interface ChatMessage {
   };
   // 전략 요약을 막지 않는 보정 안내(예: 초기자금 하한선 보정). 요약 카드와 함께 표시된다.
   notices?: string[];
+  // 유지/변경을 고르는 체크박스 목록(FR-SA-020). 상태에서 만들어 붙인다.
+  keepItems?: StrategyItem[];
 }
 
 type MetricOptimizationProgressState = {
@@ -549,6 +560,12 @@ const CHOICE_CHIP_CLASS =
   "rounded-lg border border-white/[0.14] bg-white/[0.05] px-2.5 py-1.5 text-[12px] font-bold text-gray-200 text-left transition-colors duration-200 hover:border-[var(--chat-accent-line)] hover:bg-white/[0.09] hover:text-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]";
 // 진입 연출은 클래스로 둔다 — 인라인 animation은 prefers-reduced-motion으로 끌 수 없다.
 const MESSAGE_ENTER_CLASS = "chat-card-enter";
+
+// 네트워크를 타는 액션 — 이 턴에만 '분석 중...' 자리표시자를 먼저 띄운다.
+// 즉답 액션(결정론 안내·되묻기)은 자리표시자 없이 곧바로 메시지를 붙여 깜빡임을 없앤다.
+const NETWORK_BOUND_ACTIONS: readonly string[] = [
+  "classify", "continue_builder", "answer_follow_up", "parse_strategy",
+];
 const MESSAGE_ENTER_LATE_CLASS = "chat-card-enter-late";
 const SURFACE_ENTER_CLASS = "chat-enter";
 const SURFACE_ENTER_LATE_CLASS = "chat-enter-late";
@@ -599,6 +616,75 @@ async function enforceMinValidationDelay(startedAt: number) {
   if (elapsed < MIN_VALIDATION_DELAY_MS) {
     await sleep(MIN_VALIDATION_DELAY_MS - elapsed);
   }
+}
+
+/** 유지/변경 선택 목록(FR-SA-020). 기본값은 **전부 체크**(현 상태 유지)이며, 사용자는
+ *  바꾸고 싶은 것만 체크를 푼다 — 아무것도 건드리지 않고 제출하면 전략이 그대로 남는다. */
+function KeepItemsSelector({
+  items,
+  disabled,
+  onSubmit,
+}: {
+  items: StrategyItem[];
+  disabled?: boolean;
+  onSubmit: (keptIds: string[]) => void;
+}) {
+  const [kept, setKept] = useState<string[]>(() => items.map((item) => item.id));
+  const toggle = (id: string) =>
+    setKept((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const changedCount = items.length - kept.length;
+  return (
+    <div
+      className={`flex max-w-[88%] flex-col gap-2.5 p-4 ${ARTIFACT_CARD_CLASS} ${MESSAGE_ENTER_LATE_CLASS}`}
+      data-testid="keep-items-selector"
+    >
+      <p className="text-[11px] font-black text-[var(--text-label)]">그대로 둘 항목</p>
+      <div className="flex flex-col gap-1">
+        {items.map((item) => {
+          const checked = kept.includes(item.id);
+          return (
+            <label
+              key={item.id}
+              className="flex cursor-pointer items-center gap-2.5 rounded-lg px-1.5 py-1.5 transition-colors duration-200 hover:bg-white/5"
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={disabled}
+                onChange={() => toggle(item.id)}
+                className="h-[15px] w-[15px] flex-shrink-0 accent-[var(--chat-accent)]"
+              />
+              <span className="text-[11px] font-black text-[var(--text-label)] w-[68px] flex-shrink-0">
+                {item.label}
+              </span>
+              <span
+                className={`text-[13px] font-bold leading-relaxed transition-colors duration-200 ${
+                  checked ? "text-gray-200" : "text-[var(--text-label)] line-through"
+                }`}
+              >
+                {item.value}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-2 pt-0.5">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onSubmit(kept)}
+          className={CHOICE_CHIP_CLASS}
+        >
+          선택 완료
+        </button>
+        <span className="text-[11px] font-bold text-[var(--text-label)]">
+          {changedCount === 0
+            ? "모두 그대로 둡니다"
+            : `${changedCount}개 항목을 다시 정합니다`}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 function ShimmerStatusText({
@@ -1353,6 +1439,21 @@ function StrategyLabContent() {
     chips: string[];
     chip_bindings?: Record<string, Record<string, unknown>>;
   } | null>(null);
+  // 아직 답하지 않은 되묻기(질문·선택지·그때의 요약 카드). 되묻기 블록은 **마지막**
+  // assistant 메시지에만 렌더되므로, 부가 발화(인사·용어 질문 등)로 메시지가 하나 더
+  // 붙으면 질문과 선택지가 화면에서 통째로 사라진다(2026-07-31 "안녕" 사고).
+  // 부가 발화는 전략 State를 건드리지 않으므로 답한 뒤 이 질문을 그대로 다시 세운다
+  // (설계 스펙 § 21: 부가 질문은 워크플로를 유지한다). 다시 세우는 것은 화면 상태뿐이며
+  // 전략 파싱을 다시 돌리지 않는다 — 되묻기 내용은 이 스냅샷이 정본이다.
+  const openClarificationRef = useRef<Pick<
+    ChatMessage,
+    | "parsed"
+    | "clarification"
+    | "clarificationSuggestions"
+    | "builderPresentation"
+    | "strategyConfirmation"
+    | "previousStepState"
+  > | null>(null);
   // 전략 작성 워크플로 상태(백엔드 무상태 에코 계약) — 분류 요청에 그대로 되돌려 보낸다.
   // PAUSED가 아니면 '이어서 하자'(RESUME)가 성립하지 않으므로 직전 상태가 판정 입력이다.
   const workflowStatusRef = useRef<WorkflowStatus>("IDLE");
@@ -1407,6 +1508,8 @@ function StrategyLabContent() {
     artifactsRef.current = null;
     changeLogRef.current = [];
     pendingAskRef.current = null;
+    openClarificationRef.current = null;
+    reaskQueueRef.current = [];
     pendingHoldingPeriodPromptRef.current = null;
     pendingHoldingPeriodHorizonRef.current = null;
     pendingMetricResearchPromptRef.current = null;
@@ -1734,29 +1837,100 @@ function StrategyLabContent() {
       backtestReqRef.current ?? backtestReq,
     );
 
+    const nextAssistantMessage: ChatMessage = {
+      role: "assistant",
+      parsed: deterministicChoice.parsed,
+      clarification: nextPresentation.question,
+      clarificationSuggestions: nextMissingCondition?.suggestions ??
+        [CONFIRM_STRATEGY_CHIP],
+      builderPresentation: {
+        summaryItems: nextPresentation.summaryItems,
+        progressItems: nextPresentation.progressItems,
+      },
+      strategyConfirmation: nextMissingCondition === null,
+      // 이 블록에 진입했다는 것은 직전에 답한 조건 버블이 이미 존재한다는 뜻이다(유니버스
+      // 질문은 이 경로로 생성되지 않으므로 자연히 제외된다) — 항상 되돌아갈 상태를 남긴다.
+      previousStepState: {
+        parsed: currentParsed,
+        allowNoRebalancing: previousAllowNoRebalancing,
+        explicitFields: previousExplicitFields,
+      },
+    };
+    rememberOpenClarification(nextAssistantMessage);
     setMessages((previousMessages) => [
       ...previousMessages,
       { role: "user", content: userChoice },
-      {
-        role: "assistant",
-        parsed: deterministicChoice.parsed,
-        clarification: nextPresentation.question,
-        clarificationSuggestions: nextMissingCondition?.suggestions ??
-          [CONFIRM_STRATEGY_CHIP],
-        builderPresentation: {
-          summaryItems: nextPresentation.summaryItems,
-          progressItems: nextPresentation.progressItems,
-        },
-        strategyConfirmation: nextMissingCondition === null,
-        // 이 블록에 진입했다는 것은 직전에 답한 조건 버블이 이미 존재한다는 뜻이다(유니버스
-        // 질문은 이 경로로 생성되지 않으므로 자연히 제외된다) — 항상 되돌아갈 상태를 남긴다.
-        previousStepState: {
-          parsed: currentParsed,
-          allowNoRebalancing: previousAllowNoRebalancing,
-          explicitFields: previousExplicitFields,
-        },
-      },
+      nextAssistantMessage,
     ]);
+  };
+
+  /** 유지/변경 선택 제출(FR-SA-020) — 고르지 않은 항목을 비우고 순서대로 다시 묻는다.
+   *
+   *  값을 비우므로 진행률 언체크는 **같은 술어로 자동 성립**한다(새 상태 축 없음).
+   *  재질문은 대기열이 순서를 잡고, 대기열이 비면 기존 상태 기본 액션이 이어받는다.
+   *  백엔드 왕복이 없다 — 사용자가 화면의 값을 보고 고른 것이라 재해석할 것이 없다.
+   */
+  const submitKeepSelection = async (items: StrategyItem[], keptIds: string[]) => {
+    const currentParsed = latestParsedRef.current ?? latestParsed;
+    if (!currentParsed) return;
+    const keep = new Set(keptIds);
+    const clearedIds = items.filter((item) => !keep.has(item.id)).map((item) => item.id);
+
+    appendUserMessage(
+      clearedIds.length === 0
+        ? "모두 그대로 두기"
+        : `${items.filter((i) => clearedIds.includes(i.id)).map((i) => `${i.label} ${i.value}`).join(", ")} 다시 정하기`,
+    );
+
+    if (clearedIds.length === 0) {
+      // 전부 유지 — 사용자가 화면의 값을 그대로 확인한 것이므로 명시 기록만 남긴다(CONFIRM).
+      explicitFieldsRef.current = Array.from(
+        new Set([...explicitFieldsRef.current, ...items.map((i) => i.slot)
+          .filter((slot) => EXPLICIT_GATE_FIELDS.includes(slot))]),
+      );
+      reaskQueueRef.current = [];
+      await appendAssistant({
+        role: "assistant",
+        ...composeTurnMessage({
+          action: "respond",
+          speechAct: "confirm",
+          topic: "strategy",
+          confidence: 1,
+          reason: "keep_all_selected",
+          message: "현재 조건을 그대로 두었어요.",
+        }),
+      });
+      return;
+    }
+
+    const { parsed: nextParsed, dropExplicitFields } = clearStrategyItems(currentParsed, clearedIds);
+    latestParsedRef.current = nextParsed;
+    setLatestParsed(nextParsed);
+    explicitFieldsRef.current = explicitFieldsRef.current.filter(
+      (field) => !dropExplicitFields.includes(field),
+    );
+    reaskQueueRef.current = reaskQueueFor(items, clearedIds);
+
+    // 대기열의 머리를 꺼내 되묻는다 — 물어보는 순간 소모한다(답하지 않아도 그 슬롯은
+    // 비어 있으므로 상태 기본 액션이 나중에 다시 데려간다).
+    const ask = nextReask();
+    reaskQueueRef.current = reaskQueueRef.current.slice(1);
+    if (!ask) return;
+    const decision: ConversationDecision = {
+      action: "ask_next_condition",
+      speechAct: "ask",
+      topic: "strategy",
+      confidence: 1,
+      reason: "reask_after_keep_selection",
+      field: ask.field,
+      message: ask.question,
+      suggestions: ask.suggestions,
+    };
+    const patch = composeTurnMessage(decision, {
+      askPresentation: presentationFor(ask.question),
+    });
+    rememberOpenClarification(patch);
+    await appendAssistant({ role: "assistant", ...patch });
   };
 
   const focusFreeTextInput = () => {
@@ -1771,6 +1945,87 @@ function StrategyLabContent() {
       return prev.map((m, i) => i === lastIdx ? { ...m, ...patch } : m);
     });
   };
+
+  // "이건 바꾸겠다"고 고른 항목의 재질문 대기열(FR-SA-020). 물어보는 순간 머리를 빼며,
+  // 답하지 않아도 그 슬롯은 비어 있으므로 상태 기본 액션(L4)이 나중에 다시 데려간다.
+  const reaskQueueRef = useRef<string[]>([]);
+
+  // 진행 골격 상태(중재자 입력, FR-SA-017 ①) — 판정은 정본 술어 하나(isSlotFilled)로만
+  // 한다. 중재자는 이 결과만 보고 "지금 무엇을 할 수 있는가"를 정한다.
+  const currentSlotState = (): StrategySlotState | null => {
+    const parsed = latestParsedRef.current ?? latestParsed;
+    if (!parsed) return null;
+    const next = getNextMissingBacktestCondition(parsed, {
+      allowNoRebalancing: explicitNoRebalancingRef.current,
+      explicitFields: explicitFieldsRef.current,
+      requireExplicitConfiguration: true,
+    });
+    return {
+      next: next
+        ? { field: next.field, question: next.question, suggestions: next.suggestions }
+        : null,
+    };
+  };
+
+  // 재질문 대기열의 머리를 문구까지 채워 낸다(정본 표에서 조회 — 문구를 새로 만들지 않는다).
+  const nextReask = () => {
+    const field = reaskQueueRef.current[0];
+    if (!field) return null;
+    const prompt = promptForSlot(field as ReturnType<typeof promptForSlot>["field"]);
+    return { field, question: prompt.question, suggestions: prompt.suggestions };
+  };
+
+  // 되묻기를 그리는 모든 턴이 그 질문을 여기에 기록한다 — 질문이 없는 턴은 지운다
+  // (답을 받은 뒤에도 남으면 이미 끝난 질문을 다시 묻게 된다).
+  const rememberOpenClarification = (message: Partial<ChatMessage>) => {
+    openClarificationRef.current = message.clarification
+      ? {
+          parsed: message.parsed,
+          clarification: message.clarification,
+          clarificationSuggestions: message.clarificationSuggestions,
+          builderPresentation: message.builderPresentation,
+          strategyConfirmation: message.strategyConfirmation,
+          previousStepState: message.previousStepState,
+        }
+      : null;
+  };
+
+  // 이 턴의 assistant 메시지를 조립한다 — 규칙은 전부 turnMessage.ts에 있다(분기별 수작업
+  // 조립 금지). 카드·되묻기 복원처럼 화면 상태에서 오는 입력만 여기서 채워 넘긴다.
+  const composeTurnMessage = (
+    decision: ConversationDecision,
+    options: { answerText?: string; askPresentation?: TurnPresentation } = {},
+  ): Partial<ChatMessage> => {
+    const parsed = latestParsedRef.current ?? latestParsed;
+    return buildTurnMessage<ParsedSummary>({
+      decision,
+      presentation: currentStrategyPresentation(),
+      askPresentation: options.askPresentation,
+      openClarification: openClarificationRef.current,
+      parsed,
+      answerText: options.answerText,
+      // 유지/변경 목록은 화면이 상태에서 만든다(조립기는 붙이기만 한다).
+      keepItems: decision.action === "ask_keep_items" ? listStrategyItems(parsed) : undefined,
+    }) as Partial<ChatMessage>;
+  };
+
+  // 현재 전략의 요약·진행률 카드. 되묻기 질문에 맞춘 카드는 질문 문구를 함께 넘겨 만든다.
+  // 결정론 즉답 턴에도 전략이 있으면 이 카드를 항상 함께 보여준다(사용자 결정 2026-07-26 —
+  // 안내가 전략 맥락 없이 답변만 떠 있지 않도록).
+  const presentationFor = (reply = ""): TurnPresentation | undefined => {
+    const parsed = latestParsedRef.current;
+    if (!parsed) return undefined;
+    const { summaryItems, progressItems } = buildBuilderTurnPresentation({
+      state: {},
+      reply,
+      parsed,
+      explicitFields: explicitFieldsRef.current,
+      backtestRequest: backtestReqRef.current ?? backtestReq,
+      allowNoRebalancing: explicitNoRebalancingRef.current,
+    });
+    return { summaryItems, progressItems };
+  };
+  const currentStrategyPresentation = () => presentationFor();
 
   // 사용자 입력 버블은 어떤 네트워크 호출(분류/파싱)보다 먼저, 즉시 그린다.
   const appendUserMessage = (userText: string) => {
@@ -2288,6 +2543,10 @@ function StrategyLabContent() {
           active_strategy: Boolean(latestParsedRef.current),
           // 무상태 에코 — 직전 워크플로 상태가 있어야 '이어서 하자'(RESUME)가 성립한다.
           workflow_status: workflowStatusRef.current,
+          // 지금 답을 기다리는 질문(무상태 에코). 이게 없으면 그 답인 짧은 발화("아니야")가
+          // 문맥 없는 잡담으로 보여 인사로 오분류된다(2026-07-31 실측). 답인지 아닌지의
+          // 판정은 분류 LLM 몫이고 프론트는 재료만 넘긴다.
+          pending_question: openClarificationRef.current?.clarification ?? null,
         }),
       });
       if (!res.ok) throw new Error();
@@ -2300,6 +2559,8 @@ function StrategyLabContent() {
         suggestedReply: data.suggested_reply ?? null,
         workflowEffect: (data.workflow_effect ?? "NONE") as WorkflowEffect,
         workflowStatus: workflowStatusRef.current,
+        // 값 없이 지목된 수정 대상 — 백엔드가 성립 검증까지 마친 라벨이다(재심 금지).
+        clarifyTarget: data.clarify_target ?? null,
       };
       return { classification, history };
     } catch {
@@ -2530,7 +2791,7 @@ function StrategyLabContent() {
       if (shouldRouteSingleAssetToBuilder) {
         return;
       }
-      applySummaryPatch({
+      const summaryPatch: Partial<ChatMessage> = {
         isLoading: false,
         infoText: researchMetricRef.current
           ? `${buildResearchMetricSummary(researchMetricRef.current)}${
@@ -2552,7 +2813,9 @@ function StrategyLabContent() {
             }
           : undefined,
         notices: parsedPayload.notices?.length ? parsedPayload.notices : undefined,
-      });
+      };
+      rememberOpenClarification(summaryPatch);
+      applySummaryPatch(summaryPatch);
     };
 
     while (true) {
@@ -2732,7 +2995,7 @@ function StrategyLabContent() {
         backtestRequest: data.backtest_request,
         allowNoRebalancing: explicitNoRebalancingRef.current,
       });
-      updateLastAssistant({
+      const clarificationPatch: Partial<ChatMessage> = {
         isLoading: false,
         infoText: undefined,
         infoSuggestions: undefined,
@@ -2741,12 +3004,16 @@ function StrategyLabContent() {
         clarificationSuggestions: missingCondition.suggestions,
         builderPresentation,
         notices: data.notices?.length ? data.notices : undefined,
-      });
+      };
+      rememberOpenClarification(clarificationPatch);
+      updateLastAssistant(clarificationPatch);
       return;
     }
     const optimizationDraft = researchMetricRef.current
       ? prepareMetricOptimization(data.backtest_request)
       : null;
+    // 남은 조건이 없다 — 열려 있던 되묻기도 없다.
+    rememberOpenClarification({});
     updateLastAssistant({
       isLoading: false,
       infoText: researchMetricRef.current
@@ -2847,45 +3114,71 @@ function StrategyLabContent() {
       pendingHoldingPeriodPrompt: pendingHoldingPeriodPromptRef.current,
       pendingHoldingPeriodHorizon: pendingHoldingPeriodHorizonRef.current,
       pendingResearchMetricPrompt: pendingMetricResearchPromptRef.current,
+      // 진행 골격 상태 — 중재자가 "지금 무엇을 할 수 있는가"를 판정하는 입력이다.
+      // 판정 자체는 정본 술어 하나(isSlotFilled)로만 하고 결과를 실어 보낸다.
+      slots: currentSlotState(),
+      // 재질문 대기열의 머리(문구까지 채워서) — slots와 같은 계약이다.
+      reaskNext: nextReask(),
     };
     let turnDecision = decideConversationTurn(userText, conversationContext);
     traceTurn("pre-classify", userText, turnDecision);
 
-    // 결정론 즉답(respond)에도 현재 전략이 있으면 '현재까지 이해한 전략입니다' 요약 카드를
-    // 항상 함께 보여준다(사용자 결정 2026-07-26 — 종목 변경 의향 안내 등이 전략 맥락 없이
-    // 답변만 떠 있지 않도록).
-    const currentStrategyPresentation = () => {
-      const parsed = latestParsedRef.current;
-      if (!parsed) return undefined;
-      const { summaryItems, progressItems } = buildBuilderTurnPresentation({
-        state: {},
-        reply: "",
-        parsed,
-        explicitFields: explicitFieldsRef.current,
-        backtestRequest: backtestReqRef.current ?? backtestReq,
-        allowNoRebalancing: explicitNoRebalancingRef.current,
-      });
-      return { summaryItems, progressItems };
+    // 네트워크를 타는 액션에만 '분석 중...' 자리표시자를 먼저 띄운다(즉답 액션은 깜빡임 없이
+    // 바로 메시지를 붙인다). 자리표시자의 유무가 곧 append냐 patch냐를 갈랐고, 그 갈래 때문에
+    // 예전에는 같은 액션의 핸들러가 분류 전/후로 **두 벌** 존재했다 — 한쪽만 고치는 드리프트의
+    // 원인이었다(2026-07-31 '안녕' 수정도 post 쪽만 고쳤다). emitAssistant가 그 차이를 흡수해
+    // 액션당 구현을 하나로 유지한다.
+    let placeholderShown = false;
+    const ensurePlaceholder = async (builderQuestion = false) => {
+      if (placeholderShown) return;
+      await appendAssistant({ role: "assistant", isLoading: true, builderQuestion });
+      placeholderShown = true;
+    };
+    const emitAssistant = async (patch: Partial<ChatMessage>) => {
+      if (placeholderShown) updateLastAssistant(patch);
+      else await appendAssistant({ role: "assistant", ...patch });
     };
 
+    if (NETWORK_BOUND_ACTIONS.includes(turnDecision.action)) {
+      await ensurePlaceholder(turnDecision.action === "continue_builder");
+    }
+    let classifyResult: Awaited<ReturnType<typeof classifyConversationPrompt>> | null = null;
+    if (turnDecision.action === "classify") {
+      classifyResult = await classifyConversationPrompt(userText);
+      turnDecision = decideConversationTurn(
+        userText, conversationContext, classifyResult.classification,
+      );
+      traceTurn("post-classify", userText, turnDecision, classifyResult.classification);
+    }
+
+    // ── 단일 디스패치: 액션당 구현은 하나뿐이다 ──────────────────────
     if (turnDecision.action === "respond") {
-      await appendAssistant({
-        role: "assistant",
-        infoText: turnDecision.message,
-        infoSuggestions: turnDecision.suggestions,
-        builderPresentation: currentStrategyPresentation(),
+      await emitAssistant(composeTurnMessage(turnDecision));
+      setIsSending(false);
+      return;
+    }
+
+    // 상태가 정한 되묻기 — 다음에 정할 조건을 진행 골격 순서대로 묻는다(L4).
+    if (turnDecision.action === "ask_next_condition") {
+      const patch = composeTurnMessage(turnDecision, {
+        askPresentation: presentationFor(turnDecision.message),
       });
+      rememberOpenClarification(patch);
+      await emitAssistant(patch);
+      setIsSending(false);
+      return;
+    }
+
+    // 유지/변경 선택 목록 — 지금 설정된 항목을 값과 함께 보여준다(FR-SA-020).
+    if (turnDecision.action === "ask_keep_items") {
+      await emitAssistant(composeTurnMessage(turnDecision));
       setIsSending(false);
       return;
     }
 
     if (turnDecision.action === "ask_research_metric") {
       pendingMetricResearchPromptRef.current = turnDecision.strategyPrompt;
-      await appendAssistant({
-        role: "assistant",
-        infoText: turnDecision.message,
-        infoSuggestions: turnDecision.suggestions,
-      });
+      await emitAssistant(composeTurnMessage(turnDecision));
       setIsSending(false);
       return;
     }
@@ -2899,11 +3192,7 @@ function StrategyLabContent() {
     if (turnDecision.action === "ask_holding_period") {
       pendingHoldingPeriodPromptRef.current = turnDecision.strategyPrompt;
       pendingHoldingPeriodHorizonRef.current = turnDecision.holdingHorizon;
-      await appendAssistant({
-        role: "assistant",
-        infoText: turnDecision.message,
-        infoSuggestions: turnDecision.suggestions,
-      });
+      await emitAssistant(composeTurnMessage(turnDecision));
       setIsSending(false);
       return;
     }
@@ -2911,6 +3200,8 @@ function StrategyLabContent() {
     if (turnDecision.action === "start_builder") {
       const holdingPeriodDays = turnDecision.strategyAssumptions?.holdingPeriodDays;
       const researchMetric = turnDecision.researchMetric ?? null;
+      // 라벨 분기(열린 추천·온보딩)로 들어온 경우에만 안내 문구가 실려 있다.
+      if (turnDecision.message) await emitAssistant({ isLoading: false, infoText: turnDecision.message });
       pendingHoldingPeriodPromptRef.current = null;
       pendingHoldingPeriodHorizonRef.current = null;
       pendingMetricResearchPromptRef.current = null;
@@ -2926,14 +3217,6 @@ function StrategyLabContent() {
       setIsSending(false);
       return;
     }
-
-    // 분류/파싱 호출 전에 '분석 중...' 로딩을 즉시 보여준다 (딜레이 동안 사용자 피드백 제공).
-    // 이후 분기들은 이 버블을 updateLastAssistant로 변형해 재사용한다(새 버블 생성 금지).
-    await appendAssistant({
-      role: "assistant",
-      isLoading: true,
-      builderQuestion: turnDecision.action === "continue_builder",
-    });
 
     // 전략 빌더 모드: 짧은 답변을 전략 필드로 누적한다(분류/거절보다 먼저 실행).
     if (turnDecision.action === "continue_builder") {
@@ -3058,6 +3341,8 @@ function StrategyLabContent() {
       return;
     }
 
+    // 정할 것이 다 정해진 뒤의 후속 질문 — 그때는 검증 도우미의 진단이 답이다.
+    // (아직 정할 것이 남아 있으면 중재자가 ask_next_condition으로 보내 여기 오지 않는다.)
     if (turnDecision.action === "answer_follow_up" && currentParsed) {
       updateLastAssistant({
         isLoading: false,
@@ -3099,10 +3384,6 @@ function StrategyLabContent() {
       return;
     }
 
-    const { classification, history } = await classifyConversationPrompt(userText);
-    turnDecision = decideConversationTurn(userText, conversationContext, classification);
-    traceTurn("post-classify", userText, turnDecision, classification);
-
     if (turnDecision.action === "control_workflow") {
       // CORRECT(§ 20) — 직전 해석이 틀렸다는 정정. 되돌린 **뒤** 이 발화로 다시
       // 해석한다. 되돌릴 지점은 언제나 직전 변경이라 LLM에 묻지 않는다(정정은 방금 한
@@ -3142,6 +3423,9 @@ function StrategyLabContent() {
       // 정하고(원문 해석), 복원은 스냅샷을 들고 있는 여기가 결정론으로 수행한다.
       if (turnDecision.effect === "ROLLBACK") {
         const restored = await resolveAndApplyRollback(userText);
+        // 되돌린 전략에는 되돌리기 전의 되묻기가 더 이상 맞지 않는다 — 다음 파스 턴이
+        // 새 질문을 세울 때까지 비워 둔다(부가 발화가 옛 질문을 되살리지 않게).
+        rememberOpenClarification({});
         updateLastAssistant({
           isLoading: false,
           infoText: restored.message,
@@ -3169,57 +3453,21 @@ function StrategyLabContent() {
       return;
     }
 
-    if (turnDecision.action === "respond") {
-      updateLastAssistant({
-        isLoading: false,
-        infoText: turnDecision.message,
-        infoSuggestions: turnDecision.suggestions,
-        builderPresentation: currentStrategyPresentation(),
-      });
-      setIsSending(false);
-      return;
-    }
-
-    if (turnDecision.action === "ask_holding_period") {
-      pendingHoldingPeriodPromptRef.current = turnDecision.strategyPrompt;
-      pendingHoldingPeriodHorizonRef.current = turnDecision.holdingHorizon;
-      updateLastAssistant({
-        isLoading: false,
-        infoText: turnDecision.message,
-        infoSuggestions: turnDecision.suggestions,
-      });
-      setIsSending(false);
-      return;
-    }
-
-    if (turnDecision.action === "start_builder") {
-      updateLastAssistant({ isLoading: false, infoText: turnDecision.message });
-      pendingMetricResearchPromptRef.current = null;
-      researchMetricRef.current = null;
-      metricOptimizationDraftRef.current = null;
-      builderModeRef.current = true;
-      builderStateRef.current = {};
-      builderHistoryRef.current = [];
-      await startStrategyBuilder({ seedText: turnDecision.seedPrompt });
-      setIsSending(false);
-      return;
-    }
-
     if (turnDecision.action === "answer_general") {
       try {
         const res = await fetch("/api/query/general", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: userText, history }),
+          body: JSON.stringify({ query: userText, history: classifyResult?.history ?? [] }),
         });
         if (!res.ok) throw new Error();
         const data = await res.json();
-        updateLastAssistant({ isLoading: false, infoText: data.answer });
+        updateLastAssistant(composeTurnMessage(turnDecision, { answerText: data.answer }));
       } catch {
         updateLastAssistant({
           isLoading: false,
           error:
-            classification.intent === "UNKNOWN"
+            classifyResult?.classification.intent === "UNKNOWN"
               ? "요청을 이해하지 못했습니다. 연구하려는 시장, 조건 또는 기간을 조금 더 구체적으로 입력해 주세요."
               : "답변을 가져오지 못했습니다.",
         });
@@ -3230,40 +3478,18 @@ function StrategyLabContent() {
 
     if (turnDecision.action === "respond_stock") {
       if (turnDecision.symbol) lastAnalyzedSymbolRef.current = turnDecision.symbol;
-      updateLastAssistant({ isLoading: false, infoText: turnDecision.message });
+      updateLastAssistant(composeTurnMessage(turnDecision));
       setIsSending(false);
       return;
     }
 
-    try {
-      if (turnDecision.action === "parse_strategy") {
-        pendingHoldingPeriodPromptRef.current = null;
-        pendingHoldingPeriodHorizonRef.current = null;
-        await runStrategyParseFlow(
-          turnDecision.strategyPrompt,
-          currentParsed,
-          currentBacktestReq,
-          turnDecision.strategyAssumptions,
-        );
-      }
-    } catch (e: any) {
-      setMessages(prev => prev.map((m, i) =>
-        i === prev.length - 1
-          ? {
-              role: "assistant",
-              error: e.message ?? "알 수 없는 오류",
-              ...(turnDecision.action === "parse_strategy"
-                ? {
-                    retryPrompt: turnDecision.strategyPrompt,
-                    retryAssumptions: turnDecision.strategyAssumptions,
-                  }
-                : {}),
-            }
-          : m
-      ));
-    } finally {
-      setIsSending(false);
-    }
+    // 여기까지 왔다는 것은 어떤 핸들러도 이 액션을 처리하지 못했다는 뜻이다 — 조용히
+    // 끝내면 로딩 버블이 영원히 남는다(입력창도 돌아오지 않는다).
+    updateLastAssistant({
+      isLoading: false,
+      error: "요청을 처리하지 못했습니다. 다시 말씀해 주시겠어요?",
+    });
+    setIsSending(false);
   };
 
   handleSendRef.current = handleSend;
@@ -3429,6 +3655,7 @@ function StrategyLabContent() {
       });
     }
   };
+
 
   const generateFollowUpCoachResponse = async ({
     userText,
@@ -3933,33 +4160,46 @@ function StrategyLabContent() {
                             </div>
                           </>
                         )}
+                        {isLastAssistant(i) && msg.keepItems && msg.keepItems.length > 0 && (
+                          <KeepItemsSelector
+                            items={msg.keepItems}
+                            disabled={isSending}
+                            onSubmit={(keptIds) => {
+                              void submitKeepSelection(msg.keepItems ?? [], keptIds);
+                            }}
+                          />
+                        )}
                         {msg.parsed && (
                           <>
                             {/* 백테스트 최소 조건을 채우는 중(clarification 대기)에는 전략 요약을
                                 미리 보여주지 않는다 — 모든 조건에 답한 뒤 한 번에 요약을 만든다. */}
                             {!msg.clarification && (
-                              <>
-                                <ParsedSummaryBubble parsed={msg.parsed} backtestRequest={backtestReq} />
-                                {msg.notices && msg.notices.length > 0 && (
-                                  <div className={`flex flex-col gap-1.5 ${MESSAGE_ENTER_LATE_CLASS}`}>
-                                    {msg.notices.map((notice, ni) => (
-                                      <div
-                                        key={ni}
-                                        className={`flex items-start gap-2.5 p-3 ${ARTIFACT_CARD_CLASS}`}
-                                      >
-                                        <Info size={13} className="mt-0.5 flex-shrink-0 text-[var(--text-label)]" weight="fill" />
-                                        <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
-                                          {notice}
-                                        </p>
-                                      </div>
-                                    ))}
+                              <ParsedSummaryBubble parsed={msg.parsed} backtestRequest={backtestReq} />
+                            )}
+                            {/* 보정·미반영 안내는 되묻기와 **함께** 보여준다. 예전에는 요약 옆에만
+                                붙어 있어, 같은 턴에 되묻기가 뜨면 "왜 반영되지 않았는지"가 조용히
+                                사라졌다(2026-07-31). 사실을 먼저 알리고 다음 질문으로 잇는다. */}
+                            {msg.notices && msg.notices.length > 0 && (
+                              <div className={`flex flex-col gap-1.5 ${MESSAGE_ENTER_LATE_CLASS}`}>
+                                {msg.notices.map((notice, ni) => (
+                                  <div
+                                    key={ni}
+                                    className={`flex items-start gap-2.5 p-3 ${ARTIFACT_CARD_CLASS}`}
+                                  >
+                                    <Info size={13} className="mt-0.5 flex-shrink-0 text-[var(--text-label)]" weight="fill" />
+                                    <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
+                                      {notice}
+                                    </p>
                                   </div>
-                                )}
-                              </>
+                                ))}
+                              </div>
                             )}
                             {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
                               <>
-                                {msg.builderPresentation && (
+                                {/* 안내문(infoText) 블록이 이미 같은 카드를 그렸으면 다시
+                                    그리지 않는다 — 부가 발화 응답 + 되묻기 재질문이 한
+                                    메시지에 함께 오는 턴에서 카드가 두 번 보였다. */}
+                                {msg.builderPresentation && !msg.infoText && (
                                   <div
                                     className={`flex flex-col gap-2.5 p-4 ${ARTIFACT_CARD_CLASS} ${MESSAGE_ENTER_CLASS}`}
                                   >
@@ -4101,9 +4341,9 @@ function StrategyLabContent() {
                                   onClick={() => void handleRetryParse(msg)}
                                   disabled={isSending}
                                   data-testid="parse-retry"
-                                  className="mt-2 flex items-center gap-1.5 rounded-lg border border-[var(--chat-line)] bg-[var(--chat-surface)] px-3 py-1.5 text-xs font-black text-[var(--text-strong)] transition-colors duration-200 hover:brightness-110 active:translate-y-[1px] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
+                                  className="mt-2 flex items-center gap-1 rounded-lg border border-gray-600 bg-[var(--chat-surface)] px-2 py-1 text-[11px] font-black text-[var(--text-strong)] transition-colors duration-200 hover:brightness-110 active:translate-y-[1px] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
                                 >
-                                  <ArrowsClockwise size={12} weight="bold" />
+                                  <ArrowsClockwise size={10} weight="bold" />
                                   다시 시도
                                 </button>
                               )}

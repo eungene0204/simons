@@ -103,6 +103,10 @@ class IntentResult(BaseModel):
     workflow_effect: WorkflowEffect = WorkflowEffect.NONE
     # 이 턴 이후의 워크플로 상태. 프론트가 다음 요청에 그대로 에코한다.
     workflow_status: WorkflowStatus = WorkflowStatus.IDLE
+    # 값 없이 지목된 수정 대상(닫힌 목록, intent/clarify_targets.py). 무엇을 되물을지는
+    # 프론트의 문구·선택지 표가 이 라벨을 키로 고른다 — 문구를 LLM이 짓지 않는다.
+    # 규제 게이트 라벨·진행 중인 전략 없음에서는 항상 None으로 강등된다.
+    clarify_target: Optional[str] = None
 
 
 class ChatTurn(BaseModel):
@@ -122,6 +126,10 @@ class IntentRequest(BaseModel):
     # 화면에 진행 중인 전략이 떠 있는지. 짧고 모호한 발화('원자력 업종만 테스트 하고 싶어')를
     # 역할 밖 잡담이 아니라 전략 수정 요청으로 읽을 근거를 LLM에 준다.
     active_strategy: bool = False
+    # 지금 화면에서 **답을 기다리고 있는 질문**(무상태 에코). 이게 없으면 그 답인 짧은
+    # 발화("아니야", "응")가 문맥 없는 잡담으로 보여 인사로 오분류된다(2026-07-31 실측).
+    # 답인지 아닌지의 판정은 LLM 몫이고, 여기서는 판정 재료만 전달한다.
+    pending_question: Optional[str] = None
     # 직전 턴의 워크플로 상태(무상태 에코 계약). PAUSED일 때만 RESUME이 성립하므로
     # 효과 판정의 입력으로 쓴다. 프론트가 응답의 workflow_status를 그대로 돌려준다.
     workflow_status: WorkflowStatus = WorkflowStatus.IDLE

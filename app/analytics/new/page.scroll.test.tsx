@@ -1442,7 +1442,7 @@ describe("StrategyLabPage scroll behavior", () => {
   });
 
   it("asks for a percentage instead of reparsing when take profit is requested without a value", async () => {
-    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
 
       if (url === "/api/model/status") {
@@ -1459,7 +1459,13 @@ describe("StrategyLabPage scroll behavior", () => {
       }
 
       if (url === "/api/query/classify") {
-        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+        // 값 없이 지목된 대상은 분류 LLM이 판정한다(프론트 정규식 이관, § 11-20).
+        const query = JSON.parse((init?.body as string) ?? "{}").query ?? "";
+        return Promise.resolve(createJsonResponse({
+          intent: "STRATEGY_ADVICE",
+          symbols: [],
+          ...(query === "익절을 추가해 볼까?" ? { clarify_target: "take_profit" } : {}),
+        }));
       }
 
       if (url === "/api/strategy/parse/stream") {
@@ -1512,7 +1518,7 @@ describe("StrategyLabPage scroll behavior", () => {
     // '종목을 변경 할 수 있나?' 사고(2026-07-26): 수정 파싱으로 흘러 무변경 재렌더링+다음
     // 조건 질문이 뜨던 회귀 가드 — 칩 없이 채팅 입력 안내만 보여주고, '현재까지 이해한
     // 전략입니다' 요약 카드를 항상 함께 표시한다(사용자 결정).
-    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
 
       if (url === "/api/model/status") {
@@ -1522,7 +1528,13 @@ describe("StrategyLabPage scroll behavior", () => {
         return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
       }
       if (url === "/api/query/classify") {
-        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+        // 값 없이 지목된 대상은 분류 LLM이 판정한다(프론트 정규식 이관, § 11-20).
+        const query = JSON.parse((init?.body as string) ?? "{}").query ?? "";
+        return Promise.resolve(createJsonResponse({
+          intent: "STRATEGY_ADVICE",
+          symbols: [],
+          ...(query === "종목을 변경 할 수 있나?" ? { clarify_target: "target_symbols" } : {}),
+        }));
       }
       if (url === "/api/strategy/parse/stream") {
         return Promise.resolve(createParseStreamResponse());

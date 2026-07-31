@@ -1051,6 +1051,43 @@ def test_modify_primary_applies_patches(monkeypatch):
     assert result["interpreter"]["mode"] == "primary_modify"
 
 
+def test_modify_primary_sibling_condition_patches_share_provenance(monkeypatch):
+    """2026-07-31 사고: '매주조건을 per 50이하로 변경해줘'에 인터프리터가 조건 하나를
+    통째로 갈아끼우는 패치 3개(factor/operator/value)를 냈는데, factor 패치의 인용만
+    한 글자 어긋나(사용자 '매주' → 인용 '매우') 게이트가 그것만 거부했다. 나머지 둘이
+    적용돼 `ma_crossover <= 50`이라는 불가능한 조건이 남았고, 검증이 연산자 오류로
+    폴백해 요청이 통째로 사라졌다("해석하지 못했어요"). 같은 조건을 겨냥한 형제 패치는
+    한 덩어리의 수정이므로, 하나라도 출처가 확인되면 함께 수락한다.
+    """
+    from strategy_conversation.primary import run_primary_modification
+
+    utter = "매주조건을 per 50이하로 변경해줘"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY",
+        "status": "READY",
+        "confidence": 0.95,
+        "patches": [
+            # 인용이 원문과 한 글자 다르다(매주→매우) — 단독으로는 근거 없음
+            {"op": "replace", "path": "/entry_conditions/2/factor",
+             "value": "fundamental.per", "source_text": "매우조건을 per 50이하로 변경해줘"},
+            {"op": "replace", "path": "/entry_conditions/2/operator", "value": "<=",
+             "source_text": "per 50이하로 변경해줘"},
+            {"op": "replace", "path": "/entry_conditions/2/value", "value": 50,
+             "source_text": "per 50이하로 변경해줘"},
+        ],
+    })
+    result = run_primary_modification(utter, _rich_parsed().model_dump())
+    assert result is not None
+    parsed = result["parsed"]
+    # factor 패치까지 함께 적용돼 매수 조건이 PER<=50으로 교체됐다
+    assert ("per", "<=", 50.0) in [
+        (f.metric, f.operator, f.value) for f in parsed.fundamental_filters
+    ]
+    # 반쪽 적용의 잔해(ma_crossover)가 남지 않았다
+    assert all(s.indicator != "ma_crossover" for s in parsed.entry_signals)
+    assert result["interpreter"]["mode"] == "primary_modify"
+
+
 def test_modify_primary_rejects_full_strategy_output(monkeypatch):
     # patches 없이 전체 전략 재출력 → 필드 소실 위험이라 수락하지 않고 폴백
     from strategy_conversation.primary import run_primary_modification
@@ -1278,8 +1315,29 @@ def test_modify_primary_unsupported_label_gets_notice_not_llm_guess(monkeypatch)
     result = run_primary_modification("pbr이 뭐야?", prev.model_dump())
     assert result is not None
     assert result["parsed"].model_dump() == prev.model_dump()  # 전략 무변경
-    assert any("반영할 수 없어" in n for n in result["notices"])
+    assert any("넣지 못했어요" in n for n in result["notices"])
     assert result["interpreter"]["mode"] == "primary_modify_unsupported"
+
+
+def test_modify_primary_unsupported_notice_does_not_quote_whole_utterance(monkeypatch):
+    """인터프리터가 미지원 항목에 발화 전체를 담은 오라벨 — 그대로 인용하면 뜻이 통하지 않는다.
+
+    "'어떻게 해야 할까?'은(는) 전략 조건으로 반영할 수 없어요"는 사용자에게 아무 뜻도
+    주지 못한다. 조건 이름을 지목하지 않고 사실만 말한다(2026-07-31).
+    """
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "UNSUPPORTED_REQUEST", "status": "UNSUPPORTED", "confidence": 0.9,
+        "unsupported_features": ["어떻게 해야 할까?"],
+    })
+    prev = _rich_parsed()
+    result = run_primary_modification("어떻게 해야 할까?", prev.model_dump())
+    assert result is not None
+    assert result["parsed"].model_dump() == prev.model_dump()
+    notice = " ".join(result["notices"])
+    assert "어떻게 해야 할까" not in notice
+    assert "해석하지 못했어요" in notice
 
 
 def test_modify_primary_explain_indicator_falls_back_to_notice_without_llm(monkeypatch):
@@ -1319,7 +1377,7 @@ def test_modify_primary_unsupported_condition_returns_notice(monkeypatch):
     result = run_primary_modification("FCF 조건 추가해줘", prev.model_dump())
     assert result is not None
     assert result["parsed"].model_dump() == prev.model_dump()
-    assert any("FCF" in n and "반영할 수 없어" in n for n in result["notices"])
+    assert any("FCF" in n and "넣지 못했어요" in n for n in result["notices"])
     assert result["interpreter"]["mode"] == "primary_modify_unsupported"
 
 
@@ -1497,6 +1555,44 @@ def test_patch_replace_on_append_position_accepted():
                 value={"factor": "fundamental.pbr", "operator": "<=", "value": 1}),
     ])
     assert patched.entry_conditions[-1].factor == "fundamental.pbr"
+
+
+def test_patch_factor_replacement_drops_stale_parameters():
+    # 2026-07-31: factor만 필드 단위로 바꾸면 이전 지표의 파라미터가 그대로 남아
+    # "'PER'에 알 수 없는 파라미터 short_period"로 검증이 실패했다. 이전 factor의
+    # 파라미터는 새 factor에서 의미가 없으므로 registry 기준으로 떨어낸다.
+    spec = StrategySpec.model_validate({
+        "entry_conditions": [
+            {"factor": "technical.ma_crossover", "operator": "crosses_above",
+             "parameters": {"short_period": 20, "long_period": 60}},
+        ],
+        "exit_conditions": [
+            {"factor": "technical.rsi", "operator": ">=", "value": 70,
+             "parameters": {"period": 14}},
+        ],
+    })
+    patched = apply_patches(spec, [
+        PatchOp(op="replace", path="/entry_conditions/0/factor", value="fundamental.per"),
+        PatchOp(op="replace", path="/entry_conditions/0/operator", value="<="),
+        PatchOp(op="replace", path="/entry_conditions/0/value", value=50),
+    ])
+    assert patched.entry_conditions[0].parameters == {}
+    # factor를 건드리지 않은 조건의 파라미터는 그대로 보존
+    assert patched.exit_conditions[0].parameters == {"period": 14.0}
+
+
+def test_patch_value_change_keeps_parameters():
+    # factor가 그대로면 파라미터를 떨어내지 않는다(정리 조건은 factor 교체뿐)
+    spec = StrategySpec.model_validate({
+        "entry_conditions": [
+            {"factor": "technical.rsi", "operator": "<=", "value": 30,
+             "parameters": {"period": 14}},
+        ],
+    })
+    patched = apply_patches(spec, [
+        PatchOp(op="replace", path="/entry_conditions/0/value", value=25),
+    ])
+    assert patched.entry_conditions[0].parameters == {"period": 14.0}
 
 
 def test_patch_invalid_path_rejected():

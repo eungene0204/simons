@@ -18,6 +18,7 @@ from typing import Callable, Optional
 
 from pydantic import BaseModel, ValidationError
 
+from . import clarify_targets
 from .schemas import ChatTurn, QueryIntent, WorkflowEffect
 
 INTENT_SCHEMA_VERSION = "1.0"
@@ -64,6 +65,10 @@ SYSTEM_PROMPT = (
     "   [최신 입력] 하나지만, 진행 중인 전략이 있으면 짧고 모호한 입력도 그 전략을\n"
     "   다듬는 요청일 가능성이 높다 — 함부로 OFF_TOPIC으로 보내지 마라.\n"
     "4. 투자와 무관함이 분명할 때만 OFF_TOPIC을 쓴다. 애매하면 UNKNOWN이다.\n"
+    "4-1. [답을 기다리는 질문]이 주어지면 최신 입력은 **그 질문에 대한 답일 가능성이 높다**.\n"
+    "   '아니야'·'응'·'그건 아니고'처럼 짧은 답이라도 인사(GREETING)나 잡담(OFF_TOPIC)이\n"
+    "   아니다 — 진행 중인 전략을 다듬는 대화의 일부이므로 STRATEGY_ADVICE로 본다.\n"
+    "   GREETING은 대화를 여는 인사일 때만 쓴다.\n"
     "\n"
     "라벨과 별개로, 이 입력이 진행 중인 전략 작성을 어떻게 제어하는지도 고른다.\n"
     "\n"
@@ -91,10 +96,28 @@ SYSTEM_PROMPT = (
     "9. 단순히 조건을 바꾸는 것(UPDATE)과 정정(CORRECT)도 다르다. 직전 해석이\n"
     "   틀렸다고 지적하는 표현이 있어야 CORRECT다 — 그냥 '손절 -5%로 바꿔줘'는 UPDATE다.\n"
     "\n"
+    "\n"
+    "마지막으로, **바꾸려는 대상은 말했지만 값을 말하지 않은 경우** 그 대상을 고른다.\n"
+    "값이 없으면 무엇으로 바꿀지 알 수 없어 되물어야 하기 때문이다.\n"
+    "대상이 없거나 값이 함께 있으면 null이다(기본값).\n"
+    "\n" + clarify_targets.prompt_target_lines() + "\n"
+    "\n"
+    "대상 판단 규칙:\n"
+    "10. **값이 함께 있으면 null이다** — '손절 -8%로 바꿔줘'는 값이 있으니 null,\n"
+    "    '손절 바꿔줘'는 값이 없으니 stop_loss다.\n"
+    "11. 지우거나 빼 달라는 요청은 null이다 — 뺄 때는 값이 필요 없다('PER 조건 빼줘').\n"
+    "12. 뜻을 묻는 질문·결과를 묻는 질문은 null이다('익절이 뭐야?', '왜 안 돼?').\n"
+    "13. 이미 설정돼 있는지 확인하는 질문도 null이다('익절 설정돼 있어?').\n"
+    "14. 구체 필드를 말했으면 필드를, 영역만 말했으면 영역을 고른다.\n"
+    "    '손절 바꿔줘'는 stop_loss, '진입 신호를 바꾸고 싶어'는 entry_signal,\n"
+    "    '조건을 변경할 수 있어?'처럼 영역도 없으면 condition이다.\n"
+    "15. 재무 지표를 값 없이 추가·적용하겠다는 요청은 그 지표의 키를 고른다\n"
+    "    ('영업이익률을 추가해 볼까?' → operating_margin).\n"
+    "\n"
     "출력 형식(JSON 한 줄, 다른 말 금지):\n"
     '{"intent": "<라벨>", "stock_name": "<원문에 나온 종목명 또는 null>", '
     '"refers_to_last_stock": <직전에 다루던 종목을 \'이 종목\'처럼 가리키면 true, 아니면 false>, '
-    '"workflow_effect": "<제어 값>"}'
+    '"workflow_effect": "<제어 값>", "clarify_target": "<대상 또는 null>"}'
 )
 
 
@@ -108,6 +131,9 @@ class IntentInterpretation(BaseModel):
     # 워크플로 제어 효과. 표기 불량·미출력은 NONE으로 떨어진다 — 라벨 분류를 실패로
     # 만들지 않는다(효과는 부가 축이고, NONE이 기존 동작 그대로라 안전 방향이다).
     workflow_effect: WorkflowEffect = WorkflowEffect.NONE
+    # 값 없이 지목된 수정 대상(닫힌 목록). 목록 밖 표기·미출력은 None으로 떨어진다 —
+    # 되묻기는 부가 축이고, None이 기존 흐름(파싱으로 통과)이라 안전 방향이다.
+    clarify_target: Optional[str] = None
 
 
 # ── 형식 정규화 (입력이 LLM 출력이므로 결정론 코드 소관) ─────────────────────
@@ -187,6 +213,7 @@ def build_user_message(
     query: str,
     history: Optional[list[ChatTurn]] = None,
     active_strategy: bool = False,
+    pending_question: Optional[str] = None,
 ) -> str:
     """분류 LLM에 보낼 사용자 메시지를 만든다.
 
@@ -196,6 +223,8 @@ def build_user_message(
     parts = []
     if active_strategy:
         parts.append("[진행 중인 전략] 있음")
+    if pending_question and pending_question.strip():
+        parts.append(f"[답을 기다리는 질문]\n{pending_question.strip()}")
     context = format_history_context(history)
     if context:
         parts.append(f"[대화 맥락]\n{context}")
@@ -208,13 +237,17 @@ def interpret(
     llm: LLMFn,
     history: Optional[list[ChatTurn]] = None,
     active_strategy: bool = False,
+    pending_question: Optional[str] = None,
 ) -> Optional[IntentInterpretation]:
     """원문을 LLM에 넘겨 제한된 구조화 출력으로 해석한다.
 
     반환 None = 해석 실패(실패 보고). 정규식으로 원문을 재해석하는 폴백은 두지 않는다
     (계약 § 8-1 "폴백은 자연어 재해석이 아니라 실패 보고"). LLM 호출 예외는 그대로
     올려 호출부가 연결 오류(503)와 구분할 수 있게 한다."""
-    raw = llm(SYSTEM_PROMPT, build_user_message(query, history, active_strategy))
+    raw = llm(
+        SYSTEM_PROMPT,
+        build_user_message(query, history, active_strategy, pending_question),
+    )
     payload = extract_json_object(raw)
     if payload is None:
         return None
@@ -227,6 +260,9 @@ def interpret(
             stock_name=_clean_stock_name(payload.get("stock_name")),
             refers_to_last_stock=bool(payload.get("refers_to_last_stock")),
             workflow_effect=normalize_workflow_effect(payload.get("workflow_effect")),
+            clarify_target=clarify_targets.normalize_clarify_target(
+                payload.get("clarify_target")
+            ),
         )
     except ValidationError:
         return None

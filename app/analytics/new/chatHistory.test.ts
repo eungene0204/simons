@@ -49,3 +49,21 @@ describe("selectClassifierHistory", () => {
     expect(long[0].text).toHaveLength(500);
   });
 });
+
+describe("열린 되묻기가 분류 맥락에서 사라지지 않는다", () => {
+  it("안내문과 되묻기가 함께 실린 메시지는 둘 다 맥락에 넣는다", () => {
+    // FR-SA-015 이후 한 메시지가 안내문+되묻기를 함께 싣는다. 앞의 것만 고르면
+    // 우리가 방금 던진 질문이 맥락에서 사라져, 그 답("아니야")이 인사로 오분류된다.
+    const history = selectClassifierHistory([
+      { role: "user", content: "어떻게 하지?" },
+      {
+        role: "assistant",
+        infoText: "안녕하세요. 오늘은 어떤 전략을 연구해 볼까요?",
+        clarification: "어떻게 하지?라는 표현이 무엇을 의미하는지 구체적으로 말씀해 주세요.",
+      },
+    ]);
+    const assistantTurn = history[history.length - 1];
+    expect(assistantTurn.text).toContain("안녕하세요");
+    expect(assistantTurn.text).toContain("구체적으로 말씀해 주세요");
+  });
+});

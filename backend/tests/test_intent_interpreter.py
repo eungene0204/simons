@@ -13,6 +13,7 @@ import pytest
 
 from intent import interpreter
 from intent.classifier import classify
+from intent import clarify_targets
 from intent.schemas import ChatTurn, QueryIntent, WorkflowEffect, WorkflowStatus
 
 
@@ -370,3 +371,107 @@ def test_prompt_separates_correct_from_rollback_and_update():
     """실측에서 갈릴 두 경계를 프롬프트가 명시한다."""
     assert "올바른 지시가 함께 있는가" in interpreter.SYSTEM_PROMPT
     assert "직전 해석이" in interpreter.SYSTEM_PROMPT
+
+
+# ── 값 없이 지목된 수정 대상(clarify_target) ─────────────────────────────────
+# 되묻기 판정을 원문 정규식에서 LLM 레인으로 옮긴 축(nl_interpretation_contract § 11-20).
+# LLM은 대상을 제안만 하고, 성립 여부는 결정론 코드가 정한다(_resolve_workflow와 같은 계약).
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("stop_loss", "stop_loss"),
+        ("  STOP_LOSS  ", "stop_loss"),
+        ("take-profit", "take_profit"),
+        ("operating_margin", "operating_margin"),   # 재무 지표 키(정본 JSON)
+        ("condition", "condition"),
+        ("null", None),
+        ("없음", None),
+        ("손절", None),                              # 목록 밖 표기는 승격하지 않는다
+        ("전혀_모르는_필드", None),
+        (None, None),
+        (123, None),
+    ],
+)
+def test_clarify_target_normalization(raw, expected):
+    assert clarify_targets.normalize_clarify_target(raw) == expected
+
+
+def test_clarify_target_requires_active_strategy():
+    """진행 중인 전략이 없으면 바꿀 대상도 없다 — None 강등(첫 발화는 파싱으로)."""
+    result = classify(
+        "손절 바꿔줘",
+        llm=stub_llm("STRATEGY_ADVICE", clarify_target="stop_loss"),
+        active_strategy=False,
+    )
+    assert result.clarify_target is None
+
+
+def test_clarify_target_survives_with_active_strategy():
+    result = classify(
+        "손절 바꿔줘",
+        llm=stub_llm("STRATEGY_ADVICE", clarify_target="stop_loss"),
+        active_strategy=True,
+    )
+    assert result.clarify_target == "stop_loss"
+
+
+@pytest.mark.parametrize(
+    "label",
+    ["OFF_TOPIC", "GREETING", "PERSONAL_ADVICE", "LIVE_TRADING", "UNSUPPORTED_FEATURE",
+     "STOCK_PICK", "STRATEGY_PICK", "ONBOARDING", "STOCK_ANALYSIS"],
+)
+def test_regulated_labels_block_clarify_target(label):
+    """[규제 안전] 정형 안내가 되묻기로 삼켜지지 않게 한다(제어 축과 같은 이유)."""
+    result = classify(
+        "아무 말",
+        llm=stub_llm(label, clarify_target="stop_loss"),
+        active_strategy=True,
+    )
+    assert result.clarify_target is None
+
+
+def test_clarify_target_absent_by_default():
+    result = classify(
+        "손절 -8%로 바꿔줘",
+        llm=stub_llm("STRATEGY_ADVICE"),
+        active_strategy=True,
+    )
+    assert result.clarify_target is None
+
+
+def test_prompt_lists_targets_from_registry():
+    """목록은 정본에서 생성된다 — 프롬프트와 검증 목록이 갈라지지 않게."""
+    lines = clarify_targets.prompt_target_lines()
+    assert "stop_loss" in lines and "entry_signal" in lines
+    for key in clarify_targets.factor_targets():
+        assert key in lines
+    assert clarify_targets.factor_targets(), "재무 지표 정본 JSON을 읽지 못했다"
+
+
+# ── 답을 기다리는 질문(pending_question) ──────────────────────────────────────
+# 되묻기가 열려 있는 상태의 짧은 답("아니야")이 문맥 없는 잡담으로 보여 인사로 오분류되던
+# 사고(2026-07-31). 판정은 LLM 몫이고, 판정 재료를 전달하지 않은 것이 원인이었다.
+
+def test_pending_question_is_passed_to_the_model():
+    llm, seen = capturing_llm()
+    classify(
+        "아니야",
+        llm=llm,
+        active_strategy=True,
+        pending_question="어떻게 하지?라는 표현이 무엇을 의미하는지 구체적으로 말씀해 주세요.",
+    )
+    assert "[답을 기다리는 질문]" in seen["user"]
+    assert "구체적으로 말씀해 주세요" in seen["user"]
+
+
+def test_pending_question_absent_when_nothing_is_open():
+    llm, seen = capturing_llm()
+    classify("안녕", llm=llm, active_strategy=True)
+    assert "[답을 기다리는 질문]" not in seen["user"]
+
+
+def test_prompt_tells_model_that_answers_are_not_greetings():
+    """규칙이 사라지면 같은 오분류가 돌아온다 — 프롬프트 계약을 고정한다."""
+    assert "[답을 기다리는 질문]" in interpreter.SYSTEM_PROMPT
+    assert "GREETING" in interpreter.SYSTEM_PROMPT.split("4-1.")[1].split("\n\n")[0]

@@ -173,6 +173,20 @@ _INTERNAL_FEATURE_LABELS = {
     "stock_recommendation": "종목 추천",
     "market_forecast": "시장 전망",
 }
+def _reported_features_echo_input(features: List[str], user_input: str) -> bool:
+    """인터프리터가 미지원 항목에 발화 전체를 그대로 담았는지(오라벨 감지).
+
+    입력은 LLM 출력과 사용자 입력의 **대조**다 — 표기를 지우고 같은 문자열인지만 본다.
+    원문의 의미를 읽지 않으므로 해석이 아니다(계약 § 3-1 (b), 수치 대조와 같은 형태).
+    """
+    from engine.nl_parser import _compact
+
+    compact_input = _compact(user_input or "")
+    if not compact_input:
+        return False
+    return any(_compact(f or "") == compact_input for f in features)
+
+
 def _humanize_features(features: List[str]) -> List[str]:
     """내부 식별자(strategy_evaluation 등)만 사람이 읽는 라벨로 치환한다. 그 외(FCF·
     technical.beta 등)는 기존 표기를 그대로 둔다 — 매핑에 없는 토큰까지 뭉뚱그린 표현으로
@@ -242,6 +256,22 @@ def _patch_provenance_supported(patch, compact_input: str, input_numbers: set) -
     # 인용도 수치도 근거가 없으면 환각으로 거부한다. LLM이 인용을 아예 생략한
     # 무수치 패치도 거부 대상이다 — 프롬프트가 인용을 계약으로 요구한다(규칙 10).
     return False
+
+
+_CONDITION_LIST_FIELDS = ("entry_conditions", "exit_conditions")
+
+
+def _patch_group_key(path: str) -> Optional[str]:
+    """같은 조건 객체를 겨냥한 형제 패치를 묶는 그룹 키(`/entry_conditions/0`).
+
+    조건 객체의 **필드**를 가리키는 경로일 때만 키를 낸다 — 조건 자체를 통째로
+    교체·삭제하는 경로(`/entry_conditions/0`)나 다른 슬롯(`/portfolio/...`)은 None이라
+    개별 판정된다(그룹을 슬롯 단위로 넓히면 무관한 필드까지 근거를 나눠 갖는다).
+    """
+    tokens = [t for t in path.split("/") if t]
+    if len(tokens) >= 3 and tokens[0] in _CONDITION_LIST_FIELDS and tokens[1].isdigit():
+        return f"/{tokens[0]}/{tokens[1]}"
+    return None
 
 
 def _explicit_breakout_lookback(text: Optional[str]) -> Optional[int]:
@@ -1851,9 +1881,19 @@ def run_primary_modification(
         elif is_question:
             notices = ["용어·지표 설명 질문으로 이해했지만 지금은 설명을 준비하지 못했어요. "
                        "전략은 변경하지 않았어요."]
+        elif _reported_features_echo_input(intent.unsupported_features, user_input):
+            # 인터프리터가 미지원 항목에 **발화 전체**를 그대로 담은 경우(오라벨). 그대로
+            # 인용하면 "'어떻게 해야 할까?'은(는) 전략 조건으로 반영할 수 없어요"처럼
+            # 뜻이 통하지 않는 안내가 나간다 — 조건 이름을 지목하지 않고 사실만 말한다.
+            # 판정은 LLM 출력과 입력 문자열의 대조이지 원문 의미 해석이 아니다(§ 3-1).
+            notices = ["요청을 전략 조건으로 해석하지 못했어요. 전략은 그대로 두었습니다."]
         else:
+            # 사실 한 문장까지가 이 채널의 몫이다 — "그래서 지금 무엇을 하면 되는가"는
+            # 진행 상태가 답한다(다음에 정할 조건 되묻기 / 실행 가능 안내, FR-SA-016·019).
             features = ", ".join(_humanize_features(intent.unsupported_features))
-            notices = [f"'{features}'은(는) 전략 조건으로 반영할 수 없어 전략을 변경하지 않았어요."]
+            notices = [
+                f"'{features}' 조건은 지원하지 않아 전략에 넣지 못했어요. 나머지 조건은 그대로입니다."
+            ]
         _log_llm("✓ 설명/미반영", (
             f"intent={intent.intent} 질문={is_question} 답변={'있음' if answer else '없음'} "
             f"미지원={intent.unsupported_features or '[]'} — 전략 유지, notices 채널로"
@@ -1918,11 +1958,32 @@ def run_primary_modification(
     from engine.nl_parser import _compact
     compact_input = _compact(user_input)
     input_numbers = _input_number_candidates(user_input)
-    cued_patches: List[Any] = []
-    rejected_patches: List[Any] = []
-    for p in intent.patches:
-        (cued_patches if _patch_provenance_supported(p, compact_input, input_numbers)
-         else rejected_patches).append(p)
+    verdicts = [
+        _patch_provenance_supported(p, compact_input, input_numbers) for p in intent.patches
+    ]
+    # 같은 조건 객체를 겨냥한 형제 패치는 **한 덩어리의 수정**이다(factor·operator·value를
+    # 함께 갈아끼우는 조건 교체). 개별 판정하면 일부만 통과해 LLM이 제안한 적 없는 상태가
+    # 만들어진다 — "매수조건을 per 50이하로"에서 factor 패치만 인용 오기로 거부돼
+    # `ma_crossover <= 50`이라는 불가능한 조건이 남고 검증이 오류로 폴백한 2026-07-31 사고.
+    # 그룹 안에서 하나라도 출처가 확인되면 그 그룹은 실재하는 요청이므로 함께 수락한다
+    # (§ 3-1 대조의 단위를 필드가 아니라 조건으로 잡는 것 — 근거 없는 그룹은 그대로 거부).
+    groups: Dict[str, List[int]] = {}
+    for i, p in enumerate(intent.patches):
+        key = _patch_group_key(p.path)
+        if key is not None:
+            groups.setdefault(key, []).append(i)
+    for key, idxs in groups.items():
+        if len(idxs) < 2 or not any(verdicts[i] for i in idxs):
+            continue
+        carried = [intent.patches[i].path for i in idxs if not verdicts[i]]
+        if carried:
+            _log_llm("✓ 형제 패치 근거 전파", (
+                f"{key} 그룹에 출처 확인된 패치가 있어 함께 수락: {'; '.join(carried)}"
+            ))
+        for i in idxs:
+            verdicts[i] = True
+    cued_patches: List[Any] = [p for i, p in enumerate(intent.patches) if verdicts[i]]
+    rejected_patches: List[Any] = [p for i, p in enumerate(intent.patches) if not verdicts[i]]
     if rejected_patches:
         _log_llm("✗ 패치 거부", (
             "발화에 필드 cue 없음(환각 게이트): "

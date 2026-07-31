@@ -179,6 +179,32 @@ export function buildStrategyHorizonComparisonResponse(prompt: string): string |
   ].join("\n");
 }
 
+/** 익절 되묻기 문구·선택지. 입력이 없다 — 무엇을 물을지는 LLM이 고른 라벨이 이미 정했고,
+ *  여기서는 그 라벨에 대응하는 정해진 문구를 고를 뿐이다(계약상 허용 패턴). */
+export function takeProfitPrompt(): { message: string; suggestions: string[] } {
+  return {
+    message: "익절 기준은 매수가 대비 수익률로 설정합니다. 예시 값은 5%, 10%, 15%입니다. 적용할 익절 기준을 몇 %로 할까요?",
+    suggestions: ["익절 5%", "익절 10%", "익절 15%"],
+  };
+}
+
+/** 재무 지표 되묻기 문구·선택지 — 지표 키(정본 JSON)로 찾는다. 원문을 읽지 않는다. */
+export function fundamentalFactorPromptFor(
+  key: string,
+): { message: string; suggestions: string[] } | null {
+  const entry = (factorRegistry as FactorRegistryEntry[]).find((e) => e.key === key);
+  if (!entry) return null;
+  const direction = DIRECTION_WORD[entry.direction] ?? "이상";
+  return {
+    message: `${entry.label} 몇${entry.unit} ${direction}일 때 진입할까요?`,
+    suggestions: entry.recommend.map(
+      (v) => `${entry.label} ${fundamentalValueLabel(v, entry.unit)} ${direction}`,
+    ),
+  };
+}
+
+// [레거시 — 원문 정규식 레인] 되묻기 판정은 분류 LLM의 clarify_target으로 이관됐다
+// (nl_interpretation_contract § 11-20). 아래 두 함수는 더 이상 턴 중재에 쓰이지 않는다.
 export function buildTakeProfitPercentagePrompt(prompt: string): {
   message: string;
   suggestions: string[];

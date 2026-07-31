@@ -73,9 +73,10 @@ def _llm_available() -> bool:
 
 @router.post("/query/classify", response_model=IntentResult)
 async def classify_query(req: IntentRequest) -> IntentResult:
-    # 구조화 출력(intent + stock_name + refers_to_last_stock + workflow_effect)을 담을 만큼의
-    # 토큰을 준다. 필드가 늘면 JSON이 절단돼 해석 실패(UNKNOWN)로 떨어지므로 여유를 둔다.
-    llm = (lambda s, u: _mlx_llm(s, u, max_tokens=180)) if _llm_available() else None
+    # 구조화 출력(intent + stock_name + refers_to_last_stock + workflow_effect +
+    # clarify_target)을 담을 만큼의 토큰을 준다. 필드가 늘면 JSON이 절단돼 해석 실패
+    # (UNKNOWN)로 떨어지므로 여유를 둔다(2026-07-31 clarify_target 추가로 180→220).
+    llm = (lambda s, u: _mlx_llm(s, u, max_tokens=220)) if _llm_available() else None
     return await asyncio.to_thread(
         classify,
         req.query,
@@ -84,6 +85,7 @@ async def classify_query(req: IntentRequest) -> IntentResult:
         history=req.history,
         active_strategy=req.active_strategy,
         workflow_status=req.workflow_status,
+        pending_question=req.pending_question,
     )
 
 
