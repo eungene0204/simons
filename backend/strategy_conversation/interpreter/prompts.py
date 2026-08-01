@@ -271,17 +271,37 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
     채웁니다). 새 테마의 종목코드를 당신이 알아낼 필요도, 사용자에게 물을 필요도 없습니다
     — 종목 조회는 시스템(지식그래프·검색)의 일입니다. 개별 종목을 더하거나 빼는 요청만
     10-1(symbols)입니다.
+10-3. **조건을 새로 추가하는 수정은 조건 객체 하나를 통째로 넣으세요** — 초안의
+    entry_conditions/exit_conditions가 비어 있으면 필드 단위 패치(`/exit_conditions/0/factor`)는
+    가리킬 대상이 없어 실패합니다. 배열 끝(`/-`)에 add 하세요:
+    "데드크로스 나오면 팔아" → patches=[{{"op":"add","path":"/exit_conditions/-",
+    "value":{{"factor":"technical.ma_crossover","operator":"crosses_below",
+    "parameters":{{"short_period":5,"long_period":20}}}},"source_text":"데드크로스 나오면 팔아"}}]
+    **중괄호를 빠뜨리지 마세요** — value 객체와 parameters 객체를 각각 닫은 뒤 패치 객체를
+    닫고, 그 다음에 배열을 닫습니다(`}}` `}}` `}}` `]`).
 11. unsupported_features는 문자열 배열입니다(객체 금지).
     문자열 값 안에서 큰따옴표(")를 쓰지 마세요 — JSON이 깨집니다. 인용이 필요하면
     작은따옴표(')를 쓰세요("재무가 탄탄한 회사"는 … ✗ / '재무가 탄탄한 회사'는 … ✓).
     factor가 null인 조건은 출력하지 마세요 — 미지원 개념은 unsupported_features에만.
 11-1. '당일 종가에 매수/체결', '종가 매매'처럼 종가 체결을 말하면
     backtest.execution_timing="current_close". 언급이 없으면 null(기본은 다음 날 시가).
+11-1-2. **배수 표현은 수익률 %로 환산하세요** — risk_management.take_profit은 매수가 대비
+    수익률(%)이므로 '두 배'는 100, '세 배'는 200입니다(N배 → (N-1)×100). '반토막'처럼
+    손실 방향의 배수 표현은 stop_loss=50입니다. 확신이 서지 않으면 값을 지어내지 말고
+    clarification_questions로 물으세요 — 임의의 숫자는 사용자가 말하지 않은 전략이 됩니다.
+11-2. backtest.initial_capital은 **원 단위 정수**입니다. 한글 금액 단위를 그대로 환산하세요:
+    1만원=10000, 1천만원=10000000, 1억원=100000000, 10억원=1000000000.
+    "3억원"=300000000, "5000만원"=50000000, "1억5천만원"=150000000.
+    (실측 드리프트 2026-07-31: "3억원"을 30000000으로 10배 축소해 출력했습니다.)
 12. 백테스트 기간이 날짜로 명시되면 backtest.start_date/end_date를 YYYY-MM-DD로 출력하세요.
     "2020년 1월부터 2025년 12월까지" → start_date="2020-01-01", end_date="2025-12-31"
     (종료 월은 말일까지). 과거/미래 판단은 입력에 함께 주어지는 '오늘 날짜'만 기준으로
     하세요 — 학습 시점의 기억으로 추측하지 마세요. 사용자가 명시한 날짜는 그대로 쓰고
     미래라는 이유로 누락하거나 바꾸지 마세요.
+12-1. backtest.period가 가질 수 있는 값은 "1y"/"3y"/"5y"/"full" **넷뿐**입니다. 그 외의
+    기간("2년", "10년", "18개월")은 period에 넣지 말고 **오늘 날짜 기준으로 계산해**
+    start_date/end_date로 출력하세요("10년" → start_date=오늘-10년, end_date=오늘).
+    '전체 기간'·'사용 가능한 전체 데이터'는 period="full"입니다("all"이 아닙니다).
 
 ## 예시 1
 입력: "영업이익률이 높은 기업을 사고 싶어"
@@ -392,16 +412,33 @@ ETF 유니버스에서 "X 관련 etf"는 etf_theme 교체입니다 — markets�
 초안의 조건 값을 바꾸는 요청("PBR 1 이하로")인데 그 지표가 초안에 없으면 add입니다."""
 
 
-def build_user_prompt(user_input: str, draft: dict | None = None) -> str:
+def build_user_prompt(
+    user_input: str, draft: dict | None = None, pending_question: str | None = None,
+) -> str:
     # 오늘 날짜는 매 요청 주입한다 — 모델이 학습 시점 기억으로 과거 연도를 미래로
     # 오판해 명시 날짜를 누락하는 드리프트 방지(시스템 프롬프트 규칙 12와 짝).
     today_line = f"오늘 날짜: {date.today().isoformat()}"
     if draft:
+        # 직전 턴에 우리가 던진 질문. 사용자가 "3억원"처럼 필드를 밝히지 않고 값만
+        # 답할 때 어느 필드의 답인지는 이 질문이 정한다 — 문맥 없이 값만 보면 귀속할
+        # 수 없어 같은 질문을 다시 던지게 된다(2026-07-31 초기자금 무한 되묻기).
+        pending_block = (
+            f"답을 기다리는 질문(직전 턴에 우리가 물은 것):\n\"{pending_question.strip()}\"\n\n"
+            if pending_question and pending_question.strip()
+            else ""
+        )
+        answer_rule = (
+            " 사용자 입력이 위 질문에 대한 답이면(값만 말했더라도) 그 질문이 묻는 필드의 "
+            "패치로 출력하세요."
+            if pending_block
+            else ""
+        )
         return (
             f"{today_line}\n\n"
             f"현재 전략 초안:\n{json.dumps(draft, ensure_ascii=False)}\n\n"
+            f"{pending_block}"
             f"사용자 입력: \"{user_input}\"\n\n"
             "위 초안에 대한 요청입니다. 수정 요청이면 intent=MODIFY_STRATEGY, strategy=null로 두고 "
-            "변경 사항을 patches(JSON Patch)로만 출력하세요."
+            f"변경 사항을 patches(JSON Patch)로만 출력하세요.{answer_rule}"
         )
     return f"{today_line}\n\n사용자 입력: \"{user_input}\""

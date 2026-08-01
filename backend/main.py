@@ -2585,6 +2585,10 @@ class NLParseRequest(BaseModel):
     # (previous_coach_text와 같은 무상태 컨텍스트 에코 계약). 입력이 이 칩 목록과 정확히
     # 일치하면 결정론 칩 답변 레인(run_chip_answer)이 인터프리터 없이 State에 반영한다.
     pending_ask: Optional[dict] = None
+    # 답을 기다리는 되묻기 질문(수정 모드) — pending_ask·previous_coach_text와 같은 무상태
+    # 컨텍스트 에코. "3억원"처럼 필드 없이 값만 온 답을 어느 필드로 귀속할지는 이 질문을
+    # 함께 본 인터프리터 LLM이 판단한다(백엔드가 원문에서 필드를 추출하지 않는다).
+    pending_question: Optional[str] = None
     # 이전 턴까지 "사용자가 명시한" 설정 필드 목록 — 응답의 explicit_fields를 프론트가
     # 그대로 에코한다(pending_ask와 같은 무상태 컨텍스트 에코 계약). ParsedStrategy 왕복은
     # 기본값을 물질화해 provenance를 지우므로, 누적은 이 에코로만 가능하다.
@@ -3158,7 +3162,6 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         apply_theme_universe,
         build_unsupported_concept_notice,
         detect_etf_factor_conflict,
-        detect_incomplete_backtest_conditions,
         detect_missing_entry_clarification,
         detect_symbol_typo_clarification,
         detect_unresolved_sector_clarification,
@@ -3270,12 +3273,27 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 가능"으로 진행시키지 않고 채우도록 가이드한다(2026-07-22 정책). clarification이 뜨면
     # 프론트가 실행 버튼을 숨기고 안내 칩을 보여준다. 단일 종목 '기간 종료까지 보유' 안내는
     # 이 게이트와 모순이라 함께 제거한다.
+    gate_pending_ask = None
     if clarification_question is None:
-        clarification_question, clarification_suggestions = detect_incomplete_backtest_conditions(
-            parsed, request.prompt
-        )
-        if clarification_question is not None:
+        from engine.nl_parser import next_incomplete_backtest_slots
+        from strategy_conversation.primary import _pending_ask_payload
+
+        gate_slots = next_incomplete_backtest_slots(parsed, request.prompt)
+        if gate_slots:
+            slot = gate_slots[0]
+            clarification_question = slot.question
+            clarification_suggestions = list(slot.suggestions)
             notices = [n for n in notices if "기간 종료까지 보유" not in n]
+            # 이 게이트의 질문에도 결속을 붙인다(2026-07-31). 칩은 이미 슬롯 SOT에
+            # 있었는데 pending_ask만 None으로 하드코딩돼 있어, 여기서 나간 질문의 답은
+            # 다음 턴에 귀속 근거를 잃고 일반 분류 레인으로 떨어졌다(실측 4/13턴).
+            # topic은 슬롯 라벨 — 물질화 기본값과 같은 칩을 확정 칩으로 살리는 판정이
+            # 이 라벨로 필드를 찾는다.
+            gate_pending_ask = _pending_ask_payload(
+                clarification_question, clarification_suggestions, slot.slot, parsed
+            )
+            if gate_pending_ask is not None:
+                clarification_suggestions = gate_pending_ask["chips"]
     return {
         "parsed": parsed.model_dump(),
         "backtest_request": backtest_req,
@@ -3283,7 +3301,9 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         "clarification_question": clarification_question,
         "clarification_suggestions": clarification_suggestions,
         "clarification_priority": clarification_priority,
-        "pending_ask": None,  # primary 경로의 planner ask가 apply_primary_meta로 채운다
+        # 최소 조건 게이트가 낸 질문의 결속. primary 경로의 planner ask는
+        # apply_primary_meta가 이 자리를 덮어쓴다.
+        "pending_ask": gate_pending_ask,
         # 진행 골격 8칸의 두 상태 축(설계 스펙 § 5) — 응답 조립 끝에서 불변조건으로
         # 채워진다(_ensure_field_states). 여기서는 자리만 잡는다.
         "field_states": None,
@@ -3321,10 +3341,18 @@ def _complete_deferred_validation(defer_ctx: dict):
     """
     from engine.parse_validator import validate_parse
 
+    from observability import span
+    from observability.agent_trace import state_diff
+
     request = defer_ctx["request"]
     parsed = defer_ctx["parsed"]
     started = time.perf_counter()
-    validated, report = validate_parse(defer_ctx["parser"], request.prompt, parsed)
+    with span("Validation · 후행 파스 검증", "state",
+              inputs={"user_input": request.prompt}) as trace:
+        validated, report = validate_parse(defer_ctx["parser"], request.prompt, parsed)
+        trace.output(corrected=validated is not parsed, report=report,
+                     state_diff=state_diff(parsed, validated)
+                     if validated is not parsed else None)
     cache_key = defer_ctx["cache_key"]
     if validated is parsed:
         cached = _nl_parse_cache.get(cache_key)
@@ -3449,6 +3477,47 @@ def _interpretation_failure_result(request: NLParseRequest, backend: str, reques
 
 
 def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | None = None):
+    """파싱 코어 로직 — 사용자 요청 하나당 Trace 하나의 루트.
+
+    본체는 _run_nl_parse_traced다. 이 함수는 관찰 span만 연다(LANGSMITH_TRACING
+    미설정 시 완전한 no-op). 파싱 동작·반환값·예외 전파는 전혀 바뀌지 않는다.
+
+    반환 지점이 여러 곳(캐시 히트·되묻기·503·정상)이라 개별 지점에 관찰을 흩으면
+    반드시 빠뜨린다 — _finalize_parse_result와 같은 이유로 여기 하나로 모은다.
+    """
+    from observability import span
+    from observability.agent_trace import responder_payload
+    from observability.identity import content_hash, trace_identity
+
+    identity = trace_identity(request.prompt, request.previous_parsed)
+    with span(
+        "NullStock Strategy Agent", "chain", root=True,
+        inputs={"user_input": request.prompt,
+                "previous_parsed": request.previous_parsed,
+                "pending_ask": request.pending_ask,
+                "pending_question": request.pending_question},
+        metadata={**identity, "backend": request.backend, "model": request.model},
+    ) as trace:
+        result = _run_nl_parse_traced(request, on_stage=on_stage, defer_holder=defer_holder)
+        # 후행 검증(SSE)은 응답을 내보낸 뒤 다른 스레드에서 돈다 — 부모를 실어 보내야
+        # 같은 Trace에 붙는다(안 그러면 고아 Trace가 하나 더 생긴다).
+        if defer_holder is not None and defer_holder.get("parsed") is not None:
+            from observability import current_parent
+
+            defer_holder["trace_parent"] = current_parent()
+        # Responder — 사용자에게 실제로 나간 것(스펙 § 8). 별도 span으로 남겨야
+        # Trace 계층의 마지막 자리가 비지 않는다.
+        with span("Responder", "responder",
+                  inputs={"user_input": request.prompt}) as responder:
+            responder.output(**responder_payload(result))
+        trace.output(**responder_payload(result))
+        trace.meta(strategy_id=content_hash((result or {}).get("parsed")),
+                   cache_hit=bool(((result or {}).get("runtime") or {}).get("cache_hit")))
+        return result
+
+
+def _run_nl_parse_traced(request: NLParseRequest, on_stage=None,
+                         defer_holder: dict | None = None):
     """파싱 코어 로직. on_stage: LLM 폴백 직전 호출되는 콜백(진행 스트리밍용).
 
     defer_holder: dict를 주면 룰 파스의 LLM 검증을 인라인으로 돌리지 않고(defer), 후행
@@ -3466,7 +3535,8 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
 
     # 캐시 조회 — 동일 프롬프트면 LLM 재호출 없이 즉시 반환
     cache_key = nl_cache_key(request.prompt, resolved_backend, request.model,
-                             request.previous_parsed, request.pending_ask)
+                             request.previous_parsed, request.pending_ask,
+                             request.pending_question)
     if cache_key in _nl_parse_cache:
         print(f"[NL-PARSE] 캐시 히트 → 즉시 반환", flush=True)
         cached = dict(_nl_parse_cache[cache_key])
@@ -3541,6 +3611,24 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
                 request.prompt, request.previous_parsed, request.pending_ask,
                 previous_explicit_fields=request.previous_explicit_fields,
             )
+            # 결속 소비 관찰 — 발행된 pending_ask가 다음 턴에 실제로 답변 귀속에 쓰였나.
+            # 발행(primary.ask_binding_gate)과 소비는 다른 요청이라 따로 봐야 한다:
+            # 에코가 없으면 프론트 계약(currentParsed 게이트) 문제, 에코가 있는데 미일치면
+            # 사용자가 칩을 타이핑으로 바꿔 쓴 것이다(정확 일치 요구의 비용).
+            from observability import span as _obs_span
+
+            _echoed = bool(request.pending_ask)
+            _attributed = _chip_result is not None
+            print(f"[NL-PARSE] 결속 소비 — 에코={'있음' if _echoed else '없음'} "
+                  f"귀속={'성립' if _attributed else '불성립'} "
+                  f"칩수={len((request.pending_ask or {}).get('chips') or [])}", flush=True)
+            with _obs_span("Ask 결속 소비", "state",
+                           inputs={"prompt": request.prompt},
+                           metadata={"echoed": _echoed,
+                                     "attributed": _attributed}) as _t:
+                _t.output(echoed=_echoed, attributed=_attributed,
+                          topic=(request.pending_ask or {}).get("topic"),
+                          chips=(request.pending_ask or {}).get("chips"))
             if _chip_result is not None:
                 primary_holder.update(_chip_result)
                 parsed = _chip_result["parsed"]
@@ -3583,6 +3671,7 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
                     request.prompt, request.previous_parsed, on_stage=on_stage,
                     previous_explicit_fields=request.previous_explicit_fields,
                     pending_ask=request.pending_ask,
+                    pending_question=request.pending_question,
                 )
                 if _primary_mod is not None:
                     primary_holder.update(_primary_mod)
@@ -3775,10 +3864,15 @@ async def parse_nl_strategy_stream(request: NLParseRequest):
                 update_holder: dict = {}
 
                 def run_validation():
-                    try:
-                        update_holder["data"] = _complete_deferred_validation(defer_holder)
-                    except Exception as exc:  # noqa: BLE001 — 검증은 best-effort
-                        print(f"[NL-PARSE] 후행 검증 실패(무시): {exc}", flush=True)
+                    from observability import use_parent
+
+                    # 응답 후 단계지만 같은 사용자 요청의 일부다 — 부모를 복원해 같은
+                    # Trace에 붙인다(contextvar는 스레드를 건너지 않는다).
+                    with use_parent(defer_holder.get("trace_parent")):
+                        try:
+                            update_holder["data"] = _complete_deferred_validation(defer_holder)
+                        except Exception as exc:  # noqa: BLE001 — 검증은 best-effort
+                            print(f"[NL-PARSE] 후행 검증 실패(무시): {exc}", flush=True)
 
                 vthread = threading.Thread(target=run_validation, daemon=True)
                 vthread.start()

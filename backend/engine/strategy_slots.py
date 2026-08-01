@@ -139,8 +139,8 @@ CONFIRMABLE_FIELDS: tuple[str, ...] = (
 )
 
 
-def confirmable_field_for_topic(topic: Optional[str]) -> Optional[str]:
-    """ask의 topic이 가리키는 확정 가능 필드(없으면 None).
+def _field_for_topic(topic: Optional[str], candidates: Sequence[str]) -> Optional[str]:
+    """topic 표기를 정본 슬롯 라벨에 맞춘다(후보 중 첫 일치).
 
     topic은 planner LLM이 낸 슬롯 라벨이므로 표기 정규화(공백 무시·부분 일치)로 정본
     라벨에 맞춘다 — 원문 해석이 아니라 LLM 출력 정규화다(계약 § 판정 기준).
@@ -150,11 +150,39 @@ def confirmable_field_for_topic(topic: Optional[str]) -> Optional[str]:
     normalized = (topic or "").replace(" ", "")
     if not normalized:
         return None
-    for field in CONFIRMABLE_FIELDS:
+    for field in candidates:
         label = SLOT_LABELS[field].replace(" ", "")
         if label in normalized or normalized in label:
             return field
     return None
+
+
+def confirmable_field_for_topic(topic: Optional[str]) -> Optional[str]:
+    """ask의 topic이 가리키는 확정 가능 필드(없으면 None)."""
+    return _field_for_topic(topic, CONFIRMABLE_FIELDS)
+
+
+def slot_for_topic(topic: Optional[str]) -> Optional[str]:
+    """ask의 topic이 가리키는 진행 골격 슬롯(없으면 None).
+
+    `confirmable_field_for_topic`이 확정 가능한 4개만 보는 것과 달리 8칸 전체를 본다 —
+    planner가 칩 없는 ask를 냈을 때 그 슬롯의 정본 칩으로 보완하기 위한 것이다.
+    `stop_loss`·`take_profit`은 라벨('리스크 관리')을 공유하므로 FIELD_ORDER상 앞선
+    `stop_loss`가 잡힌다 — 두 슬롯을 구분해야 하면 topic이 아니라 필드로 받아야 한다.
+    """
+    return _field_for_topic(topic, FIELD_ORDER)
+
+
+def suggestions_for_topic(topic: Optional[str]) -> List[str]:
+    """topic이 가리키는 슬롯의 정본 예시 칩(없으면 빈 목록).
+
+    planner가 칩 없는 ask를 내는 턴이 있다(실측: 같은 "어떤 조건에서 매도할까요?"가
+    어떤 턴엔 칩 3개, 어떤 턴엔 0개 — LLM 출력 편차). 칩이 없으면 pending_ask가 발행되지
+    않아 그 질문의 답이 다음 턴에 귀속 근거를 잃는다. 이 함수가 그 공백을 **정본에서**
+    메운다 — 칩 어휘를 새로 만들지 않는다(복제하면 반드시 어긋난다, 이 모듈 도입 배경).
+    """
+    field = slot_for_topic(topic)
+    return list(_QUESTIONS[field][1]) if field else []
 
 
 @dataclass(frozen=True)

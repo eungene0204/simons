@@ -59,7 +59,63 @@ def extract_json_object(raw_text: str) -> str:
             depth -= 1
             if depth == 0:
                 return text[start:i + 1]
+    repaired = _close_unbalanced_containers(text, start)
+    if repaired is not None:
+        return repaired
     raise ValueError("unbalanced JSON object in model output")
+
+
+def _close_unbalanced_containers(text: str, start: int) -> Optional[str]:
+    """닫는 괄호가 빠진 출력에서 **빠진 닫는 괄호만** 채워 넣는다(실패 시 None).
+
+    9B 드리프트 실측(2026-07-31): 패치 값이 3단 중첩(패치 → 조건 객체 → parameters)이면
+    조건 객체의 닫는 중괄호를 빠뜨린다 —
+    `"patches":[{"op":"add","path":"/exit_conditions/-","value":{...}], "unsupported_features":[]}`
+    (`]` 자리에서 `}`가 하나 모자란다). 이 형태는 위 스캐너가 depth 0으로 돌아오지 못해
+    통째로 버려졌고, 1회 복구 요청에도 모델이 같은 위치에서 같은 출력을 냈다(2/2 재현) —
+    그 결과 "데드크로스 나오면 팔아" 같은 청산 조건 답변이 전부 해석 실패로 끝났다.
+
+    복구는 **닫는 괄호 삽입뿐**이다. 값·키·구조를 바꾸지 않으므로 의미 해석이 아니라
+    형식 정규화이며(계약 § 3-2), 올바른 JSON에는 애초에 도달하지 않는다(위 스캐너가
+    먼저 반환하므로 멱등). 짝이 아예 없는 닫는 괄호처럼 삽입만으로 설명되지 않는
+    붕괴는 None으로 두어 기존 실패 경로(재요청 → InterpreterError)에 맡긴다.
+    """
+    stack: list[str] = []
+    out: list[str] = []
+    in_string = False
+    escaped = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        out.append(ch)
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            stack.append(ch)
+        elif ch in "}]":
+            opener = "{" if ch == "}" else "["
+            if not stack:
+                return None
+            if stack[-1] != opener:
+                if opener not in stack:
+                    return None  # 짝 없는 닫는 괄호 — 삽입으로 설명되지 않는다
+                # 이 닫는 괄호의 짝이 스택 깊은 곳에 있다 = 그 사이 컨테이너의 닫는
+                # 괄호가 누락된 것이다. 누락분을 이 자리 **앞에** 채운다.
+                missing = []
+                while stack and stack[-1] != opener:
+                    missing.append("}" if stack.pop() == "{" else "]")
+                out[-1:] = missing + [ch]
+            stack.pop()
+            if not stack:
+                return "".join(out)
+    return None
 
 
 def build_repair_prompt(

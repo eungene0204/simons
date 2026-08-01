@@ -13,6 +13,10 @@ beautifulsoup4==4.14.3
 websockets==16.0
 langchain_openai==1.2.2
 langchain_google_genai==4.2.4
+# 관찰 계층(observability/) — Agent 실행 Trace. langchain_openai의 전이 의존이지만
+# 우리가 직접 import하므로 명시 고정한다(상위 패키지가 끊어도 깨지지 않게).
+# 기본은 비활성(LANGSMITH_TRACING 미설정) — 켜지 않으면 외부 전송도 오버헤드도 없다.
+langsmith==0.8.11
 
 # 엔진/AI 런타임 의존성 (main.py startup 체인에서 top-level import — 누락 시 기동 실패)
 numpy==2.4.4

@@ -51,6 +51,9 @@ describe("buildTurnMessage", () => {
     // 새 발화로 재전송돼 백엔드 왕복이 생기고 값 결속이 끊긴다.
     expect(message.infoSuggestions).toBeUndefined();
     expect(message.builderPresentation).toBe(presentation);
+    // 어떤 슬롯을 묻는지도 함께 싣는다 — 렌더가 선택지 닫힘 여부를 이 값으로 판정한다
+    // (질문 문구는 사용자 친화 문구로 치환되므로 근거가 못 된다).
+    expect(message.clarificationField).toBe(askDecision.field);
   });
 
   it("되묻기 렌더에 필요한 parsed를 함께 싣는다", () => {

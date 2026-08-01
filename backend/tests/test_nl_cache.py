@@ -52,3 +52,20 @@ def test_nl_cache_key_rotates_daily(monkeypatch):
     key_day2 = nl_cache.nl_cache_key("최근 2년 백테스트", "ollama", None, None)
 
     assert key_day1 != key_day2
+
+
+def test_nl_cache_key_includes_pending_question():
+    """같은 답('3억원')이라도 어떤 되묻기에 대한 답이냐에 따라 귀속 필드가 달라진다 —
+    질문을 키에서 빼면 앞선 질문의 해석 결과가 그대로 재사용된다(pending_ask와 같은 계약)."""
+    capital_q = "초기자금을 얼마로 변경할까요?"
+    period_q = "백테스트 기간을 어떻게 변경할까요?"
+    prev = {"universe": ["KOSPI"]}
+    assert (
+        nl_cache.nl_cache_key("3억원", "ollama", None, prev, None, capital_q)
+        != nl_cache.nl_cache_key("3억원", "ollama", None, prev, None, period_q)
+    )
+    # 질문이 없는 턴(기존 호출부)은 키가 달라지지 않아야 한다 — 하위 호환.
+    assert (
+        nl_cache.nl_cache_key("3억원", "ollama", None, prev)
+        == nl_cache.nl_cache_key("3억원", "ollama", None, prev, None, None)
+    )

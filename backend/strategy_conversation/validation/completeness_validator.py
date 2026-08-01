@@ -118,8 +118,16 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                     ))
 
     # ④ 랭킹 전략은 회전 규칙이 필요 — 종목 수·리밸런싱 주기
+    #
+    # 지정 종목 전략은 '몇 종목을 고를지'가 성립하지 않는다 — 종목이 이미 정해져 있다
+    # (2026-07-31 실측: '삼성전자만으로 전략'에 "상위 몇 종목을 선택할까요?"가 나갔다.
+    # 이 검증기가 유니버스를 보지 않아 KOSPI·ETF·단일 종목에 **바이트 동일한** 질문을
+    # 냈다). 진행 골격의 NOT_APPLICABLE(validation/field_state.py)이 같은 판정을 이미
+    # 계산하지만 그건 표시 전용이라 되묻기 게이트가 소비하지 않는다 — 여기서 묻지 않는
+    # 것이 되묻기 쪽의 대응이다. FR-STR-068(지정 종목 '최대 보유 N종목' 표시 금지)과
+    # 같은 계약이다.
     if strategy.ranking:
-        if strategy.portfolio.selection_count is None:
+        if strategy.portfolio.selection_count is None and not strategy.universe.symbols:
             missing.append("strategy.portfolio.selection_count")
             questions.append(ClarificationQuestion(
                 field="strategy.portfolio.selection_count",

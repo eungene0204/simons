@@ -108,6 +108,9 @@ export type ConversationDecision =
       action: "respond";
       message: string;
       suggestions?: string[];
+      /** 이 응답 자체가 답을 기다리는 질문인가 — 호출부가 열린 되묻기로 기록해야 한다
+       *  (다음 턴의 `hasOpenClarification`·파스 레인의 질문 에코가 이 기록에서 나온다). */
+      opensClarification?: boolean;
     })
   | (DecisionBase & { action: "run_backtest" })
   | (DecisionBase & {
@@ -186,6 +189,9 @@ export type ConversationContext = {
   /** 사용자가 "바꾸겠다"고 고른 항목의 재질문 — 대기열의 머리 하나(문구까지 채워서).
    *  slots와 같은 계약이다: 판정도 문구 조회도 호출부가 하고 중재자는 결과만 본다. */
   reaskNext?: SlotAsk | null;
+  /** 아직 답을 받지 못한 되묻기가 화면에 떠 있는가(openClarificationRef). 이 턴의 입력은
+   *  그 질문의 답이므로 되묻기 레인이 다시 개입하지 않는다 — 아래 L2' 참고. */
+  hasOpenClarification?: boolean;
 };
 
 const RESEARCH_METRIC_LABELS: Record<ResearchMetric, string> = {
@@ -962,8 +968,15 @@ export function decideConversationTurn(
   // 백엔드가 이미 성립 검증을 마쳤다(규제 게이트 라벨·진행 중 전략 없음이면 null) —
   // 프론트는 그 판정을 재심하지 않고 문구만 고른다.
   // 진행 순서(L4)보다 먼저다: 사용자가 지목한 항목을 진행 순서가 덮어쓰면 질문이 무시된다.
+  //
+  // 단, **이미 던진 질문의 답을 받는 턴에는 개입하지 않는다**(사용자 결정 2026-07-31).
+  // "초기자금을 얼마로 변경할까요?"에 "3억원"이라고 답하면 clarify_target은 여전히
+  // initial_capital로 나온다 — 대상 판정은 맞지만 그 답이 값을 담았는지는 이 축이 알지
+  // 못한다. 그대로 두면 같은 질문을 다시 던지는 무한 되묻기가 된다(실측: 값이 실린
+  // 발화 4/4에서 대상이 나옴). 답의 해석은 파스 레인의 LLM이 하고, 어떤 질문에 대한
+  // 답인지는 파스 요청의 질문 에코(pending_question)가 알려준다.
   const clarifyTarget = classification.clarifyTarget;
-  if (clarifyTarget && context.hasCurrentStrategy) {
+  if (clarifyTarget && context.hasCurrentStrategy && !context.hasOpenClarification) {
     // 무엇을 바꿀지 말하지 않은 메타 요청("조건을 바꾸고 싶어")에는 영역 칩 5개 대신
     // **지금 설정된 항목을 값과 함께** 보여주고 그대로 둘 것을 고르게 한다(FR-SA-020).
     // 사용자는 화면의 값을 보며 고르고, 고르지 않은 항목만 다시 묻는다.
@@ -989,6 +1002,7 @@ export function decideConversationTurn(
         reason: clarification.reason,
         message: clarification.message,
         suggestions: clarification.suggestions,
+        opensClarification: true,
       };
     }
   }

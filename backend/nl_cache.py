@@ -34,7 +34,7 @@ def universe_cache_stamp() -> str:
 
 def nl_cache_key(
     prompt: str, backend: str, model: str | None, previous_parsed: dict | None,
-    pending_ask: dict | None = None,
+    pending_ask: dict | None = None, pending_question: str | None = None,
 ) -> str:
     payload = {
         "prompt": prompt.strip(),
@@ -44,6 +44,9 @@ def nl_cache_key(
         # 같은 프롬프트라도 직전 planner 질문 컨텍스트가 다르면 칩 결정론 귀속 결과가
         # 달라진다(run_chip_answer) — 키에 포함해 컨텍스트 간 캐시 충돌을 막는다.
         "pending_ask": pending_ask or {},
+        # 같은 답("3억원")이라도 어떤 질문에 대한 답이냐에 따라 귀속 필드가 달라진다 —
+        # pending_ask와 같은 이유로 키에 포함한다.
+        "pending_question": pending_question or "",
         "universe_stamp": universe_cache_stamp(),
         # 상대 기간 표현("백테스트 2년")은 파싱 시점의 오늘 기준 명시 날짜로 변환돼 결과에
         # 저장되므로, 장수 프로세스에서 자정을 넘겨도 스테일 날짜가 반환되지 않게 키를 일 단위로 돌린다.

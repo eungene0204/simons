@@ -9,6 +9,8 @@ type ParseStreamBody = {
   previous_coach_text?: string;
   // 직전 planner ask 컨텍스트 에코(칩 클릭의 결정론 귀속 — 백엔드 무상태 계약)
   pending_ask?: { topic?: string | null; question: string; chips: string[] } | null;
+  // 답을 기다리는 되묻기 질문 에코 — 필드 없이 값만 온 답을 인터프리터가 귀속하는 근거
+  pending_question?: string | null;
   // 이전 턴까지 사용자가 명시한 설정 필드 에코(provenance 누적 — 무상태 계약)
   previous_explicit_fields?: string[];
   // 값 변경 추적 메타데이터 에코(비권위 — 판정에 쓰지 않는다)

@@ -98,6 +98,7 @@ import {
 import {
   getNextMissingBacktestCondition,
   isBacktestReady,
+  isClosedChoiceSlot,
   promptForSlot,
 } from "./backtestReadiness";
 import {
@@ -169,6 +170,9 @@ interface ChatMessage {
   coachText?: string;
   clarification?: string;
   clarificationSuggestions?: string[];
+  // 이 되묻기가 채우는 골격 슬롯. 선택지가 닫힌 집합인 슬롯(유니버스)에서 '직접 입력'
+  // 칩을 감추는 판정 입력이다 — 질문 문구는 친화 문구로 치환되므로 근거가 못 된다.
+  clarificationField?: string;
   coachLoading?: boolean;  // coach response is being generated
   isLoading?: boolean;
   // 분석 로딩 단계: 'parsing'(NL 파서 규칙 파싱) → 'thinking'(LLM 처리) → 'validating'(LLM 검증).
@@ -1450,6 +1454,7 @@ function StrategyLabContent() {
     | "parsed"
     | "clarification"
     | "clarificationSuggestions"
+    | "clarificationField"
     | "builderPresentation"
     | "strategyConfirmation"
     | "previousStepState"
@@ -1843,6 +1848,7 @@ function StrategyLabContent() {
       clarification: nextPresentation.question,
       clarificationSuggestions: nextMissingCondition?.suggestions ??
         [CONFIRM_STRATEGY_CHIP],
+      clarificationField: nextMissingCondition?.field,
       builderPresentation: {
         summaryItems: nextPresentation.summaryItems,
         progressItems: nextPresentation.progressItems,
@@ -1983,6 +1989,7 @@ function StrategyLabContent() {
           parsed: message.parsed,
           clarification: message.clarification,
           clarificationSuggestions: message.clarificationSuggestions,
+          clarificationField: message.clarificationField,
           builderPresentation: message.builderPresentation,
           strategyConfirmation: message.strategyConfirmation,
           previousStepState: message.previousStepState,
@@ -2594,6 +2601,12 @@ function StrategyLabContent() {
         // 직전 planner ask 컨텍스트 에코 — 입력이 이 칩과 정확히 일치하면 백엔드가
         // 결정론 칩 답변 레인(LLM 생략)으로 State에 반영한다(Phase 4 후속 ①).
         ...(currentParsed && pendingAskRef.current ? { pending_ask: pendingAskRef.current } : {}),
+        // 답을 기다리는 질문 에코(previous_coach_text·pending_ask와 같은 무상태 계약).
+        // "3억원"처럼 필드 없이 값만 온 답을 어느 필드로 귀속할지는 이 질문을 함께 본
+        // 인터프리터 LLM이 판단한다 — 프론트가 원문을 읽어 필드를 정하지 않는다.
+        ...(currentParsed && openClarificationRef.current?.clarification
+          ? { pending_question: openClarificationRef.current.clarification }
+          : {}),
         previous_explicit_fields: explicitFieldsRef.current,
         previous_field_metadata: fieldMetadataRef.current,
         previous_artifacts: artifactsRef.current,
@@ -2806,6 +2819,9 @@ function StrategyLabContent() {
         parsed: nextParsed,
         clarification: clarificationText ?? undefined,
         clarificationSuggestions: clarificationText ? clarificationSuggestions : undefined,
+        clarificationField: clarificationText
+          ? presentedClarification?.missingCondition?.field
+          : undefined,
         builderPresentation: clarificationTurn
           ? {
               summaryItems: clarificationTurn.summaryItems,
@@ -3002,6 +3018,7 @@ function StrategyLabContent() {
         parsed: data.parsed,
         clarification: question,
         clarificationSuggestions: missingCondition.suggestions,
+        clarificationField: missingCondition.field,
         builderPresentation,
         notices: data.notices?.length ? data.notices : undefined,
       };
@@ -3119,6 +3136,9 @@ function StrategyLabContent() {
       slots: currentSlotState(),
       // 재질문 대기열의 머리(문구까지 채워서) — slots와 같은 계약이다.
       reaskNext: nextReask(),
+      // 답을 기다리는 질문이 떠 있으면 이 입력은 그 답이다 — 되묻기 레인이 개입하지
+      // 않고 파스 레인(LLM)이 해석한다(사용자 결정 2026-07-31).
+      hasOpenClarification: Boolean(openClarificationRef.current?.clarification),
     };
     let turnDecision = decideConversationTurn(userText, conversationContext);
     traceTurn("pre-classify", userText, turnDecision);
@@ -3153,7 +3173,17 @@ function StrategyLabContent() {
 
     // ── 단일 디스패치: 액션당 구현은 하나뿐이다 ──────────────────────
     if (turnDecision.action === "respond") {
-      await emitAssistant(composeTurnMessage(turnDecision));
+      const patch = composeTurnMessage(turnDecision);
+      // 이 응답이 곧 질문이면 열린 되묻기로 기록한다 — 기록이 없으면 다음 턴이 그 답을
+      // 새 발화로 재분류해 같은 질문을 다시 던진다(2026-07-31 초기자금 무한 되묻기).
+      if (turnDecision.opensClarification) {
+        rememberOpenClarification({
+          ...patch,
+          clarification: turnDecision.message,
+          clarificationSuggestions: turnDecision.suggestions,
+        });
+      }
+      await emitAssistant(patch);
       setIsSending(false);
       return;
     }
@@ -4244,6 +4274,7 @@ function StrategyLabContent() {
                                           </button>
                                         ))}
                                         {!msg.strategyConfirmation &&
+                                          !isClosedChoiceSlot(msg.clarificationField) &&
                                           !msg.clarificationSuggestions.includes(FREE_INPUT_CHIP) && (
                                           <button
                                             type="button"

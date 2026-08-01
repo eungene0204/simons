@@ -157,6 +157,13 @@ simons/
 │   │   ├── candidate_generator.py   # 개선 후보 전략 생성
 │   │   ├── advice_evaluator.py      # 개선 전/후 성과 평가
 │   │   └── response_composer.py     # 사용자 답변 섹션 구성
+│   ├── observability/               # LangSmith Trace 관찰 계층(기본 off — 실행 경로 불변, docs/observability.md)
+│   │   ├── tracing.py               # span 파사드 + 스레드 경계 전파(current_parent/use_parent)
+│   │   ├── metrics.py               # Trace 단위 성능 지표 누적기(contextvar)
+│   │   ├── agent_trace.py           # Action DAG·State diff·응답·토큰 어댑터(덕타이핑 — 실행 계층 미import)
+│   │   ├── identity.py              # Trace 식별자 파생(user_id 없음 — 지어내지 않는다)
+│   │   ├── dataset.py               # Evaluation Dataset 21개(정답 전략 미포함)
+│   │   └── evaluators.py            # 결정론 evaluator 6축(LLM judge 없음)
 │   ├── vector_memory/               # ChromaDB 벡터 메모리(적재/쿼리 스키마·정규화·임베딩)
 │   │   └── embedding.py             # bge-m3 의미 임베딩(1024차원) + 해싱 폴백
 │   ├── corpus/                      # RAG 코퍼스 생성기(비-AI 전략 + NL 템플릿 설명)
@@ -768,6 +775,48 @@ done 노드 재발행 생략은 위반이 아니라 러너 보유 사본 병합(
 sector_unresolved 우선순위 질문은 불가침)하고 `clarification_priority="dag_planner"`
 마커로 프론트 explicit 게이트의 고정 칩 삼킴을 막는다(프론트 수정 0 — 기존 우선순위
 채널 재사용). planner 실패는 기존 고정 질문 유지 폴백. prod=off.
+
+### 4.2.3 관찰 계층 (backend/observability/ — LangSmith Trace, 기본 off)
+
+Agent 실행 과정을 LangSmith Trace로 남기는 **관찰 전용** 계층. 실행 경로·분기·되묻기
+조건·폴백 판정·반환값·예외 전파 중 어느 것도 바꾸지 않는다. `LANGSMITH_TRACING`이
+참이 아니면 완전한 no-op이며 langsmith를 import조차 하지 않는다(오버헤드·외부 전송 0).
+
+계측은 **기존 단일 통로 5곳만** 감싼다(계측을 코드 전반에 흩지 않는다):
+
+| 계층 | chokepoint | 방식 |
+|---|---|---|
+| Trace 루트 | `main.py::_run_nl_parse` | 본체를 `_run_nl_parse_traced`로 두고 래퍼가 span만 연다 |
+| Tool | `tools/base.py::call` | 도구 전부가 이 함수를 지난다 |
+| LLM | `interpreter/llm_strategy_interpreter.py::_default_ollama_chat` | 공유 `ChatFn` 계약(interpreter·dag_planner·mini_planner·term_grounding 공통) |
+| Planner | `planner/dag_planner.py::plan_strategy_dag` | 본체를 `_plan_strategy_dag`로 분리 |
+| Interpreter | `StrategyInterpreter.interpret` | 본체를 `_interpret`으로 분리 |
+
+Trace 계층: `Trace → Interpreter/Planner → (Action → Tool · State · LLM) → Responder`.
+Action span과 Tool span을 분리해 "Action은 계획됐는데 도구는 안 불렸다"(`call_cache`
+재사용)를 구분한다. 성능 지표(`planner_ms`/`tool_ms`/`llm_ms`/`action_count`/
+`retry_count` 등)는 `span()`이 종료 시점에 누적한다 — 실행 코드는 자기 시간을 보고하지
+않는다. 폴백(예외 아닌 `None` 반환)은 `trace.error(kind, ...)`로 종류를 남긴다
+(`DagContractError`·`NoProgress`·`TurnBudgetExhausted` 등).
+
+**스레드 경계가 이 계층의 핵심 함정**: langsmith는 contextvar로 부모를 찾는데
+contextvar는 스레드를 건너지 않는다. shadow planner 2종과 SSE 후행 검증은
+`current_parent()`를 스레드로 넘기고 `use_parent()`로 복원해야 계층이 유지된다 —
+안 하면 span이 조용히 고아 Trace가 된다(회귀 테스트
+`tests/test_observability_hierarchy.py`가 대조군까지 고정).
+
+Metadata는 **파생 가능한 것만** 싣는다 — `NLParseRequest`는 무상태 에코 계약이라
+`user_id`가 없고, 관찰 계층이 요청 스키마를 늘리는 것은 실행 경로 변경이므로
+`user_id=None`이다. 대화는 `session_id(턴 N) == strategy_id(턴 N-1)` 사슬로 잇는다.
+Cost는 self-hosted(Ollama/Modal)라 단가가 없어 싣지 않는다(토큰 수는 Ollama 응답의
+`prompt_eval_count`/`eval_count`를 읽어 기록).
+
+Dataset(`observability/dataset.py`, 21개)과 결정론 evaluator 6축
+(`observability/evaluators.py` — LLM judge 없음)이 회귀 판정에 같은 Trace를 재사용한다.
+Dataset에 정답 전략을 두지 않는다 — **되묻기는 실패가 아니라 정상 동작**이라
+정답을 못 박으면 계약을 어기는 쪽이 통과한다.
+
+상세: [`docs/observability.md`](observability.md)
 
 ### 4.3 백테스트 엔진 파이프라인
 

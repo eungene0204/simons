@@ -123,3 +123,6 @@ top200.txt
 
 # DART 기업 고유번호 캐시 — 재다운로드 가능(backfill_dart_industry.py)
 data/dart-corp-code.json
+
+# QA 하니스 로컬 캐시(기준 전략·실행 결과)
+scripts/.qa_free_input_*.json

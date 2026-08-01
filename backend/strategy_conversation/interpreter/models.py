@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -298,8 +299,62 @@ class RiskSpec(BaseModel):
         return abs(v) if v is not None else None
 
 
+# 버킷(1y/3y/5y/full)이 아닌 상대 기간 표기. 오늘 기준 명시 날짜로 바꾼다.
+_RELATIVE_YEARS_RE = re.compile(r"^(\d{1,2})\s*(?:y|년)$")
+_RELATIVE_MONTHS_RE = re.compile(r"^(\d{1,3})\s*(?:m|개월|달)$")
+
+
 class BacktestSpec(BaseModel):
     period: Optional[Literal["1y", "3y", "5y", "full"]] = Field(default=None)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _relative_period_to_dates(cls, data):
+        """버킷 밖 상대 기간("10y"·"18개월")을 오늘 기준 명시 날짜 창으로 바꾼다.
+
+        period가 가질 수 있는 값은 넷뿐이라 그 밖의 표기는 Literal 검증에서 탈락하고,
+        수정 턴에서는 패치가 통째로 폐기돼 "해석하지 못했어요"로 끝났다(2026-07-31 QA:
+        '10년' 2/2 실패). 가장 가까운 버킷으로 올리는 방식은 쓰지 않는다 — 사용자가 말한
+        적 없는 창이 된다. 명시 날짜 변환은 `nl_parser._extract_backtest_dates`가 같은
+        입력에 이미 쓰는 정본 정책이며, 창의 길이가 사용자가 말한 그대로 보존된다.
+        """
+        if not isinstance(data, dict):
+            return data
+        period = data.get("period")
+        if not isinstance(period, str):
+            return data
+        s = period.strip().lower()
+        if s in ("1y", "3y", "5y", "full"):
+            return data
+        if data.get("start_date") or data.get("end_date"):
+            # 명시 날짜가 이미 창을 정했다 — 버킷 밖 표기를 남겨 Literal 검증을
+            # 실패시키느니 비운다(날짜가 우선이라는 기존 계약과 같은 방향).
+            return {**data, "period": None}
+        years_match = _RELATIVE_YEARS_RE.match(s)
+        months_match = _RELATIVE_MONTHS_RE.match(s)
+        if years_match:
+            years = int(years_match.group(1))
+            if years in (1, 3, 5) or not 1 <= years <= 30:
+                return data
+            months = years * 12
+        elif months_match:
+            months = int(months_match.group(1))
+            if not 12 <= months <= 360:   # 12개월 미만은 백테스트 최소 기간 미달
+                return data
+        else:
+            return data
+        today = date.today()
+        start_year = today.year - months // 12
+        start_month = today.month - months % 12
+        if start_month <= 0:
+            start_month += 12
+            start_year -= 1
+        try:
+            start = date(start_year, start_month, today.day)
+        except ValueError:            # 2월 29일 등 존재하지 않는 날짜 보정
+            start = date(start_year, start_month, 28)
+        return {**data, "period": None,
+                "start_date": start.isoformat(), "end_date": today.isoformat()}
 
     @field_validator("period", mode="before")
     @classmethod
@@ -311,6 +366,17 @@ class BacktestSpec(BaseModel):
             s = v.strip().lower()
             if s in ("1y", "3y", "5y", "full"):
                 return s
+            # 9B 드리프트 실측(2026-07-31): '전체 기간' 자유 입력에 period="all"을 낸다 —
+            # Literal 밖이라 패치가 통째로 폐기돼 "해석하지 못했어요"로 끝났다(2/2 재현).
+            # 뜻이 같은 표기를 정본 값으로 맞추는 것뿐이므로 의미 판단이 아니다.
+            if s in ("all", "entire", "max", "전체", "전체기간", "전체 기간", "가능한 전체"):
+                return "full"
+            # 버킷 연수의 표기 변형("5년"·"5 y"·"5Y")도 같은 정규화 대상이다. 버킷이 아닌
+            # 연수(2년·10년)는 여기서 바꾸지 않는다 — 가장 가까운 버킷으로 올리면 사용자가
+            # 말하지 않은 창이 된다. 그 경우의 정본은 명시 날짜 변환이다(프롬프트 규칙 12-1).
+            bucket_year = re.fullmatch(r"(1|3|5)\s*(?:y|년)", s)
+            if bucket_year:
+                return f"{bucket_year.group(1)}y"
             if not s.replace(",", "").replace(".", "", 1).isdigit():
                 return v
         v = _coerce_number(v)

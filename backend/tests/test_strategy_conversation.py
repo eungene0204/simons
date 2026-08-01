@@ -600,6 +600,25 @@ def test_ranking_without_count_and_frequency_asks():
     assert "strategy.portfolio.rebalance_frequency" in fields
 
 
+def test_designated_symbols_are_not_asked_how_many_to_select():
+    """[회귀 2026-07-31] '삼성전자만으로 전략'에 "상위 몇 종목을 선택할까요?"가 나갔다.
+
+    완결성 검증이 유니버스를 보지 않아 KOSPI·ETF·단일 종목에 **바이트 동일한** 질문을
+    냈다. 종목이 이미 지정됐으면 '몇 종목을 고를지'는 성립하지 않는다(FR-STR-068과 같은
+    계약). 리밸런싱은 지정 종목이 여럿일 때 여전히 성립하므로 계속 묻는다.
+    """
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[],
+        universe={"markets": ["KOSPI"], "symbols": ["005930"]},
+        ranking=[{"metric": "ranking.return", "lookback_days": 60}],
+        portfolio={"selection_count": None, "rebalance_frequency": None},
+    ))
+    _, report = run_validation(intent)
+    fields = {q.field for q in report.clarification_questions}
+    assert "strategy.portfolio.selection_count" not in fields
+    assert "strategy.portfolio.rebalance_frequency" in fields
+
+
 def test_low_confidence_does_not_leak_to_user():
     # 사고(2026-07-17): "확신이 낮습니다 — 확인해 주시겠어요?"가 사용자에게 노출.
     # confidence는 텔레메트리 전용 — 상태 판정·경고·질문 어디에도 쓰지 않는다.
@@ -743,7 +762,7 @@ class _StubPrimaryInterpreter:
             unreflected_numbers=unreflected,
         )
 
-    def interpret(self, user_input, draft=None):
+    def interpret(self, user_input, draft=None, pending_question=None):
         return self._result
 
 
@@ -1464,6 +1483,42 @@ def test_user_prompt_includes_today_grounding():
     assert today in build_user_prompt("백테스트 2025년까지", draft={"portfolio": {}})
 
 
+def test_user_prompt_carries_pending_question_on_modify_turn():
+    """[회귀 2026-07-31] 되묻기 답변("3억원")은 필드를 밝히지 않는다 — 어느 필드의 답인지는
+    직전에 우리가 던진 질문이 정한다. 질문을 프롬프트에 싣지 않으면 귀속할 근거가 없어
+    같은 질문을 다시 던지게 된다(초기자금 무한 되묻기)."""
+    from strategy_conversation.interpreter.prompts import build_user_prompt
+
+    question = "초기자금을 얼마로 변경할까요?"
+    prompt = build_user_prompt("3억원", draft={"backtest": {}}, pending_question=question)
+    assert question in prompt
+    assert "답을 기다리는 질문" in prompt
+    # 질문이 없는 턴은 문구가 붙지 않는다(기존 프롬프트 그대로).
+    assert "답을 기다리는 질문" not in build_user_prompt("3억원", draft={"backtest": {}})
+    # 초기 파스(초안 없음)는 되묻기 답변 턴이 아니다.
+    assert "답을 기다리는 질문" not in build_user_prompt("3억원", pending_question=question)
+
+
+def test_modify_primary_forwards_pending_question_to_interpreter(monkeypatch):
+    """수정 레인이 질문을 인터프리터까지 전달하는지 — 배선이 끊기면 프롬프트만 고쳐도
+    실제 호출에는 질문이 실리지 않는다."""
+    from strategy_conversation import primary
+
+    seen: dict = {}
+
+    class _Interpreter:
+        def interpret(self, user_input, draft=None, pending_question=None):
+            seen["pending_question"] = pending_question
+            raise RuntimeError("stop")  # 해석 결과는 이 테스트의 관심사가 아니다
+
+    monkeypatch.setattr(primary, "_get_interpreter", lambda _cls: _Interpreter())
+    primary.run_primary_modification(
+        "3억원", _rich_parsed().model_dump(),
+        pending_question="초기자금을 얼마로 변경할까요?",
+    )
+    assert seen["pending_question"] == "초기자금을 얼마로 변경할까요?"
+
+
 def test_modify_primary_clarify_without_questions_falls_back(monkeypatch):
     # CLARIFY인데 질문이 없으면 전달할 내용이 없으므로 기존대로 폴백한다.
     from strategy_conversation.primary import run_primary_modification
@@ -1514,6 +1569,38 @@ def test_operator_token_drift_repaired():
     # 올바른 JSON에는 no-op(멱등)
     good = '{"operator":">=","value":15}'
     assert json.loads(extract_json_object(good)) == {"operator": ">=", "value": 15}
+
+
+def test_missing_closing_brace_in_nested_patch_value_repaired():
+    """[회귀 2026-07-31] 패치 값이 3단 중첩(패치 → 조건 객체 → parameters)이면 9B가 조건
+    객체의 닫는 중괄호를 빠뜨린다(`}` 하나가 `]` 앞에서 누락). 1회 복구 요청에도 같은
+    출력이 나와(2/2 재현) '데드크로스 나오면 팔아' 같은 청산 조건 답변이 전부 해석 실패로
+    끝났다. 닫는 괄호 삽입만으로 설명되는 붕괴이므로 형식 정규화로 복구한다."""
+    broken = (
+        '{"intent":"MODIFY_STRATEGY","strategy":null,"patches":[{"op":"add",'
+        '"path":"/exit_conditions/-","value":{"factor":"technical.ma_crossover",'
+        '"operator":"crosses_below","parameters":{"short_period":1,"long_period":20},'
+        '"source_text":"데드크로스 나오면 팔아"}],'
+        '"unsupported_features":[],"clarification_questions":[]}'
+    )
+    fixed = json.loads(extract_json_object(broken))
+    patch = fixed["patches"][0]
+    assert patch["path"] == "/exit_conditions/-"
+    assert patch["value"]["parameters"] == {"short_period": 1, "long_period": 20}
+    assert fixed["unsupported_features"] == []
+
+
+def test_bracket_repair_is_idempotent_and_does_not_overreach():
+    """올바른 출력에는 손대지 않고, 삽입만으로 설명되지 않는 붕괴는 기존 실패 경로로 보낸다.
+
+    절단(닫는 괄호가 아예 없음)은 max_tokens 문제라 조용히 완성하면 안 된다 —
+    잘린 조건이 '사용자가 말하지 않은 전략'으로 둔갑한다."""
+    good = '{"a":1,"b":[{"c":{"d":2}}]}'
+    assert extract_json_object(good) == good
+    with pytest.raises(ValueError):
+        extract_json_object('{"a": [1,2')          # 절단
+    with pytest.raises(ValueError):
+        extract_json_object('"a": 1}')             # 여는 괄호 없음
 
 
 # ─── JSON Patch / Draft ──────────────────────────────────────────────────────
@@ -2252,3 +2339,96 @@ def test_new_listing_survives_decompile_compile_roundtrip():
         intent, ValidationReport(is_valid=True, status="READY"), prev.description
     )
     assert roundtrip.model_dump() == prev.model_dump()
+
+
+def test_absent_condition_index_patches_promoted_to_add():
+    """[회귀 2026-07-31] 초안의 exit_conditions가 비어 있는데 9B가
+    `replace /exit_conditions/0/{factor,operator}`를 낸다 — 가리킬 대상이 없어 PatchError로
+    폴백하면서 '볼린저밴드 상단 닿으면 매도' 같은 청산 조건 답변이 통째로 사라졌다.
+    같은 인덱스를 겨냥한 필드 패치들을 조건 추가 하나로 합친다(값은 지어내지 않는다)."""
+    from strategy_conversation.conversation.patch_applier import apply_patches
+
+    spec = StrategyIntent.model_validate({
+        "intent": "CREATE_STRATEGY", "status": "READY",
+        "strategy": {
+            "universe": {"markets": ["KOSPI"]},
+            "entry_conditions": [{"factor": "technical.breakout", "operator": "crosses_above"}],
+            "exit_conditions": [],
+        },
+    }).strategy
+    out = apply_patches(spec, [
+        PatchOp.model_validate({"op": "replace", "path": "/exit_conditions/0/factor",
+                                "value": "technical.bollinger_bands",
+                                "source_text": "볼린저밴드 상단 닿으면 매도"}),
+        PatchOp.model_validate({"op": "replace", "path": "/exit_conditions/0/operator",
+                                "value": "crosses_above"}),
+    ])
+    assert len(out.exit_conditions) == 1
+    assert out.exit_conditions[0].factor == "technical.bollinger_bands"
+    assert out.exit_conditions[0].operator == "crosses_above"
+    # 진입 조건은 건드리지 않는다
+    assert out.entry_conditions[0].factor == "technical.breakout"
+
+
+def test_absent_condition_promotion_requires_factor():
+    """조건의 정체(factor)가 없으면 승격하지 않는다 — 불완전한 조건을 만들어 검증을
+    통과시키는 것이 조용한 오해석의 시작이다."""
+    from strategy_conversation.conversation.patch_applier import PatchError, apply_patches
+
+    spec = StrategyIntent.model_validate({
+        "intent": "CREATE_STRATEGY", "status": "READY",
+        "strategy": {"universe": {"markets": ["KOSPI"]},
+                     "entry_conditions": [{"factor": "technical.rsi", "operator": "<=", "value": 30}],
+                     "exit_conditions": []},
+    }).strategy
+    with pytest.raises(PatchError):
+        apply_patches(spec, [PatchOp.model_validate(
+            {"op": "replace", "path": "/exit_conditions/0/operator", "value": "crosses_above"})])
+
+
+def test_non_bucket_relative_period_becomes_explicit_dates():
+    """[회귀 2026-07-31] period는 1y/3y/5y/full 넷뿐이라 '10년'을 뜻하는 "10y"가 오면
+    Literal 검증에서 탈락해 패치가 통째로 폐기됐다("해석하지 못했어요" 2/2 재현).
+    가장 가까운 버킷으로 올리면 사용자가 말한 적 없는 창이 되므로 명시 날짜로 바꾼다."""
+    from datetime import date
+
+    from strategy_conversation.interpreter.models import BacktestSpec
+
+    spec = BacktestSpec.model_validate({"period": "10y"})
+    assert spec.period is None
+    assert spec.end_date == date.today().isoformat()
+    assert spec.start_date.startswith(str(date.today().year - 10))
+    # 버킷·표기 변형은 정본 값으로 정규화된다(창의 뜻이 같다).
+    assert BacktestSpec.model_validate({"period": "all"}).period == "full"
+    assert BacktestSpec.model_validate({"period": "5년"}).period == "5y"
+    # 명시 날짜가 이미 있으면 건드리지 않는다.
+    kept = BacktestSpec.model_validate({"period": "10y", "start_date": "2020-01-01"})
+    assert kept.start_date == "2020-01-01"
+
+
+def test_patch_provenance_accepts_quote_inside_condition_value():
+    """[회귀 2026-07-31] 인용문(source_text)이 올 수 있는 자리는 둘이다 — 패치 자신과,
+    조건을 통째로 넣는 패치의 값 안(StrategyCondition.source_text). 패치 쪽만 보면
+    조건 객체 안에 인용한 패치가 '근거 없음'으로 거부된다. QA 실측: '데드크로스 나오면
+    팔아'가 인용을 정확히 달고도 통째로 버려졌다(수치가 없어 수치 대조로도 못 구제)."""
+    from strategy_conversation.primary import _input_number_candidates, _patch_provenance_supported
+    from engine.nl_parser import _compact
+
+    user_input = "데드크로스 나오면 팔아"
+    patch = PatchOp.model_validate({
+        "op": "add", "path": "/exit_conditions/-",
+        "value": {"factor": "technical.ma_crossover", "operator": "crosses_below",
+                  "parameters": {"short_period": 5, "long_period": 20},
+                  "source_text": "데드크로스 나오면 팔아"},
+    })
+    assert _patch_provenance_supported(
+        patch, _compact(user_input), _input_number_candidates(user_input)) is True
+
+    # 지어낸 인용은 여전히 거부된다(게이트를 무력화한 것이 아니다).
+    hallucinated = PatchOp.model_validate({
+        "op": "add", "path": "/exit_conditions/-",
+        "value": {"factor": "technical.rsi", "operator": ">=",
+                  "source_text": "RSI 70 이상이면 매도"},
+    })
+    assert _patch_provenance_supported(
+        hallucinated, _compact(user_input), _input_number_candidates(user_input)) is False

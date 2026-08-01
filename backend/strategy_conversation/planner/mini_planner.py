@@ -127,7 +127,27 @@ def _observed_resolution(steps: List[PlannerStep]) -> tuple[Optional[str], List[
 def plan_universe_resolution(
     term: str, chat_fn: Callable[[str, str], str], max_steps: Optional[int] = None,
 ) -> Optional[PlannerResult]:
-    """미해석 표현 하나를 planner 루프로 해석한다. 실패(폴백 필요) 시 None."""
+    """미해석 표현 하나를 planner 루프로 해석한다. 실패(폴백 필요) 시 None.
+
+    본체는 _plan_universe_resolution — 이 래퍼는 관찰 span만 연다(비활성 시 no-op).
+    """
+    from observability import span
+
+    with span("Planner · 유니버스 해석", "planner", inputs={"term": term}) as trace:
+        result = _plan_universe_resolution(term, chat_fn, max_steps)
+        if result is None:
+            trace.output(outcome="fallback")
+        else:
+            trace.output(outcome=result.outcome, sector=result.sector,
+                         question=result.question,
+                         company_count=len(result.companies),
+                         steps=[{"tool": s.tool, "args": s.args} for s in result.steps])
+        return result
+
+
+def _plan_universe_resolution(
+    term: str, chat_fn: Callable[[str, str], str], max_steps: Optional[int] = None,
+) -> Optional[PlannerResult]:
     if not (term or "").strip():
         return None
     budget = max_steps if max_steps is not None else config.planner_max_steps()

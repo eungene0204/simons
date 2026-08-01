@@ -213,3 +213,27 @@ def test_recall_repair_prompt_demands_full_strategy_on_create_turn():
     # 수정 턴은 반대로 patches 형식을 유지해야 한다.
     modify = build_recall_repair_prompt("거래대금 50억 이상", ["50억"], "{}", draft={"universe": {}})
     assert "patches" in modify and "strategy는 null" in modify
+
+
+def test_patch_source_text_echo_does_not_count_as_reflected():
+    """[회귀 2026-07-31] 수정 패치의 인용문(source_text)은 사용자 원문 조각이라 값이 틀려도
+    입력의 숫자를 포함한다 — 반영으로 인정하면 단위 오차가 검사를 통과한다.
+
+    실측: 되묻기 답변 '3억원'에 9B가 value=30000000(10배 축소) + source_text='3억원'을
+    출력했고, 인용의 3이 앵커 '3억'의 후보 3과 맞아 검사가 침묵 → 3천만원이 조용히 확정."""
+    intent = StrategyIntent.model_validate({
+        "intent": "MODIFY_STRATEGY", "status": "READY", "strategy": None,
+        "patches": [{"op": "replace", "path": "/backtest/initial_capital",
+                     "value": 30000000, "source_text": "3억원"}],
+    })
+    assert find_unreflected_numbers("3억원", intent) == ["3억"]
+
+
+def test_correct_unit_conversion_in_patch_passes():
+    """올바른 환산(3억원=300000000)은 인용을 빼도 값 자체가 앵커와 맞아 통과한다."""
+    intent = StrategyIntent.model_validate({
+        "intent": "MODIFY_STRATEGY", "status": "READY", "strategy": None,
+        "patches": [{"op": "replace", "path": "/backtest/initial_capital",
+                     "value": 300000000, "source_text": "3억원"}],
+    })
+    assert find_unreflected_numbers("3억원", intent) == []

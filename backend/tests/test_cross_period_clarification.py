@@ -66,7 +66,9 @@ def test_build_clarification_coalesces_cross_period_questions():
         )
         for path in ("entry", "exit") for param in ("short_period", "long_period")
     ])
-    question, chips = primary._build_clarification(report, intent)
+    question, chips, topic = primary._build_clarification(report, intent)
+    # 크로스 기간 칩은 조건 칩이라 슬롯 topic이 붙지 않는다(확정 판정 대상 아님).
+    assert topic is None
     # 파라미터별 4개 질문 → 역할별 1개 병합 질문 2줄
     assert question is not None
     assert question.count("이동평균 크로스의 기간") == 2

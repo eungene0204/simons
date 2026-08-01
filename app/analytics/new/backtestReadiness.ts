@@ -220,6 +220,14 @@ const SLOT_PROMPTS: Record<
   },
 };
 
+/** 제시한 선택지가 곧 답의 전부인 슬롯 — 자유 입력 칩("직접 입력")을 붙이지 않는다.
+ *  유니버스는 우리가 지원하는 시장 범위가 위 네 개로 닫혀 있어, 자유 입력 칩이
+ *  "다른 답도 된다"는 없는 여지를 만든다. 빌더 칩 경로는 이미 같은 판정을 한다
+ *  (page.tsx `withBuilderNavigationSuggestions`의 유니버스 단계 분기). */
+export function isClosedChoiceSlot(field: string | null | undefined): boolean {
+  return field === "universe";
+}
+
 // 진행 순서 = 사용자에게 보이는 골격 순서(백엔드 FIELD_ORDER와 동일).
 export const SLOT_FIELD_ORDER: MissingBacktestCondition["field"][] = [
   "universe", "entry", "exit", "max_positions", "rebalancing",

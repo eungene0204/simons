@@ -158,9 +158,23 @@ def _default_ollama_chat(model: str) -> ChatFn:
             headers={"Content-Type": "application/json", **ollama_auth_headers()},
             method="POST",
         )
-        with _ollama_open_with_retry(req, timeout=120) as resp:
-            data = json.loads(resp.read())
-        return (data.get("message") or {}).get("content", "")
+        # 관찰 span(비활성 시 no-op) — 호출 자체는 그대로다. 토큰 수는 Ollama 응답에
+        # 이미 들어 있는 값을 읽기만 한다(prompt_eval_count/eval_count).
+        from observability import span
+        from observability.agent_trace import ollama_usage
+
+        with span(
+            f"LLM · {model}", "llm",
+            inputs={"system_prompt": system_prompt, "user_prompt": user_message},
+            metadata={"model": model, "temperature": 0,
+                      "num_ctx": _OLLAMA_NUM_CTX, "max_tokens": max_tokens or 2048},
+        ) as trace:
+            with _ollama_open_with_retry(req, timeout=120) as resp:
+                data = json.loads(resp.read())
+            content = (data.get("message") or {}).get("content", "")
+            trace.meta(**ollama_usage(data))
+            trace.output(response=content)
+            return content
 
     return chat
 
@@ -197,9 +211,43 @@ class StrategyInterpreter:
         self._chat = chat_fn or _default_ollama_chat(self.model_name)
         self._system_prompt = build_system_prompt()
 
-    def interpret(self, user_input: str, draft: Optional[dict] = None) -> InterpreterResult:
+    def interpret(
+        self, user_input: str, draft: Optional[dict] = None,
+        pending_question: Optional[str] = None,
+    ) -> InterpreterResult:
+        """본체는 _interpret다 — 이 래퍼는 관찰 span만 연다(비활성 시 no-op)."""
+        from observability import span
+        from observability.agent_trace import state_diff
+
+        with span(
+            "Interpreter · 전략 해석", "chain",
+            inputs={"user_input": user_input, "draft": draft,
+                    "pending_question": pending_question},
+            metadata={"model": self.model_name, "prompt_version": PROMPT_VERSION,
+                      "mode": "modify" if draft else "create"},
+        ) as trace:
+            result = self._interpret(user_input, draft, pending_question)
+            # 복구 재시도 = LLM 출력이 스키마를 못 맞춰 다시 부른 횟수(스펙 § Retry Count).
+            trace.meta(retry_count=result.repair_attempts,
+                       interpreter_latency_ms=result.latency_ms,
+                       unreflected_numbers=result.unreflected_numbers)
+            from observability.tracing import bump
+
+            bump("retry_count", result.repair_attempts)
+            trace.output(
+                intent=result.intent.intent,
+                strategy=result.intent.strategy,
+                # 수정 모드에서 초안이 무엇으로 바뀌었나(스펙 § 6 State 변화).
+                state_diff=state_diff(draft, result.intent.strategy) if draft else None,
+            )
+            return result
+
+    def _interpret(
+        self, user_input: str, draft: Optional[dict] = None,
+        pending_question: Optional[str] = None,
+    ) -> InterpreterResult:
         started = time.perf_counter()
-        user_prompt = build_user_prompt(user_input, draft)
+        user_prompt = build_user_prompt(user_input, draft, pending_question)
         _log_llm("▶ 요청", f"{user_input!r}" + (" (수정 모드 — 전략 초안 포함)" if draft else ""))
         raw = self._chat(self._system_prompt, user_prompt)
         _log_llm("◀ 원본 응답", raw.strip())

@@ -48,7 +48,15 @@ def _append_log(record: dict) -> None:
         fh.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
 
 
-def _run(term: str, chat_fn: Optional[Callable[[str, str], str]]) -> None:
+def _run(term: str, chat_fn: Optional[Callable[[str, str], str]], trace_parent=None) -> None:
+    """관찰 부모를 복원한 뒤 본체를 돌린다(contextvar는 스레드를 건너지 않는다)."""
+    from observability import use_parent
+
+    with use_parent(trace_parent):
+        _run_shadow(term, chat_fn)
+
+
+def _run_shadow(term: str, chat_fn: Optional[Callable[[str, str], str]]) -> None:
     record: dict = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "term": term,
                     "outcome": "none", "error": None}
     started = time.monotonic()
@@ -89,8 +97,11 @@ def maybe_shadow_plan(
     if not planner_shadow_enabled() or not unresolved_terms:
         return None
     term = unresolved_terms[0]
+    from observability import current_parent
+
     thread = threading.Thread(
-        target=_run, args=(term, chat_fn), daemon=True, name="planner-shadow",
+        target=_run, args=(term, chat_fn, current_parent()), daemon=True,
+        name="planner-shadow",
     )
     thread.start()
     return thread

@@ -112,14 +112,76 @@ def _new_listing_period_chips() -> List[str]:
     return [f"{year}년 상장", f"{year - 1}년 상장", "최근 1년 내 상장", "최근 3년 내 상장"]
 
 
+def _numeric_options(recommended: Any, *alternates: int) -> List[int]:
+    """추천값을 맨 앞에 둔 중복 없는 선택지. 추천값이 수치가 아니면 대안만 쓴다."""
+    values: List[int] = []
+    if isinstance(recommended, (int, float)) and not isinstance(recommended, bool):
+        values.append(int(recommended))
+    for alt in alternates:
+        if alt not in values:
+            values.append(alt)
+    return values
+
+
+# 조건(entry/exit)이 아닌 슬롯 질문의 칩 — 되묻기에 결속을 붙이기 위한 정본 표기.
+#
+# 인터프리터는 이 슬롯들에도 recommended_value를 제대로 낸다(종목 수 10, 리밸런싱
+# monthly, 손절 8 …). 그런데 칩 생성이 **조건 임계값 질문에만** 있어서 그 추천값이
+# 전부 버려졌고, 칩이 0개면 _pending_ask_payload가 None을 낸다 — 즉 포트폴리오·리스크·
+# 청산 질문은 구조적으로 영원히 결속되지 않았다(2026-07-31 실측: 고정 파이프라인 경로
+# 결속 0/7턴). 그 구멍을 메운다.
+#
+# **표기는 _bind_chips(=_apply_prompt_overrides) 결속이 실증된 것만 쓴다** — 결속되지
+# 않는 칩은 발행 시점에 탈락해 사용자에게 보이지도 않으므로(칩=값 결속 계약), 지어낸
+# 문구를 넣으면 이 수정이 무효가 된다. 회귀는 test_slot_clarification_chips가 잡는다.
+# topic은 engine.strategy_slots.SLOT_LABELS와 맞춘다 — 물질화 기본값과 같은 값을 가리키는
+# 칩을 확정 칩(§ 7 CONFIRM)으로 살리는 _confirm_target이 이 라벨로 필드를 찾는다.
+_SLOT_CHIP_BUILDERS: Dict[str, Any] = {
+    "strategy.portfolio.selection_count": (
+        "최대 보유",
+        lambda rec: [f"최대 {n}종목" for n in _numeric_options(rec, 5, 20)],
+    ),
+    "strategy.portfolio.rebalance_frequency": (
+        "리밸런싱",
+        lambda rec: ["매월 리밸런싱", "분기 리밸런싱", "매년 리밸런싱"],
+    ),
+    "strategy.portfolio.hold_period_days": (
+        "보유 기간",
+        lambda rec: [f"{n}일 보유" for n in _numeric_options(rec, 20, 60)],
+    ),
+    "strategy.risk_management.stop_loss": (
+        "손절",
+        lambda rec: [f"손절 -{n}%" for n in _numeric_options(rec, 5, 15)],
+    ),
+    "strategy.risk_management.take_profit": (
+        "익절",
+        lambda rec: [f"익절 {n}%" for n in _numeric_options(rec, 20, 30)],
+    ),
+    "strategy.risk_management.trailing_stop": (
+        "트레일링 스탑",
+        lambda rec: [f"트레일링 스탑 {n}%" for n in _numeric_options(rec, 10, 15)],
+    ),
+    # 청산 규칙 부재 — 회전 방식 자체를 고르는 질문이라 성격이 다른 선택지를 함께 낸다.
+    "strategy.exit_conditions": (
+        "청산",
+        lambda rec: ["매월 리밸런싱", "분기 리밸런싱", "20일 보유", "손절 -10%"],
+    ),
+}
+
+
 def _build_clarification(
     report: ValidationReport, intent: StrategyIntent
-) -> tuple[Optional[str], Optional[List[str]]]:
-    """검증 리포트의 질문들을 기존 clarification 채널(질문 텍스트 + 칩)로 변환한다."""
+) -> tuple[Optional[str], Optional[List[str]], Optional[str]]:
+    """검증 리포트의 질문들을 기존 clarification 채널(질문 텍스트 + 칩)로 변환한다.
+
+    반환: (질문 텍스트, 칩, topic). topic은 칩이 어느 슬롯의 것인지 — pending_ask의
+    확정 판정(_confirm_target)이 쓴다. 조건 임계값 칩은 슬롯이 아니므로 None이다.
+    """
     if not report.clarification_questions:
-        return None, None
+        return None, None, None
     lines: List[str] = []
     chips: List[str] = []
+    slot_topic: Optional[str] = None
     strategy = intent.strategy
     conditions_by_field: Dict[str, Any] = {}
     if strategy is not None:
@@ -155,6 +217,13 @@ def _build_clarification(
         elif q.field == "strategy.universe.listing_from":
             # 신규 상장 대상 시기(FR-STR-073) — 사용자 어휘 그대로 되보낼 수 있는 칩.
             chips.extend(_new_listing_period_chips())
+        elif not chips and q.field in _SLOT_CHIP_BUILDERS:
+            # 조건이 아닌 슬롯(포트폴리오·리스크·청산) 질문의 칩. **한 슬롯만** 낸다 —
+            # pending_ask 하나에 topic 하나가 계약이라, 여러 슬롯 칩을 섞으면 확정 판정
+            # (_confirm_target)이 엉뚱한 필드를 보게 된다. 나머지 질문은 문구로 남는다.
+            topic, build = _SLOT_CHIP_BUILDERS[q.field]
+            chips.extend(build(q.recommended_value))
+            slot_topic = topic
     for role in coalesced_cross_roles:
         role_label = "매수(진입)" if role == "entry" else "매도(청산)"
         lines.append(
@@ -162,7 +231,43 @@ def _build_clarification(
             "(일반적으로 20일/60일을 많이 사용합니다)"
         )
         chips.extend(_cross_period_chip(role, s, l) for s, l in _CROSS_PERIOD_OPTIONS)
-    return "\n".join(lines), (chips or None)
+    return "\n".join(lines), (chips or None), slot_topic
+
+
+def _modify_clarification(
+    report: ValidationReport, intent: StrategyIntent, prev: Any
+) -> tuple[Optional[str], Optional[List[str]], Optional[Dict[str, Any]]]:
+    """수정 경로의 되묻기 — 질문·칩에 결속(pending_ask)을 덧붙인다.
+
+    수정 경로의 되묻기 세 곳(CLARIFY_STRATEGY·자기 의심 패치·패치 값 미확정)은 전부
+    질문과 칩만 내보내고 결속을 내지 않았다. 그래서 "이전 결정을 고치려다 흐름이
+    깨진다"는 증상이 났다 — 되묻기에 답해도 그 답이 어느 질문의 답인지 근거가 없다.
+
+    칩 목록은 **줄이지 않는다**(초기 파스 경로와 다른 점). 여기 칩은 이미 사용자에게
+    노출돼 온 것이라, 결속 실패를 이유로 지우면 오늘 동작하던 선택지가 사라진다.
+    결속된 칩만 pending_ask에 실리고, 결속 안 된 칩 클릭은 지금처럼 수정 LLM이 받는다.
+    """
+    from observability import span
+    from observability.agent_trace import ask_binding_gate
+
+    question, chips, topic = _build_clarification(report, intent)
+    ask = _pending_ask_payload(question, chips, topic, prev)
+    # 초기 파스와 같은 게이트 판정을 남긴다 — 이 span이 없으면 Trace에서 수정 턴의
+    # 결속 유무를 세지 못한다(실측: create 7턴만 게이트가 잡히고 modify 7턴은 공백).
+    gate = ask_binding_gate(
+        question=question, priority="modify_unapplied", chips_offered=chips,
+        pending_ask=ask, planner_mode_primary=config.dag_planner_mode() == "primary",
+        planner_ran=False, lane="modify",
+    )
+    if gate["gate"] != "no_question":
+        with span("Ask 결속", "state", inputs={"question": question},
+                  metadata={"ask_gate": gate["gate"], "lane": "modify"}) as _trace:
+            _trace.output(**gate)
+        if not gate["bound"]:
+            _log_llm("🔗 결속 소실(수정)", (
+                f"gate={gate['gate']} 칩={gate['chips_bound']}/{gate['chips_offered']}"
+            ))
+    return question, chips, ask
 
 
 # 인터프리터가 unsupported_features에 내부 식별자(strategy_evaluation 등)를 그대로 담는
@@ -243,9 +348,18 @@ def _patch_provenance_supported(patch, compact_input: str, input_numbers: set) -
     from engine.nl_parser import _compact
 
     # ① 출처 인용 대조: 인용문이 입력에 실재하면 근거 있음.
-    quote = _compact(patch.source_text) if patch.source_text else ""
-    if quote and quote in compact_input:
-        return True
+    #    인용은 **두 자리** 중 하나에 온다 — 패치 자신(PatchOp.source_text)과, 조건을 통째로
+    #    넣는 패치의 값 안(StrategyCondition.source_text). 둘 다 스키마가 인정하는 자리라
+    #    모델이 어디에 쓸지는 정해져 있지 않다. 패치 쪽만 보면 조건 객체 안에 인용한
+    #    패치가 근거 없음으로 거부된다 — '데드크로스 나오면 팔아'가 인용을 정확히 달고도
+    #    통째로 버려지던 2026-07-31 QA 실측이 이것이다(수치가 없어 ②도 못 구제한다).
+    quotes = [patch.source_text]
+    if isinstance(patch.value, dict):
+        quotes.append(patch.value.get("source_text"))
+    for raw_quote in quotes:
+        quote = _compact(raw_quote) if raw_quote else ""
+        if quote and quote in compact_input:
+            return True
     # ② 수치 대조: 패치 값의 숫자가 입력 숫자(단위 환산 포함)에 나타나면 근거 있음.
     #    크기만 대조한다(부호 무시 — recall_validator와 동일, 어느 필드의 값인지는 판단하지 않음).
     patch_numbers = _patch_value_numbers(patch.value)
@@ -671,9 +785,13 @@ def run_primary_parse(
     # 스캔은 "20일 고점을 넘기는 날"의 '넘기는'을 '삼기'로 오탐했다(2026-07-29).
     symbol_question, symbol_suggestions = _symbol_typo_term_in(validated.strategy, parsed, user_input)
 
-    clarification_question, clarification_suggestions = _build_clarification(report, validated)
+    clarification_question, clarification_suggestions, fallback_topic = _build_clarification(
+        report, validated)
     clarification_priority = None
     pending_ask: Optional[Dict[str, Any]] = None
+    # 결속 체인 관찰용 — 어느 게이트에서 pending_ask가 끊겼는지 이름 붙이기 위한 값들.
+    ask_reject_reason: Optional[str] = None
+    chips_offered: Optional[List[str]] = None
     # 슬롯 판정(engine.strategy_slots)은 provenance를 함께 본다 — 값만 보면 기본값
     # 물질화가 '이미 채워짐'이 돼 planner가 그 슬롯을 영영 묻지 않는다(FR-STR-019k).
     turn_explicit_fields = _explicit_fields(validated.strategy, previous_explicit_fields)
@@ -685,6 +803,7 @@ def run_primary_parse(
             planner_scope_question, planner_scope_chips
         )
         clarification_priority = "dag_planner"
+        chips_offered = list(clarification_suggestions or [])
         pending_ask = _pending_ask_payload(
             clarification_question, clarification_suggestions, "유니버스"
         )
@@ -703,14 +822,15 @@ def run_primary_parse(
         # ask를 소비한다. 유니버스 ask는 위 범위 되묻기(결정론)가 소유하므로 여기서는
         # 조건 슬롯 ask만, 결정론 게이트가 공백을 인정할 때 채택한다(완성 전략
         # 재질문·관찰과 모순되는 질문 방지). 채택 불가면 검증 리포트의 고정 질문 유지.
-        planner_ask = _planner_first_ask(
+        planner_ask, ask_reject_reason = _planner_first_ask(
             planner_first, parsed, user_input, turn_explicit_fields)
         if planner_ask is not None:
             clarification_question, clarification_suggestions, dag_topic = planner_ask
             clarification_priority = "dag_planner"
-            pending_ask = _pending_ask_payload(
+            pending_ask, clarification_suggestions = _bound_ask_with_slot_fallback(
                 clarification_question, clarification_suggestions, dag_topic, parsed
             )
+            chips_offered = list(clarification_suggestions or [])
             # 결속된 칩만 보인다 — 전부 탈락하면 질문은 남기고 자유 서술로 받는다.
             clarification_suggestions = pending_ask["chips"] if pending_ask else None
     # planner-first가 실패(None)한 턴의 '재계획' 분기는 제거됐다(2026-07-29). planner는
@@ -719,6 +839,22 @@ def run_primary_parse(
     # 더 쓴다(실측: 예산 소진 → 재계획으로 planner가 한 파스에서 6회 호출, 148초 + 84초).
     # 예산 소진은 실패가 아니라 검증 리포트의 고정 질문으로 폴백하는 정상 경로다.
     # (_dag_planner_clarification 자체는 칩 답변 턴의 재계획 _replan_next_question이 계속 쓴다.)
+    # 고정 파이프라인 질문의 결속(2026-07-31). 지금까지 pending_ask는 planner 분기
+    # 두 곳에서만 발행됐다 — planner가 실패하거나(예산 소진) 가드가 그 ask를 거부하면
+    # (_is_filled_slot_topic) 폴백인 검증 리포트 질문에는 결속이 없었고, 사용자의 다음
+    # 답변은 "어느 질문의 답인지" 근거를 잃고 일반 분류 레인으로 떨어졌다. 가드 판단은
+    # 옳다 — 잃지 말아야 할 것은 **폴백의 결속**이다.
+    # 미해결 업종·종목 질문(sector_unresolved)은 제외한다: 그 칩은 값이 아니라 후보
+    # 표기라 값 결속 계약(_bind_chips)의 대상이 아니다.
+    if pending_ask is None and clarification_priority != "sector_unresolved":
+        chips_offered = list(clarification_suggestions or [])
+        pending_ask = _pending_ask_payload(
+            clarification_question, clarification_suggestions, fallback_topic, parsed
+        )
+        if pending_ask is not None:
+            # 결속된 칩만 보인다 — planner 분기와 같은 계약.
+            clarification_suggestions = pending_ask["chips"]
+
     if report.unsupported_features:
         features = ", ".join(_humanize_features(report.unsupported_features))
         notices.append(
@@ -749,6 +885,32 @@ def run_primary_parse(
                 f"'{', '.join(still_missing)}' 수치는 조건으로 반영하지 못했어요. "
                 "어떤 조건인지 한 문장으로 알려주시면 반영해 드릴게요."
             )
+
+    # 결속 체인 판정 — 되묻기로 끝나는 턴인데 pending_ask가 없으면 다음 턴의 답변은
+    # 귀속 근거 없이 일반 분류 레인으로 떨어진다. 그 손실이 어느 게이트에서 났는지를
+    # 남긴다(관찰 전용 — 응답도 실행도 바꾸지 않는다).
+    from observability import span
+    from observability.agent_trace import ask_binding_gate
+
+    ask_gate = ask_binding_gate(
+        question=clarification_question,
+        priority=clarification_priority,
+        chips_offered=chips_offered,
+        pending_ask=pending_ask,
+        planner_mode_primary=config.dag_planner_mode() == "primary",
+        planner_ran=planner_first is not None,
+        ask_reason=ask_reject_reason,
+    )
+    if ask_gate["gate"] != "no_question":
+        with span("Ask 결속", "state", inputs={"question": clarification_question},
+                  metadata={"ask_gate": ask_gate["gate"]}) as _trace:
+            _trace.output(**ask_gate)
+        if not ask_gate["bound"]:
+            _log_llm("🔗 결속 소실", (
+                f"gate={ask_gate['gate']} 칩={ask_gate['chips_bound']}/"
+                f"{ask_gate['chips_offered']}"
+                + (f" 탈락={ask_gate['chips_dropped']}" if ask_gate.get("chips_dropped") else "")
+            ))
 
     return finalize_user_response({
         "parsed": parsed,
@@ -1218,18 +1380,22 @@ def _planner_scope_ask(
 def _planner_first_ask(
     result: Any, parsed: Any, user_input: str = "",
     explicit_fields: Optional[Iterable[str]] = None,
-) -> Optional[tuple[str, Optional[List[str]], Optional[str]]]:
+) -> tuple[Optional[tuple[str, Optional[List[str]], Optional[str]]], Optional[str]]:
     """planner-first가 표면화한 조건 슬롯 ask의 채택 판정(결정론 게이트가 최종 권한).
 
     유니버스 범위 ask는 _planner_scope_ask(결정론)가 소유하므로 여기서는 다루지
     않는다. 조건 슬롯 ask는 결정론 게이트(detect_incomplete_backtest_conditions)가
     공백을 인정할 때만 채택한다 — planner 계획이 인터프리터 해석 결과와 모순되면
     (이미 채워진 슬롯 재질문 등) 게이트가 이긴다. 채택 불가는 None(검증 리포트
-    고정 질문 유지)."""
+    고정 질문 유지).
+
+    반환: (ask, 거부 사유). 채택되면 (ask, None), 거부되면 (None, 사유) — 사유는
+    관찰 계층(ask_binding_gate)이 "왜 결속이 없나"를 이름 붙이는 데 쓴다. 거부가 전부
+    None 하나로 뭉개져 있으면 Trace에서 원인을 구분할 수 없다."""
     if result.outcome != "ask" or not result.question:
-        return None
+        return None, "not_ask"
     if _is_universe_topic(result.topic):
-        return None
+        return None, "universe_topic"
     # 슬롯 단위 재질문 차단 — 게이트가 "어딘가 비었다"고만 답하므로(첫 공백 하나),
     # 그것만으로 채택하면 **다른** 슬롯의 공백을 근거로 이미 채워진 슬롯을 다시 묻게 된다
     # (2026-07-29 사고: 매수 조건 '20일 고점 돌파'가 반영됐는데 리밸런싱·기간이 비었다는
@@ -1237,13 +1403,46 @@ def _planner_first_ask(
     # 자기 filled_slots를 볼 수 없다).
     if _is_filled_slot_topic(result.topic, parsed, explicit_fields):
         logger.info("planner-first ask 채택 거부 — 이미 채워진 슬롯 | topic=%s", result.topic)
-        return None
+        return None, "filled_slot"
     from engine.nl_parser import detect_incomplete_backtest_conditions
 
     gate_question, _gate_chips = detect_incomplete_backtest_conditions(parsed, user_input)
     if gate_question is None:
-        return None
-    return result.question, (list(result.chips) or None), result.topic
+        return None, "gate_says_complete"
+    return (result.question, (list(result.chips) or None), result.topic), None
+
+
+def _bound_ask_with_slot_fallback(
+    question: Optional[str], chips: Optional[List[str]], topic: Optional[str], parsed: Any
+) -> tuple[Optional[Dict[str, Any]], Optional[List[str]]]:
+    """planner ask를 결속하되, **결속이 성립하지 않으면** 슬롯 정본 칩으로 다시 시도한다.
+
+    반환: (pending_ask, 시도한 칩 목록 — 관찰용).
+
+    planner 칩은 LLM 출력이라 턴마다 흔들린다(2026-08-01 Trace 실측):
+      - 칩을 아예 안 내는 턴 → `no_chips`
+      - 칩 3개를 냈지만 엔진이 표현할 수 없어 전부 탈락하는 턴 → `chip_binding_failed`
+    둘 다 결과는 같다 — pending_ask가 없어 그 답이 다음 턴에 귀속 근거를 잃는다.
+    그래서 판정 기준을 "칩이 있나"가 아니라 **"결속이 됐나"**로 둔다.
+
+    폴백 칩은 진행 골격 슬롯 SOT(engine.strategy_slots)에서 가져온다 — 어휘를 새로
+    만들지 않는다(복제하면 반드시 어긋난다, strategy_slots 도입 배경). 그 칩들은
+    결속이 실증돼 있다(test_slot_clarification_chips).
+    """
+    ask = _pending_ask_payload(question, chips, topic, parsed)
+    if ask is not None:
+        return ask, chips
+    fallback = strategy_slots.suggestions_for_topic(topic)
+    if not fallback or fallback == list(chips or []):
+        return None, chips
+    retry = _pending_ask_payload(question, fallback, topic, parsed)
+    if retry is None:
+        return None, chips
+    _log_llm("🔗 칩 보완", (
+        f"planner 칩 결속 실패({len(chips or [])}개) — topic={topic!r} "
+        f"정본 칩 {len(retry['chips'])}개로 결속"
+    ))
+    return retry, fallback
 
 
 def _replan_next_question(
@@ -1264,9 +1463,24 @@ def _replan_next_question(
     dag_clarification = _dag_planner_clarification(user_input, parsed, explicit_fields)
     if dag_clarification is None:
         return None, None, None, None
+    from observability import span
+    from observability.agent_trace import ask_binding_gate
+
     question, chips, topic = dag_clarification
-    next_ask = _pending_ask_payload(question, chips, topic, parsed)
+    next_ask, chips = _bound_ask_with_slot_fallback(question, chips, topic, parsed)
     # 결속된 칩만 보인다(_bind_chips) — 재계획 질문의 칩도 같은 계약을 따른다.
+    gate = ask_binding_gate(
+        question=question, priority="dag_planner", chips_offered=chips,
+        pending_ask=next_ask, planner_mode_primary=True, planner_ran=True,
+    )
+    if gate["gate"] != "no_question":
+        with span("Ask 결속", "state", inputs={"question": question},
+                  metadata={"ask_gate": gate["gate"], "lane": "replan"}) as _trace:
+            _trace.output(**dict(gate, lane="replan"))
+        if not gate["bound"]:
+            _log_llm("🔗 결속 소실(재계획)", (
+                f"gate={gate['gate']} 칩={gate['chips_bound']}/{gate['chips_offered']}"
+            ))
     return question, (next_ask["chips"] if next_ask else None), "dag_planner", next_ask
 
 
@@ -1726,6 +1940,7 @@ def run_primary_modification(
     user_input: str, previous_parsed: dict, on_stage=None,
     previous_explicit_fields: Optional[List[str]] = None,
     pending_ask: Optional[Dict[str, Any]] = None,
+    pending_question: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """수정 요청의 LLM Interpreter 기본 경로. 성공 시 결과 dict, 폴백 필요 시 None.
 
@@ -1813,7 +2028,7 @@ def run_primary_modification(
         on_stage("thinking")
     try:
         result = _get_interpreter(StrategyInterpreter).interpret(
-            user_input, draft=draft_spec.model_dump()
+            user_input, draft=draft_spec.model_dump(), pending_question=pending_question,
         )
     except InterpreterError as exc:
         logger.warning("modify primary interpreter failed, falling back | err=%s", str(exc)[:200])
@@ -1836,9 +2051,9 @@ def run_primary_modification(
         # 되묻기 의도를 폴백으로 버리면 기존 수정 LLM이 무변경 전략을 정상 응답처럼
         # 반환해 질문이 사라진다(2026-07-17 "pbr이 뭐야?" 사고). LLM의 되묻기가 곧
         # 해석 결과다 — 전략을 유지한 채 질문을 채널로 전달한다.
-        question, chips = _build_clarification(
+        question, chips, ask = _modify_clarification(
             ValidationReport(clarification_questions=intent.clarification_questions),
-            intent,
+            intent, prev,
         )
         _log_llm("✓ 되묻기", (
             f"질문={len(intent.clarification_questions)} — 전략 유지, clarification 채널로"
@@ -1847,6 +2062,7 @@ def run_primary_modification(
             "parsed": prev,
             "clarification_question": question,
             "clarification_suggestions": chips,
+            "pending_ask": ask,
             # 무변경 되묻기 공통 계약 — 프론트 설정 게이트가 삼키면 질문이 사라진다.
             "clarification_priority": "modify_unapplied",
             "notices": [],
@@ -1995,9 +2211,9 @@ def run_primary_modification(
     # 그 패치를 적용하는 대신 그 질문을 표면화한다(전략 무변경 — 조용한 오해석 차단).
     doubt_fields = _self_doubt_patch_fields(cued_patches, intent.clarification_questions)
     if doubt_fields:
-        question, chips = _build_clarification(
+        question, chips, ask = _modify_clarification(
             ValidationReport(clarification_questions=intent.clarification_questions),
-            intent,
+            intent, prev,
         )
         if question:
             _log_llm("? 자기 의심 패치", (
@@ -2008,6 +2224,7 @@ def run_primary_modification(
                 "parsed": prev,
                 "clarification_question": question,
                 "clarification_suggestions": chips,
+                "pending_ask": ask,
                 # 전략을 바꾸지 않았다는 사실은 이 질문으로만 드러난다 — 마커가 없으면
                 # 프론트 explicit 설정 게이트가 자기 질문("어떤 조건에서 매수할지…")으로
                 # 덮어써, 요청이 반영되지 않은 것을 사용자가 알 방법이 사라진다
@@ -2133,7 +2350,7 @@ def run_primary_modification(
             if not own_field_questions:
                 modification_partial = True
             else:
-                question, chips = _build_clarification(report, validated)
+                question, chips, ask = _modify_clarification(report, validated, prev)
                 if question:
                     _log_llm("✓ 되묻기", (
                         f"패치 필드 미확정 값 질문={len(report.clarification_questions)}"
@@ -2143,6 +2360,7 @@ def run_primary_modification(
                         "parsed": prev,
                         "clarification_question": question,
                         "clarification_suggestions": chips,
+                        "pending_ask": ask,
                         # 자기 의심 분기와 같은 이유 — 전략 무변경 되묻기는 프론트 게이트에
                         # 삼켜지면 "요청이 사라진" 것과 구분되지 않는다.
                         "clarification_priority": "modify_unapplied",
@@ -2230,6 +2448,24 @@ def run_primary_modification(
     final_diff = _diff_fields(prev_dump, parsed.model_dump())
     _log_llm("✓ 수정 완료", f"변경 필드(원본 대비): {'; '.join(final_diff) or '없음'}")
 
+    # 재요청 후에도 반영되지 않은 입력 수치를 알린다 — 초기 파스 레인(run_primary_parse)에는
+    # 있던 안내가 수정 레인에는 없어, 값이 조용히 틀린 채 확정됐다(2026-07-31 QA 실측:
+    # '60일 신고가'가 lookback 300으로, '최근 1년'이 5y 그대로). § 3-1은 값을 만들어
+    # 채우는 것을 금지하므로 남는 선택지는 정직하게 알리는 것뿐이다(조용한 누락 금지).
+    if result.unreflected_numbers:
+        from strategy_conversation.validation.recall_validator import labels_absent_from
+
+        # description은 사용자 원문 에코라 대조에서 뺀다(초기 파스 레인과 같은 이유).
+        payload = parsed.model_dump()
+        payload.pop("description", None)
+        still_missing = labels_absent_from(result.unreflected_numbers, payload)
+        if still_missing:
+            _log_llm("△ 미반영 안내", f"{', '.join(still_missing)}")
+            notices.append(
+                f"'{', '.join(still_missing)}' 수치는 요청대로 반영하지 못했어요. "
+                "다시 한 문장으로 알려주시면 반영해 드릴게요."
+            )
+
     # Phase 4 primary — 수정 턴 재계획: 최신 입력이 State를 바꿨으니(위 패치 적용),
     # 다음 질문은 갱신된 State 기준으로 DAG planner가 다시 계획한다(유니버스가 바뀌면
     # 후속 질문·칩도 그에 맞게 재생성 — 사용자 계약 "입력은 답변 귀속이 아니라 State
@@ -2295,8 +2531,10 @@ def apply_primary_meta(result: dict, primary: Dict[str, Any]) -> None:
             result["clarification_priority"] = primary["clarification_priority"]
         # planner ask의 칩 답변 귀속 컨텍스트 — 질문이 채택된 경우에만 함께 이월한다
         # (채택되지 않은 질문의 pending_ask를 에코하면 다음 턴 칩 판정이 어긋난다).
-        if primary.get("pending_ask"):
-            result["pending_ask"] = primary["pending_ask"]
+        # **질문과 결속은 함께 움직인다** — primary 질문이 이겼는데 결속만 최소 조건
+        # 게이트(main._build_parse_result)의 것이 남으면, 화면의 질문과 다음 턴 귀속
+        # 근거가 서로 다른 질문을 가리킨다.
+        result["pending_ask"] = primary.get("pending_ask")
     elif primary["interpreter"]["mode"] in ("primary_modify_explain", "primary_modify_unsupported", "primary_modify_rejected_patches"):
         # 전략 무변경 + 설명/미반영 안내 응답 — 프롬프트의 지표 언급("pbr이 뭐야?")에 반응한
         # 기존 되묻기("PBR은 몇 이하로 할까요?")는 설명·안내와 모순되므로 억제한다.

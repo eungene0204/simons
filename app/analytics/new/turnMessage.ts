@@ -24,6 +24,7 @@ export type OpenClarification<TParsed = unknown> = {
   parsed?: TParsed;
   clarification?: string;
   clarificationSuggestions?: string[];
+  clarificationField?: string;
   builderPresentation?: TurnPresentation;
   strategyConfirmation?: boolean;
   previousStepState?: unknown;
@@ -38,6 +39,9 @@ export type TurnMessage<TParsed = unknown> = {
   parsed?: TParsed;
   clarification?: string;
   clarificationSuggestions?: string[];
+  /** 이 되묻기가 채우는 골격 슬롯(`MissingBacktestCondition["field"]`). 선택지가 닫힌
+   *  집합인지 판정하는 입력이다 — 질문 문구는 사용자 친화 문구로 바뀌므로 근거가 못 된다. */
+  clarificationField?: string;
   builderPresentation?: TurnPresentation;
   strategyConfirmation?: boolean;
   previousStepState?: unknown;
@@ -104,6 +108,7 @@ export function buildTurnMessage<TParsed = unknown>(
       parsed: parsed ?? undefined,
       clarification: decision.message,
       clarificationSuggestions: decision.suggestions,
+      clarificationField: decision.field,
       builderPresentation: askPresentation ?? presentation,
     };
   }

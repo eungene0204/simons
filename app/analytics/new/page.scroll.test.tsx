@@ -496,7 +496,8 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(screen.getByRole("button", { name: "코스피" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "코스닥" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "코스피+코스닥" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "직접 입력" })).toBeInTheDocument();
+    // 유니버스는 제시한 네 개가 선택지의 전부다 — '직접 입력'을 붙이면 없는 여지를 만든다.
+    expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/builder/step")).toBe(false);
     expect(

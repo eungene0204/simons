@@ -34,7 +34,20 @@ def _append_log(record: dict) -> None:
         fh.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
 
 
-def _run(user_input: str, chat_fn: Optional[Callable[[str, str], str]]) -> None:
+def _run(user_input: str, chat_fn: Optional[Callable[[str, str], str]],
+         trace_parent=None) -> None:
+    """관찰 부모를 복원한 뒤 본체를 돌린다.
+
+    관찰 계층은 contextvar로 부모 span을 찾는데 contextvar는 스레드를 건너지 않는다 —
+    복원하지 않으면 shadow planner의 span이 고아 Trace가 되어 계층이 끊긴다.
+    """
+    from observability import use_parent
+
+    with use_parent(trace_parent):
+        _run_shadow(user_input, chat_fn)
+
+
+def _run_shadow(user_input: str, chat_fn: Optional[Callable[[str, str], str]]) -> None:
     record: dict = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
                     "user_input": user_input[:300], "outcome": "none", "error": None}
     started = time.monotonic()
@@ -77,8 +90,11 @@ def maybe_shadow_plan_dag(
     """shadow 모드면 DAG planner를 비차단 실행한다. 시작한 스레드 반환."""
     if not dag_shadow_enabled() or not (user_input or "").strip():
         return None
+    from observability import current_parent
+
     thread = threading.Thread(
-        target=_run, args=(user_input, chat_fn), daemon=True, name="dag-planner-shadow",
+        target=_run, args=(user_input, chat_fn, current_parent()), daemon=True,
+        name="dag-planner-shadow",
     )
     thread.start()
     return thread

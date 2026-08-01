@@ -38,8 +38,12 @@ from strategy_conversation.planner.dag import (
     ready_nodes,
     validate_dag,
 )
+from strategy_conversation.planner.dag import node_statuses
 from strategy_conversation.response.output_guard import guard_text
 from strategy_conversation.tools import ToolError, call as call_tool, get_tool
+
+from observability import span
+from observability.agent_trace import dag_ascii, dag_snapshot, node_status_counts
 
 logger = logging.getLogger("strategy_interpreter.planner.dag")
 
@@ -340,8 +344,47 @@ def plan_strategy_dag(
     """사용자 요청 하나를 DAG planner로 계획한다. 실패(폴백 필요) 시 None.
 
     state_summary: 파이프라인이 이미 확정한 전략 필드 요약(재질문 방지 근거).
+
+    본체는 _plan_strategy_dag다 — 이 함수는 관찰 span만 연다(비활성 시 no-op).
+    계획·실행·폴백 판정은 전부 본체 소관이며 여기서 아무것도 바꾸지 않는다.
     """
+    with span(
+        "Planner · Action DAG", "planner",
+        inputs={"user_input": user_input, "state_summary": state_summary},
+        metadata={"max_turns": max_turns if max_turns is not None
+                  else config.dag_planner_max_turns(),
+                  "node_budget": node_budget if node_budget is not None
+                  else config.dag_planner_node_budget()},
+    ) as trace:
+        result = _plan_strategy_dag(
+            user_input, chat_fn, max_turns, node_budget, state_summary, trace,
+        )
+        if result is None:
+            # 폴백은 예외가 아니라 반환값이다 — Trace에서 "왜 planner가 안 쓰였나"가
+            # 보이도록 원인 종류를 남긴다(원인 문자열은 본체가 이미 기록했다).
+            trace.output(outcome="fallback")
+        else:
+            trace.output(
+                outcome=result.outcome, question=result.question, chips=result.chips,
+                topic=result.topic, sector=result.sector,
+                company_count=len(result.companies),
+            )
+            trace.meta(llm_turns=result.llm_turns, planner_latency_ms=result.latency_ms,
+                       executed_nodes=len(result.executed),
+                       auto_steps=len(result.auto_steps))
+        return result
+
+
+def _plan_strategy_dag(
+    user_input: str,
+    chat_fn: Callable[..., str],
+    max_turns: Optional[int],
+    node_budget: Optional[int],
+    state_summary: Optional[Dict[str, Any]],
+    trace: Any,
+) -> Optional[DagPlanResult]:
     if not (user_input or "").strip():
+        trace.error("EmptyInput", "빈 사용자 입력 — 계획 없음")
         return None
     turns = max_turns if max_turns is not None else config.dag_planner_max_turns()
     budget = node_budget if node_budget is not None else config.dag_planner_node_budget()
@@ -371,14 +414,28 @@ def plan_strategy_dag(
 
     def _execute(node: DagNode) -> bool:
         """tool 노드 하나를 실행(중복은 관찰 재사용). 새 실행 발생 시 True."""
-        key = node.call_key()
-        if key in call_cache:
-            executed[node.id] = ExecutedNode(node, call_cache[key])
-            return False
-        payload: Dict[str, Any] = dict(node.args)
-        if node.tool == "ground_term":
-            payload["chat"] = chat_fn  # 비결정론 도구 — 공유 LLM 주입 계약
-        observation = call_tool(node.tool, **payload).model_dump()
+        # Action span — Tool span(tools/base.call)의 부모다. 둘을 분리해야 "Action은
+        # 계획됐는데 도구가 안 불렸다"(캐시 재사용)를 Trace에서 구분할 수 있다.
+        with span(
+            f"Action · {node.id}", "action",
+            inputs={"tool": node.tool, "args": node.args},
+            metadata={"node_id": node.id, "node_type": node.type,
+                      "requires": node.requires, "produces": node.produces,
+                      "invalidated_by": node.invalidated_by,
+                      "depends_on": node.depends_on},
+        ) as action_trace:
+            key = node.call_key()
+            if key in call_cache:
+                executed[node.id] = ExecutedNode(node, call_cache[key])
+                action_trace.meta(cache_hit=True)
+                action_trace.output(status="COMPLETED", reused_observation=True)
+                return False
+            payload: Dict[str, Any] = dict(node.args)
+            if node.tool == "ground_term":
+                payload["chat"] = chat_fn  # 비결정론 도구 — 공유 LLM 주입 계약
+            observation = call_tool(node.tool, **payload).model_dump()
+            action_trace.meta(cache_hit=False)
+            action_trace.output(status="COMPLETED", observation=observation)
         call_cache[key] = observation
         executed[node.id] = ExecutedNode(node, observation)
         if node.tool == "ground_term":
@@ -408,6 +465,8 @@ def plan_strategy_dag(
         data = _extract_json(raw)
         if data is None:
             logger.info("dag planner JSON 파싱 실패 — 폴백")
+            trace.error("PlannerOutputParseError",
+                        f"turn={llm_turns} DAG JSON 경계 추출 실패 | raw={raw[:400]}")
             return None
         try:
             emitted = parse_dag(data)
@@ -426,8 +485,12 @@ def plan_strategy_dag(
             )
         except DagContractError as exc:
             logger.info("dag planner 계약 위반 — 폴백 | %s", exc)
+            trace.error("DagContractError", f"turn={llm_turns} {exc}")
             return None
         nodes = emitted
+        # 이번 턴에 확정된 DAG(스펙 § 3). 턴마다 덮어써 마지막 발행이 남는다 —
+        # 중간 발행은 각 LLM span의 출력에 원문이 그대로 있다.
+        trace.output(action_dag=dag_snapshot(nodes), action_dag_ascii=dag_ascii(nodes))
 
         # ready인 실행 가능 tool 노드를 전부 실행한다(전이적 — 관찰이 다음 ready를 연다)
         progressed = False
@@ -453,13 +516,27 @@ def plan_strategy_dag(
                                 node.id, ", ".join(node.produces),
                                 ", ".join(sorted(newly_invalid - invalidated)),
                             )
+                            # State 변경이 어떤 Action을 무효로 만들었나(스펙 § 6).
+                            # 별도 span으로 남겨야 무효화가 언제·왜 일어났는지 순서대로 읽힌다.
+                            with span(
+                                "State · 무효화", "state",
+                                inputs={"cause_node": node.id,
+                                        "changed_fields": list(node.produces)},
+                            ) as state_trace:
+                                state_trace.output(
+                                    invalidated_nodes=sorted(newly_invalid - invalidated),
+                                )
                             invalidated |= newly_invalid
                 except ToolError as exc:
                     logger.info("dag planner 도구 계약 위반 — 폴백 | %s", exc)
+                    trace.error("ToolContractError", f"node={node.id} tool={node.tool} {exc}")
                     return None
-                except Exception:  # noqa: BLE001 — 도구 장애는 폴백으로 강등
+                except Exception as exc:  # noqa: BLE001 — 도구 장애는 폴백으로 강등
                     logger.warning("dag planner 도구 실행 실패 — 폴백 | tool=%s",
                                    node.tool, exc_info=True)
+                    trace.error("ToolError",
+                                f"node={node.id} tool={node.tool} "
+                                f"{type(exc).__name__}: {exc}")
                     return None
 
         if progressed:
@@ -499,10 +576,14 @@ def plan_strategy_dag(
                 question = guard_text((node.question or "").strip() or None)
                 if not question:
                     logger.info("dag planner ask 질문 관문 전체 제거 — 폴백 | id=%s", node.id)
+                    trace.error("OutputGuardRejected",
+                                f"node={node.id} ask 질문이 출력 관문에서 전부 제거됨")
                     return None
+                _trace_final_statuses(trace, nodes, set(executed), invalidated, answered)
                 return _result("ask", question=question, chips=list(node.chips),
                                topic=node.topic)
             if node.type == "finish":
+                _trace_final_statuses(trace, nodes, set(executed), invalidated, answered)
                 return _result("finish")
 
         fingerprint = json.dumps(
@@ -510,8 +591,27 @@ def plan_strategy_dag(
         )
         if fingerprint == prev_fingerprint:
             logger.info("dag planner 무진전 동일 발행 — 폴백")
+            trace.error("NoProgress", f"turn={llm_turns} 직전과 동일한 DAG 재발행")
             return None
         prev_fingerprint = fingerprint
 
     logger.info("dag planner 턴 예산 소진(%d) — 폴백", turns)
+    trace.error("TurnBudgetExhausted", f"LLM 턴 예산 {turns} 소진 — 결론 미도달")
     return None
+
+
+def _trace_final_statuses(
+    trace: Any, nodes: List[DagNode], done_ids: set, invalidated: set, answered: set,
+) -> None:
+    """종결 시점의 노드별 상태(스펙 § 4 Action 실행 로그).
+
+    상태 판정은 dag.node_statuses — 실행 계층이 쓰는 바로 그 함수다. 관찰 계층이
+    자기 판정을 따로 만들면 Trace가 실제 실행과 어긋난다.
+    """
+    try:
+        statuses = node_statuses(nodes, done_ids, invalidated_ids=invalidated,
+                                 skipped_ids=answered)
+        trace.output(node_statuses={k: v.value for k, v in statuses.items()},
+                     status_counts=node_status_counts(statuses))
+    except Exception:  # noqa: BLE001 — 관찰값 산출 실패가 계획 결과를 바꾸지 않는다
+        logger.debug("dag planner 상태 관찰 실패", exc_info=True)

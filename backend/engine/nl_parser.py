@@ -5487,16 +5487,29 @@ def _missing_backtest_conditions(
     두던 시절의 어긋남(2026-07-28·07-29 사고)을 없애기 위해 이 함수는 범위 지정과
     레인별 입력(리밸런싱 명시 거부) 전달만 한다.
     """
+    return [
+        (status.question, list(status.suggestions))
+        for status in next_incomplete_backtest_slots(parsed, user_prompt)
+    ]
+
+
+def next_incomplete_backtest_slots(
+    parsed: ParsedStrategy, user_prompt: str = ""
+) -> list:
+    """비어 있는 백테스트 최소 조건 슬롯(SlotStatus) 목록.
+
+    `_missing_backtest_conditions`는 (질문, 칩) 튜플로 납작하게 만들어 **슬롯이 무엇인지**
+    를 버린다. 그 슬롯 라벨(SlotStatus.slot)이 되묻기 결속(pending_ask)의 topic이고,
+    topic이 없으면 물질화 기본값과 같은 값을 가리키는 칩을 확정 칩으로 살리는 판정
+    (_confirm_target)이 필드를 찾지 못한다 — 2026-07-31 결속 소실의 한 갈래.
+    """
     # 명시 거부("리밸런싱 안 함")는 사용자의 결정이므로 되묻지 않는다 — 칩 답변이 누적
     # 프롬프트로 재파싱될 때 같은 질문이 무한 반복되는 함정. (원문 판정은 이 레거시
     # 레인의 잔여물이며, provenance를 가진 레인은 explicit_fields로 같은 결정을 전달한다.)
     declined = _mentions_rebalancing_negation(_compact(user_prompt))
-    return [
-        (status.question, list(status.suggestions))
-        for status in strategy_slots.missing(
-            parsed, fields=_GATE_FIELDS, rebalancing_declined=declined
-        )
-    ]
+    return list(strategy_slots.missing(
+        parsed, fields=_GATE_FIELDS, rebalancing_declined=declined
+    ))
 
 
 def detect_incomplete_backtest_conditions(

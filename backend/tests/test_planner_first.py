@@ -231,7 +231,8 @@ def test_universe_topic_ask_is_owned_by_scope_logic():
     _planner_scope_ask(결정론)가 소유한다."""
     result = _plan_result([], outcome="ask", question="어느 범위인가요?",
                           chips=["보안주(정보)", "보안주(물리)"], topic="유니버스")
-    assert _planner_first_ask(result, ParsedStrategy(description="테스트")) is None
+    assert _planner_first_ask(result, ParsedStrategy(description="테스트")) == (
+        None, "universe_topic")
 
 
 def test_condition_ask_dropped_when_gate_says_complete(monkeypatch):
@@ -240,10 +241,10 @@ def test_condition_ask_dropped_when_gate_says_complete(monkeypatch):
     parsed = ParsedStrategy(description="테스트")
     monkeypatch.setattr(nl_parser, "detect_incomplete_backtest_conditions",
                         lambda p, u="": (None, None))
-    assert _planner_first_ask(result, parsed) is None
+    assert _planner_first_ask(result, parsed) == (None, "gate_says_complete")
     monkeypatch.setattr(nl_parser, "detect_incomplete_backtest_conditions",
                         lambda p, u="": ("어떤 조건에서 매수할까요?", []))
-    assert _planner_first_ask(result, parsed) is not None
+    assert _planner_first_ask(result, parsed)[0] is not None
 
 
 def test_filled_slot_ask_rejected_even_when_other_slots_are_empty():
@@ -267,16 +268,16 @@ def test_filled_slot_ask_rejected_even_when_other_slots_are_empty():
     assert nl_parser.detect_incomplete_backtest_conditions(parsed)[0] is not None
     filled = _plan_result([], outcome="ask", question="박스권 돌파 시 매수할까요?",
                           chips=["20일 고점 돌파 시 매수"], topic="매수조건")
-    assert _planner_first_ask(filled, parsed) is None
+    assert _planner_first_ask(filled, parsed) == (None, "filled_slot")
     # 실제로 빈 슬롯의 ask는 그대로 채택된다(가드가 planner를 통째로 막지 않는다).
     empty = _plan_result([], outcome="ask", question="리밸런싱 주기를 정할까요?",
                          chips=["매월 리밸런싱"], topic="리밸런싱")
-    assert _planner_first_ask(empty, parsed) is not None
+    assert _planner_first_ask(empty, parsed)[0] is not None
 
 
 def test_finish_outcome_yields_no_ask():
     result = _plan_result([], outcome="finish")
-    assert _planner_first_ask(result, ParsedStrategy(description="t")) is None
+    assert _planner_first_ask(result, ParsedStrategy(description="t")) == (None, "not_ask")
 
 
 # ─── run_primary_parse 통합 — planner 최선두 실행·실패 폴백 ─────────────────────

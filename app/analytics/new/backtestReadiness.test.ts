@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { ParsedSummary } from "@/lib/strategy-summary";
 
-import { getNextMissingBacktestCondition, isBacktestReady } from "./backtestReadiness";
+import {
+  getNextMissingBacktestCondition,
+  isBacktestReady,
+  isClosedChoiceSlot,
+} from "./backtestReadiness";
 
 const base: ParsedSummary = {
   description: "x",
@@ -215,6 +219,15 @@ describe("explicit_fields 기반 되묻기 게이트 (원문 정규식 폐지)",
         explicitFields: allFields,
       }),
     ).toBe(true);
+  });
+
+  it("유니버스만 선택지가 닫힌 슬롯이다 — 나머지는 자유 입력을 연다", () => {
+    expect(isClosedChoiceSlot("universe")).toBe(true);
+    for (const field of ["entry", "exit", "max_positions", "rebalancing",
+      "stop_loss", "take_profit", "backtest_period", "initial_capital"]) {
+      expect(isClosedChoiceSlot(field)).toBe(false);
+    }
+    expect(isClosedChoiceSlot(undefined)).toBe(false);
   });
 
   it("지정 종목은 그 자체로 유니버스 명시다", () => {

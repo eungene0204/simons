@@ -97,10 +97,18 @@ def _reflected_numbers(intent) -> Set[float]:
     for path in ("entry_conditions", "exit_conditions", "ranking"):
         for cond in strategy.get(path) or []:
             cond.pop("source_text", None)
+    # 패치의 source_text도 같은 이유로 제외한다(2026-07-31). 인용문은 사용자 원문 조각이라
+    # 항상 입력의 숫자를 포함한다 — 값이 틀려도 인용이 대신 대조를 통과시킨다. 실측:
+    # "3억원" 답변에 9B가 `value=30000000`(10배 오차) + `source_text="3억원"`을 내자
+    # 인용의 3이 앵커 3과 맞아 검사가 통과, 3천만원이 조용히 확정됐다.
+    patches = dumped.get("patches") or []
+    for patch in patches:
+        if isinstance(patch, dict):
+            patch.pop("source_text", None)
 
     acc: Set[float] = set()
     _collect_numbers(strategy, acc)
-    _collect_numbers(dumped.get("patches"), acc)
+    _collect_numbers(patches, acc)
     _collect_numbers(dumped.get("unsupported_features"), acc)
     return acc
 

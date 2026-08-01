@@ -105,10 +105,53 @@ def _changed_factor_conditions(
     return out
 
 
+def _promote_patches_on_absent_condition(doc: Any, patches: List[PatchOp]) -> List[PatchOp]:
+    """비어 있는 조건 배열의 없는 인덱스를 겨냥한 필드 패치들을 조건 추가 하나로 합친다.
+
+    9B 드리프트 실측(2026-07-31 QA): 초안의 exit_conditions가 비어 있는데
+    `replace /exit_conditions/0/factor` + `replace /exit_conditions/0/operator`를 낸다.
+    가리킬 대상이 없어 PatchError → 폴백 → "해석하지 못했어요"로 끝나므로,
+    '볼린저밴드 상단 닿으면 매도' 같은 청산 조건 답변이 통째로 사라졌다.
+
+    합치는 것은 **LLM이 같은 인덱스에 대해 이미 낸 필드들**뿐이다 — 값을 지어내지 않고
+    구조만 바로잡으므로 형식 정규화다(§ 3-2). factor가 없으면 조건으로 성립하지 않아
+    승격하지 않는다(불완전한 조건을 만들어 검증을 통과시키지 않는다). 인덱스가 실재하면
+    기존 경로 그대로다 — 이 함수는 '없는 인덱스'에만 개입한다.
+    """
+    groups: dict[tuple[str, int], List[PatchOp]] = {}
+    for patch in patches:
+        tokens = [t for t in patch.path.split("/") if t]
+        if len(tokens) != 3 or tokens[0] not in _CONDITION_LIST_FIELDS:
+            continue
+        if patch.op != "replace" or not tokens[1].isdigit():
+            continue
+        current = doc.get(tokens[0])
+        if not isinstance(current, list) or int(tokens[1]) < len(current):
+            continue
+        groups.setdefault((tokens[0], int(tokens[1])), []).append(patch)
+    if not groups:
+        return patches
+
+    promoted: List[PatchOp] = []
+    absorbed = {id(p) for group in groups.values() for p in group}
+    for (list_field, _index), group in groups.items():
+        value = {p.path.rsplit("/", 1)[1]: p.value for p in group}
+        if not value.get("factor"):
+            continue          # 조건의 정체가 없다 — 승격하지 않고 기존 실패에 맡긴다
+        source = next((p.source_text for p in group if p.source_text), None)
+        promoted.append(PatchOp.model_validate({
+            "op": "add", "path": f"/{list_field}/-", "value": value, "source_text": source,
+        }))
+    if not promoted:
+        return patches
+    return [p for p in patches if id(p) not in absorbed] + promoted
+
+
 def apply_patches(strategy: StrategySpec, patches: List[PatchOp]) -> StrategySpec:
     """패치를 적용한 새 StrategySpec을 반환한다(원본 불변). 실패 시 PatchError."""
     _reject_state_ops(patches)
     doc = copy.deepcopy(strategy.model_dump())
+    patches = _promote_patches_on_absent_condition(doc, patches)
     before = copy.deepcopy(doc)
     for patch in patches:
         parent, last = _resolve_parent(doc, patch.path)

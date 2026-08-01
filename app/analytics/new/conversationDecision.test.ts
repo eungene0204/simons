@@ -387,6 +387,47 @@ describe("decideConversationTurn", () => {
     );
   });
 
+  it("marks the clarification turn so the caller can remember the open question", () => {
+    const decision = decideConversationTurn(
+      "초기자금 바꿔줘",
+      { ...baseContext, hasCurrentStrategy: true },
+      { intent: "STRATEGY_ADVICE", clarifyTarget: "initial_capital" },
+    );
+    expect(decision).toMatchObject({
+      action: "respond",
+      reason: "missing_initial_capital_value",
+      opensClarification: true,
+    });
+  });
+
+  it.each([
+    ["3억원", "initial_capital"],
+    ["10%", "stop_loss"],
+    ["매월", "rebalancing"],
+  ])(
+    "hands an answer to an open question to the parse lane, not back to the clarifier: %s",
+    (prompt, target) => {
+      // 되묻기 답변은 필드를 밝히지 않으므로 clarify_target이 그대로 다시 나온다 —
+      // 그 축은 '값이 함께 왔는가'를 알지 못한다. 그대로 두면 같은 질문을 다시 던지는
+      // 무한 되묻기가 된다(2026-07-31 초기자금 사고). 답의 해석은 파스 LLM 몫이다.
+      const decision = decideConversationTurn(
+        prompt,
+        { ...baseContext, hasCurrentStrategy: true, hasOpenClarification: true },
+        { intent: "STRATEGY_ADVICE", clarifyTarget: target },
+      );
+      expect(decision).toMatchObject({ action: "parse_strategy", speechAct: "modify" });
+    },
+  );
+
+  it("still clarifies a targeted field when no question is waiting for an answer", () => {
+    const decision = decideConversationTurn(
+      "초기자금 바꿔줘",
+      { ...baseContext, hasCurrentStrategy: true, hasOpenClarification: false },
+      { intent: "STRATEGY_ADVICE", clarifyTarget: "initial_capital" },
+    );
+    expect(decision).toMatchObject({ reason: "missing_initial_capital_value" });
+  });
+
   it("clarifies a missing take-profit percentage for an active strategy", () => {
     const decision = decideConversationTurn(
       "이익이 나면 일정 비율에서 팔고 싶어",

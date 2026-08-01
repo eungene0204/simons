@@ -55,15 +55,30 @@ def list_tools() -> List[ToolSpec]:
 
 
 def call(name: str, **payload) -> BaseModel:
-    """도구 호출 단일 진입점 — 입력 형식 검증 → 실행 → 출력 계약 확인."""
+    """도구 호출 단일 진입점 — 입력 형식 검증 → 실행 → 출력 계약 확인.
+
+    모든 도구 호출이 여기를 지나므로 관찰 span도 여기 하나면 된다(비활성 시 no-op).
+    span은 예외를 기록만 하고 그대로 다시 던진다 — 도메인 예외를 삼키지 않는
+    이 함수의 경계 규칙은 그대로다.
+    """
+    from observability import span
+    from observability.agent_trace import tool_observation
+
     spec = get_tool(name)
-    try:
-        inp = spec.input_model.model_validate(payload)
-    except ValidationError as exc:
-        raise ToolError(f"도구 '{name}' 입력 형식 위반: {exc}") from exc
-    out = spec.fn(inp)
-    if not isinstance(out, spec.output_model):
-        raise ToolError(
-            f"도구 '{name}' 출력 계약 위반: {type(out).__name__} != {spec.output_model.__name__}"
-        )
-    return out
+    with span(
+        f"Tool · {name}", "tool",
+        # chat은 주입된 LLM 함수라 직렬화 대상이 아니다(비결정론 도구의 전송 계약).
+        inputs={k: v for k, v in payload.items() if k != "chat"},
+        metadata={"tool": name, "deterministic": spec.deterministic},
+    ) as trace:
+        try:
+            inp = spec.input_model.model_validate(payload)
+        except ValidationError as exc:
+            raise ToolError(f"도구 '{name}' 입력 형식 위반: {exc}") from exc
+        out = spec.fn(inp)
+        if not isinstance(out, spec.output_model):
+            raise ToolError(
+                f"도구 '{name}' 출력 계약 위반: {type(out).__name__} != {spec.output_model.__name__}"
+            )
+        trace.output(observation=tool_observation(out))
+        return out

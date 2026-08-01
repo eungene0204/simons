@@ -1330,6 +1330,38 @@ LLM 판정을 뒤집는 안전망은 두지 않는다(§ 11-8과 같은 계약).
 회귀: `backend/tests/test_intent_interpreter.py`(정규화·성립 검증 24건),
 `app/analytics/new/conversationDecision.test.ts`(라벨 → 문구 매핑).
 
+### § 11-21. 되묻기 답변의 문맥 — 질문을 해석자에게 넘긴다 (2026-07-31 완료)
+
+§ 11-20이 만든 `clarify_target` 축의 후속 결함. 되묻기 답변("3억원")에도 대상 라벨이
+그대로 나오고(값 유무는 이 축의 판정 대상이 아니다), 되묻기 레인이 그것을 근거로 다시
+가로채 **같은 질문이 무한 반복**됐다.
+
+**이관에서 사라진 가드**: 정규식 경로에는 `explicitPattern`(값이 있으면 가로채지 않음)이
+있었다. LLM 레인의 대응물은 프롬프트 규칙 10("값이 함께 있으면 null")뿐인데 9B가 지키지
+않는다(실측 4/4에서 대상 출력). 그 불변식을 검증하던 테스트는 이관 후 아무도 호출하지
+않는 `getModificationClarification`을 겨누고 있어 **초록인 채로 무력했다** — 레인을 옮길
+때 테스트가 따라가지 않으면 가드가 죽은 것을 아무도 모른다.
+
+① **차단 근거는 상태다** — 답을 기다리는 되묻기가 열려 있으면(`hasOpenClarification`)
+되묻기 레인은 개입하지 않는다. "값이 있는가"를 프론트가 원문에서 다시 판정하는 방식은
+쓰지 않는다(§ 3 위반이자 § 11-8이 폐지한 재심 구조의 부활이다).
+② **분류는 유지한다**(사용자 결정) — 답변 턴에도 규제 게이트가 걸려야 한다. 차단 대상은
+되묻기 레인 하나이며 분류 왕복을 건너뛰지 않는다.
+③ **문맥 전달이 해법이다** — `pending_question`을 무상태 에코로 넘기고(§ 11-9의
+`pending_ask`, FR-STR-019e의 `previous_coach_text`와 같은 계약) 인터프리터 사용자
+프롬프트가 "답을 기다리는 질문" 블록으로 싣는다. **귀속 판정은 LLM이 한다** — 실측:
+같은 답 '10%'가 손절 질문에서는 `/risk_management/stop_loss`, 익절 질문에서는
+`/risk_management/take_profit`으로 갈린다(질문이 없으면 손절로 고정된다).
+④ **§ 3-1 대조의 사각** — 패치의 `source_text`(LLM 인용)는 사용자 원문 조각이라 값이
+틀려도 입력의 숫자를 포함한다. '3억원' 답변에 `value=30000000`(10배 축소)이 나왔는데
+인용의 3이 앵커 '3억'의 후보 3과 맞아 수치 대조가 침묵했다(조건 배열에서는 이미 빼던
+것을 패치에는 적용하지 않은 누락). 대조에서 인용을 제외하고, **값 자체는 프롬프트로
+고쳤다**(규칙 11-2 금액 단위 환산표) — 검증 실패를 결정론 후처리로 보정하지 않는다.
+
+회귀: `app/analytics/new/page.clarify-answer.test.tsx`(종단),
+`app/analytics/new/conversationDecision.test.ts`, `backend/tests/test_recall_validator.py`,
+`backend/tests/test_strategy_conversation.py`, `backend/tests/test_nl_cache.py`.
+
 ### 마이그레이션 순서
 
 1번(`nl_parser.py`)은 독립 순번이 없다 — 나머지가 끝나면 남는 잔여물이며, 성격이 다른
