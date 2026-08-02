@@ -1,10 +1,17 @@
-"""LangSmith Trace 파사드 — 실행 경로를 읽기만 하는 단일 진입점.
+"""Trace 파사드 — 실행 경로를 읽기만 하는 단일 진입점.
+
+기록처(sink)는 둘이고 서로 독립이다:
+
+- **LangSmith** — LANGSMITH_TRACING이 참일 때만. 외부 전송이므로 기본 꺼짐.
+- **로컬(local_trace)** — AGENT_TRACE_LOCAL이 거짓이 아니면. 콘솔 트리 + JSONL 파일로
+  같은 정보를 남긴다(외부 전송 없음이라 기본 켜짐). 끄기 = AGENT_TRACE_LOCAL=0.
 
 계약(이 셋이 깨지면 관찰 계층이 아니다):
 
-1. **비활성이 기본값.** LANGSMITH_TRACING이 참이 아니면 완전한 no-op이고 langsmith를
+1. **LangSmith는 비활성이 기본값.** LANGSMITH_TRACING이 참이 아니면 langsmith를
    import하지 않는다. 활성 여부는 매번 env를 읽는다(캐시하지 않는다 — 테스트·운영이
-   프로세스 수명 중에 끄고 켤 수 있어야 한다).
+   프로세스 수명 중에 끄고 켤 수 있어야 한다). 두 sink 모두 꺼져 있으면 span은
+   완전한 no-op이다.
 2. **감싼 코드의 반환값과 예외를 바꾸지 않는다.** span은 예외를 기록하고 다시 던진다.
    삼키지 않는다 — 폴백 판정은 전부 기존 호출부 소관이다.
 3. **관찰 계층 자체의 실패는 실행을 깨뜨리지 않는다.** langsmith 장애·직렬화 실패는
@@ -24,6 +31,7 @@ import os
 import time
 from typing import Any, Dict, Iterator, Optional
 
+from observability import local_trace as _local_trace
 from observability import metrics as _metrics
 
 logger = logging.getLogger("observability.tracing")
@@ -99,41 +107,55 @@ def _truncate(value: Any) -> Any:
 
 
 class TraceHandle:
-    """span 안에서 관찰값을 덧붙이는 손잡이.
+    """span 안에서 관찰값을 덧붙이는 손잡이 — LangSmith run과 로컬 노드 양쪽에 쓴다.
 
     비활성 span에서도 같은 메서드를 제공한다(호출부에 분기를 만들지 않기 위해) —
     그때는 전부 no-op이다.
     """
 
-    __slots__ = ("_run", "_extra_meta")
+    __slots__ = ("_run", "_local")
 
-    def __init__(self, run: Any = None):
+    def __init__(self, run: Any = None, local: Any = None):
         self._run = run
-        self._extra_meta: Dict[str, Any] = {}
+        self._local = local
 
     @property
     def active(self) -> bool:
-        return self._run is not None
+        return self._run is not None or self._local is not None
 
     def output(self, **values: Any) -> None:
         """이 span의 산출값. 여러 번 부르면 병합된다."""
-        if self._run is None:
+        if not self.active:
             return
-        try:
-            merged = dict(getattr(self._run, "outputs", None) or {})
-            merged.update({k: _truncate(v) for k, v in values.items()})
-            self._run.outputs = merged
-        except Exception:  # noqa: BLE001
-            logger.debug("trace output 기록 실패", exc_info=True)
+        truncated = {k: _truncate(v) for k, v in values.items()}
+        if self._run is not None:
+            try:
+                merged = dict(getattr(self._run, "outputs", None) or {})
+                merged.update(truncated)
+                self._run.outputs = merged
+            except Exception:  # noqa: BLE001
+                logger.debug("trace output 기록 실패", exc_info=True)
+        if self._local is not None:
+            try:
+                self._local.outputs.update(truncated)
+            except Exception:  # noqa: BLE001
+                logger.debug("로컬 trace output 기록 실패", exc_info=True)
 
     def meta(self, **values: Any) -> None:
         """이 span의 메타데이터."""
-        if self._run is None:
+        if not self.active:
             return
-        try:
-            self._run.metadata.update({k: _truncate(v) for k, v in values.items()})
-        except Exception:  # noqa: BLE001
-            logger.debug("trace metadata 기록 실패", exc_info=True)
+        truncated = {k: _truncate(v) for k, v in values.items()}
+        if self._run is not None:
+            try:
+                self._run.metadata.update(truncated)
+            except Exception:  # noqa: BLE001
+                logger.debug("trace metadata 기록 실패", exc_info=True)
+        if self._local is not None:
+            try:
+                self._local.metadata.update(truncated)
+            except Exception:  # noqa: BLE001
+                logger.debug("로컬 trace metadata 기록 실패", exc_info=True)
 
     def error(self, kind: str, message: str) -> None:
         """실패 원인의 분류와 메시지(스펙 § Error Trace).
@@ -141,14 +163,22 @@ class TraceHandle:
         예외로 끝나지 않는 실패 — 폴백 반환(None), 계약 위반, 예산 소진 — 를 남긴다.
         예외로 끝나는 실패는 span이 자동으로 잡는다.
         """
-        if self._run is None:
+        if not self.active:
             return
         _metrics.bump("failure_count")
-        try:
-            self._run.metadata.update({"error_kind": kind})
-            self._run.error = f"[{kind}] {message}"[:2000]
-        except Exception:  # noqa: BLE001
-            logger.debug("trace error 기록 실패", exc_info=True)
+        text = f"[{kind}] {message}"[:2000]
+        if self._run is not None:
+            try:
+                self._run.metadata.update({"error_kind": kind})
+                self._run.error = text
+            except Exception:  # noqa: BLE001
+                logger.debug("trace error 기록 실패", exc_info=True)
+        if self._local is not None:
+            try:
+                self._local.metadata["error_kind"] = kind
+                self._local.error = text
+            except Exception:  # noqa: BLE001
+                logger.debug("로컬 trace error 기록 실패", exc_info=True)
 
 
 _NOOP = TraceHandle(None)
@@ -164,7 +194,7 @@ def span(
     run_type: Optional[str] = None,
     root: bool = False,
 ) -> Iterator[TraceHandle]:
-    """관찰 span 하나. 비활성이면 no-op 손잡이를 즉시 내준다.
+    """관찰 span 하나. 두 sink(LangSmith·로컬) 모두 비활성이면 no-op 손잡이를 즉시 내준다.
 
     role은 성능 지표 버킷·카운터를 고르는 우리 쪽 축이고, run_type은 LangSmith UI의
     표시 종류다(미지정 시 role에서 유도).
@@ -172,31 +202,50 @@ def span(
     root=True면 이 span이 Trace 루트다 — 성능 지표 누적기를 새로 걸고, 끝날 때
     누적 결과를 메타데이터로 붙인다.
     """
-    if not tracing_enabled():
+    ls_on = tracing_enabled()
+    local_on = _local_trace.enabled()
+    if not ls_on and not local_on:
         yield _NOOP
         return
 
     started = time.perf_counter()
     token = _metrics.bind(_metrics.new_metrics()) if root else None
-    handle = _NOOP
-    cm = None
-    try:
-        from langsmith.run_helpers import trace as _ls_trace
+    safe_inputs = {k: _truncate(v) for k, v in (inputs or {}).items()}
+    meta = base_metadata() if root else {}
+    meta.update(metadata or {})
 
-        meta = base_metadata() if root else {}
-        meta.update(metadata or {})
-        cm = _ls_trace(
-            name,
-            run_type=run_type or _ls_run_type(role),
-            inputs={k: _truncate(v) for k, v in (inputs or {}).items()},
-            metadata=meta,
-            project_name=project_name() if root else None,
-        )
-        handle = TraceHandle(cm.__enter__())
-    except Exception:  # noqa: BLE001 — 추적 개시 실패는 실행을 막지 않는다
-        logger.debug("trace span 개시 실패 | name=%s", name, exc_info=True)
-        cm = None
-        handle = _NOOP
+    run = None
+    cm = None
+    if ls_on:
+        try:
+            from langsmith.run_helpers import trace as _ls_trace
+
+            cm = _ls_trace(
+                name,
+                run_type=run_type or _ls_run_type(role),
+                inputs=safe_inputs,
+                metadata=meta,
+                project_name=project_name() if root else None,
+            )
+            run = cm.__enter__()
+        except Exception:  # noqa: BLE001 — 추적 개시 실패는 실행을 막지 않는다
+            logger.debug("trace span 개시 실패 | name=%s", name, exc_info=True)
+            cm = None
+            run = None
+
+    local_node = None
+    local_token = None
+    if local_on:
+        try:
+            local_node, local_token = _local_trace.start(
+                name, role=role, inputs=safe_inputs, metadata=meta,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("로컬 trace span 개시 실패 | name=%s", name, exc_info=True)
+            local_node = None
+            local_token = None
+
+    handle = TraceHandle(run, local_node) if (run is not None or local_node is not None) else _NOOP
 
     _bump_counter(role)
     exc_info: tuple = (None, None, None)
@@ -206,6 +255,8 @@ def span(
         exc_info = (type(exc), exc, exc.__traceback__)
         _metrics.bump("failure_count")
         handle.meta(error_kind=type(exc).__name__)
+        if local_node is not None and local_node.error is None:
+            local_node.error = f"{type(exc).__name__}: {exc}"[:2000]
         raise
     finally:
         elapsed_ms = (time.perf_counter() - started) * 1000
@@ -220,6 +271,9 @@ def span(
             # 우리 계약이지 관찰 계층이 정할 일이 아니다.
             with contextlib.suppress(Exception):
                 cm.__exit__(*exc_info)
+        if local_node is not None:
+            with contextlib.suppress(Exception):
+                _local_trace.finish(local_node, local_token, elapsed_ms)
         if token is not None:
             _metrics.unbind(token)
 
@@ -241,7 +295,7 @@ def _bump_counter(role: str) -> None:
 
 def bump(key: str, amount: int = 1) -> None:
     """카운터 직접 증가(retry_count 등 span 경계와 맞지 않는 지표용)."""
-    if tracing_enabled():
+    if tracing_enabled() or _local_trace.enabled():
         _metrics.bump(key, amount)
 
 
@@ -251,41 +305,68 @@ def current_parent() -> Optional[Any]:
     """현재 span(부모)을 꺼낸다 — 스레드에 넘겨 계층을 잇기 위한 것.
 
     비활성이거나 추적 밖이면 None. 이 값을 받는 쪽은 use_parent()로 복원한다.
+    반환값은 불투명하다(내부적으로 LangSmith run·성능 지표·로컬 노드의 묶음).
     """
-    if not tracing_enabled():
+    ls_on = tracing_enabled()
+    local_on = _local_trace.enabled()
+    if not ls_on and not local_on:
         return None
-    try:
-        from langsmith.run_helpers import get_current_run_tree
+    run = None
+    if ls_on:
+        try:
+            from langsmith.run_helpers import get_current_run_tree
 
-        run = get_current_run_tree()
-    except Exception:  # noqa: BLE001
-        return None
-    if run is None:
+            run = get_current_run_tree()
+        except Exception:  # noqa: BLE001
+            run = None
+    local_node = _local_trace.current() if local_on else None
+    if run is None and local_node is None:
         return None
     # 성능 지표 누적기도 함께 넘긴다 — 다른 스레드에서 잰 시간이 같은 Trace의 지표에
     # 잡혀야 한다(parse-stream은 파스 전체가 자식 스레드에 있다).
-    return (run, _metrics.current_metrics())
+    return (run, _metrics.current_metrics(), local_node)
 
 
 @contextlib.contextmanager
 def use_parent(parent: Optional[Any]) -> Iterator[None]:
     """다른 스레드에서 current_parent()의 컨텍스트를 복원한다.
 
-    parent가 None이거나 추적이 꺼져 있으면 아무 일도 하지 않는다.
+    parent가 None이거나 두 sink 모두 꺼져 있으면 아무 일도 하지 않는다.
     """
-    if parent is None or not tracing_enabled():
+    if parent is None:
         yield
         return
-    run, collected = parent if isinstance(parent, tuple) else (parent, None)
-    token = _metrics.bind(collected) if collected is not None else None
-    try:
-        from langsmith.run_helpers import tracing_context
+    if isinstance(parent, tuple):
+        if len(parent) == 3:
+            run, collected, local_node = parent
+        else:  # 구 형식 (run, metrics)
+            run, collected = parent
+            local_node = None
+    else:
+        run, collected, local_node = parent, None, None
 
-        with tracing_context(parent=run, enabled=True):
-            yield
-    except Exception:  # noqa: BLE001 — 복원 실패는 계층만 잃고 실행은 계속된다
-        logger.debug("trace 부모 복원 실패", exc_info=True)
+    token = _metrics.bind(collected) if collected is not None else None
+    local_token = None
+    if local_node is not None and _local_trace.enabled():
+        with contextlib.suppress(Exception):
+            local_token = _local_trace.bind_parent(local_node)
+    ls_cm = None
+    if run is not None and tracing_enabled():
+        try:
+            from langsmith.run_helpers import tracing_context
+
+            ls_cm = tracing_context(parent=run, enabled=True)
+            ls_cm.__enter__()
+        except Exception:  # noqa: BLE001 — 복원 실패는 계층만 잃고 실행은 계속된다
+            logger.debug("trace 부모 복원 실패", exc_info=True)
+            ls_cm = None
+    try:
         yield
     finally:
+        if ls_cm is not None:
+            with contextlib.suppress(Exception):
+                ls_cm.__exit__(None, None, None)
+        if local_token is not None:
+            _local_trace.unbind(local_token)
         if token is not None:
             _metrics.unbind(token)

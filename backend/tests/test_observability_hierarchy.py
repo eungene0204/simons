@@ -26,6 +26,8 @@ def _tracing_on_no_egress(monkeypatch):
     monkeypatch.setenv("LANGSMITH_TRACING", "true")
     monkeypatch.setenv("LANGSMITH_ENDPOINT", "http://127.0.0.1:1")
     monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
+    # LangSmith 레인의 계층만 본다 — 로컬 레인은 test_local_trace.py 소관.
+    monkeypatch.setenv("AGENT_TRACE_LOCAL", "0")
     for name in ("langsmith", "langsmith.client", "langsmith._internal"):
         logging.getLogger(name).setLevel(logging.CRITICAL)
 

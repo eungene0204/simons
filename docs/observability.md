@@ -1,8 +1,15 @@
-# Observability — LangSmith Trace 계층
+# Observability — Agent Trace 계층 (LangSmith + 로컬)
 
 전략 대화 Agent(Planner → Action DAG → Tool → State → Responder)의 실행 과정을
-LangSmith Trace로 남긴다. **관찰만 한다** — 실행 경로·분기·되묻기 조건·폴백 판정·
+Trace로 남긴다. **관찰만 한다** — 실행 경로·분기·되묻기 조건·폴백 판정·
 반환값·예외 전파 중 어느 것도 바꾸지 않는다.
+
+기록처(sink)는 둘이고 서로 독립이다:
+
+| sink | 스위치 | 기본값 | 이유 |
+|---|---|---|---|
+| **LangSmith** (외부 전송) | `LANGSMITH_TRACING` | **꺼짐** | 켜면 사용자 원문·전략 State·프롬프트 전문이 외부로 나간다 |
+| **로컬** (콘솔 + JSONL) | `AGENT_TRACE_LOCAL` | **켜짐** | 외부 전송이 없다. 끄기 = `AGENT_TRACE_LOCAL=0` |
 
 구현: [`backend/observability/`](../backend/observability/)
 
@@ -12,12 +19,12 @@ LangSmith Trace로 남긴다. **관찰만 한다** — 실행 경로·분기·�
 
 | 원칙 | 의미 |
 |---|---|
-| **비활성이 기본값** | `LANGSMITH_TRACING`이 참이 아니면 완전한 no-op. langsmith를 import조차 하지 않는다 |
+| **LangSmith는 비활성이 기본값** | `LANGSMITH_TRACING`이 참이 아니면 langsmith를 import조차 하지 않는다. 두 sink 모두 꺼져 있으면 span은 완전한 no-op |
 | **반환값·예외 불변** | span은 예외를 기록만 하고 그대로 다시 던진다. 삼키면 폴백 판정이 뒤집힌다 |
-| **관찰 실패 ≠ 실행 실패** | langsmith 장애·직렬화 실패는 debug 로그로만 남기고 통과시킨다 |
+| **관찰 실패 ≠ 실행 실패** | langsmith 장애·로컬 파일 기록 실패·직렬화 실패는 debug 로그로만 남기고 통과시킨다 |
 | **없는 값은 지어내지 않는다** | `user_id`는 요청 계약에 없으므로 `None`. Cost는 self-hosted라 없으므로 싣지 않는다 |
 
-> ⚠ **활성화하면 외부 전송이다.** 사용자 원문(한국어 전략 요청), 전략 State,
+> ⚠ **LangSmith를 활성화하면 외부 전송이다.** 사용자 원문(한국어 전략 요청), 전략 State,
 > LLM 프롬프트 전문이 LangSmith로 나간다. prod 활성화는 별도 결정 사항이다.
 
 ---
@@ -25,13 +32,65 @@ LangSmith Trace로 남긴다. **관찰만 한다** — 실행 경로·분기·�
 ## 2. 활성화
 
 ```bash
-LANGSMITH_TRACING=true                # 이것만이 스위치. 미설정 = 완전 no-op
+# LangSmith (외부 전송, 기본 꺼짐)
+LANGSMITH_TRACING=true                # 이것만이 스위치. 미설정 = LangSmith 레인 no-op
 LANGSMITH_API_KEY=lsv2_pt_...         # 활성 시 필수
 LANGSMITH_PROJECT=NullStock           # 선택(기본 "NullStock")
 LANGSMITH_ENDPOINT=https://...        # 선택. self-hosted 인스턴스면 여기로
+
+# 로컬 Trace (외부 전송 없음, 기본 켜짐)
+AGENT_TRACE_LOCAL=0                   # 끌 때만 설정
+AGENT_TRACE_DIR=/path/to/traces       # 선택(기본 backend/logs/agent_traces)
 ```
 
-롤백 = `LANGSMITH_TRACING` 줄 삭제. 코드 변경 없이 즉시 꺼진다.
+롤백 = `LANGSMITH_TRACING` 줄 삭제(LangSmith) / `AGENT_TRACE_LOCAL=0`(로컬).
+코드 변경 없이 즉시 꺼진다.
+
+---
+
+## 2b. 로컬 Trace — LangSmith 없이 같은 정보를 보는 방법
+
+`observability/local_trace.py`. `tracing.span()` 파사드가 수집하는 것과 **동일한
+정보**(계층·입출력·메타데이터·소요 시간·오류·성능 지표)를 요청 하나가 끝날 때 두
+곳에 남긴다. 실행 계층은 물론 **chokepoint 호출부도 바뀌지 않는다** — 파사드 뒤의
+기록처만 늘었다.
+
+**① 콘솔** — dev `uvicorn`·prod `docker logs`에서 바로 읽는다. 값은 raw JSON 한 줄이
+아니라 `key = value` 컬럼이다([LLM-INTERPRETER] `_flatten_json_columns` 선례):
+
+```
+[AGENT-TRACE] trace=25b4889f0410 · 5321.4ms
+NullStock Strategy Agent (chain · 5321.4ms)
+│    in.user_input          = "RSI 30 이하면 매수, 10% 익절"
+│    out.outcome            = "ask"
+│    meta.turn_kind         = "create"
+│    meta.llm_ms            = 3100.2
+│    meta.llm_calls         = 2
+├─ Interpreter · 전략 해석 (llm · 3100.2ms)
+│       out.intent.buy[0].indicator = "rsi"
+│       out.input_tokens            = 1204
+├─ Planner · Action DAG (planner · 820.1ms)
+│  └─ Tool · classify_universe (tool · 12.0ms)
+└─ Responder (responder · 0.4ms)
+        out.clarification_question = "어떤 조건에서 매도할까요?"
+```
+
+콘솔 값은 160자에서 자른다 — 흐름을 읽는 곳이다. 전문은 JSONL에 있다.
+
+**② JSONL 파일** — `backend/logs/agent_traces/YYYY-MM-DD.jsonl`(gitignore 대상).
+Trace 하나가 한 줄이고 span 트리 구조가 그대로 들어간다. 특정 요청 추적:
+
+```bash
+grep '"trace_id": "25b4889f0410"' backend/logs/agent_traces/*.jsonl | python -m json.tool
+```
+
+**late_attach**: SSE 후행 검증처럼 루트 방출 뒤 도착하는 span은 같은 `trace_id`를 단
+별도 레코드(`"late_attach": true`)로 남는다 — 방출된 트리를 소급 수정하면 파일과
+콘솔이 어긋나기 때문이다.
+
+**테스트는 기본 꺼짐**: `tests/conftest.py`가 `AGENT_TRACE_LOCAL=0`을 기본으로 둔다
+(span마다 콘솔·파일을 쏟으면 테스트 출력이 소음이 된다). 로컬 trace 자체의 회귀는
+`tests/test_local_trace.py`가 개별 활성화로 검증한다.
 
 ---
 
@@ -188,7 +247,8 @@ planner가 폴백된 턴에 "DAG가 올바른가"를 채점하지 않는 이유�
 cd backend && pytest tests/test_observability_tracing.py \
                      tests/test_observability_evaluators.py \
                      tests/test_observability_hierarchy.py \
-                     tests/test_observability_parse_root.py -v
+                     tests/test_observability_parse_root.py \
+                     tests/test_local_trace.py -v
 ```
 
 테스트는 `LANGSMITH_ENDPOINT`를 `http://127.0.0.1:1`로 고정해 **외부 전송을 차단한다.**

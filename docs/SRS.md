@@ -1357,6 +1357,12 @@ News Collector
 
 구현: `backend/observability/`, 상세 `docs/observability.md`. 회귀: `backend/tests/test_observability_tracing.py`(no-op·예외 전파·지표), `test_observability_hierarchy.py`(계층·스레드 경계·대조군), `test_observability_parse_root.py`(반환값 불변·Responder·식별자), `test_observability_evaluators.py`(6축·Dataset).
 
+**FR-OBS-002** [로컬 Trace 레코더 — LangSmith 없이 같은 정보를 로컬에, 2026-08-02] FR-OBS-001의 span 파사드가 수집하는 것(계층·입출력·메타데이터·소요 시간·오류·성능 지표)과 동일한 정보를 외부 전송 없이 로컬에 남길 수 있어야 한다. 요청 하나가 끝날 때 ① 콘솔에 span 트리(`[AGENT-TRACE]`, 값은 raw JSON 한 줄이 아니라 `key = value` 컬럼 — FR과 무관한 로그 가독성 계약과 동일)와 ② `backend/logs/agent_traces/YYYY-MM-DD.jsonl`에 Trace 한 줄(전체 트리 구조 보존)을 남긴다.
+
+① **기본 활성** — 외부 전송이 없으므로 LangSmith와 달리 opt-out이다(`AGENT_TRACE_LOCAL=0`으로 끔). 두 sink는 서로 독립이며 둘 다 꺼져 있을 때만 span이 완전한 no-op이다. ② **실행 계층 무변경** — 기록처 추가는 `observability/` 내부(파사드 `tracing.py` + 레코더 `local_trace.py`)에서 끝나야 하고, chokepoint 5곳의 호출부는 바뀌지 않는다. FR-OBS-001의 계약(예외 재전파·관찰 실패 무해·원문 패턴 매칭 금지)을 그대로 상속한다. ③ **방출 후 소급 수정 금지** — SSE 후행 검증처럼 루트 방출 뒤 도착하는 span은 같은 `trace_id`의 별도 레코드(`late_attach`)로 남긴다. 방출된 트리를 소급 수정하면 파일과 콘솔이 어긋난다. ④ 테스트 스위트는 기본 꺼짐이다(`tests/conftest.py`) — span마다 콘솔·파일을 쏟으면 테스트 출력이 관찰이 아니라 소음이 된다.
+
+구현: `backend/observability/local_trace.py`. 회귀: `backend/tests/test_local_trace.py`(트리 기록·지표·오류·no-op·late_attach·컬럼 렌더링).
+
 ---
 
 ### 3.7 시장 데이터 및 분석

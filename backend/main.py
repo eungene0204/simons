@@ -3556,8 +3556,9 @@ def _interpretation_failure_result(request: NLParseRequest, backend: str, reques
 def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | None = None):
     """파싱 코어 로직 — 사용자 요청 하나당 Trace 하나의 루트.
 
-    본체는 _run_nl_parse_traced다. 이 함수는 관찰 span만 연다(LANGSMITH_TRACING
-    미설정 시 완전한 no-op). 파싱 동작·반환값·예외 전파는 전혀 바뀌지 않는다.
+    본체는 _run_nl_parse_traced다. 이 함수는 관찰 span만 연다(LangSmith와 로컬
+    trace 둘 다 꺼져 있으면 완전한 no-op — observability/tracing.py). 파싱 동작·
+    반환값·예외 전파는 전혀 바뀌지 않는다.
 
     반환 지점이 여러 곳(캐시 히트·되묻기·503·정상)이라 개별 지점에 관찰을 흩으면
     반드시 빠뜨린다 — _finalize_parse_result와 같은 이유로 여기 하나로 모은다.

@@ -35,6 +35,8 @@ def _no_egress(monkeypatch):
     """
     monkeypatch.setenv("LANGSMITH_ENDPOINT", "http://127.0.0.1:1")
     monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
+    # 이 파일은 LangSmith 레인의 계약만 본다 — 로컬 레인은 test_local_trace.py 소관.
+    monkeypatch.setenv("AGENT_TRACE_LOCAL", "0")
     # langsmith의 백그라운드 전송 스레드가 연결 실패를 stderr로 쏟는다 — 테스트 출력이
     # 아니라 SDK 내부 잡음이다(전송 실패해도 실행은 계속된다는 것이 바로 이 계약).
     for name in ("langsmith", "langsmith.client", "langsmith._internal"):

@@ -29,6 +29,11 @@ def _ensure_test_runtime_cache_dirs() -> None:
 
 _ensure_test_runtime_cache_dirs()
 
+# 로컬 Agent Trace(observability/local_trace)는 운영 기본이 켜짐이다 — 테스트에서는
+# span 하나하나가 콘솔 트리·JSONL 파일을 쏟아내므로 기본을 꺼둔다. 로컬 trace 자체를
+# 검증하는 테스트는 monkeypatch.setenv("AGENT_TRACE_LOCAL", "1")로 개별 활성화한다.
+os.environ.setdefault("AGENT_TRACE_LOCAL", "0")
+
 
 # ────────────────────────────────────────────────────────────────────
 # 앱 DB(Postgres) 테스트 픽스처

@@ -157,7 +157,7 @@ simons/
 │   │   ├── candidate_generator.py   # 개선 후보 전략 생성
 │   │   ├── advice_evaluator.py      # 개선 전/후 성과 평가
 │   │   └── response_composer.py     # 사용자 답변 섹션 구성
-│   ├── observability/               # LangSmith Trace 관찰 계층(기본 off — 실행 경로 불변, docs/observability.md)
+│   ├── observability/               # Trace 관찰 계층(LangSmith 기본 off + 로컬 기본 on — 실행 경로 불변, docs/observability.md)
 │   │   ├── tracing.py               # span 파사드 + 스레드 경계 전파(current_parent/use_parent)
 │   │   ├── metrics.py               # Trace 단위 성능 지표 누적기(contextvar)
 │   │   ├── agent_trace.py           # Action DAG·State diff·응답·토큰 어댑터(덕타이핑 — 실행 계층 미import)
@@ -776,11 +776,15 @@ sector_unresolved 우선순위 질문은 불가침)하고 `clarification_priorit
 마커로 프론트 explicit 게이트의 고정 칩 삼킴을 막는다(프론트 수정 0 — 기존 우선순위
 채널 재사용). planner 실패는 기존 고정 질문 유지 폴백. prod=off.
 
-### 4.2.3 관찰 계층 (backend/observability/ — LangSmith Trace, 기본 off)
+### 4.2.3 관찰 계층 (backend/observability/ — LangSmith + 로컬 Trace)
 
-Agent 실행 과정을 LangSmith Trace로 남기는 **관찰 전용** 계층. 실행 경로·분기·되묻기
-조건·폴백 판정·반환값·예외 전파 중 어느 것도 바꾸지 않는다. `LANGSMITH_TRACING`이
-참이 아니면 완전한 no-op이며 langsmith를 import조차 하지 않는다(오버헤드·외부 전송 0).
+Agent 실행 과정을 Trace로 남기는 **관찰 전용** 계층. 실행 경로·분기·되묻기
+조건·폴백 판정·반환값·예외 전파 중 어느 것도 바꾸지 않는다. 기록처는 둘이고 독립이다:
+LangSmith(외부 전송 — `LANGSMITH_TRACING`이 참이 아니면 langsmith를 import조차 하지
+않는 기본 off)와 **로컬 레코더**(`local_trace.py` — 같은 정보를 콘솔 `[AGENT-TRACE]`
+트리(key = value 컬럼)와 `backend/logs/agent_traces/YYYY-MM-DD.jsonl`로. 외부 전송이
+없어 기본 on, `AGENT_TRACE_LOCAL=0`으로 끔. FR-OBS-002). 둘 다 꺼져 있으면 span은
+완전한 no-op이다.
 
 계측은 **기존 단일 통로 5곳만** 감싼다(계측을 코드 전반에 흩지 않는다):
 
