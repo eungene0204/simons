@@ -178,7 +178,12 @@ def test_modify_turn_replans_next_question_via_dag_planner(monkeypatch):
     # 재계획 질문의 pending_ask — 프론트가 에코해 다음 칩 클릭의 결정론 귀속에 쓴다
     assert result["pending_ask"]["topic"] == "매수조건"
     assert result["pending_ask"]["question"] == "어떤 조건에서 매수할까요?"
-    assert result["pending_ask"]["chips"] == ["RSI 30 이하에서 매수"]
+    # 재계획 질문의 칩도 planner 문구가 아니라 슬롯 SOT 정본이다(2026-08-02 사용자
+    # 결정) — ETF 유니버스이므로 재무 칩(PER·ROE)은 제외된 정본이어야 한다.
+    from engine import strategy_slots
+    assert result["pending_ask"]["chips"] == strategy_slots.suggestions_for_topic(
+        "매수조건", universe=["ETF"])
+    assert "PER 10 이하" not in result["pending_ask"]["chips"]
     # 칩=값 결속 — 칩이 뜻하는 값을 발행 시점에 확정해 함께 싣는다(클릭 시 재해석 없음)
     assert result["pending_ask"]["chip_bindings"]["RSI 30 이하에서 매수"][
         "entry_signals"][0]["indicator"] == "rsi"
@@ -370,6 +375,102 @@ def test_theme_scope_chip_replaces_only_theme_origin_symbols():
     assert parsed.theme_universe == "쿠팡(coupang)"
     assert set(parsed.target_symbols) != set(prev.target_symbols)
     assert len(parsed.target_symbols) > len(prev.target_symbols)
+
+
+def test_market_only_patch_filters_theme_symbols(monkeypatch):
+    """[회귀 2026-08-02] 테마 지정 종목 전략에 "코스피에만 속한 종목으로 변경" —
+    시장 패치는 검증을 통과해도 지정 종목 모드에선 실행에 반영되지 않아(변환기가
+    target_symbols 우선) 무변경으로 끝났다. 패치 적용 후 테마 유래 종목을 종목
+    마스터 정본 소속으로 결정론 필터링한다(삼성전자=KOSPI 유지, 고영=KOSDAQ 제외)."""
+    _stub_interpreter(monkeypatch, StrategyIntent.model_validate({
+        "intent": "MODIFY_STRATEGY",
+        "patches": [{"op": "replace", "path": "/universe/markets",
+                     "value": ["KOSPI"],
+                     "source_text": "코스피에만 속한 종목으로 변경"}],
+        "confidence": 1.0,
+    }))
+    prev = _prev_cross_strategy(
+        universe=["KOSPI", "KOSDAQ"],
+        target_symbols=["005930", "098460"], theme_universe="HBM",
+    )
+    result = primary.run_primary_modification(
+        "코스피에만 속한 종목으로 변경 할 수 있나?", prev.model_dump(),
+    )
+    assert result is not None
+    assert result["interpreter"]["mode"] == "primary_modify"
+    parsed = result["parsed"]
+    assert parsed.universe == ["KOSPI"]
+    assert parsed.target_symbols == ["005930"]
+    assert parsed.theme_universe == "HBM"  # 출처 보존 — 이후 테마 교체 판정 근거
+    # 되돌리기 근거 — 이 턴이 바꾼 필드에 종목 목록도 포함된다
+    assert "target_symbols" in result["changed_fields"]
+
+
+def test_market_switch_rederives_from_full_theme(monkeypatch):
+    """[회귀 2026-08-02 2차] 코스피로 좁힌 테마 전략에 "코스닥 종목만" — 현재 목록엔
+    코스닥이 0곳이므로 테마 전체 구성에서 코스닥 소속으로 다시 좁힌다(무변경 금지)."""
+    import engine.knowledge_graph as kg
+
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: {
+        "term": "HBM",
+        "companies": [
+            {"symbol": "005930", "name": "삼성전자", "support": 1, "first_known_date": None},
+            {"symbol": "098460", "name": "고영", "support": 1, "first_known_date": None},
+            {"symbol": "348210", "name": "넥스틴", "support": 1, "first_known_date": None},
+        ],
+        "first_known_date": None,
+    })
+    _stub_interpreter(monkeypatch, StrategyIntent.model_validate({
+        "intent": "MODIFY_STRATEGY",
+        "patches": [{"op": "replace", "path": "/universe/markets",
+                     "value": ["KOSDAQ"],
+                     "source_text": "코피닥 종목만 선택"}],
+        "confidence": 1.0,
+    }))
+    prev = _prev_cross_strategy(
+        universe=["KOSPI"], target_symbols=["005930"], theme_universe="HBM",
+    )
+    result = primary.run_primary_modification(
+        "미안해 코피닥 종목만 선택 해줘", prev.model_dump(),
+    )
+    assert result is not None
+    parsed = result["parsed"]
+    assert parsed.universe == ["KOSDAQ"]
+    assert parsed.target_symbols == ["098460", "348210"]  # 테마 전체의 코스닥 소속
+    assert parsed.theme_universe == "HBM"
+
+
+def test_unmet_market_constraint_keeps_strategy_and_notifies(monkeypatch):
+    """[회귀 2026-08-02 2차] 테마 전체에도 해당 시장 종목이 없으면 — universe 패치까지
+    되돌려 전략을 원상 유지하고, 반영하지 못했음을 안내한다(침묵 금지: universe만
+    뒤집힌 채 무안내로 끝나 오타 미해석으로 오인되던 사고)."""
+    import engine.knowledge_graph as kg
+
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: {
+        "term": "HBM",
+        "companies": [
+            {"symbol": "005930", "name": "삼성전자", "support": 1, "first_known_date": None},
+        ],
+        "first_known_date": None,
+    })
+    _stub_interpreter(monkeypatch, StrategyIntent.model_validate({
+        "intent": "MODIFY_STRATEGY",
+        "patches": [{"op": "replace", "path": "/universe/markets",
+                     "value": ["KOSDAQ"],
+                     "source_text": "코스닥 종목만 선택"}],
+        "confidence": 1.0,
+    }))
+    prev = _prev_cross_strategy(
+        universe=["KOSPI"], target_symbols=["005930"], theme_universe="HBM",
+    )
+    result = primary.run_primary_modification(
+        "코스닥 종목만 선택 해줘", prev.model_dump(),
+    )
+    assert result is not None
+    parsed = result["parsed"]
+    assert parsed.universe == ["KOSPI"]  # 시장 패치 원상 복구 — 반쪽 상태 금지
+    assert parsed.target_symbols == ["005930"]
+    assert any("반영하지 못했어요" in n and "유지했어요" in n for n in result["notices"])
 
 
 def test_theme_replacement_never_touches_user_specified_symbols():

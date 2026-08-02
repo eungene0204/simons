@@ -173,16 +173,29 @@ def slot_for_topic(topic: Optional[str]) -> Optional[str]:
     return _field_for_topic(topic, FIELD_ORDER)
 
 
-def suggestions_for_topic(topic: Optional[str]) -> List[str]:
+def suggestions_for_topic(
+    topic: Optional[str], universe: Optional[Sequence[str]] = None
+) -> List[str]:
     """topic이 가리키는 슬롯의 정본 예시 칩(없으면 빈 목록).
 
-    planner가 칩 없는 ask를 내는 턴이 있다(실측: 같은 "어떤 조건에서 매도할까요?"가
-    어떤 턴엔 칩 3개, 어떤 턴엔 0개 — LLM 출력 편차). 칩이 없으면 pending_ask가 발행되지
-    않아 그 질문의 답이 다음 턴에 귀속 근거를 잃는다. 이 함수가 그 공백을 **정본에서**
-    메운다 — 칩 어휘를 새로 만들지 않는다(복제하면 반드시 어긋난다, 이 모듈 도입 배경).
+    사용자에게 노출되는 슬롯 ask 칩의 유일한 출처다(2026-08-02 사용자 결정) — planner
+    LLM이 지어낸 칩은 발행 전에 폐기되고 항상 이 정본으로 대체된다. 칩이 지원 조건임을
+    보증하는 방법은 사람이 정한 목록뿐이기 때문이다(부분 결속 칩 '거래량 급증(전일 대비
+    3배) 시 매수' 노출 사고). 칩 어휘를 다른 곳에 복제하지 않는다(복제하면 반드시
+    어긋난다, 이 모듈 도입 배경).
+
+    universe가 ETF면 개별 기업 재무 칩(PER·ROE)은 제외한다 — ETF는 기업 재무제표
+    지표를 조건으로 쓸 수 없다(engine.universe_capabilities).
     """
     field = slot_for_topic(topic)
-    return list(_QUESTIONS[field][1]) if field else []
+    if not field:
+        return []
+    chips = list(_QUESTIONS[field][1])
+    from engine.universe_capabilities import is_etf_strategy
+
+    if is_etf_strategy(universe):
+        chips = [c for c in chips if c not in _FUNDAMENTAL_CHIPS]
+    return chips
 
 
 @dataclass(frozen=True)
@@ -253,6 +266,10 @@ _QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
         ("500만원", "1,000만원", "3,000만원", "5,000만원"),
     ),
 }
+
+# 개별 기업 재무제표에서 계산되는 칩 — ETF 유니버스에는 노출하지 않는다
+# (suggestions_for_topic, engine.universe_capabilities의 fundamental 미지원 계약).
+_FUNDAMENTAL_CHIPS: frozenset = frozenset({"PER 10 이하", "ROE 15% 이상"})
 
 
 def _nonempty(value: Any) -> bool:
@@ -356,9 +373,11 @@ def _status_only_not_applicable(parsed: Any, field: str) -> bool:
     이 축은 표시 전용이므로 filled와 분리한다(기존 게이트 동작 보존).
     """
     symbols = getattr(parsed, "target_symbols", None) or []
-    # 지정 종목 모드는 보유 수가 종목 수로 확정된다(_explicit_ok의 같은 판정) —
-    # '최대 보유'를 물을 것이 없다는 사실이 이전에는 상태로 드러나지 않았다.
-    return field == MAX_POSITIONS and bool(symbols)
+    # 단독 종목(지정 1개)만 '최대 보유'가 해당 없음이다 — 포트폴리오 자체가 없다
+    # (리밸런싱의 단독/다종목 경계와 동일 축). 다종목 지정(테마 유니버스 등)은 보유
+    # 수가 종목 수로 확정된 **완료**이지 해당 없음이 아니다 — 요약 카드는 '지정 종목
+    # N개 균등 투자'를 보여주는데 진행률만 '해당 없음'이던 모순(2026-08-02 HBM 33곳).
+    return field == MAX_POSITIONS and len(symbols) == 1
 
 
 def _explicit_ok(parsed: Any, field: str, explicit_fields: Sequence[str]) -> bool:

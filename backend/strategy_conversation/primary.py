@@ -1215,6 +1215,10 @@ def _bind_chips(
     여기서 결속하지 못한 칩은 엔진이 표현할 수 없는 조건이므로 애초에 내보내지 않는다
     (2026-07-29 사고: planner가 지어낸 '거래량 급감(전일 대비 1/2 이하) 시 매도'가
     그대로 노출됐고, 클릭하면 volume 하락은 registry에 없어 미해석 안내로 끝났다).
+    미지원 개념을 언급하는 칩은 **부분 결속에 성공해도** 내보내지 않는다
+    (2026-08-02 사고: '거래량 급증(전일 대비 3배) 시 매수'는 '거래량 급증'만
+    volume_spike로 결속돼 필터를 통과했고, 배수 조건은 조용히 소실된 채 노출됐다 —
+    칩 텍스트는 planner LLM 출력이므로 미지원 개념 검사는 결정론 레인이다).
 
     유니버스 범위 칩은 여기서 다루지 않는다 — 칩이 카탈로그 후보 표기 그대로라 결속이
     이미 보장돼 있고(_planner_scope_ask), 결속 시도가 테마 상장사 조회를 칩 수만큼
@@ -1226,7 +1230,9 @@ def _bind_chips(
     반환: (보여줄 칩, {칩: {필드: 값}}, {칩: 확정 필드})."""
     if _is_universe_topic(topic):
         return list(chips), {}, {}
-    from engine.nl_parser import ParsedStrategy, _apply_prompt_overrides
+    from engine.nl_parser import (
+        ParsedStrategy, _apply_prompt_overrides, _mentioned_unsupported_concepts,
+    )
 
     try:
         base = ParsedStrategy.model_validate(
@@ -1241,6 +1247,11 @@ def _bind_chips(
     for chip in chips:
         text = (chip or "").strip()
         if not text:
+            continue
+        unsupported = _mentioned_unsupported_concepts(text)
+        if unsupported:
+            _log_llm("↩ 칩 노출 제외",
+                     f"칩 '{text}' 미지원 개념 언급({', '.join(unsupported)}) — 부분 결속 여부와 무관")
             continue
         try:
             after = _apply_prompt_overrides(
@@ -1414,11 +1425,11 @@ def _apply_planner_first_universe(
             unresolved.discard(term)
             continue
         if obs.get("found") and obs.get("companies"):
-            theme_notice = apply_theme_companies(parsed, term)
-            if theme_notice:
+            # 적용 안내는 사용자 notices에 싣지 않는다(2026-08-02 사용자 지시 —
+            # 요약 카드가 유니버스를 이미 표시, 반환 문구는 적용 신호 전용).
+            if apply_theme_companies(parsed, term):
                 _log_llm("✓ planner-first 테마",
                          f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
-                notices.append(theme_notice)
                 resolved.add(term)
                 unresolved.discard(term)
                 continue
@@ -1501,34 +1512,37 @@ def _planner_first_ask(
 def _bound_ask_with_slot_fallback(
     question: Optional[str], chips: Optional[List[str]], topic: Optional[str], parsed: Any
 ) -> tuple[Optional[Dict[str, Any]], Optional[List[str]]]:
-    """planner ask를 결속하되, **결속이 성립하지 않으면** 슬롯 정본 칩으로 다시 시도한다.
+    """planner ask의 질문은 쓰되, 칩은 **항상** 슬롯 SOT의 정본 칩으로 발행한다.
 
-    반환: (pending_ask, 시도한 칩 목록 — 관찰용).
+    반환: (pending_ask, 발행 시도한 칩 목록 — 관찰용).
 
-    planner 칩은 LLM 출력이라 턴마다 흔들린다(2026-08-01 Trace 실측):
-      - 칩을 아예 안 내는 턴 → `no_chips`
-      - 칩 3개를 냈지만 엔진이 표현할 수 없어 전부 탈락하는 턴 → `chip_binding_failed`
-    둘 다 결과는 같다 — pending_ask가 없어 그 답이 다음 턴에 귀속 근거를 잃는다.
-    그래서 판정 기준을 "칩이 있나"가 아니라 **"결속이 됐나"**로 둔다.
+    planner 칩(LLM 출력)을 그대로 노출하는 경로는 폐지했다(2026-08-02 사용자 결정 —
+    모든 옵션 칩은 하드코딩 정본이어야 지원을 확신할 수 있다). 결속 게이트만으로는
+    지원을 보증할 수 없다: '거래량 급증(전일 대비 3배) 시 매수'는 '거래량 급증'만
+    부분 결속돼 게이트를 통과했고, 배수 조건은 조용히 소실된 채 노출됐다.
+    planner 칩은 여기서 버려지고 로그로만 남는다.
 
-    폴백 칩은 진행 골격 슬롯 SOT(engine.strategy_slots)에서 가져온다 — 어휘를 새로
-    만들지 않는다(복제하면 반드시 어긋난다, strategy_slots 도입 배경). 그 칩들은
-    결속이 실증돼 있다(test_slot_clarification_chips).
+    정본 칩은 진행 골격 슬롯 SOT(engine.strategy_slots._QUESTIONS)에서 가져온다 —
+    어휘를 새로 만들지 않는다(복제하면 반드시 어긋난다, strategy_slots 도입 배경).
+    그 칩들은 결속이 실증돼 있고(test_slot_clarification_chips), ETF 유니버스에는
+    재무 칩(PER·ROE)이 제외된다(universe_capabilities — ETF는 기업 재무 사용 불가).
+    topic이 슬롯에 매칭되지 않으면 칩 없이 질문만 남는다(자유 서술 — LLM 칩으로
+    메우지 않는다).
     """
-    ask = _pending_ask_payload(question, chips, topic, parsed)
-    if ask is not None:
-        return ask, chips
-    fallback = strategy_slots.suggestions_for_topic(topic)
-    if not fallback or fallback == list(chips or []):
-        return None, chips
-    retry = _pending_ask_payload(question, fallback, topic, parsed)
-    if retry is None:
-        return None, chips
-    _log_llm("🔗 칩 보완", (
-        f"planner 칩 결속 실패({len(chips or [])}개) — topic={topic!r} "
-        f"정본 칩 {len(retry['chips'])}개로 결속"
-    ))
-    return retry, fallback
+    canonical = strategy_slots.suggestions_for_topic(
+        topic, universe=getattr(parsed, "universe", None))
+    discarded = [c for c in (chips or []) if c not in canonical]
+    if discarded:
+        _log_llm("↩ planner 칩 폐기", (
+            f"LLM 생성 칩 {len(discarded)}개 — topic={topic!r} 정본 칩 "
+            f"{len(canonical)}개로 대체"
+        ))
+    if not canonical:
+        return None, None
+    ask = _pending_ask_payload(question, canonical, topic, parsed)
+    if ask is None:
+        return None, canonical
+    return ask, canonical
 
 
 def _replan_next_question(
@@ -1705,12 +1719,12 @@ def _apply_universe_chip(
         # "쿠팡 관련주로" 되묻기에 답하는 칩) — 이전 테마에서 온 종목만 비우고 재조회한다.
         # 사용자가 직접 지목한 종목은 그대로 두므로 기존 가드(테마가 지정 종목을 덮지
         # 않는다)는 유지된다.
-        theme_notice = replace_theme_universe(prev, chip_text)
-        if theme_notice is None:
+        # 적용 안내는 사용자 notices에 싣지 않는다(2026-08-02 사용자 지시 — 요약
+        # 카드가 유니버스를 이미 표시, 반환 문구는 적용 신호 전용).
+        if replace_theme_universe(prev, chip_text) is None:
             _log_llm("↩ 유니버스 칩 미적용",
                      f"칩 '{chip_text}' 카탈로그 정합 실패 — 수정 인터프리터로")
             return None
-        notices.append(theme_notice)
     diff = _diff_fields(prev_dump, prev.model_dump())
     if not diff:
         return None
@@ -1774,19 +1788,17 @@ def _resolve_sector_terms_term_in(
 
     still_unresolved: List[str] = []
     for term in unresolved_terms:
-        theme_notice = apply_theme_companies(parsed, term)
-        if theme_notice:
+        # 테마 적용 안내는 사용자 notices에 싣지 않는다(2026-08-02 사용자 지시 —
+        # 요약 카드가 유니버스를 이미 표시, 반환 문구는 적용 신호 전용).
+        if apply_theme_companies(parsed, term):
             _log_llm("✓ 테마 상장사", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
-            notices.append(theme_notice)
             continue
         learned = _ground_sector_term(term, on_stage=on_stage)
         if learned:
             # 학습이 테마 앵커를 만들었으면 상장사 적용이 우선(레거시 학습→테마 순서와 동일),
             # 아니면 업종 근사로 병합한다.
-            theme_notice = apply_theme_companies(parsed, term)
-            if theme_notice:
+            if apply_theme_companies(parsed, term):
                 _log_llm("✓ 검색 학습→테마", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
-                notices.append(theme_notice)
             else:
                 _merge_learned_sector(parsed, learned)
                 _log_llm("✓ 검색 학습", f"'{term}' → 섹터 '{learned}'")
@@ -1851,11 +1863,10 @@ def _resolve_sector_terms_planner_primary(
                 clarify = (result.question, list(SECTOR_REASK_SUGGESTIONS))
             continue
         # resolved — planner의 ground_term 학습이 어휘집·KG에 반영된 뒤라 고정 체인과
-        # 같은 결정적 적용이 성립한다.
-        theme_notice = apply_theme_companies(parsed, term)
-        if theme_notice:
+        # 같은 결정적 적용이 성립한다. 적용 안내는 사용자 notices에 싣지 않는다
+        # (2026-08-02 사용자 지시 — 요약 카드가 유니버스를 이미 표시, 반환 문구는 신호 전용).
+        if apply_theme_companies(parsed, term):
             _log_llm("✓ planner 테마", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
-            notices.append(theme_notice)
             continue
         if result.sector:
             _merge_learned_sector(parsed, result.sector)
@@ -2017,8 +2028,9 @@ def _resolve_theme_change(
             )
         _log_llm("? 테마 교체 되묻기", f"'{term}' 미해석 — 전략 유지")
         return SECTOR_REASK_QUESTION, list(SECTOR_REASK_SUGGESTIONS)
+    # 교체 안내는 사용자 notices에 싣지 않는다(2026-08-02 사용자 지시 — 요약 카드가
+    # 유니버스를 이미 표시, 반환 문구는 적용 신호 전용).
     _log_llm("✓ 테마 교체", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
-    notices.append(notice)
     return None
 
 
@@ -2531,6 +2543,29 @@ def run_primary_modification(
         # 종목 구성이 그대로면 출처 표기도 그대로 — 컴파일이 초안 표기를 옮겨 놓았을 뿐
         # 이므로 원본 값으로 확정한다(종목이 바뀐 턴이면 위에서 이미 None으로 비웠다).
         parsed.theme_universe = prev.theme_universe
+    # 시장 제약 반영(지식 조회) — 지정 종목 모드는 universe 시장이 실행에 반영되지
+    # 않아(변환기가 target_symbols 우선) 시장만 바꾸는 패치가 무변경으로 끝난다
+    # (2026-08-02 "코스피에만 속한 종목으로 변경" 사고). 테마 유래 종목만 종목 마스터
+    # 정본 조회로 필터링한다 — 직접 지목 종목은 불변(filter 내부 가드).
+    from engine.nl_parser import filter_target_symbols_by_market, unapplied_market_constraint
+
+    market_note = filter_target_symbols_by_market(parsed)
+    if market_note:
+        _log_llm("✓ 시장 필터", market_note)
+    else:
+        unmet = unapplied_market_constraint(parsed)
+        if unmet is not None:
+            # 이해는 했지만 반영할 수 없다(테마 전체에도 해당 시장 종목 없음) — 시장
+            # 패치까지 되돌려 전략을 원상 유지하고 그 사실을 알린다. 침묵 금지:
+            # 2026-08-02 "미안해 코피닥 종목만 선택 해줘" 사고 — universe만 KOSDAQ으로
+            # 뒤집힌 채 종목은 그대로, 안내도 없어 오타 미해석으로 오인됐다.
+            parsed.universe = list(prev.universe or [])
+            market_label = {"KOSPI": "코스피", "KOSDAQ": "코스닥"}.get(unmet, unmet)
+            notices.append(
+                f"'{parsed.theme_universe}' 관련 종목에서 {market_label} 소속을 찾지 "
+                "못해 요청을 반영하지 못했어요. 기존 전략을 그대로 유지했어요."
+            )
+            _log_llm("△ 시장 필터 미반영", f"{unmet} 소속 0곳 — 전략 유지+안내")
     final_diff = _diff_fields(prev_dump, parsed.model_dump())
     _log_llm("✓ 수정 완료", f"변경 필드(원본 대비): {'; '.join(final_diff) or '없음'}")
 

@@ -3252,11 +3252,10 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
             f"'{', '.join(dropped_filters)}' 조건은 해석할 수 없어 전략에서 제외했어요."
         )
     # 테마 관련 검증 상장사 자동 적용(FR-STR-071 ④ 개정, 사용자 결정 2026-07-25) —
-    # 되묻기 없이 target_symbols를 설정하고 근거·시점 정보를 비차단 notices로 알린다.
+    # 되묻기 없이 target_symbols를 설정한다. 적용 안내는 사용자 notices에 싣지 않는다
+    # (2026-08-02 사용자 지시 — 요약 카드가 유니버스를 이미 표시, 반환 문구는 신호 전용).
     # DSL 변환(to_backtest_request) 전에 실행해야 지정 종목 모드로 심볼이 해석된다.
     theme_notice = apply_theme_universe(parsed, request.prompt) if scan_prompt_for_sector else None
-    if theme_notice:
-        notices.append(theme_notice)
     # 지정 종목(단일 종목) 백테스트: 청산 조건 누락을 추천 기본값/안내로 보정한다(FR-STR-068).
     # 조용한 임의 실행 방지 — 무엇이 추천 적용됐는지 notices로 알린다.
     parsed, single_asset_notices = apply_single_asset_adjustments(parsed)

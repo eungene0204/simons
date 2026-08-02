@@ -39,7 +39,9 @@ def test_theme_companies_applied_from_term(monkeypatch):
     assert q is None and s is None
     assert parsed.target_symbols == ["035900", "352820"]
     assert parsed.sector is None
-    assert notices and "'bts' 관련으로 확인된 상장사" in notices[0]
+    # 테마 적용 안내는 사용자 notices에 싣지 않는다(2026-08-02 사용자 지시 —
+    # 요약 카드가 유니버스를 이미 표시)
+    assert notices == []
 
 
 def test_grounded_sector_merged_when_no_theme(monkeypatch):

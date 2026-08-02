@@ -116,7 +116,8 @@ def test_apply_observed_theme_companies(monkeypatch):
     assert applied["term"] == "보안주"
     assert resolved == {"보안주"} and unresolved == set()
     assert parsed.target_symbols == ["005930", "000660"]
-    assert notices and "보안주" in notices[0]
+    # 테마 적용 안내는 사용자 notices에 싣지 않는다(2026-08-02 사용자 지시)
+    assert notices == []
 
 
 def test_apply_observed_learned_sector():
@@ -446,7 +447,8 @@ def test_universe_chip_applies_theme_deterministically(monkeypatch):
     assert result is not None
     assert result["parsed"].target_symbols == ["012345"]
     assert result["interpreter"]["mode"] == "primary_chip_answer"
-    assert result["notices"] and "보안주(정보)" in result["notices"][0]
+    # 테마 적용 안내는 사용자 notices에 싣지 않는다(2026-08-02 사용자 지시)
+    assert result["notices"] == []
 
 
 def test_universe_chip_without_catalog_match_falls_through(monkeypatch):

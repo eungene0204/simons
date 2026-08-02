@@ -3996,7 +3996,10 @@ def apply_theme_companies(parsed: ParsedStrategy, lookup_text: str) -> Optional[
 
     lookup_text는 레거시 레인에선 사용자 원문(apply_theme_universe가 큐 게이트 후 위임),
     인터프리터 레인에선 LLM이 universe.sectors로 뽑은 짧은 표현이다(§ 11-3 term-in).
-    반환: 안내 notice 문구 | None(미적용)."""
+    반환: 적용 요약 문구 | None(미적용). **문구는 적용 성공 신호·진단용이다 — 사용자
+    notices에 싣지 않는다**(2026-08-02 사용자 지시: 요약 카드가 유니버스 종목을 이미
+    보여줘 안내 배너는 중복. 근거 등급·시점 편향 문구도 이 채널에 실려 있었으므로
+    함께 비노출 — 문구 구성은 로그·회귀 검증용으로 유지)."""
     if getattr(parsed, "target_symbols", None):
         return None
     # 학습 앵커는 Concept Universe(FR-STR-073) 확장 뷰로 조회한다 — 직접 학습 엣지 몇 건이
@@ -4019,10 +4022,15 @@ def apply_theme_companies(parsed: ParsedStrategy, lookup_text: str) -> Optional[
     # 종목의 출처를 남긴다 — 다음 턴의 테마 교체("쿠팡 관련주로")가 무엇을 비워도 되는지
     # 판정하는 유일한 근거다(replace_theme_universe).
     parsed.theme_universe = theme["term"]
+    # 시장 제약 반영 — "코스피에 상장된 HBM 관련주"처럼 유니버스가 단일 시장으로
+    # 확정돼 있으면 테마 종목을 정본 소속으로 좁힌다(수정 레인의 시장 필터와 동일 지점).
+    market_note = filter_target_symbols_by_market(parsed)
     notice = (
         f"'{theme['term']}' 관련으로 확인된 상장사 {len(companies)}곳을 대상 종목으로 "
         f"설정했어요(등록 관계·공시·검색 출처 근거): {names}."
     )
+    if market_note:
+        notice += f" {market_note}"
     evidence_split = _relation_evidence_disclosure(companies)
     if evidence_split:
         notice += f" 이 중 {evidence_split}으로 나뉘어요."
@@ -4043,7 +4051,8 @@ def replace_theme_universe(parsed: ParsedStrategy, lookup_text: str) -> Optional
     여기서는 **테마에서 온 종목일 때만**(theme_universe가 있을 때만) 비우고 재조회한다.
     사용자가 직접 지정한 종목(theme_universe=None)은 그대로 두므로 원래 가드는 유지된다.
     새 테마 조회가 실패하면 원상복구하고 None — 기존 테마를 잃지 않는다.
-    반환: 안내 notice 문구 | None(미적용)."""
+    반환: 적용 요약 문구 | None(미적용) — 문구는 신호·진단용, 사용자 노출 금지
+    (apply_theme_companies 계약과 동일)."""
     prior_symbols = list(getattr(parsed, "target_symbols", None) or [])
     prior_theme = getattr(parsed, "theme_universe", None)
     if prior_theme and prior_symbols:
@@ -4054,6 +4063,88 @@ def replace_theme_universe(parsed: ParsedStrategy, lookup_text: str) -> Optional
         parsed.target_symbols = prior_symbols
         parsed.theme_universe = prior_theme
     return notice
+
+
+def _market_members(symbols: List[str], market: str) -> List[str]:
+    """종목 마스터(korea-stocks.json) 정본 소속이 market인 종목만 — 순서 보존.
+    마스터에 없는 종목(상폐 등)은 소속을 확인할 수 없어 제외된다."""
+    from stock_analysis.symbol_resolver import resolve_by_symbol
+
+    kept = []
+    for symbol in symbols:
+        ref = resolve_by_symbol(symbol)
+        if ref is not None and ref.market == market:
+            kept.append(symbol)
+    return kept
+
+
+def _market_filter_plan(parsed: ParsedStrategy) -> Optional[tuple[str, List[str]]]:
+    """단일 시장 유니버스의 테마 유래 지정 종목 필터 계획 — (시장, 남길 종목).
+
+    현재 목록에 해당 시장 종목이 하나도 없으면 목록의 출처인 **테마 전체 구성**으로
+    되돌아가 다시 좁힌다 — 시장 전환이 단방향 손실이 되지 않게(코스피로 좁힌 6곳에서
+    "코스닥 종목만"이 성립해야 한다, 2026-08-02 사고 2차). 현재 목록에 해당 시장
+    종목이 남아 있으면 테마 재조회 없이 현재 목록만 좁힌다 — 사용자가 수동으로 줄인
+    목록을 필터가 도로 되살리지 않는다(직접 지목 불가침과 같은 원칙)."""
+    symbols = list(getattr(parsed, "target_symbols", None) or [])
+    theme = getattr(parsed, "theme_universe", None)
+    if not symbols or not theme:
+        return None
+    markets = set(parsed.universe or [])
+    if markets not in ({"KOSPI"}, {"KOSDAQ"}):
+        return None
+    market = next(iter(markets))
+    kept = _market_members(symbols, market)
+    if not kept:
+        try:
+            from engine.knowledge_graph import theme_backtest_companies
+
+            full = theme_backtest_companies(theme)
+        except Exception:  # noqa: BLE001 — 테마 재조회 실패가 수정 턴을 막으면 안 된다
+            full = None
+        if full:
+            kept = _market_members([c["symbol"] for c in full["companies"]], market)
+    return market, kept
+
+
+def filter_target_symbols_by_market(parsed: ParsedStrategy) -> Optional[str]:
+    """테마 유래 지정 종목을 유니버스 시장(KOSPI 단독/KOSDAQ 단독)으로 필터링한다.
+
+    지정 종목 모드는 universe 시장이 실행에 반영되지 않아(변환기가 target_symbols
+    우선) 시장만 바꾸는 수정이 무변경으로 끝난다(2026-08-02 'HBM 관련주' 전략에
+    "코스피에만 속한 종목으로 변경" 요청 사고) — 이 결정론 필터가 유일한 반영 지점이다.
+
+    시장 소속은 종목 마스터 정본 조회다 — 원문 해석이 아니다. 어느 시장만 남길지는
+    이미 구조화 값(ParsedStrategy.universe, LLM 패치 산출)으로 확정돼 있다. 가드 둘:
+    ① 사용자가 직접 지목한 종목(theme_universe=None)은 건드리지 않는다 — 직접 지정이
+    시장 제약보다 우선한다(테마 교체 가드와 동일 원칙). ② 남길 종목이 0이면 적용하지
+    않는다 — 조용한 빈 전략 방지. 반영 불가 판정은 unapplied_market_constraint가
+    별도로 답한다(호출자가 전략 유지+안내로 처리, 침묵 금지).
+    반환: 적용 요약 문구(신호·진단용, 사용자 노출 금지) | None(미적용)."""
+    plan = _market_filter_plan(parsed)
+    if plan is None:
+        return None
+    market, kept = plan
+    if not kept or kept == list(parsed.target_symbols):
+        return None
+    parsed.target_symbols = kept
+    return (
+        f"'{parsed.theme_universe}' 관련 지정 종목을 {market} 소속 "
+        f"{len(kept)}곳으로 조정했어요."
+    )
+
+
+def unapplied_market_constraint(parsed: ParsedStrategy) -> Optional[str]:
+    """시장 제약을 반영할 수 없는 상태면 그 시장 이름을 반환한다.
+
+    테마 전체 구성에도 해당 시장 종목이 없어 filter_target_symbols_by_market가
+    적용을 거부한 경우다 — 호출자는 이해-후-미반영을 침묵으로 끝내면 안 된다
+    (2026-08-02 "코피닥 종목만" 사고: universe만 뒤집히고 종목·안내 모두 없음)."""
+    plan = _market_filter_plan(parsed)
+    if plan is None:
+        return None
+    market, kept = plan
+    return None if kept else market
 
 
 # 종목명 오타 되묻기 — 흔한 조사(뒤에 붙어 자모거리를 벌리는)를 벗겨 근접 매칭 정확도를 올린다.

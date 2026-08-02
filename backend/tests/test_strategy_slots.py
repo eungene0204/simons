@@ -316,15 +316,23 @@ def test_absent_value_is_unknown():
     assert _value(parsed, slots.ENTRY) is slots.ValueStatus.UNKNOWN
 
 
-def test_specified_symbols_make_max_positions_not_applicable():
-    """지정 종목 모드는 보유 수가 종목 수로 확정된다 — 물을 대상이 아니다."""
-    parsed = ParsedStrategy(description="지정 종목", target_symbols=["005930", "000660"])
+def test_single_symbol_makes_max_positions_not_applicable():
+    """단독 종목(지정 1개)만 '최대 보유'가 해당 없음이다 — 포트폴리오 자체가 없다."""
+    parsed = ParsedStrategy(description="단독 종목", target_symbols=["005930"])
     assert _derived(parsed, slots.MAX_POSITIONS) is slots.DerivedStatus.NOT_APPLICABLE
+
+
+def test_multi_symbol_max_positions_is_applicable_and_confirmed():
+    """다종목 지정(테마 유니버스 등)은 포트폴리오다 — 보유 수가 종목 수로 확정된
+    완료이지 해당 없음이 아니다(2026-08-02 HBM 33곳 진행률 '해당 없음' 모순 회귀)."""
+    parsed = ParsedStrategy(description="지정 종목", target_symbols=["005930", "000660"])
+    assert _derived(parsed, slots.MAX_POSITIONS) is slots.DerivedStatus.APPLICABLE
+    assert _value(parsed, slots.MAX_POSITIONS) is slots.ValueStatus.CONFIRMED
 
 
 def test_status_only_not_applicable_does_not_change_filled():
     """표시 축이 되묻기 흐름을 바꾸면 안 된다 — MAX_POSITIONS는 filled 판정 불변."""
-    parsed = ParsedStrategy(description="지정 종목", target_symbols=["005930", "000660"])
+    parsed = ParsedStrategy(description="단독 종목", target_symbols=["005930"])
     before = next(s for s in slots.evaluate(parsed) if s.field == slots.MAX_POSITIONS)
     assert before.filled is slots._has_value(parsed, slots.MAX_POSITIONS)
 

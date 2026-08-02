@@ -780,7 +780,7 @@ def test_seed_anchor_prefers_catalog_exact_match(tmp_path, monkeypatch):
     """시드 앵커 카탈로그 정합 우선(2026-07-27 사용자 지시 — 관련 종목은 네이버 분류가
     항상 우선). 시드 개념과 표기가 정확히 일치하는 카탈로그 테마가 있으면 시드 큐레이션
     직접 엣지 대신 카탈로그 수록 종목이 유니버스 정의다(온디바이스 AI — 시드 2곳 vs
-    네이버 24곳). 표기 불일치 개념(HBM vs 'HBM(고대역폭메모리)')은 시드 직접 엣지 유지."""
+    네이버 24곳)."""
     from engine.knowledge_graph import theme_backtest_companies, theme_listed_companies
 
     catalog = tmp_path / "kg-naver-theme-catalog.json"
@@ -805,8 +805,104 @@ def test_seed_anchor_prefers_catalog_exact_match(tmp_path, monkeypatch):
     assert listed["first_known_date"] is None  # 카탈로그 분류 — 시점 편향 경고 없음
     # 백테스트 제안 뷰도 동일(시드 앵커는 Concept Universe 확장 없음)
     assert theme_backtest_companies("온디바이스 AI 관련주") == listed
-    # 표기 불일치 시드 개념(HBM)은 큐레이션 직접 엣지가 그대로 유니버스 정의
-    hbm = theme_listed_companies("HBM 관련주")
-    assert hbm is not None and len(hbm["companies"]) >= 1
 
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_paren_variants_deterministic_notation():
+    """괄호 병기 테마명의 표기 변형(_paren_variants) — 본체와 괄호 안 토큰.
+
+    괄호 토큰은 ingest make_synonyms와 동일 일반어 가드(라틴/숫자 포함 또는 한글
+    4자 이상)·별칭 일반어·테스트 정본 용어·섹터 어휘 가드를 통과해야 한다."""
+    assert kg._paren_variants("HBM(고대역폭메모리)") == ["HBM", "고대역폭메모리"]
+    assert kg._paren_variants("반도체 제품(HBM/HBM3E)") == ["반도체 제품", "HBM", "HBM3E"]
+    # 한글 3자 이하 토큰('정보')은 조각 오매칭 위험 — 본체만 남는다
+    assert kg._paren_variants("보안주(정보)") == ["보안주"]
+    # 테스트 정본 용어(ess)·별칭 일반어(부품) 토큰 차단
+    assert kg._paren_variants("전력저장장치(ESS)") == ["전력저장장치"]
+    assert kg._paren_variants("카메라모듈(부품)") == ["카메라모듈"]
+    # 괄호 없는 이름은 변형 없음
+    assert kg._paren_variants("전기차") == []
+
+
+def test_catalog_paren_derived_keys(tmp_path, monkeypatch):
+    """괄호 표기 변형 파생 키 정합(HBM 시드 6곳 vs 네이버 33곳 사고 2026-08-02 회귀).
+
+    ① 시드 앵커(HBM)가 괄호 병기 카탈로그 테마('HBM(고대역폭메모리)')와 정합해
+       카탈로그 수록 종목이 유니버스 정의가 된다. 앵커 동의어(HBM3E)로 정합한
+       다른 카탈로그 테마('반도체 제품(HBM/HBM3E)')의 종목도 합쳐진다.
+    ② 파생 키가 카탈로그 간에 겹치면 먼저 합성된 네이버가 이긴다(_catalog_paths
+       순서 계약과 동일).
+    ③ 정확 표기 키가 파생 키보다 우선한다 — '전기차(충전소/충전기)'의 본체가
+       정확 표기 테마 '전기차'를 가로채지 않는다.
+    ④ 같은 카탈로그 안 다의 파생 키('보안주(정보)'/'보안주(물리)' → 보안주)는
+       자동 확정하지 않는다 — 되묻기 선택지(catalog_theme_candidates)로만 남는다."""
+    from engine.knowledge_graph import theme_listed_companies
+
+    naver = tmp_path / "kg-naver-theme-catalog.json"
+    naver.write_text(json.dumps({
+        "version": 1, "source": "finance.naver.com", "retrieved_at": "2026-08-02",
+        "themes": [
+            {"id": "naver-theme-536", "name": "HBM(고대역폭메모리)", "synonyms": [],
+             "stocks": [{"symbol": "000660", "name": "SK하이닉스"},
+                        {"symbol": "005930", "name": "삼성전자"},
+                        {"symbol": "042700", "name": "한미반도체"}]},
+            {"id": "naver-theme-265", "name": "보안주(정보)", "synonyms": [],
+             "stocks": [{"symbol": "053800", "name": "안랩"}]},
+            {"id": "naver-theme-266", "name": "보안주(물리)", "synonyms": [],
+             "stocks": [{"symbol": "005930", "name": "삼성전자"}]},
+            {"id": "naver-theme-362", "name": "전기차", "synonyms": [],
+             "stocks": [{"symbol": "005380", "name": "현대차"}]},
+            {"id": "naver-theme-413", "name": "전기차(충전소/충전기)", "synonyms": [],
+             "stocks": [{"symbol": "030530", "name": "원익홀딩스"}]},
+        ],
+    }, ensure_ascii=False), encoding="utf-8")
+    judal = tmp_path / "kg-theme-catalog.json"
+    judal.write_text(json.dumps({
+        "version": 1, "source": "judal.co.kr", "retrieved_at": "2026-08-02",
+        "themes": [
+            {"id": "judal-100", "name": "반도체 제품(HBM/HBM3E)", "synonyms": [],
+             "stocks": [{"symbol": "042700", "name": "한미반도체"},
+                        {"symbol": "089030", "name": "테크윙"}]},
+        ],
+    }, ensure_ascii=False), encoding="utf-8")
+    lexicon = tmp_path / "term_lexicon.json"
+    lexicon.write_text("{}", encoding="utf-8")  # 학습 노드 선점 배제(격리)
+    monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", naver)
+    monkeypatch.setattr(kg, "_CATALOG_PATH", judal)
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    graph = get_graph()
+    # ② 파생 키 'hbm'은 네이버·주달 모두에서 나오지만 네이버가 이긴다
+    assert [n["id"] for n in graph.catalog_theme_nodes("HBM")] == ["theme:naver-theme-536"]
+    assert [n["id"] for n in graph.catalog_theme_nodes("HBM3E")] == ["theme:judal-100"]
+    # ③ 정확 표기 우선 — 충전소 테마의 본체 파생 키가 '전기차'를 가로채지 않는다
+    assert [n["id"] for n in graph.catalog_theme_nodes("전기차")] == ["theme:naver-theme-362"]
+    # 한글 3자 토큰(충전소)은 일반어 가드로 파생 키가 되지 않는다(_paren_variants 계약)
+    assert graph.catalog_theme_nodes("충전소") == []
+    # ④ 같은 카탈로그 안 다의 — 자동 확정 금지, 되묻기 선택지로만
+    assert graph.catalog_theme_nodes("보안주") == []
+    candidate_ids = {n["id"] for n in graph.catalog_theme_candidates("보안주")}
+    assert {"theme:naver-theme-265", "theme:naver-theme-266"} <= candidate_ids
+
+    # ① 시드 앵커 HBM → 정합 유니버스 = 네이버 HBM ∪ (동의어 HBM3E 정합) 주달 테마
+    listed = theme_listed_companies("HBM 관련주 투자 전략")
+    assert {c["symbol"] for c in listed["companies"]} == {
+        "000660", "005930", "042700", "089030",
+    }
+    # 시드 직접 엣지 전용 종목(피에스케이홀딩스)이 없다 = 카탈로그가 유니버스 정의
+    assert "031980" not in {c["symbol"] for c in listed["companies"]}
+
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_hbm_real_catalog_universe_composed():
+    """실파일 회귀(2026-08-02 사고) — 'HBM'이 시드 직접 엣지 6곳이 아니라 네이버
+    'HBM(고대역폭메모리)' 카탈로그 수록 종목(33곳, 시드 6곳 포함)으로 정합된다."""
+    result = kg.theme_listed_companies("HBM 관련주 투자 전략")
+    assert result is not None
+    symbols = {c["symbol"] for c in result["companies"]}
+    # 시드 직접 엣지 6곳(생산 2·공급 4)은 카탈로그 수록분에도 전부 있다
+    assert {"000660", "005930", "042700", "089030", "095340", "031980"} <= symbols
+    assert len(symbols) >= 30  # 2026-08-02 수집분 33곳

@@ -122,6 +122,39 @@ def _slash_aliases(name: str) -> list[str]:
     return aliases
 
 
+def _paren_variants(name: str) -> list[str]:
+    """괄호 병기 테마명("HBM(고대역폭메모리)")의 결정적 표기 변형 — 괄호 제거 본체
+    ("HBM")와 괄호 안 토큰("고대역폭메모리").
+
+    의미 해석이 아니라 표기 정규화다 — ingest의 괄호 동의어 승격(make_synonyms)은
+    시드 중복 토큰을 스캔 어휘 오염 방지로 버리는데, 그 가드가 카탈로그 정합 인덱스까지
+    굶겨 시드 앵커(HBM)가 같은 개념의 카탈로그 테마와 절대 정합하지 못했다(시드 6곳 vs
+    네이버 33곳, 2026-08-02). 정합 인덱스 전용이므로 스캔 어휘에는 영향이 없다.
+    괄호 토큰은 make_synonyms와 같은 일반어 가드(라틴/숫자 포함 또는 한글 4자 이상)를
+    적용한다 — '보안주(정보)'의 '정보' 같은 조각이 정합 키가 되면 안 된다."""
+    if "(" not in (name or ""):
+        return []
+    from engine.universe_pit import normalize_sector  # 지연 import(무거운 엔진 모듈)
+
+    base = re.sub(r"\([^)]*\)", "", name).strip()
+    tokens: list[str] = []
+    for inner in re.findall(r"\(([^)]*)\)", name):
+        tokens.extend(t.strip() for t in inner.split("/") if t.strip())
+    variants: list[str] = []
+    seen: set[str] = set()
+    for is_token, cand in [(False, base)] + [(True, t) for t in tokens]:
+        key = _norm_key(cand)
+        if len(key) < 2 or key in seen or key in TEST_RESERVED_TERMS or key in _ALIAS_STOPWORDS:
+            continue
+        if normalize_sector(cand):
+            continue
+        if is_token and not (re.search(r"[a-zA-Z0-9]", cand) or len(cand.replace(" ", "")) >= 4):
+            continue
+        seen.add(key)
+        variants.append(cand)
+    return variants
+
+
 # ── 조회 로그 포맷터 — 무엇을 KG에서 찾았고 무엇이 나왔는지 추적(운영 관찰용) ──
 
 
@@ -172,8 +205,21 @@ class KnowledgeGraph:
         """카탈로그 테마의 이름·동의어(표기 변형 포함) → [node_id] 정확 키 인덱스.
 
         스캔 인덱스와 달리 taken 경쟁을 하지 않는다 — 같은 표기를 학습 노드가 먼저
-        가져갔어도('LCD 부품' 사고 2026-07-27) 카탈로그 테마를 찾을 수 있어야 한다."""
+        가져갔어도('LCD 부품' 사고 2026-07-27) 카탈로그 테마를 찾을 수 있어야 한다.
+
+        괄호 병기 이름(_paren_variants)의 파생 키를 갭 필러로 더한다(HBM 시드 6곳 vs
+        네이버 33곳 사고 2026-08-02). 파생 키 등록 규칙:
+        ① 정확 표기 키가 항상 우선 — 파생 키가 다른 테마의 정확 표기("전기차")를
+           가로채지 않는다.
+        ② 카탈로그 간 충돌은 먼저 합성된 카탈로그(네이버)가 이긴다 — 스캔 인덱스의
+           _catalog_paths 순서 계약과 동일("hbm": 네이버 'HBM(고대역폭메모리)' vs
+           주달 '반도체 제품(HBM/HBM3E)').
+        ③ 같은 카탈로그 안에서 표기가 다른 테마끼리 겹치는 파생 키('보안주(정보)'/
+           '보안주(물리)' → 보안주)는 등록하지 않는다 — 부분 매칭 자동 확정 금지
+           가드(FR-STR-071b)와 동일 원칙, 되묻기 선택지(catalog_theme_candidates)로
+           남긴다."""
         index: dict[str, list[str]] = {}
+        derived: dict[str, list[tuple[str, str, str]]] = {}  # key → [(source, 표기, node_id)]
         for node_id, node in self.nodes.items():
             if node.get("category") != "theme_catalog":
                 continue
@@ -184,6 +230,18 @@ class KnowledgeGraph:
                 bucket = index.setdefault(key, [])
                 if node_id not in bucket:
                     bucket.append(node_id)
+            for variant in _paren_variants(node.get("name", "")):
+                derived.setdefault(_norm_key(variant), []).append(
+                    (str(node.get("source", "")), node.get("name", ""), node_id)
+                )
+        for key, entries in derived.items():
+            if key in index:
+                continue  # ① 정확 표기 우선
+            first_source = entries[0][0]  # ② 삽입 순서 = 카탈로그 합성 순서(네이버 먼저)
+            top = [e for e in entries if e[0] == first_source]
+            if len({name for _, name, _ in top}) > 1:
+                continue  # ③ 같은 카탈로그 안 다의 표기 — 자동 확정 금지
+            index[key] = [nid for _, _, nid in top]
         return index
 
     def catalog_theme_nodes(self, term: str) -> list[dict]:

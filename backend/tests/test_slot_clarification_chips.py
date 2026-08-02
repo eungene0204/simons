@@ -111,7 +111,7 @@ def test_only_one_slot_supplies_chips_per_turn():
 
 
 def test_unbindable_planner_chips_fall_back_to_slot_sot():
-    """[회귀 2026-08-01] 판정 기준은 '칩이 있나'가 아니라 '결속이 됐나'다.
+    """[회귀 2026-08-01] planner 칩이 전부 결속 불가여도 정본 칩으로 발행된다.
 
     Trace 실측(`gate=chip_binding_failed 칩=0/3`)에서 planner가 낸 매도 칩 3개가 전부
     엔진이 표현할 수 없어 탈락했다. 칩 개수만 보면 "칩이 있으니 괜찮다"로 지나가지만
@@ -128,15 +128,37 @@ def test_unbindable_planner_chips_fall_back_to_slot_sot():
     assert used != junk
 
 
-def test_bindable_planner_chips_are_kept_as_is():
-    """planner 칩이 결속되면 그대로 쓴다 — 정본 칩으로 덮어쓰지 않는다."""
+def test_planner_chips_are_always_replaced_by_slot_sot():
+    """[2026-08-02 사용자 결정] planner 칩은 결속 가능해도 노출하지 않는다.
+
+    모든 옵션 칩은 하드코딩 정본이어야 지원을 확신할 수 있다 — 결속 게이트만으로는
+    부족하다('거래량 급증(전일 대비 3배) 시 매수'가 부분 결속으로 통과해 노출된 사고).
+    """
+    from engine import strategy_slots
     from strategy_conversation.primary import _bound_ask_with_slot_fallback
 
     ask, used = _bound_ask_with_slot_fallback(
         "어떤 조건에서 매도할까요?", ["20일 보유 후 청산"], "매도 조건", _base_strategy())
     assert ask is not None
-    assert ask["chips"] == ["20일 보유 후 청산"]
-    assert used == ["20일 보유 후 청산"]
+    canonical = strategy_slots.suggestions_for_topic("매도 조건")
+    assert used == canonical
+    assert set(ask["chips"]) <= set(canonical)
+
+
+def test_etf_universe_gets_no_fundamental_chips():
+    """ETF 유니버스의 매수 조건 정본 칩에는 재무 칩(PER·ROE)이 없다.
+
+    ETF는 개별 기업 재무제표 지표를 조건으로 쓸 수 없다(universe_capabilities) —
+    결속 검사는 유니버스 호환성을 보지 않으므로(PER 칩도 ETF 전략에 결속된다)
+    정본 선별 단계에서 제외해야 한다.
+    """
+    from engine import strategy_slots
+
+    stock_chips = strategy_slots.suggestions_for_topic("매수 조건", universe=["KOSPI"])
+    etf_chips = strategy_slots.suggestions_for_topic("매수 조건", universe=["ETF"])
+    assert "PER 10 이하" in stock_chips and "ROE 15% 이상" in stock_chips
+    assert "PER 10 이하" not in etf_chips and "ROE 15% 이상" not in etf_chips
+    assert etf_chips, "재무 칩 제외 후에도 기술 지표 칩은 남아야 한다"
 
 
 def test_slot_sot_supplies_chips_for_a_chipless_planner_ask():

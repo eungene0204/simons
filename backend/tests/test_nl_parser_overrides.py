@@ -4580,7 +4580,9 @@ def test_build_parse_result_theme_applied_continues_without_sector_reask(monkeyp
     assert result["clarification_priority"] is None
     q = result["clarification_question"] or ""
     assert "인식하지 못했어요" not in q and "전략을 만들 수 없어요" not in q
-    assert any("대상 종목으로" in n for n in result["notices"])  # 테마 확정 안내는 유지
+    # 테마 확정 안내는 사용자 notices에 싣지 않는다(2026-08-02 사용자 지시 —
+    # 요약 카드가 유니버스를 이미 표시)
+    assert not any("대상 종목으로" in n for n in result["notices"])
     assert all("지원되지 않아요" not in n for n in result["notices"])
 
 

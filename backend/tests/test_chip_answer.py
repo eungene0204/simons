@@ -128,7 +128,9 @@ def test_replan_emits_next_pending_ask(monkeypatch):
     assert result["clarification_priority"] == "dag_planner"
     assert result["pending_ask"]["topic"] == "매도조건"
     assert result["pending_ask"]["question"] == "어떤 조건에서 매도할까요?"
-    assert result["pending_ask"]["chips"] == ["데드크로스(5일/20일) 발생 시 매도"]
+    # 재계획 질문의 칩도 planner 문구가 아니라 슬롯 SOT 정본이다(2026-08-02 사용자 결정).
+    from engine import strategy_slots
+    assert result["pending_ask"]["chips"] == strategy_slots.suggestions_for_topic("매도조건")
     # 칩=값 결속 계약 — 다음 턴의 클릭이 재해석 없이 쓸 값이 함께 실린다.
     binding = result["pending_ask"]["chip_bindings"]["데드크로스(5일/20일) 발생 시 매도"]
     assert binding["exit_signals"][0]["indicator"] == "ma_crossover"
@@ -204,6 +206,39 @@ def test_unbindable_chip_is_not_emitted():
     assert payload is not None
     assert payload["chips"] == ["데드크로스(5일/20일) 발생 시 매도"]
     assert "거래량 급감(전일 대비 1/2 이하) 시 매도" not in payload["chip_bindings"]
+
+
+def test_partially_bindable_chip_with_unsupported_concept_is_not_emitted():
+    """미지원 개념(거래량 배수)을 언급하는 칩은 부분 결속에 성공해도 탈락한다.
+
+    2026-08-02 사고: '거래량 급증(전일 대비 3배) 시 매수'가 '거래량 급증'만
+    volume_spike로 결속돼 노출됐고, 배수 조건은 조용히 소실됐다 — 클릭하면
+    미지원 안내로 끝나는 칩을 애초에 내보내지 않는다."""
+    prev = ParsedStrategy.model_validate(_etf_strategy())
+    payload = _pending_ask_payload(
+        "어떤 조건에서 매수할까요?",
+        ["RSI 30 이하에서 매수", "거래량 급증(전일 대비 3배) 시 매수"],
+        "매수 조건",
+        prev,
+    )
+    assert payload is not None
+    assert payload["chips"] == ["RSI 30 이하에서 매수"]
+    assert "거래량 급증(전일 대비 3배) 시 매수" not in payload["chip_bindings"]
+
+
+def test_plain_volume_spike_chip_still_binds():
+    """배수 없는 '거래량 급증 시 매수'는 지원 개념이므로 결속·노출된다."""
+    prev = ParsedStrategy.model_validate(_etf_strategy())
+    payload = _pending_ask_payload(
+        "어떤 조건에서 매수할까요?", ["거래량 급증 시 매수"], "매수 조건", prev,
+    )
+    assert payload is not None
+    assert payload["chips"] == ["거래량 급증 시 매수"]
+    binding = payload["chip_bindings"]["거래량 급증 시 매수"]
+    assert any(
+        signal.get("indicator") == "volume_spike"
+        for signal in binding.get("entry_signals", [])
+    )
 
 
 def test_all_chips_unbindable_drops_the_chip_list():
