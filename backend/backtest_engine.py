@@ -104,6 +104,22 @@ def _max_indicator_period(*groups) -> int:
     return max_p
 
 
+def _date_key() -> pl.Expr:
+    """백테스트 창 비교용 날짜 키(YYYY-MM-DD) — **날짜 부분만** 본다.
+
+    타임스탬프를 통째로 문자열화해 비교하면 종료 경계가 배타적이 된다:
+    `"2024-12-30 00:00:00.000000" <= "2024-12-30"` 은 거짓이다(접두가 같고 더 긴 쪽이
+    크다). 그래서 **명시 종료일 당일 봉이 매번 통째로 빠졌다** — 삼성전자 실측:
+    endDate=2024-12-30으로 요청하면 마지막 봉이 2024-12-27이었다(12-30 봉은 존재).
+    시작 경계는 같은 규칙이 우연히 맞는 방향이라(더 긴 쪽이 크므로 `>=` 통과) 끝에서만
+    하루가 사라지는 비대칭이었고, 종료일이 휴장일이면 증상이 가려져 오래 남았다.
+
+    잘라내는 방식을 쓰는 이유는 `date` 컬럼 타입이 파일마다 갈리기 때문이다(실측:
+    Datetime[us] 5,066개 · Datetime[ns] 1개 · String 1개) — Date 캐스팅은 타입을 가린다.
+    """
+    return pl.col("date").cast(pl.Utf8).str.slice(0, 10)
+
+
 class BacktestEngine:
     def __init__(self, data_dir: str = None):
         self.warnings = set()
@@ -408,7 +424,7 @@ class BacktestEngine:
                 if not _has_period_filter:
                     return df_pl
 
-                date_col = pl.col("date").cast(pl.Utf8)
+                date_col = _date_key()
                 if _period_start_str is not None:
                     df_pl = df_pl.filter(date_col >= _period_start_str)
                 return df_pl.filter(date_col <= _end_str)
@@ -442,7 +458,7 @@ class BacktestEngine:
                     # 3.1.5 Pre-filter: clip to warmup window BEFORE indicator calculation.
                     # Reduces KOSPI200 from ~3000 rows to ~1400 rows before expensive indicator work.
                     if _warmup_start_str is not None:
-                        df_pl = df_pl.filter(pl.col("date").cast(pl.Utf8) >= _warmup_start_str)
+                        df_pl = df_pl.filter(_date_key() >= _warmup_start_str)
                     if len(df_pl) == 0:
                         return None
 

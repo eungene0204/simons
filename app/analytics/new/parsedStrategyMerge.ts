@@ -9,6 +9,10 @@ export interface StrategyBacktestRequest {
   exit?: { conditions?: Array<Record<string, unknown>> };
   risk?: Record<string, unknown>;
   period?: string;
+  // 명시적 백테스트 창(YYYY-MM-DD). 엔진은 이 창을 상대 기간(period)보다 우선한다.
+  // 타입에 없으면 요청을 다루는 코드가 창의 존재를 모른 채 지나간다(2026-08-01 정리).
+  startDate?: string | null;
+  endDate?: string | null;
   options?: Record<string, unknown>;
 }
 

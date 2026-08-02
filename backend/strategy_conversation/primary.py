@@ -20,6 +20,7 @@ modify 경로(결정적 병합)가 조건을 채운다 — condition_builder와 
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -308,18 +309,80 @@ def _humanize_features(features: List[str]) -> List[str]:
 # 계약이 금지한 발화 어휘 스캔이라 폐기했다(2026-07-26). 남은 판정 근거 셋:
 #   ① 출처 인용 대조 — LLM이 patch.source_text로 인용한 원문 조각이 실제 입력에
 #      존재하는지 표기 정규화(_compact) 후 문자열 포함으로 확인한다. 어휘도 의미도
-#      판단하지 않는다 — LLM의 출처 주장(인용)이 실재하는지만 본다.
+#      판단하지 않는다 — LLM의 출처 주장(인용)이 실재하는지만 본다. 단, 인용문에 숫자가
+#      있는데 패치 값과 자릿수가 어긋나면 인용은 근거가 아니라 오류의 증거이므로
+#      통과시키지 않는다(_quote_contradicts_value — 인용 ↔ 값, 둘 다 LLM 출력이다).
 #   ② 수치 대조 — 패치 값의 숫자가 입력의 숫자 표기(단위 환산 포함)와 일치하면
 #      근거 있음(recall_validator와 같은 § 3-1 대조).
 #   ③ 지정 종목 — 해석 가능성(§ 3-2 지식 조회): 마스터에 없는 이름은 환각.
 
 
 def _patch_value_numbers(value: Any) -> set:
+    """패치가 **실제로 넣는** 숫자. 인용문(source_text)의 숫자는 세지 않는다.
+
+    인용문은 사용자 원문 조각이라 언제나 입력의 숫자를 포함한다 — 값에 남겨 두면 값이
+    틀려도 인용이 대신 대조를 통과시킨다(recall_validator._reflected_numbers가 같은
+    이유로 인용을 제외한다. 실측 2026-08-02: `{value: 30000000, source_text: "3억원"}`의
+    인용에서 3이 잡혀 3천만원이 '입력과 일치'로 통과했다).
+    """
     from strategy_conversation.validation.recall_validator import _collect_numbers
 
     acc: set = set()
-    _collect_numbers(value, acc)
+    _collect_numbers(_without_quotes(value), acc)
     return acc
+
+
+def _without_quotes(value: Any) -> Any:
+    """값 트리에서 인용문(`source_text`)만 걷어낸다(수치 대조용 — 원본 불변)."""
+    if isinstance(value, dict):
+        return {k: _without_quotes(v) for k, v in value.items() if k != "source_text"}
+    if isinstance(value, (list, tuple)):
+        return [_without_quotes(item) for item in value]
+    return value
+
+
+def _is_power_of_ten_apart(a: float, b: float) -> bool:
+    """두 수가 10의 거듭제곱 배수만큼(≠1배) 어긋나는가 — 자릿수 오류의 표식."""
+    if a == 0 or b == 0:
+        return False
+    ratio = abs(a) / abs(b)
+    if ratio < 1:
+        ratio = 1 / ratio
+    exponent = round(math.log10(ratio))
+    return exponent >= 1 and abs(ratio - 10 ** exponent) < ratio * 1e-9
+
+
+def _quote_contradicts_value(quote: Optional[str], value: Any) -> bool:
+    """LLM이 단 인용문의 숫자와 패치 값이 **자릿수만큼** 어긋나는가.
+
+    입력을 해석하지 않는다 — **LLM 자신의 출력 두 조각(인용문 ↔ 값)을 대조**할 뿐이다.
+    숫자가 없는 인용("데드크로스 나오면 팔아")은 대조 대상이 아니므로 False(모순 아님).
+    값에 숫자가 여럿이면(조건 객체의 기본 파라미터 등) 하나라도 맞으면 모순이 아니다 —
+    "RSI 30 이하"의 `{value: 30, parameters: {period: 14}}`에서 14는 인용에 없는 게 정상이다.
+    (값 안의 `source_text`는 _patch_value_numbers가 이미 제외한다 — 그대로 두면 인용이
+    자기 자신과 대조돼 이 검사가 영구히 침묵한다.)
+
+    **10의 거듭제곱 배수로 좁히는 이유**: 단위 환산에는 하나로 정해지지 않은 관례가
+    있다. "최근 3개월"을 9B가 `lookback_days=90`(달력일)으로, 우리 환산표는 63(거래일)로
+    잡는 식이다 — 둘 다 옳고 어느 쪽인지는 의미 판단이라 여기서 하지 않는다. 반면 10배·
+    100배 어긋남은 관례 차이로 설명되지 않는 표기 오류다(실측 두 건 모두 정확히 10배:
+    "1000억원"→1e10, "3억원"→3e7).
+    """
+    from strategy_conversation.validation.recall_validator import _candidates, _input_anchors
+
+    quote_numbers: set = set()
+    for _label, anchor, unit in _input_anchors(quote or ""):
+        quote_numbers |= _candidates(anchor, unit)
+    if not quote_numbers:
+        return False
+    patch_numbers = _patch_value_numbers(value)
+    if not patch_numbers:
+        return False
+    if any(abs(abs(p) - abs(c)) < 1e-6 for p in patch_numbers for c in quote_numbers):
+        return False  # 그대로 맞는 숫자가 있으면 모순이 아니다
+    return any(
+        _is_power_of_ten_apart(p, c) for p in patch_numbers for c in quote_numbers
+    )
 
 
 def _input_number_candidates(user_input: str) -> set:
@@ -358,8 +421,18 @@ def _patch_provenance_supported(patch, compact_input: str, input_numbers: set) -
         quotes.append(patch.value.get("source_text"))
     for raw_quote in quotes:
         quote = _compact(raw_quote) if raw_quote else ""
-        if quote and quote in compact_input:
-            return True
+        if not quote or quote not in compact_input:
+            continue
+        # 인용이 **수치 대조를 대신 통과시키지는 않는다**(2026-08-02). 인용문에 숫자가
+        # 있는데 패치 값의 숫자와 자릿수가 어긋나면, 그 인용은 값의 근거가 아니라 값이
+        # 틀렸다는 증거다 — 실측: "1000억원"(1e11)에 9B가 `value=10000000000`(1e10, 10배
+        # 오차) + `source_text="1000억원"`을 냈고, 인용이 실재해 여기서 통과해 100억이
+        # 조용히 확정됐다(재요청 1회 후에도 같은 값). recall_validator._reflected_numbers가
+        # 인용문을 대조에서 제외하는 것과 같은 이유이며(같은 유형의 "3억원"→3천만원 사고),
+        # 그 교훈이 이 게이트에는 적용돼 있지 않았다.
+        if _quote_contradicts_value(raw_quote, patch.value):
+            continue
+        return True
     # ② 수치 대조: 패치 값의 숫자가 입력 숫자(단위 환산 포함)에 나타나면 근거 있음.
     #    크기만 대조한다(부호 무시 — recall_validator와 동일, 어느 필드의 값인지는 판단하지 않음).
     patch_numbers = _patch_value_numbers(patch.value)
@@ -508,6 +581,21 @@ def _explicit_fields(strategy: Any, previous: Optional[List[str]]) -> List[str]:
     )
 
     return merge_explicit_fields(previous, explicit_fields_from_spec(strategy))
+
+
+def _modify_explicit_fields(patches: Any, previous: Optional[List[str]]) -> List[str]:
+    """수정 턴의 명시 필드 — 근거는 이번 턴이 바꾼 패치다(초안 State가 아니다).
+
+    최초 파스(_explicit_fields)와 근거가 다른 이유는 spec의 출처가 다르기 때문이다:
+    최초 파스의 spec은 LLM이 사용자 발화에서 뽑은 것이지만, 수정 턴의 spec은
+    **이전 전략 디컴파일 초안 + 패치**라 물질화 기본값이 이미 들어 있다.
+    """
+    from strategy_conversation.response.provenance import (
+        explicit_fields_from_patches,
+        merge_explicit_fields,
+    )
+
+    return merge_explicit_fields(previous, explicit_fields_from_patches(patches))
 
 
 def derive_field_states(
@@ -855,13 +943,12 @@ def run_primary_parse(
             # 결속된 칩만 보인다 — planner 분기와 같은 계약.
             clarification_suggestions = pending_ask["chips"]
 
-    if report.unsupported_features:
-        features = ", ".join(_humanize_features(report.unsupported_features))
-        notices.append(
-            f"'{features}' 조건은 현재 지원되지 않아 전략에 반영되지 않았어요."
-            + (" " + " ".join(report.suggested_fixes) if report.suggested_fixes else "")
-        )
-    # 제외됐지만 질문/미지원 안내가 다루지 않는 조건이 있으면 정직하게 알린다
+    # 인터프리터의 unsupported_features를 그대로 인용하던 안내는 폐지했다(2026-08-01,
+    # 사용자 판단). LLM이 자유 서술로 쓰는 채널이라 내부 사정("unsupported_features에
+    # 기록합니다")·지원되는 필드명(risk_management.stop_loss)·발화 조각이 그대로 노출됐고,
+    # 정작 미지원 개념 안내는 결정론 게이트(build_unsupported_concept_notice)가 이미 낸다.
+    # 조용한 누락 방지는 아래 두 결정론 대조(제외 조건·미반영 수치)가 계속 담당한다.
+    # 제외됐지만 질문이 다루지 않는 조건이 있으면 정직하게 알린다
     unexplained_drops = [d for d in dropped if d not in " ".join(
         [clarification_question or ""] + notices
     )]
@@ -869,22 +956,21 @@ def run_primary_parse(
         notices.append(
             f"'{', '.join(unexplained_drops)}' 조건은 값 확인 전까지 전략에 반영되지 않았어요."
         )
-    # 재요청 후에도 인터프리터가 반영하지 못한 입력 수치 — 컴파일·결정적 보정까지 끝난
-    # 결과로 한 번 더 거른 뒤 알린다(§ 3-1: 값을 만들어 채우지 않는다, 조용한 누락 금지).
+    # 미반영 수치 **안내**는 폐지했다(2026-08-01, 사용자 판단) — 로그로만 남긴다.
+    # 대조는 크기만 보는 수치 대조라 라벨이 맥락 없는 숫자 나열("'1, 20일' 수치는…")이 되고,
+    # 정작 '월 1회 리밸런싱'·'20일 평균 거래대금'처럼 **이미 반영된** 표현이 자주 걸린다
+    # (표현형이 달라 숫자가 남지 않을 뿐이다). 사용자가 무엇을 다시 말해야 하는지 알 수 없는
+    # 안내라 정보값이 없다. 재요청 증거로서의 쓰임(_recall_gap → 인터프리터 재생성)은 그대로다.
     if result.unreflected_numbers:
         from strategy_conversation.validation.recall_validator import labels_absent_from
 
         # description은 사용자 원문 그대로라 대조 대상에서 뺀다 — 넣으면 입력에 있는 모든
-        # 수치가 자기 자신과 매칭돼(원문 에코) 안내가 영구히 침묵한다.
+        # 수치가 자기 자신과 매칭돼(원문 에코) 대조가 영구히 침묵한다.
         strategy_payload = parsed.model_dump()
         strategy_payload.pop("description", None)
         still_missing = labels_absent_from(result.unreflected_numbers, strategy_payload)
         if still_missing:
-            _log_llm("△ 미반영 안내", f"{', '.join(still_missing)}")
-            notices.append(
-                f"'{', '.join(still_missing)}' 수치는 조건으로 반영하지 못했어요. "
-                "어떤 조건인지 한 문장으로 알려주시면 반영해 드릴게요."
-            )
+            _log_llm("△ 미반영(안내 없음)", f"{', '.join(still_missing)}")
 
     # 결속 체인 판정 — 되묻기로 끝나는 턴인데 pending_ask가 없으면 다음 턴의 답변은
     # 귀속 근거 없이 일반 분류 레인으로 떨어진다. 그 손실이 어느 게이트에서 났는지를
@@ -2202,8 +2288,8 @@ def run_primary_modification(
     rejected_patches: List[Any] = [p for i, p in enumerate(intent.patches) if not verdicts[i]]
     if rejected_patches:
         _log_llm("✗ 패치 거부", (
-            "발화에 필드 cue 없음(환각 게이트): "
-            + "; ".join(f"{p.op} {p.path}" for p in rejected_patches)
+            "발화에 근거 없음(환각 게이트 — 인용 부재·불일치 또는 인용↔값 자릿수 어긋남): "
+            + "; ".join(f"{p.op} {p.path}={_short(p.value)}" for p in rejected_patches)
         ))
     # 자기 의심 패치 게이트: 인터프리터가 패치 대상 필드에 스스로 질문을 낸 경우 —
     # 모델이 자기 해석을 불확실하다고 표시한 것이다("삼성전자 관련 etf"를 KOSPI200으로
@@ -2448,10 +2534,7 @@ def run_primary_modification(
     final_diff = _diff_fields(prev_dump, parsed.model_dump())
     _log_llm("✓ 수정 완료", f"변경 필드(원본 대비): {'; '.join(final_diff) or '없음'}")
 
-    # 재요청 후에도 반영되지 않은 입력 수치를 알린다 — 초기 파스 레인(run_primary_parse)에는
-    # 있던 안내가 수정 레인에는 없어, 값이 조용히 틀린 채 확정됐다(2026-07-31 QA 실측:
-    # '60일 신고가'가 lookback 300으로, '최근 1년'이 5y 그대로). § 3-1은 값을 만들어
-    # 채우는 것을 금지하므로 남는 선택지는 정직하게 알리는 것뿐이다(조용한 누락 금지).
+    # 미반영 수치는 로그로만 남긴다 — 안내 폐지(2026-08-01, 초기 파스 레인과 같은 판단).
     if result.unreflected_numbers:
         from strategy_conversation.validation.recall_validator import labels_absent_from
 
@@ -2460,11 +2543,7 @@ def run_primary_modification(
         payload.pop("description", None)
         still_missing = labels_absent_from(result.unreflected_numbers, payload)
         if still_missing:
-            _log_llm("△ 미반영 안내", f"{', '.join(still_missing)}")
-            notices.append(
-                f"'{', '.join(still_missing)}' 수치는 요청대로 반영하지 못했어요. "
-                "다시 한 문장으로 알려주시면 반영해 드릴게요."
-            )
+            _log_llm("△ 미반영(안내 없음)", f"{', '.join(still_missing)}")
 
     # Phase 4 primary — 수정 턴 재계획: 최신 입력이 State를 바꿨으니(위 패치 적용),
     # 다음 질문은 갱신된 State 기준으로 DAG planner가 다시 계획한다(유니버스가 바뀌면
@@ -2474,18 +2553,21 @@ def run_primary_modification(
         user_input, parsed
     )
 
+    # 수정 턴의 명시 필드는 **이번 턴이 바꾼 것**(패치)에서 판정하고 이전 턴 에코와
+    # 합집합한다 — 이전 턴에 말한 값이 이번 턴 침묵으로 지워지지 않게.
+    # 패치 적용 후 State에서 판정하면 안 된다: 그 State는 이전 전략을 디컴파일한 초안이라
+    # 물질화 기본값이 이미 채워져 있고, 값의 존재로 판정하면 사용자가 말한 적 없는 값이
+    # '명시'가 된다(2026-08-02: 기간만 답했는데 초기 자금을 묻지 않게 되던 사고).
+    turn_explicit_fields = _modify_explicit_fields(cued_patches, previous_explicit_fields)
     return finalize_user_response({
         "parsed": parsed,
         "clarification_question": dag_question,
         "clarification_suggestions": dag_suggestions,
         "clarification_priority": dag_priority,
         "pending_ask": dag_pending_ask,
-        # 수정 턴의 명시 필드는 패치 적용 후 State(validated.strategy)에서 판정하고
-        # 이전 턴 에코와 합집합한다 — 이전 턴에 말한 값이 이번 턴 침묵으로 지워지지 않게.
-        "explicit_fields": _explicit_fields(validated.strategy, previous_explicit_fields),
+        "explicit_fields": turn_explicit_fields,
         "field_states": _field_states(
-            parsed, validated.strategy, report,
-            _explicit_fields(validated.strategy, previous_explicit_fields),
+            parsed, validated.strategy, report, turn_explicit_fields,
         ),
         # 되돌리기(§ 19)의 근거 — 이 턴이 바꾼 필드 이름. 프론트가 변경 이력에 쌓고
         # 다음 턴에 에코한다(무상태 계약). _diff_fields는 사람이 읽는 로그 문장이라

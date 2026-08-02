@@ -56,8 +56,47 @@ def test_ranking_fields_default_to_none():
     assert dumped["ranking_lookback_days"] is None
 
 
+def test_backtest_request_model_dump_keeps_explicit_window():
+    """명시적 백테스트 창(startDate/endDate)이 model_dump에서 살아남아야 한다.
+
+    회귀 배경(2026-08-01): '최근 10년' 요청이 파싱(`backtest_start_date=2016-08-01`)과
+    요약 카드('백테스트 2016~2026')까지 정상이었는데 **실행만** 2022-01-03~2026-07-31이었다.
+    `BacktestRequest`에 두 필드가 없어 model_dump가 조용히 버렸고, 엔진이 startDate를 못 받아
+    `period="5Y"` 폴백 창(`ref_date.year - 4`의 1월 1일 = 2022-01-01, 첫 거래일 01-03)으로
+    실행했다 — 랭킹 필드와 같은 함정이다.
+    """
+    req = BacktestRequest(
+        symbols=["005930"],
+        universe_id="kospi200",
+        entry={"conditions": []},
+        exit={"conditions": []},
+        risk={"position_size_pct": 20.0, "max_positions": 5},
+        period="5y",
+        startDate="2016-08-01",
+        endDate="2026-08-01",
+    )
+    dumped = req.model_dump()
+    assert dumped["startDate"] == "2016-08-01"
+    assert dumped["endDate"] == "2026-08-01"
+
+
+def test_explicit_window_defaults_to_none():
+    # 창을 지정하지 않은 전략은 None이어야 한다 — 엔진이 상대 기간(period) 분기로 간다.
+    req = BacktestRequest(
+        symbols=["005930"],
+        entry={"conditions": []},
+        exit={"conditions": []},
+        risk={"position_size_pct": 10.0},
+    )
+    dumped = req.model_dump()
+    assert dumped["startDate"] is None
+    assert dumped["endDate"] is None
+
+
 if __name__ == "__main__":
     test_risk_management_preserves_ranking_fields()
     test_backtest_request_model_dump_keeps_ranking()
     test_ranking_fields_default_to_none()
+    test_backtest_request_model_dump_keeps_explicit_window()
+    test_explicit_window_defaults_to_none()
     print("[SUCCESS] BacktestRequest ranking schema regression passed.")

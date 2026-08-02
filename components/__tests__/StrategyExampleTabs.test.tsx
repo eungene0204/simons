@@ -46,9 +46,9 @@ describe("StrategyExampleTabs", () => {
     )).toBeInTheDocument();
     expect(usageNotice.querySelector("p")).toHaveClass("max-w-5xl");
 
-    const categoryBadge = within(screen.getAllByTestId("strategy-example-card")[0]).getByText("가치투자");
+    const categoryBadge = within(screen.getAllByTestId("strategy-example-card")[0]).getByText("기술분석");
     expect(categoryBadge.className).toContain("bg-black");
-    expect(categoryBadge.className).toContain("text-emerald-300");
+    expect(categoryBadge.className).toContain("text-sky-300");
     expect(categoryBadge.className).not.toContain("border");
   });
 
@@ -57,7 +57,7 @@ describe("StrategyExampleTabs", () => {
 
     render(<StrategyExampleTabs onSelectExample={onSelectExample} />);
 
-    expect(screen.getByText("저PBR 대형주 장기보유")).toBeInTheDocument();
+    expect(screen.getByText("ROE·부채비율 분기 점검")).toBeInTheDocument();
     expect(screen.getByText("수익률 상위 종목 주간 교체")).toBeInTheDocument();
     expect(screen.getAllByTestId("strategy-example-card")).toHaveLength(20);
 
@@ -71,7 +71,7 @@ describe("StrategyExampleTabs", () => {
     render(<StrategyExampleTabs onSelectExample={onSelectExample} />);
 
     expect(screen.getAllByTestId("strategy-example-card")).toHaveLength(20);
-    expect(screen.queryByText("밸류 트랩 회피형 분산 보유")).not.toBeInTheDocument();
+    expect(screen.queryByText("이중 기술 신호 확인 스윙")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "전체 보기" })).toBeInTheDocument();
   });
 

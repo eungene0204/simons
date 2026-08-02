@@ -797,20 +797,28 @@ def test_primary_needs_clarification_partial_compile_with_chips(monkeypatch):
     assert "영업이익률 10% 이상" in (result["clarification_suggestions"] or [])
 
 
-def test_primary_unsupported_features_noticed(monkeypatch):
+def test_primary_does_not_echo_interpreter_unsupported_features(monkeypatch):
+    """인터프리터의 unsupported_features를 그대로 인용하던 안내는 폐지됐다(2026-08-01).
+
+    LLM이 자유 서술로 채우는 채널이라 내부 사정("unsupported_features에 기록합니다")·
+    지원되는 필드명(risk_management.stop_loss)·발화 조각이 사용자에게 그대로 노출됐다.
+    미지원 개념 안내는 결정론 게이트(build_unsupported_concept_notice)가 담당한다.
+    """
     data = _full_intent_dict()
     data["unsupported_features"] = ["FCF Yield"]
     result = _run_primary_with(monkeypatch, data)
     assert result is not None
-    assert any("FCF Yield" in n for n in result["notices"])
+    assert not any("FCF Yield" in n for n in result["notices"])
 
 
-def test_primary_notices_number_the_interpreter_never_reflected(monkeypatch):
-    """재요청 후에도 반영되지 못한 수치는 조용히 사라지지 않고 안내로 나간다.
+def test_primary_does_not_notice_unreflected_numbers(monkeypatch):
+    """미반영 수치 안내는 폐지됐다(2026-08-01, 사용자 판단) — 로그로만 남긴다.
 
-    실측 사고(2026-07-27): '일평균 거래대금 50억 이상'을 9B가 조건 대신 assumptions·질문으로
-    돌려보내 조건이 사라졌는데 사용자에겐 아무 표시도 없었다(§ 3-1 — 값을 만들어 채우지
-    않는 대신 못 했다고 알린다).
+    폐지 이유: 대조가 크기만 보는 수치 비교라 안내가 맥락 없는 숫자 나열이 되고
+    ("'1, 20일' 수치는 조건으로 반영하지 못했어요"), '월 1회 리밸런싱'·'20일 평균
+    거래대금'처럼 **표현형이 달라 숫자가 남지 않았을 뿐 이미 반영된** 조건이 자주 걸린다.
+    사용자가 무엇을 다시 말해야 하는지 알 수 없으므로 정보값이 없다.
+    재요청 증거로서의 쓰임(_recall_gap → 인터프리터 재생성)은 그대로 남는다.
     """
     result = _run_primary_with(
         monkeypatch, _full_intent_dict(),
@@ -818,7 +826,7 @@ def test_primary_notices_number_the_interpreter_never_reflected(monkeypatch):
         unreflected=["50억"],
     )
     assert result is not None
-    assert any("50억" in n for n in result["notices"])
+    assert not any("반영하지 못했어요" in n for n in result["notices"])
 
 
 def test_primary_does_not_notice_numbers_restored_by_the_pipeline(monkeypatch):
@@ -2432,3 +2440,157 @@ def test_patch_provenance_accepts_quote_inside_condition_value():
     })
     assert _patch_provenance_supported(
         hallucinated, _compact(user_input), _input_number_candidates(user_input)) is False
+
+
+def test_quote_does_not_rescue_a_value_whose_magnitude_drifted():
+    """[회귀 2026-08-02] 인용이 **수치 대조를 대신 통과시키면 안 된다.**
+
+    실측: "1000억원"(1e11)에 9B가 `value=10000000000`(1e10, 10배 오차)와
+    `source_text="1000억원"`을 함께 냈다. 인용은 입력에 실재하므로 ①에서 통과했고,
+    100억이 조용히 확정됐다(수치 재요청 1회 후에도 같은 값). 인용문에 숫자가 있는데
+    값과 자릿수가 어긋나면 그 인용은 근거가 아니라 값이 틀렸다는 증거다 —
+    recall_validator가 인용문을 대조에서 제외하는 것과 같은 이유("3억원"→3천만원 사고).
+    """
+    drifted = PatchOp(op="replace", path="/backtest/initial_capital",
+                      value=10_000_000_000, source_text="1000억원")
+    correct = PatchOp(op="replace", path="/backtest/initial_capital",
+                      value=100_000_000_000, source_text="1000억원")
+    assert _provenance(drifted, "1000억원") is False
+    assert _provenance(correct, "1000억원") is True
+
+    # 인용이 조건 값 안에 있어도 같다(두 자리 모두 대조 대상).
+    drifted_inside = PatchOp.model_validate({
+        "op": "replace", "path": "/backtest/initial_capital",
+        "value": {"value": 30_000_000, "source_text": "3억원"},
+    })
+    assert _provenance(drifted_inside, "3억원으로 해줘") is False
+
+
+def test_quote_rescue_survives_when_numbers_agree_or_are_absent():
+    """자릿수 대조가 게이트를 좁히기만 해서는 안 된다 — 정상 인용은 그대로 통과한다."""
+    # 숫자 없는 인용은 대조 대상이 아니다.
+    assert _provenance(
+        PatchOp(op="replace", path="/portfolio/rebalance_frequency", value="monthly",
+                source_text="매월 리밸런싱으로"),
+        "매월 리밸런싱으로 바꿔줘") is True
+    # 부호는 보지 않는다(크기만 대조).
+    assert _provenance(
+        PatchOp(op="replace", path="/risk_management/stop_loss", value=8.0,
+                source_text="손절 -8%"),
+        "손절 -8%로 바꿔줘") is True
+    # 값에 인용에 없는 숫자가 섞여 있어도(지표 기본 파라미터) 하나라도 맞으면 통과한다.
+    rsi = PatchOp.model_validate({
+        "op": "add", "path": "/entry_conditions/-",
+        "value": {"factor": "technical.rsi", "operator": "<=", "value": 30,
+                  "parameters": {"period": 14}, "source_text": "RSI 30 이하"},
+    })
+    assert _provenance(rsi, "RSI 30 이하면 사줘") is True
+    # 단위 환산도 대조에 포함된다('50억' 인용 ↔ 억원 단위 값 50).
+    trading_value = PatchOp.model_validate({
+        "op": "add", "path": "/entry_conditions/-",
+        "value": {"factor": "trading_value", "operator": ">=", "value": 50,
+                  "unit": "억원", "source_text": "거래대금 50억"},
+    })
+    assert _provenance(trading_value, "거래대금 50억 이상") is True
+
+
+def test_unit_convention_gap_is_not_treated_as_a_digit_error():
+    """[회귀] 단위 환산의 관례 차이를 자릿수 오류로 오인하면 정상 패치가 거부된다.
+
+    '최근 3개월'을 9B는 `lookback_days=90`(달력일)으로, 우리 환산표는 63(거래일)로 잡는다 —
+    둘 다 옳고 어느 쪽인지는 의미 판단이다. 그래서 대조는 **10의 거듭제곱 배수** 어긋남
+    (관례로 설명되지 않는 표기 오류)만 모순으로 본다.
+    """
+    from strategy_conversation.primary import _is_power_of_ten_apart
+
+    ranking = PatchOp.model_validate({
+        "op": "add", "path": "/ranking/-",
+        "value": {"metric": "return", "lookback_days": 90},
+        "source_text": "최근 3개월 수익률 상위",
+    })
+    assert _provenance(ranking, "최근 3개월 수익률 상위 매수") is True
+
+    assert _is_power_of_ten_apart(1e10, 1e11) is True
+    assert _is_power_of_ten_apart(30_000_000, 300_000_000) is True
+    assert _is_power_of_ten_apart(90, 63) is False
+    assert _is_power_of_ten_apart(8.0, 8.0) is False
+    assert _is_power_of_ten_apart(0, 100) is False
+
+
+# ── 수정 턴 provenance — 근거는 초안 State가 아니라 이번 턴의 패치 ─────────────────
+# 2026-08-02 사고: 백테스트 기간만 답했는데 initial_capital이 '사용자 명시'로 올라가
+# 초기 자금을 **묻지 않게 됐다**(기본값 1천만원 조용히 확정). 수정 턴의 spec은 이전 전략을
+# 디컴파일한 초안 + 패치라 물질화 기본값이 이미 들어 있고, 값의 존재로 판정하면 사용자가
+# 말한 적 없는 값이 명시가 된다. 실측 2/2 재현.
+
+class _Patch:
+    def __init__(self, path):
+        self.path = path
+
+
+def test_modify_provenance_counts_only_patched_settings():
+    from strategy_conversation.response.provenance import explicit_fields_from_patches
+
+    # 기간만 바꾼 턴 — 초기 자금은 근거가 없다.
+    assert explicit_fields_from_patches([_Patch("/backtest/period")]) == ["backtest_period"]
+    assert explicit_fields_from_patches([_Patch("/backtest/start_date")]) == ["backtest_period"]
+    # 실제로 바꾼 설정은 그대로 잡는다.
+    assert explicit_fields_from_patches(
+        [_Patch("/backtest/initial_capital")]
+    ) == ["initial_capital"]
+    assert explicit_fields_from_patches([_Patch("/portfolio/selection_count")]) == ["max_positions"]
+    assert explicit_fields_from_patches(
+        [_Patch("/portfolio/rebalance_frequency")]
+    ) == ["rebalancing"]
+    # 인덱스가 붙은 경로도 같은 필드로 정규화된다.
+    assert explicit_fields_from_patches([_Patch("/universe/markets/0")]) == ["universe"]
+
+
+def test_modify_provenance_ignores_non_setting_patches():
+    from strategy_conversation.response.provenance import explicit_fields_from_patches
+
+    # 진입·청산·리스크는 provenance 게이트의 대상이 아니다(값의 존재가 곧 사용자 입력).
+    assert explicit_fields_from_patches([
+        _Patch("/entry_conditions/0/value"),
+        _Patch("/risk_management/stop_loss"),
+    ]) == []
+    assert explicit_fields_from_patches(None) == []
+
+
+def test_modify_provenance_keeps_previous_turn_echo():
+    from strategy_conversation.primary import _modify_explicit_fields
+
+    # 이번 턴에 침묵한 필드도 이전 턴 에코로 유지된다(누적 계약).
+    assert _modify_explicit_fields(
+        [_Patch("/backtest/period")], ["universe", "max_positions"],
+    ) == ["universe", "max_positions", "backtest_period"]
+
+
+def test_capital_over_limit_drops_its_explicit_provenance():
+    """[회귀] 2026-08-02: 100조를 입력하면 값은 버려지는데 '사용자가 말했다'는 기록만
+    남았다 — 되묻기 게이트가 되돌아온 기본값 1천만원을 사용자 확정으로 보고 그대로
+    실행 가능 상태로 넘긴다. 설정하지 못했다는 안내를 읽고도 말한 적 없는 금액으로
+    백테스트가 돌아가는 구멍이다.
+    """
+    from main import _drop_rejected_provenance
+
+    result = {
+        "explicit_fields": ["universe", "initial_capital", "backtest_period"],
+        "field_states": {"초기 자본": {"value": "CONFIRMED"}},
+        "reask_fields": ["initial_capital"],
+    }
+    _drop_rejected_provenance(result)
+    assert result["explicit_fields"] == ["universe", "backtest_period"]
+    # 파생 상태도 떼어낸 provenance로 다시 계산돼야 한다(직전 판정이 남으면 표시가 어긋난다).
+    assert result["field_states"] is None
+    # 내부 신호는 응답에 나가지 않는다.
+    assert "reask_fields" not in result
+
+
+def test_provenance_untouched_when_nothing_was_rejected():
+    from main import _drop_rejected_provenance
+
+    result = {"explicit_fields": ["universe"], "field_states": {"유니버스": {"value": "CONFIRMED"}}}
+    _drop_rejected_provenance(result)
+    assert result["explicit_fields"] == ["universe"]
+    assert result["field_states"] == {"유니버스": {"value": "CONFIRMED"}}

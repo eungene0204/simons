@@ -2879,6 +2879,44 @@ def _local_preload_models(parser_model: str) -> list:
     return [interpreter_model or parser_model]
 
 
+def _local_ollama_reachable() -> bool:
+    """로컬 Ollama 서버가 실제로 응답하는지 확인한다(모델 적재가 아니라 **서버 생사**).
+
+    적재·prefill 실패는 "첫 호출 시 lazy 로드"로 복구되므로 비치명적이지만, 서버 자체가
+    죽어 있으면 그 전제가 성립하지 않는다 — 백엔드는 LLM 없이 기동하고, 사용자에게는
+    파싱 회귀처럼 보인다(2026-08-01: 전략 문장에 "일반적인 설명을 준비하지 못했습니다"
+    폴백. 분류·파싱·일반답변 세 레인이 동시에 죽는다). 그래서 이 경우만 따로 알린다.
+    """
+    import urllib.request
+
+    from llm_backend import OLLAMA_BASE_URL, ollama_auth_headers
+
+    try:
+        req = urllib.request.Request(
+            f"{OLLAMA_BASE_URL}/api/tags", headers=ollama_auth_headers()
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            return resp.status == 200
+    except Exception:  # noqa: BLE001 — 어떤 이유든 못 닿으면 죽은 것으로 본다
+        return False
+
+
+def _warn_local_ollama_down() -> None:
+    """로컬 Ollama 미기동을 눈에 띄게 알린다 — 조용한 기동이 오진을 만든다."""
+    from llm_backend import OLLAMA_BASE_URL
+
+    print(
+        "\n"
+        "[startup] ⚠️  로컬 Ollama 서버에 닿지 못했습니다 "
+        f"({OLLAMA_BASE_URL}) — LLM 없이 기동합니다.\n"
+        "[startup]     증상: 전략 입력이 UNKNOWN으로 분류돼 "
+        "'해당 주제에 대한 일반적인 설명을 준비하지 못했습니다'로 답합니다.\n"
+        "[startup]     조치: `brew services start ollama` (부팅 시 자동 기동) "
+        "또는 `ollama serve`\n",
+        flush=True,
+    )
+
+
 def _kick_local_ollama_model_preload(model: str) -> None:
     """로컬 Ollama면 서버 시작 직후 백그라운드로 모델을 메모리에 적재한다(첫 호출 지연 제거).
 
@@ -2980,6 +3018,11 @@ def preload_nl_parser():
     if backend == "ollama":
         from llm_backend import is_local_ollama
         if is_local_ollama():
+            # 서버 생사부터 확인한다 — 죽어 있으면 적재·prefill은 무의미하고(둘 다 실패를
+            # 무시한다) 기동만 조용히 성공해 LLM 없는 백엔드가 된다.
+            if not _local_ollama_reachable():
+                _warn_local_ollama_down()
+                return
             # 로컬 dev: 콜드스타트가 없으므로 모델을 즉시 메모리에 적재한다.
             for preload_model in _local_preload_models(parser.ollama_model):
                 _kick_local_ollama_model_preload(preload_model)
@@ -3050,11 +3093,29 @@ def _finalize_parse_result(result: dict, request: NLParseRequest) -> dict:
     # 턴까지의 명시 필드를 잃지 않는다(프론트 에코 계약의 무상태 누적).
     if result.get("explicit_fields") is None:
         result["explicit_fields"] = list(request.previous_explicit_fields or [])
+    _drop_rejected_provenance(result)
     _ensure_field_states(result)
     _ensure_field_metadata(result, request)
     _ensure_artifacts(result, request)
     _ensure_impact(result, request)
     return result
+
+
+def _drop_rejected_provenance(result: dict) -> None:
+    """허용 범위를 벗어나 버려진 설정의 '사용자가 말했다' 기록을 떼어낸다.
+
+    값은 이미 기본값으로 되돌아갔다. 기록만 남으면 되묻기 게이트가 그 기본값을 사용자
+    확정으로 보고 그대로 실행 가능 상태로 넘긴다 — 사용자는 설정하지 못했다는 안내를
+    읽고도 자기가 말한 적 없는 1천만원으로 백테스트를 돌리게 된다.
+    파생 상태(field_states)도 이 provenance를 입력으로 쓰므로 함께 무효화해 재계산시킨다.
+    """
+    rejected = result.pop("reask_fields", None)
+    if not rejected:
+        return
+    result["explicit_fields"] = [
+        field for field in (result.get("explicit_fields") or []) if field not in rejected
+    ]
+    result["field_states"] = None
 
 
 def _ensure_impact(result: dict, request: NLParseRequest) -> None:
@@ -3161,6 +3222,7 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         apply_single_asset_adjustments,
         apply_theme_universe,
         build_unsupported_concept_notice,
+        concepts_expressed_in_strategy,
         detect_etf_factor_conflict,
         detect_missing_entry_clarification,
         detect_symbol_typo_clarification,
@@ -3168,9 +3230,18 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         enforce_strategy_minimums,
         synthesize_risk_overrides,
     )
+    from engine.nl_parser import MAX_INITIAL_CAPITAL, backtest_window_is_empty
     from engine.strategy_converter import to_backtest_request
 
-    # 설정값 하한선 보정 — 비현실적 입력(초기자금 300원·0일 보유·3일 모멘텀·0% 손절 등)을
+    # 허용 범위를 벗어나 **버려지는** 설정은 enforce가 기본값으로 되돌리므로 **되돌리기
+    # 전에** 잡아 두어야 한다 — 그러지 않으면 되돌아온 기본값이 '사용자가 정한 값'
+    # (explicit)으로 남아 되묻기 게이트가 그냥 통과시킨다.
+    reask_fields = []
+    if parsed.initial_capital > MAX_INITIAL_CAPITAL:      # 초기 자금 상한 100억
+        reask_fields.append("initial_capital")
+    if backtest_window_is_empty(parsed):                  # 창 전체가 데이터 밖(미래·1996 이전)
+        reask_fields.append("backtest_period")
+    # 설정값 범위 보정 — 비현실적 입력(초기자금 300원·0일 보유·3일 모멘텀·0% 손절 등)을
     # 자동 보정/제거하고 사용자에게 안내한다(모든 파싱 경로 공통).
     notices = enforce_strategy_minimums(parsed)
     # 스키마가 표현할 수 없는 재무 조건은 그 항목만 드롭됐다(전체 실패 금지) — 조용한 드롭은
@@ -3214,9 +3285,13 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 관련 상장사를 확정한 경우(theme_notice)에도 'sector'를 뺀다 — '설정했어요' 안내와
     # '지원되지 않아요' 안내가 한 응답에 공존하는 모순 방지. 원문 섹터 스캔을 끈 레인은
     # term-in 체인이 섹터 처리의 단일 권위라 항상 'sector'를 뺀다(중복 안내 방지).
+    # 전략이 실제로 표현한 개념(현금흐름 증가율·이동평균 상하 관계 등)도 뺀다 — 반영됐는데
+    # "지원되지 않아요"가 함께 나가던 오탐(2026-08-01). 판정은 컴파일 결과만 본다.
+    unsupported_exclude = concepts_expressed_in_strategy(parsed, request.prompt)
+    if sector_reask_q or theme_notice or not scan_prompt_for_sector:
+        unsupported_exclude.add("sector")
     unsupported_notice = build_unsupported_concept_notice(
-        request.prompt,
-        exclude={"sector"} if (sector_reask_q or theme_notice or not scan_prompt_for_sector) else None,
+        request.prompt, exclude=unsupported_exclude or None,
     )
     if unsupported_notice:
         notices.append(unsupported_notice)
@@ -3310,6 +3385,9 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         # 이 턴이 바꾼 필드 이름(설계 스펙 § 19) — 프론트가 변경 이력에 쌓아 되돌리기의
         # 근거로 쓴다. 수정 턴에서만 채워진다(최초 파스는 되돌릴 이전 상태가 없다).
         "changed_fields": None,
+        # 허용 범위를 벗어나 **버려진** 설정 필드 — provenance를 떼어내 다시 묻게 한다.
+        # 응답에 나가지 않는 내부 신호로, _finalize_parse_result가 소비하며 제거한다.
+        "reask_fields": reask_fields or None,
         # 값 변경 추적 메타데이터(비권위) — _finalize_parse_result가 채운다.
         "field_metadata": None,
         # 영속 Artifact 상태 — _finalize_parse_result가 채운다.

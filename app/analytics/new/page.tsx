@@ -39,14 +39,15 @@ import {
 } from "phosphor-react";
 import {
   buildStrategySummaryFromRequest,
+  explicitWindowSpanLabel,
   FUNDAMENTAL_FILTER_SECTION_LABEL,
   formatFundamentalFilter,
   formatInitialCapital,
   formatDownsidePercent,
-  getDisplayExitLabels,
   getDisplayUniverseLabels,
   getPositionLabel,
   getRankingLabel,
+  getSignalExitLabels,
   getSignalLabel,
   hasBuyCriteria,
   PERIOD_LABELS,
@@ -101,6 +102,7 @@ import {
   isClosedChoiceSlot,
   promptForSlot,
 } from "./backtestReadiness";
+import { applyRunWindow, backtestConfigOptions } from "./backtestOptions";
 import {
   presentStrategyClarification,
   shouldContinueWithSingleAssetBuilder,
@@ -905,23 +907,25 @@ function FilterBadge({ label }: { label: string }) {
   );
 }
 
-// 백테스트 기간 배지 라벨. 명시적 연도 범위가 있으면 '백테스트 2002~2005'처럼,
-// 없으면 상대 기간('백테스트 5년')으로 표시한다.
+// 백테스트 기간 배지 **값**. 라벨('백테스트 기간')은 행이 달고 있으므로 값에 다시 쓰지 않는다.
+// 명시적 연도 범위가 있으면 '2002~2005', 없으면 상대 기간('5년')으로 표시하고, 창의 길이가
+// 딱 떨어지면 그 길이를 앞세운다('10년 (2016~2026)') — '최근 10년간' 요청은 명시 날짜로
+// 변환돼 저장되므로, 창만 보여주면 말한 기간이 반영됐는지 알 수 없다(2026-08-02 지적).
 function backtestPeriodLabel(parsed: ParsedSummary): string {
   const startYear = parsed.backtest_start_date?.slice(0, 4);
   const endYear = parsed.backtest_end_date?.slice(0, 4);
+  const span = explicitWindowSpanLabel(parsed.backtest_start_date, parsed.backtest_end_date);
+  if (span) return `${span} (${startYear}~${endYear})`;
   if (startYear || endYear) {
-    const range =
-      startYear && endYear
-        ? startYear === endYear
-          ? startYear
-          : `${startYear}~${endYear}`
-        : startYear
-          ? `${startYear}~`
-          : `~${endYear}`;
-    return `백테스트 ${range}`;
+    return startYear && endYear
+      ? startYear === endYear
+        ? startYear
+        : `${startYear}~${endYear}`
+      : startYear
+        ? `${startYear}~`
+        : `~${endYear}`;
   }
-  return `백테스트 ${PERIOD_LABELS[parsed.backtest_period]}`;
+  return PERIOD_LABELS[parsed.backtest_period];
 }
 
 // 글자별 진입 연출. 순서는 CSS animation-delay 캐스케이드가 만든다 —
@@ -1183,7 +1187,11 @@ function ParsedSummaryBubble({
 }) {
   const universeLabels = getDisplayUniverseLabels(parsed, backtestRequest);
   const isSingleAsset = (parsed.target_symbols?.length ?? 0) > 0;
-  const exitLabels = getDisplayExitLabels(parsed);
+  // 청산 '신호'는 지표가 만드는 매도 조건만 싣는다. 손절·익절·트레일링은 아래 '리스크'
+  // 행이, 보유 기간 만료는 '포트폴리오' 행이 이미 같은 값을 보여주므로 여기 함께 넣으면
+  // 한 카드에서 같은 설정이 두 번 읽힌다(2026-08-02 지시). 결과 화면 배지는 진입/청산
+  // 두 칸뿐이라 위험 청산까지 실어야 하므로(getDisplayExitLabels) 그쪽 계약은 그대로 둔다.
+  const exitLabels = getSignalExitLabels(parsed);
   const rankingLabel = getRankingLabel(parsed);
   // 종목 선정(모멘텀 랭킹)도 진입(종목 선정) 기준이므로 '진입 신호'로 통일해 함께 표시한다.
   const entryLabels = [
@@ -1201,7 +1209,7 @@ function ParsedSummaryBubble({
       <div className="space-y-2">
         {(parsed.universe.length > 0 || isSingleAsset) && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="w-14 flex-shrink-0 text-[11px] font-bold text-[var(--text-label)]">{isSingleAsset ? "대상 종목" : "유니버스"}</span>
+            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{isSingleAsset ? "대상 종목" : "유니버스"}</span>
             <div className="flex flex-wrap gap-1">
               {universeLabels.map((label, i) => (
                 <FilterBadge key={i} label={label} />
@@ -1211,7 +1219,7 @@ function ParsedSummaryBubble({
         )}
         {entryLabels.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="w-14 flex-shrink-0 text-[11px] font-bold text-[var(--text-label)]">{FUNDAMENTAL_FILTER_SECTION_LABEL}</span>
+            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{FUNDAMENTAL_FILTER_SECTION_LABEL}</span>
             <div className="flex flex-wrap gap-1">
               {entryLabels.map((label, i) => (
                 <FilterBadge key={i} label={label} />
@@ -1221,7 +1229,7 @@ function ParsedSummaryBubble({
         )}
         {exitLabels.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="w-14 flex-shrink-0 text-[11px] font-bold text-[var(--text-label)]">청산 신호</span>
+            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">청산 신호</span>
             <div className="flex flex-wrap gap-1">
               {exitLabels.map((label, i) => (
                 <FilterBadge key={i} label={label} />
@@ -1230,18 +1238,32 @@ function ParsedSummaryBubble({
           </div>
         )}
         <div className="flex flex-wrap gap-1.5 items-center">
-          <span className="w-14 flex-shrink-0 text-[11px] font-bold text-[var(--text-label)]">포트폴리오</span>
+          <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">포트폴리오</span>
           <div className="flex flex-wrap gap-1">
             <FilterBadge label={getPositionLabel(parsed)} />
             {parsed.hold_period_days && <FilterBadge label={`${parsed.hold_period_days}일 보유`} />}
             {parsed.rebalancing_period !== "none" && <FilterBadge label={`${REBAL_LABELS[parsed.rebalancing_period]} 리밸런싱`} />}
+          </div>
+        </div>
+        {/* 백테스트 기간·초기 자본은 포트폴리오 구성(종목 수·보유·리밸런싱)이 아니라 실행
+            조건이다 — 진행 골격의 슬롯 라벨(SLOT_LABELS)과 같은 이름으로 각자 행을 갖는다.
+            포트폴리오 행에 칩으로 섞여 있으면 무엇이 설정됐는지 한눈에 안 보인다
+            (2026-08-02 지시 — 기간만 옮기고 자본을 남겨 같은 지적이 반복됐다). */}
+        <div className="flex flex-wrap gap-1.5 items-center">
+          <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">백테스트 기간</span>
+          <div className="flex flex-wrap gap-1">
             <FilterBadge label={backtestPeriodLabel(parsed)} />
-            <FilterBadge label={`초기자금 ${formatInitialCapital(parsed.initial_capital ?? 10000000)}`} />
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5 items-center">
+          <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">초기 자본</span>
+          <div className="flex flex-wrap gap-1">
+            <FilterBadge label={formatInitialCapital(parsed.initial_capital ?? 10000000)} />
           </div>
         </div>
         {(parsed.stop_loss_pct || parsed.take_profit_pct || parsed.trailing_stop_pct) && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="w-14 flex-shrink-0 text-[11px] font-bold text-[var(--text-label)]">리스크</span>
+            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">리스크</span>
             <div className="flex flex-wrap gap-1">
               {parsed.stop_loss_pct && <FilterBadge label={`손절 ${formatDownsidePercent(parsed.stop_loss_pct)}%`} />}
               {parsed.take_profit_pct && <FilterBadge label={`익절 ${parsed.take_profit_pct}%`} />}
@@ -2699,12 +2721,7 @@ function StrategyLabContent() {
       finalizedBacktestRequest = nextBacktestReq;
       setLatestParsed(nextParsed);
       setBacktestReq(nextBacktestReq);
-      setCurrentOptions({
-        period: nextBacktestReq?.period ?? "5y",
-        initialCapital: nextBacktestReq?.risk?.init_cash ?? 10000000,
-        commissionPct: 0.015,
-        slippagePct: 0.05,
-      });
+      setCurrentOptions(backtestConfigOptions(nextBacktestReq));
       setStage("ready");
 
       // provenance 누적을 되묻기 게이트 계산보다 **먼저** 갱신한다 — 순서가 뒤바뀌면
@@ -2980,12 +2997,7 @@ function StrategyLabContent() {
     coachSessionIdRef.current = null;
     setLatestParsed(data.parsed);
     setBacktestReq(data.backtest_request);
-    setCurrentOptions({
-      period: data.backtest_request?.period ?? "5y",
-      initialCapital: data.backtest_request?.risk?.init_cash ?? 10000000,
-      commissionPct: 0.015,
-      slippagePct: 0.05,
-    });
+    setCurrentOptions(backtestConfigOptions(data.backtest_request));
     setStage("ready");
     explicitFieldsRef.current = Array.from(
       new Set([
@@ -3768,9 +3780,10 @@ function StrategyLabContent() {
     }
 
     const effectiveReq = options ? {
-      ...backtestReq,
+      // 기간은 applyRunWindow가 정한다 — 상대 기간을 고르면 이전 명시 창을 떼어내야
+      // 사용자가 방금 고른 기간이 엔진에 반영된다(엔진은 startDate를 period보다 우선한다).
+      ...applyRunWindow(backtestReq, options),
       engine_version: BACKTEST_ENGINE_VERSION,
-      period: options.period ?? backtestReq.period,
       risk: { ...backtestReq.risk, init_cash: options.initialCapital ?? backtestReq.risk?.init_cash },
       options: {
         fee_rate: (options.commissionPct ?? 0.015) / 100,

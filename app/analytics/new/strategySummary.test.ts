@@ -5,12 +5,15 @@ import {
   buildStrategySummaryChips,
   buildStrategySummaryGroups,
   buildStrategySummaryFromDsl,
+  explicitWindowSpanLabel,
+  formatBacktestPeriodLabel,
   formatFundamentalFilter,
   formatInitialCapital,
   FUNDAMENTAL_FILTER_SECTION_LABEL,
   getDisplayExitLabels,
   formatNewListingLabel,
   getDisplayUniverseLabels,
+  getSignalExitLabels,
   getSignalLabel,
   hasBuyCriteria,
   isRawSymbolUniverseName,
@@ -168,15 +171,66 @@ describe("strategySummary", () => {
     expect(FUNDAMENTAL_FILTER_SECTION_LABEL).toBe("진입 신호");
   });
 
-  it("시총 배지는 원 단위 숫자를 한글 단위(억/조)로 표시한다", () => {
-    expect(formatFundamentalFilter({ metric: "market_cap", operator: ">=", value: 10_000_000_000 }))
+  // 시총 필터 값의 정본 단위는 **억원**이다(indicator_registry market_cap "억원",
+  // 엔진 data_resolver `(close × shares) / 1e8`). 원 단위로 오해해 변환하던 탓에
+  // '3000억 원 이상 3조 원 이하'가 요약 카드에 "시총 >= 3000 · 시총 <= 30000"으로
+  // 단위 없이 보였다(2026-08-01 사용자 지적).
+  it("시총 배지는 억원 단위 숫자를 한글 단위(억/조)로 표시한다", () => {
+    expect(formatFundamentalFilter({ metric: "market_cap", operator: ">=", value: 100 }))
       .toBe("시총 >= 100억");
-    expect(formatFundamentalFilter({ metric: "market_cap", operator: ">=", value: 1_000_000_000_000 }))
-      .toBe("시총 >= 1조");
-    expect(formatFundamentalFilter({ metric: "market_cap", operator: ">=", value: 300_000_000_000 }))
+    expect(formatFundamentalFilter({ metric: "market_cap", operator: ">=", value: 3000 }))
       .toBe("시총 >= 3,000억");
-    expect(formatFundamentalFilter({ metric: "market_cap", operator: "<=", value: 1_500_000_000_000 }))
+    expect(formatFundamentalFilter({ metric: "market_cap", operator: "<=", value: 30000 }))
+      .toBe("시총 <= 3조");
+    expect(formatFundamentalFilter({ metric: "market_cap", operator: "<=", value: 15000 }))
       .toBe("시총 <= 1조 5,000억");
+  });
+
+  // '최근 10년간'처럼 버킷 밖 기간은 명시 날짜로 변환돼 저장된다 — 창만 보여주면
+  // 사용자가 말한 기간이 반영됐는지 알 수 없다(2026-08-02 지적).
+  it("창의 길이가 딱 떨어지면 그 길이를 앞세운다", () => {
+    expect(explicitWindowSpanLabel("2016-08-01", "2026-08-01")).toBe("10년");
+    expect(explicitWindowSpanLabel("2025-02-02", "2026-08-02")).toBe("18개월");
+    expect(formatBacktestPeriodLabel({
+      backtest_period: "5y",
+      backtest_start_date: "2016-08-01",
+      backtest_end_date: "2026-08-01",
+    })).toBe("10년 (2016-08-01 ~ 2026-08-01)");
+  });
+
+  it("딱 떨어지지 않는 창은 원래의 창 표기를 그대로 쓴다", () => {
+    // 직접 지정한 연도 범위("2002년부터 2005년까지")를 길이로 뭉개지 않는다.
+    expect(explicitWindowSpanLabel("2002-01-01", "2005-12-31")).toBeNull();
+    expect(formatBacktestPeriodLabel({
+      backtest_start_date: "2002-01-01",
+      backtest_end_date: "2005-12-31",
+    })).toBe("2002-01-01 ~ 2005-12-31");
+    // 종료일이 없는 창(신규 상장 코호트)도 그대로다.
+    expect(explicitWindowSpanLabel("2026-01-01", null)).toBeNull();
+  });
+
+  // 손절·익절·보유 기간을 '리스크'·'포트폴리오' 행으로 따로 보여주는 화면에서는
+  // 청산 신호에 같은 값을 또 싣지 않는다 — 한 카드에서 같은 설정이 두 번 읽힌다
+  // (2026-08-02 지시). 요약 카드와 진행 상황 카드가 이 술어 하나를 공유한다.
+  it("청산 신호 라벨은 지표 신호만 싣는다", () => {
+    const parsed = {
+      ...baseParsed,
+      exit_signals: [{ indicator: "ma_crossover", signal_type: "sell" }],
+      stop_loss_pct: 8,
+      take_profit_pct: 30,
+      trailing_stop_pct: 10,
+      hold_period_days: 25,
+    } as ParsedSummary;
+    expect(getSignalExitLabels(parsed)).toEqual(["MA 데드크로스"]);
+    // 같은 전략에 대해 결과 화면용 라벨은 위험 청산까지 싣는다(진입/청산 두 칸뿐).
+    expect(getDisplayExitLabels(parsed).length).toBeGreaterThan(1);
+  });
+
+  it("지표 청산이 없으면 청산 신호 라벨은 비어 있다", () => {
+    // 손절만 있는 전략은 '리스크' 행이 그 값을 보여주므로 청산 신호 행은 생략된다.
+    const parsed = { ...baseParsed, exit_signals: [], stop_loss_pct: 8 } as ParsedSummary;
+    expect(getSignalExitLabels(parsed)).toEqual([]);
+    expect(getSignalExitLabels(null)).toEqual([]);
   });
 
   it("시총 외 지표(PER 등)는 숫자를 그대로 표시한다", () => {

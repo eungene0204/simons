@@ -123,21 +123,30 @@ export const METRIC_LABELS: Record<string, string> = {
 
 const KO_NUMBER_FORMAT = new Intl.NumberFormat("ko-KR");
 
-// 시총처럼 원 단위 큰 금액(>=1억)을 '100억' / '1조' / '1조 5,000억' 형태로 표시한다.
-// 1억 미만이거나 숫자가 아니면 원본을 그대로 둔다(단위가 모호한 값 오변환 방지).
-export function formatMarketCapValue(value: number): string {
-  if (!Number.isFinite(value) || value < 100_000_000) return String(value);
+// **억원 단위** 금액을 '3,000억' / '3조' / '1조 5,000억' 형태로 표시한다.
+// 시총 필터의 정본 단위가 억원이다(레지스트리 indicator_registry market_cap "억원",
+// 엔진 data_resolver `(close × shares) / 1e8`) — 단위 없이 '3000'만 보이면 사용자는
+// 원·억·조 중 무엇인지 알 수 없다(2026-08-01 지적).
+export function formatEokAmount(eok: number): string {
+  if (!Number.isFinite(eok)) return String(eok);
 
-  const roundedEok = Math.round(value / 100_000_000);
-  if (roundedEok < 10_000) {
-    return `${KO_NUMBER_FORMAT.format(roundedEok)}억`;
+  const rounded = Math.round(eok);
+  if (rounded < 10_000) {
+    return `${KO_NUMBER_FORMAT.format(rounded)}억`;
   }
 
-  const jo = Math.floor(roundedEok / 10_000);
-  const remainderEok = roundedEok % 10_000;
+  const jo = Math.floor(rounded / 10_000);
+  const remainderEok = rounded % 10_000;
   return remainderEok === 0
     ? `${KO_NUMBER_FORMAT.format(jo)}조`
     : `${KO_NUMBER_FORMAT.format(jo)}조 ${KO_NUMBER_FORMAT.format(remainderEok)}억`;
+}
+
+// **원 단위** 큰 금액(>=1억)을 한글 단위로 표시한다(초기자금 등).
+// 1억 미만이거나 숫자가 아니면 원본을 그대로 둔다(단위가 모호한 값 오변환 방지).
+export function formatMarketCapValue(value: number): string {
+  if (!Number.isFinite(value) || value < 100_000_000) return String(value);
+  return formatEokAmount(value / 100_000_000);
 }
 
 // 펀더멘털 필터 배지 문자열을 만든다. 시총은 한글 단위로, 거래대금은 억 단위 표시, 나머지는 원본 숫자로 표시.
@@ -178,13 +187,31 @@ export function formatFundamentalFilter(filter: {
   }
   let value: string;
   if (filter.metric === "market_cap") {
-    value = formatMarketCapValue(filter.value);
+    // 필터 값은 억원 단위다 — 원 단위로 오해해 변환하면 3000억이 '3000'으로 보인다.
+    value = formatEokAmount(filter.value);
   } else if (filter.metric === "trading_value") {
     value = `${KO_NUMBER_FORMAT.format(filter.value)}억`;
   } else {
     value = String(filter.value);
   }
   return `${label} ${filter.operator} ${value}`;
+}
+
+// 초기 자금 상한(100억원). 백엔드 정본은 `backend/engine/nl_parser.py MAX_INITIAL_CAPITAL`이며
+// 여기 값은 설정 패널이 서버 왕복 전에 같은 판정을 하기 위한 사본이다 — 바꿀 때 함께 바꾼다.
+// 상한이 필요한 이유: 1회 매수 금액이 전일 거래대금의 10%를 넘으면 엔진이 그 종목의 진입을
+// 통째로 지우므로(engine/loader.py check_liquidity), 시장이 소화 못 할 자금은 "거래대금 부족"
+// 으로 전 종목이 빠진 빈 백테스트가 된다.
+export const MAX_INITIAL_CAPITAL = 10_000_000_000;
+
+// 백테스트 가능한 데이터 구간. 백엔드 정본은 `backend/engine/nl_parser.py`의
+// DATA_FLOOR_DATE·data_ceiling_date()이며, 여기 값은 설정 패널이 서버 왕복 전에 같은
+// 판정을 하기 위한 사본이다. 상한은 '오늘' — 미래는 시뮬레이션할 수 없다.
+export const BACKTEST_DATA_FLOOR_DATE = "1996-01-01";
+
+export function backtestDataCeilingDate(today: Date = new Date()): string {
+  const local = new Date(today.getTime() - today.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
 }
 
 // 초기자금 배지 문자열을 만든다. 1억 이상이면 '50억원'처럼 한글 단위로, 미만이면 콤마 포함 원 단위로 표시.
@@ -202,8 +229,30 @@ export const PERIOD_LABELS: Record<string, string> = {
   full: "전체",
 };
 
+// 명시 창의 길이가 딱 떨어지면 사용자가 말한 단위("10년"·"18개월")로 되돌린다.
+// '최근 10년간' 같은 버킷 밖 기간은 명시 날짜로 변환돼 저장되므로(BacktestSpec), 창만
+// 보여주면 사용자는 자기가 말한 기간이 반영됐는지 알 수 없다(2026-08-02 지적).
+// 길이 계산은 날짜 산술이지 해석이 아니다 — 딱 떨어지지 않는 창(직접 지정한 연도 범위 등)은
+// null을 돌려 원래의 창 표기를 그대로 쓴다.
+export function explicitWindowSpanLabel(
+  from: string | null | undefined,
+  to: string | null | undefined,
+): string | null {
+  if (!from || !to) return null;
+  const start = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  if (start.getUTCDate() !== end.getUTCDate()) return null;
+  const months =
+    (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
+    (end.getUTCMonth() - start.getUTCMonth());
+  if (months <= 0) return null;
+  return months % 12 === 0 ? `${months / 12}년` : `${months}개월`;
+}
+
 // 백테스트 기간 배지. 명시 날짜가 있으면 그 창을 그대로 보여준다 — 상대 기간 라벨
 // ("5년")은 신규 상장 코호트처럼 창이 조정된 경우 실제 실행 구간과 어긋난다.
+// 창의 길이가 딱 떨어지면 그 길이를 앞세운다(사용자가 말한 '10년'이 반영됐는지 보이도록).
 export function formatBacktestPeriodLabel(parsed: {
   backtest_period?: string | null;
   backtest_start_date?: string | null;
@@ -211,6 +260,8 @@ export function formatBacktestPeriodLabel(parsed: {
 }): string | null {
   const from = parsed.backtest_start_date ?? null;
   const to = parsed.backtest_end_date ?? null;
+  const span = explicitWindowSpanLabel(from, to);
+  if (span) return `${span} (${from} ~ ${to})`;
   if (from) return `${from} ~ ${to ?? "현재"}`;
   if (to) return `~ ${to}`;
   const period = parsed.backtest_period ? String(parsed.backtest_period).toLowerCase() : null;
@@ -468,6 +519,19 @@ export function getRankingLabel(parsed: ParsedSummary): string | null {
     return `${days}일 수익률 상위`;
   }
   return null;
+}
+
+/** 지표가 만드는 청산 신호만. 손절·익절·트레일링·보유 기간은 제외한다.
+ *
+ * 리스크·포트폴리오 항목을 **따로 보여주는 화면**(전략 요약 카드, 진행 상황 카드)이 쓴다 —
+ * 거기서 `getDisplayExitLabels`를 쓰면 같은 설정이 한 카드에서 두 번 읽힌다(2026-08-02 지시).
+ * 진입/청산 두 칸만 있는 결과 화면 배지는 위험 청산까지 실어야 하므로 그쪽은 그대로 둔다.
+ * 두 화면이 각자 필터링하면 또 갈리므로 술어를 여기 하나로 둔다.
+ */
+export function getSignalExitLabels(
+  parsed: Pick<ParsedSummary, "exit_signals"> | null | undefined,
+): string[] {
+  return (parsed?.exit_signals ?? []).map((signal) => getSignalLabel(signal, "exit"));
 }
 
 export function getDisplayExitLabels(parsed: ParsedSummary): string[] {

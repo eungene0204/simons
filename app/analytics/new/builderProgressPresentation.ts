@@ -2,10 +2,10 @@ import {
   formatFundamentalFilter,
   formatInitialCapital,
   formatDownsidePercent,
-  getDisplayExitLabels,
   getDisplayUniverseLabels,
   getPositionLabel,
   getRankingLabel,
+  getSignalExitLabels,
   getSignalLabel,
   formatBacktestPeriodLabel,
   formatNewListingLabel,
@@ -327,7 +327,10 @@ export function buildBuilderTurnPresentation({
       (parsed ? getDisplayUniverseLabels(parsed, backtestRequest).join(" · ") : null)
     : null;
   const entryLabel = buildEntryLabel(state, parsed);
-  const exitLabels = parsed ? getDisplayExitLabels(parsed) : [];
+  // '매도 조건'은 지표가 만드는 청산 신호만 싣는다 — 손절·익절·트레일링·보유 기간은
+  // 아래 '리스크 관리' 항목이 같은 값을 그대로 보여주므로, 함께 넣으면 한 카드에서
+  // 같은 설정이 두 번 읽힌다(2026-08-02 지시 — 요약 카드와 같은 정리).
+  const exitLabels = getSignalExitLabels(parsed);
   const riskLabel = buildRiskLabel(state, parsed);
   const specifiedSymbolCount = parsed?.target_symbols?.length ?? 0;
   const holdingCountFromState = hasValue(state.holding_count);

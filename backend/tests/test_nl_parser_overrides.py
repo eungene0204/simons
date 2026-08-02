@@ -3969,19 +3969,96 @@ def test_modify_stop_loss_number_not_misread_as_capital():
 
 def test_enforce_initial_capital_minimum_clamps_and_notifies():
     # [회귀] 300원 같은 하한 미만 입력은 100만원으로 보정하고 안내 문구를 반환한다.
-    from engine.nl_parser import enforce_initial_capital_minimum, MIN_INITIAL_CAPITAL
+    from engine.nl_parser import enforce_initial_capital_bounds, MIN_INITIAL_CAPITAL
     parsed = make_base_strategy().model_copy(update={"initial_capital": 300.0})
-    notice = enforce_initial_capital_minimum(parsed)
+    notice = enforce_initial_capital_bounds(parsed)
     assert parsed.initial_capital == MIN_INITIAL_CAPITAL == 1_000_000.0
     assert notice is not None and "100만원" in notice
 
 
 def test_enforce_initial_capital_minimum_leaves_valid_amount():
     # 하한 이상이면 보정하지 않고 안내도 없다(None).
-    from engine.nl_parser import enforce_initial_capital_minimum
+    from engine.nl_parser import enforce_initial_capital_bounds
     parsed = make_base_strategy().model_copy(update={"initial_capital": 3_000_000.0})
-    assert enforce_initial_capital_minimum(parsed) is None
+    assert enforce_initial_capital_bounds(parsed) is None
     assert parsed.initial_capital == 3_000_000.0
+
+
+def test_enforce_initial_capital_maximum_rejects_and_asks_again():
+    # [회귀] 100조 같은 상한 초과 입력은 **보정하지 않고 버린다** — 100억으로 깎아 주면
+    # 사용자가 말한 적 없는 금액을 확정하는 것이고, 그대로 두면 유동성 가드가 전 종목을
+    # 걸러 빈 백테스트가 된다(2026-08-02 사용자 보고).
+    from engine.nl_parser import (
+        DEFAULT_INITIAL_CAPITAL, MAX_INITIAL_CAPITAL, enforce_initial_capital_bounds,
+    )
+    parsed = make_base_strategy().model_copy(update={"initial_capital": 100_000_000_000_000.0})
+    notice = enforce_initial_capital_bounds(parsed)
+    assert MAX_INITIAL_CAPITAL == 10_000_000_000.0
+    assert parsed.initial_capital == DEFAULT_INITIAL_CAPITAL
+    assert notice is not None and "100억원" in notice and "다시 선택" in notice
+
+
+def test_enforce_initial_capital_maximum_allows_exact_limit():
+    # 상한 자체(100억)는 허용한다 — 경계에서 되묻으면 우리가 알려준 값을 못 고른다.
+    from engine.nl_parser import MAX_INITIAL_CAPITAL, enforce_initial_capital_bounds
+    parsed = make_base_strategy().model_copy(update={"initial_capital": MAX_INITIAL_CAPITAL})
+    assert enforce_initial_capital_bounds(parsed) is None
+    assert parsed.initial_capital == MAX_INITIAL_CAPITAL
+
+
+def test_future_end_date_is_truncated_to_today():
+    # [회귀 2026-08-02] '2024년부터 2035년까지'는 아무 검사 없이 통과했고, 엔진은 조용히
+    # 오늘까지만 돌리는데 요약 카드·결과 배지는 2035년까지 돌린 것처럼 표시됐다.
+    from engine.nl_parser import data_ceiling_date, enforce_strategy_minimums
+    parsed = make_base_strategy().model_copy(update={
+        "backtest_start_date": "2024-01-01", "backtest_end_date": "2035-12-31",
+    })
+    notices = enforce_strategy_minimums(parsed)
+    assert parsed.backtest_end_date == data_ceiling_date()
+    assert parsed.backtest_start_date == "2024-01-01"  # 시작일은 건드리지 않는다
+    assert any("미래" in n for n in notices)
+
+
+@pytest.mark.parametrize("start,end", [
+    ("2030-01-01", "2035-12-31"),   # 창 전체가 미래
+    ("1980-01-01", "1990-12-31"),   # 창 전체가 데이터 시작 이전
+])
+def test_window_entirely_outside_data_is_dropped_and_reasked(start, end):
+    # 실행 불가한 창은 엔진의 "분석 가능한 유효한 데이터가 없습니다" 예외로 죽기 전에
+    # 파싱 단계에서 버린다 — 사용자가 전략을 다 만들고 실행한 뒤에야 알게 되던 구멍.
+    from engine.nl_parser import (
+        backtest_window_is_empty, enforce_strategy_minimums,
+    )
+    parsed = make_base_strategy().model_copy(update={
+        "backtest_start_date": start, "backtest_end_date": end,
+    })
+    assert backtest_window_is_empty(parsed) is True
+    notices = enforce_strategy_minimums(parsed)
+    assert parsed.backtest_start_date is None and parsed.backtest_end_date is None
+    assert any("다시 선택" in n for n in notices)
+
+
+def test_window_partially_inside_data_is_kept():
+    # 데이터 구간과 조금이라도 겹치면 실행 가능하다 — 1996년 이전 시작일은 종전대로
+    # 날짜를 유지하고 커버리지 사실만 알린다(엔진이 가용 구간부터 시작).
+    from engine.nl_parser import backtest_window_is_empty, enforce_strategy_minimums
+    parsed = make_base_strategy().model_copy(update={
+        "backtest_start_date": "1980-01-01", "backtest_end_date": "2000-12-31",
+    })
+    assert backtest_window_is_empty(parsed) is False
+    notices = enforce_strategy_minimums(parsed)
+    assert parsed.backtest_start_date == "1980-01-01"
+    assert parsed.backtest_end_date == "2000-12-31"
+    assert any("1996" in n for n in notices)
+
+
+def test_enforce_strategy_minimums_reports_capital_over_limit():
+    # 공통 진입점(모든 파싱 경로)도 상한 초과 안내를 낸다.
+    from engine.nl_parser import DEFAULT_INITIAL_CAPITAL, enforce_strategy_minimums
+    parsed = make_base_strategy().model_copy(update={"initial_capital": 50_000_000_000.0})
+    notices = enforce_strategy_minimums(parsed)
+    assert any("100억원" in n for n in notices)
+    assert parsed.initial_capital == DEFAULT_INITIAL_CAPITAL
 
 
 def test_enforce_strategy_minimums_clamps_hold_and_lookback():

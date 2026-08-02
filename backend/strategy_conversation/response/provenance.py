@@ -66,6 +66,44 @@ def explicit_fields_from_spec(strategy: Any) -> List[str]:
     return fields
 
 
+# 패치 경로 → provenance 필드. 인덱스(`/0`)는 정규화 단계에서 떨어진다.
+_PATCH_PATH_FIELDS: tuple[tuple[str, str], ...] = (
+    ("universe", UNIVERSE),
+    ("portfolio.selection_count", MAX_POSITIONS),
+    ("portfolio.rebalance_frequency", REBALANCING),
+    ("backtest.period", BACKTEST_PERIOD),
+    ("backtest.start_date", BACKTEST_PERIOD),
+    ("backtest.end_date", BACKTEST_PERIOD),
+    ("backtest.initial_capital", INITIAL_CAPITAL),
+)
+
+
+def explicit_fields_from_patches(patches: Optional[Iterable[Any]]) -> List[str]:
+    """수정 턴에서 **이번 발화가 실제로 바꾼** 설정 필드(정규식 무관여, 경로 표기만 본다).
+
+    수정 레인은 spec에서 판정하면 안 된다 — 그 spec은 "LLM이 사용자 발화에서 뽑은 것"이
+    아니라 **이전 전략을 디컴파일한 초안 + 패치**다. 디컴파일러가 물질화 기본값
+    (`initial_capital=10,000,000`)을 채워 넣으므로, 값의 존재로 판정하면 사용자가 말한 적
+    없는 기본값이 '명시'로 둔갑한다(2026-08-02 실측 2/2: 백테스트 기간만 답했는데
+    initial_capital이 explicit로 올라가 초기 자금을 **묻지 않게 됐다** → 1천만원 조용히 확정).
+    이번 턴의 근거는 환각 게이트를 통과한 패치뿐이고, 이전 턴 값은 에코 합집합이 지킨다.
+    """
+    fields: List[str] = []
+    for patch in patches or ():
+        raw = getattr(patch, "path", None) or (
+            patch.get("path") if isinstance(patch, dict) else None
+        )
+        parts = [p for p in str(raw or "").strip("/").split("/") if p and not p.isdigit()]
+        normalized = ".".join(parts)
+        if not normalized:
+            continue
+        for prefix, field in _PATCH_PATH_FIELDS:
+            if normalized == prefix or normalized.startswith(prefix + "."):
+                if field not in fields:
+                    fields.append(field)
+    return fields
+
+
 def merge_explicit_fields(
     previous: Optional[Iterable[Any]], current: Optional[Iterable[Any]]
 ) -> List[str]:

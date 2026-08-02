@@ -74,13 +74,14 @@ def is_default_question(text: str) -> bool:
 
 def _defaults() -> dict:
     # 지연 import — engine.simulator는 vectorbt를 끌고 오므로 모듈 로드 시점 비용을 피한다.
-    from engine.nl_parser import MIN_INITIAL_CAPITAL, ParsedStrategy
+    from engine.nl_parser import MAX_INITIAL_CAPITAL, MIN_INITIAL_CAPITAL, ParsedStrategy
     from engine.simulator import DEFAULT_SELL_TAX_RATE
 
     fields = ParsedStrategy.model_fields
     return {
         "capital": fields["initial_capital"].default,          # 원
         "min_capital": MIN_INITIAL_CAPITAL,                    # 원
+        "max_capital": MAX_INITIAL_CAPITAL,                    # 원
         "fee_pct": fields["fee_rate"].default,                 # %
         "slippage_pct": fields["slippage_rate"].default,       # %
         "sell_tax_pct": DEFAULT_SELL_TAX_RATE * 100,           # %
@@ -96,12 +97,17 @@ def _fmt_manwon(value: float) -> str:
     return f"{value / 10_000:,.0f}만원"
 
 
+def _fmt_eok(value: float) -> str:
+    return f"{value / 100_000_000:,.0f}억원"
+
+
 def _topic_lines(topics: list[str]) -> list[str]:
     d = _defaults()
     lines = {
         "capital": (
             f"초기자금 기본값은 {_fmt_manwon(d['capital'])}입니다"
-            f" (최소 {_fmt_manwon(d['min_capital'])} — 더 작게 입력하면 자동 보정됩니다)."
+            f" (최소 {_fmt_manwon(d['min_capital'])} — 더 작게 입력하면 자동 보정됩니다,"
+            f" 최대 {_fmt_eok(d['max_capital'])} — 더 크게 입력하면 설정되지 않습니다)."
         ),
         "fee": (
             f"매매 수수료 기본값은 매수·매도 각 {_fmt_pct(d['fee_pct'])}입니다."

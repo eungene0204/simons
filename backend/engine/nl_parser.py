@@ -3369,9 +3369,30 @@ def _extract_initial_capital(user_input: str) -> float:
 MIN_INITIAL_CAPITAL = 1_000_000.0
 MIN_INITIAL_CAPITAL_NOTICE = "최소 초기자금은 100만원입니다. 입력하신 금액이 작아 100만원으로 설정했어요."
 
+# 초기자금 상한선(100억원, 2026-08-02 사용자 결정). 시장이 소화할 수 없는 자금은 백테스트
+# 자체를 무의미하게 만든다 — 1회 매수 금액이 전일 거래대금의 10%를 넘으면 그 종목의 진입이
+# 통째로 지워지므로(engine.loader.check_liquidity), 자금이 커질수록 "거래대금 부족"으로
+# 전 종목이 빠진 빈 결과가 나온다.
+MAX_INITIAL_CAPITAL = 10_000_000_000.0
+# 하한선과 달리 **보정하지 않고 값을 버린다.** 100억으로 깎아 주면 사용자가 말한 적 없는
+# 금액을 우리가 확정하는 것이고, 그대로 두면 실행 불가능한 전략이 돌아간다.
+MAX_INITIAL_CAPITAL_NOTICE = (
+    "초기 자금은 최대 100억원까지 설정할 수 있어요. 입력하신 금액은 반영하지 않았으니 "
+    "100억원 이하로 다시 선택해 주세요."
+)
+DEFAULT_INITIAL_CAPITAL = 10_000_000.0
 
-def enforce_initial_capital_minimum(parsed: ParsedStrategy) -> Optional[str]:
-    """초기자금이 하한선 미만이면 하한선으로 보정하고 사용자 안내 문구를 반환한다(보정 없으면 None)."""
+
+def enforce_initial_capital_bounds(parsed: ParsedStrategy) -> Optional[str]:
+    """초기자금을 허용 범위로 강제하고 사용자 안내 문구를 반환한다(보정 없으면 None).
+
+    하한선 미만은 하한선으로 **보정**하고, 상한선 초과는 값을 **버려** 기본값으로 되돌린다.
+    되돌린 기본값이 '사용자가 정한 값'으로 굳지 않도록, 호출부는 이 경우 초기 자본의
+    explicit provenance를 떼어내 다시 묻는다(main._finalize_parse_result).
+    """
+    if parsed.initial_capital > MAX_INITIAL_CAPITAL:
+        parsed.initial_capital = DEFAULT_INITIAL_CAPITAL
+        return MAX_INITIAL_CAPITAL_NOTICE
     if parsed.initial_capital < MIN_INITIAL_CAPITAL:
         parsed.initial_capital = MIN_INITIAL_CAPITAL
         return MIN_INITIAL_CAPITAL_NOTICE
@@ -3402,7 +3423,7 @@ def enforce_strategy_minimums(parsed: ParsedStrategy) -> list[str]:
     """
     notices: list[str] = []
 
-    capital_notice = enforce_initial_capital_minimum(parsed)
+    capital_notice = enforce_initial_capital_bounds(parsed)
     if capital_notice:
         notices.append(capital_notice)
 
@@ -3467,6 +3488,66 @@ def enforce_strategy_minimums(parsed: ParsedStrategy) -> list[str]:
             f"백테스트 시작일을 {parsed.listing_from}로 맞췄어요."
         )
 
+    notices.extend(enforce_backtest_window_bounds(parsed))
+
+    return notices
+
+
+def data_ceiling_date() -> str:
+    """백테스트 가능한 마지막 날(= 오늘). 미래는 시뮬레이션할 수 없다.
+
+    실제 파케이의 마지막 거래일(어제·지난 금요일)이 아니라 '오늘'을 쓴다 — 파일을 읽지
+    않아 파싱 경로가 가벼우며, 오늘과 마지막 거래일 사이의 차이(주말·장 마감 전)는
+    엔진이 알아서 흡수한다(없는 날짜는 그냥 행이 없다).
+    """
+    return date.today().isoformat()
+
+
+def backtest_window_is_empty(parsed: ParsedStrategy) -> bool:
+    """요청한 창이 보유 데이터 구간과 **전혀 겹치지 않는가**(실행 불가 판정).
+
+    창 전체가 미래(2030~2035)이거나 데이터 시작 이전(1980~1990)이면 백테스트가 성립하지
+    않는다. 지금은 이런 요청이 그대로 통과해 엔진에서 "분석 가능한 유효한 데이터가
+    없습니다" 예외로 죽는다 — 사용자는 전략을 다 만들고 실행 버튼을 누른 뒤에야 안다.
+    """
+    start, end = parsed.backtest_start_date, parsed.backtest_end_date
+    if start is not None and start > data_ceiling_date():
+        return True
+    if end is not None and end < DATA_FLOOR_DATE:
+        return True
+    return False
+
+
+def enforce_backtest_window_bounds(parsed: ParsedStrategy) -> list[str]:
+    """백테스트 창을 데이터 보유 구간으로 강제하고 안내 문구를 반환한다.
+
+    세 갈래이며 처리 방식이 다르다(2026-08-02 사용자 결정):
+    ① 창 전체가 데이터 밖 → **창을 버린다**(기간 되묻기). 호출부가 explicit provenance를
+       떼어내 다시 묻는다 — 초기 자금 상한(enforce_initial_capital_bounds)과 같은 계약.
+    ② 종료일만 미래 → 데이터 끝(오늘)으로 **절단**하고 알린다. '2035년까지'의 실제 의도는
+       "가능한 데이터까지"이고, 절단 사실을 알리지 않으면 화면의 기간과 실행된 창이
+       어긋난다(엔진은 조용히 오늘까지만 돌리고 배지는 2035를 보여주던 상태).
+    ③ 시작일만 데이터 이전 → 종전대로 **날짜 유지 + 안내**(엔진이 가용 구간부터 시작).
+    """
+    notices: list[str] = []
+    ceiling = data_ceiling_date()
+
+    if backtest_window_is_empty(parsed):
+        parsed.backtest_start_date = None
+        parsed.backtest_end_date = None
+        notices.append(
+            f"백테스트는 {DATA_FLOOR_DATE[:4]}년부터 오늘({ceiling})까지의 과거 데이터로만 "
+            "할 수 있어요. 요청하신 기간에는 사용할 수 있는 데이터가 없어 반영하지 않았으니 "
+            "기간을 다시 선택해 주세요."
+        )
+        return notices
+
+    if parsed.backtest_end_date is not None and parsed.backtest_end_date > ceiling:
+        parsed.backtest_end_date = ceiling
+        notices.append(
+            f"미래 구간은 백테스트할 수 없어 종료일을 오늘({ceiling})로 맞췄어요."
+        )
+
     # 데이터 커버리지 안내 — 가격 데이터는 대략 1996년부터라 그 이전 시작일은 의미가 없다.
     # 날짜는 유지하고(엔진이 가용 구간부터 시작) 사실만 알린다(QA 11-4).
     if parsed.backtest_start_date is not None and parsed.backtest_start_date < DATA_FLOOR_DATE:
@@ -3474,7 +3555,6 @@ def enforce_strategy_minimums(parsed: ParsedStrategy) -> list[str]:
             f"과거 가격 데이터는 대략 {DATA_FLOOR_DATE[:4]}년부터 제공돼요. "
             "그 이전 구간은 데이터가 없어 실제 백테스트는 데이터가 있는 시점부터 시작됩니다."
         )
-
     return notices
 
 
@@ -3700,6 +3780,46 @@ def mentions_unresolved_sector(user_input: str) -> bool:
     검색 그라운딩 사전 학습(term_grounding.learn_sector_term)의 게이트 — 섹터 되묻기
     (detect_unresolved_sector_clarification)와 같은 판정을 공유한다."""
     return "sector" in _mentioned_unsupported_concepts(user_input)
+
+
+def _input_numbers(user_input: str) -> set:
+    """입력에 쓰인 수치 집합. 어휘가 아니라 **수치 대조**용이다(계약 § 3-1 ②)."""
+    from strategy_conversation.validation.recall_validator import _collect_numbers
+
+    acc: set = set()
+    _collect_numbers(user_input or "", acc)
+    return acc
+
+
+# 컴파일된 전략이 그 개념을 실제로 표현했는지 판정하는 술어. 지원 지표로 반영됐는데
+# "지원되지 않아요" 안내가 함께 나가면 모순이므로 안내에서 뺀다 — sector(추출 성공 시 제외)·
+# dividend(배당 지표 추출 시 제외)와 같은 계약이다. 판정 입력은 컴파일 결과와 입력 **수치**뿐
+# — 원문의 어휘를 다시 읽지 않는다(자연어 해석 계약 § 판정 기준).
+#   cash_flow — 현금흐름 '수준/흑자 여부'는 미지원이지만 증가율(ocf_growth·fcf_growth)은
+#     정식 지원 지표다(2026-08-01: 지원되는데도 안내가 나가던 오탐). 단 임계값이 입력 수치에
+#     없으면 인터프리터가 지어낸 대체다 — '현금흐름 흑자'를 ocf_growth>=0으로 옮기는 유사
+#     대체가 실측돼(조용한 의미 변경) 그 경우엔 안내를 남긴다.
+#   ema_alignment — '정배열'은 두 선의 상하 관계(crossover 표기)로 표현된다(인터프리터
+#     프롬프트 5-3). 세 선 이상을 나열한 정배열의 부분 표현은 이 술어가 구분하지 못한다.
+_CONCEPT_EXPRESSED_PREDICATES: dict[str, Any] = {
+    "cash_flow": lambda p, nums: any(
+        f.metric in ("ocf_growth", "fcf_growth")
+        and any(abs(float(f.value) - n) < 1e-6 for n in nums)
+        for f in p.fundamental_filters
+    ),
+    "ema_alignment": lambda p, nums: any(
+        s.indicator in ("ema", "ma_crossover") for s in p.entry_signals + p.exit_signals
+    ),
+}
+
+
+def concepts_expressed_in_strategy(parsed: "ParsedStrategy", user_input: str) -> set:
+    """컴파일된 전략이 실제로 표현한 미지원-후보 개념 이름들(안내 제외 대상)."""
+    numbers = _input_numbers(user_input)
+    return {
+        name for name, expressed in _CONCEPT_EXPRESSED_PREDICATES.items()
+        if expressed(parsed, numbers)
+    }
 
 
 def build_unsupported_concept_notice(

@@ -340,3 +340,37 @@ describe("progressStatusText — 두 축을 화면 문구 하나로", () => {
     ).toBeUndefined();
   });
 });
+
+
+describe("매도 조건 — 리스크 관리와 값을 중복하지 않는다 (2026-08-02)", () => {
+  it("매도 조건은 지표 청산만, 손절·익절·보유 기간은 리스크 관리만 보여준다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: { stop_loss_pct: 8, take_profit_pct: 30, hold_period_days: 25 },
+      reply: "",
+      parsed: {
+        ...themeParsed,
+        exit_signals: [{ indicator: "ma_crossover", signal_type: "sell" }],
+        stop_loss_pct: 8,
+        take_profit_pct: 30,
+        hold_period_days: 25,
+      },
+    });
+    const exit = presentation.summaryItems.find((i) => i.label === "매도 조건");
+    expect(exit?.value).toBe("MA 데드크로스");
+    // 같은 값이 카드 안에서 두 번 읽히지 않는다.
+    expect(exit?.value).not.toContain("손절");
+    expect(exit?.value).not.toContain("익절");
+    const risk = presentation.summaryItems.find((i) => i.label === "리스크 관리");
+    expect(risk?.value).toBe("손절 -8% · 익절 30% · 25일 보유");
+  });
+
+  it("지표 청산이 없으면 매도 조건 항목 자체를 만들지 않는다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: { stop_loss_pct: 8 },
+      reply: "",
+      parsed: { ...themeParsed, exit_signals: [], stop_loss_pct: 8 },
+    });
+    expect(presentation.summaryItems.find((i) => i.label === "매도 조건")).toBeUndefined();
+    expect(presentation.summaryItems.find((i) => i.label === "리스크 관리")?.value).toBe("손절 -8%");
+  });
+});

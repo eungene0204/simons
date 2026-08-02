@@ -147,3 +147,55 @@ def test_dividend_growth_supported_no_unsupported_notice():
     from engine.nl_parser import build_unsupported_concept_notice
     assert build_unsupported_concept_notice("배당성장률 10% 이상 종목 매수") is None
     assert "dividend_growth" in FUNDAMENTAL_CIDS
+
+
+# ── 미지원 안내 오탐(2026-08-01): 전략이 이미 표현한 개념은 안내에서 뺀다 ──────────
+def _parsed(**kwargs):
+    from engine.nl_parser import ParsedStrategy
+
+    return ParsedStrategy(description="x", universe=["KOSPI"], **kwargs)
+
+
+def test_expressed_cash_flow_growth_drops_unsupported_notice():
+    """'영업활동현금흐름 증가율 10% 이상'은 ocf_growth로 정식 지원된다 — 반영됐는데
+    "현금흐름 조건 미지원" 안내가 함께 나가던 오탐(예시 QA 2026-08-01)."""
+    from engine.nl_parser import build_unsupported_concept_notice, concepts_expressed_in_strategy
+
+    text = "최근 4개 분기 영업활동현금흐름 증가율이 10% 이상인 기업을 선별해 주세요"
+    parsed = _parsed(fundamental_filters=[
+        {"metric": "ocf_growth", "operator": ">=", "value": 10.0},
+    ])
+    assert concepts_expressed_in_strategy(parsed, text) == {"cash_flow"}
+    assert build_unsupported_concept_notice(
+        text, exclude=concepts_expressed_in_strategy(parsed, text)) is None
+
+
+def test_invented_growth_threshold_keeps_cash_flow_notice():
+    """'현금흐름이 흑자'(수준 조건)를 ocf_growth>=0으로 옮긴 유사 대체는 안내를 남긴다 —
+    입력에 없는 임계값이면 표현이 아니라 조용한 의미 변경이다."""
+    from engine.nl_parser import build_unsupported_concept_notice, concepts_expressed_in_strategy
+
+    text = "PBR 1.3배 이하이면서 영업활동현금흐름이 최근 분기 기준 흑자인 기업만 보고 싶습니다"
+    parsed = _parsed(fundamental_filters=[
+        {"metric": "pbr", "operator": "<=", "value": 1.3},
+        {"metric": "ocf_growth", "operator": ">=", "value": 0.0},
+    ])
+    assert concepts_expressed_in_strategy(parsed, text) == set()
+    assert "현금흐름" in (build_unsupported_concept_notice(text) or "")
+
+
+def test_expressed_ma_alignment_drops_unsupported_notice():
+    """'20일 EMA가 60일 EMA 위' 같은 정배열은 두 선의 상하 관계로 표현된다 — 전략에
+    반영됐는데 "정배열 미지원" 안내가 함께 나가던 오탐."""
+    from engine.nl_parser import build_unsupported_concept_notice, concepts_expressed_in_strategy
+
+    text = "20일 EMA가 60일 EMA 위에 있는 정배열 상태에서 종가가 5일 EMA를 회복하면 매수"
+    parsed = _parsed(entry_signals=[
+        {"indicator": "ema", "short_period": 20, "long_period": 60, "mode": "above"},
+    ])
+    assert concepts_expressed_in_strategy(parsed, text) == {"ema_alignment"}
+    assert build_unsupported_concept_notice(
+        text, exclude=concepts_expressed_in_strategy(parsed, text)) is None
+    # 이동평균 조건이 하나도 없으면(표현 실패) 안내는 그대로 유지된다.
+    assert "정배열" in (build_unsupported_concept_notice(text, exclude=concepts_expressed_in_strategy(
+        _parsed(), text)) or "")

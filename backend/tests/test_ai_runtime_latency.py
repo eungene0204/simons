@@ -11,6 +11,7 @@ import main
 class _DummyParsed:
     fundamental_filters = []
     entry_signals = []
+    exit_signals = []
     ranking_metric = None
     # 하한선 보정(enforce_strategy_minimums)이 읽는 필드들
     initial_capital = 10_000_000.0
@@ -23,6 +24,7 @@ class _DummyParsed:
     fee_rate = 0.015
     slippage_rate = 0.05
     backtest_start_date = None
+    backtest_end_date = None
     listing_from = None
     listing_to = None
 

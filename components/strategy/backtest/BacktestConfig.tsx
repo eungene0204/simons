@@ -1,7 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { 
+import {
+  BACKTEST_DATA_FLOOR_DATE,
+  MAX_INITIAL_CAPITAL,
+  backtestDataCeilingDate,
+  formatInitialCapital,
+} from "@/lib/strategy-summary";
+import {
   PlayCircle,
   ArrowsClockwise,
   Globe,
@@ -132,33 +138,46 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
     }
   }, [initialConfig]);
 
+  // 대화 파싱의 정본 기간 버킷(1y/3y/5y/full)을 패널이 모두 표현할 수 있어야 한다 —
+  // 대응 버튼이 없으면 그 기간으로 만들어진 전략이 아무것도 선택되지 않은 채 열린다.
   const periods = [
     { id: "6M", label: "6개월" },
     { id: "1Y", label: "1년" },
+    { id: "3Y", label: "3년" },
     { id: "5Y", label: "5년" },
     { id: "10Y", label: "10년" },
     { id: "20Y", label: "20년" },
+    { id: "full", label: "전체" },
     { id: "custom", label: "직접 입력" },
   ];
+  const RELATIVE_YEARS: Record<string, number> = { "1Y": 1, "3Y": 3, "5Y": 5, "10Y": 10, "20Y": 20 };
   const handlePeriodChange = (id: string) => {
     setPeriod(id);
-    if (id !== "custom") {
-      const end = new Date();
-      const start = new Date();
-      
-      switch (id) {
-        case "6M": start.setMonth(end.getMonth() - 6); break;
-        case "1Y": start.setFullYear(end.getFullYear() - 1); break;
-        case "5Y": start.setFullYear(end.getFullYear() - 5); break;
-        case "10Y": start.setFullYear(end.getFullYear() - 10); break;
-        case "20Y": start.setFullYear(end.getFullYear() - 20); break;
-      }
-      setStartDate(start.toISOString().split('T')[0]);
-      setEndDate(end.toISOString().split('T')[0]);
-    }
+    // 직접 입력·전체는 표시할 창을 계산하지 않는다(전체는 데이터 전 구간이라 창이 없다).
+    if (id === "custom" || id === "full") return;
+    const end = new Date();
+    const start = new Date();
+    if (id === "6M") start.setMonth(end.getMonth() - 6);
+    else start.setFullYear(end.getFullYear() - (RELATIVE_YEARS[id] ?? 5));
+    setStartDate(start.toISOString().split('T')[0]);
+    setEndDate(end.toISOString().split('T')[0]);
   };
 
+  // 상한을 넘는 자금은 조용히 깎지 않는다 — 사용자가 말한 적 없는 금액으로 돌리는 것이고,
+  // 그대로 실행하면 유동성 가드가 전 종목을 걸러 빈 결과가 나온다. 실행을 막고 다시 고르게 한다.
+  const capitalOverLimit = initialCapital > MAX_INITIAL_CAPITAL;
+
+  // '직접 입력' 창은 보유 데이터 구간(1996~오늘) 안에 있어야 한다. 미래 종료일을 그대로
+  // 보내면 엔진은 오늘까지만 돌리는데 화면은 요청한 날짜를 보여줘 둘이 어긋나고, 창 전체가
+  // 데이터 밖이면 엔진이 "분석 가능한 유효한 데이터가 없습니다"로 죽는다.
+  const dataCeiling = backtestDataCeilingDate();
+  const windowOutOfRange = period === "custom" && (
+    endDate > dataCeiling || startDate > dataCeiling ||
+    endDate < BACKTEST_DATA_FLOOR_DATE || startDate > endDate
+  );
+
   const handleRun = () => {
+    if (capitalOverLimit || windowOutOfRange) return;
     onRun({
       period,
       startDate: period === "custom" ? startDate : undefined,
@@ -224,6 +243,8 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                     <input
                       type="date"
                       value={startDate}
+                      min={BACKTEST_DATA_FLOOR_DATE}
+                      max={dataCeiling}
                       onChange={(e) => setStartDate(e.target.value)}
                       className="bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-main-blue transition-all"
                     />
@@ -233,11 +254,21 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                     <input
                       type="date"
                       value={endDate}
+                      min={BACKTEST_DATA_FLOOR_DATE}
+                      max={dataCeiling}
                       onChange={(e) => setEndDate(e.target.value)}
                       className="bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-main-blue transition-all"
                     />
                   </div>
                 </div>
+              )}
+              {windowOutOfRange && (
+                <p
+                  data-testid="backtest-window-out-of-range"
+                  className="text-[10px] font-bold text-red-400 pl-1"
+                >
+                  백테스트는 {BACKTEST_DATA_FLOOR_DATE}부터 오늘({dataCeiling})까지만 가능합니다. 기간을 다시 선택해 주세요.
+                </p>
               )}
             </div>
           </div>
@@ -252,7 +283,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
             <div className="space-y-3">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">초기 자본금</label>
-                <div className="bg-[#111] border border-white/5 rounded-xl px-4 py-2 group hover:border-white/10 focus-within:border-main-blue transition-all relative overflow-hidden">
+                <div className={`bg-[#111] border rounded-xl px-4 py-2 group hover:border-white/10 focus-within:border-main-blue transition-all relative overflow-hidden ${capitalOverLimit ? "border-red-500/60" : "border-white/5"}`}>
                   <div className="absolute inset-y-0 left-0 w-1 bg-main-blue opacity-0 group-focus-within:opacity-100 transition-opacity" />
                   <div className="flex items-center justify-between">
                     <input
@@ -262,12 +293,21 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                         const val = Number(e.target.value.replace(/,/g, ''));
                         if (!isNaN(val)) setInitialCapital(val);
                       }}
+                      aria-invalid={capitalOverLimit}
                       className="w-full bg-transparent border-none p-0 text-white font-black text-lg outline-none"
                     />
                     <span className="text-[#606060] font-black text-sm ml-3 tracking-widest">KRW</span>
                   </div>
                   <p className="text-[9px] font-bold text-main-blue mt-0.5 text-right">{formatKoreanUnit(initialCapital)}</p>
                 </div>
+                {capitalOverLimit && (
+                  <p
+                    data-testid="initial-capital-over-limit"
+                    className="text-[10px] font-bold text-red-400 pl-1"
+                  >
+                    초기 자본금은 최대 {formatInitialCapital(MAX_INITIAL_CAPITAL)}까지 설정할 수 있습니다. 금액을 다시 선택해 주세요.
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -561,7 +601,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
           <div className="mt-10 pt-8 border-t border-white/10 relative z-10 pb-4">
             <button
               onClick={handleRun}
-              disabled={isRunning}
+              disabled={isRunning || capitalOverLimit || windowOutOfRange}
               className="w-full py-4 px-8 bg-white text-black hover:bg-gray-100 rounded-xl text-base font-black transition-colors flex items-center justify-center gap-3 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isRunning ? (

@@ -62,6 +62,14 @@ class BacktestRequest(BaseModel):
     exit: ConditionGroup
     risk: RiskManagement
     period: str = "5Y"
+    # 명시적 백테스트 창(YYYY-MM-DD). 엔진(`backtest_engine`)은 이 값이 있으면 상대 기간
+    # (period)보다 우선해 창을 잡는다. **위 필드들과 동일한 함정** — 선언이 없으면
+    # model_dump가 조용히 버려 엔진이 못 받는다. 실측 사고(2026-08-01): '최근 10년' 요청이
+    # 파싱·요약 카드(2016~2026)까지 정상이었는데 실행만 2022-01-03~2026-07-31이었다
+    # (period="5Y" 폴백 창과 정확히 일치). camelCase인 것은 엔진 요청 계약이 그렇기 때문이다
+    # (`strategy_converter.to_backtest_request`가 startDate/endDate로 싣는다).
+    startDate: Optional[str] = None
+    endDate: Optional[str] = None
     options: Optional[Dict[str, Any]] = Field(
         default_factory=dict,
         description="백테스트 옵션 (fee_rate, slippage_rate 등)"
