@@ -759,6 +759,7 @@ def classify(
             reason="LLM 미가용 — 해석 실패 보고",
             deterministic=False,
             workflow_status=workflow_status,
+            interpretation_failed=True,
         ))
     try:
         interp = interpreter.interpret(
@@ -774,6 +775,7 @@ def classify(
             reason="LLM 구조화 출력 해석 실패",
             deterministic=False,
             workflow_status=workflow_status,
+            interpretation_failed=True,
         ))
     logger.info("  LLM 해석 → %s stock_name=%r refers_to_last=%s effect=%s",
                 interp.intent.value, interp.stock_name, interp.refers_to_last_stock,

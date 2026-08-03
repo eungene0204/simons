@@ -2590,6 +2590,7 @@ function StrategyLabContent() {
         workflowStatus: workflowStatusRef.current,
         // 값 없이 지목된 수정 대상 — 백엔드가 성립 검증까지 마친 라벨이다(재심 금지).
         clarifyTarget: data.clarify_target ?? null,
+        interpretationFailed: Boolean(data.interpretation_failed),
       };
       return { classification, history };
     } catch {

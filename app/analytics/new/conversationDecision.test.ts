@@ -473,6 +473,43 @@ describe("decideConversationTurn", () => {
     });
   });
 
+  // 회귀(2026-08-03): 분류 해석 실패(UNKNOWN+interpretation_failed)가 일반 지식 답변으로
+  // 흘러 "면역항암제 관련주 투자 전략"이 정의 설명으로 위장 답변됐다 — 실패는 실패로
+  // 안내한다(계약 § 8-1). 열린 되묻기는 유지한다(측면 턴이 되묻기를 지우면 안 된다).
+  it("reports interpretation failure honestly instead of a general answer", () => {
+    expect(decideConversationTurn("면역항암제 관련주 투자 전략", baseContext, {
+      intent: "UNKNOWN",
+      interpretationFailed: true,
+    })).toMatchObject({
+      action: "respond",
+      reason: "interpretation_failed",
+      message: expect.stringContaining("해석하지 못했어요"),
+      preservesOpenQuestion: true,
+    });
+  });
+
+  it("keeps LLM-judged UNKNOWN (not a failure) on the general answer path", () => {
+    expect(decideConversationTurn("투자라는 게 참 어렵네", baseContext, {
+      intent: "UNKNOWN",
+      interpretationFailed: false,
+    })).toMatchObject({
+      action: "answer_general",
+      reason: "classified_unknown",
+    });
+  });
+
+  it("keeps failed-interpretation UNKNOWN with an active strategy on the parse path", () => {
+    expect(decideConversationTurn("손절 조건 손봐줘", {
+      ...baseContext,
+      hasCurrentStrategy: true,
+    }, {
+      intent: "UNKNOWN",
+      interpretationFailed: true,
+    })).toMatchObject({
+      action: "parse_strategy",
+    });
+  });
+
   it("uses entry and exit examples only for a single-stock analysis request", () => {
     const decision = decideConversationTurn("삼성전자 언제 사야 하지?", baseContext, {
       intent: "STOCK_ANALYSIS",

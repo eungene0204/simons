@@ -85,6 +85,10 @@ export type SemanticClassification = {
   // "무엇을 바꾸려는데 값이 없다"는 의미 판정이므로 LLM이 하고, 무엇을 물을지(문구·선택지)는
   // 이 라벨을 키로 아래 표에서 결정론이 고른다 — 프론트가 원문을 다시 읽지 않는다.
   clarifyTarget?: string | null;
+  // 해석 실패 보고(LLM 미가용·구조화 출력 해석 불가). LLM이 판단한 UNKNOWN 라벨과
+  // 다르다 — 실패는 실패로 안내해야 하며, 일반 지식 답변으로 보내면 정의 설명이
+  // 답변으로 위장된다(2026-08-03 사고).
+  interpretationFailed?: boolean;
 };
 
 export type StrategyAssumptions = {
@@ -1028,9 +1032,29 @@ export function decideConversationTurn(
     };
   }
 
+  // 해석 실패 UNKNOWN(LLM 미가용·구조화 출력 파손)은 실패로 안내한다 — 계약 § 8-1
+  // "폴백은 자연어 재해석이 아니라 실패 보고". 일반 지식 답변으로 흘리면 실패가 무관한
+  // 정의 설명으로 위장된다(2026-08-03 사고: "면역항암제 관련주 투자 전략" → 정의 답변).
+  // 진행 중인 전략이 있으면 종전대로 L5 파스 레인에 맡긴다 — 파서(9B)가 자체 해석하므로
+  // 실패 안내로 끊는 것보다 낫고, 기존 동작 유지라 회귀 위험이 없다.
+  if (intent === "UNKNOWN" && classification.interpretationFailed && !context.hasCurrentStrategy) {
+    return {
+      action: "respond",
+      speechAct: "unknown",
+      topic: "general",
+      confidence: 1,
+      reason: "interpretation_failed",
+      message:
+        "죄송해요, 방금 입력을 해석하지 못했어요. 잠시 후 다시 시도하시거나 조금 다르게 표현해 주시겠어요?",
+      preservesOpenQuestion: true,
+    };
+  }
+
   // GENERAL_INVESTMENT(용어 정의·일반 지식 질문, 예: "PBR이 뭐야?")는 전략이 있어도
   // 지식 답변 경로로 보낸다 — 수정 파싱으로 흘리면 바꿀 필드가 없어 무변경 전략 요약만
   // 다시 렌더링되고 질문은 답변되지 않는다. history는 answer_general 핸들러가 실어 보낸다.
+  // UNKNOWN은 LLM이 "투자 관련이지만 분류 불가"로 **판단**한 라벨일 때만 여기로 온다
+  // (해석 실패는 위에서 실패 안내로 끝났다).
   if (intent === "GENERAL_INVESTMENT" || (intent === "UNKNOWN" && !context.hasCurrentStrategy)) {
     return {
       action: "answer_general",

@@ -113,6 +113,22 @@ def test_malformed_output_reports_failure_without_regex_reinterpretation():
     assert result.intent == QueryIntent.UNKNOWN
     assert result.suggested_reply is None
     assert "해석 실패" in result.reason
+    # 실패 보고 플래그 — 프론트가 이걸 봐야 실패 UNKNOWN을 일반 지식 답변으로 위장하지
+    # 않는다(2026-08-03 사고). LLM이 판단한 UNKNOWN 라벨과 구분되는 축이다.
+    assert result.interpretation_failed is True
+
+
+def test_llm_unavailable_reports_interpretation_failure():
+    result = classify("면역항암제 관련주 투자 전략", llm=None)
+    assert result.intent == QueryIntent.UNKNOWN
+    assert result.interpretation_failed is True
+
+
+def test_llm_judged_unknown_is_not_a_failure():
+    """LLM이 스스로 UNKNOWN 라벨을 낸 것은 해석 실패가 아니다 — 일반 답변 경로 유지."""
+    result = classify("아무 말", llm=stub_llm("UNKNOWN"))
+    assert result.intent == QueryIntent.UNKNOWN
+    assert result.interpretation_failed is False
 
 
 def test_unavailable_llm_reports_failure_and_does_not_refuse():

@@ -107,6 +107,10 @@ class IntentResult(BaseModel):
     # 프론트의 문구·선택지 표가 이 라벨을 키로 고른다 — 문구를 LLM이 짓지 않는다.
     # 규제 게이트 라벨·진행 중인 전략 없음에서는 항상 None으로 강등된다.
     clarify_target: Optional[str] = None
+    # 해석 실패 보고(LLM 미가용·구조화 출력 해석 불가)와 "LLM이 판단한 분류 불가"
+    # (UNKNOWN 라벨)를 구분한다. 실패는 실패로 안내해야 한다 — 이 플래그 없이는 프론트가
+    # 실패 UNKNOWN을 일반 지식 답변으로 보내 정의 설명이 답변으로 위장된다(2026-08-03 사고).
+    interpretation_failed: bool = False
 
 
 class ChatTurn(BaseModel):
