@@ -42,3 +42,17 @@ def test_dry_run_adds_flag():
 def test_empty_remote_raises():
     with pytest.raises(ValueError):
         mirror_data.build_rsync_cmd(remote="", ssh_key=None, push=False, dry_run=False)
+
+
+def test_stall_timeouts_always_present():
+    """SSH 행 시 무기한 스톨 방지(2026-08-04 스케줄러 pull 30시간 좀비 회귀).
+
+    rsync --timeout(무전송 중단)과 SSH keepalive(죽은 연결 감지)는 키 유무와
+    무관하게 항상 포함돼야 한다.
+    """
+    for ssh_key in (None, "~/.ssh/k"):
+        cmd = mirror_data.build_rsync_cmd(remote=REMOTE, ssh_key=ssh_key, push=False, dry_run=False)
+        assert "--timeout=120" in cmd
+        ssh_arg = cmd[cmd.index("-e") + 1]
+        assert "ServerAliveInterval" in ssh_arg
+        assert "ServerAliveCountMax" in ssh_arg

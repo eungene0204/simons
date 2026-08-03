@@ -46,14 +46,18 @@ def build_rsync_cmd(
     if not remote:
         raise ValueError("DATA_MIRROR_REMOTE가 설정되지 않았습니다.")
 
-    ssh = "ssh"
+    # 스톨 방지: SSH 행으로 전송이 무기한 멈추는 사고 방지(2026-08-04, 스케줄러 pull이
+    # 0바이트 임시파일에서 30시간 좀비). keepalive는 죽은 연결을 ~60초에 감지하고,
+    # rsync --timeout은 연결이 살아 있어도 데이터가 120초간 안 흐르면 중단한다.
+    ssh_opts = "-o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
+    ssh = f"ssh {ssh_opts}"
     if ssh_key:
-        ssh = f"ssh -i {os.path.expanduser(ssh_key)} -o ConnectTimeout=20"
+        ssh = f"ssh -i {os.path.expanduser(ssh_key)} {ssh_opts}"
 
     local = f"{str(local_dir).rstrip('/')}/"
     remote_path = f"{remote.rstrip('/')}/{_REMOTE_SUBPATH}/"
 
-    cmd = ["rsync", "-a", "-e", ssh]
+    cmd = ["rsync", "-a", "--timeout=120", "-e", ssh]
     if dry_run:
         cmd += ["--dry-run", "--itemize-changes"]
     if push:
