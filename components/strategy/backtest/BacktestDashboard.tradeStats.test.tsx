@@ -14,6 +14,8 @@ vi.mock("./XAIModal", () => ({ default: () => null }));
 vi.mock("./WalkForwardModal", () => ({ default: () => null }));
 vi.mock("@/components/ui/CreateAccountModal", () => ({ default: () => null }));
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
 import BacktestDashboard, { metricTooltip } from "./BacktestDashboard";
 
 const baseResult = {

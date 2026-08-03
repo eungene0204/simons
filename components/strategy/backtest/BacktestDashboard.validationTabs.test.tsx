@@ -26,6 +26,8 @@ vi.mock("./WalkForwardModal", () => ({
 }));
 vi.mock("@/components/ui/CreateAccountModal", () => ({ default: () => null }));
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
 import BacktestDashboard from "./BacktestDashboard";
 
 function buildDates(length: number) {

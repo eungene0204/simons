@@ -23,6 +23,7 @@ import {
 
 
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import XAIModal from "./XAIModal";
 import { WalkForwardSettings, type WalkForwardOptimizationTarget } from "./WalkForwardModal";
@@ -367,6 +368,7 @@ export default function BacktestDashboard({
   const resolvedInitialCapital = result.initialCapital || result.equity?.[0] || 0;
   const resolvedFinalEquity = result.finalEquity || result.equity?.[result.equity.length - 1] || 0;
 
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<ValidationTab>("chart");
   const [isOptimizationPageOpen, setIsOptimizationPageOpen] = useState(false);
   const [promptTooltipOpen, setPromptTooltipOpen] = useState(false);
@@ -1943,7 +1945,11 @@ export default function BacktestDashboard({
                              const prices = symbolTradePrices[sym];
 
                              return (
-                               <tr key={sym} className="hover:bg-white/[0.02] transition-colors duration-150">
+                               <tr
+                                 key={sym}
+                                 onClick={() => router.push(`/stock-order?symbol=${encodeURIComponent(sym)}&name=${encodeURIComponent(meta?.name || sym)}`)}
+                                 className="cursor-pointer hover:bg-white/[0.02] transition-colors duration-150"
+                               >
                                   <td className="px-4 py-2.5 pl-5">
                                      <div className="flex flex-col">
                                         <span className="text-sm font-bold text-white truncate">{meta?.name || sym}</span>
