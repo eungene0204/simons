@@ -889,7 +889,7 @@ def test_take_profit_from_colloquial_sell_verb():
     assert parsed.take_profit_pct == 15.0
 
 
-def test_nl_strategy_parser_defaults_point_to_qwen35_4b(monkeypatch):
+def test_nl_strategy_parser_defaults_point_to_project_models(monkeypatch):
     # 환경변수(NL_MLX_MODEL)가 없을 때의 코드 기본값을 검증한다.
     monkeypatch.delenv("NL_MLX_MODEL", raising=False)
     monkeypatch.delenv("NL_OLLAMA_MODEL", raising=False)
@@ -897,13 +897,13 @@ def test_nl_strategy_parser_defaults_point_to_qwen35_4b(monkeypatch):
 
     assert parser.mlx_model == "mlx-community/Qwen3.5-4B-4bit"
     assert parser.model_32b == "mlx-community/Qwen3.5-4B-4bit"
-    # Ollama 기본값도 레거시 파서 슬롯의 실제 모델(4B)이어야 한다 — 종전 기본값
+    # Ollama 기본값은 서비스 실모델(9B 단일화, 2026-08-03)이어야 한다 — 종전 기본값
     # `qwen3:8b`는 이 프로젝트가 쓰지 않는 모델이라, .env 없이 도는 실행이 운영과
     # 다른 모델로 조용히 동작했다(2026-07-30 제거, FR-STR-019p ⑤).
-    from llm_backend import OLLAMA_MODEL_4B
+    from llm_backend import OLLAMA_MODEL_9B
 
-    assert parser.ollama_model == OLLAMA_MODEL_4B
-    assert parser.ollama_model_32b == OLLAMA_MODEL_4B
+    assert parser.ollama_model == OLLAMA_MODEL_9B
+    assert parser.ollama_model_32b == OLLAMA_MODEL_9B
 
 
 def test_nl_strategy_parser_env_overrides_mlx_model(monkeypatch):

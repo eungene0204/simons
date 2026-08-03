@@ -15,8 +15,8 @@ LLM(코치 / 뉴스요약 / NL 전략파서 / 설명생성)만 이 Modal 함수�
 투명하게 동작 → 앱은 .env의 OLLAMA_HOST 한 줄만 이 함수의 URL로 바꾸면 끝.
 
 모델은 앱 설정과 일치해야 한다 (불일치 시 Ollama가 "model not found"):
-  앱 .env: NL_OLLAMA_MODEL(파서/코치) + SUMMARIZE_OLLAMA_MODEL(AI 리포트)  ==  아래 MODELS
-  (이 프로젝트가 쓰는 모델은 9B와 4B 둘뿐 — 코드 기본값도 그 둘이다, llm_backend.py)
+  앱 .env: NL_OLLAMA_MODEL + SUMMARIZE_OLLAMA_MODEL + STRATEGY_INTERPRETER_MODEL  ==  아래 MODELS
+  (이 프로젝트가 쓰는 모델은 9B 하나뿐 — 코드 기본값도 9B다, llm_backend.py)
 
 배포
 ────
@@ -48,14 +48,13 @@ import modal
 
 # ── 설정 ──────────────────────────────────────────────────────────────────────
 # 서빙 모델 목록 — 앱이 참조하는 모든 Ollama 모델을 여기서 pull 한다.
-#   • NL_OLLAMA_MODEL(파서/인터프리터/코치)  = 4B
-#   • SUMMARIZE_OLLAMA_MODEL(AI 리포트)      = 9B
-# 앱 .env의 두 모델명과 반드시 일치해야 한다(불일치 시 Ollama "model not found").
+# 2026-08-03부터 전 슬롯(NL_OLLAMA_MODEL·SUMMARIZE_OLLAMA_MODEL·STRATEGY_INTERPRETER_MODEL)
+# 9B 단일화 — 4B는 bare enum JSON 파손 34%·해외기업명 테마 오분류가 실측돼 폐기.
+# 앱 .env의 모델명과 반드시 일치해야 한다(불일치 시 Ollama "model not found").
 MODELS = [
-    "hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M",  # NL_OLLAMA_MODEL — 파서/인터프리터/코치
-    "hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M",  # SUMMARIZE_OLLAMA_MODEL — AI 리포트
+    "hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M",  # 전 슬롯(분류·파서·코치·인터프리터·AI 리포트)
 ]
-GPU = "L4"                  # 4B(~3GB)+9B(~6.6GB) 동시 로드도 L4(24GB)면 충분. 더 빠르게: "A10G"
+GPU = "L4"                  # 9B(~6.6GB)는 L4(24GB)면 충분. 더 빠르게: "A10G"
 OLLAMA_PORT = 11434
 SCALEDOWN_WINDOW = 300      # 마지막 요청 후 5분 warm 유지 → 테스트 세션 중 콜드스타트 감소(비용 trade-off)
 STARTUP_TIMEOUT = 600       # 첫 콜드스타트에서 모델 로드/풀까지 대기 여유

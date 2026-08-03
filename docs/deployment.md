@@ -47,7 +47,7 @@
 ┌───────────────────────▼──────────────────────── Modal (서버리스 GPU LLM) ────┐
 │  app: simons-ollama · GPU: L4 · min_containers=0 (scale-to-zero)             │
 │  https://eugene204--simons-ollama-ollama-server.modal.run                   │
-│  모델: hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M (Ollama 네이티브 /api/chat, /v1) │
+│  모델: hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M (Ollama 네이티브 /api/chat, /v1) │
 └───────────────────────────────────────────────────────────────────────────────┘
                         │ DATABASE_URL / DIRECT_URL (pgbouncer 풀러 경유)
 ┌───────────────────────▼──────────────────────── Supabase (Postgres, 앱 DB) ──┐
@@ -81,12 +81,13 @@ GPU가 없으므로 로컬 LLM은 돌리지 않는다. 백테스트(vectorbt/opt
 | 앱 이름 | `simons-ollama` (계정 profile: `eugene204`, `~/.modal.toml`) |
 | 엔드포인트 | `https://eugene204--simons-ollama-ollama-server.modal.run` (proxy auth 필수) |
 | GPU | L4, `min_containers=0`(scale-to-zero), `scaledown_window=300`초 |
-| 모델 | `hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M`(파서/코치) + `hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M`(AI 리포트) — 2모델 동시 서빙(`modal_ollama.py` `MODELS`) |
+| 모델 | `hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M` — 전 슬롯 단일 서빙(`modal_ollama.py` `MODELS`, 2026-08-03 9B 단일화) |
 | 소스 | [`modal_ollama.py`](../modal_ollama.py) — Ollama를 그대로 web_server로 노출(`/api/chat`, `/v1`) |
 | 배포 | `modal deploy modal_ollama.py` |
 
 > **2모델 구성(2026-07-21)**: AI 리포트(백테스트 총평)만 9B를 쓰도록 `SUMMARIZE_OLLAMA_MODEL`로 분리했다. 나머지(NL 파서/코치)는 `NL_OLLAMA_MODEL`(4B) 유지. Modal 볼륨에 두 모델을 모두 캐시하고, `.env`의 두 모델명이 각각 `MODELS`에 있어야 한다.
-> **인터프리터 9B 승격(2026-07-26)**: 전략 인터프리터(strategy_conversation)는 전용 슬롯 `STRATEGY_INTERPRETER_MODEL`(9B)을 쓴다 — 미설정 시 `NL_OLLAMA_MODEL`(4B)로 폴백하므로 prod `.env`에 명시해야 shadow/primary가 9B로 돈다. 9B는 SUMMARIZE와 같은 모델이라 Modal 추가 배포 불요.
+> **인터프리터 9B 승격(2026-07-26)**: 전략 인터프리터(strategy_conversation)는 전용 슬롯 `STRATEGY_INTERPRETER_MODEL`(9B)을 쓴다 — 미설정 시 `NL_OLLAMA_MODEL`로 폴백하므로 prod `.env`에 명시해야 shadow/primary가 9B로 돈다. 9B는 SUMMARIZE와 같은 모델이라 Modal 추가 배포 불요.
+> **9B 단일화(2026-08-03)**: 분류·파서·코치 슬롯(`NL_OLLAMA_MODEL`)도 9B로 통합 — 4B는 bare enum JSON 파손(전수조사 34%)·해외기업명 테마 오분류가 실측돼 폐기. 세 슬롯이 전부 같은 9B이므로 Modal `MODELS`는 한 항목이다. 반영 순서: ① 앱 env 교체(9B는 이미 서빙 중이라 즉시 동작) ② `modal deploy`(MODELS에서 4B 제거 반영) ③ `modal run modal_ollama.py::remove_model --name hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M`(볼륨 정리).
 
 **모델 전환/추가 절차(3단계)**:
 1. `.venv/bin/modal run modal_ollama.py::download_model` — `MODELS`의 모든 모델을 볼륨(`simons-ollama-models`)에 캐시(~2분/모델)
@@ -136,9 +137,9 @@ Python 백엔드는 `backend/db.py`(psycopg v3 어댑터, sqlite3와 유사한 �
 |---|---|
 | `OLLAMA_HOST` | Modal Ollama 엔드포인트 |
 | `MODAL_KEY` / `MODAL_SECRET` | Modal proxy auth (웹 콘솔 Settings에서 발급) |
-| `NL_OLLAMA_MODEL` | 파서/코치용 모델 — Modal이 서빙 중인 모델명과 반드시 동일(4B) |
+| `NL_OLLAMA_MODEL` | 분류/파서/코치용 모델 — Modal이 서빙 중인 모델명과 반드시 동일(9B, 2026-08-03 단일화) |
 | `SUMMARIZE_OLLAMA_MODEL` | AI 리포트(백테스트 총평) 전용 모델(9B). 미설정 시 `NL_OLLAMA_MODEL`로 폴백. Modal `MODELS`에 포함돼야 함 |
-| `STRATEGY_INTERPRETER_MODEL` | 전략 인터프리터(strategy_conversation) 전용 모델(9B). 미설정 시 `NL_OLLAMA_MODEL`(4B)로 폴백 — shadow/primary 모두 이 슬롯을 읽으므로 prod에 명시 필수 |
+| `STRATEGY_INTERPRETER_MODEL` | 전략 인터프리터(strategy_conversation) 전용 모델(9B). 미설정 시 `NL_OLLAMA_MODEL`로 폴백 — shadow/primary 모두 이 슬롯을 읽으므로 prod에 명시 필수 |
 | `STRATEGY_INTERPRETER_MODE` | 초기 파스 해석 주체. **코드 기본값 `primary`(2026-07-26 승격)** — prod도 `primary`(2026-07-26 사용자 결정: 레거시 파서는 코드 보존·사용 중지, 테스트 단계라 scale-to-zero 유지 — 콜드스타트 시 첫 파스 ~2분 수용, keep-warm 불요). `shadow`(레거시가 응답+LLM 관측)·`off`(레거시 전용)는 롤백용 |
 | `DATABASE_URL` / `DIRECT_URL` | Supabase Postgres (transaction/session pooler) |
 | `NEWSV2_PG_PASSWORD` | 로컬 news_v2 Postgres 컨테이너 비밀번호 |
@@ -202,7 +203,7 @@ npm run pull-data:check    # 드라이런
 OLLAMA_HOST=https://eugene204--simons-ollama-ollama-server.modal.run
 MODAL_KEY=wk-...
 MODAL_SECRET=ws-...
-NL_OLLAMA_MODEL=hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M
+NL_OLLAMA_MODEL=hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M
 
 # --- 앱 DB (Supabase Postgres, pooler 경유) ---
 DATABASE_URL=postgresql://postgres.ydyvilnpmiadinmsoecu:<password>@aws-0-us-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true

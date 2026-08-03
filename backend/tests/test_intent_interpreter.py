@@ -56,6 +56,31 @@ def test_json_extraction_returns_none_instead_of_guessing():
     assert interpreter.extract_json_object("") is None
 
 
+def test_bare_enum_value_is_repaired():
+    """4B가 enum 값을 따옴표 없이 내놓는 형식 결함을 수리한다(2026-08-03 사고 —
+    '면역항암제 관련주 투자 전략'이 6/20 확률로 UNKNOWN→일반 정의 답변으로 빠짐)."""
+    raw = ('{"intent": "STRATEGY_ADVICE", "stock_name": null, '
+           '"refers_to_last_stock": false, "workflow_effect": NONE, '
+           '"clarify_target": null}')
+    assert interpreter.extract_json_object(raw) == {
+        "intent": "STRATEGY_ADVICE",
+        "stock_name": None,
+        "refers_to_last_stock": False,
+        "workflow_effect": "NONE",
+        "clarify_target": None,
+    }
+
+
+def test_bare_enum_repair_keeps_lowercase_literals_and_strings_intact():
+    """수리는 값 자리의 대문자 bare 토큰만 감싼다 — 정상 JSON은 그대로 통과한다."""
+    good = '{"intent": "OFF_TOPIC", "workflow_effect": "NONE", "flag": true}'
+    assert interpreter.extract_json_object(good) == {
+        "intent": "OFF_TOPIC", "workflow_effect": "NONE", "flag": True,
+    }
+    # 수리로도 안 되는 절단 출력은 여전히 실패 보고다.
+    assert interpreter.extract_json_object('{"intent": STRATEGY_ADVICE, "x": ') is None
+
+
 @pytest.mark.parametrize(
     "value, expected",
     [
