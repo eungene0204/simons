@@ -33,6 +33,15 @@ def test_detect_metric_none():
     assert cb.detect_metric("10종목 보유") is None
 
 
+def test_pcr_promoted_from_unsupported_to_metric():
+    """PCR 정식 지원 승격(2026-08-03) — 미지원 안내 대신 지표로 인식한다."""
+    assert cb.detect_unsupported("PCR 조건도 넣고 싶어") is None
+    assert cb.detect_metric("PCR도 넣자") == "pcr"
+    assert cb.detect_metric("주가현금흐름비율 조건") == "pcr"
+    assert cb._spec("pcr").unit == "배"
+    assert cb._spec("pcr").direction == "<="
+
+
 # ─── 추천 → 선택 흐름 ─────────────────────────────────────────────────────────────
 
 def test_add_metric_shows_recommendation_chips():

@@ -115,6 +115,8 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     _fundamental("per", "PER(주가수익비율)", "valuation", "ratio", recommended=10, value_range=(0, 1000)),
     _fundamental("pbr", "PBR(주가순자산비율)", "valuation", "ratio", recommended=1, value_range=(0, 100)),
     _fundamental("psr", "PSR(주가매출비율)", "valuation", "ratio", recommended=1, value_range=(0, 100)),
+    _fundamental("pcr", "PCR(주가현금흐름비율)", "valuation", "ratio", recommended=10, value_range=(0, 500),
+                 notes="시가총액/영업활동현금흐름. 영업현금흐름<=0인 연도는 값이 없을 수 있음"),
     _fundamental("ev_ebitda", "EV/EBITDA", "valuation", "ratio", recommended=8, value_range=(0, 500)),
     _fundamental("ev_ebit", "EV/EBIT", "valuation", "ratio", recommended=10, value_range=(0, 500),
                  notes="EBITDA<=0인 연도는 EV 자체를 역산할 수 없어 값이 없을 수 있음"),
@@ -151,6 +153,9 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     _fundamental("ebit", "영업이익", "profitability", "억원", recommended=0,
                  value_range=(-10_000_000, 10_000_000),
                  notes="영업이익 흑자=ebit>0, 영업이익 적자=ebit<0 부호 필터로 주로 사용(최근 연간 결산 기준)"),
+    _fundamental("net_income", "당기순이익", "profitability", "억원", recommended=100,
+                 value_range=(-10_000_000, 10_000_000),
+                 notes="당기순이익 절대 금액(억원, 최근 연간 결산 기준). 흑자/적자 부호 필터는 eps를 사용"),
 
     # ── 기술적 지표 (엔진 TechnicalSignal.indicator와 1:1) ───────────────────
     _technical("ma_crossover", "이동평균 크로스오버", "event",
@@ -269,6 +274,7 @@ _ALIASES: Dict[str, str] = {
     "per": "fundamental.per", "주가수익비율": "fundamental.per",
     "pbr": "fundamental.pbr", "주가순자산비율": "fundamental.pbr",
     "psr": "fundamental.psr", "주가매출비율": "fundamental.psr",
+    "pcr": "fundamental.pcr", "주가현금흐름비율": "fundamental.pcr",
     "ev/ebitda": "fundamental.ev_ebitda", "ev_ebitda": "fundamental.ev_ebitda",
     "ev/ebit": "fundamental.ev_ebit", "ev_ebit": "fundamental.ev_ebit",
     "roe": "fundamental.roe_or_gpa", "자기자본이익률": "fundamental.roe_or_gpa",
@@ -330,6 +336,7 @@ _ALIASES: Dict[str, str] = {
     "수급": "unsupported.supply_demand", "외국인순매수": "unsupported.supply_demand",
     "eps": "fundamental.eps", "주당순이익": "fundamental.eps",
     "흑자": "fundamental.eps", "적자": "fundamental.eps",
+    "당기순이익": "fundamental.net_income", "net_income": "fundamental.net_income",
     "ebit": "fundamental.ebit", "영업이익": "fundamental.ebit",
     "영업이익흑자": "fundamental.ebit", "영업이익적자": "fundamental.ebit",
     "흑자전환": "unsupported.profitability_transition",
@@ -339,6 +346,23 @@ _ALIASES: Dict[str, str] = {
     "신저가": "unsupported.new_low",
     "경제적해자": "unsupported.moat",
 }
+
+
+def contains_factor_term(text: str) -> bool:
+    """LLM이 뽑은 표현에 한글 지표 어휘가 들어있는지 — 유니버스 오분류 백스톱.
+
+    planner가 재무·기술 지표 조건 구("당기순이익과, 영업이익률이 높은 종목")를 유니버스
+    표현으로 넘기면 CONCEPT 판정 → KG 조회·검색 학습 체인이 턴 예산을 소진한다
+    (2026-08-03 실측 10.7초). 입력은 LLM 구조화 출력이라 결정론 대조가 계약에 맞는다.
+    라틴 약칭(per·roe 등)은 테마·상품명 오탐 위험이 있어 한글 어휘(4자 이상)만 본다.
+    """
+    normalized = (text or "").replace(" ", "").lower()
+    if not normalized:
+        return False
+    return any(
+        len(alias) >= 4 and not alias.isascii() and alias in normalized
+        for alias in _ALIASES
+    )
 
 
 def resolve(name: str) -> Optional[IndicatorSpec]:

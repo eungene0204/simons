@@ -2619,6 +2619,9 @@ class NLParseResponse(BaseModel):
     # 에코 원본이다 — 이 필드가 응답 모델에 없으면 비-SSE 라우트에서 response_model이
     # 잘라내 impact 전이 판정이 성립 불가(2026-08-02 감사 #3 #6, SSE 라우트와 계약 비대칭).
     field_states: Optional[dict] = None
+    # 값 미정으로 컴파일에서 제외된 조건 [{"role","label","source_text"}] — 요약이
+    # "이해했지만 값 대기"를 표시할 근거. parsed에는 이 조건이 없다(기본값 확정 금지).
+    pending_conditions: Optional[List[dict]] = None
     # 룰 파싱의 LLM 검증 리포트(Parse Fidelity Validator). 검증이 안 돌았으면 None.
     parse_validation: Optional[dict] = None
     # 하한선 보정 안내(비차단 notices 채널, 예: 초기자금 100만원 보정).

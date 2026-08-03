@@ -84,9 +84,21 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
 
     for rank in strategy.ranking:
         spec = resolve(rank.metric)
-        if spec is None or spec.engine_binding is None or spec.engine_binding[0] != "ranking":
+        # 랭킹 가능 지표: ranking.*(모멘텀) + fundamental.*(재무 팩터 랭킹, 2026-08-03 —
+        # as-of 재무 컬럼 순위 선정). trading_value는 파케이 컬럼이 아니라 엔진 즉석 계산이라
+        # 랭킹 수집 경로에 없어 제외한다(engine.nl_parser.RankingMetricLiteral과 동일 계약).
+        rankable = (
+            spec is not None and spec.engine_binding is not None
+            and (spec.engine_binding[0] == "ranking"
+                 or (spec.engine_binding[0] == "fundamental_filter"
+                     and spec.engine_binding[1] != "trading_value"))
+        )
+        if not rankable:
             unsupported.append(rank.metric)
-            errors.append(f"랭킹 지표 '{rank.metric}'은(는) 지원되지 않습니다 (지원: 기간 수익률 랭킹)")
+            errors.append(
+                f"랭킹 지표 '{rank.metric}'은(는) 지원되지 않습니다 "
+                "(지원: 기간 수익률 랭킹, 재무 지표 랭킹 — 예: 영업이익률 상위)"
+            )
         else:
             rank.metric = spec.id
 
@@ -107,6 +119,21 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                         f"ETF는 여러 종목을 묶은 상품이라 {role} 조건 '{name}'"
                         f"(기업 재무지표)을 사용할 수 없습니다"
                     )
+        # 재무 팩터 랭킹도 같은 이유로 ETF에서 성립하지 않는다 — 조건 검사와 동일하게
+        # 오류+제거(컴파일에 흘려보내지 않는다)+대안 제시.
+        for rank in strategy.ranking:
+            if rank.metric.startswith("fundamental."):
+                spec = resolve(rank.metric)
+                name = spec.display_name if spec else rank.metric
+                etf_conflicts.append(name)
+                unsupported.append(f"ETF 유니버스 × {name} 랭킹")
+                errors.append(
+                    f"ETF는 여러 종목을 묶은 상품이라 '{name}' 랭킹(기업 재무지표)을 "
+                    "사용할 수 없습니다"
+                )
+        strategy.ranking = [
+            r for r in strategy.ranking if not r.metric.startswith("fundamental.")
+        ]
         if etf_conflicts:
             fixes.append(
                 "이동평균·RSI·MACD·모멘텀 등 가격·기술 지표 조건으로 변경할 수 있습니다 "

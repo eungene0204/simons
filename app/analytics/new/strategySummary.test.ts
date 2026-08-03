@@ -186,6 +186,14 @@ describe("strategySummary", () => {
       .toBe("시총 <= 1조 5,000억");
   });
 
+  // 당기순이익(net_income)도 억원 단위 금액 필터다(2026-08-03 신설 — 시총과 같은 계약).
+  it("당기순이익 배지는 억원 단위 숫자를 한글 단위(억/조)로 표시한다", () => {
+    expect(formatFundamentalFilter({ metric: "net_income", operator: ">=", value: 1000 }))
+      .toBe("당기순이익 >= 1,000억");
+    expect(formatFundamentalFilter({ metric: "net_income", operator: ">=", value: 20000 }))
+      .toBe("당기순이익 >= 2조");
+  });
+
   // '최근 10년간'처럼 버킷 밖 기간은 명시 날짜로 변환돼 저장된다 — 창만 보여주면
   // 사용자가 말한 기간이 반영됐는지 알 수 없다(2026-08-02 지적).
   it("창의 길이가 딱 떨어지면 그 길이를 앞세운다", () => {
@@ -369,6 +377,22 @@ describe("strategySummary", () => {
     });
 
     expect(summary?.entryBlocks).toEqual(["21일 수익률 상위"]);
+  });
+
+  it("재무 팩터 랭킹 전략은 지표 라벨과 방향을 진입 신호 배지로 노출한다", () => {
+    // 2026-08-03 신설 — '영업이익률 상위 20종목'류 재무 랭킹(모멘텀과 같은 선정=진입 계약).
+    const top = buildStrategySummary({
+      ...baseParsed,
+      ranking_metric: "operating_margin",
+    });
+    expect(top?.entryBlocks).toEqual(["영업이익률 상위"]);
+
+    const bottom = buildStrategySummary({
+      ...baseParsed,
+      ranking_metric: "per",
+      ranking_direction: "bottom",
+    });
+    expect(bottom?.entryBlocks).toEqual(["PER 낮은 순 상위"]);
   });
 
   it("리스크 기반 청산이 없으면 기존 기술적 청산 레이블을 유지한다", () => {

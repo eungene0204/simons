@@ -206,9 +206,11 @@ def test_missing_defaultable_param_keeps_condition():
         },
     })
     validated, report = run_validation(intent)
-    parsed, dropped = compile_partial(validated, report, "골든크로스 매수 데드크로스 매도")
+    parsed, dropped, pending = compile_partial(validated, report, "골든크로스 매수 데드크로스 매도")
 
     assert dropped == []
+    # 이벤트형 조건(value 불필요)은 값-대기 목록에도 들어가지 않는다
+    assert pending == []
     assert [(s.indicator, s.signal_type, s.short_period, s.long_period)
             for s in parsed.entry_signals] == [("ma_crossover", "buy", 20, 60)]
     assert [(s.indicator, s.signal_type) for s in parsed.exit_signals] == [("ma_crossover", "sell")]
@@ -232,9 +234,10 @@ def test_missing_threshold_still_drops_condition():
         },
     })
     validated, report = run_validation(intent)
-    parsed, dropped = compile_partial(validated, report, "PER이 낮은 종목")
+    parsed, dropped, pending = compile_partial(validated, report, "PER이 낮은 종목")
     assert dropped
     assert parsed.fundamental_filters == []
+    assert [(p["role"], p["label"]) for p in pending] == [("entry", "PER(주가수익비율)")]
 
 
 # ── execution_timing 스키마 공백 해소 ─────────────────────────────────────────

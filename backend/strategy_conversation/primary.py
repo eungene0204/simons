@@ -170,19 +170,18 @@ _SLOT_CHIP_BUILDERS: Dict[str, Any] = {
 }
 
 
-def _build_clarification(
+def _clarification_items(
     report: ValidationReport, intent: StrategyIntent
-) -> tuple[Optional[str], Optional[List[str]], Optional[str]]:
-    """검증 리포트의 질문들을 기존 clarification 채널(질문 텍스트 + 칩)로 변환한다.
+) -> List[Dict[str, Any]]:
+    """검증 리포트의 질문들을 **질문 단위** 항목 [{question, chips, topic, metric}]으로 만든다.
 
-    반환: (질문 텍스트, 칩, topic). topic은 칩이 어느 슬롯의 것인지 — pending_ask의
-    확정 판정(_confirm_target)이 쓴다. 조건 임계값 칩은 슬롯이 아니므로 None이다.
+    한 턴에 한 질문(2026-08-03 사용자 결정)의 재료 — 첫 항목만 이번 턴에 나가고 나머지는
+    pending_ask.queue로 이월된다(칩 결속은 표면화 시점에 계산). metric은 조건 임계값
+    질문의 엔진 지표 키 — 답이 이미 반영된 항목을 큐 소비 시 건너뛰는 판정에 쓴다.
     """
     if not report.clarification_questions:
-        return None, None, None
-    lines: List[str] = []
-    chips: List[str] = []
-    slot_topic: Optional[str] = None
+        return []
+    items: List[Dict[str, Any]] = []
     strategy = intent.strategy
     conditions_by_field: Dict[str, Any] = {}
     if strategy is not None:
@@ -204,7 +203,9 @@ def _build_clarification(
         line = q.question
         if q.recommended_value is not None and q.recommendation_reason:
             line += f" ({q.recommendation_reason})"
-        lines.append(line)
+        chips: List[str] = []
+        topic: Optional[str] = None
+        metric: Optional[str] = None
         # 조건 임계값 질문 → "영업이익률 10% 이상" 칩(수정 메시지로 재전송 가능한 형태)
         cond = conditions_by_field.get(q.field)
         if cond is not None and q.recommended_value is not None:
@@ -215,24 +216,53 @@ def _build_clarification(
                 # display_name의 괄호 설명은 칩에서 제거해 수정 파서 어휘와 맞춘다
                 name = spec.display_name.split("(")[0]
                 chips.append(f"{name} {q.recommended_value:g}{unit} {direction}")
+                if spec.engine_binding is not None and spec.engine_binding[0] == "fundamental_filter":
+                    metric = spec.engine_binding[1]
         elif q.field == "strategy.universe.listing_from":
             # 신규 상장 대상 시기(FR-STR-073) — 사용자 어휘 그대로 되보낼 수 있는 칩.
             chips.extend(_new_listing_period_chips())
-        elif not chips and q.field in _SLOT_CHIP_BUILDERS:
-            # 조건이 아닌 슬롯(포트폴리오·리스크·청산) 질문의 칩. **한 슬롯만** 낸다 —
-            # pending_ask 하나에 topic 하나가 계약이라, 여러 슬롯 칩을 섞으면 확정 판정
-            # (_confirm_target)이 엉뚱한 필드를 보게 된다. 나머지 질문은 문구로 남는다.
-            topic, build = _SLOT_CHIP_BUILDERS[q.field]
+        elif q.field in _SLOT_CHIP_BUILDERS:
+            # 조건이 아닌 슬롯(포트폴리오·리스크·청산) 질문의 칩과 topic.
+            slot_topic, build = _SLOT_CHIP_BUILDERS[q.field]
             chips.extend(build(q.recommended_value))
-            slot_topic = topic
+            topic = slot_topic
+        items.append({"question": line, "chips": chips, "topic": topic, "metric": metric})
     for role in coalesced_cross_roles:
         role_label = "매수(진입)" if role == "entry" else "매도(청산)"
-        lines.append(
-            f"{role_label} 이동평균 크로스의 기간(단기/장기)은 몇 일로 할까요? "
-            "(일반적으로 20일/60일을 많이 사용합니다)"
-        )
-        chips.extend(_cross_period_chip(role, s, l) for s, l in _CROSS_PERIOD_OPTIONS)
-    return "\n".join(lines), (chips or None), slot_topic
+        items.append({
+            "question": (
+                f"{role_label} 이동평균 크로스의 기간(단기/장기)은 몇 일로 할까요? "
+                "(일반적으로 20일/60일을 많이 사용합니다)"
+            ),
+            "chips": [_cross_period_chip(role, s, l) for s, l in _CROSS_PERIOD_OPTIONS],
+            "topic": None, "metric": None,
+        })
+    return items
+
+
+def _build_clarification(
+    report: ValidationReport, intent: StrategyIntent
+) -> tuple[Optional[str], Optional[List[str]], Optional[str]]:
+    """검증 리포트의 질문들을 기존 clarification 채널(질문 텍스트 + 칩)로 변환한다.
+
+    반환: (질문 텍스트, 칩, topic). topic은 칩이 어느 슬롯의 것인지 — pending_ask의
+    확정 판정(_confirm_target)이 쓴다. 조건 임계값 칩은 슬롯이 아니므로 None이다.
+    병합 규칙(항목 분해 전과 동일): 조건 임계값·상장 시기·크로스 칩은 전부 합치고,
+    슬롯 칩은 그때까지 칩이 없을 때 **첫 슬롯 것만** 싣는다(topic 하나 계약 —
+    여러 슬롯 칩을 섞으면 확정 판정(_confirm_target)이 엉뚱한 필드를 보게 된다).
+    """
+    items = _clarification_items(report, intent)
+    if not items:
+        return None, None, None
+    chips: List[str] = []
+    slot_topic: Optional[str] = None
+    for item in items:
+        if item["topic"] is None:
+            chips.extend(item["chips"])
+        elif not chips and slot_topic is None and item["chips"]:
+            chips.extend(item["chips"])
+            slot_topic = item["topic"]
+    return "\n".join(i["question"] for i in items), (chips or None), slot_topic
 
 
 def _modify_clarification(
@@ -814,6 +844,7 @@ def run_primary_parse(
         compiled = call_tool("compile_strategy", intent=validated, report=report,
                              user_input=user_input, partial=not report.is_valid)
         parsed, dropped = compiled.parsed, compiled.dropped
+        pending_conditions = list(compiled.pending_conditions)
     except StrategyCompileError as exc:
         logger.warning("interpreter primary compile failed, reporting failure | err=%s", exc)
         return None
@@ -945,6 +976,9 @@ def run_primary_parse(
 
     clarification_question, clarification_suggestions, fallback_topic = _build_clarification(
         report, validated)
+    # 질문 단위 항목 — 검증 리포트 질문이 여러 개면 첫 질문만 이번 턴에 나가고
+    # 나머지는 pending_ask.queue로 이월된다(한 턴에 한 질문, 2026-08-03 사용자 결정).
+    clarification_items = _clarification_items(report, validated)
     clarification_priority = None
     pending_ask: Optional[Dict[str, Any]] = None
     # 결속 체인 관찰용 — 어느 게이트에서 pending_ask가 끊겼는지 이름 붙이기 위한 값들.
@@ -981,7 +1015,8 @@ def run_primary_parse(
         # 조건 슬롯 ask만, 결정론 게이트가 공백을 인정할 때 채택한다(완성 전략
         # 재질문·관찰과 모순되는 질문 방지). 채택 불가면 검증 리포트의 고정 질문 유지.
         planner_ask, ask_reject_reason = _planner_first_ask(
-            planner_first, parsed, user_input, turn_explicit_fields)
+            planner_first, parsed, user_input, turn_explicit_fields,
+            pending_conditions=pending_conditions)
         if planner_ask is not None:
             clarification_question, clarification_suggestions, dag_topic = planner_ask
             clarification_priority = "dag_planner"
@@ -1005,6 +1040,17 @@ def run_primary_parse(
     # 미해결 업종·종목 질문(sector_unresolved)은 제외한다: 그 칩은 값이 아니라 후보
     # 표기라 값 결속 계약(_bind_chips)의 대상이 아니다.
     if pending_ask is None and clarification_priority != "sector_unresolved":
+        # 한 턴에 한 질문(2026-08-03 사용자 결정 — 기준값 3개를 한 버블에 묶어 묻던 것 폐지):
+        # 질문이 여러 개면 첫 질문만 이번 턴에 묻고, 나머지는 pending_ask.queue로 이월한다.
+        # 답이 반영되면 칩/수정 레인이 큐에서 다음 질문을 결정론으로 발행한다
+        # (_next_ask_from_queue). 칩 결속은 표면화 시점의 parsed로 계산한다.
+        queued_items: List[Dict[str, Any]] = []
+        if len(clarification_items) > 1:
+            first = clarification_items[0]
+            clarification_question = first["question"]
+            clarification_suggestions = first["chips"] or None
+            fallback_topic = first["topic"]
+            queued_items = clarification_items[1:]
         chips_offered = list(clarification_suggestions or [])
         pending_ask = _pending_ask_payload(
             clarification_question, clarification_suggestions, fallback_topic, parsed
@@ -1012,15 +1058,42 @@ def run_primary_parse(
         if pending_ask is not None:
             # 결속된 칩만 보인다 — planner 분기와 같은 계약.
             clarification_suggestions = pending_ask["chips"]
+            if queued_items:
+                pending_ask["queue"] = queued_items
+        elif queued_items:
+            # 첫 질문이 결속에 실패하면 큐를 실을 곳이 없다 — 나머지 질문이 조용히
+            # 사라지느니 종전대로 전체 질문을 한 번에 묻는다(분할은 결속 성립 시에만).
+            clarification_question, clarification_suggestions, fallback_topic = (
+                _build_clarification(report, validated))
+            chips_offered = list(clarification_suggestions or [])
+            pending_ask = _pending_ask_payload(
+                clarification_question, clarification_suggestions, fallback_topic, parsed
+            )
+            if pending_ask is not None:
+                clarification_suggestions = pending_ask["chips"]
+
+    # 값-대기 조건의 기준값 질문은 프론트 explicit 게이트(유니버스 질문)에 밀리지 않게
+    # 우선순위 마커를 붙인다(2026-08-03 사용자 결정 — "당기순이익·영업이익률이 얼마나
+    # 높은 종목인지 숫자를 물어봐야지"). 이해한 조건의 값 확인이 첫 후속 질문이어야
+    # 빈 전략 오독이 없다. 다른 우선순위(dag_planner·sector_unresolved)가 이미 있으면
+    # 그 선행 결정(유니버스 범위)이 그대로 이긴다.
+    if clarification_priority is None and clarification_question and pending_conditions:
+        clarification_priority = "pending_values"
 
     # 인터프리터의 unsupported_features를 그대로 인용하던 안내는 폐지했다(2026-08-01,
     # 사용자 판단). LLM이 자유 서술로 쓰는 채널이라 내부 사정("unsupported_features에
     # 기록합니다")·지원되는 필드명(risk_management.stop_loss)·발화 조각이 그대로 노출됐고,
     # 정작 미지원 개념 안내는 결정론 게이트(build_unsupported_concept_notice)가 이미 낸다.
     # 조용한 누락 방지는 아래 두 결정론 대조(제외 조건·미반영 수치)가 계속 담당한다.
-    # 제외됐지만 질문이 다루지 않는 조건이 있으면 정직하게 알린다
+    # 제외됐지만 질문이 다루지 않는 조건이 있으면 정직하게 알린다.
+    # 이월 큐(queue)에 실린 질문은 "다음 턴에 물을 예정"이므로 다룬 것으로 친다 —
+    # 안 그러면 한 턴에 한 질문 분할이 뒤 질문의 조건마다 미반영 안내를 만든다.
+    queued_question_text = " ".join(
+        str(q.get("question") or "")
+        for q in ((pending_ask or {}).get("queue") or [])
+    )
     unexplained_drops = [d for d in dropped if d not in " ".join(
-        [clarification_question or ""] + notices
+        [clarification_question or "", queued_question_text] + notices
     )]
     if unexplained_drops:
         notices.append(
@@ -1075,6 +1148,9 @@ def run_primary_parse(
         "clarification_priority": clarification_priority,
         "pending_ask": pending_ask,
         "explicit_fields": turn_explicit_fields,
+        # 값 미정으로 컴파일에서 제외된 조건(구조화) — parsed에는 없으므로 이 채널이
+        # 없으면 프론트 요약이 빈 전략으로 보인다(2026-08-03 '당기순이익' 사고).
+        "pending_conditions": pending_conditions,
         "field_states": _field_states(
             parsed, validated.strategy, report, turn_explicit_fields
         ),
@@ -1349,6 +1425,45 @@ def _bind_chips(
     return bound, bindings, confirms
 
 
+def _next_ask_from_queue(
+    pending_ask: Optional[Dict[str, Any]], parsed: Any,
+    explicit_fields: Optional[Iterable[str]] = None,
+) -> Optional[tuple[str, Optional[List[str]], str, Optional[Dict[str, Any]]]]:
+    """직전 ask의 이월 질문 큐에서 다음 질문 하나를 꺼내 발행한다(한 턴에 한 질문).
+
+    답이 이미 반영된 항목은 건너뛴다 — 조건 임계값 질문은 metric이 parsed의 재무 필터에
+    있으면, 슬롯 질문은 그 슬롯이 채워졌으면(자유 서술로 큐보다 앞서 답한 경우 재질문 방지).
+    칩 결속은 표면화 시점의 최신 parsed로 계산한다(발행 시 확정 계약). 결속이 안 되면
+    질문만 내보내고 자유 서술로 받는다(결속 안 되는 칩 노출 금지 — 다음 답변은 수정
+    인터프리터가 처리). 큐가 없거나 전부 기충족이면 None — 재계획 폴백.
+
+    반환: (질문, 노출 칩, 우선순위 마커, pending_ask). 우선순위는 pending_values —
+    프론트 explicit 게이트(유니버스 질문)가 이월 질문을 삼키지 않게 한다.
+    """
+    queue = list((pending_ask or {}).get("queue") or [])
+    while queue:
+        item = queue.pop(0)
+        question = str(item.get("question") or "").strip()
+        if not question:
+            continue
+        metric = item.get("metric")
+        if metric and any(
+            getattr(f, "metric", None) == metric
+            for f in (getattr(parsed, "fundamental_filters", None) or [])
+        ):
+            continue  # 답이 이미 반영된 조건 — 재질문 금지
+        topic = item.get("topic")
+        if topic and _is_filled_slot_topic(topic, parsed, explicit_fields):
+            continue  # 큐보다 앞서 자유 서술로 채워진 슬롯 — 재질문 금지
+        chips = [c for c in (item.get("chips") or []) if isinstance(c, str) and c.strip()]
+        ask = _pending_ask_payload(question, chips or None, topic, parsed)
+        if ask is not None and queue:
+            ask["queue"] = queue
+        _log_llm("→ 이월 질문 발행", f"'{question[:60]}' (남은 큐 {len(queue)}개)")
+        return question, (ask["chips"] if ask else None), "pending_values", ask
+    return None
+
+
 def _pending_ask_payload(
     question: Optional[str], chips: Optional[List[str]], topic: Optional[str],
     parsed: Any = None,
@@ -1563,6 +1678,7 @@ def _planner_scope_ask(
 def _planner_first_ask(
     result: Any, parsed: Any, user_input: str = "",
     explicit_fields: Optional[Iterable[str]] = None,
+    pending_conditions: Optional[List[Dict[str, Any]]] = None,
 ) -> tuple[Optional[tuple[str, Optional[List[str]], Optional[str]]], Optional[str]]:
     """planner-first가 표면화한 조건 슬롯 ask의 채택 판정(결정론 게이트가 최종 권한).
 
@@ -1587,6 +1703,19 @@ def _planner_first_ask(
     if _is_filled_slot_topic(result.topic, parsed, explicit_fields):
         logger.info("planner-first ask 채택 거부 — 이미 채워진 슬롯 | topic=%s", result.topic)
         return None, "filled_slot"
+    # 값-대기 조건이 있는 슬롯의 열린 질문 차단(2026-08-03 '당기순이익' 사고 2차) —
+    # 인터프리터가 그 슬롯의 조건을 이미 이해했고 값만 비었는데(compile_partial 드롭),
+    # parsed만 보면 공백이라 planner의 일반 질문("어떤 조건에서 매수할까요?")이 채택돼
+    # 검증 리포트의 **기준값 질문**("영업이익률 기준값을 얼마로 할까요?")을 덮어쓴다.
+    # 그 슬롯은 공백이 아니라 값 대기다 — 거부하고 폴백(검증 리포트 질문+칩 결속)에 맡긴다.
+    if pending_conditions:
+        from engine import strategy_slots
+        slot = strategy_slots.slot_for_topic(result.topic)
+        pending_roles = {p.get("role") for p in pending_conditions}
+        if (slot == strategy_slots.ENTRY and "entry" in pending_roles) or (
+                slot == strategy_slots.EXIT and "exit" in pending_roles):
+            logger.info("planner-first ask 채택 거부 — 값 대기 조건 존재 | topic=%s", result.topic)
+            return None, "pending_value_conditions"
     from engine.nl_parser import detect_incomplete_backtest_conditions
 
     gate_question, _gate_chips = detect_incomplete_backtest_conditions(parsed, user_input)
@@ -1767,7 +1896,13 @@ def run_chip_answer(
         return None
     _log_llm("✓ 칩 답변 확정", f"칩 '{text}' 결정적 반영(LLM 생략): {'; '.join(diff)}")
 
-    question, suggestions, priority, next_ask = _replan_next_question(user_input, parsed)
+    # 이월 질문 큐(한 턴에 한 질문)가 있으면 재계획 대신 큐의 다음 질문을 발행한다 —
+    # 재계획은 값-대기 조건을 모르는 planner가 다른 슬롯 질문으로 새게 한다.
+    queued = _next_ask_from_queue(pending_ask, parsed, previous_explicit_fields)
+    if queued is not None:
+        question, suggestions, priority, next_ask = queued
+    else:
+        question, suggestions, priority, next_ask = _replan_next_question(user_input, parsed)
     return finalize_user_response({
         "parsed": parsed,
         "clarification_question": question,
@@ -2704,13 +2839,20 @@ def run_primary_modification(
         if still_missing:
             _log_llm("△ 미반영(안내 없음)", f"{', '.join(still_missing)}")
 
-    # Phase 4 primary — 수정 턴 재계획: 최신 입력이 State를 바꿨으니(위 패치 적용),
-    # 다음 질문은 갱신된 State 기준으로 DAG planner가 다시 계획한다(유니버스가 바뀌면
-    # 후속 질문·칩도 그에 맞게 재생성 — 사용자 계약 "입력은 답변 귀속이 아니라 State
-    # 변경 판정이 먼저").
-    dag_question, dag_suggestions, dag_priority, dag_pending_ask = _replan_next_question(
-        user_input, parsed
-    )
+    # 이월 질문 큐(한 턴에 한 질문)가 있으면 재계획보다 먼저 소비한다 — 자유 서술
+    # ('직접 입력' 후 "12% 이상")로 답한 턴에도 남은 기준값 질문이 이어져야 한다.
+    # 이미 반영된 항목은 큐 소비가 건너뛴다(재질문 금지).
+    queued_next = _next_ask_from_queue(pending_ask, parsed, previous_explicit_fields)
+    if queued_next is not None:
+        dag_question, dag_suggestions, dag_priority, dag_pending_ask = queued_next
+    else:
+        # Phase 4 primary — 수정 턴 재계획: 최신 입력이 State를 바꿨으니(위 패치 적용),
+        # 다음 질문은 갱신된 State 기준으로 DAG planner가 다시 계획한다(유니버스가 바뀌면
+        # 후속 질문·칩도 그에 맞게 재생성 — 사용자 계약 "입력은 답변 귀속이 아니라 State
+        # 변경 판정이 먼저").
+        dag_question, dag_suggestions, dag_priority, dag_pending_ask = _replan_next_question(
+            user_input, parsed
+        )
 
     # 수정 턴의 명시 필드는 **이번 턴이 바꾼 것**(패치)에서 판정하고 이전 턴 에코와
     # 합집합한다 — 이전 턴에 말한 값이 이번 턴 침묵으로 지워지지 않게.
@@ -2790,6 +2932,10 @@ def apply_primary_meta(result: dict, primary: Dict[str, Any]) -> None:
     # 상태 축(§ 5)도 같은 계약 — 인터프리터가 State를 판정한 턴에서만 갱신한다.
     if primary.get("field_states"):
         result["field_states"] = primary["field_states"]
+    # 값 미정으로 컴파일에서 제외된 조건 — parsed에 없는 "이해한 조건"의 유일한 채널이라
+    # 질문 채택 여부와 무관하게 이월한다(질문이 explicit 게이트에 밀려도 요약에는 보여야 한다).
+    if primary.get("pending_conditions") is not None:
+        result["pending_conditions"] = primary["pending_conditions"]
     # 변경 이력(§ 19)도 같은 계약. 빈 목록도 유효한 값이라 None만 걸러낸다 —
     # "이 턴은 아무것도 바꾸지 않았다"는 사실 자체가 이력에 남아야 한다.
     if primary.get("changed_fields") is not None:

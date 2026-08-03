@@ -54,6 +54,7 @@ _OUTPUT_SHAPE = {
             },
         ],
         "exit_conditions": [],
+        "entry_logic": "AND",
         "ranking": [],
         "portfolio": {
             "selection_count": None,
@@ -104,6 +105,7 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
 ## 지원 지표 (factor는 반드시 아래 canonical ID로 출력)
 {factor_list}
 - ranking.return: '최근 N일 수익률 상위'류 모멘텀 랭킹 → strategy.ranking에 {{"metric":"return","lookback_days":60}}
+- 재무 지표 상위/하위 N종목 선정('영업이익률 상위 20종목', 'PER 낮은 상위 10종목')은 조건이 아니라 랭킹입니다 → strategy.ranking에 {{"metric":"fundamental.operating_margin","direction":"top"}} (낮은 순은 direction:"bottom"). 종목 수는 portfolio.selection_count로.
 
 ## 핵심 규칙
 0. 전략 조건을 서술하면서 '백테스트'·'테스트'·'검증'을 말한 입력은 CREATE_STRATEGY입니다
@@ -127,6 +129,10 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    RSI 35 이하에서 매수" → 조건 3개). 출력을 마치기 전에 입력의 각 수치·지표 언급이
    entry_conditions/exit_conditions/risk_management/portfolio/backtest 중 하나에 반영됐는지
    확인하세요. 표현할 수 없는 것만 unsupported_features로 보냅니다.
+4-2. entry_conditions가 여러 개일 때 결합 방식은 entry_logic입니다. 기본값은 "AND"이고
+   ("~하면서"·"동시에"·"그리고"·쉼표 나열은 전부 AND — 모두 성립해야 매수), 사용자가
+   "또는"·"이거나"·"둘 중 하나만 충족해도"처럼 대안 관계를 **명시했을 때만** "OR"로
+   출력하세요. 애매하면 AND입니다 — 여러 조건을 나열한 문장의 기본 의미는 전부 성립입니다.
 5. 진입 조건은 entry_conditions, 청산 조건은 exit_conditions에 구분하세요.
    손절/익절/트레일링은 조건이 아니라 risk_management 필드입니다(% 크기만).
    '최고가 대비/최고가에서 N% 하락(밀리면) 청산'은 stop_loss가 아니라 trailing_stop입니다.
@@ -350,6 +356,14 @@ entry_conditions=[{{"factor":"technical.ma_crossover","operator":"crosses_above"
 입력: "최근 60일 수익률 상위 10종목을 매월 리밸런싱"
 출력 요점: entry_conditions=[](랭킹은 조건이 아님), ranking=[{{"metric":"return","lookback_days":60}}],
 portfolio={{"selection_count":10,"rebalance_frequency":"monthly"}}.
+
+## 예시 4-a (재무 지표 랭킹 — '지표 상위 N종목'은 조건이 아니라 랭킹)
+입력: "영업이익률 상위 20종목에 투자하는 전략"
+출력 요점: entry_conditions=[](랭킹은 조건이 아님),
+ranking=[{{"metric":"fundamental.operating_margin","direction":"top"}}],
+portfolio={{"selection_count":20}}. 'PER 낮은 상위 10종목'처럼 낮을수록 좋은 지표의
+낮은 순 선정은 direction:"bottom"입니다. 임계값('10% 이상')을 함께 말했으면 그 부분만
+entry_conditions로 분리합니다.
 
 ## 예시 4-1 (ETF 테마 — 이미 말한 테마를 되묻지 않기)
 입력: "반도체 etf 투자 전략"

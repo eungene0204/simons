@@ -328,6 +328,21 @@ def test_compute_derived_metrics_ev_ebit_skipped_when_ebitda_nonpositive():
     assert "ev_ebit" not in result[0]
 
 
+def test_compute_derived_metrics_stores_net_income_in_eok():
+    """당기순이익(억원)은 성장률 계산 후 버리지 않고 저장한다(2026-08-03 절대 금액 필터).
+
+    순이익률(%) x 매출액(억원) 재계산 값이며, net_income_growth 재계산도 이 값을 쓴다."""
+    result = _compute_derived_annual_metrics([
+        {"year_end": "2023-12-31", "_revenue": 10000.0, "net_margin": 10.0},
+        {"year_end": "2024-12-31", "_revenue": 12000.0, "net_margin": 10.0},
+    ])
+    assert result[0]["net_income"] == pytest.approx(1000.0)
+    assert result[1]["net_income"] == pytest.approx(1200.0)
+    assert result[1]["net_income_growth"] == pytest.approx(20.0)
+    # 내부 컴포넌트(_revenue)는 여전히 저장하지 않는다
+    assert "_revenue" not in result[0]
+
+
 def test_compute_derived_metrics_normal_growth_for_profit_to_profit():
     result = _compute_derived_annual_metrics([
         {"year_end": "2023-12-31", "eps": 1000.0},

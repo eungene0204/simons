@@ -96,6 +96,29 @@ export type BuilderTurnPresentation = {
   question: string;
 };
 
+/** 백엔드 pending_conditions 페이로드 항목 — 값 미정으로 컴파일에서 제외된 조건.
+ *  parsed에는 없다(말하지 않은 값을 기본값으로 확정하지 않는 계약). 이 채널이 요약에
+ *  반영되지 않으면 이해한 조건이 빈 전략으로 보인다(2026-08-03 '당기순이익' 사고). */
+export type PendingCondition = {
+  role: "entry" | "exit";
+  label: string;
+  source_text?: string | null;
+};
+
+/** 값-대기 조건의 요약 표기. 사용자가 말한 표현(source_text)이 정본 라벨과 다른
+ *  지표로 매핑됐으면(예: '당기순이익' → 순이익증가율) 치환을 함께 고지한다 —
+ *  비교 입력은 둘 다 LLM 구조화 출력이다(원문 재해석 아님). */
+function formatPendingCondition(p: PendingCondition): string {
+  const base = `${p.label}(값 미정)`;
+  const source = (p.source_text ?? "").trim();
+  if (!source) return base;
+  const normalize = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+  // 라벨의 괄호 병기("PER(주가수익비율)")는 비교에서 뗀다 — 원문에는 약칭만 온다.
+  const labelKey = normalize(p.label.replace(/\(.*\)$/, ""));
+  if (normalize(source).includes(labelKey)) return base;
+  return `'${source}' → ${base}`;
+}
+
 export function getDisplayBuilderProgressItems(
   items: BuilderProgressItem[],
 ): BuilderProgressItem[] {
@@ -281,6 +304,7 @@ export function buildBuilderTurnPresentation({
   explicitFields,
   backtestRequest,
   allowNoRebalancing,
+  pendingConditions,
 }: {
   state: Record<string, any>;
   reply: string;
@@ -295,6 +319,9 @@ export function buildBuilderTurnPresentation({
   // 사용자가 리밸런싱 '안 함'을 고른 결과(게이트와 같은 입력). LLM 스펙에서는 null이라
   // 미언급과 구분되지 않으므로 호출자가 들고 전달한다 — 없으면 진행률이 그 답을 놓친다.
   allowNoRebalancing?: boolean;
+  // 값 미정으로 컴파일에서 제외된 조건(백엔드 pending_conditions) — parsed에 없으므로
+  // 여기서 받지 않으면 이해한 조건이 요약에서 사라진다.
+  pendingConditions?: readonly PendingCondition[] | null;
 }): BuilderTurnPresentation {
   const summaryItems: BuilderSummaryItem[] = [];
   // 신규 상장 제한(FR-STR-073)은 시장 라벨에 덧붙인다 — 빼면 "코스피·코스닥 전체"만
@@ -383,8 +410,18 @@ export function buildBuilderTurnPresentation({
       value: Array.isArray(sector) ? sector.join(" · ") : String(sector),
     });
   }
-  if (entryLabel) summaryItems.push({ label: "매수 조건", value: entryLabel });
-  if (exitLabels.length > 0) summaryItems.push({ label: "매도 조건", value: exitLabels.join(" · ") });
+  // 값-대기 조건은 확정 조건 뒤에 덧붙인다 — 확정/미정을 한 행에서 함께 보여야
+  // "이해했지만 값을 기다린다"가 전달된다(빈 요약 = '이해 못함' 오독 방지).
+  const pendingEntry = (pendingConditions ?? [])
+    .filter((p) => p.role === "entry")
+    .map(formatPendingCondition);
+  const pendingExit = (pendingConditions ?? [])
+    .filter((p) => p.role === "exit")
+    .map(formatPendingCondition);
+  const entryValue = [...(entryLabel ? [entryLabel] : []), ...pendingEntry].join(" · ");
+  if (entryValue) summaryItems.push({ label: "매수 조건", value: entryValue });
+  const exitValue = [...exitLabels, ...pendingExit].join(" · ");
+  if (exitValue) summaryItems.push({ label: "매도 조건", value: exitValue });
   if (parsed && specifiedSymbolCount > 0) {
     // 지정 종목 모드의 배분은 max_positions가 아니라 종목 수 균등이다 — 변환기가
     // max_positions=지정 종목 수로 덮어쓴다(FR-STR-068 ①, ranking_enabled=off). 기본값

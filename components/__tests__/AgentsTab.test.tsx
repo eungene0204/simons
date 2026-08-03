@@ -47,6 +47,6 @@ describe("AgentsTab", () => {
     // 전략 해석기의 분기 라벨
     expect(screen.getByText("빠진 조건이 있으면")).toBeTruthy();
     expect(screen.getByText("완성이면")).toBeTruthy();
-    expect(screen.getByText("되묻기 + 추천값 칩")).toBeTruthy();
+    expect(screen.getByText("되묻기 + 추천값 칩 (한 턴에 한 질문)")).toBeTruthy();
   });
 });

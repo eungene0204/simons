@@ -286,7 +286,21 @@ _FUNDAMENTAL_METRIC_ALIASES: dict[str, str] = {
     "net_profit_margin": "net_margin",
     "dividend": "dividend_yield",
     "payout_ratio": "payout_rate",
+    "netincome": "net_income",
+    "net_profit": "net_income",
 }
+
+# 랭킹 가능 지표 — 'return'(모멘텀) + 재무 팩터(FundamentalFilter.metric과 같은 어휘).
+# trading_value는 파케이 컬럼이 아니라 엔진이 즉석 계산(close×volume)하는 값이라 랭킹
+# 수집 경로(연간 재무 컬럼 ffill)에 태울 수 없어 제외한다.
+RankingMetricLiteral = Literal[
+    "return",
+    "per", "pbr", "psr", "pcr", "ev_ebitda", "ev_ebit", "roe_or_gpa", "roa", "debt_ratio",
+    "current_ratio", "quick_ratio", "reserve_ratio", "net_margin", "gross_margin",
+    "operating_margin", "revenue_growth", "operating_income_growth", "net_income_growth",
+    "market_cap", "dividend_yield", "payout_rate", "dividend_growth",
+    "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth", "eps", "ebit", "net_income",
+]
 
 
 def _normalize_metric_alias(value):
@@ -301,16 +315,19 @@ def _normalize_metric_alias(value):
 class FundamentalFilter(BaseModel):
     """재무 지표 필터 조건"""
     metric: Annotated[Literal[
-        "per", "pbr", "psr", "ev_ebitda", "ev_ebit", "roe_or_gpa", "roa", "debt_ratio",
+        "per", "pbr", "psr", "pcr", "ev_ebitda", "ev_ebit", "roe_or_gpa", "roa", "debt_ratio",
         "current_ratio", "quick_ratio",
         "reserve_ratio", "net_margin", "gross_margin", "operating_margin", "revenue_growth",
         "operating_income_growth", "net_income_growth", "market_cap", "trading_value",
         "dividend_yield", "payout_rate", "dividend_growth",
         "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth", "eps", "ebit",
+        "net_income",
     ], BeforeValidator(_normalize_metric_alias)] = Field(
         description=(
             "재무 지표 종류. "
-            "per=주가수익비율, pbr=주가순자산비율, psr=주가매출비율, ev_ebitda=EV/EBITDA(배, 낮을수록 저평가), "
+            "per=주가수익비율, pbr=주가순자산비율, psr=주가매출비율, "
+            "pcr=주가현금흐름비율(배, 시가총액/영업활동현금흐름, 낮을수록 저평가), "
+            "ev_ebitda=EV/EBITDA(배, 낮을수록 저평가), "
             "ev_ebit=EV/EBIT(배, 낮을수록 저평가), "
             "roe_or_gpa=자기자본이익률(%), "
             "roa=총자본순이익률(%), debt_ratio=부채비율(%), current_ratio=유동비율(%), "
@@ -323,7 +340,8 @@ class FundamentalFilter(BaseModel):
             "eps_growth=EPS증가율(%), ebitda_growth=EBITDA증가율(%), "
             "ocf_growth=영업활동현금흐름증가율(%), fcf_growth=잉여현금흐름증가율(%), "
             "eps=주당순이익(원, 최근 연간 결산 기준 — 흑자 기업=eps>0, 적자 기업=eps<0), "
-            "ebit=영업이익(억원, 최근 연간 결산 기준 — 영업이익 흑자=ebit>0, 영업이익 적자=ebit<0). "
+            "ebit=영업이익(억원, 최근 연간 결산 기준 — 영업이익 흑자=ebit>0, 영업이익 적자=ebit<0), "
+            "net_income=당기순이익(억원, 최근 연간 결산 기준 절대 금액). "
             "eps_growth/ebitda_growth/net_income_growth/operating_income_growth/ocf_growth/fcf_growth는 "
             "적자↔흑자 전환기에는 값 대신 상태코드(TURNAROUND/LOSS_TRANSITION 등)로 표현될 수 있다."
         )
@@ -620,18 +638,31 @@ class ParsedStrategy(BaseModel):
         default_factory=list,
         description="진입 게이트 필터(AND). 추세(EMA above/below)·RSI 결합·거래대금 등. 없으면 []"
     )
+    # entry_signals(복수) 간 결합 방식. 기본 AND — "동시에"·"그리고"처럼 여러 기술적 신호가
+    # 모두 성립해야 하는 것이 자연어의 일반적 의미다. "또는"·"둘 중 하나"처럼 대안 관계를
+    # 명시했을 때만 OR. entry_signals가 0~1개면 값과 무관하게 결과가 같다.
+    entry_logic: Literal["AND", "OR"] = Field(
+        default="AND",
+        description="entry_signals 간 결합(AND/OR). 기본 AND",
+    )
 
     # ── 종목 선정 랭킹 (횡단면)
-    ranking_metric: Optional[Literal["return"]] = Field(
+    ranking_metric: Optional[RankingMetricLiteral] = Field(
         default=None,
         description=(
-            "종목 간 순위로 선정하는 방식. 'return'=최근 수익률 상위 종목 선정(상대강도/모멘텀 랭킹). "
-            "예: '최근 60일 수익률 높은 상위 N종목'. 진입 신호 없이 순위 자체가 진입. 없으면 null"
+            "종목 간 순위로 선정하는 방식. 'return'=최근 수익률 상위 종목 선정(상대강도/모멘텀 랭킹), "
+            "재무 지표명(operating_margin 등)=그 지표 값 순위로 선정(재무 팩터 랭킹). "
+            "예: '최근 60일 수익률 높은 상위 N종목', '영업이익률 상위 20종목'. "
+            "진입 신호 없이 순위 자체가 진입. 없으면 null"
         ),
     )
     ranking_lookback_days: Optional[int] = Field(
         default=None,
-        description="랭킹 산정 기간(거래일). 예: '60거래일 수익률'=60. ranking_metric이 있을 때만. 없으면 null(기본 60)",
+        description="랭킹 산정 기간(거래일). 예: '60거래일 수익률'=60. ranking_metric='return'일 때만. 없으면 null(기본 60)",
+    )
+    ranking_direction: Optional[Literal["top", "bottom"]] = Field(
+        default=None,
+        description="랭킹 방향. top=값 높은 순(기본), bottom=값 낮은 순(예: 'PER 낮은 상위 20종목'). 없으면 null(top)",
     )
 
     # ── 포트폴리오
@@ -744,8 +775,9 @@ class ParsedStrategyDiff(BaseModel):
 
     entry_signals: Optional[List[TechnicalSignal]] = None
     exit_signals: Optional[List[TechnicalSignal]] = None
-    ranking_metric: Optional[Literal["return"]] = None
+    ranking_metric: Optional[RankingMetricLiteral] = None
     ranking_lookback_days: Optional[int] = None
+    ranking_direction: Optional[Literal["top", "bottom"]] = None
     max_positions: Optional[int] = Field(default=None, ge=1, le=100)
     hold_period_days: Optional[int] = None
     rebalancing_period: Optional[Literal["none", "daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly"]] = None
@@ -841,6 +873,7 @@ SYSTEM_PROMPT = """당신은 한국 주식 퀀트 투자 전략을 JSON으로 �
 - 부채비율 100% 이하 → {"metric": "debt_ratio", "operator": "<=", "value": 100.0}
 - ROA 5% 이상 → {"metric": "roa", "operator": ">=", "value": 5.0}
 - PSR 2 이하 → {"metric": "psr", "operator": "<=", "value": 2.0}
+- PCR 10 이하 → {"metric": "pcr", "operator": "<=", "value": 10.0}
 - EV/EBITDA 8 이하 → {"metric": "ev_ebitda", "operator": "<=", "value": 8.0}
 - 배당수익률 3% 이상 / 고배당주 → {"metric": "dividend_yield", "operator": ">=", "value": 3.0}
 - 배당성향 30% 이상 → {"metric": "payout_rate", "operator": ">=", "value": 30.0}
@@ -2822,7 +2855,7 @@ _OPERATOR_BY_KOREAN = {
 
 def _default_operator_for_metric(metric: str) -> str:
     # 낮을수록 우량/저평가인 지표는 '<=', 높을수록 우량인 지표는 '>=' 기본값.
-    if metric in {"pbr", "per", "psr", "ev_ebitda", "debt_ratio"}:
+    if metric in {"pbr", "per", "psr", "pcr", "ev_ebitda", "debt_ratio"}:
         return "<="
     return ">="
 
@@ -3691,7 +3724,7 @@ _UNSUPPORTED_CONCEPT_RE = tuple(
 # 표현할 수 없으므로, 조용히 누락/유사 해석되는 대신 notices 채널로 명시적으로 알린다.
 _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
     "volatility": "변동성 조건",
-    "cash_flow": "현금흐름(FCF/PCF 등) 조건",
+    "cash_flow": "현금흐름(FCF 등) 조건",
     "cash_weight": "현금 비중 조건",
     "dividend": "배당 조건",
     "roic": "ROIC(투하자본이익률) 조건",
@@ -3795,15 +3828,18 @@ def _input_numbers(user_input: str) -> set:
 # "지원되지 않아요" 안내가 함께 나가면 모순이므로 안내에서 뺀다 — sector(추출 성공 시 제외)·
 # dividend(배당 지표 추출 시 제외)와 같은 계약이다. 판정 입력은 컴파일 결과와 입력 **수치**뿐
 # — 원문의 어휘를 다시 읽지 않는다(자연어 해석 계약 § 판정 기준).
-#   cash_flow — 현금흐름 '수준/흑자 여부'는 미지원이지만 증가율(ocf_growth·fcf_growth)은
-#     정식 지원 지표다(2026-08-01: 지원되는데도 안내가 나가던 오탐). 단 임계값이 입력 수치에
-#     없으면 인터프리터가 지어낸 대체다 — '현금흐름 흑자'를 ocf_growth>=0으로 옮기는 유사
-#     대체가 실측돼(조용한 의미 변경) 그 경우엔 안내를 남긴다.
+#   cash_flow — 현금흐름 '수준/흑자 여부'는 미지원이지만 증가율(ocf_growth·fcf_growth)과
+#     PCR(2026-08-03 정식 지원 승격)은 지원 지표다(2026-08-01: 지원되는데도 안내가 나가던
+#     오탐). 단 임계값이 입력 수치에 없으면 인터프리터가 지어낸 대체다 — '현금흐름 흑자'를
+#     ocf_growth>=0으로 옮기는 유사 대체가 실측돼(조용한 의미 변경) 그 경우엔 안내를 남긴다.
+#     pcr 큐는 목록에 남긴다 — 결정적 추출기는 PCR을 표현하지 못하므로 규칙 기반 레인이
+#     자신을 불신하고 LLM 폴백으로 위임해야 한다(어휘 추가 금지 — 대원칙 1). LLM이 pcr
+#     필터로 반영하면 이 술어가 안내를 뺀다(배당·sector 제외 계약과 동형).
 #   ema_alignment — '정배열'은 두 선의 상하 관계(crossover 표기)로 표현된다(인터프리터
 #     프롬프트 5-3). 세 선 이상을 나열한 정배열의 부분 표현은 이 술어가 구분하지 못한다.
 _CONCEPT_EXPRESSED_PREDICATES: dict[str, Any] = {
     "cash_flow": lambda p, nums: any(
-        f.metric in ("ocf_growth", "fcf_growth")
+        f.metric in ("ocf_growth", "fcf_growth", "pcr")
         and any(abs(float(f.value) - n) < 1e-6 for n in nums)
         for f in p.fundamental_filters
     ),
@@ -4404,7 +4440,8 @@ _MODIFY_FIELD_CUES: dict[str, list[str]] = {
     # 펀더멘털 지표명·연산자·통상 수식어. 숫자/단위/필러는 공통 차감 규칙이 처리한다.
     "fundamental_filters": [
         "주가순자산비율", "주가수익비율", "주가순자산", "주가수익", "자기자본이익률",
-        "주가매출액비율", "주가매출비율", "총자산이익률", "총자본이익률",
+        "주가매출액비율", "주가매출비율", "주가현금흐름비율", "주가현금흐름",
+        "총자산이익률", "총자본이익률",
         "일평균거래대금", "거래대금", "시가총액", "시총", "부채비율", "부채",
         "유동비율", "당좌비율", "유보율", "순이익률", "매출총이익률", "영업이익률",
         "매출액증가율", "매출증가율", "영업이익증가율", "순이익증가율",
@@ -4417,7 +4454,7 @@ _MODIFY_FIELD_CUES: dict[str, list[str]] = {
         "배당수익률", "시가배당률", "배당률", "배당성향", "배당지급률",
         "배당성장률", "배당증가율", "배당성장", "배당증가",
         "이브이에비타", "기업가치", "ebitda", "에비타", "ev",
-        "pbr", "per", "roe", "gpa", "psr", "roa",
+        "pbr", "per", "roe", "gpa", "psr", "pcr", "roa",
         "이하", "미만", "이상", "초과", "이내",
         "저평가", "고평가", "우량", "가치주", "성장주", "종목", "주식", "조건", "필터",
     ],
@@ -5310,16 +5347,18 @@ def _apply_prompt_overrides(
         updates["ranking_metric"] = ranking_metric
         updates["ranking_lookback_days"] = ranking_lookback_days
     elif (
-        parsed.ranking_metric is not None
+        parsed.ranking_metric == "return"
         and not _mentions_relative_strength_ranking(compact_in)
         and _detect_qualitative_metrics(compact_in)
     ):
         # LLM이 재무 정성 표현("PER 낮은 상위 20종목")의 '상위'를 모멘텀 순위로 오해석해
         # return 랭킹을 붙인 경우 — 상대강도 cue가 없고 재무 정성 조건이 있으면 그 '상위'는
-        # 랭킹 종목 수(선정 개수)일 뿐이므로 랭킹을 비운다(레드팀 QA 13-1). 엔진은 return
-        # 랭킹만 지원하므로 재무 팩터 랭킹은 필터+선정으로 표현된다.
+        # 랭킹 종목 수(선정 개수)일 뿐이므로 랭킹을 비운다(레드팀 QA 13-1).
+        # 'return'만 대상이다 — 재무 팩터 랭킹(ranking_metric=지표명, 2026-08-03 지원)은
+        # 정확히 그 정성 표현의 의도된 표현형이므로 여기서 비우면 기능 자체가 소거된다.
         updates["ranking_metric"] = None
         updates["ranking_lookback_days"] = None
+        updates["ranking_direction"] = None
 
     # 명시적 백테스트 연도 범위('2002년부터 2005년까지')를 결정적으로 추출.
     # 언급이 없으면 기존 값을 덮어쓰지 않는다(수정 모드 보호).
@@ -5558,7 +5597,7 @@ _ETF_FACTOR_CONFLICT_QUESTION = (
 
 # 재무 지표 → 사용자 표시 라벨(충돌 안내용).
 _FUNDAMENTAL_METRIC_LABELS: dict[str, str] = {
-    "per": "PER", "pbr": "PBR", "psr": "PSR", "ev_ebitda": "EV/EBITDA",
+    "per": "PER", "pbr": "PBR", "psr": "PSR", "pcr": "PCR", "ev_ebitda": "EV/EBITDA",
     "roe_or_gpa": "ROE", "roa": "ROA", "debt_ratio": "부채비율",
     "current_ratio": "유동비율", "quick_ratio": "당좌비율", "reserve_ratio": "유보율",
     "net_margin": "순이익률", "gross_margin": "매출총이익률", "operating_margin": "영업이익률",

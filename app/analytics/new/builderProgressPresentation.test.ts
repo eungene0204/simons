@@ -374,3 +374,84 @@ describe("매도 조건 — 리스크 관리와 값을 중복하지 않는다 (2
     expect(presentation.summaryItems.find((i) => i.label === "리스크 관리")?.value).toBe("손절 -8%");
   });
 });
+
+describe("값-대기 조건(pending_conditions) 요약 표시 — 2026-08-03 '당기순이익' 사고", () => {
+  // [회귀] 값 미정 조건은 컴파일된 parsed에 없어(무단 확정 금지) 요약이 빈 전략으로
+  // 보였다("첫 조건부터 하나씩") — 백엔드 pending_conditions 채널이 요약에 반영돼야 한다.
+  const emptyParsed = {
+    ...themeParsed,
+    target_symbols: [],
+    entry_signals: [],
+    fundamental_filters: [],
+  } as unknown as ParsedSummary;
+
+  it("확정 조건이 하나도 없어도 값-대기 조건이 매수 조건 행으로 나타난다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "질문",
+      parsed: emptyParsed,
+      pendingConditions: [
+        { role: "entry", label: "순이익증가율", source_text: "당기순이익과" },
+        { role: "entry", label: "영업이익률", source_text: "영업이익률이 높은" },
+      ],
+    });
+    const entry = presentation.summaryItems.find((i) => i.label === "매수 조건");
+    // 원문 표현과 다른 지표로 매핑된 조건('당기순이익' → 순이익증가율)은 치환을 고지한다.
+    expect(entry?.value).toBe(
+      "'당기순이익과' → 순이익증가율(값 미정) · 영업이익률(값 미정)",
+    );
+    expect(presentation.summaryItems.length).toBeGreaterThan(0);
+  });
+
+  it("확정 조건이 있으면 그 뒤에 값-대기 조건을 덧붙인다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "질문",
+      parsed: {
+        ...emptyParsed,
+        fundamental_filters: [{ metric: "per", operator: "<=", value: 10 }],
+      } as unknown as ParsedSummary,
+      pendingConditions: [
+        { role: "entry", label: "영업이익률", source_text: "영업이익률이 높은" },
+      ],
+    });
+    const entry = presentation.summaryItems.find((i) => i.label === "매수 조건");
+    expect(entry?.value).toContain("PER");
+    expect(entry?.value).toContain("영업이익률(값 미정)");
+  });
+
+  it("괄호 병기 라벨(PER(주가수익비율))은 약칭이 원문에 있으면 치환 고지를 붙이지 않는다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "질문",
+      parsed: emptyParsed,
+      pendingConditions: [
+        { role: "entry", label: "PER(주가수익비율)", source_text: "PER 낮은" },
+      ],
+    });
+    const entry = presentation.summaryItems.find((i) => i.label === "매수 조건");
+    expect(entry?.value).toBe("PER(주가수익비율)(값 미정)");
+  });
+
+  it("청산 값-대기 조건은 매도 조건 행에 나타난다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "질문",
+      parsed: emptyParsed,
+      pendingConditions: [
+        { role: "exit", label: "RSI", source_text: "RSI 높으면 매도" },
+      ],
+    });
+    const exit = presentation.summaryItems.find((i) => i.label === "매도 조건");
+    expect(exit?.value).toBe("RSI(값 미정)");
+  });
+
+  it("pending_conditions가 없으면 기존 표시와 동일하다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "질문",
+      parsed: emptyParsed,
+    });
+    expect(presentation.summaryItems.find((i) => i.label === "매수 조건")).toBeUndefined();
+  });
+});

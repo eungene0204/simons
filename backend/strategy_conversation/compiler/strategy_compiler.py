@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from engine.nl_parser import FundamentalFilter, ParsedStrategy, TechnicalSignal
 from strategy_conversation.interpreter.models import (
@@ -177,12 +177,18 @@ def compile_partial(
     intent: StrategyIntent,
     report: ValidationReport,
     user_input: str,
-) -> Tuple[ParsedStrategy, List[str]]:
+) -> Tuple[ParsedStrategy, List[str], List[Dict[str, Optional[str]]]]:
     """NEEDS_CLARIFICATION 초안에서 확정된 조건만으로 ParsedStrategy를 구성한다.
 
     누락값이 지적된(missing_fields) 조건과 미지원/컴파일 불가 조건은 기본값으로
     조용히 확정하지 않고 **제외**한다 — 제외 목록을 함께 반환해 호출부가 되묻기
     질문/안내로 명시한다(침묵 왜곡 방지). 검증 통과 전략이면 compile_strategy와 동일.
+
+    세 번째 반환값은 값 미정으로 제외된 조건의 구조화 목록
+    [{"role", "label", "source_text"}] — 라벨 문자열(dropped)만으로는 프론트가
+    "이해했지만 값을 기다리는 조건"을 요약에 표시할 수 없다(빈 요약이 '이해 못함'으로
+    읽히던 2026-08-03 사고). 컴파일 불가 드롭(미지원 배치)은 값의 문제가 아니므로
+    여기 넣지 않는다.
     """
     strategy = intent.strategy
     if strategy is None:
@@ -196,6 +202,7 @@ def compile_partial(
 
     buckets = {"fundamental_filters": [], "entry_signals": [], "exit_signals": []}
     dropped: List[str] = []
+    pending_conditions: List[Dict[str, Optional[str]]] = []
     for path, role, conditions in (
         ("entry_conditions", "entry", strategy.entry_conditions),
         ("exit_conditions", "exit", strategy.exit_conditions),
@@ -205,6 +212,9 @@ def compile_partial(
             label = spec.display_name if spec else cond.factor
             if (path, i) in pending:
                 dropped.append(label)
+                pending_conditions.append(
+                    {"role": role, "label": label, "source_text": cond.source_text}
+                )
                 continue
             try:
                 name, compiled = _compile_condition(cond, role)
@@ -213,16 +223,26 @@ def compile_partial(
                 continue
             buckets[name].append(compiled)
 
-    return _build_parsed(strategy, buckets, user_input), dropped
+    return _build_parsed(strategy, buckets, user_input), dropped, pending_conditions
 
 
 def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
     ranking_metric = None
     ranking_lookback = None
+    ranking_direction = None
     if strategy.ranking:
+        # 검증기(capability_validator)가 metric을 정본 id로 정규화한 뒤다 —
+        # ranking.return(모멘텀) 또는 fundamental.*(재무 팩터 랭킹, 2026-08-03).
         rank = strategy.ranking[0]
-        ranking_metric = "return"
-        ranking_lookback = rank.lookback_days
+        spec = REGISTRY.get(rank.metric)
+        binding = spec.engine_binding if spec else None
+        if binding is not None and binding[0] == "fundamental_filter":
+            ranking_metric = binding[1]
+            # top이 기본이라 저장하지 않는다(방향 미지정 기존 전략의 strategy_id 불변).
+            ranking_direction = "bottom" if rank.direction == "bottom" else None
+        else:
+            ranking_metric = "return"
+            ranking_lookback = rank.lookback_days
 
     # 업종·지정 종목은 LLM이 뽑은 표현('반도체', 'HBM', '삼성전자')을 registry가 정본 값으로
     # 해석한다 — 사용자 원문을 다시 읽지 않는다(nl_interpretation_contract § 3).
@@ -273,8 +293,10 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         fundamental_filters=buckets["fundamental_filters"],
         entry_signals=buckets["entry_signals"],
         exit_signals=buckets["exit_signals"],
+        entry_logic=strategy.entry_logic,
         ranking_metric=ranking_metric,
         ranking_lookback_days=ranking_lookback,
+        ranking_direction=ranking_direction,
         max_positions=portfolio.selection_count if portfolio.selection_count is not None else 10,
         hold_period_days=portfolio.hold_period_days,
         rebalancing_period=portfolio.rebalance_frequency or "none",

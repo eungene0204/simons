@@ -366,3 +366,63 @@ def test_unknown_topic_cannot_confirm():
     assert confirmable_field_for_topic("유니버스") is None
     # planner가 라벨을 늘려 써도 정본 라벨에 맞춘다(표기 정규화).
     assert confirmable_field_for_topic("최대 보유 종목 수") == "max_positions"
+
+
+# ── 이월 질문 큐(한 턴에 한 질문, 2026-08-03 사용자 결정) ─────────────────────
+
+def _value_strategy() -> dict:
+    return ParsedStrategy(description="당기순이익과 영업이익률이 높은 종목",
+                          universe=["KOSPI"]).model_dump()
+
+
+def _queued_ask():
+    return {
+        "topic": None,
+        "question": "진입 조건의 순이익증가율 기준값을 얼마로 할까요?",
+        "chips": ["순이익증가율 10% 이상"],
+        "chip_bindings": {"순이익증가율 10% 이상": {"fundamental_filters": [
+            {"metric": "net_income_growth", "operator": ">=", "value": 10.0}]}},
+        "queue": [
+            {"question": "진입 조건의 영업이익률 기준값을 얼마로 할까요?",
+             "chips": ["영업이익률 10% 이상"], "topic": None, "metric": "operating_margin"},
+        ],
+    }
+
+
+def test_chip_answer_surfaces_next_queued_question():
+    """[2026-08-03 사용자 결정] 기준값 3개를 한 버블에 묶지 않는다 — 칩으로 답하면
+    재계획 대신 큐의 다음 질문(영업이익률 기준값)이 새 결속과 함께 나간다."""
+    result = run_chip_answer("순이익증가율 10% 이상", _value_strategy(), _queued_ask())
+    assert result is not None
+    assert [(f.metric, f.value) for f in result["parsed"].fundamental_filters] == [
+        ("net_income_growth", 10.0)]
+    assert "영업이익률" in result["clarification_question"]
+    assert result["clarification_suggestions"] == ["영업이익률 10% 이상"]
+    assert result["clarification_priority"] == "pending_values"
+    next_ask = result["pending_ask"]
+    assert "영업이익률 10% 이상" in next_ask["chip_bindings"]
+    assert "queue" not in next_ask  # 남은 큐가 없으면 싣지 않는다
+
+
+def test_queued_question_skipped_when_already_answered():
+    """큐보다 앞서 자유 서술로 이미 반영된 조건은 재질문하지 않는다."""
+    prev = ParsedStrategy(
+        description="t", universe=["KOSPI"],
+        fundamental_filters=[{"metric": "operating_margin", "operator": ">=", "value": 12.0}],
+    ).model_dump()
+    ask = _queued_ask()
+    # 실제 결속값(_bind_chips)은 기존 목록에 새 조건을 병합해 싣는다(목록형 소실 방지)
+    ask["chip_bindings"]["순이익증가율 10% 이상"] = {"fundamental_filters": [
+        {"metric": "operating_margin", "operator": ">=", "value": 12.0},
+        {"metric": "net_income_growth", "operator": ">=", "value": 10.0}]}
+    ask["queue"] = [
+        {"question": "진입 조건의 영업이익률 기준값을 얼마로 할까요?",
+         "chips": ["영업이익률 10% 이상"], "topic": None, "metric": "operating_margin"},
+        {"question": "청산 규칙이 없습니다. 어떻게 매도할까요?",
+         "chips": ["20일 보유 후 청산"], "topic": "매도 조건", "metric": None},
+    ]
+    result = run_chip_answer("순이익증가율 10% 이상", prev, ask)
+    assert result is not None
+    # 영업이익률은 이미 12%로 반영돼 있다 — 건너뛰고 청산 질문이 나간다
+    assert "청산" in result["clarification_question"]
+    assert "영업이익률" not in result["clarification_question"]

@@ -92,7 +92,7 @@ class ClassifyUniverseIn(BaseModel):
 
 
 class ClassifyUniverseOut(BaseModel):
-    universe_type: str  # MARKET | ETF | SINGLE_STOCK | SECTOR | CONCEPT
+    universe_type: str  # MARKET | ETF | SINGLE_STOCK | SECTOR | CONCEPT | NOT_UNIVERSE
     canonical: Optional[str] = None  # MARKET 시장 코드 / SINGLE_STOCK 종목코드 / SECTOR 정본명
 
 
@@ -122,6 +122,14 @@ def _classify_universe(inp: ClassifyUniverseIn) -> ClassifyUniverseOut:
         return ClassifyUniverseOut(universe_type="CONCEPT")
     if sector:
         return ClassifyUniverseOut(universe_type="SECTOR", canonical=sector)
+    # 지표 조건 구가 유니버스 표현으로 넘어온 오라우팅 백스톱 — CONCEPT으로 판정하면
+    # planner가 KG 조회·검색 학습 체인을 돌다 턴 예산을 소진한다(2026-08-03
+    # '당기순이익과, 영업이익률이 높은 종목' 실측 10.7초). 입력은 planner LLM이 뽑은
+    # 표현이므로 결정론 대조가 계약에 맞는다.
+    from strategy_conversation.registry.indicator_registry import contains_factor_term
+
+    if contains_factor_term(inp.text):
+        return ClassifyUniverseOut(universe_type="NOT_UNIVERSE")
     return ClassifyUniverseOut(universe_type="CONCEPT")
 
 
@@ -231,6 +239,9 @@ class CompileStrategyOut(BaseModel):
 
     parsed: Any  # engine.nl_parser.ParsedStrategy — 엔진 모듈 순환 의존 회피로 Any
     dropped: List[str] = []
+    # 값 미정으로 제외된 조건의 구조화 목록 [{"role","label","source_text"}] —
+    # 프론트 요약이 "이해했지만 값 대기"를 표시할 근거(dropped 라벨만으론 불가).
+    pending_conditions: List[dict] = []
 
 
 def _compile_strategy(inp: CompileStrategyIn) -> CompileStrategyOut:
@@ -240,8 +251,8 @@ def _compile_strategy(inp: CompileStrategyIn) -> CompileStrategyOut:
     )
 
     if inp.partial:
-        parsed, dropped = compile_partial(inp.intent, inp.report, inp.user_input)
-        return CompileStrategyOut(parsed=parsed, dropped=dropped)
+        parsed, dropped, pending = compile_partial(inp.intent, inp.report, inp.user_input)
+        return CompileStrategyOut(parsed=parsed, dropped=dropped, pending_conditions=pending)
     return CompileStrategyOut(
         parsed=compile_strategy(inp.intent, inp.report, inp.user_input), dropped=[]
     )
@@ -252,7 +263,7 @@ for _spec in (
              KgResolveSectorIn, KgResolveSectorOut, _kg_resolve_sector, deterministic=True),
     ToolSpec("kg_theme_companies", "테마 표현의 관련 상장사 목록(백테스트 대상 제안 뷰)을 조회한다",
              KgThemeCompaniesIn, KgThemeCompaniesOut, _kg_theme_companies, deterministic=True),
-    ToolSpec("classify_universe", "유니버스 표현의 타입(MARKET/ETF/SINGLE_STOCK/SECTOR/CONCEPT)을 결정한다",
+    ToolSpec("classify_universe", "유니버스 표현의 타입(MARKET/ETF/SINGLE_STOCK/SECTOR/CONCEPT/NOT_UNIVERSE)을 결정한다",
              ClassifyUniverseIn, ClassifyUniverseOut, _classify_universe, deterministic=True),
     ToolSpec("list_concept_candidates", "CONCEPT 표현의 카탈로그 테마 후보 목록(범위 되묻기 선택지)을 조회한다",
              ConceptCandidatesIn, ConceptCandidatesOut, _list_concept_candidates, deterministic=True),

@@ -12,7 +12,8 @@ from engine.indicator_columns import bollinger_columns, macd_columns, stochastic
 # eval branches are fully generic (get_col(cid) / safe_get(cid)). Single source of truth
 # for which metrics are filterable and how their badges read.
 FUNDAMENTAL_LABELS = {
-    "per": "PER", "pbr": "PBR", "psr": "PSR", "ev_ebitda": "EV/EBITDA", "ev_ebit": "EV/EBIT",
+    "per": "PER", "pbr": "PBR", "psr": "PSR", "pcr": "PCR",
+    "ev_ebitda": "EV/EBITDA", "ev_ebit": "EV/EBIT",
     "roe_or_gpa": "ROE", "roa": "ROA",
     "debt_ratio": "부채비율", "current_ratio": "유동비율", "quick_ratio": "당좌비율",
     "reserve_ratio": "유보율", "net_margin": "순이익률", "gross_margin": "매출총이익률",
@@ -27,10 +28,12 @@ FUNDAMENTAL_LABELS = {
     # 표현한다(nl_parser 참고).
     "eps": "EPS",
     "ebit": "영업이익",
+    # 당기순이익 절대 금액(억원, 순이익률x매출액 재계산 — fundamental_fetcher 참고).
+    "net_income": "당기순이익",
 }
 FUNDAMENTAL_CIDS = list(FUNDAMENTAL_LABELS)
 # Metrics whose value is an amount (억원), not a ratio — for badge suffixing.
-FUNDAMENTAL_AMOUNT_CIDS = {"market_cap"}
+FUNDAMENTAL_AMOUNT_CIDS = {"market_cap", "net_income"}
 
 
 @functools.lru_cache(maxsize=1)

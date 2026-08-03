@@ -218,8 +218,13 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
             [_canonicalize_technical_signal(sig) for sig in strategy.entry_filters],
             key=_canonical_sort_key,
         ),
+        # 신호가 2개 이상일 때만 결합 방식이 실행 결과를 바꾸므로, 그 경우에만 해시에
+        # 반영한다 — 신호 0~1개인 기존 전략의 strategy_id를 불필요하게 바꾸지 않는다.
+        "entry_logic": strategy.entry_logic if len(strategy.entry_signals) > 1 else None,
         "ranking_metric": strategy.ranking_metric,
         "ranking_lookback_days": strategy.ranking_lookback_days,
+        # None이면 _drop_none이 제거 → 방향 미지정 기존 전략의 해시 불변.
+        "ranking_direction": strategy.ranking_direction,
         "max_positions": strategy.max_positions,
         "hold_period_days": strategy.hold_period_days,
         "rebalancing_period": strategy.rebalancing_period,
@@ -418,7 +423,9 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "ranking_weight_value": 0.5,
         "ranking_weight_quality": 0.5,
         "ranking_metric": strategy.ranking_metric,
-        "ranking_lookback_days": strategy.ranking_lookback_days or (60 if strategy.ranking_metric else None),
+        # lookback은 모멘텀('return') 전용 — 재무 팩터 랭킹은 연간 결산값 순위라 기간이 없다.
+        "ranking_lookback_days": strategy.ranking_lookback_days or (60 if strategy.ranking_metric == "return" else None),
+        "ranking_direction": strategy.ranking_direction,
         "execution_timing": strategy.execution_timing,
         "allocation_type": "equal",
     }
@@ -456,7 +463,10 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         # 지정 종목 모드는 사용자가 종목을 직접 고른 것이므로 적용하지 않는다.
         "listing_from": None if target_symbols else strategy.listing_from,
         "listing_to": None if target_symbols else strategy.listing_to,
-        "entry": {"conditions": entry_conditions},
+        # logic 미지정 시 엔진(SignalEngine.generate_signals)의 기본값은 OR이라
+        # entry_signals가 2개 이상이면 명시하지 않으면 "동시에"가 조용히 "또는"으로
+        # 실행된다(실측 2026-08-03) — 항상 명시한다.
+        "entry": {"conditions": entry_conditions, "logic": strategy.entry_logic},
         "exit": {"conditions": exit_conditions},
         "risk": risk,
         "period": strategy.backtest_period,

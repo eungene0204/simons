@@ -228,6 +228,37 @@ def test_entry_filters_emitted_as_and_filter_conditions():
     assert conds[("filter", "rsi")]["value"] == 30 and conds[("filter", "rsi")]["operator"] == "<"
 
 
+def test_multi_signal_entry_defaults_to_and_combination():
+    """실측 사고(2026-08-03): entry_signals가 2개 이상인데 'logic'을 안 실으면
+    SignalEngine 기본값 OR로 실행돼 "동시에"가 조용히 "또는"이 됐다. 기본 entry_logic
+    ("AND")이 실제 신호 계산까지 AND로 반영되는지 확인한다."""
+    strat = make_strategy(
+        entry_signals=[
+            TechnicalSignal(indicator="rsi", signal_type="buy", period=14, operator=">=", value=50),
+            TechnicalSignal(indicator="macd", signal_type="buy", mode="crossover"),
+        ],
+    )
+    assert strat.entry_logic == "AND"
+    req = to_backtest_request(strat, resolve_symbols=False)
+    assert req["entry"]["logic"] == "AND"
+
+    from engine.signals import SignalEngine
+    import numpy as np
+    import polars as pl
+
+    n = 10
+    df = pl.DataFrame({
+        "close": np.linspace(100, 110, n),
+        "rsi_14": np.array([40, 40, 60, 60, 60, 40, 60, 60, 60, 60], dtype=float),
+        "macd": np.array([-1, -1, -1, 1, 1, 1, -1, -1, 1, 1], dtype=float),
+        "macds": np.zeros(n),
+    })
+    sig, _ = SignalEngine().generate_signals(df, req["entry"])
+    # MACD 골든크로스는 idx3·idx8에서만 발생하고 그 두 지점 모두 RSI>=50이라 AND 결과는
+    # 그 둘뿐이다. OR로 실행됐다면 RSI>=50인 2,4,6,7,9도 전부 True가 돼 훨씬 많이 잡힌다.
+    assert sig.tolist() == [False, False, False, True, False, False, False, False, True, False]
+
+
 def test_entry_filters_change_canonical_id():
     """필터 유무·값이 다르면 전략 해시가 달라져야 한다(캐시 오염 방지)."""
     base = make_strategy(entry_signals=[TechnicalSignal(indicator="bollinger_bands", signal_type="buy")])

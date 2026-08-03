@@ -194,6 +194,9 @@ ANNUAL_FUNDAMENTAL_KEYS = [
     # fundamental_fetcher._compute_derived_annual_metrics 참고). revenue_growth는 매출이
     # 항상 양수라는 전제로 KIS 원값을 그대로 쓴다(변경 없음).
     "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth",
+    # 당기순이익(억원) — 순이익률 x 매출액 로컬 재계산(net_income_growth 재계산과 같은
+    # 컴포넌트). 절대 금액 필터('당기순이익 1,000억 이상') 지원용(2026-08-03).
+    "net_income",
 ]
 # 위 성장률(+기존 operating_income_growth/net_income_growth)의 부호전환 상태코드. 문자열이라
 # enrich_ohlcv_with_fundamentals에서 float 대신 object dtype 시리즈로 다뤄야 한다.
@@ -534,7 +537,9 @@ def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
         revenue = rec.get("_revenue")
         net_margin = rec.get("net_margin")
         if revenue is not None and net_margin is not None:
-            rec["_net_income"] = net_margin / 100.0 * revenue
+            # 당기순이익(억원) — 성장률 재계산 컴포넌트였다가 절대 금액 필터 지원으로
+            # 저장 승격(2026-08-03). revenue(sale_account)가 억원이라 결과도 억원.
+            rec["net_income"] = round(net_margin / 100.0 * revenue, 1)
 
         ocf = rec.get("operating_cash_flow")
         capex = rec.get("capex")
@@ -559,7 +564,7 @@ def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
                 ("ocf_growth", "ocf_growth_status", "operating_cash_flow"),
                 ("fcf_growth", "fcf_growth_status", "fcf"),
                 ("operating_income_growth", "operating_income_growth_status", "ebit"),
-                ("net_income_growth", "net_income_growth_status", "_net_income"),
+                ("net_income_growth", "net_income_growth_status", "net_income"),
             ):
                 growth, status = growth_and_status(prior.get(driver_key), rec.get(driver_key))
                 if growth is not None:
@@ -571,7 +576,6 @@ def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
         prior = rec
 
     for rec in sorted_records:
-        rec.pop("_net_income", None)
         rec.pop("_revenue", None)
 
     return sorted_records

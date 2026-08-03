@@ -97,9 +97,16 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
 
     ranking = []
     if parsed.ranking_metric is not None:
+        # 'return'=모멘텀(ranking.return), 그 외=재무 팩터 랭킹(fundamental.*) —
+        # 컴파일러 _build_parsed의 역방향. 방향 미저장(None)=top(기본).
+        if parsed.ranking_metric == "return":
+            canonical = "ranking.return"
+        else:
+            canonical = f"fundamental.{parsed.ranking_metric}"
         ranking.append(RankingSpec(
-            metric=f"ranking.{parsed.ranking_metric}",
+            metric=canonical,
             lookback_days=parsed.ranking_lookback_days,
+            direction=parsed.ranking_direction or "top",
         ))
 
     return StrategySpec(
@@ -124,6 +131,7 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
         ),
         entry_conditions=entry_conditions,
         exit_conditions=exit_conditions,
+        entry_logic=parsed.entry_logic,
         ranking=ranking,
         portfolio=PortfolioSpec(
             selection_count=parsed.max_positions,

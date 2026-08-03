@@ -2808,6 +2808,9 @@ function StrategyLabContent() {
             explicitFields: explicitFieldsRef.current,
             backtestRequest: nextBacktestReq,
             allowNoRebalancing: explicitNoRebalancingRef.current,
+            // 값 미정으로 제외된 조건 — 이게 없으면 유니버스 게이트 질문 턴의 요약이
+            // 빈 전략으로 보인다(2026-08-03 '당기순이익' 사고).
+            pendingConditions: parsedPayload.pending_conditions ?? null,
           })
         : null;
       const clarificationText = clarificationTurn?.question ?? null;

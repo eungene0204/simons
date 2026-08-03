@@ -96,7 +96,7 @@ The parsed strategy object follows this schema (ParsedStrategy):
 - sector: Korean sector name restricting the universe to one industry
     (e.g. "반도체", "이차전지", "바이오/제약", "게임") | null
 - fundamental_filters: array of {metric, operator(<,>,<=,>=), value}
-    metric ∈ per, pbr, psr, ev_ebitda, roe_or_gpa, roa, debt_ratio, current_ratio, quick_ratio,
+    metric ∈ per, pbr, psr, pcr, ev_ebitda, roe_or_gpa, roa, debt_ratio, current_ratio, quick_ratio,
     reserve_ratio, net_margin, gross_margin, operating_margin, revenue_growth,
     operating_income_growth, net_income_growth, market_cap, trading_value,
     dividend_yield(배당수익률 %), payout_rate(배당성향 %), dividend_growth(배당성장률 %, 전년比),

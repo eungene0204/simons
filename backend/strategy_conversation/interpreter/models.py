@@ -414,6 +414,10 @@ class StrategySpec(BaseModel):
     universe: UniverseSpec = Field(default_factory=UniverseSpec)
     entry_conditions: List[StrategyCondition] = Field(default_factory=list)
     exit_conditions: List[StrategyCondition] = Field(default_factory=list)
+    # entry_conditions가 여러 개일 때의 결합 방식. 기본 AND — "동시에"·"그리고"처럼
+    # 자연어에서 여러 기술적 조건은 모두 성립해야 하는 것이 일반적 의미다. "또는"·
+    # "둘 중 하나"처럼 대안 관계를 명시했을 때만 OR(스펙 § entry_logic).
+    entry_logic: Literal["AND", "OR"] = "AND"
 
     @field_validator("entry_conditions", "exit_conditions", mode="before")
     @classmethod

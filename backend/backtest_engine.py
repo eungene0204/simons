@@ -6,7 +6,7 @@ from typing import Dict, List, Any
 # Import refactored modules
 from engine.loader import DataLoader
 from engine.indicators import IndicatorEngine
-from engine.signals import SignalEngine
+from engine.signals import SignalEngine, FUNDAMENTAL_LABELS
 from engine.simulator import Simulator
 from engine.result_handler import ResultHandler
 from engine.data_resolver import DataResolver
@@ -263,6 +263,12 @@ class BacktestEngine:
             all_trading_values = {}                # 전일 거래대금 — 체결 규모 사후 검증 (H5)
             all_drop_scores: dict = {}  # sym → ai_drop_score 시계열 (횡단면 랭킹 청산용)
             all_ranks = {'pbr': {}, 'roe': {}}
+            # 재무 팩터 랭킹(예: 영업이익률 상위 20종목) — 랭킹 지표의 as-of 컬럼을
+            # 심볼별로 수집한다(pbr/roe 블렌드와 같은 경로, 지표만 요청값).
+            _rank_metric_col = risk_params.get('ranking_metric')
+            if _rank_metric_col == 'return':
+                _rank_metric_col = None  # 모멘텀은 price_df에서 직접 계산 — 컬럼 수집 불필요
+            all_fund_rank_values: dict = {}
             all_resolution_logs: List[Dict[str, str]] = []
             processed_symbols = []
             common_index = None
@@ -546,6 +552,8 @@ class BacktestEngine:
                         res["trading_value"] = pdf['close'] * pdf['volume']
                     if 'pbr' in pdf.columns: res["pbr"] = pdf['pbr']
                     if 'roe_or_gpa' in pdf.columns: res["roe"] = pdf['roe_or_gpa']
+                    if _rank_metric_col and _rank_metric_col in pdf.columns:
+                        res["fund_rank_value"] = pdf[_rank_metric_col]
                     if _tracked_metrics:
                         res["coverage"] = data_coverage.symbol_stats(pdf, _tracked_metrics)
                     return ("success", res)
@@ -580,6 +588,7 @@ class BacktestEngine:
                     if "trading_value" in data: all_trading_values[sym] = data["trading_value"]
                     if "pbr" in data: all_ranks['pbr'][sym] = data["pbr"]
                     if "roe" in data: all_ranks['roe'][sym] = data["roe"]
+                    if "fund_rank_value" in data: all_fund_rank_values[sym] = data["fund_rank_value"]
                     if "ai_drop_score" in data: all_drop_scores[sym] = data["ai_drop_score"]
                     if _coverage_acc is not None and "coverage" in data:
                         _coverage_acc.fold(data["coverage"])
@@ -679,6 +688,8 @@ class BacktestEngine:
                             res["trading_value"] = pdf['close'] * pdf['volume']
                         if 'pbr' in pdf.columns: res["pbr"] = pdf['pbr']
                         if 'roe_or_gpa' in pdf.columns: res["roe"] = pdf['roe_or_gpa']
+                        if _rank_metric_col and _rank_metric_col in pdf.columns:
+                            res["fund_rank_value"] = pdf[_rank_metric_col]
                         if drop_rank_pct is not None and 'ai_drop_score' in pdf.columns:
                             res["ai_drop_score"] = pdf['ai_drop_score']
                         if _tracked_metrics:
@@ -840,6 +851,75 @@ class BacktestEngine:
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).warning(f"[BacktestEngine] 수익률 랭킹 계산 실패: {e}")
+                    rank_df = None
+            elif ranking_metric and not all_fund_rank_values:
+                # 재무 랭킹을 요청했는데 유니버스 전체에 그 컬럼이 없다 — 조용한 0거래로
+                # 두지 않고 경고로 드러낸다(커버리지 로그 FR-BT-016과 같은 정직성 계약).
+                self.warnings.add(
+                    f"랭킹 지표 '{FUNDAMENTAL_LABELS.get(ranking_metric, ranking_metric)}' 데이터가 "
+                    "대상 종목에 없어 랭킹 선정이 적용되지 않았습니다."
+                )
+            elif ranking_metric:
+                # 재무 팩터 랭킹: as-of 재무 컬럼(연간 결산 전진충전) 값 순위로 상위 종목 선정.
+                # 모멘텀('return') 랭킹과 같은 계약 — 순위 자체가 진입, 회전은 달력 리밸런싱.
+                # NaN(재무 없음·자본잠식 등)은 중립값으로 위장시키지 않고 후보에서 자연 배제한다
+                # (pbr/roe 블렌드와 같은 이유 — 아래 legacy 분기 주석 참고).
+                try:
+                    metric_df = pd.DataFrame(
+                        all_fund_rank_values, index=common_index, columns=processed_symbols
+                    ).ffill()
+                    if exec_type == 'next_open':
+                        # 진입 신호는 이미 1일 shift됨 — 랭킹도 전일 값 기준으로 맞춘다(look-ahead 방지).
+                        metric_df = metric_df.shift(1).ffill()
+                    pct = metric_df.rank(axis=1, pct=True)
+                    # top=값 높은 순(기본), bottom=값 낮은 순(예: 'PER 낮은 상위 N종목').
+                    _direction = str(risk_params.get('ranking_direction') or 'top')
+                    rank_df = pct if _direction != 'bottom' else (1.0 - pct)
+                    valid = metric_df.notna()
+                    rank_df = rank_df.fillna(0.0)
+                    _entry_conditions = (req.get('entry') or {}).get('conditions') or []
+                    if not _entry_conditions:
+                        # 랭킹 단독 전략(선정=진입): 값이 정의된 전 종목을 후보로 만들되
+                        # 대형주 마스크·유동성 게이트를 다시 결합한다(momentum 분기 C4와 동일).
+                        pool = available_df & valid
+                        if large_cap_mask is not None:
+                            pool &= large_cap_mask
+                        if all_liquidity:
+                            liq_df = pd.DataFrame(
+                                all_liquidity, index=common_index, columns=processed_symbols
+                            ).eq(True)
+                            if exec_type == 'next_open':
+                                liq_df = liq_df.shift(1, fill_value=False)
+                            pool &= liq_df
+                        ents_df = pool
+
+                        # 매수 사유: 그날의 지표 백분위(momentum 분기와 같은 계약 —
+                        # 사유가 없으면 result_handler 폴백 문구로 뭉개진다).
+                        _metric_kr = FUNDAMENTAL_LABELS.get(ranking_metric, ranking_metric)
+                        _dir_kr = "낮은 순 " if _direction == 'bottom' else ""
+                        _rebal_kr = {
+                            'daily': '일간', 'weekly': '주간', 'monthly': '월간',
+                            'bimonthly': '격월', 'quarterly': '분기', 'yearly': '연간',
+                        }.get(str(risk_params.get('rebalancing_period') or ''), '')
+                        _max_pos = risk_params.get('max_positions')
+                        _rebal_note = (
+                            f", {_rebal_kr} 리밸런싱 상위 {int(_max_pos)}종목 편입 대상"
+                            if (_rebal_kr and _max_pos) else ""
+                        )
+                        _top_pct_df = (1.0 - rank_df) * 100.0
+                        for _sym in processed_symbols:
+                            _mask = pool[_sym]
+                            if not _mask.any():
+                                continue
+                            _pct_vals = _top_pct_df.loc[_mask, _sym]
+                            _reason_ser = pd.Series(np.nan, index=common_index, dtype=object)
+                            _reason_ser.loc[_mask] = _pct_vals.apply(
+                                lambda p: f"{_metric_kr} {_dir_kr}상위 {max(1, round(p))}%{_rebal_note}"
+                            )
+                            all_entry_reasons[_sym] = _reason_ser
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"[BacktestEngine] 재무 팩터 랭킹 계산 실패: {e}")
                     rank_df = None
             elif (not skip_pos) and risk_params.get('ranking_enabled', True) and all_ranks['pbr'] and all_ranks['roe']:
                 try:

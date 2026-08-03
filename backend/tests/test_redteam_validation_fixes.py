@@ -344,6 +344,19 @@ def test_real_momentum_ranking_preserved():
     assert fixed.ranking_metric == "return"
 
 
+def test_fundamental_factor_ranking_survives_qualitative_override():
+    """13-1 가드는 'return' 오귀속 전용 — 재무 팩터 랭킹(2026-08-03 지원)은 정확히
+    그 정성 표현('PER 낮은 상위 N')의 의도된 표현형이라 비우면 기능이 소거된다."""
+    from engine.nl_parser import _apply_prompt_overrides, ParsedStrategy
+    llm_out = ParsedStrategy(
+        description="PER 낮은 상위 20종목 동일비중으로",
+        ranking_metric="per", ranking_direction="bottom", max_positions=20,
+    )
+    fixed = _apply_prompt_overrides(llm_out, "PER 낮은 상위 20종목 동일비중으로")
+    assert fixed.ranking_metric == "per"
+    assert fixed.ranking_direction == "bottom"
+
+
 @pytest.mark.parametrize("query", ["형 돈 벌고 싶어", "부자 되고 싶어"])
 def test_vague_money_desire_routes_to_onboarding(query):
     """15-1: 막연한 '돈 벌고 싶다'는 거절이 아니라 빌더 유도."""

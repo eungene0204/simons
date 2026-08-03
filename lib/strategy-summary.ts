@@ -43,8 +43,10 @@ export interface ParsedSummary {
     operator?: string | null;
     value?: number | null;
   }>;
-  ranking_metric?: "return" | null;
+  ranking_metric?: string | null;
   ranking_lookback_days?: number | null;
+  // 재무 팩터 랭킹의 방향(top=높은 순, bottom=낮은 순). 모멘텀('return')은 항상 top.
+  ranking_direction?: "top" | "bottom" | null;
   // 지정 종목(단일 종목) 백테스트 대상 종목코드(FR-STR-068). 비어 있으면 유니버스 전략.
   target_symbols?: string[];
   // 지정 종목이 어느 테마 조회에서 왔는지(없으면 사용자가 직접 지목한 종목).
@@ -96,6 +98,7 @@ export const METRIC_LABELS: Record<string, string> = {
   per: "PER",
   pbr: "PBR",
   psr: "PSR",
+  pcr: "PCR",
   ev_ebitda: "EV/EBITDA",
   roe_or_gpa: "ROE",
   // 레거시 표기(백엔드 별칭 정규화 이전에 저장된 전략)도 라벨 없이 'roe >= 15'로 날것
@@ -119,6 +122,7 @@ export const METRIC_LABELS: Record<string, string> = {
   dividend_growth: "배당성장률",
   eps: "EPS",
   ebit: "영업이익",
+  net_income: "당기순이익",
 };
 
 const KO_NUMBER_FORMAT = new Intl.NumberFormat("ko-KR");
@@ -186,7 +190,7 @@ export function formatFundamentalFilter(filter: {
     if (filter.operator === "<") return "영업이익 적자 기업";
   }
   let value: string;
-  if (filter.metric === "market_cap") {
+  if (filter.metric === "market_cap" || filter.metric === "net_income") {
     // 필터 값은 억원 단위다 — 원 단위로 오해해 변환하면 3000억이 '3000'으로 보인다.
     value = formatEokAmount(filter.value);
   } else if (filter.metric === "trading_value") {
@@ -518,6 +522,11 @@ export function getRankingLabel(parsed: ParsedSummary): string | null {
     const days = parsed.ranking_lookback_days ?? 60;
     return `${days}일 수익률 상위`;
   }
+  if (parsed.ranking_metric) {
+    // 재무 팩터 랭킹(예: 영업이익률 상위 20종목) — 지표명은 필터 배지와 같은 정본 라벨.
+    const label = METRIC_LABELS[parsed.ranking_metric] ?? parsed.ranking_metric;
+    return parsed.ranking_direction === "bottom" ? `${label} 낮은 순 상위` : `${label} 상위`;
+  }
   return null;
 }
 
@@ -648,8 +657,9 @@ export function buildStrategySummaryFromRequest(
   const rebalancingPeriod = typeof risk.rebalancing_period === "string" ? risk.rebalancing_period : "none";
 
   const rankingLabel = getRankingLabel({
-    ranking_metric: (risk.ranking_metric as "return" | null) ?? null,
+    ranking_metric: (risk.ranking_metric as string | null) ?? null,
     ranking_lookback_days: num(risk.ranking_lookback_days),
+    ranking_direction: (risk.ranking_direction as "top" | "bottom" | null) ?? null,
   } as ParsedSummary);
 
   const entryBlocks = uniqueLabels([

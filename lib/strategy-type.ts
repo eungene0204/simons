@@ -67,7 +67,7 @@ export function inferStrategyType(
     dslKeys.some((k) => patterns.some((p) => k.includes(p)));
 
   if (has(["ai_model", "ai_drop"])) return "AI전략";
-  if (has(["per", "pbr", "psr", "roe", "roa", "debt_ratio", "market_cap",
+  if (has(["per", "pbr", "psr", "pcr", "roe", "roa", "debt_ratio", "market_cap",
     "current_ratio", "quick_ratio", "reserve_ratio", "margin", "growth"])) return "가치투자";
   if (has(["investor_net_buy"])) return "수급전략";
   if (has(["breakout", "ma_crossover", "macd", "volume_spike"])) return "모멘텀";

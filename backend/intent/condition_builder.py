@@ -52,6 +52,7 @@ _PATTERNS: dict[str, "re.Pattern[str]"] = {
     "per": _c(r"(?<![a-z])per(?![a-z])|피이알|주가수익비율"),
     "pbr": _c(r"(?<![a-z])pbr(?![a-z])|피비알|주가순자산"),
     "psr": _c(r"(?<![a-z])psr(?![a-z])|피에스알|주가매출"),
+    "pcr": _c(r"(?<![a-z])pcr(?![a-z])|피씨알|주가현금흐름"),
     "ev_ebitda": _c(r"ev\s*/?\s*ebitda|이브이에비타"),
     "ev_ebit": _c(r"ev\s*/?\s*ebit(?!da)|이브이에비트(?!디에이)"),
     "roe_or_gpa": _c(r"(?<![a-z])roe(?![a-z])|자기자본이익|자기자본수익"),
@@ -63,6 +64,8 @@ _PATTERNS: dict[str, "re.Pattern[str]"] = {
     "gross_margin": _c(r"매출총이익률?|총이익률|gross\s*margin"),
     "operating_margin": _c(r"영업이익률|영업\s*마진|operating\s*margin"),
     "net_margin": _c(r"순이익률|순\s*마진|net\s*margin"),
+    # 당기순이익(절대 금액, 억원) — '순이익률/순이익증가율'과 구분되게 '당기' 접두를 요구한다.
+    "net_income": _c(r"당기\s*순이익|net\s*income(?!\s*growth)"),
     "revenue_growth": _c(r"매출액?\s*증가율|매출\s*성장|revenue\s*growth"),
     "operating_income_growth": _c(r"영업이익\s*증가율|영업이익\s*성장"),
     "net_income_growth": _c(r"순이익\s*증가율|순이익\s*성장"),
@@ -106,7 +109,7 @@ def _spec(key: str) -> MetricSpec:
 # Vocabulary엔 있으나 현재 데이터셋으로 계산할 수 없는 지표 — 조용히 무시하지 않고 명확히 안내한다.
 _UNSUPPORTED: tuple[tuple["re.Pattern[str]", str], ...] = (
     (_c(r"(?<![a-z])peg(?![a-z])"), "PEG(주가수익성장비율)는 예상 성장률 데이터가 없어 현재 사용할 수 없어요."),
-    (_c(r"(?<![a-z])pcr(?![a-z])|주가현금흐름"), "PCR(주가현금흐름비율)은 아직 데이터셋에 없어 현재 사용할 수 없어요."),
+    # PCR은 2026-08-03 정식 지원 승격(fundamental-factors.json + _PATTERNS) — 목록에서 제거.
 )
 
 

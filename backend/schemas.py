@@ -11,6 +11,9 @@ class Condition(BaseModel):
 
 class ConditionGroup(BaseModel):
     conditions: List[Condition]
+    # SignalEngine.generate_signals의 결합 방식(AND/OR). 미선언 시 model_dump가 조용히
+    # 버려(extra=ignore) 엔진이 기본값 OR로 떨어진다 — 반드시 선언한다.
+    logic: Optional[str] = None
 
 class RiskManagement(BaseModel):
     position_size_pct: float
@@ -31,6 +34,9 @@ class RiskManagement(BaseModel):
     # 못 받아 0거래가 된다(프론트는 risk.ranking_metric으로 전송함).
     ranking_metric: Optional[str] = None
     ranking_lookback_days: Optional[int] = None
+    # 재무 팩터 랭킹의 방향(top=높은 순, bottom=낮은 순 — 예: PER 낮은 상위 N). 스키마에
+    # 없으면 model_dump가 조용히 버려 엔진이 방향을 못 받는다 — ranking_metric과 동일 함정.
+    ranking_direction: Optional[str] = None
     execution_timing: Optional[str] = "next_open"
     allocation_type: Optional[str] = "equal"
     rebalancing_period: Optional[str] = "none"

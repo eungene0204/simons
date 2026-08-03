@@ -281,6 +281,23 @@ def test_finish_outcome_yields_no_ask():
     assert _planner_first_ask(result, ParsedStrategy(description="t")) == (None, "not_ask")
 
 
+def test_condition_ask_rejected_when_slot_has_pending_value_conditions():
+    """[회귀 2026-08-03 '당기순이익' 사고 2차] 인터프리터가 매수 조건을 이해했고 값만
+    비었는데(compile_partial 드롭 → parsed 공백), planner의 일반 질문("어떤 조건에서
+    매수할까요?")이 채택돼 검증 리포트의 **기준값 질문**을 덮어썼다. 값-대기 조건이 있는
+    슬롯의 planner ask는 거부하고 폴백(기준값 질문+칩 결속)에 맡긴다."""
+    parsed = ParsedStrategy(description="당기순이익과 영업이익률이 높은 종목", universe=["KOSPI"])
+    entry_ask = _plan_result([], outcome="ask", question="어떤 조건에서 매수할까요?",
+                             chips=["PER 10 이하"], topic="매수조건")
+    pending = [{"role": "entry", "label": "영업이익률", "source_text": "영업이익률이 높은"}]
+    assert _planner_first_ask(entry_ask, parsed, pending_conditions=pending) == (
+        None, "pending_value_conditions")
+    # 값-대기가 없는 슬롯(청산)의 ask는 그대로 채택된다 — 가드는 그 슬롯에만 닫힌다.
+    exit_ask = _plan_result([], outcome="ask", question="언제 매도할까요?",
+                            chips=["20일 보유 후 청산"], topic="매도조건")
+    assert _planner_first_ask(exit_ask, parsed, pending_conditions=pending)[0] is not None
+
+
 # ─── run_primary_parse 통합 — planner 최선두 실행·실패 폴백 ─────────────────────
 
 def _intent_dict(**overrides):

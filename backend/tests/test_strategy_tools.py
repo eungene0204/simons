@@ -58,6 +58,22 @@ def test_input_format_violation_raises():
 
 # ── 개별 도구 위임 ────────────────────────────────────────────────────────────
 
+def test_classify_universe_rejects_factor_condition_phrase():
+    """[회귀] 2026-08-03 — planner가 지표 조건 구를 유니버스 표현으로 넘겨 CONCEPT
+    판정 → KG 조회·검색 학습 체인으로 턴 예산 소진(10.7초). 지표 어휘가 든 표현은
+    NOT_UNIVERSE로 종결해 해석 체인에 태우지 않는다(입력은 LLM이 뽑은 표현)."""
+    out = call("classify_universe", text="당기순이익과, 영업이익률이 높은 종목")
+    assert out.universe_type == "NOT_UNIVERSE"
+    # 지표 단독 표현도 유니버스가 아니다
+    assert call("classify_universe", text="영업이익률").universe_type == "NOT_UNIVERSE"
+
+
+def test_classify_universe_factor_backstop_keeps_real_universes():
+    # 백스톱이 정상 유니버스 판정을 건드리지 않는다 — 시장/업종/미지 테마 각 1건
+    assert call("classify_universe", text="코스피").universe_type == "MARKET"
+    assert call("classify_universe", text="반도체").universe_type == "SECTOR"
+    assert call("classify_universe", text="양자컴퓨터").universe_type == "CONCEPT"
+
 def test_lookup_capabilities_mirrors_registry():
     from strategy_conversation.registry.capability_registry import SUPPORTED_MARKETS
 
@@ -142,3 +158,7 @@ def test_compile_partial_reports_dropped():
                     report=validation.report, user_input="PER 낮은 종목",
                     partial=True)
     assert compiled.dropped  # 제외 조건이 정직하게 보고된다
+    # 구조화 목록 — 요약 "값 대기" 표시의 근거. source_text는 치환 고지에 쓰인다.
+    assert compiled.pending_conditions == [
+        {"role": "entry", "label": "PER(주가수익비율)", "source_text": "PER 낮은"}
+    ]

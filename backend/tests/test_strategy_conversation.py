@@ -703,6 +703,29 @@ def test_compile_full_strategy_to_parsed_strategy():
     assert parsed.backtest_period == "5y"  # 컴파일 단계 기본값
 
 
+def test_pcr_condition_compiles_to_backtest_filter():
+    """PCR 정식 지원 승격(2026-08-03) — registry 해석 → FundamentalFilter →
+    to_backtest_request의 filter 조건까지 끝-끝 배선을 고정한다."""
+    assert resolve("pcr").id == "fundamental.pcr"
+    assert resolve("주가현금흐름비율").id == "fundamental.pcr"
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[{"factor": "fundamental.pcr", "operator": "<=", "value": 10,
+                           "source_text": "PCR 10 이하"}],
+    ))
+    validated, report = run_validation(intent)
+    assert report.is_valid, (report.errors, report.missing_fields)
+    parsed = compile_strategy(validated, report, "PCR 10 이하 20종목")
+    assert [(f.metric, f.operator, f.value) for f in parsed.fundamental_filters] == \
+        [("pcr", "<=", 10.0)]
+
+    from engine.strategy_converter import to_backtest_request
+    req = to_backtest_request(parsed, resolve_symbols=False)
+    pcr_conds = [c for c in req["entry"]["conditions"] if c["id"] == "pcr"]
+    assert pcr_conds and pcr_conds[0]["type"] == "filter"
+    assert pcr_conds[0]["params"] == {"operator": "<=", "value": 10.0}
+
+
 def test_compile_technical_and_ranking():
     intent = StrategyIntent.model_validate(_full_intent_dict(
         entry_conditions=[{"factor": "technical.ma_crossover", "operator": "crosses_above",
@@ -721,6 +744,46 @@ def test_compile_technical_and_ranking():
     assert (exit_sig.indicator, exit_sig.signal_type, exit_sig.value) == ("rsi", "sell", 70)
     assert parsed.ranking_metric == "return"
     assert parsed.ranking_lookback_days == 90
+
+
+def test_multi_entry_condition_defaults_to_and_logic():
+    """실측 사고(2026-08-03): "RSI 50 돌파하면서 MACD 골든크로스 동시에"처럼 진입 조건이
+    2개 이상이면 to_backtest_request가 'logic'을 명시하지 않는 한 엔진(SignalEngine)의
+    기본값 OR로 조용히 실행돼, 사용자가 말한 AND가 지켜지지 않았다. entry_logic 기본값
+    "AND"가 compile_strategy → to_backtest_request까지 전달되는지 고정한다."""
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.rsi", "operator": ">=", "value": 50},
+            {"factor": "technical.macd", "operator": "crosses_above"},
+        ],
+    ))
+    assert intent.strategy.entry_logic == "AND"  # LLM이 출력하지 않아도 기본값
+    validated, report = run_validation(intent)
+    assert report.is_valid, (report.errors, report.missing_fields)
+    parsed = compile_strategy(validated, report, "테스트")
+    assert parsed.entry_logic == "AND"
+
+    from engine.strategy_converter import to_backtest_request
+    req = to_backtest_request(parsed, resolve_symbols=False)
+    assert req["entry"]["logic"] == "AND"
+
+
+def test_explicit_or_entry_logic_propagates_to_backtest_request():
+    """"또는"처럼 대안 관계를 명시하면 OR도 끝까지 전달돼야 한다."""
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.rsi", "operator": ">=", "value": 50},
+            {"factor": "technical.macd", "operator": "crosses_above"},
+        ],
+        entry_logic="OR",
+    ))
+    validated, report = run_validation(intent)
+    parsed = compile_strategy(validated, report, "테스트")
+    assert parsed.entry_logic == "OR"
+
+    from engine.strategy_converter import to_backtest_request
+    req = to_backtest_request(parsed, resolve_symbols=False)
+    assert req["entry"]["logic"] == "OR"
 
 
 def test_compile_refuses_invalid_report():
@@ -744,9 +807,76 @@ def test_compile_partial_drops_pending_conditions_only():
     assert not report.is_valid
     from strategy_conversation.compiler.strategy_compiler import compile_partial
 
-    parsed, dropped = compile_partial(validated, report, "영업이익률 높고 PER 10 이하")
+    parsed, dropped, pending = compile_partial(validated, report, "영업이익률 높고 PER 10 이하")
     assert [f.metric for f in parsed.fundamental_filters] == ["per"]
     assert dropped == ["영업이익률"]
+    # 값 미정 드롭은 구조화 목록으로도 나온다 — 프론트 요약의 "값 대기" 표시 근거
+    assert pending == [{"role": "entry", "label": "영업이익률", "source_text": None}]
+
+
+# ─── 재무 팩터 랭킹 (2026-08-03: '영업이익률 상위 20종목') ────────────────────
+
+def _ranking_intent(metric, direction="top", markets=None):
+    return StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[],
+        ranking=[{"metric": metric, "direction": direction}],
+        universe={"markets": markets or ["KOSPI"], "sectors": [], "symbols": []},
+    ))
+
+
+def test_fundamental_ranking_compiles_metric_and_direction():
+    validated, report = run_validation(_ranking_intent("fundamental.operating_margin"))
+    assert report.is_valid
+    parsed = compile_strategy(validated, report, "영업이익률 상위 20종목")
+    assert parsed.ranking_metric == "operating_margin"
+    # top(기본)은 저장하지 않는다 — 방향 미지정 기존 전략의 strategy_id 불변
+    assert parsed.ranking_direction is None
+    assert parsed.ranking_lookback_days is None  # lookback은 모멘텀 전용
+
+    validated, report = run_validation(_ranking_intent("PER", direction="bottom"))
+    parsed = compile_strategy(validated, report, "PER 낮은 상위 20종목")
+    assert (parsed.ranking_metric, parsed.ranking_direction) == ("per", "bottom")
+
+
+def test_fundamental_ranking_flows_to_engine_risk_params():
+    from engine.strategy_converter import to_backtest_request
+
+    validated, report = run_validation(_ranking_intent("fundamental.net_income"))
+    parsed = compile_strategy(validated, report, "당기순이익 상위 20종목")
+    req = to_backtest_request(parsed, resolve_symbols=False)
+    assert req["risk"]["ranking_metric"] == "net_income"
+    # 재무 랭킹은 lookback이 없다 — 60일 기본값을 물질화하면 모멘텀으로 위장된다
+    assert req["risk"]["ranking_lookback_days"] is None
+
+
+def test_fundamental_ranking_decompile_roundtrip():
+    from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
+
+    validated, report = run_validation(_ranking_intent("fundamental.per", direction="bottom"))
+    parsed = compile_strategy(validated, report, "PER 낮은 상위 20종목")
+    spec = decompile_strategy(parsed)
+    assert spec.ranking[0].metric == "fundamental.per"
+    assert spec.ranking[0].direction == "bottom"
+    # 재검증-재컴파일해도 같은 전략(수정 턴 라운드트립 계약)
+    v2, r2 = run_validation(StrategyIntent(intent="CREATE_STRATEGY", strategy=spec, confidence=1.0))
+    p2 = compile_strategy(v2, r2, None)
+    assert (p2.ranking_metric, p2.ranking_direction) == ("per", "bottom")
+
+
+def test_fundamental_ranking_rejected_for_etf_universe():
+    # ETF는 기업 재무지표가 성립하지 않는다 — 오류+제거(조건 검사와 동일 계약)
+    validated, report = run_validation(
+        _ranking_intent("fundamental.operating_margin", markets=["ETF"]))
+    assert not report.is_valid
+    assert any("랭킹" in e for e in report.errors)
+    assert validated.strategy.ranking == []
+
+
+def test_momentum_ranking_unchanged_by_fundamental_ranking_support():
+    validated, report = run_validation(_ranking_intent("return"))
+    parsed = compile_strategy(validated, report, "수익률 상위")
+    assert parsed.ranking_metric == "return"
+    assert parsed.ranking_direction is None
 
 
 # ─── Primary Mode (Phase 2) ──────────────────────────────────────────────────
@@ -795,6 +925,42 @@ def test_primary_needs_clarification_partial_compile_with_chips(monkeypatch):
     assert [f.metric for f in result["parsed"].fundamental_filters] == ["per"]
     assert "영업이익률" in result["clarification_question"]
     assert "영업이익률 10% 이상" in (result["clarification_suggestions"] or [])
+
+
+def test_primary_reports_pending_conditions_for_summary(monkeypatch):
+    """[회귀] 2026-08-03 '당기순이익' 사고 — 값 미정 조건이 응답 어디에도 구조화되지 않아
+    프론트 요약이 빈 전략("첫 조건부터 하나씩")으로 보였다. pending_conditions는 이해한
+    조건의 라벨과 원문 표현(치환 고지용)을 요약에 전달한다."""
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.net_income_growth", "operator": ">=", "value": None,
+             "source_text": "당기순이익과"},
+            {"factor": "fundamental.operating_margin", "operator": ">=", "value": None,
+             "source_text": "영업이익률이 높은"},
+        ],
+    )
+    result = _run_primary_with(monkeypatch, data, "당기순이익과, 영업이익률이 높은 종목에 투자하는 전략")
+    assert result is not None
+    assert result["parsed"].fundamental_filters == []
+    assert result["pending_conditions"] == [
+        {"role": "entry", "label": "순이익증가율", "source_text": "당기순이익과"},
+        {"role": "entry", "label": "영업이익률", "source_text": "영업이익률이 높은"},
+    ]
+    # 기준값 질문이 나가고, 프론트 explicit 게이트(유니버스 질문)에 밀리지 않게 우선순위
+    # 마커가 붙는다(2026-08-03 사용자 결정 — "얼마나 높은 종목인지 숫자를 물어봐야지").
+    assert "기준값" in (result["clarification_question"] or "")
+    assert result["clarification_priority"] == "pending_values"
+    # 한 턴에 한 질문(2026-08-03 사용자 결정) — 첫 질문(순이익증가율)만 나가고 나머지
+    # (영업이익률 기준값·청산 규칙)는 pending_ask.queue로 이월된다.
+    assert "순이익증가율" in result["clarification_question"]
+    assert "영업이익률" not in result["clarification_question"]
+    assert result["clarification_suggestions"] == ["순이익증가율 10% 이상"]
+    queue = result["pending_ask"]["queue"]
+    assert [("영업이익률" in q["question"], q.get("metric")) for q in queue] == [
+        (True, "operating_margin")
+    ]
+    # 이월 질문이 다룰 조건에 '미반영' 안내를 만들지 않는다
+    assert not any("영업이익률" in n for n in result["notices"])
 
 
 def test_primary_does_not_echo_interpreter_unsupported_features(monkeypatch):
@@ -2280,7 +2446,7 @@ def test_new_listing_partial_compile_leaves_engine_field_unset():
     from strategy_conversation.compiler.strategy_compiler import compile_partial
 
     validated, report = run_validation(_new_listing_intent())
-    parsed, _dropped = compile_partial(validated, report, "신규 상장 종목 전략")
+    parsed, _dropped, _pending = compile_partial(validated, report, "신규 상장 종목 전략")
     # 되묻는 중에는 엔진에 아무 구간도 넘어가지 않는다(무단 확정 금지).
     assert parsed.listing_from is None and parsed.listing_to is None
     # 개념은 보존돼 유니버스 슬롯이 채워진 것으로 판정된다.

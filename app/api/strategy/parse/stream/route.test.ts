@@ -318,6 +318,33 @@ describe("POST /api/strategy/parse/stream", () => {
     expect(parsedFinal).toMatchObject({ pending_ask: pendingAsk });
   });
 
+  it("parsed_final은 값-대기 조건(pending_conditions)을 보존한다", async () => {
+    // [회귀 2026-08-03 '당기순이익' 사고 2차] 백엔드는 pending_conditions를 실어 보냈는데
+    // 프록시 화이트리스트에서 떨어져, 이해한 조건이 요약에 빈 전략으로 보였다 —
+    // priority 마커·pending_ask 누락 사고와 같은 유형의 함정.
+    const pendingConditions = [
+      { role: "entry", label: "순이익증가율", source_text: "당기순이익과" },
+      { role: "entry", label: "영업이익률", source_text: "영업이익률이 높은" },
+    ];
+    fetchBackend.mockResolvedValueOnce(
+      sseBackendResponse(
+        backendResultEvents({
+          parsed: { description: "당기순이익과 영업이익률이 높은 종목", universe: ["KOSPI200"] },
+          backtest_request: { strategy_id: "p", symbols: ["005930"], symbol_count: 1 },
+          clarification_question: "진입 조건의 영업이익률 기준값을 얼마로 할까요?",
+          pending_conditions: pendingConditions,
+        })
+      )
+    );
+
+    const response = await POST(makeRequest({ prompt: "당기순이익과 영업이익률이 높은 종목" }));
+    const events = await readEvents(response);
+    const parsedFinal = events
+      .map((e) => (e === "[DONE]" ? null : JSON.parse(e)))
+      .find((e) => e?.type === "parsed_final");
+    expect(parsedFinal).toMatchObject({ pending_conditions: pendingConditions });
+  });
+
   it("forwards backend parse errors as SSE error events", async () => {
     fetchBackend.mockResolvedValueOnce({
       ok: false,

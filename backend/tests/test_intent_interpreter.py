@@ -481,6 +481,14 @@ def test_clarify_target_absent_by_default():
     assert result.clarify_target is None
 
 
+def test_prompt_clarifies_that_enumerated_values_count_as_values():
+    """'코스닥으로 변경해줘'가 값 없는 universe 되묻기로 오분류된 사고(2026-08-03) —
+    프롬프트가 숫자 예시만 들어 LLM이 시장명 같은 열거형 값을 값으로 인식하지 못했다.
+    이 예시 문구가 사라지면 같은 오분류가 재발한다."""
+    assert "코스닥으로 변경해줘" in interpreter.SYSTEM_PROMPT
+    assert "값은 숫자만이 아니다" in interpreter.SYSTEM_PROMPT
+
+
 def test_prompt_lists_targets_from_registry():
     """목록은 정본에서 생성된다 — 프롬프트와 검증 목록이 갈라지지 않게."""
     lines = clarify_targets.prompt_target_lines()

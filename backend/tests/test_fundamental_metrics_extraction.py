@@ -121,6 +121,37 @@ def test_dividend_metric_extraction(text, metric, operator, value):
     assert match[0].value == pytest.approx(value)
 
 
+def test_pcr_supported_in_engine_and_llm_lane_with_legacy_fallback_cue():
+    """PCR 정식 지원 승격(2026-08-03) — parquet pcr 컬럼 + 엔진 라벨 + LLM 레인 스키마.
+
+    결정적 추출기는 PCR을 추출하지 않는다(원문 정규식 어휘 추가 금지 — 대원칙 1).
+    따라서 cash_flow 큐는 목록에 남아 규칙 기반 레인을 LLM 폴백으로 위임시키고,
+    LLM이 pcr 필터로 반영하면 _CONCEPT_EXPRESSED_PREDICATES가 안내를 뺀다."""
+    from engine.nl_parser import FundamentalFilter, _mentioned_unsupported_concepts
+
+    assert "pcr" in FUNDAMENTAL_CIDS
+    assert FUNDAMENTAL_LABELS["pcr"] == "PCR"
+    assert _default_operator_for_metric("pcr") == "<="
+    # LLM 출력 스키마(Literal)가 pcr을 받는다 — 컴파일 통과의 전제.
+    assert FundamentalFilter(metric="pcr", operator="<=", value=10.0).metric == "pcr"
+    # 큐는 유지 — 규칙 기반 레인은 여전히 자신을 불신하고 LLM에 위임해야 한다(침묵 누락 방지).
+    assert "cash_flow" in _mentioned_unsupported_concepts("PCR 10 이하 종목")
+
+
+def test_expressed_pcr_drops_unsupported_notice():
+    """LLM이 PCR을 pcr 필터로 반영했으면 '현금흐름 조건 미지원' 안내를 내지 않는다
+    (ocf_growth 오탐 수정과 동형 계약)."""
+    from engine.nl_parser import build_unsupported_concept_notice, concepts_expressed_in_strategy
+
+    text = "코스피에서 PCR 10 이하 종목 10개 매수"
+    parsed = _parsed(fundamental_filters=[
+        {"metric": "pcr", "operator": "<=", "value": 10.0},
+    ])
+    assert concepts_expressed_in_strategy(parsed, text) == {"cash_flow"}
+    assert build_unsupported_concept_notice(
+        text, exclude=concepts_expressed_in_strategy(parsed, text)) is None
+
+
 def test_dividend_yield_supported_but_growth_still_unsupported():
     from engine.nl_parser import build_unsupported_concept_notice
     # 배당수익률/배당성향은 지원 → 미지원 안내 없음
