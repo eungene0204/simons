@@ -16,8 +16,11 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable, List, Set
 
-# 숫자 + 뒤따르는 단위(있으면). 콤마 구분 허용.
-_NUMBER_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(조|억|만|천|퍼센트|%|일|주|개월|년|종목|개)?")
+# 숫자 + 뒤따르는 단위(있으면). 콤마 구분 허용. 복합 단위(천만·백만·십만)는 단일 단위보다
+# 먼저 매칭해야 한다 — "5천만원"이 "5천"(5,000)으로 잘려 정당한 5천만(5e7) 패치가 환각
+# 게이트에서 자릿수 모순으로 거부되던 실측(2026-08-02 감사 #3 C1-T6).
+_NUMBER_RE = re.compile(
+    r"(\d[\d,]*(?:\.\d+)?)\s*(조|억|천만|백만|십만|만|천|퍼센트|%|일|주|개월|년|종목|개)?")
 
 # 6자리 종목코드는 universe.symbols에 문자열로 담기므로 수치 대조 대상이 아니다.
 _SYMBOL_CODE_RE = re.compile(r"^\d{6}$")
@@ -43,6 +46,12 @@ def _candidates(value: float, unit: str | None) -> Set[float]:
         out.add(value * 1_0000_0000_0000)
     elif unit == "억":
         out.add(value * 100_000_000)   # 원 단위 필드(초기 자본금)
+    elif unit == "천만":
+        out.add(value * 10_000_000)
+    elif unit == "백만":
+        out.add(value * 1_000_000)
+    elif unit == "십만":
+        out.add(value * 100_000)
     elif unit == "만":
         out.add(value * 10_000)
     elif unit == "천":

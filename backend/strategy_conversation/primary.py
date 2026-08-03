@@ -271,6 +271,76 @@ def _modify_clarification(
     return question, chips, ask
 
 
+def _reattach_open_question(
+    pending_ask: Optional[Dict[str, Any]], pending_question: Optional[str]
+) -> Dict[str, Any]:
+    """미반영 안내(notices-only) 응답에 직전 열린 질문을 되붙인다(2026-08-02 감사 #3 #7).
+
+    설명·미지원·전량 거부 턴은 전략 무변경 + notices만 내보내는데, 프론트는 마지막
+    메시지의 clarification만 렌더하므로 답을 기다리던 질문("익절은?")이 화면에서
+    사라졌다 — FR-SA-015(부가 발화의 되묻기 보존)와 같은 증상의 파스 레인판.
+    에코된 pending_ask/pending_question을 그대로 되돌려줄 뿐 새 판정은 없다.
+    """
+    if isinstance(pending_ask, dict) and pending_ask.get("question"):
+        return {
+            "clarification_question": pending_ask["question"],
+            "clarification_suggestions": list(pending_ask.get("chips") or []) or None,
+            "pending_ask": pending_ask,
+            # 무변경 되묻기 공통 마커 — 프론트 설정 게이트가 질문을 삼키지 못하게.
+            "clarification_priority": "modify_unapplied",
+        }
+    if pending_question and str(pending_question).strip():
+        return {
+            "clarification_question": str(pending_question),
+            "clarification_priority": "modify_unapplied",
+        }
+    return {}
+
+
+def _capability_conflict_clarification(
+    report: Any, patched_spec: Any, draft_spec: Any, prev: Any
+) -> tuple[Optional[str], Optional[List[str]], Optional[Dict[str, Any]]]:
+    """패치 적용 후 검증 **오류**의 되묻기 — 검증기 문구를 그대로 전달한다(2026-08-02 감사 #3 #1).
+
+    종전에는 검증 오류가 나면 레인 전체가 폴백(None)해 llm_first에서는
+    "해석하지 못했어요"로 끝났다 — 해석은 성공했고 검증이 거부한 것인데 실패 원인이
+    위장되고, capability validator가 만든 정확한 안내("ETF는 PER 사용 불가")는 사용자에게
+    영영 도달하지 않았다(코스피+PER → ETF 전환이 아예 불가능). 여기서는 전략을 그대로
+    두고 **검증기 오류 문장을 질문으로** 내보낸다 — 새 판정을 만들지 않는다.
+
+    칩은 유니버스 변경 턴에만 만든다: 충돌 항목명은 unsupported_features의
+    "<유니버스> × <이름>" 표기(검증기 출력)에서 오고, 목표 유니버스는 패치된 State에서
+    온다 — 사용자 원문을 다시 읽지 않는다. 유니버스가 그대로인 오류(기존 ETF 전략에
+    재무 조건 추가 등)는 제거 칩이 성립하지 않으므로 질문만 낸다.
+    """
+    errors = [e for e in (report.errors or []) if str(e).strip()]
+    if not errors:
+        return None, None, None
+    question = " ".join(str(e) for e in errors[:2])
+    question += " 기존 전략은 그대로 두었어요. 어떻게 할까요?"
+
+    chips: List[str] = []
+    markets_changed = list(patched_spec.universe.markets) != list(draft_spec.universe.markets)
+    if markets_changed and patched_spec.universe.markets:
+        market_label = "/".join(patched_spec.universe.markets)
+        seen = set()
+        for feature in report.unsupported_features or []:
+            # 검증기 표기 "ETF 유니버스 × PER(주가수익비율)"에서 항목명만 취한다.
+            if " × " not in str(feature):
+                continue
+            name = str(feature).split(" × ", 1)[1].strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            chips.append(f"{name} 조건을 빼고 {market_label}로 바꿔줘")
+    # pending_ask는 내지 않는다(실측 2026-08-02): 이 칩은 "제거+전환" 복합 의미인데
+    # 결속 프로브가 결정적으로 추출 가능한 절반(유니버스 전환)만 보고 결속시켜, 클릭이
+    # 칩 답변 결정론 레인으로 가 PER 제거 없이 ETF만 적용됐다(부분 적용 — 충돌 재발).
+    # pending_ask 없이 내보내면 클릭이 수정 인터프리터(LLM 레인)로 가고,
+    # pending_question 에코가 맥락을 준다 — 복합 의미의 실행자는 LLM뿐이다.
+    return question, chips or None, None
+
+
 # 인터프리터가 unsupported_features에 내부 식별자(strategy_evaluation 등)를 그대로 담는
 # 실측 드리프트 — 사용자 안내 문구에 내부명이 노출되지 않게 치환한다(레드팀 QA 20-5).
 _INTERNAL_FEATURE_LABELS = {
@@ -1444,6 +1514,22 @@ def _apply_planner_first_universe(
             unresolved.discard(term)
             continue
         unresolved.add(term)
+    # 후보 1개 표현의 해석 완료 전파(2026-08-02 감사 #3 #4 후속): 'ESS'의 후보 조회가
+    # '전력저장장치(ESS)' 하나를 냈고 그 정본 표기가 (에필로그 테마 조회로) 해석
+    # 완료됐으면, 원 표현 'ESS'도 완료다. 전파하지 않으면 원 표현이 term-in 체인으로
+    # 흘러 kg_resolve_sector가 섹터를 **또** 병합한다 — 같은 표현의 이중 해석(테마
+    # 60곳 + 섹터)이자 Artifact 근거 대조를 STALE로 오염시키는 원인(실측).
+    resolved_keys = {t.replace(" ", "").lower() for t in resolved}
+    for term, obs in _planner_observations(result):
+        term = (term or "").strip()
+        candidates = [
+            c.get("term") for c in (obs.get("candidates") or [])
+            if isinstance(c, dict) and c.get("term")
+        ]
+        if (term and term in unresolved and len(candidates) == 1
+                and str(candidates[0]).replace(" ", "").lower() in resolved_keys):
+            resolved.add(term)
+            unresolved.discard(term)
     return resolved, unresolved
 
 
@@ -2054,8 +2140,10 @@ def run_primary_modification(
        폴백하지 않고 전략을 유지한다(같은 사고의 2차 — 인터프리터가 질문 대신
        unsupported_features=["PBR 개념 설명 요청"]으로 보고). EXPLAIN_INDICATOR(LLM 라벨)면
        /query/general과 같은 LLM 설명을 notices로 실제 답변하고, 아니면 미반영을 알린다.
-    ③ 패치 적용 후 검증 READY일 때만 컴파일. 아니면 폴백(임계값 없는 조건 추가 등은
-       상류 clarification_for_add가 이미 가로챈다).
+    ③ 패치 적용 후 검증 READY일 때만 컴파일. 임계값 없는 조건 추가 등은 validate_intent가
+       호출하는 validate_completeness가 패치 필드 자체를 겨냥한 질문으로 잡아 아래에서
+       전략 무변경+되묻기(clarification_priority=modify_unapplied)로 반환한다(2026-08-02:
+       원문 정규식으로 상류에서 가로채던 clarification_for_add 호출 제거, 대원칙 1).
     description·execution_timing·entry_filters는 StrategySpec 밖이므로 원본에서 이월.
     """
     from engine.nl_parser import ParsedStrategy
@@ -2216,6 +2304,8 @@ def run_primary_modification(
             "parsed": prev,
             "clarification_question": None,
             "clarification_suggestions": None,
+            # 답을 기다리던 질문이 있으면 되붙인다 — 설명 턴이 되묻기를 삼키지 않게.
+            **_reattach_open_question(pending_ask, pending_question),
             "notices": notices,
             "interpreter": {
                 "mode": "primary_modify_explain" if is_question else "primary_modify_unsupported",
@@ -2379,6 +2469,9 @@ def run_primary_modification(
             "parsed": prev,
             "clarification_question": None,
             "clarification_suggestions": None,
+            # 답을 기다리던 질문이 있으면 되붙인다(감사 #3 C1-T6: 미반영 안내가
+            # 열려 있던 익절 질문을 화면에서 지웠다).
+            **_reattach_open_question(pending_ask, pending_question),
             "notices": notices,
             "interpreter": {
                 "mode": "primary_modify_rejected_patches",
@@ -2473,6 +2566,37 @@ def run_primary_modification(
                             "confidence": intent.confidence,
                         },
                     })
+        if not modification_partial and report.errors \
+                and config.modify_interpreter_mode() == "llm_first":
+            # 검증 오류 = 해석 실패가 아니다(2026-08-02 감사 #3 #1). llm_first에는 레거시
+            # 구제가 없어 폴백하면 "해석하지 못했어요"로 원인이 위장된다 — 전략을 그대로
+            # 두고 검증기 오류 문장을 되묻기로 전달한다(fast_path_first 롤백 모드는 종전
+            # 폴백 유지 — 레거시 레인이 처리할 수 있다).
+            question, chips, ask = _capability_conflict_clarification(
+                report, patched_spec, draft_spec, prev)
+            if question:
+                _log_llm("✓ 검증 거부 되묻기", (
+                    f"오류={len(report.errors)} 미지원={report.unsupported_features or '[]'}"
+                    " — 전략 유지, 검증기 문구를 되묻기로"
+                ))
+                return finalize_user_response({
+                    "parsed": prev,
+                    "clarification_question": question,
+                    "clarification_suggestions": chips,
+                    "pending_ask": ask,
+                    # 전략 무변경 되묻기 공통 계약 — 프론트 게이트 삼킴 방지.
+                    "clarification_priority": "modify_unapplied",
+                    "notices": [],
+                    "interpreter": {
+                        "mode": "primary_modify_capability_conflict",
+                        "model_name": result.model_name,
+                        "prompt_version": result.prompt_version,
+                        "repair_attempts": result.repair_attempts,
+                        "llm_latency_ms": result.latency_ms,
+                        "patch_count": len(cued_patches),
+                        "confidence": intent.confidence,
+                    },
+                })
         if not modification_partial:
             _log_llm("↩ 폴백", f"패치 적용 후 검증 미통과(status={report.status}) — 기존 수정 경로로")
             logger.info("modify primary not READY after patch (status=%s), falling back",

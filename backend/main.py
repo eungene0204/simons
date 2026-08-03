@@ -65,28 +65,12 @@ _http_session.mount("http://", _http_session_adapter)
 from contextlib import asynccontextmanager
 
 
-def _start_news_llm_preload_thread() -> None:
-    # 백엔드 시작 시 뉴스 LLM 모델을 백그라운드 스레드에서 미리 로드
-    def _preload():
-        try:
-            from news import llm_extractor
-            llm_extractor._load()
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning("LLM preload failed: %s", e)
-
-    thread = threading.Thread(target=_preload, daemon=True, name="llm-preload")
-    thread.start()
-
-
 @asynccontextmanager
 async def lifespan(_app):
     preload_nl_parser()
     preload_summarize_model()
     await startup()
     log_universe_status_on_startup()
-
-    _start_news_llm_preload_thread()
 
     # news_v2 — best-effort scheduler bootstrap. Disabled if NEWSV2_ENABLED=false
     # or if APScheduler isn't installed.
@@ -2631,6 +2615,10 @@ class NLParseResponse(BaseModel):
     # 변경 영향 범위(설계 스펙 § 8·§ 30) — 이번 턴이 무엇을 쓸 수 없게/있게 만들었나.
     # 내부 추적용이며 사용자 문구를 만들지 않는다(안내는 검증기가 이미 담당).
     impact: Optional[dict] = None
+    # 이번 턴 State로 계산한 파생 상태 사이드카(FR-STR-019q). 요청의 previous_field_states
+    # 에코 원본이다 — 이 필드가 응답 모델에 없으면 비-SSE 라우트에서 response_model이
+    # 잘라내 impact 전이 판정이 성립 불가(2026-08-02 감사 #3 #6, SSE 라우트와 계약 비대칭).
+    field_states: Optional[dict] = None
     # 룰 파싱의 LLM 검증 리포트(Parse Fidelity Validator). 검증이 안 돌았으면 None.
     parse_validation: Optional[dict] = None
     # 하한선 보정 안내(비차단 notices 채널, 예: 초기자금 100만원 보정).
@@ -2867,13 +2855,13 @@ def _kick_ollama_warmup() -> None:
 
 
 def _local_preload_models(parser_model: str) -> list:
-    """로컬 Ollama startup에서 적재할 모델 목록 — 전략 인터프리터 슬롯(9B)만.
+    """로컬 Ollama startup에서 적재할 모델 목록.
 
-    2026-07-26 모델 슬롯 분리(STRATEGY_INTERPRETER_MODEL 9B) 때 인터프리터 슬롯이
-    preload에서 빠져 첫 전략 파싱이 로드 지연을 떠안던 버그의 수정. 레거시 4B 슬롯
-    (NL_OLLAMA_MODEL)은 사용 중지 상태라 적재하지 않는다(2026-07-27 사용자 결정) —
-    잔존 레거시 경로가 호출되면 lazy 로드로 동작한다. 인터프리터 슬롯 미설정 시
-    인터프리터가 실제로 폴백하는 파서 모델을 적재한다.
+    2026-08-03 전 슬롯 9B 단일화(분류·파서·코치 4B 폐기 — 사용자 결정) 이후 서비스
+    모델은 하나뿐이라 인터프리터 슬롯(미설정 시 파서 모델 폴백)만 적재하면 된다.
+    파서 슬롯이 다른 모델로 갈라지는 구성은 지원하지 않는다 — 슬롯을 다시 나누면
+    여기서 파서 모델도 함께 적재해야 유휴 후 첫 분류가 콜드 로드를 떠안지 않는다
+    (2026-08-03 실측 ~5.5초).
     """
     interpreter_model = (os.environ.get("STRATEGY_INTERPRETER_MODEL") or "").strip()
     return [interpreter_model or parser_model]
@@ -3098,7 +3086,42 @@ def _finalize_parse_result(result: dict, request: NLParseRequest) -> dict:
     _ensure_field_metadata(result, request)
     _ensure_artifacts(result, request)
     _ensure_impact(result, request)
+    _flag_unresolved_universe_ask(result, request)
     return result
+
+
+def _flag_unresolved_universe_ask(result: dict, request: NLParseRequest) -> None:
+    """직전 턴의 유니버스 범위 확인 질문이 답변 없이 소멸하면 notices로 알린다.
+
+    2026-08-02 감사 #2: "ESS 관련주로 바꿔줘"에 "'전력저장장치(ESS)'로 바꿀까요?"라고
+    확인을 물은 다음 턴, 사용자가 그 확인과 무관한 답을 하면(예: 매수조건 chip) DAG가
+    그 확인을 재질문·안내 없이 버리고 다음 화제로 넘어갔다 — 유니버스는 이전 값(예:
+    반도체)에 그대로 머물렀는데 사용자는 그 사실을 알 방법이 없었다. dag.py의
+    NodeStatus.INVALIDATED는 관측(trace)에만 쓰이고 응답에 닿지 않는다(§ 12.2 설계
+    의도가 실행에 배선되지 않음) — 이 함수가 그 최소 보정이다.
+    판정은 두 턴의 pending_ask.topic 라벨(LLM/planner 출력)과 유니버스 관련 필드값의
+    동일성 비교뿐이다 — 사용자 원문을 다시 읽지 않는다(계약 § 판정 기준: LLM 출력 정규화).
+    """
+    old_ask = request.pending_ask
+    if not isinstance(old_ask, dict) or not old_ask.get("question"):
+        return
+    from strategy_conversation.primary import _is_universe_topic
+
+    if not _is_universe_topic(old_ask.get("topic")):
+        return  # 유니버스 확인 질문이 아니면 이 가드의 대상이 아니다
+    new_ask = result.get("pending_ask")
+    if _is_universe_topic((new_ask or {}).get("topic")):
+        return  # 유니버스 질문이 이어지고 있다 — 정상 재질문
+    prev_parsed = request.previous_parsed or {}
+    new_parsed = result.get("parsed") or {}
+    universe_fields = ("universe", "sector", "theme_universe", "etf_theme", "target_symbols")
+    if any(prev_parsed.get(f) != new_parsed.get(f) for f in universe_fields):
+        return  # 유니버스가 실제로 바뀌었다 — 답변된 것으로 본다
+    notices = list(result.get("notices") or [])
+    notices.append(
+        f"앞서 물었던 \"{old_ask['question']}\"에는 아직 답하지 않아 유니버스는 바뀌지 않았어요."
+    )
+    result["notices"] = notices
 
 
 def _drop_rejected_provenance(result: dict) -> None:
@@ -3167,7 +3190,10 @@ def _ensure_field_metadata(result: dict, request: NLParseRequest) -> None:
         result["field_metadata"] = dict(previous) if isinstance(previous, dict) else None
         return
     parsed = result.get("parsed")
-    theme = getattr(parsed, "theme_universe", None)
+    # 이 시점의 parsed는 model_dump() dict다 — getattr만 쓰면 항상 None이라
+    # KNOWLEDGE_GRAPH 출처 표기가 죽는다(artifacts._field와 같은 2026-08-02 감사 #3 결함).
+    theme = (parsed.get("theme_universe") if isinstance(parsed, dict)
+             else getattr(parsed, "theme_universe", None))
     interpreter_meta = (result.get("runtime") or {}).get("interpreter") or {}
     kg_changed = [f for f in changed if theme and f in _KG_SOURCED_FIELDS]
     user_changed = [f for f in changed if f not in kg_changed]
@@ -3710,16 +3736,20 @@ def _run_nl_parse_traced(request: NLParseRequest, on_stage=None,
             if _chip_result is not None:
                 primary_holder.update(_chip_result)
                 parsed = _chip_result["parsed"]
-            # 재무 팩터 추가 의도인데 기준값(operator/threshold)이 없으면(예: "영업이익률을
-            # 추가해 볼까?") 수정 파서로 넘기지 않고 되묻는다 — LLM이 임의 기준값을 환각하기
-            # 전에 결정적으로 가로채, 추천 칩으로 슬롯을 채우게 한다(condition_builder 재사용,
-            # 백엔드 무상태: 칩 클릭 시 프론트가 "라벨 값 방향"을 일반 수정 메시지로 재전송).
-            from intent.condition_builder import clarification_for_add
+            # "완전 다르게 해줘"류 전면 재작성 요청은 임의 해석 대신 방향을 되묻는다(QA 19-4).
+            # [대원칙 1] 재무 팩터 추가 의도인데 기준값이 없는 경우(예: "영업이익률을 추가해
+            # 볼까?")를 여기서 원문 정규식(구 clarification_for_add)으로 가로채던 코드는
+            # 제거했다 — 그 판정은 사용자 원문 해석이라 LLM 전담이어야 한다. 아래
+            # run_primary_modification이 인터프리터로 패치를 뽑은 뒤 validate_intent(→
+            # validate_completeness)가 같은 상황(패치 필드에 값 없음)을 이미 구조화 출력
+            # 기준으로 감지해 동일한 모양의 되묻기를 낸다(clarification_priority=
+            # modify_unapplied, primary_modify_needs_value — 테스트:
+            # test_strategy_conversation.py 내 "영업이익률 높고 PER 10 이하" 케이스).
+            # 2026-08-02 감사에서 이 가로채기가 "ESS 종목 중에서 거래대금 상위만 넣어줘"
+            # 같은 다중 의도 발화의 나머지 부분(테마 전환·랭킹)을 통째로 삼키는 것을 확인
+            # (LLM 호출 0회로 응답) — 제거로 항상 인터프리터가 원문 전체를 본다.
             from engine.nl_parser import full_rewrite_clarification
-            # "완전 다르게 해줘"류 전면 재작성 요청도 임의 해석 대신 방향을 되묻는다(QA 19-4).
-            _clar = None if parsed is not None else (
-                clarification_for_add(request.prompt) or full_rewrite_clarification(request.prompt)
-            )
+            _clar = None if parsed is not None else full_rewrite_clarification(request.prompt)
             if _clar is not None:
                 from engine.nl_parser import ParsedStrategy
                 prev_parsed = ParsedStrategy.model_validate(request.previous_parsed)
@@ -3739,7 +3769,8 @@ def _run_nl_parse_traced(request: NLParseRequest, on_stage=None,
                 return result
             # LLM Interpreter Primary Mode (Phase 2): 수정 요청도 인터프리터가 우선 처리
             # (patches 방식). 라운드트립 불가 전략·patches 미출력·검증 미통과는 기존
-            # 하이브리드 수정 경로로 폴백한다. clarification_for_add 가드는 위에서 이미 통과.
+            # 하이브리드 수정 경로로 폴백한다. 값 없는 팩터 추가는 아래 검증 단계
+            # (validate_intent→validate_completeness)가 구조화 출력 기준으로 잡는다.
             from strategy_conversation.primary import (
                 primary_enabled as _interp_primary_enabled,
                 run_primary_modification,

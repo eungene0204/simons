@@ -442,20 +442,41 @@ def _plan_strategy_dag(
             # 검색 학습이 테마 앵커를 새로 만들 수 있다 — 학습 후 테마 재조회는
             # 판단이 아니라 절차라 LLM 턴 없이 결정론 에필로그로 수행한다.
             text = node.args.get("text")
-            requery = DagNode(id=f"auto:{len(auto_steps)}", type="tool",
-                              tool="kg_theme_companies", args={"text": text})
-            requery_key = requery.call_key()
-            if text and requery_key not in call_cache:
-                try:
-                    requery_obs = call_tool("kg_theme_companies", text=text).model_dump()
-                    call_cache[requery_key] = requery_obs
-                    auto_steps.append({"id": requery.id, "tool": requery.tool,
-                                       "args": requery.args, "observation": requery_obs})
-                except Exception:  # noqa: BLE001 — 재조회 실패는 관찰 없음으로 계속
-                    logger.debug("dag planner 학습 후 테마 재조회 실패", exc_info=True)
+            _auto_theme_requery(text)
+        if node.tool == "list_concept_candidates":
+            # 후보가 정확히 1개면 범위가 갈리지 않는다(계약: 2개 이상만 ask) — 그 후보
+            # 정본 표기로의 테마 조회는 판단이 아니라 절차다. 9B에게 맡기면 관찰을 두고
+            # 매수 질문으로 건너뛰어, 폴백 레인이 원문 표기 시드 앵커(2곳)를 적용하는
+            # 조용한 범위 축소가 났다(2026-08-02 감사 #3 #4: 'ESS' 관찰 60곳 ↔ 적용 2곳).
+            candidates = (observation or {}).get("candidates") or []
+            if len(candidates) == 1:
+                term = (candidates[0] or {}).get("term")
+                _auto_theme_requery(term)
         return True
 
-    for _ in range(turns):
+    def _auto_theme_requery(text: Optional[str]) -> None:
+        """kg_theme_companies 결정론 에필로그 — 관찰 캐시를 공유하고 실패는 무시한다."""
+        requery = DagNode(id=f"auto:{len(auto_steps)}", type="tool",
+                          tool="kg_theme_companies", args={"text": text})
+        requery_key = requery.call_key()
+        if not text or requery_key in call_cache:
+            return
+        try:
+            requery_obs = call_tool("kg_theme_companies", text=text).model_dump()
+            call_cache[requery_key] = requery_obs
+            auto_steps.append({"id": requery.id, "tool": requery.tool,
+                               "args": requery.args, "observation": requery_obs})
+        except Exception:  # noqa: BLE001 — 재조회 실패는 관찰 없음으로 계속
+            logger.debug("dag planner 테마 결정론 재조회 실패", exc_info=True)
+
+    # 턴 예산은 **무진전 LLM 루프**를 막기 위한 것이지 생산적인 도구 사슬을 자르기 위한
+    # 것이 아니다. 직전 턴이 새 관찰을 만들었으면 hard_cap까지 연장한다 — CONCEPT
+    # 유니버스는 classify → list_concept_candidates → kg_theme_companies → ask로 LLM
+    # 3~4턴이 필요한데 예산 2에서 항상 소진돼, 관찰된 카탈로그 테마(60곳)가 버려지고
+    # 폴백 레인이 시드 앵커(2곳)를 적용하는 조용한 범위 축소가 났다(2026-08-02 감사 #3 #4).
+    hard_cap = turns + 2
+    progressed_last = False
+    while llm_turns < turns or (progressed_last and llm_turns < hard_cap):
         # 공유 chat 계약의 max_tokens — DAG JSON은 미니플래너 한 줄 액션보다 커서
         # 기본 상한(2048)에 잘려 JSON이 깨진다(실측: 한글 칩 다수 DAG가 ~1.3k자에서 절단).
         raw = chat_fn(system_prompt,
@@ -542,8 +563,10 @@ def _plan_strategy_dag(
         if progressed:
             # 새 관찰이 생겼다 — ask 표면화 전에 LLM에게 DAG 수정 기회를 한 턴 준다
             # (관찰이 질문을 불필요하게 만들 수 있다: 테마 해석 후 업종 질문 등).
+            progressed_last = True
             prev_fingerprint = None
             continue
+        progressed_last = False
 
         done_ids = set(executed)
         # 재질문 결정론 가드 — State 요약의 filled_slots(결정론 판정)에 있는 슬롯의 ask는
@@ -595,8 +618,9 @@ def _plan_strategy_dag(
             return None
         prev_fingerprint = fingerprint
 
-    logger.info("dag planner 턴 예산 소진(%d) — 폴백", turns)
-    trace.error("TurnBudgetExhausted", f"LLM 턴 예산 {turns} 소진 — 결론 미도달")
+    logger.info("dag planner 턴 예산 소진(%d, 진전 연장 상한 %d) — 폴백", turns, hard_cap)
+    trace.error("TurnBudgetExhausted",
+                f"LLM 턴 예산 {turns}(진전 연장 상한 {hard_cap}) 소진 — 결론 미도달")
     return None
 
 

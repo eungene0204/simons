@@ -54,9 +54,21 @@ def _normalize(term: Any) -> str:
     return str(term or "").replace(" ", "").lower()
 
 
+def _field(parsed: Any, name: str) -> Any:
+    """ParsedStrategy 인스턴스와 model_dump() dict를 모두 읽는다.
+
+    라이브 경로(main._finalize_parse_result)는 이미 직렬화된 dict를 넘긴다 — getattr만
+    쓰면 dict에서 항상 None이라 이 레인 전체가 조용히 죽는다(2026-08-02 감사 #3:
+    25턴 전부 artifacts=null, 인스턴스 입력 테스트만 통과하고 있었다).
+    """
+    if isinstance(parsed, dict):
+        return parsed.get(name)
+    return getattr(parsed, name, None)
+
+
 def _requested_terms(parsed: Any) -> list:
     """사용자가 이번 State에서 요구하는 유니버스 표현(정규화)."""
-    sector = getattr(parsed, "sector", None)
+    sector = _field(parsed, "sector")
     if sector is None:
         return []
     terms = [sector] if isinstance(sector, str) else list(sector)
@@ -72,8 +84,8 @@ def evaluate_artifacts(parsed: Any, previous: Any = None) -> Optional[Dict[str, 
     **재조회를 여기서 하지 않는다** — 판정과 실행을 섞으면 표시용 호출이 네트워크를
     타게 되고, 실패가 파스를 깬다. 재조회는 수정 레인의 테마 교체 체인이 소유한다.
     """
-    theme = getattr(parsed, "theme_universe", None)
-    symbols = getattr(parsed, "target_symbols", None) or []
+    theme = _field(parsed, "theme_universe")
+    symbols = _field(parsed, "target_symbols") or []
     prior = (previous or {}).get(THEME_SYMBOLS) if isinstance(previous, dict) else None
 
     if not theme:

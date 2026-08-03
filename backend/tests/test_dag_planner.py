@@ -222,6 +222,54 @@ def test_ground_term_epilogue_requeries_theme(monkeypatch):
     assert chat.calls == 2
 
 
+def test_single_concept_candidate_triggers_theme_requery_epilogue(monkeypatch):
+    """후보 1개는 범위가 갈리지 않는다 — 그 정본 표기의 테마 조회는 판단이 아니라
+    절차라 LLM 턴 없이 결정론 에필로그로 실행된다(2026-08-02 감사 #3 #4: 9B가 관찰된
+    카탈로그 후보 60곳을 두고 매수 질문으로 건너뛰어 시드 앵커 2곳이 적용됐다)."""
+    monkeypatch.setattr(kg, "catalog_theme_candidates",
+                        lambda text: [{"term": "전력저장장치(ESS)", "companies": 2}])
+    queried = []
+
+    def fake_theme(text):
+        queried.append(text)
+        return {"term": text,
+                "companies": [{"symbol": "006400", "name": "삼성SDI"},
+                              {"symbol": "373220", "name": "LG에너지솔루션"}],
+                "first_known_date": None}
+
+    monkeypatch.setattr(kg, "theme_backtest_companies", fake_theme)
+    dag = _dag_json(
+        _tool_node("cand", "list_concept_candidates", text="ESS"),
+        _ask_node("ask1", "어떤 조건에서 매수할까요?", deps=["cand"]),
+        *_finish_chain(deps=["ask1"]),
+    )
+    chat = ScriptedChat([dag, dag])
+    result = plan_strategy_dag("ESS 관련주로 전략 만들어줘", chat)
+    assert result is not None and result.outcome == "ask"
+    assert queried == ["전력저장장치(ESS)"], "후보 정본 표기로 결정론 재조회해야 한다"
+    assert len(result.auto_steps) == 1
+    assert result.companies and result.companies[0]["symbol"] == "006400"
+
+
+def test_multiple_concept_candidates_do_not_auto_requery(monkeypatch):
+    """후보 2개 이상은 범위 질문 대상이다 — 자동 조회(조용한 확정)는 금지."""
+    monkeypatch.setattr(kg, "catalog_theme_candidates",
+                        lambda text: [{"term": "보안(물리)", "companies": 10},
+                                      {"term": "보안(정보)", "companies": 12}])
+    queried = []
+    monkeypatch.setattr(kg, "theme_backtest_companies",
+                        lambda text: queried.append(text) or None)
+    dag = _dag_json(
+        _tool_node("cand", "list_concept_candidates", text="보안"),
+        _ask_node("ask1", "어느 범위로 할까요?", deps=["cand"], topic="유니버스"),
+        *_finish_chain(deps=["ask1"]),
+    )
+    result = plan_strategy_dag("보안주 전략", ScriptedChat([dag, dag]))
+    assert result is not None and result.outcome == "ask"
+    assert queried == []
+    assert result.auto_steps == []
+
+
 def test_omitted_done_nodes_merged_from_runner_copy(monkeypatch):
     """9B가 턴2에서 done 노드 재발행을 생략해도 러너 보유 사본이 병합되어 ask가
     표면화된다 — 생략을 위반으로 보면 planner가 전량 폴백되던 실측 문제의 계약."""
@@ -290,11 +338,35 @@ def test_stalled_identical_emission_falls_back():
     assert chat.calls == 2
 
 
-def test_turn_budget_exhausted(monkeypatch):
+def test_progress_extends_turn_budget(monkeypatch):
+    """진전(새 관찰)이 있으면 예산을 hard_cap(turns+2)까지 연장한다(2026-08-02 감사 #3 #4).
+
+    CONCEPT 유니버스는 classify → candidates → ask로 LLM 3턴이 필요한데 예산 2에서
+    항상 소진돼, 관찰된 카탈로그 테마(60곳)가 버려지고 폴백 레인이 시드 앵커(2곳)를
+    적용하는 조용한 범위 축소가 났다. max_turns=1이어도 턴1이 도구를 실행했으면
+    턴2에서 ask가 표면화된다."""
     monkeypatch.setattr(kg, "resolve_sector_from_text", lambda text: "화학")
     monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: None)
-    chat = ScriptedChat([_resolution_dag()])
+    chat = ScriptedChat([_resolution_dag(), _resolution_dag()])
+    result = plan_strategy_dag("2차전지 전략", chat, max_turns=1)
+    assert result is not None and result.outcome == "ask"
+    assert chat.calls == 2
+
+
+def test_turn_budget_exhausted(monkeypatch):
+    """연장은 무한이 아니다 — 매 턴 새 도구로 진전해도 hard_cap(turns+2)에서 멈춘다."""
+    monkeypatch.setattr(kg, "resolve_sector_from_text", lambda text: "화학")
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: None)
+
+    def _growing_dag(n):
+        nodes = [_tool_node(f"t{i}", "kg_resolve_sector", text=f"표현{i}")
+                 for i in range(1, n + 1)]
+        return _dag_json(*nodes)
+
+    # 턴마다 새 도구 노드를 하나씩 늘려 계속 진전시킨다 — ask 없이 hard_cap 도달
+    chat = ScriptedChat([_growing_dag(1), _growing_dag(2), _growing_dag(3), _growing_dag(4)])
     assert plan_strategy_dag("2차전지 전략", chat, max_turns=1) is None
+    assert chat.calls == 3  # turns=1 + 연장 2 = hard_cap 3
 
 
 def test_blank_input_falls_back():

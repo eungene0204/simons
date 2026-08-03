@@ -69,6 +69,13 @@ SYSTEM_PROMPT = (
     "   '아니야'·'응'·'그건 아니고'처럼 짧은 답이라도 인사(GREETING)나 잡담(OFF_TOPIC)이\n"
     "   아니다 — 진행 중인 전략을 다듬는 대화의 일부이므로 STRATEGY_ADVICE로 본다.\n"
     "   GREETING은 대화를 여는 인사일 때만 쓴다.\n"
+    "4-2. [진행 중인 전략]이 있을 때 그 **작업 자체를 제어**하는 발화 — '잠깐 멈춰',\n"
+    "   '그만할래', '처음부터 다시 만들자', '아까 바꾼 거 되돌려줘' — 는 실계좌 매매\n"
+    "   (LIVE_TRADING)도, 열린 추천(STOCK_PICK/STRATEGY_PICK)도 아니다. 라벨은\n"
+    "   STRATEGY_ADVICE로 두고 아래 workflow_effect에 해당 제어 값을 실어라.\n"
+    "   '멈춰'는 매매 중지 요청이 아니라 이 대화의 진행을 멈추는 것이고, '처음부터\n"
+    "   다시 만들자'는 전략을 골라 달라는 것이 아니라 지금 전략을 버리고 새로 시작하는\n"
+    "   것이다.\n"
     "\n"
     "라벨과 별개로, 이 입력이 진행 중인 전략 작성을 어떻게 제어하는지도 고른다.\n"
     "\n"
@@ -143,6 +150,10 @@ _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 # 소형 모델이 붙이는 사고 흔적 블록. JSON 경계 추출 전에 걷어낸다.
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 _LABEL_SEPARATORS = re.compile(r"[\s\-]+")
+# 4B 모델이 enum 값을 따옴표 없이 내놓는 형식 결함("workflow_effect": NONE — 실측
+# 2026-08-03 '면역항암제 관련주 투자 전략' 6/20). 값 자리의 대문자 bare 토큰만 감싼다
+# (true/false/null은 소문자라 안 걸린다).
+_BARE_ENUM_VALUE = re.compile(r"(:\s*)([A-Z][A-Z0-9_]*)(?=\s*[,}\]])")
 
 
 def extract_json_object(raw: str) -> Optional[dict]:
@@ -155,7 +166,10 @@ def extract_json_object(raw: str) -> Optional[dict]:
     try:
         parsed = json.loads(match.group(0))
     except (ValueError, TypeError):
-        return None
+        try:
+            parsed = json.loads(_BARE_ENUM_VALUE.sub(r'\1"\2"', match.group(0)))
+        except (ValueError, TypeError):
+            return None
     return parsed if isinstance(parsed, dict) else None
 
 

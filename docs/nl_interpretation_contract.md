@@ -1362,6 +1362,49 @@ LLM 판정을 뒤집는 안전망은 두지 않는다(§ 11-8과 같은 계약).
 `app/analytics/new/conversationDecision.test.ts`, `backend/tests/test_recall_validator.py`,
 `backend/tests/test_strategy_conversation.py`, `backend/tests/test_nl_cache.py`.
 
+### § 11-22. 감사 #3 — 검증 거부의 정직한 보고와 대조 게이트의 단위 공백 (2026-08-02 완료)
+
+Agent Architecture Audit #3(멀티턴 에코 하니스 25턴 실측)이 찾은 결함 수정. 공통 주제는
+**"LLM은 옳았는데 하류가 그 결과를 버리고 실패 원인을 위장했다"**이다.
+
+① **검증 거부 ≠ 해석 실패** — 수정 턴에서 패치 적용 후 검증 오류(예: 코스피+PER →
+ETF 전환 시 capability 충돌)가 나면 레인 전체가 폴백해 "해석하지 못했어요"로 끝났다.
+인터프리터 패치는 정확했고(트레이스 확증) capability validator의 안내문("ETF는 PER
+사용 불가")은 사용자에게 도달하지 못했다. 이제 llm_first에서는 전략 무변경 + **검증기
+오류 문장을 그대로 질문으로** 전달한다(`_capability_conflict_clarification` — 새 판정
+없음, 문구 전달만). 유니버스 변경 턴에는 충돌 항목명(검증기 unsupported 표기)과 목표
+유니버스(패치된 State)로 해소 칩을 결정론 조립한다. **칩은 pending_ask 없이 나간다** —
+"제거+전환" 복합 의미 칩을 결속 프로브가 추출 가능한 절반(전환)만 보고 결속시켜, 클릭이
+결정론 레인에서 부분 적용되는 실측 사고가 났다. 복합 의미의 실행자는 LLM뿐이다.
+② **§ 3-1 대조의 복합 단위 공백** — "초기 자금 5천만원"의 정당한 패치(5e7)가
+`_NUMBER_RE`의 단일 단위 어휘("5천"=5,000으로 절단) 때문에 자릿수 모순으로 오판·거부돼
+미반영 + "해석하지 못했어요"가 났다. 환산표에 천만·백만·십만을 추가했다(표기 변환일 뿐
+의미 판단 아님 — 자릿수 오류 검출력은 유지, 회귀로 고정).
+③ **미반영 턴의 열린 질문 소실** — 설명·미지원·전량 거부 응답(notices-only)이 답을
+기다리던 되묻기를 화면에서 지웠다(FR-SA-015의 파스 레인판). 에코된
+pending_ask/pending_question을 그대로 되붙인다(`_reattach_open_question` — 새 판정 없음).
+④ **워크플로 제어의 분류 드리프트** — "잠깐 멈춰"→LIVE_TRADING, "처음부터 다시
+만들자"→STRATEGY_PICK 오분류로 규제 게이트의 제어 거부가 PAUSE/RESTART를 삼키고
+동문서답 안내가 나갔다. 분류 프롬프트에 규칙 4-2(작업 제어 발화는 게이트 라벨이 아니다)
+추가 — 실측 15/15, 게이트 대조군(실계좌·열린 추천) 4/4 유지.
+⑤ **planner 턴 예산이 관찰을 폐기** — 예산 2가 CONCEPT 흐름(분류→후보 조회→ask, LLM
+3턴)을 항상 소진시켜 관찰된 카탈로그 테마(60곳)가 버려지고 폴백 레인이 원문 표기 시드
+앵커(2곳)를 적용했다. 진전(새 관찰) 시 +2턴 연장 + **후보 1개면 정본 표기 테마 조회는
+결정론 에필로그**(ground_term 선례 — 판단이 아니라 절차. 후보 2개 이상은 종전대로 범위
+ask, 자동 조회 금지). 원 표현("ESS")도 해석 완료로 전파한다 — 전파하지 않으면 term-in
+체인이 같은 표현에 kg_resolve_sector를 또 돌려 섹터를 이중 병합하고 Artifact 근거
+대조가 STALE로 오염된다(실측). `planner_dag_contract.md` 안전 계약 동기화.
+⑥ **관측 계층의 dict 사각** — `evaluate_artifacts`·`_ensure_field_metadata`가
+`getattr`로 읽는데 라이브 경로는 `model_dump()` dict를 넘겨 Artifact 상태(FR-SA-011)가
+25턴 전부 null이었다(인스턴스만 주입하는 테스트는 초록). dict/인스턴스 양쪽 수용 +
+라이브 모양(dict) 회귀. 비-SSE `/strategy/parse` 응답 모델에 `field_states`도 추가
+(response_model이 잘라내 그 라우트에서 previous_field_states 에코가 성립 불가했다).
+⑦ **기간 없는 골든크로스 정본** — 오타 "골든크러스"가 가격×20일선(1/20)으로 물질화.
+worked example(예시 3-0)로 정본 5/20을 고정(출력 형태가 규칙보다 강하다 — FR-STR-019p).
+
+회귀: `backend/tests/test_agent_audit3_fixes.py`(10건),
+`test_dag_planner.py`(예산 연장·에필로그 4건), 분류·파싱은 라이브 실측으로 검증.
+
 ### 마이그레이션 순서
 
 1번(`nl_parser.py`)은 독립 순번이 없다 — 나머지가 끝나면 남는 잔여물이며, 성격이 다른

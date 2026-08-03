@@ -147,6 +147,47 @@ def test_symbol_add_reaches_llm_lane_and_unions(monkeypatch):
     assert result["parsed"].target_symbols == ["005930", "000660", "080220"]
 
 
+def test_add_cue_reaches_interpreter_instead_of_raw_regex_shortcut(monkeypatch):
+    """2026-08-02 감사 재현: main.py가 request.prompt(원문)에 clarification_for_add
+    (regex: '추가/넣/...' cue + detect_metric)를 인터프리터보다 먼저 돌리던 코드가
+    있었다 — 재무 팩터를 값 없이 언급하면(예: "영업이익률을 추가해 볼까?") 인터프리터를
+    한 번도 호출하지 않고 원문 정규식이 곧장 되묻기를 확정했다(대원칙 1 위반 — 원문이
+    "ESS 종목 중에서 거래대금 상위만 넣어줘"처럼 다른 내용과 섞이면 그 내용째 삼켜졌다).
+    제거 후에는 값 없는 조건 추가라도 인터프리터가 항상 원문 전체를 먼저 본다."""
+    calls = []
+
+    class _Result:
+        pass
+
+    class _Interpreter:
+        def interpret(self, user_input, **kwargs):
+            calls.append(user_input)
+            r = _Result()
+            r.intent = StrategyIntent.model_validate({
+                "intent": "MODIFY_STRATEGY",
+                "patches": [{"op": "add", "path": "/entry_conditions/-",
+                             "value": {"factor": "fundamental.operating_margin",
+                                       "operator": None, "value": None},
+                             "source_text": "영업이익률을 추가해 볼까?"}],
+                "confidence": 1.0,
+            })
+            r.model_name = "test"
+            r.prompt_version = "test"
+            r.repair_attempts = 0
+            r.latency_ms = 0.0
+            r.unreflected_numbers = []
+            return r
+
+    monkeypatch.setenv("STRATEGY_INTERPRETER_MODE", "primary")
+    monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "llm_first")
+    monkeypatch.setattr(primary, "_get_interpreter", lambda _cls: _Interpreter())
+    prompt = "영업이익률을 추가해 볼까?"
+    result = _run_nl_parse(NLParseRequest(prompt=prompt, previous_parsed=_prev_cross_strategy().model_dump()))
+    assert calls == [prompt], "원문 정규식 가로채기가 인터프리터 호출 전에 응답을 확정하면 안 된다"
+    assert result is not None
+    assert "영업이익률" in (result.get("clarification_question") or "")
+
+
 def test_modify_turn_replans_next_question_via_dag_planner(monkeypatch):
     """수정 턴 재계획(Phase 4) — 최신 입력은 답변 귀속이 아니라 State 변경 판정이 먼저다.
 
@@ -549,3 +590,64 @@ def test_confirmation_without_a_prior_question_does_not_guess_a_field(monkeypatc
     assert primary.run_primary_modification(
         "응 그걸로 해줘", prev.model_dump(),
         pending_ask={"topic": "매수 조건", "question": "?", "chips": []}) is None
+
+
+# ── 유니버스 확인 질문이 무응답으로 소멸하면 안내한다(2026-08-02 감사 #2) ─────────
+
+def test_unresolved_universe_ask_is_flagged_when_topic_shifts_without_change():
+    """직전 턴이 유니버스 확인('ESS로 바꿀까요?')을 물었는데 이번 턴이 그와 무관한
+    화제(매도조건)로 넘어가고 유니버스 필드가 전혀 안 바뀌면, 그 확인이 조용히
+    사라졌다는 사실을 notices로 알려야 한다 — dag.py의 NodeStatus.INVALIDATED는
+    trace 관측에만 쓰이고 사용자 응답에는 닿지 않던 공백의 최소 보정."""
+    prev = _theme_strategy().model_dump()
+    request = NLParseRequest(
+        prompt="RSI 30 이하에서 매수",
+        previous_parsed=prev,
+        pending_ask={"topic": "유니버스",
+                     "question": "'ESS' 관련주는 '전력저장장치(ESS)' 테마로 정리되어 있어요. "
+                                  "이 범위로 바꿀까요?",
+                     "chips": ["전력저장장치(ESS)"]},
+    )
+    result = {
+        "parsed": dict(prev),  # 유니버스 관련 필드 무변화
+        "pending_ask": {"topic": "매도조건", "question": "어떤 조건에서 매도할까요?",
+                         "chips": ["20일 보유 후 청산"]},
+        "notices": [],
+    }
+    main._flag_unresolved_universe_ask(result, request)
+    assert any("ESS" in n and "바뀌지 않았어요" in n for n in result["notices"])
+
+
+def test_universe_ask_not_flagged_when_universe_actually_changed():
+    """유니버스가 실제로 바뀌었으면(확인이 다른 방식으로 반영됐어도) 안내하지 않는다."""
+    prev = _theme_strategy().model_dump()
+    request = NLParseRequest(
+        prompt="ESS로 바꿔줘 확정",
+        previous_parsed=prev,
+        pending_ask={"topic": "유니버스", "question": "이 범위로 바꿀까요?",
+                     "chips": ["전력저장장치(ESS)"]},
+    )
+    changed = dict(prev)
+    changed["theme_universe"] = "전력저장장치(ESS)"
+    result = {"parsed": changed, "pending_ask": None, "notices": []}
+    main._flag_unresolved_universe_ask(result, request)
+    assert result["notices"] == []
+
+
+def test_universe_ask_not_flagged_when_still_the_open_question():
+    """다음 턴도 여전히 유니버스 질문이면(정상 재질문) 안내하지 않는다."""
+    prev = _theme_strategy().model_dump()
+    request = NLParseRequest(
+        prompt="음...",
+        previous_parsed=prev,
+        pending_ask={"topic": "유니버스", "question": "이 범위로 바꿀까요?",
+                     "chips": ["전력저장장치(ESS)"]},
+    )
+    result = {
+        "parsed": dict(prev),
+        "pending_ask": {"topic": "유니버스", "question": "이 범위로 바꿀까요?",
+                         "chips": ["전력저장장치(ESS)"]},
+        "notices": [],
+    }
+    main._flag_unresolved_universe_ask(result, request)
+    assert result["notices"] == []

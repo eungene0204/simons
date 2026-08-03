@@ -223,15 +223,11 @@ async def test_lifespan_preloads_nl_parser_before_serving(monkeypatch):
     def _log_universe_status_on_startup():
         calls.append("log_universe_status_on_startup")
 
-    def _start_news_llm_preload_thread():
-        calls.append("start_news_llm_preload_thread")
-
     monkeypatch.setattr(main, "startup", _startup)
     monkeypatch.setattr(main, "shutdown", _shutdown)
     monkeypatch.setattr(main, "preload_nl_parser", _preload_nl_parser)
     monkeypatch.setattr(main, "preload_summarize_model", _preload_summarize_model)
     monkeypatch.setattr(main, "log_universe_status_on_startup", _log_universe_status_on_startup)
-    monkeypatch.setattr(main, "_start_news_llm_preload_thread", _start_news_llm_preload_thread)
 
     async with main.lifespan(main.app):
         assert calls[:4] == [

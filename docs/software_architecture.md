@@ -640,8 +640,11 @@ Strategy Compiler (compiler/strategy_compiler.py) — 검증 READY만 컴파일(
   재compile(+이월)이 원본과 다르면 표현 불가 전략(rsi rebound 등)이므로 이관 거부,
   ② description·execution_timing·entry_filters는 StrategySpec 밖이라 원본 이월 보존,
   ③ 잘못된 patch(예: "/entry_conditions" 전체 remove — 과잉 삭제)는 스키마 검증이 거부.
-  모든 거부는 기존 하이브리드 수정 경로 폴백. clarification_for_add 가드·coach 맥락 리스크
-  귀속은 기존 위치 유지. LLM 연산자 토큰 드리프트('"operator":">="'→'"operator">="')는
+  모든 거부는 기존 하이브리드 수정 경로 폴백. coach 맥락 리스크 귀속은 기존 위치 유지.
+  (구 clarification_for_add 원문 정규식 가드는 2026-08-02 Agent Architecture Audit로
+  제거 — 값 없는 조건 추가는 validate_intent→validate_completeness가 인터프리터의
+  구조화 출력으로 이미 동일하게 잡는다. PROJECT_PLAN.md 해당 항목 참고.)
+  LLM 연산자 토큰 드리프트('"operator":">="'→'"operator">="')는
   output_repair의 멱등 구문 복구가 처리.
   예외(2026-07-17): CLARIFY_STRATEGY(패치 없음)+clarification_questions가 있으면, 폴백해
   질문을 버리는 대신 전략을 그대로 유지한 채 질문을 clarification 채널로 전달한다

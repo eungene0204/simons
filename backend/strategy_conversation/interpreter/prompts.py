@@ -162,6 +162,10 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
      crosses_below, 같은 parameters
    - '5일 EMA가 20일 EMA 위' → technical.ema, crosses_above,
      parameters={{"short_period":5,"long_period":20}} / 'EMA 데드크로스' → crosses_below
+   - 기간 없이 교차만 말한 '골든크로스'·'데드크로스'(오타 변형 포함: '골든크러스' 등)는
+     두 이동평균의 교차입니다 — parameters={{"short_period":5,"long_period":20}}
+     (플랫폼 정본 표기 '골든크로스(5일/20일)'). short_period=1(종가)은 '주가가 N일선
+     돌파'처럼 **종가와 한 선**의 관계를 말했을 때만 씁니다.
    두 선의 비교에는 임계값이 없습니다 — >, < 처럼 기준값을 요구하는 연산자로 쓰거나 기간을
    비워 두면 시스템이 "기준값을 얼마로 할까요?"라고 되묻고 **사용자가 이미 말한 조건이
    전략에서 사라집니다**. 기간을 말했으면 반드시 parameters에 담으세요.
@@ -322,6 +326,16 @@ risk_management={{"stop_loss":8}}, confidence는 0.9 이상.
 exit_conditions=[{{"factor":"technical.ma_crossover","operator":"crosses_below",
 "value":null,"parameters":{{"short_period":20,"long_period":60}}}}].
 크로스오버는 operator가 crosses_above/crosses_below이고 value는 null, 기간은 parameters에.
+
+## 예시 3-0 (기간 없는 골든크로스 — 정본 5/20, 오타 변형 포함)
+입력: "삼성전자로 골든크러스 매수 전략 만들어줘"
+출력 요점: universe={{"symbols":["삼성전자"]}},
+entry_conditions=[{{"factor":"technical.ma_crossover","operator":"crosses_above",
+"value":null,"parameters":{{"short_period":5,"long_period":20}}}}]
+'골든크러스'는 '골든크로스'의 오타입니다(규칙 1 — 글자가 아니라 의미로). 기간 없이
+교차만 말한 골든크로스/데드크로스는 **두 이동평균**의 교차이며 플랫폼 정본은
+5일/20일입니다 — 가격 vs 한 선(short_period=1)은 '주가가 N일선 돌파'처럼 선을
+하나만 말했을 때이고, 이때의 N은 사용자가 말한 숫자입니다.
 
 ## 예시 3-1 (가격 vs 이동평균 한 개 — 말한 기간을 반드시 담기)
 입력: "20일선을 깨고 내려오면 매도하는 전략"
