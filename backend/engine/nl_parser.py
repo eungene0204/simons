@@ -3858,6 +3858,28 @@ def concepts_expressed_in_strategy(parsed: "ParsedStrategy", user_input: str) ->
     }
 
 
+def concepts_covered_by_pending(pending_conditions: Optional[list]) -> set:
+    """값 대기 조건(pending_conditions)이 이미 표현한 미지원-후보 개념 이름들.
+
+    값이 미정이라 parsed에 없을 뿐 **이해하지 못한 것이 아니다**. 이 채널을 보지 않으면
+    "배당수익률 기준값을 얼마로 할까요?"라고 되묻는 바로 그 응답에 "'배당 조건'은 아직
+    지원되지 않아요"가 함께 나간다 — 2026-08-04 실측('고배당률 종목 투자 전략').
+    `concepts_expressed_in_strategy`가 컴파일 결과만 보는 것의 사각지대다.
+
+    판정 입력은 사용자 원문이 아니라 **레지스트리 정본 라벨**(display_name)이다 —
+    표기만 보면 결정 가능한 정규화이므로 결정론 코드 소관이다(대원칙 1). 라벨로 매칭하므로
+    새 팩터가 추가돼도 별도 매핑 유지가 필요 없다.
+    """
+    names: set = set()
+    for cond in pending_conditions or []:
+        label = (cond or {}).get("label")
+        if not label:
+            continue
+        compact = _compact(str(label))
+        names.update(name for name, rx in _UNSUPPORTED_CONCEPT_RE if rx.search(compact))
+    return names
+
+
 def build_unsupported_concept_notice(
     user_input: str, exclude: Optional[set] = None
 ) -> Optional[str]:

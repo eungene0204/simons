@@ -3235,7 +3235,8 @@ def _ensure_field_states(result: dict) -> None:
 
 def _build_parse_result(request: NLParseRequest, backend: str, parsed, validation_report,
                         *, load_ms: float, parse_ms: float, request_started: float,
-                        scan_prompt_for_sector: bool = True) -> dict:
+                        scan_prompt_for_sector: bool = True,
+                        pending_conditions: Optional[List[dict]] = None) -> dict:
     """parsed(ParsedStrategy)로부터 응답 payload를 구성한다.
 
     인라인 경로(_run_nl_parse)와 후행 검증 경로(_complete_deferred_validation)가 공유한다 —
@@ -3251,6 +3252,7 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         apply_single_asset_adjustments,
         apply_theme_universe,
         build_unsupported_concept_notice,
+        concepts_covered_by_pending,
         concepts_expressed_in_strategy,
         detect_etf_factor_conflict,
         detect_missing_entry_clarification,
@@ -3316,6 +3318,9 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 전략이 실제로 표현한 개념(현금흐름 증가율·이동평균 상하 관계 등)도 뺀다 — 반영됐는데
     # "지원되지 않아요"가 함께 나가던 오탐(2026-08-01). 판정은 컴파일 결과만 본다.
     unsupported_exclude = concepts_expressed_in_strategy(parsed, request.prompt)
+    # 값 대기 조건도 같은 계약 — 컴파일 결과에는 없지만 '이해한 조건'이다. 되묻는 그 응답에
+    # "지원되지 않아요"가 함께 나가던 오탐(2026-08-04 '고배당률 종목 투자 전략').
+    unsupported_exclude |= concepts_covered_by_pending(pending_conditions)
     if sector_reask_q or theme_notice or not scan_prompt_for_sector:
         unsupported_exclude.add("sector")
     unsupported_notice = build_unsupported_concept_notice(
@@ -3874,6 +3879,9 @@ def _run_nl_parse_traced(request: NLParseRequest, on_stage=None,
             # ETF 단독 유니버스에 주식 혼합). 원문 스캔은 인터프리터가 처리하지 못한
             # 레거시 레인(fast_path_first 등)에만 남는다(단계 3 이관 대상).
             scan_prompt_for_sector=not primary_holder,
+            # 값 대기 조건은 primary가 이미 산출했다 — 미지원 안내 판정에 함께 넘긴다
+            # (되묻는 조건을 "지원되지 않아요"라고 안내하던 모순 방지).
+            pending_conditions=primary_holder.get("pending_conditions") if primary_holder else None,
         )
         if primary_holder:
             from strategy_conversation.primary import apply_primary_meta

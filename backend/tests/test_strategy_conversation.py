@@ -814,6 +814,44 @@ def test_compile_partial_drops_pending_conditions_only():
     assert pending == [{"role": "entry", "label": "영업이익률", "source_text": None}]
 
 
+def test_compile_partial_never_leaks_internal_factor_id_as_label():
+    """회귀: 레지스트리에 없는 팩터의 라벨로 내부 식별자가 사용자에게 노출되면 안 된다.
+
+    2026-08-04 실측 — "고배당률 종목 중에 베타 낮은 것"이
+    "'technical.beta' 조건은 값 확인 전까지 전략에 반영되지 않았어요."를 냈다.
+    표시명이 없으면 사용자가 실제로 말한 표현(source_text)을 쓴다.
+    """
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.beta", "operator": "<=", "value": None,
+             "source_text": "베타 낮은"},
+        ],
+    ))
+    validated, report = run_validation(intent)
+    from strategy_conversation.compiler.strategy_compiler import compile_partial
+
+    _parsed, dropped, pending = compile_partial(validated, report, "베타 낮은 종목")
+    labels = list(dropped) + [p["label"] for p in pending]
+    assert labels, "드롭이 전혀 없으면 이 회귀를 검증할 수 없다"
+    assert all("." not in lbl for lbl in labels), f"내부 식별자 노출: {labels}"
+    assert all(lbl == "베타 낮은" for lbl in labels)
+
+
+def test_compile_partial_label_falls_back_to_bare_factor_name():
+    """source_text조차 없으면 최소한 네임스페이스 접두는 떼어낸다."""
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.beta", "operator": "<=", "value": None},
+        ],
+    ))
+    validated, report = run_validation(intent)
+    from strategy_conversation.compiler.strategy_compiler import compile_partial
+
+    _parsed, dropped, pending = compile_partial(validated, report, "베타 낮은 종목")
+    labels = list(dropped) + [p["label"] for p in pending]
+    assert labels and all(lbl == "beta" for lbl in labels), labels
+
+
 # ─── 재무 팩터 랭킹 (2026-08-03: '영업이익률 상위 20종목') ────────────────────
 
 def _ranking_intent(metric, direction="top", markets=None):
@@ -925,6 +963,31 @@ def test_primary_needs_clarification_partial_compile_with_chips(monkeypatch):
     assert [f.metric for f in result["parsed"].fundamental_filters] == ["per"]
     assert "영업이익률" in result["clarification_question"]
     assert "영업이익률 10% 이상" in (result["clarification_suggestions"] or [])
+
+
+def test_primary_splits_drop_notice_by_cause(monkeypatch):
+    """[회귀] 2026-08-04 — 컴파일 불가 드롭(미지원 지표)에까지 "값 확인 전까지"가 붙어
+    값을 주면 해결될 것처럼 읽혔다. 값 미정 드롭과 원인이 다르므로 문구를 나눈다."""
+    data = _full_intent_dict(
+        entry_conditions=[
+            # 값 미정 — pending_conditions에도 실린다
+            {"factor": "fundamental.dividend_yield", "operator": ">=", "value": None,
+             "source_text": "고배당률"},
+            # 미지원 지표 — 값을 줘도 컴파일되지 않는다
+            {"factor": "technical.beta", "operator": "<=", "value": 1.0,
+             "source_text": "베타 낮은"},
+        ],
+    )
+    result = _run_primary_with(monkeypatch, data, "고배당률 종목 중에 베타 낮은 것")
+    assert result is not None
+    notices = " ".join(result.get("notices") or [])
+
+    # 미지원 지표에 '값 확인 전까지'가 붙으면 안 된다
+    beta_notice = [n for n in (result.get("notices") or []) if "베타" in n]
+    assert beta_notice, f"미지원 조건 드롭이 조용히 사라졌다: {result.get('notices')}"
+    assert all("값 확인 전까지" not in n for n in beta_notice), beta_notice
+    # 내부 식별자도 여전히 노출되지 않는다
+    assert "technical." not in notices and "fundamental." not in notices, notices
 
 
 def test_primary_reports_pending_conditions_for_summary(monkeypatch):

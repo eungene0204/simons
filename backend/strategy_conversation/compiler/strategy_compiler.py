@@ -173,6 +173,25 @@ def _param_has_registry_default(field: str, strategy) -> bool:
     return pspec is not None and pspec.default is not None
 
 
+def _condition_label(cond: StrategyCondition) -> str:
+    """되묻기·안내·요약에 쓰는 **사람이 읽는** 조건 라벨.
+
+    Registry에 있는 팩터는 정본 표시명을 쓴다. 없는 팩터(LLM이 만들어 낸 미지원 지표)는
+    표시명이 없는데, 내부 식별자를 그대로 쓰면 사용자에게 코드가 노출된다 — 2026-08-04
+    실측: "'technical.beta' 조건은 값 확인 전까지 전략에 반영되지 않았어요." 이 경우
+    사용자가 실제로 말한 표현(source_text)을 쓰고, 그것도 없으면 최소한 네임스페이스
+    접두는 떼어낸다. 라벨이 source_text와 같아도 프론트 요약은 중복 표기하지 않는다
+    (builderProgressPresentation.formatPendingCondition).
+    """
+    spec = REGISTRY.get(cond.factor)
+    if spec:
+        return spec.display_name
+    source = (cond.source_text or "").strip()
+    if source:
+        return source
+    return str(cond.factor).rsplit(".", 1)[-1]
+
+
 def compile_partial(
     intent: StrategyIntent,
     report: ValidationReport,
@@ -208,8 +227,7 @@ def compile_partial(
         ("exit_conditions", "exit", strategy.exit_conditions),
     ):
         for i, cond in enumerate(conditions):
-            spec = REGISTRY.get(cond.factor)
-            label = spec.display_name if spec else cond.factor
+            label = _condition_label(cond)
             if (path, i) in pending:
                 dropped.append(label)
                 pending_conditions.append(

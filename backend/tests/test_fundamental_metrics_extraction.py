@@ -230,3 +230,41 @@ def test_expressed_ma_alignment_drops_unsupported_notice():
     # 이동평균 조건이 하나도 없으면(표현 실패) 안내는 그대로 유지된다.
     assert "정배열" in (build_unsupported_concept_notice(text, exclude=concepts_expressed_in_strategy(
         _parsed(), text)) or "")
+
+
+def test_pending_dividend_condition_drops_unsupported_notice():
+    """회귀: 값 대기 중인 조건을 되묻는 그 응답에 '지원되지 않아요'가 함께 나가면 안 된다.
+
+    2026-08-04 실측 — "고배당률 종목 투자 전략"이 배당수익률 기준값을 되묻으면서
+    동시에 "'배당 조건'은 아직 직접 지원되지 않아요"를 냈다. 값이 미정이라 parsed에
+    없을 뿐 이해하지 못한 것이 아니다(값-대기 조건은 pending_conditions 채널에 있다).
+    """
+    from engine.nl_parser import build_unsupported_concept_notice, concepts_covered_by_pending
+
+    text = "고배당률 종목 투자 전략"
+    # 값이 없어 컴파일에서 빠졌지만 '배당수익률'로 이해한 상태
+    pending = [{"role": "entry", "label": "배당수익률", "source_text": "고배당률"}]
+
+    assert concepts_covered_by_pending(pending) == {"dividend"}
+    assert build_unsupported_concept_notice(
+        text, exclude=concepts_covered_by_pending(pending)) is None
+    # 값 대기 조건이 없으면(=정말 표현하지 못한 경우) 안내는 그대로 유지된다.
+    assert build_unsupported_concept_notice(text, exclude=None) is not None
+
+
+def test_pending_unrelated_condition_keeps_unsupported_notice():
+    """값 대기 조건이 있어도 무관한 지표면 미지원 안내를 삼키지 않는다(과잉 억제 방지)."""
+    from engine.nl_parser import build_unsupported_concept_notice, concepts_covered_by_pending
+
+    pending = [{"role": "entry", "label": "부채비율", "source_text": "부채"}]
+    assert concepts_covered_by_pending(pending) == set()
+    assert "배당" in (build_unsupported_concept_notice(
+        "배당주 중에 부채 적은 곳", exclude=concepts_covered_by_pending(pending) or None) or "")
+
+
+def test_concepts_covered_by_pending_handles_empty_and_malformed():
+    from engine.nl_parser import concepts_covered_by_pending
+
+    assert concepts_covered_by_pending(None) == set()
+    assert concepts_covered_by_pending([]) == set()
+    assert concepts_covered_by_pending([{}, {"label": None}]) == set()

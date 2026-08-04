@@ -36,7 +36,18 @@ _PROGRESS_PATH = _OHLCV_DIR / ".kis_resync_done.json"   # under gitignored data/
 _KIS = "https://openapi.koreainvestment.com:9443"
 _CHART = "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
 _START_FLOOR = "20130101"
-_FUND_COLS = ["sector", "eps", "bps", "roe_or_gpa", "debt_ratio"]
+# KIS가 정본으로 다시 주는 가격 컬럼 — 옛 parquet에서 옮기지 않고 새 값으로 대체한다.
+_PRICE_COLS = ("open", "high", "low", "close", "volume", "change")
+# 종가 기준으로 산출되는 파생 컬럼 — 옛 종가 기준 값을 그대로 옮기면 조정 전/후 기준이
+# 섞인다. 펀더멘털 백필이 combine_first로 **결측만** 채우므로, 남겨 두면 낡은 기준의 값이
+# 영구히 고착된다. 떼어내서 결측으로 만들어야 다음 백필이 새 종가로 다시 계산한다
+# (배당 3종은 dividends 원본이 보존되므로 data_resolver가 런타임에도 복원한다).
+_CLOSE_DERIVED_COLS = ("per", "pbr", "psr", "pcr", "market_cap",
+                       "dividend_yield", "payout_rate", "dividend_growth")
+# 위 둘을 뺀 나머지는 전부 이월한다. 연간 펀더멘털은 결산 시점 값을 다음 결산까지
+# 전진충전하지만, 아래 둘은 예외다 — sector는 상수 문자열이고, dividends는 ex-date에만
+# 값이 있는 이벤트 시리즈라 전진충전하면 배당 한 건이 이후 전 구간으로 번진다.
+_NO_FFILL_COLS = ("sector", "dividends")
 _SLEEP = 0.09          # ~11 req/s; KIS personal cap ~20/s
 _PAGE_DAYS = 150       # calendar window per call (≈100 trading rows)
 
@@ -125,17 +136,26 @@ def _fetch_full(sym: str, start: str, end: str) -> pd.DataFrame | None:
 
 
 def _merge_fundamentals(new: pd.DataFrame, sym: str) -> pd.DataFrame:
-    """Carry over annual fundamentals from the old parquet; recompute per/pbr on new close."""
+    """Carry over every non-price column from the old parquet; recompute per/pbr on new close.
+
+    이월 대상은 **뺄 것만 정하는 블랙리스트**다(_PRICE_COLS + _CLOSE_DERIVED_COLS). 예전에는
+    이월할 컬럼을 화이트리스트 5개로 열거해서, parquet 전체 재작성 시 목록에 없는 보강 컬럼이
+    전부 소실됐다 — 2026-08-04 사고: dividends 컬럼이 1,016종목에서 날아가 배당 지표가
+    통째로 비었다(대형주 포함). 새 파생 컬럼이 추가돼도 자동으로 보존되도록 블랙리스트로 둔다.
+    """
     path = _OHLCV_DIR / f"{sym}.parquet"
     if path.exists():
         try:
             old = pl.read_parquet(path).to_pandas()
-            keep = [c for c in _FUND_COLS if c in old.columns]
+            keep = [c for c in old.columns
+                    if c != "date"
+                    and c not in _PRICE_COLS
+                    and c not in _CLOSE_DERIVED_COLS]
             if keep and "date" in old.columns:
                 old["date"] = pd.to_datetime(old["date"])
                 new = new.merge(old[["date"] + keep], on="date", how="left")
                 for c in keep:
-                    if c != "sector":
+                    if c not in _NO_FFILL_COLS:
                         new[c] = new[c].ffill()  # forward-fill annual values across new dates
         except Exception:
             pass

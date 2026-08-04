@@ -1095,9 +1095,22 @@ def run_primary_parse(
     unexplained_drops = [d for d in dropped if d not in " ".join(
         [clarification_question or "", queued_question_text] + notices
     )]
-    if unexplained_drops:
+    # dropped는 원인이 둘 섞여 있다 — ① 값 미정(pending_conditions에도 실린다) ②
+    # 컴파일 불가(미지원 지표·역할 불가). 한 문구로 묶으면 ②에까지 "값 확인 전까지"가
+    # 붙어 **값을 주면 해결될 것처럼** 읽힌다(2026-08-04 실측: 지원되지 않는 '베타'에
+    # "값 확인 전까지 반영되지 않았어요"가 붙었다). 원인별로 나눠 정직하게 쓴다.
+    pending_labels = {(p or {}).get("label") for p in (pending_conditions or [])}
+    value_pending_drops = [d for d in unexplained_drops if d in pending_labels]
+    uncompilable_drops = [d for d in unexplained_drops if d not in pending_labels]
+    if value_pending_drops:
         notices.append(
-            f"'{', '.join(unexplained_drops)}' 조건은 값 확인 전까지 전략에 반영되지 않았어요."
+            f"'{', '.join(value_pending_drops)}' 조건은 값 확인 전까지 전략에 반영되지 않았어요."
+        )
+    if uncompilable_drops:
+        # 왜 반영 못했는지(미지원 지표 등)는 결정론 게이트의 미지원 개념 안내가 담당한다 —
+        # 여기서는 '어느 표현이 빠졌는지'만 알린다(조용한 누락 방지).
+        notices.append(
+            f"'{', '.join(uncompilable_drops)}' 조건은 전략에 반영하지 못했어요."
         )
     # 미반영 수치 **안내**는 폐지했다(2026-08-01, 사용자 판단) — 로그로만 남긴다.
     # 대조는 크기만 보는 수치 대조라 라벨이 맥락 없는 숫자 나열("'1, 20일' 수치는…")이 되고,
