@@ -21,15 +21,20 @@ CI 가드(``scripts/check_engine_version_bump.sh`` — .github/workflows/ci.yml�
 """
 
 # ── 현재 엔진 버전 (유일 기준) ────────────────────────────────────────────────
-ENGINE_VERSION = "9.1"
+ENGINE_VERSION = "9.2"
 
 # 사람이 읽을 수 있는 한 줄 요약. 결과 배지/툴팁 등 표시용이며 값 계산엔 영향 없음.
-ENGINE_VERSION_LABEL = "v9.1 — 재무 팩터 랭킹·net_income/PCR 추가(기존 전략 결과 불변)"
+ENGINE_VERSION_LABEL = "v9.2 — 현금흐름 3분류 조건 지표 추가(기존 전략 결과 불변)"
 
 # ── 버전 이력 ─────────────────────────────────────────────────────────────────
 # 과거 git 이력을 참고해 주요 변경 시점을 정리한 것. 정확한 커밋 단위 이력은
 # git log를, 큰 흐름은 아래 표를 참고한다.
 CHANGELOG = {
+    "9.2": "영업·투자·재무활동 현금흐름을 조건 필터 지표로 추가(operating_cf_amount/"
+           "investing_cf_amount/financing_cf_amount, 억원). DART 원천은 raw 원이라 그대로 쓰면 "
+           "'1,000억 이상'이 1억 배 어긋나므로, PCR·FCF 계산 기준인 raw 컬럼은 두고 억원 파생 "
+           "컬럼을 신설해 그것만 필터에 노출한다. 투자·재무는 자산 취득·차입 상환으로 통상 음수라 "
+           "부호를 보존한다. 순수 가산 — 이 지표를 쓰지 않는 기존 전략의 결과는 불변이다.",
     "9.1": "재무 팩터 랭킹('영업이익률 상위 20종목' 등, ranking_metric=재무 cid+top/bottom) 신설 "
            "+ 당기순이익(net_income, 억원)·PCR 지표 추가. 전부 opt-in 가산 — ranking_metric이 "
            "재무 지표일 때만 새 분기를 타고, 기존 전략(미지정·모멘텀 'return')의 결과는 불변이다. "
