@@ -68,7 +68,8 @@ export function inferStrategyType(
 
   if (has(["ai_model", "ai_drop"])) return "AI전략";
   if (has(["per", "pbr", "psr", "pcr", "roe", "roa", "debt_ratio", "market_cap",
-    "current_ratio", "quick_ratio", "reserve_ratio", "margin", "growth"])) return "가치투자";
+    "current_ratio", "quick_ratio", "reserve_ratio", "margin", "growth",
+    "cf_amount"])) return "가치투자";
   if (has(["investor_net_buy"])) return "수급전략";
   if (has(["breakout", "ma_crossover", "macd", "volume_spike"])) return "모멘텀";
   if (has(["rsi", "bollinger", "stochastic", "cci", "adx", "ema"])) return "기술분석";

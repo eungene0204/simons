@@ -123,6 +123,9 @@ export const METRIC_LABELS: Record<string, string> = {
   eps: "EPS",
   ebit: "영업이익",
   net_income: "당기순이익",
+  operating_cf_amount: "영업활동현금흐름",
+  investing_cf_amount: "투자활동현금흐름",
+  financing_cf_amount: "재무활동현금흐름",
 };
 
 const KO_NUMBER_FORMAT = new Intl.NumberFormat("ko-KR");
@@ -190,7 +193,13 @@ export function formatFundamentalFilter(filter: {
     if (filter.operator === "<") return "영업이익 적자 기업";
   }
   let value: string;
-  if (filter.metric === "market_cap" || filter.metric === "net_income") {
+  if (
+    filter.metric === "market_cap" ||
+    filter.metric === "net_income" ||
+    filter.metric === "operating_cf_amount" ||
+    filter.metric === "investing_cf_amount" ||
+    filter.metric === "financing_cf_amount"
+  ) {
     // 필터 값은 억원 단위다 — 원 단위로 오해해 변환하면 3000억이 '3000'으로 보인다.
     value = formatEokAmount(filter.value);
   } else if (filter.metric === "trading_value") {

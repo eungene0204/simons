@@ -180,15 +180,55 @@ def test_remerge_symbol_restores_columns_without_touching_dart(
     assert out["financing_cash_flow"].dropna().unique().tolist() == [-7.0]
 
 
-def test_remerge_symbol_skips_when_cache_has_no_activity_data(
+def test_remerge_symbol_skips_when_cache_has_no_cash_flow_at_all(
     cache_only_workspace, monkeypatch, tmp_path
 ):
     monkeypatch.setattr(cf_backfill, "_OHLCV_DIR", tmp_path / "ohlcv")
     (cache_only_workspace / "005930.json").write_text(json.dumps({
-        "fundamentals": [{"year_end": "2024-12-31", "operating_cash_flow": 1.0}],
+        "fundamentals": [{"year_end": "2024-12-31", "eps": 100.0}],
     }), encoding="utf-8")
 
     assert cf_backfill.remerge_symbol("005930", dry_run=False) == ("nothing_to_merge", [])
+
+
+def test_remerge_symbol_backfills_eok_amounts_into_cache(
+    cache_only_workspace, monkeypatch, tmp_path
+):
+    """3분류 승격(2026-08-05) 이전에 쓰인 캐시에는 억원 파생본이 없다 — remerge가
+    재계산해 캐시에 채워야 parquet 컬럼이 null로 남지 않는다."""
+    import pandas as pd
+    import polars as pl
+
+    ohlcv_dir = tmp_path / "ohlcv"
+    ohlcv_dir.mkdir()
+    monkeypatch.setattr(cf_backfill, "_OHLCV_DIR", ohlcv_dir)
+
+    (cache_only_workspace / "005930.json").write_text(json.dumps({
+        "fundamentals": [{
+            "year_end": "2024-12-31", "available_from": "2025-03-11",
+            "operating_cash_flow": 72_982_621_000_000.0,
+            "investing_cash_flow": -85_381_702_000_000.0,
+            "financing_cash_flow": -7_797_243_000_000.0,
+        }],
+    }), encoding="utf-8")
+    pl.from_pandas(pd.DataFrame({
+        "date": pd.to_datetime(["2025-06-02"]), "open": [1.0], "high": [1.0],
+        "low": [1.0], "close": [1.0], "volume": [10],
+    })).write_parquet(ohlcv_dir / "005930.parquet")
+
+    cf_backfill.remerge_symbol("005930", dry_run=False)
+
+    record = json.loads(
+        (cache_only_workspace / "005930.json").read_text(encoding="utf-8")
+    )["fundamentals"][0]
+    assert record["operating_cf_amount"] == pytest.approx(729_826.2)
+    assert record["investing_cf_amount"] == pytest.approx(-853_817.0)
+    assert record["financing_cf_amount"] == pytest.approx(-77_972.4)
+    # raw 원 값은 PCR·FCF 계산 기준이라 그대로 남아야 한다.
+    assert record["operating_cash_flow"] == 72_982_621_000_000.0
+
+    out = pl.read_parquet(ohlcv_dir / "005930.parquet").to_pandas()
+    assert out["operating_cf_amount"].dropna().unique().tolist() == [pytest.approx(729_826.2)]
 
 
 # ── 쿼터 소진 ──

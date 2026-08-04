@@ -300,6 +300,7 @@ RankingMetricLiteral = Literal[
     "operating_margin", "revenue_growth", "operating_income_growth", "net_income_growth",
     "market_cap", "dividend_yield", "payout_rate", "dividend_growth",
     "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth", "eps", "ebit", "net_income",
+    "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
 ]
 
 
@@ -322,6 +323,7 @@ class FundamentalFilter(BaseModel):
         "dividend_yield", "payout_rate", "dividend_growth",
         "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth", "eps", "ebit",
         "net_income",
+        "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
     ], BeforeValidator(_normalize_metric_alias)] = Field(
         description=(
             "재무 지표 종류. "
@@ -341,7 +343,10 @@ class FundamentalFilter(BaseModel):
             "ocf_growth=영업활동현금흐름증가율(%), fcf_growth=잉여현금흐름증가율(%), "
             "eps=주당순이익(원, 최근 연간 결산 기준 — 흑자 기업=eps>0, 적자 기업=eps<0), "
             "ebit=영업이익(억원, 최근 연간 결산 기준 — 영업이익 흑자=ebit>0, 영업이익 적자=ebit<0), "
-            "net_income=당기순이익(억원, 최근 연간 결산 기준 절대 금액). "
+            "net_income=당기순이익(억원, 최근 연간 결산 기준 절대 금액), "
+            "operating_cf_amount=영업활동현금흐름(억원, 절대 금액 — 증가율은 ocf_growth), "
+            "investing_cf_amount=투자활동현금흐름(억원, 설비·자산 취득이 많으면 음수), "
+            "financing_cf_amount=재무활동현금흐름(억원, 차입 상환·배당 지급이 많으면 음수). "
             "eps_growth/ebitda_growth/net_income_growth/operating_income_growth/ocf_growth/fcf_growth는 "
             "적자↔흑자 전환기에는 값 대신 상태코드(TURNAROUND/LOSS_TRANSITION 등)로 표현될 수 있다."
         )
@@ -3839,7 +3844,8 @@ def _input_numbers(user_input: str) -> set:
 #     프롬프트 5-3). 세 선 이상을 나열한 정배열의 부분 표현은 이 술어가 구분하지 못한다.
 _CONCEPT_EXPRESSED_PREDICATES: dict[str, Any] = {
     "cash_flow": lambda p, nums: any(
-        f.metric in ("ocf_growth", "fcf_growth", "pcr")
+        f.metric in ("ocf_growth", "fcf_growth", "pcr",
+                     "operating_cf_amount", "investing_cf_amount", "financing_cf_amount")
         and any(abs(float(f.value) - n) < 1e-6 for n in nums)
         for f in p.fundamental_filters
     ),
@@ -4476,6 +4482,10 @@ _MODIFY_FIELD_CUES: dict[str, list[str]] = {
         "배당수익률", "시가배당률", "배당률", "배당성향", "배당지급률",
         "배당성장률", "배당증가율", "배당성장", "배당증가",
         "이브이에비타", "기업가치", "ebitda", "에비타", "ev",
+        # 현금흐름 3분류(절대 금액) — 긴 표현을 먼저 둬 '현금흐름' 조각이 잔여로 남지 않게 한다.
+        "영업활동현금흐름", "투자활동현금흐름", "재무활동현금흐름",
+        "영업현금흐름", "투자현금흐름", "재무현금흐름",
+        "영업활동", "투자활동", "재무활동", "현금흐름", "ocf",
         "pbr", "per", "roe", "gpa", "psr", "pcr", "roa",
         "이하", "미만", "이상", "초과", "이내",
         "저평가", "고평가", "우량", "가치주", "성장주", "종목", "주식", "조건", "필터",
@@ -5626,6 +5636,8 @@ _FUNDAMENTAL_METRIC_LABELS: dict[str, str] = {
     "revenue_growth": "매출액증가율", "operating_income_growth": "영업이익증가율",
     "net_income_growth": "순이익증가율", "market_cap": "시가총액",
     "dividend_yield": "배당수익률", "payout_rate": "배당성향", "dividend_growth": "배당성장률",
+    "operating_cf_amount": "영업활동현금흐름", "investing_cf_amount": "투자활동현금흐름",
+    "financing_cf_amount": "재무활동현금흐름",
 }
 
 

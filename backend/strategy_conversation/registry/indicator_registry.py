@@ -156,6 +156,18 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     _fundamental("net_income", "당기순이익", "profitability", "억원", recommended=100,
                  value_range=(-10_000_000, 10_000_000),
                  notes="당기순이익 절대 금액(억원, 최근 연간 결산 기준). 흑자/적자 부호 필터는 eps를 사용"),
+    _fundamental("operating_cf_amount", "영업활동현금흐름", "cashflow", "억원", recommended=100,
+                 value_range=(-10_000_000, 10_000_000),
+                 notes="영업활동으로 벌어들인 현금 절대 금액(억원, 최근 연간 결산 기준). "
+                       "본업 현금창출이 흑자=operating_cf_amount>0. 증가율은 ocf_growth"),
+    _fundamental("investing_cf_amount", "투자활동현금흐름", "cashflow", "억원", recommended=0,
+                 value_range=(-10_000_000, 10_000_000),
+                 notes="투자활동 순현금흐름 절대 금액(억원, 최근 연간 결산 기준). 설비·자산을 "
+                       "취득하면 음수라 통상 <0 — 부호가 살아 있는 값을 그대로 비교한다"),
+    _fundamental("financing_cf_amount", "재무활동현금흐름", "cashflow", "억원", recommended=0,
+                 value_range=(-10_000_000, 10_000_000),
+                 notes="재무활동 순현금흐름 절대 금액(억원, 최근 연간 결산 기준). 차입 상환·배당 "
+                       "지급이 많으면 음수, 자금을 조달하면 양수"),
 
     # ── 기술적 지표 (엔진 TechnicalSignal.indicator와 1:1) ───────────────────
     _technical("ma_crossover", "이동평균 크로스오버", "event",
@@ -237,8 +249,13 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                  alternatives=("fundamental.fcf_growth", "fundamental.per"),
                  notes="시가총액 대비 FCF 배율(밸류에이션 지표)은 미지원 — FCF 금액 자체의 "
                        "증가율은 fundamental.fcf_growth로 지원됨"),
-    _unsupported("cash_flow", "현금흐름(FCF/PCF) 조건", "valuation",
-                 alternatives=("fundamental.operating_margin",)),
+    # 3분류 절대 금액은 2026-08-05 지원 승격 — 여기 남은 미지원은 FCF/PCF '배율' 계열뿐이다.
+    # 항목 자체를 지우지 않는 이유: 어느 분류인지 특정되지 않은 맨 '현금흐름' 언급은 여전히
+    # 결정적으로 고를 수 없어 LLM 위임 신호가 필요하다(PCR 승격 때와 같은 판단).
+    _unsupported("cash_flow", "현금흐름 배율(FCF/PCF) 조건", "valuation",
+                 alternatives=("fundamental.operating_cf_amount", "fundamental.pcr"),
+                 notes="영업·투자·재무활동 현금흐름 절대 금액(억원)은 "
+                       "operating_cf_amount/investing_cf_amount/financing_cf_amount로 지원됨"),
     _unsupported("volatility", "변동성 조건", "risk"),
     _unsupported("roic", "ROIC(투하자본이익률)", "profitability",
                  alternatives=("fundamental.roe_or_gpa", "fundamental.roa")),
@@ -337,6 +354,21 @@ _ALIASES: Dict[str, str] = {
     "eps": "fundamental.eps", "주당순이익": "fundamental.eps",
     "흑자": "fundamental.eps", "적자": "fundamental.eps",
     "당기순이익": "fundamental.net_income", "net_income": "fundamental.net_income",
+    # 현금흐름 3분류 절대 금액(억원). '…증가율' 별칭은 위 ocf_growth/fcf_growth로 따로
+    # 잡혀 있고 resolve()는 정확 일치라 서로 잠식하지 않는다.
+    "영업활동현금흐름": "fundamental.operating_cf_amount",
+    "영업현금흐름": "fundamental.operating_cf_amount",
+    "영업활동으로인한현금흐름": "fundamental.operating_cf_amount",
+    "operating_cf_amount": "fundamental.operating_cf_amount",
+    "ocf": "fundamental.operating_cf_amount",
+    "투자활동현금흐름": "fundamental.investing_cf_amount",
+    "투자현금흐름": "fundamental.investing_cf_amount",
+    "투자활동으로인한현금흐름": "fundamental.investing_cf_amount",
+    "investing_cf_amount": "fundamental.investing_cf_amount",
+    "재무활동현금흐름": "fundamental.financing_cf_amount",
+    "재무현금흐름": "fundamental.financing_cf_amount",
+    "재무활동으로인한현금흐름": "fundamental.financing_cf_amount",
+    "financing_cf_amount": "fundamental.financing_cf_amount",
     "ebit": "fundamental.ebit", "영업이익": "fundamental.ebit",
     "영업이익흑자": "fundamental.ebit", "영업이익적자": "fundamental.ebit",
     "흑자전환": "unsupported.profitability_transition",

@@ -30,10 +30,18 @@ FUNDAMENTAL_LABELS = {
     "ebit": "영업이익",
     # 당기순이익 절대 금액(억원, 순이익률x매출액 재계산 — fundamental_fetcher 참고).
     "net_income": "당기순이익",
+    # 현금흐름 3분류 절대 금액(억원). 투자·재무는 통상 음수(자산 취득·차입 상환)라
+    # 부호가 살아 있는 값을 그대로 비교한다 — fundamental_fetcher 참고.
+    "operating_cf_amount": "영업활동현금흐름",
+    "investing_cf_amount": "투자활동현금흐름",
+    "financing_cf_amount": "재무활동현금흐름",
 }
 FUNDAMENTAL_CIDS = list(FUNDAMENTAL_LABELS)
 # Metrics whose value is an amount (억원), not a ratio — for badge suffixing.
-FUNDAMENTAL_AMOUNT_CIDS = {"market_cap", "net_income"}
+FUNDAMENTAL_AMOUNT_CIDS = {
+    "market_cap", "net_income",
+    "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
+}
 
 
 @functools.lru_cache(maxsize=1)

@@ -66,6 +66,12 @@ _PATTERNS: dict[str, "re.Pattern[str]"] = {
     "net_margin": _c(r"순이익률|순\s*마진|net\s*margin"),
     # 당기순이익(절대 금액, 억원) — '순이익률/순이익증가율'과 구분되게 '당기' 접두를 요구한다.
     "net_income": _c(r"당기\s*순이익|net\s*income(?!\s*growth)"),
+    # 현금흐름 3분류(절대 금액, 억원) — 뒤에 '증가율/성장'이 붙으면 ocf_growth 쪽이므로
+    # lookahead로 제외한다(net_income이 growth를 배제하는 것과 같은 방식).
+    "operating_cf_amount": _c(
+        r"영업\s*(?:활동)?\s*현금\s*흐름(?!\s*(?:증가율|성장))|ocf(?!\s*growth)"),
+    "investing_cf_amount": _c(r"투자\s*(?:활동)?\s*현금\s*흐름(?!\s*(?:증가율|성장))"),
+    "financing_cf_amount": _c(r"재무\s*(?:활동)?\s*현금\s*흐름(?!\s*(?:증가율|성장))"),
     "revenue_growth": _c(r"매출액?\s*증가율|매출\s*성장|revenue\s*growth"),
     "operating_income_growth": _c(r"영업이익\s*증가율|영업이익\s*성장"),
     "net_income_growth": _c(r"순이익\s*증가율|순이익\s*성장"),

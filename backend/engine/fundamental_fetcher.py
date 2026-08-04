@@ -221,6 +221,8 @@ ANNUAL_FUNDAMENTAL_KEYS = [
     # 투자·재무활동 현금흐름 총계(원 단위 raw — operating_cash_flow와 동일 기준). DART CF
     # 섹션에서 OCF와 같은 응답으로 파싱하므로 추가 API 호출은 없다(2026-08-05).
     "investing_cash_flow", "financing_cash_flow",
+    # 위 3분류의 억원 환산본 — 조건 필터·배지가 쓰는 단위(raw는 PCR·FCF 계산 기준이라 유지).
+    "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
 ]
 # 위 성장률(+기존 operating_income_growth/net_income_growth)의 부호전환 상태코드. 문자열이라
 # enrich_ohlcv_with_fundamentals에서 float 대신 object dtype 시리즈로 다뤄야 한다.
@@ -645,6 +647,18 @@ def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
         capex = rec.get("capex")
         if ocf is not None and capex is not None:
             rec["fcf"] = ocf - capex
+
+        # 현금흐름 3분류 절대금액(억원) — DART 유래 raw 원 값을 필터 단위로 환산한다.
+        # raw 컬럼은 PCR(market_cap x 1e8 / ocf)·FCF 계산 기준이라 그대로 두고, 조건
+        # 필터·배지는 억원 컬럼을 쓴다(net_income·market_cap과 같은 관례, 2026-08-05).
+        for amount_key, raw_key in (
+            ("operating_cf_amount", "operating_cash_flow"),
+            ("investing_cf_amount", "investing_cash_flow"),
+            ("financing_cf_amount", "financing_cash_flow"),
+        ):
+            raw_amount = rec.get(raw_key)
+            if raw_amount is not None:
+                rec[amount_key] = round(raw_amount / 1e8, 1)
 
         ebitda = rec.get("ebitda")
         ev_ebitda_ratio = rec.get("ev_ebitda")

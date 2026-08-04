@@ -268,3 +268,68 @@ def test_concepts_covered_by_pending_handles_empty_and_malformed():
     assert concepts_covered_by_pending(None) == set()
     assert concepts_covered_by_pending([]) == set()
     assert concepts_covered_by_pending([{}, {"label": None}]) == set()
+
+
+# ── 현금흐름 3분류 조건 지표 승격 (2026-08-05) ──
+
+def test_cash_flow_buckets_are_supported_indicators_with_eok_unit():
+    """3분류가 정식 지원 지표로 잡히고 단위가 억원이어야 한다 — raw 원(1e8배)로
+    노출되면 '1,000억 이상'이 통째로 어긋난다."""
+    from strategy_conversation.registry import indicator_registry as reg
+
+    for alias, metric in (
+        ("영업활동현금흐름", "fundamental.operating_cf_amount"),
+        ("투자활동현금흐름", "fundamental.investing_cf_amount"),
+        ("재무활동현금흐름", "fundamental.financing_cf_amount"),
+    ):
+        spec = reg.resolve(alias)
+        assert spec is not None and spec.id == metric
+        assert spec.supported != "UNSUPPORTED"
+        assert spec.value_type == "억원"
+
+
+def test_cash_flow_growth_aliases_are_not_cannibalized_by_amount_promotion():
+    """'…증가율'은 여전히 성장률 지표로 남아야 한다(절대 금액이 잠식하면 안 된다)."""
+    from strategy_conversation.registry import indicator_registry as reg
+
+    assert reg.resolve("영업활동현금흐름증가율").id == "fundamental.ocf_growth"
+    assert reg.resolve("잉여현금흐름증가율").id == "fundamental.fcf_growth"
+
+
+def test_cash_flow_buckets_are_engine_filterable_amount_metrics():
+    """엔진 SOT(FUNDAMENTAL_LABELS)에 등록되고 금액 배지 대상이어야 한다."""
+    from engine.signals import FUNDAMENTAL_AMOUNT_CIDS
+
+    for cid in ("operating_cf_amount", "investing_cf_amount", "financing_cf_amount"):
+        assert cid in FUNDAMENTAL_LABELS
+        assert cid in FUNDAMENTAL_AMOUNT_CIDS
+
+
+def test_cash_flow_amounts_are_derived_in_eok_from_raw_won():
+    """저장된 raw 원 값에서 억원 파생본이 만들어지고 raw는 보존돼야 한다."""
+    from engine.fundamental_fetcher import _compute_derived_annual_metrics
+
+    out = _compute_derived_annual_metrics([{
+        "year_end": "2024-12-31",
+        "operating_cash_flow": 72_982_621_000_000.0,
+        "investing_cash_flow": -85_381_702_000_000.0,
+        "financing_cash_flow": -7_797_243_000_000.0,
+    }])[0]
+
+    assert out["operating_cf_amount"] == pytest.approx(729_826.2)
+    assert out["investing_cf_amount"] == pytest.approx(-853_817.0)
+    assert out["financing_cf_amount"] == pytest.approx(-77_972.4)
+    assert out["operating_cash_flow"] == 72_982_621_000_000.0  # PCR 계산 기준 보존
+
+
+def test_condition_builder_patterns_distinguish_amount_from_growth():
+    """'영업활동현금흐름'은 절대 금액, '…증가율'은 성장률로 갈려야 한다."""
+    from intent.condition_builder import _PATTERNS
+
+    def hits(text):
+        return {k for k, p in _PATTERNS.items() if p.search(text)}
+
+    assert hits("영업활동현금흐름 1000억 이상") == {"operating_cf_amount"}
+    assert hits("영업활동현금흐름 증가율 10%") == {"ocf_growth"}
+    assert hits("투자활동현금흐름") == {"investing_cf_amount"}
+    assert hits("재무활동 현금흐름") == {"financing_cf_amount"}

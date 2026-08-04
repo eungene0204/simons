@@ -1053,6 +1053,9 @@ const FILTER_METRIC_LABELS: Record<string, string> = {
   net_income_growth: "순이익증가율",
   market_cap: "시가총액",
   trading_value: "거래대금",
+  operating_cf_amount: "영업활동현금흐름",
+  investing_cf_amount: "투자활동현금흐름",
+  financing_cf_amount: "재무활동현금흐름",
 };
 
 function filterMetricLabel(conditionId: string): string {

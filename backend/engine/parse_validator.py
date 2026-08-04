@@ -101,7 +101,10 @@ The parsed strategy object follows this schema (ParsedStrategy):
     operating_income_growth, net_income_growth, market_cap, trading_value,
     dividend_yield(배당수익률 %), payout_rate(배당성향 %), dividend_growth(배당성장률 %, 전년比),
     eps(주당순이익 원 — "흑자 기업"=eps>0, "적자 제외"=eps>0, "적자 기업"=eps<0),
-    ebit(영업이익 억원 — "영업이익 흑자"=ebit>0, "영업이익 적자"=ebit<0; 영업이익증가율/영업이익률로 바꿔 해석 금지)
+    ebit(영업이익 억원 — "영업이익 흑자"=ebit>0, "영업이익 적자"=ebit<0; 영업이익증가율/영업이익률로 바꿔 해석 금지),
+    net_income(당기순이익 억원),
+    operating_cf_amount/investing_cf_amount/financing_cf_amount(영업·투자·재무활동 현금흐름 억원 —
+      증가율은 ocf_growth/fcf_growth로, 절대 금액과 혼동 금지. 투자·재무는 통상 음수)
 - entry_signals / exit_signals: array of {indicator, signal_type(buy/sell), ...params}
     indicator ∈ ma_crossover, rsi, ema, macd, bollinger_bands, breakout, volume_spike,
     stochastic, cci, adx, williams_r, mfi, roc, ai_model, ai_drop_model

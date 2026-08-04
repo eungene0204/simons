@@ -140,10 +140,23 @@ def remerge_symbol(symbol: str, *, dry_run: bool) -> tuple[str, list[str]]:
     cache_path = _CACHE_DIR / f"{symbol}.json"
     if not cache_path.exists():
         return "no_cache", []
-    records = json.loads(cache_path.read_text(encoding="utf-8")).get("fundamentals") or []
-    if not any(r.get("investing_cash_flow") is not None
+    payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    records = payload.get("fundamentals") or []
+    if not any(r.get("operating_cash_flow") is not None
+               or r.get("investing_cash_flow") is not None
                or r.get("financing_cash_flow") is not None for r in records):
         return "nothing_to_merge", []
+
+    # 파생값(억원 환산본 등)은 fetch 시점에 계산돼 캐시에 저장된다. 3분류를 나중에 승격한
+    # 캐시에는 그 키가 없어 parquet 컬럼이 전부 null이 되므로 여기서 재계산해 반영한다.
+    # 실측(295종목)으로 순수 가산임을 확인했다 — 기존 값은 바뀌지 않는다.
+    before = json.dumps(records, ensure_ascii=False, sort_keys=True)
+    records = ff._compute_derived_annual_metrics(records)
+    if json.dumps(records, ensure_ascii=False, sort_keys=True) != before and not dry_run:
+        payload["fundamentals"] = records
+        cache_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
     parquet_path = _OHLCV_DIR / f"{symbol}.parquet"
     if not parquet_path.exists():
