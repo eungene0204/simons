@@ -694,9 +694,11 @@ RiskManagement {
 
 **FR-BT-052d** EV/EBIT은 대차대조표 부채·현금을 별도로 조회하지 않고, EV=EV/EBITDA(KIS 제공 비율)×EBITDA(raw)로 역산한 값을 EBIT(raw 영업이익)으로 나누어 산출한다(EBITDA≤0이면 EV 자체를 역산할 수 없어 EBIT 부호와 무관하게 계산 불가로 처리). FCF는 영업활동현금흐름-CAPEX(DART 재무제표 유형·무형자산 취득 합계)로 산출하며, 시가총액 대비 FCF 배율(FCF Yield)은 이번 범위에 포함하지 않는다(raw FCF 금액과 증가율만 지원).
 
+**FR-BT-052e** [현금흐름 3분류 수집, 2026-08-05] 시스템은 DART 현금흐름표(CF)의 활동별 총계 세 가지 — 영업활동(`operating_cash_flow`)·투자활동(`investing_cash_flow`)·재무활동(`financing_cash_flow`) — 을 이미 연도별로 호출 중인 `fnlttSinglAcntAll.json` 동일 응답에서 파싱해 저장해야 하며, 이를 위해 추가 API 호출을 발생시켜서는 안 된다. 값은 `operating_cash_flow`와 동일하게 raw 원 단위로 저장한다(억원 환산 금지 — PCR 계산이 `market_cap×1e8/ocf` 기준이다). 총계 행 선택은 **계정ID 일치를 계정명 일치보다 우선**해야 한다: 계정명만으로 고르면 "영업활동에서창출된현금흐름"(`ifrs-full_CashFlowsFromUsedInOperations` — 이자·법인세 차감 **전** 소계)을 총계로 오인한다(2026-08-05 포스코인터내셔널 실측). 해당 활동이 제출본에 없으면 키를 생략해야 하며 0으로 대체하지 않는다(결측과 0의 의미가 다르다). KIS·공공데이터포털(금융위원회 기업재무정보)에는 현금흐름표가 없어 OpenDART가 유일한 출처다(2026-08-05 전수 확인 — KIS `finance/cash-flow` 404, FSC는 요약재무제표·재무상태표·손익계산서 3종만). 본 항은 데이터 수집 범위만 정의하며, 3분류를 전략 조건 지표로 승격하는 것은 포함하지 않는다(`unsupported.cash_flow` 유지).
+
 **구현 파일:**
 - `backend/engine/fundamental_status.py` — 상태코드 순수 함수 (신규)
-- `backend/engine/fundamental_fetcher.py` — `_compute_derived_annual_metrics`, `_parse_dart_capex`, `_parse_dart_total_equity`
+- `backend/engine/fundamental_fetcher.py` — `_compute_derived_annual_metrics`, `_parse_dart_activity_cash_flow`, `_parse_dart_capex`, `_parse_dart_total_equity`
 - `backend/engine/fundamental_backfill.py`, `backend/backtest_engine.py`(랭킹), `backend/engine/signals.py`, `backend/intent/condition_builder.py`, `backend/engine/nl_parser.py`, `backend/strategy_conversation/registry/indicator_registry.py`
 - `data/fundamental-status-messages.json` — 상태코드 한국어 설명(신규)
 - `backend/tests/test_fundamental_status.py`(신규), `backend/tests/test_fundamental_fetcher.py`, `backend/tests/test_backfill_fundamentals.py`, `backend/tests/test_simulator_ranking.py`, `backend/tests/test_backfill_delisted_fundamentals.py`(신규)

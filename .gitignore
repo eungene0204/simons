@@ -120,6 +120,7 @@ top200.txt
 # 용어 그라운딩 어휘집(런타임 학습 산출물 — 환경별로 자라남)
 /data/term_lexicon.json
 /data/kg-equity-edges.progress.json
+/data/cashflow-activity-backfill.progress.json
 
 # DART 기업 고유번호 캐시 — 재다운로드 가능(backfill_dart_industry.py)
 data/dart-corp-code.json

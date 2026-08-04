@@ -45,6 +45,27 @@ _DART_OPERATING_CASH_FLOW_NAMES = {
     "영업활동으로인한현금흐름",
     "영업활동으로부터의현금흐름",
     "영업활동으로인한순현금흐름",
+    "영업활동순현금흐름",
+}
+# 투자·재무활동 현금흐름 총계 — 실측(2026-08-05, 삼성전자/SK하이닉스/현대차/카카오/셀트리온/
+# 신한지주/SKT/포스코인터내셔널/클래시스/엘브이엠씨홀딩스/삼양식품 11종목)으로 확인. 11/11에서
+# 아래 계정ID가 그대로 등장했고, account_nm은 "…현금흐름 / …으로인한현금흐름 / …순현금흐름"
+# 세 표기로 갈렸다(계정ID가 없는 제출본 대비 폴백).
+_DART_INVESTING_CASH_FLOW_ACCOUNT_ID = "ifrs-full_CashFlowsFromUsedInInvestingActivities"
+_DART_INVESTING_CASH_FLOW_NAMES = {
+    "투자활동현금흐름",
+    "투자활동으로인한현금흐름",
+    "투자활동으로부터의현금흐름",
+    "투자활동으로인한순현금흐름",
+    "투자활동순현금흐름",
+}
+_DART_FINANCING_CASH_FLOW_ACCOUNT_ID = "ifrs-full_CashFlowsFromUsedInFinancingActivities"
+_DART_FINANCING_CASH_FLOW_NAMES = {
+    "재무활동현금흐름",
+    "재무활동으로인한현금흐름",
+    "재무활동으로부터의현금흐름",
+    "재무활동으로인한순현금흐름",
+    "재무활동순현금흐름",
 }
 # CAPEX(FCF=OCF-CAPEX용) — 투자활동현금흐름의 유형·무형자산 취득. 실측(2026-07-21, 삼성전자/
 # SK하이닉스/현대차 fnlttSinglAcntAll.json)으로 확인한 IFRS 표준 계정ID.
@@ -197,6 +218,9 @@ ANNUAL_FUNDAMENTAL_KEYS = [
     # 당기순이익(억원) — 순이익률 x 매출액 로컬 재계산(net_income_growth 재계산과 같은
     # 컴포넌트). 절대 금액 필터('당기순이익 1,000억 이상') 지원용(2026-08-03).
     "net_income",
+    # 투자·재무활동 현금흐름 총계(원 단위 raw — operating_cash_flow와 동일 기준). DART CF
+    # 섹션에서 OCF와 같은 응답으로 파싱하므로 추가 API 호출은 없다(2026-08-05).
+    "investing_cash_flow", "financing_cash_flow",
 ]
 # 위 성장률(+기존 operating_income_growth/net_income_growth)의 부호전환 상태코드. 문자열이라
 # enrich_ohlcv_with_fundamentals에서 float 대신 object dtype 시리즈로 다뤄야 한다.
@@ -299,8 +323,14 @@ def _parse_dart_receipt_date(receipt_no: object) -> Optional[str]:
         return None
 
 
-def _parse_dart_operating_cash_flow(rows: list) -> Optional[Dict]:
-    """Extract net operating cash flow without matching operating-asset subtotals."""
+def _parse_dart_activity_cash_flow(
+    rows: list, account_id_key: str, name_keys: set
+) -> Optional[Dict]:
+    """CF 섹션에서 활동별 현금흐름 '총계' 한 행을 뽑는다.
+
+    계정ID 일치를 이름 일치보다 우선한다 — 이름만 비슷한 소계(예: 포스코인터내셔널의
+    "영업활동에서창출된현금흐름" = 이자·법인세 차감 전 금액)를 총계로 오인하지 않기 위함.
+    """
     if not isinstance(rows, list):
         return None
 
@@ -310,23 +340,30 @@ def _parse_dart_operating_cash_flow(rows: list) -> Optional[Dict]:
             continue
         account_id = str(row.get("account_id", "")).strip()
         normalized_name = re.sub(r"\s+", "", str(row.get("account_nm", "")))
-        if (
-            account_id != _DART_OPERATING_CASH_FLOW_ACCOUNT_ID
-            and normalized_name not in _DART_OPERATING_CASH_FLOW_NAMES
-        ):
+        if account_id != account_id_key and normalized_name not in name_keys:
             continue
         amount = _parse_number(str(row.get("thstrm_amount", "")))
         available_from = _parse_dart_receipt_date(row.get("rcept_no"))
         if amount is None or not available_from:
             continue
-        candidates.append((account_id == _DART_OPERATING_CASH_FLOW_ACCOUNT_ID, amount, available_from))
+        candidates.append((account_id == account_id_key, amount, available_from))
 
     if not candidates:
         return None
     _, amount, available_from = sorted(candidates, key=lambda item: item[0], reverse=True)[0]
+    return {"amount": amount, "available_from": available_from}
+
+
+def _parse_dart_operating_cash_flow(rows: list) -> Optional[Dict]:
+    """Extract net operating cash flow without matching operating-asset subtotals."""
+    parsed = _parse_dart_activity_cash_flow(
+        rows, _DART_OPERATING_CASH_FLOW_ACCOUNT_ID, _DART_OPERATING_CASH_FLOW_NAMES
+    )
+    if not parsed:
+        return None
     return {
-        "operating_cash_flow": amount,
-        "available_from": available_from,
+        "operating_cash_flow": parsed["amount"],
+        "available_from": parsed["available_from"],
     }
 
 
@@ -485,6 +522,16 @@ def _fetch_cash_flow_from_dart(
             "available_from": cash_flow["available_from"],
             "operating_cash_flow": cash_flow["operating_cash_flow"],
         }
+        # 투자·재무활동 현금흐름 총계도 같은 응답에서 파싱(추가 호출 0).
+        for key, account_id, names in (
+            ("investing_cash_flow",
+             _DART_INVESTING_CASH_FLOW_ACCOUNT_ID, _DART_INVESTING_CASH_FLOW_NAMES),
+            ("financing_cash_flow",
+             _DART_FINANCING_CASH_FLOW_ACCOUNT_ID, _DART_FINANCING_CASH_FLOW_NAMES),
+        ):
+            parsed = _parse_dart_activity_cash_flow(rows, account_id, names)
+            if parsed is not None:
+                record[key] = parsed["amount"]
         # 같은 응답(rows)에서 CAPEX(FCF용)·자본총계(자본잠식 판정용)도 추가 API 호출 없이 파싱.
         capex = _parse_dart_capex(rows)
         if capex is not None:

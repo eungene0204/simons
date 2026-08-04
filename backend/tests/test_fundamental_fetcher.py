@@ -6,10 +6,12 @@ Naver Finance 스크래핑 없이 파싱/enrichment 로직을 검증한다.
 import pandas as pd
 import pytest
 
+import engine.fundamental_fetcher as ff_mod
 from engine.fundamental_fetcher import (
     _compute_derived_annual_metrics,
     _fetch_cash_flow_from_dart,
     _merge_fundamental_records,
+    _parse_dart_activity_cash_flow,
     _parse_dart_capex,
     _parse_dart_operating_cash_flow,
     _parse_dart_total_equity,
@@ -283,6 +285,144 @@ def test_fetch_cash_flow_from_dart_also_captures_capex_and_total_equity(monkeypa
         "capex": pytest.approx(60_534_167_000_000.0),
         "total_equity": pytest.approx(363_677_865_000_000.0),
     }]
+
+
+# ── OpenDART 투자·재무활동 현금흐름 (실측: 2026-08-05, 11종목 fnlttSinglAcntAll.json) ──
+
+def test_parse_dart_activity_cash_flow_reads_investing_and_financing_totals():
+    """계정ID로 투자·재무활동 총계를 뽑는다 (실측값: 삼성전자 2024 연결)."""
+    rows = [
+        {
+            "sj_div": "CF",
+            "account_id": "ifrs-full_CashFlowsFromUsedInInvestingActivities",
+            "account_nm": "투자활동현금흐름",
+            "thstrm_amount": "-85,381,702,000,000",
+            "rcept_no": "20250311001085",
+        },
+        {
+            "sj_div": "CF",
+            "account_id": "ifrs-full_CashFlowsFromUsedInFinancingActivities",
+            "account_nm": "재무활동현금흐름",
+            "thstrm_amount": "-7,797,243,000,000",
+            "rcept_no": "20250311001085",
+        },
+    ]
+
+    investing = _parse_dart_activity_cash_flow(
+        rows, ff_mod._DART_INVESTING_CASH_FLOW_ACCOUNT_ID, ff_mod._DART_INVESTING_CASH_FLOW_NAMES
+    )
+    financing = _parse_dart_activity_cash_flow(
+        rows, ff_mod._DART_FINANCING_CASH_FLOW_ACCOUNT_ID, ff_mod._DART_FINANCING_CASH_FLOW_NAMES
+    )
+
+    assert investing == {"amount": -85_381_702_000_000.0, "available_from": "2025-03-11"}
+    assert financing == {"amount": -7_797_243_000_000.0, "available_from": "2025-03-11"}
+
+
+def test_parse_dart_activity_cash_flow_ignores_lookalike_subtotal():
+    """포스코인터내셔널 실측 함정: '영업활동에서창출된현금흐름'(이자·법인세 차감 전 소계)을
+    총계로 오인하지 않고, 계정ID가 일치하는 총계 행을 고른다."""
+    rows = [
+        {
+            "sj_div": "CF",
+            "account_id": "ifrs-full_CashFlowsFromUsedInOperations",
+            "account_nm": "영업활동에서창출된현금흐름",
+            "thstrm_amount": "1,205,694,724,000",
+            "rcept_no": "20250311000001",
+        },
+        {
+            "sj_div": "CF",
+            "account_id": "ifrs-full_CashFlowsFromUsedInOperatingActivities",
+            "account_nm": "영업활동으로인한현금흐름",
+            "thstrm_amount": "876,881,370,000",
+            "rcept_no": "20250311000001",
+        },
+    ]
+
+    assert _parse_dart_operating_cash_flow(rows) == {
+        "operating_cash_flow": 876_881_370_000.0,
+        "available_from": "2025-03-11",
+    }
+
+
+def test_parse_dart_activity_cash_flow_falls_back_to_net_flow_name():
+    """계정ID가 비어 있어도 '…순현금흐름' 표기(신한지주·클래시스 실측)를 인식한다."""
+    rows = [{
+        "sj_div": "CF",
+        "account_id": "",
+        "account_nm": "투자활동 순현금흐름",
+        "thstrm_amount": "148,533,000,000",
+        "rcept_no": "20250311000002",
+    }]
+
+    parsed = _parse_dart_activity_cash_flow(
+        rows, ff_mod._DART_INVESTING_CASH_FLOW_ACCOUNT_ID, ff_mod._DART_INVESTING_CASH_FLOW_NAMES
+    )
+    assert parsed == {"amount": 148_533_000_000.0, "available_from": "2025-03-11"}
+
+
+def test_fetch_cash_flow_from_dart_captures_all_three_activities(monkeypatch):
+    """3분류가 한 응답에서 모두 담긴다 — 추가 API 호출 없음."""
+    import engine.fundamental_fetcher as ff
+
+    monkeypatch.setenv("DART_API_KEY", "test-key")
+    monkeypatch.setattr(ff, "_get_dart_corp_code", lambda symbol: "00126380")
+
+    rows = [
+        {"sj_div": "CF", "account_id": "ifrs-full_CashFlowsFromUsedInOperatingActivities",
+         "account_nm": "영업활동현금흐름", "thstrm_amount": "72,982,621,000,000",
+         "rcept_no": "20250311001085"},
+        {"sj_div": "CF", "account_id": "ifrs-full_CashFlowsFromUsedInInvestingActivities",
+         "account_nm": "투자활동현금흐름", "thstrm_amount": "-85,381,702,000,000",
+         "rcept_no": "20250311001085"},
+        {"sj_div": "CF", "account_id": "ifrs-full_CashFlowsFromUsedInFinancingActivities",
+         "account_nm": "재무활동현금흐름", "thstrm_amount": "-7,797,243,000,000",
+         "rcept_no": "20250311001085"},
+    ]
+    calls = []
+
+    def fake_fetch(path, params):
+        calls.append(path)
+        if path == "list.json":
+            return {"status": "013"}
+        return {"status": "000", "list": rows}
+
+    monkeypatch.setattr(ff, "_fetch_dart_json", fake_fetch)
+
+    assert _fetch_cash_flow_from_dart("005930", 2024, 2024) == [{
+        "year_end": "2024-12-31",
+        "available_from": "2025-03-11",
+        "operating_cash_flow": 72_982_621_000_000.0,
+        "investing_cash_flow": -85_381_702_000_000.0,
+        "financing_cash_flow": -7_797_243_000_000.0,
+    }]
+    # 연도당 fnlttSinglAcntAll.json 1회 — 3분류 추가로 호출이 늘지 않았다.
+    assert calls.count("fnlttSinglAcntAll.json") == 1
+
+
+def test_fetch_cash_flow_from_dart_omits_missing_activity_buckets(monkeypatch):
+    """투자·재무활동이 없는 제출본은 키 자체를 넣지 않는다(0으로 날조 금지)."""
+    import engine.fundamental_fetcher as ff
+
+    monkeypatch.setenv("DART_API_KEY", "test-key")
+    monkeypatch.setattr(ff, "_get_dart_corp_code", lambda symbol: "00126380")
+
+    def fake_fetch(path, params):
+        if path == "list.json":
+            return {"status": "013"}
+        return {"status": "000", "list": [{
+            "sj_div": "CF",
+            "account_id": "ifrs-full_CashFlowsFromUsedInOperatingActivities",
+            "account_nm": "영업활동현금흐름",
+            "thstrm_amount": "100,000",
+            "rcept_no": "20250331000001",
+        }]}
+
+    monkeypatch.setattr(ff, "_fetch_dart_json", fake_fetch)
+
+    result = _fetch_cash_flow_from_dart("005930", 2024, 2024)
+    assert "investing_cash_flow" not in result[0]
+    assert "financing_cash_flow" not in result[0]
 
 
 def test_fetch_dart_original_filing_dates_prefers_earliest_original(monkeypatch):
