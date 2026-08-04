@@ -395,6 +395,51 @@ def _fetch_dart_json(path: str, params: Dict[str, str]) -> Dict:
         return {}
 
 
+# 사업보고서 원공시 접수일 매핑용 — "사업보고서 (2020.12)"의 결산연도만 인정한다.
+# 12월 결산이 아닌 회사(3월 결산 등)는 괄호 연도가 bsns_year와 어긋나 잘못 클램프될 수
+# 있어 매핑하지 않는다(현행 동작 유지 = 안전한 미클램프).
+_DART_ANNUAL_REPORT_NAME = re.compile(r"사업보고서\s*\((\d{4})\.12\)")
+
+
+def _fetch_dart_original_filing_dates(corp_code: str) -> Dict[int, str]:
+    """연도별 사업보고서 **원공시** 접수일 {결산연도: 'YYYY-MM-DD'}.
+
+    fnlttSinglAcntAll의 rcept_no는 정정공시가 있으면 정정본을 가리키므로,
+    available_from이 원공시일이 아니라 정정일로 밀린다(PIT 왜곡 — 최대 수년).
+    공시검색(list.json, last_reprt_at=N)에서 연도별 최초 접수일을 구해 클램프한다.
+    실패·쿼터 초과 시 빈 dict(클램프 생략 = 현행 동작)."""
+    dates: Dict[int, str] = {}
+    page = 1
+    while True:
+        payload = _fetch_dart_json(
+            "list.json",
+            {
+                "corp_code": corp_code,
+                "bgn_de": f"{_DART_YEAR_FLOOR + 1}0101",
+                "end_de": pd.Timestamp.now().strftime("%Y%m%d"),
+                "pblntf_detail_ty": "A001",
+                "last_reprt_at": "N",
+                "page_no": str(page),
+                "page_count": "100",
+            },
+        )
+        if payload.get("status") != "000":
+            break
+        for row in payload.get("list", []):
+            match = _DART_ANNUAL_REPORT_NAME.search(str(row.get("report_nm", "")))
+            rcept_dt = re.sub(r"\D", "", str(row.get("rcept_dt", "")))
+            if not match or len(rcept_dt) != 8:
+                continue
+            year = int(match.group(1))
+            date = f"{rcept_dt[:4]}-{rcept_dt[4:6]}-{rcept_dt[6:]}"
+            if year not in dates or date < dates[year]:
+                dates[year] = date
+        if page * 100 >= int(payload.get("total_count") or 0):
+            break
+        page += 1
+    return dates
+
+
 def _fetch_cash_flow_from_dart(
     symbol: str,
     start_year: int = _DART_YEAR_FLOOR,
@@ -448,6 +493,14 @@ def _fetch_cash_flow_from_dart(
         if total_equity is not None:
             record["total_equity"] = total_equity
         results.append(record)
+
+    # available_from을 원공시 접수일로 클램프(min) — 정정공시 접수일로 밀린 값 교정.
+    if results:
+        original_dates = _fetch_dart_original_filing_dates(corp_code)
+        for record in results:
+            original = original_dates.get(int(record["year_end"][:4]))
+            if original and original < record["available_from"]:
+                record["available_from"] = original
 
     return results or None
 

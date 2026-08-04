@@ -123,3 +123,33 @@ def test_refresh_symbol_merges_and_adds_market_cap(monkeypatch):
     assert out["roa"].iloc[-1] == pytest.approx(7.0)
     assert out["debt_ratio"].iloc[-1] == pytest.approx(40.0)
     assert out["market_cap"].iloc[-1] == pytest.approx(500.0)  # 50000×1e6/1e8
+
+
+# ── rebuild_fundamental_columns (available_from 교정 후 재구축) ──
+
+def test_rebuild_overwrites_stale_values_in_cache_covered_window():
+    # 오염된 available_from(정정일) 탓에 낡은 연도 값이 채워졌던 날들 — 교정 캐시로
+    # 재구축하면 캐시 값이 이긴다(merge_fundamentals의 기존값 우선과 반대).
+    df = _ohlcv(["2022-02-03"], eps=[100.0], per=[1.0])  # stale FY2017 값이 남은 상태
+    funds = [{"year_end": "2020-12-31", "available_from": "2021-03-15", "eps": 200.0}]
+    out = bf.rebuild_fundamental_columns(df, funds)
+    assert out["eps"].iloc[0] == pytest.approx(200.0)
+    assert out["per"].iloc[0] == pytest.approx(100.0 / 200.0)  # close/eps 재계산
+
+
+def test_rebuild_preserves_history_outside_cache_coverage():
+    # 캐시 최초 available_from 이전 날들(초기 pykrx 이력)은 기존 값을 보존한다.
+    df = _ohlcv(["2020-06-01"], eps=[100.0], per=[1.0])
+    funds = [{"year_end": "2020-12-31", "available_from": "2021-03-15", "eps": 200.0}]
+    out = bf.rebuild_fundamental_columns(df, funds)
+    assert out["eps"].iloc[0] == pytest.approx(100.0)
+    assert out["per"].iloc[0] == pytest.approx(1.0)
+
+
+def test_rebuild_nulls_per_for_nonpositive_eps_instead_of_resurrecting_old():
+    # 캐시가 적자(eps<=0)를 아는 날은 PER=null이 최종값 — 기존 값으로 되살리지 않는다.
+    df = _ohlcv(["2022-02-03"], eps=[100.0], per=[1.0])
+    funds = [{"year_end": "2020-12-31", "available_from": "2021-03-15", "eps": -50.0}]
+    out = bf.rebuild_fundamental_columns(df, funds)
+    assert out["eps"].iloc[0] == pytest.approx(-50.0)
+    assert pd.isna(out["per"].iloc[0])

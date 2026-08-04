@@ -235,6 +235,8 @@ def test_fetch_cash_flow_from_dart_falls_back_to_separate_statements(monkeypatch
     monkeypatch.setattr(ff, "_get_dart_corp_code", lambda symbol: "00126380")
 
     def fake_fetch(path, params):
+        if path == "list.json":
+            return {"status": "013"}  # 원공시 접수일 조회 실패 → 클램프 생략 경로
         if path == "fnlttSinglAcntAll.json" and params["fs_div"] == "CFS":
             return {"status": "013"}
         if path == "fnlttSinglAcntAll.json":
@@ -280,6 +282,65 @@ def test_fetch_cash_flow_from_dart_also_captures_capex_and_total_equity(monkeypa
         "operating_cash_flow": 44_137_427_000_000.0,
         "capex": pytest.approx(60_534_167_000_000.0),
         "total_equity": pytest.approx(363_677_865_000_000.0),
+    }]
+
+
+def test_fetch_dart_original_filing_dates_prefers_earliest_original(monkeypatch):
+    """정정공시가 있어도 연도별 최초(원공시) 접수일을 고르고, 12월 결산이 아닌
+    보고서명은 매핑하지 않는다."""
+    import engine.fundamental_fetcher as ff
+
+    def fake_fetch(path, params):
+        assert path == "list.json"
+        return {
+            "status": "000",
+            "total_count": 3,
+            "list": [
+                {"report_nm": "[기재정정]사업보고서 (2020.12)", "rcept_dt": "20230317"},
+                {"report_nm": "사업보고서 (2020.12)", "rcept_dt": "20210318"},
+                {"report_nm": "사업보고서 (2021.03)", "rcept_dt": "20210630"},
+            ],
+        }
+
+    monkeypatch.setattr(ff, "_fetch_dart_json", fake_fetch)
+
+    assert ff._fetch_dart_original_filing_dates("00126380") == {2020: "2021-03-18"}
+
+
+def test_fetch_cash_flow_from_dart_clamps_available_from_to_original_filing(monkeypatch):
+    """fnlttSinglAcntAll의 rcept_no가 정정본이어도 available_from은 원공시 접수일로
+    클램프된다(2026-08-04 사고: 정정일 오염으로 PIT 참조가 수년 뒤로 밀림)."""
+    import engine.fundamental_fetcher as ff
+
+    monkeypatch.setenv("DART_API_KEY", "test-key")
+    monkeypatch.setattr(ff, "_get_dart_corp_code", lambda symbol: "00126380")
+
+    def fake_fetch(path, params):
+        if path == "list.json":
+            return {
+                "status": "000",
+                "total_count": 1,
+                "list": [{"report_nm": "사업보고서 (2020.12)", "rcept_dt": "20210318"}],
+            }
+        if path == "fnlttSinglAcntAll.json":
+            return {
+                "status": "000",
+                "list": [{
+                    "sj_div": "CF",
+                    "account_id": "ifrs-full_CashFlowsFromUsedInOperatingActivities",
+                    "account_nm": "영업활동현금흐름",
+                    "thstrm_amount": "100,000",
+                    "rcept_no": "20230317000001",
+                }],
+            }
+        raise AssertionError(f"unexpected DART path: {path}")
+
+    monkeypatch.setattr(ff, "_fetch_dart_json", fake_fetch)
+
+    assert _fetch_cash_flow_from_dart("005930", 2020, 2020) == [{
+        "year_end": "2020-12-31",
+        "available_from": "2021-03-18",
+        "operating_cash_flow": 100_000.0,
     }]
 
 
