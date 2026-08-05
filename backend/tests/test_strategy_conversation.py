@@ -930,7 +930,7 @@ class _StubPrimaryInterpreter:
             unreflected_numbers=unreflected,
         )
 
-    def interpret(self, user_input, draft=None, pending_question=None):
+    def interpret(self, user_input, draft=None, pending_question=None, on_stage=None):
         return self._result
 
 
@@ -1181,7 +1181,7 @@ def test_primary_interpreter_error_falls_back(monkeypatch):
     from strategy_conversation.interpreter.llm_strategy_interpreter import InterpreterError
 
     class _Failing:
-        def interpret(self, user_input, draft=None):
+        def interpret(self, user_input, draft=None, on_stage=None):
             raise InterpreterError("boom")
 
     monkeypatch.setattr(primary, "_interpreter_singleton", _Failing())
@@ -1647,7 +1647,7 @@ def test_modify_primary_deterministic_fast_path_skips_interpreter(monkeypatch):
     monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "fast_path_first")
 
     class _MustNotBeCalled:
-        def interpret(self, user_input, draft=None):
+        def interpret(self, user_input, draft=None, on_stage=None):
             raise AssertionError("결정적 fast-path 처리 가능한 입력에 인터프리터가 호출됨")
 
     monkeypatch.setattr(primary, "_interpreter_singleton", _MustNotBeCalled())
@@ -1744,7 +1744,7 @@ def test_modify_primary_forwards_pending_question_to_interpreter(monkeypatch):
     seen: dict = {}
 
     class _Interpreter:
-        def interpret(self, user_input, draft=None, pending_question=None):
+        def interpret(self, user_input, draft=None, pending_question=None, on_stage=None):
             seen["pending_question"] = pending_question
             raise RuntimeError("stop")  # 해석 결과는 이 테스트의 관심사가 아니다
 
@@ -1972,6 +1972,78 @@ def test_interpreter_fails_after_repair_budget():
         interp.interpret("PER 10 이하")
 
 
+# ─── 진행 단계 스트리밍 (섹션 키 감지) ───────────────────────────────────────
+
+def _shape_ordered_raw() -> str:
+    """운영 _OUTPUT_SHAPE와 같은 섹션 순서(universe→entry→exit→risk→portfolio→backtest)."""
+    strategy = {
+        "universe": {"markets": ["KOSPI"], "sectors": []},
+        "entry_conditions": [
+            {"factor": "fundamental.per", "operator": "<=", "value": 10,
+             "source_text": "PER 10 이하"}
+        ],
+        "exit_conditions": [{"factor": "technical.rsi", "operator": ">=", "value": 70}],
+        "risk_management": {"stop_loss": 8},
+        "portfolio": {"selection_count": 20, "rebalance_frequency": "monthly"},
+        "backtest": {},
+    }
+    return json.dumps({"intent": "CREATE_STRATEGY", "status": "READY",
+                       "confidence": 0.9, "strategy": strategy}, ensure_ascii=False)
+
+
+def test_streaming_stages_follow_generated_sections():
+    """스트리밍 chat이 누적 출력을 주면 생성 중인 섹션 순서대로 단계가 한 번씩 알려진다."""
+    raw = _shape_ordered_raw()
+
+    def chat(system, user, *, max_tokens=None, on_chunk=None):
+        if on_chunk is not None:
+            for end in range(7, len(raw) + 7, 7):  # 마커가 조각 경계에 걸려도 누적이라 무관
+                on_chunk(raw[:end])
+        return raw
+
+    stages: list[str] = []
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(
+        "PER 10 이하", on_stage=stages.append)
+    assert result.intent.intent == "CREATE_STRATEGY"
+    # portfolio·backtest는 둘 다 'settings'로 묶이고 연속 중복은 한 번만 나간다.
+    assert stages == ["universe", "entry", "exit", "risk", "settings"]
+
+
+def test_on_stage_with_legacy_chat_fn_is_silently_disabled():
+    """(system, user) 2-인자 스텁 chat은 on_chunk를 못 받는다 — TypeError 없이 해석은
+    그대로 성공하고 단계만 알리지 않는다(테스트·QA 하니스 주입 계약 보존)."""
+    raw = json.dumps(_full_intent_dict(), ensure_ascii=False)
+    stages: list[str] = []
+    result = StrategyInterpreter(chat_fn=lambda s, u: raw, model="stub").interpret(
+        "PER 10 이하", on_stage=stages.append)
+    assert result.intent.strategy is not None
+    assert stages == []
+
+
+def test_streaming_stages_not_emitted_in_modify_mode():
+    """수정 턴 출력은 patches라 섹션 순서가 없다 — on_stage를 줘도 세부 단계는 안 나간다."""
+    raw = json.dumps({"intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+                      "strategy": None,
+                      "patches": [{"op": "replace", "path": "/risk_management/stop_loss",
+                                   "value": 5, "source_text": "손절 5%로"}]},
+                     ensure_ascii=False)
+    seen_chunks: list[str] = []
+
+    def chat(system, user, *, max_tokens=None, on_chunk=None):
+        if on_chunk is not None:
+            seen_chunks.append(raw)
+            on_chunk(raw)
+        return raw
+
+    stages: list[str] = []
+    draft = _full_intent_dict()["strategy"]
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(
+        "손절 5%로", draft=draft, on_stage=stages.append)
+    assert result.intent.patches
+    assert seen_chunks == []  # 수정 모드는 스트리밍 자체를 켜지 않는다
+    assert stages == []
+
+
 def test_recall_repair_losing_the_strategy_keeps_the_earlier_interpretation():
     """실측 사고(2026-07-27): 1차 출력은 정상인데 수치 하나가 빠져 재요청했더니 9B가
     수정 턴처럼 patches만(strategy=null) 돌려줬다. 그 출력으로 교체되면 초기 파스에는
@@ -2084,7 +2156,7 @@ def test_shadow_records_diff_and_writes_log(tmp_path, monkeypatch):
     intent = StrategyIntent.model_validate(_full_intent_dict())
 
     class _StubInterpreter:
-        def interpret(self, user_input, draft=None):
+        def interpret(self, user_input, draft=None, on_stage=None):
             return InterpreterResult(
                 intent=intent, raw_output="{}", repair_attempts=0,
                 latency_ms=1.0, model_name="stub",

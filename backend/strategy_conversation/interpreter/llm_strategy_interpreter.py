@@ -50,6 +50,31 @@ def _recall_gap(user_input: str, intent) -> list[str]:
 
 ChatFn = Callable[[str, str], str]  # (system_prompt, user_message) -> raw text
 
+# 스트리밍 출력에서 '지금 생성 중인 섹션'을 진행 단계로 매핑한다. 입력은 사용자 원문이
+# 아니라 LLM이 생성 중인 StrategyIntent JSON이며, 따옴표 포함 키 문자열의 위치만 본다
+# — 형식 관찰이지 의미 해석이 아니다(자연어 해석 구조 원칙의 정규화 레인).
+# portfolio·backtest는 별도 문구를 만들 만큼 길지 않아 'settings' 하나로 묶는다.
+_SECTION_STAGE_MARKERS: list[tuple[str, str]] = [
+    ('"universe"', "universe"),
+    ('"entry_conditions"', "entry"),
+    ('"exit_conditions"', "exit"),
+    ('"risk_management"', "risk"),
+    ('"portfolio"', "settings"),
+    ('"backtest"', "settings"),
+]
+
+
+def _stage_from_partial(partial_output: str) -> Optional[str]:
+    """누적 출력에서 가장 마지막에 등장한 섹션 키의 단계를 돌려준다(없으면 None)."""
+    best_stage: Optional[str] = None
+    best_idx = -1
+    for marker, stage in _SECTION_STAGE_MARKERS:
+        idx = partial_output.rfind(marker)
+        if idx > best_idx:
+            best_idx = idx
+            best_stage = stage
+    return best_stage
+
 
 def _flatten_json_columns(text: str) -> Optional[str]:
     """JSON 객체 텍스트를 'key = value' 컬럼 목록으로 펼친다. JSON 객체가 아니면 None."""
@@ -123,7 +148,10 @@ def _default_ollama_chat(model: str) -> ChatFn:
 
     # 공유 chat 계약은 (system_prompt, user_msg, *, max_tokens) -> str — term_grounding
     # 등 소비자가 max_tokens를 넘긴다(미수용 시 TypeError로 검색 그라운딩 전체가 침묵 실패).
-    def chat(system_prompt: str, user_message: str, *, max_tokens: int | None = None) -> str:
+    # on_chunk: 진행 단계 표시용 스트리밍 콜백(누적 텍스트 수신). 미전달 시 기존 비스트리밍
+    # 경로 그대로 — 반환 계약(완성 텍스트)은 두 경로 모두 동일하다.
+    def chat(system_prompt: str, user_message: str, *, max_tokens: int | None = None,
+             on_chunk: Callable[[str], None] | None = None) -> str:
         import urllib.request
 
         from engine.nl_parser import (
@@ -139,7 +167,7 @@ def _default_ollama_chat(model: str) -> ChatFn:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
             ],
-            "stream": False,
+            "stream": on_chunk is not None,
             "think": False,
             "format": "json",
             "options": {"temperature": 0, "num_ctx": _OLLAMA_NUM_CTX,
@@ -170,8 +198,32 @@ def _default_ollama_chat(model: str) -> ChatFn:
                       "num_ctx": _OLLAMA_NUM_CTX, "max_tokens": max_tokens or 2048},
         ) as trace:
             with _ollama_open_with_retry(req, timeout=120) as resp:
-                data = json.loads(resp.read())
-            content = (data.get("message") or {}).get("content", "")
+                if on_chunk is None:
+                    data = json.loads(resp.read())
+                    content = (data.get("message") or {}).get("content", "")
+                else:
+                    # 스트리밍(NDJSON) — 조각을 누적해 콜백에 넘기고, done 라인의
+                    # 사용량 통계를 비스트리밍과 동일하게 trace에 기록한다.
+                    parts: list[str] = []
+                    data = {}
+                    for line in resp:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        piece = (obj.get("message") or {}).get("content", "")
+                        if piece:
+                            parts.append(piece)
+                            try:
+                                on_chunk("".join(parts))
+                            except Exception:  # noqa: BLE001 — 진행 표시 실패가 해석을 깨면 안 된다
+                                logger.debug("interpreter on_chunk failed", exc_info=True)
+                        if obj.get("done"):
+                            data = obj
+                    content = "".join(parts)
             trace.meta(**ollama_usage(data))
             trace.output(response=content)
             return content
@@ -209,13 +261,29 @@ class StrategyInterpreter:
                 "서버 밖에서 실행 중이면 .env를 로드하거나 이 환경변수를 명시하세요."
             )
         self._chat = chat_fn or _default_ollama_chat(self.model_name)
+        # 진행 단계 스트리밍은 on_chunk를 받는 chat만 가능하다 — 주입 스텁(테스트·QA
+        # 하니스)은 (system, user) 2-인자 계약이므로 서명을 보고 조용히 비활성화한다.
+        import inspect
+
+        try:
+            self._chat_accepts_chunks = any(
+                p.name == "on_chunk" or p.kind is inspect.Parameter.VAR_KEYWORD
+                for p in inspect.signature(self._chat).parameters.values()
+            )
+        except (TypeError, ValueError):
+            self._chat_accepts_chunks = False
         self._system_prompt = build_system_prompt()
 
     def interpret(
         self, user_input: str, draft: Optional[dict] = None,
         pending_question: Optional[str] = None,
+        on_stage: Optional[Callable[[str], None]] = None,
     ) -> InterpreterResult:
-        """본체는 _interpret다 — 이 래퍼는 관찰 span만 연다(비활성 시 no-op)."""
+        """본체는 _interpret다 — 이 래퍼는 관찰 span만 연다(비활성 시 no-op).
+
+        on_stage: 생성 중인 섹션 전환 콜백(진행 표시용) — 초기 생성에서만 쓰고,
+        수정 모드(draft)는 patches 출력이라 섹션 순서가 없어 적용하지 않는다.
+        """
         from observability import span
         from observability.agent_trace import state_diff
 
@@ -226,7 +294,7 @@ class StrategyInterpreter:
             metadata={"model": self.model_name, "prompt_version": PROMPT_VERSION,
                       "mode": "modify" if draft else "create"},
         ) as trace:
-            result = self._interpret(user_input, draft, pending_question)
+            result = self._interpret(user_input, draft, pending_question, on_stage)
             # 복구 재시도 = LLM 출력이 스키마를 못 맞춰 다시 부른 횟수(스펙 § Retry Count).
             trace.meta(retry_count=result.repair_attempts,
                        interpreter_latency_ms=result.latency_ms,
@@ -245,11 +313,25 @@ class StrategyInterpreter:
     def _interpret(
         self, user_input: str, draft: Optional[dict] = None,
         pending_question: Optional[str] = None,
+        on_stage: Optional[Callable[[str], None]] = None,
     ) -> InterpreterResult:
         started = time.perf_counter()
         user_prompt = build_user_prompt(user_input, draft, pending_question)
         _log_llm("▶ 요청", f"{user_input!r}" + (" (수정 모드 — 전략 초안 포함)" if draft else ""))
-        raw = self._chat(self._system_prompt, user_prompt)
+        on_chunk: Optional[Callable[[str], None]] = None
+        if on_stage is not None and draft is None and self._chat_accepts_chunks:
+            last_stage: dict = {"stage": None}
+
+            def on_chunk(accumulated: str) -> None:
+                stage = _stage_from_partial(accumulated)
+                if stage is not None and stage != last_stage["stage"]:
+                    last_stage["stage"] = stage
+                    on_stage(stage)
+
+        if on_chunk is not None:
+            raw = self._chat(self._system_prompt, user_prompt, on_chunk=on_chunk)
+        else:
+            raw = self._chat(self._system_prompt, user_prompt)
         _log_llm("◀ 원본 응답", raw.strip())
 
         attempts = 0

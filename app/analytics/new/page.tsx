@@ -180,9 +180,10 @@ interface ChatMessage {
   isLoading?: boolean;
   // 분석 로딩 단계: 'parsing'(NL 파서 규칙 파싱) → 'thinking'(LLM 처리) → 'validating'(LLM 검증).
   // 'kg_lookup'은 개념 해석 체인(지식그래프 조회 포함) 진입, 'searching'은 용어 그라운딩이
-  // 인터넷 검색에 진입했을 때(FR-STR-069).
+  // 인터넷 검색에 진입했을 때(FR-STR-069). 인터프리터 스트리밍 세부 단계는
+  // ANALYSIS_STAGE_LABEL 주석 참고(universe/entry/exit/risk/settings).
   // 미설정이면 기본 '분석 중...'을 표시한다(빌더/분류 등 비파싱 로딩).
-  loadingStage?: "parsing" | "thinking" | "validating" | "searching" | "kg_lookup";
+  loadingStage?: AnalysisStage;
   error?: string;
   // 파싱 실패 시 같은 턴을 다시 실행할 수 있는 '다시 시도' 버튼용 컨텍스트.
   // LLM 콜드스타트(scale-to-zero, 첫 파스 ~2분)로 스트림이 타임아웃에 끊긴 경우가 주 대상 —
@@ -833,13 +834,21 @@ function ShimmerStatusText({
 // validating: 룰 파싱이 애매해 LLM 검증기를 호출하는 동안 표시(ShimmerStatusText 애니메이션).
 // searching: 빌더 용어 그라운딩이 인터넷 검색으로 낯선 테마 용어를 학습하는 동안 표시.
 // kg_lookup: 개념 해석 체인(지식그래프·어휘집·내부 LLM)에서 용어를 확인하는 동안 표시.
-const ANALYSIS_STAGE_LABEL: Record<"parsing" | "thinking" | "validating" | "searching" | "kg_lookup", string> = {
+// universe~settings: 인터프리터 LLM이 스트리밍 출력에서 실제로 생성 중인 섹션
+// (planner 유니버스 해석 → universe → entry_conditions → exit_conditions → …)을 알린다.
+const ANALYSIS_STAGE_LABEL = {
   parsing: "파싱 중...",
   thinking: "생각 중...",
   validating: "검증 중...",
   searching: "검색 중...",
   kg_lookup: "개념 확인 중...",
-};
+  universe: "유니버스 분석 중...",
+  entry: "매수 조건 분석 중...",
+  exit: "매도 조건 분석 중...",
+  risk: "리스크 관리 분석 중...",
+  settings: "설정 분석 중...",
+} as const;
+type AnalysisStage = keyof typeof ANALYSIS_STAGE_LABEL;
 
 // 빌더 스텝 호출 — 프록시가 SSE(text/event-stream)를 돌려주면 stage 이벤트('searching' =
 // 인터넷 검색 그라운딩 진입, FR-STR-069)를 onStage로 알리고 최종 result 데이터를 반환한다.
@@ -920,7 +929,7 @@ function AnalysisStatusBubble({
   stage,
 }: {
   title?: string;
-  stage?: "parsing" | "thinking" | "validating" | "searching" | "kg_lookup";
+  stage?: AnalysisStage;
 }) {
   const label = stage ? ANALYSIS_STAGE_LABEL[stage] : "분석 중...";
   return (
@@ -2952,8 +2961,9 @@ function StrategyLabContent() {
         } else if (evt.type === "stage") {
           // 백엔드 진행 단계: 'parsing'(규칙 파싱) → 'kg_lookup'(개념 확인) →
           // 'searching'(용어 그라운딩 인터넷 검색) → 'thinking'(LLM 처리) → 'validating'(LLM 검증).
-          if (evt.stage === "parsing" || evt.stage === "kg_lookup" || evt.stage === "searching" || evt.stage === "thinking" || evt.stage === "validating") {
-            updateLastAssistant({ isLoading: true, loadingStage: evt.stage });
+          // 인터프리터 스트리밍은 생성 중인 섹션을 세부 단계(universe/entry/exit/risk/settings)로 알린다.
+          if (typeof evt.stage === "string" && evt.stage in ANALYSIS_STAGE_LABEL) {
+            updateLastAssistant({ isLoading: true, loadingStage: evt.stage as AnalysisStage });
           }
         } else if (evt.type === "parsed_final") {
           parsedPayload = evt;

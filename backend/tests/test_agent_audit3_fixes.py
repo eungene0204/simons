@@ -43,7 +43,7 @@ class _StubInterpreter:
             unreflected_numbers=None,
         )
 
-    def interpret(self, user_input, draft=None, pending_question=None):
+    def interpret(self, user_input, draft=None, pending_question=None, on_stage=None):
         return self._result
 
 

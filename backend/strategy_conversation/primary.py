@@ -801,6 +801,9 @@ def run_primary_parse(
     # 실패(None)·비활성(off/shadow)은 현행 고정 파이프라인 그대로 — 폴백 레인 보존.
     planner_first: Optional[Any] = None
     if config.dag_planner_mode() == "primary":
+        # planner-first는 유니버스 표현의 추출·해석 단계다 — 진행 표시도 그대로 알린다.
+        if on_stage is not None:
+            on_stage("universe")
         planner_first = _plan_first(user_input)
     # Phase 4 shadow: DAG planner 관측 실행(기본 off, STRATEGY_DAG_PLANNER_MODE=shadow)
     # — 대화 턴 전체를 DAG로 계획하는 실험 레인. 비차단·응답 불변, 로그만 남긴다.
@@ -812,7 +815,9 @@ def run_primary_parse(
         logger.debug("dag planner shadow launch failed", exc_info=True)
     try:
         interpreter = _get_interpreter(StrategyInterpreter)
-        result = interpreter.interpret(user_input)
+        # on_stage: 인터프리터가 스트리밍 출력의 섹션 키를 보고 유니버스→매수→매도→리스크
+        # 단계 전환을 알린다(비스트리밍 chat 주입 시 자동 비활성 — 동작 동일).
+        result = interpreter.interpret(user_input, on_stage=on_stage)
     except InterpreterError as exc:
         logger.warning("interpreter primary failed, reporting failure | err=%s",
                        str(exc)[:200])
