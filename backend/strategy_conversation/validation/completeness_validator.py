@@ -84,7 +84,13 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
             if spec is None or spec.supported == "UNSUPPORTED":
                 continue
             field_base = f"strategy.{path}[{i}]"
-            needs_value = (
+            # 자기 선(線)을 둘 가진 지표(이동평균·EMA)에서 비교 연산자는 **두 선의 관계**를
+            # 뜻한다("5일 EMA가 20일 EMA 위에 있으면") — 사용자가 줄 숫자 임계값이 없고,
+            # 컴파일러도 값 없이 mode(above/below)로 바인딩한다(_compile_technical).
+            # 이걸 임계값 누락으로 보면 조건이 값 미정으로 제외돼 사용자가 명시한 진입·청산
+            # 규칙이 통째로 사라진다(2026-08-05 전수 QA 치명 2건: EMA 추세 진입/청산).
+            compares_own_lines = {"short_period", "long_period"} <= set(spec.parameters)
+            needs_value = not compares_own_lines and (
                 cond.operator in _COMPARISON_OPS
                 or (cond.operator is None and spec.category != "event"
                     and spec.value_type != "event" and not spec.parameters)

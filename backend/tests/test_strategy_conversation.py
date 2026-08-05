@@ -164,6 +164,49 @@ def test_opposite_event_exit_survives_mirror_guard():
     assert [c.operator for c in intent.strategy.exit_conditions] == ["crosses_below"]
 
 
+def test_opposite_comparison_exit_survives_mirror_guard():
+    """방향은 교차뿐 아니라 부등호로도 표현된다 — "5일 EMA가 20일 EMA 위에 있으면 매수,
+    아래로 내려오면 매도"의 청산(`<`)은 진입(`>`)과 반대 방향이므로 미러 복제가 아니다.
+    예외를 crosses_*에만 열어 두던 시절 이 청산이 조용히 사라졌다(2026-08-05 전수 QA
+    치명 2건: 복합전략 #19, 테마 #77)."""
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.ema", "operator": ">", "value": None,
+             "parameters": {"short_period": 5, "long_period": 20},
+             "source_text": "5일 EMA가 20일 EMA 위에 있는"},
+        ],
+        exit_conditions=[
+            {"factor": "technical.ema", "operator": "<", "value": None,
+             "parameters": {"short_period": 5, "long_period": 20},
+             "source_text": "5일 EMA가 20일 EMA 아래로 내려오면 매도"},
+        ],
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert [c.operator for c in intent.strategy.exit_conditions] == ["<"]
+
+
+def test_own_line_comparison_needs_no_threshold_value():
+    """자기 선을 둘 가진 지표(EMA·이동평균)의 부등호는 두 선의 관계다 — 숫자 임계값을
+    요구하면 조건이 값 미정으로 제외돼 명시한 진입·청산이 통째로 사라진다."""
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.ema", "operator": ">", "value": None,
+             "parameters": {"short_period": 5, "long_period": 20},
+             "source_text": "5일 EMA가 20일 EMA 위에 있는"},
+        ],
+        exit_conditions=[
+            {"factor": "technical.ema", "operator": "<", "value": None,
+             "parameters": {"short_period": 5, "long_period": 20},
+             "source_text": "5일 EMA가 20일 EMA 아래로 내려오면 매도"},
+        ],
+    )
+    validated, report = run_validation(StrategyIntent.model_validate(data))
+    assert not any(f.endswith(".value") for f in report.missing_fields)
+    parsed = compile_strategy(validated, report, "원문")
+    assert [s.mode for s in parsed.entry_signals] == ["above"]
+    assert [s.mode for s in parsed.exit_signals] == ["below"]
+
+
 def test_same_direction_event_exit_still_dropped():
     """같은 방향 이벤트 복제는 새 정보가 없으므로 기존대로 버린다(가드 완화의 경계)."""
     data = _full_intent_dict(

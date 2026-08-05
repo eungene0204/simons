@@ -16,7 +16,7 @@ from strategy_conversation.registry.capability_registry import (
 )
 from strategy_conversation.registry.indicator_registry import supported_factor_lines
 
-PROMPT_VERSION = "2.6"
+PROMPT_VERSION = "2.7"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -128,7 +128,9 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    섞여 있으면 둘 다 출력해야 합니다("부채비율 80% 이하이고 시가총액 5000억 이상인 종목 중
    RSI 35 이하에서 매수" → 조건 3개). 출력을 마치기 전에 입력의 각 수치·지표 언급이
    entry_conditions/exit_conditions/risk_management/portfolio/backtest 중 하나에 반영됐는지
-   확인하세요. 표현할 수 없는 것만 unsupported_features로 보냅니다.
+   확인하세요. 이때 **숫자 없는 신호 표현도 함께 세십시오** — 골든크로스·데드크로스·
+   신고가 돌파·이동평균 위/아래는 임계값이 없을 뿐 엄연한 조건입니다(수치만 훑으면
+   빠집니다). 표현할 수 없는 것만 unsupported_features로 보냅니다.
 4-2. entry_conditions가 여러 개일 때 결합 방식은 entry_logic입니다. 기본값은 "AND"이고
    ("~하면서"·"동시에"·"그리고"·쉼표 나열은 전부 AND — 모두 성립해야 매수), 사용자가
    "또는"·"이거나"·"둘 중 하나만 충족해도"처럼 대안 관계를 **명시했을 때만** "OR"로
@@ -409,6 +411,30 @@ backtest={{"start_date":null,"end_date":null}}.
 출력 요점: universe={{"markets":[],"new_listing_only":true,"listing_from":null,
 "listing_to":null}}. 어느 시기 상장인지 말하지 않았으므로 날짜를 지어내지 않습니다
 (시기 되묻기는 시스템이 만듭니다).
+
+## 예시 4-6 (재무 여러 개 뒤에 오는 기술 신호 — 숫자가 없어도 반드시 출력)
+입력: "KOSPI200에서 ROE 12% 이상, 부채비율 80% 이하이면서 거래대금 50억 원 이상인 종목 중
+MACD 골든크로스가 나타나면 매수하고 싶습니다. 월간 리밸런싱, 10종목, 손절 -8%, 익절 +20%"
+출력 요점: entry_conditions=[{{"factor":"fundamental.roe_or_gpa","operator":">=","value":12}},
+{{"factor":"fundamental.debt_ratio","operator":"<=","value":80}},
+{{"factor":"fundamental.trading_value","operator":">=","value":50,"unit":"억원"}},
+{{"factor":"technical.macd","operator":"crosses_above","value":null}}] — **조건 4개**.
+재무 조건을 여러 개 나열한 뒤 '~인 종목 중 <기술 신호>' 형태로 이어지면 그 기술 신호가
+마지막 진입 조건입니다. 임계값(value)이 없다는 이유로 빠뜨리지 마세요 — 골든크로스·
+데드크로스·신고가 돌파·이동평균 돌파는 원래 숫자 없이 성립하는 신호입니다.
+
+## 예시 4-7 (진입과 반대 방향 청산 — 부등호로 표현된 짝)
+입력: "거래대금 30억 원 이상인 종목 중 5일 EMA가 20일 EMA 위에 있을 때 매수하고,
+EMA 데드크로스가 나오면 청산해 주세요"
+출력 요점: entry_conditions=[{{"factor":"fundamental.trading_value","operator":">=","value":30,
+"unit":"억원"}}, {{"factor":"technical.ema","operator":">","value":null,
+"parameters":{{"short_period":5,"long_period":20}}}}],
+exit_conditions=[{{"factor":"technical.ema","operator":"crosses_below","value":null,
+"parameters":{{"short_period":5,"long_period":20}}}}].
+청산 문장은 진입과 같은 지표를 쓰더라도 **반드시 exit_conditions에 출력**하세요 —
+진입에 이미 그 지표가 있다는 이유로 생략하면 사용자가 말한 매도 규칙이 사라집니다.
+연산자는 정본 표기만 씁니다: 위/아래 상태는 `>`·`<`, 교차 사건은 `crosses_above`·
+`crosses_below`입니다("above"·"golden_cross" 같은 낱말 표기 금지).
 
 ## 예시 5 (수정 요청 — 현재 전략 초안이 함께 주어진 경우)
 현재 전략 초안: {{"entry_conditions":[{{"factor":"fundamental.per","operator":"<=","value":10}},

@@ -5709,6 +5709,15 @@ def detect_missing_entry_clarification(
             return (question, list(_ETF_PRODUCT_SUGGESTIONS))
         return (_ETF_PRODUCT_QUESTION, list(_ETF_PRODUCT_SUGGESTIONS))
     resolved_metrics = {item.metric for item in parsed.fundamental_filters}
+    # 같은 지표가 기술 신호 버킷에 실행 가능한 임계값과 함께 들어오기도 한다 — 거래대금은
+    # fundamental.trading_value(필터)와 technical.trading_value(신호) 두 정본을 가지며,
+    # 후자로 해석되면 값이 entry_signals에 담긴다. 필터 버킷만 보면 이미 받은 값을 다시
+    # 묻는다("거래대금 50억 원 이상"을 주고도 "거래대금은 몇 억 이상으로 할까요?",
+    # 2026-08-05 전수 QA). 값이 실제로 있는 신호만 인정한다(값 없는 신호는 여전히 되묻기).
+    resolved_metrics |= {
+        signal.indicator for signal in parsed.entry_signals
+        if getattr(signal, "value", None) is not None
+    }
     # Ask for every named metric that still lacks an executable threshold, even when an
     # unrelated entry signal exists. This prevents a model substitution from hiding the omission.
     metrics = [

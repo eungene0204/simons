@@ -52,6 +52,31 @@ ConditionRole = Literal["entry", "exit"]
 # 이벤트(교차/터치) 연산자 — 임계값 없이 방향만으로 신호가 성립한다.
 _EVENT_OPERATORS = frozenset({"crosses_above", "crosses_below"})
 
+# 스키마 밖 표기 → 정본 연산자. 표기 차이만 흡수한다(새 의미를 만들지 않는다).
+_OPERATOR_ALIASES = {
+    "above": ">", "below": "<",
+    "gt": ">", "gte": ">=", "lt": "<", "lte": "<=",
+    "golden_cross": "crosses_above", "dead_cross": "crosses_below",
+    "cross_above": "crosses_above", "cross_below": "crosses_below",
+}
+
+# 연산자가 가리키는 방향. 같은 지표라도 진입과 방향이 반대면 서로 다른 신호다
+# (골든크로스↔데드크로스, 20일선 위↔아래). 미러 복제 판정에만 쓴다.
+_OPERATOR_DIRECTION = {
+    "crosses_above": "up", ">": "up", ">=": "up",
+    "crosses_below": "down", "<": "down", "<=": "down",
+}
+
+
+def _opposes_entry_direction(exit_operator: Optional[str], entry_operators: set) -> bool:
+    """청산 연산자가 같은 팩터의 진입 방향과 반대인가(= 새 정보인가)."""
+    direction = _OPERATOR_DIRECTION.get(exit_operator)
+    if direction is None:
+        return False
+    entry_directions = {_OPERATOR_DIRECTION.get(op) for op in entry_operators}
+    entry_directions.discard(None)
+    return bool(entry_directions) and direction not in entry_directions
+
 _NUMBER_RE = re.compile(r"^-?\d+(?:[.,]\d+)?")
 
 
@@ -99,6 +124,17 @@ class StrategyCondition(BaseModel):
     )
 
     _coerce_value = field_validator("value", "recommended_value", mode="before")(_coerce_number)
+
+    @field_validator("operator", mode="before")
+    @classmethod
+    def _normalize_operator(cls, v):
+        # 9B 드리프트 실측(2026-08-05): 스키마에 없는 낱말 연산자를 낸다("5일 EMA가 20일
+        # EMA 위에 있을 때" → operator="above"). 그대로 두면 registry 허용 목록에 걸려
+        # 조건이 통째로 미지원 처리되고, 컴파일러도 방향(mode)을 정하지 못해 신호가 빈다.
+        # 표기만 보고 결정 가능한 동의어이므로 형식 정규화한다(의미 판정 아님).
+        if not isinstance(v, str):
+            return v
+        return _OPERATOR_ALIASES.get(v.strip().lower(), v)
 
     @field_validator("parameters", mode="before")
     @classmethod
@@ -443,10 +479,15 @@ class StrategySpec(BaseModel):
         # 기준값?"이라며 되묻는 사고. 값이 없고 진입 팩터를 중복하는 청산 조건은 새 정보가
         # 없으므로 버린다(사용자가 실제 청산 임계값을 줬다면 value가 채워져 보존된다).
         #
-        # 단, 이벤트 지표의 **반대 방향** 청산은 정상적인 짝이다 — 골든크로스 진입/데드크로스
-        # 청산, 볼린저 하단 매수/상단 매도는 둘 다 value가 없고 factor도 같지만 서로 다른
+        # 단, **반대 방향** 청산은 정상적인 짝이다 — 골든크로스 진입/데드크로스 청산,
+        # 볼린저 하단 매수/상단 매도는 둘 다 value가 없고 factor도 같지만 서로 다른
         # 신호다(2026-07-26 A/B 실측: 이 가드가 정당한 청산을 삼켰고, 원문 정규식 재추출이
-        # 그것을 가리고 있었다). 진입에 없는 이벤트 연산자면 새 정보이므로 보존한다.
+        # 그것을 가리고 있었다).
+        #
+        # 방향은 교차(crosses_*)뿐 아니라 부등호로도 표현된다 — "5일 EMA가 20일 EMA 위에
+        # 있으면 매수, 아래로 내려오면 매도"의 청산은 `<`다. 예외를 교차 연산자에만 열어
+        # 두면 이 부등호 짝이 미러로 오인돼 사용자가 명시한 청산이 조용히 사라진다
+        # (2026-08-05 전수 QA 치명 2건). 연산자를 방향(up/down)으로 환산해 판정한다.
         if self.exit_conditions and self.entry_conditions:
             entry_ops: Dict[str, set] = {}
             for c in self.entry_conditions:
@@ -456,10 +497,7 @@ class StrategySpec(BaseModel):
                 if not (
                     c.value is None
                     and c.factor in entry_ops
-                    and not (
-                        c.operator in _EVENT_OPERATORS
-                        and c.operator not in entry_ops[c.factor]
-                    )
+                    and not _opposes_entry_direction(c.operator, entry_ops[c.factor])
                 )
             ]
         return self

@@ -2290,6 +2290,28 @@ def test_missing_entry_clarification_skipped_for_single_asset():
     assert detect_missing_entry_clarification(base, "삼성전자 투자 하는 전략") == (None, None)
 
 
+def test_missing_entry_clarification_accepts_valued_signal_metric():
+    """거래대금은 재무 필터와 기술 신호 두 정본을 갖는다 — 신호 버킷에 실행 가능한 값이
+    담겼는데 필터 버킷만 보고 되물으면 사용자가 이미 준 값을 다시 묻는다("거래대금 50억 원
+    이상"을 주고도 "거래대금은 몇 억 이상으로 할까요?", 2026-08-05 전수 QA #65)."""
+    base = make_base_strategy().model_copy(update={
+        "entry_signals": [TechnicalSignal(indicator="trading_value", signal_type="buy",
+                                          operator=">=", value=50.0)],
+    })
+    assert detect_missing_entry_clarification(
+        base, "거래대금 50억 원 이상인 종목 중 매수"
+    ) == (None, None)
+
+
+def test_missing_entry_clarification_still_asks_for_valueless_signal_metric():
+    """값 없는 신호는 여전히 되묻는다 — 실행 가능한 임계값이 있을 때만 인정한다."""
+    base = make_base_strategy().model_copy(update={
+        "entry_signals": [TechnicalSignal(indicator="trading_value", signal_type="buy")],
+    })
+    question, _ = detect_missing_entry_clarification(base, "거래대금이 많은 종목 중 매수")
+    assert question is not None and "거래대금" in question
+
+
 def test_incomplete_backtest_conditions_gate():
     """[정책] 백테스트 최소 조건(유니버스·진입·청산·손절·익절)이 하나라도 없으면 채우도록
     되묻는다. 진입은 신호·랭킹·재무필터만 인정한다 — 지정 종목은 매수 시점 규칙이 아니어서
