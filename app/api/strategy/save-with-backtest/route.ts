@@ -270,6 +270,12 @@ export async function POST(request: Request) {
       }
 
       return { strategy, backtestRecord };
+    }, {
+      // 원격 Supabase(us-west-1) 왕복 지연 + 대형 유니버스 결과(수천 종목 perAssetStats·
+      // equity 곡선을 summary/result JSON으로 두 번 업로드)로 기본 5초를 초과한다 —
+      // 2701종목 저장이 트랜잭션 내부만 6초를 넘어 "Transaction already closed"로 실패했다.
+      maxWait: 10_000,
+      timeout: 60_000,
     });
 
     if (result.backtestRecord) {

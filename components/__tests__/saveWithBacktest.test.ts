@@ -350,6 +350,20 @@ describe("POST /api/strategy/save-with-backtest", () => {
     expect(mockTransaction).toHaveBeenCalledOnce();
   });
 
+  // ── 트랜잭션 타임아웃 회귀 ──────────────────────────────────────────────────
+  // 2026-08-04: 원격 Supabase 왕복 지연 + 2701종목 페이로드로 기본 5초 인터랙티브
+  // 트랜잭션 타임아웃을 초과해 "Transaction already closed" → 저장 실패 500이 발생했다.
+  // 명시적 timeout 옵션이 빠지면 대형 유니버스 저장이 다시 깨진다.
+
+  it("$transaction에 기본 5초를 넘는 명시적 timeout 옵션을 전달해야 함", async () => {
+    const res = await POST(makeRequest({ name: "AI 전략", dsl: VALID_DSL }));
+    expect(res.status).toBe(200);
+
+    const options = mockTransaction.mock.calls[0][1];
+    expect(options).toBeDefined();
+    expect(options.timeout).toBeGreaterThan(5000);
+  });
+
   // ── Prisma 오류 처리 ────────────────────────────────────────────────────────
 
   it("Prisma 오류 발생 시 500 반환", async () => {

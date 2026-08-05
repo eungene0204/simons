@@ -38,6 +38,7 @@ import {
 import { buildAutoSaveHistoryPayload } from "@/lib/backtest-history";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
 import { buildMonthlyReturnTableData } from "./monthlyReturns";
+import { buildRollingReturnSeries, hasRollingWindowSpan } from "./rollingReturns";
 import {
   normalizeLegacyBreakoutStrategy,
   resolveTradeReason,
@@ -49,6 +50,10 @@ import {
 } from "@/lib/backtest-export";
 
 const processedExecutionIds = new Set<string>();
+
+const ROLLING_WINDOW_OPTIONS: readonly number[] = [1, 3, 6, 12];
+const rollingWindowLabel = (months: number) =>
+  months === 12 ? "1년" : `${months}개월`;
 
 function calculateScore(r: {
   cagr?: number; maxDrawdown?: number; sharpe?: number;
@@ -655,6 +660,30 @@ export default function BacktestDashboard({
   const monthlyReturnRows = useMemo(
     () => buildMonthlyReturnTableData(monthlyReturns),
     [monthlyReturns]
+  );
+
+  const [returnsView, setReturnsView] = useState<"monthly" | "rolling">("monthly");
+  const [rollingWindowMonths, setRollingWindowMonths] = useState(12);
+  const availableRollingWindows = useMemo(
+    () =>
+      ROLLING_WINDOW_OPTIONS.filter((w) =>
+        hasRollingWindowSpan(result.dates ?? [], w)
+      ),
+    [result.dates]
+  );
+  const effectiveRollingWindow = availableRollingWindows.includes(rollingWindowMonths)
+    ? rollingWindowMonths
+    : availableRollingWindows[availableRollingWindows.length - 1] ?? null;
+  const rollingReturnSeries = useMemo(
+    () =>
+      effectiveRollingWindow == null
+        ? []
+        : buildRollingReturnSeries(
+            result.dates ?? [],
+            result.equity ?? [],
+            effectiveRollingWindow
+          ),
+    [result.dates, result.equity, effectiveRollingWindow]
   );
 
   const sortedSymbols = useMemo(() => {
@@ -1681,24 +1710,88 @@ export default function BacktestDashboard({
                   </div>
                 )}
 
-                {/* 월별 수익률 추이 */}
+                {/* 월별/롤링 수익률 추이 */}
                 <div className="border-t border-white/[0.08] p-5 pb-4">
-                  <div className="flex items-center justify-between gap-3 mb-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                     <div className="flex min-w-0 items-center gap-3">
-                      <h4 className="whitespace-nowrap text-base font-black uppercase tracking-widest text-white font-outfit">
-                        월별 수익률 추이
-                      </h4>
+                      <div className="flex shrink-0 items-center gap-1 rounded-[8px] bg-white/[0.04] p-0.5">
+                        {([
+                          { id: "monthly", label: "월별 수익률" },
+                          { id: "rolling", label: "롤링 수익률" },
+                        ] as const).map((tab) => (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setReturnsView(tab.id)}
+                            className={`min-h-[30px] rounded-[6px] px-3 text-sm font-black tracking-tight transition-colors ${
+                              returnsView === tab.id
+                                ? "bg-[#232323] text-white"
+                                : "text-[#6f7481] hover:text-[#a7adba]"
+                            }`}
+                          >
+                            {tab.label}
+                          </button>
+                        ))}
+                      </div>
                       <p className="truncate text-xs text-gray-500">
-                        {(() => {
-                          const allYears = Object.keys(monthlyReturns).sort((a, b) => Number(a) - Number(b));
-                          if (allYears.length > 0) return `${allYears[0]} ~ ${allYears[allYears.length - 1]} · 최근 ${monthlyReturnRows.length}년`;
-                          return "데이터 없음";
-                        })()}
+                        {returnsView === "monthly"
+                          ? (() => {
+                              const allYears = Object.keys(monthlyReturns).sort((a, b) => Number(a) - Number(b));
+                              if (allYears.length > 0) return `${allYears[0]} ~ ${allYears[allYears.length - 1]} · 최근 ${monthlyReturnRows.length}년`;
+                              return "데이터 없음";
+                            })()
+                          : effectiveRollingWindow != null
+                          ? `매 거래일 기준 직전 ${rollingWindowLabel(effectiveRollingWindow)} 구간 수익률`
+                          : "데이터 없음"}
                       </p>
                     </div>
-                    <Table size={18} className="shrink-0 text-gray-600" />
+                    {returnsView === "monthly" ? (
+                      <Table size={18} className="shrink-0 text-gray-600" />
+                    ) : (
+                      <div className="flex shrink-0 items-center gap-1">
+                        {ROLLING_WINDOW_OPTIONS.map((w) => {
+                          const enabled = availableRollingWindows.includes(w);
+                          return (
+                            <button
+                              key={w}
+                              type="button"
+                              disabled={!enabled}
+                              onClick={() => setRollingWindowMonths(w)}
+                              className={`rounded-md px-2 py-1 text-[10px] font-bold transition-colors ${
+                                effectiveRollingWindow === w
+                                  ? "bg-[#232323] text-white"
+                                  : enabled
+                                  ? "text-gray-500 hover:text-gray-300"
+                                  : "cursor-not-allowed text-gray-700"
+                              }`}
+                            >
+                              {rollingWindowLabel(w)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                  <div className="w-full overflow-x-auto">
+                  {returnsView === "rolling" && (
+                    rollingReturnSeries.length > 0 ? (
+                      <div>
+                        <BacktestChart
+                          type="rolling_returns"
+                          height={280}
+                          rollingData={rollingReturnSeries}
+                        />
+                        <p className="mt-3 text-[10px] text-gray-600 leading-relaxed">
+                          * 각 지점은 해당일 기준 직전 {effectiveRollingWindow != null ? rollingWindowLabel(effectiveRollingWindow) : ""} 구간의 수익률입니다.
+                          월별 표(달력 기준)와 달리 구간이 서로 겹치는 롤링 지표로, 진입 시점 선택에 따른 성과 변동을 보여줍니다.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="px-4 py-16 text-center text-sm text-gray-500">
+                        백테스트 기간이 짧아 롤링 수익률을 계산할 수 없습니다. (최소 1개월 필요)
+                      </div>
+                    )
+                  )}
+                  <div className={`w-full overflow-x-auto ${returnsView === "rolling" ? "hidden" : ""}`}>
                     <table className="w-full min-w-[1040px] border-collapse">
                       <thead>
                         <tr>

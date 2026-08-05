@@ -38,10 +38,11 @@ export interface SeasonalDataPoint {
 }
 
 interface BacktestChartProps {
-  type: "equity" | "drawdown" | "monthly_returns" | "seasonal_returns";
+  type: "equity" | "drawdown" | "monthly_returns" | "seasonal_returns" | "rolling_returns";
   equityData?: EquityDataPoint[];
   drawdownData?: DrawdownDataPoint[];
   monthlyData?: MonthlyReturnDataPoint[];
+  rollingData?: MonthlyReturnDataPoint[];
   seasonalData?: SeasonalDataPoint[];
   trades?: { date: string; type: string; price: number | string }[];
   height?: number;
@@ -76,6 +77,7 @@ export default function BacktestChart({
   equityData = [],
   drawdownData = [],
   monthlyData = [],
+  rollingData = [],
   seasonalData = [],
   trades = [],
   height = 400,
@@ -95,6 +97,7 @@ export default function BacktestChart({
   const vbtEquitySeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const drawdownSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const monthlySeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const rollingSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const seasonalSeriesRefs = useRef<Record<string, ISeriesApi<"Line">>>({});
   const tooltipRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -150,6 +153,17 @@ export default function BacktestChart({
       color: item.value >= 0 ? "rgba(239, 68, 68, 0.8)" : "rgba(55, 122, 244, 0.8)", // red for gain, blue for loss
     }));
   }, [type, monthlyData]);
+
+  // Prepare rolling return chart data
+  const rollingChartData = useMemo(() => {
+    if (type !== "rolling_returns" || !rollingData || rollingData.length === 0) return [];
+    return rollingData
+      .filter((item) => isFinite(item.value))
+      .map((item) => ({
+        time: dateToTimestamp(item.time),
+        value: item.value,
+      }));
+  }, [type, rollingData]);
 
   const YEAR_COLORS = useMemo(() => [
     "#ef4444", "#377af4", "#22c55e", "#eab308", "#a855f7", 
@@ -388,6 +402,32 @@ export default function BacktestChart({
             series.setData(seasonalChartData[year]);
           });
           chart.timeScale().fitContent();
+        } else if (type === "rolling_returns") {
+          // Create rolling return line series with a zero baseline
+          const rollingSeries = chart.addSeries(LineSeries, {
+            color: "#ef4444",
+            lineWidth: 2,
+            lineType: LineType.Curved,
+            priceFormat: {
+              type: "price",
+              precision: 2,
+              minMove: 0.01,
+            },
+          });
+          rollingSeries.createPriceLine({
+            price: 0,
+            color: "rgba(255,255,255,0.25)",
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: false,
+            title: "",
+          });
+          rollingSeriesRef.current = rollingSeries;
+
+          if (rollingChartData.length > 0) {
+            rollingSeries.setData(rollingChartData);
+            chart.timeScale().fitContent();
+          }
         } else if (type === "drawdown") {
           // Create drawdown line series
           const drawdownSeries = chart.addSeries(LineSeries, {
@@ -431,7 +471,7 @@ export default function BacktestChart({
             // seasonal/monthly charts are normalized to a single year, so show the month.
             const date = new Date((param.time as number) * 1000);
             const headerLabel =
-              type === "equity" || type === "drawdown"
+              type === "equity" || type === "drawdown" || type === "rolling_returns"
                 ? date.toISOString().split("T")[0]
                 : `${date.getMonth() + 1}월 수익률`;
 
@@ -507,6 +547,20 @@ export default function BacktestChart({
                   `;
                 }
               }
+            } else if (type === "rolling_returns") {
+              const rollSeries = rollingSeriesRef.current;
+              if (rollSeries) {
+                const rollData = param.seriesData.get(rollSeries);
+                if (rollData && "value" in rollData) {
+                  const val = rollData.value as number;
+                  tooltipContent += `
+                    <div class="text-white text-[10px] flex justify-between gap-4">
+                      <span>롤링 수익률:</span>
+                      <span class="font-mono font-bold ${val >= 0 ? "text-main-red" : "text-main-blue"}">${val >= 0 ? "+" : ""}${val.toFixed(2)}%</span>
+                    </div>
+                  `;
+                }
+              }
             }
 
             tooltipContent += `</div>`;
@@ -573,6 +627,7 @@ export default function BacktestChart({
       vbtEquitySeriesRef.current = null;
       drawdownSeriesRef.current = null;
       monthlySeriesRef.current = null;
+      rollingSeriesRef.current = null;
       seasonalSeriesRefs.current = {};
     };
   }, [type, height, handleResize, formatValue, priceMinMove]); // Re-initialize when type changes
@@ -608,6 +663,13 @@ export default function BacktestChart({
       if (monthlyChartData.length > 0 && chartRef.current) {
         chartRef.current.timeScale().fitContent();
       }
+    } else if (type === "rolling_returns") {
+      if (rollingSeriesRef.current) {
+        rollingSeriesRef.current.setData(rollingChartData);
+      }
+      if (rollingChartData.length > 0 && chartRef.current) {
+        chartRef.current.timeScale().fitContent();
+      }
     } else if (type === "seasonal_returns") {
       // Cleanup old series
       Object.values(seasonalSeriesRefs.current).forEach(s => chartRef.current?.removeSeries(s));
@@ -634,14 +696,14 @@ export default function BacktestChart({
         chart.timeScale().fitContent();
       }
     }
-  }, [type, equityChartData, buyHoldChartData, vbtEquityChartData, drawdownChartData, monthlyChartData, seasonalChartData]);
+  }, [type, equityChartData, buyHoldChartData, vbtEquityChartData, drawdownChartData, monthlyChartData, rollingChartData, seasonalChartData]);
 
   return (
     <div className="w-full relative group" style={{ height: `${height}px` }}>
       {/* Legend Overlay */}
       {!hideLegend && (
         <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 b">
-          {type !== "seasonal_returns" && (
+          {type !== "seasonal_returns" && type !== "rolling_returns" && (
           <>
             <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
                <div className="w-2.5 h-2.5 rounded-full bg-[#0f62fe]" />
@@ -661,6 +723,12 @@ export default function BacktestChart({
               </div>
             )}
           </>
+          )}
+          {type === "rolling_returns" && (
+            <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
+               <div className="w-2.5 h-2.5 rounded-full bg-[#ef4444]" />
+               <span className="text-[10px] font-bold text-white">롤링 수익률</span>
+            </div>
           )}
           {type === "monthly_returns" && (
             <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
