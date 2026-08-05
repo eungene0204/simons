@@ -464,6 +464,32 @@ class StrategySpec(BaseModel):
             ]
         return self
 
+    @model_validator(mode="after")
+    def _absorb_risk_field_conditions(self):
+        # 9B 드리프트 실측(2026-08-05): "손절 -8%"를 risk_management.stop_loss에 채우고
+        # **같은 사실을** exit_conditions에 factor="risk_management.stop_loss"로 한 번 더
+        # 출력. 손절·익절은 의미상 청산 규칙이 맞지만 스키마 자리는 risk_management 하나다
+        # (사용자 판정: 중복은 환각이 아니라 자리 문제) — 조건 목록의 risk_management.*
+        # 항목은 값을 빈 risk 필드로 흡수한 뒤 제거해 한 번만 남긴다. 값도 없고 필드도
+        # 비어 있으면 남긴다(미지원 팩터 레인이 안내를 담당 — 조용한 누락 금지).
+        for attr in ("entry_conditions", "exit_conditions"):
+            kept = []
+            for cond in getattr(self, attr):
+                namespace, _, field = cond.factor.partition(".")
+                if namespace == "risk_management" and field in RiskSpec.model_fields:
+                    current = getattr(self.risk_management, field)
+                    if current is None and cond.value is not None:
+                        value = float(cond.value)
+                        if field != "max_position_weight":
+                            value = abs(value)  # RiskSpec._abs_ratio와 같은 규약(크기만)
+                        setattr(self.risk_management, field, value)
+                        current = value
+                    if current is not None:
+                        continue
+                kept.append(cond)
+            setattr(self, attr, kept)
+        return self
+
 
 # ─── 되묻기·패치 ──────────────────────────────────────────────────────────────
 

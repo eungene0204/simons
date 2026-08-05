@@ -26,6 +26,7 @@ from strategy_conversation.interpreter.models import (
     StrategyIntent,
     StrategySpec,
 )
+from strategy_conversation.compiler.strategy_compiler import compile_partial, compile_strategy
 from strategy_conversation.interpreter.output_repair import extract_json_object
 from strategy_conversation.registry.indicator_registry import REGISTRY, resolve
 from strategy_conversation.validation.pipeline import run_validation
@@ -186,6 +187,91 @@ def test_valued_exit_condition_preserved():
     intent = StrategyIntent.model_validate(data)
     assert len(intent.strategy.exit_conditions) == 1
     assert intent.strategy.exit_conditions[0].value == 70
+
+
+def test_risk_field_exit_condition_absorbed_once():
+    """9B 실측(2026-08-05): 손절을 risk_management.stop_loss에 채우고 같은 사실을
+    exit_conditions에 factor="risk_management.stop_loss"로 한 번 더 출력 — 손절은
+    의미상 청산 규칙이 맞지만(사용자 판정) 스키마 자리는 하나다. 정본 자리에 한 번만
+    남기고 조건 목록의 복제는 제거한다."""
+    data = _full_intent_dict(
+        exit_conditions=[
+            {"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None},
+            {"factor": "risk_management.stop_loss", "operator": "<=", "value": -8,
+             "source_text": "손절 예시값은 -8%"},
+        ],
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert [c.factor for c in intent.strategy.exit_conditions] == ["technical.ma_crossover"]
+    assert intent.strategy.risk_management.stop_loss == 8
+
+
+def test_risk_field_exit_condition_fills_empty_risk_slot():
+    # risk_management가 비어 있으면 조건에 실린 값을 흡수한다(정보 소실 금지).
+    data = _full_intent_dict(
+        risk_management={},
+        exit_conditions=[
+            {"factor": "risk_management.take_profit", "operator": ">=", "value": 20},
+        ],
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert intent.strategy.exit_conditions == []
+    assert intent.strategy.risk_management.take_profit == 20
+
+
+def test_fundamental_exit_mirror_normalized_without_notice():
+    """2026-08-05 사고 회귀: 9B가 손절 미러를 재무 팩터 청산(roe_or_gpa<=-100, source_text
+    없음)으로 출력 → 검증이 역할을 안 봐 READY → 전량 컴파일이 StrategyCompileError →
+    전략 전체가 "해석하지 못했어요"로 강등. 진입에 이미 있는 팩터의 근거 없는 청산 복제는
+    검증이 안내 없이 제거하고 나머지 전략(ROE 진입 + 크로스오버 진입/청산)은 온전히
+    컴파일돼야 한다 — '반영하지 못했어요' 안내를 내면 진입에 정상 반영된 ROE가 미반영으로
+    읽힌다(같은 날 실측 혼란)."""
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.roe_or_gpa", "operator": ">=", "value": 10,
+             "source_text": "ROE 10% 이상인"},
+            {"factor": "technical.ma_crossover", "operator": "crosses_above", "value": None,
+             "parameters": {"short_period": 5, "long_period": 20},
+             "source_text": "골든크로스가 나오면"},
+        ],
+        exit_conditions=[
+            {"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
+             "parameters": {"short_period": 5, "long_period": 20},
+             "source_text": "데드크로스가 나오면 매도하도록"},
+            {"factor": "fundamental.roe_or_gpa", "operator": "<=", "value": -100},
+        ],
+        portfolio={"selection_count": 8},
+    )
+    validated, report = run_validation(StrategyIntent.model_validate(data))
+    assert not any("청산 신호로 쓸 수 없습니다" in e for e in report.errors)
+    assert [c.factor for c in validated.strategy.exit_conditions] \
+        == ["technical.ma_crossover"]                    # 미러는 안내 없이 정리
+    if report.is_valid:
+        parsed, dropped = compile_strategy(validated, report, "사고 예시 원문"), []
+    else:
+        parsed, dropped, _pending = compile_partial(validated, report, "사고 예시 원문")
+    assert len(parsed.fundamental_filters) == 1          # ROE 진입 필터 생존
+    assert len(parsed.entry_signals) == 1                # 골든크로스 진입 생존
+    assert len(parsed.exit_signals) == 1                 # 데드크로스 청산 생존
+    assert "ROE(자기자본이익률)" not in dropped          # 미반영 안내 대상이 아니다
+
+
+def test_sourced_fundamental_exit_reports_error_not_silent():
+    """사용자가 실제로 말한 재무 지표 청산("PER 20 이상이면 매도")은 조용히 버리지 않는다 —
+    청산 역할 에러로 보고하고, 부분 컴파일이 그 조건만 제외해 안내가 붙는다."""
+    data = _full_intent_dict(
+        entry_conditions=[{"factor": "fundamental.per", "operator": "<=", "value": 10,
+                           "source_text": "PER 10 이하"}],
+        exit_conditions=[{"factor": "fundamental.per", "operator": ">=", "value": 20,
+                          "source_text": "PER 20 이상이면 매도"}],
+    )
+    validated, report = run_validation(StrategyIntent.model_validate(data))
+    assert any("청산 신호로 쓸 수 없습니다" in e for e in report.errors)
+    assert not report.is_valid
+    parsed, dropped, _pending = compile_partial(validated, report, "원문")
+    assert len(parsed.fundamental_filters) == 1
+    assert parsed.exit_signals == []
+    assert any("PER" in d for d in dropped)              # 제외 사실을 안내 채널에 명시
 
 
 def test_modify_without_draft_coerced_to_create():
