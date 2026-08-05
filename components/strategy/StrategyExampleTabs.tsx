@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Sparkle, X } from "phosphor-react";
+import { Sparkle, Spinner, X } from "phosphor-react";
 
 export type ExampleCategory = "가치투자" | "기술분석" | "모멘텀" | "복합전략" | "ETF" | "테마";
 export type ExampleLevel = "beginner" | "intermediate" | "expert";
@@ -833,7 +833,21 @@ export function StrategyExampleTabs({
             </div>
           ) : (
             <div className="h-full overflow-y-auto" data-testid="strategy-my-content">
-              {isLoadingStrategies ? null : strategiesError ? (
+              {isLoadingStrategies ? (
+                <div
+                  className="flex flex-col items-center justify-center gap-3 py-10"
+                  role="status"
+                  aria-live="polite"
+                  data-testid="strategy-my-loading"
+                >
+                  <Spinner
+                    size={24}
+                    className="animate-spin text-gray-500 motion-reduce:animate-none"
+                    aria-hidden="true"
+                  />
+                  <p className="text-xs font-bold text-gray-500">전략 목록을 불러오는 중입니다...</p>
+                </div>
+              ) : strategiesError ? (
                 <div className="py-8 text-center">
                   <p className="text-sm font-black text-white">전략 목록을 불러올 수 없습니다</p>
                   <p className="mt-1 text-xs font-bold text-gray-500">{strategiesError}</p>
