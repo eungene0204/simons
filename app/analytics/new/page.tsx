@@ -9,6 +9,7 @@ import {
   forwardRef,
   memo,
   Suspense,
+  type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
 import dynamic from "next/dynamic";
@@ -561,9 +562,11 @@ const ARTIFACT_CARD_CLASS =
 // 강조색은 '사용자 차례'에 예약돼 있으므로 색이 아니라 테두리·면·눌림으로 알린다.
 const BACK_CONTROL_CLASS =
   "flex flex-shrink-0 items-center gap-1 rounded-xl border border-white/[0.14] bg-white/[0.05] px-2.5 py-1 text-[11px] font-bold text-gray-200 transition-colors duration-200 hover:bg-white/[0.09] hover:text-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)] disabled:opacity-40";
-// 선택 칩은 빌더 흐름의 주 경로라 3순위 컨트롤보다 무게를 올린다.
+// 선택 칩은 담긴 면과 같은 색으로 두고 테두리로만 구분한다. 값을 박아 넣지 않고
+// 투명으로 두는 이유는 칩이 카드 안(되묻기)과 카드 밖(빌더 안내) 양쪽에 나오기
+// 때문이다 — 투명이면 어느 쪽에서도 담긴 면과 저절로 같아진다.
 const CHOICE_CHIP_CLASS =
-  "rounded-lg border border-white/[0.14] bg-white/[0.05] px-2.5 py-1.5 text-[12px] font-bold text-gray-200 text-left transition-colors duration-200 hover:border-[var(--chat-accent-line)] hover:bg-white/[0.09] hover:text-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]";
+  "rounded-lg border border-white/[0.14] bg-transparent px-2.5 py-1.5 text-[12px] font-bold text-gray-200 text-left transition-colors duration-200 hover:border-[var(--chat-accent-line)] hover:bg-white/[0.06] hover:text-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]";
 // 진입 연출은 클래스로 둔다 — 인라인 animation은 prefers-reduced-motion으로 끌 수 없다.
 const MESSAGE_ENTER_CLASS = "chat-card-enter";
 
@@ -613,6 +616,86 @@ function withBuilderNavigationSuggestions(
     FREE_INPUT_CHIP,
     ...(canGoBack ? [BUILDER_BACK_CHIP] : []),
   ];
+}
+
+/** 선택지 목록 — 세로 한 줄씩, 화면 아래에서 위로 떠오르며 나타난다.
+ *  '직접 입력'을 고르면 목록 그 자리에서 입력창이 열린다(하단 공용 입력창을 다시
+ *  여는 방식 폐지). 입력 답변은 자유 서술과 같은 경로(handleSend)로 보낸다. */
+function ChoiceOptionList({
+  options,
+  onSelect,
+  onFreeSubmit,
+  trailing,
+}: {
+  options: string[];
+  onSelect: (option: string) => void;
+  onFreeSubmit: (text: string) => void;
+  trailing?: ReactNode;
+}) {
+  const [freeInputOpen, setFreeInputOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (freeInputOpen) inputRef.current?.focus();
+  }, [freeInputOpen]);
+
+  const trySubmit = () => {
+    const text = value.trim();
+    if (!text) return;
+    setValue("");
+    onFreeSubmit(text);
+  };
+
+  return (
+    <div className="chat-choice-rise flex w-fit min-w-[15rem] max-w-full flex-col gap-1.5">
+      {options.map((option) => {
+        if (option === FREE_INPUT_CHIP && freeInputOpen) {
+          return (
+            <div key={option} className="relative w-full">
+              <input
+                ref={inputRef}
+                type="text"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    trySubmit();
+                  }
+                }}
+                placeholder="원하는 내용을 입력해 주세요"
+                className="w-full rounded-lg border border-[var(--chat-accent-line)] bg-transparent py-2 pl-3 pr-10 text-[12px] font-bold text-white outline-none placeholder:text-[var(--text-placeholder)] focus:outline-none focus:ring-0"
+              />
+              <button
+                type="button"
+                onClick={trySubmit}
+                disabled={!value.trim()}
+                aria-label="전송"
+                title="전송"
+                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-[#f3f1ec] text-[#2b2b2b] transition-colors duration-200 hover:bg-white active:scale-[0.96] disabled:cursor-not-allowed disabled:bg-[#595959] disabled:text-[#bdbdbd] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
+              >
+                <ArrowUp size={13} weight="bold" />
+              </button>
+            </div>
+          );
+        }
+        return (
+          <button
+            key={option}
+            type="button"
+            onClick={() =>
+              option === FREE_INPUT_CHIP ? setFreeInputOpen(true) : onSelect(option)
+            }
+            className={`${CHOICE_CHIP_CLASS} w-full`}
+          >
+            {option}
+          </button>
+        );
+      })}
+      {trailing}
+    </div>
+  );
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -1319,7 +1402,7 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
     <aside
       aria-label="전략 진행률"
       aria-live="polite"
-      className="relative z-20 w-full max-w-4xl rounded-2xl border border-[var(--chat-hairline)] bg-[var(--chat-artifact-surface)] p-4 xl:fixed xl:right-4 xl:top-[calc(var(--top-menu-bar-height,76px)+5rem)] xl:w-40 xl:max-w-none 2xl:w-56"
+      className="relative z-20 w-full max-w-4xl rounded-2xl border border-[var(--chat-hairline)] bg-[var(--background)] p-4 xl:fixed xl:right-4 xl:top-[calc(var(--top-menu-bar-height,76px)+5rem)] xl:w-40 xl:max-w-none 2xl:w-56"
       data-testid="strategy-progress-panel"
     >
       <div className="flex items-end justify-between gap-3">
@@ -1959,11 +2042,6 @@ function StrategyLabContent() {
     });
     rememberOpenClarification(patch);
     await appendAssistant({ role: "assistant", ...patch });
-  };
-
-  const focusFreeTextInput = () => {
-    setBuilderFreeTextRequested(true);
-    window.setTimeout(() => chatInputRef.current?.focus(), 0);
   };
 
   const updateLastAssistant = (patch: Partial<ChatMessage>) => {
@@ -4179,29 +4257,18 @@ function StrategyLabContent() {
                                       선택 예시
                                     </p>
                                   )}
-                                  <div className="flex flex-wrap gap-2">
-                                    {msg.infoSuggestions.map((suggestion) => (
-                                      <button
-                                        key={suggestion}
-                                        onClick={() => {
-                                          if (suggestion === CANCEL_METRIC_OPTIMIZATION_CHIP) {
-                                            metricOptimizationAbortRef.current?.abort();
-                                            return;
-                                          }
-                                          // '직접 입력'은 빌더 답변이 아니라 입력창을 다시 띄우는 토글이다.
-                                          if (suggestion === FREE_INPUT_CHIP) {
-                                            focusFreeTextInput();
-                                            return;
-                                          }
-                                          handleSuggestionClick(suggestion);
-                                        }}
-                                        className={CHOICE_CHIP_CLASS}
-                                      >
-                                        {suggestion}
-                                      </button>
-                                    ))}
-                                    {shouldShowMovingAverageHelp(msg) && <MovingAverageTypeHelp />}
-                                  </div>
+                                  <ChoiceOptionList
+                                    options={msg.infoSuggestions}
+                                    onSelect={(suggestion) => {
+                                      if (suggestion === CANCEL_METRIC_OPTIMIZATION_CHIP) {
+                                        metricOptimizationAbortRef.current?.abort();
+                                        return;
+                                      }
+                                      handleSuggestionClick(suggestion);
+                                    }}
+                                    onFreeSubmit={(text) => void handleSend(text)}
+                                    trailing={shouldShowMovingAverageHelp(msg) ? <MovingAverageTypeHelp /> : undefined}
+                                  />
                                 </div>
                               )}
                             </div>
@@ -4280,28 +4347,18 @@ function StrategyLabContent() {
                                       <p className="text-[11px] font-black text-[var(--text-label)]">
                                         {msg.strategyConfirmation ? "전략 확인" : "선택 예시"}
                                       </p>
-                                      <div className="flex flex-wrap gap-2">
-                                        {msg.clarificationSuggestions.map((suggestion) => (
-                                          <button
-                                            key={suggestion}
-                                            onClick={() => handleSuggestionClick(suggestion)}
-                                            className={CHOICE_CHIP_CLASS}
-                                          >
-                                            {suggestion}
-                                          </button>
-                                        ))}
-                                        {!msg.strategyConfirmation &&
+                                      <ChoiceOptionList
+                                        options={[
+                                          ...msg.clarificationSuggestions,
+                                          ...(!msg.strategyConfirmation &&
                                           !isClosedChoiceSlot(msg.clarificationField) &&
-                                          !msg.clarificationSuggestions.includes(FREE_INPUT_CHIP) && (
-                                          <button
-                                            type="button"
-                                            onClick={focusFreeTextInput}
-                                            className={CHOICE_CHIP_CLASS}
-                                          >
-                                            {FREE_INPUT_CHIP}
-                                          </button>
-                                        )}
-                                      </div>
+                                          !msg.clarificationSuggestions.includes(FREE_INPUT_CHIP)
+                                            ? [FREE_INPUT_CHIP]
+                                            : []),
+                                        ]}
+                                        onSelect={handleSuggestionClick}
+                                        onFreeSubmit={(text) => void handleSend(text)}
+                                      />
                                     </div>
                                   )}
                                 </div>

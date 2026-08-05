@@ -31,7 +31,9 @@
   --chat-accent-line: rgba(240, 180, 41, 0.6);   /* 호버 테두리 */
   --chat-accent-ring: rgba(240, 180, 41, 0.5);   /* 포커스 링 */
   --chat-accent-underline: rgba(240, 180, 41, 0.4);
-  --chat-user-surface: #1c1c1c;                  /* 사용자 발화 카드 */
+  /* 사용자 발화 카드. 테두리가 없어 면 하나로만 버블임을 알리므로 페이지 배경
+     (#0f0f0f)까지 낮추지 않는다 — 낮추면 버블이 통째로 사라진다. */
+  --chat-user-surface: #171717;
   --chat-artifact-surface: #141414;              /* 구조화 산출물 카드 */
   --chat-hairline: rgba(255, 255, 255, 0.09);
   --error-red-line: rgba(239, 68, 68, 0.28);
@@ -469,6 +471,22 @@ input[type=number] {
   animation: chatCardEnter 860ms cubic-bezier(0.19, 1, 0.22, 1) 140ms both;
 }
 
+/* 선택지 목록 진입 연출 — 화면 아래에서 위로 떠오른다. */
+@keyframes chatChoiceRise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 48px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.chat-choice-rise {
+  animation: chatChoiceRise 560ms cubic-bezier(0.19, 1, 0.22, 1) both;
+}
+
 /* 인트로 헤드라인 글자 연출 — 이전에는 38ms setInterval로 글자마다 React
    상태를 갱신했다(글자당 전체 리렌더). CSS animation-delay 캐스케이드로 대체. */
 @keyframes chatHeadlineCharIn {
@@ -497,6 +515,7 @@ input[type=number] {
   .chat-enter-late,
   .chat-card-enter,
   .chat-card-enter-late,
+  .chat-choice-rise,
   .shimmer::after {
     animation: none;
   }
