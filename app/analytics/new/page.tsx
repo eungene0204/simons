@@ -210,6 +210,10 @@ interface ChatMessage {
   notices?: string[];
   // 유지/변경을 고르는 체크박스 목록(FR-SA-020). 상태에서 만들어 붙인다.
   keepItems?: StrategyItem[];
+  // 칩을 눌러 만들어진 사용자 메시지. 버블을 **그리지 않는다**(2026-08-05 지시) — 고른
+  // 값은 바로 위 질문과 아래 요약에 이미 보이므로 버블은 같은 말을 세 번째로 반복한다.
+  // 메시지 자체는 남긴다: 프롬프트 문맥·분류 히스토리·세션 복원이 모두 이 기록을 읽는다.
+  chipAnswer?: boolean;
 }
 
 type MetricOptimizationProgressState = {
@@ -555,19 +559,33 @@ type CoachConversationMessage = {
 //   맨 텍스트          = 흘러가는 대화. 카드가 없다는 것 자체가 구분이다(세로 레일 없음)
 //   카드              = 남는 산출물(요약·검증·공지·되묻기)
 // 응답이 필요한 블록은 강조 레일 대신 강조색 아이콘과 선택 칩으로 알린다.
-const USER_CHAT_BUBBLE_CLASS = "rounded-2xl rounded-tr-md bg-[var(--chat-user-surface)]";
+// 모든 박스는 같은 값의 반투명 면 + 같은 세기의 유리(.chat-glass)를 쓴다. 페이지 배경이
+// 균일한 검정이라 블러가 드러나는 곳은 박스끼리 겹칠 때(카드 위 칩)와 고정 패널 뒤로
+// 채팅이 지나갈 때뿐이다 — 그래도 세기를 박스마다 다르게 두지 않는다.
+const USER_CHAT_BUBBLE_CLASS = "rounded-2xl rounded-tr-md bg-[var(--chat-user-surface)] chat-glass";
 const ARTIFACT_CARD_CLASS =
-  "rounded-2xl border border-[var(--chat-hairline)] bg-[var(--chat-artifact-surface)]";
+  "rounded-2xl border border-[var(--chat-hairline)] bg-[var(--chat-artifact-surface)] chat-glass";
 // '돌아가기'는 되돌릴 길을 잃지 않게 해주는 컨트롤이라 반드시 클릭 가능해 보여야 한다.
 // 회색 텍스트만 두면 정적 캡션으로 읽혀 사용자가 찾지 못한다(2026-07-25 제보).
 // 강조색은 '사용자 차례'에 예약돼 있으므로 색이 아니라 테두리·면·눌림으로 알린다.
 const BACK_CONTROL_CLASS =
   "flex flex-shrink-0 items-center gap-1 rounded-xl border border-white/[0.14] bg-white/[0.05] px-2.5 py-1 text-[11px] font-bold text-gray-200 transition-colors duration-200 hover:bg-white/[0.09] hover:text-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)] disabled:opacity-40";
-// 선택 칩은 담긴 면과 같은 색으로 두고 테두리로만 구분한다. 값을 박아 넣지 않고
-// 투명으로 두는 이유는 칩이 카드 안(되묻기)과 카드 밖(빌더 안내) 양쪽에 나오기
-// 때문이다 — 투명이면 어느 쪽에서도 담긴 면과 저절로 같아진다.
+// 되묻기(옵션) 카드는 화면 하단을 차지하며 그 뒤로 대화가 지나간다 — 유일하게 **불투명한**
+// 면을 쓴다(2026-08-05 지시). 반투명이면 지나가는 글자가 칩 위로 비쳐 읽기 어렵다.
+// 값은 하단 입력 바와 같은 #101010이다. 유리(.chat-glass)는 흐릴 배경이 없어 붙이지 않는다.
+const CLARIFICATION_CARD_CLASS =
+  "rounded-2xl border border-[var(--chat-hairline)] bg-[#101010]";
+// '대화 종료'는 옵션 카드 안 우하단에 둔다 — 카드가 하단을 덮으므로 밖에 두면 가린다.
+// 모서리는 같은 줄에 서는 선택 칩과 같은 `rounded-lg`다(2026-08-05 지시) — 알약(rounded-full)
+// 모양이면 나란히 놓인 칩과 형태가 어긋난다.
+const END_CHAT_CONTROL_CLASS =
+  "inline-flex items-center gap-1.5 rounded-lg border border-white/[0.14] bg-white/[0.05] px-3 py-1.5 text-xs font-bold text-[var(--accent-blue)] transition-colors duration-200 hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]";
+// 선택 칩은 담긴 면이 그대로 비치고(--chat-chip-surface: transparent) 테두리로만
+// 구분한다. 칩이 카드 안(되묻기)과 카드 밖(빌더 안내) 양쪽에 나오므로 값을 박으면
+// 한쪽에서 어긋난다 — 카드 위에서는 알파가 겹쳐 칩만 밝아진다(2026-08-05 반려).
+// 면이 없으므로 유리(.chat-glass)도 붙이지 않는다 — 흐릴 자기 배경이 없다.
 const CHOICE_CHIP_CLASS =
-  "rounded-lg border border-white/[0.14] bg-transparent px-2.5 py-1.5 text-[12px] font-bold text-gray-200 text-left transition-colors duration-200 hover:border-[var(--chat-accent-line)] hover:bg-white/[0.06] hover:text-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]";
+  "rounded-lg border border-[var(--chat-hairline)] bg-[var(--chat-chip-surface)] px-2.5 py-1.5 text-[12px] font-bold text-gray-200 text-left transition-colors duration-200 hover:border-[var(--chat-accent-line)] hover:bg-[var(--chat-chip-surface-hover)] hover:text-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]";
 // 진입 연출은 클래스로 둔다 — 인라인 animation은 prefers-reduced-motion으로 끌 수 없다.
 const MESSAGE_ENTER_CLASS = "chat-card-enter";
 
@@ -650,7 +668,7 @@ function ChoiceOptionList({
 
   return (
     <div className="chat-choice-rise flex w-fit min-w-[15rem] max-w-full flex-col gap-1.5">
-      {options.map((option) => {
+      {options.map((option, index) => {
         if (option === FREE_INPUT_CHIP && freeInputOpen) {
           return (
             <div key={option} className="relative w-full">
@@ -690,6 +708,14 @@ function ChoiceOptionList({
             }
             className={`${CHOICE_CHIP_CLASS} w-full`}
           >
+            {/* 순번은 장식이라 접근성 이름에서 뺀다 — 넣으면 칩 이름이 "1 익절 10%"가 되어
+                칩 문자열(백엔드 답변 프로토콜)로 칩을 찾는 경로가 어긋난다. */}
+            <span
+              aria-hidden="true"
+              className="mr-2 tabular-nums text-[var(--text-label)]"
+            >
+              {index + 1}
+            </span>
             {option}
           </button>
         );
@@ -1411,7 +1437,7 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
     <aside
       aria-label="전략 진행률"
       aria-live="polite"
-      className="relative z-20 w-full max-w-4xl rounded-2xl border border-[var(--chat-hairline)] bg-[var(--background)] p-4 xl:fixed xl:right-4 xl:top-[calc(var(--top-menu-bar-height,76px)+5rem)] xl:w-40 xl:max-w-none 2xl:w-56"
+      className="relative z-20 w-full max-w-4xl rounded-2xl border border-[var(--chat-hairline)] p-4 chat-glass xl:fixed xl:right-4 xl:top-[calc(var(--top-menu-bar-height,76px)+5rem)] xl:w-40 xl:max-w-none 2xl:w-56"
       data-testid="strategy-progress-panel"
     >
       <div className="flex items-end justify-between gap-3">
@@ -1862,6 +1888,16 @@ function StrategyLabContent() {
   // "직접 입력" 칩을 눌러야 하는 이유가 불분명해지고, 열린 입력창이 마치 선택을
   // 무시한 채 또 물어보는 것처럼 오인되기 쉽다. "직접 입력"을 고르면 입력창이 나타난다.
   const shouldShowChatInput = shouldShowChatInputBox(messages, isIdle, builderFreeTextRequested);
+  // 되묻기 카드를 하단 '대화 종료' 버튼 바로 위에 고정할지. 칩으로만 답할 수 있는
+  // 동안(=입력 바가 숨는 동안)에만 고정한다 — 입력 바가 보이면 같은 자리를 두고 겹친다.
+  // 고정하면 카드가 흐름에서 빠지므로 대화 아래 여백을 그만큼 더 잡아야 마지막 메시지가
+  // 카드 뒤로 숨지 않는다.
+  const lastAssistantMessage = [...messages].reverse().find((m) => m.role === "assistant");
+  const isClarificationDocked =
+    !shouldShowChatInput &&
+    !lastAssistantMessage?.coachLoading &&
+    Boolean(lastAssistantMessage?.clarification) &&
+    (lastAssistantMessage?.clarificationSuggestions?.length ?? 0) > 0;
 
   useEffect(() => {
     if (!shouldShowChatInput || stage === "running" || result) return;
@@ -1906,7 +1942,7 @@ function StrategyLabContent() {
       : null;
 
     if (!deterministicChoice || !missingCondition || !currentParsed) {
-      handleSend(text);
+      handleSend(text, { fromChip: true });
       return;
     }
 
@@ -1979,7 +2015,7 @@ function StrategyLabContent() {
     rememberOpenClarification(nextAssistantMessage);
     setMessages((previousMessages) => [
       ...previousMessages,
-      { role: "user", content: userChoice },
+      { role: "user", content: userChoice, chipAnswer: true },
       nextAssistantMessage,
     ]);
   };
@@ -2144,11 +2180,14 @@ function StrategyLabContent() {
   const currentStrategyPresentation = () => presentationFor();
 
   // 사용자 입력 버블은 어떤 네트워크 호출(분류/파싱)보다 먼저, 즉시 그린다.
-  const appendUserMessage = (userText: string) => {
+  const appendUserMessage = (userText: string, options?: { fromChip?: boolean }) => {
     // 사용자가 대화를 이어가는 순간부터 새 메시지 자동 스크롤(입력창 회피)을 다시 켠다.
     chatAutoScrollEnabledRef.current = true;
     flushSync(() => {
-      setMessages(prev => [...prev, { role: "user", content: userText }]);
+      setMessages(prev => [
+        ...prev,
+        { role: "user", content: userText, ...(options?.fromChip ? { chipAnswer: true } : {}) },
+      ]);
     });
   };
 
@@ -2365,7 +2404,7 @@ function StrategyLabContent() {
 
     setBuilderFreeTextRequested(false);
     setIsSending(true);
-    appendUserMessage(BUILDER_BACK_CHIP);
+    appendUserMessage(BUILDER_BACK_CHIP, { fromChip: true });
     await appendAssistant({ role: "assistant", isLoading: true, builderQuestion: true });
 
     try {
@@ -3016,7 +3055,7 @@ function StrategyLabContent() {
     const confirmedParsed = latestParsedRef.current ?? latestParsed;
     setBuilderFreeTextRequested(false);
     setIsSending(true);
-    appendUserMessage(CONFIRM_STRATEGY_CHIP);
+    appendUserMessage(CONFIRM_STRATEGY_CHIP, { fromChip: true });
     await appendAssistant({ role: "assistant", isLoading: true });
 
     try {
@@ -3156,7 +3195,7 @@ function StrategyLabContent() {
   };
   applyBuilderConfirmedStrategyRef.current = applyBuilderConfirmedStrategy;
 
-  const handleSend = async (overrideText?: string) => {
+  const handleSend = async (overrideText?: string, options?: { fromChip?: boolean }) => {
     const userText = overrideText ?? "";
     if (!userText || isSending || stage === "running") return;
     // 메시지를 보내는 순간 '직접 입력' 노출 토글을 해제한다(다음 빌더 단계는 다시 칩 집중).
@@ -3185,7 +3224,7 @@ function StrategyLabContent() {
     const currentBacktestReq = backtestReqRef.current ?? backtestReq;
     setIsSending(true);
     // 분류/파싱 호출이 시작되기 전에 사용자 입력을 화면에 즉시 반영한다.
-    appendUserMessage(userText);
+    appendUserMessage(userText, { fromChip: options?.fromChip });
 
     if (metricOptimizationDraftRef.current) {
       await handleMetricOptimizationInput(userText);
@@ -4148,6 +4187,71 @@ function StrategyLabContent() {
       : null;
 
   // ── 메인 채팅 화면
+  /** 되묻기(옵션) 카드. 흐름 안(`docked=false`)과 화면 하단 고정(`docked=true`) 두 자리에서
+   *  같은 카드를 그린다 — 고정본은 대화 트리 바깥에서 호출해야 viewport 기준으로 붙는다. */
+  const renderClarificationCard = (msg: ChatMessage, docked: boolean) => (
+    <div
+      data-testid="clarification-card"
+      data-docked={docked ? "true" : "false"}
+      className={`flex flex-col gap-2.5 p-4 ${CLARIFICATION_CARD_CLASS} ${MESSAGE_ENTER_LATE_CLASS} ${
+        docked
+          ? "fixed bottom-4 left-4 right-4 z-40 mx-auto max-h-[80dvh] max-w-4xl overflow-y-auto"
+          : ""
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2.5">
+        <p className="text-[13px] font-bold leading-relaxed text-gray-200 whitespace-pre-line">
+          {(msg.clarification ?? "").replace(/\*\*(.*?)\*\*/g, "$1")}
+        </p>
+        {msg.previousStepState && (
+          <button
+            type="button"
+            onClick={() => returnToPreviousCondition(msg)}
+            disabled={isSending}
+            className={BACK_CONTROL_CLASS}
+          >
+            <ArrowLeft size={11} />
+            {CONFIRMATION_BACK_CHIP}
+          </button>
+        )}
+      </div>
+      {msg.clarificationSuggestions && msg.clarificationSuggestions.length > 0 && (
+        <div className="flex items-end justify-between gap-3">
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-black text-[var(--text-label)]">
+              {msg.strategyConfirmation ? "전략 확인" : "선택 예시"}
+            </p>
+            <ChoiceOptionList
+              options={[
+                ...msg.clarificationSuggestions,
+                ...(!msg.strategyConfirmation &&
+                !isClosedChoiceSlot(msg.clarificationField) &&
+                !msg.clarificationSuggestions.includes(FREE_INPUT_CHIP)
+                  ? [FREE_INPUT_CHIP]
+                  : []),
+              ]}
+              onSelect={handleSuggestionClick}
+              onFreeSubmit={(text) => void handleSend(text)}
+            />
+          </div>
+          {/* 하단 고정 버튼을 카드 안으로 옮겼다(밖에 두면 카드가 가린다). 마지막 칩과 같은
+              줄에 서도록 칩 목록과 밑선을 맞춘다 — 칩과 세로 여백(py-1.5)이 같아 높이가 겹친다.
+              docked면 칩이 반드시 있으므로(isClarificationDocked) 이 안에 둬도 사라지지 않는다. */}
+          {docked && (
+            <button
+              type="button"
+              onClick={handleReset}
+              className={`${END_CHAT_CONTROL_CLASS} flex-shrink-0`}
+            >
+              <X size={12} weight="bold" />
+              대화 종료
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <DashboardLayout userName="">
       {/* 대화 진입 연출(chat-enter / chat-card-enter)은 globals.css에 있다 —
@@ -4169,7 +4273,9 @@ function StrategyLabContent() {
         }
       `}</style>
       <div
-        className={`relative flex flex-col items-center gap-4 overflow-x-hidden px-4 pt-10 sm:pt-14 lg:pt-20 ${hasChatStarted ? "pb-56" : "pb-12"} ${strategyPreviewBackgroundClass}`}
+        className={`relative flex flex-col items-center gap-4 overflow-x-hidden px-4 pt-10 sm:pt-14 lg:pt-20 ${
+          hasChatStarted ? (isClarificationDocked ? "pb-[26rem]" : "pb-56") : "pb-12"
+        } ${strategyPreviewBackgroundClass}`}
         data-testid="strategy-lab-background"
         style={{ minHeight: "calc(100dvh - var(--top-menu-bar-height, 76px))" }}
       >
@@ -4214,7 +4320,7 @@ function StrategyLabContent() {
               </div>
             </div>
             {modelStatus?.status === "failed" && (
-              <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[var(--error-red-line)] bg-[var(--chat-artifact-surface)] px-3 py-1 text-xs font-bold text-[var(--error-red)]">
+              <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[var(--error-red-line)] bg-[var(--chat-artifact-surface)] px-3 py-1 text-xs font-bold text-[var(--error-red)] chat-glass">
                 <Warning size={12} weight="fill" />
                 AI 모델 로드 실패 — 전략 생성을 사용할 수 없습니다
               </div>
@@ -4230,8 +4336,11 @@ function StrategyLabContent() {
               <div className={`w-full space-y-4 px-1 py-2 ${softEnterClass}`}>
                 {messages.map((msg, i) => (
                   <div key={i}>
-                    {msg.role === "user" && (
-                      <div className={`flex justify-end ${MESSAGE_ENTER_CLASS}`}>
+                    {msg.role === "user" && !msg.chipAnswer && (
+                      <div
+                        data-testid="user-chat-bubble"
+                        className={`flex justify-end ${MESSAGE_ENTER_CLASS}`}
+                      >
                         <div className={`max-w-[80%] px-4 py-2.5 ${USER_CHAT_BUBBLE_CLASS}`}>
                           <p className="text-sm font-bold text-white leading-relaxed">{msg.content}</p>
                         </div>
@@ -4246,7 +4355,7 @@ function StrategyLabContent() {
                           <>
                             {msg.builderPresentation && (
                               <div
-                                className={`max-w-[88%] p-4 ${ARTIFACT_CARD_CLASS} ${MESSAGE_ENTER_CLASS}`}
+                                className={`max-w-[88%] py-0.5 ${MESSAGE_ENTER_CLASS}`}
                               >
                                 <BuilderStrategyOverview presentation={msg.builderPresentation} />
                               </div>
@@ -4325,53 +4434,16 @@ function StrategyLabContent() {
                                     메시지에 함께 오는 턴에서 카드가 두 번 보였다. */}
                                 {msg.builderPresentation && !msg.infoText && (
                                   <div
-                                    className={`flex flex-col gap-2.5 p-4 ${ARTIFACT_CARD_CLASS} ${MESSAGE_ENTER_CLASS}`}
+                                    className={`flex flex-col gap-2.5 py-0.5 ${MESSAGE_ENTER_CLASS}`}
                                   >
                                     <BuilderStrategyOverview presentation={msg.builderPresentation} />
                                   </div>
                                 )}
-                                <div
-                                  className={`flex flex-col gap-2.5 p-4 ${ARTIFACT_CARD_CLASS} ${MESSAGE_ENTER_LATE_CLASS}`}
-                                >
-                                  <div className="flex items-start justify-between gap-2.5">
-                                    <div className="flex items-start gap-2.5">
-                                      <Question size={13} className="mt-0.5 flex-shrink-0 text-[var(--chat-accent)]" weight="fill" />
-                                      <p className="text-[13px] font-bold leading-relaxed text-gray-200 whitespace-pre-line">
-                                        {msg.clarification.replace(/\*\*(.*?)\*\*/g, "$1")}
-                                      </p>
-                                    </div>
-                                    {msg.previousStepState && (
-                                      <button
-                                        type="button"
-                                        onClick={() => returnToPreviousCondition(msg)}
-                                        disabled={isSending}
-                                        className={BACK_CONTROL_CLASS}
-                                      >
-                                        <ArrowLeft size={11} />
-                                        {CONFIRMATION_BACK_CHIP}
-                                      </button>
-                                    )}
-                                  </div>
-                                  {msg.clarificationSuggestions && msg.clarificationSuggestions.length > 0 && (
-                                    <div className="space-y-1.5 pl-6">
-                                      <p className="text-[11px] font-black text-[var(--text-label)]">
-                                        {msg.strategyConfirmation ? "전략 확인" : "선택 예시"}
-                                      </p>
-                                      <ChoiceOptionList
-                                        options={[
-                                          ...msg.clarificationSuggestions,
-                                          ...(!msg.strategyConfirmation &&
-                                          !isClosedChoiceSlot(msg.clarificationField) &&
-                                          !msg.clarificationSuggestions.includes(FREE_INPUT_CHIP)
-                                            ? [FREE_INPUT_CHIP]
-                                            : []),
-                                        ]}
-                                        onSelect={handleSuggestionClick}
-                                        onFreeSubmit={(text) => void handleSend(text)}
-                                      />
-                                    </div>
-                                  )}
-                                </div>
+                                {/* 칩으로 답하는 동안에는 카드를 흐름에서 빼 화면 하단에 고정한다.
+                                    고정본은 대화 트리 **바깥**(하단 입력 바 옆)에서 그린다 —
+                                    여기서 fixed를 주면 진입 연출(transform)이 남아 있는 조상이
+                                    고정 기준이 돼 화면 위쪽에 떠버린다. */}
+                                {!isClarificationDocked && renderClarificationCard(msg, false)}
                               </>
                             )}
                             {isLastAssistant(i) && stage === "running" && (
@@ -4445,7 +4517,7 @@ function StrategyLabContent() {
                           )}
                         {msg.error && (
                           <div
-                            className={`flex items-start gap-2.5 rounded-2xl border border-[var(--error-red-line)] bg-[var(--chat-artifact-surface)] p-4 ${MESSAGE_ENTER_CLASS}`}
+                            className={`flex items-start gap-2.5 rounded-2xl border border-[var(--error-red-line)] bg-[var(--chat-artifact-surface)] p-4 chat-glass ${MESSAGE_ENTER_CLASS}`}
                           >
                             <Warning size={13} className="mt-0.5 flex-shrink-0 text-[var(--error-red)]" weight="fill" />
                             <div className="flex-1 space-y-1">
@@ -4520,9 +4592,16 @@ function StrategyLabContent() {
           />
         )}
 
+        {/* 칩으로만 답하는 동안의 되묻기 카드. 대화 트리 안에서 fixed를 주면 진입 연출로
+            transform이 남은 조상이 고정 기준이 돼 화면 위쪽에 떠버린다 — 하단 입력 바와
+            같은 자리(트리 바깥)에서 그려야 viewport 하단에 붙는다. */}
+        {isClarificationDocked && lastAssistantMessage &&
+          renderClarificationCard(lastAssistantMessage, true)}
+
         {/* 입력창이 숨겨지는 상태(에러/로딩 등 예상 못 한 상태 포함)에서도 항상 빠져나갈 수 있도록,
-            입력 바가 안 보일 때는 '대화 종료' 버튼만이라도 독립적으로 띄운다. */}
-        {hasChatStarted && !shouldShowChatInput && (
+            입력 바가 안 보일 때는 '대화 종료' 버튼만이라도 독립적으로 띄운다.
+            옵션 카드가 이 자리에 고정된 동안에는 카드 안 우하단 버튼이 대신한다. */}
+        {hasChatStarted && !shouldShowChatInput && !isClarificationDocked && (
           <div
             key="fixed-chat-escape"
             className="fixed bottom-4 left-4 right-4 z-40 mx-auto flex max-w-4xl justify-center"

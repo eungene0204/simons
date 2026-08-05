@@ -779,6 +779,15 @@ describe("StrategyLabPage scroll behavior", () => {
         "다음으로 포트폴리오를 얼마나 자주 다시 구성할지 정해볼까요?",
       ),
     ).toBeInTheDocument();
+    // 칩으로만 답하는 동안 되묻기 카드가 화면 하단을 차지하고, '대화 종료'는 카드 안에 있다.
+    const clarificationCard = screen.getByTestId("clarification-card");
+    expect(clarificationCard.dataset.docked).toBe("true");
+    expect(clarificationCard.className).toContain("fixed bottom-4");
+    const endChatButtons = screen.getAllByRole("button", { name: "대화 종료" });
+    expect(endChatButtons).toHaveLength(1);
+    expect(clarificationCard).toContainElement(endChatButtons[0]);
+
+    const userBubblesBeforeChip = screen.getAllByTestId("user-chat-bubble").length;
     fireEvent.click(screen.getByRole("button", { name: "안 함" }));
 
     expect(
@@ -786,6 +795,8 @@ describe("StrategyLabPage scroll behavior", () => {
         "이제 익절 기준을 몇 %로 정할까요?",
       ),
     ).toBeInTheDocument();
+    // 칩 답변은 말풍선을 만들지 않는다 — 고른 값은 바로 위 질문과 아래 요약에 이미 보인다.
+    expect(screen.getAllByTestId("user-chat-bubble")).toHaveLength(userBubblesBeforeChip);
     expect(
       screen.queryByText(
         "다음으로 포트폴리오를 얼마나 자주 다시 구성할지 정해볼까요?",
@@ -1511,6 +1522,11 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(screen.getByRole("button", { name: "익절 10%" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "익절 15%" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "직접 입력" })).toBeInTheDocument();
+    // 칩에는 위에서부터 순번이 붙는다. 순번은 aria-hidden이라 칩의 접근성 이름은
+    // 칩 문자열 그대로여야 한다 — 이름에 섞이면 백엔드 답변 프로토콜과 어긋난다.
+    expect(screen.getByRole("button", { name: "익절 5%" }).textContent).toBe("1익절 5%");
+    expect(screen.getByRole("button", { name: "익절 15%" }).textContent).toBe("3익절 15%");
+    expect(screen.getByRole("button", { name: "직접 입력" }).textContent).toBe("4직접 입력");
     expect(screen.getAllByText("전략 요약")).toHaveLength(summaryCountBeforeFollowUp);
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/strategy/parse/stream")).toHaveLength(1);
   });
