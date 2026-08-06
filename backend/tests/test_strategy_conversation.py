@@ -262,6 +262,113 @@ def test_risk_field_exit_condition_fills_empty_risk_slot():
     assert intent.strategy.risk_management.take_profit == 20
 
 
+def test_bare_hold_period_exit_condition_absorbed_once():
+    """9B 실측(2026-08-06, EMA 정배열 예시): portfolio.hold_period_days=25를 채우고
+    같은 사실을 exit_conditions에 **네임스페이스 없는** factor="hold_period_days"로 한 번
+    더 출력 → Registry에 없어 컴파일 드롭 → 정상 반영된 값이 "'보유는 최대 25거래일'
+    조건은 반영하지 못했어요"라는 거짓 안내를 받았다. 맨 이름 미러도 흡수해야 한다."""
+    data = _full_intent_dict(
+        exit_conditions=[
+            {"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
+             "parameters": {"short_period": 1, "long_period": 20},
+             "source_text": "20일 EMA를 이탈하면 청산"},
+            {"factor": "hold_period_days", "operator": "=", "value": 25,
+             "unit": "days", "source_text": "보유는 최대 25거래일"},
+        ],
+        portfolio={"selection_count": 8, "hold_period_days": 25},
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert [c.factor for c in intent.strategy.exit_conditions] == ["technical.ma_crossover"]
+    assert intent.strategy.portfolio.hold_period_days == 25
+
+
+def test_portfolio_field_exit_condition_fills_empty_slot():
+    """보유 기간을 슬롯에 안 채우고 조건에만 실은 경우(2026-08-06 40거래일 사고 변형) —
+    값을 빈 portfolio 슬롯으로 흡수한다(정보 소실 금지)."""
+    data = _full_intent_dict(
+        exit_conditions=[
+            {"factor": "portfolio.hold_period_days", "operator": "<=", "value": 40,
+             "source_text": "보유 기간 상한 40거래일"},
+        ],
+        portfolio={"selection_count": 12},
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert intent.strategy.exit_conditions == []
+    assert intent.strategy.portfolio.hold_period_days == 40
+
+
+def test_backtest_field_condition_absorbed():
+    # 초기 자본금 미러도 같은 사고면이다 — backtest 스칼라 슬롯으로 흡수.
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.per", "operator": "<=", "value": 10},
+            {"factor": "initial_capital", "operator": "=", "value": 50_000_000,
+             "source_text": "초기 자금 5천만원"},
+        ],
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert [c.factor for c in intent.strategy.entry_conditions] == ["fundamental.per"]
+    assert intent.strategy.backtest.initial_capital == 50_000_000
+
+
+def test_days_held_alias_condition_absorbed():
+    """트레이스 전수 조사(2026-08-06): time.days_held가 4일치에서 16건 — 프롬프트가
+    "지어내지 마세요"라고 해도 낸다. 보유 기간 슬롯의 다른 표기로 흡수한다."""
+    data = _full_intent_dict(
+        exit_conditions=[
+            {"factor": "time.days_held", "operator": ">=", "value": 10,
+             "source_text": "진입 후 10거래일 경과"},
+        ],
+        portfolio={"selection_count": 5},
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert intent.strategy.exit_conditions == []
+    assert intent.strategy.portfolio.hold_period_days == 10
+
+
+def test_wrong_namespace_slot_mirror_absorbed():
+    """트레이스 전수 조사(2026-08-06): fundamental.stop_loss 4건 — 9B가 슬롯 필드에
+    엉뚱한 네임스페이스를 붙인다. 마지막 세그먼트로 재조회해 흡수한다(risk 슬롯이
+    이미 차 있으면 중복 제거만)."""
+    data = _full_intent_dict(
+        exit_conditions=[
+            {"factor": "fundamental.stop_loss", "operator": "<=", "value": -9,
+             "source_text": "손절은 -9%로"},
+        ],
+        risk_management={},
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert intent.strategy.exit_conditions == []
+    assert intent.strategy.risk_management.stop_loss == 9
+
+
+def test_bare_period_condition_not_absorbed():
+    """맨 이름 "period"는 지표 파라미터 이름과 겹친다 — backtest.period로 흡수하면
+    사용자가 말한 적 없는 백테스트 창을 지어낸다. 흡수하지 않고 안내 레인에 남긴다."""
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "period", "operator": "=", "value": 14, "source_text": "14일 기준"},
+        ],
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert [c.factor for c in intent.strategy.entry_conditions] == ["period"]
+    assert intent.strategy.backtest.period is None
+
+
+def test_valueless_slot_condition_kept_for_notice():
+    # 값도 없고 슬롯도 비어 있으면 제거하지 않는다(조용한 누락 금지 — 안내 레인 담당).
+    data = _full_intent_dict(
+        exit_conditions=[
+            {"factor": "portfolio.hold_period_days", "operator": "<=", "value": None,
+             "source_text": "적당히 보유"},
+        ],
+        portfolio={},
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert len(intent.strategy.exit_conditions) == 1
+    assert intent.strategy.portfolio.hold_period_days is None
+
+
 def test_fundamental_exit_mirror_normalized_without_notice():
     """2026-08-05 사고 회귀: 9B가 손절 미러를 재무 팩터 청산(roe_or_gpa<=-100, source_text
     없음)으로 출력 → 검증이 역할을 안 봐 READY → 전량 컴파일이 StrategyCompileError →

@@ -17,7 +17,7 @@ import re
 from datetime import date
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 # ─── Enum 계약 ────────────────────────────────────────────────────────────────
 
@@ -163,6 +163,13 @@ class RankingSpec(BaseModel):
     metric: str = Field(description="랭킹 기준 (예: 'return')")
     lookback_days: Optional[int] = Field(default=None, description="산정 기간(거래일)")
     direction: Literal["top", "bottom"] = Field(default="top")
+    quantile_groups: Optional[int] = Field(
+        default=None,
+        description=(
+            "분위 그룹 수 — '10개 그룹으로 나눠 비교'/'십분위 분석'=10. "
+            "그룹별로 각각 백테스트해 비교하는 요청일 때만. 언급 없으면 null"
+        ),
+    )
     source_text: Optional[str] = None
 
 
@@ -306,6 +313,10 @@ class UniverseSpec(BaseModel):
 
 class PortfolioSpec(BaseModel):
     selection_count: Optional[int] = Field(default=None, description="선택 종목 수. 언급 없으면 null")
+    selection_percent: Optional[float] = Field(
+        default=None,
+        description="선택 비율(%) — '상위 10% 종목 편입'=10. 개수가 아니라 비율로 말했을 때만. 언급 없으면 null",
+    )
     weighting: Optional[str] = Field(default=None, description="비중 방식 (예: 'equal'). 언급 없으면 null")
     rebalance_frequency: Optional[str] = Field(
         default=None,
@@ -314,6 +325,7 @@ class PortfolioSpec(BaseModel):
     hold_period_days: Optional[int] = Field(default=None, description="최대 보유 기간(거래일)")
 
     _coerce_count = field_validator("selection_count", "hold_period_days", mode="before")(_coerce_number)
+    _coerce_pct = field_validator("selection_percent", mode="before")(_coerce_number)
 
 
 class RiskSpec(BaseModel):
@@ -442,6 +454,50 @@ class BacktestSpec(BaseModel):
     _coerce = field_validator("initial_capital", "fee_rate", "slippage_rate", mode="before")(_coerce_number)
 
 
+# 조건 목록에 미러된 스칼라 설정 슬롯의 정본 자리. 트레이스 전수 조사(2026-08-06,
+# 4일치 조건 관측 2,366건)에서 Registry 밖 factor 7종 중 6종이 이 미러였다:
+#   risk_management.stop_loss(1) · stop_loss(8) · fundamental.stop_loss(4, 오염
+#   네임스페이스) · portfolio.hold_period_days(8) · hold_period_days(8) ·
+#   time.days_held(16 — 프롬프트가 금지해도 낸다). 나머지 1종(technical.beta)만
+#   진짜 미지원 개념이라 "반영하지 못했어요" 안내가 정당하다.
+# 맨 이름은 세 스펙에 걸쳐 유일할 때만 등록한다. "period"만 제외 — 지표 파라미터 이름
+# (RSI period 등)과 겹쳐, 흡수하면 사용자가 말한 적 없는 백테스트 창을 지어낸다.
+_SCALAR_SLOT_SPECS: tuple = (
+    ("risk_management", RiskSpec),
+    ("portfolio", PortfolioSpec),
+    ("backtest", BacktestSpec),
+)
+_SLOT_FACTOR_MAP: Dict[str, tuple] = {}
+for _attr, _spec_cls in _SCALAR_SLOT_SPECS:
+    for _field in _spec_cls.model_fields:
+        _SLOT_FACTOR_MAP[f"{_attr}.{_field}"] = (_attr, _field)
+        if _field != "period" and _field not in _SLOT_FACTOR_MAP:
+            _SLOT_FACTOR_MAP[_field] = (_attr, _field)
+# 같은 슬롯의 다른 표기 — LLM 실측(time.days_held)과 엔진 DSL 이름(max_holding_days).
+# 표기만 보고 결정 가능한 동의어라 _OPERATOR_ALIASES와 같은 형식 정규화 레인이다.
+_SLOT_FACTOR_MAP["days_held"] = ("portfolio", "hold_period_days")
+_SLOT_FACTOR_MAP["max_holding_days"] = ("portfolio", "hold_period_days")
+
+
+def _scalar_slot_target(factor: Any) -> Optional[tuple]:
+    """factor 표기 → (스펙 attr, 필드명). 미러가 아니면 None.
+
+    정확 일치 후 마지막 세그먼트로 재조회한다 — 9B가 네임스페이스를 지어내거나
+    (fundamental.stop_loss, time.days_held) 틀리게 붙인 실측 대응. Registry 정본 id
+    68종의 마지막 세그먼트와 슬롯 필드명은 겹치지 않음을 확인했다(2026-08-06) —
+    겹치는 지표가 새로 생기면 여기 판정보다 Registry 등재가 우선이 되도록
+    capability_validator가 먼저 factor를 정본화하지 않는 현 순서(모델 검증이 먼저)를
+    감안해 이름을 피해서 등재한다.
+    """
+    name = str(factor or "")
+    target = _SLOT_FACTOR_MAP.get(name)
+    if target is not None:
+        return target
+    if "." in name:
+        return _SLOT_FACTOR_MAP.get(name.rsplit(".", 1)[-1])
+    return None
+
+
 class StrategySpec(BaseModel):
     """전략 초안 본체. 값이 null인 필드는 '사용자가 말하지 않음'을 뜻하며,
     compiler가 기본값을 적용하기 전까지 확정값이 아니다."""
@@ -503,25 +559,37 @@ class StrategySpec(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _absorb_risk_field_conditions(self):
+    def _absorb_scalar_slot_conditions(self):
         # 9B 드리프트 실측(2026-08-05): "손절 -8%"를 risk_management.stop_loss에 채우고
         # **같은 사실을** exit_conditions에 factor="risk_management.stop_loss"로 한 번 더
-        # 출력. 손절·익절은 의미상 청산 규칙이 맞지만 스키마 자리는 risk_management 하나다
-        # (사용자 판정: 중복은 환각이 아니라 자리 문제) — 조건 목록의 risk_management.*
-        # 항목은 값을 빈 risk 필드로 흡수한 뒤 제거해 한 번만 남긴다. 값도 없고 필드도
-        # 비어 있으면 남긴다(미지원 팩터 레인이 안내를 담당 — 조용한 누락 금지).
+        # 출력. 손절·보유 기간은 의미상 청산 규칙이 맞지만 스키마 자리는 하나다
+        # (사용자 판정: 중복은 환각이 아니라 자리 문제) — 조건 목록의 스칼라 슬롯 항목은
+        # 값을 빈 슬롯으로 흡수한 뒤 제거해 한 번만 남긴다. 값도 없고 슬롯도 비어 있으면
+        # 남긴다(미지원 팩터 레인이 안내를 담당 — 조용한 누락 금지).
+        #
+        # 2026-08-06 확장(보유 기간 사고 2건): 종전에는 risk_management.*만 판정해
+        # factor="hold_period_days"(맨 이름)·"portfolio.hold_period_days" 미러가
+        # Registry 부재로 컴파일에서 버려지고, portfolio.hold_period_days에 정상 반영된
+        # 값이 "'보유는 최대 25거래일' 조건은 반영하지 못했어요"라는 거짓 안내를 받았다.
+        # 판정을 _SLOT_FACTOR_MAP(risk/portfolio/backtest 스칼라 슬롯 전부 + 유일한
+        # 맨 이름)으로 넓힌다. 값 흡수는 스펙 자체 검증(model_validate)을 통과할 때만 —
+        # RiskSpec._abs_ratio(크기만)·BacktestSpec 버킷 정규화가 그대로 적용되고,
+        # Literal 밖 값은 흡수하지 않고 조건으로 남겨 안내 레인으로 보낸다.
         for attr in ("entry_conditions", "exit_conditions"):
             kept = []
             for cond in getattr(self, attr):
-                namespace, _, field = cond.factor.partition(".")
-                if namespace == "risk_management" and field in RiskSpec.model_fields:
-                    current = getattr(self.risk_management, field)
+                target = _scalar_slot_target(cond.factor)
+                if target is not None:
+                    slot_attr, field = target
+                    spec_obj = getattr(self, slot_attr)
+                    current = getattr(spec_obj, field)
                     if current is None and cond.value is not None:
-                        value = float(cond.value)
-                        if field != "max_position_weight":
-                            value = abs(value)  # RiskSpec._abs_ratio와 같은 규약(크기만)
-                        setattr(self.risk_management, field, value)
-                        current = value
+                        try:
+                            setattr(self, slot_attr, spec_obj.__class__.model_validate(
+                                {**spec_obj.model_dump(), field: cond.value}))
+                            current = getattr(getattr(self, slot_attr), field)
+                        except ValidationError:
+                            current = None
                     if current is not None:
                         continue
                 kept.append(cond)

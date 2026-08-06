@@ -240,3 +240,42 @@ describe("explicit_fields 기반 되묻기 게이트 (원문 정규식 폐지)",
     ).toBe(true);
   });
 });
+
+describe("분위 그룹 전략의 최대 보유 되묻기 (FR-BT-060b)", () => {
+  const quantileBase: ParsedSummary = {
+    ...base,
+    universe: ["KOSPI", "KOSDAQ"],
+    ranking_metric: "per",
+    ranking_direction: "bottom",
+    ranking_quantile_groups: 10,
+    rebalancing_period: "quarterly",
+  } as ParsedSummary;
+  const options = {
+    explicitFields: ["universe", "rebalancing", "backtest_period", "initial_capital"],
+    requireExplicitConfiguration: true,
+  };
+
+  it("cap 미답변이면 전용 질문·칩(그룹당 10종목~)으로 묻는다", () => {
+    const next = getNextMissingBacktestCondition(quantileBase, options);
+    expect(next?.field).toBe("max_positions");
+    expect(next?.question).toContain("분위 그룹");
+    expect(next?.suggestions).toEqual(["그룹당 10종목", "그룹당 20종목", "그룹당 30종목"]);
+  });
+
+  it("cap을 답하면 provenance 없이도 충족된다(물질화 기본값 없는 필드)", () => {
+    const answered = { ...quantileBase, ranking_group_cap: 10 } as ParsedSummary;
+    const next = getNextMissingBacktestCondition(answered, options);
+    expect(next?.field).not.toBe("max_positions");
+  });
+
+  it("일반 전략은 기존 질문·칩 그대로다", () => {
+    const next = getNextMissingBacktestCondition(
+      { ...base, rebalancing_period: "monthly" } as ParsedSummary,
+      { explicitFields: ["universe", "rebalancing", "backtest_period", "initial_capital"],
+        requireExplicitConfiguration: true },
+    );
+    if (next?.field === "max_positions") {
+      expect(next.suggestions).toEqual(["최대 5종목", "최대 10종목", "최대 20종목"]);
+    }
+  });
+});

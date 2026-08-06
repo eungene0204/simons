@@ -455,3 +455,69 @@ describe("값-대기 조건(pending_conditions) 요약 표시 — 2026-08-03 '�
     expect(presentation.summaryItems.find((i) => i.label === "매수 조건")).toBeUndefined();
   });
 });
+
+describe("buildBuilderTurnPresentation 분위 그룹·비율 편입 표시 (FR-BT-060)", () => {
+  const quantileParsed: ParsedSummary = {
+    description: "PER 십분위 그룹 비교",
+    universe: ["KOSPI", "KOSDAQ"],
+    target_symbols: [],
+    fundamental_filters: [],
+    entry_signals: [],
+    exit_signals: [],
+    ranking_metric: "per",
+    ranking_direction: "bottom",
+    ranking_quantile_groups: 10,
+    max_positions: 10,
+    hold_period_days: null,
+    rebalancing_period: "quarterly",
+    stop_loss_pct: null,
+    take_profit_pct: null,
+    backtest_period: null,
+    initial_capital: null,
+  } as unknown as ParsedSummary;
+
+  it("분위 그룹 전략은 '분위 그룹' 행으로 10개 그룹 분할을 알린다", () => {
+    // [회귀 2026-08-06] "10개 그룹으로 나눠 달라"고 말했는데 요약 카드에 그룹 내용이
+    // 전혀 없어 이해 못한 것처럼 읽히던 문제.
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "요약",
+      parsed: quantileParsed,
+      explicitFields: ["universe", "rebalancing"],
+    });
+    const row = presentation.summaryItems.find((item) => item.label === "분위 그룹");
+    expect(row?.value).toContain("10개 그룹");
+    expect(row?.value).toContain("1그룹");
+  });
+
+  it("비율 편입 전략은 '편입 비율' 행을 표시한다", () => {
+    const pctParsed = {
+      ...quantileParsed,
+      ranking_quantile_groups: null,
+      max_positions_pct: 10,
+    } as unknown as ParsedSummary;
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "요약",
+      parsed: pctParsed,
+      explicitFields: ["universe"],
+    });
+    const row = presentation.summaryItems.find((item) => item.label === "편입 비율");
+    expect(row?.value).toBe("상위 10%");
+  });
+
+  it("분위/비율이 없으면 두 행 모두 표시하지 않는다", () => {
+    const plain = {
+      ...quantileParsed,
+      ranking_quantile_groups: null,
+    } as unknown as ParsedSummary;
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "요약",
+      parsed: plain,
+      explicitFields: ["universe"],
+    });
+    expect(presentation.summaryItems.some((i) => i.label === "분위 그룹")).toBe(false);
+    expect(presentation.summaryItems.some((i) => i.label === "편입 비율")).toBe(false);
+  });
+});

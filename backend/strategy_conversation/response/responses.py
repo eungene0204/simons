@@ -81,7 +81,17 @@ def build_strategy_summary(intent: StrategyIntent, warnings: Optional[List[str]]
         markets = "+".join(strategy.universe.markets)
         sector = f", 섹터: {', '.join(strategy.universe.sectors)}" if strategy.universe.sectors else ""
         parts.append(f"- 유니버스: {markets}{sector}")
-        if strategy.portfolio.selection_count:
+        quantile_groups = next(
+            (r.quantile_groups for r in strategy.ranking if r.quantile_groups), None
+        )
+        if quantile_groups:
+            parts.append(
+                f"- 분위 그룹 비교: 랭킹 순으로 종목 수가 동일한 {quantile_groups}개 그룹을 "
+                "나눠 그룹별 결과를 비교합니다 (메인 결과는 1그룹)"
+            )
+        elif strategy.portfolio.selection_percent:
+            parts.append(f"- 편입 비율: 상위 {strategy.portfolio.selection_percent:g}%")
+        elif strategy.portfolio.selection_count:
             parts.append(f"- 종목 수: {strategy.portfolio.selection_count}개")
         if strategy.portfolio.rebalance_frequency:
             parts.append(f"- 리밸런싱: {strategy.portfolio.rebalance_frequency}")

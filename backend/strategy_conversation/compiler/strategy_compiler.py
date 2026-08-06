@@ -248,6 +248,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
     ranking_metric = None
     ranking_lookback = None
     ranking_direction = None
+    ranking_quantile_groups = None
     if strategy.ranking:
         # 검증기(capability_validator)가 metric을 정본 id로 정규화한 뒤다 —
         # ranking.return(모멘텀) 또는 fundamental.*(재무 팩터 랭킹, 2026-08-03).
@@ -261,6 +262,8 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         else:
             ranking_metric = "return"
             ranking_lookback = rank.lookback_days
+        # 분위 그룹 비교(FR-BT-060) — 랭킹이 있어야만 성립하므로 여기서만 통과시킨다.
+        ranking_quantile_groups = rank.quantile_groups
 
     # 업종·지정 종목은 LLM이 뽑은 표현('반도체', 'HBM', '삼성전자')을 registry가 정본 값으로
     # 해석한다 — 사용자 원문을 다시 읽지 않는다(nl_interpretation_contract § 3).
@@ -315,7 +318,16 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         ranking_metric=ranking_metric,
         ranking_lookback_days=ranking_lookback,
         ranking_direction=ranking_direction,
+        ranking_quantile_groups=ranking_quantile_groups,
         max_positions=portfolio.selection_count if portfolio.selection_count is not None else 10,
+        # 그룹당 보유 상한(FR-BT-060b) — 분위 그룹 모드에서 사용자가 말한 종목 수는
+        # 그룹당 상한이다. selection_count는 사용자가 말했을 때만 non-null이므로
+        # (LLM 계약: 지어내기 금지) 물질화 기본값(10)과 달리 provenance가 필요 없다.
+        ranking_group_cap=(
+            portfolio.selection_count if ranking_quantile_groups else None
+        ),
+        # 비율 선정 — 있으면 엔진이 max_positions(개수) 대신 후보 수 기준 비율로 선정한다.
+        max_positions_pct=portfolio.selection_percent,
         hold_period_days=portfolio.hold_period_days,
         rebalancing_period=portfolio.rebalance_frequency or "none",
         stop_loss_pct=risk.stop_loss,

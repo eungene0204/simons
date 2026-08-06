@@ -47,6 +47,12 @@ export interface ParsedSummary {
   ranking_lookback_days?: number | null;
   // 재무 팩터 랭킹의 방향(top=높은 순, bottom=낮은 순). 모멘텀('return')은 항상 top.
   ranking_direction?: "top" | "bottom" | null;
+  // 분위 그룹 비교(FR-BT-060) — 랭킹 후보를 종목 수 동일한 G개 그룹으로 나눠 비교.
+  ranking_quantile_groups?: number | null;
+  // 분위 그룹당 보유 상한(FR-BT-060b) — 각 그룹이 자기 구간의 랭킹 상위 N종목만 보유.
+  ranking_group_cap?: number | null;
+  // 비율 선정(FR-BT-060) — 상위 X% 편입(개수 대신 비율). 있으면 max_positions보다 우선.
+  max_positions_pct?: number | null;
   // 지정 종목(단일 종목) 백테스트 대상 종목코드(FR-STR-068). 비어 있으면 유니버스 전략.
   target_symbols?: string[];
   // 지정 종목이 어느 테마 조회에서 왔는지(없으면 사용자가 직접 지목한 종목).
@@ -123,6 +129,7 @@ export const METRIC_LABELS: Record<string, string> = {
   eps: "EPS",
   ebit: "영업이익",
   net_income: "당기순이익",
+  owner_net_income: "지배주주순이익",
   operating_cf_amount: "영업활동현금흐름",
   investing_cf_amount: "투자활동현금흐름",
   financing_cf_amount: "재무활동현금흐름",
@@ -196,6 +203,7 @@ export function formatFundamentalFilter(filter: {
   if (
     filter.metric === "market_cap" ||
     filter.metric === "net_income" ||
+    filter.metric === "owner_net_income" ||
     filter.metric === "operating_cf_amount" ||
     filter.metric === "investing_cf_amount" ||
     filter.metric === "financing_cf_amount"
@@ -522,6 +530,16 @@ export function getPositionLabel(parsed: ParsedSummary): string {
   const targetCount = parsed.target_symbols?.length ?? 0;
   if (scope === "EXPLICIT") {
     return targetCount === 1 ? "단일 종목 집중 투자" : `지정 종목 ${targetCount}개 균등 투자`;
+  }
+  // 분위 그룹·비율 선정(FR-BT-060)은 종목 수가 아니라 그룹/비율이 편입 규모를 정의한다 —
+  // "최대 10종목"(물질화 기본값)으로 표시하면 실제 실행(분위 밴드 전체 편입)과 어긋난다.
+  if (parsed.ranking_quantile_groups) {
+    return parsed.ranking_group_cap
+      ? `${parsed.ranking_quantile_groups}분위 그룹 · 그룹당 ${parsed.ranking_group_cap}종목`
+      : `${parsed.ranking_quantile_groups}분위 그룹 비교 (메인: 1그룹)`;
+  }
+  if (parsed.max_positions_pct != null) {
+    return `상위 ${parsed.max_positions_pct}% 편입`;
   }
   return `최대 ${parsed.max_positions}종목`;
 }

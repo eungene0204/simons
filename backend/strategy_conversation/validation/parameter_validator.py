@@ -49,12 +49,16 @@ def validate_parameters(intent: StrategyIntent) -> List[str]:
     for rank in strategy.ranking:
         if rank.lookback_days is not None and not (5 <= rank.lookback_days <= 500):
             errors.append(f"랭킹 산정 기간 {rank.lookback_days}거래일은 유효 범위(5~500)를 벗어났습니다")
+        if rank.quantile_groups is not None and not (2 <= rank.quantile_groups <= 10):
+            errors.append(f"분위 그룹 수 {rank.quantile_groups}은(는) 2~10 범위여야 합니다")
 
     portfolio = strategy.portfolio
     if portfolio.selection_count is not None:
         lo, hi = MAX_POSITIONS_RANGE
         if not (lo <= portfolio.selection_count <= hi):
             errors.append(f"종목 수 {portfolio.selection_count}은(는) {lo}~{hi} 범위여야 합니다")
+    if portfolio.selection_percent is not None and not (0 < portfolio.selection_percent <= 100):
+        errors.append(f"편입 비율 {portfolio.selection_percent}%은(는) 0 초과 100 이하여야 합니다")
     if portfolio.hold_period_days is not None and portfolio.hold_period_days < 1:
         errors.append("보유 기간은 1거래일 이상이어야 합니다")
 

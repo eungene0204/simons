@@ -422,6 +422,25 @@ export function buildBuilderTurnPresentation({
   if (entryValue) summaryItems.push({ label: "매수 조건", value: entryValue });
   const exitValue = [...exitLabels, ...pendingExit].join(" · ");
   if (exitValue) summaryItems.push({ label: "매도 조건", value: exitValue });
+  // 분위 그룹 비교(FR-BT-060) — 그룹이 편입 규모를 정의하는 전략의 핵심 설정이라
+  // 빼면 "10개 그룹으로 나눠 달라"는 요청이 이해 안 된 것처럼 읽힌다. 이 필드는
+  // 물질화 기본값이 없어(기본 null) 값이 있으면 곧 사용자가 말한 것이다.
+  if (parsed?.ranking_quantile_groups) {
+    summaryItems.push({
+      label: "분위 그룹",
+      value: [
+        `종목 수 동일 ${parsed.ranking_quantile_groups}개 그룹 · 그룹별 비교 (메인: 1그룹)`,
+        // 그룹당 보유 상한(FR-BT-060b) — 답한 값이 요약에서 안 보이면 반영 여부를 알 수 없다.
+        ...(parsed.ranking_group_cap ? [`그룹당 ${parsed.ranking_group_cap}종목`] : []),
+      ].join(" · "),
+    });
+  } else if (parsed?.max_positions_pct != null) {
+    // 비율 편입도 같은 이유 — '상위 10%'가 종목 수 표기 없이 사라지면 안 된다.
+    summaryItems.push({
+      label: "편입 비율",
+      value: `상위 ${parsed.max_positions_pct}%`,
+    });
+  }
   if (parsed && specifiedSymbolCount > 0) {
     // 지정 종목 모드의 배분은 max_positions가 아니라 종목 수 균등이다 — 변환기가
     // max_positions=지정 종목 수로 덮어쓴다(FR-STR-068 ①, ranking_enabled=off). 기본값

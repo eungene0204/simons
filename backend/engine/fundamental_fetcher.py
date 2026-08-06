@@ -77,6 +77,25 @@ _DART_CAPEX_NAMES = {"유형자산의취득", "무형자산의취득"}
 # 자본총계(자본잠식 판정용) — 재무상태표(BS) 섹션. 위와 동일 실측으로 확인.
 _DART_TOTAL_EQUITY_ACCOUNT_ID = "ifrs-full_Equity"
 _DART_TOTAL_EQUITY_NAMES = {"자본총계"}
+# 지배기업 소유주 귀속 당기순이익(=지배주주순이익). 손익계산서(IS) 또는 포괄손익계산서(CIS)
+# 섹션에 실리는데 어느 쪽인지는 제출본마다 갈린다(실측 2026-08-06, 12종목 2023년 CFS에서
+# IS 5 / CIS 7) — 두 섹션을 모두 본다. 12/12가 아래 계정ID로 등장했다.
+#
+# 접두가 두 벌인 이유: IFRS 택소노미가 바뀌면서 2018년 사업보고서까지는 ``ifrs_``,
+# 2019년부터는 ``ifrs-full_``을 쓴다(삼성전자 실측: 2018=ifrs_, 2019=ifrs-full_).
+# 신형만 보면 2015~2018년이 조용히 결측된다 — 다른 DART 파서들은 이름 폴백이 있어 이 차이가
+# 드러나지 않았다.
+#
+# **이름 폴백을 두지 않는다.** account_nm 표기가 회사마다 제각각인 데다("지배기업의 소유주에게
+# 귀속되는 당기순이익(손실)" / "지배기업소유주지분" / "지배기업소유주" / "지배주주순이익"),
+# 같은 CIS 섹션의 **총포괄손익** 귀속 행이 거의 같은 이름을 쓴다(SK하이닉스 실측: 순이익 귀속도
+# 포괄손익 귀속도 "지배기업(의) 소유주지분"). 이름으로 잡으면 포괄손익을 순이익으로 오인하므로
+# 계정ID 정확 일치만 인정한다 — CF 총계 파서가 소계 오인을 막는 것과 같은 이유다.
+_DART_OWNER_NET_INCOME_ACCOUNT_IDS = {
+    "ifrs-full_ProfitLossAttributableToOwnersOfParent",  # 2019년 사업보고서~
+    "ifrs_ProfitLossAttributableToOwnersOfParent",       # ~2018년 사업보고서(구 택소노미)
+}
+_DART_OWNER_NET_INCOME_SECTIONS = ("IS", "CIS")
 _DART_CORP_CODES: Optional[Dict[str, str]] = None
 
 load_dotenv(_PROJECT_ROOT / ".env")
@@ -218,6 +237,12 @@ ANNUAL_FUNDAMENTAL_KEYS = [
     # 당기순이익(억원) — 순이익률 x 매출액 로컬 재계산(net_income_growth 재계산과 같은
     # 컴포넌트). 절대 금액 필터('당기순이익 1,000억 이상') 지원용(2026-08-03).
     "net_income",
+    # 지배주주순이익(억원) — DART 손익계산서의 '지배기업 소유주 귀속 당기순이익'. 위
+    # net_income은 KIS 순이익률x매출액이라 **비지배지분이 섞인 연결 전체 당기순이익**이다
+    # (삼성전자 2023 실측: 전체 154,843억 = 지배 144,734 + 비지배 10,137). 지주회사·자회사
+    # 비중이 큰 기업에서 둘은 크게 갈리므로 별도 지표로 둔다. DART 유래라 2015년 이전과
+    # 별도재무제표(OFS)만 있는 종목은 결측이다(2026-08-06).
+    "owner_net_income",
     # 투자·재무활동 현금흐름 총계(원 단위 raw — operating_cash_flow와 동일 기준). DART CF
     # 섹션에서 OCF와 같은 응답으로 파싱하므로 추가 API 호출은 없다(2026-08-05).
     "investing_cash_flow", "financing_cash_flow",
@@ -407,6 +432,27 @@ def _parse_dart_total_equity(rows: list) -> Optional[float]:
     return None
 
 
+def _parse_dart_owner_net_income(rows: list) -> Optional[float]:
+    """IS/CIS 섹션의 지배기업 소유주 귀속 당기순이익(부호 그대로 — 적자면 음수).
+
+    계정ID 정확 일치만 인정한다(이유는 _DART_OWNER_NET_INCOME_ACCOUNT_IDS 주석 참고).
+    별도재무제표(OFS)에는 이 개념 자체가 없으므로 None이 정상이다.
+    """
+    if not isinstance(rows, list):
+        return None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if row.get("sj_div") not in _DART_OWNER_NET_INCOME_SECTIONS:
+            continue
+        if str(row.get("account_id", "")).strip() not in _DART_OWNER_NET_INCOME_ACCOUNT_IDS:
+            continue
+        amount = _parse_number(str(row.get("thstrm_amount", "")))
+        if amount is not None:
+            return amount
+    return None
+
+
 def _get_dart_corp_code(symbol: str) -> Optional[str]:
     global _DART_CORP_CODES
     if _DART_CORP_CODES is None:
@@ -541,6 +587,11 @@ def _fetch_cash_flow_from_dart(
         total_equity = _parse_dart_total_equity(rows)
         if total_equity is not None:
             record["total_equity"] = total_equity
+        # 지배주주순이익도 같은 응답에서 파싱한다(추가 호출 0). raw 원 단위라 억원 환산은
+        # _compute_derived_annual_metrics가 맡는다 — 내부 키(_ 접두)는 저장되지 않는다.
+        owner_net_income = _parse_dart_owner_net_income(rows)
+        if owner_net_income is not None:
+            record["_owner_net_income_raw"] = owner_net_income
         results.append(record)
 
     # available_from을 원공시 접수일로 클램프(min) — 정정공시 접수일로 밀린 값 교정.
@@ -660,6 +711,11 @@ def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
             if raw_amount is not None:
                 rec[amount_key] = round(raw_amount / 1e8, 1)
 
+        # 지배주주순이익(억원) — DART raw 원 단위를 금액 관례(억원)로 환산한다.
+        owner_raw = rec.get("_owner_net_income_raw")
+        if owner_raw is not None:
+            rec["owner_net_income"] = round(owner_raw / 1e8, 1)
+
         ebitda = rec.get("ebitda")
         ev_ebitda_ratio = rec.get("ev_ebitda")
         if ebitda is not None and ebitda > 0 and ev_ebitda_ratio is not None:
@@ -691,6 +747,7 @@ def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
 
     for rec in sorted_records:
         rec.pop("_revenue", None)
+        rec.pop("_owner_net_income_raw", None)
 
     return sorted_records
 

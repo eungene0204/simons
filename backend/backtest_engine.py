@@ -157,6 +157,68 @@ class BacktestEngine:
         return self.indicator_engine.calculate(df_pl, conditions)
 
     @staticmethod
+    def _build_rebal_note(rebal_kr: str, max_pos, qg_n: int, sel_pct, group_cap=None) -> str:
+        """랭킹 매수 사유에 붙는 편입 대상 설명 — 선정 방식(분위/비율/상위 K)별 표기."""
+        if not rebal_kr:
+            return ""
+        if qg_n and qg_n >= 2:
+            cap_note = f"(그룹당 {int(group_cap)}종목)" if group_cap else ""
+            return f", {rebal_kr} 리밸런싱 {int(qg_n)}분위 그룹{cap_note} 편입 대상"
+        if sel_pct:
+            return f", {rebal_kr} 리밸런싱 상위 {float(sel_pct):g}% 편입 대상"
+        if max_pos:
+            return f", {rebal_kr} 리밸런싱 상위 {int(max_pos)}종목 편입 대상"
+        return ""
+
+    @staticmethod
+    def _quantile_group_summary(pf, init_cash: float, max_points: int = 300) -> Dict[str, Any]:
+        """분위 그룹 1개의 요약 지표 + 다운샘플 자산곡선 (FR-BT-060).
+
+        전체 결과(format_results)는 신호·거래 목록까지 만들어 그룹 수만큼 곱하면
+        응답·저장 페이로드가 과도해진다 — 그룹 비교에 필요한 지표만 추린다.
+        자산곡선은 그래프용으로 최대 max_points 포인트로 다운샘플한다(마지막 봉 보존).
+        """
+        import numpy as np
+        val = pf.value()
+        if isinstance(val, pd.DataFrame):
+            val = val.sum(axis=1)
+        n = len(val)
+        final_eq = float(val.iloc[-1]) if n else init_cash
+        total_return = (final_eq / init_cash - 1.0) * 100.0 if init_cash > 0 else 0.0
+        years = n / 252.0
+        cagr = (
+            ((final_eq / init_cash) ** (1.0 / years) - 1.0) * 100.0
+            if years > 0 and final_eq > 0 and init_cash > 0 else 0.0
+        )
+        dd = (val / val.cummax() - 1.0) if n else None
+        mdd = float(dd.min() * 100.0) if dd is not None and len(dd) else 0.0
+        rets = val.pct_change().dropna() if n else None
+        sharpe = (
+            float(rets.mean() / rets.std() * np.sqrt(252))
+            if rets is not None and len(rets) > 1 and float(rets.std()) > 0 else 0.0
+        )
+        trades = int(pf.trades.count())
+        try:
+            win_rate = float(pf.trades.win_rate() * 100.0) if trades else 0.0
+        except Exception:
+            win_rate = 0.0
+        stride = max(1, n // max_points)
+        idx = list(range(0, n, stride))
+        if n and idx[-1] != n - 1:
+            idx.append(n - 1)
+        return {
+            "totalReturn": round(total_return, 2),
+            "cagr": round(cagr, 2),
+            "maxDrawdown": round(mdd, 2),
+            "sharpe": round(sharpe, 2),
+            "winRate": round(win_rate, 2),
+            "trades": trades,
+            "finalEquity": round(final_eq, 2),
+            "equity": [round(float(val.iloc[j]), 2) for j in idx],
+            "dates": [pd.Timestamp(val.index[j]).strftime('%Y-%m-%d') for j in idx],
+        }
+
+    @staticmethod
     def benchmark_for_universe(universe_id: str) -> tuple[str, str]:
         normalized = (universe_id or "kospi200").lower()
         universe_parts = {part for part in normalized.split("_") if part}
@@ -791,6 +853,10 @@ class BacktestEngine:
             rank_df = None
             skip_pos = risk_params.get('skip_position_setting', False)
             ranking_metric = risk_params.get('ranking_metric')
+            # 분위(퀀타일) 그룹 비교(FR-BT-060): 랭킹 후보를 종목 수 동일한 G개 그룹으로
+            # 나눠 그룹별로 각각 백테스트한다. 메인 결과는 1그룹(랭킹 최상위 구간)이다.
+            _qg_n = int(risk_params.get('ranking_quantile_groups') or 0)
+            _sel_pct = risk_params.get('max_positions_pct')
             if ranking_metric == 'return':
                 # 상대강도(모멘텀) 랭킹: N일 수익률 순위로 상위 종목 선정.
                 # 종목 간 횡단면 순위라 진입 신호 없이 순위 자체가 진입이 된다. 회전(월간 등)은
@@ -833,9 +899,9 @@ class BacktestEngine:
                             'bimonthly': '격월', 'quarterly': '분기', 'yearly': '연간',
                         }.get(str(risk_params.get('rebalancing_period') or ''), '')
                         _max_pos = risk_params.get('max_positions')
-                        _rebal_note = (
-                            f", {_rebal_kr} 리밸런싱 상위 {int(_max_pos)}종목 편입 대상"
-                            if (_rebal_kr and _max_pos) else ""
+                        _rebal_note = self._build_rebal_note(
+                            _rebal_kr, _max_pos, _qg_n, _sel_pct,
+                            group_cap=risk_params.get('ranking_group_cap'),
                         )
                         _top_pct_df = (1.0 - rank_df) * 100.0
                         for _sym in processed_symbols:
@@ -902,9 +968,9 @@ class BacktestEngine:
                             'bimonthly': '격월', 'quarterly': '분기', 'yearly': '연간',
                         }.get(str(risk_params.get('rebalancing_period') or ''), '')
                         _max_pos = risk_params.get('max_positions')
-                        _rebal_note = (
-                            f", {_rebal_kr} 리밸런싱 상위 {int(_max_pos)}종목 편입 대상"
-                            if (_rebal_kr and _max_pos) else ""
+                        _rebal_note = self._build_rebal_note(
+                            _rebal_kr, _max_pos, _qg_n, _sel_pct,
+                            group_cap=risk_params.get('ranking_group_cap'),
                         )
                         _top_pct_df = (1.0 - rank_df) * 100.0
                         for _sym in processed_symbols:
@@ -958,6 +1024,27 @@ class BacktestEngine:
 
             simulator_options = dict(options)
             simulator_options.setdefault('execution_type', exec_type)
+
+            # ── 분위 그룹 모드 게이트 ──
+            # 성립 조건: 랭킹(rank_df)과 정기 리밸런싱이 있어야 한다. 성립하면 메인
+            # 실행을 1그룹(랭킹 최상위 분위 구간) 포트폴리오로 잡는다.
+            _quantile_active = False
+            if _qg_n >= 2:
+                _rebal_ok = str(risk_params.get('rebalancing_period') or 'none') != 'none'
+                if rank_df is None:
+                    self.warnings.add(
+                        "분위 그룹 비교는 랭킹 지표(예: PER 낮은 순)가 있어야 실행됩니다 — "
+                        "이번 실행에서는 그룹 비교를 계산하지 못했습니다."
+                    )
+                elif not _rebal_ok:
+                    self.warnings.add(
+                        "분위 그룹 비교는 정기 리밸런싱 주기가 있어야 실행됩니다 — "
+                        "이번 실행에서는 그룹 비교를 계산하지 못했습니다."
+                    )
+                else:
+                    _quantile_active = True
+                    risk_params = dict(risk_params)
+                    risk_params['ranking_band'] = [1, _qg_n]
 
             pf = self.simulator.run(
                 price_df, exec_px_df, ents_df, exts_df, risk_params, simulator_options,
@@ -1014,6 +1101,67 @@ class BacktestEngine:
                 "total": round(_t4 - _t0, 2),
                 "symbols": len(processed_symbols),
             }
+
+            # ── 분위 그룹 비교 실행 (FR-BT-060) ──
+            # rank_df·신호는 이미 계산돼 있으므로 그룹별로는 시뮬레이션만 반복한다.
+            # 그룹 비교는 순수 리밸런싱 기준(개별 손절/익절/트레일링/보유기간 미적용) —
+            # 동일 규칙으로 G개 그룹을 나란히 비교하기 위해서다.
+            if _quantile_active:
+                _init_cash_val = float(risk_params.get('init_cash') or 10000000.0)
+                _group_rp_base = dict(risk_params)
+                for _k in ('stop_loss_pct', 'take_profit_pct', 'trailing_stop_pct',
+                           'max_holding_days', 'max_mdd_limit_pct'):
+                    _group_rp_base[_k] = None
+                _dir_bottom = str(risk_params.get('ranking_direction') or 'top') == 'bottom'
+                if ranking_metric == 'return':
+                    _metric_kr = f"최근 {int(risk_params.get('ranking_lookback_days') or 60)}거래일 수익률"
+                else:
+                    _metric_kr = FUNDAMENTAL_LABELS.get(ranking_metric, ranking_metric)
+                _order_kr = "낮은" if _dir_bottom else "높은"
+                _groups_out = []
+                _group_sim = Simulator()
+                for _g in range(1, _qg_n + 1):
+                    _rp = dict(_group_rp_base)
+                    _rp['ranking_band'] = [_g, _qg_n]
+                    try:
+                        _pf_g = _group_sim.run(
+                            price_df, exec_px_df, ents_df, exts_df, _rp, simulator_options,
+                            rank_df=rank_df, high_df=high_df, low_df=low_df,
+                            available_df=available_df,
+                        )
+                        _summary = self._quantile_group_summary(_pf_g, _init_cash_val)
+                    except Exception as _ge:
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            f"[BacktestEngine] 분위 그룹 {_g}/{_qg_n} 시뮬레이션 실패: {_ge}"
+                        )
+                        continue
+                    _lo = round((_g - 1) * 100 / _qg_n)
+                    _hi = round(_g * 100 / _qg_n)
+                    _summary.update({
+                        "group": _g,
+                        "pctRange": [_lo, _hi],
+                        "label": f"{_g}그룹 ({_metric_kr} {_order_kr} 순 {_lo}~{_hi}%)",
+                    })
+                    _groups_out.append(_summary)
+                if _groups_out:
+                    final["quantileGroups"] = {
+                        "groups": _groups_out,
+                        "metricLabel": _metric_kr,
+                        "orderLabel": f"{_metric_kr} {_order_kr} 순",
+                        "groupCount": _qg_n,
+                        "mainGroup": 1,
+                        # 그룹당 보유 상한(FR-BT-060b) — 없으면 그룹 구간 전체 보유.
+                        "groupCap": risk_params.get('ranking_group_cap'),
+                    }
+                    self.warnings.add(
+                        f"분위 그룹 비교({_qg_n}개 그룹)는 그룹별 순수 리밸런싱 기준으로 계산되었습니다 — "
+                        "개별 손절/익절/보유기간 제한은 그룹 비교에 적용되지 않습니다. "
+                        "메인 결과는 1그룹 포트폴리오입니다."
+                    )
+                _t5 = _time.time()
+                final["timing"]["quantileGroups"] = round(_t5 - _t4, 2)
+                print(f"[BT-ENGINE] 분위 {_qg_n}그룹 완료: {_t5-_t4:.2f}s", flush=True)
 
             # Add no-trades warning
             if pf.trades.count() == 0:

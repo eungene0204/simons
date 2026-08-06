@@ -14,6 +14,7 @@ from engine.fundamental_fetcher import (
     _parse_dart_activity_cash_flow,
     _parse_dart_capex,
     _parse_dart_operating_cash_flow,
+    _parse_dart_owner_net_income,
     _parse_dart_total_equity,
     _parse_kis_financial_ratio_output,
     _parse_kis_income_statement,
@@ -285,6 +286,130 @@ def test_fetch_cash_flow_from_dart_also_captures_capex_and_total_equity(monkeypa
         "capex": pytest.approx(60_534_167_000_000.0),
         "total_equity": pytest.approx(363_677_865_000_000.0),
     }]
+
+
+# ── OpenDART 지배주주순이익 (실측: 2026-08-06, 12종목 2023년 fnlttSinglAcntAll.json) ──
+#
+# 표기 실측: 계정ID는 12/12 동일하지만 account_nm은 "지배기업의 소유주에게 귀속되는
+# 당기순이익(손실)"(삼성전자)·"지배기업소유주지분"(현대차)·"지배기업소유주"(클래시스)·
+# "지배주주순이익"(엔씨소프트)으로 갈리고, 섹션도 IS 5 / CIS 7로 갈렸다.
+_DART_OWNER_NET_INCOME_IS_ROW = {
+    "sj_div": "IS",
+    "account_id": "ifrs-full_ProfitLossAttributableToOwnersOfParent",
+    "account_nm": "지배기업의 소유주에게 귀속되는 당기순이익(손실)",
+    "thstrm_amount": "14,473,401,000,000",
+}
+# SK하이닉스 실측: 같은 CIS 섹션 안에서 '당기순이익 귀속'과 '총포괄손익 귀속'이 사실상
+# 같은 이름을 쓴다 — 이름으로 매칭하면 포괄손익을 순이익으로 오인한다.
+_DART_OWNER_CIS_FIXTURE = [
+    {
+        "sj_div": "CIS",
+        "account_id": "ifrs-full_ProfitLossAttributableToOwnersOfParent",
+        "account_nm": "지배기업의 소유주지분",
+        "thstrm_amount": "-9,112,428,000,000",
+    },
+    {
+        "sj_div": "CIS",
+        "account_id": "ifrs-full_ComprehensiveIncomeAttributableToOwnersOfParent",
+        "account_nm": "지배기업 소유주지분",
+        "thstrm_amount": "-8,000,000,000,000",
+    },
+]
+
+
+def test_parse_dart_owner_net_income_reads_income_statement_section():
+    assert _parse_dart_owner_net_income(
+        [*_DART_CF_BS_FIXTURE, _DART_OWNER_NET_INCOME_IS_ROW]
+    ) == pytest.approx(14_473_401_000_000.0)
+
+
+def test_parse_dart_owner_net_income_reads_comprehensive_income_section():
+    """제출본에 따라 CIS 섹션에 실린다 — 두 섹션 모두 인정해야 한다(적자면 음수 보존)."""
+    assert _parse_dart_owner_net_income(_DART_OWNER_CIS_FIXTURE) == pytest.approx(
+        -9_112_428_000_000.0
+    )
+
+
+def test_parse_dart_owner_net_income_ignores_comprehensive_income_row():
+    """이름이 거의 같은 '총포괄손익 귀속' 행을 순이익으로 오인하면 안 된다(계정ID 정확 일치)."""
+    only_comprehensive = [_DART_OWNER_CIS_FIXTURE[1]]
+    assert _parse_dart_owner_net_income(only_comprehensive) is None
+
+
+def test_parse_dart_owner_net_income_accepts_legacy_taxonomy_prefix():
+    """2018년 사업보고서까지는 계정ID 접두가 'ifrs_'다 — 신형만 보면 2015~2018이 조용히
+    결측된다(삼성전자 실측: 2018=ifrs_, 2019=ifrs-full_)."""
+    legacy = [{
+        "sj_div": "IS",
+        "account_id": "ifrs_ProfitLossAttributableToOwnersOfParent",
+        "account_nm": "지배기업의 소유주에게 귀속되는 당기순이익(손실)",
+        "thstrm_amount": "43,890,877,000,000",
+    }]
+    assert _parse_dart_owner_net_income(legacy) == pytest.approx(43_890_877_000_000.0)
+
+
+def test_parse_dart_owner_net_income_ignores_legacy_comprehensive_income_row():
+    """구 택소노미에서도 총포괄손익 귀속 행(ifrs_ComprehensiveIncome…)은 잡지 않는다."""
+    legacy_comprehensive = [{
+        "sj_div": "CIS",
+        "account_id": "ifrs_ComprehensiveIncomeAttributableToOwnersOfParent",
+        "account_nm": "지배기업 소유주지분",
+        "thstrm_amount": "43,882,473,000,000",
+    }]
+    assert _parse_dart_owner_net_income(legacy_comprehensive) is None
+
+
+def test_parse_dart_owner_net_income_missing_returns_none():
+    """별도재무제표(OFS)에는 지배/비지배 구분 자체가 없어 결측이 정상이다."""
+    assert _parse_dart_owner_net_income(_DART_CF_BS_FIXTURE) is None
+
+
+def test_fetch_cash_flow_from_dart_also_captures_owner_net_income(monkeypatch):
+    """같은 fnlttSinglAcntAll.json 응답에서 지배주주순이익도 추가 API 호출 없이 담긴다."""
+    import engine.fundamental_fetcher as ff
+
+    monkeypatch.setenv("DART_API_KEY", "test-key")
+    monkeypatch.setattr(ff, "_get_dart_corp_code", lambda symbol: "00126380")
+
+    rows = [
+        {**row, "rcept_no": "20250331000001"}
+        for row in (*_DART_CF_BS_FIXTURE, _DART_OWNER_NET_INCOME_IS_ROW)
+    ]
+    monkeypatch.setattr(ff, "_fetch_dart_json", lambda path, params: {"status": "000", "list": rows})
+
+    record = _fetch_cash_flow_from_dart("005930", 2024, 2024)[0]
+    assert record["_owner_net_income_raw"] == pytest.approx(14_473_401_000_000.0)
+
+
+def test_compute_derived_metrics_converts_owner_net_income_to_eok():
+    """DART raw 원 단위 → 억원(금액 관례). 내부 키는 저장 레코드에 남지 않는다."""
+    result = _compute_derived_annual_metrics(
+        [{"year_end": "2023-12-31", "_owner_net_income_raw": 14_473_401_000_000.0}]
+    )
+    assert result[0]["owner_net_income"] == pytest.approx(144_734.0)
+    assert "_owner_net_income_raw" not in result[0]
+
+
+def test_compute_derived_metrics_owner_net_income_preserves_negative_sign():
+    result = _compute_derived_annual_metrics(
+        [{"year_end": "2023-12-31", "_owner_net_income_raw": -9_112_428_000_000.0}]
+    )
+    assert result[0]["owner_net_income"] == pytest.approx(-91_124.3)
+
+
+def test_owner_net_income_is_distinct_from_consolidated_net_income():
+    """net_income(연결 전체)과 owner_net_income(지배 귀속)은 서로 다른 지표다.
+
+    삼성전자 2023 실측: 전체 154,843억 = 지배 144,734 + 비지배 10,137.
+    한쪽이 다른 쪽을 덮어쓰면 지주회사에서 수천억~수조 단위로 어긋난다.
+    """
+    result = _compute_derived_annual_metrics([{
+        "year_end": "2023-12-31",
+        "net_margin": 5.98, "_revenue": 2_589_355.0,
+        "_owner_net_income_raw": 14_473_401_000_000.0,
+    }])
+    assert result[0]["net_income"] == pytest.approx(154_843.4, abs=0.1)
+    assert result[0]["owner_net_income"] == pytest.approx(144_734.0)
 
 
 # ── OpenDART 투자·재무활동 현금흐름 (실측: 2026-08-05, 11종목 fnlttSinglAcntAll.json) ──

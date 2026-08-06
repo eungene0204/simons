@@ -1763,7 +1763,7 @@ def _bound_ask_with_slot_fallback(
     메우지 않는다).
     """
     canonical = strategy_slots.suggestions_for_topic(
-        topic, universe=getattr(parsed, "universe", None))
+        topic, universe=getattr(parsed, "universe", None), parsed=parsed)
     discarded = [c for c in (chips or []) if c not in canonical]
     if discarded:
         _log_llm("↩ planner 칩 폐기", (

@@ -300,6 +300,7 @@ RankingMetricLiteral = Literal[
     "operating_margin", "revenue_growth", "operating_income_growth", "net_income_growth",
     "market_cap", "dividend_yield", "payout_rate", "dividend_growth",
     "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth", "eps", "ebit", "net_income",
+    "owner_net_income",
     "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
 ]
 
@@ -322,7 +323,7 @@ class FundamentalFilter(BaseModel):
         "operating_income_growth", "net_income_growth", "market_cap", "trading_value",
         "dividend_yield", "payout_rate", "dividend_growth",
         "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth", "eps", "ebit",
-        "net_income",
+        "net_income", "owner_net_income",
         "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
     ], BeforeValidator(_normalize_metric_alias)] = Field(
         description=(
@@ -343,7 +344,9 @@ class FundamentalFilter(BaseModel):
             "ocf_growth=영업활동현금흐름증가율(%), fcf_growth=잉여현금흐름증가율(%), "
             "eps=주당순이익(원, 최근 연간 결산 기준 — 흑자 기업=eps>0, 적자 기업=eps<0), "
             "ebit=영업이익(억원, 최근 연간 결산 기준 — 영업이익 흑자=ebit>0, 영업이익 적자=ebit<0), "
-            "net_income=당기순이익(억원, 최근 연간 결산 기준 절대 금액), "
+            "net_income=당기순이익(억원, 최근 연간 결산 기준 절대 금액 — 비지배지분이 포함된 연결 전체), "
+            "owner_net_income=지배주주순이익(억원, 지배기업 소유주 귀속분 — '지배주주·지배기업 소유주'처럼 "
+            "귀속 주체를 밝힌 표현일 때만 사용하고 맨 '당기순이익'은 net_income), "
             "operating_cf_amount=영업활동현금흐름(억원, 절대 금액 — 증가율은 ocf_growth), "
             "investing_cf_amount=투자활동현금흐름(억원, 설비·자산 취득이 많으면 음수), "
             "financing_cf_amount=재무활동현금흐름(억원, 차입 상환·배당 지급이 많으면 음수). "
@@ -669,11 +672,33 @@ class ParsedStrategy(BaseModel):
         default=None,
         description="랭킹 방향. top=값 높은 순(기본), bottom=값 낮은 순(예: 'PER 낮은 상위 20종목'). 없으면 null(top)",
     )
+    ranking_quantile_groups: Optional[int] = Field(
+        default=None, ge=2, le=10,
+        description=(
+            "분위 그룹 비교(FR-BT-060). 랭킹 후보를 종목 수 동일한 G개 그룹으로 나눠 "
+            "그룹별 백테스트를 비교. 예: 'PER 십분위 분석'=10. 없으면 null"
+        ),
+    )
+    ranking_group_cap: Optional[int] = Field(
+        default=None, ge=1, le=100,
+        description=(
+            "분위 그룹당 보유 종목 상한(FR-BT-060b). 각 그룹이 자기 구간에서 랭킹 상위 "
+            "N종목만 보유(모든 그룹 동일 적용). 분위 그룹 비교일 때만 의미. 없으면 "
+            "그룹 구간 전체 보유"
+        ),
+    )
 
     # ── 포트폴리오
     max_positions: int = Field(
         default=10, ge=1, le=100,
         description="동시 보유 최대 종목 수. '10개', '20종목' 등에서 추출"
+    )
+    max_positions_pct: Optional[float] = Field(
+        default=None, gt=0, le=100,
+        description=(
+            "비율 선정(FR-BT-060): 랭킹 후보의 상위 X%를 편입 — '상위 10% 종목 편입'=10.0. "
+            "있으면 max_positions(개수)보다 우선. 없으면 null"
+        ),
     )
     hold_period_days: Optional[int] = Field(
         default=None,
@@ -783,7 +808,10 @@ class ParsedStrategyDiff(BaseModel):
     ranking_metric: Optional[RankingMetricLiteral] = None
     ranking_lookback_days: Optional[int] = None
     ranking_direction: Optional[Literal["top", "bottom"]] = None
+    ranking_quantile_groups: Optional[int] = Field(default=None, ge=2, le=10)
+    ranking_group_cap: Optional[int] = Field(default=None, ge=1, le=100)
     max_positions: Optional[int] = Field(default=None, ge=1, le=100)
+    max_positions_pct: Optional[float] = Field(default=None, gt=0, le=100)
     hold_period_days: Optional[int] = None
     rebalancing_period: Optional[Literal["none", "daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly"]] = None
     stop_loss_pct: Optional[float] = None
@@ -5413,6 +5441,10 @@ def _apply_prompt_overrides(
     max_positions = _extract_max_positions(user_input)
     if max_positions is not None:
         updates["max_positions"] = max_positions
+        # 분위 그룹 전략(FR-BT-060b)에서 종목 수 답변은 '그룹당 보유 상한'이다 — 이미
+        # 추출된 값의 자리 배정일 뿐 새 원문 해석이 아니다("그룹당 10종목" 칩 답변 포함).
+        if parsed.ranking_quantile_groups:
+            updates["ranking_group_cap"] = max_positions
 
     max_mdd = _extract_max_mdd_limit_pct(user_input)
     if max_mdd is not None:
@@ -5638,6 +5670,7 @@ _FUNDAMENTAL_METRIC_LABELS: dict[str, str] = {
     "dividend_yield": "배당수익률", "payout_rate": "배당성향", "dividend_growth": "배당성장률",
     "operating_cf_amount": "영업활동현금흐름", "investing_cf_amount": "투자활동현금흐름",
     "financing_cf_amount": "재무활동현금흐름",
+    "owner_net_income": "지배주주순이익",
 }
 
 

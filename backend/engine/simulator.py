@@ -18,6 +18,33 @@ DEFAULT_SLIPPAGE_RATE = 0.0020
 REBALANCE_EXIT_REASON = "리밸런싱 제외 (목표 종목 이탈)"
 
 
+def select_ranked_targets(cand_sorted, eff_max_pos, sel_pct, sel_band, band_cap=None):
+    """랭킹 내림차순 후보 배열에서 목표 종목을 고른다 (FR-BT-060).
+
+    - sel_band=[g, G]: 후보를 종목 수 기준 G등분했을 때 g번째 구간(1=랭킹 최상위 구간).
+      분위(퀀타일) 그룹 백테스트가 사용한다. 경계는 round((g-1)*n/G)~round(g*n/G)로
+      G개 그룹의 합집합이 전체 후보와 일치한다(누락·중복 없음).
+    - band_cap: 그룹당 보유 상한(FR-BT-060b) — 밴드 구간에서 랭킹 상위 N종목만.
+      모든 그룹에 동일 적용되어 그룹 간 비교 규칙이 같다. 없으면 구간 전체.
+    - sel_pct: 상위 비율(%) 선정 — '상위 10% 편입'. count = max(1, round(n*pct/100)).
+    - 둘 다 없으면 기존 상위 K(eff_max_pos) 선정.
+    """
+    n = len(cand_sorted)
+    if n == 0:
+        return cand_sorted
+    if sel_band:
+        g, groups = int(sel_band[0]), int(sel_band[1])
+        lo = round((g - 1) * n / groups)
+        hi = n if g >= groups else round(g * n / groups)
+        band = cand_sorted[lo:hi]
+        if band_cap and int(band_cap) > 0:
+            band = band[: int(band_cap)]
+        return band
+    if sel_pct:
+        return cand_sorted[: max(1, round(n * float(sel_pct) / 100.0))]
+    return cand_sorted[:eff_max_pos]
+
+
 class Simulator:
     """신호 → 주문 변환 시뮬레이터.
 
@@ -55,6 +82,11 @@ class Simulator:
         init_cash = float(init_cash_raw) if init_cash_raw is not None else 10000000.0
         pos_size_pct = float(pos_size_raw) if pos_size_raw is not None else 100.0
         max_pos = risk_params.get('max_positions')
+        # 비율/분위 선정(FR-BT-060) — 있으면 상위 K(max_positions) 대신 후보 수 기준으로
+        # 리밸런싱일마다 목표 종목 수를 동적으로 정한다.
+        sel_pct = risk_params.get('max_positions_pct')
+        sel_band = risk_params.get('ranking_band')
+        band_cap = risk_params.get('ranking_group_cap')
 
         sl_pct = float(risk_params.get('stop_loss_pct') or 0)
         tp_pct = float(risk_params.get('take_profit_pct') or 0)
@@ -91,12 +123,13 @@ class Simulator:
         rebalance_dates = compute_rebalance_dates(
             entries_df.index, str(risk_params.get('rebalancing_period') or 'none')
         )
-        rebalance_mode = (not skip_pos) and bool(max_pos) and bool(rebalance_dates.any())
+        rebalance_mode = (not skip_pos) and bool(max_pos or sel_pct or sel_band) and bool(rebalance_dates.any())
         has_position_risk = use_risk_mgmt and (sl_pct > 0 or tp_pct > 0 or ts_pct > 0 or max_hold > 0)
         if rebalance_mode and not has_position_risk:
             return self._run_target_rebalance(
                 price_df, exec_price_df, entries_df, rank_df, rebalance_dates,
                 eff_max_pos, init_cash, buy_fee, sell_fee, slippage_val,
+                sel_pct=sel_pct, sel_band=sel_band, band_cap=band_cap,
             )
 
         symbols = entries_df.columns.tolist()
@@ -174,6 +207,10 @@ class Simulator:
         # 비중 리셋은 하지 않는다(reconstitution only) — 엔진이 경고로 고지한다.
         current_target_mask = np.zeros(num_symbols, dtype=bool)
         rank_values_all = rank_df.values if rank_df is not None else None
+        # 비율/분위 선정 모드에선 목표 종목 수가 리밸런싱일마다 달라진다 — 슬롯 상한과
+        # 동일가중 비중을 그때그때 갱신한다(기본 모드에선 기존 정적 값 유지).
+        cur_cap = eff_max_pos
+        cur_size = size_per_pos
 
         for i in range(n_rows):
             # Step 0: 이월된 청산을 거래 가능일에 방출
@@ -250,8 +287,13 @@ class Simulator:
                 cand = np.where(entries_values[i])[0]
                 if rank_values_all is not None and len(cand) > 0:
                     cand = cand[np.argsort(-rank_values_all[i][cand])]
+                sel = select_ranked_targets(cand, eff_max_pos, sel_pct, sel_band, band_cap)
                 current_target_mask = np.zeros(num_symbols, dtype=bool)
-                current_target_mask[cand[:eff_max_pos]] = True
+                current_target_mask[sel] = True
+                if sel_pct or sel_band:
+                    cur_cap = max(len(sel), 1)
+                    if risk_params.get('allocation_type') == 'equal':
+                        cur_size = 1.0 / cur_cap
 
                 dropouts = active_mask & ~current_target_mask & ~pending_exit
                 if dropouts.any():
@@ -284,14 +326,14 @@ class Simulator:
                     candidate_indices = candidate_indices[np.argsort(-today_ranks[candidate_indices])]
 
                 for s_idx in candidate_indices:
-                    if active_count < eff_max_pos:
+                    if active_count < cur_cap:
                         ep = exec_price_values[i, s_idx]
                         active_mask[s_idx] = True
                         active_count += 1
                         entry_day[s_idx] = i
                         entry_price[s_idx] = ep
                         peak_price[s_idx] = ep   # Fix 1: init peak at entry price
-                        target_values[i, s_idx] = size_per_pos
+                        target_values[i, s_idx] = cur_size
                         fees_values[i, s_idx] = buy_fee
 
         target_df = pd.DataFrame(target_values, index=entries_df.index, columns=entries_df.columns)
@@ -345,7 +387,10 @@ class Simulator:
                               init_cash: float,
                               buy_fee: float,
                               sell_fee: float,
-                              slippage_val: float) -> vbt.Portfolio:
+                              slippage_val: float,
+                              sel_pct: Optional[float] = None,
+                              sel_band: Optional[list] = None,
+                              band_cap: Optional[int] = None) -> vbt.Portfolio:
         """순수 리밸런싱 경로 — vbt 네이티브 from_orders(목표비중)로 비중 리셋까지 수행.
 
         리밸런싱일마다 후보(entries=True)를 rank 상위 K로 골라 동일가중 목표비중을 주고,
@@ -369,7 +414,7 @@ class Simulator:
             cand = np.where(entries_values[i])[0]
             if rank_values is not None and len(cand) > 0:
                 cand = cand[np.argsort(-rank_values[i][cand])]
-            sel = cand[:eff_max_pos]
+            sel = select_ranked_targets(cand, eff_max_pos, sel_pct, sel_band, band_cap)
             row = np.zeros(num_syms)            # 0 = 목표에서 빠진 보유는 전량 청산
             if len(sel) > 0:
                 row[sel] = 1.0 / len(sel)        # 동일가중 목표비중 (비중 리셋)

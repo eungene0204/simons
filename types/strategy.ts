@@ -50,6 +50,10 @@ export interface RiskManagement {
   max_total_exposure_pct?: number; // Maximum total exposure
   max_sector_exposure_pct?: number; // Maximum sector concentration
   max_mdd_limit_pct?: number; // Maximum drawdown limit
+  /** 비율 선정(FR-BT-060) — 랭킹 후보의 상위 X%만 편입(개수 max_positions 대신). */
+  max_positions_pct?: number;
+  /** 분위 그룹 비교(FR-BT-060) — 랭킹 후보를 종목 수 동일 G개 그룹으로 나눠 그룹별 백테스트. */
+  ranking_quantile_groups?: number;
   execution_timing?: "next_open" | "current_close";
   allocation_type?: "equal" | "fixed_pct";
   rebalancing_period?: string;
@@ -122,6 +126,39 @@ export interface VBTNativeResult {
   initialCapital?: number;
 }
 
+/** 분위 그룹 1개의 요약 결과(FR-BT-060) — 백엔드 `_quantile_group_summary` 계약. */
+export interface QuantileGroupSummary {
+  group: number;
+  /** 예: "1그룹 (PER(주가수익비율) 낮은 순 0~10%)" */
+  label: string;
+  /** 랭킹 순 백분위 구간 [시작%, 끝%] */
+  pctRange: number[];
+  totalReturn: number;
+  cagr: number;
+  maxDrawdown: number;
+  sharpe: number;
+  winRate: number;
+  trades: number;
+  finalEquity: number;
+  /** 다운샘플된 자산곡선(그래프용, 최대 ~300 포인트) */
+  equity: number[];
+  dates: string[];
+}
+
+/** 분위 그룹 비교 결과(FR-BT-060) — 랭킹 후보를 종목 수 동일 G개 그룹으로 나눠 각각 백테스트. */
+export interface QuantileGroupsResult {
+  groups: QuantileGroupSummary[];
+  /** 랭킹 지표 표시명(예: "PER(주가수익비율)") */
+  metricLabel: string;
+  /** 정렬 설명(예: "PER(주가수익비율) 낮은 순") */
+  orderLabel: string;
+  groupCount: number;
+  /** 메인 결과가 어느 그룹의 포트폴리오인지(항상 1) */
+  mainGroup: number;
+  /** 그룹당 보유 상한(FR-BT-060b). 없으면 그룹 구간 전체 보유 */
+  groupCap?: number | null;
+}
+
 // Backtest Result Types
 export interface BacktestResult {
   executionId: string;
@@ -190,6 +227,8 @@ export interface BacktestResult {
   benchmarkLabel?: string;
   universeId?: string;
   warnings?: string[];
+  /** 분위 그룹 비교 결과(FR-BT-060). 분위 그룹 전략일 때만 존재. */
+  quantileGroups?: QuantileGroupsResult;
   /** 데이터 커버리지 리포트 — 펀더멘털 지표별 종목·기간 커버리지(데이터 부족 투명성). */
   dataCoverage?: {
     baseData: string[];

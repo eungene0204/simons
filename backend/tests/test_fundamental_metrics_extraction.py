@@ -333,3 +333,44 @@ def test_condition_builder_patterns_distinguish_amount_from_growth():
     assert hits("영업활동현금흐름 증가율 10%") == {"ocf_growth"}
     assert hits("투자활동현금흐름") == {"investing_cf_amount"}
     assert hits("재무활동 현금흐름") == {"financing_cf_amount"}
+
+
+# ── 지배주주순이익 조건 지표 승격 (2026-08-06) ──
+
+def test_owner_net_income_is_supported_indicator_with_eok_unit():
+    from strategy_conversation.registry import indicator_registry as reg
+
+    spec = reg.resolve("지배주주순이익")
+    assert spec is not None and spec.id == "fundamental.owner_net_income"
+    assert spec.supported != "UNSUPPORTED"
+    assert spec.value_type == "억원"
+
+
+def test_owner_net_income_aliases_do_not_cannibalize_plain_net_income():
+    """맨 '당기순이익'은 연결 전체(net_income)로 남아야 한다 — 귀속 주체를 밝힌
+    표현만 지배주주순이익으로 간다."""
+    from strategy_conversation.registry import indicator_registry as reg
+
+    assert reg.resolve("당기순이익").id == "fundamental.net_income"
+    assert reg.resolve("순이익증가율").id == "fundamental.net_income_growth"
+    for alias in ("지배주주순이익", "지배주주지분 순이익", "지배순이익", "연결지배순이익"):
+        assert reg.resolve(alias).id == "fundamental.owner_net_income", alias
+
+
+def test_owner_net_income_is_engine_filterable_amount_metric():
+    """엔진 SOT(FUNDAMENTAL_LABELS)에 등록되고 금액(억원) 배지 대상이어야 한다."""
+    from engine.signals import FUNDAMENTAL_AMOUNT_CIDS
+
+    assert FUNDAMENTAL_LABELS["owner_net_income"] == "지배주주순이익"
+    assert "owner_net_income" in FUNDAMENTAL_AMOUNT_CIDS
+
+
+def test_owner_net_income_is_accepted_by_filter_and_ranking_schemas():
+    """컴파일 경로(FundamentalFilter)와 재무 팩터 랭킹 모두 새 지표를 받아야 한다."""
+    from engine.nl_parser import FundamentalFilter, RankingMetricLiteral
+    from typing import get_args
+
+    assert FundamentalFilter(metric="owner_net_income", operator=">=", value=1000).metric == (
+        "owner_net_income"
+    )
+    assert "owner_net_income" in get_args(RankingMetricLiteral)

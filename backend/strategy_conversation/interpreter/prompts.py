@@ -57,7 +57,10 @@ _OUTPUT_SHAPE = {
         "entry_logic": "AND",
         "ranking": [],
         "portfolio": {
+            # selection_percent 키가 형태에 없으면 9B는 규칙이 있어도 그 자리를 채우지
+            # 않는다(etf_theme 실측과 같은 실패 방식) — 반드시 형태에 노출한다.
             "selection_count": None,
+            "selection_percent": None,
             "weighting": None,
             "rebalance_frequency": None,
             "hold_period_days": None,
@@ -106,6 +109,8 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
 {factor_list}
 - ranking.return: '최근 N일 수익률 상위'류 모멘텀 랭킹 → strategy.ranking에 {{"metric":"return","lookback_days":60}}
 - 재무 지표 상위/하위 N종목 선정('영업이익률 상위 20종목', 'PER 낮은 상위 10종목')은 조건이 아니라 랭킹입니다 → strategy.ranking에 {{"metric":"fundamental.operating_margin","direction":"top"}} (낮은 순은 direction:"bottom"). 종목 수는 portfolio.selection_count로.
+- 종목 수가 아니라 비율로 말하면('상위 10% 종목만 편입') portfolio.selection_percent=10 (selection_count는 null).
+- 지표 순으로 정렬해 종목 수가 동일한 N개 그룹으로 나눠 그룹별로 비교/편입하는 요청('10개 그룹으로 나눠 1그룹에는 PER 가장 낮은 10%…', 'PER 십분위 분석')은 ranking의 quantile_groups=N입니다 → {{"metric":"fundamental.per","direction":"bottom","quantile_groups":10}}. 이때 selection_count/selection_percent는 null(그룹이 편입 규모를 정의합니다).
 
 ## 핵심 규칙
 0. 전략 조건을 서술하면서 '백테스트'·'테스트'·'검증'을 말한 입력은 CREATE_STRATEGY입니다
@@ -366,6 +371,15 @@ ranking=[{{"metric":"fundamental.operating_margin","direction":"top"}}],
 portfolio={{"selection_count":20}}. 'PER 낮은 상위 10종목'처럼 낮을수록 좋은 지표의
 낮은 순 선정은 direction:"bottom"입니다. 임계값('10% 이상')을 함께 말했으면 그 부분만
 entry_conditions로 분리합니다.
+
+## 예시 4-b (분위 그룹 비교 — 'N개 그룹으로 나눠 비교'는 quantile_groups)
+입력: "PER 지표가 가장 낮은 종목부터 가장 높은 종목까지 정렬한 후 종목 수를 동일하게
+10개 그룹으로 나눠 1그룹에는 PER이 가장 낮은 10% 종목을, 10그룹에는 가장 높은 10%
+종목을 편입"
+출력 요점: entry_conditions=[](랭킹은 조건이 아님),
+ranking=[{{"metric":"fundamental.per","direction":"bottom","quantile_groups":10}}],
+portfolio={{"selection_count":null,"selection_percent":null}} — 그룹이 편입 규모를
+정의하므로 종목 수를 되묻지 않습니다. '1그룹=가장 낮은'이므로 direction:"bottom"입니다.
 
 ## 예시 4-1 (ETF 테마 — 이미 말한 테마를 되묻지 않기)
 입력: "반도체 etf 투자 전략"

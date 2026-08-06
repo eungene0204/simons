@@ -155,7 +155,14 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                  notes="영업이익 흑자=ebit>0, 영업이익 적자=ebit<0 부호 필터로 주로 사용(최근 연간 결산 기준)"),
     _fundamental("net_income", "당기순이익", "profitability", "억원", recommended=100,
                  value_range=(-10_000_000, 10_000_000),
-                 notes="당기순이익 절대 금액(억원, 최근 연간 결산 기준). 흑자/적자 부호 필터는 eps를 사용"),
+                 notes="당기순이익 절대 금액(억원, 최근 연간 결산 기준). **비지배지분이 포함된 "
+                       "연결 전체** 당기순이익이다 — 사용자가 '지배주주'를 명시하면 "
+                       "owner_net_income. 흑자/적자 부호 필터는 eps를 사용"),
+    _fundamental("owner_net_income", "지배주주순이익", "profitability", "억원", recommended=100,
+                 value_range=(-10_000_000, 10_000_000),
+                 notes="지배기업 소유주에게 귀속되는 당기순이익 절대 금액(억원, 최근 연간 결산 "
+                       "기준). '지배주주순이익·지배주주지분 순이익·연결지배순이익'처럼 귀속 주체를 "
+                       "밝힌 표현일 때만 이것을 쓰고, 그냥 '당기순이익'이면 net_income"),
     _fundamental("operating_cf_amount", "영업활동현금흐름", "cashflow", "억원", recommended=100,
                  value_range=(-10_000_000, 10_000_000),
                  notes="영업활동으로 벌어들인 현금 절대 금액(억원, 최근 연간 결산 기준). "
@@ -354,6 +361,16 @@ _ALIASES: Dict[str, str] = {
     "eps": "fundamental.eps", "주당순이익": "fundamental.eps",
     "흑자": "fundamental.eps", "적자": "fundamental.eps",
     "당기순이익": "fundamental.net_income", "net_income": "fundamental.net_income",
+    # 지배주주순이익 — 귀속 주체('지배')를 밝힌 표기만 매핑한다. resolve()는 정확 일치라
+    # 위 "당기순이익"을 잠식하지 않는다.
+    "지배주주순이익": "fundamental.owner_net_income",
+    "지배주주지분순이익": "fundamental.owner_net_income",
+    "지배주주귀속순이익": "fundamental.owner_net_income",
+    "지배기업소유주지분순이익": "fundamental.owner_net_income",
+    "지배기업소유주귀속당기순이익": "fundamental.owner_net_income",
+    "지배순이익": "fundamental.owner_net_income",
+    "연결지배순이익": "fundamental.owner_net_income",
+    "owner_net_income": "fundamental.owner_net_income",
     # 현금흐름 3분류 절대 금액(억원). '…증가율' 별칭은 위 ocf_growth/fcf_growth로 따로
     # 잡혀 있고 resolve()는 정확 일치라 서로 잠식하지 않는다.
     "영업활동현금흐름": "fundamental.operating_cf_amount",

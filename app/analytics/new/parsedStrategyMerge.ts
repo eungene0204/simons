@@ -1056,6 +1056,7 @@ const FILTER_METRIC_LABELS: Record<string, string> = {
   operating_cf_amount: "영업활동현금흐름",
   investing_cf_amount: "투자활동현금흐름",
   financing_cf_amount: "재무활동현금흐름",
+  owner_net_income: "지배주주순이익",
 };
 
 function filterMetricLabel(conditionId: string): string {

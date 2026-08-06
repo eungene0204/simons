@@ -102,7 +102,9 @@ The parsed strategy object follows this schema (ParsedStrategy):
     dividend_yield(배당수익률 %), payout_rate(배당성향 %), dividend_growth(배당성장률 %, 전년比),
     eps(주당순이익 원 — "흑자 기업"=eps>0, "적자 제외"=eps>0, "적자 기업"=eps<0),
     ebit(영업이익 억원 — "영업이익 흑자"=ebit>0, "영업이익 적자"=ebit<0; 영업이익증가율/영업이익률로 바꿔 해석 금지),
-    net_income(당기순이익 억원),
+    net_income(당기순이익 억원 — 비지배지분 포함 연결 전체),
+    owner_net_income(지배주주순이익 억원 — 지배기업 소유주 귀속분. "지배주주"처럼 귀속 주체를
+      밝힌 표현일 때만 이것, 맨 "당기순이익"은 net_income),
     operating_cf_amount/investing_cf_amount/financing_cf_amount(영업·투자·재무활동 현금흐름 억원 —
       증가율은 ocf_growth/fcf_growth로, 절대 금액과 혼동 금지. 투자·재무는 통상 음수)
 - entry_signals / exit_signals: array of {indicator, signal_type(buy/sell), ...params}

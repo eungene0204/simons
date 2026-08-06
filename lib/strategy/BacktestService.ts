@@ -126,6 +126,7 @@ export class BacktestService {
         cachedAt: pythonResult.cachedAt,
         cacheKey: pythonResult.cacheKey,
         vbtResult: pythonResult.vbtResult ?? undefined,
+        quantileGroups: pythonResult.quantileGroups ?? undefined,
         aiSummary: pythonResult.aiSummary ?? undefined,
         aiScore: pythonResult.aiScore ?? undefined,
         aiStrengths: pythonResult.aiStrengths ?? undefined,

@@ -225,6 +225,10 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         "ranking_lookback_days": strategy.ranking_lookback_days,
         # None이면 _drop_none이 제거 → 방향 미지정 기존 전략의 해시 불변.
         "ranking_direction": strategy.ranking_direction,
+        # 분위 그룹·비율 선정(FR-BT-060) — None이면 _drop_none이 제거 → 기존 해시 불변.
+        "ranking_quantile_groups": strategy.ranking_quantile_groups,
+        "ranking_group_cap": strategy.ranking_group_cap,
+        "max_positions_pct": strategy.max_positions_pct,
         "max_positions": strategy.max_positions,
         "hold_period_days": strategy.hold_period_days,
         "rebalancing_period": strategy.rebalancing_period,
@@ -426,6 +430,10 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         # lookback은 모멘텀('return') 전용 — 재무 팩터 랭킹은 연간 결산값 순위라 기간이 없다.
         "ranking_lookback_days": strategy.ranking_lookback_days or (60 if strategy.ranking_metric == "return" else None),
         "ranking_direction": strategy.ranking_direction,
+        # 분위 그룹 비교·비율 선정(FR-BT-060) — 엔진이 그룹 반복 실행/동적 종목 수로 처리.
+        "ranking_quantile_groups": strategy.ranking_quantile_groups,
+        "ranking_group_cap": strategy.ranking_group_cap,
+        "max_positions_pct": strategy.max_positions_pct,
         "execution_timing": strategy.execution_timing,
         "allocation_type": "equal",
     }

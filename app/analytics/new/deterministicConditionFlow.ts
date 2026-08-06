@@ -148,9 +148,19 @@ export function applyDeterministicConditionChoice({
 
   if (condition.field === "max_positions") {
     const maxPositions = parseFirstNumber(choice);
-    return maxPositions
-      ? { parsed: { ...parsed, max_positions: maxPositions } }
-      : null;
+    if (!maxPositions) return null;
+    // 분위 그룹 전략(FR-BT-060b)에서 종목 수 답변은 '그룹당 보유 상한'이다 — 이미
+    // 추출된 값의 자리 배정일 뿐 새 해석이 아니다(백엔드 _apply_prompt_overrides와 동형).
+    if (parsed.ranking_quantile_groups) {
+      return {
+        parsed: {
+          ...parsed,
+          max_positions: maxPositions,
+          ranking_group_cap: maxPositions,
+        },
+      };
+    }
+    return { parsed: { ...parsed, max_positions: maxPositions } };
   }
 
   if (condition.field === "rebalancing") {

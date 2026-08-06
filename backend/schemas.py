@@ -37,6 +37,14 @@ class RiskManagement(BaseModel):
     # 재무 팩터 랭킹의 방향(top=높은 순, bottom=낮은 순 — 예: PER 낮은 상위 N). 스키마에
     # 없으면 model_dump가 조용히 버려 엔진이 방향을 못 받는다 — ranking_metric과 동일 함정.
     ranking_direction: Optional[str] = None
+    # 비율 선정(FR-BT-060): 상위 X% 편입 — max_positions(개수) 대신 후보 수 기준 비율.
+    # 분위 그룹(ranking_quantile_groups): 랭킹 후보를 종목 수 동일한 G개 그룹으로 나눠
+    # 그룹별 백테스트 비교(예: PER 십분위). 스키마에 없으면 model_dump가 조용히 버려
+    # 엔진이 못 받는다 — ranking_metric 0거래 사고와 동일 함정이라 반드시 선언한다.
+    max_positions_pct: Optional[float] = None
+    ranking_quantile_groups: Optional[int] = None
+    # 분위 그룹당 보유 상한(FR-BT-060b) — 각 그룹이 자기 구간의 랭킹 상위 N종목만 보유.
+    ranking_group_cap: Optional[int] = None
     execution_timing: Optional[str] = "next_open"
     allocation_type: Optional[str] = "equal"
     rebalancing_period: Optional[str] = "none"
@@ -149,6 +157,10 @@ class BacktestResponse(BaseModel):
     warnings: Optional[List[str]] = Field(default_factory=list)
     # 데이터 커버리지 리포트(펀더멘털 지표별 종목·기간 커버리지). 없으면 null.
     dataCoverage: Optional[Dict[str, Any]] = None
+    # 분위 그룹 비교 결과(FR-BT-060) — {groups: [{group, label, pctRange, totalReturn, ...}],
+    # metricLabel, orderLabel, groupCount, mainGroup}. 없으면 null. 미선언 시 response_model이
+    # 필드를 걸러내 프론트가 그룹 비교를 못 받는다 — 반드시 선언한다.
+    quantileGroups: Optional[Dict[str, Any]] = None
     version: Optional[str] = ENGINE_VERSION
     executionTime: Optional[float] = 0.0
     vbtResult: Optional[VBTNativeResult] = None

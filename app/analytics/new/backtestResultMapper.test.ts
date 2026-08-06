@@ -79,3 +79,25 @@ describe("mapRawBacktestResult", () => {
     expect(result.cacheKey).toBeUndefined();
   });
 });
+
+describe("mapRawBacktestResult — 분위 그룹 비교(FR-BT-060)", () => {
+  it("quantileGroups payload를 보존한다 (누락 시 그룹 비교 섹션이 조용히 사라짐)", () => {
+    const qg = {
+      groups: [{ group: 1, label: "1그룹", pctRange: [0, 10], totalReturn: 1, cagr: 1, maxDrawdown: -1, sharpe: 0.5, winRate: 50, trades: 3, finalEquity: 1000, equity: [1000], dates: ["2024-01-02"] }],
+      metricLabel: "PER(주가수익비율)",
+      orderLabel: "PER(주가수익비율) 낮은 순",
+      groupCount: 10,
+      mainGroup: 1,
+    };
+    const result = mapRawBacktestResult(
+      { equity: [1000], signals: [], quantileGroups: qg },
+      "exec_1",
+    );
+    expect(result.quantileGroups).toEqual(qg);
+  });
+
+  it("quantileGroups가 없으면 undefined", () => {
+    const result = mapRawBacktestResult({ equity: [1000], signals: [] }, "exec_1");
+    expect(result.quantileGroups).toBeUndefined();
+  });
+});

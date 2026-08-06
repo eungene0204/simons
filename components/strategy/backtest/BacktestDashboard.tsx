@@ -29,6 +29,7 @@ import XAIModal from "./XAIModal";
 import { WalkForwardSettings, type WalkForwardOptimizationTarget } from "./WalkForwardModal";
 import OptimizationPage from "./OptimizationPage";
 import BacktestSummaryCard from "./BacktestSummaryCard";
+import QuantileGroupsSection from "./QuantileGroupsSection";
 import { buildAiReportMetrics, hasAiReportArtifact } from "./aiReportMetrics";
 import {
   type AiReportData,
@@ -1636,6 +1637,10 @@ export default function BacktestDashboard({
                     </div>
                   </div>
                 </div>
+
+                {result.quantileGroups && (
+                  <QuantileGroupsSection data={result.quantileGroups} />
+                )}
 
                 {result.vbtResult && (
                   <div className="border-t border-white/[0.08] p-4">

@@ -174,7 +174,8 @@ def slot_for_topic(topic: Optional[str]) -> Optional[str]:
 
 
 def suggestions_for_topic(
-    topic: Optional[str], universe: Optional[Sequence[str]] = None
+    topic: Optional[str], universe: Optional[Sequence[str]] = None,
+    parsed: Any = None,
 ) -> List[str]:
     """topic이 가리키는 슬롯의 정본 예시 칩(없으면 빈 목록).
 
@@ -190,7 +191,7 @@ def suggestions_for_topic(
     field = slot_for_topic(topic)
     if not field:
         return []
-    chips = list(_QUESTIONS[field][1])
+    chips = list(_question_for(parsed, field)[1])
     from engine.universe_capabilities import is_etf_strategy
 
     if is_etf_strategy(universe):
@@ -271,6 +272,31 @@ _QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
 # (suggestions_for_topic, engine.universe_capabilities의 fundamental 미지원 계약).
 _FUNDAMENTAL_CHIPS: frozenset = frozenset({"PER 10 이하", "ROE 15% 이상"})
 
+# 분위 그룹 전략(FR-BT-060b) 전용 '최대 보유' 질문 — 그룹이 편입 구간을 정의하므로
+# 일반 질문("포트폴리오에 최대 몇 종목")은 상황에 맞지 않는다. 답은 그룹당 보유 상한이며
+# 모든 그룹에 동일 적용된다. 칩은 그룹 수(최대 10) 이상에서 시작한다(2026-08-06 지시).
+_QUANTILE_MAX_POSITIONS_QUESTION: tuple[str, tuple[str, ...]] = (
+    "각 분위 그룹에 최대 몇 종목을 담을까요?\n\n"
+    "그룹 내 랭킹 상위순으로 담고, 모든 그룹에 동일하게 적용해 그룹 간 비교 규칙을 맞춥니다.",
+    ("그룹당 10종목", "그룹당 20종목", "그룹당 30종목"),
+)
+
+
+def _quantile_groups(parsed: Any) -> Optional[int]:
+    """분위 그룹 전략이면 그룹 수(FR-BT-060), 아니면 None."""
+    value = getattr(parsed, "ranking_quantile_groups", None)
+    try:
+        return int(value) if value else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _question_for(parsed: Any, field: str) -> tuple[str, tuple[str, ...]]:
+    """필드의 되묻기 문구·칩 — 분위 그룹 전략의 '최대 보유'만 전용 변형을 쓴다."""
+    if field == MAX_POSITIONS and _quantile_groups(parsed):
+        return _QUANTILE_MAX_POSITIONS_QUESTION
+    return _QUESTIONS[field]
+
 
 def _nonempty(value: Any) -> bool:
     if isinstance(value, (list, tuple, set)):
@@ -300,6 +326,10 @@ def _has_value(parsed: Any, field: str) -> bool:
     if field == EXIT:
         return _nonempty(g("exit_signals")) or _positive(g("hold_period_days")) or has_rebalancing
     if field == MAX_POSITIONS:
+        # 분위 그룹 전략(FR-BT-060b)의 이 자리는 '그룹당 보유 상한'이다 — cap은 물질화
+        # 기본값이 없어 값의 존재가 곧 사용자 답변이다(max_positions=10 물질화와 무관).
+        if _quantile_groups(parsed):
+            return g("ranking_group_cap") is not None
         return _positive(g("max_positions"))
     if field == REBALANCING:
         return has_rebalancing
@@ -389,6 +419,10 @@ def _explicit_ok(parsed: Any, field: str, explicit_fields: Sequence[str]) -> boo
         return True  # 지정 종목은 그 자체가 유니버스 명시
     if field == MAX_POSITIONS and symbols:
         return True  # 지정 종목 모드는 보유 수가 종목 수로 확정된다
+    if field == MAX_POSITIONS and _quantile_groups(parsed):
+        # 그룹당 상한(cap)은 물질화 기본값이 없다 — 값의 존재가 곧 사용자 답변이라
+        # provenance를 따로 볼 필요가 없다(_has_value가 cap 유무로 판정).
+        return True
     return field in explicit_fields
 
 
@@ -452,7 +486,7 @@ def evaluate(
                 override if override is not None and value_status is not ValueStatus.UNKNOWN
                 else DerivedStatus.APPLICABLE
             )
-        question, suggestions = _QUESTIONS[field]
+        question, suggestions = _question_for(parsed, field)
         statuses.append(SlotStatus(
             field=field, slot=SLOT_LABELS[field], filled=filled,
             question=question, suggestions=suggestions,

@@ -113,7 +113,11 @@ export function isSlotFilled(
         hasRebalancing;
       break;
     case "max_positions":
-      hasValue = (parsed.max_positions ?? 0) > 0;
+      // 분위 그룹 전략(FR-BT-060b)의 이 자리는 '그룹당 보유 상한'이다 — cap은 물질화
+      // 기본값이 없어 값의 존재가 곧 사용자 답변이다(백엔드 _has_value와 동형).
+      hasValue = parsed.ranking_quantile_groups
+        ? parsed.ranking_group_cap != null
+        : (parsed.max_positions ?? 0) > 0;
       break;
     case "rebalancing":
       hasValue = hasRebalancing;
@@ -142,6 +146,8 @@ export function isSlotFilled(
     case "universe":
       return isExplicit("universe", explicitFields, parsed);
     case "max_positions":
+      // 분위 그룹 모드의 cap은 물질화 기본값이 없어 provenance가 불필요(백엔드와 동형).
+      if (parsed.ranking_quantile_groups) return true;
       return targetSymbolCount > 0 || isExplicit("max_positions", explicitFields);
     case "rebalancing":
       return isExplicit("rebalancing", explicitFields);
@@ -234,12 +240,33 @@ export const SLOT_FIELD_ORDER: MissingBacktestCondition["field"][] = [
   "stop_loss", "take_profit", "backtest_period", "initial_capital",
 ];
 
+// 분위 그룹 전략(FR-BT-060b) 전용 '최대 보유' 되묻기 — 그룹이 편입 구간을 정의하므로
+// 일반 질문("포트폴리오에 최대 몇 종목")은 상황에 맞지 않는다. 답은 그룹당 보유 상한이며
+// 칩은 그룹 수(최대 10) 이상에서 시작한다(2026-08-06 지시, 백엔드
+// strategy_slots._QUANTILE_MAX_POSITIONS_QUESTION과 동형).
+const QUANTILE_MAX_POSITIONS_PROMPT: { question: string; suggestions: string[] } = {
+  question:
+    "각 분위 그룹에 최대 몇 종목을 담을까요? (그룹 내 랭킹 상위순, 모든 그룹 동일 적용)",
+  suggestions: ["그룹당 10종목", "그룹당 20종목", "그룹당 30종목"],
+};
+
+function promptFor(
+  field: MissingBacktestCondition["field"],
+  parsed: ParsedSummary | undefined | null,
+): { question: string; suggestions: string[] } {
+  if (field === "max_positions" && parsed?.ranking_quantile_groups) {
+    return QUANTILE_MAX_POSITIONS_PROMPT;
+  }
+  return SLOT_PROMPTS[field];
+}
+
 /** 슬롯 하나의 되묻기 문구·선택지(정본 표에서 그대로). 재질문 큐가 이미 채워진 슬롯을
  *  다시 물을 때 쓴다 — getNextMissingBacktestCondition은 '비어 있는 첫 슬롯'만 내므로. */
 export function promptForSlot(
   field: MissingBacktestCondition["field"],
+  parsed?: ParsedSummary | null,
 ): MissingBacktestCondition {
-  return { field, ...SLOT_PROMPTS[field] };
+  return { field, ...promptFor(field, parsed) };
 }
 
 export function getNextMissingBacktestCondition(
@@ -250,7 +277,7 @@ export function getNextMissingBacktestCondition(
     return { field: "universe", ...SLOT_PROMPTS.universe };
   }
   const field = SLOT_FIELD_ORDER.find((f) => !isSlotFilled(f, parsed, options));
-  return field ? { field, ...SLOT_PROMPTS[field] } : null;
+  return field ? { field, ...promptFor(field, parsed) } : null;
 }
 
 /** 채워진 진행 골격 슬롯 라벨(순서 보존). 백엔드 filled_slots와 동형 — 리스크 관리는

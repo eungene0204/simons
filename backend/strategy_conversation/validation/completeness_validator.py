@@ -133,7 +133,14 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
     # 것이 되묻기 쪽의 대응이다. FR-STR-068(지정 종목 '최대 보유 N종목' 표시 금지)과
     # 같은 계약이다.
     if strategy.ranking:
-        if strategy.portfolio.selection_count is None and not strategy.universe.symbols:
+        # 편입 규모가 비율(selection_percent)이나 분위 그룹(quantile_groups)으로 이미
+        # 정의된 전략은 종목 수가 성립하지 않는다 — 되묻지 않는다(FR-BT-060).
+        has_scale = (
+            strategy.portfolio.selection_count is not None
+            or strategy.portfolio.selection_percent is not None
+            or any(r.quantile_groups for r in strategy.ranking)
+        )
+        if not has_scale and not strategy.universe.symbols:
             missing.append("strategy.portfolio.selection_count")
             questions.append(ClarificationQuestion(
                 field="strategy.portfolio.selection_count",

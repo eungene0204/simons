@@ -57,3 +57,29 @@ describe("기간 명시 크로스 칩", () => {
     }
   });
 });
+
+describe("분위 그룹 전략의 그룹당 상한 칩 (FR-BT-060b)", () => {
+  it("'그룹당 10종목' 답변이 그룹당 상한과 종목 수를 함께 채운다", () => {
+    const quantileParsed = {
+      ranking_quantile_groups: 10,
+      max_positions: 10,
+    } as unknown as ParsedSummary;
+    const result = applyDeterministicConditionChoice({
+      parsed: quantileParsed,
+      condition: { field: "max_positions", question: "", suggestions: [] },
+      choice: "그룹당 10종목",
+    });
+    expect(result?.parsed.ranking_group_cap).toBe(10);
+    expect(result?.parsed.max_positions).toBe(10);
+  });
+
+  it("일반 전략의 종목 수 답변은 그룹당 상한을 만들지 않는다", () => {
+    const result = applyDeterministicConditionChoice({
+      parsed,
+      condition: { field: "max_positions", question: "", suggestions: [] },
+      choice: "최대 10종목",
+    });
+    expect(result?.parsed.max_positions).toBe(10);
+    expect(result?.parsed.ranking_group_cap).toBeUndefined();
+  });
+});

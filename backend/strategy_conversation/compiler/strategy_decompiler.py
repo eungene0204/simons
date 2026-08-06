@@ -107,6 +107,8 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             metric=canonical,
             lookback_days=parsed.ranking_lookback_days,
             direction=parsed.ranking_direction or "top",
+            # 분위 그룹도 왕복한다 — 누락되면 수정 턴에서 그룹 비교가 조용히 풀린다.
+            quantile_groups=parsed.ranking_quantile_groups,
         ))
 
     return StrategySpec(
@@ -134,7 +136,16 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
         entry_logic=parsed.entry_logic,
         ranking=ranking,
         portfolio=PortfolioSpec(
-            selection_count=parsed.max_positions,
+            # 분위 그룹 모드(FR-BT-060b)의 종목 수 자리는 그룹당 상한이다 — max_positions
+            # (물질화 기본값 10)를 쓰면 재컴파일이 cap=10을 만들어 라운드트립이 깨진다
+            # (모든 분위 전략의 수정이 레거시 레인으로 폴백).
+            selection_count=(
+                parsed.ranking_group_cap
+                if parsed.ranking_quantile_groups
+                else parsed.max_positions
+            ),
+            # 비율 선정도 왕복한다 — 누락되면 수정 턴에서 비율 편입이 개수(10)로 둔갑한다.
+            selection_percent=parsed.max_positions_pct,
             rebalance_frequency=(
                 None if parsed.rebalancing_period == "none" else parsed.rebalancing_period
             ),

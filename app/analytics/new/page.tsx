@@ -2122,7 +2122,10 @@ function StrategyLabContent() {
   const nextReask = () => {
     const field = reaskQueueRef.current[0];
     if (!field) return null;
-    const prompt = promptForSlot(field as ReturnType<typeof promptForSlot>["field"]);
+    const prompt = promptForSlot(
+      field as ReturnType<typeof promptForSlot>["field"],
+      latestParsedRef.current ?? latestParsed,
+    );
     return { field, question: prompt.question, suggestions: prompt.suggestions };
   };
 
