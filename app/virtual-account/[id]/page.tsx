@@ -20,7 +20,7 @@ import {
 import { getMarketLogs, type VirtualMarketLog } from "@/lib/virtual-market";
 import { Plus, Robot, Spinner, TrendUp } from "phosphor-react";
 import OrderBook from "@/components/order/OrderBook";
-import PortfolioPerformanceChart, { PerformancePoint } from "@/components/portfolio/PortfolioPerformanceChart";
+import PortfolioPerformanceChart from "@/components/portfolio/PortfolioPerformanceChart";
 import StockSearchModal from "@/components/stock/StockSearchModal";
 import StrategyReplaceModal from "@/components/ui/StrategyReplaceModal";
 import AutoTradingStrategyMissingModal from "@/components/virtual-account/AutoTradingStrategyMissingModal";
@@ -49,6 +49,7 @@ import {
   buildStrategySummaryFromDsl,
 } from "@/lib/strategy-summary";
 import { colorTokens } from "@/components/strategy/colorTokens";
+import { buildRealizedPerformanceSeries } from "@/app/virtual-account/performanceSeries";
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
 import type { StrategyDSL } from "@/types/strategy";
 
@@ -77,20 +78,6 @@ const formatCompact = (val: number) => {
   if (Math.abs(val) >= 1_000) return `${(val / 1_000).toFixed(0)}k`;
   return String(val);
 };
-
-function generatePerformanceData(startDate: Date, days: number, cumulativeReturn: number): PerformancePoint[] {
-  const data: PerformancePoint[] = [];
-  const step = Math.max(1, Math.floor(days / 60));
-  for (let i = 0; i <= days; i += step) {
-    const d = new Date(startDate);
-    d.setDate(d.getDate() + i);
-    const time = d.toISOString().slice(0, 10);
-    const t = i / Math.max(1, days);
-    const benchmark = +(100 * (1 + (cumulativeReturn * 0.3 / 100) * t)).toFixed(2);
-    data.push({ time, portfolio: benchmark, benchmark });
-  }
-  return data;
-}
 
 const getAccountDetailCacheKey = (accountId: string) =>
   `virtual-account-detail:${accountId}`;
@@ -622,7 +609,12 @@ export default function VirtualAccountDetailPage() {
     const todayPnlPct = account.initialAmount > 0 ? (todayPnl / account.initialAmount) * 100 : 0;
     const startDate = new Date(account.createdAt);
     const days = Math.max(1, Math.round((Date.now() - startDate.getTime()) / 86400000));
-    const performanceData = generatePerformanceData(startDate, Math.min(days, 150), pp);
+    const performanceData = buildRealizedPerformanceSeries(
+      account.createdAt,
+      transactions,
+      account.initialAmount,
+      todayStr
+    );
     const investedValue = Math.max(0, account.totalValue - account.currentBalance);
     const cashRatio = account.totalValue > 0 ? (account.currentBalance / account.totalValue) * 100 : 0;
     const filledTradeCount = transactions.filter((t) => t.status === "FILLED").length;
@@ -920,7 +912,7 @@ export default function VirtualAccountDetailPage() {
                   <p className="mt-1 text-[10px] font-bold text-gray-500">원</p>
                 </div>
                 <div className="border-r border-b border-white/[0.08] px-5 py-4">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">당일 손익</span>
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">당일 실현손익</span>
                   <p
                     className={`mt-2 text-2xl font-black tabular-nums font-outfit leading-none ${todayPnl === 0 ? "" : todayPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}
                     style={todayPnl === 0 ? { color: colorTokens.main_white } : undefined}
@@ -928,10 +920,10 @@ export default function VirtualAccountDetailPage() {
                     {formatSignedPrice(todayPnl)}
                   </p>
                   <p
-                    className={`mt-1 text-[10px] font-bold tabular-nums ${todayPnl === 0 ? "" : todayPnl > 0 ? "text-gray-500" : "text-[var(--main-blue)]"}`}
-                    style={todayPnl === 0 ? { color: colorTokens.main_white } : undefined}
+                    className={`mt-1 text-[10px] font-bold tabular-nums ${todayPnl === 0 ? "text-gray-500" : todayPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}
                   >
                     {formatSignedPercent(todayPnlPct)}
+                    <span className="ml-1 font-bold text-gray-500">초기 자본 대비</span>
                   </p>
                 </div>
                 <div className="border-r border-b border-white/[0.08] px-5 py-4">
@@ -947,11 +939,11 @@ export default function VirtualAccountDetailPage() {
               </div>
 
               {/* 추적 종목 + 운용 전략 + 매매 신호 */}
-              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.3fr)_280px_minmax(0,0.7fr)] divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+              <div className="grid grid-cols-1 lg:h-[400px] lg:grid-cols-[minmax(0,1.3fr)_280px_minmax(0,0.7fr)] divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
 
                 {/* 추적 종목 */}
-                <div className="p-3 sm:p-4 lg:p-5">
-                  <div className="mb-4 flex flex-col items-start gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-0">
+                <div className="p-3 sm:p-4 lg:p-5 flex flex-col min-h-0">
+                  <div className="mb-4 flex flex-col items-start gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-0 shrink-0">
                     <div>
                       <div className="flex items-center gap-1.5">
                         <h2
@@ -976,7 +968,6 @@ export default function VirtualAccountDetailPage() {
                           </span>
                         </span>
                       </div>
-                      <p className="text-xs text-gray-500 mt-0.5">전략이 시그널을 모니터링 중인 종목</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-gray-500 bg-white/[0.05] px-2.5 py-0.5 rounded-md">
@@ -996,27 +987,27 @@ export default function VirtualAccountDetailPage() {
                   {isTrackedSymbolsLoading ? (
                     <TrackedSymbolsSkeleton />
                   ) : trackedSymbols.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-48 gap-3">
+                    <div className="flex flex-1 min-h-[12rem] flex-col items-center justify-center gap-3">
                       <TrendUp size={32} className="text-gray-700" weight="thin" />
                       <p className="text-sm font-bold text-gray-600">추적 중인 종목이 없습니다</p>
                     </div>
                   ) : (
                     <div
-                      className="overflow-x-auto lg:overflow-x-visible"
+                      className="flex-1 min-h-0 flex flex-col overflow-x-auto lg:overflow-x-visible"
                       data-testid="tracked-symbols-table-scroll"
                     >
-                      <div className="min-w-[520px] lg:min-w-0">
+                      <div className="min-w-[520px] lg:min-w-0 flex-1 min-h-0 flex flex-col">
                       {/* 테이블 헤더 */}
-                      <div className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 px-1 mb-1">
+                      <div className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 px-1 mb-1 shrink-0">
                         {["종목", "현재가", "등락률", "거래량", "상태", ""].map((h) => (
                           <span key={h} className={`text-xs font-bold uppercase tracking-widest text-gray-600 ${h === "현재가" || h === "등락률" || h === "거래량" ? "text-right" : h === "상태" ? "text-center" : ""}`}>
                             {h}
                           </span>
                         ))}
                       </div>
-                      <div className="border-t border-white/[0.05] mb-1" />
+                      <div className="border-t border-white/[0.05] mb-1 shrink-0" />
                       {/* 테이블 행 */}
-                      <div className="max-h-64 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
+                      <div className="flex-1 min-h-0 max-h-64 lg:max-h-none overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
                         <div className="divide-y divide-white/[0.04]">
                           {trackedSymbols.map(({ symbol, name }) => {
                             const q = trackedPrices[symbol];
@@ -1044,8 +1035,8 @@ export default function VirtualAccountDetailPage() {
                 </div>
 
                 {/* 운용 전략 */}
-                <div className="p-5 flex flex-col">
-                  <div className="flex items-center justify-between mb-5">
+                <div className="p-5 flex flex-col min-h-0">
+                  <div className="flex items-center justify-between mb-5 shrink-0">
                     <div>
                       <h2
                         className="text-base font-black uppercase tracking-widest font-outfit"
@@ -1105,18 +1096,20 @@ export default function VirtualAccountDetailPage() {
                             {strategySummaryGroups.length > 0 && (
                               <div className="space-y-2">
                                 {strategySummaryGroups.map((group) => (
-                                  <div key={group.label} className="flex flex-wrap items-center gap-1.5">
-                                    <span className="text-xs font-bold uppercase tracking-widest text-gray-500 shrink-0">
+                                  <div key={group.label} className="flex items-start justify-between gap-3">
+                                    <span className="text-xs font-bold uppercase tracking-widest text-gray-500 shrink-0 py-1">
                                       {group.label}
                                     </span>
-                                    {group.chips.map((chip) => (
-                                      <span
-                                        key={chip}
-                                        className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-yellow-500"
-                                      >
-                                        {chip}
-                                      </span>
-                                    ))}
+                                    <div className="flex flex-col items-end gap-1 min-w-0">
+                                      {group.chips.map((chip) => (
+                                        <span
+                                          key={chip}
+                                          className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-yellow-500 text-right"
+                                        >
+                                          {chip}
+                                        </span>
+                                      ))}
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -1129,7 +1122,7 @@ export default function VirtualAccountDetailPage() {
                 </div>
 
                 {/* 매매 신호 */}
-                <div className="p-5 flex flex-col max-h-[385px]">
+                <div className="p-5 flex flex-col min-h-0 max-h-[400px]">
                   <div className="flex items-center justify-between mb-4 shrink-0">
                     <div>
                       <div className="flex items-center gap-2">
@@ -1146,7 +1139,7 @@ export default function VirtualAccountDetailPage() {
                       {signalLogs.length}건
                     </span>
                   </div>
-                  <div className="overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
+                  <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
                     <SignalLog
                       logs={signalLogs}
                       accountCreatedAt={account.createdAt}
@@ -1329,7 +1322,7 @@ export default function VirtualAccountDetailPage() {
                       {/* 성과 KPI 6개 */}
                       <div className="grid grid-cols-2 xl:grid-cols-6 border-l border-t border-white/[0.08]">
                         <div className="border-r border-b border-white/[0.08] p-5">
-                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">누적 평가손익</p>
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">누적 손익</p>
                           <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${profit === 0 ? "text-white" : profit > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                             {formatSignedPrice(profit)}
                           </p>
@@ -1340,15 +1333,16 @@ export default function VirtualAccountDetailPage() {
                           <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${profitPercent === 0 ? "text-white" : profitPercent > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                             {formatSignedPercent(profitPercent)}
                           </p>
-                          <p className="mt-1 text-[10px] font-bold text-gray-500">현재 총 자산 기준</p>
+                          <p className="mt-1 text-[10px] font-bold text-gray-500">초기 자본 대비</p>
                         </div>
                         <div className="border-r border-b border-white/[0.08] p-5">
                           <p className="text-xs font-bold uppercase tracking-widest text-gray-400">당일 실현손익</p>
                           <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${todayPnl === 0 ? "text-white" : todayPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                             {formatSignedPrice(todayPnl)}
                           </p>
-                          <p className={`mt-1 text-[10px] font-bold tabular-nums ${todayPnl === 0 ? "text-gray-500" : todayPnl > 0 ? "text-gray-500" : "text-[var(--main-blue)]"}`}>
+                          <p className={`mt-1 text-[10px] font-bold tabular-nums ${todayPnl === 0 ? "text-gray-500" : todayPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                             {formatSignedPercent(todayPnlPct)}
+                            <span className="ml-1 font-bold text-gray-500">초기 자본 대비</span>
                           </p>
                         </div>
                         <div className="border-r border-b border-white/[0.08] p-5">
@@ -1379,8 +1373,8 @@ export default function VirtualAccountDetailPage() {
                       <div className="lg:col-span-7 p-5">
                         <div className="flex items-start justify-between gap-4 mb-5">
                           <div>
-                            <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">성과 추이</h2>
-                            <p className="mt-0.5 text-xs font-bold text-gray-500">계좌 개설 이후 누적 성과 흐름</p>
+                            <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">실현손익 추이</h2>
+                            <p className="mt-0.5 text-xs font-bold text-gray-500">계좌 개설 이후 누적 실현손익 (초기 자본 대비)</p>
                           </div>
                         </div>
                         <div className="h-72">
@@ -1402,7 +1396,7 @@ export default function VirtualAccountDetailPage() {
                             <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatPrice(account.initialAmount)}원</p>
                           </div>
                           <div className="py-3">
-                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">현재 투자 금액</p>
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">주식 평가 금액</p>
                             <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatPrice(investedValue)}원</p>
                           </div>
                           <div className="py-3">
@@ -1411,11 +1405,8 @@ export default function VirtualAccountDetailPage() {
                           </div>
                         </div>
                         <div className="mt-5 space-y-2">
-                          <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-400">
-                            벤치마크: KOSPI 200
-                          </span>
                           <p className="text-xs font-bold leading-5 text-gray-500">
-                            성과 차트는 계좌 개설일부터 누적 흐름을 기준으로 표시됩니다.
+                            추이 차트는 매도 체결로 확정된 실현손익만 누적합니다. 보유 중인 종목의 평가손익은 포함되지 않아 위의 누적 수익률과 다를 수 있습니다.
                           </p>
                         </div>
                       </div>

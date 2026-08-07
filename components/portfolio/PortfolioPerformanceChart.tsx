@@ -12,8 +12,8 @@ import {
 
 export interface PerformancePoint {
   time: string;
+  /** 초기 자본을 100으로 둔 지수값 */
   portfolio: number;
-  benchmark: number;
 }
 
 interface Props {
@@ -120,12 +120,12 @@ export default function PortfolioPerformanceChart({ data }: Props) {
 
     const positiveData = sorted.map((d) => ({
       time: toTs(d.time),
-      value: d.benchmark >= 100 ? d.benchmark : undefined,
+      value: d.portfolio >= 100 ? d.portfolio : undefined,
     })).filter((d) => d.value !== undefined);
 
     const negativeData = sorted.map((d) => ({
       time: toTs(d.time),
-      value: d.benchmark < 100 ? d.benchmark : undefined,
+      value: d.portfolio < 100 ? d.portfolio : undefined,
     })).filter((d) => d.value !== undefined);
 
     positiveRef.current.setData(positiveData as any);
