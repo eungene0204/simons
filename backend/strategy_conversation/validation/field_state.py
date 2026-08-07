@@ -27,6 +27,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from engine.strategy_slots import ENTRY, EXIT, DerivedStatus
+from strategy_conversation.registry.concept_ontology import is_class_id
 from strategy_conversation.registry.indicator_registry import resolve
 
 # 슬롯 필드 ← 조건 목록 속성. 조건 단위 판정이 롤업되는 두 슬롯이다.
@@ -45,6 +46,11 @@ def _condition_status(cond: Any, is_etf: bool) -> Optional[DerivedStatus]:
     if is_etf and factor.startswith(_FUNDAMENTAL_PREFIX) and factor != _ETF_ALLOWED_FUNDAMENTAL:
         # 지표 자체는 지원되지만 이 유니버스에서 성립하지 않는다 → 해당 없음.
         return DerivedStatus.NOT_APPLICABLE
+    if is_class_id(factor):
+        # 분류(클래스) 발화 — 구체 지표 선택 대기. INVALID(엔진 실행 불가)가 아니라
+        # 값 대기와 같은 정상 축이다(되묻기에 답하면 해소 — INVALID/NOT_APPLICABLE
+        # 판정 기준은 해결책이 있는가였다).
+        return None
     spec = resolve(factor)
     if spec is None or spec.supported == "UNSUPPORTED":
         # 엔진이 실행할 수 없는 조건이 값으로 남아 있다 → 유효하지 않음.

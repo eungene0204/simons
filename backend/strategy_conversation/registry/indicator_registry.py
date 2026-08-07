@@ -428,18 +428,6 @@ def resolve(name: str) -> Optional[IndicatorSpec]:
     return None
 
 
-def supported_factor_lines() -> List[str]:
-    """LLM 프롬프트에 주입할 지원 지표 목록(한 줄 요약)."""
-    lines = []
-    for spec in _SPECS:
-        if spec.supported == "UNSUPPORTED":
-            continue
-        ops = "/".join(spec.allowed_operators) if spec.allowed_operators else "-"
-        unit = spec.value_type or "-"
-        line = f"- {spec.id} ({spec.display_name}) 단위={unit} 연산자={ops}"
-        # notes는 선택 기준을 가르는 정보다(골든/데드크로스, 흑자·적자 부호 필터,
-        # 유동성 필터 vs 매매 신호 등) — 주입하지 않으면 LLM이 구별할 근거가 없다.
-        if spec.notes:
-            line += f" — {spec.notes}"
-        lines.append(line)
-    return lines
+# 프롬프트 지표 어휘 생성은 concept_ontology.ontology_prompt_sections로 이관됐다
+# (2026-08-06, PROMPT_VERSION 2.8) — 잎 한 줄 표기는 concept_ontology._leaf_line이
+# 동일 형식을 유지한다(notes 포함 — 선택 기준을 가르는 정보라 주입 필수).

@@ -162,7 +162,12 @@ class RankingSpec(BaseModel):
 
     metric: str = Field(description="랭킹 기준 (예: 'return')")
     lookback_days: Optional[int] = Field(default=None, description="산정 기간(거래일)")
-    direction: Literal["top", "bottom"] = Field(default="top")
+    # 기본값을 "top"으로 두면 **LLM이 방향을 말하지 않은 것**과 사용자가 높은 순을
+    # 지정한 것이 구별되지 않는다 — PER처럼 낮을수록 저평가인 지표에서 무언의 top은
+    # '가장 비싼 종목 선정'이 되어 전략이 뒤집힌다(물질화 기본값이 명시로 둔갑하는
+    # 것과 같은 함정). 미지정은 None으로 남기고, 컴파일러가 지표의 자연 방향
+    # (concept_ontology.natural_ranking_direction)으로 채운다.
+    direction: Optional[Literal["top", "bottom"]] = Field(default=None)
     quantile_groups: Optional[int] = Field(
         default=None,
         description=(

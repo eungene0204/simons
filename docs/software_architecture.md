@@ -592,7 +592,25 @@ Registry-driven** 파이프라인. 자연어 의미 해석은 LLM(Qwen 3.5 9B,
 LLM Strategy Interpreter (interpreter/llm_strategy_interpreter.py)
     ├── Ollama /api/chat, format=json, think=false, temperature 0 (기존 콜드스타트
     │   내성 재사용: _ollama_ensure_warm + _ollama_open_with_retry)
-    ├── Registry 주입 프롬프트(prompts.py, PROMPT_VERSION) — 지원 지표 canonical ID 계약
+    ├── Registry 주입 프롬프트(prompts.py, PROMPT_VERSION) — 지원 지표 canonical ID 계약.
+    │   2.8부터 어휘는 지표 온톨로지(registry/concept_ontology.py + 시드
+    │   data/indicator-ontology.json)가 분류 계층(is_a)·합성 개념 정본(골든크로스=
+    │   ma_crossover crosses_above 5/20 등)으로 생성 — 시드 수정만으로 어휘가 성장하고
+    │   (mtime 재로드), 무결성은 test_concept_ontology.py가 CI에서 단언. 콘솔 지식 탭
+    │   '지표 온톨로지' 서브탭(IndicatorOntologyView, /ontology/graph)에서 시각화·검색.
+    │   2.9부터 계열만 말한 조건("모멘텀 지표 하나")은 분류 ID(class.*)로 출력 —
+    │   검증 레인이 선택 대기로 처리해 선택지를 들어 되묻고(구체 지표 무단 확정 금지),
+    │   답변 턴은 잎 ID 패치(규칙 10-4). 지표 선택 칩은 값 결속 불성립이라 미노출.
+    │   3.0부터 골든/데드크로스 관용 표현은 개념 ID(concept.*)로만 출력(llm_output
+    │   시드 플래그) — 연산자·정본 기간(5/20) 조립은 capability_validator가 전개
+    │   선언대로 물질화(연산자=선언 정본이 LLM 출력을 덮어씀, 기간=사용자 값 우선).
+    │   3.1부터 MACD 골든/데드크로스도 개념 승격(방향별 2개) — 기간 고정(12/26/9,
+    │   시드 fixed_parameters) 개념은 전개가 이질 파라미터를 정리하되, 고정값과 다른
+    │   값(사용자 커스텀)은 조용히 버리지 않고 "표준으로 실행" 안내(warnings→notices).
+    │   3.2부터 시드 polarity(지원 잎 51개 전수 선언)가 지표의 자연 방향 정본 —
+    │   어휘 줄에 [낮을수록/높을수록 선호] 병기 + RankingSpec.direction을 Optional로
+    │   바꿔 '미언급'을 감지하고, 컴파일러가 natural_ranking_direction으로 채운다
+    │   (명시 방향은 재심 없이 보존, 선호 방향 없는 지표는 억지 방향 금지)
     └── JSON 추출 → Pydantic 검증 실패 시 오류 첨부 1회 자동 수정 요청(output_repair.py)
     ▼
 StrategyIntent (interpreter/models.py, schema_version 1.0)

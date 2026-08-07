@@ -15,6 +15,7 @@ from strategy_conversation.interpreter.models import (
     ClarificationQuestion,
     StrategyIntent,
 )
+from strategy_conversation.registry.concept_ontology import class_choice, is_class_id
 from strategy_conversation.registry.indicator_registry import REGISTRY
 
 MAX_QUESTIONS_PER_TURN = 3
@@ -80,10 +81,35 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
         ("청산", "exit_conditions", strategy.exit_conditions),
     ):
         for i, cond in enumerate(conditions):
+            field_base = f"strategy.{path}[{i}]"
+            # ③-0 분류(클래스) 발화 — "모멘텀 지표 하나"처럼 계열만 말한 조건(프롬프트
+            # 2.9 계약, factor=class.*). 구체 지표를 대신 고르지 않고 선택지를 들어
+            # 되묻는다. 선택지는 온톨로지 정본(직속 지원 잎, 중간 분류면 자식 분류명).
+            # 칩은 내지 않는다 — 지표 선택 칩은 값 결속 계약(_bind_chips)이 성립하지
+            # 않아 노출 금지이고, 자유 서술 답변은 수정 인터프리터 레인이 처리한다.
+            if is_class_id(cond.factor):
+                choice = class_choice(cond.factor)
+                if choice is not None:
+                    cls_name, options = choice
+                    quoted = (
+                        f"'{cond.source_text.strip()}' — "
+                        if cond.source_text and cond.source_text.strip() else ""
+                    )
+                    opts = ", ".join(options)
+                    missing.append(f"{field_base}.factor")
+                    questions.append(ClarificationQuestion(
+                        field=f"{field_base}.factor",
+                        # 역할({role})을 명시한다 — 답변 패치가 진입/청산 어느 배열에
+                        # 조건을 추가할지 이 질문 문구가 유일한 근거다(pending_question 에코).
+                        question=(
+                            f"{quoted}{role} 조건에 어떤 {cls_name} 지표를 사용할까요?"
+                            + (f" ({opts})" if opts else "")
+                        ),
+                    ))
+                continue
             spec = REGISTRY.get(cond.factor)
             if spec is None or spec.supported == "UNSUPPORTED":
                 continue
-            field_base = f"strategy.{path}[{i}]"
             # 자기 선(線)을 둘 가진 지표(이동평균·EMA)에서 비교 연산자는 **두 선의 관계**를
             # 뜻한다("5일 EMA가 20일 EMA 위에 있으면") — 사용자가 줄 숫자 임계값이 없고,
             # 컴파일러도 값 없이 mode(above/below)로 바인딩한다(_compile_technical).
