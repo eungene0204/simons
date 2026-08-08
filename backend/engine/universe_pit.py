@@ -273,6 +273,32 @@ def resolve_symbols(universe_id: Optional[str], start: Optional[str], end: str) 
     return sorted(symbols)
 
 
+def dominant_market(symbols: list[str]) -> Optional[str]:
+    """심볼 집합의 대표 시장("KOSPI"/"KOSDAQ"), 판정 불가면 None.
+
+    지정 종목·테마 유니버스는 심볼을 직접 넘기므로 universe_id가 None이고
+    (strategy_converter: ``"universe_id": None if target_symbols else universe_id``),
+    그래서 벤치마크 선택이 시장 정보를 잃은 채 기본값(KODEX 200)으로 떨어졌다 —
+    코스닥 종목만 담긴 백테스트가 코스피200과 비교되던 원인. 마스터의 market
+    필드로 다수결을 내어 벤치마크가 실제 시장을 따라가게 한다.
+
+    ETF처럼 주식 마스터에 없는 심볼만 있으면 None(호출자가 기본값을 쓴다).
+    """
+    wanted = set(symbols or [])
+    if not wanted:
+        return None
+    counts: dict[str, int] = {}
+    for s in _load_master():
+        if s["symbol"] in wanted:
+            market = s.get("market")
+            if market in ("KOSPI", "KOSDAQ"):
+                counts[market] = counts.get(market, 0) + 1
+    if not counts:
+        return None
+    # 동수면 KOSPI — 시가총액 비중이 큰 쪽을 대표로 둔다.
+    return max(counts, key=lambda m: (counts[m], m == "KOSPI"))
+
+
 def get_shares(symbols: list[str]) -> dict[str, float]:
     """symbol -> listed shares (static, from master) for market-cap ranking."""
     wanted = set(symbols)

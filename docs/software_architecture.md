@@ -890,13 +890,25 @@ BacktestEngine.run_backtest(request)
 │       ├── Position Limiting: 최대 동시 포지션 수 제한
 │       └── Liquidity Check: 거래대금 기준 필터
 │
+├── Phase 5.5: 벤치마크 선택·로드 (BacktestEngine.benchmark_for_universe)
+│   ├── universe_id의 시장 토큰 → kosdaq·kosdaq150 단독=KODEX KOSDAQ 150 /
+│   │   kospi 포함(혼합 포함)=KODEX 코스피 / 그 외(kospi200·etf)=KODEX 200
+│   ├── universe_id가 비었으면(지정 종목·테마 유니버스는 strategy_converter가
+│   │   None으로 지운다) 보유 심볼의 실제 시장 다수결로 판정
+│   │   (universe_pit.dominant_market) — 판정 불가(ETF 등)면 KODEX 200
+│   └── 상장 이전 구간·분배금 비대칭은 경고 채널로 공시 (FR-BT-020c/020d)
+│
 └── Phase 6: 결과 계산 및 직렬화
     └── ResultHandler
         ├── 수익률: Total Return, CAGR, Buy&Hold Return
         ├── 위험: Max Drawdown, Volatility, Sharpe, Sortino, Kelly
         ├── 거래: Win Rate, Profit Factor, Trade Count
         ├── 월별/연도별 수익률 분해
-        └── Per-Asset 통계 (종목별 수익률)
+        ├── Per-Asset 통계 (종목별 수익률)
+        ├── 벤치마크 곡선: 지수 미존재 구간은 채우지 않고 null
+        │   (v11.0 이전 .bfill()은 초기자본에서 평탄한 가짜 선을 그렸다)
+        └── benchmark_partial: 벤치마크가 구간 일부만 덮으면 True
+            → 화면이 초과수익률(총수익률 차이 %p)을 내지 않는 근거
 ```
 
 **Simulator 핵심 설계 원칙:**

@@ -114,9 +114,80 @@ describe("BacktestDashboard 매매 통계", () => {
 
     const performanceRow = volatilityCard?.parentElement;
     const metricLabels = Array.from(performanceRow?.children ?? []).map((card) => card.textContent ?? "");
+    // 최종 자산 → 초과수익률 → 변동성 순서(초과수익률 카드가 사이에 들어왔다).
     expect(metricLabels.findIndex((text) => text.includes("변동성"))).toBe(
+      metricLabels.findIndex((text) => text.includes("최종 자산")) + 2
+    );
+  });
+
+  it("최종 자산 오른쪽에 초과수익률을 %p로 표시한다", async () => {
+    await act(async () => {
+      render(
+        <BacktestDashboard
+          result={{ ...baseResult, totalReturn: 14.2, buyAndHoldReturn: 7.0 }}
+          onRestart={() => {}}
+          disableHistorySave
+        />
+      );
+    });
+
+    const excessLabel = screen.getByText("초과수익률");
+    const excessCard = excessLabel.parentElement?.parentElement;
+    expect(excessCard).toHaveTextContent("+7.20");
+    expect(excessCard).toHaveTextContent("%p");
+
+    const performanceRow = excessCard?.parentElement;
+    const metricLabels = Array.from(performanceRow?.children ?? []).map((card) => card.textContent ?? "");
+    expect(metricLabels.findIndex((text) => text.includes("초과수익률"))).toBe(
       metricLabels.findIndex((text) => text.includes("최종 자산")) + 1
     );
+  });
+
+  it("전략과 벤치마크가 모두 손실이면 초과수익률은 덜 하락한 폭을 %p로 표시한다", async () => {
+    await act(async () => {
+      render(
+        <BacktestDashboard
+          result={{ ...baseResult, totalReturn: -30, buyAndHoldReturn: -40 }}
+          onRestart={() => {}}
+          disableHistorySave
+        />
+      );
+    });
+
+    const excessCard = screen.getByText("초과수익률").parentElement?.parentElement;
+    expect(excessCard).toHaveTextContent("+10.00");
+  });
+
+  it("벤치마크가 구간의 일부만 덮으면 초과수익률 숫자를 내지 않는다", async () => {
+    await act(async () => {
+      render(
+        <BacktestDashboard
+          result={{ ...baseResult, totalReturn: 14.2, buyAndHoldReturn: 7.0, benchmarkPartial: true }}
+          onRestart={() => {}}
+          disableHistorySave
+        />
+      );
+    });
+
+    // 기간이 다른 두 수익률의 차이는 비교값이 아니다 — 숫자 대신 '-'.
+    const excessCard = screen.getByText("초과수익률").parentElement?.parentElement;
+    expect(excessCard).toHaveTextContent("-");
+    expect(excessCard).not.toHaveTextContent("+7.20");
+    expect(excessCard).not.toHaveTextContent("%p");
+  });
+
+  it("최종 자산·초기 자본 금액에 '원'을 두 번 붙이지 않는다", async () => {
+    await act(async () => {
+      render(
+        <BacktestDashboard result={baseResult} onRestart={() => {}} disableHistorySave />
+      );
+    });
+
+    // formatKRW가 이미 "원"을 붙이는데 sub에도 "원"을 주어 "10,000,000원 원"이 됐다.
+    for (const label of ["최종 자산", "초기 자본"]) {
+      const card = screen.getByText(label).parentElement?.parentElement;
+      expect(card?.textContent).not.toMatch(/원\s*원/);
+    }
   });
 
   it("시장 노출도 오른쪽에 왕복거래 기준 회전율을 표시한다", async () => {

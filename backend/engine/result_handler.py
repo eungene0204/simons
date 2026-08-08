@@ -337,14 +337,34 @@ class ResultHandler:
                 return np.nan_to_num(obj.values.flatten(), nan=0.0, posinf=0.0, neginf=0.0).tolist()
             return [cls.safe(x) for x in obj]
 
+        def to_list_nullable(obj):
+            """to_list와 달리 결측을 0이 아니라 None으로 내보낸다.
+
+            벤치마크 수익곡선은 커버리지 밖 구간이 존재할 수 있는데, 0으로 채우면
+            "그 구간 벤치마크가 0원이었다"는 거짓 곡선이 된다."""
+            values = obj.values.flatten() if isinstance(obj, (pd.DataFrame, pd.Series)) else np.asarray(obj, dtype=float)
+            return [None if (np.isnan(v) or np.isinf(v)) else float(v) for v in values]
+
         # ── Benchmark ─────────────────────────────────────────────────────────
+        # 벤치마크 값이 없는 구간은 채우지 않는다.
+        #
+        # v11.0 이전에는 .bfill()로 지수 ETF 상장 이전 구간에 첫 가격을 뒤채웠다.
+        # 가격이 상수라 그 구간 수익률이 전부 0%가 되는데, 누적곱은 커버리지 구간만
+        # 곱한 것과 같아 **bench_total_return 값 자체는 달라지지 않는다**. 달라지는
+        # 것은 수익곡선으로, 벤치마크가 존재하지도 않던 구간에 초기자본에서 평탄한
+        # 선이 그려져 "그때 벤치마크는 제자리였다"는 거짓 정보가 됐다.
+        #
+        # 값이 같다는 것이 비교가 정당하다는 뜻은 아니다 — 벤치마크 수익률은 자기가
+        # 존재한 구간만, 전략 수익률은 전체 구간을 복리로 쌓은 값이라 기간이 다르다.
+        # 이 기간 불일치는 데이터로 메울 수 없으므로 엔진이 경고로 고지한다
+        # (backtest_engine의 H1 경고).
+        bench_valid: "pd.Series | None" = None
         if benchmark_prices is not None and len(benchmark_prices) > 0:
             # Align benchmark to common_index
-            bench_aligned = benchmark_prices.reindex(common_index).ffill().bfill()
-            bench_first = bench_aligned.iloc[0]
-            bench_mean_rets = bench_aligned.pct_change().fillna(0.0)
-            if bench_first and bench_first != 0:
-                bench_mean_rets.iloc[0] = 0.0
+            bench_aligned = benchmark_prices.reindex(common_index).ffill()
+            bench_valid = bench_aligned.notna()
+            # 첫 유효일은 직전 값이 없어 수익률이 정의되지 않는다 → 0(곡선 시작점).
+            bench_mean_rets = bench_aligned.pct_change().fillna(0.0).where(bench_valid, 0.0)
         else:
             # Fallback: equal-weight buy-and-hold of strategy symbols
             bench_rets = pf.benchmark_returns()
@@ -354,7 +374,14 @@ class ResultHandler:
                 bench_mean_rets = bench_rets
 
         bench_cum_returns = (1 + bench_mean_rets).cumprod()
-        bench_total_return = bench_cum_returns.iloc[-1] - 1 if len(bench_cum_returns) > 0 else 0.0
+        if bench_valid is not None:
+            # 커버리지 밖은 NaN → 수익곡선에 null로 나가 가짜 평탄 구간을 그리지 않는다.
+            bench_cum_returns = bench_cum_returns.where(bench_valid, np.nan)
+        _bench_cum_covered = bench_cum_returns.dropna()
+        bench_total_return = _bench_cum_covered.iloc[-1] - 1 if len(_bench_cum_covered) > 0 else 0.0
+        # 벤치마크가 백테스트 구간의 일부만 덮으면 두 수익률의 기간이 달라 차이값
+        # (초과수익률)을 그대로 보여줄 수 없다 — 표시 쪽이 판단할 수 있게 알린다.
+        bench_partial = bool(len(_bench_cum_covered) < len(bench_cum_returns))
 
         # ── Portfolio-level metrics ───────────────────────────────────────────
         total_return_decimal = cls.safe(pf.total_return())
@@ -465,7 +492,8 @@ class ResultHandler:
             "expectancy":           _sf(_expectancy),
             "recoveryFactor":       _sf(_recovery),
             "equity":               _equity,
-            "benchmark_equity":     to_list(init_cash * bench_cum_returns),
+            "benchmark_equity":     to_list_nullable(init_cash * bench_cum_returns),
+            "benchmark_partial":    bench_partial,
             "dates":                _dates,
             "signals":              signals_list,
             "perAssetStats":        per_asset_stats,

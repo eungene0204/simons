@@ -75,6 +75,7 @@ function mapBacktestResponse(raw: any): BacktestResult {
     })),
     perAssetStats: raw.perAssetStats,
     benchmarkLabel: raw.benchmark_label,
+    benchmarkPartial: raw.benchmark_partial,
     universeId: raw.universe_id,
     warnings: raw.warnings,
     executionTime: raw.executionTime,
