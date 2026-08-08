@@ -1,4 +1,4 @@
-"""Backfill 지배주주순이익(owner_net_income) into the fundamentals cache + parquet.
+"""Backfill DART 손익계산서 값(지배주주순이익 + 당기순이익)into the fundamentals cache + parquet.
 
 배경(2026-08-06): 당기순이익은 KIS 순이익률x매출액으로만 갖고 있었는데, 이것은 비지배지분이
 섞인 **연결 전체** 값이다(삼성전자 2023: 154,843억 = 지배 144,734 + 비지배 10,137). 지배기업
@@ -11,11 +11,18 @@ engine/fundamental_fetcher._parse_dart_owner_net_income). 캐시에는 파싱 �
 없는 연도는 그 응답 자체가 없었다는 뜻이다(연결재무제표 미제출·2015년 이전·DART 미등록).
 현금흐름 3분류 백필(2026-08-05)과 같은 논리·같은 규모의 호출 예산이다.
 
+**2026-08-07 확장**: 같은 응답의 당기순이익 총액(`ifrs-full_ProfitLoss`)도 함께 담아
+`net_income`을 DART 원값으로 교체한다. 기존 값은 KIS 순이익률(소수 2자리 반올림)x매출
+재계산본이라 저마진 연도에 절대금액 오차가 크다(순이익 10억 규모에서 수백 %). 두 값이 같은
+손익계산서에서 나오므로 `지배주주순이익 <= 당기순이익`도 정합해진다. 진행 파일을 v2로 올려
+이미 처리한 종목도 한 번 더 방문한다 — 같은 값을 다시 쓰므로 멱등이다.
+
 처리 절차 (종목당):
-  1. 캐시 레코드 중 operating_cash_flow가 있고 owner_net_income이 없는 연도를 추림
-  2. 연도별 fnlttSinglAcntAll.json 조회(CFS → 실패 시 OFS) 후 지배주주순이익만 파싱
-  3. 해당 year_end 레코드에 억원 환산본 한 키만 추가(기존 필드·available_from 불변)
-  4. parquet은 merge_fundamentals(기존 값 우선, 결측만 채움)로 컬럼 하나만 신규 추가
+  1. 캐시 레코드 중 operating_cash_flow가 있는 연도를 추림(= 그 해에 DART 응답이 있었다)
+  2. 연도별 fnlttSinglAcntAll.json 조회(CFS → 실패 시 OFS) 후 지배주주순이익·당기순이익 파싱
+  3. 해당 year_end 레코드에 억원 환산본을 기록(기존 필드·available_from 불변)
+  4. parquet은 rebuild_fundamental_columns(캐시 우선)로 재구축 — net_income은 **교체**라
+     기존 값 우선(merge)으로는 반영되지 않는다
 
 **별도재무제표(OFS)에는 지배/비지배 구분 자체가 없다** — OFS 폴백으로 응답을 받아도 값이
 없는 것이 정상이고, 그 경우 키를 만들지 않는다(당기순이익으로 대체 금지).
@@ -50,11 +57,13 @@ import polars as pl
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _CACHE_DIR = _REPO_ROOT / "data" / "fundamentals"
 _OHLCV_DIR = _REPO_ROOT / "data" / "ohlcv"
-_PROGRESS_PATH = _REPO_ROOT / "data" / "owner-net-income-backfill.progress.json"
+# v2 = 당기순이익(ProfitLoss) 동시 수집으로 확장한 판. 이미 지배주주순이익만 받아 둔 종목도
+# 한 번 더 방문해야 하므로 진행 파일을 새로 판다(같은 값을 다시 쓰는 것이라 멱등).
+_PROGRESS_PATH = _REPO_ROOT / "data" / "owner-net-income-backfill.progress.v2.json"
 sys.path.insert(0, str(_REPO_ROOT / "backend"))
 
 import engine.fundamental_fetcher as ff  # noqa: E402
-from engine.fundamental_backfill import merge_fundamentals  # noqa: E402
+from engine.fundamental_backfill import rebuild_fundamental_columns  # noqa: E402
 
 
 class QuotaExhausted(Exception):
@@ -77,12 +86,14 @@ def save_progress(done: set[str]) -> None:
 
 
 def pending_years(records: list[dict]) -> list[int]:
-    """OCF는 있는데 지배주주순이익이 없는 연도 (= 재조회 대상)."""
+    """OCF가 있는 연도 (= 그 해에 DART 응답이 있었다는 뜻이라 재조회 가치가 있다).
+
+    v1은 '지배주주순이익이 아직 없는 연도'로 좁혔지만, v2는 당기순이익 교체를 함께 하므로
+    이미 지배주주순이익이 있는 연도도 다시 방문한다.
+    """
     years = []
     for record in records:
         if record.get("operating_cash_flow") is None:
-            continue
-        if record.get("owner_net_income") is not None:
             continue
         year_end = str(record.get("year_end", ""))[:4]
         if year_end.isdigit():
@@ -105,8 +116,12 @@ def find_target_symbols() -> list[str]:
     return symbols
 
 
-def _fetch_owner_net_income(corp_code: str, year: int) -> tuple[float | None, int]:
-    """한 연도의 지배주주순이익(raw 원). Returns (amount_or_None, dart_calls_used)."""
+def _fetch_income_statement_values(corp_code: str, year: int) -> tuple[dict, int]:
+    """한 연도의 {owner_net_income, net_income}(억원). Returns (values, dart_calls_used).
+
+    별도재무제표(OFS)에는 지배/비지배 구분이 없으므로 owner는 빠지고 당기순이익만 담길 수
+    있다 — 둘 중 하나라도 얻으면 그 응답을 채택한다.
+    """
     calls = 0
     for fs_div in ("CFS", "OFS"):
         payload = ff._fetch_dart_json(
@@ -119,17 +134,30 @@ def _fetch_owner_net_income(corp_code: str, year: int) -> tuple[float | None, in
             raise QuotaExhausted()
         if payload.get("status") != "000":
             continue
-        amount = ff._parse_dart_owner_net_income(payload.get("list", []))
-        if amount is not None:
-            return amount, calls
-    return None, calls
+        rows = payload.get("list", [])
+        found: dict[str, float] = {}
+        owner = ff._parse_dart_owner_net_income(rows)
+        if owner is not None:
+            found["owner_net_income"] = round(owner / 1e8, 1)
+        profit_loss = ff._dart_amount_by_ids(
+            rows, ff._DART_OWNER_NET_INCOME_SECTIONS, ff._DART_PROFIT_LOSS_ACCOUNT_IDS
+        )
+        if profit_loss is not None:
+            found["net_income"] = round(profit_loss / 1e8, 1)
+        if found:
+            return found, calls
+    return {}, calls
 
 
 def remerge_symbol(symbol: str, *, dry_run: bool) -> tuple[str, list[str]]:
     """DART 호출 없이 캐시의 지배주주순이익을 parquet에 다시 반영한다.
 
-    프로덕션 미러 pull로 parquet이 되돌아온 뒤(정본=프로덕션이라 pull이 이긴다) 새 컬럼만
-    복원하는 용도. 캐시(data/fundamentals)는 미러 대상이 아니라 값이 보존돼 있다.
+    프로덕션 미러 pull로 parquet이 되돌아온 뒤(정본=프로덕션이라 pull이 이긴다) 복원하는
+    용도. 캐시(data/fundamentals)는 미러 대상이 아니라 값이 보존돼 있다.
+
+    지배주주순이익을 **더하는** 것만이 아니라 net_income을 DART 원값으로 **되돌리는** 것도
+    포함되므로 캐시가 이기는 rebuild를 쓴다 — 기존 parquet 값 우선(merge)이면 프로덕션의
+    KIS 재계산본이 그대로 남는다.
     """
     cache_path = _CACHE_DIR / f"{symbol}.json"
     if not cache_path.exists():
@@ -144,8 +172,8 @@ def remerge_symbol(symbol: str, *, dry_run: bool) -> tuple[str, list[str]]:
         return "no_parquet", []
     if not dry_run:
         pdf = pl.read_parquet(parquet_path).to_pandas()
-        merged = merge_fundamentals(pdf, records)
-        pl.from_pandas(merged).write_parquet(parquet_path)
+        rebuilt = rebuild_fundamental_columns(pdf, records)
+        pl.from_pandas(rebuilt).write_parquet(parquet_path)
     return "remerged", [str(parquet_path.relative_to(_REPO_ROOT))]
 
 
@@ -173,16 +201,20 @@ def backfill_symbol(symbol: str, *, dry_run: bool) -> tuple[str, list[str], int]
     }
     filled, calls = 0, 0
     for year in years:
-        amount, used = _fetch_owner_net_income(corp_code, year)
+        values, used = _fetch_income_statement_values(corp_code, year)
         calls += used
-        if amount is None:
+        if not values:
             continue
         # 억원 환산은 fetch 경로(_compute_derived_annual_metrics)와 같은 식이어야 한다.
-        by_year[str(year)]["owner_net_income"] = round(amount / 1e8, 1)
+        by_year[str(year)].update(values)
         filled += 1
 
     if not filled:
         return "no_owner_data", [], calls
+
+    # net_income이 바뀌면 순이익증가율도 따라 바뀐다 — 파생 지표를 다시 계산한다.
+    records = ff._compute_derived_annual_metrics(records)
+    payload["fundamentals"] = records
 
     changed_paths = []
     if not dry_run:
@@ -195,8 +227,10 @@ def backfill_symbol(symbol: str, *, dry_run: bool) -> tuple[str, list[str], int]
     if parquet_path.exists():
         if not dry_run:
             pdf = pl.read_parquet(parquet_path).to_pandas()
-            merged = merge_fundamentals(pdf, records)
-            pl.from_pandas(merged).write_parquet(parquet_path)
+            # net_income은 기존 값을 **교체**하므로 캐시가 이기는 rebuild를 써야 한다
+            # (merge_fundamentals는 기존 parquet 값 우선이라 교체가 반영되지 않는다).
+            rebuilt = rebuild_fundamental_columns(pdf, records)
+            pl.from_pandas(rebuilt).write_parquet(parquet_path)
         changed_paths.append(str(parquet_path.relative_to(_REPO_ROOT)))
 
     return f"filled_{filled}y", changed_paths, calls

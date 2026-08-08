@@ -236,6 +236,7 @@ def test_fetch_cash_flow_from_dart_falls_back_to_separate_statements(monkeypatch
 
     monkeypatch.setenv("DART_API_KEY", "test-key")
     monkeypatch.setattr(ff, "_get_dart_corp_code", lambda symbol: "00126380")
+    monkeypatch.setattr(ff, "dart_fiscal_month", lambda symbol, corp_code: "12")
 
     def fake_fetch(path, params):
         if path == "list.json":
@@ -362,6 +363,116 @@ def test_parse_dart_owner_net_income_ignores_legacy_comprehensive_income_row():
 def test_parse_dart_owner_net_income_missing_returns_none():
     """별도재무제표(OFS)에는 지배/비지배 구분 자체가 없어 결측이 정상이다."""
     assert _parse_dart_owner_net_income(_DART_CF_BS_FIXTURE) is None
+
+
+# ── 정본 계정ID가 없는 제출본의 검산 구제 (실측: 2026-08-07, 90종목 표본 원인 분류) ──
+#
+# 검산 = 지배 + 비지배 = 당기순이익(ProfitLoss). 통과하지 못하면 결측으로 남긴다 —
+# 이름이 비슷한 다른 개념(총포괄손익·중단영업 있는 계속영업손익)을 몰래 넣지 않기 위함이다.
+
+def _row(sj_div, account_id, account_nm, amount):
+    return {"sj_div": sj_div, "account_id": account_id,
+            "account_nm": account_nm, "thstrm_amount": amount}
+
+
+def test_parse_dart_owner_net_income_accepts_continuing_ops_when_checksum_holds():
+    """부국증권 2024 실측 — 중단영업이 없으면 계속영업손익 귀속 = 당기순이익 귀속."""
+    rows = [
+        _row("CIS", "ifrs-full_IncomeFromContinuingOperationsAttributableToOwnersOfParent",
+             "1. 지배기업의 소유주에게 귀속될 계속영업손익", "30,945,550,007"),
+        _row("CIS", "ifrs-full_ProfitLossFromContinuingOperationsAttributableToNoncontrollingInterests",
+             "2. 비지배지분에 귀속될 계속영업손익", "7,004,743"),
+        _row("CIS", "ifrs-full_ProfitLoss", "VIII. 당기순이익", "30,952,554,750"),
+    ]
+    assert _parse_dart_owner_net_income(rows) == pytest.approx(30_945_550_007.0)
+
+
+def test_parse_dart_owner_net_income_rejects_continuing_ops_when_discontinued_exists():
+    """중단영업이 있어 합이 당기순이익과 어긋나면 개념이 다른 값이므로 채택하지 않는다."""
+    rows = [
+        _row("CIS", "ifrs-full_IncomeFromContinuingOperationsAttributableToOwnersOfParent",
+             "지배기업의 소유주에게 귀속될 계속영업손익", "30,000,000,000"),
+        _row("CIS", "ifrs-full_ProfitLossFromContinuingOperationsAttributableToNoncontrollingInterests",
+             "비지배지분에 귀속될 계속영업손익", "1,000,000,000"),
+        _row("CIS", "ifrs-full_ProfitLoss", "당기순이익", "45,000,000,000"),  # 중단영업 14조 포함
+    ]
+    assert _parse_dart_owner_net_income(rows) is None
+
+
+def test_parse_dart_owner_net_income_accepts_continuing_ops_without_nci_row():
+    """비지배 귀속 행이 아예 없으면 비지배=0이다 — 소유주 값 단독 검산(003530 실측)."""
+    rows = [
+        _row("CIS", "ifrs-full_IncomeFromContinuingOperationsAttributableToOwnersOfParent",
+             "지배기업의 소유주에게 귀속되는 당기순이익", "102,010,000,000"),
+        _row("CIS", "ifrs-full_ComprehensiveIncomeFromContinuingOperationsAttributableToOwnersOfParent",
+             "지배기업의 소유주에게 귀속되는 당기총포괄이익", "361,220,000,000"),
+        _row("CIS", "ifrs-full_ProfitLoss", "당기순이익", "102,010,000,000"),
+    ]
+    assert _parse_dart_owner_net_income(rows) == pytest.approx(102_010_000_000.0)
+
+
+def test_parse_dart_owner_net_income_picks_untagged_pair_that_passes_checksum():
+    """069330 실측 — 총포괄 쌍과 순이익 쌍이 계정ID 없이 나란히 실린다. 검산이 가른다."""
+    rows = [
+        _row("CIS", "-표준계정코드 미사용-", "지배기업소유주지분총포괄이익(손실)", "9,999,999,999"),
+        _row("CIS", "-표준계정코드 미사용-", "비지배지분총포괄손익(손실)", "-1,111,111,111"),
+        _row("CIS", "ifrs-full_ProfitLoss", "당기순이익(손실)", "1,285,612,509"),
+        _row("CIS", "-표준계정코드 미사용-", "지배기업소유주지분순이익(손실)", "1,364,078,931"),
+        _row("CIS", "ifrs-full_ProfitLossAttributableToNoncontrollingInterests",
+             "비지배지분순이익(손실)", "-78,466,422"),
+    ]
+    assert _parse_dart_owner_net_income(rows) == pytest.approx(1_364_078_931.0)
+
+
+def test_parse_dart_owner_net_income_rejects_untagged_comprehensive_only():
+    """045660 실측 — 계정ID 없는 행이 총포괄 귀속뿐이면 합이 안 맞아 결측으로 남긴다."""
+    rows = [
+        _row("CIS", "-표준계정코드 미사용-", "지배기업소유주지분", "383,433,148"),
+        _row("CIS", "-표준계정코드 미사용-", "비지배지분", "-57,998,878"),
+        _row("CIS", "ifrs-full_ProfitLoss", "당기순이익", "393,882,122"),
+    ]
+    assert _parse_dart_owner_net_income(rows) is None
+
+
+def test_parse_dart_owner_net_income_uses_profit_loss_when_no_minority_interest():
+    """003690 실측 — 비지배지분이 없으면 귀속 행을 싣지 않는다(자본총계 = 지배기업소유주지분)."""
+    rows = [
+        _row("CIS", "ifrs-full_ProfitLoss", "당기순이익", "322,041,488,493"),
+        _row("BS", "ifrs-full_Equity", "자본총계", "3,683,421,777,221"),
+        _row("BS", "ifrs-full_EquityAttributableToOwnersOfParent", "지배주주지분", "3,683,421,777,221"),
+    ]
+    assert _parse_dart_owner_net_income(rows) == pytest.approx(322_041_488_493.0)
+
+
+def test_parse_dart_owner_net_income_no_minority_accepts_explicit_zero_nci():
+    """065370 실측 — 비지배지분을 0으로 명시한 제출본."""
+    rows = [
+        _row("CIS", "ifrs-full_ProfitLoss", "당기순이익", "1,454,510,181"),
+        _row("BS", "ifrs-full_Equity", "자본총계", "30,864,651,221"),
+        _row("BS", "ifrs-full_NoncontrollingInterests", "비지배지분", "0"),
+    ]
+    assert _parse_dart_owner_net_income(rows) == pytest.approx(1_454_510_181.0)
+
+
+def test_parse_dart_owner_net_income_refuses_profit_loss_when_minority_exists():
+    """비지배지분이 실재하는데 귀속 행이 없으면 지배분을 알 수 없다 — 총액으로 때우지 않는다."""
+    rows = [
+        _row("CIS", "ifrs-full_ProfitLoss", "당기순이익", "50,000,000,000"),
+        _row("BS", "ifrs-full_Equity", "자본총계", "300,000,000,000"),
+        _row("BS", "ifrs-full_NoncontrollingInterests", "비지배지분", "12,000,000,000"),
+    ]
+    assert _parse_dart_owner_net_income(rows) is None
+
+
+def test_parse_dart_owner_net_income_prefers_canonical_over_checksum_fallback():
+    """정본 계정ID가 있으면 검산 폴백을 타지 않는다(순서 회귀)."""
+    rows = [
+        _row("IS", "ifrs-full_ProfitLossAttributableToOwnersOfParent",
+             "지배기업의 소유주에게 귀속되는 당기순이익(손실)", "14,473,401,000,000"),
+        _row("IS", "ifrs-full_ProfitLoss", "당기순이익", "15,487,100,000,000"),
+        _row("BS", "ifrs-full_NoncontrollingInterests", "비지배지분", "0"),
+    ]
+    assert _parse_dart_owner_net_income(rows) == pytest.approx(14_473_401_000_000.0)
 
 
 def test_fetch_cash_flow_from_dart_also_captures_owner_net_income(monkeypatch):
@@ -531,6 +642,7 @@ def test_fetch_cash_flow_from_dart_omits_missing_activity_buckets(monkeypatch):
 
     monkeypatch.setenv("DART_API_KEY", "test-key")
     monkeypatch.setattr(ff, "_get_dart_corp_code", lambda symbol: "00126380")
+    monkeypatch.setattr(ff, "dart_fiscal_month", lambda symbol, corp_code: "12")
 
     def fake_fetch(path, params):
         if path == "list.json":
@@ -551,8 +663,11 @@ def test_fetch_cash_flow_from_dart_omits_missing_activity_buckets(monkeypatch):
 
 
 def test_fetch_dart_original_filing_dates_prefers_earliest_original(monkeypatch):
-    """정정공시가 있어도 연도별 최초(원공시) 접수일을 고르고, 12월 결산이 아닌
-    보고서명은 매핑하지 않는다."""
+    """정정공시가 있어도 연도별 최초(원공시) 접수일을 고른다.
+
+    2026-08-07 이전에는 '(YYYY.12)'만 매핑해 비12월 결산 보고서를 통째로 버렸다 —
+    그 회사들만 정정일 오염 클램프에서 빠지던 결함이라, 이제 결산월과 무관하게 매핑한다.
+    """
     import engine.fundamental_fetcher as ff
 
     def fake_fetch(path, params):
@@ -569,7 +684,10 @@ def test_fetch_dart_original_filing_dates_prefers_earliest_original(monkeypatch)
 
     monkeypatch.setattr(ff, "_fetch_dart_json", fake_fetch)
 
-    assert ff._fetch_dart_original_filing_dates("00126380") == {2020: "2021-03-18"}
+    assert ff._fetch_dart_original_filing_dates("00126380") == {
+        2020: "2021-03-18",   # 정정본 2023-03-17이 아니라 원공시
+        2021: "2021-06-30",   # 결산월이 12가 아니어도 버리지 않는다
+    }
 
 
 def test_fetch_cash_flow_from_dart_clamps_available_from_to_original_filing(monkeypatch):
@@ -579,6 +697,7 @@ def test_fetch_cash_flow_from_dart_clamps_available_from_to_original_filing(monk
 
     monkeypatch.setenv("DART_API_KEY", "test-key")
     monkeypatch.setattr(ff, "_get_dart_corp_code", lambda symbol: "00126380")
+    monkeypatch.setattr(ff, "dart_fiscal_month", lambda symbol, corp_code: "12")
 
     def fake_fetch(path, params):
         if path == "list.json":
@@ -1130,3 +1249,264 @@ def test_fetch_fundamentals_skips_network_when_recently_confirmed_empty(tmp_path
     assert result2 is None
     assert kis_calls["n"] == 1
     assert naver_calls["n"] == 1
+
+
+# ── KIS 분기 행 혼입 제거 (실측: 2026-08-07, 현대차 stac_yymm 202603 + 202512 …) ──
+
+def test_drop_kis_interim_records_removes_leading_quarter_row():
+    """연간을 요청해도 KIS가 끼워 보내는 최신 분기 한 행을 걷어낸다."""
+    from engine.fundamental_fetcher import drop_kis_interim_records
+
+    records = [
+        {"year_end": "2026-03-31", "eps": 8800.0, "net_income": 25_863.6},
+        {"year_end": "2025-12-31", "eps": 35_331.0, "net_income": 103_743.8},
+        {"year_end": "2024-12-31", "eps": 32_000.0},
+    ]
+    kept = drop_kis_interim_records(records)
+    assert [r["year_end"] for r in kept] == ["2025-12-31", "2024-12-31"]
+
+
+def test_drop_kis_interim_records_respects_non_december_fiscal_year():
+    """3월 결산 회사는 3월이 정상이고 끼어든 12월 행이 분기다(월 최빈값 판정)."""
+    from engine.fundamental_fetcher import drop_kis_interim_records
+
+    records = [
+        {"year_end": "2025-12-31", "eps": 500.0},   # 끼어든 분기
+        {"year_end": "2025-03-31", "eps": 2000.0},
+        {"year_end": "2024-03-31", "eps": 1800.0},
+        {"year_end": "2023-03-31", "eps": 1600.0},
+    ]
+    kept = drop_kis_interim_records(records)
+    assert [r["year_end"] for r in kept] == ["2025-03-31", "2024-03-31", "2023-03-31"]
+
+
+def test_drop_kis_interim_records_keeps_single_record():
+    """레코드가 하나뿐이면 분기인지 판별할 근거가 없으므로 그대로 둔다."""
+    from engine.fundamental_fetcher import drop_kis_interim_records
+
+    records = [{"year_end": "2026-03-31", "eps": 8800.0}]
+    assert drop_kis_interim_records(records) == records
+
+
+def test_fiscal_month_is_the_modal_month():
+    from engine.fundamental_fetcher import fiscal_month
+
+    assert fiscal_month(["2026-03-31", "2025-12-31", "2024-12-31"]) == "12"
+    assert fiscal_month(["2025-12-31", "2025-03-31", "2024-03-31"]) == "03"
+    assert fiscal_month([]) is None
+
+
+def test_kis_interim_row_is_dropped_before_growth_is_computed(monkeypatch):
+    """분기 행이 성장률 체인에 남으면 직전 '연간'과 비교돼 -75%가 찍힌다(현대차 실측)."""
+    import engine.fundamental_fetcher as ff
+
+    annual_only = ff.drop_kis_interim_records([
+        {"year_end": "2026-03-31", "net_margin": 5.6, "_revenue": 461_000.0},
+        {"year_end": "2025-12-31", "net_margin": 5.57, "_revenue": 1_862_547.0},
+        {"year_end": "2024-12-31", "net_margin": 7.55, "_revenue": 1_752_312.0},
+    ])
+    out = ff._compute_derived_annual_metrics(annual_only)
+    assert [r["year_end"] for r in out] == ["2024-12-31", "2025-12-31"]
+    # 마지막 레코드의 증가율은 연간 대 연간이므로 -75% 근처가 아니어야 한다.
+    assert out[-1]["net_income_growth"] > -50
+
+
+# ── net_income 정본을 DART 당기순이익으로 교체 (2026-08-07) ──
+
+def test_dart_profit_loss_overrides_kis_derived_net_income():
+    """KIS 재계산본(net_margin x 매출)보다 DART 원값이 이긴다 — 저마진 연도 오차 제거."""
+    result = _compute_derived_annual_metrics([{
+        "year_end": "2025-12-31",
+        "net_margin": 0.01, "_revenue": 7_000.0,          # KIS 재계산 → 0.7억
+        "_profit_loss_raw": 21_000_000_000.0,             # DART 원값 → 210.0억
+    }])
+    assert result[0]["net_income"] == pytest.approx(210.0)
+
+
+def test_kis_derived_net_income_kept_when_dart_absent():
+    """2015년 이전·별도재무제표만 있는 구간은 KIS 재계산본을 그대로 남긴다."""
+    result = _compute_derived_annual_metrics([
+        {"year_end": "2012-12-31", "net_margin": 10.0, "_revenue": 1_000.0},
+    ])
+    assert result[0]["net_income"] == pytest.approx(100.0)
+
+
+def test_dart_sourced_net_income_and_owner_come_from_the_same_statement():
+    """두 값 모두 DART 손익계산서 원값이라 KIS 재계산본과 섞이지 않는다.
+
+    **`owner_net_income <= net_income`은 성립하지 않는다** — 비지배지분 손익이 음수면
+    (적자 자회사의 소수주주 몫) 지배주주순이익이 전체보다 크다. 실측 2026-08-08: 삼천리
+    2016년 지배 345.4억 + 비지배 -144.9억 = 전체 200.6억, 카카오 2023년 전체 -1.82조 중
+    지배 -1.01조. 전수 18,071 레코드 중 5,777건이 이 형태이며 라이브 검산 6/6 통과했다.
+    성립하는 관계는 **지배 + 비지배 = 전체** 하나뿐이니 부등호로 검증하지 말 것.
+    """
+    result = _compute_derived_annual_metrics([{
+        "year_end": "2023-12-31",
+        "net_margin": 5.98, "_revenue": 2_589_355.0,   # KIS 재계산본(154,843.4)은 무시된다
+        "_profit_loss_raw": 15_487_100_000_000.0,
+        "_owner_net_income_raw": 14_473_401_000_000.0,
+    }])[0]
+    assert result["net_income"] == pytest.approx(154_871.0)
+    assert result["owner_net_income"] == pytest.approx(144_734.0)
+
+
+def test_owner_net_income_may_exceed_net_income_when_minority_loses_money():
+    """비지배지분이 적자면 지배주주순이익 > 당기순이익이다(삼천리 2016 실측 형태)."""
+    result = _compute_derived_annual_metrics([{
+        "year_end": "2016-12-31",
+        "_profit_loss_raw": 20_057_055_252.0,        # 전체 200.6억
+        "_owner_net_income_raw": 34_542_944_249.0,   # 지배 345.4억 (비지배 -144.9억)
+    }])[0]
+    assert result["net_income"] == pytest.approx(200.6)
+    assert result["owner_net_income"] == pytest.approx(345.4)
+    assert result["owner_net_income"] > result["net_income"]
+    assert "_profit_loss_raw" not in result
+
+
+def test_drop_kis_interim_records_preserves_fiscal_year_change_history():
+    """결산기를 바꾼 회사는 연간 레코드가 두 무리로 갈린다 — 작은 무리를 날리면 안 된다.
+
+    최신 한 행만 후보로 보는 규칙이라 12월 무리가 통째로 사라지지 않는다.
+    """
+    from engine.fundamental_fetcher import drop_kis_interim_records
+
+    records = [
+        {"year_end": f"{y}-12-31", "eps": 100.0} for y in (2016, 2017, 2018)
+    ] + [
+        {"year_end": f"{y}-03-31", "eps": 200.0} for y in (2020, 2021, 2022)
+    ]
+    kept = drop_kis_interim_records(records)
+    assert len(kept) == 6  # 어느 무리도 잘려나가지 않는다
+
+
+def test_drop_kis_interim_records_only_removes_the_newest_row():
+    """누적 오염이 아니라 KIS가 매번 하나 끼워 보내는 구조 — 최신 한 행만 걷어낸다."""
+    from engine.fundamental_fetcher import drop_kis_interim_records
+
+    records = [
+        {"year_end": "2024-12-31"}, {"year_end": "2025-12-31"},
+        {"year_end": "2026-03-31"},
+    ]
+    kept = drop_kis_interim_records(records)
+    assert [r["year_end"] for r in kept] == ["2024-12-31", "2025-12-31"]
+
+
+# ── DART 레코드의 결산일 라벨 (2026-08-07) ──
+
+def test_dart_year_end_uses_fiscal_month_not_december():
+    """bsns_year는 '그 결산기가 끝나는 달력 연도'다 — 결산월과 조합해 실제 결산일을 만든다.
+
+    실측: 효성오앤비(acc_mt=06) bsns_year 2023의 당기순이익 12.3억 = KIS 2023-06 레코드,
+    금비(acc_mt=09) bsns_year 2024 = KIS 2024-09 레코드.
+    """
+    from engine.fundamental_fetcher import dart_year_end
+
+    assert dart_year_end(2023, "06") == "2023-06-30"
+    assert dart_year_end(2024, "09") == "2024-09-30"
+    assert dart_year_end(2024, "02") == "2024-02-29"   # 윤년 말일
+    assert dart_year_end(2025, "12") == "2025-12-31"
+
+
+def test_dart_fiscal_month_falls_back_to_december_on_lookup_failure(monkeypatch):
+    """기업개황 조회가 실패해도 현행 동작(12월)으로 떨어질 뿐 멈추지 않는다."""
+    import engine.fundamental_fetcher as ff
+
+    monkeypatch.setattr(ff, "_DART_FISCAL_MONTHS", {})
+    monkeypatch.setattr(ff, "_fetch_dart_json", lambda path, params: {"status": "013"})
+    assert ff.dart_fiscal_month("999999", "00000000") == "12"
+
+
+def test_dart_fiscal_month_caches_successful_lookup(monkeypatch, tmp_path):
+    """acc_mt는 거의 바뀌지 않으므로 파일로 눌러 두고 재조회하지 않는다."""
+    import engine.fundamental_fetcher as ff
+
+    monkeypatch.setattr(ff, "_DART_FISCAL_MONTHS", {})
+    monkeypatch.setattr(ff, "_DART_FISCAL_MONTH_PATH", tmp_path / "fiscal.json")
+    calls = []
+
+    def fake(path, params):
+        calls.append(path)
+        return {"status": "000", "acc_mt": "6"}
+
+    monkeypatch.setattr(ff, "_fetch_dart_json", fake)
+    assert ff.dart_fiscal_month("097870", "00123456") == "06"
+    assert ff.dart_fiscal_month("097870", "00123456") == "06"
+    assert len(calls) == 1
+
+
+def test_fetch_cash_flow_from_dart_labels_record_with_fiscal_year_end(monkeypatch):
+    """비12월 결산 회사의 DART 레코드가 실제 결산일에 붙어야 한다."""
+    import engine.fundamental_fetcher as ff
+
+    monkeypatch.setenv("DART_API_KEY", "test-key")
+    monkeypatch.setattr(ff, "_get_dart_corp_code", lambda symbol: "00126380")
+    monkeypatch.setattr(ff, "dart_fiscal_month", lambda symbol, corp_code: "06")
+
+    rows = [{**row, "rcept_no": "20240930000001"} for row in _DART_CF_BS_FIXTURE]
+
+    def fake_fetch(path, params):
+        if path == "list.json":
+            return {"status": "013"}
+        return {"status": "000", "list": rows}
+
+    monkeypatch.setattr(ff, "_fetch_dart_json", fake_fetch)
+
+    record = _fetch_cash_flow_from_dart("097870", 2024, 2024)[0]
+    assert record["year_end"] == "2024-06-30"
+
+
+def test_dart_annual_report_name_captures_year_and_fiscal_month():
+    """사업보고서 이름의 괄호 월은 **그 사업연도의** 결산월이다 — 함께 뽑는다."""
+    from engine.fundamental_fetcher import _DART_ANNUAL_REPORT_NAME as pattern
+
+    assert pattern.search("사업보고서 (2025.06)").groups() == ("2025", "06")
+    assert pattern.search("[기재정정]사업보고서 (2023.06)").groups() == ("2023", "06")
+    assert pattern.search("사업보고서 (2024.12)").groups() == ("2024", "12")
+    assert pattern.search("반기보고서 (2024.06)") is None
+
+
+def test_fetch_dart_annual_report_periods_reads_month_and_original_date(monkeypatch):
+    """6월 결산 회사도 매핑되고, 정정본이 아니라 원공시가 이겨야 한다."""
+    import engine.fundamental_fetcher as ff
+
+    monkeypatch.setattr(ff, "_fetch_dart_json", lambda path, params: {
+        "status": "000",
+        "total_count": 3,
+        "list": [
+            {"report_nm": "사업보고서 (2025.06)", "rcept_dt": "20250919"},
+            {"report_nm": "[기재정정]사업보고서 (2024.06)", "rcept_dt": "20240926"},
+            {"report_nm": "사업보고서 (2024.06)", "rcept_dt": "20240919"},
+        ],
+    })
+    assert ff._fetch_dart_annual_report_periods("00123456") == {
+        2025: ("06", "2025-09-19"),
+        2024: ("06", "2024-09-19"),   # 정정본 09-26이 아니다
+    }
+
+
+def test_fetch_dart_annual_report_periods_tracks_fiscal_year_change(monkeypatch):
+    """결산기를 바꾼 회사는 연도마다 결산월이 다르다 — acc_mt 하나로는 표현되지 않는다."""
+    import engine.fundamental_fetcher as ff
+
+    monkeypatch.setattr(ff, "_fetch_dart_json", lambda path, params: {
+        "status": "000",
+        "total_count": 3,
+        "list": [
+            {"report_nm": "사업보고서 (2018.12)", "rcept_dt": "20190315"},
+            {"report_nm": "사업보고서 (2017.12)", "rcept_dt": "20180316"},
+            {"report_nm": "사업보고서 (2016.03)", "rcept_dt": "20160629"},
+        ],
+    })
+    periods = ff._fetch_dart_annual_report_periods("00123456")
+    assert periods[2016][0] == "03"   # 전환 이전
+    assert periods[2017][0] == "12"   # 전환 이후
+
+
+def test_fetch_dart_original_filing_dates_projects_dates_only(monkeypatch):
+    import engine.fundamental_fetcher as ff
+
+    monkeypatch.setattr(ff, "_fetch_dart_json", lambda path, params: {
+        "status": "000", "total_count": 1,
+        "list": [{"report_nm": "사업보고서 (2024.12)", "rcept_dt": "20250311"}],
+    })
+    assert ff._fetch_dart_original_filing_dates("00126380") == {2024: "2025-03-11"}
