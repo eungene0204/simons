@@ -150,29 +150,38 @@ def _fetch_income_statement_values(corp_code: str, year: int) -> tuple[dict, int
 
 
 def remerge_symbol(symbol: str, *, dry_run: bool) -> tuple[str, list[str]]:
-    """DART 호출 없이 캐시의 지배주주순이익을 parquet에 다시 반영한다.
+    """DART 호출 없이 캐시의 연간 재무 컬럼을 parquet에 다시 반영한다.
 
-    프로덕션 미러 pull로 parquet이 되돌아온 뒤(정본=프로덕션이라 pull이 이긴다) 복원하는
-    용도. 캐시(data/fundamentals)는 미러 대상이 아니라 값이 보존돼 있다.
+    두 상황에서 쓴다.
+      · 프로덕션 미러 pull로 parquet이 되돌아온 뒤(정본=프로덕션이라 pull이 이긴다) 복원
+      · 캐시 쪽 수리(분기 행 제거·결산일 재라벨·당기순이익 교체)를 parquet에 내리기
 
-    지배주주순이익을 **더하는** 것만이 아니라 net_income을 DART 원값으로 **되돌리는** 것도
-    포함되므로 캐시가 이기는 rebuild를 쓴다 — 기존 parquet 값 우선(merge)이면 프로덕션의
-    KIS 재계산본이 그대로 남는다.
+    **지배주주순이익 보유 여부로 거르지 않는다** — 분기 행 제거는 그 지표가 없는 종목에도
+    걸리므로, 거르면 그 종목들의 eps·PER·성장률이 옛 값으로 남는다.
+
+    값을 **더하는** 것이 아니라 **교체**하는 작업이라 캐시가 이기는 rebuild를 쓴다
+    (merge_fundamentals는 기존 parquet 값 우선이라 교체가 반영되지 않는다).
+
+    바뀐 게 없으면 파일을 쓰지 않는다 — 전 종목을 무조건 재기록하면 mtime이 전부 바뀌어
+    다음 미러 동기화가 통째로 재전송된다.
     """
     cache_path = _CACHE_DIR / f"{symbol}.json"
     if not cache_path.exists():
         return "no_cache", []
     payload = json.loads(cache_path.read_text(encoding="utf-8"))
     records = payload.get("fundamentals") or []
-    if not any(r.get("owner_net_income") is not None for r in records):
+    if not records:
         return "nothing_to_merge", []
 
     parquet_path = _OHLCV_DIR / f"{symbol}.parquet"
     if not parquet_path.exists():
         return "no_parquet", []
+
+    pdf = pl.read_parquet(parquet_path).to_pandas()
+    rebuilt = rebuild_fundamental_columns(pdf, records)
+    if rebuilt.equals(pdf):
+        return "unchanged", []
     if not dry_run:
-        pdf = pl.read_parquet(parquet_path).to_pandas()
-        rebuilt = rebuild_fundamental_columns(pdf, records)
         pl.from_pandas(rebuilt).write_parquet(parquet_path)
     return "remerged", [str(parquet_path.relative_to(_REPO_ROOT))]
 

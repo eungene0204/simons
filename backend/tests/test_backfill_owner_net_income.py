@@ -81,12 +81,31 @@ def test_remerge_replaces_production_net_income_with_dart_value(env):
     assert out["net_income"].to_list() == [1_500.0, 1_800.0]   # 9,999가 아니다
 
 
-def test_remerge_skips_symbols_without_owner_values(env):
+def test_remerge_covers_symbols_without_owner_values(env):
+    """지배주주순이익이 없는 종목도 대상이다 — 분기 행 제거는 그런 종목에도 걸린다.
+
+    지표 보유로 거르면 그 종목의 eps·PER·성장률이 옛 값으로 남는다.
+    """
     (env / "fundamentals" / "000660.json").write_text(
-        json.dumps({"symbol": "000660", "fundamentals": [{"year_end": "2025-12-31"}]}),
-        encoding="utf-8",
+        json.dumps({"symbol": "000660", "fundamentals": [
+            {"year_end": "2025-12-31", "available_from": "2026-03-10", "net_income": 7_000.0},
+        ]}), encoding="utf-8",
     )
-    assert owner_backfill.remerge_symbol("000660", dry_run=False)[0] == "nothing_to_merge"
+    pl.from_pandas(pd.DataFrame({
+        "date": pd.to_datetime(["2026-08-07"]),
+        "close": [100.0],
+        "net_income": [1.0],       # 프로덕션의 옛 값
+    })).write_parquet(env / "ohlcv" / "000660.parquet")
+
+    assert owner_backfill.remerge_symbol("000660", dry_run=False)[0] == "remerged"
+    out = pl.read_parquet(env / "ohlcv" / "000660.parquet")
+    assert out["net_income"].to_list() == [7_000.0]
+
+
+def test_remerge_skips_write_when_nothing_changes(env):
+    """바뀐 게 없으면 파일을 쓰지 않는다 — 전 종목 재기록은 미러 전체 재전송을 부른다."""
+    owner_backfill.remerge_symbol("005930", dry_run=False)          # 1회차: 반영
+    assert owner_backfill.remerge_symbol("005930", dry_run=False) == ("unchanged", [])
 
 
 def test_remerge_dry_run_leaves_parquet_untouched(env):
