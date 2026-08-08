@@ -3919,7 +3919,8 @@ def _run_nl_parse_traced(request: NLParseRequest, on_stage=None,
 
 
 # 후행(비차단) LLM 검증이 SSE 스트림을 붙잡을 수 있는 최대 시간. 프록시의 스트림 예산
-# (120s) 아래로 유지해 검증이 매달려도 스트림이 프록시 타임아웃으로 끊기지 않게 한다.
+# (240s) 아래로 유지해 검증이 매달려도 스트림이 프록시 타임아웃으로 끊기지 않게 한다.
+# 파스 본체가 최악 150초까지 가므로(생성 처리량 하락 시) 남는 몫으로 잡은 값이다.
 _DEFERRED_VALIDATION_MAX_WAIT_S = 90.0
 
 

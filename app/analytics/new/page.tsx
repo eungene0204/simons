@@ -709,13 +709,16 @@ function ChoiceOptionList({
             className={`${CHOICE_CHIP_CLASS} w-full`}
           >
             {/* 순번은 장식이라 접근성 이름에서 뺀다 — 넣으면 칩 이름이 "1 익절 10%"가 되어
-                칩 문자열(백엔드 답변 프로토콜)로 칩을 찾는 경로가 어긋난다. */}
-            <span
-              aria-hidden="true"
-              className="mr-2 tabular-nums text-[var(--text-label)]"
-            >
-              {index + 1}
-            </span>
+                칩 문자열(백엔드 답변 프로토콜)로 칩을 찾는 경로가 어긋난다.
+                확정 칩은 선택지가 아니라 단일 실행 동작이라 번호를 매기지 않는다(2026-08-06 지시). */}
+            {option !== CONFIRM_STRATEGY_CHIP && (
+              <span
+                aria-hidden="true"
+                className="mr-2 tabular-nums text-[var(--text-label)]"
+              >
+                {index + 1}
+              </span>
+            )}
             {option}
           </button>
         );
@@ -1406,14 +1409,30 @@ function BuilderStrategyOverview({
           현재까지 이해한 전략입니다
         </p>
         {presentation.summaryItems.length > 0 ? (
-          <dl className="mt-2 space-y-1.5">
+          /* 항목이 늘어나면 라벨 폭이 제각각이라 값이 계단처럼 흩어진다 — 라벨 열을
+             고정한 그리드로 세로줄을 맞춘다(UI_GUIDELINES 그리드 기반 테이블).
+             행 구분은 보더 없이 여백만으로 둔다(2026-08-06 지시). */
+          <dl className="mt-2">
             {presentation.summaryItems.map((item) => (
-              <div key={`${item.label}-${item.value}`} className="flex gap-2 text-xs leading-relaxed">
-                <dt className="flex-shrink-0 break-keep font-bold text-[var(--text-label)]">
+              <div
+                key={`${item.label}-${item.value}`}
+                className="grid grid-cols-[76px_minmax(0,1fr)] gap-3 py-1.5 text-xs leading-relaxed"
+              >
+                <dt className="break-keep font-bold text-[var(--text-label)]">
                   {item.label}
                 </dt>
-                <dd className="flex flex-wrap items-center gap-1.5 font-bold text-gray-200">
-                  <span>{item.value}</span>
+                {/* 조건이 여러 개인 행은 한 줄에 하나씩 쌓는다 — '·'로 이어 붙이면
+                    조건이 늘어날수록 어디서 끊기는지 안 보인다(2026-08-06 지시). */}
+                <dd className="min-w-0 break-keep font-bold text-gray-200">
+                  {item.values ? (
+                    <span className="flex flex-col gap-0.5">
+                      {item.values.map((part, i) => (
+                        <span key={`${part}-${i}`}>{part}</span>
+                      ))}
+                    </span>
+                  ) : (
+                    item.value
+                  )}
                 </dd>
               </div>
             ))}

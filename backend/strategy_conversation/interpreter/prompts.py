@@ -531,12 +531,39 @@ ETF 유니버스에서 "X 관련 etf"는 etf_theme 교체입니다 — markets�
 초안의 조건 값을 바꾸는 요청("PBR 1 이하로")인데 그 지표가 초안에 없으면 add입니다."""
 
 
+def _number_checklist(user_input: str) -> str:
+    """입력 수치 체크리스트 — 조건을 통째로 빠뜨리는 드리프트의 1차 방어선.
+
+    2026-08-07 폐지된 '수치 누락 재요청'이 1차보다 더 알던 정보는 이 목록 하나뿐이었고,
+    목록은 입력만으로 계산된다(출력이 필요 없다) — 그래서 두 번째 호출 대신 첫 호출에
+    싣는다. 재요청은 맥락 없는 숫자('1')만 받아 채울 곳을 지어냈지만(PER≤1 실측),
+    1차는 같은 숫자를 문맥 안에서("월 1회 리밸런싱") 보므로 그 실패가 재현되지 않는다.
+
+    나열은 결정론(숫자 토큰), 귀속은 전부 LLM이다 — 어느 수치가 어느 필드인지 여기서
+    정하지 않는다(자연어 해석 구조 원칙).
+    """
+    from strategy_conversation.validation.recall_validator import input_number_labels
+
+    labels = input_number_labels(user_input)
+    if not labels:
+        return ""
+    return (
+        f"\n\n입력에 등장한 수치: {', '.join(labels)}\n"
+        "이 수치들이 전략에 반영됐는지 스스로 확인하세요. 각각은 셋 중 하나여야 합니다 — "
+        "① 해당 필드·조건에 값으로 반영, ② 시스템이 표현할 수 없는 개념이면 그 원문 표현을 "
+        "unsupported_features에 넣기, ③ 값이 아닌 표현(서수 '1차', 횟수 '월 1회', 그룹 번호 "
+        "'1그룹')이면 그대로 무시. 반영할 곳이 마땅치 않다고 아무 조건에나 끼워 넣지 마세요 — "
+        "③에 해당하는 숫자를 임계값으로 채우면 사용자가 말한 적 없는 조건이 생깁니다."
+    )
+
+
 def build_user_prompt(
     user_input: str, draft: dict | None = None, pending_question: str | None = None,
 ) -> str:
     # 오늘 날짜는 매 요청 주입한다 — 모델이 학습 시점 기억으로 과거 연도를 미래로
     # 오판해 명시 날짜를 누락하는 드리프트 방지(시스템 프롬프트 규칙 12와 짝).
     today_line = f"오늘 날짜: {date.today().isoformat()}"
+    checklist = _number_checklist(user_input)
     if draft:
         # 직전 턴에 우리가 던진 질문. 사용자가 "3억원"처럼 필드를 밝히지 않고 값만
         # 답할 때 어느 필드의 답인지는 이 질문이 정한다 — 문맥 없이 값만 보면 귀속할
@@ -558,6 +585,6 @@ def build_user_prompt(
             f"{pending_block}"
             f"사용자 입력: \"{user_input}\"\n\n"
             "위 초안에 대한 요청입니다. 수정 요청이면 intent=MODIFY_STRATEGY, strategy=null로 두고 "
-            f"변경 사항을 patches(JSON Patch)로만 출력하세요.{answer_rule}"
+            f"변경 사항을 patches(JSON Patch)로만 출력하세요.{answer_rule}{checklist}"
         )
-    return f"{today_line}\n\n사용자 입력: \"{user_input}\""
+    return f"{today_line}\n\n사용자 입력: \"{user_input}\"{checklist}"

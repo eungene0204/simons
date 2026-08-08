@@ -16,7 +16,7 @@ from strategy_conversation.planner.dag import (
     parse_dag,
     validate_dag,
 )
-from strategy_conversation.planner.dag_planner import plan_strategy_dag
+from strategy_conversation.planner.dag_planner import _system_prompt, plan_strategy_dag
 from strategy_conversation.planner.dag_shadow import maybe_shadow_plan_dag
 
 _ALLOWED = (
@@ -198,6 +198,45 @@ def test_ask_surfaced_after_observation_turn(monkeypatch):
     assert result.sector == "화학"
     assert chat.calls == 2
     assert calls["kg"] == 1  # 재발행 시 관찰 재사용 — 재실행 없음
+
+
+def test_single_ask_without_finish_chain_surfaces(monkeypatch):
+    """State 없는 턴(파스 이전 계획)의 '한 걸음' DAG — 해석 tool + ask 하나, 꼬리 없음.
+
+    회귀(2026-08-07 지연 감사): planner-first는 state_summary 없이 돌아 filled_slots가
+    비므로 채워진-슬롯 건너뛰기 루프가 돌지 않는다 — 러너가 표면화하는 것은 **준비된
+    첫 ask 하나**뿐이고, 뒤따르는 슬롯 ask와 validate/compile/finish 꼬리는 발행 즉시
+    폐기된다(실측: 그 낭비가 한 턴 생성량의 절반). 그래서 프롬프트가 이 턴에는 꼬리를
+    만들지 말라고 계약하는데, 계약이 성립하려면 꼬리 없는 DAG가 구조 검증을 통과하고
+    ask가 그대로 표면화돼야 한다."""
+    monkeypatch.setattr(kg, "resolve_sector_from_text", lambda text: "화학")
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: None)
+    one_step = _dag_json(
+        _tool_node("t1", "kg_resolve_sector"),
+        _ask_node("ask_risk", "익절 기준을 정할까요?", deps=["t1"],
+                  chips=["익절 20%", "익절 10%"], topic="리스크관리"),
+    )
+    chat = ScriptedChat([one_step, one_step])
+
+    result = plan_strategy_dag("2차전지 관련주로 모멘텀 전략", chat)
+
+    assert result is not None and result.outcome == "ask"
+    assert result.question == "익절 기준을 정할까요?"
+    assert result.topic == "리스크관리"
+    assert result.sector == "화학"  # 확정값은 여전히 도구 관찰값에서만
+
+
+def test_state_absent_turn_is_contracted_to_one_step():
+    """system 프롬프트가 'State 없는 턴엔 ask 하나까지만'을 계약하는지.
+
+    이 지시가 사라지면 planner가 8슬롯 골격을 매 턴 재생성해 한 턴 생성량이 두 배가
+    되고(553→163토큰 감축의 근거), 느린 시간대에 파스가 프록시 예산을 넘긴다."""
+    prompt = _system_prompt()
+    assert "이미 결정된 전략 State" in prompt
+    # 축약 지시와 그 예시가 **전체 골격 예시보다 먼저** 와야 한다 — 9B는 규칙보다
+    # 먼저 본 예시의 형태를 베낀다(실측: 예시 순서를 뒤집기 전 3회 중 3회가 골격 발행).
+    assert prompt.index("예시 1") < prompt.index("예시 2")
+    assert "ask **하나**만 발행" in prompt
 
 
 def test_ground_term_epilogue_requeries_theme(monkeypatch):
@@ -642,3 +681,126 @@ def test_invalidated_nodes_are_excluded_from_ready():
     )
     assert [n.id for n in ready_nodes(nodes, set())] == ["t1"]
     assert ready_nodes(nodes, set(), excluded_ids={"t1"}) == []
+
+
+# ── planner-first 생성 상한 + 잘린 꼬리 제거 (2026-08-07) ────────────────────
+
+def test_planner_first_caps_generation_budget(monkeypatch):
+    """State 없는 턴은 '한 걸음' 계약이라 생성 상한을 낮춘다.
+
+    계약을 어기고 8슬롯 골격을 재발행하는 턴이 실측 4회 중 1회 있었고(792·752·681토큰),
+    그 낭비가 그대로 지연이 된다. 상한에 걸려 잘려도 표면화되는 것은 준비된 첫 ask
+    하나뿐이라 잃는 것이 없다. State가 있는 턴은 남은 골격을 다 발행해야 하므로 그대로.
+    """
+    seen = {}
+
+    class _Chat(ScriptedChat):
+        def __call__(self, system_prompt, user_message, **kwargs):
+            seen.setdefault("max_tokens", []).append(kwargs.get("max_tokens"))
+            return super().__call__(system_prompt, user_message, **kwargs)
+
+    monkeypatch.setattr(kg, "resolve_sector_from_text", lambda text: "화학")
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: None)
+    dag = _dag_json(
+        _tool_node("t1", "kg_resolve_sector"),
+        _ask_node("a1", "익절 기준을 정할까요?", deps=["t1"], topic="리스크관리"),
+    )
+
+    plan_strategy_dag("2차전지 관련주로 전략", _Chat([dag, dag]))
+    assert set(seen["max_tokens"]) == {512}, "planner-first는 낮은 상한을 써야 한다"
+
+    seen.clear()
+    plan_strategy_dag("2차전지 관련주로 전략", _Chat([dag, dag]),
+                      state_summary={"filled_slots": ["유니버스"]})
+    assert set(seen["max_tokens"]) == {4096}, "State가 있는 턴은 종전 상한 유지"
+
+
+def test_truncated_tail_node_is_dropped_not_fatal(monkeypatch):
+    """상한에 걸려 잘린 마지막 노드는 떼어내고 계속한다 — 계획 전체를 버리지 않는다.
+
+    폴백으로 떨어지면 이미 끝난 유니버스 해석 관찰까지 함께 버려진다(2026-08-02 감사에서
+    턴 예산 부족이 테마 60곳을 2곳으로 줄인 것과 같은 종류의 손실).
+    """
+    monkeypatch.setattr(kg, "resolve_sector_from_text", lambda text: "화학")
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: None)
+    # 마지막 ask 노드가 question 없이 잘린 발행(괄호 보정으로 JSON은 닫힌 상태)
+    truncated = json.dumps({"dag": {"nodes": [
+        _tool_node("t1", "kg_resolve_sector"),
+        _ask_node("a1", "익절 기준을 정할까요?", deps=["t1"], topic="리스크관리"),
+        {"id": "a2", "type": "ask", "topic": "백테스트기간", "depends_on": ["a1"]},
+    ]}}, ensure_ascii=False)
+
+    result = plan_strategy_dag("2차전지 관련주로 전략", ScriptedChat([truncated, truncated]))
+
+    assert result is not None, "잘린 꼬리 때문에 계획 전체가 폴백되면 안 된다"
+    assert result.outcome == "ask"
+    assert result.question == "익절 기준을 정할까요?"
+    assert result.sector == "화학"      # 유니버스 해석 관찰이 살아남았다
+    assert [n.id for n in result.nodes] == ["t1", "a1"]
+
+
+def test_dangling_dependency_after_truncation_is_dropped():
+    """사라진 노드를 가리키는 의존은 계약 위반이라 그 노드도 함께 뗀다."""
+    from strategy_conversation.planner.dag_planner import _drop_incomplete_nodes
+
+    data = {"dag": {"nodes": [
+        {"id": "t1", "type": "tool", "tool": "kg_resolve_sector", "args": {"text": "x"}},
+        {"id": "a1", "type": "ask", "depends_on": ["t1"]},          # question 없음 → 제거
+        {"id": "a2", "type": "ask", "question": "물어볼까요?", "depends_on": ["a1"]},
+    ]}}
+
+    kept = [n["id"] for n in _drop_incomplete_nodes(data)["dag"]["nodes"]]
+
+    assert kept == ["t1"], "불완전 노드와 그것에 의존하는 노드가 함께 빠져야 한다"
+
+
+def test_runner_held_done_nodes_are_not_treated_as_missing():
+    """러너 보유 done 노드는 재발행이 생략돼도 '사라진 의존'이 아니다.
+
+    회귀: 잘린 꼬리 제거를 done 노드 병합 **앞에** 두면서 이 계약을 깼다 — 재발행을
+    생략한 턴의 ask가 통째로 사라져 planner가 전량 폴백됐다.
+    """
+    from strategy_conversation.planner.dag_planner import _drop_incomplete_nodes
+
+    data = {"dag": {"nodes": [
+        {"id": "ask1", "type": "ask", "question": "물어볼까요?", "depends_on": ["t1", "t2"]},
+    ]}}
+
+    assert _drop_incomplete_nodes(data, known_ids={"t1", "t2"})["dag"]["nodes"] == \
+        data["dag"]["nodes"]
+    # 러너도 모르는 id면 그때는 정말 사라진 의존이다.
+    assert _drop_incomplete_nodes(data, known_ids={"t1"})["dag"]["nodes"] == []
+
+
+def test_prompt_does_not_ask_the_llm_to_invent_chips():
+    """planner에게 선택지(칩) 생성을 시키지 않는다 — 만들어도 100% 버려진다.
+
+    primary._bound_ask_with_slot_fallback이 planner 칩을 **항상** 슬롯 SOT 정본 칩으로
+    교체한다(2026-08-02 사용자 결정: 모든 옵션 칩은 하드코딩 정본이어야 지원을 확신할 수
+    있다). 유니버스 범위 ask의 칩도 planner가 아니라 도구 관찰의 후보 표기를 쓴다
+    (_planner_scope_ask). 즉 소비자가 없는 출력이므로 프롬프트에서 요구하지 않는다.
+    """
+    prompt = _system_prompt()
+
+    assert "선택지(칩)는 만들지 마세요" in prompt
+    assert '"chips"' not in prompt, "출력 계약·예시에 chips가 남으면 9B가 그대로 베낀다"
+
+
+def test_llm_emitted_chips_are_still_parsed_and_carried(monkeypatch):
+    """계약을 어기고 칩을 내도 파싱은 깨지지 않는다 — 스키마는 그대로 둔다.
+
+    프롬프트에서 요구만 뺐을 뿐 DagNode.chips 필드는 유지한다(구형·변칙 출력 호환).
+    버리는 판단은 planner가 아니라 하류의 결정론 게이트가 소유한다.
+    """
+    monkeypatch.setattr(kg, "resolve_sector_from_text", lambda text: "화학")
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: None)
+    with_chips = _dag_json(
+        _tool_node("t1", "kg_resolve_sector"),
+        _ask_node("a1", "익절 기준을 정할까요?", deps=["t1"],
+                  chips=["익절 20%"], topic="리스크관리"),
+    )
+
+    result = plan_strategy_dag("2차전지 관련주로 전략", ScriptedChat([with_chips, with_chips]))
+
+    assert result is not None and result.outcome == "ask"
+    assert result.chips == ["익절 20%"]

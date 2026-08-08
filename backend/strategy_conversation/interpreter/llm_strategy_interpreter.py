@@ -3,7 +3,8 @@
 자연어 이해의 주체는 인터프리터 LLM이다(STRATEGY_INTERPRETER_MODEL 전용 슬롯 —
 2026-07-26부터 Qwen 3.5 9B, 미설정 시 NL_OLLAMA_MODEL 폴백). 이 모듈은:
   ① Ollama /api/chat(format=json, think=false)로 구조화 출력을 요청하고
-  ② JSON 추출 → Pydantic 검증 → 실패 시 오류와 함께 1회 자동 수정 요청
+  ② JSON 추출 → Pydantic 검증 → 스키마 실패 시 오류와 함께 1회 자동 수정 요청
+     (수치 누락으로 인한 재생성 요청은 2026-08-07 폐지 — recall_validator 상단 참조)
   ③ 다시 실패하면 InterpreterError를 던진다(호출부가 안전한 사용자 응답 담당).
 
 transport(chat_fn)는 주입 가능해 테스트가 LLM 없이 스텁으로 검증할 수 있다.
@@ -32,7 +33,7 @@ from strategy_conversation.interpreter.prompts import (
     build_user_prompt,
 )
 from strategy_conversation.validation.recall_validator import (
-    build_recall_repair_prompt,
+    drop_ungrounded_condition_periods,
     find_unreflected_numbers,
 )
 
@@ -41,6 +42,10 @@ logger = logging.getLogger("strategy_interpreter")
 # 대조 대상은 전략 본문을 만들어내는 intent뿐이다 — 설명 질문·비전략 요청은
 # 수치가 출력에 없는 것이 정상이다.
 _RECALL_CHECKED_INTENTS = ("CREATE_STRATEGY", "MODIFY_STRATEGY", "CLARIFY_STRATEGY")
+
+# 이 슬롯(9B)을 쓰는 모든 호출의 per-call 상한. 인터프리터와 planner가 같은 chat을
+# 공유하므로 한 곳에서 정한다. 예산 사슬: 프록시 240초 ⊃ per-call 180초 + 후행 검증 90초.
+_LLM_CALL_TIMEOUT_S = 180
 
 
 def _recall_gap(user_input: str, intent) -> list[str]:
@@ -139,7 +144,7 @@ class InterpreterResult:
         self.latency_ms = latency_ms
         self.model_name = model_name
         self.prompt_version = PROMPT_VERSION
-        # 재요청 후에도 출력에 나타나지 않은 입력 수치 표현 — 하류가 사용자에게 알린다.
+        # 출력에 나타나지 않은 입력 수치 표현(진단용) — 사용자 안내는 하지 않는다.
         self.unreflected_numbers = unreflected_numbers or []
 
 
@@ -197,7 +202,11 @@ def _default_ollama_chat(model: str) -> ChatFn:
             metadata={"model": model, "temperature": 0,
                       "num_ctx": _OLLAMA_NUM_CTX, "max_tokens": max_tokens or 2048},
         ) as trace:
-            with _ollama_open_with_retry(req, timeout=120) as resp:
+            # per-call 상한. 비용은 프롬프트 길이가 아니라 **생성 토큰 수 ÷ 그 시각의
+            # 처리량**이다 — 인터프리터 한 호출이 400~500토큰을 생성하므로 처리량이
+            # 4 tok/s까지 떨어지면 125초가 되어 120초 상한에 걸렸다(실측 2026-08-07).
+            # 프록시 예산(240초)에서 후행 검증 몫(90초)을 남긴 값이다.
+            with _ollama_open_with_retry(req, timeout=_LLM_CALL_TIMEOUT_S) as resp:
                 if on_chunk is None:
                     data = json.loads(resp.read())
                     content = (data.get("message") or {}).get("content", "")
@@ -337,9 +346,6 @@ class StrategyInterpreter:
         attempts = 0
         last_error: Exception | None = None
         current_raw = raw
-        recall_retried = False
-        # 수치 재요청 직전의 유효 해석 — 재요청 결과가 더 나쁘면 되돌린다.
-        pre_recall: tuple[StrategyIntent, str] | None = None
         while True:
             try:
                 intent = StrategyIntent.model_validate_json(extract_json_object(current_raw))
@@ -348,42 +354,27 @@ class StrategyInterpreter:
                 if draft is None and intent.intent in ("MODIFY_STRATEGY", "CLARIFY_STRATEGY") \
                         and intent.strategy is not None:
                     intent = intent.model_copy(update={"intent": "CREATE_STRATEGY"})
-                # 수치 재요청이 전략을 잃어버렸으면 재요청 출력을 폐기하고 직전 해석을 쓴다.
-                # 실측 사고(2026-07-27, '반도체 업종 ROE·부채비율+모멘텀' 예시): 1차 출력은
-                # 유니버스·재무 조건·랭킹·포트폴리오까지 정상이었는데 거래대금 '50억'만 빠져
-                # 재요청 → 9B가 수정 턴처럼 patches만(strategy=null) 돌려주면서 정상 해석이
-                # 통째로 교체 → 초기 파스에는 적용할 초안이 없어 해석 실패로 종결됐다.
-                # 수치 누락은 요청을 실패시킬 사유가 아니다(§ 3-1) — 유효한 해석을 버리지 않는다.
-                # 수정 턴은 patches가 내용이므로 strategy·patches가 모두 비면 잃은 것이다.
-                repair_lost_content = (
-                    intent.strategy is None if draft is None
-                    else (intent.strategy is None and not intent.patches)
-                )
-                if pre_recall is not None and repair_lost_content:
-                    intent, current_raw = pre_recall
-                    _log_llm("△ 수치 재요청 폐기", "재요청 출력이 비어 직전 해석 유지")
-                # 수치 반영 대조(§ 3-1). 스키마는 통과했지만 사용자가 말한 수치가 통째로
-                # 빠진 경우 — 값을 채우지 않고 모델에게 한 번 다시 시킨다. 재요청 예산은
-                # 스키마 복구와 공유하며, 재생성 후에도 남으면 그대로 진행한다(누락은
-                # 스키마 오류가 아니므로 요청을 실패시키지 않는다).
-                if not recall_retried and config.recall_check_enabled():
-                    missing = _recall_gap(user_input, intent)
-                    if missing and attempts < config.MAX_REPAIR_ATTEMPTS:
-                        recall_retried = True
-                        attempts += 1
-                        pre_recall = (intent, current_raw)
-                        _log_llm("⟳ 수치 누락 재요청", f"미반영: {', '.join(missing)}")
-                        current_raw = self._chat(
-                            self._system_prompt,
-                            build_recall_repair_prompt(user_input, missing, current_raw, draft),
-                        )
-                        _log_llm("◀ 재요청 응답", current_raw.strip())
-                        continue
-                # 재요청 후에도(또는 재요청 예산이 없어) 남은 누락은 요청을 실패시키지 않되
-                # 결과에 실어 하류가 사용자에게 정직하게 알린다 — 조용한 누락 금지.
+                # 수치 반영 대조(§ 3-1). 탐지는 유지하되 **재생성 요청은 하지 않는다**
+                # (2026-08-07 전수 실측으로 폐지). 재요청 62건 중 45건은 아무것도 고치지
+                # 못했고(47%는 1차와 바이트 동일 — temperature=0), 고친 17건도 진짜 구제 3건
+                # 대 훼손 3건이었다(정성 표현 '낮은 편'의 의도적 되묻기를 "월 1회"의 유령
+                # 숫자 1로 덮어 PER≤1·PBR≤1을 만든 실측). 값은 본전인데 누적 2,445초를 썼다.
+                #
+                # 재요청이 1차보다 더 알던 것은 '어느 수치가 빠졌나' 목록 하나뿐인데, 그
+                # 목록은 입력만으로 계산된다 — 그래서 1차 프롬프트로 옮겼다(build_user_prompt).
+                # 게다가 1차는 그 수치를 **문맥 안에서** 본다("월 1회 리밸런싱"), 재요청은
+                # 맥락 없는 '1'만 받아 채워 넣을 곳을 지어냈다. 탐지 결과는 아래 두 곳이
+                # 계속 쓴다: 근거 없는 기간 비우기, 미반영 진단 로그.
                 residual = (
                     _recall_gap(user_input, intent) if config.recall_check_enabled() else []
                 )
+                # 근거 없는 기간 파라미터는 확정하지 않는다 — 비워서 되묻기로 보낸다.
+                # ('60일 신고가'에 252가 들어가고 검증이 READY로 통과하던 2026-08-07 사고)
+                if residual:
+                    cleared = drop_ungrounded_condition_periods(user_input, intent, residual)
+                    if cleared:
+                        _log_llm("△ 근거 없는 기간 제거",
+                                 f"{', '.join(cleared)} — 확정 대신 되묻기")
                 if residual:
                     _log_llm("△ 수치 누락 잔존", f"미반영: {', '.join(residual)}")
                 _log_llm("✓ 해석", (

@@ -360,6 +360,21 @@ describe("POST /api/strategy/parse/stream", () => {
     expect(events[3]).toBe("[DONE]");
   });
 
+  // 회귀(2026-08-07): 파스 한 턴은 LLM 3회로 800~1,000토큰을 생성하므로 소요 시간이
+  // 머신의 그 시각 생성 처리량에 정비례한다(실측 11 tok/s→65초, 4 tok/s→300초).
+  // 120초 예산에서는 파싱이 끝났는데도 프록시가 먼저 끊어 사용자에게
+  // "aborted due to timeout"이 나갔다 — 예산을 줄이면 그 사고가 그대로 재발한다.
+  it("gives the backend parse a budget wide enough for low-throughput turns", async () => {
+    fetchBackend.mockResolvedValueOnce(
+      sseBackendResponse(backendResultEvents({ parsed: {}, backtest_request: {} }))
+    );
+
+    await POST(makeRequest({ prompt: "코스피200 모멘텀 상위 12종목" }));
+
+    const [, init] = fetchBackend.mock.calls[0];
+    expect(init.timeoutMs).toBeGreaterThanOrEqual(240_000);
+  });
+
   it("returns 400 for invalid JSON", async () => {
     const response = await POST(
       new NextRequest(

@@ -2,13 +2,18 @@
 
 계약상 위치(docs/nl_interpretation_contract.md § 3-1): 이 모듈은 사용자 원문을 읽지만
 **해석하지 않는다**. 숫자 토큰이 출력 어딘가에 나타나는지만 확인하고, 그 숫자가 어떤
-지표의 임계값인지는 판단하지 않는다. 누락을 발견했을 때 할 수 있는 유일한 동작은
-LLM에 재생성을 요청하는 것이다(§ 8-1) — 값을 만들어 채우지 않는다.
+지표의 임계값인지는 판단하지 않는다. 어떤 경우에도 값을 만들어 채우지 않는다.
 
 동기(2026-07-26 A/B 실측): 결정적 보정을 끄면 "부채비율 80% 이하이고 시가총액 5000억
 이상인 종목 중 RSI 35 이하에서 매수" 같은 복합 발화에서 4B가 조건을 통째로 빠뜨린다.
-잔여 실패 34건 중 20건이 이 유형이었다. 원문 정규식으로 값을 **채우는** 대신, 빠졌다는
-사실만 감지해 모델에게 다시 시킨다.
+잔여 실패 34건 중 20건이 이 유형이었다.
+
+대응은 2026-08-07에 바뀌었다. 예전에는 누락을 발견하면 LLM에 **재생성을 요청**했는데
+(§ 8-1), 전수 실측에서 재요청 62건 중 45건이 아무것도 고치지 못했고(47%는 1차와 바이트
+동일 — temperature=0) 고친 17건도 구제 3건 대 훼손 3건이었다. 재요청이 1차보다 더 알던
+정보는 '어느 수치가 빠졌나' 목록 하나뿐인데 그 목록은 입력만으로 계산되므로, 지금은
+**1차 프롬프트의 체크리스트**로 앞당긴다(input_number_labels → prompts._number_checklist).
+탐지 결과는 근거 없는 기간 비우기(drop_ungrounded_condition_periods)와 진단 로그가 쓴다.
 """
 
 from __future__ import annotations
@@ -135,10 +140,26 @@ def _input_anchors(user_input: str) -> List[tuple[str, float, str | None]]:
     return anchors
 
 
+def input_number_labels(user_input: str) -> List[str]:
+    """입력에 등장한 수치 표현 목록(중복 제거, 등장 순서).
+
+    1차 호출 프롬프트에 실을 체크리스트다 — 이 목록을 만드는 데 출력이 필요 없다는 것이
+    수치 재요청 폐지의 근거였다(재요청이 1차보다 더 알던 유일한 정보가 이것이었다).
+    여기서 하는 일은 숫자 토큰 나열뿐이며, 그 수치가 무엇을 뜻하는지는 판단하지 않는다 —
+    귀속은 전부 LLM이 한다(모듈 상단 § 3-1 계약 그대로).
+    """
+    labels: List[str] = []
+    for label, _value, _unit in _input_anchors(user_input):
+        if label not in labels:
+            labels.append(label)
+    return labels
+
+
 def find_unreflected_numbers(user_input: str, intent) -> List[str]:
     """입력에 있으나 출력 어디에도 나타나지 않는 수치 표현 목록.
 
-    반환값은 재생성 요청에 실을 **증거**이며, 이 값으로 출력을 고치지 않는다.
+    반환값은 **증거**이며, 이 값으로 출력을 고치지 않는다. 소비자는 둘뿐이다 —
+    근거 없는 기간 비우기(drop_ungrounded_condition_periods)와 진단 로그.
     """
     reflected = _reflected_numbers(intent)
     if not reflected and not _input_anchors(user_input):
@@ -182,46 +203,61 @@ def labels_absent_from(labels: Iterable[str], payload: Any) -> List[str]:
     return remaining
 
 
-def build_recall_repair_prompt(
-    user_input: str,
-    missing: Iterable[str],
-    bad_output: str,
-    draft: Any = None,
-) -> str:
-    """누락 수치 재요청 프롬프트. draft가 있으면 수정 턴(patches 형식 유지)이다.
+# 조건의 기간 파라미터 — 프롬프트 5-0이 "사용자가 말한 경우에만" 채우라고 계약한 칸들.
+_PERIOD_KEYS = ("period", "short_period", "long_period", "lookback_period")
 
-    출력 형식을 명시하지 않으면 모델이 수정 턴처럼 patches만(strategy=null) 돌려주고,
-    초기 파스에서는 적용할 초안이 없어 정상 해석이 통째로 버려진다(실측 2026-07-27).
+
+def drop_ungrounded_condition_periods(user_input: str, intent, missing: Iterable[str]) -> List[str]:
+    """입력에 근거가 없는 조건 기간 파라미터를 **비운다**(제자리). 반환: 비운 항목 라벨.
+
+    값을 만들어 채우지 않는다 — 이 모듈의 계약(§ 3-1)대로 비우기만 하고, 되묻기는
+    completeness_validator가 registry 기본값을 권장값으로 달아 낸다.
+
+    사고(2026-08-07): "60일 신고가"에 9B가 `lookback_period=252`를 냈다(프롬프트 5-1의
+    '52주 신고가=252' 예시를 잘못 집었다). 재요청도 같은 값을 반복했고, 검증은 READY·
+    미지원 0으로 통과해 사용자가 말한 적 없는 252가 조용히 확정됐다. 프롬프트는 이미
+    "기간 언급이 없으면 비워 두세요(되묻기)"를 계약하므로, 여기서는 그 계약을 결정론으로
+    강제할 뿐이다.
+
+    판단 입력은 **LLM 출력의 숫자와 입력 숫자의 크기**뿐이다 — 어느 지표인지, 그 수치가
+    무엇을 뜻하는지는 보지 않는다(원문 해석 아님). 두 조건을 모두 만족할 때만 비운다:
+      ① 그 값이 입력의 어떤 수치로도 환산되지 않는다(_candidates가 단위 환산을 흡수하므로
+         '52주 신고가'→252 같은 정당한 변환은 걸리지 않는다).
+      ② LLM이 그 조건에 스스로 붙인 source_text에 **미반영 수치**가 들어 있다 — 즉 모델
+         자신이 "이 조건은 그 수치에서 나왔다"고 적어 놓고 다른 값을 넣었다.
+    ②가 없으면 기간 없는 '골든크로스'에 시스템 정본(5/20)이 들어간 경우까지 비우게 된다.
     """
-    listed = ", ".join(f"'{m}'" for m in missing)
-    if draft is not None:
-        form_rule = (
-            "직전 출력과 같은 수정 형식을 유지하세요 — 누락된 조건을 patches에 추가하고 "
-            "strategy는 null로 둡니다.\n\n"
-        )
-    else:
-        form_rule = (
-            "직전 출력의 strategy를 통째로 다시 담으세요 — 유니버스·진입·청산·랭킹·포트폴리오·"
-            "리스크 설정을 하나도 빠뜨리지 않고 그대로 유지한 뒤 누락된 조건만 더합니다. "
-            "intent는 CREATE_STRATEGY, patches는 빈 배열입니다. **strategy를 null로 두거나 "
-            "patches만 돌려주면 직전 해석 전체가 버려집니다.**\n"
-            "누락된 조건은 직접 추가하세요 — 예를 들어 '거래대금 50억 이상'이 빠졌다면 "
-            'entry_conditions에 {"factor": "fundamental.trading_value", "operator": ">=", '
-            '"value": 50, "unit": "억원", "source_text": "거래대금 50억 이상"}을 넣습니다. '
-            "'~를 추가해 드릴까요?'·'~를 사용하시겠습니까?'처럼 질문으로 돌려주거나 "
-            "assumptions에 '추가해야 합니다'라고 적으면 그 조건은 사라집니다.\n\n"
-        )
-    return (
-        "직전 출력에서 사용자가 말한 수치 일부가 반영되지 않았습니다. "
-        f"반영되지 않은 표현: {listed}\n\n"
-        + form_rule
-        + "해당 수치가 가리키는 조건을 빠짐없이 포함한 완전한 JSON 하나만 다시 출력하세요"
-        "(설명 금지). assumptions에 '종목 선정 기준으로 처리했다'처럼 말로 적는 것은 "
-        "반영이 아닙니다 — 조건 배열(entry_conditions·exit_conditions·ranking)이나 "
-        "portfolio·risk_management의 실제 항목으로 넣으세요. 사용자가 값을 이미 말한 조건은 "
-        "clarification_questions·missing_fields로 미루지 마세요 — 되묻기는 값이 실제로 비었을 "
-        "때만이고, 그렇게 미룬 조건은 사용자에게 전달되지 않고 사라집니다. 시스템이 표현할 수 "
-        "없는 개념이면 그 원문 표현을 unsupported_features에 넣으세요 — 조용히 생략하지 마세요.\n\n"
-        f"## 원래 사용자 입력\n\"{user_input}\"\n\n"
-        f"## 직전 출력\n{bad_output[:2000]}"
-    )
+    strategy = getattr(intent, "strategy", None)
+    if strategy is None:
+        return []
+    missing_values: Set[float] = set()
+    for label in missing:
+        m = _NUMBER_RE.match(label or "")
+        value = _to_float(m.group(1)) if m else None
+        if value is not None:
+            missing_values.add(value)
+    if not missing_values:
+        return []
+
+    grounded: Set[float] = set()
+    for _label, value, unit in _input_anchors(user_input):
+        grounded |= _candidates(value, unit)
+
+    cleared: List[str] = []
+    for field in ("entry_conditions", "exit_conditions"):
+        for cond in getattr(strategy, field, None) or []:
+            params = getattr(cond, "parameters", None)
+            if not isinstance(params, dict):
+                continue
+            quoted = {v for _l, v, _u in _input_anchors(getattr(cond, "source_text", "") or "")}
+            if not (quoted & missing_values):
+                continue
+            for key in _PERIOD_KEYS:
+                value = params.get(key)
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
+                    continue
+                if any(abs(float(value) - g) < _TOLERANCE for g in grounded):
+                    continue
+                params[key] = None
+                cleared.append(f"{field}.{key}={float(value):g}")
+    return cleared
