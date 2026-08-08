@@ -936,6 +936,18 @@ RiskManagement {
 - VirtualTrader의 시세 조회 대상은 **추적 종목 ∪ 보유 포지션 종목**이다 — 추적 목록에서 빠진(FR-VM-071 필터 등) 보유 종목도 현재가 갱신·리스크 청산·상장 상태 체크·재개 감지가 계속 동작해야 한다.
 - 어느 계좌도 추적/보유하지 않는 TRADING_SUSPENDED 종목은 장중 주기 스윕(`_sweep_suspended_resume`, `HALT_RESUME_SWEEP_INTERVAL`=600초)이 시세를 조회해 재개를 복원한다 — FR-VM-071 필터로 모니터링에서 제외된 종목이 영구 정지 상태로 남는 것을 방지.
 
+**FR-VM-073** [매매 유니버스 해석 정합, 2026-08-07] 자동매매 신호 대상 유니버스(`resolve_live_universe`, `engine/live_signal_utils.py`)는 표시용 모니터링 목록과 독립적으로 해석되므로(FR-VM-072 마지막 항목과 같은 이유), 그 해석 자체가 다음을 보장해야 한다.
+
+- **상장폐지 종목 제외**: 해석 경로(ETF·KOSPI200·시장·업종·지정 종목·폴백)와 무관하게 최종 결과에서 `data/delisted-stocks.json`(=`DelistedSymbolStore` 원장) 등재 종목을 제거한다. `data/korea-stocks.json`에는 상장 상태 필드가 없어 상폐 종목이 섞여 들어오고(실측 67종목), Stock 테이블에 행이 없는 종목은 FR-VM-066 게이트가 `NORMAL`로 통과시켜 매수까지 도달할 수 있다. 보유 포지션은 유니버스와 별개로 시세·청산 대상에 합류하므로(FR-VM-072) 이 제외가 상폐 보유분의 강제청산을 막지 않는다.
+- **유니버스 id 별칭·토큰 일치**: 시장 판정은 부분 문자열이 아니라 `_` 토큰 단위 일치로 한다. 부분일치는 `KOR_KOSPI200`을 "KOSPI 전체"(실측 836종목)로, `KOR_KOSDAQ150`을 "KOSDAQ 전체"(1819종목)로 넓혀 지수 전략이 지수 밖 종목을 매매하게 만든다. 정본이 아닌 표기는 `_UNIVERSE_ALIASES`에 등록해 정본 id로 모은다(`kor_kospi200`·`kospi_200` → `kospi200`, `kor_kosdaq150`·`kosdaq_150` → `kosdaq150`). 별칭에도 토큰에도 없는 표기는 해석 실패로 보아 폴백(모니터링 목록)을 쓴다 — 인식하지 못한 표기를 임의로 넓은 시장으로 확대하지 않는다.
+- **지수 유니버스는 구성종목 명부로만 해석**: `kospi200`·`kosdaq150`은 `_INDEX_ROSTERS`가 가리키는 명부 파일(`data/kospi200-cache.json`, `data/kosdaq150-cache.json`)에서만 종목을 얻는다. 명부가 없거나 깨졌으면 해당 시장 전체로 대체하지 않고 폴백으로 떨어진다. 업종 필터를 함께 지정한 경우에도 명부 **안에서만** 걸러야 하며, 명부 밖의 같은 업종 종목을 끌어오지 않는다.
+- **지수 명부 출처는 KIS 종목마스터 단일화**: `backend/engine/kis_master.py`가 KIS 종목마스터(`kospi_code.mst`/`kosdaq_code.mst`)의 편입 플래그를 읽고, `backend/scripts/build_index_rosters.py`가 `data/kospi200-cache.json`·`data/kosdaq150-cache.json`을 함께 생성한다. 2026-08-07 조사 결과 KRX 정보데이터시스템(pykrx·FinanceDataReader·직접 호출)은 데이터 조회 bld를 모두 `LOGOUT`으로 거부하고, KRX Open API는 코스닥 150 **가격**만 제공하며, 네이버 `entryJongmok`은 code 파라미터와 무관하게 KOSPI200만 반환한다 — KIS 마스터가 인증 없이 두 지수를 모두 얻을 수 있는 유일한 소스다. 네이버 스크래핑은 KOSPI200 폴백으로만 남긴다(영숫자 신규 상장 코드를 누락해 수동 보정 목록이 필요했다).
+- **편입 플래그 위치는 실측으로 특정한다**: `kospi_code.mst` 꼬리 228B의 idx 19(KOSPI200 섹터업종 코드, `'0'` 아닌 값 정확히 200개), `kosdaq_code.mst` 꼬리 222B의 idx 36(KOSDAQ150 Y/N, Y 정확히 150개). 인접 필드가 KOSPI100(100개)·KOSPI50(50개)·KRX300(297개)로 KIS 문서상 순서와 맞고 KOSPI50 ⊂ KOSPI100 ⊂ KOSPI200 포함관계도 성립해 위치가 확증된다.
+- **명부 검증 실패 시 기록하지 않는다**: 종목 수(정의값 ±5)·코드 형식·시장 소속을 검증하고 하나라도 실패하면 `MasterLayoutError`로 중단하며 파일을 쓰지 않는다. 잘못된 명부는 조용히 잘못된 유니버스로 백테스트·자동매매를 돌린다. 명부 갱신은 스크립트 재실행 또는 캐시 TTL 만료 시 런타임 재조회로 하며, 30초 주기 매매 루프는 파일만 읽는다.
+- **KOSDAQ150 백테스트 해석은 시점 기준 시총 상위 150**: 정적 현재 명부는 그 자체가 생존편향이므로(FR-VM-067의 KOSPI200과 동일 논리) 백테스트는 명부 대신 매 시점 KOSDAQ 시총 상위 150으로 지수를 근사한다. `universe_pit.parse_universe_markets`는 `(markets, index_top_n)`을 돌려주고(`kospi200`→200, `kosdaq150`→150, 그 외 `None`), 엔진이 그 N으로 일별 시총 순위 게이트를 건다. 지수 토큰이 둘 이상이거나(`kosdaq150_kospi200`) 지수에 다른 시장이 섞이면(`kosdaq150_kospi`) 시장별로 순위를 나눠 매길 수 없으므로 순위 게이트를 걸지 않는다 — 전자는 미인식 처리, 후자는 명부 합집합만 쓴다.
+- **KOSDAQ150은 KOSDAQ 전체로 폴백하지 않는다**: 명부를 얻지 못하면 `_load_kosdaq150`은 빈 목록을 반환한다. 150종목 지수를 1,700여 종목 시장으로 넓히는 것이 바로 이 요구사항이 막는 사고다(KOSPI200은 기존 동작 유지를 위해 KOSPI 전체 폴백을 남긴다).
+- **지정가 대기 주문 게이트**: PENDING 지정가 주문 체결(FR-VM-046)도 진입·청산과 동일하게 상장 상태 게이트를 거쳐야 한다. 가격 조건만으로 체결하면 주문 접수 이후 거래정지·상장폐지된 종목이 그대로 체결된다. 판정은 같은 사이클에서 이미 조회한 상태를 재사용한다(추가 DB 조회 없음).
+
 ---
 
 ### 3.4b Strategy Research Agent (Premium)

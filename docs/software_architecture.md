@@ -919,6 +919,24 @@ VirtualTrader (비동기 루프, FastAPI 메인 스레드 분리)
 거래 비용: 수수료 0.15% / 세금 0.30% / 슬리피지 0.20%
 ```
 
+**신호 대상 유니버스는 화면의 모니터링 목록과 다른 값이다.** 모니터링 목록
+(`VirtualMarketState.symbols`)은 표시·시세구독용으로 백테스트 상위 10종목 수준이고,
+신호 평가 대상은 `resolve_live_universe`(`engine/live_signal_utils.py`)가 전략 DSL에서
+매 사이클 다시 해석한다(KOSPI 832 / KOSDAQ 1756 / KOSPI200 200 / KOSDAQ150 150 등). 지수
+유니버스는 명부 파일(`data/kospi200-cache.json`, `data/kosdaq150-cache.json` —
+`engine/kis_master.py`가 KIS 종목마스터에서 읽고 `scripts/build_index_rosters.py`가 생성)로만
+해석하고, 명부가 없으면 시장 전체로 대체하지 않는다.
+
+**백테스트는 같은 지수를 명부가 아니라 시점 기준 시총 상위 N으로 근사한다** — 정적 현재
+명부 자체가 생존편향이기 때문이다(FR-VM-067). `universe_pit.parse_universe_markets`가
+`(markets, index_top_n)`을 주고(kospi200→200, kosdaq150→150) 엔진이 일별 시총 순위로
+자른다. 즉 **자동매매=현재 명부, 백테스트=시점 기준 근사**로 의도적으로 다르다.
+
+과거 승자만 계속
+매매하는 생존편향을 피하려는 의도적 분리이며, 시세 조회는 신호가 난 종목 ∪ 보유 ∪ 미체결로
+좁혀 부하를 막는다. 해석 규칙은 FR-VM-073 — 상폐 종목 제외, 유니버스 id는 부분일치가 아닌
+별칭+토큰 일치(부분일치는 `KOR_KOSPI200`을 KOSPI 전체로 넓힌다), 미인식 표기는 확대 대신 폴백.
+
 백엔드는 `backend/db.py`(공용 앱 DB 어댑터, Supabase Postgres)를 통해서만 앱 DB에 접근한다.
 Prisma `Decimal` 컬럼(`currentCash`/`initialCash`/`avgPrice` 등 금액·수량 관련 전 컬럼)은
 Postgres `NUMERIC`으로 매핑되는데, psycopg가 기본적으로 이를 `decimal.Decimal`로 반환해

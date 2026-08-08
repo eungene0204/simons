@@ -12,6 +12,22 @@ from engine.indicators import IndicatorEngine
 
 _DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 
+# 저장된 전략마다 유니버스 표기가 달라 정본 id 로 모은다. 별칭을 두지 않으면
+# KOR_KOSPI200 이 "kospi200" 정확일치를 비껴가 KOSPI 전체로 해석된다.
+_UNIVERSE_ALIASES = {
+    "kor_kospi200": "kospi200",
+    "kospi_200": "kospi200",
+    "kor_kosdaq150": "kosdaq150",
+    "kosdaq_150": "kosdaq150",
+}
+
+# 지수 유니버스 → 구성종목 명부 파일. 명부가 없거나 깨졌으면 시장 전체로 넓히지 않고
+# 폴백(모니터링 목록)으로 떨어진다 — 인식 못 한 유니버스를 임의 확대하지 않는다.
+_INDEX_ROSTERS = {
+    "kospi200": "kospi200-cache.json",
+    "kosdaq150": "kosdaq150-cache.json",
+}
+
 
 def _normalize_date(value: Any) -> pd.Timestamp | None:
     if value is None:
@@ -261,7 +277,19 @@ def resolve_live_universe(
     strategy: dict[str, Any] | None,
     fallback_symbols: list[str],
 ) -> list[str]:
-    """Resolve the current listed universe without using historical winners."""
+    """Resolve the current listed universe without using historical winners.
+
+    상장폐지 종목은 어떤 경로로 해석됐든 마지막에 제외한다 — korea-stocks.json 에는
+    상장 상태 필드가 없어 상폐 종목이 섞여 들어오고, Stock 테이블에 행이 없으면
+    체결 직전 게이트도 NORMAL 로 통과시킨다.
+    """
+    return _exclude_delisted(_resolve_universe_symbols(strategy, fallback_symbols))
+
+
+def _resolve_universe_symbols(
+    strategy: dict[str, Any] | None,
+    fallback_symbols: list[str],
+) -> list[str]:
     strategy = strategy if isinstance(strategy, dict) else {}
     target_symbols = strategy.get("target_symbols")
     if isinstance(target_symbols, list) and target_symbols:
@@ -280,6 +308,7 @@ def resolve_live_universe(
         universe_id = "_".join(sorted(str(item).lower() for item in raw_universe))
     else:
         universe_id = str(raw_universe or "").strip().lower()
+    universe_id = _UNIVERSE_ALIASES.get(universe_id, universe_id)
     sector = strategy.get("sector") or filters.get("selectedSectors")
 
     try:
@@ -302,8 +331,9 @@ def resolve_live_universe(
                 ]
             return _unique_symbols([item.get("symbol") for item in etfs])
 
-        if universe_id == "kospi200":
-            payload = json.loads((_DATA_DIR / "kospi200-cache.json").read_text(encoding="utf-8"))
+        if universe_id in _INDEX_ROSTERS:
+            roster = _DATA_DIR / _INDEX_ROSTERS[universe_id]
+            payload = json.loads(roster.read_text(encoding="utf-8"))
             symbols = _unique_symbols(payload.get("symbols", []))
             if not sector:
                 return symbols
@@ -314,10 +344,12 @@ def resolve_live_universe(
                 if stocks.get(symbol, {}).get("sector") in sectors
             ]
 
+        # 부분일치는 KOR_KOSPI200 을 "KOSPI 전체"로 넓히므로 토큰 단위로만 맞춘다.
+        tokens = set(universe_id.split("_"))
         markets = set()
-        if "kospi" in universe_id:
+        if "kospi" in tokens:
             markets.add("KOSPI")
-        if "kosdaq" in universe_id:
+        if "kosdaq" in tokens:
             markets.add("KOSDAQ")
         if markets:
             stocks = _load_current_stocks()
@@ -330,6 +362,26 @@ def resolve_live_universe(
     except (OSError, ValueError, TypeError):
         pass
     return _unique_symbols(fallback_symbols)
+
+
+def _load_delisted_symbols() -> set[str]:
+    """DelistedSymbolStore 가 쓰는 상장폐지 원장. 읽기 실패 시 빈 집합."""
+    try:
+        payload = json.loads((_DATA_DIR / "delisted-stocks.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return set()
+    return {
+        str(symbol).split(".")[0]  # 152550.KS / .KQ 접미사 정규화
+        for symbol in payload.get("symbols", [])
+        if symbol
+    }
+
+
+def _exclude_delisted(symbols: list[str]) -> list[str]:
+    delisted = _load_delisted_symbols()
+    if not delisted:
+        return symbols
+    return [symbol for symbol in symbols if symbol not in delisted]
 
 
 def _load_current_stocks() -> dict[str, dict[str, Any]]:

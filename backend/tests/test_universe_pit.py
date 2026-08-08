@@ -41,12 +41,21 @@ def synthetic_master(tmp_path, monkeypatch):
 
 
 def test_parse_universe_markets():
-    assert u.parse_universe_markets("kospi") == (["KOSPI"], False)
-    assert u.parse_universe_markets("kospi200") == (["KOSPI"], True)
-    assert u.parse_universe_markets("kosdaq_kospi") == (["KOSPI", "KOSDAQ"], False)
+    assert u.parse_universe_markets("kospi") == (["KOSPI"], None)
+    assert u.parse_universe_markets("kospi200") == (["KOSPI"], 200)
+    assert u.parse_universe_markets("kosdaq_kospi") == (["KOSPI", "KOSDAQ"], None)
     # custom symbol sets must be left untouched (no market universe)
-    assert u.parse_universe_markets(None) == ([], False)
-    assert u.parse_universe_markets("my_custom_list") == ([], False)
+    assert u.parse_universe_markets(None) == ([], None)
+    assert u.parse_universe_markets("my_custom_list") == ([], None)
+
+
+def test_parse_universe_markets_kosdaq150():
+    """KOSDAQ150 은 KOSDAQ 시장의 시점 기준 시총 상위 150으로 근사한다."""
+    assert u.parse_universe_markets("kosdaq150") == (["KOSDAQ"], 150)
+    # 지수 토큰이 둘이면 시장별로 순위를 나눠 매길 수 없어 미인식 처리한다.
+    assert u.parse_universe_markets("kosdaq150_kospi200") == ([], None)
+    # 지수 + 다른 시장이 섞이면 순위 게이트가 그 시장까지 잘라내므로 게이트를 끈다.
+    assert u.parse_universe_markets("kosdaq150_kospi") == (["KOSPI", "KOSDAQ"], None)
 
 
 def test_delisted_name_included_while_alive(synthetic_master):

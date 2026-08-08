@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 _STOCKS_PATH = Path(__file__).parent.parent.parent / "data" / "korea-stocks.json"
 _KOSPI200_CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "kospi200-cache.json"
+_KOSDAQ150_CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "kosdaq150-cache.json"
 _CACHE_TTL_SECONDS = 7 * 24 * 3600  # 1주일
 _NAVER_SYMBOL_RE = re.compile(r"code=([0-9A-Z]{6})(?:&|$)")
 # Naver KOSPI200 page may omit recently listed alphanumeric symbols even when they are
@@ -35,6 +36,10 @@ def _extract_naver_symbol(href: str) -> Optional[str]:
     """네이버 종목 링크에서 6자리 영숫자 코드를 추출한다."""
     match = _NAVER_SYMBOL_RE.search(href or "")
     return match.group(1) if match else None
+
+
+def _unique_sorted(symbols: List[str]) -> List[str]:
+    return sorted({symbol for symbol in symbols if symbol})
 
 
 def _normalize_kospi200_symbols(symbols: List[str]) -> List[str]:
@@ -78,32 +83,60 @@ def _fetch_kospi200_from_naver() -> Optional[List[str]]:
         return None
 
 
-def _load_kospi200() -> List[str]:
-    """KOSPI200 구성종목 반환 (캐시 우선, 만료 시 재조회, 실패 시 KOSPI 전체 fallback)"""
-    # 캐시 확인
-    if _KOSPI200_CACHE_PATH.exists():
+def _fetch_index_from_kis(index_id: str) -> Optional[List[str]]:
+    """KIS 종목마스터에서 지수 구성종목 조회. 검증 실패·네트워크 실패 시 None."""
+    try:
+        from engine.kis_master import fetch_index_members
+
+        return sorted(symbol for symbol, _ in fetch_index_members(index_id))
+    except Exception as e:
+        logger.warning(f"[{index_id}] KIS 마스터 조회 실패: {e}")
+        return None
+
+
+def _load_index_roster(index_id: str, cache_path: Path, min_size: int) -> Optional[List[str]]:
+    """지수 명부 반환 (캐시 우선, 만료 시 KIS 마스터 재조회). 실패 시 None."""
+    if cache_path.exists():
         try:
-            cache = json.loads(_KOSPI200_CACHE_PATH.read_text(encoding="utf-8"))
+            cache = json.loads(cache_path.read_text(encoding="utf-8"))
             age = time.time() - cache.get("fetched_at", 0)
-            if age < _CACHE_TTL_SECONDS and len(cache.get("symbols", [])) >= 150:
-                symbols = _normalize_kospi200_symbols(cache["symbols"])
-                logger.info(f"[KOSPI200] 캐시 사용 ({len(symbols)}종목, {age/3600:.1f}h 전)")
+            if age < _CACHE_TTL_SECONDS and len(cache.get("symbols", [])) >= min_size:
+                symbols = _unique_sorted(cache["symbols"])
+                logger.info(f"[{index_id}] 캐시 사용 ({len(symbols)}종목, {age/3600:.1f}h 전)")
                 return symbols
         except Exception:
             pass
 
-    # 네이버에서 실시간 조회
-    logger.info("[KOSPI200] 네이버 금융에서 구성종목 조회 중...")
-    symbols = _fetch_kospi200_from_naver()
+    logger.info(f"[{index_id}] KIS 종목마스터에서 구성종목 조회 중...")
+    symbols = _fetch_index_from_kis(index_id)
+    if not symbols:
+        return None
 
+    cache_path.write_text(
+        json.dumps({"fetched_at": time.time(), "symbols": symbols}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    logger.info(f"[{index_id}] {len(symbols)}종목 조회 완료, 캐시 저장")
+    return symbols
+
+
+def _load_kospi200() -> List[str]:
+    """KOSPI200 구성종목 반환 (KIS 마스터 → 네이버 → KOSPI 전체 순 폴백)"""
+    symbols = _load_index_roster("kospi200", _KOSPI200_CACHE_PATH, 150)
     if symbols:
-        symbols = _normalize_kospi200_symbols(symbols)
+        return _normalize_kospi200_symbols(symbols)
+
+    # KIS 마스터가 막히면 기존 네이버 경로로 폴백한다(영숫자 코드 누락분은 보정 목록이 메운다).
+    logger.info("[KOSPI200] 네이버 금융에서 구성종목 조회 중...")
+    naver_symbols = _fetch_kospi200_from_naver()
+    if naver_symbols:
+        naver_symbols = _normalize_kospi200_symbols(naver_symbols)
         _KOSPI200_CACHE_PATH.write_text(
-            json.dumps({"fetched_at": time.time(), "symbols": symbols}, ensure_ascii=False),
+            json.dumps({"fetched_at": time.time(), "symbols": naver_symbols}, ensure_ascii=False),
             encoding="utf-8",
         )
-        logger.info(f"[KOSPI200] {len(symbols)}종목 조회 완료, 캐시 저장")
-        return symbols
+        logger.info(f"[KOSPI200] {len(naver_symbols)}종목 조회 완료, 캐시 저장")
+        return naver_symbols
 
     # fallback: KOSPI 전체
     logger.warning("[KOSPI200] 조회 실패 — KOSPI 전체로 fallback")
@@ -113,6 +146,18 @@ def _load_kospi200() -> List[str]:
         s["symbol"] for s in all_stocks
         if s.get("market") == "KOSPI" and "스팩" not in (s.get("name") or "")
     ]
+
+
+def _load_kosdaq150() -> List[str]:
+    """KOSDAQ150 구성종목 반환. 명부를 못 얻으면 빈 목록.
+
+    KOSPI200 과 달리 "KOSDAQ 전체"로 폴백하지 않는다 — 150종목 지수를 1,700종목
+    시장으로 넓히는 것은 조용한 유니버스 확대이고, 그게 FR-VM-073 이 막는 사고다.
+    """
+    symbols = _load_index_roster("kosdaq150", _KOSDAQ150_CACHE_PATH, 100)
+    if not symbols:
+        logger.warning("[KOSDAQ150] 명부를 얻지 못했다 — 빈 유니버스를 반환한다")
+    return symbols or []
 
 
 def _load_universe(markets: List[str]) -> List[str]:
@@ -126,8 +171,10 @@ def _load_universe(markets: List[str]) -> List[str]:
 
     if "KOSPI200" in markets:
         symbols.update(_load_kospi200())
+    if "KOSDAQ150" in markets:
+        symbols.update(_load_kosdaq150())
 
-    remaining = [m for m in markets if m != "KOSPI200"]
+    remaining = [m for m in markets if m not in ("KOSPI200", "KOSDAQ150")]
     if remaining:
         with open(_STOCKS_PATH, encoding="utf-8") as f:
             all_stocks = json.load(f)

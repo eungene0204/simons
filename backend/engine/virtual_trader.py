@@ -544,12 +544,14 @@ class VirtualTrader:
 
         # 4.5. 상장 상태 체크: 거래 제한 + 강제청산 (보유 포지션 종목 포함)
         delistingPolicy = await asyncio.to_thread(self._fetch_delisting_policy, account_id)
+        status_map: dict[str, str] = {}
         for sym in quote_symbols:
             try:
                 status = await asyncio.to_thread(get_stock_listing_status, sym)
             except Exception as error:
                 logger.debug("[VirtualTrader] listing status unavailable %s: %s", sym, error)
                 status = ListingStatus.NORMAL
+            status_map[sym] = status
             if status == ListingStatus.NORMAL:
                 continue
 
@@ -668,6 +670,17 @@ class VirtualTrader:
             if not current_price:
                 continue
             side = order["side"]
+            # 지정가 대기 주문도 상장 상태 게이트를 거친다 — 가격만 보고 체결하면
+            # 주문 접수 뒤 거래정지·상장폐지된 종목이 그대로 체결된다.
+            status = status_map.get(order["symbol"], ListingStatus.NORMAL)
+            if (side == "BUY" and not is_buy_allowed(status)) or (
+                side == "SELL" and not is_sell_allowed(status)
+            ):
+                logger.info(
+                    "[VirtualTrader] 지정가 체결 차단 %s %s %s (상태: %s)",
+                    account_id, side, order["symbol"], status,
+                )
+                continue
             limit = order["price"]
             fillable = (side == "BUY" and current_price <= limit) or (side == "SELL" and current_price >= limit)
             if not fillable:

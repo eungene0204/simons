@@ -660,6 +660,12 @@ RiskManagement {
 | KIS 시세 기반 거래정지 동기화 (FR-VM-072) | `iscd_stat_cls_code=58` → `StockQuote.trading_halted` 파싱, VirtualTrader 사이클이 `sync_trading_halt`로 Stock 반영 (DART 분류 우선 보호) | ✅ 완료 |
 | 보유 종목 시세 커버리지 | VirtualTrader 시세 조회 = 추적 종목 ∪ 보유 포지션 종목 — 추적 해제된 보유 종목의 청산·현재가 갱신·재개 감지 보장 | ✅ 완료 |
 | 거래정지 재개 스윕 | `_sweep_suspended_resume`(600초 간격): 아무도 추적하지 않는 정지 종목의 거래 재개를 감지해 NORMAL 복원 — 영구 정지 데드락 방지 | ✅ 완료 |
+| 매매 유니버스 상폐 제외 (FR-VM-073) | `resolve_live_universe`가 모든 해석 경로 끝에서 `delisted-stocks.json` 등재 종목 제거 — `korea-stocks.json`에 상장 상태 필드가 없어 상폐 67종목이 매매 대상에 남아 있었고, Stock 행이 없으면 FR-VM-066 게이트가 NORMAL로 통과시켰다(KOSPI 836→832, KOSDAQ 1819→1756) | ✅ 완료 |
+| 유니버스 id 별칭·토큰 일치 (FR-VM-073) | 시장 판정을 부분 문자열 → `_` 토큰 일치로 교체하고 `_UNIVERSE_ALIASES` 도입 — `KOR_KOSPI200`이 `"kospi200"` 정확일치를 비껴가 KOSPI 전체(836종목)로 해석되던 잠재 결함. 미인식 표기는 확대 대신 폴백 | ✅ 완료 |
+| KOSDAQ 150 구성종목 명부 (FR-VM-073) | `backend/engine/kis_master.py` + `scripts/build_index_rosters.py` → `data/kosdaq150-cache.json`(150종목). 출처=KIS 종목마스터 편입 플래그 — KRX(pykrx·FDR·직접)는 `LOGOUT` 거부, KRX Open API는 가격만, 네이버는 KOSPI200만 반환해 유일하게 접근 가능한 소스. 플래그 위치는 실측 특정(KOSPI50⊂KOSPI100⊂KOSPI200 포함관계로 확증). 종목수·형식·시장 소속 검증 실패 시 파일 미기록. `_INDEX_ROSTERS`로 kospi200과 동일 경로 처리 | ✅ 완료 |
+| 지수 명부 출처 KIS 단일화 (FR-VM-073) | KOSPI200 명부 소스를 네이버 스크래핑 → KIS 종목마스터로 전환(네이버는 폴백 유지). 전환 후 구성 200종목 **완전 동일**(추가·제거 0건) — 두 소스는 원래 일치했고, 앞서 보고된 26/24건 불일치는 마스터의 무관한 컬럼을 읽은 오독이었음 | ✅ 완료 |
+| KOSDAQ150 백테스트 배선 (FR-VM-073) | `parse_universe_markets`를 `(markets, index_top_n)`으로 일반화(kospi200→200, kosdaq150→150)하고 엔진 PIT 시총 게이트가 그 N을 사용. `_load_universe`에 KOSDAQ150 분기, DSL `UniverseSpec.markets` enum에 `KOSDAQ150` 추가. 명부 미확보 시 KOSDAQ 전체 폴백 금지 | ✅ 완료 |
+| 지정가 대기 주문 상장상태 게이트 (FR-VM-073) | PENDING 지정가 체결이 가격 조건만 보고 진행돼 접수 후 거래정지·상폐된 종목이 체결되던 구멍 차단. 같은 사이클의 조회 결과 재사용(추가 DB 조회 없음) | ✅ 완료 |
 | 테스트 | backend 21개 (test_listing_status.py), frontend 35개 (listing-status.test.ts), API 2개 + 거래정지 동기화/스윕 (test_listing_status_db.py 3개, test_virtual_trader.py 3개, tracked-symbol-filter.test.ts 1개) | ✅ 완료 |
 
 **새 API 엔드포인트:**

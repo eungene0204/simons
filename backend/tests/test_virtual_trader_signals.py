@@ -211,6 +211,64 @@ def test_resolve_live_universe_applies_market_and_sector(monkeypatch, tmp_path):
     assert symbols == ["A"]
 
 
+def test_resolve_live_universe_maps_kor_kospi200_to_kospi200(monkeypatch, tmp_path):
+    """KOR_KOSPI200 이 부분일치로 KOSPI 전체(836종목)로 넓어지던 회귀."""
+    (tmp_path / "kospi200-cache.json").write_text('{"symbols": ["A", "B"]}')
+    (tmp_path / "korea-stocks.json").write_text(
+        '[{"symbol":"A","market":"KOSPI"},{"symbol":"B","market":"KOSPI"},'
+        '{"symbol":"OUTSIDE","market":"KOSPI"}]'
+    )
+    monkeypatch.setattr("engine.live_signal_utils._DATA_DIR", tmp_path)
+
+    assert resolve_live_universe({"universe_id": "KOR_KOSPI200"}, ["fallback"]) == ["A", "B"]
+    # 리스트로 저장된 복수 시장 표기는 토큰 일치로 그대로 동작해야 한다.
+    assert sorted(
+        resolve_live_universe({"universe_id": ["kospi", "kosdaq"]}, ["fallback"])
+    ) == ["A", "B", "OUTSIDE"]
+
+
+def test_resolve_live_universe_reads_kosdaq150_roster(monkeypatch, tmp_path):
+    """KOR_KOSDAQ150 이 KOSDAQ 전체(1819종목)로 넓어지던 회귀 — 명부를 읽어야 한다."""
+    (tmp_path / "kosdaq150-cache.json").write_text('{"symbols": ["K1", "K2"]}')
+    (tmp_path / "korea-stocks.json").write_text(
+        '[{"symbol":"K1","market":"KOSDAQ","sector":"바이오/제약"},'
+        '{"symbol":"K2","market":"KOSDAQ","sector":"소프트웨어"},'
+        '{"symbol":"OUTSIDE","market":"KOSDAQ","sector":"바이오/제약"}]'
+    )
+    monkeypatch.setattr("engine.live_signal_utils._DATA_DIR", tmp_path)
+
+    assert resolve_live_universe({"universe_id": "KOR_KOSDAQ150"}, ["fallback"]) == ["K1", "K2"]
+    assert resolve_live_universe({"universe_id": "kosdaq150"}, ["fallback"]) == ["K1", "K2"]
+    # 업종 필터는 명부 안에서만 걸린다 — 명부 밖 같은 업종 종목을 끌어오지 않는다.
+    assert resolve_live_universe(
+        {"universe_id": "kosdaq150", "sector": "바이오/제약"}, ["fallback"]
+    ) == ["K1"]
+
+
+def test_resolve_live_universe_falls_back_when_index_roster_missing(monkeypatch, tmp_path):
+    """명부 파일이 없으면 시장 전체로 넓히지 않고 폴백으로 떨어져야 한다."""
+    (tmp_path / "korea-stocks.json").write_text(
+        '[{"symbol":"K1","market":"KOSDAQ"},{"symbol":"K2","market":"KOSDAQ"}]'
+    )
+    monkeypatch.setattr("engine.live_signal_utils._DATA_DIR", tmp_path)
+
+    assert resolve_live_universe({"universe_id": "kosdaq150"}, ["fallback"]) == ["fallback"]
+
+
+def test_resolve_live_universe_excludes_delisted_symbols(monkeypatch, tmp_path):
+    """korea-stocks.json 에 남아 있는 상폐 종목이 매매 대상으로 새던 회귀."""
+    (tmp_path / "korea-stocks.json").write_text(
+        '[{"symbol":"ALIVE","market":"KOSPI"},{"symbol":"DEAD","market":"KOSPI"}]'
+    )
+    (tmp_path / "delisted-stocks.json").write_text('{"symbols": ["DEAD", "OTHER.KS"]}')
+    monkeypatch.setattr("engine.live_signal_utils._DATA_DIR", tmp_path)
+
+    assert resolve_live_universe({"universe_id": "kospi"}, ["fallback"]) == ["ALIVE"]
+    # 지정 종목·폴백 경로도 같은 게이트를 거친다.
+    assert resolve_live_universe({"target_symbols": ["ALIVE", "DEAD"]}, []) == ["ALIVE"]
+    assert resolve_live_universe({}, ["ALIVE", "OTHER"]) == ["ALIVE"]
+
+
 def test_holding_period_counts_trading_rows_not_calendar_days():
     loader = StubLoader({
         "A": pl.DataFrame({
@@ -307,6 +365,72 @@ async def test_next_open_refresh_evaluates_universe_but_quotes_actions_only(monk
 
     assert evaluated == ["A", "B", "C"]
     assert market_data.symbols == ["B", "HELD", "PENDING"]
+
+
+@pytest.mark.asyncio
+async def test_pending_limit_order_blocked_when_trading_suspended(monkeypatch):
+    """지정가 대기 주문이 상장 상태를 보지 않고 가격만으로 체결되던 회귀."""
+    class StubMarketData:
+        async def get_prices(self, symbols):
+            return {
+                symbol: SimpleNamespace(
+                    close=100,
+                    high=100,
+                    date=virtual_trader_module.datetime.now(
+                        virtual_trader_module._KST
+                    ).strftime("%Y-%m-%d"),
+                    trading_halted=None,
+                )
+                for symbol in symbols
+            }
+
+    trader = VirtualTrader(StubMarketData(), data_loader=None)
+    filled = []
+
+    monkeypatch.setattr(
+        virtual_trader_module, "resolve_live_universe", lambda _dsl, _fallback: []
+    )
+    monkeypatch.setattr(
+        virtual_trader_module, "_is_strategy_execution_window", lambda _timing: True
+    )
+    monkeypatch.setattr(trader, "_fetch_strategy", lambda _strategy_id: {
+        "universe_id": "kospi",
+        "entry": {"conditions": []},
+        "exit": {"conditions": []},
+        "risk": {"execution_timing": "next_open"},
+    })
+    monkeypatch.setattr(trader, "_fetch_positions", lambda _account_id: [])
+    monkeypatch.setattr(trader, "_fetch_pending_orders", lambda _account_id: [
+        {"symbol": "HALTED", "side": "BUY", "price": 200},
+        {"symbol": "OK", "side": "BUY", "price": 200},
+    ])
+    monkeypatch.setattr(trader, "_evaluate_signals", lambda *_a, **_k: [])
+    monkeypatch.setattr(trader, "_fetch_stock_names", lambda _symbols: {})
+    monkeypatch.setattr(trader, "_fetch_delisting_policy", lambda _account_id: "AUTO_LIQUIDATE")
+    monkeypatch.setattr(trader, "_fetch_today_logs", lambda *_args: set())
+    monkeypatch.setattr(trader, "_update_positions", lambda *_args: None)
+    monkeypatch.setattr(trader, "_update_last_refreshed", lambda *_args: None)
+    monkeypatch.setattr(
+        trader, "_fill_pending_order",
+        lambda _account_id, order, _price: filled.append(order["symbol"]),
+    )
+    monkeypatch.setattr(
+        virtual_trader_module, "get_stock_listing_status",
+        lambda symbol: (
+            virtual_trader_module.ListingStatus.TRADING_SUSPENDED
+            if symbol == "HALTED"
+            else virtual_trader_module.ListingStatus.NORMAL
+        ),
+    )
+
+    await trader._refresh_account({
+        "id": "account-1",
+        "tradingMode": "auto",
+        "symbols": "[]",
+        "strategyId": "strategy-1",
+    })
+
+    assert filled == ["OK"]
 
 
 def test_strategy_execution_windows(monkeypatch):

@@ -396,14 +396,14 @@ class BacktestEngine:
             # *during* the window are included for the period they were alive. The legacy caller
             # passes only currently-listed symbols, which silently drops every delisted name and
             # inflates returns. universe_id=None (custom symbol set) leaves the list untouched.
-            _markets, _is_large_cap = universe_pit.parse_universe_markets(req.get('universe_id'))
+            _markets, _index_top_n = universe_pit.parse_universe_markets(req.get('universe_id'))
             _is_etf_universe = universe_pit.is_etf_universe(req.get('universe_id'))
             if _markets:
                 _aof_symbols = universe_pit.resolve_symbols(req.get('universe_id'), _period_start_str, _end_str)
                 if _aof_symbols:
                     symbols = _aof_symbols
                     print(f"[BT-ENGINE] PIT universe: {len(symbols)}종목 "
-                          f"(markets={_markets}, large_cap={_is_large_cap})", flush=True)
+                          f"(markets={_markets}, index_top_n={_index_top_n})", flush=True)
             elif _is_etf_universe:
                 # ETF 유니버스 — 주식과 혼합하지 않고 ETF 마스터만 조회한다. 마스터는 현재
                 # 상장 ETF만 담으므로(상폐 ETF 미포함) 생존 편향 가능성을 정직하게 알린다.
@@ -825,13 +825,13 @@ class BacktestEngine:
                         rank_exits = rank_exits.shift(1, fill_value=False)
                     exts_df = (exts_df | rank_exits.astype(bool)) & available_df
 
-            # ── "대형주" / KOSPI200 = point-in-time top-N by market cap ──
-            # Static current KOSPI200 membership is itself survivorship-biased, so we define the
-            # large-cap universe as the daily top-LARGE_CAP_TOP_N alive KOSPI names by market cap
+            # ── 지수 유니버스(KOSPI200·KOSDAQ150) = point-in-time top-N by market cap ──
+            # Static current index membership is itself survivorship-biased, so we define the
+            # index universe as the daily top-N alive names of that market by market cap
             # (close × listed shares). Market cap is evaluated only where price data is actually
             # available that day, so delisted names drop out of the ranking once they stop trading.
             large_cap_mask = None
-            if _is_large_cap:
+            if _index_top_n:
                 shares_map = universe_pit.get_shares(processed_symbols)
                 shares_vec = pd.Series(
                     {s: shares_map.get(s, np.nan) for s in processed_symbols},
@@ -839,15 +839,16 @@ class BacktestEngine:
                 )
                 mcap = price_df.mul(shares_vec, axis=1).where(available_df)
                 mcap_rank = mcap.rank(axis=1, ascending=False, method="first")
-                large_cap_mask = (mcap_rank <= universe_pit.LARGE_CAP_TOP_N).fillna(False)
+                large_cap_mask = (mcap_rank <= _index_top_n).fillna(False)
                 if exec_type == 'next_open':
                     # 진입 신호는 이미 1일 shift됨 — 시총 순위도 전일 종가 기준으로
                     # 맞춰야 당일 종가를 미리 아는 look-ahead가 없다.
                     large_cap_mask = large_cap_mask.shift(1, fill_value=False)
                 ents_df &= large_cap_mask
+                _index_label = "KOSDAQ150" if _index_top_n == 150 else "KOSPI200"
                 self.warnings.add(
-                    "대형주(시가총액 상위) 판정은 현재 상장주식수 × 과거 주가의 근사입니다 — "
-                    "과거 증자·분할 이력은 반영되지 않아 실제 당시 KOSPI200 구성과 다를 수 있습니다."
+                    f"지수(시가총액 상위 {_index_top_n}) 판정은 현재 상장주식수 × 과거 주가의 근사입니다 — "
+                    f"과거 증자·분할 이력은 반영되지 않아 실제 당시 {_index_label} 구성과 다를 수 있습니다."
                 )
 
             rank_df = None

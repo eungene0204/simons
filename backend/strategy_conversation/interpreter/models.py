@@ -179,7 +179,7 @@ class RankingSpec(BaseModel):
 
 
 class UniverseSpec(BaseModel):
-    markets: List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "ETF"]] = Field(
+    markets: List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150", "ETF"]] = Field(
         default_factory=list,
         description=(
             "투자 대상 시장. **언급이 없으면 빈 배열** — 기본값은 시스템이 정하므로 "
@@ -265,6 +265,7 @@ class UniverseSpec(BaseModel):
             market_map = {
                 "KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "KOSPI200": "KOSPI200",
                 "코스피": "KOSPI", "코스닥": "KOSDAQ", "코스피200": "KOSPI200",
+                "KOSDAQ150": "KOSDAQ150", "코스닥150": "KOSDAQ150",
                 "ETF": "ETF", "ETN": "ETF", "이티에프": "ETF", "상장지수펀드": "ETF",
                 "KOSPI_KOSDAQ": None,  # 아래에서 양시장으로 전개
             }

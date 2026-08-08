@@ -458,7 +458,7 @@ class ParsedStrategy(BaseModel):
     description: str = Field(description="사용자가 입력한 원문 전략 설명 (그대로 복사)")
 
     # ── 유니버스
-    universe: List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "ETF"]] = Field(
+    universe: List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150", "ETF"]] = Field(
         default=["KOSPI200"],
         description=(
             "투자 대상 시장. 언급 없으면 ['KOSPI200'] (KOSPI 전체 종목, 유동성 우선). "
@@ -551,6 +551,7 @@ class ParsedStrategy(BaseModel):
             market_map = {
                 "KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "KOSPI200": "KOSPI200",
                 "코스피": "KOSPI", "코스닥": "KOSDAQ", "코스피200": "KOSPI200",
+                "KOSDAQ150": "KOSDAQ150", "코스닥150": "KOSDAQ150",
                 "ETF": "ETF", "ETN": "ETF", "이티에프": "ETF", "상장지수펀드": "ETF",
             }
             markets: list[str] = []
@@ -571,7 +572,7 @@ class ParsedStrategy(BaseModel):
                 data = {**data, "universe": markets}
             elif moved_sector:
                 data = {**data, "universe": ["KOSPI", "KOSDAQ"]}
-            elif any(not isinstance(i, str) or i not in ("KOSPI", "KOSDAQ", "KOSPI200")
+            elif any(not isinstance(i, str) or i not in ("KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150")
                      for i in raw_universe):
                 data = {k: v for k, v in data.items() if k != "universe"}
         # ③ 해석 불가 재무 필터는 요청 전체를 죽이지 않고 그 항목만 드롭한다(별칭은

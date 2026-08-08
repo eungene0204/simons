@@ -185,24 +185,49 @@ def extract_etf_theme(user_input: str) -> Optional[str]:
     return None
 
 
-def parse_universe_markets(universe_id: Optional[str]) -> tuple[list[str], bool]:
-    """universe_id ("kospi", "kospi200", "kosdaq_kospi", ...) -> (markets, is_large_cap).
+# 지수 유니버스 → (소속 시장, 시점 기준 시총 상위 N). 정적 현재 명부는 그 자체가
+# 생존편향이라 백테스트는 명부 대신 매 시점 시총 상위 N으로 지수를 근사한다.
+_INDEX_UNIVERSES = {
+    "kospi200": ("KOSPI", LARGE_CAP_TOP_N),
+    "kosdaq150": ("KOSDAQ", 150),
+}
 
-    Returns ([], False) when the id is not a recognized market universe (e.g. a
+
+def parse_universe_markets(universe_id: Optional[str]) -> tuple[list[str], Optional[int]]:
+    """universe_id ("kospi", "kospi200", "kosdaq150", "kosdaq_kospi", ...)
+    -> (markets, index_top_n).
+
+    index_top_n 이 정수면 호출자는 그 시장에서 매 시점 시총 상위 N만 남겨야 한다
+    (KOSPI200=200, KOSDAQ150=150). None 이면 시장 전체다.
+
+    Returns ([], None) when the id is not a recognized market universe (e.g. a
     custom symbol set), signalling the caller to leave the symbol list untouched.
+    지수 토큰이 둘 이상이면(예: "kosdaq150_kospi200") 시총 순위를 시장별로 나눠 매길
+    수 없으므로 미인식으로 처리한다 — 게이트만 풀고 시장 전체로 넓히지 않는다.
     """
     if not universe_id:
-        return [], False
+        return [], None
     tokens = {t for t in universe_id.lower().split("_") if t}
-    if not tokens or not tokens <= {"kospi", "kosdaq", "kospi200"}:
-        return [], False
-    is_large_cap = "kospi200" in tokens
+    if not tokens or not tokens <= {"kospi", "kosdaq", *_INDEX_UNIVERSES}:
+        return [], None
+
+    index_tokens = tokens & set(_INDEX_UNIVERSES)
+    if len(index_tokens) > 1:
+        return [], None
+
     markets: list[str] = []
     if "kospi" in tokens or "kospi200" in tokens:
         markets.append("KOSPI")
-    if "kosdaq" in tokens:
+    if "kosdaq" in tokens or "kosdaq150" in tokens:
         markets.append("KOSDAQ")
-    return markets, is_large_cap
+
+    top_n: Optional[int] = None
+    if index_tokens:
+        _, top_n = _INDEX_UNIVERSES[next(iter(index_tokens))]
+        # 지수 + 다른 시장이 섞이면 순위 게이트가 그 시장까지 잘라내므로 쓰지 않는다.
+        if len(markets) > 1:
+            top_n = None
+    return markets, top_n
 
 
 def _alive(stock: dict, start: str, end: str) -> bool:
