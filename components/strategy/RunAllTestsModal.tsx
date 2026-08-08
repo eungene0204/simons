@@ -111,6 +111,7 @@ function mapRawBacktestResult(raw: any): BacktestResult {
     equity,
     benchmarkEquity: raw.benchmark_equity,
     benchmarkLabel: raw.benchmark_label,
+    benchmarkPartial: raw.benchmark_partial,
     dates: raw.dates ?? [],
     tradesList: (raw.signals ?? []).map((signal: any) => ({
       date: signal.date,

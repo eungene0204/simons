@@ -6,7 +6,10 @@
 """
 
 from strategy_conversation.interpreter.models import StrategyIntent
-from strategy_conversation.validation.recall_validator import find_unreflected_numbers
+from strategy_conversation.validation.recall_validator import (
+    drop_ungrounded_condition_periods,
+    find_unreflected_numbers,
+)
 
 
 def _intent(strategy: dict, **kw) -> StrategyIntent:
@@ -202,19 +205,6 @@ def test_labels_absent_from_keeps_only_truly_missing_labels():
     assert labels_absent_from(["50억"], payload) == ["50억"]
 
 
-def test_recall_repair_prompt_demands_full_strategy_on_create_turn():
-    """초기 파스 재요청에서 patches만 돌려주면 정상 해석이 통째로 버려진다 —
-    프롬프트가 형식을 명시해야 한다(2026-07-27 사고)."""
-    from strategy_conversation.validation.recall_validator import build_recall_repair_prompt
-
-    create = build_recall_repair_prompt("거래대금 50억 이상", ["50억"], "{}")
-    assert "strategy를 통째로 다시 담으세요" in create
-    assert "CREATE_STRATEGY" in create
-    # 수정 턴은 반대로 patches 형식을 유지해야 한다.
-    modify = build_recall_repair_prompt("거래대금 50억 이상", ["50억"], "{}", draft={"universe": {}})
-    assert "patches" in modify and "strategy는 null" in modify
-
-
 def test_patch_source_text_echo_does_not_count_as_reflected():
     """[회귀 2026-07-31] 수정 패치의 인용문(source_text)은 사용자 원문 조각이라 값이 틀려도
     입력의 숫자를 포함한다 — 반영으로 인정하면 단위 오차가 검사를 통과한다.
@@ -237,3 +227,111 @@ def test_correct_unit_conversion_in_patch_passes():
                      "value": 300000000, "source_text": "3억원"}],
     })
     assert find_unreflected_numbers("3억원", intent) == []
+
+
+# ── 근거 없는 기간 파라미터 제거 (2026-08-07 '60일 신고가' 사고) ─────────────
+
+def test_ungrounded_period_is_cleared_not_confirmed():
+    """'60일 신고가'에 9B가 lookback_period=252를 냈다(프롬프트의 '52주=252' 예시 오적용).
+
+    재요청도 같은 값을 반복했고 검증은 READY·미지원 0으로 통과해, 사용자가 말한 적
+    없는 252가 조용히 확정됐다. 값을 만들어 채우지 않고 **비워** 되묻기로 보낸다.
+    """
+    intent = _intent({
+        "universe": {"markets": ["KOSDAQ"]},
+        "entry_conditions": [
+            {"factor": "technical.breakout", "operator": "crosses_above",
+             "parameters": {"lookback_period": 252},
+             "source_text": "60일 신고가를 만든 뒤"},
+        ],
+    })
+    missing = find_unreflected_numbers(
+        "KOSDAQ에서 60일 신고가를 만든 뒤 5거래일 안에 거래량이 다시 증가한 종목을 매수", intent
+    )
+    assert "60일" in missing
+
+    cleared = drop_ungrounded_condition_periods(
+        "KOSDAQ에서 60일 신고가를 만든 뒤 5거래일 안에 거래량이 다시 증가한 종목을 매수",
+        intent, missing,
+    )
+
+    assert cleared == ["entry_conditions.lookback_period=252"]
+    # 비우기만 한다 — 60을 대신 채워 넣지 않는다(값 확정은 되묻기의 몫).
+    assert intent.strategy.entry_conditions[0].parameters["lookback_period"] is None
+
+
+def test_unit_converted_period_is_kept():
+    """'52주 신고가'→252는 정당한 단위 환산이다 — 입력에 252가 없다고 비우면 오탐이다."""
+    intent = _intent({
+        "universe": {"markets": ["KOSPI"]},
+        "entry_conditions": [
+            {"factor": "technical.breakout", "operator": "crosses_above",
+             "parameters": {"lookback_period": 252},
+             "source_text": "52주 신고가"},
+        ],
+    })
+    cleared = drop_ungrounded_condition_periods(
+        "52주 신고가 돌파하고 거래대금 50억 이상", intent, ["50억"],
+    )
+    assert cleared == []
+    assert intent.strategy.entry_conditions[0].parameters["lookback_period"] == 252
+
+
+def test_system_canonical_period_without_quoted_number_is_kept():
+    """기간을 말하지 않은 '골든크로스'의 정본 5/20은 건드리지 않는다.
+
+    인용(source_text)에 수치가 없으면 '모델이 그 수치에서 나왔다고 적어 놓고 다른 값을
+    넣은' 경우가 아니다 — 판정 조건 ②가 이 경우를 걸러낸다.
+    """
+    intent = _intent({
+        "universe": {"markets": ["KOSPI"]},
+        "entry_conditions": [
+            {"factor": "technical.ma_crossover", "operator": "crosses_above",
+             "parameters": {"short_period": 5, "long_period": 20},
+             "source_text": "골든크로스"},
+        ],
+    })
+    cleared = drop_ungrounded_condition_periods(
+        "골든크로스 나면 매수하고 거래대금 50억 이상", intent, ["50억"],
+    )
+    assert cleared == []
+    assert intent.strategy.entry_conditions[0].parameters["short_period"] == 5
+
+
+
+
+# ── 재요청 폐지 + 체크리스트 선주입 (2026-08-07) ──────────────────────────────
+
+def test_first_call_prompt_carries_the_number_checklist():
+    """1차 호출이 입력 수치 목록을 받는다 — 폐지된 재요청의 유일한 무기를 앞당긴 것.
+
+    재요청이 1차보다 더 알던 정보는 '어느 수치가 빠졌나' 하나뿐이었고, 그 목록은 출력
+    없이 입력만으로 계산된다. 그래서 두 번째 호출 대신 첫 호출에 싣는다. 이 주입이
+    사라지면 "RSI 30 이하에서 매수"가 entry_conditions를 통째로 비운 채 나가던 실측
+    실패에 안전망이 없어진다.
+    """
+    from strategy_conversation.interpreter.prompts import build_user_prompt
+
+    prompt = build_user_prompt("KOSDAQ에서 60일 신고가, 최대 8종목, 손절 -8%")
+
+    assert "입력에 등장한 수치" in prompt
+    for label in ("60일", "8종목", "8%"):
+        assert label in prompt
+    # 값이 아닌 표현을 임계값으로 채워 넣지 말라는 계약도 함께 간다 — 이 문구가 빠지면
+    # 폐지된 재요청이 저지른 훼손(PER≤1·PBR≤1)을 1차가 그대로 재현한다.
+    assert "끼워 넣지 마세요" in prompt
+
+
+def test_checklist_is_empty_when_input_has_no_numbers():
+    """수치가 없으면 체크리스트 블록 자체를 붙이지 않는다(프롬프트 잡음 금지)."""
+    from strategy_conversation.interpreter.prompts import build_user_prompt
+
+    assert "입력에 등장한 수치" not in build_user_prompt("골든크로스 나면 매수")
+
+
+def test_input_number_labels_dedupes_in_order():
+    from strategy_conversation.validation.recall_validator import input_number_labels
+
+    assert input_number_labels("60일 신고가 뒤 5거래일, 최대 8종목, 60일 재확인") == [
+        "60일", "5", "8종목",
+    ]

@@ -20,6 +20,7 @@ from strategy_conversation.interpreter.models import (
     StrategyIntent,
     ValidationReport,
 )
+from strategy_conversation.registry.concept_ontology import natural_ranking_direction
 from strategy_conversation.registry.indicator_registry import REGISTRY
 from strategy_conversation.registry.universe_resolver import resolve_sectors, resolve_symbols
 
@@ -189,6 +190,12 @@ def _condition_label(cond: StrategyCondition) -> str:
     source = (cond.source_text or "").strip()
     if source:
         return source
+    # 분류(클래스) 발화 조건 — 내부 식별자(oscillator) 대신 한글 분류명을 쓴다
+    from strategy_conversation.registry.concept_ontology import class_display_name
+
+    cls_name = class_display_name(cond.factor)
+    if cls_name:
+        return f"{cls_name} 지표"
     return str(cond.factor).rsplit(".", 1)[-1]
 
 
@@ -257,8 +264,14 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         binding = spec.engine_binding if spec else None
         if binding is not None and binding[0] == "fundamental_filter":
             ranking_metric = binding[1]
-            # top이 기본이라 저장하지 않는다(방향 미지정 기존 전략의 strategy_id 불변).
-            ranking_direction = "bottom" if rank.direction == "bottom" else None
+            # 방향을 사용자가 말하지 않았으면(rank.direction=None) 지표의 자연 방향을
+            # 쓴다 — 엔진 기본값은 무조건 top이라, PER처럼 낮을수록 저평가인 지표에서
+            # 침묵이 '가장 비싼 종목 선정'으로 뒤집힌다(온톨로지 polarity가 정본).
+            # 자연 방향이 없는 지표(시가총액·배당성향 등 none)는 None으로 두어 기존
+            # 동작을 유지한다 — 억지 방향을 만들지 않는다.
+            direction = rank.direction or natural_ranking_direction(rank.metric)
+            # top은 엔진 기본값이라 저장하지 않는다(방향 미지정 기존 전략의 해시 불변).
+            ranking_direction = "bottom" if direction == "bottom" else None
         else:
             ranking_metric = "return"
             ranking_lookback = rank.lookback_days

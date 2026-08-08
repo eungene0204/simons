@@ -125,7 +125,12 @@ class VBTNativeResult(BaseModel):
     maxConsecutiveWins: Optional[int] = 0
     maxConsecutiveLosses: Optional[int] = 0
     equity: List[float] = Field(default_factory=list)
-    benchmark_equity: Optional[List[float]] = Field(default_factory=list)
+    # 벤치마크 지수가 아직 존재하지 않던 구간은 null — 0으로 채우면 그 구간
+    # 벤치마크가 평탄했다는 거짓 곡선이 된다(엔진 v11.0).
+    benchmark_equity: Optional[List[Optional[float]]] = Field(default_factory=list)
+    # 벤치마크가 백테스트 구간의 일부만 덮는가 — True면 전략과 기간이 달라
+    # 두 수익률의 차이(초과수익률)를 그대로 비교할 수 없다(엔진 v11.0).
+    benchmark_partial: bool = False
     dates: List[str] = Field(default_factory=list)
     finalEquity: Optional[float] = 0.0
     initialCapital: Optional[float] = 10000000.0
@@ -150,7 +155,12 @@ class BacktestResponse(BaseModel):
     maxConsecutiveWins: Optional[int] = 0
     maxConsecutiveLosses: Optional[int] = 0
     equity: List[float]
-    benchmark_equity: Optional[List[float]] = Field(default_factory=list)
+    # 벤치마크 지수가 아직 존재하지 않던 구간은 null — 0으로 채우면 그 구간
+    # 벤치마크가 평탄했다는 거짓 곡선이 된다(엔진 v11.0).
+    benchmark_equity: Optional[List[Optional[float]]] = Field(default_factory=list)
+    # 벤치마크가 백테스트 구간의 일부만 덮는가 — True면 전략과 기간이 달라
+    # 두 수익률의 차이(초과수익률)를 그대로 비교할 수 없다(엔진 v11.0).
+    benchmark_partial: bool = False
     dates: List[str]
     signals: List[SignalResult]
     perAssetStats: Optional[Dict[str, AssetStats]] = Field(default_factory=dict)

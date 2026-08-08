@@ -52,9 +52,10 @@ def test_repair_clamps_cache_and_rebuilds_parquet(workspace, monkeypatch):
     }).write_parquet(ohlcv_dir / "024800.parquet")
 
     monkeypatch.setattr(repair.ff, "_get_dart_corp_code", lambda s: "00123456")
+    monkeypatch.setattr(repair.ff, "dart_fiscal_month", lambda symbol, corp: "12")
     monkeypatch.setattr(
         repair.ff, "_fetch_dart_original_filing_dates",
-        lambda corp: {2020: "2021-03-18", 2017: "2018-04-02"},
+        lambda corp, month="12": {2020: "2021-03-18", 2017: "2018-04-02"},
     )
 
     status, changed = repair.repair_symbol("024800", dry_run=False)
@@ -77,8 +78,9 @@ def test_repair_noop_when_dates_already_original(workspace, monkeypatch):
         {"year_end": "2020-12-31", "available_from": "2021-03-09", "eps": 300.0},
     ])
     monkeypatch.setattr(repair.ff, "_get_dart_corp_code", lambda s: "00126380")
+    monkeypatch.setattr(repair.ff, "dart_fiscal_month", lambda symbol, corp: "12")
     monkeypatch.setattr(
-        repair.ff, "_fetch_dart_original_filing_dates", lambda corp: {2020: "2021-03-09"},
+        repair.ff, "_fetch_dart_original_filing_dates", lambda corp, month="12": {2020: "2021-03-09"},
     )
     status, changed = repair.repair_symbol("005930", dry_run=False)
     assert status == "already_clean"

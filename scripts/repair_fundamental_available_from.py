@@ -106,6 +106,8 @@ def repair_symbol(symbol: str, *, dry_run: bool) -> tuple[str, list[str]]:
     if not corp_code:
         return "no_corp_code", []
 
+    # 사업보고서 이름에서 연도별 결산월과 원공시일을 함께 읽는다 — 월을 12로 고정하던
+    # 종전 방식은 비12월 결산 회사를 통째로 클램프에서 빠뜨렸다(2026-08-07 수정).
     original_dates = ff._fetch_dart_original_filing_dates(corp_code)
     if not original_dates:
         return "no_filing_dates", []

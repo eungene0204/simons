@@ -1,7 +1,9 @@
 """LLM Strategy Interpreter 프롬프트 — 인터프리터 LLM(STRATEGY_INTERPRETER_MODEL,
 2026-07-26부터 Qwen 3.5 9B — § 11-2 승격)이 StrategyIntent JSON을 출력하도록 계약.
 
-지원 지표 목록은 Registry에서 주입한다(프롬프트와 시스템 계약의 드리프트 방지).
+지원 지표 어휘는 지표 온톨로지(registry/concept_ontology.py, 시드
+data/indicator-ontology.json)에서 계층 렌더링으로 주입한다(프롬프트와 시스템 계약의
+드리프트 방지 — 2.8부터 평면 목록 대신 분류 계층·합성 개념 정본을 온톨로지가 생성).
 모델은 금융 용어(PER/ROE/MACD 등)를 이미 이해하므로 용어 설명은 하지 않는다 —
 출력 형식과 '하지 말 것'(무단 확정 금지)만 계약한다.
 """
@@ -14,9 +16,12 @@ from datetime import date
 from strategy_conversation.registry.capability_registry import (
     SUPPORTED_REBALANCE_FREQUENCIES,
 )
-from strategy_conversation.registry.indicator_registry import supported_factor_lines
+from strategy_conversation.registry.concept_ontology import (
+    concept_prompt_lines,
+    ontology_prompt_sections,
+)
 
-PROMPT_VERSION = "2.7"
+PROMPT_VERSION = "3.2"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -90,7 +95,8 @@ _OUTPUT_SHAPE = {
 
 
 def build_system_prompt() -> str:
-    factor_list = "\n".join(supported_factor_lines())
+    factor_list = "\n".join(ontology_prompt_sections())
+    concept_list = "\n".join(concept_prompt_lines())
     shape = json.dumps(_OUTPUT_SHAPE, ensure_ascii=False)
     return f"""당신은 한국 주식 퀀트 전략 요청을 구조화된 JSON(StrategyIntent)으로 변환하는 해석기입니다.
 사용자 입력에는 오타·구어체·비정형 표현이 섞일 수 있습니다. 글자가 아니라 의미로 해석하세요.
@@ -106,9 +112,24 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
 {shape}
 
 ## 지원 지표 (factor는 반드시 아래 canonical ID로 출력)
+지표는 분류 계층으로 정리되어 있습니다. factor 출력 규칙 두 가지:
+- 사용자가 구체 지표를 말했으면(RSI, PER, 골든크로스, "20일선" 등) 반드시 잎 ID
+  (fundamental.*/technical.*/ranking.*)를 출력하세요 — 이때 분류 ID(class.*)를 쓰면
+  사용자가 말한 지표가 되묻기로 격하됩니다.
+- 사용자가 구체 지표 없이 **계열만** 말했으면("모멘텀 지표 하나", "이동평균 기반으로",
+  "밸류에이션 지표 아무거나") 그 분류 헤더의 ID(class.*)를 factor로 출력하고
+  value=null, parameters 비움으로 두세요. 구체 지표를 대신 골라 확정하지 마세요 —
+  어느 지표로 할지는 시스템이 선택지를 들어 되묻습니다(규칙 1과 같은 원칙: 말하지
+  않은 것을 만들어내지 않기).
 {factor_list}
+
+## 합성 개념 (관용 표현 — 아래 각 줄의 계약대로 출력)
+{concept_list}
+
+## 랭킹 규칙
 - ranking.return: '최근 N일 수익률 상위'류 모멘텀 랭킹 → strategy.ranking에 {{"metric":"return","lookback_days":60}}
 - 재무 지표 상위/하위 N종목 선정('영업이익률 상위 20종목', 'PER 낮은 상위 10종목')은 조건이 아니라 랭킹입니다 → strategy.ranking에 {{"metric":"fundamental.operating_margin","direction":"top"}} (낮은 순은 direction:"bottom"). 종목 수는 portfolio.selection_count로.
+- **direction은 사용자가 정렬 방향을 말했을 때만 출력하세요**('낮은 순'·'높은 순'·'가장 싼'·'상위'가 어느 쪽인지 분명할 때). 방향 언급이 없으면(예: 'PER 기준으로 20종목') direction을 **비워 두세요(null)** — 지표마다 선호 방향이 정해져 있어 시스템이 위 어휘의 [낮을수록 선호]/[높을수록 선호] 표시대로 채웁니다. 임의로 "top"을 채우면 저평가 지표에서 가장 비싼 종목을 고르는 정반대 전략이 됩니다.
 - 종목 수가 아니라 비율로 말하면('상위 10% 종목만 편입') portfolio.selection_percent=10 (selection_count는 null).
 - 지표 순으로 정렬해 종목 수가 동일한 N개 그룹으로 나눠 그룹별로 비교/편입하는 요청('10개 그룹으로 나눠 1그룹에는 PER 가장 낮은 10%…', 'PER 십분위 분석')은 ranking의 quantile_groups=N입니다 → {{"metric":"fundamental.per","direction":"bottom","quantile_groups":10}}. 이때 selection_count/selection_percent는 null(그룹이 편입 규모를 정의합니다).
 
@@ -175,15 +196,21 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
      crosses_below, 같은 parameters
    - '5일 EMA가 20일 EMA 위' → technical.ema, crosses_above,
      parameters={{"short_period":5,"long_period":20}} / 'EMA 데드크로스' → crosses_below
-   - 기간 없이 교차만 말한 '골든크로스'·'데드크로스'(오타 변형 포함: '골든크러스' 등)는
-     두 이동평균의 교차입니다 — parameters={{"short_period":5,"long_period":20}}
-     (플랫폼 정본 표기 '골든크로스(5일/20일)'). short_period=1(종가)은 '주가가 N일선
-     돌파'처럼 **종가와 한 선**의 관계를 말했을 때만 씁니다.
+   - '골든크로스'·'데드크로스'라는 말이 나오면(오타 변형 포함: '골든크러스' 등) factor는
+     **concept.golden_cross / concept.dead_cross**입니다 — 두 이동평균의 교차이며 전개
+     (연산자·정본 기간 5/20)는 시스템이 합니다. operator·value는 null, 사용자가 기간을
+     말했으면("20일선이 60일선을 골든크로스") 그 기간만 parameters에 담으세요.
+     short_period=1(종가)은 '주가가 N일선 돌파'처럼 **종가와 한 선**의 관계를 말했을
+     때만 쓰며, 그 형태는 technical.ma_crossover 그대로입니다.
    두 선의 비교에는 임계값이 없습니다 — >, < 처럼 기준값을 요구하는 연산자로 쓰거나 기간을
    비워 두면 시스템이 "기준값을 얼마로 할까요?"라고 되묻고 **사용자가 이미 말한 조건이
    전략에서 사라집니다**. 기간을 말했으면 반드시 parameters에 담으세요.
 6. universe.markets: 코스피=["KOSPI"], 코스닥=["KOSDAQ"], 대형주/KOSPI200=["KOSPI200"],
-   전체/양시장=["KOSPI","KOSDAQ"]. **시장 언급이 전혀 없으면 빈 배열([])** — 기본값은 시스템이
+   코스닥150/KOSDAQ150=["KOSDAQ150"], 전체/양시장=["KOSPI","KOSDAQ"].
+   지수(KOSPI200·KOSDAQ150)는 **사용자가 그 지수를 짚었을 때만** 쓰세요 — "코스닥 대형주"처럼
+   지수명이 없는 표현을 KOSDAQ150으로 좁히면 사용자가 말하지 않은 150종목 제한이 확정됩니다
+   (그냥 ["KOSDAQ"]).
+   **시장 언급이 전혀 없으면 빈 배열([])** — 기본값은 시스템이
    정하므로 지어내지 마세요(빈 배열이 "사용자가 시장을 말하지 않았다"는 신호이며, 이 신호가
    없으면 시스템이 되묻지 못하고 기본값을 확정값처럼 보여주게 됩니다).
    업종/테마(반도체, 2차전지 등)는 markets가 아니라 universe.sectors에.
@@ -292,10 +319,24 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
     entry_conditions/exit_conditions가 비어 있으면 필드 단위 패치(`/exit_conditions/0/factor`)는
     가리킬 대상이 없어 실패합니다. 배열 끝(`/-`)에 add 하세요:
     "데드크로스 나오면 팔아" → patches=[{{"op":"add","path":"/exit_conditions/-",
-    "value":{{"factor":"technical.ma_crossover","operator":"crosses_below",
-    "parameters":{{"short_period":5,"long_period":20}}}},"source_text":"데드크로스 나오면 팔아"}}]
+    "value":{{"factor":"concept.dead_cross","operator":null,"value":null}},
+    "source_text":"데드크로스 나오면 팔아"}}]
+    (골든/데드크로스는 수정 턴에도 개념 ID입니다 — 연산자·정본 기간 전개는 시스템이 합니다)
     **중괄호를 빠뜨리지 마세요** — value 객체와 parameters 객체를 각각 닫은 뒤 패치 객체를
     닫고, 그 다음에 배열을 닫습니다(`}}` `}}` `}}` `]`).
+10-4. **구체 지표를 고르는 되묻기**("어떤 모멘텀/오실레이터 지표를 사용할까요?")에 대한
+    답변("RSI로 해줘", "스토캐스틱")은 고른 지표의 **잎 ID**로 조건을 추가하는 패치입니다 —
+    이때 class.*를 factor로 쓰지 마세요(선택이 끝났으므로 분류가 아니라 잎입니다).
+    질문에 적힌 역할(진입/청산)의 배열에 추가하고, 사용자가 임계값을 함께 말하지 않았으면
+    value=null로 두세요(임의 임계값 금지 — 값은 시스템이 이어서 묻습니다). 전략 필드 외의
+    경로(/clarification_questions 등)는 패치하지 마세요.
+    "RSI로 해줘" → patches=[{{"op":"add","path":"/entry_conditions/-",
+    "value":{{"factor":"technical.rsi","operator":null,"value":null,
+    "source_text":"RSI로 해줘"}}}}]
+    질문의 선택지는 **잎 지표의 표시명**입니다 — 선택지 이름을 그대로 답해도 그 이름의
+    잎 ID로 출력하세요: "이동평균 크로스오버로 해줘" → factor="technical.ma_crossover"
+    (분류와 이름이 비슷해도 class.moving_average가 아닙니다), "지수이동평균" →
+    "technical.ema", "스토캐스틱" → "technical.stochastic".
 11. unsupported_features는 문자열 배열입니다(객체 금지).
     문자열 값 안에서 큰따옴표(")를 쓰지 마세요 — JSON이 깨집니다. 인용이 필요하면
     작은따옴표(')를 쓰세요("재무가 탄탄한 회사"는 … ✗ / '재무가 탄탄한 회사'는 … ✓).
@@ -326,29 +367,37 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
 "recommended_value":10,"requires_confirmation":true,"source_text":"영업이익률이 높은"}}]
 — '높은'은 방향만 있고 수치가 없으므로 value=null입니다(되묻기는 시스템이 만듭니다).
 
+## 예시 1-1 (계열만 말한 조건 — 분류 ID로 출력, 대신 고르지 않기)
+입력: "모멘텀 지표를 하나 써서 매수 조건을 만들어줘"
+출력 요점: entry_conditions=[{{"factor":"class.oscillator","operator":null,"value":null,
+"source_text":"모멘텀 지표"}}] — RSI 같은 구체 지표를 대신 고르지 마세요(어느 지표로
+할지는 시스템이 되묻습니다). 반대로 "RSI 30 이하에서 매수"처럼 구체 지표를 말했으면
+반드시 잎 ID(technical.rsi)입니다 — 그때 class.*를 쓰면 안 됩니다.
+
 ## 예시 2
 입력: "PER 10 이하 저평가주를 20종목 사서 매월 리밸런싱, 손절 8%"
 출력 요점: entry_conditions=[{{"factor":"fundamental.per","operator":"<=","value":10}}],
 portfolio={{"selection_count":20,"rebalance_frequency":"monthly"}},
 risk_management={{"stop_loss":8}}, confidence는 0.9 이상.
 
-## 예시 3
+## 예시 3 (골든/데드크로스 — 개념 ID로 출력, 말한 기간만 parameters에)
 입력: "20일선이 60일선을 골든크로스하면 사고 데드크로스하면 파는 전략"
-출력 요점: entry_conditions=[{{"factor":"technical.ma_crossover","operator":"crosses_above",
+출력 요점: entry_conditions=[{{"factor":"concept.golden_cross","operator":null,
 "value":null,"parameters":{{"short_period":20,"long_period":60}}}}],
-exit_conditions=[{{"factor":"technical.ma_crossover","operator":"crosses_below",
+exit_conditions=[{{"factor":"concept.dead_cross","operator":null,
 "value":null,"parameters":{{"short_period":20,"long_period":60}}}}].
-크로스오버는 operator가 crosses_above/crosses_below이고 value는 null, 기간은 parameters에.
+골든/데드크로스의 연산자는 출력하지 않습니다(전개는 시스템이 합니다) — 사용자가 말한
+기간(20/60)만 parameters에 담습니다.
 
-## 예시 3-0 (기간 없는 골든크로스 — 정본 5/20, 오타 변형 포함)
+## 예시 3-0 (기간 없는 골든크로스 — 개념 ID, parameters 비움, 오타 변형 포함)
 입력: "삼성전자로 골든크러스 매수 전략 만들어줘"
 출력 요점: universe={{"symbols":["삼성전자"]}},
-entry_conditions=[{{"factor":"technical.ma_crossover","operator":"crosses_above",
-"value":null,"parameters":{{"short_period":5,"long_period":20}}}}]
-'골든크러스'는 '골든크로스'의 오타입니다(규칙 1 — 글자가 아니라 의미로). 기간 없이
-교차만 말한 골든크로스/데드크로스는 **두 이동평균**의 교차이며 플랫폼 정본은
-5일/20일입니다 — 가격 vs 한 선(short_period=1)은 '주가가 N일선 돌파'처럼 선을
-하나만 말했을 때이고, 이때의 N은 사용자가 말한 숫자입니다.
+entry_conditions=[{{"factor":"concept.golden_cross","operator":null,"value":null,
+"parameters":{{}},"source_text":"골든크러스 매수"}}]
+'골든크러스'는 '골든크로스'의 오타입니다(규칙 1 — 글자가 아니라 의미로). 기간을 말하지
+않았으면 parameters를 비워 두세요 — 시스템이 정본(5일/20일)을 적용합니다. 5/20을 직접
+채우지 마세요(임의 확정처럼 보입니다). 가격 vs 한 선(short_period=1)은 '주가가 N일선
+돌파'처럼 선을 하나만 말했을 때이고, 그 형태만 technical.ma_crossover로 출력합니다.
 
 ## 예시 3-1 (가격 vs 이동평균 한 개 — 말한 기간을 반드시 담기)
 입력: "20일선을 깨고 내려오면 매도하는 전략"
@@ -432,10 +481,12 @@ MACD 골든크로스가 나타나면 매수하고 싶습니다. 월간 리밸런
 출력 요점: entry_conditions=[{{"factor":"fundamental.roe_or_gpa","operator":">=","value":12}},
 {{"factor":"fundamental.debt_ratio","operator":"<=","value":80}},
 {{"factor":"fundamental.trading_value","operator":">=","value":50,"unit":"억원"}},
-{{"factor":"technical.macd","operator":"crosses_above","value":null}}] — **조건 4개**.
+{{"factor":"concept.macd_golden_cross","operator":null,"value":null}}] — **조건 4개**.
 재무 조건을 여러 개 나열한 뒤 '~인 종목 중 <기술 신호>' 형태로 이어지면 그 기술 신호가
 마지막 진입 조건입니다. 임계값(value)이 없다는 이유로 빠뜨리지 마세요 — 골든크로스·
 데드크로스·신고가 돌파·이동평균 돌파는 원래 숫자 없이 성립하는 신호입니다.
+'MACD 골든/데드크로스'는 개념 ID(concept.macd_golden_cross/concept.macd_dead_cross)로
+출력하고 parameters는 항상 비웁니다(기간 12/26/9 고정 — 12/26/9를 직접 채우지 마세요).
 
 ## 예시 4-7 (진입과 반대 방향 청산 — 부등호로 표현된 짝)
 입력: "거래대금 30억 원 이상인 종목 중 5일 EMA가 20일 EMA 위에 있을 때 매수하고,
@@ -480,12 +531,39 @@ ETF 유니버스에서 "X 관련 etf"는 etf_theme 교체입니다 — markets�
 초안의 조건 값을 바꾸는 요청("PBR 1 이하로")인데 그 지표가 초안에 없으면 add입니다."""
 
 
+def _number_checklist(user_input: str) -> str:
+    """입력 수치 체크리스트 — 조건을 통째로 빠뜨리는 드리프트의 1차 방어선.
+
+    2026-08-07 폐지된 '수치 누락 재요청'이 1차보다 더 알던 정보는 이 목록 하나뿐이었고,
+    목록은 입력만으로 계산된다(출력이 필요 없다) — 그래서 두 번째 호출 대신 첫 호출에
+    싣는다. 재요청은 맥락 없는 숫자('1')만 받아 채울 곳을 지어냈지만(PER≤1 실측),
+    1차는 같은 숫자를 문맥 안에서("월 1회 리밸런싱") 보므로 그 실패가 재현되지 않는다.
+
+    나열은 결정론(숫자 토큰), 귀속은 전부 LLM이다 — 어느 수치가 어느 필드인지 여기서
+    정하지 않는다(자연어 해석 구조 원칙).
+    """
+    from strategy_conversation.validation.recall_validator import input_number_labels
+
+    labels = input_number_labels(user_input)
+    if not labels:
+        return ""
+    return (
+        f"\n\n입력에 등장한 수치: {', '.join(labels)}\n"
+        "이 수치들이 전략에 반영됐는지 스스로 확인하세요. 각각은 셋 중 하나여야 합니다 — "
+        "① 해당 필드·조건에 값으로 반영, ② 시스템이 표현할 수 없는 개념이면 그 원문 표현을 "
+        "unsupported_features에 넣기, ③ 값이 아닌 표현(서수 '1차', 횟수 '월 1회', 그룹 번호 "
+        "'1그룹')이면 그대로 무시. 반영할 곳이 마땅치 않다고 아무 조건에나 끼워 넣지 마세요 — "
+        "③에 해당하는 숫자를 임계값으로 채우면 사용자가 말한 적 없는 조건이 생깁니다."
+    )
+
+
 def build_user_prompt(
     user_input: str, draft: dict | None = None, pending_question: str | None = None,
 ) -> str:
     # 오늘 날짜는 매 요청 주입한다 — 모델이 학습 시점 기억으로 과거 연도를 미래로
     # 오판해 명시 날짜를 누락하는 드리프트 방지(시스템 프롬프트 규칙 12와 짝).
     today_line = f"오늘 날짜: {date.today().isoformat()}"
+    checklist = _number_checklist(user_input)
     if draft:
         # 직전 턴에 우리가 던진 질문. 사용자가 "3억원"처럼 필드를 밝히지 않고 값만
         # 답할 때 어느 필드의 답인지는 이 질문이 정한다 — 문맥 없이 값만 보면 귀속할
@@ -507,6 +585,6 @@ def build_user_prompt(
             f"{pending_block}"
             f"사용자 입력: \"{user_input}\"\n\n"
             "위 초안에 대한 요청입니다. 수정 요청이면 intent=MODIFY_STRATEGY, strategy=null로 두고 "
-            f"변경 사항을 patches(JSON Patch)로만 출력하세요.{answer_rule}"
+            f"변경 사항을 patches(JSON Patch)로만 출력하세요.{answer_rule}{checklist}"
         )
-    return f"{today_line}\n\n사용자 입력: \"{user_input}\""
+    return f"{today_line}\n\n사용자 입력: \"{user_input}\"{checklist}"

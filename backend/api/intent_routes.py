@@ -433,6 +433,18 @@ async def knowledge_graph_dump() -> dict:
     }
 
 
+@router.get("/ontology/graph")
+async def indicator_ontology_dump() -> dict:
+    """지표 온톨로지 덤프 — 관리자 콘솔 시각화·검색용 읽기 전용 뷰.
+
+    분류 계층(is_a)·잎(Registry 전체)·합성 개념(expands_to/requires)을 그대로
+    내보낸다. 시스템 계약 데이터 표시이며 추천·전망이 아니다.
+    """
+    from strategy_conversation.registry.concept_ontology import ontology_graph
+
+    return await asyncio.to_thread(ontology_graph)
+
+
 @router.get("/knowledge/concept-universe")
 async def knowledge_concept_universe(q: str) -> dict:
     """Concept 중심 유니버스 결정론 생성(FR-STR-072) — 읽기 전용 뷰.

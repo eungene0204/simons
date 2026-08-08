@@ -35,6 +35,7 @@ def captured_chat(monkeypatch):
 
     def _fake_open(req, timeout=None):
         captured["body"] = json.loads(req.data)
+        captured["timeout"] = timeout
         return _FakeResp("{}")
 
     monkeypatch.setattr(nl_parser, "_ollama_open_with_retry", _fake_open)
@@ -62,3 +63,25 @@ def test_chat_without_max_tokens_keeps_default(captured_chat):
     chat = _default_ollama_chat("test-model")
     chat("system", "user")
     assert captured_chat["body"]["options"]["num_predict"] == 2048
+
+
+def test_chat_call_timeout_survives_low_generation_throughput(captured_chat):
+    """per-call 상한이 느린 시간대의 한 호출을 담아야 한다.
+
+    회귀(2026-08-07 지연 감사): 이 슬롯의 비용은 프롬프트 길이가 아니라 **생성 토큰 수
+    ÷ 그 시각의 처리량**이다. 인터프리터 한 호출이 400~500토큰을 생성하는데 머신
+    처리량이 4 tok/s까지 떨어지면 125초가 되어 옛 상한 120초에 걸렸다(같은 요청이
+    처리량 11 tok/s에서는 65초). 상한을 되돌리면 느린 시간대에 파스가 통째로 죽는다.
+
+    예산 사슬: 프록시 240초 ⊃ per-call 180초 + 후행 검증 90초.
+    """
+    from strategy_conversation.interpreter.llm_strategy_interpreter import (
+        _LLM_CALL_TIMEOUT_S,
+        _default_ollama_chat,
+    )
+
+    chat = _default_ollama_chat("test-model")
+    chat("system", "user")
+
+    assert captured_chat["timeout"] == _LLM_CALL_TIMEOUT_S
+    assert _LLM_CALL_TIMEOUT_S >= 180

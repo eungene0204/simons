@@ -86,17 +86,55 @@ _DART_TOTAL_EQUITY_NAMES = {"자본총계"}
 # 신형만 보면 2015~2018년이 조용히 결측된다 — 다른 DART 파서들은 이름 폴백이 있어 이 차이가
 # 드러나지 않았다.
 #
-# **이름 폴백을 두지 않는다.** account_nm 표기가 회사마다 제각각인 데다("지배기업의 소유주에게
-# 귀속되는 당기순이익(손실)" / "지배기업소유주지분" / "지배기업소유주" / "지배주주순이익"),
+# **이름만으로는 절대 채택하지 않는다.** account_nm 표기가 회사마다 제각각인 데다("지배기업의
+# 소유주에게 귀속되는 당기순이익(손실)" / "지배기업소유주지분" / "지배기업소유주" / "지배주주순이익"),
 # 같은 CIS 섹션의 **총포괄손익** 귀속 행이 거의 같은 이름을 쓴다(SK하이닉스 실측: 순이익 귀속도
-# 포괄손익 귀속도 "지배기업(의) 소유주지분"). 이름으로 잡으면 포괄손익을 순이익으로 오인하므로
-# 계정ID 정확 일치만 인정한다 — CF 총계 파서가 소계 오인을 막는 것과 같은 이유다.
+# 포괄손익 귀속도 "지배기업(의) 소유주지분"; 069330은 계정ID 없이 "지배기업소유주지분총포괄이익
+# (손실)"). 이름으로 잡으면 포괄손익을 순이익으로 오인한다 — 계정ID 정확 일치가 1순위이고,
+# 계정ID가 없는 제출본은 아래 **검산**(지배+비지배=당기순이익)을 통과할 때만 채택한다.
 _DART_OWNER_NET_INCOME_ACCOUNT_IDS = {
     "ifrs-full_ProfitLossAttributableToOwnersOfParent",  # 2019년 사업보고서~
     "ifrs_ProfitLossAttributableToOwnersOfParent",       # ~2018년 사업보고서(구 택소노미)
 }
 _DART_OWNER_NET_INCOME_SECTIONS = ("IS", "CIS")
+# 검산 폴백에 쓰는 계정들 — 정본 계정ID가 없는 제출본을 구제하되, 값이 실제로 '당기순이익의
+# 귀속'인지 같은 응답 안에서 확인한 뒤에만 쓴다(2026-08-07 실측 90종목 표본에서 원인 분류).
+#
+#   ① 계속영업손익 귀속(003530·001270): 중단영업이 없으면 당기순이익 귀속과 **수치가 같다**.
+#      부국증권 2024 실측 — 지배 30,945,550,007 + 비지배 7,004,743 = 당기순이익 30,952,554,750.
+#      중단영업이 있으면 합이 어긋나므로 검산에서 자동 탈락한다(개념이 다른 값을 몰래 쓰지 않음).
+#   ② 계정ID 미사용(005620·045660·066410): 이름으로 후보를 모으되 검산을 통과한 쌍만 쓴다.
+#      총포괄손익 귀속 쌍은 합이 당기순이익이 아니라 여기서 걸러진다.
+_DART_OWNER_CONTINUING_ACCOUNT_IDS = {
+    "ifrs-full_IncomeFromContinuingOperationsAttributableToOwnersOfParent",
+    "ifrs_IncomeFromContinuingOperationsAttributableToOwnersOfParent",
+}
+_DART_NCI_NET_INCOME_ACCOUNT_IDS = {
+    "ifrs-full_ProfitLossAttributableToNoncontrollingInterests",
+    "ifrs_ProfitLossAttributableToNoncontrollingInterests",
+}
+_DART_NCI_CONTINUING_ACCOUNT_IDS = {
+    "ifrs-full_ProfitLossFromContinuingOperationsAttributableToNoncontrollingInterests",
+    "ifrs_ProfitLossFromContinuingOperationsAttributableToNoncontrollingInterests",
+}
+_DART_PROFIT_LOSS_ACCOUNT_IDS = {"ifrs-full_ProfitLoss", "ifrs_ProfitLoss"}
+_DART_EQUITY_OWNERS_ACCOUNT_IDS = {
+    "ifrs-full_EquityAttributableToOwnersOfParent",
+    "ifrs_EquityAttributableToOwnersOfParent",
+}
+_DART_NCI_EQUITY_ACCOUNT_IDS = {
+    "ifrs-full_NoncontrollingInterests",
+    "ifrs_NoncontrollingInterests",
+}
+_DART_EQUITY_ACCOUNT_IDS = {"ifrs-full_Equity", "ifrs_Equity"}
+# 계정ID가 비어 있는 제출본의 표기(DART가 이 문자열을 그대로 실어 보낸다).
+_DART_NO_ACCOUNT_ID = "-표준계정코드 미사용-"
 _DART_CORP_CODES: Optional[Dict[str, str]] = None
+# 종목별 결산월(MM) 캐시. DART 기업개황(company.json)의 acc_mt가 정본이며 바뀌는 일이 거의
+# 없어 파일로 눌러 둔다 — 없으면 종목마다 매 갱신 때 1회씩 더 부르게 된다.
+_DART_FISCAL_MONTH_PATH = _PROJECT_ROOT / "data" / "dart_fiscal_month.json"
+_DART_FISCAL_MONTHS: Optional[Dict[str, str]] = None
+_DEFAULT_FISCAL_MONTH = "12"
 
 load_dotenv(_PROJECT_ROOT / ".env")
 
@@ -432,25 +470,109 @@ def _parse_dart_total_equity(rows: list) -> Optional[float]:
     return None
 
 
+def _iter_dart_rows(rows: list, sections: tuple):
+    """(account_id, 공백제거 account_nm, amount) — 지정 섹션의 파싱 가능한 행만."""
+    if not isinstance(rows, list):
+        return
+    for row in rows:
+        if not isinstance(row, dict) or row.get("sj_div") not in sections:
+            continue
+        amount = _parse_number(str(row.get("thstrm_amount", "")))
+        if amount is None:
+            continue
+        yield (
+            str(row.get("account_id", "")).strip(),
+            re.sub(r"\s+", "", str(row.get("account_nm", ""))),
+            amount,
+        )
+
+
+def _dart_amount_by_ids(rows: list, sections: tuple, ids: set) -> Optional[float]:
+    for account_id, _, amount in _iter_dart_rows(rows, sections):
+        if account_id in ids:
+            return amount
+    return None
+
+
+def _attribution_sums_to_profit(owner: float, nci: float, profit_loss: float) -> bool:
+    """지배 + 비지배 = 당기순이익 검산. 원 단위 정수라 오차 허용치는 형식적이다."""
+    return abs(owner + nci - profit_loss) <= max(1.0, abs(profit_loss) * 1e-9)
+
+
 def _parse_dart_owner_net_income(rows: list) -> Optional[float]:
     """IS/CIS 섹션의 지배기업 소유주 귀속 당기순이익(부호 그대로 — 적자면 음수).
 
-    계정ID 정확 일치만 인정한다(이유는 _DART_OWNER_NET_INCOME_ACCOUNT_IDS 주석 참고).
+    1순위는 정본 계정ID 정확 일치다. 그 계정이 없는 제출본은 **같은 응답 안에서 검산이
+    성립할 때만** 구제한다(_DART_OWNER_CONTINUING_ACCOUNT_IDS 주석의 원인 분류 참고):
+
+      ② 계속영업손익 귀속 / ③ 계정ID 미사용 이름 후보
+         → 지배 + 비지배 = 당기순이익(ProfitLoss)이면 채택, 아니면 버린다.
+      ④ 귀속 행이 아예 없고 비지배지분이 0(자본총계 = 지배기업소유주지분)
+         → 당기순이익 전액이 지배주주 귀속이다.
+
+    검산이 하는 일은 "이름이 비슷한 다른 개념(총포괄손익·계속영업손익≠당기순이익)을
+    조용히 집어넣지 않는 것"이다 — 통과하지 못하면 결측으로 남긴다.
     별도재무제표(OFS)에는 이 개념 자체가 없으므로 None이 정상이다.
     """
-    if not isinstance(rows, list):
+    sections = _DART_OWNER_NET_INCOME_SECTIONS
+
+    canonical = _dart_amount_by_ids(rows, sections, _DART_OWNER_NET_INCOME_ACCOUNT_IDS)
+    if canonical is not None:
+        return canonical
+
+    profit_loss = _dart_amount_by_ids(rows, sections, _DART_PROFIT_LOSS_ACCOUNT_IDS)
+    if profit_loss is None:
         return None
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        if row.get("sj_div") not in _DART_OWNER_NET_INCOME_SECTIONS:
-            continue
-        if str(row.get("account_id", "")).strip() not in _DART_OWNER_NET_INCOME_ACCOUNT_IDS:
-            continue
-        amount = _parse_number(str(row.get("thstrm_amount", "")))
-        if amount is not None:
-            return amount
+
+    # ②③ 후보 x 비지배 후보를 검산에 걸어 통과한 쌍만 채택한다. '비지배'가 '지배'를 부분
+    #     문자열로 포함하므로 소유주 후보에서 반드시 제외한다.
+    untagged = [
+        (name, amount)
+        for account_id, name, amount in _iter_dart_rows(rows, sections)
+        if account_id in ("", _DART_NO_ACCOUNT_ID) and "지배" in name
+    ]
+    owner_candidates = [
+        amount for amount in
+        (_dart_amount_by_ids(rows, sections, _DART_OWNER_CONTINUING_ACCOUNT_IDS),)
+        if amount is not None
+    ] + [amount for name, amount in untagged if "비지배" not in name]
+    if not owner_candidates:
+        # ④ 귀속 행이 아예 없는 제출본 — 비지배지분이 없으면 당기순이익 전액이 지배주주 귀속.
+        if _dart_has_no_minority_interest(rows):
+            return profit_loss
+        return None
+
+    nci_candidates = [
+        amount for amount in (
+            _dart_amount_by_ids(rows, sections, _DART_NCI_NET_INCOME_ACCOUNT_IDS),
+            _dart_amount_by_ids(rows, sections, _DART_NCI_CONTINUING_ACCOUNT_IDS),
+        ) if amount is not None
+    ] + [amount for name, amount in untagged if "비지배" in name]
+    # 비지배 귀속 행 자체가 없으면(003530 실측) 비지배가 0이라는 뜻이다 — 소유주 값 단독으로
+    # 당기순이익과 일치하는지 검산한다.
+    if not nci_candidates:
+        nci_candidates = [0.0]
+
+    for owner in owner_candidates:
+        for nci in nci_candidates:
+            if _attribution_sums_to_profit(owner, nci, profit_loss):
+                return owner
+
     return None
+
+
+def _dart_has_no_minority_interest(rows: list) -> bool:
+    """재무상태표로 비지배지분이 없음을 확인한다(0으로 명시되거나 자본총계=지배지분)."""
+    nci_equity = _dart_amount_by_ids(rows, ("BS",), _DART_NCI_EQUITY_ACCOUNT_IDS)
+    if nci_equity is not None:
+        return nci_equity == 0
+    total_equity = _dart_amount_by_ids(rows, ("BS",), _DART_EQUITY_ACCOUNT_IDS)
+    owners_equity = _dart_amount_by_ids(rows, ("BS",), _DART_EQUITY_OWNERS_ACCOUNT_IDS)
+    return (
+        total_equity is not None
+        and owners_equity is not None
+        and total_equity == owners_equity
+    )
 
 
 def _get_dart_corp_code(symbol: str) -> Optional[str]:
@@ -462,6 +584,52 @@ def _get_dart_corp_code(symbol: str) -> Optional[str]:
         except (OSError, ValueError):
             _DART_CORP_CODES = {}
     return _DART_CORP_CODES.get(symbol)
+
+
+def dart_fiscal_month(symbol: str, corp_code: str) -> str:
+    """종목의 결산월(MM). DART 기업개황 acc_mt가 정본이고, 조회 실패 시 '12'로 둔다.
+
+    12월 결산이 아닌 회사(효성오앤비 06, 금비 09 등 실측 42종목)를 12월로 가정하면 DART
+    레코드가 엉뚱한 날짜에 붙어 같은 회계연도의 KIS 값과 다른 레코드로 갈라진다.
+    """
+    global _DART_FISCAL_MONTHS
+    if _DART_FISCAL_MONTHS is None:
+        try:
+            payload = json.loads(_DART_FISCAL_MONTH_PATH.read_text(encoding="utf-8"))
+            _DART_FISCAL_MONTHS = payload if isinstance(payload, dict) else {}
+        except (OSError, ValueError):
+            _DART_FISCAL_MONTHS = {}
+
+    cached = _DART_FISCAL_MONTHS.get(symbol)
+    if cached:
+        return cached
+
+    payload = _fetch_dart_json("company.json", {"corp_code": corp_code})
+    month = str(payload.get("acc_mt", "")).strip().zfill(2)
+    if payload.get("status") != "000" or not month.isdigit() or not 1 <= int(month) <= 12:
+        return _DEFAULT_FISCAL_MONTH  # 실패는 캐시하지 않는다 — 다음에 다시 시도한다
+
+    _DART_FISCAL_MONTHS[symbol] = month
+    try:
+        _DART_FISCAL_MONTH_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _DART_FISCAL_MONTH_PATH.write_text(
+            json.dumps(_DART_FISCAL_MONTHS, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+    return month
+
+
+def dart_year_end(bsns_year: int, month: str) -> str:
+    """DART bsns_year + 결산월 → 결산일('YYYY-MM-DD').
+
+    bsns_year는 **그 결산기가 끝나는 달력 연도**다(실측 2026-08-07: 효성오앤비 bsns_year
+    2023의 당기순이익 12.3억 = KIS 2023-06 레코드 12.4억, 금비 2024 = KIS 2024-09).
+    """
+    return (
+        pd.Timestamp(year=int(bsns_year), month=int(month), day=1) + pd.offsets.MonthEnd(0)
+    ).strftime("%Y-%m-%d")
 
 
 def _fetch_dart_json(path: str, params: Dict[str, str]) -> Dict:
@@ -480,27 +648,36 @@ def _fetch_dart_json(path: str, params: Dict[str, str]) -> Dict:
         return {}
 
 
-# 사업보고서 원공시 접수일 매핑용 — "사업보고서 (2020.12)"의 결산연도만 인정한다.
-# 12월 결산이 아닌 회사(3월 결산 등)는 괄호 연도가 bsns_year와 어긋나 잘못 클램프될 수
-# 있어 매핑하지 않는다(현행 동작 유지 = 안전한 미클램프).
-_DART_ANNUAL_REPORT_NAME = re.compile(r"사업보고서\s*\((\d{4})\.12\)")
+# 사업보고서 이름에서 결산연도와 **결산월**을 함께 뽑는다 — "사업보고서 (2020.12)".
+# 괄호 연도는 bsns_year와 같고 괄호 월은 그 사업연도의 결산월이다(실측 2026-08-07:
+# 효성오앤비 '사업보고서 (2025.06)' 접수 2025-09-19, 금비 '(2025.09)' 접수 2025-12-15).
+# `[기재정정]사업보고서 (2023.06)`도 같은 이름이라 search()에 걸리지만, 연도별 min()이
+# 원공시를 고르므로 정정일로 밀리지 않는다.
+_DART_ANNUAL_REPORT_NAME = re.compile(r"사업보고서\s*\((\d{4})\.(\d{2})\)")
 
 
-def _fetch_dart_original_filing_dates(corp_code: str) -> Dict[int, str]:
-    """연도별 사업보고서 **원공시** 접수일 {결산연도: 'YYYY-MM-DD'}.
+def _fetch_dart_annual_report_periods(corp_code: str) -> Dict[int, Tuple[str, str]]:
+    """{결산연도: (결산월 'MM', 원공시 접수일 'YYYY-MM-DD')}.
 
-    fnlttSinglAcntAll의 rcept_no는 정정공시가 있으면 정정본을 가리키므로,
-    available_from이 원공시일이 아니라 정정일로 밀린다(PIT 왜곡 — 최대 수년).
-    공시검색(list.json, last_reprt_at=N)에서 연도별 최초 접수일을 구해 클램프한다.
-    실패·쿼터 초과 시 빈 dict(클램프 생략 = 현행 동작)."""
-    dates: Dict[int, str] = {}
+    두 가지를 한 번의 조회로 얻는다.
+      · 원공시 접수일 — fnlttSinglAcntAll의 rcept_no는 정정공시가 있으면 정정본을 가리켜
+        available_from이 정정일로 밀린다(PIT 왜곡, 최대 수년). 연도별 최초 접수일로 클램프.
+      · **연도별** 결산월 — 기업개황 acc_mt는 '현재' 결산월 하나뿐이라 결산기를 변경한
+        회사의 변경 이전 연도를 틀리게 만든다(유유제약: 2017년 3월→12월 전환, 그 이전
+        연도의 DART 값이 12-31에 붙어 KIS 3월 레코드와 갈라졌다). 사업보고서 이름은
+        연도마다 그 해의 결산월을 달고 있어 이 문제가 없다.
+
+    조회 시작을 결산연도 하한 그 해로 잡는다 — 12월 결산은 이듬해 3월에 제출하지만
+    비12월 결산은 같은 해에 제출하므로(6월 결산 → 9월 제출) 이듬해부터 훑으면 빠진다.
+    실패·쿼터 초과 시 빈 dict(클램프·연도별 결산월 생략 = acc_mt 폴백)."""
+    periods: Dict[int, Tuple[str, str]] = {}
     page = 1
     while True:
         payload = _fetch_dart_json(
             "list.json",
             {
                 "corp_code": corp_code,
-                "bgn_de": f"{_DART_YEAR_FLOOR + 1}0101",
+                "bgn_de": f"{_DART_YEAR_FLOOR}0101",
                 "end_de": pd.Timestamp.now().strftime("%Y%m%d"),
                 "pblntf_detail_ty": "A001",
                 "last_reprt_at": "N",
@@ -515,14 +692,21 @@ def _fetch_dart_original_filing_dates(corp_code: str) -> Dict[int, str]:
             rcept_dt = re.sub(r"\D", "", str(row.get("rcept_dt", "")))
             if not match or len(rcept_dt) != 8:
                 continue
-            year = int(match.group(1))
+            year, month = int(match.group(1)), match.group(2)
             date = f"{rcept_dt[:4]}-{rcept_dt[4:6]}-{rcept_dt[6:]}"
-            if year not in dates or date < dates[year]:
-                dates[year] = date
+            existing = periods.get(year)
+            # 원공시(최소 접수일)의 월을 그 해의 결산월로 삼는다 — 정정본과 짝을 맞춘다.
+            if existing is None or date < existing[1]:
+                periods[year] = (month, date)
         if page * 100 >= int(payload.get("total_count") or 0):
             break
         page += 1
-    return dates
+    return periods
+
+
+def _fetch_dart_original_filing_dates(corp_code: str) -> Dict[int, str]:
+    """연도별 사업보고서 **원공시** 접수일 {결산연도: 'YYYY-MM-DD'}."""
+    return {year: date for year, (_, date) in _fetch_dart_annual_report_periods(corp_code).items()}
 
 
 def _fetch_cash_flow_from_dart(
@@ -536,6 +720,22 @@ def _fetch_cash_flow_from_dart(
     corp_code = _get_dart_corp_code(symbol)
     if not corp_code:
         return None
+
+    # 결산월 — 12월로 고정하면 비12월 결산 회사(실측 23종목)의 DART 값이 실제 결산일과
+    # 다른 날짜에 붙어 같은 회계연도의 KIS 값과 다른 레코드로 갈라진다. 사업보고서 이름에서
+    # **연도별** 결산월을 얻어(결산기 변경 회사 대응) 원공시 접수일과 한 번에 가져온다.
+    periods = _fetch_dart_annual_report_periods(corp_code)
+    fallback_month: Optional[str] = None
+
+    def _fiscal_month_for(year: int) -> str:
+        """그 해의 결산월. 공시 목록에 없으면 기업개황 acc_mt로 떨어진다(조회는 1회만)."""
+        nonlocal fallback_month
+        known = periods.get(year)
+        if known:
+            return known[0]
+        if fallback_month is None:
+            fallback_month = dart_fiscal_month(symbol, corp_code)
+        return fallback_month
 
     last_year = end_year if end_year is not None else pd.Timestamp.now().year - 1
     results = []
@@ -566,7 +766,7 @@ def _fetch_cash_flow_from_dart(
         if not cash_flow:
             continue
         record = {
-            "year_end": f"{year}-12-31",
+            "year_end": dart_year_end(year, _fiscal_month_for(year)),
             "available_from": cash_flow["available_from"],
             "operating_cash_flow": cash_flow["operating_cash_flow"],
         }
@@ -592,15 +792,22 @@ def _fetch_cash_flow_from_dart(
         owner_net_income = _parse_dart_owner_net_income(rows)
         if owner_net_income is not None:
             record["_owner_net_income_raw"] = owner_net_income
+        # 당기순이익 총액(연결 전체) — KIS 순이익률x매출 재계산본을 대체할 정본이다.
+        # 같은 손익계산서에서 나오므로 owner_net_income과 정합하고(지배+비지배=이 값),
+        # 저마진 연도에 순이익률 반올림(소수 2자리)이 절대금액을 흔들던 문제가 사라진다.
+        profit_loss = _dart_amount_by_ids(
+            rows, _DART_OWNER_NET_INCOME_SECTIONS, _DART_PROFIT_LOSS_ACCOUNT_IDS
+        )
+        if profit_loss is not None:
+            record["_profit_loss_raw"] = profit_loss
         results.append(record)
 
     # available_from을 원공시 접수일로 클램프(min) — 정정공시 접수일로 밀린 값 교정.
-    if results:
-        original_dates = _fetch_dart_original_filing_dates(corp_code)
-        for record in results:
-            original = original_dates.get(int(record["year_end"][:4]))
-            if original and original < record["available_from"]:
-                record["available_from"] = original
+    # 위에서 이미 받아 둔 periods를 재사용한다(추가 호출 0).
+    for record in results:
+        known = periods.get(int(record["year_end"][:4]))
+        if known and known[1] < record["available_from"]:
+            record["available_from"] = known[1]
 
     return results or None
 
@@ -615,6 +822,64 @@ def _merge_fundamental_records(*record_sets: Optional[List[Dict]]) -> Optional[L
             merged.setdefault(year_end, {"year_end": year_end}).update(record)
     result = [merged[key] for key in sorted(merged, reverse=True)]
     return result or None
+
+
+# 연간 레코드로 인정하는 최소 간격(개월). 결산 주기는 12개월이고 KIS가 끼워 보내는 분기
+# 누적 행은 직전 결산으로부터 3·6·9개월 뒤라 여기에 못 미친다. 11로 둬 결산일이 며칠
+# 흔들리는 경우(예: 2월 말 결산)를 흡수한다.
+_ANNUAL_PERIOD_MIN_MONTHS = 11
+
+
+def _months_between(earlier: object, later: object) -> Optional[int]:
+    """'YYYY-MM-DD' 두 개의 개월 차이. 파싱 불가면 None."""
+    try:
+        a, b = str(earlier), str(later)
+        return (int(b[:4]) - int(a[:4])) * 12 + (int(b[5:7]) - int(a[5:7]))
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def fiscal_month(year_ends) -> Optional[str]:
+    """레코드들의 결산월(MM) — 월 최빈값. 12월 결산이 아닌 회사도 자동으로 맞는다."""
+    months = [str(y)[5:7] for y in year_ends if len(str(y)) >= 7]
+    if not months:
+        return None
+    return max(sorted(set(months)), key=months.count)
+
+
+def drop_kis_interim_records(records: List[Dict]) -> List[Dict]:
+    """KIS 응답에 끼어드는 **최신 분기 누적** 레코드를 걷어낸다.
+
+    KIS 재무 엔드포인트는 연간(FID_DIV_CLS_CODE=0)을 요청해도 맨 앞에 최신 분기 한 행을
+    끼워 보낸다(실측 2026-08-07, 현대차: stac_yymm 202603, 202512, 202412, 202312 …).
+    파라미터로 뺄 수 없어 우리가 걸러야 한다.
+
+    그 행의 **비율**은 연환산돼 정상이지만 **유량**은 기중 누적이라 1분기치다(현대차 실측:
+    ROE 89%·부채비율 101%·BPS 104%인데 EPS 25%·영업이익 22%·EBITDA 23%·당기순이익 25%).
+    게다가 성장률은 앞뒤 레코드 비교라 분기 행이 직전 '연간'과 비교되면서 순이익증가율
+    -75%·영업이익증가율 -78%로 오염되고, PER은 종가÷EPS라 약 4배로 부푼다.
+
+    지표별로 골라 버리지 않고 **레코드째** 버리는 이유: 레지스트리·인터프리터 프롬프트·SRS가
+    모두 이 데이터를 "최근 연간 결산 기준"이라고 설명하는 단일 계약이고, 성장률 체인에 분기
+    행이 남아 있으면 계속 오염되며, 지표마다 기준 시점이 갈리면 배지·리포트에서 "언제 값인가"를
+    설명할 수 없기 때문이다.
+
+    KIS가 끼워 보내는 행은 **정확히 하나, 맨 앞(최신)** 이므로 최신 레코드 하나만 후보로 본다.
+
+    판정은 월이 아니라 **직전 레코드와의 간격**으로 한다. 연간 레코드는 12개월 간격이고
+    분기 행은 직전 결산으로부터 3·6·9개월 뒤라 간격이 짧다(현대차: 2025-12 → 2026-03 = 3개월).
+    월 최빈값과 비교하는 방식은 결산기를 바꾼 회사에서 깨진다 — 옛 체제 레코드가 아직 더
+    많으면 새 체제의 첫 연간 레코드(12월 무리 3건 + 3월 무리 3건에서 최신 3월 행)를 분기로
+    오인해 버린다(회귀 테스트 있음). 간격으로 보면 결산기 변경은 12개월을 넘어 살아남는다.
+    """
+    if len(records) <= 1:
+        return records
+    ordered = sorted(records, key=lambda r: str(r.get("year_end", "")))
+    gap = _months_between(ordered[-2].get("year_end"), ordered[-1].get("year_end"))
+    if gap is None or gap >= _ANNUAL_PERIOD_MIN_MONTHS:
+        return records
+    interim = ordered[-1]
+    return [r for r in records if r is not interim]  # 입력 순서 보존
 
 
 def _fetch_kis_finance(symbol: str, headers: dict, path: str) -> list:
@@ -668,6 +933,9 @@ def _fetch_fundamentals_from_kis(symbol: str) -> Optional[List[Dict]]:
             del vals["ev_ebitda"]
 
     result = [{"year_end": d, **vals} for d, vals in sorted(merged.items(), reverse=True) if vals]
+    # 5개 엔드포인트를 다 병합한 **한 자리에서** 분기 행을 거른다 — 엔드포인트마다 흩어 놓으면
+    # 하나를 빠뜨린다. DART 유래 레코드는 이 함수를 거치지 않으므로 영향받지 않는다.
+    result = drop_kis_interim_records(result)
     return result or None
 
 
@@ -716,6 +984,14 @@ def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
         if owner_raw is not None:
             rec["owner_net_income"] = round(owner_raw / 1e8, 1)
 
+        # 당기순이익은 DART 원값이 있으면 그것이 이긴다(위 KIS 재계산본을 덮어쓴다).
+        # KIS본은 net_margin(소수 2자리 반올림) x 매출이라 저마진 연도에 절대금액 오차가
+        # 크다 — 순이익 10억 규모에서 수백 %까지 벌어진 실측이 있다. DART가 없는 구간
+        # (2015년 이전·별도재무제표만 제출)은 KIS 재계산본을 그대로 남긴다.
+        profit_loss_raw = rec.get("_profit_loss_raw")
+        if profit_loss_raw is not None:
+            rec["net_income"] = round(profit_loss_raw / 1e8, 1)
+
         ebitda = rec.get("ebitda")
         ev_ebitda_ratio = rec.get("ev_ebitda")
         if ebitda is not None and ebitda > 0 and ev_ebitda_ratio is not None:
@@ -748,6 +1024,7 @@ def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
     for rec in sorted_records:
         rec.pop("_revenue", None)
         rec.pop("_owner_net_income_raw", None)
+        rec.pop("_profit_loss_raw", None)
 
     return sorted_records
 

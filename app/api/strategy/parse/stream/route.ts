@@ -221,7 +221,13 @@ export async function POST(req: NextRequest) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
           cache: "no-store",
-          timeoutMs: 120_000,
+          // 파스 한 턴은 LLM 3회로 약 800~1,000토큰을 **생성**한다 — 예산을 지배하는 건
+          // 프롬프트 길이가 아니라 이 생성량이고, 그래서 소요 시간이 머신의 그 시각
+          // 처리량에 정비례한다(실측 2026-08-07: 같은 요청이 처리량 11 tok/s에서 65초,
+          // 4 tok/s에서 300초). 120초는 정상 처리량에서도 여유가 얇아 경합이 조금만
+          // 끼면 파싱이 끝났는데도 프록시가 먼저 끊었다("aborted due to timeout").
+          // 백엔드 per-call 상한(180초)과 후행 검증 상한(90초)의 합을 담는 값이다.
+          timeoutMs: 240_000,
         });
 
         if (!res.ok || !res.body) {

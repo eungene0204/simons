@@ -16,6 +16,10 @@ import { isExplicit, isSlotFilled } from "./backtestReadiness";
 export type BuilderSummaryItem = {
   label: string;
   value: string;
+  // 조건이 여러 개인 행(매수·매도)의 개별 조건. 한 줄에 '·'로 이어 붙이면 조건이
+  // 늘어날수록 어디서 끊기는지 안 보여, 화면에서는 한 줄에 하나씩 세로로 쌓는다
+  // (2026-08-06 지시). 2개 이상일 때만 채운다 — 1개면 value와 같아 중복이다.
+  values?: string[];
 };
 
 // 진행 골격 8칸의 두 상태 축(백엔드 engine/strategy_slots.py와 동일).
@@ -222,20 +226,26 @@ function isEntryComplete(state: Record<string, any>, parsed?: ParsedSummary | nu
   return state.filters_asked === true;
 }
 
-function buildEntryLabel(
+function buildEntryLabels(
   state: Record<string, any>,
   parsed?: ParsedSummary | null,
-): string | null {
+): string[] {
   const parsedLabels = [
     ...(parsed?.fundamental_filters ?? []).map(formatFundamentalFilter),
     ...(parsed?.entry_signals ?? []).map((signal) => getSignalLabel(signal, "entry")),
     ...(parsed && getRankingLabel(parsed) ? [getRankingLabel(parsed)!] : []),
   ];
-  if (parsedLabels.length > 0) return parsedLabels.join(" · ");
+  if (parsedLabels.length > 0) return parsedLabels;
 
-  if (state.entry_rule) return String(state.entry_rule);
+  if (state.entry_rule) return [String(state.entry_rule)];
   const strategyLabel = STRATEGY_LABELS[state.strategy_type];
-  return strategyLabel ? `${strategyLabel} 조건` : null;
+  return strategyLabel ? [`${strategyLabel} 조건`] : [];
+}
+
+/** 조건 목록 행 하나. 조건이 둘 이상이면 화면에서 줄로 나눠 쌓도록 목록을 함께 싣는다. */
+function buildConditionItem(label: string, parts: string[]): BuilderSummaryItem {
+  const value = parts.join(" · ");
+  return parts.length > 1 ? { label, value, values: parts } : { label, value };
 }
 
 function buildRiskLabel(state: Record<string, any>, parsed?: ParsedSummary | null): string | null {
@@ -353,7 +363,7 @@ export function buildBuilderTurnPresentation({
     ? targetFromState ||
       (parsed ? getDisplayUniverseLabels(parsed, backtestRequest).join(" · ") : null)
     : null;
-  const entryLabel = buildEntryLabel(state, parsed);
+  const entryLabels = buildEntryLabels(state, parsed);
   // '매도 조건'은 지표가 만드는 청산 신호만 싣는다 — 손절·익절·트레일링·보유 기간은
   // 아래 '리스크 관리' 항목이 같은 값을 그대로 보여주므로, 함께 넣으면 한 카드에서
   // 같은 설정이 두 번 읽힌다(2026-08-02 지시 — 요약 카드와 같은 정리).
@@ -418,10 +428,10 @@ export function buildBuilderTurnPresentation({
   const pendingExit = (pendingConditions ?? [])
     .filter((p) => p.role === "exit")
     .map(formatPendingCondition);
-  const entryValue = [...(entryLabel ? [entryLabel] : []), ...pendingEntry].join(" · ");
-  if (entryValue) summaryItems.push({ label: "매수 조건", value: entryValue });
-  const exitValue = [...exitLabels, ...pendingExit].join(" · ");
-  if (exitValue) summaryItems.push({ label: "매도 조건", value: exitValue });
+  const entryParts = [...entryLabels, ...pendingEntry];
+  if (entryParts.length > 0) summaryItems.push(buildConditionItem("매수 조건", entryParts));
+  const exitParts = [...exitLabels, ...pendingExit];
+  if (exitParts.length > 0) summaryItems.push(buildConditionItem("매도 조건", exitParts));
   // 분위 그룹 비교(FR-BT-060) — 그룹이 편입 규모를 정의하는 전략의 핵심 설정이라
   // 빼면 "10개 그룹으로 나눠 달라"는 요청이 이해 안 된 것처럼 읽힌다. 이 필드는
   // 물질화 기본값이 없어(기본 null) 값이 있으면 곧 사용자가 말한 것이다.

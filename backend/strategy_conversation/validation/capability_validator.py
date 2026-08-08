@@ -13,6 +13,7 @@ from typing import List, Tuple
 
 from strategy_conversation.interpreter.models import StrategyIntent
 from strategy_conversation.registry import capability_registry as caps
+from strategy_conversation.registry.concept_ontology import concept_spec, is_class_id
 from strategy_conversation.registry.indicator_registry import REGISTRY, resolve
 
 
@@ -34,6 +35,46 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
         conditions = getattr(strategy, attr)
         kept = []
         for cond in conditions:
+            concept = concept_spec(cond.factor)
+            if concept is not None and concept.expansion:
+                # 합성 개념 결정적 전개(Phase C, 프롬프트 3.0) — LLM은 관용 표현을
+                # 개념 ID로만 착지시키고(골든크로스 → concept.golden_cross), 연산자·
+                # 정본 기간(5/20)의 조립은 여기서 선언대로 물질화한다. 연산자는 선언이
+                # 정본이라 LLM 출력을 덮어쓰고(골든크로스는 crosses_above다 — 드리프트
+                # 정규화), 파라미터는 **사용자가 말한 값이 우선**이며 빈 자리만 채운다.
+                # 전개 후에는 일반 잎 경로(canonical 정규화·지원 판정)로 계속 간다.
+                exp = concept.expansion
+                cond.factor = exp["factor"]
+                if exp.get("operator"):
+                    cond.operator = exp["operator"]
+                for pname, pvalue in (exp.get("default_parameters") or {}).items():
+                    if cond.parameters.get(pname) is None:
+                        cond.parameters[pname] = pvalue
+                # 전개 대상 잎에 선언되지 않은 파라미터는 개념 계약 밖이다 — 정리한다.
+                # 단 값이 엔진 고정값(fixed_parameters, 예: MACD 12/26/9)과 다르면
+                # 사용자가 커스텀 기간을 말한 것이므로 조용히 버리지 않고 안내한다
+                # (침묵 왜곡 방지). 고정값과 같으면 의미 손실이 0이라 안내하지 않는다
+                # (9B가 고정 기본값을 습관적으로 echo하는 드리프트 — 2.7부터 실측).
+                target_spec = REGISTRY.get(exp["factor"])
+                allowed_params = set(target_spec.parameters) if target_spec else set()
+                fixed = concept.fixed_parameters or {}
+                custom_dropped = False
+                for pname in [p for p in cond.parameters if p not in allowed_params]:
+                    pvalue = cond.parameters.pop(pname)
+                    if pvalue is not None and fixed.get(pname) != pvalue:
+                        custom_dropped = True
+                if custom_dropped:
+                    warnings.append(
+                        f"'{concept.name}'의 기간은 커스텀이 지원되지 않아 표준 설정으로 "
+                        "실행됩니다 — 말씀하신 기간 값은 반영되지 않았어요."
+                    )
+            if is_class_id(cond.factor):
+                # 분류(클래스) 발화 — 사용자가 "모멘텀 지표 하나"처럼 계열만 말해
+                # LLM이 온톨로지 분류 ID를 낸 조건(프롬프트 2.9 계약). 오류·미지원이
+                # 아니라 **선택 대기**다: completeness_validator가 구체 지표 되묻기를
+                # 만들고, compile_partial이 pending_conditions로 제외한다.
+                kept.append(cond)
+                continue
             spec = resolve(cond.factor)
             if spec is None:
                 unsupported.append(cond.factor)

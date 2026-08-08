@@ -592,7 +592,25 @@ Registry-driven** 파이프라인. 자연어 의미 해석은 LLM(Qwen 3.5 9B,
 LLM Strategy Interpreter (interpreter/llm_strategy_interpreter.py)
     ├── Ollama /api/chat, format=json, think=false, temperature 0 (기존 콜드스타트
     │   내성 재사용: _ollama_ensure_warm + _ollama_open_with_retry)
-    ├── Registry 주입 프롬프트(prompts.py, PROMPT_VERSION) — 지원 지표 canonical ID 계약
+    ├── Registry 주입 프롬프트(prompts.py, PROMPT_VERSION) — 지원 지표 canonical ID 계약.
+    │   2.8부터 어휘는 지표 온톨로지(registry/concept_ontology.py + 시드
+    │   data/indicator-ontology.json)가 분류 계층(is_a)·합성 개념 정본(골든크로스=
+    │   ma_crossover crosses_above 5/20 등)으로 생성 — 시드 수정만으로 어휘가 성장하고
+    │   (mtime 재로드), 무결성은 test_concept_ontology.py가 CI에서 단언. 콘솔 지식 탭
+    │   '지표 온톨로지' 서브탭(IndicatorOntologyView, /ontology/graph)에서 시각화·검색.
+    │   2.9부터 계열만 말한 조건("모멘텀 지표 하나")은 분류 ID(class.*)로 출력 —
+    │   검증 레인이 선택 대기로 처리해 선택지를 들어 되묻고(구체 지표 무단 확정 금지),
+    │   답변 턴은 잎 ID 패치(규칙 10-4). 지표 선택 칩은 값 결속 불성립이라 미노출.
+    │   3.0부터 골든/데드크로스 관용 표현은 개념 ID(concept.*)로만 출력(llm_output
+    │   시드 플래그) — 연산자·정본 기간(5/20) 조립은 capability_validator가 전개
+    │   선언대로 물질화(연산자=선언 정본이 LLM 출력을 덮어씀, 기간=사용자 값 우선).
+    │   3.1부터 MACD 골든/데드크로스도 개념 승격(방향별 2개) — 기간 고정(12/26/9,
+    │   시드 fixed_parameters) 개념은 전개가 이질 파라미터를 정리하되, 고정값과 다른
+    │   값(사용자 커스텀)은 조용히 버리지 않고 "표준으로 실행" 안내(warnings→notices).
+    │   3.2부터 시드 polarity(지원 잎 51개 전수 선언)가 지표의 자연 방향 정본 —
+    │   어휘 줄에 [낮을수록/높을수록 선호] 병기 + RankingSpec.direction을 Optional로
+    │   바꿔 '미언급'을 감지하고, 컴파일러가 natural_ranking_direction으로 채운다
+    │   (명시 방향은 재심 없이 보존, 선호 방향 없는 지표는 억지 방향 금지)
     └── JSON 추출 → Pydantic 검증 실패 시 오류 첨부 1회 자동 수정 요청(output_repair.py)
     ▼
 StrategyIntent (interpreter/models.py, schema_version 1.0)
@@ -779,6 +797,100 @@ sector_unresolved 우선순위 질문은 불가침)하고 `clarification_priorit
 마커로 프론트 explicit 게이트의 고정 칩 삼킴을 막는다(프론트 수정 0 — 기존 우선순위
 채널 재사용). planner 실패는 기존 고정 질문 유지 폴백. prod=off.
 
+**planner는 칩을 만들지 않는다(2026-08-07)**: planner가 발행한 칩은 소비자가 없다 —
+`primary._bound_ask_with_slot_fallback`이 **항상** 슬롯 SOT(`engine.strategy_slots`)의 정본
+칩으로 교체하고(2026-08-02 사용자 결정: 모든 옵션 칩은 하드코딩 정본이어야 지원을 확신할
+수 있다), 유니버스 범위 ask의 칩도 planner가 아니라 도구 관찰의 후보 표기를 쓴다
+(`_planner_scope_ask`). 소비 경로 3곳(`_planner_condition_ask`·`_dag_planner_clarification`·
+`_replan_next_question`)이 전부 그 교체 함수로 수렴한다. 그래서 system 프롬프트에서 칩
+생성 요구를 **뺐다** — 출력 계약·예시·유니버스별 디테일 전부. `DagNode.chips` 필드는
+유지한다(변칙 출력 호환, 버리는 판단은 하류 결정론 게이트 소유).
+
+동일 프롬프트 실측: planner 생성 **971 → 438토큰(-55%)**, 최대 발행 752 → 184토큰(생성
+상한 512에 더는 걸리지 않는다). 컴파일 산출물은 동일하고, 범위 되묻기(`보안주` →
+칩 `['보안주(물리)','보안주(정보)']`)와 슬롯 칩 값 결속(`손절 -10%` → `stop_loss_pct: 10`)
+모두 그대로다.
+
+**생성 상한 + 잘린 꼬리 제거(2026-08-07)**: 아래 '한 걸음' 계약은 프롬프트라 확률적이라,
+실측 4회 중 1회는 8슬롯 골격을 재발행했다(792·752·681토큰). planner-first 턴에는
+`max_tokens=_PLANNER_FIRST_MAX_TOKENS(512)`로 상한을 걸어 그 낭비를 자른다 — 계약대로면
+~160토큰, 유니버스 해석 사슬이 긴 경우도 관측 최대 ~460토큰이라 정상 발행은 걸리지 않는다.
+State가 있는 턴은 남은 골격을 다 발행해야 하므로 4096 그대로.
+
+상한에 걸려 잘리면 마지막 노드가 필드 절반만 담긴 채 남는다. `_drop_incomplete_nodes`가
+완전한 노드만 남기고 사라진 노드를 가리키는 의존까지 떼어낸다 — 그대로 두면 계약 위반으로
+계획 전체가 폴백되고 **이미 끝난 유니버스 해석 관찰까지 함께 버려진다**(2026-08-02 감사에서
+턴 예산 부족이 테마 60곳을 2곳으로 줄인 것과 같은 손실). 이 함수는 러너 보유 done 노드
+id(`known_ids`)를 받아야 한다 — LLM은 done 재발행을 생략해도 되므로, 빠뜨리면 재발행을
+생략한 턴의 ask가 통째로 사라진다(구현 중 실제로 깨뜨렸고 기존 회귀 테스트가 잡았다).
+
+동일 프롬프트 실측: planner 3차 발행 752 → 512토큰, 컴파일 산출물(진입·청산·종목 수·
+리밸런싱·손절·익절·섹터) **전부 동일**.
+
+**계획 범위 — State 없는 턴은 한 걸음만(2026-08-07 지연 감사)**: planner-first(Phase 5)는
+인터프리터보다 **먼저** 돌아 `state_summary`가 없다(`primary._plan_first`). filled_slots가
+비면 러너의 채워진-슬롯 건너뛰기 루프가 돌지 않으므로 표면화되는 것은 **준비된 첫 ask
+하나**뿐이고, 함께 발행된 나머지 슬롯 ask와 validate/compile/finish 꼬리는 즉시 폐기된다
+(그마저도 파스 후 `_is_filled_slot_topic`·`detect_incomplete_backtest_conditions` 게이트가
+최종 판정). 그래서 system 프롬프트가 이 턴에는 "해석 도구 + ask 하나"까지만 계획하도록
+계약한다 — 실측으로 planner 생성량 553~682 → 163토큰. 9B는 규칙보다 먼저 본 **예시의
+형태**를 베끼므로 축약 예시가 전체 골격 예시보다 앞에 와야 한다(순서를 되돌리면 3/3이
+골격 발행으로 회귀). 계약은 확률적이라 일부 턴은 여전히 골격을 낸다 — 결정론 게이트가
+최종 권한이라는 계약은 그대로다. 회귀 `tests/test_dag_planner.py`.
+
+**수치 누락 재요청 폐지 → 체크리스트 선주입(2026-08-07)**: 입력 수치가 출력에 없으면
+(`recall_validator.find_unreflected_numbers` — 크기 대조만, 어느 필드인지는 판단하지 않는다)
+예전에는 LLM에 재생성을 요청했다. 전수 실측으로 **폐지**했다.
+
+| 재요청 62건 | |
+|---|---|
+| 아무것도 못 고침 | **45건** (47%는 1차와 바이트 동일 — temperature=0) |
+| 진짜 구제 | 3건 (`RSI 30 이하에서 매수`가 조건을 통째로 비운 경우 등) |
+| **훼손** | 3건 (`PER/PBR 낮은 편`의 의도적 되묻기를 "월 1회"의 유령 숫자 1로 덮어 PER≤1·PBR≤1) |
+| 판정 불가 | 11건 |
+| 누적 비용 | **2,445초** (중앙값 42.5초) |
+
+품질은 본전인데 파스 턴마다 LLM 호출이 하나 더 붙었다. 재요청이 1차보다 더 알던 정보는
+**'어느 수치가 빠졌나' 목록 하나뿐**인데 그 목록은 출력 없이 **입력만으로** 계산되므로,
+두 번째 호출 대신 **첫 호출 프롬프트**로 옮겼다(`input_number_labels` →
+`prompts._number_checklist`). 각 수치는 셋 중 하나여야 한다는 계약을 함께 준다 — ① 필드에
+반영, ② 표현 불가면 `unsupported_features`, ③ 값이 아닌 표현(서수 '1차', 횟수 '월 1회',
+그룹 번호 '1그룹')이면 무시. 나열만 결정론이고 귀속은 전부 LLM이다.
+
+체크리스트가 재요청보다 나은 구조적 이유: 재요청은 맥락 없는 숫자('1')만 받아 채울 곳을
+지어냈지만, 1차는 같은 숫자를 **문맥 안에서**("월 1회 리밸런싱") 본다. 실측으로 위 훼손
+사례가 재현되지 않고 PER·PBR은 `pending_conditions`(값 대기)로 정상 처리된다.
+
+탐지 자체는 남는다 — 소비자는 아래 '근거 없는 기간' 비우기와 진단 로그 둘뿐이다.
+스키마 복구 재시도(`build_repair_prompt`)는 별개이며 그대로다.
+
+**근거 없는 기간은 확정하지 않는다**: 재요청 후에도 남은 미반영 수치가 있으면
+`drop_ungrounded_condition_periods`가 조건의 기간 파라미터(period/short_period/
+long_period/lookback_period) 중 **입력 어떤 수치로도 환산되지 않는 값**을 비운다(값을 만들어
+채우지 않는다 — 되묻기는 completeness_validator가 registry 기본값을 권장값으로 달아 낸다).
+사고: "60일 신고가"에 9B가 `lookback_period=252`를 냈고(프롬프트 5-1의 '52주=252' 예시
+오적용) 재요청도 같은 값을 반복해, 검증 READY·미지원 0으로 사용자가 말한 적 없는 252가
+조용히 확정됐다. 오탐 방지 두 조건: 단위 환산은 `_candidates`가 흡수하므로 '52주→252'는
+걸리지 않고, **LLM이 그 조건에 스스로 붙인 source_text에 미반영 수치가 있을 때만** 비운다
+(기간 없는 '골든크로스'의 시스템 정본 5/20은 인용에 숫자가 없어 대상이 아니다).
+
+**남은 격차**: "A 조건 뒤 N거래일 안에 B" 같은 **순차 조건**은 엔진에 개념이 없고 감지기도
+없다 — 위 사고의 "5거래일 안에"는 지금도 `unsupported_features` 없이 조용히 사라진다.
+
+**로컬 러너는 오래 띄워 두면 느려진다(2026-08-07 실측)**: 같은 코드·같은 경합에서 생성
+처리량이 **12~15 tok/s → 35 tok/s**로 회복됐는데, 그 사이 바뀐 것은 llama-server 러너
+프로세스가 교체된 것뿐이다(Chrome+WindowServer는 155~162%로 동일). 4일 이상 떠 있던 러너가
+원인이었고 브라우저 경합은 아니었다 — 파싱이 갑자기 느려지면 **`/api/ps`의 러너 가동 시간을
+먼저 보고 재시작**한다. 턴당 호출 고정 비용이 경합 시 24~41초, 건강할 때 3초로 갈린다.
+
+**지연 예산 사슬**: 파스 한 턴의 비용은 프롬프트 길이가 아니라 **생성 토큰 수 ÷ 그 시각의
+LLM 처리량**이다(입력은 llama-server 프롬프트 캐시가 6개까지 보존해 prefill이 0에 수렴).
+한 턴 생성량은 LLM 3회 800~1,000토큰이라 소요가 머신 상태에 정비례한다 — 실측
+2026-08-07: 동일 요청이 11 tok/s에서 65초, 4 tok/s에서 300초. 예산은
+**프록시 240초 ⊃ per-call 180초(`_LLM_CALL_TIMEOUT_S`) + 후행 검증 90초
+(`_DEFERRED_VALIDATION_MAX_WAIT_S`)**로 맞춘다. 옛 120초 예산에서는 파싱이 끝났는데도
+프록시가 먼저 끊어 사용자에게 "aborted due to timeout"이 나갔다.
+
 ### 4.2.3 관찰 계층 (backend/observability/ — LangSmith + 로컬 Trace)
 
 Agent 실행 과정을 Trace로 남기는 **관찰 전용** 계층. 실행 경로·분기·되묻기
@@ -872,13 +984,25 @@ BacktestEngine.run_backtest(request)
 │       ├── Position Limiting: 최대 동시 포지션 수 제한
 │       └── Liquidity Check: 거래대금 기준 필터
 │
+├── Phase 5.5: 벤치마크 선택·로드 (BacktestEngine.benchmark_for_universe)
+│   ├── universe_id의 시장 토큰 → kosdaq·kosdaq150 단독=KODEX KOSDAQ 150 /
+│   │   kospi 포함(혼합 포함)=KODEX 코스피 / 그 외(kospi200·etf)=KODEX 200
+│   ├── universe_id가 비었으면(지정 종목·테마 유니버스는 strategy_converter가
+│   │   None으로 지운다) 보유 심볼의 실제 시장 다수결로 판정
+│   │   (universe_pit.dominant_market) — 판정 불가(ETF 등)면 KODEX 200
+│   └── 상장 이전 구간·분배금 비대칭은 경고 채널로 공시 (FR-BT-020c/020d)
+│
 └── Phase 6: 결과 계산 및 직렬화
     └── ResultHandler
         ├── 수익률: Total Return, CAGR, Buy&Hold Return
         ├── 위험: Max Drawdown, Volatility, Sharpe, Sortino, Kelly
         ├── 거래: Win Rate, Profit Factor, Trade Count
         ├── 월별/연도별 수익률 분해
-        └── Per-Asset 통계 (종목별 수익률)
+        ├── Per-Asset 통계 (종목별 수익률)
+        ├── 벤치마크 곡선: 지수 미존재 구간은 채우지 않고 null
+        │   (v11.0 이전 .bfill()은 초기자본에서 평탄한 가짜 선을 그렸다)
+        └── benchmark_partial: 벤치마크가 구간 일부만 덮으면 True
+            → 화면이 초과수익률(총수익률 차이 %p)을 내지 않는 근거
 ```
 
 **Simulator 핵심 설계 원칙:**
@@ -900,6 +1024,24 @@ VirtualTrader (비동기 루프, FastAPI 메인 스레드 분리)
 
 거래 비용: 수수료 0.15% / 세금 0.30% / 슬리피지 0.20%
 ```
+
+**신호 대상 유니버스는 화면의 모니터링 목록과 다른 값이다.** 모니터링 목록
+(`VirtualMarketState.symbols`)은 표시·시세구독용으로 백테스트 상위 10종목 수준이고,
+신호 평가 대상은 `resolve_live_universe`(`engine/live_signal_utils.py`)가 전략 DSL에서
+매 사이클 다시 해석한다(KOSPI 832 / KOSDAQ 1756 / KOSPI200 200 / KOSDAQ150 150 등). 지수
+유니버스는 명부 파일(`data/kospi200-cache.json`, `data/kosdaq150-cache.json` —
+`engine/kis_master.py`가 KIS 종목마스터에서 읽고 `scripts/build_index_rosters.py`가 생성)로만
+해석하고, 명부가 없으면 시장 전체로 대체하지 않는다.
+
+**백테스트는 같은 지수를 명부가 아니라 시점 기준 시총 상위 N으로 근사한다** — 정적 현재
+명부 자체가 생존편향이기 때문이다(FR-VM-067). `universe_pit.parse_universe_markets`가
+`(markets, index_top_n)`을 주고(kospi200→200, kosdaq150→150) 엔진이 일별 시총 순위로
+자른다. 즉 **자동매매=현재 명부, 백테스트=시점 기준 근사**로 의도적으로 다르다.
+
+과거 승자만 계속
+매매하는 생존편향을 피하려는 의도적 분리이며, 시세 조회는 신호가 난 종목 ∪ 보유 ∪ 미체결로
+좁혀 부하를 막는다. 해석 규칙은 FR-VM-073 — 상폐 종목 제외, 유니버스 id는 부분일치가 아닌
+별칭+토큰 일치(부분일치는 `KOR_KOSPI200`을 KOSPI 전체로 넓힌다), 미인식 표기는 확대 대신 폴백.
 
 백엔드는 `backend/db.py`(공용 앱 DB 어댑터, Supabase Postgres)를 통해서만 앱 DB에 접근한다.
 Prisma `Decimal` 컬럼(`currentCash`/`initialCash`/`avgPrice` 등 금액·수량 관련 전 컬럼)은

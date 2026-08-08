@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { adminFetch, ErrorNotice, formatDateTime, inputClass } from './shared'
 import KnowledgeGraphView from './KnowledgeGraphView'
+import IndicatorOntologyView from './IndicatorOntologyView'
 
 // 지식그래프 학습 검토(FR-STR-070b) — 인터넷 검색으로 학습된 용어(어휘집)와 관계
 // 엣지를 검토한다. 관련 기업 엣지는 네이버 금융 분류 수록 기준 자동 verified(FR-STR-071
@@ -46,6 +47,7 @@ const STATUS_LABEL: Record<LearnedEdge['status'], { label: string; cls: string }
 const SUB_TABS = [
   { id: 'review', label: '학습 검토' },
   { id: 'graph', label: 'KG 시각화' },
+  { id: 'ontology', label: '지표 온톨로지' },
 ] as const
 
 // 정규화 키(공백 제거·소문자화) — 검색 부분일치용, KnowledgeGraphView와 동일 관례
@@ -201,7 +203,13 @@ export default function KnowledgeTab() {
           </button>
         ))}
       </div>
-      {subTab === 'graph' ? <KnowledgeGraphView /> : renderReview()}
+      {subTab === 'graph' ? (
+        <KnowledgeGraphView />
+      ) : subTab === 'ontology' ? (
+        <IndicatorOntologyView />
+      ) : (
+        renderReview()
+      )}
     </div>
   )
 

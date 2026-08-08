@@ -83,6 +83,9 @@ _MARKET_CANONICAL = {
     "코스피": "KOSPI", "kospi": "KOSPI", "유가증권": "KOSPI",
     "코스닥": "KOSDAQ", "kosdaq": "KOSDAQ",
     "코스피200": "KOSPI200", "kospi200": "KOSPI200", "대형주": "KOSPI200",
+    # 지수명을 명시한 경우만 지수 유니버스로 본다 — "코스닥 대형주"처럼 지수를 짚지 않은
+    # 표현까지 KOSDAQ150으로 넘기면 사용자가 말하지 않은 150종목 제한을 확정하게 된다.
+    "코스닥150": "KOSDAQ150", "kosdaq150": "KOSDAQ150",
 }
 _ETF_MARKERS = ("etf", "etn", "상장지수")
 

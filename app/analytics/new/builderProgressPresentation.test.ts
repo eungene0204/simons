@@ -521,3 +521,49 @@ describe("buildBuilderTurnPresentation 분위 그룹·비율 편입 표시 (FR-B
     expect(presentation.summaryItems.some((i) => i.label === "편입 비율")).toBe(false);
   });
 });
+
+describe("조건이 여러 개인 행의 줄 나눔 목록", () => {
+  const multiConditionParsed = {
+    description: "가치+모멘텀 전략",
+    universe: ["KOSPI", "KOSDAQ"],
+    target_symbols: [],
+    fundamental_filters: [
+      { metric: "pbr", operator: "<=", value: 1.5 },
+      { metric: "roe", operator: ">=", value: 12 },
+    ],
+    entry_signals: [{ indicator: "trading_value", signal_type: "buy", params: { min_value: 5_000_000_000 } }],
+    exit_signals: [{ indicator: "ma_crossover", signal_type: "sell" }],
+    max_positions: 12,
+    hold_period_days: null,
+    rebalancing_period: "weekly",
+    stop_loss_pct: -8,
+    take_profit_pct: 30,
+    backtest_period: "5y",
+    initial_capital: 30_000_000,
+  } as unknown as ParsedSummary;
+
+  it("매수 조건이 여러 개면 개별 조건을 values로 함께 싣는다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "요약",
+      parsed: multiConditionParsed,
+      explicitFields: ["universe"],
+    });
+    const entry = presentation.summaryItems.find((item) => item.label === "매수 조건");
+    expect(entry?.values?.length).toBeGreaterThan(1);
+    // 줄 나눔 목록과 한 줄 표기는 같은 내용이어야 한다(어느 쪽을 읽어도 동일).
+    expect(entry?.values?.join(" · ")).toBe(entry?.value);
+  });
+
+  it("조건이 하나면 values를 두지 않는다(한 줄 표기와 중복)", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "요약",
+      parsed: multiConditionParsed,
+      explicitFields: ["universe"],
+    });
+    const exit = presentation.summaryItems.find((item) => item.label === "매도 조건");
+    expect(exit?.value).toBeTruthy();
+    expect(exit?.values).toBeUndefined();
+  });
+});

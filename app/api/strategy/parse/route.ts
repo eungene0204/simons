@@ -16,7 +16,8 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       cache: "no-store",
-      timeoutMs: 120_000,
+      // 스트리밍 경로와 같은 백엔드 파스를 부른다 — 예산도 같이 간다(stream/route.ts 주석 참조).
+      timeoutMs: 240_000,
     });
 
     if (!res.ok) {

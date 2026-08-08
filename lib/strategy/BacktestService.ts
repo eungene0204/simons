@@ -114,6 +114,7 @@ export class BacktestService {
         })),
         perAssetStats: pythonResult.perAssetStats,
         benchmarkLabel: pythonResult.benchmark_label,
+        benchmarkPartial: pythonResult.benchmark_partial,
         universeId: pythonResult.universe_id || strategy.universe.id,
         engineVersion: pythonResult.version,
         warnings: pythonResult.warnings,

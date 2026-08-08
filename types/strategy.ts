@@ -120,7 +120,10 @@ export interface VBTNativeResult {
   maxConsecutiveWins?: number;
   maxConsecutiveLosses?: number;
   equity: number[];
-  benchmark_equity?: number[];
+  /** 벤치마크 지수 미존재 구간은 null (엔진 v11.0) */
+  benchmark_equity?: (number | null)[];
+  /** 벤치마크가 백테스트 구간의 일부만 덮는가 (엔진 v11.0) */
+  benchmark_partial?: boolean;
   dates: string[];
   finalEquity?: number;
   initialCapital?: number;
@@ -195,7 +198,8 @@ export interface BacktestResult {
   /** 최종자산 - 초기자본 (백엔드 엔진이 직접 계산해 내려줌) */
   totalProfit?: number;
   equity: number[];
-  benchmarkEquity?: number[];
+  /** 벤치마크 지수 미존재 구간은 null (엔진 v11.0) */
+  benchmarkEquity?: (number | null)[];
   dates: string[];
   tradesList: Array<{
     date: string;
@@ -225,6 +229,9 @@ export interface BacktestResult {
     profit: number;
   }>;
   benchmarkLabel?: string;
+  /** 벤치마크가 백테스트 구간의 일부만 덮는가 — true면 전략과 기간이 달라
+   *  초과수익률(두 수익률의 차이)을 비교값으로 쓸 수 없다 (엔진 v11.0) */
+  benchmarkPartial?: boolean;
   universeId?: string;
   warnings?: string[];
   /** 분위 그룹 비교 결과(FR-BT-060). 분위 그룹 전략일 때만 존재. */

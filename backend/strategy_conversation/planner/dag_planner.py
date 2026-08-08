@@ -102,14 +102,13 @@ def _system_prompt() -> str:
         '  {"id": "<고유 id — 턴이 바뀌어도 유지>", "type": "tool" | "ask" | "finish",\n'
         '   "depends_on": ["<선행 노드 id>"],\n'
         '   "tool": "<도구명>", "args": {...},          // type=tool\n'
-        '   "topic": "<수집 정보>", "question": "<질문>",\n'
-        '   "chips": ["<옵션>"]                          // type=ask\n'
+        '   "topic": "<수집 정보>", "question": "<질문>"  // type=ask\n'
         "  }]}}\n\n"
         "노드 타입:\n"
         "- tool: 러너가 실행할 도구 호출. 결과는 observation으로 돌아옵니다.\n"
-        "- ask: 사용자에게 물을 질문 하나. 한 노드에 여러 질문 금지. chips는 클릭 시 "
-        "그대로 메시지로 재전송되므로 칩 텍스트만으로 의미가 완전해야 합니다"
-        "(예: \"모멘텀 3개월\", \"손절 -5%\" — \"3개월\", \"5%\" 단독 금지).\n"
+        "- ask: 사용자에게 물을 질문 하나. 한 노드에 여러 질문 금지.\n"
+        "  **선택지(칩)는 만들지 마세요** — 시스템이 정본 목록에서 붙입니다. 당신이 쓴\n"
+        "  선택지는 표시되지 않고 버려지므로 그 자리에 쓴 글자는 전부 낭비입니다.\n"
         "- finish: 전략 정의 완성 선언 — 반드시 validate_intent에 의존하는 "
         "compile_strategy tool 노드에 의존해야 합니다.\n\n"
         f"## 도구 화이트리스트\n{tool_lines}\n"
@@ -143,13 +142,21 @@ def _system_prompt() -> str:
         "3. universe_type이 CONCEPT면 **먼저 list_concept_candidates로 범위 후보를 "
         "조회**하세요.\n"
         "   - 후보가 2개 이상: 범위가 갈리는 표현입니다 — kg 해석으로 조용히 확정하지 "
-        '말고 ask(topic은 반드시 "유니버스", chips는 관찰의 후보 term 표기 그대로)로 '
-        "범위를 물으세요. 후보 표기를 바꾸거나 지어내면 안 됩니다.\n"
-        "   - 후보가 1개: 그 표기를 chips 하나로 제시해 확인받으세요(자동 확정 금지).\n"
+        '말고 ask(topic은 반드시 "유니버스")로 범위를 물으세요 — 선택지는 시스템이 '
+        "관찰된 후보 표기로 붙입니다.\n"
+        "   - 후보가 1개: 그래도 ask로 확인받으세요(자동 확정 금지).\n"
         "   - 후보가 0개: kg_resolve_sector·kg_theme_companies로 해석하고, 미해석이면 "
         "ground_term(검색 학습)을 시도하세요. 그래도 미해석이면 ask로 물으세요.\n"
         "4. 매수/매도 조건 등 모든 ask 노드는 유니버스 해석 노드(tool 또는 유니버스 ask)에 "
         "depends_on으로 의존해야 합니다 — 유니버스가 조건보다 선행 결정 사항입니다.\n\n"
+        "## 계획 범위 — State가 없는 턴에는 한 걸음만\n"
+        "사용자 메시지에 \"이미 결정된 전략 State\"가 제시되지 않았다면 그 턴은 파스 이전\n"
+        "계획입니다. 이때는 전략 슬롯의 **전체 골격을 미리 만들지 마세요** — 유니버스 해석\n"
+        "노드들과 그 다음에 물을 **ask 하나**까지만 발행합니다. 러너는 어차피 준비된 첫 ask\n"
+        "하나만 표면화하고 나머지 슬롯은 다음 턴에 State를 보고 계획하므로, 미리 만든 ask와\n"
+        "validate·compile·finish 꼬리는 전부 폐기됩니다(생성 비용만 남는 순수한 낭비).\n"
+        "물을 것이 하나도 없을 때만 validate→compile→finish 꼬리를 내어 종결하세요.\n"
+        "\"이미 결정된 전략 State\"가 제시된 턴에는 아래 골격대로 남은 슬롯을 발행합니다.\n\n"
         "## 진행 골격 — 모든 전략의 공통 줄기(8슬롯)\n"
         "전략은 다음 슬롯을 순서대로 채우면 완성됩니다:\n"
         "유니버스 → 매수 조건 → 매도 조건 → 최대 보유 → 리밸런싱 → 리스크 관리"
@@ -160,55 +167,64 @@ def _system_prompt() -> str:
         "한 슬롯당 ask 하나, 골격 순서대로 depends_on을 걸어 한 번에 하나씩 진행합니다.\n"
         "- 슬롯 밖의 질문을 만들지 않습니다. 특정 전략 유형의 파라미터(모멘텀 기간·"
         "추세 조건·거래량 기준 등)는 **사용자가 그 개념을 말한 경우에만** 묻습니다. "
-        "언급 없는 매수/매도 조건 공백은 열린 질문(\"어떤 조건에서 매수할까요?\")+"
-        "유니버스에 맞는 옵션 칩으로 묻고, 특정 유형을 전제하지 마세요.\n"
+        "언급 없는 매수/매도 조건 공백은 열린 질문(\"어떤 조건에서 매수할까요?\")으로 "
+        "묻고, 특정 유형을 전제하지 마세요.\n"
         "- 사용자가 말하지 않은 값을 질문 없이 기본값으로 확정하는 경로를 만들지 "
-        "않습니다 — 묻거나, chips로 제시해 확인받습니다.\n"
+        "않습니다 — 반드시 묻고 사용자 답으로 확정합니다.\n"
         "- 지원하지 않는 개념(뉴스·공시 기반 조건 등)은 ask로 채우지 말고 미지원 "
         "안내로 종결합니다. 지원 여부의 정본은 도구 관찰값입니다.\n\n"
         "## 유니버스별 디테일 (큰 줄기는 같고 디테일만 다릅니다)\n"
-        "① 코스피/코스닥/업종·테마: 8슬롯 전부. 매수 조건 칩은 재무 지표(PER·ROE 등)와 "
-        "기술 지표 모두 가능. 미해석 테마·업종 표현은 ask보다 먼저 해석 tool 체인"
+        "① 코스피/코스닥/업종·테마: 8슬롯 전부. 미해석 테마·업종 표현은 ask보다 먼저 해석 tool 체인"
         "(kg_resolve_sector·kg_theme_companies → 미해석 시 ground_term)을 넣으세요. "
         "검색이 소진되면 종결 안내 또는 ask.\n"
-        "② ETF: 8슬롯 전부, 단 개별 기업 재무정보 사용 불가 — 매수/매도 조건의 질문·"
-        "칩에 PER·PBR·ROE·EPS·영업이익·순이익·매출·재무 성장률을 넣으면 계약 위반. "
-        "칩은 가격·거래량 기반 기술 지표(이동평균 크로스·RSI·돌파·거래량·기간 수익률 "
-        "상위 등)로 구성하세요. ETF는 단독 유니버스(개별 주식과 혼합 불가 — 섞이면 ask).\n"
+        "② ETF: 8슬롯 전부, 단 개별 기업 재무정보 사용 불가 — 매수/매도 조건 **질문 문구**에 "
+        "PER·PBR·ROE·EPS·영업이익·순이익·매출·재무 성장률을 넣으면 계약 위반입니다"
+        "(선택지는 시스템이 유니버스에 맞춰 거릅니다). ETF는 단독 유니버스"
+        "(개별 주식과 혼합 불가 — 섞이면 ask).\n"
         "③ 단일종목/지정 종목: 종목이 이미 정해져 있으므로 **유니버스·최대 보유·"
         "리밸런싱 슬롯을 스킵**합니다(종목 수·동일가중/시가총액가중·정렬 질문 생성은 "
         "계약 위반). 매수/매도 조건·리스크 관리·백테스트 기간·초기 자본만 진행하며, "
-        "크로스오버 진입이면 반대 신호 청산을 chips 옵션으로 제시합니다(확정은 사용자).\n\n"
+        "크로스오버 진입이면 반대 신호 청산을 물어 확인받습니다(확정은 사용자).\n\n"
         "## 모호성 처리\n"
         "복수 해석이 가능한 표현(예: \"삼성전자 관련 ETF\" — 편입 비중 상위/삼성그룹/"
         "반도체)은 해석 도구로 범위를 좁히는 tool 노드를 ask보다 먼저 두세요. 도구로도 "
-        "하나로 확정할 수 없고 전략 결과가 크게 달라지면 ask+chips로 범위를 질문합니다 — "
+        "하나로 확정할 수 없고 전략 결과가 크게 달라지면 ask로 범위를 질문합니다 — "
         "추천이 아니라 선택지 제시입니다. 명확한 나머지 정보의 진행은 막지 않습니다.\n\n"
         "## 금지\n"
         "- 섹터·종목·전략 필드 값을 지어내지 마세요 — 확정값은 도구 관찰값에서만 "
         "채택됩니다.\n"
         "- 질문·문구에 투자 추천·우열·전망·수익 보장 표현을 쓰지 마세요.\n\n"
-        "## 예시 — \"반도체 etf 투자 전략\" (유니버스는 State에 이미 결정: ETF/반도체)\n"
-        "매수 조건을 사용자가 말하지 않았으므로 특정 유형(모멘텀 등)을 전제하지 않고 "
-        "열린 질문+ETF에 맞는 기술 지표 칩으로 묻습니다. 이후 슬롯도 골격 순서대로:\n"
+        "## 예시 1 — **State가 제시되지 않은 턴** (파스 이전 계획 — 대부분의 첫 턴)\n"
+        "\"코스피200에서 최근 120거래일 수익률 상위 12종목, 매월 리밸런싱, 손절 -7%\"\n"
+        "유니버스 분류 관찰(MARKET/KOSPI200)이 끝났다면, 남은 슬롯 골격을 만들지 않고 "
+        "다음에 물을 ask **하나**만 발행합니다. 사용자가 이미 말한 조건(수익률 상위 "
+        "12종목·매월 리밸런싱·손절 -7%)은 파스가 채우므로 묻지 않습니다:\n"
+        '{"dag": {"nodes": [\n'
+        '  {"id": "ask_risk", "type": "ask", "topic": "리스크관리", '
+        '"question": "익절 기준을 정할까요?", '
+        '"depends_on": ["classify_universe"]}\n'
+        "]}}\n"
+        "노드 하나뿐입니다 — validate·compile·finish 꼬리도, 뒤따르는 슬롯 ask도 이 턴에는 "
+        "만들지 않습니다. 아래 예시 2의 긴 골격을 State 없는 턴에 베끼지 마세요.\n\n"
+        "## 예시 2 — \"반도체 etf 투자 전략\" (**State가 제시된 턴에만**: 유니버스=ETF/반도체)\n"
+        "State가 있는 턴이므로 남은 슬롯 골격을 발행합니다. 매수 조건을 사용자가 말하지 "
+        "않았으므로 특정 유형(모멘텀 등)을 전제하지 않고 열린 질문으로 묻습니다. "
+        "이후 슬롯도 골격 순서대로:\n"
         '{"dag": {"nodes": [\n'
         '  {"id": "ask_entry", "type": "ask", "topic": "매수조건", '
         '"question": "어떤 조건에서 매수할까요?", '
-        '"chips": ["골든크로스(5일/20일) 발생 시 매수", "RSI 30 이하에서 매수", '
-        '"20일 고점 돌파 시 매수", "최근 3개월 수익률 상위 매수"], "depends_on": []},\n'
+        '"depends_on": []},\n'
         '  {"id": "ask_exit", "type": "ask", "topic": "매도조건", '
         '"question": "어떤 조건에서 매도할까요?", '
-        '"chips": ["데드크로스(5일/20일) 발생 시 매도", "RSI 70 이상에서 매도", '
-        '"20일 보유 후 청산"], "depends_on": ["ask_entry"]},\n'
+        '"depends_on": ["ask_entry"]},\n'
         '  {"id": "ask_positions", "type": "ask", "topic": "최대보유", '
         '"question": "최대 몇 종목을 보유할까요?", '
-        '"chips": ["최대 5종목", "최대 10종목"], "depends_on": ["ask_exit"]},\n'
+        '"depends_on": ["ask_exit"]},\n'
         '  {"id": "ask_rebalance", "type": "ask", "topic": "리밸런싱", '
         '"question": "리밸런싱 주기는 어떻게 할까요?", '
-        '"chips": ["매월 리밸런싱", "분기마다 리밸런싱"], "depends_on": ["ask_positions"]},\n'
+        '"depends_on": ["ask_positions"]},\n'
         '  {"id": "ask_risk", "type": "ask", "topic": "리스크관리", '
         '"question": "손절·익절 기준을 정할까요?", '
-        '"chips": ["손절 -8%", "익절 20%", "손절 -8% 익절 20%"], '
         '"depends_on": ["ask_rebalance"]},\n'
         '  {"id": "validate", "type": "tool", "tool": "validate_intent", "args": {}, '
         '"depends_on": ["ask_risk"]},\n'
@@ -318,6 +334,58 @@ def _extract_json(raw: str) -> Optional[dict]:
         if isinstance(data, dict):
             return data
     return None
+
+
+# planner-first(State 없는 턴)의 생성 상한. 계약대로 '한 걸음'만 내면 ~160토큰이고,
+# 유니버스 해석 사슬이 긴 경우에도 관측 최대가 ~460토큰이라 여유를 둔 값이다. 계약을
+# 어기고 8슬롯 골격을 재발행하면(실측 4회 중 1회) 여기서 잘린다 — 잘린 꼬리는 어차피
+# 표면화되지 않는 부분이므로(러너는 준비된 첫 ask 하나만 낸다) 잃는 것이 없다.
+_PLANNER_FIRST_MAX_TOKENS = 512
+
+_REQUIRED_NODE_FIELDS = {"tool": "tool", "ask": "question"}
+
+
+def _drop_incomplete_nodes(data: dict, known_ids: Optional[set] = None) -> dict:
+    """잘린 발행의 불완전한 꼬리 노드를 떼어낸다(형식 정규화 — 의미 판단 없음).
+
+    known_ids는 러너가 보유한 done 노드 id다. LLM은 done 노드 재발행을 생략해도 되므로
+    (계약: dag.validate_dag 주석) 발행 목록에 없다고 '사라진 의존'으로 보면 안 된다 —
+    이 인자를 빠뜨리면 재발행을 생략한 턴의 ask가 통째로 사라진다.
+
+    생성 상한에 걸려 잘리면 괄호 균형 보정(_balance_braces)이 JSON을 닫아 주지만 마지막
+    노드는 필드 절반만 담긴 채 남을 수 있다. 그대로 두면 계약 위반으로 계획 전체가
+    폴백되고, 그러면 이미 끝난 유니버스 해석 관찰까지 함께 버려진다(2026-08-02 감사에서
+    턴 예산 부족이 테마 60곳을 2곳으로 줄인 것과 같은 종류의 손실).
+
+    완전한 노드만 남기고, 사라진 노드를 가리키는 depends_on을 가진 노드도 함께 떼어낸다.
+    """
+    nodes = data.get("dag", {}).get("nodes") if isinstance(data.get("dag"), dict) else None
+    if not isinstance(nodes, list):
+        return data
+    def _complete(node) -> bool:
+        if not isinstance(node, dict) or not str(node.get("id") or "").strip():
+            return False
+        kind = node.get("type")
+        if kind == "finish":
+            return True
+        field = _REQUIRED_NODE_FIELDS.get(kind)
+        return bool(field) and bool(str(node.get(field) or "").strip())
+
+    kept = [n for n in nodes if _complete(n)]
+    # 사라진 노드를 가리키는 의존은 계약 위반이라 그 노드도 뗀다(연쇄까지 반복).
+    while True:
+        ids = {n["id"] for n in kept} | set(known_ids or ())
+        survivors = [
+            n for n in kept
+            if all(d in ids for d in (n.get("depends_on") or []) if isinstance(d, str))
+        ]
+        if len(survivors) == len(kept):
+            break
+        kept = survivors
+    if len(kept) == len(nodes):
+        return data
+    logger.info("dag planner 잘린 꼬리 노드 제거 | %d → %d", len(nodes), len(kept))
+    return {**data, "dag": {**data["dag"], "nodes": kept}}
 
 
 def _observed_resolution(
@@ -483,11 +551,17 @@ def _plan_strategy_dag(
     while llm_turns < turns or (progressed_last and llm_turns < hard_cap):
         # 공유 chat 계약의 max_tokens — DAG JSON은 미니플래너 한 줄 액션보다 커서
         # 기본 상한(2048)에 잘려 JSON이 깨진다(실측: 한글 칩 다수 DAG가 ~1.3k자에서 절단).
+        # State가 있는 턴은 남은 슬롯 골격을 다 발행해야 하므로 넉넉히 두고, planner-first
+        # (State 없음)는 '한 걸음' 계약이라 상한을 낮춰 골격 재발행의 생성 비용을 자른다.
         raw = chat_fn(system_prompt,
                       _render_state(user_input, nodes, executed, auto_steps, state_summary),
-                      max_tokens=4096)
+                      max_tokens=4096 if state_summary else _PLANNER_FIRST_MAX_TOKENS)
         llm_turns += 1
         data = _extract_json(raw)
+        if data is not None and not state_summary:
+            # 상한에 걸려 잘린 꼬리를 떼어낸다 — 남기면 계약 위반으로 계획 전체가
+            # 폴백되어 이미 끝난 유니버스 해석 관찰까지 함께 버려진다.
+            data = _drop_incomplete_nodes(data, known_ids=set(executed))
         if data is None:
             logger.info("dag planner JSON 파싱 실패 — 폴백")
             trace.error("PlannerOutputParseError",

@@ -43,6 +43,7 @@ export function mapRawBacktestResult(
     equity,
     benchmarkEquity: raw.benchmark_equity,
     benchmarkLabel: raw.benchmark_label,
+    benchmarkPartial: raw.benchmark_partial,
     dates: raw.dates ?? [],
     tradesList: (raw.signals ?? []).map((s: any) => ({
       date: s.date,

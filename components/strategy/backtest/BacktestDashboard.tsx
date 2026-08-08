@@ -307,6 +307,7 @@ type BaseMetricDescriptions = {
   profitFactor: string;
   totalReturn: string;
   buyHold: (label: string) => string;
+  excessReturn: (label: string) => string;
   volatility: string;
   calmar: string;
   avgHoldingDays: string;
@@ -330,6 +331,12 @@ const BASE_METRIC_DESCRIPTIONS: BaseMetricDescriptions = {
   totalReturn: metricTooltip("투자 수익률(ROI)은 백테스트 시작부터 종료까지의 누적 자산 변동 비율입니다.", "ROI = ((최종 자산 - 초기 자본) / 초기 자본) × 100", "🟢 양수: 시작 자본보다 최종 자산이 큼\n🟡 0%: 시작 자본과 최종 자산이 같음\n🔴 음수: 시작 자본보다 최종 자산이 작음"),
   buyHold: (label: string) =>
     metricTooltip(`${label}을 매수 후 보유했을 때의 수익률입니다.`, `매수 후 보유 수익률 = ((${label} 최종 가격 / 시작 가격) - 1) × 100`, "🟢 양수: 기준 지수가 상승\n🟡 0%: 기준 지수의 변동이 없음\n🔴 음수: 기준 지수가 하락"),
+  excessReturn: (label: string) =>
+    metricTooltip(
+      `전략 수익률과 ${label} 매수 후 보유 수익률의 차이입니다. 과거 데이터 기준 사실 표시이며, 미래 성과를 뜻하지 않습니다.`,
+      `초과수익률 = 전략 수익률(%) - ${label} 수익률(%)  → 단위는 %p(퍼센트 포인트)`,
+      "🟢 양수: 전략 수익률이 기준 지수보다 높았음\n🟡 0%p 부근: 기준 지수와 비슷했음\n🔴 음수: 전략 수익률이 기준 지수보다 낮았음\n\n※ 두 값이 모두 음수일 때 양수인 초과수익률은 '덜 하락했다'는 뜻이며 이익을 의미하지 않습니다.",
+    ),
   volatility: metricTooltip("연간 변동성은 일별 수익률의 표준편차를 연간 단위로 환산한 값입니다.", "변동성 = 일별 수익률 표준편차 × √252 × 100", "🟢 낮음: 15% 미만\n🟡 중간: 15% ~ 25%\n🔴 높음: 25% 초과"),
   calmar: metricTooltip("칼마 비율은 최대 낙폭 대비 연평균수익률의 비율입니다.", "칼마 비율 = CAGR / |MDD|", "🟢 높음: 1.0 이상\n🟡 중간: 0.5 ~ 1.0\n🔴 낮음: 0.5 미만"),
   avgHoldingDays: metricTooltip("평균 보유일은 진입 후 청산까지의 평균 보유 거래일입니다.", "평균 보유일 = 완료 거래의 총 보유일 / 완료 거래 수", "🟢 단기: 1 ~ 3일\n🟡 중기: 5 ~ 20일\n🔴 장기: 20일 초과"),
@@ -341,10 +348,14 @@ const BASE_METRIC_DESCRIPTIONS: BaseMetricDescriptions = {
 };
 
 function benchmarkLabelForResult(result: BacktestResult): string {
+  // 엔진이 내려준 라벨이 정본이다 — 벤치마크는 universeId만이 아니라 보유 종목의
+  // 실제 시장으로도 결정되므로(지정 종목·테마 유니버스는 universeId가 비어 있다),
+  // universeId로 프론트가 다시 추정하면 백엔드와 어긋난다.
+  if (result.benchmarkLabel) return result.benchmarkLabel;
   const universeId = result.universeId?.toLowerCase();
   if (universeId === "kospi") return "KODEX 코스피 (226490)";
   if (universeId === "kosdaq") return "KODEX KOSDAQ 150 (229200)";
-  return result.benchmarkLabel ?? "KODEX 200 (069500)";
+  return "KODEX 200 (069500)";
 }
 
 export default function BacktestDashboard({
@@ -861,6 +872,12 @@ export default function BacktestDashboard({
     : calculateSortinoRatio(result.equity ?? []);
   const turnoverRate = calculateTurnoverRate(result.tradesList ?? [], result.equity ?? []);
   const benchmarkLabel = benchmarkLabelForResult(result);
+  // 초과수익률 = 전략 총수익률 - 벤치마크 총수익률 (단위 %p). 벤치마크가 백테스트
+  // 구간의 일부만 덮으면(지수 ETF 상장 이전 포함) 두 수익률의 기간이 달라 차이가
+  // 비교값이 되지 못하므로 숫자를 내지 않는다 — 경고 문구로만 사실을 알린다.
+  const excessReturn = result.benchmarkPartial
+    ? null
+    : Number(result.totalReturn) - Number(result.buyAndHoldReturn ?? 0);
   const modalPromptPreview = saveDescription.trim() || promptText?.trim() || "";
   const modalUniverseLabel = strategySummary
     ? resolveUniverseDisplayName(strategySummary.universeName, modalPromptPreview)
@@ -1861,8 +1878,15 @@ export default function BacktestDashboard({
                 <div className="border-t border-white/[0.08]">
                   {([
                     [
-                      { label: "초기 자본", value: formatKRW(resolvedInitialCapital), sub: "원", desc: null },
-                      { label: "최종 자산", value: formatKRW(resolvedFinalEquity), sub: "원", desc: null },
+                      // formatKRW가 이미 "원"을 붙이므로 sub를 주면 "원 원"이 된다.
+                      { label: "초기 자본", value: formatKRW(resolvedInitialCapital), sub: null, desc: null },
+                      { label: "최종 자산", value: formatKRW(resolvedFinalEquity), sub: null, desc: null },
+                      {
+                        label: "초과수익률",
+                        value: excessReturn == null ? "-" : `${excessReturn >= 0 ? "+" : ""}${excessReturn.toFixed(2)}`,
+                        sub: excessReturn == null ? null : "%p",
+                        desc: BASE_METRIC_DESCRIPTIONS.excessReturn(benchmarkLabel),
+                      },
                       { label: "변동성", value: annualizedVolatility.toFixed(2), sub: "%", desc: BASE_METRIC_DESCRIPTIONS.volatility },
                       { label: "칼마 비율", value: (result.calmar ?? (result.maxDrawdown !== 0 ? result.cagr / Math.abs(result.maxDrawdown) : 0)).toFixed(2), sub: null, desc: BASE_METRIC_DESCRIPTIONS.calmar },
                       { label: "평균 보유일", value: `${Math.round(result.avgHoldingDays ?? 0)}일`, sub: null, desc: BASE_METRIC_DESCRIPTIONS.avgHoldingDays },

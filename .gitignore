@@ -121,6 +121,8 @@ top200.txt
 /data/term_lexicon.json
 /data/kg-equity-edges.progress.json
 /data/cashflow-activity-backfill.progress.json
+/data/owner-net-income-backfill.progress.json
+/data/owner-net-income-backfill.progress.v2.json
 
 # DART 기업 고유번호 캐시 — 재다운로드 가능(backfill_dart_industry.py)
 data/dart-corp-code.json

@@ -219,12 +219,34 @@ class BacktestEngine:
         }
 
     @staticmethod
-    def benchmark_for_universe(universe_id: str) -> tuple[str, str]:
-        normalized = (universe_id or "kospi200").lower()
-        universe_parts = {part for part in normalized.split("_") if part}
-        if "kosdaq" in universe_parts:
+    def benchmark_for_universe(universe_id: str, symbols: "list[str] | None" = None) -> tuple[str, str]:
+        """비교 대상 지수 ETF (심볼, 표시명).
+
+        벤치마크는 "이 전략을 쓰지 않았다면 대신 들고 있었을 것"의 대체재여야 한다.
+        universe_id의 시장 토큰으로 고르되, 지정 종목·테마 유니버스처럼 universe_id가
+        비어 있으면 보유 심볼의 실제 시장으로 판정한다(그러지 않으면 코스닥 종목만
+        담긴 백테스트도 KODEX 200과 비교됐다).
+
+        시장을 끝내 알 수 없으면(ETF 유니버스 등) KODEX 200으로 둔다.
+        """
+        universe_parts = {part for part in (universe_id or "").lower().split("_") if part}
+        # 대형주 지수(kospi200)는 그 지수 ETF가 따로 있어 별도 분기지만, kosdaq150은
+        # 벤치마크가 코스닥 전체와 같은 KODEX KOSDAQ 150이라 코스닥 계열로 묶는다.
+        has_kospi200 = "kospi200" in universe_parts
+        has_kospi = "kospi" in universe_parts
+        has_kosdaq = bool(universe_parts & {"kosdaq", "kosdaq150"})
+
+        if not (has_kospi200 or has_kospi or has_kosdaq) and symbols:
+            inferred = universe_pit.dominant_market(symbols)
+            has_kospi = inferred == "KOSPI"
+            has_kosdaq = inferred == "KOSDAQ"
+
+        if has_kosdaq and not (has_kospi or has_kospi200):
             return "229200", "KODEX KOSDAQ 150 (229200)"
-        if "kospi" in universe_parts:
+        # 코스피 단독, 그리고 코스피+코스닥 혼합(시총 비중이 큰 쪽의 전 종목 지수가
+        # 대형주 200종목 지수보다 가깝다) — 과거에는 혼합 유니버스가 코스닥을 먼저
+        # 검사하는 순서 때문에 KODEX KOSDAQ 150과 비교됐다.
+        if has_kospi:
             return "226490", "KODEX 코스피 (226490)"
         return "069500", "KODEX 200 (069500)"
 
@@ -396,14 +418,14 @@ class BacktestEngine:
             # *during* the window are included for the period they were alive. The legacy caller
             # passes only currently-listed symbols, which silently drops every delisted name and
             # inflates returns. universe_id=None (custom symbol set) leaves the list untouched.
-            _markets, _is_large_cap = universe_pit.parse_universe_markets(req.get('universe_id'))
+            _markets, _index_top_n = universe_pit.parse_universe_markets(req.get('universe_id'))
             _is_etf_universe = universe_pit.is_etf_universe(req.get('universe_id'))
             if _markets:
                 _aof_symbols = universe_pit.resolve_symbols(req.get('universe_id'), _period_start_str, _end_str)
                 if _aof_symbols:
                     symbols = _aof_symbols
                     print(f"[BT-ENGINE] PIT universe: {len(symbols)}종목 "
-                          f"(markets={_markets}, large_cap={_is_large_cap})", flush=True)
+                          f"(markets={_markets}, index_top_n={_index_top_n})", flush=True)
             elif _is_etf_universe:
                 # ETF 유니버스 — 주식과 혼합하지 않고 ETF 마스터만 조회한다. 마스터는 현재
                 # 상장 ETF만 담으므로(상폐 ETF 미포함) 생존 편향 가능성을 정직하게 알린다.
@@ -825,13 +847,13 @@ class BacktestEngine:
                         rank_exits = rank_exits.shift(1, fill_value=False)
                     exts_df = (exts_df | rank_exits.astype(bool)) & available_df
 
-            # ── "대형주" / KOSPI200 = point-in-time top-N by market cap ──
-            # Static current KOSPI200 membership is itself survivorship-biased, so we define the
-            # large-cap universe as the daily top-LARGE_CAP_TOP_N alive KOSPI names by market cap
+            # ── 지수 유니버스(KOSPI200·KOSDAQ150) = point-in-time top-N by market cap ──
+            # Static current index membership is itself survivorship-biased, so we define the
+            # index universe as the daily top-N alive names of that market by market cap
             # (close × listed shares). Market cap is evaluated only where price data is actually
             # available that day, so delisted names drop out of the ranking once they stop trading.
             large_cap_mask = None
-            if _is_large_cap:
+            if _index_top_n:
                 shares_map = universe_pit.get_shares(processed_symbols)
                 shares_vec = pd.Series(
                     {s: shares_map.get(s, np.nan) for s in processed_symbols},
@@ -839,15 +861,16 @@ class BacktestEngine:
                 )
                 mcap = price_df.mul(shares_vec, axis=1).where(available_df)
                 mcap_rank = mcap.rank(axis=1, ascending=False, method="first")
-                large_cap_mask = (mcap_rank <= universe_pit.LARGE_CAP_TOP_N).fillna(False)
+                large_cap_mask = (mcap_rank <= _index_top_n).fillna(False)
                 if exec_type == 'next_open':
                     # 진입 신호는 이미 1일 shift됨 — 시총 순위도 전일 종가 기준으로
                     # 맞춰야 당일 종가를 미리 아는 look-ahead가 없다.
                     large_cap_mask = large_cap_mask.shift(1, fill_value=False)
                 ents_df &= large_cap_mask
+                _index_label = "KOSDAQ150" if _index_top_n == 150 else "KOSPI200"
                 self.warnings.add(
-                    "대형주(시가총액 상위) 판정은 현재 상장주식수 × 과거 주가의 근사입니다 — "
-                    "과거 증자·분할 이력은 반영되지 않아 실제 당시 KOSPI200 구성과 다를 수 있습니다."
+                    f"지수(시가총액 상위 {_index_top_n}) 판정은 현재 상장주식수 × 과거 주가의 근사입니다 — "
+                    f"과거 증자·분할 이력은 반영되지 않아 실제 당시 {_index_label} 구성과 다를 수 있습니다."
                 )
 
             rank_df = None
@@ -1054,19 +1077,24 @@ class BacktestEngine:
             print(f"[BT-ENGINE] Simulator 완료: {_t3-_t2:.2f}s", flush=True)
 
             # 5. Benchmark ETF 로드
-            _benchmark_sym, _benchmark_name = self.benchmark_for_universe(req.get('universe_id') or '')
+            _benchmark_sym, _benchmark_name = self.benchmark_for_universe(
+                req.get('universe_id') or '', processed_symbols
+            )
             benchmark_prices = None
             try:
                 _bench_df = self.loader.load_symbol_data(_benchmark_sym)
                 if _bench_df is not None:
                     _bench_pd = self.loader.preprocess_data(_bench_df, apply_dividends=apply_dividends)
                     benchmark_prices = _bench_pd['close'].sort_index()
-                    # H1: 벤치마크 ETF 상장 이전 구간은 수익률 0%로 고정되어 비교가 왜곡됨
+                    # H1: 벤치마크가 자기 존재 구간만, 전략은 전체 구간을 복리로 쌓으므로
+                    # 두 수익률의 기간이 다르다 — 전략에 유리한 쪽으로 기우는 비교이고,
+                    # 데이터로 메울 수 없어 값 보정 대신 공시한다.
                     if len(common_index) > 0 and benchmark_prices.index[0] > pd.Timestamp(common_index[0]):
                         self.warnings.add(
                             f"벤치마크({_benchmark_name}) 데이터가 "
                             f"{benchmark_prices.index[0].strftime('%Y-%m-%d')}부터 존재합니다 — "
-                            "그 이전 구간의 벤치마크 수익률은 0%로 표시되어 전략 대비 비교가 과장될 수 있습니다."
+                            "그 이전 구간은 비교에서 제외되어, 벤치마크 수익률은 전략보다 "
+                            "짧은 기간을 기준으로 계산됩니다."
                         )
                     # M3: 전략은 토탈리턴인데 벤치마크에 분배금 데이터가 없으면 비대칭 비교
                     if apply_dividends and 'dividends' not in _bench_df.columns:

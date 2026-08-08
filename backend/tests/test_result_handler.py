@@ -261,3 +261,82 @@ def test_format_results_matches_exit_reason_when_reason_index_uses_microseconds(
 
     assert "5일선-20일선 데드크로스" in sell_signals[0]["condition"]
     assert "데이터 종료" not in sell_signals[0]["condition"]
+
+
+# ── 벤치마크 커버리지 (엔진 v11.0) ───────────────────────────────────────────
+
+def _bench_result(benchmark_prices, common_index):
+    return ResultHandler.format_results(
+        pf=_Portfolio(),
+        processed_symbols=["005930"],
+        _all_entries=None,
+        _all_exits=None,
+        all_entry_reasons={},
+        all_exit_reasons={},
+        common_index=common_index,
+        risk_params={},
+        exec_type="close",
+        init_cash=10_000_000,
+        benchmark_prices=benchmark_prices,
+    )
+
+
+def test_benchmark_equity_is_null_before_the_index_exists():
+    """벤치마크 지수 상장 이전 구간에 가짜 평탄선을 그리지 않는다.
+
+    회귀 전에는 .bfill()이 첫 가격을 뒤채워 그 구간 수익률이 0%로 깔렸고,
+    수익곡선에 초기자본에서 평탄한 선이 그려져 "그때 벤치마크는 제자리였다"는
+    거짓 정보가 됐다(존재하지 않던 지수다).
+    """
+    common_index = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"])
+    prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2024-01-03", "2024-01-04"]))
+
+    result = _bench_result(prices, common_index)
+
+    assert result["benchmark_equity"][0] is None
+    assert result["benchmark_equity"][1] == pytest.approx(10_000_000)
+    assert result["benchmark_equity"][2] == pytest.approx(11_000_000)
+
+
+def test_benchmark_return_measures_only_the_covered_window():
+    """벤치마크 수익률은 지수가 실제로 존재한 구간 기준이다.
+
+    (뒤채우기 구간은 수익률 0%라 누적곱이 같았으므로 이 값은 회귀 전후 동일하다 —
+    기간 불일치 자체는 데이터로 메울 수 없어 엔진이 경고로 고지한다.)
+    """
+    common_index = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"])
+    prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2024-01-03", "2024-01-04"]))
+
+    result = _bench_result(prices, common_index)
+
+    assert result["buyAndHoldReturn"] == pytest.approx(10.0)
+
+
+def test_benchmark_with_full_coverage_has_no_nulls():
+    common_index = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"])
+    prices = pd.Series([100.0, 100.0, 120.0], index=common_index)
+
+    result = _bench_result(prices, common_index)
+
+    assert None not in result["benchmark_equity"]
+    assert result["benchmark_equity"][0] == pytest.approx(10_000_000)
+    assert result["buyAndHoldReturn"] == pytest.approx(20.0)
+
+
+def test_benchmark_partial_flags_a_shorter_comparison_window():
+    """벤치마크가 구간 일부만 덮으면 표시 쪽이 알 수 있게 flag를 세운다.
+
+    두 수익률의 기간이 다르면 차이(초과수익률)가 비교값이 되지 못하는데,
+    값만 보면 구별할 수 없어 화면이 잘못된 비교를 그릴 수 있다.
+    """
+    common_index = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"])
+    prices = pd.Series([100.0, 110.0], index=pd.to_datetime(["2024-01-03", "2024-01-04"]))
+
+    assert _bench_result(prices, common_index)["benchmark_partial"] is True
+
+
+def test_benchmark_partial_is_false_with_full_coverage():
+    common_index = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"])
+    prices = pd.Series([100.0, 100.0, 120.0], index=common_index)
+
+    assert _bench_result(prices, common_index)["benchmark_partial"] is False

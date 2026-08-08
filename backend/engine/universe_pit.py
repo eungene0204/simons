@@ -185,24 +185,49 @@ def extract_etf_theme(user_input: str) -> Optional[str]:
     return None
 
 
-def parse_universe_markets(universe_id: Optional[str]) -> tuple[list[str], bool]:
-    """universe_id ("kospi", "kospi200", "kosdaq_kospi", ...) -> (markets, is_large_cap).
+# 지수 유니버스 → (소속 시장, 시점 기준 시총 상위 N). 정적 현재 명부는 그 자체가
+# 생존편향이라 백테스트는 명부 대신 매 시점 시총 상위 N으로 지수를 근사한다.
+_INDEX_UNIVERSES = {
+    "kospi200": ("KOSPI", LARGE_CAP_TOP_N),
+    "kosdaq150": ("KOSDAQ", 150),
+}
 
-    Returns ([], False) when the id is not a recognized market universe (e.g. a
+
+def parse_universe_markets(universe_id: Optional[str]) -> tuple[list[str], Optional[int]]:
+    """universe_id ("kospi", "kospi200", "kosdaq150", "kosdaq_kospi", ...)
+    -> (markets, index_top_n).
+
+    index_top_n 이 정수면 호출자는 그 시장에서 매 시점 시총 상위 N만 남겨야 한다
+    (KOSPI200=200, KOSDAQ150=150). None 이면 시장 전체다.
+
+    Returns ([], None) when the id is not a recognized market universe (e.g. a
     custom symbol set), signalling the caller to leave the symbol list untouched.
+    지수 토큰이 둘 이상이면(예: "kosdaq150_kospi200") 시총 순위를 시장별로 나눠 매길
+    수 없으므로 미인식으로 처리한다 — 게이트만 풀고 시장 전체로 넓히지 않는다.
     """
     if not universe_id:
-        return [], False
+        return [], None
     tokens = {t for t in universe_id.lower().split("_") if t}
-    if not tokens or not tokens <= {"kospi", "kosdaq", "kospi200"}:
-        return [], False
-    is_large_cap = "kospi200" in tokens
+    if not tokens or not tokens <= {"kospi", "kosdaq", *_INDEX_UNIVERSES}:
+        return [], None
+
+    index_tokens = tokens & set(_INDEX_UNIVERSES)
+    if len(index_tokens) > 1:
+        return [], None
+
     markets: list[str] = []
     if "kospi" in tokens or "kospi200" in tokens:
         markets.append("KOSPI")
-    if "kosdaq" in tokens:
+    if "kosdaq" in tokens or "kosdaq150" in tokens:
         markets.append("KOSDAQ")
-    return markets, is_large_cap
+
+    top_n: Optional[int] = None
+    if index_tokens:
+        _, top_n = _INDEX_UNIVERSES[next(iter(index_tokens))]
+        # 지수 + 다른 시장이 섞이면 순위 게이트가 그 시장까지 잘라내므로 쓰지 않는다.
+        if len(markets) > 1:
+            top_n = None
+    return markets, top_n
 
 
 def _alive(stock: dict, start: str, end: str) -> bool:
@@ -246,6 +271,32 @@ def resolve_symbols(universe_id: Optional[str], start: Optional[str], end: str) 
         and not _is_spac(s.get("name", "")) and not _is_preferred(s.get("symbol", ""))
     ]
     return sorted(symbols)
+
+
+def dominant_market(symbols: list[str]) -> Optional[str]:
+    """심볼 집합의 대표 시장("KOSPI"/"KOSDAQ"), 판정 불가면 None.
+
+    지정 종목·테마 유니버스는 심볼을 직접 넘기므로 universe_id가 None이고
+    (strategy_converter: ``"universe_id": None if target_symbols else universe_id``),
+    그래서 벤치마크 선택이 시장 정보를 잃은 채 기본값(KODEX 200)으로 떨어졌다 —
+    코스닥 종목만 담긴 백테스트가 코스피200과 비교되던 원인. 마스터의 market
+    필드로 다수결을 내어 벤치마크가 실제 시장을 따라가게 한다.
+
+    ETF처럼 주식 마스터에 없는 심볼만 있으면 None(호출자가 기본값을 쓴다).
+    """
+    wanted = set(symbols or [])
+    if not wanted:
+        return None
+    counts: dict[str, int] = {}
+    for s in _load_master():
+        if s["symbol"] in wanted:
+            market = s.get("market")
+            if market in ("KOSPI", "KOSDAQ"):
+                counts[market] = counts.get(market, 0) + 1
+    if not counts:
+        return None
+    # 동수면 KOSPI — 시가총액 비중이 큰 쪽을 대표로 둔다.
+    return max(counts, key=lambda m: (counts[m], m == "KOSPI"))
 
 
 def get_shares(symbols: list[str]) -> dict[str, float]:

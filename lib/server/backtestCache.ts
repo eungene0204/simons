@@ -283,6 +283,7 @@ function buildBacktestSummary(result: any) {
     perAssetStats: result.perAssetStats ?? null,
     equity: result.equity ?? [],
     benchmarkEquity: result.benchmark_equity ?? result.benchmarkEquity ?? [],
+    benchmarkPartial: result.benchmark_partial ?? result.benchmarkPartial ?? false,
     dates: result.dates ?? [],
     warnings: result.warnings ?? [],
     executionTime: result.executionTime ?? 0,

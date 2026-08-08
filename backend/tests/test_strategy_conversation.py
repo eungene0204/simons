@@ -2280,64 +2280,6 @@ def test_streaming_stages_not_emitted_in_modify_mode():
     assert stages == []
 
 
-def test_recall_repair_losing_the_strategy_keeps_the_earlier_interpretation():
-    """실측 사고(2026-07-27): 1차 출력은 정상인데 수치 하나가 빠져 재요청했더니 9B가
-    수정 턴처럼 patches만(strategy=null) 돌려줬다. 그 출력으로 교체되면 초기 파스에는
-    적용할 초안이 없어 정상 해석 전체가 해석 실패로 종결된다 — 재요청 출력을 폐기하고
-    직전 해석을 유지해야 한다(수치 누락은 요청을 실패시킬 사유가 아니다)."""
-    first = json.dumps(_full_intent_dict(
-        entry_conditions=[{"factor": "fundamental.roe_or_gpa", "operator": ">=", "value": 10}],
-    ), ensure_ascii=False)
-    patches_only = json.dumps({
-        "intent": "MODIFY_STRATEGY", "status": "READY", "strategy": None,
-        "patches": [{"op": "add", "path": "/entry_conditions/-",
-                     "value": {"factor": "fundamental.trading_value",
-                               "operator": ">=", "value": 50, "unit": "억원"}}],
-        "confidence": 1.0,
-    }, ensure_ascii=False)
-    calls = []
-
-    def chat(system, user):
-        calls.append(user)
-        return first if len(calls) == 1 else patches_only
-
-    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(
-        "ROE 10% 이상이면서 일평균 거래대금이 50억 원 이상인 종목 매수"
-    )
-    assert len(calls) == 2, "누락 수치 재요청이 실행돼야 한다"
-    assert result.repair_attempts == 1
-    # 재요청 출력이 아니라 1차 해석이 살아남는다.
-    assert result.intent.intent == "CREATE_STRATEGY"
-    assert result.intent.strategy is not None
-    assert result.intent.strategy.entry_conditions[0].factor == "fundamental.roe_or_gpa"
-    # 끝까지 반영되지 못한 수치는 결과에 실려 하류가 사용자에게 알린다(조용한 누락 금지).
-    assert result.unreflected_numbers == ["50억"]
-
-
-def test_recall_repair_full_strategy_is_adopted():
-    """재요청이 정상적으로 전체 전략을 돌려주면 그 결과를 채택한다."""
-    first = json.dumps(_full_intent_dict(
-        entry_conditions=[{"factor": "fundamental.roe_or_gpa", "operator": ">=", "value": 10}],
-    ), ensure_ascii=False)
-    repaired = json.dumps(_full_intent_dict(
-        entry_conditions=[
-            {"factor": "fundamental.roe_or_gpa", "operator": ">=", "value": 10},
-            {"factor": "fundamental.trading_value", "operator": ">=", "value": 50},
-        ],
-    ), ensure_ascii=False)
-    calls = []
-
-    def chat(system, user):
-        calls.append(user)
-        return first if len(calls) == 1 else repaired
-
-    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(
-        "ROE 10% 이상이면서 일평균 거래대금이 50억 원 이상인 종목 매수"
-    )
-    assert len(result.intent.strategy.entry_conditions) == 2
-    assert result.unreflected_numbers == []
-
-
 def test_extract_json_object_from_codefence():
     raw = "```json\n{\"a\": {\"b\": 1}}\n```"
     assert json.loads(extract_json_object(raw)) == {"a": {"b": 1}}
@@ -3131,3 +3073,56 @@ def test_provenance_untouched_when_nothing_was_rejected():
     _drop_rejected_provenance(result)
     assert result["explicit_fields"] == ["universe"]
     assert result["field_states"] == {"유니버스": {"value": "CONFIRMED"}}
+
+
+def test_recall_gap_does_not_trigger_a_second_llm_call():
+    """수치가 빠져도 재생성을 요청하지 않는다 — 재요청 폐지(2026-08-07).
+
+    전수 실측: 재요청 62건 중 45건이 아무것도 고치지 못했고(47%는 1차와 바이트 동일 —
+    temperature=0), 고친 17건도 진짜 구제 3건 대 훼손 3건이었다(정성 표현의 의도적
+    되묻기를 유령 숫자로 덮어 PER≤1을 만든 실측). 품질은 본전인데 누적 2,445초를 썼다.
+    대신 누락 목록은 1차 프롬프트의 체크리스트로 앞당겼다.
+
+    탐지 자체는 남는다 — unreflected_numbers는 계속 채워져 진단과 '근거 없는 기간
+    비우기'를 먹인다.
+    """
+    only = json.dumps(_full_intent_dict(
+        entry_conditions=[{"factor": "fundamental.roe_or_gpa", "operator": ">=", "value": 10}],
+    ), ensure_ascii=False)
+    calls = []
+
+    def chat(system, user):
+        calls.append(user)
+        return only
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(
+        "ROE 10% 이상이면서 일평균 거래대금이 50억 원 이상인 종목 매수"
+    )
+
+    assert len(calls) == 1, "수치 누락으로 두 번째 호출을 하면 안 된다"
+    assert result.repair_attempts == 0
+    # 1차 프롬프트가 체크리스트를 실어 보냈다.
+    assert "입력에 등장한 수치" in calls[0] and "50억" in calls[0]
+    # 탐지는 살아 있다(진단·기간 비우기의 입력).
+    assert result.unreflected_numbers == ["50억"]
+    # 1차 해석은 그대로 살아남는다.
+    assert result.intent.strategy.entry_conditions[0].factor == "fundamental.roe_or_gpa"
+
+
+def test_schema_repair_retry_still_works():
+    """스키마 복구 재시도는 그대로다 — 폐지한 것은 '수치 누락' 재요청뿐이다."""
+    broken = "{ this is not json"
+    fixed = json.dumps(_full_intent_dict(
+        entry_conditions=[{"factor": "technical.rsi", "operator": "<=", "value": 30}],
+    ), ensure_ascii=False)
+    calls = []
+
+    def chat(system, user):
+        calls.append(user)
+        return broken if len(calls) == 1 else fixed
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret("RSI 30 이하에서 매수")
+
+    assert len(calls) == 2
+    assert result.repair_attempts == 1
+    assert result.intent.strategy.entry_conditions[0].factor == "technical.rsi"
