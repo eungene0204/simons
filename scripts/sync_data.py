@@ -119,6 +119,28 @@ def _fetch_kind_market(market_type: str, market_label: str) -> list[dict]:
     return result
 
 
+def needs_fundamental_enrichment(parquet_path, symbol) -> bool:
+    """이 종목의 parquet에 재무 보강이 필요한지.
+
+    종합 펀더멘털(roa=신규 팩터 sentinel)이 이미 있고 캐시가 유효하면 건너뛴다
+    (roe만 보면 구버전 컬럼만 가진 종목이 영구 스킵되어 신규 팩터가 안 채워진다).
+
+    판정은 **마지막 행** 기준이다(2026-08-08). `notna().any()`로 보면 한 행이라도 값이
+    있는 순간 영구 스킵되는데, OHLCV 갱신이 새로 붙인 봉은 재무 컬럼이 null이라
+    (pykrx 응답에 없어 `pl.lit(None)`로 맞춘다) 그 null이 **캐시 만료(90일) 전까지
+    채워지지 않았다** — 최근 구간의 재무 필터·랭킹이 종목에 따라 통째로 비는 원인이다.
+    마지막 행을 보면 매 동기화가 그날 붙인 봉을 그 자리에서 메운다. 보강은 결측만
+    채우므로(merge_fundamentals=기존 값 우선) 반복해도 기존 값을 덮지 않는다.
+    """
+    df_check = pd.read_parquet(parquet_path)
+    has_roa = (
+        "roa" in df_check.columns
+        and not df_check.empty
+        and pd.notna(df_check["roa"].iloc[-1])
+    )
+    return not (has_roa and _read_cache(symbol) is not None)
+
+
 def sync_symbols(stocks_path):
     """Fetch latest KOSPI/KOSDAQ symbols and update korea-stocks.json.
 
@@ -422,14 +444,8 @@ def main(argv=None):
             fund_skip += 1
             continue
 
-        # 이미 종합 펀더멘털(roa=신규 팩터 sentinel)이 있고 캐시가 유효하면 건너뜀.
-        # (roe만 보면 구버전 컬럼만 가진 종목이 영구 스킵되어 신규 팩터가 안 채워진다.
-        #  캐시 만료(분기 공시 주기)나 신규 상장 시 자동으로 다시 보강된다.)
         try:
-            df_check = pd.read_parquet(parquet_path)
-            has_roa = "roa" in df_check.columns and df_check["roa"].notna().any()
-            has_valid_cache = _read_cache(symbol) is not None
-            if has_roa and has_valid_cache:
+            if not needs_fundamental_enrichment(parquet_path, symbol):
                 fund_skip += 1
                 continue
         except Exception:
