@@ -723,6 +723,8 @@ RiskManagement {
 
 본 항의 (1)은 최근 구간(직전 결산 공시 이후)의 재무 필터·랭킹 통과 종목과 PER 기반 전략 결과를 바꾸므로 엔진 MAJOR(v10.0)로 올린다 — 저장된 전략의 과거 백테스트 결과는 재현되지 않는다.
 
+**FR-BT-052i** [야간 보강의 신규 봉 결측 처리, 2026-08-08] OHLCV 일일 갱신이 새로 붙인 봉은 재무 컬럼이 비어 있다(pykrx 응답에 재무가 없어 기존 컬럼 기준으로 null을 채운다). 뒤따르는 펀더멘털 보강 단계는 이 결측을 **같은 실행 안에서** 메워야 하며, 보강 여부 판정은 파케이 **마지막 행**을 기준으로 해야 한다. "한 행이라도 값이 있으면 건너뛴다"(`notna().any()`)는 판정은 새 봉의 결측을 캐시 만료(90일) 전까지 방치해, 최근 구간의 재무 필터·랭킹이 종목에 따라 통째로 비게 만든다 — 캐시를 일괄 갱신하면 만료 시계가 초기화되어 증상이 더 길어진다. 보강은 결측만 채우므로(기존 파케이 값 우선) 매 실행 반복해도 기존 값을 덮지 않는다. 종합 팩터 sentinel(`roa`) 컬럼이 아예 없거나 캐시가 만료된 경우 보강 대상이라는 기존 계약은 유지한다.
+
 **구현 파일:**
 - `backend/engine/fundamental_status.py` — 상태코드 순수 함수 (신규)
 - `backend/engine/fundamental_fetcher.py` — `_compute_derived_annual_metrics`, `_parse_dart_activity_cash_flow`, `_parse_dart_capex`, `_parse_dart_total_equity`
