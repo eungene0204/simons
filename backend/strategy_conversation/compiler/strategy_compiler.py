@@ -20,7 +20,10 @@ from strategy_conversation.interpreter.models import (
     StrategyIntent,
     ValidationReport,
 )
-from strategy_conversation.registry.concept_ontology import natural_ranking_direction
+from strategy_conversation.registry.concept_ontology import (
+    logger as ontology_logger,
+    natural_ranking_direction,
+)
 from strategy_conversation.registry.indicator_registry import REGISTRY
 from strategy_conversation.registry.universe_resolver import resolve_sectors, resolve_symbols
 
@@ -195,6 +198,7 @@ def _condition_label(cond: StrategyCondition) -> str:
 
     cls_name = class_display_name(cond.factor)
     if cls_name:
+        ontology_logger.info("분류 표시명 | %s → %s 지표", cond.factor, cls_name)
         return f"{cls_name} 지표"
     return str(cond.factor).rsplit(".", 1)[-1]
 
@@ -272,6 +276,11 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
             direction = rank.direction or natural_ranking_direction(rank.metric)
             # top은 엔진 기본값이라 저장하지 않는다(방향 미지정 기존 전략의 해시 불변).
             ranking_direction = "bottom" if direction == "bottom" else None
+            ontology_logger.info(
+                "랭킹 방향 확정 | metric=%s 사용자명시=%s 최종=%s(저장=%s)",
+                rank.metric, rank.direction or "없음(온톨로지 조회)",
+                direction or "미정", ranking_direction,
+            )
         else:
             ranking_metric = "return"
             ranking_lookback = rank.lookback_days

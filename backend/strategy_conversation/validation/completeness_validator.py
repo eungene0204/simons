@@ -15,7 +15,11 @@ from strategy_conversation.interpreter.models import (
     ClarificationQuestion,
     StrategyIntent,
 )
-from strategy_conversation.registry.concept_ontology import class_choice, is_class_id
+from strategy_conversation.registry.concept_ontology import (
+    class_choice,
+    is_class_id,
+    logger as ontology_logger,
+)
 from strategy_conversation.registry.indicator_registry import REGISTRY
 
 MAX_QUESTIONS_PER_TURN = 3
@@ -89,6 +93,11 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
             # 않아 노출 금지이고, 자유 서술 답변은 수정 인터프리터 레인이 처리한다.
             if is_class_id(cond.factor):
                 choice = class_choice(cond.factor)
+                ontology_logger.info(
+                    "분류 되묻기 생성 | %s 조건 %s → 선택지 %s",
+                    role, cond.factor,
+                    f"{len(choice[1])}개" if choice else "없음(질문 생략)",
+                )
                 if choice is not None:
                     cls_name, options = choice
                     quoted = (

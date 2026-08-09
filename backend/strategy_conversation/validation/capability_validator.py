@@ -13,7 +13,11 @@ from typing import List, Tuple
 
 from strategy_conversation.interpreter.models import StrategyIntent
 from strategy_conversation.registry import capability_registry as caps
-from strategy_conversation.registry.concept_ontology import concept_spec, is_class_id
+from strategy_conversation.registry.concept_ontology import (
+    concept_spec,
+    is_class_id,
+    logger as ontology_logger,
+)
 from strategy_conversation.registry.indicator_registry import REGISTRY, resolve
 
 
@@ -44,6 +48,7 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 # 정규화), 파라미터는 **사용자가 말한 값이 우선**이며 빈 자리만 채운다.
                 # 전개 후에는 일반 잎 경로(canonical 정규화·지원 판정)로 계속 간다.
                 exp = concept.expansion
+                before = (cond.operator, dict(cond.parameters))
                 cond.factor = exp["factor"]
                 if exp.get("operator"):
                     cond.operator = exp["operator"]
@@ -68,11 +73,21 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                         f"'{concept.name}'의 기간은 커스텀이 지원되지 않아 표준 설정으로 "
                         "실행됩니다 — 말씀하신 기간 값은 반영되지 않았어요."
                     )
+                ontology_logger.info(
+                    "개념 전개 | %s 조건 %s(%s) → factor=%s operator=%s(LLM=%s) "
+                    "parameters=%s(LLM=%s) 커스텀기간드롭=%s",
+                    role, concept.name, concept.id, cond.factor, cond.operator,
+                    before[0], cond.parameters, before[1], custom_dropped,
+                )
             if is_class_id(cond.factor):
                 # 분류(클래스) 발화 — 사용자가 "모멘텀 지표 하나"처럼 계열만 말해
                 # LLM이 온톨로지 분류 ID를 낸 조건(프롬프트 2.9 계약). 오류·미지원이
                 # 아니라 **선택 대기**다: completeness_validator가 구체 지표 되묻기를
                 # 만들고, compile_partial이 pending_conditions로 제외한다.
+                ontology_logger.info(
+                    "분류 발화 통과(선택 대기) | %s 조건 factor=%s 원문=%r",
+                    role, cond.factor, cond.source_text,
+                )
                 kept.append(cond)
                 continue
             spec = resolve(cond.factor)
