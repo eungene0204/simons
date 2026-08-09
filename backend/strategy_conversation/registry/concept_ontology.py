@@ -25,7 +25,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from engine.console_logging import console_logger
 from strategy_conversation.registry.indicator_registry import REGISTRY, _SPECS
+
+# 온톨로지 사용 추적 채널 — "어떤 지식이 언제 어느 판정에 쓰였는가"를 한 태그로 모은다.
+# 소비 지점(검증·되묻기·컴파일)도 이 로거를 가져다 쓰므로 [ONTOLOGY] 하나만 grep하면
+# 한 요청에서 온톨로지가 개입한 지점이 순서대로 보인다.
+logger = console_logger("concept_ontology", "ONTOLOGY")
 
 _BASE_DIR = Path(__file__).resolve().parents[3]  # 레포 루트(data/의 부모)
 _SEED_PATH = _BASE_DIR / "data" / "indicator-ontology.json"
@@ -193,6 +199,13 @@ def _build() -> Ontology:
         k: v for k, v in (raw.get("polarity") or {}).items() if not k.startswith("_")
     }
     issues = _validate(classes, members, concepts, polarity)
+    logger.info(
+        "시드 로드 | 분류=%d 잎=%d 개념=%d(LLM출력=%d) polarity=%d 무결성위반=%d",
+        len(classes), len(members), len(concepts),
+        sum(1 for c in concepts.values() if c.llm_output), len(polarity), len(issues),
+    )
+    for issue in issues:
+        logger.warning("무결성 위반: %s", issue)
     return Ontology(
         classes=classes, members=members, concepts=concepts,
         polarity=polarity, issues=tuple(issues),
@@ -235,6 +248,7 @@ def class_choice(factor: str) -> Optional[Tuple[str, List[str]]]:
     ontology = get_ontology()
     cls = ontology.classes.get(factor)
     if cls is None:
+        logger.info("분류 선택지 조회 실패(미지 분류) | factor=%s", factor)
         return None
     leaves = [
         REGISTRY[leaf].display_name.split("(")[0].strip()
@@ -242,10 +256,18 @@ def class_choice(factor: str) -> Optional[Tuple[str, List[str]]]:
         if leaf in REGISTRY and REGISTRY[leaf].supported != "UNSUPPORTED"
     ]
     if leaves:
+        logger.info(
+            "분류 선택지 조회 | %s(%s) → 직속 잎 %d개: %s",
+            cls.name, cls.id, len(leaves), ", ".join(leaves),
+        )
         return cls.name, leaves
     children = [
         c.name for c in ontology.child_classes(cls.id) if _has_supported(c.id, ontology)
     ]
+    logger.info(
+        "분류 선택지 조회 | %s(%s) → 하위 분류 %d개: %s",
+        cls.name, cls.id, len(children), ", ".join(children),
+    )
     return cls.name, children
 
 
@@ -276,11 +298,12 @@ def natural_ranking_direction(metric: Optional[str]) -> Optional[str]:
     미선언은 None을 반환해 기존 동작을 그대로 둔다 — 억지 방향을 만들지 않는다.
     """
     pol = polarity_of(metric)
-    if pol == LOWER_BETTER:
-        return "bottom"
-    if pol == HIGHER_BETTER:
-        return "top"
-    return None
+    direction = {LOWER_BETTER: "bottom", HIGHER_BETTER: "top"}.get(pol or "")
+    logger.info(
+        "랭킹 방향 보충 | metric=%s polarity=%s → direction=%s",
+        metric, pol or "미선언", direction or "없음(엔진 기본값 유지)",
+    )
+    return direction
 
 
 def concept_spec(factor: Optional[str]) -> Optional[ConceptSpec]:
@@ -354,6 +377,12 @@ def ontology_prompt_sections() -> List[str]:
     for cls in ontology.child_classes("class.indicator"):
         if cls.id not in ordered_roots:
             render(cls.id, 0)
+    headers = [line for line in lines if line.startswith("#")]
+    logger.info(
+        "프롬프트 어휘 주입 | 분류 섹션=%d 잎 줄=%d (섹션: %s)",
+        len(headers), len(lines) - len(headers),
+        ", ".join(h.lstrip("# ").split(" (")[0] for h in headers),
+    )
     return lines
 
 
@@ -401,6 +430,14 @@ def concept_prompt_lines() -> List[str]:
         lines.append(
             f"- {concept.name} = {exp.get('factor')} {op}{params_txt} — {concept.description}"
         )
+    llm_output_names = [
+        c.name for c in ontology.concepts.values()
+        if c.llm_output and c.supported != "UNSUPPORTED" and c.expansion is not None
+    ]
+    logger.info(
+        "프롬프트 개념 주입 | 개념 줄=%d (LLM 출력 계약: %s)",
+        len(lines), ", ".join(llm_output_names) or "없음",
+    )
     return lines
 
 

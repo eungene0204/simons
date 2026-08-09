@@ -31,6 +31,7 @@ import OptimizationPage from "./OptimizationPage";
 import BacktestSummaryCard from "./BacktestSummaryCard";
 import QuantileGroupsSection from "./QuantileGroupsSection";
 import { buildAiReportMetrics, hasAiReportArtifact } from "./aiReportMetrics";
+import { formatProfitFactor, profitFactorForRanking } from "@/lib/format-profit-factor";
 import {
   type AiReportData,
   reportFromSummaryResponse,
@@ -58,7 +59,7 @@ const rollingWindowLabel = (months: number) =>
 
 function calculateScore(r: {
   cagr?: number; maxDrawdown?: number; sharpe?: number;
-  profitFactor?: number; winRate?: number;
+  profitFactor?: number | null; winRate?: number;
 }): number {
   const scoreCagr = (v?: number) => {
     if (v == null) return 50;
@@ -90,7 +91,7 @@ function calculateScore(r: {
     scoreCagr(r.cagr) * 0.30 +
     scoreMdd(r.maxDrawdown) * 0.25 +
     scoreSharpe(r.sharpe) * 0.20 +
-    scorePf(r.profitFactor) * 0.15 +
+    scorePf(profitFactorForRanking(r.profitFactor)) * 0.15 +
     scoreWr(r.winRate) * 0.10
   );
 }
@@ -100,6 +101,10 @@ function metricValueColor(value: number): string {
   if (value < 0) return "text-[var(--main-blue)]";
   return "text-white";
 }
+
+// 엔진(v12.0)과 같은 연환산 기준 — KRX 실측 연 246 거래일. 이 폴백들은 엔진 값이
+// 없는 구버전 저장 결과에서만 쓰이지만, 기준이 다르면 같은 지표가 화면마다 어긋난다.
+const KRX_TRADING_DAYS_PER_YEAR = 246;
 
 function calculateAnnualizedVolatility(equity: number[]): number {
   const dailyReturns: number[] = [];
@@ -111,12 +116,13 @@ function calculateAnnualizedVolatility(equity: number[]): number {
     dailyReturns.push((current - previous) / previous);
   }
 
-  if (dailyReturns.length === 0) return 0;
+  if (dailyReturns.length < 2) return 0;
 
   const mean = dailyReturns.reduce((sum, value) => sum + value, 0) / dailyReturns.length;
-  const variance = dailyReturns.reduce((sum, value) => sum + (value - mean) ** 2, 0) / dailyReturns.length;
+  // 표본 표준편차(ddof=1) — 엔진과 동일. 모집단 기준(n)은 변동성을 과소평가한다.
+  const variance = dailyReturns.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (dailyReturns.length - 1);
 
-  return Math.sqrt(variance) * Math.sqrt(252) * 100;
+  return Math.sqrt(variance) * Math.sqrt(KRX_TRADING_DAYS_PER_YEAR) * 100;
 }
 
 function calculateSortinoRatio(equity: number[]): number {
@@ -136,7 +142,7 @@ function calculateSortinoRatio(equity: number[]): number {
     dailyReturns.reduce((sum, value) => sum + Math.min(value, 0) ** 2, 0) / dailyReturns.length
   );
 
-  return downsideDeviation > 0 ? (meanReturn * Math.sqrt(252)) / downsideDeviation : 0;
+  return downsideDeviation > 0 ? (meanReturn * Math.sqrt(KRX_TRADING_DAYS_PER_YEAR)) / downsideDeviation : 0;
 }
 
 function calculateTurnoverRate(trades: BacktestResult["tradesList"], equity: number[]): number {
@@ -325,8 +331,8 @@ export function metricTooltip(definition: string, formula: string, guideline: st
 const BASE_METRIC_DESCRIPTIONS: BaseMetricDescriptions = {
   cagr: metricTooltip("연평균수익률(CAGR)은 전체 수익률을 연간 복리 성장률로 환산한 값입니다.", "CAGR = ((최종 자산 / 초기 자본)^(1 / 기간(년)) - 1) × 100", "🟢 높음: 20% 이상\n🟡 중간: 10% ~ 20%\n🔴 낮음: 10% 미만"),
   mdd: metricTooltip("최대 낙폭(MDD)은 전고점 대비 가장 크게 하락한 비율입니다.", "MDD = min((기간별 자산 / 이전 최고 자산 - 1) × 100)", "🟢 낮음: 10% 미만\n🟡 중간: 10% ~ 20%\n🔴 높음: 20% 초과"),
-  sharpe: metricTooltip("샤프 지수는 전체 변동성 대비 초과 수익의 비율입니다.", "Sharpe = (일별 초과수익 평균 / 일별 수익률 표준편차) × √252", "🟢 높음: 1.5 이상\n🟡 중간: 1.0 ~ 1.5\n🔴 낮음: 1.0 미만"),
-  sortino: metricTooltip("소티노 지수는 목표 수익률(기본 0%)보다 낮은 수익률의 하방편차만 고려한 위험 대비 수익 지표입니다.", "Sortino = (일별 초과수익 평균 / 하방편차) × √252", "🟢 높음: 2.0 이상\n🟡 중간: 1.0 ~ 2.0\n🔴 낮음: 1.0 미만"),
+  sharpe: metricTooltip("샤프 지수는 전체 변동성 대비 초과 수익의 비율입니다.", "Sharpe = (일별 초과수익 평균 / 일별 수익률 표준편차) × √246 (KRX 연 거래일)", "🟢 높음: 1.5 이상\n🟡 중간: 1.0 ~ 1.5\n🔴 낮음: 1.0 미만"),
+  sortino: metricTooltip("소티노 지수는 목표 수익률(기본 0%)보다 낮은 수익률의 하방편차만 고려한 위험 대비 수익 지표입니다.", "Sortino = (일별 초과수익 평균 / 하방편차) × √246 (KRX 연 거래일)", "🟢 높음: 2.0 이상\n🟡 중간: 1.0 ~ 2.0\n🔴 낮음: 1.0 미만"),
   profitFactor: metricTooltip("손익비는 총 이익을 총 손실로 나눈 값입니다.", "손익비 = 총 이익 / |총 손실|", "🟢 높음: 2.0 이상\n🟡 중간: 1.5 ~ 2.0\n🔴 낮음: 1.5 미만"),
   totalReturn: metricTooltip("투자 수익률(ROI)은 백테스트 시작부터 종료까지의 누적 자산 변동 비율입니다.", "ROI = ((최종 자산 - 초기 자본) / 초기 자본) × 100", "🟢 양수: 시작 자본보다 최종 자산이 큼\n🟡 0%: 시작 자본과 최종 자산이 같음\n🔴 음수: 시작 자본보다 최종 자산이 작음"),
   buyHold: (label: string) =>
@@ -337,7 +343,7 @@ const BASE_METRIC_DESCRIPTIONS: BaseMetricDescriptions = {
       `초과수익률 = 전략 수익률(%) - ${label} 수익률(%)  → 단위는 %p(퍼센트 포인트)`,
       "🟢 양수: 전략 수익률이 기준 지수보다 높았음\n🟡 0%p 부근: 기준 지수와 비슷했음\n🔴 음수: 전략 수익률이 기준 지수보다 낮았음\n\n※ 두 값이 모두 음수일 때 양수인 초과수익률은 '덜 하락했다'는 뜻이며 이익을 의미하지 않습니다.",
     ),
-  volatility: metricTooltip("연간 변동성은 일별 수익률의 표준편차를 연간 단위로 환산한 값입니다.", "변동성 = 일별 수익률 표준편차 × √252 × 100", "🟢 낮음: 15% 미만\n🟡 중간: 15% ~ 25%\n🔴 높음: 25% 초과"),
+  volatility: metricTooltip("연간 변동성은 일별 수익률의 표준편차를 연간 단위로 환산한 값입니다.", "변동성 = 일별 수익률 표준편차 × √246 × 100 (KRX 연 거래일)", "🟢 낮음: 15% 미만\n🟡 중간: 15% ~ 25%\n🔴 높음: 25% 초과"),
   calmar: metricTooltip("칼마 비율은 최대 낙폭 대비 연평균수익률의 비율입니다.", "칼마 비율 = CAGR / |MDD|", "🟢 높음: 1.0 이상\n🟡 중간: 0.5 ~ 1.0\n🔴 낮음: 0.5 미만"),
   avgHoldingDays: metricTooltip("평균 보유일은 진입 후 청산까지의 평균 보유 거래일입니다.", "평균 보유일 = 완료 거래의 총 보유일 / 완료 거래 수", "🟢 단기: 1 ~ 3일\n🟡 중기: 5 ~ 20일\n🔴 장기: 20일 초과"),
   exposure: metricTooltip("시장 노출도는 백테스트 기간 중 포지션을 하나라도 보유한 날의 비율입니다.", "시장 노출도 = 포지션 보유일 수 / 전체 거래일 수 × 100", "🟢 낮음: 30% 미만\n🟡 중간: 30% ~ 70%\n🔴 높음: 70% 초과"),
@@ -828,7 +834,7 @@ export default function BacktestDashboard({
               cagr: result.cagr || 0,
               mdd: result.maxDrawdown || 0,
               winRate: result.winRate || 0,
-              profitFactor: result.profitFactor || 0,
+              profitFactor: result.profitFactor ?? null,
               buyHold: result.buyAndHoldReturn || 0,
               trades: result.trades || 0,
               executionTime: result.executionTime ?? 0,
@@ -1075,8 +1081,8 @@ export default function BacktestDashboard({
     {
       label: "손익비",
       englishLabel: "Profit Factor",
-      value: result.profitFactor.toFixed(2),
-      valueClass: result.profitFactor > 1 ? "text-[var(--main-red)]" : result.profitFactor < 1 ? "text-[var(--main-blue)]" : "text-white",
+      value: formatProfitFactor(result.profitFactor),
+      valueClass: (result.profitFactor ?? Infinity) > 1 ? "text-[var(--main-red)]" : (result.profitFactor ?? Infinity) < 1 ? "text-[var(--main-blue)]" : "text-white",
       description: BASE_METRIC_DESCRIPTIONS.profitFactor,
     },
   ];
@@ -1692,7 +1698,8 @@ export default function BacktestDashboard({
                             { label: "Sharpe", ours: result.sharpe, vbt: result.vbtResult.sharpe, fmt: (v: number) => v.toFixed(2), unit: "" },
                             { label: "Sortino", ours: result.sortino, vbt: result.vbtResult.sortino, fmt: (v: number) => v.toFixed(2), unit: "" },
                             { label: "승률", ours: result.winRate, vbt: result.vbtResult.winRate, fmt: (v: number) => `${v.toFixed(1)}%`, unit: "%" },
-                            { label: "손익비", ours: result.profitFactor, vbt: result.vbtResult.profitFactor, fmt: (v: number) => v.toFixed(2), unit: "" },
+                            // 손익비만 ours가 무한대(손실 0건)일 수 있다 — fmt/차이 표기가 Infinity를 견뎌야 한다
+                            { label: "손익비", ours: result.profitFactor ?? Infinity, vbt: result.vbtResult.profitFactor, fmt: (v: number) => (Number.isFinite(v) ? v.toFixed(2) : "∞"), unit: "" },
                             { label: "거래 수", ours: result.trades, vbt: result.vbtResult.trades, fmt: (v: number) => `${v}`, unit: "" },
                             { label: "변동성", ours: (result.volatility || 0), vbt: (result.vbtResult.volatility || 0), fmt: (v: number) => `${v.toFixed(2)}%`, unit: "%", invertDiff: true },
                           ].map((row) => {
@@ -1718,7 +1725,7 @@ export default function BacktestDashboard({
                                   {row.fmt(row.vbt)}
                                 </td>
                                 <td className={`py-2 px-3 text-xs font-bold text-right font-mono ${diffColor}`}>
-                                  {absDiff < 0.01 ? "-" : `${diff >= 0 ? "+" : ""}${row.unit === "%" ? diff.toFixed(2) + "%" : diff.toFixed(2)}`}
+                                  {!Number.isFinite(diff) || absDiff < 0.01 ? "-" : `${diff >= 0 ? "+" : ""}${row.unit === "%" ? diff.toFixed(2) + "%" : diff.toFixed(2)}`}
                                 </td>
                               </tr>
                             );
@@ -2296,7 +2303,7 @@ function BacktestTerminalLog({
 
   // 리스크 지표
   logs.push({ level: "INFO", ts: ts(20), message: `MDD: ${(result.maxDrawdown ?? 0).toFixed(2)}% / Sharpe: ${(result.sharpe ?? 0).toFixed(2)} / Calmar: ${(result.calmar ?? 0).toFixed(2)} / 평균보유일: ${Math.round(result.avgHoldingDays ?? 0)}일` });
-  logs.push({ level: "INFO", ts: ts(21), message: `승률: ${(result.winRate ?? 0).toFixed(1)}% / 손익비: ${(result.profitFactor ?? 0).toFixed(2)} / CAGR: ${(result.cagr ?? 0).toFixed(2)}%` });
+  logs.push({ level: "INFO", ts: ts(21), message: `승률: ${(result.winRate ?? 0).toFixed(1)}% / 손익비: ${formatProfitFactor(result.profitFactor)} / CAGR: ${(result.cagr ?? 0).toFixed(2)}%` });
 
   if ((result.avgProfit ?? 0) !== 0 || (result.avgLoss ?? 0) !== 0) {
     logs.push({ level: "INFO", ts: ts(22), message: `평균수익: +${(result.avgProfit ?? 0).toFixed(2)}% / 평균손실: -${(result.avgLoss ?? 0).toFixed(2)}%` });

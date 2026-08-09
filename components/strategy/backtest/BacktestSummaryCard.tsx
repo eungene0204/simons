@@ -18,6 +18,7 @@ import {
 } from "phosphor-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { buildAiReportMetrics } from "./aiReportMetrics";
+import { profitFactorForRanking } from "@/lib/format-profit-factor";
 import { type AiReportData, reportFromSummaryResponse } from "./aiReport";
 
 interface BacktestSummaryCardProps {
@@ -286,7 +287,7 @@ export default function BacktestSummaryCard({
   const hasContent = !loading && !!summary;
   const profitabilityScore = clampScore(
     metricToScore(result.cagr, [5, 10, 20], false, 0) * 0.6 +
-    metricToScore(result.profitFactor, [1, 1.5, 2]) * 0.4
+    metricToScore(profitFactorForRanking(result.profitFactor), [1, 1.5, 2]) * 0.4
   );
   const stabilityScore = clampScore(
     metricToScore(Math.abs(result.maxDrawdown ?? 0), [10, 20, 30], true) * 0.6 +

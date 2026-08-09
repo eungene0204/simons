@@ -173,10 +173,12 @@ export interface BacktestResult {
   buyAndHoldReturn: number;
   maxDrawdown: number;
   winRate: number;
-  profitFactor: number;
+  /** 총이익÷총손실. null = 손실 거래 0건이라 정의되지 않음(∞) — 0(이익 없음)과 다르다 */
+  profitFactor: number | null;
   sharpe: number;
   sortino: number;
-  kelly?: number;
+  /** 켈리 기준(%) = W − (1−W)/R. null = 승·패 한쪽 표본이 없어 R을 못 구함 */
+  kelly?: number | null;
   volatility?: number;
   calmar?: number;
   avgHoldingDays?: number;
@@ -315,7 +317,8 @@ export interface BacktestHistoryItem {
     cagr: number;
     mdd: number;
     winRate: number;
-    profitFactor: number;
+    /** null = 손실 거래 0건이라 정의되지 않음(∞) */
+    profitFactor: number | null;
     buyHold: number;
     trades: number;
     executionTime?: number;

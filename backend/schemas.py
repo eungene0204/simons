@@ -143,7 +143,10 @@ class BacktestResponse(BaseModel):
     buyAndHoldReturn: float
     maxDrawdown: float
     winRate: float
-    profitFactor: float
+    # null = 손실 거래가 0건이라 총이익÷총손실이 정의되지 않음(∞). 0.0(=이익 없음)과 다르다.
+    profitFactor: Optional[float] = None
+    # 켈리 기준(%) = W − (1−W)/R. 승·패 한쪽 표본이 없으면 R을 못 구해 null.
+    kelly: Optional[float] = None
     sharpe: float
     sortino: float
     calmar: Optional[float] = 0.0

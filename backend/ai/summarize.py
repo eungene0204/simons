@@ -75,11 +75,18 @@ def calculate_score(m: dict) -> int:
         if v >= 45: return 40
         return max(0, int(v / 55 * 100))
 
+    # 손익비 null(키는 있는데 값이 None)은 손실 거래 0건(∞)이라는 뜻이다 — 프론트
+    # 점수식(profitFactorForRanking)과 같은 999 상한으로 접는다. 키 자체가 없으면
+    # '값 모름'이므로 종전대로 중간 점수(50) 처리.
+    _pf = m.get("profitFactor")
+    if _pf is None and "profitFactor" in m:
+        _pf = 999.0
+
     weights = [
         (score_cagr(m.get("cagr")), 0.30),
         (score_mdd(m.get("maxDrawdown")), 0.25),
         (score_sharpe(m.get("sharpe")), 0.20),
-        (score_pf(m.get("profitFactor")), 0.15),
+        (score_pf(_pf), 0.15),
         (score_winrate(m.get("winRate")), 0.10),
     ]
     return round(sum(s * w for s, w in weights))
@@ -129,6 +136,11 @@ def _build_context_block(payload: dict) -> str:
 
     def fmt(v):
         return f"{v:.2f}" if v is not None else "N/A"
+
+    def _fmt_undefined(metrics: dict, key: str, undefined_note: str, unit: str = "") -> str:
+        """값이 정의되지 않는 지표(손익비·켈리)를 0으로 채우지 않고 이유와 함께 적는다."""
+        v = to_float(metrics.get(key))
+        return f"{v:.2f}{unit}" if v is not None else undefined_note
 
     def to_float(v):
         try:
@@ -244,11 +256,13 @@ def _build_context_block(payload: dict) -> str:
         f"- 최대 낙폭(MDD): {fmt(m.get('maxDrawdown'))}%\n"
         f"- 샤프 지수: {fmt(m.get('sharpe'))}\n"
         f"- 소르티노 지수: {fmt(m.get('sortino'))}\n"
-        f"- 손익비(Profit Factor): {fmt(m.get('profitFactor'))}\n"
+        # 손익비·켈리는 값이 없을 수 있다(손실 거래 0건 → 분모 0). 0.00으로 채우면
+        # LLM이 '손익비 0 = 최악'으로 서술한다 — 미정의는 미정의라고 알려준다.
+        f"- 손익비(Profit Factor): {_fmt_undefined(m, 'profitFactor', '손실 거래 없음(무한대)')}\n"
         f"- 승률: {fmt(m.get('winRate'))}%\n"
         f"- 총 거래 횟수: {m.get('trades', 'N/A')}\n"
         f"- 연간 변동성: {fmt(m.get('volatility'))}%\n"
-        f"- 켈리 기준: {fmt(m.get('kelly'))}%\n\n"
+        f"- 켈리 기준: {_fmt_undefined(m, 'kelly', '산출 불가(승 또는 패 표본 없음)', '%')}\n\n"
         "지표 해석 힌트(참고용):\n"
         f"{metric_hints}\n\n"
     )

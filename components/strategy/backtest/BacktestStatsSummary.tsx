@@ -1,6 +1,7 @@
 "use client";
 
 import { BacktestResult } from "@/types/strategy";
+import { formatProfitFactor } from "@/lib/format-profit-factor";
 
 interface Props {
   result: BacktestResult;
@@ -51,7 +52,13 @@ export default function BacktestStatsSummary({ result }: Props) {
     result.volatility ??
     (result.sharpe > 0 ? (result.cagr || 0) / result.sharpe : 0);
 
-  const alpha = (result.cagr || 0) - (result.buyAndHoldReturn || 0);
+  // 초과 수익은 **같은 기간 기준**끼리 뺀다. 과거에는 연율값(CAGR)에서 벤치마크의
+  // 구간 누적 수익률을 빼서 6년 백테스트에서 −48.5%p 같은 값이 나왔다(올바른 값은
+  // 총수익률 − 벤치마크 = −29.2%p). 벤치마크가 구간 일부만 덮으면 두 수익률의 기간이
+  // 달라 뺄셈 자체가 성립하지 않으므로 값을 내지 않는다(BacktestDashboard와 동일 규칙).
+  const alpha = result.benchmarkPartial
+    ? null
+    : (result.totalReturn || 0) - (result.buyAndHoldReturn || 0);
 
   const groups: Group[] = [
     {
@@ -68,14 +75,14 @@ export default function BacktestStatsSummary({ result }: Props) {
           color: returnColor(result.cagr),
         },
         {
-          label: "바이앤홀드",
+          label: result.benchmarkLabel?.replace(/\s*\(\d+\)$/, "") || "벤치마크",
           value: pct(result.buyAndHoldReturn),
           color: returnColor(result.buyAndHoldReturn),
         },
         {
           label: "초과 수익 (α)",
-          value: pct(alpha),
-          color: returnColor(alpha),
+          value: alpha == null ? "—" : pct(alpha),
+          color: returnColor(alpha ?? undefined),
         },
         {
           label: "최종 자산",
@@ -119,7 +126,7 @@ export default function BacktestStatsSummary({ result }: Props) {
         },
         {
           label: "켈리 기준",
-          value: pct(result.kelly),
+          value: result.kelly == null ? "—" : pct(result.kelly),
           color: "text-gray-300",
         },
       ],
@@ -139,8 +146,8 @@ export default function BacktestStatsSummary({ result }: Props) {
         },
         {
           label: "손익비",
-          value: num(result.profitFactor),
-          color: result.profitFactor >= 2 ? "text-emerald-400" : result.profitFactor >= 1.5 ? "text-yellow-400" : "text-red-400",
+          value: formatProfitFactor(result.profitFactor),
+          color: (result.profitFactor ?? Infinity) >= 2 ? "text-emerald-400" : (result.profitFactor ?? Infinity) >= 1.5 ? "text-yellow-400" : "text-red-400",
         },
         {
           label: "평균 수익",

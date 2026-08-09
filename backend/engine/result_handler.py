@@ -5,7 +5,77 @@ from typing import Dict, Any
 
 from engine.version import ENGINE_VERSION
 
+# 연환산 계수 — 일별 수익률의 평균·표준편차를 연 단위로 늘릴 때 곱하는 '연간 거래일 수'.
+# KRX 실측(005930 기준 2010~2024): 연평균 246.5 거래일. 미국 관례인 252를 쓰면 분모가
+# 실제보다 커서 샤프·소르티노·변동성을 약 1% 과대계상한다.
+KRX_TRADING_DAYS_PER_YEAR = 246.0
+
+# CAGR 표시 상한(%). 며칠짜리 퇴화 구간을 1년으로 늘리면 값이 float 범위를 넘어 발산한다.
+# 연 100만%를 넘는 지점부터는 어떤 숫자를 내도 정보가 아니므로 여기서 자른다.
+CAGR_CEILING_PCT = 1e6
+
+
 class ResultHandler:
+    @staticmethod
+    def time_base(common_index) -> "tuple[float, float]":
+        """(연수, 연환산 계수) — 모든 연환산의 단일 기준.
+
+        연수는 **달력 기준**(첫 봉~마지막 봉 경과일 ÷ 365.25)으로 센다. 과거처럼
+        '봉 수 ÷ 252'로 세면 KRX 실제 거래일(연 246.5일)보다 분모가 커서 연수를
+        약 2% 적게 잡고, 그만큼 CAGR을 과대계상했다(실측: 1477봉 구간에서
+        5.861년 vs 실제 5.993년 → CAGR 3.579% vs 3.499%).
+
+        경과일을 셀 수 없는 퇴화 구간(봉 1개 이하·같은 날)은 봉 수 기준으로 되돌린다.
+        """
+        n_days = len(common_index)
+        if n_days < 2:
+            return (max(n_days, 1) / KRX_TRADING_DAYS_PER_YEAR, KRX_TRADING_DAYS_PER_YEAR)
+        span_days = (pd.Timestamp(common_index[-1]) - pd.Timestamp(common_index[0])).days
+        if span_days <= 0:
+            return (n_days / KRX_TRADING_DAYS_PER_YEAR, KRX_TRADING_DAYS_PER_YEAR)
+        return (span_days / 365.25, KRX_TRADING_DAYS_PER_YEAR)
+
+    @staticmethod
+    def annualize_return(total_return_decimal: float, n_years: float) -> float:
+        """총수익률(소수) → 연평균 복리수익률 CAGR(%).
+
+        전액 손실(-100% 이하)은 복리 밑이 0 이하라 거듭제곱이 정의되지 않으므로 -100%로 둔다.
+        1년 미만 구간도 정의대로 연환산한다 — 과거에는 여기서 총수익률을 그대로 CAGR
+        칸에 넣어(121봉 13.11% → CAGR 13.11%, 실제 연환산 29.24%) 라벨과 값이 어긋났다.
+        표본이 짧을 때 연환산이 잡음을 증폭한다는 사실은 엔진이 경고로 고지한다.
+
+        며칠짜리 퇴화 구간에서는 지수(1/n_years)가 수백을 넘어 float 범위를 벗어난다
+        (실측: 2일 구간 +100,000% → 10^500 대). 그런 값은 어차피 정보가 아니므로
+        표시 상한에서 자른다 — 예외로 백테스트를 죽이거나 0으로 뭉개지 않는다.
+        """
+        if total_return_decimal <= -1:
+            return -100.0
+        if n_years <= 0:
+            return 0.0
+        try:
+            val = ((1 + total_return_decimal) ** (1 / n_years) - 1) * 100
+        except OverflowError:
+            val = float("inf")
+        if not np.isfinite(val):
+            return CAGR_CEILING_PCT if total_return_decimal > 0 else -100.0
+        return float(min(max(val, -100.0), CAGR_CEILING_PCT))
+
+    @staticmethod
+    def _profit_factor(pf, total_trades: int) -> "float | None":
+        """총이익 ÷ 총손실. 손실 거래가 없어 정의되지 않으면 None(=∞)을 돌려준다."""
+        if total_trades <= 0:
+            return 0.0
+        try:
+            val = pf.trades.profit_factor()
+            if isinstance(val, (pd.Series, np.ndarray)):
+                val = val[0] if len(val) else float('nan')
+            val = float(val)
+        except (TypeError, ValueError, IndexError):
+            return 0.0
+        if np.isnan(val):
+            return 0.0
+        return None if np.isinf(val) else val
+
     @staticmethod
     def safe(val):
         try:
@@ -211,6 +281,10 @@ class ResultHandler:
                             if val_x: reason_kr = val_x
                     except: pass
 
+                    # 신호 조회(위 4단계)가 찾은 사유를 보존 — 아래 마지막 봉 판정에서
+                    # '실제 사유가 있었는지'를 가르는 기준이 된다.
+                    signal_reason = reason_kr
+
                     # 5. Risk Management Overrides
                     if exit_type == 1:   reason_kr = f"손절매 실행 (-{fmt_pct(sl_pct)}%)" if sl_pct > 0 else "손절매 실행"
                     elif exit_type == 2: reason_kr = f"트레일링 스탑 (-{fmt_pct(ts_pct)}%)" if ts_pct > 0 else "트레일링 스탑 실행"
@@ -231,14 +305,27 @@ class ResultHandler:
 
                     # 6. 시뮬레이터가 남긴 정밀 청산 사유(리밸런싱 편출 등)를 최우선 적용.
                     # 신호/리스크 청산과 상호 배타적이므로 위 추론을 덮어써도 안전하다.
+                    override_applied = False
                     if exit_reason_overrides:
                         ov = exit_reason_overrides.get(sym)
                         if ov:
                             ov_reason = ov.get(get_dt_str(x_idx))
                             if ov_reason:
                                 reason_kr = ov_reason
+                                override_applied = True
 
-                    if exit_type == 5 or get_dt_str(x_idx) == last_date_str:
+                    # 7. 마지막 봉 청산: 실제 사유가 있으면 그것을 남긴다. 과거에는 날짜만
+                    # 보고 전부 "백테스트 종료"로 덮어써 마지막 날 발동한 손절·리밸런싱
+                    # 편출·전략 신호가 가려졌다. "백테스트 종료"는 사유 없는 기말 강제
+                    # 정산에만 붙인다 — 시뮬레이터 확정 사유(6)와 전략 신호 사유(4)는
+                    # 보존하고, 수익률-근접 추론(5의 else 가지)만은 강제 정산과 우연히
+                    # 일치하기 쉬워 마지막 봉에서는 신뢰하지 않는다.
+                    if exit_type == 5 or (
+                        get_dt_str(x_idx) == last_date_str
+                        and exit_type not in (1, 2, 3, 4)
+                        and not override_applied
+                        and signal_reason in ("전략 매도 조건 충족", "데이터 종료")
+                    ):
                         reason_kr = "백테스트 종료"
 
                     pnl_label = "수익" if pnl >= 0 else "손실"
@@ -273,7 +360,11 @@ class ResultHandler:
 
         # ── Win/Loss streak — fully vectorized numpy (no Python loop) ────────
         if total_trades > 0:
-            _is_win = (pf.trades.records['pnl'].astype(float) > 0).astype(np.int8)
+            _pnl_arr = pf.trades.records['pnl'].astype(float)
+            _is_win = (_pnl_arr > 0).astype(np.int8)
+            # 손익 0인 거래는 승도 패도 아니다 — 과거 `1 - _is_win`은 본전 거래를
+            # 패로 세어 연속 패 기록을 부풀렸다.
+            _is_loss = (_pnl_arr < 0).astype(np.int8)
 
             def _max_streak_np(a: np.ndarray) -> int:
                 """O(n) vectorized max consecutive run — zero Python loop."""
@@ -286,7 +377,7 @@ class ResultHandler:
                 return int((ends - starts).max()) if len(starts) > 0 else 0
 
             max_consecutive_wins   = _max_streak_np(_is_win)
-            max_consecutive_losses = _max_streak_np(1 - _is_win)
+            max_consecutive_losses = _max_streak_np(_is_loss)
         else:
             max_consecutive_wins   = 0
             max_consecutive_losses = 0
@@ -301,6 +392,10 @@ class ResultHandler:
         except:
             avg_holding_days = 0.0
 
+        # ── 연환산 기준 (CAGR·샤프·소르티노·변동성·종목별 CAGR이 모두 이걸 쓴다) ──
+        n_years, periods_per_year = cls.time_base(common_index)
+        _ann = np.sqrt(periods_per_year)
+
         # ── Per-Asset Stats — extract to numpy arrays, avoid repeated VBT overhead ──
         per_asset_stats = {}
         if len(processed_symbols) > 0:
@@ -313,7 +408,6 @@ class ResultHandler:
             _pa_c = _to_np(pf.trades.count(group_by=False))
             _pa_w = _to_np(pf.trades.win_rate(group_by=False))
             _pa_p = _to_np(pf.total_profit(group_by=False))
-            _pa_g = _to_np(pf.annualized_return(group_by=False))
             _pa_m = _to_np(pf.max_drawdown(group_by=False))
 
             for i, sym in enumerate(processed_symbols):
@@ -322,13 +416,18 @@ class ResultHandler:
                 # 계좌 전체자본이 아닌 해당 종목에 실제 투입된 원가(진입가×수량) 대비
                 # 수익률 — 매매기록 인라인 수익률(ret_val, 위 루프)과 동일한 기준.
                 total_return_i = (profit_i / cost_i * 100.0) if cost_i > 0 else 0.0
+                # 연환산도 totalReturn과 **같은 분모**로 계산한다. 과거에는 vbt의
+                # annualized_return(group_by=False)을 그대로 썼는데, 그쪽은 포트폴리오
+                # 초기자본 기준 + 365일 연환산이라 같은 행의 totalReturn과 분모가
+                # 어긋났다(실측 005930: totalReturn 2.79%인데 cagr 2.86% — 이 cagr이
+                # 함의하는 총수익은 17.97%).
                 per_asset_stats[sym] = {
                     "symbol":      sym,
                     "totalReturn": total_return_i,
                     "trades":      int(_pa_c[i]   if i < len(_pa_c) else 0.0),
                     "winRate":     float(_pa_w[i] if i < len(_pa_w) else 0.0) * 100,
-                    "profit":      float(_pa_p[i] if i < len(_pa_p) else 0.0),
-                    "cagr":        float(_pa_g[i] if i < len(_pa_g) else 0.0) * 100,
+                    "profit":      profit_i,
+                    "cagr":        cls.annualize_return(total_return_i / 100.0, n_years),
                     "maxDrawdown": float(_pa_m[i] if i < len(_pa_m) else 0.0) * 100,
                 }
 
@@ -385,17 +484,16 @@ class ResultHandler:
 
         # ── Portfolio-level metrics ───────────────────────────────────────────
         total_return_decimal = cls.safe(pf.total_return())
-        n_days  = len(common_index)
-        n_years = n_days / 252.0
-        if n_years >= 1.0 and total_return_decimal > -1:
-            cagr_val = ((1 + total_return_decimal) ** (1 / n_years) - 1) * 100
-        else:
-            cagr_val = total_return_decimal * 100
+        cagr_val = cls.annualize_return(total_return_decimal, n_years)
 
         # 감사 C3: Profit Factor는 계산값을 그대로 보고한다. 과거의 10 클램프·
         # buy-and-hold 재정의는 통계를 조용히 조작하는 것이라 제거. 표본 부족
         # (거래 <30건)은 엔진이 경고로 고지한다.
-        raw_pf = cls.safe(pf.trades.profit_factor())
+        #
+        # 손실 거래가 0건이면 분모(총손실)가 0이라 값이 정의되지 않는다(무한대).
+        # 과거에는 safe()가 inf를 0.0으로 뭉개 **전승한 전략이 손익비 0(최악)으로**
+        # 표시됐다 — 정의되지 않음을 null로 내보내 표시 쪽이 ∞로 그리게 한다.
+        raw_pf = cls._profit_factor(pf, total_trades)
 
         # ── Sharpe / Sortino / Volatility — single pf.returns() call ─────────
         # pf.sharpe_ratio() and pf.sortino_ratio() each call pf.returns() internally.
@@ -408,21 +506,37 @@ class ResultHandler:
         _daily_rets = _daily_rets[np.isfinite(_daily_rets)]
 
         # 감사 M7: 연 무위험수익률(risk_free_rate, 기본 0)을 일 단위로 환산해 차감.
-        _rf_daily = (1.0 + float(risk_free_rate)) ** (1.0 / 252.0) - 1.0 if risk_free_rate else 0.0
+        _rf_daily = (
+            (1.0 + float(risk_free_rate)) ** (1.0 / periods_per_year) - 1.0
+            if risk_free_rate else 0.0
+        )
         _excess = _daily_rets - _rf_daily
 
-        _std = _daily_rets.std()
-        _mean_excess = _excess.mean()
-        _sharpe  = float((_mean_excess * np.sqrt(252)) / _std) if _std > 0 else 0.0
+        # 표본 표준편차(ddof=1). 관측된 수익률은 모집단이 아니라 표본이며,
+        # numpy 기본값(ddof=0)은 변동성을 과소·샤프를 과대 평가한다.
+        _std = float(_daily_rets.std(ddof=1)) if len(_daily_rets) > 1 else 0.0
+        _mean_excess = _excess.mean() if len(_excess) else 0.0
+        _sharpe  = float((_mean_excess * _ann) / _std) if _std > 0 else 0.0
 
         # 감사 H4: Sortino 표준 정의 — 하방편차는 '전체 기간'에 대해 목표(무위험)
         # 미달분의 RMS로 계산한다. (음수 수익률만의 표준편차는 비표준이며 하방
         # 위험을 과소/과대평가한다.)
         _downside = np.minimum(_excess, 0.0)
         _down_dev = float(np.sqrt(np.mean(_downside ** 2))) if len(_excess) > 0 else 0.0
-        _sortino = float((_mean_excess * np.sqrt(252)) / _down_dev) if _down_dev > 0 else 0.0
+        _sortino = float((_mean_excess * _ann) / _down_dev) if _down_dev > 0 else 0.0
 
-        _vol = float(_std * np.sqrt(252)) * 100
+        _vol = float(_std * _ann) * 100
+
+        # ── 켈리 기준(%) — f* = W − (1−W)/R,  R = 평균수익률 ÷ 평균손실률 ──────
+        # 과거에는 백엔드가 이 값을 아예 계산하지 않아 프론트가 0으로 채웠고,
+        # AI 리포트 프롬프트에 "켈리 기준: 0.00%"가 사실처럼 주입됐다.
+        # 승·패 한쪽이라도 표본이 없으면 R을 정의할 수 없으므로 null로 둔다.
+        # (손익비 PF는 R × 승패비라 R의 대용이 될 수 없다 — 켈리는 '거래 1회당'
+        #  평균 손익비를 요구한다.)
+        _kelly: "float | None" = None
+        if total_trades > 0 and avg_win > 0 and avg_loss > 0:
+            _w = agg_win_rate / 100.0
+            _kelly = (_w - (1.0 - _w) / (avg_win / avg_loss)) * 100.0
 
         _mdd    = cls.safe(pf.max_drawdown()) * 100
         _calmar = cagr_val / abs(_mdd) if _mdd != 0 else 0.0
@@ -481,7 +595,9 @@ class ResultHandler:
             "avgLoss":              _sf(avg_loss),
             "maxConsecutiveWins":   max_consecutive_wins,
             "maxConsecutiveLosses": max_consecutive_losses,
-            "profitFactor":         _sf(raw_pf),
+            # null = 손실 거래 0건이라 정의되지 않음(∞). 0.0과 구분해야 한다.
+            "profitFactor":         None if raw_pf is None else _sf(raw_pf),
+            "kelly":                None if _kelly is None else _sf(_kelly),
             "sharpe":               _sf(_sharpe),
             "sortino":              _sf(_sortino),
             "calmar":               _sf(_calmar),

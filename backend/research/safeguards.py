@@ -138,7 +138,10 @@ class PrescreenGates:
         cagr = float(result.get("cagr", 0) or 0)
         if cagr < benchmark_cagr * self.min_cagr_ratio_vs_benchmark:
             return False, f"cagr {cagr:.3f} < {self.min_cagr_ratio_vs_benchmark}×benchmark"
-        pf = float(result.get("profitFactor", 0) or 0)
+        # None = 손실 거래 0건이라 손익비가 정의되지 않음(∞) — 하한 게이트는 통과다.
+        # 0으로 접으면 전승 전략이 '손익비 미달'로 탈락한다.
+        _raw_pf = result.get("profitFactor", 0)
+        pf = float("inf") if _raw_pf is None else float(_raw_pf or 0)
         if pf < self.min_profit_factor:
             return False, f"profitFactor {pf:.2f} < {self.min_profit_factor}"
         mdd = float(result.get("maxDrawdown", 0) or 0)

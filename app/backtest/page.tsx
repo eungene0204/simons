@@ -6,6 +6,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
 import { BacktestHistoryItem } from "@/types/strategy";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
+import { formatProfitFactor } from "@/lib/format-profit-factor";
 import {
   Clock,
   Spinner,
@@ -149,7 +150,9 @@ export default function BacktestHistoryPage() {
     } else if (sortField === "mdd") {
       av = a.metrics.mdd ?? Infinity; bv = b.metrics.mdd ?? Infinity;
     } else if (sortField === "profitFactor") {
-      av = a.metrics.profitFactor ?? -Infinity; bv = b.metrics.profitFactor ?? -Infinity;
+      // null(=∞)은 정렬에서 최상단이어야 한다 — undefined(값 없음)만 최하단
+      av = a.metrics.profitFactor === null ? Infinity : a.metrics.profitFactor ?? -Infinity;
+      bv = b.metrics.profitFactor === null ? Infinity : b.metrics.profitFactor ?? -Infinity;
     } else {
       av = a.metrics.trades ?? -Infinity; bv = b.metrics.trades ?? -Infinity;
     }
@@ -377,7 +380,7 @@ export default function BacktestHistoryPage() {
                   <HistoryMetric label="총 수익률" value={`${item.metrics.totalReturn.toFixed(1)}%`} />
                   <HistoryMetric label="CAGR" value={`${item.metrics.cagr.toFixed(1)}%`} />
                   <HistoryMetric label="MDD" value={`${item.metrics.mdd.toFixed(1)}%`} />
-                  <HistoryMetric label="손익비" value={item.metrics.profitFactor.toFixed(2)} />
+                  <HistoryMetric label="손익비" value={formatProfitFactor(item.metrics.profitFactor)} />
                   <HistoryMetric label="매수후보유" value={`${item.metrics.buyHold.toFixed(1)}%`} />
                   <HistoryMetric label="매매횟수" value={`${item.metrics.trades}회`} />
                   <HistoryMetric label="소요시간" value={item.metrics.executionTime !== undefined ? `${item.metrics.executionTime.toFixed(2)}초` : "-"} />

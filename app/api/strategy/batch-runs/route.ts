@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getExecutionState, type BatchExecutionJob } from "./executionState";
+import { profitFactorForRanking } from "@/lib/format-profit-factor";
 
 type CandidateStatus =
   | "waiting"
@@ -146,7 +147,7 @@ function inferStrategyName(prompt: string, parsed: any, index: number) {
   return firstLine.slice(0, 48) || `전략 ${index + 1}`;
 }
 
-function buildRankingSnapshot(candidates: BatchRunCandidatePayload[]) {
+export function buildRankingSnapshot(candidates: BatchRunCandidatePayload[]) {
   const ranked = candidates
     .filter((candidate) => candidate.metrics)
     .slice()
@@ -171,7 +172,9 @@ function buildRankingSnapshot(candidates: BatchRunCandidatePayload[]) {
       totalReturn: Number(candidate.metrics?.totalReturn ?? 0),
       sharpe: Number(candidate.metrics?.sharpe ?? 0),
       maxDrawdown: Number(candidate.metrics?.maxDrawdown ?? 0),
-      profitFactor: Number(candidate.metrics?.profitFactor ?? 0),
+      // null(=손실 0건이라 ∞)을 0(최악)으로 접지 않는다 — RunAllTestsModal의
+      // 클라이언트 스냅샷과 같은 999 상한 접기 규약
+      profitFactor: profitFactorForRanking(candidate.metrics?.profitFactor) ?? 0,
       trades: Number(candidate.metrics?.trades ?? 0),
     };
   });

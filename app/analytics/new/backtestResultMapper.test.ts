@@ -101,3 +101,30 @@ describe("mapRawBacktestResult — 분위 그룹 비교(FR-BT-060)", () => {
     expect(result.quantileGroups).toBeUndefined();
   });
 });
+
+describe("mapRawBacktestResult — 정의되지 않는 지표", () => {
+  it("손익비 null(손실 0건 = ∞)을 0으로 뭉개지 않는다", () => {
+    // 회귀: `raw.profitFactor ?? 0` 이던 시절 전승한 전략이 손익비 0(최악)으로 표시됐다
+    const mapped = mapRawBacktestResult(
+      { equity: [10_000_000, 12_000_000], profitFactor: null },
+      "exec_1"
+    );
+    expect(mapped.profitFactor).toBeNull();
+  });
+
+  it("켈리 null(승·패 한쪽 표본 없음)을 0%로 채우지 않는다", () => {
+    // 회귀: 백엔드가 kelly를 안 내려보내 프론트가 0으로 채웠고, 그 0이 AI 리포트
+    // 프롬프트에 "켈리 기준: 0.00%"로 사실처럼 주입됐다
+    const mapped = mapRawBacktestResult({ equity: [10_000_000], kelly: null }, "exec_2");
+    expect(mapped.kelly).toBeNull();
+  });
+
+  it("값이 있으면 그대로 전달한다", () => {
+    const mapped = mapRawBacktestResult(
+      { equity: [10_000_000], profitFactor: 1.85, kelly: 6.2 },
+      "exec_3"
+    );
+    expect(mapped.profitFactor).toBe(1.85);
+    expect(mapped.kelly).toBe(6.2);
+  });
+});

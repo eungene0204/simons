@@ -1,4 +1,5 @@
 import type { BacktestResult } from "@/types/strategy";
+import { profitFactorForRanking } from "@/lib/format-profit-factor";
 
 export interface BacktestStrategySummary {
   universeName: string;
@@ -88,7 +89,8 @@ export function buildAutoSaveHistoryPayload(
       cagr: result.cagr || 0,
       mdd: result.maxDrawdown || 0,
       winRate: result.winRate || 0,
-      profitFactor: result.profitFactor || 0,
+      // null(=손실 0건이라 ∞)을 0(최악)으로 뭉개지 않는다
+      profitFactor: result.profitFactor ?? null,
       buyHold: result.buyAndHoldReturn || 0,
       trades: result.trades || 0,
       executionTime: result.executionTime ?? 0,
@@ -109,7 +111,7 @@ function calculateHistoryScore(r: {
   cagr?: number;
   maxDrawdown?: number;
   sharpe?: number;
-  profitFactor?: number;
+  profitFactor?: number | null;
   winRate?: number;
 }): number {
   const scoreCagr = (v?: number) => {
@@ -152,7 +154,7 @@ function calculateHistoryScore(r: {
     scoreCagr(r.cagr) * 0.3 +
     scoreMdd(r.maxDrawdown) * 0.25 +
     scoreSharpe(r.sharpe) * 0.2 +
-    scorePf(r.profitFactor) * 0.15 +
+    scorePf(profitFactorForRanking(r.profitFactor)) * 0.15 +
     scoreWr(r.winRate) * 0.1
   );
 }

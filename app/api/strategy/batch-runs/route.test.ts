@@ -738,4 +738,18 @@ describe("app/api/strategy/batch-runs/route", () => {
     expect(payload.status).toBe("queued");
     expect(runStore.has(payload.runId)).toBe(true);
   });
+
+  it("랭킹 스냅샷은 손익비 null(=손실 0건, ∞)을 0이 아니라 999 상한으로 접는다", () => {
+    // 회귀: Number(pf ?? 0)이 null을 0(최악)으로 저장해 전승 전략이 스냅샷에서 왜곡됐다
+    const { rankingSnapshot } = routeModule.buildRankingSnapshot([
+      {
+        id: "c1",
+        prompt: "무손실 전략",
+        strategyName: "무손실 전략",
+        status: "computed",
+        metrics: { cagr: 10, totalReturn: 20, sharpe: 1.1, maxDrawdown: -5, profitFactor: null, trades: 3 },
+      },
+    ] as any);
+    expect(rankingSnapshot[0].profitFactor).toBe(999);
+  });
 });

@@ -192,6 +192,12 @@ _warmup_vbt()
 recent_executions = {}
 EXECUTION_CACHE_TTL = 2  # seconds — 더블클릭 방지만, 의도적 재실행은 허용
 
+
+def format_pf_for_log(pf) -> str:
+    """손익비 디버그 표기. None(손실 거래 0건 = ∞)은 `:.2f` 서식이 TypeError를 던져
+    백테스트 응답 전체가 500으로 죽으므로 문자열로만 다룬다."""
+    return "inf" if pf is None else f"{float(pf):.2f}"
+
 @app.post("/backtest", response_model=BacktestResponse)
 def run_backtest(http_req: Request, request: BacktestRequest):
     trace_id = http_req.headers.get("x-trace-id")
@@ -221,7 +227,7 @@ def run_backtest(http_req: Request, request: BacktestRequest):
         result['executionTime'] = end_time - start_time
 
         print(f"[DEBUG] [{datetime.now().isoformat()}] BACKEND: Backtest Success. Total Return: {result.get('totalReturn', 0):.2f}%", flush=True)
-        print(f"[DEBUG] CAGR: {result.get('cagr', 0):.2f}%, PF: {result.get('profitFactor', 0):.2f}, Win Rate: {result.get('winRate', 0):.2f}%, Trades: {result.get('trades', 0)}", flush=True)
+        print(f"[DEBUG] CAGR: {result.get('cagr', 0):.2f}%, PF: {format_pf_for_log(result.get('profitFactor'))}, Win Rate: {result.get('winRate', 0):.2f}%, Trades: {result.get('trades', 0)}", flush=True)
         signals = result.get('signals', [])
         print(f"[DEBUG] Found {len(signals)} total signals.", flush=True)
         print(f"[DEBUG] Found {len(signals)} total signals.", flush=True)

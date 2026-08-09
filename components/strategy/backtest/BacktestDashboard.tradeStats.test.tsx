@@ -110,7 +110,8 @@ describe("BacktestDashboard 매매 통계", () => {
     const volatilityLabel = screen.getByText("변동성");
     const volatilityCard = volatilityLabel.parentElement?.parentElement;
     expect(volatilityCard).not.toBeNull();
-    expect(volatilityCard).toHaveTextContent("5.79%");
+    // 엔진(v12.0)과 같은 기준: 표본 표준편차(ddof=1) × √246(KRX 연 거래일)
+    expect(volatilityCard).toHaveTextContent("8.10%");
 
     const performanceRow = volatilityCard?.parentElement;
     const metricLabels = Array.from(performanceRow?.children ?? []).map((card) => card.textContent ?? "");
@@ -293,6 +294,7 @@ describe("BacktestDashboard 매매 통계", () => {
     const sortinoLabel = screen.getByText("소티노 지수");
     const sortinoCard = sortinoLabel.parentElement?.parentElement?.parentElement;
     expect(sortinoCard).not.toBeNull();
-    expect(within(sortinoCard!).getByText("1.12")).toBeInTheDocument();
+    // 엔진(v12.0)과 같은 연환산 계수 √246(KRX 연 거래일)
+    expect(within(sortinoCard!).getByText("1.11")).toBeInTheDocument();
   });
 });
