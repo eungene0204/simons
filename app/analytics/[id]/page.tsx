@@ -32,10 +32,11 @@ function mapBacktestResponse(raw: any): BacktestResult {
     buyAndHoldReturn: raw.buyAndHoldReturn ?? 0,
     maxDrawdown: raw.maxDrawdown ?? 0,
     winRate: raw.winRate ?? 0,
-    profitFactor: raw.profitFactor ?? 0,
+    // null(=손실 0건이라 정의 불가)을 0으로 뭉개지 않는다 — mapRawBacktestResult와 동일 계약
+    profitFactor: raw.profitFactor ?? null,
     sharpe: raw.sharpe ?? 0,
     sortino: raw.sortino ?? 0,
-    kelly: raw.kelly ?? 0,
+    kelly: raw.kelly ?? null,
     volatility: raw.volatility ?? 0,
     calmar: raw.calmar ?? 0,
     avgHoldingDays: raw.avgHoldingDays ?? 0,

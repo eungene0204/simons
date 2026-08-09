@@ -442,3 +442,19 @@ def test_build_expert_report_prompt_states_core_principles():
     assert "평균회귀형" in prompt
     # 10섹션 서술 키가 출력 형식에 포함된다.
     assert "executive_summary" in prompt and "final_verdict" in prompt
+
+
+def test_calculate_score_treats_null_pf_as_infinity_not_unknown():
+    """손익비 null(손실 거래 0건 = ∞)은 '값 모름'(50점)이 아니라 최상 구간(100점)이다.
+
+    회귀: 프론트 점수식 3곳은 null을 999로 접어 100점을 주는데 백엔드만 50점을 줘
+    같은 전략이 화면과 AI 리포트에서 다른 종합 점수를 받았다."""
+    from ai.summarize import calculate_score
+
+    base = {"cagr": 15.0, "maxDrawdown": -8.0, "sharpe": 1.2, "winRate": 60.0}
+    score_null_pf = calculate_score({**base, "profitFactor": None})
+    score_high_pf = calculate_score({**base, "profitFactor": 999.0})
+    score_missing = calculate_score(base)
+
+    assert score_null_pf == score_high_pf  # null = ∞ → 상한 접기와 동일
+    assert score_null_pf > score_missing   # 키 자체가 없으면 종전대로 중간(50점) 처리

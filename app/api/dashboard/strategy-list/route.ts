@@ -8,13 +8,13 @@ import {
 } from "@/lib/get-user";
 import { getAccountSettlementValues, moneyToNumber, resolveAccountTotalValue } from "@/lib/server/assetService";
 
-function calcScore(m: { cagr?: number; maxDrawdown?: number; sharpe?: number; profitFactor?: number; winRate?: number }): number {
+function calcScore(m: { cagr?: number; maxDrawdown?: number; sharpe?: number; profitFactor?: number | null; winRate?: number }): number {
   const scoreCagr = (v?: number) => { if (v == null) return 50; if (v >= 20) return 100; if (v >= 10) return 70; return Math.max(0, Math.round(v / 10 * 70)); };
   const scoreMdd  = (v?: number) => { if (v == null) return 50; const a = Math.abs(v); if (a <= 10) return 100; if (a <= 20) return 70; if (a <= 30) return 40; return Math.max(0, Math.round(100 - a * 2)); };
   const scoreSharpe = (v?: number) => { if (v == null) return 50; if (v >= 1.5) return 100; if (v >= 1.0) return 70; if (v >= 0.5) return 40; return Math.max(0, Math.round(v / 1.5 * 100)); };
   const scorePf   = (v?: number) => { if (v == null) return 50; if (v >= 2.0) return 100; if (v >= 1.5) return 70; if (v >= 1.0) return 40; return Math.max(0, Math.round(v / 2.0 * 100)); };
   const scoreWr   = (v?: number) => { if (v == null) return 50; if (v >= 55) return 100; if (v >= 50) return 70; if (v >= 45) return 40; return Math.max(0, Math.round(v / 55 * 100)); };
-  return Math.round(scoreCagr(m.cagr) * 0.30 + scoreMdd(m.maxDrawdown) * 0.25 + scoreSharpe(m.sharpe) * 0.20 + scorePf(m.profitFactor) * 0.15 + scoreWr(m.winRate) * 0.10);
+  return Math.round(scoreCagr(m.cagr) * 0.30 + scoreMdd(m.maxDrawdown) * 0.25 + scoreSharpe(m.sharpe) * 0.20 + scorePf(m.profitFactor === null ? 999 : m.profitFactor) * 0.15 + scoreWr(m.winRate) * 0.10);
 }
 
 export interface StrategyListItem {

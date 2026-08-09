@@ -41,6 +41,11 @@ class LocalOptimizationAgent:
             return self.VALUE_MAP.get(v, v)
         return str(v)
 
+    @staticmethod
+    def _fmt_pf(v: Any) -> str:
+        """손익비 표기 — None(손실 거래 0건)은 정의되지 않음(∞)이지 0(최악)이 아니다."""
+        return "∞" if v is None else f"{(v or 0):.2f}"
+
     def write_report(self, best_params: Dict[str, Any], top_results: List[Dict[str, Any]], target_metric: str, importances: Dict[str, float], total_trials: int, walk_forward: Optional[Dict[str, Any]] = None, user_prompt: Optional[str] = None) -> str:
         if not top_results:
             return "최적화 결과가 없습니다. 모든 시뮬레이션이 실패했을 수 있습니다."
@@ -64,7 +69,7 @@ class LocalOptimizationAgent:
         total_return = m.get("totalReturn") or 0
         total_profit = m.get("totalProfit") or 0
         mdd = m.get("maxDrawdown") or 0
-        pf = m.get("profitFactor") or 0
+        pf_str = self._fmt_pf(m.get("profitFactor")) if "profitFactor" in m else "0.00"
         wr = m.get("winRate") or 0
         trades = m.get("trades") or 0
 
@@ -77,7 +82,7 @@ class LocalOptimizationAgent:
 | 총 수익률 | {total_return:.2f}% |
 | 총 수익 | {total_profit:,.0f}원 |
 | 최대 낙폭 | {mdd:.2f}% |
-| 손익비 | {pf:.2f} |
+| 손익비 | {pf_str} |
 | 승률 | {wr:.1f}% |
 | 매매 횟수 | {trades}회 |
 """
@@ -127,7 +132,7 @@ class LocalOptimizationAgent:
 |------|:---------:|:-------------:|
 | 연평균 수익률 | {full_cagr:.2f}% | {oos_cagr:.2f}% |
 | 최대 낙폭 | {(full_m.get("maxDrawdown") or 0):.2f}% | {(oos_m.get("maxDrawdown") or 0):.2f}% |
-| 손익비 | {(full_m.get("profitFactor") or 0):.2f} | {(oos_m.get("profitFactor") or 0):.2f} |
+| 손익비 | {self._fmt_pf(full_m.get("profitFactor")) if "profitFactor" in full_m else "0.00"} | {self._fmt_pf(oos_m.get("profitFactor")) if "profitFactor" in oos_m else "0.00"} |
 | 승률 | {(full_m.get("winRate") or 0):.1f}% | {(oos_m.get("winRate") or 0):.1f}% |
 | 매매 횟수 | {(full_m.get("trades") or 0)}회 | {oos_trades}회 |
 

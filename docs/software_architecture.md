@@ -994,11 +994,16 @@ BacktestEngine.run_backtest(request)
 │
 └── Phase 6: 결과 계산 및 직렬화
     └── ResultHandler
-        ├── 수익률: Total Return, CAGR, Buy&Hold Return
+        ├── 연환산 기준(v12.0, 단일 SOT): ResultHandler.time_base()
+        │   ├── 연수 = 달력 경과일 ÷ 365.25 (봉 수 ÷ 252는 CAGR을 ~2% 과대계상)
+        │   └── 연환산 계수 = √246 (KRX 실측 연 246.5거래일), 표준편차는 ddof=1
+        ├── 수익률: Total Return, CAGR(1년 미만도 연환산 + 경고), Buy&Hold Return
         ├── 위험: Max Drawdown, Volatility, Sharpe, Sortino, Kelly
         ├── 거래: Win Rate, Profit Factor, Trade Count
+        │   └── 정의되지 않는 값은 null: 손실 0건 → profitFactor(=∞),
+        │       승·패 한쪽 표본 없음 → kelly. 0으로 채우면 최악 성적으로 뒤집힌다
         ├── 월별/연도별 수익률 분해
-        ├── Per-Asset 통계 (종목별 수익률)
+        ├── Per-Asset 통계 (종목별 수익률 — cagr은 totalReturn과 같은 분모로 연환산)
         ├── 벤치마크 곡선: 지수 미존재 구간은 채우지 않고 null
         │   (v11.0 이전 .bfill()은 초기자본에서 평탄한 가짜 선을 그렸다)
         └── benchmark_partial: 벤치마크가 구간 일부만 덮으면 True

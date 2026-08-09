@@ -198,7 +198,7 @@ export async function POST(request: Request) {
           cagr: backtestResult.cagr ?? 0,
           mdd: backtestResult.maxDrawdown ?? 0,
           winRate: backtestResult.winRate ?? 0,
-          profitFactor: backtestResult.profitFactor ?? 0,
+          profitFactor: backtestResult.profitFactor ?? null,
           buyHold: backtestResult.buyAndHoldReturn ?? 0,
           trades: backtestResult.trades ?? 0,
           executionTime: backtestResult.executionTime ?? 0,

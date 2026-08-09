@@ -226,6 +226,109 @@ def test_format_results_marks_final_day_exit_as_backtest_end_over_max_hold():
     assert "보유 기간 만료" not in sell_signals[0]["condition"]
 
 
+def test_final_day_exit_keeps_simulator_override_reason():
+    """마지막 봉에 발동한 시뮬레이터 확정 사유(리밸런싱 편출·손절 등)는 보존한다.
+
+    회귀 전에는 날짜만 보고 마지막 날 청산을 전부 "백테스트 종료"로 덮어써
+    실제 사유가 가려졌다.
+    """
+    pf = _Portfolio(
+        trades=_Trades(
+            exit_types=[0, 0],
+            entry_timestamps=["2024-01-02", "2024-01-02"],
+            exit_timestamps=["2024-01-03", "2024-01-04"],
+        )
+    )
+    common_index = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"])
+
+    result = ResultHandler.format_results(
+        pf=pf,
+        processed_symbols=["005930"],
+        _all_entries=None,
+        _all_exits=None,
+        all_entry_reasons={},
+        all_exit_reasons={},
+        common_index=common_index,
+        risk_params={"stop_loss_pct": 10},
+        exec_type="close",
+        init_cash=10_000_000,
+        exit_reason_overrides={"005930": {"2024-01-04": "리밸런싱 제외 (목표 종목 이탈)"}},
+    )
+
+    sell_signals = [s for s in result["signals"] if s["type"] == "sell"]
+    final_day = [s for s in sell_signals if s["date"] == "2024-01-04"]
+
+    assert "리밸런싱 제외" in final_day[0]["condition"]
+    assert "백테스트 종료" not in final_day[0]["condition"]
+
+
+def test_final_day_exit_keeps_strategy_signal_reason():
+    """마지막 봉에 실제 전략 매도 신호가 발동했으면 그 사유를 표시한다."""
+    pf = _Portfolio(
+        trades=_Trades(
+            exit_types=[0, 0],
+            entry_timestamps=["2024-01-02", "2024-01-02"],
+            exit_timestamps=["2024-01-03", "2024-01-04"],
+        )
+    )
+    common_index = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"])
+
+    result = ResultHandler.format_results(
+        pf=pf,
+        processed_symbols=["005930"],
+        _all_entries=None,
+        _all_exits=None,
+        all_entry_reasons={},
+        all_exit_reasons={
+            "005930": pd.Series(
+                ["5일선-20일선 데드크로스"], index=pd.to_datetime(["2024-01-04"])
+            )
+        },
+        common_index=common_index,
+        risk_params={},
+        exec_type="close",
+        init_cash=10_000_000,
+    )
+
+    sell_signals = [s for s in result["signals"] if s["type"] == "sell"]
+    final_day = [s for s in sell_signals if s["date"] == "2024-01-04"]
+
+    assert "데드크로스" in final_day[0]["condition"]
+    assert "백테스트 종료" not in final_day[0]["condition"]
+
+
+def test_final_day_forced_close_without_reason_is_labeled_backtest_end():
+    """사유 없는 기말 강제 정산('데이터 종료' 포함)만 "백테스트 종료"로 표기한다."""
+    pf = _Portfolio(
+        trades=_Trades(
+            exit_types=[0, 0],
+            entry_timestamps=["2024-01-02", "2024-01-02"],
+            exit_timestamps=["2024-01-03", "2024-01-04"],
+        )
+    )
+    common_index = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"])
+
+    result = ResultHandler.format_results(
+        pf=pf,
+        processed_symbols=["005930"],
+        _all_entries=None,
+        _all_exits=None,
+        all_entry_reasons={},
+        all_exit_reasons={
+            "005930": pd.Series(["데이터 종료"], index=pd.to_datetime(["2024-01-04"]))
+        },
+        common_index=common_index,
+        risk_params={},
+        exec_type="close",
+        init_cash=10_000_000,
+    )
+
+    sell_signals = [s for s in result["signals"] if s["type"] == "sell"]
+    final_day = [s for s in sell_signals if s["date"] == "2024-01-04"]
+
+    assert "백테스트 종료" in final_day[0]["condition"]
+
+
 def test_format_results_matches_exit_reason_when_reason_index_uses_microseconds():
     pf = _Portfolio(
         trades=_Trades(
@@ -340,3 +443,173 @@ def test_benchmark_partial_is_false_with_full_coverage():
     prices = pd.Series([100.0, 100.0, 120.0], index=common_index)
 
     assert _bench_result(prices, common_index)["benchmark_partial"] is False
+
+
+# ── 엔진 v12.0: 결과값 감사에서 찾은 지표 계산 오류의 회귀 테스트 ──────────────
+
+
+def _metrics_result(pf, common_index, symbols=("005930",), init_cash=10_000_000):
+    return ResultHandler.format_results(
+        pf=pf,
+        processed_symbols=list(symbols),
+        _all_entries=None,
+        _all_exits=None,
+        all_entry_reasons={},
+        all_exit_reasons={},
+        common_index=common_index,
+        risk_params={},
+        exec_type="close",
+        init_cash=init_cash,
+    )
+
+
+def test_time_base_counts_calendar_years_not_bars_over_252():
+    """연수는 달력 경과일 기준이어야 한다.
+
+    회귀 전에는 '봉 수 ÷ 252'로 셌는데 KRX 실제 거래일은 연 246.5일이라 연수를
+    약 2% 적게 잡고 그만큼 CAGR을 과대계상했다.
+    """
+    idx = pd.DatetimeIndex(pd.date_range("2019-01-02", "2024-12-30", freq="B")[:1477])
+    n_years, ppy = ResultHandler.time_base(idx)
+
+    expected = (idx[-1] - idx[0]).days / 365.25
+    assert n_years == pytest.approx(expected)
+    assert n_years != pytest.approx(len(idx) / 252.0)
+    assert ppy == pytest.approx(246.0)
+
+
+def test_time_base_falls_back_when_span_is_degenerate():
+    """경과일을 셀 수 없는 구간(봉 1개)은 봉 수 기준으로 되돌린다."""
+    n_years, ppy = ResultHandler.time_base(pd.to_datetime(["2024-01-02"]))
+    assert n_years == pytest.approx(1 / 246.0)
+    assert ppy == pytest.approx(246.0)
+
+
+def test_annualize_return_annualizes_periods_under_one_year():
+    """1년 미만 구간도 정의대로 연환산한다.
+
+    회귀 전에는 총수익률을 그대로 CAGR 칸에 넣어(13.11% → CAGR 13.11%) 라벨과
+    값이 어긋났다.
+    """
+    half_year = 0.5
+    assert ResultHandler.annualize_return(0.1311, half_year) == pytest.approx(
+        ((1.1311 ** 2) - 1) * 100
+    )
+    # 전액 손실은 복리 밑이 0 이하라 -100%로 둔다
+    assert ResultHandler.annualize_return(-1.0, 3.0) == -100.0
+
+
+def test_profit_factor_is_null_when_there_are_no_losing_trades():
+    """손실 거래가 0건이면 손익비는 정의되지 않는다(∞) → null.
+
+    회귀 전에는 safe()가 inf를 0.0으로 뭉개 전승한 전략이 손익비 0(최악)으로
+    표시됐다.
+    """
+    pf = _Portfolio()
+    pf.trades.profit_factor = lambda: float("inf")
+    result = _metrics_result(pf, pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]))
+
+    assert result["profitFactor"] is None
+
+
+def test_profit_factor_reports_finite_value_unchanged():
+    pf = _Portfolio()
+    result = _metrics_result(pf, pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]))
+
+    assert result["profitFactor"] == pytest.approx(1.5)
+
+
+def test_kelly_is_computed_from_average_win_loss_ratio():
+    """켈리 기준 f* = W − (1−W)/R.
+
+    회귀 전에는 백엔드가 이 값을 아예 내려보내지 않아 프론트가 0으로 채웠고,
+    AI 리포트 프롬프트에 '켈리 기준: 0.00%'가 사실처럼 주입됐다.
+    """
+    # _Trades 기본값: 거래 2건(return +12%, -10%) → W=0.5, R=1.2
+    pf = _Portfolio()
+    result = _metrics_result(pf, pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]))
+
+    expected = (0.5 - 0.5 / (12.0 / 10.0)) * 100
+    assert result["kelly"] == pytest.approx(expected)
+
+
+def test_kelly_is_null_when_one_side_has_no_sample():
+    """승 또는 패 표본이 없으면 R을 정의할 수 없어 켈리도 null이다."""
+    pnl = 1_000.0
+    trades = _Trades()
+    trades.records = pd.DataFrame(
+        {"pnl": [pnl], "return": [0.2], "exit_type": [0], "exit_idx": [1], "entry_idx": [0]}
+    )
+    trades.records_readable = trades.records_readable.iloc[:1].copy()
+    trades.winning = _TradesView(pnl, 1)
+    trades.losing = _TradesView(0.0, 0)
+    pf = _Portfolio(trades=trades)
+    pf.trades.count = lambda group_by=False: pd.Series([1])
+    pf.trades.win_rate = lambda group_by=False: pd.Series([1.0])
+
+    result = _metrics_result(pf, pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]))
+
+    assert result["kelly"] is None
+
+
+def test_per_asset_cagr_shares_the_same_base_as_per_asset_total_return():
+    """종목별 cagr은 같은 행 totalReturn을 같은 연수로 연환산한 값이어야 한다.
+
+    회귀 전에는 vbt annualized_return(포트폴리오 초기자본 기준 + 365일 연환산)을
+    써서 같은 행에 분모가 두 개였다.
+    """
+    common_index = pd.DatetimeIndex(pd.date_range("2020-01-02", "2024-12-30", freq="B"))
+    pf = _Portfolio()
+    pf.trades.count = lambda group_by=False: pd.Series([2])
+    pf.trades.win_rate = lambda group_by=False: pd.Series([0.5])
+
+    result = _metrics_result(pf, common_index)
+    stats = result["perAssetStats"]["005930"]
+
+    n_years, _ = ResultHandler.time_base(common_index)
+    assert stats["cagr"] == pytest.approx(
+        ((1 + stats["totalReturn"] / 100) ** (1 / n_years) - 1) * 100
+    )
+
+
+def test_max_consecutive_losses_ignores_break_even_trades():
+    """손익 0인 거래는 승도 패도 아니다 — 연속 패를 끊는다.
+
+    회귀 전에는 `1 - is_win`으로 세어 본전 거래를 패로 취급했다.
+    """
+    trades = _Trades()
+    trades.records = pd.DataFrame(
+        {
+            "pnl": [-100.0, 0.0, -100.0],
+            "return": [-0.01, 0.0, -0.01],
+            "exit_type": [0, 0, 0],
+            "exit_idx": [1, 2, 3],
+            "entry_idx": [0, 1, 2],
+        }
+    )
+    pf = _Portfolio(trades=trades)
+    pf.trades.count = lambda group_by=False: pd.Series([3])
+    pf.trades.win_rate = lambda group_by=False: pd.Series([0.0])
+
+    result = _metrics_result(pf, pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]))
+
+    assert result["maxConsecutiveLosses"] == 1
+
+
+def test_sharpe_and_volatility_use_sample_stddev_and_krx_annualization():
+    """샤프·변동성은 표본 표준편차(ddof=1) × √246 이어야 한다.
+
+    회귀 전에는 모집단 표준편차(ddof=0) × √252 라 변동성을 과소·샤프를 과대
+    평가했다.
+    """
+    rets = pd.Series([0.0, 0.01, -0.005, 0.004, -0.002])
+    pf = _Portfolio()
+    pf.returns = lambda group_by=True: rets
+    common_index = pd.DatetimeIndex(pd.date_range("2024-01-02", periods=len(rets), freq="B"))
+
+    result = _metrics_result(pf, common_index)
+
+    arr = rets.to_numpy(dtype=float)
+    ann = np.sqrt(246.0)
+    assert result["volatility"] == pytest.approx(arr.std(ddof=1) * ann * 100)
+    assert result["sharpe"] == pytest.approx(arr.mean() * ann / arr.std(ddof=1))

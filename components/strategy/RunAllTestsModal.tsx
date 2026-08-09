@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { BacktestResult } from "@/types/strategy";
+import { formatProfitFactor, profitFactorForRanking } from "@/lib/format-profit-factor";
 import {
   ArrowsClockwise,
   CheckCircle,
@@ -96,10 +97,10 @@ function mapRawBacktestResult(raw: any): BacktestResult {
     buyAndHoldReturn: raw.buyAndHoldReturn ?? 0,
     maxDrawdown: raw.maxDrawdown ?? 0,
     winRate: raw.winRate ?? 0,
-    profitFactor: raw.profitFactor ?? 0,
+    profitFactor: raw.profitFactor ?? null,
     sharpe: raw.sharpe ?? 0,
     sortino: raw.sortino ?? 0,
-    kelly: raw.kelly ?? 0,
+    kelly: raw.kelly ?? null,
     volatility: raw.volatility ?? 0,
     trades: raw.trades ?? 0,
     avgProfit: raw.avgProfit ?? 0,
@@ -399,7 +400,8 @@ export default function RunAllTestsModal({
       totalReturn: item.result?.totalReturn ?? 0,
       sharpe: item.result?.sharpe ?? 0,
       maxDrawdown: item.result?.maxDrawdown ?? 0,
-      profitFactor: item.result?.profitFactor ?? 0,
+      // 정렬용 — null(=∞)은 상한값으로 접는다
+      profitFactor: profitFactorForRanking(item.result?.profitFactor) ?? 0,
       trades: item.result?.trades ?? 0,
     }));
     const runningItem = nextItems.find((item) => item.status === "running") ?? null;
@@ -768,7 +770,7 @@ export default function RunAllTestsModal({
                             <span className="font-black text-white">{formatMetric(item.result?.totalReturn, 2, "%")}</span>
                             <span className="font-black text-white">{formatMetric(item.result?.sharpe)}</span>
                             <span className="font-black text-white">{formatMetric(item.result?.maxDrawdown, 2, "%")}</span>
-                            <span className="font-black text-white">{formatMetric(item.result?.profitFactor)}</span>
+                            <span className="font-black text-white">{formatProfitFactor(item.result?.profitFactor)}</span>
                             <span className="font-black text-white">{formatMetric(item.result?.trades, 0)}</span>
                           </div>
                         );

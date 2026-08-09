@@ -23,10 +23,12 @@ export function mapRawBacktestResult(
     buyAndHoldReturn: raw.buyAndHoldReturn ?? 0,
     maxDrawdown: raw.maxDrawdown ?? 0,
     winRate: raw.winRate ?? 0,
-    profitFactor: raw.profitFactor ?? 0,
+    // 손실 거래 0건이면 엔진이 null(=∞)을 내려보낸다 — 0으로 뭉개면 전승 전략이
+    // 손익비 0(최악)으로 표시된다. 켈리도 마찬가지로 미정의를 0으로 바꾸지 않는다.
+    profitFactor: raw.profitFactor ?? null,
     sharpe: raw.sharpe ?? 0,
     sortino: raw.sortino ?? 0,
-    kelly: raw.kelly ?? 0,
+    kelly: raw.kelly ?? null,
     volatility: raw.volatility ?? 0,
     avgHoldingDays: raw.avgHoldingDays ?? 0,
     exposure: raw.exposure ?? 0,

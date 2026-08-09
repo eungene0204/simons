@@ -76,7 +76,8 @@ export class BacktestService {
         buyAndHoldReturn: pythonResult.buyAndHoldReturn,
         maxDrawdown: pythonResult.maxDrawdown,
         winRate: pythonResult.winRate,
-        profitFactor: pythonResult.profitFactor || 0,
+        // null = 손실 거래 0건이라 정의되지 않음(∞) — 0으로 바꾸면 전승이 최악으로 보인다
+        profitFactor: pythonResult.profitFactor ?? null,
         sharpe: pythonResult.sharpe || 0,
         sortino: Number(pythonResult.sortino),
         calmar: Number(pythonResult.calmar || 0),

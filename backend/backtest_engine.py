@@ -185,17 +185,16 @@ class BacktestEngine:
         n = len(val)
         final_eq = float(val.iloc[-1]) if n else init_cash
         total_return = (final_eq / init_cash - 1.0) * 100.0 if init_cash > 0 else 0.0
-        years = n / 252.0
-        cagr = (
-            ((final_eq / init_cash) ** (1.0 / years) - 1.0) * 100.0
-            if years > 0 and final_eq > 0 and init_cash > 0 else 0.0
-        )
+        # 메인 결과(format_results)와 같은 연환산 기준을 쓴다 — 그러지 않으면
+        # "메인 = 1그룹"인데 두 CAGR이 다르게 나온다.
+        years, ppy = ResultHandler.time_base(val.index)
+        cagr = ResultHandler.annualize_return(total_return / 100.0, years)
         dd = (val / val.cummax() - 1.0) if n else None
         mdd = float(dd.min() * 100.0) if dd is not None and len(dd) else 0.0
         rets = val.pct_change().dropna() if n else None
         sharpe = (
-            float(rets.mean() / rets.std() * np.sqrt(252))
-            if rets is not None and len(rets) > 1 and float(rets.std()) > 0 else 0.0
+            float(rets.mean() / rets.std(ddof=1) * np.sqrt(ppy))
+            if rets is not None and len(rets) > 1 and float(rets.std(ddof=1)) > 0 else 0.0
         )
         trades = int(pf.trades.count())
         try:
@@ -1226,6 +1225,16 @@ class BacktestEngine:
             if _tax_val > 0:
                 self.warnings.add(
                     f"매도 체결에 증권거래세 {_tax_val * 100:.2f}%가 반영되었습니다."
+                )
+
+            # 1년 미만 구간의 CAGR은 정의대로 연환산하지만, 짧은 표본을 1년으로
+            # 늘리는 과정에서 잡음이 함께 증폭된다 — 값을 왜곡하는 대신 고지한다.
+            _bt_years, _ = ResultHandler.time_base(common_index)
+            if 0 < _bt_years < 1.0:
+                self.warnings.add(
+                    f"백테스트 기간이 약 {_bt_years * 12:.0f}개월(1년 미만)입니다 — "
+                    "CAGR·샤프·소르티노·변동성은 이 구간을 1년으로 연환산한 값이라 "
+                    "짧은 기간의 우연이 그대로 확대됩니다."
                 )
 
             _n_trades = int(pf.trades.count())
