@@ -144,6 +144,7 @@ vi.stubGlobal("fetch", fetchMock);
 
 const routeModule = await import("./route");
 const { GET, POST } = routeModule;
+const { buildRankingSnapshot } = await import("./rankingSnapshot");
 const { __resetBatchRunExecutionStateForTests } = await import("./executionState");
 
 function makeStreamResponse(events: Array<Record<string, any>>) {
@@ -741,7 +742,7 @@ describe("app/api/strategy/batch-runs/route", () => {
 
   it("랭킹 스냅샷은 손익비 null(=손실 0건, ∞)을 0이 아니라 999 상한으로 접는다", () => {
     // 회귀: Number(pf ?? 0)이 null을 0(최악)으로 저장해 전승 전략이 스냅샷에서 왜곡됐다
-    const { rankingSnapshot } = routeModule.buildRankingSnapshot([
+    const { rankingSnapshot } = buildRankingSnapshot([
       {
         id: "c1",
         prompt: "무손실 전략",

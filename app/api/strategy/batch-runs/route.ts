@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getExecutionState, type BatchExecutionJob } from "./executionState";
-import { profitFactorForRanking } from "@/lib/format-profit-factor";
+import { buildRankingSnapshot } from "./rankingSnapshot";
 
 type CandidateStatus =
   | "waiting"
@@ -145,49 +145,6 @@ function inferStrategyName(prompt: string, parsed: any, index: number) {
   if (parsedName) return parsedName;
   const firstLine = prompt.split("\n")[0]?.trim() ?? "";
   return firstLine.slice(0, 48) || `전략 ${index + 1}`;
-}
-
-export function buildRankingSnapshot(candidates: BatchRunCandidatePayload[]) {
-  const ranked = candidates
-    .filter((candidate) => candidate.metrics)
-    .slice()
-    .sort((left, right) => {
-      const leftValue = Number(left.metrics?.cagr ?? 0);
-      const rightValue = Number(right.metrics?.cagr ?? 0);
-      if (leftValue === rightValue) {
-        return left.strategyName.localeCompare(right.strategyName, "ko");
-      }
-      return rightValue - leftValue;
-    });
-
-  const rankByCandidateId = new Map<string, number>();
-  const snapshot = ranked.map((candidate, index) => {
-    rankByCandidateId.set(candidate.id ?? `${candidate.strategyName}_${index}`, index + 1);
-    return {
-      rank: index + 1,
-      strategyId: candidate.strategyId ?? "unknown",
-      name: candidate.strategyName,
-      status: candidate.status,
-      cagr: Number(candidate.metrics?.cagr ?? 0),
-      totalReturn: Number(candidate.metrics?.totalReturn ?? 0),
-      sharpe: Number(candidate.metrics?.sharpe ?? 0),
-      maxDrawdown: Number(candidate.metrics?.maxDrawdown ?? 0),
-      // null(=손실 0건이라 ∞)을 0(최악)으로 접지 않는다 — RunAllTestsModal의
-      // 클라이언트 스냅샷과 같은 999 상한 접기 규약
-      profitFactor: profitFactorForRanking(candidate.metrics?.profitFactor) ?? 0,
-      trades: Number(candidate.metrics?.trades ?? 0),
-    };
-  });
-
-  const normalizedCandidates = candidates.map((candidate) => ({
-    ...candidate,
-    rank: candidate.metrics ? rankByCandidateId.get(candidate.id ?? "") ?? null : null,
-  }));
-
-  return {
-    rankingSnapshot: snapshot,
-    candidates: normalizedCandidates,
-  };
 }
 
 function summarizeMetricsForList(metrics: any) {
