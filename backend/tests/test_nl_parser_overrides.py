@@ -2430,8 +2430,9 @@ def test_incomplete_backtest_conditions_momentum_entry_recognized():
     )
     q, chips = detect_incomplete_backtest_conditions(momentum, "")
     assert q is not None and "손절" in q and "익절" not in q
-    # 손절 칩은 마이너스 표기(FR-STR-030b) — 진입·청산·리밸런싱은 충족, 남은 것 중 손절이 먼저
-    assert chips == ["손절 -10%", "손절 -5%"]
+    # 손절 칩은 마이너스 표기(FR-STR-030b) — 진입·청산·리밸런싱은 충족, 남은 것 중 손절이 먼저.
+    # '손절 안 함'은 거부 칩(2026-08-10 사용자 지시) — 안 쓰는 것도 정상 설계라 함께 나온다.
+    assert chips == ["손절 -10%", "손절 -5%", "손절 안 함"]
 
 
 def test_missing_entry_clarification_asks_numbers_for_qualitative_metrics():

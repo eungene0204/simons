@@ -131,6 +131,11 @@ class StepResult(BaseModel):
     parsed: Optional[dict] = None
     backtest_request: Optional[dict] = None
     notices: List[str] = Field(default_factory=list)
+    # 시드(빌더 진입 발화)에서 전략 이해가 성립했는가 — 초기 ack("...(으)로 이해했어요")와
+    # 같은 판정(_seed_summary). 프론트가 열린 추천 안내문(STRATEGY_PICK) 표시를 정하는
+    # 근거다: 발화를 이미 전략으로 이해했으면 "추천해 드리지는 않지만" 안내는 모순이라
+    # 생략한다(2026-08-10 사용자 지시 — 둘 중 하나만). 시드를 적용한 첫 턴에만 채워진다.
+    seed_recognized: bool = False
 
 
 # ─── 제어어(취소/처음부터/다른 질문) ─────────────────────────────────────────────
@@ -1745,6 +1750,17 @@ def _seed_summary(state: BuilderState) -> list[str]:
     if risk:
         parts.append("·".join(risk))
     return parts
+
+
+def seed_recognized(state: BuilderState) -> bool:
+    """시드 발화에서 전략 이해가 성립했는가.
+
+    기본 판정은 초기 ack와 같은 _seed_summary이되, 유니버스는 ack 요약에 없어도
+    시드 이해로 인정한다 — '코스피 전략 만들어줘'가 열린 추천으로 오분류돼도 대상
+    시장을 이해했으면 추천 불가 안내문은 모순이다(2026-08-11, ack에는 안 넣는다 —
+    유니버스는 첫 질문 생략으로 이미 드러난다). 라우트가 시드 적용 직후 호출해
+    StepResult.seed_recognized로 내보낸다."""
+    return bool(_seed_summary(state)) or state.universe is not None
 
 
 def _ack_prefix(state: BuilderState, just_filled: Optional[set[str]] = None) -> str:

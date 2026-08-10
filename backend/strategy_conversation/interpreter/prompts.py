@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "3.2"
+PROMPT_VERSION = "3.4"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -127,7 +127,12 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
 {concept_list}
 
 ## 랭킹 규칙
-- ranking.return: '최근 N일 수익률 상위'류 모멘텀 랭킹 → strategy.ranking에 {{"metric":"return","lookback_days":60}}
+- ranking.return: '최근 N일 수익률 상위'류 모멘텀 랭킹 → strategy.ranking에 {{"metric":"return","lookback_days":N}} ('최근 60일 수익률'=60). 산정 기간을 말하지 않았으면 lookback_days는 null — 임의로 60을 채우지 마세요(기간은 시스템이 되묻습니다. 규칙 1과 같은 원칙).
+- '모멘텀 전략', '상대 모멘텀 (효과)', '모멘텀 투자'처럼 **모멘텀 전략 자체를 이름으로**
+  말한 입력도 계열 발화(class.*)가 아니라 위와 같은 ranking.return입니다 — 이 플랫폼의
+  모멘텀 전략은 최근 수익률 상위 종목을 편입하는 상대 모멘텀(기간 수익률 랭킹) 하나로
+  정해져 있어 지표를 되물을 필요가 없습니다. "모멘텀 지표 하나 골라줘"처럼 **오실레이터
+  지표(RSI 등)를 하나 고르라는** 발화만 class.oscillator입니다.
 - ranking.volatility: '변동성 낮은(안정적인) 종목 N개'류 저변동성 선정 → strategy.ranking에 {{"metric":"ranking.volatility"}} (direction은 사용자가 '낮은/높은'을 말했을 때만 — '변동성 낮은'=direction:"bottom". 산정 기간을 말했으면 lookback_days — '200일 변동성'=lookback_days:200). '변동성 하위 10%만 편입'처럼 **비율 편입**이면 그 10은 조건 value(백분위)가 아니라 portfolio.selection_percent=10입니다(아래 비율 규칙과 동일 — 백분위를 조건 value로 넣으면 편입 규모가 사라집니다). '변동성 30% 이하'처럼 **연환산 % 임계값 조건**이면 랭킹이 아니라 entry_conditions에 factor technical.volatility.
 - 재무 지표 상위/하위 N종목 선정('영업이익률 상위 20종목', 'PER 낮은 상위 10종목')은 조건이 아니라 랭킹입니다 → strategy.ranking에 {{"metric":"fundamental.operating_margin","direction":"top"}} (낮은 순은 direction:"bottom"). 종목 수는 portfolio.selection_count로.
 - **direction은 사용자가 정렬 방향을 말했을 때만 출력하세요**('낮은 순'·'높은 순'·'가장 싼'·'상위'가 어느 쪽인지 분명할 때). 방향 언급이 없으면(예: 'PER 기준으로 20종목') direction을 **비워 두세요(null)** — 지표마다 선호 방향이 정해져 있어 시스템이 위 어휘의 [낮을수록 선호]/[높을수록 선호] 표시대로 채웁니다. 임의로 "top"을 채우면 저평가 지표에서 가장 비싼 종목을 고르는 정반대 전략이 됩니다.
@@ -148,6 +153,14 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    임계값은 null (recommended_value에 제안값을 넣고 requires_confirmation=true 가능).
    정성 표현이라는 이유로 UNSUPPORTED_REQUEST로 분류하지 마세요 — 지표 매핑이 가능한 전략
    서술입니다. 오타·맞춤법 오류가 있어도 전략 서술이면 CREATE_STRATEGY입니다.
+2-1. '소형주'·'중소형주'·'시가총액이 작은 종목'처럼 **시총 규모로 대상을 좁히는 표현**은
+   시가총액 조건입니다 → entry_conditions에 {{"factor":"fundamental.market_cap",
+   "operator":"<=","value":null,"source_text":"소형주"}} (임계값을 지어내지 말고 null —
+   시스템이 되묻습니다). universe.markets에 넣거나 특정 지수로 좁히지 마세요.
+   clarification_questions로 '소형주가 무슨 뜻인지' 묻지도 마세요 — 뜻은 시가총액 하위로
+   정해져 있고, 물을 것은 임계값뿐이며 그 질문은 시스템이 생성합니다.
+   예: "소형주 투자 전략을 만들어줘" → intent=CREATE_STRATEGY, 위 시가총액 조건 1개,
+   universe.markets=[]. 단 '대형주'는 규칙 6의 지수 매핑(["KOSPI200"])을 그대로 따릅니다.
 3. 위 목록에 없는 개념(FCF, 베타, 뉴스, 수급, 정배열 등)은 조건으로 만들지 말고
    unsupported_features에 원문 표현을 넣으세요. 비슷한 지표로 조용히 대체 금지.
 4. 각 조건의 source_text에 해당 사용자 원문 조각을 넣으세요.
@@ -574,9 +587,15 @@ def build_user_prompt(
             if pending_question and pending_question.strip()
             else ""
         )
+        # 값 없는 답 규칙: "리스크 관리"처럼 항목 이름만 말한 발화에 9B가 초안의 다른
+        # 필드 값(손절 8)을 복사해 패치를 지어낸 사고(2026-08-10 익절 8%) 방지 —
+        # 값이 없으면 패치 대신 CLARIFY_STRATEGY로 질문을 유지하게 계약한다.
         answer_rule = (
             " 사용자 입력이 위 질문에 대한 답이면(값만 말했더라도) 그 질문이 묻는 필드의 "
-            "패치로 출력하세요."
+            "패치로 출력하세요. 단, 입력에 값이 없으면(항목·주제 이름만 말한 경우) 값을 "
+            "지어내 패치하지 마세요 — 초안의 다른 필드 값을 복사하지 말고, "
+            "intent=CLARIFY_STRATEGY에 patches는 비우고 clarification_questions로 그 "
+            "질문을 다시 내세요."
             if pending_block
             else ""
         )

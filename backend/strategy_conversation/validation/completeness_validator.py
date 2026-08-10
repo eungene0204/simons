@@ -105,14 +105,16 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                         if cond.source_text and cond.source_text.strip() else ""
                     )
                     opts = ", ".join(options)
+                    # 역할 라벨은 "매수(진입)"처럼 일상어 먼저, 용어 병기 — 진입/청산
+                    # 키워드는 유지한다(답변 패치가 진입/청산 어느 배열에 조건을 추가할지
+                    # 이 질문 문구가 유일한 근거다, pending_question 에코 · 규칙 10-4).
+                    role_label = "매수(진입)" if role == "진입" else "매도(청산)"
                     missing.append(f"{field_base}.factor")
                     questions.append(ClarificationQuestion(
                         field=f"{field_base}.factor",
-                        # 역할({role})을 명시한다 — 답변 패치가 진입/청산 어느 배열에
-                        # 조건을 추가할지 이 질문 문구가 유일한 근거다(pending_question 에코).
                         question=(
-                            f"{quoted}{role} 조건에 어떤 {cls_name} 지표를 사용할까요?"
-                            + (f" ({opts})" if opts else "")
+                            f"{quoted}{role_label} 조건에 어떤 {cls_name} 지표를 사용할까요?"
+                            + (f" {opts} 중에서 고를 수 있습니다." if opts else "")
                         ),
                     ))
                 continue
@@ -168,16 +170,18 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
     # 것이 되묻기 쪽의 대응이다. FR-STR-068(지정 종목 '최대 보유 N종목' 표시 금지)과
     # 같은 계약이다.
     if strategy.ranking:
-        # ④-0 변동성 랭킹의 산정 기간 — 말하지 않은 값(기본 60거래일)이 조용히 확정되지
-        # 않게 묻는다(2026-08-10 사용자 요청). 진행 골격 순서상 매수 조건(랭킹 파라미터)이
-        # 포트폴리오(종목 수·리밸런싱)보다 앞이므로 이 질문을 먼저 낸다. 모멘텀('return')은
-        # 기존 계약(60일 물질화) 그대로 두고 변동성만 묻는다 — 스코프는 사용자 지시 범위.
+        # ④-0 가격 산출 랭킹(변동성·모멘텀)의 산정 기간 — 말하지 않은 값(기본 60거래일)이
+        # 조용히 확정되지 않게 묻는다(변동성 2026-08-10 사용자 요청, 모멘텀도 같은 날
+        # "60일이라고 강제하지 말고 고를 수 있게" 지시로 합류). 진행 골격 순서상 매수
+        # 조건(랭킹 파라미터)이 포트폴리오(종목 수·리밸런싱)보다 앞이므로 이 질문을 먼저 낸다.
         first_rank = strategy.ranking[0]
-        if first_rank.metric == "ranking.volatility" and first_rank.lookback_days is None:
+        _LOOKBACK_LABELS = {"ranking.volatility": "변동성", "ranking.return": "수익률"}
+        lookback_label = _LOOKBACK_LABELS.get(first_rank.metric)
+        if lookback_label is not None and first_rank.lookback_days is None:
             missing.append("strategy.ranking[0].lookback_days")
             questions.append(ClarificationQuestion(
                 field="strategy.ranking[0].lookback_days",
-                question="변동성 산정 기간을 며칠(거래일)로 할까요?",
+                question=f"{lookback_label} 산정 기간을 며칠(거래일)로 할까요?",
                 recommended_value=60,
                 recommendation_reason="일반적으로 60거래일(약 3개월)을 사용합니다",
             ))
@@ -220,9 +224,13 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
         missing.append("strategy.exit_conditions")
         questions.append(ClarificationQuestion(
             field="strategy.exit_conditions",
-            question="청산 규칙이 없습니다. 어떻게 매도할까요? (보유 기간 제한, 정기 리밸런싱, 손절/익절 등)",
+            question=(
+                "매수한 종목을 언제 팔지(청산 규칙)가 아직 정해지지 않았습니다. "
+                "어떤 방식으로 매도할까요? 예: 일정 기간 보유 후 매도, "
+                "정해진 주기로 종목 교체(리밸런싱), 일정 비율 손실/이익에서 매도(손절/익절)"
+            ),
             recommended_value="monthly",
-            recommendation_reason="스크리닝 전략은 정기 리밸런싱(매월)으로 회전하는 방식을 흔히 사용합니다",
+            recommendation_reason="이런 선별(스크리닝) 전략은 매월 종목을 교체하는 '매월 리밸런싱'을 흔히 사용합니다",
         ))
 
     return missing, questions[:MAX_QUESTIONS_PER_TURN]

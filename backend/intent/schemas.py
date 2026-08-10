@@ -29,6 +29,16 @@ class QueryIntent(str, Enum):
     # 미제공 안내 + 다른 아이디어 유도(suggested_reply).
     UNSUPPORTED_FEATURE = "UNSUPPORTED_FEATURE"
     GENERAL_INVESTMENT = "GENERAL_INVESTMENT"
+    # 진행 중인 대화·전략의 **상태 자체**를 묻는 발화('내가 뭘 정했지?', '아까 손절 몇
+    # 퍼센트로 했었지?', '몇 단계까지 왔어?'). 답은 이미 State에 있으므로 LLM이 생성하지
+    # 않는다 — 화면이 확정 설정·진행 단계를 상태에서 읽어 결정론으로 답한다(값 환각 차단).
+    # 이 라벨이 없을 때 9B는 같은 입력을 STRATEGY_ADVICE↔UNKNOWN으로 흔들었고, 라벨 자리에
+    # 제어값을 넣는 출력(`{"intent": "NONE"}`)까지 냈다(2026-08-11 커버리지 프로브 실측).
+    STRATEGY_STATUS = "STRATEGY_STATUS"
+    # 이미 나온 백테스트 결과의 수치를 묻는 발화('MDD -35%면 심한 거야?', '승률은 높은데
+    # 왜 마이너스야?'). [규제 안전] 우열·전망 판단은 하지 않는다 — 지표의 의미와 사용자의
+    # 실제 수치를 사실로 제시하는 데까지만 답한다(CLAUDE.md 안전한 표현 원칙).
+    RESULT_EXPLAIN = "RESULT_EXPLAIN"
     GREETING = "GREETING"
     OFF_TOPIC = "OFF_TOPIC"
     UNKNOWN = "UNKNOWN"
@@ -111,6 +121,16 @@ class IntentResult(BaseModel):
     # (UNKNOWN 라벨)를 구분한다. 실패는 실패로 안내해야 한다 — 이 플래그 없이는 프론트가
     # 실패 UNKNOWN을 일반 지식 답변으로 보내 정의 설명이 답변으로 위장된다(2026-08-03 사고).
     interpretation_failed: bool = False
+    # 값 조회가 성립한 종목 지표(닫힌 목록, intent/stock_facts.py). 라벨과 직교하는 축이며
+    # STOCK_ANALYSIS 라벨 안에서 **판단 요청**과 **값 조회**를 가른다 — 값 조회는 규제상
+    # 허용 범위(객관적 과거 데이터)이므로 거절하지 않는다. 값이 있으면 suggested_reply는
+    # 거절 안내가 아니라 **결정론으로 만든 사실 문장**이다(프론트가 그대로 보여준다).
+    fact_metric: Optional[str] = None
+    # 소속 목록 조회가 성립한 업종/테마의 정본 표기(intent/stock_lists.py). fact_metric과
+    # 같은 직교 축 계약이며 STOCK_PICK 라벨 안에서 **추천 요청**("뭐 살까?")과 **소속
+    # 질문**("어떤 회사들이 있어?")을 가른다 — 소속은 분류 사실이라 거절하지 않는다.
+    # 값이 있으면 suggested_reply는 정본 데이터에서 만든 가나다순 목록이다.
+    list_scope: Optional[str] = None
 
 
 class ChatTurn(BaseModel):

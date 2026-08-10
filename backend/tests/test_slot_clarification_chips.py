@@ -71,8 +71,12 @@ def test_every_slot_chip_actually_binds(field):
     topic, build = _SLOT_CHIP_BUILDERS[field]
     chips = build(None)
     assert chips, f"{field}: 추천값이 없어도 대안 칩은 나와야 한다"
-    bound, bindings, confirms = _bind_chips(chips, _base_strategy(), topic)
-    unbound = [c for c in chips if c not in bindings and c not in confirms]
+    bound, bindings, confirms, declines = _bind_chips(chips, _base_strategy(), topic)
+    # 거부 칩('안 함')은 값을 바꾸지 않으므로 값 결속이 아니라 거부 결속으로 통과한다.
+    unbound = [
+        c for c in chips
+        if c not in bindings and c not in confirms and c not in declines
+    ]
     assert not unbound, f"{field}: 결속되지 않는 칩 — 발행돼도 사용자에게 보이지 않는다: {unbound}"
 
 
@@ -202,3 +206,36 @@ def test_condition_chips_are_untouched():
     _question, chips, topic = _build_clarification(report, intent)
     assert chips == ["PER 10배 이하"]
     assert topic is None, "조건 칩은 슬롯이 아니다 — topic이 붙으면 확정 판정이 오작동한다"
+
+
+def _market_cap_ask(operator: str):
+    intent = StrategyIntent(intent="CREATE_STRATEGY", strategy={
+        "entry_conditions": [{"factor": "fundamental.market_cap",
+                              "operator": operator, "source_text": "소형주"}],
+    })
+    report = ValidationReport(
+        status="NEEDS_CLARIFICATION",
+        clarification_questions=[ClarificationQuestion(
+            field="strategy.entry_conditions[0].value",
+            question="진입 조건의 시가총액 기준값을 얼마로 할까요?",
+            recommended_value=5000, recommendation_reason="r")],
+    )
+    return _build_clarification(report, intent)
+
+
+def test_market_cap_upper_bound_ask_offers_multiple_bound_choices():
+    """[2026-08-11 사용자 지시] '소형주' 시총 상한 되묻기는 작은 시총 후보를 여러 개
+    제시해 사용자가 고른다 — 그리고 전부 값 결속을 통과해야 한다(칩=값 결속 계약)."""
+    _q, chips, _topic = _market_cap_ask("<=")
+    assert chips == [
+        "시가총액 5000억원 이하", "시가총액 1000억원 이하", "시가총액 3000억원 이하",
+    ]
+    _bound, bindings, _confirms, _declines = _bind_chips(chips, _base_strategy(), None)
+    unbound = [c for c in chips if c not in bindings]
+    assert not unbound, f"결속되지 않는 칩 — 발행돼도 사용자에게 보이지 않는다: {unbound}"
+
+
+def test_market_cap_lower_bound_ask_keeps_single_recommended_chip():
+    """시총 하한(이상) 임계값 되묻기는 종전대로 추천값 1개 — 다중화는 상한(소형주) 전용."""
+    _q, chips, _topic = _market_cap_ask(">=")
+    assert chips == ["시가총액 5000억원 이상"]

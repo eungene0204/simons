@@ -49,6 +49,69 @@ def test_step_stream_returns_result_event():
     assert result["data"]["status"] in ("collecting", "confirmed")
 
 
+def test_step_seed_recognized_true_for_concrete_strategy_seed():
+    """[2026-08-10 사용자 지시] 시드 발화가 전략으로 이해되면 seed_recognized=True.
+
+    프론트가 열린 추천 안내문(STRATEGY_PICK)과 빌더 ack("…로 이해했어요") 중
+    **하나만** 보이기 위한 근거 — 분류가 열린 추천으로 오판해도 빌더가 이해했으면
+    안내문을 생략한다(실측: '상대 모멘텀 효과를 이용한 투자 전략'에 둘 다 나감)."""
+    res = _client().post(
+        "/strategy/builder/step",
+        json={"state": {}, "input": "", "seed": "상대 모멘텀 효과를 이용한 투자 전략"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["state"]["strategy_type"] == "momentum"
+    assert data["seed_recognized"] is True
+
+
+def test_step_seed_recognized_true_for_universe_only_seed():
+    """[2026-08-11] 유니버스만 이해한 시드도 seed_recognized=True.
+
+    ack 요약(_seed_summary)에는 유니버스가 없지만(첫 질문 생략으로 드러난다),
+    대상 시장을 이해했는데 '추천해 드리지는 않지만' 안내문이 나가는 것은 모순이다."""
+    res = _client().post(
+        "/strategy/builder/step",
+        json={"state": {}, "input": "", "seed": "코스피 대상으로 투자 전략 만들어줘"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["state"]["universe"] == "KOSPI"
+    assert data["seed_recognized"] is True
+
+
+def test_step_seed_recognized_false_for_open_pick_seed():
+    """진짜 열린 추천 발화는 시드 이해가 없다 — 안내문이 그대로 나가야 한다."""
+    res = _client().post(
+        "/strategy/builder/step",
+        json={"state": {}, "input": "", "seed": "어떤 전략이 제일 좋아?"},
+    )
+    assert res.status_code == 200
+    assert res.json()["seed_recognized"] is False
+
+
+def test_step_seed_recognized_false_on_followup_turn():
+    """시드 턴이 아니면(상태가 이미 있음) 플래그를 싣지 않는다 — 첫 턴 전용 신호."""
+    res = _client().post(
+        "/strategy/builder/step",
+        json={"state": {"strategy_type": "momentum"}, "input": "코스피",
+              "seed": "상대 모멘텀 효과를 이용한 투자 전략"},
+    )
+    assert res.status_code == 200
+    assert res.json()["seed_recognized"] is False
+
+
+def test_step_stream_seed_recognized_flag():
+    """SSE 라우트도 JSON 라우트와 같은 seed_recognized 계약을 싣는다."""
+    with _client().stream(
+        "POST", "/strategy/builder/step-stream",
+        json={"state": {}, "input": "", "seed": "상대 모멘텀 효과를 이용한 투자 전략"},
+    ) as r:
+        body = "".join(r.iter_text())
+    result = next(e for e in _events(body) if e["type"] == "result")
+    assert result["data"]["seed_recognized"] is True
+
+
 def test_step_stream_emits_searching_stage_before_result(monkeypatch):
     """업종 되묻기 답이 검색 그라운딩에 진입하면 result 전에 searching stage가 흐른다."""
 

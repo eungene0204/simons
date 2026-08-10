@@ -118,6 +118,52 @@ def _close_unbalanced_containers(text: str, start: int) -> Optional[str]:
     return None
 
 
+def salvage_clarification_questions(raw_text: str) -> list:
+    """깨진 원출력에서 `clarification_questions` 배열만 형식 추출한다(실패 시 빈 리스트).
+
+    수리 재요청이 원출력의 질문 목록을 통째로 비워 내는 드리프트 실측(2026-08-10):
+    익절 질문에 "리스크 관리"라는 값 없는 답이 오자 9B가 take_profit 패치에 자기 의심
+    질문("익절 기준을 의미하는 것인가요?")을 병행했는데, 첫 출력이 절단돼 수리가 돌았고
+    수리본은 패치만 남기고 질문을 지웠다 — 자기 의심 패치 게이트가 볼 신호가 사라져
+    지어낸 값이 그대로 확정됐다. 두 조각 모두 LLM 출력이므로 이 복원은 해석이 아니라
+    형식 추출·결정적 병합이다(수정 RAG의 목록형 필드 소실 방지 병합과 같은 원칙).
+    스키마 검증은 호출부가 한다 — 여기서는 배열 경계만 추출한다.
+    """
+    key = '"clarification_questions"'
+    pos = raw_text.find(key)
+    if pos == -1:
+        return []
+    start = raw_text.find("[", pos + len(key))
+    if start == -1:
+        return []
+    depth = 0
+    in_string = False
+    escaped = False
+    for i in range(start, len(raw_text)):
+        ch = raw_text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+            if depth == 0:
+                try:
+                    parsed = json.loads(raw_text[start:i + 1])
+                except json.JSONDecodeError:
+                    return []
+                return parsed if isinstance(parsed, list) else []
+    return []
+
+
 def build_repair_prompt(
     user_input: str,
     bad_output: str,
@@ -126,7 +172,10 @@ def build_repair_prompt(
 ) -> str:
     parts = [
         "직전 출력이 StrategyIntent JSON 스키마 검증에 실패했습니다. "
-        "오류를 수정한 완전한 JSON 하나만 다시 출력하세요(설명 금지).",
+        "오류를 수정한 완전한 JSON 하나만 다시 출력하세요(설명 금지). "
+        "형식·스키마 오류만 고치세요 — 잘못된 출력에 이미 담긴 내용"
+        "(patches, clarification_questions, unsupported_features)을 삭제하거나 "
+        "바꾸지 마세요.",
         f"\n## 원래 사용자 입력\n\"{user_input}\"",
     ]
     if draft:

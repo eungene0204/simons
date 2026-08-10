@@ -41,7 +41,19 @@ export type BacktestReadinessOptions = {
   allowNoRebalancing?: boolean;
   explicitFields?: readonly string[];
   requireExplicitConfiguration?: boolean;
+  /** 사용자가 '안 함'으로 거부한 슬롯(백엔드 declined_fields와 같은 목록).
+   *  손절·익절은 스키마에서 null이라 "아직 안 물었다"와 "안 하기로 했다"가 값으로
+   *  구분되지 않는다 — 그 구분을 이 목록이 나른다(백엔드 strategy_slots._decided ②). */
+  declinedFields?: readonly string[];
 };
+
+/** '안 함'이 성립하는 슬롯(백엔드 DECLINABLE_FIELDS와 동형). 유니버스·매수 조건처럼
+ *  없으면 전략이 성립하지 않는 슬롯은 거부할 수 없다. */
+export const DECLINABLE_SLOTS: readonly MissingBacktestCondition["field"][] = [
+  "rebalancing",
+  "stop_loss",
+  "take_profit",
+];
 
 function nonEmpty(value: unknown): boolean {
   return Array.isArray(value) ? value.length > 0 : Boolean(value);
@@ -83,6 +95,16 @@ export function isSlotFilled(
   // ① 질문이 이미 끝난 필드 — 값 유무·provenance와 무관하다(백엔드 _decided).
   if (field === "rebalancing" && (targetSymbolCount === 1 || options.allowNoRebalancing === true)) {
     return true;
+  }
+  // 사용자가 '안 함'을 고른 슬롯(백엔드 _decided ②). 값이 있으면 값이 이긴다 — 거부한
+  // 뒤 값을 준 경우 화면의 값과 판정이 어긋나면 안 된다(백엔드와 같은 순서).
+  if (
+    (field === "stop_loss" || field === "take_profit") &&
+    (options.declinedFields ?? []).includes(field)
+  ) {
+    const declinedValue =
+      field === "stop_loss" ? parsed.stop_loss_pct : parsed.take_profit_pct;
+    if (!((declinedValue ?? 0) > 0)) return true;
   }
   // 신규 상장 코호트(FR-STR-073)는 창 시작이 상장일 하한으로 확정돼 다른 답이 성립하지 않는다.
   if (field === "backtest_period" && parsed.listing_from) return true;
@@ -208,13 +230,15 @@ const SLOT_PROMPTS: Record<
     question: "리밸런싱 주기가 빠져 있습니다. 포트폴리오를 얼마나 자주 다시 구성할까요?",
     suggestions: ["매주 리밸런싱", "매월 리밸런싱", "분기마다 리밸런싱", "안 함"],
   },
+  // 손절·익절은 쓰지 않는 것도 정상적인 전략 설계다 — '안 함'이 없으면 값을 넣어야만
+  // 실행 게이트를 통과할 수 있다(2026-08-10 사용자 지시). 리밸런싱 '안 함'과 같은 계약.
   stop_loss: {
     question: "손절 기준이 빠져 있습니다. 손절 기준을 몇 %로 설정할까요?",
-    suggestions: ["손절 -5%", "손절 -10%", "손절 -15%"],
+    suggestions: ["손절 -5%", "손절 -10%", "손절 -15%", "안 함"],
   },
   take_profit: {
     question: "익절 기준이 빠져 있습니다. 익절 기준을 몇 %로 설정할까요?",
-    suggestions: ["익절 10%", "익절 20%", "익절 30%"],
+    suggestions: ["익절 10%", "익절 20%", "익절 30%", "안 함"],
   },
   backtest_period: {
     question: "어느 기간의 과거 데이터로 백테스트할까요?",

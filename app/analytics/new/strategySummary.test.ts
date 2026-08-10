@@ -379,6 +379,24 @@ describe("strategySummary", () => {
     expect(summary?.entryBlocks).toEqual(["21일 수익률 상위"]);
   });
 
+  it("산정 기간 미정(되묻기 중) 랭킹은 60일을 표시하지 않는다", () => {
+    // 2026-08-10 사용자 지시 "60일 강제 금지" — 기간이 정해지기 전에 60일을 표시하면
+    // 조용한 확정으로 읽힌다. 미정임을 그대로 보여준다.
+    const momentum = buildStrategySummary({
+      ...baseParsed,
+      ranking_metric: "return",
+      ranking_lookback_days: null,
+    });
+    expect(momentum?.entryBlocks).toEqual(["수익률 상위(산정 기간 미정)"]);
+
+    const volatility = buildStrategySummary({
+      ...baseParsed,
+      ranking_metric: "volatility",
+      ranking_lookback_days: null,
+    });
+    expect(volatility?.entryBlocks).toEqual(["변동성 낮은 순 상위(산정 기간 미정)"]);
+  });
+
   it("재무 팩터 랭킹 전략은 지표 라벨과 방향을 진입 신호 배지로 노출한다", () => {
     // 2026-08-03 신설 — '영업이익률 상위 20종목'류 재무 랭킹(모멘텀과 같은 선정=진입 계약).
     const top = buildStrategySummary({

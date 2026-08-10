@@ -117,7 +117,7 @@ def test_replan_emits_next_pending_ask(monkeypatch):
     monkeypatch.setenv("STRATEGY_DAG_PLANNER_MODE", "primary")
     monkeypatch.setattr(
         primary_mod, "_dag_planner_clarification",
-        lambda user_input, parsed, explicit_fields=None: (
+        lambda user_input, parsed, explicit_fields=None, declined_fields=None: (
             "어떤 조건에서 매도할까요?", ["데드크로스(5일/20일) 발생 시 매도"], "매도조건",
         ),
     )
@@ -426,3 +426,71 @@ def test_queued_question_skipped_when_already_answered():
     # 영업이익률은 이미 12%로 반영돼 있다 — 건너뛰고 청산 질문이 나간다
     assert "청산" in result["clarification_question"]
     assert "영업이익률" not in result["clarification_question"]
+
+
+# ── 거부 칩('안 함', 2026-08-10 사용자 지시) ──────────────────────────────────
+# 손절·익절을 쓰지 않는 것도 정상적인 전략 설계다. 거부 칩은 값을 바꾸지 않으므로
+# 값 결속(_apply_prompt_overrides)으로는 영원히 탈락한다 — 별도 채널(chip_declines)로
+# 결속하고, 클릭은 값이 아니라 거부 목록에 기록된다.
+
+def test_decline_chip_is_bound_and_offered():
+    parsed = ParsedStrategy(description="손절 미정", universe=["KOSPI"])
+    payload = _pending_ask_payload(
+        "손절 — 손실을 제한할 비율을 정해주세요",
+        ["손절 -10%", "손절 안 함"], "리스크 관리", parsed,
+    )
+    assert payload is not None
+    # 값 칩과 거부 칩이 **모두** 노출된다(거부 칩이 결속 실패로 사라지면 안 된다).
+    assert payload["chips"] == ["손절 -10%", "손절 안 함"]
+    assert payload["chip_declines"] == {"손절 안 함": "stop_loss"}
+    # 거부 칩은 값 결속 목록에는 없다 — 값을 바꾸지 않는다.
+    assert "손절 안 함" not in payload["chip_bindings"]
+
+
+def test_decline_chip_click_records_decline_without_changing_strategy():
+    prev = ParsedStrategy(description="손절 미정", universe=["KOSPI"]).model_dump()
+    ask = {
+        "topic": "리스크 관리", "question": "손절 기준을 정해주세요",
+        "chips": ["손절 -10%", "손절 안 함"],
+        "chip_bindings": {"손절 -10%": {"stop_loss_pct": 10.0}},
+        "chip_declines": {"손절 안 함": "stop_loss"},
+    }
+    result = run_chip_answer("손절 안 함", prev, ask)
+    assert result is not None
+    assert result["interpreter"]["mode"] == "primary_chip_decline"
+    # 전략 값은 그대로(비어 있는 채) — '안 함'은 값이 아니다.
+    assert result["parsed"].stop_loss_pct is None
+    # 거부는 목록에 남아 다음 턴 게이트가 같은 질문을 다시 내지 않는다.
+    assert result["declined_fields"] == ["stop_loss"]
+
+
+def test_decline_accumulates_with_previous_declines():
+    """거부도 explicit_fields처럼 턴을 넘겨 누적된다 — 이전 거부가 지워지면 재질문된다."""
+    prev = ParsedStrategy(description="리스크 미정", universe=["KOSPI"]).model_dump()
+    ask = {
+        "topic": "리스크 관리", "question": "익절 기준을 정해주세요",
+        "chips": ["익절 안 함"], "chip_declines": {"익절 안 함": "take_profit"},
+    }
+    result = run_chip_answer(
+        "익절 안 함", prev, ask, previous_declined_fields=["stop_loss"])
+    assert result is not None
+    assert result["declined_fields"] == ["stop_loss", "take_profit"]
+
+
+def test_gate_stops_asking_declined_risk_slots():
+    """게이트(백엔드 최소 조건)가 거부 목록을 읽어 손절·익절을 건너뛴다."""
+    from engine.nl_parser import detect_incomplete_backtest_conditions
+
+    parsed = ParsedStrategy(
+        description="리스크 없는 전략", universe=["KOSPI"],
+        entry_signals=[{"indicator": "ma_crossover", "signal_type": "buy",
+                        "short_period": 5, "long_period": 20}],
+        exit_signals=[{"indicator": "ma_crossover", "signal_type": "sell",
+                       "short_period": 5, "long_period": 20}],
+        rebalancing_period="monthly",
+    )
+    question, _chips = detect_incomplete_backtest_conditions(parsed, "")
+    assert question is not None and "손절" in question
+    question, _chips = detect_incomplete_backtest_conditions(
+        parsed, "", ["stop_loss", "take_profit"])
+    assert question is None

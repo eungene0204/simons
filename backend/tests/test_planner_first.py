@@ -541,7 +541,7 @@ def test_chip_answer_turn_still_replans(monkeypatch):
     monkeypatch.setenv("STRATEGY_DAG_PLANNER_MODE", "primary")
     monkeypatch.setattr(
         primary_mod, "_dag_planner_clarification",
-        lambda user_input, parsed, explicit_fields=None: (
+        lambda user_input, parsed, explicit_fields=None, declined_fields=None: (
             "언제 팔까요?", ["RSI 70 이상에서 매도"], "매도조건",
         ),
     )

@@ -248,14 +248,23 @@ function buildConditionItem(label: string, parts: string[]): BuilderSummaryItem 
   return parts.length > 1 ? { label, value, values: parts } : { label, value };
 }
 
-function buildRiskLabel(state: Record<string, any>, parsed?: ParsedSummary | null): string | null {
+function buildRiskLabel(
+  state: Record<string, any>,
+  parsed?: ParsedSummary | null,
+  declinedFields?: readonly string[],
+): string | null {
   const labels: string[] = [];
   const stopLoss = state.stop_loss_pct ?? parsed?.stop_loss_pct;
   const takeProfit = state.take_profit_pct ?? parsed?.take_profit_pct;
   const trailingStop = state.trailing_stop_pct ?? parsed?.trailing_stop_pct;
   const holdPeriod = state.hold_period_days ?? parsed?.hold_period_days;
+  const declined = (field: string) => (declinedFields ?? []).includes(field);
+  // '안 함'도 사용자가 정한 결과다 — 값이 없다고 요약에서 빼면 답한 것이 사라진 것처럼
+  // 보이고, 리스크 관리 항목이 통째로 없어져 진행률 체크와 어긋난다.
   if (hasValue(stopLoss)) labels.push(`손절 ${formatDownsidePercent(stopLoss)}%`);
+  else if (declined("stop_loss")) labels.push("손절 안 함");
   if (hasValue(takeProfit)) labels.push(`익절 ${takeProfit}%`);
+  else if (declined("take_profit")) labels.push("익절 안 함");
   if (hasValue(trailingStop)) labels.push(`트레일링 스탑 ${formatDownsidePercent(trailingStop)}%`);
   if (hasValue(holdPeriod)) labels.push(`${holdPeriod}일 보유`);
   return labels.length > 0 ? labels.join(" · ") : null;
@@ -314,6 +323,7 @@ export function buildBuilderTurnPresentation({
   explicitFields,
   backtestRequest,
   allowNoRebalancing,
+  declinedFields,
   pendingConditions,
 }: {
   state: Record<string, any>;
@@ -329,6 +339,9 @@ export function buildBuilderTurnPresentation({
   // 사용자가 리밸런싱 '안 함'을 고른 결과(게이트와 같은 입력). LLM 스펙에서는 null이라
   // 미언급과 구분되지 않으므로 호출자가 들고 전달한다 — 없으면 진행률이 그 답을 놓친다.
   allowNoRebalancing?: boolean;
+  // 사용자가 '안 함'으로 거부한 슬롯(손절·익절) — 값이 없는 것이 결정이라는 사실은
+  // parsed에 없으므로, 받지 않으면 진행률이 그 답을 놓치고 게이트와 어긋난다.
+  declinedFields?: readonly string[];
   // 값 미정으로 컴파일에서 제외된 조건(백엔드 pending_conditions) — parsed에 없으므로
   // 여기서 받지 않으면 이해한 조건이 요약에서 사라진다.
   pendingConditions?: readonly PendingCondition[] | null;
@@ -368,7 +381,7 @@ export function buildBuilderTurnPresentation({
   // 아래 '리스크 관리' 항목이 같은 값을 그대로 보여주므로, 함께 넣으면 한 카드에서
   // 같은 설정이 두 번 읽힌다(2026-08-02 지시 — 요약 카드와 같은 정리).
   const exitLabels = getSignalExitLabels(parsed);
-  const riskLabel = buildRiskLabel(state, parsed);
+  const riskLabel = buildRiskLabel(state, parsed, declinedFields);
   const specifiedSymbolCount = parsed?.target_symbols?.length ?? 0;
   const holdingCountFromState = hasValue(state.holding_count);
   const holdingCount = holdingCountFromState ? state.holding_count : parsed?.max_positions;
@@ -392,6 +405,7 @@ export function buildBuilderTurnPresentation({
   // 기존 드리프트 3종(매도 조건·리스크 관리·리밸런싱 거부)이 전부 그 경로였다.
   const slotOptions = {
     explicitFields,
+    declinedFields,
     requireExplicitConfiguration: true,
     // 빌더가 리밸런싱 '안 함'을 들고 있으면 사용자의 명시적 결정이다(게이트와 같은 계약).
     allowNoRebalancing: allowNoRebalancing === true || state.rebalance_cycle === "none",

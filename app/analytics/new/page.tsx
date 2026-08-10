@@ -25,6 +25,7 @@ import {
 } from "@/components/strategy/strategyTemplateSession";
 import { BacktestResult, type OptimizationResponse } from "@/types/strategy";
 import { mapRawBacktestResult } from "./backtestResultMapper";
+import { buildBacktestResultFacts } from "./backtestResultFacts";
 import {
   ArrowUp,
   ArrowRight,
@@ -205,6 +206,9 @@ interface ChatMessage {
     // 답을 되돌리면 그 필드의 '사용자가 말했다'(provenance)도 함께 되돌려야 한다 —
     // 남겨두면 게이트가 되돌아온 질문을 이미 답한 것으로 보고 건너뛴다.
     explicitFields: string[];
+    // 같은 이유로 거부('안 함')도 되돌린다 — 남겨두면 '안 함'을 취소하려고 돌아와도
+    // 그 슬롯이 계속 답한 것으로 보인다.
+    declinedFields?: string[];
   };
   // 전략 요약을 막지 않는 보정 안내(예: 초기자금 하한선 보정). 요약 카드와 함께 표시된다.
   notices?: string[];
@@ -1218,7 +1222,9 @@ function BacktestRunningStatus({ message }: { message: string }) {
       className={`relative isolate w-full overflow-hidden px-4 py-3 ${ARTIFACT_CARD_CLASS}`}
     >
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0">
-        <span className="backtest-aurora" />
+        <span className="backtest-aurora backtest-aurora--gold" />
+        <span className="backtest-aurora backtest-aurora--blue" />
+        <span className="backtest-aurora backtest-aurora--mint" />
       </div>
       <div className="relative z-10 flex items-center gap-3">
         <ArrowsClockwise
@@ -1233,21 +1239,29 @@ function BacktestRunningStatus({ message }: { message: string }) {
         </div>
       </div>
       <style jsx>{`
-        /* 이전에는 blue·mint·gold 세 개의 블롭이 mix-blend-mode: screen으로 겹쳐
-           한 카드 안에서 강조색이 세 개였고, 백테스트가 도는 동안 blur(26px)
-           레이어 3장이 계속 합성됐다. 강조색 하나, 블롭 하나로 줄인다.
-           역동성은 레이어를 늘리지 않고 궤적으로 만든다 — 제자리 흔들림(±5%)
-           대신 카드를 가로지르는 스윕에 회전·크기·밝기 변화를 얹는다. */
+        /* 오로라를 gold·blue·mint 세 색으로 되돌린다(2026-08-10 지시 — 더 화려하게).
+           역동성은 궤적으로 만든다는 원칙은 유지: 세 블롭 모두 제자리 흔들림이 아니라
+           카드를 가로지르는 스윕에 회전·크기·밝기를 얹는다. 주기를 6.5/8.3/10.1초로
+           서로 나누어떨어지지 않게 잡아, 겹치는 순간마다 섞이는 색이 달라진다.
+           mix-blend-mode: screen이라 겹칠수록 밝아지므로 개별 opacity는 낮게 두고,
+           본문 글자(흰색/라벨)가 묻히지 않도록 합성 최대치를 0.5 언저리로 제한한다. */
         .backtest-aurora {
           position: absolute;
           display: block;
+          border-radius: 999px;
+          mix-blend-mode: screen;
+          /* 애니메이션이 꺼진 상태(prefers-reduced-motion)의 밝기 — 켜져 있으면
+             keyframes의 opacity가 덮어쓴다. 없으면 정지 화면에서 3장이 1.0으로 겹친다. */
+          opacity: 0.34;
+          will-change: transform, opacity;
+        }
+
+        .backtest-aurora--gold {
           left: -10%;
           top: -92%;
           width: 58%;
           height: 190%;
-          border-radius: 999px;
           filter: blur(26px);
-          opacity: 0.5;
           background: radial-gradient(
             ellipse at center,
             rgba(240, 180, 41, 0.5) 0%,
@@ -1255,7 +1269,36 @@ function BacktestRunningStatus({ message }: { message: string }) {
             rgba(240, 180, 41, 0) 72%
           );
           animation: backtestAuroraSweep 6.5s ease-in-out infinite;
-          will-change: transform, opacity;
+        }
+
+        .backtest-aurora--blue {
+          left: -16%;
+          top: -70%;
+          width: 50%;
+          height: 165%;
+          filter: blur(30px);
+          background: radial-gradient(
+            ellipse at center,
+            rgba(98, 168, 203, 0.42) 0%,
+            rgba(98, 168, 203, 0.14) 40%,
+            rgba(98, 168, 203, 0) 74%
+          );
+          animation: backtestAuroraDrift 8.3s ease-in-out infinite;
+        }
+
+        .backtest-aurora--mint {
+          left: -6%;
+          top: -60%;
+          width: 44%;
+          height: 150%;
+          filter: blur(32px);
+          background: radial-gradient(
+            ellipse at center,
+            rgba(115, 182, 130, 0.36) 0%,
+            rgba(115, 182, 130, 0.12) 42%,
+            rgba(115, 182, 130, 0) 76%
+          );
+          animation: backtestAuroraGlide 10.1s ease-in-out infinite;
         }
 
         /* 왕복 구간마다 정지점(%)을 불규칙하게 둬 시계추처럼 보이지 않게 한다. */
@@ -1283,6 +1326,54 @@ function BacktestRunningStatus({ message }: { message: string }) {
           100% {
             transform: translate3d(-18%, 5%, 0) rotate(-14deg) scale(0.9);
             opacity: 0.3;
+          }
+        }
+
+        /* 파랑은 gold와 반대 방향으로 흘러 서로 스쳐 지나가게 한다. */
+        @keyframes backtestAuroraDrift {
+          0% {
+            transform: translate3d(150%, -6%, 0) rotate(12deg) scale(1.05);
+            opacity: 0.24;
+          }
+          26% {
+            transform: translate3d(92%, 6%, 0) rotate(2deg) scale(0.92);
+            opacity: 0.5;
+          }
+          52% {
+            transform: translate3d(38%, -5%, 0) rotate(-9deg) scale(1.12);
+            opacity: 0.32;
+          }
+          74% {
+            transform: translate3d(-8%, 4%, 0) rotate(-16deg) scale(0.95);
+            opacity: 0.52;
+          }
+          100% {
+            transform: translate3d(150%, -6%, 0) rotate(12deg) scale(1.05);
+            opacity: 0.24;
+          }
+        }
+
+        /* 민트는 가장 느리고 얕게 움직여 두 색이 지나갈 때 바닥색을 만든다. */
+        @keyframes backtestAuroraGlide {
+          0% {
+            transform: translate3d(10%, 8%, 0) rotate(-6deg) scale(1);
+            opacity: 0.18;
+          }
+          30% {
+            transform: translate3d(58%, -7%, 0) rotate(6deg) scale(1.16);
+            opacity: 0.44;
+          }
+          58% {
+            transform: translate3d(104%, 5%, 0) rotate(14deg) scale(0.94);
+            opacity: 0.26;
+          }
+          80% {
+            transform: translate3d(46%, -3%, 0) rotate(1deg) scale(1.08);
+            opacity: 0.42;
+          }
+          100% {
+            transform: translate3d(10%, 8%, 0) rotate(-6deg) scale(1);
+            opacity: 0.18;
           }
         }
 
@@ -1591,6 +1682,10 @@ function StrategyLabContent() {
   const metricOptimizationDraftRef = useRef<MetricOptimizationDraft | null>(null);
   const metricOptimizationAbortRef = useRef<AbortController | null>(null);
   const explicitNoRebalancingRef = useRef(false);
+  // 사용자가 '안 함'으로 거부한 슬롯(손절·익절) — 값이 없는 것이 사용자의 결정이라는
+  // 사실은 ParsedStrategy(null)로 표현되지 않는다(백엔드 declined_fields와 같은 목록).
+  // explicitFields와 나란히 누적·에코하며, 게이트·진행률이 같은 술어로 읽는다.
+  const declinedFieldsRef = useRef<string[]>([]);
   // 직전 planner ask 컨텍스트(백엔드 pending_ask) — 다음 파스 요청에 그대로 에코해
   // 칩 클릭의 결정론 귀속 근거로 쓴다(previous_coach_text와 같은 무상태 에코 계약).
   // 매 파스 응답마다 덮어써 스테일 컨텍스트를 남기지 않는다.
@@ -1667,6 +1762,7 @@ function StrategyLabContent() {
     builderHistoryRef.current = [];
     explicitNoRebalancingRef.current = false;
     explicitFieldsRef.current = [];
+    declinedFieldsRef.current = [];
     fieldStatesRef.current = null;
     fieldMetadataRef.current = null;
     artifactsRef.current = null;
@@ -1731,6 +1827,9 @@ function StrategyLabContent() {
         : [];
       explicitFieldsRef.current = Array.isArray(snapshot.explicitFields)
         ? snapshot.explicitFields.filter((f: unknown): f is string => typeof f === "string")
+        : [];
+      declinedFieldsRef.current = Array.isArray(snapshot.declinedFields)
+        ? snapshot.declinedFields.filter((f: unknown): f is string => typeof f === "string")
         : [];
       pendingHoldingPeriodPromptRef.current = snapshot.pendingHoldingPeriodPrompt ?? null;
       pendingHoldingPeriodHorizonRef.current = snapshot.pendingHoldingPeriodHorizon ?? null;
@@ -1828,6 +1927,9 @@ function StrategyLabContent() {
         // provenance는 대화 상태의 일부다 — 복원하지 않으면 이미 답한 조건을 다시 묻거나,
         // 답한 조건의 칩을 눌러도 게이트가 다른 조건을 기대해 결정적 적용이 빗나간다.
         explicitFields: explicitFieldsRef.current,
+        // 거부('안 함')도 대화 상태다 — 복원하지 않으면 새로고침 후 이미 '안 함'으로
+        // 정한 손절·익절을 다시 묻는다.
+        declinedFields: declinedFieldsRef.current,
         // 변경 이력도 대화 상태다 — 복원하지 않으면 새로고침 후 "아까 바꾼 거 되돌려"가
         // 되돌릴 이력을 잃는다(§ 19).
         changeLog: changeLogRef.current,
@@ -1949,6 +2051,7 @@ function StrategyLabContent() {
     const missingCondition = getNextMissingBacktestCondition(currentParsed, {
       allowNoRebalancing: explicitNoRebalancingRef.current,
       explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
       requireExplicitConfiguration: true,
     });
     const deterministicChoice = currentParsed && missingCondition &&
@@ -1965,18 +2068,34 @@ function StrategyLabContent() {
       return;
     }
 
-    const userChoice = missingCondition.field === "rebalancing" &&
-      text === NO_REBALANCING_CHIP
-      ? "리밸런싱 안 함"
-      : text;
+    // '안 함' 칩은 문구만으로는 어느 설정을 거부한 것인지 알 수 없다 — 누적 프롬프트에
+    // 남을 문장은 슬롯 이름을 붙여 자기완결로 만든다(백엔드 정본 표기와 같은 문구).
+    const declineLabel: Record<string, string> = {
+      rebalancing: "리밸런싱 안 함",
+      stop_loss: "손절 안 함",
+      take_profit: "익절 안 함",
+    };
+    const userChoice =
+      (missingCondition.field === "rebalancing" && text === NO_REBALANCING_CHIP) ||
+      deterministicChoice.declinedField
+        ? declineLabel[missingCondition.field] ?? text
+        : text;
     const nextPromptContext = [promptContext, userChoice].filter(Boolean).join("\n");
     const previousAllowNoRebalancing = explicitNoRebalancingRef.current;
     const previousExplicitFields = [...explicitFieldsRef.current];
+    const previousDeclinedFields = [...declinedFieldsRef.current];
     const allowNoRebalancing = missingCondition.field === "rebalancing"
       ? deterministicChoice.allowNoRebalancing === true
       : previousAllowNoRebalancing;
     explicitNoRebalancingRef.current = allowNoRebalancing;
     setExplicitNoRebalancing(allowNoRebalancing);
+    // 거부는 값이 아니라 "비어 있는 채로 확정"이므로 parsed에 흔적이 없다 — 이 목록에
+    // 쌓지 않으면 게이트가 같은 질문을 다시 낸다(백엔드 declined_fields와 같은 계약).
+    if (deterministicChoice.declinedField) {
+      declinedFieldsRef.current = Array.from(
+        new Set([...declinedFieldsRef.current, deterministicChoice.declinedField]),
+      );
+    }
     // 칩 답변은 백엔드 왕복 없이 여기서 State에 적용된다 — 사용자가 바로 그 질문에
     // 답했으므로 그 필드를 명시로 기록하지 않으면 게이트가 같은 질문을 무한 반복한다.
     // (자유 서술은 파스 응답의 explicit_fields가 담당한다.)
@@ -1993,6 +2112,7 @@ function StrategyLabContent() {
       {
         allowNoRebalancing,
         explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
         requireExplicitConfiguration: true,
       },
     );
@@ -2004,6 +2124,7 @@ function StrategyLabContent() {
         reply: nextQuestion,
         parsed: deterministicChoice.parsed,
         explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
         backtestRequest: backtestReqRef.current ?? backtestReq,
         allowNoRebalancing: explicitNoRebalancingRef.current,
       }),
@@ -2029,6 +2150,7 @@ function StrategyLabContent() {
         parsed: currentParsed,
         allowNoRebalancing: previousAllowNoRebalancing,
         explicitFields: previousExplicitFields,
+        declinedFields: previousDeclinedFields,
       },
     };
     rememberOpenClarification(nextAssistantMessage);
@@ -2128,6 +2250,7 @@ function StrategyLabContent() {
     const next = getNextMissingBacktestCondition(parsed, {
       allowNoRebalancing: explicitNoRebalancingRef.current,
       explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
       requireExplicitConfiguration: true,
     });
     return {
@@ -2194,6 +2317,7 @@ function StrategyLabContent() {
       reply,
       parsed,
       explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
       backtestRequest: backtestReqRef.current ?? backtestReq,
       allowNoRebalancing: explicitNoRebalancingRef.current,
     });
@@ -2248,12 +2372,18 @@ function StrategyLabContent() {
   // Start the builder immediately. For a recognized single asset, prefill its
   // universe internally and move straight to the entry-condition question.
   const startStrategyBuilder = async (
-    { reuseExisting = false, seedText, seedParsed, seedBacktestRequest, researchMetric }: {
+    { reuseExisting = false, seedText, seedParsed, seedBacktestRequest, researchMetric,
+      strategyPickNotice }: {
       reuseExisting?: boolean;
       seedText?: string;
       seedParsed?: ParsedSummary | null;
       seedBacktestRequest?: any;
       researchMetric?: ResearchMetric | null;
+      // 열린 전략 추천(STRATEGY_PICK) 안내문. 빌더가 시드 발화를 이미 전략으로 이해했으면
+      // (백엔드 seed_recognized — "…(으)로 이해했어요"와 같은 판정) 안내는 모순이라 생략하고,
+      // 이해하지 못한 진짜 열린 요청에만 첫 질문 앞에 붙인다(2026-08-10 사용자 지시 —
+      // 둘 중 하나만).
+      strategyPickNotice?: string;
     } = {},
   ) => {
     // reuseExisting=true면 이미 떠 있는 '분석 중...' 자리표시자를 그대로 빌더 첫 질문으로 바꾼다
@@ -2286,6 +2416,8 @@ function StrategyLabContent() {
 
       const initialState = builderStateRef.current;
       let data = await requestBuilderStep(initialState);
+      // 시드 이해 판정은 첫 응답(시드 적용 턴)만 싣는다 — 이후 재호출 응답은 기본 false.
+      const seedRecognized = Boolean(data.seed_recognized);
       let nextState = mergeBuilderState(initialState, data.state);
 
       const valueStrategyState = applyParsedValueStrategySeed(nextState, seedParsed);
@@ -2362,14 +2494,19 @@ function StrategyLabContent() {
         reply,
         parsed: seedParsed ?? latestParsedRef.current,
         explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
         backtestRequest: seedBacktestRequest ?? backtestReqRef.current,
         allowNoRebalancing: explicitNoRebalancingRef.current,
       });
+      // 열린 추천 안내는 시드를 이해하지 못한 경우에만 — 이해했으면 ack("…로 이해했어요")가
+      // 대신 나간다(둘 다 보여주지 않는다).
+      const noticePrefix =
+        strategyPickNotice && !seedRecognized ? `${strategyPickNotice}\n\n` : "";
       updateLastAssistant({
         isLoading: false,
-        infoText: activeResearchMetric
+        infoText: noticePrefix + (activeResearchMetric
           ? `${buildResearchMetricIntro(activeResearchMetric)}\n\n${question}`
-          : question,
+          : question),
         infoSuggestions: suggestions?.length ? suggestions : undefined,
         builderQuestion: true,
         builderPresentation,
@@ -2398,14 +2535,16 @@ function StrategyLabContent() {
         reply: fallbackQuestion,
         parsed: seedParsed ?? latestParsedRef.current,
         explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
         backtestRequest: seedBacktestRequest ?? backtestReqRef.current,
         allowNoRebalancing: explicitNoRebalancingRef.current,
       });
       updateLastAssistant({
         isLoading: false,
-        infoText: activeResearchMetric
+        // 호출 실패 턴은 시드 이해 여부를 알 수 없다 — 종전대로 안내를 보인다.
+        infoText: (strategyPickNotice ? `${strategyPickNotice}\n\n` : "") + (activeResearchMetric
           ? `${buildResearchMetricIntro(activeResearchMetric)}\n\n${question}`
-          : question,
+          : question),
         infoSuggestions: singleAssetContext
           ? withBuilderNavigationSuggestions(
               ["골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등", FREE_INPUT_CHIP],
@@ -2452,6 +2591,7 @@ function StrategyLabContent() {
         reply: data.reply,
         parsed: latestParsedRef.current,
         explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
         backtestRequest: backtestReqRef.current ?? backtestReq,
         allowNoRebalancing: explicitNoRebalancingRef.current,
       });
@@ -2738,6 +2878,11 @@ function StrategyLabContent() {
         workflowStatus: workflowStatusRef.current,
         // 값 없이 지목된 수정 대상 — 백엔드가 성립 검증까지 마친 라벨이다(재심 금지).
         clarifyTarget: data.clarify_target ?? null,
+        // 값 조회가 성립한 지표 — 있으면 suggested_reply가 거절 안내가 아니라
+        // 백엔드가 데이터에서 만든 사실 문장이다.
+        factMetric: data.fact_metric ?? null,
+        // 소속 목록이 성립한 업종/테마 — 있으면 suggested_reply가 정본 목록이다.
+        listScope: data.list_scope ?? null,
         interpretationFailed: Boolean(data.interpretation_failed),
       };
       return { classification, history };
@@ -2779,6 +2924,9 @@ function StrategyLabContent() {
           ? { pending_question: openClarificationRef.current.clarification }
           : {}),
         previous_explicit_fields: explicitFieldsRef.current,
+        // 거부('안 함') 목록도 같은 무상태 에코 — 없으면 백엔드 최소 조건 게이트가
+        // 이미 '안 함'으로 정한 손절·익절을 다시 묻는다.
+        previous_declined_fields: declinedFieldsRef.current,
         previous_field_metadata: fieldMetadataRef.current,
         previous_artifacts: artifactsRef.current,
         // 파생 상태는 저장되지 않으므로, 무효화·재유효화 전이는 직전 턴 계산 결과와
@@ -2876,6 +3024,7 @@ function StrategyLabContent() {
       // provenance 누적을 되묻기 게이트 계산보다 **먼저** 갱신한다 — 순서가 뒤바뀌면
       // 게이트가 이전 턴(빈) 목록을 보고 이미 답한 설정을 다시 묻는다.
       explicitFieldsRef.current = parsedPayload.explicit_fields ?? explicitFieldsRef.current;
+      declinedFieldsRef.current = parsedPayload.declined_fields ?? declinedFieldsRef.current;
       // 진행 골격 8칸의 상태 축(표시 전용). 아래 게이트 계산에는 쓰지 않는다 —
       // 되묻기·실행 판정의 정본은 여전히 explicit_fields + isSlotFilled다.
       fieldStatesRef.current = parsedPayload.field_states ?? fieldStatesRef.current;
@@ -2900,6 +3049,7 @@ function StrategyLabContent() {
       const promptContext = getStrategyPromptContext(promptText);
       const explicitMissingCondition = getNextMissingBacktestCondition(nextParsed, {
         explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
         requireExplicitConfiguration: true,
       });
       // 우선순위 마커(clarification_priority)가 실린 백엔드 질문 — 테마 유니버스(FR-STR-071/072)·
@@ -2938,6 +3088,7 @@ function StrategyLabContent() {
         const nextMissingCondition = getNextMissingBacktestCondition(nextParsed, {
           allowNoRebalancing: true,
           explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
           requireExplicitConfiguration: true,
         });
         presentedClarification = nextMissingCondition
@@ -2954,6 +3105,7 @@ function StrategyLabContent() {
             reply: presentedClarification.question,
             parsed: nextParsed,
             explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
             backtestRequest: nextBacktestReq,
             allowNoRebalancing: explicitNoRebalancingRef.current,
             // 값 미정으로 제외된 조건 — 이게 없으면 유니버스 게이트 질문 턴의 요약이
@@ -3126,6 +3278,7 @@ function StrategyLabContent() {
     explicitNoRebalancingRef.current = previous.allowNoRebalancing;
     setExplicitNoRebalancing(previous.allowNoRebalancing);
     explicitFieldsRef.current = [...previous.explicitFields];
+    declinedFieldsRef.current = [...(previous.declinedFields ?? [])];
     setMessages((previousMessages) => {
       const currentIndex = previousMessages.length - 1;
       const selectedConditionIndex = previousMessages
@@ -3162,6 +3315,7 @@ function StrategyLabContent() {
     const missingCondition = getNextMissingBacktestCondition(data.parsed, {
       allowNoRebalancing: explicitNoRebalancingRef.current,
       explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
       requireExplicitConfiguration: true,
     });
     if (missingCondition) {
@@ -3173,6 +3327,7 @@ function StrategyLabContent() {
         reply: missingCondition.question,
         parsed: data.parsed,
         explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
         backtestRequest: data.backtest_request,
         allowNoRebalancing: explicitNoRebalancingRef.current,
       });
@@ -3304,6 +3459,8 @@ function StrategyLabContent() {
       // 답을 기다리는 질문이 떠 있으면 이 입력은 그 답이다 — 되묻기 레인이 개입하지
       // 않고 파스 레인(LLM)이 해석한다(사용자 결정 2026-07-31).
       hasOpenClarification: Boolean(openClarificationRef.current?.clarification),
+      // 결과 수치 질문(RESULT_EXPLAIN)은 인용할 결과가 있어야 성립한다.
+      hasBacktestResult: Boolean(result),
     };
     let turnDecision = decideConversationTurn(userText, conversationContext);
     traceTurn("pre-classify", userText, turnDecision);
@@ -3396,7 +3553,15 @@ function StrategyLabContent() {
       const holdingPeriodDays = turnDecision.strategyAssumptions?.holdingPeriodDays;
       const researchMetric = turnDecision.researchMetric ?? null;
       // 라벨 분기(열린 추천·온보딩)로 들어온 경우에만 안내 문구가 실려 있다.
-      if (turnDecision.message) await emitAssistant({ isLoading: false, infoText: turnDecision.message });
+      // 열린 전략 추천(STRATEGY_PICK) 안내는 여기서 바로 내보내지 않는다 — 빌더가 시드
+      // 발화를 이미 전략으로 이해했으면("…로 이해했어요") 안내가 모순이라, 이해 여부
+      // (백엔드 seed_recognized)를 본 뒤 둘 중 하나만 보인다(2026-08-10 사용자 지시).
+      const strategyPickNotice =
+        turnDecision.reason === "classified_strategy_pick" ? turnDecision.message : undefined;
+      const introEmitted = Boolean(turnDecision.message && !strategyPickNotice);
+      if (introEmitted) {
+        await emitAssistant({ isLoading: false, infoText: turnDecision.message });
+      }
       pendingHoldingPeriodPromptRef.current = null;
       pendingHoldingPeriodHorizonRef.current = null;
       pendingMetricResearchPromptRef.current = null;
@@ -3408,7 +3573,13 @@ function StrategyLabContent() {
         ? { hold_period_days: holdingPeriodDays, risk_done: true }
         : {};
       builderHistoryRef.current = [];
-      await startStrategyBuilder({ seedText: turnDecision.seedPrompt, researchMetric });
+      await startStrategyBuilder({
+        // 분류를 거쳐 온 턴은 '분석 중...' 자리표시자가 이미 떠 있다. 안내문이 그 자리를
+        // 소비하지 않았으면(STRATEGY_PICK 안내 보류 경로) 자리표시자를 빌더 첫 질문으로
+        // 재사용한다 — 새 버블을 붙이면 자리표시자가 로딩 상태로 영원히 남는다.
+        reuseExisting: placeholderShown && !introEmitted,
+        seedText: turnDecision.seedPrompt, researchMetric, strategyPickNotice,
+      });
       setIsSending(false);
       return;
     }
@@ -3511,6 +3682,7 @@ function StrategyLabContent() {
           reply: data.reply,
           parsed: currentParsed,
           explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
           backtestRequest: backtestReqRef.current ?? backtestReq,
         });
         updateLastAssistant({
@@ -3633,16 +3805,27 @@ function StrategyLabContent() {
       if (turnDecision.effect === "CANCEL" || turnDecision.effect === "RESTART") {
         clearStrategyDraft();
       }
+      // RESUME은 열려 있던 되묻기를 그대로 다시 세운다(부가 발화의 질문 복원과 같은
+      // 원칙, § 21). pending_ask가 상태에 살아 있는데 질문이 화면에 없으면, 재개 후
+      // 첫 발화("리스크 관리")가 보이지 않는 질문의 답으로 해석돼 말한 적 없는 값이
+      // 확정된다(2026-08-10 익절 8% 사고).
+      const reopenedClarification =
+        turnDecision.effect === "RESUME" && openClarificationRef.current?.clarification
+          ? openClarificationRef.current
+          : null;
       updateLastAssistant({
         isLoading: false,
         infoText:
           turnDecision.message ??
-          "이어서 진행할게요. 다음으로 정할 조건을 말씀해 주세요.",
+          (reopenedClarification
+            ? "이어서 진행할게요."
+            : "이어서 진행할게요. 다음으로 정할 조건을 말씀해 주세요."),
+        ...(reopenedClarification ?? {}),
         // 전략을 버린 경우 전략 카드를 함께 내린다.
         builderPresentation:
           turnDecision.effect === "CANCEL" || turnDecision.effect === "RESTART"
             ? undefined
-            : currentStrategyPresentation(),
+            : reopenedClarification?.builderPresentation ?? currentStrategyPresentation(),
       });
       setIsSending(false);
       return;
@@ -3665,6 +3848,32 @@ function StrategyLabContent() {
             classifyResult?.classification.intent === "UNKNOWN"
               ? "요청을 이해하지 못했습니다. 연구하려는 시장, 조건 또는 기간을 조금 더 구체적으로 입력해 주세요."
               : "답변을 가져오지 못했습니다.",
+        });
+      }
+      setIsSending(false);
+      return;
+    }
+
+    // 결과 수치 질문 — 사용자의 실제 수치를 사실로 붙여 보낸다. 사실 없이 보내면
+    // LLM이 남의 숫자로 그럴듯한 답을 만든다(backtestResultFacts 참고).
+    if (turnDecision.action === "answer_result") {
+      try {
+        const res = await fetch("/api/query/general", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: userText,
+            history: classifyResult?.history ?? [],
+            facts: buildBacktestResultFacts(result),
+          }),
+        });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        updateLastAssistant(composeTurnMessage(turnDecision, { answerText: data.answer }));
+      } catch {
+        updateLastAssistant({
+          isLoading: false,
+          error: "결과 설명을 가져오지 못했습니다.",
         });
       }
       setIsSending(false);
@@ -4521,6 +4730,7 @@ function StrategyLabContent() {
                           isBacktestReady(msg.parsed ?? latestParsed, {
                             allowNoRebalancing: explicitNoRebalancing,
                             explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
                             requireExplicitConfiguration: true,
                           }) && (
                             <div

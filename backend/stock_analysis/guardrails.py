@@ -41,6 +41,37 @@ def sanitize(text: str) -> str:
     return " ".join(part.strip() for part in kept if part.strip()).strip()
 
 
+# [규제 안전] 지표·성과에 **등급을 매기는** 표현. _FORBIDDEN(행동 지시)과 축이 다르므로
+# 별도로 둔다 — 여기 합치면 AI 리포트·종목 설명 등 기존 호출부의 출력까지 바뀐다.
+#
+# 결과 수치 질문 답변 전용이다. 프롬프트로 "등급 매기지 마라"를 지시해도 9B가 완전히
+# 지키지는 못한다(실측 2026-08-11: '샤프 지수 1.21은 위험 조정 후 수익성이 긍정적인
+# 수준'). CLAUDE.md 금지 예시 "좋은 투자 전략입니다"와 같은 종류라 문장째 걷어낸다.
+#
+# 입력은 우리 LLM의 출력이지 사용자 원문이 아니다 — 자연어 해석 계약의 금지 대상이 아니다.
+#
+# '위험이 높다' 류는 넣지 않는다 — "최대 낙폭 -35%는 손실 폭이 컸음을 뜻한다"처럼
+# 과거 데이터의 사실 서술과 구분되지 않아, 넣으면 정당한 설명까지 지워진다.
+_METRIC_GRADING = re.compile(
+    r"양호|우수|훌륭|뛰어난|탁월|바람직|이상적|긍정적|부정적|저조|"
+    r"안정적(?:이|인|으로)|효율적(?:이|인|으로)|"
+    r"좋(?:은|다|습니다|네요|음)|나쁘(?:다|지|네요)|나쁜"
+)
+
+
+def strip_metric_grading(text: str) -> str:
+    """지표에 등급을 매기는 문장을 제거한다(결과 수치 설명 전용).
+
+    지표 사이의 **관계** 설명("승률이 높아도 평균 손실이 크면 총손익은 마이너스")은
+    남기고, 수치 하나를 두고 잘하고 못했다고 말하는 문장만 걷어낸다.
+    """
+    if not text:
+        return ""
+    sentences = _SENTENCE_SPLIT.split(text)
+    kept = [s for s in sentences if not _METRIC_GRADING.search(s)]
+    return " ".join(part.strip() for part in kept if part.strip()).strip()
+
+
 # 없는 데이터를 거론하는 일반 표현 — 해당 문장을 통째로 제거한다(INSUFFICIENT_DATA 설명에는 적용 안 함).
 _UNAVAILABLE = re.compile(
     r"데이터\s*없음|데이터(?:가|는)?\s*(?:없|부족|확보되지|제공되지|포함(?:되어|하고)?\s*있지\s*않|포함(?:되지|하지)\s*않)|"

@@ -146,11 +146,9 @@ _SLOT_CHIP_BUILDERS: Dict[str, Any] = {
         "리밸런싱",
         lambda rec: ["매월 리밸런싱", "분기 리밸런싱", "매년 리밸런싱"],
     ),
-    # 변동성 랭킹 산정 기간(2026-08-10) — 랭킹은 진행 골격의 매수 조건 슬롯이다.
-    "strategy.ranking[0].lookback_days": (
-        "매수 조건",
-        lambda rec: [f"변동성 산정 기간 {n}일" for n in _numeric_options(rec, 60, 120, 200)],
-    ),
+    # 랭킹 산정 기간(strategy.ranking[0].lookback_days)은 이 표에 없다 — 칩 문구가
+    # 랭킹 지표에 따라 다르므로(변동성/수익률) _clarification_items가 직접 만든다
+    # (2026-08-10, 모멘텀도 되묻기 합류).
     "strategy.portfolio.hold_period_days": (
         "보유 기간",
         lambda rec: [f"{n}일 보유" for n in _numeric_options(rec, 20, 60)],
@@ -220,18 +218,47 @@ def _clarification_items(
                 direction = "이하" if (cond.operator or "").startswith("<") else "이상"
                 # display_name의 괄호 설명은 칩에서 제거해 수정 파서 어휘와 맞춘다
                 name = spec.display_name.split("(")[0]
-                chips.append(f"{name} {q.recommended_value:g}{unit} {direction}")
+                if cond.factor == "fundamental.market_cap" and direction == "이하":
+                    # 시총 상한 되묻기('소형주' 등 시총 규모 표현) — 작은 시총 후보를
+                    # 여러 개 제시해 사용자가 고른다(2026-08-11 사용자 지시). 표기는
+                    # 기존 단일 칩과 동일한 정본 형태라 결속(_bind_chips →
+                    # _apply_prompt_overrides 시총 패턴)이 그대로 성립한다.
+                    chips.extend(
+                        f"{name} {v:g}{unit} {direction}"
+                        for v in _numeric_options(q.recommended_value, 1000, 3000)
+                    )
+                else:
+                    chips.append(f"{name} {q.recommended_value:g}{unit} {direction}")
                 if spec.engine_binding is not None and spec.engine_binding[0] == "fundamental_filter":
                     metric = spec.engine_binding[1]
         elif q.field == "strategy.universe.listing_from":
             # 신규 상장 대상 시기(FR-STR-073) — 사용자 어휘 그대로 되보낼 수 있는 칩.
             chips.extend(_new_listing_period_chips())
-        elif q.field in _SLOT_CHIP_BUILDERS:
+        elif q.field == "strategy.ranking[0].lookback_days":
+            # 랭킹 산정 기간 칩 — 문구가 랭킹 지표에 따라 다르다(변동성/수익률 —
+            # 모멘텀도 되묻기, 2026-08-10 사용자 지시 "60일 강제 금지"). 정본 표기는
+            # _apply_prompt_overrides의 '{라벨}산정기간N일' 에코 인식과 쌍이다(칩=값 결속).
+            rank_metric = (
+                strategy.ranking[0].metric
+                if strategy is not None and strategy.ranking else None
+            )
+            chip_label = "변동성" if rank_metric == "ranking.volatility" else "수익률"
+            alternates = (120, 200) if rank_metric == "ranking.volatility" else (20, 120)
+            chips.extend(
+                f"{chip_label} 산정 기간 {n}일"
+                for n in _numeric_options(q.recommended_value, *alternates)
+            )
+            topic = "매수 조건"
+        slot_item = False
+        if q.field in _SLOT_CHIP_BUILDERS:
             # 조건이 아닌 슬롯(포트폴리오·리스크·청산) 질문의 칩과 topic.
             slot_topic, build = _SLOT_CHIP_BUILDERS[q.field]
             chips.extend(build(q.recommended_value))
             topic = slot_topic
-        items.append({"question": line, "chips": chips, "topic": topic, "metric": metric})
+            # 슬롯 질문 표식 — 이월 큐에 싣지 않기 위한 판정(아래 큐 구성 참조).
+            slot_item = True
+        items.append({"question": line, "chips": chips, "topic": topic,
+                      "metric": metric, "slot": slot_item})
     for role in coalesced_cross_roles:
         role_label = "매수(진입)" if role == "entry" else "매도(청산)"
         items.append({
@@ -536,6 +563,16 @@ def _patch_provenance_supported(patch, compact_input: str, input_numbers: set) -
         # 인용문을 대조에서 제외하는 것과 같은 이유이며(같은 유형의 "3억원"→3천만원 사고),
         # 그 교훈이 이 게이트에는 적용돼 있지 않았다.
         if _quote_contradicts_value(raw_quote, patch.value):
+            continue
+        # 숫자 스칼라 패치는 숫자의 출처가 있어야 한다(2026-08-10 실측: 익절 질문에
+        # "리스크 관리"라는 값 없는 발화가 오자 9B가 초안의 손절 8을 복사해
+        # take_profit=8.0을 냈고, 발화 전체를 인용으로 달아 여기서 통과했다 — 숫자
+        # 없는 인용은 숫자 값의 근거가 될 수 없다). 인용에 숫자가 없으면 ② 수치
+        # 대조(입력 숫자, 단위 환산 포함)로 넘긴다. 조건 객체(dict) 값의 내장 기본
+        # 파라미터(5/20일선 등)는 대상이 아니다 — 그 경우는 인용 실재만으로 충분하다
+        # ('데드크로스 나오면 팔아' 2026-07-31 구제 유지).
+        if (isinstance(patch.value, (int, float)) and not isinstance(patch.value, bool)
+                and not re.search(r"\d", quote)):
             continue
         return True
     # ② 수치 대조: 패치 값의 숫자가 입력 숫자(단위 환산 포함)에 나타나면 근거 있음.
@@ -1060,7 +1097,13 @@ def run_primary_parse(
             clarification_question = first["question"]
             clarification_suggestions = first["chips"] or None
             fallback_topic = first["topic"]
-            queued_items = clarification_items[1:]
+            # 슬롯 질문(청산·종목 수·리밸런싱·손절 등)은 큐에 싣지 않는다(2026-08-11
+            # 사용자 지시 — "그 다음부턴 우리가 이미 가지고 있는 걸 보여주면서 슬롯을
+            # 채우면 돼"). 큐가 나르는 것은 진행 골격이 묻지 않는 질문(조건 기준값·
+            # 파라미터)뿐이고, 슬롯 되묻기는 답 반영 후 기존 기제(재계획 planner의 정본
+            # 칩 폴백·프론트 explicit 게이트의 슬롯 박스)가 정본 문구·칩으로 잇는다 —
+            # 큐의 전용 문구가 그 박스를 덮어쓰면 같은 슬롯의 되묻기가 두 벌이 된다.
+            queued_items = [i for i in clarification_items[1:] if not i.get("slot")]
         chips_offered = list(clarification_suggestions or [])
         pending_ask = _pending_ask_payload(
             clarification_question, clarification_suggestions, fallback_topic, parsed
@@ -1068,19 +1111,18 @@ def run_primary_parse(
         if pending_ask is not None:
             # 결속된 칩만 보인다 — planner 분기와 같은 계약.
             clarification_suggestions = pending_ask["chips"]
-            if queued_items:
-                pending_ask["queue"] = queued_items
-        elif queued_items:
-            # 첫 질문이 결속에 실패하면 큐를 실을 곳이 없다 — 나머지 질문이 조용히
-            # 사라지느니 종전대로 전체 질문을 한 번에 묻는다(분할은 결속 성립 시에만).
-            clarification_question, clarification_suggestions, fallback_topic = (
-                _build_clarification(report, validated))
-            chips_offered = list(clarification_suggestions or [])
-            pending_ask = _pending_ask_payload(
-                clarification_question, clarification_suggestions, fallback_topic, parsed
-            )
-            if pending_ask is not None:
-                clarification_suggestions = pending_ask["chips"]
+        elif clarification_question and queued_items:
+            # 첫 질문이 무칩(지표 선택 되묻기 등)이거나 칩이 전부 결속 탈락 — 그래도
+            # 질문은 하나만 낸다. 무칩 ask는 클릭 귀속 대상이 없지만 큐를 나르는
+            # 그릇으로는 성립한다: 답변은 자유 서술로 수정 레인이 받고, 그 턴이 큐를
+            # 이어 소비한다(_next_ask_from_queue). 종전에는 여기서 전체 질문 병합으로
+            # 폴백해 한 버블에 질문 2~3개가 나갔다(2026-08-10 사용자 보고: 랭킹 지표
+            # 선택+청산 질문이 한 번에 — "한 번에 한 가지만 물어봐야 한다").
+            pending_ask = {
+                "topic": fallback_topic, "question": clarification_question, "chips": [],
+            }
+        if pending_ask is not None and queued_items:
+            pending_ask["queue"] = queued_items
 
     # 값-대기 조건의 기준값 질문은 프론트 explicit 게이트(유니버스 질문)에 밀리지 않게
     # 우선순위 마커를 붙인다(2026-08-03 사용자 결정 — "당기순이익·영업이익률이 얼마나
@@ -1256,7 +1298,8 @@ def _symbol_typo_term_in(
 
 
 def _dag_state_summary(
-    parsed: Any, explicit_fields: Optional[Iterable[str]] = None
+    parsed: Any, explicit_fields: Optional[Iterable[str]] = None,
+    declined_fields: Optional[Iterable[str]] = None,
 ) -> Dict[str, Any]:
     """DAG planner에 넘길 '이미 결정된 전략 State' 요약 — 재질문 방지 근거.
 
@@ -1298,13 +1341,15 @@ def _dag_state_summary(
     # 하나이며, 되묻기 게이트·프론트 진행률도 같은 술어를 쓴다.
     filled_slots = strategy_slots.filled_slots(
         parsed, explicit_fields=explicit_fields, require_explicit=True,
+        declined_fields=declined_fields,
     )
     summary["filled_slots"] = filled_slots
     return summary
 
 
 def _dag_planner_clarification(
-    user_input: str, parsed: Any, explicit_fields: Optional[Iterable[str]] = None
+    user_input: str, parsed: Any, explicit_fields: Optional[Iterable[str]] = None,
+    declined_fields: Optional[Iterable[str]] = None,
 ) -> Optional[tuple[str, Optional[List[str]], Optional[str]]]:
     """DAG planner primary — 다음 되묻기 질문·칩을 planner가 계획한다(Phase 4).
 
@@ -1319,7 +1364,7 @@ def _dag_planner_clarification(
 
         result = plan_strategy_dag(
             user_input, _default_chat(),
-            state_summary=_dag_state_summary(parsed, explicit_fields),
+            state_summary=_dag_state_summary(parsed, explicit_fields, declined_fields),
         )
     except Exception:  # noqa: BLE001 — planner 장애가 파스를 깨면 안 된다(기존 질문 유지)
         logger.warning("dag planner primary 실행 실패 — 기존 질문 유지", exc_info=True)
@@ -1383,7 +1428,7 @@ def _confirm_target(base: Dict[str, Any], chip_text: str, topic: Optional[str]) 
 
 def _bind_chips(
     chips: List[str], parsed: Any, topic: Optional[str]
-) -> tuple[List[str], Dict[str, Dict[str, Any]], Dict[str, str]]:
+) -> tuple[List[str], Dict[str, Dict[str, Any]], Dict[str, str], Dict[str, str]]:
     """칩이 뜻하는 State 변경을 **발행 시점에** 확정한다(칩=값 결속 계약).
 
     칩은 우리 agent가 만들어 보여준 열거형 선택지다 — 값은 보여주는 순간 이미 알고
@@ -1404,9 +1449,11 @@ def _bind_chips(
     값을 바꾸지 않는 칩 중 현재값을 그대로 가리키는 것은 탈락시키지 않고 **확정 칩**으로
     결속한다(_confirm_target, § 7 CONFIRM) — 값은 그대로 두고 상태만 PROVISIONAL →
     CONFIRMED로 올린다.
-    반환: (보여줄 칩, {칩: {필드: 값}}, {칩: 확정 필드})."""
+    거부 칩('손절 안 함' 등, strategy_slots.DECLINE_CHIP_FIELDS)도 값을 바꾸지 않는다 —
+    값이 없는 상태를 사용자가 확정하는 것이므로 결속 대상은 값이 아니라 거부 필드다.
+    반환: (보여줄 칩, {칩: {필드: 값}}, {칩: 확정 필드}, {칩: 거부 필드})."""
     if _is_universe_topic(topic):
-        return list(chips), {}, {}
+        return list(chips), {}, {}, {}
     from engine.nl_parser import (
         ParsedStrategy, _apply_prompt_overrides, _mentioned_unsupported_concepts,
     )
@@ -1416,14 +1463,22 @@ def _bind_chips(
             parsed.model_dump() if hasattr(parsed, "model_dump") else parsed
         ).model_dump()
     except Exception:  # noqa: BLE001 — 비정상 State는 결속 없이 기존 동작 유지
-        return list(chips), {}, {}
+        return list(chips), {}, {}, {}
 
     bound: List[str] = []
     bindings: Dict[str, Dict[str, Any]] = {}
     confirms: Dict[str, str] = {}
+    declines: Dict[str, str] = {}
     for chip in chips:
         text = (chip or "").strip()
         if not text:
+            continue
+        decline_field = strategy_slots.DECLINE_CHIP_FIELDS.get(text)
+        if decline_field is not None:
+            # 거부 칩은 값을 바꾸지 않으므로 아래 값 대조로는 영원히 탈락한다 — 정본 표에
+            # 있는 칩만 여기서 거부로 결속한다(칩=하드코딩 정본 계약).
+            bound.append(text)
+            declines[text] = decline_field
             continue
         unsupported = _mentioned_unsupported_concepts(text)
         if unsupported:
@@ -1453,7 +1508,7 @@ def _bind_chips(
             continue
         bound.append(text)
         bindings[text] = patch
-    return bound, bindings, confirms
+    return bound, bindings, confirms, declines
 
 
 def _next_ask_from_queue(
@@ -1488,10 +1543,15 @@ def _next_ask_from_queue(
             continue  # 큐보다 앞서 자유 서술로 채워진 슬롯 — 재질문 금지
         chips = [c for c in (item.get("chips") or []) if isinstance(c, str) and c.strip()]
         ask = _pending_ask_payload(question, chips or None, topic, parsed)
-        if ask is not None and queue:
+        if ask is None:
+            # 무칩·결속 탈락 질문이어도 남은 큐는 잃지 않는다(한 턴에 한 질문 유지) —
+            # 초기 파스의 무칩 첫 질문과 같은 계약: 질문만 내보내고 자유 서술로 받되,
+            # 큐는 이 ask에 실어 다음 턴이 이어 소비한다.
+            ask = {"topic": topic, "question": question, "chips": []}
+        if queue:
             ask["queue"] = queue
         _log_llm("→ 이월 질문 발행", f"'{question[:60]}' (남은 큐 {len(queue)}개)")
-        return question, (ask["chips"] if ask else None), "pending_values", ask
+        return question, (ask["chips"] or None), "pending_values", ask
     return None
 
 
@@ -1511,7 +1571,7 @@ def _pending_ask_payload(
         return None
     if parsed is None:
         return {"topic": topic, "question": question, "chips": list(chips)}
-    bound, bindings, confirms = _bind_chips(list(chips), parsed, topic)
+    bound, bindings, confirms, declines = _bind_chips(list(chips), parsed, topic)
     if not bound:
         return None
     payload = {
@@ -1522,6 +1582,9 @@ def _pending_ask_payload(
         # 값이 아니라 상태만 올리는 칩(§ 7 CONFIRM) — chip_bindings와 섞으면 무변경
         # 패치가 되어 '반영 없음'으로 떨어진다. 채널을 나눠 클릭 시 확정으로 처리한다.
         payload["chip_confirms"] = confirms
+    if declines:
+        # '안 함' 칩 — 값이 아니라 거부를 남긴다(같은 이유로 별도 채널).
+        payload["chip_declines"] = declines
     return payload
 
 
@@ -1550,7 +1613,8 @@ def _plan_first(user_input: str) -> Optional[Any]:
 
 
 def _is_filled_slot_topic(
-    topic: Optional[str], parsed: Any, explicit_fields: Optional[Iterable[str]] = None
+    topic: Optional[str], parsed: Any, explicit_fields: Optional[Iterable[str]] = None,
+    declined_fields: Optional[Iterable[str]] = None,
 ) -> bool:
     """ask의 topic이 이미 채워진 골격 슬롯을 가리키는가(결정론 판정).
 
@@ -1567,6 +1631,7 @@ def _is_filled_slot_topic(
         slot.replace(" ", "")
         for slot in strategy_slots.filled_slots(
             parsed, explicit_fields=explicit_fields, require_explicit=True,
+            declined_fields=declined_fields,
         )
     }
     return normalized in filled
@@ -1792,7 +1857,8 @@ def _bound_ask_with_slot_fallback(
 
 
 def _replan_next_question(
-    user_input: str, parsed: Any, explicit_fields: Optional[Iterable[str]] = None
+    user_input: str, parsed: Any, explicit_fields: Optional[Iterable[str]] = None,
+    declined_fields: Optional[Iterable[str]] = None,
 ) -> tuple[Optional[str], Optional[List[str]], Optional[str], Optional[Dict[str, Any]]]:
     """State 변경 후 다음 질문을 DAG planner로 재계획한다(§4 — 수정·칩 답변 공용).
 
@@ -1803,10 +1869,12 @@ def _replan_next_question(
         return None, None, None, None
     from engine.nl_parser import detect_incomplete_backtest_conditions
 
-    gate_question, _gate_chips = detect_incomplete_backtest_conditions(parsed, user_input)
+    gate_question, _gate_chips = detect_incomplete_backtest_conditions(
+        parsed, user_input, declined_fields)
     if gate_question is None:
         return None, None, None, None
-    dag_clarification = _dag_planner_clarification(user_input, parsed, explicit_fields)
+    dag_clarification = _dag_planner_clarification(
+        user_input, parsed, explicit_fields, declined_fields)
     if dag_clarification is None:
         return None, None, None, None
     from observability import span
@@ -1835,6 +1903,7 @@ def run_chip_answer(
     previous_parsed: Optional[Dict[str, Any]],
     pending_ask: Optional[Dict[str, Any]],
     previous_explicit_fields: Optional[List[str]] = None,
+    previous_declined_fields: Optional[List[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """직전 planner ask의 옵션 칩 클릭을 결정론으로 State에 반영한다(Phase 4 후속 ①).
 
@@ -1853,6 +1922,8 @@ def run_chip_answer(
 
     확정 칩(chip_confirms, § 7 CONFIRM)은 값이 아니라 상태를 바꾼다 — 전략은 그대로 두고
     그 필드를 explicit_fields에 넣어 PROVISIONAL → CONFIRMED로 올린다.
+    거부 칩(chip_declines, '손절 안 함')도 값을 바꾸지 않는다 — 그 필드를 declined_fields에
+    넣어 "묻지 않아도 되는 빈 값"으로 확정한다(strategy_slots._decided ②).
     """
     if not previous_parsed or not isinstance(pending_ask, dict):
         return None
@@ -1875,6 +1946,31 @@ def run_chip_answer(
         # (테마 카탈로그 정합)이 성립한다. 원문 해석이 아니라 시스템 생성 선택지의
         # 적용이다(계약 § 판정 기준). 적용 실패는 None — 수정 인터프리터가 처리.
         return _apply_universe_chip(user_input, prev, text)
+    decline_field = (pending_ask.get("chip_declines") or {}).get(text)
+    if isinstance(decline_field, str) and decline_field:
+        # '안 함' — 전략 값은 그대로(비어 있는 채) 두고 그 슬롯을 더 묻지 않는다.
+        # 값 패치 경로로 보내면 무변경이라 "해석하지 못했어요"로 끝난다(거부도 답이다).
+        from strategy_conversation.response.provenance import merge_declined_fields
+
+        declined = merge_declined_fields(previous_declined_fields, [decline_field])
+        _log_llm("✓ 거부 칩 클릭", f"칩 '{text}' — {decline_field} 사용 안 함으로 확정")
+        question, suggestions, priority, next_ask = _replan_next_question(
+            user_input, prev, previous_explicit_fields, declined)
+        return finalize_user_response({
+            "parsed": prev,
+            "clarification_question": question,
+            "clarification_suggestions": suggestions,
+            "clarification_priority": priority,
+            "pending_ask": next_ask,
+            "declined_fields": declined,
+            "notices": [],
+            "interpreter": {
+                "mode": "primary_chip_decline",
+                "llm_latency_ms": 0,
+                "patch_count": 0,
+                "declined_fields": [decline_field],
+            },
+        })
     confirm_field = (pending_ask.get("chip_confirms") or {}).get(text)
     if isinstance(confirm_field, str) and confirm_field:
         # § 7 CONFIRM — 값은 그대로, 상태 축만 PROVISIONAL → CONFIRMED.
@@ -1884,7 +1980,7 @@ def run_chip_answer(
         explicit = merge_explicit_fields(previous_explicit_fields, [confirm_field])
         _log_llm("✓ 확정 칩 클릭", f"칩 '{text}' — {confirm_field} 현재값 확정(값 불변)")
         question, suggestions, priority, next_ask = _replan_next_question(
-            user_input, prev, explicit)
+            user_input, prev, explicit, previous_declined_fields)
         return finalize_user_response({
             "parsed": prev,
             "clarification_question": question,
@@ -1933,7 +2029,8 @@ def run_chip_answer(
     if queued is not None:
         question, suggestions, priority, next_ask = queued
     else:
-        question, suggestions, priority, next_ask = _replan_next_question(user_input, parsed)
+        question, suggestions, priority, next_ask = _replan_next_question(
+            user_input, parsed, previous_explicit_fields, previous_declined_fields)
     return finalize_user_response({
         "parsed": parsed,
         "clarification_question": question,
@@ -2291,6 +2388,7 @@ def run_primary_modification(
     previous_explicit_fields: Optional[List[str]] = None,
     pending_ask: Optional[Dict[str, Any]] = None,
     pending_question: Optional[str] = None,
+    previous_declined_fields: Optional[List[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """수정 요청의 LLM Interpreter 기본 경로. 성공 시 결과 dict, 폴백 필요 시 None.
 
@@ -2498,7 +2596,7 @@ def run_primary_modification(
             explicit = merge_explicit_fields(previous_explicit_fields, [confirm_field])
             _log_llm("✓ 추천값 수락", f"{confirm_field} 현재값 확정(값 불변) — topic={pending_ask.get('topic')}")
             question, suggestions, priority, next_ask = _replan_next_question(
-                user_input, prev, explicit)
+                user_input, prev, explicit, previous_declined_fields)
             return finalize_user_response({
                 "parsed": prev,
                 "clarification_question": question,
@@ -2882,7 +2980,7 @@ def run_primary_modification(
         # 후속 질문·칩도 그에 맞게 재생성 — 사용자 계약 "입력은 답변 귀속이 아니라 State
         # 변경 판정이 먼저").
         dag_question, dag_suggestions, dag_priority, dag_pending_ask = _replan_next_question(
-            user_input, parsed
+            user_input, parsed, previous_explicit_fields, previous_declined_fields
         )
 
     # 수정 턴의 명시 필드는 **이번 턴이 바꾼 것**(패치)에서 판정하고 이전 턴 에코와
@@ -2960,6 +3058,10 @@ def apply_primary_meta(result: dict, primary: Dict[str, Any]) -> None:
     # 이번 턴에 State를 바꾸지 않았으므로 호출부가 이전 턴 에코를 그대로 이월한다.
     if primary.get("explicit_fields") is not None:
         result["explicit_fields"] = primary["explicit_fields"]
+    # 거부 목록(‘안 함’)도 같은 계약 — 거부를 만든 턴(거부 칩 클릭)만 갱신하고,
+    # 나머지 턴은 호출부(_finalize_parse_result)가 이전 턴 에코를 이월한다.
+    if primary.get("declined_fields") is not None:
+        result["declined_fields"] = primary["declined_fields"]
     # 상태 축(§ 5)도 같은 계약 — 인터프리터가 State를 판정한 턴에서만 갱신한다.
     if primary.get("field_states"):
         result["field_states"] = primary["field_states"]

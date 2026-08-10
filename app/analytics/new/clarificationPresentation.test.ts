@@ -33,7 +33,8 @@ describe("presentStrategyClarification", () => {
       }),
     ).toMatchObject({
       question: "익절 기준이 빠져 있습니다. 익절 기준을 몇 %로 설정할까요?",
-      suggestions: ["익절 10%", "익절 20%", "익절 30%"],
+      // '안 함'은 거부 칩(2026-08-10) — 익절을 안 쓰는 것도 정상 설계라 함께 나온다.
+      suggestions: ["익절 10%", "익절 20%", "익절 30%", "안 함"],
       missingCondition: { field: "take_profit" },
     });
   });

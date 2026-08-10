@@ -83,3 +83,59 @@ describe("분위 그룹 전략의 그룹당 상한 칩 (FR-BT-060b)", () => {
     expect(result?.parsed.ranking_group_cap).toBeUndefined();
   });
 });
+
+// 손절·익절 '안 함'(2026-08-10 사용자 지시) — 쓰지 않는 것도 정상적인 전략 설계인데
+// 거부를 표현할 방법이 없어 값을 넣어야만 실행 게이트를 통과할 수 있었다.
+describe("손절·익절 '안 함' 칩", () => {
+  const withValues = {
+    stop_loss_pct: 10,
+    take_profit_pct: 20,
+  } as unknown as ParsedSummary;
+
+  it("'안 함'은 값을 넣지 않고 그 슬롯을 거부로 확정한다", () => {
+    const result = applyDeterministicConditionChoice({
+      parsed,
+      condition: { field: "stop_loss", question: "", suggestions: [] },
+      choice: "안 함",
+    });
+    expect(result?.declinedField).toBe("stop_loss");
+    expect(result?.parsed.stop_loss_pct).toBeUndefined();
+  });
+
+  it("백엔드 표기('익절 안 함')도 같은 결과를 낸다", () => {
+    const result = applyDeterministicConditionChoice({
+      parsed,
+      condition: { field: "take_profit", question: "", suggestions: [] },
+      choice: "익절 안 함",
+    });
+    expect(result?.declinedField).toBe("take_profit");
+  });
+
+  it("값 칩은 종전대로 값을 넣는다(거부로 새지 않는다)", () => {
+    expect(
+      applyDeterministicConditionChoice({
+        parsed,
+        condition: { field: "stop_loss", question: "", suggestions: [] },
+        choice: "손절 -15%",
+      }),
+    ).toEqual({ parsed: { stop_loss_pct: 15 } });
+    expect(
+      applyDeterministicConditionChoice({
+        parsed: withValues,
+        condition: { field: "take_profit", question: "", suggestions: [] },
+        choice: "익절 30%",
+      })?.parsed.take_profit_pct,
+    ).toBe(30);
+  });
+
+  it("다른 슬롯의 '손절 안 함' 문구는 그 슬롯의 거부가 아니다", () => {
+    // 익절 질문에 손절 거부 문구가 오면(에코 어긋남) 적용하지 않는다 — 값도 거부도 아니다.
+    expect(
+      applyDeterministicConditionChoice({
+        parsed,
+        condition: { field: "take_profit", question: "", suggestions: [] },
+        choice: "손절 안 함",
+      }),
+    ).toBeNull();
+  });
+});

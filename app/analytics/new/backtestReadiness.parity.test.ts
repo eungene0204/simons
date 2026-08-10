@@ -19,6 +19,7 @@ type SlotCase = {
   parsed: Record<string, unknown>;
   explicitFields: string[];
   allowNoRebalancing: boolean;
+  declinedFields: string[];
   expectedMissingField: string | null;
   expectedFilledSlots: string[];
 };
@@ -36,6 +37,7 @@ describe("빈 슬롯 판정 — 백엔드 정본과 프론트 게이트의 일�
       {
         explicitFields: testCase.explicitFields,
         allowNoRebalancing: testCase.allowNoRebalancing,
+        declinedFields: testCase.declinedFields,
         requireExplicitConfiguration: true,
       },
     );
@@ -58,6 +60,7 @@ describe("빈 슬롯 판정 — 백엔드 정본과 프론트 진행률 패널�
       parsed: testCase.parsed as unknown as ParsedSummary,
       explicitFields: testCase.explicitFields,
       allowNoRebalancing: testCase.allowNoRebalancing,
+      declinedFields: testCase.declinedFields,
     });
     const completed = presentation.progressItems
       .filter((item) => item.complete)
