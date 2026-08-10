@@ -884,8 +884,15 @@ class BacktestEngine:
                 # 종목 간 횡단면 순위라 진입 신호 없이 순위 자체가 진입이 된다. 회전(월간 등)은
                 # 달력 리밸런싱(engine/rebalance.py + simulator의 목표비중/재구성 경로)이 구동한다.
                 try:
+                    from engine.indicators import lookback_return_panel
+
                     lookback = int(risk_params.get('ranking_lookback_days') or 60)
-                    momentum = price_df.pct_change(lookback)
+                    # price_df(ffill+bfill)가 아니라 raw_price_df를 쓴다(v13.3) — 상장 전
+                    # bfill 구간이 'N일 수익률'을 상장 이후 수익률로 위장해 관측 미달
+                    # 신규 상장 종목이 상위권으로 매수됐다(2023-12-01 실측: 상장 10거래일째
+                    # 에코프로머티 '상위 1%'). 변동성 랭킹 v13.2와 같은 계약 — 관측 미달은
+                    # NaN → 아래 valid 마스크가 후보에서 배제한다.
+                    momentum = lookback_return_panel(raw_price_df, lookback)
                     rank_df = momentum.rank(axis=1, pct=True)
                     # 수익률이 정의되지 않은 초기 lookback 구간(NaN)에는 종목을 후보에서 제외한다.
                     # 그러지 않으면 순위가 0으로 동률이 되어 임의 종목을 사서 들고 있게 된다.

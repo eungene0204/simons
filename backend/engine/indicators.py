@@ -31,6 +31,20 @@ def annualized_volatility_panel(raw_price_df, lookback: int):
     return ret.rolling(lookback).std() * (KRX_TRADING_DAYS_PER_YEAR ** 0.5) * 100.0
 
 
+def lookback_return_panel(raw_price_df, lookback: int):
+    """종목별 N거래일 수익률 패널 — 모멘텀(상대강도) 랭킹용 횡단면 계산.
+
+    입력은 **bfill 전** 원시 종가 패널이어야 한다(annualized_volatility_panel과 같은
+    계약, v13.3). 상장 전 구간을 bfill로 채운 패널의 pct_change는 신규 상장 종목의
+    'N일 수익률'을 상장 이후 수익률로 위장한다(2023-12-01 백테스트 실측: 상장
+    10거래일째 에코프로머티가 '최근 60거래일 수익률 상위 1%'로 매수 — 60일 수익률이
+    정의될 수 없는 종목). ffill(거래정지 구간 전진 충전)만 허용 — 상장 전 구간은
+    NaN이 남아 첫 실봉 이후 lookback 봉이 쌓이기 전까지 NaN이고, 랭킹 후보에서
+    자연 배제된다(valid = momentum.notna()).
+    """
+    return raw_price_df.ffill().pct_change(lookback)
+
+
 class IndicatorEngine:
     @staticmethod
     def calculate(df_pl: pl.DataFrame, conditions: List[Dict[str, Any]]) -> pl.DataFrame:
