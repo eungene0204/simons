@@ -238,6 +238,27 @@ def _fetch_ohlcv_pykrx(symbol: str, start: str) -> pd.DataFrame:
     return df
 
 
+_MCAP_SNAPSHOT_CACHE: dict = {}
+
+
+def _market_cap_snapshot(date_str: str) -> dict:
+    """해당 일자 전 시장 시가총액(원) 스냅샷 {symbol: 시가총액}. 실패는 빈 dict 캐시.
+
+    날짜별 1콜을 전 심볼이 공유한다 — 하루 sync에 새 봉 날짜는 1~2개뿐이라 실질
+    추가 호출도 1~2회다. 실패한 날짜의 시총은 null로 남고, 이후 재무 보강의
+    add_market_cap(gap-fill 근사)이 폴백으로 메운다.
+    """
+    if date_str not in _MCAP_SNAPSHOT_CACHE:
+        try:
+            snap = pykrx.get_market_cap_by_ticker(date_str, market="ALL")
+            ok = snap is not None and not snap.empty and "시가총액" in snap.columns
+            _MCAP_SNAPSHOT_CACHE[date_str] = snap["시가총액"].to_dict() if ok else {}
+        except Exception as e:
+            print(f"[WARNING] market cap snapshot {date_str} failed: {e}")
+            _MCAP_SNAPSHOT_CACHE[date_str] = {}
+    return _MCAP_SNAPSHOT_CACHE[date_str]
+
+
 def update_ohlcv_incremental(symbol, data_dir):
     """Update parquet file with latest data if exists, else full download.
 
@@ -257,6 +278,16 @@ def update_ohlcv_incremental(symbol, data_dir):
         df_new_pd = _fetch_ohlcv_pykrx(symbol, start=last_date.strftime("%Y-%m-%d"))
         if df_new_pd.empty:
             return True  # Already up to date
+
+        # 새 봉의 실측 시가총액(억원) — 근사(종가×현재 주식수)가 아닌 당일 실제 값.
+        # 스냅샷에 없는 심볼(ETF 등)·실패 날짜는 null → add_market_cap 폴백이 메운다.
+        caps = [
+            _market_cap_snapshot(d.strftime("%Y%m%d")).get(symbol)
+            for d in df_new_pd["date"]
+        ]
+        df_new_pd["market_cap"] = pd.Series(
+            [c / 1e8 if c else None for c in caps], dtype=float
+        )
 
         df_new = pl.from_pandas(df_new_pd)
         df_old = df_old.with_columns(pl.col("date").cast(pl.Datetime("us")))

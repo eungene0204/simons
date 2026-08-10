@@ -100,10 +100,42 @@ def test_market_cap_from_shares(monkeypatch):
     assert out["market_cap"].iloc[0] == pytest.approx(500.0)
 
 
-def test_market_cap_skipped_when_already_present():
+def test_market_cap_skipped_when_fully_present(monkeypatch):
+    # 전량 채워져 있으면 네트워크 조회 없이 no-op.
+    def _boom(s):
+        raise AssertionError("fetch_shares_outstanding must not be called")
+    monkeypatch.setattr(bf, "fetch_shares_outstanding", _boom)
     df = _ohlcv(["2024-06-01"], close=50000.0, market_cap=[123.0])
-    out = bf.add_market_cap(df, "005930")  # fetch_shares not called
+    out = bf.add_market_cap(df, "005930")
     assert out["market_cap"].iloc[0] == pytest.approx(123.0)
+
+
+def test_market_cap_gap_filled_on_appended_rows(monkeypatch):
+    # 재발 회귀(2026-06-26 꼬리 공백 사고): 매일 sync가 null 재무 컬럼으로 붙인 새 봉 —
+    # 기존 값은 보존하고 결측 행만 close×상장주식수로 채운다. 옛 가드('값이 하나라도
+    # 있으면 통째로 스킵')는 이 케이스에서 영구 결측을 만들었다.
+    monkeypatch.setattr(bf, "fetch_shares_outstanding", lambda s: 1_000_000)
+    df = _ohlcv(["2026-06-25", "2026-06-26"], close=[50000.0, 60000.0],
+                market_cap=[123.0, np.nan])
+    out = bf.add_market_cap(df, "005930")
+    assert out["market_cap"].iloc[0] == pytest.approx(123.0)  # kept
+    assert out["market_cap"].iloc[1] == pytest.approx(600.0)  # 60000×1e6/1e8
+
+
+def test_refresh_symbol_fills_pcr_on_appended_null_tail(monkeypatch):
+    # 재발 회귀: 새 봉은 market_cap·pcr 모두 null로 붙는다. 한 번의 refresh 안에서
+    # 시총이 먼저 채워지고 그 시총으로 PCR(=시총×1e8/영업CF)까지 계산돼야 한다
+    # (순서가 반대면 PCR이 다음 refresh까지 하루 이상 비어 있다).
+    funds = [{"year_end": "2025-12-31", "available_from": "2026-03-15",
+              "roa": 7.0, "operating_cash_flow": 5e10}]
+    monkeypatch.setattr(bf, "fetch_fundamentals", lambda s, use_cache=True: funds)
+    monkeypatch.setattr(bf, "fetch_shares_outstanding", lambda s: 1_000_000)
+    df = _ohlcv(["2026-06-25", "2026-06-26"], close=[50000.0, 60000.0],
+                market_cap=[500.0, np.nan], pcr=[9.9, np.nan])
+    out = bf.refresh_symbol(df, "005930")
+    assert out["market_cap"].iloc[-1] == pytest.approx(600.0)
+    assert out["pcr"].iloc[-1] == pytest.approx(600.0 * 1e8 / 5e10)  # 1.2
+    assert out["pcr"].iloc[0] == pytest.approx(9.9)  # 기존 값 보존 (재계산 1.0으로 덮지 않음)
 
 
 def test_empty_fundamentals_leaves_frame_unchanged():
@@ -123,6 +155,45 @@ def test_refresh_symbol_merges_and_adds_market_cap(monkeypatch):
     assert out["roa"].iloc[-1] == pytest.approx(7.0)
     assert out["debt_ratio"].iloc[-1] == pytest.approx(40.0)
     assert out["market_cap"].iloc[-1] == pytest.approx(500.0)  # 50000×1e6/1e8
+
+
+# ── apply_real_market_cap / recompute_pcr (실측 시총 재구축, 엔진 v13.0) ──
+
+def test_real_market_cap_wins_and_uncovered_dates_keep_old():
+    # 실측이 기존 근사를 덮어쓰고, 실측이 없는 날짜만 기존 값을 보존한다.
+    df = _ohlcv(["2020-01-02", "2020-01-03"], market_cap=[100.0, 200.0])
+    caps = pd.Series([150.0], index=pd.to_datetime(["2020-01-02"]))
+    out = bf.apply_real_market_cap(df, caps)
+    assert out["market_cap"].iloc[0] == pytest.approx(150.0)  # 실측 승
+    assert out["market_cap"].iloc[1] == pytest.approx(200.0)  # 미커버 보존
+
+
+def test_real_market_cap_drops_nonpositive_and_handles_missing_column():
+    # 0/음수 실측은 '데이터 없음'(거래정지 등) — 버리고 기존 값 보존. 컬럼이 없으면 생성.
+    df = _ohlcv(["2020-01-02", "2020-01-03"], market_cap=[100.0, np.nan])
+    caps = pd.Series([0.0, 300.0], index=pd.to_datetime(["2020-01-02", "2020-01-03"]))
+    out = bf.apply_real_market_cap(df, caps)
+    assert out["market_cap"].iloc[0] == pytest.approx(100.0)  # 0 → 기존 보존
+    assert out["market_cap"].iloc[1] == pytest.approx(300.0)
+
+    no_col = _ohlcv(["2020-01-03"])
+    out2 = bf.apply_real_market_cap(no_col, caps)
+    assert out2["market_cap"].iloc[0] == pytest.approx(300.0)
+
+
+def test_recompute_pcr_follows_market_cap_basis():
+    # PCR은 (억원×1e8)/영업CF(raw 원), OCF<=0은 null — enrich와 같은 단일 정의.
+    from engine.fundamental_fetcher import recompute_pcr
+    df = _ohlcv(
+        ["2020-01-02", "2020-01-03", "2020-01-06"],
+        market_cap=[500.0, 500.0, np.nan],
+        operating_cash_flow=[1e10, -1e10, 1e10],
+        pcr=[99.0, 99.0, 99.0],
+    )
+    out = recompute_pcr(df)
+    assert out["pcr"].iloc[0] == pytest.approx(500.0 * 1e8 / 1e10)  # 5.0
+    assert pd.isna(out["pcr"].iloc[1])  # OCF 음수 → null (99.0 되살리지 않음)
+    assert pd.isna(out["pcr"].iloc[2])  # 시총 결측 → null
 
 
 # ── rebuild_fundamental_columns (available_from 교정 후 재구축) ──

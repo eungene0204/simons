@@ -105,19 +105,56 @@ def rebuild_fundamental_columns(pdf: pd.DataFrame, fundamentals: list[dict]) -> 
 
 
 def add_market_cap(out: pd.DataFrame, symbol: str) -> pd.DataFrame:
-    """Fill a market_cap (억원) column from close × 상장주식수 where currently null."""
-    if "market_cap" in out.columns and out["market_cap"].notna().any():
+    """Fill a market_cap (억원) column from close × 상장주식수 where currently null.
+
+    결측 행만 채우고 기존 값은 보존한다. 매일 sync가 pykrx 봉을 재무 컬럼 전부 null로
+    붙이므로(scripts/sync_data.py) 꼬리 결측은 정상 상태다 — '값이 하나라도 있으면
+    통째로 건너뛰기'로 되돌리면 새 봉의 market_cap(→PCR)이 영구 결측이 된다
+    (2026-06-26부터 전 종목 꼬리 공백 사고, 2026-08-10 수정).
+    """
+    if "market_cap" in out.columns and out["market_cap"].notna().all():
         return out
     shares = fetch_shares_outstanding(symbol)
     if not shares or shares <= 0:
         return out
     out = out.copy()
-    out["market_cap"] = out["close"].astype(float) * shares / 1e8
+    calc = out["close"].astype(float) * shares / 1e8
+    if "market_cap" in out.columns:
+        out["market_cap"] = out["market_cap"].combine_first(calc)
+    else:
+        out["market_cap"] = calc
+    return out
+
+
+def apply_real_market_cap(pdf: pd.DataFrame, caps_eok: pd.Series) -> pd.DataFrame:
+    """실측 일별 시가총액(억원, 날짜 인덱스 Series)을 market_cap 컬럼에 병합한다.
+
+    실측이 이긴다 — 기존 값(종가×현재 주식수 근사)을 덮어쓰고, 실측이 없는 날짜만
+    기존 값을 보존한다. 0/음수는 '데이터 없음'으로 버린다(상장 종목 시총은 0일 수
+    없다 — KRX가 거래정지 등에서 0을 줄 수 있다).
+    """
+    if caps_eok is None or caps_eok.empty:
+        return pdf
+    caps = caps_eok[caps_eok > 0]
+    caps = caps[~caps.index.duplicated(keep="last")]
+    if caps.empty:
+        return pdf
+    out = pdf.copy()
+    dates = pd.to_datetime(out["date"]).dt.normalize()
+    mapped = dates.map(caps)
+    if "market_cap" in out.columns:
+        out["market_cap"] = mapped.combine_first(out["market_cap"].astype(float))
+    else:
+        out["market_cap"] = mapped
     return out
 
 
 def refresh_symbol(pdf: pd.DataFrame, symbol: str, *, use_cache: bool = True) -> pd.DataFrame:
-    """Fetch + non-destructively merge fundamentals + market_cap for one symbol's OHLCV."""
+    """Fetch + non-destructively merge fundamentals + market_cap for one symbol's OHLCV.
+
+    market_cap을 merge보다 먼저 채운다 — PCR(=시총/영업CF)은 enrich가 market_cap
+    컬럼을 보고 계산하므로, 순서가 반대면 새 봉의 PCR이 다음 refresh까지 비어 있다.
+    """
     fundamentals = fetch_fundamentals(symbol, use_cache=use_cache)
-    merged = merge_fundamentals(pdf, fundamentals) if fundamentals else pdf
-    return add_market_cap(merged, symbol)
+    withcap = add_market_cap(pdf, symbol)
+    return merge_fundamentals(withcap, fundamentals) if fundamentals else withcap

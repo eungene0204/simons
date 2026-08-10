@@ -69,6 +69,27 @@ def fetch_and_enrich(symbol, data_dir, skip_fundamentals=False):
 
         # 4. Fundamental enrichment (EPS/BPS/ROE/debt_ratio → PER/PBR)
         if not skip_fundamentals:
+            from .fundamental_backfill import add_market_cap, apply_real_market_cap
+
+            # 3b. 실측 일별 시가총액(억원) — 전 구간 1콜, 당시 실제 상장주식수 기준.
+            #     실패·미커버(ETF 등) 날짜만 아래 add_market_cap 근사가 gap-fill로 메운다.
+            try:
+                mc = pykrx.get_market_cap_by_date(
+                    df["date"].min().strftime("%Y%m%d"),
+                    df["date"].max().strftime("%Y%m%d"),
+                    symbol,
+                )
+                if mc is not None and not mc.empty and "시가총액" in mc.columns:
+                    caps = mc["시가총액"].astype(float) / 1e8
+                    caps.index = pd.to_datetime(caps.index)
+                    df = apply_real_market_cap(df, caps)
+            except Exception as e:
+                print(f"[WARNING] real market cap fetch failed for {symbol}: {e}")
+
+            # market_cap을 먼저 채워야 enrich가 같은 실행에서 PCR(시총/영업CF)을 계산한다.
+            # 신생 parquet이 여기서 시총 없이 태어나면, 일일 enrichment 게이트(roa sentinel)가
+            # 재무만 보고 건너뛰어 캐시 만료까지 market_cap(→PCR·시총 필터)이 빈다.
+            df = add_market_cap(df, symbol)
             fundamentals = fetch_fundamentals(symbol)
             if fundamentals:
                 df = enrich_ohlcv_with_fundamentals(df, fundamentals)
