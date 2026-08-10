@@ -313,6 +313,7 @@ export const INDICATOR_LABELS: Record<string, string> = {
   stochastic: "스토캐스틱",
   cci: "CCI",
   adx: "ADX",
+  volatility: "변동성",
   ai_model: "AI 매수 예측",
   ai_drop_model: "AI 하락 예측",
 };
@@ -374,6 +375,12 @@ export function getSignalLabel(
   if (signal.indicator === "rsi" && signal.operator != null && signal.value != null) {
     const opKr = OPERATOR_KO_LABELS[signal.operator] ?? signal.operator;
     return `RSI ${signal.value} ${opKr}`;
+  }
+
+  // 변동성(연환산 %)도 RSI처럼 operator/value가 있으면 "변동성 30% 이하"로 구체화한다.
+  if (signal.indicator === "volatility" && signal.operator != null && signal.value != null) {
+    const opKr = OPERATOR_KO_LABELS[signal.operator] ?? signal.operator;
+    return `변동성 ${signal.value}% ${opKr}`;
   }
 
   if (signal.indicator === "ai_model" && (context === "exit" || signal.signal_type === "sell")) {
@@ -548,6 +555,13 @@ export function getRankingLabel(parsed: ParsedSummary): string | null {
   if (parsed.ranking_metric === "return") {
     const days = parsed.ranking_lookback_days ?? 60;
     return `${days}일 수익률 상위`;
+  }
+  if (parsed.ranking_metric === "volatility") {
+    // 엔진의 방향 미지정 기본은 bottom(저변동성 선호) — backtest_engine 변동성 분기 미러.
+    const days = parsed.ranking_lookback_days ?? 60;
+    return parsed.ranking_direction === "top"
+      ? `${days}일 변동성 높은 순 상위`
+      : `${days}일 변동성 낮은 순 상위`;
   }
   if (parsed.ranking_metric) {
     // 재무 팩터 랭킹(예: 영업이익률 상위 20종목) — 지표명은 필터 배지와 같은 정본 라벨.

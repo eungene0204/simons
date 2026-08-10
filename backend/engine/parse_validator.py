@@ -109,9 +109,10 @@ The parsed strategy object follows this schema (ParsedStrategy):
       증가율은 ocf_growth/fcf_growth로, 절대 금액과 혼동 금지. 투자·재무는 통상 음수)
 - entry_signals / exit_signals: array of {indicator, signal_type(buy/sell), ...params}
     indicator ∈ ma_crossover, rsi, ema, macd, bollinger_bands, breakout, volume_spike,
-    stochastic, cci, adx, williams_r, mfi, roc, ai_model, ai_drop_model
-    (williams_r=Williams %R -100~0, mfi=Money Flow Index 0~100, roc=Rate of Change/모멘텀 %)
-- ranking_metric: "return" | null
+    stochastic, cci, adx, williams_r, mfi, roc, volatility, ai_model, ai_drop_model
+    (williams_r=Williams %R -100~0, mfi=Money Flow Index 0~100, roc=Rate of Change/모멘텀 %,
+    volatility=연환산 변동성 %)
+- ranking_metric: "return" | "volatility"(연환산 변동성 순위 — 저변동성은 ranking_direction "bottom") | null
 - max_positions, hold_period_days, rebalancing_period, stop_loss_pct, take_profit_pct,
   trailing_stop_pct, max_mdd_limit_pct, backtest_start_date, backtest_end_date
 

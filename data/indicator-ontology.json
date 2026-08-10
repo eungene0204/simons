@@ -49,7 +49,7 @@
      "description": "컨센서스·추정치 계열(미지원 라우팅용)"},
 
     {"id": "class.risk", "name": "위험 지표", "parent": "class.indicator",
-     "description": "가격 위험 계열(변동성·베타, 미지원 라우팅용)"},
+     "description": "가격 위험 계열(변동성=지원, 베타=미지원). 변동성=일수익률 롤링 표준편차 연환산(%)"},
     {"id": "class.event_flow", "name": "이벤트/수급", "parent": "class.indicator",
      "description": "뉴스·공시·자사주·수급 계열(미지원 라우팅용)"},
     {"id": "class.ranking", "name": "랭킹", "parent": "class.indicator",
@@ -135,7 +135,7 @@
     "unsupported.turnover_ratio": "class.efficiency",
     "unsupported.earnings_estimate": "class.estimate",
 
-    "unsupported.volatility": "class.risk",
+    "technical.volatility": "class.risk",
     "unsupported.beta": "class.risk",
 
     "unsupported.buyback": "class.event_flow",
@@ -143,6 +143,7 @@
     "unsupported.supply_demand": "class.event_flow",
 
     "ranking.return": "class.ranking",
+    "ranking.volatility": "class.ranking",
 
     "unsupported.partial_exit": "class.execution"
   },
@@ -191,6 +192,7 @@
     "fundamental.financing_cf_amount": "none",
 
     "ranking.return": "higher_better",
+    "ranking.volatility": "lower_better",
 
     "technical.ma_crossover": "none",
     "technical.ema": "none",
@@ -206,6 +208,7 @@
     "technical.williams_r": "none",
     "technical.mfi": "none",
     "technical.roc": "none",
+    "technical.volatility": "none",
 
     "technical.ai_model": "higher_better",
     "technical.ai_drop_model": "lower_better"

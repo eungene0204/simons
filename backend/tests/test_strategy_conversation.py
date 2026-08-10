@@ -1262,6 +1262,22 @@ def test_primary_reports_pending_conditions_for_summary(monkeypatch):
     assert not any("영업이익률" in n for n in result["notices"])
 
 
+def test_primary_volatility_lookback_question_gets_priority(monkeypatch):
+    """[회귀] 2026-08-10 — 변동성 산정 기간 질문이 우선순위 마커 없이 나가면 프론트
+    explicit 게이트(시장 질문)가 삼켜 영영 노출되지 않는다(실측: "안 물어봐").
+    값-대기 조건 질문과 같은 계약(pending_values)으로 게이트에 밀리지 않게 한다."""
+    data = _full_intent_dict(
+        entry_conditions=[],
+        ranking=[{"metric": "ranking.volatility", "direction": "bottom"}],
+        portfolio={"selection_count": 10, "rebalance_frequency": "monthly"},
+    )
+    result = _run_primary_with(monkeypatch, data, "변동성이 낮은 종목에 투자하는 전략")
+    assert result is not None
+    assert "변동성 산정 기간" in (result["clarification_question"] or "")
+    assert result["clarification_priority"] == "pending_values"
+    assert "변동성 산정 기간 60일" in (result["clarification_suggestions"] or [])
+
+
 def test_primary_does_not_echo_interpreter_unsupported_features(monkeypatch):
     """인터프리터의 unsupported_features를 그대로 인용하던 안내는 폐지됐다(2026-08-01).
 

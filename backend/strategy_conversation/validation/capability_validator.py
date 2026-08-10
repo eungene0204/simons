@@ -112,6 +112,20 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                         lookback_days=int(lookback) if lookback else None,
                         source_text=cond.source_text,
                     ))
+                # 백분위 드리프트 실측(2026-08-10, '변동성 하위 10%만 편입'): LLM이 편입
+                # 비율을 portfolio.selection_percent가 아니라 랭킹 조건의 value(unit
+                # percentile)로 실어 보낸다 — 조건은 여기서 이동·소거되므로 그대로 두면
+                # 사용자가 말한 편입 규모가 조용히 사라진다. unit이 백분위임이 명시된
+                # 값만, 편입 규모가 비어 있을 때만 selection_percent로 옮긴다(자리
+                # 배정이지 재해석이 아니다). 맨 값(unit 없음)은 연환산 % 임계값과 구별할
+                # 수 없어 옮기지 않는다.
+                if (
+                    cond.value is not None
+                    and str(cond.unit or "").strip().lower() == "percentile"
+                    and strategy.portfolio.selection_percent is None
+                    and strategy.portfolio.selection_count is None
+                ):
+                    strategy.portfolio.selection_percent = float(cond.value)
                 continue
             kept.append(cond)
             if spec.supported == "UNSUPPORTED":

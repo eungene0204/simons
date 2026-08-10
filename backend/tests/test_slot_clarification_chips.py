@@ -57,6 +57,7 @@ def _base_strategy() -> ParsedStrategy:
     ("strategy.risk_management.take_profit", 25),
     ("strategy.risk_management.trailing_stop", 12),
     ("strategy.exit_conditions", "monthly"),
+    ("strategy.ranking[0].lookback_days", 60),
 ])
 def test_slot_question_produces_chips(field, recommended):
     _question, chips, topic = _clarify(field, recommended)

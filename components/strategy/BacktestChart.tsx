@@ -309,8 +309,8 @@ export default function BacktestChart({
           // Create buy & hold line series if data exists
           if (buyHoldChartData.length > 0) {
             const buyHoldSeries = chart.addSeries(LineSeries, {
-              color: "rgba(255,255,255,0.5)",
-              lineWidth: 1,
+              color: "#22c55e", // --main-green
+              lineWidth: 2,
               lineStyle: LineStyle.Solid,
               lineType: LineType.Curved, // Smooth line
               priceFormat: {
@@ -516,7 +516,7 @@ export default function BacktestChart({
                 if (bhData && "value" in bhData) {
                   tooltipContent += `
                     <div class="text-white text-[10px] flex justify-between gap-4">
-                      <span>매수후보유:</span>
+                      <span>벤치마크:</span>
                       <span class="text-main-green font-mono font-bold">${formatValue(bhData.value as number)}</span>
                     </div>
                   `;
@@ -710,8 +710,8 @@ export default function BacktestChart({
                <span className="text-[10px] font-bold text-white">나의 전략</span>
             </div>
             <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
-               <div className="w-2.5 h-2.5 rounded-full bg-white/50" />
-               <span className="text-[10px] font-bold text-white">매수후보유</span>
+               <div className="w-2.5 h-2.5 rounded-full bg-main-green" />
+               <span className="text-[10px] font-bold text-white">벤치마크</span>
             </div>
             {vbtEquityChartData.length > 0 && (
               <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">

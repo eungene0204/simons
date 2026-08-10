@@ -290,11 +290,12 @@ _FUNDAMENTAL_METRIC_ALIASES: dict[str, str] = {
     "net_profit": "net_income",
 }
 
-# 랭킹 가능 지표 — 'return'(모멘텀) + 재무 팩터(FundamentalFilter.metric과 같은 어휘).
+# 랭킹 가능 지표 — 'return'(모멘텀)·'volatility'(연환산 변동성, 가격 산출) + 재무 팩터
+# (FundamentalFilter.metric과 같은 어휘).
 # trading_value는 파케이 컬럼이 아니라 엔진이 즉석 계산(close×volume)하는 값이라 랭킹
 # 수집 경로(연간 재무 컬럼 ffill)에 태울 수 없어 제외한다.
 RankingMetricLiteral = Literal[
-    "return",
+    "return", "volatility",
     "per", "pbr", "psr", "pcr", "ev_ebitda", "ev_ebit", "roe_or_gpa", "roa", "debt_ratio",
     "current_ratio", "quick_ratio", "reserve_ratio", "net_margin", "gross_margin",
     "operating_margin", "revenue_growth", "operating_income_growth", "net_income_growth",
@@ -404,9 +405,9 @@ class TechnicalSignal(BaseModel):
     indicator: Literal[
         "ma_crossover", "rsi", "ema", "macd",
         "bollinger_bands", "breakout", "volume_spike",
-        "stochastic", "cci", "adx", "williams_r", "mfi", "roc", "trading_value",
-        "ai_model", "ai_drop_model"
-    ] = Field(description="지표 종류. williams_r=Williams %R(-100~0), mfi=자금흐름지표(0~100), roc=변화율/모멘텀(%), ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도")
+        "stochastic", "cci", "adx", "williams_r", "mfi", "roc", "volatility",
+        "trading_value", "ai_model", "ai_drop_model"
+    ] = Field(description="지표 종류. williams_r=Williams %R(-100~0), mfi=자금흐름지표(0~100), roc=변화율/모멘텀(%), volatility=연환산 변동성(%, 일수익률 롤링 표준편차×√246), ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도")
     signal_type: Literal["buy", "sell"] = Field(default="buy", description="매수=buy, 매도=sell")
 
     # MA / EMA 크로스오버
@@ -660,14 +661,15 @@ class ParsedStrategy(BaseModel):
         default=None,
         description=(
             "종목 간 순위로 선정하는 방식. 'return'=최근 수익률 상위 종목 선정(상대강도/모멘텀 랭킹), "
+            "'volatility'=연환산 변동성 순위 선정(저변동성 전략은 direction='bottom'), "
             "재무 지표명(operating_margin 등)=그 지표 값 순위로 선정(재무 팩터 랭킹). "
-            "예: '최근 60일 수익률 높은 상위 N종목', '영업이익률 상위 20종목'. "
+            "예: '최근 60일 수익률 높은 상위 N종목', '변동성 낮은 20종목', '영업이익률 상위 20종목'. "
             "진입 신호 없이 순위 자체가 진입. 없으면 null"
         ),
     )
     ranking_lookback_days: Optional[int] = Field(
         default=None,
-        description="랭킹 산정 기간(거래일). 예: '60거래일 수익률'=60. ranking_metric='return'일 때만. 없으면 null(기본 60)",
+        description="랭킹 산정 기간(거래일). 예: '60거래일 수익률'=60. ranking_metric='return'/'volatility'일 때만. 없으면 null(기본 60)",
     )
     ranking_direction: Optional[Literal["top", "bottom"]] = Field(
         default=None,
@@ -3686,7 +3688,12 @@ def _extract_max_mdd_limit_pct(user_input: str) -> Optional[float]:
 #   - 패턴은 공백 제거·소문자화한 compact 입력 기준. 지원되는 개념(상대강도 랭킹 등)은
 #     절대 포함하지 않는다(오폴백 방지).
 _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
-    ("volatility", r"변동성"),
+    # 변동성은 2026-08-10 정식 지원 승격(technical.volatility + ranking 'volatility').
+    # 결정적 추출기는 여전히 표현하지 못하므로 패턴을 남겨 LLM 위임 신호로 쓴다(pcr와 동형).
+    # LLM이 전략에 반영하면 _CONCEPT_EXPRESSED_PREDICATES["volatility"]가 안내를 뺀다.
+    # '산정 기간' 칩 정본 표기('변동성 산정 기간 120일')는 _apply_prompt_overrides가
+    # 결정적으로 결속하므로 제외한다 — 여기 걸리면 칩이 미지원 언급으로 노출 금지된다.
+    ("volatility", r"변동성(?!산정기간)"),
     ("cash_flow", r"현금흐름|영업활동현금|잉여현금|fcf|pcf|pcr(?![a-z])"),
     ("cash_weight", r"현금[^,]{0,4}(?:비중|유지)"),
     ("dividend", r"배당"),
@@ -3880,6 +3887,19 @@ _CONCEPT_EXPRESSED_PREDICATES: dict[str, Any] = {
     ),
     "ema_alignment": lambda p, nums: any(
         s.indicator in ("ema", "ma_crossover") for s in p.entry_signals + p.exit_signals
+    ),
+    # volatility — 연환산 변동성은 2026-08-10 정식 지원 승격(technical.volatility 필터 +
+    # ranking_metric='volatility' 저변동성 랭킹). 결정적 추출기는 여전히 표현하지 못하므로
+    # 패턴은 목록에 남긴다(규칙 기반 레인의 LLM 위임 신호 — pcr와 동형). LLM이 반영하면
+    # 이 술어가 안내를 뺀다.
+    # entry_filters는 getattr 방어 — 이 술어는 ParsedStrategy 유사 스텁(테스트 더미)도
+    # 받으므로 빌더 전용 채널 필드가 없을 수 있다.
+    "volatility": lambda p, nums: (
+        getattr(p, "ranking_metric", None) == "volatility"
+        or any(
+            s.indicator == "volatility"
+            for s in p.entry_signals + p.exit_signals + getattr(p, "entry_filters", [])
+        )
     ),
 }
 
@@ -5420,6 +5440,14 @@ def _apply_prompt_overrides(
         updates["ranking_metric"] = None
         updates["ranking_lookback_days"] = None
         updates["ranking_direction"] = None
+
+    # 변동성 산정 기간 되묻기 칩('변동성 산정 기간 120일')의 결정적 에코 인식(2026-08-10).
+    # 어휘 확장이 아니라 우리가 발행하는 칩 정본 표기의 자리 배정이다(칩=값 결속 계약 —
+    # 결속은 이 함수의 diff로 판정되므로 정본 표기는 여기서 인식돼야 한다). 자유 서술
+    # ('산정 기간을 넉 달로')은 종전대로 LLM 레인이 해석한다.
+    vol_lookback_match = re.search(r"변동성산정기간(\d+)(?:거래)?일", compact_in)
+    if vol_lookback_match:
+        updates["ranking_lookback_days"] = int(vol_lookback_match.group(1))
 
     # 명시적 백테스트 연도 범위('2002년부터 2005년까지')를 결정적으로 추출.
     # 언급이 없으면 기존 값을 덮어쓰지 않는다(수정 모드 보호).

@@ -4,6 +4,7 @@ import polars as pl
 from stockstats import StockDataFrame
 from typing import List, Dict, Any
 
+from engine.result_handler import KRX_TRADING_DAYS_PER_YEAR
 from engine.indicator_columns import (
     BOLLINGER_DEFAULT_STD,
     bollinger_columns,
@@ -14,6 +15,21 @@ from engine.indicator_columns import (
 
 # Fix 6: 멀티스레드 안전한 표준 logging 모듈로 교체
 _logger = logging.getLogger(__name__)
+
+def annualized_volatility_panel(raw_price_df, lookback: int):
+    """종목별 연환산 변동성 패널(%) — 저변동성 랭킹용 횡단면 계산.
+
+    입력은 **bfill 전** 원시 종가 패널이어야 한다. 상장 전 구간을 bfill로 채운 패널을
+    넘기면 평평한 가짜 가격의 수익률 0이 변동성을 0으로 위장해, 신규 상장 종목이
+    저변동성 최상위로 선정된다(2022-07-01 백테스트 실측: 상장 21일째 마스턴프리미어리츠가
+    '120거래일 변동성 하위 7%'로 매수 — 실제로는 120일 변동성이 정의될 수 없다).
+    ffill(거래정지 구간 전진 충전)만 허용하며, 수익률 관측치가 lookback개 미만인 구간은
+    NaN이다(pandas rolling 기본 min_periods=window) — 후보에서 자연 배제된다.
+    연환산 계수는 결과 통계와 동일한 KRX 실측 연 거래일(√246, v12.0)이다.
+    """
+    ret = raw_price_df.ffill().pct_change()
+    return ret.rolling(lookback).std() * (KRX_TRADING_DAYS_PER_YEAR ** 0.5) * 100.0
+
 
 class IndicatorEngine:
     @staticmethod
@@ -96,6 +112,18 @@ class IndicatorEngine:
                         # stockstats close_{n}_roc: n봉 전 대비 변화율(%). 모멘텀 지표.
                         period = p.get('period', 12)
                         target_cols.add(f'close_{period}_roc')
+                    elif cid == 'volatility':
+                        # 연환산 변동성(%): 일수익률 롤링 표준편차 × √246 × 100.
+                        # 연환산 계수는 결과 통계와 동일한 KRX 실측 연 거래일(v12.0 정정)을
+                        # 쓴다 — 결과 화면의 '변동성'과 같은 눈금이라 임계값이 비교 가능하다.
+                        # stockstats에 없는 지표라 breakout처럼 직접 계산한다.
+                        period = p.get('period', 60)
+                        ret = sdf['close'].pct_change()
+                        sdf[f'volatility_{period}'] = (
+                            ret.rolling(window=period).std()
+                            * (KRX_TRADING_DAYS_PER_YEAR ** 0.5) * 100.0
+                        )
+                        target_cols.add(f'volatility_{period}')
                     elif cid == 'bollinger_bands':
                         period, std_times = bollinger_params(p)
                         ub_col, lb_col = bollinger_columns(p)
