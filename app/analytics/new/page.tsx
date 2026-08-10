@@ -1218,7 +1218,9 @@ function BacktestRunningStatus({ message }: { message: string }) {
       className={`relative isolate w-full overflow-hidden px-4 py-3 ${ARTIFACT_CARD_CLASS}`}
     >
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0">
-        <span className="backtest-aurora" />
+        <span className="backtest-aurora backtest-aurora--gold" />
+        <span className="backtest-aurora backtest-aurora--blue" />
+        <span className="backtest-aurora backtest-aurora--mint" />
       </div>
       <div className="relative z-10 flex items-center gap-3">
         <ArrowsClockwise
@@ -1233,21 +1235,29 @@ function BacktestRunningStatus({ message }: { message: string }) {
         </div>
       </div>
       <style jsx>{`
-        /* 이전에는 blue·mint·gold 세 개의 블롭이 mix-blend-mode: screen으로 겹쳐
-           한 카드 안에서 강조색이 세 개였고, 백테스트가 도는 동안 blur(26px)
-           레이어 3장이 계속 합성됐다. 강조색 하나, 블롭 하나로 줄인다.
-           역동성은 레이어를 늘리지 않고 궤적으로 만든다 — 제자리 흔들림(±5%)
-           대신 카드를 가로지르는 스윕에 회전·크기·밝기 변화를 얹는다. */
+        /* 오로라를 gold·blue·mint 세 색으로 되돌린다(2026-08-10 지시 — 더 화려하게).
+           역동성은 궤적으로 만든다는 원칙은 유지: 세 블롭 모두 제자리 흔들림이 아니라
+           카드를 가로지르는 스윕에 회전·크기·밝기를 얹는다. 주기를 6.5/8.3/10.1초로
+           서로 나누어떨어지지 않게 잡아, 겹치는 순간마다 섞이는 색이 달라진다.
+           mix-blend-mode: screen이라 겹칠수록 밝아지므로 개별 opacity는 낮게 두고,
+           본문 글자(흰색/라벨)가 묻히지 않도록 합성 최대치를 0.5 언저리로 제한한다. */
         .backtest-aurora {
           position: absolute;
           display: block;
+          border-radius: 999px;
+          mix-blend-mode: screen;
+          /* 애니메이션이 꺼진 상태(prefers-reduced-motion)의 밝기 — 켜져 있으면
+             keyframes의 opacity가 덮어쓴다. 없으면 정지 화면에서 3장이 1.0으로 겹친다. */
+          opacity: 0.34;
+          will-change: transform, opacity;
+        }
+
+        .backtest-aurora--gold {
           left: -10%;
           top: -92%;
           width: 58%;
           height: 190%;
-          border-radius: 999px;
           filter: blur(26px);
-          opacity: 0.5;
           background: radial-gradient(
             ellipse at center,
             rgba(240, 180, 41, 0.5) 0%,
@@ -1255,7 +1265,36 @@ function BacktestRunningStatus({ message }: { message: string }) {
             rgba(240, 180, 41, 0) 72%
           );
           animation: backtestAuroraSweep 6.5s ease-in-out infinite;
-          will-change: transform, opacity;
+        }
+
+        .backtest-aurora--blue {
+          left: -16%;
+          top: -70%;
+          width: 50%;
+          height: 165%;
+          filter: blur(30px);
+          background: radial-gradient(
+            ellipse at center,
+            rgba(98, 168, 203, 0.42) 0%,
+            rgba(98, 168, 203, 0.14) 40%,
+            rgba(98, 168, 203, 0) 74%
+          );
+          animation: backtestAuroraDrift 8.3s ease-in-out infinite;
+        }
+
+        .backtest-aurora--mint {
+          left: -6%;
+          top: -60%;
+          width: 44%;
+          height: 150%;
+          filter: blur(32px);
+          background: radial-gradient(
+            ellipse at center,
+            rgba(115, 182, 130, 0.36) 0%,
+            rgba(115, 182, 130, 0.12) 42%,
+            rgba(115, 182, 130, 0) 76%
+          );
+          animation: backtestAuroraGlide 10.1s ease-in-out infinite;
         }
 
         /* 왕복 구간마다 정지점(%)을 불규칙하게 둬 시계추처럼 보이지 않게 한다. */
@@ -1283,6 +1322,54 @@ function BacktestRunningStatus({ message }: { message: string }) {
           100% {
             transform: translate3d(-18%, 5%, 0) rotate(-14deg) scale(0.9);
             opacity: 0.3;
+          }
+        }
+
+        /* 파랑은 gold와 반대 방향으로 흘러 서로 스쳐 지나가게 한다. */
+        @keyframes backtestAuroraDrift {
+          0% {
+            transform: translate3d(150%, -6%, 0) rotate(12deg) scale(1.05);
+            opacity: 0.24;
+          }
+          26% {
+            transform: translate3d(92%, 6%, 0) rotate(2deg) scale(0.92);
+            opacity: 0.5;
+          }
+          52% {
+            transform: translate3d(38%, -5%, 0) rotate(-9deg) scale(1.12);
+            opacity: 0.32;
+          }
+          74% {
+            transform: translate3d(-8%, 4%, 0) rotate(-16deg) scale(0.95);
+            opacity: 0.52;
+          }
+          100% {
+            transform: translate3d(150%, -6%, 0) rotate(12deg) scale(1.05);
+            opacity: 0.24;
+          }
+        }
+
+        /* 민트는 가장 느리고 얕게 움직여 두 색이 지나갈 때 바닥색을 만든다. */
+        @keyframes backtestAuroraGlide {
+          0% {
+            transform: translate3d(10%, 8%, 0) rotate(-6deg) scale(1);
+            opacity: 0.18;
+          }
+          30% {
+            transform: translate3d(58%, -7%, 0) rotate(6deg) scale(1.16);
+            opacity: 0.44;
+          }
+          58% {
+            transform: translate3d(104%, 5%, 0) rotate(14deg) scale(0.94);
+            opacity: 0.26;
+          }
+          80% {
+            transform: translate3d(46%, -3%, 0) rotate(1deg) scale(1.08);
+            opacity: 0.42;
+          }
+          100% {
+            transform: translate3d(10%, 8%, 0) rotate(-6deg) scale(1);
+            opacity: 0.18;
           }
         }
 
