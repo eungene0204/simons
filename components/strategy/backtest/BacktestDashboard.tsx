@@ -889,6 +889,26 @@ export default function BacktestDashboard({
     ? resolveUniverseDisplayName(strategySummary.universeName, modalPromptPreview)
     : null;
 
+  // "프롬프트" 팝오버의 전략 요약 행 — 라벨 하나에 값 여러 개를 세로로 쌓는 구조라
+  // 렌더 쪽에서 조건 분기를 반복하지 않도록 여기서 행 목록으로 만든다.
+  const promptSummaryRows: Array<{ label: string; values: string[] }> = [];
+  if (strategySummary) {
+    const universeLabel = resolveUniverseDisplayName(strategySummary.universeName, promptText);
+    if (universeLabel) promptSummaryRows.push({ label: "유니버스", values: [universeLabel] });
+    if (strategySummary.entryBlocks?.length) {
+      promptSummaryRows.push({ label: "진입 신호", values: strategySummary.entryBlocks });
+    }
+    if (strategySummary.exitBlocks?.length) {
+      promptSummaryRows.push({ label: "청산 신호", values: strategySummary.exitBlocks });
+    }
+    const riskValues = [
+      strategySummary.positionText,
+      strategySummary.rebalancingText,
+      strategySummary.riskText,
+    ].filter((value): value is string => Boolean(value));
+    if (riskValues.length > 0) promptSummaryRows.push({ label: "리스크", values: riskValues });
+  }
+
   const downloadStrategyName =
     strategySummary?.strategyName?.trim() || promptText?.trim() || "백테스트 전략";
   const downloadPeriodLabel =
@@ -1502,69 +1522,27 @@ export default function BacktestDashboard({
                         <p className="text-xs text-gray-200 leading-5 whitespace-pre-wrap">{promptText}</p>
                       </div>
                     )}
-                    {strategySummary && (
-                      <>
-                        {(() => {
-                          const universeLabel = resolveUniverseDisplayName(strategySummary.universeName, promptText);
-                          if (!universeLabel) return null;
-                          return (
-                            <div className="flex flex-wrap gap-1.5 items-center">
-                              <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">유니버스</span>
-                              <div className="flex flex-wrap gap-1">
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
-                                  {universeLabel}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })()}
-                        {strategySummary.entryBlocks?.length ? (
-                          <div className="flex flex-wrap gap-1.5 items-center">
-                            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">진입 신호</span>
-                            <div className="flex flex-wrap gap-1">
-                              {strategySummary.entryBlocks.map((name) => (
-                                <span key={name} className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
-                                  {name}
-                                </span>
-                              ))}
-                            </div>
+                    {promptSummaryRows.length > 0 && (
+                      /* 라벨 폭이 제각각이면 값이 계단처럼 흩어진다 — 대화 화면의 '전략 요약'
+                         카드(BuilderStrategyOverview)와 같은 규칙으로 라벨 열을 고정한 그리드에
+                         값을 한 줄에 하나씩 쌓아 세로줄을 맞춘다. */
+                      <dl className="border-t border-white/[0.06] pt-1">
+                        {promptSummaryRows.map((row) => (
+                          <div
+                            key={row.label}
+                            className="grid grid-cols-[64px_minmax(0,1fr)] gap-3 py-1.5 text-xs leading-relaxed"
+                          >
+                            <dt className="break-keep font-bold text-[var(--text-label)]">{row.label}</dt>
+                            <dd className="min-w-0 break-keep font-bold text-gray-200">
+                              <span className="flex flex-col gap-0.5">
+                                {row.values.map((value, i) => (
+                                  <span key={`${value}-${i}`}>{value}</span>
+                                ))}
+                              </span>
+                            </dd>
                           </div>
-                        ) : null}
-                        {strategySummary.exitBlocks?.length ? (
-                          <div className="flex flex-wrap gap-1.5 items-center">
-                            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">청산 신호</span>
-                            <div className="flex flex-wrap gap-1">
-                              {strategySummary.exitBlocks.map((name) => (
-                                <span key={name} className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
-                                  {name}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                        {(strategySummary.positionText || strategySummary.riskText || strategySummary.rebalancingText) && (
-                          <div className="flex flex-wrap gap-1.5 items-center">
-                            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest w-14 flex-shrink-0">리스크</span>
-                            <div className="flex flex-wrap gap-1">
-                              {strategySummary.positionText && (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
-                                  {strategySummary.positionText}
-                                </span>
-                              )}
-                              {strategySummary.rebalancingText && (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
-                                  {strategySummary.rebalancingText}
-                                </span>
-                              )}
-                              {strategySummary.riskText && (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-white text-xs font-bold">
-                                  {strategySummary.riskText}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </>
+                        ))}
+                      </dl>
                     )}
                   </div>
                 )}
