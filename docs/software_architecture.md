@@ -201,6 +201,8 @@ simons/
 │   │   └── templates/               # 전략 템플릿 (momentum/mean_reversion/value/volume_breakout/ai_signal)
 │   ├── intent/                      # 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / …)
 │   │   ├── classifier.py            # 결정적 하이브리드 분류기 (규칙 + LLM 폴백)
+│   │   ├── stock_facts.py           # 종목 지표 값 조회 — 닫힌 목록 + 엔진 parquet 조회 + 정해진 문장 틀(LLM 미개입, FR-SA-002c-9)
+│   │   ├── stock_lists.py           # 업종·테마 소속 목록 — 섹터 지도·KG 카탈로그 조회 + 가나다순 목록 틀(LLM 미개입, FR-SA-002c-11)
 │   │   └── schemas.py               # IntentResult Pydantic 모델
 │   ├── stock_analysis/              # 종목 해석 유틸 (개별 종목 '분석' 파이프라인은 제거 — 종목 질문은 전략 설계 전환 안내로 응답)
 │   │   ├── stock_master.py          # 종목 마스터 (Ground Truth) + 별칭/티커 해석
@@ -211,7 +213,7 @@ simons/
 │   │   ├── coach_routes.py          # FastAPI AI 전략 코치 라우터 (단건 + SSE 스트리밍)
 │   │   ├── advisor_routes.py        # RAG/Experience Memory 전략 리뷰 라우터
 │   │   ├── news_routes.py           # 뉴스 FastAPI 라우터
-│   │   ├── intent_routes.py         # 질문 의도 분류·전략 빌더·일반 질문 API (/query/classify 등)
+│   │   ├── intent_routes.py         # 질문 의도 분류·전략 빌더·일반 질문 API (/query/classify 등). LLM 어댑터 2갈래: `_mlx_llm_structured`(greedy — 라벨·지표 키·ops JSON·용어 추출) / `_mlx_llm_prose`(샘플링 — /query/general 설명문)
 │   │   └── research_routes.py       # FastAPI 연구 에이전트 라우터 (9개 엔드포인트, SSE)
 │   └── tests/                       # 백엔드 단위 테스트
 │
@@ -451,8 +453,8 @@ interface BacktestResult {
 **질문 의도 분류 / 일반 질문 (intent_routes)**
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
-| POST | `/query/classify` | 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / STOCK_PICK / GENERAL). [규제 안전] STOCK_ANALYSIS(특정 종목 매수·매도 질문)는 종목 분석 대신 '추천 불가 안내 + 그 종목에서 출발한 전략 설계 전환' 문구(suggested_reply)를 동반한다 — 개별 종목 분석 기능(/stock/analyze)은 제거됨. 요청 `history`(최근 대화 턴, `ChatTurn[]`)를 받아 LLM 폴백이 "다른 예는 없어?" 같은 후속 질문을 직전 주제의 연속으로 분류한다(FR-SA-002c-3, 결정적 규칙은 현재 입력만 봄). 라벨과 직교하는 **워크플로 제어 축**(`workflow_effect`: 멈춤·이어하기·취소·초기화·되돌리기)을 같은 LLM 호출로 함께 판정하고, 성립 여부는 결정론 코드가 정한다(규제 게이트 라벨은 제어 거부, 불성립은 NONE 강등). 상태(`workflow_status`)는 서버에 저장하지 않고 프론트가 매 요청에 에코한다 — FR-SA-007 |
-| POST | `/query/general` | 분류·종목 비매칭 일반 질문 응답. `history`를 받아 후속 질문이면 직전 답변과 겹치지 않게 이어서 답한다 |
+| POST | `/query/classify` | 사용자 질문 의도 분류 (STRATEGY / STOCK_ANALYSIS / STOCK_PICK / GENERAL / STRATEGY_STATUS / RESULT_EXPLAIN). [규제 안전] STOCK_ANALYSIS(특정 종목 매수·매도 질문)는 종목 분석 대신 '추천 불가 안내 + 그 종목에서 출발한 전략 설계 전환' 문구(suggested_reply)를 동반한다 — 개별 종목 분석 기능(/stock/analyze)은 제거됨. 요청 `history`(최근 대화 턴, `ChatTurn[]`)를 받아 LLM 폴백이 "다른 예는 없어?" 같은 후속 질문을 직전 주제의 연속으로 분류한다(FR-SA-002c-3, 결정적 규칙은 현재 입력만 봄). 라벨과 직교하는 **워크플로 제어 축**(`workflow_effect`: 멈춤·이어하기·취소·초기화·되돌리기)을 같은 LLM 호출로 함께 판정하고, 성립 여부는 결정론 코드가 정한다(규제 게이트 라벨은 제어 거부, 불성립은 NONE 강등). 상태(`workflow_status`)는 서버에 저장하지 않고 프론트가 매 요청에 에코한다 — FR-SA-007. **읽기 전용 라벨**(STRATEGY_STATUS·RESULT_EXPLAIN)은 제어·되묻기 대상이 항상 강등되고 정형 문구를 달지 않는다(답은 상태를 쥔 화면이 만든다) — FR-SA-002c-8. **값 조회 축**(`fact_metric`, 닫힌 목록 `intent/stock_facts.py`)은 라벨과 직교해 같은 STOCK_ANALYSIS 안에서 판단 요청(거절)과 지표 값 조회(사실 응답)를 가른다 — 응답 문장은 LLM이 아니라 엔진 parquet에서 읽은 결정론 산출물이다, FR-SA-002c-9. **소속 목록 축**(`list_scope`, `intent/stock_lists.py`)은 같은 STOCK_PICK 안에서 추천 요청(거절·빌더 전환)과 소속 질문(정본 목록 응답 — 섹터 지도·KG 카탈로그, 가나다순)을 가른다, FR-SA-002c-11 |
+| POST | `/query/general` | 분류·종목 비매칭 일반 질문 응답. `history`를 받아 후속 질문이면 직전 답변과 겹치지 않게 이어서 답한다. `facts`(선택)로 호출부가 확정한 사실을 받으면 프롬프트 맨 앞 `[사실]`로 주입하고 결과 설명 전용 프롬프트·등급 표현 필터를 적용한다 — 결과 수치 질문(RESULT_EXPLAIN)의 수치 환각 방지, FR-SA-002c-8 |
 | POST | `/strategy/builder/step` | 전략 빌더 모드 한 턴 — 열린 추천(STOCK_PICK) 전환 직후 짧은 답변을 전략 필드로 누적하고, 완성 시 백테스트 프롬프트 합성. 결정적 상태 머신 `intent/strategy_builder.py`(무상태). 프론트 `builderModeRef`/`builderStateRef`가 상태 보관·재전송 |
 
 **뉴스 Impact Agent**
@@ -901,7 +903,7 @@ LangSmith(외부 전송 — `LANGSMITH_TRACING`이 참이 아니면 langsmith를
 없어 기본 on, `AGENT_TRACE_LOCAL=0`으로 끔. FR-OBS-002). 둘 다 꺼져 있으면 span은
 완전한 no-op이다.
 
-계측은 **기존 단일 통로 5곳만** 감싼다(계측을 코드 전반에 흩지 않는다):
+계측은 **기존 단일 통로 7곳만** 감싼다(계측을 코드 전반에 흩지 않는다):
 
 | 계층 | chokepoint | 방식 |
 |---|---|---|
@@ -910,6 +912,14 @@ LangSmith(외부 전송 — `LANGSMITH_TRACING`이 참이 아니면 langsmith를
 | LLM | `interpreter/llm_strategy_interpreter.py::_default_ollama_chat` | 공유 `ChatFn` 계약(interpreter·dag_planner·mini_planner·term_grounding 공통) |
 | Planner | `planner/dag_planner.py::plan_strategy_dag` | 본체를 `_plan_strategy_dag`로 분리 |
 | Interpreter | `StrategyInterpreter.interpret` | 본체를 `_interpret`으로 분리 |
+| 분류 Trace 루트 | `api/intent_routes.py::classify_query` | 라벨·근거·`workflow_effect`·인식 종목을 출력으로 남긴다 |
+| 일반 지식 답변 | `api/intent_routes.py::generate_general_answer` | `root=False` — 전략 레인 백스톱에서 불리면 그 Trace에 붙고, `/query/general`에서는 자기 레코드로 방출 |
+
+**분류·일반답변 레인을 계측하는 이유**는 성능이 아니라 커버리지다. 라벨 밖 질문
+(`UNKNOWN`)과 규제 게이트 라벨로 끊긴 질문이 이 레인에 쌓이는데, 어떤 발화가 거기
+떨어졌는지 남지 않으면 "무엇을 못 알아듣나"를 추측으로만 논하게 된다. 조회는
+`backend/scripts/report_intent_coverage.py`(읽기 전용 — 라벨 분포 + 못 알아들었거나
+정형 안내로 끊긴 발화 목록).
 
 Trace 계층: `Trace → Interpreter/Planner → (Action → Tool · State · LLM) → Responder`.
 Action span과 Tool span을 분리해 "Action은 계획됐는데 도구는 안 불렸다"(`call_cache`

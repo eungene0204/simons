@@ -25,6 +25,7 @@ import {
 } from "@/components/strategy/strategyTemplateSession";
 import { BacktestResult, type OptimizationResponse } from "@/types/strategy";
 import { mapRawBacktestResult } from "./backtestResultMapper";
+import { buildBacktestResultFacts } from "./backtestResultFacts";
 import {
   ArrowUp,
   ArrowRight,
@@ -2877,6 +2878,11 @@ function StrategyLabContent() {
         workflowStatus: workflowStatusRef.current,
         // 값 없이 지목된 수정 대상 — 백엔드가 성립 검증까지 마친 라벨이다(재심 금지).
         clarifyTarget: data.clarify_target ?? null,
+        // 값 조회가 성립한 지표 — 있으면 suggested_reply가 거절 안내가 아니라
+        // 백엔드가 데이터에서 만든 사실 문장이다.
+        factMetric: data.fact_metric ?? null,
+        // 소속 목록이 성립한 업종/테마 — 있으면 suggested_reply가 정본 목록이다.
+        listScope: data.list_scope ?? null,
         interpretationFailed: Boolean(data.interpretation_failed),
       };
       return { classification, history };
@@ -3453,6 +3459,8 @@ function StrategyLabContent() {
       // 답을 기다리는 질문이 떠 있으면 이 입력은 그 답이다 — 되묻기 레인이 개입하지
       // 않고 파스 레인(LLM)이 해석한다(사용자 결정 2026-07-31).
       hasOpenClarification: Boolean(openClarificationRef.current?.clarification),
+      // 결과 수치 질문(RESULT_EXPLAIN)은 인용할 결과가 있어야 성립한다.
+      hasBacktestResult: Boolean(result),
     };
     let turnDecision = decideConversationTurn(userText, conversationContext);
     traceTurn("pre-classify", userText, turnDecision);
@@ -3840,6 +3848,32 @@ function StrategyLabContent() {
             classifyResult?.classification.intent === "UNKNOWN"
               ? "요청을 이해하지 못했습니다. 연구하려는 시장, 조건 또는 기간을 조금 더 구체적으로 입력해 주세요."
               : "답변을 가져오지 못했습니다.",
+        });
+      }
+      setIsSending(false);
+      return;
+    }
+
+    // 결과 수치 질문 — 사용자의 실제 수치를 사실로 붙여 보낸다. 사실 없이 보내면
+    // LLM이 남의 숫자로 그럴듯한 답을 만든다(backtestResultFacts 참고).
+    if (turnDecision.action === "answer_result") {
+      try {
+        const res = await fetch("/api/query/general", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: userText,
+            history: classifyResult?.history ?? [],
+            facts: buildBacktestResultFacts(result),
+          }),
+        });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        updateLastAssistant(composeTurnMessage(turnDecision, { answerText: data.answer }));
+      } catch {
+        updateLastAssistant({
+          isLoading: false,
+          error: "결과 설명을 가져오지 못했습니다.",
         });
       }
       setIsSending(false);

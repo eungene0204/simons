@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from intent.classifier import classify, format_history_context
 from intent.schemas import ChatTurn, IntentRequest, IntentResult
 from intent import platform_defaults, strategy_builder
+from observability import span
 from stock_analysis import guardrails
 from stock_analysis.schemas import DISCLAIMER
 
@@ -40,7 +41,14 @@ def _main_module():
     return sys.modules.get("main")
 
 
-def _mlx_llm(system_prompt: str, user_msg: str, *, max_tokens: int = 400) -> str:
+def _chat(
+    system_prompt: str,
+    user_msg: str,
+    *,
+    max_tokens: int,
+    temperature: float,
+    top_p: float,
+) -> str:
     """coach와 동일한 공유 parser를 inference lock 안에서 호출한다. 없으면 빈 문자열.
     백엔드(mlx/ollama)와 무관하게 등록된 공유 파서를 사용한다."""
     main_mod = _main_module()
@@ -53,10 +61,38 @@ def _mlx_llm(system_prompt: str, user_msg: str, *, max_tokens: int = 400) -> str
         if parser is None or lock is None:
             return ""
         with lock.priority(1):
-            return parser.chat(system_prompt, user_msg, max_tokens=max_tokens, temperature=0.3, top_p=0.9) or ""
+            return parser.chat(
+                system_prompt, user_msg,
+                max_tokens=max_tokens, temperature=temperature, top_p=top_p,
+            ) or ""
     except Exception:
         logger.debug("stock-analysis MLX 호출 실패 — 폴백", exc_info=True)
         return ""
+
+
+# 어댑터를 둘로 나누는 이유: 이 모듈의 LLM 호출은 성격이 정반대인 두 갈래다.
+#
+#   구조화 출력(라벨·지표 키·ops JSON·용어 추출) — 정답을 고르는 일이다. 표현이
+#   달라질 이유가 없고, 달라지면 같은 질문에 다른 답이 나간다.
+#   산문 답변(/query/general) — 설명하는 일이다. 매번 같은 문장이면 오히려 어색하다.
+#
+# 종전에는 하나의 어댑터가 `temperature=0.3`으로 둘 다 처리했다. 0.3은 산문 쪽에
+# 맞춘 값인데(nl_parser.chat: "temperature>0이면 표현이 매번 달라지도록 샘플링한다
+# — 코치용") 분류가 같은 어댑터를 쓰면서 딸려온 것이지 분류를 위해 고른 값이 아니었다.
+# 실측(2026-08-11): 같은 입력 '코스닥 상장사 수가 몇 개야?'가 5회 중
+# GENERAL_INVESTMENT↔UNKNOWN으로 갈렸고, greedy로 바꾸자 5/5 고정됐다.
+#
+# 전략 해석기·파싱 검증기는 이미 temperature=0을 쓴다 — 구조화 출력엔 0이라는 기준이
+# 코드베이스에 이미 서 있었고 이 모듈만 예외였다.
+
+def _mlx_llm_structured(system_prompt: str, user_msg: str, *, max_tokens: int = 400) -> str:
+    """구조화 출력용 — greedy. 같은 입력에 같은 라벨이 나와야 한다."""
+    return _chat(system_prompt, user_msg, max_tokens=max_tokens, temperature=0.0, top_p=1.0)
+
+
+def _mlx_llm_prose(system_prompt: str, user_msg: str, *, max_tokens: int = 400) -> str:
+    """자연어 설명용 — 표현이 매번 달라지도록 샘플링한다."""
+    return _chat(system_prompt, user_msg, max_tokens=max_tokens, temperature=0.3, top_p=0.9)
 
 
 def _llm_available() -> bool:
@@ -74,19 +110,53 @@ def _llm_available() -> bool:
 @router.post("/query/classify", response_model=IntentResult)
 async def classify_query(req: IntentRequest) -> IntentResult:
     # 구조화 출력(intent + stock_name + refers_to_last_stock + workflow_effect +
-    # clarify_target)을 담을 만큼의 토큰을 준다. 필드가 늘면 JSON이 절단돼 해석 실패
-    # (UNKNOWN)로 떨어지므로 여유를 둔다(2026-07-31 clarify_target 추가로 180→220).
-    llm = (lambda s, u: _mlx_llm(s, u, max_tokens=220)) if _llm_available() else None
-    return await asyncio.to_thread(
-        classify,
-        req.query,
-        last_symbol=req.last_symbol,
-        llm=llm,
-        history=req.history,
-        active_strategy=req.active_strategy,
-        workflow_status=req.workflow_status,
-        pending_question=req.pending_question,
-    )
+    # clarify_target + fact_metric + list_scope + list_count_only)을 담을 만큼의 토큰을
+    # 준다. 필드가 늘면 JSON이 절단돼 해석 실패(UNKNOWN)로 떨어지므로 여유를 둔다
+    # (2026-07-31 clarify_target 추가로 180→220, 2026-08-11 축 3개 추가로 220→280).
+    llm = (lambda s, u: _mlx_llm_structured(s, u, max_tokens=280)) if _llm_available() else None
+    # 관찰 전용 span — 전략 파싱 레인(NullStock Strategy Agent)과 달리 이 레인은
+    # Trace가 없어 "예상 못한 질문이 어느 라벨로 떨어졌나"를 사후 조회할 수 없었다.
+    # 실행 경로는 건드리지 않는다(관찰 계층 계약: 읽기만).
+    with span(
+        "Classifier · 의도 분류",
+        "chain",
+        inputs={"query": req.query, "last_symbol": req.last_symbol},
+        metadata={
+            "history_turns": len(req.history or []),
+            "active_strategy": req.active_strategy,
+            "workflow_status": req.workflow_status,
+            "has_pending_question": bool(req.pending_question),
+            "llm_available": llm is not None,
+        },
+        root=True,
+    ) as trace:
+        result = await asyncio.to_thread(
+            classify,
+            req.query,
+            last_symbol=req.last_symbol,
+            llm=llm,
+            history=req.history,
+            active_strategy=req.active_strategy,
+            workflow_status=req.workflow_status,
+            pending_question=req.pending_question,
+        )
+        trace.output(
+            intent=result.intent.value,
+            deterministic=result.deterministic,
+            reason=result.reason,
+            confidence=result.confidence,
+            workflow_effect=result.workflow_effect.value,
+            workflow_status=result.workflow_status.value,
+            clarify_target=result.clarify_target,
+            # 규제 게이트를 통과해 사실 조회로 답한 턴인지 — 게이트 분리가 실제로
+            # 어떤 발화를 열어줬는지가 커버리지 리포트의 판정 근거다.
+            fact_metric=result.fact_metric,
+            list_scope=result.list_scope,
+            interpretation_failed=result.interpretation_failed,
+            symbols=[s.name for s in (result.symbols or [])],
+            has_suggested_reply=bool(result.suggested_reply),
+        )
+        return result
 
 
 # ─── /strategy/builder/step ──────────────────────────────────────────────────────
@@ -161,10 +231,11 @@ def _builder_llm_helpers(on_search=None, on_kg_lookup=None):
         return None, None, None
     from engine.term_grounding import resolve_sector as _resolve_sector_grounded
 
-    risk_extractor = lambda text: strategy_builder.llm_extract_risk(text, _mlx_llm)
+    # 빌더 레인은 전부 구조화 추출이다(리스크 값·업종명·제한된 ops JSON).
+    risk_extractor = lambda text: strategy_builder.llm_extract_risk(text, _mlx_llm_structured)
     sector_resolver = lambda text: _resolve_sector_grounded(
-        text, _mlx_llm,
-        base_resolver=lambda t: strategy_builder.llm_extract_sector(t, _mlx_llm),
+        text, _mlx_llm_structured,
+        base_resolver=lambda t: strategy_builder.llm_extract_sector(t, _mlx_llm_structured),
         on_search=on_search,
         on_kg_lookup=on_kg_lookup,
     )
@@ -173,7 +244,7 @@ def _builder_llm_helpers(on_search=None, on_kg_lookup=None):
     from intent.builder_interpreter import freetext_llm_enabled, interpret_utterance
 
     freetext_interpreter = (
-        (lambda text, state: interpret_utterance(text, state, _mlx_llm))
+        (lambda text, state: interpret_utterance(text, state, _mlx_llm_structured))
         if freetext_llm_enabled() else None
     )
     return risk_extractor, sector_resolver, freetext_interpreter
@@ -287,6 +358,10 @@ class GeneralQueryRequest(BaseModel):
     # 최근 대화 턴(오래된 것부터). '다른 예는 없어?' 같은 후속 질문이 직전 답변에 이어
     # 답변되도록 LLM에 참고 맥락으로 넘긴다.
     history: list[ChatTurn] = Field(default_factory=list)
+    # 호출부가 확정한 사실 블록(결과 수치 질문 RESULT_EXPLAIN에서 사용자의 실제 백테스트
+    # 수치). 플랫폼 기본값·용어 사전과 같은 자리에 주입한다 — 주입이 없으면 LLM이 남의
+    # 숫자를 지어낸다. **사실은 호출부가 만들고 LLM은 설명만 한다**(수치 생성 금지).
+    facts: Optional[str] = None
 
 
 class GeneralQueryResponse(BaseModel):
@@ -307,6 +382,31 @@ _GENERAL_SYSTEM_PROMPT = (
 )
 
 
+# 결과 수치 질문 전용 시스템 프롬프트.
+# [규제 안전] CLAUDE.md 안전한 표현 원칙 — 과거 데이터 사실 서술은 허용, 우열·전망 판단은
+# 금지다. "좋다/나쁘다/유망하다"를 말하는 순간 투자 자문이 되므로, 수치의 **의미**와
+# 사용자의 **실제 값**을 잇는 데까지만 답한다.
+_RESULT_SYSTEM_PROMPT = (
+    "당신은 사용자가 방금 실행한 백테스트 결과의 지표를 설명하는 도우미입니다. "
+    "질문 앞에 주어진 [사실]은 그 사용자의 실제 결과입니다 — 이 수치만 인용하고 "
+    "다른 숫자를 지어내지 마십시오. [사실]에 없는 값을 물으면 그 값은 결과에 없다고 "
+    "밝히십시오.\n"
+    "지표가 무엇을 뜻하는지, 주어진 수치들이 서로 어떤 관계인지를 2~4문장으로 "
+    "설명하십시오(예: 승률이 높아도 손실 거래의 평균 손실이 크면 총손익은 마이너스일 수 "
+    "있습니다).\n"
+    "절대 하지 마십시오: 이 전략이 좋다·나쁘다·우수하다·위험하다는 평가, 계속 쓰라거나 "
+    "바꾸라는 권유, 앞으로의 성과 전망, 다른 전략·종목과의 우열 비교. "
+    "개별 지표에 등급을 매기는 표현도 평가입니다 — '양호하다·우수하다·훌륭하다·나쁘다·"
+    "안정적이다·효율적이다' 같은 말을 수치에 붙이지 마십시오. 지표 사이의 관계는 "
+    "설명해도 되지만('승률이 높아도 평균 손실이 크면 총손익은 마이너스가 됩니다'), "
+    "수치 하나를 두고 잘하고 못했다고 말하지는 마십시오. "
+    "'이 결과를 믿어도 되냐'처럼 판단을 요구하는 질문에는 평가 대신, 과거 데이터 기반 "
+    "시뮬레이션 결과라는 점과 워크포워드·몬테카를로 검증으로 견고성을 더 확인할 수 "
+    "있다는 사실을 안내하십시오.\n"
+    "한국어로만, JSON 없이 평문으로 답하십시오."
+)
+
+
 def _build_general_user_msg(req: GeneralQueryRequest, extra_facts: Optional[str] = None) -> str:
     # 설정 용어(슬리피지·수수료 등)가 언급된 개념 질문에는 실제 플랫폼 기본값을 사실로
     # 주입한다 — LLM이 "기본값은 0%" 같은 값을 지어내는 것을 막는다.
@@ -317,6 +417,9 @@ def _build_general_user_msg(req: GeneralQueryRequest, extra_facts: Optional[str]
     from intent import glossary_facts
     facts_parts = [
         block for block in (
+            # 호출부가 확정한 사실(사용자의 실제 결과 수치)이 가장 먼저 온다 — LLM이
+            # 일반 지식보다 이 값을 근거로 삼아야 한다.
+            f"[사실]\n{req.facts}" if req.facts else None,
             platform_defaults.facts_block(req.query),
             glossary_facts.facts_block(req.query),
             extra_facts,
@@ -332,39 +435,84 @@ def _build_general_user_msg(req: GeneralQueryRequest, extra_facts: Optional[str]
     return "".join(parts)
 
 
-def generate_general_answer(query: str, history: list[ChatTurn] | None = None) -> Optional[str]:
+def generate_general_answer(
+    query: str,
+    history: list[ChatTurn] | None = None,
+    caller_facts: Optional[str] = None,
+) -> Optional[str]:
     """일반 투자 지식 질문의 답변을 동기 생성한다. LLM 미가용·빈 응답이면 None.
 
     /query/general 엔드포인트와, 정의형 질문이 전략 수정 경로로 오라우팅됐을 때의
     설명 백스톱(strategy_conversation.primary, FR-SA-002c-4)이 공유한다.
     백테스트 설정 기본값 질문은 LLM 대신 실제 코드 기본값으로 결정적으로 답한다.
     """
-    deterministic = platform_defaults.reply(query)
-    if deterministic:
-        return deterministic
-    if not _llm_available():
-        return None
-    req = GeneralQueryRequest(query=query, history=history or [])
-    # 테마 용어 검증 정의 주입(FR-STR-069) — 기초 용어(glossary/기본값)가 이미 잡힌
-    # 질문은 검색 폴백을 건너뛴다(불필요한 용어 추출 LLM 호출·검색 방지).
-    extra_facts = None
-    try:
-        from intent import glossary_facts
-        from engine.term_grounding import general_facts_block
+    # 관찰 전용 span — 라벨 밖 질문(UNKNOWN)이 이 레인으로 흘러오므로, 답이 결정론
+    # 기본값이었는지·LLM이었는지·어떤 사실이 주입됐는지가 "무엇을 못 알아듣나"의 근거다.
+    # root=False: 전략 레인 백스톱에서 불리면 그 Trace에 붙고, /query/general에서
+    # 불리면 부모가 없어 자기 레코드로 방출된다.
+    with span(
+        "General · 일반 지식 답변",
+        "chain",
+        inputs={"query": query},
+        metadata={
+            "history_turns": len(history or []),
+            "caller_facts": bool(caller_facts),
+        },
+    ) as trace:
+        # 호출부가 사실을 들고 왔으면(결과 수치 질문) 설정 기본값 결정론 답변으로 새지
+        # 않는다 — 묻는 대상이 플랫폼 설정이 아니라 사용자의 결과다.
+        if not caller_facts:
+            deterministic = platform_defaults.reply(query)
+            if deterministic:
+                trace.output(source="platform_defaults", answered=True)
+                return deterministic
+        if not _llm_available():
+            trace.output(source="none", answered=False, reason="llm_unavailable")
+            return None
+        req = GeneralQueryRequest(query=query, history=history or [], facts=caller_facts)
+        # 테마 용어 검증 정의 주입(FR-STR-069) — 기초 용어(glossary/기본값)가 이미 잡힌
+        # 질문은 검색 폴백을 건너뛴다(불필요한 용어 추출 LLM 호출·검색 방지).
+        # 호출부 사실이 있으면 그것이 이미 권위 있는 근거라 검색까지 갈 이유가 없다.
+        extra_facts = None
+        if not caller_facts:
+            try:
+                from intent import glossary_facts
+                from engine.term_grounding import general_facts_block
 
-        known_vocab = bool(
-            platform_defaults.facts_block(query) or glossary_facts.facts_block(query)
+                known_vocab = bool(
+                    platform_defaults.facts_block(query) or glossary_facts.facts_block(query)
+                )
+                # 용어 **추출**은 구조화(짧은 문자열 하나), 아래 **답변 생성**만 산문이다.
+                extra_facts = general_facts_block(
+                    query, _mlx_llm_structured, allow_search=not known_vocab
+                )
+            except Exception:  # noqa: BLE001 — 사실 주입 실패가 답변 자체를 막으면 안 된다
+                logger.debug("용어 정의 사실 주입 실패 — 주입 없이 답변", exc_info=True)
+        system_prompt = _RESULT_SYSTEM_PROMPT if caller_facts else _GENERAL_SYSTEM_PROMPT
+        raw = _mlx_llm_prose(
+            system_prompt, _build_general_user_msg(req, extra_facts), max_tokens=300
         )
-        extra_facts = general_facts_block(query, _mlx_llm, allow_search=not known_vocab)
-    except Exception:  # noqa: BLE001 — 사실 주입 실패가 답변 자체를 막으면 안 된다
-        logger.debug("용어 정의 사실 주입 실패 — 주입 없이 답변", exc_info=True)
-    raw = _mlx_llm(_GENERAL_SYSTEM_PROMPT, _build_general_user_msg(req, extra_facts), max_tokens=300)
-    return guardrails.sanitize(raw) or None
+        answer = guardrails.sanitize(raw)
+        if caller_facts:
+            # 결과 수치 설명에서만 등급 표현을 걷어낸다 — 프롬프트 지시를 9B가 완전히
+            # 지키지 못해서 남는 '양호한 수준' 류를 마지막에 거른다.
+            answer = guardrails.strip_metric_grading(answer)
+        answer = answer or None
+        trace.output(
+            source="llm",
+            answered=bool(answer),
+            grounded=bool(extra_facts or caller_facts),
+            sanitized=bool(raw) and not answer,
+            answer=answer,
+        )
+        return answer
 
 
 @router.post("/query/general", response_model=GeneralQueryResponse)
 async def general_answer(req: GeneralQueryRequest) -> GeneralQueryResponse:
-    answer = await asyncio.to_thread(generate_general_answer, req.query, req.history)
+    answer = await asyncio.to_thread(
+        generate_general_answer, req.query, req.history, req.facts
+    )
     if answer:
         return GeneralQueryResponse(answer=answer)
     return GeneralQueryResponse(

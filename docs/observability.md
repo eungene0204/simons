@@ -118,7 +118,7 @@ Trace  "NullStock Strategy Agent"            ← 사용자 요청 하나 = Trace
 
 ---
 
-## 4. 계측 지점 (chokepoint 5곳)
+## 4. 계측 지점 (chokepoint 7곳)
 
 기존 코드에 계측을 흩지 않았다 — 파이프라인에 이미 있던 단일 통로만 감쌌다.
 
@@ -129,6 +129,31 @@ Trace  "NullStock Strategy Agent"            ← 사용자 요청 하나 = Trace
 | LLM | `interpreter/llm_strategy_interpreter.py::_default_ollama_chat` | 공유 `ChatFn` 계약 — interpreter·dag_planner·mini_planner·term_grounding이 전부 소비 |
 | Planner | `planner/dag_planner.py::plan_strategy_dag` | 본체를 `_plan_strategy_dag`로 두고 래퍼가 span만 연다 |
 | Interpreter | `interpreter/...::StrategyInterpreter.interpret` | 본체를 `_interpret`으로 두고 래퍼가 span만 연다 |
+| 분류 Trace 루트 | `api/intent_routes.py::classify_query` | `/query/classify` 요청 하나가 Trace 하나 |
+| 일반 지식 답변 | `api/intent_routes.py::generate_general_answer` | `root=False` — 부모가 있으면 그 Trace에 붙고, 없으면 자기 레코드 |
+
+### 4.1 분류 레인 계측 — 목적은 성능이 아니라 커버리지
+
+전략 파싱 레인과 달리 분류·일반답변 레인은 오래 사각지대였다. 그런데 **라벨 밖
+질문(`UNKNOWN`)과 규제 게이트 라벨(`STOCK_ANALYSIS`·`STOCK_PICK`·`PERSONAL_ADVICE`
+·`LIVE_TRADING`·`UNSUPPORTED_FEATURE`)로 끊긴 질문이 바로 이 레인에 쌓인다** —
+"무엇을 못 알아듣나"의 1차 자료가 여기 있다는 뜻이다.
+
+남기는 것: 원문·`history_turns`·`active_strategy`·대기 질문 유무를 입력으로, 라벨·
+`reason`·`deterministic`·`workflow_effect`·인식 종목·`interpretation_failed`를
+출력으로. 일반답변 쪽은 `source`(`platform_defaults` / `llm` / `none`)와
+`grounded`(사실 주입 여부)를 남겨 **결정론 답변과 LLM 답변을 구분**한다.
+
+조회는 읽기 전용 스크립트로 한다:
+
+```bash
+python backend/scripts/report_intent_coverage.py --days 7          # 라벨 분포 + 끊긴 발화
+python backend/scripts/report_intent_coverage.py --intent UNKNOWN  # 특정 라벨 발화만
+```
+
+회귀 테스트: `backend/tests/test_observability_intent_lane.py`
+(관찰이 반환값을 바꾸지 않는다 + span이 꺼내는 필드가 `IntentResult` 스키마와
+어긋나면 먼저 깨진다 — enum `.value` 접근이 500으로 새지 않게 고정).
 
 ---
 

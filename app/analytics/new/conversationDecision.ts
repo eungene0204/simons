@@ -44,6 +44,12 @@ export type SemanticIntent =
   | "LIVE_TRADING"
   | "STOCK_ANALYSIS"
   | "GENERAL_INVESTMENT"
+  // 진행 중인 전략·대화의 상태 자체를 묻는 발화. 답은 이미 화면 상태에 있으므로
+  // LLM을 부르지 않는다 — 확정 설정·진행 단계 카드를 결정론으로 보여준다.
+  | "STRATEGY_STATUS"
+  // 이미 나온 백테스트 결과의 수치를 묻는 발화. 사용자의 실제 수치를 사실로 주입해
+  // 답한다(주입 없이 LLM에 맡기면 남의 숫자를 지어낸다).
+  | "RESULT_EXPLAIN"
   | "UNKNOWN"
   | "STRATEGY_ADVICE";
 
@@ -85,6 +91,16 @@ export type SemanticClassification = {
   // "무엇을 바꾸려는데 값이 없다"는 의미 판정이므로 LLM이 하고, 무엇을 물을지(문구·선택지)는
   // 이 라벨을 키로 아래 표에서 결정론이 고른다 — 프론트가 원문을 다시 읽지 않는다.
   clarifyTarget?: string | null;
+  // 값 조회가 성립한 종목 지표(백엔드 intent/stock_facts.py의 닫힌 목록).
+  // 라벨과 직교하는 축이다 — 같은 STOCK_ANALYSIS라도 "사도 될까?"(판단 요청)는 거절,
+  // "PER 얼마야?"(값 조회)는 규제상 허용 범위라 답한다. 값이 있으면 suggestedReply는
+  // 거절 안내가 아니라 백엔드가 데이터에서 만든 사실 문장이므로 그대로 보여준다.
+  factMetric?: string | null;
+  // 소속 목록 조회가 성립한 업종/테마 정본 표기(백엔드 intent/stock_lists.py).
+  // factMetric과 같은 축 — 같은 STOCK_PICK이라도 "뭐 살까?"(추천 요청)는 거절·빌더
+  // 전환, "어떤 회사들이 있어?"(소속 질문)는 분류 사실이라 목록으로 답한다. 값이
+  // 있으면 suggestedReply는 정본 데이터의 가나다순 목록이므로 그대로 보여준다.
+  listScope?: string | null;
   // 해석 실패 보고(LLM 미가용·구조화 출력 해석 불가). LLM이 판단한 UNKNOWN 라벨과
   // 다르다 — 실패는 실패로 안내해야 하며, 일반 지식 답변으로 보내면 정의 설명이
   // 답변으로 위장된다(2026-08-03 사고).
@@ -133,6 +149,10 @@ export type ConversationDecision =
       strategyPrompt: string;
     })
   | (DecisionBase & { action: "respond_stock"; message: string; symbol: string | null })
+  /** 이미 나온 백테스트 결과의 수치 질문 — 호출부가 실제 수치를 사실로 붙여 답변을 만든다.
+   *  일반 지식 레인과 나눈 이유는 사실 주입 여부다: 주입 없이 LLM에 맡기면 사용자의
+   *  결과가 아닌 남의 숫자를 지어낸다. */
+  | (DecisionBase & { action: "answer_result" })
   | (DecisionBase & {
       action: "start_builder";
       message?: string;
@@ -196,6 +216,9 @@ export type ConversationContext = {
   /** 아직 답을 받지 못한 되묻기가 화면에 떠 있는가(openClarificationRef). 이 턴의 입력은
    *  그 질문의 답이므로 되묻기 레인이 다시 개입하지 않는다 — 아래 L2' 참고. */
   hasOpenClarification?: boolean;
+  /** 화면에 백테스트 결과가 떠 있는가. 결과 수치 질문(RESULT_EXPLAIN)은 이 값이
+   *  참일 때만 성립한다 — 결과가 없으면 인용할 수치 자체가 없다. */
+  hasBacktestResult?: boolean;
 };
 
 const RESEARCH_METRIC_LABELS: Record<ResearchMetric, string> = {
@@ -900,8 +923,13 @@ export function decideConversationTurn(
   // STOCK_ANALYSIS 포함: 전략이 진행 중일 때 종목명이 섞인 발화("제주반도체도 추가해줘")는
   // 분류기가 종목 분석으로 오분류해도 수정 요청일 수 있다 — 결정론 canned 안내로 가로채지
   // 않고 백엔드 파싱(LLM 해석)에 맡긴다(2026-07-26 종목 추가 요청 삼킴 사고).
+  // 단, 값 조회(factMetric)·소속 목록(listScope)이 성립한 턴은 예외다 — 백엔드가
+  // 지표·종목 또는 정본 범위를 모두 확정한 발화라 "종목을 추가해 달라"는 수정 요청일
+  // 수 없다. 여기서 파싱으로 넘기면 전략 진행 중에는 그 질문이 영영 답변되지 않는다.
   if (
     context.hasCurrentStrategy &&
+    !classification.factMetric &&
+    !classification.listScope &&
     (intent === "STOCK_PICK" ||
       intent === "STRATEGY_PICK" ||
       intent === "ONBOARDING" ||
@@ -910,11 +938,74 @@ export function decideConversationTurn(
     return buildStrategyInputDecision(prompt, context, "preserve_active_strategy");
   }
 
+  // ── 소속 목록 질문 (규제 게이트의 직교 축 — FR-SA-002c-11) ─────────
+  // 열린 추천 전환(start_builder)·일반 답변(answer_general)보다 먼저다: 목록이 성립한
+  // 턴을 빌더로 보내면 소속 질문이 전략 설계로 둔갑하고, 일반 답변 LLM으로 보내면
+  // 정본 목록 대신 지어낸 종목이 나간다. 답 문장은 백엔드가 정본 데이터에서 만들었다.
+  if (classification.listScope && suggestedReply) {
+    return {
+      action: "respond",
+      speechAct: "ask",
+      topic: "stock",
+      confidence: 1,
+      reason: "stock_membership_list",
+      message: suggestedReply,
+      preservesOpenQuestion: true,
+    };
+  }
+
   if (
     (intent === "STOCK_PICK" || intent === "STRATEGY_PICK") &&
     isNamedStockStrategyRequest(prompt, symbol)
   ) {
     return buildStrategyInputDecision(prompt, context, "named_stock_strategy_request");
+  }
+
+  // ── 읽기 전용 질문 (상태를 묻기만 한다) ────────────────────────────
+  // 규제 게이트보다 먼저다: 이 라벨들은 게이트 대상이 아니고, 뒤의 L5 폴백으로 흘리면
+  // "몇 단계까지 왔어?" 같은 질문이 전략 파싱으로 새어 무변경 요약만 다시 렌더링된다.
+  //
+  // 답은 LLM이 만들지 않는다 — 확정 설정과 진행 단계는 이미 화면 상태에 있고, 그걸
+  // 카드로 보여주는 것이 정확한 답이다(composeTurnMessage가 전략 카드를 붙인다).
+  // LLM에 맡기면 사용자가 정한 적 없는 값을 지어낸다.
+  if (intent === "STRATEGY_STATUS") {
+    return {
+      action: "respond",
+      speechAct: "ask",
+      topic: "strategy",
+      confidence: 1,
+      reason: "classified_strategy_status",
+      message: context.hasCurrentStrategy
+        ? "지금까지 정한 조건이에요. 바꾸고 싶은 항목이 있으면 말씀해 주세요."
+        : "아직 정해진 조건이 없어요. 어떤 조건으로 전략을 만들지 말씀해 주시면 하나씩 정리해 드릴게요.",
+      // 상태를 알려주는 것은 부가 발화다 — 답을 기다리던 질문이 있으면 그대로 살려 둔다.
+      preservesOpenQuestion: true,
+    };
+  }
+
+  // 결과 수치 질문. 결과가 없으면 인용할 수치가 없으므로 답변 레인으로 보내지 않는다 —
+  // 보내면 LLM이 남의 숫자로 그럴듯한 답을 만든다.
+  if (intent === "RESULT_EXPLAIN") {
+    if (!context.hasBacktestResult) {
+      return {
+        action: "respond",
+        speechAct: "ask",
+        topic: "backtest",
+        confidence: 1,
+        reason: "result_explain_without_result",
+        message:
+          "아직 백테스트 결과가 없어요. 전략을 완성하고 백테스트를 실행하면 그 결과 수치를 놓고 설명해 드릴게요.",
+        preservesOpenQuestion: true,
+      };
+    }
+    return {
+      action: "answer_result",
+      speechAct: "ask",
+      topic: "backtest",
+      confidence: 1,
+      reason: "classified_result_explain",
+      preservesOpenQuestion: true,
+    };
   }
 
   // [규제 안전] 맞춤 조언·실계좌 매매·미제공 기능 안내는 전략 진행 중에도 반드시 나간다.
@@ -957,11 +1048,15 @@ export function decideConversationTurn(
       speechAct: "ask",
       topic: "stock",
       confidence: 1,
-      reason: "classified_stock_analysis",
+      reason: classification?.factMetric ? "stock_fact_lookup" : "classified_stock_analysis",
       symbol,
-      // 단일 종목 맥락에서 서버의 범용 예시를 그대로 노출하면 다른 종목을 다시
-      // 선별하는 전략이 섞일 수 있다. 이 경로는 해당 종목의 진입·청산 규칙만 안내한다.
-      message: singleStockResearchMessage(),
+      // 값 조회가 성립한 턴은 백엔드가 데이터에서 만든 사실 문장을 그대로 쓴다 —
+      // 프론트가 문구를 새로 짓지 않는다(값과 기준일이 문장에 이미 박혀 있다).
+      // 그 외에는 종전대로 거절 안내다. 단일 종목 맥락에서 서버의 범용 예시를 그대로
+      // 노출하면 다른 종목을 다시 선별하는 전략이 섞일 수 있어, 이 경로는 해당 종목의
+      // 진입·청산 규칙만 안내한다.
+      message:
+        (classification?.factMetric && suggestedReply) || singleStockResearchMessage(),
     };
   }
 

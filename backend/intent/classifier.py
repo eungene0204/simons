@@ -26,7 +26,7 @@ from typing import Callable, Optional
 from engine.console_logging import console_logger
 from stock_analysis.symbol_resolver import StockRef, find_in_text, resolve_by_symbol
 
-from . import interpreter, platform_defaults
+from . import interpreter, platform_defaults, stock_facts, stock_lists
 from .config import classifier_mode
 from .schemas import (
     ChatTurn,
@@ -583,6 +583,10 @@ _EFFECT_REPLIES: dict[WorkflowEffect, str] = {
 # 제어 효과를 인정하지 않는 라벨 — 규제·범위 게이트라 정형 안내가 반드시 나가야 한다.
 # 여기에 제어를 허용하면 "그만할래" 한마디로 맞춤 조언·실계좌 매매 안내가 삼켜진다.
 # 제어가 유효한 라벨은 전략 대화 맥락인 STRATEGY_ADVICE·GENERAL_INVESTMENT·UNKNOWN뿐이다.
+#
+# STRATEGY_STATUS·RESULT_EXPLAIN도 여기 든다. 이유는 규제가 아니라 **읽기 전용**이라서다 —
+# 상태를 묻기만 하는 발화가 상태를 바꾸면 안 된다. '아까 손절 몇 퍼센트로 했었지?'가
+# ROLLBACK으로 새면 묻기만 한 사용자의 전략이 되감긴다.
 _EFFECT_BLOCKED_INTENTS = frozenset({
     QueryIntent.STOCK_ANALYSIS,
     QueryIntent.STOCK_PICK,
@@ -593,6 +597,8 @@ _EFFECT_BLOCKED_INTENTS = frozenset({
     QueryIntent.UNSUPPORTED_FEATURE,
     QueryIntent.GREETING,
     QueryIntent.OFF_TOPIC,
+    QueryIntent.STRATEGY_STATUS,
+    QueryIntent.RESULT_EXPLAIN,
 })
 
 # 진행 중인 전략이 있어야 성립하는 효과 — 없으면 되돌리거나 멈출 대상이 없다.
@@ -658,6 +664,69 @@ def _resolve_clarify_target(
     return interp.clarify_target
 
 
+def _resolve_stock_fact(
+    interp: interpreter.IntentInterpretation, ref: Optional[StockRef]
+) -> tuple[Optional[str], Optional[str]]:
+    """지표 조회가 성립하는지 결정론으로 판정하고, 성립하면 사실 문장까지 만든다.
+
+    [규제 안전] 이 축이 여는 것은 **결정론 조회**뿐이다 — 답변 문장은 stock_facts가
+    데이터에서 읽어 정해진 틀에 채우고, LLM은 개입하지 않는다. 그래서 축이 오판돼도
+    최악은 '숫자를 보여준다'이지 '사도 된다고 말한다'가 아니다.
+
+    성립 조건 셋을 모두 만족해야 한다:
+      ① 라벨이 STOCK_ANALYSIS — 특정 한 종목에 대한 발화
+      ② LLM이 닫힌 목록의 지표를 골랐다(목록 밖은 normalize에서 이미 None)
+      ③ 종목 정본 매핑에 성공했고 국내 종목이다 — 해외 종목은 보유 데이터가 없다
+
+    하나라도 어긋나면 (None, None)이고 기존 거절 안내가 그대로 나간다(안전 방향).
+    """
+    metric = interp.fact_metric
+    if metric is None or interp.intent != QueryIntent.STOCK_ANALYSIS:
+        return None, None
+    if ref is None or ref.overseas:
+        return None, None
+
+    reading = stock_facts.read_metric(ref.symbol, metric)
+    if reading is None:
+        # 지표는 알겠는데 그 종목 값이 없다 — 지어내지 않고 없다고 밝힌다.
+        return metric, stock_facts.metric_unavailable(ref.name, metric)
+    return metric, stock_facts.metric_answer(ref.name, reading)
+
+
+# 소속 목록 조회가 성립할 수 있는 라벨 — 목록 질문은 STOCK_PICK(열린 추천 오분류),
+# GENERAL_INVESTMENT(일반 지식), UNKNOWN('코스피200에 몇 종목?' — 라벨이 마땅치 않아
+# 분류 불가로 떨어진 구성 질문, 2026-08-11 프로브 실측)으로 떨어진다. 나머지 라벨에서는
+# 축을 무시한다 — 특히 STRATEGY_ADVICE에서 열면 스크리닝 조건이 목록 표시로 새고,
+# 규제 거절 라벨(PERSONAL_ADVICE 등)에서 열면 정형 안내가 목록으로 우회된다.
+# UNKNOWN을 허용해도 안전한 이유: 성립하려면 추출 표기가 정본(시장 사전·섹터 사전·KG)에
+# 매핑돼야 하고, 답은 결정론 목록뿐이다 — 오판의 최악은 '소속 목록 표시'다.
+_LISTING_INTENTS = frozenset({
+    QueryIntent.STOCK_PICK,
+    QueryIntent.GENERAL_INVESTMENT,
+    QueryIntent.UNKNOWN,
+})
+
+
+def _resolve_stock_listing(
+    interp: interpreter.IntentInterpretation,
+) -> tuple[Optional[str], Optional[str]]:
+    """업종·테마 소속 목록 조회의 성립을 결정론으로 판정한다(FR-SA-002c-11).
+
+    _resolve_stock_fact와 같은 계약 — LLM은 범위 표기를 제안만 하고, 정본 성립
+    (섹터 사전·지식그래프 매핑)은 코드가 정한다. 미해석이면 (None, None)으로 기존
+    안내(열린 추천 전환 등)가 그대로 나간다 — 목록을 지어내지 않는다.
+    """
+    term = interp.list_scope
+    if term is None or interp.intent not in _LISTING_INTENTS:
+        return None, None
+    listing = stock_lists.resolve_listing(term)
+    if listing is None:
+        return None, None
+    return listing.scope, stock_lists.listing_answer(
+        listing, count_only=interp.list_count_only
+    )
+
+
 def _resolve_stock(
     interp: interpreter.IntentInterpretation, last_symbol: Optional[str]
 ) -> Optional[StockRef]:
@@ -694,7 +763,13 @@ def _apply_domain_policy(
     effect, next_status = _resolve_workflow(interp, active_strategy, workflow_status)
     clarify_target = _resolve_clarify_target(interp, active_strategy)
     ref = _resolve_stock(interp, last_symbol) if intent in _STOCK_BEARING_INTENTS else None
-    if intent == QueryIntent.STOCK_ANALYSIS:
+    fact_metric, fact_answer = _resolve_stock_fact(interp, ref)
+    list_scope, list_answer = _resolve_stock_listing(interp)
+    if fact_answer is not None:
+        suggested_reply = fact_answer
+    elif list_answer is not None:
+        suggested_reply = list_answer
+    elif intent == QueryIntent.STOCK_ANALYSIS:
         suggested_reply = stock_question_redirect(
             ref.name if ref else None,
             ref.market if ref else None,
@@ -722,6 +797,8 @@ def _apply_domain_policy(
         workflow_effect=effect,
         workflow_status=next_status,
         clarify_target=clarify_target,
+        fact_metric=fact_metric,
+        list_scope=list_scope,
     )
 
 

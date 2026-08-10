@@ -18,7 +18,7 @@ from typing import Callable, Optional
 
 from pydantic import BaseModel, ValidationError
 
-from . import clarify_targets
+from . import clarify_targets, stock_facts
 from .schemas import ChatTurn, QueryIntent, WorkflowEffect
 
 INTENT_SCHEMA_VERSION = "1.0"
@@ -58,6 +58,13 @@ SYSTEM_PROMPT = (
     "  함께 있으면 STRATEGY_ADVICE).\n"
     "GENERAL_INVESTMENT — 일반 투자 지식·용어 정의·설정 기본값 질문, 그리고 잘못된 금융\n"
     "  상식을 확인하는 발화('PER이 높을수록 싸다는 거지?').\n"
+    "STRATEGY_STATUS — 지금 만들고 있는 전략이나 대화의 **상태 자체**를 묻는 발화.\n"
+    "  '내가 지금까지 뭘 정했지?', '아까 손절 몇 퍼센트로 했었지?', '몇 단계까지 왔어?',\n"
+    "  '지금까지 정한 거 정리해서 보여줘'처럼 **이미 정해진 값·진행 상황을 되묻는** 것이다.\n"
+    "  값을 바꾸거나 새로 정하려는 요청이 아니다.\n"
+    "RESULT_EXPLAIN — 이미 나온 백테스트 결과의 수치·지표를 묻는 발화.\n"
+    "  'MDD -35%면 심한 거야?', '샤프지수 1.2면 어느 정도야?', '승률은 높은데 왜\n"
+    "  수익이 마이너스야?', '이 결과 믿을 만해?'처럼 **내 결과를 놓고 묻는** 것이다.\n"
     "GREETING — 인사·짧은 사회적 표현만 있는 입력.\n"
     "OFF_TOPIC — 투자와 무관한 잡담·일반 상식·날씨·건강·프로그래밍·정치.\n"
     "UNKNOWN — 투자 관련이지만 위 어디에도 안 맞아 분류 불가.\n"
@@ -81,6 +88,15 @@ SYSTEM_PROMPT = (
     "   '멈춰'는 매매 중지 요청이 아니라 이 대화의 진행을 멈추는 것이고, '처음부터\n"
     "   다시 만들자'는 전략을 골라 달라는 것이 아니라 지금 전략을 버리고 새로 시작하는\n"
     "   것이다.\n"
+    "4-3. **묻는 것과 바꾸는 것을 구분하라.** 이미 정한 값을 되묻는 것은 STRATEGY_STATUS,\n"
+    "   값을 바꾸거나 새로 정하는 것은 STRATEGY_ADVICE다. '아까 손절 몇 퍼센트로 했었지?'는\n"
+    "   STRATEGY_STATUS, '손절 -8%로 바꿔줘'는 STRATEGY_ADVICE다. 4-2의 '되돌려줘'와도\n"
+    "   다르다 — 되돌리기는 상태를 **바꾸지만** 되묻기는 읽기만 한다.\n"
+    "4-4. **일반 지식과 내 결과를 구분하라.** 지표의 뜻을 묻는 것은 GENERAL_INVESTMENT,\n"
+    "   내 백테스트 결과의 수치를 놓고 묻는 것은 RESULT_EXPLAIN이다. 'MDD가 뭐야?'는\n"
+    "   GENERAL_INVESTMENT, 'MDD -35%면 심한 거야?'는 RESULT_EXPLAIN이다.\n"
+    "4-5. STRATEGY_STATUS·RESULT_EXPLAIN은 **묻기만 하는** 발화이므로 workflow_effect는\n"
+    "   NONE이고 clarify_target도 null이다 — 바꿀 대상을 지목한 것이 아니다.\n"
     "\n"
     "라벨과 별개로, 이 입력이 진행 중인 전략 작성을 어떻게 제어하는지도 고른다.\n"
     "\n"
@@ -129,10 +145,47 @@ SYSTEM_PROMPT = (
     "15. 재무 지표를 값 없이 추가·적용하겠다는 요청은 그 지표의 키를 고른다\n"
     "    ('영업이익률을 추가해 볼까?' → operating_margin).\n"
     "\n"
+    "\n"
+    "마지막으로, 특정 종목의 **지표 값을 묻기만 하는** 발화면 그 지표의 키를 고른다.\n"
+    "'삼성전자 PER이 얼마야?' → per, '카카오 부채비율 몇 퍼센트야?' → debt_ratio,\n"
+    "'네이버 영업이익률 알려줘' → operating_margin, '현대차 배당수익률 알려줘' →\n"
+    "dividend_yield처럼 값 자체를 묻는 경우다. 아래 목록에 없거나 해당 없으면 null이다(기본값).\n"
+    "\n" + stock_facts.prompt_metric_lines() + "\n"
+    "\n"
+    "지표 판단 규칙:\n"
+    "16. **값만 묻는 경우에만 고른다.** 사도 되는지·전망이 어떤지·좋은 종목인지를 함께\n"
+    "    묻거나 암시하면 null이다. '삼성전자 PER 얼마야?'는 per이지만, 'PER 낮은데\n"
+    "    삼성전자 사도 될까?'는 매수 판단을 묻는 것이므로 null이다.\n"
+    "17. 종목을 고르는 **조건**으로 지표를 말한 경우도 null이다 — 그건 전략 설계다.\n"
+    "    'PER 10 이하 종목으로 전략 만들어줘'는 STRATEGY_ADVICE이고 지표는 null이다.\n"
+    "18. 지표를 물었으면 stock_name에 그 종목명도 함께 채운다 — 둘 다 있어야 조회된다.\n"
+    "\n"
+    "\n"
+    "그리고 **라벨과 별개로** — 어느 라벨을 골랐든, UNKNOWN이어도 — 특정 업종·테마·\n"
+    "시장·지수에 **어떤 종목이 속해 있는지 목록·구성·종목 수를 묻기만 하는** 발화면\n"
+    "그 범위 표기를 원문 그대로 짧게 추출한다.\n"
+    "'반도체 업종에 어떤 회사들이 있어?' → '반도체', '2차전지 테마 종목 목록 보여줘' →\n"
+    "'2차전지', '코스피200에 몇 종목 들어있어?' → '코스피200', '코스닥 상장사 수가 몇\n"
+    "개야?' → '코스닥'. 종목 수를 묻는 발화도 범위 표기는 채운다 — 범위가 없으면 어느\n"
+    "시장·업종의 수인지 알 수 없다. 해당 없으면 null이다(기본값).\n"
+    "\n"
+    "목록 판단 규칙:\n"
+    "19. **소속을 묻는 경우에만 추출한다.** 사거나 고를 대상을 묻으면 null이다 —\n"
+    "    '반도체에서 살 만한 종목 알려줘'·'2차전지 중에 좋은 거 뭐야'는 골라 달라는\n"
+    "    추천 요청이므로 null.\n"
+    "20. 조건이 붙으면 전략 설계다 — '반도체 중 PER 10 이하 종목'은 STRATEGY_ADVICE이고\n"
+    "    null이다. 업종·테마의 **뜻**을 묻는 것('2차전지 테마가 뭐야?')도 null이다.\n"
+    "21. **종목 수만** 물으면('몇 종목 들어있어?', '상장사 수가 몇 개야?')\n"
+    "    list_count_only를 true로 한다 — 목록을 보여 달라는 발화('어떤 회사들이 있어?',\n"
+    "    '목록 보여줘')는 false다.\n"
+    "\n"
     "출력 형식(JSON 한 줄, 다른 말 금지):\n"
     '{"intent": "<라벨>", "stock_name": "<원문에 나온 종목명 또는 null>", '
     '"refers_to_last_stock": <직전에 다루던 종목을 \'이 종목\'처럼 가리키면 true, 아니면 false>, '
-    '"workflow_effect": "<제어 값>", "clarify_target": "<대상 또는 null>"}'
+    '"workflow_effect": "<제어 값>", "clarify_target": "<대상 또는 null>", '
+    '"fact_metric": "<지표 키 또는 null>", '
+    '"list_scope": "<업종/테마/시장/지수 표기 또는 null>", '
+    '"list_count_only": <종목 수만 물으면 true, 아니면 false>}'
 )
 
 
@@ -149,6 +202,17 @@ class IntentInterpretation(BaseModel):
     # 값 없이 지목된 수정 대상(닫힌 목록). 목록 밖 표기·미출력은 None으로 떨어진다 —
     # 되묻기는 부가 축이고, None이 기존 흐름(파싱으로 통과)이라 안전 방향이다.
     clarify_target: Optional[str] = None
+    # 값을 묻기만 한 종목 지표(닫힌 목록). 라벨과 직교하는 축이다 — 라벨은 "무엇에 대한
+    # 발화인가", 이 값은 "판단을 요구하는가 값을 묻는가"를 말한다. 목록 밖·미출력은
+    # None으로 떨어지고, 그러면 기존 거절 안내 그대로다(안전 방향).
+    fact_metric: Optional[str] = None
+    # 소속 목록을 묻기만 한 업종/테마 표기(fact_metric과 같은 직교 축, FR-SA-002c-11).
+    # 닫힌 목록이 아니라 짧은 자유 표기다 — 정본 성립 여부는 stock_lists.resolve_listing
+    # (섹터 사전·지식그래프)이 정하고, 미해석은 기존 안내 그대로다(안전 방향).
+    list_scope: Optional[str] = None
+    # 종목 수만 물었는가('몇 종목?'). 목록 답변에서 회사명 나열을 생략하는 표시 축이다 —
+    # 값이 틀려도 답의 사실은 같고 장황함만 달라진다(미출력·표기 불량은 False 안전 방향).
+    list_count_only: bool = False
 
 
 # ── 형식 정규화 (입력이 LLM 출력이므로 결정론 코드 소관) ─────────────────────
@@ -285,6 +349,11 @@ def interpret(
             clarify_target=clarify_targets.normalize_clarify_target(
                 payload.get("clarify_target")
             ),
+            fact_metric=stock_facts.normalize_metric(payload.get("fact_metric")),
+            # 종목명과 같은 정리(null 표기·공백 제거)만 한다 — 정본 매핑은 classifier가
+            # stock_lists에 위임한다(형식 정규화와 지식 조회의 분리).
+            list_scope=_clean_stock_name(payload.get("list_scope")),
+            list_count_only=bool(payload.get("list_count_only")),
         )
     except ValidationError:
         return None
