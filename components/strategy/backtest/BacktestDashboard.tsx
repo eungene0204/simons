@@ -336,12 +336,12 @@ const BASE_METRIC_DESCRIPTIONS: BaseMetricDescriptions = {
   profitFactor: metricTooltip("손익비는 총 이익을 총 손실로 나눈 값입니다.", "손익비 = 총 이익 / |총 손실|", "🟢 높음: 2.0 이상\n🟡 중간: 1.5 ~ 2.0\n🔴 낮음: 1.5 미만"),
   totalReturn: metricTooltip("투자 수익률(ROI)은 백테스트 시작부터 종료까지의 누적 자산 변동 비율입니다.", "ROI = ((최종 자산 - 초기 자본) / 초기 자본) × 100", "🟢 양수: 시작 자본보다 최종 자산이 큼\n🟡 0%: 시작 자본과 최종 자산이 같음\n🔴 음수: 시작 자본보다 최종 자산이 작음"),
   buyHold: (label: string) =>
-    metricTooltip(`${label}을 매수 후 보유했을 때의 수익률입니다.`, `매수 후 보유 수익률 = ((${label} 최종 가격 / 시작 가격) - 1) × 100`, "🟢 양수: 기준 지수가 상승\n🟡 0%: 기준 지수의 변동이 없음\n🔴 음수: 기준 지수가 하락"),
+    metricTooltip(`벤치마크(${label})를 백테스트 기간 동안 매수 후 보유했을 때의 수익률입니다.`, `벤치마크 수익률 = ((${label} 최종 가격 / 시작 가격) - 1) × 100`, "🟢 양수: 벤치마크 지수가 상승\n🟡 0%: 벤치마크 지수의 변동이 없음\n🔴 음수: 벤치마크 지수가 하락"),
   excessReturn: (label: string) =>
     metricTooltip(
-      `전략 수익률과 ${label} 매수 후 보유 수익률의 차이입니다. 과거 데이터 기준 사실 표시이며, 미래 성과를 뜻하지 않습니다.`,
-      `초과수익률 = 전략 수익률(%) - ${label} 수익률(%)  → 단위는 %p(퍼센트 포인트)`,
-      "🟢 양수: 전략 수익률이 기준 지수보다 높았음\n🟡 0%p 부근: 기준 지수와 비슷했음\n🔴 음수: 전략 수익률이 기준 지수보다 낮았음\n\n※ 두 값이 모두 음수일 때 양수인 초과수익률은 '덜 하락했다'는 뜻이며 이익을 의미하지 않습니다.",
+      `전략 수익률과 벤치마크(${label}) 매수 후 보유 수익률의 차이입니다. 과거 데이터 기준 사실 표시이며, 미래 성과를 뜻하지 않습니다.`,
+      `초과수익률 = 전략 수익률(%) - 벤치마크 수익률(%)  → 단위는 %p(퍼센트 포인트)`,
+      "🟢 양수: 전략 수익률이 벤치마크보다 높았음\n🟡 0%p 부근: 벤치마크와 비슷했음\n🔴 음수: 전략 수익률이 벤치마크보다 낮았음\n\n※ 두 값이 모두 음수일 때 양수인 초과수익률은 '덜 하락했다'는 뜻이며 이익을 의미하지 않습니다.",
     ),
   volatility: metricTooltip("연간 변동성은 일별 수익률의 표준편차를 연간 단위로 환산한 값입니다.", "변동성 = 일별 수익률 표준편차 × √246 × 100 (KRX 연 거래일)", "🟢 낮음: 15% 미만\n🟡 중간: 15% ~ 25%\n🔴 높음: 25% 초과"),
   calmar: metricTooltip("칼마 비율은 최대 낙폭 대비 연평균수익률의 비율입니다.", "칼마 비율 = CAGR / |MDD|", "🟢 높음: 1.0 이상\n🟡 중간: 0.5 ~ 1.0\n🔴 낮음: 0.5 미만"),
@@ -1065,7 +1065,7 @@ export default function BacktestDashboard({
       description: BASE_METRIC_DESCRIPTIONS.sortino,
     },
     {
-      label: `매수 후 보유`,
+      label: `벤치마크`,
       englishLabel: benchmarkLabel.replace(/\s*\(\d+\)$/, ""),
       value: `${(result.buyAndHoldReturn || 0) >= 0 ? "+" : ""}${(result.buyAndHoldReturn || 0).toFixed(2)}%`,
       valueClass: (result.buyAndHoldReturn || 0) > 0 ? "text-[var(--main-red)]" : (result.buyAndHoldReturn || 0) < 0 ? "text-[var(--main-blue)]" : "text-white",
@@ -1087,10 +1087,15 @@ export default function BacktestDashboard({
     },
   ];
 
+  // 벤치마크 지수가 존재하지 않는 구간은 null로 내려온다(엔진 v11.0). undefined로
+  // 바꿔야 차트가 그 지점을 건너뛴다 — null을 그대로 넘기면 isFinite(null)이 true라
+  // 0원으로 그려져 가짜 폭락 구간이 생긴다.
   const equityCurveData = result.dates.map((d: string, i: number) => ({
     time: d,
     equity: result.equity[i],
+    buyHold: result.benchmarkEquity?.[i] ?? undefined,
   }));
+  const hasBenchmarkCurve = equityCurveData.some((p) => p.buyHold !== undefined);
 
   return (
     <div
@@ -1630,13 +1635,21 @@ export default function BacktestDashboard({
                     </div>
 
                     <div className="relative border-t border-white/[0.08]">
-                      <div className="pointer-events-none absolute left-5 top-4 z-10">
+                      <div className="pointer-events-none absolute left-5 top-4 z-10 flex flex-col gap-1.5">
                         <div className="flex items-center gap-2 rounded-md bg-black/25 px-2.5 py-1.5 backdrop-blur-sm">
                           <span className="h-2.5 w-2.5 rounded-full bg-[#ef4444]" />
                           <span className="text-xs font-bold text-white/75">
                             포트폴리오 가치
                           </span>
                         </div>
+                        {hasBenchmarkCurve && (
+                          <div className="flex items-center gap-2 self-start rounded-md bg-black/25 px-2.5 py-1.5 backdrop-blur-sm">
+                            <span className="h-2.5 w-2.5 rounded-full bg-[var(--main-green)]" />
+                            <span className="text-xs font-bold text-white/75">
+                              벤치마크 · {benchmarkLabel.replace(/\s*\(\d+\)$/, "")}
+                            </span>
+                          </div>
+                        )}
                       </div>
                       {dateRangeLabel && (
                         <div className="pointer-events-none absolute right-16 top-4 z-10">
