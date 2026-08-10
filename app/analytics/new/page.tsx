@@ -3550,7 +3550,8 @@ function StrategyLabContent() {
       // (백엔드 seed_recognized)를 본 뒤 둘 중 하나만 보인다(2026-08-10 사용자 지시).
       const strategyPickNotice =
         turnDecision.reason === "classified_strategy_pick" ? turnDecision.message : undefined;
-      if (turnDecision.message && !strategyPickNotice) {
+      const introEmitted = Boolean(turnDecision.message && !strategyPickNotice);
+      if (introEmitted) {
         await emitAssistant({ isLoading: false, infoText: turnDecision.message });
       }
       pendingHoldingPeriodPromptRef.current = null;
@@ -3565,6 +3566,10 @@ function StrategyLabContent() {
         : {};
       builderHistoryRef.current = [];
       await startStrategyBuilder({
+        // 분류를 거쳐 온 턴은 '분석 중...' 자리표시자가 이미 떠 있다. 안내문이 그 자리를
+        // 소비하지 않았으면(STRATEGY_PICK 안내 보류 경로) 자리표시자를 빌더 첫 질문으로
+        // 재사용한다 — 새 버블을 붙이면 자리표시자가 로딩 상태로 영원히 남는다.
+        reuseExisting: placeholderShown && !introEmitted,
         seedText: turnDecision.seedPrompt, researchMetric, strategyPickNotice,
       });
       setIsSending(false);

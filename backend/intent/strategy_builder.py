@@ -1753,10 +1753,14 @@ def _seed_summary(state: BuilderState) -> list[str]:
 
 
 def seed_recognized(state: BuilderState) -> bool:
-    """시드 발화에서 전략 이해가 성립했는가 — 초기 ack와 동일 판정(_seed_summary).
+    """시드 발화에서 전략 이해가 성립했는가.
 
-    라우트가 시드 적용 직후 호출해 StepResult.seed_recognized로 내보낸다."""
-    return bool(_seed_summary(state))
+    기본 판정은 초기 ack와 같은 _seed_summary이되, 유니버스는 ack 요약에 없어도
+    시드 이해로 인정한다 — '코스피 전략 만들어줘'가 열린 추천으로 오분류돼도 대상
+    시장을 이해했으면 추천 불가 안내문은 모순이다(2026-08-11, ack에는 안 넣는다 —
+    유니버스는 첫 질문 생략으로 이미 드러난다). 라우트가 시드 적용 직후 호출해
+    StepResult.seed_recognized로 내보낸다."""
+    return bool(_seed_summary(state)) or state.universe is not None
 
 
 def _ack_prefix(state: BuilderState, just_filled: Optional[set[str]] = None) -> str:

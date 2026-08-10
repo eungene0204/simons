@@ -218,7 +218,17 @@ def _clarification_items(
                 direction = "이하" if (cond.operator or "").startswith("<") else "이상"
                 # display_name의 괄호 설명은 칩에서 제거해 수정 파서 어휘와 맞춘다
                 name = spec.display_name.split("(")[0]
-                chips.append(f"{name} {q.recommended_value:g}{unit} {direction}")
+                if cond.factor == "fundamental.market_cap" and direction == "이하":
+                    # 시총 상한 되묻기('소형주' 등 시총 규모 표현) — 작은 시총 후보를
+                    # 여러 개 제시해 사용자가 고른다(2026-08-11 사용자 지시). 표기는
+                    # 기존 단일 칩과 동일한 정본 형태라 결속(_bind_chips →
+                    # _apply_prompt_overrides 시총 패턴)이 그대로 성립한다.
+                    chips.extend(
+                        f"{name} {v:g}{unit} {direction}"
+                        for v in _numeric_options(q.recommended_value, 1000, 3000)
+                    )
+                else:
+                    chips.append(f"{name} {q.recommended_value:g}{unit} {direction}")
                 if spec.engine_binding is not None and spec.engine_binding[0] == "fundamental_filter":
                     metric = spec.engine_binding[1]
         elif q.field == "strategy.universe.listing_from":
@@ -239,12 +249,16 @@ def _clarification_items(
                 for n in _numeric_options(q.recommended_value, *alternates)
             )
             topic = "매수 조건"
-        elif q.field in _SLOT_CHIP_BUILDERS:
+        slot_item = False
+        if q.field in _SLOT_CHIP_BUILDERS:
             # 조건이 아닌 슬롯(포트폴리오·리스크·청산) 질문의 칩과 topic.
             slot_topic, build = _SLOT_CHIP_BUILDERS[q.field]
             chips.extend(build(q.recommended_value))
             topic = slot_topic
-        items.append({"question": line, "chips": chips, "topic": topic, "metric": metric})
+            # 슬롯 질문 표식 — 이월 큐에 싣지 않기 위한 판정(아래 큐 구성 참조).
+            slot_item = True
+        items.append({"question": line, "chips": chips, "topic": topic,
+                      "metric": metric, "slot": slot_item})
     for role in coalesced_cross_roles:
         role_label = "매수(진입)" if role == "entry" else "매도(청산)"
         items.append({
@@ -1083,7 +1097,13 @@ def run_primary_parse(
             clarification_question = first["question"]
             clarification_suggestions = first["chips"] or None
             fallback_topic = first["topic"]
-            queued_items = clarification_items[1:]
+            # 슬롯 질문(청산·종목 수·리밸런싱·손절 등)은 큐에 싣지 않는다(2026-08-11
+            # 사용자 지시 — "그 다음부턴 우리가 이미 가지고 있는 걸 보여주면서 슬롯을
+            # 채우면 돼"). 큐가 나르는 것은 진행 골격이 묻지 않는 질문(조건 기준값·
+            # 파라미터)뿐이고, 슬롯 되묻기는 답 반영 후 기존 기제(재계획 planner의 정본
+            # 칩 폴백·프론트 explicit 게이트의 슬롯 박스)가 정본 문구·칩으로 잇는다 —
+            # 큐의 전용 문구가 그 박스를 덮어쓰면 같은 슬롯의 되묻기가 두 벌이 된다.
+            queued_items = [i for i in clarification_items[1:] if not i.get("slot")]
         chips_offered = list(clarification_suggestions or [])
         pending_ask = _pending_ask_payload(
             clarification_question, clarification_suggestions, fallback_topic, parsed

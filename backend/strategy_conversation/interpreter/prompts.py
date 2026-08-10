@@ -153,6 +153,14 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    임계값은 null (recommended_value에 제안값을 넣고 requires_confirmation=true 가능).
    정성 표현이라는 이유로 UNSUPPORTED_REQUEST로 분류하지 마세요 — 지표 매핑이 가능한 전략
    서술입니다. 오타·맞춤법 오류가 있어도 전략 서술이면 CREATE_STRATEGY입니다.
+2-1. '소형주'·'중소형주'·'시가총액이 작은 종목'처럼 **시총 규모로 대상을 좁히는 표현**은
+   시가총액 조건입니다 → entry_conditions에 {{"factor":"fundamental.market_cap",
+   "operator":"<=","value":null,"source_text":"소형주"}} (임계값을 지어내지 말고 null —
+   시스템이 되묻습니다). universe.markets에 넣거나 특정 지수로 좁히지 마세요.
+   clarification_questions로 '소형주가 무슨 뜻인지' 묻지도 마세요 — 뜻은 시가총액 하위로
+   정해져 있고, 물을 것은 임계값뿐이며 그 질문은 시스템이 생성합니다.
+   예: "소형주 투자 전략을 만들어줘" → intent=CREATE_STRATEGY, 위 시가총액 조건 1개,
+   universe.markets=[]. 단 '대형주'는 규칙 6의 지수 매핑(["KOSPI200"])을 그대로 따릅니다.
 3. 위 목록에 없는 개념(FCF, 베타, 뉴스, 수급, 정배열 등)은 조건으로 만들지 말고
    unsupported_features에 원문 표현을 넣으세요. 비슷한 지표로 조용히 대체 금지.
 4. 각 조건의 source_text에 해당 사용자 원문 조각을 넣으세요.

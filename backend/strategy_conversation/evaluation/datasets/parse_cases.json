@@ -468,6 +468,34 @@
           "technical.ma_crossover"
         ]
       }
+    },
+    {
+      "id": "small-cap-maps-to-market-cap-condition",
+      "category": "universe",
+      "input": "소형주 투자 전략을 만들어줘",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "fundamental.market_cap"
+        ],
+        "missing_value_factors": [
+          "fundamental.market_cap"
+        ]
+      }
+    },
+    {
+      "id": "small-mid-cap-maps-to-market-cap-condition",
+      "category": "universe",
+      "input": "중소형주 전략 하나 만들어줘",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "fundamental.market_cap"
+        ],
+        "missing_value_factors": [
+          "fundamental.market_cap"
+        ]
+      }
     }
   ]
 }

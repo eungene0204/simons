@@ -118,6 +118,9 @@ describe("열린 전략 추천 안내문 — 시드 이해 시 생략(둘 중 �
     expect(screen.getByText(/모멘텀 전략\(으\)로 이해했어요/)).toBeInTheDocument();
     // 이해했으면 열린 추천 안내문은 나가지 않는다 — 둘 중 하나만.
     expect(screen.queryByText(/추천해 드리지는 않지만/)).not.toBeInTheDocument();
+    // [회귀 2026-08-11] 안내 보류 경로가 분류 자리표시자를 소비하지 않아 '분석 중...'
+    // 버블이 로딩 상태로 영원히 남았다 — 답이 나간 뒤 스피너가 없어야 한다.
+    expect(screen.queryByText("분석 중...")).not.toBeInTheDocument();
   });
 
   it("시드 이해가 없으면(진짜 열린 요청) 안내문과 첫 질문이 함께 나간다", async () => {
@@ -136,5 +139,7 @@ describe("열린 전략 추천 안내문 — 시드 이해 시 생략(둘 중 �
       await screen.findByText(/어떤 시장을 대상으로 할까요/, undefined, { timeout: 5000 })
     ).toBeInTheDocument();
     expect(screen.getByText(/추천해 드리지는 않지만/)).toBeInTheDocument();
+    // [회귀 2026-08-11] 위와 동일 — 고아 '분석 중...' 스피너 금지.
+    expect(screen.queryByText("분석 중...")).not.toBeInTheDocument();
   });
 });

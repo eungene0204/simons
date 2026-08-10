@@ -65,6 +65,21 @@ def test_step_seed_recognized_true_for_concrete_strategy_seed():
     assert data["seed_recognized"] is True
 
 
+def test_step_seed_recognized_true_for_universe_only_seed():
+    """[2026-08-11] 유니버스만 이해한 시드도 seed_recognized=True.
+
+    ack 요약(_seed_summary)에는 유니버스가 없지만(첫 질문 생략으로 드러난다),
+    대상 시장을 이해했는데 '추천해 드리지는 않지만' 안내문이 나가는 것은 모순이다."""
+    res = _client().post(
+        "/strategy/builder/step",
+        json={"state": {}, "input": "", "seed": "코스피 대상으로 투자 전략 만들어줘"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["state"]["universe"] == "KOSPI"
+    assert data["seed_recognized"] is True
+
+
 def test_step_seed_recognized_false_for_open_pick_seed():
     """진짜 열린 추천 발화는 시드 이해가 없다 — 안내문이 그대로 나가야 한다."""
     res = _client().post(

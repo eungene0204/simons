@@ -1412,9 +1412,14 @@ def test_primary_universe_strategy_keeps_exit_question(monkeypatch):
 
 def test_primary_chipless_first_question_still_asks_one_at_a_time(monkeypatch):
     """[회귀] 2026-08-10 사용자 보고 — '상대 모멘텀 효과' 파스에서 랭킹 지표 선택 질문과
-    청산 질문이 한 버블에 함께 나갔다("한 번에 한 가지만 물어봐야 한다"). 첫 질문이
-    무칩(지표 선택 되묻기 — 칩 결속 계약상 칩 없음)이면 pending_ask가 성립하지 않아
-    전체 질문 병합으로 폴백하던 분기가 원인. 무칩 ask가 큐를 나른다 — 질문은 하나씩."""
+    청산 질문이 한 버블에 함께 나갔다("한 번에 한 가지만 물어봐야 한다").
+
+    [2026-08-11 사용자 지시로 진화] 청산 등 **슬롯 질문은 큐에도 싣지 않는다** — 답이
+    반영된 뒤 기존 슬롯 되묻기 기제(재계획 planner의 정본 칩 폴백·프론트 explicit
+    게이트의 슬롯 박스)가 정본 문구·칩으로 잇는다(큐의 전용 문구가 그 박스를 덮어쓰면
+    같은 슬롯 되묻기가 두 벌이 된다). 나를 큐가 없으면 무칩 ask도 만들지 않는다
+    (칩 결속 계약상 칩 없음 → 클릭 귀속 대상 없음, 답변은 pending_question 에코로
+    수정 인터프리터가 받는다)."""
     data = _full_intent_dict(
         entry_conditions=[{"factor": "class.ranking", "operator": None, "value": None,
                            "source_text": "상대 모멘텀 효과"}],
@@ -1424,13 +1429,34 @@ def test_primary_chipless_first_question_still_asks_one_at_a_time(monkeypatch):
     result = _run_primary_with(monkeypatch, data, "상대 모멘텀 효과를 이용한 투자 전략")
     assert result is not None
     question = result["clarification_question"] or ""
-    # 첫 질문(랭킹 지표 선택)만 나간다 — 청산 질문은 큐로 이월
+    # 첫 질문(랭킹 지표 선택)만 나간다 — 청산 질문은 이 턴에 나가지 않고, 큐에도 없다
     assert "'상대 모멘텀 효과'" in question
+    assert "매도할까요" not in question
+    assert result["pending_ask"] is None
+
+
+def test_slot_questions_are_not_queued_after_value_question(monkeypatch):
+    """[회귀] 2026-08-11 사용자 보고 — '소형주' 시총 기준값 칩을 고른 뒤, 큐에 실려 있던
+    청산 슬롯 질문이 전용 문구·전용 칩으로 새 박스를 만들었고 그 칩은 슬롯을 채우지
+    못했다. 값-대기 질문(시총 기준값)만 이 턴에 나가고, 슬롯 질문(청산)은 큐에 싣지
+    않는다 — 기존 슬롯 되묻기 기제가 정본 문구·칩으로 잇는다."""
+    data = _full_intent_dict(
+        entry_conditions=[{"factor": "fundamental.market_cap", "operator": "<=",
+                           "value": None, "source_text": "소형주"}],
+        portfolio={},  # 리밸런싱·보유기간 없음 → 청산 규칙 질문이 함께 생성되는 상황
+        risk_management={},
+    )
+    result = _run_primary_with(monkeypatch, data, "소형주 투자 전략을 만들어줘")
+    assert result is not None
+    question = result["clarification_question"] or ""
+    assert "시가총액 기준값" in question
     assert "매도할까요" not in question
     ask = result["pending_ask"]
     assert ask is not None
-    assert ask["chips"] == []  # 지표 선택 칩은 결속 불가 — 노출 금지 계약 유지
-    assert any("매도할까요" in q["question"] for q in ask["queue"])
+    # 시총 상한 선택지(다중 칩)는 그대로 결속돼 나간다
+    assert "시가총액 5000억원 이하" in ask["chips"]
+    # 슬롯(청산) 질문은 큐에 없다 — 기존 되묻기 기제 소관
+    assert not any("매도할까요" in q.get("question", "") for q in ask.get("queue", []))
 
 
 def test_primary_compiled_entry_drops_entry_question(monkeypatch):
