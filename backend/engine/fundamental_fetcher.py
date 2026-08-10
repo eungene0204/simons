@@ -1296,17 +1296,30 @@ def enrich_ohlcv_with_fundamentals(
     # PCR = 시가총액 / 영업활동현금흐름. OHLCV 종가는 기업행사 조정 가격이므로,
     # 과거 비조정 주식 수로 CFPS를 만들면 액면분할 전 기간이 왜곡된다. parquet의
     # 일별 market_cap(억원)을 사용해 동일한 가격 조정 기준을 유지한다.
-    if "market_cap" in df.columns and "operating_cash_flow" in df.columns:
-        valid = (
-            df["market_cap"].notna()
-            & df["operating_cash_flow"].notna()
-            & (df["operating_cash_flow"] > 0)
-        )
-        df["pcr"] = (
-            df["market_cap"].astype(float) * 1e8 / df["operating_cash_flow"]
-        ).where(valid).replace([_np.inf, -_np.inf], _np.nan)
+    df = recompute_pcr(df)
 
     return _add_dividend_metrics(df)
+
+
+def recompute_pcr(df: pd.DataFrame) -> pd.DataFrame:
+    """PCR(=market_cap 억원×1e8 / 영업활동현금흐름 raw 원)을 현재 컬럼 기준으로 재계산한다.
+
+    enrich와 시총 재구축(scripts/rebuild_market_cap.py)이 같은 정의를 공유하는
+    유일한 자리다. 두 컬럼 중 하나라도 없으면 no-op, 분모(OCF)가 비양수면 null.
+    """
+    if "market_cap" not in df.columns or "operating_cash_flow" not in df.columns:
+        return df
+    import numpy as _np
+    valid = (
+        df["market_cap"].notna()
+        & df["operating_cash_flow"].notna()
+        & (df["operating_cash_flow"] > 0)
+    )
+    df = df.copy()
+    df["pcr"] = (
+        df["market_cap"].astype(float) * 1e8 / df["operating_cash_flow"]
+    ).where(valid).replace([_np.inf, -_np.inf], _np.nan)
+    return df
 
 
 def _add_dividend_metrics(df: pd.DataFrame) -> pd.DataFrame:
