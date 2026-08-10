@@ -382,3 +382,55 @@ def test_slot_statuses_covers_eight_slots():
     assert list(slots.slot_statuses(_complete(), explicit_fields=ALL_EXPLICIT)) == list(
         slots.SLOT_ORDER
     )
+
+
+# ── 손절·익절 '안 함'(거부, 2026-08-10 사용자 지시) ────────────────────────────
+# 손절·익절을 쓰지 않는 것도 정상적인 전략 설계인데, 거부를 표현할 방법이 없어 값을
+# 넣어야만 실행 게이트를 통과할 수 있었다. 값(0)으로 표현하지 않는 이유는
+# enforce_strategy_minimums가 "0%보다 커야 한다"로 이미 0을 거부하기 때문이다.
+
+def test_declined_risk_slots_are_confirmed_and_not_asked_again():
+    parsed = ParsedStrategy(description="손절 없이", universe=["KOSPI"])
+    fields = [slots.STOP_LOSS, slots.TAKE_PROFIT]
+    # 거부 전에는 둘 다 비어 있다.
+    assert {s.field for s in slots.missing(parsed, fields=fields)} == set(fields)
+    # 거부하면 값이 없어도 더 묻지 않고, 값 축은 사용자 확정이다.
+    statuses = {
+        s.field: s for s in slots.evaluate(
+            parsed, fields=fields, declined_fields=[slots.STOP_LOSS, slots.TAKE_PROFIT])
+    }
+    for field in fields:
+        assert statuses[field].filled is True
+        assert statuses[field].value_status is slots.ValueStatus.CONFIRMED
+        # 거부는 '해당 없음'이 아니다 — 물을 수 있었지만 사용자가 안 하기로 정한 것이다.
+        assert statuses[field].derived_status is slots.DerivedStatus.APPLICABLE
+
+
+def test_declined_field_does_not_override_an_existing_value():
+    """거부 뒤에 값이 들어오면 값이 이긴다 — 화면의 값과 판정이 어긋나면 안 된다."""
+    parsed = ParsedStrategy(description="손절 있음", universe=["KOSPI"], stop_loss_pct=10)
+    status = next(s for s in slots.evaluate(
+        parsed, fields=[slots.STOP_LOSS], declined_fields=[slots.STOP_LOSS]))
+    assert status.filled is True
+    assert status.value_status is slots.ValueStatus.CONFIRMED
+
+
+def test_only_declinable_fields_accept_decline():
+    """유니버스·매수 조건은 '안 함'이 성립하지 않는다 — 없으면 전략이 성립하지 않는다."""
+    parsed = ParsedStrategy(description="빈 전략")
+    status = next(s for s in slots.evaluate(
+        parsed, fields=[slots.ENTRY], declined_fields=[slots.ENTRY]))
+    assert status.filled is False
+    assert slots.DECLINABLE_FIELDS == frozenset(
+        {slots.REBALANCING, slots.STOP_LOSS, slots.TAKE_PROFIT})
+
+
+def test_decline_chips_are_offered_on_risk_questions():
+    """'안 함'을 고를 수 없으면 값을 넣어야만 게이트를 통과할 수 있다."""
+    for field, chip in (
+        (slots.STOP_LOSS, "손절 안 함"), (slots.TAKE_PROFIT, "익절 안 함"),
+    ):
+        status = next(s for s in slots.evaluate(
+            ParsedStrategy(description="빈 전략"), fields=[field]))
+        assert chip in status.suggestions
+        assert slots.DECLINE_CHIP_FIELDS[chip] == field

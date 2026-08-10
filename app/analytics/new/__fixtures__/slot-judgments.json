@@ -75,6 +75,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": null,
       "expectedFilledSlots": [
         "유니버스",
@@ -127,6 +128,7 @@
       },
       "explicitFields": [],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": "universe",
       "expectedFilledSlots": []
     },
@@ -196,6 +198,7 @@
       },
       "explicitFields": [],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": "universe",
       "expectedFilledSlots": [
         "매수 조건",
@@ -276,6 +279,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": "universe",
       "expectedFilledSlots": [
         "매수 조건",
@@ -348,6 +352,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": "entry",
       "expectedFilledSlots": [
         "유니버스",
@@ -426,6 +431,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": null,
       "expectedFilledSlots": [
         "유니버스",
@@ -499,6 +505,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": null,
       "expectedFilledSlots": [
         "유니버스",
@@ -571,6 +578,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": "exit",
       "expectedFilledSlots": [
         "유니버스",
@@ -642,6 +650,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": null,
       "expectedFilledSlots": [
         "유니버스",
@@ -715,6 +724,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": null,
       "expectedFilledSlots": [
         "유니버스",
@@ -800,6 +810,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": "max_positions",
       "expectedFilledSlots": [
         "유니버스",
@@ -885,6 +896,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": null,
       "expectedFilledSlots": [
         "유니버스",
@@ -970,6 +982,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": "rebalancing",
       "expectedFilledSlots": [
         "유니버스",
@@ -1054,6 +1067,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": true,
+      "declinedFields": [],
       "expectedMissingField": null,
       "expectedFilledSlots": [
         "유니버스",
@@ -1140,6 +1154,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": "stop_loss",
       "expectedFilledSlots": [
         "유니버스",
@@ -1225,6 +1240,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": "take_profit",
       "expectedFilledSlots": [
         "유니버스",
@@ -1232,6 +1248,274 @@
         "매도 조건",
         "최대 보유",
         "리밸런싱",
+        "백테스트 기간",
+        "초기 자본"
+      ]
+    },
+    {
+      "name": "손절 안 함(사용자 결정)",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "theme_universe": null,
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "entry_logic": "AND",
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "ranking_direction": null,
+        "ranking_quantile_groups": null,
+        "ranking_group_cap": null,
+        "max_positions": 10,
+        "max_positions_pct": null,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": null,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "declinedFields": [
+        "stop_loss"
+      ],
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
+    },
+    {
+      "name": "손절·익절 둘 다 안 함",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "theme_universe": null,
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "entry_logic": "AND",
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "ranking_direction": null,
+        "ranking_quantile_groups": null,
+        "ranking_group_cap": null,
+        "max_positions": 10,
+        "max_positions_pct": null,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": null,
+        "take_profit_pct": null,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "declinedFields": [
+        "stop_loss",
+        "take_profit"
+      ],
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
+    },
+    {
+      "name": "익절 안 함이지만 값이 있음",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "target_symbols": [],
+        "theme_universe": null,
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "exit_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "sell",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "threshold": null
+          }
+        ],
+        "entry_filters": [],
+        "entry_logic": "AND",
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "ranking_direction": null,
+        "ranking_quantile_groups": null,
+        "ranking_group_cap": null,
+        "max_positions": 10,
+        "max_positions_pct": null,
+        "hold_period_days": null,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "rebalancing",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "declinedFields": [
+        "take_profit"
+      ],
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리스크 관리",
         "백테스트 기간",
         "초기 자본"
       ]
@@ -1310,6 +1594,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": "stop_loss",
       "expectedFilledSlots": [
         "유니버스",
@@ -1394,6 +1679,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": "backtest_period",
       "expectedFilledSlots": [
         "유니버스",
@@ -1478,6 +1764,7 @@
         "backtest_period"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": "initial_capital",
       "expectedFilledSlots": [
         "유니버스",
@@ -1563,6 +1850,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": "initial_capital",
       "expectedFilledSlots": [
         "유니버스",
@@ -1646,6 +1934,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": null,
       "expectedFilledSlots": [
         "유니버스",
@@ -1732,6 +2021,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": "rebalancing",
       "expectedFilledSlots": [
         "유니버스",
@@ -1805,6 +2095,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": "entry",
       "expectedFilledSlots": [
         "유니버스",
@@ -1888,6 +2179,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": null,
       "expectedFilledSlots": [
         "유니버스",
@@ -1972,6 +2264,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": null,
       "expectedFilledSlots": [
         "유니버스",
@@ -2057,6 +2350,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": null,
       "expectedFilledSlots": [
         "유니버스",
@@ -2143,6 +2437,7 @@
         "initial_capital"
       ],
       "allowNoRebalancing": false,
+      "declinedFields": [],
       "expectedMissingField": null,
       "expectedFilledSlots": [
         "유니버스",

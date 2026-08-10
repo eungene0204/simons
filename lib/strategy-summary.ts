@@ -552,16 +552,20 @@ export function getPositionLabel(parsed: ParsedSummary): string {
 }
 
 export function getRankingLabel(parsed: ParsedSummary): string | null {
+  // 산정 기간 미정(되묻기 진행 중)에 60일을 표시하면 조용한 확정으로 읽힌다(2026-08-10
+  // 사용자 지시 "60일 강제 금지") — 기간이 정해진 뒤에만 일수를 붙인다.
   if (parsed.ranking_metric === "return") {
-    const days = parsed.ranking_lookback_days ?? 60;
-    return `${days}일 수익률 상위`;
+    const days = parsed.ranking_lookback_days;
+    return days != null ? `${days}일 수익률 상위` : "수익률 상위(산정 기간 미정)";
   }
   if (parsed.ranking_metric === "volatility") {
     // 엔진의 방향 미지정 기본은 bottom(저변동성 선호) — backtest_engine 변동성 분기 미러.
-    const days = parsed.ranking_lookback_days ?? 60;
+    const days = parsed.ranking_lookback_days;
+    const prefix = days != null ? `${days}일 ` : "";
+    const suffix = days != null ? "" : "(산정 기간 미정)";
     return parsed.ranking_direction === "top"
-      ? `${days}일 변동성 높은 순 상위`
-      : `${days}일 변동성 낮은 순 상위`;
+      ? `${prefix}변동성 높은 순 상위${suffix}`
+      : `${prefix}변동성 낮은 순 상위${suffix}`;
   }
   if (parsed.ranking_metric) {
     // 재무 팩터 랭킹(예: 영업이익률 상위 20종목) — 지표명은 필터 배지와 같은 정본 라벨.

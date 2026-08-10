@@ -120,6 +120,27 @@ def merge_explicit_fields(
     return [field for field in KNOWN_FIELDS if field in seen]
 
 
+def merge_declined_fields(
+    previous: Optional[Iterable[Any]], current: Optional[Iterable[Any]]
+) -> List[str]:
+    """사용자가 '안 함'으로 거부한 필드를 합집합으로 누적한다(explicit_fields와 같은 계약).
+
+    explicit_fields와 **섞지 않는 이유**: 저쪽은 "사용자가 말한 값이 있다"(provenance),
+    이쪽은 "값이 없는 것이 사용자의 결정이다"(거부)로 축이 다르다. 한 목록에 담으면
+    값 유무를 함께 보는 판정(strategy_slots._has_value/_decided)이 둘을 구분하지 못한다.
+    허용 이름은 거부가 성립하는 슬롯(DECLINABLE_FIELDS)뿐이다 — 프론트 에코는 신뢰
+    경계 밖이므로 알 수 없는 이름은 조용히 버린다(merge_explicit_fields와 같은 이유).
+    """
+    from engine.strategy_slots import DECLINABLE_FIELDS, FIELD_ORDER
+
+    seen = set()
+    for source in (previous or (), current or ()):
+        for item in source:
+            if isinstance(item, str) and item in DECLINABLE_FIELDS:
+                seen.add(item)
+    return [field for field in FIELD_ORDER if field in seen]
+
+
 # ── 비권위 메타데이터 (2026-07-30 사용자 결정) ─────────────────────────────────
 # `source`·`updated_at`·`confidence`는 **판정에 쓰지 않는다.** 되묻기 게이트·진행률·
 # 실행 가능 여부·사용자 노출·분기 조건은 전부 값과 explicit_fields만 본다.

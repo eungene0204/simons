@@ -71,8 +71,12 @@ def test_every_slot_chip_actually_binds(field):
     topic, build = _SLOT_CHIP_BUILDERS[field]
     chips = build(None)
     assert chips, f"{field}: 추천값이 없어도 대안 칩은 나와야 한다"
-    bound, bindings, confirms = _bind_chips(chips, _base_strategy(), topic)
-    unbound = [c for c in chips if c not in bindings and c not in confirms]
+    bound, bindings, confirms, declines = _bind_chips(chips, _base_strategy(), topic)
+    # 거부 칩('안 함')은 값을 바꾸지 않으므로 값 결속이 아니라 거부 결속으로 통과한다.
+    unbound = [
+        c for c in chips
+        if c not in bindings and c not in confirms and c not in declines
+    ]
     assert not unbound, f"{field}: 결속되지 않는 칩 — 발행돼도 사용자에게 보이지 않는다: {unbound}"
 
 

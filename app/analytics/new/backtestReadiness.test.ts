@@ -6,6 +6,8 @@ import {
   getNextMissingBacktestCondition,
   isBacktestReady,
   isClosedChoiceSlot,
+  isSlotFilled,
+  promptForSlot,
 } from "./backtestReadiness";
 
 const base: ParsedSummary = {
@@ -276,6 +278,60 @@ describe("분위 그룹 전략의 최대 보유 되묻기 (FR-BT-060b)", () => {
     );
     if (next?.field === "max_positions") {
       expect(next.suggestions).toEqual(["최대 5종목", "최대 10종목", "최대 20종목"]);
+    }
+  });
+});
+
+// 손절·익절 '안 함'(2026-08-10) — 거부는 값이 아니라 목록으로 온다(백엔드 declined_fields).
+describe("손절·익절 '안 함' 거부", () => {
+  const readyExceptRisk: ParsedSummary = {
+    ...base,
+    universe: ["KOSPI"],
+    entry_signals: [{ indicator: "ma_crossover", signal_type: "buy" }],
+    exit_signals: [{ indicator: "ma_crossover", signal_type: "sell" }],
+    rebalancing_period: "monthly",
+    max_positions: 10,
+    backtest_period: "5y",
+    initial_capital: 10_000_000,
+  };
+  const options = {
+    requireExplicitConfiguration: true,
+    explicitFields: [
+      "universe", "max_positions", "rebalancing", "backtest_period", "initial_capital",
+    ],
+  };
+
+  it("거부 전에는 손절을 묻고, 거부하면 더 묻지 않는다", () => {
+    expect(getNextMissingBacktestCondition(readyExceptRisk, options)).toMatchObject({
+      field: "stop_loss",
+    });
+    expect(
+      isBacktestReady(readyExceptRisk, {
+        ...options,
+        declinedFields: ["stop_loss", "take_profit"],
+      }),
+    ).toBe(true);
+  });
+
+  it("한쪽만 거부하면 나머지는 계속 묻는다", () => {
+    expect(
+      getNextMissingBacktestCondition(readyExceptRisk, {
+        ...options,
+        declinedFields: ["stop_loss"],
+      }),
+    ).toMatchObject({ field: "take_profit" });
+  });
+
+  it("거부 뒤에 값이 들어오면 값이 이긴다(백엔드와 같은 순서)", () => {
+    const withStopLoss = { ...readyExceptRisk, stop_loss_pct: 10 };
+    expect(
+      isSlotFilled("stop_loss", withStopLoss, { ...options, declinedFields: ["stop_loss"] }),
+    ).toBe(true);
+  });
+
+  it("손절·익절 질문에 '안 함' 선택지가 있다", () => {
+    for (const field of ["stop_loss", "take_profit"] as const) {
+      expect(promptForSlot(field).suggestions).toContain("안 함");
     }
   });
 });

@@ -4,6 +4,17 @@ import type { MissingBacktestCondition } from "./backtestReadiness";
 export type DeterministicConditionChoice = {
   parsed: ParsedSummary;
   allowNoRebalancing?: boolean;
+  /** 사용자가 '안 함'으로 거부한 슬롯 — 값이 아니라 "비어 있는 채로 확정"이라
+   *  parsed에는 흔적이 남지 않는다(호출자가 거부 목록에 누적한다). */
+  declinedField?: MissingBacktestCondition["field"];
+};
+
+/** 손절·익절 '안 함' 칩의 문구. 프론트 칩은 질문이 이미 필드를 말하므로 "안 함"이고,
+ *  백엔드가 낸 질문의 칩은 자기완결 표기("손절 안 함")다 — 어느 쪽이 떠 있었든 클릭
+ *  결과는 같아야 하므로 둘 다 받는다(백엔드 DECLINE_CHIP_FIELDS와 짝). */
+const DECLINE_CHOICES: Record<string, readonly string[]> = {
+  stop_loss: ["안 함", "손절 안 함"],
+  take_profit: ["안 함", "익절 안 함"],
 };
 
 const UNIVERSE_BY_CHOICE: Record<string, string[]> = {
@@ -173,18 +184,17 @@ export function applyDeterministicConditionChoice({
       : null;
   }
 
-  if (condition.field === "stop_loss") {
-    const stopLossPct = parseFirstNumber(choice);
-    return stopLossPct
-      ? { parsed: { ...parsed, stop_loss_pct: stopLossPct } }
-      : null;
-  }
-
-  if (condition.field === "take_profit") {
-    const takeProfitPct = parseFirstNumber(choice);
-    return takeProfitPct
-      ? { parsed: { ...parsed, take_profit_pct: takeProfitPct } }
-      : null;
+  if (condition.field === "stop_loss" || condition.field === "take_profit") {
+    // '안 함'은 값을 넣지 않고 그 슬롯을 거부로 확정한다 — 값 추출을 먼저 시도하면
+    // 숫자가 없어 null(=미적용)로 떨어져 같은 질문이 반복된다.
+    if (DECLINE_CHOICES[condition.field].includes(choice.trim())) {
+      return { parsed, declinedField: condition.field };
+    }
+    const pct = parseFirstNumber(choice);
+    if (!pct) return null;
+    return condition.field === "stop_loss"
+      ? { parsed: { ...parsed, stop_loss_pct: pct } }
+      : { parsed: { ...parsed, take_profit_pct: pct } };
   }
 
   if (condition.field === "backtest_period") {

@@ -83,8 +83,9 @@ def test_completeness_asks_indicator_choice_with_options():
         q for q in report.clarification_questions if q.field.endswith(".factor")
     )
     assert "'모멘텀 지표'" in q.question
-    # 역할(진입/청산)이 질문에 명시된다 — 답변 패치의 배열 귀속 근거(규칙 10-4)
-    assert "진입 조건에" in q.question
+    # 역할(진입/청산)이 질문에 명시된다 — 답변 패치의 배열 귀속 근거(규칙 10-4).
+    # 라벨은 일상어 병기("매수(진입)") — 진입 키워드는 유지된다.
+    assert "매수(진입) 조건에" in q.question
     assert "모멘텀/오실레이터" in q.question
     assert "RSI" in q.question
     # 구체 지표를 대신 확정하지 않는다 — 추천값 없음
@@ -96,7 +97,7 @@ def test_completeness_question_without_source_text():
     q = next(
         q for q in report.clarification_questions if q.field.endswith(".factor")
     )
-    assert q.question.startswith("진입 조건에 어떤 ")
+    assert q.question.startswith("매수(진입) 조건에 어떤 ")
 
 
 def test_compile_partial_excludes_class_condition_as_pending():
@@ -149,3 +150,18 @@ def test_prompt_declares_class_output_rule():
     assert "구체 지표를 대신 골라 확정하지 마세요" in prompt
     # 규칙 10-4 — 되묻기 답변은 잎 ID 패치(class.* 금지, 임의 임계값 금지)
     assert "구체 지표를 고르는 되묻기" in prompt
+
+
+def test_prompt_declares_momentum_strategy_name_is_ranking_return():
+    """3.4(2026-08-10 사용자 판정) — '상대 모멘텀 효과를 이용한 투자 전략'은 이미 아는
+    모멘텀 전략(기간 수익률 랭킹) 그 자체다. 계열 발화(class.ranking)로 격하해 랭킹
+    지표를 되묻지 않고 ranking.return으로 해석한다(E2E 9B 실측 2/2 — 상위 몇 종목
+    질문으로 바로 진행). '모멘텀 지표 하나'(오실레이터 선택)는 종전대로 class.oscillator."""
+    from strategy_conversation.interpreter.prompts import PROMPT_VERSION, build_system_prompt
+
+    assert PROMPT_VERSION >= "3.4"
+    prompt = build_system_prompt()
+    assert "상대 모멘텀" in prompt
+    assert "모멘텀 전략 자체를 이름으로" in prompt
+    # 오실레이터 계열 발화와의 구분이 함께 명시된다
+    assert "지표(RSI 등)를 하나 고르라는" in prompt

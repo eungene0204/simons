@@ -82,14 +82,21 @@ def finalize_user_response(result: Dict) -> Dict:
         final_chips = list(result.get("clarification_suggestions") or [])
         bindings = result["pending_ask"].get("chip_bindings")
         confirms = result["pending_ask"].get("chip_confirms")
+        declines = result["pending_ask"].get("chip_declines")
         result["pending_ask"] = (
             {**result["pending_ask"], "question": question, "chips": final_chips,
              **({"chip_bindings": {c: bindings[c] for c in final_chips if c in bindings}}
                 if isinstance(bindings, dict) else {}),
              # 확정 칩(§ 7 CONFIRM)도 값 결속과 같은 계약 — 살아남은 칩만 남긴다.
              **({"chip_confirms": {c: confirms[c] for c in final_chips if c in confirms}}
-                if isinstance(confirms, dict) else {})}
-            if question and final_chips else None
+                if isinstance(confirms, dict) else {}),
+             # 거부 칩('안 함')도 마찬가지 — 문구가 바뀐 칩은 결속 키가 어긋난다.
+             **({"chip_declines": {c: declines[c] for c in final_chips if c in declines}}
+                if isinstance(declines, dict) else {})}
+            # 칩이 0개여도 질문이 살아 있으면 ask를 지우지 않는다 — 무칩 ask는 이월
+            # 질문 큐(한 턴에 한 질문)를 나르는 그릇이다. 종전처럼 지우면 큐가 함께
+            # 사라져 나머지 질문이 소실된다(2026-08-10 병합 버블 수정과 같은 계약).
+            if question else None
         )
     if result.get("notices"):
         result["notices"] = [n for n in (guard_text(n) for n in result["notices"]) if n]

@@ -14,7 +14,7 @@ import os
 import re
 import time
 from datetime import date
-from typing import Annotated, List, Literal, Optional, Union
+from typing import Annotated, List, Literal, Optional, Sequence, Union
 from pydantic import (
     BaseModel,
     BeforeValidator,
@@ -5441,13 +5441,14 @@ def _apply_prompt_overrides(
         updates["ranking_lookback_days"] = None
         updates["ranking_direction"] = None
 
-    # 변동성 산정 기간 되묻기 칩('변동성 산정 기간 120일')의 결정적 에코 인식(2026-08-10).
-    # 어휘 확장이 아니라 우리가 발행하는 칩 정본 표기의 자리 배정이다(칩=값 결속 계약 —
-    # 결속은 이 함수의 diff로 판정되므로 정본 표기는 여기서 인식돼야 한다). 자유 서술
+    # 랭킹 산정 기간 되묻기 칩('변동성 산정 기간 120일'·'수익률 산정 기간 20일')의
+    # 결정적 에코 인식(2026-08-10, 모멘텀은 "60일 강제 금지" 지시로 합류). 어휘 확장이
+    # 아니라 우리가 발행하는 칩 정본 표기의 자리 배정이다(칩=값 결속 계약 — 결속은 이
+    # 함수의 diff로 판정되므로 정본 표기는 여기서 인식돼야 한다). 자유 서술
     # ('산정 기간을 넉 달로')은 종전대로 LLM 레인이 해석한다.
-    vol_lookback_match = re.search(r"변동성산정기간(\d+)(?:거래)?일", compact_in)
-    if vol_lookback_match:
-        updates["ranking_lookback_days"] = int(vol_lookback_match.group(1))
+    rank_lookback_match = re.search(r"(?:변동성|수익률)산정기간(\d+)(?:거래)?일", compact_in)
+    if rank_lookback_match:
+        updates["ranking_lookback_days"] = int(rank_lookback_match.group(1))
 
     # 명시적 백테스트 연도 범위('2002년부터 2005년까지')를 결정적으로 추출.
     # 언급이 없으면 기존 값을 덮어쓰지 않는다(수정 모드 보호).
@@ -5834,7 +5835,8 @@ _GATE_FIELDS: tuple[str, ...] = (
 
 
 def _missing_backtest_conditions(
-    parsed: ParsedStrategy, user_prompt: str = ""
+    parsed: ParsedStrategy, user_prompt: str = "",
+    declined_fields: Optional[Sequence[str]] = None,
 ) -> list[tuple[str, list[str]]]:
     """아직 비어 있는 백테스트 최소 조건만 (질문, 대표 예시칩) 순서대로 반환한다.
 
@@ -5844,12 +5846,13 @@ def _missing_backtest_conditions(
     """
     return [
         (status.question, list(status.suggestions))
-        for status in next_incomplete_backtest_slots(parsed, user_prompt)
+        for status in next_incomplete_backtest_slots(parsed, user_prompt, declined_fields)
     ]
 
 
 def next_incomplete_backtest_slots(
-    parsed: ParsedStrategy, user_prompt: str = ""
+    parsed: ParsedStrategy, user_prompt: str = "",
+    declined_fields: Optional[Sequence[str]] = None,
 ) -> list:
     """비어 있는 백테스트 최소 조건 슬롯(SlotStatus) 목록.
 
@@ -5861,21 +5864,25 @@ def next_incomplete_backtest_slots(
     # 명시 거부("리밸런싱 안 함")는 사용자의 결정이므로 되묻지 않는다 — 칩 답변이 누적
     # 프롬프트로 재파싱될 때 같은 질문이 무한 반복되는 함정. (원문 판정은 이 레거시
     # 레인의 잔여물이며, provenance를 가진 레인은 explicit_fields로 같은 결정을 전달한다.)
+    # 손절·익절 '안 함'은 이 원문 레인을 늘리지 않는다 — 거부는 칩 클릭이 만든 사실이라
+    # declined_fields 채널로 들어온다(호출자가 무상태 에코로 나른다, 2026-08-10).
     declined = _mentions_rebalancing_negation(_compact(user_prompt))
     return list(strategy_slots.missing(
-        parsed, fields=_GATE_FIELDS, rebalancing_declined=declined
+        parsed, fields=_GATE_FIELDS, rebalancing_declined=declined,
+        declined_fields=declined_fields,
     ))
 
 
 def detect_incomplete_backtest_conditions(
-    parsed: ParsedStrategy, user_prompt: str = ""
+    parsed: ParsedStrategy, user_prompt: str = "",
+    declined_fields: Optional[Sequence[str]] = None,
 ) -> tuple[Optional[str], Optional[List[str]]]:
     """백테스트 최소 조건이 비어 있으면, 가장 먼저 비어 있는 조건 하나만 채우도록 되묻는다.
 
     한꺼번에 다 나열하지 않고 하나씩 순서대로 묻는다 — 답할 때마다 재파싱되어 다음 호출에서
     자연히 다음 조건을 묻게 된다. (None, None)이면 다섯 조건이 모두 충족돼 실행 가능하다는
     뜻이다. clarification이 뜨는 동안 프론트는 전략 요약을 만들지 않고 실행 버튼도 숨긴다."""
-    missing = _missing_backtest_conditions(parsed, user_prompt)
+    missing = _missing_backtest_conditions(parsed, user_prompt, declined_fields)
     if not missing:
         return (None, None)
     question, chips = missing[0]

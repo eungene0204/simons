@@ -54,7 +54,8 @@ def _complete() -> dict:
 
 
 def _case(name: str, *, patch: Optional[dict] = None,
-          explicit: Optional[list] = None, declined: bool = False) -> dict:
+          explicit: Optional[list] = None, declined: bool = False,
+          declined_fields: Optional[list] = None) -> dict:
     parsed = _complete()
     parsed.update(patch or {})
     return {
@@ -62,6 +63,9 @@ def _case(name: str, *, patch: Optional[dict] = None,
         "parsed": parsed,
         "explicitFields": ALL_EXPLICIT if explicit is None else explicit,
         "allowNoRebalancing": declined,
+        # 사용자가 '안 함'으로 거부한 슬롯(손절·익절) — 값이 없는 것이 결정이라는 사실은
+        # parsed로 표현되지 않으므로 판정 입력으로 함께 넘긴다.
+        "declinedFields": declined_fields or [],
     }
 
 
@@ -95,6 +99,13 @@ def build_cases() -> list[dict]:
               explicit=[f for f in ALL_EXPLICIT if f != "rebalancing"], declined=True),
         _case("손절 없음", patch={"stop_loss_pct": None}),
         _case("익절 없음", patch={"take_profit_pct": None}),
+        # '안 함'(2026-08-10) — 값이 없어도 사용자가 정한 것이라 다시 묻지 않는다.
+        _case("손절 안 함(사용자 결정)", patch={"stop_loss_pct": None},
+              declined_fields=["stop_loss"]),
+        _case("손절·익절 둘 다 안 함", patch={"stop_loss_pct": None, "take_profit_pct": None},
+              declined_fields=["stop_loss", "take_profit"]),
+        # 거부 뒤에 값이 들어오면 값이 이긴다(백엔드·프론트 같은 순서).
+        _case("익절 안 함이지만 값이 있음", declined_fields=["take_profit"]),
         _case("트레일링만 있음", patch={"stop_loss_pct": None, "trailing_stop_pct": 10.0}),
         _case("기간 미언급", explicit=[f for f in ALL_EXPLICIT if f != "backtest_period"]),
         _case("초기 자본 미언급", explicit=[f for f in ALL_EXPLICIT if f != "initial_capital"]),
@@ -142,6 +153,7 @@ def judge(case: dict) -> tuple[dict, Optional[str], list[str]]:
         explicit_fields=case["explicitFields"],
         require_explicit=True,
         rebalancing_declined=case["allowNoRebalancing"],
+        declined_fields=case["declinedFields"],
     )
     status = strategy_slots.next_missing(parsed, **kwargs)
     # 슬롯별 정답도 함께 내보낸다 — '첫 빈 슬롯' 하나만으로는 슬롯별로 표시하는 소비자

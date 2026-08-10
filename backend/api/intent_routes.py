@@ -131,14 +131,20 @@ def _run_builder_step(state, input_text, risk_extractor, sector_resolver,
 @router.post("/strategy/builder/step", response_model=strategy_builder.StepResult)
 async def strategy_builder_step(req: BuilderStepRequest) -> strategy_builder.StepResult:
     state = req.state
+    seed_recognized = False
     if strategy_builder.is_empty(state):
         if req.seed:
             state = strategy_builder.seed_state(req.seed)
         state = strategy_builder.apply_parsed_seed(state, req.seed_parsed)
+        # 시드 이해 판정은 step 실행 전(시드 적용 직후) 상태로 한다 — 프론트가 열린 추천
+        # 안내문(STRATEGY_PICK) 표시 여부를 정하는 근거(둘 중 하나만, 2026-08-10).
+        seed_recognized = strategy_builder.seed_recognized(state)
     risk_extractor, sector_resolver, freetext_interpreter = _builder_llm_helpers()
-    return await asyncio.to_thread(
+    result = await asyncio.to_thread(
         _run_builder_step, state, req.input, risk_extractor, sector_resolver, freetext_interpreter
     )
+    result.seed_recognized = seed_recognized
+    return result
 
 
 def _builder_llm_helpers(on_search=None, on_kg_lookup=None):
@@ -188,10 +194,13 @@ async def strategy_builder_step_stream(req: BuilderStepRequest):
     from fastapi.responses import StreamingResponse
 
     state = req.state
+    seed_recognized = False
     if strategy_builder.is_empty(state):
         if req.seed:
             state = strategy_builder.seed_state(req.seed)
         state = strategy_builder.apply_parsed_seed(state, req.seed_parsed)
+        # JSON 라우트와 같은 계약 — 시드 적용 직후 상태로 이해 여부를 판정한다.
+        seed_recognized = strategy_builder.seed_recognized(state)
 
     stage_holder: dict = {"stage": None}
     result_holder: dict = {}
@@ -203,9 +212,11 @@ async def strategy_builder_step_stream(req: BuilderStepRequest):
 
     def run_step():
         try:
-            result_holder["data"] = _run_builder_step(
+            step_result = _run_builder_step(
                 state, req.input, risk_extractor, sector_resolver, freetext_interpreter
-            ).model_dump()
+            )
+            step_result.seed_recognized = seed_recognized
+            result_holder["data"] = step_result.model_dump()
         except Exception as exc:  # noqa: BLE001 — SSE로 에러 전달(스트림 중단 방지)
             error_holder["detail"] = str(exc)
 

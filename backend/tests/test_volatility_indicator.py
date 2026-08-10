@@ -229,9 +229,35 @@ def test_volatility_ranking_asks_lookback_when_unspecified():
     _missing2, questions2 = validate_completeness(intent)
     assert not [q for q in questions2 if q.field == "strategy.ranking[0].lookback_days"]
 
-    # 모멘텀('return') 랭킹은 기존 계약(60일 물질화) 그대로 — 묻지 않는다.
-    _missing3, questions3 = validate_completeness(_ranking_intent("return"))
-    assert not [q for q in questions3 if "lookback" in q.field]
+    # 모멘텀('ranking.return')도 같은 계약이다(2026-08-10 사용자 지시 "60일 강제 금지").
+    _missing3, questions3 = validate_completeness(_ranking_intent("ranking.return"))
+    ret_qs = [q for q in questions3 if q.field == "strategy.ranking[0].lookback_days"]
+    assert len(ret_qs) == 1
+    assert "수익률 산정 기간" in ret_qs[0].question
+    # 기간을 말했으면 묻지 않는다.
+    _missing4, questions4 = validate_completeness(
+        _ranking_intent("ranking.return", lookback_days=120))
+    assert not [q for q in questions4 if "lookback" in q.field]
+    # 재무 팩터 랭킹(산정 기간 개념 없음)은 대상이 아니다.
+    _missing5, questions5 = validate_completeness(
+        _ranking_intent("fundamental.operating_margin", direction="top"))
+    assert not [q for q in questions5 if "lookback" in q.field]
+
+
+def test_momentum_lookback_chip_echo_binds_deterministically():
+    """수익률 산정 기간 칩('수익률 산정 기간 20일')도 변동성 칩과 같은 정본 표기 에코로
+    결정적 결속된다(2026-08-10 모멘텀 되묻기 합류)."""
+    from engine.nl_parser import ParsedStrategy, _apply_prompt_overrides
+
+    base = ParsedStrategy(
+        description="상대 모멘텀", universe=["KOSPI"], ranking_metric="return",
+    )
+    after = _apply_prompt_overrides(
+        base, "수익률 산정 기간 20일",
+        skip_signal_validation=True, preserve_universe=True,
+    )
+    assert after.ranking_lookback_days == 20
+    assert after.ranking_metric == "return"
 
 
 def test_volatility_lookback_chip_echo_binds_deterministically():

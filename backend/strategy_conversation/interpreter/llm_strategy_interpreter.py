@@ -26,6 +26,7 @@ from strategy_conversation.interpreter.models import StrategyIntent
 from strategy_conversation.interpreter.output_repair import (
     build_repair_prompt,
     extract_json_object,
+    salvage_clarification_questions,
 )
 from strategy_conversation.interpreter.prompts import (
     PROMPT_VERSION,
@@ -349,6 +350,24 @@ class StrategyInterpreter:
         while True:
             try:
                 intent = StrategyIntent.model_validate_json(extract_json_object(current_raw))
+                # 수리 재요청이 원출력의 자기 의심 질문을 지우면 되살린다(결정적 병합,
+                # 2026-08-10 "리스크 관리"→익절 8% 사고 — salvage_* docstring 참조).
+                # 질문이 사라지면 자기 의심 패치 게이트(primary._self_doubt_patch_fields)가
+                # 볼 신호가 없어져 지어낸 패치가 그대로 확정된다.
+                if attempts and not intent.clarification_questions:
+                    salvaged = salvage_clarification_questions(raw)
+                    if salvaged:
+                        try:
+                            intent = StrategyIntent.model_validate(
+                                {**intent.model_dump(),
+                                 "clarification_questions": salvaged}
+                            )
+                            _log_llm("△ 질문 복원", (
+                                f"수리본이 지운 clarification_questions {len(salvaged)}개를 "
+                                "원출력에서 되살림"
+                            ))
+                        except ValidationError:
+                            pass  # 원출력의 질문 조각 자체가 스키마 불만족 — 복원 포기
                 # 문맥 보정(결정론): 기존 초안이 없으면 MODIFY/CLARIFY는 성립 불가 —
                 # 4B가 단문 전략 서술을 MODIFY_STRATEGY로 오분류하는 드리프트 실측(2026-07-16).
                 if draft is None and intent.intent in ("MODIFY_STRATEGY", "CLARIFY_STRATEGY") \

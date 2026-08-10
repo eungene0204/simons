@@ -1272,7 +1272,8 @@ describe("StrategyLabPage scroll behavior", () => {
       target: { value: "어떤 전략이 좋아?" },
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
-    expect(await screen.findByText("어떤 시장을 대상으로 할까요?")).toBeInTheDocument();
+    // 열린 추천(STRATEGY_PICK) 안내문이 첫 질문과 한 버블로 합쳐진다(2026-08-10) — 부분 일치.
+    expect(await screen.findByText(/어떤 시장을 대상으로 할까요\?/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "대화 종료" }));
 
@@ -1286,7 +1287,7 @@ describe("StrategyLabPage scroll behavior", () => {
         "삼성전자 (005930) 단일 종목 전략이니 어떤 조건에서 사고팔지를 정하면 돼요. 어떤 진입 방식을 사용할까요?",
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByText("어떤 시장을 대상으로 할까요?")).not.toBeInTheDocument();
+    expect(screen.queryByText(/어떤 시장을 대상으로 할까요\?/)).not.toBeInTheDocument();
     expect(classifyCallCount).toBe(2);
     expect(builderCallCount).toBe(3);
   });
@@ -1335,7 +1336,8 @@ describe("StrategyLabPage scroll behavior", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
-    expect(await screen.findByText("어떤 시장을 대상으로 할까요?")).toBeInTheDocument();
+    // 열린 추천(STRATEGY_PICK) 안내문이 첫 질문과 한 버블로 합쳐진다(2026-08-10) — 부분 일치.
+    expect(await screen.findByText(/어떤 시장을 대상으로 할까요\?/)).toBeInTheDocument();
     expect(
       within(screen.getByTestId("strategy-progress-panel")).getByRole("listitem", {
         name: "유니버스: 진행 전",
@@ -1359,7 +1361,7 @@ describe("StrategyLabPage scroll behavior", () => {
 
     await waitFor(() => {
       expect(builderRequests.at(-1)).toEqual({ state: {}, input: "" });
-      expect(screen.getAllByText("어떤 시장을 대상으로 할까요?")).toHaveLength(2);
+      expect(screen.getAllByText(/어떤 시장을 대상으로 할까요\?/)).toHaveLength(2);
       expect(
         within(screen.getByTestId("strategy-progress-panel")).getByRole("listitem", {
           name: "유니버스: 진행 전",

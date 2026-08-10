@@ -2583,6 +2583,10 @@ class NLParseRequest(BaseModel):
     # 그대로 에코한다(pending_ask와 같은 무상태 컨텍스트 에코 계약). ParsedStrategy 왕복은
     # 기본값을 물질화해 provenance를 지우므로, 누적은 이 에코로만 가능하다.
     previous_explicit_fields: Optional[List[str]] = None
+    # 이전 턴까지 사용자가 '안 함'으로 **거부한** 슬롯(손절·익절·리밸런싱) — explicit_fields와
+    # 같은 무상태 에코 계약. 거부는 값이 없는 상태를 확정하는 것이라 ParsedStrategy(null)만
+    # 봐서는 "아직 안 물었다"와 구분되지 않는다(engine.strategy_slots._decided ②).
+    previous_declined_fields: Optional[List[str]] = None
     # 값 변경 추적 메타데이터(비권위) — explicit_fields와 같은 무상태 에코 계약.
     # {필드: {source, updated_at, confidence}}. 판정에는 쓰지 않는다.
     previous_field_metadata: Optional[dict] = None
@@ -2612,6 +2616,8 @@ class NLParseResponse(BaseModel):
     # 원문을 정규식으로 재분석해 되묻기 여부를 정하던 계약 위반(hasExplicit*)의 대체
     # 채널이며, risk_overrides와 동일한 "단일 진실 소스" 계약이다.
     explicit_fields: Optional[List[str]] = None
+    # 사용자가 '안 함'으로 거부한 슬롯 — 프론트가 다음 요청에 그대로 에코한다.
+    declined_fields: Optional[List[str]] = None
     # 값 변경 추적 메타데이터(비권위, {필드: {source, updated_at, confidence}}).
     # 디버깅·추적 전용 — 되묻기·진행률·실행 가능 여부 판정은 이 값을 보지 않는다.
     field_metadata: Optional[dict] = None
@@ -3090,6 +3096,13 @@ def _finalize_parse_result(result: dict, request: NLParseRequest) -> dict:
     # 턴까지의 명시 필드를 잃지 않는다(프론트 에코 계약의 무상태 누적).
     if result.get("explicit_fields") is None:
         result["explicit_fields"] = list(request.previous_explicit_fields or [])
+    # 거부 목록도 같은 계약으로 이월한다 — 거부를 만들지 않은 턴(자유 서술 파스 등)이
+    # 목록을 비우면 이미 '안 함'으로 정한 슬롯을 다시 묻는다.
+    if result.get("declined_fields") is None:
+        from strategy_conversation.response.provenance import merge_declined_fields
+
+        result["declined_fields"] = merge_declined_fields(
+            request.previous_declined_fields, None)
     _drop_rejected_provenance(result)
     _ensure_field_states(result)
     _ensure_field_metadata(result, request)
@@ -3392,7 +3405,8 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         from engine.nl_parser import next_incomplete_backtest_slots
         from strategy_conversation.primary import _pending_ask_payload
 
-        gate_slots = next_incomplete_backtest_slots(parsed, request.prompt)
+        gate_slots = next_incomplete_backtest_slots(
+            parsed, request.prompt, request.previous_declined_fields)
         if gate_slots:
             slot = gate_slots[0]
             clarification_question = slot.question
@@ -3728,6 +3742,7 @@ def _run_nl_parse_traced(request: NLParseRequest, on_stage=None,
             _chip_result = run_chip_answer(
                 request.prompt, request.previous_parsed, request.pending_ask,
                 previous_explicit_fields=request.previous_explicit_fields,
+                previous_declined_fields=request.previous_declined_fields,
             )
             # 결속 소비 관찰 — 발행된 pending_ask가 다음 턴에 실제로 답변 귀속에 쓰였나.
             # 발행(primary.ask_binding_gate)과 소비는 다른 요청이라 따로 봐야 한다:
@@ -3795,6 +3810,7 @@ def _run_nl_parse_traced(request: NLParseRequest, on_stage=None,
                     previous_explicit_fields=request.previous_explicit_fields,
                     pending_ask=request.pending_ask,
                     pending_question=request.pending_question,
+                    previous_declined_fields=request.previous_declined_fields,
                 )
                 if _primary_mod is not None:
                     primary_holder.update(_primary_mod)

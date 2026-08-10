@@ -138,6 +138,21 @@ CONFIRMABLE_FIELDS: tuple[str, ...] = (
     MAX_POSITIONS, REBALANCING, BACKTEST_PERIOD, INITIAL_CAPITAL,
 )
 
+# 사용자가 '안 함'으로 **거부**할 수 있는 필드(_decided ②). 손절·익절은 스키마에서
+# null이라 "아직 안 물었다"와 "안 하기로 했다"가 구분되지 않는다 — 그 구분을 값이 아니라
+# 거부 목록(declined_fields)이 나른다(리밸런싱의 rebalancing_declined와 같은 축).
+# 값으로 표현하지 않는 이유: 0은 enforce_strategy_minimums가 "0%보다 커야 한다"로 이미
+# 거부하는 값이라, 센티널로 쓰면 그 가드를 무력화해야 한다(2026-08-10).
+DECLINABLE_FIELDS: frozenset[str] = frozenset({REBALANCING, STOP_LOSS, TAKE_PROFIT})
+
+# 거부 칩(정본 표기) → 필드. 칩=값 결속 계약에서 이 칩들은 **값을 바꾸지 않으므로**
+# _apply_prompt_overrides로는 결속되지 않는다(무변경 = 노출 제외). 확정 칩(chip_confirms)과
+# 같은 이유로 별도 채널을 둔다 — 클릭은 값이 아니라 거부 상태를 남긴다.
+DECLINE_CHIP_FIELDS: dict[str, str] = {
+    "손절 안 함": STOP_LOSS,
+    "익절 안 함": TAKE_PROFIT,
+}
+
 
 def _field_for_topic(topic: Optional[str], candidates: Sequence[str]) -> Optional[str]:
     """topic 표기를 정본 슬롯 라벨에 맞춘다(후보 중 첫 일치).
@@ -250,13 +265,15 @@ _QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
         "포트폴리오 교체 주기(리밸런싱)는 얼마로 할까요?\n\n예: 매월, 분기마다",
         ("매월 리밸런싱", "분기마다 리밸런싱", "리밸런싱 안 함"),
     ),
+    # 손절·익절은 쓰지 않는 것도 정상적인 전략 설계다 — '안 함'을 고를 수 없으면
+    # 값을 넣어야만 실행 게이트를 통과할 수 있다(2026-08-10 사용자 지시).
     STOP_LOSS: (
         "손절 — 손실을 제한할 비율을 정해주세요 (예: 손절 -10%, 손절 -5%)",
-        ("손절 -10%", "손절 -5%"),
+        ("손절 -10%", "손절 -5%", "손절 안 함"),
     ),
     TAKE_PROFIT: (
         "익절 — 목표 수익 비율을 정해주세요 (예: 익절 20%, 익절 10%)",
-        ("익절 20%", "익절 10%"),
+        ("익절 20%", "익절 10%", "익절 안 함"),
     ),
     BACKTEST_PERIOD: (
         "어느 기간의 과거 데이터로 백테스트할까요?",
@@ -356,7 +373,7 @@ class _Decided:
     not_applicable: bool = False
 
 
-def _decided(parsed: Any, field: str, rebalancing_declined: bool) -> Optional[_Decided]:
+def _decided(parsed: Any, field: str, declined: frozenset[str]) -> Optional[_Decided]:
     """질문이 이미 끝난 필드 — 값 유무·provenance와 무관하게 더 묻지 않는다.
 
     None이면 '아직 결정되지 않음'이고, _Decided면 결정된 이유다. 세 경우가 있고
@@ -365,10 +382,10 @@ def _decided(parsed: Any, field: str, rebalancing_declined: bool) -> Optional[_D
     ① 구성상 무의미한 질문(단독 종목의 리밸런싱) → NOT_APPLICABLE(파생 축).
        값이 없는 것이 정상이며, 진행률의 분모에서도 빠져야 한다. **값 축에는 아무
        주장도 하지 않는다** — 물을 대상이 아닌 것과 값이 확정된 것은 다르다.
-    ② 사용자가 명시적으로 거부한 설정(리밸런싱 안 함) → CONFIRMED.
+    ② 사용자가 명시적으로 거부한 설정(리밸런싱 안 함·손절 안 함·익절 안 함) → CONFIRMED.
        사용자가 '안 함'을 결정한 것이므로 확정값이다. 스펙에서 null이라 미언급과
-       구분되지 않으므로 호출자가 플래그로 전달한다 — 이 판정을 provenance 쪽에 두면
-       require_explicit=False인 레인에서 무시돼 같은 질문이 무한 반복된다.
+       구분되지 않으므로 호출자가 `declined_fields`로 전달한다 — 이 판정을 provenance 쪽에
+       두면 require_explicit=False인 레인에서 무시돼 같은 질문이 무한 반복된다.
     ③ 다른 조건이 시스템 차원에서 확정한 값(신규 상장 코호트의 백테스트 창) →
        CONFIRMED. 사용자가 말하지는 않았지만 다른 답이 성립하지 않아 협상 대상이
        아니다(스펙 § 5의 7종에는 '시스템 확정'이 없어 CONFIRMED로 둔다 — 추천값처럼
@@ -384,9 +401,15 @@ def _decided(parsed: Any, field: str, rebalancing_declined: bool) -> Optional[_D
         # 묻는다 — '지정 종목 존재=단독'으로 본 2026-07-28 사고.
         if len(symbols) == 1:
             return _Decided(not_applicable=True)
-        if rebalancing_declined:
+        if REBALANCING in declined:
             return _Decided(value=ValueStatus.CONFIRMED)
         return None
+    if field in (STOP_LOSS, TAKE_PROFIT) and field in declined:
+        # 값이 있는데 거부가 함께 오면 값이 이긴다 — 사용자가 값을 준 뒤 마음을 바꾼
+        # 경우는 거부가 먼저 지워져야 한다(호출자가 목록에서 뺀다). 여기서 값을
+        # 무시하면 화면에 보이는 값과 판정이 어긋난다.
+        if not _has_value(parsed, field):
+            return _Decided(value=ValueStatus.CONFIRMED)
     if field == BACKTEST_PERIOD:
         # 신규 상장 코호트(FR-STR-073)는 창 시작이 상장일 하한으로 확정된다 — 그 이전엔
         # 종목이 존재하지 않아 다른 답이 성립하지 않는다. "최근 5년 데이터"를 고를 수
@@ -432,6 +455,7 @@ def evaluate(
     explicit_fields: Optional[Iterable[str]] = None,
     require_explicit: bool = False,
     rebalancing_declined: bool = False,
+    declined_fields: Optional[Iterable[str]] = None,
     fields: Optional[Iterable[str]] = None,
     status_overrides: Optional[Dict[str, DerivedStatus]] = None,
 ) -> List[SlotStatus]:
@@ -441,10 +465,17 @@ def evaluate(
     미충족으로 본다 — 기본값을 질문 없이 확정하지 않기 위함(FR-STR-019k).
     fields로 판정 범위를 좁힐 수 있다(레거시 게이트의 6조건 등).
 
+    declined_fields는 사용자가 '안 함'으로 거부한 필드(DECLINABLE_FIELDS) — _decided ②.
+    `rebalancing_declined`는 그 목록의 리밸런싱 전용 별칭이다(기존 호출자 호환).
+
     status_overrides는 이 모듈이 볼 수 없는 상위 판정(검증 리포트의 INVALID·CONFLICTED)을
     **파생 축에만** 덮어쓴다 — `filled`도 값 축도 바꾸지 않는다. 지표 미지원·조건 모순은
     ParsedStrategy가 아니라 StrategySpec 검증 단계에서만 알 수 있기 때문이다.
     """
+    declined = {f for f in (declined_fields or ()) if f in DECLINABLE_FIELDS}
+    if rebalancing_declined:
+        declined.add(REBALANCING)
+    declined_frozen = frozenset(declined)
     explicit = list(explicit_fields or [])
     scope = tuple(fields) if fields is not None else FIELD_ORDER
     overrides = status_overrides or {}
@@ -453,7 +484,7 @@ def evaluate(
         if field not in scope:
             continue
         # ── filled 판정: 기존 3축 그대로(동작 불변) ─────────────────────────────
-        decided = _decided(parsed, field, rebalancing_declined)
+        decided = _decided(parsed, field, declined_frozen)
         has_value = _has_value(parsed, field)
         explicit_ok = _explicit_ok(parsed, field, explicit)
         if decided is not None:

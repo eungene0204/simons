@@ -1147,8 +1147,12 @@ def test_fundamental_ranking_rejected_for_etf_universe():
 
 
 def test_momentum_ranking_unchanged_by_fundamental_ranking_support():
-    validated, report = run_validation(_ranking_intent("return"))
-    parsed = compile_strategy(validated, report, "수익률 상위")
+    # 산정 기간을 명시한다 — 미지정이면 되묻기(NEEDS_CLARIFICATION)가 정상 동작이라
+    # READY 컴파일이 성립하지 않는다(2026-08-10 사용자 지시 "60일 강제 금지").
+    intent = _ranking_intent("return")
+    intent.strategy.ranking[0].lookback_days = 60
+    validated, report = run_validation(intent)
+    parsed = compile_strategy(validated, report, "60일 수익률 상위")
     assert parsed.ranking_metric == "return"
     assert parsed.ranking_direction is None
 
@@ -1278,6 +1282,25 @@ def test_primary_volatility_lookback_question_gets_priority(monkeypatch):
     assert "변동성 산정 기간 60일" in (result["clarification_suggestions"] or [])
 
 
+def test_primary_momentum_lookback_question_gets_priority_and_chips(monkeypatch):
+    """[회귀] 2026-08-10 사용자 지시 — 모멘텀 산정 기간(60일)을 강제 확정하지 않고
+    변동성과 같은 계약으로 되묻는다(칩 60/20/120일 + 우선순위 마커, 칩=발행 시 값 결속)."""
+    data = _full_intent_dict(
+        entry_conditions=[],
+        ranking=[{"metric": "ranking.return"}],
+        portfolio={"selection_count": 10, "rebalance_frequency": "monthly"},
+    )
+    result = _run_primary_with(monkeypatch, data, "상대 모멘텀 효과를 이용한 투자 전략")
+    assert result is not None
+    assert "수익률 산정 기간" in (result["clarification_question"] or "")
+    assert result["clarification_priority"] == "pending_values"
+    chips = result["clarification_suggestions"] or []
+    assert "수익률 산정 기간 60일" in chips
+    assert "수익률 산정 기간 20일" in chips
+    bindings = (result["pending_ask"] or {}).get("chip_bindings") or {}
+    assert bindings.get("수익률 산정 기간 60일") == {"ranking_lookback_days": 60}
+
+
 def test_primary_does_not_echo_interpreter_unsupported_features(monkeypatch):
     """인터프리터의 unsupported_features를 그대로 인용하던 안내는 폐지됐다(2026-08-01).
 
@@ -1384,7 +1407,30 @@ def test_primary_universe_strategy_keeps_exit_question(monkeypatch):
     result = _run_primary_with(monkeypatch, data, "골든크로스 전략 테스트해줘")
     assert result is not None
     assert result["parsed"].target_symbols == []
-    assert "청산 규칙이 없습니다" in (result["clarification_question"] or "")
+    assert "언제 팔지(청산 규칙)" in (result["clarification_question"] or "")
+
+
+def test_primary_chipless_first_question_still_asks_one_at_a_time(monkeypatch):
+    """[회귀] 2026-08-10 사용자 보고 — '상대 모멘텀 효과' 파스에서 랭킹 지표 선택 질문과
+    청산 질문이 한 버블에 함께 나갔다("한 번에 한 가지만 물어봐야 한다"). 첫 질문이
+    무칩(지표 선택 되묻기 — 칩 결속 계약상 칩 없음)이면 pending_ask가 성립하지 않아
+    전체 질문 병합으로 폴백하던 분기가 원인. 무칩 ask가 큐를 나른다 — 질문은 하나씩."""
+    data = _full_intent_dict(
+        entry_conditions=[{"factor": "class.ranking", "operator": None, "value": None,
+                           "source_text": "상대 모멘텀 효과"}],
+        portfolio={},  # 리밸런싱·종목 수 없음 → 청산 규칙 질문도 함께 생성되는 상황
+        risk_management={},
+    )
+    result = _run_primary_with(monkeypatch, data, "상대 모멘텀 효과를 이용한 투자 전략")
+    assert result is not None
+    question = result["clarification_question"] or ""
+    # 첫 질문(랭킹 지표 선택)만 나간다 — 청산 질문은 큐로 이월
+    assert "'상대 모멘텀 효과'" in question
+    assert "매도할까요" not in question
+    ask = result["pending_ask"]
+    assert ask is not None
+    assert ask["chips"] == []  # 지표 선택 칩은 결속 불가 — 노출 금지 계약 유지
+    assert any("매도할까요" in q["question"] for q in ask["queue"])
 
 
 def test_primary_compiled_entry_drops_entry_question(monkeypatch):
@@ -1760,6 +1806,38 @@ def test_patch_provenance_gate_is_reconciliation_not_vocabulary_scan():
         "1개월 보유로 바꿔줘") is True
 
 
+def test_patch_provenance_rejects_numeric_scalar_backed_by_numberless_quote():
+    """[회귀 2026-08-10] 익절 질문이 걸린 상태의 "리스크 관리"(값 없는 발화)에 9B가
+    초안의 손절 8을 복사해 take_profit=8.0 패치를 냈고, 발화 전체를 인용(source_text)으로
+    달아 인용 실재 판정(①)을 통과했다 — 숫자 없는 인용은 숫자 값의 근거가 될 수 없다.
+    숫자 스칼라 패치는 인용 또는 입력에 숫자 근거가 있어야 통과한다."""
+    from strategy_conversation.interpreter.models import PatchOp
+
+    # 사고 재현: 입력에도 인용에도 숫자가 없는 숫자 스칼라 패치 → 거부
+    assert _provenance(
+        PatchOp(op="replace", path="/risk_management/take_profit", value=8.0,
+                source_text="리스크 관리"),
+        "리스크 관리") is False
+    # 인용에 숫자가 있으면 종전대로 통과
+    assert _provenance(
+        PatchOp(op="replace", path="/risk_management/take_profit", value=8.0,
+                source_text="익절 8%"),
+        "익절 8%로 해줘") is True
+    # 값이 숫자가 아닌 패치(enum·문자열)는 인용 실재만으로 충분(기존 계약 유지)
+    assert _provenance(
+        PatchOp(op="replace", path="/portfolio/rebalance_frequency", value="monthly",
+                source_text="매월 리밸런싱으로"),
+        "매월 리밸런싱으로 바꿔줘") is True
+    # 조건 객체(dict) 값의 내장 기본 파라미터는 대상이 아니다 — 무수치 인용으로 통과
+    # ('데드크로스 나오면 팔아' 2026-07-31 구제 유지)
+    assert _provenance(
+        PatchOp(op="add", path="/exit_conditions/-",
+                value={"factor": "technical.ma_crossover", "operator": "crosses_below",
+                       "parameters": {"short_period": 1, "long_period": 20},
+                       "source_text": "데드크로스 나오면 팔아"}),
+        "데드크로스 나오면 팔아") is True
+
+
 def test_modify_primary_clarify_returns_question_with_strategy_intact(monkeypatch):
     # 2026-07-17 사고 재현: "pbr이 뭐야?"가 수정 경로로 흘러 인터프리터가 CLARIFY로
     # 정확히 판단했는데, 폴백이 질문을 버리고 기존 수정 LLM이 무변경 전략을 반환해
@@ -1988,6 +2066,23 @@ def test_user_prompt_carries_pending_question_on_modify_turn():
     assert "답을 기다리는 질문" not in build_user_prompt("3억원", pending_question=question)
 
 
+def test_user_prompt_forbids_fabricated_value_for_valueless_answer():
+    """[회귀 2026-08-10] 익절 질문이 걸린 상태에서 "리스크 관리"처럼 값 없는 발화가 오자
+    9B가 초안의 손절 8을 복사해 take_profit=8 패치를 지어냈다. 값 없는 답은 패치 대신
+    CLARIFY_STRATEGY로 질문을 유지하라는 계약이 프롬프트에 있어야 한다."""
+    from strategy_conversation.interpreter.prompts import build_user_prompt
+
+    question = "이제 익절 기준을 몇 %로 정할까요?"
+    prompt = build_user_prompt("리스크 관리", draft={"risk_management": {}},
+                               pending_question=question)
+    assert "값을 지어내 패치하지 마세요" in prompt
+    assert "초안의 다른 필드 값을 복사하지 말고" in prompt
+    assert "CLARIFY_STRATEGY" in prompt
+    # 질문이 걸려 있지 않은 수정 턴에는 이 규칙이 붙지 않는다(답변 귀속 규칙과 한 몸).
+    assert "값을 지어내 패치하지 마세요" not in build_user_prompt(
+        "리스크 관리", draft={"risk_management": {}})
+
+
 def test_modify_primary_forwards_pending_question_to_interpreter(monkeypatch):
     """수정 레인이 질문을 인터프리터까지 전달하는지 — 배선이 끊기면 프롬프트만 고쳐도
     실제 호출에는 질문이 실리지 않는다."""
@@ -2020,11 +2115,13 @@ def test_modify_primary_clarify_without_questions_falls_back(monkeypatch):
 
 def test_modify_primary_invalid_patch_falls_back(monkeypatch):
     # 출처 인용은 실재하지만(게이트 통과) 경로가 스키마 밖인 패치 → PatchError → 폴백.
+    # 값은 문자열이어야 한다 — 숫자 스칼라 값은 숫자 근거 규칙(2026-08-10)이 게이트에서
+    # 먼저 거부해 이 테스트의 관심사(PatchError 폴백)에 도달하지 못한다.
     from strategy_conversation.primary import run_primary_modification
 
     _stub_modify_interpreter(monkeypatch, {
         "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.95,
-        "patches": [{"op": "replace", "path": "/없는경로/x", "value": 1,
+        "patches": [{"op": "replace", "path": "/없는경로/x", "value": "x",
                      "source_text": "수정해줘"}],
     })
     assert run_primary_modification("수정해줘", _rich_parsed().model_dump()) is None
@@ -2090,6 +2187,71 @@ def test_bracket_repair_is_idempotent_and_does_not_overreach():
         extract_json_object('{"a": [1,2')          # 절단
     with pytest.raises(ValueError):
         extract_json_object('"a": 1}')             # 여는 괄호 없음
+
+
+# 2026-08-10 사고의 실제 첫 출력(끝 `}` 절단) — 익절 질문에 값 없는 답("리스크 관리")이
+# 오자 9B가 초안의 손절 8을 복사한 take_profit 패치에 자기 의심 질문을 병행했다.
+_TRUNCATED_SELF_DOUBT_OUTPUT = (
+    '{"intent": "MODIFY_STRATEGY", "strategy": null, "patches": [{"op": "replace", '
+    '"path": "/risk_management/take_profit", "value": 8.0, "source_text": "리스크 관리"}], '
+    '"unsupported_features": [], "clarification_questions": [{"field": '
+    '"risk_management.take_profit", "question": "리스크 관리가 익절 기준을 의미하는 '
+    '것인가요?", "recommended_value": 8.0}]'
+)
+
+
+def test_salvage_clarification_questions_from_truncated_output():
+    """깨진 원출력이라도 완결된 clarification_questions 배열은 형식 추출로 건진다."""
+    from strategy_conversation.interpreter.output_repair import (
+        salvage_clarification_questions,
+    )
+
+    salvaged = salvage_clarification_questions(_TRUNCATED_SELF_DOUBT_OUTPUT)
+    assert len(salvaged) == 1
+    assert salvaged[0]["field"] == "risk_management.take_profit"
+    # 배열 자체가 잘렸거나 키가 없으면 빈 리스트(복원 포기 — 지어내지 않는다).
+    assert salvage_clarification_questions('{"clarification_questions": [{"f') == []
+    assert salvage_clarification_questions('{"patches": []}') == []
+
+
+def test_repair_prompt_instructs_content_preservation():
+    """수리 재요청은 형식만 고치고 내용(패치·질문)을 지우면 안 된다는 계약이 프롬프트에
+    있어야 한다(2026-08-10: 수리본이 자기 의심 질문을 지워 환각 패치가 확정된 사고)."""
+    from strategy_conversation.interpreter.output_repair import build_repair_prompt
+
+    prompt = build_repair_prompt("리스크 관리", _TRUNCATED_SELF_DOUBT_OUTPUT, "err")
+    assert "clarification_questions" in prompt
+    assert "삭제하거나 바꾸지 마세요" in prompt
+
+
+def test_repair_turn_restores_dropped_clarification_questions():
+    """[회귀 2026-08-10] 첫 출력이 절단돼 수리가 돌았고, 수리본이 패치만 남기고 자기 의심
+    질문을 지웠다 — 질문이 사라지면 자기 의심 패치 게이트가 침묵해 지어낸 값(익절 8%)이
+    확정된다. 수리 성공 후 원출력의 질문을 결정적으로 되살려야 한다."""
+    from strategy_conversation.interpreter.llm_strategy_interpreter import (
+        StrategyInterpreter,
+    )
+
+    repaired_without_questions = (
+        '{"intent": "MODIFY_STRATEGY", "strategy": null, "patches": [{"op": "replace", '
+        '"path": "/risk_management/take_profit", "value": 8.0, "source_text": "리스크 관리"}], '
+        '"unsupported_features": [], "clarification_questions": []}'
+    )
+    outputs = [_TRUNCATED_SELF_DOUBT_OUTPUT, repaired_without_questions]
+
+    def fake_chat(system_prompt, user_message):
+        return outputs.pop(0)
+
+    interpreter = StrategyInterpreter(chat_fn=fake_chat, model="stub-model")
+    result = interpreter.interpret(
+        "리스크 관리", draft={"risk_management": {"stop_loss": 8.0}},
+        pending_question="이제 익절 기준을 몇 %로 정할까요?",
+    )
+    assert result.repair_attempts == 1
+    assert len(result.intent.patches) == 1
+    questions = result.intent.clarification_questions
+    assert len(questions) == 1
+    assert questions[0].field == "risk_management.take_profit"
 
 
 # ─── JSON Patch / Draft ──────────────────────────────────────────────────────
