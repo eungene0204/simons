@@ -185,6 +185,35 @@ def test_compile_volatility_threshold_condition():
     ]
 
 
+def test_volatility_panel_excludes_backfilled_new_listings():
+    """[회귀] 2022-07-01 실측(v13.2) — 상장 21일째 종목이 '120거래일 변동성 하위 7%'로
+    매수됐다. 원인: 엔진 price_df의 bfill이 상장 전 구간을 첫 가격으로 평평하게 채워
+    수익률 0 → 변동성이 0으로 위장. 패널 계산은 bfill 전 원시 가격을 받아 관측치
+    lookback개 미만이면 NaN(후보 배제)이어야 한다."""
+    import pandas as pd
+
+    from engine.indicators import annualized_volatility_panel
+
+    n, lookback = 200, 120
+    idx = pd.RangeIndex(n)
+    rng = np.random.default_rng(1)
+    old = pd.Series(10000 * np.cumprod(1 + rng.normal(0, 0.01, n)), index=idx)
+    # 신규 상장: 마지막 21일만 데이터 존재(그 전은 NaN — 엔진 raw_price_df 형태)
+    newly = pd.Series(np.nan, index=idx)
+    newly.iloc[-21:] = 5000 * np.cumprod(1 + rng.normal(0, 0.001, 21))
+    raw = pd.DataFrame({"OLD": old, "NEW": newly})
+
+    vol = annualized_volatility_panel(raw, lookback)
+    assert np.isfinite(vol["OLD"].iloc[-1])
+    # 관측치 21개뿐인 신규 상장 종목은 120일 변동성이 정의되지 않는다.
+    assert np.isnan(vol["NEW"].iloc[-1])
+
+    # 오염 경로 재현: bfill된 패널을 넘기면 신규 상장이 '초저변동'으로 위장된다 —
+    # 엔진이 raw를 넘겨야 하는 이유(이 단언이 깨지면 bfill 위장 자체가 사라진 것).
+    contaminated = annualized_volatility_panel(raw.ffill().bfill(), lookback)
+    assert contaminated["NEW"].iloc[-1] < vol["OLD"].iloc[-1]
+
+
 def test_volatility_ranking_asks_lookback_when_unspecified():
     """산정 기간을 말하지 않으면 묻는다(2026-08-10 사용자 요청) — 기본 60일을 조용히
     확정하지 않는다. 기간을 말했으면 묻지 않는다."""

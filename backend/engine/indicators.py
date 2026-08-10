@@ -16,6 +16,21 @@ from engine.indicator_columns import (
 # Fix 6: 멀티스레드 안전한 표준 logging 모듈로 교체
 _logger = logging.getLogger(__name__)
 
+def annualized_volatility_panel(raw_price_df, lookback: int):
+    """종목별 연환산 변동성 패널(%) — 저변동성 랭킹용 횡단면 계산.
+
+    입력은 **bfill 전** 원시 종가 패널이어야 한다. 상장 전 구간을 bfill로 채운 패널을
+    넘기면 평평한 가짜 가격의 수익률 0이 변동성을 0으로 위장해, 신규 상장 종목이
+    저변동성 최상위로 선정된다(2022-07-01 백테스트 실측: 상장 21일째 마스턴프리미어리츠가
+    '120거래일 변동성 하위 7%'로 매수 — 실제로는 120일 변동성이 정의될 수 없다).
+    ffill(거래정지 구간 전진 충전)만 허용하며, 수익률 관측치가 lookback개 미만인 구간은
+    NaN이다(pandas rolling 기본 min_periods=window) — 후보에서 자연 배제된다.
+    연환산 계수는 결과 통계와 동일한 KRX 실측 연 거래일(√246, v12.0)이다.
+    """
+    ret = raw_price_df.ffill().pct_change()
+    return ret.rolling(lookback).std() * (KRX_TRADING_DAYS_PER_YEAR ** 0.5) * 100.0
+
+
 class IndicatorEngine:
     @staticmethod
     def calculate(df_pl: pl.DataFrame, conditions: List[Dict[str, Any]]) -> pl.DataFrame:

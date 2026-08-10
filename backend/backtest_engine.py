@@ -946,10 +946,12 @@ class BacktestEngine:
                 # 방향 미지정 기본은 bottom(저변동성 선호)이다 — 무언의 top은 '가장 출렁이는
                 # 종목 선정'으로 전략이 뒤집힌다(컴파일러도 온톨로지 lower_better로 bottom을 채움).
                 try:
-                    from engine.result_handler import KRX_TRADING_DAYS_PER_YEAR
+                    from engine.indicators import annualized_volatility_panel
                     lookback = int(risk_params.get('ranking_lookback_days') or 60)
-                    vol_df = (price_df.pct_change().rolling(lookback).std()
-                              * np.sqrt(KRX_TRADING_DAYS_PER_YEAR) * 100.0)
+                    # price_df(ffill+bfill)가 아니라 raw_price_df를 쓴다 — 상장 전 bfill
+                    # 구간의 가짜 0% 수익률이 변동성을 0으로 위장해 신규 상장 종목이
+                    # 최상위로 선정되는 오염 방지(v13.2, 함수 docstring 참조).
+                    vol_df = annualized_volatility_panel(raw_price_df, lookback)
                     pct = vol_df.rank(axis=1, pct=True)
                     _direction = str(risk_params.get('ranking_direction') or 'bottom')
                     rank_df = (1.0 - pct) if _direction == 'bottom' else pct
