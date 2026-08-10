@@ -359,7 +359,7 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
         if sig.value is not None:
             params["value"] = sig.value
 
-    elif sig.indicator in ("cci", "adx", "williams_r", "mfi", "roc"):
+    elif sig.indicator in ("cci", "adx", "williams_r", "mfi", "roc", "volatility"):
         if sig.period:
             params["period"] = sig.period
         if sig.operator:
@@ -474,8 +474,8 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "ranking_weight_value": 0.5,
         "ranking_weight_quality": 0.5,
         "ranking_metric": strategy.ranking_metric,
-        # lookback은 모멘텀('return') 전용 — 재무 팩터 랭킹은 연간 결산값 순위라 기간이 없다.
-        "ranking_lookback_days": strategy.ranking_lookback_days or (60 if strategy.ranking_metric == "return" else None),
+        # lookback은 가격 산출 랭킹('return'·'volatility') 전용 — 재무 팩터 랭킹은 연간 결산값 순위라 기간이 없다.
+        "ranking_lookback_days": strategy.ranking_lookback_days or (60 if strategy.ranking_metric in ("return", "volatility") else None),
         "ranking_direction": strategy.ranking_direction,
         # 분위 그룹 비교·비율 선정(FR-BT-060) — 엔진이 그룹 반복 실행/동적 종목 수로 처리.
         "ranking_quantile_groups": strategy.ranking_quantile_groups,

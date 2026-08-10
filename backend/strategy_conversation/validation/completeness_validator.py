@@ -168,6 +168,19 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
     # 것이 되묻기 쪽의 대응이다. FR-STR-068(지정 종목 '최대 보유 N종목' 표시 금지)과
     # 같은 계약이다.
     if strategy.ranking:
+        # ④-0 변동성 랭킹의 산정 기간 — 말하지 않은 값(기본 60거래일)이 조용히 확정되지
+        # 않게 묻는다(2026-08-10 사용자 요청). 진행 골격 순서상 매수 조건(랭킹 파라미터)이
+        # 포트폴리오(종목 수·리밸런싱)보다 앞이므로 이 질문을 먼저 낸다. 모멘텀('return')은
+        # 기존 계약(60일 물질화) 그대로 두고 변동성만 묻는다 — 스코프는 사용자 지시 범위.
+        first_rank = strategy.ranking[0]
+        if first_rank.metric == "ranking.volatility" and first_rank.lookback_days is None:
+            missing.append("strategy.ranking[0].lookback_days")
+            questions.append(ClarificationQuestion(
+                field="strategy.ranking[0].lookback_days",
+                question="변동성 산정 기간을 며칠(거래일)로 할까요?",
+                recommended_value=60,
+                recommendation_reason="일반적으로 60거래일(약 3개월)을 사용합니다",
+            ))
         # 편입 규모가 비율(selection_percent)이나 분위 그룹(quantile_groups)으로 이미
         # 정의된 전략은 종목 수가 성립하지 않는다 — 되묻지 않는다(FR-BT-060).
         has_scale = (

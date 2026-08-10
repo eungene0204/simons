@@ -226,6 +226,11 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     _technical("roc", "ROC(변화율/모멘텀)", "percent", _COMPARISON_OPS,
                {"period": ParamSpec(default=20, minimum=2, maximum=250)},
                value_range=(-100, 1000), recommended=0),
+    _technical("volatility", "변동성(연환산)", "percent", _COMPARISON_OPS,
+               {"period": ParamSpec(default=60, minimum=5, maximum=250)},
+               value_range=(0, 500), recommended=30,
+               notes="일수익률 롤링 표준편차×√246(연환산 %, KRX 실측 계수). '변동성 30% 이하 종목'처럼 임계값 "
+                     "필터일 때만. '변동성 낮은 종목 N개' 순위 선정은 ranking.volatility"),
     _technical("trading_value", "거래대금 신호", "억원", _COMPARISON_OPS, {},
                value_range=(0, 1_000_000),
                notes="당일 거래대금이 임계를 넘는 **매매 시점 트리거**일 때만"
@@ -250,6 +255,13 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
         supported="SUPPORTED", data_source="ohlcv", value_type="percent",
         parameters={"lookback_days": ParamSpec(default=60, minimum=5, maximum=500)},
         engine_binding=("ranking", "return")),
+    IndicatorSpec(
+        id="ranking.volatility", display_name="변동성 랭킹(저변동성)", category="ranking",
+        supported="SUPPORTED", data_source="ohlcv", value_type="percent",
+        parameters={"lookback_days": ParamSpec(default=60, minimum=5, maximum=500)},
+        engine_binding=("ranking", "volatility"),
+        notes="N일 일수익률 표준편차(연환산 %) 순위 선정. '변동성 낮은 종목 N개'는 "
+              "direction bottom(방향 미지정 시 온톨로지 lower_better가 bottom을 채움)"),
 
     # ── 개념은 이해하지만 엔진/데이터 미지원 (조용한 대체 금지 — 명시 제안만) ──
     _unsupported("fcf_yield", "FCF Yield(잉여현금흐름 수익률)", "valuation",
@@ -263,7 +275,6 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                  alternatives=("fundamental.operating_cf_amount", "fundamental.pcr"),
                  notes="영업·투자·재무활동 현금흐름 절대 금액(억원)은 "
                        "operating_cf_amount/investing_cf_amount/financing_cf_amount로 지원됨"),
-    _unsupported("volatility", "변동성 조건", "risk"),
     _unsupported("roic", "ROIC(투하자본이익률)", "profitability",
                  alternatives=("fundamental.roe_or_gpa", "fundamental.roa")),
     _unsupported("beta", "베타(시장 민감도)", "risk"),
@@ -349,7 +360,8 @@ _ALIASES: Dict[str, str] = {
     "fcf": "unsupported.fcf_yield", "fcf_yield": "unsupported.fcf_yield",
     "잉여현금흐름": "unsupported.fcf_yield",
     "현금흐름": "unsupported.cash_flow", "pcf": "unsupported.cash_flow",
-    "변동성": "unsupported.volatility", "volatility": "unsupported.volatility",
+    "변동성": "technical.volatility", "volatility": "technical.volatility",
+    "저변동성": "ranking.volatility", "변동성랭킹": "ranking.volatility",
     "roic": "unsupported.roic", "투하자본이익률": "unsupported.roic",
     "베타": "unsupported.beta", "beta": "unsupported.beta",
     "이자보상배율": "unsupported.interest_coverage",

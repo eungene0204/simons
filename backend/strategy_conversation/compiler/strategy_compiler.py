@@ -262,7 +262,8 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
     ranking_quantile_groups = None
     if strategy.ranking:
         # 검증기(capability_validator)가 metric을 정본 id로 정규화한 뒤다 —
-        # ranking.return(모멘텀) 또는 fundamental.*(재무 팩터 랭킹, 2026-08-03).
+        # ranking.*(가격 산출: return=모멘텀, volatility=저변동성) 또는
+        # fundamental.*(재무 팩터 랭킹, 2026-08-03).
         rank = strategy.ranking[0]
         spec = REGISTRY.get(rank.metric)
         binding = spec.engine_binding if spec else None
@@ -282,8 +283,23 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
                 direction or "미정", ranking_direction,
             )
         else:
-            ranking_metric = "return"
+            # 가격 산출 랭킹 — 엔진 키는 binding[1]('return'/'volatility'). 정규화 전
+            # metric이 올 수 없는 방어로 binding이 없으면 기존처럼 'return'으로 둔다.
+            ranking_metric = binding[1] if binding is not None and binding[0] == "ranking" else "return"
             ranking_lookback = rank.lookback_days
+            # 방향은 재무 팩터 분기와 같은 계약 — 저변동성(lower_better)은 침묵이
+            # '가장 출렁이는 종목 선정'으로 뒤집히지 않게 온톨로지가 bottom을 채운다.
+            # return(higher_better)은 top이라 저장값 None 그대로다(기존 해시 불변).
+            direction = rank.direction or natural_ranking_direction(rank.metric)
+            if direction == "bottom":
+                ranking_direction = "bottom"
+            elif direction == "top" and ranking_metric == "volatility":
+                # 변동성의 **엔진 기본 방향은 bottom**(backtest_engine 변동성 분기) —
+                # 명시적 top을 None으로 접으면 엔진 기본에 삼켜져 고변동성 요청이
+                # 저변동성으로 뒤집힌다. top도 저장한다(재무 분기의 None 규칙과 다른 이유).
+                ranking_direction = "top"
+            else:
+                ranking_direction = None
         # 분위 그룹 비교(FR-BT-060) — 랭킹이 있어야만 성립하므로 여기서만 통과시킨다.
         ranking_quantile_groups = rank.quantile_groups
 

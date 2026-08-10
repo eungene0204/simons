@@ -13,7 +13,8 @@ export type IndicatorType =
   | "adx"
   | "williams_r"
   | "mfi"
-  | "roc";
+  | "roc"
+  | "volatility";
 
 export type FlowType = "investor_net_buy";
 

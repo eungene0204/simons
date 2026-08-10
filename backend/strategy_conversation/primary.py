@@ -146,6 +146,11 @@ _SLOT_CHIP_BUILDERS: Dict[str, Any] = {
         "리밸런싱",
         lambda rec: ["매월 리밸런싱", "분기 리밸런싱", "매년 리밸런싱"],
     ),
+    # 변동성 랭킹 산정 기간(2026-08-10) — 랭킹은 진행 골격의 매수 조건 슬롯이다.
+    "strategy.ranking[0].lookback_days": (
+        "매수 조건",
+        lambda rec: [f"변동성 산정 기간 {n}일" for n in _numeric_options(rec, 60, 120, 200)],
+    ),
     "strategy.portfolio.hold_period_days": (
         "보유 기간",
         lambda rec: [f"{n}일 보유" for n in _numeric_options(rec, 20, 60)],
@@ -1082,7 +1087,15 @@ def run_primary_parse(
     # 높은 종목인지 숫자를 물어봐야지"). 이해한 조건의 값 확인이 첫 후속 질문이어야
     # 빈 전략 오독이 없다. 다른 우선순위(dag_planner·sector_unresolved)가 이미 있으면
     # 그 선행 결정(유니버스 범위)이 그대로 이긴다.
-    if clarification_priority is None and clarification_question and pending_conditions:
+    # 변동성 산정 기간(strategy.ranking[0].lookback_days)도 같은 계약이다(2026-08-10) —
+    # 방금 말한 매수 조건(변동성 랭킹)의 파라미터 확인이라, 마커 없이 내보내면 프론트
+    # explicit 게이트의 시장 질문이 삼켜 영영 노출되지 않는다(실측: 질문이 안 보임).
+    first_question_field = (
+        report.clarification_questions[0].field if report.clarification_questions else None
+    )
+    if clarification_priority is None and clarification_question and (
+        pending_conditions or first_question_field == "strategy.ranking[0].lookback_days"
+    ):
         clarification_priority = "pending_values"
 
     # 인터프리터의 unsupported_features를 그대로 인용하던 안내는 폐지했다(2026-08-01,

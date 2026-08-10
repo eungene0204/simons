@@ -4,6 +4,7 @@ import polars as pl
 from stockstats import StockDataFrame
 from typing import List, Dict, Any
 
+from engine.result_handler import KRX_TRADING_DAYS_PER_YEAR
 from engine.indicator_columns import (
     BOLLINGER_DEFAULT_STD,
     bollinger_columns,
@@ -96,6 +97,18 @@ class IndicatorEngine:
                         # stockstats close_{n}_roc: n봉 전 대비 변화율(%). 모멘텀 지표.
                         period = p.get('period', 12)
                         target_cols.add(f'close_{period}_roc')
+                    elif cid == 'volatility':
+                        # 연환산 변동성(%): 일수익률 롤링 표준편차 × √246 × 100.
+                        # 연환산 계수는 결과 통계와 동일한 KRX 실측 연 거래일(v12.0 정정)을
+                        # 쓴다 — 결과 화면의 '변동성'과 같은 눈금이라 임계값이 비교 가능하다.
+                        # stockstats에 없는 지표라 breakout처럼 직접 계산한다.
+                        period = p.get('period', 60)
+                        ret = sdf['close'].pct_change()
+                        sdf[f'volatility_{period}'] = (
+                            ret.rolling(window=period).std()
+                            * (KRX_TRADING_DAYS_PER_YEAR ** 0.5) * 100.0
+                        )
+                        target_cols.add(f'volatility_{period}')
                     elif cid == 'bollinger_bands':
                         period, std_times = bollinger_params(p)
                         ub_col, lb_col = bollinger_columns(p)

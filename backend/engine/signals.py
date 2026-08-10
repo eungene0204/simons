@@ -307,6 +307,14 @@ class SignalEngine:
             default_op = '>' if sig_type != 'sell' else '<'
             return compare_vec(roc, p.get('operator', default_op), float(p.get('value', 0)))
 
+        elif cid == 'volatility':
+            # 연환산 변동성(%). 저변동성(임계 이하) 매수 / 고변동성(임계 이상) 매도 기본.
+            period = p.get('period', 60)
+            vol = get_col(f'volatility_{period}')
+            sig_type = p.get('signalType', 'buy')
+            default_op = '<=' if sig_type != 'sell' else '>='
+            return compare_vec(vol, p.get('operator', default_op), float(p.get('value', 30)))
+
         elif cid in ['price_level', 'price']:
             c = get_col('close')
             return compare_vec(c, p.get('operator', '>'), float(p.get('value', 0)))
@@ -643,6 +651,13 @@ class SignalEngine:
             default_op = '>' if sig_type != 'sell' else '<'
             return compare(roc_val, p.get('operator', default_op), float(p.get('value', 0)))
 
+        elif cid == 'volatility':
+            period = p.get('period', 60)
+            vol_val = safe_get(f'volatility_{period}', idx)
+            sig_type = p.get('signalType', 'buy')
+            default_op = '<=' if sig_type != 'sell' else '>='
+            return compare(vol_val, p.get('operator', default_op), float(p.get('value', 30)))
+
         elif cid in ['price_level', 'price']:
             c = safe_get('close', idx)
             val, op = p.get('value', 0), p.get('operator', '>')
@@ -787,6 +802,12 @@ class SignalEngine:
             period = p.get('period', 12)
             val = p.get('value', 0)
             return f"ROC({period}) {val} {op_kr} (모멘텀)"
+        elif cid == 'volatility':
+            period = p.get('period', 60)
+            sig_type = p.get('signalType', 'buy')
+            val = p.get('value', 30)
+            vol_op_kr = op_kr or ("이하" if sig_type != 'sell' else "이상")
+            return f"변동성({period}일, 연환산) {val}% {vol_op_kr}"
         elif cid in ['price', 'price_level']:
             val = float(p.get('value') or 0)
             return f"현재가 {val:,.0f}원 {op_kr}"

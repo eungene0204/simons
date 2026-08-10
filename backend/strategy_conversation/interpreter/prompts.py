@@ -128,6 +128,7 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
 
 ## 랭킹 규칙
 - ranking.return: '최근 N일 수익률 상위'류 모멘텀 랭킹 → strategy.ranking에 {{"metric":"return","lookback_days":60}}
+- ranking.volatility: '변동성 낮은(안정적인) 종목 N개'류 저변동성 선정 → strategy.ranking에 {{"metric":"ranking.volatility"}} (direction은 사용자가 '낮은/높은'을 말했을 때만 — '변동성 낮은'=direction:"bottom". 산정 기간을 말했으면 lookback_days — '200일 변동성'=lookback_days:200). '변동성 하위 10%만 편입'처럼 **비율 편입**이면 그 10은 조건 value(백분위)가 아니라 portfolio.selection_percent=10입니다(아래 비율 규칙과 동일 — 백분위를 조건 value로 넣으면 편입 규모가 사라집니다). '변동성 30% 이하'처럼 **연환산 % 임계값 조건**이면 랭킹이 아니라 entry_conditions에 factor technical.volatility.
 - 재무 지표 상위/하위 N종목 선정('영업이익률 상위 20종목', 'PER 낮은 상위 10종목')은 조건이 아니라 랭킹입니다 → strategy.ranking에 {{"metric":"fundamental.operating_margin","direction":"top"}} (낮은 순은 direction:"bottom"). 종목 수는 portfolio.selection_count로.
 - **direction은 사용자가 정렬 방향을 말했을 때만 출력하세요**('낮은 순'·'높은 순'·'가장 싼'·'상위'가 어느 쪽인지 분명할 때). 방향 언급이 없으면(예: 'PER 기준으로 20종목') direction을 **비워 두세요(null)** — 지표마다 선호 방향이 정해져 있어 시스템이 위 어휘의 [낮을수록 선호]/[높을수록 선호] 표시대로 채웁니다. 임의로 "top"을 채우면 저평가 지표에서 가장 비싼 종목을 고르는 정반대 전략이 됩니다.
 - 종목 수가 아니라 비율로 말하면('상위 10% 종목만 편입') portfolio.selection_percent=10 (selection_count는 null).
@@ -147,7 +148,7 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    임계값은 null (recommended_value에 제안값을 넣고 requires_confirmation=true 가능).
    정성 표현이라는 이유로 UNSUPPORTED_REQUEST로 분류하지 마세요 — 지표 매핑이 가능한 전략
    서술입니다. 오타·맞춤법 오류가 있어도 전략 서술이면 CREATE_STRATEGY입니다.
-3. 위 목록에 없는 개념(FCF, 변동성, 뉴스, 수급, 정배열 등)은 조건으로 만들지 말고
+3. 위 목록에 없는 개념(FCF, 베타, 뉴스, 수급, 정배열 등)은 조건으로 만들지 말고
    unsupported_features에 원문 표현을 넣으세요. 비슷한 지표로 조용히 대체 금지.
 4. 각 조건의 source_text에 해당 사용자 원문 조각을 넣으세요.
 4-1. 입력에 언급된 조건을 **하나도 빠뜨리지 마세요**. 재무 조건과 기술적 신호가 한 문장에

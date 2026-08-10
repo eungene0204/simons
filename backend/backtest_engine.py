@@ -349,8 +349,8 @@ class BacktestEngine:
             # 재무 팩터 랭킹(예: 영업이익률 상위 20종목) — 랭킹 지표의 as-of 컬럼을
             # 심볼별로 수집한다(pbr/roe 블렌드와 같은 경로, 지표만 요청값).
             _rank_metric_col = risk_params.get('ranking_metric')
-            if _rank_metric_col == 'return':
-                _rank_metric_col = None  # 모멘텀은 price_df에서 직접 계산 — 컬럼 수집 불필요
+            if _rank_metric_col in ('return', 'volatility'):
+                _rank_metric_col = None  # 모멘텀·변동성은 price_df에서 직접 계산 — 컬럼 수집 불필요
             all_fund_rank_values: dict = {}
             all_resolution_logs: List[Dict[str, str]] = []
             processed_symbols = []
@@ -940,6 +940,67 @@ class BacktestEngine:
                     import logging
                     logging.getLogger(__name__).warning(f"[BacktestEngine] 수익률 랭킹 계산 실패: {e}")
                     rank_df = None
+            elif ranking_metric == 'volatility':
+                # 변동성 랭킹: N일 일수익률 롤링 표준편차(연환산 %) 순위로 종목 선정.
+                # 모멘텀('return')과 같은 계약 — 순위 자체가 진입, 회전은 달력 리밸런싱.
+                # 방향 미지정 기본은 bottom(저변동성 선호)이다 — 무언의 top은 '가장 출렁이는
+                # 종목 선정'으로 전략이 뒤집힌다(컴파일러도 온톨로지 lower_better로 bottom을 채움).
+                try:
+                    from engine.result_handler import KRX_TRADING_DAYS_PER_YEAR
+                    lookback = int(risk_params.get('ranking_lookback_days') or 60)
+                    vol_df = (price_df.pct_change().rolling(lookback).std()
+                              * np.sqrt(KRX_TRADING_DAYS_PER_YEAR) * 100.0)
+                    pct = vol_df.rank(axis=1, pct=True)
+                    _direction = str(risk_params.get('ranking_direction') or 'bottom')
+                    rank_df = (1.0 - pct) if _direction == 'bottom' else pct
+                    # 변동성이 정의되지 않은 초기 lookback 구간(NaN)은 후보에서 제외한다
+                    # (momentum 분기와 같은 이유 — 0 동률로 임의 종목이 선정되는 것 방지).
+                    valid = vol_df.notna()
+                    if exec_type == 'next_open':
+                        rank_df = rank_df.shift(1)
+                        valid = valid.shift(1, fill_value=False)
+                    rank_df = rank_df.fillna(0.0)
+                    _entry_conditions = (req.get('entry') or {}).get('conditions') or []
+                    if not _entry_conditions:
+                        # 랭킹 단독 전략(선정=진입): 대형주 마스크·유동성 게이트 재결합(C4와 동일).
+                        pool = available_df & valid
+                        if large_cap_mask is not None:
+                            pool &= large_cap_mask
+                        if all_liquidity:
+                            liq_df = pd.DataFrame(
+                                all_liquidity, index=common_index, columns=processed_symbols
+                            ).eq(True)
+                            if exec_type == 'next_open':
+                                liq_df = liq_df.shift(1, fill_value=False)
+                            pool &= liq_df
+                        ents_df = pool
+
+                        # 매수 사유: 그날의 변동성 백분위(momentum 분기와 같은 계약).
+                        _rebal_kr = {
+                            'daily': '일간', 'weekly': '주간', 'monthly': '월간',
+                            'bimonthly': '격월', 'quarterly': '분기', 'yearly': '연간',
+                        }.get(str(risk_params.get('rebalancing_period') or ''), '')
+                        _max_pos = risk_params.get('max_positions')
+                        _rebal_note = self._build_rebal_note(
+                            _rebal_kr, _max_pos, _qg_n, _sel_pct,
+                            group_cap=risk_params.get('ranking_group_cap'),
+                        )
+                        _dir_kr = "하위" if _direction == 'bottom' else "상위"
+                        _top_pct_df = (1.0 - rank_df) * 100.0
+                        for _sym in processed_symbols:
+                            _mask = pool[_sym]
+                            if not _mask.any():
+                                continue
+                            _pct_vals = _top_pct_df.loc[_mask, _sym]
+                            _reason_ser = pd.Series(np.nan, index=common_index, dtype=object)
+                            _reason_ser.loc[_mask] = _pct_vals.apply(
+                                lambda p: f"최근 {lookback}거래일 변동성 {_dir_kr} {max(1, round(p))}%{_rebal_note}"
+                            )
+                            all_entry_reasons[_sym] = _reason_ser
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"[BacktestEngine] 변동성 랭킹 계산 실패: {e}")
+                    rank_df = None
             elif ranking_metric and not all_fund_rank_values:
                 # 재무 랭킹을 요청했는데 유니버스 전체에 그 컬럼이 없다 — 조용한 0거래로
                 # 두지 않고 경고로 드러낸다(커버리지 로그 FR-BT-016과 같은 정직성 계약).
@@ -1139,9 +1200,13 @@ class BacktestEngine:
                 for _k in ('stop_loss_pct', 'take_profit_pct', 'trailing_stop_pct',
                            'max_holding_days', 'max_mdd_limit_pct'):
                     _group_rp_base[_k] = None
-                _dir_bottom = str(risk_params.get('ranking_direction') or 'top') == 'bottom'
+                # 변동성 랭킹의 방향 미지정 기본은 bottom(저변동성 선호) — 랭킹 분기와 동일.
+                _dir_default = 'bottom' if ranking_metric == 'volatility' else 'top'
+                _dir_bottom = str(risk_params.get('ranking_direction') or _dir_default) == 'bottom'
                 if ranking_metric == 'return':
                     _metric_kr = f"최근 {int(risk_params.get('ranking_lookback_days') or 60)}거래일 수익률"
+                elif ranking_metric == 'volatility':
+                    _metric_kr = f"최근 {int(risk_params.get('ranking_lookback_days') or 60)}거래일 변동성"
                 else:
                     _metric_kr = FUNDAMENTAL_LABELS.get(ranking_metric, ranking_metric)
                 _order_kr = "낮은" if _dir_bottom else "높은"
