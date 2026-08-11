@@ -155,6 +155,25 @@ python backend/scripts/report_intent_coverage.py --intent UNKNOWN  # 특정 라�
 (관찰이 반환값을 바꾸지 않는다 + span이 꺼내는 필드가 `IntentResult` 스키마와
 어긋나면 먼저 깨진다 — enum `.value` 접근이 500으로 새지 않게 고정).
 
+### 4.2 보관 정책 — 원문 3일, 집계 후 폐기
+
+Trace JSONL에는 사용자 발화 **원문**이 들어 있다. 원문의 용도(커버리지 분석·사고
+조사)는 최근 며칠이면 충분하므로 **딱 3일**(오늘 포함)만 보관한다(사용자 결정
+2026-08-11).
+
+- 동작: `observability/retention.py` — 별도 cron 없이 **Trace가 기록될 때마다 하루
+  한 번** 스윕(`local_trace._emit` 훅). Trace가 꺼진 환경(`AGENT_TRACE_LOCAL=0`)에는
+  정리할 파일도 생기지 않는다.
+- 폐기 전 **원문 없는 일별 집계**(라벨 분포·게이트/사실 조회 건수)만
+  `coverage-summary.jsonl`에 한 줄 남긴다 — 장기 추이는 집계로, 원문은 단기로.
+- 집계 실패는 폐기를 막지 않는다 — 보관 기한이 정책이고 집계는 부가물이다(원문을
+  더 들고 있는 쪽이 위반).
+- `report_intent_coverage.py`는 남아 있는 3일치 원문을 읽으므로 `--days 3`이 사실상
+  전체 범위다.
+
+회귀 테스트: `backend/tests/test_trace_retention.py`(기한 파일만 삭제·집계에 원문
+부재·파손 파일도 폐기·하루 1회 트리거).
+
 ---
 
 ## 5. 스레드 경계 — 가장 중요한 함정
