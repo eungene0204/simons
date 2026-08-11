@@ -185,6 +185,11 @@ def _emit(node: LocalSpan) -> None:
         with _file_lock:
             with open(path, "a", encoding="utf-8") as fh:
                 fh.write(line + "\n")
+        # 보관 정책(원문 3일, 집계 후 폐기) — 기록이 도는 곳에서만 하루 한 번 스윕한다.
+        # cron이 아니라 여기 두는 이유: Trace가 꺼진 환경에는 정리할 파일도 안 생긴다.
+        from observability import retention
+
+        retention.maybe_sweep(directory)
     except Exception:  # noqa: BLE001 — 기록 실패가 실행을 막지 않는다
         logger.debug("로컬 trace 파일 기록 실패", exc_info=True)
     try:
