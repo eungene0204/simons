@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "3.4"
+PROMPT_VERSION = "3.5"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -106,7 +106,9 @@ def build_system_prompt() -> str:
 CREATE_STRATEGY(새 전략 서술) / MODIFY_STRATEGY(기존 전략 수정) / EXPLAIN_INDICATOR(지표 설명 질문) /
 RUN_BACKTEST(실행 요청) / COMPARE_STRATEGIES(비교 요청) / CLARIFY_STRATEGY(이전 질문에 대한 답) /
 CONFIRM_RECOMMENDATION(추천값 수락) / CANCEL_OPERATION(취소/정정) /
-UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_STRATEGY_REQUEST(전략과 무관)
+UNSUPPORTED_REQUEST(종목추천·시장전망 등 **역할 밖 행위** 요청 — 미지원 지표·개념이
+섞인 전략 서술은 여기가 아니라 CREATE_STRATEGY + unsupported_features입니다) /
+NON_STRATEGY_REQUEST(전략과 무관)
 
 ## 출력 형식 (이 구조를 그대로 따르세요)
 {shape}
@@ -161,8 +163,17 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    정해져 있고, 물을 것은 임계값뿐이며 그 질문은 시스템이 생성합니다.
    예: "소형주 투자 전략을 만들어줘" → intent=CREATE_STRATEGY, 위 시가총액 조건 1개,
    universe.markets=[]. 단 '대형주'는 규칙 6의 지수 매핑(["KOSPI200"])을 그대로 따릅니다.
-3. 위 목록에 없는 개념(FCF, 베타, 뉴스, 수급, 정배열 등)은 조건으로 만들지 말고
-   unsupported_features에 원문 표현을 넣으세요. 비슷한 지표로 조용히 대체 금지.
+3. 위 목록에 없는 개념은 조건으로 만들지 말고 unsupported_features에 원문 표현을
+   넣으세요. 비슷한 지원 지표로 **조용히 바꿔치지 마세요**(사용자가 알아챌 수 없는
+   왜곡): ROIC→ROA(금지), 흑자전환·연속 흑자→eps 부호(금지), '시장 대비/보다'→수익률
+   랭킹(금지), 현금흐름 흑자→증가율(금지), 우선주→보통주(금지), 일부·절반 익절→전량
+   take_profit(금지) — 전부 unsupported_features에 원문 조각으로.
+   **자주 놓치는 미지원 개념**(보이면 반드시 unsupported_features에): 최소 보유 기간,
+   분할 매도, 흑자전환·연속 흑자, 장중·분봉 매매, 해외 시장·지수(나스닥 등 — 해외
+   종목명은 규칙 6-0-1대로 symbols에), 우선주, VWAP, 현금 비중, 신저가, 베타, 뉴스·수급.
+   미지원 개념이 있어도 intent는 CREATE_STRATEGY입니다 — 나머지 조건으로 전략을
+   만들고 미지원 표현만 unsupported_features에. UNSUPPORTED_REQUEST로 바꾸지 마세요
+   (전략이 통째로 버려집니다).
 4. 각 조건의 source_text에 해당 사용자 원문 조각을 넣으세요.
 4-1. 입력에 언급된 조건을 **하나도 빠뜨리지 마세요**. 재무 조건과 기술적 신호가 한 문장에
    섞여 있으면 둘 다 출력해야 합니다("부채비율 80% 이하이고 시가총액 5000억 이상인 종목 중
@@ -197,7 +208,10 @@ UNSUPPORTED_REQUEST(종목추천·시장전망 등 제공 불가 요청) / NON_S
    비워 두세요(되묻기). 사용자가 '52주'처럼 기간을 말했으면 반드시 lookback_period에 넣으세요.
 5-2. '거래량이 급증/평소보다 늘어남/평균 대비 증가/터짐'은 거래량 급증 신호
    (technical.volume_spike, 임계값 불필요)입니다 — 억원 임계가 있는 거래대금 조건으로
-   분류하지 마세요. 'N억 이상'처럼 금액 임계가 있을 때만 거래대금 조건이고, 종목을 거르는
+   분류하지 마세요. '평소보다 3배'처럼 **배수 임계**가 붙으면 급증 신호는
+   volume_spike로 넣되 배수는 표현할 수 없으므로 그 배수 표현("평소보다 3배")을
+   unsupported_features에도 넣으세요(조용히 배수를 버리면 조건이 약해진 것을
+   사용자가 모릅니다). 'N억 이상'처럼 금액 임계가 있을 때만 거래대금 조건이고, 종목을 거르는
    기준이면 fundamental.trading_value(기본), 그 시점의 진입·청산 트리거면
    technical.trading_value입니다. 둘 다 entry_conditions/exit_conditions에 넣습니다.
 5-3. '~ 위에 있을 때'·'~ 위에 있는 종목'·'정배열'·'주가가 N일선을 상향/하향 돌파'처럼

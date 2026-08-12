@@ -1301,18 +1301,167 @@ def test_primary_momentum_lookback_question_gets_priority_and_chips(monkeypatch)
     assert bindings.get("수익률 산정 기간 60일") == {"ranking_lookback_days": 60}
 
 
-def test_primary_does_not_echo_interpreter_unsupported_features(monkeypatch):
-    """인터프리터의 unsupported_features를 그대로 인용하던 안내는 폐지됐다(2026-08-01).
+def test_primary_does_not_echo_listed_unsupported_features(monkeypatch):
+    """미지원 개념 목록(34개)에 매칭되는 항목은 LLM 보고 채널이 다시 내지 않는다.
 
-    LLM이 자유 서술로 채우는 채널이라 내부 사정("unsupported_features에 기록합니다")·
-    지원되는 필드명(risk_management.stop_loss)·발화 조각이 사용자에게 그대로 노출됐다.
-    미지원 개념 안내는 결정론 게이트(build_unsupported_concept_notice)가 담당한다.
+    무필터 인용 폐지(2026-08-01) 후 2026-08-12 가드를 얹어 부활한 채널의 제외 규칙 —
+    목록 개념('FCF'=cash_flow)의 안내와 의도적 제외(이미 반영·값 대기)는 결정론 게이트
+    (build_unsupported_concept_notice)의 소관이라 여기서 내면 중복이거나 오탐 부활이다.
     """
     data = _full_intent_dict()
     data["unsupported_features"] = ["FCF Yield"]
     result = _run_primary_with(monkeypatch, data)
     assert result is not None
     assert not any("FCF Yield" in n for n in result["notices"])
+
+
+def test_primary_notices_unlisted_unsupported_feature(monkeypatch):
+    """[2026-08-12 사용자 결정] 목록 밖 개념은 LLM 보고 채널이 잔여 미지원 안내를 낸다.
+
+    34개 목록에 없는 개념을 인터프리터가 조건으로 뽑지도, 되묻지도 않고
+    unsupported_features로만 보고하면 어떤 채널도 안내하지 않아 조용히 사라졌다
+    (침묵 틈 — 새 개념일수록 열려 있던 창). 가드(에코 오라벨·내부 식별자 평이화·
+    목록 매칭 제외·기존 채널 중복 제외)를 통과한 잔여만 안내한다.
+    """
+    data = _full_intent_dict()
+    data["unsupported_features"] = ["소르티노 지수"]
+    result = _run_primary_with(monkeypatch, data, "PER 10 이하, 소르티노 지수 좋은 종목")
+    assert result is not None
+    leftover = [n for n in result["notices"] if "소르티노 지수" in n]
+    assert leftover, f"목록 밖 미지원 개념이 조용히 사라졌다: {result['notices']}"
+    assert any("지원하지 않아" in n for n in leftover), leftover
+
+
+def test_primary_unsupported_echo_of_full_input_stays_silent(monkeypatch):
+    """발화 전체를 unsupported_features에 담은 오라벨은 인용하지 않는다(수정 레인과 동일 가드).
+
+    그대로 인용하면 "'PER 10 이하로 사줘'은(는) 지원하지 않아…"처럼 뜻이 통하지 않는
+    안내가 나간다 — 판정은 LLM 출력과 입력 문자열의 대조이지 원문 의미 해석이 아니다.
+    """
+    user_input = "PER 10 이하로 사줘"
+    data = _full_intent_dict()
+    data["unsupported_features"] = [user_input]
+    result = _run_primary_with(monkeypatch, data, user_input)
+    assert result is not None
+    assert not any("지원하지 않아" in n for n in result["notices"]), result["notices"]
+
+
+def test_primary_unsupported_feature_covered_by_question_not_noticed(monkeypatch):
+    """되묻기 질문이 다루는 표현은 잔여 미지원 안내를 만들지 않는다(모순 방지).
+
+    "영업이익률 기준값을 얼마로 할까요?"라고 묻는 그 응답에 "'영업이익률' 조건은
+    지원하지 않아…"가 함께 나가면 모순이다 — 값 대기·질문·기존 안내가 다룬 항목은 제외.
+    """
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.operating_margin", "operator": ">=", "value": None,
+             "source_text": "영업이익률 높은"},
+        ],
+    )
+    data["unsupported_features"] = ["영업이익률"]
+    result = _run_primary_with(monkeypatch, data, "영업이익률 높은 종목")
+    assert result is not None
+    assert "영업이익률" in (result["clarification_question"] or "")
+    assert not any("지원하지 않아" in n for n in result["notices"]), result["notices"]
+
+
+def test_primary_unsupported_request_label_demoted_with_concrete_features(monkeypatch):
+    """[회귀] 섀도 대조 r1~r3(2026-08-12) — 9B가 미지원 개념이 섞인 전략 서술을
+    UNSUPPORTED_REQUEST로 오라벨해 전략이 통째로 버려졌다(15/64, 프롬프트 3회 반복에도
+    라벨 미고정). 전략 골격+구체 미지원 개념 보고가 함께면 모순 라벨을 CREATE_STRATEGY로
+    강등해 진행한다(bare enum 수리와 같은 LLM 출력 정규화)."""
+    # 목록(34개) 개념 — 강등 후 안내는 결정론 게이트(엔드포인트 계층) 소관이므로
+    # 여기서는 전략이 버려지지 않고 진행되는 것만 확인한다.
+    data = _full_intent_dict()
+    data["intent"] = "UNSUPPORTED_REQUEST"
+    data["unsupported_features"] = ["파동이론"]
+    result = _run_primary_with(monkeypatch, data, "파동이론 기준으로 저점 잡아서 사줘")
+    assert result is not None, "모순 라벨 강등이 동작하지 않아 전략이 버려졌다"
+    # 목록 밖 개념 — 강등 + 잔여 미지원 안내까지 한 턴에 나간다.
+    data = _full_intent_dict()
+    data["intent"] = "UNSUPPORTED_REQUEST"
+    data["unsupported_features"] = ["소르티노 지수"]
+    result = _run_primary_with(monkeypatch, data, "소르티노 지수 좋은 종목 위주로 사줘")
+    assert result is not None
+    assert any("소르티노 지수" in n and "지원하지 않아" in n for n in result["notices"]), \
+        result["notices"]
+
+
+def test_primary_unsupported_request_label_kept_for_role_boundary(monkeypatch):
+    """역할 밖 행위(추천·전망·우열) 보고만 있으면 강등하지 않는다 — 규제 거절 보존."""
+    for feature in ["종목 추천", "stock_recommendation", "시장 전망"]:
+        data = _full_intent_dict()
+        data["intent"] = "UNSUPPORTED_REQUEST"
+        data["unsupported_features"] = [feature]
+        result = _run_primary_with(monkeypatch, data, "좋은 종목 좀 추천해줘")
+        assert result is None, f"역할 밖 보고({feature})가 강등돼 거절이 약해졌다"
+
+
+def test_primary_unsupported_request_without_features_not_demoted(monkeypatch):
+    """미지원 개념 보고가 없는 UNSUPPORTED_REQUEST는 그대로 실패 보고한다."""
+    data = _full_intent_dict()
+    data["intent"] = "UNSUPPORTED_REQUEST"
+    result = _run_primary_with(monkeypatch, data, "알아서 잘 굴려줘")
+    assert result is None
+
+
+def test_primary_unsupported_request_without_strategy_demoted_to_empty_skeleton(monkeypatch):
+    """골격 없는 UNSUPPORTED_REQUEST + 구체 개념 보고 — 빈 골격으로 강등해 되묻기 턴.
+
+    실측(섀도 대조 r4): 모델이 "시장 베타 0.8 이하인 종목만 매수"류에 전략 골격 없이
+    개념 보고만 냈다 — 골격을 요구하면 강등이 못 타고 실패 안내로 끝난다. 빈 골격
+    진행은 "X는 지원하지 않아요 + 어떤 조건으로 할까요?"가 된다."""
+    data = _full_intent_dict()
+    data["intent"] = "UNSUPPORTED_REQUEST"
+    data["strategy"] = None
+    data["unsupported_features"] = ["소르티노 지수"]
+    result = _run_primary_with(monkeypatch, data, "소르티노 지수 좋은 종목만 매수")
+    assert result is not None, "골격 없는 강등이 동작하지 않았다"
+    assert any("소르티노 지수" in n and "지원하지 않아" in n for n in result["notices"]), \
+        result["notices"]
+
+
+def test_primary_unsupported_long_fragment_not_quoted(monkeypatch):
+    """[2026-08-12 사용자 결정] 길이 상한 초과 발화 조각은 지목 인용하지 않는다.
+
+    레드팀 실측 3-4: "'퇴직금 굴려야 하는데 절대 잃으면 안 되는 돈이라 최대한
+    보수적으로' 조건은…"처럼 자기 말 반 토막을 되돌려받는 안내가 됐다 — 긴 조각은
+    일반 문구("말씀하신 조건 중 일부는…")로 뭉뚱그리고, 짧은 이름만 지목한다.
+    """
+    long_fragment = "퇴직금 굴려야 하는데 절대 잃으면 안 되는 돈이라 최대한 보수적으로"
+    data = _full_intent_dict()
+    data["unsupported_features"] = [long_fragment, "소르티노 지수"]
+    result = _run_primary_with(
+        monkeypatch, data, f"{long_fragment} PER 10 이하, 소르티노 지수 좋은 종목만"
+    )
+    assert result is not None
+    notices = result["notices"]
+    assert not any(long_fragment in n for n in notices), notices
+    assert any("말씀하신 조건 중 일부는 지원하지 않아" in n for n in notices), notices
+    # 짧은 이름은 여전히 지목한다
+    assert any("소르티노 지수" in n and "지원하지 않아" in n for n in notices), notices
+
+
+def test_primary_unsupported_concept_id_token_excluded(monkeypatch):
+    """[회귀] 섀도 대조 실측(2026-08-12) — LLM이 개념을 영문 ID('volatility')로 보고하면
+    한글 패턴(변동성) 매칭을 뚫고 결정론 게이트 안내와 중복됐다. 개념 ID도 목록 개념이므로
+    잔여 채널이 다시 내지 않는다(그 개념의 안내는 결정론 게이트 소관)."""
+    data = _full_intent_dict()
+    data["unsupported_features"] = ["volatility"]
+    result = _run_primary_with(monkeypatch, data, "변동성 낮은 종목 위주로 담는 전략")
+    assert result is not None
+    assert not any("volatility" in n for n in result["notices"]), result["notices"]
+
+
+def test_primary_unsupported_internal_identifier_humanized(monkeypatch):
+    """내부 식별자(strategy_evaluation 등)는 평이화 라벨로만 노출된다(레드팀 QA 20-5 계약)."""
+    data = _full_intent_dict()
+    data["unsupported_features"] = ["strategy_evaluation"]
+    result = _run_primary_with(monkeypatch, data, "PER 10 이하 전략 만들고 우열도 평가해줘")
+    assert result is not None
+    notices = " ".join(result["notices"])
+    assert "strategy_evaluation" not in notices, notices
+    assert "전략 우열 평가" in notices, notices
 
 
 def test_primary_does_not_notice_unreflected_numbers(monkeypatch):

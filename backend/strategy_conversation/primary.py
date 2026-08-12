@@ -403,6 +403,12 @@ def _capability_conflict_clarification(
     return question, chips or None, None
 
 
+# 잔여 미지원 안내에서 지목 인용할 수 있는 항목명 길이 상한(2026-08-12 사용자 결정).
+# 초과 조각(정성 표현 등 발화 반 토막)은 이름을 인용하지 않고 일반 문구로 안내한다 —
+# 레드팀 실측 3-4: "'퇴직금 굴려야 하는데 절대 잃으면 안 되는 돈이라 최대한
+# 보수적으로' 조건은…"처럼 자기 말을 되돌려받는 안내 방지.
+_QUOTED_FEATURE_MAX_LEN = 25
+
 # 인터프리터가 unsupported_features에 내부 식별자(strategy_evaluation 등)를 그대로 담는
 # 실측 드리프트 — 사용자 안내 문구에 내부명이 노출되지 않게 치환한다(레드팀 QA 20-5).
 _INTERNAL_FEATURE_LABELS = {
@@ -411,6 +417,26 @@ _INTERNAL_FEATURE_LABELS = {
     "stock_recommendation": "종목 추천",
     "market_forecast": "시장 전망",
 }
+# 역할 밖 행위 보고 표기 — UNSUPPORTED_REQUEST 라벨 강등 판정에서 이 표기는 '구체
+# 미지원 개념'으로 치지 않는다(추천·전망 거절은 라벨대로 유지). 내부 식별자와 그
+# 평이화 라벨 양쪽 표기를 담는다(입력이 LLM 출력이므로 표기 대조는 결정론 소관).
+_ROLE_BOUNDARY_FEATURE_KEYS = frozenset(
+    _compact_token for pair in _INTERNAL_FEATURE_LABELS.items() for _compact_token in (
+        pair[0].replace("_", ""), pair[1].replace(" ", ""),
+    )
+)
+
+
+def _reportable_unsupported_features(features: List[str]) -> bool:
+    """역할 밖 행위(추천·전망·우열)가 아닌 구체 미지원 개념 보고가 하나라도 있는가."""
+    from engine.nl_parser import _compact
+
+    return any(
+        f and _compact(str(f)).replace("_", "") not in _ROLE_BOUNDARY_FEATURE_KEYS
+        for f in features or []
+    )
+
+
 def _reported_features_echo_input(features: List[str], user_input: str) -> bool:
     """인터프리터가 미지원 항목에 발화 전체를 그대로 담았는지(오라벨 감지).
 
@@ -880,6 +906,38 @@ def run_primary_parse(
         f"status={report.status} 오류={len(report.errors)} 누락={len(report.missing_fields)} "
         f"질문={len(report.clarification_questions)} 미지원={report.unsupported_features or '[]'}"
     ))
+    # UNSUPPORTED_REQUEST 오라벨 강등 — 9B가 미지원 개념이 섞인 전략 서술("파동이론
+    # 기준으로 저점 잡아서 사줘")을 통째로 UNSUPPORTED_REQUEST로 밀어내는 드리프트.
+    # 섀도 대조 실측(2026-08-12, r1~r3): 라벨 정의 명문화·규칙·대조 예시 세 차례
+    # 프롬프트 반복으로도 15/64가 고정되지 않고 케이스만 교체됐다. 라벨과 실체(전략
+    # 골격 + 구체 미지원 개념 보고)가 모순이면 실체를 따른다 — bare enum 수리·
+    # workflow 불성립 NONE 강등과 같은 LLM 출력 정규화(원문을 읽지 않는다).
+    # 단 종목 추천·시장 전망 등 역할 밖 **행위** 보고만 있으면 강등하지 않는다 —
+    # 규제 거절을 약화시키지 않기 위한 가드(판정 입력도 LLM 출력 문자열뿐이다).
+    # 판정은 인텐트의 **자체 보고**(validated.unsupported_features)를 본다 — 검증기는
+    # 비전략 라벨에서 자체 보고를 리포트로 옮기지 않으므로 report 쪽은 비어 있다.
+    # 전략 골격은 요구하지 않는다(실측: 골격 없이 개념 보고만 내는 형태가 다수) —
+    # 골격이 없으면 빈 골격으로 진행해 "X는 지원하지 않아요 + 어떤 조건으로 할까요?"
+    # 되묻기 턴이 되게 한다(조용한 실패 안내보다 정직하고 진행 가능).
+    if (validated.intent == "UNSUPPORTED_REQUEST"
+            and _reportable_unsupported_features(validated.unsupported_features)):
+        _log_llm("⚖ 라벨 강등", (
+            f"UNSUPPORTED_REQUEST+미지원 보고={validated.unsupported_features}"
+            f"+골격={'있음' if validated.strategy is not None else '없음→빈 골격'}"
+            " — CREATE_STRATEGY로 진행(모순 라벨 정규화)"
+        ))
+        validated.intent = "CREATE_STRATEGY"
+        if validated.strategy is None:
+            from strategy_conversation.interpreter.models import StrategySpec
+            validated.strategy = StrategySpec()
+        # CREATE 레인으로 재검증 — 지원 여부·완결성 검사와 자체 보고→리포트 병합이
+        # 이 레인에서만 수행되므로, 재검증 없이 진행하면 미지원 안내가 소실된다.
+        validation = call_tool("validate_intent", intent=validated)
+        validated, report = validation.intent, validation.report
+        _log_llm("✓ 재검증", (
+            f"status={report.status} 오류={len(report.errors)} "
+            f"질문={len(report.clarification_questions)} 미지원={report.unsupported_features or '[]'}"
+        ))
     if validated.intent not in _STRATEGY_INTENTS or validated.strategy is None:
         _log_llm("↩ 실패 보고", f"전략 파이프라인 대상이 아닌 intent={validated.intent} — 되묻기로")
         logger.info("interpreter primary non-strategy intent=%s, reporting failure",
@@ -1140,11 +1198,13 @@ def run_primary_parse(
     ):
         clarification_priority = "pending_values"
 
-    # 인터프리터의 unsupported_features를 그대로 인용하던 안내는 폐지했다(2026-08-01,
+    # 인터프리터의 unsupported_features를 **무필터로** 인용하던 안내는 폐지했다(2026-08-01,
     # 사용자 판단). LLM이 자유 서술로 쓰는 채널이라 내부 사정("unsupported_features에
     # 기록합니다")·지원되는 필드명(risk_management.stop_loss)·발화 조각이 그대로 노출됐고,
     # 정작 미지원 개념 안내는 결정론 게이트(build_unsupported_concept_notice)가 이미 낸다.
-    # 조용한 누락 방지는 아래 두 결정론 대조(제외 조건·미반영 수치)가 계속 담당한다.
+    # 2026-08-12 사용자 결정: 수정 레인의 가드(에코 오라벨·내부 식별자 치환)를 얹어
+    # **목록 밖 개념 한정**으로 부활 — 아래 잔여 미지원 안내 블록 참고.
+    # 조용한 누락 방지는 아래 결정론 대조(제외 조건·잔여 미지원·미반영 수치)가 담당한다.
     # 제외됐지만 질문이 다루지 않는 조건이 있으면 정직하게 알린다.
     # 이월 큐(queue)에 실린 질문은 "다음 턴에 물을 예정"이므로 다룬 것으로 친다 —
     # 안 그러면 한 턴에 한 질문 분할이 뒤 질문의 조건마다 미반영 안내를 만든다.
@@ -1172,6 +1232,61 @@ def run_primary_parse(
         notices.append(
             f"'{', '.join(uncompilable_drops)}' 조건은 전략에 반영하지 못했어요."
         )
+    # ── 잔여 미지원 안내(LLM 보고 채널, 2026-08-12 부활 — 사용자 결정) ──
+    # 인터프리터가 unsupported_features로 보고했지만 어떤 채널(되묻기·큐·제외 조건 안내·
+    # 값 대기)도 다루지 않은 개념의 조용한 소실 방지. 2026-08-01 폐지의 원인은 채널이
+    # 아니라 **무필터 인용**이었다 — 수정 레인(primary_modify_unsupported)에서 검증된
+    # 가드를 그대로 얹는다: ① 발화 전체 에코 오라벨이면 침묵(기존 채널이 담당),
+    # ② 내부 식별자는 평이화(_humanize_features), ③ 미지원 개념 목록(34개)에 매칭되는
+    # 항목은 제외 — 그 목록의 안내와 의도적 제외(이미 반영·값 대기 중 등)는 결정론
+    # 게이트(build_unsupported_concept_notice)의 소관이라, 여기서 다시 내면 중복이거나
+    # 게이트가 일부러 뺀 오탐이 부활한다. 판정 입력은 전부 LLM 출력·자기 응답 문자열이다
+    # (라벨 정규식 매칭은 concepts_covered_by_pending과 같은 계약 — 원문을 읽지 않는다).
+    if report.unsupported_features and not _reported_features_echo_input(
+        report.unsupported_features, user_input
+    ):
+        from engine.nl_parser import _UNSUPPORTED_CONCEPT_RE, _compact
+
+        covered_text = " ".join(
+            [clarification_question or "", queued_question_text]
+            + notices
+            + [str(label) for label in pending_labels if label]
+        )
+        # 스키마 필드 경로(technical.beta 등)는 검증기가 담는 내부 식별자다 — 그
+        # 조건의 탈락은 제외 조건 안내가 source_text(사용자 표현)로 이미 알리고,
+        # 내부명은 노출 금지(레드팀 QA 20-5)이므로 여기서 제외한다.
+        field_path_rx = re.compile(r"\b[a-z_]{2,}\.[a-z_0-9]{2,}")
+        # 개념 ID 영문 표기('volatility' 등)도 목록 개념이다 — LLM이 한글 대신 ID로
+        # 보고하면 한글 패턴 매칭을 뚫고 결정론 게이트 안내와 중복된다
+        # (섀도 대조 실측 2026-08-12: "'volatility' 조건은 지원하지 않아…"가
+        # "'변동성 조건'은 아직 직접 지원되지 않아요"와 한 응답에 공존).
+        concept_ids = {name for name, _ in _UNSUPPORTED_CONCEPT_RE}
+        leftover_features = [
+            f for f in _humanize_features(report.unsupported_features)
+            if f and f not in covered_text
+            and not field_path_rx.search(f)
+            and _compact(f) not in concept_ids
+            and not any(rx.search(_compact(f)) for _, rx in _UNSUPPORTED_CONCEPT_RE)
+        ]
+        # 긴 발화 조각(정성 표현 등)은 지목 인용하지 않는다(2026-08-12 사용자 결정) —
+        # "'퇴직금 굴려야 하는데 절대 잃으면 안 되는 돈이라…' 조건은"처럼 자기 말
+        # 반 토막을 되돌려받는 안내가 되므로, 상한 초과 조각은 일반 문구로 뭉뚱그린다.
+        # 판정은 문자열 길이뿐이다(표기만 보면 결정 가능 — 원문 의미를 읽지 않는다).
+        named = [f for f in leftover_features if len(f) <= _QUOTED_FEATURE_MAX_LEN]
+        long_fragments = [f for f in leftover_features if len(f) > _QUOTED_FEATURE_MAX_LEN]
+        if named:
+            notices.append(
+                f"'{', '.join(named)}' 조건은 지원하지 않아 전략에 반영하지 못했어요."
+            )
+        if long_fragments:
+            notices.append(
+                "말씀하신 조건 중 일부는 지원하지 않아 전략에 반영하지 못했어요. "
+                "전략 요약을 확인해 주세요."
+            )
+        if leftover_features:
+            _log_llm("△ 잔여 미지원 안내", (
+                f"지목={named or '[]'} 긴조각={long_fragments or '[]'}"
+            ))
     # 미반영 수치 **안내**는 폐지했다(2026-08-01, 사용자 판단) — 로그로만 남긴다.
     # 대조는 크기만 보는 수치 대조라 라벨이 맥락 없는 숫자 나열("'1, 20일' 수치는…")이 되고,
     # 정작 '월 1회 리밸런싱'·'20일 평균 거래대금'처럼 **이미 반영된** 표현이 자주 걸린다
