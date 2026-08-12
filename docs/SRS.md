@@ -618,6 +618,8 @@ RiskManagement {
 
 **FR-BT-031b** [이력 이름 정본, 2026-07-25] 백테스트 기록 카드의 이름은 사용자가 저장한 전략명 또는 사용자 프롬프트여야 하며, 캐시 저장 경로가 붙이는 해시 자리표시자(`전략 <8자해시>`)가 노출되면 안 된다. 같은 `cacheKey` 행에 두 저장 경로가 경합한다: ① 클라이언트 자동 저장(`POST /api/backtest/history`)은 result 이벤트 수신 즉시 실행되고, ② 서버 캐시 저장(`saveCachedResult`)은 SSE 스트림 종료 후에 실행되므로 ②가 뒤늦게 ①의 행을 덮어쓸 수 있다. 따라서 두 경로 모두 상대의 결과를 되돌리지 않아야 한다 — ①은 기존 이름이 자리표시자가 아닐 때만 유지하고(`isPlaceholderStrategyName`), ②는 기존 이름이 자리표시자일 때만 이름을 갱신하며 이미 노출된 행(`isVisible=true`)을 다시 숨기지 않는다.
 
+**FR-BT-031c** [기록 목록 서버 렌더, 2026-08-13] 백테스트 기록 목록(`/backtest`)은 **항상 최신 목록만** 보여야 하며, 이전에 조회한 목록을 먼저 그렸다가 나중에 교체하는 표시(stale-while-revalidate)를 해서는 안 된다 — 사용자가 방금 실행한 백테스트가 빠진 목록이 잠깐 노출되기 때문이다. 목록은 서버 컴포넌트가 조회해 첫 렌더에 담아 보내고(`app/backtest/page.tsx`, `dynamic = "force-dynamic"`), 클라이언트는 목록을 다시 요청하지 않는다(`app/backtest/BacktestHistoryView.tsx`는 정렬·삭제·이동만 담당). 조회 본체는 목록 API(`GET /api/backtest/history`)와 `lib/server/backtest-history-list.ts`를 공유해 두 경로가 갈라지지 않게 한다. 조회를 기다리는 동안에는 로딩 인디케이터를 노출한다(`app/backtest/loading.tsx`). 비로그인·비활성 계정은 빈 목록으로 렌더해 기존 401 처리와 동일하게 empty state를 보여준다.
+
 **FR-BT-032** 백테스트 이력은 가능하면 `strategy_id`를 참조해야 하며, 캐시 히트 시 `hitCount`를 누적할 수 있어야 한다.
 
 **FR-BT-033** 배치 실행 중 생성된 전략 결과도 일반 단일 백테스트와 동일한 저장 경로로 `Strategy`, `BacktestResult`, `BacktestHistory`에 영구 저장되어야 한다.
