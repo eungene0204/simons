@@ -1365,6 +1365,22 @@ def test_primary_unsupported_feature_covered_by_question_not_noticed(monkeypatch
     assert not any("지원하지 않아" in n for n in result["notices"]), result["notices"]
 
 
+def test_interpreter_prompt_forbids_double_entry_of_reflected_expressions():
+    """[회귀 2026-08-13] 프롬프트에 '반영한 표현의 unsupported_features 재기입 금지' 규칙 유지.
+
+    9B가 '최대 보유 기간은 20거래일'을 hold_period_days=20에 정상 반영하고도, 규칙 3
+    미지원 목록의 '최소 보유 기간'에 끌려 같은 표현을 unsupported_features에 이중
+    기입했다(temperature 0 재현) — 잔여 미지원 안내가 이를 인용해 "반영됐는데 지원하지
+    않는다"는 모순 안내가 나갔다. 이 규칙 문장을 빼면 이중 기입이 재발함을 절제 실험으로
+    확인했으므로(replay: 문장 제거 시 허위 신고 부활), 문장 존재를 계약으로 못박는다.
+    """
+    from strategy_conversation.interpreter.prompts import PROMPT_VERSION, build_system_prompt
+
+    assert PROMPT_VERSION >= "3.6"
+    prompt = build_system_prompt()
+    assert "같은 표현을 unsupported_features에 다시 넣지 마세요" in prompt
+
+
 def test_primary_unsupported_request_label_demoted_with_concrete_features(monkeypatch):
     """[회귀] 섀도 대조 r1~r3(2026-08-12) — 9B가 미지원 개념이 섞인 전략 서술을
     UNSUPPORTED_REQUEST로 오라벨해 전략이 통째로 버려졌다(15/64, 프롬프트 3회 반복에도

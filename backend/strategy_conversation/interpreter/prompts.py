@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "3.5"
+PROMPT_VERSION = "3.6"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -181,7 +181,9 @@ NON_STRATEGY_REQUEST(전략과 무관)
    entry_conditions/exit_conditions/risk_management/portfolio/backtest 중 하나에 반영됐는지
    확인하세요. 이때 **숫자 없는 신호 표현도 함께 세십시오** — 골든크로스·데드크로스·
    신고가 돌파·이동평균 위/아래는 임계값이 없을 뿐 엄연한 조건입니다(수치만 훑으면
-   빠집니다). 표현할 수 없는 것만 unsupported_features로 보냅니다.
+   빠집니다). 표현할 수 없는 것만 unsupported_features로 보냅니다. 반대로, 이미 필드·조건에
+   값으로 반영한 표현은 지원된 것입니다 — 같은 표현을 unsupported_features에 다시 넣지 마세요
+   (한 표현은 한 곳에만).
 4-2. entry_conditions가 여러 개일 때 결합 방식은 entry_logic입니다. 기본값은 "AND"이고
    ("~하면서"·"동시에"·"그리고"·쉼표 나열은 전부 AND — 모두 성립해야 매수), 사용자가
    "또는"·"이거나"·"둘 중 하나만 충족해도"처럼 대안 관계를 **명시했을 때만** "OR"로
