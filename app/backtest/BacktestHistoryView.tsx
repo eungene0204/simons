@@ -1,9 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
+import BacktestHistoryLoading from "./BacktestHistoryLoading";
+import {
+  getCachedBacktestHistory,
+  refreshBacktestHistoryCache,
+  setCachedBacktestHistory,
+} from "@/lib/backtest-history-cache";
 import { BacktestHistoryItem } from "@/types/strategy";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
 import { formatProfitFactor } from "@/lib/format-profit-factor";
@@ -31,15 +37,14 @@ function HistoryMetric({
   );
 }
 
-// 목록은 서버(app/backtest/page.tsx)가 이미 조회해 넘긴다 — 이 컴포넌트는 클라이언트에서
-// 목록을 다시 받아오지 않는다. 정렬·삭제·이동 같은 상호작용만 담당한다.
-export default function BacktestHistoryView({
-  initialHistory,
-}: {
-  initialHistory: BacktestHistoryItem[];
-}) {
+// 캐시가 있으면 그 목록으로 즉시 그리고(로딩 없음) 뒤에서 최신 목록을 받아 교체한다.
+// 캐시는 목록이 바뀌는 시점에 버려지므로(lib/backtest-history-cache), 여기서 캐시를 그리는 것이
+// 방금 저장한 기록이 빠진 목록을 보여주는 일로 이어지지 않는다.
+export default function BacktestHistoryView() {
   const router = useRouter();
-  const [history, setHistory] = useState<BacktestHistoryItem[]>(initialHistory);
+  const cachedHistory = getCachedBacktestHistory();
+  const [history, setHistory] = useState<BacktestHistoryItem[]>(cachedHistory ?? []);
+  const [isLoading, setIsLoading] = useState(!cachedHistory);
   const [sortField, setSortField] = useState<SortField>("timestamp");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [deleteTarget, setDeleteTarget] = useState<BacktestHistoryItem | null>(null);
@@ -68,7 +73,10 @@ export default function BacktestHistoryView({
         method: "DELETE",
       });
       if (response.ok) {
-        setHistory((prev) => prev.filter((item) => item.id !== id));
+        const nextHistory = history.filter((item) => item.id !== id);
+        setHistory(nextHistory);
+        // 삭제도 목록 변경 — 캐시를 같이 줄여야 다음 진입에 삭제한 기록이 되살아나지 않는다.
+        setCachedBacktestHistory(nextHistory);
         setDeleteTarget(null);
       }
     } catch (error) {
@@ -77,6 +85,28 @@ export default function BacktestHistoryView({
       setIsDeleting(false);
     }
   };
+
+  useEffect(() => {
+    let isActive = true;
+
+    refreshBacktestHistoryCache()
+      .then((nextHistory) => {
+        if (!isActive) return;
+        setHistory(nextHistory);
+      })
+      .catch(() => {
+        // 조회 실패 시에는 지금 그려둔 목록(캐시 또는 빈 목록)을 유지한다.
+      })
+      .finally(() => {
+        if (isActive) setIsLoading(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
+    // 진입 시 1회만 조회한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const sortedHistory = [...history].sort((a, b) => {
     let av: number, bv: number;
@@ -99,6 +129,14 @@ export default function BacktestHistoryView({
     }
     return sortDir === "asc" ? av - bv : bv - av;
   });
+
+  if (isLoading) {
+    return (
+      <DashboardLayout userName="">
+        <BacktestHistoryLoading />
+      </DashboardLayout>
+    );
+  }
 
   if (sortedHistory.length === 0) {
     return (

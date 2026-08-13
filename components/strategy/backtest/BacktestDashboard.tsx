@@ -38,6 +38,7 @@ import {
   reportToPersistedFields,
 } from "./aiReport";
 import { buildAutoSaveHistoryPayload } from "@/lib/backtest-history";
+import { invalidateBacktestHistoryCache } from "@/lib/backtest-history-cache";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
 import { buildMonthlyReturnTableData } from "./monthlyReturns";
 import { buildRollingReturnSeries, hasRollingWindowSpan } from "./rollingReturns";
@@ -540,6 +541,8 @@ export default function BacktestDashboard({
     if (processedExecutionIds.has(result.executionId)) return;
     processedExecutionIds.add(result.executionId);
 
+    // 이 시점부터 기록 목록 캐시는 이 백테스트가 빠진 옛 목록이다 — 버린다.
+    invalidateBacktestHistoryCache();
     fetch("/api/backtest/history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -816,6 +819,8 @@ export default function BacktestDashboard({
 
       // 저장 버튼을 누른 시점에 BacktestHistory 생성 (저장 목록에 노출)
       if (strategySummary) {
+        // 목록이 바뀐다 — 옛 목록 캐시를 버려 다음 진입이 서버에서 새로 받게 한다.
+        invalidateBacktestHistoryCache();
         fetch("/api/backtest/history", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
