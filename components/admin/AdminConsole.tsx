@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import OverviewTab from './OverviewTab'
+import ArchitectureTab from './ArchitectureTab'
 import UsersTab from './UsersTab'
 import BacktestsTab from './BacktestsTab'
 import VirtualAccountsTab from './VirtualAccountsTab'
@@ -13,6 +14,7 @@ import AuditLogsTab from './AuditLogsTab'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
+  { id: 'architecture', label: 'Architecture' },
   { id: 'users', label: 'Users' },
   { id: 'backtests', label: 'Backtests' },
   { id: 'accounts', label: 'Virtual Accounts' },
@@ -58,6 +60,7 @@ export default function AdminConsole({ adminEmail }: { adminEmail: string }) {
         {/* Content — 선택된 탭만 렌더링 */}
         <main className="min-w-0 flex-1">
           {tab === 'overview' && <OverviewTab />}
+          {tab === 'architecture' && <ArchitectureTab />}
           {tab === 'users' && <UsersTab />}
           {tab === 'backtests' && <BacktestsTab />}
           {tab === 'accounts' && <VirtualAccountsTab />}

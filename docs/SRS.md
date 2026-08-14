@@ -1541,7 +1541,7 @@ News Collector
 
 ### 3.9 관리자 콘솔 (Admin Console)
 
-**FR-ADM-001** 관리자 콘솔은 `/console` 단일 URL 하나만 존재해야 하며(하위 페이지 없음), 내부 탭(Overview/Users/Backtests/Virtual Accounts/Strategies/Plans/Knowledge/Agents/Audit Logs) 전환으로 모든 기능을 제공해야 한다. Agents 탭(2026-07-29)은 플랫폼 AI 파이프라인 9종의 설계 구조를 agent별 서브탭·흐름도(노드 유형 색상 범례: 입력/AI 판단/자동 규칙/지식·데이터/안전장치/사용자 확인/결과물)로 시각화한다 — 내부 변수명이 아닌 운영자 친화 명칭으로 표기하는 정적 스냅샷(`components/admin/AgentsTab.tsx`)이며, 파이프라인 구조 변경 시 함께 갱신한다.
+**FR-ADM-001** 관리자 콘솔은 `/console` 단일 URL 하나만 존재해야 하며(하위 페이지 없음), 내부 탭(Overview/Architecture/Users/Backtests/Virtual Accounts/Strategies/Plans/Knowledge/Agents/Audit Logs) 전환으로 모든 기능을 제공해야 한다. Agents 탭(2026-07-29)은 플랫폼 AI 파이프라인 9종의 설계 구조를 agent별 서브탭·흐름도(노드 유형 색상 범례: 입력/AI 판단/자동 규칙/지식·데이터/안전장치/사용자 확인/결과물)로 시각화한다 — 내부 변수명이 아닌 운영자 친화 명칭으로 표기하는 정적 스냅샷(`components/admin/AgentsTab.tsx`)이며, 파이프라인 구조 변경 시 함께 갱신한다. Architecture 탭(2026-08-14)은 서비스 전체의 계층 구조·설계를 8개 서브탭(구조 그래프/전체 조감도/대화→백테스트 여정/백테스트 엔진/데이터 파이프라인/가상매매/배포 구조/규제 안전 계층)으로 시각화하며 — 구조 그래프(기본 서브탭)는 핵심 구성 요소 16개 노드와 호출·데이터 흐름 18개 엣지를 SVG 다이어그램으로 그린다 —, 상세 데이터가 있는 카드는 클릭 시 상세 패널(요약·핵심 설계·운영 메모/사고 이력·구현 위치, ESC/배경 클릭으로 닫힘)을 연다 — 같은 원칙의 정적 스냅샷(`components/admin/ArchitectureTab.tsx`, 정본 문서=`docs/software_architecture.md`·`docs/deployment.md`)이며, 시스템 계층·경계·데이터 흐름이 바뀌면 함께 갱신한다.
 
 **FR-ADM-002** 모든 관리자 페이지·API는 서버에서 `requireAdmin()`(JWT + `User.role='ADMIN'` + `status='ACTIVE'`)으로 권한을 검증해야 한다. 검증 실패 시 404를 반환해 콘솔의 존재 자체를 숨긴다. UI 숨김만으로는 보안으로 인정하지 않는다.
 
