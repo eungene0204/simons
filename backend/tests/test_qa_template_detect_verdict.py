@@ -82,3 +82,63 @@ def test_value_given_but_dropped_without_question_is_missing(qatd):
         {"parsed": {**EMPTY_ENTRY, "entry_signals": [{"indicator": "rsi"}]}},
     )
     assert "PER" in flags.missing
+
+
+def test_pending_condition_is_not_missing(qatd):
+    """[2026-08-14] 값-대기 큐(pending_conditions)에 오른 조건은 순차 되묻기 대상이다.
+
+    이번 턴 질문 텍스트에 아직 안 나왔다는 이유로 미탐지(소실)로 세면, 정상 동작(값-대기
+    조건 채널)이 게이트를 붉게 만든다 — 실측: 예시 4건이 이 오탐으로 잡혔다.
+    """
+    prompt = "KOSPI 종목 중 PER이 낮고 부채비율이 낮은 기업만 남긴 뒤 8종목 정도 투자해 주세요."
+    flags = qatd.analyze(
+        _template(qatd, prompt),
+        {
+            "parsed": EMPTY_ENTRY,
+            "clarification_question": "진입 조건의 PER 기준값을 얼마로 할까요?",
+            "pending_conditions": [
+                {"role": "entry", "label": "부채비율", "source_text": "부채비율이 낮은"},
+            ],
+        },
+    )
+    assert flags.fatal == []
+    assert flags.missing == []
+
+
+def test_parse_call_failure_counts_fatal(qatd, monkeypatch, tmp_path, capsys):
+    """[2026-08-14] 파싱 호출 자체가 죽으면 치명으로 집계돼 종료 코드 1이어야 한다.
+
+    실측: localhost:8000을 다른 프로세스가 선점해 81건 전부 HTTP 501이었는데
+    '치명 0 · exit 0'으로 조용히 통과했다 — 검증이 성립하지 않은 실행은 실패다.
+    """
+    tpl = _template(qatd, "KOSPI에서 PER 10 이하 종목 매수")
+    monkeypatch.setattr(qatd, "load_templates", lambda: [tpl])
+
+    def _boom(prompt):
+        raise RuntimeError("HTTP Error 501: Unsupported method ('POST')")
+
+    monkeypatch.setattr(qatd, "parse_strategy", _boom)
+    monkeypatch.setattr(qatd, "RAW_CACHE", tmp_path / "cache.json")
+    monkeypatch.setattr(sys, "argv", ["qa_template_detect.py", "--refresh"])
+    assert qatd.main() == 1
+    assert "파싱 호출 실패" in capsys.readouterr().out
+
+
+def test_notice_covered_condition_is_not_missing(qatd):
+    """[2026-08-14] 안내(notices)로 알린 조건은 조용한 소실이 아니다 — 미탐지 제외.
+
+    실측: '최근 거래대금이 30일 평균보다 높은'을 거래량 급증 조건으로 근사 반영하면서
+    안내를 냈는데도 하니스가 '거래대금 미탐지'로 세어 게이트를 붉게 만들었다. 백엔드
+    본경로가 제외 조건의 '설명됨' 판정에 notices를 쓰는 것과 같은 계약이다.
+    """
+    prompt = "KOSDAQ에서 최근 거래대금이 30일 평균보다 높은 경우만 진입해 주세요."
+    flags = qatd.analyze(
+        _template(qatd, prompt),
+        {
+            "parsed": {**EMPTY_ENTRY, "entry_signals": [{"indicator": "volume_spike"}]},
+            "notices": ["'최근 거래대금이 30일 평균보다 높은 경우' 조건은 거래대금의 평균"
+                        " 대비 비교를 지원하지 않아 거래량 급증 조건으로 반영했어요."],
+        },
+    )
+    assert flags.missing == []
+    assert flags.fatal == []
