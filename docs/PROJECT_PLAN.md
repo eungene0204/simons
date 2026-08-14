@@ -1322,7 +1322,7 @@ WatchlistSymbol {
 |------|------|------|
 | 서버 권한 검증 | `lib/server/adminAuth.ts::requireAdmin()` — JWT 쿠키 + `User.role='ADMIN'` + `status='ACTIVE'` 3중 검사. 실패 시 페이지·API 모두 **404**로 응답해 콘솔 존재 자체를 숨김. ADMIN 부여는 DB에서만 가능(화면/API로 role 변경 불가) | ✅ 완료 |
 | DB 스키마 | `User.role/status/lastLoginAt` 추가, `AdminAuditLog`(감사 로그, 삭제 API 없음), `PlanConfig`(플랜 한도 오버라이드). 마이그레이션 `20260707000000_admin_console` | ✅ 완료 |
-| 콘솔 UI | `app/console/page.tsx`(서버 게이트 → `notFound()`) + `components/admin/AdminConsole.tsx` — Overview/Users/Backtests/Virtual Accounts/Strategies/Plans/Audit Logs 7탭, 선택된 탭만 렌더. 이후 Knowledge(2026-07-25)·Agents(2026-07-29, AI 파이프라인 설계 시각화) 탭 추가 | ✅ 완료 |
+| 콘솔 UI | `app/console/page.tsx`(서버 게이트 → `notFound()`) + `components/admin/AdminConsole.tsx` — Overview/Users/Backtests/Virtual Accounts/Strategies/Plans/Audit Logs 7탭, 선택된 탭만 렌더. 이후 Knowledge(2026-07-25)·Agents(2026-07-29, AI 파이프라인 설계 시각화)·Architecture(2026-08-14, 서비스 전체 구조·설계 시각화 — 7개 서브탭 정적 스냅샷) 탭 추가 | ✅ 완료 |
 | 관리자 API | `/api/admin/{overview,users,backtests,accounts,strategies,plans,audit}` 7종 — 전부 `requireAdmin()` 게이트, 모든 변경 작업은 `writeAuditLog()`로 before/after JSON + IP 기록. 민감정보(password/token/key)는 어떤 응답에도 미포함 | ✅ 완료 |
 | 사용자 관리 | 이메일 검색·플랜/상태 필터·정렬·페이지네이션, 상세 패널에서 플랜 변경/정지/활성화/삭제(soft, status=DELETED)/백테스트 사용량 조정. 자기 자신 정지·삭제는 차단 | ✅ 완료 |
 | 정지 계정 차단 | 로그인 403 + 기존 세션도 무효(`getCurrentUser`가 `status!=='ACTIVE'`면 null). 로그인 성공 시 `lastLoginAt` 기록 | ✅ 완료 |

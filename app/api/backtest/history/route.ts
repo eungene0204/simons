@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
-  assertActiveUser,
   getOwnershipContext,
   getSessionUserId,
   isUnauthorizedAccessError,
 } from "@/lib/get-user";
 import { isPlaceholderStrategyName } from "@/lib/server/backtestCache";
+import {
+  BACKTEST_LIST_SELECT,
+  fetchUserBacktestHistory,
+  formatBacktestListItem,
+} from "@/lib/server/backtest-history-list";
 
 function formatItem(item: any) {
   return {
@@ -20,32 +24,9 @@ function formatItem(item: any) {
   };
 }
 
-// 목록 카드는 result(자산곡선·전체 거래내역이 담긴 대용량 JSON blob)를 쓰지 않는다.
-// 50개 기록의 result까지 읽어 파싱/전송하면 응답이 수 MB로 불어나 로딩이 크게 지연되므로,
-// 목록 조회에서는 카드가 실제로 쓰는 컬럼만 select 하고 result는 제외한다.
-const LIST_SELECT = {
-  id: true,
-  createdAt: true,
-  strategyName: true,
-  universe: true,
-  conditions: true,
-  metrics: true,
-} as const;
-
-function formatListItem(item: any) {
-  return {
-    id: item.id,
-    timestamp: item.createdAt.getTime(),
-    strategyName: item.strategyName,
-    universe: item.universe,
-    conditions: JSON.parse(item.conditions),
-    metrics: JSON.parse(item.metrics),
-  };
-}
-
 // 저장 목록: 로그인 사용자가 자신의 목록에 담은 기록만 반환한다(UserBacktestHistory 조인).
 // 비인증/테스트(userId=null)는 레거시 전역(isVisible) 조회로 폴백한다.
-// 원격 DB 왕복을 줄이기 위해 토큰은 DB 없이 해석하고 상태 검증과 조회를 병렬로 실행한다.
+// 조회 본체는 /backtest 서버 렌더와 공유한다(lib/server/backtest-history-list).
 export async function GET() {
   try {
     const userId = await getSessionUserId();
@@ -58,23 +39,12 @@ export async function GET() {
         where: { isVisible: true },
         orderBy: { createdAt: "desc" },
         take: 50,
-        select: LIST_SELECT,
+        select: BACKTEST_LIST_SELECT,
       });
-      return NextResponse.json(history.map(formatListItem));
+      return NextResponse.json(history.map(formatBacktestListItem));
     }
 
-    const [, links] = await Promise.all([
-      assertActiveUser(userId),
-      prisma.userBacktestHistory.findMany({
-        where: { userId },
-        orderBy: { savedAt: "desc" },
-        take: 50,
-        select: { BacktestHistory: { select: LIST_SELECT } },
-      }),
-    ]);
-    return NextResponse.json(
-      links.map((link) => formatListItem(link.BacktestHistory))
-    );
+    return NextResponse.json(await fetchUserBacktestHistory(userId));
   } catch (error) {
     if (isUnauthorizedAccessError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

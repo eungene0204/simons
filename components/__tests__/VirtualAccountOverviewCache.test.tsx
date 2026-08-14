@@ -47,7 +47,7 @@ describe("VirtualAccountOverview cache", () => {
 
     render(<VirtualAccountOverview />);
 
-    expect(screen.queryByText("계좌를 불러오는 중입니다.")).not.toBeInTheDocument();
+    expect(screen.queryByText("불러오는 중...")).not.toBeInTheDocument();
     expect(screen.getByText("캐시 계좌")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/virtual-account");
   });

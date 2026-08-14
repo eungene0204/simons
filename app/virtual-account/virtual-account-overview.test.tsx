@@ -85,7 +85,7 @@ describe("VirtualAccountOverview navigation", () => {
     });
   });
 
-  it("shows only a centered indicator while loading the initial account list", () => {
+  it("shows a centered indicator with a loading message while loading the initial account list", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
 
     render(<VirtualAccountOverview />);
@@ -98,7 +98,7 @@ describe("VirtualAccountOverview navigation", () => {
       "items-center",
       "justify-center"
     );
-    expect(screen.queryByText("계좌를 불러오는 중입니다.")).not.toBeInTheDocument();
+    expect(screen.getByText("불러오는 중...")).toBeInTheDocument();
     expect(screen.queryByTestId("virtual-account-overview-root")).not.toBeInTheDocument();
     expect(screen.queryByTestId("virtual-account-simulation-notice")).not.toBeInTheDocument();
   });

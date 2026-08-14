@@ -168,9 +168,10 @@ export default function VirtualAccountOverview() {
       <div
         role="status"
         aria-label="가상계좌 불러오는 중"
-        className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] items-center justify-center"
+        className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] flex-col items-center justify-center gap-3"
       >
         <Spinner size={32} className="animate-spin text-gray-500" aria-hidden="true" />
+        <p className="text-sm font-bold text-gray-500">불러오는 중...</p>
       </div>
     );
   }
