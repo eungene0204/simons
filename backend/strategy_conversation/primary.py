@@ -451,6 +451,28 @@ def _reported_features_echo_input(features: List[str], user_input: str) -> bool:
     return any(_compact(f or "") == compact_input for f in features)
 
 
+def _covered_by_pending_texts(feature: str, pending_conditions: Optional[List[dict]]) -> bool:
+    """LLM 미지원 보고 항목이 값-대기 조건의 사용자 표현(source_text)을 담고 있는가.
+
+    값-대기 채널의 중복 제외를 라벨로만 하면 부족하다 — LLM이 unsupported_features에
+    같은 조건을 사용자 표현("매출 성장률이 양호하고")으로 이중 기입하면 라벨
+    ("매출액증가율")과 표기가 달라 새고, 값 확인을 기다리는 조건이 "지원하지 않아 반영
+    못했어요"라는 거짓 안내를 받는다(실측 2026-08-14). 판정은 표기 포함 대조뿐이다
+    (LLM 출력 ↔ 자기 응답 채널 — 원문을 읽지 않는다). 4자 미만 조각은 우연 일치가
+    잦아 제외한다.
+    """
+    from engine.nl_parser import _compact
+
+    compact_feature = _compact(feature or "")
+    if not compact_feature:
+        return False
+    for p in pending_conditions or []:
+        text = _compact(str((p or {}).get("source_text") or ""))
+        if len(text) >= 4 and text in compact_feature:
+            return True
+    return False
+
+
 def _humanize_features(features: List[str]) -> List[str]:
     """내부 식별자(strategy_evaluation 등)만 사람이 읽는 라벨로 치환한다. 그 외(FCF·
     technical.beta 등)는 기존 표기를 그대로 둔다 — 매핑에 없는 토큰까지 뭉뚱그린 표현으로
@@ -671,12 +693,38 @@ def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
     ② trading_value 오분류: '거래량이 평균보다 늘어난' 같은 동적 급증 표현을 LLM이 종종
        거래대금 임계 신호(trading_value=절대 억원 값 필요)로 오분류(프롬프트 규칙 5-2가
        1차 방어) → 인용이 급증 표현이면 volume_spike(임계값 불필요)로 고쳐 헛질문을 막는다.
+       단 인용의 주어가 '거래대금'(금액)이면 거래량 급증으로의 근사는 의미가 옮겨진다 —
+       조용히 바꾸지 않고 안내를 반환한다(규칙 5-2의 배수 표현 안내와 같은 취지,
+       2026-08-14: '거래대금이 30일 평균보다 높은'이 안내 없이 volume_spike로 나감).
+
+    ③ 매도 선언 개념의 진입 오배치: concept.dead_cross류(선언이 '매도 신호'·crosses_below)를
+       LLM이 entry_conditions에 앉히는 드리프트(실측 2026-08-14, '반도체 업종 골든크로스'
+       예시 — 명시한 매도 규칙이 사라지고 진입에 동일 매수 신호 2개가 남았다. 프롬프트
+       예시 3-0-1이 1차 방어지만 temp 0에서도 배치가 흔들린다) → 청산이 비어 있으면
+       선언대로 청산 레인으로 옮긴다(연산자 덮어쓰기와 같은 선언 기반 정규화 — 원문을
+       읽지 않는다). 단 인용에 매수 계열 표기가 있으면 역발상 진입 발화이므로 옮기지 않는다
+       (인용 판독은 § 3-2 — ②와 같은 형태).
+
+    반환값은 사용자에게 보일 안내 문구 목록이다(호출부가 notices에 합친다).
     """
     from engine.nl_parser import _compact, _mentions_volume_surge
 
+    notices: List[str] = []
     strategy = intent.strategy
     if strategy is None:
-        return
+        return notices
+    _SELL_DECLARED_CONCEPTS = {"concept.dead_cross", "concept.macd_dead_cross"}
+    _BUY_CUES = ("매수", "진입", "편입", "사고", "사줘", "사면", "삽")
+    if not strategy.exit_conditions:
+        relocated = []
+        for cond in list(strategy.entry_conditions):
+            quote = cond.source_text or ""
+            if (cond.factor in _SELL_DECLARED_CONCEPTS
+                    and not any(cue in quote for cue in _BUY_CUES)):
+                strategy.entry_conditions.remove(cond)
+                relocated.append(cond)
+        if relocated:
+            strategy.exit_conditions = list(strategy.exit_conditions) + relocated
     for cond in list(strategy.entry_conditions) + list(strategy.exit_conditions):
         spec = REGISTRY.get(cond.factor)
         if spec is None:
@@ -687,9 +735,62 @@ def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
                 cond.parameters["lookback_period"] = float(lookback)
         elif spec.id in ("technical.trading_value", "fundamental.trading_value"):
             if cond.source_text and _mentions_volume_surge(_compact(cond.source_text)):
+                if "거래대금" in cond.source_text:
+                    notices.append(
+                        f"'{cond.source_text}' 조건은 거래대금의 평균 대비 비교를 지원하지"
+                        " 않아 거래량 급증 조건으로 반영했어요."
+                    )
                 cond.factor = "technical.volume_spike"
                 cond.operator = "crosses_above"
                 cond.value = None
+    return notices
+
+
+def _quote_has_echo(quote: str, compact_input: str) -> bool:
+    """인용의 표기 에코 — 전체 포함이 우선, 실패 시 4자 연속 조각 존재로 판정한다.
+
+    부분 에코를 두는 이유: LLM이 인용을 가볍게 다듬는 경우(조사 생략·어순 변화)에 전체
+    포함이 깨진다 — 진짜 조건을 오살하면 이 가드가 막으려는 '조용한 소실'을 스스로
+    일으킨다. 완전 조작 인용은 입력과 4자 연속 조각조차 공유하지 않는다(실측 2026-08-14:
+    '거래대금 50억 원 이상인 종목 중' vs 원문 — 공유 조각 최대 3자 '종목중').
+    """
+    if quote in compact_input:
+        return True
+    return any(quote[i:i + 4] in compact_input for i in range(len(quote) - 3))
+
+
+def _drop_fabricated_conditions(intent: StrategyIntent, user_input: str) -> List[str]:
+    """create 턴 조건의 출처 인용 대조 — 인용이 입력에 없는 조건은 환각으로 보고 뺀다.
+
+    수정 패치 환각 게이트 ①(출처 인용 대조)과 같은 판정이다(§ 3-1 대조 — 어휘도 의미도
+    판단하지 않고, LLM의 출처 주장(source_text)이 실제 입력에 존재하는지만 본다).
+    실측(2026-08-14, 프롬프트 v3.7 재검증): '반도체 업종 골든크로스' 예시에서 인터프리터가
+    말한 적 없는 '거래대금 50억 원 이상' 조건을 인용문까지 지어내 조용히 추가했다(프롬프트
+    예시 코퍼스 유출). 인용이 없는 조건은 대조 불가라 건드리지 않는다(완결성 검증이 묻는다).
+    빼면서 안내를 반환한다 — 조용한 임의 변형 방지가 목적이므로 침묵 제거는 모순이다.
+    """
+    from engine.nl_parser import _compact
+
+    notices: List[str] = []
+    strategy = intent.strategy
+    if strategy is None:
+        return notices
+    compact_input = _compact(user_input or "")
+    if not compact_input:
+        return notices
+    for role in ("entry_conditions", "exit_conditions"):
+        kept = []
+        for cond in getattr(strategy, role):
+            quote = _compact(cond.source_text or "")
+            if quote and not _quote_has_echo(quote, compact_input):
+                notices.append(
+                    f"'{cond.source_text}' 조건은 요청 문장에서 확인되지 않아 반영하지"
+                    " 않았어요."
+                )
+                continue
+            kept.append(cond)
+        setattr(strategy, role, kept)
+    return notices
 
 
 # ── 관측 로그 헬퍼 — dev 콘솔 [LLM-INTERPRETER] 흐름 추적용 ────────────────────
@@ -891,7 +992,10 @@ def run_primary_parse(
                        str(exc)[:200])
         return None
 
-    _fill_deterministic_condition_params(result.intent)
+    repair_notices = _fill_deterministic_condition_params(result.intent)
+    # 출처 인용 대조(환각 조건 가드) — 파라미터 보정 뒤, 검증 전에 뺀다(환각 조건이
+    # 완결성 검증에 들어가면 지어낸 조건의 값을 사용자에게 되묻는 사고가 된다).
+    repair_notices += _drop_fabricated_conditions(result.intent, user_input)
     # 검증 전 스냅샷: capability validator는 정본 목록 밖 섹터 표현('이재명 관련주')을
     # 미지원으로 판정하며 universe.sectors에서 제거한다. term-in 해석 체인(§ 11-3)의
     # 입력은 'LLM이 뽑은 표현'이므로 제거 전 값을 보존해야 한다 — 검증 후 값을 읽으면
@@ -944,7 +1048,7 @@ def run_primary_parse(
                     validated.intent)
         return None
 
-    notices: List[str] = list(report.warnings)
+    notices: List[str] = list(report.warnings) + repair_notices
     try:
         compiled = call_tool("compile_strategy", intent=validated, report=report,
                              user_input=user_input, partial=not report.is_valid)
@@ -1264,6 +1368,9 @@ def run_primary_parse(
         leftover_features = [
             f for f in _humanize_features(report.unsupported_features)
             if f and f not in covered_text
+            # 값-대기 조건의 사용자 표현을 담은 이중 기입은 거짓 미반영 안내가 된다 —
+            # source_text 포함 대조로 걷어낸다(2026-08-14, _covered_by_pending_texts).
+            and not _covered_by_pending_texts(f, pending_conditions)
             and not field_path_rx.search(f)
             and _compact(f) not in concept_ids
             and not any(rx.search(_compact(f)) for _, rx in _UNSUPPORTED_CONCEPT_RE)
@@ -2896,7 +3003,7 @@ def run_primary_modification(
         intent="MODIFY_STRATEGY", strategy=patched_spec,
         confidence=intent.confidence, unsupported_features=intent.unsupported_features,
     )
-    _fill_deterministic_condition_params(modify_intent)
+    repair_notices = _fill_deterministic_condition_params(modify_intent)
     validation = call_tool("validate_intent", intent=modify_intent)
     validated, report = validation.intent, validation.report
     _log_llm("✓ 검증", (
@@ -3004,7 +3111,7 @@ def run_primary_modification(
     # 그 테마의 상장사를 찾는 것은 지식 조회다. 이 체인이 없으면 인터프리터가 종목코드를
     # 스스로 알아내야 하는 처지가 되어, 모르는 테마의 교체 요청이 무변경으로 끝난다
     # (2026-07-30 "쿠팡 관련주로 수정해줘" 사고).
-    notices = list(report.warnings)
+    notices = list(report.warnings) + repair_notices
     if (universe_changed and prev.theme_universe
             and set(parsed.target_symbols) <= set(prev.target_symbols)):
         # 유니버스를 바꾸는 턴인데 남은 종목이 전부 이전 테마의 목록이다 — 지정 종목이

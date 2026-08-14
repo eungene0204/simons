@@ -73,7 +73,10 @@ _OLLAMA_MAX_ATTEMPT_TIMEOUT_S = 240  # 콜드스타트 단일 요청(VRAM 로드
 _OLLAMA_WARMUP_BUDGET_S = 200.0  # 본문 없는 GET으로 콜드 컨테이너를 깨우는 예산
 # 코치 system prompt(~5.5KB)+user+context는 ~5800토큰이라 ollama 기본 num_ctx(4096)를 넘어
 # "exceeds the available context size" 400을 낸다(프로덕션 실측). 응답·후속대화 여유까지 커버.
-_OLLAMA_NUM_CTX = 16384
+# 2026-08-14 16384→20480: 인터프리터 프롬프트(온톨로지 주입 포함)가 15,682토큰으로 실측돼
+# 출력 여유가 ~700토큰뿐 — 전체 StrategyIntent JSON이 잘려 복구 재시도까지 실패했다.
+# 변경 시 parse_validator._VALIDATION_NUM_CTX와 반드시 같이 바꿀 것(러너 재고정 사고 방지).
+_OLLAMA_NUM_CTX = 20480
 # 콜드스타트 일시 400과 구별할 영구 400(설정 오류) 시그니처 — 이런 본문은 재시도하지 않는다.
 _OLLAMA_PERMANENT_400_SIGNATURES = ("model is required", "not found", "no such model")
 

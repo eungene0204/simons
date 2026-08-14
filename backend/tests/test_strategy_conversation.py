@@ -775,6 +775,143 @@ def test_absolute_trading_value_threshold_not_reclassified():
     assert intent.strategy.entry_conditions[0].value == 100
 
 
+def test_trading_value_average_comparison_converts_with_notice():
+    # 사고(2026-08-14, 예시 '매출성장·PBR 추세 조건'): '최근 거래대금이 30일 평균보다 높은'이
+    # 안내 없이 volume_spike(거래량 급증)로 반영됐다 — 금액(거래대금)→수량(거래량) 근사는
+    # 의미가 옮겨지므로 조용히 바꾸지 않고 안내를 반환한다(프롬프트 규칙 5-2의 배수 표현
+    # 안내와 같은 취지). 반환된 안내는 호출부가 notices에 합쳐 사용자에게 노출한다.
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[{"factor": "fundamental.trading_value", "operator": ">",
+                           "value": None, "source_text": "최근 거래대금이 30일 평균보다 높은"}],
+    ))
+    notices = _fill_deterministic_condition_params(intent)
+    assert intent.strategy.entry_conditions[0].factor == "technical.volume_spike"
+    assert any("거래대금" in n and "거래량 급증" in n for n in notices)
+
+
+def test_pending_source_text_double_report_covered():
+    # 사고(2026-08-14, '매출성장·PBR 추세 조건' 예시): LLM이 값-대기 조건을
+    # unsupported_features에도 사용자 표현으로 이중 기입 — 라벨("매출액증가율")과 표기가
+    # 달라 중복 제외가 새고, 값 확인을 기다리는 조건이 "지원하지 않아 반영 못했어요"라는
+    # 거짓 안내를 받았다. source_text 포함 대조로 걷어낸다.
+    from strategy_conversation.primary import _covered_by_pending_texts
+
+    pending = [
+        {"role": "entry", "label": "매출액증가율", "source_text": "매출 성장률이 양호하고"},
+        {"role": "entry", "label": "PBR(주가순자산비율)", "source_text": "PBR이 과도하게 높지 않은"},
+    ]
+    assert _covered_by_pending_texts("매출 성장률이 양호하고, PBR이 과도하게 높지 않은", pending)
+    assert _covered_by_pending_texts("매출 성장률이 양호하고", pending)
+    # 값-대기 채널이 다루지 않는 진짜 미지원 개념은 계속 안내돼야 한다.
+    assert not _covered_by_pending_texts("파동이론 저점", pending)
+    assert not _covered_by_pending_texts("", pending)
+
+
+def test_entry_misplaced_dead_cross_relocated_to_exit():
+    # 사고(2026-08-14, '반도체 업종 골든크로스' 예시): "데드크로스가 나오면 매도"를 LLM이
+    # entry_conditions에 앉혀 명시한 매도 규칙이 사라지고 진입에 동일 매수 신호 2개가 남았다.
+    # dead_cross는 선언('매도 신호'·crosses_below)이 정본 — 청산이 비어 있으면 선언대로
+    # 청산 레인으로 옮긴다(연산자 덮어쓰기와 같은 선언 기반 정규화).
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "concept.golden_cross", "source_text": "골든크로스가 나오면"},
+            {"factor": "concept.dead_cross", "source_text": "데드크로스가 나오면"},
+        ],
+    ))
+    _fill_deterministic_condition_params(intent)
+    assert [c.factor for c in intent.strategy.entry_conditions] == ["concept.golden_cross"]
+    assert [c.factor for c in intent.strategy.exit_conditions] == ["concept.dead_cross"]
+
+
+def test_contrarian_dead_cross_entry_stays():
+    # 인용에 매수 계열 표기가 있으면 역발상 진입 발화 — 옮기지 않는다.
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "concept.dead_cross", "source_text": "데드크로스가 나오면 매수"},
+        ],
+    ))
+    _fill_deterministic_condition_params(intent)
+    assert [c.factor for c in intent.strategy.entry_conditions] == ["concept.dead_cross"]
+    assert intent.strategy.exit_conditions == []
+
+
+def test_dead_cross_entry_kept_when_exit_present():
+    # 청산이 이미 있으면 배치가 모호하지 않다 — 진입의 dead_cross를 건드리지 않는다.
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "concept.dead_cross", "source_text": "데드크로스가 나오면"},
+        ],
+        exit_conditions=[
+            {"factor": "technical.ma_crossover", "operator": "crosses_below",
+             "parameters": {"short_period": 1, "long_period": 20},
+             "source_text": "20일선 이탈 시 매도"},
+        ],
+    ))
+    _fill_deterministic_condition_params(intent)
+    assert [c.factor for c in intent.strategy.entry_conditions] == ["concept.dead_cross"]
+    assert [c.factor for c in intent.strategy.exit_conditions] == ["technical.ma_crossover"]
+
+
+def test_fabricated_condition_dropped_with_notice():
+    # 사고(2026-08-14, 프롬프트 v3.7 재검증): '반도체 업종 골든크로스' 예시에서 인터프리터가
+    # 말한 적 없는 '거래대금 50억 원 이상' 조건을 인용문까지 지어내 조용히 추가했다(프롬프트
+    # 예시 코퍼스 유출). 출처 인용 대조(수정 환각 게이트 ①과 동일 판정)로 빼고 안내한다.
+    from strategy_conversation.primary import _drop_fabricated_conditions
+
+    user_input = ("반도체 관련주만 모아서 간단하게 실험해 보고 싶어요. 반도체 업종 종목 중 "
+                  "골든크로스가 나오면 매수하고 데드크로스가 나오면 매도해 주세요.")
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "concept.golden_cross", "source_text": "골든크로스가 나오면 매수"},
+            {"factor": "fundamental.trading_value", "operator": ">=", "value": 50,
+             "source_text": "거래대금 50억 원 이상인 종목 중"},
+        ],
+    ))
+    notices = _drop_fabricated_conditions(intent, user_input)
+    factors = [c.factor for c in intent.strategy.entry_conditions]
+    assert factors == ["concept.golden_cross"]
+    assert any("거래대금 50억" in n for n in notices)
+
+
+def test_paraphrased_quote_condition_survives_echo_guard():
+    # 인용을 가볍게 다듬은 진짜 조건(조사 생략 등)은 4자 연속 조각 에코로 살아남는다 —
+    # 오살하면 이 가드가 막으려는 '조용한 소실'을 가드가 일으킨다. 인용 없는 조건도 불변.
+    from strategy_conversation.primary import _drop_fabricated_conditions
+
+    user_input = "골든크로스가 나오면 사고 싶어요"
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "concept.golden_cross", "source_text": "골든크로스 발생 시 매수"},
+            {"factor": "technical.rsi", "operator": "<=", "value": 30, "source_text": None},
+        ],
+    ))
+    notices = _drop_fabricated_conditions(intent, user_input)
+    assert [c.factor for c in intent.strategy.entry_conditions] == [
+        "concept.golden_cross", "technical.rsi"]
+    assert notices == []
+
+
+def test_volume_quote_reclassification_stays_silent():
+    # 인용의 주어가 '거래량'이면 volume_spike가 곧 그 의미다 — 안내를 붙이지 않는다.
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[{"factor": "technical.trading_value", "operator": ">",
+                           "value": None, "source_text": "거래량이 최근 평균보다 늘어난"}],
+    ))
+    notices = _fill_deterministic_condition_params(intent)
+    assert intent.strategy.entry_conditions[0].factor == "technical.volume_spike"
+    assert notices == []
+
+
 def test_conflicting_conditions_detected():
     intent = StrategyIntent.model_validate(_full_intent_dict(
         entry_conditions=[
@@ -1183,7 +1320,10 @@ def _run_primary_with(monkeypatch, intent_data, user_input="테스트", unreflec
 
 
 def test_primary_ready_strategy_compiles_without_questions(monkeypatch):
-    result = _run_primary_with(monkeypatch, _full_intent_dict())
+    # user_input은 조건 인용("PER 10 이하")을 포함해야 한다 — 출처 인용 대조 가드(2026-08-14)가
+    # 입력에 없는 인용의 조건을 환각으로 보고 빼기 때문(운영에선 인용이 발화에서 나온다).
+    result = _run_primary_with(monkeypatch, _full_intent_dict(),
+                               "KOSPI에서 PER 10 이하 20종목 매월 리밸런싱, 손절 8%")
     assert result is not None
     assert result["parsed"].fundamental_filters[0].metric == "per"
     assert result["clarification_question"] is None
