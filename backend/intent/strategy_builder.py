@@ -20,6 +20,10 @@ from typing import Callable, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
+# 질문 문구·칩의 단일 정본. 빌더가 자기 사본을 들고 있으면 같은 질문이 레인마다
+# 갈린다(2026-08-16 통합 — strategy_slots 모듈 주석 참조).
+from engine import strategy_slots
+
 logger = logging.getLogger("strategy_builder")
 
 Universe = str  # "KOSPI" | "KOSDAQ" | "KOSPI200" | "KOSPI_KOSDAQ"
@@ -1428,9 +1432,57 @@ _REBAL_PHRASE = {
 }
 
 
-# 단일 종목 모드의 전략 유형 선택지(횡단면 제외 — 시계열 진입 방식만). 칩 텍스트는
-# _parse_strategy_type이 그대로 해석할 수 있는 어휘여야 한다.
-_SINGLE_ASSET_TYPE_CHIPS = ["골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등"]
+# ── 매수 조건 정본 칩 = 값 결속(2026-08-16) ──────────────────────────────────────
+# 빌더도 되묻기 게이트와 같은 매수 조건 질문을 쓴다. 그 칩의 뜻은 **발행 시점에 정해져
+# 있으므로 클릭을 원문처럼 다시 해석하지 않는다**(칩=값 결속 계약). 재해석이 실제로
+# 어긋났다: 'MACD 골든크로스 매수'가 '골든크로스'에 먼저 걸려 golden_cross로, '골든크로스
+# (5일/20일)'의 5가 이동평균이 아니라 모멘텀 기준 기간으로, 'PER 10 이하'는 아무 유형에도
+# 안 걸려 같은 질문이 반복됐다. 표기가 겹치는 칩을 정규식으로 가려내려 하면 어휘를 계속
+# 덧붙이게 되고(대원칙 1이 금지하는 방향), 그래도 겹침은 남는다.
+#
+# 값은 게이트 레인의 결속(프론트 deterministicConditionFlow)과 **같은 전략**이 되도록
+# 맞춘다 — 같은 칩을 눌렀는데 경로에 따라 다른 전략이 나오면 통합의 의미가 없다. 그래서
+# 게이트가 엔진 기본값에 맡기는 파라미터(이동평균 종류·RSI 기간·OBV 기간)도 그 기본값으로
+# 함께 결속한다(빌더가 뒤이어 되묻지 않게 하는 효과도 같다).
+# 재무 조건 칩은 빌더 상태가 표현할 수 없어 자유 서술(custom) 진입 규칙으로 넘긴다 —
+# 프론트가 그 문장을 파서 레인으로 보내 정상 처리한다.
+_ENTRY_CHIP_PATCHES: dict[str, dict] = {
+    "골든크로스(5일/20일) 발생 시 매수": {
+        "strategy_type": "golden_cross", "ma_kind": "sma", "ma_short": 5, "ma_long": 20,
+    },
+    "RSI 30 이하에서 매수": {
+        "strategy_type": "rsi", "rsi_period": 14, "rsi_oversold": 30.0, "rsi_overbought": 70.0,
+    },
+    "MACD 골든크로스 매수": {"strategy_type": "macd", "macd_mode": "crossover"},
+    "볼린저밴드 하단 터치 시 매수": {"strategy_type": "bollinger"},
+    "20일 고점 돌파 시 매수": {
+        "strategy_type": "breakout", "lookback_days": 20, "lookback_label": "20일",
+    },
+    "거래량 급증 시 매수": {"strategy_type": "volume_spike", "volume_period": 20},
+    "최근 3개월 수익률 상위 매수": {
+        "strategy_type": "momentum", "lookback_days": 63, "lookback_label": "3개월",
+    },
+    "PER 10 이하": {"strategy_type": "custom", "entry_rule": "PER 10 이하"},
+    "ROE 15% 이상": {"strategy_type": "custom", "entry_rule": "ROE 15% 이상"},
+}
+
+
+def _entry_chip_patch(text: str, state: BuilderState) -> Optional[dict]:
+    """정본 매수 조건 칩이면 결속된 값(BuilderState 패치), 아니면 None.
+
+    정확 일치만 본다 — 부분 일치를 허용하면 그것이 곧 원문 해석이다.
+    그 유니버스·전략 형태에 성립하지 않아 애초에 내놓지 않은 칩은 결속하지 않는다.
+    """
+    chip = (text or "").strip()
+    patch = _ENTRY_CHIP_PATCHES.get(chip)
+    if patch is None:
+        return None
+    allowed = strategy_slots.entry_chips(
+        [state.universe] if state.universe else None,
+        cross_sectional=state.single_symbol is None,
+    )
+    return dict(patch) if chip in allowed else None
+
 
 # 프로파일 카테고리 → (선택지 라벨, 대응 신호 통계 키). reason은 발생 횟수 사실만 담는다.
 _SINGLE_ASSET_CATEGORY_BULLETS: tuple[tuple[str, str, str], ...] = (
@@ -1446,6 +1498,12 @@ def _single_asset_strategy_question(
 ) -> tuple[str, list[str]]:
     """단일 종목의 진입 방식 질문. 가능하면 종목 프로파일의 신호 발생 횟수를 근거로
     선택지를 설명한다(수익 보장·우열 표현 없음). 프로파일 조회 실패 시 정적 문구."""
+    template, _ = strategy_slots.builder_question("strategy_type.single_asset")
+    # 선택지는 매수 조건 정본에서 횡단면 항목(여러 종목 비교 랭킹)만 뺀 것 — 단일 종목
+    # 전용 목록을 따로 두면 그 순간 다시 사본이다.
+    chips = strategy_slots.entry_chips(
+        [state.universe] if state.universe else None, cross_sectional=False,
+    )
     label = state.single_label or state.single_symbol or "선택한 종목"
     bullets: list[str] = []
     try:  # 지연 import + 방어 — 프로파일이 없어도 질문은 항상 가능해야 한다
@@ -1467,12 +1525,8 @@ def _single_asset_strategy_question(
         bullets = [f"• {text}" for _, text, _ in _SINGLE_ASSET_CATEGORY_BULLETS]
     # '직접 입력' 칩은 프론트가 공통으로 붙이므로 여기서 자유 서술 항목을 중복 노출하지
     # 않는다('직접 설명하기'+'직접 입력' 이중 버튼 문제).
-    msg = (
-        prefix + f"{label} 단일 종목 전략이니 어떤 조건에서 사고팔지를 정하면 돼요. "
-        "어떤 진입 방식을 사용할까요?\n\n"
-        + "\n".join(bullets)
-    )
-    return (msg, list(_SINGLE_ASSET_TYPE_CHIPS))
+    msg = prefix + template.format(label=label) + "\n\n" + "\n".join(bullets)
+    return (msg, chips)
 
 
 # 자유 서술 진입 조건으로 인정할 최소 큐(지표·비교·매매 어휘 또는 숫자). 인사말·잡담이
@@ -1506,114 +1560,54 @@ def next_question(
     field = required_missing(state)
     prefix = _ack_prefix(state, just_filled)
 
+    # 유니버스·보유 수·리밸런싱은 되묻기 게이트도 묻는 같은 질문이다 — 진행 골격 슬롯
+    # 정본(engine.strategy_slots)에서 그대로 가져와 두 레인이 같은 문구·같은 칩을 쓴다.
+    # 빌더에만 있는 세부 질문도 문구는 같은 모듈(BUILDER_QUESTIONS)이 authoring한다.
+    # '직접 입력'은 답이 아니라 채팅창을 다시 여는 UI 토글이라 프론트가 붙인다
+    # (withBuilderNavigationSuggestions) — 어느 표에도 넣지 않는다.
     if field == "universe":
-        return (
-            prefix + "어떤 시장을 대상으로 할까요?",
-            ["코스피", "코스닥", "코스피200", "코스피·코스닥 전체", "ETF"],
-        )
+        question, chips = strategy_slots.slot_question(strategy_slots.UNIVERSE)
+        return (prefix + question, chips)
     if field == "listing_period":
-        return (prefix + "어느 시기에 상장한 종목을 대상으로 할까요?", _listing_period_chips())
+        question, _ = strategy_slots.builder_question("listing_period")
+        return (prefix + question, _listing_period_chips())
     if field == "strategy_type":
-        # 단일 종목 모드: 종목 선별형 유형(모멘텀 랭킹·재무 스크리닝 가치주)을 빼고,
-        # 가능하면 종목 프로파일의 신호 발생 통계를 근거로 선택지를 설명한다.
+        # 단일 종목 모드: 대상이 한 종목이라 질문 자체가 다르다(종목 프로파일의 신호 발생
+        # 통계를 근거로 설명) — 선택지는 아래와 같은 정본에서 횡단면 항목만 뺀다.
         if state.single_symbol is not None:
             return _single_asset_strategy_question(state, prefix)
-        # ETF 유니버스: 기업 재무지표가 없어 가치 전략(PBR/ROE)은 제시하지 않는다.
-        value_bullet = (
-            "" if state.universe == "ETF"
-            else "• PBR 낮고 ROE 높은 저평가 우량주를 고르는 가치 전략\n"
+        # 되묻기 게이트가 묻는 '매수 조건'과 같은 슬롯이다 — 같은 질문·같은 칩을 쓴다.
+        question, _ = strategy_slots.slot_question(strategy_slots.ENTRY)
+        chips = strategy_slots.entry_chips(
+            [state.universe] if state.universe else None
         )
-        msg = (
-            prefix + ("어떤 방식으로 매매할까요?\n\n" if state.universe == "ETF"
-                      else "어떤 방식으로 종목을 고를까요?\n\n")
-            + "• 최근 강한 종목을 추종하는 모멘텀 전략\n"
-            "• 단기 이동평균이 장기 이동평균을 뚫는 골든크로스 전략\n"
-            "• MACD가 시그널선을 돌파할 때 잡는 전략\n"
-            "• 전고점(신고가)을 돌파할 때 잡는 돌파 전략\n"
-            "• 거래량 흐름(OBV)이 상승 전환한 종목을 찾는 전략\n"
-            "• RSI 과매도에서 반등을 노리는 전략\n"
-            + value_bullet +
-            "• 직접 아이디어를 설명하기"
-        )
-        chips = ["모멘텀", "골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등"]
-        if state.universe != "ETF":
-            chips.append("저평가 가치주")
-        # "직접 설명하기"는 자유 서술(custom) 진입로 — 선택 시 entry_rule 질문(칩 없음)으로
-        # 넘어가 프론트가 채팅창을 다시 보여준다. 가장 오른쪽 칩으로 노출한다.
-        return (msg, chips + ["직접 설명하기"])
+        return (prefix + question, chips)
     if field == "lookback_days":
-        if state.strategy_type == "breakout":
-            return (prefix + "며칠 신고가(박스권 상단) 돌파를 기준으로 볼까요?", ["20일", "60일", "120일"])
-        return (prefix + "최근 몇 개월 수익률을 기준으로 볼까요?", ["1개월", "3개월", "6개월"])
+        question, chips = strategy_slots.builder_question(
+            "lookback_days.breakout" if state.strategy_type == "breakout" else "lookback_days"
+        )
+        return (prefix + question, chips)
     # ── 전략별 특화 파라미터 질문(초보자용 기본값 제안) ──────────────────────────────
-    if field == "rsi_period":
-        return (prefix + "RSI를 며칠 기준으로 계산할까요?", ["14일 (기본)", "9일", "21일", "직접 입력"])
-    if field == "rsi_bounds":
-        return (
-            prefix + "과매도·과매수 기준을 정해 주세요. (매수=과매도 아래, 매도=과매수 위)",
-            ["30 / 70 (기본)", "25 / 75", "35 / 65", "직접 입력"],
-        )
-    if field == "ma_kind":
-        return (prefix + "어떤 이동평균을 쓸까요?", ["단순(SMA)", "지수(EMA)"])
-    if field == "ma_periods":
-        return (
-            prefix + "단기·장기 이동평균 기간을 정해 주세요. (단기가 장기를 상향 돌파=매수)",
-            ["5일 / 20일 (기본)", "10일 / 60일", "20일 / 120일", "직접 입력"],
-        )
-    if field == "macd_mode":
-        return (
-            prefix + "MACD 신호를 어떻게 잡을까요?",
-            ["시그널선 교차 (기본)", "제로선 돌파"],
-        )
-    if field == "cci_params":
-        return (
-            prefix + "CCI 기준값을 정해 주세요. (매수=-기준값 아래, 매도=+기준값 위, 기간 기본 14)",
-            ["±100 (기본)", "±150", "직접 입력"],
-        )
-    if field == "volume_period":
-        return (prefix + "거래량 흐름(OBV) 평균을 며칠 기준으로 볼까요?", ["20일 (기본)", "60일", "직접 입력"])
-    if field == "value_params":
-        return (
-            prefix + "저평가 기준을 정해 주세요.",
-            ["PBR 1 이하 · ROE 10 이상 (기본)", "PBR 0.8 · ROE 15", "직접 입력"],
-        )
+    if field in ("rsi_period", "rsi_bounds", "ma_kind", "ma_periods", "macd_mode",
+                 "cci_params", "volume_period", "value_params", "entry_rule", "risk"):
+        question, chips = strategy_slots.builder_question(field)
+        return (prefix + question, chips)
     if field == "filters":
-        chips = ["EMA200 위에서만", "거래대금 100억 이상"]
-        if state.strategy_type in ("bollinger", "mean_reversion"):
-            chips.append("RSI 30 이하일 때만")  # 평균회귀 매수에 과매도 확인을 더한다
-        chips += ["없음", "직접 입력"]
-        return (
-            prefix + "지금 조건만 쓰면 횡보장에서도 매수 신호가 너무 자주 발생할 수 있어요. "
-            "매수에 추가 필터를 넣을까요? 추세·거래대금 조건을 더하면 이런 신호가 걸러져요. "
-            "(여러 개를 함께 말해도 돼요, 예: 'EMA200 위 + 거래대금 100억')",
-            chips,
+        question, chips = strategy_slots.builder_question(
+            "filters.mean_reversion"
+            if state.strategy_type in ("bollinger", "mean_reversion")
+            else "filters"
         )
-    if field == "entry_rule":
-        return (
-            prefix + "어떤 조건에서 매수할지 말씀해 주세요. "
-            "(예: 'RSI가 30 이하로 떨어지면', '20일선이 60일선을 상향 돌파하면')",
-            [],
-        )
+        return (prefix + question, chips)
     if field == "holding_count":
-        # "직접 입력"은 빌더 답변이 아니라 프론트에서 채팅창을 다시 띄우는 토글 칩이다
-        # (제시한 5/10/20개 외의 종목 수를 사용자가 직접 타이핑할 수 있게 한다).
-        if state.strategy_type == "momentum":
-            return (prefix + "상위 몇 개 종목을 보유할까요?", ["5개", "10개", "20개", "직접 입력"])
-        return (prefix + "최대 몇 종목까지 보유할까요?", ["5개", "10개", "20개", "직접 입력"])
+        question, chips = strategy_slots.slot_question(
+            strategy_slots.MAX_POSITIONS,
+            strategy_slots.VARIANT_RANKING if state.strategy_type == "momentum" else None,
+        )
+        return (prefix + question, chips)
     if field == "rebalance_cycle":
-        return (prefix + "얼마나 자주 종목을 교체(리밸런싱)할까요?", ["매주", "매월", "분기마다", "안 함"])
-    if field == "risk":
-        msg = (
-            prefix + "마지막으로 청산 조건을 정해 주세요. 손절·익절·트레일링 스탑·보유기간 중 "
-            "하나 이상을 자유롭게 말씀해 주세요.\n"
-            "(예: '-10% 손절', '20% 익절', '최고가 대비 10% 하락 시 청산', '20일 보유 후 청산')"
-        )
-        # "직접 입력"은 빌더 답변이 아니라 프론트에서 채팅창을 다시 띄우는 토글 칩이다
-        # (청산 조건은 자유 서술을 인라인으로 받으므로 별도 질문 없이 사용자가 직접 타이핑).
-        return (
-            msg,
-            ["-10% 손절", "-10% 손절·20% 익절", "최고가 대비 10% 하락 시 청산", "직접 입력"],
-        )
+        question, chips = strategy_slots.slot_question(strategy_slots.REBALANCING)
+        return (prefix + question, chips)
     # 필드가 다 찼으면 step()이 confirmed로 보내므로 여기 도달하지 않는다.
     return ("", [])
 
@@ -2279,9 +2273,15 @@ def step(
             suggestions=sug, status="collecting",
         )
 
+    # 정본 매수 조건 칩은 결속된 값을 그대로 적용한다 — 클릭을 원문처럼 다시 해석하지
+    # 않는다(_ENTRY_CHIP_PATCHES 주석의 오분류 3종). 파서보다 먼저 본다.
+    entry_chip = _entry_chip_patch(text, state) if expecting == "strategy_type" else None
+
     # 청산 단계는 범위 검증 안내까지 함께 받는다(BF-08) — 그 외 단계는 공용 파서.
     risk_range_notes: List[str] = []
-    if expecting == "risk":
+    if entry_chip is not None:
+        patch = entry_chip
+    elif expecting == "risk":
         patch, risk_range_notes = _parse_risk_ex(text)
     else:
         patch = parse_input(text, state, expecting)

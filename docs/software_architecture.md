@@ -815,6 +815,21 @@ sector_unresolved 우선순위 질문은 불가침)하고 `clarification_priorit
 칩 `['보안주(물리)','보안주(정보)']`)와 슬롯 칩 값 결속(`손절 -10%` → `stop_loss_pct: 10`)
 모두 그대로다.
 
+**질문 문구·표시의 단일 정본(2026-08-16 사용자 지시)**: 칩뿐 아니라 **질문 문장 자체**도
+슬롯 SOT(`engine.strategy_slots`)가 authoring한다. 이전에는 같은 유니버스 질문이 네 벌
+(정본 표 / 프론트 `backtestReadiness.SLOT_PROMPTS` / 빌더 `next_question` / 렌더 직전
+치환표 `makeBuilderQuestionFriendly`)로 갈려 문구도 칩 수도 서로 달랐고, 치환표 때문에
+**표에 적힌 문구가 화면 문구가 아니었다**. 지금은 표가 최종 문구를 그대로 담고, 프론트는
+정본이 생성한 픽스처(`scripts/export_slot_prompts.py` → `__fixtures__/slot-prompts.json`)만
+읽으며, 치환표는 정본 밖 질문의 "…빠져 있습니다." 도입부 제거만 남았다. 표시도 하나로
+모았다 — 빌더 질문이 되묻기 채널(`clarification`)로 나가 게이트 질문과 **같은 박스 카드**로
+그려진다(하단 고정·'대화 종료' 포함). 칩 어휘도 하나다 — 다만 정본 칩을 빌더 정규식에 **다시 통과시키지 않는다**: 표기가 겹쳐
+오분류되고('MACD 골든크로스 매수'→golden_cross), 가려내려면 어휘를 계속 덧붙이게 된다
+(대원칙 1이 금지하는 방향). 칩=값 결속 계약대로 클릭은 발행 시 정해진 값을 적용한다
+(`strategy_builder._ENTRY_CHIP_PATCHES` / 프론트 `deterministicConditionFlow`), 두 결속은
+같은 전략이 되도록 맞춘다. 빌더 상태가 표현할 수 없는 칩(PER·ROE)은 자유 서술 진입
+규칙으로 넘겨 파서 레인이 처리한다. 상세: SRS FR-STR-019w.
+
 **생성 상한 + 잘린 꼬리 제거(2026-08-07)**: 아래 '한 걸음' 계약은 프롬프트라 확률적이라,
 실측 4회 중 1회는 8슬롯 골격을 재발행했다(792·752·681토큰). planner-first 턴에는
 `max_tokens=_PLANNER_FIRST_MAX_TOKENS(512)`로 상한을 걸어 그 낭비를 자른다 — 계약대로면

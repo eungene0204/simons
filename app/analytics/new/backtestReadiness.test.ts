@@ -54,7 +54,7 @@ describe("isBacktestReady", () => {
         "매주 리밸런싱",
         "매월 리밸런싱",
         "분기마다 리밸런싱",
-        "안 함",
+        "리밸런싱 안 함",
       ],
     });
     expect(
@@ -329,9 +329,10 @@ describe("손절·익절 '안 함' 거부", () => {
     ).toBe(true);
   });
 
-  it("손절·익절 질문에 '안 함' 선택지가 있다", () => {
-    for (const field of ["stop_loss", "take_profit"] as const) {
-      expect(promptForSlot(field).suggestions).toContain("안 함");
-    }
+  it("손절·익절 질문에 '안 함' 거부 선택지가 있다", () => {
+    // 정본 칩은 자기완결 표기다("손절 안 함") — 질문과 떨어져 하단에 고정돼도
+    // 무엇을 안 하겠다는 것인지 칩만 보고 알 수 있어야 한다.
+    expect(promptForSlot("stop_loss").suggestions).toContain("손절 안 함");
+    expect(promptForSlot("take_profit").suggestions).toContain("익절 안 함");
   });
 });

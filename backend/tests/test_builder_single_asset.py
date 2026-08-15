@@ -27,10 +27,12 @@ def test_first_question_is_entry_method_not_stock_picking(monkeypatch):
     monkeypatch.setattr(sp, "get_stock_profile", lambda symbol: None)
     result = sb.step(_single_state(), "")
     assert "언제" in result.reply or "진입 방식" in result.reply or "사고팔지" in result.reply
-    # 종목 선별형 칩(모멘텀·저평가 가치주)은 노출되지 않는다.
-    assert "모멘텀" not in result.suggestions
-    assert "저평가 가치주" not in result.suggestions
-    assert "골든크로스" in result.suggestions
+    # 선택지는 매수 조건 정본에서 횡단면(여러 종목 비교) 항목만 뺀 목록이다(2026-08-16).
+    from engine import strategy_slots
+
+    assert result.suggestions == strategy_slots.entry_chips(cross_sectional=False)
+    assert not any("상위" in chip for chip in result.suggestions)  # 랭킹은 단일 종목에 무의미
+    assert "골든크로스(5일/20일) 발생 시 매수" in result.suggestions
 
 
 def test_first_question_uses_profile_signal_counts(monkeypatch):

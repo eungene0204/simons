@@ -196,6 +196,147 @@ def test_frontend_parity_fixture_is_current():
     )
 
 
+def test_frontend_prompt_fixture_is_current():
+    """질문 문구·칩 픽스처가 정본과 동기 상태인지 확인한다.
+
+    문구의 정본은 이 모듈 하나다(2026-08-16) — 프론트는 픽스처만 읽는다. 정본을
+    고치고 픽스처를 안 갱신하면 화면에는 낡은 문구가 남으므로 여기서 깨뜨린다.
+    갱신: python scripts/export_slot_prompts.py
+    """
+    import importlib.util
+    import json
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    fixture_path = root / "app" / "analytics" / "new" / "__fixtures__" / "slot-prompts.json"
+    assert fixture_path.exists(), "질문 픽스처가 없다 — export_slot_prompts.py 실행 필요"
+
+    spec = importlib.util.spec_from_file_location(
+        "export_slot_prompts", root / "scripts" / "export_slot_prompts.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        expected = module.build_fixture()
+    finally:
+        sys.modules.pop(spec.name, None)
+
+    committed = json.loads(fixture_path.read_text(encoding="utf-8"))
+    assert committed == expected, (
+        "질문 문구·칩이 바뀌었는데 프론트 픽스처가 낡았다 — "
+        "python scripts/export_slot_prompts.py 로 갱신할 것"
+    )
+
+
+def test_builder_and_gate_share_one_question_source():
+    """빌더와 되묻기 게이트가 같은 슬롯을 **같은 문구·같은 칩**으로 묻는다.
+
+    2026-08-16 통합 이전에는 유니버스 질문 하나가 세 벌(빌더 5칩 / 게이트 4칩 /
+    정본 2칩)로 갈려 있었고, 사용자가 어느 경로로 들어왔는지에 따라 다른 질문을 받았다.
+    사본이 다시 생기면 여기서 깨진다.
+    """
+    from engine import strategy_slots
+    from intent.strategy_builder import BuilderState, next_question
+
+    momentum = dict(universe="KOSPI", strategy_type="momentum",
+                    lookback_days=63, lookback_label="3개월")
+    for builder_field, slot_field, variant, state in (
+        ("universe", strategy_slots.UNIVERSE, None, BuilderState()),
+        ("strategy_type", strategy_slots.ENTRY, None, BuilderState(universe="KOSPI")),
+        ("holding_count", strategy_slots.MAX_POSITIONS, strategy_slots.VARIANT_RANKING,
+         BuilderState(**momentum)),
+        ("rebalance_cycle", strategy_slots.REBALANCING, None,
+         BuilderState(**momentum, holding_count=10)),
+    ):
+        question, chips = next_question(state)
+        slot_text, slot_chips = strategy_slots.slot_question(slot_field, variant)
+        assert question.endswith(slot_text), builder_field
+        assert chips == slot_chips, builder_field
+
+
+def test_exit_chips_mirror_entry_chips():
+    """매도 칩은 매수 칩을 뒤집은 것이다 — 같은 지표·같은 기간, 방향만 반대(2026-08-16 지시).
+
+    문구만 맞추면 "반대 조건"이라는 설명이 거짓이 될 수 있으므로, 두 칩이 실제로 결속되는
+    값을 대조해 지표·기간이 같고 매수/매도만 다른지 확인한다. 목록 순서도 나란히 읽히게
+    맞춘다 — 사용자가 대응을 설명 없이 알아볼 수 있어야 한다.
+    """
+    from engine import strategy_slots
+    from engine.nl_parser import ParsedStrategy, _apply_prompt_overrides
+
+    def bound_signal(chip: str, role: str) -> dict:
+        parsed = _apply_prompt_overrides(
+            ParsedStrategy(description="x", universe=["KOSPI"]), chip,
+            skip_signal_validation=True, preserve_universe=True,
+        )
+        signals = getattr(parsed, f"{role}_signals")
+        assert signals, f"칩 '{chip}'이 {role} 신호에 결속되지 않는다"
+        return signals[0].model_dump()
+
+    entry_chips = strategy_slots.slot_question(strategy_slots.ENTRY)[1]
+    exit_chips = strategy_slots.slot_question(strategy_slots.EXIT)[1]
+
+    # 신호로 짝이 서는 만큼은 순서까지 나란하다. 매도 목록의 꼬리('20일 보유 후 청산')는
+    # 대응하는 매수 조건이 없는 기간 기반 청산이라 짝 대조에서 제외한다.
+    for buy_chip, sell_chip in zip(entry_chips, exit_chips):
+        if sell_chip == "20일 보유 후 청산":
+            break
+        buy, sell = bound_signal(buy_chip, "entry"), bound_signal(sell_chip, "exit")
+        assert buy["signal_type"] == "buy" and sell["signal_type"] == "sell"
+        assert buy["indicator"] == sell["indicator"], f"{buy_chip} ↔ {sell_chip}"
+        for param in ("short_period", "long_period", "lookback_period", "mode"):
+            assert buy[param] == sell[param], f"{buy_chip} ↔ {sell_chip} / {param}"
+
+    # 기간 기반 청산은 신호가 아니라 보유 기간에 결속된다.
+    assert "20일 보유 후 청산" in exit_chips
+    held = _apply_prompt_overrides(
+        ParsedStrategy(description="x", universe=["KOSPI"]), "20일 보유 후 청산",
+        skip_signal_validation=True, preserve_universe=True,
+    )
+    assert held.hold_period_days == 20
+
+
+def test_exit_chips_are_all_bindable():
+    """노출하는 매도 칩은 하나도 빠짐없이 값에 결속돼야 한다(칩=값 결속 계약).
+
+    결속되지 않는 칩은 planner ask 경로에서 조용히 사라져 같은 슬롯이 경로마다 다른
+    선택지를 보이게 된다 — 거래량(OBV) 매도 미러를 넣지 않은 이유가 이것이다(엔진은
+    지원하지만 파서에 그 매도 표현이 없고, 어휘 추가는 대원칙 1이 금지한다).
+    """
+    from engine import strategy_slots
+    from engine.nl_parser import ParsedStrategy, _apply_prompt_overrides
+    from strategy_conversation.primary import _CHIP_BINDING_IGNORED_FIELDS
+
+    base = ParsedStrategy(description="x", universe=["KOSPI"]).model_dump()
+    for chip in strategy_slots.slot_question(strategy_slots.EXIT)[1]:
+        after = _apply_prompt_overrides(
+            ParsedStrategy.model_validate(base), chip,
+            skip_signal_validation=True, preserve_universe=True,
+        ).model_dump()
+        patch = {k: v for k, v in after.items()
+                 if k not in _CHIP_BINDING_IGNORED_FIELDS and base.get(k) != v}
+        assert patch, f"칩 '{chip}'이 값에 결속되지 않는다 — 노출 대상이 아니다"
+
+
+def test_every_entry_chip_is_consumable_by_the_builder():
+    """정본 매수 조건 칩은 **하나도 빠짐없이** 빌더가 소화해야 한다.
+
+    한쪽 레인이 읽지 못하는 칩을 내놓으면 클릭이 조용히 아무것도 하지 않거나 같은 질문이
+    반복된다 — 통합 전 실측이 그랬다('PER 10 이하'·'ROE 15% 이상'이 어느 전략 유형에도
+    걸리지 않아 무한 재질문). 게이트 레인의 같은 보증은 프론트
+    `page.scroll.test.tsx::applies every suggested entry chip deterministically`가 한다.
+    """
+    from engine import strategy_slots
+    from intent.strategy_builder import BuilderState, step
+
+    for chip in strategy_slots.entry_chips(["KOSPI"]):
+        result = step(BuilderState(universe="KOSPI"), chip)
+        assert result.state.strategy_type is not None, chip
+        # 같은 질문을 다시 내지 않는다(= 다음 단계로 넘어갔다).
+        assert result.reply != strategy_slots.slot_question(strategy_slots.ENTRY)[0], chip
+
+
 # ─── 시스템이 확정한 값의 재질문 금지 (FR-STR-073 ⑥, 2026-07-29) ──────────────
 
 def _cohort_strategy():

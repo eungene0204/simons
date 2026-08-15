@@ -195,7 +195,8 @@ def _clarification_items(
                 conditions_by_field[f"strategy.{path}[{i}]"] = cond
     coalesced_cross_roles: List[str] = []
     for q in report.clarification_questions:
-        cross_match = _CROSS_PERIOD_FIELD_RE.match(q.field)
+        # field는 None일 수 있다(가리킬 필드가 없는 질문 — ClarificationQuestion 주석).
+        cross_match = _CROSS_PERIOD_FIELD_RE.match(q.field or "")
         if cross_match:
             role, idx = cross_match.group(1), cross_match.group(2)
             cond = conditions_by_field.get(f"strategy.{role}_conditions[{idx}]")

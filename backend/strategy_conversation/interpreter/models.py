@@ -606,7 +606,23 @@ class StrategySpec(BaseModel):
 # ─── 되묻기·패치 ──────────────────────────────────────────────────────────────
 
 class ClarificationQuestion(BaseModel):
-    field: str = Field(description="누락 필드 경로 (예: 'strategy.entry_conditions[0].value')")
+    # 가리킬 필드가 **없는** 질문이 있다(2026-08-16 실측). intent=NON_STRATEGY_REQUEST는
+    # 전략 필드가 아예 없어 9B가 정직하게 field=null을 내는데, 종전 `field: str`이 그걸
+    # 튕겨 스키마 실패 → 수리 재요청으로 넘어갔고, 재요청이 없는 필드를 지어냈다:
+    # "내 돈 3천만원 대신 투자해줘"가 field="backtest.initial_capital",
+    # recommended_value=30000000 인 초기자본 질문으로 바뀌어 **대리투자 요청을 전략
+    # 설정으로 받아 적었다**. 1차 출력이 더 옳았다 — 스키마가 그걸 거부한 것이 원인이다.
+    # (같은 구조의 선례: output_repair.salvage_clarification_questions docstring)
+    # 다만 **키 누락은 여전히 거부한다**(기본값 없는 Optional = 필수·nullable).
+    # 2026-07-30 사고가 그 반대편이다: 출력 형태에서 field 예시가 사라지자 9B가 키를
+    # 통째로 빠뜨렸고, 검증·복구가 모두 실패해 파싱 가능한 입력까지 빈 전략으로 끝났다.
+    # 그 사고의 회귀 가드(test_output_shape_declares_clarification_question_field_key)는
+    # 스키마가 누락을 거부한다는 전제 위에 서 있다 — 관대화하면 프롬프트에서 예시가
+    # 지워져도 아무 테스트가 깨지지 않는다. 그래서 '없음'은 명시적 null로만 받는다.
+    field: Optional[str] = Field(
+        description="누락 필드 경로 (예: 'strategy.entry_conditions[0].value'). "
+                    "가리킬 필드가 없는 질문은 null(키 자체는 반드시 포함).",
+    )
     question: str
     recommended_value: Optional[Union[float, str]] = None
     recommendation_reason: Optional[str] = None

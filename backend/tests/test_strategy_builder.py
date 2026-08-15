@@ -8,8 +8,16 @@ from __future__ import annotations
 
 import pytest
 
+from engine import strategy_slots
 from intent import strategy_builder as sb
 from intent.scope import OFFTOPIC_REFUSAL
+
+# 질문 문구의 정본은 engine.strategy_slots 하나다(2026-08-16) — 테스트도 문구를 베끼지
+# 않고 정본에서 가져온다. 문구 안의 낱말("청산 조건")로 어느 질문인지 판정하면 정본이
+# 표현을 바꾸는 순간 단정이 조용히 헛돈다.
+_RISK_QUESTION = strategy_slots.builder_question("risk")[0]
+_REBALANCE_QUESTION = strategy_slots.slot_question(strategy_slots.REBALANCING)[0]
+_ENTRY_QUESTION = strategy_slots.slot_question(strategy_slots.ENTRY)[0]
 
 
 def _step(state: sb.BuilderState, text: str) -> sb.StepResult:
@@ -132,14 +140,14 @@ def test_rebalance_none_option_offered_and_completes():
     """리밸런싱 '안 함'은 정상 옵션으로 제공되고 선택 시 전략을 완성시킨다."""
     state = sb.BuilderState(universe="KOSPI", strategy_type="momentum",
                             lookback_days=63, holding_count=10)
-    # 다음 질문(리밸런싱)에 '안 함' 칩이 포함된다.
+    # 다음 질문(리밸런싱)에 거부 칩이 포함된다(정본 표기 '리밸런싱 안 함').
     _, suggestions = sb.next_question(state)
-    assert "안 함" in suggestions
+    assert "리밸런싱 안 함" in suggestions
     # '안 함' 선택 → rebalance_cycle="none", 다음은 청산 조건 질문.
     res = _step(state, "안 함")
     assert res.state.rebalance_cycle == "none"
     assert res.status == "collecting"
-    assert "청산 조건" in res.reply
+    assert res.reply.endswith(_RISK_QUESTION)
     # 청산 조건(필수)을 채우면 confirmed, 합성 프롬프트엔 리밸런싱 문구가 없다.
     done = _step(res.state, "10% 손절")
     assert done.status == "confirmed"
@@ -155,8 +163,9 @@ def test_case1_kospi_after_entry_no_refusal_and_next_question():
     assert res.status == "collecting"
     assert OFFTOPIC_REFUSAL not in res.reply
     assert "현재 질문에는 도움을 드릴 수 없습니다" not in res.reply
-    assert "방식" in res.reply  # 전략 유형을 묻는 다음 질문
-    assert "모멘텀" in res.suggestions
+    # 다음 질문은 매수 조건 — 되묻기 게이트와 같은 정본 질문·칩을 쓴다(2026-08-16).
+    assert res.reply.endswith(_ENTRY_QUESTION)
+    assert res.suggestions == strategy_slots.entry_chips(["KOSPI"])
 
 
 def test_blank_input_shows_opening_question_without_mutation():
@@ -178,15 +187,44 @@ def test_blank_input_does_not_complete_partial_risk_state():
     res = _step(state, "")
     assert res.status == "collecting"
     assert res.state.risk_done is False
-    assert "청산 조건" in res.reply
+    assert res.reply.endswith(_RISK_QUESTION)
 
 
-def test_strategy_type_offers_describe_own_chip_rightmost():
-    """전략 유형 질문에 '직접 설명하기' 칩이 가장 오른쪽으로 노출된다."""
+def test_entry_step_uses_canonical_chips_bound_to_values():
+    """매수 조건 단계의 칩은 정본 목록 그대로이고, 클릭은 결속된 값으로 적용된다.
+
+    [2026-08-16] 예전에는 빌더가 전략 유형 이름 칩('모멘텀'·'골든크로스')을 따로 냈고
+    클릭을 원문처럼 다시 해석했다 — 표기가 겹쳐 'MACD 골든크로스 매수'가 골든크로스로,
+    '골든크로스(5일/20일)'의 5가 모멘텀 기준 기간으로 새고, 재무 칩은 아무 유형에도 안
+    걸려 같은 질문이 반복됐다. 결속표는 그 재해석을 없앤다.
+    """
     state = sb.BuilderState(universe="KOSPI")
     _, suggestions = sb.next_question(state)
-    assert suggestions[-1] == "직접 설명하기"
-    assert "모멘텀" in suggestions
+    assert suggestions == strategy_slots.entry_chips(["KOSPI"])
+
+    expected = {
+        "골든크로스(5일/20일) 발생 시 매수": ("golden_cross", {"ma_short": 5, "ma_long": 20}),
+        "MACD 골든크로스 매수": ("macd", {"macd_mode": "crossover"}),
+        "RSI 30 이하에서 매수": ("rsi", {"rsi_oversold": 30.0, "rsi_overbought": 70.0}),
+        "20일 고점 돌파 시 매수": ("breakout", {"lookback_days": 20}),
+        "최근 3개월 수익률 상위 매수": ("momentum", {"lookback_days": 63}),
+        # 빌더 상태가 표현할 수 없는 재무 조건은 자유 서술로 넘겨 파서 레인이 처리한다 —
+        # 예전처럼 아무것도 못 받고 같은 질문을 반복하지 않는다.
+        "PER 10 이하": ("custom", {"entry_rule": "PER 10 이하"}),
+        "ROE 15% 이상": ("custom", {"entry_rule": "ROE 15% 이상"}),
+    }
+    for chip, (stype, fields) in expected.items():
+        result = _step(sb.BuilderState(universe="KOSPI"), chip)
+        assert result.state.strategy_type == stype, chip
+        for name, value in fields.items():
+            assert getattr(result.state, name) == value, f"{chip} / {name}"
+
+
+def test_entry_step_excludes_chips_the_strategy_cannot_express():
+    """성립하지 않는 선택지만 정본에서 뺀다 — 목록을 따로 만들지 않는다."""
+    etf = sb.next_question(sb.BuilderState(universe="ETF"))[1]
+    assert "PER 10 이하" not in etf and "ROE 15% 이상" not in etf   # ETF엔 기업 재무제표가 없다
+    assert "골든크로스(5일/20일) 발생 시 매수" in etf
 
 
 def test_describe_own_chip_routes_to_free_text_entry_rule():
@@ -237,7 +275,7 @@ def test_full_momentum_flow_to_confirmation():
     state = _step(state, "10개").state
     risk_q = _step(state, "매주")
     assert risk_q.status == "collecting"  # 마지막은 청산 조건 질문
-    assert "청산 조건" in risk_q.reply
+    assert risk_q.reply.endswith(_RISK_QUESTION)
     confirmed = _step(risk_q.state, "10% 손절")
     assert confirmed.status == "confirmed"
     assert confirmed.prompt
@@ -276,7 +314,7 @@ def test_seed_state_asks_only_missing_universe_then_rebalance():
     after_univ = sb.step(first.state, "코스닥")
     # 직전 답변(유니버스)을 확인해야지, 시드된 보유수를 엉뚱하게 확인하면 안 된다.
     assert "코스닥 시장을 대상으로" in after_univ.reply
-    assert "리밸런싱" in after_univ.reply       # 진짜 빠진 다음 질문
+    assert after_univ.reply.endswith(_REBALANCE_QUESTION)  # 진짜 빠진 다음 질문
 
     confirmed = sb.step(after_univ.state, "매월")
     assert confirmed.status == "confirmed"
@@ -858,15 +896,18 @@ def test_custom_entry_rule_does_not_misread_bare_threshold_as_count():
     assert res.state.holding_count is None
 
 
-def test_holding_count_step_offers_free_input_chip_rightmost():
-    """보유 수 질문에 '직접 입력' 칩이 가장 오른쪽으로 노출된다(5/10/20 외 종목 수 직접 타이핑)."""
+def test_holding_count_step_offers_only_answer_chips():
+    """보유 수 질문의 칩은 **답**만이다 — '직접 입력'은 채팅창을 다시 여는 UI 토글이라
+    프론트(withBuilderNavigationSuggestions)가 붙인다. 백엔드 정본 표에 넣으면 프론트가
+    한 번 걷어내고 다시 붙이는 왕복이 되고, 표의 뜻도 '답의 목록'에서 흐려진다."""
     momentum = sb.BuilderState(universe="KOSPI", strategy_type="momentum", lookback_days=63)
     # 볼린저는 특화 파라미터가 없고 옵션 필터도 물었으면(filters_asked) 보유 종목 수로 넘어간다.
     bollinger = sb.BuilderState(universe="KOSPI", strategy_type="bollinger", filters_asked=True)
     for state in (momentum, bollinger):
         _, suggestions = sb.next_question(state)
         assert sb.required_missing(state) == "holding_count"
-        assert suggestions[-1] == "직접 입력"
+        assert "직접 입력" not in suggestions
+        assert all("종목" in chip for chip in suggestions)
 
 
 def test_holding_count_step_free_text_parses_custom_value():
@@ -886,17 +927,20 @@ def _ready_for_risk() -> sb.BuilderState:
 
 def test_risk_step_offered_after_rebalance():
     """리밸런싱을 채우면 청산 조건 질문이 칩과 함께 제시된다(청산 조건은 필수)."""
+    from engine import strategy_slots
+
     msg, suggestions = sb.next_question(_ready_for_risk())
-    assert "청산 조건" in msg
+    assert msg.endswith(strategy_slots.builder_question("risk")[0])
     assert "-10% 손절" in suggestions
     # 청산 조건은 필수이므로 '청산 조건 없음' 칩은 제공하지 않는다.
     assert "청산 조건 없음" not in suggestions
 
 
-def test_risk_step_offers_free_input_chip_rightmost():
-    """청산 조건 질문에 '직접 입력' 칩이 가장 오른쪽으로 노출된다(프론트가 채팅창 토글)."""
+def test_risk_step_offers_only_answer_chips():
+    """청산 조건 질문의 칩도 답만이다 — '직접 입력'은 프론트가 붙이는 UI 토글이다."""
     _, suggestions = sb.next_question(_ready_for_risk())
-    assert suggestions[-1] == "직접 입력"
+    assert "직접 입력" not in suggestions
+    assert suggestions[-1] == "최고가 대비 10% 하락 시 청산"
 
 
 def test_risk_step_free_text_after_direct_input_parses_custom_value():
@@ -951,7 +995,7 @@ def test_glossary_question_mid_builder_answers_and_reasks(question, term):
     assert r.status == "collecting"
     assert r.state == state  # 상태 불변
     assert term in r.reply.split("\n\n")[0]  # 앞부분이 정의문
-    assert "청산 조건" in r.reply  # 뒤에 현재 질문이 이어짐
+    assert r.reply.endswith(_RISK_QUESTION)  # 뒤에 현재 질문이 이어짐
     assert "-10% 손절" in r.suggestions
 
 

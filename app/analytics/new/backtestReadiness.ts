@@ -6,6 +6,8 @@
 
 import type { ParsedSummary } from "@/lib/strategy-summary";
 
+import slotPrompts from "./__fixtures__/slot-prompts.json";
+
 export type MissingBacktestCondition = {
   field:
     | "universe"
@@ -195,63 +197,19 @@ export const SLOT_LABELS: Record<MissingBacktestCondition["field"], string> = {
   initial_capital: "초기 자본",
 };
 
-// 슬롯별 되묻기 문구·칩. 판정(isSlotFilled)과 같은 파일에 둔다 — 백엔드 정본이
-// _QUESTIONS를 판정 옆에 두는 것과 같은 이유로, 슬롯이 늘 때 한쪽만 갱신되는 것을 막는다.
-const SLOT_PROMPTS: Record<
+// 슬롯별 되묻기 문구·칩 — **정본은 백엔드 engine/strategy_slots.py 하나다**(2026-08-16
+// 사용자 결정). 프론트는 칩 답변을 백엔드 왕복 없이 즉시 적용해야 해서 문구가 로컬에도
+// 필요하지만, 여기에 직접 적으면 그 순간 사본이 된다 — 실제로 같은 질문이 게이트·빌더·
+// 렌더 치환표에서 서로 다른 문구·다른 칩으로 갈려 있었다. 그래서 정본이 생성한 픽스처만
+// 읽는다(판정을 같은 방식으로 고정한 slot-judgments.json과 같은 계약).
+// 갱신: python scripts/export_slot_prompts.py
+const SLOT_PROMPTS = slotPrompts.slots as Record<
   MissingBacktestCondition["field"],
   { question: string; suggestions: string[] }
-> = {
-  universe: {
-    question: "대상 시장·종목이 빠져 있습니다. 어떤 시장·종목을 대상으로 할까요?",
-    suggestions: ["코스피200", "코스피", "코스닥", "코스피+코스닥"],
-  },
-  entry: {
-    question: "매수 조건이 빠져 있습니다. 어떤 조건에서 매수할까요?",
-    suggestions: [
-      "골든크로스(5일/20일) 발생 시 매수",
-      "RSI 30 이하에서 매수",
-      "MACD 골든크로스 매수",
-      "볼린저밴드 하단 터치 시 매수",
-      "20일 고점 돌파 시 매수",
-      "거래량 급증 시 매수",
-      "PER 10 이하",
-      "ROE 15% 이상",
-    ],
-  },
-  exit: {
-    question: "청산 조건이 빠져 있습니다. 어떤 조건에서 청산할까요?",
-    suggestions: ["데드크로스(5일/20일) 발생 시 매도", "20일 보유 후 청산", "RSI 70 이상에서 매도"],
-  },
-  max_positions: {
-    question: "포트폴리오에 최대 몇 종목을 담을까요?",
-    suggestions: ["최대 5종목", "최대 10종목", "최대 20종목"],
-  },
-  rebalancing: {
-    question: "리밸런싱 주기가 빠져 있습니다. 포트폴리오를 얼마나 자주 다시 구성할까요?",
-    suggestions: ["매주 리밸런싱", "매월 리밸런싱", "분기마다 리밸런싱", "안 함"],
-  },
-  // 손절·익절은 쓰지 않는 것도 정상적인 전략 설계다 — '안 함'이 없으면 값을 넣어야만
-  // 실행 게이트를 통과할 수 있다(2026-08-10 사용자 지시). 리밸런싱 '안 함'과 같은 계약.
-  stop_loss: {
-    question: "손절 기준이 빠져 있습니다. 손절 기준을 몇 %로 설정할까요?",
-    suggestions: ["손절 -5%", "손절 -10%", "손절 -15%", "안 함"],
-  },
-  take_profit: {
-    question: "익절 기준이 빠져 있습니다. 익절 기준을 몇 %로 설정할까요?",
-    suggestions: ["익절 10%", "익절 20%", "익절 30%", "안 함"],
-  },
-  backtest_period: {
-    question: "어느 기간의 과거 데이터로 백테스트할까요?",
-    suggestions: ["최근 1년 데이터", "최근 3년 데이터", "최근 5년 데이터", "사용 가능한 전체 데이터"],
-  },
-  initial_capital: {
-    question: "초기 투자 자금을 얼마로 설정할까요?",
-    suggestions: ["500만원", "1,000만원", "3,000만원", "5,000만원"],
-  },
-};
+>;
 
 /** 제시한 선택지가 곧 답의 전부인 슬롯 — 자유 입력 칩("직접 입력")을 붙이지 않는다.
- *  유니버스는 우리가 지원하는 시장 범위가 위 네 개로 닫혀 있어, 자유 입력 칩이
+ *  유니버스는 우리가 지원하는 시장 범위가 정본의 목록으로 닫혀 있어, 자유 입력 칩이
  *  "다른 답도 된다"는 없는 여지를 만든다. 빌더 칩 경로는 이미 같은 판정을 한다
  *  (page.tsx `withBuilderNavigationSuggestions`의 유니버스 단계 분기). */
 export function isClosedChoiceSlot(field: string | null | undefined): boolean {
@@ -265,14 +223,20 @@ export const SLOT_FIELD_ORDER: MissingBacktestCondition["field"][] = [
 ];
 
 // 분위 그룹 전략(FR-BT-060b) 전용 '최대 보유' 되묻기 — 그룹이 편입 구간을 정의하므로
-// 일반 질문("포트폴리오에 최대 몇 종목")은 상황에 맞지 않는다. 답은 그룹당 보유 상한이며
-// 칩은 그룹 수(최대 10) 이상에서 시작한다(2026-08-06 지시, 백엔드
-// strategy_slots._QUANTILE_MAX_POSITIONS_QUESTION과 동형).
-const QUANTILE_MAX_POSITIONS_PROMPT: { question: string; suggestions: string[] } = {
-  question:
-    "각 분위 그룹에 최대 몇 종목을 담을까요? (그룹 내 랭킹 상위순, 모든 그룹 동일 적용)",
-  suggestions: ["그룹당 10종목", "그룹당 20종목", "그룹당 30종목"],
-};
+// 일반 질문("포트폴리오에 최대 몇 종목")은 상황에 맞지 않는다. 문구도 정본에서 온다.
+const QUANTILE_MAX_POSITIONS_PROMPT: { question: string; suggestions: string[] } =
+  slotPrompts.variants.max_positions.quantile;
+
+/** 단일 종목 전략의 매수 조건 칩 — 정본에서 횡단면(랭킹) 항목만 뺀 목록.
+ *  빌더 호출이 실패한 턴의 폴백 선택지가 쓴다. 그 자리에 칩을 손으로 적으면 정본이
+ *  바뀔 때 조용히 어긋난다(이 파일이 사본을 없앤 이유와 같다). */
+export const SINGLE_ASSET_ENTRY_CHIPS: string[] =
+  slotPrompts.variants.entry.single_asset.suggestions;
+
+// 랭킹 전략(모멘텀 상위 K 등)의 '최대 보유'는 상한이 아니라 상위 몇 개를 담을지가
+// 실제 의미다 — 빌더가 같은 상황에서 쓰는 변형과 같은 문구를 쓴다(정본의 ranking 변형).
+const RANKING_MAX_POSITIONS_PROMPT: { question: string; suggestions: string[] } =
+  slotPrompts.variants.max_positions.ranking;
 
 function promptFor(
   field: MissingBacktestCondition["field"],
@@ -280,6 +244,9 @@ function promptFor(
 ): { question: string; suggestions: string[] } {
   if (field === "max_positions" && parsed?.ranking_quantile_groups) {
     return QUANTILE_MAX_POSITIONS_PROMPT;
+  }
+  if (field === "max_positions" && parsed?.ranking_metric) {
+    return RANKING_MAX_POSITIONS_PROMPT;
   }
   return SLOT_PROMPTS[field];
 }
