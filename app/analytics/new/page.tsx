@@ -1137,6 +1137,10 @@ function buildAnimatedHeadline(lines: string[]) {
 
 const HEADLINE_LINES = ["투자 아이디어를 전략으로 만들고", "전략을 시뮬레이션 하세요"];
 
+// 플레이스홀더는 첫 입력에서만 보여준다 — inline 입력창은 대화 시작 전(messages 0건)에만
+// 렌더되므로, 대화가 시작된 뒤의 하단 고정(fixed) 입력창에서는 노출하지 않는다.
+const FIRST_INPUT_PLACEHOLDER = "어떤 투자 아이디어를 테스트해볼까요?";
+
 function AnimatedHeadline({ lines }: { lines: string[] }) {
   return <>{buildAnimatedHeadline(lines)}</>;
 }
@@ -1208,7 +1212,7 @@ const ChatInputBox = memo(
         onKeyDown={handleKeyDown}
         disabled={running}
         rows={2}
-        placeholder="어떤 투자 아이디어를 테스트해볼까요?"
+        placeholder={variant === "inline" ? FIRST_INPUT_PLACEHOLDER : undefined}
         className="w-full resize-none bg-transparent px-5 pt-4 pb-12 text-sm font-bold leading-relaxed text-white outline-none placeholder:text-[var(--text-placeholder)] focus:outline-none focus:ring-0"
       />
     );
