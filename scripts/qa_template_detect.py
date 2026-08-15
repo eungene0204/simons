@@ -156,15 +156,26 @@ class Flags:
 
 
 def asked_about(res: dict) -> str:
-    """이번 턴에 에이전트가 되물은 내용(질문+선택지)을 한 덩어리 텍스트로 모은다.
+    """이번 턴에 에이전트가 되묻거나 **알린** 내용을 한 덩어리 텍스트로 모은다.
 
     값이 빠진 팩터를 되묻는 것은 전략 에이전트의 정상 동작이다 — 사용자가 말하지 않은
     값을 질문 없이 기본값으로 확정하지 않는다는 계약(CLAUDE.md)의 실행이다. 따라서
     '되묻고 있는 팩터'는 소실도, 빈 전략도 아니므로 실패로 세지 않는다. 이 하니스가
     잡아야 하는 것은 **조용한** 소실(질문도 없이 조건이 사라진 경우)이다.
+
+    안내(notices)도 같은 이유로 포함한다 — 근사 반영·미반영을 사용자에게 알린 조건은
+    조용히 사라진 것이 아니다(2026-08-14: '거래대금이 30일 평균보다 높은'을 거래량 급증
+    조건으로 반영하며 안내를 냈는데도 미탐지로 세던 오탐). 백엔드 본경로가 제외 조건의
+    '설명됨' 판정에 notices를 쓰는 것과 같은 계약이다(primary.unexplained_drops).
     """
     parts = [str(res.get("clarification_question") or "")]
     parts += [str(s) for s in (res.get("clarification_suggestions") or [])]
+    parts += [str(n) for n in (res.get("notices") or [])]
+    # 값-대기 큐(pending_conditions)에 오른 조건은 순차 되묻기 대상이다 — 이번 턴 질문에
+    # 아직 안 나왔어도 소실이 아니다(값-대기 조건 채널: parsed에 없고 pending이 유일 근거).
+    # source_text가 사용자 원문 그대로라 COVERAGE_CHECKS 패턴이 그대로 맞는다.
+    for pc in res.get("pending_conditions") or []:
+        parts += [str(pc.get("label") or ""), str(pc.get("source_text") or "")]
     return " ".join(parts)
 
 
@@ -303,7 +314,11 @@ def main() -> int:
             try:
                 res = parse_strategy(tpl.prompt)
             except Exception as e:
+                # 호출 자체가 죽으면(백엔드 미기동·포트 선점 501 등) 검증이 성립하지 않는다 —
+                # 치명으로 세워 게이트를 붉게 만든다(2026-08-14: 81건 전부 501인데 exit 0으로 통과).
+                n_fatal += 1
                 lines.append(f"\n## {i}. {tpl.title}\n- ❌ 파싱 오류: {e}")
+                problems.append(f"{i}. {tpl.title} — 치명[파싱 호출 실패: {e}]")
                 continue
             cache[tpl.prompt] = res
             RAW_CACHE.write_text(json.dumps(cache, ensure_ascii=False))

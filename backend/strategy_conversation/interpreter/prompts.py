@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "3.6"
+PROMPT_VERSION = "3.7"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -135,6 +135,12 @@ NON_STRATEGY_REQUEST(전략과 무관)
   모멘텀 전략은 최근 수익률 상위 종목을 편입하는 상대 모멘텀(기간 수익률 랭킹) 하나로
   정해져 있어 지표를 되물을 필요가 없습니다. "모멘텀 지표 하나 골라줘"처럼 **오실레이터
   지표(RSI 등)를 하나 고르라는** 발화만 class.oscillator입니다.
+- '상대강도'도 RSI가 아니라 ranking.return입니다("120거래일 상대강도 상위 15%" →
+  {{"metric":"return","lookback_days":120}} + selection_percent=15). 그 표현은 랭킹으로만
+  출력하고 **entry_conditions에 technical.rsi를 중복 생성하지 마세요** — 같은 표현을 두
+  자리에 쓰면 사용자가 말하지 않은 RSI 조건이 생깁니다. technical.rsi는 'RSI'라고
+  명시했을 때만. '상위 N%'는 선별 규모입니다 — RSI 임계값 등으로 환산해 수치를 지어내지
+  마세요.
 - ranking.volatility: '변동성 낮은(안정적인) 종목 N개'류 저변동성 선정 → strategy.ranking에 {{"metric":"ranking.volatility"}} (direction은 사용자가 '낮은/높은'을 말했을 때만 — '변동성 낮은'=direction:"bottom". 산정 기간을 말했으면 lookback_days — '200일 변동성'=lookback_days:200). '변동성 하위 10%만 편입'처럼 **비율 편입**이면 그 10은 조건 value(백분위)가 아니라 portfolio.selection_percent=10입니다(아래 비율 규칙과 동일 — 백분위를 조건 value로 넣으면 편입 규모가 사라집니다). '변동성 30% 이하'처럼 **연환산 % 임계값 조건**이면 랭킹이 아니라 entry_conditions에 factor technical.volatility.
 - 재무 지표 상위/하위 N종목 선정('영업이익률 상위 20종목', 'PER 낮은 상위 10종목')은 조건이 아니라 랭킹입니다 → strategy.ranking에 {{"metric":"fundamental.operating_margin","direction":"top"}} (낮은 순은 direction:"bottom"). 종목 수는 portfolio.selection_count로.
 - **direction은 사용자가 정렬 방향을 말했을 때만 출력하세요**('낮은 순'·'높은 순'·'가장 싼'·'상위'가 어느 쪽인지 분명할 때). 방향 언급이 없으면(예: 'PER 기준으로 20종목') direction을 **비워 두세요(null)** — 지표마다 선호 방향이 정해져 있어 시스템이 위 어휘의 [낮을수록 선호]/[높을수록 선호] 표시대로 채웁니다. 임의로 "top"을 채우면 저평가 지표에서 가장 비싼 종목을 고르는 정반대 전략이 됩니다.
@@ -208,6 +214,8 @@ NON_STRATEGY_REQUEST(전략과 무관)
 5-1. 신고가/고점 돌파(technical.breakout)의 기준 기간은 parameters.lookback_period(거래일):
    '52주 신고가'=252, 'N주'=N×5, 'N일 고점/신고가'=N. 기간 언급이 없으면 lookback_period는
    비워 두세요(되묻기). 사용자가 '52주'처럼 기간을 말했으면 반드시 lookback_period에 넣으세요.
+   '신고가 경신/갱신 종목만 편입'도 같은 진입 조건입니다(→ technical.breakout) —
+   지원되는 개념이므로 unsupported_features·청산 조건으로 바꿔치지 마세요.
 5-2. '거래량이 급증/평소보다 늘어남/평균 대비 증가/터짐'은 거래량 급증 신호
    (technical.volume_spike, 임계값 불필요)입니다 — 억원 임계가 있는 거래대금 조건으로
    분류하지 마세요. '평소보다 3배'처럼 **배수 임계**가 붙으면 급증 신호는
@@ -428,6 +436,18 @@ entry_conditions=[{{"factor":"concept.golden_cross","operator":null,"value":null
 않았으면 parameters를 비워 두세요 — 시스템이 정본(5일/20일)을 적용합니다. 5/20을 직접
 채우지 마세요(임의 확정처럼 보입니다). 가격 vs 한 선(short_period=1)은 '주가가 N일선
 돌파'처럼 선을 하나만 말했을 때이고, 그 형태만 technical.ma_crossover로 출력합니다.
+
+## 예시 3-0-1 (골든크로스 매수 + 데드크로스 매도 — 매도는 반드시 exit_conditions)
+입력: "반도체 업종 종목 중 골든크로스가 나오면 매수하고 데드크로스가 나오면 매도해 주세요"
+출력 요점: universe={{"sectors":["반도체"]}},
+entry_conditions=[{{"factor":"concept.golden_cross","operator":null,"value":null,
+"parameters":{{}},"source_text":"골든크로스가 나오면 매수"}}],
+exit_conditions=[{{"factor":"concept.dead_cross","operator":null,"value":null,
+"parameters":{{}},"source_text":"데드크로스가 나오면 매도"}}]
+'매도/팔다/정리'를 뜻하는 조건은 exit_conditions입니다 — concept.dead_cross를
+entry_conditions에 넣으면 사용자가 명시한 매도 규칙이 사라진 전략이 됩니다. 기간을
+말하지 않았으므로 parameters는 빈 채로 두고, 사용자가 말하지 않은 조건(거래대금 등)을
+덧붙이지 마세요.
 
 ## 예시 3-1 (가격 vs 이동평균 한 개 — 말한 기간을 반드시 담기)
 입력: "20일선을 깨고 내려오면 매도하는 전략"

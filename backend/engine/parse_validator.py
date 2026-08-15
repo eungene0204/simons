@@ -33,9 +33,9 @@ logger = logging.getLogger(__name__)
 # LLM 호출 예산. 룰 파스 즉답을 막지 않도록 짧게 유지한다.
 _VALIDATION_PROBE_TIMEOUT_S = 3.0   # LLM 도달 가능성 probe(GET /api/tags) — refused/cold면 즉시 degrade
 _VALIDATION_TIMEOUT_S = 120         # 단일 생성 호출(워밍업된 서버 ~9s). 재시도 없음.
-# 파싱 본경로(_OLLAMA_NUM_CTX=16384)와 반드시 같은 값 유지 — num_ctx가 다르면 Ollama가
+# 파싱 본경로(_OLLAMA_NUM_CTX=20480)와 반드시 같은 값 유지 — num_ctx가 다르면 Ollama가
 # 러너를 재시작해 호출마다 콜드 페널티가 붙는다.
-_VALIDATION_NUM_CTX = 16384
+_VALIDATION_NUM_CTX = 20480
 # 출력 계약이 diff(correctedFields, 바뀐 필드만)라 전체 전략 재출력이 없다. 유효 판정은
 # {"isValid":true,"confidence":..} 한 줄이면 끝 — 생성 토큰이 검증 지연의 지배 항이라
 # 여기를 줄이는 것이 곧 시간 단축이다.

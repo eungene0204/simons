@@ -10,6 +10,7 @@ import StrategiesTab from './StrategiesTab'
 import PlansTab from './PlansTab'
 import KnowledgeTab from './KnowledgeTab'
 import AgentsTab from './AgentsTab'
+import QaLogsTab from './QaLogsTab'
 import AuditLogsTab from './AuditLogsTab'
 
 const TABS = [
@@ -22,6 +23,7 @@ const TABS = [
   { id: 'plans', label: 'Plans' },
   { id: 'knowledge', label: 'Knowledge' },
   { id: 'agents', label: 'Agents' },
+  { id: 'qa', label: 'Q&A Logs' },
   { id: 'audit', label: 'Audit Logs' },
 ] as const
 
@@ -68,6 +70,7 @@ export default function AdminConsole({ adminEmail }: { adminEmail: string }) {
           {tab === 'plans' && <PlansTab />}
           {tab === 'knowledge' && <KnowledgeTab />}
           {tab === 'agents' && <AgentsTab />}
+          {tab === 'qa' && <QaLogsTab />}
           {tab === 'audit' && <AuditLogsTab />}
         </main>
       </div>

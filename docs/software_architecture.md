@@ -253,7 +253,7 @@ simons/
 | `/virtual-account` | 가상 계좌 목록 | `VirtualAccountCard` |
 | `/virtual-account/[id]` | 가상 계좌 상세 (포트폴리오) | `VirtualAccountMainView` |
 | `/watchlist` | 관심 종목 관리 | `Watchlist` |
-| `/console` | **관리자 콘솔** (운영자 전용, 단일 화면 탭 — Overview/Architecture/Users/Backtests/Accounts/Strategies/Plans/Knowledge/Agents/Audit) | `AdminConsole` + `components/admin/*Tab` |
+| `/console` | **관리자 콘솔** (운영자 전용, 단일 화면 탭 — Overview/Architecture/Users/Backtests/Accounts/Strategies/Plans/Knowledge/Agents/Q&A/Audit) | `AdminConsole` + `components/admin/*Tab` |
 
 `/stock-order`의 종목정보 탭은 실시간 시세와 분리된 비실시간 종목 프로필 레이어를 사용한다. 종목명, 상장일, 섹터, 회사 기본 정보, 재무 요약, PER/PBR 같은 저빈도 갱신 값은 DB에 저장하고, 현재가/등락률/거래량 등 실시간 값은 기존 실시간 시세 경로에서 조회한다.
 
@@ -262,9 +262,11 @@ simons/
 **토스페이먼츠 자동결제(빌링) 연동** (유료 플랜 구독 결제, FR-PLAN-011/011a): v2 SDK(`@tosspayments/tosspayments-sdk`)의 빌링 방식을 사용한다 — 카드를 한 번 등록해 빌링키를 발급받고, 이후 매월 서버가 자동 청구한다. 시작 흐름은 ① `/pricing`에서 유료 플랜 "구독 시작하기" → `/pricing/checkout?plan=` 이동 ② `PaymentCheckout`(클라이언트)이 `POST /api/payment/order`로 주문 생성 — 금액은 서버의 `lib/plans.ts`에서만 계산해 `PaymentOrder`(PENDING)에 기록, `customerKey`는 사용자당 1회 생성한 UUID(`User.tossCustomerKey`) — 하고 자동갱신 결제 조건(월 금액·자동 청구·해지 방법)을 화면에 고지 ③ `tossPayments.payment({customerKey}).requestBillingAuth({method:"CARD"})`로 카드 등록창 호출(successUrl=`/pricing/success?orderId=`, failUrl=`/pricing/fail`) ④ 성공 페이지가 `POST /api/payment/confirm` 호출 — successUrl로 돌아온 `customerKey`를 서버 저장 값과 대조한 뒤 `authKey`로 빌링키 발급(`/v1/billing/authorizations/issue`) → 첫 달 이용료를 서버 저장 주문 금액으로 즉시 청구(`/v1/billing/{billingKey}`, `lib/server/tossPayments.ts`, Basic 인증=`base64(시크릿키:)`, 멱등키=orderId)하고, 성공 시에만 트랜잭션으로 `PaymentOrder`를 DONE 처리하고 `planTier`/`planStartDate`/`tossBillingKey`/`subscriptionPlanId`/`nextBillingAt`(+1개월)을 갱신한다. 같은 주문의 재승인 요청(성공 페이지 새로고침)은 기존 결과를 반환한다(멱등).
 **월 자동 갱신**: 인-프로세스 스케줄러(`lib/scheduler.ts`)가 매시 정각(주말 포함) `lib/server/billingRenewal.ts::processDueBillingRenewals()`를 실행한다 — `nextBillingAt`이 지난 구독을 빌링키로 청구(갱신 결제도 `PaymentOrder` 기록)하고 성공 시 `nextBillingAt`을 **예정 시각 기준** +1개월로 굴린다(재시도 지연으로 주기가 밀리지 않게). 실패 시 1일 후 재시도, 연속 3회(`BILLING_MAX_FAIL_COUNT`) 실패 시 FREE 전환 + 빌링 상태 해제. 사용자별 실패는 격리된다. **해지**: `POST /api/payment/billing/cancel`은 즉시 다운그레이드가 아니라 `subscriptionCanceledAt`만 기록(해지 예약, 멱등)하고, 다음 결제일에 갱신 잡이 청구 없이 FREE로 전환한다 — 요금제 페이지가 다음 결제일/해지 버튼(자동갱신 중) 또는 만료일(해지 예약)을 표시한다. `POST /api/user/plan`은 FREE 다운그레이드만 허용해 결제 없는 유료 전환을 차단하며, FREE 전환 시 빌링키·구독 상태를 함께 해제한다. 빌링키(`User.tossBillingKey`)와 시크릿 키는 서버 전용이다. 환경변수: `NEXT_PUBLIC_TOSS_CLIENT_KEY`(클라이언트), `TOSS_SECRET_KEY`(서버 전용) — 현재 문서 공용 테스트 키이며 프로덕션 배포 시 **자동결제(빌링) 계약이 완료된 상점의 라이브 키**로 교체(미계약 키는 `NOT_SUPPORTED_METHOD` 에러)하고 `prisma migrate deploy`(PaymentOrder + User 빌링 컬럼)를 실행해야 한다.
 
-**관리자 콘솔** (`/console` — `app/console/page.tsx` + `components/admin/`): 운영자 전용 단일 화면. 서버 컴포넌트가 `lib/server/adminAuth.ts::requireAdmin()`(JWT 쿠키 + `User.role='ADMIN'` + `status='ACTIVE'`)으로 검증해 실패 시 `notFound()`(404)로 존재를 숨긴다. 기능별 API `/api/admin/{overview,users,backtests,accounts,strategies,plans,audit}` 7종도 각각 requireAdmin 게이트를 거치며, 모든 변경 작업은 `writeAuditLog()`가 `AdminAuditLog`(before/after JSON + IP)에 기록한다 — 감사 로그 삭제 API는 없다. ADMIN 부여는 DB 직접 변경으로만 가능하다. 사용자 정지/삭제는 `User.status`(SUSPENDED/DELETED) soft 처리로, 로그인(403)과 기존 세션(`getCurrentUser`가 null)을 모두 차단한다. 가상계좌 '일시 중지'는 `status='PAUSED'`로, 기존 `assetService`의 `status !== "ACTIVE"` 주문 가드가 거래를 자동 차단한다.
+**관리자 콘솔** (`/console` — `app/console/page.tsx` + `components/admin/`): 운영자 전용 단일 화면. 서버 컴포넌트가 `lib/server/adminAuth.ts::requireAdmin()`(JWT 쿠키 + `User.role='ADMIN'` + `status='ACTIVE'`)으로 검증해 실패 시 `notFound()`(404)로 존재를 숨긴다. 기능별 API `/api/admin/{overview,users,backtests,accounts,strategies,plans,qa-logs,audit}` 8종도 각각 requireAdmin 게이트를 거치며, 모든 변경 작업은 `writeAuditLog()`가 `AdminAuditLog`(before/after JSON + IP)에 기록한다 — 감사 로그 삭제 API는 없다. ADMIN 부여는 DB 직접 변경으로만 가능하다. 사용자 정지/삭제는 `User.status`(SUSPENDED/DELETED) soft 처리로, 로그인(403)과 기존 세션(`getCurrentUser`가 null)을 모두 차단한다. 가상계좌 '일시 중지'는 `status='PAUSED'`로, 기존 `assetService`의 `status !== "ACTIVE"` 주문 가드가 거래를 자동 차단한다.
 가상계좌 해지 요청(`DELETE /api/virtual-account/[id]`)은 보유 포지션을 현재가 기준으로 강제 매도하고 계좌를 `CLOSED`로 전환하되, 남은 현금·평가금액을 다른 계좌나 사용자 자산으로 **이전하지 않는다**. 정산값은 `ACCOUNT_LIQUIDATION_RETURN` 원장에만 기록되어 닫힌 계좌의 최종 평가금액/수익률 조회(`getAccountSettlementValues`)에 쓰인다.
 가상계좌 목록 카드의 해지 버튼은 즉시 삭제하지 않고 해지 확인 모달("남은 현금과 보유 종목은 다른 계좌로 이전되지 않습니다")을 먼저 표시하며, 사용자가 확인해야만 위 해지 로직이 실행된다.
+
+**대화 기록 (Q&A 로그, FR-ADM-007)**: 전략연구소에서 오간 질문과 답변을 한 턴에 한 행씩 `ChatQaLog`에 남기고, 콘솔 `Q&A Logs` 탭(`components/admin/QaLogsTab.tsx`)에서 열람한다. 수집 지점은 **화면 메시지 목록 한 곳**이다(`app/analytics/new/page.tsx`의 효과 하나 + 순수 모듈 `app/analytics/new/qaLog.ts`) — 대화 화면은 한 질문에 여러 백엔드 엔드포인트(`/query/classify` → `/query/general`·`/strategy/coach/stream`·`/strategy/parse/stream`·`/strategy/builder/step`)를 타므로 호출부마다 기록을 붙이면 새는 경로가 생긴다. 메시지 갱신이 `QA_LOG_SETTLE_MS`(1.5초) 동안 멎으면 그 턴이 끝난 것으로 보고(코치 스트리밍이 답변을 여러 번 갱신한다) `POST /api/chat-log`으로 fire-and-forget 전송한다. 세션 id는 대화 복원 스냅샷(`STRATEGY_CHAT_STATE_KEY`)에 함께 실려 다른 페이지를 다녀와도 같은 대화로 이어지고, 대화 초기화 시 새로 발급된다. 기록되는 답변은 우리가 이미 화면에 그린 메시지 객체를 텍스트로 옮긴 것이며(전략 요약 카드는 `[전략 요약 카드]` 표시), 사용자 원문의 의미를 다시 판정하지 않는다(대원칙 1). 실측 용량은 한 건 약 2KB(질문 평균 85자·답변 평균 500자, 한글 3바이트 기준 + 메타·인덱스). 관측 계층(`backend/observability/`)의 span 트리 JSONL은 3일 보관 정책을 가진 개발자 디버깅용 별개 채널이며 이 기록을 대체하지 않는다.
 
 ### 3.2 전략 Lab 컴포넌트 구조 (`/analytics/new`)
 
@@ -1101,6 +1103,11 @@ ResearchEvent   — SSE 이벤트 로그 (type, payload JSON)
 BacktestRun     — strategy_id 단위 백테스트 실행 캐시/메트릭 스냅샷
 StrategyEmbedding — RAG 검색용 텍스트/구조 문서 및 임베딩 메타데이터
 AdviceExperience — 조언 전/후 성과, 유사 사례, 평가, reusable lesson 저장
+
+AdminAuditLog   — 관리자 변경 작업 감사 로그 (before/after JSON, IP) — 삭제 API 없음
+ChatQaLog       — 전략연구소 대화 기록 (질문·답변 한 턴 = 1행) — 삭제 API 없음
+                  userId/userEmail은 기록 시점 스냅샷(FK 없음, 비로그인은 null),
+                  sessionId+turnIndex로 한 대화의 순서를 복원한다
 ```
 
 **Strategy 저장 규칙**
@@ -1210,7 +1217,11 @@ Client polling으로 진행률/로그/리더보드 반영
 - `GET/PATCH /api/admin/accounts` — 가상계좌 목록(평가금·수익률) / 일시 중지·재개·초기화·삭제
 - `GET/PATCH /api/admin/strategies` — 전략 목록(지표·연결 계좌·백테스트 수) / 비활성화·삭제(soft)
 - `GET/PATCH /api/admin/plans` — 플랜 기본값+오버라이드 조회 / `PlanConfig` 한도 오버라이드 upsert
+- `GET /api/admin/qa-logs` — 전략연구소 대화 기록 조회 (내용·이메일·답변 종류·`sessionId` 필터, 삭제 API 없음)
 - `GET /api/admin/audit` — 감사 로그 조회 (삭제 API 없음)
+
+**대화 기록** (관리자 게이트 밖 — 대화 화면이 스스로 남기는 기록)
+- `POST /api/chat-log` — 전략연구소 대화 한 턴(질문+답변) 기록. 비로그인 대화도 남긴다(`userId=null`)
 
 ---
 
