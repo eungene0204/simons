@@ -122,6 +122,12 @@ import {
   shouldShowChatInputBox,
 } from "./chatNavigation";
 import { selectClassifierHistory } from "./chatHistory";
+import {
+  collectQaTurns,
+  newQaSessionId,
+  selectLoggableQaTurns,
+  sendQaLog,
+} from "./qaLog";
 import { applyParsedValueStrategySeed } from "./builderSeed";
 import {
   buildBuilderTurnPresentation,
@@ -605,6 +611,10 @@ const SURFACE_ENTER_LATE_CLASS = "chat-enter-late";
 // 전략 검증은 규칙 기반이라 즉시 응답하지만, 분석이 진행 중임을 사용자가 인지하도록
 // 최소 노출 시간을 둔다. 응답이 더 오래 걸리면 추가 지연 없이 그대로 표시한다.
 const MIN_VALIDATION_DELAY_MS = 2400;
+
+// 대화 기록을 남기기 전에 메시지 갱신이 멎기를 기다리는 시간. 코치 스트리밍은 답변을
+// 조금씩 이어 붙이므로, 이 시간만큼 조용하면 그 턴이 끝난 것으로 본다.
+const QA_LOG_SETTLE_MS = 1500;
 
 // Choice-only prompts can reopen the shared chat input without sending another answer.
 const FREE_INPUT_CHIP = "직접 입력";
@@ -1655,6 +1665,15 @@ function StrategyLabContent() {
   const pendingAuthGatePromptRef = useRef<string | null>(null);
   // 진행 중이던 채팅을 한 번만 복원하기 위한 가드.
   const chatRestoredRef = useRef(false);
+  // ── 대화 기록(Q&A 로그) ──
+  // 이 대화를 묶는 세션 id. 복원 시 스냅샷에서 이어받고, 새 대화(초기화)마다 새로 만든다.
+  const qaSessionIdRef = useRef<string>(newQaSessionId());
+  // 이미 기록을 보낸 턴 수 — 같은 턴을 두 번 보내지 않기 위한 진행 카운터.
+  const qaLoggedTurnsRef = useRef(0);
+  // 턴별 질문이 화면에 뜬 시각(응답 소요 시간 계산용).
+  const qaTurnStartedAtRef = useRef<Map<number, number>>(new Map());
+  // 메시지가 마지막으로 바뀐 시각 — 스트리밍이 멎은 시점이 곧 답변이 끝난 시점이다.
+  const qaLastChangeAtRef = useRef(0);
   const handleSendRef = useRef<(overrideText?: string) => Promise<void>>();
   const handleResetRef = useRef<() => void>();
   // memo된 ChatInputBox에 넘길 안정 콜백 — 최신 구현은 ref로 참조한다.
@@ -1811,6 +1830,12 @@ function StrategyLabContent() {
       firstPromptRef.current = snapshot.firstPrompt ?? "";
       coachConversationRef.current = snapshot.coachConversation ?? [];
       coachSessionIdRef.current = snapshot.coachSessionId ?? null;
+      // 복원한 대화는 이미 기록된 대화다 — 세션 id를 이어받고, 복원 시점까지의 턴은
+      // 기록 완료로 표시해 같은 질문·답변이 두 번 남지 않게 한다.
+      qaSessionIdRef.current = snapshot.qaSessionId ?? qaSessionIdRef.current;
+      qaLoggedTurnsRef.current = collectQaTurns(
+        snapshot.messages as ChatMessage[],
+      ).length;
       lastAnalyzedSymbolRef.current = snapshot.lastAnalyzedSymbol ?? null;
       builderModeRef.current = snapshot.builderMode ?? false;
       builderStateRef.current = snapshot.builderState ?? {};
@@ -1919,6 +1944,7 @@ function StrategyLabContent() {
         firstPrompt: firstPromptRef.current,
         coachConversation: coachConversationRef.current,
         coachSessionId: coachSessionIdRef.current,
+        qaSessionId: qaSessionIdRef.current,
         lastAnalyzedSymbol: lastAnalyzedSymbolRef.current,
         builderMode: builderModeRef.current,
         builderState: builderStateRef.current,
@@ -1953,6 +1979,41 @@ function StrategyLabContent() {
     executedReq,
     explicitNoRebalancing,
   ]);
+
+  // 대화 기록 — 답변이 끝난 턴을 한 건씩 서버에 남긴다(운영 콘솔 Q&A 탭에서 열람).
+  //
+  // 메시지가 바뀔 때마다 타이머를 다시 건다. 스트리밍은 답변을 여러 번 갱신하므로,
+  // 갱신이 QA_LOG_SETTLE_MS 동안 멎은 시점이 곧 그 턴이 끝난 시점이다. 호출부(20여 곳)를
+  // 건드리지 않고 화면 상태 한 곳만 보면 되므로 기록이 새는 경로가 생기지 않는다.
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const changedAt = Date.now();
+    qaLastChangeAtRef.current = changedAt;
+    // 질문이 뜬 시각은 그 턴이 처음 보인 때다 — 응답 소요 시간의 시작점.
+    for (const turn of collectQaTurns(messages)) {
+      if (!qaTurnStartedAtRef.current.has(turn.turnIndex)) {
+        qaTurnStartedAtRef.current.set(turn.turnIndex, changedAt);
+      }
+    }
+
+    const timer = window.setTimeout(() => {
+      for (const turn of selectLoggableQaTurns(messages, qaLoggedTurnsRef.current)) {
+        const startedAt = qaTurnStartedAtRef.current.get(turn.turnIndex);
+        sendQaLog({
+          sessionId: qaSessionIdRef.current,
+          turnIndex: turn.turnIndex,
+          question: turn.question,
+          answer: turn.answer,
+          answerKind: turn.answerKind,
+          chipAnswer: turn.chipAnswer,
+          latencyMs: startedAt ? qaLastChangeAtRef.current - startedAt : null,
+        });
+        qaLoggedTurnsRef.current = turn.turnIndex + 1;
+      }
+    }, QA_LOG_SETTLE_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [messages]);
 
   useEffect(() => {
     if (messages.length === 0) return;
@@ -4297,6 +4358,10 @@ function StrategyLabContent() {
     researchMetricRef.current = null;
     pendingPromptConsumedRef.current = false;
     metricOptimizationDraftRef.current = null;
+    // 새 대화는 새 기록 세션이다 — 턴 번호가 0부터 다시 시작하므로 세션 id도 새로 만든다.
+    qaSessionIdRef.current = newQaSessionId();
+    qaLoggedTurnsRef.current = 0;
+    qaTurnStartedAtRef.current = new Map();
     metricOptimizationAbortRef.current?.abort();
     metricOptimizationAbortRef.current = null;
     setMetricOptimizationProgress(null);

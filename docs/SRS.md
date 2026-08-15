@@ -1541,7 +1541,7 @@ News Collector
 
 ### 3.9 관리자 콘솔 (Admin Console)
 
-**FR-ADM-001** 관리자 콘솔은 `/console` 단일 URL 하나만 존재해야 하며(하위 페이지 없음), 내부 탭(Overview/Architecture/Users/Backtests/Virtual Accounts/Strategies/Plans/Knowledge/Agents/Audit Logs) 전환으로 모든 기능을 제공해야 한다. Agents 탭(2026-07-29)은 플랫폼 AI 파이프라인 9종의 설계 구조를 agent별 서브탭·흐름도(노드 유형 색상 범례: 입력/AI 판단/자동 규칙/지식·데이터/안전장치/사용자 확인/결과물)로 시각화한다 — 내부 변수명이 아닌 운영자 친화 명칭으로 표기하는 정적 스냅샷(`components/admin/AgentsTab.tsx`)이며, 파이프라인 구조 변경 시 함께 갱신한다. Architecture 탭(2026-08-14)은 서비스 전체의 계층 구조·설계를 8개 서브탭(구조 그래프/전체 조감도/대화→백테스트 여정/백테스트 엔진/데이터 파이프라인/가상매매/배포 구조/규제 안전 계층)으로 시각화하며 — 구조 그래프(기본 서브탭)는 핵심 구성 요소 16개 노드와 호출·데이터 흐름 18개 엣지를 SVG 다이어그램으로 그린다 —, 상세 데이터가 있는 카드는 클릭 시 상세 패널(요약·핵심 설계·운영 메모/사고 이력·구현 위치, ESC/배경 클릭으로 닫힘)을 연다 — 같은 원칙의 정적 스냅샷(`components/admin/ArchitectureTab.tsx`, 정본 문서=`docs/software_architecture.md`·`docs/deployment.md`)이며, 시스템 계층·경계·데이터 흐름이 바뀌면 함께 갱신한다.
+**FR-ADM-001** 관리자 콘솔은 `/console` 단일 URL 하나만 존재해야 하며(하위 페이지 없음), 내부 탭(Overview/Architecture/Users/Backtests/Virtual Accounts/Strategies/Plans/Knowledge/Agents/Q&A Logs/Audit Logs) 전환으로 모든 기능을 제공해야 한다. Agents 탭(2026-07-29)은 플랫폼 AI 파이프라인 9종의 설계 구조를 agent별 서브탭·흐름도(노드 유형 색상 범례: 입력/AI 판단/자동 규칙/지식·데이터/안전장치/사용자 확인/결과물)로 시각화한다 — 내부 변수명이 아닌 운영자 친화 명칭으로 표기하는 정적 스냅샷(`components/admin/AgentsTab.tsx`)이며, 파이프라인 구조 변경 시 함께 갱신한다. Architecture 탭(2026-08-14)은 서비스 전체의 계층 구조·설계를 8개 서브탭(구조 그래프/전체 조감도/대화→백테스트 여정/백테스트 엔진/데이터 파이프라인/가상매매/배포 구조/규제 안전 계층)으로 시각화하며 — 구조 그래프(기본 서브탭)는 핵심 구성 요소 16개 노드와 호출·데이터 흐름 18개 엣지를 SVG 다이어그램으로 그린다 —, 상세 데이터가 있는 카드는 클릭 시 상세 패널(요약·핵심 설계·운영 메모/사고 이력·구현 위치, ESC/배경 클릭으로 닫힘)을 연다 — 같은 원칙의 정적 스냅샷(`components/admin/ArchitectureTab.tsx`, 정본 문서=`docs/software_architecture.md`·`docs/deployment.md`)이며, 시스템 계층·경계·데이터 흐름이 바뀌면 함께 갱신한다.
 
 **FR-ADM-002** 모든 관리자 페이지·API는 서버에서 `requireAdmin()`(JWT + `User.role='ADMIN'` + `status='ACTIVE'`)으로 권한을 검증해야 한다. 검증 실패 시 404를 반환해 콘솔의 존재 자체를 숨긴다. UI 숨김만으로는 보안으로 인정하지 않는다.
 
@@ -1552,6 +1552,8 @@ News Collector
 **FR-ADM-005** 관리자는 사용자 관리(플랜 변경·정지·활성화·삭제(soft)·백테스트 사용량 조정), 가상계좌 관리(일시 중지·재개·초기화·삭제), 전략 관리(비활성화·삭제(soft)), 플랜 한도 오버라이드(`PlanConfig` — 월 백테스트/전략 수/가상계좌 수, null=기본값 복원, 전략 -1=무제한)를 수행할 수 있어야 한다. 자기 자신에 대한 정지·삭제는 차단된다.
 
 **FR-ADM-006** 관리자 화면·API 응답에는 비밀번호, OAuth/Access/Refresh Token, Secret Key, API Key 등 민감 정보를 포함하지 않아야 한다.
+
+**FR-ADM-007** 전략연구소 대화는 **질문 하나와 그 턴의 답변**을 한 건으로 `ChatQaLog`에 기록해야 한다(2026-08-15). 기록 항목은 사용자(비로그인은 null)·대화 세션 id·턴 번호·질문 원문·화면에 뜬 답변 텍스트·답변 종류(error/clarification/strategy/coach/info/text)·칩 선택 여부·응답 소요 시간이다. 기록 시점은 그 턴의 메시지 갱신이 멎은 때이며(스트리밍 완료 판정), 기록 전송 실패는 대화를 중단시키지 않는다. 관리자는 Q&A Logs 탭에서 내용 검색·사용자·답변 종류·대화 단위로 조회하며, 감사 로그와 같이 삭제 API는 제공하지 않는다. 이 기록은 답변 품질 점검용이며 사용자에게 노출하지 않는다. 보관 기간 제한은 두지 않는다(관측 계층 Trace 원문의 3일 보관 정책과 별개 채널 — 실측 기준 질문+답변 한 건 약 2KB).
 
 ---
 

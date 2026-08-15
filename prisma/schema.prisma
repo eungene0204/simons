@@ -378,6 +378,28 @@ model AdminAuditLog {
   @@index([adminId, createdAt])
 }
 
+// 전략연구소 대화 기록 — 사용자가 무엇을 물었고 우리가 무엇을 답했는지 한 턴에 1행.
+// 운영 콘솔(Q&A 탭)에서 답변을 되짚어 보기 위한 기록이며, 사용자에게는 노출하지 않는다.
+// AdminAuditLog와 같이 '그 시점의 사실'을 남기는 로그이므로 userEmail을 비정규화해
+// 계정이 바뀌거나 삭제돼도 기록이 그대로 읽히게 한다. 관계(FK)는 두지 않는다.
+model ChatQaLog {
+  id         String   @id @default(cuid())
+  userId     Int? // 비로그인 대화는 null
+  userEmail  String? // 기록 시점의 이메일 스냅샷
+  sessionId  String // 브라우저 대화 세션 — 한 대화의 턴들을 묶는다
+  turnIndex  Int // 세션 안에서 몇 번째 질문인가(0부터)
+  question   String // 사용자 발화 원문
+  answer     String // 화면에 뜬 답변 텍스트(한 턴에 블록이 여럿이면 이어 붙인다)
+  answerKind String // error | clarification | strategy | coach | info | text
+  chipAnswer Boolean  @default(false) // 칩을 눌러 답한 턴
+  latencyMs  Int? // 질문이 뜬 시각 → 마지막 답변이 갱신된 시각
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([sessionId, turnIndex])
+}
+
 // 플랜별 한도 오버라이드 — null이면 lib/plans.ts 기본값 사용.
 // maxStrategies는 -1이면 무제한.
 model PlanConfig {
