@@ -9,11 +9,13 @@
 "무엇을 입력해도 같은 에러"인 영구 교착이 됐다.
 """
 
+import json
 import os
 import sys
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
@@ -239,3 +241,55 @@ def test_llm_first_mode_delivers_llm_clarification_without_fast_path_probe(monke
     assert result["parsed"].model_dump()["description"] == "PBR 1 이하 종목 10개"
     assert result["interpreter"]["mode"] == "primary_modify_clarify"
     assert probe_calls == []  # 원문 파서(_modify_rule_based)는 한 번도 상담되지 않았다
+
+
+# ── 가리킬 필드가 없는 되묻기 (2026-08-16 원출력 수집에서 발견) ──────────────
+#
+# intent=NON_STRATEGY_REQUEST에는 전략 필드가 없어 9B가 field=null을 낸다. 종전
+# 스키마(`field: str`)가 그걸 튕겨 수리 재요청으로 넘어갔고, 재요청이 없는 필드를
+# **지어냈다** — "내 돈 3천만원 대신 투자해줘"의 1차 출력은 대리투자를 받아주지
+# 않았는데, 재생성본이 field="backtest.initial_capital",
+# recommended_value=30000000 짜리 초기자본 질문으로 바꿔 규제 대상 요청을 전략
+# 설정으로 받아 적었다. 스키마가 유효한 해석을 실패시킨 것이 원인이다.
+
+def test_clarification_question_without_a_field_path_validates():
+    """가리킬 필드가 없는 질문(field=null)은 스키마를 통과해야 한다."""
+    from strategy_conversation.interpreter.models import StrategyIntent
+
+    intent = StrategyIntent.model_validate_json(json.dumps({
+        "intent": "NON_STRATEGY_REQUEST",
+        "strategy": None,
+        "patches": [],
+        "unsupported_features": ["내 돈"],
+        "clarification_questions": [
+            {"field": None, "question": "주식 투자 전략을 구체적으로 설계해 드릴까요?",
+             "recommended_value": None},
+        ],
+        "confidence": 0.95,
+    }))
+    assert intent.clarification_questions[0].field is None
+    # 다만 **키 누락은 계속 거부한다** — 2026-07-30 사고(형태에서 field 예시가 사라져
+    # 9B가 키를 빠뜨리고 전략 전체가 버려짐)의 회귀 가드가 이 전제 위에 서 있다.
+    # '없음'은 명시적 null로만 말하게 두고, 침묵은 여전히 오류다.
+    with pytest.raises(ValidationError):
+        StrategyIntent.model_validate({
+            "intent": "NON_STRATEGY_REQUEST",
+            "clarification_questions": [{"question": "무엇을 도와드릴까요?"}],
+        })
+
+
+def test_build_clarification_items_survives_a_null_field():
+    """되묻기 조립이 field=None에 깨지지 않는다(크로스 기간 정규식 대입 지점)."""
+    from strategy_conversation.interpreter.models import (
+        ClarificationQuestion,
+        StrategyIntent,
+        ValidationReport,
+    )
+
+    intent = StrategyIntent.model_validate({"intent": "NON_STRATEGY_REQUEST"})
+    report = ValidationReport(clarification_questions=[
+        ClarificationQuestion(field=None, question="무엇을 도와드릴까요?"),
+    ])
+    items = primary._clarification_items(report, intent)
+    assert [i["question"] for i in items] == ["무엇을 도와드릴까요?"]
+    assert items[0]["chips"] == []
