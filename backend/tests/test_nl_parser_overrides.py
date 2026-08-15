@@ -2318,6 +2318,7 @@ def test_incomplete_backtest_conditions_gate():
     인정하지 않는다(빈 진입=0거래, 2026-07-25 테마 유니버스 버그 수정). 여러 조건이 비어
     있어도 한 번에 다 묻지 않고 가장 먼저 비어 있는 조건 하나만 묻는다(2026-07-22b 정책)."""
     from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy, TechnicalSignal
+    from engine import strategy_slots
 
     # 단일 종목(유니버스=지정종목 인정)이라도 매수 시점 규칙이 없으면 진입부터 묻는다.
     single = ParsedStrategy(description="삼성전자", target_symbols=["005930"])
@@ -2331,8 +2332,13 @@ def test_incomplete_backtest_conditions_gate():
                                           short_period=5, long_period=20)],
     })
     q2, chips2 = detect_incomplete_backtest_conditions(single_with_entry, "삼성전자 투자 하는 전략")
-    assert q2 is not None and "청산" in q2 and "손절" not in q2 and "익절" not in q2
-    assert chips2 == ["20일 보유 후 청산", "데드크로스(5일/20일) 발생 시 매도"]
+    # 어느 슬롯을 묻는지는 정본 문구와 대조해 판정한다 — 문구 안의 낱말("청산")로 보면
+    # 정본이 표현을 바꾸는 순간 판정이 조용히 헛돈다(2026-08-16 문구 정본 통합).
+    exit_q, exit_chips = strategy_slots.slot_question(strategy_slots.EXIT)
+    stop_q, _ = strategy_slots.slot_question(strategy_slots.STOP_LOSS)
+    take_q, _ = strategy_slots.slot_question(strategy_slots.TAKE_PROFIT)
+    assert q2 == exit_q and q2 not in (stop_q, take_q)
+    assert chips2 == exit_chips
 
 
 def test_incomplete_conditions_theme_universe_still_requires_entry():
@@ -2340,6 +2346,7 @@ def test_incomplete_conditions_theme_universe_still_requires_entry():
     청산·손절·익절이 모두 있어도 매수 조건이 없으면 완성으로 판정하면 안 된다 — 빈 진입
     조건은 엔진에서 all-False 시그널이라 0거래가 된다."""
     from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy, TechnicalSignal
+    from engine import strategy_slots
 
     theme = ParsedStrategy(
         description="bts 관련주 전략",
@@ -2357,6 +2364,7 @@ def test_incomplete_conditions_theme_universe_still_requires_entry():
 def test_incomplete_backtest_conditions_complete_strategy_runs():
     """다섯 조건이 모두 있으면 (None, None) — 실행 가능."""
     from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy, TechnicalSignal
+    from engine import strategy_slots
 
     complete = ParsedStrategy(
         description="x", universe=["KOSPI200"],
@@ -2373,6 +2381,7 @@ def test_incomplete_backtest_conditions_complete_strategy_runs():
 def test_incomplete_backtest_conditions_rebalancing_required_for_universe():
     """[정책] 단독 종목이 아니면 리밸런싱도 필수. 단독 종목은 교체가 없어 제외."""
     from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy, TechnicalSignal
+    from engine import strategy_slots
 
     def _sig(st):
         return TechnicalSignal(indicator="ma_crossover", signal_type=st, short_period=5, long_period=20)
@@ -2382,14 +2391,15 @@ def test_incomplete_backtest_conditions_rebalancing_required_for_universe():
         description="x", universe=["KOSPI200"], entry_signals=[_sig("buy")],
         exit_signals=[_sig("sell")], stop_loss_pct=10.0, take_profit_pct=20.0,
     )
+    rebal_q, rebal_chips = strategy_slots.slot_question(strategy_slots.REBALANCING)
     q, chips = detect_incomplete_backtest_conditions(universe, "")
-    assert q is not None and "리밸런싱" in q
-    assert chips == ["매월 리밸런싱", "분기마다 리밸런싱", "리밸런싱 안 함"]
+    assert q == rebal_q
+    assert chips == rebal_chips
 
     # 단독 종목은 리밸런싱을 요구하지 않는다 — 매수·청산·손절·익절만.
     single = ParsedStrategy(description="x", target_symbols=["005930"])
     q2, _ = detect_incomplete_backtest_conditions(single, "")
-    assert "리밸런싱" not in (q2 or "")
+    assert q2 != rebal_q
 
 
 def test_incomplete_backtest_conditions_multi_symbol_asks_rebalancing():
@@ -2398,6 +2408,7 @@ def test_incomplete_backtest_conditions_multi_symbol_asks_rebalancing():
     않고 리밸런싱 주기를 묻는다. 명시 거부("리밸런싱 안 함")는 사용자의 결정이므로 같은
     질문을 반복하지 않는다."""
     from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy, TechnicalSignal
+    from engine import strategy_slots
 
     def _sig(st):
         return TechnicalSignal(indicator="ma_crossover", signal_type=st, short_period=5, long_period=20)
@@ -2408,31 +2419,36 @@ def test_incomplete_backtest_conditions_multi_symbol_asks_rebalancing():
         entry_signals=[_sig("buy")], exit_signals=[_sig("sell")],
         stop_loss_pct=10.0, take_profit_pct=20.0,
     )
+    rebal_q, _ = strategy_slots.slot_question(strategy_slots.REBALANCING)
     q, chips = detect_incomplete_backtest_conditions(theme, "모바일솔루션 관련주 투자 전략")
-    assert q is not None and "리밸런싱" in q
+    assert q == rebal_q
     assert chips and "리밸런싱 안 함" in chips
 
     # 사용자가 명시적으로 거부하면 되묻지 않는다(누적 프롬프트 재파싱의 무한 반복 방지).
     q2, _ = detect_incomplete_backtest_conditions(
         theme, "모바일솔루션 관련주 투자 전략\n리밸런싱 안 함"
     )
-    assert "리밸런싱" not in (q2 or "")
+    assert q2 != rebal_q
 
 
 def test_incomplete_backtest_conditions_momentum_entry_recognized():
     """모멘텀 랭킹·정기 리밸런싱은 진입(랭킹)·청산(리밸런싱)으로 인정 → 손절·익절이 남지만
     가장 먼저인 손절만 묻는다(Q2 + 하나씩 묻기 정책)."""
     from engine.nl_parser import detect_incomplete_backtest_conditions, ParsedStrategy
+    from engine import strategy_slots
 
     momentum = ParsedStrategy(
         description="x", universe=["KOSPI200"], ranking_metric="return",
         rebalancing_period="monthly",
     )
     q, chips = detect_incomplete_backtest_conditions(momentum, "")
-    assert q is not None and "손절" in q and "익절" not in q
+    stop_q, stop_chips = strategy_slots.slot_question(strategy_slots.STOP_LOSS)
+    take_q, _ = strategy_slots.slot_question(strategy_slots.TAKE_PROFIT)
+    assert q == stop_q and q != take_q
     # 손절 칩은 마이너스 표기(FR-STR-030b) — 진입·청산·리밸런싱은 충족, 남은 것 중 손절이 먼저.
     # '손절 안 함'은 거부 칩(2026-08-10 사용자 지시) — 안 쓰는 것도 정상 설계라 함께 나온다.
-    assert chips == ["손절 -10%", "손절 -5%", "손절 안 함"]
+    assert chips == stop_chips
+    assert "손절 안 함" in chips and all(c.startswith("손절") for c in chips)
 
 
 def test_missing_entry_clarification_asks_numbers_for_qualitative_metrics():

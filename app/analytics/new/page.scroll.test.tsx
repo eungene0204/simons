@@ -10,6 +10,7 @@ import {
 } from "./builderProgressPresentation";
 import {
   getNextMissingBacktestCondition,
+  promptForSlot,
   type MissingBacktestCondition,
 } from "./backtestReadiness";
 import { applyDeterministicConditionChoice } from "./deterministicConditionFlow";
@@ -495,8 +496,9 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(screen.getByRole("button", { name: "코스피200" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "코스피" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "코스닥" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "코스피+코스닥" })).toBeInTheDocument();
-    // 유니버스는 제시한 네 개가 선택지의 전부다 — '직접 입력'을 붙이면 없는 여지를 만든다.
+    expect(screen.getByRole("button", { name: "코스피·코스닥 전체" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ETF" })).toBeInTheDocument();
+    // 유니버스는 제시한 다섯 개가 선택지의 전부다 — '직접 입력'을 붙이면 없는 여지를 만든다.
     expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/builder/step")).toBe(false);
@@ -788,7 +790,7 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(clarificationCard).toContainElement(endChatButtons[0]);
 
     const userBubblesBeforeChip = screen.getAllByTestId("user-chat-bubble").length;
-    fireEvent.click(screen.getByRole("button", { name: "안 함" }));
+    fireEvent.click(screen.getByRole("button", { name: "리밸런싱 안 함" }));
 
     expect(
       await screen.findByText(
@@ -927,7 +929,10 @@ describe("StrategyLabPage scroll behavior", () => {
     fireEvent.click(screen.getByRole("button", { name: "없음" }));
 
     expect(await screen.findByText("전략 검증 완료", {}, { timeout: 5_000 })).toBeInTheDocument();
-    expect(screen.getAllByText(filterQuestion)).toHaveLength(1);
+    // 되묻기 카드는 **지금 답할 질문 하나만** 보여준다(빌더 질문도 같은 카드로 나가면서
+    // 이 규칙을 함께 따른다, 2026-08-16) — 답이 끝난 질문은 카드째 사라지고, 정해진
+    // 내용은 요약 카드가 이어서 보여준다. 같은 질문이 두 번 남는 일도 그래서 없다.
+    expect(screen.queryAllByText(filterQuestion)).toHaveLength(0);
     expect(screen.getByText("삼성전자 (005930)")).toBeInTheDocument();
     const runButton = screen.getByRole("button", { name: "백테스트 시작하기" });
     expect(screen.getAllByRole("button", { name: "백테스트 시작하기" })).toHaveLength(1);
@@ -1292,7 +1297,10 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(builderCallCount).toBe(3);
   });
 
-  it("유니버스 이후 조건에서는 뒤로가기를 제공하고 유니버스 질문으로 복원한다", async () => {
+  it("유니버스 이후 조건에서는 돌아가기 버튼을 제공하고 유니버스 질문으로 복원한다", async () => {
+    // [2026-08-16] 되돌아가기는 답이 아니라 컨트롤이다 — 게이트 레인과 같은 자리(카드
+    // 우상단 '돌아가기' 버튼)를 쓴다. 예전에는 빌더만 '뒤로가기'를 칩 목록 끝에 섞어 넣어
+    // 같은 기능이 경로에 따라 답변 칩으로도, 버튼으로도 보였다.
     const builderRequests: Array<{ state: Record<string, unknown>; input: string }> = [];
 
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
@@ -1344,7 +1352,7 @@ describe("StrategyLabPage scroll behavior", () => {
       }),
     ).toHaveAttribute("data-complete", "false");
     expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "뒤로가기" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "돌아가기" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "코스피" }));
 
@@ -1355,13 +1363,14 @@ describe("StrategyLabPage scroll behavior", () => {
       }),
     ).toHaveAttribute("data-complete", "true");
     expect(screen.getByRole("button", { name: "직접 입력" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "뒤로가기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "돌아가기" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "뒤로가기" }));
+    fireEvent.click(screen.getByRole("button", { name: "돌아가기" }));
 
     await waitFor(() => {
       expect(builderRequests.at(-1)).toEqual({ state: {}, input: "" });
-      expect(screen.getAllByText(/어떤 시장을 대상으로 할까요\?/)).toHaveLength(2);
+      // 되돌아온 질문은 다시 '지금 답할 질문'이 된다 — 카드는 그 하나만 그린다.
+      expect(screen.getAllByText(/어떤 시장을 대상으로 할까요\?/)).toHaveLength(1);
       expect(
         within(screen.getByTestId("strategy-progress-panel")).getByRole("listitem", {
           name: "유니버스: 진행 전",
@@ -1369,7 +1378,7 @@ describe("StrategyLabPage scroll behavior", () => {
       ).toHaveAttribute("data-complete", "false");
     });
     expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "뒤로가기" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "돌아가기" })).not.toBeInTheDocument();
   });
 
   it("scrolls to the bottom when a follow-up coach reply updates the existing assistant message", async () => {
@@ -1814,7 +1823,7 @@ describe("strategy builder progress presentation", () => {
     };
     const result = buildBuilderTurnPresentation({
       state: {},
-      reply: "청산 조건이 빠져 있습니다. 어떤 조건에서 청산할까요?",
+      reply: "이제 언제 매도할지 정해볼까요?",
       parsed,
       explicitFields: [],
     });
@@ -1924,7 +1933,7 @@ describe("strategy builder progress presentation", () => {
       explicitFields: [],
     })).toMatchObject({
       field: "universe",
-      suggestions: ["코스피200", "코스피", "코스닥", "코스피+코스닥"],
+      suggestions: ["코스피", "코스닥", "코스피200", "코스피·코스닥 전체", "ETF"],
     });
     expect(getNextMissingBacktestCondition(parsedStrategy, {
       ...explicitOptions,
@@ -1960,15 +1969,17 @@ describe("strategy builder progress presentation", () => {
     })).toBeNull();
   });
 
-  it("uses collaborative wording for required strategy fields", () => {
+  it("정본 질문은 그대로 두고 정본 밖 질문의 '빠져 있습니다' 도입부만 뗀다", () => {
+    // 화면에 나갈 최종 문구는 정본(engine/strategy_slots.py)이 들고 있다 — 렌더 직전에
+    // 다른 문장으로 갈아끼우던 치환표는 폐지됐다(2026-08-16 질문 표현 통일).
+    for (const field of ["universe", "entry", "exit", "rebalancing"] as const) {
+      const canonical = promptForSlot(field).question;
+      expect(makeBuilderQuestionFriendly(canonical)).toBe(canonical);
+    }
+    // 정본 밖(백엔드 인터프리터가 즉석에서 만든 되묻기)에만 도입부 제거가 남는다.
     expect(
-      makeBuilderQuestionFriendly(
-        "리밸런싱 주기가 빠져 있습니다. 포트폴리오를 얼마나 자주 다시 구성할까요?",
-      ),
-    ).toBe("다음으로 포트폴리오를 얼마나 자주 다시 구성할지 정해볼까요?");
-    expect(makeBuilderQuestionFriendly("마지막으로 청산 조건을 정해 주세요.")).toBe(
-      "이제 언제 매도할지 정하면 전략이 완성됩니다. 매도 조건을 함께 정해볼까요?",
-    );
+      makeBuilderQuestionFriendly("세부 조건이 빠져 있습니다. 배당 기준을 정해 주세요."),
+    ).toBe("배당 기준을 정해 주세요.");
   });
 });
 
@@ -2052,8 +2063,43 @@ describe("deterministic condition selection", () => {
       });
       expect(result, `칩 "${choice}"이 결정적으로 적용되지 않음`).not.toBeNull();
       const next = result!.parsed;
+      // 매수 조건은 신호·재무 필터·랭킹 셋 중 하나로 표현된다(모멘텀 상위 K는 랭킹) —
+      // 어느 칩을 눌러도 **정확히 하나**가 생겨야 한다(빈 진입=0거래, 이중 기입=중복 조건).
       expect(
-        (next.entry_signals?.length ?? 0) + (next.fundamental_filters?.length ?? 0),
+        (next.entry_signals?.length ?? 0) +
+          (next.fundamental_filters?.length ?? 0) +
+          (next.ranking_metric ? 1 : 0),
+      ).toBe(1);
+    }
+  });
+
+  it("applies every suggested exit chip deterministically", () => {
+    // 매도 칩은 매수 칩의 반대다(2026-08-16 지시) — 새 미러 칩이 결정적으로 적용되지
+    // 않으면 클릭이 LLM 왕복으로 떨어져 같은 질문이 반복된다.
+    const parsed = {
+      ...incompleteParsedStrategy,
+      fundamental_filters: [],
+      entry_signals: [{ indicator: "ma_crossover", signal_type: "buy" }],
+      exit_signals: [],
+      hold_period_days: null,
+      rebalancing_period: "none",
+    };
+    const condition = getNextMissingBacktestCondition(parsed, {
+      requireExplicitConfiguration: true,
+      explicitFields: ["universe"],
+    });
+    expect(condition?.field).toBe("exit");
+    for (const choice of condition!.suggestions) {
+      const result = applyDeterministicConditionChoice({
+        parsed,
+        condition: condition!,
+        choice,
+      });
+      expect(result, `칩 "${choice}"이 결정적으로 적용되지 않음`).not.toBeNull();
+      const next = result!.parsed;
+      // 매도 조건은 청산 신호이거나 보유 기간이다 — 어느 칩이든 정확히 하나가 생겨야 한다.
+      expect(
+        (next.exit_signals?.length ?? 0) + ((next.hold_period_days ?? 0) > 0 ? 1 : 0),
       ).toBe(1);
     }
   });

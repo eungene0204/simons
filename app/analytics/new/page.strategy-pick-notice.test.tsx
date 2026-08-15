@@ -4,10 +4,11 @@
 // (백엔드 seed_recognized=true) 안내문을 생략한다. 진짜 열린 요청(이해 실패)은 종전대로
 // 안내문+첫 질문이 나간다.
 import type { ReactNode } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import StrategyLabPage from "./page";
+import { promptForSlot } from "./backtestReadiness";
 
 const push = vi.fn();
 const fetchMock = vi.fn();
@@ -141,5 +142,33 @@ describe("열린 전략 추천 안내문 — 시드 이해 시 생략(둘 중 �
     expect(screen.getByText(/추천해 드리지는 않지만/)).toBeInTheDocument();
     // [회귀 2026-08-11] 위와 동일 — 고아 '분석 중...' 스피너 금지.
     expect(screen.queryByText("분석 중...")).not.toBeInTheDocument();
+  });
+
+  it("빌더 첫 질문도 되묻기 박스 카드로 나가고 안내문은 카드 밖에 남는다", async () => {
+    // [2026-08-16 사용자 지시] 열린 추천으로 들어온 이 경로의 첫 질문("어떤 시장을…")이
+    // 맨 텍스트로 나가 같은 성격의 질문이 경로에 따라 다르게 보였다. 빌더 질문도 되묻기
+    // 카드(박스)로 나가고, 문구·칩은 정본(engine/strategy_slots.py)에서 온다.
+    const universePrompt = promptForSlot("universe");
+    mockRoutes({
+      builderStep: {
+        state: {},
+        reply: universePrompt.question,
+        suggestions: universePrompt.suggestions,
+        status: "collecting",
+        seed_recognized: false,
+      },
+    });
+    await submitPrompt("어떤 투자를 할까?");
+
+    const card = await screen.findByTestId("clarification-card", undefined, { timeout: 5000 });
+    expect(card).toHaveTextContent(universePrompt.question);
+    for (const chip of universePrompt.suggestions) {
+      expect(within(card).getByRole("button", { name: chip })).toBeInTheDocument();
+    }
+    // 유니버스는 제시한 선택지가 전부다 — 카드가 '직접 입력'을 덧붙이지 않는다.
+    expect(within(card).queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
+    // 안내문은 질문이 아니다 — 카드 밖 본문에 남는다.
+    expect(card).not.toHaveTextContent(/추천해 드리지는 않지만/);
+    expect(screen.getByText(/추천해 드리지는 않지만/)).toBeInTheDocument();
   });
 });

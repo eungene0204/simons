@@ -156,7 +156,10 @@ def test_valueless_type_change_resets_type_params():
     res = sb.step(state, "전략 바꿀래")
     assert res.state.strategy_type is None
     assert res.state.ma_short is None and res.state.ma_long is None
-    assert "방식" in res.reply  # 전략 유형 질문으로 복귀
+    # 매수 조건 질문으로 복귀한다(정본 문구 — 2026-08-16 통합 전엔 전략 유형 질문이었다).
+    from engine import strategy_slots
+
+    assert res.reply.endswith(strategy_slots.slot_question(strategy_slots.ENTRY)[0])
 
 
 # ─── 호환성 검토 ────────────────────────────────────────────────────────────────

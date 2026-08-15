@@ -103,6 +103,7 @@ import {
   isBacktestReady,
   isClosedChoiceSlot,
   promptForSlot,
+  SINGLE_ASSET_ENTRY_CHIPS,
 } from "./backtestReadiness";
 import { applyRunWindow, backtestConfigOptions } from "./backtestOptions";
 import {
@@ -205,6 +206,9 @@ interface ChatMessage {
     progressItems: BuilderProgressItem[];
   };
   strategyConfirmation?: boolean;
+  // 빌더에 되돌아갈 이전 단계가 있는가 — 되묻기 카드의 '돌아가기' 버튼을 그린다.
+  // (게이트 레인의 previousStepState와 같은 자리·같은 버튼, 되돌리는 방법만 다르다.)
+  builderCanGoBack?: boolean;
   // 조건 옵션 버블에서 '돌아가기'로 되돌아갈 이전 단계 상태(유니버스 질문 제외 전 단계에 설정).
   previousStepState?: {
     parsed: ParsedSummary;
@@ -523,9 +527,15 @@ function buildMetricOptimizationResultText(
 }
 
 function shouldShowMovingAverageHelp(message: ChatMessage) {
-  const suggestions = message.infoSuggestions ?? [];
+  // 빌더 질문이 되묻기 카드로 옮겨졌으므로(2026-08-16) 두 채널을 모두 본다 — 한쪽만
+  // 보면 이동평균 종류 질문에서 SMA·EMA 설명이 조용히 사라진다.
+  const suggestions = [
+    ...(message.infoSuggestions ?? []),
+    ...(message.clarificationSuggestions ?? []),
+  ];
   return (
     message.infoText?.includes("어떤 이동평균") ||
+    message.clarification?.includes("어떤 이동평균") ||
     (suggestions.includes("단순(SMA)") && suggestions.includes("지수(EMA)"))
   );
 }
@@ -632,10 +642,14 @@ function isBuilderUniverseStep(state: Record<string, any>): boolean {
   return !hasBuilderSlotValue(state.universe);
 }
 
+/** 빌더 칩에 자유 입력 진입로를 붙인다.
+ *
+ *  '돌아가기'는 여기서 붙이지 않는다(2026-08-16) — 되돌아가기는 답이 아니라 컨트롤이라
+ *  되묻기 카드 우상단 버튼이 담당한다(게이트 레인과 같은 자리). 칩 목록에 섞어 넣으면
+ *  같은 기능이 경로에 따라 다르게 보인다. */
 function withBuilderNavigationSuggestions(
   suggestions: string[] | undefined,
   state: Record<string, any>,
-  canGoBack: boolean,
 ): string[] | undefined {
   if (!suggestions?.length) return suggestions;
 
@@ -644,11 +658,40 @@ function withBuilderNavigationSuggestions(
   );
   if (isBuilderUniverseStep(state)) return withoutNavigation;
 
-  return [
-    ...withoutNavigation,
-    FREE_INPUT_CHIP,
-    ...(canGoBack ? [BUILDER_BACK_CHIP] : []),
-  ];
+  return [...withoutNavigation, FREE_INPUT_CHIP];
+}
+
+/** 전략 빌더 질문 턴의 메시지 패치.
+ *
+ * [2026-08-16 질문 표현 통일] 빌더 질문은 되묻기(clarification) 채널로 보낸다 — 예전에는
+ * 안내문 채널(infoText)로 나가 같은 성격의 질문이 경로에 따라 맨 텍스트로도, 박스 카드로도
+ * 보였다. 채널을 하나로 모으면 박스·칩 규칙(닫힌 선택지엔 '직접 입력' 없음)·하단 고정·
+ * '대화 종료' 배치가 저절로 같아진다.
+ *
+ * leadText는 질문이 아닌 앞말(열린 추천 안내·연구 지표 도입부)이다 — 질문과 섞지 않는다. */
+function builderQuestionPatch({
+  question,
+  suggestions,
+  presentation,
+  leadText,
+  canGoBack,
+}: {
+  question: string;
+  suggestions: string[] | undefined;
+  presentation?: ChatMessage["builderPresentation"];
+  leadText?: string;
+  canGoBack?: boolean;
+}): Partial<ChatMessage> {
+  return {
+    isLoading: false,
+    infoText: leadText || undefined,
+    infoSuggestions: undefined,
+    clarification: question,
+    clarificationSuggestions: suggestions?.length ? suggestions : undefined,
+    builderQuestion: true,
+    builderCanGoBack: canGoBack === true,
+    builderPresentation: presentation,
+  };
 }
 
 /** 선택지 목록 — 세로 한 줄씩, 화면 아래에서 위로 떠오르며 나타난다.
@@ -2115,7 +2158,11 @@ function StrategyLabContent() {
         declinedFields: declinedFieldsRef.current,
       requireExplicitConfiguration: true,
     });
+    // 빌더 질문의 답은 빌더가 받는다 — 빌더 질문도 되묻기 카드로 나가게 되면서
+    // (2026-08-16) 두 레인의 칩이 같은 필드에 담기므로, 여기서 갈라놓지 않으면 빌더
+    // 단계의 답을 게이트가 가로채 State가 갈라진다.
     const deterministicChoice = currentParsed && missingCondition &&
+      !latestAssistant?.builderQuestion &&
       latestAssistant?.clarificationSuggestions?.includes(text)
       ? applyDeterministicConditionChoice({
           parsed: currentParsed,
@@ -2542,10 +2589,9 @@ function StrategyLabContent() {
           : data.reply;
       const suggestions = withBuilderNavigationSuggestions(
         isChoosingSingleAssetEntry && !data.suggestions?.length
-          ? ["골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등", FREE_INPUT_CHIP]
+          ? SINGLE_ASSET_ENTRY_CHIPS
           : data.suggestions,
         builderStateRef.current,
-        builderHistoryRef.current.length > 0,
       );
       const {
         question,
@@ -2562,16 +2608,15 @@ function StrategyLabContent() {
       // 열린 추천 안내는 시드를 이해하지 못한 경우에만 — 이해했으면 ack("…로 이해했어요")가
       // 대신 나간다(둘 다 보여주지 않는다).
       const noticePrefix =
-        strategyPickNotice && !seedRecognized ? `${strategyPickNotice}\n\n` : "";
-      updateLastAssistant({
-        isLoading: false,
-        infoText: noticePrefix + (activeResearchMetric
-          ? `${buildResearchMetricIntro(activeResearchMetric)}\n\n${question}`
-          : question),
-        infoSuggestions: suggestions?.length ? suggestions : undefined,
-        builderQuestion: true,
-        builderPresentation,
-      });
+        strategyPickNotice && !seedRecognized ? strategyPickNotice : "";
+      updateLastAssistant(builderQuestionPatch({
+        question,
+        suggestions,
+        presentation: builderPresentation,
+        leadText: [noticePrefix, activeResearchMetric
+          ? buildResearchMetricIntro(activeResearchMetric) : ""]
+          .filter(Boolean).join("\n\n"),
+      }));
     } catch {
       // 호출 실패 시 거절하지 않는다 — 빌더 모드는 유지되어 다음 입력부터 정상 진행된다.
       const activeResearchMetric = researchMetric ?? researchMetricRef.current;
@@ -2600,22 +2645,20 @@ function StrategyLabContent() {
         backtestRequest: seedBacktestRequest ?? backtestReqRef.current,
         allowNoRebalancing: explicitNoRebalancingRef.current,
       });
-      updateLastAssistant({
-        isLoading: false,
-        // 호출 실패 턴은 시드 이해 여부를 알 수 없다 — 종전대로 안내를 보인다.
-        infoText: (strategyPickNotice ? `${strategyPickNotice}\n\n` : "") + (activeResearchMetric
-          ? `${buildResearchMetricIntro(activeResearchMetric)}\n\n${question}`
-          : question),
-        infoSuggestions: singleAssetContext
+      updateLastAssistant(builderQuestionPatch({
+        question,
+        suggestions: singleAssetContext
           ? withBuilderNavigationSuggestions(
-              ["골든크로스", "MACD", "돌파", "거래량 급증", "과매도 반등", FREE_INPUT_CHIP],
+              SINGLE_ASSET_ENTRY_CHIPS,
               builderStateRef.current,
-              builderHistoryRef.current.length > 0,
             )
           : undefined,
-        builderQuestion: true,
-        builderPresentation,
-      });
+        presentation: builderPresentation,
+        // 호출 실패 턴은 시드 이해 여부를 알 수 없다 — 종전대로 안내를 보인다.
+        leadText: [strategyPickNotice ?? "", activeResearchMetric
+          ? buildResearchMetricIntro(activeResearchMetric) : ""]
+          .filter(Boolean).join("\n\n"),
+      }));
     }
   };
 
@@ -2656,17 +2699,18 @@ function StrategyLabContent() {
         backtestRequest: backtestReqRef.current ?? backtestReq,
         allowNoRebalancing: explicitNoRebalancingRef.current,
       });
-      updateLastAssistant({
-        isLoading: false,
-        infoText: question,
-        infoSuggestions: withBuilderNavigationSuggestions(
-          data.suggestions,
-          builderStateRef.current,
-          builderHistoryRef.current.length > 0,
-        ),
-        builderQuestion: data.status !== "exited",
-        builderPresentation: data.status !== "exited" ? builderPresentation : undefined,
-      });
+      // 빌더를 빠져나온 턴의 답은 질문이 아니라 안내다 — 되묻기 카드로 그리지 않는다.
+      updateLastAssistant(data.status === "exited"
+        ? { isLoading: false, infoText: question, builderQuestion: false }
+        : builderQuestionPatch({
+            question,
+            suggestions: withBuilderNavigationSuggestions(
+              data.suggestions,
+              builderStateRef.current,
+            ),
+            presentation: builderPresentation,
+            canGoBack: builderHistoryRef.current.length > 0,
+          }));
     } catch {
       builderHistoryRef.current.push(previousState);
       updateLastAssistant({
@@ -3746,17 +3790,18 @@ function StrategyLabContent() {
         declinedFields: declinedFieldsRef.current,
           backtestRequest: backtestReqRef.current ?? backtestReq,
         });
-        updateLastAssistant({
-          isLoading: false,
-          infoText: question,
-          infoSuggestions: withBuilderNavigationSuggestions(
-            data.suggestions,
-            builderStateRef.current,
-            builderHistoryRef.current.length > 0,
-          ),
-          builderQuestion: data.status !== "exited",
-          builderPresentation: data.status !== "exited" ? builderPresentation : undefined,
-        });
+        // 빌더를 빠져나온 턴의 답은 질문이 아니라 안내다 — 되묻기 카드로 그리지 않는다.
+        updateLastAssistant(data.status === "exited"
+          ? { isLoading: false, infoText: question, builderQuestion: false }
+          : builderQuestionPatch({
+              question,
+              suggestions: withBuilderNavigationSuggestions(
+                data.suggestions,
+                builderStateRef.current,
+              ),
+              presentation: builderPresentation,
+              canGoBack: builderHistoryRef.current.length > 0,
+            }));
       } catch {
         // 빌더 호출 실패 시 거절하지 않고 자연스럽게 다시 묻는다.
         updateLastAssistant({
@@ -4499,10 +4544,17 @@ function StrategyLabContent() {
         <p className="text-[13px] font-bold leading-relaxed text-gray-200 whitespace-pre-line">
           {(msg.clarification ?? "").replace(/\*\*(.*?)\*\*/g, "$1")}
         </p>
-        {msg.previousStepState && (
+        {/* 되돌아가기는 선택지가 아니라 컨트롤이다 — 빌더도 같은 자리·같은 버튼을 쓴다
+            (2026-08-16). 예전에는 빌더만 '뒤로가기'를 칩 목록 맨 끝에 섞어 넣어, 같은
+            기능이 경로에 따라 답변 칩으로도 우상단 버튼으로도 보였다. */}
+        {(msg.previousStepState || msg.builderCanGoBack) && (
           <button
             type="button"
-            onClick={() => returnToPreviousCondition(msg)}
+            onClick={() =>
+              msg.builderCanGoBack
+                ? void handleBuilderBack()
+                : returnToPreviousCondition(msg)
+            }
             disabled={isSending}
             className={BACK_CONTROL_CLASS}
           >
@@ -4520,7 +4572,11 @@ function StrategyLabContent() {
             <ChoiceOptionList
               options={[
                 ...msg.clarificationSuggestions,
+                // 빌더 질문의 자유 입력 여부는 빌더 레인이 이미 정했다
+                // (withBuilderNavigationSuggestions — 유니버스 단계에선 붙이지 않는다).
+                // 여기서 다시 정하면 두 판정이 겹쳐 닫힌 선택지에 '직접 입력'이 되살아난다.
                 ...(!msg.strategyConfirmation &&
+                !msg.builderQuestion &&
                 !isClosedChoiceSlot(msg.clarificationField) &&
                 !msg.clarificationSuggestions.includes(FREE_INPUT_CHIP)
                   ? [FREE_INPUT_CHIP]
@@ -4528,6 +4584,7 @@ function StrategyLabContent() {
               ]}
               onSelect={handleSuggestionClick}
               onFreeSubmit={(text) => void handleSend(text)}
+              trailing={shouldShowMovingAverageHelp(msg) ? <MovingAverageTypeHelp /> : undefined}
             />
           </div>
           {/* 하단 고정 버튼을 카드 안으로 옮겼다(밖에 두면 카드가 가린다). 마지막 칩과 같은
@@ -4723,31 +4780,35 @@ function StrategyLabContent() {
                                 ))}
                               </div>
                             )}
-                            {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
-                              <>
-                                {/* 안내문(infoText) 블록이 이미 같은 카드를 그렸으면 다시
-                                    그리지 않는다 — 부가 발화 응답 + 되묻기 재질문이 한
-                                    메시지에 함께 오는 턴에서 카드가 두 번 보였다. */}
-                                {msg.builderPresentation && !msg.infoText && (
-                                  <div
-                                    className={`flex flex-col gap-2.5 py-0.5 ${MESSAGE_ENTER_CLASS}`}
-                                  >
-                                    <BuilderStrategyOverview presentation={msg.builderPresentation} />
-                                  </div>
-                                )}
-                                {/* 칩으로 답하는 동안에는 카드를 흐름에서 빼 화면 하단에 고정한다.
-                                    고정본은 대화 트리 **바깥**(하단 입력 바 옆)에서 그린다 —
-                                    여기서 fixed를 주면 진입 연출(transform)이 남아 있는 조상이
-                                    고정 기준이 돼 화면 위쪽에 떠버린다. */}
-                                {!isClarificationDocked && renderClarificationCard(msg, false)}
-                              </>
-                            )}
                             {isLastAssistant(i) && stage === "running" && (
                               <div className="flex items-center gap-2 px-1">
                                 <ArrowsClockwise size={13} className="flex-shrink-0 animate-spin text-[var(--chat-accent)] motion-reduce:animate-none" />
                                 <span className="text-xs font-bold text-[var(--text-label)] transition-colors duration-300">{statusMessage}</span>
                               </div>
                             )}
+                          </>
+                        )}
+                        {/* 되묻기 카드는 전략 요약(msg.parsed)의 유무와 무관하게 그린다 —
+                            빌더 질문도 같은 카드로 나가는데(2026-08-16 질문 표현 통일)
+                            빌더 턴에는 아직 parsed가 없다. 예전에는 이 블록이 parsed 안에
+                            있어 같은 성격의 질문이 경로에 따라 박스로도, 맨 텍스트로도 보였다. */}
+                        {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
+                          <>
+                            {/* 안내문(infoText) 블록이 이미 같은 카드를 그렸으면 다시
+                                그리지 않는다 — 부가 발화 응답 + 되묻기 재질문이 한
+                                메시지에 함께 오는 턴에서 카드가 두 번 보였다. */}
+                            {msg.builderPresentation && !msg.infoText && (
+                              <div
+                                className={`flex flex-col gap-2.5 py-0.5 ${MESSAGE_ENTER_CLASS}`}
+                              >
+                                <BuilderStrategyOverview presentation={msg.builderPresentation} />
+                              </div>
+                            )}
+                            {/* 칩으로 답하는 동안에는 카드를 흐름에서 빼 화면 하단에 고정한다.
+                                고정본은 대화 트리 **바깥**(하단 입력 바 옆)에서 그린다 —
+                                여기서 fixed를 주면 진입 연출(transform)이 남아 있는 조상이
+                                고정 기준이 돼 화면 위쪽에 떠버린다. */}
+                            {!isClarificationDocked && renderClarificationCard(msg, false)}
                           </>
                         )}
                         {(msg.coachLoading || msg.coachText) && (

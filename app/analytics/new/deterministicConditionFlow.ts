@@ -17,10 +17,14 @@ const DECLINE_CHOICES: Record<string, readonly string[]> = {
   take_profit: ["안 함", "익절 안 함"],
 };
 
+// 정본 칩(engine/strategy_slots.py) 표기가 먼저다. 이전 표기도 함께 받는다 — 세션에
+// 남아 있던 이전 질문의 칩을 눌러도 같은 결과여야 한다(손절·익절 '안 함'과 같은 계약).
 const UNIVERSE_BY_CHOICE: Record<string, string[]> = {
-  코스피200: ["KOSPI200"],
   코스피: ["KOSPI"],
   코스닥: ["KOSDAQ"],
+  코스피200: ["KOSPI200"],
+  "코스피·코스닥 전체": ["KOSPI", "KOSDAQ"],
+  ETF: ["ETF"],
   "코스피+코스닥": ["KOSPI", "KOSDAQ"],
 };
 
@@ -28,6 +32,7 @@ const REBALANCING_BY_CHOICE: Record<string, string> = {
   "매주 리밸런싱": "weekly",
   "매월 리밸런싱": "monthly",
   "분기마다 리밸런싱": "quarterly",
+  "리밸런싱 안 함": "none",
   "안 함": "none",
 };
 
@@ -74,6 +79,16 @@ const ENTRY_SIGNAL_BY_CHOICE: Record<
   "거래량 급증 시 매수": { indicator: "volume_spike", signal_type: "buy" },
 };
 
+// 모멘텀(상위 K)은 진입 '신호'가 아니라 랭킹으로 표현된다 — 엔진에서 선정=진입이다.
+// 산정 기간을 칩 라벨과 값에 모두 명시한다(기간 없는 랭킹은 엔진 기본값 60으로 조용히
+// 돌면서 요약 카드에 드러나지 않는다 — 신호 칩과 같은 계약).
+const ENTRY_RANKING_BY_CHOICE: Record<
+  string,
+  { ranking_metric: string; ranking_lookback_days: number }
+> = {
+  "최근 3개월 수익률 상위 매수": { ranking_metric: "return", ranking_lookback_days: 63 },
+};
+
 const ENTRY_FILTER_BY_CHOICE: Record<
   string,
   ParsedSummary["fundamental_filters"][number]
@@ -84,6 +99,40 @@ const ENTRY_FILTER_BY_CHOICE: Record<
   // 검증 실패시킨다(2026-07-26 사고). 백엔드 별칭 정규화는 안전망이지 오염원의 면허가 아니다.
   "ROE 15% 이상": { metric: "roe_or_gpa", operator: ">=", value: 15 },
   "PBR 1 이하": { metric: "pbr", operator: "<=", value: 1 },
+};
+
+// 매도 칩은 매수 칩을 뒤집은 것이다 — 같은 지표·같은 기간에 방향만 반대다(정본 EXIT
+// 목록과 같은 순서). 값이 매수 쪽과 어긋나면 "반대 조건"이라는 설명이 거짓이 된다.
+const EXIT_SIGNAL_BY_CHOICE: Record<
+  string,
+  ParsedSummary["exit_signals"][number]
+> = {
+  "데드크로스(5일/20일) 발생 시 매도": {
+    indicator: "ma_crossover",
+    signal_type: "sell",
+    short_period: 5,
+    long_period: 20,
+  },
+  "RSI 70 이상에서 매도": {
+    indicator: "rsi",
+    signal_type: "sell",
+    operator: ">=",
+    value: 70,
+  },
+  "MACD 데드크로스 매도": {
+    indicator: "macd",
+    signal_type: "sell",
+    mode: "crossover",
+  },
+  "볼린저밴드 상단 터치 시 매도": {
+    indicator: "bollinger_bands",
+    signal_type: "sell",
+  },
+  "20일 저점 이탈 시 매도": {
+    indicator: "breakout",
+    signal_type: "sell",
+    lookback_period: 20,
+  },
 };
 
 const INITIAL_CAPITAL_BY_CHOICE: Record<string, number> = {
@@ -121,38 +170,21 @@ export function applyDeterministicConditionChoice({
     if (entryFilter) {
       return { parsed: { ...parsed, fundamental_filters: [entryFilter] } };
     }
+    const entryRanking = ENTRY_RANKING_BY_CHOICE[choice];
+    if (entryRanking) {
+      return { parsed: { ...parsed, ...entryRanking } };
+    }
     return null;
   }
 
   if (condition.field === "exit") {
-    if (choice === "데드크로스(5일/20일) 발생 시 매도") {
-      return {
-        parsed: {
-          ...parsed,
-          exit_signals: [{
-            indicator: "ma_crossover",
-            signal_type: "sell",
-            short_period: 5,
-            long_period: 20,
-          }],
-        },
-      };
+    const exitSignal = EXIT_SIGNAL_BY_CHOICE[choice];
+    if (exitSignal) {
+      return { parsed: { ...parsed, exit_signals: [exitSignal] } };
     }
+    // 보유 기간은 신호가 아니라 기간 설정이다 — 같은 매도 슬롯을 채우지만 자리가 다르다.
     if (choice === "20일 보유 후 청산") {
       return { parsed: { ...parsed, hold_period_days: 20 } };
-    }
-    if (choice === "RSI 70 이상에서 매도") {
-      return {
-        parsed: {
-          ...parsed,
-          exit_signals: [{
-            indicator: "rsi",
-            signal_type: "sell",
-            operator: ">=",
-            value: 70,
-          }],
-        },
-      };
     }
     return null;
   }
