@@ -140,7 +140,7 @@ def _face_value(rec: dict) -> float:
     return fv if fv in _VALID_FACE_VALUES else 0.0
 
 
-def _parse_kis_dividends(records: List[dict]) -> Dict[str, float]:
+def _parse_kis_dividends(records: List[dict], current_face: float = 0.0) -> Dict[str, float]:
     """Pure: KIS 예탁원 배당 레코드 리스트 → {기준일 "YYYYMMDD": 주당 현금배당 합(분할조정)}.
 
     KIS ``ksdinfo/dividend`` output1 fields used:
@@ -154,24 +154,33 @@ def _parse_kis_dividends(records: List[dict]) -> Dict[str, float]:
     × (100/5000) = 354원 → 분할 후 354원과 일치. 액면가 없으면 무조정(factor=1).
     중간/기말 배당은 **각자의 기준일에 남고**(같은 기준일끼리만 합산), 현금배당만(주식배당 제외).
 
-    조정 기준은 **가장 최근의 유효한 액면가**다(=현재 주식 기준 = parquet 가격의 조정 기준).
+    조정 기준은 ``current_face``(주식기본조회의 **현재 액면가** — 호출자가 조회해 주입,
+    0이면 미확보)를 1순위로 쓰고, 미확보 시에만 배당 레코드 중 최신 유효 액면가로
+    폴백한다(상장폐지 종목 — 폐지 후엔 분할이 없어 레코드 유래가 안전하다).
     `_VALID_FACE_VALUES` 밖의 값은 오염으로 보고 후보에서 뺀다 — 그러지 않으면 상장폐지 후
     레코드의 500,000원이 기준이 되어 과거 배당이 100배가 된다(002005, 배당수익률 1,069%).
 
-    .. note:: '배당이 있는 레코드 중 최신'으로 좁히는 방식은 **틀렸다**(2026-08-04 시도 후
-       철회). 마지막 배당 **이후에 액면분할**한 종목이 깨진다 — 001080(1,000→100),
-       002420·006345(5,000→500)는 최신 배당 레코드가 분할 전 액면가라 역조정이 사라져
-       배당이 10배로 남았다. 무배당 레코드도 '현재 액면가'라는 정보는 정확히 준다.
+    .. note:: 조정 기준을 배당 레코드 **안에서만** 찾는 방식은 구조적 맹점이 있다.
+       ① '배당이 있는 레코드 중 최신'(2026-08-04 시도 후 철회): 마지막 배당 이후 분할한
+       001080(1,000→100)·002420·006345(5,000→500)가 10배로 남았다. ② '무배당 레코드 포함
+       최신'(2026-08-16까지의 방식): 배당일정 API 자체가 분할 이후 레코드를 하나도 안 주면
+       — 분할 후 첫 배당 이벤트가 아직 없으면 — 여전히 분할 전 액면가가 기준이 된다.
+       대한제분(001130)이 2026-05 10:1 분할 후 이 맹점에 걸려 배당수익률이 10배(33.9%)로
+       부풀었고, 배당수익률 조건 백테스트에 허위 편입됐다. 그래서 현재 액면가는 배당
+       레코드 밖의 정본(주식기본조회)에서 가져온다.
     """
     recs = [r for r in (records or [])
             if str(r.get("record_date") or "").strip()[:4].isdigit()]
     if not recs:
         return {}
 
-    # 최신 유효 액면가 = 현재(=조정가격) 주식 기준.
-    with_face = [r for r in recs if _face_value(r) > 0]
-    latest_face = (_face_value(max(with_face, key=lambda r: str(r["record_date"])))
-                   if with_face else 0.0)
+    # 조정 기준 액면가 = 현재(=조정가격) 주식 기준. 정본(current_face) 우선.
+    if current_face in _VALID_FACE_VALUES:
+        latest_face = float(current_face)
+    else:
+        with_face = [r for r in recs if _face_value(r) > 0]
+        latest_face = (_face_value(max(with_face, key=lambda r: str(r["record_date"])))
+                       if with_face else 0.0)
 
     by_date: Dict[str, float] = {}
     for rec in recs:
@@ -269,9 +278,47 @@ def _kis_dividend_records(symbol: str, start: str, end: str) -> List[dict]:
         return []
 
 
+def _kis_current_face_value(symbol: str) -> float:
+    """KIS 주식기본조회(CTPF1002R)의 현재 액면가(``papr``). 실패·정본 밖 값은 0.0.
+
+    배당 분할조정의 기준 액면가 정본이다 — 배당일정 레코드에서 유추하면 분할 후 첫 배당
+    이벤트가 나오기 전까지 구액면이 기준으로 남는 맹점이 있다(대한제분 2026-08-16).
+    상장폐지 종목은 이 API가 값을 못 줄 수 있고, 그 경우 0.0 → 호출자가 레코드 유래로
+    폴백한다(폐지 후엔 분할이 없어 안전).
+    """
+    import requests
+
+    token = _get_cached_kis_token()
+    if not token:
+        return 0.0
+    headers = {
+        "authorization": f"Bearer {token}",
+        "appkey": os.getenv("KIS_APP_KEY", "").strip(),
+        "appsecret": os.getenv("KIS_APP_SECRET", "").strip(),
+        "tr_id": "CTPF1002R",
+        "custtype": "P",
+    }
+    params = {"PRDT_TYPE_CD": "300", "PDNO": symbol}
+    try:
+        resp = requests.get(
+            f"{_KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/search-stock-info",
+            headers=headers, params=params, timeout=15,
+        )
+        if resp.status_code != 200:
+            return 0.0
+        fv = _to_float((resp.json().get("output") or {}).get("papr"))
+    except Exception as e:  # noqa: BLE001
+        print(f"  [{symbol}] KIS face-value fetch failed: {e}")
+        return 0.0
+    return fv if fv in _VALID_FACE_VALUES else 0.0
+
+
 def dps_by_record_date_from_kis(symbol: str, start: str, end: str) -> Dict[str, float]:
-    """KIS 예탁원 배당 API 기반 기준일별 주당 현금배당. 실패 시 {}."""
-    return _parse_kis_dividends(_kis_dividend_records(symbol, start, end))
+    """KIS 예탁원 배당 API 기반 기준일별 주당 현금배당(현재 액면가 기준 분할조정). 실패 시 {}."""
+    records = _kis_dividend_records(symbol, start, end)
+    if not records:
+        return {}
+    return _parse_kis_dividends(records, current_face=_kis_current_face_value(symbol))
 
 
 PROVIDERS: Dict[str, DpsProvider] = {
@@ -355,11 +402,17 @@ def main() -> None:
     print(f"Backfilling dividends for {len(files)} file(s) "
           f"[source={args.source}] ({'DRY-RUN' if args.dry_run else 'WRITE'})...")
     with_div = processed = 0
+    failed: list[str] = []
     for path in files:
         if not path.exists():
             print(f"  [{path.stem}] not found — skip")
             continue
-        stats = backfill_file(path, provider, args.dry_run, args.start, args.end)
+        try:
+            stats = backfill_file(path, provider, args.dry_run, args.start, args.end)
+        except Exception as e:  # noqa: BLE001 — 손상 parquet 1개가 전체 배치를 중단시키지 않게
+            print(f"  [{path.stem}] FAILED: {e}")
+            failed.append(path.stem)
+            continue
         processed += 1
         if stats.get("events", 0) > 0:
             with_div += 1
@@ -370,6 +423,11 @@ def main() -> None:
         if args.sleep:
             time.sleep(args.sleep)
     print(f"Done. {with_div}/{processed} symbols had dividend events.")
+    if failed:
+        # 실측(2026-08-16): 손상 parquet 1개(003280)가 5,000여 종목 배치를 중간에 죽여
+        # 나머지가 조용히 미수리 상태로 남았다. 실패 목록을 남기고 종료 코드로 알린다.
+        print(f"FAILED {len(failed)} file(s): {', '.join(failed)}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
