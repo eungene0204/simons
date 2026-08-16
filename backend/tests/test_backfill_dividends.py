@@ -199,6 +199,61 @@ def test_parse_kis_dividends_no_face_val_is_unadjusted():
     assert bf._parse_kis_dividends(records) == {"20211230": 1444.0}
 
 
+def test_parse_kis_dividends_current_face_overrides_stale_records():
+    """회귀: 분할 후 배당 이벤트가 아직 없으면 레코드만으론 새 액면가를 알 수 없다.
+
+    실측(2026-08-16): 대한제분(001130)이 2026-05 10:1 분할(5,000→500) 후 배당 레코드가
+    전부 분할 전(마지막 2025-12, 액면 5,000)이라 역조정이 사라져 배당수익률이 10배
+    (33.9%)로 남았고, '배당수익률 >= 3' 백테스트에 허위 편입됐다. 현재 액면가는 배당
+    레코드 밖의 정본(주식기본조회)에서 주입한다.
+    """
+    records = [
+        {"record_date": "20211231", "per_sto_divi_amt": "2500", "face_val": "5000"},
+        {"record_date": "20251231", "per_sto_divi_amt": "4000", "face_val": "5000"},
+    ]
+    out = bf._parse_kis_dividends(records, current_face=500.0)
+    assert out == {"20211231": pytest.approx(250.0), "20251231": pytest.approx(400.0)}
+
+
+def test_parse_kis_dividends_falls_back_to_record_face_without_current():
+    """current_face 미확보(0.0, 예: 상장폐지 종목) 시 기존 레코드-유래 기준 유지."""
+    records = [
+        {"record_date": "20091231", "per_sto_divi_amt": "1000", "face_val": "5000"},
+        {"record_date": "20251231", "per_sto_divi_amt": "0", "face_val": "500"},
+    ]
+    assert bf._parse_kis_dividends(records, current_face=0.0) == \
+        {"20091231": pytest.approx(100.0)}
+
+
+def test_parse_kis_dividends_rejects_corrupt_current_face():
+    """정본 집합 밖의 current_face(API 오염값)는 무시하고 레코드-유래로 폴백한다."""
+    records = [
+        {"record_date": "20211231", "per_sto_divi_amt": "1000", "face_val": "5000"},
+    ]
+    assert bf._parse_kis_dividends(records, current_face=500000.0) == \
+        {"20211231": pytest.approx(1000.0)}
+
+
+def test_kis_provider_injects_current_face(monkeypatch):
+    """provider가 주식기본조회의 현재 액면가를 파서에 주입하는지(배선) 확인."""
+    monkeypatch.setattr(bf, "_kis_dividend_records", lambda sym, s, e: [
+        {"record_date": "20211231", "per_sto_divi_amt": "2500", "face_val": "5000"},
+    ])
+    monkeypatch.setattr(bf, "_kis_current_face_value", lambda sym: 500.0)
+    assert bf.dps_by_record_date_from_kis("001130", "19900101", "20261231") == \
+        {"20211231": pytest.approx(250.0)}
+
+
+def test_kis_provider_skips_face_lookup_when_no_records(monkeypatch):
+    """레코드가 없으면(무배당 종목 대다수) 액면가 조회 호출 자체를 생략한다."""
+    called = []
+    monkeypatch.setattr(bf, "_kis_dividend_records", lambda sym, s, e: [])
+    monkeypatch.setattr(bf, "_kis_current_face_value",
+                        lambda sym: called.append(sym) or 500.0)
+    assert bf.dps_by_record_date_from_kis("000000", "19900101", "20261231") == {}
+    assert called == []
+
+
 def test_kis_provider_composes_parser_over_fetch(monkeypatch):
     # Offline: stub the network layer; verify the provider parses it.
     monkeypatch.setattr(bf, "_kis_dividend_records", lambda sym, s, e: [
@@ -248,6 +303,30 @@ def test_write_adds_dividends_column(tmp_path):
     assert "dividends" in out.columns
     assert out["dividends"].sum() == pytest.approx(1805.0)
     assert (out["dividends"] > 0).sum() == 2
+
+
+def test_corrupt_parquet_does_not_abort_batch(tmp_path, monkeypatch, capsys):
+    """회귀: 손상 parquet 1개가 전체 배치를 죽였다(2026-08-16, 003280).
+
+    나머지 파일은 계속 처리하고, 실패 목록을 남기며 종료 코드 1로 알린다.
+    """
+    good = _make_parquet(tmp_path)                      # 005930.parquet
+    corrupt = tmp_path / "000001.parquet"               # 정렬상 good보다 먼저 처리된다
+    corrupt.write_bytes(b"not a parquet file")
+
+    monkeypatch.setitem(bf.PROVIDERS, "kis",
+                        lambda sym, s, e: {"20211231": 361.0})
+    monkeypatch.setattr(
+        "sys.argv",
+        ["backfill_dividends.py", "--data-dir", str(tmp_path), "--sleep", "0"],
+    )
+    with pytest.raises(SystemExit) as exc:
+        bf.main()
+    assert exc.value.code == 1                          # 실패가 있었음을 알린다
+    out = capsys.readouterr().out
+    assert "FAILED 1 file(s): 000001" in out
+    # 손상 파일 이후의 정상 파일은 끝까지 처리됐다.
+    assert "dividends" in pd.read_parquet(good).columns
 
 
 def test_backfilled_parquet_feeds_total_return_engine(tmp_path):
