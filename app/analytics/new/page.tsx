@@ -66,7 +66,7 @@ import {
   type AdvisorWalkForwardSettings,
   type StrategyBacktestRequest,
 } from "./parsedStrategyMerge";
-import { computeChatScrollDelta, scrollChatViewToEnd } from "./chatScroll";
+import { computeChatScrollDelta, scrollChatViewToEnd, scrollChatViewToTop } from "./chatScroll";
 import {
   appendChangeLog,
   applyRollback,
@@ -4438,15 +4438,23 @@ function StrategyLabContent() {
   const isRunning = stage === "running";
   const showingBacktestResult = (stage === "done" || isRunning) && !!result;
 
+  // 결과 화면을 띄운 채였는지 — 아래 진입/복귀 스크롤 효과와 탑메뉴 핸들러가 공유한다.
+  const wasShowingBacktestResultRef = useRef(false);
+
   // 탑메뉴 '전략연구소' 클릭 → 결과 화면을 내리고 대화 화면으로 복귀(결과·대화 유지).
   // 결과 화면은 같은 라우트의 상태라서 router.push만으로는 화면이 바뀌지 않는다.
-  // 이미 대화 화면이면 화면은 그대로고 스크롤만 대화 끝까지 올린다.
+  // 결과 화면에서의 복귀 스크롤(맨 위)은 아래 leavingResultView 효과가 맞춘다.
+  // 이미 대화 화면이면 화면은 그대로고 스크롤만 맨 위로 되돌린다(2026-08-17 지시 —
+  // '전략연구소' 버튼은 어느 상태에서 눌러도 대화 화면 맨 위).
   useEffect(() => {
     const showChatView = () => {
-      setStage((prev) => (prev === "done" ? "ready" : prev));
-      pendingScrollToEndRef.current = true;
+      if (wasShowingBacktestResultRef.current) {
+        setStage((prev) => (prev === "done" ? "ready" : prev));
+        return;
+      }
+      pendingScrollToEndRef.current = false;
       chatAutoScrollEnabledRef.current = false;
-      scrollChatViewToEnd();
+      scrollChatViewToTop();
     };
     window.addEventListener(STRATEGY_LAB_CHAT_VIEW_EVENT, showChatView);
     return () => window.removeEventListener(STRATEGY_LAB_CHAT_VIEW_EVENT, showChatView);
@@ -4461,9 +4469,9 @@ function StrategyLabContent() {
 
   // 결과 화면 진입 시(또는 재실행 완료 시) 채팅 화면에서 내려가 있던 스크롤 위치가 그대로
   // 남아 결과가 아래쪽부터 보이는 문제를 막기 위해 항상 맨 위로 스크롤한다.
-  // 반대로 대화 화면으로 돌아올 때(탑메뉴 '전략연구소'·뒤로가기)는 대화 끝까지 올려
-  // 마지막 버블이 고정 입력창 뒤에 걸린 채로 남지 않게 한다.
-  const wasShowingBacktestResultRef = useRef(false);
+  // 대화 화면으로 돌아올 때(탑메뉴 '전략연구소'·뒤로가기·결과 닫기)도 항상 맨 위에서 시작한다
+  // (2026-08-17 지시 — 이전의 '대화 끝까지 올리기'를 대체). 대화 끝 정렬 예약·입력창 회피
+  // 자동 스크롤은 꺼 두어 뒤늦은 렌더가 화면을 끌어내리지 않게 한다.
   useEffect(() => {
     const enteringResultView = showingBacktestResult && !wasShowingBacktestResultRef.current;
     const leavingResultView = !showingBacktestResult && wasShowingBacktestResultRef.current;
@@ -4471,9 +4479,9 @@ function StrategyLabContent() {
     if (!enteringResultView && !leavingResultView && stage !== "done") return;
 
     if (leavingResultView) {
-      pendingScrollToEndRef.current = true;
+      pendingScrollToEndRef.current = false;
       chatAutoScrollEnabledRef.current = false;
-      scrollChatViewToEnd();
+      scrollChatViewToTop();
       return;
     }
     document.querySelector("main")?.scrollTo({ top: 0, behavior: "auto" });

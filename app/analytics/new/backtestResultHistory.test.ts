@@ -5,7 +5,7 @@ import { installBacktestResultBackHandler } from "./backtestResultHistory";
 function makeFakeWindow() {
   const listeners: Record<string, Array<() => void>> = {};
   return {
-    history: { pushState: vi.fn() },
+    history: { pushState: vi.fn(), scrollRestoration: "auto" as History["scrollRestoration"] },
     addEventListener: vi.fn((type: string, cb: () => void) => {
       (listeners[type] ??= []).push(cb);
     }),
@@ -52,5 +52,21 @@ describe("installBacktestResultBackHandler", () => {
     win.fire("popstate");
 
     expect(onBack).not.toHaveBeenCalled();
+  });
+
+  it("turns off browser scroll restoration for the chat entry before pushing, and restores it on cleanup", () => {
+    // 뒤로가기로 대화 항목에 돌아올 때 브라우저가 저장된 스크롤(실행 버튼 자리)을 되살려
+    // '맨 위' 복귀를 덮던 문제(2026-08-17 Chrome 실측). manual은 push 전에 걸려야 대화 항목에 붙는다.
+    const win = makeFakeWindow();
+    win.history.pushState.mockImplementation(() => {
+      expect(win.history.scrollRestoration).toBe("manual");
+    });
+
+    const cleanup = installBacktestResultBackHandler(() => {}, win as any);
+
+    expect(win.history.pushState).toHaveBeenCalledOnce();
+    expect(win.history.scrollRestoration).toBe("manual");
+    cleanup();
+    expect(win.history.scrollRestoration).toBe("auto");
   });
 });
