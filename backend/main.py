@@ -32,6 +32,7 @@ from engine.virtual_trader import VirtualTrader
 from engine.vi_utils import build_vi_display
 from nl_cache import nl_cache_key
 from stream_progress import build_backtest_stream_status, simulation_phase_label
+import cancellation
 from engine.watchdog import (
     BacktestTimeoutError,
     backtest_timeout_s,
@@ -61,6 +62,10 @@ _http_session_adapter = requests.adapters.HTTPAdapter(
 )
 _http_session.mount("https://", _http_session_adapter)
 _http_session.mount("http://", _http_session_adapter)
+
+# 요청 취소('대화 종료') — 워커 스레드의 LLM HTTP 소켓을 취소 토큰에 등록해, 클라이언트가
+# 끊기면 진행 중인 생성까지 끊는다(cancellation.py). urllib 전역 opener 교체(멱등).
+cancellation.install_socket_tracking()
 
 from contextlib import asynccontextmanager
 
@@ -3455,7 +3460,14 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
 
 
 def _store_nl_parse_cache(cache_key, result: dict) -> None:
-    """파싱 결과 캐시 저장(최대 크기 초과 시 가장 오래된 항목 제거)."""
+    """파싱 결과 캐시 저장(최대 크기 초과 시 가장 오래된 항목 제거).
+
+    취소된 요청('대화 종료')의 결과는 저장하지 않는다 — 취소가 LLM 호출 중간을 끊으면
+    파이프라인 폴백이 저품질 결과(planner 질문 누락 등)를 만들 수 있고, 그게 캐시에 남으면
+    같은 프롬프트의 다음 대화가 캐시 히트로 그 결과를 받는다.
+    """
+    if cancellation.is_cancelled():
+        return
     if len(_nl_parse_cache) >= _NL_PARSE_CACHE_MAX:
         oldest_key = next(iter(_nl_parse_cache))
         del _nl_parse_cache[oldest_key]
@@ -3964,17 +3976,23 @@ async def parse_nl_strategy_stream(request: NLParseRequest):
     # 결과(result)를 먼저 내보낸 뒤 후행 검증을 돌려 교정이 있으면 result_update로
     # 후속 전송한다. 검증 필요 컨텍스트는 _run_nl_parse가 이 holder에 채운다.
     defer_holder: dict = {}
+    # 요청 취소 토큰 — 클라이언트가 스트림을 끊으면('대화 종료') 파싱·후행 검증 스레드의
+    # LLM 호출을 멈춘다(다음 호출 차단 + 진행 중 소켓 닫기). 스레드가 자기 컨텍스트에 묶는다.
+    cancel_token = cancellation.CancelToken()
 
     def on_stage(stage: str):
         stage_holder["stage"] = stage
 
     def run_parse():
-        try:
-            result_holder["data"] = _run_nl_parse(request, on_stage=on_stage, defer_holder=defer_holder)
-        except HTTPException as exc:
-            error_holder["detail"] = exc.detail
-        except Exception as exc:
-            error_holder["detail"] = str(exc)
+        with cancellation.bind(cancel_token):
+            try:
+                result_holder["data"] = _run_nl_parse(request, on_stage=on_stage, defer_holder=defer_holder)
+            except cancellation.OperationCancelled:
+                print(f"[NL-PARSE] 취소됨(클라이언트 연결 종료) prompt='{request.prompt}'", flush=True)
+            except HTTPException as exc:
+                error_holder["detail"] = exc.detail
+            except Exception as exc:
+                error_holder["detail"] = str(exc)
 
     thread = threading.Thread(target=run_parse, daemon=True)
 
@@ -3982,52 +4000,64 @@ async def parse_nl_strategy_stream(request: NLParseRequest):
         def stage_event(stage: str) -> str:
             return f"data: {json.dumps({'type': 'stage', 'stage': stage})}\n\n"
 
-        thread.start()
-        emitted_stage = "parsing"
-        yield stage_event(emitted_stage)
+        completed = False
+        try:
+            thread.start()
+            emitted_stage = "parsing"
+            yield stage_event(emitted_stage)
 
-        while thread.is_alive():
+            while thread.is_alive():
+                if stage_holder["stage"] != emitted_stage:
+                    emitted_stage = stage_holder["stage"]
+                    yield stage_event(emitted_stage)
+                await asyncio.sleep(0.1)
+            thread.join()
+
+            # 스레드 종료 직전 전환된 단계를 놓치지 않도록 마지막으로 확인
             if stage_holder["stage"] != emitted_stage:
-                emitted_stage = stage_holder["stage"]
-                yield stage_event(emitted_stage)
-            await asyncio.sleep(0.1)
-        thread.join()
+                yield stage_event(stage_holder["stage"])
 
-        # 스레드 종료 직전 전환된 단계를 놓치지 않도록 마지막으로 확인
-        if stage_holder["stage"] != emitted_stage:
-            yield stage_event(stage_holder["stage"])
+            if "detail" in error_holder:
+                yield f"data: {json.dumps({'type': 'error', 'detail': error_holder['detail']}, ensure_ascii=False)}\n\n"
+            elif "data" in result_holder:
+                yield f"data: {json.dumps({'type': 'result', 'data': result_holder['data']}, ensure_ascii=False)}\n\n"
+                # 후행 검증. 'validating' stage 이벤트는 보내지 않는다 — 프론트가 로딩 버블로
+                # 되돌아가 방금 표시한 전략 요약이 사라진다. 교정 없으면 조용히 종료.
+                if defer_holder.get("parsed") is not None:
+                    update_holder: dict = {}
 
-        if "detail" in error_holder:
-            yield f"data: {json.dumps({'type': 'error', 'detail': error_holder['detail']}, ensure_ascii=False)}\n\n"
-        elif "data" in result_holder:
-            yield f"data: {json.dumps({'type': 'result', 'data': result_holder['data']}, ensure_ascii=False)}\n\n"
-            # 후행 검증. 'validating' stage 이벤트는 보내지 않는다 — 프론트가 로딩 버블로
-            # 되돌아가 방금 표시한 전략 요약이 사라진다. 교정 없으면 조용히 종료.
-            if defer_holder.get("parsed") is not None:
-                update_holder: dict = {}
+                    def run_validation():
+                        from observability import use_parent
 
-                def run_validation():
-                    from observability import use_parent
+                        # 응답 후 단계지만 같은 사용자 요청의 일부다 — 부모를 복원해 같은
+                        # Trace에 붙인다(contextvar는 스레드를 건너지 않는다).
+                        with cancellation.bind(cancel_token), \
+                                use_parent(defer_holder.get("trace_parent")):
+                            try:
+                                update_holder["data"] = _complete_deferred_validation(defer_holder)
+                            except cancellation.OperationCancelled:
+                                print("[NL-PARSE] 후행 검증 취소됨(클라이언트 연결 종료)", flush=True)
+                            except Exception as exc:  # noqa: BLE001 — 검증은 best-effort
+                                print(f"[NL-PARSE] 후행 검증 실패(무시): {exc}", flush=True)
 
-                    # 응답 후 단계지만 같은 사용자 요청의 일부다 — 부모를 복원해 같은
-                    # Trace에 붙인다(contextvar는 스레드를 건너지 않는다).
-                    with use_parent(defer_holder.get("trace_parent")):
-                        try:
-                            update_holder["data"] = _complete_deferred_validation(defer_holder)
-                        except Exception as exc:  # noqa: BLE001 — 검증은 best-effort
-                            print(f"[NL-PARSE] 후행 검증 실패(무시): {exc}", flush=True)
-
-                vthread = threading.Thread(target=run_validation, daemon=True)
-                vthread.start()
-                waited = 0.0
-                # 프록시 스트림 예산(120s) 안에서 종료하도록 상한을 둔다. 초과 시 join 없이
-                # 스트림만 닫는다(검증 스레드는 daemon으로 자연 소멸, 결과는 폐기).
-                while vthread.is_alive() and waited < _DEFERRED_VALIDATION_MAX_WAIT_S:
-                    await asyncio.sleep(0.1)
-                    waited += 0.1
-                if update_holder.get("data") is not None:
-                    yield f"data: {json.dumps({'type': 'result_update', 'data': update_holder['data']}, ensure_ascii=False)}\n\n"
-        yield "data: [DONE]\n\n"
+                    vthread = threading.Thread(target=run_validation, daemon=True)
+                    vthread.start()
+                    waited = 0.0
+                    # 프록시 스트림 예산(120s) 안에서 종료하도록 상한을 둔다. 초과 시 join 없이
+                    # 스트림만 닫는다(검증 스레드는 daemon으로 자연 소멸, 결과는 폐기).
+                    while vthread.is_alive() and waited < _DEFERRED_VALIDATION_MAX_WAIT_S:
+                        await asyncio.sleep(0.1)
+                        waited += 0.1
+                    if update_holder.get("data") is not None:
+                        yield f"data: {json.dumps({'type': 'result_update', 'data': update_holder['data']}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            completed = True
+        finally:
+            # 정상 종료 전에 제너레이터가 닫히면 클라이언트가 연결을 끊은 것이다('대화 종료' —
+            # Starlette가 스트림 태스크를 취소한다). 파싱·후행 검증 스레드의 LLM 호출을 끊는다.
+            # 정상 종료(예산 초과로 유기된 후행 검증 포함)는 종전 동작 그대로 둔다.
+            if not completed:
+                cancel_token.cancel()
 
     return StreamingResponse(
         generate(),

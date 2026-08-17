@@ -1186,6 +1186,36 @@ Client polling으로 진행률/로그/리더보드 반영
 - 서버 재시작 후 다음 `GET/POST /api/strategy/batch-runs` 요청이 들어오면 incomplete run을 재등록해 이어서 실행한다.
 - 재시작 시 `running` 상태 후보는 `waiting`으로 되돌려 재시도하고, 취소 마커가 남은 run은 `skipped`로 정리한다.
 
+**요청 취소 전파 — '대화 종료'가 서버 작업까지 멈춘다 (2026-08-18, NFR-REL-010)**
+
+```
+'대화 종료' 클릭 (app/analytics/new/page.tsx handleReset)
+    ↓ chatAbortRef.abort()  — 대화 단위 AbortController 하나가 그 대화의 모든 fetch를 끊는다
+    │                          (분류·파싱 SSE·빌더 스텝·검증·백테스트 스트림). 끊긴 턴의 catch는
+    │                          isChatAbort면 뒤처리(오류 버블·빌더 상태 복원) 없이 끝난다.
+Next 프록시 (req.signal — 클라이언트 연결 종료 시 Next가 abort)
+    ↓ fetchBackend(signal: req.signal)  — lib/server/backend.ts가 호출자 signal과 timeoutMs를 결합
+    │                                     (parse/stream 라우트는 스트림 cancel()도 같은 upstream abort로)
+FastAPI SSE (/strategy/parse-stream, /strategy/builder/step-stream)
+    ↓ Starlette가 연결 종료를 감지해 스트림 태스크를 취소 → 제너레이터 finally에서
+    │ 정상 종료([DONE]) 전이면 cancel_token.cancel()
+워커 스레드 (cancellation.bind(token) 안에서 파싱/빌더 스텝 실행)
+    ├── 다음 LLM 호출 차단 — 공통 관문 _ollama_open_with_retry / _ollama_ensure_warm /
+    │   parse_validator가 raise_if_cancelled() → OperationCancelled(BaseException:
+    │   파이프라인의 `except Exception` 폴백에 삼켜지지 않고 스레드 최상단까지 올라간다)
+    ├── 진행 중 LLM 호출 차단 — urllib 전역 opener(install_socket_tracking)가 워커의 HTTP 소켓을
+    │   토큰에 등록해 두고 cancel()이 shutdown → recv가 깨어난다. 소켓이 닫히면 Ollama도 요청
+    │   컨텍스트 취소로 생성을 중단한다(GPU 반환). cancellable_io()가 그 read 예외를 취소로 보고
+    └── 취소된 요청의 결과는 파스 캐시(_store_nl_parse_cache)에 저장하지 않는다
+```
+
+모듈: `backend/cancellation.py`(CancelToken · bind · raise_if_cancelled · cancellable_io ·
+install_socket_tracking). 토큰은 contextvar라 워커 스레드 진입 함수 안에서 묶는다(새 스레드로
+상속되지 않음). 서버 쪽 취소 대상이 아닌 것: 비스트리밍 엔드포인트(분류·일반 답변·코치 — 연결만
+끊긴다)와 백테스트 엔진 본체(모놀리식 run_backtest). 회귀: `backend/tests/test_request_cancellation.py`,
+`app/analytics/new/page.endChat.test.tsx`, `lib/server/backend.test.ts`,
+`app/api/strategy/parse/stream/route.test.ts`.
+
 ### 6.2 주요 Next.js API 라우트
 
 **전략**

@@ -1608,6 +1608,7 @@ News Collector
 ### 4.2a 관측성
 
 | ID | 요구사항 |
+| NFR-REL-010 | [요청 취소 전파, 2026-08-18] 전략연구소에서 사용자가 분석 중 '대화 종료'를 누르면 진행 중인 서버 작업도 멈춰야 한다. ① 프론트: 대화 단위 `AbortController` 하나가 그 대화의 모든 요청(분류·파싱 SSE·빌더 스텝·검증·백테스트 스트림)을 끊고, 끊긴 턴은 뒤처리(오류 버블·빌더 상태 복원)를 하지 않는다(`isChatAbort`). ② Next 프록시: `fetchBackend`가 호출자 signal(`req.signal` — 클라이언트 연결 종료 시 abort)을 타임아웃과 결합해 백엔드 연결을 함께 끊는다(예전엔 타임아웃 signal이 덮어써 백엔드 연결이 예산까지 살아 있었다). ③ 백엔드: SSE 요청(`/strategy/parse-stream`, `/strategy/builder/step-stream`)마다 취소 토큰(`backend/cancellation.py`)을 워커 스레드에 묶어, 제너레이터가 정상 종료 전에 닫히면(Starlette 연결 종료 취소) 토큰을 취소한다 — 모든 LLM 호출의 공통 관문(`_ollama_open_with_retry`·워밍업·후행 검증)이 다음 호출을 열지 않고(`OperationCancelled`, BaseException이라 `except Exception` 폴백에 삼켜지지 않음), 워커가 연 HTTP 소켓은 urllib 전역 opener 추적으로 즉시 닫아 진행 중인 Ollama 생성까지 끊는다(요청 컨텍스트 취소 → GPU 반환). 취소된 요청의 결과는 파스 캐시에 저장하지 않는다(폴백 저품질 결과가 다음 대화의 캐시 히트로 새는 것 방지). 비스트리밍 엔드포인트(분류·일반 답변·코치)와 백테스트 엔진 본체는 서버 쪽 취소 대상이 아니다(연결만 끊긴다). 회귀: `backend/tests/test_request_cancellation.py`, `app/analytics/new/page.endChat.test.tsx`, `lib/server/backend.test.ts` |
 |----|---------|
 | NFR-OBS-001 | 시스템은 AI runtime phase별 `elapsed_ms`, `queue_wait_ms`, `status`를 in-memory로 기록해야 한다 |
 | NFR-OBS-002 | 시스템은 개발/운영 진단을 위해 AI runtime metrics 조회 API를 제공해야 한다 |

@@ -24,6 +24,7 @@ from pydantic import (
     model_validator,
 )
 
+import cancellation
 from llm_backend import (
     OLLAMA_BASE_URL,
     OLLAMA_MODEL_9B,
@@ -126,6 +127,8 @@ def _ollama_ensure_warm(budget_s: float = _OLLAMA_WARMUP_BUDGET_S) -> None:
     deadline = time.monotonic() + budget_s
     last_err: Exception | None = None
     while time.monotonic() < deadline:
+        # 요청이 취소됐으면('대화 종료') 콜드 컨테이너를 깨우지 않는다.
+        cancellation.raise_if_cancelled()
         remaining = deadline - time.monotonic()
         attempt_timeout = max(10, min(60, int(remaining)))
         req = urllib.request.Request(url, headers=ollama_auth_headers(), method="GET")
@@ -134,6 +137,8 @@ def _ollama_ensure_warm(budget_s: float = _OLLAMA_WARMUP_BUDGET_S) -> None:
                 resp.read()
                 return  # 컨테이너가 깨어남 → 이후 POST는 body가 보존된다
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as e:
+            # 취소가 소켓을 닫아서 난 실패는 재시도·오류가 아니라 취소다.
+            cancellation.raise_if_cancelled()
             if _is_local_connection_error(e):
                 raise
             last_err = e
@@ -164,6 +169,9 @@ def _ollama_open_with_retry(req, timeout: int):
     attempt = 0
     last_err: Exception | None = None
     while time.monotonic() < deadline:
+        # 요청이 취소됐으면('대화 종료') 새 LLM 호출을 열지 않는다 — 여기가 파싱·빌더·검증
+        # 모든 LLM 호출의 공통 관문이라, 취소된 요청은 다음 호출에서 반드시 멈춘다.
+        cancellation.raise_if_cancelled()
         attempt += 1
         remaining = deadline - time.monotonic()
         attempt_timeout = max(15, min(_OLLAMA_MAX_ATTEMPT_TIMEOUT_S, int(remaining)))
@@ -176,11 +184,14 @@ def _ollama_open_with_retry(req, timeout: int):
             if transient and e.code == 400 and _http_400_is_permanent(e):
                 transient = False
         except urllib.error.URLError as e:
+            # 취소가 진행 중 소켓을 닫아서 난 실패는 콜드스타트 재시도 대상이 아니라 취소다.
+            cancellation.raise_if_cancelled()
             if _is_local_connection_error(e):
                 raise
             last_err = e
             transient = True
         except (TimeoutError, OSError) as e:
+            cancellation.raise_if_cancelled()
             # cold-start hang이 attempt_timeout을 초과한 것 — 재시도하면 역효과
             raise e
         if not transient:
@@ -1736,7 +1747,8 @@ class NLStrategyParser:
             headers={"Content-Type": "application/json", **ollama_auth_headers()},
             method="POST",
         )
-        with _ollama_open_with_retry(req, timeout=120) as resp:
+        # 스트리밍은 생성 내내 소켓을 읽는다 — 취소가 소켓을 닫으면 read 예외를 취소로 보고한다.
+        with cancellation.cancellable_io(), _ollama_open_with_retry(req, timeout=120) as resp:
             for line in resp:
                 line = line.strip()
                 if not line:

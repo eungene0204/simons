@@ -936,17 +936,25 @@ const ANALYSIS_STAGE_LABEL = {
 } as const;
 type AnalysisStage = keyof typeof ANALYSIS_STAGE_LABEL;
 
+// '대화 종료'로 끊긴 요청의 오류인지. 끊긴 턴은 뒤처리(오류 버블·빌더 상태 복원 등)를 하지
+// 않는다 — handleReset이 이미 상태를 비웠으므로, 뒤처리가 오히려 새 대화를 오염시킨다.
+function isChatAbort(error: unknown): boolean {
+  return (error as { name?: string } | null | undefined)?.name === "AbortError";
+}
+
 // 빌더 스텝 호출 — 프록시가 SSE(text/event-stream)를 돌려주면 stage 이벤트('searching' =
 // 인터넷 검색 그라운딩 진입, FR-STR-069)를 onStage로 알리고 최종 result 데이터를 반환한다.
 // JSON 응답(테스트 mock 등)은 기존 계약대로 그대로 반환해 호출부 코드가 동일하게 동작한다.
 async function requestBuilderStepData(
   payload: Record<string, any>,
   onStage?: (stage: string) => void,
+  signal?: AbortSignal,
 ): Promise<any> {
   const res = await fetch("/api/strategy/builder/step", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    signal,
   });
   if (!res.ok) throw new Error();
   const contentType = res.headers?.get?.("content-type") ?? "";
@@ -1723,6 +1731,21 @@ function StrategyLabContent() {
   const qaLastChangeAtRef = useRef(0);
   const handleSendRef = useRef<(overrideText?: string) => Promise<void>>();
   const handleResetRef = useRef<() => void>();
+  // 대화 단위 취소 토큰. '대화 종료'가 진행 중인 모든 요청(분류·파싱·빌더·검증·백테스트)을
+  // 한 번에 끊는다 — 프록시가 연결 종료를 백엔드로 전파해 서버 쪽 LLM 작업도 멈춘다.
+  // handleReset은 abort만 하고 컨트롤러를 그대로 둔다: 끊긴 턴이 뒤늦게(예: 분류 응답 직후)
+  // 다음 요청을 열어도 이미 끊긴 signal을 받아 즉시 실패한다. 새 컨트롤러는 새 턴의 진입점
+  // (beginChatTurn)만 만든다 — 끊긴 턴이 새 토큰을 가로채지 못하게.
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const chatSignal = () => {
+    if (!chatAbortRef.current) chatAbortRef.current = new AbortController();
+    return chatAbortRef.current.signal;
+  };
+  const beginChatTurn = () => {
+    if (!chatAbortRef.current || chatAbortRef.current.signal.aborted) {
+      chatAbortRef.current = new AbortController();
+    }
+  };
   // memo된 ChatInputBox에 넘길 안정 콜백 — 최신 구현은 ref로 참조한다.
   const handleSendFromInput = useCallback((text: string) => {
     void handleSendRef.current?.(text);
@@ -2524,7 +2547,7 @@ function StrategyLabContent() {
         input: "",
         seed: seedText,
         ...(seedParsed ? { seed_parsed: seedParsed } : {}),
-      }, onBuilderStage);
+      }, onBuilderStage, chatSignal());
 
       const initialState = builderStateRef.current;
       let data = await requestBuilderStep(initialState);
@@ -2621,7 +2644,9 @@ function StrategyLabContent() {
           ? buildResearchMetricIntro(activeResearchMetric) : ""]
           .filter(Boolean).join("\n\n"),
       }));
-    } catch {
+    } catch (e) {
+      // '대화 종료'로 끊긴 턴은 뒤처리하지 않는다(상태는 handleReset이 이미 비웠다).
+      if (isChatAbort(e)) throw e;
       // 호출 실패 시 거절하지 않는다 — 빌더 모드는 유지되어 다음 입력부터 정상 진행된다.
       const activeResearchMetric = researchMetric ?? researchMetricRef.current;
       if (singleAssetContext) {
@@ -2672,6 +2697,7 @@ function StrategyLabContent() {
     if (!previousState) return;
 
     setBuilderFreeTextRequested(false);
+    beginChatTurn();
     setIsSending(true);
     appendUserMessage(BUILDER_BACK_CHIP, { fromChip: true });
     await appendAssistant({ role: "assistant", isLoading: true, builderQuestion: true });
@@ -2684,6 +2710,7 @@ function StrategyLabContent() {
             updateLastAssistant({ isLoading: true, loadingStage: stage });
           }
         },
+        chatSignal(),
       );
       builderStateRef.current = mergeBuilderState(previousState, data.state);
       if (data.status === "exited") {
@@ -2715,7 +2742,9 @@ function StrategyLabContent() {
             presentation: builderPresentation,
             canGoBack: builderHistoryRef.current.length > 0,
           }));
-    } catch {
+    } catch (e) {
+      // '대화 종료'로 끊긴 턴은 뒤처리하지 않는다(상태는 handleReset이 이미 비웠다).
+      if (isChatAbort(e)) return;
       builderHistoryRef.current.push(previousState);
       updateLastAssistant({
         isLoading: false,
@@ -2893,10 +2922,12 @@ function StrategyLabContent() {
           query: userText,
           events: toResolvePayload(changeLogRef.current),
         }),
+        signal: chatSignal(),
       });
       if (!res.ok) throw new Error();
       decision = await res.json();
-    } catch {
+    } catch (e) {
+      if (isChatAbort(e)) throw e;
       return {
         message:
           "되돌릴 지점을 확인하지 못했어요. 어떤 변경을 되돌릴지 말씀해 주시면 반영해 드릴게요.",
@@ -2919,10 +2950,12 @@ function StrategyLabContent() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ parsed: result.parsed }),
+          signal: chatSignal(),
         });
         if (!res.ok) throw new Error();
         nextBacktestReq = (await res.json()).backtest_request;
-      } catch {
+      } catch (e) {
+        if (isChatAbort(e)) throw e;
         // 되돌린 전략을 실행 불가 상태로 남기느니 복원 자체를 포기한다(현 상태 유지).
         return {
           message:
@@ -2960,6 +2993,7 @@ function StrategyLabContent() {
       const res = await fetch("/api/query/classify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: chatSignal(),
         body: JSON.stringify({
           query: userText,
           last_symbol: lastAnalyzedSymbolRef.current,
@@ -2995,7 +3029,9 @@ function StrategyLabContent() {
         interpretationFailed: Boolean(data.interpretation_failed),
       };
       return { classification, history };
-    } catch {
+    } catch (e) {
+      // '대화 종료'로 끊긴 분류는 폴백 분류로 이어가지 않는다 — 턴 자체를 끝낸다.
+      if (isChatAbort(e)) throw e;
       return {
         classification: { intent: "STRATEGY_ADVICE" as const },
         history,
@@ -3016,6 +3052,7 @@ function StrategyLabContent() {
     const res = await fetch("/api/strategy/parse/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: chatSignal(),
       body: JSON.stringify({
         prompt: promptText,
         backend: "ollama",
@@ -3337,6 +3374,7 @@ function StrategyLabContent() {
     const completedPrompt = getStrategyPromptContext();
     const confirmedParsed = latestParsedRef.current ?? latestParsed;
     setBuilderFreeTextRequested(false);
+    beginChatTurn();
     setIsSending(true);
     appendUserMessage(CONFIRM_STRATEGY_CHIP, { fromChip: true });
     await appendAssistant({ role: "assistant", isLoading: true });
@@ -3351,6 +3389,7 @@ function StrategyLabContent() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ parsed: confirmedParsed }),
+          signal: chatSignal(),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({} as { detail?: string }));
@@ -3367,6 +3406,8 @@ function StrategyLabContent() {
         await runStrategyParseFlow(completedPrompt, null, null);
       }
     } catch (error) {
+      // '대화 종료'로 끊긴 턴은 뒤처리하지 않는다(상태는 handleReset이 이미 비웠다).
+      if (isChatAbort(error)) return;
       updateLastAssistant({
         isLoading: false,
         error: error instanceof Error ? error.message : "전략 확정에 실패했습니다.",
@@ -3481,7 +3522,19 @@ function StrategyLabContent() {
   };
   applyBuilderConfirmedStrategyRef.current = applyBuilderConfirmedStrategy;
 
+  // 한 턴의 본체(handleSendTurn)를 감싼다 — '대화 종료'로 요청이 끊긴 턴(AbortError)은
+  // 어떤 뒤처리도 없이 여기서 조용히 끝난다. 본체 안의 catch들은 취소를 다시 던지고,
+  // handleReset이 이미 화면·상태를 비웠으므로 오류 버블을 그리거나 상태를 되살리지 않는다.
   const handleSend = async (overrideText?: string, options?: { fromChip?: boolean }) => {
+    try {
+      await handleSendTurn(overrideText, options);
+    } catch (e) {
+      if (isChatAbort(e)) return;
+      throw e;
+    }
+  };
+
+  const handleSendTurn = async (overrideText?: string, options?: { fromChip?: boolean }) => {
     const userText = overrideText ?? "";
     if (!userText || isSending || stage === "running") return;
     // 메시지를 보내는 순간 '직접 입력' 노출 토글을 해제한다(다음 빌더 단계는 다시 칩 집중).
@@ -3508,6 +3561,7 @@ function StrategyLabContent() {
     if (!firstPromptRef.current) firstPromptRef.current = userText;
     const currentParsed = latestParsedRef.current ?? latestParsed;
     const currentBacktestReq = backtestReqRef.current ?? backtestReq;
+    beginChatTurn();
     setIsSending(true);
     // 분류/파싱 호출이 시작되기 전에 사용자 입력을 화면에 즉시 반영한다.
     appendUserMessage(userText, { fromChip: options?.fromChip });
@@ -3532,6 +3586,7 @@ function StrategyLabContent() {
       try {
         await runStrategyParseFlow(userText, currentParsed, currentBacktestReq);
       } catch (e: any) {
+        if (isChatAbort(e)) throw e;
         updateLastAssistant({
           isLoading: false,
           error: e.message ?? "알 수 없는 오류",
@@ -3712,6 +3767,7 @@ function StrategyLabContent() {
               updateLastAssistant({ isLoading: true, loadingStage: stage });
             }
           },
+          chatSignal(),
         );
         builderStateRef.current =
           data.status === "reset" || data.status === "exited"
@@ -3767,6 +3823,7 @@ function StrategyLabContent() {
               throw new Error("완성된 전략 결과가 비어 있습니다.");
             }
           } catch (e: any) {
+            if (isChatAbort(e)) throw e;
             if (!hasBuilderProgress(builderStateRef.current)) {
               builderStateRef.current = confirmedBuilderState;
             }
@@ -3812,7 +3869,8 @@ function StrategyLabContent() {
               presentation: builderPresentation,
               canGoBack: builderHistoryRef.current.length > 0,
             }));
-      } catch {
+      } catch (e) {
+        if (isChatAbort(e)) throw e;
         // 빌더 호출 실패 시 거절하지 않고 자연스럽게 다시 묻는다.
         updateLastAssistant({
           isLoading: false,
@@ -3855,6 +3913,7 @@ function StrategyLabContent() {
           turnDecision.strategyAssumptions,
         );
       } catch (e: any) {
+        if (isChatAbort(e)) throw e;
         updateLastAssistant({
           isLoading: false,
           error: e.message ?? "알 수 없는 오류",
@@ -3892,6 +3951,7 @@ function StrategyLabContent() {
             before ? before.backtestReq : currentBacktestReq,
           );
         } catch (e: any) {
+          if (isChatAbort(e)) throw e;
           updateLastAssistant({
             isLoading: false,
             error: e.message ?? "알 수 없는 오류",
@@ -3953,11 +4013,13 @@ function StrategyLabContent() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: userText, history: classifyResult?.history ?? [] }),
+          signal: chatSignal(),
         });
         if (!res.ok) throw new Error();
         const data = await res.json();
         updateLastAssistant(composeTurnMessage(turnDecision, { answerText: data.answer }));
-      } catch {
+      } catch (e) {
+        if (isChatAbort(e)) throw e;
         updateLastAssistant({
           isLoading: false,
           error:
@@ -3982,11 +4044,13 @@ function StrategyLabContent() {
             history: classifyResult?.history ?? [],
             facts: buildBacktestResultFacts(result),
           }),
+          signal: chatSignal(),
         });
         if (!res.ok) throw new Error();
         const data = await res.json();
         updateLastAssistant(composeTurnMessage(turnDecision, { answerText: data.answer }));
-      } catch {
+      } catch (e) {
+        if (isChatAbort(e)) throw e;
         updateLastAssistant({
           isLoading: false,
           error: "결과 설명을 가져오지 못했습니다.",
@@ -4022,6 +4086,7 @@ function StrategyLabContent() {
     if (!retryPrompt || isSending || stage === "running") return;
     const currentParsed = latestParsedRef.current ?? latestParsed;
     const currentBacktestReq = backtestReqRef.current ?? backtestReq;
+    beginChatTurn();
     setIsSending(true);
     // 오류 버블이 마지막이면 그 자리를 로딩 버블로 되돌리고, 아니면(뒤에 대화가 이어진
     // 경우) 새 로딩 버블을 추가한다 — runStrategyParseFlow는 항상 마지막 assistant
@@ -4042,6 +4107,8 @@ function StrategyLabContent() {
         message.retryAssumptions,
       );
     } catch (e: any) {
+      // '대화 종료'로 끊긴 재시도는 뒤처리하지 않는다(상태는 handleReset이 이미 비웠다).
+      if (isChatAbort(e)) return;
       setMessages(prev => prev.map((m, i) =>
         i === prev.length - 1
           ? {
@@ -4135,6 +4202,7 @@ function StrategyLabContent() {
       const coachRes = await fetch("/api/strategy/coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: chatSignal(),
         body: JSON.stringify({
           action: "create_session",
           user_prompt: userText,
@@ -4167,7 +4235,9 @@ function StrategyLabContent() {
         coachLoading: false,
         coachText: message,
       });
-    } catch {
+    } catch (e) {
+      // '대화 종료'로 끊긴 검증은 조용히 끝낸다(fire-and-forget 호출이라 던지지 않는다).
+      if (isChatAbort(e)) return;
       await enforceMinValidationDelay(startedAt);
       updateLastAssistant({
         coachLoading: false,
@@ -4198,6 +4268,7 @@ function StrategyLabContent() {
       const coachRes = await fetch("/api/strategy/coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: chatSignal(),
         body: JSON.stringify(sessionId
           ? {
               action: "follow_up",
@@ -4234,7 +4305,9 @@ function StrategyLabContent() {
         coachLoading: false,
         coachText: message,
       });
-    } catch {
+    } catch (e) {
+      // '대화 종료'로 끊긴 검증은 조용히 끝낸다.
+      if (isChatAbort(e)) return;
       await enforceMinValidationDelay(startedAt);
       updateLastAssistant({
         coachLoading: false,
@@ -4245,6 +4318,7 @@ function StrategyLabContent() {
 
   const handleRunBacktest = async (options?: any) => {
     if (!backtestReq) return;
+    beginChatTurn();
 
     // 매수 기준이 없는 전략은 0매매로 끝나므로 실행을 막고 전략 빌더로 전환한다(버튼은 이미
     // 숨겨지지만, 확인 응답 등 다른 경로로 도달하는 경우를 위한 최종 방어선).
@@ -4253,7 +4327,11 @@ function StrategyLabContent() {
       builderModeRef.current = true;
       builderStateRef.current = {};
       builderHistoryRef.current = [];
-      await startStrategyBuilder();
+      try {
+        await startStrategyBuilder();
+      } catch (e) {
+        if (!isChatAbort(e)) throw e;
+      }
       return;
     }
 
@@ -4294,6 +4372,9 @@ function StrategyLabContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(effectiveReq),
+        // '대화 종료'가 실행 중인 백테스트 스트림도 끊는다 — 종료 뒤 뒤늦게 도착한 결과가
+        // 빈 대화 위에 결과 화면을 되살리지 않도록.
+        signal: chatSignal(),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -4349,6 +4430,8 @@ function StrategyLabContent() {
         }
       }
     } catch (e: any) {
+      // '대화 종료'로 끊긴 실행은 뒤처리하지 않는다(상태는 handleReset이 이미 비웠다).
+      if (isChatAbort(e)) return;
       setStage("ready");
       setMessages(prev => [
         ...prev,
@@ -4380,6 +4463,9 @@ function StrategyLabContent() {
   };
 
   const handleReset = () => {
+    // 진행 중인 요청부터 끊는다 — 이후 뒤늦게 도착할 응답·오류가 새 대화에 섞이지 않게.
+    // (컨트롤러는 끊긴 채로 둔다 — 다음 턴 진입점이 새것으로 바꾼다. 위 chatAbortRef 주석)
+    chatAbortRef.current?.abort();
     setStage("idle");
     setMessages([]);
     setLatestParsed(null);

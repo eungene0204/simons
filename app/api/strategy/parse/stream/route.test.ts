@@ -375,6 +375,56 @@ describe("POST /api/strategy/parse/stream", () => {
     expect(init.timeoutMs).toBeGreaterThanOrEqual(240_000);
   });
 
+  // '대화 종료' — 클라이언트가 스트림을 끊으면 백엔드 연결(fetchBackend signal)도 끊어야
+  // 백엔드가 진행 중인 LLM 작업을 멈춘다. 프록시가 이를 전파하지 않으면 사용자는 끊었는데
+  // 서버는 예산(240초)이 다할 때까지 파싱을 계속한다.
+  it("aborts the backend fetch when the client disconnects (request signal)", async () => {
+    let upstreamSignal: AbortSignal | undefined;
+    const encoder = new TextEncoder();
+    fetchBackend.mockImplementationOnce((_path: string, init: { signal?: AbortSignal }) => {
+      upstreamSignal = init.signal;
+      // 백엔드가 아직 결과를 내지 않은 채 열려 있는 SSE 스트림
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "stage", stage: "parsing" })}\n\n`));
+        },
+      });
+      return Promise.resolve({ ok: true, body });
+    });
+
+    // Next는 클라이언트가 연결을 끊으면 req.signal을 abort한다 — 그 signal을 흉내낸다
+    // (테스트 환경의 AbortSignal 렐름이 Request 생성자와 달라 RequestInit로는 못 넘긴다).
+    const clientAbort = new AbortController();
+    const request = makeRequest({ prompt: "코스피200 모멘텀 상위 12종목" });
+    Object.defineProperty(request, "signal", { value: clientAbort.signal });
+    const response = await POST(request);
+    const reader = response.body!.getReader();
+    await reader.read(); // accepted — 프록시가 백엔드 호출을 시작했다
+    await vi.waitFor(() => expect(upstreamSignal).toBeInstanceOf(AbortSignal));
+    expect(upstreamSignal!.aborted).toBe(false);
+
+    clientAbort.abort();
+
+    expect(upstreamSignal!.aborted).toBe(true);
+  });
+
+  it("aborts the backend fetch when the response stream is cancelled", async () => {
+    let upstreamSignal: AbortSignal | undefined;
+    fetchBackend.mockImplementationOnce((_path: string, init: { signal?: AbortSignal }) => {
+      upstreamSignal = init.signal;
+      return Promise.resolve({ ok: true, body: new ReadableStream<Uint8Array>({ start() {} }) });
+    });
+
+    const response = await POST(makeRequest({ prompt: "코스피200 모멘텀 상위 12종목" }));
+    const reader = response.body!.getReader();
+    await reader.read();
+    await vi.waitFor(() => expect(upstreamSignal).toBeInstanceOf(AbortSignal));
+
+    await reader.cancel();
+
+    expect(upstreamSignal!.aborted).toBe(true);
+  });
+
   it("returns 400 for invalid JSON", async () => {
     const response = await POST(
       new NextRequest(

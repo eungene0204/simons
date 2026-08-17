@@ -20,6 +20,7 @@ from typing import Callable, Optional
 
 from pydantic import ValidationError
 
+import cancellation
 from llm_backend import OLLAMA_MODEL_9B
 from strategy_conversation import config
 from strategy_conversation.interpreter.models import StrategyIntent
@@ -207,7 +208,10 @@ def _default_ollama_chat(model: str) -> ChatFn:
             # 처리량**이다 — 인터프리터 한 호출이 400~500토큰을 생성하므로 처리량이
             # 4 tok/s까지 떨어지면 125초가 되어 120초 상한에 걸렸다(실측 2026-08-07).
             # 프록시 예산(240초)에서 후행 검증 몫(90초)을 남긴 값이다.
-            with _ollama_open_with_retry(req, timeout=_LLM_CALL_TIMEOUT_S) as resp:
+            # cancellable_io: 요청 취소('대화 종료')가 진행 중 소켓을 닫으면 read 예외를
+            # 해석 실패가 아니라 취소(OperationCancelled)로 보고한다.
+            with cancellation.cancellable_io(), \
+                    _ollama_open_with_retry(req, timeout=_LLM_CALL_TIMEOUT_S) as resp:
                 if on_chunk is None:
                     data = json.loads(resp.read())
                     content = (data.get("message") or {}).get("content", "")

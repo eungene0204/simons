@@ -23,6 +23,8 @@ export async function POST(req: NextRequest) {
       cache: 'no-store',
       // 검색 그라운딩(용어 추출 LLM + 네이버 검색 + 매핑 LLM)이 수십 초까지 걸릴 수 있다.
       timeoutMs: 120_000,
+      // 클라이언트가 끊으면('대화 종료') 백엔드 연결도 끊어 스텝 LLM 작업을 멈춘다.
+      signal: req.signal,
     })
     if (!res.ok || !res.body) {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
