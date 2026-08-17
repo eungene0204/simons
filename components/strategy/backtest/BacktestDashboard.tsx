@@ -1622,7 +1622,7 @@ export default function BacktestDashboard({
                         <div className="flex items-center gap-2 rounded-md bg-black/25 px-2.5 py-1.5 backdrop-blur-sm">
                           <span className="h-2.5 w-2.5 rounded-full bg-[#ef4444]" />
                           <span className="text-xs font-bold text-white/75">
-                            포트폴리오 가치
+                            나의 수익률
                           </span>
                         </div>
                         {hasBenchmarkCurve && (
