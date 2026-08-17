@@ -224,3 +224,30 @@ def test_rebuild_nulls_per_for_nonpositive_eps_instead_of_resurrecting_old():
     out = bf.rebuild_fundamental_columns(df, funds)
     assert out["eps"].iloc[0] == pytest.approx(-50.0)
     assert pd.isna(out["per"].iloc[0])
+
+
+# ── PSR 폴백(시가총액 ÷ 매출액, FR-BT-052k) — SPS를 모르는 날만 채우고 SPS 기반 값은 불변 ──
+
+def test_rebuild_fills_psr_from_market_cap_only_where_sps_unknown():
+    # KIS SPS가 0 자리표시자라 캐시에 sps가 없는 회사 — 종전엔 psr null 영구 공백.
+    df = _ohlcv(["2022-04-01", "2022-04-04"], market_cap=[3000.0, 3300.0], psr=[np.nan, np.nan])
+    funds = [{"year_end": "2021-12-31", "available_from": "2022-03-15", "eps": 1000.0, "revenue": 1500.0}]
+    out = bf.rebuild_fundamental_columns(df, funds)
+    assert out["revenue"].iloc[0] == pytest.approx(1500.0)
+    assert out["psr"].iloc[0] == pytest.approx(2.0)   # 3000 / 1500
+    assert out["psr"].iloc[1] == pytest.approx(2.2)
+
+
+def test_rebuild_keeps_sps_based_psr_over_fallback():
+    # SPS를 아는 날은 종가÷SPS가 정의 — 매출 폴백이 덮어쓰지 않는다.
+    df = _ohlcv(["2022-04-01"], market_cap=[3000.0], psr=[np.nan])
+    funds = [{"year_end": "2021-12-31", "available_from": "2022-03-15", "sps": 50.0, "revenue": 1500.0}]
+    out = bf.rebuild_fundamental_columns(df, funds)
+    assert out["psr"].iloc[0] == pytest.approx(100.0 / 50.0)  # close/sps, not 3000/1500
+
+
+def test_rebuild_psr_fallback_skips_nonpositive_revenue():
+    df = _ohlcv(["2022-04-01"], market_cap=[3000.0], psr=[np.nan])
+    funds = [{"year_end": "2021-12-31", "available_from": "2022-03-15", "revenue": 0.0}]
+    out = bf.rebuild_fundamental_columns(df, funds)
+    assert pd.isna(out["psr"].iloc[0])

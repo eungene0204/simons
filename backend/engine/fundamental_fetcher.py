@@ -126,6 +126,10 @@ _DART_NCI_CONTINUING_ACCOUNT_IDS = {
     "ifrs_ProfitLossFromContinuingOperationsAttributableToNoncontrollingInterests",
 }
 _DART_PROFIT_LOSS_ACCOUNT_IDS = {"ifrs-full_ProfitLoss", "ifrs_ProfitLoss"}
+# 매출액(수익) — PSR 폴백(시가총액 ÷ 매출액)의 분모. KIS가 SPS를 0으로 주는 회사(연결재무제표
+# 미작성 등, FR-BT-052k)는 종가÷SPS로 PSR을 만들 수 없어 같은 손익계산서 응답의 매출액을 쓴다.
+# 실측(2026-08-17): 삼진제약 OFS CIS '수익(매출액)'·동국제강 OFS IS '매출액' 모두 ifrs-full_Revenue.
+_DART_REVENUE_ACCOUNT_IDS = {"ifrs-full_Revenue", "ifrs_Revenue"}
 _DART_EQUITY_OWNERS_ACCOUNT_IDS = {
     "ifrs-full_EquityAttributableToOwnersOfParent",
     "ifrs_EquityAttributableToOwnersOfParent",
@@ -313,6 +317,11 @@ ANNUAL_FUNDAMENTAL_KEYS = [
     # 비중이 큰 기업에서 둘은 크게 갈리므로 별도 지표로 둔다. DART 유래라 2015년 이전과
     # 별도재무제표(OFS)만 있는 종목은 결측이다(2026-08-06).
     "owner_net_income",
+    # 매출액(억원) — DART 손익계산서 ifrs-full_Revenue. PSR 폴백(시가총액 ÷ 매출액)의 분모로만
+    # 쓰이며(KIS SPS가 있으면 종가÷SPS가 그대로 이긴다), 필터·배지에는 노출하지 않는다.
+    # KIS 손익계산서의 매출(_revenue, 내부 키)과 다른 저장 키다 — 그쪽은 net_income 재계산용
+    # 컴포넌트로 저장되지 않는다(FR-BT-052k, 2026-08-17).
+    "revenue",
     # 투자·재무활동 현금흐름 총계(원 단위 raw — operating_cash_flow와 동일 기준). DART CF
     # 섹션에서 OCF와 같은 응답으로 파싱하므로 추가 API 호출은 없다(2026-08-05).
     "investing_cash_flow", "financing_cash_flow",
@@ -830,6 +839,10 @@ def _fetch_cash_flow_from_dart(
         )
         if profit_loss is not None:
             record["_profit_loss_raw"] = profit_loss
+        # 매출액(raw 원) — PSR 폴백 분모. 같은 손익계산서 응답이라 추가 호출 0.
+        revenue = _dart_amount_by_ids(rows, _DART_OWNER_NET_INCOME_SECTIONS, _DART_REVENUE_ACCOUNT_IDS)
+        if revenue is not None:
+            record["_revenue_raw"] = revenue
         results.append(record)
 
     # available_from을 원공시 접수일로 클램프(min) — 정정공시 접수일로 밀린 값 교정.
@@ -910,6 +923,33 @@ def drop_kis_interim_records(records: List[Dict]) -> List[Dict]:
         return records
     interim = ordered[-1]
     return [r for r in records if r is not interim]  # 입력 순서 보존
+
+
+# KIS 자리표시자 판정 키. 실존 기업이 EPS·BPS·SPS를 **동시에** 정확히 0으로 결산할 수는
+# 없다(BPS 0 = 순자산 0, SPS 0 = 매출 0). 셋 다 0이면 그 연도는 KIS가 재무를 싣지 않은
+# 빈 칸이다 — 값 있는 스팩(BPS>0·SPS 0)이나 자본잠식(BPS<0)은 걸리지 않는다.
+_KIS_PLACEHOLDER_KEYS = ("eps", "bps", "sps")
+
+
+def is_kis_placeholder_record(record: Dict) -> bool:
+    """KIS가 재무를 싣지 않은 연도의 0 자리표시자 레코드인지."""
+    return all(record.get(k) is not None and record.get(k) == 0 for k in _KIS_PLACEHOLDER_KEYS)
+
+
+def drop_kis_placeholder_records(records: List[Dict]) -> List[Dict]:
+    """KIS 응답의 **0 자리표시자** 연도 레코드를 걷어낸다.
+
+    KIS 재무 엔드포인트는 재무를 싣지 않은 회사·연도에도 행을 돌려주되 값을 전부 0으로
+    채운다(실측 2026-08-17, 삼진제약 005500: 재무비율·손익계산서·재무상태표 22개 연도 전부
+    eps 0.00·sps 0·bps 0.00·부채비율 0.0000 — 당좌비율만 46.06). 연결재무제표를 만들지 않는
+    회사(자회사 없음)와 KIS 이력 시작 전 연도(2004~2009년 다수)가 이렇다.
+
+    0을 진짜 값으로 받으면 PER·PBR·PSR·ROE는 분모 0으로 null이 되고(가치 필터에서 통째로
+    사라짐 — 활성 124종목 실측), 부채비율은 0이라 '부채비율 ≤ N' 필터를 **거짓 통과**한다.
+    레코드째 버려 '데이터 없음'으로 두면 필터는 fail-closed로 제외하고, 호출자는 다른 소스
+    (Naver 주요재무정보)로 보충할 수 있다. 판정은 :func:`is_kis_placeholder_record`.
+    """
+    return [r for r in records if not is_kis_placeholder_record(r)]
 
 
 def _fetch_kis_finance(symbol: str, headers: dict, path: str) -> list:
@@ -1014,6 +1054,11 @@ def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
         if owner_raw is not None:
             rec["owner_net_income"] = round(owner_raw / 1e8, 1)
 
+        # 매출액(억원) — DART raw 원 단위 환산. PSR 폴백(enrich_ohlcv_with_fundamentals) 분모.
+        revenue_raw = rec.get("_revenue_raw")
+        if revenue_raw is not None:
+            rec["revenue"] = round(revenue_raw / 1e8, 1)
+
         # 당기순이익은 DART 원값이 있으면 그것이 이긴다(위 KIS 재계산본을 덮어쓴다).
         # KIS본은 net_margin(소수 2자리 반올림) x 매출이라 저마진 연도에 절대금액 오차가
         # 크다 — 순이익 10억 규모에서 수백 %까지 벌어진 실측이 있다. DART가 없는 구간
@@ -1055,6 +1100,7 @@ def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
         rec.pop("_revenue", None)
         rec.pop("_owner_net_income_raw", None)
         rec.pop("_profit_loss_raw", None)
+        rec.pop("_revenue_raw", None)
 
     return sorted_records
 
@@ -1064,8 +1110,9 @@ def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> O
 
     1순위: 로컬 JSON 캐시 (90일 이내)
     2순위: 최근 재조회 실패 캐시 (7일 이내) — REITs 등 항상 실패하는 종목의 반복 호출 방지
-    3순위: KIS financial-ratio API
-    4순위: Naver Finance 스크래핑
+    3순위: KIS financial-ratio API (0 자리표시자 연도는 걷어낸다 — drop_kis_placeholder_records)
+    4순위: Naver Finance 스크래핑 — KIS가 비었거나 자리표시자가 섞여 있던 종목만. 같은 연도는
+          KIS 값이 이기고 Naver는 KIS가 비운 연도(최근 3개년 EPS/BPS/ROE/부채비율)를 보충한다.
     별도 병합: OpenDART 영업활동현금흐름
 
     Returns:
@@ -1079,22 +1126,13 @@ def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> O
         if _is_recently_confirmed_empty(symbol):
             return None
 
-    result = _fetch_fundamentals_from_kis(symbol)
+    kis_raw = _fetch_fundamentals_from_kis(symbol) or []
+    result = drop_kis_placeholder_records(kis_raw)
 
-    if not result:
-        url = _NAVER_URL.format(symbol=symbol)
-        for attempt in range(retry + 1):
-            try:
-                r = requests.get(url, headers=_HEADERS, timeout=15)
-                if r.status_code != 200:
-                    continue
-                result = _parse_fundamentals(r.text)
-                if result:
-                    break
-            except Exception as e:
-                logger.warning(f"[{symbol}] fundamental fetch attempt {attempt+1} failed: {e}")
-                if attempt < retry:
-                    time.sleep(0.5)
+    # 자리표시자가 있었다는 것은 KIS가 이 회사(또는 그 연도들)를 싣지 않는다는 뜻이다 —
+    # 걷어낸 자리를 Naver로 보충한다. 자리표시자 없이 온전한 KIS 결과엔 Naver를 부르지 않는다.
+    if not result or len(result) < len(kis_raw):
+        result = _merge_fundamental_records(_fetch_fundamentals_from_naver(symbol, retry), result)
 
     # DART 한도 소진은 KIS 값을 버릴 이유는 아니지만 완성본도 아니다 — dart_pending으로
     # 캐시해 당일은 KIS 값을 쓰고, 다음 날 _read_cache가 만료로 취급해 다시 받게 한다.
@@ -1115,6 +1153,24 @@ def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> O
         _write_negative_cache(symbol)
 
     return result
+
+
+def _fetch_fundamentals_from_naver(symbol: str, retry: int = 2) -> Optional[List[Dict]]:
+    """Naver Finance 주요재무정보(최근 3~4개년 EPS/BPS/ROE/부채비율)를 스크래핑한다. 실패 시 None."""
+    url = _NAVER_URL.format(symbol=symbol)
+    for attempt in range(retry + 1):
+        try:
+            r = requests.get(url, headers=_HEADERS, timeout=15)
+            if r.status_code != 200:
+                continue
+            result = _parse_fundamentals(r.text)
+            if result:
+                return result
+        except Exception as e:
+            logger.warning(f"[{symbol}] fundamental fetch attempt {attempt+1} failed: {e}")
+            if attempt < retry:
+                time.sleep(0.5)
+    return None
 
 
 def _parse_fundamentals(html: str) -> Optional[List[Dict]]:
@@ -1324,6 +1380,8 @@ def enrich_ohlcv_with_fundamentals(
             valid = df[denom].notna() & denom_ok
             df[ratio] = (close / df[denom]).where(valid).replace([_np.inf, -_np.inf], _np.nan)
 
+    df = fill_psr_from_market_cap(df)
+
     # ROE는 KIS가 직접 제공하는 비율이라 여기서 재계산하지 않지만, 자기자본(total_equity
     # 우선, 없으면 BPS로 근사)이 음수(자본잠식)면 값 자체가 금융적으로 무의미해 null 처리한다.
     if "roe_or_gpa" in df.columns:
@@ -1337,6 +1395,29 @@ def enrich_ohlcv_with_fundamentals(
     df = recompute_pcr(df)
 
     return _add_dividend_metrics(df)
+
+
+def fill_psr_from_market_cap(df: pd.DataFrame) -> pd.DataFrame:
+    """PSR **폴백 전용** — psr이 비어 있는 날만 시가총액(억원) ÷ 매출액(억원, DART)로 채운다.
+
+    정의(종가 ÷ SPS)는 그대로다: KIS SPS가 있는 날은 손대지 않는다. KIS가 SPS를 0으로 주는
+    회사(연결재무제표 미작성 등 — FR-BT-052k 자리표시자)만 이 폴백으로 공백을 메운다. 주식수를
+    따로 곱하지 않고 일별 실측 market_cap을 쓰는 이유는 PCR(recompute_pcr)과 같다 — 조정 종가에
+    현재 주식수를 곱한 근사는 증자·소각·분할 전 구간을 왜곡한다(엔진 v13.0 사고). market_cap·
+    revenue 둘 중 하나라도 없으면 no-op, 매출이 비양수면 채우지 않는다.
+    """
+    if "market_cap" not in df.columns or "revenue" not in df.columns:
+        return df
+    import numpy as _np
+    fallback = (
+        (df["market_cap"].astype(float) / df["revenue"])
+        .where(df["market_cap"].notna() & df["revenue"].notna() & (df["revenue"] > 0))
+        .replace([_np.inf, -_np.inf], _np.nan)
+    )
+    df = df.copy()
+    existing = df["psr"] if "psr" in df.columns else pd.Series(_np.nan, index=df.index, dtype=float)
+    df["psr"] = existing.where(existing.notna(), fallback)
+    return df
 
 
 def recompute_pcr(df: pd.DataFrame) -> pd.DataFrame:

@@ -17,6 +17,7 @@ from .fundamental_fetcher import (
     fetch_fundamentals,
     fetch_shares_outstanding,
     enrich_ohlcv_with_fundamentals,
+    fill_psr_from_market_cap,
 )
 
 # Annual statement metrics + the price-derived valuation ratios. market_cap is separate.
@@ -101,7 +102,9 @@ def rebuild_fundamental_columns(pdf: pd.DataFrame, fundamentals: list[dict]) -> 
             continue
         old = out[ratio] if ratio in out.columns else pd.Series(np.nan, index=out.index, dtype=float)
         out[ratio] = old.where(fresh[denom].isna(), fresh[ratio])
-    return out
+    # PSR 폴백(시가총액 ÷ 매출액, FR-BT-052k): SPS를 모르는 날은 위 규칙이 기존 psr(대개 null)을
+    # 보존하므로, enrich와 같은 단일 정의로 비어 있는 날만 채운다(SPS로 만든 psr은 불변).
+    return fill_psr_from_market_cap(out)
 
 
 def add_market_cap(out: pd.DataFrame, symbol: str) -> pd.DataFrame:
