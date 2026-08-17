@@ -200,7 +200,7 @@ def _read_cache(symbol: str) -> Optional[List[Dict]]:
             age = (pd.Timestamp.now() - pd.Timestamp(fetched_at)).days
             if age > _CACHE_MAX_AGE_DAYS:
                 return None
-            if data.get("dart_pending") and age >= _DART_PENDING_RETRY_DAYS:
+            if (data.get("dart_pending") or data.get("kis_pending")) and age >= _DART_PENDING_RETRY_DAYS:
                 return None
         return data.get("fundamentals")
     except Exception:
@@ -218,11 +218,13 @@ def is_dart_pending(symbol: str) -> bool:
         return False
 
 
-def _write_cache(symbol: str, fundamentals: List[Dict], *, dart_pending: bool = False) -> None:
+def _write_cache(symbol: str, fundamentals: List[Dict], *, dart_pending: bool = False,
+                 kis_pending: bool = False) -> None:
     """펀더멘털 데이터를 로컬 JSON 캐시에 저장한다.
 
-    dart_pending=True는 DART 단계를 한도 소진으로 못 마쳤다는 표시다 — 값 자체(KIS)는
-    쓸 수 있되 _read_cache가 다음 날 만료로 취급해 재조회하게 한다.
+    dart_pending=True는 DART 단계를 한도 소진으로 못 마쳤다는 표시, kis_pending=True는 KIS
+    단계를 토큰 실패로 못 마쳤다는 표시다 — 값 자체(있는 쪽)는 쓸 수 있되 _read_cache가
+    다음 날 만료로 취급해 재조회하게 한다.
     """
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path = _cache_path(symbol)
@@ -233,6 +235,8 @@ def _write_cache(symbol: str, fundamentals: List[Dict], *, dart_pending: bool = 
     }
     if dart_pending:
         payload["dart_pending"] = True
+    if kis_pending:
+        payload["kis_pending"] = True
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -328,6 +332,10 @@ ANNUAL_FUNDAMENTAL_KEYS = [
     # 위 3분류의 억원 환산본 — 조건 필터·배지가 쓰는 단위(raw는 PCR·FCF 계산 기준이라 유지).
     "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
 ]
+# 연간 레코드 하나가 공개일부터 이어지는 최대 개월 수 = 결산 주기 12개월 + 사업보고서 제출 지연
+# 약 3개월. 정상적으로 매년 보고하는 회사는 이 안에 다음 레코드가 와서 끊김이 없고, 넘기면
+# 최근 연간 값이 없다는 뜻이므로 필터는 fail-closed로 제외한다(FR-BT-052l, 엔진 v15.0).
+FUNDAMENTAL_FILL_MAX_MONTHS = 15
 # 위 성장률(+기존 operating_income_growth/net_income_growth)의 부호전환 상태코드. 문자열이라
 # enrich_ohlcv_with_fundamentals에서 float 대신 object dtype 시리즈로 다뤄야 한다.
 ANNUAL_FUNDAMENTAL_STATUS_KEYS = [
@@ -970,7 +978,13 @@ def _fetch_kis_finance(symbol: str, headers: dict, path: str) -> list:
 
 
 def _fetch_fundamentals_from_kis(symbol: str) -> Optional[List[Dict]]:
-    """Merge financial-ratio + profit-ratio + stability-ratio into one per-year list."""
+    """Merge financial-ratio + profit-ratio + stability-ratio into one per-year list.
+
+    Returns ``None`` **only when KIS is unreachable**(토큰 발급 실패 — 1분당 1회 제한 등);
+    KIS에 닿았지만 재무가 없으면 빈 리스트다. 호출자는 이 둘을 구분해야 한다 — 토큰 실패를
+    'KIS에 없음'으로 보면 Naver 3개년만으로 90일 완성본 캐시가 덮인다(2026-08-17 실측:
+    수리 스크립트 첫 실행에서 30여 종목).
+    """
     token = _get_kis_token()
     if not token:
         return None
@@ -1006,7 +1020,7 @@ def _fetch_fundamentals_from_kis(symbol: str) -> Optional[List[Dict]]:
     # 5개 엔드포인트를 다 병합한 **한 자리에서** 분기 행을 거른다 — 엔드포인트마다 흩어 놓으면
     # 하나를 빠뜨린다. DART 유래 레코드는 이 함수를 거치지 않으므로 영향받지 않는다.
     result = drop_kis_interim_records(result)
-    return result or None
+    return result  # 빈 리스트 = KIS에 닿았지만 재무 없음. None은 위 토큰 실패뿐이다.
 
 
 def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
@@ -1126,7 +1140,11 @@ def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> O
         if _is_recently_confirmed_empty(symbol):
             return None
 
-    kis_raw = _fetch_fundamentals_from_kis(symbol) or []
+    kis_fetched = _fetch_fundamentals_from_kis(symbol)
+    # KIS 미도달(토큰 실패)은 'KIS에 없음'이 아니다 — 아래에서 kis_pending으로 캐시해 다음 날
+    # 다시 받게 한다(dart_pending과 같은 규칙). 부정 캐시도 남기지 않는다.
+    kis_pending = kis_fetched is None
+    kis_raw = kis_fetched or []
     result = drop_kis_placeholder_records(kis_raw)
 
     # 자리표시자가 있었다는 것은 KIS가 이 회사(또는 그 연도들)를 싣지 않는다는 뜻이다 —
@@ -1148,8 +1166,8 @@ def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> O
         result = _compute_derived_annual_metrics(result)
 
     if result:
-        _write_cache(symbol, result, dart_pending=dart_pending)
-    else:
+        _write_cache(symbol, result, dart_pending=dart_pending, kis_pending=kis_pending)
+    elif not kis_pending:
         _write_negative_cache(symbol)
 
     return result
@@ -1338,6 +1356,10 @@ def enrich_ohlcv_with_fundamentals(
 
     # 각 거래일에 대해 가장 최근 결산 데이터 매핑 (forward-fill 방식).
     # OpenDART 레코드는 실제 접수일을 사용하고, 그 외 소스는 결산일 + 90일을 적용한다.
+    # 한 레코드는 자기 공개일부터 **최대 FUNDAMENTAL_FILL_MAX_MONTHS개월**만 이어진다 —
+    # 다음 결산이 그 안에 오면 거기서 끊기고, 안 오면(레코드 결손·자리표시자 제거·상폐·
+    # 미제출) '데이터 없음'이 된다. 무제한 forward-fill은 2013년 값이 10년간 이어지는 결과를
+    # 낳았다(부국증권 실측, 2026-08-17 — 활성 208종목·20.9만 종목-일).
     _PUBLISH_DELAY_DAYS = 90
 
     # 원본 4개(eps/bps/roe/debt_ratio)는 데이터에 없어도 항상 컬럼을 생성하고(하위호환),
@@ -1358,7 +1380,8 @@ def enrich_ohlcv_with_fundamentals(
         available_from = pd.to_datetime(row.get("available_from"), errors="coerce")
         if pd.isna(available_from):
             available_from = row["year_end"] + pd.Timedelta(days=_PUBLISH_DELAY_DAYS)
-        mask = date_col >= available_from
+        fill_until = available_from + pd.DateOffset(months=FUNDAMENTAL_FILL_MAX_MONTHS)
+        mask = (date_col >= available_from) & (date_col < fill_until)
         for k in present_keys:
             if pd.notna(row.get(k)):
                 series[k][mask] = row[k]

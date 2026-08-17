@@ -52,7 +52,40 @@ def test_stall_timeouts_always_present():
     """
     for ssh_key in (None, "~/.ssh/k"):
         cmd = mirror_data.build_rsync_cmd(remote=REMOTE, ssh_key=ssh_key, push=False, dry_run=False)
-        assert "--timeout=120" in cmd
+        assert f"--timeout={mirror_data._RSYNC_STALL_TIMEOUT_S}" in cmd
+        assert mirror_data._RSYNC_STALL_TIMEOUT_S >= 300  # 큰 델타 정상 전송이 120초에 끊기던 실측
         ssh_arg = cmd[cmd.index("-e") + 1]
         assert "ServerAliveInterval" in ssh_arg
         assert "ServerAliveCountMax" in ssh_arg
+
+
+def test_run_with_retries_resumes_after_stall_exit_codes(monkeypatch):
+    """스톨(exit 10)로 끊겨도 이어서 재시도하고, 성공하면 0을 돌려준다(2026-08-17 실측 4회 stall)."""
+    calls = {"n": 0}
+
+    class _R:
+        def __init__(self, rc):
+            self.returncode = rc
+
+    def fake_run(cmd):
+        calls["n"] += 1
+        return _R(10 if calls["n"] < 3 else 0)
+
+    monkeypatch.setattr(mirror_data.subprocess, "run", fake_run)
+    assert mirror_data.run_with_retries(["rsync"], max_attempts=5, delay_s=0) == 0
+    assert calls["n"] == 3
+
+
+def test_run_with_retries_does_not_retry_non_network_errors(monkeypatch):
+    calls = {"n": 0}
+
+    class _R:
+        returncode = 23  # 부분 전송 오류(권한 등) — 재시도해도 같다
+
+    def fake_run(cmd):
+        calls["n"] += 1
+        return _R()
+
+    monkeypatch.setattr(mirror_data.subprocess, "run", fake_run)
+    assert mirror_data.run_with_retries(["rsync"], max_attempts=5, delay_s=0) == 23
+    assert calls["n"] == 1
