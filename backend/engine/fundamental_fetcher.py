@@ -33,12 +33,20 @@ _CACHE_MAX_AGE_DAYS = 90
 # KIS/Naver 둘 다 데이터가 없는 종목(REITs, 신규상장 등)은 재시도해도 매번 실패한다.
 # 짧은 TTL로 "실패했다"는 사실 자체를 캐싱해 백테스트마다 반복되는 라이브 호출을 줄인다.
 _NEGATIVE_CACHE_TTL_DAYS = 7
+# DART 일일 허용량(status 020) 소진으로 DART 단계를 못 마친 캐시(dart_pending)는 이 일수가
+# 지나면 만료로 본다 — 한도는 매일 리셋되므로 다음 날 fetch가 KIS+DART를 다시 받아 완성한다.
+# 당일에는 그대로 읽어 KIS 값을 쓰고 한도가 바닥난 DART를 다시 두드리지 않는다.
+_DART_PENDING_RETRY_DAYS = 1
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _CACHE_DIR = _PROJECT_ROOT / "data" / "fundamentals"
 _DART_CORP_CODE_PATH = _PROJECT_ROOT / "data" / "dart_corpcode.json"
 _DART_YEAR_FLOOR = 2015
 _DART_ANNUAL_REPORT_CODE = "11011"
+
+
+class DartQuotaExhausted(Exception):
+    """DART 일일 허용량(status 020) 소진 — '데이터 없음'과 구분해 호출자가 미완성으로 다룬다."""
 _DART_OPERATING_CASH_FLOW_ACCOUNT_ID = "ifrs-full_CashFlowsFromUsedInOperatingActivities"
 _DART_OPERATING_CASH_FLOW_NAMES = {
     "영업활동현금흐름",
@@ -172,7 +180,12 @@ def _write_negative_cache(symbol: str) -> None:
 
 
 def _read_cache(symbol: str) -> Optional[List[Dict]]:
-    """로컬 JSON 캐시에서 펀더멘털 데이터를 읽는다. 만료 시 None 반환."""
+    """로컬 JSON 캐시에서 펀더멘털 데이터를 읽는다. 만료 시 None 반환.
+
+    DART 한도 소진으로 미완성인 캐시(dart_pending)는 _DART_PENDING_RETRY_DAYS가 지나면
+    만료로 본다 — 2026-08-04 백필에서 한도 소진 뒤 캐시된 약 420종목이 90일짜리 '완성본'으로
+    남아 지배주주순이익·현금흐름·FCF가 통째로 비었던 사고의 재발 방지.
+    """
     path = _cache_path(symbol)
     if not path.exists():
         return None
@@ -183,13 +196,30 @@ def _read_cache(symbol: str) -> Optional[List[Dict]]:
             age = (pd.Timestamp.now() - pd.Timestamp(fetched_at)).days
             if age > _CACHE_MAX_AGE_DAYS:
                 return None
+            if data.get("dart_pending") and age >= _DART_PENDING_RETRY_DAYS:
+                return None
         return data.get("fundamentals")
     except Exception:
         return None
 
 
-def _write_cache(symbol: str, fundamentals: List[Dict]) -> None:
-    """펀더멘털 데이터를 로컬 JSON 캐시에 저장한다."""
+def is_dart_pending(symbol: str) -> bool:
+    """캐시가 DART 한도 소진으로 미완성 상태인지(수리 스크립트의 대상 선별용)."""
+    path = _cache_path(symbol)
+    if not path.exists():
+        return False
+    try:
+        return bool(json.loads(path.read_text(encoding="utf-8")).get("dart_pending"))
+    except Exception:
+        return False
+
+
+def _write_cache(symbol: str, fundamentals: List[Dict], *, dart_pending: bool = False) -> None:
+    """펀더멘털 데이터를 로컬 JSON 캐시에 저장한다.
+
+    dart_pending=True는 DART 단계를 한도 소진으로 못 마쳤다는 표시다 — 값 자체(KIS)는
+    쓸 수 있되 _read_cache가 다음 날 만료로 취급해 재조회하게 한다.
+    """
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path = _cache_path(symbol)
     payload = {
@@ -197,6 +227,8 @@ def _write_cache(symbol: str, fundamentals: List[Dict]) -> None:
         "fetched_at": pd.Timestamp.now().isoformat(),
         "fundamentals": fundamentals,
     }
+    if dart_pending:
+        payload["dart_pending"] = True
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -739,7 +771,6 @@ def _fetch_cash_flow_from_dart(
 
     last_year = end_year if end_year is not None else pd.Timestamp.now().year - 1
     results = []
-    quota_exceeded = False
     for year in range(max(start_year, _DART_YEAR_FLOOR), last_year + 1):
         cash_flow = None
         rows: list = []
@@ -754,15 +785,14 @@ def _fetch_cash_flow_from_dart(
                 },
             )
             if payload.get("status") == "020":
-                quota_exceeded = True
-                break
+                # 한도 소진은 '없음'이 아니다. 부분 결과를 돌려주면 호출자가 완성본으로
+                # 캐시한다(2026-08-04 사고: 뒤쪽 ~420종목이 DART 없이 90일 캐시됨).
+                raise DartQuotaExhausted(symbol)
             if payload.get("status") == "000":
                 rows = payload.get("list", [])
                 cash_flow = _parse_dart_operating_cash_flow(rows)
                 if cash_flow:
                     break
-        if quota_exceeded:
-            break
         if not cash_flow:
             continue
         record = {
@@ -1066,13 +1096,21 @@ def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> O
                 if attempt < retry:
                     time.sleep(0.5)
 
-    cash_flow = _fetch_cash_flow_from_dart(symbol)
+    # DART 한도 소진은 KIS 값을 버릴 이유는 아니지만 완성본도 아니다 — dart_pending으로
+    # 캐시해 당일은 KIS 값을 쓰고, 다음 날 _read_cache가 만료로 취급해 다시 받게 한다.
+    dart_pending = False
+    try:
+        cash_flow = _fetch_cash_flow_from_dart(symbol)
+    except DartQuotaExhausted:
+        logger.warning("[DART] %s: 일일 허용량 소진 — DART 항목 없이 dart_pending 캐시", symbol)
+        cash_flow = None
+        dart_pending = True
     result = _merge_fundamental_records(result, cash_flow)
     if result:
         result = _compute_derived_annual_metrics(result)
 
     if result:
-        _write_cache(symbol, result)
+        _write_cache(symbol, result, dart_pending=dart_pending)
     else:
         _write_negative_cache(symbol)
 

@@ -1251,6 +1251,70 @@ def test_fetch_fundamentals_skips_network_when_recently_confirmed_empty(tmp_path
     assert naver_calls["n"] == 1
 
 
+# ── DART 일일 허용량 소진(status 020) — 완성본으로 캐시하지 않는다 (2026-08-04 사고) ──
+
+def test_fetch_cash_flow_from_dart_raises_on_quota_exhausted(monkeypatch):
+    """한도 소진은 '데이터 없음'(None)이 아니라 예외다 — 부분 결과를 완성본으로 흘리지 않는다."""
+    import engine.fundamental_fetcher as ff
+
+    monkeypatch.setenv("DART_API_KEY", "test-key")
+    monkeypatch.setattr(ff, "_get_dart_corp_code", lambda symbol: "00126380")
+    monkeypatch.setattr(ff, "dart_fiscal_month", lambda symbol, corp_code: "12")
+
+    def fake_fetch(path, params):
+        if path == "list.json":
+            return {"status": "020", "message": "요청 제한을 초과하였습니다."}
+        return {"status": "020", "message": "요청 제한을 초과하였습니다."}
+
+    monkeypatch.setattr(ff, "_fetch_dart_json", fake_fetch)
+
+    with pytest.raises(ff.DartQuotaExhausted):
+        _fetch_cash_flow_from_dart("005930", 2024, 2024)
+
+
+def test_fetch_fundamentals_marks_cache_dart_pending_on_quota_and_retries_next_day(tmp_path, monkeypatch):
+    """한도 소진 시 KIS 값은 dart_pending 캐시로 남기되, 다음 날엔 만료로 취급해 다시 받는다.
+
+    2026-08-04 전수 백필에서 04시경 한도가 바닥난 뒤 ~420종목이 DART 항목(지배주주순이익·
+    현금흐름·FCF) 없이 90일짜리 완성본으로 캐시돼 이후 백필이 전부 건너뛰었다.
+    """
+    import json
+
+    import engine.fundamental_fetcher as ff
+    monkeypatch.setattr(ff, "_CACHE_DIR", tmp_path)
+
+    kis_records = [{"year_end": "2024-12-31", "eps": 5000.0, "bps": 60000.0, "roe_or_gpa": 9.0}]
+    monkeypatch.setattr(ff, "_fetch_fundamentals_from_kis", lambda symbol: [dict(r) for r in kis_records])
+
+    def _quota(symbol):
+        raise ff.DartQuotaExhausted(symbol)
+
+    monkeypatch.setattr(ff, "_fetch_cash_flow_from_dart", _quota)
+
+    result = fetch_fundamentals("005930", retry=0)
+    assert result and result[0]["eps"] == 5000.0  # KIS 값은 그대로 쓴다
+
+    payload = json.loads((tmp_path / "005930.json").read_text())
+    assert payload["dart_pending"] is True
+    assert ff.is_dart_pending("005930") is True
+    # 당일: 한도가 바닥난 DART를 다시 두드리지 않도록 캐시를 그대로 읽는다
+    assert _read_cache("005930") == result
+
+    # 다음 날: 만료로 취급 → fetch가 다시 받는다
+    payload["fetched_at"] = (pd.Timestamp.now() - pd.Timedelta(days=1)).isoformat()
+    (tmp_path / "005930.json").write_text(json.dumps(payload))
+    assert _read_cache("005930") is None
+
+    # 완성되면 플래그가 사라진다
+    monkeypatch.setattr(ff, "_fetch_cash_flow_from_dart", lambda symbol: [
+        {"year_end": "2024-12-31", "available_from": "2025-03-31", "operating_cash_flow": 1e8},
+    ])
+    result2 = fetch_fundamentals("005930", retry=0)
+    assert result2[0]["operating_cash_flow"] == 1e8
+    assert "dart_pending" not in json.loads((tmp_path / "005930.json").read_text())
+    assert ff.is_dart_pending("005930") is False
+
+
 # ── KIS 분기 행 혼입 제거 (실측: 2026-08-07, 현대차 stac_yymm 202603 + 202512 …) ──
 
 def test_drop_kis_interim_records_removes_leading_quarter_row():
