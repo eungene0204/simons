@@ -145,7 +145,8 @@ NON_STRATEGY_REQUEST(전략과 무관)
 - 재무 지표 상위/하위 N종목 선정('영업이익률 상위 20종목', 'PER 낮은 상위 10종목')은 조건이 아니라 랭킹입니다 → strategy.ranking에 {{"metric":"fundamental.operating_margin","direction":"top"}} (낮은 순은 direction:"bottom"). 종목 수는 portfolio.selection_count로.
 - **direction은 사용자가 정렬 방향을 말했을 때만 출력하세요**('낮은 순'·'높은 순'·'가장 싼'·'상위'가 어느 쪽인지 분명할 때). 방향 언급이 없으면(예: 'PER 기준으로 20종목') direction을 **비워 두세요(null)** — 지표마다 선호 방향이 정해져 있어 시스템이 위 어휘의 [낮을수록 선호]/[높을수록 선호] 표시대로 채웁니다. 임의로 "top"을 채우면 저평가 지표에서 가장 비싼 종목을 고르는 정반대 전략이 됩니다.
 - 종목 수가 아니라 비율로 말하면('상위 10% 종목만 편입') portfolio.selection_percent=10 (selection_count는 null).
-- 지표 순으로 정렬해 종목 수가 동일한 N개 그룹으로 나눠 그룹별로 비교/편입하는 요청('10개 그룹으로 나눠 1그룹에는 PER 가장 낮은 10%…', 'PER 십분위 분석')은 ranking의 quantile_groups=N입니다 → {{"metric":"fundamental.per","direction":"bottom","quantile_groups":10}}. 이때 selection_count/selection_percent는 null(그룹이 편입 규모를 정의합니다).
+- 지표 순으로 정렬해 종목 수가 동일한 N개 그룹으로 나눠 그룹별로 비교/편입하는 요청('10개 그룹으로 나눠 1그룹에는 PER 가장 낮은 10%…', 'PER 십분위 분석')은 ranking의 quantile_groups=N입니다 → {{"metric":"fundamental.per","direction":"bottom","quantile_groups":10}}. 이때 selection_count/selection_percent는 null(그룹이 편입 규모를 정의합니다). '상위 10%'처럼 **편입 비율만** 말한 것은 그룹 비교가 아닙니다 — quantile_groups를 채우지 마세요.
+- **복합 순위 합산(멀티팩터 랭킹)**: 여러 지표로 각각 정렬해 순위를 매기고 그 순위를 합산(또는 평균)해 합산 순위 상위/합산값 최소를 편입하는 요청('ROE 내림차순, PER 오름차순으로 순위를 구해 합산해 합산값이 가장 낮은 상위 10%', 'PBR·PER 순위 합계 상위 20종목')은 **strategy.ranking에 지표 하나당 항목 하나**를 넣습니다 → [{{"metric":"fundamental.roe_or_gpa","direction":"top"}},{{"metric":"fundamental.per","direction":"bottom"}}]. 랭킹 항목이 2개 이상이면 시스템이 순위 합산으로 실행합니다. 이때 ① 그 지표들을 entry_conditions(임계값 조건)로 만들지 마세요 — '내림차순/오름차순'은 정렬 방향이지 임계값이 아닙니다(value를 물을 것이 없습니다). ② 'composite'·'score' 같은 **합산 지표 이름을 지어내지 마세요** — 합산은 항목 수로 표현됩니다. ③ '내림차순/높은 순'=direction:"top", '오름차순/낮은 순'=direction:"bottom". ④ 지표별 가중치를 되묻지 마세요(동일 가중이 정의입니다).
 
 ## 핵심 규칙
 0. 전략 조건을 서술하면서 '백테스트'·'테스트'·'검증'을 말한 입력은 CREATE_STRATEGY입니다
@@ -479,6 +480,18 @@ entry_conditions로 분리합니다.
 ranking=[{{"metric":"fundamental.per","direction":"bottom","quantile_groups":10}}],
 portfolio={{"selection_count":null,"selection_percent":null}} — 그룹이 편입 규모를
 정의하므로 종목 수를 되묻지 않습니다. '1그룹=가장 낮은'이므로 direction:"bottom"입니다.
+
+## 예시 4-c (복합 순위 합산 — 여러 지표 순위 합산은 랭킹 항목 여러 개)
+입력: "roe 내림차순, 유동비율 내림차순, per 오름차순, pcr 오름차순으로 정렬하여 각 순위를
+구하고, 순위를 합산하여 합산값이 가장 낮은 상위 10% 투자"
+출력 요점: entry_conditions=[](정렬 방향은 임계값 조건이 아님),
+ranking=[{{"metric":"fundamental.roe_or_gpa","direction":"top"}},
+{{"metric":"fundamental.current_ratio","direction":"top"}},
+{{"metric":"fundamental.per","direction":"bottom"}},
+{{"metric":"fundamental.pcr","direction":"bottom"}}],
+portfolio={{"selection_percent":10}}. quantile_groups는 null('상위 10%'는 편입 비율).
+unsupported_features=[](복합 순위 합산은 지원 기능) — 'composite' 같은 지표명을 만들지
+않습니다.
 
 ## 예시 4-1 (ETF 테마 — 이미 말한 테마를 되묻지 않기)
 입력: "반도체 etf 투자 전략"

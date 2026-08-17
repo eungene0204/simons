@@ -177,6 +177,7 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 )
         setattr(strategy, attr, kept)
 
+    kept_ranking = []
     for rank in strategy.ranking:
         spec = resolve(rank.metric)
         # 랭킹 가능 지표: ranking.*(모멘텀) + fundamental.*(재무 팩터 랭킹, 2026-08-03 —
@@ -189,13 +190,21 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                      and spec.engine_binding[1] != "trading_value"))
         )
         if not rankable:
-            unsupported.append(rank.metric)
+            # 미지원 랭킹 항목은 **제거**한다(진입 조건의 kept와 같은 계약) — 남겨 두면
+            # 컴파일러가 모르는 지표를 임의 지표로 바꿔치는 폴백을 타서 사용자가 말하지
+            # 않은 랭킹이 생긴다(2026-08-17 'composite_score' → 수익률 랭킹 둔갑 사고).
+            # 미지원 보고에는 LLM이 지어낸 내부 식별자(metric 원문)를 담지 않는다 —
+            # 그 문자열이 안내문에 그대로 노출됐다(내부명 노출 금지, 레드팀 QA 20-5).
+            # 사용자 표현(source_text)이 있으면 그것을, 없으면 평이한 일반 표기를 쓴다.
+            unsupported.append(rank.source_text or "알 수 없는 랭킹 기준")
             errors.append(
-                f"랭킹 지표 '{rank.metric}'은(는) 지원되지 않습니다 "
-                "(지원: 기간 수익률 랭킹, 재무 지표 랭킹 — 예: 영업이익률 상위)"
+                f"랭킹 기준 '{rank.source_text or '알 수 없는 지표'}'은(는) 지원되지 않습니다 "
+                "(지원: 기간 수익률 랭킹, 재무 지표 랭킹 — 예: 영업이익률 상위, 여러 지표 순위 합산)"
             )
-        else:
-            rank.metric = spec.id
+            continue
+        rank.metric = spec.id
+        kept_ranking.append(rank)
+    strategy.ranking = kept_ranking
 
     # 유니버스별 팩터 검증 — ETF는 여러 기업을 묶은 상품이라 기업 재무지표를 조건으로 쓸
     # 수 없다(engine/universe_capabilities와 동일 계약). 조용히 제거하지 않고 오류+대안

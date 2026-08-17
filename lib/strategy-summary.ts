@@ -51,6 +51,12 @@ export interface ParsedSummary {
   ranking_quantile_groups?: number | null;
   // 분위 그룹당 보유 상한(FR-BT-060b) — 각 그룹이 자기 구간의 랭킹 상위 N종목만 보유.
   ranking_group_cap?: number | null;
+  // 복합 순위 합산(FR-BT-063) — ranking_metric='composite'일 때 구성 지표(방향 포함).
+  ranking_components?: Array<{
+    metric: string;
+    direction: "top" | "bottom";
+    lookback_days?: number | null;
+  }> | null;
   // 비율 선정(FR-BT-060) — 상위 X% 편입(개수 대신 비율). 있으면 max_positions보다 우선.
   max_positions_pct?: number | null;
   // 지정 종목(단일 종목) 백테스트 대상 종목코드(FR-STR-068). 비어 있으면 유니버스 전략.
@@ -551,9 +557,32 @@ export function getPositionLabel(parsed: ParsedSummary): string {
   return `최대 ${parsed.max_positions}종목`;
 }
 
+/** 복합 순위 합산(FR-BT-063)의 구성 지표 하나 — "ROE 높은 순"·"PER 낮은 순"·"20일 수익률 높은 순". */
+function componentLabel(
+  c: { metric: string; direction: "top" | "bottom"; lookback_days?: number | null },
+  defaultLookback: number | null | undefined,
+): string {
+  const dir = c.direction === "bottom" ? "낮은 순" : "높은 순";
+  if (c.metric === "return" || c.metric === "volatility") {
+    const days = c.lookback_days ?? defaultLookback;
+    const name = c.metric === "return" ? "수익률" : "변동성";
+    // 산정 기간 미정이면 일수를 붙이지 않는다(단일 랭킹 라벨과 같은 계약).
+    return days != null ? `${days}일 ${name} ${dir}` : `${name}(산정 기간 미정) ${dir}`;
+  }
+  return `${METRIC_LABELS[c.metric] ?? c.metric} ${dir}`;
+}
+
 export function getRankingLabel(parsed: ParsedSummary): string | null {
   // 산정 기간 미정(되묻기 진행 중)에 60일을 표시하면 조용한 확정으로 읽힌다(2026-08-10
   // 사용자 지시 "60일 강제 금지") — 기간이 정해진 뒤에만 일수를 붙인다.
+  if (parsed.ranking_metric === "composite" && parsed.ranking_components?.length) {
+    // 복합 순위 합산(FR-BT-063) — 구성 지표별 순위를 합산해 상위 선정. 내부명 대신
+    // 지표 정본 라벨과 방향을 그대로 보여 준다.
+    const parts = parsed.ranking_components.map((c) =>
+      componentLabel(c, parsed.ranking_lookback_days),
+    );
+    return `복합 순위 상위 (${parts.join(" + ")} 순위 합산)`;
+  }
   if (parsed.ranking_metric === "return") {
     const days = parsed.ranking_lookback_days;
     return days != null ? `${days}일 수익률 상위` : "수익률 상위(산정 기간 미정)";
@@ -705,6 +734,9 @@ export function buildStrategySummaryFromRequest(
     ranking_metric: (risk.ranking_metric as string | null) ?? null,
     ranking_lookback_days: num(risk.ranking_lookback_days),
     ranking_direction: (risk.ranking_direction as "top" | "bottom" | null) ?? null,
+    ranking_components: Array.isArray(risk.ranking_components)
+      ? (risk.ranking_components as ParsedSummary["ranking_components"])
+      : null,
   } as ParsedSummary);
 
   const entryBlocks = uniqueLabels([

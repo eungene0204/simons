@@ -275,6 +275,16 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         # 분위 그룹·비율 선정(FR-BT-060) — None이면 _drop_none이 제거 → 기존 해시 불변.
         "ranking_quantile_groups": strategy.ranking_quantile_groups,
         "ranking_group_cap": strategy.ranking_group_cap,
+        # 복합 순위 합산(FR-BT-063) 구성 지표 — 순서가 곧 의미는 아니지만(동일 가중 평균)
+        # 해시는 표기에 민감하므로 지표명으로 정렬해 같은 구성이 같은 strategy_id를 갖게 한다.
+        # None이면 _drop_none이 제거 → 단일 랭킹 기존 전략의 해시 불변.
+        "ranking_components": (
+            sorted(
+                [c.model_dump() for c in strategy.ranking_components],
+                key=lambda c: (c["metric"], c["direction"], c.get("lookback_days") or 0),
+            )
+            if strategy.ranking_components else None
+        ),
         "max_positions_pct": strategy.max_positions_pct,
         "max_positions": strategy.max_positions,
         "hold_period_days": strategy.hold_period_days,
@@ -480,6 +490,11 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         # 분위 그룹 비교·비율 선정(FR-BT-060) — 엔진이 그룹 반복 실행/동적 종목 수로 처리.
         "ranking_quantile_groups": strategy.ranking_quantile_groups,
         "ranking_group_cap": strategy.ranking_group_cap,
+        # 복합 순위 합산(FR-BT-063) — 엔진이 구성 지표별 백분위 순위를 동일 가중 평균한다.
+        "ranking_components": (
+            [c.model_dump() for c in strategy.ranking_components]
+            if strategy.ranking_components else None
+        ),
         "max_positions_pct": strategy.max_positions_pct,
         "execution_timing": strategy.execution_timing,
         "allocation_type": "equal",

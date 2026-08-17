@@ -762,6 +762,16 @@ RiskManagement {
 
 ---
 
+
+**FR-BT-063** [복합 순위 합산(멀티팩터 랭킹), 2026-08-17, 엔진 v13.4] 시스템은 여러 지표의 횡단면 순위를 합산해 종목을 선정하는 랭킹("ROE 내림차순·유동비율 내림차순·PER 오름차순·PCR 오름차순으로 각 순위를 구해 합산, 합산값이 가장 낮은 상위 10% 편입")을 지원해야 한다. **표현**: `ranking_metric='composite'` + `ranking_components=[{metric, direction, lookback_days?}, ...]`(2개 이상; 구성 지표는 단일 랭킹이 가능한 지표 전부 — 재무 컬럼·기간 수익률·변동성). 해석 스펙에서는 `strategy.ranking` 항목 2개 이상 = 합산이며(합산 지표 이름을 지어내지 않는다), 방향 미지정 항목은 지표의 자연 방향(온톨로지 polarity)으로 컴파일러가 채운다. **계산**: 구성 지표마다 **전 지표가 정의된 종목 풀 안에서** 백분위 순위(방향 기준 좋은 쪽이 높게)를 매겨 **동일 가중 평균**한다 — 이 값의 내림차순은 순위 합산 오름차순과 같은 정렬이다(지표별 유효 종목 수 차이로 인한 가중 왜곡 방지). 어느 한 지표라도 없는 종목은 후보에서 배제한다(중립값 위장 금지). 구성 지표 컬럼이 유니버스 전체에 없으면 조용한 0거래가 아니라 경고. next_open은 1일 shift(look-ahead 방지). 가격 산출 구성 지표의 산정 기간은 구성 지표 자체 값 → 전략 공통 `ranking_lookback_days`(되묻기 칩 답이 결속되는 자리) → 60 순이며, 되묻기는 그 지표가 랭킹 항목 몇 번째에 있든 낸다(`strategy.ranking[i].lookback_days`). 매수 사유·분위 그룹 라벨은 "복합 순위(ROE 높은·PER 낮은) 상위 N%"처럼 구성 지표와 방향을 병기한다. 가중치는 되묻지 않는다(동일 가중이 정의). **미지원 랭킹 지표 처리(같은 날 사고 회귀)**: 검증기는 미지원 랭킹 항목을 오류와 함께 **제거**하고(진입 조건의 kept 계약과 동일), 미지원 보고에는 LLM이 지어낸 내부 식별자 대신 사용자 표현(`source_text`) 또는 평이한 일반 표기를 담는다(내부명 노출 금지 — 'composite_score' 노출 사고). 컴파일러는 등록되지 않은 랭킹 지표를 `'return'`으로 바꿔치는 폴백을 갖지 않는다(사용자가 말하지 않은 수익률 랭킹이 생기던 사고). 디컴파일러는 composite→RankingSpec N개로 왕복하며(가격 지표 `ranking.*` 네임스페이스 정정 포함), canonical DSL은 구성 지표를 정렬해 담고 단일 랭킹 전략에선 키를 내지 않아 기존 `strategy_id` 불변. 프론트 요약 라벨은 "복합 순위 상위 (ROE 높은 순 + PER 낮은 순 순위 합산)".
+
+**구현 파일:**
+- `backend/backtest_engine.py` — `_composite_ranking_components`·`_composite_ranking_label`·`_composite_rank_panel`·`_ranking_selection_pool`, 재무 랭킹 컬럼 수집 다중화(`all_fund_rank_values[col][sym]`)
+- `backend/engine/nl_parser.py`(RankingComponent·ParsedStrategy.ranking_components·`_normalize_composite_ranking`·`_ranking_metrics_expressed`), `backend/schemas.py`, `backend/engine/strategy_converter.py`, `backend/engine/version.py`(v13.4)
+- `backend/strategy_conversation/` — `interpreter/prompts.py`(복합 순위 규칙+예시 4-c), `validation/capability_validator.py`(미지원 랭킹 제거·비노출), `validation/completeness_validator.py`(자리 무관 산정 기간 되묻기), `compiler/strategy_compiler.py`·`strategy_decompiler.py`, `primary.py`(`_RANKING_LOOKBACK_FIELD_RE`), `conversation/change_log.py`
+- `lib/strategy-summary.ts`(getRankingLabel composite), `types/strategy.ts`
+- `backend/tests/test_composite_ranking_engine.py`(신규), `backend/tests/test_composite_ranking_lane.py`(신규), `lib/strategy-summary.composite-ranking.test.ts`(신규)
+
 ### 3.3 AI/ML 시스템
 
 #### 3.3.1 하이브리드 예측 모델 v2

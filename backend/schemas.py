@@ -45,6 +45,10 @@ class RiskManagement(BaseModel):
     ranking_quantile_groups: Optional[int] = None
     # 분위 그룹당 보유 상한(FR-BT-060b) — 각 그룹이 자기 구간의 랭킹 상위 N종목만 보유.
     ranking_group_cap: Optional[int] = None
+    # 복합 순위 합산(FR-BT-063): ranking_metric='composite'일 때 구성 지표 목록
+    # [{metric, direction, lookback_days?}, ...]. 스키마에 없으면 model_dump가 조용히 버려
+    # 엔진이 구성 지표를 못 받는다 — ranking_metric 0거래 사고와 동일 함정.
+    ranking_components: Optional[List[Dict[str, Any]]] = None
     execution_timing: Optional[str] = "next_open"
     allocation_type: Optional[str] = "equal"
     rebalancing_period: Optional[str] = "none"

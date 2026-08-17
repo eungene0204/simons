@@ -55,6 +55,8 @@ export interface RiskManagement {
   max_positions_pct?: number;
   /** 분위 그룹 비교(FR-BT-060) — 랭킹 후보를 종목 수 동일 G개 그룹으로 나눠 그룹별 백테스트. */
   ranking_quantile_groups?: number;
+  /** 복합 순위 합산(FR-BT-063) — ranking_metric='composite'일 때 구성 지표(백분위 순위 동일 가중 평균). */
+  ranking_components?: Array<{ metric: string; direction: "top" | "bottom"; lookback_days?: number | null }>;
   execution_timing?: "next_open" | "current_close";
   allocation_type?: "equal" | "fixed_pct";
   rebalancing_period?: string;

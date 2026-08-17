@@ -235,13 +235,15 @@ def _clarification_items(
         elif q.field == "strategy.universe.listing_from":
             # 신규 상장 대상 시기(FR-STR-073) — 사용자 어휘 그대로 되보낼 수 있는 칩.
             chips.extend(_new_listing_period_chips())
-        elif q.field == "strategy.ranking[0].lookback_days":
+        elif _RANKING_LOOKBACK_FIELD_RE.fullmatch(q.field or ""):
             # 랭킹 산정 기간 칩 — 문구가 랭킹 지표에 따라 다르다(변동성/수익률 —
             # 모멘텀도 되묻기, 2026-08-10 사용자 지시 "60일 강제 금지"). 정본 표기는
             # _apply_prompt_overrides의 '{라벨}산정기간N일' 에코 인식과 쌍이다(칩=값 결속).
+            # 복합 순위 합산(FR-BT-063)은 자리가 [0]이 아닐 수 있다 — 자리 인덱스로 찾는다.
+            _rank_idx = int(_RANKING_LOOKBACK_FIELD_RE.fullmatch(q.field).group(1))
             rank_metric = (
-                strategy.ranking[0].metric
-                if strategy is not None and strategy.ranking else None
+                strategy.ranking[_rank_idx].metric
+                if strategy is not None and len(strategy.ranking) > _rank_idx else None
             )
             chip_label = "변동성" if rank_metric == "ranking.volatility" else "수익률"
             alternates = (120, 200) if rank_metric == "ranking.volatility" else (20, 120)
@@ -403,6 +405,11 @@ def _capability_conflict_clarification(
     # pending_question 에코가 맥락을 준다 — 복합 의미의 실행자는 LLM뿐이다.
     return question, chips or None, None
 
+
+# 랭킹 산정 기간 되묻기 필드(strategy.ranking[i].lookback_days) — 복합 순위 합산(FR-BT-063)
+# 은 가격 산출 지표가 [0]이 아닌 자리에 올 수 있어 인덱스를 자리로 인식한다.
+# 판정 입력은 검증기가 낸 필드 경로 문자열이다(원문을 읽지 않는다).
+_RANKING_LOOKBACK_FIELD_RE = re.compile(r"strategy\.ranking\[(\d+)\]\.lookback_days")
 
 # 잔여 미지원 안내에서 지목 인용할 수 있는 항목명 길이 상한(2026-08-12 사용자 결정).
 # 초과 조각(정성 표현 등 발화 반 토막)은 이름을 인용하지 않고 일반 문구로 안내한다 —
@@ -1299,7 +1306,7 @@ def run_primary_parse(
         report.clarification_questions[0].field if report.clarification_questions else None
     )
     if clarification_priority is None and clarification_question and (
-        pending_conditions or first_question_field == "strategy.ranking[0].lookback_days"
+        pending_conditions or _RANKING_LOOKBACK_FIELD_RE.fullmatch(first_question_field or "")
     ):
         clarification_priority = "pending_values"
 

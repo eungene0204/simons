@@ -1007,7 +1007,7 @@ BacktestEngine.run_backtest(request)
 │       │   ├── TrailingStop: peak_price[] 배열로 추적
 │       │   ├── MaxHoldingDays: 보유 기간 초과 시 청산
 │       │   └── Rebalance dropout: 리밸런싱일에 목표 집합 밖 보유 매도, 빈 슬롯 신규 편입
-│       ├── Ranking: rank_df로 후보 재정렬 (PBR/ROE 복합 또는 모멘텀 ranking_metric="return")
+│       ├── Ranking: rank_df로 후보 재정렬 (모멘텀 return / 변동성 volatility / 재무 팩터 cid / 복합 순위 합산 composite+ranking_components(FR-BT-063) / 레거시 PBR·ROE 블렌드)
 │       ├── Position Limiting: 최대 동시 포지션 수 제한
 │       └── Liquidity Check: 거래대금 기준 필터
 │
@@ -1397,8 +1397,10 @@ class ParsedStrategy(BaseModel):
     trailing_stop_pct: Optional[float]
     max_positions: int
     hold_period_days: Optional[int]
-    ranking_metric: Optional[Literal["return"]]       # 모멘텀 랭킹 — "최근 N일 수익률 상위" 선정
-    ranking_lookback_days: Optional[int]              # 모멘텀 계산 기간 (기본 60일)
+    ranking_metric: Optional[RankingMetricLiteral]    # 랭킹 — return(모멘텀)/volatility/재무 cid/composite(복합 순위 합산)
+    ranking_lookback_days: Optional[int]              # 가격 산출 랭킹 계산 기간 (되묻기, 미정 시 60)
+    ranking_direction: Optional[Literal["top","bottom"]]
+    ranking_components: Optional[List[RankingComponent]]  # composite 구성 지표 [{metric, direction, lookback_days?}] ≥2 (FR-BT-063)
     rebalancing_period: Literal["none", "daily", "monthly", "quarterly", "yearly"]
     backtest_period: Literal["1y", "3y", "5y", "full"]
     initial_capital: float

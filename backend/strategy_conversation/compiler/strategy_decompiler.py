@@ -79,6 +79,14 @@ def _decompile_technical(sig: TechnicalSignal) -> StrategyCondition:
     )
 
 
+
+def _canonical_ranking_id(engine_metric: str) -> str:
+    """엔진 랭킹 키 → 온톨로지 정본 id. 'return'/'volatility'는 가격 산출 랭킹(ranking.*),
+    나머지는 재무 팩터(fundamental.*). 컴파일러 engine_binding의 역방향."""
+    if engine_metric in ("return", "volatility"):
+        return f"ranking.{engine_metric}"
+    return f"fundamental.{engine_metric}"
+
 def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
     sectors = parsed.sector
     if sectors is None:
@@ -96,15 +104,25 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
     exit_conditions = [_decompile_technical(sig) for sig in parsed.exit_signals]
 
     ranking = []
-    if parsed.ranking_metric is not None:
-        # 'return'=모멘텀(ranking.return), 그 외=재무 팩터 랭킹(fundamental.*) —
-        # 컴파일러 _build_parsed의 역방향. 방향 미저장(None)=top(기본).
-        if parsed.ranking_metric == "return":
-            canonical = "ranking.return"
-        else:
-            canonical = f"fundamental.{parsed.ranking_metric}"
+    if parsed.ranking_metric == "composite" and parsed.ranking_components:
+        # 복합 순위 합산(FR-BT-063) — 구성 지표 하나가 RankingSpec 하나(컴파일러의 역방향:
+        # 항목 2개 이상 = 합산). 분위 그룹은 첫 항목에 싣는다(컴파일러가 첫 non-null을 취함).
+        # 기간 없는 가격 지표는 전략 공통 ranking_lookback_days를 이어받는다(엔진과 동일 계약).
+        for i, comp in enumerate(parsed.ranking_components):
+            ranking.append(RankingSpec(
+                metric=_canonical_ranking_id(comp.metric),
+                lookback_days=(
+                    (comp.lookback_days or parsed.ranking_lookback_days)
+                    if comp.metric in ("return", "volatility") else None
+                ),
+                direction=comp.direction,
+                quantile_groups=parsed.ranking_quantile_groups if i == 0 else None,
+            ))
+    elif parsed.ranking_metric is not None:
+        # 'return'/'volatility'=가격 산출 랭킹(ranking.*), 그 외=재무 팩터 랭킹(fundamental.*)
+        # — 컴파일러 _build_parsed의 역방향. 방향 미저장(None)=top(기본).
         ranking.append(RankingSpec(
-            metric=canonical,
+            metric=_canonical_ranking_id(parsed.ranking_metric),
             lookback_days=parsed.ranking_lookback_days,
             direction=parsed.ranking_direction or "top",
             # 분위 그룹도 왕복한다 — 누락되면 수정 턴에서 그룹 비교가 조용히 풀린다.
