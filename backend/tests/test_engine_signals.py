@@ -628,3 +628,29 @@ def test_new_oscillators_column_missing_returns_false(signal_engine):
     for cid, period_col in [("williams_r", "wr_14"), ("mfi", "mfi_14"), ("roc", "close_12_roc")]:
         cond = {"id": cid, "params": {"signalType": "buy"}}
         assert list(signal_engine._eval_vec(cond, df)) == [False, False]
+
+
+def test_dual_ema_state_mode_is_persistent_not_crossover(signal_engine):
+    """두 EMA의 정배열/역배열은 **지속 상태**다 — 교차한 날 하루가 아니라 위에 있는 동안
+    계속 참이어야 한다("20일 EMA가 60일 EMA 위에 있는 종목을 매수", 2026-08-18 엔진 v16.0).
+    mode 없이 같은 파라미터면 종전대로 교차 이벤트다(회귀 경계)."""
+    import polars as pl
+
+    df = pl.DataFrame({
+        "close_5_ema":  [10.0, 10.0, 12.0, 13.0, 8.0],
+        "close_20_ema": [11.0, 11.0, 11.0, 11.0, 11.0],
+    })
+    state = {"id": "ema", "params": {"shortPeriod": 5, "longPeriod": 20,
+                                     "mode": "above", "signalType": "buy"}}
+    event = {"id": "ema", "params": {"shortPeriod": 5, "longPeriod": 20, "signalType": "buy"}}
+
+    # 상태: 5일선이 20일선 위인 동안(idx 2·3) 계속 참
+    assert [signal_engine.evaluate_condition(state, i, df) for i in range(5)] == \
+        [False, False, True, True, False]
+    # 교차: 올라선 그 날(idx 2)만 참 — 상태 모드가 없으면 조건이 하루로 좁아진다
+    assert [signal_engine.evaluate_condition(event, i, df) for i in range(5)] == \
+        [False, False, True, False, False]
+    # 역배열 상태(below)는 아래에 있는 동안 참
+    below = dict(state, params=dict(state["params"], mode="below"))
+    assert [signal_engine.evaluate_condition(below, i, df) for i in range(5)] == \
+        [True, True, False, False, True]

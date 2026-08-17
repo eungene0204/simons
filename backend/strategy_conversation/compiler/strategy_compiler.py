@@ -62,13 +62,33 @@ def _compile_technical(
     kwargs: dict = {"indicator": indicator, "signal_type": signal_type}
 
     if indicator in ("ma_crossover", "ema"):
-        kwargs["short_period"] = _int_param("short_period")
-        kwargs["long_period"] = _int_param("long_period")
-        if indicator == "ema" and cond.operator in (">", "<"):
-            # 가격 vs EMA 지속 상태 추세 필터
-            kwargs["mode"] = "above" if cond.operator == ">" else "below"
+        # 한 선만 주어졌으면 나머지 칸을 registry 기본값으로 채우지 않는다 — 사용자가
+        # 말한 적 없는 두 번째 선이 생기고("20일 EMA 이탈"→20/60 교차), 기본값이 같은
+        # 숫자면 자기 자신과 교차하는 영원히 발화하지 않는 조건이 된다(2026-08-18).
+        # 상대가 종가라는 사실은 기간이 아니라 '선이 하나뿐'이라는 형태가 말한다.
+        if params.get("short_period") is None and params.get("long_period") is not None:
             kwargs["short_period"] = None
-            kwargs["long_period"] = _int_param("long_period") or _int_param("short_period")
+            kwargs["long_period"] = _int_param("long_period")
+        else:
+            kwargs["short_period"] = _int_param("short_period")
+            kwargs["long_period"] = _int_param("long_period")
+        # 'ema >/<' 는 **종가와 EMA 하나**의 지속 상태 필터일 때만이다(registry notes).
+        # LLM이 두 EMA의 기간을 모두 준 경우엔 두 선의 관계이므로 기간을 버리지 않는다 —
+        # 종전에는 무조건 short_period를 지워서 "20일 EMA가 60일 EMA 위에 있는"이
+        # "가격이 60일 EMA 위"라는 다른 전략으로 조용히 바뀌었다(2026-08-18 예시 QA 실측:
+        # 예시 22·26·53·80). 판정 입력은 LLM이 실제로 채운 파라미터이지 registry 기본값이
+        # 아니다 — 기본값(20/60)으로 판정하면 사용자가 말한 적 없는 두 번째 선이 생긴다.
+        both_periods_given = (
+            params.get("short_period") is not None and params.get("long_period") is not None
+        )
+        if indicator == "ema" and cond.operator in (">", "<"):
+            # 부등호는 **지속 상태**다(교차는 crosses_above/below). 두 기간이 다 주어지면
+            # 두 EMA의 정배열/역배열 상태, 하나면 가격 vs EMA 상태 — 어느 쪽이든 mode로
+            # 옮기고 기간은 버리지 않는다(엔진 v16.0이 두 EMA 상태를 직접 평가한다).
+            kwargs["mode"] = "above" if cond.operator == ">" else "below"
+            if not both_periods_given:
+                kwargs["short_period"] = None
+                kwargs["long_period"] = _int_param("long_period") or _int_param("short_period")
     elif indicator == "macd":
         kwargs["mode"] = "crossover"
     elif indicator == "breakout":

@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "3.7"
+PROMPT_VERSION = "3.9"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -233,8 +233,19 @@ NON_STRATEGY_REQUEST(전략과 무관)
      parameters={{"short_period":1,"long_period":20}} (short_period=1이 종가)
    - '20일선 이탈'·'20일선 아래로 내려오면'·'20일선을 깨고 내려오면' → 같은 factor,
      crosses_below, 같은 parameters
-   - '5일 EMA가 20일 EMA 위' → technical.ema, crosses_above,
+   - **EMA를 말했으면 factor는 언제나 technical.ema입니다** — ma_crossover·
+     concept.golden_cross는 단순이동평균(SMA)이라 지표가 바뀝니다. '종가가 20일 EMA를
+     회복/이탈'처럼 **종가와 EMA 한 선**이면 ma_crossover와 같은 표기로 short_period=1
+     (종가)을 씁니다: '종가가 20일 EMA를 회복' → technical.ema, crosses_above,
+     parameters={{"short_period":1,"long_period":20}} / '20일 EMA 이탈' → crosses_below,
+     같은 parameters.
+   - '5일 EMA가 20일 EMA를 **돌파/교차**' → technical.ema, crosses_above,
      parameters={{"short_period":5,"long_period":20}} / 'EMA 데드크로스' → crosses_below
+   - '20일 EMA가 60일 EMA **위에 있는**'·'EMA 정배열 상태'처럼 교차 시점이 아니라 **머무는
+     상태**면 operator는 `>`(아래면 `<`)이고 기간은 둘 다 넣습니다 —
+     parameters={{"short_period":20,"long_period":60}}. 이때 임계값(value)은 null이며,
+     상태를 crossover로 옮기면 정배열인 동안 계속 참이어야 할 조건이 교차 당일 하루로
+     좁아집니다(반대로 교차 시점을 `>`로 쓰면 조건이 넓어집니다).
    - '골든크로스'·'데드크로스'라는 말이 나오면(오타 변형 포함: '골든크러스' 등) factor는
      **concept.golden_cross / concept.dead_cross**입니다 — 두 이동평균의 교차이며 전개
      (연산자·정본 기간 5/20)는 시스템이 합니다. operator·value는 null, 사용자가 기간을
@@ -390,6 +401,13 @@ NON_STRATEGY_REQUEST(전략과 무관)
     1만원=10000, 1천만원=10000000, 1억원=100000000, 10억원=1000000000.
     "3억원"=300000000, "5000만원"=50000000, "1억5천만원"=150000000.
     (실측 드리프트 2026-07-31: "3억원"을 30000000으로 10배 축소해 출력했습니다.)
+11-2-1. 지표 목록에 **단위=억원**으로 적힌 지표(시가총액·거래대금·당기순이익·영업이익·
+    현금흐름 등)의 value는 **억원 단위 숫자**입니다. 원 단위로 쓰지 말고(초기자금 규칙
+    11-2와 단위가 다릅니다), '조'는 ×10,000으로 환산하세요:
+    "1조"=10000, "1조 원"=10000, "2조"=20000, "2조 5000억"=25000, "1.5조"=15000,
+    "5000억"=5000, "3천억"=3000, "100억원"=100.
+    (실측 드리프트 2026-08-18: "시가총액 1조 원 이상"을 value=100000으로 냈습니다 —
+    억원 단위에서 100000은 10조라 사용자 요청보다 10배 큰 조건이 됩니다.)
 12. 백테스트 기간이 날짜로 명시되면 backtest.start_date/end_date를 YYYY-MM-DD로 출력하세요.
     "2020년 1월부터 2025년 12월까지" → start_date="2020-01-01", end_date="2025-12-31"
     (종료 월은 말일까지). 과거/미래 판단은 입력에 함께 주어지는 '오늘 날짜'만 기준으로

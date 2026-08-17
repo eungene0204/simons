@@ -187,11 +187,14 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                      "(엔진 close_1_sma=종가, 레거시 파서와 동일 표기)"),
     _technical("ema", "지수이동평균(EMA)", "event",
                ("crosses_above", "crosses_below", ">", "<"),
-               {"short_period": ParamSpec(default=20, minimum=2, maximum=250),
+               {"short_period": ParamSpec(default=20, minimum=1, maximum=250),
                 "long_period": ParamSpec(default=60, minimum=3, maximum=500)},
                notes="'20일선이 60일선 위로 올라서면'처럼 **교차 시점**이면 "
-                     "crosses_above/crosses_below. >/< 는 가격이 EMA 위/아래에 "
-                     "**머무는 상태** 필터일 때만(mode above/below)"),
+                     "crosses_above/crosses_below. >/< 는 **머무는 상태** 필터"
+                     "(mode above/below — 기간이 둘이면 두 EMA의 정배열/역배열, "
+                     "하나면 가격 vs EMA). short_period=1은 ma_crossover와 같은 "
+                     "'가격(종가) 대비 N일 EMA' 정본 표기 — 최소값 2는 종가 표기를 "
+                     "검증 오류로 만들어 조용한 부분 컴파일을 냈다(2026-08-18)"),
     _technical("rsi", "RSI", "point", _COMPARISON_OPS,
                {"period": ParamSpec(default=14, minimum=2, maximum=250)},
                value_range=(0, 100), recommended=30),

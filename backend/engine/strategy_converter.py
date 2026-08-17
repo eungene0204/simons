@@ -346,7 +346,10 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
             params["shortPeriod"] = sig.short_period
             params["longPeriod"] = sig.long_period
         else:
-            params["period"] = sig.period or 20
+            # 선이 하나뿐인 EMA 조건(가격 vs EMA)의 기간은 long_period에 담겨 온다 —
+            # 컴파일러가 그 칸에 넣고(`_compile_technical`) 여기서는 `period`만 읽어서,
+            # "가격이 60일 EMA 위"가 조용히 20일 EMA로 백테스트되고 있었다(2026-08-18).
+            params["period"] = sig.period or sig.long_period or sig.short_period or 20
         if sig.mode:  # 'above'/'below'=추세 필터(지속 상태). 없으면 크로스오버(기존).
             params["mode"] = sig.mode
 

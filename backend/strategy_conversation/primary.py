@@ -686,6 +686,71 @@ def _explicit_breakout_lookback(text: Optional[str]) -> Optional[int]:
     return 252 if value == 52 else value
 
 
+_MA_PERIOD_IN_QUOTE_RE = re.compile(r"(\d+)일(?:선|이평선?|이동평균선?|ema|지수이동평균)")
+
+
+# 이동평균 조건임을 뒷받침하는 인용 어휘(이 중 하나도 없으면 근거가 인용에 없다).
+_MA_VOCAB_RE = re.compile(
+    r"이동평균|이평|ema|지수이동평균|\d+일선|\d+일이동|골든크로스|데드크로스|크로스|정배열|역배열"
+)
+# 다른 칸(슬롯)이 이미 자리를 가진 개념의 어휘 — 인용이 이쪽이면 매매 신호가 아니다.
+# 숫자를 요구하는 항목은 **숫자가 붙어 있을 때만** 인정한다: '종목'·'보유' 같은 낱말은
+# 전략 서술 어디에나 나와서("추세가 확실히 잡힌 **종목**만"), 낱말만으로 판정하면 정당한
+# 정성 표현 매핑을 잘라낸다(실측 오탐 — 그 조건이 사라지면 이 가드가 막으려던 조용한
+# 소실을 스스로 일으킨다).
+_OTHER_SLOT_VOCAB_RE = re.compile(
+    r"(?:보유(?:기간)?|최대보유)[^,.]{0,8}\d"
+    r"|\d+\s*(?:종목|개)"
+    r"|(?:손절|익절|트레일링)[^,.]{0,8}\d"
+    r"|리밸런|초기자금|자본금|투자금|백테스트|수수료|슬리피지"
+)
+_MA_FACTORS = ("technical.ema", "technical.ma_crossover",
+               "concept.golden_cross", "concept.dead_cross")
+
+
+def _quote_belongs_to_another_slot(factor: Optional[str], compact_quote: str) -> bool:
+    """이동평균 조건인데 인용이 **다른 슬롯의 문구**인지 판정한다.
+
+    사고(2026-08-18 예시 73): "최대 보유 기간은 25거래일"을 인용으로 달고 `ma_crossover`
+    청산 조건이 만들어졌다 — 사용자가 요청하지 않은 매도 규칙이 조용히 붙는다. 인용이
+    입력에 실재하므로 출처 대조(위)는 통과하고, 값 대조 게이트도 숫자만 보므로 통과한다.
+
+    판정은 두 조건을 **모두** 만족할 때만이다 — ① 인용에 이동평균 어휘가 하나도 없고
+    ② 인용이 이미 제 자리를 가진 다른 설정(보유 기간·손절·종목 수 등)의 문구다.
+    ②를 함께 요구하는 이유: '추세가 확실히 잡힌 종목'처럼 **정성 표현을 이동평균으로
+    매핑하는 것은 정당한 해석**이고(프롬프트 규칙 2), ①만으로 자르면 그 조건까지 사라져
+    이 가드가 막으려던 조용한 소실을 스스로 일으킨다.
+    """
+    if factor not in _MA_FACTORS or not compact_quote:
+        return False
+    if _MA_VOCAB_RE.search(compact_quote):
+        return False
+    return bool(_OTHER_SLOT_VOCAB_RE.search(compact_quote))
+
+
+def _quotes_ema(text: Optional[str]) -> bool:
+    """조건의 인용이 EMA(지수이동평균)를 지목하는지. 인용은 LLM 출력이다(§ 3-2)."""
+    if not text:
+        return False
+    from engine.nl_parser import _compact
+
+    return any(cue in _compact(text) for cue in ("ema", "지수이동평균"))
+
+
+def _explicit_ma_periods(text: Optional[str]) -> List[int]:
+    """이동평균 조건의 source_text(LLM 인용)에서 명시된 기간을 오름차순으로 뽑는다.
+
+    입력은 사용자 원문이 아니라 LLM이 '이 조건의 출처'라고 인용한 짧은 조각이다
+    (`_explicit_breakout_lookback`과 같은 § 3-2 지식 조회). 단위 어휘('일선'·'일 EMA')에
+    바로 붙은 숫자만 읽으므로 옆 절의 수치를 집지 않는다.
+    """
+    if not text:
+        return []
+    from engine.nl_parser import _compact
+
+    return sorted({int(x) for x in _MA_PERIOD_IN_QUOTE_RE.findall(_compact(text))})
+
+
 def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
     """LLM 인터프리터가 놓치거나 오분류한 조건을 **그 조건의 source_text**로 교정한다.
 
@@ -734,14 +799,75 @@ def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
                 relocated.append(cond)
         if relocated:
             strategy.exit_conditions = list(strategy.exit_conditions) + relocated
+    # 'EMA 골든크로스/데드크로스'는 EMA 두 선의 교차인데, 개념 전개는 단순이동평균으로
+    # 간다(concept.golden_cross → technical.ma_crossover, 엔진에서 close_N_sma). 인용이
+    # EMA를 지목하면 EMA 잎으로 착지시키고, 개념 선언의 정본 기간(5/20)은 **빈 자리에만**
+    # 옮겨 숫자를 바꾸지 않는다 — 잎의 registry 기본값(20/60)으로 떨어지면 사용자가 말한
+    # 적 없는 기간이 된다(2026-08-18 예시 29·51·64·73·77).
+    from strategy_conversation.registry.concept_ontology import concept_spec
+
+    for cond in list(strategy.entry_conditions) + list(strategy.exit_conditions):
+        concept = concept_spec(cond.factor)
+        expansion = concept.expansion if concept is not None else None
+        if not expansion or expansion.get("factor") != "technical.ma_crossover":
+            continue
+        if not _quotes_ema(cond.source_text):
+            continue
+        cond.factor = "technical.ema"
+        cond.operator = expansion.get("operator") or cond.operator
+        for pname, pvalue in (expansion.get("default_parameters") or {}).items():
+            if cond.parameters.get(pname) is None:
+                cond.parameters[pname] = float(pvalue)
+
     for cond in list(strategy.entry_conditions) + list(strategy.exit_conditions):
         spec = REGISTRY.get(cond.factor)
         if spec is None:
             continue
-        if spec.id == "technical.breakout" and cond.parameters.get("lookback_period") is None:
+        if spec.id == "technical.breakout":
             lookback = _explicit_breakout_lookback(cond.source_text)
-            if lookback is not None:
+            current = cond.parameters.get("lookback_period")
+            # 인용이 기간을 명시했는데 파라미터가 **다른 값**이면 파라미터가 틀린 것이다 —
+            # 인용은 사용자의 표현 그대로이고 파라미터는 그 옮겨 적기다(수정 패치의
+            # `_quote_contradicts_value`와 같은 계약: LLM 출력 두 조각의 대조).
+            # 실측 2026-08-18: 인용 '20일 신고가 돌파'에 lookback_period=10을 냈고,
+            # 종전 조건(`is None`일 때만 채움)이 그 값을 그대로 통과시켰다.
+            if lookback is not None and (
+                current is None or abs(float(current) - float(lookback)) > 1e-6
+            ):
                 cond.parameters["lookback_period"] = float(lookback)
+        elif spec.id in ("technical.ema", "technical.ma_crossover"):
+            # 인용이 EMA를 말하는데 factor가 단순이동평균(ma_crossover)이면 지표가 바뀐다 —
+            # 엔진에서 ma_crossover는 SMA 컬럼(close_N_sma), ema는 EMA 컬럼을 쓴다.
+            # 프롬프트 규칙 5-3이 1차 방어지만 '종가가 20일 EMA를 회복' 같은 표현에서
+            # SMA 예시 표기를 그대로 가져오는 드리프트가 남는다(2026-08-18 예시 26).
+            # 인용에 적힌 지표 이름을 그대로 따르는 것이므로 선언 기반 정규화다(§ 3-2).
+            if spec.id == "technical.ma_crossover" and _quotes_ema(cond.source_text):
+                cond.factor = "technical.ema"
+                spec = REGISTRY.get(cond.factor) or spec
+            # 인용이 두 선을 모두 이름 붙여 부르면("20일 EMA가 60일 EMA 위") 두 기간이
+            # 다 남아야 한다. 하나만 채우면 컴파일러가 '가격 vs EMA'로 접어 사용자가 말한
+            # 선 하나가 조용히 사라진다(2026-08-18 예시 22·26·80). 프롬프트 규칙 5-3이
+            # 1차 방어지만 temp 0에서도 배치가 흔들린다(08-14 dead_cross 재배치와 같은 자리).
+            periods = _explicit_ma_periods(cond.source_text)
+            have = [v for v in (cond.parameters.get("short_period"),
+                                cond.parameters.get("long_period")) if v is not None]
+            if len(periods) >= 2:
+                if not {float(x) for x in periods} <= {float(v) for v in have}:
+                    cond.parameters["short_period"] = float(periods[0])
+                    cond.parameters["long_period"] = float(periods[-1])
+            elif len(periods) == 1 and have:
+                # 인용이 선 하나만 부르는데 파라미터에 **인용에 없는 기간**이 들어 있거나
+                # 두 기간이 같으면(선은 자기 자신과 교차할 수 없다) 그 숫자는 사용자가 말한
+                # 적 없는 값이다. 실측 2026-08-18: '20일 EMA 이탈 시 청산'에 {20,60}(옆 절의
+                # 60을 끌어옴), '20일 EMA를 이탈하면 청산'에 {20,20}(자기 교차 — 영원히
+                # 발화하지 않는 청산). 지어낸 숫자만 걷어내고 **새 숫자를 만들지 않는다** —
+                # 상대편이 종가인지(교차) 상태 비교인지는 LLM이 낸 연산자가 이미 말한다.
+                named = {float(periods[0]), 1.0}  # 1 = 종가(가격을 1일 이동평균으로 표기)
+                unnamed = [v for v in have if float(v) not in named]
+                degenerate = len(have) == 2 and float(have[0]) == float(have[1])
+                if unnamed or degenerate:
+                    cond.parameters["short_period"] = None
+                    cond.parameters["long_period"] = float(periods[0])
         elif spec.id in ("technical.trading_value", "fundamental.trading_value"):
             if cond.source_text and _mentions_volume_surge(_compact(cond.source_text)):
                 if "거래대금" in cond.source_text:
@@ -794,6 +920,12 @@ def _drop_fabricated_conditions(intent: StrategyIntent, user_input: str) -> List
             if quote and not _quote_has_echo(quote, compact_input):
                 notices.append(
                     f"'{cond.source_text}' 조건은 요청 문장에서 확인되지 않아 반영하지"
+                    " 않았어요."
+                )
+                continue
+            if _quote_belongs_to_another_slot(cond.factor, quote):
+                notices.append(
+                    f"'{cond.source_text}'는 이동평균 조건이 아니어서 매매 신호로 반영하지"
                     " 않았어요."
                 )
                 continue
@@ -918,7 +1050,7 @@ def derive_field_states(
 def _field_states(
     parsed: Any, strategy: Any, report: Any, explicit_fields: Optional[Iterable[str]],
 ) -> Dict[str, Dict[str, str]]:
-    """진행 골격 8칸의 두 상태 축(설계 스펙 § 5)을 계산해 응답에 실을 형태로 만든다.
+    """진행 골격 9칸의 두 상태 축(설계 스펙 § 5)을 계산해 응답에 실을 형태로 만든다.
 
     `filled_slots`(완료/미완료)가 뭉개던 것을 나눠 준다 — 해당 없음(단독 종목의 최대
     보유·리밸런싱), 값은 있으나 미확인(기본값 물질화), 확인 필요(미지원 지표·모순).
@@ -1715,16 +1847,26 @@ def _bind_chips(
             bound.append(text)
             declines[text] = decline_field
             continue
-        unsupported = _mentioned_unsupported_concepts(text)
-        if unsupported:
-            _log_llm("↩ 칩 노출 제외",
-                     f"칩 '{text}' 미지원 개념 언급({', '.join(unsupported)}) — 부분 결속 여부와 무관")
-            continue
+        canonical_values = strategy_slots.CHIP_VALUES.get(text)
+        if canonical_values is None:
+            # 미지원 개념 검사는 planner LLM이 지어낸 칩·원문 결속 칩에만 한다 — 정본 표에
+            # 값이 적힌 칩은 그 값이 곧 전부라 부분 결속이 있을 수 없다('변동성 낮은 순'은
+            # 결정적 추출기가 표현 못 하는 표기라 이 검사에 걸리지만 값은 표가 준다).
+            unsupported = _mentioned_unsupported_concepts(text)
+            if unsupported:
+                _log_llm("↩ 칩 노출 제외",
+                         f"칩 '{text}' 미지원 개념 언급({', '.join(unsupported)}) — 부분 결속 여부와 무관")
+                continue
         try:
-            after = _apply_prompt_overrides(
-                ParsedStrategy.model_validate(base), text,
-                skip_signal_validation=True, preserve_universe=True,
-            ).model_dump()
+            if canonical_values is not None:
+                # 정본 표에 값이 적힌 칩(종목 선정 기준 등)은 그 값이 곧 결속이다 — 칩
+                # 텍스트를 발화처럼 재해석하지 않는다(칩=값 결속 계약, 값 정본은 표 하나).
+                after = ParsedStrategy.model_validate({**base, **canonical_values}).model_dump()
+            else:
+                after = _apply_prompt_overrides(
+                    ParsedStrategy.model_validate(base), text,
+                    skip_signal_validation=True, preserve_universe=True,
+                ).model_dump()
         except Exception:  # noqa: BLE001 — 결속 실패는 칩 탈락이지 파스 실패가 아니다
             logger.warning("칩 결속 실패 — 칩 제외 | chip=%s", text, exc_info=True)
             continue
