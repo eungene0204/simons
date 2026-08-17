@@ -1224,7 +1224,7 @@ def test_fetch_fundamentals_skips_network_when_recently_confirmed_empty(tmp_path
 
     def _fail_kis(symbol):
         kis_calls["n"] += 1
-        return None
+        return []  # KIS에 닿았지만 재무 없음(None은 토큰 실패 = 부정 캐시 금지, 별도 테스트)
 
     class _FakeResp:
         status_code = 404
@@ -1698,3 +1698,87 @@ def test_enrich_psr_falls_back_to_market_cap_over_revenue_only_when_sps_missing(
     with_sps[0]["sps"] = 10_000.0
     out3 = enrich_ohlcv_with_fundamentals(df, with_sps)
     assert out3["psr"].iloc[0] == pytest.approx(5.0)   # 종가÷SPS, 폴백(2.0)이 덮지 않는다
+
+
+# ── KIS 미도달(토큰 실패) ≠ KIS에 없음 — kis_pending 캐시, 부정 캐시 금지 ──
+
+def test_fetch_fundamentals_marks_kis_pending_when_token_unavailable(tmp_path, monkeypatch):
+    """토큰 실패(None)면 Naver 값으로 당일은 쓰되 kis_pending으로 남겨 다음 날 다시 받는다.
+    2026-08-17 실측: 수리 스크립트 첫 실행에서 발급 제한(1분/1회)에 걸린 2분 동안 30여 종목이
+    KIS 이력 없이 Naver 3개년만으로 90일 완성본 캐시가 됐다."""
+    import json
+    import engine.fundamental_fetcher as ff
+    monkeypatch.setattr(ff, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(ff, "_fetch_fundamentals_from_kis", lambda symbol: None)  # 토큰 실패
+    monkeypatch.setattr(ff, "_fetch_fundamentals_from_naver", lambda symbol, retry=2: [
+        {"year_end": "2025-12-31", "eps": 1746.0, "bps": 22942.0}])
+    monkeypatch.setattr(ff, "_fetch_cash_flow_from_dart", lambda symbol: None)
+
+    result = fetch_fundamentals("005500", retry=0)
+    assert result and result[0]["eps"] == 1746.0
+    payload = json.loads((tmp_path / "005500.json").read_text())
+    assert payload["kis_pending"] is True
+    assert _read_cache("005500") == result  # 당일은 그대로 읽는다
+    payload["fetched_at"] = (pd.Timestamp.now() - pd.Timedelta(days=1)).isoformat()
+    (tmp_path / "005500.json").write_text(json.dumps(payload))
+    assert _read_cache("005500") is None    # 다음 날엔 만료 → 재조회
+
+
+def test_fetch_fundamentals_no_negative_cache_when_kis_unreachable(tmp_path, monkeypatch):
+    """토큰 실패 + Naver 실패 = '없음'이 아니라 '못 받음' — 7일 부정 캐시를 남기지 않는다."""
+    import engine.fundamental_fetcher as ff
+    monkeypatch.setattr(ff, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(ff, "_fetch_fundamentals_from_kis", lambda symbol: None)
+    monkeypatch.setattr(ff, "_fetch_fundamentals_from_naver", lambda symbol, retry=2: None)
+    monkeypatch.setattr(ff, "_fetch_cash_flow_from_dart", lambda symbol: None)
+    assert fetch_fundamentals("005500", retry=0) is None
+    assert not (tmp_path / "005500.nodata.json").exists()
+    assert _is_recently_confirmed_empty("005500") is False
+
+
+def test_fetch_fundamentals_from_kis_returns_empty_list_when_reachable_but_no_data(monkeypatch):
+    import engine.fundamental_fetcher as ff
+    monkeypatch.setattr(ff, "_get_kis_token", lambda: "tok")
+    monkeypatch.setattr(ff, "_fetch_kis_finance", lambda symbol, headers, path: [])
+    assert ff._fetch_fundamentals_from_kis("000000") == []
+    monkeypatch.setattr(ff, "_get_kis_token", lambda: None)
+    assert ff._fetch_fundamentals_from_kis("000000") is None
+
+
+# ── forward-fill 상한 15개월 (FR-BT-052l, 엔진 v15.0) ──
+
+def test_enrich_forward_fill_stops_after_max_months():
+    """레코드 하나는 공개일부터 15개월만 이어진다 — 다음 결산이 안 오면 '데이터 없음'."""
+    import engine.fundamental_fetcher as ff
+    dates = ["2021-03-15", "2022-06-14", "2022-06-15", "2023-01-02"]
+    df = _make_ohlcv_df(dates, [1000.0] * 4)
+    fundamentals = [{"year_end": "2020-12-31", "available_from": "2021-03-15", "eps": 100.0, "debt_ratio": 50.0}]
+    out = enrich_ohlcv_with_fundamentals(df, fundamentals)
+    assert ff.FUNDAMENTAL_FILL_MAX_MONTHS == 15
+    assert out["eps"].iloc[0] == 100.0 and out["eps"].iloc[1] == 100.0   # 15개월째 마지막 날까지
+    assert pd.isna(out["eps"].iloc[2]) and pd.isna(out["debt_ratio"].iloc[2])  # 15개월 지나면 없음
+    assert pd.isna(out["per"].iloc[3])
+
+
+def test_enrich_forward_fill_continuous_when_next_record_arrives_in_time():
+    df = _make_ohlcv_df(["2021-03-15", "2022-03-14", "2022-03-15", "2023-01-02"], [1000.0] * 4)
+    fundamentals = [
+        {"year_end": "2020-12-31", "available_from": "2021-03-15", "eps": 100.0},
+        {"year_end": "2021-12-31", "available_from": "2022-03-15", "eps": 200.0},
+    ]
+    out = enrich_ohlcv_with_fundamentals(df, fundamentals)
+    assert list(out["eps"]) == [100.0, 100.0, 200.0, 200.0]
+
+
+def test_enrich_forward_fill_cap_is_per_key():
+    """새 레코드가 어떤 키를 안 실으면(예: DART 현금흐름 결손) 그 키만 상한에서 끊긴다."""
+    df = _make_ohlcv_df(["2022-03-15", "2022-06-15"], [1000.0] * 2)
+    df["market_cap"] = [500.0, 500.0]
+    fundamentals = [
+        {"year_end": "2020-12-31", "available_from": "2021-03-15", "eps": 100.0, "operating_cash_flow": 1e10},
+        {"year_end": "2021-12-31", "available_from": "2022-03-15", "eps": 200.0},  # OCF 없음
+    ]
+    out = enrich_ohlcv_with_fundamentals(df, fundamentals)
+    assert out["eps"].iloc[1] == 200.0
+    assert out["operating_cash_flow"].iloc[0] == 1e10        # 아직 15개월 안
+    assert pd.isna(out["operating_cash_flow"].iloc[1])       # 2022-06-15 = 상한 도달 → 없음

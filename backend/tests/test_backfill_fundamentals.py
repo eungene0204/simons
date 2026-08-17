@@ -251,3 +251,20 @@ def test_rebuild_psr_fallback_skips_nonpositive_revenue():
     funds = [{"year_end": "2021-12-31", "available_from": "2022-03-15", "revenue": 0.0}]
     out = bf.rebuild_fundamental_columns(df, funds)
     assert pd.isna(out["psr"].iloc[0])
+
+
+# ── rebuild: 캐시 지배 구간은 NaN까지 캐시가 이긴다 (forward-fill 상한 stale 값 회수) ──
+
+def test_rebuild_removes_stale_values_beyond_fill_cap_inside_cache_coverage():
+    # 옛 parquet: 2013년 값이 2020년까지 무제한 forward-fill돼 있음(부국증권 실측 패턴).
+    df = _ohlcv(["2013-06-29", "2014-09-01", "2020-06-01"], eps=[300.0, 300.0, 300.0], per=[1.0, 1.0, 1.0])
+    funds = [{"year_end": "2013-03-31", "available_from": "2013-06-29", "eps": 300.0}]
+    out = bf.rebuild_fundamental_columns(df, funds)
+    assert out["eps"].iloc[0] == pytest.approx(300.0) and out["eps"].iloc[1] == pytest.approx(300.0)  # 15개월 안
+    assert pd.isna(out["eps"].iloc[2]) and pd.isna(out["per"].iloc[2])  # 지배 구간인데 캐시가 비움 → 없음
+
+
+def test_rebuild_cache_coverage_start_uses_earliest_available_from():
+    funds = [{"year_end": "2021-12-31", "available_from": "2022-03-15", "eps": 1.0},
+             {"year_end": "2020-12-31", "eps": 1.0}]  # available_from 없음 → 결산일+90일 = 2021-03-31
+    assert bf.cache_coverage_start(funds) == pd.Timestamp("2021-03-31")
