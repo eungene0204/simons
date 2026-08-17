@@ -1069,11 +1069,11 @@ export function decideConversationTurn(
   // 진행 순서(L4)보다 먼저다: 사용자가 지목한 항목을 진행 순서가 덮어쓰면 질문이 무시된다.
   //
   // 단, **이미 던진 질문의 답을 받는 턴에는 개입하지 않는다**(사용자 결정 2026-07-31).
-  // "초기자금을 얼마로 변경할까요?"에 "3억원"이라고 답하면 clarify_target은 여전히
-  // initial_capital로 나온다 — 대상 판정은 맞지만 그 답이 값을 담았는지는 이 축이 알지
-  // 못한다. 그대로 두면 같은 질문을 다시 던지는 무한 되묻기가 된다(실측: 값이 실린
-  // 발화 4/4에서 대상이 나옴). 답의 해석은 파스 레인의 LLM이 하고, 어떤 질문에 대한
-  // 답인지는 파스 요청의 질문 에코(pending_question)가 알려준다.
+  // 답의 해석은 파스 레인의 LLM이 하고, 어떤 질문에 대한 답인지는 파스 요청의 질문
+  // 에코(pending_question)가 알려준다. (07-31 당시에는 값이 실린 발화에도 대상이 그대로
+  // 나와(실측 4/4) 이 차단이 유일한 방어였다. 2026-08-17부터 백엔드가 대상·값 표기·삭제
+  // 여부를 각각 뽑아 값이 있으면 clarify_target을 내지 않는다(FR-SA-024) — 이 차단은
+  // 되묻기 답변 턴의 2차 방어로 남는다.)
   const clarifyTarget = classification.clarifyTarget;
   if (clarifyTarget && context.hasCurrentStrategy && !context.hasOpenClarification) {
     // 무엇을 바꿀지 말하지 않은 메타 요청("조건을 바꾸고 싶어")에는 영역 칩 5개 대신

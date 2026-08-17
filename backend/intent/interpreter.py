@@ -96,7 +96,7 @@ SYSTEM_PROMPT = (
     "   내 백테스트 결과의 수치를 놓고 묻는 것은 RESULT_EXPLAIN이다. 'MDD가 뭐야?'는\n"
     "   GENERAL_INVESTMENT, 'MDD -35%면 심한 거야?'는 RESULT_EXPLAIN이다.\n"
     "4-5. STRATEGY_STATUS·RESULT_EXPLAIN은 **묻기만 하는** 발화이므로 workflow_effect는\n"
-    "   NONE이고 clarify_target도 null이다 — 바꿀 대상을 지목한 것이 아니다.\n"
+    "   NONE이고 modify_target도 null이다 — 바꿀 대상을 지목한 것이 아니다.\n"
     "\n"
     "라벨과 별개로, 이 입력이 진행 중인 전략 작성을 어떻게 제어하는지도 고른다.\n"
     "\n"
@@ -125,25 +125,29 @@ SYSTEM_PROMPT = (
     "   틀렸다고 지적하는 표현이 있어야 CORRECT다 — 그냥 '손절 -5%로 바꿔줘'는 UPDATE다.\n"
     "\n"
     "\n"
-    "마지막으로, **바꾸려는 대상은 말했지만 값을 말하지 않은 경우** 그 대상을 고른다.\n"
-    "값이 없으면 무엇으로 바꿀지 알 수 없어 되물어야 하기 때문이다.\n"
-    "대상이 없거나 값이 함께 있으면 null이다(기본값).\n"
+    "마지막으로, 이 입력이 전략의 무언가를 **바꾸거나 지우려는 요청**이면 세 가지를 뽑는다.\n"
+    "modify_target — 바꾸려는 대상. 구체 필드가 있으면 필드, 영역만 말했으면 영역, 영역조차\n"
+    "  없이 '조건을 바꾸고 싶다'고만 했으면 condition이다.\n"
+    "modify_value — 그 대상에 주려는 **값의 원문 표기**. 값이 함께 있으면 원문 그대로 짧게\n"
+    "  적고('-15%', '3억', '분기', 'KOSPI200'), 값 없이 대상만 말했으면 null이다.\n"
+    "modify_removes — 지우거나 빼 달라는 요청이면 true('PER 조건 빼줘', '손절 없애줘'), 아니면 false.\n"
+    "바꾸거나 지우려는 요청이 아니면 modify_target·modify_value는 null, modify_removes는 false다(기본값).\n"
     "\n" + clarify_targets.prompt_target_lines() + "\n"
     "\n"
     "대상 판단 규칙:\n"
-    "10. **값이 함께 있으면 null이다** — '손절 -8%로 바꿔줘'는 값이 있으니 null,\n"
-    "    '손절 바꿔줘'는 값이 없으니 stop_loss다. 값은 숫자만이 아니다 — 시장명·업종명·\n"
-    "    지표명 같은 열거형 값도 값이다. '코스닥으로 변경해줘'·'유니버스를 KOSPI200으로\n"
-    "    바꿔줘'는 시장명이 값이므로 null이고, '유니버스 바꾸고 싶어'·'다른 시장으로 하고\n"
-    "    싶은데'처럼 시장·업종 언급이 전혀 없을 때만 universe다.\n"
-    "11. 지우거나 빼 달라는 요청은 null이다 — 뺄 때는 값이 필요 없다('PER 조건 빼줘').\n"
-    "12. 뜻을 묻는 질문·결과를 묻는 질문은 null이다('익절이 뭐야?', '왜 안 돼?').\n"
-    "13. 이미 설정돼 있는지 확인하는 질문도 null이다('익절 설정돼 있어?').\n"
+    "10. 값은 숫자만이 아니다 — 시장명·업종명·지표명 같은 열거형 값도 값이다.\n"
+    "    '유니버스를 KOSPI200으로 바꿔줘'는 modify_target=universe, modify_value='KOSPI200'이고,\n"
+    "    '코스닥으로 변경해줘'는 modify_value='코스닥'이다.\n"
+    "    '유니버스 바꾸고 싶어'는 modify_target=universe, modify_value=null이다.\n"
+    "11. 지우거나 빼 달라는 요청은 modify_removes=true이고 modify_value는 null이다 — 뺄 때는\n"
+    "    값이 필요 없다('PER 조건 빼줘' → target=per, removes=true).\n"
+    "12. 뜻을 묻는 질문·결과를 묻는 질문은 둘 다 null이다('익절이 뭐야?', '왜 안 돼?').\n"
+    "13. 이미 설정돼 있는지 확인하는 질문도 둘 다 null이다('익절 설정돼 있어?').\n"
     "14. 구체 필드를 말했으면 필드를, 영역만 말했으면 영역을 고른다.\n"
     "    '손절 바꿔줘'는 stop_loss, '진입 신호를 바꾸고 싶어'는 entry_signal,\n"
     "    '조건을 변경할 수 있어?'처럼 영역도 없으면 condition이다.\n"
-    "15. 재무 지표를 값 없이 추가·적용하겠다는 요청은 그 지표의 키를 고른다\n"
-    "    ('영업이익률을 추가해 볼까?' → operating_margin).\n"
+    "15. 재무 지표를 추가·적용하겠다는 요청은 그 지표의 키를 고른다\n"
+    "    ('영업이익률을 추가해 볼까?' → operating_margin, 값 없으면 modify_value=null).\n"
     "\n"
     "\n"
     "마지막으로, 특정 종목의 **지표 값을 묻기만 하는** 발화면 그 지표의 키를 고른다.\n"
@@ -182,7 +186,9 @@ SYSTEM_PROMPT = (
     "출력 형식(JSON 한 줄, 다른 말 금지):\n"
     '{"intent": "<라벨>", "stock_name": "<원문에 나온 종목명 또는 null>", '
     '"refers_to_last_stock": <직전에 다루던 종목을 \'이 종목\'처럼 가리키면 true, 아니면 false>, '
-    '"workflow_effect": "<제어 값>", "clarify_target": "<대상 또는 null>", '
+    '"workflow_effect": "<제어 값>", "modify_target": "<바꾸려는 대상 또는 null>", '
+    '"modify_value": "<그 대상에 줄 값의 원문 표기 또는 null>", '
+    '"modify_removes": <지우거나 빼 달라는 요청이면 true, 아니면 false>, '
     '"fact_metric": "<지표 키 또는 null>", '
     '"list_scope": "<업종/테마/시장/지수 표기 또는 null>", '
     '"list_count_only": <종목 수만 물으면 true, 아니면 false>}'
@@ -201,6 +207,11 @@ class IntentInterpretation(BaseModel):
     workflow_effect: WorkflowEffect = WorkflowEffect.NONE
     # 값 없이 지목된 수정 대상(닫힌 목록). 목록 밖 표기·미출력은 None으로 떨어진다 —
     # 되묻기는 부가 축이고, None이 기존 흐름(파싱으로 통과)이라 안전 방향이다.
+    # LLM은 이 값을 직접 내지 않는다 — modify_target(대상)·modify_value(값의 원문 표기)·
+    # modify_removes(삭제 요청)를 각각 뽑고, 값이 없고 삭제도 아닐 때만 결정론이 이 축으로
+    # 승격한다(clarify_targets.resolve_clarify_target). "값이 함께 있으면 null" 같은 조건부
+    # 규칙은 9B가 지키지 않았다(실측 2026-07-31 4/4, 2026-08-17 9/9 — '손절을 -15%로 해줘'에
+    # stop_loss를 내 값이 있는데도 되물음). 값을 **뽑게** 하면 지킨다(9/9).
     clarify_target: Optional[str] = None
     # 값을 묻기만 한 종목 지표(닫힌 목록). 라벨과 직교하는 축이다 — 라벨은 "무엇에 대한
     # 발화인가", 이 값은 "판단을 요구하는가 값을 묻는가"를 말한다. 목록 밖·미출력은
@@ -346,8 +357,10 @@ def interpret(
             stock_name=_clean_stock_name(payload.get("stock_name")),
             refers_to_last_stock=bool(payload.get("refers_to_last_stock")),
             workflow_effect=normalize_workflow_effect(payload.get("workflow_effect")),
-            clarify_target=clarify_targets.normalize_clarify_target(
-                payload.get("clarify_target")
+            clarify_target=clarify_targets.resolve_clarify_target(
+                payload.get("modify_target"),
+                payload.get("modify_value"),
+                payload.get("modify_removes"),
             ),
             fact_metric=stock_facts.normalize_metric(payload.get("fact_metric")),
             # 종목명과 같은 정리(null 표기·공백 제거)만 한다 — 정본 매핑은 classifier가

@@ -3604,7 +3604,13 @@ function StrategyLabContent() {
 
     // ── 단일 디스패치: 액션당 구현은 하나뿐이다 ──────────────────────
     if (turnDecision.action === "respond") {
-      const patch = composeTurnMessage(turnDecision);
+      // 되묻기(L2')는 상태 되묻기와 같은 카드로 나간다 — 질문에 맞춘 카드를 함께 만든다.
+      const patch = composeTurnMessage(
+        turnDecision,
+        turnDecision.opensClarification
+          ? { askPresentation: presentationFor(turnDecision.message) }
+          : {},
+      );
       // 이 응답이 곧 질문이면 열린 되묻기로 기록한다 — 기록이 없으면 다음 턴이 그 답을
       // 새 발화로 재분류해 같은 질문을 다시 던진다(2026-07-31 초기자금 무한 되묻기).
       if (turnDecision.opensClarification) {

@@ -61,13 +61,13 @@ def test_bare_enum_value_is_repaired():
     '면역항암제 관련주 투자 전략'이 6/20 확률로 UNKNOWN→일반 정의 답변으로 빠짐)."""
     raw = ('{"intent": "STRATEGY_ADVICE", "stock_name": null, '
            '"refers_to_last_stock": false, "workflow_effect": NONE, '
-           '"clarify_target": null}')
+           '"modify_target": null}')
     assert interpreter.extract_json_object(raw) == {
         "intent": "STRATEGY_ADVICE",
         "stock_name": None,
         "refers_to_last_stock": False,
         "workflow_effect": "NONE",
-        "clarify_target": None,
+        "modify_target": None,
     }
 
 
@@ -442,7 +442,7 @@ def test_clarify_target_requires_active_strategy():
     """진행 중인 전략이 없으면 바꿀 대상도 없다 — None 강등(첫 발화는 파싱으로)."""
     result = classify(
         "손절 바꿔줘",
-        llm=stub_llm("STRATEGY_ADVICE", clarify_target="stop_loss"),
+        llm=stub_llm("STRATEGY_ADVICE", modify_target="stop_loss"),
         active_strategy=False,
     )
     assert result.clarify_target is None
@@ -451,10 +451,84 @@ def test_clarify_target_requires_active_strategy():
 def test_clarify_target_survives_with_active_strategy():
     result = classify(
         "손절 바꿔줘",
-        llm=stub_llm("STRATEGY_ADVICE", clarify_target="stop_loss"),
+        llm=stub_llm("STRATEGY_ADVICE", modify_target="stop_loss"),
         active_strategy=True,
     )
     assert result.clarify_target == "stop_loss"
+
+
+# ── 값이 함께 온 수정 요청은 되묻지 않는다(2026-08-17 사고) ─────────────────
+# '손절을 -15%로 해줘'에 "손절 기준을 몇 %로 변경할까요?"가 떴다. 9B는 "값이 함께 있으면
+# null"이라는 조건부 규칙을 지키지 않고(실측 9/9 대상 출력) 값이 있어도 대상을 냈다.
+# 출력 형태를 대상·값 표기·삭제 여부 3축으로 바꿔 LLM은 값을 **뽑기만** 하고, 되묻기
+# 승격은 결정론이 표기 유무로 정한다. 값 표기의 내용은 읽지 않는다.
+
+@pytest.mark.parametrize(
+    "value",
+    ["-15%", "15%", "3억", "분기", "KOSPI200", "코스닥", "7개", 15, 0, "없음"],
+)
+def test_modify_request_with_value_does_not_clarify(value):
+    result = classify(
+        "손절을 -15%로 해줘",
+        llm=stub_llm("STRATEGY_ADVICE", modify_target="stop_loss", modify_value=value),
+        active_strategy=True,
+    )
+    assert result.clarify_target is None
+
+
+@pytest.mark.parametrize("value", [None, "", "  ", "null", "None", "n/a"])
+def test_modify_request_without_value_clarifies(value):
+    result = classify(
+        "손절 바꿔줘",
+        llm=stub_llm(
+            "STRATEGY_ADVICE", modify_target="stop_loss", modify_value=value,
+            modify_removes=False,
+        ),
+        active_strategy=True,
+    )
+    assert result.clarify_target == "stop_loss"
+
+
+@pytest.mark.parametrize("removes", [True, "true", "True"])
+def test_removal_request_does_not_clarify(removes):
+    """지워 달라는 요청엔 값이 필요 없다 — '손절 없애줘'에 손절 값을 되묻지 않는다."""
+    result = classify(
+        "손절 없애줘",
+        llm=stub_llm(
+            "STRATEGY_ADVICE", modify_target="stop_loss", modify_value=None,
+            modify_removes=removes,
+        ),
+        active_strategy=True,
+    )
+    assert result.clarify_target is None
+
+
+def test_resolve_clarify_target_is_shape_only():
+    """판정은 표기 유무만 본다 — 대상 정규화·값 유무·삭제 여부의 조합."""
+    resolve = clarify_targets.resolve_clarify_target
+    assert resolve("STOP_LOSS", None, False) == "stop_loss"
+    assert resolve("stop_loss", "-15%", False) is None
+    assert resolve("stop_loss", None, True) is None
+    assert resolve("손절", None, False) is None          # 목록 밖 대상
+    assert resolve(None, "-15%", False) is None
+    assert resolve("condition", None, None) == "condition"
+
+
+def test_prompt_output_shape_carries_modify_axes_not_clarify_target():
+    """출력 형태가 규칙보다 강하다 — 자리에 'clarify_target'이 있으면 9B가 채운다.
+    자리는 대상·값 표기·삭제 여부여야 하고, clarify_target은 프롬프트에 없어야 한다."""
+    prompt = interpreter.SYSTEM_PROMPT
+    assert '"modify_target"' in prompt
+    assert '"modify_value"' in prompt
+    assert '"modify_removes"' in prompt
+    assert "clarify_target" not in prompt
+    # 규칙 10 예시 — 값이 있는 발화는 값 표기를 뽑는다(조건부 null 규칙이 아니다).
+    # 문구는 실측으로 고른 것이다(2026-08-17): 예시를 늘려 길게 쓰자 greedy 9B가
+    # '조건을 변경할 수 있어?'→null, '영업이익률을 추가해 볼까?'→entry_signal로 흔들렸고,
+    # 이 짧은 형태에서 25/25 일치했다. 바꾸면 실모델로 다시 재야 한다.
+    assert "modify_value='KOSPI200'" in prompt
+    assert "modify_value=null" in prompt
+    assert "값이 함께 있으면 null" not in prompt
 
 
 @pytest.mark.parametrize(
@@ -466,7 +540,7 @@ def test_regulated_labels_block_clarify_target(label):
     """[규제 안전] 정형 안내가 되묻기로 삼켜지지 않게 한다(제어 축과 같은 이유)."""
     result = classify(
         "아무 말",
-        llm=stub_llm(label, clarify_target="stop_loss"),
+        llm=stub_llm(label, modify_target="stop_loss"),
         active_strategy=True,
     )
     assert result.clarify_target is None
