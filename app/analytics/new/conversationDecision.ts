@@ -10,6 +10,7 @@ import {
   isAdvisorFollowUpPrompt,
   takeProfitPrompt,
 } from "./parsedStrategyMerge";
+import { t } from "@/lib/i18n";
 
 type SpeechAct =
   | "ask"
@@ -243,7 +244,7 @@ export function buildResearchMetricIntro(metric: ResearchMetric): string {
 }
 
 export function buildResearchMetricSummary(metric: ResearchMetric): string {
-  return `${getResearchMetricLabel(metric)}를 과거 데이터 연구 목표로 설정했습니다. 아래 전략은 사용자가 대화에서 선택한 조건으로 구성되었습니다.`;
+  return t("{0}를 과거 데이터 연구 목표로 설정했습니다. 아래 전략은 사용자가 대화에서 선택한 조건으로 구성되었습니다.", getResearchMetricLabel(metric));
 }
 
 export function parseMetricOptimizationRange(input: string): MetricOptimizationRange | null {
@@ -285,8 +286,8 @@ function researchMetricDecision(prompt: string, pendingPrompt?: string | null): 
       reason: treynorUnavailable ? "treynor_metric_unavailable" : "research_metric_required",
       strategyPrompt,
       message: treynorUnavailable
-        ? "트레이너 지수는 시장 벤치마크와 전략 베타 데이터가 필요해 현재 계산할 수 없습니다. 다른 지표를 선택해 주세요."
-        : "어떤 성과 지표를 기준으로 과거 데이터를 탐색할까요?",
+        ? t("트레이너 지수는 시장 벤치마크와 전략 베타 데이터가 필요해 현재 계산할 수 없습니다. 다른 지표를 선택해 주세요.")
+        : t("어떤 성과 지표를 기준으로 과거 데이터를 탐색할까요?"),
       suggestions: treynorUnavailable
         ? RESEARCH_METRIC_SUGGESTIONS
         : [...RESEARCH_METRIC_SUGGESTIONS, "트레이너 지수 (현재 계산 불가)"],
@@ -721,31 +722,31 @@ function isNamedStockStrategyRequest(
 
 function fallbackMessage(intent: SemanticIntent): string {
   if (intent === "GREETING") {
-    return "안녕하세요. 오늘은 어떤 전략을 연구해 볼까요?";
+    return t("안녕하세요. 오늘은 어떤 전략을 연구해 볼까요?");
   }
   if (intent === "UNSUPPORTED_FEATURE") {
-    return "죄송합니다. 요청하신 기능은 현재 제공하고 있지 않아요. 다른 투자 아이디어를 알려주시면 전략으로 만들어 백테스트해 드릴 수 있어요.";
+    return t("죄송합니다. 요청하신 기능은 현재 제공하고 있지 않아요. 다른 투자 아이디어를 알려주시면 전략으로 만들어 백테스트해 드릴 수 있어요.");
   }
   if (intent === "STOCK_PICK") {
-    return "특정 종목을 추천하지는 않지만, 투자 아이디어를 전략으로 만들어 과거 데이터로 검증하도록 도와드릴 수 있어요.\n\n예를 들어 이렇게 시작해볼 수 있어요:\n• RSI가 30 이하로 떨어지면 매수하고 70 이상에서 파는 '과매도 반등' 전략\n• 20일 이동평균이 60일 이동평균을 위로 뚫는 골든크로스에서 매수하는 추세 전략\n• PBR은 낮고 ROE는 높은 저평가 우량주를 고르는 가치 전략\n\n끌리는 아이디어가 있거나 평소 관심 있던 매매 방식이 있다면 말씀해 주세요 — 바로 전략으로 만들어 백테스트해 드릴게요.";
+    return t("특정 종목을 추천하지는 않지만, 투자 아이디어를 전략으로 만들어 과거 데이터로 검증하도록 도와드릴 수 있어요.\n\n예를 들어 이렇게 시작해볼 수 있어요:\n• RSI가 30 이하로 떨어지면 매수하고 70 이상에서 파는 '과매도 반등' 전략\n• 20일 이동평균이 60일 이동평균을 위로 뚫는 골든크로스에서 매수하는 추세 전략\n• PBR은 낮고 ROE는 높은 저평가 우량주를 고르는 가치 전략\n\n끌리는 아이디어가 있거나 평소 관심 있던 매매 방식이 있다면 말씀해 주세요 — 바로 전략으로 만들어 백테스트해 드릴게요.");
   }
   if (intent === "STRATEGY_PICK") {
-    return "어떤 전략이 더 좋은지 판단하거나 추천해 드리지는 않지만, 관심 있는 아이디어를 함께 전략으로 만들어 과거 데이터로 백테스트해 볼 수 있어요. 제가 단계별로 여쭤볼 테니 골라 주시면 바로 백테스트까지 이어집니다.";
+    return t("어떤 전략이 더 좋은지 판단하거나 추천해 드리지는 않지만, 관심 있는 아이디어를 함께 전략으로 만들어 과거 데이터로 백테스트해 볼 수 있어요. 제가 단계별로 여쭤볼 테니 골라 주시면 바로 백테스트까지 이어집니다.");
   }
   if (intent === "ONBOARDING") {
-    return "처음이시거나 어디서부터 시작할지 막막하시면 제가 단계별로 함께 전략을 만들어 드릴게요. 몇 가지만 골라 주시면 바로 백테스트까지 이어집니다.";
+    return t("처음이시거나 어디서부터 시작할지 막막하시면 제가 단계별로 함께 전략을 만들어 드릴게요. 몇 가지만 골라 주시면 바로 백테스트까지 이어집니다.");
   }
   if (intent === "PERSONAL_ADVICE") {
-    return "나이·자산·직업 같은 개인 상황에 맞춘 전략이나 종목 추천은 제공하지 않아요. 모든 투자 판단은 직접 내리셔야 하지만, 원하시는 조건을 하나씩 골라 전략을 만들고 과거 데이터로 검증해보실 수는 있어요. 제가 단계별로 여쭤볼 테니 골라 주시면 바로 백테스트까지 이어집니다.";
+    return t("나이·자산·직업 같은 개인 상황에 맞춘 전략이나 종목 추천은 제공하지 않아요. 모든 투자 판단은 직접 내리셔야 하지만, 원하시는 조건을 하나씩 골라 전략을 만들고 과거 데이터로 검증해보실 수는 있어요. 제가 단계별로 여쭤볼 테니 골라 주시면 바로 백테스트까지 이어집니다.");
   }
   if (intent === "LIVE_TRADING") {
-    return "실제 계좌로 매매를 실행하거나 자금을 대신 운용하는 기능은 제공하지 않아요. 이 서비스는 전략을 설계하고 과거 데이터로 검증하는 연구 도구예요. 대신 전략을 만들어 백테스트한 뒤, 가상계좌 모의투자로 실전처럼 시뮬레이션해볼 수 있어요.";
+    return t("실제 계좌로 매매를 실행하거나 자금을 대신 운용하는 기능은 제공하지 않아요. 이 서비스는 전략을 설계하고 과거 데이터로 검증하는 연구 도구예요. 대신 전략을 만들어 백테스트한 뒤, 가상계좌 모의투자로 실전처럼 시뮬레이션해볼 수 있어요.");
   }
-  return "저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트와 관련된 질문은 도와드릴 수 있습니다.";
+  return t("저는 투자 전략 및 분석 전용 모델입니다. 현재 질문에는 도움을 드릴 수 없습니다. 대신 투자 전략, 백테스트와 관련된 질문은 도와드릴 수 있습니다.");
 }
 
 function singleStockResearchMessage(): string {
-  return "특정 종목에 대한 매수·매도 판단이나 종목 추천은 제공하지 않아요.\n\n대신 관심 있는 종목을 대상으로, 어떤 조건에서 진입하고 청산할지를 정해 과거 데이터에서 검증하는 전략을 만들 수 있어요.\n\n예를 들어 이렇게 시작해볼 수 있어요:\n• 5일 이동평균이 20일 이동평균을 상향 돌파하면 매수하고, 하향 돌파하면 매도하는 전략\n• RSI가 30 이하로 내려가면 매수하고 70 이상이면 매도하는 전략\n• 최근 60일 고점을 돌파하면 매수하고, 손절 -10%·익절 +20%를 적용하는 전략\n\n관심 가는 방식이 있으면 말씀해 주세요. 해당 종목을 대상으로 과거 데이터에서 전략을 검증할 수 있어요.";
+  return t("특정 종목에 대한 매수·매도 판단이나 종목 추천은 제공하지 않아요.\n\n대신 관심 있는 종목을 대상으로, 어떤 조건에서 진입하고 청산할지를 정해 과거 데이터에서 검증하는 전략을 만들 수 있어요.\n\n예를 들어 이렇게 시작해볼 수 있어요:\n• 5일 이동평균이 20일 이동평균을 상향 돌파하면 매수하고, 하향 돌파하면 매도하는 전략\n• RSI가 30 이하로 내려가면 매수하고 70 이상이면 매도하는 전략\n• 최근 60일 고점을 돌파하면 매수하고, 손절 -10%·익절 +20%를 적용하는 전략\n\n관심 가는 방식이 있으면 말씀해 주세요. 해당 종목을 대상으로 과거 데이터에서 전략을 검증할 수 있어요.");
 }
 
 /** 상태 기본 액션 — 아직 정하지 않은 조건을 진행 골격 순서대로 묻는다.
@@ -976,8 +977,8 @@ export function decideConversationTurn(
       confidence: 1,
       reason: "classified_strategy_status",
       message: context.hasCurrentStrategy
-        ? "지금까지 정한 조건이에요. 바꾸고 싶은 항목이 있으면 말씀해 주세요."
-        : "아직 정해진 조건이 없어요. 어떤 조건으로 전략을 만들지 말씀해 주시면 하나씩 정리해 드릴게요.",
+        ? t("지금까지 정한 조건이에요. 바꾸고 싶은 항목이 있으면 말씀해 주세요.")
+        : t("아직 정해진 조건이 없어요. 어떤 조건으로 전략을 만들지 말씀해 주시면 하나씩 정리해 드릴게요."),
       // 상태를 알려주는 것은 부가 발화다 — 답을 기다리던 질문이 있으면 그대로 살려 둔다.
       preservesOpenQuestion: true,
     };
@@ -994,7 +995,7 @@ export function decideConversationTurn(
         confidence: 1,
         reason: "result_explain_without_result",
         message:
-          "아직 백테스트 결과가 없어요. 전략을 완성하고 백테스트를 실행하면 그 결과 수치를 놓고 설명해 드릴게요.",
+          t("아직 백테스트 결과가 없어요. 전략을 완성하고 백테스트를 실행하면 그 결과 수치를 놓고 설명해 드릴게요."),
         preservesOpenQuestion: true,
       };
     }
@@ -1086,7 +1087,7 @@ export function decideConversationTurn(
         topic: "strategy",
         confidence: 1,
         reason: "keep_or_change_selection",
-        message: "그대로 둘 항목을 선택해 주세요. 선택하지 않은 항목은 다시 여쭤볼게요.",
+        message: t("그대로 둘 항목을 선택해 주세요. 선택하지 않은 항목은 다시 여쭤볼게요."),
         // 설정된 항목이 하나도 없으면 고를 것이 없다 — 그때는 기존 영역 칩으로 되돌아간다.
         suggestions: clarificationForTarget("condition")?.suggestions ?? [],
       };
@@ -1140,7 +1141,7 @@ export function decideConversationTurn(
       confidence: 1,
       reason: "interpretation_failed",
       message:
-        "죄송해요, 방금 입력을 해석하지 못했어요. 잠시 후 다시 시도하시거나 조금 다르게 표현해 주시겠어요?",
+        t("죄송해요, 방금 입력을 해석하지 못했어요. 잠시 후 다시 시도하시거나 조금 다르게 표현해 주시겠어요?"),
       preservesOpenQuestion: true,
     };
   }

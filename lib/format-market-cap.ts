@@ -1,3 +1,4 @@
+import { formatCompactNumberEn, t } from "@/lib/i18n";
 const formatNumber = (value: number) =>
   new Intl.NumberFormat("ko-KR").format(value);
 
@@ -19,25 +20,28 @@ export function formatMarketCap(value: number): string {
   const normalizedValue = normalizeMarketCap(value);
 
   if (!Number.isFinite(normalizedValue) || normalizedValue <= 0) {
-    return "0원";
+    return t("0원");
   }
+
+  const compactEn = formatCompactNumberEn(normalizedValue, { withCurrency: true });
+  if (compactEn !== null) return compactEn;
 
   const roundedEok = Math.round(normalizedValue / 100_000_000);
 
   if (roundedEok === 0) {
-    return `${formatNumber(Math.round(normalizedValue))}원`;
+    return t("{0}원", formatNumber(Math.round(normalizedValue)));
   }
 
   if (roundedEok < 10_000) {
-    return `${formatNumber(roundedEok)}억원`;
+    return t("{0}억원", formatNumber(roundedEok));
   }
 
   const jo = Math.floor(roundedEok / 10_000);
   const remainderEok = roundedEok % 10_000;
 
   if (remainderEok === 0) {
-    return `${formatNumber(jo)}조원`;
+    return t("{0}조원", formatNumber(jo));
   }
 
-  return `${formatNumber(jo)}조 ${formatNumber(remainderEok)}억원`;
+  return t("{0}조 {1}억원", formatNumber(jo), formatNumber(remainderEok));
 }

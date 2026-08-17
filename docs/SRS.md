@@ -2034,6 +2034,25 @@ BacktestHistory                                (백테스트 이력)
 - OrderAccountContext: 주문 페이지에서 공유하는 선택 계좌 상태
 - BacktestDashboard: 백테스트 결과 시각화 전용 컴포넌트
 - RunAllTestsModal: 독립형 배치 백테스트 실행 및 leaderboard/로그 표시 모달
+- LanguageToggle: 상단 내비게이션 프로필 사진 왼쪽의 KR/EN 표시 언어 토글 (`lib/i18n/LanguageToggle.tsx`)
+
+### 7.3 다국어(i18n) — 영어 표시 [2026-08-18]
+
+**FR-UI-i18n-001 표시 언어 토글**: 상단 내비게이션의 프로필 사진 왼쪽에 KR/EN 토글을 둔다. 선택은 쿠키(`nullstock.lang`, 1년)와 localStorage에 함께 영속하고, 새로고침으로 전체 화면을 새 언어로 다시 그린다(모듈 상수·useMemo·세션 캐시에 남은 옛 언어 문자열이 섞여 보이는 상태를 구조적으로 배제). 서버 렌더는 쿠키를 읽어(`lib/i18n/server.ts getRequestLanguage`) `<html lang>`·metadata·서버 컴포넌트를 같은 언어로 그린다.
+
+**FR-UI-i18n-002 사전 계약**: 소스의 한국어 원문이 곧 사전 키다 — `t("한국어 원문", ...args)`(`lib/i18n/index.ts`), 자리표시자 `{0}` `{1}`. 사전(`lib/i18n/en.ts`)에 없는 키는 원문(한국어)을 그대로 돌려준다(빈칸·깨진 화면 금지). 커버리지 게이트 `tests/i18n-coverage.test.ts`가 소스의 모든 `t()` 키와 렌더 지점에서 번역되는 상수(칩·질문·라벨 맵, `scripts/i18n_extract_keys.js RENDER_SITE_FILES`)의 사전 등재를 강제한다.
+
+**FR-UI-i18n-003 번역은 표시 전용**: 백엔드로 보내는 값(파서 프롬프트 원문, 되묻기 칩 에코 `pending_ask.chips`, 비교 대상 문자열, 슬롯 라벨 키 `PROGRESS_LABEL_TO_SLOT`)은 감싸지 않는다. 칩은 한국어 정본 문자열로 결속(chip_bindings)·전송하고 표시만 `t(chip)`으로 옮긴다. 사용자 말풍선·infoText·notices·되묻기 질문도 렌더 지점에서 `t()`로 옮기므로 백엔드 결정론 문구(슬롯 질문·칩·검증 이슈)는 사전에 원문 그대로 등재한다.
+
+**FR-UI-i18n-004 모듈 상수 금지**: `t()`는 렌더·이벤트 핸들러 안에서만 호출한다. 모듈 최상위 상수에서 호출하면 서버 프로세스 수명 동안 첫 언어로 고정된다 — 상수는 한국어 키를 두고 표시 지점에서 `t(item.label)`로 감싼다.
+
+**FR-UI-i18n-005 숫자·날짜·금액**: 날짜는 `getLocale()`(ko-KR/en-US), 억·만·조 단위 금액은 영어에서 compact 표기(`formatCompactNumberEn`, ₩1.5B)·원 단위는 `₩` 접두. 종목명은 한국어 정본을 유지한다(영문명 데이터 없음 — 알려진 한계).
+
+**FR-UI-i18n-006 예시 전략**: 예시 카드·미리보기의 제목·본문은 영어로 표시하고, 미리보기 textarea의 영문 프롬프트를 파서에 그대로 보낸다(인터프리터 LLM이 영어 입력을 해석함 — 2026-08-18 로컬 실측). 영문 예시의 전수 파싱 검증(`qa_template_detect`)은 후속 과제.
+
+**FR-UI-i18n-007 백엔드 자유 서술**: Next 프록시 `fetchBackend`가 요청 쿠키의 언어를 `X-UI-Language` 헤더로 넘기고, 백엔드 미들웨어가 `ui_language` 컨텍스트에 묶는다(파싱 스레드는 다시 bind). 인터프리터·일반 지식 답변·AI 리포트는 사용자 프롬프트 **끝**에 영어 지시를 덧붙인다(시스템 프롬프트 프리픽스 캐시 보존, JSON 키·enum·칩은 불변). 백엔드 결정론 안내문의 대부분(primary.py notices·검증기·planner asks)은 아직 한국어다 — 값이 섞인 템플릿은 `ui_language.msg(ko, en, **values)`로 옮긴다(잔여 미지원 안내부터 적용).
+
+**제외**: 운영 콘솔(`/console`, `components/admin/`)은 번역 대상이 아니다.
 
 ---
 

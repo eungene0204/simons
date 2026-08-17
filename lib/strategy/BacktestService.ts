@@ -1,6 +1,7 @@
 import { StrategyDSL, BacktestResult } from "@/types/strategy";
 import { UniverseResolver } from "./pipeline/UniverseResolver";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
+import { t } from "@/lib/i18n";
 
 export class BacktestService {
 
@@ -137,8 +138,8 @@ export class BacktestService {
       };
     } catch (error: any) {
       console.error("Backtest integration error:", error);
-      const errorMessage = error instanceof Error ? error.message : "알 수 없는 에러가 발생했습니다.";
-      throw new Error(`백테스트 엔진 오류: ${errorMessage}`);
+      const errorMessage = error instanceof Error ? error.message : t("알 수 없는 에러가 발생했습니다.");
+      throw new Error(t("백테스트 엔진 오류: {0}", errorMessage));
     }
   }
 
@@ -187,8 +188,8 @@ export class BacktestService {
 
       return await response.json();
     } catch (error: any) {
-      const msg = error instanceof Error ? error.message : "알 수 없는 에러";
-      throw new Error(`워크포워드 분석 오류: ${msg}`);
+      const msg = error instanceof Error ? error.message : t("알 수 없는 에러");
+      throw new Error(t("워크포워드 분석 오류: {0}", msg));
     }
   }
 
@@ -252,8 +253,8 @@ export class BacktestService {
       return result;
     } catch (error: any) {
       console.error("Optimization integration error:", error);
-      const errorMessage = error instanceof Error ? error.message : "알 수 없는 에러가 발생했습니다.";
-      throw new Error(`최적화 엔진 오류: ${errorMessage}`);
+      const errorMessage = error instanceof Error ? error.message : t("알 수 없는 에러가 발생했습니다.");
+      throw new Error(t("최적화 엔진 오류: {0}", errorMessage));
     }
   }
 }

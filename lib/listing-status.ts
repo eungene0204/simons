@@ -1,3 +1,4 @@
+import { t } from "@/lib/i18n";
 // 상장 상태 관리 — 프론트엔드 타입 및 규칙
 
 export const ListingStatus = {
@@ -62,14 +63,14 @@ export function getTradeBlockReason(status: ListingStatusValue | string, side: "
       DELISTING_SCHEDULED: "상장폐지가 확정된 종목은 신규 매수가 불가합니다.",
       DELISTED:            "상장폐지 종목은 거래할 수 없습니다.",
     };
-    return msgs[status as ListingStatusValue] ?? `현재 상태(${status})에서 매수할 수 없습니다.`;
+    return msgs[status as ListingStatusValue] ?? t("현재 상태({0})에서 매수할 수 없습니다.", status);
   }
   if (side === "sell" && !isSellAllowed(status)) {
     const msgs: Partial<Record<ListingStatusValue, string>> = {
       TRADING_SUSPENDED: "매매거래정지 종목은 거래가 정지된 상태입니다.",
       DELISTED:          "상장폐지 종목은 거래할 수 없습니다.",
     };
-    return msgs[status as ListingStatusValue] ?? `현재 상태(${status})에서 매도할 수 없습니다.`;
+    return msgs[status as ListingStatusValue] ?? t("현재 상태({0})에서 매도할 수 없습니다.", status);
   }
   return null;
 }
@@ -84,17 +85,17 @@ export function getStatusBadge(status: ListingStatusValue | string): {
 } | null {
   switch (status) {
     case ListingStatus.DELISTED:
-      return { label: "상장폐지", variant: "red" };
+      return { label: t("상장폐지"), variant: "red" };
     case ListingStatus.DELISTING_SCHEDULED:
-      return { label: "폐지예정", variant: "red" };
+      return { label: t("폐지예정"), variant: "red" };
     case ListingStatus.TRADING_SUSPENDED:
-      return { label: "거래정지", variant: "orange" };
+      return { label: t("거래정지"), variant: "orange" };
     case ListingStatus.DELISTING_REVIEW:
-      return { label: "심사중", variant: "orange" };
+      return { label: t("심사중"), variant: "orange" };
     case ListingStatus.WARNING:
-      return { label: "폐지주의", variant: "yellow" };
+      return { label: t("폐지주의"), variant: "yellow" };
     case ListingStatus.RISK:
-      return { label: "위험", variant: "yellow" };
+      return { label: t("위험"), variant: "yellow" };
     default:
       return null;
   }

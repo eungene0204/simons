@@ -5,13 +5,15 @@ import { getCurrentUser } from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
 import { calculateAccountValue, moneyToNumber } from "@/lib/server/assetService";
 import { getUserUsage } from "@/lib/server/planLimits";
+import { t } from "@/lib/i18n";
+import { getRequestLanguage } from "@/lib/i18n/server";
 
 function formatWon(value: number) {
-  return `${Math.round(value).toLocaleString("ko-KR")}원`;
+  return t("{0}원", Math.round(value).toLocaleString("ko-KR"));
 }
 
 function formatLimit(limit: number, unlimited: boolean) {
-  return unlimited ? "무제한" : limit.toLocaleString("ko-KR");
+  return unlimited ? t("무제한") : limit.toLocaleString("ko-KR");
 }
 
 export default async function AssetsPage() {
@@ -40,24 +42,26 @@ export default async function AssetsPage() {
 
   const usageCards: Array<{ label: string; used: number; limitText: string }> = [
     {
-      label: "사용 중인 계좌",
+      label: t("사용 중인 계좌"),
       used: usage.accounts.used,
       limitText: usage.accounts.limit.toLocaleString("ko-KR"),
     },
     {
-      label: "저장 가능 전략",
+      label: t("저장 가능 전략"),
       used: usage.strategies.used,
       limitText: formatLimit(usage.strategies.limit, usage.strategies.unlimited),
     },
     {
-      label: "이번 달 백테스트",
+      label: t("이번 달 백테스트"),
       used: usage.backtests.used,
       limitText: usage.backtests.limit.toLocaleString("ko-KR"),
     },
   ];
 
+  // 요청 언어를 서버 렌더에 고정한다(비동기 대기 뒤에 호출해야 다른 요청과 섞이지 않는다).
+  getRequestLanguage();
   return (
-    <DashboardLayout userName={user.name || "게스트"}>
+    <DashboardLayout userName={user.name || t("게스트")}>
       <div className="min-h-[calc(100vh-var(--top-menu-bar-height,76px))] bg-[#050505] px-5 py-6 text-white sm:px-8 lg:px-10">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
           <section className="overflow-hidden border border-white/[0.08] bg-[#080808]">
@@ -71,14 +75,14 @@ export default async function AssetsPage() {
                     {usage.plan.name}
                   </h1>
                   <p className="mt-2 text-sm font-bold text-gray-500">
-                    계좌당 초기 모의 투자금 {formatWon(usage.plan.initialInvestmentAmount)}
+                    {t("계좌당 초기 모의 투자금 {0}", formatWon(usage.plan.initialInvestmentAmount))}
                   </p>
                 </div>
                 <Link
                   href="/pricing"
                   className="self-start rounded-xl border border-white/[0.1] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-white/[0.06] md:self-auto"
                 >
-                  요금제 보기
+                  {t("요금제 보기")}
                 </Link>
               </div>
             </div>
@@ -102,15 +106,15 @@ export default async function AssetsPage() {
 
           <section className="border border-white/[0.08] bg-[#080808]">
             <div className="border-b border-white/[0.08] px-6 py-4">
-              <h2 className="text-lg font-black text-white">가상계좌</h2>
+              <h2 className="text-lg font-black text-white">{t("가상계좌")}</h2>
               <p className="mt-1 text-xs font-bold text-gray-600">
-                각 계좌의 초기 모의 투자금과 현재 평가금액입니다.
+                {t("각 계좌의 초기 모의 투자금과 현재 평가금액입니다.")}
               </p>
             </div>
             <div className="divide-y divide-white/[0.08]">
               {accounts.length === 0 ? (
                 <div className="px-6 py-10 text-sm font-bold text-gray-500">
-                  아직 운용 중인 가상계좌가 없습니다.
+                  {t("아직 운용 중인 가상계좌가 없습니다.")}
                 </div>
               ) : (
                 accounts.map((account) => (
@@ -126,7 +130,7 @@ export default async function AssetsPage() {
                     </div>
                     <div>
                       <p className="text-xs font-black tracking-[0.06em] text-gray-600">
-                        초기 모의 투자금
+                        {t("초기 모의 투자금")}
                       </p>
                       <p className="mt-1 text-sm font-black text-gray-200">
                         {formatWon(account.initialAmount)}
@@ -134,7 +138,7 @@ export default async function AssetsPage() {
                     </div>
                     <div className="md:text-right">
                       <p className="text-xs font-black tracking-[0.06em] text-gray-600">
-                        평가금액
+                        {t("평가금액")}
                       </p>
                       <p className="mt-1 text-lg font-black text-blue-200">
                         {formatWon(account.value)}

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Sparkle, Spinner, X } from "phosphor-react";
+import { getLocale, t } from "@/lib/i18n";
 
 export type ExampleCategory = "가치투자" | "기술분석" | "모멘텀" | "복합전략" | "ETF" | "테마";
 export type ExampleLevel = "beginner" | "intermediate" | "expert";
@@ -564,10 +565,11 @@ export function StrategyTemplatePreviewModal({
   onGenerateStrategy: (prompt: string) => void;
 }) {
   const style = CATEGORY_STYLE[example.category];
-  const [promptText, setPromptText] = useState(example.prompt);
+  // 예시 본문은 표시 언어로 보여주고, 그대로 파서에 보낸다(영어 프롬프트도 해석된다 — 2026-08-18 실측).
+  const [promptText, setPromptText] = useState(t(example.prompt));
 
   useEffect(() => {
-    setPromptText(example.prompt);
+    setPromptText(t(example.prompt));
   }, [example.prompt]);
 
   const modal = (
@@ -585,17 +587,17 @@ export function StrategyTemplatePreviewModal({
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-2">
             <span className={`inline-flex items-center rounded-md px-2 py-1 text-[10px] font-black ${style.bg} ${style.border} ${style.color}`}>
-              {style.label}
+              {t(style.label)}
             </span>
             <h2 id="strategy-template-preview-title" className="text-lg font-black text-white lg:text-xl">
-              {example.title}
+              {t(example.title)}
             </h2>
           </div>
           <button
             type="button"
             onClick={onCancel}
             className="rounded-full px-3 py-1 text-xl font-black text-gray-500 transition-colors duration-200 hover:bg-white/[0.06] hover:text-white"
-            aria-label="전략 미리보기 닫기"
+            aria-label={t("전략 미리보기 닫기")}
           >
             ×
           </button>
@@ -604,7 +606,7 @@ export function StrategyTemplatePreviewModal({
         <div className="mt-5 rounded-2xl bg-black px-4 py-4">
           <textarea
             id="strategy-template-prompt"
-            aria-label="백테스트 예시 내용"
+            aria-label={t("백테스트 예시 내용")}
             value={promptText}
             onChange={(event) => setPromptText(event.target.value)}
             rows={8}
@@ -618,7 +620,7 @@ export function StrategyTemplatePreviewModal({
             onClick={onCancel}
             className="rounded-2xl border border-white/[0.08] bg-[#171717] px-3 py-1.5 text-xs font-black text-gray-300 transition-colors duration-200 hover:border-white/[0.14] hover:bg-[#1d1d1d] hover:text-white"
           >
-            취소
+            {t("취소")}
           </button>
           <button
             type="button"
@@ -627,7 +629,7 @@ export function StrategyTemplatePreviewModal({
             className="inline-flex items-center gap-1.5 rounded-[1.15rem] bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-xs font-black text-white shadow-[0_12px_26px_rgba(59,130,246,0.24)] transition-all duration-200 hover:from-blue-500 hover:to-indigo-500 hover:shadow-[0_14px_30px_rgba(79,70,229,0.3)] disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Sparkle size={14} weight="fill" />
-            예시로 시작
+            {t("예시로 시작")}
           </button>
         </div>
       </div>
@@ -684,7 +686,7 @@ export function StrategyExampleTabs({
       })
       .catch(() => {
         if (ignore) return;
-        setStrategiesError("전략 목록을 불러오지 못했습니다.");
+        setStrategiesError(t("전략 목록을 불러오지 못했습니다."));
       })
       .finally(() => {
         if (!ignore) {
@@ -779,7 +781,7 @@ export function StrategyExampleTabs({
                       : "text-gray-400 hover:bg-[#171717] hover:text-white"
                     }`}
                 >
-                  {TAB_META[tab].label}
+                  {t(TAB_META[tab].label)}
                 </button>
               );
             })}
@@ -809,11 +811,11 @@ export function StrategyExampleTabs({
                       data-testid="strategy-example-card"
                     >
                       <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-black ${style.bg} ${style.border} ${style.color}`}>
-                        {style.label}
+                        {t(style.label)}
                       </span>
-                      <p className="text-xs font-black leading-snug text-white/85 group-hover:text-white">{example.title}</p>
+                      <p className="text-xs font-black leading-snug text-white/85 group-hover:text-white">{t(example.title)}</p>
                       <p className="line-clamp-3 text-[11px] font-bold leading-relaxed text-gray-400 group-hover:text-gray-300">
-                        {example.prompt}
+                        {t(example.prompt)}
                       </p>
                     </button>
                   );
@@ -826,7 +828,7 @@ export function StrategyExampleTabs({
                     href="/analytics/templates"
                     className="rounded-2xl border border-white/[0.08] bg-[#121212] px-4 py-2 text-xs font-black text-gray-300 transition-colors duration-200 hover:border-white/[0.14] hover:bg-[#171717] hover:text-white"
                   >
-                    전체 보기
+                    {t("전체 보기")}
                   </Link>
                 </div>
               )}
@@ -845,17 +847,17 @@ export function StrategyExampleTabs({
                     className="animate-spin text-gray-500 motion-reduce:animate-none"
                     aria-hidden="true"
                   />
-                  <p className="text-xs font-bold text-gray-500">전략 목록을 불러오는 중입니다...</p>
+                  <p className="text-xs font-bold text-gray-500">{t("전략 목록을 불러오는 중입니다...")}</p>
                 </div>
               ) : strategiesError ? (
                 <div className="py-8 text-center">
-                  <p className="text-sm font-black text-white">전략 목록을 불러올 수 없습니다</p>
+                  <p className="text-sm font-black text-white">{t("전략 목록을 불러올 수 없습니다")}</p>
                   <p className="mt-1 text-xs font-bold text-gray-500">{strategiesError}</p>
                 </div>
               ) : myStrategies.length === 0 ? (
                 <div className="py-8 text-center">
-                  <p className="text-sm font-black text-white">아직 저장된 전략이 없습니다</p>
-                  <p className="mt-1 text-xs font-bold text-gray-500">전략을 생성하고 저장하면 여기에서 확인할 수 있습니다.</p>
+                  <p className="text-sm font-black text-white">{t("아직 저장된 전략이 없습니다")}</p>
+                  <p className="mt-1 text-xs font-bold text-gray-500">{t("전략을 생성하고 저장하면 여기에서 확인할 수 있습니다.")}</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
@@ -873,18 +875,18 @@ export function StrategyExampleTabs({
                             </div>
                           </div>
                           <p className="mt-3 line-clamp-2 text-xs font-bold leading-relaxed text-gray-400">
-                            {strategy.description || "저장된 전략 상세 결과로 이동합니다."}
+                            {strategy.description || t("저장된 전략 상세 결과로 이동합니다.")}
                           </p>
                           <div className="mt-3 flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-gray-600">
-                            <span>{strategy.accountCount}개 계좌 연결</span>
-                            <span>{new Date(strategy.createdAt).toLocaleDateString("ko-KR")}</span>
+                            <span>{t("{0}개 계좌 연결", strategy.accountCount)}</span>
+                            <span>{new Date(strategy.createdAt).toLocaleDateString(getLocale())}</span>
                           </div>
                         </a>
                         <button
                           type="button"
                           onClick={() => void handleDeleteStrategy(strategy.id)}
                           disabled={isDeleting}
-                          aria-label={`${strategy.name} 전략 삭제`}
+                          aria-label={t("{0} 전략 삭제", strategy.name)}
                           className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-gray-500 transition-colors hover:bg-white/[0.10] hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <X size={14} />
@@ -899,30 +901,30 @@ export function StrategyExampleTabs({
         </div>
 
         <footer
-          aria-label="전략연구소 이용 안내"
+          aria-label={t("전략연구소 이용 안내")}
           className="border-t border-white/[0.06] pt-4 text-center"
         >
           <Link
             href="/?legal=terms"
             className="mb-3 inline-flex text-xs font-black text-gray-400 underline-offset-4 transition-colors hover:text-white hover:underline"
           >
-            이용약관
+            {t("이용약관")}
           </Link>
           <Link
             href="/?legal=privacy"
             className="mb-3 ml-4 inline-flex text-xs font-black text-gray-400 underline-offset-4 transition-colors hover:text-white hover:underline"
           >
-            개인정보처리방침
+            {t("개인정보처리방침")}
           </Link>
           <div className="mx-auto mb-3 max-w-6xl text-xs font-bold leading-relaxed text-gray-500">
-            {BUSINESS_INFO_TEXT}
+            {t(BUSINESS_INFO_TEXT)}
           </div>
           <p className="mx-auto max-w-5xl text-xs font-bold leading-relaxed text-gray-600">
             <span className="block">
-              널스탁에서 제공하는 투자 정보는 고객의 투자 판단을 위한 단순 참고용일 뿐입니다. 백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다.
+              {t("널스탁에서 제공하는 투자 정보는 고객의 투자 판단을 위한 단순 참고용일 뿐입니다. 백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다.")}
             </span>
             <span className="mt-1 block">
-              모든 투자 판단과 그에 따른 책임은 이용자 본인에게 있습니다
+              {t("모든 투자 판단과 그에 따른 책임은 이용자 본인에게 있습니다")}
             </span>
           </p>
           <p className="mt-3 text-xs font-bold text-gray-600">

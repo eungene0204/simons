@@ -1,3 +1,4 @@
+// i18n-ignore-file — 개발자용 폐기 안내(사용자 노출 없음)
 // KRX Stock List Fetcher
 // 한국거래소 코스피/코스닥 종목 목록을 가져오는 유틸리티
 

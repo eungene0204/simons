@@ -7,6 +7,7 @@ import {
   listSavedValidations,
   type SavedValidationSummary,
 } from "@/lib/validation-storage";
+import { t } from "@/lib/i18n";
 
 interface SavedValidationsModalProps {
   open: boolean;
@@ -33,10 +34,10 @@ function formatPercent(value: unknown): string {
 function summaryLine(item: SavedValidationSummary): string {
   const s = item.summary ?? {};
   if (item.modelType === "walkForward") {
-    const wfe = s.wfeValid === false ? "해석 불가" : formatPercent(s.wfe);
-    return `WFE ${wfe} · ${s.nSplits ?? "-"}개 구간`;
+    const wfe = s.wfeValid === false ? t("해석 불가") : formatPercent(s.wfe);
+    return t("WFE {0} · {1}개 구간", wfe, s.nSplits ?? "-");
   }
-  return `중앙 CAGR ${formatPercent(s.medianCagr)} · ${(s.iterations as number)?.toLocaleString?.() ?? "-"}회`;
+  return t("중앙 CAGR {0} · {1}회", formatPercent(s.medianCagr), (s.iterations as number)?.toLocaleString?.() ?? "-");
 }
 
 // 저장된 검증 결과 목록(불러오기/삭제).
@@ -55,7 +56,7 @@ export default function SavedValidationsModal({ open, onClose, onSelect }: Saved
         if (!cancelled) setItems(rows);
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "목록을 불러오지 못했습니다.");
+        if (!cancelled) setError(e instanceof Error ? e.message : t("목록을 불러오지 못했습니다."));
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -70,7 +71,7 @@ export default function SavedValidationsModal({ open, onClose, onSelect }: Saved
       await deleteSavedValidation(id);
       setItems((prev) => prev.filter((row) => row.id !== id));
     } catch {
-      setError("삭제에 실패했습니다.");
+      setError(t("삭제에 실패했습니다."));
     }
   };
 
@@ -82,7 +83,7 @@ export default function SavedValidationsModal({ open, onClose, onSelect }: Saved
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label="저장된 검증 결과"
+      aria-label={t("저장된 검증 결과")}
     >
       <div
         data-testid="saved-validations-panel"
@@ -93,10 +94,10 @@ export default function SavedValidationsModal({ open, onClose, onSelect }: Saved
           data-testid="saved-validations-header"
           className="flex items-center justify-between border-b border-white/[0.08] px-4 py-3 lg:px-5 lg:py-4"
         >
-          <h3 className="text-base font-black text-white">저장된 검증 결과</h3>
+          <h3 className="text-base font-black text-white">{t("저장된 검증 결과")}</h3>
           <button
             type="button"
-            aria-label="닫기"
+            aria-label={t("닫기")}
             onClick={onClose}
             className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-white/[0.06] hover:text-white"
           >
@@ -110,7 +111,7 @@ export default function SavedValidationsModal({ open, onClose, onSelect }: Saved
         >
           {isLoading && (
             <div className="flex items-center justify-center gap-2 py-12 text-sm font-bold text-gray-400">
-              <Spinner className="h-4 w-4 animate-spin" /> 불러오는 중...
+              <Spinner className="h-4 w-4 animate-spin" />{t(" 불러오는 중...")}
             </div>
           )}
           {!isLoading && error && (
@@ -118,7 +119,7 @@ export default function SavedValidationsModal({ open, onClose, onSelect }: Saved
           )}
           {!isLoading && !error && items.length === 0 && (
             <p className="px-2 py-12 text-center text-sm font-bold text-gray-500">
-              저장된 검증 결과가 없습니다.
+              {t("저장된 검증 결과가 없습니다.")}
             </p>
           )}
           {!isLoading && !error && items.length > 0 && (
@@ -139,7 +140,7 @@ export default function SavedValidationsModal({ open, onClose, onSelect }: Saved
                               : "bg-violet-500/15 text-violet-300"
                           }`}
                         >
-                          {MODEL_LABELS[item.modelType] ?? item.modelType}
+                          {t(MODEL_LABELS[item.modelType] ?? item.modelType)}
                         </span>
                         <span className="min-w-0 truncate text-sm font-black text-white">{item.strategyName}</span>
                       </div>
@@ -148,7 +149,7 @@ export default function SavedValidationsModal({ open, onClose, onSelect }: Saved
                     </button>
                     <button
                       type="button"
-                      aria-label="삭제"
+                      aria-label={t("삭제")}
                       onClick={() => void handleDelete(item.id)}
                       className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-500 opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-300 lg:opacity-0 lg:group-hover:opacity-100"
                     >

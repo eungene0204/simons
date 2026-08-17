@@ -1,5 +1,6 @@
 "use client";
 
+import { t } from "@/lib/i18n";
 type QualityGaugeProps = {
   score: number;
   title: string;
@@ -116,7 +117,7 @@ export default function QualityGauge({
           Portfolio Quality Score
         </p>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          Analyzed by 널스탁
+          {t("Analyzed by 널스탁")}
         </p>
       </div>
     </div>

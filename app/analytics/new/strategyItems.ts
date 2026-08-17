@@ -17,6 +17,7 @@ import {
 
 import type { MissingBacktestCondition } from "./backtestReadiness";
 import type { ParsedSummary } from "./strategySummary";
+import { getLanguage, t } from "@/lib/i18n";
 
 export type StrategyItemSlot = MissingBacktestCondition["field"];
 
@@ -42,9 +43,11 @@ const REBALANCE_LABELS: Record<string, string> = {
 };
 
 function formatCapital(value: number): string {
-  if (value >= 100_000_000) return `${(value / 100_000_000).toLocaleString()}억원`;
-  if (value >= 10_000) return `${(value / 10_000).toLocaleString()}만원`;
-  return `${value.toLocaleString()}원`;
+  // 영어 표기는 만/억 단위 없이 KRW 금액 그대로.
+  if (getLanguage() === "en") return `₩${value.toLocaleString("en-US")}`;
+  if (value >= 100_000_000) return t("{0}억원", (value / 100_000_000).toLocaleString());
+  if (value >= 10_000) return t("{0}만원", (value / 10_000).toLocaleString());
+  return t("{0}원", value.toLocaleString());
 }
 
 /** 지금 설정돼 있는 항목을 진행 골격 순서로 나열한다(값이 없는 항목은 나오지 않는다). */
@@ -57,7 +60,7 @@ export function listStrategyItems(parsed: ParsedSummary | null | undefined): Str
     items.push({
       id: "universe",
       slot: "universe",
-      label: "유니버스",
+      label: t("유니버스"),
       value: universeLabels.join(" · "),
     });
   }
@@ -66,7 +69,7 @@ export function listStrategyItems(parsed: ParsedSummary | null | undefined): Str
     items.push({
       id: `fundamental.${i}`,
       slot: "entry",
-      label: "매수 조건",
+      label: t("매수 조건"),
       value: formatFundamentalFilter(filter),
     });
   });
@@ -74,7 +77,7 @@ export function listStrategyItems(parsed: ParsedSummary | null | undefined): Str
     items.push({
       id: `entry.${i}`,
       slot: "entry",
-      label: "매수 조건",
+      label: t("매수 조건"),
       value: getSignalLabel(signal, "entry"),
     });
   });
@@ -82,7 +85,7 @@ export function listStrategyItems(parsed: ParsedSummary | null | undefined): Str
     items.push({
       id: `exit.${i}`,
       slot: "exit",
-      label: "매도 조건",
+      label: t("매도 조건"),
       value: getSignalLabel(signal, "exit"),
     });
   });
@@ -91,7 +94,7 @@ export function listStrategyItems(parsed: ParsedSummary | null | undefined): Str
     items.push({
       id: "max_positions",
       slot: "max_positions",
-      label: "최대 보유",
+      label: t("최대 보유"),
       value: `${parsed.max_positions}종목`,
     });
   }
@@ -99,7 +102,7 @@ export function listStrategyItems(parsed: ParsedSummary | null | undefined): Str
     items.push({
       id: "rebalancing",
       slot: "rebalancing",
-      label: "리밸런싱",
+      label: t("리밸런싱"),
       value: REBALANCE_LABELS[String(parsed.rebalancing_period)] ?? String(parsed.rebalancing_period),
     });
   }
@@ -107,7 +110,7 @@ export function listStrategyItems(parsed: ParsedSummary | null | undefined): Str
     items.push({
       id: "hold_period",
       slot: "exit",
-      label: "보유 기간",
+      label: t("보유 기간"),
       value: `최대 ${parsed.hold_period_days}일 보유`,
     });
   }
@@ -115,7 +118,7 @@ export function listStrategyItems(parsed: ParsedSummary | null | undefined): Str
     items.push({
       id: "stop_loss",
       slot: "stop_loss",
-      label: "손절",
+      label: t("손절"),
       value: `-${parsed.stop_loss_pct}%`,
     });
   }
@@ -123,7 +126,7 @@ export function listStrategyItems(parsed: ParsedSummary | null | undefined): Str
     items.push({
       id: "take_profit",
       slot: "take_profit",
-      label: "익절",
+      label: t("익절"),
       value: `+${parsed.take_profit_pct}%`,
     });
   }
@@ -131,7 +134,7 @@ export function listStrategyItems(parsed: ParsedSummary | null | undefined): Str
     items.push({
       id: "trailing_stop",
       slot: "stop_loss",
-      label: "트레일링 스탑",
+      label: t("트레일링 스탑"),
       value: `-${parsed.trailing_stop_pct}%`,
     });
   }
@@ -141,7 +144,7 @@ export function listStrategyItems(parsed: ParsedSummary | null | undefined): Str
     items.push({
       id: "backtest_period",
       slot: "backtest_period",
-      label: "백테스트 기간",
+      label: t("백테스트 기간"),
       value: periodLabel,
     });
   }
@@ -149,7 +152,7 @@ export function listStrategyItems(parsed: ParsedSummary | null | undefined): Str
     items.push({
       id: "initial_capital",
       slot: "initial_capital",
-      label: "초기 자본",
+      label: t("초기 자본"),
       value: formatCapital(parsed.initial_capital as number),
     });
   }

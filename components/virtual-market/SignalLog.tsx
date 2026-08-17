@@ -1,6 +1,7 @@
 "use client";
 
 import { VirtualMarketLog } from "@/lib/virtual-market";
+import { t } from "@/lib/i18n";
 
 const SIGNAL_STALE_DAYS = 3;
 
@@ -30,17 +31,17 @@ export default function SignalLog({
       return (
         <div className="py-8 text-center">
           <p className="text-sm font-bold text-gray-500">
-            최근 {daysSinceStart}일간 이 전략의 매매 신호가 발생하지 않았습니다.
+            {t("최근 {0}일간 이 전략의 매매 신호가 발생하지 않았습니다.", daysSinceStart)}
           </p>
           <p className="text-xs font-bold text-gray-600 mt-1">
-            설정한 조건에 해당하는 종목이 나타나지 않았습니다.
+            {t("설정한 조건에 해당하는 종목이 나타나지 않았습니다.")}
           </p>
           {onStrategyReplace && (
             <button
               onClick={onStrategyReplace}
               className="mt-3 text-xs font-bold text-[var(--main-green)] hover:text-[var(--main-green)]/80 transition-colors"
             >
-              다른 전략으로 교체하기
+              {t("다른 전략으로 교체하기")}
             </button>
           )}
         </div>
@@ -49,8 +50,8 @@ export default function SignalLog({
 
     return (
       <div className="py-8 text-center">
-        <p className="text-sm font-bold text-gray-500">아직 시그널이 발생하지 않았습니다.</p>
-        <p className="text-xs font-bold text-gray-600 mt-1">전략 시그널이 감지되면 여기에 표시됩니다.</p>
+        <p className="text-sm font-bold text-gray-500">{t("아직 시그널이 발생하지 않았습니다.")}</p>
+        <p className="text-xs font-bold text-gray-600 mt-1">{t("전략 시그널이 감지되면 여기에 표시됩니다.")}</p>
       </div>
     );
   }
@@ -74,17 +75,17 @@ export default function SignalLog({
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
             <span className="text-[10px] font-bold text-gray-400 tabular-nums">
-              {formatPrice(log.price)}원
+              {t("{0}원", formatPrice(log.price))}
             </span>
             {log.action === "skipped" ? (
               <span className="inline-flex items-center rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-bold text-gray-500">
-                스킵
+                {t("스킵")}
               </span>
             ) : (
               <span className={`inline-flex items-center rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-bold ${
                 log.signalType === "entry" ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"
               }`}>
-                {log.signalType === "entry" ? "매수" : "매도"}
+                {log.signalType === "entry" ? t("매수") : t("매도")}
               </span>
             )}
           </div>

@@ -24,6 +24,7 @@ import math
 import re
 from typing import Any, Dict, Iterable, List, Optional
 
+import ui_language
 from engine import strategy_slots
 from strategy_conversation import config
 from strategy_conversation.conversation.change_log import changed_field_names
@@ -1390,14 +1391,18 @@ def run_primary_parse(
         named = [f for f in leftover_features if len(f) <= _QUOTED_FEATURE_MAX_LEN]
         long_fragments = [f for f in leftover_features if len(f) > _QUOTED_FEATURE_MAX_LEN]
         if named:
-            notices.append(
-                f"'{', '.join(named)}' 조건은 지원하지 않아 전략에 반영하지 못했어요."
-            )
+            notices.append(ui_language.msg(
+                "'{names}' 조건은 지원하지 않아 전략에 반영하지 못했어요.",
+                "The condition '{names}' is not supported, so it was not reflected in the strategy.",
+                names=", ".join(named),
+            ))
         if long_fragments:
-            notices.append(
+            notices.append(ui_language.msg(
                 "말씀하신 조건 중 일부는 지원하지 않아 전략에 반영하지 못했어요. "
-                "전략 요약을 확인해 주세요."
-            )
+                "전략 요약을 확인해 주세요.",
+                "Some of the conditions you mentioned are not supported and were not reflected "
+                "in the strategy. Please check the strategy summary.",
+            ))
         if leftover_features:
             _log_llm("△ 잔여 미지원 안내", (
                 f"지목={named or '[]'} 긴조각={long_fragments or '[]'}"

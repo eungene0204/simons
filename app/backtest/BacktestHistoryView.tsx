@@ -19,6 +19,7 @@ import {
   Trash,
   X,
 } from "phosphor-react";
+import { t } from "@/lib/i18n";
 
 type SortField = 'timestamp' | 'totalReturn' | 'cagr' | 'mdd' | 'profitFactor' | 'trades' | 'score';
 
@@ -146,9 +147,9 @@ export default function BacktestHistoryView() {
             <StrategyWaveBackground />
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(15,15,15,0.18)_0%,rgba(15,15,15,0.72)_72%)]" />
             <p className="relative z-10 max-w-4xl text-4xl font-black leading-tight text-white md:text-6xl">
-              전략을 만들고
+              {t("전략을 만들고")}
               <br />
-              백테스트 해보세요
+              {t("백테스트 해보세요")}
             </p>
             <div className="relative z-10 mt-8">
               <div className="pointer-events-none absolute -inset-x-8 -inset-y-4 bg-[radial-gradient(ellipse_at_center,rgba(55,122,244,0.28)_0%,rgba(34,197,94,0.12)_38%,rgba(15,15,15,0)_72%)] blur-2xl" />
@@ -157,7 +158,7 @@ export default function BacktestHistoryView() {
                 onClick={() => router.push("/analytics")}
                 className="relative rounded-lg border border-white/[0.12] bg-[#111111] px-7 py-4 text-base font-black text-white transition-colors hover:bg-[#181818]"
               >
-                전략 만들기
+                {t("전략 만들기")}
               </button>
             </div>
           </div>
@@ -177,9 +178,9 @@ export default function BacktestHistoryView() {
           <div>
             <h1 className="text-2xl font-black text-white flex items-center gap-3">
               <Clock className="w-7 h-7 text-main-blue" />
-              전략 백테스트 기록
+              {t("전략 백테스트 기록")}
             </h1>
-            <p className="text-sm text-gray-500 mt-1">최근 50개 기록</p>
+            <p className="text-sm text-gray-500 mt-1">{t("최근 50개 기록")}</p>
           </div>
         </div>
 
@@ -187,13 +188,13 @@ export default function BacktestHistoryView() {
         {history.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 mb-4">
             {([
-              { field: "timestamp", label: "날짜" },
-              { field: "score", label: "점수" },
+              { field: "timestamp", label: t("날짜") },
+              { field: "score", label: t("점수") },
               { field: "cagr", label: "CAGR" },
-              { field: "totalReturn", label: "총수익률" },
+              { field: "totalReturn", label: t("총수익률") },
               { field: "mdd", label: "MDD" },
-              { field: "profitFactor", label: "손익비" },
-              { field: "trades", label: "매매횟수" },
+              { field: "profitFactor", label: t("손익비") },
+              { field: "trades", label: t("매매횟수") },
             ] as const).map(({ field, label }) => {
               const isActive = sortField === field;
               return (
@@ -256,7 +257,7 @@ export default function BacktestHistoryView() {
                         if (!universeLabel) return null;
                         return (
                           <span className={strategyBadgeClass}>
-                            <span className="font-black text-white mr-1">유니버스</span>
+                            <span className="font-black text-white mr-1">{t("유니버스")}</span>
                             <span className="font-bold text-[#FF9933]">{universeLabel}</span>
                           </span>
                         );
@@ -277,7 +278,7 @@ export default function BacktestHistoryView() {
                             key={`entry-${idx}`}
                             className={strategyBadgeClass}
                           >
-                            <span className="font-black text-white mr-1">진입 신호</span>
+                            <span className="font-black text-white mr-1">{t("진입 신호")}</span>
                             <span className="font-bold text-[#FF9933]">{name}</span>
                           </span>
                         ));
@@ -293,7 +294,7 @@ export default function BacktestHistoryView() {
                             key={`exit-${idx}`}
                             className={strategyBadgeClass}
                           >
-                            <span className="font-black text-white mr-1">청산 신호</span>
+                            <span className="font-black text-white mr-1">{t("청산 신호")}</span>
                             <span className="font-bold text-[#FF9933]">{name}</span>
                           </span>
                         ));
@@ -306,7 +307,7 @@ export default function BacktestHistoryView() {
                           <span
                             className={strategyBadgeClass}
                           >
-                            <span className="font-black text-white mr-1">포지션/비중</span>
+                            <span className="font-black text-white mr-1">{t("포지션/비중")}</span>
                             <span className="font-bold text-[#FF9933]">{conds.position}</span>
                           </span>
                         );
@@ -319,7 +320,7 @@ export default function BacktestHistoryView() {
                           <span
                             className={strategyBadgeClass}
                           >
-                            <span className="font-black text-white mr-1">리스크 관리</span>
+                            <span className="font-black text-white mr-1">{t("리스크 관리")}</span>
                             <span className="font-bold text-[#FF9933]">{conds.risk}</span>
                           </span>
                         );
@@ -330,8 +331,8 @@ export default function BacktestHistoryView() {
                     <button
                       onClick={(e) => handleRequestDeleteItem(item, e)}
                       className="rounded-lg border border-red-500/30 bg-transparent p-1.5 text-red-500 opacity-100 transition-all lg:opacity-0 lg:group-hover:opacity-100"
-                      aria-label={`${item.strategyName} 기록 삭제`}
-                      title="기록 삭제"
+                      aria-label={t("{0} 기록 삭제", item.strategyName)}
+                      title={t("기록 삭제")}
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -342,16 +343,16 @@ export default function BacktestHistoryView() {
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
-                  <HistoryMetric label="총 수익률" value={`${item.metrics.totalReturn.toFixed(1)}%`} />
+                  <HistoryMetric label={t("총 수익률")} value={`${item.metrics.totalReturn.toFixed(1)}%`} />
                   <HistoryMetric label="CAGR" value={`${item.metrics.cagr.toFixed(1)}%`} />
                   <HistoryMetric label="MDD" value={`${item.metrics.mdd.toFixed(1)}%`} />
-                  <HistoryMetric label="손익비" value={formatProfitFactor(item.metrics.profitFactor)} />
-                  <HistoryMetric label="매수후보유" value={`${item.metrics.buyHold.toFixed(1)}%`} />
-                  <HistoryMetric label="매매횟수" value={`${item.metrics.trades}회`} />
-                  <HistoryMetric label="소요시간" value={item.metrics.executionTime !== undefined ? `${item.metrics.executionTime.toFixed(2)}초` : "-"} />
+                  <HistoryMetric label={t("손익비")} value={formatProfitFactor(item.metrics.profitFactor)} />
+                  <HistoryMetric label={t("매수후보유")} value={`${item.metrics.buyHold.toFixed(1)}%`} />
+                  <HistoryMetric label={t("매매횟수")} value={t("{0}회", item.metrics.trades)} />
+                  <HistoryMetric label={t("소요시간")} value={item.metrics.executionTime !== undefined ? t("{0}초", item.metrics.executionTime.toFixed(2)) : "-"} />
                   {item.metrics.score != null && (
                     <HistoryMetric
-                      label="점수"
+                      label={t("점수")}
                       value={`${item.metrics.score} / 100`}
                     />
                   )}
@@ -374,10 +375,10 @@ export default function BacktestHistoryView() {
               onClick={(e) => e.stopPropagation()}
             >
               <h2 id="delete-backtest-history-title" className="text-lg font-black text-white">
-                백테스트 기록을 삭제할까요?
+                {t("백테스트 기록을 삭제할까요?")}
               </h2>
               <p className="mt-2 text-sm leading-6 text-gray-400">
-                백테스트 기록이 삭제됩니다. 삭제한 기록은 다시 복구할 수 없습니다.
+                {t("백테스트 기록이 삭제됩니다. 삭제한 기록은 다시 복구할 수 없습니다.")}
               </p>
               <div className="mt-5 flex justify-end gap-2">
                 <button
@@ -386,7 +387,7 @@ export default function BacktestHistoryView() {
                   disabled={isDeleting}
                   className="rounded-lg border border-white/[0.10] px-4 py-2 text-sm font-bold text-gray-300 transition-colors hover:border-white/[0.18] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  취소
+                  {t("취소")}
                 </button>
                 <button
                   type="button"
@@ -394,7 +395,7 @@ export default function BacktestHistoryView() {
                   disabled={isDeleting}
                   className="rounded-lg border border-white/[0.10] bg-[var(--main-red)]/10 px-4 py-2 text-sm font-bold text-[var(--main-red)] transition-colors hover:border-white/[0.18] hover:bg-[var(--main-red)]/15 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {isDeleting ? "삭제 중..." : "삭제"}
+                  {isDeleting ? t("삭제 중...") : t("삭제")}
                 </button>
               </div>
             </div>

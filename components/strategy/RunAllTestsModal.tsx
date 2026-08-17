@@ -13,6 +13,7 @@ import {
   Warning,
   X,
 } from "phosphor-react";
+import { getLocale, t } from "@/lib/i18n";
 
 type BatchStatus = "waiting" | "running" | "computed" | "cache_hit" | "failed" | "skipped";
 type SortKey = "cagr" | "totalReturn" | "sharpe" | "maxDrawdown" | "profitFactor" | "trades";
@@ -160,7 +161,7 @@ function getStatusLabel(status: BatchStatus) {
 function formatDateTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("ko-KR", {
+  return date.toLocaleString(getLocale(), {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -183,7 +184,7 @@ function rankItems(items: BatchItem[], sortKey: SortKey, sortDirection: SortDire
 async function fetchBatchRunHistory(): Promise<BatchRunSummaryRecord[]> {
   const response = await fetch("/api/strategy/batch-runs");
   if (!response.ok) {
-    throw new Error("배치 실행 이력을 불러오지 못했습니다.");
+    throw new Error(t("배치 실행 이력을 불러오지 못했습니다."));
   }
 
   const payload = await response.json();
@@ -220,7 +221,7 @@ function mapBatchRunDetail(payload: any): BatchRunRecord {
       return {
         id: String(candidate?.id ?? `${payload?.runId ?? "batch_run"}_${index}`),
         prompt: String(candidate?.prompt ?? ""),
-        name: String(candidate?.strategyName ?? `전략 ${index + 1}`),
+        name: String(candidate?.strategyName ?? t("전략 {0}", index + 1)),
         status: (candidate?.status ?? "waiting") as BatchStatus,
         message: getStatusLabel((candidate?.status ?? "waiting") as BatchStatus),
         result: metrics ? mapMetricsToResult(metrics, strategyId) : undefined,
@@ -234,7 +235,7 @@ function mapBatchRunDetail(payload: any): BatchRunRecord {
 async function fetchBatchRunDetail(runId: string): Promise<BatchRunRecord> {
   const response = await fetch(`/api/strategy/batch-runs?runId=${encodeURIComponent(runId)}`);
   if (!response.ok) {
-    throw new Error("배치 실행 상세를 불러오지 못했습니다.");
+    throw new Error(t("배치 실행 상세를 불러오지 못했습니다."));
   }
 
   const payload = await response.json();
@@ -253,7 +254,7 @@ async function startBatchRun(prompts: string[]) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    throw new Error(payload?.detail ?? payload?.error ?? "배치 실행을 시작하지 못했습니다.");
+    throw new Error(payload?.detail ?? payload?.error ?? t("배치 실행을 시작하지 못했습니다."));
   }
 
   return response.json();
@@ -271,7 +272,7 @@ async function cancelBatchRun(runId: string) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    throw new Error(payload?.detail ?? payload?.error ?? "배치 실행 중단 요청에 실패했습니다.");
+    throw new Error(payload?.detail ?? payload?.error ?? t("배치 실행 중단 요청에 실패했습니다."));
   }
 }
 
@@ -333,7 +334,7 @@ export default function RunAllTestsModal({
         }
       } catch (error: any) {
         if (!cancelled) {
-          setHistoryError(error?.message ?? "실행 상태를 불러오지 못했습니다.");
+          setHistoryError(error?.message ?? t("실행 상태를 불러오지 못했습니다."));
         }
       }
     };
@@ -356,7 +357,7 @@ export default function RunAllTestsModal({
     try {
       setHistory(await fetchBatchRunHistory());
     } catch (error: any) {
-      setHistoryError(error?.message ?? "실행 이력을 불러오지 못했습니다.");
+      setHistoryError(error?.message ?? t("실행 이력을 불러오지 못했습니다."));
     } finally {
       setIsHistoryLoading(false);
     }
@@ -441,7 +442,7 @@ export default function RunAllTestsModal({
       loadHistoryRecord(record);
       setActiveRunId(record.runStatus === "QUEUED" || record.runStatus === "RUNNING" ? record.runId : null);
     } catch (error: any) {
-      setHistoryError(error?.message ?? "실행 이력을 불러오지 못했습니다.");
+      setHistoryError(error?.message ?? t("실행 이력을 불러오지 못했습니다."));
     } finally {
       setHistoryLoadingRunId(null);
     }
@@ -454,13 +455,13 @@ export default function RunAllTestsModal({
     const optimisticItems = prompts.map((prompt, index) => ({
       id: `queued_${index}`,
       prompt,
-      name: `전략 ${index + 1}`,
+      name: t("전략 {0}", index + 1),
       status: "waiting" as BatchStatus,
-      message: "대기 중",
+      message: t("대기 중"),
     }));
 
     setItems(optimisticItems);
-    setLogs([`총 ${prompts.length}개 프롬프트 실행 요청 중`]);
+    setLogs([t("총 {0}개 프롬프트 실행 요청 중", prompts.length)]);
     setCurrentItemId(null);
     setCurrentStrategyName(null);
     setHistoryError(null);
@@ -470,7 +471,7 @@ export default function RunAllTestsModal({
       const payload = await startBatchRun(prompts);
       const runId = String(payload?.runId ?? "");
       if (!runId) {
-        throw new Error("배치 실행 식별자를 받지 못했습니다.");
+        throw new Error(t("배치 실행 식별자를 받지 못했습니다."));
       }
 
       setActiveRunId(runId);
@@ -479,7 +480,7 @@ export default function RunAllTestsModal({
       loadHistoryRecord(record);
       syncHistorySummary(record);
     } catch (error: any) {
-      setHistoryError(error?.message ?? "배치 실행을 시작하지 못했습니다.");
+      setHistoryError(error?.message ?? t("배치 실행을 시작하지 못했습니다."));
       setIsRunning(false);
       setActiveRunId(null);
     }
@@ -490,9 +491,9 @@ export default function RunAllTestsModal({
 
     try {
       await cancelBatchRun(activeRunId);
-      setLogs((current) => [...current, "배치 실행 중단 요청을 전송했습니다."]);
+      setLogs((current) => [...current, t("배치 실행 중단 요청을 전송했습니다.")]);
     } catch (error: any) {
-      setHistoryError(error?.message ?? "배치 실행 중단 요청에 실패했습니다.");
+      setHistoryError(error?.message ?? t("배치 실행 중단 요청에 실패했습니다."));
     }
   }
 
@@ -512,16 +513,16 @@ export default function RunAllTestsModal({
             <div className="space-y-1">
             <div className="flex items-center gap-2">
               <Sparkle size={16} className="text-sky-400" weight="fill" />
-              <h2 className="text-base font-black text-white">모두 테스트</h2>
+              <h2 className="text-base font-black text-white">{t("모두 테스트")}</h2>
             </div>
             <p className="text-xs font-bold text-gray-500">
-              기존 research와 분리된 독립 배치 실행기입니다. 프롬프트를 빈 줄로 구분해 입력하고, 실행 이력은 서버에 영구 저장됩니다.
+              {t("기존 research와 분리된 독립 배치 실행기입니다. 프롬프트를 빈 줄로 구분해 입력하고, 실행 이력은 서버에 영구 저장됩니다.")}
             </p>
           </div>
           <button
             onClick={onClose}
             className="rounded-xl border border-white/[0.08] p-2 text-gray-500 transition-colors duration-200 hover:text-white"
-            aria-label="모달 닫기"
+            aria-label={t("모달 닫기")}
           >
             <X size={14} />
           </button>
@@ -540,7 +541,7 @@ export default function RunAllTestsModal({
                       className="inline-flex items-center gap-1.5 rounded-xl border border-white/[0.08] px-3 py-2 text-xs font-black text-gray-300"
                     >
                       <Copy size={12} />
-                      현재 입력 추가
+                      {t("현재 입력 추가")}
                     </button>
                   )}
                 </div>
@@ -548,12 +549,12 @@ export default function RunAllTestsModal({
                   value={datasetText}
                   onChange={(event) => setDatasetText(event.target.value)}
                   rows={12}
-                  placeholder={"프롬프트 1\n\n프롬프트 2\n\n프롬프트 3"}
+                  placeholder={t("프롬프트 1\n\n프롬프트 2\n\n프롬프트 3")}
                   className="w-full rounded-2xl border border-white/[0.08] bg-black/20 px-4 py-3 text-sm font-bold text-white outline-none placeholder:text-gray-600"
                 />
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-3">
                   <p className="text-xs font-bold text-gray-500">
-                    총 {splitPromptDataset(datasetText).length}개 프롬프트
+                    {t("총 {0}개 프롬프트", splitPromptDataset(datasetText).length)}
                   </p>
                   <div className="flex items-center gap-2">
                     {isRunning && (
@@ -562,7 +563,7 @@ export default function RunAllTestsModal({
                         onClick={handleStop}
                         className="rounded-xl border border-[var(--main-red)]/20 bg-[var(--main-red)]/10 px-4 py-2 text-xs font-black text-[var(--main-red)]"
                       >
-                        중단
+                        {t("중단")}
                       </button>
                     )}
                     <button
@@ -572,7 +573,7 @@ export default function RunAllTestsModal({
                       className="inline-flex items-center gap-2 rounded-xl bg-[var(--main-blue)] px-4 py-2 text-xs font-black text-white disabled:opacity-40"
                     >
                       {isRunning ? <ArrowsClockwise size={13} className="animate-spin" /> : <Sparkle size={13} weight="fill" />}
-                      모두 테스트 시작
+                      {t("모두 테스트 시작")}
                     </button>
                   </div>
                 </div>
@@ -581,7 +582,7 @@ export default function RunAllTestsModal({
               <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4">
                 <div className="mb-3 flex items-center gap-2">
                   <ClockCounterClockwise size={14} className="text-gray-500" />
-                  <h3 className="text-sm font-black text-white">실행 상태</h3>
+                  <h3 className="text-sm font-black text-white">{t("실행 상태")}</h3>
                 </div>
                 <div className="space-y-3">
                   <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]">
@@ -615,7 +616,7 @@ export default function RunAllTestsModal({
                   <div className="rounded-2xl border border-white/[0.06] bg-black/20 px-4 py-3">
                     <p className="text-[10px] font-black uppercase tracking-[0.15em] text-gray-600">Current</p>
                     <p className="mt-1 text-sm font-black text-white">{currentItem?.name ?? currentStrategyName ?? "-"}</p>
-                    <p className="mt-1 text-xs font-bold text-gray-500">{currentItem?.message ?? "대기 중"}</p>
+                    <p className="mt-1 text-xs font-bold text-gray-500">{currentItem?.message ?? t("대기 중")}</p>
                   </div>
                 </div>
               </div>
@@ -623,11 +624,11 @@ export default function RunAllTestsModal({
               <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4">
                 <div className="mb-3 flex items-center gap-2">
                   <ArrowsClockwise size={14} className="text-gray-500" />
-                  <h3 className="text-sm font-black text-white">실시간 로그</h3>
+                  <h3 className="text-sm font-black text-white">{t("실시간 로그")}</h3>
                 </div>
                 <div className="space-y-2">
                   {logs.length === 0 ? (
-                    <p className="text-xs font-bold text-gray-500">아직 실행 로그가 없습니다.</p>
+                    <p className="text-xs font-bold text-gray-500">{t("아직 실행 로그가 없습니다.")}</p>
                   ) : (
                     logs.slice().reverse().map((log, index) => (
                       <div key={`${log}-${index}`} className="rounded-2xl border border-white/[0.06] bg-black/20 px-4 py-3 text-xs font-bold text-gray-300">
@@ -642,7 +643,7 @@ export default function RunAllTestsModal({
             <div className="space-y-4">
               <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-black text-white">최근 실행 이력</h3>
+                  <h3 className="text-sm font-black text-white">{t("최근 실행 이력")}</h3>
                   <span className="text-[11px] font-black uppercase tracking-[0.16em] text-gray-600">
                     {history.length} Runs
                   </span>
@@ -656,11 +657,11 @@ export default function RunAllTestsModal({
 
                 {isHistoryLoading ? (
                   <p className="rounded-2xl border border-white/[0.06] bg-black/20 px-4 py-5 text-xs font-bold text-gray-500">
-                    실행 이력을 불러오는 중입니다.
+                    {t("실행 이력을 불러오는 중입니다.")}
                   </p>
                 ) : history.length === 0 ? (
                   <p className="rounded-2xl border border-white/[0.06] bg-black/20 px-4 py-5 text-xs font-bold text-gray-500">
-                    저장된 배치 실행 이력이 없습니다.
+                    {t("저장된 배치 실행 이력이 없습니다.")}
                   </p>
                 ) : (
                   <div className="space-y-2">
@@ -676,18 +677,18 @@ export default function RunAllTestsModal({
                             onClick={() => void handleLoadHistoryRecord(record.runId)}
                             className="rounded-xl border border-white/[0.08] px-3 py-2 text-[11px] font-black text-white"
                           >
-                            {historyLoadingRunId === record.runId ? "불러오는 중..." : "이력 불러오기"}
+                            {historyLoadingRunId === record.runId ? t("불러오는 중...") : t("이력 불러오기")}
                           </button>
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-bold text-gray-400">
-                          <span>총 {record.totalPrompts}</span>
-                          <span>완료 {record.completedCount}</span>
-                          <span>실패 {record.failedCount}</span>
-                          <span>스킵 {record.skippedCount}</span>
+                          <span>{t("총 {0}", record.totalPrompts)}</span>
+                          <span>{t("완료 {0}", record.completedCount)}</span>
+                          <span>{t("실패 {0}", record.failedCount)}</span>
+                          <span>{t("스킵 {0}", record.skippedCount)}</span>
                         </div>
                         {record.rankingSnapshot[0] && (
                           <p className="mt-2 text-[11px] font-bold text-gray-300">
-                            최고 성과: {record.rankingSnapshot[0].name} / CAGR {formatMetric(record.rankingSnapshot[0].cagr, 2, "%")}
+                            {t("최고 성과: {0} / CAGR {1}", record.rankingSnapshot[0].name, formatMetric(record.rankingSnapshot[0].cagr, 2, "%"))}
                           </p>
                         )}
                       </div>
@@ -706,7 +707,7 @@ export default function RunAllTestsModal({
 
                 {rankedItems.length === 0 ? (
                   <p className="rounded-2xl border border-white/[0.06] bg-black/20 px-4 py-5 text-xs font-bold text-gray-500">
-                    완료된 결과가 아직 없습니다.
+                    {t("완료된 결과가 아직 없습니다.")}
                   </p>
                 ) : (
                   <div
@@ -758,7 +759,7 @@ export default function RunAllTestsModal({
                                 {isBest && (
                                   <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-emerald-200">
                                     <CheckCircle size={10} weight="fill" />
-                                    최고 성과
+                                    {t("최고 성과")}
                                   </span>
                                 )}
                               </div>
@@ -783,11 +784,11 @@ export default function RunAllTestsModal({
               <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4">
                 <div className="mb-3 flex items-center gap-2">
                   <Warning size={14} className="text-[var(--main-red)]" weight="fill" />
-                  <h3 className="text-sm font-black text-white">실패 및 스킵 목록</h3>
+                  <h3 className="text-sm font-black text-white">{t("실패 및 스킵 목록")}</h3>
                 </div>
                 <div className="space-y-2">
                   {failedItems.length === 0 ? (
-                    <p className="text-xs font-bold text-gray-500">실패하거나 스킵된 전략이 없습니다.</p>
+                    <p className="text-xs font-bold text-gray-500">{t("실패하거나 스킵된 전략이 없습니다.")}</p>
                   ) : (
                     failedItems.map((item) => (
                       <div key={item.id} className="rounded-2xl border border-white/[0.06] bg-black/20 px-4 py-3">

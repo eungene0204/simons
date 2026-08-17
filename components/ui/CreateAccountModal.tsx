@@ -7,6 +7,7 @@ import {
   buildStrategySummaryFromDsl,
 } from "@/lib/strategy-summary";
 import type { StrategyDSL } from "@/types/strategy";
+import { t } from "@/lib/i18n";
 
 type Strategy = Pick<StrategyDSL, "id" | "name" | "description" | "universe" | "entry" | "exit" | "risk">;
 const NO_STRATEGY_ID = "__none__";
@@ -83,17 +84,17 @@ export default function CreateAccountModal({
     setError("");
 
     if (!name.trim()) {
-      setError("계좌 이름을 입력해주세요.");
+      setError(t("계좌 이름을 입력해주세요."));
       return;
     }
 
     if (accountLimitReached) {
-      setError("현재 플랜의 가상계좌 수 한도에 도달했습니다.");
+      setError(t("현재 플랜의 가상계좌 수 한도에 도달했습니다."));
       return;
     }
 
     if (!selectedStrategyId) {
-      setError("전략을 선택해주세요.");
+      setError(t("전략을 선택해주세요."));
       return;
     }
 
@@ -116,7 +117,7 @@ export default function CreateAccountModal({
       setIsPromptVisible(false);
       onClose();
     } catch {
-      setError("계좌 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+      setError(t("계좌 생성에 실패했습니다. 잠시 후 다시 시도해 주세요."));
     } finally {
       setIsSubmitting(false);
     }
@@ -127,7 +128,7 @@ export default function CreateAccountModal({
       <div className="bg-[#111111] border border-white/[0.08] rounded-lg shadow-xl w-full max-w-md mx-4">
         <div className="flex items-center justify-between p-4 border-b border-white/[0.08]">
           <h2 className="text-lg font-semibold text-white">
-            가상계좌 만들기
+            {t("가상계좌 만들기")}
           </h2>
           <button
             onClick={() => {
@@ -144,7 +145,7 @@ export default function CreateAccountModal({
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
-              계좌 이름
+              {t("계좌 이름")}
             </label>
             <input
               type="text"
@@ -152,37 +153,37 @@ export default function CreateAccountModal({
               onChange={(e) => setName(e.target.value)}
               disabled={isSubmitting}
               className="w-full px-3 py-2 border border-white/[0.08] rounded-lg bg-[#171717] text-white placeholder:text-gray-600 focus:outline-none focus:border-white/[0.2]"
-              placeholder="예: 저PBR 전략, 모멘텀 전략, 가치주 전략..."
+              placeholder={t("예: 저PBR 전략, 모멘텀 전략, 가치주 전략...")}
               maxLength={20}
             />
           </div>
 
           <div className="rounded-lg border border-white/[0.08] bg-[#171717] p-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-300">계좌당 초기 모의 투자금</span>
+              <span className="text-sm font-medium text-gray-300">{t("계좌당 초기 모의 투자금")}</span>
               <span className="text-sm font-semibold text-white">
                 {planInfo
-                  ? `${planInfo.initialInvestmentAmount.toLocaleString("ko-KR")}원`
+                  ? t("{0}원", planInfo.initialInvestmentAmount.toLocaleString("ko-KR"))
                   : "—"}
               </span>
             </div>
             <div className="mt-2 flex items-center justify-between">
-              <span className="text-xs text-gray-500">사용 중인 계좌</span>
+              <span className="text-xs text-gray-500">{t("사용 중인 계좌")}</span>
               <span className={`text-xs font-semibold ${accountLimitReached ? "text-red-400" : "text-gray-400"}`}>
-                {planInfo ? `${planInfo.accountsUsed} / ${planInfo.accountsLimit}개` : "—"}
+                {planInfo ? t("{0} / {1}개", planInfo.accountsUsed, planInfo.accountsLimit) : "—"}
               </span>
             </div>
             {accountLimitReached && (
               <div className="mt-2 text-xs leading-5 text-red-400">
                 <p>
-                  현재 플랜의 가상계좌 수 한도에 도달했습니다. 요금제를 업그레이드하면 더 많은 계좌를 만들 수 있습니다.
+                  {t("현재 플랜의 가상계좌 수 한도에 도달했습니다. 요금제를 업그레이드하면 더 많은 계좌를 만들 수 있습니다.")}
                 </p>
                 <div className="mt-1 flex justify-end">
                   <a
                     href="/pricing"
                     className="inline-flex items-center rounded-[4px] border border-gray-500/50 px-1.5 py-px text-[9px] font-black text-gray-300 transition-colors hover:border-gray-300/70 hover:text-white"
                   >
-                    업그레이드
+                    {t("업그레이드")}
                   </a>
                 </div>
               </div>
@@ -191,7 +192,7 @@ export default function CreateAccountModal({
 
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
-              전략 선택
+              {t("전략 선택")}
             </label>
             <div className="relative">
               <button
@@ -208,12 +209,12 @@ export default function CreateAccountModal({
                   }
                 >
                   {loadingStrategies
-                    ? "로딩 중..."
+                    ? t("로딩 중...")
                     : isNoStrategySelected
-                    ? "전략 없음"
+                    ? t("전략 없음")
                     : selectedStrategy
                     ? selectedStrategy.name
-                    : "전략을 선택하세요"}
+                    : t("전략을 선택하세요")}
                 </span>
                 <CaretDown
                   size={16}
@@ -237,11 +238,11 @@ export default function CreateAccountModal({
                         : "text-white"
                     }`}
                   >
-                    전략 없음
+                    {t("전략 없음")}
                   </button>
                   {strategies.length === 0 ? (
                     <div className="px-3 py-2 text-sm text-gray-500">
-                      저장된 전략이 없습니다
+                      {t("저장된 전략이 없습니다")}
                     </div>
                   ) : (
                     strategies.map((strategy) => (
@@ -274,10 +275,10 @@ export default function CreateAccountModal({
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-white">
-                    운용 전략
+                    {t("운용 전략")}
                   </p>
                   <p className="mt-0.5 text-xs text-gray-500">
-                    선택한 전략의 핵심 조건을 먼저 확인합니다.
+                    {t("선택한 전략의 핵심 조건을 먼저 확인합니다.")}
                   </p>
                 </div>
                 {selectedStrategy.description && (
@@ -290,7 +291,7 @@ export default function CreateAccountModal({
                     disabled={isSubmitting}
                     className="shrink-0 rounded-md border border-white/[0.08] px-2.5 py-1 text-xs font-medium text-gray-300 transition-colors hover:bg-white/[0.06]"
                   >
-                    {isPromptVisible ? "프롬프트 숨기기" : "프롬프트 보기"}
+                    {isPromptVisible ? t("프롬프트 숨기기") : t("프롬프트 보기")}
                   </button>
                 )}
               </div>
@@ -311,7 +312,7 @@ export default function CreateAccountModal({
               {isPromptVisible && selectedStrategy.description && (
                 <div className="mt-3 rounded-lg border border-white/[0.08] bg-[#111111] p-3">
                   <p className="mb-1 text-xs font-semibold text-gray-500">
-                    사용자 프롬프트
+                    {t("사용자 프롬프트")}
                   </p>
                   <p className="whitespace-pre-wrap text-sm leading-6 text-gray-300">
                     {selectedStrategy.description}
@@ -325,11 +326,11 @@ export default function CreateAccountModal({
           {selectedStrategyId && !isNoStrategySelected && (
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                매매 방식
+                {t("매매 방식")}
               </label>
               <button
                 type="button"
-                aria-label={`전략 시뮬레이션 ${tradingMode === "auto" ? "ON" : "OFF"}`}
+                aria-label={t("전략 시뮬레이션 {0}", tradingMode === "auto" ? "ON" : "OFF")}
                 aria-pressed={tradingMode === "auto"}
                 disabled={isSubmitting}
                 onClick={() => {
@@ -349,7 +350,7 @@ export default function CreateAccountModal({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <p className={`text-sm font-semibold ${tradingMode === "auto" ? "text-blue-400" : "text-gray-300"}`}>
-                      전략 시뮬레이션
+                      {t("전략 시뮬레이션")}
                     </p>
                     <span
                       className={`rounded-full px-2 py-0.5 text-[10px] font-black tracking-wider ${
@@ -362,7 +363,7 @@ export default function CreateAccountModal({
                     </span>
                   </div>
                   <p className="mt-0.5 text-xs text-gray-500">
-                    전략 신호 기반 자동매매
+                    {t("전략 신호 기반 자동매매")}
                   </p>
                 </div>
               </button>
@@ -372,8 +373,8 @@ export default function CreateAccountModal({
                   : "bg-white/[0.04] text-gray-400"
               }`}>
                 {tradingMode === "auto"
-                  ? "전략 신호가 발생하면 현재가로 모의 주문이 실행됩니다."
-                  : "전략 시뮬레이션은 꺼져 있습니다. 계좌 생성 후에도 직접 켤 수 있습니다."}
+                  ? t("전략 신호가 발생하면 현재가로 모의 주문이 실행됩니다.")
+                  : t("전략 시뮬레이션은 꺼져 있습니다. 계좌 생성 후에도 직접 켤 수 있습니다.")}
               </p>
             </div>
           )}
@@ -389,7 +390,7 @@ export default function CreateAccountModal({
               disabled={isSubmitting}
               className="flex-1 px-4 py-2 border border-white/[0.08] rounded-lg text-gray-300 hover:bg-white/[0.06] transition-colors disabled:cursor-wait disabled:opacity-50"
             >
-              취소
+              {t("취소")}
             </button>
             <button
               type="submit"
@@ -401,7 +402,7 @@ export default function CreateAccountModal({
                 {isSubmitting ? (
                   <Spinner size={16} className="animate-spin" aria-hidden="true" />
                 ) : null}
-                {isSubmitting ? "계좌 생성중..." : "만들기"}
+                {isSubmitting ? t("계좌 생성중...") : t("만들기")}
               </span>
             </button>
           </div>

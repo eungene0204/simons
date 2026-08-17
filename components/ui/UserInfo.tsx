@@ -8,6 +8,7 @@ import {
   Trophy,
   IconProps,
 } from "phosphor-react";
+import { t } from "@/lib/i18n";
 
 interface UserInfoData {
   watchlistCount: number;
@@ -58,7 +59,7 @@ export default function UserInfo() {
     return (
       <div className="bg-[#1a1a1a] border-gray-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-800 w-full max-w-full overflow-x-hidden">
         <p className="text-gray-500 dark:text-gray-400">
-          사용자 정보를 불러올 수 없습니다.
+          {t("사용자 정보를 불러올 수 없습니다.")}
         </p>
       </div>
     );
@@ -102,39 +103,39 @@ export default function UserInfo() {
     <div className="bg-[#1a1a1a] border-gray-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-800 w-full max-w-full overflow-x-hidden">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-base sm:text-lg font-semibold text-white">
-          내 정보
+          {t("내 정보")}
         </h3>
         <button
           onClick={fetchUserInfo}
           className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
         >
-          새로고침
+          {t("새로고침")}
         </button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
         <InfoCard
           icon={Star}
-          label="관심종목"
+          label={t("관심종목")}
           value={userInfo.watchlistCount}
-          suffix="개"
+          suffix={t("개")}
         />
         <InfoCard
           icon={Briefcase}
-          label="보유계좌"
+          label={t("보유계좌")}
           value={userInfo.accountCount}
-          suffix="개"
+          suffix={t("개")}
         />
         <InfoCard
           icon={ChartLineUp}
-          label="현재 수익률"
+          label={t("현재 수익률")}
           value={userInfo.currentReturnRate}
           valueColor={returnColorClass}
           suffix="%"
         />
         <InfoCard
           icon={Trophy}
-          label="수익률 순위"
+          label={t("수익률 순위")}
           value={userInfo.returnRateRank}
           suffix={
             userInfo.totalUsers ? ` / ${userInfo.totalUsers.toLocaleString("ko-KR")}` : ""

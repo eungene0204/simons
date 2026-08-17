@@ -33,6 +33,7 @@ from engine.vi_utils import build_vi_display
 from nl_cache import nl_cache_key
 from stream_progress import build_backtest_stream_status, simulation_phase_label
 import cancellation
+import ui_language
 from engine.watchdog import (
     BacktestTimeoutError,
     backtest_timeout_s,
@@ -101,6 +102,16 @@ async def lifespan(_app):
     await shutdown()
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.middleware("http")
+async def bind_ui_language_middleware(request, call_next):
+    """프론트 프록시(lib/server/backend.ts)가 실어 보내는 X-UI-Language 헤더를 요청 컨텍스트에
+    묶는다 — LLM 자유 서술(되묻기 질문·리포트·일반 답변)의 언어 지시에 쓰인다. 스레드로 넘기는
+    엔드포인트(parse-stream)는 스레드 안에서 다시 bind 한다(contextvar는 스레드 비전파)."""
+    with ui_language.bind(request.headers.get("x-ui-language")):
+        return await call_next(request)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -2570,6 +2581,9 @@ def sync_stocks():
 
 class NLParseRequest(BaseModel):
     prompt: str
+    # UI 표시 언어("ko"|"en"). 영어면 LLM 자유 서술(되묻기 질문 등)을 영어로 쓰게 한다 —
+    # 결정론 문구·칩은 프론트 사전이 옮기므로 백엔드 프로토콜 값은 언어와 무관하다.
+    language: Optional[str] = None
     backend: str = "ollama"  # "mlx" | "ollama" — 기본값은 ollama (배포 환경 parity)
     model: Optional[str] = None  # None = 기본값 사용
     previous_parsed: Optional[dict] = None  # 수정 모드: 이전 파싱 결과
@@ -3087,7 +3101,8 @@ def _is_llm_connection_error(exc: BaseException) -> bool:
 @app.post("/strategy/parse", response_model=NLParseResponse)
 def parse_nl_strategy(request: NLParseRequest):
     """자연어 전략 설명을 ParsedStrategy + BacktestRequest로 변환"""
-    return _run_nl_parse(request)
+    with ui_language.bind(request.language or ui_language.get_ui_language()):
+        return _run_nl_parse(request)
 
 
 def _finalize_parse_result(result: dict, request: NLParseRequest) -> dict:
@@ -3983,8 +3998,11 @@ async def parse_nl_strategy_stream(request: NLParseRequest):
     def on_stage(stage: str):
         stage_holder["stage"] = stage
 
+    # UI 언어는 contextvar라 스레드로 전파되지 않는다 — 여기서 잡아 스레드 안에서 다시 묶는다.
+    request_language = request.language or ui_language.get_ui_language()
+
     def run_parse():
-        with cancellation.bind(cancel_token):
+        with cancellation.bind(cancel_token), ui_language.bind(request_language):
             try:
                 result_holder["data"] = _run_nl_parse(request, on_stage=on_stage, defer_holder=defer_holder)
             except cancellation.OperationCancelled:
@@ -4255,7 +4273,8 @@ def summarize_backtest(req: SummarizeRequest):
     )
 
     try:
-        raw = summarize_ollama(prompt, num_predict=2600)
+        # UI 언어가 영어면 리포트 서술을 영어로 쓰라는 지시를 붙인다(섹션 키·형식은 그대로).
+        raw = summarize_ollama(ui_language.append_directive(prompt), num_predict=2600)
         parsed = parse_expert_report(raw)
         runtime = {
             "backend": "ollama",

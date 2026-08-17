@@ -30,6 +30,8 @@ import {
   formatUsageValue,
   getUsagePercent,
 } from "./planUsageFormat";
+import LanguageToggle from "@/lib/i18n/LanguageToggle";
+import { getLocale, t } from "@/lib/i18n";
 
 const QuickSearchModal = dynamic(() => import("./QuickSearchModal"), {
   ssr: false,
@@ -110,16 +112,16 @@ type PlanUsageSummary = {
 };
 
 function formatWon(value: number) {
-  return `${Math.round(value).toLocaleString("ko-KR")}원`;
+  return t("{0}원", Math.round(value).toLocaleString("ko-KR"));
 }
 
 function formatPlanDate(value?: string | null) {
-  if (!value) return "미등록";
+  if (!value) return t("미등록");
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
 
-  return date.toLocaleDateString("ko-KR", {
+  return date.toLocaleDateString(getLocale(), {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -423,7 +425,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       const data = (await response.json()) as PlanUsageSummary;
       setPlanUsage(data);
     } catch {
-      setPlanError("플랜 정보를 불러오지 못했습니다.");
+      setPlanError(t("플랜 정보를 불러오지 못했습니다."));
     } finally {
       setIsPlanLoading(false);
     }
@@ -491,7 +493,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
     <>
       <nav
         className="flex items-center justify-between bg-black/40 px-4 py-3 backdrop-blur-xl lg:hidden"
-        aria-label="모바일 상단 내비게이션"
+        aria-label={t("모바일 상단 내비게이션")}
       >
         <div className="flex min-w-0 items-center gap-2">
           <Link
@@ -507,7 +509,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
               <image href="/nullStock.png" width="1408" height="768" />
             </svg>
             <span className="truncate text-[15px] font-black tracking-tight text-white">
-              널스탁
+              {t("널스탁")}
             </span>
           </Link>
           <span className="rounded-md bg-blue-500/15 px-1.5 py-0.5 text-[8px] font-black tracking-[0.12em] text-blue-300">
@@ -516,11 +518,12 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         </div>
 
         <div className="flex flex-shrink-0 items-center gap-1">
+          <LanguageToggle className="mr-1" />
           <button
             type="button"
             onClick={handleSearchClick}
             className="rounded-xl p-2.5 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white"
-            aria-label="검색 열기"
+            aria-label={t("검색 열기")}
           >
             <MagnifyingGlass size={20} weight="bold" />
           </button>
@@ -529,7 +532,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             onPointerUp={() => setIsMobileMenuOpen(true)}
             onClick={() => setIsMobileMenuOpen(true)}
             className="touch-manipulation rounded-xl p-2.5 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white"
-            aria-label="메뉴 열기"
+            aria-label={t("메뉴 열기")}
             aria-expanded={isMobileMenuOpen}
             aria-controls="mobile-navigation-drawer"
           >
@@ -578,7 +581,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                 filter="url(#nullstock-transparent-background)"
               />
             </svg>
-            <span className="text-[15px] font-black tracking-tight text-white">널스탁</span>
+            <span className="text-[15px] font-black tracking-tight text-white">{t("널스탁")}</span>
           </Link>
           <span className="rounded-md bg-blue-500/15 px-2 py-0.5 text-[9px] font-black tracking-[0.14em] text-blue-300">
             OPEN BETA
@@ -615,7 +618,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                     isActive ? "font-black" : "font-bold"
                   }`}
                 >
-                  {item.label}
+                  {t(item.label)}
                 </span>
               </Link>
             );
@@ -628,7 +631,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             type="button"
             onClick={handleSearchClick}
             className="group relative flex min-w-[180px] items-center rounded-xl border border-white/[0.1] bg-[#111116] px-2.5 py-1 text-left shadow-[0_8px_22px_rgba(0,0,0,0.22)] transition-all duration-200 hover:border-white/[0.18] hover:bg-[#17171d] xl:w-[160px] xl:min-w-0 min-[1320px]:w-auto min-[1320px]:min-w-[180px]"
-            aria-label="검색 열기"
+            aria-label={t("검색 열기")}
             data-testid="desktop-search-trigger"
           >
             <MagnifyingGlass size={18} className="mr-2.5 flex-shrink-0 text-gray-500 group-hover:text-gray-300" />
@@ -636,17 +639,20 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
               /
             </span>
             <span className="min-w-0 flex-1 truncate text-xs font-bold tracking-tight text-gray-500 group-hover:text-gray-300">
-              를 눌러 검색하세요
+              {t("를 눌러 검색하세요")}
             </span>
           </button>
         </div>
+
+        {/* Language toggle (KR / EN) — sits left of the profile */}
+        <LanguageToggle className="mr-3" />
 
         {/* User Profile */}
         {authState === "authenticated" ? (
           <button
             ref={profileButtonRef}
             type="button"
-            aria-label={`${userProfile.name} 사용자 메뉴`}
+            aria-label={t("{0} 사용자 메뉴", userProfile.name)}
             aria-expanded={isProfileMenuOpen}
             onClick={() => setIsProfileMenuOpen((open) => !open)}
             className="flex flex-shrink-0 items-center gap-3 rounded-full border border-white/[0.08] bg-black/40 py-1.5 pl-1.5 pr-3 text-white transition-colors duration-200 hover:border-white/[0.16] hover:bg-white/[0.04]"
@@ -677,7 +683,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             className="flex flex-shrink-0 items-center gap-2 rounded-full border border-white/[0.08] bg-white px-4 py-2 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <GoogleLogo size={18} weight="fill" />
-            <span>{isStartingLogin ? "로그인 준비 중..." : "Google 로그인"}</span>
+            <span>{isStartingLogin ? t("로그인 준비 중...") : t("Google 로그인")}</span>
           </button>
         ) : (
           <div
@@ -693,22 +699,22 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             type="button"
             className="absolute inset-0 bg-black/70"
             onClick={() => setIsMobileMenuOpen(false)}
-            aria-label="모바일 메뉴 닫기"
+            aria-label={t("모바일 메뉴 닫기")}
           />
           <aside
             id="mobile-navigation-drawer"
             role="dialog"
             aria-modal="true"
-            aria-label="모바일 메뉴"
+            aria-label={t("모바일 메뉴")}
             className="absolute inset-y-0 right-0 flex w-[min(86vw,320px)] flex-col border-l border-white/[0.08] bg-[#050505] shadow-2xl shadow-black/60"
           >
             <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-4">
-              <span className="text-sm font-black tracking-tight text-white">메뉴</span>
+              <span className="text-sm font-black tracking-tight text-white">{t("메뉴")}</span>
               <button
                 type="button"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="rounded-xl p-2 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white"
-                aria-label="메뉴 닫기"
+                aria-label={t("메뉴 닫기")}
               >
                 <X size={18} weight="bold" />
               </button>
@@ -736,7 +742,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                         weight={isActive ? "fill" : "regular"}
                         className={isActive ? "text-blue-400" : "text-gray-500"}
                       />
-                      <span className="text-sm font-black">{item.label}</span>
+                      <span className="text-sm font-black">{t(item.label)}</span>
                     </Link>
                   );
                 })}
@@ -748,7 +754,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                 className="mt-5 flex w-full items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-gray-400"
               >
                 <MagnifyingGlass size={20} weight="bold" />
-                <span>검색</span>
+                <span>{t("검색")}</span>
               </button>
             </div>
 
@@ -756,7 +762,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
               {authState === "authenticated" ? (
                 <button
                   type="button"
-                  aria-label={`${userProfile.name} 사용자 메뉴`}
+                  aria-label={t("{0} 사용자 메뉴", userProfile.name)}
                   onClick={() => {
                     setIsMobileMenuOpen(false);
                     setIsProfileMenuOpen(true);
@@ -779,7 +785,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                   className="flex w-full items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-black text-black disabled:opacity-60"
                 >
                   <GoogleLogo size={18} weight="fill" />
-                  <span>{isStartingLogin ? "로그인 준비 중..." : "Google 로그인"}</span>
+                  <span>{isStartingLogin ? t("로그인 준비 중...") : t("Google 로그인")}</span>
                 </button>
               ) : (
                 <div className="h-10 animate-pulse rounded-full bg-white/[0.06]" />
@@ -808,7 +814,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             className="flex w-full items-center gap-2 px-4 py-3 text-left text-xs font-black text-gray-300 transition-colors duration-200 hover:bg-white/[0.04] hover:text-white"
           >
             <Bank size={16} weight="bold" className="text-gray-500" />
-            <span>내 플랜</span>
+            <span>{t("내 플랜")}</span>
           </button>
           <button
             type="button"
@@ -819,7 +825,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             className="flex w-full items-center gap-2 px-4 py-3 text-left text-xs font-black text-gray-300 transition-colors duration-200 hover:bg-white/[0.04] hover:text-white"
           >
             <GearSix size={16} weight="bold" className="text-gray-500" />
-            <span>설정</span>
+            <span>{t("설정")}</span>
           </button>
           <button
             type="button"
@@ -828,7 +834,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             className="flex w-full items-center gap-2 px-4 py-3 text-left text-xs font-black text-gray-300 transition-colors duration-200 hover:bg-white/[0.04] hover:text-white disabled:cursor-wait disabled:opacity-60"
           >
             <SignOut size={16} weight="bold" className="text-gray-500" />
-            <span>{isLoggingOut ? "로그아웃 중..." : "로그아웃"}</span>
+            <span>{isLoggingOut ? t("로그아웃 중...") : t("로그아웃")}</span>
           </button>
         </div>
       )}
@@ -847,12 +853,12 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                   id="plan-summary-modal-title"
                   className="text-2xl font-black tracking-tight text-gray-400"
                 >
-                  내 플랜
+                  {t("내 플랜")}
                 </h2>
               </div>
               <button
                 type="button"
-                aria-label="내 플랜 모달 닫기"
+                aria-label={t("내 플랜 모달 닫기")}
                 onClick={() => setIsPlanModalOpen(false)}
                 className="rounded-full border border-white/[0.08] p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white"
               >
@@ -862,7 +868,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
 
             {isPlanLoading ? (
               <div className="px-6 py-12 text-center text-sm font-bold text-gray-500">
-                플랜 정보를 불러오는 중입니다.
+                {t("플랜 정보를 불러오는 중입니다.")}
               </div>
             ) : planError ? (
               <div className="px-6 py-12 text-center">
@@ -872,24 +878,24 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                   onClick={() => void handlePlanClick()}
                   className="mt-5 rounded-xl border border-white/[0.1] px-4 py-2 text-xs font-black text-gray-400 transition-colors hover:bg-white/[0.06]"
                 >
-                  다시 불러오기
+                  {t("다시 불러오기")}
                 </button>
               </div>
             ) : planUsage ? (
               <div className="space-y-7 px-6 py-6">
                 <section className="space-y-4">
                   {[
-                    ["현재 플랜", planUsage.plan.name],
+                    [t("현재 플랜"), planUsage.plan.name],
                     [
-                      "플랜 시작 날짜",
+                      t("플랜 시작 날짜"),
                       formatPlanDate(planUsage.plan.planStartDate),
                     ],
                     [
-                      "플랜 종료 날짜",
+                      t("플랜 종료 날짜"),
                       formatPlanDate(planUsage.plan.planEndDate),
                     ],
                     [
-                      "계좌당 초기 모의 투자금",
+                      t("계좌당 초기 모의 투자금"),
                       formatWon(planUsage.plan.initialInvestmentAmount),
                     ],
                   ].map(([label, value]) => (
@@ -913,7 +919,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                   </p>
                   {[
                     {
-                      label: "사용 중인 계좌",
+                      label: t("사용 중인 계좌"),
                       value: formatUsageValue(
                         planUsage.accounts.used,
                         planUsage.accounts.limit
@@ -925,7 +931,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                       sublabel: null as string | null,
                     },
                     {
-                      label: "저장 가능 전략",
+                      label: t("저장 가능 전략"),
                       value: formatUsageValue(
                         planUsage.strategies.used,
                         planUsage.strategies.limit,
@@ -939,7 +945,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                       sublabel: null as string | null,
                     },
                     {
-                      label: "백테스트 횟수",
+                      label: t("백테스트 횟수"),
                       value: formatUsageValue(
                         planUsage.backtests.used,
                         planUsage.backtests.limit
@@ -1024,15 +1030,15 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                 id="sidebar-login-modal-title"
                 className="text-2xl font-black tracking-tight text-white"
               >
-                로그인 후 이용할 수 있습니다
+                {t("로그인 후 이용할 수 있습니다")}
               </p>
               <p className="text-sm font-bold leading-relaxed text-gray-400">
-                Google로 3초만에 시작하세요
+                {t("Google로 3초만에 시작하세요")}
               </p>
             </div>
             <div className="mt-6 flex flex-col items-center gap-3">
               <p className="text-xs font-black text-[#ff6b6b]">
-                카드 등록 불필요
+                {t("카드 등록 불필요")}
               </p>
               <button
                 type="button"
@@ -1041,14 +1047,14 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                 className="flex items-center gap-2 rounded-full border border-white/[0.08] bg-white px-4 py-2 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <GoogleLogo size={18} weight="fill" />
-                <span>{isStartingLogin ? "로그인 준비 중..." : "Google로 시작하기"}</span>
+                <span>{isStartingLogin ? t("로그인 준비 중...") : t("Google로 시작하기")}</span>
               </button>
               <button
                 type="button"
                 onClick={() => setIsLoginModalOpen(false)}
                 className="text-sm font-black text-gray-400 transition-colors hover:text-white"
               >
-                취소
+                {t("취소")}
               </button>
             </div>
           </div>

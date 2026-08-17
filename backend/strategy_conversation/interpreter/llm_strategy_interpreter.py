@@ -331,6 +331,11 @@ class StrategyInterpreter:
     ) -> InterpreterResult:
         started = time.perf_counter()
         user_prompt = build_user_prompt(user_input, draft, pending_question)
+        # UI 언어가 영어면 자유 서술(clarification 질문 등)을 영어로 쓰라는 지시를 **사용자
+        # 프롬프트 끝**에 붙인다 — 시스템 프롬프트(프리픽스 캐시)는 언어와 무관하게 고정.
+        from ui_language import append_directive
+
+        user_prompt = append_directive(user_prompt)
         _log_llm("▶ 요청", f"{user_input!r}" + (" (수정 모드 — 전략 초안 포함)" if draft else ""))
         on_chunk: Optional[Callable[[str], None]] = None
         if on_stage is not None and draft is None and self._chat_accepts_chunks:

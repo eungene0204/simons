@@ -40,12 +40,32 @@ function combineSignals(callerSignal: AbortSignal | null | undefined, timeoutMs:
   return combined.signal;
 }
 
+// 요청 쿠키의 UI 언어를 백엔드에 X-UI-Language 헤더로 넘긴다 — 백엔드 LLM 자유 서술(되묻기
+// 질문·리포트·일반 답변)의 언어 지시에 쓰인다. 라우트 핸들러 밖(요청 컨텍스트 없음)이면 생략.
+function uiLanguageHeader(): Record<string, string> {
+  try {
+    // 정적 import를 피한다 — 이 모듈은 요청 컨텍스트 밖(스케줄러 등)에서도 쓰이므로 필요할 때만 읽는다.
+    const { cookies } = require("next/headers") as typeof import("next/headers");
+    const value = cookies().get("nullstock.lang")?.value;
+    return value === "en" || value === "ko" ? { "X-UI-Language": value } : {};
+  } catch {
+    return {};
+  }
+}
+
 export async function fetchBackend(
   path: string,
   init?: RequestInit & { timeoutMs?: number }
 ): Promise<Response> {
   const { timeoutMs, signal, ...requestInit } = init ?? {};
   const errors: string[] = [];
+  const callerHeaders =
+    requestInit.headers instanceof Headers
+      ? Object.fromEntries(requestInit.headers.entries())
+      : Array.isArray(requestInit.headers)
+        ? Object.fromEntries(requestInit.headers)
+        : ((requestInit.headers as Record<string, string> | undefined) ?? {});
+  requestInit.headers = { ...uiLanguageHeader(), ...callerHeaders };
 
   for (const baseUrl of getBackendBaseUrls()) {
     // 호출자가 이미 끊었으면(클라이언트 연결 종료) 다음 후보 URL로 넘어가지 않는다.

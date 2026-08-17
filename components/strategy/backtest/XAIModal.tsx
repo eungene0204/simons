@@ -10,6 +10,7 @@ import {
   ChartBar,
   Clock
 } from "phosphor-react";
+import { t } from "@/lib/i18n";
 
 interface XAIModalProps {
   isOpen: boolean;
@@ -110,15 +111,15 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                   <ChartBar className="w-5 h-5 text-main-blue" />
                 </div>
                 <div className="min-w-0">
-                  <h3 id="xai-modal-title" className="text-base font-black text-white lg:text-lg">AI 의사결정 분석 (XAI)</h3>
+                  <h3 id="xai-modal-title" className="text-base font-black text-white lg:text-lg">{t("AI 의사결정 분석 (XAI)")}</h3>
                   <p className="break-words text-xs text-gray-500 font-bold uppercase tracking-widest">
-                    {symbol} • {date} • 가중치 분석
+                    {t("{0} • {1} • 가중치 분석", symbol, date)}
                   </p>
                 </div>
               </div>
               <button 
                 onClick={onClose}
-                aria-label="XAI 분석 닫기"
+                aria-label={t("XAI 분석 닫기")}
                 className="flex-none p-2 hover:bg-white/5 rounded-full transition-colors"
               >
                 <X className="w-6 h-6 text-gray-400" />
@@ -136,8 +137,8 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                      <ArrowsClockwise className="w-10 h-10 text-main-blue/50" />
                    </motion.div>
                    <div className="text-center">
-                     <p className="text-white font-bold">모델 해석 중...</p>
-                     <p className="text-xs text-gray-500 mt-1">SHAP 연산을 위해 약 30-60초가 소요될 수 있습니다.</p>
+                     <p className="text-white font-bold">{t("모델 해석 중...")}</p>
+                     <p className="text-xs text-gray-500 mt-1">{t("SHAP 연산을 위해 약 30-60초가 소요될 수 있습니다.")}</p>
                    </div>
                 </div>
               ) : error ? (
@@ -145,13 +146,13 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                    <WarningCircle className="w-12 h-12 text-main-red/40" />
                    <div>
                      <p className="text-white font-bold">{error}</p>
-                     <p className="text-xs text-gray-500 mt-2">훈련 데이터셋에 해당 종목 정보가 부족할 수 있습니다.</p>
+                     <p className="text-xs text-gray-500 mt-2">{t("훈련 데이터셋에 해당 종목 정보가 부족할 수 있습니다.")}</p>
                    </div>
                    <button 
                      onClick={fetchXAI}
                      className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white text-sm font-bold rounded-xl transition-all"
                    >
-                     재시도
+                     {t("재시도")}
                    </button>
                 </div>
               ) : result ? (
@@ -159,21 +160,21 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                    {/* 1. Summary Cards */}
                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                      <div className="bg-[#161616] p-4 rounded-2xl border border-white/5">
-                        <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest block mb-2">분석 범위</span>
+                        <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest block mb-2">{t("분석 범위")}</span>
                         <div className="flex items-end gap-2">
-                           <span className="text-2xl font-black text-white">60일</span>
+                           <span className="text-2xl font-black text-white">{t("60일")}</span>
                            <span className="text-xs text-gray-500 mb-1 font-bold">Lookback Period</span>
                         </div>
                      </div>
                      <div className="bg-[#161616] p-4 rounded-2xl border border-white/5">
-                        <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest block mb-2">설명 모델</span>
+                        <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest block mb-2">{t("설명 모델")}</span>
                         <div className="flex items-end gap-2">
                            <span className="text-2xl font-black text-main-blue">KernelSHAP</span>
                            <span className="text-xs text-gray-500 mb-1 font-bold">Hybrid Model</span>
                         </div>
                      </div>
                      <div className="bg-[#161616] p-4 rounded-2xl border border-white/5">
-                        <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest block mb-2">분석 신뢰도</span>
+                        <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest block mb-2">{t("분석 신뢰도")}</span>
                         <div className="flex items-end gap-2">
                            <span className="text-2xl font-black text-main-green">High</span>
                            <span className="text-xs text-gray-500 mb-1 font-bold">nsamples=1000</span>
@@ -188,16 +189,16 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                         className="mb-3 flex flex-col items-start gap-2 lg:flex-row lg:items-center lg:justify-between"
                       >
                         <h4 className="text-sm font-black text-white flex items-center gap-2">
-                          <Clock className="w-4 h-4 text-gray-500" /> 시계열 특징 기여도 (SHAP Heatmap)
+                          <Clock className="w-4 h-4 text-gray-500" />{t(" 시계열 특징 기여도 (SHAP Heatmap)")}
                         </h4>
                         <div className="flex flex-wrap items-center gap-4 text-[10px] font-bold">
                            <div className="flex items-center gap-1.5">
                               <div className="w-2 h-2 rounded-full bg-main-blue" />
-                              <span className="text-gray-500">하락 요인</span>
+                              <span className="text-gray-500">{t("하락 요인")}</span>
                            </div>
                            <div className="flex items-center gap-1.5">
                               <div className="w-2 h-2 rounded-full bg-main-red" />
-                              <span className="text-gray-500">상승 요인</span>
+                              <span className="text-gray-500">{t("상승 요인")}</span>
                            </div>
                         </div>
                       </div>
@@ -208,7 +209,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                           <div className="w-20 flex-none py-8 flex flex-col justify-between lg:w-24">
                              {result.features.map(f => (
                                <span key={f} className="text-[9px] font-bold text-gray-500 text-right pr-3 truncate">
-                                 {FEATURE_LABELS[f] || f}
+                                 {t(FEATURE_LABELS[f] || f)}
                                </span>
                              ))}
                           </div>
@@ -233,8 +234,8 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                                 ))}
                              </div>
                              <div className="flex justify-between mt-2 px-1">
-                                <span className="text-[10px] text-gray-600 font-mono">-60일</span>
-                                <span className="text-[10px] text-gray-600 font-mono">현재 시점</span>
+                                <span className="text-[10px] text-gray-600 font-mono">{t("-60일")}</span>
+                                <span className="text-[10px] text-gray-600 font-mono">{t("현재 시점")}</span>
                              </div>
                           </div>
                         </div>
@@ -246,7 +247,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                       {/* Attention Map */}
                       <div>
                         <h4 className="text-[11px] font-black text-white mb-3 flex items-center gap-2">
-                           <Info className="w-4 h-4 text-gray-400" /> 모델 관심도 (Attention Map)
+                           <Info className="w-4 h-4 text-gray-400" />{t(" 모델 관심도 (Attention Map)")}
                         </h4>
                         <div className="bg-[#111] p-3 rounded-xl border border-white/5 h-32 flex items-end gap-[1px]">
                            {result.attention_map.map((v, i) => (
@@ -258,13 +259,13 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                              />
                            ))}
                         </div>
-                        <p className="text-[10px] text-gray-600 mt-2 italic">* Transformer 모델이 예측 시 어떤 과거 시점에 더 주목했는지 나타냅니다.</p>
+                        <p className="text-[10px] text-gray-600 mt-2 italic">{t("* Transformer 모델이 예측 시 어떤 과거 시점에 더 주목했는지 나타냅니다.")}</p>
                       </div>
 
                       {/* Feature Importance Bar Chart */}
                       <div>
                         <h4 className="text-sm font-black text-white mb-4 flex items-center gap-2">
-                           <ChartBar className="w-4 h-4 text-gray-500" /> 종합 특징 중요도 (Global Summary)
+                           <ChartBar className="w-4 h-4 text-gray-500" />{t(" 종합 특징 중요도 (Global Summary)")}
                         </h4>
                         <div className="space-y-3">
                            {result.features.map((f, i) => {
@@ -275,7 +276,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                              return (
                                <div key={f} className="space-y-1">
                                  <div className="flex justify-between text-[10px] font-bold">
-                                   <span className="text-gray-400">{FEATURE_LABELS[f] || f}</span>
+                                   <span className="text-gray-400">{t(FEATURE_LABELS[f] || f)}</span>
                                    <span className={val > 0 ? "text-main-red" : "text-main-blue"}>
                                      {val > 0 ? '+' : ''}{val.toFixed(4)}
                                    </span>
@@ -303,9 +304,8 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                <div className="flex items-start gap-3 bg-white/[0.03] p-3 rounded-xl border border-white/10">
                   <Info className="w-5 h-5 text-main-blue mt-0.5 flex-none" />
                   <p className="text-xs text-gray-400 leading-relaxed font-medium">
-                    <span className="text-main-blue font-black mr-1">분석 안내:</span>
-                    SHAP 값은 해당 시점의 특정 데이터가 AI 모델의 예측 확률(Long 확률)을 얼마나 변화시켰는지 나타냅니다. 
-                    붉은색은 매수 확률을 높인 긍정적 요인, 푸른색은 확률을 낮춘 부정적 요인입니다.
+                    <span className="text-main-blue font-black mr-1">{t("분석 안내:")}</span>
+                    {t("SHAP 값은 해당 시점의 특정 데이터가 AI 모델의 예측 확률(Long 확률)을 얼마나 변화시켰는지 나타냅니다. 붉은색은 매수 확률을 높인 긍정적 요인, 푸른색은 확률을 낮춘 부정적 요인입니다.")}
                   </p>
                </div>
             </div>

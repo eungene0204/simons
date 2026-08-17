@@ -15,6 +15,7 @@ import {
   Cell,
 } from "recharts";
 import type { DashboardStats } from "@/app/api/virtual-account/[id]/dashboard/route";
+import { formatCompactNumberEn, t } from "@/lib/i18n";
 
 interface Props {
   accountId: string;
@@ -25,8 +26,10 @@ const fmt = (n: number) =>
   new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 }).format(n);
 
 const fmtShort = (n: number) => {
-  if (Math.abs(n) >= 100_000_000) return `${(n / 100_000_000).toFixed(1)}억`;
-  if (Math.abs(n) >= 10_000) return `${(n / 10_000).toFixed(0)}만`;
+  const compactEn = formatCompactNumberEn(n);
+  if (compactEn !== null) return compactEn;
+  if (Math.abs(n) >= 100_000_000) return t("{0}억", (n / 100_000_000).toFixed(1));
+  if (Math.abs(n) >= 10_000) return t("{0}만", (n / 10_000).toFixed(0));
   return fmt(n);
 };
 
@@ -40,7 +43,7 @@ const formatSignedCurrency = (
   formatter: (amount: number) => string = fmt
 ) => {
   const normalized = Object.is(value, -0) ? 0 : value;
-  return `${normalized > 0 ? "+" : ""}${formatter(normalized)}원`;
+  return t("{0}{1}원", normalized > 0 ? "+" : "", formatter(normalized));
 };
 
 const formatSignedPercent = (value: number) =>
@@ -115,7 +118,7 @@ function SectionTitle({
 function EmptyChartState() {
   return (
     <div className="flex h-48 items-center justify-center text-xs font-bold text-gray-500">
-      거래 내역이 없습니다.
+      {t("거래 내역이 없습니다.")}
     </div>
   );
 }
@@ -138,10 +141,10 @@ function SymbolList({
     >
       <div className="min-w-[440px] lg:min-w-0" data-testid="symbol-list-table">
         <div className="grid grid-cols-[minmax(0,1fr)_72px_84px_110px] gap-2 px-2 mb-2">
-          <span className="text-xs font-bold uppercase tracking-widest text-gray-600">종목</span>
-          <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">거래</span>
-          <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">승률</span>
-          <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">실현손익</span>
+          <span className="text-xs font-bold uppercase tracking-widest text-gray-600">{t("종목")}</span>
+          <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">{t("거래")}</span>
+          <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">{t("승률")}</span>
+          <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">{t("실현손익")}</span>
         </div>
         <div className="border-t border-white/[0.05] mb-1" />
         <div className="divide-y divide-white/[0.04]">
@@ -174,7 +177,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       <p className="mb-1 font-bold text-gray-400">{label}</p>
       {payload.map((item: any) => (
         <p key={item.name} style={{ color: item.color ?? item.fill }}>
-          {item.name}: {fmt(item.value)} 원
+          {t("{0}: {1} 원", item.name, fmt(item.value))}
         </p>
       ))}
     </div>
@@ -199,7 +202,7 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
   if (loading) {
     return (
       <div className="flex h-48 items-center justify-center text-sm font-bold text-gray-400">
-        성과 데이터를 불러오는 중...
+        {t("성과 데이터를 불러오는 중...")}
       </div>
     );
   }
@@ -207,7 +210,7 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
   if (!stats) {
     return (
       <div className="flex h-48 items-center justify-center text-sm font-bold text-gray-400">
-        성과 데이터를 불러올 수 없습니다.
+        {t("성과 데이터를 불러올 수 없습니다.")}
       </div>
     );
   }
@@ -225,53 +228,53 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
   const metricRows = [
     [
       {
-        label: "총 실현 손익",
+        label: t("총 실현 손익"),
         value: formatSignedCurrency(Math.round(stats.totalRealizedPnl)),
-        sub: "누적 매도 체결 기준",
+        sub: t("누적 매도 체결 기준"),
         tone: metricTone(stats.totalRealizedPnl),
       },
       {
-        label: "실현 수익률",
+        label: t("실현 수익률"),
         value: formatSignedPercent(stats.totalReturn),
-        sub: `초기 자본 ${fmtShort(initialAmount)}원 기준`,
+        sub: t("초기 자본 {0}원 기준", fmtShort(initialAmount)),
         tone: metricTone(stats.totalReturn),
       },
       {
-        label: "승률",
+        label: t("승률"),
         value: hasTrades ? `${stats.winRate.toFixed(1)}%` : "-",
-        sub: hasTrades ? `${stats.winCount}승 ${stats.lossCount}패` : "거래 없음",
+        sub: hasTrades ? t("{0}승 {1}패", stats.winCount, stats.lossCount) : t("거래 없음"),
         tone: "neutral",
       },
       {
-        label: "손익비",
+        label: t("손익비"),
         value: hasTrades ? (stats.profitFactor >= 999 ? "∞" : stats.profitFactor.toFixed(2)) : "-",
-        sub: hasTrades ? `총 ${stats.totalTrades}건 체결` : "거래 없음",
+        sub: hasTrades ? t("총 {0}건 체결", stats.totalTrades) : t("거래 없음"),
         tone: "neutral",
       },
     ],
     [
       {
-        label: "평균 수익",
+        label: t("평균 수익"),
         value: formatSignedCurrency(stats.avgWin, fmtShort),
-        sub: "이익 거래 평균",
+        sub: t("이익 거래 평균"),
         tone: metricTone(stats.avgWin),
       },
       {
-        label: "평균 손실",
+        label: t("평균 손실"),
         value: formatSignedCurrency(stats.avgLoss, fmtShort),
-        sub: "손실 거래 평균",
+        sub: t("손실 거래 평균"),
         tone: metricTone(stats.avgLoss),
       },
       {
-        label: "총 수수료",
+        label: t("총 수수료"),
         value: formatSignedCurrency(Math.round(totalFees)),
-        sub: "누적 비용",
+        sub: t("누적 비용"),
         tone: metricTone(totalFees),
       },
       {
-        label: "총 증권거래세",
+        label: t("총 증권거래세"),
         value: formatSignedCurrency(Math.round(totalTax)),
-        sub: "누적 비용",
+        sub: t("누적 비용"),
         tone: metricTone(totalTax),
       },
     ],
@@ -301,8 +304,8 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
         <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
           <div className="lg:col-span-6 p-5">
             <SectionTitle
-              title="일별 손익"
-              description="최근 기간별 실현 손익 변동"
+              title={t("일별 손익")}
+              description={t("최근 기간별 실현 손익 변동")}
               right={
                 <div className="flex gap-1">
                   {([30, 60, 90] as const).map((range) => (
@@ -315,7 +318,7 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
                           : "text-gray-500 hover:text-gray-300"
                       }`}
                     >
-                      {range}일
+                      {t("{0}일", range)}
                     </button>
                   ))}
                 </div>
@@ -348,8 +351,8 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
 
           <div className="lg:col-span-4 p-5">
             <SectionTitle
-              title="승률 분포"
-              description="체결 거래 기준 승패 비중"
+              title={t("승률 분포")}
+              description={t("체결 거래 기준 승패 비중")}
               right={
                 <div className="text-right">
                   <p className="text-2xl font-black font-outfit tabular-nums text-white">
@@ -377,13 +380,13 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-xl bg-white/[0.04] p-4">
-                    <p className="text-xs font-bold uppercase tracking-widest text-gray-400">승</p>
+                    <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{t("승")}</p>
                     <p className="mt-2 text-2xl font-black font-outfit tabular-nums text-[var(--main-red)]">
                       {stats.winCount}
                     </p>
                   </div>
                   <div className="rounded-xl bg-white/[0.04] p-4">
-                    <p className="text-xs font-bold uppercase tracking-widest text-gray-400">패</p>
+                    <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{t("패")}</p>
                     <p className="mt-2 text-2xl font-black font-outfit tabular-nums text-[var(--main-blue)]">
                       {stats.lossCount}
                     </p>
@@ -391,13 +394,13 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
                 </div>
                 <div className="divide-y divide-white/[0.08]">
                   <div className="py-3 flex items-center justify-between gap-4">
-                    <p className="text-xs font-bold uppercase tracking-widest text-gray-600">평균 수익</p>
+                    <p className="text-xs font-bold uppercase tracking-widest text-gray-600">{t("평균 수익")}</p>
                     <p className={`text-sm font-black font-outfit tabular-nums ${valueTone(stats.avgWin)}`}>
                       {formatSignedCurrency(stats.avgWin, fmtShort)}
                     </p>
                   </div>
                   <div className="py-3 flex items-center justify-between gap-4">
-                    <p className="text-xs font-bold uppercase tracking-widest text-gray-600">평균 손실</p>
+                    <p className="text-xs font-bold uppercase tracking-widest text-gray-600">{t("평균 손실")}</p>
                     <p className={`text-sm font-black font-outfit tabular-nums ${valueTone(stats.avgLoss)}`}>
                       {formatSignedCurrency(stats.avgLoss, fmtShort)}
                     </p>
@@ -413,8 +416,8 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
         <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
           <div className="lg:col-span-4 p-5">
             <SectionTitle
-              title="누적 손익"
-              description="일별 누적 실현 손익 추이"
+              title={t("누적 손익")}
+              description={t("일별 누적 실현 손익 추이")}
               right={undefined}
             />
             {hasTrades ? (
@@ -447,8 +450,8 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
 
           <div className="lg:col-span-6 p-5">
             <SectionTitle
-              title="월별 손익"
-              description="최근 12개월 실현 손익 분포"
+              title={t("월별 손익")}
+              description={t("최근 12개월 실현 손익 분포")}
               right={
                 <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-400">
                   12M
@@ -479,18 +482,18 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
         <div className="grid grid-cols-1 lg:grid-cols-10 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
           <div className="lg:col-span-5 p-5">
             <SectionTitle
-              title="수익 상위 종목"
-              description="실현 손익 기준 상위 5개"
+              title={t("수익 상위 종목")}
+              description={t("실현 손익 기준 상위 5개")}
             />
-            <SymbolList items={topSymbols} emptyLabel="수익 종목이 없습니다." />
+            <SymbolList items={topSymbols} emptyLabel={t("수익 종목이 없습니다.")} />
           </div>
 
           <div className="lg:col-span-5 p-5">
             <SectionTitle
-              title="손실 하위 종목"
-              description="실현 손익 기준 하위 5개"
+              title={t("손실 하위 종목")}
+              description={t("실현 손익 기준 하위 5개")}
             />
-            <SymbolList items={bottomSymbols} emptyLabel="손실 종목이 없습니다." />
+            <SymbolList items={bottomSymbols} emptyLabel={t("손실 종목이 없습니다.")} />
           </div>
         </div>
     </div>

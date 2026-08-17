@@ -14,6 +14,7 @@ import {
   LineType,
   SeriesMarker,
 } from "lightweight-charts";
+import { t } from "@/lib/i18n";
 
 export interface EquityDataPoint {
   time: string; // YYYY-MM-DD
@@ -61,13 +62,13 @@ const dateToTimestamp = (dateStr: string): UTCTimestamp => {
 const formatCompactPrice = (price: number): string => {
   if (price >= 100000000) {
     // 1억 이상
-    return `${(price / 100000000).toFixed(1)}억`;
+    return t("{0}억", (price / 100000000).toFixed(1));
   } else if (price >= 10000) {
     // 1만 이상
-    return `${(price / 10000).toFixed(0)}만`;
+    return t("{0}만", (price / 10000).toFixed(0));
   } else if (price >= 1000) {
     // 1천 이상
-    return `${(price / 1000).toFixed(1)}천`;
+    return t("{0}천", (price / 1000).toFixed(1));
   }
   return price.toFixed(0);
 };
@@ -255,7 +256,7 @@ export default function BacktestChart({
             tickMarkFormatter: (time: UTCTimestamp) => {
               const date = new Date((time as number) * 1000);
               if (type === "seasonal_returns") {
-                 return `${date.getMonth() + 1}월`;
+                 return t("{0}월", date.getMonth() + 1);
               }
               // Default formatting for other types
               return date.toISOString().split('T')[0];
@@ -274,7 +275,7 @@ export default function BacktestChart({
             timeFormatter: (timestamp: number) => {
               const date = new Date(timestamp * 1000);
               if (type === "seasonal_returns") {
-                 return `${date.getMonth() + 1}월`;
+                 return t("{0}월", date.getMonth() + 1);
               }
               return date.toISOString().split('T')[0];
             },
@@ -473,7 +474,7 @@ export default function BacktestChart({
             const headerLabel =
               type === "equity" || type === "drawdown" || type === "rolling_returns"
                 ? date.toISOString().split("T")[0]
-                : `${date.getMonth() + 1}월 수익률`;
+                : t("{0}월 수익률", date.getMonth() + 1);
 
             let tooltipContent = `<div class="font-bold text-gray-400 mb-1 border-b border-gray-800 pb-1">${headerLabel}</div>`;
             tooltipContent += `<div class="flex flex-col gap-1 mt-1">`;
@@ -490,7 +491,7 @@ export default function BacktestChart({
                     <div class="flex items-center justify-between gap-4">
                       <div class="flex items-center gap-1.5">
                         <div class="w-1.5 h-1.5 rounded-full" style="background-color: ${color}"></div>
-                        <span class="text-white text-[10px]">${year}년:</span>
+                        <span class="text-white text-[10px]">${t("{0}년", year)}:</span>
                       </div>
                       <span class="font-mono text-[10px] ${val >= 0 ? "text-main-red" : "text-main-blue"}">${val >= 0 ? "+" : ""}${val.toFixed(2)}%</span>
                     </div>
@@ -504,7 +505,7 @@ export default function BacktestChart({
                 if (eqData && "value" in eqData) {
                   tooltipContent += `
                     <div class="text-white text-[10px] flex justify-between gap-4">
-                      <span>나의 전략:</span>
+                      <span>${t("나의 전략")}:</span>
                       <span class="text-main-red font-mono font-bold">${formatValue(eqData.value as number)}</span>
                     </div>
                   `;
@@ -516,7 +517,7 @@ export default function BacktestChart({
                 if (bhData && "value" in bhData) {
                   tooltipContent += `
                     <div class="text-white text-[10px] flex justify-between gap-4">
-                      <span>벤치마크:</span>
+                      <span>${t("벤치마크")}:</span>
                       <span class="text-main-green font-mono font-bold">${formatValue(bhData.value as number)}</span>
                     </div>
                   `;
@@ -541,7 +542,7 @@ export default function BacktestChart({
                 if (ddData && "value" in ddData) {
                   tooltipContent += `
                     <div class="text-white text-[10px] flex justify-between gap-4">
-                      <span>낙폭:</span>
+                      <span>${t("낙폭")}:</span>
                       <span class="text-main-red font-mono font-bold">${(ddData.value as number).toFixed(2)}%</span>
                     </div>
                   `;
@@ -555,7 +556,7 @@ export default function BacktestChart({
                   const val = rollData.value as number;
                   tooltipContent += `
                     <div class="text-white text-[10px] flex justify-between gap-4">
-                      <span>롤링 수익률:</span>
+                      <span>${t("롤링 수익률")}:</span>
                       <span class="font-mono font-bold ${val >= 0 ? "text-main-red" : "text-main-blue"}">${val >= 0 ? "+" : ""}${val.toFixed(2)}%</span>
                     </div>
                   `;
@@ -707,11 +708,11 @@ export default function BacktestChart({
           <>
             <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
                <div className="w-2.5 h-2.5 rounded-full bg-[#0f62fe]" />
-               <span className="text-[10px] font-bold text-white">나의 전략</span>
+               <span className="text-[10px] font-bold text-white">{t("나의 전략")}</span>
             </div>
             <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
                <div className="w-2.5 h-2.5 rounded-full bg-main-green" />
-               <span className="text-[10px] font-bold text-white">벤치마크</span>
+               <span className="text-[10px] font-bold text-white">{t("벤치마크")}</span>
             </div>
             {vbtEquityChartData.length > 0 && (
               <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
@@ -727,7 +728,7 @@ export default function BacktestChart({
           {type === "rolling_returns" && (
             <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
                <div className="w-2.5 h-2.5 rounded-full bg-[#ef4444]" />
-               <span className="text-[10px] font-bold text-white">롤링 수익률</span>
+               <span className="text-[10px] font-bold text-white">{t("롤링 수익률")}</span>
             </div>
           )}
           {type === "monthly_returns" && (
@@ -736,7 +737,7 @@ export default function BacktestChart({
                   <div className="w-2.5 h-2.5 rounded-full bg-main-red" />
                   <div className="w-2.5 h-2.5 rounded-full bg-main-blue" />
                </div>
-               <span className="text-[10px] font-bold text-white">월간 수익/손실</span>
+               <span className="text-[10px] font-bold text-white">{t("월간 수익/손실")}</span>
             </div>
           )}
           {type === "seasonal_returns" && (
@@ -747,7 +748,7 @@ export default function BacktestChart({
                         className="w-2 h-2 rounded-full" 
                         style={{ backgroundColor: YEAR_COLORS[idx % YEAR_COLORS.length] }} 
                      />
-                     <span className="text-[10px] font-bold text-white">{year}년</span>
+                     <span className="text-[10px] font-bold text-white">{t("{0}년", year)}</span>
                   </div>
                ))}
             </div>

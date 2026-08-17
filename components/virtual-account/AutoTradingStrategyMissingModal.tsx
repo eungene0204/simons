@@ -1,5 +1,6 @@
 "use client";
 
+import { t } from "@/lib/i18n";
 interface AutoTradingStrategyMissingModalProps {
   isOpen: boolean;
   title?: string;
@@ -11,8 +12,8 @@ interface AutoTradingStrategyMissingModalProps {
 
 export default function AutoTradingStrategyMissingModal({
   isOpen,
-  title = "자동매매 설정",
-  description = "자동매매를 시작하려면 저장된 전략이 필요합니다.",
+  title = t("자동매매 설정"),
+  description = t("자동매매를 시작하려면 저장된 전략이 필요합니다."),
   isCreatingStrategy = false,
   onClose,
   onCreateStrategy,
@@ -33,7 +34,7 @@ export default function AutoTradingStrategyMissingModal({
 
         <div className="px-5 py-6 text-center">
           <p className="text-sm font-bold text-white">
-            아직 저장된 전략이 없습니다. 전략을 만들어 보세요
+            {t("아직 저장된 전략이 없습니다. 전략을 만들어 보세요")}
           </p>
         </div>
 
@@ -43,7 +44,7 @@ export default function AutoTradingStrategyMissingModal({
             onClick={onClose}
             className="rounded-xl bg-white/[0.06] px-4 py-2 text-xs font-bold text-gray-400 transition-colors hover:bg-white/[0.1] hover:text-white"
           >
-            취소
+            {t("취소")}
           </button>
           <button
             type="button"
@@ -51,7 +52,7 @@ export default function AutoTradingStrategyMissingModal({
             disabled={isCreatingStrategy}
             className="rounded-xl bg-[var(--main-blue)] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-[var(--main-blue)]/85 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {isCreatingStrategy ? "이동 중..." : "전략 만들기"}
+            {isCreatingStrategy ? t("이동 중...") : t("전략 만들기")}
           </button>
         </div>
       </div>

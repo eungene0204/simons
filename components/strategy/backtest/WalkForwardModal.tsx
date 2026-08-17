@@ -16,6 +16,7 @@ import ResultPlainSummary, { buildWalkForwardPlainSummary } from "./ResultPlainS
 import RunProgressModal from "./RunProgressModal";
 import SaveValidationButton from "./SaveValidationButton";
 import { saveValidation, buildWalkForwardSummary } from "../../../lib/validation-storage";
+import { t } from "@/lib/i18n";
 
 export interface WalkForwardSettings {
   n_splits: number;
@@ -135,23 +136,23 @@ type OptimizationMethod = "bayesian" | "grid";
 
 // 초 단위를 "약 3분", "약 1시간 20분", "1분 미만"처럼 사람이 읽는 문구로 바꾼다.
 function formatDurationApprox(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "1분 미만";
+  if (!Number.isFinite(seconds) || seconds <= 0) return t("1분 미만");
   const totalMinutes = Math.round(seconds / 60);
-  if (totalMinutes < 1) return "1분 미만";
-  if (totalMinutes < 60) return `약 ${totalMinutes}분`;
+  if (totalMinutes < 1) return t("1분 미만");
+  if (totalMinutes < 60) return t("약 {0}분", totalMinutes);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  return minutes > 0 ? `약 ${hours}시간 ${minutes}분` : `약 ${hours}시간`;
+  return minutes > 0 ? t("약 {0}시간 {1}분", hours, minutes) : t("약 {0}시간", hours);
 }
 
 // 예측은 오차가 크므로 점 추정 대신 ±범위로 보여준다. (하한 0.7배 ~ 상한 1.4배)
 function formatDurationRange(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "1분 미만";
+  if (!Number.isFinite(seconds) || seconds <= 0) return t("1분 미만");
   const lowMin = Math.max(1, Math.round((seconds * 0.7) / 60));
   const highMin = Math.max(lowMin, Math.round((seconds * 1.4) / 60));
-  const fmt = (min: number) => (min < 60 ? `${min}분` : min % 60 === 0 ? `${min / 60}시간` : `${Math.floor(min / 60)}시간 ${min % 60}분`);
-  if (lowMin === highMin) return `약 ${fmt(lowMin)}`;
-  return `약 ${fmt(lowMin)} ~ ${fmt(highMin)}`;
+  const fmt = (min: number) => (min < 60 ? t("{0}분", min) : min % 60 === 0 ? t("{0}시간", min / 60) : t("{0}시간 {1}분", Math.floor(min / 60), min % 60));
+  if (lowMin === highMin) return t("약 {0}", fmt(lowMin));
+  return t("약 {0} ~ {1}", fmt(lowMin), fmt(highMin));
 }
 // 백엔드 engine/grid_optimizer.py의 MAX_GRID_COMBINATIONS와 동일한 값으로 유지한다.
 const MAX_GRID_COMBINATIONS = 500;
@@ -222,7 +223,7 @@ function formatStepValue(value: number) {
 }
 
 function formatStepWithUnit(value: number, unit: string) {
-  return `${formatStepValue(value)}${unit}`;
+  return `${formatStepValue(value)}${t(unit)}`;
 }
 
 function formatParameterInputValue(value: number) {
@@ -265,18 +266,18 @@ function formatDateLabel(date?: string) {
 }
 
 function formatBarsLabel(bars: number) {
-  return `${bars.toLocaleString()}거래일`;
+  return t("{0}거래일", bars.toLocaleString());
 }
 
 function formatApproxDuration(bars: number) {
   const years = bars / 252;
   if (years >= 1) {
     const roundedYears = years >= 2 ? Math.round(years * 10) / 10 : Math.round(years * 100) / 100;
-    return `약 ${roundedYears}년`;
+    return t("약 {0}년", roundedYears);
   }
 
   const months = Math.max(1, Math.round(bars / 21));
-  return `약 ${months}개월`;
+  return t("약 {0}개월", months);
 }
 
 function deriveMinWindowBars(totalBars: number) {
@@ -469,7 +470,7 @@ const WFE_TIERS = [
 ];
 
 const getWfeTone = (wfe: number) => {
-  const tier = WFE_TIERS.find((t) => wfe >= t.min) ?? WFE_TIERS[WFE_TIERS.length - 1];
+  const tier = WFE_TIERS.find((tv) => wfe >= tv.min) ?? WFE_TIERS[WFE_TIERS.length - 1];
   return {
     ...tier,
     // 음수 WFE는 학습 대비 검증이 손실이라는 뜻이므로 값 폰트를 파란색으로 구분한다.
@@ -514,7 +515,7 @@ function HelpTooltip({ label, children }: { label: string; children: ReactNode }
     <span className="group relative inline-flex">
       <button
         type="button"
-        aria-label={`${label} 도움말`}
+        aria-label={t("{0} 도움말", label)}
         className="flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/25 text-[10px] font-black leading-none text-gray-400 transition-colors hover:border-white/50 hover:text-white focus:border-white/60 focus:text-white focus:outline-none"
       >
         ?
@@ -544,7 +545,7 @@ export function WalkForwardPanel({
   onClose,
   maxHeightClass = "",
   canRun = true,
-  disabledReason = "워크포워드 분석을 실행할 수 없습니다.",
+  disabledReason = t("워크포워드 분석을 실행할 수 없습니다."),
   loadedResult = null,
   strategyName,
   promptText,
@@ -755,15 +756,15 @@ export function WalkForwardPanel({
     try {
       const res = await onRun(derivedSettings, controller.signal, handleProgress);
       if (res.status === "error") {
-        setError(res.message || "분석 중 오류가 발생했습니다.");
+        setError(res.message || t("분석 중 오류가 발생했습니다."));
       } else {
         setResult(res);
       }
     } catch (e: any) {
       if (controller.signal.aborted) {
-        setError("분석을 취소했습니다.");
+        setError(t("분석을 취소했습니다."));
       } else {
-        setError(e.message || "알 수 없는 오류가 발생했습니다.");
+        setError(e.message || t("알 수 없는 오류가 발생했습니다."));
       }
     } finally {
       setIsRunning(false);
@@ -822,7 +823,7 @@ export function WalkForwardPanel({
     if (config.allowedValues) {
       const selectedValues = stepModalDraft.values ?? [];
       if (selectedValues.length === 0) {
-        setStepModalError("최소 1개 값을 선택해 주세요.");
+        setStepModalError(t("최소 1개 값을 선택해 주세요."));
         return;
       }
       setStepModalError(null);
@@ -846,13 +847,13 @@ export function WalkForwardPanel({
     }
 
     if (!Number.isFinite(stepModalDraft.min) || !Number.isFinite(stepModalDraft.max)) {
-      setStepModalError("하한값과 상한값을 입력해 주세요.");
+      setStepModalError(t("하한값과 상한값을 입력해 주세요."));
       return;
     }
     const min = Number(stepModalDraft.min.toFixed(4));
     const max = Number(stepModalDraft.max.toFixed(4));
     if (min > max) {
-      setStepModalError("하한값은 상한값보다 클 수 없습니다.");
+      setStepModalError(t("하한값은 상한값보다 클 수 없습니다."));
       return;
     }
     setStepModalError(null);
@@ -940,9 +941,9 @@ export function WalkForwardPanel({
     ? remainingBacktests * avgBacktestSec
     : null;
   const runDisabledReason = gridSearchExceedsCap
-    ? `조합 수(${gridSearchEstimate.toLocaleString()}개)가 상한(${MAX_GRID_COMBINATIONS.toLocaleString()}개)을 초과했습니다. 파라미터 범위나 step을 조정해 주세요.`
+    ? t("조합 수({0}개)가 상한({1}개)을 초과했습니다. 파라미터 범위나 step을 조정해 주세요.", gridSearchEstimate.toLocaleString(), MAX_GRID_COMBINATIONS.toLocaleString())
     : windowCountExceedsCap
-      ? `구간 수(${derivedSettings.n_splits}개)가 상한(${MAX_WALK_FORWARD_WINDOWS}개)을 초과했습니다. 학습기간이나 검증기간을 늘려 주세요.`
+      ? t("구간 수({0}개)가 상한({1}개)을 초과했습니다. 학습기간이나 검증기간을 늘려 주세요.", derivedSettings.n_splits, MAX_WALK_FORWARD_WINDOWS)
       : disabledReason;
   const isRunBlocked = !onRun || !canRun || gridSearchExceedsCap || windowCountExceedsCap;
   const isRunDisabled = isRunning || isRunBlocked;
@@ -952,7 +953,7 @@ export function WalkForwardPanel({
         <div data-testid="walk-forward-panel" className="w-full overflow-hidden rounded-xl border border-white/[0.08] bg-[var(--background)]">
           <RunProgressModal
             open={isRunning || !!error}
-            title="워크포워드 분석"
+            title={t("워크포워드 분석")}
             isRunning={isRunning}
             progressRatio={
               runProgress?.total
@@ -964,12 +965,12 @@ export function WalkForwardPanel({
             progressLabel={
               runProgress?.stage === "window" && runProgress.total
                 ? runProgress.trial_total
-                  ? `${runProgress.window}/${runProgress.total} 구간 · ${runProgress.trial ?? 0}/${runProgress.trial_total} 시도`
-                  : `${runProgress.window}/${runProgress.total} 구간 분석 중`
+                  ? t("{0}/{1} 구간 · {2}/{3} 시도", runProgress.window, runProgress.total, runProgress.trial ?? 0, runProgress.trial_total)
+                  : t("{0}/{1} 구간 분석 중", runProgress.window, runProgress.total)
                 : runProgress?.stage === "prepare"
-                  ? runProgress.message ?? "백테스트 기간 데이터를 확인하는 중..."
+                  ? runProgress.message ?? t("백테스트 기간 데이터를 확인하는 중...")
                   : isRunning
-                    ? "분석을 준비하는 중..."
+                    ? t("분석을 준비하는 중...")
                     : undefined
             }
             detail={
@@ -977,32 +978,32 @@ export function WalkForwardPanel({
                 <>
                   {runProgress.is_period && (
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-gray-500">학습 구간</span>
+                      <span className="text-gray-500">{t("학습 구간")}</span>
                       <span className="tabular-nums text-white">{runProgress.is_period}</span>
                     </div>
                   )}
                   {runProgress.oos_period && (
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-gray-500">검증 구간</span>
+                      <span className="text-gray-500">{t("검증 구간")}</span>
                       <span className="tabular-nums text-white">{runProgress.oos_period}</span>
                     </div>
                   )}
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-gray-500">최적화 방법</span>
+                    <span className="text-gray-500">{t("최적화 방법")}</span>
                     <span className="text-white">
-                      {isGridMethod ? "그리드 탐색" : `베이지안 최적화 (${formState.n_trials}회 시도)`}
+                      {isGridMethod ? t("그리드 탐색") : t("베이지안 최적화 ({0}회 시도)", formState.n_trials)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-gray-500">예상 남은 시간</span>
+                    <span className="text-gray-500">{t("예상 남은 시간")}</span>
                     <span className="tabular-nums text-white">
-                      {liveEtaSeconds != null ? formatDurationApprox(liveEtaSeconds) : "측정 중..."}
+                      {liveEtaSeconds != null ? formatDurationApprox(liveEtaSeconds) : t("측정 중...")}
                     </span>
                   </div>
                   {runProgress.timing && (
                     <div className="mt-1 border-t border-white/[0.06] pt-2">
                       <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">
-                        최근 백테스트
+                        {t("최근 백테스트")}
                       </p>
                       <div className="mt-1.5 space-y-1 tabular-nums">
                         <div className="flex items-center justify-between gap-3">
@@ -1010,15 +1011,15 @@ export function WalkForwardPanel({
                             Phase1
                             <HelpTooltip label="Phase1">
                               <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
-                                Phase1 · 데이터 로드 + 신호 계산
+                                {t("Phase1 · 데이터 로드 + 신호 계산")}
                               </span>
                               <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                                어떤 날 사고 팔지 후보를 계산하는 단계입니다. 종목별로 가격 데이터를 불러오고 지표(RSI·이동평균 등)와 매매 신호를 만듭니다.
+                                {t("어떤 날 사고 팔지 후보를 계산하는 단계입니다. 종목별로 가격 데이터를 불러오고 지표(RSI·이동평균 등)와 매매 신호를 만듭니다.")}
                               </span>
                             </HelpTooltip>
                           </span>
                           <span className="text-white">
-                            {runProgress.timing.phase1.toFixed(2)}s ({runProgress.timing.symbols.toLocaleString()}종목)
+                            {t("{0}s ({1}종목)", runProgress.timing.phase1.toFixed(2), runProgress.timing.symbols.toLocaleString())}
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-3">
@@ -1026,10 +1027,10 @@ export function WalkForwardPanel({
                             Simulator
                             <HelpTooltip label="Simulator">
                               <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
-                                Simulator · 매매 시뮬레이션
+                                {t("Simulator · 매매 시뮬레이션")}
                               </span>
                               <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                                계산된 신호대로 실제로 사고팔았다고 돌려보는 단계입니다. 날짜별 체결·보유 종목·현금과 손절·익절 같은 리스크 종료를 추적합니다.
+                                {t("계산된 신호대로 실제로 사고팔았다고 돌려보는 단계입니다. 날짜별 체결·보유 종목·현금과 손절·익절 같은 리스크 종료를 추적합니다.")}
                               </span>
                             </HelpTooltip>
                           </span>
@@ -1040,17 +1041,17 @@ export function WalkForwardPanel({
                             Format
                             <HelpTooltip label="Format">
                               <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
-                                Format · 성과 지표 정리
+                                {t("Format · 성과 지표 정리")}
                               </span>
                               <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                                돌린 결과를 CAGR·MDD 같은 숫자로 정리하는 단계입니다. 수익곡선, 종목별 통계, 벤치마크 비교도 여기서 계산합니다.
+                                {t("돌린 결과를 CAGR·MDD 같은 숫자로 정리하는 단계입니다. 수익곡선, 종목별 통계, 벤치마크 비교도 여기서 계산합니다.")}
                               </span>
                             </HelpTooltip>
                           </span>
                           <span className="text-white">{runProgress.timing.format.toFixed(2)}s</span>
                         </div>
                         <div className="flex items-center justify-between gap-3">
-                          <span className="text-gray-400">총 소요</span>
+                          <span className="text-gray-400">{t("총 소요")}</span>
                           <span className="font-black text-white">{runProgress.timing.total.toFixed(2)}s</span>
                         </div>
                       </div>
@@ -1068,13 +1069,13 @@ export function WalkForwardPanel({
             {!result && (
               <div className="grid grid-cols-1 divide-y divide-white/[0.08] lg:grid-cols-2 lg:divide-x lg:divide-y-0">
                 <section className="p-5">
-                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500">기본 설정</p>
+                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("기본 설정")}</p>
                   <div className="mt-4 divide-y divide-white/[0.04] border-t border-white/[0.05]">
                     <div className="py-4">
                       <div className="flex items-start justify-between gap-4">
                         <div>
                           <label htmlFor="walk-forward-train-bars" className="text-xs font-bold uppercase tracking-widest text-gray-500">
-                            학습기간
+                            {t("학습기간")}
                           </label>
                           <p className="mt-2 text-base font-black text-white font-outfit">
                             {formatBarsLabel(formState.trainBars)}
@@ -1091,7 +1092,7 @@ export function WalkForwardPanel({
                       </div>
                       <input
                         id="walk-forward-train-bars"
-                        aria-label="학습기간"
+                        aria-label={t("학습기간")}
                         type="range"
                         min={minWindowBars}
                         max={maxTrainBars}
@@ -1110,7 +1111,7 @@ export function WalkForwardPanel({
                       <div className="flex items-start justify-between gap-4">
                         <div>
                           <label htmlFor="walk-forward-validation-bars" className="text-xs font-bold uppercase tracking-widest text-gray-500">
-                            검증기간
+                            {t("검증기간")}
                           </label>
                           <p className="mt-2 text-base font-black text-white font-outfit">
                             {formatBarsLabel(formState.validationBars)}
@@ -1120,7 +1121,7 @@ export function WalkForwardPanel({
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">첫 검증 구간</p>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{t("첫 검증 구간")}</p>
                           <p className="mt-2 text-xs font-bold leading-5 text-gray-300">
                             {formatDateLabel(firstValidationStart ?? undefined)} - {formatDateLabel(firstValidationEnd ?? undefined)}
                           </p>
@@ -1128,7 +1129,7 @@ export function WalkForwardPanel({
                       </div>
                       <input
                         id="walk-forward-validation-bars"
-                        aria-label="검증기간"
+                        aria-label={t("검증기간")}
                         type="range"
                         min={minWindowBars}
                         max={maxValidationBars}
@@ -1149,45 +1150,45 @@ export function WalkForwardPanel({
                             className="absolute inset-y-0 left-0 flex min-w-0 items-center justify-center rounded-md border border-white/[0.18] px-2.5 text-[9px] font-black uppercase tracking-widest text-white"
                             style={{ width: `${timelineTrainPct}%` }}
                           >
-                            <span className="truncate">학습기간</span>
+                            <span className="truncate">{t("학습기간")}</span>
                           </div>
                           <div
                             data-testid="walk-forward-timeline-validation"
                             className="absolute inset-y-0 flex min-w-0 items-center justify-center rounded-md border border-white/[0.18] bg-white/[0.08] px-2.5 text-[9px] font-black uppercase tracking-widest text-white"
                             style={{ left: `${timelineTrainPct}%`, width: `${timelineValidationPct}%` }}
                           >
-                            <span className="truncate">검증기간</span>
+                            <span className="truncate">{t("검증기간")}</span>
                           </div>
                         </div>
                       </div>
                     </div>
 
                     <div className="py-4">
-                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">설정 요약</p>
+                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("설정 요약")}</p>
                       <div className="mt-3 grid grid-cols-1 gap-3 text-xs font-bold text-gray-300 md:grid-cols-2">
                         <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
-                          <p className="uppercase tracking-widest text-gray-500">백테스트 범위</p>
+                          <p className="uppercase tracking-widest text-gray-500">{t("백테스트 범위")}</p>
                           <p className="mt-2 leading-5 text-white">{formatDateLabel(periodStart)} - {formatDateLabel(periodEnd)}</p>
                         </div>
                         <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
-                          <p className="uppercase tracking-widest text-gray-500">예상 구간 수</p>
+                          <p className="uppercase tracking-widest text-gray-500">{t("예상 구간 수")}</p>
                           <p className="mt-2 flex items-center gap-2 leading-5">
                             <span className={windowCountExceedsCap ? "text-amber-300" : "text-white"}>
-                              {derivedSettings.n_splits}개
+                              {t("{0}개", derivedSettings.n_splits)}
                             </span>
                             {windowCountExceedsCap && (
                               <span className="inline-flex rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-amber-300">
-                                상한 초과
+                                {t("상한 초과")}
                               </span>
                             )}
                           </p>
                         </div>
                         <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
-                          <p className="uppercase tracking-widest text-gray-500">훈련 비율</p>
+                          <p className="uppercase tracking-widest text-gray-500">{t("훈련 비율")}</p>
                           <p className="mt-2 leading-5 text-white">{Math.round(derivedSettings.train_pct * 100)}%</p>
                         </div>
                         <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
-                          <p className="uppercase tracking-widest text-gray-500">총 관측치</p>
+                          <p className="uppercase tracking-widest text-gray-500">{t("총 관측치")}</p>
                           <p className="mt-2 leading-5 text-white">{formatBarsLabel(totalBars)}</p>
                         </div>
                       </div>
@@ -1196,20 +1197,20 @@ export function WalkForwardPanel({
                 </section>
 
                 <section className="p-5">
-                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500">최적화 설정</p>
+                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("최적화 설정")}</p>
                   <div className="mt-4 divide-y divide-white/[0.04] border-t border-white/[0.05]">
                     <div className="py-4">
                       <div className="flex items-center gap-1.5">
-                        <p className="text-xs font-bold uppercase tracking-widest text-gray-500">최적화 대상 파라미터</p>
-                        <HelpTooltip label="최적화 대상 파라미터">
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("최적화 대상 파라미터")}</p>
+                        <HelpTooltip label={t("최적화 대상 파라미터")}>
                           <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
-                            최적화 대상 파라미터
+                            {t("최적화 대상 파라미터")}
                           </span>
                           <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                            현재 전략에 실제 포함된 숫자 파라미터만 표시됩니다. 각 파라미터를 눌러 탐색 범위와 step을 조정하거나 최적화에서 제외할 수 있고, 제외한 파라미터는 원래 설정값을 그대로 사용합니다.
+                            {t("현재 전략에 실제 포함된 숫자 파라미터만 표시됩니다. 각 파라미터를 눌러 탐색 범위와 step을 조정하거나 최적화에서 제외할 수 있고, 제외한 파라미터는 원래 설정값을 그대로 사용합니다.")}
                           </span>
                           <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
-                            예: PBR, 손절라인을 선택하면 각 학습 구간에서 PBR 임계값과 손절 비율의 조합을 다시 찾고, 보유기간·보유종목수는 기존 설정을 그대로 씁니다.
+                            {t("예: PBR, 손절라인을 선택하면 각 학습 구간에서 PBR 임계값과 손절 비율의 조합을 다시 찾고, 보유기간·보유종목수는 기존 설정을 그대로 씁니다.")}
                           </span>
                         </HelpTooltip>
                       </div>
@@ -1223,7 +1224,7 @@ export function WalkForwardPanel({
                               <button
                                 key={target.id}
                                 type="button"
-                                aria-label={target.label}
+                                aria-label={t(target.label)}
                                 onClick={() => openStepModal(target)}
                                 className={`flex min-h-[86px] flex-col justify-between rounded-lg p-4 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 ${
                                   isExcluded
@@ -1232,14 +1233,14 @@ export function WalkForwardPanel({
                                 }`}
                               >
                                 <span className="text-sm font-black leading-5">
-                                  {target.label}
+                                  {t(target.label)}
                                 </span>
                                 <span
                                   data-testid={`walk-forward-target-range-${target.label}`}
                                   className="mt-3 text-[11px] font-bold leading-4 tabular-nums tracking-wide text-gray-500"
                                 >
                                   {isExcluded
-                                    ? "제외됨"
+                                    ? t("제외됨")
                                     : range?.values
                                       ? range.values.map((value) => formatStepWithUnit(value, unit)).join(", ")
                                       : range
@@ -1252,12 +1253,12 @@ export function WalkForwardPanel({
                         </div>
                       ) : (
                         <p className="mt-3 text-sm font-bold leading-6 text-gray-400">
-                          현재 전략에서 조정 가능한 숫자 파라미터를 찾지 못했습니다.
+                          {t("현재 전략에서 조정 가능한 숫자 파라미터를 찾지 못했습니다.")}
                         </p>
                       )}
                     </div>
                     <div className="py-4">
-                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">최적화 방법</p>
+                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("최적화 방법")}</p>
                       <div className="mt-3 grid gap-2 md:grid-cols-2">
                         {OPTIMIZATION_METHOD_OPTIONS.map((method) => {
                           const active = formState.optimizationMethod === method.value;
@@ -1274,9 +1275,9 @@ export function WalkForwardPanel({
                               }`}
                             >
                               <span className="flex items-center justify-center">
-                                <span className="text-sm font-black text-white">{method.label}</span>
+                                <span className="text-sm font-black text-white">{t(method.label)}</span>
                               </span>
-                              <span className="mt-2 block text-left text-xs font-bold leading-5 text-gray-400">{method.body}</span>
+                              <span className="mt-2 block text-left text-xs font-bold leading-5 text-gray-400">{t(method.body)}</span>
                             </button>
                           );
                         })}
@@ -1287,9 +1288,9 @@ export function WalkForwardPanel({
                         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
                           <div className="flex items-start justify-between gap-4">
                             <div>
-                              <p className="text-xs font-bold uppercase tracking-widest text-gray-500">그리드 탐색 예상</p>
+                              <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("그리드 탐색 예상")}</p>
                               <p className="mt-2 text-sm font-black leading-6 text-white">
-                                현재 파라미터 범위 기준으로 약 {gridSearchEstimate.toLocaleString()}개 조합을 확인할 수 있습니다.
+                                {t("현재 파라미터 범위 기준으로 약 {0}개 조합을 확인할 수 있습니다.", gridSearchEstimate.toLocaleString())}
                               </p>
                             </div>
                             <span
@@ -1299,28 +1300,28 @@ export function WalkForwardPanel({
                                   : "bg-white/[0.06] text-gray-400"
                               }`}
                             >
-                              {gridSearchExceedsCap ? "상한 초과" : "실행 가능"}
+                              {gridSearchExceedsCap ? t("상한 초과") : t("실행 가능")}
                             </span>
                           </div>
                           <p className="mt-3 text-xs font-bold leading-5 text-gray-400">
                             {gridSearchExceedsCap
-                              ? `조합 수가 상한(${MAX_GRID_COMBINATIONS.toLocaleString()}개)을 초과해 실행할 수 없습니다. 파라미터 범위나 step을 조정해 조합 수를 줄여 주세요.`
-                              : "설정한 범위 안의 모든 조합을 각 워크포워드 구간에서 전수 실행합니다."}
+                              ? t("조합 수가 상한({0}개)을 초과해 실행할 수 없습니다. 파라미터 범위나 step을 조정해 조합 수를 줄여 주세요.", MAX_GRID_COMBINATIONS.toLocaleString())
+                              : t("설정한 범위 안의 모든 조합을 각 워크포워드 구간에서 전수 실행합니다.")}
                           </p>
                         </div>
                       ) : (
                         <>
                           <div className="flex items-center gap-1.5">
-                            <p className="text-xs font-bold uppercase tracking-widest text-gray-500">베이지안 최적화 시도 횟수</p>
-                            <HelpTooltip label="베이지안 최적화 시도 횟수">
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("베이지안 최적화 시도 횟수")}</p>
+                            <HelpTooltip label={t("베이지안 최적화 시도 횟수")}>
                               <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
-                                베이지안 최적화 시도 횟수
+                                {t("베이지안 최적화 시도 횟수")}
                               </span>
                               <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                                각 워크포워드 구간에서 파라미터 조합을 몇 번 탐색할지 정합니다. 횟수가 늘면 더 많은 조합을 계산하지만 실행 시간이 길어집니다.
+                                {t("각 워크포워드 구간에서 파라미터 조합을 몇 번 탐색할지 정합니다. 횟수가 늘면 더 많은 조합을 계산하지만 실행 시간이 길어집니다.")}
                               </span>
                               <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
-                                예: 30회는 손절 5/7/10%, 이동평균 20/60일 같은 후보 조합을 최대 30번 평가해 과거 학습 구간의 목표 지표가 높게 나온 조합을 기록합니다.
+                                {t("예: 30회는 손절 5/7/10%, 이동평균 20/60일 같은 후보 조합을 최대 30번 평가해 과거 학습 구간의 목표 지표가 높게 나온 조합을 기록합니다.")}
                               </span>
                             </HelpTooltip>
                           </div>
@@ -1331,7 +1332,7 @@ export function WalkForwardPanel({
                                 onClick={() => setFormState((current) => ({ ...current, n_trials: value }))}
                                 className={buttonClass(formState.n_trials === value)}
                               >
-                                {value}회
+                                {t("{0}회", value)}
                               </button>
                             ))}
                           </div>
@@ -1344,23 +1345,23 @@ export function WalkForwardPanel({
                           <div className="flex items-start justify-between gap-4">
                             <div>
                               <div className="flex items-center gap-1.5">
-                                <p className="text-xs font-bold uppercase tracking-widest text-gray-500">예상 소요 시간</p>
-                                <HelpTooltip label="예상 소요 시간">
+                                <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("예상 소요 시간")}</p>
+                                <HelpTooltip label={t("예상 소요 시간")}>
                                   <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
-                                    예상 소요 시간
+                                    {t("예상 소요 시간")}
                                   </span>
                                   <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                                    총 {totalBacktests.toLocaleString()}회 백테스트(구간 {derivedSettings.n_splits}개 × 구간당 {(backtestsPerWindow + 1).toLocaleString()}회)를 기준 백테스트 실측 속도로 추정한 값입니다.
+                                    {t("총 {0}회 백테스트(구간 {1}개 × 구간당 {2}회)를 기준 백테스트 실측 속도로 추정한 값입니다.", totalBacktests.toLocaleString(), derivedSettings.n_splits, (backtestsPerWindow + 1).toLocaleString())}
                                   </span>
                                   <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
-                                    실제 시간은 데이터 로딩·서버 상황·조건 조합에 따라 달라질 수 있으며, 실행을 시작하면 실측값으로 남은 시간을 다시 계산합니다.
+                                    {t("실제 시간은 데이터 로딩·서버 상황·조건 조합에 따라 달라질 수 있으며, 실행을 시작하면 실측값으로 남은 시간을 다시 계산합니다.")}
                                   </span>
                                 </HelpTooltip>
                               </div>
                               <p className="mt-2 text-sm font-black leading-6 text-white">
                                 {isRunBlocked
-                                  ? "현재 상태에서는 실행할 수 없습니다."
-                                  : `${estimatedDurationLabel} 소요될 것으로 예상됩니다.`}
+                                  ? t("현재 상태에서는 실행할 수 없습니다.")
+                                  : t("{0} 소요될 것으로 예상됩니다.", estimatedDurationLabel)}
                               </p>
                             </div>
                             <span
@@ -1370,7 +1371,7 @@ export function WalkForwardPanel({
                                   : "bg-white/[0.06] text-gray-400"
                               }`}
                             >
-                              {isRunBlocked ? "실행 불가" : `총 ${totalBacktests.toLocaleString()}회`}
+                              {isRunBlocked ? t("실행 불가") : t("총 {0}회", totalBacktests.toLocaleString())}
                             </span>
                           </div>
                           {isRunBlocked ? (
@@ -1378,11 +1379,11 @@ export function WalkForwardPanel({
                               data-testid="walk-forward-run-blocked-reason"
                               className="mt-3 text-xs font-bold leading-5 text-amber-300"
                             >
-                              충족되지 않은 조건: {runDisabledReason}
+                              {t("충족되지 않은 조건: {0}", runDisabledReason)}
                             </p>
                           ) : (
                             <p className="mt-3 text-xs font-bold leading-5 text-gray-400">
-                              시간이 오래 걸리는 작업입니다. 실행 중에는 창을 닫지 말고 진행 상황을 확인해 주세요.
+                              {t("시간이 오래 걸리는 작업입니다. 실행 중에는 창을 닫지 말고 진행 상황을 확인해 주세요.")}
                             </p>
                           )}
                         </div>
@@ -1390,23 +1391,23 @@ export function WalkForwardPanel({
                     )}
                     <div className="py-4">
                       <div className="flex items-center gap-1.5">
-                        <p className="text-xs font-bold uppercase tracking-widest text-gray-500">학습 창 방식</p>
-                        <HelpTooltip label="학습 창 방식">
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("학습 창 방식")}</p>
+                        <HelpTooltip label={t("학습 창 방식")}>
                           <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
-                            학습 창 방식
+                            {t("학습 창 방식")}
                           </span>
                           <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                            학습 구간은 파라미터를 맞추는 구간입니다. 롤링은 학습과 검증 창이 함께 이동하고, 확장은 학습 구간을 시작일부터 누적해 넓힙니다.
+                            {t("학습 구간은 파라미터를 맞추는 구간입니다. 롤링은 학습과 검증 창이 함께 이동하고, 확장은 학습 구간을 시작일부터 누적해 넓힙니다.")}
                           </span>
                           <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
-                            예: 롤링은 2020-2021 학습 후 2022 검증, 다음에는 2021-2022 학습 후 2023 검증처럼 이동합니다. 확장은 2020-2021 학습 후 2022 검증, 다음에는 2020-2022 학습 후 2023 검증처럼 누적합니다.
+                            {t("예: 롤링은 2020-2021 학습 후 2022 검증, 다음에는 2021-2022 학습 후 2023 검증처럼 이동합니다. 확장은 2020-2021 학습 후 2022 검증, 다음에는 2020-2022 학습 후 2023 검증처럼 누적합니다.")}
                           </span>
                         </HelpTooltip>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {[
-                          { value: false, label: "롤링" },
-                          { value: true, label: "확장" },
+                          { value: false, label: t("롤링") },
+                          { value: true, label: t("확장") },
                         ].map((item) => (
                           <button
                             key={String(item.value)}
@@ -1426,7 +1427,7 @@ export function WalkForwardPanel({
             {result && (
               <div className="divide-y divide-white/[0.08]">
                 <div className="flex items-center gap-3 px-5 py-3">
-                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500">워크포워드 검증 결과</p>
+                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("워크포워드 검증 결과")}</p>
                 </div>
                 <section className="p-5">
                   <ResultPlainSummary items={buildWalkForwardPlainSummary(result)} />
@@ -1442,30 +1443,26 @@ export function WalkForwardPanel({
                               {(wfe * 100).toFixed(1)}%
                             </span>
                             <span className={`px-2 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${wfeTone.badgeClass}`}>
-                              {wfeTone.emoji} {wfeTone.text}
+                              {wfeTone.emoji} {t(wfeTone.text)}
                             </span>
                           </div>
                           <p className="mt-3 text-xs font-bold leading-5 text-gray-400">
-                            {wfeTone.description}
+                            {t(wfeTone.description)}
                           </p>
 
                           <div className="mt-5 border-t border-white/[0.06] pt-4">
                             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                              WFE란?
+                              {t("WFE란?")}
                             </p>
                             <p className="mt-2 text-xs font-bold leading-5 text-gray-400">
-                              워크포워드 검증은 과거 구간을 학습·검증으로 번갈아 나눠, 학습 구간에서
-                              최적화한 설정을 그다음 검증 구간에 적용하는 방식입니다. WFE는 이때{" "}
-                              <span className="text-gray-300">검증 구간 평균 수익률을 학습 구간
-                              평균 수익률로 나눈 값</span>으로, 학습 구간에 맞춘 설정이 처음 보는 구간에서도
-                              유지되는지를 나타냅니다. 100%에 가까울수록 두 구간의 성과 차이가 작고, 낮을수록
-                              특정 구간에만 맞춰진 과최적화 가능성이 큽니다.
+                              {t("워크포워드 검증은 과거 구간을 학습·검증으로 번갈아 나눠, 학습 구간에서 최적화한 설정을 그다음 검증 구간에 적용하는 방식입니다. WFE는 이때")}{" "}
+                              <span className="text-gray-300">{t("검증 구간 평균 수익률을 학습 구간 평균 수익률로 나눈 값")}</span>{t("으로, 학습 구간에 맞춘 설정이 처음 보는 구간에서도 유지되는지를 나타냅니다. 100%에 가까울수록 두 구간의 성과 차이가 작고, 낮을수록 특정 구간에만 맞춰진 과최적화 가능성이 큽니다.")}
                             </p>
                           </div>
 
                           <div className="mt-4">
                             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                              등급 기준
+                              {t("등급 기준")}
                             </p>
                             <div className="mt-2 space-y-0.5">
                               {WFE_TIERS.map((tier) => {
@@ -1485,14 +1482,14 @@ export function WalkForwardPanel({
                                         active ? tier.valueClass : "text-gray-500"
                                       }`}
                                     >
-                                      {tier.emoji} {tier.text}
+                                      {tier.emoji} {t(tier.text)}
                                     </span>
                                     <span
                                       className={`flex-1 text-[11px] font-bold leading-4 ${
                                         active ? "text-gray-300" : "text-gray-600"
                                       }`}
                                     >
-                                      {tier.summary}
+                                      {t(tier.summary)}
                                     </span>
                                   </div>
                                 );
@@ -1505,11 +1502,11 @@ export function WalkForwardPanel({
                           <div className="mt-3 flex items-end gap-3">
                             <span className="text-4xl font-black tabular-nums text-gray-500 font-outfit">-</span>
                             <span className="bg-white/[0.06] px-2 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-gray-400">
-                              해석 불가
+                              {t("해석 불가")}
                             </span>
                           </div>
                           <p className="mt-3 text-xs font-bold leading-5 text-gray-400">
-                            학습 구간 평균 수익률이 0 이하라 검증/학습 비율을 해석할 수 없습니다. 구간별 결과를 직접 확인해 주세요.
+                            {t("학습 구간 평균 수익률이 0 이하라 검증/학습 비율을 해석할 수 없습니다. 구간별 결과를 직접 확인해 주세요.")}
                           </p>
                         </>
                       )}
@@ -1517,18 +1514,18 @@ export function WalkForwardPanel({
                   </section>
                   <section className="lg:col-span-4">
                     <div className="p-5">
-                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">검증기간 평균 성과</p>
+                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("검증기간 평균 성과")}</p>
                       <div className="mt-4 grid grid-cols-3 gap-x-4 gap-y-4">
                         {[
                           { key: "avg_oos_cagr", label: "CAGR", suffix: "%" },
-                          { key: "avg_oos_totalReturn", label: "총 수익률", suffix: "%" },
+                          { key: "avg_oos_totalReturn", label: t("총 수익률"), suffix: "%" },
                           { key: "avg_oos_maxDrawdown", label: "MDD", suffix: "%" },
                           { key: "avg_oos_sharpe", label: "Sharpe", suffix: "" },
                           { key: "avg_oos_calmar", label: "Calmar", suffix: "" },
-                          { key: "avg_oos_winRate", label: "승률", suffix: "%" },
-                          { key: "avg_oos_profitFactor", label: "손익비", suffix: "" },
-                          { key: "avg_oos_trades", label: "평균 거래 수", suffix: "" },
-                          { key: "avg_oos_expectancy", label: "평균 거래손익", suffix: "%" },
+                          { key: "avg_oos_winRate", label: t("승률"), suffix: "%" },
+                          { key: "avg_oos_profitFactor", label: t("손익비"), suffix: "" },
+                          { key: "avg_oos_trades", label: t("평균 거래 수"), suffix: "" },
+                          { key: "avg_oos_expectancy", label: t("평균 거래손익"), suffix: "%" },
                         ].map((item) => (
                           <div key={item.key} className="space-y-1">
                             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{item.label}</p>
@@ -1542,12 +1539,12 @@ export function WalkForwardPanel({
                   </section>
                   <section className="lg:col-span-3">
                     <div className="p-5">
-                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">실행 설정</p>
+                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("실행 설정")}</p>
                       <div className="mt-3 divide-y divide-white/[0.04] border-t border-white/[0.05]">
                         {[
-                          { label: "분할 수", value: `${result.n_splits}개` },
-                          { label: "학습 창 방식", value: result.anchor ? "확장" : "롤링" },
-                          { label: "목표 지표", value: TARGET_METRICS.find((metric) => metric.id === result.target_metric)?.label ?? result.target_metric },
+                          { label: t("분할 수"), value: t("{0}개", result.n_splits) },
+                          { label: t("학습 창 방식"), value: result.anchor ? t("확장") : t("롤링") },
+                          { label: t("목표 지표"), value: t(TARGET_METRICS.find((metric) => metric.id === result.target_metric)?.label ?? result.target_metric) },
                         ].map((item) => (
                           <div key={item.label} className="flex items-center justify-between gap-3 py-3">
                             <span className="text-xs font-bold uppercase tracking-widest text-gray-500">{item.label}</span>
@@ -1560,7 +1557,7 @@ export function WalkForwardPanel({
                 </div>
 
                 <section className="p-5">
-                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500">구간별 결과</p>
+                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("구간별 결과")}</p>
                   <div className="mt-4 overflow-x-auto">
                     <div className="min-w-[760px]">
                       <div className="grid grid-cols-[64px_minmax(0,1fr)_minmax(0,1fr)_88px_88px_88px_88px] gap-2 px-2">
@@ -1571,7 +1568,7 @@ export function WalkForwardPanel({
                               index >= 3 ? "text-center" : ""
                             }`}
                           >
-                            {label}
+                            {t(label)}
                           </span>
                         ))}
                       </div>
@@ -1587,7 +1584,7 @@ export function WalkForwardPanel({
                             >
                               <div className="flex items-center gap-2">
                                 <span className="text-sm font-black text-white font-outfit">W{window.window}</span>
-                                {window.error && <span className="text-[10px] font-black uppercase tracking-widest text-[var(--main-blue)]">오류</span>}
+                                {window.error && <span className="text-[10px] font-black uppercase tracking-widest text-[var(--main-blue)]">{t("오류")}</span>}
                               </div>
                               <span className="truncate text-xs font-bold text-gray-400 tabular-nums">{window.is_period}</span>
                               <span className="truncate text-xs font-bold text-gray-400 tabular-nums">{window.oos_period}</span>
@@ -1606,7 +1603,7 @@ export function WalkForwardPanel({
                 </section>
 
                 <section className="p-5">
-                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500">구간별 최적 파라미터</p>
+                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("구간별 최적 파라미터")}</p>
                   <div className="mt-4 overflow-x-auto">
                     <table
                       data-testid="walk-forward-optimal-parameters-table"
@@ -1616,11 +1613,11 @@ export function WalkForwardPanel({
                       <thead>
                         <tr className="border-b border-white/[0.12]">
                           <th scope="col" className="w-20 px-3 py-4 text-xs font-black text-gray-400">Walk</th>
-                          <th scope="col" className="w-52 px-3 py-4 text-xs font-black text-gray-400">학습 기간</th>
-                          <th scope="col" className="w-52 px-3 py-4 text-xs font-black text-gray-400">검증 기간</th>
+                          <th scope="col" className="w-52 px-3 py-4 text-xs font-black text-gray-400">{t("학습 기간")}</th>
+                          <th scope="col" className="w-52 px-3 py-4 text-xs font-black text-gray-400">{t("검증 기간")}</th>
                           {resultParameterKeys.map((key) => (
                             <th key={key} scope="col" className="w-36 px-3 py-4 text-xs font-black text-gray-400">
-                              최적 {paramLabelByKey[key] ?? humanizeParamKey(key)}
+                              {t("최적 {0}", paramLabelByKey[key] ?? humanizeParamKey(key))}
                             </th>
                           ))}
                         </tr>
@@ -1630,7 +1627,7 @@ export function WalkForwardPanel({
                           <tr key={window.window} className="transition-colors hover:bg-white/[0.02]">
                             <td className="px-3 py-4 text-sm font-black text-white font-outfit">
                               {window.window}
-                              {window.error && <span className="ml-2 text-[10px] text-[var(--main-blue)]">오류</span>}
+                              {window.error && <span className="ml-2 text-[10px] text-[var(--main-blue)]">{t("오류")}</span>}
                             </td>
                             <td className="px-3 py-4 text-sm font-bold tabular-nums text-gray-300">{window.is_period}</td>
                             <td className="px-3 py-4 text-sm font-bold tabular-nums text-gray-300">{window.oos_period}</td>
@@ -1655,16 +1652,14 @@ export function WalkForwardPanel({
                         id="walk-forward-parameter-analysis-title"
                         className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit"
                       >
-                        워크포워드 파라미터 분석
+                        {t("워크포워드 파라미터 분석")}
                       </p>
-                      <HelpTooltip label="워크포워드 파라미터 분석">
+                      <HelpTooltip label={t("워크포워드 파라미터 분석")}>
                         <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
-                          파라미터 분석 산정 기준
+                          {t("파라미터 분석 산정 기준")}
                         </span>
                         <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                          대표값은 구간별 최적값의 중앙값입니다. 안정성은 변동계수(표준편차 ÷ 평균 절댓값)가
-                          5% 이하일 때 5점, 10% 이하 4점, 20% 이하 3점, 35% 이하 2점, 초과 시 1점입니다.
-                          별점은 구간별 값의 일관성만 나타냅니다.
+                          {t("대표값은 구간별 최적값의 중앙값입니다. 안정성은 변동계수(표준편차 ÷ 평균 절댓값)가 5% 이하일 때 5점, 10% 이하 4점, 20% 이하 3점, 35% 이하 2점, 초과 시 1점입니다. 별점은 구간별 값의 일관성만 나타냅니다.")}
                         </span>
                       </HelpTooltip>
                     </div>
@@ -1679,11 +1674,11 @@ export function WalkForwardPanel({
                           <div className="mt-3 border-t border-white/[0.10]" />
                           <dl className="mt-3 space-y-2.5">
                             {[
-                              { label: "대표값", value: formatParameterAnalysisValue(analysis.representative) },
-                              { label: "평균", value: formatParameterAnalysisValue(analysis.mean) },
-                              { label: "표준편차", value: formatParameterAnalysisValue(analysis.standardDeviation) },
+                              { label: t("대표값"), value: formatParameterAnalysisValue(analysis.representative) },
+                              { label: t("평균"), value: formatParameterAnalysisValue(analysis.mean) },
+                              { label: t("표준편차"), value: formatParameterAnalysisValue(analysis.standardDeviation) },
                               {
-                                label: "범위",
+                                label: t("범위"),
                                 value: `${formatParameterAnalysisValue(analysis.min)} ~ ${formatParameterAnalysisValue(analysis.max)}`,
                               },
                             ].map((item) => (
@@ -1693,9 +1688,9 @@ export function WalkForwardPanel({
                               </div>
                             ))}
                             <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3">
-                              <dt className="text-xs font-bold text-gray-500">안정성</dt>
+                              <dt className="text-xs font-bold text-gray-500">{t("안정성")}</dt>
                               <dd
-                                aria-label={analysis.stability === null ? "안정성 계산 불가" : `안정성 ${analysis.stability}점`}
+                                aria-label={analysis.stability === null ? t("안정성 계산 불가") : t("안정성 {0}점", analysis.stability)}
                                 className="text-right text-sm font-black tracking-[0.12em]"
                               >
                                 {analysis.stability === null ? (
@@ -1730,12 +1725,12 @@ export function WalkForwardPanel({
                 className="max-h-[calc(100dvh-1.5rem)] w-full max-w-sm overflow-y-auto rounded-xl border border-white/[0.10] bg-[#111111] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.65)] sm:p-5 lg:max-h-none lg:overflow-visible"
               >
                 <p id="walk-forward-step-modal-title" className="text-xs font-bold uppercase tracking-widest text-gray-500">
-                  {stepModalTarget.label} 값 설정
+                  {t("{0} 값 설정", stepModalTarget.label)}
                 </p>
                 {stepModalConfig.allowedValues ? (
                   <>
                     <div className="mt-5">
-                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">탐색할 일선 선택</p>
+                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("탐색할 일선 선택")}</p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {stepModalConfig.allowedValues.map((value) => {
                           const selected = (stepModalDraftValue.values ?? []).includes(value);
@@ -1767,19 +1762,16 @@ export function WalkForwardPanel({
                         })}
                       </div>
                       <p className="mt-3 text-xs font-bold leading-5 text-gray-500">
-                        이동평균은 실제 매매에서 쓰이는 표준 일선(
-                        {stepModalConfig.allowedValues.map((value) => formatStepWithUnit(value, stepModalConfig.unit)).join("/")}
-                        ) 중에서만 탐색합니다. 단기 값이 장기 값을 넘는 조합은 자동으로 제외됩니다.
+                        {t("이동평균은 실제 매매에서 쓰이는 표준 일선({0}) 중에서만 탐색합니다. 단기 값이 장기 값을 넘는 조합은 자동으로 제외됩니다.", stepModalConfig.allowedValues.map((value) => formatStepWithUnit(value, stepModalConfig.unit)).join("/"))}
                       </p>
                       {stepModalError && (
                         <p className="mt-2 text-xs font-bold leading-5 text-[var(--main-blue)]">{stepModalError}</p>
                       )}
                     </div>
                     <p className="mt-3 text-xs font-bold leading-5 text-gray-500">
-                      선택된 이동평균:{" "}
-                      {(stepModalDraftValue.values?.length ?? 0) > 0
+                      {t("선택된 이동평균:{0}{1}", " ", (stepModalDraftValue.values?.length ?? 0) > 0
                         ? stepModalDraftValue.values!.map((value) => formatStepWithUnit(value, stepModalConfig.unit)).join(", ")
-                        : "없음"}
+                        : t("없음"))}
                     </p>
                   </>
                 ) : (
@@ -1787,12 +1779,12 @@ export function WalkForwardPanel({
                     <div className="mt-5 space-y-5">
                       <div>
                         <label htmlFor="walk-forward-parameter-min" className="block text-xs font-bold uppercase tracking-widest text-gray-500">
-                          하한값
+                          {t("하한값")}
                         </label>
                         <div className="relative mt-3">
                           <input
                             id="walk-forward-parameter-min"
-                            aria-label={`${stepModalTarget.label} 하한값`}
+                            aria-label={t("{0} 하한값", stepModalTarget.label)}
                             aria-invalid={stepModalError ? "true" : undefined}
                             aria-describedby="walk-forward-parameter-examples walk-forward-parameter-error"
                             type="number"
@@ -1815,22 +1807,22 @@ export function WalkForwardPanel({
                           />
                           {stepModalConfig.unit && (
                             <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-black text-gray-500">
-                              {stepModalConfig.unit}
+                              {t(stepModalConfig.unit)}
                             </span>
                           )}
                         </div>
                         <p id="walk-forward-parameter-examples" className="mt-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                          예: {stepModalInputExamples.map((value) => formatStepWithUnit(value, stepModalConfig.unit)).join(", ")}
+                          {t("예: {0}", stepModalInputExamples.map((value) => formatStepWithUnit(value, stepModalConfig.unit)).join(", "))}
                         </p>
                       </div>
                       <div>
                         <label htmlFor="walk-forward-parameter-max" className="block text-xs font-bold uppercase tracking-widest text-gray-500">
-                          상한값
+                          {t("상한값")}
                         </label>
                         <div className="relative mt-3">
                           <input
                             id="walk-forward-parameter-max"
-                            aria-label={`${stepModalTarget.label} 상한값`}
+                            aria-label={t("{0} 상한값", stepModalTarget.label)}
                             aria-invalid={stepModalError ? "true" : undefined}
                             aria-describedby="walk-forward-parameter-examples walk-forward-parameter-error"
                             type="number"
@@ -1853,12 +1845,12 @@ export function WalkForwardPanel({
                           />
                           {stepModalConfig.unit && (
                             <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-black text-gray-500">
-                              {stepModalConfig.unit}
+                              {t(stepModalConfig.unit)}
                             </span>
                           )}
                         </div>
                         <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                          예: {stepModalInputExamples.map((value) => formatStepWithUnit(value, stepModalConfig.unit)).join(", ")}
+                          {t("예: {0}", stepModalInputExamples.map((value) => formatStepWithUnit(value, stepModalConfig.unit)).join(", "))}
                         </p>
                         {stepModalError && (
                           <p id="walk-forward-parameter-error" className="mt-2 text-xs font-bold leading-5 text-[var(--main-blue)]">
@@ -1868,19 +1860,19 @@ export function WalkForwardPanel({
                       </div>
                       <div>
                         <label htmlFor="walk-forward-parameter-step" className="block text-xs font-bold uppercase tracking-widest text-gray-500">
-                          step 값
+                          {t("step 값")}
                         </label>
                         <div className="mt-2 flex items-end justify-between gap-3">
                           <p className="text-2xl font-black text-white font-outfit">
                             {formatStepWithUnit(stepModalDraftValue.step, stepModalConfig.unit)}
                           </p>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                            {stepModalConfig.stepOptions.length}개 후보
+                            {t("{0}개 후보", stepModalConfig.stepOptions.length)}
                           </p>
                         </div>
                         <div
                           id="walk-forward-parameter-step"
-                          aria-label={`${stepModalTarget.label} step 값`}
+                          aria-label={t("{0} step 값", stepModalTarget.label)}
                           className="mt-4 grid grid-cols-3 gap-2"
                         >
                           {stepModalConfig.stepOptions.map((option) => {
@@ -1907,9 +1899,7 @@ export function WalkForwardPanel({
                       </div>
                     </div>
                     <p className="mt-3 text-xs font-bold leading-5 text-gray-500">
-                      현재 적용: {formatStepWithUnit(stepModalCurrentRange.min, stepModalConfig.unit)} -{" "}
-                      {formatStepWithUnit(stepModalCurrentRange.max, stepModalConfig.unit)} / step{" "}
-                      {formatStepWithUnit(stepModalCurrentRange.step, stepModalConfig.unit)}
+                      {t("현재 적용: {0} -{1}{2} / step{3}{4}", formatStepWithUnit(stepModalCurrentRange.min, stepModalConfig.unit), " ", formatStepWithUnit(stepModalCurrentRange.max, stepModalConfig.unit), " ", formatStepWithUnit(stepModalCurrentRange.step, stepModalConfig.unit))}
                     </p>
                   </>
                 )}
@@ -1923,7 +1913,7 @@ export function WalkForwardPanel({
                       onClick={resetStepModal}
                       className="rounded-md px-3 py-2 text-xs font-black text-gray-500 transition-colors hover:bg-white/[0.04] hover:text-gray-300"
                     >
-                      기본값
+                      {t("기본값")}
                     </button>
                     <button
                       type="button"
@@ -1933,7 +1923,7 @@ export function WalkForwardPanel({
                       }}
                       className="rounded-md px-3 py-2 text-xs font-black text-gray-500 transition-colors hover:bg-white/[0.04] hover:text-gray-300"
                     >
-                      {excludedTargetIds.has(stepModalTarget.id) ? "최적화에 포함" : "최적화에서 제외"}
+                      {excludedTargetIds.has(stepModalTarget.id) ? t("최적화에 포함") : t("최적화에서 제외")}
                     </button>
                   </div>
                   <div className="flex w-full items-center gap-2 sm:w-auto">
@@ -1942,14 +1932,14 @@ export function WalkForwardPanel({
                       onClick={closeStepModal}
                       className="flex-1 rounded-md px-3 py-2 text-xs font-black text-gray-400 transition-colors hover:bg-white/[0.04] hover:text-white sm:flex-none"
                     >
-                      닫기
+                      {t("닫기")}
                     </button>
                     <button
                       type="button"
                       onClick={saveStepModal}
                       className="flex-1 rounded-md bg-[var(--main-blue)] px-3 py-2 text-xs font-black text-white transition-opacity hover:opacity-90 sm:flex-none"
                     >
-                      저장
+                      {t("저장")}
                     </button>
                   </div>
                 </div>
@@ -1968,13 +1958,13 @@ export function WalkForwardPanel({
                   className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-2 text-xs font-black text-gray-200 transition-colors hover:bg-white/[0.08]"
                 >
                   <ArrowsClockwise className="h-4 w-4" weight="bold" />
-                  재설정
+                  {t("재설정")}
                 </button>
                 <SaveValidationButton
                   onSave={async () => {
                     await saveValidation({
                       modelType: "walkForward",
-                      strategyName: strategyName || "이름 없는 전략",
+                      strategyName: strategyName || t("이름 없는 전략"),
                       prompt: promptText,
                       cacheKey,
                       settings: {
@@ -1995,7 +1985,7 @@ export function WalkForwardPanel({
                 disabled={isRunning}
                 className="px-4 py-2 text-sm font-black text-gray-400 transition-colors hover:bg-white/[0.03] hover:text-white disabled:opacity-40"
               >
-                닫기
+                {t("닫기")}
               </button>
             )}
             {!result && (
@@ -2009,13 +1999,13 @@ export function WalkForwardPanel({
                   <>
                     <ArrowsClockwise className="h-4 w-4 animate-spin" />
                     {runProgress?.stage === "window" && runProgress.total
-                      ? `분석 중... (${runProgress.window}/${runProgress.total} 구간)`
-                      : `분석 중... (${derivedSettings.n_splits}개 구간)`}
+                      ? t("분석 중... ({0}/{1} 구간)", runProgress.window, runProgress.total)
+                      : t("분석 중... ({0}개 구간)", derivedSettings.n_splits)}
                   </>
                 ) : (
                   <>
                     <ChartLine className="h-4 w-4" />
-                    워크포워드 분석 시작
+                    {t("워크포워드 분석 시작")}
                   </>
                 )}
               </button>

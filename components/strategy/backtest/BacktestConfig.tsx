@@ -6,6 +6,7 @@ import {
   MAX_INITIAL_CAPITAL,
   backtestDataCeilingDate,
   formatInitialCapital,
+  formatEokAmount,
 } from "@/lib/strategy-summary";
 import {
   PlayCircle,
@@ -17,10 +18,13 @@ import {
   WarningCircle,
   ChartBar
 } from "phosphor-react";
+import { getLanguage, t } from "@/lib/i18n";
 
 const formatKoreanUnit = (num: number) => {
-  if (num === 0) return "0원";
-  const units = ["", "만", "억", "조", "경"];
+  if (num === 0) return t("0원");
+  // 영어 표기는 만/억 단위 없이 KRW 금액 그대로.
+  if (getLanguage() === "en") return `₩${Math.round(num).toLocaleString("en-US")}`;
+  const units = ["", t("만"), t("억"), t("조"), t("경")];
   const result = [];
   let temp = num;
   let unitIdx = 0;
@@ -35,7 +39,7 @@ const formatKoreanUnit = (num: number) => {
     unitIdx++;
   }
 
-  return result.join(" ") + "원";
+  return result.join(" ") + t("원");
 };
 
 export interface BacktestConfigOptions {
@@ -102,14 +106,14 @@ interface BacktestConfigProps {
 }
 
 const getRebalancingLabel = (period?: string) => {
-  if (!period || period === "none") return "안함";
-  if (period === "daily") return "매일";
-  if (period === "weekly") return "매주";
-  if (period === "monthly") return "매월";
+  if (!period || period === "none") return t("안함");
+  if (period === "daily") return t("매일");
+  if (period === "weekly") return t("매주");
+  if (period === "monthly") return t("매월");
   if (period.startsWith("custom:")) {
     const parts = period.split(":");
-    const unit = parts[2] === "day" ? "일" : parts[2] === "week" ? "주" : "달";
-    return `${parts[1]}${unit}마다`;
+    const unit = parts[2] === "day" ? t("일") : parts[2] === "week" ? t("주") : t("달");
+    return t("{0}{1}마다", parts[1], unit);
   }
   return period;
 };
@@ -141,14 +145,14 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
   // 대화 파싱의 정본 기간 버킷(1y/3y/5y/full)을 패널이 모두 표현할 수 있어야 한다 —
   // 대응 버튼이 없으면 그 기간으로 만들어진 전략이 아무것도 선택되지 않은 채 열린다.
   const periods = [
-    { id: "6M", label: "6개월" },
-    { id: "1Y", label: "1년" },
-    { id: "3Y", label: "3년" },
-    { id: "5Y", label: "5년" },
-    { id: "10Y", label: "10년" },
-    { id: "20Y", label: "20년" },
-    { id: "full", label: "전체" },
-    { id: "custom", label: "직접 입력" },
+    { id: "6M", label: t("6개월") },
+    { id: "1Y", label: t("1년") },
+    { id: "3Y", label: t("3년") },
+    { id: "5Y", label: t("5년") },
+    { id: "10Y", label: t("10년") },
+    { id: "20Y", label: t("20년") },
+    { id: "full", label: t("전체") },
+    { id: "custom", label: t("직접 입력") },
   ];
   const RELATIVE_YEARS: Record<string, number> = { "1Y": 1, "3Y": 3, "5Y": 5, "10Y": 10, "20Y": 20 };
   const handlePeriodChange = (id: string) => {
@@ -199,9 +203,9 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
         data-testid="backtest-config-input-panel"
       >
         <div className="flex-none px-6 pt-4 lg:px-10 lg:pt-5 pb-6">
-          <h3 className="text-lg font-black text-[#dfdfdf] tracking-tight">백테스트 & 성과 분석</h3>
+          <h3 className="text-lg font-black text-[#dfdfdf] tracking-tight">{t("백테스트 & 성과 분석")}</h3>
           <p className="text-[11px] text-[#a0a0a0] mt-0.5 font-medium">
-            설정한 전략을 과거 데이터를 바탕으로 시뮬레이션하고 성과를 검증합니다.
+            {t("설정한 전략을 과거 데이터를 바탕으로 시뮬레이션하고 성과를 검증합니다.")}
           </p>
         </div>
         
@@ -214,7 +218,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
           <div className="flex-1 px-6 py-3 lg:px-10 lg:py-4 flex flex-col">
             <div className="flex flex-col mb-1.5">
               <span className="text-[10px] font-bold text-main-blue uppercase tracking-widest mb-0.5">Step 1</span>
-              <h2 className="text-base font-black text-[#dfdfdf] tracking-tight">테스트 기간 설정</h2>
+              <h2 className="text-base font-black text-[#dfdfdf] tracking-tight">{t("테스트 기간 설정")}</h2>
             </div>
 
             <div className="space-y-4">
@@ -239,7 +243,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                   data-testid="backtest-config-custom-dates"
                 >
                   <div className="flex-1 space-y-1">
-                    <label className="text-[10px] font-black text-[#606060] uppercase tracking-widest pl-1">시작일</label>
+                    <label className="text-[10px] font-black text-[#606060] uppercase tracking-widest pl-1">{t("시작일")}</label>
                     <input
                       type="date"
                       value={startDate}
@@ -250,7 +254,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                     />
                   </div>
                   <div className="flex-1 space-y-1">
-                    <label className="text-[10px] font-black text-[#606060] uppercase tracking-widest pl-1">종료일</label>
+                    <label className="text-[10px] font-black text-[#606060] uppercase tracking-widest pl-1">{t("종료일")}</label>
                     <input
                       type="date"
                       value={endDate}
@@ -267,7 +271,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                   data-testid="backtest-window-out-of-range"
                   className="text-[10px] font-bold text-red-400 pl-1"
                 >
-                  백테스트는 {BACKTEST_DATA_FLOOR_DATE}부터 오늘({dataCeiling})까지만 가능합니다. 기간을 다시 선택해 주세요.
+                  {t("백테스트는 {0}부터 오늘({1})까지만 가능합니다. 기간을 다시 선택해 주세요.", BACKTEST_DATA_FLOOR_DATE, dataCeiling)}
                 </p>
               )}
             </div>
@@ -277,12 +281,12 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
           <div className="flex-1 px-6 py-3 lg:px-10 lg:py-4 flex flex-col">
             <div className="flex flex-col mb-1.5">
               <span className="text-[10px] font-bold text-main-blue uppercase tracking-widest mb-0.5">Step 2</span>
-              <h2 className="text-base font-black text-[#dfdfdf] tracking-tight">초기 자본 및 거래 비용</h2>
+              <h2 className="text-base font-black text-[#dfdfdf] tracking-tight">{t("초기 자본 및 거래 비용")}</h2>
             </div>
 
             <div className="space-y-3">
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">초기 자본금</label>
+                <label className="text-[10px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">{t("초기 자본금")}</label>
                 <div className={`bg-[#111] border rounded-xl px-4 py-2 group hover:border-white/10 focus-within:border-main-blue transition-all relative overflow-hidden ${capitalOverLimit ? "border-red-500/60" : "border-white/5"}`}>
                   <div className="absolute inset-y-0 left-0 w-1 bg-main-blue opacity-0 group-focus-within:opacity-100 transition-opacity" />
                   <div className="flex items-center justify-between">
@@ -305,14 +309,14 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                     data-testid="initial-capital-over-limit"
                     className="text-[10px] font-bold text-red-400 pl-1"
                   >
-                    초기 자본금은 최대 {formatInitialCapital(MAX_INITIAL_CAPITAL)}까지 설정할 수 있습니다. 금액을 다시 선택해 주세요.
+                    {t("초기 자본금은 최대 {0}까지 설정할 수 있습니다. 금액을 다시 선택해 주세요.", formatInitialCapital(MAX_INITIAL_CAPITAL))}
                   </p>
                 )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">수수료</label>
+                  <label className="text-[10px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">{t("수수료")}</label>
                   <div className="flex items-center bg-[#111] border border-white/5 rounded-xl px-4 py-2 group hover:border-white/10 focus-within:border-white transition-all">
                     <input
                       type="number"
@@ -325,7 +329,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">슬리피지</label>
+                  <label className="text-[10px] font-black text-[#a0a0a0] uppercase tracking-widest pl-1">{t("슬리피지")}</label>
                   <div className="flex items-center bg-[#111] border border-white/5 rounded-xl px-4 py-2 group hover:border-white/10 focus-within:border-white transition-all">
                     <input
                       type="number"
@@ -355,7 +359,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
           <div className="absolute top-0 right-0 w-64 h-64 bg-main-blue/5 rounded-full blur-[80px] pointer-events-none" />
           
           <div className="mb-6 relative z-10">
-            <h3 className="text-2xl font-black text-white uppercase tracking-tighter">전략 요약</h3>
+            <h3 className="text-2xl font-black text-white uppercase tracking-tighter">{t("전략 요약")}</h3>
           </div>
 
           {/* Redesigned Summary Content */}
@@ -364,46 +368,46 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
             {/* Universe */}
             <div>
               <div className="mb-3">
-                <span className="text-base font-black text-white/40 uppercase tracking-widest">유니버스 설정</span>
+                <span className="text-base font-black text-white/40 uppercase tracking-widest">{t("유니버스 설정")}</span>
               </div>
               <div className="pl-8 space-y-4">
                 <div className="flex flex-col">
-                  <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">전략 이름</span>
-                  <span className="text-2xl font-black text-white tracking-tight leading-tight">{summary.strategyName || "이름 없는 전략"}</span>
+                  <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">{t("전략 이름")}</span>
+                  <span className="text-2xl font-black text-white tracking-tight leading-tight">{summary.strategyName || t("이름 없는 전략")}</span>
                 </div>
 
                 <div className="flex flex-col">
-                  <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">선택된 시장</span>
+                  <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">{t("선택된 시장")}</span>
                   <span className="text-xl font-black text-white/80 tracking-tight">{summary.universeName}</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col">
-                    <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">시가총액 범위</span>
+                    <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">{t("시가총액 범위")}</span>
                     <span className="text-white text-sm font-bold border border-white/10 px-3 py-1 rounded-md w-fit">
                       {(() => {
                         const range = summary.universeSettings?.marketCapRange || [0, 50];
-                        if (range[0] === 0 && range[1] === 50) return "대형주 (상위 50%)";
-                        if (range[0] === 50 && range[1] === 80) return "중형주 (50-80%)";
-                        if (range[0] === 80 && range[1] === 100) return "소형주 (80-100%)";
-                        return `상위 ${range[0]}% - ${range[1]}%`;
+                        if (range[0] === 0 && range[1] === 50) return t("대형주 (상위 50%)");
+                        if (range[0] === 50 && range[1] === 80) return t("중형주 (50-80%)");
+                        if (range[0] === 80 && range[1] === 100) return t("소형주 (80-100%)");
+                        return t("상위 {0}% - {1}%", range[0], range[1]);
                       })()}
                     </span>
                   </div>
 
                   <div className="flex flex-col">
-                    <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">최소 거래대금</span>
+                    <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">{t("최소 거래대금")}</span>
                     <span className="text-white text-sm font-bold border border-white/10 px-3 py-1 rounded-md w-fit">
                       {summary.universeSettings?.minTradingVolume === 0 
-                        ? "제한 없음" 
-                        : `${summary.universeSettings?.minTradingVolume}억원 이상`}
+                        ? t("제한 없음") 
+                        : t("{0} 이상", formatEokAmount(Number(summary.universeSettings?.minTradingVolume ?? 0)))}
                     </span>
                   </div>
                 </div>
 
                 {summary.universeSettings?.selectedSectors && summary.universeSettings.selectedSectors.length > 0 && (
                   <div className="flex flex-col">
-                    <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">섹터 필터</span>
+                    <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">{t("섹터 필터")}</span>
                     <div className="flex flex-wrap gap-2">
                       {summary.universeSettings.selectedSectors.map((sector, i) => (
                         <span key={i} className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
@@ -416,26 +420,26 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
 
                 {(() => {
                   const exclusions = [
-                    summary.universeSettings?.excludeLossMaking && "적자 기업",
-                    summary.universeSettings?.excludeCapitalImpaired && "자본 잠식",
-                    summary.universeSettings?.excludeAdministrative && "관리 종목",
-                    summary.universeSettings?.excludePreferred && "우선주",
+                    summary.universeSettings?.excludeLossMaking && t("적자 기업"),
+                    summary.universeSettings?.excludeCapitalImpaired && t("자본 잠식"),
+                    summary.universeSettings?.excludeAdministrative && t("관리 종목"),
+                    summary.universeSettings?.excludePreferred && t("우선주"),
                     summary.universeSettings?.excludeETF_ETN && "ETF/ETN",
                     summary.universeSettings?.excludeSPAC && "SPAC",
-                    summary.universeSettings?.excludeREITs && "리츠",
-                    summary.universeSettings?.excludeInvestmentWarning && "투자 경고",
-                    summary.universeSettings?.excludeDelistingPending && "상장 폐지 예정",
-                    summary.universeSettings?.excludeForeignStock && "외국주",
-                    summary.universeSettings?.excludePennyStocks && "동전주",
-                    summary.universeSettings?.excludeNewListings && "신규 상장",
-                    summary.universeSettings?.excludeHighVolatility && "급변동 종목",
+                    summary.universeSettings?.excludeREITs && t("리츠"),
+                    summary.universeSettings?.excludeInvestmentWarning && t("투자 경고"),
+                    summary.universeSettings?.excludeDelistingPending && t("상장 폐지 예정"),
+                    summary.universeSettings?.excludeForeignStock && t("외국주"),
+                    summary.universeSettings?.excludePennyStocks && t("동전주"),
+                    summary.universeSettings?.excludeNewListings && t("신규 상장"),
+                    summary.universeSettings?.excludeHighVolatility && t("급변동 종목"),
                   ].filter(Boolean);
 
                   if (exclusions.length === 0) return null;
 
                   return (
                     <div className="flex flex-col">
-                      <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">제외 대상</span>
+                      <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em] mb-1.5">{t("제외 대상")}</span>
                       <div className="flex flex-wrap gap-2">
                         {exclusions.map((ex, i) => (
                           <span key={i} className="text-white text-[10px] font-bold border border-white/10 px-2 py-0.5 rounded opacity-60">
@@ -452,7 +456,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
             {/* Trading Logic */}
             <div>
               <div className="mb-4">
-                <span className="text-base font-black text-white/40 uppercase tracking-widest">매매 로직 블록</span>
+                <span className="text-base font-black text-white/40 uppercase tracking-widest">{t("매매 로직 블록")}</span>
               </div>
               <div className="flex flex-col pl-8 gap-4">
                 <div className="space-y-2">
@@ -465,7 +469,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                         </span>
                       ))
                     ) : (
-                      <span className="text-xs font-medium text-white/30 italic">설정된 조건 없음</span>
+                      <span className="text-xs font-medium text-white/30 italic">{t("설정된 조건 없음")}</span>
                     )}
                   </div>
                 </div>
@@ -475,38 +479,38 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
             {/* Position Sizing */}
             <div>
               <div className="mb-3">
-                <span className="text-base font-black text-white/40 uppercase tracking-widest">포지션/비중</span>
+                <span className="text-base font-black text-white/40 uppercase tracking-widest">{t("포지션/비중")}</span>
               </div>
               <div className="pl-8 grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-8">
                 <div className="flex flex-col">
-                  <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">최대 보유 종목</span>
+                  <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">{t("최대 보유 종목")}</span>
                   <span className="text-xl font-black text-white">
-                    {summary.riskSettings.skip_position_setting ? 'OFF' : `${summary.riskSettings.maxPositions}개`}
+                    {summary.riskSettings.skip_position_setting ? 'OFF' : t("{0}개", summary.riskSettings.maxPositions)}
                   </span>
                 </div>
                 
                 <div className="flex flex-col">
-                  <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">배분 방식</span>
+                  <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">{t("배분 방식")}</span>
                   <span className={`${summary.riskSettings.skip_position_setting ? 'text-xl font-black' : 'text-sm font-bold'} text-white`}>
                     {summary.riskSettings.skip_position_setting 
                       ? 'OFF'
                       : (summary.riskSettings.allocationType === 'equal' 
-                        ? '동일 비중' 
-                        : `고정 비중 (${summary.riskSettings.allocationValue}%)`)}
+                        ? t("동일 비중") 
+                        : t("고정 비중 ({0}%)", summary.riskSettings.allocationValue))}
                   </span>
                 </div>
 
                 <div className="flex flex-col">
-                  <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">체결 시점 선택</span>
+                  <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">{t("체결 시점 선택")}</span>
                   <span className={`${summary.riskSettings.skip_position_setting ? 'text-xl font-black' : 'text-sm font-bold'} text-white`}>
                     {summary.riskSettings.skip_position_setting 
                       ? 'OFF'
-                      : (summary.riskSettings.executionTiming === 'next_open' ? '익일 시가' : '당일 종가')}
+                      : (summary.riskSettings.executionTiming === 'next_open' ? t("익일 시가") : t("당일 종가"))}
                   </span>
                 </div>
 
                 <div className="flex flex-col">
-                  <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">리밸런싱 설정</span>
+                  <span className="text-xs font-black text-white/30 uppercase tracking-widest mb-1">{t("리밸런싱 설정")}</span>
                   <span className={`${summary.riskSettings.skip_position_setting ? 'text-xl font-black' : 'text-sm font-bold'} text-white`}>
                     {summary.riskSettings.skip_position_setting 
                       ? 'OFF'
@@ -519,31 +523,31 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
             {/* Risk Management */}
             <div>
               <div className="mb-4">
-                <span className="text-base font-black text-white/40 uppercase tracking-widest">리스크 관리</span>
+                <span className="text-base font-black text-white/40 uppercase tracking-widest">{t("리스크 관리")}</span>
               </div>
               
               <div className="pl-8 space-y-6">
                 {summary.riskManagement?.skip_risk_management ? (
-                  <span className="text-sm font-medium text-white/30 italic">리스크 관리 하지 않음</span>
+                  <span className="text-sm font-medium text-white/30 italic">{t("리스크 관리 하지 않음")}</span>
                 ) : (
                   <>
                     {/* Category 1: Capital */}
                     <div className="space-y-3">
-                      <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em]">자금 관리</span>
+                      <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em]">{t("자금 관리")}</span>
                       <div className="flex flex-wrap gap-2">
                         {summary.riskManagement?.position_size_pct !== undefined && (
                           <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
-                            포지션 {summary.riskManagement.position_size_pct}%
+                            {t("포지션 {0}%", summary.riskManagement.position_size_pct)}
                           </span>
                         )}
                         {summary.riskManagement?.liquidity_limit_pct !== undefined && (
                           <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
-                            유동성 {summary.riskManagement.liquidity_limit_pct}%
+                            {t("유동성 {0}%", summary.riskManagement.liquidity_limit_pct)}
                           </span>
                         )}
                         {summary.riskManagement?.min_cash_reserve_pct !== undefined && (
                           <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
-                            현금 {summary.riskManagement.min_cash_reserve_pct}%
+                            {t("현금 {0}%", summary.riskManagement.min_cash_reserve_pct)}
                           </span>
                         )}
                       </div>
@@ -551,21 +555,21 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
 
                     {/* Category 2: Price Exit */}
                     <div className="space-y-3">
-                      <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em]">청산 리스크</span>
+                      <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em]">{t("청산 리스크")}</span>
                       <div className="flex flex-wrap gap-2">
                         {summary.riskManagement?.stop_loss_pct ? (
                           <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
-                            손절 -{summary.riskManagement.stop_loss_pct}%
+                            {t("손절 -{0}%", summary.riskManagement.stop_loss_pct)}
                           </span>
                         ) : null}
                         {summary.riskManagement?.take_profit_pct ? (
                           <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
-                            익절 +{summary.riskManagement.take_profit_pct}%
+                            {t("익절 +{0}%", summary.riskManagement.take_profit_pct)}
                           </span>
                         ) : null}
                         {summary.riskManagement?.trailing_stop_pct !== undefined ? (
                           <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
-                            트레일링 스탑 {summary.riskManagement.trailing_stop_pct}%
+                            {t("트레일링 스탑 {0}%", summary.riskManagement.trailing_stop_pct)}
                           </span>
                         ) : null}
                       </div>
@@ -573,21 +577,21 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
 
                     {/* Category 3: Portfolio Control */}
                     <div className="space-y-3">
-                      <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em]">포트폴리오 제어</span>
+                      <span className="text-xs font-black text-white/30 uppercase tracking-[0.1em]">{t("포트폴리오 제어")}</span>
                       <div className="flex flex-wrap gap-2">
                         {summary.riskManagement?.max_daily_loss_pct !== undefined && (
                           <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
-                            일일 손실 {summary.riskManagement.max_daily_loss_pct}%
+                            {t("일일 손실 {0}%", summary.riskManagement.max_daily_loss_pct)}
                           </span>
                         )}
                         {summary.riskManagement?.max_mdd_limit_pct !== undefined && (
                           <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
-                            MDD 제한 {summary.riskManagement.max_mdd_limit_pct}%
+                            {t("MDD 제한 {0}%", summary.riskManagement.max_mdd_limit_pct)}
                           </span>
                         )}
                         {summary.riskManagement?.max_total_exposure_pct !== undefined && (
                           <span className="text-white text-xs font-bold border border-white/10 px-3 py-1 rounded-md">
-                            총 노출 {summary.riskManagement.max_total_exposure_pct}%
+                            {t("총 노출 {0}%", summary.riskManagement.max_total_exposure_pct)}
                           </span>
                         )}
                       </div>
@@ -607,17 +611,17 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
               {isRunning ? (
                 <>
                   <ArrowsClockwise className="w-6 h-6 animate-spin" />
-                  <span>시뮬레이션 분석 중...</span>
+                  <span>{t("시뮬레이션 분석 중...")}</span>
                 </>
               ) : (
                 <>
                   <PlayCircle className="w-6 h-6" />
-                  <span>백테스트 시작하기</span>
+                  <span>{t("백테스트 시작하기")}</span>
                 </>
               )}
             </button>
             <p className="text-[10px] text-white/30 mt-4 text-center leading-relaxed">
-              운용 결과는 과거 데이터를 기반으로 하며 미래 수익을 보장하지 않습니다. 실제 매매에서는 체결가·거래비용·슬리피지·유동성 및 데이터 한계로 인해 시뮬레이션 결과와 차이가 발생할 수 있습니다.
+              {t("운용 결과는 과거 데이터를 기반으로 하며 미래 수익을 보장하지 않습니다. 실제 매매에서는 체결가·거래비용·슬리피지·유동성 및 데이터 한계로 인해 시뮬레이션 결과와 차이가 발생할 수 있습니다.")}
             </p>
           </div>
 

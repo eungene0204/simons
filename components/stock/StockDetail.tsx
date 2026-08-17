@@ -18,6 +18,7 @@ import {
   STOCK_NEWS_LIMIT,
   stockNewsQueryKey,
 } from "@/lib/hooks/useStockNews";
+import { t } from "@/lib/i18n";
 
 interface StockDetail {
   symbol: string;
@@ -168,7 +169,7 @@ export default function StockDetail({ symbol }: { symbol: string }) {
       <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
         <div className="text-center py-12">
           <p className="text-gray-500 dark:text-gray-400">
-            종목 정보를 불러올 수 없습니다.
+            {t("종목 정보를 불러올 수 없습니다.")}
           </p>
         </div>
       </div>
@@ -216,7 +217,7 @@ export default function StockDetail({ symbol }: { symbol: string }) {
         <div className="flex items-end gap-3 mb-3">
           <div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">
-              현재가
+              {t("현재가")}
             </p>
             <p
               className={`text-2xl sm:text-3xl font-bold ${
@@ -267,12 +268,12 @@ export default function StockDetail({ symbol }: { symbol: string }) {
       {/* Stats Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
         {[
-          { label: "전일종가", sub: "Prev Close", value: formatPrice(detail.previousClose), color: "white" },
-          { label: "시가", sub: "Open", value: formatPrice(detail.open), color: "white" },
-          { label: "고가", sub: "High", value: formatPrice(detail.high), color: "red" },
-          { label: "저가", sub: "Low", value: formatPrice(detail.low), color: "blue" },
-          { label: "거래량", sub: "Volume", value: formatVolume(detail.volume), color: "white" },
-          { label: "시가총액", sub: "Mkt Cap", value: formatMarketCap(detail.marketCap), color: "white" },
+          { label: t("전일종가"), sub: "Prev Close", value: formatPrice(detail.previousClose), color: "white" },
+          { label: t("시가"), sub: "Open", value: formatPrice(detail.open), color: "white" },
+          { label: t("고가"), sub: "High", value: formatPrice(detail.high), color: "red" },
+          { label: t("저가"), sub: "Low", value: formatPrice(detail.low), color: "blue" },
+          { label: t("거래량"), sub: "Volume", value: formatVolume(detail.volume), color: "white" },
+          { label: t("시가총액"), sub: "Mkt Cap", value: formatMarketCap(detail.marketCap), color: "white" },
           { label: "PER", sub: "P/E Ratio", value: detail.pe ? detail.pe.toFixed(2) : "—", color: "white" },
           { label: "PBR", sub: "P/B Ratio", value: detail.pbr ? detail.pbr.toFixed(2) : "—", color: "white" },
         ].map(({ label, sub, value, color }) => (
@@ -306,7 +307,7 @@ export default function StockDetail({ symbol }: { symbol: string }) {
               : "border-transparent text-gray-500 hover:text-gray-300"
           }`}
         >
-          차트
+          {t("차트")}
         </button>
         {NEWS_TAB_ENABLED && (
           <button
@@ -318,7 +319,7 @@ export default function StockDetail({ symbol }: { symbol: string }) {
                 : "border-transparent text-gray-500 hover:text-gray-300"
             }`}
           >
-            뉴스
+            {t("뉴스")}
           </button>
         )}
       </div>
@@ -327,7 +328,7 @@ export default function StockDetail({ symbol }: { symbol: string }) {
       <div className={activeTab === "chart" ? "block" : "hidden"}>
         {detail.candleData && detail.candleData.length > 0 && (
           <div className="mt-4 p-3 bg-gray-900 rounded-lg">
-            <h2 className="text-base font-semibold text-white mb-2">주가 차트</h2>
+            <h2 className="text-base font-semibold text-white mb-2">{t("주가 차트")}</h2>
             <div className="h-80 sm:h-96">
               <CandlestickChart
                 data={detail.candleData.map((candle) => ({

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
+import { t } from "@/lib/i18n";
 
 export default function Navbar() {
   const router = useRouter();
@@ -43,7 +44,7 @@ export default function Navbar() {
           <div className="flex items-center gap-8">
             <Link href="/" className="flex items-center gap-2">
               <div className="h-8 w-8 rounded bg-gray-900 dark:bg-gray-100" />
-              <span className="font-semibold text-lg">널스탁</span>
+              <span className="font-semibold text-lg">{t("널스탁")}</span>
             </Link>
             <div className="hidden md:flex items-center gap-6">
               <Link
@@ -54,7 +55,7 @@ export default function Navbar() {
                     : "text-gray-400 hover:text-white"
                 }`}
               >
-                대시보드
+                {t("대시보드")}
               </Link>
               <Link
                 href="/portfolio"
@@ -64,7 +65,7 @@ export default function Navbar() {
                     : "text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
                 }`}
               >
-                포트폴리오
+                {t("포트폴리오")}
               </Link>
               <Link
                 href="/search"
@@ -74,7 +75,7 @@ export default function Navbar() {
                     : "text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
                 }`}
               >
-                주식 검색
+                {t("주식 검색")}
               </Link>
             </div>
           </div>
@@ -95,7 +96,7 @@ export default function Navbar() {
                   onClick={handleLogout}
                   className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white border border-gray-700 rounded-md hover:bg-gray-900"
                 >
-                  로그아웃
+                  {t("로그아웃")}
                 </button>
               </>
             ) : (
@@ -103,7 +104,7 @@ export default function Navbar() {
                 href="/login"
                 className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white border border-gray-300 dark:border-gray-700 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
               >
-                로그인
+                {t("로그인")}
               </Link>
             )}
           </div>

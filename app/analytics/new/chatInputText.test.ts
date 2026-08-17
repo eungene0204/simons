@@ -18,7 +18,7 @@ describe("전략연구소 채팅 입력창 텍스트", () => {
 
   it("placeholder는 첫 입력(inline) 입력창에서만 노출된다", () => {
     expect(source).toContain(
-      'placeholder={variant === "inline" ? FIRST_INPUT_PLACEHOLDER : undefined}',
+      'placeholder={variant === "inline" ? t(FIRST_INPUT_PLACEHOLDER) : undefined}',
     );
   });
 

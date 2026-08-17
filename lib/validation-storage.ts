@@ -1,3 +1,4 @@
+import { t } from "@/lib/i18n";
 // 전략 최적화 검증 결과(워크포워드·몬테카를로) 저장/불러오기 클라이언트 헬퍼.
 // 서버 라우트: app/api/validation
 
@@ -66,7 +67,7 @@ export async function saveValidation(input: SaveValidationInput): Promise<{ id: 
     body: JSON.stringify(input),
   });
   if (!res.ok) {
-    throw new Error(`검증 결과 저장 실패 (${res.status})`);
+    throw new Error(t("검증 결과 저장 실패 ({0})", res.status));
   }
   return res.json();
 }
@@ -77,7 +78,7 @@ export async function listSavedValidations(
   const query = modelType ? `?modelType=${modelType}` : "";
   const res = await fetch(`/api/validation${query}`);
   if (!res.ok) {
-    throw new Error(`저장 목록을 불러오지 못했습니다 (${res.status})`);
+    throw new Error(t("저장 목록을 불러오지 못했습니다 ({0})", res.status));
   }
   return res.json();
 }
@@ -85,7 +86,7 @@ export async function listSavedValidations(
 export async function getSavedValidation(id: string): Promise<SavedValidationDetail> {
   const res = await fetch(`/api/validation/${id}`);
   if (!res.ok) {
-    throw new Error(`저장된 결과를 불러오지 못했습니다 (${res.status})`);
+    throw new Error(t("저장된 결과를 불러오지 못했습니다 ({0})", res.status));
   }
   return res.json();
 }
@@ -95,6 +96,6 @@ export async function deleteSavedValidation(id: string): Promise<void> {
     method: "DELETE",
   });
   if (!res.ok) {
-    throw new Error(`삭제에 실패했습니다 (${res.status})`);
+    throw new Error(t("삭제에 실패했습니다 ({0})", res.status));
   }
 }

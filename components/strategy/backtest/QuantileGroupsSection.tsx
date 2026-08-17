@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChartBar } from "phosphor-react";
 import { QuantileGroupsResult } from "@/types/strategy";
+import { formatCompactNumberEn, t } from "@/lib/i18n";
 
 interface Props {
   data: QuantileGroupsResult;
@@ -18,8 +19,10 @@ function pct(v: number | undefined, decimals = 2) {
 }
 
 function krw(v: number) {
-  if (Math.abs(v) >= 1_0000_0000) return `${(v / 1_0000_0000).toFixed(1)}억`;
-  if (Math.abs(v) >= 10_000) return `${(v / 10_000).toFixed(0)}만`;
+  const compactEn = formatCompactNumberEn(v);
+  if (compactEn !== null) return compactEn;
+  if (Math.abs(v) >= 1_0000_0000) return t("{0}억", (v / 1_0000_0000).toFixed(1));
+  if (Math.abs(v) >= 10_000) return t("{0}만", (v / 10_000).toFixed(0));
   return v.toLocaleString();
 }
 
@@ -68,13 +71,12 @@ export default function QuantileGroupsSection({ data }: Props) {
       <div className="flex flex-wrap items-center gap-2 mb-1">
         <ChartBar className="w-4 h-4 text-gray-400" />
         <h4 className="text-base font-black uppercase tracking-widest text-white">
-          분위 그룹 비교
+          {t("분위 그룹 비교")}
         </h4>
         <span className="text-[10px] text-gray-500 font-bold ml-1">
-          {data.orderLabel} · 종목 수 동일 {data.groupCount}개 그룹
-          {data.groupCap ? ` · 그룹당 최대 ${data.groupCap}종목` : ""}
+          {t("{0} · 종목 수 동일 {1}개 그룹{2}", data.orderLabel, data.groupCount, data.groupCap ? t(" · 그룹당 최대 {0}종목", data.groupCap) : "")}
         </span>
-        <div className="ml-auto flex items-center gap-1" role="group" aria-label="비교 지표 선택">
+        <div className="ml-auto flex items-center gap-1" role="group" aria-label={t("비교 지표 선택")}>
           {METRIC_OPTIONS.map((opt) => (
             <button
               key={opt.key}
@@ -86,15 +88,13 @@ export default function QuantileGroupsSection({ data }: Props) {
                   : "text-gray-500 hover:text-gray-300"
               }`}
             >
-              {opt.label}
+              {t(opt.label)}
             </button>
           ))}
         </div>
       </div>
       <p className="text-[11px] text-gray-600 mb-3">
-        1그룹 = {data.metricLabel} 랭킹 최상위 구간(메인 결과), {data.groupCount}그룹 = 최하위
-        구간. 그룹 비교는 순수 리밸런싱 기준의 과거 데이터 시뮬레이션 결과이며 미래 수익을
-        보장하지 않습니다.
+        {t("1그룹 = {0} 랭킹 최상위 구간(메인 결과), {1}그룹 = 최하위 구간. 그룹 비교는 순수 리밸런싱 기준의 과거 데이터 시뮬레이션 결과이며 미래 수익을 보장하지 않습니다.", data.metricLabel, data.groupCount)}
       </p>
 
       {/* 막대 그래프 — 그룹별 선택 지표 */}
@@ -103,7 +103,7 @@ export default function QuantileGroupsSection({ data }: Props) {
           viewBox={`0 0 ${W} ${H}`}
           className="w-full min-w-[560px]"
           role="img"
-          aria-label={`분위 그룹별 ${METRIC_OPTIONS.find((o) => o.key === metric)?.label} 막대 그래프`}
+          aria-label={t("분위 그룹별 {0} 막대 그래프", METRIC_OPTIONS.find((o) => o.key === metric)?.label)}
         >
           {/* 0% 기준선 */}
           <line
@@ -123,7 +123,7 @@ export default function QuantileGroupsSection({ data }: Props) {
             const fill = v >= 0 ? POSITIVE : NEGATIVE;
             return (
               <g key={g.group} data-testid={`quantile-bar-${g.group}`}>
-                <title>{`${g.label}\n총 수익률 ${pct(g.totalReturn)} · CAGR ${pct(g.cagr)} · MDD ${pct(g.maxDrawdown)} · 샤프 ${g.sharpe.toFixed(2)} · 거래 ${g.trades}건`}</title>
+                <title>{t("{0}\n총 수익률 {1} · CAGR {2} · MDD {3} · 샤프 {4} · 거래 {5}건", g.label, pct(g.totalReturn), pct(g.cagr), pct(g.maxDrawdown), g.sharpe.toFixed(2), g.trades)}</title>
                 <rect
                   x={x}
                   y={y0}
@@ -155,7 +155,7 @@ export default function QuantileGroupsSection({ data }: Props) {
                   fontWeight={isMain ? 800 : 500}
                   fill={isMain ? "#e0e0e0" : "#9ca3af"}
                 >
-                  {g.group}그룹
+                  {t("{0}그룹", g.group)}
                 </text>
                 {isMain && (
                   <text
@@ -165,7 +165,7 @@ export default function QuantileGroupsSection({ data }: Props) {
                     fontSize={9}
                     fill="#6b7280"
                   >
-                    메인
+                    {t("메인")}
                   </text>
                 )}
               </g>
@@ -179,15 +179,15 @@ export default function QuantileGroupsSection({ data }: Props) {
         <table className="w-full text-left border-collapse" data-testid="quantile-groups-table">
           <thead>
             <tr className="bg-white/[0.06]">
-              <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest rounded-l-lg">그룹</th>
-              <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">구간</th>
-              <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">총 수익률</th>
+              <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest rounded-l-lg">{t("그룹")}</th>
+              <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">{t("구간")}</th>
+              <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">{t("총 수익률")}</th>
               <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">CAGR</th>
               <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">MDD</th>
-              <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">샤프</th>
-              <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">승률</th>
-              <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">거래</th>
-              <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right rounded-r-lg">최종 자산</th>
+              <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">{t("샤프")}</th>
+              <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">{t("승률")}</th>
+              <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">{t("거래")}</th>
+              <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right rounded-r-lg">{t("최종 자산")}</th>
             </tr>
           </thead>
           <tbody>
@@ -199,10 +199,10 @@ export default function QuantileGroupsSection({ data }: Props) {
                   className={`border-b border-white/[0.04] ${isMain ? "bg-white/[0.03]" : ""}`}
                 >
                   <td className="py-2 px-3 text-xs font-bold text-gray-200 whitespace-nowrap">
-                    {g.group}그룹
+                    {g.group}{t("그룹")}
                     {isMain && (
                       <span className="ml-1.5 inline-flex items-center rounded bg-white/10 px-1.5 py-0.5 text-[9px] font-bold text-gray-300">
-                        메인
+                        {t("메인")}
                       </span>
                     )}
                   </td>

@@ -11,6 +11,7 @@ import {
   SlidersHorizontal,
   Stop,
 } from "phosphor-react";
+import { t } from "@/lib/i18n";
 
 type SortKey = "cagr" | "sharpe" | "max_drawdown" | "profit_factor" | "trades" | "quality_score";
 type TabKey = "leaderboard" | "indicators" | "combinations" | "parameters" | "failures" | "insights";
@@ -253,10 +254,10 @@ export default function PromptBacktestExperimentPage() {
               <div className="space-y-2 min-w-0">
                 <div className="flex items-center gap-2.5">
                   <ChartBar size={21} className="text-sky-400" weight="fill" />
-                  <h1 className="text-xl font-black text-white">전략 프롬프트 실험</h1>
+                  <h1 className="text-xl font-black text-white">{t("전략 프롬프트 실험")}</h1>
                 </div>
                 <p className="text-xs font-bold text-gray-500">
-                  프롬프트 생성, 백테스트 실행, 코치 개선 인사이트 생성을 한 화면에서 관리합니다.
+                  {t("프롬프트 생성, 백테스트 실행, 코치 개선 인사이트 생성을 한 화면에서 관리합니다.")}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -266,7 +267,7 @@ export default function PromptBacktestExperimentPage() {
                   className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-white/[0.08] text-xs font-black text-white hover:bg-white/[0.12] disabled:opacity-50"
                 >
                   <ArrowClockwise size={14} weight="bold" />
-                  300개 전략 프롬프트 생성
+                  {t("300개 전략 프롬프트 생성")}
                 </button>
                 <button
                   onClick={startExperiment}
@@ -274,7 +275,7 @@ export default function PromptBacktestExperimentPage() {
                   className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[var(--main-blue)] text-xs font-black text-white disabled:opacity-50"
                 >
                   <Play size={14} weight="fill" />
-                  배치 실행 시작
+                  {t("배치 실행 시작")}
                 </button>
                 <button
                   onClick={cancelExperiment}
@@ -282,7 +283,7 @@ export default function PromptBacktestExperimentPage() {
                   className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-white/[0.08] text-xs font-black text-gray-300 disabled:opacity-40"
                 >
                   <Stop size={14} weight="fill" />
-                  실행 취소
+                  {t("실행 취소")}
                 </button>
               </div>
             </section>
@@ -291,7 +292,7 @@ export default function PromptBacktestExperimentPage() {
               <div className="xl:col-span-3 p-5 space-y-4">
                 <div className="flex items-center gap-2">
                   <SlidersHorizontal size={15} className="text-gray-500" weight="bold" />
-                  <span className="text-xs font-bold uppercase tracking-widest text-gray-500">생성 설정</span>
+                  <span className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("생성 설정")}</span>
                 </div>
                 <label className="block space-y-1">
                   <span className="text-xs font-bold text-gray-500">Seed</span>
@@ -340,8 +341,8 @@ export default function PromptBacktestExperimentPage() {
                   <div className="h-full bg-[var(--main-blue)] transition-all" style={{ width: `${progress}%` }} />
                 </div>
                 <div className="min-h-10 text-xs font-bold text-gray-500">
-                  현재 실행 중인 프롬프트:{" "}
-                  <span className="text-gray-300">{currentPrompt ?? "대기 중인 실행이 없습니다"}</span>
+                  {t("현재 실행 중인 프롬프트:")}{" "}
+                  <span className="text-gray-300">{currentPrompt ?? t("대기 중인 실행이 없습니다")}</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   <a
@@ -365,7 +366,7 @@ export default function PromptBacktestExperimentPage() {
             <section className="p-5 space-y-3">
               <div className="flex items-center gap-2">
                 <FunnelSimple size={15} className="text-gray-500" weight="bold" />
-                <span className="text-xs font-bold uppercase tracking-widest text-gray-500">필터와 정렬</span>
+                <span className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("필터와 정렬")}</span>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2">
                 <select aria-label="sort" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)} className="rounded-md bg-white/[0.04] border border-white/[0.08] px-2 py-2 text-xs font-bold text-white">
@@ -439,15 +440,15 @@ export default function PromptBacktestExperimentPage() {
                 </div>
               )}
 
-              {activeTab === "indicators" && <AnalysisTable rows={buildRows(analysis?.best_single_indicators)} emptyText="지표별 성과 분석 데이터가 없습니다." />}
-              {activeTab === "combinations" && <AnalysisTable rows={buildRows(analysis?.best_indicator_combinations)} emptyText="조합별 성과 분석 데이터가 없습니다." />}
-              {activeTab === "parameters" && <AnalysisTable rows={buildRows(analysis?.best_parameter_ranges)} emptyText="파라미터별 성과 분석 데이터가 없습니다." />}
+              {activeTab === "indicators" && <AnalysisTable rows={buildRows(analysis?.best_single_indicators)} emptyText={t("지표별 성과 분석 데이터가 없습니다.")} />}
+              {activeTab === "combinations" && <AnalysisTable rows={buildRows(analysis?.best_indicator_combinations)} emptyText={t("조합별 성과 분석 데이터가 없습니다.")} />}
+              {activeTab === "parameters" && <AnalysisTable rows={buildRows(analysis?.best_parameter_ranges)} emptyText={t("파라미터별 성과 분석 데이터가 없습니다.")} />}
               {activeTab === "failures" && <FailurePanel analysis={analysis} candidates={candidates} />}
               {activeTab === "insights" && <InsightsPanel experiment={experiment} analysis={analysis} />}
             </section>
 
             <section className="p-5">
-              <div className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-3">실행 로그</div>
+              <div className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-3">{t("실행 로그")}</div>
               <div className="min-h-24 divide-y divide-white/[0.04] border border-white/[0.08]">
                 {(log.length ? log : ["아직 실행 로그가 없습니다."]).map((item, index) => (
                   <div key={`${item}-${index}`} className="px-3 py-2 text-xs font-bold text-gray-500">{item}</div>
@@ -496,10 +497,10 @@ function FailurePanel({ analysis, candidates }: { analysis: AnalysisPayload | nu
   return (
     <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div className="border border-white/[0.08]">
-        <div className="px-3 py-2 text-xs font-bold uppercase tracking-widest text-gray-500 border-b border-white/[0.08]">error_type 집계</div>
+        <div className="px-3 py-2 text-xs font-bold uppercase tracking-widest text-gray-500 border-b border-white/[0.08]">{t("error_type 집계")}</div>
         <div className="divide-y divide-white/[0.04]">
           {failureRows.length === 0 ? (
-            <div className="p-3 text-xs font-bold text-gray-600">실패 프롬프트 분석 데이터가 없습니다.</div>
+            <div className="p-3 text-xs font-bold text-gray-600">{t("실패 프롬프트 분석 데이터가 없습니다.")}</div>
           ) : failureRows.map(([key, value]: any) => (
             <div key={key} className="p-3">
               <div className="text-sm font-black text-white">{key}</div>
@@ -510,10 +511,10 @@ function FailurePanel({ analysis, candidates }: { analysis: AnalysisPayload | nu
         </div>
       </div>
       <div className="border border-white/[0.08]">
-        <div className="px-3 py-2 text-xs font-bold uppercase tracking-widest text-gray-500 border-b border-white/[0.08]">실패 항목</div>
+        <div className="px-3 py-2 text-xs font-bold uppercase tracking-widest text-gray-500 border-b border-white/[0.08]">{t("실패 항목")}</div>
         <div className="divide-y divide-white/[0.04] max-h-80 overflow-y-auto">
           {failedCandidates.length === 0 ? (
-            <div className="p-3 text-xs font-bold text-gray-600">실패 항목이 없습니다.</div>
+            <div className="p-3 text-xs font-bold text-gray-600">{t("실패 항목이 없습니다.")}</div>
           ) : failedCandidates.map((candidate) => (
             <div key={candidate.prompt_id} className="p-3">
               <div className="text-xs font-bold text-white">{candidate.prompt}</div>
@@ -545,7 +546,7 @@ function InsightsPanel({ experiment, analysis }: { experiment: ExperimentDetail 
         </pre>
       </div>
       <div className="border border-white/[0.08] p-4 space-y-3">
-        <div className="text-xs font-bold uppercase tracking-widest text-gray-500">파일 다운로드 링크</div>
+        <div className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("파일 다운로드 링크")}</div>
         {[
           ["result", experiment?.resultFilePath],
           ["summary", experiment?.summaryFilePath],

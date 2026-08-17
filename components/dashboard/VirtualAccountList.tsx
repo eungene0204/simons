@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { VirtualAccountListData } from "@/app/api/dashboard/virtual-account-list/route";
+import { t } from "@/lib/i18n";
 
 function formatKRW(v: number): string {
   const abs = Math.abs(v);
   const sign = v < 0 ? "-" : v > 0 ? "+" : "";
-  if (abs >= 100_000_000) return `${sign}${(abs / 100_000_000).toFixed(1)}억`;
-  if (abs >= 10_000) return `${sign}${Math.round(abs / 10_000).toLocaleString()}만`;
+  if (abs >= 100_000_000) return t("{0}{1}억", sign, (abs / 100_000_000).toFixed(1));
+  if (abs >= 10_000) return t("{0}{1}만", sign, Math.round(abs / 10_000).toLocaleString());
   return `${sign}${abs.toLocaleString("ko-KR")}`;
 }
 
@@ -26,13 +27,13 @@ function StatusBadge({ status }: { status: "ACTIVE" | "CLOSED" }) {
   if (status === "ACTIVE") {
     return (
       <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
-        운용중
+        {t("운용중")}
       </span>
     );
   }
   return (
     <span className="inline-flex items-center rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-bold text-gray-500">
-      삭제됨
+      {t("삭제됨")}
     </span>
   );
 }
@@ -68,9 +69,9 @@ export default function VirtualAccountList({ initialData }: { initialData: Virtu
       {/* 헤더 */}
       <div className="mb-5">
         <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
-          가상계좌 목록
+          {t("가상계좌 목록")}
         </h2>
-        <p className="text-xs text-gray-500 mt-0.5">운용중/삭제된 계좌별 수익 현황</p>
+        <p className="text-xs text-gray-500 mt-0.5">{t("운용중/삭제된 계좌별 수익 현황")}</p>
       </div>
 
       <div
@@ -82,7 +83,7 @@ export default function VirtualAccountList({ initialData }: { initialData: Virtu
       <div className="grid grid-cols-[minmax(0,1fr)_120px_110px] gap-2 px-2 mb-2">
         {["계좌명", "수익률", "총 수익금"].map((h) => (
           <span key={h} className="text-xs font-bold uppercase tracking-widest text-gray-500">
-            {h}
+            {t(h)}
           </span>
         ))}
       </div>
@@ -102,8 +103,8 @@ export default function VirtualAccountList({ initialData }: { initialData: Virtu
         </div>
       ) : accounts.length === 0 ? (
         <div className="py-10 text-center">
-          <p className="text-gray-500 text-sm">등록된 가상계좌가 없습니다</p>
-          <p className="text-gray-600 text-xs mt-1">가상계좌를 생성하면 여기서 확인할 수 있습니다</p>
+          <p className="text-gray-500 text-sm">{t("등록된 가상계좌가 없습니다")}</p>
+          <p className="text-gray-600 text-xs mt-1">{t("가상계좌를 생성하면 여기서 확인할 수 있습니다")}</p>
         </div>
       ) : (
         <div className="divide-y divide-white/[0.04] overflow-y-auto max-h-64 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
@@ -120,7 +121,7 @@ export default function VirtualAccountList({ initialData }: { initialData: Virtu
                   <p className="text-base font-bold text-white truncate">{a.name}</p>
                   <StatusBadge status={a.status} />
                 </div>
-                <p className="text-xs text-gray-600 mt-0.5">{a.strategyName ?? "전략 미연결"}</p>
+                <p className="text-xs text-gray-600 mt-0.5">{a.strategyName ?? t("전략 미연결")}</p>
               </div>
 
               {/* 수익률 */}
@@ -132,7 +133,7 @@ export default function VirtualAccountList({ initialData }: { initialData: Virtu
               <span
                 className={`text-base font-bold tabular-nums font-outfit ${getValueColorClass(a.profit)}`}
               >
-                {formatKRW(a.profit)}원
+                {t("{0}원", formatKRW(a.profit))}
               </span>
             </button>
           ))}

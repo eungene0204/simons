@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { ArrowsClockwise, Warning } from "phosphor-react";
+import { t } from "@/lib/i18n";
 
 interface RunProgressModalProps {
   open: boolean;
@@ -53,7 +54,7 @@ export default function RunProgressModal({
           <div className="mt-5 flex items-start gap-3">
             <Warning className="mt-0.5 h-4 w-4 shrink-0 text-[var(--main-blue)]" />
             <div className="min-w-0">
-              <p className="text-xs font-bold uppercase tracking-widest text-[var(--main-blue)]">실행 오류</p>
+              <p className="text-xs font-bold uppercase tracking-widest text-[var(--main-blue)]">{t("실행 오류")}</p>
               <p className="mt-1 break-words text-sm font-black leading-6 text-white">{error}</p>
             </div>
           </div>
@@ -90,7 +91,7 @@ export default function RunProgressModal({
               onClick={onCancel}
               className="px-4 py-2 text-sm font-black text-gray-400 transition-colors hover:bg-white/[0.03] hover:text-white"
             >
-              취소
+              {t("취소")}
             </button>
           )}
           {!isRunning && (
@@ -99,7 +100,7 @@ export default function RunProgressModal({
               onClick={onClose}
               className="rounded-md bg-[var(--main-blue)] px-4 py-2 text-sm font-black text-white transition-opacity hover:opacity-90"
             >
-              닫기
+              {t("닫기")}
             </button>
           )}
         </div>

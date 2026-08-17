@@ -1,3 +1,4 @@
+import { t } from "@/lib/i18n";
 // Virtual Market Service — 가상 계좌 실제 시세 연동 API 래퍼
 
 export interface VirtualMarketState {
@@ -75,7 +76,7 @@ export async function startVirtualMarket(
     body: JSON.stringify({ symbols }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "시장 추적 시작 실패");
+  if (!res.ok) throw new Error(data.error || t("시장 추적 시작 실패"));
   return data;
 }
 
@@ -120,7 +121,7 @@ export async function startStrategyExecution(
     body: JSON.stringify({}),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "전략 자동 실행 시작 실패");
+  if (!res.ok) throw new Error(data.error || t("전략 자동 실행 시작 실패"));
   return data;
 }
 

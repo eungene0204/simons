@@ -4,16 +4,17 @@ import { ArrowClockwise } from "phosphor-react";
 
 import { useStockNews } from "@/lib/hooks/useStockNews";
 import type { NewsItemV2, NewsStatus, Sentiment } from "@/types/news-v2";
+import { t } from "@/lib/i18n";
 
 function timeAgo(iso: string | null | undefined): string {
   if (!iso) return "";
   try {
     const timestamp = /(?:Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}Z`;
     const diff = (Date.now() - new Date(timestamp).getTime()) / 1000;
-    if (diff < 60) return "방금";
-    if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
-    return `${Math.floor(diff / 86400)}일 전`;
+    if (diff < 60) return t("방금");
+    if (diff < 3600) return t("{0}분 전", Math.floor(diff / 60));
+    if (diff < 86400) return t("{0}시간 전", Math.floor(diff / 3600));
+    return t("{0}일 전", Math.floor(diff / 86400));
   } catch {
     return "";
   }
@@ -62,7 +63,7 @@ function SentimentBadge({ sentiment }: { sentiment?: Sentiment | null }) {
     : sentiment === "negative"
       ? "text-[var(--main-blue)] border-white/[0.16]"
       : "text-green-400 border-white/[0.16]";
-  const label = sentiment === "positive" ? "긍정" : sentiment === "negative" ? "부정" : "중립";
+  const label = sentiment === "positive" ? t("긍정") : sentiment === "negative" ? t("부정") : t("중립");
   return (
     <span className={`inline-flex items-center gap-0.5 text-xs font-bold px-2 py-0.5 rounded-md border ${cfg}`}>
       {label}
@@ -94,23 +95,23 @@ function StatusBanner({ status, message }: { status: NewsStatus; message?: strin
       <div className="rounded-xl border border-amber-400/20 p-4 text-center">
         <p className="text-sm text-amber-300 mb-1">
           <span className="inline-block w-2 h-2 bg-amber-400 rounded-full animate-pulse mr-2" />
-          {message ?? "최근 뉴스가 준비 중입니다."}
+          {message ?? t("최근 뉴스가 준비 중입니다.")}
         </p>
-        <p className="text-xs text-gray-500">준비된 캐시가 생기면 자동으로 표시됩니다.</p>
+        <p className="text-xs text-gray-500">{t("준비된 캐시가 생기면 자동으로 표시됩니다.")}</p>
       </div>
     );
   }
   if (status === "NO_NEWS_FOUND") {
     return (
       <div className="py-10 text-center">
-        <p className="text-sm text-gray-500">최근 뉴스가 없습니다.</p>
+        <p className="text-sm text-gray-500">{t("최근 뉴스가 없습니다.")}</p>
       </div>
     );
   }
   if (status === "FAILED") {
     return (
       <div className="rounded-xl border border-red-500/20 bg-red-500/[0.04] p-4 text-center">
-        <p className="text-sm text-red-400">{message ?? "뉴스 수집에 실패했습니다."}</p>
+        <p className="text-sm text-red-400">{message ?? t("뉴스 수집에 실패했습니다.")}</p>
       </div>
     );
   }
@@ -166,12 +167,12 @@ export default function NewsImpactPanel({ symbol }: { symbol: string }) {
         <div className="flex items-center gap-2">
           {data?.lastUpdatedAt && (
             <span className="text-xs text-gray-500">
-              마지막 업데이트: {timeAgo(data.lastUpdatedAt)}
+              {t("마지막 업데이트: {0}", timeAgo(data.lastUpdatedAt))}
             </span>
           )}
           {isRevalidating && (
             <span className="text-xs text-amber-400 animate-pulse">
-              갱신 중...
+              {t("갱신 중...")}
             </span>
           )}
         </div>
@@ -181,7 +182,7 @@ export default function NewsImpactPanel({ symbol }: { symbol: string }) {
           className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-40"
         >
           <ArrowClockwise size={13} weight="bold" className={isRevalidating ? "animate-spin" : ""} />
-          새로고침
+          {t("새로고침")}
         </button>
       </div>
 
@@ -191,7 +192,7 @@ export default function NewsImpactPanel({ symbol }: { symbol: string }) {
 
       {error && items.length === 0 ? (
         <div className="rounded-xl border border-red-500/20 bg-red-500/[0.04] p-4 text-center">
-          <p className="text-sm text-red-400">뉴스 캐시를 읽지 못했습니다.</p>
+          <p className="text-sm text-red-400">{t("뉴스 캐시를 읽지 못했습니다.")}</p>
         </div>
       ) : null}
 
@@ -203,7 +204,7 @@ export default function NewsImpactPanel({ symbol }: { symbol: string }) {
         </div>
       ) : status === "READY" || status === "STALE" ? (
         <div className="py-10 text-center">
-          <p className="text-sm text-gray-500">최근 뉴스가 없습니다.</p>
+          <p className="text-sm text-gray-500">{t("최근 뉴스가 없습니다.")}</p>
         </div>
       ) : null}
     </div>

@@ -448,7 +448,10 @@ def _build_general_user_msg(req: GeneralQueryRequest, extra_facts: Optional[str]
         parts.append(f"[대화 맥락]\n{context}\n[질문]\n{req.query}")
     else:
         parts.append(req.query)
-    return "".join(parts)
+    # UI 언어가 영어면 답변을 영어로 쓰라는 지시를 끝에 붙인다(시스템 프롬프트는 고정).
+    from ui_language import append_directive
+
+    return append_directive("".join(parts))
 
 
 def generate_general_answer(

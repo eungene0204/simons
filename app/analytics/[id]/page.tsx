@@ -19,6 +19,7 @@ import {
   type AdvisorWalkForwardSettings,
 } from "../new/parsedStrategyMerge";
 import { formatApiErrorDetail, runWalkForwardStream, type WalkForwardProgressHandler } from "../new/walkForwardStream";
+import { t } from "@/lib/i18n";
 
 function mapBacktestResponse(raw: any): BacktestResult {
   const equity: number[] = raw.equity ?? [];
@@ -125,9 +126,9 @@ function StrategyResultContent() {
         const response = await fetch(`/api/strategy/${id}`);
         const data = await response.json();
         if (data.error) throw new Error(data.error);
-        setStrategyName(data.name ?? "전략");
+        setStrategyName(data.name ?? t("전략"));
         if (!data.backtestResult) {
-          setError("저장된 백테스트 결과가 없습니다.");
+          setError(t("저장된 백테스트 결과가 없습니다."));
           return;
         }
 
@@ -160,12 +161,12 @@ function StrategyResultContent() {
         }
 
         if (normalizedSettings !== rawSettings) {
-          setLegacyNotice("기존 52일 breakout 버그가 감지되었습니다. 필요하면 재실행 버튼으로 252일 기준 결과를 다시 계산해 주세요.");
+          setLegacyNotice(t("기존 52일 breakout 버그가 감지되었습니다. 필요하면 재실행 버튼으로 252일 기준 결과를 다시 계산해 주세요."));
         }
 
         setResult(data.backtestResult);
       } catch (e: any) {
-        setError(e.message ?? "불러오기 실패");
+        setError(e.message ?? t("불러오기 실패"));
       } finally {
         setLoading(false);
       }
@@ -209,14 +210,14 @@ function StrategyResultContent() {
       const rerunData = await rerunResponse.json();
       if (!rerunResponse.ok) {
         throw new Error(
-          formatApiErrorDetail(rerunData.detail) ?? formatApiErrorDetail(rerunData.error) ?? "재실행 실패"
+          formatApiErrorDetail(rerunData.detail) ?? formatApiErrorDetail(rerunData.error) ?? t("재실행 실패")
         );
       }
       setResult(mapBacktestResponse(rerunData));
       setLegacyNotice(null);
       setError(null);
     } catch (e: any) {
-      setError(e.message ?? "재실행 실패");
+      setError(e.message ?? t("재실행 실패"));
     } finally {
       setIsRunning(false);
     }
@@ -228,14 +229,14 @@ function StrategyResultContent() {
     onProgress?: WalkForwardProgressHandler
   ) => {
     if (!backtestDsl) {
-      throw new Error("워크포워드 분석을 실행할 백테스트 요청이 없습니다.");
+      throw new Error(t("워크포워드 분석을 실행할 백테스트 요청이 없습니다."));
     }
 
     const baseRequest = buildEffectiveBacktestRequest(currentOptions);
     const ranges = buildWalkForwardParameterRanges(baseRequest);
     if (!hasWalkForwardParameterRanges(ranges)) {
       throw new Error(
-        "워크포워드 최적화에 사용할 숫자 파라미터가 없습니다. 손절/익절, 지표 기간, 임계값처럼 조정 가능한 조건이 포함된 전략에서 실행해 주세요."
+        t("워크포워드 최적화에 사용할 숫자 파라미터가 없습니다. 손절/익절, 지표 기간, 임계값처럼 조정 가능한 조건이 포함된 전략에서 실행해 주세요.")
       );
     }
 
@@ -250,7 +251,7 @@ function StrategyResultContent() {
       <DashboardLayout userName="">
         <div
           role="status"
-          aria-label="전략 결과 불러오는 중"
+          aria-label={t("전략 결과 불러오는 중")}
           className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] items-center justify-center"
         >
           <Spinner size={32} className="animate-spin text-gray-500" aria-hidden="true" />
@@ -264,13 +265,13 @@ function StrategyResultContent() {
       <DashboardLayout userName="">
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <Warning size={32} className="text-[var(--main-blue)]" weight="fill" />
-          <p className="text-sm font-bold text-[var(--main-blue)]">{error ?? "결과를 불러올 수 없습니다."}</p>
+          <p className="text-sm font-bold text-[var(--main-blue)]">{error ?? t("결과를 불러올 수 없습니다.")}</p>
           <button
             onClick={() => router.push("/analytics")}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.05] hover:bg-white/10 text-gray-400 hover:text-white text-xs font-bold transition-all duration-200"
           >
             <ArrowLeft size={13} />
-            전략 목록으로
+            {t("전략 목록으로")}
           </button>
         </div>
       </DashboardLayout>

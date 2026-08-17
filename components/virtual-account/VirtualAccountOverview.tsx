@@ -12,6 +12,7 @@ import {
   getCachedVirtualAccounts,
   refreshVirtualAccountOverviewCache,
 } from "./virtualAccountOverviewCache";
+import { getLocale, t } from "@/lib/i18n";
 
 const formatPrice = (value: number) =>
   new Intl.NumberFormat("ko-KR").format(Math.round(value));
@@ -157,7 +158,7 @@ export default function VirtualAccountOverview() {
       setAccountPendingDeletion(null);
       await loadAccounts({ showLoading: false, force: true });
     } catch {
-      setDeleteError("계좌 해지에 실패했습니다. 현재가 조회 또는 계좌 상태를 확인해 주세요.");
+      setDeleteError(t("계좌 해지에 실패했습니다. 현재가 조회 또는 계좌 상태를 확인해 주세요."));
     } finally {
       setIsDeletingAccount(false);
     }
@@ -167,11 +168,11 @@ export default function VirtualAccountOverview() {
     return (
       <div
         role="status"
-        aria-label="가상계좌 불러오는 중"
+        aria-label={t("가상계좌 불러오는 중")}
         className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] flex-col items-center justify-center gap-3"
       >
         <Spinner size={32} className="animate-spin text-gray-500" aria-hidden="true" />
-        <p className="text-sm font-bold text-gray-500">불러오는 중...</p>
+        <p className="text-sm font-bold text-gray-500">{t("불러오는 중...")}</p>
       </div>
     );
   }
@@ -199,17 +200,17 @@ export default function VirtualAccountOverview() {
             <div className="flex flex-1 flex-col border border-white/[0.08]">
               <div className="flex flex-1 flex-col items-center justify-center gap-4 px-5 text-center">
                 <p className="text-3xl font-black tracking-tight text-white">
-                  가상계좌를 불러오지 못했습니다
+                  {t("가상계좌를 불러오지 못했습니다")}
                 </p>
                 <p className="max-w-md text-sm font-bold leading-relaxed text-gray-500">
-                  저장된 계좌가 없는 것이 아니라 계좌 조회 요청이 실패했습니다. 잠시 후 다시 시도해 주세요.
+                  {t("저장된 계좌가 없는 것이 아니라 계좌 조회 요청이 실패했습니다. 잠시 후 다시 시도해 주세요.")}
                 </p>
                 <button
                   type="button"
                   onClick={() => void loadAccounts({ showLoading: true, force: true })}
                   className="rounded-lg border border-white/[0.12] bg-[#111111] px-5 py-3 text-sm font-black text-white transition-colors hover:bg-[#181818]"
                 >
-                  다시 불러오기
+                  {t("다시 불러오기")}
                 </button>
               </div>
             </div>
@@ -219,9 +220,9 @@ export default function VirtualAccountOverview() {
               className="relative flex flex-1 flex-col items-center justify-center gap-6 px-5 py-8 text-center"
             >
               <p className="relative z-10 max-w-4xl text-4xl font-black leading-tight text-white md:text-6xl">
-                가상계좌를 만들고
+                {t("가상계좌를 만들고")}
                 <br />
-                전략을 시뮬레이션 해보세요
+                {t("전략을 시뮬레이션 해보세요")}
               </p>
               <div className="relative z-10 mt-4">
                 <div className="pointer-events-none absolute -inset-x-8 -inset-y-4 bg-[radial-gradient(ellipse_at_center,rgba(55,122,244,0.28)_0%,rgba(34,197,94,0.12)_38%,rgba(15,15,15,0)_72%)] blur-2xl" />
@@ -230,7 +231,7 @@ export default function VirtualAccountOverview() {
                   onClick={() => setIsCreateModalOpen(true)}
                   className="relative rounded-lg border border-white/[0.12] bg-[#111111] px-7 py-4 text-base font-black text-white transition-colors hover:bg-[#181818]"
                 >
-                  가상계좌 만들기
+                  {t("가상계좌 만들기")}
                 </button>
               </div>
             </div>
@@ -244,12 +245,12 @@ export default function VirtualAccountOverview() {
                 <StrategyWaveBackground />
                 <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(17,17,17,0.24)_0%,rgba(17,17,17,0.72)_76%)]" />
                 <span className="relative text-xl font-black tracking-tight text-white">
-                  가상계좌 추가하기
+                  {t("가상계좌 추가하기")}
                 </span>
                 <span className="relative mt-3 max-w-full text-sm font-bold leading-relaxed text-gray-500">
-                  <span className="block whitespace-nowrap">전략과 가상계좌를 연결해</span>
+                  <span className="block whitespace-nowrap">{t("전략과 가상계좌를 연결해")}</span>
                   <span className="block whitespace-nowrap text-[13px] sm:text-sm">
-                    실시간 시장 데이터로 전략을 시뮬레이션해 보세요
+                    {t("실시간 시장 데이터로 전략을 시뮬레이션해 보세요")}
                   </span>
                 </span>
               </button>
@@ -276,7 +277,7 @@ export default function VirtualAccountOverview() {
                       href={`/virtual-account/${account.id}`}
                       onClick={(event) => handleAccountClick(event, account)}
                       aria-disabled={openingAccountId === account.id}
-                      aria-label={`${account.name} 상세 보기`}
+                      aria-label={t("{0} 상세 보기", account.name)}
                       className="absolute inset-0 z-10 rounded-lg focus:outline-none focus:ring-2 focus:ring-white/30"
                     />
                     <div className="flex items-start justify-between gap-3">
@@ -285,19 +286,19 @@ export default function VirtualAccountOverview() {
                           {account.name}
                         </h2>
                         <p className="mt-1 truncate text-xs font-bold text-gray-500">
-                          {account.strategyName || "전략 미연결"}
+                          {account.strategyName || t("전략 미연결")}
                         </p>
                       </div>
                       <div className="relative z-20 flex shrink-0 items-center gap-2">
                         {account.strategyName && account.tradingMode === "auto" ? (
                           <span className="inline-flex items-center gap-1 rounded-lg border border-amber-400/25 bg-[#1a1208]/90 px-2 py-1 text-[11px] font-black text-amber-300 shadow-[0_0_18px_rgba(245,158,11,0.22)]">
                             <Robot size={11} weight="bold" />
-                            전략 시뮬레이션 중
+                            {t("전략 시뮬레이션 중")}
                           </span>
                         ) : null}
                         <button
                           type="button"
-                          aria-label={`${account.name} 계좌 해지`}
+                          aria-label={t("{0} 계좌 해지", account.name)}
                           onClick={(event) => handleDeleteClick(event, account)}
                           className="inline-flex shrink-0 items-center justify-center rounded-md bg-white/[0.06] p-2 text-gray-500 transition-colors hover:bg-[var(--main-red)]/15 hover:text-[var(--main-red)]"
                         >
@@ -309,12 +310,12 @@ export default function VirtualAccountOverview() {
                     <div>
                       <div className="mt-5">
                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">
-                          총 자산 가치
+                          {t("총 자산 가치")}
                         </p>
                         <p className="mt-2 text-2xl font-black tabular-nums tracking-tight text-white">
                           {formatPrice(account.totalValue)}
                           <span className="ml-1 text-xs font-bold text-gray-500">
-                            원
+                            {t("원")}
                           </span>
                         </p>
                         <p
@@ -326,33 +327,31 @@ export default function VirtualAccountOverview() {
                                 : "text-gray-500"
                           }`}
                         >
-                          {isPositive ? "+" : isNegative ? "-" : ""}
-                          {formatPrice(Math.abs(profit))}원 (
-                          {formatSignedPercent(profitPercent)})
+                          {t("{0}{1}원 ({2})", isPositive ? "+" : isNegative ? "-" : "", formatPrice(Math.abs(profit)), formatSignedPercent(profitPercent))}
                         </p>
                       </div>
 
                       <div className="mt-5 grid grid-cols-2 gap-2">
                         <div className="rounded-md border border-white/[0.06] bg-white/[0.02] p-3">
                           <p className="text-[10px] font-black uppercase tracking-[0.24em] text-gray-500">
-                            현금 잔액
+                            {t("현금 잔액")}
                           </p>
                           <p className="mt-2 text-sm font-black tabular-nums text-white">
-                            {formatPrice(account.currentBalance)}원
+                            {t("{0}원", formatPrice(account.currentBalance))}
                           </p>
                         </div>
                         <div className="rounded-md border border-white/[0.06] bg-white/[0.02] p-3">
                           <p className="text-[10px] font-black uppercase tracking-[0.24em] text-gray-500">
-                            초기 모의 투자금
+                            {t("초기 모의 투자금")}
                           </p>
                           <p className="mt-2 text-sm font-black tabular-nums text-white">
-                            {formatPrice(account.initialAmount)}원
+                            {t("{0}원", formatPrice(account.initialAmount))}
                           </p>
                         </div>
                       </div>
 
                       <p className="mt-4 border-t border-white/[0.06] pt-3 text-right text-xs font-bold text-gray-500">
-                        {new Date(account.createdAt).toLocaleDateString("ko-KR")}
+                        {new Date(account.createdAt).toLocaleDateString(getLocale())}
                       </p>
                     </div>
                   </article>
@@ -383,11 +382,10 @@ export default function VirtualAccountOverview() {
                 id="delete-account-modal-title"
                 className="text-2xl font-black tracking-tight text-white"
               >
-                계좌 해지
+                {t("계좌 해지")}
               </h2>
               <p className="mt-5 text-sm font-bold leading-7 text-gray-400">
-                이 계좌를 해지하면 해당 계좌의 시뮬레이션은 종료됩니다. 남은 현금과 보유 종목은
-                다른 계좌로 이전되지 않습니다.
+                {t("이 계좌를 해지하면 해당 계좌의 시뮬레이션은 종료됩니다. 남은 현금과 보유 종목은 다른 계좌로 이전되지 않습니다.")}
               </p>
               {deleteError ? (
                 <p className="mt-4 text-sm font-black text-[var(--main-red)]">{deleteError}</p>
@@ -404,7 +402,7 @@ export default function VirtualAccountOverview() {
                 disabled={isDeletingAccount}
                 className="rounded-xl border border-white/[0.08] px-5 py-3 text-sm font-black text-gray-400 transition-colors hover:bg-white/[0.04] hover:text-white disabled:cursor-wait disabled:opacity-60"
               >
-                취소
+                {t("취소")}
               </button>
               <button
                 type="button"
@@ -412,7 +410,7 @@ export default function VirtualAccountOverview() {
                 disabled={isDeletingAccount}
                 className="rounded-xl border border-white/[0.08] px-5 py-3 text-sm font-black text-[var(--main-red)] transition-colors hover:bg-white/[0.04] disabled:cursor-wait disabled:opacity-60"
               >
-                {isDeletingAccount ? "해지 중..." : "계좌 해지"}
+                {isDeletingAccount ? t("해지 중...") : t("계좌 해지")}
               </button>
             </div>
           </div>

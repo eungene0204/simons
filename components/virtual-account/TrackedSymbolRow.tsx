@@ -4,6 +4,7 @@ import { X } from "phosphor-react";
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
 import { getStatusBadge, getStatusBadgeClasses } from "@/lib/listing-status";
 import type { ListingStatusValue } from "@/lib/listing-status";
+import { t } from "@/lib/i18n";
 
 type DelistStatus = "delisted" | "warning" | null;
 
@@ -78,10 +79,10 @@ export default function TrackedSymbolRow({
       <div className="flex items-center justify-center text-center">
         {hasHolding ? (
           <span className="text-[10px] font-bold text-orange-400 bg-orange-400/10 px-1.5 py-0.5 rounded-md">
-            보유중
+            {t("보유중")}
           </span>
         ) : (
-          <span className="text-[10px] font-bold text-gray-600">대기</span>
+          <span className="text-[10px] font-bold text-gray-600">{t("대기")}</span>
         )}
       </div>
       <button
@@ -91,8 +92,8 @@ export default function TrackedSymbolRow({
           onRemove(symbol);
         }}
         className="flex items-center justify-center text-gray-600 opacity-100 transition-all duration-200 hover:text-[var(--main-red)] lg:opacity-0 lg:group-hover:opacity-100"
-        aria-label={`${name} 추적 제거`}
-        title="추적 제거"
+        aria-label={t("{0} 추적 제거", name)}
+        title={t("추적 제거")}
       >
         <X size={12} />
       </button>

@@ -52,6 +52,7 @@ import { colorTokens } from "@/components/strategy/colorTokens";
 import { buildRealizedPerformanceSeries } from "@/app/virtual-account/performanceSeries";
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
 import type { StrategyDSL } from "@/types/strategy";
+import { getLocale, t } from "@/lib/i18n";
 
 type AccountDetailCache = {
   account: VirtualAccount;
@@ -144,9 +145,9 @@ export default function VirtualAccountDetailPage() {
   const [signalLogs, setSignalLogs] = useState<VirtualMarketLog[]>([]);
   const [isStrategyReplaceOpen, setIsStrategyReplaceOpen] = useState(false);
   const [isMissingStrategyModalOpen, setIsMissingStrategyModalOpen] = useState(false);
-  const [missingStrategyModalTitle, setMissingStrategyModalTitle] = useState("자동매매 설정");
+  const [missingStrategyModalTitle, setMissingStrategyModalTitle] = useState(t("자동매매 설정"));
   const [missingStrategyModalDescription, setMissingStrategyModalDescription] = useState(
-    "자동매매를 시작하려면 저장된 전략이 필요합니다."
+    t("자동매매를 시작하려면 저장된 전략이 필요합니다.")
   );
   const [isCheckingAutoTradingStrategy, setIsCheckingAutoTradingStrategy] = useState(false);
   const [isCreatingStrategy, startCreateStrategyTransition] = useTransition();
@@ -174,7 +175,7 @@ export default function VirtualAccountDetailPage() {
         if (ls === "NORMAL" || ls === "TRADING_SUSPENDED") return null;
         const name =
           holdings.find((h) => h.symbol === sym)?.name ||
-          trackedSymbols.find((t) => t.symbol === sym)?.name ||
+          trackedSymbols.find((tv) => tv.symbol === sym)?.name ||
           delistingStatus.names[sym] ||
           sym;
         return {
@@ -188,7 +189,7 @@ export default function VirtualAccountDetailPage() {
   }, [trackedSymbols, holdings, delistingStatus]);
 
   const handleForceLiquidate = async (symbol: string) => {
-    if (!confirm(`${symbol} 포지션을 강제청산하시겠습니까?`)) return;
+    if (!confirm(t("{0} 포지션을 강제청산하시겠습니까?", symbol))) return;
     try {
       const res = await fetch(`/api/virtual-account/${accountId}/liquidate`, {
         method: "POST",
@@ -196,10 +197,10 @@ export default function VirtualAccountDetailPage() {
         body: JSON.stringify({ symbol }),
       });
       const data = await res.json();
-      if (!res.ok) { alert(data.error ?? "강제청산에 실패했습니다."); return; }
+      if (!res.ok) { alert(data.error ?? t("강제청산에 실패했습니다.")); return; }
       await loadAccountData();
     } catch {
-      alert("강제청산 중 오류가 발생했습니다.");
+      alert(t("강제청산 중 오류가 발생했습니다."));
     }
   };
   const { data: trackedPriceSnapshots } = useStockPrices(trackedSymbolsList, {
@@ -382,7 +383,7 @@ export default function VirtualAccountDetailPage() {
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null);
 
-    const [acc, t] = await Promise.all([
+    const [acc, tv] = await Promise.all([
       getAccount(accountId),
       getTransactionsByAccount(accountId),
     ]);
@@ -392,7 +393,7 @@ export default function VirtualAccountDetailPage() {
     }
     setAccount(acc);
     const nextHoldings = resolveHoldingDisplayNames((acc as any).holdings ?? [], stockMetadata);
-    const nextTransactions = t.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    const nextTransactions = tv.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     setHoldings(nextHoldings);
     setTransactions(nextTransactions);
 
@@ -518,8 +519,8 @@ export default function VirtualAccountDetailPage() {
       const strategies = response.ok ? await response.json() : [];
 
       if (!Array.isArray(strategies) || strategies.length === 0) {
-        setMissingStrategyModalTitle("자동매매 설정");
-        setMissingStrategyModalDescription("자동매매를 시작하려면 저장된 전략이 필요합니다.");
+        setMissingStrategyModalTitle(t("자동매매 설정"));
+        setMissingStrategyModalDescription(t("자동매매를 시작하려면 저장된 전략이 필요합니다."));
         setIsMissingStrategyModalOpen(true);
         return;
       }
@@ -537,7 +538,7 @@ export default function VirtualAccountDetailPage() {
       });
       void refreshVirtualAccountOverviewCache({ force: true });
     } catch {
-      alert("저장된 전략을 확인하지 못했습니다.");
+      alert(t("저장된 전략을 확인하지 못했습니다."));
     } finally {
       setIsCheckingAutoTradingStrategy(false);
     }
@@ -549,15 +550,15 @@ export default function VirtualAccountDetailPage() {
       const strategies = response.ok ? await response.json() : [];
 
       if (!Array.isArray(strategies) || strategies.length === 0) {
-        setMissingStrategyModalTitle("전략 만들기");
-        setMissingStrategyModalDescription("계좌에 연결하려면 저장된 전략이 필요합니다.");
+        setMissingStrategyModalTitle(t("전략 만들기"));
+        setMissingStrategyModalDescription(t("계좌에 연결하려면 저장된 전략이 필요합니다."));
         setIsMissingStrategyModalOpen(true);
         return;
       }
 
       setIsStrategyReplaceOpen(true);
     } catch {
-      alert("저장된 전략을 확인하지 못했습니다.");
+      alert(t("저장된 전략을 확인하지 못했습니다."));
     }
   };
 
@@ -572,7 +573,7 @@ export default function VirtualAccountDetailPage() {
       if (response.ok) { const data = await response.json(); stockName = data.name || stockName; }
     } catch {}
     const result = await executeTrade(accountId, transactionType, selectedSymbol, stockName, qty, prc);
-    if (!result.success) { alert(result.error ?? "거래에 실패했습니다."); return; }
+    if (!result.success) { alert(result.error ?? t("거래에 실패했습니다.")); return; }
     setSelectedSymbol(""); setQuantity(""); setPrice(""); setSelectedOrderPrice(undefined);
     await loadAccountData();
     if (transactionType === "buy") {
@@ -604,8 +605,8 @@ export default function VirtualAccountDetailPage() {
     const pp = (p / account.initialAmount) * 100;
     const todayStr = new Date().toISOString().slice(0, 10);
     const todayPnl = transactions
-      .filter((t) => t.type === "sell" && t.status === "FILLED" && t.filledAt?.startsWith(todayStr))
-      .reduce((sum, t) => sum + (t.realizedPnl ?? 0), 0);
+      .filter((tv) => tv.type === "sell" && tv.status === "FILLED" && tv.filledAt?.startsWith(todayStr))
+      .reduce((sum, tv) => sum + (tv.realizedPnl ?? 0), 0);
     const todayPnlPct = account.initialAmount > 0 ? (todayPnl / account.initialAmount) * 100 : 0;
     const startDate = new Date(account.createdAt);
     const days = Math.max(1, Math.round((Date.now() - startDate.getTime()) / 86400000));
@@ -617,16 +618,16 @@ export default function VirtualAccountDetailPage() {
     );
     const investedValue = Math.max(0, account.totalValue - account.currentBalance);
     const cashRatio = account.totalValue > 0 ? (account.currentBalance / account.totalValue) * 100 : 0;
-    const filledTradeCount = transactions.filter((t) => t.status === "FILLED").length;
+    const filledTradeCount = transactions.filter((tv) => tv.status === "FILLED").length;
     return { profit: p, profitPercent: pp, todayPnl, todayPnlPct, performanceData, activeDays: days, investedValue, cashRatio, filledTradeCount };
   }, [account, transactions]);
 
   if (!account) {
     return (
-      <DashboardLayout userName="사용자">
+      <DashboardLayout userName={t("사용자")}>
         <div
           role="status"
-          aria-label="가상계좌 상세 불러오는 중"
+          aria-label={t("가상계좌 상세 불러오는 중")}
           className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] items-center justify-center"
         >
           <Spinner size={32} className="animate-spin text-gray-500" aria-hidden="true" />
@@ -654,7 +655,7 @@ export default function VirtualAccountDetailPage() {
   const TXN_COLS = "grid-cols-[minmax(0,1fr)_56px_100px_56px_110px_88px_100px_130px]";
 
   return (
-    <DashboardLayout userName="사용자">
+    <DashboardLayout userName={t("사용자")}>
       <div className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] w-full min-w-0 flex-col">
         <div className="flex-1">
 
@@ -675,7 +676,7 @@ export default function VirtualAccountDetailPage() {
                     onClick={() => { setSelectedSymbol(""); setShowOrderPage(false); }}
                     className="text-xs font-bold text-blue-500 hover:text-blue-400 transition-colors duration-200"
                   >
-                    ← 돌아가기
+                    {t("← 돌아가기")}
                   </button>
                 </div>
               )}
@@ -704,24 +705,24 @@ export default function VirtualAccountDetailPage() {
                             : "text-gray-500 hover:text-gray-300"
                         }`}
                       >
-                        {tab === "buy" ? "매수" : tab === "sell" ? "매도" : tab === "amend" ? "정정/취소" : tab === "unfilled" ? "미체결" : "잔고"}
+                        {tab === "buy" ? t("매수") : tab === "sell" ? t("매도") : tab === "amend" ? t("정정/취소") : tab === "unfilled" ? t("미체결") : t("잔고")}
                       </button>
                     ))}
                   </div>
                   <div className="p-5 space-y-4 flex-1 flex flex-col">
                     {/* 현금/신용 */}
                     <div className="flex gap-2">
-                      {(["cash", "credit"] as const).map((t) => (
+                      {(["cash", "credit"] as const).map((tv) => (
                         <button
-                          key={t}
-                          onClick={() => setPaymentType(t)}
+                          key={tv}
+                          onClick={() => setPaymentType(tv)}
                           className={`flex-1 px-3 py-1.5 text-xs font-bold rounded-xl transition-all duration-200 ${
-                            paymentType === t
+                            paymentType === tv
                               ? "bg-white/10 text-white"
                               : "bg-white/[0.03] text-gray-400 hover:text-gray-300"
                           }`}
                         >
-                          {t === "cash" ? "현금" : "신용"}
+                          {tv === "cash" ? t("현금") : t("신용")}
                         </button>
                       ))}
                     </div>
@@ -731,12 +732,12 @@ export default function VirtualAccountDetailPage() {
                       onChange={(e) => setOrderType(e.target.value as any)}
                       className="w-full px-3 py-1.5 text-xs font-bold rounded-xl bg-white/[0.05] text-white border border-white/[0.05] focus:outline-none"
                     >
-                      <option value="limit">보통(지정가)</option>
-                      <option value="market">시장가</option>
+                      <option value="limit">{t("보통(지정가)")}</option>
+                      <option value="market">{t("시장가")}</option>
                     </select>
                     {/* 수량 */}
                     <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">수량</label>
+                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">{t("수량")}</label>
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => setQuantity(q => String(Math.max(0, parseInt(q || "0") - 1)))}
@@ -758,7 +759,7 @@ export default function VirtualAccountDetailPage() {
                     </div>
                     {/* 가격 */}
                     <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">가격</label>
+                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">{t("가격")}</label>
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => { const p = parseFloat(price || "0"); const np = Math.max(0, p - p * 0.01); setPrice(np.toFixed(0)); setSelectedOrderPrice(np); }}
@@ -771,7 +772,7 @@ export default function VirtualAccountDetailPage() {
                           className="flex-1 px-3 py-1.5 text-sm font-bold rounded-xl bg-white/[0.05] text-white border border-white/[0.05] focus:outline-none tabular-nums"
                           placeholder="0"
                         />
-                        <span className="text-xs font-bold text-gray-500">원</span>
+                        <span className="text-xs font-bold text-gray-500">{t("원")}</span>
                         <button
                           onClick={() => { const p = parseFloat(price || "0"); const np = p + p * 0.01; setPrice(np.toFixed(0)); setSelectedOrderPrice(np); }}
                           className="px-2.5 py-1.5 text-xs font-bold bg-white/[0.05] text-gray-300 rounded-lg hover:bg-white/10 transition-all duration-200"
@@ -781,9 +782,9 @@ export default function VirtualAccountDetailPage() {
                     {/* 총 거래금액 */}
                     <div className="bg-white/[0.03] rounded-xl p-4 border border-white/[0.05]">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">총 거래금액</span>
+                        <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">{t("총 거래금액")}</span>
                         <span className="text-lg font-black text-white tabular-nums font-outfit">
-                          {quantity && price ? formatPrice(parseFloat(quantity) * parseFloat(price)) : "0"}원
+                          {t("{0}원", quantity && price ? formatPrice(parseFloat(quantity) * parseFloat(price)) : "0")}
                         </span>
                       </div>
                     </div>
@@ -798,7 +799,7 @@ export default function VirtualAccountDetailPage() {
                             : "bg-gradient-to-r from-red-600 to-red-500 hover:shadow-[0_0_15px_rgba(239,68,68,0.4)]"
                         }`}
                       >
-                        {paymentType === "cash" ? "현금" : "신용"}{transactionType === "buy" ? "매수" : "매도"}
+                        {paymentType === "cash" ? t("현금") : t("신용")}{transactionType === "buy" ? t("매수") : t("매도")}
                       </button>
                     </div>
                   </div>
@@ -827,7 +828,7 @@ export default function VirtualAccountDetailPage() {
                   <h1 className="text-2xl font-black text-white font-outfit">{account.name}</h1>
                   {isClosedAccount ? (
                     <span className="inline-flex items-center rounded-lg border border-white/[0.08] px-2.5 py-1 text-[11px] font-bold text-gray-500">
-                      삭제된 계좌
+                      {t("삭제된 계좌")}
                     </span>
                   ) : (
                     <div className="flex items-center gap-1.5">
@@ -848,31 +849,31 @@ export default function VirtualAccountDetailPage() {
                         } disabled:cursor-not-allowed disabled:opacity-60`}
                       >
                         <Robot size={10} weight="bold" />
-                        {account.tradingMode === "auto" ? "시뮬레이션 ON" : "시뮬레이션 OFF"}
+                        {account.tradingMode === "auto" ? t("시뮬레이션 ON") : t("시뮬레이션 OFF")}
                       </button>
                       <span
                         className="group relative flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/[0.14] text-[10px] font-black text-gray-500 transition-colors duration-200 hover:border-white/[0.28] hover:text-white focus:outline-none focus:ring-2 focus:ring-white/20"
                         role="button"
                         tabIndex={0}
-                        aria-label="시뮬레이션 토글 설명"
+                        aria-label={t("시뮬레이션 토글 설명")}
                       >
                         <span aria-hidden="true">?</span>
                         <span
                           className="pointer-events-none fixed inset-x-4 bottom-4 z-50 w-auto rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-left text-xs font-bold leading-5 text-gray-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 lg:absolute lg:inset-x-auto lg:bottom-auto lg:left-1/2 lg:top-full lg:z-30 lg:mt-2 lg:w-56 lg:-translate-x-1/2"
                           data-testid="auto-trading-help-tooltip"
                         >
-                          ON이면 전략 조건을 만족할 때 가상 거래가 실행됩니다.
+                          {t("ON이면 전략 조건을 만족할 때 가상 거래가 실행됩니다.")}
                           <span className="absolute -top-[5px] left-1/2 hidden h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-l border-t border-white/[0.08] bg-[#1c1c1c] lg:block" />
                         </span>
                       </span>
                     </div>
                   )}
                   <span className="text-[11px] font-bold text-gray-600">
-                    개설 {new Date(account.createdAt).toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" })}
+                    {t("개설 {0}", new Date(account.createdAt).toLocaleDateString(getLocale(), { year: "numeric", month: "2-digit", day: "2-digit" }))}
                   </span>
                   {isClosedAccount && account.closedAt && (
                     <span className="text-[11px] font-bold text-gray-600">
-                      해지 {new Date(account.closedAt).toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" })}
+                      {t("해지 {0}", new Date(account.closedAt).toLocaleDateString(getLocale(), { year: "numeric", month: "2-digit", day: "2-digit" }))}
                     </span>
                   )}
                 </div>
@@ -884,7 +885,7 @@ export default function VirtualAccountDetailPage() {
                     }}
                     className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-[var(--main-blue)] transition-all duration-200 hover:text-[var(--main-blue)]/80"
                   >
-                    계좌닫기
+                    {t("계좌닫기")}
                   </button>
                 </div>
               </div>
@@ -892,27 +893,27 @@ export default function VirtualAccountDetailPage() {
               {/* KPI 4개 */}
               <div className="grid grid-cols-2 lg:grid-cols-4 border-t border-l border-white/[0.08]">
                 <div className="border-r border-b border-white/[0.08] px-5 py-4">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">총 자산</span>
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t("총 자산")}</span>
                   <p
                     className="mt-2 text-2xl font-black tabular-nums font-outfit leading-none"
                     style={{ color: colorTokens.main_white }}
                   >
                     {formatPrice(account.totalValue)}
                   </p>
-                  <p className="mt-1 text-[10px] font-bold text-gray-500">원</p>
+                  <p className="mt-1 text-[10px] font-bold text-gray-500">{t("원")}</p>
                 </div>
                 <div className="border-r border-b border-white/[0.08] px-5 py-4">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">주문 가능</span>
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t("주문 가능")}</span>
                   <p
                     className="mt-2 text-2xl font-black tabular-nums font-outfit leading-none"
                     style={{ color: colorTokens.main_white }}
                   >
                     {formatPrice(account.currentBalance)}
                   </p>
-                  <p className="mt-1 text-[10px] font-bold text-gray-500">원</p>
+                  <p className="mt-1 text-[10px] font-bold text-gray-500">{t("원")}</p>
                 </div>
                 <div className="border-r border-b border-white/[0.08] px-5 py-4">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">당일 실현손익</span>
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t("당일 실현손익")}</span>
                   <p
                     className={`mt-2 text-2xl font-black tabular-nums font-outfit leading-none ${todayPnl === 0 ? "" : todayPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}
                     style={todayPnl === 0 ? { color: colorTokens.main_white } : undefined}
@@ -923,18 +924,18 @@ export default function VirtualAccountDetailPage() {
                     className={`mt-1 text-[10px] font-bold tabular-nums ${todayPnl === 0 ? "text-gray-500" : todayPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}
                   >
                     {formatSignedPercent(todayPnlPct)}
-                    <span className="ml-1 font-bold text-gray-500">초기 자본 대비</span>
+                    <span className="ml-1 font-bold text-gray-500">{t("초기 자본 대비")}</span>
                   </p>
                 </div>
                 <div className="border-r border-b border-white/[0.08] px-5 py-4">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">누적 수익률</span>
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t("누적 수익률")}</span>
                   <p
                     className={`mt-2 text-2xl font-black tabular-nums font-outfit leading-none ${profitPercent === 0 ? "" : profitPercent > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}
                     style={profitPercent === 0 ? { color: colorTokens.main_white } : undefined}
                   >
                     {formatSignedPercent(profitPercent)}
                   </p>
-                  <p className="mt-1 text-[10px] font-bold text-gray-500">초기 자본 대비</p>
+                  <p className="mt-1 text-[10px] font-bold text-gray-500">{t("초기 자본 대비")}</p>
                 </div>
               </div>
 
@@ -950,20 +951,20 @@ export default function VirtualAccountDetailPage() {
                           className="text-base font-black uppercase tracking-widest font-outfit"
                           style={{ color: colorTokens.title_main }}
                         >
-                          모니터링 종목
+                          {t("모니터링 종목")}
                         </h2>
                         <span
                           className="group relative flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/[0.14] text-[10px] font-black text-gray-500 transition-colors duration-200 hover:border-white/[0.28] hover:text-white focus:outline-none focus:ring-2 focus:ring-white/20"
                           role="button"
                           tabIndex={0}
-                          aria-label="모니터링 종목 설명"
+                          aria-label={t("모니터링 종목 설명")}
                         >
                           <span aria-hidden="true">?</span>
                           <span
                             className="pointer-events-none fixed inset-x-4 bottom-4 z-50 w-auto rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-left text-xs font-bold leading-5 text-gray-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 lg:absolute lg:inset-x-auto lg:bottom-auto lg:left-full lg:top-full lg:z-30 lg:ml-2 lg:mt-2 lg:w-64"
                             data-testid="tracked-symbols-help-tooltip"
                           >
-                            연결된 전략의 백테스트에서 성과가 높았던 종목들 입니다.
+                            {t("연결된 전략의 백테스트에서 성과가 높았던 종목들 입니다.")}
                             <span className="absolute -left-[5px] top-2 hidden h-2.5 w-2.5 rotate-45 border-b border-l border-white/[0.08] bg-[#1c1c1c] lg:block" />
                           </span>
                         </span>
@@ -971,7 +972,7 @@ export default function VirtualAccountDetailPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-gray-500 bg-white/[0.05] px-2.5 py-0.5 rounded-md">
-                        {trackedSymbols.length}개
+                        {t("{0}개", trackedSymbols.length)}
                       </span>
                       <button
                         type="button"
@@ -980,7 +981,7 @@ export default function VirtualAccountDetailPage() {
                         className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] px-2.5 py-1 text-xs font-bold text-gray-400 transition-colors duration-200 hover:border-white/[0.16] hover:bg-white/[0.04] hover:text-white disabled:cursor-wait disabled:opacity-50"
                       >
                         <Plus size={13} weight="bold" />
-                        종목 추가
+                        {t("종목 추가")}
                       </button>
                     </div>
                   </div>
@@ -989,7 +990,7 @@ export default function VirtualAccountDetailPage() {
                   ) : trackedSymbols.length === 0 ? (
                     <div className="flex flex-1 min-h-[12rem] flex-col items-center justify-center gap-3">
                       <TrendUp size={32} className="text-gray-700" weight="thin" />
-                      <p className="text-sm font-bold text-gray-600">추적 중인 종목이 없습니다</p>
+                      <p className="text-sm font-bold text-gray-600">{t("추적 중인 종목이 없습니다")}</p>
                     </div>
                   ) : (
                     <div
@@ -1001,7 +1002,7 @@ export default function VirtualAccountDetailPage() {
                       <div className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 px-1 mb-1 shrink-0">
                         {["종목", "현재가", "등락률", "거래량", "상태", ""].map((h) => (
                           <span key={h} className={`text-xs font-bold uppercase tracking-widest text-gray-600 ${h === "현재가" || h === "등락률" || h === "거래량" ? "text-right" : h === "상태" ? "text-center" : ""}`}>
-                            {h}
+                            {t(h)}
                           </span>
                         ))}
                       </div>
@@ -1042,26 +1043,26 @@ export default function VirtualAccountDetailPage() {
                         className="text-base font-black uppercase tracking-widest font-outfit"
                         style={{ color: colorTokens.title_main }}
                       >
-                        운용 전략
+                        {t("운용 전략")}
                       </h2>
-                      <p className="text-xs text-gray-500 mt-0.5">현재 계좌에 적용된 매매 전략</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{t("현재 계좌에 적용된 매매 전략")}</p>
                     </div>
                     <button
                       onClick={handleStrategyReplaceClick}
                       className="inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-bold text-[var(--main-blue)] transition-colors duration-200 hover:text-[var(--main-blue)]/80"
                     >
-                      전략 교체
+                      {t("전략 교체")}
                     </button>
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent space-y-3">
                     {strategies.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-full gap-2">
-                        <p className="text-sm font-bold text-gray-600">연결된 전략이 없습니다</p>
+                        <p className="text-sm font-bold text-gray-600">{t("연결된 전략이 없습니다")}</p>
                         <button
                           onClick={handleStrategyReplaceClick}
                           className="text-xs font-bold text-[var(--main-green)] hover:text-[var(--main-green)]/80 transition-colors"
                         >
-                          전략 연결하기
+                          {t("전략 연결하기")}
                         </button>
                       </div>
                     ) : isStrategyDetailLoading ? (
@@ -1088,7 +1089,7 @@ export default function VirtualAccountDetailPage() {
                                     }}
                                     className="inline-flex items-center rounded-md bg-white/[0.06] hover:bg-white/[0.1] px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-[var(--main-green)] transition-colors duration-200"
                                   >
-                                    프롬프트
+                                    {t("프롬프트")}
                                   </button>
                                 </div>
                               </div>
@@ -1130,13 +1131,13 @@ export default function VirtualAccountDetailPage() {
                           className="text-base font-black uppercase tracking-widest font-outfit"
                           style={{ color: colorTokens.title_main }}
                         >
-                          매매 신호
+                          {t("매매 신호")}
                         </h2>
                       </div>
-                      <p className="text-xs text-gray-500 mt-0.5">최근 발생한 전략 신호</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{t("최근 발생한 전략 신호")}</p>
                     </div>
                     <span className="text-xs font-bold text-gray-500 bg-white/[0.05] px-2.5 py-0.5 rounded-md">
-                      {signalLogs.length}건
+                      {t("{0}건", signalLogs.length)}
                     </span>
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
@@ -1164,18 +1165,18 @@ export default function VirtualAccountDetailPage() {
                               : "text-gray-500 hover:text-gray-300"
                           }`}
                         >
-                          {tab === "holdings" ? "보유 종목" : tab === "transactions" ? "거래 내역" : "성과 분석"}
+                          {tab === "holdings" ? t("보유 종목") : tab === "transactions" ? t("거래 내역") : t("성과 분석")}
                         </button>
                       ))}
                     </div>
                     {activeTab === "holdings" && (
                       <span className="text-[10px] font-bold text-gray-500 bg-white/[0.05] px-2.5 py-0.5 rounded-md">
-                        {holdings.length}개 포지션
+                        {t("{0}개 포지션", holdings.length)}
                       </span>
                     )}
                     {activeTab === "transactions" && (
                       <span className="text-[10px] font-bold text-gray-500 bg-white/[0.05] px-2.5 py-0.5 rounded-md">
-                        {transactions.length}건
+                        {t("{0}건", transactions.length)}
                       </span>
                     )}
                   </div>
@@ -1185,7 +1186,7 @@ export default function VirtualAccountDetailPage() {
                 {activeTab === "holdings" && (
                   holdings.length === 0 ? (
                     <div className="py-12 text-center">
-                      <p className="text-sm font-bold text-gray-600">보유 중인 종목이 없습니다.</p>
+                      <p className="text-sm font-bold text-gray-600">{t("보유 중인 종목이 없습니다.")}</p>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
@@ -1193,7 +1194,7 @@ export default function VirtualAccountDetailPage() {
                       <div className={`grid ${HOLDINGS_COLS} gap-2 px-2 mb-1`}>
                         {["종목", "평균 단가", "현재가", "수량", "수익률", "평가 손익"].map((h, i) => (
                           <span key={h} className={`text-xs font-bold uppercase tracking-widest text-gray-600 ${i > 0 ? "text-right" : ""}`}>
-                            {h}
+                            {t(h)}
                           </span>
                         ))}
                       </div>
@@ -1253,7 +1254,7 @@ export default function VirtualAccountDetailPage() {
                 {activeTab === "transactions" && (
                   transactions.length === 0 ? (
                     <div className="py-12 text-center">
-                      <p className="text-sm font-bold text-gray-600">거래 내역이 없습니다.</p>
+                      <p className="text-sm font-bold text-gray-600">{t("거래 내역이 없습니다.")}</p>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
@@ -1261,7 +1262,7 @@ export default function VirtualAccountDetailPage() {
                       <div className={`grid ${TXN_COLS} gap-2 px-2 mb-1`}>
                         {["종목", "구분", "체결가", "수량", "거래금액", "수수료", "실현손익", "체결시간"].map((h, i) => (
                           <span key={h} className={`text-xs font-bold uppercase tracking-widest text-gray-600 ${i > 0 ? "text-right" : ""}`}>
-                            {h}
+                            {t(h)}
                           </span>
                         ))}
                       </div>
@@ -1269,32 +1270,32 @@ export default function VirtualAccountDetailPage() {
                       {/* 행 */}
                       <div className="max-h-[360px] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
                         <div className="divide-y divide-white/[0.04]">
-                          {transactions.map((t) => (
+                          {transactions.map((tv) => (
                             <div
-                              key={t.id}
+                              key={tv.id}
                               className={`grid ${TXN_COLS} gap-2 items-center px-2 py-3 hover:bg-white/[0.02] rounded-xl transition-colors duration-150`}
                             >
                               <div className="min-w-0">
-                                <p className="text-sm font-bold text-white truncate">{t.name}</p>
-                                <p className="text-[10px] font-bold text-gray-500">{t.symbol}</p>
+                                <p className="text-sm font-bold text-white truncate">{tv.name}</p>
+                                <p className="text-[10px] font-bold text-gray-500">{tv.symbol}</p>
                               </div>
                               <div className="text-right">
                                 <span className={`text-xs font-black px-1.5 py-0.5 rounded-md ${
-                                  t.type === "buy"
+                                  tv.type === "buy"
                                     ? "bg-[var(--main-red)]/15 text-[var(--main-red)]"
                                     : "bg-[var(--main-blue)]/15 text-[var(--main-blue)]"
                                 }`}>
-                                  {t.type === "buy" ? "매수" : "매도"}
+                                  {tv.type === "buy" ? t("매수") : t("매도")}
                                 </span>
                               </div>
-                              <p className="text-sm font-bold text-white tabular-nums text-right">{formatPrice(t.filledPrice ?? t.price)}</p>
-                              <p className="text-sm font-bold text-gray-400 tabular-nums text-right">{t.quantity}</p>
-                              <p className="text-sm font-bold text-white tabular-nums text-right">{formatPrice(t.totalAmount)}</p>
-                              <p className="text-sm font-bold text-gray-500 tabular-nums text-right">{t.fee != null ? `${formatPrice(t.fee)}원` : "—"}</p>
+                              <p className="text-sm font-bold text-white tabular-nums text-right">{formatPrice(tv.filledPrice ?? tv.price)}</p>
+                              <p className="text-sm font-bold text-gray-400 tabular-nums text-right">{tv.quantity}</p>
+                              <p className="text-sm font-bold text-white tabular-nums text-right">{formatPrice(tv.totalAmount)}</p>
+                              <p className="text-sm font-bold text-gray-500 tabular-nums text-right">{tv.fee != null ? t("{0}원", formatPrice(tv.fee)) : "—"}</p>
                               <div className="text-right">
-                                {t.realizedPnl != null ? (
-                                  <span className={`text-sm font-black tabular-nums ${t.realizedPnl === 0 ? "text-white" : t.realizedPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
-                                    {formatSignedPrice(Math.round(t.realizedPnl))}
+                                {tv.realizedPnl != null ? (
+                                  <span className={`text-sm font-black tabular-nums ${tv.realizedPnl === 0 ? "text-white" : tv.realizedPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
+                                    {formatSignedPrice(Math.round(tv.realizedPnl))}
                                   </span>
                                 ) : (
                                   <span className="text-sm font-bold text-gray-600">—</span>
@@ -1302,10 +1303,10 @@ export default function VirtualAccountDetailPage() {
                               </div>
                               <div className="text-right">
                                 <p className="text-[10px] font-bold text-gray-500 tabular-nums">
-                                  {new Date(t.filledAt ?? t.timestamp).toLocaleDateString("ko-KR")}
+                                  {new Date(tv.filledAt ?? tv.timestamp).toLocaleDateString(getLocale())}
                                 </p>
                                 <p className="text-[10px] font-bold text-gray-500 tabular-nums">
-                                  {new Date(t.filledAt ?? t.timestamp).toLocaleTimeString("ko-KR")}
+                                  {new Date(tv.filledAt ?? tv.timestamp).toLocaleTimeString(getLocale())}
                                 </p>
                               </div>
                             </div>
@@ -1322,49 +1323,49 @@ export default function VirtualAccountDetailPage() {
                       {/* 성과 KPI 6개 */}
                       <div className="grid grid-cols-2 xl:grid-cols-6 border-l border-t border-white/[0.08]">
                         <div className="border-r border-b border-white/[0.08] p-5">
-                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">누적 손익</p>
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{t("누적 손익")}</p>
                           <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${profit === 0 ? "text-white" : profit > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                             {formatSignedPrice(profit)}
                           </p>
-                          <p className="mt-1 text-[10px] font-bold text-gray-500">초기 자본 대비</p>
+                          <p className="mt-1 text-[10px] font-bold text-gray-500">{t("초기 자본 대비")}</p>
                         </div>
                         <div className="border-r border-b border-white/[0.08] p-5">
-                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">누적 수익률</p>
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{t("누적 수익률")}</p>
                           <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${profitPercent === 0 ? "text-white" : profitPercent > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                             {formatSignedPercent(profitPercent)}
                           </p>
-                          <p className="mt-1 text-[10px] font-bold text-gray-500">초기 자본 대비</p>
+                          <p className="mt-1 text-[10px] font-bold text-gray-500">{t("초기 자본 대비")}</p>
                         </div>
                         <div className="border-r border-b border-white/[0.08] p-5">
-                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">당일 실현손익</p>
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{t("당일 실현손익")}</p>
                           <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${todayPnl === 0 ? "text-white" : todayPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                             {formatSignedPrice(todayPnl)}
                           </p>
                           <p className={`mt-1 text-[10px] font-bold tabular-nums ${todayPnl === 0 ? "text-gray-500" : todayPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                             {formatSignedPercent(todayPnlPct)}
-                            <span className="ml-1 font-bold text-gray-500">초기 자본 대비</span>
+                            <span className="ml-1 font-bold text-gray-500">{t("초기 자본 대비")}</span>
                           </p>
                         </div>
                         <div className="border-r border-b border-white/[0.08] p-5">
-                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">운용 기간</p>
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{t("운용 기간")}</p>
                           <p className="mt-2 text-2xl font-black font-outfit tabular-nums leading-none text-white">
                             {formatCompact(activeDays)}
                           </p>
-                          <p className="mt-1 text-[10px] font-bold text-gray-500">일 기준</p>
+                          <p className="mt-1 text-[10px] font-bold text-gray-500">{t("일 기준")}</p>
                         </div>
                         <div className="border-r border-b border-white/[0.08] p-5">
-                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">체결 거래</p>
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{t("체결 거래")}</p>
                           <p className="mt-2 text-2xl font-black font-outfit tabular-nums leading-none text-white">
                             {formatCompact(filledTradeCount)}
                           </p>
-                          <p className="mt-1 text-[10px] font-bold text-gray-500">누적 체결 건수</p>
+                          <p className="mt-1 text-[10px] font-bold text-gray-500">{t("누적 체결 건수")}</p>
                         </div>
                         <div className="border-r border-b border-white/[0.08] p-5">
-                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">현금 비중</p>
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{t("현금 비중")}</p>
                           <p className="mt-2 text-2xl font-black font-outfit tabular-nums leading-none text-white">
                             {cashRatio.toFixed(1)}%
                           </p>
-                          <p className="mt-1 text-[10px] font-bold text-gray-500">주문 가능 금액</p>
+                          <p className="mt-1 text-[10px] font-bold text-gray-500">{t("주문 가능 금액")}</p>
                         </div>
                       </div>
 
@@ -1373,8 +1374,8 @@ export default function VirtualAccountDetailPage() {
                       <div className="lg:col-span-7 p-5">
                         <div className="flex items-start justify-between gap-4 mb-5">
                           <div>
-                            <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">실현손익 추이</h2>
-                            <p className="mt-0.5 text-xs font-bold text-gray-500">계좌 개설 이후 누적 실현손익 (초기 자본 대비)</p>
+                            <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">{t("실현손익 추이")}</h2>
+                            <p className="mt-0.5 text-xs font-bold text-gray-500">{t("계좌 개설 이후 누적 실현손익 (초기 자본 대비)")}</p>
                           </div>
                         </div>
                         <div className="h-72">
@@ -1383,30 +1384,30 @@ export default function VirtualAccountDetailPage() {
                       </div>
                       <div className="lg:col-span-3 p-5">
                         <div className="mb-5">
-                          <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">분석 요약</h2>
-                          <p className="mt-0.5 text-xs font-bold text-gray-500">성과 해석에 필요한 현재 상태</p>
+                          <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">{t("분석 요약")}</h2>
+                          <p className="mt-0.5 text-xs font-bold text-gray-500">{t("성과 해석에 필요한 현재 상태")}</p>
                         </div>
                         <div className="divide-y divide-white/[0.08] border-y border-white/[0.08]">
                           <div className="py-3">
-                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">계좌 개설일</p>
-                            <p className="mt-1 text-sm font-black text-white">{new Date(account.createdAt).toLocaleDateString("ko-KR")}</p>
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">{t("계좌 개설일")}</p>
+                            <p className="mt-1 text-sm font-black text-white">{new Date(account.createdAt).toLocaleDateString(getLocale())}</p>
                           </div>
                           <div className="py-3">
-                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">초기 모의 투자금</p>
-                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatPrice(account.initialAmount)}원</p>
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">{t("초기 모의 투자금")}</p>
+                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{t("{0}원", formatPrice(account.initialAmount))}</p>
                           </div>
                           <div className="py-3">
-                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">주식 평가 금액</p>
-                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatPrice(investedValue)}원</p>
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">{t("주식 평가 금액")}</p>
+                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{t("{0}원", formatPrice(investedValue))}</p>
                           </div>
                           <div className="py-3">
-                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">보유 종목 수</p>
-                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{holdings.length}개</p>
+                            <p className="text-xs font-bold uppercase tracking-widest text-gray-600">{t("보유 종목 수")}</p>
+                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{t("{0}개", holdings.length)}</p>
                           </div>
                         </div>
                         <div className="mt-5 space-y-2">
                           <p className="text-xs font-bold leading-5 text-gray-500">
-                            추이 차트는 매도 체결로 확정된 실현손익만 누적합니다. 보유 중인 종목의 평가손익은 포함되지 않아 위의 누적 수익률과 다를 수 있습니다.
+                            {t("추이 차트는 매도 체결로 확정된 실현손익만 누적합니다. 보유 중인 종목의 평가손익은 포함되지 않아 위의 누적 수익률과 다를 수 있습니다.")}
                           </p>
                         </div>
                       </div>
@@ -1416,8 +1417,8 @@ export default function VirtualAccountDetailPage() {
                     <div className="p-5">
                       <div className="flex items-start justify-between gap-4 mb-4">
                         <div>
-                          <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">세부 성과 리포트</h2>
-                          <p className="mt-0.5 text-xs font-bold text-gray-500">실현 손익, 승률, 일별 PnL, 종목별 성과</p>
+                          <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">{t("세부 성과 리포트")}</h2>
+                          <p className="mt-0.5 text-xs font-bold text-gray-500">{t("실현 손익, 승률, 일별 PnL, 종목별 성과")}</p>
                         </div>
                         <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-bold text-gray-400">
                           DETAIL

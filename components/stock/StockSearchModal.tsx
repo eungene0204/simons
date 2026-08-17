@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { X, MagnifyingGlass } from "phosphor-react";
 import type { StockSearchResult } from "@/types/stock";
+import { t } from "@/lib/i18n";
 
 interface StockSearchModalProps {
   isOpen: boolean;
@@ -122,7 +123,7 @@ export default function StockSearchModal({
         if (!isMounted) return;
         setUniverseStocks([]);
         setResults([]);
-        setError(`${restrictedUniverseLabel} 유니버스 종목을 불러오지 못했습니다.`);
+        setError(t("{0} 유니버스 종목을 불러오지 못했습니다.", restrictedUniverseLabel));
       })
       .finally(() => {
         if (isMounted) setLoading(false);
@@ -169,11 +170,11 @@ export default function StockSearchModal({
         const results = Array.isArray(data) ? data : data.results || [];
         setResults(results);
       } else {
-        setError("검색 중 오류가 발생했습니다.");
+        setError(t("검색 중 오류가 발생했습니다."));
       }
     } catch (error) {
       console.error("Stock search error:", error);
-      setError("검색 중 오류가 발생했습니다.");
+      setError(t("검색 중 오류가 발생했습니다."));
     } finally {
       setLoading(false);
     }
@@ -224,14 +225,14 @@ export default function StockSearchModal({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-black tracking-tight text-white">
-                  {restrictedUniverseLabel ? `${restrictedUniverseLabel} 종목 검색` : "종목 검색"}
+                  {restrictedUniverseLabel ? t("{0} 종목 검색", restrictedUniverseLabel) : t("종목 검색")}
                 </h2>
               </div>
             </div>
             <button
               onClick={onClose}
               className="rounded-xl border border-white/[0.08] p-2 text-gray-500 transition-colors hover:border-white/[0.16] hover:text-white"
-              aria-label="종목 검색 닫기"
+              aria-label={t("종목 검색 닫기")}
             >
               <X size={18} />
             </button>
@@ -258,8 +259,8 @@ export default function StockSearchModal({
               onChange={(e) => setSearchQuery(e.target.value)}
               className="flex-1 bg-transparent text-sm font-medium text-white placeholder:text-gray-500 outline-none ring-0 focus:ring-0 focus:outline-none"
               placeholder={restrictedUniverseLabel
-                ? `${restrictedUniverseLabel} 유니버스 종목만 검색됩니다`
-                : "종목명 또는 종목 코드를 입력하세요"}
+                ? t("{0} 유니버스 종목만 검색됩니다", restrictedUniverseLabel)
+                : t("종목명 또는 종목 코드를 입력하세요")}
             />
             {searchQuery && (
               <button onClick={() => setSearchQuery("")} className="shrink-0 ml-3 text-gray-500 hover:text-gray-300 transition-colors">
@@ -278,7 +279,7 @@ export default function StockSearchModal({
         <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-4">
           {loading ? (
             <div className="flex items-center justify-center py-16 text-sm text-gray-500">
-              검색 중...
+              {t("검색 중...")}
             </div>
           ) : searchQuery.trim().length < 1 && !restrictedUniverse ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -286,10 +287,10 @@ export default function StockSearchModal({
                 <MagnifyingGlass size={22} className="text-gray-500" />
               </div>
               <p className="text-sm font-bold text-white">
-                검색어를 입력하세요
+                {t("검색어를 입력하세요")}
               </p>
               <p className="mt-1 text-xs text-gray-500">
-                종목명, 코드, 또는 일부 키워드로 찾을 수 있습니다.
+                {t("종목명, 코드, 또는 일부 키워드로 찾을 수 있습니다.")}
               </p>
             </div>
           ) : results.length === 0 ? (
@@ -298,22 +299,22 @@ export default function StockSearchModal({
                 <X size={22} className="text-gray-500" />
               </div>
               <p className="text-sm font-bold text-white">
-                검색 결과가 없습니다
+                {t("검색 결과가 없습니다")}
               </p>
               <p className="mt-1 text-xs text-gray-500">
                 {restrictedUniverseLabel
-                  ? `${restrictedUniverseLabel} 유니버스 안에서 다른 키워드로 검색해보세요.`
-                  : "입력한 키워드를 바꿔 다시 검색해보세요."}
+                  ? t("{0} 유니버스 안에서 다른 키워드로 검색해보세요.", restrictedUniverseLabel)
+                  : t("입력한 키워드를 바꿔 다시 검색해보세요.")}
               </p>
             </div>
           ) : (
             <div className="space-y-2">
               <div className="mb-2 flex items-center justify-between px-2">
                 <p className="text-xs font-bold uppercase tracking-widest text-gray-500">
-                  검색 결과
+                  {t("검색 결과")}
                 </p>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-gray-600">
-                  {results.length}개
+                  {t("{0}개", results.length)}
                 </p>
               </div>
               {results.map((stock) => {
@@ -339,7 +340,7 @@ export default function StockSearchModal({
                             {" "}
                             · {stock.region === "KR" ? stock.type : stock.region}
                             {" "}
-                            · {stock.region === "KR" ? "한국" : stock.type}
+                            · {stock.region === "KR" ? t("한국") : stock.type}
                             {stock.sector && stock.region === "KR" ? ` · ${stock.sector}` : ""}
                           </p>
                         </div>
@@ -349,7 +350,7 @@ export default function StockSearchModal({
                           ? "bg-sky-400/15 text-[var(--main-blue)]"
                           : "bg-white/[0.04] text-gray-500 group-hover:text-gray-300"
                       }`}>
-                        {singleSelect ? "선택" : isSelected ? "선택됨" : "추가"}
+                        {singleSelect ? t("선택") : isSelected ? t("선택됨") : t("추가")}
                       </span>
                     </div>
                   </button>
@@ -364,13 +365,13 @@ export default function StockSearchModal({
           <div className="border-t border-white/[0.08] bg-white/[0.02] px-5 py-4 animate-fade-in-up">
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm font-medium text-gray-400">
-                <span className="font-bold text-white">{selectedSymbols.size}개</span> 종목 선택됨
+                <span className="font-bold text-white">{t("{0}개", selectedSymbols.size)}</span>{t(" 종목 선택됨")}
               </span>
               <button
                 onClick={handleAdd}
                 className="rounded-xl bg-white px-4 py-2 text-sm font-black text-black transition-transform duration-200 hover:scale-[1.02] active:scale-[0.98]"
               >
-                추가하기
+                {t("추가하기")}
               </button>
             </div>
           </div>

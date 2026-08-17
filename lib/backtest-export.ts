@@ -5,6 +5,8 @@
 // - CSV는 Excel 한글 깨짐 방지를 위해 UTF-8 BOM을 붙인다.
 // - 향후 Excel/PDF 등 포맷 추가가 쉽도록 buildExportFile 의 포맷 분기만 확장하면 되게 한다.
 
+import { t } from "@/lib/i18n";
+
 export type ExportFormat = "csv" | "json";
 
 /** 현재 지원하는 다운로드 포맷 목록 (모달 버튼 렌더링·검증에 공용) */
@@ -131,7 +133,7 @@ function formatRatePercent(fraction: number): string {
 }
 
 function tradeTypeLabel(type: "buy" | "sell"): string {
-  return type === "buy" ? "매수" : "매도";
+  return type === "buy" ? t("매수") : t("매도");
 }
 
 // 금액은 정수로 반올림하고 천단위 콤마를 붙여 사람이 읽기 쉽게 표시한다 (CSV 전용, JSON은 원시 숫자 유지).
@@ -144,25 +146,25 @@ function buildCsv(payload: BacktestExportPayload): string {
   const lines: string[] = [];
 
   // 메타데이터 — 전략명은 여기에 한 번만 포함한다.
-  lines.push(csvRow(["전략명", metadata.strategyName]));
-  lines.push(csvRow(["백테스트 ID", metadata.backtestId]));
-  lines.push(csvRow(["기간", `${metadata.period.from} ~ ${metadata.period.to}`]));
-  lines.push(csvRow(["생성시간", metadata.exportedAt]));
-  lines.push(csvRow(["유니버스", metadata.universe]));
-  lines.push(csvRow(["초기자본", formatMoney(metadata.initialCapital)]));
-  lines.push(csvRow(["최종자산", formatMoney(metadata.finalEquity)]));
-  if (metadata.commission != null) lines.push(csvRow(["수수료", formatRatePercent(metadata.commission)]));
-  if (metadata.slippage != null) lines.push(csvRow(["슬리피지", formatRatePercent(metadata.slippage)]));
-  if (metadata.entrySignals?.length) lines.push(csvRow(["진입 신호", metadata.entrySignals.join(" / ")]));
-  if (metadata.exitSignals?.length) lines.push(csvRow(["청산 신호", metadata.exitSignals.join(" / ")]));
-  if (metadata.position) lines.push(csvRow(["포지션", metadata.position]));
-  if (metadata.rebalancing) lines.push(csvRow(["리밸런싱", metadata.rebalancing]));
-  if (metadata.risk) lines.push(csvRow(["리스크", metadata.risk]));
+  lines.push(csvRow([t("전략명"), metadata.strategyName]));
+  lines.push(csvRow([t("백테스트 ID"), metadata.backtestId]));
+  lines.push(csvRow([t("기간"), `${metadata.period.from} ~ ${metadata.period.to}`]));
+  lines.push(csvRow([t("생성시간"), metadata.exportedAt]));
+  lines.push(csvRow([t("유니버스"), metadata.universe]));
+  lines.push(csvRow([t("초기자본"), formatMoney(metadata.initialCapital)]));
+  lines.push(csvRow([t("최종자산"), formatMoney(metadata.finalEquity)]));
+  if (metadata.commission != null) lines.push(csvRow([t("수수료"), formatRatePercent(metadata.commission)]));
+  if (metadata.slippage != null) lines.push(csvRow([t("슬리피지"), formatRatePercent(metadata.slippage)]));
+  if (metadata.entrySignals?.length) lines.push(csvRow([t("진입 신호"), metadata.entrySignals.join(" / ")]));
+  if (metadata.exitSignals?.length) lines.push(csvRow([t("청산 신호"), metadata.exitSignals.join(" / ")]));
+  if (metadata.position) lines.push(csvRow([t("포지션"), metadata.position]));
+  if (metadata.rebalancing) lines.push(csvRow([t("리밸런싱"), metadata.rebalancing]));
+  if (metadata.risk) lines.push(csvRow([t("리스크"), metadata.risk]));
 
   // 종목 분석 — 종목 분석 탭에서 내보낼 때만 채워진다
   if (stockAnalysis) {
-    lines.push("[종목 분석]");
-    lines.push(csvRow(["종목코드", "종목명", "거래횟수", "승률", "수익률", "총손익", "평균매수가", "평균매도가"]));
+    lines.push(t("[종목 분석]"));
+    lines.push(csvRow([t("종목코드"), "종목명", "거래횟수", "승률", "수익률", "총손익", "평균매수가", "평균매도가"]));
     for (const r of stockAnalysis) {
       lines.push(
         csvRow([
@@ -181,11 +183,11 @@ function buildCsv(payload: BacktestExportPayload): string {
 
   // 매매 기록 — 매매 기록 탭에서 내보낼 때만 채워진다
   if (tradeHistory) {
-    lines.push("[매매 기록]");
-    lines.push(csvRow(["날짜", "종목코드", "종목명", "구분", "체결가", "수량", "거래금액", "매매사유"]));
-    for (const t of tradeHistory) {
+    lines.push(t("[매매 기록]"));
+    lines.push(csvRow([t("날짜"), "종목코드", "종목명", "구분", "체결가", "수량", "거래금액", "매매사유"]));
+    for (const trade of tradeHistory) {
       lines.push(
-        csvRow([t.date, t.symbol, t.name, tradeTypeLabel(t.type), formatMoney(t.price), Math.floor(t.quantity), formatMoney(t.amount), t.reason])
+        csvRow([trade.date, trade.symbol, trade.name, tradeTypeLabel(trade.type), formatMoney(trade.price), Math.floor(trade.quantity), formatMoney(trade.amount), trade.reason])
       );
     }
   }

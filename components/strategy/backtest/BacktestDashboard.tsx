@@ -51,12 +51,13 @@ import {
   type BacktestExportPayload,
   type ExportFormat,
 } from "@/lib/backtest-export";
+import { t } from "@/lib/i18n";
 
 const processedExecutionIds = new Set<string>();
 
 const ROLLING_WINDOW_OPTIONS: readonly number[] = [1, 3, 6, 12];
 const rollingWindowLabel = (months: number) =>
-  months === 12 ? "1년" : `${months}개월`;
+  months === 12 ? t("1년") : t("{0}개월", months);
 
 function calculateScore(r: {
   cagr?: number; maxDrawdown?: number; sharpe?: number;
@@ -249,7 +250,7 @@ function ValidationTabHelp({ label, title, body, example }: {
     <span className="group relative z-20 mr-2 inline-flex">
       <button
         type="button"
-        aria-label={`${label} 탭 도움말`}
+        aria-label={t("{0} 탭 도움말", label)}
         className="flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/25 text-[10px] font-black leading-none text-gray-400 transition-colors hover:border-white/50 hover:text-white focus:border-white/60 focus:text-white focus:outline-none"
       >
         ?
@@ -326,33 +327,36 @@ type BaseMetricDescriptions = {
 };
 
 export function metricTooltip(definition: string, formula: string, guideline: string): string {
-  return `${definition}\n\n[ 공식 ]\n${formula}\n\n${guideline}`;
+  return `${definition}\n\n${t("[ 공식 ]")}\n${formula}\n\n${guideline}`;
 }
 
-const BASE_METRIC_DESCRIPTIONS: BaseMetricDescriptions = {
-  cagr: metricTooltip("연평균수익률(CAGR)은 전체 수익률을 연간 복리 성장률로 환산한 값입니다.", "CAGR = ((최종 자산 / 초기 자본)^(1 / 기간(년)) - 1) × 100", "🟢 높음: 20% 이상\n🟡 중간: 10% ~ 20%\n🔴 낮음: 10% 미만"),
-  mdd: metricTooltip("최대 낙폭(MDD)은 전고점 대비 가장 크게 하락한 비율입니다.", "MDD = min((기간별 자산 / 이전 최고 자산 - 1) × 100)", "🟢 낮음: 10% 미만\n🟡 중간: 10% ~ 20%\n🔴 높음: 20% 초과"),
-  sharpe: metricTooltip("샤프 지수는 전체 변동성 대비 초과 수익의 비율입니다.", "Sharpe = (일별 초과수익 평균 / 일별 수익률 표준편차) × √246 (KRX 연 거래일)", "🟢 높음: 1.5 이상\n🟡 중간: 1.0 ~ 1.5\n🔴 낮음: 1.0 미만"),
-  sortino: metricTooltip("소티노 지수는 목표 수익률(기본 0%)보다 낮은 수익률의 하방편차만 고려한 위험 대비 수익 지표입니다.", "Sortino = (일별 초과수익 평균 / 하방편차) × √246 (KRX 연 거래일)", "🟢 높음: 2.0 이상\n🟡 중간: 1.0 ~ 2.0\n🔴 낮음: 1.0 미만"),
-  profitFactor: metricTooltip("손익비는 총 이익을 총 손실로 나눈 값입니다.", "손익비 = 총 이익 / |총 손실|", "🟢 높음: 2.0 이상\n🟡 중간: 1.5 ~ 2.0\n🔴 낮음: 1.5 미만"),
-  totalReturn: metricTooltip("투자 수익률(ROI)은 백테스트 시작부터 종료까지의 누적 자산 변동 비율입니다.", "ROI = ((최종 자산 - 초기 자본) / 초기 자본) × 100", "🟢 양수: 시작 자본보다 최종 자산이 큼\n🟡 0%: 시작 자본과 최종 자산이 같음\n🔴 음수: 시작 자본보다 최종 자산이 작음"),
+// 렌더 시점에 만든다 — 모듈 상수로 두면 t()가 프로세스 첫 언어로 고정된다(i18n 규칙).
+function baseMetricDescriptions(): BaseMetricDescriptions {
+  return {
+  cagr: metricTooltip(t("연평균수익률(CAGR)은 전체 수익률을 연간 복리 성장률로 환산한 값입니다."), t("CAGR = ((최종 자산 / 초기 자본)^(1 / 기간(년)) - 1) × 100"), t("🟢 높음: 20% 이상\n🟡 중간: 10% ~ 20%\n🔴 낮음: 10% 미만")),
+  mdd: metricTooltip(t("최대 낙폭(MDD)은 전고점 대비 가장 크게 하락한 비율입니다."), t("MDD = min((기간별 자산 / 이전 최고 자산 - 1) × 100)"), t("🟢 낮음: 10% 미만\n🟡 중간: 10% ~ 20%\n🔴 높음: 20% 초과")),
+  sharpe: metricTooltip(t("샤프 지수는 전체 변동성 대비 초과 수익의 비율입니다."), t("Sharpe = (일별 초과수익 평균 / 일별 수익률 표준편차) × √246 (KRX 연 거래일)"), t("🟢 높음: 1.5 이상\n🟡 중간: 1.0 ~ 1.5\n🔴 낮음: 1.0 미만")),
+  sortino: metricTooltip(t("소티노 지수는 목표 수익률(기본 0%)보다 낮은 수익률의 하방편차만 고려한 위험 대비 수익 지표입니다."), t("Sortino = (일별 초과수익 평균 / 하방편차) × √246 (KRX 연 거래일)"), t("🟢 높음: 2.0 이상\n🟡 중간: 1.0 ~ 2.0\n🔴 낮음: 1.0 미만")),
+  profitFactor: metricTooltip(t("손익비는 총 이익을 총 손실로 나눈 값입니다."), t("손익비 = 총 이익 / |총 손실|"), t("🟢 높음: 2.0 이상\n🟡 중간: 1.5 ~ 2.0\n🔴 낮음: 1.5 미만")),
+  totalReturn: metricTooltip(t("투자 수익률(ROI)은 백테스트 시작부터 종료까지의 누적 자산 변동 비율입니다."), t("ROI = ((최종 자산 - 초기 자본) / 초기 자본) × 100"), t("🟢 양수: 시작 자본보다 최종 자산이 큼\n🟡 0%: 시작 자본과 최종 자산이 같음\n🔴 음수: 시작 자본보다 최종 자산이 작음")),
   buyHold: (label: string) =>
-    metricTooltip(`벤치마크(${label})를 백테스트 기간 동안 매수 후 보유했을 때의 수익률입니다.`, `벤치마크 수익률 = ((${label} 최종 가격 / 시작 가격) - 1) × 100`, "🟢 양수: 벤치마크 지수가 상승\n🟡 0%: 벤치마크 지수의 변동이 없음\n🔴 음수: 벤치마크 지수가 하락"),
+    metricTooltip(t("벤치마크({0})를 백테스트 기간 동안 매수 후 보유했을 때의 수익률입니다.", label), t("벤치마크 수익률 = (({0} 최종 가격 / 시작 가격) - 1) × 100", label), t("🟢 양수: 벤치마크 지수가 상승\n🟡 0%: 벤치마크 지수의 변동이 없음\n🔴 음수: 벤치마크 지수가 하락")),
   excessReturn: (label: string) =>
     metricTooltip(
-      `전략 수익률과 벤치마크(${label}) 매수 후 보유 수익률의 차이입니다. 과거 데이터 기준 사실 표시이며, 미래 성과를 뜻하지 않습니다.`,
-      `초과수익률 = 전략 수익률(%) - 벤치마크 수익률(%)  → 단위는 %p(퍼센트 포인트)`,
-      "🟢 양수: 전략 수익률이 벤치마크보다 높았음\n🟡 0%p 부근: 벤치마크와 비슷했음\n🔴 음수: 전략 수익률이 벤치마크보다 낮았음\n\n※ 두 값이 모두 음수일 때 양수인 초과수익률은 '덜 하락했다'는 뜻이며 이익을 의미하지 않습니다.",
+      t("전략 수익률과 벤치마크({0}) 매수 후 보유 수익률의 차이입니다. 과거 데이터 기준 사실 표시이며, 미래 성과를 뜻하지 않습니다.", label),
+      t("초과수익률 = 전략 수익률(%) - 벤치마크 수익률(%)  → 단위는 %p(퍼센트 포인트)"),
+      t("🟢 양수: 전략 수익률이 벤치마크보다 높았음\n🟡 0%p 부근: 벤치마크와 비슷했음\n🔴 음수: 전략 수익률이 벤치마크보다 낮았음\n\n※ 두 값이 모두 음수일 때 양수인 초과수익률은 '덜 하락했다'는 뜻이며 이익을 의미하지 않습니다."),
     ),
-  volatility: metricTooltip("연간 변동성은 일별 수익률의 표준편차를 연간 단위로 환산한 값입니다.", "변동성 = 일별 수익률 표준편차 × √246 × 100 (KRX 연 거래일)", "🟢 낮음: 15% 미만\n🟡 중간: 15% ~ 25%\n🔴 높음: 25% 초과"),
-  calmar: metricTooltip("칼마 비율은 최대 낙폭 대비 연평균수익률의 비율입니다.", "칼마 비율 = CAGR / |MDD|", "🟢 높음: 1.0 이상\n🟡 중간: 0.5 ~ 1.0\n🔴 낮음: 0.5 미만"),
-  avgHoldingDays: metricTooltip("평균 보유일은 진입 후 청산까지의 평균 보유 거래일입니다.", "평균 보유일 = 완료 거래의 총 보유일 / 완료 거래 수", "🟢 단기: 1 ~ 3일\n🟡 중기: 5 ~ 20일\n🔴 장기: 20일 초과"),
-  exposure: metricTooltip("시장 노출도는 백테스트 기간 중 포지션을 하나라도 보유한 날의 비율입니다.", "시장 노출도 = 포지션 보유일 수 / 전체 거래일 수 × 100", "🟢 낮음: 30% 미만\n🟡 중간: 30% ~ 70%\n🔴 높음: 70% 초과"),
-  turnover: metricTooltip("회전율은 백테스트 기간 동안 평균 자산 대비 매매에 사용된 자산의 비율입니다.", "회전율 = ((총 매수 체결금액 + 총 매도 체결금액) / 2) / 기간 평균 자산 × 100", "🟢 낮음: 50% 미만\n🟡 중간: 50% ~ 200%\n🔴 높음: 200% 초과"),
-  maxDrawdownDuration: metricTooltip("최장 낙폭 기간은 전고점 아래에 머문 가장 긴 연속 거래일 수입니다.", "최장 낙폭 기간 = 자산이 이전 최고 자산을 회복하지 못한 최대 연속 거래일 수", "🟢 짧음: 63거래일 이하\n🟡 중간: 64 ~ 252거래일\n🔴 김: 252거래일 초과"),
-  expectancy: metricTooltip("기대값은 거래 1회당 평균 수익률입니다.", "기대값 = 승률 × 평균 수익률 - 패률 × 평균 손실률", "🟢 양수: 과거 거래 평균이 이익\n🟡 0% 부근: 과거 거래 평균이 손익분기 근처\n🔴 음수: 과거 거래 평균이 손실"),
-  recoveryFactor: metricTooltip("회복 계수는 최대 낙폭 금액 대비 순이익의 비율입니다.", "회복 계수 = 순이익 / 최대 낙폭 금액", "🟢 높음: 3.0 이상\n🟡 중간: 1.0 ~ 3.0\n🔴 낮음: 1.0 미만")
-};
+  volatility: metricTooltip(t("연간 변동성은 일별 수익률의 표준편차를 연간 단위로 환산한 값입니다."), t("변동성 = 일별 수익률 표준편차 × √246 × 100 (KRX 연 거래일)"), t("🟢 낮음: 15% 미만\n🟡 중간: 15% ~ 25%\n🔴 높음: 25% 초과")),
+  calmar: metricTooltip(t("칼마 비율은 최대 낙폭 대비 연평균수익률의 비율입니다."), t("칼마 비율 = CAGR / |MDD|"), t("🟢 높음: 1.0 이상\n🟡 중간: 0.5 ~ 1.0\n🔴 낮음: 0.5 미만")),
+  avgHoldingDays: metricTooltip(t("평균 보유일은 진입 후 청산까지의 평균 보유 거래일입니다."), t("평균 보유일 = 완료 거래의 총 보유일 / 완료 거래 수"), t("🟢 단기: 1 ~ 3일\n🟡 중기: 5 ~ 20일\n🔴 장기: 20일 초과")),
+  exposure: metricTooltip(t("시장 노출도는 백테스트 기간 중 포지션을 하나라도 보유한 날의 비율입니다."), t("시장 노출도 = 포지션 보유일 수 / 전체 거래일 수 × 100"), t("🟢 낮음: 30% 미만\n🟡 중간: 30% ~ 70%\n🔴 높음: 70% 초과")),
+  turnover: metricTooltip(t("회전율은 백테스트 기간 동안 평균 자산 대비 매매에 사용된 자산의 비율입니다."), t("회전율 = ((총 매수 체결금액 + 총 매도 체결금액) / 2) / 기간 평균 자산 × 100"), t("🟢 낮음: 50% 미만\n🟡 중간: 50% ~ 200%\n🔴 높음: 200% 초과")),
+  maxDrawdownDuration: metricTooltip(t("최장 낙폭 기간은 전고점 아래에 머문 가장 긴 연속 거래일 수입니다."), t("최장 낙폭 기간 = 자산이 이전 최고 자산을 회복하지 못한 최대 연속 거래일 수"), t("🟢 짧음: 63거래일 이하\n🟡 중간: 64 ~ 252거래일\n🔴 김: 252거래일 초과")),
+  expectancy: metricTooltip(t("기대값은 거래 1회당 평균 수익률입니다."), t("기대값 = 승률 × 평균 수익률 - 패률 × 평균 손실률"), t("🟢 양수: 과거 거래 평균이 이익\n🟡 0% 부근: 과거 거래 평균이 손익분기 근처\n🔴 음수: 과거 거래 평균이 손실")),
+  recoveryFactor: metricTooltip(t("회복 계수는 최대 낙폭 금액 대비 순이익의 비율입니다."), t("회복 계수 = 순이익 / 최대 낙폭 금액"), t("🟢 높음: 3.0 이상\n🟡 중간: 1.0 ~ 3.0\n🔴 낮음: 1.0 미만"))
+  };
+}
 
 function benchmarkLabelForResult(result: BacktestResult): string {
   // 엔진이 내려준 라벨이 정본이다 — 벤치마크는 universeId만이 아니라 보유 종목의
@@ -360,7 +364,7 @@ function benchmarkLabelForResult(result: BacktestResult): string {
   // universeId로 프론트가 다시 추정하면 백엔드와 어긋난다.
   if (result.benchmarkLabel) return result.benchmarkLabel;
   const universeId = result.universeId?.toLowerCase();
-  if (universeId === "kospi") return "KODEX 코스피 (226490)";
+  if (universeId === "kospi") return t("KODEX 코스피 (226490)");
   if (universeId === "kosdaq") return "KODEX KOSDAQ 150 (229200)";
   return "KODEX 200 (069500)";
 }
@@ -635,8 +639,8 @@ export default function BacktestDashboard({
 
   const formatKRW = (val: number) => {
     const num = Number(val);
-    if (isNaN(num) || num === 0) return "0원";
-    return Math.round(num).toLocaleString() + "원";
+    if (isNaN(num) || num === 0) return t("0원");
+    return t("{0}원", Math.round(num).toLocaleString());
   };
 
   const calculateMonthlyReturns = () => {
@@ -738,13 +742,13 @@ export default function BacktestDashboard({
   // 종목별 평균 매수가/매도가 — tradesList(개별 체결)에서 매수·매도 체결가의 산술평균을 계산한다.
   const symbolTradePrices = useMemo(() => {
     const acc: Record<string, { entrySum: number; entryCount: number; exitSum: number; exitCount: number }> = {};
-    for (const t of result.tradesList ?? []) {
-      const bucket = acc[t.symbol] ?? (acc[t.symbol] = { entrySum: 0, entryCount: 0, exitSum: 0, exitCount: 0 });
-      if (t.type === "buy") {
-        bucket.entrySum += t.price;
+    for (const tv of result.tradesList ?? []) {
+      const bucket = acc[tv.symbol] ?? (acc[tv.symbol] = { entrySum: 0, entryCount: 0, exitSum: 0, exitCount: 0 });
+      if (tv.type === "buy") {
+        bucket.entrySum += tv.price;
         bucket.entryCount += 1;
-      } else if (t.type === "sell") {
-        bucket.exitSum += t.price;
+      } else if (tv.type === "sell") {
+        bucket.exitSum += tv.price;
         bucket.exitCount += 1;
       }
     }
@@ -815,7 +819,7 @@ export default function BacktestDashboard({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "저장 실패");
+      if (!res.ok) throw new Error(data.error || t("저장 실패"));
 
       // 저장 버튼을 누른 시점에 BacktestHistory 생성 (저장 목록에 노출)
       if (strategySummary) {
@@ -825,7 +829,7 @@ export default function BacktestDashboard({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            strategyName: saveStrategyName.trim() || strategySummary.strategyName || "이름 없는 전략",
+            strategyName: saveStrategyName.trim() || strategySummary.strategyName || t("이름 없는 전략"),
             prompt: promptText?.trim() || undefined,
             universe: strategySummary.universeName,
             conditions: {
@@ -856,11 +860,11 @@ export default function BacktestDashboard({
         }).catch(() => {/* 히스토리 저장 실패는 무시 */});
       }
 
-      setSaveResult({ ok: true, message: "전략이 저장되었습니다." });
+      setSaveResult({ ok: true, message: t("전략이 저장되었습니다.") });
       onSave?.();
       setTimeout(() => setIsSaveModalOpen(false), 1200);
     } catch (e: any) {
-      setSaveResult({ ok: false, message: e.message || "저장 중 오류가 발생했습니다." });
+      setSaveResult({ ok: false, message: e.message || t("저장 중 오류가 발생했습니다.") });
     } finally {
       setIsSavingStrategy(false);
     }
@@ -899,23 +903,23 @@ export default function BacktestDashboard({
   const promptSummaryRows: Array<{ label: string; values: string[] }> = [];
   if (strategySummary) {
     const universeLabel = resolveUniverseDisplayName(strategySummary.universeName, promptText);
-    if (universeLabel) promptSummaryRows.push({ label: "유니버스", values: [universeLabel] });
+    if (universeLabel) promptSummaryRows.push({ label: t("유니버스"), values: [universeLabel] });
     if (strategySummary.entryBlocks?.length) {
-      promptSummaryRows.push({ label: "진입 신호", values: strategySummary.entryBlocks });
+      promptSummaryRows.push({ label: t("진입 신호"), values: strategySummary.entryBlocks });
     }
     if (strategySummary.exitBlocks?.length) {
-      promptSummaryRows.push({ label: "청산 신호", values: strategySummary.exitBlocks });
+      promptSummaryRows.push({ label: t("청산 신호"), values: strategySummary.exitBlocks });
     }
     const riskValues = [
       strategySummary.positionText,
       strategySummary.rebalancingText,
       strategySummary.riskText,
     ].filter((value): value is string => Boolean(value));
-    if (riskValues.length > 0) promptSummaryRows.push({ label: "리스크", values: riskValues });
+    if (riskValues.length > 0) promptSummaryRows.push({ label: t("리스크"), values: riskValues });
   }
 
   const downloadStrategyName =
-    strategySummary?.strategyName?.trim() || promptText?.trim() || "백테스트 전략";
+    strategySummary?.strategyName?.trim() || promptText?.trim() || t("백테스트 전략");
   const downloadPeriodLabel =
     result.dates[0] && result.dates[result.dates.length - 1]
       ? `${result.dates[0]} ~ ${result.dates[result.dates.length - 1]}`
@@ -983,15 +987,15 @@ export default function BacktestDashboard({
       // 매매 기록 — 화면과 동일하게 tradesList(개별 체결 이벤트) 순서를 유지한다.
       tradeHistory:
         section === "log"
-          ? (result.tradesList ?? []).map((t) => ({
-              date: t.date,
-              symbol: t.symbol,
-              name: stockMetadata[t.symbol]?.name || t.symbol,
-              type: t.type,
-              price: Number(t.price) || 0,
-              quantity: Number(t.quantity) || 0,
-              amount: t.amount || 0,
-              reason: resolveTradeReason(t.reason, t.type, normalizedBacktestDsl) ?? t.reason ?? "",
+          ? (result.tradesList ?? []).map((tv) => ({
+              date: tv.date,
+              symbol: tv.symbol,
+              name: stockMetadata[tv.symbol]?.name || tv.symbol,
+              type: tv.type,
+              price: Number(tv.price) || 0,
+              quantity: Number(tv.quantity) || 0,
+              amount: tv.amount || 0,
+              reason: resolveTradeReason(tv.reason, tv.type, normalizedBacktestDsl) ?? tv.reason ?? "",
             }))
           : undefined,
     };
@@ -1012,7 +1016,7 @@ export default function BacktestDashboard({
 
   const handleDownload = async (format: ExportFormat, section: "assets" | "log") => {
     setDownloadingFormat(format);
-    setToast({ type: "info", message: "다운로드를 준비하고 있어요." });
+    setToast({ type: "info", message: t("다운로드를 준비하고 있어요.") });
     try {
       const payload = buildExportPayload(section);
       const res = await fetch("/api/backtest/export", {
@@ -1030,81 +1034,82 @@ export default function BacktestDashboard({
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-      setToast({ type: "success", message: "결과 파일 다운로드가 완료되었습니다." });
+      setToast({ type: "success", message: t("결과 파일 다운로드가 완료되었습니다.") });
       setIsDownloadModalOpen(false);
     } catch {
-      setToast({ type: "error", message: "다운로드에 실패했습니다. 잠시 후 다시 시도해주세요." });
+      setToast({ type: "error", message: t("다운로드에 실패했습니다. 잠시 후 다시 시도해주세요.") });
     } finally {
       setDownloadingFormat(null);
     }
   };
 
+  const BASE_METRIC_DESCRIPTIONS = baseMetricDescriptions();
   const overviewMetrics = [
     {
-      label: "총 수익",
+      label: t("총 수익"),
       englishLabel: "Total Profit",
       value: formatKRW(totalProfit),
       valueClass: totalProfit > 0 ? "text-[var(--main-red)]" : totalProfit < 0 ? "text-[var(--main-blue)]" : "text-white",
-      description: metricTooltip("총 수익은 백테스트 종료 시점의 순손익입니다.", "총 수익 = 최종 자산 - 초기 자본", "🟢 양수: 순이익\n🟡 0원: 손익 없음\n🔴 음수: 순손실"),
+      description: metricTooltip(t("총 수익은 백테스트 종료 시점의 순손익입니다."), t("총 수익 = 최종 자산 - 초기 자본"), t("🟢 양수: 순이익\n🟡 0원: 손익 없음\n🔴 음수: 순손실")),
     },
     {
-      label: "총 거래 수",
+      label: t("총 거래 수"),
       englishLabel: "Trades",
-      value: `${result.trades || 0}회`,
+      value: t("{0}회", result.trades || 0),
       valueClass: "text-[#FF9933]",
-      description: metricTooltip("총 거래 수는 백테스트에서 완료된 거래의 집계 건수입니다.", "총 거래 수 = 백테스트 기간의 완료 거래 건수", "🔴 30건 미만: 표본 수가 적어 해석에 주의\n🟡 30 ~ 99건: 중간 표본\n🟢 100건 이상: 상대적으로 큰 표본"),
+      description: metricTooltip(t("총 거래 수는 백테스트에서 완료된 거래의 집계 건수입니다."), t("총 거래 수 = 백테스트 기간의 완료 거래 건수"), t("🔴 30건 미만: 표본 수가 적어 해석에 주의\n🟡 30 ~ 99건: 중간 표본\n🟢 100건 이상: 상대적으로 큰 표본")),
     },
     {
-      label: "연평균수익률",
+      label: t("연평균수익률"),
       englishLabel: "CAGR",
       value: `${result.cagr.toFixed(2)}%`,
       valueClass: result.cagr > 0 ? "text-[var(--main-red)]" : result.cagr < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: BASE_METRIC_DESCRIPTIONS.cagr,
     },
     {
-      label: "최대낙폭",
+      label: t("최대낙폭"),
       englishLabel: "MDD",
       value: `${result.maxDrawdown.toFixed(2)}%`,
       valueClass: "text-[var(--main-blue)]",
       description: BASE_METRIC_DESCRIPTIONS.mdd,
     },
     {
-      label: "투자 수익률",
+      label: t("투자 수익률"),
       englishLabel: "ROI",
       value: `${investmentRoi >= 0 ? "+" : ""}${investmentRoi.toFixed(2)}%`,
       valueClass: investmentRoi > 0 ? "text-[var(--main-red)]" : investmentRoi < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: BASE_METRIC_DESCRIPTIONS.totalReturn,
     },
     {
-      label: "샤프 비율",
+      label: t("샤프 비율"),
       englishLabel: "Sharpe",
       value: result.sharpe.toFixed(2),
       valueClass: result.sharpe > 0 ? "text-[var(--main-red)]" : result.sharpe < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: BASE_METRIC_DESCRIPTIONS.sharpe,
     },
     {
-      label: "소티노 지수",
+      label: t("소티노 지수"),
       englishLabel: "Sortino",
       value: sortinoRatio.toFixed(2),
       valueClass: sortinoRatio > 0 ? "text-[var(--main-red)]" : sortinoRatio < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: BASE_METRIC_DESCRIPTIONS.sortino,
     },
     {
-      label: `벤치마크`,
+      label: t("벤치마크"),
       englishLabel: benchmarkLabel.replace(/\s*\(\d+\)$/, ""),
       value: `${(result.buyAndHoldReturn || 0) >= 0 ? "+" : ""}${(result.buyAndHoldReturn || 0).toFixed(2)}%`,
       valueClass: (result.buyAndHoldReturn || 0) > 0 ? "text-[var(--main-red)]" : (result.buyAndHoldReturn || 0) < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: BASE_METRIC_DESCRIPTIONS.buyHold(benchmarkLabel),
     },
     {
-      label: "승률",
+      label: t("승률"),
       englishLabel: "Win Rate",
       value: `${(result.winRate || 0).toFixed(1)}%`,
       valueClass: (result.winRate || 0) > 0 ? "text-[var(--main-red)]" : "text-white",
-      description: metricTooltip("승률은 완료 거래 중 수익으로 끝난 거래의 비율입니다.", "승률 = 수익 거래 수 / 완료 거래 수 × 100", "🟢 높음: 60% 이상\n🟡 중간: 40% ~ 60%\n🔴 낮음: 40% 미만\n승률은 평균 수익·손실과 함께 해석"),
+      description: metricTooltip(t("승률은 완료 거래 중 수익으로 끝난 거래의 비율입니다."), t("승률 = 수익 거래 수 / 완료 거래 수 × 100"), t("🟢 높음: 60% 이상\n🟡 중간: 40% ~ 60%\n🔴 낮음: 40% 미만\n승률은 평균 수익·손실과 함께 해석")),
     },
     {
-      label: "손익비",
+      label: t("손익비"),
       englishLabel: "Profit Factor",
       value: formatProfitFactor(result.profitFactor),
       valueClass: (result.profitFactor ?? Infinity) > 1 ? "text-[var(--main-red)]" : (result.profitFactor ?? Infinity) < 1 ? "text-[var(--main-blue)]" : "text-white",
@@ -1150,7 +1155,7 @@ export default function BacktestDashboard({
               <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-2.5">
                   <FloppyDisk size={18} className="text-gray-300" weight="fill" />
-                  <h3 className="text-base font-black text-white">전략 저장</h3>
+                  <h3 className="text-base font-black text-white">{t("전략 저장")}</h3>
                 </div>
                 <button
                   onClick={() => setIsSaveModalOpen(false)}
@@ -1166,7 +1171,7 @@ export default function BacktestDashboard({
                 className="mb-5 grid grid-cols-2 gap-3 rounded-xl border border-white/5 bg-white/[0.03] p-4 sm:grid-cols-3"
               >
                 <div className="text-center">
-                  <p className="text-xs text-gray-500 mb-1">총 수익률</p>
+                  <p className="text-xs text-gray-500 mb-1">{t("총 수익률")}</p>
                   <p className={`text-xl font-black ${metricValueColor(result.totalReturn)}`}>
                     {result.totalReturn >= 0 ? "+" : ""}{result.totalReturn.toFixed(1)}%
                   </p>
@@ -1182,16 +1187,16 @@ export default function BacktestDashboard({
                   <p className={`text-xl font-black ${metricValueColor(result.maxDrawdown)}`}>{result.maxDrawdown.toFixed(1)}%</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-xs text-gray-500 mb-1">점수</p>
+                  <p className="text-xs text-gray-500 mb-1">{t("점수")}</p>
                   <p className="text-xl font-black text-white">{calculateScore(result)}</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-xs text-gray-500 mb-1">거래 수</p>
-                  <p className="text-xl font-black text-white">{result.trades}건</p>
+                  <p className="text-xs text-gray-500 mb-1">{t("거래 수")}</p>
+                  <p className="text-xl font-black text-white">{t("{0}건", result.trades)}</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-xs text-gray-500 mb-1">종목 수</p>
-                  <p className="text-xl font-black text-white">{result.symbols?.length ?? 0}개</p>
+                  <p className="text-xs text-gray-500 mb-1">{t("종목 수")}</p>
+                  <p className="text-xl font-black text-white">{t("{0}개", result.symbols?.length ?? 0)}</p>
                 </div>
               </div>
 
@@ -1200,7 +1205,7 @@ export default function BacktestDashboard({
                   {modalPromptPreview && (
                     <div className="space-y-1.5">
                       <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-gray-600">
-                        프롬프트
+                        {t("프롬프트")}
                       </p>
                       <p className="whitespace-pre-wrap text-sm font-bold leading-6 text-white">
                         {modalPromptPreview}
@@ -1213,7 +1218,7 @@ export default function BacktestDashboard({
                       {modalUniverseLabel && (
                         <div className="flex flex-wrap items-start gap-2">
                           <span className="w-16 flex-shrink-0 pt-1 text-[10px] font-bold uppercase tracking-widest text-gray-600">
-                            유니버스
+                            {t("유니버스")}
                           </span>
                           <div className="flex flex-1 flex-wrap gap-1">
                             <span className="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-[11px] font-black text-white">
@@ -1226,7 +1231,7 @@ export default function BacktestDashboard({
                       {(strategySummary.entryBlocks?.length || strategySummary.blockNames?.length) && (
                         <div className="flex flex-wrap items-start gap-2">
                           <span className="w-16 flex-shrink-0 pt-1 text-[10px] font-bold uppercase tracking-widest text-gray-600">
-                            진입 신호
+                            {t("진입 신호")}
                           </span>
                           <div className="flex flex-1 flex-wrap gap-1">
                             {(strategySummary.entryBlocks?.length
@@ -1247,7 +1252,7 @@ export default function BacktestDashboard({
                       {strategySummary.exitBlocks?.length ? (
                         <div className="flex flex-wrap items-start gap-2">
                           <span className="w-16 flex-shrink-0 pt-1 text-[10px] font-bold uppercase tracking-widest text-gray-600">
-                            청산 신호
+                            {t("청산 신호")}
                           </span>
                           <div className="flex flex-1 flex-wrap gap-1">
                             {strategySummary.exitBlocks.map((name) => (
@@ -1265,7 +1270,7 @@ export default function BacktestDashboard({
                       {(strategySummary.positionText || strategySummary.riskText || strategySummary.rebalancingText) && (
                         <div className="flex flex-wrap items-start gap-2">
                           <span className="w-16 flex-shrink-0 pt-1 text-[10px] font-bold uppercase tracking-widest text-gray-600">
-                            리스크
+                            {t("리스크")}
                           </span>
                           <div className="flex flex-1 flex-wrap gap-1">
                             {strategySummary.positionText && (
@@ -1293,13 +1298,13 @@ export default function BacktestDashboard({
 
               <div className="space-y-3 mb-5">
                 <div>
-                  <label className="block text-xs font-bold text-gray-400 mb-1.5">전략 이름 *</label>
+                  <label className="block text-xs font-bold text-gray-400 mb-1.5">{t("전략 이름 *")}</label>
                   <input
                     type="text"
                     value={saveStrategyName}
                     onChange={(e) => setSaveStrategyName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter" && saveStrategyName.trim()) handleSaveStrategy(); }}
-                    placeholder="전략 이름을 입력하세요"
+                    placeholder={t("전략 이름을 입력하세요")}
                     maxLength={50}
                     className="w-full px-3 py-2.5 bg-[#1a1a1a] border border-white/10 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-white/20 transition-colors"
                     autoFocus
@@ -1323,7 +1328,7 @@ export default function BacktestDashboard({
                   onClick={() => setIsSaveModalOpen(false)}
                   className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-sm font-bold transition-colors"
                 >
-                  취소
+                  {t("취소")}
                 </button>
                 <button
                   onClick={handleSaveStrategy}
@@ -1333,12 +1338,12 @@ export default function BacktestDashboard({
                   {isSavingStrategy ? (
                     <>
                       <Spinner size={14} className="animate-spin" />
-                      {!cachedReport ? "AI 리포트 생성 중..." : "저장 중..."}
+                      {!cachedReport ? t("AI 리포트 생성 중...") : t("저장 중...")}
                     </>
                   ) : (
                     <>
                       <FloppyDisk size={14} />
-                      저장
+                      {t("저장")}
                     </>
                   )}
                 </button>
@@ -1369,18 +1374,18 @@ export default function BacktestDashboard({
             >
               <div className="mb-5">
                 <h3 className="text-base font-black text-white">
-                  {isDownloadEnabled ? "백테스트 결과 익스포트" : "백테스트 결과 익스포트는 Pro 플랜 이상에서 사용할 수 있어요"}
+                  {isDownloadEnabled ? t("백테스트 결과 익스포트") : t("백테스트 결과 익스포트는 Pro 플랜 이상에서 사용할 수 있어요")}
                 </h3>
               </div>
 
               <div className="mb-5 space-y-1.5 rounded-xl border border-white/5 bg-white/[0.03] p-4">
                 <div className="flex gap-2 text-sm">
-                  <span className="w-14 flex-shrink-0 pt-0.5 text-[11px] font-bold uppercase tracking-widest text-gray-600">전략명</span>
+                  <span className="w-14 flex-shrink-0 pt-0.5 text-[11px] font-bold uppercase tracking-widest text-gray-600">{t("전략명")}</span>
                   <span className="font-bold text-white">{downloadStrategyName}</span>
                 </div>
                 {downloadPeriodLabel && (
                   <div className="flex gap-2 text-sm">
-                    <span className="w-14 flex-shrink-0 pt-0.5 text-[11px] font-bold uppercase tracking-widest text-gray-600">기간</span>
+                    <span className="w-14 flex-shrink-0 pt-0.5 text-[11px] font-bold uppercase tracking-widest text-gray-600">{t("기간")}</span>
                     <span className="font-mono font-bold text-gray-300">{downloadPeriodLabel}</span>
                   </div>
                 )}
@@ -1390,14 +1395,14 @@ export default function BacktestDashboard({
                   href="/pricing"
                   className="flex-1 py-2.5 rounded-xl bg-[var(--main-blue)] text-white hover:opacity-90 text-sm font-bold transition-colors text-center"
                 >
-                  요금제 보기
+                  {t("요금제 보기")}
                 </a>
                 <button
                   type="button"
                   onClick={() => setIsDownloadModalOpen(false)}
                   className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-sm font-bold transition-colors"
                 >
-                  닫기
+                  {t("닫기")}
                 </button>
               </div>
             </motion.div>
@@ -1439,7 +1444,7 @@ export default function BacktestDashboard({
 
       <div className="relative flex flex-col gap-1 px-4 pt-8 pb-4 sm:px-6">
         <h2 className="text-3xl font-black text-white tracking-tight">
-          백테스트 결과
+          {t("백테스트 결과")}
         </h2>
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <span className="text-sm font-mono text-gray-500 font-normal">
@@ -1476,14 +1481,14 @@ export default function BacktestDashboard({
                   }}
                   className="relative z-10 min-h-[34px] px-3.5 text-sm font-black tracking-tight md:px-4"
                 >
-                  {tab.label}
+                  {t(tab.label)}
                 </button>
                 {tab.help && (
                   <ValidationTabHelp
-                    label={tab.label}
-                    title={tab.help.title}
-                    body={tab.help.body}
-                    example={tab.help.example}
+                    label={t(tab.label)}
+                    title={t(tab.help.title)}
+                    body={t(tab.help.body)}
+                    example={t(tab.help.example)}
                   />
                 )}
               </div>
@@ -1504,7 +1509,7 @@ export default function BacktestDashboard({
               }`}
             >
               <ArrowsClockwise className="w-4 h-4" />
-              전략 최적화
+              {t("전략 최적화")}
             </button>
             {(promptText || strategySummary) && (
               <div className="static lg:relative" ref={promptTooltipRef}>
@@ -1514,7 +1519,7 @@ export default function BacktestDashboard({
                   className="px-4 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] text-gray-300 hover:text-white text-sm font-bold rounded-lg transition-colors border border-white/10 hover:border-white/15 active:scale-95 flex items-center gap-1.5"
                 >
                   <Info className="w-4 h-4" />
-                  프롬프트
+                  {t("프롬프트")}
                 </button>
                 {promptTooltipOpen && (
                   <div
@@ -1523,7 +1528,7 @@ export default function BacktestDashboard({
                   >
                     {promptText && (
                       <div className="space-y-1">
-                        <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">프롬프트</span>
+                        <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">{t("프롬프트")}</span>
                         <p className="text-xs text-gray-200 leading-5 whitespace-pre-wrap">{promptText}</p>
                       </div>
                     )}
@@ -1559,16 +1564,16 @@ export default function BacktestDashboard({
               className="px-4 py-1.5 bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 flex items-center gap-2 active:scale-95"
             >
               <FloppyDisk className="w-4 h-4" />
-              전략 저장
+              {t("전략 저장")}
             </button>
             <button
               type="button"
               onClick={onRestart}
-              title="백테스트 결과 닫기"
+              title={t("백테스트 결과 닫기")}
               className="px-4 py-1.5 bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 flex items-center gap-2 active:scale-95"
             >
               <SignOut className="w-4 h-4" />
-              결과 닫기
+              {t("결과 닫기")}
             </button>
           </div>
         </div>
@@ -1622,14 +1627,14 @@ export default function BacktestDashboard({
                         <div className="flex items-center gap-2 rounded-md bg-black/25 px-2.5 py-1.5 backdrop-blur-sm">
                           <span className="h-2.5 w-2.5 rounded-full bg-[#ef4444]" />
                           <span className="text-xs font-bold text-white/75">
-                            나의 수익률
+                            {t("나의 수익률")}
                           </span>
                         </div>
                         {hasBenchmarkCurve && (
                           <div className="flex items-center gap-2 self-start rounded-md bg-black/25 px-2.5 py-1.5 backdrop-blur-sm">
                             <span className="h-2.5 w-2.5 rounded-full bg-[var(--main-green)]" />
                             <span className="text-xs font-bold text-white/75">
-                              벤치마크 · {benchmarkLabel.replace(/\s*\(\d+\)$/, "")}
+                              {t("벤치마크 · {0}", benchmarkLabel.replace(/\s*\(\d+\)$/, ""))}
                             </span>
                           </div>
                         )}
@@ -1665,17 +1670,17 @@ export default function BacktestDashboard({
                   <div className="border-t border-white/[0.08] p-4">
                     <div className="flex items-center gap-2 mb-3">
                       <ArrowsClockwise className="w-4 h-4 text-gray-400" />
-                      <h4 className="text-base font-black uppercase tracking-widest text-white">엔진 비교</h4>
-                      <span className="text-[10px] text-gray-500 font-bold ml-1">자체 엔진 vs VectorBT 네이티브</span>
+                      <h4 className="text-base font-black uppercase tracking-widest text-white">{t("엔진 비교")}</h4>
+                      <span className="text-[10px] text-gray-500 font-bold ml-1">{t("자체 엔진 vs VectorBT 네이티브")}</span>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left border-collapse">
                         <thead>
                           <tr className="bg-white/[0.06]">
-                            <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest w-[140px] rounded-l-lg">지표</th>
+                            <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest w-[140px] rounded-l-lg">{t("지표")}</th>
                             <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">
                               <span className="inline-flex items-center gap-1.5">
-                                <span className="w-2 h-2 rounded-full bg-main-red inline-block" />자체 엔진
+                                <span className="w-2 h-2 rounded-full bg-main-red inline-block" />{t("자체 엔진")}
                               </span>
                             </th>
                             <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">
@@ -1683,21 +1688,21 @@ export default function BacktestDashboard({
                                 <span className="w-2 h-2 rounded-full bg-white/40 inline-block" />VectorBT
                               </span>
                             </th>
-                            <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right rounded-r-lg">차이</th>
+                            <th className="py-2 px-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-right rounded-r-lg">{t("차이")}</th>
                           </tr>
                         </thead>
                         <tbody>
                           {[
                             { label: "CAGR", ours: result.cagr, vbt: result.vbtResult.cagr, fmt: (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`, unit: "%" },
-                            { label: "총수익률", ours: result.totalReturn, vbt: result.vbtResult.totalReturn, fmt: (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`, unit: "%" },
+                            { label: t("총수익률"), ours: result.totalReturn, vbt: result.vbtResult.totalReturn, fmt: (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`, unit: "%" },
                             { label: "MDD", ours: result.maxDrawdown, vbt: result.vbtResult.maxDrawdown, fmt: (v: number) => `${v.toFixed(2)}%`, unit: "%", invertDiff: true },
                             { label: "Sharpe", ours: result.sharpe, vbt: result.vbtResult.sharpe, fmt: (v: number) => v.toFixed(2), unit: "" },
                             { label: "Sortino", ours: result.sortino, vbt: result.vbtResult.sortino, fmt: (v: number) => v.toFixed(2), unit: "" },
-                            { label: "승률", ours: result.winRate, vbt: result.vbtResult.winRate, fmt: (v: number) => `${v.toFixed(1)}%`, unit: "%" },
+                            { label: t("승률"), ours: result.winRate, vbt: result.vbtResult.winRate, fmt: (v: number) => `${v.toFixed(1)}%`, unit: "%" },
                             // 손익비만 ours가 무한대(손실 0건)일 수 있다 — fmt/차이 표기가 Infinity를 견뎌야 한다
-                            { label: "손익비", ours: result.profitFactor ?? Infinity, vbt: result.vbtResult.profitFactor, fmt: (v: number) => (Number.isFinite(v) ? v.toFixed(2) : "∞"), unit: "" },
-                            { label: "거래 수", ours: result.trades, vbt: result.vbtResult.trades, fmt: (v: number) => `${v}`, unit: "" },
-                            { label: "변동성", ours: (result.volatility || 0), vbt: (result.vbtResult.volatility || 0), fmt: (v: number) => `${v.toFixed(2)}%`, unit: "%", invertDiff: true },
+                            { label: t("손익비"), ours: result.profitFactor ?? Infinity, vbt: result.vbtResult.profitFactor, fmt: (v: number) => (Number.isFinite(v) ? v.toFixed(2) : "∞"), unit: "" },
+                            { label: t("거래 수"), ours: result.trades, vbt: result.vbtResult.trades, fmt: (v: number) => `${v}`, unit: "" },
+                            { label: t("변동성"), ours: (result.volatility || 0), vbt: (result.vbtResult.volatility || 0), fmt: (v: number) => `${v.toFixed(2)}%`, unit: "%", invertDiff: true },
                           ].map((row) => {
                             const diff = row.vbt - row.ours;
                             const absDiff = Math.abs(diff);
@@ -1707,17 +1712,13 @@ export default function BacktestDashboard({
 
                             return (
                               <tr key={row.label} className="hover:bg-white/[0.02] transition-colors">
-                                <td className="py-2 px-3 text-xs font-bold text-gray-400">{row.label}</td>
-                                <td className={`py-2 px-3 text-sm font-black text-right font-mono ${
-                                  row.label === "MDD" || row.label === "변동성" ? "text-white" :
-                                  row.ours >= 0 ? "text-white" : "text-[var(--main-blue)]"
-                                }`}>
+                                <td className="py-2 px-3 text-xs font-bold text-gray-400">{t(row.label)}</td>
+                                <td className={`py-2 px-3 text-sm font-black text-right font-mono ${row.label === "MDD" || row.label === "변동성" ? "text-white" :
+                                  row.ours >= 0 ? "text-white" : "text-[var(--main-blue)]"}`}>
                                   {row.fmt(row.ours)}
                                 </td>
-                                <td className={`py-2 px-3 text-sm font-black text-right font-mono ${
-                                  row.label === "MDD" || row.label === "변동성" ? "text-gray-200" :
-                                  row.vbt >= 0 ? "text-gray-200" : "text-gray-500"
-                                }`}>
+                                <td className={`py-2 px-3 text-sm font-black text-right font-mono ${row.label === "MDD" || row.label === "변동성" ? "text-gray-200" :
+                                  row.vbt >= 0 ? "text-gray-200" : "text-gray-500"}`}>
                                   {row.fmt(row.vbt)}
                                 </td>
                                 <td className={`py-2 px-3 text-xs font-bold text-right font-mono ${diffColor}`}>
@@ -1730,7 +1731,7 @@ export default function BacktestDashboard({
                       </table>
                     </div>
                     <p className="mt-3 text-[10px] text-gray-600 leading-relaxed">
-                      * 자체 엔진: 당일 종가 기반 현실적 리스크 관리 (SL/TP/TS를 종가로 감지 후 종가로 청산). VectorBT: 네이티브 SL/TP/TS 사용 (정확한 스탑 가격에서 이상적으로 체결).
+                      {t("* 자체 엔진: 당일 종가 기반 현실적 리스크 관리 (SL/TP/TS를 종가로 감지 후 종가로 청산). VectorBT: 네이티브 SL/TP/TS 사용 (정확한 스탑 가격에서 이상적으로 체결).")}
                     </p>
                   </div>
                 )}
@@ -1741,8 +1742,8 @@ export default function BacktestDashboard({
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="flex shrink-0 items-center gap-1 rounded-[8px] bg-white/[0.04] p-0.5">
                         {([
-                          { id: "monthly", label: "월별 수익률" },
-                          { id: "rolling", label: "롤링 수익률" },
+                          { id: "monthly", label: t("월별 수익률") },
+                          { id: "rolling", label: t("롤링 수익률") },
                         ] as const).map((tab) => (
                           <button
                             key={tab.id}
@@ -1754,7 +1755,7 @@ export default function BacktestDashboard({
                                 : "text-[#6f7481] hover:text-[#a7adba]"
                             }`}
                           >
-                            {tab.label}
+                            {t(tab.label)}
                           </button>
                         ))}
                       </div>
@@ -1762,12 +1763,12 @@ export default function BacktestDashboard({
                         {returnsView === "monthly"
                           ? (() => {
                               const allYears = Object.keys(monthlyReturns).sort((a, b) => Number(a) - Number(b));
-                              if (allYears.length > 0) return `${allYears[0]} ~ ${allYears[allYears.length - 1]} · 최근 ${monthlyReturnRows.length}년`;
-                              return "데이터 없음";
+                              if (allYears.length > 0) return t("{0} ~ {1} · 최근 {2}년", allYears[0], allYears[allYears.length - 1], monthlyReturnRows.length);
+                              return t("데이터 없음");
                             })()
                           : effectiveRollingWindow != null
-                          ? `매 거래일 기준 직전 ${rollingWindowLabel(effectiveRollingWindow)} 구간 수익률`
-                          : "데이터 없음"}
+                          ? t("매 거래일 기준 직전 {0} 구간 수익률", rollingWindowLabel(effectiveRollingWindow))
+                          : t("데이터 없음")}
                       </p>
                     </div>
                     {returnsView === "monthly" ? (
@@ -1806,13 +1807,12 @@ export default function BacktestDashboard({
                           rollingData={rollingReturnSeries}
                         />
                         <p className="mt-3 text-[10px] text-gray-600 leading-relaxed">
-                          * 각 지점은 해당일 기준 직전 {effectiveRollingWindow != null ? rollingWindowLabel(effectiveRollingWindow) : ""} 구간의 수익률입니다.
-                          월별 표(달력 기준)와 달리 구간이 서로 겹치는 롤링 지표로, 진입 시점 선택에 따른 성과 변동을 보여줍니다.
+                          {t("* 각 지점은 해당일 기준 직전 {0} 구간의 수익률입니다. 월별 표(달력 기준)와 달리 구간이 서로 겹치는 롤링 지표로, 진입 시점 선택에 따른 성과 변동을 보여줍니다.", effectiveRollingWindow != null ? rollingWindowLabel(effectiveRollingWindow) : "")}
                         </p>
                       </div>
                     ) : (
                       <div className="px-4 py-16 text-center text-sm text-gray-500">
-                        백테스트 기간이 짧아 롤링 수익률을 계산할 수 없습니다. (최소 1개월 필요)
+                        {t("백테스트 기간이 짧아 롤링 수익률을 계산할 수 없습니다. (최소 1개월 필요)")}
                       </div>
                     )
                   )}
@@ -1821,15 +1821,15 @@ export default function BacktestDashboard({
                       <thead>
                         <tr>
                           <th className="sticky left-0 z-30 bg-[var(--background)] text-left text-xs font-bold text-gray-600 uppercase tracking-widest py-2 pl-2 pr-4">
-                            연도
+                            {t("연도")}
                           </th>
                           {["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"].map((label) => (
                             <th key={label} className="px-3 py-2 text-right text-xs font-bold text-gray-600 uppercase tracking-widest">
-                              {label}
+                              {t(label)}
                             </th>
                           ))}
                           <th className="text-right text-xs font-bold text-gray-600 uppercase tracking-widest py-2 pl-4 pr-2">
-                            연간 누적
+                            {t("연간 누적")}
                           </th>
                         </tr>
                         <tr><td colSpan={14}><div className="border-t border-white/[0.05]" /></td></tr>
@@ -1868,7 +1868,7 @@ export default function BacktestDashboard({
                         ) : (
                           <tr>
                             <td colSpan={14} className="px-4 py-16 text-center text-sm text-gray-500">
-                              월별 수익률 데이터가 없습니다.
+                              {t("월별 수익률 데이터가 없습니다.")}
                             </td>
                           </tr>
                         )}
@@ -1882,24 +1882,24 @@ export default function BacktestDashboard({
                   {([
                     [
                       // formatKRW가 이미 "원"을 붙이므로 sub를 주면 "원 원"이 된다.
-                      { label: "초기 자본", value: formatKRW(resolvedInitialCapital), sub: null, desc: null },
-                      { label: "최종 자산", value: formatKRW(resolvedFinalEquity), sub: null, desc: null },
+                      { label: t("초기 자본"), value: formatKRW(resolvedInitialCapital), sub: null, desc: null },
+                      { label: t("최종 자산"), value: formatKRW(resolvedFinalEquity), sub: null, desc: null },
                       {
-                        label: "초과수익률",
+                        label: t("초과수익률"),
                         value: excessReturn == null ? "-" : `${excessReturn >= 0 ? "+" : ""}${excessReturn.toFixed(2)}`,
                         sub: excessReturn == null ? null : "%p",
                         desc: BASE_METRIC_DESCRIPTIONS.excessReturn(benchmarkLabel),
                       },
-                      { label: "변동성", value: annualizedVolatility.toFixed(2), sub: "%", desc: BASE_METRIC_DESCRIPTIONS.volatility },
-                      { label: "칼마 비율", value: (result.calmar ?? (result.maxDrawdown !== 0 ? result.cagr / Math.abs(result.maxDrawdown) : 0)).toFixed(2), sub: null, desc: BASE_METRIC_DESCRIPTIONS.calmar },
-                      { label: "평균 보유일", value: `${Math.round(result.avgHoldingDays ?? 0)}일`, sub: null, desc: BASE_METRIC_DESCRIPTIONS.avgHoldingDays },
+                      { label: t("변동성"), value: annualizedVolatility.toFixed(2), sub: "%", desc: BASE_METRIC_DESCRIPTIONS.volatility },
+                      { label: t("칼마 비율"), value: (result.calmar ?? (result.maxDrawdown !== 0 ? result.cagr / Math.abs(result.maxDrawdown) : 0)).toFixed(2), sub: null, desc: BASE_METRIC_DESCRIPTIONS.calmar },
+                      { label: t("평균 보유일"), value: t("{0}일", Math.round(result.avgHoldingDays ?? 0)), sub: null, desc: BASE_METRIC_DESCRIPTIONS.avgHoldingDays },
                     ],
                     [
-                      { label: "시장 노출도", value: (result.exposure ?? 0).toFixed(1), sub: "%", desc: BASE_METRIC_DESCRIPTIONS.exposure },
-                      { label: "회전율", value: turnoverRate.toFixed(1), sub: "%", desc: BASE_METRIC_DESCRIPTIONS.turnover },
-                      { label: "최장 낙폭 기간", value: `${result.maxDrawdownDuration ?? 0}`, sub: "거래일", desc: BASE_METRIC_DESCRIPTIONS.maxDrawdownDuration },
-                      { label: "기대값", value: `${(result.expectancy ?? 0) >= 0 ? "+" : ""}${(result.expectancy ?? 0).toFixed(2)}`, sub: "%", desc: BASE_METRIC_DESCRIPTIONS.expectancy },
-                      { label: "회복 계수", value: (result.recoveryFactor ?? 0).toFixed(2), sub: null, desc: BASE_METRIC_DESCRIPTIONS.recoveryFactor },
+                      { label: t("시장 노출도"), value: (result.exposure ?? 0).toFixed(1), sub: "%", desc: BASE_METRIC_DESCRIPTIONS.exposure },
+                      { label: t("회전율"), value: turnoverRate.toFixed(1), sub: "%", desc: BASE_METRIC_DESCRIPTIONS.turnover },
+                      { label: t("최장 낙폭 기간"), value: `${result.maxDrawdownDuration ?? 0}`, sub: t("거래일"), desc: BASE_METRIC_DESCRIPTIONS.maxDrawdownDuration },
+                      { label: t("기대값"), value: `${(result.expectancy ?? 0) >= 0 ? "+" : ""}${(result.expectancy ?? 0).toFixed(2)}`, sub: "%", desc: BASE_METRIC_DESCRIPTIONS.expectancy },
+                      { label: t("회복 계수"), value: (result.recoveryFactor ?? 0).toFixed(2), sub: null, desc: BASE_METRIC_DESCRIPTIONS.recoveryFactor },
                     ],
                   ] as const).map((row, rowIdx) => (
                     <div key={rowIdx} className={`flex divide-x divide-white/[0.08] ${rowIdx > 0 ? "border-t border-white/[0.08]" : ""}`}>
@@ -1931,10 +1931,10 @@ export default function BacktestDashboard({
                     {[
                       // avgProfit/avgLoss는 거래별 평균 수익률·손실률(%)이다. 원이 아닌 %로 표시한다.
                       // (손실은 백엔드에서 양수 절댓값으로 내려오므로 음수로 표시)
-                      { label: "평균 수익", value: `+${(result.avgProfit || 0).toFixed(2)}`, sub: "%" },
-                      { label: "평균 손실", value: `-${(result.avgLoss || 0).toFixed(2)}`, sub: "%" },
-                      { label: "최대 연속 수익", value: `${result.maxConsecutiveWins || 0}`, sub: "회" },
-                      { label: "최대 연속 손실", value: `${result.maxConsecutiveLosses || 0}`, sub: "회" },
+                      { label: t("평균 수익"), value: `+${(result.avgProfit || 0).toFixed(2)}`, sub: "%" },
+                      { label: t("평균 손실"), value: `-${(result.avgLoss || 0).toFixed(2)}`, sub: "%" },
+                      { label: t("최대 연속 수익"), value: `${result.maxConsecutiveWins || 0}`, sub: t("회") },
+                      { label: t("최대 연속 손실"), value: `${result.maxConsecutiveLosses || 0}`, sub: t("회") },
                     ].map((s) => (
                       <div key={s.label} className="flex-1 flex flex-col gap-1 px-5 py-4">
                         <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-gray-500">{s.label}</span>
@@ -1957,7 +1957,7 @@ export default function BacktestDashboard({
                {isPlanLoading ? (
                  <div className="flex min-h-[320px] items-center justify-center text-sm font-bold text-gray-500">
                    <Spinner className="mr-2 h-4 w-4 animate-spin" />
-                   플랜 정보를 확인하는 중...
+                   {t("플랜 정보를 확인하는 중...")}
                  </div>
                ) : !isAiReportEnabled ? (
                  <div className="flex min-h-[320px] items-center justify-center px-6 py-10">
@@ -1966,16 +1966,16 @@ export default function BacktestDashboard({
                        <Crown className="h-6 w-6 text-amber-300" weight="fill" />
                      </div>
                      <h3 className="mt-4 text-lg font-black text-white">
-                       AI 리포트는 프로/프리미엄 플랜 전용 기능입니다
+                       {t("AI 리포트는 프로/프리미엄 플랜 전용 기능입니다")}
                      </h3>
                      <p className="mt-2 text-sm font-bold leading-6 text-gray-400">
-                       프로 또는 프리미엄 플랜을 이용하시면 백테스트 결과에 대한 AI 분석 리포트를 확인할 수 있습니다.
+                       {t("프로 또는 프리미엄 플랜을 이용하시면 백테스트 결과에 대한 AI 분석 리포트를 확인할 수 있습니다.")}
                      </p>
                      <a
                        href="/pricing"
                        className="mt-6 inline-flex items-center justify-center rounded-lg border border-gray-500 px-5 py-2.5 text-sm font-black text-gray-300 transition-colors hover:bg-white/[0.05]"
                      >
-                       플랜 변경
+                       {t("플랜 변경")}
                      </a>
                    </div>
                  </div>
@@ -2007,11 +2007,11 @@ export default function BacktestDashboard({
 
              <div className="h-full overflow-y-auto custom-scrollbar">
                 <div className="mb-3 pt-3 flex items-center gap-3 pl-5">
-                  <h3 className="text-3xl font-black tracking-tight text-white">종목별 매매 분석</h3>
+                  <h3 className="text-3xl font-black tracking-tight text-white">{t("종목별 매매 분석")}</h3>
                   <div className="flex flex-nowrap gap-2">
                     {([
-                      { format: "csv" as const, label: "CSV 내보내기" },
-                      { format: "json" as const, label: "JSON 내보내기" },
+                      { format: "csv" as const, label: t("CSV 내보내기") },
+                      { format: "json" as const, label: t("JSON 내보내기") },
                     ]).map(({ format, label }) => (
                       <button
                         key={format}
@@ -2034,15 +2034,15 @@ export default function BacktestDashboard({
                    <table className="w-full text-left border-collapse">
                       <thead className="bg-white/[0.06] sticky top-0 z-10">
                          <tr>
-                            <th className="p-4 pl-5 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] rounded-tl-2xl">종목</th>
-                            <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right">평균 매수가</th>
-                            <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right">평균 매도가</th>
+                            <th className="p-4 pl-5 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] rounded-tl-2xl">{t("종목")}</th>
+                            <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right">{t("평균 매수가")}</th>
+                            <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right">{t("평균 매도가")}</th>
                              <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right">
                                 <div
                                   className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
                                   onClick={() => handleSort('profit')}
                                 >
-                                   수익금 <SortIcon column="profit" />
+                                   {t("수익금 ")}<SortIcon column="profit" />
                                 </div>
                              </th>
                              <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right">
@@ -2050,7 +2050,7 @@ export default function BacktestDashboard({
                                   className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
                                   onClick={() => handleSort('totalReturn')}
                                 >
-                                   수익률 <SortIcon column="totalReturn" />
+                                   {t("수익률 ")}<SortIcon column="totalReturn" />
                                 </div>
                              </th>
                              <th className="p-4 pr-5 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right rounded-tr-2xl">
@@ -2058,7 +2058,7 @@ export default function BacktestDashboard({
                                   className="inline-flex items-center justify-end gap-1 cursor-pointer transition-colors group"
                                   onClick={() => handleSort('trades')}
                                 >
-                                   매매 횟수 <SortIcon column="trades" />
+                                   {t("매매 횟수 ")}<SortIcon column="trades" />
                                 </div>
                              </th>
                          </tr>
@@ -2094,7 +2094,7 @@ export default function BacktestDashboard({
                                      {stats ? `${stats.totalReturn.toFixed(2)}%` : "-"}
                                   </td>
                                   <td className="px-4 py-2.5 text-sm font-bold text-white text-right tabular-nums pr-5">
-                                     {stats ? `${stats.trades}회` : "-"}
+                                     {stats ? t("{0}회", stats.trades) : "-"}
                                   </td>
                                </tr>
                              );
@@ -2103,7 +2103,7 @@ export default function BacktestDashboard({
                                 <td colSpan={6} className="p-12 text-center text-gray-500">
                                    <div className="flex flex-col items-center gap-2">
                                       <List className="w-8 h-8 opacity-20" />
-                                      <span className="text-sm font-medium">매매 결과가 있는 종목이 부재합니다.</span>
+                                      <span className="text-sm font-medium">{t("매매 결과가 있는 종목이 부재합니다.")}</span>
                                    </div>
                                 </td>
                              </tr>
@@ -2120,11 +2120,11 @@ export default function BacktestDashboard({
            {activeTab === "log" && (
               <div className="h-full overflow-y-auto custom-scrollbar">
                 <div className="mb-3 pt-3 flex items-center gap-3 pl-5">
-                  <h3 className="text-3xl font-black tracking-tight text-white">종목별 매매 기록</h3>
+                  <h3 className="text-3xl font-black tracking-tight text-white">{t("종목별 매매 기록")}</h3>
                   <div className="flex flex-nowrap gap-2">
                     {([
-                      { format: "csv" as const, label: "CSV 내보내기" },
-                      { format: "json" as const, label: "JSON 내보내기" },
+                      { format: "csv" as const, label: t("CSV 내보내기") },
+                      { format: "json" as const, label: t("JSON 내보내기") },
                     ]).map(({ format, label }) => (
                       <button
                         key={format}
@@ -2148,37 +2148,37 @@ export default function BacktestDashboard({
                       <table className="w-full text-left border-collapse">
                         <thead className="bg-white/[0.06] sticky top-0 z-10">
                            <tr>
-                              <th className="p-3 pl-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] rounded-tl-2xl">날짜</th>
-                              <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">종목</th>
-                              <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">구분</th>
-                              <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">체결가</th>
-                               <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">수량</th>
-                               <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">매매사유</th>
-                               <th className="p-3 pr-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right rounded-tr-2xl">거래금액</th>
+                              <th className="p-3 pl-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] rounded-tl-2xl">{t("날짜")}</th>
+                              <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">{t("종목")}</th>
+                              <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">{t("구분")}</th>
+                              <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">{t("체결가")}</th>
+                               <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">{t("수량")}</th>
+                               <th className="p-3 text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">{t("매매사유")}</th>
+                               <th className="p-3 pr-4 text-xs font-bold text-gray-400 uppercase tracking-[0.18em] text-right rounded-tr-2xl">{t("거래금액")}</th>
                            </tr>
                         </thead>
                         <tbody>
-                            {result.tradesList.map((t, i) => {
-                               const tradeAmount = t.amount || 0;
+                            {result.tradesList.map((tv, i) => {
+                               const tradeAmount = tv.amount || 0;
                                return (
-                                <tr key={`${t.symbol}-${t.date}-${t.type}-${i}`} className="hover:bg-white/[0.02] transition-colors duration-150">
-                                   <td className="p-3 pl-4 text-sm font-bold text-gray-300 tabular-nums">{t.date}</td>
+                                <tr key={`${tv.symbol}-${tv.date}-${tv.type}-${i}`} className="hover:bg-white/[0.02] transition-colors duration-150">
+                                   <td className="p-3 pl-4 text-sm font-bold text-gray-300 tabular-nums">{tv.date}</td>
                                    <td className="p-3 text-sm font-bold text-white">
                                       <div className="flex flex-col">
-                                         <span className="truncate">{stockMetadata[t.symbol]?.name || t.symbol}</span>
-                                         <span className="text-[10px] text-gray-500 font-mono">{t.symbol}</span>
+                                         <span className="truncate">{stockMetadata[tv.symbol]?.name || tv.symbol}</span>
+                                         <span className="text-[10px] text-gray-500 font-mono">{tv.symbol}</span>
                                       </div>
                                    </td>
                                     <td className="p-3">
-                                      <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${t.type==='buy' ? 'bg-[var(--main-red)]/10 text-[var(--main-red)]' : 'bg-[var(--main-blue)]/10 text-[var(--main-blue)]'}`}>
-                                         {t.type === 'buy' ? '매수' : '매도'}
+                                      <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${tv.type==='buy' ? 'bg-[var(--main-red)]/10 text-[var(--main-red)]' : 'bg-[var(--main-blue)]/10 text-[var(--main-blue)]'}`}>
+                                         {tv.type === 'buy' ? t("매수") : t("매도")}
                                       </span>
                                    </td>
-                                   <td className="p-3 text-sm font-bold text-gray-300 tabular-nums">{Math.round(Number(t.price)).toLocaleString()}</td>
+                                   <td className="p-3 text-sm font-bold text-gray-300 tabular-nums">{Math.round(Number(tv.price)).toLocaleString()}</td>
                                     <td className="p-3 text-sm font-bold text-gray-400 tabular-nums">
-                                      {Math.floor(Number(t.quantity)).toLocaleString()}주
+                                      {t("{0}주", Math.floor(Number(tv.quantity)).toLocaleString())}
                                     </td>
-                                    <td className="p-3 text-xs font-bold text-gray-500">{resolveTradeReason(t.reason, t.type, normalizedBacktestDsl)}</td>
+                                    <td className="p-3 text-xs font-bold text-gray-500">{resolveTradeReason(tv.reason, tv.type, normalizedBacktestDsl)}</td>
                                    <td className="p-3 pr-4 text-sm font-bold text-right tabular-nums text-white">
                                       {formatKRW(tradeAmount)}
                                    </td>
@@ -2191,8 +2191,8 @@ export default function BacktestDashboard({
                  ) : (
                     <div className="h-full flex flex-col items-center justify-center text-gray-600 space-y-2 pb-20">
                        <ShieldCheck className="w-12 h-12 text-gray-800" />
-                       <p className="text-lg font-bold">기록이 없습니다</p>
-                       <p className="text-sm">백테스트 기간 동안 매매 조건이 충족되지 않았습니다.</p>
+                       <p className="text-lg font-bold">{t("기록이 없습니다")}</p>
+                       <p className="text-sm">{t("백테스트 기간 동안 매매 조건이 충족되지 않았습니다.")}</p>
                     </div>
                  )}
               </div>
@@ -2204,7 +2204,7 @@ export default function BacktestDashboard({
 
       <div data-testid="backtest-dashboard-footer" className="mt-auto border-t border-white/[0.08] bg-[#050505] px-0 py-3">
         <p className="text-center text-xs font-bold leading-relaxed text-gray-500">
-          모든 결과는 과거 데이터의 모의 시뮬레이션 결과이며 미래 수익을 보장하지 않습니다. 실제 매매에서는 체결가·거래비용·슬리피지·유동성 및 데이터 한계로 인해 시뮬레이션 결과와 차이가 발생할 수 있습니다.
+          {t("모든 결과는 과거 데이터의 모의 시뮬레이션 결과이며 미래 수익을 보장하지 않습니다. 실제 매매에서는 체결가·거래비용·슬리피지·유동성 및 데이터 한계로 인해 시뮬레이션 결과와 차이가 발생할 수 있습니다.")}
         </p>
       </div>
 
@@ -2270,8 +2270,8 @@ function BacktestTerminalLog({
   const ts = (_i: number) => start.slice(0, 10);
 
   // 초기화
-  logs.push({ level: "INFO", ts: ts(0), message: `백테스트 엔진 초기화 완료` });
-  logs.push({ level: "INFO", ts: ts(1), message: `기간: ${start} ~ ${now} (${totalDays}일)` });
+  logs.push({ level: "INFO", ts: ts(0), message: t("백테스트 엔진 초기화 완료") });
+  logs.push({ level: "INFO", ts: ts(1), message: t("기간: {0} ~ {1} ({2}일)", start, now, totalDays) });
   const UNIVERSE_NAMES: Record<string, string> = {
     kospi: "KOSPI", kospi200: "KOSPI 200", kosdaq: "KOSDAQ", kosdaq150: "KOSDAQ 150",
     kospi_kosdaq: "KOSPI+KOSDAQ", kosdaq_kospi: "KOSPI+KOSDAQ",
@@ -2280,12 +2280,12 @@ function BacktestTerminalLog({
     ? (UNIVERSE_NAMES[result.universeId] ?? result.universeId.toUpperCase())
     : "KOSPI";
   const logInitialCapital = result.initialCapital || result.equity?.[0] || 0;
-  logs.push({ level: "INFO", ts: ts(2), message: `유니버스: ${universeLabel} / 초기자금: ${logInitialCapital.toLocaleString()}원` });
+  logs.push({ level: "INFO", ts: ts(2), message: t("유니버스: {0} / 초기자금: {1}원", universeLabel, logInitialCapital.toLocaleString()) });
 
   // 매수 신호 통계
-  const buyCount = result.tradesList?.filter(t => t.type === "buy").length ?? 0;
-  const sellCount = result.tradesList?.filter(t => t.type === "sell").length ?? 0;
-  logs.push({ level: "INFO", ts: ts(3), message: `시그널 처리 완료 — 매수 ${buyCount}회 / 매도 ${sellCount}회` });
+  const buyCount = result.tradesList?.filter(tv => tv.type === "buy").length ?? 0;
+  const sellCount = result.tradesList?.filter(tv => tv.type === "sell").length ?? 0;
+  logs.push({ level: "INFO", ts: ts(3), message: t("시그널 처리 완료 — 매수 {0}회 / 매도 {1}회", buyCount, sellCount) });
 
   // 연도별 수익률
   if (result.yearlyReturns && Object.keys(result.yearlyReturns).length > 0) {
@@ -2293,19 +2293,19 @@ function BacktestTerminalLog({
     years.forEach((yr, i) => {
       const ret = result.yearlyReturns[yr];
       const sign = ret >= 0 ? "+" : "";
-      logs.push({ level: ret >= 0 ? "SUCCESS" : "WARN", ts: ts(4 + i), message: `${yr}년 수익률: ${sign}${ret.toFixed(2)}%` });
+      logs.push({ level: ret >= 0 ? "SUCCESS" : "WARN", ts: ts(4 + i), message: t("{0}년 수익률: {1}{2}%", yr, sign, ret.toFixed(2)) });
     });
   }
 
   // 리스크 지표
-  logs.push({ level: "INFO", ts: ts(20), message: `MDD: ${(result.maxDrawdown ?? 0).toFixed(2)}% / Sharpe: ${(result.sharpe ?? 0).toFixed(2)} / Calmar: ${(result.calmar ?? 0).toFixed(2)} / 평균보유일: ${Math.round(result.avgHoldingDays ?? 0)}일` });
-  logs.push({ level: "INFO", ts: ts(21), message: `승률: ${(result.winRate ?? 0).toFixed(1)}% / 손익비: ${formatProfitFactor(result.profitFactor)} / CAGR: ${(result.cagr ?? 0).toFixed(2)}%` });
+  logs.push({ level: "INFO", ts: ts(20), message: t("MDD: {0}% / Sharpe: {1} / Calmar: {2} / 평균보유일: {3}일", (result.maxDrawdown ?? 0).toFixed(2), (result.sharpe ?? 0).toFixed(2), (result.calmar ?? 0).toFixed(2), Math.round(result.avgHoldingDays ?? 0)) });
+  logs.push({ level: "INFO", ts: ts(21), message: t("승률: {0}% / 손익비: {1} / CAGR: {2}%", (result.winRate ?? 0).toFixed(1), formatProfitFactor(result.profitFactor), (result.cagr ?? 0).toFixed(2)) });
 
   if ((result.avgProfit ?? 0) !== 0 || (result.avgLoss ?? 0) !== 0) {
-    logs.push({ level: "INFO", ts: ts(22), message: `평균수익: +${(result.avgProfit ?? 0).toFixed(2)}% / 평균손실: -${(result.avgLoss ?? 0).toFixed(2)}%` });
+    logs.push({ level: "INFO", ts: ts(22), message: t("평균수익: +{0}% / 평균손실: -{1}%", (result.avgProfit ?? 0).toFixed(2), (result.avgLoss ?? 0).toFixed(2)) });
   }
   if ((result.maxConsecutiveWins ?? 0) > 0 || (result.maxConsecutiveLosses ?? 0) > 0) {
-    logs.push({ level: "INFO", ts: ts(23), message: `최대 연속수익: ${result.maxConsecutiveWins ?? 0}회 / 최대 연속손실: ${result.maxConsecutiveLosses ?? 0}회` });
+    logs.push({ level: "INFO", ts: ts(23), message: t("최대 연속수익: {0}회 / 최대 연속손실: {1}회", result.maxConsecutiveWins ?? 0, result.maxConsecutiveLosses ?? 0) });
   }
 
   // 상위 종목
@@ -2316,11 +2316,11 @@ function BacktestTerminalLog({
     const bot3 = sorted.slice(-3).reverse();
     top3.forEach((s, i) => {
       const name = stockMetadata[s.symbol]?.name ?? s.symbol;
-      logs.push({ level: "INFO", ts: ts(30 + i), message: `TOP${i+1} ${name}(${s.symbol}): +${Math.round(s.profit).toLocaleString()}원 / 수익률 ${s.totalReturn.toFixed(1)}% / ${s.trades}거래` });
+      logs.push({ level: "INFO", ts: ts(30 + i), message: t("TOP{0} {1}({2}): +{3}원 / 수익률 {4}% / {5}거래", i+1, name, s.symbol, Math.round(s.profit).toLocaleString(), s.totalReturn.toFixed(1), s.trades) });
     });
     bot3.forEach((s, i) => {
       const name = stockMetadata[s.symbol]?.name ?? s.symbol;
-      logs.push({ level: "INFO", ts: ts(33 + i), message: `BOT${i+1} ${name}(${s.symbol}): ${Math.round(s.profit).toLocaleString()}원 / 수익률 ${s.totalReturn.toFixed(1)}% / ${s.trades}거래` });
+      logs.push({ level: "INFO", ts: ts(33 + i), message: t("BOT{0} {1}({2}): {3}원 / 수익률 {4}% / {5}거래", i+1, name, s.symbol, Math.round(s.profit).toLocaleString(), s.totalReturn.toFixed(1), s.trades) });
     });
   }
 
@@ -2362,7 +2362,7 @@ function BacktestTerminalLog({
 
   // 완료
   const logFinalEquity = result.finalEquity || result.equity?.[result.equity.length - 1] || 0;
-  logs.push({ level: "SUCCESS", ts: ts(99), message: `백테스트 완료 — 총 ${result.trades ?? 0}회 거래 / 최종자산 ${logFinalEquity.toLocaleString()}원 / 수익률 ${(result.totalReturn ?? 0).toFixed(2)}%` });
+  logs.push({ level: "SUCCESS", ts: ts(99), message: t("백테스트 완료 — 총 {0}회 거래 / 최종자산 {1}원 / 수익률 {2}%", result.trades ?? 0, logFinalEquity.toLocaleString(), (result.totalReturn ?? 0).toFixed(2)) });
 
   const levelStyle: Record<LogLevel, string> = {
     INFO: "text-blue-400",
@@ -2374,7 +2374,7 @@ function BacktestTerminalLog({
   return (
     <div className={`flat-card overflow-hidden flex flex-col ${fill ? "flex-1 min-h-0" : "mx-2 mb-2"}`}>
       <div className="px-4 py-3 border-b border-white/[0.05] flex-none">
-        <p className="text-base font-black uppercase tracking-widest text-white">백테스트 로그</p>
+        <p className="text-base font-black uppercase tracking-widest text-white">{t("백테스트 로그")}</p>
       </div>
       <div className={`px-4 py-3 overflow-y-auto custom-scrollbar font-mono text-xs ${fill ? "flex-1 min-h-0 space-y-1" : "max-h-64 space-y-1"}`}>
         {logs.map((log, i) => (

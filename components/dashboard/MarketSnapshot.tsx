@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { CaretUp, CaretDown } from "phosphor-react";
 import type { MarketSnapshotItem } from "@/types/dashboard";
+import { t } from "@/lib/i18n";
 
 interface IndicesData {
   kospi?: { name: string; value: number; change: number; changePercent: number };
@@ -100,7 +101,7 @@ export default function MarketSnapshot() {
     <div className="relative">
       {!connected && (
         <p className="absolute -top-5 right-0 text-[10px] text-gray-500 animate-pulse">
-          접속 시도중...
+          {t("접속 시도중...")}
         </p>
       )}
       <div

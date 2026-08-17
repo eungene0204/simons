@@ -2,6 +2,7 @@
 
 import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
 import { Spinner } from "phosphor-react";
+import { t } from "@/lib/i18n";
 
 // 목록을 아직 그릴 수 없을 때의 화면.
 // 라우트 전환 fallback(loading.tsx)과 캐시 없는 첫 조회(BacktestHistoryView)가 함께 쓴다.
@@ -16,7 +17,7 @@ export default function BacktestHistoryLoading() {
           data-testid="backtest-history-loading"
         >
           <Spinner size={28} className="animate-spin text-white" aria-hidden="true" />
-          <p className="text-sm font-bold text-gray-500">불러오는 중...</p>
+          <p className="text-sm font-bold text-gray-500">{t("불러오는 중...")}</p>
         </div>
       </div>
     </div>
