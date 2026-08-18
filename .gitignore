@@ -129,3 +129,10 @@ data/dart-corp-code.json
 
 # QA 하니스 로컬 캐시(기준 전략·실행 결과)
 scripts/.qa_free_input_*.json
+
+# 예시 QA 하니스 생성물 — 로컬에만 둔다(scripts/qa_template_detect.py).
+# 캐시는 1.7MB 파생물이라 스윕마다 저장소를 흔들고, 리포트는 추적하면 **낡은 채로 남아**
+# 오히려 오판을 부른다(2026-08-14 사고: 5일 묵은 리포트의 정상 값을 보고 결함을 놓쳤다,
+# FR-STR-019x ②). 판정 결과는 커밋 메시지·SRS·PROJECT_PLAN에 서술로 남긴다.
+scripts/.template_parse_cache.json
+docs/template_detect_report.md
