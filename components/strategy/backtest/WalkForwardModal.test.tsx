@@ -314,11 +314,65 @@ describe("WalkForwardModal", () => {
     expect(screen.getByRole("button", { name: /그리드 탐색 설정한 범위를 기준으로 전체 조합 수를 먼저 확인합니다\./ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /그리드 탐색 설정한 범위를 기준으로 전체 조합 수를 먼저 확인합니다\./ })).toHaveClass("bg-white/[0.03]");
     expect(screen.queryByText("베이지안 최적화 시도 횟수")).not.toBeInTheDocument();
-    expect(screen.getByText("그리드 탐색 예상")).toBeInTheDocument();
-    expect(screen.getByText(/조합을 확인할 수 있습니다/)).toBeInTheDocument();
-    expect(screen.getByText("실행 가능")).toBeInTheDocument();
+    // 조합 수는 별도 '그리드 탐색 예상' 카드가 아니라 '예상 소요 시간' 카드 하나에서만 안내한다
+    expect(screen.queryByText("그리드 탐색 예상")).not.toBeInTheDocument();
+    expect(screen.getByTestId("walk-forward-grid-combination-note")).toHaveTextContent(
+      /약 [\d,]+개 조합을 각 워크포워드 구간에서 전수 실행합니다/
+    );
+    expect(screen.getAllByText("예상 소요 시간").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "워크포워드 분석 시작" })).toHaveClass("rounded-md");
     expect(screen.getByRole("button", { name: "워크포워드 분석 시작" })).not.toBeDisabled();
+  });
+
+  it("조합 수가 상한을 넘으면 '예상 소요 시간' 카드 하나에서 실행 불가와 원인을 보여준다 — 별도 그리드 카드는 없다", async () => {
+    const user = userEvent.setup();
+    const gridButton = () =>
+      screen.getByRole("button", { name: /그리드 탐색 설정한 범위를 기준으로 전체 조합 수를 먼저 확인합니다\./ });
+
+    // 조합 수가 상한(500)을 넘도록 넓은 범위의 파라미터를 여러 개 준다 — 실행 불가(빨강)
+    const wideStrategy = {
+      entry: {
+        conditions: [
+          { id: "pbr_filter", type: "filter", params: { value: 1 } },
+          { id: "breakout", type: "breakout", params: { period: 20 } },
+          { id: "trading_value", type: "trading_value", params: { value: 30 } },
+        ],
+      },
+      risk: { stop_loss_pct: 40, take_profit_pct: 60 },
+      max_positions: 12,
+    };
+    await act(async () =>
+      render(
+        <WalkForwardPanel
+          onRun={vi.fn()}
+          backtestDates={buildDates(240)}
+          baseStrategy={wideStrategy}
+          optimizationTargets={[
+            { id: "summary-0", label: "PBR" },
+            { id: "summary-1", label: "손절라인" },
+            { id: "summary-2", label: "익절라인" },
+            { id: "summary-3", label: "보유종목수" },
+            { id: "summary-4", label: "거래대금 기준값" },
+            { id: "summary-5", label: "돌파 기간" },
+          ]}
+        />
+      )
+    );
+    await user.click(gridButton());
+
+    // 상태를 안내하는 카드는 '예상 소요 시간' 하나뿐
+    expect(screen.queryByText("그리드 탐색 예상")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("walk-forward-grid-capacity-badge")).not.toBeInTheDocument();
+
+    const badge = screen.getByTestId("walk-forward-run-capacity-badge");
+    expect(badge).toHaveTextContent("실행 불가");
+    expect(badge).toHaveClass("text-red-400");
+    expect(screen.getByTestId("walk-forward-run-blocked-reason")).toHaveTextContent(
+      /조합 수\([\d,]+개\)가 상한\(500개\)을 초과했습니다/
+    );
+    // 상한 초과 상태에서는 같은 숫자를 두 번 말하지 않는다
+    expect(screen.queryByTestId("walk-forward-grid-combination-note")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "워크포워드 분석 시작" })).toBeDisabled();
   });
 
   it("검증기간 평균 성과의 음수 지표를 파란색으로 표시한다", async () => {
@@ -692,6 +746,7 @@ describe("WalkForwardModal", () => {
     expect(screen.getAllByText("예상 소요 시간").length).toBeGreaterThan(0);
     expect(screen.getByText("약 11분 ~ 22분 소요될 것으로 예상됩니다.")).toBeInTheDocument();
     expect(screen.getByText("총 94회")).toBeInTheDocument();
+    expect(screen.getByTestId("walk-forward-run-capacity-badge")).toHaveClass("text-gray-400");
     expect(
       screen.getByText(/시간이 오래 걸리는 작업입니다/)
     ).toBeInTheDocument();
@@ -715,6 +770,8 @@ describe("WalkForwardModal", () => {
 
     expect(screen.getByRole("button", { name: "워크포워드 분석 시작" })).toBeDisabled();
     expect(screen.getByText("실행 불가")).toBeInTheDocument();
+    // 실행 불가 상태는 폰트 컬러(빨강)로만 구분한다 — 배경은 두 상태 모두 중립
+    expect(screen.getByTestId("walk-forward-run-capacity-badge")).toHaveClass("text-red-400");
     expect(screen.getByText("현재 상태에서는 실행할 수 없습니다.")).toBeInTheDocument();
     expect(screen.getByTestId("walk-forward-run-blocked-reason")).toHaveTextContent(
       "충족되지 않은 조건: 이 백테스트 결과에는 워크포워드 분석에 필요한 전략 설정이 저장되어 있지 않습니다."
@@ -795,5 +852,54 @@ describe("WalkForwardModal", () => {
     await user.click(screen.getByRole("button", { name: "저장" }));
 
     expect(screen.getByText("최소 1개 값을 선택해 주세요.")).toBeInTheDocument();
+  });
+
+  it("맨 아래 '학습 창 방식' 도움말은 위쪽으로 펼친다 — 아래로 펼치면 패널 밖으로 잘린다", async () => {
+    await act(async () => {
+      render(<WalkForwardPanel onRun={vi.fn()} backtestDates={buildDates(240)} baseStrategy={baseStrategy} />);
+    });
+
+    const tooltipFor = (label: string) => {
+      const button = screen.getByRole("button", { name: `${label} 도움말` });
+      return button.parentElement!.querySelector('[role="tooltip"]') as HTMLElement;
+    };
+
+    const anchorTooltip = tooltipFor("학습 창 방식");
+    expect(anchorTooltip).toHaveAttribute("data-placement", "top");
+    expect(anchorTooltip.className).toMatch(/bottom-full/);
+    expect(anchorTooltip.className).not.toMatch(/top-full/);
+
+    // 나머지 도움말은 기본값(아래로) 그대로
+    const defaultTooltip = tooltipFor("최적화 대상 파라미터");
+    expect(defaultTooltip).toHaveAttribute("data-placement", "bottom");
+    expect(defaultTooltip.className).toMatch(/top-full/);
+  });
+
+  it("임베드 패널의 설정 본문은 스크롤 컨테이너가 아니다 — 모달(maxHeightClass)에서만 overflow-y-auto를 붙인다", async () => {
+    // 임베드 화면에서 본문이 overflow-y-auto이면 opacity-0 도움말 말풍선이 넘치는 만큼
+    // 패널이 따로 스크롤되어 페이지 스크롤이 '분석 시작' 버튼 앞에서 걸린다(2026-08-19).
+    const { unmount } = await act(async () =>
+      render(<WalkForwardPanel onRun={vi.fn()} backtestDates={buildDates(240)} baseStrategy={baseStrategy} />)
+    );
+    const runButton = screen.getByRole("button", { name: /워크포워드 분석 시작/ });
+    const panel = screen.getByTestId("walk-forward-panel");
+    const body = runButton.parentElement!.previousElementSibling as HTMLElement;
+    expect(panel).toContainElement(body);
+    expect(body.className).not.toMatch(/overflow-y-auto/);
+    unmount();
+
+    await act(async () =>
+      render(
+        <WalkForwardPanel
+          onRun={vi.fn()}
+          backtestDates={buildDates(240)}
+          baseStrategy={baseStrategy}
+          maxHeightClass="max-h-[calc(100vh-9rem)]"
+        />
+      )
+    );
+    const modalBody = screen.getByRole("button", { name: /워크포워드 분석 시작/ }).parentElement!
+      .previousElementSibling as HTMLElement;
+    expect(modalBody.className).toMatch(/max-h-\[calc\(100vh-9rem\)\] overflow-y-auto/);
   });
 });

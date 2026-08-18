@@ -519,7 +519,17 @@ const buttonClass = (active: boolean) =>
       : "bg-transparent text-gray-400 hover:bg-white/[0.03] hover:text-white"
   }`;
 
-function HelpTooltip({ label, children }: { label: string; children: ReactNode }) {
+/** placement="top"은 패널 맨 아래 항목처럼 아래로 펼치면 잘리는 자리에서 쓴다
+ *  (패널 루트가 overflow-hidden이라 넘친 부분이 그대로 잘린다). */
+function HelpTooltip({
+  label,
+  children,
+  placement = "bottom",
+}: {
+  label: string;
+  children: ReactNode;
+  placement?: "bottom" | "top";
+}) {
   return (
     <span className="group relative inline-flex">
       <button
@@ -531,7 +541,10 @@ function HelpTooltip({ label, children }: { label: string; children: ReactNode }
       </button>
       <span
         role="tooltip"
-        className="pointer-events-none absolute left-0 top-full z-20 mt-2 w-80 max-w-[calc(100vw-3rem)] border border-white/[0.10] bg-[#171717] p-4 text-left opacity-0 shadow-[0_18px_40px_rgba(0,0,0,0.45)] transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+        data-placement={placement}
+        className={`pointer-events-none absolute left-0 z-20 w-80 max-w-[calc(100vw-3rem)] border border-white/[0.10] bg-[#171717] p-4 text-left opacity-0 shadow-[0_18px_40px_rgba(0,0,0,0.45)] transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 ${
+          placement === "top" ? "bottom-full mb-2" : "top-full mt-2"
+        }`}
       >
         {children}
       </span>
@@ -1077,7 +1090,10 @@ export function WalkForwardPanel({
             onClose={() => setError(null)}
           />
 
-          <div className={`${maxHeightClass} overflow-y-auto`}>
+          {/* overflow-y-auto는 모달(maxHeightClass 지정)에서만 붙인다 — 임베드 화면에서 붙이면
+              opacity-0 도움말 말풍선이 넘치는 만큼 패널이 별도 스크롤 컨테이너가 되어
+              페이지 스크롤이 '분석 시작' 버튼 앞에서 한 번 걸린다(2026-08-19). */}
+          <div className={maxHeightClass ? `${maxHeightClass} overflow-y-auto` : undefined}>
             {!result && (
               <div className="grid grid-cols-1 divide-y divide-white/[0.08] lg:grid-cols-2 lg:divide-x lg:divide-y-0">
                 <section className="p-5">
@@ -1300,62 +1316,37 @@ export function WalkForwardPanel({
                         })}
                       </div>
                     </div>
-                    <div className="py-4">
-                      {isGridMethod ? (
-                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                          <div className="flex items-start justify-between gap-4">
-                            <div>
-                              <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("그리드 탐색 예상")}</p>
-                              <p className="mt-2 text-sm font-black leading-6 text-white">
-                                {t("현재 파라미터 범위 기준으로 약 {0}개 조합을 확인할 수 있습니다.", gridSearchEstimate.toLocaleString())}
-                              </p>
-                            </div>
-                            <span
-                              className={`inline-flex rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-widest ${
-                                gridSearchExceedsCap
-                                  ? "bg-amber-500/15 text-amber-300"
-                                  : "bg-white/[0.06] text-gray-400"
-                              }`}
-                            >
-                              {gridSearchExceedsCap ? t("상한 초과") : t("실행 가능")}
+                    {/* 그리드 조합 수와 실행 가능 여부는 아래 '예상 소요 시간' 카드 하나로 합쳤다 —
+                        두 카드가 같은 상태(상한 초과 = 실행 불가)를 중복 안내했다(2026-08-19). */}
+                    {!isGridMethod && (
+                      <div className="py-4">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("베이지안 최적화 시도 횟수")}</p>
+                          <HelpTooltip label={t("베이지안 최적화 시도 횟수")}>
+                            <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
+                              {t("베이지안 최적화 시도 횟수")}
                             </span>
-                          </div>
-                          <p className="mt-3 text-xs font-bold leading-5 text-gray-400">
-                            {gridSearchExceedsCap
-                              ? t("조합 수가 상한({0}개)을 초과해 실행할 수 없습니다. 파라미터 범위나 step을 조정해 조합 수를 줄여 주세요.", MAX_GRID_COMBINATIONS.toLocaleString())
-                              : t("설정한 범위 안의 모든 조합을 각 워크포워드 구간에서 전수 실행합니다.")}
-                          </p>
+                            <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
+                              {t("각 워크포워드 구간에서 파라미터 조합을 몇 번 탐색할지 정합니다. 횟수가 늘면 더 많은 조합을 계산하지만 실행 시간이 길어집니다.")}
+                            </span>
+                            <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
+                              {t("예: 30회는 손절 5/7/10%, 이동평균 20/60일 같은 후보 조합을 최대 30번 평가해 과거 학습 구간의 목표 지표가 높게 나온 조합을 기록합니다.")}
+                            </span>
+                          </HelpTooltip>
                         </div>
-                      ) : (
-                        <>
-                          <div className="flex items-center gap-1.5">
-                            <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("베이지안 최적화 시도 횟수")}</p>
-                            <HelpTooltip label={t("베이지안 최적화 시도 횟수")}>
-                              <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
-                                {t("베이지안 최적화 시도 횟수")}
-                              </span>
-                              <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                                {t("각 워크포워드 구간에서 파라미터 조합을 몇 번 탐색할지 정합니다. 횟수가 늘면 더 많은 조합을 계산하지만 실행 시간이 길어집니다.")}
-                              </span>
-                              <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
-                                {t("예: 30회는 손절 5/7/10%, 이동평균 20/60일 같은 후보 조합을 최대 30번 평가해 과거 학습 구간의 목표 지표가 높게 나온 조합을 기록합니다.")}
-                              </span>
-                            </HelpTooltip>
-                          </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {[20, 30, 50].map((value) => (
-                              <button
-                                key={value}
-                                onClick={() => setFormState((current) => ({ ...current, n_trials: value }))}
-                                className={buttonClass(formState.n_trials === value)}
-                              >
-                                {t("{0}회", value)}
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {[20, 30, 50].map((value) => (
+                            <button
+                              key={value}
+                              onClick={() => setFormState((current) => ({ ...current, n_trials: value }))}
+                              className={buttonClass(formState.n_trials === value)}
+                            >
+                              {t("{0}회", value)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {canShowEstimate && (
                       <div className="py-4">
                         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
@@ -1382,15 +1373,23 @@ export function WalkForwardPanel({
                               </p>
                             </div>
                             <span
-                              className={`inline-flex shrink-0 rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-widest ${
-                                isRunBlocked
-                                  ? "bg-amber-500/15 text-amber-300"
-                                  : "bg-white/[0.06] text-gray-400"
+                              data-testid="walk-forward-run-capacity-badge"
+                              className={`inline-flex shrink-0 rounded-md bg-white/[0.06] px-2 py-1 text-[10px] font-black uppercase tracking-widest ${
+                                isRunBlocked ? "text-red-400" : "text-gray-400"
                               }`}
                             >
                               {isRunBlocked ? t("실행 불가") : t("총 {0}회", totalBacktests.toLocaleString())}
                             </span>
                           </div>
+                          {/* 그리드 조합 수 — 상한 초과 시에는 아래 원인 문구가 같은 숫자를 더 자세히 말하므로 생략 */}
+                          {isGridMethod && !gridSearchExceedsCap && (
+                            <p
+                              data-testid="walk-forward-grid-combination-note"
+                              className="mt-3 text-xs font-bold leading-5 text-gray-400"
+                            >
+                              {t("현재 파라미터 범위 기준 약 {0}개 조합을 각 워크포워드 구간에서 전수 실행합니다.", gridSearchEstimate.toLocaleString())}
+                            </p>
+                          )}
                           {isRunBlocked ? (
                             <p
                               data-testid="walk-forward-run-blocked-reason"
@@ -1409,7 +1408,7 @@ export function WalkForwardPanel({
                     <div className="py-4">
                       <div className="flex items-center gap-1.5">
                         <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("학습 창 방식")}</p>
-                        <HelpTooltip label={t("학습 창 방식")}>
+                        <HelpTooltip label={t("학습 창 방식")} placement="top">
                           <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
                             {t("학습 창 방식")}
                           </span>
