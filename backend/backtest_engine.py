@@ -148,6 +148,11 @@ def _date_key() -> pl.Expr:
     return pl.col("date").cast(pl.Utf8).str.slice(0, 10)
 
 
+# 랭킹을 말하지 않은 전략의 후보 우선순위 산정 기간(거래일, v16.3) — 매수 조건 충족 종목이
+# 빈 자리보다 많은 날에만 쓰이며, 쓰였으면 경고로 고지한다.
+_TIEBREAK_LOOKBACK_DAYS = 60
+
+
 class BacktestEngine:
     def __init__(self, data_dir: str = None):
         self.warnings = set()
@@ -442,7 +447,6 @@ class BacktestEngine:
             all_liquidity = {}                     # 유동성 마스크 패널 (C4/H5)
             all_trading_values = {}                # 전일 거래대금 — 체결 규모 사후 검증 (H5)
             all_drop_scores: dict = {}  # sym → ai_drop_score 시계열 (횡단면 랭킹 청산용)
-            all_ranks = {'pbr': {}, 'roe': {}}
             # 재무 팩터 랭킹(예: 영업이익률 상위 20종목) — 랭킹 지표의 as-of 컬럼을
             # 심볼별로 수집한다(pbr/roe 블렌드와 같은 경로, 지표만 요청값).
             # 복합 순위 합산(FR-BT-063, ranking_metric='composite')은 구성 지표 여러 개를
@@ -776,8 +780,6 @@ class BacktestEngine:
                     all_exit_reasons[sym] = data["exit_reasons"]
                     if "liquidity" in data: all_liquidity[sym] = data["liquidity"]
                     if "trading_value" in data: all_trading_values[sym] = data["trading_value"]
-                    if "pbr" in data: all_ranks['pbr'][sym] = data["pbr"]
-                    if "roe" in data: all_ranks['roe'][sym] = data["roe"]
                     for _col, _ser in (data.get("fund_rank_values") or {}).items():
                         all_fund_rank_values[_col][sym] = _ser
                     if "ai_drop_score" in data: all_drop_scores[sym] = data["ai_drop_score"]
@@ -983,6 +985,7 @@ class BacktestEngine:
                 )
 
             rank_df = None
+            _tiebreak_rank_used = False
             skip_pos = risk_params.get('skip_position_setting', False)
             ranking_metric = risk_params.get('ranking_metric')
             # 분위(퀀타일) 그룹 비교(FR-BT-060): 랭킹 후보를 종목 수 동일한 G개 그룹으로
@@ -1003,7 +1006,12 @@ class BacktestEngine:
                     # 에코프로머티 '상위 1%'). 변동성 랭킹 v13.2와 같은 계약 — 관측 미달은
                     # NaN → 아래 valid 마스크가 후보에서 배제한다.
                     momentum = lookback_return_panel(raw_price_df, lookback)
-                    rank_df = momentum.rank(axis=1, pct=True)
+                    pct = momentum.rank(axis=1, pct=True)
+                    # 방향(v16.2): top(기본)=수익률 높은 순, bottom=낮은 순(역발상 — '최근
+                    # 3개월 수익률 오름차순'). 변동성·재무·복합 분기는 모두 direction을 읽는데
+                    # 이 분기만 읽지 않아 bottom 요청이 조용히 모멘텀으로 실행됐다(정반대 전략).
+                    _direction = str(risk_params.get('ranking_direction') or 'top')
+                    rank_df = (1.0 - pct) if _direction == 'bottom' else pct
                     # 수익률이 정의되지 않은 초기 lookback 구간(NaN)에는 종목을 후보에서 제외한다.
                     # 그러지 않으면 순위가 0으로 동률이 되어 임의 종목을 사서 들고 있게 된다.
                     valid = momentum.notna()
@@ -1042,6 +1050,7 @@ class BacktestEngine:
                             _rebal_kr, _max_pos, _qg_n, _sel_pct,
                             group_cap=risk_params.get('ranking_group_cap'),
                         )
+                        _dir_kr = "하위" if _direction == 'bottom' else "상위"
                         _top_pct_df = (1.0 - rank_df) * 100.0
                         for _sym in processed_symbols:
                             _mask = pool[_sym]
@@ -1050,7 +1059,7 @@ class BacktestEngine:
                             _pct_vals = _top_pct_df.loc[_mask, _sym]
                             _reason_ser = pd.Series(np.nan, index=common_index, dtype=object)
                             _reason_ser.loc[_mask] = _pct_vals.apply(
-                                lambda p: f"최근 {lookback}거래일 수익률 상위 {max(1, round(p))}%{_rebal_note}"
+                                lambda p: f"최근 {lookback}거래일 수익률 {_dir_kr} {max(1, round(p))}%{_rebal_note}"
                             )
                             all_entry_reasons[_sym] = _reason_ser
                 except Exception as e:
@@ -1236,36 +1245,27 @@ class BacktestEngine:
                     import logging
                     logging.getLogger(__name__).warning(f"[BacktestEngine] 재무 팩터 랭킹 계산 실패: {e}")
                     rank_df = None
-            elif (not skip_pos) and risk_params.get('ranking_enabled', True) and all_ranks['pbr'] and all_ranks['roe']:
+            elif (not skip_pos) and risk_params.get('ranking_enabled', True):
+                # 후보 우선순위(v16.3, 2026-08-18 사용자 결정): 사용자가 랭킹을 말하지 않은
+                # 전략에서 매수 조건 충족 종목이 빈 자리(최대 보유)보다 많은 날 — 리밸런싱일
+                # 포함 — 은 **최근 N거래일 수익률이 높은 순**으로 우선 담는다. 종전에는 저PBR·
+                # 고ROE 블렌드가 이 자리를 조용히 채웠다(사용자가 말한 적 없는 선정 기준).
+                # 랭킹 전략(ranking_metric)이 아니므로 후보 자체는 매수 조건이 정하고, 이 순위는
+                # 넘치는 날의 우선순위일 뿐이다 — 실제로 넘친 날이 있었으면 경고로 고지한다.
                 try:
-                    # fillna(1.0)/fillna(0.0) 센티널을 넣지 않는다 — 자본잠식/적자 등으로
-                    # PBR·ROE가 NaN(계산 불가)인 종목을 '중립값'으로 위장시키면 재무적으로
-                    # 무의미한 종목이 랭킹에 섞여 들어간다. ffill만으로 결산 사이 공백을
-                    # 메우고, 진짜 NaN은 percentile rank까지 그대로 남겨 자연 배제되게 한다
-                    # (engine/simulator.py의 후보 정렬은 NaN을 항상 배열 끝으로 보낸다).
-                    pbr_df = pd.DataFrame(all_ranks['pbr'], index=common_index, columns=processed_symbols).ffill()
-                    roe_df = pd.DataFrame(all_ranks['roe'], index=common_index, columns=processed_symbols).ffill()
+                    from engine.indicators import lookback_return_panel
 
+                    _tiebreak = lookback_return_panel(raw_price_df, _TIEBREAK_LOOKBACK_DAYS)
+                    rank_df = _tiebreak.rank(axis=1, pct=True)
                     if exec_type == 'next_open':
-                        pbr_df = pbr_df.shift(1).ffill()
-                        roe_df = roe_df.shift(1).ffill()
-
-                    v_score = 1.0 - pbr_df.rank(axis=1, pct=True)
-                    q_score = roe_df.rank(axis=1, pct=True)
-                    w_v = float(risk_params.get('ranking_weight_value', 0.5))
-                    w_q = float(risk_params.get('ranking_weight_quality', 0.5))
-                    # 가중치가 0인 팩터는 값이 NaN이어도(그 팩터를 아예 안 쓰므로) 종목을
-                    # 배제하면 안 된다 — NaN*0=NaN으로 전파되는 걸 막기 위해 0 가중치
-                    # 팩터는 아예 0으로 채운 DataFrame을 더한다(가중치>0 팩터의 NaN은
-                    # 그대로 전파시켜 배제 효과를 유지).
-                    zeros = pd.DataFrame(0.0, index=common_index, columns=processed_symbols)
-                    v_contrib = (v_score * w_v) if w_v != 0 else zeros
-                    q_contrib = (q_score * w_q) if w_q != 0 else zeros
-                    rank_df = v_contrib + q_contrib
+                        rank_df = rank_df.shift(1)
+                    # 수익률이 정의되지 않은 종목(신규 상장 등)은 후보에서 빼지 않고 최하위로
+                    # 둔다 — 후보 자격은 매수 조건이 정하므로 우선순위만 뒤로 보낸다.
+                    rank_df = rank_df.fillna(0.0)
+                    _tiebreak_rank_used = True
                 except Exception as e:
-                    # Fix 12: 무음 예외 대신 경고 로깅으로 원인 추적 가능하게
                     import logging
-                    logging.getLogger(__name__).warning(f"[BacktestEngine] 랭킹 계산 실패: {e}")
+                    logging.getLogger(__name__).warning(f"[BacktestEngine] 후보 우선순위 계산 실패: {e}")
                     rank_df = None
 
             _t2 = _time.time()
@@ -1295,12 +1295,31 @@ class BacktestEngine:
                     risk_params = dict(risk_params)
                     risk_params['ranking_band'] = [1, _qg_n]
 
+            # 매수 조건이 있는 전략(신호·재무 필터)은 리밸런싱을 켜도 매수 조건이 후보를 정한다
+            # (v16.3): 리밸런싱일이 아닌 날의 매수 신호도 빈 자리만큼 담고, 매도 신호도 그대로
+            # 청산한다. 순수 랭킹 전략(선정=진입, entry.conditions 비어 있음)만 달력 회전이다.
+            _entry_signal_driven = bool((req.get('entry') or {}).get('conditions'))
+            if _entry_signal_driven:
+                risk_params = dict(risk_params)
+                risk_params['entry_signal_driven'] = True
+
             pf = self.simulator.run(
                 price_df, exec_px_df, ents_df, exts_df, risk_params, simulator_options,
                 rank_df=rank_df, high_df=high_df, low_df=low_df, available_df=available_df,
             )
             _t3 = _time.time()
             print(f"[BT-ENGINE] Simulator 완료: {_t3-_t2:.2f}s", flush=True)
+
+            # 넘친 날 고지(v16.3): 랭킹을 말하지 않은 전략에서 매수 조건 충족 종목이 빈 자리보다
+            # 많았던 날이 있으면, 무엇이 골랐는지 결과에 남긴다(조용한 기본값 금지).
+            _overflow_days = int(getattr(self.simulator, 'overflow_days', 0) or 0)
+            if _tiebreak_rank_used and _overflow_days > 0:
+                _cap_note = risk_params.get('max_positions')
+                self.warnings.add(
+                    f"매수 조건을 충족한 종목이 빈 자리(최대 보유 {_cap_note}종목)보다 많았던 날이 "
+                    f"{_overflow_days}일 있어(리밸런싱일 포함), 그날은 최근 {_TIEBREAK_LOOKBACK_DAYS}거래일 "
+                    "수익률이 높은 종목부터 우선 담았습니다."
+                )
 
             # 5. Benchmark ETF 로드
             _benchmark_sym, _benchmark_name = self.benchmark_for_universe(
@@ -1447,12 +1466,22 @@ class BacktestEngine:
                 float(risk_params.get(k) or 0) > 0
                 for k in ('stop_loss_pct', 'take_profit_pct', 'trailing_stop_pct', 'max_holding_days')
             )
-            if _rebal_period != 'none' and risk_params.get('max_positions') and _has_pos_risk:
-                # H8: 리스크 관리와 혼합된 리밸런싱은 종목 교체(reconstitution)만 수행
-                self.warnings.add(
-                    "리밸런싱과 손절/익절/트레일링/보유기간 제한이 함께 설정되어 리밸런싱일에는 "
-                    "종목 교체만 수행합니다 — 유지 종목의 비중은 목표 비중으로 리셋되지 않습니다."
-                )
+            if _rebal_period != 'none' and risk_params.get('max_positions') and (
+                _has_pos_risk or _entry_signal_driven
+            ):
+                # H8: 리스크 관리와 혼합된 리밸런싱, 그리고 매수 조건이 있는 전략의 리밸런싱은
+                # 커스텀 루프(종목 교체 = reconstitution)로 돈다 — 비중 리셋 없음.
+                if _entry_signal_driven:
+                    self.warnings.add(
+                        "리밸런싱일에는 그날 매수 조건을 충족한 종목 중에서 포트폴리오를 다시 구성합니다"
+                        "(충족하지 않는 보유 종목은 편출) — 그 사이 날에도 매수 조건 충족 종목을 빈 자리만큼 "
+                        "담고 매도 조건은 그대로 적용합니다. 유지 종목의 비중은 목표 비중으로 리셋되지 않습니다."
+                    )
+                else:
+                    self.warnings.add(
+                        "리밸런싱과 손절/익절/트레일링/보유기간 제한이 함께 설정되어 리밸런싱일에는 "
+                        "종목 교체만 수행합니다 — 유지 종목의 비중은 목표 비중으로 리셋되지 않습니다."
+                    )
 
             _tax_raw = options.get('sell_tax_rate')
             _tax_val = float(_tax_raw) if _tax_raw is not None else 0.0015

@@ -76,6 +76,12 @@ class Simulator:
         # {symbol: {날짜문자열: 정밀 청산 사유}} — 신호/리스크로 설명되지 않는 청산
         # (리밸런싱 편출 등)의 사유를 체결일 기준으로 남겨 result_handler가 우선 적용한다.
         self.exit_reason_overrides: Dict[str, Dict[str, str]] = {}
+        # 매수 조건 충족 종목이 빈 자리(슬롯)보다 많아 순위가 골라야 했던 날 수(v16.3) —
+        # 엔진이 "무엇이 골랐는지" 고지할지 판정하는 근거(랭킹을 말하지 않은 전략의 넘친 날).
+        self.overflow_days: int = 0
+        # 매수 조건이 후보를 정하는 전략(신호·재무 필터, 엔진이 표시). 리밸런싱을 켜도
+        # 달력 회전이 아니라 조건이 진입·청산을 이끈다 — 순수 랭킹(선정=진입)과 구분.
+        entry_signal_driven = bool(risk_params.get('entry_signal_driven', False))
 
         init_cash_raw = risk_params.get('init_cash')
         pos_size_raw = risk_params.get('position_size_pct')
@@ -125,7 +131,9 @@ class Simulator:
         )
         rebalance_mode = (not skip_pos) and bool(max_pos or sel_pct or sel_band) and bool(rebalance_dates.any())
         has_position_risk = use_risk_mgmt and (sl_pct > 0 or tp_pct > 0 or ts_pct > 0 or max_hold > 0)
-        if rebalance_mode and not has_position_risk:
+        # 매수 조건이 있는 전략은 순수 경로로 보내지 않는다(v16.3) — 그 경로는 매도 신호를
+        # 읽지 않고 리밸런싱일이 아닌 날의 매수 신호도 버린다(순수 랭킹 회전 전용).
+        if rebalance_mode and not has_position_risk and not entry_signal_driven:
             return self._run_target_rebalance(
                 price_df, exec_price_df, entries_df, rank_df, rebalance_dates,
                 eff_max_pos, init_cash, buy_fee, sell_fee, slippage_val,
@@ -201,10 +209,12 @@ class Simulator:
                     exit_reason_pending[s_idx] = ""
 
         # ── 달력 기준 리밸런싱 (reconstitution) ──
-        # '리밸런싱 + 봉중간 리스크(SL/TP 등)'가 섞인 경우(순수 리밸런싱은 위에서
-        # from_orders 목표비중으로 분기됨). 리밸런싱일에만 목표 집합(후보 상위 K)을
-        # 재구성한다. 비리밸런싱일엔 신규 진입 차단. 주의: 이 경로는 유지 종목의
-        # 비중 리셋은 하지 않는다(reconstitution only) — 엔진이 경고로 고지한다.
+        # '리밸런싱 + 봉중간 리스크(SL/TP 등)'가 섞인 경우와 매수 조건이 있는 전략의 리밸런싱
+        # (순수 랭킹 리밸런싱은 위에서 from_orders 목표비중으로 분기됨). 리밸런싱일에 목표
+        # 집합(후보 상위 K)을 재구성한다. 비리밸런싱일의 신규 진입은 순수 랭킹 회전에서만
+        # 차단하고, 매수 조건 전략(entry_signal_driven)은 그날 신호도 빈 자리만큼 담는다(v16.3).
+        # 주의: 이 경로는 유지 종목의 비중 리셋은 하지 않는다(reconstitution only) — 엔진이
+        # 경고로 고지한다.
         current_target_mask = np.zeros(num_symbols, dtype=bool)
         rank_values_all = rank_df.values if rank_df is not None else None
         # 비율/분위 선정 모드에선 목표 종목 수가 리밸런싱일마다 달라진다 — 슬롯 상한과
@@ -288,6 +298,8 @@ class Simulator:
                 if rank_values_all is not None and len(cand) > 0:
                     cand = cand[np.argsort(-rank_values_all[i][cand])]
                 sel = select_ranked_targets(cand, eff_max_pos, sel_pct, sel_band, band_cap)
+                if len(sel) < len(cand):
+                    self.overflow_days += 1
                 current_target_mask = np.zeros(num_symbols, dtype=bool)
                 current_target_mask[sel] = True
                 if sel_pct or sel_band:
@@ -314,13 +326,20 @@ class Simulator:
             # 때까지 후속 거래일에도 빈 슬롯을 메운다). 같은 날 청산이 예정/실행된
             # 종목은 재진입 금지(동일 셀에 매수·매도 주문이 겹칠 수 없음).
             blocked = active_mask | exits_values[i].astype(bool) | pending_exit | ~avail_values[i]
-            if rebalance_mode:
+            if rebalance_mode and not entry_signal_driven:
+                # 순수 랭킹 회전: 목표 집합만 채운다(리밸런싱일 사이엔 신규 진입 없음).
                 entry_pool = current_target_mask & ~blocked
             else:
+                # 매수 조건이 후보를 정한다 — 리밸런싱일이 아닌 날의 신호도 빈 자리만큼
+                # 담는다(v16.3). 리밸런싱일에는 위에서 편출을 끝낸 뒤 그날 후보로 다시 채운다.
                 entry_pool = entries_values[i] & ~blocked
             candidate_indices = np.where(entry_pool)[0]
 
             if len(candidate_indices) > 0:
+                free_slots = cur_cap - active_count
+                if 0 < free_slots < len(candidate_indices) and not (rebalance_mode and rebalance_dates[i]):
+                    # 리밸런싱일은 위 Rebalance step에서 이미 셌다 — 이중 계수 방지.
+                    self.overflow_days += 1
                 if rank_values_all is not None:
                     today_ranks = rank_values_all[i]
                     candidate_indices = candidate_indices[np.argsort(-today_ranks[candidate_indices])]
@@ -415,6 +434,8 @@ class Simulator:
             if rank_values is not None and len(cand) > 0:
                 cand = cand[np.argsort(-rank_values[i][cand])]
             sel = select_ranked_targets(cand, eff_max_pos, sel_pct, sel_band, band_cap)
+            if len(sel) < len(cand):
+                self.overflow_days += 1
             row = np.zeros(num_syms)            # 0 = 목표에서 빠진 보유는 전량 청산
             if len(sel) > 0:
                 row[sel] = 1.0 / len(sel)        # 동일가중 목표비중 (비중 리셋)

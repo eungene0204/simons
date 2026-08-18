@@ -597,6 +597,10 @@ export function getRankingLabel(parsed: ParsedSummary): string | null {
   }
   if (parsed.ranking_metric === "return") {
     const days = parsed.ranking_lookback_days;
+    // bottom=수익률 낮은 순(역발상) — 엔진 v16.2가 방향을 존중하므로 라벨도 방향을 드러낸다.
+    if (parsed.ranking_direction === "bottom") {
+      return days != null ? t("{0}일 수익률 하위", days) : t("수익률 하위(산정 기간 미정)");
+    }
     return days != null ? t("{0}일 수익률 상위", days) : t("수익률 상위(산정 기간 미정)");
   }
   if (parsed.ranking_metric === "volatility") {

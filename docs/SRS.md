@@ -779,6 +779,17 @@ RiskManagement {
 - `app/api/backtest/rebalance-comparison/stream/route.ts`, `components/strategy/backtest/rebalanceComparison.ts`·`RebalanceComparisonSection.tsx`(신규), `components/strategy/backtest/BacktestDashboard.tsx`(탭), `components/admin/AgentsTab.tsx`
 - `backend/tests/test_rebalance_comparison.py`·`test_rebalance_dates.py`, `components/__tests__/RebalanceComparisonSection.test.tsx`
 
+**FR-BT-065** [수익률(모멘텀) 랭킹의 방향 존중, 2026-08-18, 엔진 v16.2] `ranking_metric='return'`에 `ranking_direction='bottom'`("최근 3개월 수익률 오름차순" 같은 역발상 선정)이 오면 엔진은 백분위를 뒤집어 **수익률 낮은 순**으로 선정해야 한다. 종전에는 변동성·재무·복합 분기만 방향을 읽고 return 분기는 읽지 않아 bottom 요청이 조용히 top(모멘텀)으로 실행됐고, 매수 사유도 '상위'로 찍혀 결과 화면에서 뒤집힘을 알 수 없었다. 방향 미지정·top은 결과 불변. 매수 사유는 방향에 따라 '최근 N거래일 수익률 상위/하위 N%'이며, 요약 카드 라벨도 'N일 수익률 하위'로 방향을 드러낸다.
+
+**FR-BT-066** [매수 조건 전략의 리밸런싱·후보 우선순위 재정의, 2026-08-18, 엔진 v16.3] ① **후보는 매수 조건이 정한다.** 매수 조건(신호·재무 필터, `entry.conditions` 있음)이 있는 전략은 리밸런싱을 켜도 커스텀 루프(reconstitution)로 실행해 리밸런싱일이 아닌 날의 매수 신호도 빈 자리만큼 담고 매도 신호도 그대로 청산해야 한다. 리밸런싱일에는 그날 조건을 충족한 종목 중에서 다시 구성하고(미충족 보유 종목은 '리밸런싱 제외' 편출), 유지 종목의 비중은 리셋하지 않으며 이 규칙을 경고로 고지한다. 순수 랭킹 전략(선정=진입, 조건 없음)은 종전 달력 회전(순수 경로) 그대로. 종전에는 두 전략이 같은 경로라 리밸런싱일 사이의 매수 신호가 전부 버려졌고 SL/TP가 없으면 매도 신호까지 무시됐다 — "매수 조건에 맞는 종목 중에서 리밸런싱한다"는 사용자 모델과 어긋난 결함. ② **넘친 날의 우선순위.** 랭킹을 말하지 않은 전략에서 매수 조건 충족 종목이 빈 자리(최대 보유)보다 많은 날(리밸런싱일 포함)은 **최근 60거래일 수익률이 높은 순**으로 우선 담고, 실제로 넘친 날이 있었으면 "매수 조건을 충족한 종목이 빈 자리(최대 보유 N종목)보다 많았던 날이 D일 있어, 그날은 최근 60거래일 수익률이 높은 종목부터 우선 담았습니다"를 결과 경고에 남겨야 한다(넘치지 않았으면 고지 없음). 종전의 저PBR·고ROE 블렌드 폴백(`ranking_enabled` 기본값, 사용자가 말한 적 없는 선정 기준을 조용히 적용)은 폐지. ③ 리밸런싱 뒤에 '종목 선정 기준'을 필수 슬롯으로 되묻는 설계는 같은 날 검토 후 **채택하지 않았다** — 후보는 이미 매수 조건이 정하므로 별도 기준을 모든 리밸런싱 전략에 묻는 것은 그림과 어긋난다(사용자 결정). 랭킹은 사용자가 말했을 때만(모멘텀·재무 순위) 전략의 일부다.
+
+**구현 파일:**
+- `backend/engine/simulator.py`(`entry_signal_driven` 라우팅·비리밸런싱일 진입·`overflow_days`), `backend/backtest_engine.py`(`_TIEBREAK_LOOKBACK_DAYS`, 후보 우선순위 분기, 넘친 날·리밸런싱 규칙 경고, return 분기 direction), `backend/engine/version.py`(16.2.0·16.3.0)
+- `lib/strategy-summary.ts`(getRankingLabel bottom)
+- `backend/tests/test_simulator_ranking.py`(후보 우선순위·고지·비리밸런싱일 진입·편출·매도 신호), `test_return_ranking_direction.py`
+
+---
+
 ### 3.3 AI/ML 시스템
 
 #### 3.3.1 하이브리드 예측 모델 v2

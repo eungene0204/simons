@@ -100,6 +100,10 @@ INITIAL_CAPITAL = "initial_capital"
 
 # 진행 순서 = 사용자에게 보이는 골격 순서(유니버스 → 매수 → 매도 → 최대 보유 →
 # 리밸런싱 → 리스크 → 기간 → 자본). 되묻기는 이 순서의 첫 공백 하나만 낸다.
+# [2026-08-18] 리밸런싱 뒤에 '종목 선정 기준' 슬롯을 넣었다가 같은 날 폐기했다 — 리밸런싱
+# 후보는 이미 매수 조건이 정하므로 별도 선정 기준을 필수로 묻는 것은 전략의 그림과 어긋난다
+# (사용자 결정). 후보가 빈 자리를 넘는 날의 우선순위는 엔진이 최근 수익률 순으로 정하고
+# 결과에 고지한다(엔진 v16.3). 랭킹은 사용자가 말했을 때만(모멘텀·재무 순위) 전략의 일부다.
 FIELD_ORDER: tuple[str, ...] = (
     UNIVERSE, ENTRY, EXIT, MAX_POSITIONS, REBALANCING,
     STOP_LOSS, TAKE_PROFIT, BACKTEST_PERIOD, INITIAL_CAPITAL,

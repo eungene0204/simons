@@ -1050,7 +1050,7 @@ def derive_field_states(
 def _field_states(
     parsed: Any, strategy: Any, report: Any, explicit_fields: Optional[Iterable[str]],
 ) -> Dict[str, Dict[str, str]]:
-    """진행 골격 9칸의 두 상태 축(설계 스펙 § 5)을 계산해 응답에 실을 형태로 만든다.
+    """진행 골격 8칸의 두 상태 축(설계 스펙 § 5)을 계산해 응답에 실을 형태로 만든다.
 
     `filled_slots`(완료/미완료)가 뭉개던 것을 나눠 준다 — 해당 없음(단독 종목의 최대
     보유·리밸런싱), 값은 있으나 미확인(기본값 물질화), 확인 필요(미지원 지표·모순).
@@ -1847,26 +1847,16 @@ def _bind_chips(
             bound.append(text)
             declines[text] = decline_field
             continue
-        canonical_values = strategy_slots.CHIP_VALUES.get(text)
-        if canonical_values is None:
-            # 미지원 개념 검사는 planner LLM이 지어낸 칩·원문 결속 칩에만 한다 — 정본 표에
-            # 값이 적힌 칩은 그 값이 곧 전부라 부분 결속이 있을 수 없다('변동성 낮은 순'은
-            # 결정적 추출기가 표현 못 하는 표기라 이 검사에 걸리지만 값은 표가 준다).
-            unsupported = _mentioned_unsupported_concepts(text)
-            if unsupported:
-                _log_llm("↩ 칩 노출 제외",
-                         f"칩 '{text}' 미지원 개념 언급({', '.join(unsupported)}) — 부분 결속 여부와 무관")
-                continue
+        unsupported = _mentioned_unsupported_concepts(text)
+        if unsupported:
+            _log_llm("↩ 칩 노출 제외",
+                     f"칩 '{text}' 미지원 개념 언급({', '.join(unsupported)}) — 부분 결속 여부와 무관")
+            continue
         try:
-            if canonical_values is not None:
-                # 정본 표에 값이 적힌 칩(종목 선정 기준 등)은 그 값이 곧 결속이다 — 칩
-                # 텍스트를 발화처럼 재해석하지 않는다(칩=값 결속 계약, 값 정본은 표 하나).
-                after = ParsedStrategy.model_validate({**base, **canonical_values}).model_dump()
-            else:
-                after = _apply_prompt_overrides(
-                    ParsedStrategy.model_validate(base), text,
-                    skip_signal_validation=True, preserve_universe=True,
-                ).model_dump()
+            after = _apply_prompt_overrides(
+                ParsedStrategy.model_validate(base), text,
+                skip_signal_validation=True, preserve_universe=True,
+            ).model_dump()
         except Exception:  # noqa: BLE001 — 결속 실패는 칩 탈락이지 파스 실패가 아니다
             logger.warning("칩 결속 실패 — 칩 제외 | chip=%s", text, exc_info=True)
             continue
