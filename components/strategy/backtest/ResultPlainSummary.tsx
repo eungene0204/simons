@@ -8,6 +8,8 @@ interface WalkForwardPlainSummaryInput {
   aggregate: Record<string, number>;
   walk_forward_efficiency: number;
   wfe_valid?: boolean;
+  /** WFE 산정 기준. 현행 "cagr"(연환산). 없으면 구버전 저장 결과(총수익률 기준, 기간 길이 편향). */
+  wfe_basis?: string;
 }
 
 interface MonteCarloPlainSummaryInput {
@@ -71,7 +73,7 @@ export function buildWalkForwardPlainSummary(result: WalkForwardPlainSummaryInpu
 
   if (result.wfe_valid === false) {
     items.push(
-      t("학습 구간 평균 수익률이 0 이하라서, 학습 대비 검증 성과 비율(WFE)은 계산할 수 없었습니다. 구간별 결과를 직접 확인해 주세요.")
+      t("학습 구간의 평균 연평균 수익률(CAGR)이 0 이하라서, 학습 대비 검증 성과 비율(WFE)은 계산할 수 없었습니다. 구간별 결과를 직접 확인해 주세요.")
     );
   } else {
     const wfe = result.walk_forward_efficiency;
@@ -81,7 +83,12 @@ export function buildWalkForwardPlainSummary(result: WalkForwardPlainSummaryInpu
       );
     } else {
       items.push(
-        t("학습 구간에서 낸 성과의 약 {0}%가 처음 보는 검증 구간에서도 유지되었습니다(WFE). 100%에 가까울수록 학습·검증 성과 차이가 작았다는 뜻이고, 낮을수록 특정 구간에만 맞춰진(과최적화) 결과였을 가능성이 있습니다.", Math.round(wfe * 100))
+        t("학습 구간 연평균 수익률의 약 {0}%가 처음 보는 검증 구간에서도 유지되었습니다(WFE, 연환산 수익률 기준). 100%에 가까울수록 학습·검증 성과 차이가 작았다는 뜻이고, 낮을수록 특정 구간에만 맞춰진(과최적화) 결과였을 가능성이 있습니다.", Math.round(wfe * 100))
+      );
+    }
+    if (result.wfe_basis !== "cagr") {
+      items.push(
+        t("이 WFE는 구버전 방식(총수익률 기준)으로 계산된 값입니다. 학습 구간이 검증 구간보다 긴 만큼 낮게 나올 수 있어, 다시 실행하면 연환산 기준 값으로 계산됩니다.")
       );
     }
   }

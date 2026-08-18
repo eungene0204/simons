@@ -237,12 +237,16 @@ class WalkForwardResponse(BaseModel):
     walk_forward_efficiency: Optional[float] = 0.0
     # IS 평균 수익이 0 이하이면 WFE 비율 해석이 불가 — response_model이 필드를 걸러내므로 반드시 선언
     wfe_valid: Optional[bool] = True
+    # WFE 산정 기준(현행 "cagr"). 구버전 결과(총수익률 기준)에는 없음 — 마찬가지로 선언 필수
+    wfe_basis: Optional[str] = None
 
 class OptimizationResultItem(BaseModel):
     iteration: int
     parameters: Dict[str, Any]
-    metrics: Dict[str, float]
-    target_value: float
+    # profitFactor는 손실 거래 0건이면 None(=∞) — float 강제 시 무손실 시도가 하나라도 있으면
+    # 응답 전체가 검증 실패(500)한다(2026-08-19 감사).
+    metrics: Dict[str, Optional[float]]
+    target_value: Optional[float] = None
 
 class OptimizationResponse(BaseModel):
     status: str
@@ -251,6 +255,6 @@ class OptimizationResponse(BaseModel):
     total_iterations: Optional[int] = 0
     tested_ranges: Optional[Dict[str, Any]] = None
     best_parameters: Optional[Dict[str, Any]] = None
-    best_metrics: Optional[Dict[str, float]] = None
+    best_metrics: Optional[Dict[str, Optional[float]]] = None
     top_results: Optional[List[OptimizationResultItem]] = None
     report: Optional[str] = None

@@ -358,6 +358,48 @@ describe("WalkForwardModal", () => {
     }
   });
 
+  it("검증기간이 63거래일 미만이면 CAGR 연환산 잡음 안내를 보여주고, 그 이상이면 숨긴다", async () => {
+    await act(async () => {
+      render(<WalkForwardPanel onRun={vi.fn()} backtestDates={buildDates(1000)} baseStrategy={baseStrategy} />);
+    });
+    // 기본값(1000일의 15% = 150거래일)은 안내 없음
+    expect(screen.queryByTestId("walk-forward-short-validation-note")).not.toBeInTheDocument();
+    act(() => {
+      fireEvent.change(screen.getByLabelText("검증기간"), { target: { value: "40" } });
+    });
+    expect(screen.getByTestId("walk-forward-short-validation-note")).toHaveTextContent("63거래일(약 3개월)보다 짧습니다");
+  });
+
+  it("WFE는 연환산(CAGR) 기준임을 설명하고, wfe_basis 없는 구버전 저장 결과에는 총수익률 기준 안내를 붙인다", async () => {
+    const baseResult = {
+      status: "ok",
+      n_splits: 2,
+      anchor: false,
+      target_metric: "cagr",
+      windows: [],
+      aggregate: {},
+      combined_equity: [],
+      combined_dates: [],
+      walk_forward_efficiency: 0.9,
+    };
+
+    const { unmount } = render(
+      <WalkForwardPanel onRun={vi.fn()} backtestDates={buildDates(240)} loadedResult={{ ...baseResult, wfe_basis: "cagr" }} />
+    );
+    expect(await screen.findByText("Walk-Forward Efficiency")).toBeInTheDocument();
+    expect(screen.getByText(/연평균 수익률\(CAGR\) 평균을 학습 구간의 연평균 수익률 평균으로 나눈 값/)).toBeInTheDocument();
+    expect(screen.queryByTestId("walk-forward-wfe-legacy-note")).not.toBeInTheDocument();
+    // 구간 문구는 과거 관측 서술만 — 전망("실전에서도 재현")·권유("권장")·우열 평가어("우수/위험") 금지(규제 안전 원칙)
+    expect(screen.getAllByText(/대부분 유지/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/실전/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/권장/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/우수|위험/)).not.toBeInTheDocument();
+    unmount();
+
+    render(<WalkForwardPanel onRun={vi.fn()} backtestDates={buildDates(240)} loadedResult={baseResult} />);
+    expect(await screen.findByTestId("walk-forward-wfe-legacy-note")).toHaveTextContent("구버전 방식(총수익률 기준)");
+  });
+
   it("그리드 탐색 실행 시 onRun에 method: grid를 전달한다", async () => {
     const onRun = vi.fn().mockResolvedValue({
       status: "ok",
@@ -528,7 +570,7 @@ describe("WalkForwardModal", () => {
     });
 
     const table = screen.getByTestId("walk-forward-optimal-parameters-table");
-    expect(within(table).getByRole("columnheader", { name: "Walk" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "구간" })).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "학습 기간" })).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "검증 기간" })).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "최적 손절라인" })).toBeInTheDocument();
@@ -630,9 +672,9 @@ describe("WalkForwardModal", () => {
   });
 
   it("실행 전 기준 백테스트 실측 속도로 예상 소요 시간을 미리 보여준다", async () => {
-    // 240일 백테스트, 기본 설정: n_splits=3, 베이지안 30시도 → 총 3×(30+1)=93회.
+    // 240일 백테스트, 기본 설정: n_splits=3, 베이지안 30시도 → 총 준비 1 + 3×(30+1)=94회.
     // 백테스트 1회 비용은 구간 길이와 거의 무관(고정비 지배)하므로 기준 실측 10s를
-    // 그대로 써서 총 930s. 범위(0.7~1.4배) = 11분 ~ 22분.
+    // 그대로 써서 총 940s. 범위(0.7~1.4배) = 11분 ~ 22분.
     await act(async () => {
       render(
         <WalkForwardModal
@@ -649,7 +691,7 @@ describe("WalkForwardModal", () => {
 
     expect(screen.getAllByText("예상 소요 시간").length).toBeGreaterThan(0);
     expect(screen.getByText("약 11분 ~ 22분 소요될 것으로 예상됩니다.")).toBeInTheDocument();
-    expect(screen.getByText("총 93회")).toBeInTheDocument();
+    expect(screen.getByText("총 94회")).toBeInTheDocument();
     expect(
       screen.getByText(/시간이 오래 걸리는 작업입니다/)
     ).toBeInTheDocument();
@@ -714,7 +756,7 @@ describe("WalkForwardModal", () => {
       });
     });
 
-    // 총 93회 · 완료 (1-1)×31+15=15회 · 남은 78회 × 12.6s ≈ 983s → 약 16분.
+    // 총 94회 · 완료 준비 1 + (1-1)×31+15=16회 · 남은 78회 × 12.6s ≈ 983s → 약 16분.
     await waitFor(() => {
       expect(screen.getByText("예상 남은 시간")).toBeInTheDocument();
     });

@@ -1,6 +1,32 @@
 import copy
 import itertools
+import math
 from typing import Any, Callable, Dict, List, Optional
+
+# 낮을수록 좋은 목표 지표 — 그리드·베이지안이 방향 판정을 공유한다.
+MINIMIZE_METRICS = ("maxDrawdown", "mdd")
+
+
+def is_minimize_metric(target_metric: str) -> bool:
+    return target_metric in MINIMIZE_METRICS
+
+
+def target_sort_value(target_metric: str, value: Any) -> float:
+    """최적화 목표값을 정렬·비교 가능한 실수로 바꾼다.
+
+    profitFactor는 손실 거래가 0건이면 엔진이 None(=∞, 0.0='이익 없음'과 구분)을 돌려준다.
+    최대화 목표에서 ∞는 최상값이므로 +inf로 취급한다. 그 밖의 None·NaN·비수치는
+    '최악'(최대화 -inf, 최소화 +inf)으로 둔다 — None을 정렬 키에 그대로 쓰면
+    `'<' not supported between float and NoneType`로 창 전체가 죽는다(2026-08-19 감사).
+    """
+    worst = math.inf if is_minimize_metric(target_metric) else -math.inf
+    if value is None:
+        return math.inf if target_metric == "profitFactor" and not is_minimize_metric(target_metric) else worst
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return worst
+    return worst if math.isnan(f) else f
 
 # 그리드 탐색 하나가 매 워크포워드 윈도우마다 반복되므로 조합 폭주를 막기 위한 상한.
 # 프론트엔드 예상 조합 수 안내(estimateGridChoiceCount)와 동일한 취지의 안전장치다.
@@ -223,9 +249,9 @@ class StrategyOptimizer:
 
         # Sort results by the target metric descending (assuming higher is better, except for perhaps MDD)
         # Standardize sorting: higher is better for returns, win rate, sharpe. Lower is better for MDD.
-        reverse_sort = target_metric not in ["maxDrawdown", "mdd"]
-        
-        results.sort(key=lambda x: x.get("target_value", -999999.0) if reverse_sort else x.get("target_value", 999999.0), reverse=reverse_sort)
+        # target_value가 None(손익비 ∞)·NaN이어도 정렬이 죽지 않게 target_sort_value로 변환한다.
+        reverse_sort = not is_minimize_metric(target_metric)
+        results.sort(key=lambda x: target_sort_value(target_metric, x.get("target_value")), reverse=reverse_sort)
         
         return {
             "total_iterations": len(permutations),

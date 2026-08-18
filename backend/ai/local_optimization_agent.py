@@ -46,7 +46,7 @@ class LocalOptimizationAgent:
         """손익비 표기 — None(손실 거래 0건)은 정의되지 않음(∞)이지 0(최악)이 아니다."""
         return "∞" if v is None else f"{(v or 0):.2f}"
 
-    def write_report(self, best_params: Dict[str, Any], top_results: List[Dict[str, Any]], target_metric: str, importances: Dict[str, float], total_trials: int, walk_forward: Optional[Dict[str, Any]] = None, user_prompt: Optional[str] = None) -> str:
+    def write_report(self, best_params: Dict[str, Any], top_results: List[Dict[str, Any]], target_metric: str, importances: Dict[str, float], total_trials: int, holdout: Optional[Dict[str, Any]] = None, user_prompt: Optional[str] = None) -> str:
         if not top_results:
             return "최적화 결과가 없습니다. 모든 시뮬레이션이 실패했을 수 있습니다."
 
@@ -97,10 +97,11 @@ class LocalOptimizationAgent:
                 report += f"| {self._display_param(key)} | {v*100:.1f}% 기여도 |\n"
 
         # ── 5. 과적합 검증 ──
-        if walk_forward:
-            full_m = walk_forward.get("full_metrics", {})
-            oos_m = walk_forward.get("oos_metrics", {})
-            oos_period = walk_forward.get("oos_period", "")
+        # 단일 70/30 홀드아웃(워크포워드 아님) — optimize(holdout_validation=True)의 결과
+        if holdout:
+            full_m = holdout.get("full_metrics", {})
+            oos_m = holdout.get("oos_metrics", {})
+            oos_period = holdout.get("oos_period", "")
 
             full_cagr = full_m.get("cagr") or 0
             oos_cagr = oos_m.get("cagr") or 0
@@ -162,7 +163,9 @@ class LocalOptimizationAgent:
             }
 
         print(f"[LocalOptimizationAgent] 2. Running ML Optimizer for {n_trials} trials...")
-        opt_results = self.optimizer.optimize(base_request, ranges, target_metric=target_metric, n_trials=n_trials)
+        opt_results = self.optimizer.optimize(
+            base_request, ranges, target_metric=target_metric, n_trials=n_trials, holdout_validation=True
+        )
 
         if opt_results.get("status") == "error":
             return opt_results
@@ -174,7 +177,7 @@ class LocalOptimizationAgent:
             target_metric=target_metric,
             importances=opt_results.get("param_importances", {}),
             total_trials=opt_results.get("total_iterations", n_trials),
-            walk_forward=opt_results.get("walk_forward")
+            holdout=opt_results.get("holdout_validation")
         )
 
         return {

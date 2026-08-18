@@ -10,6 +10,7 @@ const walkForwardBase = {
   ],
   aggregate: { avg_oos_cagr: 5.8, avg_oos_maxDrawdown: -14.2 },
   walk_forward_efficiency: 0.72,
+  wfe_basis: "cagr",
 };
 
 describe("buildWalkForwardPlainSummary", () => {
@@ -40,6 +41,19 @@ describe("buildWalkForwardPlainSummary", () => {
     expect(joined).not.toContain("약 72%");
   });
 
+  it("현행(cagr 기준) 결과에는 구버전 안내를 넣지 않고 연환산 기준임을 밝힌다", () => {
+    const joined = buildWalkForwardPlainSummary(walkForwardBase).join("\n");
+    expect(joined).toContain("연환산 수익률 기준");
+    expect(joined).not.toContain("구버전 방식");
+  });
+
+  it("wfe_basis가 없는 구버전 저장 결과에는 총수익률 기준 안내를 덧붙인다", () => {
+    const { wfe_basis: _omit, ...legacy } = walkForwardBase;
+    const joined = buildWalkForwardPlainSummary(legacy).join("\n");
+    expect(joined).toContain("약 72%가");
+    expect(joined).toContain("구버전 방식(총수익률 기준)");
+  });
+
   it("WFE가 음수면 검증 구간 손실로 설명한다", () => {
     const items = buildWalkForwardPlainSummary({ ...walkForwardBase, walk_forward_efficiency: -0.3 });
     expect(items.join("\n")).toContain("WFE 음수");
@@ -54,7 +68,8 @@ describe("buildWalkForwardPlainSummary", () => {
     const joined = items.join("\n");
     expect(joined).toContain("0개 구간");
     expect(joined).not.toContain("미래 수익은 보장되지 않습니다");
-    expect(joined).not.toContain("연평균");
+    // 평균 CAGR 문장("연평균 5.8%의 수익")은 없어야 한다 (WFE 설명의 "연평균 수익률" 문구와 구분)
+    expect(joined).not.toMatch(/연평균 [\d.]+%의/);
   });
 });
 
