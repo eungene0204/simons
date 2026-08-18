@@ -33,12 +33,20 @@ _CACHE_MAX_AGE_DAYS = 90
 # KIS/Naver 둘 다 데이터가 없는 종목(REITs, 신규상장 등)은 재시도해도 매번 실패한다.
 # 짧은 TTL로 "실패했다"는 사실 자체를 캐싱해 백테스트마다 반복되는 라이브 호출을 줄인다.
 _NEGATIVE_CACHE_TTL_DAYS = 7
+# DART 일일 허용량(status 020) 소진으로 DART 단계를 못 마친 캐시(dart_pending)는 이 일수가
+# 지나면 만료로 본다 — 한도는 매일 리셋되므로 다음 날 fetch가 KIS+DART를 다시 받아 완성한다.
+# 당일에는 그대로 읽어 KIS 값을 쓰고 한도가 바닥난 DART를 다시 두드리지 않는다.
+_DART_PENDING_RETRY_DAYS = 1
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _CACHE_DIR = _PROJECT_ROOT / "data" / "fundamentals"
 _DART_CORP_CODE_PATH = _PROJECT_ROOT / "data" / "dart_corpcode.json"
 _DART_YEAR_FLOOR = 2015
 _DART_ANNUAL_REPORT_CODE = "11011"
+
+
+class DartQuotaExhausted(Exception):
+    """DART 일일 허용량(status 020) 소진 — '데이터 없음'과 구분해 호출자가 미완성으로 다룬다."""
 _DART_OPERATING_CASH_FLOW_ACCOUNT_ID = "ifrs-full_CashFlowsFromUsedInOperatingActivities"
 _DART_OPERATING_CASH_FLOW_NAMES = {
     "영업활동현금흐름",
@@ -118,6 +126,10 @@ _DART_NCI_CONTINUING_ACCOUNT_IDS = {
     "ifrs_ProfitLossFromContinuingOperationsAttributableToNoncontrollingInterests",
 }
 _DART_PROFIT_LOSS_ACCOUNT_IDS = {"ifrs-full_ProfitLoss", "ifrs_ProfitLoss"}
+# 매출액(수익) — PSR 폴백(시가총액 ÷ 매출액)의 분모. KIS가 SPS를 0으로 주는 회사(연결재무제표
+# 미작성 등, FR-BT-052k)는 종가÷SPS로 PSR을 만들 수 없어 같은 손익계산서 응답의 매출액을 쓴다.
+# 실측(2026-08-17): 삼진제약 OFS CIS '수익(매출액)'·동국제강 OFS IS '매출액' 모두 ifrs-full_Revenue.
+_DART_REVENUE_ACCOUNT_IDS = {"ifrs-full_Revenue", "ifrs_Revenue"}
 _DART_EQUITY_OWNERS_ACCOUNT_IDS = {
     "ifrs-full_EquityAttributableToOwnersOfParent",
     "ifrs_EquityAttributableToOwnersOfParent",
@@ -172,7 +184,12 @@ def _write_negative_cache(symbol: str) -> None:
 
 
 def _read_cache(symbol: str) -> Optional[List[Dict]]:
-    """로컬 JSON 캐시에서 펀더멘털 데이터를 읽는다. 만료 시 None 반환."""
+    """로컬 JSON 캐시에서 펀더멘털 데이터를 읽는다. 만료 시 None 반환.
+
+    DART 한도 소진으로 미완성인 캐시(dart_pending)는 _DART_PENDING_RETRY_DAYS가 지나면
+    만료로 본다 — 2026-08-04 백필에서 한도 소진 뒤 캐시된 약 420종목이 90일짜리 '완성본'으로
+    남아 지배주주순이익·현금흐름·FCF가 통째로 비었던 사고의 재발 방지.
+    """
     path = _cache_path(symbol)
     if not path.exists():
         return None
@@ -183,13 +200,32 @@ def _read_cache(symbol: str) -> Optional[List[Dict]]:
             age = (pd.Timestamp.now() - pd.Timestamp(fetched_at)).days
             if age > _CACHE_MAX_AGE_DAYS:
                 return None
+            if (data.get("dart_pending") or data.get("kis_pending")) and age >= _DART_PENDING_RETRY_DAYS:
+                return None
         return data.get("fundamentals")
     except Exception:
         return None
 
 
-def _write_cache(symbol: str, fundamentals: List[Dict]) -> None:
-    """펀더멘털 데이터를 로컬 JSON 캐시에 저장한다."""
+def is_dart_pending(symbol: str) -> bool:
+    """캐시가 DART 한도 소진으로 미완성 상태인지(수리 스크립트의 대상 선별용)."""
+    path = _cache_path(symbol)
+    if not path.exists():
+        return False
+    try:
+        return bool(json.loads(path.read_text(encoding="utf-8")).get("dart_pending"))
+    except Exception:
+        return False
+
+
+def _write_cache(symbol: str, fundamentals: List[Dict], *, dart_pending: bool = False,
+                 kis_pending: bool = False) -> None:
+    """펀더멘털 데이터를 로컬 JSON 캐시에 저장한다.
+
+    dart_pending=True는 DART 단계를 한도 소진으로 못 마쳤다는 표시, kis_pending=True는 KIS
+    단계를 토큰 실패로 못 마쳤다는 표시다 — 값 자체(있는 쪽)는 쓸 수 있되 _read_cache가
+    다음 날 만료로 취급해 재조회하게 한다.
+    """
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path = _cache_path(symbol)
     payload = {
@@ -197,6 +233,10 @@ def _write_cache(symbol: str, fundamentals: List[Dict]) -> None:
         "fetched_at": pd.Timestamp.now().isoformat(),
         "fundamentals": fundamentals,
     }
+    if dart_pending:
+        payload["dart_pending"] = True
+    if kis_pending:
+        payload["kis_pending"] = True
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -281,12 +321,21 @@ ANNUAL_FUNDAMENTAL_KEYS = [
     # 비중이 큰 기업에서 둘은 크게 갈리므로 별도 지표로 둔다. DART 유래라 2015년 이전과
     # 별도재무제표(OFS)만 있는 종목은 결측이다(2026-08-06).
     "owner_net_income",
+    # 매출액(억원) — DART 손익계산서 ifrs-full_Revenue. PSR 폴백(시가총액 ÷ 매출액)의 분모로만
+    # 쓰이며(KIS SPS가 있으면 종가÷SPS가 그대로 이긴다), 필터·배지에는 노출하지 않는다.
+    # KIS 손익계산서의 매출(_revenue, 내부 키)과 다른 저장 키다 — 그쪽은 net_income 재계산용
+    # 컴포넌트로 저장되지 않는다(FR-BT-052k, 2026-08-17).
+    "revenue",
     # 투자·재무활동 현금흐름 총계(원 단위 raw — operating_cash_flow와 동일 기준). DART CF
     # 섹션에서 OCF와 같은 응답으로 파싱하므로 추가 API 호출은 없다(2026-08-05).
     "investing_cash_flow", "financing_cash_flow",
     # 위 3분류의 억원 환산본 — 조건 필터·배지가 쓰는 단위(raw는 PCR·FCF 계산 기준이라 유지).
     "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
 ]
+# 연간 레코드 하나가 공개일부터 이어지는 최대 개월 수 = 결산 주기 12개월 + 사업보고서 제출 지연
+# 약 3개월. 정상적으로 매년 보고하는 회사는 이 안에 다음 레코드가 와서 끊김이 없고, 넘기면
+# 최근 연간 값이 없다는 뜻이므로 필터는 fail-closed로 제외한다(FR-BT-052l, 엔진 v15.0).
+FUNDAMENTAL_FILL_MAX_MONTHS = 15
 # 위 성장률(+기존 operating_income_growth/net_income_growth)의 부호전환 상태코드. 문자열이라
 # enrich_ohlcv_with_fundamentals에서 float 대신 object dtype 시리즈로 다뤄야 한다.
 ANNUAL_FUNDAMENTAL_STATUS_KEYS = [
@@ -739,7 +788,6 @@ def _fetch_cash_flow_from_dart(
 
     last_year = end_year if end_year is not None else pd.Timestamp.now().year - 1
     results = []
-    quota_exceeded = False
     for year in range(max(start_year, _DART_YEAR_FLOOR), last_year + 1):
         cash_flow = None
         rows: list = []
@@ -754,15 +802,14 @@ def _fetch_cash_flow_from_dart(
                 },
             )
             if payload.get("status") == "020":
-                quota_exceeded = True
-                break
+                # 한도 소진은 '없음'이 아니다. 부분 결과를 돌려주면 호출자가 완성본으로
+                # 캐시한다(2026-08-04 사고: 뒤쪽 ~420종목이 DART 없이 90일 캐시됨).
+                raise DartQuotaExhausted(symbol)
             if payload.get("status") == "000":
                 rows = payload.get("list", [])
                 cash_flow = _parse_dart_operating_cash_flow(rows)
                 if cash_flow:
                     break
-        if quota_exceeded:
-            break
         if not cash_flow:
             continue
         record = {
@@ -800,6 +847,10 @@ def _fetch_cash_flow_from_dart(
         )
         if profit_loss is not None:
             record["_profit_loss_raw"] = profit_loss
+        # 매출액(raw 원) — PSR 폴백 분모. 같은 손익계산서 응답이라 추가 호출 0.
+        revenue = _dart_amount_by_ids(rows, _DART_OWNER_NET_INCOME_SECTIONS, _DART_REVENUE_ACCOUNT_IDS)
+        if revenue is not None:
+            record["_revenue_raw"] = revenue
         results.append(record)
 
     # available_from을 원공시 접수일로 클램프(min) — 정정공시 접수일로 밀린 값 교정.
@@ -882,6 +933,33 @@ def drop_kis_interim_records(records: List[Dict]) -> List[Dict]:
     return [r for r in records if r is not interim]  # 입력 순서 보존
 
 
+# KIS 자리표시자 판정 키. 실존 기업이 EPS·BPS·SPS를 **동시에** 정확히 0으로 결산할 수는
+# 없다(BPS 0 = 순자산 0, SPS 0 = 매출 0). 셋 다 0이면 그 연도는 KIS가 재무를 싣지 않은
+# 빈 칸이다 — 값 있는 스팩(BPS>0·SPS 0)이나 자본잠식(BPS<0)은 걸리지 않는다.
+_KIS_PLACEHOLDER_KEYS = ("eps", "bps", "sps")
+
+
+def is_kis_placeholder_record(record: Dict) -> bool:
+    """KIS가 재무를 싣지 않은 연도의 0 자리표시자 레코드인지."""
+    return all(record.get(k) is not None and record.get(k) == 0 for k in _KIS_PLACEHOLDER_KEYS)
+
+
+def drop_kis_placeholder_records(records: List[Dict]) -> List[Dict]:
+    """KIS 응답의 **0 자리표시자** 연도 레코드를 걷어낸다.
+
+    KIS 재무 엔드포인트는 재무를 싣지 않은 회사·연도에도 행을 돌려주되 값을 전부 0으로
+    채운다(실측 2026-08-17, 삼진제약 005500: 재무비율·손익계산서·재무상태표 22개 연도 전부
+    eps 0.00·sps 0·bps 0.00·부채비율 0.0000 — 당좌비율만 46.06). 연결재무제표를 만들지 않는
+    회사(자회사 없음)와 KIS 이력 시작 전 연도(2004~2009년 다수)가 이렇다.
+
+    0을 진짜 값으로 받으면 PER·PBR·PSR·ROE는 분모 0으로 null이 되고(가치 필터에서 통째로
+    사라짐 — 활성 124종목 실측), 부채비율은 0이라 '부채비율 ≤ N' 필터를 **거짓 통과**한다.
+    레코드째 버려 '데이터 없음'으로 두면 필터는 fail-closed로 제외하고, 호출자는 다른 소스
+    (Naver 주요재무정보)로 보충할 수 있다. 판정은 :func:`is_kis_placeholder_record`.
+    """
+    return [r for r in records if not is_kis_placeholder_record(r)]
+
+
 def _fetch_kis_finance(symbol: str, headers: dict, path: str) -> list:
     """GET one KIS finance endpoint; return its ``output`` list ([] on failure)."""
     params = {"FID_DIV_CLS_CODE": "0", "fid_cond_mrkt_div_code": "J", "fid_input_iscd": symbol}
@@ -900,7 +978,13 @@ def _fetch_kis_finance(symbol: str, headers: dict, path: str) -> list:
 
 
 def _fetch_fundamentals_from_kis(symbol: str) -> Optional[List[Dict]]:
-    """Merge financial-ratio + profit-ratio + stability-ratio into one per-year list."""
+    """Merge financial-ratio + profit-ratio + stability-ratio into one per-year list.
+
+    Returns ``None`` **only when KIS is unreachable**(토큰 발급 실패 — 1분당 1회 제한 등);
+    KIS에 닿았지만 재무가 없으면 빈 리스트다. 호출자는 이 둘을 구분해야 한다 — 토큰 실패를
+    'KIS에 없음'으로 보면 Naver 3개년만으로 90일 완성본 캐시가 덮인다(2026-08-17 실측:
+    수리 스크립트 첫 실행에서 30여 종목).
+    """
     token = _get_kis_token()
     if not token:
         return None
@@ -936,7 +1020,7 @@ def _fetch_fundamentals_from_kis(symbol: str) -> Optional[List[Dict]]:
     # 5개 엔드포인트를 다 병합한 **한 자리에서** 분기 행을 거른다 — 엔드포인트마다 흩어 놓으면
     # 하나를 빠뜨린다. DART 유래 레코드는 이 함수를 거치지 않으므로 영향받지 않는다.
     result = drop_kis_interim_records(result)
-    return result or None
+    return result  # 빈 리스트 = KIS에 닿았지만 재무 없음. None은 위 토큰 실패뿐이다.
 
 
 def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
@@ -984,6 +1068,11 @@ def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
         if owner_raw is not None:
             rec["owner_net_income"] = round(owner_raw / 1e8, 1)
 
+        # 매출액(억원) — DART raw 원 단위 환산. PSR 폴백(enrich_ohlcv_with_fundamentals) 분모.
+        revenue_raw = rec.get("_revenue_raw")
+        if revenue_raw is not None:
+            rec["revenue"] = round(revenue_raw / 1e8, 1)
+
         # 당기순이익은 DART 원값이 있으면 그것이 이긴다(위 KIS 재계산본을 덮어쓴다).
         # KIS본은 net_margin(소수 2자리 반올림) x 매출이라 저마진 연도에 절대금액 오차가
         # 크다 — 순이익 10억 규모에서 수백 %까지 벌어진 실측이 있다. DART가 없는 구간
@@ -1025,6 +1114,7 @@ def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
         rec.pop("_revenue", None)
         rec.pop("_owner_net_income_raw", None)
         rec.pop("_profit_loss_raw", None)
+        rec.pop("_revenue_raw", None)
 
     return sorted_records
 
@@ -1034,8 +1124,9 @@ def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> O
 
     1순위: 로컬 JSON 캐시 (90일 이내)
     2순위: 최근 재조회 실패 캐시 (7일 이내) — REITs 등 항상 실패하는 종목의 반복 호출 방지
-    3순위: KIS financial-ratio API
-    4순위: Naver Finance 스크래핑
+    3순위: KIS financial-ratio API (0 자리표시자 연도는 걷어낸다 — drop_kis_placeholder_records)
+    4순위: Naver Finance 스크래핑 — KIS가 비었거나 자리표시자가 섞여 있던 종목만. 같은 연도는
+          KIS 값이 이기고 Naver는 KIS가 비운 연도(최근 3개년 EPS/BPS/ROE/부채비율)를 보충한다.
     별도 병합: OpenDART 영업활동현금흐름
 
     Returns:
@@ -1049,34 +1140,55 @@ def fetch_fundamentals(symbol: str, retry: int = 2, use_cache: bool = True) -> O
         if _is_recently_confirmed_empty(symbol):
             return None
 
-    result = _fetch_fundamentals_from_kis(symbol)
+    kis_fetched = _fetch_fundamentals_from_kis(symbol)
+    # KIS 미도달(토큰 실패)은 'KIS에 없음'이 아니다 — 아래에서 kis_pending으로 캐시해 다음 날
+    # 다시 받게 한다(dart_pending과 같은 규칙). 부정 캐시도 남기지 않는다.
+    kis_pending = kis_fetched is None
+    kis_raw = kis_fetched or []
+    result = drop_kis_placeholder_records(kis_raw)
 
-    if not result:
-        url = _NAVER_URL.format(symbol=symbol)
-        for attempt in range(retry + 1):
-            try:
-                r = requests.get(url, headers=_HEADERS, timeout=15)
-                if r.status_code != 200:
-                    continue
-                result = _parse_fundamentals(r.text)
-                if result:
-                    break
-            except Exception as e:
-                logger.warning(f"[{symbol}] fundamental fetch attempt {attempt+1} failed: {e}")
-                if attempt < retry:
-                    time.sleep(0.5)
+    # 자리표시자가 있었다는 것은 KIS가 이 회사(또는 그 연도들)를 싣지 않는다는 뜻이다 —
+    # 걷어낸 자리를 Naver로 보충한다. 자리표시자 없이 온전한 KIS 결과엔 Naver를 부르지 않는다.
+    if not result or len(result) < len(kis_raw):
+        result = _merge_fundamental_records(_fetch_fundamentals_from_naver(symbol, retry), result)
 
-    cash_flow = _fetch_cash_flow_from_dart(symbol)
+    # DART 한도 소진은 KIS 값을 버릴 이유는 아니지만 완성본도 아니다 — dart_pending으로
+    # 캐시해 당일은 KIS 값을 쓰고, 다음 날 _read_cache가 만료로 취급해 다시 받게 한다.
+    dart_pending = False
+    try:
+        cash_flow = _fetch_cash_flow_from_dart(symbol)
+    except DartQuotaExhausted:
+        logger.warning("[DART] %s: 일일 허용량 소진 — DART 항목 없이 dart_pending 캐시", symbol)
+        cash_flow = None
+        dart_pending = True
     result = _merge_fundamental_records(result, cash_flow)
     if result:
         result = _compute_derived_annual_metrics(result)
 
     if result:
-        _write_cache(symbol, result)
-    else:
+        _write_cache(symbol, result, dart_pending=dart_pending, kis_pending=kis_pending)
+    elif not kis_pending:
         _write_negative_cache(symbol)
 
     return result
+
+
+def _fetch_fundamentals_from_naver(symbol: str, retry: int = 2) -> Optional[List[Dict]]:
+    """Naver Finance 주요재무정보(최근 3~4개년 EPS/BPS/ROE/부채비율)를 스크래핑한다. 실패 시 None."""
+    url = _NAVER_URL.format(symbol=symbol)
+    for attempt in range(retry + 1):
+        try:
+            r = requests.get(url, headers=_HEADERS, timeout=15)
+            if r.status_code != 200:
+                continue
+            result = _parse_fundamentals(r.text)
+            if result:
+                return result
+        except Exception as e:
+            logger.warning(f"[{symbol}] fundamental fetch attempt {attempt+1} failed: {e}")
+            if attempt < retry:
+                time.sleep(0.5)
+    return None
 
 
 def _parse_fundamentals(html: str) -> Optional[List[Dict]]:
@@ -1244,6 +1356,10 @@ def enrich_ohlcv_with_fundamentals(
 
     # 각 거래일에 대해 가장 최근 결산 데이터 매핑 (forward-fill 방식).
     # OpenDART 레코드는 실제 접수일을 사용하고, 그 외 소스는 결산일 + 90일을 적용한다.
+    # 한 레코드는 자기 공개일부터 **최대 FUNDAMENTAL_FILL_MAX_MONTHS개월**만 이어진다 —
+    # 다음 결산이 그 안에 오면 거기서 끊기고, 안 오면(레코드 결손·자리표시자 제거·상폐·
+    # 미제출) '데이터 없음'이 된다. 무제한 forward-fill은 2013년 값이 10년간 이어지는 결과를
+    # 낳았다(부국증권 실측, 2026-08-17 — 활성 208종목·20.9만 종목-일).
     _PUBLISH_DELAY_DAYS = 90
 
     # 원본 4개(eps/bps/roe/debt_ratio)는 데이터에 없어도 항상 컬럼을 생성하고(하위호환),
@@ -1264,7 +1380,8 @@ def enrich_ohlcv_with_fundamentals(
         available_from = pd.to_datetime(row.get("available_from"), errors="coerce")
         if pd.isna(available_from):
             available_from = row["year_end"] + pd.Timedelta(days=_PUBLISH_DELAY_DAYS)
-        mask = date_col >= available_from
+        fill_until = available_from + pd.DateOffset(months=FUNDAMENTAL_FILL_MAX_MONTHS)
+        mask = (date_col >= available_from) & (date_col < fill_until)
         for k in present_keys:
             if pd.notna(row.get(k)):
                 series[k][mask] = row[k]
@@ -1286,6 +1403,8 @@ def enrich_ohlcv_with_fundamentals(
             valid = df[denom].notna() & denom_ok
             df[ratio] = (close / df[denom]).where(valid).replace([_np.inf, -_np.inf], _np.nan)
 
+    df = fill_psr_from_market_cap(df)
+
     # ROE는 KIS가 직접 제공하는 비율이라 여기서 재계산하지 않지만, 자기자본(total_equity
     # 우선, 없으면 BPS로 근사)이 음수(자본잠식)면 값 자체가 금융적으로 무의미해 null 처리한다.
     if "roe_or_gpa" in df.columns:
@@ -1299,6 +1418,29 @@ def enrich_ohlcv_with_fundamentals(
     df = recompute_pcr(df)
 
     return _add_dividend_metrics(df)
+
+
+def fill_psr_from_market_cap(df: pd.DataFrame) -> pd.DataFrame:
+    """PSR **폴백 전용** — psr이 비어 있는 날만 시가총액(억원) ÷ 매출액(억원, DART)로 채운다.
+
+    정의(종가 ÷ SPS)는 그대로다: KIS SPS가 있는 날은 손대지 않는다. KIS가 SPS를 0으로 주는
+    회사(연결재무제표 미작성 등 — FR-BT-052k 자리표시자)만 이 폴백으로 공백을 메운다. 주식수를
+    따로 곱하지 않고 일별 실측 market_cap을 쓰는 이유는 PCR(recompute_pcr)과 같다 — 조정 종가에
+    현재 주식수를 곱한 근사는 증자·소각·분할 전 구간을 왜곡한다(엔진 v13.0 사고). market_cap·
+    revenue 둘 중 하나라도 없으면 no-op, 매출이 비양수면 채우지 않는다.
+    """
+    if "market_cap" not in df.columns or "revenue" not in df.columns:
+        return df
+    import numpy as _np
+    fallback = (
+        (df["market_cap"].astype(float) / df["revenue"])
+        .where(df["market_cap"].notna() & df["revenue"].notna() & (df["revenue"] > 0))
+        .replace([_np.inf, -_np.inf], _np.nan)
+    )
+    df = df.copy()
+    existing = df["psr"] if "psr" in df.columns else pd.Series(_np.nan, index=df.index, dtype=float)
+    df["psr"] = existing.where(existing.notna(), fallback)
+    return df
 
 
 def recompute_pcr(df: pd.DataFrame) -> pd.DataFrame:

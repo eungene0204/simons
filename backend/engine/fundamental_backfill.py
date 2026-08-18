@@ -17,6 +17,7 @@ from .fundamental_fetcher import (
     fetch_fundamentals,
     fetch_shares_outstanding,
     enrich_ohlcv_with_fundamentals,
+    fill_psr_from_market_cap,
 )
 
 # Annual statement metrics + the price-derived valuation ratios. market_cap is separate.
@@ -72,36 +73,49 @@ def merge_fundamentals(pdf: pd.DataFrame, fundamentals: list[dict]) -> pd.DataFr
     return out
 
 
-def rebuild_fundamental_columns(pdf: pd.DataFrame, fundamentals: list[dict]) -> pd.DataFrame:
-    """available_from 교정 후 연간 재무 컬럼을 캐시 기준으로 **재구축**한다.
+def cache_coverage_start(fundamentals: list[dict]) -> pd.Timestamp | None:
+    """캐시가 지배하기 시작하는 날 = 가장 이른 공개일(available_from, 없으면 결산일+90일)."""
+    starts = []
+    for r in fundamentals or []:
+        af = pd.to_datetime(r.get("available_from"), errors="coerce")
+        if pd.isna(af):
+            ye = pd.to_datetime(r.get("year_end"), errors="coerce")
+            if pd.isna(ye):
+                continue
+            af = ye + pd.Timedelta(days=90)
+        starts.append(af)
+    return min(starts) if starts else None
 
-    merge_fundamentals(기존 parquet 값 우선)와 반대로 캐시 유래 시리즈가 이긴다 —
-    잘못된 available_from(정정공시 접수일 오염)으로 엉뚱한 연도 값이 채워진 날들을
-    고치는 용도다. 캐시가 커버하지 않는 날(초기 pykrx 이력 등)만 기존 값을 보존하고,
-    PER/PBR/PSR은 최종 분모(eps/bps/sps)와 정합하도록 캐시 커버 구간에서 재계산한다.
+
+def rebuild_fundamental_columns(pdf: pd.DataFrame, fundamentals: list[dict]) -> pd.DataFrame:
+    """연간 재무 컬럼을 캐시 기준으로 **재구축**한다.
+
+    merge_fundamentals(기존 parquet 값 우선)와 반대로, **캐시가 지배하는 구간(가장 이른
+    공개일부터)은 캐시로 만든 시리즈가 NaN까지 포함해 통째로 이긴다** — 잘못된 available_from
+    (정정공시 접수일 오염)으로 엉뚱한 연도 값이 채워진 날, 자리표시자를 걷어내 비게 된 연도,
+    forward-fill 상한(FUNDAMENTAL_FILL_MAX_MONTHS)을 넘겨 stale하게 남은 날을 전부 캐시대로
+    되돌리기 위해서다. 종전의 '값이 있는 날만 덮고 나머지는 보존'은 마지막 두 경우에 옛 값을
+    되살렸다(2026-08-17). 캐시가 지배하기 전 날(초기 pykrx 이력 등)만 기존 값을 보존하고,
+    PER/PBR/PSR도 같은 규칙으로 갈아 끼운 뒤 PSR 폴백(시총÷매출)을 빈 날에 채운다.
     market_cap·배당 파생 컬럼은 available_from과 무관하므로 건드리지 않는다."""
     if not fundamentals:
         return pdf
     fresh = enrich_ohlcv_with_fundamentals(pdf, fundamentals)
     out = pdf.copy()
+    start = cache_coverage_start(fundamentals)
+    governed = pd.to_datetime(out["date"]) >= start if start is not None else pd.Series(False, index=out.index)
 
-    for col in ANNUAL_FUNDAMENTAL_KEYS + ANNUAL_FUNDAMENTAL_STATUS_KEYS:
+    for col in ANNUAL_FUNDAMENTAL_KEYS + ANNUAL_FUNDAMENTAL_STATUS_KEYS + ["per", "pbr", "psr"]:
         if col not in fresh.columns:
             continue
         dtype = object if col in ANNUAL_FUNDAMENTAL_STATUS_KEYS else float
         old = out[col] if col in out.columns else pd.Series(np.nan, index=out.index, dtype=dtype)
-        out[col] = fresh[col].combine_first(old)  # fetched wins; existing fills gaps
+        out[col] = fresh[col].where(governed, old)  # 지배 구간은 캐시(NaN 포함), 그 전은 기존 값
 
     out = _fill_roe_from_eps_bps(out)
-
-    # 캐시가 분모를 아는 날은 fresh의 비율을 그대로 쓴다(분모<=0 → null 포함 — 기존
-    # 값으로 되살리지 않는다). 분모를 모르는 날만 기존 비율을 보존한다.
-    for ratio, denom in (("per", "eps"), ("pbr", "bps"), ("psr", "sps")):
-        if ratio not in fresh.columns or denom not in fresh.columns:
-            continue
-        old = out[ratio] if ratio in out.columns else pd.Series(np.nan, index=out.index, dtype=float)
-        out[ratio] = old.where(fresh[denom].isna(), fresh[ratio])
-    return out
+    # PSR 폴백(시가총액 ÷ 매출액, FR-BT-052k): 지배 구간 밖(기존 값 보존 구간)에서 psr이 비어
+    # 있고 revenue가 있는 날을 enrich와 같은 단일 정의로 채운다(SPS로 만든 psr은 불변).
+    return fill_psr_from_market_cap(out)
 
 
 def add_market_cap(out: pd.DataFrame, symbol: str) -> pd.DataFrame:

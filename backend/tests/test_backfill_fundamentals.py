@@ -224,3 +224,47 @@ def test_rebuild_nulls_per_for_nonpositive_eps_instead_of_resurrecting_old():
     out = bf.rebuild_fundamental_columns(df, funds)
     assert out["eps"].iloc[0] == pytest.approx(-50.0)
     assert pd.isna(out["per"].iloc[0])
+
+
+# ── PSR 폴백(시가총액 ÷ 매출액, FR-BT-052k) — SPS를 모르는 날만 채우고 SPS 기반 값은 불변 ──
+
+def test_rebuild_fills_psr_from_market_cap_only_where_sps_unknown():
+    # KIS SPS가 0 자리표시자라 캐시에 sps가 없는 회사 — 종전엔 psr null 영구 공백.
+    df = _ohlcv(["2022-04-01", "2022-04-04"], market_cap=[3000.0, 3300.0], psr=[np.nan, np.nan])
+    funds = [{"year_end": "2021-12-31", "available_from": "2022-03-15", "eps": 1000.0, "revenue": 1500.0}]
+    out = bf.rebuild_fundamental_columns(df, funds)
+    assert out["revenue"].iloc[0] == pytest.approx(1500.0)
+    assert out["psr"].iloc[0] == pytest.approx(2.0)   # 3000 / 1500
+    assert out["psr"].iloc[1] == pytest.approx(2.2)
+
+
+def test_rebuild_keeps_sps_based_psr_over_fallback():
+    # SPS를 아는 날은 종가÷SPS가 정의 — 매출 폴백이 덮어쓰지 않는다.
+    df = _ohlcv(["2022-04-01"], market_cap=[3000.0], psr=[np.nan])
+    funds = [{"year_end": "2021-12-31", "available_from": "2022-03-15", "sps": 50.0, "revenue": 1500.0}]
+    out = bf.rebuild_fundamental_columns(df, funds)
+    assert out["psr"].iloc[0] == pytest.approx(100.0 / 50.0)  # close/sps, not 3000/1500
+
+
+def test_rebuild_psr_fallback_skips_nonpositive_revenue():
+    df = _ohlcv(["2022-04-01"], market_cap=[3000.0], psr=[np.nan])
+    funds = [{"year_end": "2021-12-31", "available_from": "2022-03-15", "revenue": 0.0}]
+    out = bf.rebuild_fundamental_columns(df, funds)
+    assert pd.isna(out["psr"].iloc[0])
+
+
+# ── rebuild: 캐시 지배 구간은 NaN까지 캐시가 이긴다 (forward-fill 상한 stale 값 회수) ──
+
+def test_rebuild_removes_stale_values_beyond_fill_cap_inside_cache_coverage():
+    # 옛 parquet: 2013년 값이 2020년까지 무제한 forward-fill돼 있음(부국증권 실측 패턴).
+    df = _ohlcv(["2013-06-29", "2014-09-01", "2020-06-01"], eps=[300.0, 300.0, 300.0], per=[1.0, 1.0, 1.0])
+    funds = [{"year_end": "2013-03-31", "available_from": "2013-06-29", "eps": 300.0}]
+    out = bf.rebuild_fundamental_columns(df, funds)
+    assert out["eps"].iloc[0] == pytest.approx(300.0) and out["eps"].iloc[1] == pytest.approx(300.0)  # 15개월 안
+    assert pd.isna(out["eps"].iloc[2]) and pd.isna(out["per"].iloc[2])  # 지배 구간인데 캐시가 비움 → 없음
+
+
+def test_rebuild_cache_coverage_start_uses_earliest_available_from():
+    funds = [{"year_end": "2021-12-31", "available_from": "2022-03-15", "eps": 1.0},
+             {"year_end": "2020-12-31", "eps": 1.0}]  # available_from 없음 → 결산일+90일 = 2021-03-31
+    assert bf.cache_coverage_start(funds) == pd.Timestamp("2021-03-31")

@@ -32,6 +32,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 _LOCAL_OHLCV = _REPO_ROOT / "data" / "ohlcv"
 # 미러 대상 하위 경로(정본 기준 상대경로). 현재는 OHLCV parquet만 미러한다.
 _REMOTE_SUBPATH = "data/ohlcv"
+# rsync 무전송 중단(초)과 재시도. 스톨로 끊겨도(exit 10/12/30/35 — 소켓 I/O·프로토콜·타임아웃)
+# 이미 옮긴 파일은 원자적으로 완성돼 있으므로(임시파일→rename, --partial 안 씀) 다시 돌리면
+# 남은 파일만 이어간다. 큰 델타에서 한 번에 안 끝나는 일이 잦아 최대 _RSYNC_MAX_ATTEMPTS회.
+_RSYNC_STALL_TIMEOUT_S = 300
+_RSYNC_MAX_ATTEMPTS = 5
+_RSYNC_RETRYABLE_EXIT_CODES = {10, 12, 30, 35}
+_RSYNC_RETRY_DELAY_S = 15
 
 
 def build_rsync_cmd(
@@ -48,7 +55,9 @@ def build_rsync_cmd(
 
     # 스톨 방지: SSH 행으로 전송이 무기한 멈추는 사고 방지(2026-08-04, 스케줄러 pull이
     # 0바이트 임시파일에서 30시간 좀비). keepalive는 죽은 연결을 ~60초에 감지하고,
-    # rsync --timeout은 연결이 살아 있어도 데이터가 120초간 안 흐르면 중단한다.
+    # rsync --timeout은 연결이 살아 있어도 데이터가 그 시간 동안 안 흐르면 중단한다.
+    # 120초는 큰 델타(수천 파일·1GB+)에서 정상 전송 중에도 걸렸다(2026-08-17 실측 4회
+    # 'poll: timeout', 매번 수백 파일씩은 진행) — 300초로 늘리고 main()이 재시도한다.
     ssh_opts = "-o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
     ssh = f"ssh {ssh_opts}"
     if ssh_key:
@@ -57,7 +66,7 @@ def build_rsync_cmd(
     local = f"{str(local_dir).rstrip('/')}/"
     remote_path = f"{remote.rstrip('/')}/{_REMOTE_SUBPATH}/"
 
-    cmd = ["rsync", "-a", "--timeout=120", "-e", ssh]
+    cmd = ["rsync", "-a", f"--timeout={_RSYNC_STALL_TIMEOUT_S}", "-e", ssh]
     if dry_run:
         cmd += ["--dry-run", "--itemize-changes"]
     if push:
@@ -85,12 +94,25 @@ def main(argv=None) -> int:
     cmd = build_rsync_cmd(remote=remote, ssh_key=ssh_key, push=args.push, dry_run=args.check)
     direction = "로컬 → 프로덕션(push)" if args.push else "프로덕션 → 로컬(pull)"
     print(f"[mirror] {direction}{' [check]' if args.check else ''}: {remote}/{_REMOTE_SUBPATH}")
-    result = subprocess.run(cmd)
-    if result.returncode == 0:
-        print("[mirror] 완료.")
-    else:
-        print(f"[mirror] 실패 (rsync exit {result.returncode})")
-    return result.returncode
+    return run_with_retries(cmd)
+
+
+def run_with_retries(cmd: list[str], *, max_attempts: int = _RSYNC_MAX_ATTEMPTS,
+                     delay_s: float = _RSYNC_RETRY_DELAY_S) -> int:
+    """rsync를 돌리고, 스톨·네트워크 계열 종료코드면 이어서 재시도한다. 최종 종료코드 반환."""
+    import time
+    returncode = 1
+    for attempt in range(1, max_attempts + 1):
+        returncode = subprocess.run(cmd).returncode
+        if returncode == 0:
+            print(f"[mirror] 완료.{f' (재시도 {attempt - 1}회)' if attempt > 1 else ''}")
+            return 0
+        if returncode not in _RSYNC_RETRYABLE_EXIT_CODES or attempt == max_attempts:
+            break
+        print(f"[mirror] rsync exit {returncode} — {delay_s:.0f}초 후 재시도 ({attempt}/{max_attempts})")
+        time.sleep(delay_s)
+    print(f"[mirror] 실패 (rsync exit {returncode})")
+    return returncode
 
 
 if __name__ == "__main__":
