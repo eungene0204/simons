@@ -1084,4 +1084,80 @@ describe("buildWalkForwardParameterDescriptors — path 기반 파라미터 칩"
     expect(Array.isArray(request.ranges["entry.conditions.0.params.slowPeriod"])).toBe(true);
     expect(request.ranges).not.toHaveProperty("risk.stop_loss_pct");
   });
+
+  it("돌파 기간(lookbackPeriod) 경로를 제외해도 PBR·거래대금 필터 범위는 유지된다", () => {
+    // 회귀: 경로 키를 라벨로 되읽어 'lookbackPeriod'의 per → PBR 조건 params의 "operator"에
+    // 매칭되며 PBR·거래대금이 함께 빠져 176조합이 16조합으로 줄던 사고(2026-08-19).
+    const baseStrategy = {
+      symbols: [],
+      entry: {
+        conditions: [
+          { id: "pbr", type: "filter", params: { operator: "<", value: 1 } },
+          { id: "trading_value", type: "filter", params: { operator: ">", value: 1000000000 } },
+          { id: "breakout", params: { lookbackPeriod: 20 } },
+        ],
+      },
+      risk: { init_cash: 10000000, stop_loss_pct: 10, take_profit_pct: 30, max_positions: 10 },
+    };
+    const ranges = buildWalkForwardParameterRanges(baseStrategy);
+    const settings = {
+      n_splits: 3,
+      train_pct: 0.77,
+      anchor: false,
+      target_metric: "cagr",
+      n_trials: 30,
+      method: "grid" as const,
+      parameter_ranges: {
+        "risk.stop_loss_pct": { min: 10, max: 25, step: 5 },
+        "risk.take_profit_pct": { min: 30, max: 60, step: 10 },
+        "entry.conditions.0.params.value": { min: 5, max: 10, step: 0.5 },
+      },
+      excluded_parameters: [
+        "risk.max_positions",
+        "entry.conditions.1.params.value",
+        "entry.conditions.2.params.lookbackPeriod",
+      ],
+    };
+
+    const request = buildWalkForwardRequest(baseStrategy, settings, ranges);
+
+    expect(Object.keys(request.ranges).sort()).toEqual([
+      "entry.conditions.0.params.value",
+      "risk.stop_loss_pct",
+      "risk.take_profit_pct",
+    ]);
+    expect(request.ranges["entry.conditions.0.params.value"]).toEqual({
+      type: "number",
+      min: 5,
+      max: 10,
+      step: 0.5,
+    });
+  });
+
+  it("라벨 모드에서 PER 제외가 PBR 필터 조건을 함께 제외하지 않는다", () => {
+    // 재무 지표 라벨 판정은 조건 id 기준 — params JSON의 "operator"에 든 'per'로 오인 금지.
+    const baseStrategy = {
+      symbols: [],
+      entry: {
+        conditions: [
+          { id: "pbr", type: "filter", params: { operator: "<", value: 1 } },
+          { id: "per", type: "filter", params: { operator: "<", value: 10 } },
+        ],
+      },
+      risk: { init_cash: 10000000 },
+    };
+    const ranges = buildWalkForwardParameterRanges(baseStrategy);
+    const settings = {
+      n_splits: 3,
+      train_pct: 0.7,
+      anchor: false,
+      target_metric: "cagr",
+      n_trials: 30,
+      excluded_parameters: ["PER"],
+    };
+
+    const request = buildWalkForwardRequest(baseStrategy, settings, ranges);
+
+    expect(Object.keys(request.ranges)).toEqual(["entry.conditions.0.params.value"]);
+  });
 });
