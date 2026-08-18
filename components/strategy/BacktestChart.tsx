@@ -33,6 +33,11 @@ export interface MonthlyReturnDataPoint {
   value: number; // Percentage
 }
 
+// 롤링 수익률 지점 — 창 종료일(time)에 창 시작일(start)을 동반한다(툴팁 "시작 ~ 종료").
+export interface RollingReturnDataPoint extends MonthlyReturnDataPoint {
+  start?: string; // YYYY-MM-DD
+}
+
 export interface SeasonalDataPoint {
   year: string;
   data: MonthlyReturnDataPoint[];
@@ -43,7 +48,7 @@ interface BacktestChartProps {
   equityData?: EquityDataPoint[];
   drawdownData?: DrawdownDataPoint[];
   monthlyData?: MonthlyReturnDataPoint[];
-  rollingData?: MonthlyReturnDataPoint[];
+  rollingData?: RollingReturnDataPoint[];
   seasonalData?: SeasonalDataPoint[];
   trades?: { date: string; type: string; price: number | string }[];
   height?: number;
@@ -165,6 +170,15 @@ export default function BacktestChart({
         value: item.value,
       }));
   }, [type, rollingData]);
+  // 창 종료일 → 창 시작일. 툴팁 콜백은 차트 생성 시 한 번 등록되므로 ref로 최신 데이터를 읽는다.
+  const rollingWindowStartRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    const m = new Map<string, string>();
+    if (type === "rolling_returns") {
+      for (const item of rollingData) if (item.start) m.set(item.time, item.start);
+    }
+    rollingWindowStartRef.current = m;
+  }, [type, rollingData]);
 
   const YEAR_COLORS = useMemo(() => [
     "#ef4444", "#377af4", "#22c55e", "#eab308", "#a855f7", 
@@ -253,10 +267,15 @@ export default function BacktestChart({
             timeVisible: true,
             secondsVisible: false,
             borderColor: "rgba(255,255,255,0.10)",
-            tickMarkFormatter: (time: UTCTimestamp) => {
+            tickMarkFormatter: (time: UTCTimestamp, tickMarkType: number) => {
               const date = new Date((time as number) * 1000);
               if (type === "seasonal_returns") {
                  return t("{0}월", date.getMonth() + 1);
+              }
+              // 월별 수익률 막대는 x축을 백테스트 연도로 읽는다 — 연 눈금(1월)에만 연도를 찍고
+              // 나머지 달 눈금은 비운다(한 연도 = 막대 12개).
+              if (type === "monthly_returns") {
+                 return tickMarkType === 0 ? date.toISOString().slice(0, 4) : "";
               }
               // Default formatting for other types
               return date.toISOString().split('T')[0];
@@ -471,9 +490,19 @@ export default function BacktestChart({
             // Format time — equity/drawdown span multiple years, so show the full date;
             // seasonal/monthly charts are normalized to a single year, so show the month.
             const date = new Date((param.time as number) * 1000);
+            const dateStr = date.toISOString().split("T")[0];
+            // 롤링 수익률 지점은 "창 시작 ~ 창 종료" 구간의 수익률이므로 구간 전체를 표기한다.
+            const rollingStart =
+              type === "rolling_returns" ? rollingWindowStartRef.current.get(dateStr) : undefined;
             const headerLabel =
-              type === "equity" || type === "drawdown" || type === "rolling_returns"
-                ? date.toISOString().split("T")[0]
+              type === "rolling_returns"
+                ? rollingStart
+                  ? `${rollingStart} ~ ${dateStr}`
+                  : dateStr
+                : type === "equity" || type === "drawdown"
+                ? dateStr
+                : type === "monthly_returns"
+                ? t("{0}년 {1}월", dateStr.slice(0, 4), Number(dateStr.slice(5, 7)))
                 : t("{0}월 수익률", date.getMonth() + 1);
 
             let tooltipContent = `<div class="font-bold text-gray-400 mb-1 border-b border-gray-800 pb-1">${headerLabel}</div>`;
@@ -548,6 +577,20 @@ export default function BacktestChart({
                   `;
                 }
               }
+            } else if (type === "monthly_returns") {
+              const monthSeries = monthlySeriesRef.current;
+              if (monthSeries) {
+                const monthData = param.seriesData.get(monthSeries);
+                if (monthData && "value" in monthData) {
+                  const val = monthData.value as number;
+                  tooltipContent += `
+                    <div class="text-white text-[10px] flex justify-between gap-4">
+                      <span>${t("월별 수익률")}:</span>
+                      <span class="font-mono font-bold ${val >= 0 ? "text-main-red" : "text-main-blue"}">${val >= 0 ? "+" : ""}${val.toFixed(2)}%</span>
+                    </div>
+                  `;
+                }
+              }
             } else if (type === "rolling_returns") {
               const rollSeries = rollingSeriesRef.current;
               if (rollSeries) {
@@ -568,7 +611,7 @@ export default function BacktestChart({
             tooltip.innerHTML = tooltipContent;
 
             // Positioning
-            const tooltipWidth = 140;
+            const tooltipWidth = type === "rolling_returns" ? 220 : 140;
             const tooltipHeight = 80;
             const margin = 15;
             let left = param.point.x + margin;
@@ -703,8 +746,13 @@ export default function BacktestChart({
     <div className="w-full relative group" style={{ height: `${height}px` }}>
       {/* Legend Overlay */}
       {!hideLegend && (
-        <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 b">
-          {type !== "seasonal_returns" && type !== "rolling_returns" && (
+        <div
+          className={`absolute top-4 left-4 z-20 flex gap-1 ${
+            type === "monthly_returns" ? "flex-row flex-wrap items-center" : "flex-col"
+          }`}
+        >
+          {/* 자산곡선 계열 범례 — 월별/롤링/계절 차트에는 해당 시리즈가 없다. */}
+          {type !== "seasonal_returns" && type !== "rolling_returns" && type !== "monthly_returns" && (
           <>
             <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
                <div className="w-2.5 h-2.5 rounded-full bg-[#0f62fe]" />

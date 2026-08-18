@@ -1,4 +1,5 @@
 import { t } from "@/lib/i18n";
+import { formatProfitFactor } from "@/lib/format-profit-factor";
 
 // 리밸런싱 기간별 결과 비교(FR-BT-064) — 백테스트 결과(BacktestResult.rebalanceComparison)에
 // 엔진이 동봉하는 6주기 재시뮬레이션 계약(backend/engine/rebalance_comparison.py).
@@ -91,4 +92,52 @@ export function orderComparisonRows(
     });
   }
   return ordered;
+}
+
+// ── 주기별 막대 그래프(표 위) ──
+
+export type RebalanceChartMetric = "cagr" | "mdd" | "sharpe" | "profitFactor";
+
+export const REBALANCE_CHART_METRICS: Array<{ key: RebalanceChartMetric; label: string }> = [
+  { key: "cagr", label: "CAGR" },
+  { key: "mdd", label: "MDD" },
+  { key: "sharpe", label: "샤프" },
+  { key: "profitFactor", label: "손익비" },
+];
+
+export function rebalanceChartMetricLabel(metric: RebalanceChartMetric): string {
+  return t(REBALANCE_CHART_METRICS.find((m) => m.key === metric)?.label ?? metric);
+}
+
+/** 막대·축 값 표기 — 표와 같은 규칙(퍼센트·소수 둘째 자리·손익비 ∞). */
+export function formatRebalanceChartValue(metric: RebalanceChartMetric, v: number | null | undefined): string {
+  if (metric === "profitFactor") return formatProfitFactor(v);
+  if (v == null || !Number.isFinite(v)) return "—";
+  if (metric === "cagr") return `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
+  if (metric === "mdd") return `${v.toFixed(2)}%`;
+  return v.toFixed(2);
+}
+
+export interface RebalanceChartBar {
+  period: string;
+  label: string;
+  /** null = 막대 없음(실행 실패·손익비 ∞) — 자리는 유지한다. */
+  value: number | null;
+  valueLabel: string;
+  isCurrent: boolean;
+}
+
+/** 표 행 → 막대 데이터(표와 같은 순서·행). 실패 행은 '—', 손익비 ∞는 '∞' 라벨에 막대 없음. */
+export function buildRebalanceChartBars(rows: ComparisonRow[], metric: RebalanceChartMetric): RebalanceChartBar[] {
+  return rows.map((row) => {
+    const raw = row.error ? null : row[metric] ?? null;
+    const value = raw != null && Number.isFinite(raw) ? raw : null;
+    return {
+      period: row.period,
+      label: rebalancePeriodLabel(row.period),
+      value,
+      valueLabel: row.error ? "—" : formatRebalanceChartValue(metric, raw),
+      isCurrent: row.isCurrent,
+    };
+  });
 }

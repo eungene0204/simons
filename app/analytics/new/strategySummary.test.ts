@@ -118,6 +118,28 @@ describe("getSignalLabel — 크로스 방향 구체화", () => {
       "브레이크아웃"
     );
   });
+
+  // 회귀(2026-08-18): 진입 신호 배지에 'trading_value'라는 내부 변수명이 그대로 노출됐다.
+  // 라벨 맵에 없는 지표는 마지막 폴백이 원본 id를 되돌려 준다 — 엔진이 낼 수 있는 지표는
+  // 전부 라벨이 있어야 한다(누락 감지는 backend/tests/test_nl_parser_overrides.py).
+  it("거래대금 신호는 내부 이름 대신 금액과 함께 표기한다", () => {
+    expect(
+      getSignalLabel(
+        { indicator: "trading_value", signal_type: "buy", operator: ">=", value: 30 },
+        "entry"
+      )
+    ).toBe("거래대금 30억 이상");
+    // 임계값이 없으면(레거시 데이터) 지표 이름만 — 내부 id는 어떤 경우에도 노출하지 않는다.
+    expect(getSignalLabel({ indicator: "trading_value", signal_type: "buy" }, "entry")).toBe(
+      "거래대금"
+    );
+  });
+
+  it("나머지 엔진 지표(윌리엄스·MFI·ROC)도 내부 이름을 노출하지 않는다", () => {
+    for (const indicator of ["williams_r", "mfi", "roc"]) {
+      expect(getSignalLabel({ indicator, signal_type: "buy" }, "entry")).not.toBe(indicator);
+    }
+  });
 });
 
 describe("hasBuyCriteria", () => {
@@ -327,6 +349,16 @@ describe("strategySummary", () => {
     expect(summary?.riskText).toBe("손절 -7%, 익절 10%");
   });
 
+  it("파싱 결과 요약에도 백테스트 기간·초기 자본 텍스트를 싣는다(대화 카드와 동일 항목)", () => {
+    const summary = buildStrategySummary({
+      ...baseParsed,
+      backtest_period: "3y",
+      initial_capital: 10_000_000,
+    });
+    expect(summary?.backtestPeriodText).toBe("3년");
+    expect(summary?.initialCapitalText).toBe("10,000,000원");
+  });
+
   it("손절 값이 이미 음수로 들어와도 부호를 중복해서 붙이지 않는다", () => {
     const summary = buildStrategySummary({
       ...baseParsed,
@@ -420,6 +452,37 @@ describe("strategySummary", () => {
     });
 
     expect(summary?.exitBlocks).toEqual(["CCI"]);
+  });
+
+  it("저장된 settings(DSL)에 남은 실행 창·초기 자본을 요약 텍스트로 되살린다(2026-08-18)", () => {
+    // 저장 전략 페이지도 '백테스트 기간'·'초기 자본' 행을 정확히 보여야 한다 — settings에는
+    // 실행 요청과 같은 키(period/startDate/endDate/risk.init_cash)가 함께 저장된다.
+    const base = {
+      id: "s", name: "n", description: "", version: "1",
+      universe: { id: "kospi", filters: {} },
+      entry: { conditions: [] }, exit: { conditions: [] },
+      created_at: "", updated_at: "",
+    };
+    const relative = buildStrategySummaryFromDsl({
+      ...base,
+      period: "3y",
+      risk: { position_size_pct: 10, max_positions: 12, init_cash: 10_000_000 },
+    } as any);
+    expect(relative?.backtestPeriodText).toBe("3년");
+    expect(relative?.initialCapitalText).toBe("10,000,000원");
+
+    const custom = buildStrategySummaryFromDsl({
+      ...base,
+      period: "custom", startDate: "2020-01-01", endDate: "2022-01-01",
+      risk: { position_size_pct: 10, max_positions: 12 },
+    } as any);
+    expect(custom?.backtestPeriodText).toBe("2년 (2020-01-01 ~ 2022-01-01)");
+    expect(custom?.initialCapitalText).toBeUndefined();
+
+    // 실행 창이 없는 구버전 settings는 두 텍스트 모두 비운다(지어내지 않는다)
+    const legacy = buildStrategySummaryFromDsl({ ...base, risk: { position_size_pct: 10, max_positions: 12 } } as any);
+    expect(legacy?.backtestPeriodText).toBeUndefined();
+    expect(legacy?.initialCapitalText).toBeUndefined();
   });
 
   it("DSL 전략에서도 생성 모달용 요약 칩 정보를 만든다", () => {
@@ -639,6 +702,35 @@ describe("buildStrategySummaryFromRequest (실행된 요청 기반 배지)", () 
     expect(summary?.positionText).toBe("최대 5종목");
     expect(summary?.rebalancingText).toBe("매월 리밸런싱");
     expect(summary?.riskText).toBe("손절 -10%, 익절 20%");
+  });
+
+  it("실행 요청의 상대 기간·초기 자본을 결과 화면 요약 행 값으로 채운다(대화 카드와 동일 항목)", () => {
+    // 2026-08-18: 카드에는 '백테스트 기간 3년'이 있는데 결과 화면 요약 DTO에 칸이 없어 빠져 있었다.
+    const summary = buildStrategySummaryFromRequest({
+      universe_id: "kospi",
+      period: "3y",
+      entry: { conditions: [] },
+      exit: { conditions: [] },
+      risk: { max_positions: 12, init_cash: 10_000_000, stop_loss_pct: 10 },
+    });
+    expect(summary?.backtestPeriodText).toBe("3년");
+    expect(summary?.initialCapitalText).toBe("10,000,000원");
+    // 설정 패널이 보내는 대문자 코드도 같은 라벨
+    expect(buildStrategySummaryFromRequest({ period: "10Y", risk: {} })?.backtestPeriodText).toBe("10년");
+    expect(buildStrategySummaryFromRequest({ period: "6M", risk: {} })?.backtestPeriodText).toBe("6개월");
+    expect(buildStrategySummaryFromRequest({ period: "full", risk: {} })?.backtestPeriodText).toBe("전체");
+  });
+
+  it("직접 지정 창은 날짜 구간으로, 초기 자본이 없으면 비운다", () => {
+    const summary = buildStrategySummaryFromRequest({
+      period: "custom",
+      startDate: "2020-01-01",
+      endDate: "2022-01-01",
+      risk: {},
+    });
+    expect(summary?.backtestPeriodText).toBe("2년 (2020-01-01 ~ 2022-01-01)");
+    expect(summary?.initialCapitalText).toBeUndefined();
+    expect(buildStrategySummaryFromRequest({ period: "custom", risk: {} })?.backtestPeriodText).toBeUndefined();
   });
 
   it("랭킹·진입 조건이 모두 없는 요청은 진입 배지를 비워 0거래와 일관되게 표시한다", () => {

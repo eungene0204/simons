@@ -81,7 +81,7 @@ describe("BacktestDashboard 프롬프트 툴팁 진입 신호 배지", () => {
       riskText: "익절 30%",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "프롬프트" }));
+    fireEvent.click(screen.getByRole("button", { name: "내 전략" }));
 
     // 진입 신호 섹션 자체가 없어야 한다(폴백으로 살아나면 안 됨).
     expect(screen.queryByText("진입 신호")).not.toBeInTheDocument();
@@ -100,7 +100,7 @@ describe("BacktestDashboard 프롬프트 툴팁 진입 신호 배지", () => {
       positionText: "최대 10종목",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "프롬프트" }));
+    fireEvent.click(screen.getByRole("button", { name: "내 전략" }));
 
     const entryRow = screen.getByText("진입 신호").parentElement as HTMLElement;
     expect(within(entryRow).getByText("MA 크로스")).toBeInTheDocument();

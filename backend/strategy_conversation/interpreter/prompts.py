@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "3.9"
+PROMPT_VERSION = "4.0"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -199,7 +199,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
    손절/익절/트레일링은 조건이 아니라 risk_management 필드입니다(% 크기만).
    '최고가 대비/최고가에서 N% 하락(밀리면) 청산'은 stop_loss가 아니라 trailing_stop입니다.
    보유 기간(hold_period_days)은 거래일 단위: 1개월=21, 3개월=63, 6개월=126, 1년=252.
-   'N거래일 경과 시 청산'·'최대 보유 기간 N거래일'·'N일 보유 후 매도'도 exit_conditions가
+   'N거래일 경과 시 청산'·'최대/상한 보유 기간 N거래일'·'N일 보유 후 매도'도 exit_conditions가
    아니라 portfolio.hold_period_days=N입니다 — time.days_held 같은 factor를 지어내지 마세요.
    단 **지표 기반 청산과 보유 기간은 별개 슬롯입니다** — '20일선 이탈 시 청산', '데드크로스면
    매도', 'RSI 70 이상이면 매도'는 보유 기간을 함께 말했더라도 exit_conditions에 반드시
@@ -532,12 +532,15 @@ portfolio={{"selection_count":4}}, risk_management={{"stop_loss":-10}} — 조�
 
 ## 예시 4-3 (스크리닝 다단계 서술 — '먼저 걸러서 그중'도 전부 entry_conditions)
 입력: "반도체 업종 종목 중 ROE 10% 이상, 부채비율 120% 이하 조건을 먼저 적용하고, 그중
-최근 60거래일 수익률이 상위권이면서 일평균 거래대금이 50억 원 이상인 종목만 8종목 담고 싶습니다"
+최근 60거래일 수익률이 상위권이면서 최근 60일 평균 거래대금이 50억 원 이상인 종목만 8종목 담고 싶습니다"
 출력 요점: universe={{"markets":["KOSPI","KOSDAQ"],"sectors":["반도체"]}},
 entry_conditions=[{{"factor":"fundamental.roe_or_gpa","operator":">=","value":10,"unit":"percent"}},
 {{"factor":"fundamental.debt_ratio","operator":"<=","value":120,"unit":"percent"}},
 {{"factor":"fundamental.trading_value","operator":">=","value":50,"unit":"억원"}}],
 ranking=[{{"metric":"return","lookback_days":60}}], portfolio={{"selection_count":8}}.
+'60일 평균 거래대금'의 60일은 **거래대금 산정 기간**이라 랭킹 기간과 숫자가 같아도 다른
+조건입니다 — 기간 평균 거래대금은 언제나 fundamental.trading_value이고(technical은 당일
+하루치), 그 기간은 지표 정의에 내장돼 parameters에 넣지 않습니다.
 '먼저 적용하고 → 그중'은 단계 서술일 뿐 세 조건 모두 entry_conditions입니다 —
 거래대금을 universe로 처리했다고 적거나 "추가해 드릴까요?"로 되묻지 마세요
 (사용자가 값을 이미 말했으므로 질문할 것이 없습니다).

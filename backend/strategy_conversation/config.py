@@ -59,6 +59,13 @@ def recall_check_enabled() -> bool:
     return os.environ.get("STRATEGY_RECALL_CHECK", "on").strip().lower() != "off"
 
 
+# 조건 누락 대조 패스(interpreter/condition_recall) 사용 여부. 1차 해석이 나열된 조건 중
+# 하나를 밀어내는 실측 결함(2026-08-18)을 LLM 레인에서 되살린다 — 턴당 LLM 호출이 1회 늘어
+# 지연이 증가하므로 롤백은 이 값을 off로.
+def condition_recall_enabled() -> bool:
+    return os.environ.get("STRATEGY_CONDITION_RECALL", "on").strip().lower() != "off"
+
+
 def shadow_log_path() -> str:
     return os.environ.get(
         "STRATEGY_INTERPRETER_SHADOW_LOG",

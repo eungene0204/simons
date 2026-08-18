@@ -4,8 +4,9 @@ import { BacktestResult } from "@/types/strategy";
 import BacktestChart from "@/components/strategy/BacktestChart";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
 import {
-  Table,
   ArrowsClockwise,
+  Faders,
+  ClipboardText,
   ShieldCheck,
   Warning,
   Info,
@@ -38,11 +39,14 @@ import {
   reportFromSummaryResponse,
   reportToPersistedFields,
 } from "./aiReport";
-import { buildAutoSaveHistoryPayload } from "@/lib/backtest-history";
+import { buildAutoSaveHistoryPayload, buildHistoryConditions } from "@/lib/backtest-history";
 import { invalidateBacktestHistoryCache } from "@/lib/backtest-history-cache";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
-import { buildMonthlyReturnTableData } from "./monthlyReturns";
-import { buildRollingReturnSeries, hasRollingWindowSpan } from "./rollingReturns";
+import { buildPromptSummaryRows } from "./promptSummaryRows";
+import { buildMonthlyReturnSeries, buildMonthlyReturnTableData } from "./monthlyReturns";
+import { buildRollingReturnSeries, buildRollingWindowStatsTable } from "./rollingReturns";
+import RollingReturnTable from "./RollingReturnTable";
+import { ROLLING_WINDOW_OPTIONS, rollingWindowLabel } from "./rollingReturnLabels";
 import {
   normalizeLegacyBreakoutStrategy,
   resolveTradeReason,
@@ -55,10 +59,6 @@ import {
 import { t } from "@/lib/i18n";
 
 const processedExecutionIds = new Set<string>();
-
-const ROLLING_WINDOW_OPTIONS: readonly number[] = [1, 3, 6, 12];
-const rollingWindowLabel = (months: number) =>
-  months === 12 ? t("1년") : t("{0}개월", months);
 
 function calculateScore(r: {
   cagr?: number; maxDrawdown?: number; sharpe?: number;
@@ -305,6 +305,8 @@ interface BacktestDashboardProps {
     positionText?: string;
     riskText?: string;
     rebalancingText?: string;
+    backtestPeriodText?: string;
+    initialCapitalText?: string;
   };
 }
 
@@ -687,16 +689,24 @@ export default function BacktestDashboard({
     () => buildMonthlyReturnTableData(monthlyReturns),
     [monthlyReturns]
   );
+  // 표 위 막대 차트 — x축 연도, 연도당 1~12월 막대 12개(표와 같은 구간).
+  const monthlyReturnSeries = useMemo(
+    () => buildMonthlyReturnSeries(monthlyReturnRows),
+    [monthlyReturnRows]
+  );
 
   const [returnsView, setReturnsView] = useState<"monthly" | "rolling" | "rebalance">("monthly");
-  const [rollingWindowMonths, setRollingWindowMonths] = useState(12);
-  const availableRollingWindows = useMemo(
+  // 롤링 수익률 표 — 탭이 열렸을 때만 계산한다(투자 기간 7개 × 매 거래일 창 MDD).
+  const rollingWindowRows = useMemo(
     () =>
-      ROLLING_WINDOW_OPTIONS.filter((w) =>
-        hasRollingWindowSpan(result.dates ?? [], w)
-      ),
-    [result.dates]
+      returnsView === "rolling"
+        ? buildRollingWindowStatsTable(result.dates ?? [], result.equity ?? [], ROLLING_WINDOW_OPTIONS)
+        : [],
+    [returnsView, result.dates, result.equity]
   );
+  // 표 위 라인 차트 — 선택한 투자 기간의 매 거래일 롤링 수익률(전체 구간). 표에 행이 있는 기간만 선택 가능.
+  const [rollingWindowMonths, setRollingWindowMonths] = useState(12);
+  const availableRollingWindows = rollingWindowRows.map((r) => r.windowMonths);
   const effectiveRollingWindow = availableRollingWindows.includes(rollingWindowMonths)
     ? rollingWindowMonths
     : availableRollingWindows[availableRollingWindows.length - 1] ?? null;
@@ -704,11 +714,7 @@ export default function BacktestDashboard({
     () =>
       effectiveRollingWindow == null
         ? []
-        : buildRollingReturnSeries(
-            result.dates ?? [],
-            result.equity ?? [],
-            effectiveRollingWindow
-          ),
+        : buildRollingReturnSeries(result.dates ?? [], result.equity ?? [], effectiveRollingWindow),
     [result.dates, result.equity, effectiveRollingWindow]
   );
 
@@ -833,12 +839,7 @@ export default function BacktestDashboard({
             strategyName: saveStrategyName.trim() || strategySummary.strategyName || t("이름 없는 전략"),
             prompt: promptText?.trim() || undefined,
             universe: strategySummary.universeName,
-            conditions: {
-              entry: { logic: strategySummary.entryLogic || "AND", names: strategySummary.entryBlocks || [] },
-              exit: { logic: strategySummary.exitLogic || "AND", names: strategySummary.exitBlocks || [] },
-              position: strategySummary.positionText,
-              risk: strategySummary.riskText,
-            },
+            conditions: buildHistoryConditions(strategySummary),
             metrics: {
               totalReturn: result.totalReturn || 0,
               cagr: result.cagr || 0,
@@ -900,24 +901,8 @@ export default function BacktestDashboard({
     : null;
 
   // "프롬프트" 팝오버의 전략 요약 행 — 라벨 하나에 값 여러 개를 세로로 쌓는 구조라
-  // 렌더 쪽에서 조건 분기를 반복하지 않도록 여기서 행 목록으로 만든다.
-  const promptSummaryRows: Array<{ label: string; values: string[] }> = [];
-  if (strategySummary) {
-    const universeLabel = resolveUniverseDisplayName(strategySummary.universeName, promptText);
-    if (universeLabel) promptSummaryRows.push({ label: t("유니버스"), values: [universeLabel] });
-    if (strategySummary.entryBlocks?.length) {
-      promptSummaryRows.push({ label: t("진입 신호"), values: strategySummary.entryBlocks });
-    }
-    if (strategySummary.exitBlocks?.length) {
-      promptSummaryRows.push({ label: t("청산 신호"), values: strategySummary.exitBlocks });
-    }
-    const riskValues = [
-      strategySummary.positionText,
-      strategySummary.rebalancingText,
-      strategySummary.riskText,
-    ].filter((value): value is string => Boolean(value));
-    if (riskValues.length > 0) promptSummaryRows.push({ label: t("리스크"), values: riskValues });
-  }
+  // 렌더 쪽에서 조건 분기를 반복하지 않도록 행 목록으로 만든다(promptSummaryRows.ts).
+  const promptSummaryRows = buildPromptSummaryRows(strategySummary, promptText, result.dates);
 
   const downloadStrategyName =
     strategySummary?.strategyName?.trim() || promptText?.trim() || t("백테스트 전략");
@@ -1509,7 +1494,7 @@ export default function BacktestDashboard({
                   : "bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white border-white/5 hover:border-white/10"
               }`}
             >
-              <ArrowsClockwise className="w-4 h-4" />
+              <Faders className="w-4 h-4" weight="bold" />
               {t("전략 최적화")}
             </button>
             {(promptText || strategySummary) && (
@@ -1519,8 +1504,8 @@ export default function BacktestDashboard({
                   onClick={() => setPromptTooltipOpen((v) => !v)}
                   className="px-4 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] text-gray-300 hover:text-white text-sm font-bold rounded-lg transition-colors border border-white/10 hover:border-white/15 active:scale-95 flex items-center gap-1.5"
                 >
-                  <Info className="w-4 h-4" />
-                  {t("프롬프트")}
+                  <ClipboardText className="w-4 h-4" weight="bold" />
+                  {t("내 전략")}
                 </button>
                 {promptTooltipOpen && (
                   <div
@@ -1761,25 +1746,8 @@ export default function BacktestDashboard({
                           </button>
                         ))}
                       </div>
-                      <p className="truncate text-xs text-gray-500">
-                        {returnsView === "monthly"
-                          ? (() => {
-                              const allYears = Object.keys(monthlyReturns).sort((a, b) => Number(a) - Number(b));
-                              if (allYears.length > 0) return t("{0} ~ {1} · 최근 {2}년", allYears[0], allYears[allYears.length - 1], monthlyReturnRows.length);
-                              return t("데이터 없음");
-                            })()
-                          : returnsView === "rebalance"
-                          ? t("매일·매주·매월·분기·반기·연간 6주기 재실행 비교")
-                          : effectiveRollingWindow != null
-                          ? t("매 거래일 기준 직전 {0} 구간 수익률", rollingWindowLabel(effectiveRollingWindow))
-                          : t("데이터 없음")}
-                      </p>
                     </div>
-                    {returnsView === "monthly" ? (
-                      <Table size={18} className="shrink-0 text-gray-600" />
-                    ) : returnsView === "rebalance" ? (
-                      <ArrowsClockwise size={18} className="shrink-0 text-gray-600" />
-                    ) : (
+                    {returnsView === "rolling" && (
                       <div className="flex shrink-0 items-center gap-1">
                         {ROLLING_WINDOW_OPTIONS.map((w) => {
                           const enabled = availableRollingWindows.includes(w);
@@ -1805,22 +1773,19 @@ export default function BacktestDashboard({
                     )}
                   </div>
                   {returnsView === "rolling" && (
-                    rollingReturnSeries.length > 0 ? (
-                      <div>
-                        <BacktestChart
-                          type="rolling_returns"
-                          height={280}
-                          rollingData={rollingReturnSeries}
-                        />
-                        <p className="mt-3 text-[10px] text-gray-600 leading-relaxed">
-                          {t("* 각 지점은 해당일 기준 직전 {0} 구간의 수익률입니다. 월별 표(달력 기준)와 달리 구간이 서로 겹치는 롤링 지표로, 진입 시점 선택에 따른 성과 변동을 보여줍니다.", effectiveRollingWindow != null ? rollingWindowLabel(effectiveRollingWindow) : "")}
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="px-4 py-16 text-center text-sm text-gray-500">
-                        {t("백테스트 기간이 짧아 롤링 수익률을 계산할 수 없습니다. (최소 1개월 필요)")}
-                      </div>
-                    )
+                    <RollingReturnTable
+                      rows={rollingWindowRows}
+                      chart={
+                        rollingReturnSeries.length > 0 && effectiveRollingWindow != null ? (
+                          <div>
+                            <BacktestChart type="rolling_returns" height={280} rollingData={rollingReturnSeries} />
+                            <p className="mt-2 text-[10px] leading-relaxed text-gray-600">
+                              {t("* 각 지점은 해당일 기준 직전 {0} 구간의 수익률입니다. 위 버튼으로 투자 기간을 바꿔 볼 수 있습니다.", rollingWindowLabel(effectiveRollingWindow))}
+                            </p>
+                          </div>
+                        ) : null
+                      }
+                    />
                   )}
                   {/* 리밸런싱 기간별 결과(FR-BT-064) — 엔진이 결과에 동봉한 6주기 재시뮬레이션 비교표. */}
                   {returnsView === "rebalance" && (
@@ -1834,10 +1799,12 @@ export default function BacktestDashboard({
                         trades: result.trades,
                         turnoverRate,
                       }}
-                      backtestPeriod={
-                        result.dates?.length ? { start: result.dates[0], end: result.dates[result.dates.length - 1] } : null
-                      }
                     />
+                  )}
+                  {returnsView === "monthly" && monthlyReturnSeries.length > 0 && (
+                    <div className="mb-4">
+                      <BacktestChart type="monthly_returns" height={220} monthlyData={monthlyReturnSeries} />
+                    </div>
                   )}
                   <div className={`w-full overflow-x-auto ${returnsView === "monthly" ? "" : "hidden"}`}>
                     <table className="w-full min-w-[1040px] border-collapse">

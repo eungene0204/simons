@@ -5014,3 +5014,27 @@ def test_ollama_warmup_uses_same_num_ctx_as_inference(monkeypatch):
         monkeypatch, lambda: _ollama_prefill_system_prompt("sys", "m")
     )
     assert prefill["options"]["num_ctx"] == _OLLAMA_NUM_CTX
+
+
+def test_every_engine_indicator_has_a_frontend_badge_label():
+    """엔진이 낼 수 있는 지표는 전부 프론트 라벨이 있어야 한다 — 내부 변수명 노출 금지.
+
+    회귀(2026-08-18): technical.trading_value 진입 신호가 전략 요약 배지에
+    'trading_value'라는 내부 이름 그대로 노출됐다. getSignalLabel의 마지막 폴백이
+    INDICATOR_LABELS에 없는 지표를 원본 id로 되돌리기 때문이다. 라벨 맵이 엔진
+    Literal보다 뒤처지면 새 지표를 붙일 때마다 같은 누출이 재발하므로 여기서 막는다.
+    """
+    from typing import get_args
+
+    from engine.nl_parser import TechnicalSignal
+
+    indicators = set(get_args(TechnicalSignal.model_fields["indicator"].annotation))
+    repo_root = Path(__file__).resolve().parents[2]
+    source = (repo_root / "lib/strategy-summary.ts").read_text(encoding="utf-8")
+    label_block = source.split("export const INDICATOR_LABELS", 1)[1].split("};", 1)[0]
+    labeled = set(re.findall(r"^\s{2}(\w+):", label_block, flags=re.MULTILINE))
+
+    assert indicators <= labeled, (
+        "lib/strategy-summary.ts INDICATOR_LABELS에 라벨이 없는 엔진 지표: "
+        f"{sorted(indicators - labeled)}"
+    )

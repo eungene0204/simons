@@ -16,13 +16,16 @@ function parseJsonField(value: string | null | undefined, fallback: any) {
   }
 }
 
-function historyToSummary(history: any) {
+function historyToSummary(history: any, settings?: Record<string, unknown> | null) {
   if (!history) return null;
   const conditions = parseJsonField(history.conditions, {});
+  // 기간·초기 자본은 conditions(2026-08-18부터 저장)에서, 그 전 행은 원천 Strategy.settings
+  // (실행 요청과 같은 키: period/startDate/endDate/risk.init_cash)에서 되살린다.
   const summary = buildHistorySummary({
     conditions,
     universeName: history.universe,
     strategyName: history.strategyName,
+    executedRequest: settings ?? null,
   });
   // 표시용 배지를 만들지 못하는 행(raw DSL conditions만 가진 save-with-backtest 행 등)은
   // SOT로 채택하지 않고 다음 후보(표시용 names를 가진 auto-save 행)로 넘긴다.
@@ -31,12 +34,17 @@ function historyToSummary(history: any) {
   return { id: history.id, ...summary, conditions };
 }
 
-async function findBacktestHistorySummary(strategy: any, strategyId: string, userId: number | null) {
+async function findBacktestHistorySummary(
+  strategy: any,
+  strategyId: string,
+  userId: number | null,
+  settings: Record<string, unknown> | null
+) {
   const directHistory = await prisma.backtestHistory.findFirst({
     where: { OR: [{ strategyId }, { cacheKey: strategyId }] },
     orderBy: { createdAt: "desc" },
   });
-  const directSummary = historyToSummary(directHistory);
+  const directSummary = historyToSummary(directHistory, settings);
   if (directSummary) return directSummary;
 
   if (userId != null) {
@@ -51,7 +59,7 @@ async function findBacktestHistorySummary(strategy: any, strategyId: string, use
       orderBy: { savedAt: "desc" },
       include: { BacktestHistory: true },
     });
-    const userSummary = historyToSummary(userHistoryLink?.BacktestHistory);
+    const userSummary = historyToSummary(userHistoryLink?.BacktestHistory, settings);
     if (userSummary) return userSummary;
   }
 
@@ -62,7 +70,7 @@ async function findBacktestHistorySummary(strategy: any, strategyId: string, use
     },
     orderBy: { createdAt: "desc" },
   });
-  return historyToSummary(visibleHistory) ?? historyToSummary(directHistory);
+  return historyToSummary(visibleHistory, settings) ?? historyToSummary(directHistory, settings);
 }
 
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
@@ -156,7 +164,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     try {
       settings = JSON.parse(strategy.settings);
     } catch {}
-    const historySummary = await findBacktestHistorySummary(strategy, strategy.id, userId);
+    const historySummary = await findBacktestHistorySummary(strategy, strategy.id, userId, settings);
 
     let backtestResult = null;
     if (strategy.BacktestResult.length > 0) {

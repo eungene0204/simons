@@ -16,6 +16,7 @@ TechnicalSignal.indicator Literal)과 1:1로 유지해야 한다 — 엔진에 �
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Dict, List, Literal, Optional, Tuple
 
 SupportStatus = Literal["SUPPORTED", "PARTIALLY_SUPPORTED", "UNSUPPORTED"]
@@ -143,7 +144,9 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     _fundamental("market_cap", "시가총액", "size", "억원", recommended=5000, value_range=(0, 10_000_000)),
     _fundamental("trading_value", "일평균거래대금", "liquidity", "억원", recommended=10, value_range=(0, 1_000_000),
                  notes="유동성 스크리닝용 기본값. '거래대금 N억 이상 종목만/으로 거른' 처럼 "
-                       "**종목 선정 기준**이면 technical.trading_value가 아니라 이것"),
+                       "**종목 선정 기준**이면 technical.trading_value가 아니라 이것. "
+                       "'일평균·최근 N일 평균 거래대금'처럼 **기간 평균**이면 항상 이것이다 "
+                       "(technical은 당일 거래대금만 본다)"),
     _fundamental("dividend_yield", "배당수익률", "dividend", "percent", recommended=3, value_range=(0, 100)),
     _fundamental("payout_rate", "배당성향", "dividend", "percent", recommended=30, value_range=(0, 1000)),
     _fundamental("dividend_growth", "배당성장률", "dividend", "percent", recommended=5, value_range=(-100, 1000)),
@@ -236,8 +239,9 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                      "필터일 때만. '변동성 낮은 종목 N개' 순위 선정은 ranking.volatility"),
     _technical("trading_value", "거래대금 신호", "억원", _COMPARISON_OPS, {},
                value_range=(0, 1_000_000),
-               notes="당일 거래대금이 임계를 넘는 **매매 시점 트리거**일 때만"
-                     "('거래대금이 N억을 넘으면 매수'). 종목 선정 기준이면 fundamental.trading_value"),
+               notes="**당일 하루치** 거래대금이 임계를 넘는 매매 시점 트리거일 때만"
+                     "('거래대금이 N억을 넘으면 매수'). 기간 평균('일평균·최근 N일 평균')이거나 "
+                     "종목 선정 기준이면 fundamental.trading_value"),
     IndicatorSpec(
         id="technical.ai_model", display_name="AI 상승 예측", category="ai",
         supported="SUPPORTED", data_source="ai_model", value_type="percent",
@@ -427,6 +431,27 @@ def contains_factor_term(text: str) -> bool:
         len(alias) >= 4 and not alias.isascii() and alias in normalized
         for alias in _ALIASES
     )
+
+
+def factor_ids_named_in(text: str) -> set:
+    """짧은 문자열이 **이름으로 부른** 지표의 canonical ID 집합.
+
+    입력은 LLM이 스스로 낸 인용(source_text)이다(§ 3-2 지식 조회) — 사용자 원문을 훑지
+    않는다. `contains_factor_term`이 '어휘가 있나'만 보는 데 비해 이쪽은 '어느 지표인가'를
+    돌려준다. 라틴 약칭(per·pbr·roe)은 단어 경계를 요구해 상품명·영문 조각의 우연한
+    포함을 막는다.
+    """
+    if not text:
+        return set()
+    normalized = text.replace(" ", "").lower()
+    out = set()
+    for alias, canonical in _ALIASES.items():
+        if alias.isascii():
+            if re.search(rf"(?<![a-z]){re.escape(alias)}(?![a-z])", normalized):
+                out.add(canonical)
+        elif alias in normalized:
+            out.add(canonical)
+    return out
 
 
 def resolve(name: str) -> Optional[IndicatorSpec]:

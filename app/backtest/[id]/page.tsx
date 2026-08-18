@@ -92,10 +92,15 @@ export default function BacktestDetailPage() {
     );
   }
 
+  // 기간·초기 자본은 conditions(신규 저장)에서, 없으면 결과에 동봉된 실행 요청·원천 settings에서 되살린다.
   const strategySummary = buildHistorySummary({
     conditions: item.conditions,
     universeName: item.universe,
     strategyName: item.strategyName,
+    executedRequest:
+      ((item.result as any)?.executedRequest as Record<string, unknown> | undefined) ??
+      (item.settings as Record<string, unknown> | undefined) ??
+      null,
   });
 
   // 재실행(워크포워드·리밸런싱 기간별 비교)의 근거 DSL. 원천 Strategy 행의 settings가 없으면

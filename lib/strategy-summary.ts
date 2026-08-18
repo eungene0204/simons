@@ -94,6 +94,12 @@ type LegacyStrategySummaryFields = {
   stop_loss_pct?: number | null;
   take_profit_pct?: number | null;
   trailing_stop_pct?: number | null;
+  // 저장된 settings에는 실행 창·초기 자본도 함께 남는다(backtestCache.upsertStrategyForResult,
+  // save-with-backtest의 dsl = 실행 요청) — 저장 전략 페이지도 기간·자본 행을 정확히 보이기 위해 읽는다.
+  period?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  initial_capital?: number | null;
 };
 
 export const UNIVERSE_LABELS: Record<string, string> = {
@@ -332,6 +338,14 @@ export const INDICATOR_LABELS: Record<string, string> = {
   cci: "CCI",
   adx: "ADX",
   volatility: "변동성",
+  williams_r: "Williams %R",
+  mfi: "MFI",
+  roc: "ROC",
+  // 엔진 TechnicalSignal.indicator(backend/engine/nl_parser.py)에 있는 지표는 **빠짐없이**
+  // 여기 라벨이 있어야 한다 — 없으면 배지가 내부 변수명을 그대로 노출한다
+  // (2026-08-18: 'trading_value'가 진입 신호 배지로 그대로 나갔다).
+  // 누락 감지는 backend/tests/test_nl_parser_overrides.py의 라벨 대조 테스트가 한다.
+  trading_value: "거래대금",
   ai_model: "AI 매수 예측",
   ai_drop_model: "AI 하락 예측",
 };
@@ -399,6 +413,14 @@ export function getSignalLabel(
   if (signal.indicator === "volatility" && signal.operator != null && signal.value != null) {
     const opKr = t(OPERATOR_KO_LABELS[signal.operator] ?? signal.operator);
     return t("변동성 {0}% {1}", signal.value, opKr);
+  }
+
+  // 거래대금 신호의 임계는 억원 단위다(registry technical.trading_value) — 금액이 빠지면
+  // "거래대금"만 남아 조건을 읽을 수 없으므로 진입 게이트 배지(formatEntryFilter)와 같은
+  // 표기로 금액을 함께 싣는다.
+  if (signal.indicator === "trading_value" && signal.value != null) {
+    const opKr = t(OPERATOR_KO_LABELS[signal.operator ?? ">="] ?? signal.operator ?? "");
+    return t("거래대금 {0} {1}", formatEokAmount(signal.value), opKr);
   }
 
   if (signal.indicator === "ai_model" && (context === "exit" || signal.signal_type === "sell")) {
@@ -702,7 +724,63 @@ export function buildStrategySummary(
       parsed.rebalancing_period && parsed.rebalancing_period !== "none"
         ? t("{0} 리밸런싱", t(REBAL_LABELS[parsed.rebalancing_period] ?? parsed.rebalancing_period))
         : undefined,
+    // 백테스트 기간·초기 자본 — 대화 카드(ParsedSummaryBubble)와 같은 행을 결과 화면에도
+    // 보이기 위한 값(2026-08-18: 카드에만 있고 결과 화면 요약 DTO에는 칸이 없어 빠졌다).
+    backtestPeriodText: formatBacktestPeriodLabel(parsed) ?? undefined,
+    initialCapitalText: formatInitialCapital(parsed.initial_capital ?? 10_000_000),
   };
+}
+
+// 실행 요청의 기간 필드 → 배지 문자열. 상대 기간(period: "3y"/"3Y"/"6M"/"10Y"/"full")과
+// 직접 지정 창(startDate/endDate, period "custom")을 모두 다룬다.
+const REQUEST_PERIOD_LABELS: Record<string, string> = {
+  ...PERIOD_LABELS,
+  "6m": "6개월",
+  "10y": "10년",
+  "20y": "20년",
+};
+
+// 실행 조건(백테스트 기간·초기 자본) 텍스트 — 실행 요청·저장된 DSL(settings)·기록의
+// executedRequest가 모두 같은 키(period/startDate/endDate/risk.init_cash)를 쓰므로 한 곳에서 만든다.
+export function backtestRunTextsFromRequest(
+  req:
+    | {
+        period?: string | null;
+        startDate?: string | null;
+        endDate?: string | null;
+        risk?: Record<string, unknown> | null;
+        initial_capital?: number | null;
+      }
+    | null
+    | undefined
+): { backtestPeriodText?: string; initialCapitalText?: string } {
+  if (!req) return {};
+  const risk = (req.risk ?? {}) as Record<string, unknown>;
+  const rawCapital = risk.init_cash ?? req.initial_capital;
+  const capital = typeof rawCapital === "number" && Number.isFinite(rawCapital) ? rawCapital : null;
+  return {
+    backtestPeriodText: formatRequestPeriodLabel(req) ?? undefined,
+    initialCapitalText: capital != null ? formatInitialCapital(capital) : undefined,
+  };
+}
+
+export function formatRequestPeriodLabel(req: {
+  period?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+}): string | null {
+  const from = req.startDate ?? null;
+  const to = req.endDate ?? null;
+  if (from || to) {
+    return formatBacktestPeriodLabel({
+      backtest_period: null,
+      backtest_start_date: from,
+      backtest_end_date: to,
+    });
+  }
+  const period = req.period ? String(req.period).toLowerCase() : null;
+  if (!period || period === "custom") return null;
+  return t(REQUEST_PERIOD_LABELS[period] ?? period);
 }
 
 // 실제로 실행된 백테스트 요청(StrategyBacktestRequest)에서 요약을 만든다.
@@ -719,6 +797,10 @@ interface ExecutedBacktestRequest {
   entry?: { conditions?: Array<{ id?: string; type?: string; params?: Record<string, unknown> }> } | null;
   exit?: { conditions?: Array<{ id?: string; type?: string; params?: Record<string, unknown> }> } | null;
   risk?: Record<string, unknown> | null;
+  // 실행 창 — 상대 기간(period) 또는 직접 지정 창(startDate/endDate). 초기 자본은 risk.init_cash.
+  period?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
 }
 
 function resolveUniverseLabelFromId(universeId: string | null | undefined): string {
@@ -827,6 +909,7 @@ export function buildStrategySummaryFromRequest(
       rebalancingPeriod && rebalancingPeriod !== "none"
         ? t("{0} 리밸런싱", t(REBAL_LABELS[rebalancingPeriod] ?? rebalancingPeriod))
         : undefined,
+    ...backtestRunTextsFromRequest(req),
   };
 }
 
@@ -1073,5 +1156,12 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
       trailingStopPct ? t("트레일링 스탑 {0}%", trailingStopPct) : "",
     ].filter(Boolean).join(", ") || undefined,
     rebalancingText,
+    ...backtestRunTextsFromRequest({
+      period: legacyStrategy.period,
+      startDate: legacyStrategy.startDate,
+      endDate: legacyStrategy.endDate,
+      risk: (strategy.risk ?? null) as unknown as Record<string, unknown> | null,
+      initial_capital: legacyStrategy.initial_capital,
+    }),
   };
 }
