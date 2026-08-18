@@ -74,7 +74,8 @@ class WalkForwardAnalyzer:
             aggregate: { avg_oos_cagr, avg_oos_mdd, avg_oos_sharpe,
                          avg_oos_win_rate, avg_oos_trades },
             combined_equity, combined_dates,
-            walk_forward_efficiency,
+            walk_forward_efficiency,   # 창별 OOS CAGR 평균 ÷ 창별 IS CAGR 평균 (연환산 기준)
+            wfe_valid, wfe_basis,
             message
           }
         """
@@ -112,8 +113,8 @@ class WalkForwardAnalyzer:
 
         # 3. 각 윈도우 실행
         window_results = []
-        is_returns = []
-        oos_returns = []
+        # WFE 표본: 창 단위로 (IS CAGR, OOS CAGR) 짝을 맞춰 모은다 — 한쪽만 있는 창은 제외.
+        wfe_pairs: List[Tuple[float, float]] = []
 
         for i, (is_start, is_end, oos_start, oos_end) in enumerate(windows):
             # 협조적 취소: 창 경계 + (아래 _run_window를 통해) 창 내부 시도/조합 단위로도 확인
@@ -159,12 +160,10 @@ class WalkForwardAnalyzer:
                 return {"status": "cancelled", "message": f"창 {i+1}/{len(windows)} 진행 중 취소되었습니다."}
             window_results.append(w_result)
 
-            is_ret = _finite(w_result.get("is_metrics", {}).get("totalReturn"))
-            if is_ret is not None:
-                is_returns.append(is_ret)
-            oos_ret = _finite(w_result.get("oos_metrics", {}).get("totalReturn"))
-            if oos_ret is not None:
-                oos_returns.append(oos_ret)
+            is_cagr = _finite(w_result.get("is_metrics", {}).get("cagr"))
+            oos_cagr = _finite(w_result.get("oos_metrics", {}).get("cagr"))
+            if is_cagr is not None and oos_cagr is not None:
+                wfe_pairs.append((is_cagr, oos_cagr))
 
         # 모든 윈도우가 실패했으면 부분 결과 대신 즉시 에러로 알린다 (Fail Fast).
         errors = [w.get("error") for w in window_results]
@@ -178,11 +177,14 @@ class WalkForwardAnalyzer:
         aggregate = self._aggregate(window_results)
         combined_equity, combined_dates = self._combine_equity(window_results)
 
-        # Walk-Forward Efficiency (WFE) = avg OOS return / avg IS return.
+        # Walk-Forward Efficiency (WFE) = 창별 OOS CAGR 평균 / 창별 IS CAGR 평균 (Pardo 정의: 연환산끼리).
+        # 총수익률(totalReturn)로 나누면 안 된다 — IS 창이 OOS 창보다 길어(기본 50%:15%≈3.3배)
+        # 정상성 있는 전략(IS=OOS CAGR)조차 WFE≈0.3으로 '과최적화'로 찍힌다(2026-08-19 감사).
+        # IS·OOS 한쪽만 유효한 창은 표본에서 함께 제외해 분자·분모의 창 집합을 일치시킨다.
         # IS 평균이 0 이하이면 비율의 부호가 뒤집혀 해석 불능이므로(감사 M9)
         # wfe_valid=False로 표시하고 0을 반환한다.
-        avg_is = sum(is_returns) / len(is_returns) if is_returns else 0
-        avg_oos = sum(oos_returns) / len(oos_returns) if oos_returns else 0
+        avg_is = sum(p[0] for p in wfe_pairs) / len(wfe_pairs) if wfe_pairs else 0.0
+        avg_oos = sum(p[1] for p in wfe_pairs) / len(wfe_pairs) if wfe_pairs else 0.0
         wfe_valid = avg_is > 0
         wfe = (avg_oos / avg_is) if wfe_valid else 0.0
 
@@ -197,6 +199,8 @@ class WalkForwardAnalyzer:
             "combined_dates": combined_dates,
             "walk_forward_efficiency": round(wfe, 4),
             "wfe_valid": wfe_valid,
+            # WFE 산정 기준. 구버전 저장 결과(총수익률 기준)에는 이 키가 없다 — UI가 문구를 구분한다.
+            "wfe_basis": "cagr",
         }
 
     # ─────────────────────────────────────────────────────────
@@ -270,10 +274,14 @@ class WalkForwardAnalyzer:
                     ))
                     k += 1
             else:
+                # 롤링과 같은 규칙: 검증 길이(oos_bars)를 다 채우지 못하는 마지막 조각 창은 만들지 않는다.
+                # 예전엔 `while is_e < T` + `min(…, T)`로 잘린 창을 하나 더 만들어 UI 예상 구간 수
+                # (floor((T-is)/oos))보다 1개 많았고(표시≠실행), 며칠짜리 검증 창의 CAGR 연환산이
+                # 집계를 오염시켰다(2026-08-19 감사).
                 is_e = is_size
-                while is_e < T:
+                while is_e + oos_size <= T:
                     oos_s = is_e
-                    oos_e = min(oos_s + oos_size, T)
+                    oos_e = oos_s + oos_size
                     windows.append((
                         dates[0],
                         dates[is_e - 1],

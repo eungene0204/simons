@@ -63,6 +63,8 @@ interface WalkForwardResult {
   combined_dates: string[];
   walk_forward_efficiency: number;
   wfe_valid?: boolean;
+  // WFE 산정 기준. 현행 백엔드는 "cagr"(연환산). 없으면 구버전 저장 결과(총수익률 기준, 기간 길이 편향).
+  wfe_basis?: string;
 }
 
 export interface WalkForwardRunProgress {
@@ -158,6 +160,8 @@ function formatDurationRange(seconds: number): string {
 const MAX_GRID_COMBINATIONS = 500;
 // 백엔드 engine/walk_forward.py의 MAX_WINDOWS와 동일한 값으로 유지한다.
 const MAX_WALK_FORWARD_WINDOWS = 24;
+// 이보다 짧은 검증 창은 CAGR 연환산 잡음이 커진다(약 3개월 미만) — 실행은 막지 않고 안내만 한다.
+const SHORT_VALIDATION_BARS = 63;
 
 type ParameterStepConfig = {
   defaultStep: number;
@@ -284,6 +288,8 @@ function deriveMinWindowBars(totalBars: number) {
   return Math.max(5, Math.min(20, Math.floor(totalBars / 4) || 5));
 }
 
+// 백엔드 _split_windows(is_bars/oos_bars)와 같은 규칙 — 롤링·확장 모두 검증 길이를 다 채우는 창만
+// 센다(조각 창 없음). 여기 표시된 구간 수가 실제 실행 구간 수다(표시=실행).
 function deriveSplitCount(totalBars: number, trainBars: number, validationBars: number) {
   if (validationBars <= 0 || totalBars <= trainBars) return 1;
   return Math.max(1, Math.floor((totalBars - trainBars) / validationBars));
@@ -415,55 +421,58 @@ function formatParameterAnalysisValue(value: number) {
   return Number(value.toFixed(2)).toLocaleString("ko-KR", { maximumFractionDigits: 2 });
 }
 
-// WFE 등급 기준 (평균 OOS 수익률 ÷ 평균 IS 수익률). 뱃지·설명·등급표가 모두 이 목록을 공유한다.
+// WFE 구간 기준 (창별 OOS CAGR 평균 ÷ 창별 IS CAGR 평균 — 연환산끼리). 뱃지·설명·기준표가 모두 이 목록을 공유한다.
+// 문구는 과거 데이터에서 관측된 사실만 서술한다 — "실전에서도 재현될 가능성", "권장" 같은 전망·권유 표현은
+// 규제 안전 원칙(전망·행동 제안 금지) 위반이라 2026-08-19 감사에서 제거했다. 등급명도 우열 평가어(우수·위험)
+// 대신 "학습 성과가 검증에서 얼마나 남았는가"를 그대로 말하는 서술어를 쓴다.
 const WFE_TIERS = [
   {
     min: 1.0,
     emoji: "🟢",
-    text: "매우 우수",
+    text: "성과 유지",
     range: "≥ 100%",
-    summary: "검증 성과가 학습 성과 이상",
-    description: "검증 성과가 학습 성과와 같거나 그 이상으로 나타났습니다.",
+    summary: "검증 성과가 학습 성과 이상이었음",
+    description: "검증 구간의 연평균 수익률이 학습 구간과 같거나 더 높았습니다.",
     valueClass: "text-emerald-400",
     badgeClass: "bg-emerald-500/15 text-emerald-400",
   },
   {
     min: 0.8,
     emoji: "🟢",
-    text: "우수",
+    text: "대부분 유지",
     range: "80~99%",
-    summary: "일반적으로 실전성이 높음",
-    description: "일반적으로 실전에서도 재현될 가능성이 높은 편입니다.",
+    summary: "학습 성과의 80% 이상이 검증에서도 나타남",
+    description: "학습 구간 성과의 대부분이 처음 보는 검증 구간에서도 나타났습니다.",
     valueClass: "text-emerald-400",
     badgeClass: "bg-emerald-500/15 text-emerald-400",
   },
   {
     min: 0.6,
     emoji: "🟡",
-    text: "보통",
+    text: "일부 감소",
     range: "60~79%",
-    summary: "추가 검증 권장",
-    description: "추가 검증을 권장하는 수준입니다.",
+    summary: "검증 성과가 학습 대비 20~40% 낮았음",
+    description: "검증 구간 성과가 학습 구간보다 20~40% 낮았습니다.",
     valueClass: "text-yellow-400",
     badgeClass: "bg-yellow-500/15 text-yellow-400",
   },
   {
     min: 0.4,
     emoji: "🟠",
-    text: "주의",
+    text: "큰 폭 감소",
     range: "40~59%",
-    summary: "과최적화 가능성",
-    description: "과최적화 가능성이 있는 수준입니다.",
+    summary: "검증 성과가 학습 대비 절반 안팎에 그침",
+    description: "검증 구간 성과가 학습 구간의 절반 안팎에 그쳤습니다. 특정 구간에 맞춰진(과최적화) 결과였을 가능성이 있습니다.",
     valueClass: "text-orange-400",
     badgeClass: "bg-orange-500/15 text-orange-400",
   },
   {
     min: -Infinity,
     emoji: "🔴",
-    text: "위험",
+    text: "대부분 소실",
     range: "< 40%",
-    summary: "과최적화 가능성이 큼",
-    description: "과최적화 가능성이 큰 수준입니다.",
+    summary: "학습 성과의 40% 미만만 검증에서 유지됨",
+    description: "검증 구간에서는 학습 구간 성과의 40%도 유지되지 않았습니다. 과최적화 가능성이 큰 편입니다.",
     valueClass: "text-red-400",
     badgeClass: "bg-red-500/15 text-red-400",
   },
@@ -889,6 +898,8 @@ export function WalkForwardPanel({
   const wfe = result?.walk_forward_efficiency ?? 0;
   // 백엔드가 IS 평균 수익 ≤ 0으로 WFE 해석 불가를 알린 경우
   const wfeValid = result?.wfe_valid !== false;
+  // 구버전 저장 결과(wfe_basis 없음)는 총수익률 기준이라 학습·검증 기간 길이 차이만큼 낮게 계산돼 있다.
+  const wfeLegacyBasis = !!result && result.wfe_basis !== "cagr";
   const wfeTone = getWfeTone(wfe);
   const isGridMethod = formState.optimizationMethod === "grid";
   const stepModalTarget = visibleTargets.find((target) => target.id === stepModalTargetId) ?? null;
@@ -916,11 +927,12 @@ export function WalkForwardPanel({
   const gridSearchExceedsCap = isGridMethod && gridSearchEstimate > MAX_GRID_COMBINATIONS;
 
   // ── 예상 소요 시간 ──────────────────────────────────────────
-  // 총 백테스트 수 = 구간 수 × (구간당 백테스트 수 + OOS 1회).
-  // 구간당 백테스트 수: 그리드=조합 수, 베이지안=시도 수.
+  // 총 백테스트 수 = 준비 1회(백엔드가 창 분할 전에 기준 기간을 확인하는 백테스트) + 구간 수 × (구간당 백테스트 수 + OOS 1회).
+  // 구간당 백테스트 수: 그리드=조합 수, 베이지안=시도 수(홀드아웃 부가 실행 없음 — 2026-08-19 감사로 제거).
+  const PREPARE_BACKTESTS = 1;
   const backtestsPerWindow = isGridMethod ? gridSearchEstimate : formState.n_trials;
   const totalBacktests = backtestsPerWindow > 0
-    ? derivedSettings.n_splits * (backtestsPerWindow + 1)
+    ? PREPARE_BACKTESTS + derivedSettings.n_splits * (backtestsPerWindow + 1)
     : 0;
   // 워크포워드 구간은 전체 기간보다 짧지만, 실측상 백테스트 1회 비용은 기간 길이와
   // 거의 무관하다 — 비용 대부분이 종목별 데이터 로드+지표 계산 고정비(예: 970종목
@@ -934,7 +946,7 @@ export function WalkForwardPanel({
 
   // 실행 중 남은 시간(라이브 ETA): 완료 백테스트 수를 빼고 실측 평균으로 곱한다.
   const completedBacktests = runProgress?.stage === "window" && runProgress.window
-    ? (runProgress.window - 1) * (backtestsPerWindow + 1) + (runProgress.trial ?? 0)
+    ? PREPARE_BACKTESTS + (runProgress.window - 1) * (backtestsPerWindow + 1) + (runProgress.trial ?? 0)
     : 0;
   const remainingBacktests = Math.max(0, totalBacktests - completedBacktests);
   const liveEtaSeconds = avgBacktestSec != null && totalBacktests > 0
@@ -1143,6 +1155,11 @@ export function WalkForwardPanel({
                         <span>{formatBarsLabel(minWindowBars)}</span>
                         <span>{formatBarsLabel(maxValidationBars)}</span>
                       </div>
+                      {formState.validationBars < SHORT_VALIDATION_BARS && (
+                        <p data-testid="walk-forward-short-validation-note" className="mt-3 text-xs font-bold leading-5 text-amber-300">
+                          {t("검증기간이 {0}거래일(약 3개월)보다 짧습니다. 짧은 구간의 연평균 수익률(CAGR)은 작은 등락도 크게 연환산되어 구간별 CAGR·WFE의 잡음이 커집니다.", SHORT_VALIDATION_BARS)}
+                        </p>
+                      )}
                       <div data-testid="walk-forward-period-timeline" className="mt-5">
                         <div className="relative h-8 w-full">
                           <div
@@ -1184,7 +1201,7 @@ export function WalkForwardPanel({
                           </p>
                         </div>
                         <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
-                          <p className="uppercase tracking-widest text-gray-500">{t("훈련 비율")}</p>
+                          <p className="uppercase tracking-widest text-gray-500">{t("학습 비중")}</p>
                           <p className="mt-2 leading-5 text-white">{Math.round(derivedSettings.train_pct * 100)}%</p>
                         </div>
                         <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
@@ -1351,7 +1368,7 @@ export function WalkForwardPanel({
                                     {t("예상 소요 시간")}
                                   </span>
                                   <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                                    {t("총 {0}회 백테스트(구간 {1}개 × 구간당 {2}회)를 기준 백테스트 실측 속도로 추정한 값입니다.", totalBacktests.toLocaleString(), derivedSettings.n_splits, (backtestsPerWindow + 1).toLocaleString())}
+                                    {t("총 {0}회 백테스트(준비 1회 + 구간 {1}개 × 구간당 {2}회)를 기준 백테스트 실측 속도로 추정한 값입니다.", totalBacktests.toLocaleString(), derivedSettings.n_splits, (backtestsPerWindow + 1).toLocaleString())}
                                   </span>
                                   <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
                                     {t("실제 시간은 데이터 로딩·서버 상황·조건 조합에 따라 달라질 수 있으며, 실행을 시작하면 실측값으로 남은 시간을 다시 계산합니다.")}
@@ -1427,7 +1444,7 @@ export function WalkForwardPanel({
             {result && (
               <div className="divide-y divide-white/[0.08]">
                 <div className="flex items-center gap-3 px-5 py-3">
-                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("워크포워드 검증 결과")}</p>
+                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("워크포워드 분석 결과")}</p>
                 </div>
                 <section className="p-5">
                   <ResultPlainSummary items={buildWalkForwardPlainSummary(result)} />
@@ -1449,6 +1466,11 @@ export function WalkForwardPanel({
                           <p className="mt-3 text-xs font-bold leading-5 text-gray-400">
                             {t(wfeTone.description)}
                           </p>
+                          {wfeLegacyBasis && (
+                            <p data-testid="walk-forward-wfe-legacy-note" className="mt-2 text-xs font-bold leading-5 text-amber-300">
+                              {t("이 결과는 구버전 방식(총수익률 기준)으로 계산된 WFE입니다. 학습 구간이 검증 구간보다 긴 만큼 낮게 나올 수 있으니 다시 실행해 연환산 기준 값을 확인해 주세요.")}
+                            </p>
+                          )}
 
                           <div className="mt-5 border-t border-white/[0.06] pt-4">
                             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
@@ -1456,13 +1478,13 @@ export function WalkForwardPanel({
                             </p>
                             <p className="mt-2 text-xs font-bold leading-5 text-gray-400">
                               {t("워크포워드 검증은 과거 구간을 학습·검증으로 번갈아 나눠, 학습 구간에서 최적화한 설정을 그다음 검증 구간에 적용하는 방식입니다. WFE는 이때")}{" "}
-                              <span className="text-gray-300">{t("검증 구간 평균 수익률을 학습 구간 평균 수익률로 나눈 값")}</span>{t("으로, 학습 구간에 맞춘 설정이 처음 보는 구간에서도 유지되는지를 나타냅니다. 100%에 가까울수록 두 구간의 성과 차이가 작고, 낮을수록 특정 구간에만 맞춰진 과최적화 가능성이 큽니다.")}
+                              <span className="text-gray-300">{t("검증 구간의 연평균 수익률(CAGR) 평균을 학습 구간의 연평균 수익률 평균으로 나눈 값")}</span>{t("으로, 학습 구간에 맞춘 설정이 처음 보는 구간에서도 유지되는지를 나타냅니다. 학습·검증 구간의 길이가 달라도 비교되도록 연환산 수익률끼리 비교합니다. 100%에 가까울수록 두 구간의 성과 차이가 작고, 낮을수록 특정 구간에만 맞춰진 과최적화 가능성이 큽니다.")}
                             </p>
                           </div>
 
                           <div className="mt-4">
                             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                              {t("등급 기준")}
+                              {t("구간 기준")}
                             </p>
                             <div className="mt-2 space-y-0.5">
                               {WFE_TIERS.map((tier) => {
@@ -1506,7 +1528,7 @@ export function WalkForwardPanel({
                             </span>
                           </div>
                           <p className="mt-3 text-xs font-bold leading-5 text-gray-400">
-                            {t("학습 구간 평균 수익률이 0 이하라 검증/학습 비율을 해석할 수 없습니다. 구간별 결과를 직접 확인해 주세요.")}
+                            {t("학습 구간 평균 연평균 수익률(CAGR)이 0 이하라 검증/학습 비율을 해석할 수 없습니다. 구간별 결과를 직접 확인해 주세요.")}
                           </p>
                         </>
                       )}
@@ -1542,7 +1564,7 @@ export function WalkForwardPanel({
                       <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("실행 설정")}</p>
                       <div className="mt-3 divide-y divide-white/[0.04] border-t border-white/[0.05]">
                         {[
-                          { label: t("분할 수"), value: t("{0}개", result.n_splits) },
+                          { label: t("구간 수"), value: t("{0}개", result.n_splits) },
                           { label: t("학습 창 방식"), value: result.anchor ? t("확장") : t("롤링") },
                           { label: t("목표 지표"), value: t(TARGET_METRICS.find((metric) => metric.id === result.target_metric)?.label ?? result.target_metric) },
                         ].map((item) => (
@@ -1612,7 +1634,7 @@ export function WalkForwardPanel({
                     >
                       <thead>
                         <tr className="border-b border-white/[0.12]">
-                          <th scope="col" className="w-20 px-3 py-4 text-xs font-black text-gray-400">Walk</th>
+                          <th scope="col" className="w-20 px-3 py-4 text-xs font-black text-gray-400">{t("구간")}</th>
                           <th scope="col" className="w-52 px-3 py-4 text-xs font-black text-gray-400">{t("학습 기간")}</th>
                           <th scope="col" className="w-52 px-3 py-4 text-xs font-black text-gray-400">{t("검증 기간")}</th>
                           {resultParameterKeys.map((key) => (

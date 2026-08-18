@@ -147,3 +147,40 @@ class TestStrategyOptimizer:
 
         assert result["status"] == "error"
         assert "상한" in result["message"]
+
+
+# ===========================================================================
+# 손익비(profitFactor) 목표 — 손실 거래 0건이면 엔진이 None(=∞)을 돌려준다
+# ===========================================================================
+
+class NoLossForPeriod20Engine(DummyEngine):
+    """period=20 조합은 손실 거래가 없어 profitFactor=None(∞)."""
+    def run_backtest(self, req):
+        result = super().run_backtest(req)
+        period = req["entry"]["conditions"][0]["params"]["period"]
+        result["profitFactor"] = None if period == 20 else 1.2
+        return result
+
+
+class TestProfitFactorTarget:
+    def test_none_profit_factor_does_not_crash_and_ranks_as_infinite(self):
+        """회귀(2026-08-19): None이 정렬 키에 그대로 들어가 TypeError로 창 전체가 죽었다.
+        ∞는 최대화 목표에서 최상값이므로 무손실 조합이 1등이어야 한다."""
+        optimizer = StrategyOptimizer(NoLossForPeriod20Engine())
+        ranges = {"entry.conditions.0.params.period": [10, 14, 20]}
+
+        result = optimizer.optimize(_base_request(), ranges, target_metric="profitFactor")
+
+        assert result.get("status") != "error"
+        assert result["best_parameters"]["entry.conditions.0.params.period"] == 20
+        assert result["best_metrics"]["profitFactor"] is None  # ∞는 None으로 유지(0.0과 구분)
+
+    def test_target_sort_value_semantics(self):
+        from engine.grid_optimizer import target_sort_value
+        import math
+
+        assert target_sort_value("profitFactor", None) == math.inf
+        assert target_sort_value("cagr", None) == -math.inf
+        assert target_sort_value("maxDrawdown", None) == math.inf  # 최소화 목표의 최악
+        assert target_sort_value("cagr", float("nan")) == -math.inf
+        assert target_sort_value("cagr", "12.5") == 12.5

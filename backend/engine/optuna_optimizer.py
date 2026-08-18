@@ -8,7 +8,12 @@ from optuna.trial import TrialState
 # Suppress excessively verbose optuna logs unless error
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-from engine.grid_optimizer import set_nested_value, satisfies_param_order_constraints
+from engine.grid_optimizer import (
+    set_nested_value,
+    satisfies_param_order_constraints,
+    is_minimize_metric,
+    target_sort_value,
+)
 
 
 class OptunaOptimizer:
@@ -76,10 +81,14 @@ class OptunaOptimizer:
                 break
         return combinations
 
-    def _walk_forward_validate(self, base_request: Dict[str, Any], best_params: Dict[str, Any]) -> Dict[str, Any] | None:
-        """
-        Run best params on the full period to get dates, then on the latter 30%
-        as out-of-sample validation to detect overfitting.
+    def _holdout_validate(self, base_request: Dict[str, Any], best_params: Dict[str, Any]) -> Dict[str, Any] | None:
+        """단일 홀드아웃(70/30) 검증 — 최적 파라미터로 전체 구간 1회 + 후반 30% 구간 1회를 더 돌린다.
+
+        워크포워드(창을 굴리며 재학습)가 아니라 한 번 나누는 홀드아웃이다. 예전 이름
+        `_walk_forward_validate`는 오명이었고, 워크포워드 분석(engine/walk_forward.py)이
+        창마다 이 함수를 무조건 호출해 결과도 안 쓰는 백테스트를 창당 2회씩 낭비했다
+        (2026-08-19 감사) — 그래서 optimize(holdout_validation=True)일 때만 실행한다.
+        결과는 /optimize 리포트(ai/local_optimization_agent.py)의 '과적합 검증' 절에서만 쓴다.
         """
         req = copy.deepcopy(base_request)
         for path, value in best_params.items():
@@ -124,15 +133,26 @@ class OptunaOptimizer:
                 }
             }
         except Exception as e:
-            print(f"[OptunaOptimizer] Walk-forward validation failed: {e}")
+            print(f"[OptunaOptimizer] Holdout validation failed: {e}")
             return None
 
-    def optimize(self, base_request: Dict[str, Any], ranges: Dict[str, Any], target_metric: str = "cagr", n_trials: int = 50, progress_callback: Optional[Callable[[int, int, Optional[Dict[str, Any]]], None]] = None, should_cancel: Optional[Callable[[], bool]] = None) -> Dict[str, Any]:
+    def optimize(
+        self,
+        base_request: Dict[str, Any],
+        ranges: Dict[str, Any],
+        target_metric: str = "cagr",
+        n_trials: int = 50,
+        progress_callback: Optional[Callable[[int, int, Optional[Dict[str, Any]]], None]] = None,
+        should_cancel: Optional[Callable[[], bool]] = None,
+        holdout_validation: bool = False,
+    ) -> Dict[str, Any]:
         """
         Runs Bayesian optimization using Optuna to find the best parameters.
         Returns the top results sorted by `target_metric`.
 
         should_cancel: 협조적 취소 훅 — 시도(trial)마다 확인해 True면 study를 중단한다.
+        holdout_validation: True면 최적 파라미터로 70/30 홀드아웃 검증(백테스트 2회 추가)을 덧붙인다.
+            기본 False — 워크포워드처럼 결과를 쓰지 않는 호출부가 비용만 치르지 않게 한다.
         """
         if should_cancel is not None and should_cancel():
             return {"status": "cancelled", "message": "최적화 시작 전에 취소되었습니다."}
@@ -146,7 +166,7 @@ class OptunaOptimizer:
 
         # Determine whether to maximize or minimize
         # Standard: higher is better for returns, win rate, sharpe. Lower is better for MDD.
-        direction = "minimize" if target_metric in ["maxDrawdown", "mdd"] else "maximize"
+        direction = "minimize" if is_minimize_metric(target_metric) else "maximize"
 
         def objective(trial: optuna.Trial):
             nonlocal consecutive_failures
@@ -198,8 +218,18 @@ class OptunaOptimizer:
                     "target_value": metric_val
                 })
 
-                return metric_val
+                # 손익비 ∞(손실 거래 0건 → 엔진이 None)는 최대화에서 최상값 +inf로 보고한다.
+                # None을 그대로 돌려주면 optuna가 "cast to float" 실패로 시도를 FAIL 처리해
+                # 무손실 조합이 절대 1등이 될 수 없었다(2026-08-19 감사). 그 밖의 비수치는 시도 폐기.
+                objective_value = target_sort_value(target_metric, metric_val)
+                if objective_value in (float("inf"), float("-inf")) and not (
+                    target_metric == "profitFactor" and metric_val is None
+                ):
+                    raise optuna.exceptions.TrialPruned()
+                return objective_value
 
+            except optuna.exceptions.TrialPruned:
+                raise
             except Exception as e:
                 print(f"[OptunaOptimizer] Trial {trial.number} failed: {e}")
                 consecutive_failures += 1
@@ -245,11 +275,10 @@ class OptunaOptimizer:
             print(f"[OptunaOptimizer] cancelled after {len(study.trials)}/{n_trials} trials", flush=True)
             return {"status": "cancelled", "message": f"베이지안 최적화 {len(study.trials)}/{n_trials} 시도에서 취소되었습니다."}
 
-        # Sort history to find top 5
-        reverse_sort = target_metric not in ["maxDrawdown", "mdd"]
-        default_val = -999999.0 if reverse_sort else 999999.0
+        # Sort history to find top 5 (target_value None=손익비 ∞·NaN도 정렬이 죽지 않게 변환)
+        reverse_sort = not is_minimize_metric(target_metric)
         results_history.sort(
-            key=lambda x: x.get("target_value") if x.get("target_value") is not None else default_val,
+            key=lambda x: target_sort_value(target_metric, x.get("target_value")),
             reverse=reverse_sort
         )
 
@@ -277,8 +306,8 @@ class OptunaOptimizer:
         except Exception:
             pass
 
-        # Walk-forward validation: detect overfitting
-        walk_forward = self._walk_forward_validate(base_request, best_trial.params)
+        # 단일 홀드아웃 검증(옵트인) — 백테스트 2회가 더 든다
+        holdout = self._holdout_validate(base_request, best_trial.params) if holdout_validation else None
 
         return {
             "total_iterations": len(study.trials),
@@ -288,5 +317,5 @@ class OptunaOptimizer:
             "top_results": results_history[:5],
             "all_results": results_history,
             "param_importances": importances,
-            "walk_forward": walk_forward
+            "holdout_validation": holdout,
         }

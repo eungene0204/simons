@@ -354,6 +354,20 @@ class TestExplicitBarsSplit:
         # IS 종료가 매 창마다 oos_bars만큼 확장
         assert [w[1] for w in windows] == [dates[119], dates[159], dates[199]]
 
+    def test_anchored_drops_truncated_last_window_like_rolling(self):
+        """회귀(2026-08-19): 확장 모드가 검증 길이를 못 채우는 마지막 조각 창을 하나 더 만들어
+        롤링·UI 예상 구간 수(floor((T-is)/oos))보다 1개 많았다(1000/500/150 → 롤링 3, 확장 4, UI 3)."""
+        analyzer = WalkForwardAnalyzer(SequentialDatesEngine(1000))
+        dates = analyzer.engine.total_dates
+        index = {d: i for i, d in enumerate(dates)}
+
+        rolling = analyzer._split_windows(dates, 5, 0.7, anchor=False, is_bars=500, oos_bars=150)
+        anchored = analyzer._split_windows(dates, 5, 0.7, anchor=True, is_bars=500, oos_bars=150)
+
+        assert len(rolling) == len(anchored) == (1000 - 500) // 150 == 3
+        for _, _, oos_s, oos_e in anchored:
+            assert index[oos_e] - index[oos_s] + 1 == 150  # 모든 검증 창이 정확히 oos_bars 길이
+
     def test_bars_too_large_returns_no_windows(self):
         engine = SequentialDatesEngine(100)
         analyzer = WalkForwardAnalyzer(engine)
@@ -434,6 +448,32 @@ class NegativeReturnEngine(SequentialDatesEngine):
     def run_backtest(self, req):
         result = super().run_backtest(req)
         result["totalReturn"] = -5.0
+        result["cagr"] = -5.0
+        return result
+
+
+class StationaryEngine(SequentialDatesEngine):
+    """매일 같은 수익률(연 12%)을 내는 완전 정상성 전략 — IS/OOS 창 길이가 달라도 CAGR은 동일.
+
+    창 길이에 비례해 총수익률(totalReturn)은 IS가 OOS보다 훨씬 크므로, WFE를 총수익률로
+    나누면 정상성 전략조차 '과최적화'로 찍힌다(2026-08-19 감사 재현용).
+    """
+
+    ANNUAL_RATE = 0.12
+
+    def run_backtest(self, req):
+        result = super().run_backtest(req)
+        start, end = req.get("startDate"), req.get("endDate")
+        dates = [
+            d for d in self.total_dates
+            if (start is None or d >= start) and (end is None or d <= end)
+        ]
+        n = len(dates)
+        daily = (1 + self.ANNUAL_RATE) ** (1 / 252) - 1
+        total_return = ((1 + daily) ** n - 1) * 100
+        years = n / 252
+        result["totalReturn"] = total_return
+        result["cagr"] = ((1 + total_return / 100) ** (1 / years) - 1) * 100 if years > 0 else 0.0
         return result
 
 
@@ -452,6 +492,57 @@ class TestWfeValidity:
         assert result["status"] == "ok"
         assert result["wfe_valid"] is False
         assert result["walk_forward_efficiency"] == 0.0
+
+    def test_wfe_uses_annualized_cagr_not_length_biased_total_return(self):
+        """정상성 전략(IS CAGR == OOS CAGR)의 WFE는 창 길이 비율과 무관하게 ≈1.0이어야 한다."""
+        engine = StationaryEngine(1000)
+        analyzer = WalkForwardAnalyzer(engine)
+
+        result = analyzer.analyze(
+            base_request=_base_request(),
+            ranges=_ranges(),
+            method="grid",
+            is_bars=500,
+            oos_bars=150,
+        )
+
+        assert result["status"] == "ok"
+        assert result["wfe_valid"] is True
+        assert result["wfe_basis"] == "cagr"
+        # 총수익률 기준이었다면 150/500 창 비율 탓에 ≈0.28로 나왔다.
+        assert abs(result["walk_forward_efficiency"] - 1.0) < 0.01
+
+    def test_wfe_pairs_is_and_oos_per_window(self):
+        """OOS가 실패한 창의 IS 수익은 WFE 분모에서도 함께 빠져야 한다 (분자·분모 창 집합 일치)."""
+
+        engine = SequentialDatesEngine(240)
+        # 창 1: IS=[0,100) OOS=[100,150) / 창 2: IS=[50,150) OOS=[150,200)
+        first_oos_start = engine.total_dates[100]
+        first_is_start = engine.total_dates[0]
+
+        class OosFailsFirstWindowEngine(SequentialDatesEngine):
+            def run_backtest(self, req):
+                start = req.get("startDate")
+                if start == first_oos_start:
+                    raise RuntimeError("OOS boom")  # 창 1의 OOS만 실패
+                result = super().run_backtest(req)
+                # 창 1 IS는 CAGR 40, 나머지(창 2 IS·OOS)는 20 — 짝이 어긋나면 값이 달라진다
+                result["cagr"] = 40.0 if start == first_is_start else 20.0
+                return result
+
+        analyzer = WalkForwardAnalyzer(OosFailsFirstWindowEngine(240))
+        result = analyzer.analyze(
+            base_request=_base_request(),
+            ranges=_ranges(),
+            method="grid",
+            is_bars=100,
+            oos_bars=50,
+        )
+
+        assert result["status"] == "ok"
+        assert result["windows"][0].get("error")
+        # 창 2만으로 계산(20/20) → 정확히 1.0. 창 1 IS(40)가 분모에 섞였다면 20/30≈0.67.
+        assert result["walk_forward_efficiency"] == 1.0
 
 
 class TestProgressAndCancel:
@@ -527,3 +618,55 @@ class TestProgressAndCancel:
         )
 
         assert result["status"] == "ok"
+
+
+class TestProfitFactorTarget:
+    def test_grid_profit_factor_target_survives_no_loss_combination(self):
+        """회귀(2026-08-19): 무손실 조합의 profitFactor=None(∞)이 정렬 TypeError를 일으켜 창 전체가
+        'IS 최적화 오류'로 실패했다. ∞는 최상값으로 취급돼 그 조합이 선택되어야 한다."""
+
+        class NoLossEngine(SequentialDatesEngine):
+            def run_backtest(self, req):
+                result = super().run_backtest(req)
+                period = req["entry"]["conditions"][0]["params"]["period"]
+                result["profitFactor"] = None if period == 20 else 1.2
+                return result
+
+        analyzer = WalkForwardAnalyzer(NoLossEngine(240))
+        result = analyzer.analyze(
+            base_request=_base_request(),
+            ranges=_ranges(),
+            method="grid",
+            target_metric="profitFactor",
+            is_bars=100,
+            oos_bars=50,
+        )
+
+        assert result["status"] == "ok"
+        for window in result["windows"]:
+            assert window.get("error") is None
+            assert window["best_params"]["entry.conditions.0.params.period"] == 20
+
+
+class TestBayesianBacktestBudget:
+    def test_bayesian_window_runs_only_trials_plus_oos(self):
+        """회귀(2026-08-19): OptunaOptimizer가 창마다 70/30 홀드아웃(_holdout_validate)을 무조건 실행해
+        결과도 안 쓰는 백테스트를 창당 2회씩 낭비했다(ETA 산식 n_trials+1과도 불일치).
+        워크포워드에서는 창당 정확히 n_trials(IS) + 1(OOS)만 실행되어야 한다."""
+        engine = CountingEngine(240)
+        analyzer = WalkForwardAnalyzer(engine)
+        n_trials = 3
+
+        result = analyzer.analyze(
+            base_request=_base_request(),
+            ranges=_ranges(),
+            method="bayesian",
+            n_trials=n_trials,
+            is_bars=100,
+            oos_bars=50,
+        )
+
+        assert result["status"] == "ok"
+        n_windows = len(result["windows"])
+        assert n_windows == 2
+        assert engine.backtest_calls == n_windows * (n_trials + 1)

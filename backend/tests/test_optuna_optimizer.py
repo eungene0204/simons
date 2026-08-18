@@ -280,3 +280,51 @@ class TestLocalOptimizationAgentLoop:
         assert "report" in result
         assert len(result["report"]) > 0
         assert "maxDrawdown" in result["best_metrics"]
+
+
+# ===========================================================================
+# 5. 손익비(profitFactor) 목표 — 손실 거래 0건이면 엔진이 None(=∞)을 돌려준다
+# ===========================================================================
+
+class NoLossForPeriod20Engine(DummyEngine):
+    """period=20 조합은 손실 거래가 없어 profitFactor=None(∞)."""
+    def run_backtest(self, req):
+        result = super().run_backtest(req)
+        period = req["entry"]["conditions"][0]["params"]["period"]
+        result["profitFactor"] = None if period == 20 else 1.2
+        return result
+
+
+class TestOptunaProfitFactorTarget:
+    def test_none_profit_factor_wins_as_infinite(self):
+        """회귀(2026-08-19): None 목표값을 optuna가 FAIL 처리해 무손실 조합이 절대 1등이 될 수 없었다."""
+        optimizer = OptunaOptimizer(NoLossForPeriod20Engine())
+        result = optimizer.optimize(_base_request(), _ranges(), target_metric="profitFactor", n_trials=6)
+
+        assert result.get("status") != "error"
+        assert result["best_parameters"]["entry.conditions.0.params.period"] == 20
+        assert result["best_metrics"]["profitFactor"] is None  # ∞는 None으로 유지(0.0과 구분)
+        # 상위 결과 정렬도 None(∞)이 맨 앞
+        assert result["top_results"][0]["parameters"]["entry.conditions.0.params.period"] == 20
+
+
+# ===========================================================================
+# 7. 홀드아웃 검증은 옵트인 — 기본은 실행하지 않는다(워크포워드 창당 낭비 2회 방지)
+# ===========================================================================
+
+class TestHoldoutValidationOptIn:
+    def test_default_skips_holdout_and_reports_none(self):
+        engine = DummyEngine()
+        result = OptunaOptimizer(engine).optimize(_base_request(), _ranges(), target_metric="cagr", n_trials=3)
+        assert result["holdout_validation"] is None
+        assert "walk_forward" not in result  # 옛 오명 키는 더 이상 없다
+        assert engine.call_count == 3
+
+    def test_opt_in_runs_two_extra_backtests(self):
+        engine = DummyEngine()
+        result = OptunaOptimizer(engine).optimize(
+            _base_request(), _ranges(), target_metric="cagr", n_trials=3, holdout_validation=True
+        )
+        # DummyEngine은 dates를 돌려주지 않아 홀드아웃 결과는 None이지만, 전체 구간 1회는 실행된다
+        assert engine.call_count >= 4
+        assert "holdout_validation" in result
