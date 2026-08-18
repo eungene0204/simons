@@ -254,3 +254,34 @@ def test_trading_value_average_window_is_not_compared(qatd):
         {"indicator": "trading_value", "operator": ">=", "value": 30.0}]}
     flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
     assert flags.fatal == []
+
+
+def test_duplicated_identical_exit_condition_is_fatal(qatd):
+    """실측(2026-08-18, 예시 51): 'EMA 데드크로스 청산'이 exit_signals에 완전히 같은 신호로
+    2개 실렸는데 08-17 전수 검증이 치명 0으로 통과했다 — 판정이 소실·값 오차만 보고 잉여를
+    안 봤다(리포트엔 '청산=ema,ema'로 찍혀 있었다). 같은 역할 안 동일 조건 반복은 치명이다."""
+    prompt = ("KOSPI 종목 중 ADX가 25 이상으로 추세 강도가 확인된 상태에서 5일 EMA가 20일 EMA를 "
+              "위로 돌파할 때 매수하고 싶습니다. EMA 데드크로스가 나오면 청산하고, 10종목, "
+              "손절 -8%로 부탁드립니다.")
+    ema_sell = {"indicator": "ema", "signal_type": "sell", "short_period": 5, "long_period": 20,
+                "period": None, "operator": None, "value": None, "mode": None}
+    parsed = {"universe": ["KOSPI"], "max_positions": 10, "stop_loss_pct": 8.0,
+              "entry_signals": [
+                  {"indicator": "adx", "signal_type": "buy", "period": 14, "operator": ">=", "value": 25.0},
+                  {"indicator": "ema", "signal_type": "buy", "short_period": 5, "long_period": 20}],
+              "exit_signals": [ema_sell, dict(ema_sell)]}
+    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    assert any("청산 신호 중복" in x and "ema" in x for x in flags.fatal)
+
+
+def test_distinct_same_indicator_conditions_are_not_duplicates(qatd):
+    """기간이 다른 같은 지표(EMA 5/20·20/60 데드크로스)는 서로 다른 신호 — 중복이 아니다.
+    null 필드는 없는 것으로 보고 비교하므로 직렬화 차이(누락 vs null)로 오탐하지 않는다."""
+    prompt = "KOSPI에서 5일 EMA가 20일 EMA를 하향 돌파하거나 20일 EMA가 60일 EMA를 하향 돌파하면 청산해 주세요."
+    parsed = {"universe": ["KOSPI"], "max_positions": 10,
+              "entry_signals": [{"indicator": "rsi", "operator": "<=", "value": 30.0}],
+              "exit_signals": [
+                  {"indicator": "ema", "signal_type": "sell", "short_period": 5, "long_period": 20, "value": None},
+                  {"indicator": "ema", "signal_type": "sell", "short_period": 20, "long_period": 60}]}
+    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    assert not any("중복" in x for x in flags.fatal)

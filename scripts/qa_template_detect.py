@@ -254,6 +254,25 @@ def _has_any(p: dict, inds: list[str]) -> bool:
     return any(_has_sig(p, i) for i in inds)
 
 
+def duplicated_conditions(items: list[dict]) -> list[str]:
+    """한 목록 안에서 **모든 필드가 같은** 조건이 반복되면 그 조건의 표기를 돌려준다.
+
+    None 필드는 없는 것으로 보고 비교한다(파스 결과 직렬화가 빈 필드를 null로 채운다).
+    지표·기간·연산자·값이 하나라도 다르면 다른 조건이다(EMA 5/20과 20/60은 둘 다 정당).
+    """
+    seen: set[str] = set()
+    dups: list[str] = []
+    for item in items:
+        key = json.dumps({k: v for k, v in item.items() if v is not None},
+                         sort_keys=True, ensure_ascii=False)
+        if key in seen:
+            name = item.get("indicator") or item.get("metric") or "?"
+            if name not in dups:
+                dups.append(name)
+        seen.add(key)
+    return dups
+
+
 COVERAGE_CHECKS: list[tuple[str, str, Any]] = [
     ("PBR", r"PBR", lambda p: _has_fund(p, "pbr")),
     ("PER", r"PER", lambda p: _has_fund(p, "per")),
@@ -434,6 +453,18 @@ def analyze(tpl: Template, res: dict) -> Flags:
             if lost:
                 f.fatal.append(f"{label} 소실(말한 값 {','.join(f'{w:g}' for w in lost)}이 "
                                f"신호 어디에도 없음 — 파싱 {sorted(used)})")
+
+    # ④ 잉여 — 같은 역할 안에 **완전히 같은 조건이 두 번** 실리면 치명. 위 검사들은 전부
+    # 결손 방향(빠졌나·값이 틀렸나)이라 "남는 게 붙었나"를 보지 않았고, 2026-08-18 사고
+    # (예시 51 'EMA 데드크로스 청산'이 exit_signals에 2개 — 9B가 청산을 두 조각으로 내고
+    # 결정론 교정이 둘을 같은 신호로 수렴)가 08-17 전수 검증을 치명 0으로 통과했다 —
+    # 리포트 요약엔 '청산=ema,ema'로 찍혀 있었지만 판정 항목이 아니었다.
+    for label, key in (("진입 신호", "entry_signals"), ("청산 신호", "exit_signals"),
+                       ("재무 조건", "fundamental_filters")):
+        dup = duplicated_conditions(p.get(key) or [])
+        if dup:
+            f.fatal.append(f"{label} 중복(같은 조건 {len(dup)}건 반복: "
+                           f"{', '.join(dup)})")
 
     for name, field_name, pat in RISK_KEYWORDS:
         if re.search(pat, prompt) and p.get(field_name) is None and not re.search(pat, asked):
