@@ -15,7 +15,6 @@ interface Props {
   data: RebalanceComparisonResult | null | undefined;
   /** 메인 결과(현재 설정)의 지표 — 현재 주기가 6주기 밖이면 참고 행으로 쓴다. */
   current: CurrentSettingMetrics;
-  backtestPeriod?: { start?: string; end?: string } | null;
 }
 
 function pct(v: number | null | undefined, signed = true): string {
@@ -39,7 +38,7 @@ function returnColorClass(v: number | null | undefined): string {
  * 리밸런싱 기간별 결과(FR-BT-064) — 같은 전략을 6주기로 재시뮬레이션한 엔진 수치 비교표.
  * 별도 실행 없이 백테스트 결과와 함께 온다(2026-08-18 사용자 지시 — 실행 버튼·AI 서술 없음).
  */
-export default function RebalanceComparisonSection({ data, current, backtestPeriod }: Props) {
+export default function RebalanceComparisonSection({ data, current }: Props) {
   if (!data || !Array.isArray(data.periods) || data.periods.length === 0) {
     return (
       <div className="px-4 py-12 text-center text-sm leading-relaxed text-gray-500">
@@ -49,8 +48,6 @@ export default function RebalanceComparisonSection({ data, current, backtestPeri
   }
 
   const rows = orderComparisonRows(data, current);
-  const start = backtestPeriod?.start;
-  const end = backtestPeriod?.end;
 
   return (
     <div className="flex flex-col gap-4" data-testid="rebalance-comparison-section">
@@ -109,11 +106,6 @@ export default function RebalanceComparisonSection({ data, current, backtestPeri
           </tbody>
         </table>
       </div>
-      <p className="text-[10px] leading-relaxed text-gray-600">
-        {start && end
-          ? t("* 백테스트 기간 {0} ~ {1}. 각 행은 리밸런싱 주기만 바꿔 같은 전략을 다시 실행한 과거 데이터 시뮬레이션 결과이며 미래 수익을 보장하지 않습니다.", start, end)
-          : t("* 각 행은 리밸런싱 주기만 바꿔 같은 전략을 다시 실행한 과거 데이터 시뮬레이션 결과이며 미래 수익을 보장하지 않습니다.")}
-      </p>
     </div>
   );
 }

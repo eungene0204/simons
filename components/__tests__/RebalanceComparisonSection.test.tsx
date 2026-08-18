@@ -52,12 +52,11 @@ describe("RebalanceComparisonSection", () => {
     expect(screen.queryByTestId("rebalance-comparison-table")).toBeNull();
   });
 
-  it("6주기 표 + 현재 설정 참고 행 + 기간 안내를 실행 버튼 없이 바로 그린다", () => {
+  it("6주기 표 + 현재 설정 참고 행을 실행 버튼 없이 바로 그린다", () => {
     render(
       <RebalanceComparisonSection
         data={{ periods: PERIODS, currentPeriod: "none", positionCapAbsent: false }}
         current={CURRENT}
-        backtestPeriod={{ start: "2020-01-02", end: "2024-12-30" }}
       />
     );
     expect(screen.queryByRole("button")).toBeNull();
@@ -70,7 +69,6 @@ describe("RebalanceComparisonSection", () => {
     expect(noneRow.textContent).toContain("+9.50%");
     // 손익비 null(손실 0건)은 ∞ 표기
     expect(screen.getByTestId("rebalance-row-semiannual").textContent).toContain("∞");
-    expect(screen.getByText(/2020-01-02 ~ 2024-12-30/)).toBeTruthy();
     expect(screen.queryByRole("note")).toBeNull();
   });
 

@@ -2257,8 +2257,6 @@ export const en: Record<string, string> = {
   "리밸런싱 없음": "No rebalancing",
   "반기": "Semi-annual",
   "연간": "Annual",
-  "* 각 행은 리밸런싱 주기만 바꿔 같은 전략을 다시 실행한 과거 데이터 시뮬레이션 결과이며 미래 수익을 보장하지 않습니다.": "* Each row is a historical-data simulation of the same strategy re-run with only the rebalancing period changed; future returns are not guaranteed.",
-  "* 백테스트 기간 {0} ~ {1}. 각 행은 리밸런싱 주기만 바꿔 같은 전략을 다시 실행한 과거 데이터 시뮬레이션 결과이며 미래 수익을 보장하지 않습니다.": "* Backtest period {0} ~ {1}. Each row is a historical-data simulation of the same strategy re-run with only the rebalancing period changed; future returns are not guaranteed.",
   "실행 실패: {0}": "Run failed: {0}",
   "현재 설정": "Current setting",
   "이 결과에는 리밸런싱 기간별 비교가 저장되어 있지 않습니다. 새로 실행된 백테스트부터 함께 계산됩니다.": "This result does not include the rebalancing period comparison. It is calculated together with newly run backtests.",

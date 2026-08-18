@@ -1834,9 +1834,6 @@ export default function BacktestDashboard({
                         trades: result.trades,
                         turnoverRate,
                       }}
-                      backtestPeriod={
-                        result.dates?.length ? { start: result.dates[0], end: result.dates[result.dates.length - 1] } : null
-                      }
                     />
                   )}
                   <div className={`w-full overflow-x-auto ${returnsView === "monthly" ? "" : "hidden"}`}>
