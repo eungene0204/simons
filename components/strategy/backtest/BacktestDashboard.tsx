@@ -4,8 +4,9 @@ import { BacktestResult } from "@/types/strategy";
 import BacktestChart from "@/components/strategy/BacktestChart";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
 import {
-  Table,
   ArrowsClockwise,
+  Faders,
+  ClipboardText,
   ShieldCheck,
   Warning,
   Info,
@@ -1493,7 +1494,7 @@ export default function BacktestDashboard({
                   : "bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white border-white/5 hover:border-white/10"
               }`}
             >
-              <ArrowsClockwise className="w-4 h-4" />
+              <Faders className="w-4 h-4" weight="bold" />
               {t("전략 최적화")}
             </button>
             {(promptText || strategySummary) && (
@@ -1503,8 +1504,8 @@ export default function BacktestDashboard({
                   onClick={() => setPromptTooltipOpen((v) => !v)}
                   className="px-4 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] text-gray-300 hover:text-white text-sm font-bold rounded-lg transition-colors border border-white/10 hover:border-white/15 active:scale-95 flex items-center gap-1.5"
                 >
-                  <Info className="w-4 h-4" />
-                  {t("프롬프트")}
+                  <ClipboardText className="w-4 h-4" weight="bold" />
+                  {t("내 전략")}
                 </button>
                 {promptTooltipOpen && (
                   <div
@@ -1745,25 +1746,8 @@ export default function BacktestDashboard({
                           </button>
                         ))}
                       </div>
-                      <p className="truncate text-xs text-gray-500">
-                        {returnsView === "monthly"
-                          ? (() => {
-                              const allYears = Object.keys(monthlyReturns).sort((a, b) => Number(a) - Number(b));
-                              if (allYears.length > 0) return t("{0} ~ {1} · 최근 {2}년", allYears[0], allYears[allYears.length - 1], monthlyReturnRows.length);
-                              return t("데이터 없음");
-                            })()
-                          : returnsView === "rebalance"
-                          ? t("매일·매주·매월·분기·반기·연간 6주기 재실행 비교")
-                          : rollingWindowRows.length > 0
-                          ? t("투자 기간별 롤링 구간 수익률·MDD 분포")
-                          : t("데이터 없음")}
-                      </p>
                     </div>
-                    {returnsView === "monthly" ? (
-                      <Table size={18} className="shrink-0 text-gray-600" />
-                    ) : returnsView === "rebalance" ? (
-                      <ArrowsClockwise size={18} className="shrink-0 text-gray-600" />
-                    ) : (
+                    {returnsView === "rolling" && (
                       <div className="flex shrink-0 items-center gap-1">
                         {ROLLING_WINDOW_OPTIONS.map((w) => {
                           const enabled = availableRollingWindows.includes(w);

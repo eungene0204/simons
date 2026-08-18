@@ -134,7 +134,7 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
       "lg:flex-nowrap"
     );
 
-    await user.click(screen.getByRole("button", { name: "프롬프트" }));
+    await user.click(screen.getByRole("button", { name: "내 전략" }));
     expect(screen.getByTestId("backtest-prompt-popover")).toHaveClass(
       "left-4",
       "right-4",
