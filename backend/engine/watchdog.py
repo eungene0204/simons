@@ -31,18 +31,6 @@ def walk_forward_timeout_message(timeout_s: float) -> str:
     )
 
 
-def rebalance_comparison_timeout_s() -> float:
-    # 리밸런싱 기간별 비교는 같은 전략을 6주기로 재실행(백테스트 6회) + LLM 서술 1회다.
-    return float(os.environ.get("REBALANCE_COMPARISON_TIMEOUT_S", "3600"))
-
-
-def rebalance_comparison_timeout_message(timeout_s: float) -> str:
-    return (
-        f"리밸런싱 기간별 비교가 제한 시간({int(timeout_s)}초)을 초과해 중단되었습니다. "
-        "종목 범위나 기간을 줄여서 다시 실행해 주세요."
-    )
-
-
 class BacktestTimeoutError(Exception):
     pass
 

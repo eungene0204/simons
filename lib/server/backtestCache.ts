@@ -288,6 +288,8 @@ function buildBacktestSummary(result: any) {
     warnings: result.warnings ?? [],
     executionTime: result.executionTime ?? 0,
     topSymbols: result.topSymbols ?? [],
+    // 리밸런싱 기간별 비교(FR-BT-064) — 저장 전략 페이지(/analytics/[id])의 탭이 이 요약에서 읽는다.
+    rebalanceComparison: result.rebalanceComparison ?? null,
   };
 }
 

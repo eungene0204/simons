@@ -451,7 +451,6 @@ interface BacktestResult {
 | GET | `/ai/runtime/metrics` | AI 런타임 latency 메트릭 조회 |
 | POST | `/ai/runtime/metrics/reset` | AI 런타임 메트릭 초기화 |
 | POST | `/summarize` | 백테스트 결과 AI 요약 (Claude API) |
-| POST | `/rebalance-comparison/stream` | 리밸런싱 기간별 결과 비교(FR-BT-064) SSE — 같은 전략을 6주기(daily~yearly)로 재실행한 비교표 + 결정론 근거 위 9B LLM 서술. 주기 단위 progress·keep-alive·협조적 취소, `REBALANCE_COMPARISON_TIMEOUT_S`(기본 3600) |
 
 **질문 의도 분류 / 일반 질문 (intent_routes)**
 | 메서드 | 경로 | 설명 |
@@ -1489,23 +1488,21 @@ SHAP 기반 — 각 예측에 영향을 준 피처와 기여도 반환, 프론�
 
 백테스트 수치를 자연어 요약으로 변환한다. Next.js 프록시 계층은 `metrics + strategySummary` stable hash 기반 LRU cache와 in-flight dedupe를 적용해 동일 결과에 대한 중복 LLM 호출을 제거한다. 요약 생성은 전략 파싱 응답의 critical path에서 제외하고, 백테스트 결과 이후 비동기/지연 실행한다.
 
-### 7.5 리밸런싱 기간별 결과 비교 (`backend/ai/rebalance_comparison.py`, `components/strategy/backtest/RebalanceComparisonSection.tsx`)
+### 7.5 리밸런싱 기간별 결과 비교 (`backend/engine/rebalance_comparison.py`, `components/strategy/backtest/RebalanceComparisonSection.tsx`)
 
-백테스트 결과 페이지 수익률 추이 영역의 세 번째 탭('월별 수익률'·'롤링 수익률'·**'리밸런싱 기간별 결과'**). 사용자가 실행 버튼을 누르면 프론트가 실행된 엔진 요청(`backtestDsl`, 없으면 기록 result에 저장된 `executedRequest` — `lib/server/backtestCache.pickExecutedRequest`)과 메인 결과 지표(현재 설정)를 `POST /api/backtest/rebalance-comparison/stream`(fetchBackend — UI 언어 헤더 첨부)으로 보내고, 백엔드가 SSE로 진행률·결과를 돌려준다.
+백테스트 결과 페이지 수익률 추이 영역의 세 번째 탭('월별 수익률'·'롤링 수익률'·**'리밸런싱 기간별 결과'**). 별도 실행 없이 **백테스트마다 엔진이 동봉**한다 — 메인 시뮬레이션 뒤 분위 그룹 비교(FR-BT-060)와 같은 자리에서, 이미 준비된 시뮬레이터 입력을 그대로 두고 `rebalancing_period`만 바꿔 시뮬레이션만 6번 반복한다(1단계 데이터 준비 재실행 없음).
 
 ```
-실행 요청(BacktestRequest) + 현재 설정 지표
-  → 적용 안내: 보유 상한(max_positions·max_positions_pct·분위 그룹) 없음/skip_position_setting → 막지 않고 계산, notices('결과가 같을 수 있음')+근거 position_cap_absent
-  → 6주기 순차 재실행: risk.rebalancing_period만 daily/weekly/monthly/quarterly/semiannual/yearly로 교체
-      (주기 실패는 행 단위 error, 연결 끊김=다음 주기 경계 협조적 취소, 15초 keep-alive)
-  → 행 추출(결정론): CAGR·MDD·샤프·손익비(None=∞ 유지)·거래 수·회전율(결과 화면 calculateTurnoverRate와 동일 산식)
-  → 근거(결정론): 지표별 순위(낙폭은 작을수록 1위)·CAGR 분산·인접 주기 CAGR/샤프 차이·최단↔최장 거래 수 배수·백테스트 연수(3년 미만 플래그)
-  → LLM(9B, summarize_ollama think:false): 사용자 프롬프트 규칙 + 입력 데이터 + 근거 → JSON(summary/comparison_table.evaluation/analysis/recommendation)
-  → 형식 검증만: 주기 별칭 통일·등급 A~D·신뢰도 0~100 clamp; 실행 주기 밖 추천·서술 누락=위반 → 1회 재시도 → 실패 시 표만 남기고 analysis_degraded
-  → 결과: rebalance_results(엔진 수치) + evidence + analysis(서술만) — 비교표 숫자는 LLM 출력을 쓰지 않는다
+run_backtest → 1단계(데이터·지표·신호·랭킹) → 메인 시뮬레이션 → format_results
+  → [분위 그룹 비교] → [리밸런싱 6주기 비교]  ← engine/rebalance_comparison.run_rebalance_period_comparison
+        risk_params.rebalancing_period ∈ {daily, weekly, monthly, quarterly, semiannual, yearly}
+        각 주기: Simulator().run(같은 price/entries/exits/rank/high/low/available) → summarize_portfolio
+                 (CAGR·MDD·샤프·손익비 None=∞·거래 수·회전율=총 체결금액/2/평균 자산·총수익률·승률·최종 자산)
+        한 주기 실패 = 그 행만 error, 메인 결과 불변
+  → final["rebalanceComparison"] = {periods[6], currentPeriod, positionCapAbsent}
 ```
 
-프론트(`rebalanceComparison.ts` 스트림 클라이언트 + 섹션 컴포넌트)는 6주기 행을 짧은→긴 순으로 그리고, 현재 설정이 6주기 밖(없음·격월)이면 메인 결과 지표로 참고 행을 덧붙인다. 요약 배지(데이터 기준 적합 주기·안정성 등급·신뢰도·전략 성격), 4단락 서술, 판단 근거·주의, "특정 주기 권유가 아닌 데이터 비교" 안내를 표시한다. 결과는 저장·캐시하지 않으며 새 백테스트(executionId)마다 초기화된다. 반기(`semiannual`) 주기는 이 기능을 위해 엔진 v16.1에 신설했다(대화 해석기 어휘 미등록).
+프론트(`rebalanceComparison.ts` 타입·행 정렬 + 섹션 컴포넌트)는 6주기 행을 짧은→긴 순으로 그리고, 현재 설정이 6주기 밖(없음·격월)이면 메인 결과 지표로 참고 행을 덧붙인다. `positionCapAbsent`면 "6행이 같을 수 있음" 안내. AI 서술·추천 없음. 결과 매퍼(`backtestResultMapper`·`BacktestService`)와 저장(`backtestCache.buildBacktestSummary`, 기록 result JSON)이 필드를 전달·보존하며 구버전 결과에는 없어 안내만 보인다. 반기(`semiannual`) 주기는 이 기능을 위해 엔진에 신설했다(v16.1).
 
 ---
 
@@ -1520,7 +1517,7 @@ SHAP 기반 — 각 예측에 영향을 준 피처와 기여도 반환, 프론�
 | `test_simulator.py` | Simulator: SL/TP/TS/MaxHold 리스크 관리 |
 | `test_simulator_ranking.py` | Simulator: 모멘텀 랭킹(상위 K 선정) + 달력 기준 리밸런싱 회전 — 순수 리밸런싱(`from_orders`)/리스크 혼재(`from_signals`) 두 라우팅 경로 검증 |
 | `test_rebalance_dates.py` | `compute_rebalance_dates()`: 일/주/월/격월/분기/반기/년 주기별 리밸런싱일 계산 (vbt 비의존, pandas만) |
-| `test_rebalance_comparison.py` | 리밸런싱 기간별 비교(FR-BT-064): 적용 게이트·6주기 재실행(행 단위 실패·취소)·회전율 산식·근거(순위·인접 차이)·LLM 출력 형식 검증(별칭 정규화, 실행 주기 밖 추천 거부, degraded) |
+| `test_rebalance_comparison.py` | 리밸런싱 기간별 비교(FR-BT-064): 6주기 순회·행 단위 실패 격리·보유 상한 플래그 + 엔진 통합(결과에 rebalanceComparison 동봉, 메인 주기 행=메인 지표) |
 | `test_engine_loader.py` | DataLoader: Parquet 로드, 캐싱 |
 | `test_simulator_validation.py` | 검증 회귀: 핸드칼크·비용 양방향·결정론·next_open 체결·현금 음수 없음·중복 포지션 없음 |
 | `test_reference_engine_crosscheck.py` | 레퍼런스 엔진 교차검증(#13): Simulator vs **backtrader** 진입/청산일·체결가·수량·최종자산 일치(무비용/비용) |

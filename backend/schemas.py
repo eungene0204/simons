@@ -178,6 +178,10 @@ class BacktestResponse(BaseModel):
     # metricLabel, orderLabel, groupCount, mainGroup}. 없으면 null. 미선언 시 response_model이
     # 필드를 걸러내 프론트가 그룹 비교를 못 받는다 — 반드시 선언한다.
     quantileGroups: Optional[Dict[str, Any]] = None
+    # 리밸런싱 기간별 결과 비교(FR-BT-064) — {periods: [{period, cagr, mdd, sharpe, profitFactor,
+    # trades, turnover, ...}], currentPeriod, positionCapAbsent}. 백테스트마다 6주기 재시뮬레이션으로
+    # 동봉한다. 미선언 시 response_model이 걸러내 프론트가 못 받는다 — 반드시 선언한다.
+    rebalanceComparison: Optional[Dict[str, Any]] = None
     version: Optional[str] = ENGINE_VERSION
     executionTime: Optional[float] = 0.0
     vbtResult: Optional[VBTNativeResult] = None
@@ -231,16 +235,6 @@ class WalkForwardResponse(BaseModel):
     walk_forward_efficiency: Optional[float] = 0.0
     # IS 평균 수익이 0 이하이면 WFE 비율 해석이 불가 — response_model이 필드를 걸러내므로 반드시 선언
     wfe_valid: Optional[bool] = True
-
-# ─── 리밸런싱 기간별 결과 비교 (FR-BT-064) ───────────────────────────────────
-
-class RebalanceComparisonRequest(BaseModel):
-    base_strategy: BacktestRequest
-    strategy_name: Optional[str] = None
-    investment_universe: Optional[str] = None
-    # 메인 결과(현재 설정)의 지표 — 재실행 없이 비교표의 '현재 설정' 참고 행과 LLM 입력에 쓴다.
-    current: Optional[Dict[str, Any]] = None
-
 
 class OptimizationResultItem(BaseModel):
     iteration: int

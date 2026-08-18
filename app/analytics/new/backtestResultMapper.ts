@@ -74,5 +74,6 @@ export function mapRawBacktestResult(
     vbtResult: raw.vbtResult ?? undefined,
     // 분위 그룹 비교(FR-BT-060) — 누락하면 그룹 비교 섹션이 조용히 사라진다.
     quantileGroups: raw.quantileGroups ?? undefined,
+    rebalanceComparison: raw.rebalanceComparison ?? undefined,
   };
 }

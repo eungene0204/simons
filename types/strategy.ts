@@ -241,6 +241,17 @@ export interface BacktestResult {
   warnings?: string[];
   /** 분위 그룹 비교 결과(FR-BT-060). 분위 그룹 전략일 때만 존재. */
   quantileGroups?: QuantileGroupsResult;
+  /** 리밸런싱 기간별 결과 비교(FR-BT-064) — 같은 전략을 6주기로 재시뮬레이션한 지표.
+   *  엔진이 백테스트마다 동봉한다(구버전 저장 결과에는 없음). */
+  rebalanceComparison?: {
+    periods: Array<{
+      period: string; cagr?: number | null; mdd?: number | null; sharpe?: number | null;
+      profitFactor?: number | null; trades?: number; turnover?: number | null;
+      totalReturn?: number | null; winRate?: number | null; finalEquity?: number | null; error?: string | null;
+    }>;
+    currentPeriod?: string;
+    positionCapAbsent?: boolean;
+  } | null;
   /** 데이터 커버리지 리포트 — 펀더멘털 지표별 종목·기간 커버리지(데이터 부족 투명성). */
   dataCoverage?: {
     baseData: string[];

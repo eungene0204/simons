@@ -1443,6 +1443,27 @@ class BacktestEngine:
                 final["timing"]["quantileGroups"] = round(_t5 - _t4, 2)
                 print(f"[BT-ENGINE] 분위 {_qg_n}그룹 완료: {_t5-_t4:.2f}s", flush=True)
 
+            # ── 리밸런싱 기간별 결과 비교 (FR-BT-064) ──
+            # 1단계 입력(가격·신호·랭킹)은 그대로 두고 rebalancing_period만 6주기로 바꿔
+            # 시뮬레이션만 반복한다 — 결과 화면 탭이 별도 실행 없이 바로 보여준다.
+            # 비교 실패는 메인 결과에 영향을 주지 않는다(로그만).
+            try:
+                from engine.rebalance_comparison import run_rebalance_period_comparison
+                _t_rc0 = _time.time()
+                final["rebalanceComparison"] = run_rebalance_period_comparison(
+                    lambda _rp: Simulator().run(
+                        price_df, exec_px_df, ents_df, exts_df, _rp, simulator_options,
+                        rank_df=rank_df, high_df=high_df, low_df=low_df, available_df=available_df,
+                    ),
+                    risk_params,
+                    float(risk_params.get('init_cash') or 10000000.0),
+                )
+                final["timing"]["rebalanceComparison"] = round(_time.time() - _t_rc0, 2)
+                print(f"[BT-ENGINE] 리밸런싱 6주기 비교 완료: {_time.time()-_t_rc0:.2f}s", flush=True)
+            except Exception as _rce:
+                import logging
+                logging.getLogger(__name__).warning(f"[BacktestEngine] 리밸런싱 기간별 비교 실패: {_rce}")
+
             # Add no-trades warning
             if pf.trades.count() == 0:
                 liquidity_excluded = [

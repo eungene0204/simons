@@ -31,7 +31,6 @@ import OptimizationPage from "./OptimizationPage";
 import BacktestSummaryCard from "./BacktestSummaryCard";
 import QuantileGroupsSection from "./QuantileGroupsSection";
 import RebalanceComparisonSection from "./RebalanceComparisonSection";
-import { buildCurrentSettingMetrics } from "./rebalanceComparison";
 import { buildAiReportMetrics, hasAiReportArtifact } from "./aiReportMetrics";
 import { formatProfitFactor, profitFactorForRanking } from "@/lib/format-profit-factor";
 import {
@@ -493,16 +492,6 @@ export default function BacktestDashboard({
     () => (backtestDsl ? normalizeLegacyBreakoutStrategy(backtestDsl) : backtestDsl),
     [backtestDsl]
   );
-  // 리밸런싱 기간별 비교(FR-BT-064)가 다시 실행할 엔진 요청. 호스트가 준 DSL이 없거나 엔진 요청
-  // 형태(entry/exit/risk)가 아니면(원천 Strategy 행이 없는 기록·구버전 요약 설정) 결과에 저장된
-  // 실행 요청(executedRequest)으로 폴백한다 — 종전에는 이 경우 재실행 기능이 조용히 꺼졌다.
-  const rebalanceBaseRequest = useMemo(() => {
-    const isEngineShape = (v: unknown): v is Record<string, any> =>
-      !!v && typeof v === "object" && "entry" in (v as object) && "exit" in (v as object) && "risk" in (v as object);
-    if (isEngineShape(normalizedBacktestDsl)) return normalizedBacktestDsl;
-    const executed = result.executedRequest;
-    return isEngineShape(executed) ? normalizeLegacyBreakoutStrategy(executed as any) : null;
-  }, [normalizedBacktestDsl, result.executedRequest]);
   const walkForwardOptimizationTargets = useMemo(
     () => buildWalkForwardOptimizationTargetsFromSummary(strategySummary),
     [strategySummary]
@@ -1833,24 +1822,23 @@ export default function BacktestDashboard({
                       </div>
                     )
                   )}
-                  {/* 리밸런싱 기간별 결과(FR-BT-064) — 실행 결과·진행 상태가 탭 전환에도 남도록 숨김으로만 전환한다.
-                      새 실행(executionId 변경)이면 key로 초기화해 옛 비교가 새 결과에 붙지 않게 한다. */}
-                  <div className={returnsView === "rebalance" ? "" : "hidden"}>
+                  {/* 리밸런싱 기간별 결과(FR-BT-064) — 엔진이 결과에 동봉한 6주기 재시뮬레이션 비교표. */}
+                  {returnsView === "rebalance" && (
                     <RebalanceComparisonSection
-                      key={result.executionId ?? "static"}
-                      backtestDsl={rebalanceBaseRequest}
-                      strategyName={strategySummary?.strategyName}
-                      universeName={strategySummary?.universeName}
-                      currentMetrics={buildCurrentSettingMetrics({
+                      data={result.rebalanceComparison}
+                      current={{
                         cagr: result.cagr,
                         maxDrawdown: result.maxDrawdown,
                         sharpe: result.sharpe,
                         profitFactor: result.profitFactor,
                         trades: result.trades,
                         turnoverRate,
-                      })}
+                      }}
+                      backtestPeriod={
+                        result.dates?.length ? { start: result.dates[0], end: result.dates[result.dates.length - 1] } : null
+                      }
                     />
-                  </div>
+                  )}
                   <div className={`w-full overflow-x-auto ${returnsView === "monthly" ? "" : "hidden"}`}>
                     <table className="w-full min-w-[1040px] border-collapse">
                       <thead>
