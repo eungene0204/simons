@@ -269,6 +269,10 @@ export interface BacktestResult {
   fromCache?: boolean;
   cachedAt?: string;
   cacheKey?: string;
+  /** 이 결과를 만든 엔진 요청(BacktestRequest 키만). 기록 저장 시 함께 남겨 결과 페이지가
+   *  같은 전략을 다시 실행(리밸런싱 기간별 비교 FR-BT-064)할 수 있게 한다 — 원천 Strategy 행이
+   *  없는 기록에서도 동작하도록. 구버전 기록에는 없다. */
+  executedRequest?: Record<string, unknown> | null;
   vbtResult?: VBTNativeResult;
   aiSummary?: string | null;
   aiScore?: number | null;

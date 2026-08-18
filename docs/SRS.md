@@ -772,6 +772,13 @@ RiskManagement {
 - `lib/strategy-summary.ts`(getRankingLabel composite), `types/strategy.ts`
 - `backend/tests/test_composite_ranking_engine.py`(신규), `backend/tests/test_composite_ranking_lane.py`(신규), `lib/strategy-summary.composite-ranking.test.ts`(신규)
 
+**FR-BT-064** [리밸런싱 기간별 결과 비교 분석, 2026-08-18, 엔진 v16.1] 백테스트 결과 페이지의 수익률 추이 영역에 '월별 수익률'·'롤링 수익률' 오른쪽 세 번째 탭 **'리밸런싱 기간별 결과'**를 제공해야 한다. 사용자가 실행 버튼을 누르면(자동 실행 금지 — 백테스트 6회 비용) 시스템은 **같은 전략(실행된 엔진 요청 그대로)의 리밸런싱 주기만** 매일(daily)·매주(weekly)·매월(monthly)·분기(quarterly)·반기(semiannual)·연간(yearly)로 바꿔 순차 재실행하고, 주기별 CAGR·MDD·샤프·손익비(손실 0건=∞ 유지)·거래 수·회전율(결과 화면과 같은 산식)을 비교표로 보여준다. **적용 안내**: 보유 상한(최대 종목 수·비율 선정·분위 그룹)이 없거나 포지션 설정을 건너뛰는 전략은 주기가 결과에 영향을 주지 않지만 **막지 않고 그대로 6주기를 계산**하며(2026-08-18 사용자 지시 — 리밸런싱 설정이 없어도 계산), 결과가 같을 수 있다는 안내(notices)를 붙이고 AI 근거에도 그 사실을 적는다. **실행 요청 보존**: 기록 저장 시 실행된 엔진 요청을 `result.executedRequest`로 함께 남겨(`pickExecutedRequest`), 원천 Strategy 행이 없는 기록·구버전 요약 설정에서도 결과 페이지가 같은 전략을 재실행(이 비교·워크포워드)할 수 있다 — 종전에는 그 경우 재실행 기능이 조용히 꺼졌다. **현재 설정 표시**: 전략의 현재 주기가 6주기 안이면 그 행에 '현재 설정' 배지, 밖이면(리밸런싱 없음·격월) 메인 결과 지표로 참고 행을 덧붙인다(재실행 없음). **AI 서술(하이브리드)**: 지표 순위(낙폭은 작을수록 1위)·CAGR 분산·인접 주기 CAGR/샤프 차이·최단↔최장 거래 수 배수·백테스트 연수(3년 미만 플래그)를 결정론으로 만들어 넘기고, LLM(9B)은 그 위에서 데이터 기준 적합 주기·신뢰도(0~100)·주기 안정성 등급(A~D)·전략 성격, 주기별 한 줄 평가, 성과/리스크/거래 비용/과최적화 4단락, 판단 근거·주의를 JSON으로 쓴다. 규칙: CAGR 최고 주기 자동 선정 금지, 짧은 백테스트에 높은 신뢰도 금지, 인접 주기 안정성 필수 평가, 투자 조언 어투 금지, 숫자는 입력·근거만 인용. **형식 검증**: 주기 별칭 통일(annual→yearly, semi-annual→semiannual)·등급·신뢰도 clamp만 수행하며, 실행된 주기 밖 추천·서술 누락은 형식 위반으로 1회 재시도 후 표만 남기고 "AI 서술 없음"을 보고한다(임의 보정 금지). 비교표 숫자는 LLM 출력을 쓰지 않는다. **전달**: SSE(`/rebalance-comparison/stream`, 주기 단위 진행률·keep-alive·협조적 취소, `REBALANCE_COMPARISON_TIMEOUT_S` 기본 3600초, 프록시 안전망 3660초). 화면에는 "과거 데이터 시뮬레이션이며 특정 주기 권유가 아닌 데이터 비교" 안내를 항상 표시한다. 결과는 저장·캐시하지 않는다(다시 실행 버튼). 반기 주기는 이 기능을 위해 엔진에 신설(v16.1)했으며 대화 해석기 어휘에는 아직 없다.
+
+**구현 파일:**
+- `backend/engine/rebalance.py`(semiannual)·`engine/live_signal_utils.py`(`_period_key`), `backend/ai/rebalance_comparison.py`(신규 — 6주기 실행·지표 추출·근거·프롬프트·형식 검증), `backend/main.py`(`/rebalance-comparison/stream`), `backend/schemas.py`(RebalanceComparisonRequest), `backend/engine/watchdog.py`
+- `app/api/backtest/rebalance-comparison/stream/route.ts`, `components/strategy/backtest/rebalanceComparison.ts`·`RebalanceComparisonSection.tsx`(신규), `components/strategy/backtest/BacktestDashboard.tsx`(탭), `components/admin/AgentsTab.tsx`
+- `backend/tests/test_rebalance_comparison.py`·`test_rebalance_dates.py`, `components/__tests__/RebalanceComparisonSection.test.tsx`
+
 ### 3.3 AI/ML 시스템
 
 #### 3.3.1 하이브리드 예측 모델 v2

@@ -268,6 +268,8 @@ def _period_key(value: Any, period: str) -> tuple[int, ...]:
         return date.year, (date.month - 1) // 2
     if period == "quarterly":
         return date.year, (date.month - 1) // 3
+    if period == "semiannual":
+        return date.year, (date.month - 1) // 6
     if period == "yearly":
         return (date.year,)
     return ()

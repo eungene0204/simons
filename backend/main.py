@@ -19,6 +19,7 @@ from schemas import (
     BacktestRequest, BacktestResponse,
     OptimizationRequest, OptimizationResponse,
     WalkForwardRequest, WalkForwardResponse,
+    RebalanceComparisonRequest,
 )
 from backtest_engine import BacktestEngine
 from engine.market_data import market_data_provider, delisted_store
@@ -41,6 +42,8 @@ from engine.watchdog import (
     timeout_message as backtest_timeout_message,
     walk_forward_timeout_message,
     walk_forward_timeout_s,
+    rebalance_comparison_timeout_message,
+    rebalance_comparison_timeout_s,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone
@@ -423,6 +426,99 @@ async def walk_forward_stream(request: WalkForwardRequest):
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
+
+@app.post("/rebalance-comparison/stream")
+async def rebalance_comparison_stream(request: RebalanceComparisonRequest):
+    """리밸런싱 기간별 결과 비교(FR-BT-064)를 SSE로 스트리밍 — 주기 단위 진행률 + 협조적 취소.
+
+    같은 전략을 매일·매주·매월·분기·반기·연간 6주기로 재실행한 뒤 결정론 근거 위에서 LLM이
+    민감도·거래비용·과최적화 서술을 쓴다(ai/rebalance_comparison.py).
+    이벤트: {type: progress|result|error, ...} + 종료 시 'data: [DONE]'.
+    """
+    import queue as _queue
+
+    progress_q: _queue.Queue = _queue.Queue()
+    result_holder: dict = {}
+    error_holder: dict = {}
+    cancel_event = threading.Event()
+    request_language = ui_language.get_ui_language()
+
+    def run_comparison():
+        try:
+            from ai.rebalance_comparison import analyze_rebalance_comparison
+            # contextvar는 스레드로 전파되지 않는다 — LLM 서술 언어 지시를 위해 다시 bind.
+            with ui_language.bind(request_language):
+                result_holder["data"] = analyze_rebalance_comparison(
+                    engine,
+                    request.base_strategy.model_dump(),
+                    strategy_name=request.strategy_name,
+                    investment_universe=request.investment_universe,
+                    current=request.current,
+                    progress_callback=progress_q.put,
+                    should_cancel=cancel_event.is_set,
+                )
+        except Exception as exc:
+            import traceback
+            print(f"[REBALANCE-CMP] ERROR:\n{traceback.format_exc()}", flush=True)
+            error_holder["error"] = str(exc)
+
+    thread = threading.Thread(target=run_comparison, daemon=True)
+
+    async def generate():
+        thread.start()
+        deadline = time.monotonic() + rebalance_comparison_timeout_s()
+        # 한 주기의 백테스트·LLM 서술 동안 바이트가 흐르지 않으면 프록시가 끊을 수 있다 — keep-alive.
+        HEARTBEAT_INTERVAL_S = 15.0
+        last_emit = time.monotonic()
+
+        def drain_progress():
+            events = []
+            while True:
+                try:
+                    events.append(progress_q.get_nowait())
+                except _queue.Empty:
+                    return events
+
+        try:
+            while thread.is_alive():
+                emitted = False
+                for payload in drain_progress():
+                    yield f"data: {json.dumps({'type': 'progress', **payload}, ensure_ascii=False)}\n\n"
+                    emitted = True
+                if emitted:
+                    last_emit = time.monotonic()
+                elif time.monotonic() - last_emit >= HEARTBEAT_INTERVAL_S:
+                    yield ": keep-alive\n\n"
+                    last_emit = time.monotonic()
+                if time.monotonic() >= deadline:
+                    cancel_event.set()
+                    yield f"data: {json.dumps({'type': 'error', 'message': rebalance_comparison_timeout_message(rebalance_comparison_timeout_s())}, ensure_ascii=False)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+                await asyncio.sleep(0.2)
+
+            thread.join()
+            for payload in drain_progress():
+                yield f"data: {json.dumps({'type': 'progress', **payload}, ensure_ascii=False)}\n\n"
+
+            if "error" in error_holder:
+                yield f"data: {json.dumps({'type': 'error', 'message': error_holder['error']}, ensure_ascii=False)}\n\n"
+            elif "data" in result_holder:
+                result = result_holder["data"]
+                if result.get("status") in ("error", "cancelled"):
+                    yield f"data: {json.dumps({'type': 'error', 'message': result.get('message', '리밸런싱 비교 분석 실패')}, ensure_ascii=False)}\n\n"
+                else:
+                    yield f"data: {json.dumps({'type': 'result', 'data': result}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+        finally:
+            # 클라이언트 연결 종료(GeneratorExit 포함) 시 다음 주기 경계에서 협조적 취소
+            cancel_event.set()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/stock/{symbol}/ohlcv")

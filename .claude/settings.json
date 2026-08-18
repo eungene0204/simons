@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{ f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *backend/strategy_conversation/*|*backend/intent/*|*backend/advisor/*|*backend/stock_analysis/*|*backend/api/coach_routes.py|*backend/ai/strategy_validation_agent.py|*backend/engine/term_grounding.py|*backend/engine/knowledge_graph.py|*backend/engine/modify_rag.py|*backend/engine/nl_parser.py|*backend/engine/concept_universe.py|*backend/engine/naver_theme_live.py|*backend/engine/stock_profile.py) echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[agents-viz] agent 파이프라인 코드가 수정됨 — 처리 흐름(단계 추가/삭제, 순서, 분기, 되묻기, 가드)이 바뀌었다면 components/admin/AgentsTab.tsx의 해당 agent 시각화 데이터도 이번 작업에서 함께 갱신할 것. 구조와 무관한 수정(파라미터 값, 프롬프트 문구, 버그 수정)이면 갱신 불필요.\"}}' ;; esac; } 2>/dev/null || true"
+            "command": "{ f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *backend/strategy_conversation/*|*backend/intent/*|*backend/advisor/*|*backend/stock_analysis/*|*backend/api/coach_routes.py|*backend/ai/strategy_validation_agent.py|*backend/ai/rebalance_comparison.py|*backend/engine/term_grounding.py|*backend/engine/knowledge_graph.py|*backend/engine/modify_rag.py|*backend/engine/nl_parser.py|*backend/engine/concept_universe.py|*backend/engine/naver_theme_live.py|*backend/engine/stock_profile.py) echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[agents-viz] agent 파이프라인 코드가 수정됨 — 처리 흐름(단계 추가/삭제, 순서, 분기, 되묻기, 가드)이 바뀌었다면 components/admin/AgentsTab.tsx의 해당 agent 시각화 데이터도 이번 작업에서 함께 갱신할 것. 구조와 무관한 수정(파라미터 값, 프롬프트 문구, 버그 수정)이면 갱신 불필요.\"}}' ;; esac; } 2>/dev/null || true"
           }
         ]
       }

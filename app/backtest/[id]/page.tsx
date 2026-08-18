@@ -98,7 +98,11 @@ export default function BacktestDetailPage() {
     strategyName: item.strategyName,
   });
 
-  const normalizedBacktestDsl = item.settings ? normalizeLegacyBreakoutStrategy(item.settings as any) : null;
+  // 재실행(워크포워드·리밸런싱 기간별 비교)의 근거 DSL. 원천 Strategy 행의 settings가 없으면
+  // 결과에 함께 저장된 실행 요청(executedRequest)을 쓴다 — 종전에는 그 경우 재실행 기능이
+  // 조용히 꺼졌다(리밸런싱 비교 탭 "요청 미저장" 안내 사고, 2026-08-18).
+  const dslSource = item.settings ?? (item.result as any)?.executedRequest ?? null;
+  const normalizedBacktestDsl = dslSource ? normalizeLegacyBreakoutStrategy(dslSource as any) : null;
 
   // BacktestHistory.result는 백엔드 응답을 그대로 저장한 것이라 signals만 있고
   // BacktestDashboard가 매매 기록 탭에 쓰는 tradesList는 없다(app/analytics/[id]와 달리

@@ -365,6 +365,24 @@ async function upsertStrategyForResult(strategyId: string, body: any) {
   });
 }
 
+// 엔진 요청(BacktestRequest) 계약의 키만 골라 기록에 남긴다 — 결과 페이지가 이 기록에서
+// 같은 전략을 다시 실행(리밸런싱 기간별 비교 FR-BT-064·워크포워드)할 수 있게 하기 위해서다.
+// 종전에는 원천 Strategy 행(canonical_strategy_dsl이 있을 때만 생성)에서만 DSL을 역추적했고,
+// 그 행이 없는 기록은 재실행 기능이 조용히 비활성화됐다.
+const ENGINE_REQUEST_KEYS = [
+  "symbols", "universe_id", "backtest_mode", "target_stocks", "sector", "etf_theme",
+  "listing_from", "listing_to", "entry", "exit", "risk", "period", "startDate", "endDate", "options",
+] as const;
+
+export function pickExecutedRequest(body: any): Record<string, unknown> | null {
+  if (!body || typeof body !== "object" || !body.entry || !body.exit || !body.risk) return null;
+  const picked: Record<string, unknown> = {};
+  for (const key of ENGINE_REQUEST_KEYS) {
+    if (body[key] !== undefined) picked[key] = body[key];
+  }
+  return picked;
+}
+
 export async function saveCachedResult(
   cacheKey: string,
   body: any,
@@ -419,6 +437,8 @@ export async function saveCachedResult(
         ...result,
         strategy_id: strategyId,
         cacheKey,
+        // 이 결과를 만든 엔진 요청 — 결과 페이지의 재실행 기능(리밸런싱 기간별 비교 등)의 근거.
+        ...(pickExecutedRequest(body) ? { executedRequest: pickExecutedRequest(body) } : {}),
       }),
       cacheKey,
       isVisible: false,

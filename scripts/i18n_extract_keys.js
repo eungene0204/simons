@@ -41,6 +41,8 @@ const RENDER_SITE_FILES = [
   "components/strategy/backtest/XAIModal.tsx",
   "components/strategy/backtest/SavedValidationsModal.tsx",
   "components/strategy/backtest/QuantileGroupsSection.tsx",
+  "components/strategy/backtest/RebalanceComparisonSection.tsx",
+  "components/strategy/backtest/rebalanceComparison.ts",
   "components/virtual-account/DelistingRiskBanner.tsx",
   "components/strategy/StrategyAdvisorPanel.tsx",
   "components/research/ResearchTestConsole.tsx",

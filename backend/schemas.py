@@ -232,6 +232,16 @@ class WalkForwardResponse(BaseModel):
     # IS 평균 수익이 0 이하이면 WFE 비율 해석이 불가 — response_model이 필드를 걸러내므로 반드시 선언
     wfe_valid: Optional[bool] = True
 
+# ─── 리밸런싱 기간별 결과 비교 (FR-BT-064) ───────────────────────────────────
+
+class RebalanceComparisonRequest(BaseModel):
+    base_strategy: BacktestRequest
+    strategy_name: Optional[str] = None
+    investment_universe: Optional[str] = None
+    # 메인 결과(현재 설정)의 지표 — 재실행 없이 비교표의 '현재 설정' 참고 행과 LLM 입력에 쓴다.
+    current: Optional[Dict[str, Any]] = None
+
+
 class OptimizationResultItem(BaseModel):
     iteration: int
     parameters: Dict[str, Any]
