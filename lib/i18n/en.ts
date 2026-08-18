@@ -1048,6 +1048,7 @@ export const en: Record<string, string> = {
   "한국": "Korea",
   // ── components/strategy/BacktestChart.tsx
   "{0}년": "{0}",
+  "{0}년 {1}월": "{1}/{0}",
   "{0}월 수익률": "{0} return",
   "{0}천": "{0}K",
   "나의 전략": "My strategy",

@@ -40,3 +40,22 @@ export function buildMonthlyReturnTableData(
     };
   });
 }
+
+/**
+ * 표 위 막대 차트용 시계열 — 표에 보이는 행(최근 N년)만, 값이 있는 달만 오름차순으로 편다.
+ * 각 달은 그 달 1일에 놓여 x축에서 한 연도가 막대 12개가 된다.
+ */
+export function buildMonthlyReturnSeries(
+  rows: MonthlyReturnRow[]
+): { time: string; value: number }[] {
+  return [...rows]
+    .sort((a, b) => Number(a.year) - Number(b.year))
+    .flatMap((row) =>
+      row.months
+        .filter((cell) => cell.value != null)
+        .map((cell) => ({
+          time: `${row.year}-${String(cell.month).padStart(2, "0")}-01`,
+          value: cell.value as number,
+        }))
+    );
+}

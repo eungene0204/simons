@@ -722,7 +722,7 @@ RiskManagement {
 | 구독 월 자동갱신·해지 | 인-프로세스 스케줄러가 매시 정각 `processDueBillingRenewals`(lib/server/billingRenewal.ts) 실행 — `nextBillingAt` 도래 구독을 빌링키로 자동 청구(갱신도 `PaymentOrder` 기록), 성공 시 예정 시각 기준 +1개월. 실패 시 1일 후 재시도, 연속 3회 실패 시 FREE 전환. 해지는 `POST /api/payment/billing/cancel`이 해지 예약(`subscriptionCanceledAt`)만 기록하고 다음 결제일에 청구 없이 FREE 전환(결제된 기간은 이용 유지). 요금제 페이지에 다음 결제일/자동갱신 해지/만료일 표시. 라이브 전환 시 토스 자동결제(빌링) 계약 필요. FR-PLAN-011a | ✅ 완료 |
 | 설정 모달 (계정 삭제·요금제 취소) | 프로필 드롭다운 "설정" → 대형 사이드바 모달(`SettingsModal`) — 검색으로 메뉴 필터, 탭: 계정/결제/사용량. 계정 탭: 로그아웃·이메일 표시·본인 계정 삭제(`DELETE /api/user/account`, soft delete + 빌링 상태 초기화, 활성 자동갱신 구독 시 거부·구독 취소 먼저 안내, 성공 시 로그아웃). 결제 탭: 요금제 헤더(아이콘·월간·다음 갱신/만료일)+요금제 조정 → `/pricing`, 결제 수단(토스 자동결제), 청구서 목록(`GET /api/payment/orders` — 본인 주문, PENDING 제외, DONE=Paid/FAILED=Failed), 요금제 취소(자동갱신 해지 예약, `/api/payment/billing/cancel` 재사용). 사용량 탭: 계좌/전략/백테스트 바+리셋 카운트다운(공용 헬퍼 `planUsageFormat.ts`). FR-USR-005 | ✅ 완료 |
 | 관심종목 | 종목 추가/삭제, 그룹 관리 (색상), DB 영구 저장, 드로어 UI | ✅ 완료 |
-| 월별 수익률 | 히트맵 시각화 | ✅ 완료 |
+| 월별 수익률 | 히트맵 시각화 + 표 위 막대 차트(x축 연도, 연도당 12개월 막대 — 2026-08-18 사용자 지시, `BacktestChart` monthly_returns) | ✅ 완료 |
 | 종목별 비중 | 파이차트, 섹터별 분산도 | ✅ 완료 |
 | 리밸런싱 추천 | 목표 비중 대비 조정 제안 | 🔲 미구현 |
 | 성과 귀인 분석 | 종목·전략·타이밍별 기여도 | 🔲 미구현 |

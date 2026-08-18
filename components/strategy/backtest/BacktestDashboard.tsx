@@ -42,7 +42,7 @@ import { buildAutoSaveHistoryPayload, buildHistoryConditions } from "@/lib/backt
 import { invalidateBacktestHistoryCache } from "@/lib/backtest-history-cache";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
 import { buildPromptSummaryRows } from "./promptSummaryRows";
-import { buildMonthlyReturnTableData } from "./monthlyReturns";
+import { buildMonthlyReturnSeries, buildMonthlyReturnTableData } from "./monthlyReturns";
 import { buildRollingReturnSeries, buildRollingWindowStatsTable } from "./rollingReturns";
 import RollingReturnTable from "./RollingReturnTable";
 import { ROLLING_WINDOW_OPTIONS, rollingWindowLabel } from "./rollingReturnLabels";
@@ -687,6 +687,11 @@ export default function BacktestDashboard({
   const monthlyReturnRows = useMemo(
     () => buildMonthlyReturnTableData(monthlyReturns),
     [monthlyReturns]
+  );
+  // 표 위 막대 차트 — x축 연도, 연도당 1~12월 막대 12개(표와 같은 구간).
+  const monthlyReturnSeries = useMemo(
+    () => buildMonthlyReturnSeries(monthlyReturnRows),
+    [monthlyReturnRows]
   );
 
   const [returnsView, setReturnsView] = useState<"monthly" | "rolling" | "rebalance">("monthly");
@@ -1811,6 +1816,11 @@ export default function BacktestDashboard({
                         turnoverRate,
                       }}
                     />
+                  )}
+                  {returnsView === "monthly" && monthlyReturnSeries.length > 0 && (
+                    <div className="mb-4">
+                      <BacktestChart type="monthly_returns" height={220} monthlyData={monthlyReturnSeries} />
+                    </div>
                   )}
                   <div className={`w-full overflow-x-auto ${returnsView === "monthly" ? "" : "hidden"}`}>
                     <table className="w-full min-w-[1040px] border-collapse">
