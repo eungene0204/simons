@@ -413,6 +413,67 @@ def test_fundamental_exit_mirror_normalized_without_notice():
     assert "ROE(자기자본이익률)" not in dropped          # 미반영 안내 대상이 아니다
 
 
+def test_identical_exit_conditions_after_normalization_collapse_to_one():
+    """2026-08-18 사고 회귀(프롬프트 3.9 실측 트레이스): "KOSPI 종목 중 ADX가 25 이상 …
+    5일 EMA가 20일 EMA를 위로 돌파할 때 매수 … EMA 데드크로스가 나오면 청산"에서 9B가 청산을
+    두 조각으로 냈다 — 사용자가 말한 concept.dead_cross(5/20, 인용 'EMA 데드크로스가
+    나오면 청산하고')와 **진입 인용을 그대로 단** technical.ma_crossover crosses_below 1/20
+    미러. 각자 정당한 경로(개념 전개·EMA 착지·인용 기간 교정)를 거치면 둘 다
+    technical.ema crosses_below 5/20이 되는데, 미러 가드는 반대 방향이라 보존하고 컴파일러는
+    목록을 그대로 옮겨 요약 카드 '매도 조건'에 'EMA 데드크로스'가 두 줄로 나갔다.
+    정규화 결과가 완전히 같은 조건은 한 번만 남는다."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.adx", "operator": ">=", "value": 25, "unit": "point",
+             "source_text": "ADX가 25 이상으로"},
+            {"factor": "technical.ema", "operator": "crosses_above", "value": None,
+             "parameters": {"short_period": 1, "long_period": 5},
+             "source_text": "5일 EMA가 20일 EMA를 위로 돌파할 때"},
+        ],
+        exit_conditions=[
+            {"factor": "concept.dead_cross", "operator": None, "value": None,
+             "parameters": {"short_period": 5, "long_period": 20},
+             "source_text": "EMA 데드크로스가 나오면 청산하고"},
+            {"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
+             "parameters": {"short_period": 1, "long_period": 20},
+             "source_text": "5일 EMA가 20일 EMA를 위로 돌파할 때"},
+        ],
+        portfolio={"selection_count": 10},
+    ))
+    _fill_deterministic_condition_params(intent)
+    validated, report = run_validation(intent)
+    exits = validated.strategy.exit_conditions
+    assert [(c.factor, c.operator, c.parameters) for c in exits] == [
+        ("technical.ema", "crosses_below", {"short_period": 5.0, "long_period": 20.0}),
+    ]
+    # 남은 한 조각은 사용자가 실제로 말한 청산 인용을 든 쪽이다(첫 항목 유지).
+    assert exits[0].source_text == "EMA 데드크로스가 나오면 청산하고"
+    # 진입의 EMA 5/20 골든크로스는 그대로 — 청산 정리가 진입을 건드리지 않는다.
+    assert [(c.factor, c.operator) for c in validated.strategy.entry_conditions] == [
+        ("technical.adx", ">="), ("technical.ema", "crosses_above"),
+    ]
+    parsed = compile_strategy(validated, report, "사고 예시 원문")
+    assert len(parsed.exit_signals) == 1
+
+
+def test_distinct_same_direction_cross_exits_are_both_kept():
+    """중복 정리는 **완전히 같은** 조건만 지운다 — 기간이 다른 같은 방향 교차(EMA 5/20
+    데드크로스와 20/60 데드크로스)는 서로 다른 신호라 둘 다 남는다."""
+    validated, _ = run_validation(StrategyIntent.model_validate(_full_intent_dict(
+        exit_conditions=[
+            {"factor": "technical.ema", "operator": "crosses_below", "value": None,
+             "parameters": {"short_period": 5, "long_period": 20},
+             "source_text": "5일 EMA가 20일 EMA를 하향 돌파하면"},
+            {"factor": "technical.ema", "operator": "crosses_below", "value": None,
+             "parameters": {"short_period": 20, "long_period": 60},
+             "source_text": "20일 EMA가 60일 EMA를 하향 돌파하면"},
+        ],
+    )))
+    assert len(validated.strategy.exit_conditions) == 2
+
+
 def test_sourced_fundamental_exit_reports_error_not_silent():
     """사용자가 실제로 말한 재무 지표 청산("PER 20 이상이면 매도")은 조용히 버리지 않는다 —
     청산 역할 에러로 보고하고, 부분 컴파일이 그 조건만 제외해 안내가 붙는다."""

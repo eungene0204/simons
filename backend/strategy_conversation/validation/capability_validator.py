@@ -21,6 +21,42 @@ from strategy_conversation.registry.concept_ontology import (
 from strategy_conversation.registry.indicator_registry import REGISTRY, resolve
 
 
+def _condition_identity(cond) -> tuple:
+    """정규화가 끝난 조건의 **구조 동일성** 키 — 값이 None인 파라미터는 없는 것으로 본다."""
+    params = tuple(sorted(
+        (name, float(value)) for name, value in cond.parameters.items() if value is not None
+    ))
+    return (cond.factor, cond.operator, cond.value, cond.unit, params)
+
+
+def _dedupe_identical_conditions(role: str, conditions: list) -> list:
+    """같은 역할 안에서 정규화 결과가 **완전히 같은** 조건은 한 번만 남긴다(첫 항목 유지).
+
+    9B 드리프트 실측(2026-08-18, 프롬프트 3.9): "5일 EMA가 20일 EMA를 위로 돌파할 때 매수…
+    EMA 데드크로스가 나오면 청산"에서 청산을 두 조각으로 냈다 — 사용자가 말한
+    `concept.dead_cross`(인용 'EMA 데드크로스가 나오면 청산하고')와, 진입 인용을 그대로 단
+    `technical.ma_crossover crosses_below 1/20` 미러. 둘 다 각자 정당한 경로(개념 전개·
+    인용 기반 EMA 착지·기간 교정)를 거쳐 `technical.ema crosses_below 5/20`이 되므로
+    미러 가드(반대 방향은 보존)로는 걸러지지 않고, 요약 카드에 'EMA 데드크로스'가 두 줄로
+    나갔다. 같은 조건의 반복은 의미가 0이라(AND/OR 어느 쪽이든 항등) 지우는 것이 정규화다
+    — 원문을 읽지 않고 LLM 출력 두 조각의 구조만 대조한다(§ 3-1). 기간·연산자·값이 하나라도
+    다르면 다른 신호이므로 남긴다(예: EMA 5/20 데드크로스와 20/60 데드크로스).
+    """
+    seen: set = set()
+    kept = []
+    for cond in conditions:
+        key = _condition_identity(cond)
+        if key in seen:
+            ontology_logger.info(
+                "동일 조건 중복 제거 | %s 조건 factor=%s operator=%s parameters=%s 원문=%r",
+                role, cond.factor, cond.operator, cond.parameters, cond.source_text,
+            )
+            continue
+        seen.add(key)
+        kept.append(cond)
+    return kept
+
+
 def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], List[str], List[str]]:
     """(errors, warnings, unsupported_features, suggested_fixes)를 반환한다.
 
@@ -175,7 +211,7 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                     f"'{spec.display_name}'에 연산자 '{cond.operator}'은(는) 허용되지 않습니다 "
                     f"(허용: {', '.join(spec.allowed_operators)})"
                 )
-        setattr(strategy, attr, kept)
+        setattr(strategy, attr, _dedupe_identical_conditions(role, kept))
 
     kept_ranking = []
     for rank in strategy.ranking:
