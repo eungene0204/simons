@@ -9,9 +9,10 @@
  * - 구버전 저장 결과(필드 없음)는 안내만 보인다.
  */
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import RebalanceComparisonSection from "@/components/strategy/backtest/RebalanceComparisonSection";
-import { orderComparisonRows } from "@/components/strategy/backtest/rebalanceComparison";
+import { buildRebalanceChartBars, orderComparisonRows } from "@/components/strategy/backtest/rebalanceComparison";
+import { SLOTS_PER_BAR, toHistogramData } from "@/components/strategy/backtest/RebalanceComparisonChart";
 
 const PERIODS = [
   { period: "daily", cagr: 8, mdd: -25, sharpe: 0.8, profitFactor: 1.2, trades: 600, turnover: 900, error: null },
@@ -59,7 +60,8 @@ describe("RebalanceComparisonSection", () => {
         current={CURRENT}
       />
     );
-    expect(screen.queryByRole("button")).toBeNull();
+    // 실행 버튼 없음 — 남은 버튼은 그래프 지표 토글뿐이다.
+    expect(screen.queryByRole("button", { name: /실행/ })).toBeNull();
     for (const period of ["daily", "weekly", "monthly", "quarterly", "semiannual", "yearly", "none"]) {
       expect(screen.getByTestId(`rebalance-row-${period}`)).toBeTruthy();
     }
@@ -89,5 +91,65 @@ describe("RebalanceComparisonSection", () => {
     render(<RebalanceComparisonSection data={{ periods: withError, currentPeriod: "monthly" }} current={CURRENT} />);
     expect(screen.getByTestId("rebalance-row-weekly").textContent).toContain("실행 실패: boom");
     expect(screen.getByTestId("rebalance-row-daily").textContent).toContain("+8.00%");
+  });
+
+  it("표 위 막대 그래프 — 기본 CAGR, 지표 토글로 범례·막대 데이터가 바뀐다(차트 자체는 jsdom에서 안 그려진다)", () => {
+    render(<RebalanceComparisonSection data={{ periods: PERIODS, currentPeriod: "monthly" }} current={CURRENT} />);
+    expect(screen.getByTestId("rebalance-comparison-chart")).toBeTruthy();
+    expect(screen.getByTestId("rebalance-chart-metric").textContent).toContain("CAGR");
+    fireEvent.click(screen.getByRole("button", { name: "MDD" }));
+    expect(screen.getByTestId("rebalance-chart-metric").textContent).toContain("MDD");
+    fireEvent.click(screen.getByRole("button", { name: "손익비" }));
+    expect(screen.getByTestId("rebalance-chart-metric").textContent).toContain("손익비");
+  });
+});
+
+describe("buildRebalanceChartBars / toHistogramData", () => {
+  const rows = orderComparisonRows({ periods: PERIODS, currentPeriod: "monthly" }, CURRENT);
+
+  it("표와 같은 순서로 막대를 만들고 현재 설정을 표시한다", () => {
+    const bars = buildRebalanceChartBars(rows, "cagr");
+    expect(bars.map((b) => b.period)).toEqual(["daily", "weekly", "monthly", "quarterly", "semiannual", "yearly"]);
+    expect(bars[2]).toMatchObject({ isCurrent: true, value: 15, valueLabel: "+15.00%" });
+    expect(bars[0].isCurrent).toBe(false);
+  });
+
+  it("지표별 값 표기 — MDD 부호 없는 %, 샤프 소수 둘째 자리, 손익비 ∞는 막대 없음", () => {
+    expect(buildRebalanceChartBars(rows, "mdd")[2]).toMatchObject({ value: -20, valueLabel: "-20.00%" });
+    expect(buildRebalanceChartBars(rows, "sharpe")[2]).toMatchObject({ value: 1.3, valueLabel: "1.30" });
+    const pf = buildRebalanceChartBars(rows, "profitFactor");
+    expect(pf[2]).toMatchObject({ value: 1.6, valueLabel: "1.60" });
+    expect(pf[4]).toMatchObject({ period: "semiannual", value: null, valueLabel: "∞" });
+  });
+
+  it("실패 주기는 막대 없이 '—', 히스토그램 데이터에서는 투명 0 막대로 자리만 남는다", () => {
+    const withError = PERIODS.map((p) => (p.period === "weekly" ? { period: "weekly", error: "boom" } : p));
+    const bars = buildRebalanceChartBars(orderComparisonRows({ periods: withError, currentPeriod: "monthly" }, CURRENT), "cagr");
+    expect(bars[1]).toMatchObject({ period: "weekly", value: null, valueLabel: "—" });
+    // 막대마다 자리 SLOTS_PER_BAR개(막대 1 + 간격) — 자리 k·i+1이 막대 i, 나머지는 간격: 총 k·n
+    const k = SLOTS_PER_BAR;
+    const data = toHistogramData(bars);
+    expect(data).toHaveLength(k * 6);
+    expect("value" in data[0]).toBe(false);
+    expect((data[1] as { value: number }).value).toBe(8);
+    for (let s = 2; s < k + 1; s++) expect("value" in data[s]).toBe(false);
+    // 실패 주기(weekly)는 투명한 0 높이 막대 — 눈금 라벨·툴팁 자리는 남긴다
+    expect(data[k + 1]).toMatchObject({ value: 0, color: "rgba(0, 0, 0, 0)" });
+    expect((data[2 * k + 1] as { value: number }).value).toBe(15);
+    // 마지막 자리는 투명 0 막대(끝 whitespace 무시로 한 칸 밀리는 것 방지), 그 앞이 마지막 막대(연간)
+    expect(data[k * 6 - 1]).toMatchObject({ value: 0, color: "rgba(0, 0, 0, 0)" });
+    expect((data[k * 5 + 1] as { value: number }).value).toBe(11);
+    // 시간축 자리는 하루 간격으로 단조 증가
+    for (let i = 1; i < data.length; i++) {
+      expect((data[i].time as number) - (data[i - 1].time as number)).toBe(86_400);
+    }
+  });
+
+  it("막대 색 — 월별 수익률 차트와 같은 양=빨강·음=파랑(0.8)", () => {
+    const barAt = (metric: "cagr" | "mdd", i: number) =>
+      toHistogramData(buildRebalanceChartBars(rows, metric))[SLOTS_PER_BAR * i + 1] as { color: string };
+    expect(barAt("cagr", 2).color).toBe("rgba(239, 68, 68, 0.8)");
+    expect(barAt("cagr", 0).color).toBe("rgba(239, 68, 68, 0.8)");
+    expect(barAt("mdd", 2).color).toBe("rgba(55, 122, 244, 0.8)");
   });
 });

@@ -1,14 +1,19 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { Info } from "phosphor-react";
 import { formatProfitFactor } from "@/lib/format-profit-factor";
 import { t } from "@/lib/i18n";
 import {
+  REBALANCE_CHART_METRICS,
+  buildRebalanceChartBars,
   orderComparisonRows,
   rebalancePeriodLabel,
   type CurrentSettingMetrics,
+  type RebalanceChartMetric,
   type RebalanceComparisonResult,
 } from "./rebalanceComparison";
+import RebalanceComparisonChart from "./RebalanceComparisonChart";
 
 interface Props {
   /** 엔진이 백테스트 결과에 동봉한 6주기 비교. 구버전 저장 결과에는 없다. */
@@ -39,15 +44,18 @@ function returnColorClass(v: number | null | undefined): string {
  * 별도 실행 없이 백테스트 결과와 함께 온다(2026-08-18 사용자 지시 — 실행 버튼·AI 서술 없음).
  */
 export default function RebalanceComparisonSection({ data, current }: Props) {
-  if (!data || !Array.isArray(data.periods) || data.periods.length === 0) {
+  const [metric, setMetric] = useState<RebalanceChartMetric>("cagr");
+  const hasData = Boolean(data && Array.isArray(data.periods) && data.periods.length > 0);
+  const rows = useMemo(() => (hasData && data ? orderComparisonRows(data, current) : []), [hasData, data, current]);
+  const bars = useMemo(() => buildRebalanceChartBars(rows, metric), [rows, metric]);
+
+  if (!hasData || !data) {
     return (
       <div className="px-4 py-12 text-center text-sm leading-relaxed text-gray-500">
         {t("이 결과에는 리밸런싱 기간별 비교가 저장되어 있지 않습니다. 새로 실행된 백테스트부터 함께 계산됩니다.")}
       </div>
     );
   }
-
-  const rows = orderComparisonRows(data, current);
 
   return (
     <div className="flex flex-col gap-4" data-testid="rebalance-comparison-section">
@@ -57,6 +65,26 @@ export default function RebalanceComparisonSection({ data, current }: Props) {
           {t("이 전략은 최대 보유 종목 수·비율 선정이 없어 리밸런싱 주기가 결과에 영향을 주지 않습니다 — 6주기 결과가 모두 같게 나올 수 있습니다.")}
         </p>
       )}
+
+      {/* 막대 그래프 — 주기별 선택 지표(표와 같은 행) */}
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-end gap-1" role="group" aria-label={t("비교 지표 선택")}>
+          {REBALANCE_CHART_METRICS.map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => setMetric(opt.key)}
+              aria-pressed={metric === opt.key}
+              className={`rounded-md px-2 py-1 text-[11px] font-bold transition-colors ${
+                metric === opt.key ? "bg-white/10 text-white" : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              {t(opt.label)}
+            </button>
+          ))}
+        </div>
+        <RebalanceComparisonChart bars={bars} metric={metric} height={220} />
+      </div>
 
       <div className="w-full overflow-x-auto">
         <table className="w-full min-w-[720px] border-collapse" data-testid="rebalance-comparison-table">

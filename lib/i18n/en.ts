@@ -2272,5 +2272,7 @@ export const en: Record<string, string> = {
   "실행 실패: {0}": "Run failed: {0}",
   "현재 설정": "Current setting",
   "이 결과에는 리밸런싱 기간별 비교가 저장되어 있지 않습니다. 새로 실행된 백테스트부터 함께 계산됩니다.": "This result does not include the rebalancing period comparison. It is calculated together with newly run backtests.",
+  "주기별 {0}": "{0} by period",
+  "{0} (현재)": "{0} (current)",
   "이 전략은 최대 보유 종목 수·비율 선정이 없어 리밸런싱 주기가 결과에 영향을 주지 않습니다 — 6주기 결과가 모두 같게 나올 수 있습니다.": "This strategy has no maximum position count or percentage selection, so the rebalancing period does not affect the result — all six periods may show identical figures.",
 };
