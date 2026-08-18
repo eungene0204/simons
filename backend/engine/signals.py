@@ -211,6 +211,16 @@ class SignalEngine:
             if short_p is not None and long_p is not None:
                 fast = get_col(f'close_{int(short_p)}_ema')
                 slow = get_col(f'close_{int(long_p)}_ema')
+                # 두 EMA의 **지속 상태**(정배열/역배열) — "20일 EMA가 60일 EMA 위에 있는"은
+                # 교차한 그 날이 아니라 위에 있는 동안 계속 참인 게이트다. 종전에는 이 모드가
+                # 없어 두 기간을 살리면 교차 이벤트가 되고, 상태로 옮기려면 한 선을 버려야
+                # 했다(가격 vs EMA) — 어느 쪽이든 사용자가 말한 것과 달랐다 (2026-08-18).
+                mode = p.get('mode')
+                if mode in ('above', 'below'):
+                    if fast is None or slow is None:
+                        return result
+                    with np.errstate(invalid='ignore'):
+                        return fast >= slow if mode == 'above' else fast <= slow
                 direction = 'dead' if p.get('signalType') == 'sell' else 'golden'
                 return crossover(fast, slow, direction)
             period = p.get('period', 20)
@@ -549,6 +559,13 @@ class SignalEngine:
             if short_p is not None and long_p is not None:
                 fast = safe_get(f'close_{int(short_p)}_ema', idx)
                 slow = safe_get(f'close_{int(long_p)}_ema', idx)
+                # 두 EMA의 지속 상태(정배열/역배열) — 벡터화 경로와 동일 의미. 교차가 아니라
+                # 매 봉에서 참인 게이트라 idx==0에서도 판정할 수 있다.
+                mode = p.get('mode')
+                if mode in ('above', 'below'):
+                    if fast is None or slow is None:
+                        return False
+                    return fast >= slow if mode == 'above' else fast <= slow
                 if idx == 0 or fast is None or slow is None:
                     return False
                 p_fast = safe_get(f'close_{int(short_p)}_ema', idx - 1)
@@ -765,6 +782,9 @@ class SignalEngine:
             short_p = p.get('shortPeriod', p.get('short'))
             long_p = p.get('longPeriod', p.get('long'))
             if short_p and long_p:
+                if p.get('mode') in ('above', 'below'):
+                    above = p.get('mode') == 'above'
+                    return f"EMA{short_p}이 EMA{long_p} {'위' if above else '아래'} 유지"
                 return f"EMA{short_p}-EMA{long_p} 골든크로스" if p.get('signalType') != 'sell' else f"EMA{short_p}-EMA{long_p} 데드크로스"
             period = p.get('period', 20)
             return f"가격 EMA{period} 상향 돌파" if p.get('signalType') != 'sell' else f"가격 EMA{period} 하향 돌파"

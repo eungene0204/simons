@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { AccountMonthlyData } from "@/app/api/dashboard/account-monthly/route";
+import { getLocale, t } from "@/lib/i18n";
 
 /*
  *  Stacked bar chart with ribbon connectors
@@ -29,7 +30,7 @@ const MIN_BAR_H       = 6;
 
 function fmtMonth(ym: string): string {
   const [y, m] = ym.split("/");
-  return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("ko-KR", { month: "short" });
+  return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString(getLocale(), { month: "short" });
 }
 
 function fmtPct(v: number): string {
@@ -129,11 +130,11 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
 
   if (nAccounts === 0 || data.months.length === 0) {
     const emptyStateMessage =
-      nAccounts === 0 ? "개설된 계좌가 없습니다." : "표시할 수익률 데이터가 없습니다.";
+      nAccounts === 0 ? t("개설된 계좌가 없습니다.") : t("표시할 수익률 데이터가 없습니다.");
     const emptyStateDescription =
       nAccounts === 0
-        ? "계좌를 개설하면 여기서 수익률을 확인할 수 있습니다"
-        : "수익률 데이터가 쌓이면 여기서 확인할 수 있습니다";
+        ? t("계좌를 개설하면 여기서 수익률을 확인할 수 있습니다")
+        : t("수익률 데이터가 쌓이면 여기서 확인할 수 있습니다");
 
     return (
       <div
@@ -143,9 +144,9 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
         <div className="flex items-start justify-between mb-4">
           <div>
             <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
-              계좌별 수익률
+              {t("계좌별 수익률")}
             </h2>
-            <p className="text-xs text-gray-500 mt-0.5">누적 실현 수익률 변화</p>
+            <p className="text-xs text-gray-500 mt-0.5">{t("누적 실현 수익률 변화")}</p>
           </div>
         </div>
 
@@ -286,16 +287,16 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
       <div className="flex items-start justify-between mb-4">
         <div>
           <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
-            계좌별 수익률
+            {t("계좌별 수익률")}
           </h2>
-          <p className="text-xs text-gray-500 mt-0.5">누적 실현 수익률 변화</p>
+          <p className="text-xs text-gray-500 mt-0.5">{t("누적 실현 수익률 변화")}</p>
         </div>
         <div className="text-right">
           <p className="text-2xl font-black font-outfit tabular-nums text-white">
             {fmtPct(activeTotal)}
           </p>
           <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold">
-            {fmtMonth(activeMonth.ym)} 투자금 가중
+            {t("{0} 투자금 가중", fmtMonth(activeMonth.ym))}
           </p>
         </div>
       </div>
@@ -321,7 +322,7 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
                   "repeating-linear-gradient(135deg, rgba(156,163,175,0.85) 0px, rgba(156,163,175,0.85) 2px, rgba(156,163,175,0.30) 2px, rgba(156,163,175,0.30) 4px)",
               }}
             />
-            <span className="text-[10px] text-gray-400 font-bold">빗금 = 손실</span>
+            <span className="text-[10px] text-gray-400 font-bold">{t("빗금 = 손실")}</span>
           </div>
         )}
       </div>

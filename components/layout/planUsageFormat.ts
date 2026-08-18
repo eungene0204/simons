@@ -1,7 +1,8 @@
+import { t } from "@/lib/i18n";
 // 플랜 사용량 표시 공용 헬퍼 — TopNavigation(내 플랜 모달)과 SettingsModal(사용량 탭)이 공유
 
 export function formatLimit(limit: number | null) {
-  return limit == null ? "무제한" : `${limit.toLocaleString("ko-KR")}`;
+  return limit == null ? t("무제한") : `${limit.toLocaleString("ko-KR")}`;
 }
 
 /** 백테스트 횟수 리셋(사용량 주기 종료)까지 남은 시간 — 24시간 이하면 시간(h), 그 외는 일 단위 */
@@ -40,6 +41,6 @@ export function formatUsageValue(
   unlimited = false
 ) {
   return `${used.toLocaleString("ko-KR")} / ${
-    unlimited ? "무제한" : formatLimit(limit)
+    unlimited ? t("무제한") : formatLimit(limit)
   }`;
 }

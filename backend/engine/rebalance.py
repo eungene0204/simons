@@ -10,7 +10,8 @@ def compute_rebalance_dates(index, period: str) -> np.ndarray:
     """리밸런싱 실행일을 boolean 배열로 반환한다.
 
     각 주기의 '첫 거래일'에 True. 'none'이면 전부 False, 'daily'면 전부 True.
-    weekly/monthly/bimonthly/quarterly/yearly는 직전 행과 주/달/2달/분기/연이 바뀌는 첫 행에서 True.
+    weekly/monthly/bimonthly/quarterly/semiannual/yearly는 직전 행과 주/달/2달/분기/반기/연이
+    바뀌는 첫 행에서 True.
     """
     n = len(index)
     if n == 0 or period in (None, "none"):
@@ -30,6 +31,9 @@ def compute_rebalance_dates(index, period: str) -> np.ndarray:
         keys = (np.asarray(idx.year) * 12 + (np.asarray(idx.month) - 1)) // 2
     elif period == "quarterly":
         keys = np.asarray(idx.year) * 4 + np.asarray(idx.quarter)
+    elif period == "semiannual":
+        # 반기(1~6월, 7~12월). 각 반기의 첫 거래일에 True.
+        keys = np.asarray(idx.year) * 2 + (np.asarray(idx.month) - 1) // 6
     elif period == "yearly":
         keys = np.asarray(idx.year)
     else:

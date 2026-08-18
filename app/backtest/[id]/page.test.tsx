@@ -173,6 +173,38 @@ describe("BacktestDetailPage", () => {
     expect(screen.queryByRole("button", { name: "워크포워드 실행" })).not.toBeInTheDocument();
   });
 
+  it("settings가 없어도 결과에 저장된 실행 요청(executedRequest)이 있으면 재실행 DSL로 쓴다", async () => {
+    // 회귀(2026-08-18): 원천 Strategy 행이 없는 기록에서 리밸런싱 기간별 비교 탭이
+    // "요청이 저장되어 있지 않아 실행 불가"만 보였다. 기록 저장 시 result.executedRequest를 남기고
+    // 이 페이지가 settings → executedRequest 순으로 폴백한다.
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/backtest/history/hist-1") {
+        const base = baseHistoryResponse({ settings: null });
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            ...base,
+            result: {
+              ...(base.result as Record<string, unknown>),
+              executedRequest: {
+                symbols: ["005930"],
+                entry: { conditions: [{ id: "pbr", params: { value: 1 } }] },
+                exit: { conditions: [] },
+                risk: { stop_loss_pct: 10, max_positions: 5 },
+              },
+            },
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+
+    render(<BacktestDetailPage />);
+
+    const dashboard = await screen.findByTestId("backtest-dashboard");
+    expect(dashboard).toHaveAttribute("data-has-dsl", "yes");
+  });
+
   it("'결과 닫기'는 전략연구소가 아니라 직전 페이지로 돌아간다(router.back)", async () => {
     // 회귀: onRestart가 router.push("/analytics/new")로 배선돼 있어 닫기 시 항상
     // 전략연구소로 이동했다. 기록 상세는 목록 등 진입 경로로 돌아가야 한다.

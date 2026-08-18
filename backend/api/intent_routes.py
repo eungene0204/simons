@@ -22,6 +22,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+import cancellation
 from intent.classifier import classify, format_history_context
 from intent.schemas import ChatTurn, IntentRequest, IntentResult
 from intent import platform_defaults, strategy_builder
@@ -281,32 +282,47 @@ async def strategy_builder_step_stream(req: BuilderStepRequest):
         on_kg_lookup=lambda: stage_holder.__setitem__("stage", "kg_lookup"),
     )
 
+    # 요청 취소 토큰 — 클라이언트가 스트림을 끊으면('대화 종료') 빌더 스텝 스레드의 LLM
+    # 호출(리스크 추출·업종 해석·자유 서술 해석·검색 그라운딩)을 멈춘다(cancellation.py).
+    cancel_token = cancellation.CancelToken()
+
     def run_step():
-        try:
-            step_result = _run_builder_step(
-                state, req.input, risk_extractor, sector_resolver, freetext_interpreter
-            )
-            step_result.seed_recognized = seed_recognized
-            result_holder["data"] = step_result.model_dump()
-        except Exception as exc:  # noqa: BLE001 — SSE로 에러 전달(스트림 중단 방지)
-            error_holder["detail"] = str(exc)
+        with cancellation.bind(cancel_token):
+            try:
+                step_result = _run_builder_step(
+                    state, req.input, risk_extractor, sector_resolver, freetext_interpreter
+                )
+                step_result.seed_recognized = seed_recognized
+                result_holder["data"] = step_result.model_dump()
+            except cancellation.OperationCancelled:
+                print("[BUILDER-STEP] 취소됨(클라이언트 연결 종료)", flush=True)
+            except Exception as exc:  # noqa: BLE001 — SSE로 에러 전달(스트림 중단 방지)
+                error_holder["detail"] = str(exc)
 
     thread = threading.Thread(target=run_step, daemon=True)
 
     async def generate():
-        thread.start()
-        emitted = None
-        while thread.is_alive():
-            if stage_holder["stage"] != emitted:
-                emitted = stage_holder["stage"]
-                yield f"data: {_json.dumps({'type': 'stage', 'stage': emitted})}\n\n"
-            await asyncio.sleep(0.1)
-        thread.join()
-        if "detail" in error_holder:
-            yield f"data: {_json.dumps({'type': 'error', 'detail': error_holder['detail']}, ensure_ascii=False)}\n\n"
-        else:
-            yield f"data: {_json.dumps({'type': 'result', 'data': result_holder.get('data')}, ensure_ascii=False)}\n\n"
-        yield "data: [DONE]\n\n"
+        completed = False
+        try:
+            thread.start()
+            emitted = None
+            while thread.is_alive():
+                if stage_holder["stage"] != emitted:
+                    emitted = stage_holder["stage"]
+                    yield f"data: {_json.dumps({'type': 'stage', 'stage': emitted})}\n\n"
+                await asyncio.sleep(0.1)
+            thread.join()
+            if "detail" in error_holder:
+                yield f"data: {_json.dumps({'type': 'error', 'detail': error_holder['detail']}, ensure_ascii=False)}\n\n"
+            else:
+                yield f"data: {_json.dumps({'type': 'result', 'data': result_holder.get('data')}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            completed = True
+        finally:
+            # 정상 종료 전에 닫히면 클라이언트가 연결을 끊은 것이다(Starlette가 스트림 태스크를
+            # 취소한다) — 스텝 스레드의 LLM 호출을 끊는다.
+            if not completed:
+                cancel_token.cancel()
 
     return StreamingResponse(generate(), media_type="text/event-stream", headers={
         "Cache-Control": "no-cache, no-transform",
@@ -432,7 +448,10 @@ def _build_general_user_msg(req: GeneralQueryRequest, extra_facts: Optional[str]
         parts.append(f"[대화 맥락]\n{context}\n[질문]\n{req.query}")
     else:
         parts.append(req.query)
-    return "".join(parts)
+    # UI 언어가 영어면 답변을 영어로 쓰라는 지시를 끝에 붙인다(시스템 프롬프트는 고정).
+    from ui_language import append_directive
+
+    return append_directive("".join(parts))
 
 
 def generate_general_answer(

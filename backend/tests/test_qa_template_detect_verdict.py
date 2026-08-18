@@ -142,3 +142,146 @@ def test_notice_covered_condition_is_not_missing(qatd):
     )
     assert flags.missing == []
     assert flags.fatal == []
+
+
+# ── 금액 임계값 대조(2026-08-18) ────────────────────────────────────────────────
+
+_AMOUNT_PROMPT = ("KOSPI에서 시가총액 1조 원 이상 대형주 중 PBR 1배 이하, ROE 10% 이상인 "
+                  "종목만 10종목으로 추려 주세요.")
+
+
+def _amount_parsed(qatd, market_cap: float):
+    return {"universe": ["KOSPI"], "max_positions": 10, "fundamental_filters": [
+        {"metric": "market_cap", "operator": ">=", "value": market_cap},
+        {"metric": "pbr", "operator": "<=", "value": 1.0},
+        {"metric": "roe_or_gpa", "operator": ">=", "value": 10.0},
+    ]}
+
+
+def test_amount_threshold_magnitude_error_is_fatal(qatd):
+    """사고(2026-08-18): "시가총액 1조 원 이상"이 100000(=10조, 10배)으로 파싱됐는데
+    커버리지 검사가 `_has_fund`로 **지표 존재만** 봐서 08-14 전수 검증을 치명 0으로
+    통과했다. 억원 단위 임계값은 자릿수 하나가 전략을 10배 바꾸므로 값까지 대조한다."""
+    flags = qatd.analyze(_template(qatd, _AMOUNT_PROMPT),
+                         {"parsed": _amount_parsed(qatd, 100000.0)})
+    assert any("시가총액 임계값 오차" in x for x in flags.fatal)
+
+
+def test_amount_threshold_match_is_clean(qatd):
+    """정상 값(1조=10000억)은 아무 판정도 남기지 않는다."""
+    flags = qatd.analyze(_template(qatd, _AMOUNT_PROMPT),
+                         {"parsed": _amount_parsed(qatd, 10000.0)})
+    assert flags.fatal == [] and flags.missing == []
+
+
+def test_amount_threshold_absent_metric_is_left_to_missing_lane(qatd):
+    """지표 자체가 없으면 값 대조는 침묵한다 — 부재 판정은 미탐지 레인(되묻기 예외 포함)
+    소관이며, 두 레인이 같은 결손을 이중으로 세면 되묻기 예외가 무력해진다."""
+    parsed = {"universe": ["KOSPI"], "max_positions": 10, "fundamental_filters": [
+        {"metric": "pbr", "operator": "<=", "value": 1.0}]}
+    flags = qatd.analyze(_template(qatd, _AMOUNT_PROMPT),
+                         {"parsed": parsed,
+                          "clarification_question": "시가총액 기준을 얼마로 할까요?"})
+    assert not any("임계값 오차" in x for x in flags.fatal)
+
+
+def test_amount_threshold_partial_extraction_does_not_false_alarm(qatd):
+    """정규식은 지표명 뒤 금액 하나만 잡는다("3000억 이상 3조 이하"→3000). 파싱에만 있는
+    값(상한 30000)을 문제 삼으면 정상 예시가 붉어지므로, 대조는 기대값 포함 여부로만 한다."""
+    prompt = "코스피에서 시가총액 3000억 원 이상 3조 원 이하 중형주만 8종목 담고 싶어요."
+    parsed = {"universe": ["KOSPI"], "max_positions": 8, "fundamental_filters": [
+        {"metric": "market_cap", "operator": ">=", "value": 3000.0},
+        {"metric": "market_cap", "operator": "<=", "value": 30000.0}]}
+    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    assert flags.fatal == []
+
+
+def test_expected_amount_thresholds_converts_trillion_unit(qatd):
+    """기대값 추출은 조×10,000+억 산술 합산이다(표기 환산 — 의미 해석 아님)."""
+    assert ("market_cap", 10000.0) in qatd.expected_amount_thresholds("시가총액 1조 원 이상")
+    assert ("market_cap", 25000.0) in qatd.expected_amount_thresholds("시총 2조 5000억 넘는")
+    assert ("trading_value", 50.0) in qatd.expected_amount_thresholds("거래대금 50억 원 이상")
+
+
+# ── 값 대조 확장: 스칼라 설정·신호 수치(2026-08-18) ────────────────────────────
+
+def test_risk_percent_value_error_is_fatal(qatd):
+    """손절·익절은 '설정됐는지'가 아니라 '얼마인지'까지 본다."""
+    prompt = "KOSPI에서 PBR 1배 이하 종목을 매수하고 손절은 -10%, 익절은 +20%로 해주세요."
+    parsed = {"universe": ["KOSPI"], "max_positions": 10,
+              "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1.0}],
+              "stop_loss_pct": 1.0, "take_profit_pct": 20.0}
+    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    assert any("손절 값 오차" in x for x in flags.fatal)
+    assert not any("익절" in x for x in flags.fatal)
+
+
+def test_rebalancing_value_error_is_fatal(qatd):
+    """'매월 한 번'이 quarterly로 파싱되면 주기가 3배 달라진다 — 존재만 보면 통과한다."""
+    prompt = "KOSPI에서 PBR 1배 이하 종목을 10종목 담고 매월 한 번 리밸런싱해 주세요."
+    parsed = {"universe": ["KOSPI"], "max_positions": 10,
+              "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1.0}],
+              "rebalancing_period": "quarterly"}
+    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    assert any("리밸런싱 값 오차" in x for x in flags.fatal)
+
+
+def test_moving_average_period_loss_is_fatal(qatd):
+    """실측(2026-08-18): "20일 EMA가 60일 EMA 위에"가 `ema(long=60, above)` 하나로 파싱돼
+    20일 EMA가 사라졌다 — 가격이 60일선 위인지를 보는 다른 전략이 된다. 지표 귀속은 묻지
+    않고 말한 기간이 신호 어딘가에 남았는지만 본다."""
+    prompt = "KOSPI에서 20일 EMA가 60일 EMA 위에 있는 종목을 매수해 주세요."
+    parsed = {"universe": ["KOSPI"], "max_positions": 10,
+              "entry_signals": [{"indicator": "ema", "long_period": 60, "mode": "above"}]}
+    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    assert any("이동평균 기간 소실" in x and "20" in x for x in flags.fatal)
+
+
+def test_moving_average_periods_present_anywhere_is_clean(qatd):
+    """두 기간이 신호 어딘가에 남아 있으면 통과한다(칸 귀속을 따지면 오탐이 된다)."""
+    prompt = "KOSPI에서 5일 이동평균선이 20일 이동평균선을 위로 뚫으면 매수해 주세요."
+    parsed = {"universe": ["KOSPI"], "max_positions": 10, "entry_signals": [
+        {"indicator": "ma_crossover", "short_period": 5, "long_period": 20}]}
+    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    assert flags.fatal == []
+
+
+def test_trading_value_average_window_is_not_compared(qatd):
+    """'20일 평균 거래대금 30억 이상'의 20일은 지표 정의(일평균거래대금)에 내장된 창이라
+    파싱 결과에 담길 칸이 없다 — 대조 대상에 넣으면 정상 예시가 붉어진다(실측 3건)."""
+    prompt = "KOSPI에서 최근 20일 평균 거래대금이 30억 원 이상인 종목만 매수해 주세요."
+    parsed = {"universe": ["KOSPI"], "max_positions": 10, "entry_signals": [
+        {"indicator": "trading_value", "operator": ">=", "value": 30.0}]}
+    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    assert flags.fatal == []
+
+
+def test_duplicated_identical_exit_condition_is_fatal(qatd):
+    """실측(2026-08-18, 예시 51): 'EMA 데드크로스 청산'이 exit_signals에 완전히 같은 신호로
+    2개 실렸는데 08-17 전수 검증이 치명 0으로 통과했다 — 판정이 소실·값 오차만 보고 잉여를
+    안 봤다(리포트엔 '청산=ema,ema'로 찍혀 있었다). 같은 역할 안 동일 조건 반복은 치명이다."""
+    prompt = ("KOSPI 종목 중 ADX가 25 이상으로 추세 강도가 확인된 상태에서 5일 EMA가 20일 EMA를 "
+              "위로 돌파할 때 매수하고 싶습니다. EMA 데드크로스가 나오면 청산하고, 10종목, "
+              "손절 -8%로 부탁드립니다.")
+    ema_sell = {"indicator": "ema", "signal_type": "sell", "short_period": 5, "long_period": 20,
+                "period": None, "operator": None, "value": None, "mode": None}
+    parsed = {"universe": ["KOSPI"], "max_positions": 10, "stop_loss_pct": 8.0,
+              "entry_signals": [
+                  {"indicator": "adx", "signal_type": "buy", "period": 14, "operator": ">=", "value": 25.0},
+                  {"indicator": "ema", "signal_type": "buy", "short_period": 5, "long_period": 20}],
+              "exit_signals": [ema_sell, dict(ema_sell)]}
+    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    assert any("청산 신호 중복" in x and "ema" in x for x in flags.fatal)
+
+
+def test_distinct_same_indicator_conditions_are_not_duplicates(qatd):
+    """기간이 다른 같은 지표(EMA 5/20·20/60 데드크로스)는 서로 다른 신호 — 중복이 아니다.
+    null 필드는 없는 것으로 보고 비교하므로 직렬화 차이(누락 vs null)로 오탐하지 않는다."""
+    prompt = "KOSPI에서 5일 EMA가 20일 EMA를 하향 돌파하거나 20일 EMA가 60일 EMA를 하향 돌파하면 청산해 주세요."
+    parsed = {"universe": ["KOSPI"], "max_positions": 10,
+              "entry_signals": [{"indicator": "rsi", "operator": "<=", "value": 30.0}],
+              "exit_signals": [
+                  {"indicator": "ema", "signal_type": "sell", "short_period": 5, "long_period": 20, "value": None},
+                  {"indicator": "ema", "signal_type": "sell", "short_period": 20, "long_period": 60}]}
+    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    assert not any("중복" in x for x in flags.fatal)

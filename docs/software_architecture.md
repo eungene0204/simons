@@ -128,7 +128,7 @@ simons/
 │   │   ├── indicators.py            # IndicatorEngine (지표 계산)
 │   │   ├── signals.py               # SignalEngine (조건 평가, 벡터화)
 │   │   ├── simulator.py             # Simulator (루프=의도 결정 + vbt from_orders 목표비중 체결 — NAV 사이징·정수주·장중 스탑·거래정지 이월·매도 거래세)
-│   │   ├── rebalance.py             # 달력 기준 리밸런싱일 계산 (vbt 비의존)
+│   │   ├── rebalance.py             # 달력 기준 리밸런싱일 계산 (vbt 비의존; daily/weekly/monthly/bimonthly/quarterly/semiannual/yearly)
 │   │   ├── result_handler.py        # ResultHandler (지표 계산 + 직렬화)
 │   │   ├── version.py               # 엔진 버전 SOT(ENGINE_VERSION·CHANGELOG). MAJOR=결과값 변경, MINOR=표시/버그. 결과에 기록됨(BacktestResponse.version)
 │   │   ├── nl_parser.py             # 자연어 → ParsedStrategy (LLM)
@@ -830,6 +830,15 @@ sector_unresolved 우선순위 질문은 불가침)하고 `clarification_priorit
 같은 전략이 되도록 맞춘다. 빌더 상태가 표현할 수 없는 칩(PER·ROE)은 자유 서술 진입
 규칙으로 넘겨 파서 레인이 처리한다. 상세: SRS FR-STR-019w.
 
+**리밸런싱 후보는 매수 조건이 정한다(2026-08-18, FR-BT-066, 엔진 v16.3)**: 매수 조건이 있는
+전략은 리밸런싱을 켜도 커스텀 루프로 실행된다 — 리밸런싱일이 아닌 날의 매수 신호도 빈 자리만큼
+담고 매도 신호도 그대로 청산하며, 리밸런싱일에는 그날 조건 충족 종목 중에서 다시 구성한다(미충족
+보유 편출, 비중 리셋 없음 — 경고 고지). 순수 랭킹 전략(선정=진입)만 달력 회전(순수 경로)이다.
+랭킹을 말하지 않은 전략에서 후보가 빈 자리를 넘는 날은 최근 60거래일 수익률 높은 순으로 우선
+담고 넘친 날이 있었으면 결과에 고지한다(종전 저PBR·고ROE 블렌드 폴백 폐지). 같은 날 '종목 선정
+기준'을 리밸런싱 뒤 필수 슬롯으로 되묻는 설계를 넣었다가 폐기했다 — 후보는 매수 조건이 정하므로
+별도 기준을 모든 리밸런싱 전략에 묻는 것은 그림과 어긋난다(사용자 결정). 진행 골격은 8칸 그대로.
+
 **생성 상한 + 잘린 꼬리 제거(2026-08-07)**: 아래 '한 걸음' 계약은 프롬프트라 확률적이라,
 실측 4회 중 1회는 8슬롯 골격을 재발행했다(792·752·681토큰). planner-first 턴에는
 `max_tokens=_PLANNER_FIRST_MAX_TOKENS(512)`로 상한을 걸어 그 낭비를 자른다 — 계약대로면
@@ -1007,7 +1016,7 @@ BacktestEngine.run_backtest(request)
 │       │   ├── TrailingStop: peak_price[] 배열로 추적
 │       │   ├── MaxHoldingDays: 보유 기간 초과 시 청산
 │       │   └── Rebalance dropout: 리밸런싱일에 목표 집합 밖 보유 매도, 빈 슬롯 신규 편입
-│       ├── Ranking: rank_df로 후보 재정렬 (PBR/ROE 복합 또는 모멘텀 ranking_metric="return")
+│       ├── Ranking: rank_df로 후보 재정렬 (모멘텀 return / 변동성 volatility / 재무 팩터 cid / 복합 순위 합산 composite+ranking_components(FR-BT-063) / 레거시 PBR·ROE 블렌드)
 │       ├── Position Limiting: 최대 동시 포지션 수 제한
 │       └── Liquidity Check: 거래대금 기준 필터
 │
@@ -1185,6 +1194,36 @@ Client polling으로 진행률/로그/리더보드 반영
 - worker는 앱 프로세스 내부에 있지만, 상태는 `BatchRun`/`BatchRunCandidate`에 계속 저장된다.
 - 서버 재시작 후 다음 `GET/POST /api/strategy/batch-runs` 요청이 들어오면 incomplete run을 재등록해 이어서 실행한다.
 - 재시작 시 `running` 상태 후보는 `waiting`으로 되돌려 재시도하고, 취소 마커가 남은 run은 `skipped`로 정리한다.
+
+**요청 취소 전파 — '대화 종료'가 서버 작업까지 멈춘다 (2026-08-18, NFR-REL-010)**
+
+```
+'대화 종료' 클릭 (app/analytics/new/page.tsx handleReset)
+    ↓ chatAbortRef.abort()  — 대화 단위 AbortController 하나가 그 대화의 모든 fetch를 끊는다
+    │                          (분류·파싱 SSE·빌더 스텝·검증·백테스트 스트림). 끊긴 턴의 catch는
+    │                          isChatAbort면 뒤처리(오류 버블·빌더 상태 복원) 없이 끝난다.
+Next 프록시 (req.signal — 클라이언트 연결 종료 시 Next가 abort)
+    ↓ fetchBackend(signal: req.signal)  — lib/server/backend.ts가 호출자 signal과 timeoutMs를 결합
+    │                                     (parse/stream 라우트는 스트림 cancel()도 같은 upstream abort로)
+FastAPI SSE (/strategy/parse-stream, /strategy/builder/step-stream)
+    ↓ Starlette가 연결 종료를 감지해 스트림 태스크를 취소 → 제너레이터 finally에서
+    │ 정상 종료([DONE]) 전이면 cancel_token.cancel()
+워커 스레드 (cancellation.bind(token) 안에서 파싱/빌더 스텝 실행)
+    ├── 다음 LLM 호출 차단 — 공통 관문 _ollama_open_with_retry / _ollama_ensure_warm /
+    │   parse_validator가 raise_if_cancelled() → OperationCancelled(BaseException:
+    │   파이프라인의 `except Exception` 폴백에 삼켜지지 않고 스레드 최상단까지 올라간다)
+    ├── 진행 중 LLM 호출 차단 — urllib 전역 opener(install_socket_tracking)가 워커의 HTTP 소켓을
+    │   토큰에 등록해 두고 cancel()이 shutdown → recv가 깨어난다. 소켓이 닫히면 Ollama도 요청
+    │   컨텍스트 취소로 생성을 중단한다(GPU 반환). cancellable_io()가 그 read 예외를 취소로 보고
+    └── 취소된 요청의 결과는 파스 캐시(_store_nl_parse_cache)에 저장하지 않는다
+```
+
+모듈: `backend/cancellation.py`(CancelToken · bind · raise_if_cancelled · cancellable_io ·
+install_socket_tracking). 토큰은 contextvar라 워커 스레드 진입 함수 안에서 묶는다(새 스레드로
+상속되지 않음). 서버 쪽 취소 대상이 아닌 것: 비스트리밍 엔드포인트(분류·일반 답변·코치 — 연결만
+끊긴다)와 백테스트 엔진 본체(모놀리식 run_backtest). 회귀: `backend/tests/test_request_cancellation.py`,
+`app/analytics/new/page.endChat.test.tsx`, `lib/server/backend.test.ts`,
+`app/api/strategy/parse/stream/route.test.ts`.
 
 ### 6.2 주요 Next.js API 라우트
 
@@ -1397,8 +1436,10 @@ class ParsedStrategy(BaseModel):
     trailing_stop_pct: Optional[float]
     max_positions: int
     hold_period_days: Optional[int]
-    ranking_metric: Optional[Literal["return"]]       # 모멘텀 랭킹 — "최근 N일 수익률 상위" 선정
-    ranking_lookback_days: Optional[int]              # 모멘텀 계산 기간 (기본 60일)
+    ranking_metric: Optional[RankingMetricLiteral]    # 랭킹 — return(모멘텀)/volatility/재무 cid/composite(복합 순위 합산)
+    ranking_lookback_days: Optional[int]              # 가격 산출 랭킹 계산 기간 (되묻기, 미정 시 60)
+    ranking_direction: Optional[Literal["top","bottom"]]
+    ranking_components: Optional[List[RankingComponent]]  # composite 구성 지표 [{metric, direction, lookback_days?}] ≥2 (FR-BT-063)
     rebalancing_period: Literal["none", "daily", "monthly", "quarterly", "yearly"]
     backtest_period: Literal["1y", "3y", "5y", "full"]
     initial_capital: float
@@ -1447,6 +1488,22 @@ SHAP 기반 — 각 예측에 영향을 준 피처와 기여도 반환, 프론�
 
 백테스트 수치를 자연어 요약으로 변환한다. Next.js 프록시 계층은 `metrics + strategySummary` stable hash 기반 LRU cache와 in-flight dedupe를 적용해 동일 결과에 대한 중복 LLM 호출을 제거한다. 요약 생성은 전략 파싱 응답의 critical path에서 제외하고, 백테스트 결과 이후 비동기/지연 실행한다.
 
+### 7.5 리밸런싱 기간별 결과 비교 (`backend/engine/rebalance_comparison.py`, `components/strategy/backtest/RebalanceComparisonSection.tsx`)
+
+백테스트 결과 페이지 수익률 추이 영역의 세 번째 탭('월별 수익률'·'롤링 수익률'·**'리밸런싱 기간별 결과'**). 별도 실행 없이 **백테스트마다 엔진이 동봉**한다 — 메인 시뮬레이션 뒤 분위 그룹 비교(FR-BT-060)와 같은 자리에서, 이미 준비된 시뮬레이터 입력을 그대로 두고 `rebalancing_period`만 바꿔 시뮬레이션만 6번 반복한다(1단계 데이터 준비 재실행 없음).
+
+```
+run_backtest → 1단계(데이터·지표·신호·랭킹) → 메인 시뮬레이션 → format_results
+  → [분위 그룹 비교] → [리밸런싱 6주기 비교]  ← engine/rebalance_comparison.run_rebalance_period_comparison
+        risk_params.rebalancing_period ∈ {daily, weekly, monthly, quarterly, semiannual, yearly}
+        각 주기: Simulator().run(같은 price/entries/exits/rank/high/low/available) → summarize_portfolio
+                 (CAGR·MDD·샤프·손익비 None=∞·거래 수·회전율=총 체결금액/2/평균 자산·총수익률·승률·최종 자산)
+        한 주기 실패 = 그 행만 error, 메인 결과 불변
+  → final["rebalanceComparison"] = {periods[6], currentPeriod, positionCapAbsent}
+```
+
+프론트(`rebalanceComparison.ts` 타입·행 정렬 + 섹션 컴포넌트)는 6주기 행을 짧은→긴 순으로 그리고, 현재 설정이 6주기 밖(없음·격월)이면 메인 결과 지표로 참고 행을 덧붙인다. `positionCapAbsent`면 "6행이 같을 수 있음" 안내. AI 서술·추천 없음. 결과 매퍼(`backtestResultMapper`·`BacktestService`)와 저장(`backtestCache.buildBacktestSummary`, 기록 result JSON)이 필드를 전달·보존하며 구버전 결과에는 없어 안내만 보인다. 반기(`semiannual`) 주기는 이 기능을 위해 엔진에 신설했다(v16.1).
+
 ---
 
 ## 8. 테스트 구조
@@ -1459,7 +1516,8 @@ SHAP 기반 — 각 예측에 영향을 준 피처와 기여도 반환, 프론�
 | `test_engine_indicators.py` | IndicatorEngine: 지표 계산 정확성 |
 | `test_simulator.py` | Simulator: SL/TP/TS/MaxHold 리스크 관리 |
 | `test_simulator_ranking.py` | Simulator: 모멘텀 랭킹(상위 K 선정) + 달력 기준 리밸런싱 회전 — 순수 리밸런싱(`from_orders`)/리스크 혼재(`from_signals`) 두 라우팅 경로 검증 |
-| `test_rebalance_dates.py` | `compute_rebalance_dates()`: 일/월/분기/년 주기별 리밸런싱일 계산 (vbt 비의존, pandas만) |
+| `test_rebalance_dates.py` | `compute_rebalance_dates()`: 일/주/월/격월/분기/반기/년 주기별 리밸런싱일 계산 (vbt 비의존, pandas만) |
+| `test_rebalance_comparison.py` | 리밸런싱 기간별 비교(FR-BT-064): 6주기 순회·행 단위 실패 격리·보유 상한 플래그 + 엔진 통합(결과에 rebalanceComparison 동봉, 메인 주기 행=메인 지표) |
 | `test_engine_loader.py` | DataLoader: Parquet 로드, 캐싱 |
 | `test_simulator_validation.py` | 검증 회귀: 핸드칼크·비용 양방향·결정론·next_open 체결·현금 음수 없음·중복 포지션 없음 |
 | `test_reference_engine_crosscheck.py` | 레퍼런스 엔진 교차검증(#13): Simulator vs **backtrader** 진입/청산일·체결가·수량·최종자산 일치(무비용/비용) |
@@ -1504,6 +1562,24 @@ npm run test:frontend
 ```
 
 ---
+
+## 8.5 다국어(i18n) 계층 [2026-08-18]
+
+```
+쿠키 nullstock.lang ─► app/layout.tsx getRequestLanguage() ─► <html lang> · LanguageProvider(initialLanguage)
+                                                                │
+                            클라이언트/서버 컴포넌트 렌더 ─► t("한국어 원문", ...args) ─► lib/i18n/en.ts (없으면 원문 폴백)
+                                                                │
+Next 라우트 핸들러 ─► lib/server/backend.ts fetchBackend ─► X-UI-Language 헤더 ─► backend/ui_language (contextvar)
+                                                                                      │
+                                                    인터프리터·일반 답변·AI 리포트 사용자 프롬프트 끝에 영어 지시
+                                                    (시스템 프롬프트 프리픽스 캐시 보존) · ui_language.msg(ko, en)
+```
+
+- **핵심 파일**: `lib/i18n/index.ts`(t·getLanguage·getLocale·formatCompactNumberEn), `lib/i18n/en.ts`(사전, 원문=키), `lib/i18n/LanguageProvider.tsx`(SSR/CSR 언어 고정), `lib/i18n/LanguageToggle.tsx`(KR/EN, 새로고침 반영), `lib/i18n/server.ts`(쿠키 읽기), `backend/ui_language.py`.
+- **도구**: `scripts/i18n_wrap_jsx.js`(JSX 텍스트/속성/표현식을 t()로 감싸는 코드모드, `--literals`는 표시 문맥 리터럴, `--all`은 검토 끝난 파일 전체, `// i18n-ignore-file`), `scripts/i18n_extract_keys.js`(사전 키 추출, `--missing`).
+- **불변 규칙**: 번역은 표시 전용 — 백엔드 프로토콜 값(파서 프롬프트·칩 에코·비교 문자열)은 한국어 정본 그대로. `t()`는 렌더 시점에만(모듈 상수 금지). 게이트: `tests/i18n-coverage.test.ts`.
+- **SSR 주의**: 언어는 모듈 싱글턴이라 서버에서 동시 요청이 겹치면 이론상 다른 요청의 언어가 섞일 수 있다(서버 컴포넌트는 await 뒤 `getRequestLanguage()`를 다시 호출해 요청 언어를 고정한다). 하이드레이션 시 클라이언트가 바로잡는다.
 
 ## 9. 외부 의존성
 

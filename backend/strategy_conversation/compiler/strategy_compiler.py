@@ -62,13 +62,33 @@ def _compile_technical(
     kwargs: dict = {"indicator": indicator, "signal_type": signal_type}
 
     if indicator in ("ma_crossover", "ema"):
-        kwargs["short_period"] = _int_param("short_period")
-        kwargs["long_period"] = _int_param("long_period")
-        if indicator == "ema" and cond.operator in (">", "<"):
-            # 가격 vs EMA 지속 상태 추세 필터
-            kwargs["mode"] = "above" if cond.operator == ">" else "below"
+        # 한 선만 주어졌으면 나머지 칸을 registry 기본값으로 채우지 않는다 — 사용자가
+        # 말한 적 없는 두 번째 선이 생기고("20일 EMA 이탈"→20/60 교차), 기본값이 같은
+        # 숫자면 자기 자신과 교차하는 영원히 발화하지 않는 조건이 된다(2026-08-18).
+        # 상대가 종가라는 사실은 기간이 아니라 '선이 하나뿐'이라는 형태가 말한다.
+        if params.get("short_period") is None and params.get("long_period") is not None:
             kwargs["short_period"] = None
-            kwargs["long_period"] = _int_param("long_period") or _int_param("short_period")
+            kwargs["long_period"] = _int_param("long_period")
+        else:
+            kwargs["short_period"] = _int_param("short_period")
+            kwargs["long_period"] = _int_param("long_period")
+        # 'ema >/<' 는 **종가와 EMA 하나**의 지속 상태 필터일 때만이다(registry notes).
+        # LLM이 두 EMA의 기간을 모두 준 경우엔 두 선의 관계이므로 기간을 버리지 않는다 —
+        # 종전에는 무조건 short_period를 지워서 "20일 EMA가 60일 EMA 위에 있는"이
+        # "가격이 60일 EMA 위"라는 다른 전략으로 조용히 바뀌었다(2026-08-18 예시 QA 실측:
+        # 예시 22·26·53·80). 판정 입력은 LLM이 실제로 채운 파라미터이지 registry 기본값이
+        # 아니다 — 기본값(20/60)으로 판정하면 사용자가 말한 적 없는 두 번째 선이 생긴다.
+        both_periods_given = (
+            params.get("short_period") is not None and params.get("long_period") is not None
+        )
+        if indicator == "ema" and cond.operator in (">", "<"):
+            # 부등호는 **지속 상태**다(교차는 crosses_above/below). 두 기간이 다 주어지면
+            # 두 EMA의 정배열/역배열 상태, 하나면 가격 vs EMA 상태 — 어느 쪽이든 mode로
+            # 옮기고 기간은 버리지 않는다(엔진 v16.0이 두 EMA 상태를 직접 평가한다).
+            kwargs["mode"] = "above" if cond.operator == ">" else "below"
+            if not both_periods_given:
+                kwargs["short_period"] = None
+                kwargs["long_period"] = _int_param("long_period") or _int_param("short_period")
     elif indicator == "macd":
         kwargs["mode"] = "crossover"
     elif indicator == "breakout":
@@ -255,19 +275,64 @@ def compile_partial(
     return _build_parsed(strategy, buckets, user_input), dropped, pending_conditions
 
 
+def _rank_component_from_spec(rank) -> Optional[dict]:
+    """RankingSpec 하나 → 엔진 구성 지표 {metric, direction, lookback_days} (FR-BT-061).
+
+    metric은 검증기가 정본 id로 정규화한 뒤다. 방향은 사용자가 말했으면 그것, 아니면
+    지표의 자연 방향(온톨로지 polarity)이다 — 엔진이 극성을 몰라도 되게 컴파일러가 확정한다.
+    자연 방향이 없는 지표(시가총액 등 polarity none)는 엔진 기본값과 같은 top이다.
+    등록되지 않은 metric(검증기가 제거했어야 할 항목)은 None — 임의 지표로 바꿔치지 않는다.
+    """
+    spec = REGISTRY.get(rank.metric)
+    binding = spec.engine_binding if spec else None
+    if binding is None:
+        return None
+    direction = rank.direction or natural_ranking_direction(rank.metric) or "top"
+    lookback = rank.lookback_days if binding[0] == "ranking" else None
+    return {"metric": binding[1], "direction": direction, "lookback_days": lookback}
+
+
 def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
     ranking_metric = None
     ranking_lookback = None
     ranking_direction = None
     ranking_quantile_groups = None
-    if strategy.ranking:
-        # 검증기(capability_validator)가 metric을 정본 id로 정규화한 뒤다 —
-        # ranking.*(가격 산출: return=모멘텀, volatility=저변동성) 또는
-        # fundamental.*(재무 팩터 랭킹, 2026-08-03).
-        rank = strategy.ranking[0]
+    ranking_components = None
+    # 검증기(capability_validator)가 metric을 정본 id로 정규화하고 미지원 항목을 제거한 뒤다.
+    # 등록되지 않은 metric이 남아 있으면 그 항목은 랭킹에서 뺀다 — 과거의 'return' 폴백은
+    # 사용자가 말하지 않은 수익률 랭킹을 만들어냈다(2026-08-17 사고). 임의 보정 금지.
+    ranks = []
+    for rank in strategy.ranking:
+        if REGISTRY.get(rank.metric) is None or REGISTRY.get(rank.metric).engine_binding is None:
+            logger.warning("등록되지 않은 랭킹 지표를 건너뜀(검증기 누락?): %s", rank.metric)
+            continue
+        ranks.append(rank)
+    if len(ranks) >= 2:
+        # 복합 순위 합산(FR-BT-063): 랭킹 항목 2개 이상 = 각 지표 순위를 합산해 선정.
+        # 같은 지표가 중복 기입되면 한 번만 센다(가중치 조작으로 둔갑 방지).
+        seen: Set[Tuple[str, str]] = set()
+        ranking_components = []
+        for rank in ranks:
+            comp = _rank_component_from_spec(rank)
+            key = (comp["metric"], comp["direction"])
+            if key in seen:
+                continue
+            seen.add(key)
+            ranking_components.append(comp)
+        if len(ranking_components) >= 2:
+            ranking_metric = "composite"
+            ranking_quantile_groups = next(
+                (r.quantile_groups for r in ranks if r.quantile_groups), None
+            )
+        else:
+            # 중복 제거 후 1개 = 단일 랭킹으로 취급.
+            ranks = ranks[:1]
+            ranking_components = None
+    if ranking_metric is None and ranks:
+        rank = ranks[0]
         spec = REGISTRY.get(rank.metric)
-        binding = spec.engine_binding if spec else None
-        if binding is not None and binding[0] == "fundamental_filter":
+        binding = spec.engine_binding
+        if binding[0] == "fundamental_filter":
             ranking_metric = binding[1]
             # 방향을 사용자가 말하지 않았으면(rank.direction=None) 지표의 자연 방향을
             # 쓴다 — 엔진 기본값은 무조건 top이라, PER처럼 낮을수록 저평가인 지표에서
@@ -283,9 +348,8 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
                 direction or "미정", ranking_direction,
             )
         else:
-            # 가격 산출 랭킹 — 엔진 키는 binding[1]('return'/'volatility'). 정규화 전
-            # metric이 올 수 없는 방어로 binding이 없으면 기존처럼 'return'으로 둔다.
-            ranking_metric = binding[1] if binding is not None and binding[0] == "ranking" else "return"
+            # 가격 산출 랭킹 — 엔진 키는 binding[1]('return'/'volatility').
+            ranking_metric = binding[1]
             ranking_lookback = rank.lookback_days
             # 방향은 재무 팩터 분기와 같은 계약 — 저변동성(lower_better)은 침묵이
             # '가장 출렁이는 종목 선정'으로 뒤집히지 않게 온톨로지가 bottom을 채운다.
@@ -357,6 +421,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         ranking_lookback_days=ranking_lookback,
         ranking_direction=ranking_direction,
         ranking_quantile_groups=ranking_quantile_groups,
+        ranking_components=ranking_components,
         max_positions=portfolio.selection_count if portfolio.selection_count is not None else 10,
         # 그룹당 보유 상한(FR-BT-060b) — 분위 그룹 모드에서 사용자가 말한 종목 수는
         # 그룹당 상한이다. selection_count는 사용자가 말했을 때만 non-null이므로

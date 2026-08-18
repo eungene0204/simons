@@ -94,5 +94,13 @@ def test_bimonthly_marks_every_two_month_block():
     assert "2024-06-01" not in flagged
 
 
+def test_semiannual_marks_half_year_boundaries():
+    # 반기(1~6월 / 7~12월) 첫 거래일에만 True — 리밸런싱 기간별 비교(FR-BT-064)용 신설 주기.
+    idx = _dates("2023-03-15", 500)  # 2023 상반기 중간 ~ 2024 하반기 초입
+    mask = compute_rebalance_dates(idx, "semiannual")
+    flagged = [str(idx[i].date()) for i in np.where(mask)[0]]
+    assert flagged == ["2023-03-15", "2023-07-01", "2024-01-01", "2024-07-01"]
+
+
 def test_empty_index():
     assert len(compute_rebalance_dates(pd.DatetimeIndex([]), "monthly")) == 0

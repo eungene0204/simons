@@ -2,6 +2,7 @@
 
 import { BacktestResult } from "@/types/strategy";
 import { formatProfitFactor } from "@/lib/format-profit-factor";
+import { formatCompactNumberEn, t } from "@/lib/i18n";
 
 interface Props {
   result: BacktestResult;
@@ -29,8 +30,10 @@ function num(v: number | undefined, decimals = 2) {
 }
 
 function krw(v: number) {
-  if (Math.abs(v) >= 1_0000_0000) return `${(v / 1_0000_0000).toFixed(1)}억`;
-  if (Math.abs(v) >= 10_000) return `${(v / 10_000).toFixed(0)}만`;
+  const compactEn = formatCompactNumberEn(v);
+  if (compactEn !== null) return compactEn;
+  if (Math.abs(v) >= 1_0000_0000) return t("{0}억", (v / 1_0000_0000).toFixed(1));
+  if (Math.abs(v) >= 10_000) return t("{0}만", (v / 10_000).toFixed(0));
   return v.toLocaleString();
 }
 
@@ -62,10 +65,10 @@ export default function BacktestStatsSummary({ result }: Props) {
 
   const groups: Group[] = [
     {
-      title: "수익 성과",
+      title: t("수익 성과"),
       items: [
         {
-          label: "총 수익률",
+          label: t("총 수익률"),
           value: pct(result.totalReturn),
           color: returnColor(result.totalReturn),
         },
@@ -75,95 +78,95 @@ export default function BacktestStatsSummary({ result }: Props) {
           color: returnColor(result.cagr),
         },
         {
-          label: result.benchmarkLabel?.replace(/\s*\(\d+\)$/, "") || "벤치마크",
+          label: result.benchmarkLabel?.replace(/\s*\(\d+\)$/, "") || t("벤치마크"),
           value: pct(result.buyAndHoldReturn),
           color: returnColor(result.buyAndHoldReturn),
         },
         {
-          label: "초과 수익 (α)",
+          label: t("초과 수익 (α)"),
           value: alpha == null ? "—" : pct(alpha),
           color: returnColor(alpha ?? undefined),
         },
         {
-          label: "최종 자산",
-          value: `${krw(result.finalEquity)}원`,
+          label: t("최종 자산"),
+          value: t("{0}원", krw(result.finalEquity)),
           color: "text-gray-300",
         },
         {
-          label: "순 수익",
-          value: `${result.finalEquity - result.initialCapital >= 0 ? "+" : ""}${krw(result.finalEquity - result.initialCapital)}원`,
+          label: t("순 수익"),
+          value: t("{0}{1}원", result.finalEquity - result.initialCapital >= 0 ? "+" : "", krw(result.finalEquity - result.initialCapital)),
           color: returnColor(result.finalEquity - result.initialCapital),
         },
       ],
     },
     {
-      title: "리스크",
+      title: t("리스크"),
       items: [
         {
-          label: "최대낙폭 (MDD)",
+          label: t("최대낙폭 (MDD)"),
           value: `${result.maxDrawdown.toFixed(2)}%`,
           color: result.maxDrawdown > -20 ? "text-emerald-400" : result.maxDrawdown > -30 ? "text-yellow-400" : "text-red-400",
         },
         {
-          label: "연간 변동성",
+          label: t("연간 변동성"),
           value: `${volatility.toFixed(2)}%`,
           color: volatility < 15 ? "text-emerald-400" : volatility < 25 ? "text-yellow-400" : "text-red-400",
         },
         {
-          label: "칼마 비율",
+          label: t("칼마 비율"),
           value: result.calmar != null ? num(result.calmar) : (result.maxDrawdown !== 0 ? num((result.cagr || 0) / Math.abs(result.maxDrawdown)) : "—"),
           color: "text-gray-300",
         },
         {
-          label: "샤프 지수",
+          label: t("샤프 지수"),
           value: num(result.sharpe),
           color: result.sharpe >= 1.5 ? "text-emerald-400" : result.sharpe >= 1 ? "text-yellow-400" : "text-red-400",
         },
         {
-          label: "소르티노",
+          label: t("소르티노"),
           value: num(result.sortino),
           color: result.sortino >= 2 ? "text-emerald-400" : result.sortino >= 1 ? "text-yellow-400" : "text-red-400",
         },
         {
-          label: "켈리 기준",
+          label: t("켈리 기준"),
           value: result.kelly == null ? "—" : pct(result.kelly),
           color: "text-gray-300",
         },
       ],
     },
     {
-      title: "거래 통계",
+      title: t("거래 통계"),
       items: [
         {
-          label: "총 거래 수",
-          value: `${result.trades}회`,
+          label: t("총 거래 수"),
+          value: t("{0}회", result.trades),
           color: "text-gray-300",
         },
         {
-          label: "승률",
+          label: t("승률"),
           value: `${result.winRate.toFixed(1)}%`,
           color: result.winRate >= 55 ? "text-emerald-400" : result.winRate >= 50 ? "text-yellow-400" : "text-red-400",
         },
         {
-          label: "손익비",
+          label: t("손익비"),
           value: formatProfitFactor(result.profitFactor),
           color: (result.profitFactor ?? Infinity) >= 2 ? "text-emerald-400" : (result.profitFactor ?? Infinity) >= 1.5 ? "text-yellow-400" : "text-red-400",
         },
         {
-          label: "평균 수익",
+          label: t("평균 수익"),
           value: result.avgProfit != null ? pct(result.avgProfit) : "—",
           color: returnColor(result.avgProfit),
         },
         {
           // 백엔드는 평균 손실을 양수(절댓값)로 내려보내므로, 손실임을 드러내도록 음수로 표시
-          label: "평균 손실",
+          label: t("평균 손실"),
           value: result.avgLoss != null ? pct(-result.avgLoss) : "—",
           color: returnColor(result.avgLoss != null ? -result.avgLoss : undefined),
         },
         {
-          label: "최대 연속승 / 연속패",
+          label: t("최대 연속승 / 연속패"),
           value: result.maxConsecutiveWins != null && result.maxConsecutiveLosses != null
-            ? `${result.maxConsecutiveWins}승 / ${result.maxConsecutiveLosses}패`
+            ? t("{0}승 / {1}패", result.maxConsecutiveWins, result.maxConsecutiveLosses)
             : "—",
           color: "text-gray-300",
         },
@@ -177,7 +180,7 @@ export default function BacktestStatsSummary({ result }: Props) {
       className="mb-4 rounded-2xl border border-white/5 bg-[#0d0d0d] px-3 py-4 sm:px-4 lg:px-5"
     >
       <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-3">
-        상세 통계 요약
+        {t("상세 통계 요약")}
       </p>
       <div
         data-testid="backtest-stats-summary-grid"

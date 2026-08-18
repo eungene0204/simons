@@ -17,6 +17,7 @@ import {
 import type { QuickSearchResponse } from "@/types/quick-search";
 import type { PopularStocksResponse } from "@/app/api/stock/popular/route"; // FALLBACK_POPULAR_STOCKS 타입용
 import type { StockPriceSnapshot } from "@/lib/stock-prices";
+import { getLocale, t } from "@/lib/i18n";
 
 interface QuickSearchModalProps {
   isOpen: boolean;
@@ -56,7 +57,7 @@ interface PopularQueryData {
 }
 
 function formatPopularUpdatedAt() {
-  return new Date().toLocaleTimeString("ko-KR", {
+  return new Date().toLocaleTimeString(getLocale(), {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -349,7 +350,7 @@ export default function QuickSearchModal({
         setVirtualAccountResults(quickJson.virtualAccounts ?? []);
 
         if (!quickSearchResponse.ok) {
-          setError("검색 중 오류가 발생했습니다.");
+          setError(t("검색 중 오류가 발생했습니다."));
         }
       } catch (searchError) {
         if (!isCancelled) {
@@ -357,7 +358,7 @@ export default function QuickSearchModal({
           setStockResults([]);
           setStrategyResults([]);
           setVirtualAccountResults([]);
-          setError("검색 중 오류가 발생했습니다.");
+          setError(t("검색 중 오류가 발생했습니다."));
         }
       } finally {
         if (!isCancelled) {
@@ -437,8 +438,8 @@ export default function QuickSearchModal({
       kind: "virtualAccount",
       title: account.name,
       subtitle: [
-        account.strategyName || "전략 미연결",
-        account.tradingMode === "auto" ? "자동매매" : "수동매매",
+        account.strategyName || t("전략 미연결"),
+        account.tradingMode === "auto" ? t("자동매매") : t("수동매매"),
       ].join(" · "),
       href: `/virtual-account/${account.id}`,
       icon: Bank,
@@ -530,7 +531,7 @@ export default function QuickSearchModal({
             {title}
           </p>
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-600">
-            {sectionItems.length}개
+            {t("{0}개", sectionItems.length)}
           </p>
         </div>
         <div className="space-y-0.5">
@@ -572,10 +573,10 @@ export default function QuickSearchModal({
                     </p>
                     <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-gray-600">
                       {item.kind === "stock"
-                        ? "종목"
+                        ? t("종목")
                         : item.kind === "strategy"
-                          ? "전략"
-                          : "가상계좌"}
+                          ? t("전략")
+                          : t("가상계좌")}
                     </span>
                   </div>
                   <p className="truncate text-xs text-gray-500">
@@ -622,14 +623,14 @@ export default function QuickSearchModal({
               spellCheck={false}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="종목, 전략, 계좌, 백테스트를 검색하세요"
+              placeholder={t("종목, 전략, 계좌, 백테스트를 검색하세요")}
               className="w-full rounded-xl border-0 bg-white/[0.06] py-2.5 pl-10 pr-10 text-sm font-bold text-white placeholder:text-gray-500 outline-none ring-0 transition-colors focus:bg-white/[0.10] focus:outline-none focus:ring-0"
             />
             <button
               type="button"
               onClick={onClose}
               className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white"
-              aria-label="퀵서치 닫기"
+              aria-label={t("퀵서치 닫기")}
             >
               <X size={14} />
             </button>
@@ -647,7 +648,7 @@ export default function QuickSearchModal({
         >
           {loading ? (
             <div className="flex h-full items-center justify-center text-sm text-gray-500">
-              검색 중...
+              {t("검색 중...")}
             </div>
           ) : !query.trim() ? (
             <div className="space-y-4 py-2">
@@ -655,12 +656,12 @@ export default function QuickSearchModal({
               <section>
                 <div className="mb-2.5 flex items-center justify-between">
                   <h3 className="text-xs font-black uppercase tracking-widest text-gray-500">
-                    최근 검색
+                    {t("최근 검색")}
                   </h3>
                 </div>
                 {recentSearches.length === 0 ? (
                   <p className="text-sm font-medium text-gray-500">
-                    아직 최근 검색이 없습니다.
+                    {t("아직 최근 검색이 없습니다.")}
                   </p>
                 ) : (
                   <div className="flex flex-wrap gap-2 overflow-hidden" style={{ maxHeight: "68px" }}>
@@ -680,7 +681,7 @@ export default function QuickSearchModal({
                           type="button"
                           onClick={() => removeRecentSearch(recent)}
                           className="text-gray-500 transition-colors hover:text-gray-200"
-                          aria-label={`${recent} 최근 검색 삭제`}
+                          aria-label={t("{0} 최근 검색 삭제", recent)}
                         >
                           <X size={13} weight="bold" />
                         </button>
@@ -694,16 +695,16 @@ export default function QuickSearchModal({
               <section>
                 <div className="mb-2.5 flex items-center justify-between">
                   <h3 className="text-xs font-black uppercase tracking-widest text-gray-500">
-                    인기 검색
+                    {t("인기 검색")}
                   </h3>
                   {popularUpdatedAt && (
                     <p className="text-[10px] font-medium text-gray-600">
-                      {popularUpdatedAt} 업데이트
+                      {t("{0} 업데이트", popularUpdatedAt)}
                     </p>
                   )}
                 </div>
                 {popularStocks.length === 0 ? (
-                  <p className="text-sm font-medium text-gray-500">종목을 검색하세요</p>
+                  <p className="text-sm font-medium text-gray-500">{t("종목을 검색하세요")}</p>
                 ) : null}
                 <div className="space-y-0.5">
                   {popularStocks.map((stock) => {
@@ -769,8 +770,8 @@ export default function QuickSearchModal({
           ) : items.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-center">
               <X size={20} className="mb-2 text-gray-600" />
-              <p className="text-sm font-bold text-gray-400">검색 결과가 없습니다</p>
-              <p className="mt-1 text-xs text-gray-600">다른 키워드로 다시 검색해보세요.</p>
+              <p className="text-sm font-bold text-gray-400">{t("검색 결과가 없습니다")}</p>
+              <p className="mt-1 text-xs text-gray-600">{t("다른 키워드로 다시 검색해보세요.")}</p>
             </div>
           ) : (
             <div className="space-y-5">

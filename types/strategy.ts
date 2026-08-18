@@ -55,6 +55,8 @@ export interface RiskManagement {
   max_positions_pct?: number;
   /** 분위 그룹 비교(FR-BT-060) — 랭킹 후보를 종목 수 동일 G개 그룹으로 나눠 그룹별 백테스트. */
   ranking_quantile_groups?: number;
+  /** 복합 순위 합산(FR-BT-063) — ranking_metric='composite'일 때 구성 지표(백분위 순위 동일 가중 평균). */
+  ranking_components?: Array<{ metric: string; direction: "top" | "bottom"; lookback_days?: number | null }>;
   execution_timing?: "next_open" | "current_close";
   allocation_type?: "equal" | "fixed_pct";
   rebalancing_period?: string;
@@ -239,6 +241,17 @@ export interface BacktestResult {
   warnings?: string[];
   /** 분위 그룹 비교 결과(FR-BT-060). 분위 그룹 전략일 때만 존재. */
   quantileGroups?: QuantileGroupsResult;
+  /** 리밸런싱 기간별 결과 비교(FR-BT-064) — 같은 전략을 6주기로 재시뮬레이션한 지표.
+   *  엔진이 백테스트마다 동봉한다(구버전 저장 결과에는 없음). */
+  rebalanceComparison?: {
+    periods: Array<{
+      period: string; cagr?: number | null; mdd?: number | null; sharpe?: number | null;
+      profitFactor?: number | null; trades?: number; turnover?: number | null;
+      totalReturn?: number | null; winRate?: number | null; finalEquity?: number | null; error?: string | null;
+    }>;
+    currentPeriod?: string;
+    positionCapAbsent?: boolean;
+  } | null;
   /** 데이터 커버리지 리포트 — 펀더멘털 지표별 종목·기간 커버리지(데이터 부족 투명성). */
   dataCoverage?: {
     baseData: string[];
@@ -267,6 +280,10 @@ export interface BacktestResult {
   fromCache?: boolean;
   cachedAt?: string;
   cacheKey?: string;
+  /** 이 결과를 만든 엔진 요청(BacktestRequest 키만). 기록 저장 시 함께 남겨 결과 페이지가
+   *  같은 전략을 다시 실행(리밸런싱 기간별 비교 FR-BT-064)할 수 있게 한다 — 원천 Strategy 행이
+   *  없는 기록에서도 동작하도록. 구버전 기록에는 없다. */
+  executedRequest?: Record<string, unknown> | null;
   vbtResult?: VBTNativeResult;
   aiSummary?: string | null;
   aiScore?: number | null;

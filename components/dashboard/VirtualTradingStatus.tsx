@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Activity, ChartLine, Stack, CheckCircle } from "phosphor-react";
 import type { TradingStatusData } from "@/app/api/dashboard/trading-status/route";
+import { t } from "@/lib/i18n";
 
 // 총 평가금·전체 계좌 수는 상단 PortfolioSummaryBar와 중복이므로
 // 이 줄은 자동매매 운영 상태(실행/자동/포지션/체결)에만 집중한다.
@@ -13,30 +14,30 @@ export default function VirtualTradingStatus({ initialData }: { initialData: Tra
   const stats = [
     {
       icon: Activity,
-      label: "실행중인 계좌 수",
-      value: loading ? "--" : `${data.runningAccounts}개`,
-      sub: loading ? "" : data.runningAccounts > 0 ? "매매 진행 중" : "일시 정지",
+      label: t("실행중인 계좌 수"),
+      value: loading ? "--" : t("{0}개", data.runningAccounts),
+      sub: loading ? "" : data.runningAccounts > 0 ? t("매매 진행 중") : t("일시 정지"),
       highlight: data.runningAccounts > 0,
     },
     {
       icon: Stack,
-      label: "자동매매 계좌",
-      value: loading ? "--" : `${data.autoAccounts}개`,
-      sub: loading ? "" : "자동 매매 설정",
+      label: t("자동매매 계좌"),
+      value: loading ? "--" : t("{0}개", data.autoAccounts),
+      sub: loading ? "" : t("자동 매매 설정"),
       highlight: false,
     },
     {
       icon: ChartLine,
-      label: "보유 종목",
-      value: loading ? "--" : `${data.totalPositions}개`,
-      sub: loading ? "" : "현재 포지션",
+      label: t("보유 종목"),
+      value: loading ? "--" : t("{0}개", data.totalPositions),
+      sub: loading ? "" : t("현재 포지션"),
       highlight: false,
     },
     {
       icon: CheckCircle,
-      label: "오늘 체결",
-      value: loading ? "--" : `${data.todayFilledOrders}건`,
-      sub: loading ? "" : "금일 주문",
+      label: t("오늘 체결"),
+      value: loading ? "--" : t("{0}건", data.todayFilledOrders),
+      sub: loading ? "" : t("금일 주문"),
       highlight: data.todayFilledOrders > 0,
     },
   ];

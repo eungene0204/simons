@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { DashboardBacktestRecord } from "@/types/dashboard";
+import { t } from "@/lib/i18n";
 
 interface DayBar {
   date: string;
@@ -45,13 +46,13 @@ export default function BacktestActivityChart({ initialRecords }: { initialRecor
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
-            백테스트 활동
+            {t("백테스트 활동")}
           </h2>
-          <p className="text-xs text-gray-500 mt-0.5">최근 7일 실행 횟수</p>
+          <p className="text-xs text-gray-500 mt-0.5">{t("최근 7일 실행 횟수")}</p>
         </div>
         <div className="text-right">
           <p className="text-2xl font-black text-white font-outfit tabular-nums">{totalCount}</p>
-          <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold">총 실행</p>
+          <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold">{t("총 실행")}</p>
         </div>
       </div>
 

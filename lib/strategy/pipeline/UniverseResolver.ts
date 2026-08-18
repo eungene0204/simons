@@ -1,3 +1,4 @@
+import { t } from "@/lib/i18n";
 export class UniverseResolver {
   private static symbolToSectorCache: Record<string, string> | null = null;
   private static universeCache: Record<string, string[]> | null = null;
@@ -20,7 +21,7 @@ export class UniverseResolver {
         // 캐시 초기화 실패 시 다음 호출에서 재시도할 수 있도록 null 유지
         this.symbolToSectorCache = null;
         this.universeCache = null;
-        throw new Error("유니버스 데이터를 불러오지 못했습니다. 네트워크 연결을 확인해주세요.");
+        throw new Error(t("유니버스 데이터를 불러오지 못했습니다. 네트워크 연결을 확인해주세요."));
       } finally {
         this.loadingPromise = null;
       }
@@ -34,7 +35,7 @@ export class UniverseResolver {
 
     const allSymbols = this.universeCache?.[universeId];
     if (!allSymbols || allSymbols.length === 0) {
-      throw new Error(`선택한 유니버스(${universeId})에 해당하는 종목이 없습니다.`);
+      throw new Error(t("선택한 유니버스({0})에 해당하는 종목이 없습니다.", universeId));
     }
 
     let symbols = [...allSymbols];

@@ -1,3 +1,4 @@
+// i18n-ignore-file — 종목명(한국어 정본)은 번역 대상이 아니다.
 import type { PortfolioHolding } from "@/types/portfolio";
 
 export type StockMetadataMap = Record<

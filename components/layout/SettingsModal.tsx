@@ -17,6 +17,7 @@ import {
   formatUsageValue,
   getUsagePercent,
 } from "./planUsageFormat";
+import { getLocale, t } from "@/lib/i18n";
 
 type SubscriptionSummary = {
   planId: string;
@@ -63,7 +64,7 @@ function formatBillingDate(iso: string | null): string {
   if (!iso) return "-";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("ko-KR", {
+  return d.toLocaleDateString(getLocale(), {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -127,7 +128,7 @@ export default function SettingsModal({
           );
         }
       } catch {
-        if (!disposed) setLoadError("설정 정보를 불러오지 못했습니다.");
+        if (!disposed) setLoadError(t("설정 정보를 불러오지 못했습니다."));
       } finally {
         if (!disposed) setIsLoading(false);
       }
@@ -140,7 +141,7 @@ export default function SettingsModal({
   const visibleTabs = useMemo(() => {
     const query = searchQuery.trim();
     if (!query) return TABS;
-    return TABS.filter((tab) => tab.label.includes(query));
+    return TABS.filter((tab) => t(tab.label).includes(query) || tab.label.includes(query));
   }, [searchQuery]);
 
   const subscription = summary?.subscription ?? null;
@@ -150,7 +151,7 @@ export default function SettingsModal({
     if (isCanceling) return;
     if (
       !window.confirm(
-        "자동갱신을 해지할까요? 이미 결제된 기간에는 계속 이용할 수 있습니다."
+        t("자동갱신을 해지할까요? 이미 결제된 기간에는 계속 이용할 수 있습니다.")
       )
     ) {
       return;
@@ -169,7 +170,7 @@ export default function SettingsModal({
           : prev
       );
     } catch {
-      setActionError("구독 해지에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      setActionError(t("구독 해지에 실패했습니다. 잠시 후 다시 시도해주세요."));
     } finally {
       setIsCanceling(false);
     }
@@ -179,7 +180,7 @@ export default function SettingsModal({
     if (isDeleting || hasActiveRenewal) return;
     if (
       !window.confirm(
-        "계정을 삭제할까요? 삭제하면 다시 로그인할 수 없으며 되돌릴 수 없습니다."
+        t("계정을 삭제할까요? 삭제하면 다시 로그인할 수 없으며 되돌릴 수 없습니다.")
       )
     ) {
       return;
@@ -202,7 +203,7 @@ export default function SettingsModal({
       setActionError(
         error instanceof Error && error.message !== "Failed to delete account"
           ? error.message
-          : "계정 삭제에 실패했습니다. 잠시 후 다시 시도해주세요."
+          : t("계정 삭제에 실패했습니다. 잠시 후 다시 시도해주세요.")
       );
       setIsDeleting(false);
     }
@@ -215,7 +216,7 @@ export default function SettingsModal({
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-2 backdrop-blur-sm lg:px-4 lg:py-0"
       role="dialog"
       aria-modal="true"
-      aria-label="설정"
+      aria-label={t("설정")}
     >
       <div
         data-testid="settings-modal-panel"
@@ -232,13 +233,13 @@ export default function SettingsModal({
               type="text"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="검색"
-              aria-label="설정 검색"
+              placeholder={t("검색")}
+              aria-label={t("설정 검색")}
               className="w-full bg-transparent text-sm font-bold text-gray-200 outline-none placeholder:text-gray-600"
             />
           </label>
           <div>
-            <p className="hidden px-3 pb-2 text-xs font-bold text-gray-600 lg:block">설정</p>
+            <p className="hidden px-3 pb-2 text-xs font-bold text-gray-600 lg:block">{t("설정")}</p>
             <nav
               data-testid="settings-modal-tabs"
               className="flex gap-1 overflow-x-auto lg:block lg:space-y-1 lg:overflow-visible"
@@ -256,7 +257,7 @@ export default function SettingsModal({
                   }`}
                 >
                   <Icon size={18} weight="bold" />
-                  <span>{label}</span>
+                  <span>{t(label)}</span>
                 </button>
               ))}
             </nav>
@@ -267,7 +268,7 @@ export default function SettingsModal({
         <div className="relative flex min-w-0 flex-1 flex-col">
           <button
             type="button"
-            aria-label="설정 모달 닫기"
+            aria-label={t("설정 모달 닫기")}
             onClick={onClose}
             className="absolute right-2 top-1 z-10 rounded-full p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white lg:right-5"
           >
@@ -280,7 +281,7 @@ export default function SettingsModal({
           >
             {isLoading ? (
               <p className="text-sm font-bold text-gray-500">
-                설정 정보를 불러오는 중입니다.
+                {t("설정 정보를 불러오는 중입니다.")}
               </p>
             ) : loadError ? (
               <p className="text-sm font-black text-red-300">{loadError}</p>
@@ -295,26 +296,26 @@ export default function SettingsModal({
                 {activeTab === "account" ? (
                   <section>
                     <h3 className="text-xl font-black tracking-tight text-gray-200">
-                      계정
+                      {t("계정")}
                     </h3>
                     <div className="mt-4">
                       <div className="flex items-center justify-between gap-5 border-b border-white/[0.06] py-4">
                         <p className="text-sm font-bold text-gray-300">
-                          로그아웃
+                          {t("로그아웃")}
                         </p>
                         <button
                           type="button"
                           onClick={onLogout}
                           className="flex-shrink-0 rounded-xl bg-white/[0.08] px-4 py-2 text-xs font-black text-gray-200 transition-colors duration-200 hover:bg-white/[0.14]"
                         >
-                          로그아웃
+                          {t("로그아웃")}
                         </button>
                       </div>
                       <div className="flex items-center justify-between gap-5 border-b border-white/[0.06] py-4">
                         <p className="min-w-0 text-sm font-bold text-gray-300">
                           {hasActiveRenewal
-                            ? "계정을 삭제하려면 먼저 요금제 구독을 취소해 주세요."
-                            : "계정을 삭제하면 다시 로그인할 수 없으며 되돌릴 수 없습니다."}
+                            ? t("계정을 삭제하려면 먼저 요금제 구독을 취소해 주세요.")
+                            : t("계정을 삭제하면 다시 로그인할 수 없으며 되돌릴 수 없습니다.")}
                         </p>
                         <button
                           type="button"
@@ -322,13 +323,13 @@ export default function SettingsModal({
                           disabled={hasActiveRenewal || isDeleting}
                           className="flex-shrink-0 rounded-xl bg-white/[0.08] px-4 py-2 text-xs font-black text-gray-200 transition-colors duration-200 hover:bg-white/[0.14] disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          {isDeleting ? "삭제 중..." : "계정 삭제"}
+                          {isDeleting ? t("삭제 중...") : t("계정 삭제")}
                         </button>
                       </div>
                       {userEmail ? (
                         <div className="flex items-center justify-between gap-5 border-b border-white/[0.06] py-4">
                           <p className="text-sm font-bold text-gray-300">
-                            이메일
+                            {t("이메일")}
                           </p>
                           <span className="truncate rounded-lg bg-white/[0.08] px-3 py-1.5 font-mono text-xs font-bold text-gray-300">
                             {userEmail}
@@ -350,21 +351,21 @@ export default function SettingsModal({
                         </span>
                         <div>
                           <p className="text-lg font-black tracking-tight text-white">
-                            {summary.plan.name} 요금제
+                            {t("{0} 요금제", summary.plan.name)}
                           </p>
                           {subscription ? (
                             <p className="mt-0.5 text-sm font-bold text-gray-500">
-                              월간
+                              {t("월간")}
                             </p>
                           ) : null}
                           <p className="mt-1.5 text-sm font-bold text-gray-400">
                             {subscription
                               ? subscription.canceled
-                                ? `구독이 ${formatBillingDate(subscription.nextBillingAt)}에 만료됩니다.`
-                                : `구독이 ${formatBillingDate(subscription.nextBillingAt)}에 자동으로 갱신됩니다.`
+                                ? t("구독이 {0}에 만료됩니다.", formatBillingDate(subscription.nextBillingAt))
+                                : t("구독이 {0}에 자동으로 갱신됩니다.", formatBillingDate(subscription.nextBillingAt))
                               : summary.plan.planId === "FREE"
-                                ? "무료 요금제를 사용 중입니다."
-                                : "자동갱신 구독 없이 이용 중입니다."}
+                                ? t("무료 요금제를 사용 중입니다.")
+                                : t("자동갱신 구독 없이 이용 중입니다.")}
                           </p>
                         </div>
                       </div>
@@ -376,7 +377,7 @@ export default function SettingsModal({
                         }}
                         className="w-full flex-shrink-0 rounded-xl bg-white/[0.08] px-4 py-2.5 text-xs font-black text-gray-200 transition-colors duration-200 hover:bg-white/[0.14] lg:mt-1 lg:w-auto"
                       >
-                        요금제 조정
+                        {t("요금제 조정")}
                       </button>
                     </section>
 
@@ -384,14 +385,14 @@ export default function SettingsModal({
                     {subscription ? (
                       <section>
                         <h3 className="text-lg font-black tracking-tight text-gray-200">
-                          결제
+                          {t("결제")}
                         </h3>
                         <div className="mt-4 flex items-center gap-3 border-b border-white/[0.06] pb-5">
                           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/[0.08] text-gray-300">
                             <CreditCard size={18} weight="bold" />
                           </span>
                           <p className="text-sm font-bold text-gray-300">
-                            토스페이먼츠 자동결제
+                            {t("토스페이먼츠 자동결제")}
                           </p>
                         </div>
                       </section>
@@ -400,18 +401,18 @@ export default function SettingsModal({
                     {/* 청구서 */}
                     <section>
                       <h3 className="text-lg font-black tracking-tight text-gray-200">
-                        청구서
+                        {t("청구서")}
                       </h3>
                       {orders.length === 0 ? (
                         <p className="mt-4 text-sm font-bold text-gray-600">
-                          결제 내역이 없습니다.
+                          {t("결제 내역이 없습니다.")}
                         </p>
                       ) : (
                         <div className="mt-4">
                           <div className="grid grid-cols-[1.4fr_1fr_1fr] gap-4 border-b border-white/[0.08] pb-3 text-xs font-bold text-gray-500">
-                            <span>날짜</span>
-                            <span>총계</span>
-                            <span>상태</span>
+                            <span>{t("날짜")}</span>
+                            <span>{t("총계")}</span>
+                            <span>{t("상태")}</span>
                           </div>
                           {orders.map((order) => (
                             <div
@@ -444,11 +445,11 @@ export default function SettingsModal({
                     {hasActiveRenewal ? (
                       <section>
                         <h3 className="text-lg font-black tracking-tight text-gray-200">
-                          취소
+                          {t("취소")}
                         </h3>
                         <div className="mt-4 flex items-center justify-between gap-5 py-1">
                           <p className="text-sm font-bold text-gray-300">
-                            요금제 취소
+                            {t("요금제 취소")}
                           </p>
                           <button
                             type="button"
@@ -456,12 +457,11 @@ export default function SettingsModal({
                             disabled={isCanceling}
                             className="flex-shrink-0 rounded-xl bg-red-500/90 px-5 py-2.5 text-xs font-black text-white transition-colors duration-200 hover:bg-red-500 disabled:cursor-wait disabled:opacity-60"
                           >
-                            {isCanceling ? "해지 중..." : "취소"}
+                            {isCanceling ? t("해지 중...") : t("취소")}
                           </button>
                         </div>
                         <p className="text-xs font-bold text-gray-600">
-                          자동갱신을 해지해도 이미 결제된 기간에는 계속 이용할
-                          수 있습니다.
+                          {t("자동갱신을 해지해도 이미 결제된 기간에는 계속 이용할 수 있습니다.")}
                         </p>
                       </section>
                     ) : null}
@@ -469,12 +469,12 @@ export default function SettingsModal({
                 ) : (
                   <section>
                     <h3 className="text-xl font-black tracking-tight text-gray-200">
-                      사용량
+                      {t("사용량")}
                     </h3>
                     <div className="mt-6 space-y-6">
                       {[
                         {
-                          label: "사용 중인 계좌",
+                          label: t("사용 중인 계좌"),
                           value: formatUsageValue(
                             summary.accounts.used,
                             summary.accounts.limit
@@ -486,7 +486,7 @@ export default function SettingsModal({
                           sublabel: null as string | null,
                         },
                         {
-                          label: "저장 가능 전략",
+                          label: t("저장 가능 전략"),
                           value: formatUsageValue(
                             summary.strategies.used,
                             summary.strategies.limit,
@@ -500,7 +500,7 @@ export default function SettingsModal({
                           sublabel: null as string | null,
                         },
                         {
-                          label: "백테스트 횟수",
+                          label: t("백테스트 횟수"),
                           value: formatUsageValue(
                             summary.backtests.used,
                             summary.backtests.limit

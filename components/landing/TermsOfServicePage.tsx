@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { getLanguage, t } from "@/lib/i18n";
+import { createTermsSectionsEn } from "./legalSectionsEn";
 
 type TermsSection = {
   title: string;
@@ -222,15 +224,18 @@ const createSections = (companyName: string, serviceName: string): TermsSection[
 ];
 
 export function TermsOfServicePage() {
-  const companyName = process.env.COMPANY_NAME || "널스페이스";
-  const serviceName = process.env.SERVICE_NAME || "널스탁";
-  const sections = createSections(companyName, serviceName);
+  const companyName = process.env.COMPANY_NAME || t("널스페이스");
+  const serviceName = process.env.SERVICE_NAME || t("널스탁");
+  const sections =
+    getLanguage() === "en"
+      ? createTermsSectionsEn(companyName, serviceName)
+      : createSections(companyName, serviceName);
   const businessInfoItems = [
-    { label: "상호", value: companyName },
-    { label: "대표자", value: process.env.BUSINESS_REPRESENTATIVE_NAME },
-    { label: "주소", value: process.env.BUSINESS_ADDRESS },
-    { label: "사업자등록번호", value: process.env.BUSINESS_REGISTRATION_NUMBER },
-    { label: "이메일", value: process.env.BUSINESS_EMAIL },
+    { label: t("상호"), value: companyName },
+    { label: t("대표자"), value: process.env.BUSINESS_REPRESENTATIVE_NAME },
+    { label: t("주소"), value: process.env.BUSINESS_ADDRESS },
+    { label: t("사업자등록번호"), value: process.env.BUSINESS_REGISTRATION_NUMBER },
+    { label: t("이메일"), value: process.env.BUSINESS_EMAIL },
   ];
 
   return (
@@ -241,13 +246,13 @@ export function TermsOfServicePage() {
             href="/"
             className="text-sm font-bold text-gray-400 transition-colors hover:text-white"
           >
-            {serviceName}으로 돌아가기
+            {t("{0}으로 돌아가기", serviceName)}
           </Link>
           <p className="mt-10 text-sm font-black uppercase tracking-widest text-gray-500">
             {companyName}
           </p>
           <h1 className="mt-3 text-4xl font-black tracking-normal text-white sm:text-5xl">
-            서비스 이용약관
+            {t("서비스 이용약관")}
           </h1>
         </div>
       </section>
@@ -283,12 +288,12 @@ export function TermsOfServicePage() {
           </div>
 
           <div className="mt-10 border border-white/[0.08] bg-white/[0.02] p-5 text-sm font-bold leading-6 text-gray-400">
-            <p className="font-black text-white">사업자 정보</p>
+            <p className="font-black text-white">{t("사업자 정보")}</p>
             <dl className="mt-4 grid gap-3 sm:grid-cols-[140px_1fr]">
               {businessInfoItems.map((item) => (
                 <div key={item.label} className="contents">
                   <dt className="text-gray-500">{item.label}</dt>
-                  <dd className="text-gray-300">{item.value || "미정"}</dd>
+                  <dd className="text-gray-300">{item.value || t("미정")}</dd>
                 </div>
               ))}
             </dl>

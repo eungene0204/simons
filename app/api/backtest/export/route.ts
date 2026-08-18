@@ -7,6 +7,7 @@ import {
   isExportFormat,
   type BacktestExportPayload,
 } from "@/lib/backtest-export";
+import { getRequestLanguage } from "@/lib/i18n/server";
 
 // 결과 다운로드는 Pro / Premium 전용 기능이다. 서버에서도 반드시 플랜을 검증해
 // 무료·비로그인·차단 사용자가 직접 API를 호출해도 파일이 생성되지 않게 한다.
@@ -46,6 +47,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "내보낼 백테스트 데이터가 없습니다." }, { status: 400 });
     }
 
+    // 파일 안의 라벨(CSV 헤더 등)은 요청 언어를 따른다.
+    getRequestLanguage();
     const file = buildExportFile(body.payload, format);
 
     return new NextResponse(file.content, {

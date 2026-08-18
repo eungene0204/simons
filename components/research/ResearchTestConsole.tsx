@@ -10,6 +10,7 @@ import {
   Trophy,
   Warning,
 } from "phosphor-react";
+import { getLocale, t } from "@/lib/i18n";
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -114,44 +115,44 @@ function localizeRejectionReason(reason: string | null): string {
   if (reason.startsWith("holdout_failed")) {
     const dsr = reason.match(/dsr=([-\d.]+)/)?.[1];
     return dsr
-      ? `홀드아웃 실패 (편향보정 샤프 ${parseFloat(dsr).toFixed(2)})`
-      : "홀드아웃 검증 실패";
+      ? t("홀드아웃 실패 (편향보정 샤프 {0})", parseFloat(dsr).toFixed(2))
+      : t("홀드아웃 검증 실패");
   }
   if (reason.startsWith("holdout_error:")) {
-    return `홀드아웃 오류: ${reason.replace("holdout_error:", "").trim()}`;
+    return t("홀드아웃 오류: {0}", reason.replace("holdout_error:", "").trim());
   }
 
   // prescreen gates
   const tradeMin = reason.match(/^trades (\d+) < min (\d+)$/);
-  if (tradeMin) return `거래 횟수 부족 (${tradeMin[1]}회 < 최소 ${tradeMin[2]}회)`;
+  if (tradeMin) return t("거래 횟수 부족 ({0}회 < 최소 {1}회)", tradeMin[1], tradeMin[2]);
 
   const tradeDensity = reason.match(/^trade density ([\d.]+)\/y < ([\d.]+)$/);
-  if (tradeDensity) return `연간 거래 빈도 부족 (${tradeDensity[1]}회/년)`;
+  if (tradeDensity) return t("연간 거래 빈도 부족 ({0}회/년)", tradeDensity[1]);
 
   const cagr = reason.match(/^cagr ([-\d.]+) < ([\d.]+)×benchmark$/);
-  if (cagr) return `수익률 미달 (CAGR ${(parseFloat(cagr[1]) * 100).toFixed(1)}%)`;
+  if (cagr) return t("수익률 미달 (CAGR {0}%)", (parseFloat(cagr[1]) * 100).toFixed(1));
 
   const pf = reason.match(/^profitFactor ([\d.]+) < ([\d.]+)$/);
-  if (pf) return `수익비 미달 (${pf[1]} < ${pf[2]})`;
+  if (pf) return t("수익비 미달 ({0} < {1})", pf[1], pf[2]);
 
   const mdd = reason.match(/^maxDrawdown ([\d.]+) > ([\d.]+)$/);
-  if (mdd) return `최대낙폭 초과 (${(parseFloat(mdd[1]) * 100).toFixed(1)}% > ${(parseFloat(mdd[2]) * 100).toFixed(0)}%)`;
+  if (mdd) return t("최대낙폭 초과 ({0}% > {1}%)", (parseFloat(mdd[1]) * 100).toFixed(1), (parseFloat(mdd[2]) * 100).toFixed(0));
 
   // robustness gates
   const wfe = reason.match(/^wfe ([\d.]+) < ([\d.]+)$/);
-  if (wfe) return `워크포워드 효율 부족 (${parseFloat(wfe[1]).toFixed(2)} < ${wfe[2]})`;
+  if (wfe) return t("워크포워드 효율 부족 ({0} < {1})", parseFloat(wfe[1]).toFixed(2), wfe[2]);
 
   const mcCagr = reason.match(/^mc_cagr_p05 ([-\d.]+) < ([-\d.]+)$/);
-  if (mcCagr) return `몬테카를로 CAGR 5%값 미달 (${(parseFloat(mcCagr[1]) * 100).toFixed(1)}%)`;
+  if (mcCagr) return t("몬테카를로 CAGR 5%값 미달 ({0}%)", (parseFloat(mcCagr[1]) * 100).toFixed(1));
 
   const mcMdd = reason.match(/^mc_mdd_p95 ([\d.]+) > ([\d.]+)$/);
-  if (mcMdd) return `몬테카를로 MDD 95%값 초과 (${(parseFloat(mcMdd[1]) * 100).toFixed(1)}%)`;
+  if (mcMdd) return t("몬테카를로 MDD 95%값 초과 ({0}%)", (parseFloat(mcMdd[1]) * 100).toFixed(1));
 
   // errors
-  if (reason.startsWith("backtest_error:")) return `백테스트 오류: ${reason.replace("backtest_error:", "").trim()}`;
-  if (reason.startsWith("base_backtest_error:")) return `백테스트 오류: ${reason.replace("base_backtest_error:", "").trim()}`;
-  if (reason.startsWith("ai_guard:")) return `AI 데이터 누수 감지: ${reason.replace("ai_guard:", "").trim()}`;
-  if (reason.startsWith("circuit_breaker:")) return `연속 실패 중단 (서킷브레이커)`;
+  if (reason.startsWith("backtest_error:")) return t("백테스트 오류: {0}", reason.replace("backtest_error:", "").trim());
+  if (reason.startsWith("base_backtest_error:")) return t("백테스트 오류: {0}", reason.replace("base_backtest_error:", "").trim());
+  if (reason.startsWith("ai_guard:")) return t("AI 데이터 누수 감지: {0}", reason.replace("ai_guard:", "").trim());
+  if (reason.startsWith("circuit_breaker:")) return t("연속 실패 중단 (서킷브레이커)");
 
   return reason;
 }
@@ -160,29 +161,29 @@ function formatSignal(s: TechnicalSignal): string {
   const ind = s.indicator ?? "";
   switch (ind) {
     case "ma_crossover":
-      return `MA 골든/데드크로스 (${s.short_period}일 / ${s.long_period}일)`;
+      return t("MA 골든/데드크로스 ({0}일 / {1}일)", s.short_period, s.long_period);
     case "ema":
-      return `EMA ${s.period}일 ${s.signal_type === "buy" ? "상향돌파" : "하향이탈"}`;
+      return t("EMA {0}일 {1}", s.period, s.signal_type === "buy" ? t("상향돌파") : t("하향이탈"));
     case "rsi":
-      return `RSI ${s.period}일 ${s.signal_type === "buy" ? `≤ ${s.threshold}` : `≥ ${s.threshold}`}`;
+      return t("RSI {0}일 {1}", s.period, s.signal_type === "buy" ? `≤ ${s.threshold}` : `≥ ${s.threshold}`);
     case "macd":
-      return `MACD 시그널 ${s.signal_type === "buy" ? "상향교차" : "하향교차"}`;
+      return t("MACD 시그널 {0}", s.signal_type === "buy" ? t("상향교차") : t("하향교차"));
     case "bollinger_bands":
-      return `볼린저밴드 ${s.signal_type === "buy" ? "하단 터치" : "상단 터치"}`;
+      return t("볼린저밴드 {0}", s.signal_type === "buy" ? t("하단 터치") : t("상단 터치"));
     case "stochastic":
-      return `스토캐스틱 ${s.signal_type === "buy" ? `≤ ${s.threshold}` : `≥ ${s.threshold}`}`;
+      return t("스토캐스틱 {0}", s.signal_type === "buy" ? `≤ ${s.threshold}` : `≥ ${s.threshold}`);
     case "cci":
-      return `CCI ${s.period}일 ${s.signal_type === "buy" ? `≤ ${s.threshold}` : `≥ ${s.threshold}`}`;
+      return t("CCI {0}일 {1}", s.period, s.signal_type === "buy" ? `≤ ${s.threshold}` : `≥ ${s.threshold}`);
     case "adx":
-      return `ADX ${s.period}일 ≥ ${s.threshold} (추세 강도)`;
+      return t("ADX {0}일 ≥ {1} (추세 강도)", s.period, s.threshold);
     case "volume_spike":
-      return `거래량 급증 (OBV ${s.period ?? 20}일 평균 상향 돌파)`;
+      return t("거래량 급증 (OBV {0}일 평균 상향 돌파)", s.period ?? 20);
     case "breakout":
-      return `가격 돌파 (${s.period}일 고점)`;
+      return t("가격 돌파 ({0}일 고점)", s.period);
     case "ai_model":
-      return "AI 매수 신호";
+      return t("AI 매수 신호");
     case "ai_drop_model":
-      return "AI 하락 예측 신호";
+      return t("AI 하락 예측 신호");
     default:
       return ind;
   }
@@ -197,14 +198,14 @@ function scoreColor(score: number | null): string {
 }
 
 function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleDateString(getLocale(), { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 // ─── component ───────────────────────────────────────────────────────────────
 
 export default function ResearchTestConsole() {
   // form state
-  const [goal, setGoal] = useState("테스트 연구 런");
+  const [goal, setGoal] = useState(t("테스트 연구 런"));
   const [templates, setTemplates] = useState<string[]>(["momentum", "mean_reversion"]);
   const [universe, setUniverse] = useState("KOSPI200");
   const [maxCandidates, setMaxCandidates] = useState(20);
@@ -278,7 +279,7 @@ export default function ResearchTestConsole() {
     const appendLog = (label: string, data: string) => {
       try {
         const parsed = JSON.parse(data);
-        const msg = `[${new Date().toLocaleTimeString("ko-KR")}] ${label}: ${JSON.stringify(parsed)}`;
+        const msg = `[${new Date().toLocaleTimeString(getLocale())}] ${label}: ${JSON.stringify(parsed)}`;
         setEventLog((prev) => [...prev.slice(-300), msg]);
         setTimeout(() => {
           logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
@@ -324,7 +325,7 @@ export default function ResearchTestConsole() {
 
   async function createRun() {
     if (templates.length === 0) {
-      setError("최소 1개 이상의 템플릿을 선택하세요");
+      setError(t("최소 1개 이상의 템플릿을 선택하세요"));
       return;
     }
     setIsCreating(true);
@@ -349,11 +350,11 @@ export default function ResearchTestConsole() {
     setIsCreating(false);
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: "알 수 없는 오류" }));
-      const msg = err.detail || err.error || "Run 생성 실패";
+      const err = await res.json().catch(() => ({ error: t("알 수 없는 오류") }));
+      const msg = err.detail || err.error || t("Run 생성 실패");
       setError(
         res.status === 402
-          ? "PREMIUM 플랜 유저만 사용 가능합니다 (DB에서 planTier를 PREMIUM으로 변경해주세요)"
+          ? t("PREMIUM 플랜 유저만 사용 가능합니다 (DB에서 planTier를 PREMIUM으로 변경해주세요)")
           : msg
       );
       return;
@@ -367,9 +368,9 @@ export default function ResearchTestConsole() {
 
   // ── toggle template ──────────────────────────────────────────────────────
 
-  function toggleTemplate(t: string) {
+  function toggleTemplate(tv: string) {
     setTemplates((prev) =>
-      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
+      prev.includes(tv) ? prev.filter((x) => x !== tv) : [...prev, tv]
     );
   }
 
@@ -390,12 +391,12 @@ export default function ResearchTestConsole() {
           <h1 className="text-base font-black uppercase tracking-widest font-outfit text-white">
             Strategy Research Agent
           </h1>
-          <p className="text-xs text-gray-500">테스트 콘솔 — 전략 자동 탐색 파이프라인</p>
+          <p className="text-xs text-gray-500">{t("테스트 콘솔 — 전략 자동 탐색 파이프라인")}</p>
         </div>
         <button
           onClick={fetchRuns}
           className="ml-auto p-1.5 rounded hover:bg-white/[0.06] text-gray-500 hover:text-gray-300 transition-colors"
-          title="새로고침"
+          title={t("새로고침")}
         >
           <ArrowClockwise size={16} />
         </button>
@@ -410,35 +411,35 @@ export default function ResearchTestConsole() {
             style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
           >
             <p className="text-xs font-black uppercase tracking-widest text-gray-400 font-outfit">
-              Run 설정
+              {t("Run 설정")}
             </p>
 
             {/* Goal */}
             <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500">목표</label>
+              <label className="text-xs font-bold text-gray-500">{t("목표")}</label>
               <input
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
-                placeholder="예: 고Sharpe 모멘텀 전략 탐색"
+                placeholder={t("예: 고Sharpe 모멘텀 전략 탐색")}
                 className="w-full text-sm bg-white/[0.04] border border-white/[0.08] rounded px-3 py-1.5 text-white placeholder-gray-600 focus:outline-none focus:border-white/20"
               />
             </div>
 
             {/* Templates */}
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-gray-500">템플릿</label>
+              <label className="text-xs font-bold text-gray-500">{t("템플릿")}</label>
               <div className="flex flex-wrap gap-1.5">
-                {TEMPLATES.map((t) => (
+                {TEMPLATES.map((tv) => (
                   <button
-                    key={t}
-                    onClick={() => toggleTemplate(t)}
+                    key={tv}
+                    onClick={() => toggleTemplate(tv)}
                     className={`text-xs font-bold px-2.5 py-1 rounded transition-colors ${
-                      templates.includes(t)
+                      templates.includes(tv)
                         ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
                         : "bg-white/[0.04] text-gray-500 border border-white/[0.06] hover:text-gray-300"
                     }`}
                   >
-                    {TEMPLATE_LABELS[t]}
+                    {t(TEMPLATE_LABELS[tv])}
                   </button>
                 ))}
               </div>
@@ -446,7 +447,7 @@ export default function ResearchTestConsole() {
 
             {/* Universe */}
             <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500">유니버스</label>
+              <label className="text-xs font-bold text-gray-500">{t("유니버스")}</label>
               <div className="flex gap-1.5">
                 {["KOSPI200", "KOSPI", "KOSDAQ"].map((u) => (
                   <button
@@ -467,9 +468,9 @@ export default function ResearchTestConsole() {
             {/* Numeric params */}
             <div className="grid grid-cols-3 gap-2">
               {[
-                { label: "후보 수", value: maxCandidates, set: setMaxCandidates, min: 10, max: 500 },
-                { label: "Optuna 시도", value: optunaTrials, set: setOptunaTrials, min: 10, max: 200 },
-                { label: "WFA 분할", value: wfaSplits, set: setWfaSplits, min: 3, max: 10 },
+                { label: t("후보 수"), value: maxCandidates, set: setMaxCandidates, min: 10, max: 500 },
+                { label: t("Optuna 시도"), value: optunaTrials, set: setOptunaTrials, min: 10, max: 200 },
+                { label: t("WFA 분할"), value: wfaSplits, set: setWfaSplits, min: 3, max: 10 },
               ].map(({ label, value, set, min, max }) => (
                 <div key={label} className="space-y-1">
                   <label className="text-xs font-bold text-gray-500">{label}</label>
@@ -487,7 +488,7 @@ export default function ResearchTestConsole() {
 
             {/* Holdout start */}
             <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500">홀드아웃 시작 (빈칸 = 자동)</label>
+              <label className="text-xs font-bold text-gray-500">{t("홀드아웃 시작 (빈칸 = 자동)")}</label>
               <input
                 type="date"
                 value={holdoutStart}
@@ -515,7 +516,7 @@ export default function ResearchTestConsole() {
               ) : (
                 <Play size={16} weight="fill" />
               )}
-              {isCreating ? "생성 중..." : "Run 시작"}
+              {isCreating ? t("생성 중...") : t("Run 시작")}
             </button>
           </div>
 
@@ -525,10 +526,9 @@ export default function ResearchTestConsole() {
             style={{ background: "var(--glass-bg)", border: "1px solid var(--glass-border)" }}
           >
             <p className="text-xs text-gray-600 leading-relaxed">
-              <span className="text-gray-500 font-bold">TIP</span> — PREMIUM 플랜이 필요합니다.
-              개발 테스트 시 SQLite에서{" "}
+              <span className="text-gray-500 font-bold">TIP</span>{t(" — PREMIUM 플랜이 필요합니다. 개발 테스트 시 SQLite에서")}{" "}
               <code className="bg-white/[0.06] px-1 rounded text-gray-400">UPDATE User SET planTier=&apos;PREMIUM&apos;</code>
-              으로 변경 후 사용하세요.
+              {t("으로 변경 후 사용하세요.")}
             </p>
           </div>
         </div>
@@ -545,11 +545,11 @@ export default function ResearchTestConsole() {
               <p className="text-xs font-black uppercase tracking-widest text-gray-400 font-outfit flex-1">
                 Research Runs
               </p>
-              <span className="text-xs text-gray-600">{runs.length}개</span>
+              <span className="text-xs text-gray-600">{t("{0}개", runs.length)}</span>
             </div>
             {runs.length === 0 ? (
               <div className="py-8 text-center text-sm text-gray-600">
-                아직 실행된 Run이 없습니다
+                {t("아직 실행된 Run이 없습니다")}
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -558,7 +558,7 @@ export default function ResearchTestConsole() {
                     <tr className="border-b border-white/[0.04]">
                       {["Run ID", "상태", "목표", "후보", "시작"].map((h) => (
                         <th key={h} className="px-4 py-2 text-left font-bold text-gray-600 uppercase tracking-wider">
-                          {h}
+                          {t(h)}
                         </th>
                       ))}
                     </tr>
@@ -602,7 +602,7 @@ export default function ResearchTestConsole() {
               >
                 <div className="flex items-center gap-2 mb-3">
                   <p className="text-xs font-black uppercase tracking-widest text-gray-400 font-outfit flex-1">
-                    파이프라인 진행
+                    {t("파이프라인 진행")}
                   </p>
                   {isStreaming && (
                     <button
@@ -610,7 +610,7 @@ export default function ResearchTestConsole() {
                       className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300"
                     >
                       <StopCircle size={14} />
-                      스트림 중지
+                      {t("스트림 중지")}
                     </button>
                   )}
                   {!isStreaming && activeRun && !["COMPLETED", "FAILED", "CANCELLED"].includes(activeRun.status) && (
@@ -619,7 +619,7 @@ export default function ResearchTestConsole() {
                       className="flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300"
                     >
                       <ArrowClockwise size={14} />
-                      스트림 재연결
+                      {t("스트림 재연결")}
                     </button>
                   )}
                 </div>
@@ -674,7 +674,7 @@ export default function ResearchTestConsole() {
               >
                 <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center gap-2">
                   <p className="text-xs font-black uppercase tracking-widest text-gray-400 font-outfit flex-1">
-                    이벤트 로그
+                    {t("이벤트 로그")}
                   </p>
                   {isStreaming && (
                     <span className="flex items-center gap-1 text-[10px] text-sky-400 font-bold">
@@ -686,7 +686,7 @@ export default function ResearchTestConsole() {
                     onClick={() => setEventLog([])}
                     className="text-[10px] text-gray-600 hover:text-gray-400"
                   >
-                    지우기
+                    {t("지우기")}
                   </button>
                 </div>
                 <div
@@ -695,7 +695,7 @@ export default function ResearchTestConsole() {
                   style={{ background: "rgba(0,0,0,0.3)" }}
                 >
                   {eventLog.length === 0 ? (
-                    <p className="text-xs text-gray-700">이벤트가 없습니다. Run을 시작하면 실시간 이벤트가 표시됩니다.</p>
+                    <p className="text-xs text-gray-700">{t("이벤트가 없습니다. Run을 시작하면 실시간 이벤트가 표시됩니다.")}</p>
                   ) : (
                     eventLog.map((line, i) => (
                       <p key={i} className="text-[11px] text-gray-400 leading-relaxed">
@@ -715,9 +715,9 @@ export default function ResearchTestConsole() {
                   <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center gap-2">
                     <Trophy size={14} className="text-amber-400" />
                     <p className="text-xs font-black uppercase tracking-widest text-gray-400 font-outfit flex-1">
-                      후보 결과
+                      {t("후보 결과")}
                     </p>
-                    <span className="text-xs text-gray-600">{candidates.length}개</span>
+                    <span className="text-xs text-gray-600">{t("{0}개", candidates.length)}</span>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
@@ -725,7 +725,7 @@ export default function ResearchTestConsole() {
                         <tr className="border-b border-white/[0.04]">
                           {["전략 설명", "단계", "종합점수", "강건성", "홀드아웃 CAGR", "탈락 사유"].map((h) => (
                             <th key={h} className="px-3 py-2 text-left font-bold text-gray-600 uppercase tracking-wider whitespace-nowrap">
-                              {h}
+                              {t(h)}
                             </th>
                           ))}
                         </tr>
@@ -753,12 +753,12 @@ export default function ResearchTestConsole() {
                                 {/* 전략 설명 */}
                                 <td className="px-3 py-2.5 max-w-[260px]">
                                   <p className="font-bold text-gray-200 truncate">{dsl?.description ?? c.template}</p>
-                                  <p className="text-[10px] text-gray-600 mt-0.5">{TEMPLATE_LABELS[c.template] ?? c.template}</p>
+                                  <p className="text-[10px] text-gray-600 mt-0.5">{t(TEMPLATE_LABELS[c.template] ?? c.template)}</p>
                                 </td>
                                 {/* 단계 */}
                                 <td className="px-3 py-2.5">
                                   <span className={`inline-flex font-bold px-1.5 py-0.5 rounded text-[10px] ${STATUS_COLORS[c.stage] ?? "text-gray-400 bg-white/[0.05]"}`}>
-                                    {STAGE_LABELS[c.stage] ?? c.stage}
+                                    {t(STAGE_LABELS[c.stage] ?? c.stage)}
                                   </span>
                                 </td>
                                 {/* 종합점수 */}
@@ -788,7 +788,7 @@ export default function ResearchTestConsole() {
 
                                       {/* 진입 조건 */}
                                       <div className="space-y-1">
-                                        <p className="font-bold text-gray-500 uppercase tracking-wider">진입 조건</p>
+                                        <p className="font-bold text-gray-500 uppercase tracking-wider">{t("진입 조건")}</p>
                                         {dsl.entry_signals?.length ? dsl.entry_signals.map((s, i) => (
                                           <p key={i} className="text-gray-300">{formatSignal(s)}</p>
                                         )) : <p className="text-gray-600">—</p>}
@@ -796,7 +796,7 @@ export default function ResearchTestConsole() {
 
                                       {/* 청산 조건 */}
                                       <div className="space-y-1">
-                                        <p className="font-bold text-gray-500 uppercase tracking-wider">청산 조건</p>
+                                        <p className="font-bold text-gray-500 uppercase tracking-wider">{t("청산 조건")}</p>
                                         {dsl.exit_signals?.length ? dsl.exit_signals.map((s, i) => (
                                           <p key={i} className="text-gray-300">{formatSignal(s)}</p>
                                         )) : <p className="text-gray-600">—</p>}
@@ -804,12 +804,12 @@ export default function ResearchTestConsole() {
 
                                       {/* 리스크 파라미터 */}
                                       <div className="space-y-1">
-                                        <p className="font-bold text-gray-500 uppercase tracking-wider">리스크 설정</p>
-                                        {dsl.stop_loss_pct != null && <p className="text-gray-300">손절: <span className="text-red-400 font-bold">{dsl.stop_loss_pct}%</span></p>}
-                                        {dsl.take_profit_pct != null && <p className="text-gray-300">익절: <span className="text-emerald-400 font-bold">{dsl.take_profit_pct}%</span></p>}
-                                        {dsl.trailing_stop_pct != null && <p className="text-gray-300">트레일링스탑: <span className="text-amber-400 font-bold">{dsl.trailing_stop_pct}%</span></p>}
-                                        {dsl.max_positions != null && <p className="text-gray-300">최대 보유 종목: <span className="text-gray-200 font-bold">{dsl.max_positions}개</span></p>}
-                                        {dsl.hold_period_days != null && <p className="text-gray-300">최대 보유일: <span className="text-gray-200 font-bold">{dsl.hold_period_days}일</span></p>}
+                                        <p className="font-bold text-gray-500 uppercase tracking-wider">{t("리스크 설정")}</p>
+                                        {dsl.stop_loss_pct != null && <p className="text-gray-300">{t("손절: ")}<span className="text-red-400 font-bold">{dsl.stop_loss_pct}%</span></p>}
+                                        {dsl.take_profit_pct != null && <p className="text-gray-300">{t("익절: ")}<span className="text-emerald-400 font-bold">{dsl.take_profit_pct}%</span></p>}
+                                        {dsl.trailing_stop_pct != null && <p className="text-gray-300">{t("트레일링스탑: ")}<span className="text-amber-400 font-bold">{dsl.trailing_stop_pct}%</span></p>}
+                                        {dsl.max_positions != null && <p className="text-gray-300">{t("최대 보유 종목: ")}<span className="text-gray-200 font-bold">{t("{0}개", dsl.max_positions)}</span></p>}
+                                        {dsl.hold_period_days != null && <p className="text-gray-300">{t("최대 보유일: ")}<span className="text-gray-200 font-bold">{t("{0}일", dsl.hold_period_days)}</span></p>}
                                       </div>
                                     </div>
                                   </td>

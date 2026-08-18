@@ -13,8 +13,24 @@ export function computeChatScrollDelta(
   return delta > 0 ? delta : 0;
 }
 
-// 전략연구소 화면을 대화 끝까지 끝까지 올려서 보여준다 — 대화를 복원하거나 결과 화면에서
-// 돌아왔을 때 마지막 버블('백테스트 시작하기' 버튼 등)이 고정 입력창 뒤에 걸리지 않도록.
+// 전략연구소 화면을 맨 위(스크롤 0)로 되돌린다 — 백테스트 결과 화면에서 대화 화면으로
+// 돌아올 때 항상 위에서부터 보이도록(2026-08-17 지시). 결과 화면 진입 시의 스크롤 초기화와
+// 같은 컨테이너(main 또는 window) 규칙을 쓴다.
+export function scrollChatViewToTop(
+  doc: Pick<Document, "querySelector"> = document,
+  win: Pick<Window, "scrollTo"> = window
+): void {
+  const main = doc.querySelector("main");
+  if (main && main.scrollHeight > main.clientHeight) {
+    main.scrollTo({ top: 0, behavior: "auto" });
+    return;
+  }
+  win.scrollTo({ top: 0, behavior: "auto" });
+}
+
+// 전략연구소 화면을 대화 끝까지 끝까지 올려서 보여준다 — 다른 페이지에서 돌아와 대화를
+// 복원했을 때 마지막 버블('백테스트 시작하기' 버튼 등)이 고정 입력창 뒤에 걸리지 않도록.
+// (결과 화면 → 대화 화면 복귀는 scrollChatViewToTop — 맨 위에서 시작한다.)
 // 최대 스크롤 위치에서는 대화 컨테이너의 하단 여백(pb-56 = 224px)이 입력창(≈135px)보다
 // 커서 마지막 버블이 항상 입력창 위에 놓인다.
 // 스크롤 컨테이너는 레이아웃의 <main>이며, main이 스크롤되지 않는 레이아웃에서는 윈도우다.

@@ -419,48 +419,120 @@ def test_next_open_rebalance_fills_on_rebalance_day_custom_loop_path():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 가치+퀄리티(PBR/ROE) 랭킹 — 자본잠식/적자로 null(NaN)인 종목이 배제되는지 검증
+# 후보 우선순위(v16.3, 2026-08-18) — 랭킹을 말하지 않은 전략에서 매수 조건 충족 종목이
+# 빈 자리보다 많은 날은 최근 60거래일 수익률 높은 순으로 우선 담고, 그 사실을 고지한다.
+# (종전의 저PBR·고ROE 블렌드 폴백은 사용자가 말한 적 없는 선정 기준이라 폐지.)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def test_value_quality_ranking_excludes_nan_pbr_stock():
-    """PBR이 NaN(자본잠식으로 계산 불가)인 종목은 다른 두 종목보다 값이 '낮아' 보여도
-    최우선 가치주로 선정되지 않고 배제되어야 한다(과거 fillna(1.0) 센티널이 이를 숨겼음)."""
-    dates = pd.date_range(start="2024-01-01", periods=10, freq="D")
+def _signal_req(symbols: list[str], **extra_risk) -> dict:
+    """매수 조건 = 종가 50 초과 (랭킹 없음)."""
+    return {
+        "symbols": symbols,
+        "entry": {"conditions": [{"id": "price", "params": {"value": 50, "operator": ">"}}]},
+        "exit": {"conditions": []},
+        "risk": {
+            "position_size_pct": 50,
+            "max_positions": 2,
+            "liquidity_multiplier": 0,
+            **extra_risk,
+        },
+        "options": {"execution_type": "same_close"},
+    }
+
+
+def test_overflow_candidates_prefer_recent_return_and_disclose():
+    """세 종목이 같은 날 매수 조건을 충족하는데 자리는 2개 — 최근 60거래일 수익률이 높은 두 종목이
+    담기고, 넘친 날이 있었음이 경고로 고지된다."""
+    dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
     data_dir = os.path.join(os.path.dirname(__file__), "data")
     os.makedirs(data_dir, exist_ok=True)
-
-    _write_series_with_fundamentals(data_dir, "VQ_IMPAIRED", dates, pbr=float("nan"), roe=float("nan"))
-    _write_series_with_fundamentals(data_dir, "VQ_VALUE", dates, pbr=1.0, roe=15.0)
-    _write_series_with_fundamentals(data_dir, "VQ_GROWTH", dates, pbr=2.0, roe=10.0)
+    # 70일째 전까지 조건 미충족(50 이하) → 70일째 동시에 50 초과. 60일 수익률=오늘/10일째.
+    # 하루 상승폭은 ±30% 상한 가드(_sanitize_corporate_actions) 안에 둔다.
+    _write_series(data_dir, "OVF_UP", [40.0] * 70 + [52.0] * 30, dates)      # +30%
+    _write_series(data_dir, "OVF_MID", [45.0] * 70 + [51.0] * 30, dates)     # +13%
+    _write_series(data_dir, "OVF_LOW", [49.0] * 70 + [50.5] * 30, dates)     # +3%
 
     engine = BacktestEngine(data_dir=data_dir)
-    result = engine.run_backtest(_value_quality_req(
-        ["VQ_IMPAIRED", "VQ_VALUE", "VQ_GROWTH"],
-        ranking_weight_value=0.5, ranking_weight_quality=0.5,
-    ))
+    result = engine.run_backtest(_signal_req(["OVF_UP", "OVF_MID", "OVF_LOW"]))
 
     buy_symbols = {s["symbol"] for s in result["signals"] if s["type"] == "buy"}
-    assert buy_symbols == {"VQ_VALUE", "VQ_GROWTH"}, f"자본잠식 종목이 배제되지 않음: {buy_symbols}"
+    assert buy_symbols == {"OVF_UP", "OVF_MID"}, f"수익률 상위 2종목이 아닌 종목이 담김: {buy_symbols}"
+    assert any(
+        "빈 자리" in w and "60거래일 수익률이 높은 종목부터" in w for w in result.get("warnings", [])
+    ), result.get("warnings")
 
 
-def test_value_quality_ranking_zero_weight_ignores_nan_factor():
-    """가중치가 0인 팩터의 NaN은 종목을 배제하면 안 된다(NaN*0=NaN 전파 버그 회귀 방지).
-    PBR 가중치=0이면 PBR이 NaN인 종목도 ROE만으로 정상 랭킹돼야 한다."""
-    dates = pd.date_range(start="2024-01-01", periods=10, freq="D")
+def test_no_overflow_means_no_priority_disclosure():
+    """자리가 남으면 순위가 개입하지 않았으므로 고지도 없다."""
+    dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
     data_dir = os.path.join(os.path.dirname(__file__), "data")
     os.makedirs(data_dir, exist_ok=True)
-
-    _write_series_with_fundamentals(data_dir, "ZW_BEST_ROE", dates, pbr=float("nan"), roe=20.0)
-    _write_series_with_fundamentals(data_dir, "ZW_MID_ROE", dates, pbr=1.0, roe=5.0)
-    _write_series_with_fundamentals(data_dir, "ZW_LOW_ROE", dates, pbr=1.0, roe=1.0)
+    _write_series(data_dir, "NOVF_A", [40.0] * 70 + [52.0] * 30, dates)
+    _write_series(data_dir, "NOVF_B", [45.0] * 70 + [51.0] * 30, dates)
 
     engine = BacktestEngine(data_dir=data_dir)
-    result = engine.run_backtest(_value_quality_req(
-        ["ZW_BEST_ROE", "ZW_MID_ROE", "ZW_LOW_ROE"],
-        ranking_weight_value=0.0, ranking_weight_quality=1.0,
-    ))
+    result = engine.run_backtest(_signal_req(["NOVF_A", "NOVF_B"]))
+    assert {s["symbol"] for s in result["signals"] if s["type"] == "buy"} == {"NOVF_A", "NOVF_B"}
+    assert not any("빈 자리" in w for w in result.get("warnings", [])), result.get("warnings")
 
-    buy_symbols = {s["symbol"] for s in result["signals"] if s["type"] == "buy"}
-    assert buy_symbols == {"ZW_BEST_ROE", "ZW_MID_ROE"}, (
-        f"PBR 가중치 0인데도 PBR=NaN 종목이 배제됨: {buy_symbols}"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 매수 조건이 있는 전략의 리밸런싱(v16.3) — 후보는 매수 조건이 정한다: 리밸런싱일이 아닌 날의
+# 신호도 빈 자리만큼 담고, 리밸런싱일에는 그날 조건 충족 종목 중에서 다시 구성한다.
+# 종전에는 순수 랭킹 회전과 같은 경로라 리밸런싱일 사이의 매수 신호가 전부 버려졌고
+# (SL/TP 없으면 매도 신호까지 무시), 사용자 모델("매수 조건에 맞는 종목 중에서 리밸런싱")과 어긋났다.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_signal_strategy_with_rebalancing_buys_between_rebalance_days():
+    dates = pd.date_range(start="2024-01-01", periods=100, freq="D")  # 1/1 ~ 4/9
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
+    fire_from = list(dates).index(pd.Timestamp("2024-02-15"))
+    _write_series(data_dir, "SIGRB_MID", [45.0] * fire_from + [55.0] * (100 - fire_from), dates)
+
+    engine = BacktestEngine(data_dir=data_dir)
+    result = engine.run_backtest(_signal_req(["SIGRB_MID"], rebalancing_period="monthly"))
+    buys = _signal_dates(result, "SIGRB_MID", "buy")
+    assert buys and buys[0] == "2024-02-15", f"리밸런싱일이 아닌 날의 매수 신호가 버려짐: {buys}"
+    # 3/1 리밸런싱일에도 조건을 충족하므로 편출되지 않는다(마지막 날 강제 청산만 남는다).
+    sells = [s for s in result["signals"] if s["symbol"] == "SIGRB_MID" and s["type"] == "sell"]
+    assert all("백테스트 종료" in s["condition"] for s in sells), sells
+    assert any("리밸런싱일에는 그날 매수 조건을 충족한 종목 중에서" in w for w in result.get("warnings", [])), (
+        result.get("warnings")
     )
+
+
+def test_signal_strategy_rebalance_day_drops_holdings_not_qualifying():
+    """리밸런싱일에 매수 조건을 더 이상 충족하지 않는 보유 종목은 편출된다(리밸런싱 제외)."""
+    dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
+    idx = list(dates)
+    fire_from, fire_to = idx.index(pd.Timestamp("2024-02-15")), idx.index(pd.Timestamp("2024-03-01"))
+    prices = [45.0] * fire_from + [55.0] * (fire_to - fire_from) + [45.0] * (100 - fire_to)
+    _write_series(data_dir, "SIGRB_DROP", prices, dates)
+
+    engine = BacktestEngine(data_dir=data_dir)
+    result = engine.run_backtest(_signal_req(["SIGRB_DROP"], rebalancing_period="monthly"))
+    assert _signal_dates(result, "SIGRB_DROP", "buy")[:1] == ["2024-02-15"]
+    sells = [s for s in result["signals"] if s["symbol"] == "SIGRB_DROP" and s["type"] == "sell"]
+    assert sells and sells[0]["date"] == "2024-03-01", sells
+    assert "리밸런싱 제외" in sells[0]["condition"], sells[0]
+
+
+def test_signal_strategy_with_rebalancing_honors_exit_signals():
+    """SL/TP가 없어도 매도 신호는 그대로 청산한다 — 종전 순수 경로는 매도 신호를 읽지 않았다."""
+    dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
+    idx = list(dates)
+    fire_from, drop_at = idx.index(pd.Timestamp("2024-01-10")), idx.index(pd.Timestamp("2024-01-20"))
+    prices = [45.0] * fire_from + [55.0] * (drop_at - fire_from) + [42.0] * (100 - drop_at)
+    _write_series(data_dir, "SIGRB_EXIT", prices, dates)
+
+    req = _signal_req(["SIGRB_EXIT"], rebalancing_period="monthly")
+    req["exit"] = {"conditions": [{"id": "price", "params": {"value": 44, "operator": "<"}}]}
+    engine = BacktestEngine(data_dir=data_dir)
+    result = engine.run_backtest(req)
+    sells = _signal_dates(result, "SIGRB_EXIT", "sell")
+    assert sells and sells[0] == "2024-01-20", f"매도 신호가 리밸런싱일까지 미뤄짐/무시됨: {sells}"

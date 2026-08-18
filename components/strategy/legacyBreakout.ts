@@ -1,5 +1,6 @@
 import { BacktestResult, Condition, StrategyDSL } from "@/types/strategy";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
+import { t } from "@/lib/i18n";
 
 function normalizeLegacyBreakoutCondition(condition: Condition): Condition {
   if (condition.id !== "breakout" || condition.params?.lookbackPeriod !== 52) {
@@ -57,9 +58,9 @@ export function normalizeLegacyBreakoutReason(reason: string | null | undefined)
 }
 
 function formatBreakoutPeriodLabel(lookbackPeriod: number | undefined): string {
-  if (lookbackPeriod === 252) return "52주";
-  if (!lookbackPeriod) return "기준 기간";
-  return `${lookbackPeriod}일`;
+  if (lookbackPeriod === 252) return t("52주");
+  if (!lookbackPeriod) return t("기준 기간");
+  return t("{0}일", lookbackPeriod);
 }
 
 function describeExitCondition(condition: Condition): string {
@@ -74,7 +75,7 @@ function describeExitCondition(condition: Condition): string {
       const longMA = condition.params?.longMA;
       const crossType = condition.params?.crossType === "dead" ? "데드크로스" : "골든크로스";
       if (shortMA && longMA) {
-        return `${shortMA}일/${longMA}일 ${crossType}`;
+        return t("{0}일/{1}일 {2}", shortMA, longMA, crossType);
       }
       return crossType;
     }
@@ -85,7 +86,7 @@ function describeExitCondition(condition: Condition): string {
       if (period && value !== undefined) {
         return `RSI(${period}) ${operator} ${value}`;
       }
-      return "RSI 조건";
+      return t("RSI 조건");
     }
     default:
       return condition.id;
@@ -125,10 +126,10 @@ export function resolveTradeReason(
 
   const exitConditions = strategy?.exit?.conditions ?? [];
   if (exitConditions.length === 1) {
-    return `${describeExitCondition(exitConditions[0])} 충족${details}`;
+    return t("{0} 충족{1}", describeExitCondition(exitConditions[0]), details);
   }
   if (exitConditions.length > 1) {
-    return `설정된 매도 규칙 중 하나 충족 (${exitConditions.map(describeExitCondition).join(" / ")})${details}`;
+    return t("설정된 매도 규칙 중 하나 충족 ({0}){1}", exitConditions.map(describeExitCondition).join(" / "), details);
   }
 
   return `${baseReason}${details}`;

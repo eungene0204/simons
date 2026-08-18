@@ -1,5 +1,6 @@
 "use client";
 
+import { t } from "@/lib/i18n";
 interface MarketSummaryProps {
   week52High: number;
   week52Low: number;
@@ -55,18 +56,18 @@ export default function MarketSummary({
   return (
     <div className="flex flex-col h-full">
       <div className="grid grid-cols-2 gap-x-2 gap-y-1 pb-1">
-        <StatItem label="52주 최고" value={formatPrice(week52High)} />
-        <StatItem label="52주 최저" value={formatPrice(week52Low)} />
-        <StatItem label="상한가" value={formatPrice(upperLimit)} valueClass="text-red-400" />
-        <StatItem label="하한가" value={formatPrice(lowerLimit)} valueClass="text-blue-400" />
-        <StatItem label="상승VI" value={formatPrice(upVI)} valueClass="text-red-400" />
-        <StatItem label="하강VI" value={formatPrice(downVI)} valueClass="text-blue-400" />
-        <StatItem label="시가" value={formatPrice(openPrice)} />
-        <StatItem label="고가" value={formatPrice(highPrice)} valueClass="text-red-400" />
-        <StatItem label="저가" value={formatPrice(lowPrice)} valueClass="text-blue-400" />
-        <StatItem label="거래량" value={formatQuantity(volumeTotal)} />
+        <StatItem label={t("52주 최고")} value={formatPrice(week52High)} />
+        <StatItem label={t("52주 최저")} value={formatPrice(week52Low)} />
+        <StatItem label={t("상한가")} value={formatPrice(upperLimit)} valueClass="text-red-400" />
+        <StatItem label={t("하한가")} value={formatPrice(lowerLimit)} valueClass="text-blue-400" />
+        <StatItem label={t("상승VI")} value={formatPrice(upVI)} valueClass="text-red-400" />
+        <StatItem label={t("하강VI")} value={formatPrice(downVI)} valueClass="text-blue-400" />
+        <StatItem label={t("시가")} value={formatPrice(openPrice)} />
+        <StatItem label={t("고가")} value={formatPrice(highPrice)} valueClass="text-red-400" />
+        <StatItem label={t("저가")} value={formatPrice(lowPrice)} valueClass="text-blue-400" />
+        <StatItem label={t("거래량")} value={formatQuantity(volumeTotal)} />
         <StatItem
-          label="어제 대비"
+          label={t("어제 대비")}
           value={`${yesterdayRatio >= 0 ? "+" : ""}${yesterdayRatio.toFixed(2)}%`}
           valueClass={yesterdayRatio > 0 ? "text-red-400" : yesterdayRatio < 0 ? "text-blue-400" : "text-gray-900 dark:text-white"}
         />

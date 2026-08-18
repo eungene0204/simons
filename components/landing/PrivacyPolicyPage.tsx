@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { getLanguage, t } from "@/lib/i18n";
+import { privacySectionsEn } from "./legalSectionsEn";
 
 type PrivacySection = {
   title: string;
@@ -157,12 +159,13 @@ const sections = [
 ] satisfies PrivacySection[];
 
 export function PrivacyPolicyPage() {
+  const displaySections = getLanguage() === "en" ? privacySectionsEn : sections;
   const businessInfoItems = [
-    { label: "상호", value: process.env.COMPANY_NAME },
-    { label: "대표자", value: process.env.BUSINESS_REPRESENTATIVE_NAME },
-    { label: "주소", value: process.env.BUSINESS_ADDRESS },
-    { label: "사업자등록번호", value: process.env.BUSINESS_REGISTRATION_NUMBER },
-    { label: "이메일", value: process.env.BUSINESS_EMAIL },
+    { label: t("상호"), value: process.env.COMPANY_NAME },
+    { label: t("대표자"), value: process.env.BUSINESS_REPRESENTATIVE_NAME },
+    { label: t("주소"), value: process.env.BUSINESS_ADDRESS },
+    { label: t("사업자등록번호"), value: process.env.BUSINESS_REGISTRATION_NUMBER },
+    { label: t("이메일"), value: process.env.BUSINESS_EMAIL },
   ];
 
   return (
@@ -173,21 +176,16 @@ export function PrivacyPolicyPage() {
             href="/"
             className="text-sm font-bold text-gray-400 transition-colors hover:text-white"
           >
-            nullStock으로 돌아가기
+            {t("nullStock으로 돌아가기")}
           </Link>
           <p className="mt-10 text-sm font-black uppercase tracking-widest text-gray-500">
-            널스페이스
+            {t("널스페이스")}
           </p>
           <h1 className="mt-3 text-4xl font-black tracking-normal text-white sm:text-5xl">
-            개인정보처리방침
+            {t("개인정보처리방침")}
           </h1>
           <p className="mt-5 max-w-2xl text-base font-bold leading-7 text-gray-400">
-            이 개인정보처리방침은 널스페이스가 제공하는 nullStock 및 관련
-            서비스에서 이용자의 개인정보를 어떻게 처리하고 보호하는지
-            안내합니다. 서비스는 소프트웨어 서비스(SaaS) 방식으로 제공되는
-            투자 연구 및 시뮬레이션 도구이며, 투자자문, 투자일임,
-            금융투자상품 매매·중개 또는 개인 맞춤형 금융 조언을 제공하지
-            않습니다.
+            {t("이 개인정보처리방침은 널스페이스가 제공하는 nullStock 및 관련 서비스에서 이용자의 개인정보를 어떻게 처리하고 보호하는지 안내합니다. 서비스는 소프트웨어 서비스(SaaS) 방식으로 제공되는 투자 연구 및 시뮬레이션 도구이며, 투자자문, 투자일임, 금융투자상품 매매·중개 또는 개인 맞춤형 금융 조언을 제공하지 않습니다.")}
           </p>
         </div>
       </section>
@@ -195,7 +193,7 @@ export function PrivacyPolicyPage() {
       <section className="px-6 py-10">
         <div className="mx-auto max-w-4xl">
           <div className="grid gap-4">
-            {sections.map((section) => (
+            {displaySections.map((section) => (
               <article
                 key={section.title}
                 className="border-b border-white/[0.08] py-6"
@@ -240,12 +238,12 @@ export function PrivacyPolicyPage() {
           </div>
 
           <div className="mt-10 border border-white/[0.08] bg-white/[0.02] p-5 text-sm font-bold leading-6 text-gray-400">
-            <p className="font-black text-white">사업자 정보</p>
+            <p className="font-black text-white">{t("사업자 정보")}</p>
             <dl className="mt-4 grid gap-3 sm:grid-cols-[140px_1fr]">
               {businessInfoItems.map((item) => (
                 <div key={item.label} className="contents">
                   <dt className="text-gray-500">{item.label}</dt>
-                  <dd className="text-gray-300">{item.value || "미정"}</dd>
+                  <dd className="text-gray-300">{item.value || t("미정")}</dd>
                 </div>
               ))}
             </dl>

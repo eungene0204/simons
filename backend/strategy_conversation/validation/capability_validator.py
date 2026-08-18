@@ -21,6 +21,42 @@ from strategy_conversation.registry.concept_ontology import (
 from strategy_conversation.registry.indicator_registry import REGISTRY, resolve
 
 
+def _condition_identity(cond) -> tuple:
+    """정규화가 끝난 조건의 **구조 동일성** 키 — 값이 None인 파라미터는 없는 것으로 본다."""
+    params = tuple(sorted(
+        (name, float(value)) for name, value in cond.parameters.items() if value is not None
+    ))
+    return (cond.factor, cond.operator, cond.value, cond.unit, params)
+
+
+def _dedupe_identical_conditions(role: str, conditions: list) -> list:
+    """같은 역할 안에서 정규화 결과가 **완전히 같은** 조건은 한 번만 남긴다(첫 항목 유지).
+
+    9B 드리프트 실측(2026-08-18, 프롬프트 3.9): "5일 EMA가 20일 EMA를 위로 돌파할 때 매수…
+    EMA 데드크로스가 나오면 청산"에서 청산을 두 조각으로 냈다 — 사용자가 말한
+    `concept.dead_cross`(인용 'EMA 데드크로스가 나오면 청산하고')와, 진입 인용을 그대로 단
+    `technical.ma_crossover crosses_below 1/20` 미러. 둘 다 각자 정당한 경로(개념 전개·
+    인용 기반 EMA 착지·기간 교정)를 거쳐 `technical.ema crosses_below 5/20`이 되므로
+    미러 가드(반대 방향은 보존)로는 걸러지지 않고, 요약 카드에 'EMA 데드크로스'가 두 줄로
+    나갔다. 같은 조건의 반복은 의미가 0이라(AND/OR 어느 쪽이든 항등) 지우는 것이 정규화다
+    — 원문을 읽지 않고 LLM 출력 두 조각의 구조만 대조한다(§ 3-1). 기간·연산자·값이 하나라도
+    다르면 다른 신호이므로 남긴다(예: EMA 5/20 데드크로스와 20/60 데드크로스).
+    """
+    seen: set = set()
+    kept = []
+    for cond in conditions:
+        key = _condition_identity(cond)
+        if key in seen:
+            ontology_logger.info(
+                "동일 조건 중복 제거 | %s 조건 factor=%s operator=%s parameters=%s 원문=%r",
+                role, cond.factor, cond.operator, cond.parameters, cond.source_text,
+            )
+            continue
+        seen.add(key)
+        kept.append(cond)
+    return kept
+
+
 def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], List[str], List[str]]:
     """(errors, warnings, unsupported_features, suggested_fixes)를 반환한다.
 
@@ -175,8 +211,9 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                     f"'{spec.display_name}'에 연산자 '{cond.operator}'은(는) 허용되지 않습니다 "
                     f"(허용: {', '.join(spec.allowed_operators)})"
                 )
-        setattr(strategy, attr, kept)
+        setattr(strategy, attr, _dedupe_identical_conditions(role, kept))
 
+    kept_ranking = []
     for rank in strategy.ranking:
         spec = resolve(rank.metric)
         # 랭킹 가능 지표: ranking.*(모멘텀) + fundamental.*(재무 팩터 랭킹, 2026-08-03 —
@@ -189,13 +226,21 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                      and spec.engine_binding[1] != "trading_value"))
         )
         if not rankable:
-            unsupported.append(rank.metric)
+            # 미지원 랭킹 항목은 **제거**한다(진입 조건의 kept와 같은 계약) — 남겨 두면
+            # 컴파일러가 모르는 지표를 임의 지표로 바꿔치는 폴백을 타서 사용자가 말하지
+            # 않은 랭킹이 생긴다(2026-08-17 'composite_score' → 수익률 랭킹 둔갑 사고).
+            # 미지원 보고에는 LLM이 지어낸 내부 식별자(metric 원문)를 담지 않는다 —
+            # 그 문자열이 안내문에 그대로 노출됐다(내부명 노출 금지, 레드팀 QA 20-5).
+            # 사용자 표현(source_text)이 있으면 그것을, 없으면 평이한 일반 표기를 쓴다.
+            unsupported.append(rank.source_text or "알 수 없는 랭킹 기준")
             errors.append(
-                f"랭킹 지표 '{rank.metric}'은(는) 지원되지 않습니다 "
-                "(지원: 기간 수익률 랭킹, 재무 지표 랭킹 — 예: 영업이익률 상위)"
+                f"랭킹 기준 '{rank.source_text or '알 수 없는 지표'}'은(는) 지원되지 않습니다 "
+                "(지원: 기간 수익률 랭킹, 재무 지표 랭킹 — 예: 영업이익률 상위, 여러 지표 순위 합산)"
             )
-        else:
-            rank.metric = spec.id
+            continue
+        rank.metric = spec.id
+        kept_ranking.append(rank)
+    strategy.ranking = kept_ranking
 
     # 유니버스별 팩터 검증 — ETF는 여러 기업을 묶은 상품이라 기업 재무지표를 조건으로 쓸
     # 수 없다(engine/universe_capabilities와 동일 계약). 조용히 제거하지 않고 오류+대안

@@ -12,6 +12,7 @@ import {
   type ParsedSummary,
 } from "./strategySummary";
 import { isExplicit, isSlotFilled } from "./backtestReadiness";
+import { t } from "@/lib/i18n";
 
 export type BuilderSummaryItem = {
   label: string;
@@ -50,11 +51,11 @@ export type BuilderProgressItem = {
 /** 두 축을 화면 문구 하나로 줄인다(표시 전용 — 판정이 아니다).
  *  파생 축이 먼저다: 지금 못 쓰는 칸은 값이 확정이어도 손이 필요하다. */
 export function progressStatusText(item: BuilderProgressItem): string | undefined {
-  if (item.derivedStatus === "NOT_APPLICABLE") return "해당 없음";
+  if (item.derivedStatus === "NOT_APPLICABLE") return t("해당 없음");
   if (item.derivedStatus === "INVALID" || item.derivedStatus === "CONFLICTED") {
-    return "확인 필요";
+    return t("확인 필요");
   }
-  if (item.valueStatus === "PROVISIONAL") return "미확인";
+  if (item.valueStatus === "PROVISIONAL") return t("미확인");
   return undefined;
 }
 
@@ -113,7 +114,7 @@ export type PendingCondition = {
  *  지표로 매핑됐으면(예: '당기순이익' → 순이익증가율) 치환을 함께 고지한다 —
  *  비교 입력은 둘 다 LLM 구조화 출력이다(원문 재해석 아님). */
 function formatPendingCondition(p: PendingCondition): string {
-  const base = `${p.label}(값 미정)`;
+  const base = t("{0}(값 미정)", t(p.label));
   const source = (p.source_text ?? "").trim();
   if (!source) return base;
   const normalize = (s: string) => s.replace(/\s+/g, "").toLowerCase();
@@ -128,7 +129,7 @@ export function getDisplayBuilderProgressItems(
 ): BuilderProgressItem[] {
   const normalizedItems = items.map((item) => ({
     ...item,
-    label: item.label === "투자 대상" ? "유니버스" : item.label,
+    label: item.label === "투자 대상" ? t("유니버스") : item.label,
   }));
 
   return [
@@ -239,7 +240,7 @@ function buildEntryLabels(
 
   if (state.entry_rule) return [String(state.entry_rule)];
   const strategyLabel = STRATEGY_LABELS[state.strategy_type];
-  return strategyLabel ? [`${strategyLabel} 조건`] : [];
+  return strategyLabel ? [t("{0} 조건", t(strategyLabel))] : [];
 }
 
 /** 조건 목록 행 하나. 조건이 둘 이상이면 화면에서 줄로 나눠 쌓도록 목록을 함께 싣는다. */
@@ -261,12 +262,12 @@ function buildRiskLabel(
   const declined = (field: string) => (declinedFields ?? []).includes(field);
   // '안 함'도 사용자가 정한 결과다 — 값이 없다고 요약에서 빼면 답한 것이 사라진 것처럼
   // 보이고, 리스크 관리 항목이 통째로 없어져 진행률 체크와 어긋난다.
-  if (hasValue(stopLoss)) labels.push(`손절 ${formatDownsidePercent(stopLoss)}%`);
-  else if (declined("stop_loss")) labels.push("손절 안 함");
-  if (hasValue(takeProfit)) labels.push(`익절 ${takeProfit}%`);
-  else if (declined("take_profit")) labels.push("익절 안 함");
-  if (hasValue(trailingStop)) labels.push(`트레일링 스탑 ${formatDownsidePercent(trailingStop)}%`);
-  if (hasValue(holdPeriod)) labels.push(`${holdPeriod}일 보유`);
+  if (hasValue(stopLoss)) labels.push(t("손절 {0}%", formatDownsidePercent(stopLoss)));
+  else if (declined("stop_loss")) labels.push(t("손절 안 함"));
+  if (hasValue(takeProfit)) labels.push(t("익절 {0}%", takeProfit));
+  else if (declined("take_profit")) labels.push(t("익절 안 함"));
+  if (hasValue(trailingStop)) labels.push(t("트레일링 스탑 {0}%", formatDownsidePercent(trailingStop)));
+  if (hasValue(holdPeriod)) labels.push(t("{0}일 보유", holdPeriod));
   return labels.length > 0 ? labels.join(" · ") : null;
 }
 
@@ -325,7 +326,7 @@ export function buildBuilderTurnPresentation({
     listing_to: state.listing_to,
   });
   const marketFromState = state.universe
-    ? UNIVERSE_LABELS[state.universe] ?? state.universe
+    ? t(UNIVERSE_LABELS[state.universe] ?? state.universe)
     : null;
   const targetFromState = (state.single_label
     ? String(state.single_label).replace(/\s*\(\d{6}\)$/, "")
@@ -393,14 +394,14 @@ export function buildBuilderTurnPresentation({
 
   if (target) {
     summaryItems.push({
-      label: state.single_label || state.theme_label ? "대상 종목" : "유니버스",
+      label: state.single_label || state.theme_label ? t("대상 종목") : t("유니버스"),
       value: target,
     });
   }
   if (state.sector || parsed?.sector) {
     const sector = state.sector ?? parsed?.sector;
     summaryItems.push({
-      label: "업종",
+      label: t("업종"),
       value: Array.isArray(sector) ? sector.join(" · ") : String(sector),
     });
   }
@@ -421,18 +422,18 @@ export function buildBuilderTurnPresentation({
   // 물질화 기본값이 없어(기본 null) 값이 있으면 곧 사용자가 말한 것이다.
   if (parsed?.ranking_quantile_groups) {
     summaryItems.push({
-      label: "분위 그룹",
+      label: t("분위 그룹"),
       value: [
-        `종목 수 동일 ${parsed.ranking_quantile_groups}개 그룹 · 그룹별 비교 (메인: 1그룹)`,
+        t("종목 수 동일 {0}개 그룹 · 그룹별 비교 (메인: 1그룹)", parsed.ranking_quantile_groups),
         // 그룹당 보유 상한(FR-BT-060b) — 답한 값이 요약에서 안 보이면 반영 여부를 알 수 없다.
-        ...(parsed.ranking_group_cap ? [`그룹당 ${parsed.ranking_group_cap}종목`] : []),
+        ...(parsed.ranking_group_cap ? [t("그룹당 {0}종목", parsed.ranking_group_cap)] : []),
       ].join(" · "),
     });
   } else if (parsed?.max_positions_pct != null) {
     // 비율 편입도 같은 이유 — '상위 10%'가 종목 수 표기 없이 사라지면 안 된다.
     summaryItems.push({
-      label: "편입 비율",
-      value: `상위 ${parsed.max_positions_pct}%`,
+      label: t("편입 비율"),
+      value: t("상위 {0}%", parsed.max_positions_pct),
     });
   }
   if (parsed && specifiedSymbolCount > 0) {
@@ -440,18 +441,18 @@ export function buildBuilderTurnPresentation({
     // max_positions=지정 종목 수로 덮어쓴다(FR-STR-068 ①, ranking_enabled=off). 기본값
     // '최대 보유 10종목'을 실행값처럼 보여주지 않고(2026-07-28 '모바일솔루션 관련주'
     // 카드-실행 불일치) 실제 배분 표기(FR-STR-068 ⑧)를 쓴다 — 파싱 카드와 동일.
-    summaryItems.push({ label: "포트폴리오", value: getPositionLabel(parsed) });
+    summaryItems.push({ label: t("포트폴리오"), value: getPositionLabel(parsed) });
   } else if (holdingCount && holdingCountExplicit) {
     summaryItems.push({
-      label: "최대 보유",
-      value: `${holdingCount}종목`,
+      label: t("최대 보유"),
+      value: t("{0}종목", holdingCount),
     });
   }
   if (rebalanceCycle && rebalanceExplicit) {
     const normalizedCycle = String(rebalanceCycle);
-    const cycle = REBALANCE_LABELS[normalizedCycle] ?? normalizedCycle;
+    const cycle = t(REBALANCE_LABELS[normalizedCycle] ?? normalizedCycle);
     summaryItems.push({
-      label: "리밸런싱",
+      label: t("리밸런싱"),
       value: cycle,
     });
   }
@@ -463,15 +464,15 @@ export function buildBuilderTurnPresentation({
     backtest_end_date: parsed?.backtest_end_date,
   });
   if (periodLabel && backtestPeriodSettled) {
-    summaryItems.push({ label: "백테스트 기간", value: periodLabel });
+    summaryItems.push({ label: t("백테스트 기간"), value: periodLabel });
   }
   if (initialCapital && initialCapitalExplicit) {
     summaryItems.push({
-      label: "초기 자본",
+      label: t("초기 자본"),
       value: formatInitialCapital(initialCapital),
     });
   }
-  if (riskLabel) summaryItems.push({ label: "리스크 관리", value: riskLabel });
+  if (riskLabel) summaryItems.push({ label: t("리스크 관리"), value: riskLabel });
 
   const entryComplete = isEntryComplete(state, parsed);
   // 리스크 관리 슬롯은 손절·익절이 **둘 다** 있어야 완료다(정본 계약) — 배지가 하나라도
@@ -487,20 +488,20 @@ export function buildBuilderTurnPresentation({
   return {
     summaryItems,
     progressItems: [
-      { label: "유니버스", complete: Boolean(target) && targetExplicit },
-      { label: "매수 조건", complete: entryComplete },
-      { label: "매도 조건", complete: exitComplete },
+      { label: t("유니버스"), complete: Boolean(target) && targetExplicit },
+      { label: t("매수 조건"), complete: entryComplete },
+      { label: t("매도 조건"), complete: exitComplete },
       {
-        label: specifiedSymbolCount > 0 ? "포트폴리오" : "최대 보유",
+        label: specifiedSymbolCount > 0 ? t("포트폴리오") : t("최대 보유"),
         complete:
           specifiedSymbolCount > 0 || (Boolean(holdingCount) && holdingCountExplicit),
       },
-      { label: "리밸런싱", complete: (Boolean(rebalanceCycle) && rebalanceExplicit) || slotFilled("rebalancing") },
-      { label: "리스크 관리", complete: riskComplete },
+      { label: t("리밸런싱"), complete: (Boolean(rebalanceCycle) && rebalanceExplicit) || slotFilled("rebalancing") },
+      { label: t("리스크 관리"), complete: riskComplete },
       // 게이트와 **같은 술어**를 쓴다 — 판정을 여기 다시 적으면 게이트만 고쳐지고 진행률은
       // 낡은 채 남는다(2026-07-29: 창이 자동 확정됐는데 체크가 안 되던 사고).
-      { label: "백테스트 기간", complete: backtestPeriodSettled },
-      { label: "초기 자본", complete: Boolean(initialCapital) && initialCapitalExplicit },
+      { label: t("백테스트 기간"), complete: backtestPeriodSettled },
+      { label: t("초기 자본"), complete: Boolean(initialCapital) && initialCapitalExplicit },
     ],
     question: makeBuilderQuestionFriendly(reply),
   };

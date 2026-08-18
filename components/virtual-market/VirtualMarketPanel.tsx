@@ -25,6 +25,7 @@ import {
 } from "@/lib/virtual-market";
 import SignalLog from "./SignalLog";
 import StockSearchModal from "@/components/stock/StockSearchModal";
+import { t } from "@/lib/i18n";
 
 interface VirtualMarketPanelProps {
   accountId: string;
@@ -166,7 +167,7 @@ export default function VirtualMarketPanel({
         state = await startStrategyExecution(accountId);
       } else {
         if (selectedStocks.length === 0) {
-          setStartError("최소 1개 이상의 종목을 선택하세요");
+          setStartError(t("최소 1개 이상의 종목을 선택하세요"));
           setStarting(false);
           return;
         }
@@ -179,7 +180,7 @@ export default function VirtualMarketPanel({
       // 시작 직후 바로 새로고침
       setTimeout(() => handleRefresh(), 500);
     } catch (e) {
-      setStartError(e instanceof Error ? e.message : "시작에 실패했습니다");
+      setStartError(e instanceof Error ? e.message : t("시작에 실패했습니다"));
     } finally {
       setStarting(false);
     }
@@ -234,16 +235,16 @@ export default function VirtualMarketPanel({
       <div className="px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Lightning size={18} className="text-yellow-500" weight="fill" />
-          <h3 className="text-sm font-semibold text-white">실제 시세 연동</h3>
+          <h3 className="text-sm font-semibold text-white">{t("실제 시세 연동")}</h3>
           {isRunning && (
             <span className="flex items-center gap-1 px-2 py-0.5 bg-green-900/40 text-green-400 rounded-full text-xs font-medium">
               <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-              추적중
+              {t("추적중")}
             </span>
           )}
           {isPaused && (
             <span className="px-2 py-0.5 bg-yellow-900/40 text-yellow-400 rounded-full text-xs font-medium">
-              일시정지
+              {t("일시정지")}
             </span>
           )}
         </div>
@@ -256,7 +257,7 @@ export default function VirtualMarketPanel({
               className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
             >
               <ArrowClockwise size={14} className={refreshing ? "animate-spin" : ""} />
-              {refreshing ? "조회중..." : "시세 새로고침"}
+              {refreshing ? t("조회중...") : t("시세 새로고침")}
             </button>
           )}
           {!isActive && (
@@ -266,7 +267,7 @@ export default function VirtualMarketPanel({
               className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
             >
               <Play size={14} weight="fill" />
-              {starting ? "시작중..." : "시작"}
+              {starting ? t("시작중...") : t("시작")}
             </button>
           )}
           {isRunning && (
@@ -275,7 +276,7 @@ export default function VirtualMarketPanel({
               className="flex items-center gap-1 px-3 py-1.5 bg-yellow-600 text-white rounded-lg text-xs font-medium hover:bg-yellow-700 transition-colors"
             >
               <Pause size={14} weight="fill" />
-              일시정지
+              {t("일시정지")}
             </button>
           )}
           {isPaused && (
@@ -284,7 +285,7 @@ export default function VirtualMarketPanel({
               className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition-colors"
             >
               <Play size={14} weight="fill" />
-              재개
+              {t("재개")}
             </button>
           )}
           {isActive && (
@@ -293,7 +294,7 @@ export default function VirtualMarketPanel({
               className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 transition-colors"
             >
               <Stop size={14} weight="fill" />
-              중지
+              {t("중지")}
             </button>
           )}
         </div>
@@ -313,25 +314,25 @@ export default function VirtualMarketPanel({
             {/* 상태 정보 */}
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <div className="bg-[#111111] rounded-lg p-3">
-                <p className="text-xs text-gray-400 mb-1">마지막 조회</p>
+                <p className="text-xs text-gray-400 mb-1">{t("마지막 조회")}</p>
                 <p className="text-sm font-semibold text-white">
-                  {marketState.lastRefreshed ?? "미조회"}
+                  {marketState.lastRefreshed ?? t("미조회")}
                 </p>
               </div>
               <div className="bg-[#111111] rounded-lg p-3">
-                <p className="text-xs text-gray-400 mb-1">추적 시작</p>
+                <p className="text-xs text-gray-400 mb-1">{t("추적 시작")}</p>
                 <p className="text-sm font-semibold text-white">{marketState.startDate}</p>
               </div>
               <div className="bg-[#111111] rounded-lg p-3">
-                <p className="text-xs text-gray-400 mb-1">시그널 수</p>
-                <p className="text-sm font-semibold text-white">{logs.length}건</p>
+                <p className="text-xs text-gray-400 mb-1">{t("시그널 수")}</p>
+                <p className="text-sm font-semibold text-white">{t("{0}건", logs.length)}</p>
               </div>
             </div>
 
             {/* 실제 가격 현황 */}
             {lastResult?.prices && Object.keys(lastResult.prices).length > 0 && (
               <div>
-                <p className="text-xs text-gray-400 mb-1.5">실제 시세 (KRX)</p>
+                <p className="text-xs text-gray-400 mb-1.5">{t("실제 시세 (KRX)")}</p>
                 <div className="flex flex-wrap gap-1.5">
                   {marketState.symbols.map((sym) => {
                     const price = lastResult.prices?.[sym];
@@ -347,7 +348,7 @@ export default function VirtualMarketPanel({
                         <span>{symbolNameMap[sym] ?? sym}</span>
                         {price && (
                           <span className="text-gray-500 font-mono">
-                            {price.close.toLocaleString()}원
+                            {t("{0}원", price.close.toLocaleString())}
                           </span>
                         )}
                       </span>
@@ -361,7 +362,7 @@ export default function VirtualMarketPanel({
             {(!lastResult?.prices || Object.keys(lastResult.prices).length === 0) && (
               <div>
                 <div className="flex items-center gap-2 mb-1.5">
-                  <p className="text-xs text-gray-400">추적 종목</p>
+                  <p className="text-xs text-gray-400">{t("추적 종목")}</p>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {marketState.symbols.map((sym) => {
@@ -385,18 +386,18 @@ export default function VirtualMarketPanel({
             {/* 시그널 로그 */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <p className="text-xs text-gray-400">시그널 히스토리</p>
+                <p className="text-xs text-gray-400">{t("시그널 히스토리")}</p>
                 {logs.length > 0 && (
                   <button
                     onClick={async () => {
-                      if (!confirm("시그널 히스토리를 모두 삭제하시겠습니까?")) return;
+                      if (!confirm(t("시그널 히스토리를 모두 삭제하시겠습니까?"))) return;
                       await fetch(`/api/virtual-market/${accountId}/logs`, { method: "DELETE" });
                       setLogs([]);
                     }}
                     className="flex items-center gap-1 px-2 py-0.5 text-xs text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
                   >
                     <Trash size={12} />
-                    전체 삭제
+                    {t("전체 삭제")}
                   </button>
                 )}
               </div>
@@ -404,7 +405,7 @@ export default function VirtualMarketPanel({
             </div>
 
             <p className="text-xs text-gray-500">
-              KRX 실제 시세 기반 · 자동 새로고침 {AUTO_REFRESH_MINUTES}분마다 · 전일 마감가 기준
+              {t("KRX 실제 시세 기반 · 자동 새로고침 {0}분마다 · 전일 마감가 기준", AUTO_REFRESH_MINUTES)}
             </p>
           </div>
         )}
@@ -415,18 +416,18 @@ export default function VirtualMarketPanel({
             {!strategyId && (
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-medium text-gray-300">추적 종목</label>
+                  <label className="text-xs font-medium text-gray-300">{t("추적 종목")}</label>
                   <button
                     onClick={() => setIsSearchOpen(true)}
                     className="flex items-center gap-1 px-2 py-1 text-xs text-blue-400 hover:bg-blue-900/20 rounded-md transition-colors"
                   >
                     <MagnifyingGlass size={12} />
-                    종목 추가
+                    {t("종목 추가")}
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-1.5 min-h-[32px] p-2 rounded-lg bg-[#252525]">
                   {selectedStocks.length === 0 ? (
-                    <span className="text-xs text-gray-400 self-center">종목을 추가하세요</span>
+                    <span className="text-xs text-gray-400 self-center">{t("종목을 추가하세요")}</span>
                   ) : (
                     selectedStocks.map((s) => {
                       const isHeld = positionSymbols.has(s.symbol);
@@ -457,15 +458,14 @@ export default function VirtualMarketPanel({
 
             {strategyId ? (
               <div className="px-3 py-2.5 bg-blue-950/40 border border-blue-900/40 rounded-lg">
-                <p className="text-xs text-blue-300 font-medium mb-0.5">전략 자동 실행 모드</p>
+                <p className="text-xs text-blue-300 font-medium mb-0.5">{t("전략 자동 실행 모드")}</p>
                 <p className="text-xs text-blue-400/80">
-                  {strategyName ? `"${strategyName}" 전략의 ` : "연결된 전략의 "}
-                  백테스트 수익률 상위 종목을 추적합니다. KRX 실제 시세 기준으로 전략 시그널을 평가합니다.
+                  {t("{0}백테스트 수익률 상위 종목을 추적합니다. KRX 실제 시세 기준으로 전략 시그널을 평가합니다.", strategyName ? t("\"{0}\" 전략의 ", strategyName) : t("연결된 전략의 "))}
                 </p>
               </div>
             ) : (
               <p className="text-xs text-gray-400">
-                KRX 실제 시세를 조회해 전략 시그널을 평가합니다. 자동 새로고침은 {AUTO_REFRESH_MINUTES}분마다 실행됩니다.
+                {t("KRX 실제 시세를 조회해 전략 시그널을 평가합니다. 자동 새로고침은 {0}분마다 실행됩니다.", AUTO_REFRESH_MINUTES)}
               </p>
             )}
           </div>

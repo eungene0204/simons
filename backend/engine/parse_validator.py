@@ -26,6 +26,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
+import cancellation
 from llm_backend import OLLAMA_BASE_URL, ollama_auth_headers
 
 logger = logging.getLogger(__name__)
@@ -294,6 +295,8 @@ def _run_validation_llm(parser, system_prompt: str, user_message: str) -> Option
     if getattr(parser, "backend", "ollama") == "mlx":
         return parser.chat(system_prompt, user_message, max_tokens=_VALIDATION_NUM_PREDICT, temperature=0.0)
 
+    # 요청이 취소됐으면('대화 종료') 후행 검증 LLM 호출을 열지 않는다.
+    cancellation.raise_if_cancelled()
     if not _ollama_reachable():
         return None
 
@@ -318,7 +321,9 @@ def _run_validation_llm(parser, system_prompt: str, user_message: str) -> Option
         headers={"Content-Type": "application/json", **ollama_auth_headers()},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=_VALIDATION_TIMEOUT_S) as resp:
+    # 취소가 진행 중 소켓을 닫으면 I/O 예외를 검증 실패가 아니라 취소로 보고한다.
+    with cancellation.cancellable_io(), \
+            urllib.request.urlopen(req, timeout=_VALIDATION_TIMEOUT_S) as resp:
         data = json.loads(resp.read())
     return (data.get("message") or {}).get("content", "")
 

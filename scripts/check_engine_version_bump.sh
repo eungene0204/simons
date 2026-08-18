@@ -65,7 +65,8 @@ echo "✗ 엔진 핵심 파일이 바뀌었는데 ENGINE_VERSION(${base_ver:-없
 echo "  변경된 핵심 파일:"
 printf '    - %s\n' "${touched[@]}"
 echo ""
-echo "  → 백테스트 결과값이 바뀌는 변경이면 $VERSION_FILE 의 ENGINE_VERSION 을 올리고"
-echo "     CHANGELOG 에 한 줄 추가하세요 (큰 변경=MAJOR vX, 작은 수정=MINOR vX.Y)."
+echo "  → $VERSION_FILE 의 ENGINE_VERSION 을 올리고 CHANGELOG 에 한 줄 추가하세요."
+echo "     MAJOR.MINOR.PATCH — 엔진 계약·구조 전환=MAJOR(vX), 결과값이 바뀌는 변경=MINOR(vX.Y),"
+echo "     결과값 불변(라벨·표시·로깅·리팩터)=PATCH(vX.Y.Z)."
 echo "  → 결과에 영향 없는 리팩터/주석/로깅이면 커밋 메시지에 [skip-version-bump] 를 넣으세요."
 exit 1

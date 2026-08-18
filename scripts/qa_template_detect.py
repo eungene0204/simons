@@ -47,6 +47,158 @@ def expected_etf_theme(prompt: str) -> Optional[str]:
 
     return extract_etf_theme(prompt)
 
+
+# 억원 단위 금액 지표 — 값이 억원이라 자릿수가 하나만 틀려도 전략이 10배 달라진다.
+AMOUNT_METRIC_LABELS = {"market_cap": "시가총액", "trading_value": "거래대금"}
+
+# 재무 지표 표시명(임계값 대조 리포트용).
+FUND_METRIC_LABELS = {
+    "pbr": "PBR", "per": "PER", "psr": "PSR", "ev_ebitda": "EV/EBITDA",
+    "roe_or_gpa": "ROE", "roa": "ROA", "debt_ratio": "부채비율",
+    "current_ratio": "유동비율", "quick_ratio": "당좌비율", "reserve_ratio": "유보율",
+    "gross_margin": "매출총이익률", "net_margin": "순이익률", "operating_margin": "영업이익률",
+    "revenue_growth": "매출증가율", "operating_income_growth": "영업이익증가율",
+    "net_income_growth": "순이익증가율", "dividend_yield": "배당수익률",
+    "payout_rate": "배당성향", "dividend_growth": "배당성장률",
+    **AMOUNT_METRIC_LABELS,
+}
+
+
+def expected_fundamental_thresholds(prompt: str) -> list[tuple[str, float]]:
+    """QA 기대값: 프롬프트가 명시한 **모든** 재무 임계값 [(metric, value)].
+
+    금액(억원)과 비율(%·배)을 함께 돌려준다 — 자릿수 오차는 금액만의 문제가 아니고,
+    'PBR 1배 이하'가 `pbr<=10`으로 파싱돼도 게이트는 값을 안 보면 초록이다.
+    """
+    from engine.nl_parser import _extract_fundamental_filters
+
+    return [(f.metric, float(f.value)) for f in _extract_fundamental_filters(prompt)]
+
+
+def expected_amount_thresholds(prompt: str) -> list[tuple[str, float]]:
+    """QA 기대값: 프롬프트가 명시한 금액 임계값 [(metric, 억원)] (결정적 합산).
+
+    ETF 테마(`expected_etf_theme`)와 같은 자리의 ground truth다 — 파스 경로가 아니라
+    **검사 쪽 정본**이며, 쓰는 것은 조·억 표기의 산술 합산(조×10,000+억)뿐이다
+    (`nl_parser._extract_amount_value`). 의미 해석이 아니라 표기 환산이므로 대원칙 1의
+    '원문 해석' 금지에 걸리지 않는다 — 프로덕션 파스는 종전대로 LLM 레인이 한다.
+
+    이 검사가 필요한 이유(2026-08-18 사고): 하니스의 커버리지 검사는 `_has_fund`로
+    **지표가 있는지만** 보고 임계값은 읽지 않는다. "시가총액 1조 원 이상" 예시가
+    `market_cap>=100000`(=10조, 10배)으로 파싱된 채 08-14 전수 검증을 `치명 0`으로
+    통과했고, 캐시 이력을 보면 같은 문장이 프롬프트가 바뀔 때마다 10000↔100000을
+    오갔다(07-28 정상 → 08-05 오류 → 08-08 정상 → 08-14 오류). 값을 보지 않는 게이트가
+    매번 초록불을 켰다.
+
+    정규식은 지표명 바로 뒤 금액 하나만 잡으므로("3000억 이상 3조 이하"에서 3000만
+    나온다) 반환값은 **기대값의 부분집합**이다 — 대조도 "기대값이 파싱 결과에 들어
+    있는가"로만 하고, 파싱에만 있는 값은 문제 삼지 않는다(부분 추출로 인한 오탐 방지).
+    """
+    from engine.nl_parser import _AMOUNT_METRICS, _extract_fundamental_filters
+
+    return [(f.metric, float(f.value))
+            for f in _extract_fundamental_filters(prompt)
+            if f.metric in _AMOUNT_METRICS]
+
+
+# 손절·익절은 결정적 파서가 다루지 않는 필드라(LLM·슬롯 소관) QA 쪽에서 표기만 읽는다.
+# 부호는 보지 않는다 — 필드 의미에 방향이 내장돼 있어 스키마가 절댓값으로 정규화한다
+# (`nl_parser._abs_ratio`). 절 경계(쉼표·마침표)를 넘지 않아 옆 절의 %를 집지 않는다.
+_RISK_PCT_PATTERNS = {
+    "stop_loss_pct": ("손절", r"(?:손절|스탑로스|스톱로스|손실제한)[^,.%]{0,12}?(\d+(?:\.\d+)?)%"),
+    "take_profit_pct": ("익절", r"(?:익절|목표수익|수익실현)[^,.%]{0,12}?(\d+(?:\.\d+)?)%"),
+}
+
+
+def expected_scalar_values(prompt: str) -> list[tuple[str, str, Any]]:
+    """QA 기대값: 프롬프트가 명시한 스칼라 설정 [(라벨, parsed 키, 기대값)].
+
+    결정적 추출기가 이미 있는 항목은 그대로 쓴다(`engine.nl_parser`) — 이 추출기들은
+    파스 경로에서 기본 off인 보정 계층(FR-STR-019j)이라 프로덕션 해석에는 관여하지
+    않으며, 여기서는 **검사 쪽 정본**으로만 쓴다(`expected_etf_theme`과 같은 자리).
+
+    값이 없으면(None/none) 목록에 넣지 않는다 — '말하지 않은 값'의 판정은 되묻기 레인
+    소관이고, 여기서 기본값을 기대값으로 세우면 정상 되묻기가 실패로 잡힌다.
+    """
+    from engine import nl_parser as nlp
+
+    compact = nlp._compact(prompt)
+    out: list[tuple[str, str, Any]] = []
+
+    hold = nlp._extract_hold_period_days(prompt)
+    if hold is not None:
+        out.append(("보유기간", "hold_period_days", hold))
+    # 종목수는 여기서 다루지 않는다 — 기존 `intended_positions` 검사가 이미 값을 대조하며
+    # (경고 등급: 기본값 폴백 의심과 한 버킷), 여기서 또 세면 같은 결손이 두 번 보고된다.
+    rebal = nlp._extract_rebalancing_period(prompt, hold)
+    if rebal != "none":
+        out.append(("리밸런싱", "rebalancing_period", rebal))
+    period = nlp._extract_backtest_period(prompt)
+    if period is not None:
+        out.append(("백테스트기간", "backtest_period", period))
+    trailing = nlp._extract_trailing_stop_pct(prompt)
+    if trailing is not None:
+        out.append(("트레일링스탑", "trailing_stop_pct", trailing))
+    mdd = nlp._extract_max_mdd_limit_pct(prompt)
+    if mdd is not None:
+        out.append(("MDD한도", "max_mdd_limit_pct", mdd))
+    capital = nlp._extract_capital_amount(prompt)
+    if capital is not None:
+        out.append(("초기자본", "initial_capital", capital))
+
+    for key, (label, pattern) in _RISK_PCT_PATTERNS.items():
+        m = re.search(pattern, compact)
+        if m:
+            out.append((label, key, float(m.group(1))))
+    return out
+
+
+# 신호 파라미터가 담기는 칸(지표마다 다르다).
+_SIGNAL_PARAM_KEYS = ("short_period", "long_period", "period", "lookback_period", "value")
+
+# 신호 수치는 **지표에 귀속시키지 않고** 단위 어휘에 바로 붙은 숫자만 읽는다.
+# 이유: 한 문장에 지표가 둘 이상이면("거래량이 크게 늘고 5일선이 20일선 위에")
+# 지표별 추출기가 옆 지표의 숫자를 집어 온다(실측 오탐 — nl_parser._extract_technical_signals
+# 가 volume_spike.period=5를 냈다). 하니스 초판이 값 대조를 통째로 걷어낸 이유가 이것이므로,
+# 여기서는 **누가 쓰는 숫자인지 판정하지 않고** '이 숫자가 신호 어딘가에 쓰였는가'만 본다.
+_MA_PERIOD_RE = re.compile(r"(\d+)일(?:선|이평선?|이동평균선?|ema|지수이동평균)")
+_BREAKOUT_RE = re.compile(r"(\d+)일[^,.]{0,4}(?:신고가|신저가|박스권)")
+# '20일 평균 거래대금 30억 이상'의 20일은 대조 대상이 **아니다** — 그 창은 지표 정의
+# (fundamental.trading_value=일평균거래대금)에 내장돼 있어 파싱 결과에 담길 칸이 없다.
+# 규칙으로 넣었다가 예시 3건이 정상인데도 붉어졌다(2026-08-18 실측). 거래량 급증의
+# 기간도 마찬가지로 사용자가 창을 지정하는 자리가 아니므로 대조하지 않는다.
+_OSC_THRESHOLD_RES = {
+    "rsi": re.compile(r"rsi[^,.]{0,8}?(\d+(?:\.\d+)?)"),
+    "cci": re.compile(r"cci[^,.]{0,8}?[+-]?(\d+(?:\.\d+)?)"),
+    "adx": re.compile(r"adx[^,.]{0,8}?(\d+(?:\.\d+)?)"),
+}
+
+
+def expected_signal_numbers(prompt: str) -> list[tuple[str, list[float]]]:
+    """QA 기대값: 신호에 반드시 남아야 하는 수치 [(라벨, [값…])].
+
+    단위 어휘에 붙은 숫자만 읽고(20일선·20일 신고가·30일 평균 거래대금·RSI 30), 그 숫자가
+    **파싱된 신호의 기간·임계값 칸 어딘가에** 남았는지만 확인한다(포함 대조). 어느 지표의
+    어느 칸인지는 묻지 않는다 — 그 귀속 판정이 오탐의 근원이고, 조용한 소실을 잡는 데는
+    포함 여부로 충분하다("20일 EMA가 60일 EMA 위"에서 60이 사라지면 걸린다).
+    """
+    from engine.nl_parser import _compact
+
+    compact = _compact(prompt)
+    out: list[tuple[str, list[float]]] = []
+    ma = sorted({float(x) for x in _MA_PERIOD_RE.findall(compact)})
+    if ma:
+        out.append(("이동평균 기간", ma))
+    bo = sorted({float(x) for x in _BREAKOUT_RE.findall(compact)})
+    if bo:
+        out.append(("신고가 룩백", bo))
+    for name, rx in _OSC_THRESHOLD_RES.items():
+        found = sorted({float(x) for x in rx.findall(compact)})
+        if found:
+            out.append((f"{name.upper()} 기준값", found))
+    return out
+
+
 TSX_PATH = ROOT / "components/strategy/StrategyExampleTabs.tsx"
 RAW_CACHE = ROOT / "scripts/.template_parse_cache.json"
 
@@ -102,6 +254,25 @@ def _has_any(p: dict, inds: list[str]) -> bool:
     return any(_has_sig(p, i) for i in inds)
 
 
+def duplicated_conditions(items: list[dict]) -> list[str]:
+    """한 목록 안에서 **모든 필드가 같은** 조건이 반복되면 그 조건의 표기를 돌려준다.
+
+    None 필드는 없는 것으로 보고 비교한다(파스 결과 직렬화가 빈 필드를 null로 채운다).
+    지표·기간·연산자·값이 하나라도 다르면 다른 조건이다(EMA 5/20과 20/60은 둘 다 정당).
+    """
+    seen: set[str] = set()
+    dups: list[str] = []
+    for item in items:
+        key = json.dumps({k: v for k, v in item.items() if v is not None},
+                         sort_keys=True, ensure_ascii=False)
+        if key in seen:
+            name = item.get("indicator") or item.get("metric") or "?"
+            if name not in dups:
+                dups.append(name)
+        seen.add(key)
+    return dups
+
+
 COVERAGE_CHECKS: list[tuple[str, str, Any]] = [
     ("PBR", r"PBR", lambda p: _has_fund(p, "pbr")),
     ("PER", r"PER", lambda p: _has_fund(p, "per")),
@@ -153,6 +324,29 @@ class Flags:
     notes: list[str] = field(default_factory=list)
     # 예시가 아예 전략이 되지 못한 경우 — 리포트가 아니라 실패로 다뤄야 하는 항목.
     fatal: list[str] = field(default_factory=list)
+    # 프롬프트에 있는데 전략 어디에도 나타나지 않은 수치(위 값 대조의 그물 밖 catch-all).
+    unmatched: list[str] = field(default_factory=list)
+
+
+def unmatched_numbers(prompt: str, p: dict, asked: str) -> list[str]:
+    """프롬프트의 수치 중 파싱 결과 **어디에도** 나타나지 않은 것.
+
+    ①~③ 값 대조는 '기대값을 뽑을 수 있는 필드'만 본다 — 추출기가 다루지 않는 표현
+    (AI 확률 임계·분위 그룹·비중 등)은 그물 밖이다. 이 층은 필드를 묻지 않고 **숫자가
+    전략 어딘가에 남았는지**만 확인해, 어느 그물에도 안 걸리는 값이 없게 한다.
+    단위 환산은 대조 쪽이 흡수한다(조→억원, 개월→거래일 등 — `_candidates`).
+
+    되묻는 중이거나 안내한 수치는 조용한 소실이 아니므로 제외한다(`asked_about`과 같은
+    계약). 서수·횟수('월 1회'의 1)는 값이 아니라 표현이라 남지 않는 것이 정상이므로,
+    이 층은 **참고 표시**로만 쓰고 게이트를 붉히지 않는다.
+    """
+    from strategy_conversation.validation.recall_validator import (
+        input_number_labels,
+        labels_absent_from,
+    )
+
+    labels = [x for x in input_number_labels(prompt) if x not in asked]
+    return labels_absent_from(labels, p)
 
 
 def asked_about(res: dict) -> str:
@@ -218,6 +412,60 @@ def analyze(tpl: Template, res: dict) -> Flags:
         if re.search(pat, prompt) and not check(p) and not re.search(pat, asked):
             f.missing.append(name)
 
+    # ── 값 대조: "있는지"가 아니라 "얼마인지"를 본다 ────────────────────────────
+    # 위 커버리지 검사는 `_has_fund`/`_has_sig`로 **지표 존재만** 본다. 2026-08-18 사고
+    # ("시가총액 1조"→100000억=10조)가 08-14 전수 검증을 치명 0으로 통과한 자리이며,
+    # 자릿수 오차는 금액만의 문제가 아니라 모든 임계값·설정에서 같은 모양으로 난다.
+    # 세 층 모두 **반영된 경우에만** 값을 본다 — 부재·값대기·되묻기는 위 미탐지 레인
+    # 소관이고, 두 레인이 같은 결손을 세면 되묻기 예외가 무력해진다.
+    unit = lambda m: "억" if m in AMOUNT_METRIC_LABELS else ""  # noqa: E731
+
+    # ① 재무 임계값(금액·비율 전부)
+    for metric, want in expected_fundamental_thresholds(prompt):
+        got = [x.get("value") for x in p.get("fundamental_filters", []) if x.get("metric") == metric]
+        got = [float(g) for g in got if isinstance(g, (int, float)) and not isinstance(g, bool)]
+        if not got:
+            continue
+        if not any(abs(g - want) < 1e-6 for g in got):
+            label = FUND_METRIC_LABELS.get(metric, metric)
+            f.fatal.append(f"{label} 임계값 오차(기대 {want:g}{unit(metric)} vs 파싱 "
+                           f"{','.join(f'{g:g}' for g in got)}{unit(metric)})")
+
+    # ② 스칼라 설정(손절·익절·종목수·리밸런싱·보유기간·기간·자본·트레일링·MDD)
+    for label, key, want in expected_scalar_values(prompt):
+        got = p.get(key)
+        if got is None:
+            continue
+        if isinstance(want, (int, float)) and isinstance(got, (int, float)):
+            if abs(float(got) - float(want)) < 1e-6:
+                continue
+            f.fatal.append(f"{label} 값 오차(기대 {want:g} vs 파싱 {float(got):g})")
+        elif str(got) != str(want):
+            f.fatal.append(f"{label} 값 오차(기대 {want} vs 파싱 {got})")
+
+    # ③ 신호 수치(이동평균 기간·신고가 룩백·거래량 평균 기간·오실레이터 기준값)
+    signals = (p.get("entry_signals") or []) + (p.get("exit_signals") or [])
+    if signals:
+        used = {float(v) for s in signals for k in _SIGNAL_PARAM_KEYS
+                if isinstance((v := s.get(k)), (int, float)) and not isinstance(v, bool)}
+        for label, wants in expected_signal_numbers(prompt):
+            lost = [w for w in wants if not any(abs(u - w) < 1e-6 for u in used)]
+            if lost:
+                f.fatal.append(f"{label} 소실(말한 값 {','.join(f'{w:g}' for w in lost)}이 "
+                               f"신호 어디에도 없음 — 파싱 {sorted(used)})")
+
+    # ④ 잉여 — 같은 역할 안에 **완전히 같은 조건이 두 번** 실리면 치명. 위 검사들은 전부
+    # 결손 방향(빠졌나·값이 틀렸나)이라 "남는 게 붙었나"를 보지 않았고, 2026-08-18 사고
+    # (예시 51 'EMA 데드크로스 청산'이 exit_signals에 2개 — 9B가 청산을 두 조각으로 내고
+    # 결정론 교정이 둘을 같은 신호로 수렴)가 08-17 전수 검증을 치명 0으로 통과했다 —
+    # 리포트 요약엔 '청산=ema,ema'로 찍혀 있었지만 판정 항목이 아니었다.
+    for label, key in (("진입 신호", "entry_signals"), ("청산 신호", "exit_signals"),
+                       ("재무 조건", "fundamental_filters")):
+        dup = duplicated_conditions(p.get(key) or [])
+        if dup:
+            f.fatal.append(f"{label} 중복(같은 조건 {len(dup)}건 반복: "
+                           f"{', '.join(dup)})")
+
     for name, field_name, pat in RISK_KEYWORDS:
         if re.search(pat, prompt) and p.get(field_name) is None and not re.search(pat, asked):
             f.missing.append(name)
@@ -240,6 +488,7 @@ def analyze(tpl: Template, res: dict) -> Flags:
     if (not p.get("fundamental_filters") and not p.get("entry_signals")
             and not p.get("ranking_metric") and not asked):
         f.fatal.append("진입 규칙 없음(되묻기도 없음)")
+    f.unmatched = unmatched_numbers(prompt, p, asked)
     if res.get("clarification_question"):
         f.notes.append("clarification 되물음")
     if re.search(r"상대강도", prompt) and not p.get("ranking_metric"):
@@ -302,7 +551,7 @@ def main() -> int:
 
     lines = ["# 전략 템플릿 파싱 검출 리포트 (정제판)\n", f"- 대상: {len(templates)}개\n"]
     problems: list[str] = []
-    n_missing = n_pos = n_fatal = 0
+    n_missing = n_pos = n_fatal = n_unmatched = 0
 
     for i, tpl in enumerate(templates, 1):
         if tpl.prompt in cache and not args.refresh:
@@ -338,6 +587,9 @@ def main() -> int:
         if f.position:
             n_pos += 1
             lines.append(f"- ⚠️ **{f.position}**")
+        if f.unmatched:
+            n_unmatched += 1
+            lines.append(f"- ℹ️ 미대조 수치(전략 어디에도 없음): {', '.join(f.unmatched)}")
         for note in f.notes:
             lines.append(f"- ℹ️ {note}")
         tag = []
@@ -351,7 +603,8 @@ def main() -> int:
             problems.append(f"{i}. {tpl.title} — {' / '.join(tag)}")
 
     lines += ["\n---\n## 종합\n", f"- 치명(예시가 전략이 되지 못함): **{n_fatal}개**",
-              f"- 미탐지 표현: **{n_missing}개**", f"- 종목수 이슈: **{n_pos}개**\n",
+              f"- 미탐지 표현: **{n_missing}개**", f"- 종목수 이슈: **{n_pos}개**",
+              f"- 미대조 수치(참고): **{n_unmatched}개**\n",
               "### 점검 필요\n", *problems]
     report = "\n".join(lines)
     if args.out:
@@ -359,7 +612,8 @@ def main() -> int:
         print(f"저장: {args.out}", file=sys.stderr)
     else:
         print(report)
-    print(f"\n=== 치명 {n_fatal} · 미탐지 {n_missing} · 종목수 {n_pos} ===", file=sys.stderr)
+    print(f"\n=== 치명 {n_fatal} · 미탐지 {n_missing} · 종목수 {n_pos} · 미대조 {n_unmatched} ===",
+          file=sys.stderr)
     # 치명 항목은 게이트로 다룬다 — 예시 추가·파서 수정 후 이 스크립트가 0으로 끝나야 한다.
     return 1 if n_fatal else 0
 

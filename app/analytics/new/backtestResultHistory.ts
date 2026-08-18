@@ -11,8 +11,27 @@ export function installBacktestResultBackHandler(
   onBack: () => void,
   win: HistoryWindow = window
 ): () => void {
+  // 뒤로가기로 대화 항목에 돌아오면 브라우저가 그 항목에 저장해 둔 스크롤 위치(백테스트
+  // 실행 버튼을 누르던 자리)를 우리 '맨 위' 스크롤 뒤에 비동기로 되살린다(Chrome 실측,
+  // 2026-08-17). scrollRestoration은 항목별 속성이므로 push 전에 — 아직 대화 항목 위에
+  // 있을 때 — manual로 바꿔 두고, 복귀 후 정리 시 원래 값으로 되돌린다.
+  const previousScrollRestoration = win.history.scrollRestoration;
+  try {
+    win.history.scrollRestoration = "manual";
+  } catch {
+    // 지원하지 않는 환경(테스트 더블 등)은 무시 — 되돌리기 동작 자체엔 영향 없다.
+  }
   win.history.pushState({ simonsBacktestResult: true }, "");
   const handlePopState = () => onBack();
   win.addEventListener("popstate", handlePopState);
-  return () => win.removeEventListener("popstate", handlePopState);
+  return () => {
+    win.removeEventListener("popstate", handlePopState);
+    if (previousScrollRestoration) {
+      try {
+        win.history.scrollRestoration = previousScrollRestoration;
+      } catch {
+        // 위와 같다.
+      }
+    }
+  };
 }

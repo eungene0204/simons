@@ -56,6 +56,52 @@ describe("buildTurnMessage", () => {
     expect(message.clarificationField).toBe(askDecision.field);
   });
 
+  it("되묻기 레인의 질문(respond+opensClarification)도 상태 되묻기와 같은 카드로 나간다", () => {
+    // 2026-08-17 사용자 신고: '손절 바꿔줘'의 되묻기가 박스가 아니라 맨 텍스트+칩으로 보였다.
+    // respond 액션이라 infoText 채널로 나간 것 — 같은 성격의 질문은 같은 카드여야 한다.
+    const modifyAsk: ConversationDecision = {
+      action: "respond",
+      speechAct: "modify",
+      topic: "risk",
+      confidence: 1,
+      reason: "missing_stop_loss_value",
+      message: "손절 기준을 몇 %로 변경할까요?",
+      suggestions: ["손절을 -5%로 변경", "직접 입력"],
+      opensClarification: true,
+    };
+    const message = buildTurnMessage({
+      decision: modifyAsk,
+      presentation,
+      askPresentation: presentation,
+      parsed: { description: "전략" },
+    });
+    expect(message.clarification).toBe(modifyAsk.message);
+    expect(message.clarificationSuggestions).toEqual(modifyAsk.suggestions);
+    expect(message.infoText).toBeUndefined();
+    expect(message.infoSuggestions).toBeUndefined();
+    expect(message.builderPresentation).toBe(presentation);
+    expect(message.parsed).toEqual({ description: "전략" });
+  });
+
+  it("되묻기 레인의 질문에는 열려 있던 되묻기를 되살리지 않는다 — 질문이 겹친다", () => {
+    const message = buildTurnMessage({
+      decision: {
+        action: "respond",
+        speechAct: "modify",
+        topic: "risk",
+        confidence: 1,
+        reason: "missing_stop_loss_value",
+        message: "손절 기준을 몇 %로 변경할까요?",
+        suggestions: ["손절을 -5%로 변경"],
+        opensClarification: true,
+        preservesOpenQuestion: true,
+      },
+      openClarification,
+    });
+    expect(message.clarification).toBe("손절 기준을 몇 %로 변경할까요?");
+    expect(message.clarificationSuggestions).toEqual(["손절을 -5%로 변경"]);
+  });
+
   it("되묻기 렌더에 필요한 parsed를 함께 싣는다", () => {
     // clarification 블록은 msg.parsed가 없으면 그려지지 않는다.
     expect(buildTurnMessage({ decision: askDecision, parsed: { x: 1 } }).parsed).toEqual({ x: 1 });

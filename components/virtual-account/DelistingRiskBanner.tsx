@@ -4,6 +4,7 @@ import { Warning, X } from "phosphor-react";
 import { useState } from "react";
 import { daysUntil, getStatusBadgeClasses } from "@/lib/listing-status";
 import type { SymbolListingDetail } from "@/lib/hooks/useDelistingStatus";
+import { t } from "@/lib/i18n";
 
 interface RiskItem {
   symbol: string;
@@ -23,21 +24,21 @@ function statusMessage(item: RiskItem): string {
 
   switch (item.listingStatus) {
     case "DELISTED":
-      return `${name}은(는) 상장폐지된 종목입니다. 평가금액이 0원으로 처리됩니다.`;
+      return t("{0}은(는) 상장폐지된 종목입니다. 평가금액이 0원으로 처리됩니다.", name);
     case "DELISTING_SCHEDULED": {
       const days = daysUntil(detail?.lastTradableDate);
-      const countdown = days != null && days >= 0 ? ` (${days}일 후 최종 거래일)` : "";
-      return `${name}은(는) 상장폐지 확정 종목입니다. 신규 매수가 불가하며${countdown} 자동 청산될 예정입니다.`;
+      const countdown = days != null && days >= 0 ? t(" ({0}일 후 최종 거래일)", days) : "";
+      return t("{0}은(는) 상장폐지 확정 종목입니다. 신규 매수가 불가하며{1} 자동 청산될 예정입니다.", name, countdown);
     }
     case "TRADING_SUSPENDED":
-      return `${name}은(는) 매매거래정지 상태입니다. 거래 재개 전까지 매수/매도가 불가합니다.`;
+      return t("{0}은(는) 매매거래정지 상태입니다. 거래 재개 전까지 매수/매도가 불가합니다.", name);
     case "DELISTING_REVIEW":
-      return `${name}은(는) 상장적격성 심사 대상입니다. 신규 매수가 제한됩니다.`;
+      return t("{0}은(는) 상장적격성 심사 대상입니다. 신규 매수가 제한됩니다.", name);
     case "WARNING":
     case "RISK":
-      return `${name}은(는) 상장폐지 관련 공시가 있는 종목입니다. 주의가 필요합니다.`;
+      return t("{0}은(는) 상장폐지 관련 공시가 있는 종목입니다. 주의가 필요합니다.", name);
     default:
-      return `${name}의 상장 상태를 확인하세요.`;
+      return t("{0}의 상장 상태를 확인하세요.", name);
   }
 }
 
@@ -60,7 +61,7 @@ function statusLabel(status: string): string {
     WARNING:              "폐지주의",
     RISK:                 "위험",
   };
-  return labels[status] ?? status;
+  return t(labels[status] ?? status);
 }
 
 export default function DelistingRiskBanner({ items, onForceLiquidate }: DelistingRiskBannerProps) {
@@ -96,7 +97,7 @@ export default function DelistingRiskBanner({ items, onForceLiquidate }: Delisti
               </p>
               {item.detail?.suspensionReason && (
                 <p className="text-[10px] text-gray-600 mt-0.5 truncate">
-                  사유: {item.detail.suspensionReason}
+                  {t("사유: {0}", item.detail.suspensionReason)}
                 </p>
               )}
             </div>
@@ -107,7 +108,7 @@ export default function DelistingRiskBanner({ items, onForceLiquidate }: Delisti
                     onClick={() => onForceLiquidate(item.symbol)}
                     className="text-[10px] font-bold px-2 py-0.5 rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-colors duration-200"
                   >
-                    강제청산
+                    {t("강제청산")}
                   </button>
                 )}
               <button

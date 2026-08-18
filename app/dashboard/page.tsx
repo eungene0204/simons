@@ -10,6 +10,8 @@ import VirtualAccountList from "@/components/dashboard/VirtualAccountList";
 import VirtualTradingStatus from "@/components/dashboard/VirtualTradingStatus";
 import RecentBacktestList from "@/components/dashboard/RecentBacktestList";
 import WatchlistSnapshot from "@/components/dashboard/WatchlistSnapshot";
+import { t } from "@/lib/i18n";
+import { getRequestLanguage } from "@/lib/i18n/server";
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
@@ -20,8 +22,10 @@ export default async function DashboardPage() {
 
   const dashData = await getDashboardInitialData(user.id);
 
-  const userName = user.name || "게스트";
+  const userName = user.name || t("게스트");
 
+  // 요청 언어를 서버 렌더에 고정한다(비동기 대기 뒤에 호출해야 다른 요청과 섞이지 않는다).
+  getRequestLanguage();
   return (
     <DashboardLayout userName={userName}>
       <div className="w-full min-w-0 border border-white/[0.08]">

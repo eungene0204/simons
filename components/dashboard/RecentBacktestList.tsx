@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Flask } from "phosphor-react";
 import type { DashboardBacktestRecord } from "@/types/dashboard";
+import { t } from "@/lib/i18n";
 
 function fmtPct(v: number): string {
   if (v === 0) return "0.0%";
@@ -53,9 +54,9 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
-            최근 백테스트
+            {t("최근 백테스트")}
           </h2>
-          <p className="text-xs text-gray-500 mt-0.5">최근 8개 실행 결과</p>
+          <p className="text-xs text-gray-500 mt-0.5">{t("최근 8개 실행 결과")}</p>
         </div>
         <Flask size={20} className="text-gray-600" />
       </div>
@@ -69,7 +70,7 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
       <div className="grid grid-cols-[minmax(0,1fr)_64px_64px_64px_64px_56px] gap-2 px-2 mb-2">
         {["전략명", "유니버스", "수익률", "CAGR", "MDD", "날짜"].map((h) => (
           <span key={h} className="text-xs font-bold uppercase tracking-widest text-gray-600">
-            {h}
+            {t(h)}
           </span>
         ))}
       </div>
@@ -83,8 +84,8 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
         </div>
       ) : records.length === 0 ? (
         <div className="py-8 text-center">
-          <p className="text-gray-500 text-sm">백테스트 기록이 없습니다</p>
-          <p className="text-gray-600 text-xs mt-1">전략을 실행하면 여기에 표시됩니다</p>
+          <p className="text-gray-500 text-sm">{t("백테스트 기록이 없습니다")}</p>
+          <p className="text-gray-600 text-xs mt-1">{t("전략을 실행하면 여기에 표시됩니다")}</p>
         </div>
       ) : (
         <div className="divide-y divide-white/[0.04]">

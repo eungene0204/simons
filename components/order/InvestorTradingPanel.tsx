@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Minus } from "phosphor-react";
+import { t } from "@/lib/i18n";
 
 interface InvestorRow {
   date: string;
@@ -65,7 +66,7 @@ export default function InvestorTradingPanel({ symbol }: Props) {
       })
       .catch((err: unknown) => {
         if (!cancelled)
-          setError(err instanceof Error ? err.message : "데이터 조회 실패");
+          setError(err instanceof Error ? err.message : t("데이터 조회 실패"));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -81,23 +82,23 @@ export default function InvestorTradingPanel({ symbol }: Props) {
       {/* 헤더 */}
       <div className="px-4 py-3 border-b border-white/[0.05] shrink-0">
         <h2 className="text-sm font-black uppercase tracking-widest text-white font-outfit">
-          투자자별 매매동향
+          {t("투자자별 매매동향")}
         </h2>
       </div>
 
       {/* 컬럼 헤더 */}
       <div className="grid grid-cols-[60px_1fr_1fr_1fr] gap-1 px-3 py-2 border-b border-white/[0.05] shrink-0">
-        <span className="text-xs font-bold uppercase tracking-widest text-gray-600">일자</span>
-        <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">개인</span>
-        <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">외국인</span>
-        <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">기관</span>
+        <span className="text-xs font-bold uppercase tracking-widest text-gray-600">{t("일자")}</span>
+        <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">{t("개인")}</span>
+        <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">{t("외국인")}</span>
+        <span className="text-xs font-bold uppercase tracking-widest text-gray-600 text-right">{t("기관")}</span>
       </div>
 
       {/* 데이터 행 */}
       <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
         {loading ? (
           <div className="flex h-full items-center justify-center">
-            <p className="text-xs font-bold text-gray-500">불러오는 중...</p>
+            <p className="text-xs font-bold text-gray-500">{t("불러오는 중...")}</p>
           </div>
         ) : error ? (
           <div className="flex h-full items-center justify-center px-4 text-center">
@@ -105,7 +106,7 @@ export default function InvestorTradingPanel({ symbol }: Props) {
           </div>
         ) : rows.length === 0 ? (
           <div className="flex h-full items-center justify-center">
-            <p className="text-xs font-bold text-gray-500">데이터 없음</p>
+            <p className="text-xs font-bold text-gray-500">{t("데이터 없음")}</p>
           </div>
         ) : (
           <div className="divide-y divide-white/[0.04]">
@@ -131,7 +132,7 @@ export default function InvestorTradingPanel({ symbol }: Props) {
         <div className="px-3 py-2 border-t border-white/[0.05] shrink-0">
           {rows[0].foreign_hold_ratio && (
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] font-bold text-gray-600">외국인 보유비율</span>
+              <span className="text-[10px] font-bold text-gray-600">{t("외국인 보유비율")}</span>
               <span className="text-[10px] font-black tabular-nums text-gray-300">
                 {rows[0].foreign_hold_ratio}
               </span>
@@ -139,12 +140,12 @@ export default function InvestorTradingPanel({ symbol }: Props) {
           )}
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1">
-              <span className="text-[10px] font-bold text-gray-600">순매수</span>
+              <span className="text-[10px] font-bold text-gray-600">{t("순매수")}</span>
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-[10px] font-bold text-gray-600">순매도</span>
+              <span className="text-[10px] font-bold text-gray-600">{t("순매도")}</span>
             </div>
-            <span className="text-[10px] text-gray-600 ml-auto">최근 5영업일</span>
+            <span className="text-[10px] text-gray-600 ml-auto">{t("최근 5영업일")}</span>
           </div>
         </div>
       )}

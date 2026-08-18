@@ -15,6 +15,7 @@ import {
   Warning,
   X,
 } from "phosphor-react";
+import { t } from "@/lib/i18n";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -120,20 +121,20 @@ function metricLabel(metric: string) {
     avg_trade_return: "평균 손익",
     max_losing_streak: "최대 연속 손실",
   };
-  return labels[metric] ?? metric;
+  return t(labels[metric] ?? metric);
 }
 
 function confidenceLabel(value: string) {
-  if (value === "high") return "높음";
-  if (value === "medium") return "중간";
-  if (value === "low") return "낮음";
+  if (value === "high") return t("높음");
+  if (value === "medium") return t("중간");
+  if (value === "low") return t("낮음");
   return value;
 }
 
 function netEffectLabel(value: string) {
-  if (value === "positive") return "개선";
-  if (value === "neutral") return "중립";
-  if (value === "negative") return "악화";
+  if (value === "positive") return t("개선");
+  if (value === "neutral") return t("중립");
+  if (value === "negative") return t("악화");
   return value;
 }
 
@@ -173,7 +174,7 @@ function SectionLabel({ icon, title, count }: { icon: React.ReactNode; title: st
       {icon}
       <span className="text-sm font-black uppercase tracking-widest text-white font-outfit">{title}</span>
       {count !== undefined && count > 0 && (
-        <span className="ml-auto text-xs font-bold text-gray-500">{count}건</span>
+        <span className="ml-auto text-xs font-bold text-gray-500">{t("{0}건", count)}</span>
       )}
     </div>
   );
@@ -242,7 +243,7 @@ export function StrategyAdvisorPanel({
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.08] flex-shrink-0">
         <div className="flex items-center gap-2">
           <Robot size={16} weight="bold" className="text-gray-500" />
-          <span className="text-sm font-black uppercase tracking-widest text-white font-outfit">전략 코치</span>
+          <span className="text-sm font-black uppercase tracking-widest text-white font-outfit">{t("전략 코치")}</span>
         </div>
         <div className="flex items-center gap-2">
           {loading && (
@@ -272,7 +273,7 @@ export function StrategyAdvisorPanel({
                 style={{ animationDelay: `${i * 0.1}s` }}
               />
             ))}
-            <p className="text-xs font-bold text-gray-600 text-center pt-2">전략 분석 중...</p>
+            <p className="text-xs font-bold text-gray-600 text-center pt-2">{t("전략 분석 중...")}</p>
           </div>
         )}
 
@@ -292,7 +293,7 @@ export function StrategyAdvisorPanel({
               <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
                 <SectionLabel
                   icon={<CheckCircle size={14} weight="bold" className="text-gray-500" />}
-                  title="전략 리뷰"
+                  title={t("전략 리뷰")}
                   count={result.response_sections?.length}
                 />
                 <div className="divide-y divide-white/[0.04]">
@@ -322,7 +323,7 @@ export function StrategyAdvisorPanel({
               <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
                 <SectionLabel
                   icon={<Lightbulb size={14} weight="fill" className="text-yellow-400" />}
-                  title="핵심 조언"
+                  title={t("핵심 조언")}
                   count={1}
                 />
                 <div className="px-4 py-3 hover:bg-white/[0.02] transition-colors duration-150">
@@ -345,27 +346,27 @@ export function StrategyAdvisorPanel({
               <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
                 <SectionLabel
                   icon={<GitBranch size={14} weight="bold" className="text-gray-500" />}
-                  title="유사 전략 경험"
+                  title={t("유사 전략 경험")}
                   count={result.strategy_memory_context.retrieved_cases?.length ?? 0}
                 />
                 <div className="px-4 py-3 space-y-3">
                   <div className="flex flex-wrap gap-1.5">
                     <span className={`px-2 py-0.5 rounded-md text-xs font-black bg-white/[0.06] ${riskColor(result.strategy_memory_context.confidence)}`}>
-                      신뢰도 {confidenceLabel(result.strategy_memory_context.confidence)}
+                      {t("신뢰도 {0}", confidenceLabel(result.strategy_memory_context.confidence))}
                     </span>
                     <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-white/[0.06] text-gray-400">
-                      {result.strategy_memory_context.data_sufficiency === "sufficient" ? "사례 충분" : "사례 부족"}
+                      {result.strategy_memory_context.data_sufficiency === "sufficient" ? t("사례 충분") : t("사례 부족")}
                     </span>
                     {(result.strategy_memory_context.similar_strategy_ids?.length ?? 0) > 0 && (
                       <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-white/[0.06] text-gray-500">
-                        유사 전략 {result.strategy_memory_context.similar_strategy_ids?.length}개
+                        {t("유사 전략 {0}개", result.strategy_memory_context.similar_strategy_ids?.length)}
                       </span>
                     )}
                   </div>
 
                   {result.strategy_memory_context.data_sufficiency !== "sufficient" && (
                     <p className="text-xs font-bold text-amber-400 leading-relaxed">
-                      저장된 유사 사례가 부족합니다. 현재 조언은 재백테스트 전 가설로만 다뤄야 합니다.
+                      {t("저장된 유사 사례가 부족합니다. 현재 조언은 재백테스트 전 가설로만 다뤄야 합니다.")}
                     </p>
                   )}
 
@@ -379,7 +380,7 @@ export function StrategyAdvisorPanel({
                             </span>
                             {caseItem.advice_success !== null && caseItem.advice_success !== undefined && (
                               <span className={`text-[10px] font-black ${caseItem.advice_success ? "text-emerald-400" : "text-[var(--main-red)]"}`}>
-                                {caseItem.advice_success ? "성공" : "실패"}
+                                {caseItem.advice_success ? t("성공") : t("실패")}
                               </span>
                             )}
                           </div>
@@ -399,14 +400,14 @@ export function StrategyAdvisorPanel({
               <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
                 <SectionLabel
                   icon={<CheckCircle size={14} weight="bold" className="text-gray-500" />}
-                  title="개선 후보 평가"
+                  title={t("개선 후보 평가")}
                 />
                 <div className="px-4 py-3 space-y-3">
                   {result.candidate_strategy && (
                     <div>
-                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">후보 전략</p>
+                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("후보 전략")}</p>
                       <p className="text-sm font-bold text-gray-400 leading-relaxed mt-1">
-                        조언을 반영한 후보 DSL이 생성되었습니다. 동일한 백테스트 조건에서 기존 전략과 비교해야 합니다.
+                        {t("조언을 반영한 후보 DSL이 생성되었습니다. 동일한 백테스트 조건에서 기존 전략과 비교해야 합니다.")}
                       </p>
                     </div>
                   )}
@@ -424,11 +425,11 @@ export function StrategyAdvisorPanel({
                           {netEffectLabel(result.advice_evaluation.net_effect)}
                         </span>
                         <span className={`px-2 py-0.5 rounded-md text-xs font-bold bg-white/[0.06] ${riskColor(result.advice_evaluation.overfitting_risk)}`}>
-                          과최적화 {confidenceLabel(result.advice_evaluation.overfitting_risk)}
+                          {t("과최적화 {0}", confidenceLabel(result.advice_evaluation.overfitting_risk))}
                         </span>
                         {result.advice_evaluation.oos_validation_required && (
                           <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-white/[0.06] text-amber-400">
-                            OOS 필요
+                            {t("OOS 필요")}
                           </span>
                         )}
                       </div>
@@ -440,7 +441,7 @@ export function StrategyAdvisorPanel({
                       {(result.advice_evaluation.improved_metrics.length > 0 || result.advice_evaluation.worsened_metrics.length > 0) && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                           <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-600">개선</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-600">{t("개선")}</p>
                             <div className="flex flex-wrap gap-1 mt-1">
                               {result.advice_evaluation.improved_metrics.map((metric) => (
                                 <span key={metric} className="px-2 py-0.5 rounded-md text-xs font-bold bg-emerald-500/10 text-emerald-400">
@@ -450,7 +451,7 @@ export function StrategyAdvisorPanel({
                             </div>
                           </div>
                           <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-600">악화</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-600">{t("악화")}</p>
                             <div className="flex flex-wrap gap-1 mt-1">
                               {result.advice_evaluation.worsened_metrics.map((metric) => (
                                 <span key={metric} className="px-2 py-0.5 rounded-md text-xs font-bold bg-[var(--main-red)]/10 text-[var(--main-red)]">
@@ -472,14 +473,14 @@ export function StrategyAdvisorPanel({
               <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
                 <SectionLabel
                   icon={<Newspaper size={14} weight="bold" className="text-gray-500" />}
-                  title="뉴스 리스크"
+                  title={t("뉴스 리스크")}
                 />
                 <div className="px-4 py-3 space-y-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-gray-500">리스크 수준</span>
+                    <span className="text-xs font-bold text-gray-500">{t("리스크 수준")}</span>
                     <span className={`text-xs font-black ${riskColor(result.news_analysis.risk_level)}`}>
-                      {result.news_analysis.risk_level === "high" ? "높음" :
-                       result.news_analysis.risk_level === "medium" ? "중간" : "낮음"}
+                      {result.news_analysis.risk_level === "high" ? t("높음") :
+                       result.news_analysis.risk_level === "medium" ? t("중간") : t("낮음")}
                     </span>
                   </div>
                   <p className="text-sm font-bold text-gray-400 leading-relaxed">
@@ -502,7 +503,7 @@ export function StrategyAdvisorPanel({
             <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
               <SectionLabel
                 icon={<Robot size={14} weight="bold" className="text-gray-500" />}
-                title="AI 모델"
+                title={t("AI 모델")}
               />
               <div className="px-4 py-3 flex items-start gap-2">
                 <CheckCircle
@@ -521,7 +522,7 @@ export function StrategyAdvisorPanel({
               <div className="border border-white/[0.08] rounded-2xl overflow-hidden">
                 <SectionLabel
                   icon={<TestTube size={14} weight="bold" className="text-gray-500" />}
-                  title="추천 실험"
+                  title={t("추천 실험")}
                   count={result.suggested_experiments.length}
                 />
                 <div className="divide-y divide-white/[0.04]">

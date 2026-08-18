@@ -174,17 +174,22 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
         # 조용히 확정되지 않게 묻는다(변동성 2026-08-10 사용자 요청, 모멘텀도 같은 날
         # "60일이라고 강제하지 말고 고를 수 있게" 지시로 합류). 진행 골격 순서상 매수
         # 조건(랭킹 파라미터)이 포트폴리오(종목 수·리밸런싱)보다 앞이므로 이 질문을 먼저 낸다.
-        first_rank = strategy.ranking[0]
+        # 복합 순위 합산(FR-BT-063)은 랭킹 항목이 여러 개다 — 가격 산출 지표가 어느 자리에
+        # 있든 산정 기간을 묻는다(첫 항목만 보면 뒤 자리의 기간이 조용히 60으로 확정된다).
+        # 칩 답('수익률 산정 기간 20일')은 전략 공통 ranking_lookback_days로 결속되고
+        # 엔진이 기간 없는 가격 지표에 그 값을 쓴다 — 첫 미정 항목 하나만 묻는다.
         _LOOKBACK_LABELS = {"ranking.volatility": "변동성", "ranking.return": "수익률"}
-        lookback_label = _LOOKBACK_LABELS.get(first_rank.metric)
-        if lookback_label is not None and first_rank.lookback_days is None:
-            missing.append("strategy.ranking[0].lookback_days")
-            questions.append(ClarificationQuestion(
-                field="strategy.ranking[0].lookback_days",
-                question=f"{lookback_label} 산정 기간을 며칠(거래일)로 할까요?",
-                recommended_value=60,
-                recommendation_reason="일반적으로 60거래일(약 3개월)을 사용합니다",
-            ))
+        for idx, rank in enumerate(strategy.ranking):
+            lookback_label = _LOOKBACK_LABELS.get(rank.metric)
+            if lookback_label is not None and rank.lookback_days is None:
+                missing.append(f"strategy.ranking[{idx}].lookback_days")
+                questions.append(ClarificationQuestion(
+                    field=f"strategy.ranking[{idx}].lookback_days",
+                    question=f"{lookback_label} 산정 기간을 며칠(거래일)로 할까요?",
+                    recommended_value=60,
+                    recommendation_reason="일반적으로 60거래일(약 3개월)을 사용합니다",
+                ))
+                break
         # 편입 규모가 비율(selection_percent)이나 분위 그룹(quantile_groups)으로 이미
         # 정의된 전략은 종목 수가 성립하지 않는다 — 되묻지 않는다(FR-BT-060).
         has_scale = (

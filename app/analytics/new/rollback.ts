@@ -7,6 +7,7 @@
 // 생기면 그것은 계약 위반이다(자연어 해석 구조 원칙) — 대상 판정은 전적으로 LLM이다.
 
 import type { ParsedSummary } from "@/lib/strategy-summary";
+import { t } from "@/lib/i18n";
 
 /** 변경 이력 한 항목. parsed는 **그 턴이 끝난 뒤**의 전략이다. */
 export type ChangeLogEntry = {
@@ -155,7 +156,7 @@ export function stateBeforeLastChange(log: ChangeLogEntry[]): ChangeLogEntry | n
 /** 복원 결과를 사용자에게 알리는 문장. 되돌린 사실만 서술한다(평가·권유 없음). */
 export function describeRollback(result: Extract<RollbackResult, { status: "restored" }>): string {
   if (result.scope === "turn") {
-    return "직전 변경을 되돌렸습니다. 이어서 바꾸고 싶은 조건을 말씀해 주세요.";
+    return t("직전 변경을 되돌렸습니다. 이어서 바꾸고 싶은 조건을 말씀해 주세요.");
   }
-  return "말씀하신 항목만 이전 값으로 되돌렸습니다. 이어서 바꾸고 싶은 조건을 말씀해 주세요.";
+  return t("말씀하신 항목만 이전 값으로 되돌렸습니다. 이어서 바꾸고 싶은 조건을 말씀해 주세요.");
 }

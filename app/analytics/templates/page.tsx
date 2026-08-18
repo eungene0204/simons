@@ -12,6 +12,7 @@ import {
   type ExampleCategory,
 } from "@/components/strategy/StrategyExampleTabs";
 import { beginStrategyChatNavigation } from "../new/chatNavigation";
+import { t } from "@/lib/i18n";
 
 type TemplateCategoryTab = "전체" | ExampleCategory;
 
@@ -65,9 +66,9 @@ export default function StrategyTemplatesPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="space-y-3">
               <div className="space-y-2">
-                <h1 className="text-3xl font-black text-white">백테스트 입력 예시</h1>
+                <h1 className="text-3xl font-black text-white">{t("백테스트 입력 예시")}</h1>
                 <p className="text-sm font-bold text-gray-500">
-                  가정한 조건을 선택하고 직접 수정한 뒤 과거 데이터로 실험할 수 있습니다
+                  {t("가정한 조건을 선택하고 직접 수정한 뒤 과거 데이터로 실험할 수 있습니다")}
                 </p>
               </div>
             </div>
@@ -82,7 +83,7 @@ export default function StrategyTemplatesPage() {
                 <button
                   key={category}
                   type="button"
-                  aria-label={`${category} 백테스트 예시 보기`}
+                  aria-label={t("{0} 백테스트 예시 보기", t(category))}
                   aria-pressed={isActive}
                   onClick={() => {
                     setActiveCategory(category);
@@ -94,7 +95,7 @@ export default function StrategyTemplatesPage() {
                       : "text-gray-500 hover:bg-white/[0.04] hover:text-white"
                   }`}
                 >
-                  {style?.label ?? category}
+                  {t(style?.label ?? category)}
                 </button>
               );
             })}
@@ -113,13 +114,13 @@ export default function StrategyTemplatesPage() {
                     className="group space-y-2 rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 text-left transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
                   >
                     <span className={`inline-flex items-center rounded-md px-2 py-1 text-[10px] font-black ${style.bg} ${style.border} ${style.color}`}>
-                      {style.label}
+                      {t(style.label)}
                     </span>
                     <p className="text-sm font-black leading-snug text-white/85 group-hover:text-white">
-                      {example.title}
+                      {t(example.title)}
                     </p>
                     <p className="line-clamp-5 text-xs font-bold leading-relaxed text-gray-400 group-hover:text-gray-300">
-                      {example.prompt}
+                      {t(example.prompt)}
                     </p>
                   </button>
                 );
@@ -133,18 +134,18 @@ export default function StrategyTemplatesPage() {
                   onClick={() => setVisibleCount((count) => count + TEMPLATE_PAGE_SIZE)}
                   className="rounded-2xl border border-white/[0.08] bg-[#121212] px-5 py-2.5 text-xs font-black text-gray-300 transition-colors duration-200 hover:border-white/[0.14] hover:bg-[#171717] hover:text-white"
                 >
-                  더 보기
+                  {t("더 보기")}
                 </button>
               </div>
             )}
           </div>
 
           <footer
-            aria-label="백테스트 입력 예시 안내"
+            aria-label={t("백테스트 입력 예시 안내")}
             className="border-t border-white/[0.06] pt-5 text-center"
           >
             <p className="text-xs font-bold leading-relaxed text-gray-600">
-              백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다.
+              {t("백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다.")}
             </p>
           </footer>
         </div>

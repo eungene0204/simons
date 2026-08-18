@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { VirtualAccount } from "@/types/portfolio";
+import { getLocale, t } from "@/lib/i18n";
 
 const formatPrice = (price: number) => {
   return new Intl.NumberFormat("ko-KR").format(price);
@@ -29,29 +30,29 @@ export default function VirtualAccountCard({ account }: VirtualAccountCardProps)
             {account.name}
           </h3>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            생성일: {new Date(account.createdAt).toLocaleDateString("ko-KR")}
+            {t("생성일: {0}", new Date(account.createdAt).toLocaleDateString(getLocale()))}
           </p>
         </div>
 
         {/* 총 자산 */}
         <div className="mb-3">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">총 자산</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t("총 자산")}</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatPrice(account.totalValue)} 원
+            {t("{0} 원", formatPrice(account.totalValue))}
           </p>
         </div>
 
         {/* 초기 모의 투자금액 */}
         <div className="mb-3">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">초기 모의 투자금액</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t("초기 모의 투자금액")}</p>
           <p className="text-base font-medium text-gray-700 dark:text-gray-300">
-            {formatPrice(account.initialAmount)} 원
+            {t("{0} 원", formatPrice(account.initialAmount))}
           </p>
         </div>
 
         {/* 손익 */}
         <div className="mb-3">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">손익</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t("손익")}</p>
           <div className="flex items-center gap-2">
             <p
               className={`text-lg font-semibold ${
@@ -60,8 +61,7 @@ export default function VirtualAccountCard({ account }: VirtualAccountCardProps)
                   : "text-blue-500 dark:text-blue-400"
               }`}
             >
-              {profit >= 0 ? "+" : ""}
-              {formatPrice(profit)} 원
+              {t("{0}{1} 원", profit >= 0 ? "+" : "", formatPrice(profit))}
             </p>
             <p
               className={`text-sm font-medium ${
@@ -78,9 +78,9 @@ export default function VirtualAccountCard({ account }: VirtualAccountCardProps)
 
         {/* 현재 잔액 */}
         <div className="mt-auto pt-3 border-t border-gray-200 dark:border-gray-700">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">현재 잔액</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t("현재 잔액")}</p>
           <p className="text-base font-medium text-gray-900 dark:text-white">
-            {formatPrice(account.currentBalance)} 원
+            {t("{0} 원", formatPrice(account.currentBalance))}
           </p>
         </div>
       </div>

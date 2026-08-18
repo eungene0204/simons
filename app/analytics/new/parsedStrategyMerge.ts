@@ -1,5 +1,6 @@
 import factorRegistry from "@/data/fundamental-factors.json";
 import type { ParsedSummary } from "./strategySummary";
+import { t } from "@/lib/i18n";
 
 export interface StrategyBacktestRequest {
   symbols?: string[];
@@ -187,7 +188,7 @@ export function buildStrategyHorizonComparisonResponse(prompt: string): string |
  *  여기서는 그 라벨에 대응하는 정해진 문구를 고를 뿐이다(계약상 허용 패턴). */
 export function takeProfitPrompt(): { message: string; suggestions: string[] } {
   return {
-    message: "익절 기준은 매수가 대비 수익률로 설정합니다. 예시 값은 5%, 10%, 15%입니다. 적용할 익절 기준을 몇 %로 할까요?",
+    message: t("익절 기준은 매수가 대비 수익률로 설정합니다. 예시 값은 5%, 10%, 15%입니다. 적용할 익절 기준을 몇 %로 할까요?"),
     suggestions: ["익절 5%", "익절 10%", "익절 15%"],
   };
 }
@@ -200,7 +201,7 @@ export function fundamentalFactorPromptFor(
   if (!entry) return null;
   const direction = DIRECTION_WORD[entry.direction] ?? "이상";
   return {
-    message: `${entry.label} 몇${entry.unit} ${direction}일 때 진입할까요?`,
+    message: t("{0} 몇{1} {2}일 때 진입할까요?", entry.label, entry.unit, direction),
     suggestions: entry.recommend.map(
       (v) => `${entry.label} ${fundamentalValueLabel(v, entry.unit)} ${direction}`,
     ),
@@ -226,7 +227,7 @@ export function buildTakeProfitPercentagePrompt(prompt: string): {
   }
 
   return {
-    message: "익절 기준은 매수가 대비 수익률로 설정합니다. 예시 값은 5%, 10%, 15%입니다. 적용할 익절 기준을 몇 %로 할까요?",
+    message: t("익절 기준은 매수가 대비 수익률로 설정합니다. 예시 값은 5%, 10%, 15%입니다. 적용할 익절 기준을 몇 %로 할까요?"),
     suggestions: ["익절 5%", "익절 10%", "익절 15%"],
   };
 }
@@ -278,8 +279,8 @@ const FUNDAMENTAL_FACTOR_SPECS: Array<{
   }));
 
 function fundamentalValueLabel(value: number, unit: string): string {
-  if (unit === "억" && value >= 10000 && value % 10000 === 0) return `${value / 10000}조`;
-  return `${value}${unit}`;
+  if (unit === "억" && value >= 10000 && value % 10000 === 0) return t("{0}조", value / 10000);
+  return `${value}${t(unit)}`;
 }
 
 /**
@@ -308,7 +309,7 @@ export function buildFundamentalFactorPrompt(prompt: string): {
   if (!spec) return null;
 
   return {
-    message: `${spec.label} 몇${spec.unit} ${spec.direction}일 때 진입할까요?`,
+    message: t("{0} 몇{1} {2}일 때 진입할까요?", spec.label, spec.unit, spec.direction),
     suggestions: spec.recommend.map(
       (v) => `${spec.label} ${fundamentalValueLabel(v, spec.unit)} ${spec.direction}`,
     ),

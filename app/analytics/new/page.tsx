@@ -66,7 +66,7 @@ import {
   type AdvisorWalkForwardSettings,
   type StrategyBacktestRequest,
 } from "./parsedStrategyMerge";
-import { computeChatScrollDelta, scrollChatViewToEnd } from "./chatScroll";
+import { computeChatScrollDelta, scrollChatViewToEnd, scrollChatViewToTop } from "./chatScroll";
 import {
   appendChangeLog,
   applyRollback,
@@ -142,6 +142,7 @@ import {
   type BuilderTurnPresentation,
 } from "./builderProgressPresentation";
 import { applyDeterministicConditionChoice } from "./deterministicConditionFlow";
+import { t } from "@/lib/i18n";
 
 // 되묻기 게이트가 provenance(사용자가 실제로 말했나)를 요구하는 설정 필드.
 // backtestReadiness.ExplicitField와 같은 목록이며, 칩 답변을 그 채널에 기록할 때 쓴다.
@@ -398,7 +399,7 @@ function buildSingleAssetBuilderPrompt(
     /^(?:코스피·코스닥 전체|코스피200|코스피|코스닥|ETF)(?:\s+[^,]+?\s+업종)?\s+종목 중\s+/,
     "",
   );
-  return `${context.label} 단일 종목에 적용하는 전략: ${strategyBody}`;
+  return t("{0} 단일 종목에 적용하는 전략: {1}", context.label, strategyBody);
 }
 
 function mergeSingleAssetBuilderResult(
@@ -448,7 +449,7 @@ function formatElapsedTime(startedAt: number, now: number): string {
   const totalSeconds = Math.max(0, Math.floor((now - startedAt) / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  return minutes > 0 ? `${minutes}분 ${seconds}초` : `${seconds}초`;
+  return minutes > 0 ? t("{0}분 {1}초", minutes, seconds) : t("{0}초", seconds);
 }
 
 function MetricOptimizationProgressIndicator({
@@ -467,13 +468,13 @@ function MetricOptimizationProgressIndicator({
   return (
     <div className="space-y-2 pt-1" data-testid="metric-optimization-progress">
       <div className="flex items-center justify-between gap-4 text-[11px] font-bold text-gray-300">
-        <span>{progress.totalTrials}개 조합 계산 중</span>
-        <span className="tabular-nums text-[var(--text-label)]">경과 {elapsed}</span>
+        <span>{t("{0}개 조합 계산 중", progress.totalTrials)}</span>
+        <span className="tabular-nums text-[var(--text-label)]">{t("경과 {0}", elapsed)}</span>
       </div>
       <div
         role="progressbar"
-        aria-label="파라미터 조합 계산 진행 상황"
-        aria-valuetext={`${progress.totalTrials}개 조합 계산 중, 경과 ${elapsed}`}
+        aria-label={t("파라미터 조합 계산 진행 상황")}
+        aria-valuetext={t("{0}개 조합 계산 중, 경과 {1}", progress.totalTrials, elapsed)}
         className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]"
       >
         <div className="metric-optimization-progress-bar h-full w-1/3 rounded-full bg-[var(--chat-accent)]" />
@@ -514,14 +515,14 @@ function buildMetricOptimizationResultText(
       .map(([path, value]) => `${labels[path] ?? path} ${value}`)
       .join(" · ");
     return [
-      `조합 ${index + 1}`,
-      parameters || "파라미터 정보 없음",
+      t("조합 {0}", index + 1),
+      parameters || t("파라미터 정보 없음"),
       `${metricLabel} ${formatOptimizationValue(row.target_value)} · CAGR ${formatOptimizationValue(row.metrics?.cagr, "%")} · MDD ${formatOptimizationValue(row.metrics?.maxDrawdown, "%")}`,
     ].join("\n");
   });
 
   return [
-    `${metricLabel} 기준으로 ${response.total_iterations ?? rows.length}회 계산을 마쳤습니다.`,
+    t("{0} 기준으로 {1}회 계산을 마쳤습니다.", metricLabel, response.total_iterations ?? rows.length),
     ...resultLines,
   ].join("\n\n");
 }
@@ -545,7 +546,7 @@ function MovingAverageTypeHelp() {
     <div className="group relative inline-flex self-center">
       <button
         type="button"
-        aria-label="SMA와 EMA 설명"
+        aria-label={t("SMA와 EMA 설명")}
         className="flex h-7 w-7 items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.05] text-gray-300 transition-colors duration-200 hover:border-[var(--chat-accent-line)] hover:bg-white/[0.09] hover:text-[var(--chat-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
       >
         <Question size={14} weight="bold" />
@@ -554,13 +555,13 @@ function MovingAverageTypeHelp() {
         role="tooltip"
         className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-[min(18rem,calc(100vw-3rem))] -translate-x-1/2 rounded-2xl border border-[var(--chat-hairline)] bg-[#101010] p-3 text-left opacity-0 shadow-2xl shadow-black/50 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 sm:left-auto sm:right-0 sm:translate-x-0"
       >
-        <p className="text-[11px] font-black text-[var(--text-label)]">이동평균 종류</p>
+        <p className="text-[11px] font-black text-[var(--text-label)]">{t("이동평균 종류")}</p>
         <div className="mt-2 space-y-1.5 text-xs font-bold leading-relaxed text-gray-300">
           <p>
-            <span className="text-white">SMA</span>는 단순 이동평균으로, 최근 N일 가격을 같은 비중으로 평균낸 값입니다.
+            <span className="text-white">SMA</span>{t("는 단순 이동평균으로, 최근 N일 가격을 같은 비중으로 평균낸 값입니다.")}
           </p>
           <p>
-            <span className="text-white">EMA</span>는 지수 이동평균으로, 최근 가격에 더 큰 비중을 두어 변화에 더 민감하게 반응합니다.
+            <span className="text-white">EMA</span>{t("는 지수 이동평균으로, 최근 가격에 더 큰 비중을 두어 변화에 더 민감하게 반응합니다.")}
           </p>
         </div>
       </div>
@@ -740,15 +741,15 @@ function ChoiceOptionList({
                     trySubmit();
                   }
                 }}
-                placeholder="원하는 내용을 입력해 주세요"
+                placeholder={t("원하는 내용을 입력해 주세요")}
                 className="w-full rounded-lg border border-[var(--chat-accent-line)] bg-transparent py-2 pl-3 pr-10 text-[12px] font-bold text-white outline-none placeholder:text-[var(--text-placeholder)] focus:outline-none focus:ring-0"
               />
               <button
                 type="button"
                 onClick={trySubmit}
                 disabled={!value.trim()}
-                aria-label="전송"
-                title="전송"
+                aria-label={t("전송")}
+                title={t("전송")}
                 className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-[#f3f1ec] text-[#2b2b2b] transition-colors duration-200 hover:bg-white active:scale-[0.96] disabled:cursor-not-allowed disabled:bg-[#595959] disabled:text-[#bdbdbd] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
               >
                 <ArrowUp size={13} weight="bold" />
@@ -776,7 +777,7 @@ function ChoiceOptionList({
                 {index + 1}
               </span>
             )}
-            {option}
+            {t(option)}
           </button>
         );
       })}
@@ -814,7 +815,7 @@ function KeepItemsSelector({
       className={`flex max-w-[88%] flex-col gap-2.5 p-4 ${ARTIFACT_CARD_CLASS} ${MESSAGE_ENTER_LATE_CLASS}`}
       data-testid="keep-items-selector"
     >
-      <p className="text-[11px] font-black text-[var(--text-label)]">그대로 둘 항목</p>
+      <p className="text-[11px] font-black text-[var(--text-label)]">{t("그대로 둘 항목")}</p>
       <div className="flex flex-col gap-1">
         {items.map((item) => {
           const checked = kept.includes(item.id);
@@ -831,14 +832,14 @@ function KeepItemsSelector({
                 className="h-[15px] w-[15px] flex-shrink-0 accent-[var(--chat-accent)]"
               />
               <span className="text-[11px] font-black text-[var(--text-label)] w-[68px] flex-shrink-0">
-                {item.label}
+                {t(item.label)}
               </span>
               <span
                 className={`text-[13px] font-bold leading-relaxed transition-colors duration-200 ${
                   checked ? "text-gray-200" : "text-[var(--text-label)] line-through"
                 }`}
               >
-                {item.value}
+                {t(item.value)}
               </span>
             </label>
           );
@@ -851,12 +852,12 @@ function KeepItemsSelector({
           onClick={() => onSubmit(kept)}
           className={CHOICE_CHIP_CLASS}
         >
-          선택 완료
+          {t("선택 완료")}
         </button>
         <span className="text-[11px] font-bold text-[var(--text-label)]">
           {changedCount === 0
-            ? "모두 그대로 둡니다"
-            : `${changedCount}개 항목을 다시 정합니다`}
+            ? t("모두 그대로 둡니다")
+            : t("{0}개 항목을 다시 정합니다", changedCount)}
         </span>
       </div>
     </div>
@@ -936,17 +937,25 @@ const ANALYSIS_STAGE_LABEL = {
 } as const;
 type AnalysisStage = keyof typeof ANALYSIS_STAGE_LABEL;
 
+// '대화 종료'로 끊긴 요청의 오류인지. 끊긴 턴은 뒤처리(오류 버블·빌더 상태 복원 등)를 하지
+// 않는다 — handleReset이 이미 상태를 비웠으므로, 뒤처리가 오히려 새 대화를 오염시킨다.
+function isChatAbort(error: unknown): boolean {
+  return (error as { name?: string } | null | undefined)?.name === "AbortError";
+}
+
 // 빌더 스텝 호출 — 프록시가 SSE(text/event-stream)를 돌려주면 stage 이벤트('searching' =
 // 인터넷 검색 그라운딩 진입, FR-STR-069)를 onStage로 알리고 최종 result 데이터를 반환한다.
 // JSON 응답(테스트 mock 등)은 기존 계약대로 그대로 반환해 호출부 코드가 동일하게 동작한다.
 async function requestBuilderStepData(
   payload: Record<string, any>,
   onStage?: (stage: string) => void,
+  signal?: AbortSignal,
 ): Promise<any> {
   const res = await fetch("/api/strategy/builder/step", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    signal,
   });
   if (!res.ok) throw new Error();
   const contentType = res.headers?.get?.("content-type") ?? "";
@@ -1017,7 +1026,7 @@ function AnalysisStatusBubble({
   title?: string;
   stage?: AnalysisStage;
 }) {
-  const label = stage ? ANALYSIS_STAGE_LABEL[stage] : "분석 중...";
+  const label = stage ? t(ANALYSIS_STAGE_LABEL[stage]) : t("분석 중...");
   return (
     <div
       className={`flex max-w-[88%] items-center gap-2 py-1 ${MESSAGE_ENTER_LATE_CLASS}`}
@@ -1212,7 +1221,7 @@ const ChatInputBox = memo(
         onKeyDown={handleKeyDown}
         disabled={running}
         rows={2}
-        placeholder={variant === "inline" ? FIRST_INPUT_PLACEHOLDER : undefined}
+        placeholder={variant === "inline" ? t(FIRST_INPUT_PLACEHOLDER) : undefined}
         className="w-full resize-none bg-transparent px-5 pt-4 pb-12 text-sm font-bold leading-relaxed text-white outline-none placeholder:text-[var(--text-placeholder)] focus:outline-none focus:ring-0"
       />
     );
@@ -1222,8 +1231,8 @@ const ChatInputBox = memo(
         <button
           onClick={trySend}
           disabled={!canSubmitInput}
-          aria-label={isLlmWorking ? (isStrategyInput ? "전략 생성 중" : "전송 중") : (isStrategyInput ? "전략 생성" : "전송")}
-          title={isLlmWorking ? (isStrategyInput ? "전략 생성 중" : "전송 중") : (isStrategyInput ? "전략 생성" : "전송")}
+          aria-label={isLlmWorking ? (isStrategyInput ? t("전략 생성 중") : t("전송 중")) : (isStrategyInput ? t("전략 생성") : t("전송"))}
+          title={isLlmWorking ? (isStrategyInput ? t("전략 생성 중") : t("전송 중")) : (isStrategyInput ? t("전략 생성") : t("전송"))}
           className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)] ${
             isLlmWorking
               ? "cursor-wait bg-[#f3f1ec]"
@@ -1263,7 +1272,7 @@ const ChatInputBox = memo(
           className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full border border-white/[0.14] bg-white/[0.05] px-3 py-1.5 text-xs font-bold text-[var(--accent-blue)] transition-colors duration-200 hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
         >
           <X size={12} weight="bold" />
-          대화 종료
+          {t("대화 종료")}
         </button>
         {sendButton}
       </div>
@@ -1289,9 +1298,9 @@ function BacktestRunningStatus({ message }: { message: string }) {
           className="flex-shrink-0 animate-spin text-[var(--chat-accent)] motion-reduce:animate-none"
         />
         <div className="min-w-0">
-          <p className="text-xs font-black text-[var(--text-label)]">백테스트 진행 중</p>
+          <p className="text-xs font-black text-[var(--text-label)]">{t("백테스트 진행 중")}</p>
           <p className="mt-0.5 text-sm font-bold text-white">
-            {message || "백테스트 준비 중..."}
+            {message || t("백테스트 준비 중...")}
           </p>
         </div>
       </div>
@@ -1473,12 +1482,12 @@ function ParsedSummaryBubble({
     <div className={`space-y-3 p-4 ${ARTIFACT_CARD_CLASS} ${MESSAGE_ENTER_CLASS}`}>
       <div className="flex items-center gap-1.5 border-b border-[var(--chat-hairline)] pb-2">
         <CheckCircle size={13} className="text-[var(--text-label)]" weight="fill" />
-        <span className="text-xs font-black text-white">전략 요약</span>
+        <span className="text-xs font-black text-white">{t("전략 요약")}</span>
       </div>
       <div className="space-y-2">
         {(parsed.universe.length > 0 || isSingleAsset) && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{isSingleAsset ? "대상 종목" : "유니버스"}</span>
+            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{isSingleAsset ? t("대상 종목") : t("유니버스")}</span>
             <div className="flex flex-wrap gap-1">
               {universeLabels.map((label, i) => (
                 <FilterBadge key={i} label={label} />
@@ -1498,7 +1507,7 @@ function ParsedSummaryBubble({
         )}
         {exitLabels.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">청산 신호</span>
+            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{t("청산 신호")}</span>
             <div className="flex flex-wrap gap-1">
               {exitLabels.map((label, i) => (
                 <FilterBadge key={i} label={label} />
@@ -1507,11 +1516,11 @@ function ParsedSummaryBubble({
           </div>
         )}
         <div className="flex flex-wrap gap-1.5 items-center">
-          <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">포트폴리오</span>
+          <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{t("포트폴리오")}</span>
           <div className="flex flex-wrap gap-1">
             <FilterBadge label={getPositionLabel(parsed)} />
-            {parsed.hold_period_days && <FilterBadge label={`${parsed.hold_period_days}일 보유`} />}
-            {parsed.rebalancing_period !== "none" && <FilterBadge label={`${REBAL_LABELS[parsed.rebalancing_period]} 리밸런싱`} />}
+            {parsed.hold_period_days && <FilterBadge label={t("{0}일 보유", parsed.hold_period_days)} />}
+            {parsed.rebalancing_period !== "none" && <FilterBadge label={t("{0} 리밸런싱", REBAL_LABELS[parsed.rebalancing_period])} />}
           </div>
         </div>
         {/* 백테스트 기간·초기 자본은 포트폴리오 구성(종목 수·보유·리밸런싱)이 아니라 실행
@@ -1519,24 +1528,24 @@ function ParsedSummaryBubble({
             포트폴리오 행에 칩으로 섞여 있으면 무엇이 설정됐는지 한눈에 안 보인다
             (2026-08-02 지시 — 기간만 옮기고 자본을 남겨 같은 지적이 반복됐다). */}
         <div className="flex flex-wrap gap-1.5 items-center">
-          <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">백테스트 기간</span>
+          <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{t("백테스트 기간")}</span>
           <div className="flex flex-wrap gap-1">
             <FilterBadge label={backtestPeriodLabel(parsed)} />
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5 items-center">
-          <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">초기 자본</span>
+          <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{t("초기 자본")}</span>
           <div className="flex flex-wrap gap-1">
             <FilterBadge label={formatInitialCapital(parsed.initial_capital ?? 10000000)} />
           </div>
         </div>
         {(parsed.stop_loss_pct || parsed.take_profit_pct || parsed.trailing_stop_pct) && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">리스크</span>
+            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{t("리스크")}</span>
             <div className="flex flex-wrap gap-1">
-              {parsed.stop_loss_pct && <FilterBadge label={`손절 ${formatDownsidePercent(parsed.stop_loss_pct)}%`} />}
-              {parsed.take_profit_pct && <FilterBadge label={`익절 ${parsed.take_profit_pct}%`} />}
-              {parsed.trailing_stop_pct && <FilterBadge label={`트레일링 스탑 ${formatDownsidePercent(parsed.trailing_stop_pct)}%`} />}
+              {parsed.stop_loss_pct && <FilterBadge label={t("손절 {0}%", formatDownsidePercent(parsed.stop_loss_pct))} />}
+              {parsed.take_profit_pct && <FilterBadge label={t("익절 {0}%", parsed.take_profit_pct)} />}
+              {parsed.trailing_stop_pct && <FilterBadge label={t("트레일링 스탑 {0}%", formatDownsidePercent(parsed.trailing_stop_pct))} />}
             </div>
           </div>
         )}
@@ -1552,9 +1561,9 @@ function BuilderStrategyOverview({
 }) {
   return (
     <div data-testid="builder-strategy-summary">
-      <section aria-label="현재까지 이해한 전략입니다">
+      <section aria-label={t("현재까지 이해한 전략입니다")}>
         <p className="text-sm font-black tracking-wide text-gray-400">
-          현재까지 이해한 전략입니다
+          {t("현재까지 이해한 전략입니다")}
         </p>
         {presentation.summaryItems.length > 0 ? (
           /* 항목이 늘어나면 라벨 폭이 제각각이라 값이 계단처럼 흩어진다 — 라벨 열을
@@ -1567,7 +1576,7 @@ function BuilderStrategyOverview({
                 className="grid grid-cols-[76px_minmax(0,1fr)] gap-3 py-1.5 text-xs leading-relaxed"
               >
                 <dt className="break-keep font-bold text-[var(--text-label)]">
-                  {item.label}
+                  {t(item.label)}
                 </dt>
                 {/* 조건이 여러 개인 행은 한 줄에 하나씩 쌓는다 — '·'로 이어 붙이면
                     조건이 늘어날수록 어디서 끊기는지 안 보인다(2026-08-06 지시). */}
@@ -1575,11 +1584,11 @@ function BuilderStrategyOverview({
                   {item.values ? (
                     <span className="flex flex-col gap-0.5">
                       {item.values.map((part, i) => (
-                        <span key={`${part}-${i}`}>{part}</span>
+                        <span key={`${part}-${i}`}>{t(part)}</span>
                       ))}
                     </span>
                   ) : (
-                    item.value
+                    t(item.value)
                   )}
                 </dd>
               </div>
@@ -1587,7 +1596,7 @@ function BuilderStrategyOverview({
           </dl>
         ) : (
           <p className="mt-1.5 text-xs font-bold text-gray-300">
-            첫 조건부터 하나씩 함께 정해보겠습니다.
+            {t("첫 조건부터 하나씩 함께 정해보겠습니다.")}
           </p>
         )}
       </section>
@@ -1602,14 +1611,14 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
 
   return (
     <aside
-      aria-label="전략 진행률"
+      aria-label={t("전략 진행률")}
       aria-live="polite"
       className="relative z-20 w-full max-w-4xl rounded-2xl border border-[var(--chat-hairline)] p-4 chat-glass xl:fixed xl:right-4 xl:top-[calc(var(--top-menu-bar-height,76px)+5rem)] xl:w-40 xl:max-w-none 2xl:w-56"
       data-testid="strategy-progress-panel"
     >
       <div className="flex items-end justify-between gap-3">
         <h2 className="text-xs font-black text-white">
-          전략 진행률
+          {t("전략 진행률")}
         </h2>
         <span className="font-outfit text-[11px] font-black tabular-nums text-[var(--text-label)]">
           {completedCount}/{applicableCount}
@@ -1624,9 +1633,7 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
           return (
           <li
             key={item.label}
-            aria-label={`${item.label}: ${
-              statusText ?? (item.complete ? "완료" : "진행 전")
-            }`}
+            aria-label={`${t(item.label)}: ${statusText ?? (item.complete ? t("완료") : t("진행 전"))}`}
             className={`flex items-center gap-2 text-xs font-bold transition-colors duration-200 ${
               notApplicable
                 ? "text-[var(--text-label)] opacity-50"
@@ -1654,10 +1661,10 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
                 }`}
               />
             )}
-            <span>{item.label}</span>
+            <span>{t(item.label)}</span>
             {notApplicable ? (
               <span className="ml-auto text-[10px] font-semibold opacity-70">
-                해당 없음
+                {t("해당 없음")}
               </span>
             ) : null}
           </li>
@@ -1723,6 +1730,21 @@ function StrategyLabContent() {
   const qaLastChangeAtRef = useRef(0);
   const handleSendRef = useRef<(overrideText?: string) => Promise<void>>();
   const handleResetRef = useRef<() => void>();
+  // 대화 단위 취소 토큰. '대화 종료'가 진행 중인 모든 요청(분류·파싱·빌더·검증·백테스트)을
+  // 한 번에 끊는다 — 프록시가 연결 종료를 백엔드로 전파해 서버 쪽 LLM 작업도 멈춘다.
+  // handleReset은 abort만 하고 컨트롤러를 그대로 둔다: 끊긴 턴이 뒤늦게(예: 분류 응답 직후)
+  // 다음 요청을 열어도 이미 끊긴 signal을 받아 즉시 실패한다. 새 컨트롤러는 새 턴의 진입점
+  // (beginChatTurn)만 만든다 — 끊긴 턴이 새 토큰을 가로채지 못하게.
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const chatSignal = () => {
+    if (!chatAbortRef.current) chatAbortRef.current = new AbortController();
+    return chatAbortRef.current.signal;
+  };
+  const beginChatTurn = () => {
+    if (!chatAbortRef.current || chatAbortRef.current.signal.aborted) {
+      chatAbortRef.current = new AbortController();
+    }
+  };
   // memo된 ChatInputBox에 넘길 안정 콜백 — 최신 구현은 ref로 참조한다.
   const handleSendFromInput = useCallback((text: string) => {
     void handleSendRef.current?.(text);
@@ -2229,7 +2251,7 @@ function StrategyLabContent() {
       },
     );
     const nextQuestion = nextMissingCondition?.question ??
-      "모든 조건을 정했습니다. 현재까지의 전략을 확인하고 확정해 주세요.";
+      t("모든 조건을 정했습니다. 현재까지의 전략을 확인하고 확정해 주세요.");
     const nextPresentation = withSingleAssetSummaryLabel(
       buildBuilderTurnPresentation({
         state: {},
@@ -2287,8 +2309,8 @@ function StrategyLabContent() {
 
     appendUserMessage(
       clearedIds.length === 0
-        ? "모두 그대로 두기"
-        : `${items.filter((i) => clearedIds.includes(i.id)).map((i) => `${i.label} ${i.value}`).join(", ")} 다시 정하기`,
+        ? t("모두 그대로 두기")
+        : t("{0} 다시 정하기", items.filter((i) => clearedIds.includes(i.id)).map((i) => `${t(i.label)} ${t(i.value)}`).join(", ")),
     );
 
     if (clearedIds.length === 0) {
@@ -2306,7 +2328,7 @@ function StrategyLabContent() {
           topic: "strategy",
           confidence: 1,
           reason: "keep_all_selected",
-          message: "현재 조건을 그대로 두었어요.",
+          message: t("현재 조건을 그대로 두었어요."),
         }),
       });
       return;
@@ -2524,7 +2546,7 @@ function StrategyLabContent() {
         input: "",
         seed: seedText,
         ...(seedParsed ? { seed_parsed: seedParsed } : {}),
-      }, onBuilderStage);
+      }, onBuilderStage, chatSignal());
 
       const initialState = builderStateRef.current;
       let data = await requestBuilderStep(initialState);
@@ -2589,7 +2611,7 @@ function StrategyLabContent() {
       // 응답이 비어 있을 때만 정적 문구로 폴백한다.
       const reply =
         isChoosingSingleAssetEntry && !data.reply
-          ? `${singleAssetContext?.label} 단일 종목 전략으로 설정했습니다. 어떤 진입 조건을 사용할까요?`
+          ? t("{0} 단일 종목 전략으로 설정했습니다. 어떤 진입 조건을 사용할까요?", singleAssetContext?.label)
           : data.reply;
       const suggestions = withBuilderNavigationSuggestions(
         isChoosingSingleAssetEntry && !data.suggestions?.length
@@ -2621,7 +2643,9 @@ function StrategyLabContent() {
           ? buildResearchMetricIntro(activeResearchMetric) : ""]
           .filter(Boolean).join("\n\n"),
       }));
-    } catch {
+    } catch (e) {
+      // '대화 종료'로 끊긴 턴은 뒤처리하지 않는다(상태는 handleReset이 이미 비웠다).
+      if (isChatAbort(e)) throw e;
       // 호출 실패 시 거절하지 않는다 — 빌더 모드는 유지되어 다음 입력부터 정상 진행된다.
       const activeResearchMetric = researchMetric ?? researchMetricRef.current;
       if (singleAssetContext) {
@@ -2635,8 +2659,8 @@ function StrategyLabContent() {
         };
       }
       const fallbackQuestion = singleAssetContext
-        ? `${singleAssetContext.label} 단일 종목 전략으로 설정했습니다. 어떤 진입 조건을 사용할까요?`
-        : "어떤 시장을 대상으로 할까요?";
+        ? t("{0} 단일 종목 전략으로 설정했습니다. 어떤 진입 조건을 사용할까요?", singleAssetContext.label)
+        : t("어떤 시장을 대상으로 할까요?");
       const {
         question,
         ...builderPresentation
@@ -2672,6 +2696,7 @@ function StrategyLabContent() {
     if (!previousState) return;
 
     setBuilderFreeTextRequested(false);
+    beginChatTurn();
     setIsSending(true);
     appendUserMessage(BUILDER_BACK_CHIP, { fromChip: true });
     await appendAssistant({ role: "assistant", isLoading: true, builderQuestion: true });
@@ -2684,6 +2709,7 @@ function StrategyLabContent() {
             updateLastAssistant({ isLoading: true, loadingStage: stage });
           }
         },
+        chatSignal(),
       );
       builderStateRef.current = mergeBuilderState(previousState, data.state);
       if (data.status === "exited") {
@@ -2715,7 +2741,9 @@ function StrategyLabContent() {
             presentation: builderPresentation,
             canGoBack: builderHistoryRef.current.length > 0,
           }));
-    } catch {
+    } catch (e) {
+      // '대화 종료'로 끊긴 턴은 뒤처리하지 않는다(상태는 handleReset이 이미 비웠다).
+      if (isChatAbort(e)) return;
       builderHistoryRef.current.push(previousState);
       updateLastAssistant({
         isLoading: false,
@@ -2767,7 +2795,7 @@ function StrategyLabContent() {
     setMetricOptimizationProgress({ startedAt: Date.now(), totalTrials: 30 });
     await appendAssistant({
       role: "assistant",
-      infoText: `${metricLabel} 기준으로 30개 파라미터 조합을 계산하고 있습니다.`,
+      infoText: t("{0} 기준으로 30개 파라미터 조합을 계산하고 있습니다.", metricLabel),
       infoSuggestions: [CANCEL_METRIC_OPTIMIZATION_CHIP],
     });
 
@@ -2788,8 +2816,8 @@ function StrategyLabContent() {
         signal: controller.signal,
       });
       const data = await response.json().catch(() => ({})) as OptimizationResponse & { detail?: string };
-      if (!response.ok) throw new Error(data.detail ?? data.message ?? "파라미터 계산에 실패했습니다.");
-      if (!data.top_results?.length) throw new Error("계산된 파라미터 조합이 없습니다.");
+      if (!response.ok) throw new Error(data.detail ?? data.message ?? t("파라미터 계산에 실패했습니다."));
+      if (!data.top_results?.length) throw new Error(t("계산된 파라미터 조합이 없습니다."));
 
       const labels = Object.fromEntries(draft.parameters.map((parameter) => [parameter.path, parameter.label]));
       metricOptimizationDraftRef.current = null;
@@ -2801,8 +2829,8 @@ function StrategyLabContent() {
       const cancelled = error instanceof Error && error.name === "AbortError";
       updateLastAssistant({
         infoText: cancelled
-          ? "파라미터 계산을 취소했습니다."
-          : `파라미터 계산을 완료하지 못했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`,
+          ? t("파라미터 계산을 취소했습니다.")
+          : t("파라미터 계산을 완료하지 못했습니다: {0}", error instanceof Error ? error.message : t("알 수 없는 오류")),
         infoSuggestions: [RUN_METRIC_OPTIMIZATION_CHIP],
       });
     } finally {
@@ -2843,7 +2871,7 @@ function StrategyLabContent() {
       draft.pendingPath = parameter.path;
       await appendAssistant({
         role: "assistant",
-        infoText: `${parameter.label}의 계산 범위를 최소값 ~ 최대값 형식으로 입력해 주세요.`,
+        infoText: t("{0}의 계산 범위를 최소값 ~ 최대값 형식으로 입력해 주세요.", parameter.label),
         infoSuggestions: [`${parameter.min} ~ ${parameter.max}`, FREE_INPUT_CHIP],
       });
       return;
@@ -2855,8 +2883,8 @@ function StrategyLabContent() {
       await appendAssistant({
         role: "assistant",
         infoText: parameter
-          ? `${parameter.label} 범위는 ${parameter.min} ~ ${parameter.max} 안에서 최소값보다 최대값이 크게 입력되어야 합니다.`
-          : "파라미터 범위를 다시 선택해 주세요.",
+          ? t("{0} 범위는 {1} ~ {2} 안에서 최소값보다 최대값이 크게 입력되어야 합니다.", parameter.label, parameter.min, parameter.max)
+          : t("파라미터 범위를 다시 선택해 주세요."),
         infoSuggestions: parameter
           ? [`${parameter.min} ~ ${parameter.max}`, FREE_INPUT_CHIP]
           : metricOptimizationSuggestions(draft),
@@ -2872,8 +2900,8 @@ function StrategyLabContent() {
     await appendAssistant({
       role: "assistant",
       infoText: canAddMore
-        ? `${parameter.label} 범위를 ${range.min} ~ ${range.max}로 설정했습니다. 다른 파라미터를 추가하거나 계산을 시작해 주세요.`
-        : `${MAX_METRIC_OPTIMIZATION_PARAMETERS}개 파라미터 범위를 설정했습니다. 계산을 시작해 주세요.`,
+        ? t("{0} 범위를 {1} ~ {2}로 설정했습니다. 다른 파라미터를 추가하거나 계산을 시작해 주세요.", parameter.label, range.min, range.max)
+        : t("{0}개 파라미터 범위를 설정했습니다. 계산을 시작해 주세요.", MAX_METRIC_OPTIMIZATION_PARAMETERS),
       infoSuggestions: canAddMore
         ? metricOptimizationSuggestions(draft)
         : [RUN_METRIC_OPTIMIZATION_CHIP],
@@ -2893,13 +2921,15 @@ function StrategyLabContent() {
           query: userText,
           events: toResolvePayload(changeLogRef.current),
         }),
+        signal: chatSignal(),
       });
       if (!res.ok) throw new Error();
       decision = await res.json();
-    } catch {
+    } catch (e) {
+      if (isChatAbort(e)) throw e;
       return {
         message:
-          "되돌릴 지점을 확인하지 못했어요. 어떤 변경을 되돌릴지 말씀해 주시면 반영해 드릴게요.",
+          t("되돌릴 지점을 확인하지 못했어요. 어떤 변경을 되돌릴지 말씀해 주시면 반영해 드릴게요."),
       };
     }
 
@@ -2919,14 +2949,16 @@ function StrategyLabContent() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ parsed: result.parsed }),
+          signal: chatSignal(),
         });
         if (!res.ok) throw new Error();
         nextBacktestReq = (await res.json()).backtest_request;
-      } catch {
+      } catch (e) {
+        if (isChatAbort(e)) throw e;
         // 되돌린 전략을 실행 불가 상태로 남기느니 복원 자체를 포기한다(현 상태 유지).
         return {
           message:
-            "되돌린 전략으로 백테스트 요청을 다시 만들지 못했어요. 전략은 그대로 두었으니 바꾸고 싶은 조건을 말씀해 주세요.",
+            t("되돌린 전략으로 백테스트 요청을 다시 만들지 못했어요. 전략은 그대로 두었으니 바꾸고 싶은 조건을 말씀해 주세요."),
         };
       }
     }
@@ -2960,6 +2992,7 @@ function StrategyLabContent() {
       const res = await fetch("/api/query/classify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: chatSignal(),
         body: JSON.stringify({
           query: userText,
           last_symbol: lastAnalyzedSymbolRef.current,
@@ -2995,7 +3028,9 @@ function StrategyLabContent() {
         interpretationFailed: Boolean(data.interpretation_failed),
       };
       return { classification, history };
-    } catch {
+    } catch (e) {
+      // '대화 종료'로 끊긴 분류는 폴백 분류로 이어가지 않는다 — 턴 자체를 끝낸다.
+      if (isChatAbort(e)) throw e;
       return {
         classification: { intent: "STRATEGY_ADVICE" as const },
         history,
@@ -3016,6 +3051,7 @@ function StrategyLabContent() {
     const res = await fetch("/api/strategy/parse/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: chatSignal(),
       body: JSON.stringify({
         prompt: promptText,
         backend: "ollama",
@@ -3045,7 +3081,7 @@ function StrategyLabContent() {
     });
     if (!res.ok || !res.body) {
       const err = await res.json();
-      throw new Error(err.detail ?? "파싱 실패");
+      throw new Error(err.detail ?? t("파싱 실패"));
     }
 
     const reader = res.body.getReader();
@@ -3302,7 +3338,7 @@ function StrategyLabContent() {
             finalizeParse(evt.backtest_request, evt.symbol_count);
           }
         } else if (evt.type === "error") {
-          throw new Error(evt.detail ?? "파싱 실패");
+          throw new Error(evt.detail ?? t("파싱 실패"));
         }
       }
     }
@@ -3312,7 +3348,7 @@ function StrategyLabContent() {
     // 않고 오류로 승격해 '다시 시도' 버튼이 뜨게 한다 — 재시도 시점엔 웜 상태라 빠르다.
     if (!parsedPayload) {
       throw new Error(
-        "분석 서버 응답이 시간 안에 도착하지 않았어요. 서버가 준비 중일 수 있으니 잠시 후 다시 시도해 주세요.",
+        t("분석 서버 응답이 시간 안에 도착하지 않았어요. 서버가 준비 중일 수 있으니 잠시 후 다시 시도해 주세요."),
       );
     }
 
@@ -3337,6 +3373,7 @@ function StrategyLabContent() {
     const completedPrompt = getStrategyPromptContext();
     const confirmedParsed = latestParsedRef.current ?? latestParsed;
     setBuilderFreeTextRequested(false);
+    beginChatTurn();
     setIsSending(true);
     appendUserMessage(CONFIRM_STRATEGY_CHIP, { fromChip: true });
     await appendAssistant({ role: "assistant", isLoading: true });
@@ -3351,10 +3388,11 @@ function StrategyLabContent() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ parsed: confirmedParsed }),
+          signal: chatSignal(),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({} as { detail?: string }));
-          throw new Error(err.detail ?? "전략 확정에 실패했습니다.");
+          throw new Error(err.detail ?? t("전략 확정에 실패했습니다."));
         }
         const data = await res.json();
         applyBuilderConfirmedStrategy({
@@ -3367,6 +3405,8 @@ function StrategyLabContent() {
         await runStrategyParseFlow(completedPrompt, null, null);
       }
     } catch (error) {
+      // '대화 종료'로 끊긴 턴은 뒤처리하지 않는다(상태는 handleReset이 이미 비웠다).
+      if (isChatAbort(error)) return;
       updateLastAssistant({
         isLoading: false,
         error: error instanceof Error ? error.message : "전략 확정에 실패했습니다.",
@@ -3481,7 +3521,19 @@ function StrategyLabContent() {
   };
   applyBuilderConfirmedStrategyRef.current = applyBuilderConfirmedStrategy;
 
+  // 한 턴의 본체(handleSendTurn)를 감싼다 — '대화 종료'로 요청이 끊긴 턴(AbortError)은
+  // 어떤 뒤처리도 없이 여기서 조용히 끝난다. 본체 안의 catch들은 취소를 다시 던지고,
+  // handleReset이 이미 화면·상태를 비웠으므로 오류 버블을 그리거나 상태를 되살리지 않는다.
   const handleSend = async (overrideText?: string, options?: { fromChip?: boolean }) => {
+    try {
+      await handleSendTurn(overrideText, options);
+    } catch (e) {
+      if (isChatAbort(e)) return;
+      throw e;
+    }
+  };
+
+  const handleSendTurn = async (overrideText?: string, options?: { fromChip?: boolean }) => {
     const userText = overrideText ?? "";
     if (!userText || isSending || stage === "running") return;
     // 메시지를 보내는 순간 '직접 입력' 노출 토글을 해제한다(다음 빌더 단계는 다시 칩 집중).
@@ -3508,6 +3560,7 @@ function StrategyLabContent() {
     if (!firstPromptRef.current) firstPromptRef.current = userText;
     const currentParsed = latestParsedRef.current ?? latestParsed;
     const currentBacktestReq = backtestReqRef.current ?? backtestReq;
+    beginChatTurn();
     setIsSending(true);
     // 분류/파싱 호출이 시작되기 전에 사용자 입력을 화면에 즉시 반영한다.
     appendUserMessage(userText, { fromChip: options?.fromChip });
@@ -3532,6 +3585,7 @@ function StrategyLabContent() {
       try {
         await runStrategyParseFlow(userText, currentParsed, currentBacktestReq);
       } catch (e: any) {
+        if (isChatAbort(e)) throw e;
         updateLastAssistant({
           isLoading: false,
           error: e.message ?? "알 수 없는 오류",
@@ -3604,7 +3658,13 @@ function StrategyLabContent() {
 
     // ── 단일 디스패치: 액션당 구현은 하나뿐이다 ──────────────────────
     if (turnDecision.action === "respond") {
-      const patch = composeTurnMessage(turnDecision);
+      // 되묻기(L2')는 상태 되묻기와 같은 카드로 나간다 — 질문에 맞춘 카드를 함께 만든다.
+      const patch = composeTurnMessage(
+        turnDecision,
+        turnDecision.opensClarification
+          ? { askPresentation: presentationFor(turnDecision.message) }
+          : {},
+      );
       // 이 응답이 곧 질문이면 열린 되묻기로 기록한다 — 기록이 없으면 다음 턴이 그 답을
       // 새 발화로 재분류해 같은 질문을 다시 던진다(2026-07-31 초기자금 무한 되묻기).
       if (turnDecision.opensClarification) {
@@ -3706,6 +3766,7 @@ function StrategyLabContent() {
               updateLastAssistant({ isLoading: true, loadingStage: stage });
             }
           },
+          chatSignal(),
         );
         builderStateRef.current =
           data.status === "reset" || data.status === "exited"
@@ -3758,9 +3819,10 @@ function StrategyLabContent() {
             } else {
               builderModeRef.current = true;
               builderStateRef.current = confirmedBuilderState;
-              throw new Error("완성된 전략 결과가 비어 있습니다.");
+              throw new Error(t("완성된 전략 결과가 비어 있습니다."));
             }
           } catch (e: any) {
+            if (isChatAbort(e)) throw e;
             if (!hasBuilderProgress(builderStateRef.current)) {
               builderStateRef.current = confirmedBuilderState;
             }
@@ -3806,7 +3868,8 @@ function StrategyLabContent() {
               presentation: builderPresentation,
               canGoBack: builderHistoryRef.current.length > 0,
             }));
-      } catch {
+      } catch (e) {
+        if (isChatAbort(e)) throw e;
         // 빌더 호출 실패 시 거절하지 않고 자연스럽게 다시 묻는다.
         updateLastAssistant({
           isLoading: false,
@@ -3849,6 +3912,7 @@ function StrategyLabContent() {
           turnDecision.strategyAssumptions,
         );
       } catch (e: any) {
+        if (isChatAbort(e)) throw e;
         updateLastAssistant({
           isLoading: false,
           error: e.message ?? "알 수 없는 오류",
@@ -3886,6 +3950,7 @@ function StrategyLabContent() {
             before ? before.backtestReq : currentBacktestReq,
           );
         } catch (e: any) {
+          if (isChatAbort(e)) throw e;
           updateLastAssistant({
             isLoading: false,
             error: e.message ?? "알 수 없는 오류",
@@ -3947,11 +4012,13 @@ function StrategyLabContent() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: userText, history: classifyResult?.history ?? [] }),
+          signal: chatSignal(),
         });
         if (!res.ok) throw new Error();
         const data = await res.json();
         updateLastAssistant(composeTurnMessage(turnDecision, { answerText: data.answer }));
-      } catch {
+      } catch (e) {
+        if (isChatAbort(e)) throw e;
         updateLastAssistant({
           isLoading: false,
           error:
@@ -3976,11 +4043,13 @@ function StrategyLabContent() {
             history: classifyResult?.history ?? [],
             facts: buildBacktestResultFacts(result),
           }),
+          signal: chatSignal(),
         });
         if (!res.ok) throw new Error();
         const data = await res.json();
         updateLastAssistant(composeTurnMessage(turnDecision, { answerText: data.answer }));
-      } catch {
+      } catch (e) {
+        if (isChatAbort(e)) throw e;
         updateLastAssistant({
           isLoading: false,
           error: "결과 설명을 가져오지 못했습니다.",
@@ -4016,6 +4085,7 @@ function StrategyLabContent() {
     if (!retryPrompt || isSending || stage === "running") return;
     const currentParsed = latestParsedRef.current ?? latestParsed;
     const currentBacktestReq = backtestReqRef.current ?? backtestReq;
+    beginChatTurn();
     setIsSending(true);
     // 오류 버블이 마지막이면 그 자리를 로딩 버블로 되돌리고, 아니면(뒤에 대화가 이어진
     // 경우) 새 로딩 버블을 추가한다 — runStrategyParseFlow는 항상 마지막 assistant
@@ -4036,6 +4106,8 @@ function StrategyLabContent() {
         message.retryAssumptions,
       );
     } catch (e: any) {
+      // '대화 종료'로 끊긴 재시도는 뒤처리하지 않는다(상태는 handleReset이 이미 비웠다).
+      if (isChatAbort(e)) return;
       setMessages(prev => prev.map((m, i) =>
         i === prev.length - 1
           ? {
@@ -4129,6 +4201,7 @@ function StrategyLabContent() {
       const coachRes = await fetch("/api/strategy/coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: chatSignal(),
         body: JSON.stringify({
           action: "create_session",
           user_prompt: userText,
@@ -4161,7 +4234,9 @@ function StrategyLabContent() {
         coachLoading: false,
         coachText: message,
       });
-    } catch {
+    } catch (e) {
+      // '대화 종료'로 끊긴 검증은 조용히 끝낸다(fire-and-forget 호출이라 던지지 않는다).
+      if (isChatAbort(e)) return;
       await enforceMinValidationDelay(startedAt);
       updateLastAssistant({
         coachLoading: false,
@@ -4192,6 +4267,7 @@ function StrategyLabContent() {
       const coachRes = await fetch("/api/strategy/coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: chatSignal(),
         body: JSON.stringify(sessionId
           ? {
               action: "follow_up",
@@ -4228,7 +4304,9 @@ function StrategyLabContent() {
         coachLoading: false,
         coachText: message,
       });
-    } catch {
+    } catch (e) {
+      // '대화 종료'로 끊긴 검증은 조용히 끝낸다.
+      if (isChatAbort(e)) return;
       await enforceMinValidationDelay(startedAt);
       updateLastAssistant({
         coachLoading: false,
@@ -4239,6 +4317,7 @@ function StrategyLabContent() {
 
   const handleRunBacktest = async (options?: any) => {
     if (!backtestReq) return;
+    beginChatTurn();
 
     // 매수 기준이 없는 전략은 0매매로 끝나므로 실행을 막고 전략 빌더로 전환한다(버튼은 이미
     // 숨겨지지만, 확인 응답 등 다른 경로로 도달하는 경우를 위한 최종 방어선).
@@ -4247,7 +4326,11 @@ function StrategyLabContent() {
       builderModeRef.current = true;
       builderStateRef.current = {};
       builderHistoryRef.current = [];
-      await startStrategyBuilder();
+      try {
+        await startStrategyBuilder();
+      } catch (e) {
+        if (!isChatAbort(e)) throw e;
+      }
       return;
     }
 
@@ -4281,17 +4364,20 @@ function StrategyLabContent() {
     }
 
     setStage("running");
-    setStatusMessage("백테스트 준비 중...");
+    setStatusMessage(t("백테스트 준비 중..."));
 
     try {
       const res = await fetch("/api/strategy/backtest-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(effectiveReq),
+        // '대화 종료'가 실행 중인 백테스트 스트림도 끊는다 — 종료 뒤 뒤늦게 도착한 결과가
+        // 빈 대화 위에 결과 화면을 되살리지 않도록.
+        signal: chatSignal(),
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.detail ?? "백테스트 실패");
+        throw new Error(err.detail ?? t("백테스트 실패"));
       }
 
       const reader = res.body!.getReader();
@@ -4343,6 +4429,8 @@ function StrategyLabContent() {
         }
       }
     } catch (e: any) {
+      // '대화 종료'로 끊긴 실행은 뒤처리하지 않는다(상태는 handleReset이 이미 비웠다).
+      if (isChatAbort(e)) return;
       setStage("ready");
       setMessages(prev => [
         ...prev,
@@ -4357,13 +4445,13 @@ function StrategyLabContent() {
     onProgress?: WalkForwardProgressHandler
   ) => {
     if (!backtestReq) {
-      throw new Error("워크포워드 분석을 실행할 백테스트 요청이 없습니다.");
+      throw new Error(t("워크포워드 분석을 실행할 백테스트 요청이 없습니다."));
     }
 
     const ranges = buildWalkForwardParameterRanges(backtestReq);
     if (!hasWalkForwardParameterRanges(ranges)) {
       throw new Error(
-        "워크포워드 최적화에 사용할 숫자 파라미터가 없습니다. 손절/익절, 지표 기간, 임계값처럼 조정 가능한 조건이 포함된 전략에서 실행해 주세요."
+        t("워크포워드 최적화에 사용할 숫자 파라미터가 없습니다. 손절/익절, 지표 기간, 임계값처럼 조정 가능한 조건이 포함된 전략에서 실행해 주세요.")
       );
     }
 
@@ -4374,6 +4462,9 @@ function StrategyLabContent() {
   };
 
   const handleReset = () => {
+    // 진행 중인 요청부터 끊는다 — 이후 뒤늦게 도착할 응답·오류가 새 대화에 섞이지 않게.
+    // (컨트롤러는 끊긴 채로 둔다 — 다음 턴 진입점이 새것으로 바꾼다. 위 chatAbortRef 주석)
+    chatAbortRef.current?.abort();
     setStage("idle");
     setMessages([]);
     setLatestParsed(null);
@@ -4438,15 +4529,23 @@ function StrategyLabContent() {
   const isRunning = stage === "running";
   const showingBacktestResult = (stage === "done" || isRunning) && !!result;
 
+  // 결과 화면을 띄운 채였는지 — 아래 진입/복귀 스크롤 효과와 탑메뉴 핸들러가 공유한다.
+  const wasShowingBacktestResultRef = useRef(false);
+
   // 탑메뉴 '전략연구소' 클릭 → 결과 화면을 내리고 대화 화면으로 복귀(결과·대화 유지).
   // 결과 화면은 같은 라우트의 상태라서 router.push만으로는 화면이 바뀌지 않는다.
-  // 이미 대화 화면이면 화면은 그대로고 스크롤만 대화 끝까지 올린다.
+  // 결과 화면에서의 복귀 스크롤(맨 위)은 아래 leavingResultView 효과가 맞춘다.
+  // 이미 대화 화면이면 화면은 그대로고 스크롤만 맨 위로 되돌린다(2026-08-17 지시 —
+  // '전략연구소' 버튼은 어느 상태에서 눌러도 대화 화면 맨 위).
   useEffect(() => {
     const showChatView = () => {
-      setStage((prev) => (prev === "done" ? "ready" : prev));
-      pendingScrollToEndRef.current = true;
+      if (wasShowingBacktestResultRef.current) {
+        setStage((prev) => (prev === "done" ? "ready" : prev));
+        return;
+      }
+      pendingScrollToEndRef.current = false;
       chatAutoScrollEnabledRef.current = false;
-      scrollChatViewToEnd();
+      scrollChatViewToTop();
     };
     window.addEventListener(STRATEGY_LAB_CHAT_VIEW_EVENT, showChatView);
     return () => window.removeEventListener(STRATEGY_LAB_CHAT_VIEW_EVENT, showChatView);
@@ -4461,9 +4560,9 @@ function StrategyLabContent() {
 
   // 결과 화면 진입 시(또는 재실행 완료 시) 채팅 화면에서 내려가 있던 스크롤 위치가 그대로
   // 남아 결과가 아래쪽부터 보이는 문제를 막기 위해 항상 맨 위로 스크롤한다.
-  // 반대로 대화 화면으로 돌아올 때(탑메뉴 '전략연구소'·뒤로가기)는 대화 끝까지 올려
-  // 마지막 버블이 고정 입력창 뒤에 걸린 채로 남지 않게 한다.
-  const wasShowingBacktestResultRef = useRef(false);
+  // 대화 화면으로 돌아올 때(탑메뉴 '전략연구소'·뒤로가기·결과 닫기)도 항상 맨 위에서 시작한다
+  // (2026-08-17 지시 — 이전의 '대화 끝까지 올리기'를 대체). 대화 끝 정렬 예약·입력창 회피
+  // 자동 스크롤은 꺼 두어 뒤늦은 렌더가 화면을 끌어내리지 않게 한다.
   useEffect(() => {
     const enteringResultView = showingBacktestResult && !wasShowingBacktestResultRef.current;
     const leavingResultView = !showingBacktestResult && wasShowingBacktestResultRef.current;
@@ -4471,9 +4570,9 @@ function StrategyLabContent() {
     if (!enteringResultView && !leavingResultView && stage !== "done") return;
 
     if (leavingResultView) {
-      pendingScrollToEndRef.current = true;
+      pendingScrollToEndRef.current = false;
       chatAutoScrollEnabledRef.current = false;
-      scrollChatViewToEnd();
+      scrollChatViewToTop();
       return;
     }
     document.querySelector("main")?.scrollTo({ top: 0, behavior: "auto" });
@@ -4546,7 +4645,7 @@ function StrategyLabContent() {
     >
       <div className="flex items-start justify-between gap-2.5">
         <p className="text-[13px] font-bold leading-relaxed text-gray-200 whitespace-pre-line">
-          {(msg.clarification ?? "").replace(/\*\*(.*?)\*\*/g, "$1")}
+          {t((msg.clarification ?? "").replace(/\*\*(.*?)\*\*/g, "$1"))}
         </p>
         {/* 되돌아가기는 선택지가 아니라 컨트롤이다 — 빌더도 같은 자리·같은 버튼을 쓴다
             (2026-08-16). 예전에는 빌더만 '뒤로가기'를 칩 목록 맨 끝에 섞어 넣어, 같은
@@ -4563,7 +4662,7 @@ function StrategyLabContent() {
             className={BACK_CONTROL_CLASS}
           >
             <ArrowLeft size={11} />
-            {CONFIRMATION_BACK_CHIP}
+            {t(CONFIRMATION_BACK_CHIP)}
           </button>
         )}
       </div>
@@ -4571,7 +4670,7 @@ function StrategyLabContent() {
         <div className="flex items-end justify-between gap-3">
           <div className="space-y-1.5">
             <p className="text-[11px] font-black text-[var(--text-label)]">
-              {msg.strategyConfirmation ? "전략 확인" : "선택 예시"}
+              {msg.strategyConfirmation ? t("전략 확인") : t("선택 예시")}
             </p>
             <ChoiceOptionList
               options={[
@@ -4601,7 +4700,7 @@ function StrategyLabContent() {
               className={`${END_CHAT_CONTROL_CLASS} flex-shrink-0`}
             >
               <X size={12} weight="bold" />
-              대화 종료
+              {t("대화 종료")}
             </button>
           )}
         </div>
@@ -4669,17 +4768,17 @@ function StrategyLabContent() {
                   data-testid="strategy-lab-headline"
                   className="max-w-5xl text-[27px] leading-none tracking-tight text-[#fcfdff] sm:text-5xl lg:text-7xl [font-weight:950]"
                 >
-                  <AnimatedHeadline lines={HEADLINE_LINES} />
+                  <AnimatedHeadline lines={HEADLINE_LINES.map((line) => t(line))} />
                 </p>
                 <p className="text-sm font-bold leading-relaxed text-gray-400 sm:text-base">
-                  AI와 함께 전략을 설계하고, 바로 백테스트 하세요
+                  {t("AI와 함께 전략을 설계하고, 바로 백테스트 하세요")}
                 </p>
               </div>
             </div>
             {modelStatus?.status === "failed" && (
               <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[var(--error-red-line)] bg-[var(--chat-artifact-surface)] px-3 py-1 text-xs font-bold text-[var(--error-red)] chat-glass">
                 <Warning size={12} weight="fill" />
-                AI 모델 로드 실패 — 전략 생성을 사용할 수 없습니다
+                {t("AI 모델 로드 실패 — 전략 생성을 사용할 수 없습니다")}
               </div>
             )}
           </div>
@@ -4699,7 +4798,7 @@ function StrategyLabContent() {
                         className={`flex justify-end ${MESSAGE_ENTER_CLASS}`}
                       >
                         <div className={`max-w-[80%] px-4 py-2.5 ${USER_CHAT_BUBBLE_CLASS}`}>
-                          <p className="text-sm font-bold text-white leading-relaxed">{msg.content}</p>
+                          <p className="text-sm font-bold text-white leading-relaxed">{t(msg.content ?? "")}</p>
                         </div>
                       </div>
                     )}
@@ -4721,7 +4820,7 @@ function StrategyLabContent() {
                               className={`max-w-[88%] space-y-2 py-0.5 ${MESSAGE_ENTER_CLASS}`}
                             >
                               <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
-                                {msg.infoText}
+                                {t(msg.infoText)}
                               </p>
                               {isLastAssistant(i) && metricOptimizationProgress && (
                                 <MetricOptimizationProgressIndicator progress={metricOptimizationProgress} />
@@ -4730,7 +4829,7 @@ function StrategyLabContent() {
                                 <div className="space-y-1.5 pt-1">
                                   {msg.builderPresentation && (
                                     <p className="text-[11px] font-black text-[var(--text-label)]">
-                                      선택 예시
+                                      {t("선택 예시")}
                                     </p>
                                   )}
                                   <ChoiceOptionList
@@ -4778,7 +4877,7 @@ function StrategyLabContent() {
                                   >
                                     <Info size={13} className="mt-0.5 flex-shrink-0 text-[var(--text-label)]" weight="fill" />
                                     <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
-                                      {notice}
+                                      {t(notice)}
                                     </p>
                                   </div>
                                 ))}
@@ -4823,10 +4922,10 @@ function StrategyLabContent() {
                             <div className="flex items-center gap-2">
                               {msg.coachLoading && <LoadingSpinner />}
                               <span className="text-xs font-black text-white">
-                                전략 검증
+                                {t("전략 검증")}
                               </span>
                               {msg.coachLoading && (
-                                <ShimmerStatusText className="text-sm font-bold">검증 중...</ShimmerStatusText>
+                                <ShimmerStatusText className="text-sm font-bold">{t("검증 중...")}</ShimmerStatusText>
                               )}
                             </div>
                             {msg.coachText && (
@@ -4872,7 +4971,7 @@ function StrategyLabContent() {
                                 className="flex items-center gap-2 rounded-xl bg-[var(--chat-accent)] px-5 py-2.5 text-xs font-black text-[var(--chat-accent-ink)] transition-colors duration-200 hover:brightness-110 active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
                               >
                                 <ChartLineUp size={13} weight="fill" />
-                                백테스트 시작하기
+                                {t("백테스트 시작하기")}
                                 <ArrowRight size={11} />
                               </button>
                             </div>
@@ -4883,8 +4982,8 @@ function StrategyLabContent() {
                           >
                             <Warning size={13} className="mt-0.5 flex-shrink-0 text-[var(--error-red)]" weight="fill" />
                             <div className="flex-1 space-y-1">
-                              <p className="text-xs font-black text-[var(--error-red)]">오류 발생</p>
-                              <p className="text-xs font-bold text-[var(--text-label)]">{msg.error}</p>
+                              <p className="text-xs font-black text-[var(--error-red)]">{t("오류 발생")}</p>
+                              <p className="text-xs font-bold text-[var(--text-label)]">{t(msg.error)}</p>
                               {msg.retryPrompt && (
                                 <button
                                   onClick={() => void handleRetryParse(msg)}
@@ -4893,7 +4992,7 @@ function StrategyLabContent() {
                                   className="mt-2 flex items-center gap-1 rounded-lg border border-gray-600 bg-[var(--chat-surface)] px-2 py-1 text-[11px] font-black text-[var(--text-strong)] transition-colors duration-200 hover:brightness-110 active:translate-y-[1px] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
                                 >
                                   <ArrowsClockwise size={10} weight="bold" />
-                                  다시 시도
+                                  {t("다시 시도")}
                                 </button>
                               )}
                             </div>
@@ -4974,7 +5073,7 @@ function StrategyLabContent() {
               className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.14] bg-white/[0.05] px-4 py-2 text-xs font-bold text-[var(--accent-blue)] shadow-lg transition-colors duration-200 hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
             >
               <X size={12} weight="bold" />
-              대화 종료
+              {t("대화 종료")}
             </button>
           </div>
         )}
@@ -4996,15 +5095,15 @@ function StrategyLabContent() {
                 id="strategy-auth-modal-title"
                 className="text-2xl font-black tracking-tight text-white"
               >
-                아이디어를 전략으로 만들어 드립니다
+                {t("아이디어를 전략으로 만들어 드립니다")}
               </p>
               <p className="text-sm font-bold leading-relaxed text-gray-400">
-                Google로 3초만에 시작하세요
+                {t("Google로 3초만에 시작하세요")}
               </p>
             </div>
             <div className="mt-6 flex flex-col items-center gap-3">
               <p className="text-xs font-black text-[#ff6b6b]">
-                카드 등록 불필요
+                {t("카드 등록 불필요")}
               </p>
               <button
                 type="button"
@@ -5013,14 +5112,14 @@ function StrategyLabContent() {
                 className="flex items-center gap-2 rounded-full border border-white/[0.08] bg-white px-4 py-2 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <GoogleLogo size={18} weight="fill" />
-                <span>{isStartingGoogleLogin ? "로그인 준비 중..." : "Google로 시작하기"}</span>
+                <span>{isStartingGoogleLogin ? t("로그인 준비 중...") : t("Google로 시작하기")}</span>
               </button>
               <button
                 type="button"
                 onClick={() => setIsAuthModalOpen(false)}
                 className="text-sm font-black text-gray-400 transition-colors hover:text-white"
               >
-                취소
+                {t("취소")}
               </button>
             </div>
           </div>

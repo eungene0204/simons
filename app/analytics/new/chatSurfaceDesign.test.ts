@@ -144,7 +144,7 @@ describe("레이아웃 기본", () => {
     expect(backControl).toContain("focus-visible:");
     // 되묻기 카드의 돌아가기 버튼이 실제로 이 클래스를 쓴다.
     expect(page).toMatch(
-      /className=\{BACK_CONTROL_CLASS\}[\s\S]{0,300}\{CONFIRMATION_BACK_CHIP\}/,
+      /className=\{BACK_CONTROL_CLASS\}[\s\S]{0,300}\{t\(CONFIRMATION_BACK_CHIP\)\}/,
     );
   });
 

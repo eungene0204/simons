@@ -1,5 +1,6 @@
 "use client";
 
+import { t } from "@/lib/i18n";
 interface CurrentPriceDisplayProps {
   currentPrice?: number;
   previousClose?: number;
@@ -38,7 +39,7 @@ export default function CurrentPriceDisplay({
     return (
       <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
         <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
-          종목을 선택하면 현재가가 표시됩니다
+          {t("종목을 선택하면 현재가가 표시됩니다")}
         </p>
       </div>
     );
@@ -94,14 +95,14 @@ export default function CurrentPriceDisplay({
           </div>
           {volume && (
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              거래량: {formatVolume(volume)}
+              {t("거래량: {0}", formatVolume(volume))}
             </p>
           )}
         </div>
         <div className="text-right space-y-1">
           {open !== undefined && (
             <div className="flex gap-4 text-xs">
-              <span className="text-gray-500 dark:text-gray-400 w-12">시가</span>
+              <span className="text-gray-500 dark:text-gray-400 w-12">{t("시가")}</span>
               <span className="text-gray-900 dark:text-white font-medium w-20 text-right">
                 {formatPrice(open)}
               </span>
@@ -109,7 +110,7 @@ export default function CurrentPriceDisplay({
           )}
           {high !== undefined && (
             <div className="flex gap-4 text-xs">
-              <span className="text-gray-500 dark:text-gray-400 w-12">고가</span>
+              <span className="text-gray-500 dark:text-gray-400 w-12">{t("고가")}</span>
               <span className="text-red-600 dark:text-red-400 font-medium w-20 text-right">
                 {formatPrice(high)}
               </span>
@@ -117,7 +118,7 @@ export default function CurrentPriceDisplay({
           )}
           {low !== undefined && (
             <div className="flex gap-4 text-xs">
-              <span className="text-gray-500 dark:text-gray-400 w-12">저가</span>
+              <span className="text-gray-500 dark:text-gray-400 w-12">{t("저가")}</span>
               <span className="text-blue-500 dark:text-blue-400 font-medium w-20 text-right">
                 {formatPrice(low)}
               </span>
@@ -125,7 +126,7 @@ export default function CurrentPriceDisplay({
           )}
           {previousClose !== undefined && (
             <div className="flex gap-4 text-xs">
-              <span className="text-gray-500 dark:text-gray-400 w-12">기준</span>
+              <span className="text-gray-500 dark:text-gray-400 w-12">{t("기준")}</span>
               <span className="text-gray-900 dark:text-white font-medium w-20 text-right">
                 {formatPrice(previousClose)}
               </span>

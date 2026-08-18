@@ -68,6 +68,7 @@ export type BuildTurnMessageInput<TParsed = unknown> = {
 /** 이 액션이 스스로 질문을 던지는가 — 그렇다면 열린 되묻기를 되살리면 질문이 겹친다. */
 function asksItsOwnQuestion(decision: ConversationDecision): boolean {
   return (
+    (decision.action === "respond" && Boolean(decision.opensClarification)) ||
     decision.action === "ask_keep_items" ||
     decision.action === "ask_next_condition" ||
     decision.action === "ask_holding_period" ||
@@ -109,6 +110,26 @@ export function buildTurnMessage<TParsed = unknown>(
       clarification: decision.message,
       clarificationSuggestions: decision.suggestions,
       clarificationField: decision.field,
+      builderPresentation: askPresentation ?? presentation,
+    };
+  }
+
+  // ①' 되묻기 레인(L2')이 던지는 질문 — 값 없는 수정 대상("손절 바꿔줘")의 되묻기.
+  //    상태 되묻기(①)와 같은 성격의 질문이므로 같은 카드(clarification 채널)로 나간다.
+  //    예전에는 respond 액션이라 infoText+infoSuggestions로 나가 맨 텍스트+칩으로 보였다
+  //    (2026-08-16 빌더 질문 카드 통일에서 남은 경로, 2026-08-17 사용자 신고). 칩 클릭은
+  //    두 채널 모두 handleSuggestionClick을 타고, 진행 골격 슬롯의 결정론 칩이 아니면
+  //    새 발화로 재전송된다 — 수정 칩("손절을 -5%로 변경")의 경로는 그대로다.
+  if (decision.action === "respond" && decision.opensClarification) {
+    return {
+      isLoading: false,
+      coachLoading: false,
+      coachText: undefined,
+      infoText: undefined,
+      infoSuggestions: undefined,
+      parsed: parsed ?? undefined,
+      clarification: decision.message,
+      clarificationSuggestions: decision.suggestions,
       builderPresentation: askPresentation ?? presentation,
     };
   }

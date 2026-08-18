@@ -116,11 +116,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ detail: "Invalid JSON" }, { status: 400 });
   }
 
+  // 클라이언트가 스트림을 끊으면('대화 종료' — req.signal abort 또는 스트림 cancel) 백엔드
+  // 연결도 끊는다. 그래야 백엔드가 진행 중인 LLM 작업을 멈춘다(요청 취소 토큰).
+  const upstream = new AbortController();
+  req.signal?.addEventListener("abort", () => upstream.abort());
+
   const stream = new ReadableStream({
+    cancel() {
+      upstream.abort();
+    },
     async start(controller) {
       const encoder = new TextEncoder();
       const send = (event: object | string) => {
-        controller.enqueue(encoder.encode(sseEvent(event)));
+        // 클라이언트가 이미 끊었으면 닫힌 스트림에 쓰지 않는다(enqueue가 던진다).
+        if (upstream.signal.aborted) return;
+        try {
+          controller.enqueue(encoder.encode(sseEvent(event)));
+        } catch {
+          // 스트림이 취소된 뒤 도착한 늦은 이벤트 — 버린다.
+        }
       };
 
       send({ type: "accepted" });
@@ -228,6 +242,7 @@ export async function POST(req: NextRequest) {
           // 끼면 파싱이 끝났는데도 프록시가 먼저 끊었다("aborted due to timeout").
           // 백엔드 per-call 상한(180초)과 후행 검증 상한(90초)의 합을 담는 값이다.
           timeoutMs: 240_000,
+          signal: upstream.signal,
         });
 
         if (!res.ok || !res.body) {
@@ -259,6 +274,8 @@ export async function POST(req: NextRequest) {
         send("[DONE]");
         controller.close();
       } catch (error: any) {
+        // 클라이언트가 끊어서 난 abort는 오류가 아니다 — 보낼 상대도 없다.
+        if (upstream.signal.aborted) return;
         send({ type: "error", detail: `Strategy parse stream proxy error: ${error.message}` });
         send("[DONE]");
         controller.close();

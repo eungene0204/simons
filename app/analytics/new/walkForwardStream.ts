@@ -1,4 +1,5 @@
 import { parseSseBlocks } from "./sseEvents";
+import { t } from "@/lib/i18n";
 
 export interface WalkForwardProgressEvent {
   stage: "prepare" | "window" | string;
@@ -90,7 +91,7 @@ export async function runWalkForwardStream(
   if (!res.ok || !res.body) {
     const error = await res.json().catch(() => ({}));
     throw new Error(
-      formatApiErrorDetail(error.detail) ?? formatApiErrorDetail(error.message) ?? "워크포워드 분석 실패"
+      formatApiErrorDetail(error.detail) ?? formatApiErrorDetail(error.message) ?? t("워크포워드 분석 실패")
     );
   }
 
@@ -112,7 +113,7 @@ export async function runWalkForwardStream(
     } else if (event.type === "result") {
       result = event.data;
     } else if (event.type === "error") {
-      throw new Error(formatApiErrorDetail(event.message) ?? "워크포워드 분석 실패");
+      throw new Error(formatApiErrorDetail(event.message) ?? t("워크포워드 분석 실패"));
     }
   };
 
@@ -137,7 +138,7 @@ export async function runWalkForwardStream(
   }
 
   if (!result) {
-    throw new Error("워크포워드 분석 결과를 받지 못했습니다.");
+    throw new Error(t("워크포워드 분석 결과를 받지 못했습니다."));
   }
   return result;
 }

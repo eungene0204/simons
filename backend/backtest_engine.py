@@ -13,6 +13,34 @@ from engine.data_resolver import DataResolver
 from engine import universe_pit
 from engine import data_coverage
 
+
+def _composite_ranking_components(risk_params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """복합 순위 합산(FR-BT-063)의 구성 지표 목록. ranking_metric='composite'가 아니거나
+    구성 지표가 2개 미만이면 빈 리스트(합산이 성립하지 않는다 — 단일 지표는 기존 분기)."""
+    if risk_params.get('ranking_metric') != 'composite':
+        return []
+    comps = [
+        c for c in (risk_params.get('ranking_components') or [])
+        if isinstance(c, dict) and c.get('metric')
+    ]
+    return comps if len(comps) >= 2 else []
+
+
+def _composite_ranking_label(components: List[Dict[str, Any]], default_lookback=None) -> str:
+    """매수 사유·그룹 라벨용 한글 표기 — '복합 순위(ROE 높은·PER 낮은)'."""
+    parts = []
+    for c in components:
+        m = str(c.get('metric'))
+        lookback = int(c.get('lookback_days') or default_lookback or 60)
+        if m == 'return':
+            name = f"최근 {lookback}거래일 수익률"
+        elif m == 'volatility':
+            name = f"최근 {lookback}거래일 변동성"
+        else:
+            name = FUNDAMENTAL_LABELS.get(m, m)
+        parts.append(f"{name} {'낮은' if c.get('direction') == 'bottom' else '높은'}")
+    return f"복합 순위({'·'.join(parts)})"
+
 def _ai_signals_enabled() -> bool:
     """AI 예측 신호(ai_model/ai_drop_model) 실행 허용 여부. 운영 스위치(기본 ON).
 
@@ -120,6 +148,11 @@ def _date_key() -> pl.Expr:
     return pl.col("date").cast(pl.Utf8).str.slice(0, 10)
 
 
+# 랭킹을 말하지 않은 전략의 후보 우선순위 산정 기간(거래일, v16.3) — 매수 조건 충족 종목이
+# 빈 자리보다 많은 날에만 쓰이며, 쓰였으면 경고로 고지한다.
+_TIEBREAK_LOOKBACK_DAYS = 60
+
+
 class BacktestEngine:
     def __init__(self, data_dir: str = None):
         self.warnings = set()
@@ -169,6 +202,75 @@ class BacktestEngine:
         if max_pos:
             return f", {rebal_kr} 리밸런싱 상위 {int(max_pos)}종목 편입 대상"
         return ""
+
+    @staticmethod
+    def _ranking_selection_pool(available_df, valid, large_cap_mask, all_liquidity,
+                                common_index, processed_symbols, exec_type):
+        """랭킹 단독 전략(선정=진입)의 후보 풀 — 값이 정의된 종목에 대형주 마스크·유동성
+        게이트를 다시 결합한다(모멘텀 분기 C4 계약과 동일)."""
+        pool = available_df & valid
+        if large_cap_mask is not None:
+            pool &= large_cap_mask
+        if all_liquidity:
+            liq_df = pd.DataFrame(
+                all_liquidity, index=common_index, columns=processed_symbols
+            ).eq(True)  # NaN(데이터 없는 날) → False, bool dtype 보장
+            if exec_type == 'next_open':
+                liq_df = liq_df.shift(1, fill_value=False)
+            pool &= liq_df
+        return pool
+
+    @staticmethod
+    def _composite_rank_panel(components, raw_price_df, all_fund_rank_values,
+                              common_index, processed_symbols, exec_type,
+                              default_lookback=None):
+        """복합 순위 합산(FR-BT-063) 점수 패널.
+
+        반환 (rank_df, valid, missing_labels). rank_df는 [0,1] 백분위 평균(높을수록 상위),
+        valid는 전 구성 지표가 정의된 종목·일자 마스크. 데이터가 전무한 구성 지표가 있으면
+        (rank_df=None, valid=None, 그 지표 라벨들)을 돌려 호출부가 경고로 드러낸다.
+
+        구성 지표 값 패널: 재무 컬럼은 as-of ffill, 'return'/'volatility'는 raw_price_df
+        (bfill 오염 없는 원시 가격)에서 산출 — 단일 랭킹 분기들과 같은 계약(v13.2/13.3).
+        가격 산출 지표의 산정 기간은 구성 지표 자체 값 → 전략 공통값(ranking_lookback_days,
+        되묻기 칩 답이 여기로 결속된다) → 60 순으로 정한다.
+        백분위는 전 지표가 정의된 풀 안에서만 매긴다 — 그래야 백분위 평균이 순위 합산과
+        같은 정렬이 된다(지표마다 유효 종목 수가 달라 생기는 가중 왜곡 방지).
+        """
+        from engine.indicators import lookback_return_panel, annualized_volatility_panel
+
+        panels: list = []
+        missing: list = []
+        for c in components:
+            m = str(c.get('metric'))
+            lookback = int(c.get('lookback_days') or default_lookback or 60)
+            if m == 'return':
+                panel = lookback_return_panel(raw_price_df, lookback)
+            elif m == 'volatility':
+                panel = annualized_volatility_panel(raw_price_df, lookback)
+            else:
+                values = all_fund_rank_values.get(m) or {}
+                if not values:
+                    missing.append(FUNDAMENTAL_LABELS.get(m, m))
+                    continue
+                panel = pd.DataFrame(values, index=common_index, columns=processed_symbols).ffill()
+            panel = panel.reindex(index=common_index, columns=processed_symbols)
+            panels.append((panel, c.get('direction') == 'bottom'))
+        if missing:
+            return None, None, missing
+        valid = None
+        for panel, _ in panels:
+            valid = panel.notna() if valid is None else (valid & panel.notna())
+        scores = []
+        for panel, lower_better in panels:
+            pct = panel.where(valid).rank(axis=1, pct=True)
+            scores.append((1.0 - pct) if lower_better else pct)
+        rank_df = sum(scores) / float(len(scores))
+        if exec_type == 'next_open':
+            # 진입 신호는 이미 1일 shift됨 — 랭킹도 전일 값 기준(look-ahead 방지).
+            rank_df = rank_df.shift(1)
+            valid = valid.shift(1, fill_value=False)
+        return rank_df.fillna(0.0), valid, []
 
     @staticmethod
     def _quantile_group_summary(pf, init_cash: float, max_points: int = 300) -> Dict[str, Any]:
@@ -345,13 +447,20 @@ class BacktestEngine:
             all_liquidity = {}                     # 유동성 마스크 패널 (C4/H5)
             all_trading_values = {}                # 전일 거래대금 — 체결 규모 사후 검증 (H5)
             all_drop_scores: dict = {}  # sym → ai_drop_score 시계열 (횡단면 랭킹 청산용)
-            all_ranks = {'pbr': {}, 'roe': {}}
             # 재무 팩터 랭킹(예: 영업이익률 상위 20종목) — 랭킹 지표의 as-of 컬럼을
             # 심볼별로 수집한다(pbr/roe 블렌드와 같은 경로, 지표만 요청값).
-            _rank_metric_col = risk_params.get('ranking_metric')
-            if _rank_metric_col in ('return', 'volatility'):
-                _rank_metric_col = None  # 모멘텀·변동성은 price_df에서 직접 계산 — 컬럼 수집 불필요
-            all_fund_rank_values: dict = {}
+            # 복합 순위 합산(FR-BT-063, ranking_metric='composite')은 구성 지표 여러 개를
+            # 한 번에 수집한다 — 컬럼명 → {심볼 → 시계열}의 2단 dict.
+            _rank_components = _composite_ranking_components(risk_params)
+            _rank_metric_cols = [
+                m for m in (
+                    [risk_params.get('ranking_metric')] if not _rank_components
+                    else [c['metric'] for c in _rank_components]
+                )
+                # 모멘텀·변동성은 price_df에서 직접 계산 — 컬럼 수집 불필요
+                if m and m not in ('return', 'volatility', 'composite')
+            ]
+            all_fund_rank_values: dict = {col: {} for col in _rank_metric_cols}
             all_resolution_logs: List[Dict[str, str]] = []
             processed_symbols = []
             common_index = None
@@ -635,8 +744,10 @@ class BacktestEngine:
                         res["trading_value"] = pdf['close'] * pdf['volume']
                     if 'pbr' in pdf.columns: res["pbr"] = pdf['pbr']
                     if 'roe_or_gpa' in pdf.columns: res["roe"] = pdf['roe_or_gpa']
-                    if _rank_metric_col and _rank_metric_col in pdf.columns:
-                        res["fund_rank_value"] = pdf[_rank_metric_col]
+                    if _rank_metric_cols:
+                        res["fund_rank_values"] = {
+                            col: pdf[col] for col in _rank_metric_cols if col in pdf.columns
+                        }
                     if _tracked_metrics:
                         res["coverage"] = data_coverage.symbol_stats(pdf, _tracked_metrics)
                     return ("success", res)
@@ -669,9 +780,8 @@ class BacktestEngine:
                     all_exit_reasons[sym] = data["exit_reasons"]
                     if "liquidity" in data: all_liquidity[sym] = data["liquidity"]
                     if "trading_value" in data: all_trading_values[sym] = data["trading_value"]
-                    if "pbr" in data: all_ranks['pbr'][sym] = data["pbr"]
-                    if "roe" in data: all_ranks['roe'][sym] = data["roe"]
-                    if "fund_rank_value" in data: all_fund_rank_values[sym] = data["fund_rank_value"]
+                    for _col, _ser in (data.get("fund_rank_values") or {}).items():
+                        all_fund_rank_values[_col][sym] = _ser
                     if "ai_drop_score" in data: all_drop_scores[sym] = data["ai_drop_score"]
                     if _coverage_acc is not None and "coverage" in data:
                         _coverage_acc.fold(data["coverage"])
@@ -771,8 +881,10 @@ class BacktestEngine:
                             res["trading_value"] = pdf['close'] * pdf['volume']
                         if 'pbr' in pdf.columns: res["pbr"] = pdf['pbr']
                         if 'roe_or_gpa' in pdf.columns: res["roe"] = pdf['roe_or_gpa']
-                        if _rank_metric_col and _rank_metric_col in pdf.columns:
-                            res["fund_rank_value"] = pdf[_rank_metric_col]
+                        if _rank_metric_cols:
+                            res["fund_rank_values"] = {
+                                col: pdf[col] for col in _rank_metric_cols if col in pdf.columns
+                            }
                         if drop_rank_pct is not None and 'ai_drop_score' in pdf.columns:
                             res["ai_drop_score"] = pdf['ai_drop_score']
                         if _tracked_metrics:
@@ -873,6 +985,7 @@ class BacktestEngine:
                 )
 
             rank_df = None
+            _tiebreak_rank_used = False
             skip_pos = risk_params.get('skip_position_setting', False)
             ranking_metric = risk_params.get('ranking_metric')
             # 분위(퀀타일) 그룹 비교(FR-BT-060): 랭킹 후보를 종목 수 동일한 G개 그룹으로
@@ -893,7 +1006,12 @@ class BacktestEngine:
                     # 에코프로머티 '상위 1%'). 변동성 랭킹 v13.2와 같은 계약 — 관측 미달은
                     # NaN → 아래 valid 마스크가 후보에서 배제한다.
                     momentum = lookback_return_panel(raw_price_df, lookback)
-                    rank_df = momentum.rank(axis=1, pct=True)
+                    pct = momentum.rank(axis=1, pct=True)
+                    # 방향(v16.2): top(기본)=수익률 높은 순, bottom=낮은 순(역발상 — '최근
+                    # 3개월 수익률 오름차순'). 변동성·재무·복합 분기는 모두 direction을 읽는데
+                    # 이 분기만 읽지 않아 bottom 요청이 조용히 모멘텀으로 실행됐다(정반대 전략).
+                    _direction = str(risk_params.get('ranking_direction') or 'top')
+                    rank_df = (1.0 - pct) if _direction == 'bottom' else pct
                     # 수익률이 정의되지 않은 초기 lookback 구간(NaN)에는 종목을 후보에서 제외한다.
                     # 그러지 않으면 순위가 0으로 동률이 되어 임의 종목을 사서 들고 있게 된다.
                     valid = momentum.notna()
@@ -932,6 +1050,7 @@ class BacktestEngine:
                             _rebal_kr, _max_pos, _qg_n, _sel_pct,
                             group_cap=risk_params.get('ranking_group_cap'),
                         )
+                        _dir_kr = "하위" if _direction == 'bottom' else "상위"
                         _top_pct_df = (1.0 - rank_df) * 100.0
                         for _sym in processed_symbols:
                             _mask = pool[_sym]
@@ -940,7 +1059,7 @@ class BacktestEngine:
                             _pct_vals = _top_pct_df.loc[_mask, _sym]
                             _reason_ser = pd.Series(np.nan, index=common_index, dtype=object)
                             _reason_ser.loc[_mask] = _pct_vals.apply(
-                                lambda p: f"최근 {lookback}거래일 수익률 상위 {max(1, round(p))}%{_rebal_note}"
+                                lambda p: f"최근 {lookback}거래일 수익률 {_dir_kr} {max(1, round(p))}%{_rebal_note}"
                             )
                             all_entry_reasons[_sym] = _reason_ser
                 except Exception as e:
@@ -1010,7 +1129,53 @@ class BacktestEngine:
                     import logging
                     logging.getLogger(__name__).warning(f"[BacktestEngine] 변동성 랭킹 계산 실패: {e}")
                     rank_df = None
-            elif ranking_metric and not all_fund_rank_values:
+            elif ranking_metric == 'composite':
+                # 복합 순위 합산(FR-BT-063): 구성 지표마다 횡단면 백분위 순위(방향 기준 '좋은
+                # 쪽'이 높게)를 매겨 동일 가중 평균한다 — 순위 합산이 가장 낮은 종목이 최상위가
+                # 되는 것과 같은 정렬. 어느 한 지표라도 없는 종목은 후보에서 배제한다(순위 합산이
+                # 정의되지 않으므로 — 중립값 위장 금지, 재무 랭킹 NaN 계약과 동일). 구성 지표의
+                # 순위는 전 지표가 정의된 종목 풀 안에서만 매긴다(그래야 백분위 평균 = 순위 합산).
+                rank_df, valid, _missing_labels = self._composite_rank_panel(
+                    _rank_components, raw_price_df, all_fund_rank_values,
+                    common_index, processed_symbols, exec_type,
+                    default_lookback=risk_params.get('ranking_lookback_days'),
+                )
+                if _missing_labels:
+                    self.warnings.add(
+                        f"복합 순위 구성 지표 '{', '.join(_missing_labels)}' 데이터가 대상 종목에 "
+                        "없어 랭킹 선정이 적용되지 않았습니다."
+                    )
+                elif rank_df is not None:
+                    _entry_conditions = (req.get('entry') or {}).get('conditions') or []
+                    if not _entry_conditions:
+                        # 랭킹 단독 전략(선정=진입): 다른 랭킹 분기와 같은 후보 풀 계약
+                        # (대형주 마스크·유동성 게이트 재결합)과 매수 사유 계약.
+                        pool = self._ranking_selection_pool(
+                            available_df, valid, large_cap_mask, all_liquidity,
+                            common_index, processed_symbols, exec_type,
+                        )
+                        ents_df = pool
+                        _rebal_kr = {
+                            'daily': '일간', 'weekly': '주간', 'monthly': '월간',
+                            'bimonthly': '격월', 'quarterly': '분기', 'yearly': '연간',
+                        }.get(str(risk_params.get('rebalancing_period') or ''), '')
+                        _rebal_note = self._build_rebal_note(
+                            _rebal_kr, risk_params.get('max_positions'), _qg_n, _sel_pct,
+                            group_cap=risk_params.get('ranking_group_cap'),
+                        )
+                        _metric_kr = _composite_ranking_label(_rank_components, risk_params.get('ranking_lookback_days'))
+                        _top_pct_df = (1.0 - rank_df) * 100.0
+                        for _sym in processed_symbols:
+                            _mask = pool[_sym]
+                            if not _mask.any():
+                                continue
+                            _pct_vals = _top_pct_df.loc[_mask, _sym]
+                            _reason_ser = pd.Series(np.nan, index=common_index, dtype=object)
+                            _reason_ser.loc[_mask] = _pct_vals.apply(
+                                lambda p: f"{_metric_kr} 상위 {max(1, round(p))}%{_rebal_note}"
+                            )
+                            all_entry_reasons[_sym] = _reason_ser
+            elif ranking_metric and not all_fund_rank_values.get(ranking_metric):
                 # 재무 랭킹을 요청했는데 유니버스 전체에 그 컬럼이 없다 — 조용한 0거래로
                 # 두지 않고 경고로 드러낸다(커버리지 로그 FR-BT-016과 같은 정직성 계약).
                 self.warnings.add(
@@ -1024,7 +1189,8 @@ class BacktestEngine:
                 # (pbr/roe 블렌드와 같은 이유 — 아래 legacy 분기 주석 참고).
                 try:
                     metric_df = pd.DataFrame(
-                        all_fund_rank_values, index=common_index, columns=processed_symbols
+                        all_fund_rank_values[ranking_metric], index=common_index,
+                        columns=processed_symbols,
                     ).ffill()
                     if exec_type == 'next_open':
                         # 진입 신호는 이미 1일 shift됨 — 랭킹도 전일 값 기준으로 맞춘다(look-ahead 방지).
@@ -1079,36 +1245,27 @@ class BacktestEngine:
                     import logging
                     logging.getLogger(__name__).warning(f"[BacktestEngine] 재무 팩터 랭킹 계산 실패: {e}")
                     rank_df = None
-            elif (not skip_pos) and risk_params.get('ranking_enabled', True) and all_ranks['pbr'] and all_ranks['roe']:
+            elif (not skip_pos) and risk_params.get('ranking_enabled', True):
+                # 후보 우선순위(v16.3, 2026-08-18 사용자 결정): 사용자가 랭킹을 말하지 않은
+                # 전략에서 매수 조건 충족 종목이 빈 자리(최대 보유)보다 많은 날 — 리밸런싱일
+                # 포함 — 은 **최근 N거래일 수익률이 높은 순**으로 우선 담는다. 종전에는 저PBR·
+                # 고ROE 블렌드가 이 자리를 조용히 채웠다(사용자가 말한 적 없는 선정 기준).
+                # 랭킹 전략(ranking_metric)이 아니므로 후보 자체는 매수 조건이 정하고, 이 순위는
+                # 넘치는 날의 우선순위일 뿐이다 — 실제로 넘친 날이 있었으면 경고로 고지한다.
                 try:
-                    # fillna(1.0)/fillna(0.0) 센티널을 넣지 않는다 — 자본잠식/적자 등으로
-                    # PBR·ROE가 NaN(계산 불가)인 종목을 '중립값'으로 위장시키면 재무적으로
-                    # 무의미한 종목이 랭킹에 섞여 들어간다. ffill만으로 결산 사이 공백을
-                    # 메우고, 진짜 NaN은 percentile rank까지 그대로 남겨 자연 배제되게 한다
-                    # (engine/simulator.py의 후보 정렬은 NaN을 항상 배열 끝으로 보낸다).
-                    pbr_df = pd.DataFrame(all_ranks['pbr'], index=common_index, columns=processed_symbols).ffill()
-                    roe_df = pd.DataFrame(all_ranks['roe'], index=common_index, columns=processed_symbols).ffill()
+                    from engine.indicators import lookback_return_panel
 
+                    _tiebreak = lookback_return_panel(raw_price_df, _TIEBREAK_LOOKBACK_DAYS)
+                    rank_df = _tiebreak.rank(axis=1, pct=True)
                     if exec_type == 'next_open':
-                        pbr_df = pbr_df.shift(1).ffill()
-                        roe_df = roe_df.shift(1).ffill()
-
-                    v_score = 1.0 - pbr_df.rank(axis=1, pct=True)
-                    q_score = roe_df.rank(axis=1, pct=True)
-                    w_v = float(risk_params.get('ranking_weight_value', 0.5))
-                    w_q = float(risk_params.get('ranking_weight_quality', 0.5))
-                    # 가중치가 0인 팩터는 값이 NaN이어도(그 팩터를 아예 안 쓰므로) 종목을
-                    # 배제하면 안 된다 — NaN*0=NaN으로 전파되는 걸 막기 위해 0 가중치
-                    # 팩터는 아예 0으로 채운 DataFrame을 더한다(가중치>0 팩터의 NaN은
-                    # 그대로 전파시켜 배제 효과를 유지).
-                    zeros = pd.DataFrame(0.0, index=common_index, columns=processed_symbols)
-                    v_contrib = (v_score * w_v) if w_v != 0 else zeros
-                    q_contrib = (q_score * w_q) if w_q != 0 else zeros
-                    rank_df = v_contrib + q_contrib
+                        rank_df = rank_df.shift(1)
+                    # 수익률이 정의되지 않은 종목(신규 상장 등)은 후보에서 빼지 않고 최하위로
+                    # 둔다 — 후보 자격은 매수 조건이 정하므로 우선순위만 뒤로 보낸다.
+                    rank_df = rank_df.fillna(0.0)
+                    _tiebreak_rank_used = True
                 except Exception as e:
-                    # Fix 12: 무음 예외 대신 경고 로깅으로 원인 추적 가능하게
                     import logging
-                    logging.getLogger(__name__).warning(f"[BacktestEngine] 랭킹 계산 실패: {e}")
+                    logging.getLogger(__name__).warning(f"[BacktestEngine] 후보 우선순위 계산 실패: {e}")
                     rank_df = None
 
             _t2 = _time.time()
@@ -1138,12 +1295,31 @@ class BacktestEngine:
                     risk_params = dict(risk_params)
                     risk_params['ranking_band'] = [1, _qg_n]
 
+            # 매수 조건이 있는 전략(신호·재무 필터)은 리밸런싱을 켜도 매수 조건이 후보를 정한다
+            # (v16.3): 리밸런싱일이 아닌 날의 매수 신호도 빈 자리만큼 담고, 매도 신호도 그대로
+            # 청산한다. 순수 랭킹 전략(선정=진입, entry.conditions 비어 있음)만 달력 회전이다.
+            _entry_signal_driven = bool((req.get('entry') or {}).get('conditions'))
+            if _entry_signal_driven:
+                risk_params = dict(risk_params)
+                risk_params['entry_signal_driven'] = True
+
             pf = self.simulator.run(
                 price_df, exec_px_df, ents_df, exts_df, risk_params, simulator_options,
                 rank_df=rank_df, high_df=high_df, low_df=low_df, available_df=available_df,
             )
             _t3 = _time.time()
             print(f"[BT-ENGINE] Simulator 완료: {_t3-_t2:.2f}s", flush=True)
+
+            # 넘친 날 고지(v16.3): 랭킹을 말하지 않은 전략에서 매수 조건 충족 종목이 빈 자리보다
+            # 많았던 날이 있으면, 무엇이 골랐는지 결과에 남긴다(조용한 기본값 금지).
+            _overflow_days = int(getattr(self.simulator, 'overflow_days', 0) or 0)
+            if _tiebreak_rank_used and _overflow_days > 0:
+                _cap_note = risk_params.get('max_positions')
+                self.warnings.add(
+                    f"매수 조건을 충족한 종목이 빈 자리(최대 보유 {_cap_note}종목)보다 많았던 날이 "
+                    f"{_overflow_days}일 있어(리밸런싱일 포함), 그날은 최근 {_TIEBREAK_LOOKBACK_DAYS}거래일 "
+                    "수익률이 높은 종목부터 우선 담았습니다."
+                )
 
             # 5. Benchmark ETF 로드
             _benchmark_sym, _benchmark_name = self.benchmark_for_universe(
@@ -1216,9 +1392,12 @@ class BacktestEngine:
                     _metric_kr = f"최근 {int(risk_params.get('ranking_lookback_days') or 60)}거래일 수익률"
                 elif ranking_metric == 'volatility':
                     _metric_kr = f"최근 {int(risk_params.get('ranking_lookback_days') or 60)}거래일 변동성"
+                elif ranking_metric == 'composite':
+                    _metric_kr = _composite_ranking_label(_rank_components, risk_params.get('ranking_lookback_days'))
                 else:
                     _metric_kr = FUNDAMENTAL_LABELS.get(ranking_metric, ranking_metric)
-                _order_kr = "낮은" if _dir_bottom else "높은"
+                # 복합 순위는 구성 지표마다 방향이 다르다(라벨 안에 병기) — 합산 점수의 상위 순.
+                _order_kr = "상위" if ranking_metric == 'composite' else ("낮은" if _dir_bottom else "높은")
                 _groups_out = []
                 _group_sim = Simulator()
                 for _g in range(1, _qg_n + 1):
@@ -1264,6 +1443,27 @@ class BacktestEngine:
                 final["timing"]["quantileGroups"] = round(_t5 - _t4, 2)
                 print(f"[BT-ENGINE] 분위 {_qg_n}그룹 완료: {_t5-_t4:.2f}s", flush=True)
 
+            # ── 리밸런싱 기간별 결과 비교 (FR-BT-064) ──
+            # 1단계 입력(가격·신호·랭킹)은 그대로 두고 rebalancing_period만 6주기로 바꿔
+            # 시뮬레이션만 반복한다 — 결과 화면 탭이 별도 실행 없이 바로 보여준다.
+            # 비교 실패는 메인 결과에 영향을 주지 않는다(로그만).
+            try:
+                from engine.rebalance_comparison import run_rebalance_period_comparison
+                _t_rc0 = _time.time()
+                final["rebalanceComparison"] = run_rebalance_period_comparison(
+                    lambda _rp: Simulator().run(
+                        price_df, exec_px_df, ents_df, exts_df, _rp, simulator_options,
+                        rank_df=rank_df, high_df=high_df, low_df=low_df, available_df=available_df,
+                    ),
+                    risk_params,
+                    float(risk_params.get('init_cash') or 10000000.0),
+                )
+                final["timing"]["rebalanceComparison"] = round(_time.time() - _t_rc0, 2)
+                print(f"[BT-ENGINE] 리밸런싱 6주기 비교 완료: {_time.time()-_t_rc0:.2f}s", flush=True)
+            except Exception as _rce:
+                import logging
+                logging.getLogger(__name__).warning(f"[BacktestEngine] 리밸런싱 기간별 비교 실패: {_rce}")
+
             # Add no-trades warning
             if pf.trades.count() == 0:
                 liquidity_excluded = [
@@ -1287,12 +1487,22 @@ class BacktestEngine:
                 float(risk_params.get(k) or 0) > 0
                 for k in ('stop_loss_pct', 'take_profit_pct', 'trailing_stop_pct', 'max_holding_days')
             )
-            if _rebal_period != 'none' and risk_params.get('max_positions') and _has_pos_risk:
-                # H8: 리스크 관리와 혼합된 리밸런싱은 종목 교체(reconstitution)만 수행
-                self.warnings.add(
-                    "리밸런싱과 손절/익절/트레일링/보유기간 제한이 함께 설정되어 리밸런싱일에는 "
-                    "종목 교체만 수행합니다 — 유지 종목의 비중은 목표 비중으로 리셋되지 않습니다."
-                )
+            if _rebal_period != 'none' and risk_params.get('max_positions') and (
+                _has_pos_risk or _entry_signal_driven
+            ):
+                # H8: 리스크 관리와 혼합된 리밸런싱, 그리고 매수 조건이 있는 전략의 리밸런싱은
+                # 커스텀 루프(종목 교체 = reconstitution)로 돈다 — 비중 리셋 없음.
+                if _entry_signal_driven:
+                    self.warnings.add(
+                        "리밸런싱일에는 그날 매수 조건을 충족한 종목 중에서 포트폴리오를 다시 구성합니다"
+                        "(충족하지 않는 보유 종목은 편출) — 그 사이 날에도 매수 조건 충족 종목을 빈 자리만큼 "
+                        "담고 매도 조건은 그대로 적용합니다. 유지 종목의 비중은 목표 비중으로 리셋되지 않습니다."
+                    )
+                else:
+                    self.warnings.add(
+                        "리밸런싱과 손절/익절/트레일링/보유기간 제한이 함께 설정되어 리밸런싱일에는 "
+                        "종목 교체만 수행합니다 — 유지 종목의 비중은 목표 비중으로 리셋되지 않습니다."
+                    )
 
             _tax_raw = options.get('sell_tax_rate')
             _tax_val = float(_tax_raw) if _tax_raw is not None else 0.0015

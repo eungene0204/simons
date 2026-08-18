@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { CaretUp, CaretDown, Star } from "phosphor-react";
 import type { WatchlistSnapshotItem } from "@/app/api/dashboard/watchlist-snapshot/route";
+import { t } from "@/lib/i18n";
 
 function formatPrice(v: number): string {
   if (v === 0) return "--";
@@ -42,7 +43,7 @@ export default function WatchlistSnapshot() {
       >
         <div className="flex items-center gap-2">
           <h2 className="text-base font-black uppercase tracking-widest text-gray-400 font-outfit">
-            관심 종목
+            {t("관심 종목")}
           </h2>
         </div>
       </div>

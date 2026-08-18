@@ -203,6 +203,13 @@ def test_own_line_comparison_needs_no_threshold_value():
     validated, report = run_validation(StrategyIntent.model_validate(data))
     assert not any(f.endswith(".value") for f in report.missing_fields)
     parsed = compile_strategy(validated, report, "원문")
+    # [2026-08-18 개정] 종전에는 두 선의 부등호를 mode로 접으면서 short_period를 **버렸다**
+    # — 사용자가 이름 붙여 부른 선 하나가 조용히 사라져 "5일 EMA가 20일 EMA 위"가 "가격이
+    # 20일 EMA 위"라는 다른 전략이 됐다(예시 QA 실측 4건). 지금은 상태(mode)와 두 기간을
+    # 함께 지킨다 — 엔진 v16.0이 두 EMA의 지속 상태를 직접 평가하므로 둘 중 하나를
+    # 포기할 이유가 없다. 본래 계약(부등호에 임계값을 요구하지 않는다)은 위 단언이 지킨다.
+    assert [(s.short_period, s.long_period) for s in parsed.entry_signals] == [(5, 20)]
+    assert [(s.short_period, s.long_period) for s in parsed.exit_signals] == [(5, 20)]
     assert [s.mode for s in parsed.entry_signals] == ["above"]
     assert [s.mode for s in parsed.exit_signals] == ["below"]
 
@@ -404,6 +411,67 @@ def test_fundamental_exit_mirror_normalized_without_notice():
     assert len(parsed.entry_signals) == 1                # 골든크로스 진입 생존
     assert len(parsed.exit_signals) == 1                 # 데드크로스 청산 생존
     assert "ROE(자기자본이익률)" not in dropped          # 미반영 안내 대상이 아니다
+
+
+def test_identical_exit_conditions_after_normalization_collapse_to_one():
+    """2026-08-18 사고 회귀(프롬프트 3.9 실측 트레이스): "KOSPI 종목 중 ADX가 25 이상 …
+    5일 EMA가 20일 EMA를 위로 돌파할 때 매수 … EMA 데드크로스가 나오면 청산"에서 9B가 청산을
+    두 조각으로 냈다 — 사용자가 말한 concept.dead_cross(5/20, 인용 'EMA 데드크로스가
+    나오면 청산하고')와 **진입 인용을 그대로 단** technical.ma_crossover crosses_below 1/20
+    미러. 각자 정당한 경로(개념 전개·EMA 착지·인용 기간 교정)를 거치면 둘 다
+    technical.ema crosses_below 5/20이 되는데, 미러 가드는 반대 방향이라 보존하고 컴파일러는
+    목록을 그대로 옮겨 요약 카드 '매도 조건'에 'EMA 데드크로스'가 두 줄로 나갔다.
+    정규화 결과가 완전히 같은 조건은 한 번만 남는다."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.adx", "operator": ">=", "value": 25, "unit": "point",
+             "source_text": "ADX가 25 이상으로"},
+            {"factor": "technical.ema", "operator": "crosses_above", "value": None,
+             "parameters": {"short_period": 1, "long_period": 5},
+             "source_text": "5일 EMA가 20일 EMA를 위로 돌파할 때"},
+        ],
+        exit_conditions=[
+            {"factor": "concept.dead_cross", "operator": None, "value": None,
+             "parameters": {"short_period": 5, "long_period": 20},
+             "source_text": "EMA 데드크로스가 나오면 청산하고"},
+            {"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
+             "parameters": {"short_period": 1, "long_period": 20},
+             "source_text": "5일 EMA가 20일 EMA를 위로 돌파할 때"},
+        ],
+        portfolio={"selection_count": 10},
+    ))
+    _fill_deterministic_condition_params(intent)
+    validated, report = run_validation(intent)
+    exits = validated.strategy.exit_conditions
+    assert [(c.factor, c.operator, c.parameters) for c in exits] == [
+        ("technical.ema", "crosses_below", {"short_period": 5.0, "long_period": 20.0}),
+    ]
+    # 남은 한 조각은 사용자가 실제로 말한 청산 인용을 든 쪽이다(첫 항목 유지).
+    assert exits[0].source_text == "EMA 데드크로스가 나오면 청산하고"
+    # 진입의 EMA 5/20 골든크로스는 그대로 — 청산 정리가 진입을 건드리지 않는다.
+    assert [(c.factor, c.operator) for c in validated.strategy.entry_conditions] == [
+        ("technical.adx", ">="), ("technical.ema", "crosses_above"),
+    ]
+    parsed = compile_strategy(validated, report, "사고 예시 원문")
+    assert len(parsed.exit_signals) == 1
+
+
+def test_distinct_same_direction_cross_exits_are_both_kept():
+    """중복 정리는 **완전히 같은** 조건만 지운다 — 기간이 다른 같은 방향 교차(EMA 5/20
+    데드크로스와 20/60 데드크로스)는 서로 다른 신호라 둘 다 남는다."""
+    validated, _ = run_validation(StrategyIntent.model_validate(_full_intent_dict(
+        exit_conditions=[
+            {"factor": "technical.ema", "operator": "crosses_below", "value": None,
+             "parameters": {"short_period": 5, "long_period": 20},
+             "source_text": "5일 EMA가 20일 EMA를 하향 돌파하면"},
+            {"factor": "technical.ema", "operator": "crosses_below", "value": None,
+             "parameters": {"short_period": 20, "long_period": 60},
+             "source_text": "20일 EMA가 60일 EMA를 하향 돌파하면"},
+        ],
+    )))
+    assert len(validated.strategy.exit_conditions) == 2
 
 
 def test_sourced_fundamental_exit_reports_error_not_silent():
@@ -3635,3 +3703,233 @@ def test_schema_repair_retry_still_works():
     assert len(calls) == 2
     assert result.repair_attempts == 1
     assert result.intent.strategy.entry_conditions[0].factor == "technical.rsi"
+
+
+# ── 이동평균 기간·룩백 소실 방어(2026-08-18, 예시 QA 값 대조가 찾은 결함 5건) ─────
+
+def _ma_intent(conditions, exits=None):
+    return StrategyIntent.model_validate(
+        _full_intent_dict(entry_conditions=conditions, exit_conditions=exits or []))
+
+
+def test_two_named_ema_lines_keep_both_periods():
+    """'20일 EMA가 60일 EMA 위에'에 9B가 short_period를 비운 채 `>`를 냈다(실측). 종전
+    컴파일러는 그 상태로 mode=above를 씌워 60만 남겼고, 사용자가 말한 20일선이 사라진
+    '가격 vs 60일 EMA' 전략이 조용히 나갔다(예시 22·26·80)."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = _ma_intent([
+        {"factor": "technical.ema", "operator": ">", "value": None,
+         "parameters": {"short_period": None, "long_period": 60},
+         "source_text": "20일 EMA가 60일 EMA 위에 있는"},
+    ])
+    _fill_deterministic_condition_params(intent)
+    validated, report = run_validation(intent)
+    parsed = compile_strategy(validated, report, "원문")
+    assert [(s.short_period, s.long_period, s.mode) for s in parsed.entry_signals] == [(20, 60, "above")]
+
+
+def test_single_named_line_drops_unnamed_period():
+    """인용이 선 하나만 부르는데 파라미터에 인용에 없는 기간이 있으면 그 숫자는 사용자가
+    말한 적 없는 값이다 — 실측: '20일 EMA 이탈 시 청산'에 {20,60}(옆 절의 60을 끌어옴).
+    지어낸 값만 걷어내고 새 숫자를 만들지 않는다(연산자가 상태/교차를 이미 말한다)."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = _ma_intent(
+        [{"factor": "technical.ema", "operator": ">", "value": None,
+          "parameters": {"short_period": 20, "long_period": 60},
+          "source_text": "20일 EMA가 60일 EMA 위에 있고"}],
+        [{"factor": "technical.ema", "operator": "<", "value": None,
+          "parameters": {"short_period": 20, "long_period": 60},
+          "source_text": "20일 EMA 이탈 시 청산하고"}],
+    )
+    _fill_deterministic_condition_params(intent)
+    validated, report = run_validation(intent)
+    parsed = compile_strategy(validated, report, "원문")
+    assert [(s.short_period, s.long_period) for s in parsed.entry_signals] == [(20, 60)]
+    assert [(s.long_period, s.mode) for s in parsed.exit_signals] == [(20, "below")]
+
+
+def test_self_crossing_periods_are_repaired_to_price_cross():
+    """선은 자기 자신과 교차할 수 없다 — {20,20}은 영원히 발화하지 않는 청산이다(실측
+    '20일 EMA를 이탈하면 청산'). 선이 하나로 정리되면 상대는 종가이고, 그 사실은 기간이
+    아니라 '선이 하나뿐'이라는 형태가 말한다(short_period=None)."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = _ma_intent(
+        [{"factor": "technical.ema", "operator": ">", "value": None,
+          "parameters": {"short_period": 20, "long_period": 60},
+          "source_text": "20일 EMA가 60일 EMA 위에 있는"}],
+        [{"factor": "technical.ema", "operator": "crosses_below", "value": None,
+          "parameters": {"short_period": 20, "long_period": 20},
+          "source_text": "20일 EMA를 이탈하면 청산"}],
+    )
+    _fill_deterministic_condition_params(intent)
+    validated, report = run_validation(intent)
+    parsed = compile_strategy(validated, report, "원문")
+    assert [(s.short_period, s.long_period) for s in parsed.exit_signals] == [(None, 20)]
+
+
+def test_single_line_state_filter_is_left_alone():
+    """기간이 하나뿐이고 지어낸 값도 없으면 손대지 않는다 — '가격이 20일 EMA 위' 상태
+    필터(mode=above)가 교차 이벤트로 바뀌면 그것도 왜곡이다(가드의 경계)."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = _ma_intent([
+        {"factor": "technical.ema", "operator": ">", "value": None,
+         "parameters": {"short_period": None, "long_period": 20},
+         "source_text": "종가가 20일 EMA 위에 머무는"},
+    ])
+    _fill_deterministic_condition_params(intent)
+    validated, report = run_validation(intent)
+    parsed = compile_strategy(validated, report, "원문")
+    assert [(s.long_period, s.mode) for s in parsed.entry_signals] == [(20, "above")]
+
+
+def test_breakout_lookback_contradicting_quote_is_corrected():
+    """인용이 기간을 명시했는데 파라미터가 다르면 파라미터가 틀린 것이다(수정 패치의
+    `_quote_contradicts_value`와 같은 계약). 실측: 인용 '20일 신고가 돌파'에
+    lookback_period=10 — 종전 가드는 값이 None일 때만 채워 그대로 통과시켰다(예시 18)."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = _ma_intent([
+        {"factor": "technical.breakout", "operator": "crosses_above", "value": None,
+         "parameters": {"lookback_period": 10}, "source_text": "20일 신고가 돌파"},
+    ])
+    _fill_deterministic_condition_params(intent)
+    validated, report = run_validation(intent)
+    parsed = compile_strategy(validated, report, "원문")
+    assert [s.lookback_period for s in parsed.entry_signals] == [20]
+
+
+def test_single_line_ema_period_reaches_engine():
+    """선이 하나인 EMA 조건의 기간은 long_period 칸에 담긴다 — 엔진 변환기가 `period`만
+    읽어서 "가격이 60일 EMA 위"가 조용히 20일 EMA로 백테스트되던 자리(2026-08-18)."""
+    from engine.nl_parser import TechnicalSignal
+    from engine.strategy_converter import _tech_signal_to_condition
+
+    params = _tech_signal_to_condition(
+        TechnicalSignal(indicator="ema", signal_type="buy", long_period=60, mode="above")
+    )["params"]
+    assert params["period"] == 60 and params["mode"] == "above"
+
+
+def test_two_ema_state_keeps_mode_and_both_periods():
+    """'위에 있는'은 교차 시점이 아니라 **머무는 상태**다 — 두 기간을 살리면서 상태(mode)도
+    지켜야 한다. 종전에는 둘 중 하나만 가능해(기간 보존=교차 / 상태 보존=선 하나 버림)
+    어느 쪽이든 원문과 달랐다. 엔진 v16.0이 두 EMA 상태를 직접 평가한다."""
+    intent = _ma_intent([
+        {"factor": "technical.ema", "operator": ">", "value": None,
+         "parameters": {"short_period": 20, "long_period": 60},
+         "source_text": "20일 EMA가 60일 EMA 위에 있는"},
+    ])
+    validated, report = run_validation(intent)
+    parsed = compile_strategy(validated, report, "원문")
+    assert [(s.short_period, s.long_period, s.mode) for s in parsed.entry_signals] == [(20, 60, "above")]
+
+
+def test_ema_quote_on_sma_factor_is_corrected():
+    """엔진에서 ma_crossover는 단순이동평균(close_N_sma), ema는 EMA 컬럼을 쓴다 — 인용이
+    EMA를 말하는데 factor가 ma_crossover면 지표가 바뀐 것이다(실측 예시 26: '종가가 20일
+    EMA를 회복'이 SMA 크로스오버로 나갔다). 인용에 적힌 지표 이름을 그대로 따른다."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = _ma_intent([
+        {"factor": "technical.ma_crossover", "operator": "crosses_above", "value": None,
+         "parameters": {"short_period": 1, "long_period": 20},
+         "source_text": "종가가 20일 EMA를 회복한"},
+    ])
+    _fill_deterministic_condition_params(intent)
+    validated, report = run_validation(intent)
+    parsed = compile_strategy(validated, report, "원문")
+    assert [(s.indicator, s.short_period, s.long_period) for s in parsed.entry_signals] == [("ema", 1, 20)]
+
+
+def test_price_vs_ema_uses_short_period_one():
+    """종가는 ma_crossover와 같은 표기(short_period=1)로 쓴다 — EMA의 최소값이 2였던 탓에
+    이 정본 표기가 검증 오류가 되고, 안내도 질문도 없이 부분 컴파일로 조용히 흘렀다."""
+    intent = _ma_intent([
+        {"factor": "technical.ema", "operator": "crosses_above", "value": None,
+         "parameters": {"short_period": 1, "long_period": 5},
+         "source_text": "종가가 5일 EMA를 회복하는"},
+    ])
+    validated, report = run_validation(intent)
+    assert report.status == "READY" and not report.errors
+    parsed = compile_strategy(validated, report, "원문")
+    assert [(s.short_period, s.long_period) for s in parsed.entry_signals] == [(1, 5)]
+
+
+def test_ema_golden_cross_concept_lands_on_ema_leaf():
+    """'EMA 데드크로스'는 EMA 두 선의 교차인데 개념 전개는 단순이동평균으로 간다
+    (concept.dead_cross → technical.ma_crossover). 인용이 EMA를 지목하면 EMA 잎으로
+    착지시키고, 개념 선언의 정본 기간(5/20)만 빈 자리에 옮겨 숫자는 바꾸지 않는다
+    (잎 기본값 20/60으로 떨어지면 사용자가 말한 적 없는 기간이 된다) — 실측 예시 5건."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = _ma_intent(
+        [{"factor": "concept.golden_cross", "operator": None, "value": None,
+          "parameters": {}, "source_text": "5일 EMA가 20일 EMA를 골든크로스하면"}],
+        [{"factor": "concept.dead_cross", "operator": None, "value": None,
+          "parameters": {}, "source_text": "EMA 데드크로스가 나오면 청산하고"}],
+    )
+    _fill_deterministic_condition_params(intent)
+    validated, report = run_validation(intent)
+    parsed = compile_strategy(validated, report, "원문")
+    assert [(s.indicator, s.short_period, s.long_period) for s in parsed.entry_signals] == [("ema", 5, 20)]
+    assert [(s.indicator, s.short_period, s.long_period) for s in parsed.exit_signals] == [("ema", 5, 20)]
+
+
+def test_plain_golden_cross_stays_sma():
+    """EMA를 말하지 않은 '골든크로스'는 종전대로 단순이동평균이다(가드의 경계)."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = _ma_intent([
+        {"factor": "concept.golden_cross", "operator": None, "value": None,
+         "parameters": {}, "source_text": "골든크로스가 발생하면"},
+    ])
+    _fill_deterministic_condition_params(intent)
+    validated, report = run_validation(intent)
+    parsed = compile_strategy(validated, report, "원문")
+    assert [s.indicator for s in parsed.entry_signals] == ["ma_crossover"]
+
+
+# ── 다른 슬롯의 문구로 만들어진 매매 신호 차단(2026-08-18, 예시 73) ─────────────
+
+def test_ma_condition_quoting_another_slot_is_dropped_with_notice():
+    """사고: "최대 보유 기간은 25거래일"을 인용으로 달고 이동평균 청산 조건이 만들어졌다 —
+    사용자가 요청하지 않은 매도 규칙이 붙는다. 인용이 입력에 실재하므로 출처 대조는
+    통과하고, 값 대조도 숫자만 보므로 통과한다. 빼면서 **안내**한다(침묵 제거는 모순)."""
+    from strategy_conversation.primary import _drop_fabricated_conditions
+
+    user_input = ("5일 EMA가 20일 EMA를 골든크로스하면 진입하고, 최대 보유 기간은 "
+                  "25거래일로 설정해 주세요.")
+    intent = _ma_intent(
+        [{"factor": "technical.ema", "operator": "crosses_above", "value": None,
+          "parameters": {"short_period": 5, "long_period": 20},
+          "source_text": "5일 EMA가 20일 EMA를 골든크로스하면"}],
+        [{"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
+          "parameters": {"short_period": 1, "long_period": 20},
+          "source_text": "최대 보유 기간은 25거래일"}],
+    )
+    notices = _drop_fabricated_conditions(intent, user_input)
+
+    assert intent.strategy.exit_conditions == []
+    assert any("이동평균 조건이 아니어서" in n for n in notices)
+    assert len(intent.strategy.entry_conditions) == 1
+
+
+def test_qualitative_trend_mapping_survives_the_slot_guard():
+    """'추세가 확실히 잡힌 종목만'처럼 정성 표현을 이동평균으로 매핑하는 것은 정당한
+    해석이다(프롬프트 규칙 2) — 이동평균 어휘가 없다는 이유로 자르면 이 가드가 막으려던
+    조용한 소실을 스스로 일으킨다(가드의 경계, 실측 오탐)."""
+    from strategy_conversation.primary import _drop_fabricated_conditions
+
+    user_input = "추세가 확실히 잡힌 종목만 따라가고 싶습니다. 최대 10종목으로 해주세요."
+    intent = _ma_intent([
+        {"factor": "technical.ema", "operator": ">", "value": None,
+         "parameters": {"short_period": 20, "long_period": 60},
+         "source_text": "추세가 확실히 잡힌 종목만 따라가고"},
+    ])
+    notices = _drop_fabricated_conditions(intent, user_input)
+
+    assert len(intent.strategy.entry_conditions) == 1 and notices == []

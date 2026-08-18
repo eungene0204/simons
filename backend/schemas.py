@@ -45,6 +45,10 @@ class RiskManagement(BaseModel):
     ranking_quantile_groups: Optional[int] = None
     # 분위 그룹당 보유 상한(FR-BT-060b) — 각 그룹이 자기 구간의 랭킹 상위 N종목만 보유.
     ranking_group_cap: Optional[int] = None
+    # 복합 순위 합산(FR-BT-063): ranking_metric='composite'일 때 구성 지표 목록
+    # [{metric, direction, lookback_days?}, ...]. 스키마에 없으면 model_dump가 조용히 버려
+    # 엔진이 구성 지표를 못 받는다 — ranking_metric 0거래 사고와 동일 함정.
+    ranking_components: Optional[List[Dict[str, Any]]] = None
     execution_timing: Optional[str] = "next_open"
     allocation_type: Optional[str] = "equal"
     rebalancing_period: Optional[str] = "none"
@@ -174,6 +178,10 @@ class BacktestResponse(BaseModel):
     # metricLabel, orderLabel, groupCount, mainGroup}. 없으면 null. 미선언 시 response_model이
     # 필드를 걸러내 프론트가 그룹 비교를 못 받는다 — 반드시 선언한다.
     quantileGroups: Optional[Dict[str, Any]] = None
+    # 리밸런싱 기간별 결과 비교(FR-BT-064) — {periods: [{period, cagr, mdd, sharpe, profitFactor,
+    # trades, turnover, ...}], currentPeriod, positionCapAbsent}. 백테스트마다 6주기 재시뮬레이션으로
+    # 동봉한다. 미선언 시 response_model이 걸러내 프론트가 못 받는다 — 반드시 선언한다.
+    rebalanceComparison: Optional[Dict[str, Any]] = None
     version: Optional[str] = ENGINE_VERSION
     executionTime: Optional[float] = 0.0
     vbtResult: Optional[VBTNativeResult] = None

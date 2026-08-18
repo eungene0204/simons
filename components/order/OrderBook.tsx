@@ -13,6 +13,7 @@ import {
   ORDERBOOK_DEPTH,
   type DisplayPriceRow,
 } from "@/lib/orderbook-display";
+import { t } from "@/lib/i18n";
 
 export interface MarketStats {
   open: number;
@@ -201,7 +202,7 @@ export default function OrderBook({
         applyOrderbookData(data);
       } catch (error) {
         if (isCancelled) return;
-        setOrderBookError(error instanceof Error ? error.message : "실제 호가 데이터를 아직 받지 못했습니다");
+        setOrderBookError(error instanceof Error ? error.message : t("실제 호가 데이터를 아직 받지 못했습니다"));
       } finally {
         if (!isCancelled) {
           setIsOrderBookLoading(false);
@@ -257,7 +258,7 @@ export default function OrderBook({
       <div className="bg-[var(--background)] p-4 h-full flex items-center justify-center">
         <div className="text-center py-8">
           <p className="text-base text-gray-500 dark:text-gray-400">
-            종목을 선택하면 호가가 표시됩니다
+            {t("종목을 선택하면 호가가 표시됩니다")}
           </p>
         </div>
       </div>
@@ -268,7 +269,7 @@ export default function OrderBook({
     return (
       <div className="bg-[var(--background)] p-4 h-full flex items-center justify-center">
         <div className="text-center py-8">
-          <p className="text-base text-gray-500 dark:text-gray-400">호가 정보 불러오는중...</p>
+          <p className="text-base text-gray-500 dark:text-gray-400">{t("호가 정보 불러오는중...")}</p>
         </div>
       </div>
     );
@@ -384,13 +385,13 @@ export default function OrderBook({
       {/* Header */}
       <div className="px-3 pt-3 pb-1 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-          호가
+          {t("호가")}
         </h2>
         {bestAsk && bestBid ? (
           <div className="text-[11px] tabular-nums text-gray-400">
-            스프레드 <span className="text-white">{formatPrice(spread)}</span>
+            {t("스프레드 ")}<span className="text-white">{formatPrice(spread)}</span>
             <span className="mx-1 text-gray-600">·</span>
-            중간 <span className="text-white">{formatPrice(Math.round(midPrice))}</span>
+            {t("중간 ")}<span className="text-white">{formatPrice(Math.round(midPrice))}</span>
           </div>
         ) : null}
       </div>
@@ -479,23 +480,23 @@ export default function OrderBook({
         <div className="mt-2 px-1">
           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-[11px] tabular-nums">
             <div className="text-right text-blue-400">
-              판매대기 {formatQuantity(totalSellVolume)}
+              {t("판매대기 {0}", formatQuantity(totalSellVolume))}
             </div>
-            <div className="text-[10px] text-gray-500">잔량</div>
+            <div className="text-[10px] text-gray-500">{t("잔량")}</div>
             <div className="text-left text-red-400">
-              구매대기 {formatQuantity(totalBuyVolume)}
+              {t("구매대기 {0}", formatQuantity(totalBuyVolume))}
             </div>
           </div>
           <div className="mt-1 h-[6px] w-full overflow-hidden rounded-full bg-gray-800 flex">
             <div
               className="h-full bg-blue-500/70"
               style={{ width: `${sellRatio}%` }}
-              aria-label={`매도 비율 ${sellRatio.toFixed(1)}%`}
+              aria-label={t("매도 비율 {0}%", sellRatio.toFixed(1))}
             />
             <div
               className="h-full bg-red-500/70"
               style={{ width: `${buyRatio}%` }}
-              aria-label={`매수 비율 ${buyRatio.toFixed(1)}%`}
+              aria-label={t("매수 비율 {0}%", buyRatio.toFixed(1))}
             />
           </div>
         </div>

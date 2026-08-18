@@ -1,4 +1,5 @@
 import type { AdvisorResult } from "@/components/strategy/StrategyAdvisorPanel";
+import { t } from "@/lib/i18n";
 
 export function AdvisorResponseSections({ result }: { result: AdvisorResult }) {
   const sections = result.response_sections ?? [];
@@ -10,8 +11,8 @@ export function AdvisorResponseSections({ result }: { result: AdvisorResult }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] font-black uppercase tracking-widest text-indigo-200">전략 리뷰</p>
-        <span className="text-[10px] font-black text-gray-600">{sections.length}개 섹션</span>
+        <p className="text-[11px] font-black uppercase tracking-widest text-indigo-200">{t("전략 리뷰")}</p>
+        <span className="text-[10px] font-black text-gray-600">{t("{0}개 섹션", sections.length)}</span>
       </div>
       <div className="divide-y divide-white/[0.05] overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
         {sections.map((section, index) => (

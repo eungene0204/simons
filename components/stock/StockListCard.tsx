@@ -2,6 +2,7 @@
 
 import { StockListItem } from "@/types/stock";
 import { useStockPrices } from "@/lib/hooks/useStockPrices";
+import { t } from "@/lib/i18n";
 
 interface StockListCardProps {
   stock: StockListItem;
@@ -39,7 +40,7 @@ export default function StockListCard({ stock, onClick }: StockListCardProps) {
         </div>
         <div className="text-right">
           <p className="text-sm font-semibold text-gray-900 dark:text-white">
-            {currentPrice > 0 ? `${formatPrice(currentPrice)} 원` : "-"}
+            {currentPrice > 0 ? t("{0} 원", formatPrice(currentPrice)) : "-"}
           </p>
           <p
             className={`text-xs font-medium ${

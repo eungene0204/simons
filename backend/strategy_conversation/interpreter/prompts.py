@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "3.7"
+PROMPT_VERSION = "3.9"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -145,7 +145,8 @@ NON_STRATEGY_REQUEST(전략과 무관)
 - 재무 지표 상위/하위 N종목 선정('영업이익률 상위 20종목', 'PER 낮은 상위 10종목')은 조건이 아니라 랭킹입니다 → strategy.ranking에 {{"metric":"fundamental.operating_margin","direction":"top"}} (낮은 순은 direction:"bottom"). 종목 수는 portfolio.selection_count로.
 - **direction은 사용자가 정렬 방향을 말했을 때만 출력하세요**('낮은 순'·'높은 순'·'가장 싼'·'상위'가 어느 쪽인지 분명할 때). 방향 언급이 없으면(예: 'PER 기준으로 20종목') direction을 **비워 두세요(null)** — 지표마다 선호 방향이 정해져 있어 시스템이 위 어휘의 [낮을수록 선호]/[높을수록 선호] 표시대로 채웁니다. 임의로 "top"을 채우면 저평가 지표에서 가장 비싼 종목을 고르는 정반대 전략이 됩니다.
 - 종목 수가 아니라 비율로 말하면('상위 10% 종목만 편입') portfolio.selection_percent=10 (selection_count는 null).
-- 지표 순으로 정렬해 종목 수가 동일한 N개 그룹으로 나눠 그룹별로 비교/편입하는 요청('10개 그룹으로 나눠 1그룹에는 PER 가장 낮은 10%…', 'PER 십분위 분석')은 ranking의 quantile_groups=N입니다 → {{"metric":"fundamental.per","direction":"bottom","quantile_groups":10}}. 이때 selection_count/selection_percent는 null(그룹이 편입 규모를 정의합니다).
+- 지표 순으로 정렬해 종목 수가 동일한 N개 그룹으로 나눠 그룹별로 비교/편입하는 요청('10개 그룹으로 나눠 1그룹에는 PER 가장 낮은 10%…', 'PER 십분위 분석')은 ranking의 quantile_groups=N입니다 → {{"metric":"fundamental.per","direction":"bottom","quantile_groups":10}}. 이때 selection_count/selection_percent는 null(그룹이 편입 규모를 정의합니다). '상위 10%'처럼 **편입 비율만** 말한 것은 그룹 비교가 아닙니다 — quantile_groups를 채우지 마세요.
+- **복합 순위 합산(멀티팩터 랭킹)**: 여러 지표로 각각 정렬해 순위를 매기고 그 순위를 합산(또는 평균)해 합산 순위 상위/합산값 최소를 편입하는 요청('ROE 내림차순, PER 오름차순으로 순위를 구해 합산해 합산값이 가장 낮은 상위 10%', 'PBR·PER 순위 합계 상위 20종목')은 **strategy.ranking에 지표 하나당 항목 하나**를 넣습니다 → [{{"metric":"fundamental.roe_or_gpa","direction":"top"}},{{"metric":"fundamental.per","direction":"bottom"}}]. 랭킹 항목이 2개 이상이면 시스템이 순위 합산으로 실행합니다. 이때 ① 그 지표들을 entry_conditions(임계값 조건)로 만들지 마세요 — '내림차순/오름차순'은 정렬 방향이지 임계값이 아닙니다(value를 물을 것이 없습니다). ② 'composite'·'score' 같은 **합산 지표 이름을 지어내지 마세요** — 합산은 항목 수로 표현됩니다. ③ '내림차순/높은 순'=direction:"top", '오름차순/낮은 순'=direction:"bottom". ④ 지표별 가중치를 되묻지 마세요(동일 가중이 정의입니다).
 
 ## 핵심 규칙
 0. 전략 조건을 서술하면서 '백테스트'·'테스트'·'검증'을 말한 입력은 CREATE_STRATEGY입니다
@@ -232,8 +233,19 @@ NON_STRATEGY_REQUEST(전략과 무관)
      parameters={{"short_period":1,"long_period":20}} (short_period=1이 종가)
    - '20일선 이탈'·'20일선 아래로 내려오면'·'20일선을 깨고 내려오면' → 같은 factor,
      crosses_below, 같은 parameters
-   - '5일 EMA가 20일 EMA 위' → technical.ema, crosses_above,
+   - **EMA를 말했으면 factor는 언제나 technical.ema입니다** — ma_crossover·
+     concept.golden_cross는 단순이동평균(SMA)이라 지표가 바뀝니다. '종가가 20일 EMA를
+     회복/이탈'처럼 **종가와 EMA 한 선**이면 ma_crossover와 같은 표기로 short_period=1
+     (종가)을 씁니다: '종가가 20일 EMA를 회복' → technical.ema, crosses_above,
+     parameters={{"short_period":1,"long_period":20}} / '20일 EMA 이탈' → crosses_below,
+     같은 parameters.
+   - '5일 EMA가 20일 EMA를 **돌파/교차**' → technical.ema, crosses_above,
      parameters={{"short_period":5,"long_period":20}} / 'EMA 데드크로스' → crosses_below
+   - '20일 EMA가 60일 EMA **위에 있는**'·'EMA 정배열 상태'처럼 교차 시점이 아니라 **머무는
+     상태**면 operator는 `>`(아래면 `<`)이고 기간은 둘 다 넣습니다 —
+     parameters={{"short_period":20,"long_period":60}}. 이때 임계값(value)은 null이며,
+     상태를 crossover로 옮기면 정배열인 동안 계속 참이어야 할 조건이 교차 당일 하루로
+     좁아집니다(반대로 교차 시점을 `>`로 쓰면 조건이 넓어집니다).
    - '골든크로스'·'데드크로스'라는 말이 나오면(오타 변형 포함: '골든크러스' 등) factor는
      **concept.golden_cross / concept.dead_cross**입니다 — 두 이동평균의 교차이며 전개
      (연산자·정본 기간 5/20)는 시스템이 합니다. operator·value는 null, 사용자가 기간을
@@ -389,6 +401,13 @@ NON_STRATEGY_REQUEST(전략과 무관)
     1만원=10000, 1천만원=10000000, 1억원=100000000, 10억원=1000000000.
     "3억원"=300000000, "5000만원"=50000000, "1억5천만원"=150000000.
     (실측 드리프트 2026-07-31: "3억원"을 30000000으로 10배 축소해 출력했습니다.)
+11-2-1. 지표 목록에 **단위=억원**으로 적힌 지표(시가총액·거래대금·당기순이익·영업이익·
+    현금흐름 등)의 value는 **억원 단위 숫자**입니다. 원 단위로 쓰지 말고(초기자금 규칙
+    11-2와 단위가 다릅니다), '조'는 ×10,000으로 환산하세요:
+    "1조"=10000, "1조 원"=10000, "2조"=20000, "2조 5000억"=25000, "1.5조"=15000,
+    "5000억"=5000, "3천억"=3000, "100억원"=100.
+    (실측 드리프트 2026-08-18: "시가총액 1조 원 이상"을 value=100000으로 냈습니다 —
+    억원 단위에서 100000은 10조라 사용자 요청보다 10배 큰 조건이 됩니다.)
 12. 백테스트 기간이 날짜로 명시되면 backtest.start_date/end_date를 YYYY-MM-DD로 출력하세요.
     "2020년 1월부터 2025년 12월까지" → start_date="2020-01-01", end_date="2025-12-31"
     (종료 월은 말일까지). 과거/미래 판단은 입력에 함께 주어지는 '오늘 날짜'만 기준으로
@@ -479,6 +498,18 @@ entry_conditions로 분리합니다.
 ranking=[{{"metric":"fundamental.per","direction":"bottom","quantile_groups":10}}],
 portfolio={{"selection_count":null,"selection_percent":null}} — 그룹이 편입 규모를
 정의하므로 종목 수를 되묻지 않습니다. '1그룹=가장 낮은'이므로 direction:"bottom"입니다.
+
+## 예시 4-c (복합 순위 합산 — 여러 지표 순위 합산은 랭킹 항목 여러 개)
+입력: "roe 내림차순, 유동비율 내림차순, per 오름차순, pcr 오름차순으로 정렬하여 각 순위를
+구하고, 순위를 합산하여 합산값이 가장 낮은 상위 10% 투자"
+출력 요점: entry_conditions=[](정렬 방향은 임계값 조건이 아님),
+ranking=[{{"metric":"fundamental.roe_or_gpa","direction":"top"}},
+{{"metric":"fundamental.current_ratio","direction":"top"}},
+{{"metric":"fundamental.per","direction":"bottom"}},
+{{"metric":"fundamental.pcr","direction":"bottom"}}],
+portfolio={{"selection_percent":10}}. quantile_groups는 null('상위 10%'는 편입 비율).
+unsupported_features=[](복합 순위 합산은 지원 기능) — 'composite' 같은 지표명을 만들지
+않습니다.
 
 ## 예시 4-1 (ETF 테마 — 이미 말한 테마를 되묻지 않기)
 입력: "반도체 etf 투자 전략"

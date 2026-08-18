@@ -20722,52 +20722,6 @@
    ]
   },
   {
-   "id": "naver-theme-177",
-   "name": "LPG(액화석유가스)",
-   "kind": "theme",
-   "synonyms": [
-    "액화석유가스"
-   ],
-   "stocks": [
-    {
-     "symbol": "128820",
-     "name": "대성산업"
-    },
-    {
-     "symbol": "014530",
-     "name": "극동유화"
-    },
-    {
-     "symbol": "078930",
-     "name": "GS"
-    },
-    {
-     "symbol": "017940",
-     "name": "E1"
-    },
-    {
-     "symbol": "018670",
-     "name": "SK가스"
-    },
-    {
-     "symbol": "010950",
-     "name": "S-Oil"
-    },
-    {
-     "symbol": "096770",
-     "name": "SK이노베이션"
-    },
-    {
-     "symbol": "000440",
-     "name": "중앙에너비스"
-    },
-    {
-     "symbol": "024060",
-     "name": "흥구석유"
-    }
-   ]
-  },
-  {
    "id": "naver-upjong-308",
    "name": "인터넷과카탈로그소매",
    "kind": "industry",
@@ -28052,6 +28006,52 @@
     {
      "symbol": "064260",
      "name": "다날"
+    }
+   ]
+  },
+  {
+   "id": "naver-theme-177",
+   "name": "LPG(액화석유가스)",
+   "kind": "theme",
+   "synonyms": [
+    "lpg"
+   ],
+   "stocks": [
+    {
+     "symbol": "078930",
+     "name": "GS"
+    },
+    {
+     "symbol": "018670",
+     "name": "SK가스"
+    },
+    {
+     "symbol": "096770",
+     "name": "SK이노베이션"
+    },
+    {
+     "symbol": "010950",
+     "name": "S-Oil"
+    },
+    {
+     "symbol": "017940",
+     "name": "E1"
+    },
+    {
+     "symbol": "014530",
+     "name": "극동유화"
+    },
+    {
+     "symbol": "128820",
+     "name": "대성산업"
+    },
+    {
+     "symbol": "000440",
+     "name": "중앙에너비스"
+    },
+    {
+     "symbol": "024060",
+     "name": "흥구석유"
     }
    ]
   }

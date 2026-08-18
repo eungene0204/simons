@@ -12,6 +12,7 @@ import {
 import StockSearchModal from "@/components/stock/StockSearchModal";
 import { addMultipleToWatchlist, removeFromWatchlist } from "@/lib/watchlist";
 import { useWatchlistMarket } from "@/lib/hooks/useWatchlistMarket";
+import { t } from "@/lib/i18n";
 
 export default function Watchlist() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -68,7 +69,7 @@ export default function Watchlist() {
           <div className="flex items-center gap-2">
             <Star size={20} weight="fill" className="text-yellow-500" />
             <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
-              관심종목
+              {t("관심종목")}
             </h1>
           </div>
           <button
@@ -76,7 +77,7 @@ export default function Watchlist() {
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-semibold"
           >
             <MagnifyingGlass size={16} />
-            종목 검색
+            {t("종목 검색")}
           </button>
         </div>
 
@@ -86,19 +87,19 @@ export default function Watchlist() {
           <thead>
             <tr className="border-b border-gray-200 dark:border-gray-700">
               <th className="text-left py-2 px-2 text-xs font-semibold text-gray-600 dark:text-gray-400">
-                종목
+                {t("종목")}
               </th>
               <th className="text-right py-2 px-2 text-xs font-semibold text-gray-600 dark:text-gray-400">
-                현재가
+                {t("현재가")}
               </th>
               <th className="text-right py-2 px-2 text-xs font-semibold text-gray-600 dark:text-gray-400">
-                등락률
+                {t("등락률")}
               </th>
               <th className="text-right py-2 px-2 text-xs font-semibold text-gray-600 dark:text-gray-400">
-                등락액
+                {t("등락액")}
               </th>
               <th className="text-right py-2 px-2 text-xs font-semibold text-gray-600 dark:text-gray-400">
-                거래량(주)
+                {t("거래량(주)")}
               </th>
             </tr>
           </thead>
@@ -109,7 +110,7 @@ export default function Watchlist() {
                   colSpan={5}
                   className="text-center py-8 text-sm text-gray-500 dark:text-gray-400"
                 >
-                  관심종목이 없습니다.
+                  {t("관심종목이 없습니다.")}
                 </td>
               </tr>
             ) : (
@@ -147,7 +148,7 @@ export default function Watchlist() {
                       <button
                         onClick={(e) => handleRemoveFromWatchlist(item.symbol, e)}
                         className="ml-auto p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-                        title="관심종목에서 제거"
+                        title={t("관심종목에서 제거")}
                       >
                         <X size={16} className="text-gray-500 dark:text-gray-400" />
                       </button>

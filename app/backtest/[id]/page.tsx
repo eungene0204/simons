@@ -15,6 +15,7 @@ import {
   type AdvisorWalkForwardSettings,
 } from "../../analytics/new/parsedStrategyMerge";
 import { runWalkForwardStream, type WalkForwardProgressHandler } from "../../analytics/new/walkForwardStream";
+import { t } from "@/lib/i18n";
 
 const backtestEmptyStateClassName =
   "flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] flex-col items-center justify-center gap-4 px-4 text-center text-gray-500";
@@ -62,12 +63,12 @@ export default function BacktestDetailPage() {
     return (
       <DashboardLayout userName="">
         <div className={backtestEmptyStateClassName}>
-          <p className="text-base font-bold">기록을 찾을 수 없습니다.</p>
+          <p className="text-base font-bold">{t("기록을 찾을 수 없습니다.")}</p>
           <button
             onClick={() => router.back()}
             className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white text-sm font-bold rounded-xl border border-white/10 transition-all"
           >
-            <ArrowLeft className="w-4 h-4" /> 돌아가기
+            <ArrowLeft className="w-4 h-4" />{t(" 돌아가기")}
           </button>
         </div>
       </DashboardLayout>
@@ -78,13 +79,13 @@ export default function BacktestDetailPage() {
     return (
       <DashboardLayout userName="">
         <div className={backtestEmptyStateClassName}>
-          <p className="text-base font-bold">이 기록에는 상세 결과가 저장되어 있지 않습니다.</p>
-          <p className="text-sm text-gray-600">새로 실행된 백테스트부터 상세 결과가 저장됩니다.</p>
+          <p className="text-base font-bold">{t("이 기록에는 상세 결과가 저장되어 있지 않습니다.")}</p>
+          <p className="text-sm text-gray-600">{t("새로 실행된 백테스트부터 상세 결과가 저장됩니다.")}</p>
           <button
             onClick={() => router.back()}
             className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white text-sm font-bold rounded-xl border border-white/10 transition-all"
           >
-            <ArrowLeft className="w-4 h-4" /> 돌아가기
+            <ArrowLeft className="w-4 h-4" />{t(" 돌아가기")}
           </button>
         </div>
       </DashboardLayout>
@@ -97,7 +98,11 @@ export default function BacktestDetailPage() {
     strategyName: item.strategyName,
   });
 
-  const normalizedBacktestDsl = item.settings ? normalizeLegacyBreakoutStrategy(item.settings as any) : null;
+  // 재실행(워크포워드·리밸런싱 기간별 비교)의 근거 DSL. 원천 Strategy 행의 settings가 없으면
+  // 결과에 함께 저장된 실행 요청(executedRequest)을 쓴다 — 종전에는 그 경우 재실행 기능이
+  // 조용히 꺼졌다(리밸런싱 비교 탭 "요청 미저장" 안내 사고, 2026-08-18).
+  const dslSource = item.settings ?? (item.result as any)?.executedRequest ?? null;
+  const normalizedBacktestDsl = dslSource ? normalizeLegacyBreakoutStrategy(dslSource as any) : null;
 
   // BacktestHistory.result는 백엔드 응답을 그대로 저장한 것이라 signals만 있고
   // BacktestDashboard가 매매 기록 탭에 쓰는 tradesList는 없다(app/analytics/[id]와 달리
@@ -123,13 +128,13 @@ export default function BacktestDetailPage() {
     onProgress?: WalkForwardProgressHandler
   ) => {
     if (!normalizedBacktestDsl) {
-      throw new Error("이 기록에는 워크포워드 분석에 필요한 전략 설정이 저장되어 있지 않습니다.");
+      throw new Error(t("이 기록에는 워크포워드 분석에 필요한 전략 설정이 저장되어 있지 않습니다."));
     }
 
     const ranges = buildWalkForwardParameterRanges(normalizedBacktestDsl);
     if (!hasWalkForwardParameterRanges(ranges)) {
       throw new Error(
-        "워크포워드 최적화에 사용할 숫자 파라미터가 없습니다. 손절/익절, 지표 기간, 임계값처럼 조정 가능한 조건이 포함된 전략에서 실행해 주세요."
+        t("워크포워드 최적화에 사용할 숫자 파라미터가 없습니다. 손절/익절, 지표 기간, 임계값처럼 조정 가능한 조건이 포함된 전략에서 실행해 주세요.")
       );
     }
 

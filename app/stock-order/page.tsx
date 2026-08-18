@@ -41,6 +41,7 @@ import {
   getHoldingsByAccount,
 } from "@/lib/portfolio";
 import type { VirtualAccount, PendingOrder } from "@/types/portfolio";
+import { getLocale, t } from "@/lib/i18n";
 
 const formatPrice = (price: number) => {
   return new Intl.NumberFormat("ko-KR").format(price);
@@ -74,7 +75,7 @@ const formatCount = (value: unknown, unit: string) => {
 const formatWonMetric = (value: unknown) => {
   const number = toFiniteNumber(value);
   if (number === undefined) return "—";
-  if (number === 0) return "0원";
+  if (number === 0) return t("0원");
   const sign = number < 0 ? "-" : "";
   return `${sign}${formatMarketCap(Math.abs(number))}`;
 };
@@ -278,26 +279,26 @@ function OrderPageContent() {
 
   // 주문 확인 단계
   const handleOrderConfirm = () => {
-    if (!selectedAccountId) { alert("가상계좌를 선택해주세요."); return; }
-    if (!symbol) { alert("종목을 선택해주세요."); return; }
+    if (!selectedAccountId) { alert(t("가상계좌를 선택해주세요.")); return; }
+    if (!symbol) { alert(t("종목을 선택해주세요.")); return; }
     if (transactionType !== "buy" && transactionType !== "sell") return;
     const qty = parseInt(quantity);
     const prc = priceType === "market" ? (currentPrice ?? 0) : parseFloat(price);
-    if (!quantity || isNaN(qty) || qty <= 0) { alert("수량을 입력해주세요."); return; }
-    if (priceType !== "market" && (!price || isNaN(prc) || prc <= 0)) { alert("가격을 입력해주세요."); return; }
-    if (transactionType === "sell" && qty > holdingQty) { alert(`보유수량(${holdingQty}주)을 초과할 수 없습니다.`); return; }
+    if (!quantity || isNaN(qty) || qty <= 0) { alert(t("수량을 입력해주세요.")); return; }
+    if (priceType !== "market" && (!price || isNaN(prc) || prc <= 0)) { alert(t("가격을 입력해주세요.")); return; }
+    if (transactionType === "sell" && qty > holdingQty) { alert(t("보유수량({0}주)을 초과할 수 없습니다.", holdingQty)); return; }
     setOrderConfirmStep(true);
   };
 
   // 매수/매도 주문 처리
   const handleOrder = async () => {
-    if (!selectedAccountId) { alert("가상계좌를 선택해주세요."); return; }
-    if (!symbol) { alert("종목을 선택해주세요."); return; }
+    if (!selectedAccountId) { alert(t("가상계좌를 선택해주세요.")); return; }
+    if (!symbol) { alert(t("종목을 선택해주세요.")); return; }
     if (transactionType !== "buy" && transactionType !== "sell") return;
     const qty = parseInt(quantity);
     const prc = priceType === "market" ? (currentPrice ?? parseFloat(price || "0")) : parseFloat(price);
-    if (isNaN(qty) || qty <= 0) { alert("수량을 올바르게 입력해주세요."); return; }
-    if (priceType !== "market" && (isNaN(prc) || prc <= 0)) { alert("가격을 올바르게 입력해주세요."); return; }
+    if (isNaN(qty) || qty <= 0) { alert(t("수량을 올바르게 입력해주세요.")); return; }
+    if (priceType !== "market" && (isNaN(prc) || prc <= 0)) { alert(t("가격을 올바르게 입력해주세요.")); return; }
 
     setOrderConfirmStep(false);
     const orderTypeMapped: "MARKET" | "LIMIT" = priceType === "market" ? "MARKET" : "LIMIT";
@@ -316,7 +317,7 @@ function OrderPageContent() {
       selectedAccountId, transactionType, symbol, stockName, qty, prc, orderTypeMapped
     );
     if (!result.success) {
-      setOrderModal({ type: "error", stockName, message: result.error ?? "거래에 실패했습니다." });
+      setOrderModal({ type: "error", stockName, message: result.error ?? t("거래에 실패했습니다.") });
       return;
     }
 
@@ -328,7 +329,7 @@ function OrderPageContent() {
     await loadPendingOrders();
 
     const order = result.order;
-    const action = transactionType === "buy" ? "매수" : "매도";
+    const action = transactionType === "buy" ? t("매수") : t("매도");
     const isPending = order?.status === "PENDING";
     const filledPrc = order?.filledPrice ?? prc;
     const fee = order?.fee ?? 0;
@@ -691,10 +692,10 @@ function OrderPageContent() {
 
   if (!symbol) {
     return (
-      <DashboardLayout userName="사용자">
+      <DashboardLayout userName={t("사용자")}>
         <div className="w-full min-w-0 border border-white/[0.08]">
           <div className="py-16 text-center">
-            <p className="text-sm font-bold text-gray-500">종목을 선택해주세요.</p>
+            <p className="text-sm font-bold text-gray-500">{t("종목을 선택해주세요.")}</p>
           </div>
         </div>
       </DashboardLayout>
@@ -702,14 +703,14 @@ function OrderPageContent() {
   }
 
   return (
-    <DashboardLayout userName="사용자">
+    <DashboardLayout userName={t("사용자")}>
       {/* 주문 결과 모달 */}
       {orderModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 lg:p-0"
           role="dialog"
           aria-modal="true"
-          aria-label="주문 결과"
+          aria-label={t("주문 결과")}
           onClick={() => setOrderModal(null)}
         >
           <div
@@ -724,21 +725,21 @@ function OrderPageContent() {
               {orderModal.type === "success" && (
                 <>
                   <CheckCircle size={56} className="text-[var(--main-red)] mb-3" weight="fill" />
-                  <p className="text-lg font-black text-white">{orderModal.action} 체결 완료</p>
+                  <p className="text-lg font-black text-white">{t("{0} 체결 완료", orderModal.action)}</p>
                   <p className="text-sm font-bold text-gray-400 mt-1">{orderModal.stockName}</p>
                 </>
               )}
               {orderModal.type === "pending" && (
                 <>
                   <Warning size={56} className="text-amber-400 mb-3" weight="fill" />
-                  <p className="text-lg font-black text-white">지정가 대기 중</p>
+                  <p className="text-lg font-black text-white">{t("지정가 대기 중")}</p>
                   <p className="text-sm font-bold text-gray-400 mt-1">{orderModal.stockName}</p>
                 </>
               )}
               {orderModal.type === "error" && (
                 <>
                   <X size={56} className="text-gray-500 mb-3" weight="bold" />
-                  <p className="text-lg font-black text-white">주문 실패</p>
+                  <p className="text-lg font-black text-white">{t("주문 실패")}</p>
                   <p className="text-sm font-bold text-gray-400 mt-1">{orderModal.stockName}</p>
                 </>
               )}
@@ -747,34 +748,34 @@ function OrderPageContent() {
               {orderModal.type === "success" && (
                 <div className="bg-white/[0.03] rounded-xl p-4 space-y-2 mt-2 border border-white/[0.05]">
                   <div className="flex justify-between text-xs font-bold">
-                    <span className="text-gray-500">수량</span>
-                    <span className="text-white tabular-nums">{formatPrice(orderModal.qty ?? 0)}주</span>
+                    <span className="text-gray-500">{t("수량")}</span>
+                    <span className="text-white tabular-nums">{t("{0}주", formatPrice(orderModal.qty ?? 0))}</span>
                   </div>
                   <div className="flex justify-between text-xs font-bold">
-                    <span className="text-gray-500">체결가</span>
-                    <span className="text-white tabular-nums">{formatPrice(orderModal.price ?? 0)}원</span>
+                    <span className="text-gray-500">{t("체결가")}</span>
+                    <span className="text-white tabular-nums">{t("{0}원", formatPrice(orderModal.price ?? 0))}</span>
                   </div>
                   <div className="flex justify-between text-xs font-bold">
-                    <span className="text-gray-500">수수료</span>
-                    <span className="text-gray-400 tabular-nums">{formatPrice(orderModal.fee ?? 0)}원</span>
+                    <span className="text-gray-500">{t("수수료")}</span>
+                    <span className="text-gray-400 tabular-nums">{t("{0}원", formatPrice(orderModal.fee ?? 0))}</span>
                   </div>
                   <div className="border-t border-white/[0.06] pt-2 flex justify-between text-sm font-black">
-                    <span className="text-gray-300">총액</span>
-                    <span className="text-white tabular-nums font-outfit">{formatPrice(orderModal.total ?? 0)}원</span>
+                    <span className="text-gray-300">{t("총액")}</span>
+                    <span className="text-white tabular-nums font-outfit">{t("{0}원", formatPrice(orderModal.total ?? 0))}</span>
                   </div>
                 </div>
               )}
               {orderModal.type === "pending" && (
                 <div className="bg-white/[0.03] rounded-xl p-4 space-y-2 mt-2 border border-white/[0.05]">
                   <div className="flex justify-between text-xs font-bold">
-                    <span className="text-gray-500">수량</span>
-                    <span className="text-white tabular-nums">{formatPrice(orderModal.qty ?? 0)}주</span>
+                    <span className="text-gray-500">{t("수량")}</span>
+                    <span className="text-white tabular-nums">{t("{0}주", formatPrice(orderModal.qty ?? 0))}</span>
                   </div>
                   <div className="flex justify-between text-xs font-bold">
-                    <span className="text-gray-500">지정가</span>
-                    <span className="text-white tabular-nums">{formatPrice(orderModal.price ?? 0)}원</span>
+                    <span className="text-gray-500">{t("지정가")}</span>
+                    <span className="text-white tabular-nums">{t("{0}원", formatPrice(orderModal.price ?? 0))}</span>
                   </div>
-                  <p className="text-xs font-bold text-amber-400/80 pt-1">가격 도달 시 자동으로 체결됩니다.</p>
+                  <p className="text-xs font-bold text-amber-400/80 pt-1">{t("가격 도달 시 자동으로 체결됩니다.")}</p>
                 </div>
               )}
               {orderModal.type === "error" && (
@@ -786,7 +787,7 @@ function OrderPageContent() {
                 onClick={() => setOrderModal(null)}
                 className="w-full py-3 rounded-xl text-sm font-bold text-white bg-white/[0.08] hover:bg-white/[0.12] transition-colors"
               >
-                확인
+                {t("확인")}
               </button>
             </div>
           </div>
@@ -810,32 +811,32 @@ function OrderPageContent() {
             </div>
             <div className="mt-4 flex flex-wrap items-end gap-3">
               <span className={`font-outfit text-3xl font-black tabular-nums leading-none ${priceTone}`}>
-                {currentPrice ? `${formatPrice(currentPrice)}원` : "—"}
+                {currentPrice ? t("{0}원", formatPrice(currentPrice)) : "—"}
               </span>
               <div className={`pb-0.5 text-sm font-bold tabular-nums ${priceTone}`}>
                 {priceChange !== undefined && priceChangePercent !== undefined
-                  ? `${priceChange > 0 ? "+" : ""}${formatPrice(priceChange)}원 (${priceChangePercent > 0 ? "+" : ""}${priceChangePercent.toFixed(2)}%)`
-                  : <span className="text-gray-600 text-xs">전일 대비 집계 중</span>}
+                  ? t("{0}{1}원 ({2}{3}%)", priceChange > 0 ? "+" : "", formatPrice(priceChange), priceChangePercent > 0 ? "+" : "", priceChangePercent.toFixed(2))
+                  : <span className="text-gray-600 text-xs">{t("전일 대비 집계 중")}</span>}
               </div>
             </div>
           </div>
           {/* 우: 3개 KPI 타일 */}
           <div className="lg:col-span-6 grid grid-cols-2 sm:grid-cols-3 border-t border-l border-white/[0.08]">
             <div className="border-r border-b border-white/[0.08] px-4 py-4">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">전일 종가</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{t("전일 종가")}</p>
               <p className="mt-2 text-2xl font-black tabular-nums font-outfit text-white leading-none">
                 {referenceClose ? `${formatPrice(referenceClose)}` : "—"}
               </p>
-              <p className="mt-0.5 text-[10px] font-bold text-gray-600">원</p>
+              <p className="mt-0.5 text-[10px] font-bold text-gray-600">{t("원")}</p>
             </div>
             <div className="border-r border-b border-white/[0.08] px-4 py-4">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">시가총액</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{t("시가총액")}</p>
               <p className="mt-2 text-2xl font-black tabular-nums font-outfit text-white leading-none">
                 {stockInfo?.marketCap ? formatMarketCap(stockInfo.marketCap) : "—"}
               </p>
             </div>
             <div className="border-r border-b border-white/[0.08] px-4 py-4">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">거래량</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{t("거래량")}</p>
               <p className="mt-2 text-2xl font-black tabular-nums font-outfit text-white leading-none">
                 {stockInfo?.volume ? formatPrice(stockInfo.volume) : "—"}
               </p>
@@ -867,7 +868,7 @@ function OrderPageContent() {
                     : "text-gray-500 hover:text-gray-300"
                 }`}
               >
-                {label}
+                {t(label)}
               </button>
             ))}
           </div>
@@ -896,13 +897,13 @@ function OrderPageContent() {
                     {(["day", "week", "month"] as const).map((period) => (
                       <button key={period} onClick={() => setChartPeriod(period)}
                         className={`rounded-xl px-3 py-1 text-xs font-bold transition-colors ${chartPeriod === period ? "bg-white/[0.08] text-white" : "text-gray-500 hover:text-gray-300"}`}>
-                        {period === "day" ? "일봉" : period === "week" ? "주봉" : "월봉"}
+                        {period === "day" ? t("일봉") : period === "week" ? t("주봉") : t("월봉")}
                       </button>
                     ))}
                   </div>
                   <div className="flex-1 min-h-0">
                     {isOhlcvLoading ? (
-                      <div className="flex h-full items-center justify-center text-sm font-bold text-gray-500">차트 데이터를 불러오는 중...</div>
+                      <div className="flex h-full items-center justify-center text-sm font-bold text-gray-500">{t("차트 데이터를 불러오는 중...")}</div>
                     ) : (
                       <CandlestickChart data={candleData} />
                     )}
@@ -931,23 +932,23 @@ function OrderPageContent() {
                 {/* 시세 테이블 */}
                 <MarketDataPanelFrame>
                 <div className="px-4 py-3 border-b border-white/[0.05] shrink-0">
-                  <h2 className="text-sm font-black uppercase tracking-widest text-white font-outfit">시세</h2>
+                  <h2 className="text-sm font-black uppercase tracking-widest text-white font-outfit">{t("시세")}</h2>
                 </div>
                 <PriceHistoryViewport>
                   {/* 헤더 */}
                   <div className={`grid ${PRICE_HISTORY_COLS} gap-2 px-4 py-2 border-b border-white/[0.05] shrink-0`}>
                     {["일자", "종가", "등락률", "거래량", "시가", "고가", "저가"].map((h, i) => (
-                      <span key={h} className={`text-xs font-bold uppercase tracking-widest text-gray-600 ${i > 0 ? "text-right" : ""}`}>{h}</span>
+                      <span key={h} className={`text-xs font-bold uppercase tracking-widest text-gray-600 ${i > 0 ? "text-right" : ""}`}>{t(h)}</span>
                     ))}
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
                     {isOhlcvLoading ? (
                       <div className="py-12 text-center">
-                        <p className="text-sm font-bold text-gray-500">시세 데이터를 불러오는 중...</p>
+                        <p className="text-sm font-bold text-gray-500">{t("시세 데이터를 불러오는 중...")}</p>
                       </div>
                     ) : priceHistoryData.length === 0 ? (
                       <div className="py-12 text-center">
-                        <p className="text-sm font-bold text-gray-500">시세 데이터가 없습니다.</p>
+                        <p className="text-sm font-bold text-gray-500">{t("시세 데이터가 없습니다.")}</p>
                       </div>
                     ) : (
                       <div className="divide-y divide-white/[0.04]">
@@ -984,7 +985,7 @@ function OrderPageContent() {
                     {/* 매수/매도/미체결 탭 */}
                     <div className="grid grid-cols-3 border-b border-white/[0.08]">
                       {(["buy", "sell", "pending"] as const).map((type) => {
-                        const label = type === "buy" ? "매수" : type === "sell" ? "매도" : `미체결${pendingOrders.length > 0 ? ` ${pendingOrders.length}` : ""}`;
+                        const label = type === "buy" ? t("매수") : type === "sell" ? t("매도") : t("미체결{0}", pendingOrders.length > 0 ? ` ${pendingOrders.length}` : "");
                         const activeColor = type === "buy"
                           ? "border-b-2 border-[var(--main-red)] text-[var(--main-red)]"
                           : type === "sell"
@@ -1002,7 +1003,7 @@ function OrderPageContent() {
                               transactionType === type ? activeColor : "text-gray-500 hover:text-gray-300"
                             }`}
                           >
-                            {label}
+                            {t(label)}
                           </button>
                         );
                       })}
@@ -1017,15 +1018,15 @@ function OrderPageContent() {
                       >
                         <span className="truncate text-xs">
                           {selectedAccount
-                            ? `${selectedAccount.name}  |  잔고 ${formatPrice(selectedAccount.currentBalance)}원`
-                            : virtualAccounts.length === 0 ? "가상계좌 없음" : "계좌 선택"}
+                            ? t("{0}  |  잔고 {1}원", selectedAccount.name, formatPrice(selectedAccount.currentBalance))
+                            : virtualAccounts.length === 0 ? t("가상계좌 없음") : t("계좌 선택")}
                         </span>
                         <CaretDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
                       </button>
                       {isAccountDropdownOpen && (
                         <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-xl border border-white/[0.08] bg-[#161616] p-1.5 shadow-2xl">
                           {virtualAccounts.length === 0 ? (
-                            <div className="px-3 py-2 text-xs text-gray-500">가상계좌가 없습니다</div>
+                            <div className="px-3 py-2 text-xs text-gray-500">{t("가상계좌가 없습니다")}</div>
                           ) : (
                             virtualAccounts.map((account) => (
                               <button
@@ -1033,7 +1034,7 @@ function OrderPageContent() {
                                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedAccountId(account.id); setIsAccountDropdownOpen(false); }}
                                 className={`w-full rounded-lg px-3 py-2 text-left text-xs font-bold transition-colors ${selectedAccountId === account.id ? "bg-white/[0.08] text-white" : "text-gray-300 hover:bg-white/[0.04]"}`}
                               >
-                                {account.name} ({formatPrice(account.currentBalance)}원)
+                                {t("{0} ({1}원)", account.name, formatPrice(account.currentBalance))}
                               </button>
                             ))
                           )}
@@ -1045,12 +1046,12 @@ function OrderPageContent() {
                       /* ── 미체결 패널 ── */
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-gray-400">미체결 주문</span>
-                          <button onClick={loadPendingOrders} className="text-xs text-gray-500 hover:text-white">새로고침</button>
+                          <span className="text-xs font-bold text-gray-400">{t("미체결 주문")}</span>
+                          <button onClick={loadPendingOrders} className="text-xs text-gray-500 hover:text-white">{t("새로고침")}</button>
                         </div>
                         {pendingOrders.length === 0 ? (
                           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-8 text-center text-xs font-bold text-gray-500">
-                            미체결 주문이 없습니다.
+                            {t("미체결 주문이 없습니다.")}
                           </div>
                         ) : (
                           pendingOrders.map((order) => (
@@ -1058,13 +1059,13 @@ function OrderPageContent() {
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
                                   <span className={`text-xs font-black ${order.type === "buy" ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
-                                    {order.type === "buy" ? "매수" : "매도"}
+                                    {order.type === "buy" ? t("매수") : t("매도")}
                                   </span>
                                   <span className="truncate text-xs font-bold text-white">{order.name}</span>
                                 </div>
-                                <div className="mt-0.5 text-xs text-gray-400">{formatPrice(order.price)}원 × {order.quantity}주</div>
+                                <div className="mt-0.5 text-xs text-gray-400">{t("{0}원 × {1}주", formatPrice(order.price), order.quantity)}</div>
                                 <div className="mt-0.5 text-[10px] text-gray-500">
-                                  {new Date(order.timestamp).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                                  {new Date(order.timestamp).toLocaleString(getLocale(), { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
                                 </div>
                               </div>
                               <button
@@ -1075,10 +1076,10 @@ function OrderPageContent() {
                                     const acc = await getAccount(selectedAccountId!);
                                     if (acc) setAvailableAmount(acc.currentBalance);
                                     getAllAccounts().then(setVirtualAccounts);
-                                  } else { alert(res.error ?? "취소 실패"); }
+                                  } else { alert(res.error ?? t("취소 실패")); }
                                 }}
                                 className="ml-2 rounded-lg border border-white/[0.08] px-2.5 py-1.5 text-xs font-bold text-gray-400 hover:text-white"
-                              >취소</button>
+                              >{t("취소")}</button>
                             </div>
                           ))
                         )}
@@ -1087,57 +1088,57 @@ function OrderPageContent() {
                       /* ── 주문 확인 단계 ── */
                       <div className="flex flex-1 flex-col space-y-3">
                         <div className={`rounded-xl p-3 text-center text-xs font-black ${transactionType === "buy" ? "bg-[var(--main-red)]/10 text-[var(--main-red)]" : "bg-[var(--main-blue)]/10 text-[var(--main-blue)]"}`}>
-                          {transactionType === "buy" ? "매수" : "매도"} 주문을 확인합니다
+                          {t("{0} 주문을 확인합니다", transactionType === "buy" ? t("매수") : t("매도"))}
                         </div>
                         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 space-y-2">
                           <div className="flex justify-between text-xs">
-                            <span className="text-gray-400">종목</span>
+                            <span className="text-gray-400">{t("종목")}</span>
                             <span className="font-bold text-white">{displayStockName} ({symbol})</span>
                           </div>
                           <div className="flex justify-between text-xs">
-                            <span className="text-gray-400">주문유형</span>
+                            <span className="text-gray-400">{t("주문유형")}</span>
                             <span className="font-bold text-white">
-                              {priceType === "market" ? "시장가" : "지정가"}
+                              {priceType === "market" ? t("시장가") : t("지정가")}
                             </span>
                           </div>
                           <div className="flex justify-between text-xs">
-                            <span className="text-gray-400">주문가</span>
+                            <span className="text-gray-400">{t("주문가")}</span>
                             <span className="font-bold text-white">
-                              {priceType === "market" ? "시장가" : `${formatPrice(Number(price))}원`}
+                              {priceType === "market" ? t("시장가") : t("{0}원", formatPrice(Number(price)))}
                             </span>
                           </div>
                           <div className="flex justify-between text-xs">
-                            <span className="text-gray-400">주문수량</span>
-                            <span className="font-bold text-white">{formatPrice(Number(quantity))}주</span>
+                            <span className="text-gray-400">{t("주문수량")}</span>
+                            <span className="font-bold text-white">{t("{0}주", formatPrice(Number(quantity)))}</span>
                           </div>
                           <div className="flex justify-between text-xs">
-                            <span className="text-gray-400">주문금액</span>
-                            <span className="font-bold text-white">{formatPrice(orderAmount)}원</span>
+                            <span className="text-gray-400">{t("주문금액")}</span>
+                            <span className="font-bold text-white">{t("{0}원", formatPrice(orderAmount))}</span>
                           </div>
                           <div className="flex justify-between text-xs">
-                            <span className="text-gray-400">수수료 (0.015%)</span>
-                            <span className="text-gray-300">{formatPrice(commission)}원</span>
+                            <span className="text-gray-400">{t("수수료 (0.015%)")}</span>
+                            <span className="text-gray-300">{t("{0}원", formatPrice(commission))}</span>
                           </div>
                           {transactionType === "sell" && (
                             <div className="flex justify-between text-xs">
-                              <span className="text-gray-400">증권거래세 (0.20%)</span>
-                              <span className="text-gray-300">{formatPrice(securityTax)}원</span>
+                              <span className="text-gray-400">{t("증권거래세 (0.20%)")}</span>
+                              <span className="text-gray-300">{t("{0}원", formatPrice(securityTax))}</span>
                             </div>
                           )}
                           <div className="border-t border-white/[0.06] pt-2 flex justify-between text-xs font-bold">
-                            <span className="text-gray-300">{transactionType === "buy" ? "총 결제금액" : "예상 수령금액"}</span>
-                            <span className="text-white">{formatPrice(settlementAmount)}원</span>
+                            <span className="text-gray-300">{transactionType === "buy" ? t("총 결제금액") : t("예상 수령금액")}</span>
+                            <span className="text-white">{t("{0}원", formatPrice(settlementAmount))}</span>
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2 mt-auto">
                           <button
                             onClick={() => setOrderConfirmStep(false)}
                             className="rounded-xl border border-white/[0.08] py-3 text-sm font-bold text-gray-300 hover:text-white"
-                          >취소</button>
+                          >{t("취소")}</button>
                           <button
                             onClick={handleOrder}
                             className={`rounded-xl py-3 text-sm font-black text-white ${transactionType === "buy" ? "bg-[var(--main-red)] hover:bg-red-500" : "bg-[var(--main-blue)] hover:bg-blue-500"}`}
-                          >주문 확정</button>
+                          >{t("주문 확정")}</button>
                         </div>
                       </div>
                     ) : (
@@ -1147,19 +1148,19 @@ function OrderPageContent() {
                         {transactionType === "sell" && (
                           <div className="grid grid-cols-2 gap-2">
                             <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                              <div className="text-[10px] text-gray-500">보유수량</div>
-                              <div className="text-sm font-black tabular-nums text-white">{formatPrice(holdingQty)}주</div>
+                              <div className="text-[10px] text-gray-500">{t("보유수량")}</div>
+                              <div className="text-sm font-black tabular-nums text-white">{t("{0}주", formatPrice(holdingQty))}</div>
                             </div>
                             <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                              <div className="text-[10px] text-gray-500">평균단가</div>
-                              <div className="text-sm font-black tabular-nums text-white">{avgBuyPrice > 0 ? `${formatPrice(avgBuyPrice)}원` : "-"}</div>
+                              <div className="text-[10px] text-gray-500">{t("평균단가")}</div>
+                              <div className="text-sm font-black tabular-nums text-white">{avgBuyPrice > 0 ? t("{0}원", formatPrice(avgBuyPrice)) : "-"}</div>
                             </div>
                           </div>
                         )}
 
                         {/* 주문유형 */}
                         <div>
-                          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-500">주문유형</div>
+                          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-500">{t("주문유형")}</div>
                           <div className="relative flex rounded-xl bg-white/[0.06] p-1 overflow-hidden">
                             <div
                               className={`absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-lg bg-white/20 ${
@@ -1178,7 +1179,7 @@ function OrderPageContent() {
                                   priceType === type ? "text-white" : "text-gray-500 hover:text-gray-300"
                                 }`}
                               >
-                                {type === "limit" ? "지정가" : "시장가"}
+                                {type === "limit" ? t("지정가") : t("시장가")}
                               </button>
                             ))}
                           </div>
@@ -1188,7 +1189,7 @@ function OrderPageContent() {
                         <div>
                           <div className="mb-1.5">
                             <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                              {transactionType === "buy" ? "매수가격" : "매도가격"}
+                              {transactionType === "buy" ? t("매수가격") : t("매도가격")}
                             </span>
                           </div>
                           <div className="flex gap-1.5">
@@ -1198,7 +1199,7 @@ function OrderPageContent() {
                               onChange={(e) => { const raw = e.target.value.replace(/,/g, ""); if (raw === "" || /^\d+$/.test(raw)) setPrice(raw); }}
                               disabled={priceType === "market"}
                               className="min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-right tabular-nums text-white placeholder:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40 outline-none focus:outline-none focus:ring-0"
-                              placeholder={priceType === "market" ? "시장가" : "0"}
+                              placeholder={priceType === "market" ? t("시장가") : "0"}
                             />
                             <button
                               disabled={priceType === "market"}
@@ -1216,7 +1217,7 @@ function OrderPageContent() {
                         {/* 수량 입력 */}
                         <div>
                           <div className="mb-1.5">
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">수량</span>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{t("수량")}</span>
                           </div>
                           <div className="flex gap-1.5">
                             <div className="relative min-w-0 flex-1">
@@ -1229,7 +1230,7 @@ function OrderPageContent() {
                               />
                               {!quantity && (
                                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
-                                  {transactionType === "sell" ? `최대 ${formatPrice(holdingQty)}주` : `최대 ${formatPrice(availableQty)}주`}
+                                  {transactionType === "sell" ? t("최대 {0}주", formatPrice(holdingQty)) : t("최대 {0}주", formatPrice(availableQty))}
                                 </span>
                               )}
                             </div>
@@ -1248,7 +1249,7 @@ function OrderPageContent() {
                                 key={ratio}
                                 onClick={() => setQuantity(Math.floor(availableQty * ratio).toString())}
                                 className="rounded-md border border-white/[0.06] bg-white/[0.02] py-1.5 text-[10px] font-bold text-gray-400 hover:text-white"
-                              >{i === 3 ? "전체" : `${ratio * 100}%`}</button>
+                              >{i === 3 ? t("전체") : `${ratio * 100}%`}</button>
                             ))}
                           </div>
                         </div>
@@ -1258,9 +1259,9 @@ function OrderPageContent() {
                           {transactionType === "sell" && avgBuyPrice > 0 && Number(quantity) > 0 && orderPrice > 0 && (
                             <>
                               <div className="flex justify-between text-xs">
-                                <span className="text-gray-500">예상손익</span>
+                                <span className="text-gray-500">{t("예상손익")}</span>
                                 <span className={`font-bold tabular-nums ${estimatedPnl !== undefined && estimatedPnl > 0 ? "text-[var(--main-red)]" : estimatedPnl !== undefined && estimatedPnl < 0 ? "text-[var(--main-blue)]" : "text-white"}`}>
-                                  {estimatedPnl !== undefined ? `${estimatedPnl > 0 ? "+" : ""}${formatPrice(estimatedPnl)}원` : "-"}
+                                  {estimatedPnl !== undefined ? t("{0}{1}원", estimatedPnl > 0 ? "+" : "", formatPrice(estimatedPnl)) : "-"}
                                   {estimatedPnlRate !== undefined ? ` (${estimatedPnlRate > 0 ? "+" : ""}${estimatedPnlRate.toFixed(2)}%)` : ""}
                                 </span>
                               </div>
@@ -1268,28 +1269,28 @@ function OrderPageContent() {
                             </>
                           )}
                           <div className="flex justify-between text-xs">
-                            <span className="text-gray-500">{transactionType === "buy" ? "구매가능" : "보유수량"}</span>
+                            <span className="text-gray-500">{transactionType === "buy" ? t("구매가능") : t("보유수량")}</span>
                             <span className="font-bold tabular-nums text-gray-300">
-                              {transactionType === "buy" ? `${formatPrice(availableAmount)}원` : `${formatPrice(holdingQty)}주`}
+                              {transactionType === "buy" ? t("{0}원", formatPrice(availableAmount)) : t("{0}주", formatPrice(holdingQty))}
                             </span>
                           </div>
                           <div className="flex justify-between text-xs">
-                            <span className="text-gray-500">주문금액</span>
-                            <span className="font-bold tabular-nums text-white">{formatPrice(orderAmount)}원</span>
+                            <span className="text-gray-500">{t("주문금액")}</span>
+                            <span className="font-bold tabular-nums text-white">{t("{0}원", formatPrice(orderAmount))}</span>
                           </div>
                           <div className="flex justify-between text-xs">
-                            <span className="text-gray-500">수수료 (0.015%)</span>
-                            <span className="tabular-nums text-gray-400">{formatPrice(commission)}원</span>
+                            <span className="text-gray-500">{t("수수료 (0.015%)")}</span>
+                            <span className="tabular-nums text-gray-400">{t("{0}원", formatPrice(commission))}</span>
                           </div>
                           {transactionType === "sell" && (
                             <div className="flex justify-between text-xs">
-                              <span className="text-gray-500">증권거래세 (0.20%)</span>
-                              <span className="tabular-nums text-gray-400">{formatPrice(securityTax)}원</span>
+                              <span className="text-gray-500">{t("증권거래세 (0.20%)")}</span>
+                              <span className="tabular-nums text-gray-400">{t("{0}원", formatPrice(securityTax))}</span>
                             </div>
                           )}
                           <div className="border-t border-white/[0.06] pt-1.5 flex justify-between text-sm font-black">
-                            <span className="text-gray-300">{transactionType === "buy" ? "총 결제금액" : "예상 수령금액"}</span>
-                            <span className="tabular-nums text-white">{formatPrice(settlementAmount)}원</span>
+                            <span className="text-gray-300">{transactionType === "buy" ? t("총 결제금액") : t("예상 수령금액")}</span>
+                            <span className="tabular-nums text-white">{t("{0}원", formatPrice(settlementAmount))}</span>
                           </div>
                         </div>
 
@@ -1304,8 +1305,8 @@ function OrderPageContent() {
                           }`}
                         >
                           {transactionType === "buy"
-                            ? priceType === "market" ? "시장가 매수" : "지정가 매수"
-                            : priceType === "market" ? "시장가 매도" : "지정가 매도"}
+                            ? priceType === "market" ? t("시장가 매수") : t("지정가 매수")
+                            : priceType === "market" ? t("시장가 매도") : t("지정가 매도")}
                         </button>
                       </div>
                     )}
@@ -1329,16 +1330,16 @@ function OrderPageContent() {
                     { label: "PER", sub: "", value: stockInfo.pe ? stockInfo.pe.toFixed(2) : "—" },
                     { label: "PBR", sub: "", value: stockInfo.pbr ? stockInfo.pbr.toFixed(2) : "—" },
                     {
-                      label: "부채비율", sub: "Debt Ratio",
+                      label: t("부채비율"), sub: "Debt Ratio",
                       value: summaryFinancials.debtRatio !== undefined && summaryFinancials.debtRatio !== null
                         ? `${Number(summaryFinancials.debtRatio).toFixed(1)}%`
                         : stockInfo.debtRatio ? `${stockInfo.debtRatio.toFixed(1)}%` : "—",
                     },
-                    { label: "매출액", sub: "Revenue", value: formatWonMetric(summaryFinancials.sales) },
-                    { label: "영업이익", sub: "Op. Income", value: formatWonMetric(summaryFinancials.operatingProfit) },
-                    { label: "당기순이익", sub: "Net Income", value: formatWonMetric(summaryFinancials.netIncome) },
-                    { label: "총자산", sub: "Total Assets", value: formatWonMetric(summaryFinancials.totalAssets) },
-                    { label: "총자본", sub: "Equity", value: formatWonMetric(summaryFinancials.totalEquity) },
+                    { label: t("매출액"), sub: "Revenue", value: formatWonMetric(summaryFinancials.sales) },
+                    { label: t("영업이익"), sub: "Op. Income", value: formatWonMetric(summaryFinancials.operatingProfit) },
+                    { label: t("당기순이익"), sub: "Net Income", value: formatWonMetric(summaryFinancials.netIncome) },
+                    { label: t("총자산"), sub: "Total Assets", value: formatWonMetric(summaryFinancials.totalAssets) },
+                    { label: t("총자본"), sub: "Equity", value: formatWonMetric(summaryFinancials.totalEquity) },
                   ].map(({ label, sub, value }) => (
                     <div key={label} className="border-r border-b border-white/[0.08] p-4 flex flex-col gap-3">
                       <div className="flex items-center gap-1.5">
@@ -1355,7 +1356,7 @@ function OrderPageContent() {
                 {/* 기본 정보 + 기업 상세 */}
                 <div className="grid grid-cols-1 lg:grid-cols-10">
                   <div className="lg:col-span-5 p-5">
-                    <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">기본 정보</h2>
+                    <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">{t("기본 정보")}</h2>
                     <div>
                       {[
                         ["종목명", displayStockName],
@@ -1364,39 +1365,39 @@ function OrderPageContent() {
                         ["설립일", formatCompactDate(companyBasic.establishmentDate)],
                         ["대표자", companyBasic.representativeName || "—"],
                         ["섹터", stockInfo.sector || "—"],
-                        ["종업원", formatCount(companyBasic.employeeCount, "명")],
+                        ["종업원", formatCount(companyBasic.employeeCount, t("명"))],
                         [
                           "홈페이지",
                           companyBasic.homepageUrl ? (
-                            <a href={companyBasic.homepageUrl} target="_blank" rel="noreferrer" className="text-sky-400 hover:text-sky-300 transition-colors">방문</a>
+                            <a href={companyBasic.homepageUrl} target="_blank" rel="noreferrer" className="text-sky-400 hover:text-sky-300 transition-colors">{t("방문")}</a>
                           ) : "—",
                         ],
                       ].map(([label, value]) => (
                         <div key={label} className="flex items-center justify-between py-3 hover:bg-white/[0.02] rounded-xl px-1 transition-colors">
-                          <span className="text-xs font-bold uppercase tracking-widest text-gray-500">{label}</span>
+                          <span className="text-xs font-bold uppercase tracking-widest text-gray-500">{t(label)}</span>
                           <span className="max-w-[60%] truncate text-right text-sm font-bold text-white tabular-nums">{value}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                   <div className="lg:col-span-5 p-5">
-                    <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">기업 상세</h2>
+                    <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-4">{t("기업 상세")}</h2>
                     <div>
                       {[
                         ["회계연도", summaryFinancials.businessYear || "—"],
-                        ["결산월", companyBasic.settlementMonth ? `${companyBasic.settlementMonth}월` : "—"],
+                        ["결산월", companyBasic.settlementMonth ? t("{0}월", companyBasic.settlementMonth) : "—"],
                         ["영문명", companyBasic.englishName || "—"],
                         ["사업자번호", companyBasic.businessRegistrationNumber || "—"],
                       ].map(([label, value]) => (
                         <div key={label} className="flex items-center justify-between py-3 hover:bg-white/[0.02] rounded-xl px-1 transition-colors">
-                          <span className="text-xs font-bold uppercase tracking-widest text-gray-500">{label}</span>
+                          <span className="text-xs font-bold uppercase tracking-widest text-gray-500">{t(label)}</span>
                           <span className="max-w-[60%] truncate text-right text-sm font-bold text-white tabular-nums">{value}</span>
                         </div>
                       ))}
                     </div>
                     {companyBasic.address && (
                       <div className="mt-4 pt-4 border-t border-white/[0.04]">
-                        <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">주소</p>
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">{t("주소")}</p>
                         <p className="text-sm font-bold text-gray-400 leading-relaxed">{companyBasic.address}</p>
                       </div>
                     )}
@@ -1406,14 +1407,14 @@ function OrderPageContent() {
                 {/* 주요 사업 */}
                 {companyBasic.mainBusiness && (
                   <div className="p-5">
-                    <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-3">주요 사업</h2>
+                    <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit mb-3">{t("주요 사업")}</h2>
                     <p className="text-sm font-bold leading-relaxed text-gray-400">{companyBasic.mainBusiness}</p>
                   </div>
                 )}
               </>
             ) : (
               <div className="py-16 text-center">
-                <p className="text-sm font-bold text-gray-500">종목 정보를 불러오는 중...</p>
+                <p className="text-sm font-bold text-gray-500">{t("종목 정보를 불러오는 중...")}</p>
               </div>
             )}
           </div>
@@ -1431,11 +1432,11 @@ function OrderPageContent() {
         {SHOW_COMMUNITY_TAB && (
           <div className={`divide-y divide-white/[0.08]${activeTab !== "community" ? " hidden" : ""}`}>
             <div className="px-5 py-4">
-              <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">커뮤니티</h2>
-              <p className="text-xs text-gray-500 mt-0.5">투자자 토론 및 의견</p>
+              <h2 className="text-base font-black uppercase tracking-widest text-white font-outfit">{t("커뮤니티")}</h2>
+              <p className="text-xs text-gray-500 mt-0.5">{t("투자자 토론 및 의견")}</p>
             </div>
             <div className="p-5 divide-y divide-white/[0.04]">
-              {[["인기 게시글", `${displayStockName} 관련 커뮤니티 게시글이 없습니다.`], ["토론", `${displayStockName} 관련 토론이 없습니다.`]].map(([title, msg]) => (
+              {[[t("인기 게시글"), t("{0} 관련 커뮤니티 게시글이 없습니다.", displayStockName)], [t("토론"), t("{0} 관련 토론이 없습니다.", displayStockName)]].map(([title, msg]) => (
                 <div key={title} className="py-5 first:pt-0 last:pb-0">
                   <h3 className="text-sm font-black text-white mb-2">{title}</h3>
                   <p className="text-sm font-bold text-gray-500">{msg}</p>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, X, Lightning, Rocket, Crown } from "phosphor-react";
 import { PLANS, PLAN_ORDER, Plan, PlanId } from "@/lib/plans";
 import PaymentCheckout from "@/components/pricing/PaymentCheckout";
+import { getLocale, t } from "@/lib/i18n";
 
 function formatWon(value: number) {
   return `₩${value.toLocaleString("ko-KR")}`;
@@ -15,9 +16,9 @@ function formatCount(value: number) {
 }
 
 function formatInitialInvestmentAmount(value: number) {
-  if (value === 10_000_000) return "천 만원";
-  if (value === 50_000_000) return "5천 만원";
-  if (value === 100_000_000) return "1억원";
+  if (value === 10_000_000) return t("천 만원");
+  if (value === 50_000_000) return t("5천 만원");
+  if (value === 100_000_000) return t("1억원");
   return formatWon(value);
 }
 
@@ -43,21 +44,21 @@ const PREMIUM_VALIDATION_FEATURES = [
 function planFeatures(planId: PlanId, plan: Plan): FeatureRow[] {
   return [
     {
-      label: `계좌당 초기 모의 투자금 ${formatInitialInvestmentAmount(plan.initialInvestmentAmount)}`,
+      label: t("계좌당 초기 모의 투자금 {0}", formatInitialInvestmentAmount(plan.initialInvestmentAmount)),
       included: true,
     },
-    { label: `시뮬레이션 가상계좌 ${formatCount(plan.maxVirtualAccounts)}개`, included: true },
+    { label: t("시뮬레이션 가상계좌 {0}개", formatCount(plan.maxVirtualAccounts)), included: true },
     {
       label: plan.isUnlimitedStrategies
-        ? "전략 무제한 저장"
-        : `전략 ${formatCount(plan.maxStrategies)}개 저장`,
+        ? t("전략 무제한 저장")
+        : t("전략 {0}개 저장", formatCount(plan.maxStrategies)),
       included: true,
     },
-    { label: `월 백테스트 ${formatCount(plan.monthlyBacktestLimit)}회`, included: true },
-    { label: "AI 리포트", included: planId !== "FREE" },
-    { label: "백테스트 결과 익스포트 (CSV/JSON)", included: planId !== "FREE" },
+    { label: t("월 백테스트 {0}회", formatCount(plan.monthlyBacktestLimit)), included: true },
+    { label: t("AI 리포트"), included: planId !== "FREE" },
+    { label: t("백테스트 결과 익스포트 (CSV/JSON)"), included: planId !== "FREE" },
     ...PREMIUM_VALIDATION_FEATURES.map((label) => ({
-      label,
+      label: t(label),
       included: planId === "PREMIUM",
     })),
   ];
@@ -76,7 +77,7 @@ function formatBillingDate(iso: string | null): string {
   if (!iso) return "-";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
+  return d.toLocaleDateString(getLocale(), { year: "numeric", month: "long", day: "numeric" });
 }
 
 export default function PricingPlans({ currentPlanId, subscription }: PricingPlansProps) {
@@ -106,7 +107,7 @@ export default function PricingPlans({ currentPlanId, subscription }: PricingPla
       if (!res.ok) throw new Error("Failed to change plan");
       router.refresh();
     } catch {
-      setError("플랜 변경에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      setError(t("플랜 변경에 실패했습니다. 잠시 후 다시 시도해주세요."));
     } finally {
       setPendingPlanId(null);
     }
@@ -126,7 +127,7 @@ export default function PricingPlans({ currentPlanId, subscription }: PricingPla
           const Icon = PLAN_ICONS[planId];
           const isCurrent = planId === currentPlanId;
           const features = planFeatures(planId, plan);
-          const description = PLAN_DESCRIPTIONS[planId];
+          const description = t(PLAN_DESCRIPTIONS[planId]);
 
           return (
             <div
@@ -155,8 +156,8 @@ export default function PricingPlans({ currentPlanId, subscription }: PricingPla
                 <span className="text-4xl font-black tracking-tight text-white">
                   {formatWon(plan.monthlyPrice)}
                 </span>
-                <span className="pb-1 text-sm font-bold text-gray-500">/ 월</span>
-                <span className="pb-1 text-sm font-bold text-gray-500">(VAT 포함)</span>
+                <span className="pb-1 text-sm font-bold text-gray-500">{t("/ 월")}</span>
+                <span className="pb-1 text-sm font-bold text-gray-500">{t("(VAT 포함)")}</span>
               </div>
 
               {/* 기능 목록 */}
@@ -191,12 +192,12 @@ export default function PricingPlans({ currentPlanId, subscription }: PricingPla
                 }`}
               >
                 {isCurrent
-                  ? "현재 이용 중"
+                  ? t("현재 이용 중")
                   : pendingPlanId === planId
-                  ? "변경 중..."
+                  ? t("변경 중...")
                   : planId === "FREE"
-                  ? "무료로 전환"
-                  : "구독 시작하기"}
+                  ? t("무료로 전환")
+                  : t("구독 시작하기")}
               </button>
 
               {/* 자동갱신 상태 — 현재 이용 중인 유료 플랜에만 표시 */}
@@ -207,11 +208,10 @@ export default function PricingPlans({ currentPlanId, subscription }: PricingPla
                 >
                   {subscription.canceled ? (
                     <p>
-                      해지 예약됨 · {formatBillingDate(subscription.nextBillingAt)}까지 이용
-                      가능합니다
+                      {t("해지 예약됨 · {0}까지 이용 가능합니다", formatBillingDate(subscription.nextBillingAt))}
                     </p>
                   ) : (
-                    <p>다음 결제일: {formatBillingDate(subscription.nextBillingAt)}</p>
+                    <p>{t("다음 결제일: {0}", formatBillingDate(subscription.nextBillingAt))}</p>
                   )}
                 </div>
               ) : null}

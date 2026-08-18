@@ -1,4 +1,5 @@
 import type { StrategyDSL } from "@/types/strategy";
+import { getLanguage, t } from "@/lib/i18n";
 
 export interface ParsedSummary {
   description: string;
@@ -51,6 +52,12 @@ export interface ParsedSummary {
   ranking_quantile_groups?: number | null;
   // 분위 그룹당 보유 상한(FR-BT-060b) — 각 그룹이 자기 구간의 랭킹 상위 N종목만 보유.
   ranking_group_cap?: number | null;
+  // 복합 순위 합산(FR-BT-063) — ranking_metric='composite'일 때 구성 지표(방향 포함).
+  ranking_components?: Array<{
+    metric: string;
+    direction: "top" | "bottom";
+    lookback_days?: number | null;
+  }> | null;
   // 비율 선정(FR-BT-060) — 상위 X% 편입(개수 대신 비율). 있으면 max_positions보다 우선.
   max_positions_pct?: number | null;
   // 지정 종목(단일 종목) 백테스트 대상 종목코드(FR-STR-068). 비어 있으면 유니버스 전략.
@@ -143,17 +150,27 @@ const KO_NUMBER_FORMAT = new Intl.NumberFormat("ko-KR");
 // 원·억·조 중 무엇인지 알 수 없다(2026-08-01 지적).
 export function formatEokAmount(eok: number): string {
   if (!Number.isFinite(eok)) return String(eok);
+  // 영어 표기: 억/조 단위 대신 KRW 십억(B)·백만(M) 단위로 환산한다.
+  if (getLanguage() === "en") return formatEokAmountEn(eok);
 
   const rounded = Math.round(eok);
   if (rounded < 10_000) {
-    return `${KO_NUMBER_FORMAT.format(rounded)}억`;
+    return t("{0}억", KO_NUMBER_FORMAT.format(rounded));
   }
 
   const jo = Math.floor(rounded / 10_000);
   const remainderEok = rounded % 10_000;
   return remainderEok === 0
-    ? `${KO_NUMBER_FORMAT.format(jo)}조`
-    : `${KO_NUMBER_FORMAT.format(jo)}조 ${KO_NUMBER_FORMAT.format(remainderEok)}억`;
+    ? t("{0}조", KO_NUMBER_FORMAT.format(jo))
+    : t("{0}조 {1}억", KO_NUMBER_FORMAT.format(jo), KO_NUMBER_FORMAT.format(remainderEok));
+}
+
+function formatEokAmountEn(eok: number): string {
+  const won = eok * 100_000_000;
+  const trim = (v: number) => KO_NUMBER_FORMAT.format(Number(v.toFixed(v >= 100 ? 0 : 1)));
+  if (won >= 1_000_000_000_000) return `₩${trim(won / 1_000_000_000_000)}T`;
+  if (won >= 1_000_000_000) return `₩${trim(won / 1_000_000_000)}B`;
+  return `₩${trim(won / 1_000_000)}M`;
 }
 
 // **원 단위** 큰 금액(>=1억)을 한글 단위로 표시한다(초기자금 등).
@@ -173,13 +190,13 @@ export function formatEntryFilter(filter: {
   value?: number | null;
 }): string {
   if (filter.indicator === "ema" && (filter.mode === "above" || filter.mode === "below")) {
-    return `${filter.period ?? 200}일선 ${filter.mode === "above" ? "위" : "아래"}`;
+    return t("{0}일선 {1}", filter.period ?? 200, filter.mode === "above" ? t("위") : t("아래"));
   }
   if (filter.indicator === "trading_value") {
-    return `거래대금 ${KO_NUMBER_FORMAT.format(filter.value ?? 100)}억 이상`;
+    return t("거래대금 {0} 이상", formatEokAmount(filter.value ?? 100));
   }
   if (filter.indicator === "rsi") {
-    return `RSI ${filter.value ?? 30} 이하`;
+    return t("RSI {0} 이하", filter.value ?? 30);
   }
   return "";
 }
@@ -189,15 +206,15 @@ export function formatFundamentalFilter(filter: {
   operator: string;
   value: number;
 }): string {
-  const label = METRIC_LABELS[filter.metric] ?? filter.metric;
+  const label = t(METRIC_LABELS[filter.metric] ?? filter.metric);
   // EPS·영업이익 부호 필터는 '흑자/적자' 키워드 조건의 표현형 — 사용자 어휘로 배지를 만든다.
   if (filter.metric === "eps" && filter.value === 0) {
-    if (filter.operator === ">") return "흑자 기업 (EPS > 0)";
-    if (filter.operator === "<") return "적자 기업 (EPS < 0)";
+    if (filter.operator === ">") return t("흑자 기업 (EPS > 0)");
+    if (filter.operator === "<") return t("적자 기업 (EPS < 0)");
   }
   if (filter.metric === "ebit" && filter.value === 0) {
-    if (filter.operator === ">") return "영업이익 흑자 기업";
-    if (filter.operator === "<") return "영업이익 적자 기업";
+    if (filter.operator === ">") return t("영업이익 흑자 기업");
+    if (filter.operator === "<") return t("영업이익 적자 기업");
   }
   let value: string;
   if (
@@ -211,7 +228,7 @@ export function formatFundamentalFilter(filter: {
     // 필터 값은 억원 단위다 — 원 단위로 오해해 변환하면 3000억이 '3000'으로 보인다.
     value = formatEokAmount(filter.value);
   } else if (filter.metric === "trading_value") {
-    value = `${KO_NUMBER_FORMAT.format(filter.value)}억`;
+    value = formatEokAmount(filter.value);
   } else {
     value = String(filter.value);
   }
@@ -238,9 +255,10 @@ export function backtestDataCeilingDate(today: Date = new Date()): string {
 // 초기자금 배지 문자열을 만든다. 1억 이상이면 '50억원'처럼 한글 단위로, 미만이면 콤마 포함 원 단위로 표시.
 export function formatInitialCapital(value: number): string {
   if (Number.isFinite(value) && value >= 100_000_000) {
-    return `${formatMarketCapValue(value)}원`;
+    const amount = formatMarketCapValue(value);
+    return getLanguage() === "en" ? amount : t("{0}원", amount);
   }
-  return `${KO_NUMBER_FORMAT.format(value)}원`;
+  return t("{0}원", KO_NUMBER_FORMAT.format(value));
 }
 
 export const PERIOD_LABELS: Record<string, string> = {
@@ -268,7 +286,7 @@ export function explicitWindowSpanLabel(
     (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
     (end.getUTCMonth() - start.getUTCMonth());
   if (months <= 0) return null;
-  return months % 12 === 0 ? `${months / 12}년` : `${months}개월`;
+  return months % 12 === 0 ? t("{0}년", months / 12) : t("{0}개월", months);
 }
 
 // 백테스트 기간 배지. 명시 날짜가 있으면 그 창을 그대로 보여준다 — 상대 기간 라벨
@@ -283,11 +301,11 @@ export function formatBacktestPeriodLabel(parsed: {
   const to = parsed.backtest_end_date ?? null;
   const span = explicitWindowSpanLabel(from, to);
   if (span) return `${span} (${from} ~ ${to})`;
-  if (from) return `${from} ~ ${to ?? "현재"}`;
+  if (from) return `${from} ~ ${to ?? t("현재")}`;
   if (to) return `~ ${to}`;
   const period = parsed.backtest_period ? String(parsed.backtest_period).toLowerCase() : null;
   if (!period) return null;
-  return PERIOD_LABELS[period] ?? period;
+  return t(PERIOD_LABELS[period] ?? period);
 }
 
 export const REBAL_LABELS: Record<string, string> = {
@@ -345,7 +363,7 @@ export function getSignalLabel(
   context: "entry" | "exit"
 ): string {
   if (signal.indicator === "ai_drop_model") {
-    return INDICATOR_LABELS.ai_drop_model;
+    return t(INDICATOR_LABELS.ai_drop_model);
   }
 
   // 브레이크아웃은 기준 기간(lookback_period)에 따라 의미가 달라진다 — 252일(≈52주)은 "52주 신고가",
@@ -354,9 +372,9 @@ export function getSignalLabel(
     const isDown =
       signal.signal_type === "sell" || (signal.signal_type == null && context === "exit");
     const days = signal.lookback_period ?? null;
-    if (days === 252) return isDown ? "52주 신저가 이탈" : "52주 신고가 돌파";
-    if (days != null) return isDown ? `${days}일 저점 이탈` : `${days}일 고점 돌파`;
-    return INDICATOR_LABELS.breakout;
+    if (days === 252) return isDown ? t("52주 신저가 이탈") : t("52주 신고가 돌파");
+    if (days != null) return isDown ? t("{0}일 저점 이탈", days) : t("{0}일 고점 돌파", days);
+    return t(INDICATOR_LABELS.breakout);
   }
 
   // RSI 반등(mode "rebound")은 단순 임계값 비교가 아니라 과매도/과매수 임계선을 '다시 돌파'하는
@@ -367,24 +385,24 @@ export function getSignalLabel(
     const isDown =
       signal.signal_type === "sell" || (signal.signal_type == null && context === "exit");
     const threshold = signal.value ?? (isDown ? 70 : 30);
-    return isDown ? `RSI ${threshold} 하향 반전` : `RSI ${threshold} 상향 반등`;
+    return isDown ? t("RSI {0} 하향 반전", threshold) : t("RSI {0} 상향 반등", threshold);
   }
 
   // 순수 임계값 비교 RSI는 operator/value가 있으면 "RSI 50 이상"처럼 구체적으로 표기한다.
   // 정보가 없으면(레거시 데이터 등) 기존대로 "RSI"만 노출한다.
   if (signal.indicator === "rsi" && signal.operator != null && signal.value != null) {
-    const opKr = OPERATOR_KO_LABELS[signal.operator] ?? signal.operator;
+    const opKr = t(OPERATOR_KO_LABELS[signal.operator] ?? signal.operator);
     return `RSI ${signal.value} ${opKr}`;
   }
 
   // 변동성(연환산 %)도 RSI처럼 operator/value가 있으면 "변동성 30% 이하"로 구체화한다.
   if (signal.indicator === "volatility" && signal.operator != null && signal.value != null) {
-    const opKr = OPERATOR_KO_LABELS[signal.operator] ?? signal.operator;
-    return `변동성 ${signal.value}% ${opKr}`;
+    const opKr = t(OPERATOR_KO_LABELS[signal.operator] ?? signal.operator);
+    return t("변동성 {0}% {1}", signal.value, opKr);
   }
 
   if (signal.indicator === "ai_model" && (context === "exit" || signal.signal_type === "sell")) {
-    return INDICATOR_LABELS.ai_drop_model;
+    return t(INDICATOR_LABELS.ai_drop_model);
   }
 
   const cross = DIRECTIONAL_CROSS_LABELS[signal.indicator];
@@ -393,12 +411,12 @@ export function getSignalLabel(
     const isDown =
       signal.signal_type === "sell" || (signal.signal_type == null && context === "exit");
     if (signal.indicator === "macd" && signal.mode === "zero") {
-      return isDown ? "MACD 제로선 하향 돌파" : "MACD 제로선 상향 돌파";
+      return isDown ? t("MACD 제로선 하향 돌파") : t("MACD 제로선 상향 돌파");
     }
-    return isDown ? cross.dead : cross.golden;
+    return t(isDown ? cross.dead : cross.golden);
   }
 
-  return INDICATOR_LABELS[signal.indicator] ?? signal.indicator;
+  return t(INDICATOR_LABELS[signal.indicator] ?? signal.indicator);
 }
 
 function normalizeUniverseId(universe: string): string {
@@ -443,11 +461,11 @@ export function formatNewListingLabel(parsed: {
   const from = parsed.listing_from ?? null;
   const to = parsed.listing_to ?? null;
   if (!parsed.new_listing_only && !from && !to) return null;
-  if (!from && !to) return "신규 상장";
-  if (!from) return `${to} 이전 상장`;
+  if (!from && !to) return t("신규 상장");
+  if (!from) return t("{0} 이전 상장", to);
   const year = from.slice(0, 4);
-  if (from === `${year}-01-01` && to === `${year}-12-31`) return `${year}년 상장`;
-  return to ? `${from}~${to} 상장` : `${from} 이후 상장`;
+  if (from === `${year}-01-01` && to === `${year}-12-31`) return t("{0}년 상장", year);
+  return to ? t("{0}~{1} 상장", from, to) : t("{0} 이후 상장", from);
 }
 
 export function getDisplayUniverseLabels(
@@ -474,13 +492,13 @@ export function getDisplayUniverseLabels(
     : parsed.sector
       ? [parsed.sector]
       : [];
-  const sectorLabel = sectors.map((sector) => `${sector} 업종`);
+  const sectorLabel = sectors.map((sector) => t("{0} 업종", sector));
 
   // ETF 테마/상품명 필터 배지 — 상품명("KODEX 200", 라틴 브랜드 포함)은 그대로,
   // 테마 키워드("반도체", "미국")는 "테마"를 붙인다.
   if (parsed.etf_theme) {
     sectorLabel.push(
-      /[a-z]/i.test(parsed.etf_theme) ? parsed.etf_theme : `${parsed.etf_theme} 테마`
+      /[a-z]/i.test(parsed.etf_theme) ? parsed.etf_theme : t("{0} 테마", parsed.etf_theme)
     );
   }
 
@@ -496,7 +514,7 @@ export function getDisplayUniverseLabels(
   }
 
   return [
-    ...normalizedUniverses.map((universe) => UNIVERSE_LABELS[universe] ?? universe),
+    ...normalizedUniverses.map((universe) => t(UNIVERSE_LABELS[universe] ?? universe)),
     ...sectorLabel,
   ];
 }
@@ -536,41 +554,68 @@ export function getPositionLabel(parsed: ParsedSummary): string {
   const scope = getSelectionScope(parsed);
   const targetCount = parsed.target_symbols?.length ?? 0;
   if (scope === "EXPLICIT") {
-    return targetCount === 1 ? "단일 종목 집중 투자" : `지정 종목 ${targetCount}개 균등 투자`;
+    return targetCount === 1 ? t("단일 종목 집중 투자") : t("지정 종목 {0}개 균등 투자", targetCount);
   }
   // 분위 그룹·비율 선정(FR-BT-060)은 종목 수가 아니라 그룹/비율이 편입 규모를 정의한다 —
   // "최대 10종목"(물질화 기본값)으로 표시하면 실제 실행(분위 밴드 전체 편입)과 어긋난다.
   if (parsed.ranking_quantile_groups) {
     return parsed.ranking_group_cap
-      ? `${parsed.ranking_quantile_groups}분위 그룹 · 그룹당 ${parsed.ranking_group_cap}종목`
-      : `${parsed.ranking_quantile_groups}분위 그룹 비교 (메인: 1그룹)`;
+      ? t("{0}분위 그룹 · 그룹당 {1}종목", parsed.ranking_quantile_groups, parsed.ranking_group_cap)
+      : t("{0}분위 그룹 비교 (메인: 1그룹)", parsed.ranking_quantile_groups);
   }
   if (parsed.max_positions_pct != null) {
-    return `상위 ${parsed.max_positions_pct}% 편입`;
+    return t("상위 {0}% 편입", parsed.max_positions_pct);
   }
-  return `최대 ${parsed.max_positions}종목`;
+  return t("최대 {0}종목", parsed.max_positions);
+}
+
+/** 복합 순위 합산(FR-BT-063)의 구성 지표 하나 — "ROE 높은 순"·"PER 낮은 순"·"20일 수익률 높은 순". */
+function componentLabel(
+  c: { metric: string; direction: "top" | "bottom"; lookback_days?: number | null },
+  defaultLookback: number | null | undefined,
+): string {
+  const dir = c.direction === "bottom" ? t("낮은 순") : t("높은 순");
+  if (c.metric === "return" || c.metric === "volatility") {
+    const days = c.lookback_days ?? defaultLookback;
+    const name = c.metric === "return" ? t("수익률") : t("변동성");
+    // 산정 기간 미정이면 일수를 붙이지 않는다(단일 랭킹 라벨과 같은 계약).
+    return days != null ? t("{0}일 {1} {2}", days, name, dir) : t("{0}(산정 기간 미정) {1}", name, dir);
+  }
+  return `${t(METRIC_LABELS[c.metric] ?? c.metric)} ${dir}`;
 }
 
 export function getRankingLabel(parsed: ParsedSummary): string | null {
   // 산정 기간 미정(되묻기 진행 중)에 60일을 표시하면 조용한 확정으로 읽힌다(2026-08-10
   // 사용자 지시 "60일 강제 금지") — 기간이 정해진 뒤에만 일수를 붙인다.
+  if (parsed.ranking_metric === "composite" && parsed.ranking_components?.length) {
+    // 복합 순위 합산(FR-BT-063) — 구성 지표별 순위를 합산해 상위 선정. 내부명 대신
+    // 지표 정본 라벨과 방향을 그대로 보여 준다.
+    const parts = parsed.ranking_components.map((c) =>
+      componentLabel(c, parsed.ranking_lookback_days),
+    );
+    return t("복합 순위 상위 ({0} 순위 합산)", parts.join(" + "));
+  }
   if (parsed.ranking_metric === "return") {
     const days = parsed.ranking_lookback_days;
-    return days != null ? `${days}일 수익률 상위` : "수익률 상위(산정 기간 미정)";
+    // bottom=수익률 낮은 순(역발상) — 엔진 v16.2가 방향을 존중하므로 라벨도 방향을 드러낸다.
+    if (parsed.ranking_direction === "bottom") {
+      return days != null ? t("{0}일 수익률 하위", days) : t("수익률 하위(산정 기간 미정)");
+    }
+    return days != null ? t("{0}일 수익률 상위", days) : t("수익률 상위(산정 기간 미정)");
   }
   if (parsed.ranking_metric === "volatility") {
     // 엔진의 방향 미지정 기본은 bottom(저변동성 선호) — backtest_engine 변동성 분기 미러.
     const days = parsed.ranking_lookback_days;
-    const prefix = days != null ? `${days}일 ` : "";
-    const suffix = days != null ? "" : "(산정 기간 미정)";
+    const prefix = days != null ? t("{0}일 ", days) : "";
+    const suffix = days != null ? "" : t("(산정 기간 미정)");
     return parsed.ranking_direction === "top"
-      ? `${prefix}변동성 높은 순 상위${suffix}`
-      : `${prefix}변동성 낮은 순 상위${suffix}`;
+      ? t("{0}변동성 높은 순 상위{1}", prefix, suffix)
+      : t("{0}변동성 낮은 순 상위{1}", prefix, suffix);
   }
   if (parsed.ranking_metric) {
     // 재무 팩터 랭킹(예: 영업이익률 상위 20종목) — 지표명은 필터 배지와 같은 정본 라벨.
-    const label = METRIC_LABELS[parsed.ranking_metric] ?? parsed.ranking_metric;
-    return parsed.ranking_direction === "bottom" ? `${label} 낮은 순 상위` : `${label} 상위`;
+    const label = t(METRIC_LABELS[parsed.ranking_metric] ?? parsed.ranking_metric);
+    return parsed.ranking_direction === "bottom" ? t("{0} 낮은 순 상위", label) : t("{0} 상위", label);
   }
   return null;
 }
@@ -600,16 +645,16 @@ export function getDisplayExitLabels(parsed: ParsedSummary): string[] {
   const trailingStopPct = formatDownsidePercent(parsed.trailing_stop_pct);
 
   if (stopLossPct) {
-    labels.push(`손절 ${stopLossPct}% 하락시 매도`);
+    labels.push(t("손절 {0}% 하락시 매도", stopLossPct));
   }
   if (takeProfitPct) {
-    labels.push(`익절 ${takeProfitPct}% 이상 수익시 매도`);
+    labels.push(t("익절 {0}% 이상 수익시 매도", takeProfitPct));
   }
   if (trailingStopPct) {
-    labels.push(`트레일링 스탑 ${trailingStopPct}% 하락시 매도`);
+    labels.push(t("트레일링 스탑 {0}% 하락시 매도", trailingStopPct));
   }
   if (parsed.hold_period_days) {
-    labels.push(`최대 ${parsed.hold_period_days}일 보유 후 매도`);
+    labels.push(t("최대 {0}일 보유 후 매도", parsed.hold_period_days));
   }
 
   return labels;
@@ -647,15 +692,15 @@ export function buildStrategySummary(
     blockNames: [...entryLabels, ...exitLabels],
     entryBlocks: entryLabels,
     exitBlocks: exitLabels,
-    positionText: `${getPositionLabel(parsed)}${parsed.hold_period_days ? ` · ${parsed.hold_period_days}일 보유` : ""}`,
+    positionText: `${getPositionLabel(parsed)}${parsed.hold_period_days ? t(" · {0}일 보유", parsed.hold_period_days) : ""}`,
     riskText: [
-      stopLossPct ? `손절 ${stopLossPct}%` : "",
-      takeProfitPct ? `익절 ${takeProfitPct}%` : "",
-      trailingStopPct ? `트레일링 스탑 ${trailingStopPct}%` : "",
+      stopLossPct ? t("손절 {0}%", stopLossPct) : "",
+      takeProfitPct ? t("익절 {0}%", takeProfitPct) : "",
+      trailingStopPct ? t("트레일링 스탑 {0}%", trailingStopPct) : "",
     ].filter(Boolean).join(", ") || undefined,
     rebalancingText:
       parsed.rebalancing_period && parsed.rebalancing_period !== "none"
-        ? `${REBAL_LABELS[parsed.rebalancing_period] ?? parsed.rebalancing_period} 리밸런싱`
+        ? t("{0} 리밸런싱", t(REBAL_LABELS[parsed.rebalancing_period] ?? parsed.rebalancing_period))
         : undefined,
   };
 }
@@ -681,7 +726,7 @@ function resolveUniverseLabelFromId(universeId: string | null | undefined): stri
   if (!raw) return "";
   return raw
     .split("_")
-    .map((token) => UNIVERSE_LABELS[token] ?? token.toUpperCase())
+    .map((token) => t(UNIVERSE_LABELS[token] ?? token.toUpperCase()))
     .join(", ");
 }
 
@@ -705,6 +750,9 @@ export function buildStrategySummaryFromRequest(
     ranking_metric: (risk.ranking_metric as string | null) ?? null,
     ranking_lookback_days: num(risk.ranking_lookback_days),
     ranking_direction: (risk.ranking_direction as "top" | "bottom" | null) ?? null,
+    ranking_components: Array.isArray(risk.ranking_components)
+      ? (risk.ranking_components as ParsedSummary["ranking_components"])
+      : null,
   } as ParsedSummary);
 
   const entryBlocks = uniqueLabels([
@@ -749,7 +797,7 @@ export function buildStrategySummaryFromRequest(
       : [
           resolveUniverseLabelFromId(req.universe_id),
           ...(Array.isArray(req.sector) ? req.sector : req.sector ? [req.sector] : []).map(
-            (sector) => `${sector} 업종`
+            (sector) => t("{0} 업종", sector)
           ),
           // 실행된 요청에는 확정된 상장 구간만 실린다(되묻는 중인 개념은 실행되지 않음).
           formatNewListingLabel({
@@ -763,21 +811,21 @@ export function buildStrategySummaryFromRequest(
     entryBlocks,
     exitBlocks,
     positionText: targetStockLabels.length
-      ? `${targetStockLabels.length === 1 ? "단일 종목 집중 투자" : `지정 종목 ${targetStockLabels.length}개 균등 투자`}${maxHoldingDays ? ` · ${maxHoldingDays}일 보유` : ""}`
+      ? `${targetStockLabels.length === 1 ? t("단일 종목 집중 투자") : t("지정 종목 {0}개 균등 투자", targetStockLabels.length)}${maxHoldingDays ? t(" · {0}일 보유", maxHoldingDays) : ""}`
       : maxPositions
-        ? `최대 ${maxPositions}종목${maxHoldingDays ? ` · ${maxHoldingDays}일 보유` : ""}`
+        ? `${t("최대 {0}종목", maxPositions)}${maxHoldingDays ? t(" · {0}일 보유", maxHoldingDays) : ""}`
         : undefined,
     riskText:
       [
-        stopLossPct ? `손절 ${stopLossPct}%` : "",
-        takeProfitPct ? `익절 ${takeProfitPct}%` : "",
-        trailingStopPct ? `트레일링 스탑 ${trailingStopPct}%` : "",
+        stopLossPct ? t("손절 {0}%", stopLossPct) : "",
+        takeProfitPct ? t("익절 {0}%", takeProfitPct) : "",
+        trailingStopPct ? t("트레일링 스탑 {0}%", trailingStopPct) : "",
       ]
         .filter(Boolean)
         .join(", ") || undefined,
     rebalancingText:
       rebalancingPeriod && rebalancingPeriod !== "none"
-        ? `${REBAL_LABELS[rebalancingPeriod] ?? rebalancingPeriod} 리밸런싱`
+        ? t("{0} 리밸런싱", t(REBAL_LABELS[rebalancingPeriod] ?? rebalancingPeriod))
         : undefined,
   };
 }
@@ -804,7 +852,7 @@ export function buildStrategySummaryChips(
   const chips: Array<string | undefined | null> = [];
   const universeName = summary.universeName?.trim();
   if (universeName && universeName !== "미정" && !isRawSymbolUniverseName(universeName)) {
-    chips.push(`유니버스 ${universeName}`);
+    chips.push(t("유니버스 {0}", universeName));
   }
 
   chips.push(
@@ -812,7 +860,7 @@ export function buildStrategySummaryChips(
     ...(summary.exitBlocks ?? []),
     summary.positionText,
     summary.rebalancingText,
-    summary.riskText ? `리스크 관리 ${summary.riskText}` : undefined
+    summary.riskText ? t("리스크 관리 {0}", summary.riskText) : undefined
   );
 
   return chips.filter((value): value is string => Boolean(value));
@@ -834,23 +882,23 @@ export function buildStrategySummaryGroups(
     universeName && universeName !== "미정" && !isRawSymbolUniverseName(universeName);
 
   const groups: StrategySummaryGroup[] = [
-    { label: "유니버스", chips: showUniverse ? [universeName!] : [] },
-    { label: "진입신호", chips: (summary.entryBlocks ?? []).filter(Boolean) },
-    { label: "청산신호", chips: (summary.exitBlocks ?? []).filter(Boolean) },
+    { label: t("유니버스"), chips: showUniverse ? [universeName!] : [] },
+    { label: t("진입신호"), chips: (summary.entryBlocks ?? []).filter(Boolean) },
+    { label: t("청산신호"), chips: (summary.exitBlocks ?? []).filter(Boolean) },
     {
-      label: "리스트",
+      label: t("리스트"),
       chips: [summary.positionText, summary.rebalancingText].filter(
         (value): value is string => Boolean(value)
       ),
     },
-    { label: "리스크 관리", chips: summary.riskText ? [summary.riskText] : [] },
+    { label: t("리스크 관리"), chips: summary.riskText ? [summary.riskText] : [] },
   ];
 
   return groups.filter((group) => group.chips.length > 0);
 }
 
 function getIndicatorLabel(indicator: string): string {
-  return INDICATOR_LABELS[indicator] ?? indicator;
+  return t(INDICATOR_LABELS[indicator] ?? indicator);
 }
 
 function uniqueLabels(labels: string[]): string[] {
@@ -1005,7 +1053,7 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
   });
   const rebalancingText =
     rebalancingPeriod && rebalancingPeriod !== "none"
-      ? `${REBAL_LABELS[rebalancingPeriod] ?? rebalancingPeriod} 리밸런싱`
+      ? t("{0} 리밸런싱", t(REBAL_LABELS[rebalancingPeriod] ?? rebalancingPeriod))
       : undefined;
 
   return {
@@ -1015,14 +1063,14 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
     entryBlocks,
     exitBlocks,
     positionText: targetSymbols.length
-      ? `${targetSymbols.length === 1 ? "단일 종목 집중 투자" : `지정 종목 ${targetSymbols.length}개 균등 투자`}${maxHoldingDays ? ` · ${maxHoldingDays}일 보유` : ""}`
+      ? `${targetSymbols.length === 1 ? t("단일 종목 집중 투자") : t("지정 종목 {0}개 균등 투자", targetSymbols.length)}${maxHoldingDays ? t(" · {0}일 보유", maxHoldingDays) : ""}`
       : maxPositions
-        ? `포지션/비중 최대 ${maxPositions}종목${maxHoldingDays ? ` · ${maxHoldingDays}일 보유` : ""}`
+        ? `${t("포지션/비중 최대 {0}종목", maxPositions)}${maxHoldingDays ? t(" · {0}일 보유", maxHoldingDays) : ""}`
         : undefined,
     riskText: [
-      stopLossPct ? `손절 ${stopLossPct}%` : "",
-      takeProfitPct ? `익절 ${takeProfitPct}%` : "",
-      trailingStopPct ? `트레일링 스탑 ${trailingStopPct}%` : "",
+      stopLossPct ? t("손절 {0}%", stopLossPct) : "",
+      takeProfitPct ? t("익절 {0}%", takeProfitPct) : "",
+      trailingStopPct ? t("트레일링 스탑 {0}%", trailingStopPct) : "",
     ].filter(Boolean).join(", ") || undefined,
     rebalancingText,
   };

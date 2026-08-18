@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { t } from "@/lib/i18n";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -22,19 +23,19 @@ export default function RegisterPage() {
 
     // Validation
     if (!formData.name || !formData.email || !formData.password) {
-      setError("모든 필드를 입력해주세요.");
+      setError(t("모든 필드를 입력해주세요."));
       setLoading(false);
       return;
     }
 
     if (formData.password !== formData.confirmPassword) {
-      setError("비밀번호가 일치하지 않습니다.");
+      setError(t("비밀번호가 일치하지 않습니다."));
       setLoading(false);
       return;
     }
 
     if (formData.password.length < 6) {
-      setError("비밀번호는 최소 6자 이상이어야 합니다.");
+      setError(t("비밀번호는 최소 6자 이상이어야 합니다."));
       setLoading(false);
       return;
     }
@@ -55,7 +56,7 @@ export default function RegisterPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error || "회원가입에 실패했습니다.");
+        setError(data.error || t("회원가입에 실패했습니다."));
         setLoading(false);
         return;
       }
@@ -63,7 +64,7 @@ export default function RegisterPage() {
       // Success - redirect to login
       router.push("/login?registered=true");
     } catch (err) {
-      setError("서버 오류가 발생했습니다. 다시 시도해주세요.");
+      setError(t("서버 오류가 발생했습니다. 다시 시도해주세요."));
       setLoading(false);
     }
   };
@@ -75,7 +76,7 @@ export default function RegisterPage() {
           <div className="mb-8 flex items-center gap-3">
             <div className="h-10 w-10 rounded bg-gray-900 dark:bg-gray-100" />
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">널스탁</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{t("널스탁")}</p>
               <h1 className="text-xl font-semibold">Create an account</h1>
             </div>
           </div>
@@ -94,7 +95,7 @@ export default function RegisterPage() {
               <input
                 id="name"
                 type="text"
-                placeholder="홍길동"
+                placeholder={t("홍길동")}
                 value={formData.name}
                 onChange={(e) =>
                   setFormData({ ...formData, name: e.target.value })
@@ -157,7 +158,7 @@ export default function RegisterPage() {
               disabled={loading}
               className="w-full rounded-md bg-gray-900 text-white py-2.5 font-medium hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? "처리 중..." : "Create account"}
+              {loading ? t("처리 중...") : "Create account"}
             </button>
 
             <p className="text-center text-sm text-gray-600 dark:text-gray-400">
@@ -207,7 +208,7 @@ export default function RegisterPage() {
             <p>
               Terms of Service · Privacy Policy · Disclaimer · Help · Contact Us
             </p>
-            <p className="mt-1">© 널스탁</p>
+            <p className="mt-1">{t("© 널스탁")}</p>
           </div>
         </div>
       </aside>

@@ -1,5 +1,6 @@
 import type { BacktestResult } from "@/types/strategy";
 import { profitFactorForRanking } from "@/lib/format-profit-factor";
+import { t } from "@/lib/i18n";
 
 export interface BacktestStrategySummary {
   universeName: string;
@@ -75,7 +76,7 @@ export function buildAutoSaveHistoryPayload(
   return {
     // 저장된 전략이면 전략명, 아니면 사용자 프롬프트를 이름으로 사용한다.
     // (실행된 요청 기반 요약은 strategyName이 비어 있으므로 프롬프트가 폴백이다.)
-    strategyName: strategySummary.strategyName || prompt?.trim() || "이름 없는 전략",
+    strategyName: strategySummary.strategyName || prompt?.trim() || t("이름 없는 전략"),
     prompt: prompt?.trim() || undefined,
     universe: strategySummary.universeName,
     conditions: {

@@ -902,6 +902,16 @@ className="[&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full 
 
 ---
 
+## 18. 다국어(i18n) 표기 규칙 [2026-08-18]
+
+- 사용자에게 보이는 모든 한국어 문자열은 `t("원문")`으로 감싼다 — JSX 텍스트·속성(placeholder/aria-label/title)·토스트·에러 메시지 모두. 원문이 곧 사전 키다(`lib/i18n/en.ts`).
+- 값이 섞이면 템플릿 대신 자리표시자: `t("총 {0}회 거래", n)`. 인자로 넘기는 한국어 라벨도 감싼다: `t("{0} 리밸런싱", t(REBAL_LABELS[x]))`.
+- **모듈 최상위 상수에서 `t()`를 부르지 않는다**(서버에서 첫 언어로 고정). 상수는 한국어 키로 두고 표시 지점에서 `{t(item.label)}`.
+- **백엔드로 보내는 값은 감싸지 않는다**: 파서에 보내는 문장, 칩 문자열(결속 프로토콜), `=== "…"` 비교 대상. 칩은 목록에 한국어 정본을 두고 렌더에서만 `t(option)`.
+- 날짜는 `toLocaleDateString(getLocale())`, 억·만·조 금액은 `formatCompactNumberEn()`을 먼저 시도(영어면 compact, 한국어면 null → 기존 표기).
+- 새 문구를 추가하면 `lib/i18n/en.ts`에 영어를 함께 등재한다 — `tests/i18n-coverage.test.ts`가 누락을 막는다. 빠진 키는 `node scripts/i18n_extract_keys.js --missing`.
+- KR/EN 토글은 상단 내비게이션 프로필 사진 왼쪽 한 곳뿐이다(`LanguageToggle`).
+
 ## 체크리스트
 
 새 페이지/컴포넌트 작성 시 확인:

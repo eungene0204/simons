@@ -1,3 +1,4 @@
+import { t } from "@/lib/i18n";
 // 결정론적 검증 agent가 내려주는 누락 필드(category "missing_field")를 사용자 친화적인
 // 한국어 명사로 매핑한다. 검증 JSON은 field로 어떤 조건이 비었는지 알려주므로, 딱딱한
 // "~ 조건이 정의되어 있지 않습니다" 나열 대신 다음에 입력할 조건 하나만 보여준다.
@@ -38,7 +39,7 @@ function buildValidationMessage(issues: unknown[]): string {
       continue;
     }
     if (typeof message === "string" && message.trim()) {
-      otherMessages.push(message.trim());
+      otherMessages.push(t(message.trim()));
     }
   }
 
@@ -49,7 +50,7 @@ function buildValidationMessage(issues: unknown[]): string {
 
   const parts: string[] = [];
   if (firstMissingNoun) {
-    parts.push(`${firstMissingNoun} 조건을 입력해 주세요.`);
+    parts.push(t("{0} 조건을 입력해 주세요.", t(firstMissingNoun)));
   }
   if (otherMessages.length > 0) {
     parts.push(otherMessages.join("\n"));
@@ -82,7 +83,7 @@ export function normalizeCoachMessage(value: unknown, fallback: string): string 
         }
 
         return parsed.is_valid
-          ? "전략 정의가 완료되었습니다. 백테스트를 실행할 수 있습니다."
+          ? t("전략 정의가 완료되었습니다. 백테스트를 실행할 수 있습니다.")
           : fallback;
       }
       if (typeof parsed?.message === "string" && parsed.message.trim()) {

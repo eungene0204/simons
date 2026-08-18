@@ -335,3 +335,22 @@ def test_input_number_labels_dedupes_in_order():
     assert input_number_labels("60일 신고가 뒤 5거래일, 최대 8종목, 60일 재확인") == [
         "60일", "5", "8종목",
     ]
+
+
+def test_prompt_states_eok_unit_conversion_for_amount_factors():
+    """단위=억원 지표의 '조' 환산 계약(프롬프트 11-2-1).
+
+    사고(2026-08-18): "시가총액 1조 원 이상"에 9B가 value=100000을 냈다. market_cap의
+    정본 단위는 억원이라 100000은 10조 — 사용자가 말한 조건의 10배가 조용히 확정됐고
+    요약 카드에도 '시총 >= 10조'로 표시됐다. 수치 대조는 이 오변환을 잡아내지만
+    (test_trillion_unit_misconversion_is_caught) 재생성 요청은 2026-08-07 폐지됐으므로
+    막는 곳은 1차 프롬프트뿐이다.
+    """
+    from strategy_conversation.interpreter.prompts import PROMPT_VERSION, build_system_prompt
+
+    assert PROMPT_VERSION >= "3.8"
+    prompt = build_system_prompt()
+    assert "단위=억원" in prompt and "×10,000" in prompt
+    assert '"1조"=10000' in prompt
+    # 초기자금(원 단위) 규칙과 혼동하지 않도록 단위가 다르다는 사실을 명시한다.
+    assert "원 단위로 쓰지 말고" in prompt

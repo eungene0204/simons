@@ -20,6 +20,7 @@ from typing import Callable, Optional
 
 from pydantic import ValidationError
 
+import cancellation
 from llm_backend import OLLAMA_MODEL_9B
 from strategy_conversation import config
 from strategy_conversation.interpreter.models import StrategyIntent
@@ -207,7 +208,10 @@ def _default_ollama_chat(model: str) -> ChatFn:
             # 처리량**이다 — 인터프리터 한 호출이 400~500토큰을 생성하므로 처리량이
             # 4 tok/s까지 떨어지면 125초가 되어 120초 상한에 걸렸다(실측 2026-08-07).
             # 프록시 예산(240초)에서 후행 검증 몫(90초)을 남긴 값이다.
-            with _ollama_open_with_retry(req, timeout=_LLM_CALL_TIMEOUT_S) as resp:
+            # cancellable_io: 요청 취소('대화 종료')가 진행 중 소켓을 닫으면 read 예외를
+            # 해석 실패가 아니라 취소(OperationCancelled)로 보고한다.
+            with cancellation.cancellable_io(), \
+                    _ollama_open_with_retry(req, timeout=_LLM_CALL_TIMEOUT_S) as resp:
                 if on_chunk is None:
                     data = json.loads(resp.read())
                     content = (data.get("message") or {}).get("content", "")
@@ -327,6 +331,11 @@ class StrategyInterpreter:
     ) -> InterpreterResult:
         started = time.perf_counter()
         user_prompt = build_user_prompt(user_input, draft, pending_question)
+        # UI 언어가 영어면 자유 서술(clarification 질문 등)을 영어로 쓰라는 지시를 **사용자
+        # 프롬프트 끝**에 붙인다 — 시스템 프롬프트(프리픽스 캐시)는 언어와 무관하게 고정.
+        from ui_language import append_directive
+
+        user_prompt = append_directive(user_prompt)
         _log_llm("▶ 요청", f"{user_input!r}" + (" (수정 모드 — 전략 초안 포함)" if draft else ""))
         on_chunk: Optional[Callable[[str], None]] = None
         if on_stage is not None and draft is None and self._chat_accepts_chunks:

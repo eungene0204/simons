@@ -24,6 +24,7 @@ from pydantic import (
     model_validator,
 )
 
+import cancellation
 from llm_backend import (
     OLLAMA_BASE_URL,
     OLLAMA_MODEL_9B,
@@ -126,6 +127,8 @@ def _ollama_ensure_warm(budget_s: float = _OLLAMA_WARMUP_BUDGET_S) -> None:
     deadline = time.monotonic() + budget_s
     last_err: Exception | None = None
     while time.monotonic() < deadline:
+        # 요청이 취소됐으면('대화 종료') 콜드 컨테이너를 깨우지 않는다.
+        cancellation.raise_if_cancelled()
         remaining = deadline - time.monotonic()
         attempt_timeout = max(10, min(60, int(remaining)))
         req = urllib.request.Request(url, headers=ollama_auth_headers(), method="GET")
@@ -134,6 +137,8 @@ def _ollama_ensure_warm(budget_s: float = _OLLAMA_WARMUP_BUDGET_S) -> None:
                 resp.read()
                 return  # 컨테이너가 깨어남 → 이후 POST는 body가 보존된다
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as e:
+            # 취소가 소켓을 닫아서 난 실패는 재시도·오류가 아니라 취소다.
+            cancellation.raise_if_cancelled()
             if _is_local_connection_error(e):
                 raise
             last_err = e
@@ -164,6 +169,9 @@ def _ollama_open_with_retry(req, timeout: int):
     attempt = 0
     last_err: Exception | None = None
     while time.monotonic() < deadline:
+        # 요청이 취소됐으면('대화 종료') 새 LLM 호출을 열지 않는다 — 여기가 파싱·빌더·검증
+        # 모든 LLM 호출의 공통 관문이라, 취소된 요청은 다음 호출에서 반드시 멈춘다.
+        cancellation.raise_if_cancelled()
         attempt += 1
         remaining = deadline - time.monotonic()
         attempt_timeout = max(15, min(_OLLAMA_MAX_ATTEMPT_TIMEOUT_S, int(remaining)))
@@ -176,11 +184,14 @@ def _ollama_open_with_retry(req, timeout: int):
             if transient and e.code == 400 and _http_400_is_permanent(e):
                 transient = False
         except urllib.error.URLError as e:
+            # 취소가 진행 중 소켓을 닫아서 난 실패는 콜드스타트 재시도 대상이 아니라 취소다.
+            cancellation.raise_if_cancelled()
             if _is_local_connection_error(e):
                 raise
             last_err = e
             transient = True
         except (TimeoutError, OSError) as e:
+            cancellation.raise_if_cancelled()
             # cold-start hang이 attempt_timeout을 초과한 것 — 재시도하면 역효과
             raise e
         if not transient:
@@ -297,7 +308,7 @@ _FUNDAMENTAL_METRIC_ALIASES: dict[str, str] = {
 # (FundamentalFilter.metric과 같은 어휘).
 # trading_value는 파케이 컬럼이 아니라 엔진이 즉석 계산(close×volume)하는 값이라 랭킹
 # 수집 경로(연간 재무 컬럼 ffill)에 태울 수 없어 제외한다.
-RankingMetricLiteral = Literal[
+RankingComponentMetricLiteral = Literal[
     "return", "volatility",
     "per", "pbr", "psr", "pcr", "ev_ebitda", "ev_ebit", "roe_or_gpa", "roa", "debt_ratio",
     "current_ratio", "quick_ratio", "reserve_ratio", "net_margin", "gross_margin",
@@ -307,6 +318,9 @@ RankingMetricLiteral = Literal[
     "owner_net_income",
     "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
 ]
+# 'composite'=복합 순위 합산(FR-BT-063) — 구성 지표는 ranking_components에 담긴다.
+# 단일 지표 랭킹 어휘(RankingComponentMetricLiteral)에 합산 모드 하나를 더한 것.
+RankingMetricLiteral = Literal[RankingComponentMetricLiteral, "composite"]
 
 
 def _normalize_metric_alias(value):
@@ -316,6 +330,18 @@ def _normalize_metric_alias(value):
         return value
     key = value.strip().lower().replace(" ", "").replace("-", "_").replace("/", "_")
     return _FUNDAMENTAL_METRIC_ALIASES.get(key, key or value)
+
+
+class RankingComponent(BaseModel):
+    """복합 순위 합산의 구성 지표 하나(FR-BT-063).
+
+    엔진은 구성 지표마다 횡단면 백분위 순위(direction 기준 '좋은 쪽'이 높게)를 매기고
+    동일 가중 평균한다 — 순위 합산이 가장 낮은 종목이 최상위가 되는 것과 같은 정렬이다.
+    direction은 필수다(컴파일러가 지표의 자연 방향으로 채워 넘긴다 — 엔진이 극성을 몰라도
+    되게). lookback_days는 가격 산출 지표('return'·'volatility')에서만 의미가 있다."""
+    metric: Annotated[RankingComponentMetricLiteral, BeforeValidator(_normalize_metric_alias)]
+    direction: Literal["top", "bottom"]
+    lookback_days: Optional[int] = Field(default=None, ge=1)
 
 
 class FundamentalFilter(BaseModel):
@@ -627,6 +653,19 @@ class ParsedStrategy(BaseModel):
             self.new_listing_only = True
         return self
 
+    @model_validator(mode="after")
+    def _normalize_composite_ranking(self):
+        """복합 순위 합산(FR-BT-063)의 정합 — 'composite'는 구성 지표 2개 이상이 있어야
+        성립하고(없으면 Fail Fast — 조용히 다른 랭킹으로 바꿔치지 않는다), 단일 랭킹으로
+        바뀐 뒤 남은 구성 지표는 의미가 없어 비운다(수정 diff가 ranking_metric만 갈아끼운
+        경우 엔진이 무시하는 잔재가 저장 페이로드에 남지 않게)."""
+        if self.ranking_metric == "composite":
+            if not self.ranking_components or len(self.ranking_components) < 2:
+                raise ValueError("복합 순위 합산(composite)은 구성 지표가 2개 이상이어야 합니다")
+        elif self.ranking_components is not None:
+            self.ranking_components = None
+        return self
+
     # ── 재무 필터
     fundamental_filters: List[FundamentalFilter] = Field(
         default_factory=list,
@@ -691,6 +730,15 @@ class ParsedStrategy(BaseModel):
             "분위 그룹당 보유 종목 상한(FR-BT-060b). 각 그룹이 자기 구간에서 랭킹 상위 "
             "N종목만 보유(모든 그룹 동일 적용). 분위 그룹 비교일 때만 의미. 없으면 "
             "그룹 구간 전체 보유"
+        ),
+    )
+    ranking_components: Optional[List[RankingComponent]] = Field(
+        default=None, min_length=2,
+        description=(
+            "복합 순위 합산(FR-BT-063)의 구성 지표. ranking_metric='composite'일 때만. "
+            "예: 'ROE 내림차순·PER 오름차순 순위를 합산해 상위 10%' → "
+            "[{metric:'roe_or_gpa',direction:'top'},{metric:'per',direction:'bottom'}]. "
+            "없으면 null"
         ),
     )
 
@@ -816,6 +864,7 @@ class ParsedStrategyDiff(BaseModel):
     ranking_direction: Optional[Literal["top", "bottom"]] = None
     ranking_quantile_groups: Optional[int] = Field(default=None, ge=2, le=10)
     ranking_group_cap: Optional[int] = Field(default=None, ge=1, le=100)
+    ranking_components: Optional[List[RankingComponent]] = None
     max_positions: Optional[int] = Field(default=None, ge=1, le=100)
     max_positions_pct: Optional[float] = Field(default=None, gt=0, le=100)
     hold_period_days: Optional[int] = None
@@ -1698,7 +1747,8 @@ class NLStrategyParser:
             headers={"Content-Type": "application/json", **ollama_auth_headers()},
             method="POST",
         )
-        with _ollama_open_with_retry(req, timeout=120) as resp:
+        # 스트리밍은 생성 내내 소켓을 읽는다 — 취소가 소켓을 닫으면 read 예외를 취소로 보고한다.
+        with cancellation.cancellable_io(), _ollama_open_with_retry(req, timeout=120) as resp:
             for line in resp:
                 line = line.strip()
                 if not line:
@@ -3881,13 +3931,32 @@ def _input_numbers(user_input: str) -> set:
 #     필터로 반영하면 이 술어가 안내를 뺀다(배당·sector 제외 계약과 동형).
 #   ema_alignment — '정배열'은 두 선의 상하 관계(crossover 표기)로 표현된다(인터프리터
 #     프롬프트 5-3). 세 선 이상을 나열한 정배열의 부분 표현은 이 술어가 구분하지 못한다.
+def _ranking_metrics_expressed(p) -> set:
+    """컴파일 결과가 랭킹으로 표현한 지표 이름들 — 단일 랭킹(ranking_metric)과 복합 순위
+    합산(FR-BT-063)의 구성 지표(ranking_components) 모두. 판정 입력은 컴파일 결과뿐이다."""
+    metrics = set()
+    single = getattr(p, "ranking_metric", None)
+    if single and single != "composite":
+        metrics.add(single)
+    for comp in getattr(p, "ranking_components", None) or []:
+        metric = comp.get("metric") if isinstance(comp, dict) else getattr(comp, "metric", None)
+        if metric:
+            metrics.add(metric)
+    return metrics
+
+
+_CASH_FLOW_METRICS = (
+    "ocf_growth", "fcf_growth", "pcr",
+    "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
+)
+
 _CONCEPT_EXPRESSED_PREDICATES: dict[str, Any] = {
+    # 랭킹(단일·복합 구성 지표)으로 반영된 PCR 등은 임계값이 없다 — 랭킹 자체가 표현이다.
     "cash_flow": lambda p, nums: any(
-        f.metric in ("ocf_growth", "fcf_growth", "pcr",
-                     "operating_cf_amount", "investing_cf_amount", "financing_cf_amount")
+        f.metric in _CASH_FLOW_METRICS
         and any(abs(float(f.value) - n) < 1e-6 for n in nums)
         for f in p.fundamental_filters
-    ),
+    ) or bool(_ranking_metrics_expressed(p) & set(_CASH_FLOW_METRICS)),
     "ema_alignment": lambda p, nums: any(
         s.indicator in ("ema", "ma_crossover") for s in p.entry_signals + p.exit_signals
     ),
@@ -3898,7 +3967,7 @@ _CONCEPT_EXPRESSED_PREDICATES: dict[str, Any] = {
     # entry_filters는 getattr 방어 — 이 술어는 ParsedStrategy 유사 스텁(테스트 더미)도
     # 받으므로 빌더 전용 채널 필드가 없을 수 있다.
     "volatility": lambda p, nums: (
-        getattr(p, "ranking_metric", None) == "volatility"
+        "volatility" in _ranking_metrics_expressed(p)
         or any(
             s.indicator == "volatility"
             for s in p.entry_signals + p.exit_signals + getattr(p, "entry_filters", [])

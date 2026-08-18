@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildVectorMemoryUpsertCommand,
   computeCacheKey,
+  pickExecutedRequest,
   resolveHistoryUniverseLabel,
 } from "@/lib/server/backtestCache";
 
@@ -102,5 +103,36 @@ describe("backtest history universe label", () => {
     expect(resolveHistoryUniverseLabel({ universe_id: "kospi" })).toBe("KOSPI");
     expect(resolveHistoryUniverseLabel({ universeId: "kosdaq" })).toBe("KOSDAQ");
     expect(resolveHistoryUniverseLabel({ universe: "kospi200" })).toBe("KOSPI200");
+  });
+});
+
+describe("executed request snapshot (FR-BT-064)", () => {
+  // 기록의 result에 실행 요청을 함께 남겨, 원천 Strategy 행이 없는 기록에서도 결과 페이지가
+  // 같은 전략을 다시 실행(리밸런싱 기간별 비교·워크포워드)할 수 있게 한다.
+  it("keeps only engine request keys and drops presentation-only fields", () => {
+    const picked = pickExecutedRequest({
+      ...baseBody,
+      entry: { logic: "AND", conditions: [] },
+      exit: { logic: "OR", conditions: [] },
+      startDate: "2020-01-01",
+      canonical_strategy_dsl: { entry_signals: [] },
+      strategy_name: "표시용 이름",
+      parsed_strategy: {},
+    });
+    expect(picked).toEqual({
+      symbols: ["005930", "000660"],
+      universe_id: "kospi200",
+      period: "3y",
+      risk: baseBody.risk,
+      options: baseBody.options,
+      entry: { logic: "AND", conditions: [] },
+      exit: { logic: "OR", conditions: [] },
+      startDate: "2020-01-01",
+    });
+  });
+
+  it("returns null when the body is not an engine request (no entry/exit/risk)", () => {
+    expect(pickExecutedRequest(baseBody)).toBeNull();
+    expect(pickExecutedRequest(null)).toBeNull();
   });
 });

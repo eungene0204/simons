@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Check, FloppyDisk, Spinner, WarningCircle } from "phosphor-react";
+import { t } from "@/lib/i18n";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -15,7 +16,7 @@ interface SaveValidationButtonProps {
 export default function SaveValidationButton({
   onSave,
   disabled = false,
-  label = "결과 저장",
+  label = t("결과 저장"),
 }: SaveValidationButtonProps) {
   const [state, setState] = useState<SaveState>("idle");
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -54,7 +55,7 @@ export default function SaveValidationButton({
       {state === "saved" && <Check className="h-4 w-4" weight="bold" />}
       {state === "error" && <WarningCircle className="h-4 w-4" weight="bold" />}
       {state === "idle" && <FloppyDisk className="h-4 w-4" weight="bold" />}
-      {state === "saving" ? "저장 중..." : state === "saved" ? "저장됨" : state === "error" ? "저장 실패" : label}
+      {state === "saving" ? t("저장 중...") : state === "saved" ? t("저장됨") : state === "error" ? t("저장 실패") : label}
     </button>
   );
 }

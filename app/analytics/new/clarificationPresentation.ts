@@ -4,6 +4,7 @@ import {
   getNextMissingBacktestCondition,
   type MissingBacktestCondition,
 } from "./backtestReadiness";
+import { t } from "@/lib/i18n";
 
 export type PresentedClarification = {
   question: string;
@@ -90,7 +91,7 @@ export function presentStrategyClarification({
   return {
     question: backendQuestion.includes("빠져 있습니다")
       ? backendQuestion
-      : `세부 조건이 빠져 있습니다. ${backendQuestion}`,
+      : t("세부 조건이 빠져 있습니다. {0}", backendQuestion),
     suggestions: backendSuggestions?.length
       ? backendSuggestions
       : [DIRECT_INPUT],

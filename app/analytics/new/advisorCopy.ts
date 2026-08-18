@@ -1,3 +1,4 @@
+import { t } from "@/lib/i18n";
 function isExperimentEvidenceCopy(body: string) {
   return (
     (body.includes("입력 하신 전략과 비슷한 전략으로 테스트 해본 결과") && body.includes("중앙값")) ||
@@ -65,7 +66,7 @@ export function formatCoachAdviceBody(body: string) {
   const normalized = body.replace(/\s+/g, " ").trim();
 
   if (isExperienceMemoryCopy(normalized)) {
-    return "기본안을 그대로 돌린 뒤, 손절 8~10%, 최대 보유기간 20일, 종목 수 5~10개 분산안을 각각 비교해 어느 조건이 손실을 줄이는지 먼저 확인하세요.";
+    return t("기본안을 그대로 돌린 뒤, 손절 8~10%, 최대 보유기간 20일, 종목 수 5~10개 분산안을 각각 비교해 어느 조건이 손실을 줄이는지 먼저 확인하세요.");
   }
 
   if (isExperimentEvidenceCopy(normalized)) {
@@ -76,7 +77,7 @@ export function formatCoachAdviceBody(body: string) {
     normalized.includes("비슷한 실험 데이터가 부족합니다") ||
     normalized.includes("실험 샘플이 부족해 확신하기 어렵습니다")
   ) {
-    return "지금 전략은 근거가 부족합니다. 기본안을 먼저 돌린 뒤 손절, 보유기간, 종목 수 조건을 하나씩만 바꿔 비교하세요.";
+    return t("지금 전략은 근거가 부족합니다. 기본안을 먼저 돌린 뒤 손절, 보유기간, 종목 수 조건을 하나씩만 바꿔 비교하세요.");
   }
 
   return removeInternalCopy(normalized);

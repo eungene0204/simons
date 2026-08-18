@@ -59,6 +59,7 @@ _FIELD_LABELS: Dict[str, str] = {
     "ranking_direction": "랭킹 방향",
     "ranking_quantile_groups": "분위 그룹 수",
     "ranking_group_cap": "그룹당 보유 종목 수",
+    "ranking_components": "복합 순위 구성 지표",
     "max_positions": "최대 보유 종목 수",
     "max_positions_pct": "편입 비율(%)",
     "hold_period_days": "보유 기간",
