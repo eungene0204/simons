@@ -101,6 +101,8 @@ class SignalResult(BaseModel):
     quantity: int
     amount: float
     condition: str
+    # 매도 신호의 순손익(원, 수수료·거래세 차감). 매수 신호는 None.
+    pnl: Optional[float] = None
 
 class AssetStats(BaseModel):
     symbol: str

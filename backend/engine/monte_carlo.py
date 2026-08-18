@@ -17,6 +17,29 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+from engine.result_handler import KRX_TRADING_DAYS_PER_YEAR
+
+
+def _backtest_years(backtest_result: Dict[str, Any], bar_count: int) -> float:
+    """연수 — 백테스트 엔진(ResultHandler.time_base)과 같은 달력 기준.
+
+    dates(첫 봉~마지막 봉 경과일 ÷ 365.25)로 세고, 날짜가 없으면 봉수 ÷ KRX 거래일(246).
+    예전의 봉수 ÷ 252는 연수를 ~2% 적게 잡아 CAGR을 엔진보다 높게 계산했다.
+    """
+    fallback = max(1e-6, bar_count / KRX_TRADING_DAYS_PER_YEAR)
+    dates = backtest_result.get("dates") or []
+    if len(dates) < 2:
+        return fallback
+    try:
+        first = np.datetime64(str(dates[0])[:10])
+        last = np.datetime64(str(dates[-1])[:10])
+    except (ValueError, TypeError):
+        return fallback
+    span_days = float((last - first) / np.timedelta64(1, "D"))
+    if span_days <= 0:
+        return fallback
+    return span_days / 365.25
+
 
 class MonteCarloSimulator:
     """Block-bootstrap MC on equity-curve returns (preserves autocorrelation)."""
@@ -50,7 +73,7 @@ class MonteCarloSimulator:
         mdds: List[float] = []
 
         initial_equity = float(backtest_result.get("initialCapital") or equity_arr[0])
-        years = max(1e-6, n / 252.0)
+        years = _backtest_years(backtest_result, len(equity_arr))
 
         max_starts = n - block_size + 1
         for _ in range(n_iterations):
@@ -60,14 +83,13 @@ class MonteCarloSimulator:
             log_equity = np.concatenate(([np.log(initial_equity)], np.log(initial_equity) + np.cumsum(sampled)))
             eq = np.exp(log_equity)
 
-            total_ret = eq[-1] / eq[0] - 1
             cagr = (eq[-1] / eq[0]) ** (1 / years) - 1 if eq[-1] > 0 else -1.0
             running_max = np.maximum.accumulate(eq)
             dd = (eq - running_max) / running_max
             mdd = float(-dd.min())
 
             std = sampled.std(ddof=1)
-            sharpe = (sampled.mean() / std) * np.sqrt(252) if std > 1e-12 else 0.0
+            sharpe = (sampled.mean() / std) * np.sqrt(KRX_TRADING_DAYS_PER_YEAR) if std > 1e-12 else 0.0
 
             cagrs.append(cagr)
             sharpes.append(float(sharpe))

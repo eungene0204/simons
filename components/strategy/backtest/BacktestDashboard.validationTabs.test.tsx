@@ -249,16 +249,24 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
       expect(screen.getByText("x축: CAGR 구간")).toBeInTheDocument();
       expect(screen.getByText("x축: MDD 구간")).toBeInTheDocument();
       expect(screen.getAllByText("y축: 시나리오 수")).toHaveLength(2);
-      expect(screen.getByText("실제 CAGR").closest("div.rounded-xl")).toHaveClass(
+      // CAGR은 순서와 무관해 '분포 내 위치' 카드를 두지 않는다 — 중앙값 카드로 대체(08-19 감사)
+      expect(screen.queryByText("실제 CAGR")).not.toBeInTheDocument();
+      expect(screen.queryByText(/분포 상위/)).not.toBeInTheDocument();
+      expect(screen.getByText("CAGR 중앙값").closest("div.rounded-xl")).toHaveClass(
         "border-white/[0.08]",
         "bg-white/[0.03]"
       );
-      expect(screen.getByText("실제 MDD").closest("div.rounded-xl")).toHaveClass(
+      expect(screen.getByText("원래 순서 MDD").closest("div.rounded-xl")).toHaveClass(
         "border-white/[0.08]",
         "bg-white/[0.03]"
       );
-      expect(screen.getByText("실제 CAGR")).toHaveClass("text-gray-500");
-      expect(screen.getByText("실제 MDD")).toHaveClass("text-gray-500");
+      expect(screen.getByText("CAGR 중앙값")).toHaveClass("text-gray-500");
+      expect(screen.getByText("원래 순서 MDD")).toHaveClass("text-gray-500");
+      // 실행 설정(방식·반복·seed)은 결과 객체에서 읽어 결과 헤더 아래에 표시된다(SRS FR-BT-050)
+      const runParams = screen.getByTestId("monte-carlo-run-params");
+      expect(runParams).toHaveTextContent("실행 설정");
+      expect(runParams).toHaveTextContent("21일 블록");
+      expect(runParams).toHaveTextContent("seed");
       // 결과 하단에 일상 언어 "쉽게 이해하기" 섹션이 표시된다
       const plainSummary = screen.getByTestId("result-plain-summary");
       expect(plainSummary).toBeInTheDocument();

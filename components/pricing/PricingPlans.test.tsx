@@ -79,10 +79,10 @@ describe("PricingPlans", () => {
 
     expect(within(premiumCard).getByText("워크포워드(walk-forward) 검증")).toBeInTheDocument();
     expect(
-      within(premiumCard).getByText("몬테 카를로(Monte Carlo Simulation) 검증")
+      within(premiumCard).getByText("몬테카를로(Monte Carlo Simulation) 검증")
     ).toBeInTheDocument();
     expect(screen.getAllByText("워크포워드(walk-forward) 검증")).toHaveLength(3);
-    const monteCarloLabels = screen.getAllByText("몬테 카를로(Monte Carlo Simulation) 검증");
+    const monteCarloLabels = screen.getAllByText("몬테카를로(Monte Carlo Simulation) 검증");
     expect(monteCarloLabels).toHaveLength(3);
     monteCarloLabels.forEach((label) => {
       expect(label).toHaveClass("xl:whitespace-nowrap");

@@ -333,6 +333,9 @@ class ResultHandler:
                         "date": get_dt_str(x_idx), "symbol": str(sym), "type": "sell",
                         "price": float(round(x_price)), "quantity": final_qty,
                         "amount": float(round(x_price) * final_qty),
+                        # 수수료·거래세를 뺀 순손익(원). price×quantity 차액은 비용 전 총손익이라
+                        # 거래 재표본(몬테카를로)이 이 값을 써야 백테스트와 같은 기준이 된다.
+                        "pnl": float(pnl),
                         "condition": f"{reason_kr} [수익률: {ret_val:+.2f}%, {pnl_label}: {abs(pnl):,.0f}원]"
                     })
 

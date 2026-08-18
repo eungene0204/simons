@@ -213,6 +213,8 @@ export interface BacktestResult {
     price: number;
     quantity: number;
     amount?: number;
+    /** 매도 체결의 순손익(원, 수수료·거래세 차감). 매수·구버전 결과에는 없다. */
+    pnl?: number;
     reason: string;
   }>;
   monthlyReturns: Record<string, number>;
@@ -225,6 +227,8 @@ export interface BacktestResult {
     price: number;
     quantity?: number;
     amount?: number;
+    /** 청산 신호의 순손익(원, 수수료·거래세 차감). 진입·구버전 결과에는 없다. */
+    pnl?: number;
   }>;
   perAssetStats?: Record<string, {
     symbol: string;

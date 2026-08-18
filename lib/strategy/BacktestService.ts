@@ -101,6 +101,7 @@ export class BacktestService {
           price: s.price,
           quantity: s.quantity || 0,
           amount: s.amount || 0,
+          pnl: typeof s.pnl === 'number' ? s.pnl : undefined,
           reason: s.condition
         })),
         monthlyReturns: {},
@@ -112,7 +113,8 @@ export class BacktestService {
           condition: s.condition,
           price: Number(s.price),
           quantity: Number(s.quantity),
-          amount: Number(s.amount)
+          amount: Number(s.amount),
+          pnl: typeof s.pnl === 'number' ? s.pnl : undefined
         })),
         perAssetStats: pythonResult.perAssetStats,
         benchmarkLabel: pythonResult.benchmark_label,

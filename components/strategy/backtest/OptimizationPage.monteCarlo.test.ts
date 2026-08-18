@@ -2,9 +2,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  backtestYears,
   buildMonteCarloHistogram,
   extractTradeReturns,
   formatMonteCarloMethodLabel,
+  KRX_TRADING_DAYS_PER_YEAR,
   recommendMonteCarloMethod,
   runMonteCarloSimulation,
 } from "./OptimizationPage";
@@ -70,16 +72,64 @@ describe("runMonteCarloSimulation", () => {
     expect(mddTotal).toBe(result.nIterations);
   });
 
-  it("실제 백테스트(원래 순서) 지표의 분포 내 위치를 제공한다", async () => {
+  it("원래 순서 지표를 재구성하고, 분포 내 위치는 MDD에만 제공한다", async () => {
     const result = await runMonteCarloSimulation(buildResult(300), settings);
     expect(result.status).toBe("ok");
     expect(result.observed).toBeDefined();
     expect(Number.isFinite(result.observed.cagr)).toBe(true);
     expect(result.observed.mdd).toBeGreaterThanOrEqual(0);
-    expect(result.observed.cagrPct).toBeGreaterThanOrEqual(0);
-    expect(result.observed.cagrPct).toBeLessThanOrEqual(1);
     expect(result.observed.mddPct).toBeGreaterThanOrEqual(0);
     expect(result.observed.mddPct).toBeLessThanOrEqual(1);
+    // CAGR은 순서 불변(성장배수의 곱)이라 위치를 내지 않는다 — 회귀 방지
+    expect(result.observed).not.toHaveProperty("cagrPct");
+  });
+
+  it("관측 CAGR은 부트스트랩 분포 한가운데에 온다(순서 불변) — 위치 카드가 무의미한 근거", async () => {
+    // 부트스트랩 평균은 관측 평균과 같으므로 어떤 방식이든 관측 CAGR ≤ 인 시나리오 비율은 ~50%.
+    // 08-19 감사에서 8시드×3방식 전부 0.47~0.59로 실측됐다. 이 성질이 깨지면 계산 자체가 바뀐 것.
+    const backtest = buildResult(600);
+    for (const s of [
+      { ...settings, blockSize: 1, iterations: 400 },
+      { ...settings, blockSize: 21, iterations: 400 },
+      { ...settings, blockSize: 10, blockMethod: "stationary", iterations: 400 },
+    ]) {
+      const result = await runMonteCarloSimulation(backtest, s);
+      expect(result.status).toBe("ok");
+      const values = [];
+      // 히스토그램에서 관측 이하 비율을 근사한다(빈 경계 오차 허용)
+      let below = 0;
+      let total = 0;
+      for (const bin of result.cagrHistogram) {
+        total += bin.count;
+        if (bin.x1 <= result.observed.cagr) below += bin.count;
+      }
+      const pct = below / total;
+      expect(pct).toBeGreaterThan(0.25);
+      expect(pct).toBeLessThan(0.75);
+      values.push(pct);
+    }
+  });
+
+  it("연환산은 엔진과 같은 달력 연수(dates 경과일÷365.25)·KRX 246일을 쓴다", async () => {
+    // 1년치(246봉)를 2024-01-02~2024-12-30 달력으로 깔면 연수 ≈ 0.995년.
+    // 봉수÷252(=0.976년)로 세면 CAGR이 ~2% 상대 과대 — 백테스트 결과 탭 CAGR과 어긋나던 원인.
+    const dates = [];
+    const start = Date.parse("2024-01-02");
+    for (let i = 0; i < 246; i += 1) {
+      dates.push(new Date(start + Math.round((i * 363) / 245) * 86_400_000).toISOString().slice(0, 10));
+    }
+    expect(backtestYears(dates, 246)).toBeCloseTo(363 / 365.25, 6);
+    expect(backtestYears(undefined, 246)).toBeCloseTo(1, 6);
+    expect(backtestYears(["bad", "worse"], 123)).toBeCloseTo(123 / KRX_TRADING_DAYS_PER_YEAR, 6);
+    expect(KRX_TRADING_DAYS_PER_YEAR).toBe(246);
+
+    // 관측 CAGR = (마지막/처음)^(1/years) − 1 이 dates 기준 연수로 계산돼야 한다.
+    const backtest = { ...buildResult(246), dates };
+    const result = await runMonteCarloSimulation(backtest, { ...settings, blockSize: 21, iterations: 100 });
+    expect(result.status).toBe("ok");
+    const equity = backtest.equity;
+    const expected = (equity[equity.length - 1] / equity[0]) ** (1 / (363 / 365.25)) - 1;
+    expect(result.observed.cagr).toBeCloseTo(expected, 8);
   });
 
   it("blockSize 1(일별 독립 재표본)도 동작한다", async () => {
@@ -234,6 +284,40 @@ describe("extractTradeReturns", () => {
     expect(returns[0]).toBeCloseTo(0.02);
   });
 
+  it("매도 체결에 순손익(pnl)이 있으면 체결가 차액 대신 그것을 써서 수수료·거래세를 반영한다", () => {
+    const result = {
+      initialCapital: 1000,
+      equity: [1000, 1000],
+      dates: ["2024-01-02", "2024-02-01"],
+      tradesList: [
+        { date: "2024-01-02", symbol: "A", type: "buy", price: 100, quantity: 2 },
+        // 차액 20원, 비용 0.45% 차감한 순손익 19.055원을 엔진이 실어 준다
+        { date: "2024-02-01", symbol: "A", type: "sell", price: 110, quantity: 2, pnl: 19.055 },
+      ],
+    };
+    const { returns, sized, netOfFees } = extractTradeReturns(result);
+    expect(sized).toBe(true);
+    expect(netOfFees).toBe(true);
+    expect(returns[0]).toBeCloseTo(0.019055, 8);
+  });
+
+  it("부분 체결이면 주당 순손익으로 배분하고, pnl 없는 매도가 섞이면 netOfFees=false", () => {
+    const result = {
+      initialCapital: 1000,
+      equity: [1000, 1000, 1000],
+      dates: ["2024-01-02", "2024-02-01", "2024-03-01"],
+      tradesList: [
+        { date: "2024-01-02", symbol: "A", type: "buy", price: 100, quantity: 4 },
+        { date: "2024-02-01", symbol: "A", type: "sell", price: 110, quantity: 2, pnl: 18 }, // 주당 9
+        { date: "2024-03-01", symbol: "A", type: "sell", price: 120, quantity: 2 }, // pnl 없음 → 차액 40
+      ],
+    };
+    const { returns, netOfFees } = extractTradeReturns(result);
+    expect(netOfFees).toBe(false);
+    expect(returns[0]).toBeCloseTo(0.018, 8);
+    expect(returns[1]).toBeCloseTo(0.04, 8);
+  });
+
   it("tradesList가 없으면 signals(entry/exit)로 폴백한다", () => {
     const result = {
       tradesList: [],
@@ -272,7 +356,10 @@ describe("runMonteCarloSimulation — 거래 재표본 모드", () => {
     expect(result.mode).toBe("trades");
     expect(result.tradeCount).toBe(40);
     expect(result.tradeSizing).toBe("equity-weighted");
+    // buildTrades에는 pnl이 없다 → 비용 전 손익으로 계산됐음을 결과에 표시한다
+    expect(result.tradeCosts).toBe("gross");
     expect(result.observed).toBeDefined();
+    expect(result.observed).not.toHaveProperty("cagrPct");
     expect(result.cagrHistogram.reduce((sum, bin) => sum + bin.count, 0)).toBe(result.nIterations);
     expect(result.mdd.min).toBeGreaterThanOrEqual(0);
     expect(result.cagr.min).toBeLessThanOrEqual(result.cagr.max);

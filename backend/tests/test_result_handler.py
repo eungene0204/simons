@@ -613,3 +613,38 @@ def test_sharpe_and_volatility_use_sample_stddev_and_krx_annualization():
     ann = np.sqrt(246.0)
     assert result["volatility"] == pytest.approx(arr.std(ddof=1) * ann * 100)
     assert result["sharpe"] == pytest.approx(arr.mean() * ann / arr.std(ddof=1))
+
+
+def test_sell_signals_carry_net_pnl_for_trade_resampling():
+    """매도 신호에 순손익(pnl, 수수료·거래세 차감)이 실린다.
+
+    몬테카를로 거래 재표본은 예전에 price×quantity 차액(비용 전)으로 손익을 복원해
+    왕복 0.45%가 빠진 낙관 분포를 냈다(2026-08-19 감사). 엔진의 vbt 거래 pnl을 그대로
+    실어 프론트가 같은 기준을 쓰게 한다. 매수 신호에는 pnl이 없다.
+    """
+    pf = _Portfolio()
+    common_index = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"])
+
+    result = ResultHandler.format_results(
+        pf=pf,
+        processed_symbols=["005930"],
+        _all_entries=None,
+        _all_exits=None,
+        all_entry_reasons={},
+        all_exit_reasons={},
+        common_index=common_index,
+        risk_params={},
+        exec_type="close",
+        init_cash=10_000_000,
+    )
+
+    sells = [s for s in result["signals"] if s["type"] == "sell"]
+    buys = [s for s in result["signals"] if s["type"] == "buy"]
+    assert len(sells) == 2 and len(buys) == 2
+    assert sorted(s["pnl"] for s in sells) == sorted([1_578_907.98, -206_767.98])
+    assert all("pnl" not in b for b in buys)
+    # 응답 스키마가 이 필드를 떨어뜨리지 않는지(schemas.py 누락 = 조용한 드롭) 함께 고정
+    from schemas import SignalResult
+    dumped = SignalResult(**sells[0]).model_dump()
+    assert dumped["pnl"] == sells[0]["pnl"]
+    assert SignalResult(**buys[0]).model_dump()["pnl"] is None

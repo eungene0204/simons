@@ -131,18 +131,39 @@ export interface MonteCarloHistogramBin {
 }
 
 /**
- * 실제 백테스트(재표본하지 않은 원래 순서)의 지표가 시뮬레이션 분포 안에서
- * 어디에 위치하는지. 분포 상단에 치우쳐 있으면 특정 순서에 우연히 의존했을 가능성을 시사한다.
+ * 재표본하지 않은 원래 순서의 지표를 시뮬레이션과 같은 기준으로 재구성한 값과,
+ * 그 값이 분포 안에서 차지하는 위치.
+ *
+ * 위치(백분위)는 **MDD에만** 둔다. CAGR은 성장배수의 곱이라 순서와 무관하고, 부트스트랩
+ * 분포는 관측 평균을 중심으로 만들어지므로 관측 CAGR은 구조적으로 늘 분포 한가운데
+ * (실측 8시드×3방식 전부 47~59 백분위)에 온다 — 백분위를 보여줘도 정보가 없고
+ * "상단 치우침=순서 의존"이라는 해석은 CAGR에는 성립하지 않는다. 순서에 좌우되는
+ * 것은 낙폭(MDD·언더워터)뿐이다.
  */
 export interface MonteCarloObserved {
-  /** 원래 순서 그대로 재구성한 CAGR (분포와 동일한 기준으로 계산) */
+  /** 원래 순서 그대로 재구성한 CAGR (분포와 동일한 기준으로 계산, 위치 해석 없음) */
   cagr: number;
   /** 원래 순서 그대로 재구성한 MDD */
   mdd: number;
-  /** 시나리오 중 관측 CAGR **이하**인 비율 (0~1). 1에 가까울수록 관측이 분포 상단. */
-  cagrPct: number;
   /** 시나리오 중 관측 MDD **이하**(=더 얕은 낙폭)인 비율 (0~1). */
   mddPct: number;
+}
+
+// 연환산 기준 — 백테스트 엔진(result_handler.time_base)과 같은 규칙을 쓴다.
+// 연수는 달력 기준(첫 봉~마지막 봉 경과일 ÷ 365.25), 연환산 계수는 KRX 실제 거래일 246.
+// 예전처럼 봉수÷252로 세면 연수를 ~2% 적게 잡아 CAGR이 백테스트 결과보다 높게 나왔다.
+export const KRX_TRADING_DAYS_PER_YEAR = 246;
+
+/** 백테스트 결과의 dates로 달력 연수를 구한다. 날짜를 못 쓰면 봉수÷246으로 되돌린다. */
+export function backtestYears(dates: string[] | undefined, barCount: number): number {
+  const fallback = Math.max(1e-6, barCount / KRX_TRADING_DAYS_PER_YEAR);
+  if (!dates || dates.length < 2) return fallback;
+  const first = Date.parse(dates[0]);
+  const last = Date.parse(dates[dates.length - 1]);
+  if (!Number.isFinite(first) || !Number.isFinite(last)) return fallback;
+  const spanDays = (last - first) / 86_400_000;
+  if (spanDays <= 0) return fallback;
+  return spanDays / 365.25;
 }
 
 /** 표본 충분성 — 이 분포를 해석하기에 재표본 단위가 충분한지. */
@@ -166,6 +187,11 @@ interface MonteCarloResult {
   tradeCount?: number;
   /** trades 모드의 사이징 반영 방식: equity-weighted(자본 대비 기여도) / price-return(사이징 정보 없음) */
   tradeSizing?: "equity-weighted" | "price-return";
+  /**
+   * trades 모드의 거래 비용 반영: net(엔진이 준 순손익 — 수수료·거래세 차감) /
+   * gross(체결가 차액만 — 비용 전). 구버전 결과·pnl 없는 체결 기록은 gross.
+   */
+  tradeCosts?: "net" | "gross";
   cagr: MonteCarloSummary;
   sharpe: MonteCarloSummary;
   mdd: MonteCarloSummary;
@@ -327,17 +353,25 @@ interface TradeReturnRecord {
   side: "buy" | "sell";
   price: number;
   quantity: number;
+  /** 매도 체결의 순손익(원, 수수료·거래세 차감). 없으면 체결가 차액(비용 전)으로 계산한다. */
+  pnl?: number;
 }
 
 // 체결 기록(tradesList, 없으면 signals)에서 종목별 수량 기반 FIFO 매칭으로 완결 거래를 복원한다.
 // 각 완결 거래는 **자본 대비 기여도(return-on-equity)** = 손익금 / 진입시점 계좌자산 으로 환산한다.
 //   - 이렇게 하면 실제 포지션 사이징(전액이 아닌 일부만 투입, 동시 다종목 보유)이 반영되어
 //     거래 재표본 복리가 다종목 전략의 CAGR·MDD를 과장하지 않는다.
+//   - 손익금은 엔진이 매도 체결에 실어 준 **순손익(pnl, 수수료·거래세 차감)**을 우선 쓴다.
+//     체결가 차액(수량×(매도가−매수가))은 비용 전 총손익이라 왕복 0.45%(수수료 0.15%×2+
+//     거래세 0.15%)가 빠져 회전율 높은 전략일수록 분포가 낙관적으로 치우친다. pnl이 없는
+//     구버전 결과만 차액으로 강등하고 netOfFees=false 로 표시한다.
 //   - 체결 수량이나 일별 자산곡선이 없어 사이징을 복원할 수 없으면 가격수익률로 강등하고
 //     sized=false 로 표시한다(UI가 한계를 고지).
 export function extractTradeReturns(backtestResult: BacktestResult): {
   returns: number[];
   sized: boolean;
+  /** 모든 완결 거래의 손익이 순손익(pnl) 기준이면 true. 하나라도 차액 폴백이면 false. */
+  netOfFees: boolean;
 } {
   const fromTrades: TradeReturnRecord[] = (backtestResult.tradesList ?? []).map((tv) => ({
     date: tv.date,
@@ -345,6 +379,7 @@ export function extractTradeReturns(backtestResult: BacktestResult): {
     side: tv.type,
     price: tv.price,
     quantity: tv.quantity ?? 0,
+    pnl: tv.pnl,
   }));
   const fromSignals: TradeReturnRecord[] = (backtestResult.signals ?? []).map((s) => ({
     date: s.date,
@@ -352,6 +387,7 @@ export function extractTradeReturns(backtestResult: BacktestResult): {
     side: s.type === "entry" ? ("buy" as const) : ("sell" as const),
     price: s.price,
     quantity: s.quantity ?? 0,
+    pnl: s.pnl,
   }));
   const records = fromTrades.length > 0 ? fromTrades : fromSignals;
 
@@ -373,6 +409,7 @@ export function extractTradeReturns(backtestResult: BacktestResult): {
   const sorted = [...records].sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
   const openLots: Record<string, Array<{ price: number; quantity: number; date: string }>> = {};
   const returns: number[] = [];
+  let netOfFees = true;
 
   for (const record of sorted) {
     if (!Number.isFinite(record.price) || record.price <= 0) continue;
@@ -386,6 +423,11 @@ export function extractTradeReturns(backtestResult: BacktestResult): {
     // 매도: 오래된 롯부터 수량만큼 소진하며 완결 조각별로 수익률을 기록한다.
     let sellQty = sized ? Math.max(0, record.quantity) : 1;
     const lots = openLots[record.symbol];
+    // 순손익이 있으면 주당 순손익으로 환산해 매칭 수량만큼 배분한다(부분 체결 대응).
+    const netPnlPerShare =
+      typeof record.pnl === "number" && Number.isFinite(record.pnl) && record.quantity > 0
+        ? record.pnl / record.quantity
+        : undefined;
     while (lots && lots.length > 0 && sellQty > 0) {
       const lot = lots[0];
       const matchedQty = sized ? Math.min(lot.quantity, sellQty) : 1;
@@ -393,15 +435,22 @@ export function extractTradeReturns(backtestResult: BacktestResult): {
       if (sized) {
         const equityAtEntry = equityByDate.get(lot.date) ?? fallbackEquity;
         if (equityAtEntry && equityAtEntry > 0 && matchedQty > 0) {
-          const pnl = matchedQty * (record.price - lot.price);
+          let pnl: number;
+          if (netPnlPerShare !== undefined) {
+            pnl = matchedQty * netPnlPerShare;
+          } else {
+            pnl = matchedQty * (record.price - lot.price);
+            netOfFees = false;
+          }
           returns.push(pnl / equityAtEntry);
         }
         lot.quantity -= matchedQty;
         sellQty -= matchedQty;
         if (lot.quantity <= 1e-9) lots.shift();
       } else {
-        // 사이징 정보 없음 → 가격수익률(한 롯당 한 건)
+        // 사이징 정보 없음 → 가격수익률(한 롯당 한 건, 비용 전)
         returns.push(record.price / lot.price - 1);
+        netOfFees = false;
         lots.shift();
         sellQty -= 1;
       }
@@ -411,6 +460,7 @@ export function extractTradeReturns(backtestResult: BacktestResult): {
   return {
     returns: returns.filter((value) => Number.isFinite(value) && value > -1),
     sized,
+    netOfFees,
   };
 }
 
@@ -422,7 +472,7 @@ async function runTradeResampleSimulation(
   onProgress?: (completedRatio: number) => void,
   shouldCancel?: () => boolean
 ): Promise<{ status: "error"; message: string } | { status: "cancelled" } | MonteCarloResult> {
-  const { returns: tradeReturns, sized } = extractTradeReturns(backtestResult);
+  const { returns: tradeReturns, sized, netOfFees } = extractTradeReturns(backtestResult);
   if (tradeReturns.length < MIN_COMPLETED_TRADES) {
     return {
       status: "error",
@@ -432,7 +482,7 @@ async function runTradeResampleSimulation(
 
   const iterations = Math.max(100, Math.floor(settings.iterations));
   const barCount = (backtestResult.dates ?? []).length || (backtestResult.equity ?? []).length;
-  const years = Math.max(1e-6, barCount / 252);
+  const years = backtestYears(backtestResult.dates, barCount);
   const tradesPerYear = tradeReturns.length / years;
   const rng = createSeededRng(settings.seed);
   const n = tradeReturns.length;
@@ -476,6 +526,8 @@ async function runTradeResampleSimulation(
     const std = Math.sqrt(variance);
 
     cagrs.push(equity > 0 ? equity ** (1 / years) - 1 : -1);
+    // 거래 단위 샤프: 거래당 평균/표준편차 × √(연간 거래 수). 일별 샤프와 정의가 다르므로
+    // 표에서 '거래 단위'로 구분 표기한다.
     sharpes.push(std > 1e-12 ? (mean / std) * Math.sqrt(tradesPerYear) : 0);
     mdds.push(Math.abs(worstDrawdown));
     underwaters.push(longestUnderwater);
@@ -494,6 +546,7 @@ async function runTradeResampleSimulation(
     mode: "trades",
     tradeCount: tradeReturns.length,
     tradeSizing: sized ? "equity-weighted" : "price-return",
+    tradeCosts: netOfFees ? "net" : "gross",
     cagr: summarizeMonteCarlo(cagrs),
     sharpe: summarizeMonteCarlo(sharpes),
     mdd: summarizeMonteCarlo(mdds),
@@ -504,7 +557,6 @@ async function runTradeResampleSimulation(
     observed: {
       cagr: observedPath.cagr,
       mdd: observedPath.mdd,
-      cagrPct: percentileRank(cagrs, observedPath.cagr),
       mddPct: percentileRank(mdds, observedPath.mdd),
     },
     underwater: summarizeMonteCarlo(underwaters),
@@ -550,7 +602,7 @@ export async function runMonteCarloSimulation(
 
   const blockMethod: MonteCarloBlockMethod = settings.blockMethod ?? "fixed";
   const iterations = Math.max(100, Math.floor(settings.iterations));
-  const years = Math.max(1e-6, logReturns.length / 252);
+  const years = backtestYears(backtestResult.dates, equity.length);
   const initialEquity = backtestResult.initialCapital || equity[0];
   const rng = createSeededRng(settings.seed);
   const cagrs: number[] = [];
@@ -596,7 +648,7 @@ export async function runMonteCarloSimulation(
         : 0;
 
     cagrs.push(currentEquity > 0 ? (currentEquity / initialEquity) ** (1 / years) - 1 : -1);
-    sharpes.push(std > 1e-12 ? (avgReturn / std) * Math.sqrt(252) : 0);
+    sharpes.push(std > 1e-12 ? (avgReturn / std) * Math.sqrt(KRX_TRADING_DAYS_PER_YEAR) : 0);
     mdds.push(Math.abs(worstDrawdown));
     underwaters.push(longestUnderwater);
   }
@@ -625,7 +677,6 @@ export async function runMonteCarloSimulation(
     observed: {
       cagr: observedPath.cagr,
       mdd: observedPath.mdd,
-      cagrPct: percentileRank(cagrs, observedPath.cagr),
       mddPct: percentileRank(mdds, observedPath.mdd),
     },
     underwater: summarizeMonteCarlo(underwaters),
@@ -734,8 +785,8 @@ function StrategyConditionSummary({
   );
 }
 
-// 전략의 평균 보유기간을 근거로 재표본 방식 기본값을 추천한다.
-// (검증 방식 선택을 돕는 통계적 제안일 뿐, 투자 판단 추천이 아니다.)
+// 전략의 평균 보유기간을 근거로 재표본 블록 길이 기본값을 제안한다.
+// (검증 방식 선택을 돕는 통계적 제안일 뿐, 투자 판단이 아니다. 화면 어휘도 '추천'을 쓰지 않는다.)
 export interface MonteCarloRecommendation {
   blockSize: number;
   label: string;
@@ -774,7 +825,7 @@ function MonteCarloHistogramChart({
   xAxisLabel: string;
   /** true면 0 기준으로 음수 구간은 파랑, 양수 구간은 빨강 (앱의 등락 색 관례) */
   signColored?: boolean;
-  /** 실제 백테스트(원래 순서) 값 — 해당 구간 위에 세로 기준선으로 표시한다. */
+  /** 원래 순서(재표본 안 함) 값 — 해당 구간 위에 세로 기준선으로 표시한다. */
   observedValue?: number;
 }) {
   if (bins.length === 0) return null;
@@ -860,7 +911,7 @@ function MonteCarloHistogramChart({
                 stroke="#fbbf24"
                 strokeWidth={2}
                 strokeDasharray="4 3"
-                label={{ value: t("실제"), position: "top", fill: "#fbbf24", fontSize: 10, fontWeight: 800 }}
+                label={{ value: t("원래 순서"), position: "top", fill: "#fbbf24", fontSize: 10, fontWeight: 800 }}
               />
             )}
           </BarChart>
@@ -869,7 +920,7 @@ function MonteCarloHistogramChart({
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-bold text-gray-500">
         <span>{t("x축: {0}", xAxisLabel)}</span>
         <span>{t("y축: 시나리오 수")}</span>
-        {observedLabel !== null && <span className="text-amber-300/90">{t("노란 선 = 실제 백테스트 값")}</span>}
+        {observedLabel !== null && <span className="text-amber-300/90">{t("노란 선 = 원래 순서(재표본 안 함) 값")}</span>}
       </div>
     </div>
   );
@@ -1173,7 +1224,7 @@ export default function OptimizationPage({
                         title={monteCarloRecommendation.reason}
                         className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-sky-400/30 px-2.5 py-1 text-[11px] font-black transition-colors"
                       >
-                        {t("추천 방식: {0} 적용", monteCarloRecommendation.label)}
+                        {t("보유기간 기준 블록 길이: {0} 적용", monteCarloRecommendation.label)}
                       </button>
                     )}
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -1346,32 +1397,62 @@ export default function OptimizationPage({
                       </div>
                     </div>
 
+                    {/* 이 결과를 만든 실행 파라미터 — 결과 객체에서 직접 읽어 표시(설정 변경과 무관하게 일관).
+                        거래 재표본의 사이징·비용 강등도 여기서 고지한다(SRS FR-BT-050 실행 설정 표시). */}
+                    <div
+                      data-testid="monte-carlo-run-params"
+                      className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-xs font-bold text-gray-400"
+                    >
+                      <span className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">{t("실행 설정")}</span>
+                      <span>
+                        {t("방식")} <span className="text-gray-200">{formatMonteCarloMethodLabel(monteCarloResult)}</span>
+                      </span>
+                      <span>
+                        {t("반복")} <span className="tabular-nums text-gray-200">{t("{0}회", monteCarloResult.nIterations.toLocaleString())}</span>
+                      </span>
+                      <span>
+                        seed <span className="tabular-nums text-gray-200">{monteCarloResult.seed ?? monteCarloSettings.seed}</span>
+                      </span>
+                      {monteCarloResult.mode === "trades" && monteCarloResult.tradeCount !== undefined && (
+                        <span>
+                          {t("완결 거래")} <span className="tabular-nums text-gray-200">{t("{0}건", monteCarloResult.tradeCount.toLocaleString())}</span>
+                        </span>
+                      )}
+                      {monteCarloResult.mode === "trades" && monteCarloResult.tradeSizing && (
+                        <span>
+                          {t("사이징")}{" "}
+                          <span className={monteCarloResult.tradeSizing === "equity-weighted" ? "text-gray-200" : "text-amber-300"}>
+                            {monteCarloResult.tradeSizing === "equity-weighted"
+                              ? t("포지션 크기 반영")
+                              : t("가격수익률(사이징 정보 없음)")}
+                          </span>
+                        </span>
+                      )}
+                      {monteCarloResult.mode === "trades" && (
+                        <span>
+                          {t("거래 비용")}{" "}
+                          <span className={monteCarloResult.tradeCosts === "net" ? "text-gray-200" : "text-amber-300"}>
+                            {monteCarloResult.tradeCosts === "net"
+                              ? t("수수료·거래세 차감")
+                              : t("미반영(비용 전 손익)")}
+                          </span>
+                        </span>
+                      )}
+                    </div>
+
                     {monteCarloResult.sufficiency?.low && (
                       <div className="mt-3 rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-xs font-bold leading-5 text-amber-200">
                         {t("재표본에 쓰인 독립 단위가 약 {0}개로 적어, 이 분포는 참고용으로 보는 것이 적절합니다. 표본이 적을수록 분위수·확률 추정이 흔들립니다.", Math.round(monteCarloResult.sufficiency.effectiveSamples))}
                       </div>
                     )}
                     <div className="mt-3 grid gap-3 md:grid-cols-3">
-                      {monteCarloResult.observed ? (
-                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                          <div className="flex items-center gap-1.5">
-                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">{t("실제 CAGR")}</p>
-                            <SettingHelpTooltip
-                              label={t("실제 백테스트 CAGR의 분포 내 위치")}
-                              description={t("재표본하지 않은 실제 백테스트 순서의 CAGR가 무작위 시나리오 분포에서 차지하는 위치입니다. 상위(백분위가 높을)수록 이 성과가 특정 거래·시장 순서에 우연히 의존했을 가능성을 시사합니다.")}
-                            />
-                          </div>
-                          <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.observed.cagr)}</p>
-                          <p className="mt-1 text-[11px] font-bold text-gray-500">
-                            {t("분포 상위 {0}%", Math.round((1 - monteCarloResult.observed.cagrPct) * 100))}
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">{t("표본 최저 CAGR")}</p>
-                          <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.cagr.min)}</p>
-                        </div>
-                      )}
+                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">{t("CAGR 중앙값")}</p>
+                        <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.cagr.median)}</p>
+                        <p className="mt-1 text-[11px] font-bold text-gray-500">
+                          {t("하위 5% 경계 {0}", formatRatioAsPercent(monteCarloResult.cagr.p05))}
+                        </p>
+                      </div>
                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
                         <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">{t("양수 CAGR 확률")}</p>
                         <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.probPositiveCagr)}</p>
@@ -1379,10 +1460,10 @@ export default function OptimizationPage({
                       {monteCarloResult.observed ? (
                         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
                           <div className="flex items-center gap-1.5">
-                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">{t("실제 MDD")}</p>
+                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">{t("원래 순서 MDD")}</p>
                             <SettingHelpTooltip
-                              label={t("실제 백테스트 MDD의 분포 내 위치")}
-                              description={t("재표본하지 않은 실제 백테스트 순서의 최대 낙폭이 시나리오 분포에서 차지하는 위치입니다. 시나리오 상당수가 이보다 더 깊은 낙폭을 겪었다면 실제 경로가 낙폭 면에서 유리한 편이었다는 뜻입니다.")}
+                              label={t("원래 순서 MDD의 분포 내 위치")}
+                              description={t("재표본하지 않은 원래 순서의 최대 낙폭을 시뮬레이션과 같은 기준으로 재구성한 값과, 그 값이 시나리오 분포에서 차지하는 위치입니다. 낙폭은 수익률이 어떤 순서로 이어졌는지에 따라 달라지므로, 시나리오 상당수가 이보다 더 깊은 낙폭을 겪었다면 원래 순서가 낙폭 면에서 유리한 편이었다는 뜻입니다. (CAGR은 순서와 무관해 위치를 표시하지 않습니다.)")}
                             />
                           </div>
                           <p className="mt-2 text-2xl font-black text-white">{formatRatioAsPercent(monteCarloResult.observed.mdd)}</p>
@@ -1404,7 +1485,6 @@ export default function OptimizationPage({
                         bins={monteCarloResult.cagrHistogram}
                         xAxisLabel={t("CAGR 구간")}
                         signColored
-                        observedValue={monteCarloResult.observed?.cagr}
                       />
                       <MonteCarloHistogramChart
                         title={t("MDD 분포")}
@@ -1428,7 +1508,7 @@ export default function OptimizationPage({
                         <tbody>
                           {[
                             ["CAGR", monteCarloResult.cagr, true] as const,
-                            ["Sharpe", monteCarloResult.sharpe, false] as const,
+                            [monteCarloResult.mode === "trades" ? t("Sharpe(거래 단위)") : "Sharpe", monteCarloResult.sharpe, false] as const,
                             ["MDD", monteCarloResult.mdd, true] as const,
                           ].map(([label, summary, isPercent]) => {
                             const fmtCell = (value: number) =>
@@ -1449,6 +1529,11 @@ export default function OptimizationPage({
                         </tbody>
                       </table>
                     </div>
+                    {monteCarloResult.mode === "trades" && (
+                      <p className="mt-2 text-[11px] font-bold leading-5 text-gray-500">
+                        {t("Sharpe(거래 단위) = 거래당 수익률 평균 ÷ 표준편차 × √(연간 거래 수). 일별 수익률로 계산하는 백테스트 결과의 샤프 지수와 정의가 달라 직접 비교할 수 없습니다.")}
+                      </p>
+                    )}
 
                     <div className="mt-4">
                       <ResultPlainSummary items={buildMonteCarloPlainSummary(monteCarloResult)} />
