@@ -62,6 +62,7 @@ function mapBacktestResponse(raw: any): BacktestResult {
       price: signal.price,
       quantity: signal.quantity ?? 0,
       amount: signal.amount ?? 0,
+      pnl: typeof signal.pnl === "number" ? signal.pnl : undefined,
       reason: signal.condition,
     })),
     monthlyReturns: {},

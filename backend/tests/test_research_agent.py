@@ -246,6 +246,23 @@ def test_monte_carlo_produces_distribution():
     assert 0 <= out["prob_positive_cagr"] <= 1
 
 
+def test_monte_carlo_years_follow_engine_calendar_basis():
+    """연수는 엔진(ResultHandler.time_base)과 같은 달력 기준 — dates 경과일÷365.25.
+
+    예전의 봉수÷252는 연수를 ~2% 적게 잡아 CAGR을 엔진보다 높게 계산했다(08-19 감사).
+    dates가 없으면 봉수÷KRX 246일로 되돌린다.
+    """
+    import numpy as np
+    from engine.monte_carlo import _backtest_years
+    from engine.result_handler import KRX_TRADING_DAYS_PER_YEAR
+
+    assert KRX_TRADING_DAYS_PER_YEAR == 246
+    dates = [str(d)[:10] for d in np.arange("2020-01-02", "2022-01-02", dtype="datetime64[D]")]
+    assert abs(_backtest_years({"dates": dates}, len(dates)) - (730 / 365.25)) < 1e-9  # 2020-01-02~2022-01-01
+    assert abs(_backtest_years({}, 246) - 1.0) < 1e-9
+    assert abs(_backtest_years({"dates": ["x", "y"]}, 123) - 123 / 246) < 1e-9
+
+
 # ─────────────────────────────────────────────────────────
 # Agent state machine (with mocked engine)
 # ─────────────────────────────────────────────────────────

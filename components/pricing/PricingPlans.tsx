@@ -38,7 +38,7 @@ type FeatureRow = { label: string; included: boolean };
 
 const PREMIUM_VALIDATION_FEATURES = [
   "워크포워드(walk-forward) 검증",
-  "몬테 카를로(Monte Carlo Simulation) 검증",
+  "몬테카를로(Monte Carlo Simulation) 검증",
 ] as const;
 
 function planFeatures(planId: PlanId, plan: Plan): FeatureRow[] {

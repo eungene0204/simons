@@ -75,17 +75,37 @@ describe("buildMonteCarloPlainSummary", () => {
     expect(joined).toContain("1,000가지 시나리오");
     expect(joined).toContain("일별 수익률을 무작위로 다시 섞어");
     expect(joined).toContain("절반은 연평균 수익률(CAGR)이 8.2% 이상");
-    expect(joined).toContain("하위 5%)에서는 연평균 수익률이 -3.1%");
+    // 분위수는 경계값이라 "이하/이상"으로 서술한다(구간의 결과처럼 읽히지 않게)
+    expect(joined).toContain("하위 5%)의 연평균 수익률은 -3.1% 이하");
     expect(joined).toContain("87.0%는 수익으로 끝났고, 13.0%는 손실");
     expect(joined).toContain("30% 넘게 하락한 시나리오는 2.0%");
-    expect(joined).toContain("26.4%까지 하락");
+    expect(joined).toContain("26.4% 이상 하락");
     expect(joined).not.toContain("위 내용은 모두 과거 데이터 기반 시뮬레이션 결과이며, 미래 수익은 보장되지 않습니다.");
   });
 
   it("거래 재표본 모드면 거래 건수와 거래 도중 낙폭 미반영 안내를 넣는다", () => {
-    const items = buildMonteCarloPlainSummary({ ...monteCarloBase, mode: "trades", tradeCount: 42 });
+    const items = buildMonteCarloPlainSummary({ ...monteCarloBase, mode: "trades", tradeCount: 42, tradeCosts: "net" });
     const joined = items.join("\n");
     expect(joined).toContain("완결 거래 42건");
     expect(joined).toContain("거래 도중의 낙폭은 반영되지 않습니다");
+    expect(joined).not.toContain("수수료·거래세 차감 전");
+  });
+
+  it("거래 재표본이 비용 전 손익(gross)이면 그 한계를 고지한다", () => {
+    const items = buildMonteCarloPlainSummary({ ...monteCarloBase, mode: "trades", tradeCount: 42, tradeCosts: "gross" });
+    expect(items.join("\n")).toContain("수수료·거래세 차감 전");
+    // 구버전 저장 결과(tradeCosts 없음)도 gross로 본다
+    const legacy = buildMonteCarloPlainSummary({ ...monteCarloBase, mode: "trades", tradeCount: 42 });
+    expect(legacy.join("\n")).toContain("수수료·거래세 차감 전");
+  });
+
+  it("원래 순서 위치는 MDD로만 서술하고 CAGR 위치는 서술하지 않는다", () => {
+    // CAGR은 성장배수의 곱이라 순서와 무관 — 부트스트랩 분포 한가운데에 늘 오므로 위치 해석이 성립하지 않는다.
+    const items = buildMonteCarloPlainSummary({ ...monteCarloBase, observed: { mdd: 0.183, mddPct: 0.28 } });
+    const joined = items.join("\n");
+    expect(joined).toContain("원래 순서의 최대 낙폭은 18.3%");
+    expect(joined).toContain("시나리오 중 72%가 이보다 더 깊은 낙폭");
+    expect(joined).not.toMatch(/연평균 수익률은 .*상위 \d+%/);
+    expect(joined).not.toContain("우연히 의존");
   });
 });

@@ -20,8 +20,14 @@ interface MonteCarloPlainSummaryInput {
   mdd: { p95: number };
   probPositiveCagr: number;
   probMddOver30pct: number;
-  /** 실제 백테스트(원래 순서) 지표의 분포 내 위치. 구버전 저장 결과에는 없을 수 있다. */
-  observed?: { cagr: number; cagrPct: number };
+  /**
+   * 원래 순서(재표본 안 함) MDD와 그 분포 내 위치. 구버전 저장 결과에는 없을 수 있다.
+   * CAGR은 순서와 무관해(성장배수의 곱) 위치를 서술하지 않는다 — 부트스트랩 분포는 관측
+   * 평균을 중심으로 만들어져 관측 CAGR이 늘 한가운데에 오므로 "상단 치우침" 해석이 성립하지 않는다.
+   */
+  observed?: { mdd: number; mddPct: number };
+  /** trades 모드의 거래 비용 반영 여부. 구버전엔 없을 수 있다(=gross). */
+  tradeCosts?: "net" | "gross";
   /** 낙폭 지속(회복까지) 스텝 분포 — returns=거래일, trades=거래. 구버전엔 없을 수 있다. */
   underwater?: { median: number; p95: number };
   /** 표본 충분성. 구버전엔 없을 수 있다. */
@@ -104,22 +110,28 @@ export function buildMonteCarloPlainSummary(result: MonteCarloPlainSummaryInput)
     t("시나리오의 절반은 연평균 수익률(CAGR)이 {0} 이상, 절반은 그 이하로 끝났습니다.", ratioPct(result.cagr.median))
   );
   items.push(
-    t("운이 나쁜 편에 속하는 시나리오(하위 5%)에서는 연평균 수익률이 {0}였습니다.", ratioPct(result.cagr.p05))
+    t("운이 나쁜 편에 속하는 시나리오(하위 5%)의 연평균 수익률은 {0} 이하였습니다.", ratioPct(result.cagr.p05))
   );
   items.push(
     t("전체 시나리오 중 {0}는 수익으로 끝났고, {1}는 손실로 끝났습니다.", ratioPct(result.probPositiveCagr), ratioPct(1 - result.probPositiveCagr))
   );
 
-  let mddSentence = t("계좌가 고점 대비 30% 넘게 하락한 시나리오는 {0}였고, 낙폭이 큰 편(상위 5%)의 시나리오에서는 고점 대비 {1}까지 하락했습니다.", ratioPct(result.probMddOver30pct), ratioPct(result.mdd.p95));
+  let mddSentence = t("계좌가 고점 대비 30% 넘게 하락한 시나리오는 {0}였고, 낙폭이 큰 편(상위 5%)의 시나리오에서는 고점 대비 {1} 이상 하락했습니다.", ratioPct(result.probMddOver30pct), ratioPct(result.mdd.p95));
   if (result.mode === "trades") {
     mddSentence += t(" (거래 재표본 방식에서는 거래 도중의 낙폭은 반영되지 않습니다.)");
   }
   items.push(mddSentence);
 
   if (result.observed) {
-    const topPct = Math.round((1 - result.observed.cagrPct) * 100);
+    const deeperPct = Math.round((1 - result.observed.mddPct) * 100);
     items.push(
-      t("재표본하지 않은 실제 백테스트 순서의 연평균 수익률은 {0}로, 전체 시나리오 중 상위 {1}%에 해당했습니다. 실제 결과가 분포 상단에 치우쳐 있을수록, 이 성과가 특정 거래·시장 순서에 우연히 의존했을 가능성이 있습니다.", ratioPct(result.observed.cagr), topPct)
+      t("재표본하지 않은 원래 순서의 최대 낙폭은 {0}였고, 시나리오 중 {1}%가 이보다 더 깊은 낙폭을 겪었습니다. 낙폭은 수익률이 이어진 순서에 따라 달라지므로, 이 비율이 클수록 원래 순서가 낙폭 면에서 유리한 편이었다는 뜻입니다.", ratioPct(result.observed.mdd), deeperPct)
+    );
+  }
+
+  if (result.mode === "trades" && result.tradeCosts !== "net") {
+    items.push(
+      t("이 거래 재표본은 체결가 차액(수수료·거래세 차감 전)으로 계산되어, 비용을 반영한 백테스트 결과보다 수익률이 다소 높게 나올 수 있습니다.")
     );
   }
 
