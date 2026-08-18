@@ -878,7 +878,52 @@ def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
                 cond.factor = "technical.volume_spike"
                 cond.operator = "crosses_above"
                 cond.value = None
+
+    # ④ 지원되는 설정을 미지원으로 신고하고 슬롯은 비운 모순(2026-08-18 실측): "손절 -7%,
+    #    보유 기간 상한 40거래일을 추가해 주세요"처럼 **문장 끝에 온** 보유 기간이
+    #    unsupported_features에 '최대 보유 기간 40거래일'로 인용된 채 portfolio는 비었다.
+    #    LLM 자신이 '최대 보유 기간'이라 부른 개념은 프롬프트 규칙 5가 지원한다고 명시한
+    #    슬롯이므로 두 출력 조각이 서로 모순이다 — 인용대로 슬롯을 채우고 미지원 목록에서
+    #    뺀다(신고가 룩백에서 '인용이 이긴다'와 같은 계약, FR-STR-019y ⑤). 프롬프트 보강만
+    #    으로는 문장 끝 위치에서 재발했고(어휘·규칙 위치를 바꾼 3회 실측), 방치하면 사용자가
+    #    말한 조건이 사라지는 동시에 지원되는 개념을 "지원하지 않는다"고 안내하게 된다.
+    if strategy.portfolio is not None and strategy.portfolio.hold_period_days is None:
+        kept: List[str] = []
+        for feature in intent.unsupported_features:
+            days = _hold_days_from_unsupported_feature(feature)
+            if days is not None and strategy.portfolio.hold_period_days is None:
+                strategy.portfolio.hold_period_days = days
+                continue
+            kept.append(feature)
+        intent.unsupported_features = kept
     return notices
+
+
+_HOLD_UNIT_DAYS = (("개월", 21), ("년", 252), ("거래일", 1), ("일", 1))
+
+
+def _hold_days_from_unsupported_feature(feature: str) -> Optional[int]:
+    """LLM이 미지원으로 신고한 문구가 **최대/상한 보유 기간**이면 거래일 수를 돌려준다.
+
+    입력은 사용자 원문이 아니라 LLM이 스스로 낸 짧은 문자열이다(§ 3-2) — 원문을 다시
+    읽지 않는다. 하한 표현('최소 N개월 보유')은 실제로 미지원이므로 건드리지 않는다.
+    """
+    compact = feature.replace(" ", "")
+    if not re.search(r"보유|들고|유지", compact):
+        return None
+    # 하한('최소 3개월 보유'·'3개월 이상 보유')은 실제로 미지원 개념이다 — 뒤집어 넣지 않는다.
+    if "최소" in compact or "이상" in compact:
+        return None
+    # 상한 낱말('최대'·'상한')을 요구하지 않는 이유: '15거래일 정도만 보유'처럼 낱말 없이도
+    # 상한을 말한다(2026-08-18 예시 55 — 이 문구가 "지원하지 않아 반영하지 못했어요"라는
+    # 틀린 안내로 나갔다). 하한만 걸러내면 나머지 보유 기간 표현은 프롬프트 규칙 5가 정한
+    # 대로 hold_period_days(최대 보유)다 — 새로운 의미 판정이 아니라 그 계약의 적용이다.
+    match = re.search(r"(\d+)\s*(개월|년|거래일|일)", feature)
+    if match is None:
+        return None
+    unit_days = dict(_HOLD_UNIT_DAYS)[match.group(2)]
+    days = int(match.group(1)) * unit_days
+    return days if 1 <= days <= 2000 else None
 
 
 def _quote_has_echo(quote: str, compact_input: str) -> bool:
@@ -1134,6 +1179,22 @@ def run_primary_parse(
         return None
 
     repair_notices = _fill_deterministic_condition_params(result.intent)
+    # 조건 누락 대조 패스 — 1차 해석은 조건이 여러 개 나열되면 하나를 밀어낸다(2026-08-18
+    # 실측: 위치·문장 길이가 무엇이 밀릴지 정하고, 프롬프트 보강·컨텍스트 확대 모두 무효).
+    # 빠진 조건을 LLM에게 다시 묻고(해석은 LLM 레인) 되살린다. 환각 가드 앞에 두어
+    # 되살린 조건도 같은 출처 대조를 받게 한다.
+    # 주입 스텁(테스트·QA 하니스)은 chat 핸들을 갖지 않는다 — 그때는 대조 패스를 건너뛴다
+    # (보조 그물이 없다고 턴의 계약이 달라지지 않는다).
+    recall_chat = getattr(interpreter, "_chat", None)
+    if (config.condition_recall_enabled() and result.intent.strategy is not None
+            and callable(recall_chat)):
+        from strategy_conversation.interpreter.condition_recall import (
+            recover_missing_conditions,
+        )
+
+        recovered = recover_missing_conditions(result.intent, user_input, recall_chat)
+        if recovered:
+            _log_llm("✓ 누락 조건 회수", ", ".join(recovered))
     # 출처 인용 대조(환각 조건 가드) — 파라미터 보정 뒤, 검증 전에 뺀다(환각 조건이
     # 완결성 검증에 들어가면 지어낸 조건의 값을 사용자에게 되묻는 사고가 된다).
     repair_notices += _drop_fabricated_conditions(result.intent, user_input)

@@ -285,3 +285,34 @@ def test_distinct_same_indicator_conditions_are_not_duplicates(qatd):
                   {"indicator": "ema", "signal_type": "sell", "short_period": 20, "long_period": 60}]}
     flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
     assert not any("중복" in x for x in flags.fatal)
+
+
+def test_stated_scalar_lost_entirely_is_fatal(qatd):
+    """[회귀] 사용자가 말한 스칼라 설정이 통째로 사라지면 치명이다.
+
+    사고(2026-08-18): 예시 32의 '보유 기간 상한 40거래일'이 파싱에서 사라졌는데도 전수
+    검증이 `치명 0`이었다. 구멍은 둘이었다 — ① 기대값 추출기가 '보유 기간 상한 N거래일'
+    표기를 읽지 못해 기대값 목록에 오르지도 못했고, ② 대조 루프가 파싱값이 None이면
+    건너뛰어 **값 오차는 잡고 소실은 침묵**했다. 기대값 목록에는 사용자가 말한 값만
+    오르므로(값 없는 항목은 애초에 제외) 비어 있으면 소실로 세운다.
+    """
+    prompt = ("KOSPI 종목 중 20일 신고가 경신 종목만 편입하고 월간 리밸런싱으로 최대 12종목"
+              " 포트폴리오를 유지하겠습니다. 손절 -7%, 보유 기간 상한 40거래일을 추가해 주세요.")
+    # ① 기대값 추출: '상한' 표기를 읽는다.
+    assert ("보유기간", "hold_period_days", 40) in qatd.expected_scalar_values(prompt)
+
+    parsed = {
+        "universe": ["KOSPI"],
+        "max_positions": 12,
+        "rebalancing_period": "monthly",
+        "stop_loss_pct": 7.0,
+        "entry_signals": [{"indicator": "breakout", "lookback_period": 20}],
+        "fundamental_filters": [],
+        "hold_period_days": None,
+    }
+    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    assert any("보유기간 소실" in x for x in flags.fatal), flags.fatal
+
+    # 값이 살아 있으면 조용하다(정상 예시를 붉히지 않는다).
+    parsed_ok = {**parsed, "hold_period_days": 40}
+    assert qatd.analyze(_template(qatd, prompt), {"parsed": parsed_ok}).fatal == []

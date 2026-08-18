@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass, field
@@ -36,7 +37,9 @@ from typing import Any, Optional
 
 import urllib.request
 
-BACKEND = "http://localhost:8000"
+# 기본은 로컬 개발 백엔드. 8000이 다른 앱에 점유된 환경에서는 QA_BACKEND로 바꿔 띄운다
+# (예: QA_BACKEND=http://localhost:8010).
+BACKEND = os.environ.get("QA_BACKEND", "http://localhost:8000")
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 
@@ -110,6 +113,13 @@ _RISK_PCT_PATTERNS = {
 }
 
 
+# 보유기간을 실제로 말한 표기 — '보유 기간' 명사, 또는 기간 표기 바로 뒤의 보유 동사.
+# ('최근 3개월 상대강도'·'한 달 박스권'처럼 기간만 나오는 문장은 보유기간이 아니다.)
+_HOLD_PHRASE_RE = re.compile(
+    r"보유\s*기간|\d+\s*(?:일|거래일|주|주일|개월|년)[^,.]{0,6}(?:보유|들고|유지|가져|가지고)"
+)
+
+
 def expected_scalar_values(prompt: str) -> list[tuple[str, str, Any]]:
     """QA 기대값: 프롬프트가 명시한 스칼라 설정 [(라벨, parsed 키, 기대값)].
 
@@ -125,7 +135,28 @@ def expected_scalar_values(prompt: str) -> list[tuple[str, str, Any]]:
     compact = nlp._compact(prompt)
     out: list[tuple[str, str, Any]] = []
 
-    hold = nlp._extract_hold_period_days(prompt)
+    # 보유기간 기대값은 **보유를 실제로 말한 문장**에서만 세운다. `_extract_hold_period_days`는
+    # 문장에 '한 달'·'3개월'만 있어도 보유기간으로 읽는데(박스권 구간·모멘텀 룩백·랭킹 기간이
+    # 전부 걸린다), 종전에는 대조 루프가 결손을 건너뛰어 이 헐거움이 드러나지 않았다 —
+    # 두 결함이 서로를 가리고 있었다(2026-08-18 실측 오탐 4건). 소실을 치명으로 세우는 이상
+    # 기대값은 정확해야 한다: 기간 표기 옆에 보유 동사가 있거나 '보유 기간' 명사가 있을 때만.
+    hold = None
+    if _HOLD_PHRASE_RE.search(prompt):
+        hold = nlp._extract_hold_period_days(prompt)
+        if hold is None:
+            # 추출기가 못 읽는 두 표기를 보완한다: 수치가 명사 뒤에 오는 '보유 기간 상한 40거래일',
+            # 그리고 기간 표기에 보유 동사가 붙은 '15거래일 정도만 보유'(둘 다 실측 소실 사례).
+            m = re.search(r"(?:보유\s*기간|최대\s*보유)[^0-9]{0,6}(\d+)\s*거래일", prompt)
+            if m:
+                hold = int(m.group(1))
+            else:
+                m = re.search(
+                    r"(\d+)\s*(거래일|일|주일|주|개월|년)[^,.]{0,6}(?:보유|들고|유지|가져|가지고)",
+                    prompt,
+                )
+                if m:
+                    hold = int(m.group(1)) * {"거래일": 1, "일": 1, "주일": 5, "주": 5,
+                                              "개월": 21, "년": 252}[m.group(2)]
     if hold is not None:
         out.append(("보유기간", "hold_period_days", hold))
     # 종목수는 여기서 다루지 않는다 — 기존 `intended_positions` 검사가 이미 값을 대조하며
@@ -435,6 +466,11 @@ def analyze(tpl: Template, res: dict) -> Flags:
     for label, key, want in expected_scalar_values(prompt):
         got = p.get(key)
         if got is None:
+            # 결손도 치명이다(2026-08-18). 종전에는 값이 통째로 사라진 경우를 건너뛰어,
+            # 사용자가 말한 '보유 기간 상한 40거래일'이 파싱에서 없어져도 게이트가 초록이었다
+            # — 값 오차는 잡고 소실은 침묵하는 그물이었다. 기대값 목록에는 **사용자가 말한
+            # 값만** 오르므로(값 없는 항목은 애초에 제외) 여기서 비어 있으면 소실이다.
+            f.fatal.append(f"{label} 소실(기대 {want} vs 파싱 없음)")
             continue
         if isinstance(want, (int, float)) and isinstance(got, (int, float)):
             if abs(float(got) - float(want)) < 1e-6:

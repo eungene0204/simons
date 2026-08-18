@@ -3933,3 +3933,159 @@ def test_qualitative_trend_mapping_survives_the_slot_guard():
     notices = _drop_fabricated_conditions(intent, user_input)
 
     assert len(intent.strategy.entry_conditions) == 1 and notices == []
+
+
+def test_prompt_routes_average_trading_value_to_the_screening_lane():
+    """기간 평균 거래대금은 스크리닝 레인(fundamental)이라는 프롬프트 계약.
+
+    사고(2026-08-18): "최근 20일 평균 거래대금이 30억 원 이상인 종목만 대상으로 …
+    20일 신고가 돌파가 나오면 진입"에서 9B가 거래대금을 technical.trading_value로
+    냈다(temperature 0 재현). 두 '20일'이 겹칠 때만 재현되고 돌파 기간을 50일로 바꾸면
+    정상이었다 — 숫자 충돌로 두 조건을 같은 계열로 묶은 것이다. technical 레인은 당일
+    하루치 거래대금 트리거라 20일 평균 스크리닝과 백테스트 의미가 다르고, 진입 신호
+    배지에 내부 이름('trading_value')이 그대로 노출되는 표시 사고로도 이어졌다.
+    산문 규칙만으로는 고쳐지지 않아(실측) 같은 형태의 예시 4-8을 프롬프트에 넣었다.
+    """
+    from strategy_conversation.interpreter.prompts import PROMPT_VERSION, build_system_prompt
+
+    assert PROMPT_VERSION >= "4.0"
+    prompt = build_system_prompt()
+    # 가르치는 자리는 예시 4-3의 입력이다 — 별도 예시를 덧붙였더니 프롬프트가 길어져
+    # 무관한 예시의 보유기간이 흔들렸다(2026-08-18 실측). 기존 예시 안에 숫자 충돌을
+    # 심어 토큰을 늘리지 않고 형태로 가르친다.
+    assert "최근 60일 평균 거래대금이 50억 원 이상인 종목만" in prompt
+    assert "기간 평균 거래대금은 언제나 fundamental.trading_value" in prompt
+    # 레인을 가르는 기준: 당일 하루치만 technical.
+    assert "당일 하루치" in prompt
+
+
+def test_max_hold_period_reported_unsupported_is_recovered():
+    """[회귀] 지원되는 보유 기간이 미지원으로 신고되고 슬롯은 빈 모순을 인용대로 되돌린다.
+
+    사고(2026-08-18): "손절 -7%, 보유 기간 상한 40거래일을 추가해 주세요"에서 9B가
+    portfolio.hold_period_days를 비운 채 unsupported_features=['최대 보유 기간 40거래일']을
+    냈다 — 사용자가 말한 조건이 사라지는 동시에 **지원되는 개념을 "지원하지 않는다"고**
+    안내하게 된다. 문장 끝에 올 때만 재현되고 앞으로 옮기면 정상이라 어휘 문제가 아니며,
+    프롬프트 보강 3회(미지원 목록 구분·규칙 5 표기 추가·직접 부정문)로도 이 위치는 남았다.
+    판정 입력은 LLM이 스스로 낸 짧은 문자열이다(§ 3-2, 신고가 룩백 '인용이 이긴다'와 같은 자리).
+    """
+    from strategy_conversation.interpreter.models import StrategyIntent
+    from strategy_conversation.primary import (
+        _fill_deterministic_condition_params,
+        _hold_days_from_unsupported_feature,
+    )
+
+    # 술어: 상한/최대만 인식하고 하한·다른 슬롯 표현은 건드리지 않는다.
+    assert _hold_days_from_unsupported_feature("최대 보유 기간 40거래일") == 40
+    assert _hold_days_from_unsupported_feature("보유 기간 상한 40거래일") == 40
+    assert _hold_days_from_unsupported_feature("최대 보유 기간 3개월") == 63
+    # 상한 낱말이 없어도 보유 기간이다(예시 55 — 같은 사고가 '지원하지 않아 반영하지
+    # 못했어요'라는 틀린 안내로 나갔다).
+    assert _hold_days_from_unsupported_feature("15거래일 정도만 보유") == 15
+    assert _hold_days_from_unsupported_feature("3개월쯤 들고 가기") == 63
+    # 하한은 실제 미지원이므로 건드리지 않는다.
+    assert _hold_days_from_unsupported_feature("최소 보유 기간 3개월") is None
+    assert _hold_days_from_unsupported_feature("3개월 이상 보유") is None
+    assert _hold_days_from_unsupported_feature("보유 종목 최대 10개") is None
+    assert _hold_days_from_unsupported_feature("분할 매도") is None
+    assert _hold_days_from_unsupported_feature("장중 매매") is None
+
+    data = _full_intent_dict()
+    data["strategy"]["portfolio"]["hold_period_days"] = None
+    data["unsupported_features"] = ["최대 보유 기간 40거래일", "분할 매도"]
+    intent = StrategyIntent.model_validate(data)
+    _fill_deterministic_condition_params(intent)
+    assert intent.strategy.portfolio.hold_period_days == 40
+    assert intent.unsupported_features == ["분할 매도"]
+
+    # 하한(진짜 미지원)은 그대로 미지원으로 남고 슬롯도 비어 있어야 한다.
+    data = _full_intent_dict()
+    data["strategy"]["portfolio"]["hold_period_days"] = None
+    data["unsupported_features"] = ["최소 보유 기간 40거래일"]
+    intent = StrategyIntent.model_validate(data)
+    _fill_deterministic_condition_params(intent)
+    assert intent.strategy.portfolio.hold_period_days is None
+    assert intent.unsupported_features == ["최소 보유 기간 40거래일"]
+
+    # 이미 채워진 슬롯은 덮어쓰지 않는다.
+    data = _full_intent_dict()
+    data["strategy"]["portfolio"]["hold_period_days"] = 21
+    data["unsupported_features"] = ["최대 보유 기간 40거래일"]
+    intent = StrategyIntent.model_validate(data)
+    _fill_deterministic_condition_params(intent)
+    assert intent.strategy.portfolio.hold_period_days == 21
+
+
+def _recall_intent(entry_conditions):
+    from strategy_conversation.interpreter.models import StrategyIntent
+
+    data = _full_intent_dict()
+    data["strategy"]["entry_conditions"] = entry_conditions
+    data["strategy"]["exit_conditions"] = []
+    return StrategyIntent.model_validate(data)
+
+
+def _stub_chat(reply: str):
+    def chat(system_prompt, user_message, **kwargs):  # noqa: ANN001
+        return reply
+
+    return chat
+
+
+def test_condition_recall_pass_restores_dropped_conditions():
+    """[회귀] 1차 해석이 밀어낸 조건을 2차 대조 패스가 되살린다.
+
+    사고(2026-08-18): "…매출 성장률이 양호하고 PBR이 과도하게 높지 않은 기업만…"에서 9B가
+    PBR을 통째로 빠뜨렸다 — 조건에도, 되묻기에도, 미지원 목록에도 없는 **조용한 소실**이다.
+    순서를 바꾸면 둘 다 나오고 PBR만 남기면 이번엔 시가총액(숫자 조건)이 빠지므로, 특정
+    지표가 아니라 나열된 조건 중 하나가 밀리는 현상이다. 프롬프트 규칙 보강은 무효였고
+    (다른 예시의 조건을 밀어내는 부작용까지), num_ctx 32768도 동일했다.
+
+    2차 패스는 **차집합 판단을 LLM에 시키지 않는다** — 1차 출력을 보여주고 "빠진 것"을
+    물었더니 `{"missing": []}`로 답했다(실측). LLM은 '조건을 말한 구절 나열'만 하고 대조는
+    결정론이 한다. 되살리는 조건은 네 가드를 모두 통과해야 한다: 입력 에코, 지표를 이름으로
+    부른 구절, 이미 쓰인 근거 제외, registry가 아는 factor. 값은 만들지 않는다(MISSING).
+    """
+    from strategy_conversation.interpreter.condition_recall import recover_missing_conditions
+
+    user_input = (
+        "KOSDAQ 중 시가총액 2000억 원 이상 종목에서 PBR이 과도하게 높지 않은 기업만, "
+        "최근 거래대금이 30일 평균보다 높은 경우만 진입. 추세가 확실히 잡힌 종목만요."
+    )
+    base = [{"factor": "fundamental.market_cap", "operator": ">=", "value": 2000,
+             "source_text": "시가총액 2000억 원 이상"}]
+
+    # ① 빠진 조건을 되살린다 — 값은 지어내지 않고 MISSING(되묻기 레인이 질문한다).
+    intent = _recall_intent(base)
+    recovered = recover_missing_conditions(
+        intent, user_input,
+        _stub_chat('{"phrases":["시가총액 2000억 원 이상","PBR이 과도하게 높지 않은"]}'),
+    )
+    assert recovered == ["fundamental.pbr"]
+    restored = intent.strategy.entry_conditions[-1]
+    assert (restored.factor, restored.value, restored.value_source) == (
+        "fundamental.pbr", None, "MISSING")
+
+    # ② 정성 표현을 새 지표로 매핑하지 않는다(대조 패스는 해석하는 자리가 아니다).
+    intent = _recall_intent(base)
+    assert recover_missing_conditions(
+        intent, user_input, _stub_chat('{"phrases":["추세가 확실히 잡힌 종목만"]}')) == []
+
+    # ③ 입력에 없는 구절(환각)은 버린다.
+    intent = _recall_intent(base)
+    assert recover_missing_conditions(
+        intent, user_input, _stub_chat('{"phrases":["ROE가 15% 이상인 기업"]}')) == []
+
+    # ④ 이미 어떤 조건의 근거로 쓰인 구절은 빠진 것이 아니다 — 결정론 보정이 지표를 바꾼
+    #    조건(거래대금 평균 대비 → 거래량 급증)을 원래 지표로 되살리면 같은 문구가 두 조건이 된다.
+    intent = _recall_intent(base + [{
+        "factor": "technical.volume_spike", "operator": "crosses_above", "value": None,
+        "source_text": "최근 거래대금이 30일 평균보다 높은 경우"}])
+    assert recover_missing_conditions(
+        intent, user_input,
+        _stub_chat('{"phrases":["최근 거래대금이 30일 평균보다 높은 경우"]}')) == []
+
+    # ⑤ 형식이 깨진 응답은 조용히 포기한다(보조 그물이 턴을 깨지 않는다).
+    intent = _recall_intent(base)
+    assert recover_missing_conditions(intent, user_input, _stub_chat("no json")) == []
+    assert len(intent.strategy.entry_conditions) == 1
