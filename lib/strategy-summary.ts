@@ -94,6 +94,12 @@ type LegacyStrategySummaryFields = {
   stop_loss_pct?: number | null;
   take_profit_pct?: number | null;
   trailing_stop_pct?: number | null;
+  // 저장된 settings에는 실행 창·초기 자본도 함께 남는다(backtestCache.upsertStrategyForResult,
+  // save-with-backtest의 dsl = 실행 요청) — 저장 전략 페이지도 기간·자본 행을 정확히 보이기 위해 읽는다.
+  period?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  initial_capital?: number | null;
 };
 
 export const UNIVERSE_LABELS: Record<string, string> = {
@@ -718,7 +724,63 @@ interface ExecutedBacktestRequest {
   listing_to?: string | null;
   entry?: { conditions?: Array<{ id?: string; type?: string; params?: Record<string, unknown> }> } | null;
   exit?: { conditions?: Array<{ id?: string; type?: string; params?: Record<string, unknown> }> } | null;
+    // 백테스트 기간·초기 자본 — 대화 카드(ParsedSummaryBubble)와 같은 행을 결과 화면에도
+    // 보이기 위한 값(2026-08-18: 카드에만 있고 결과 화면 요약 DTO에는 칸이 없어 빠졌다).
+    backtestPeriodText: formatBacktestPeriodLabel(parsed) ?? undefined,
+    initialCapitalText: formatInitialCapital(parsed.initial_capital ?? 10_000_000),
   risk?: Record<string, unknown> | null;
+}
+
+// 실행 요청의 기간 필드 → 배지 문자열. 상대 기간(period: "3y"/"3Y"/"6M"/"10Y"/"full")과
+// 직접 지정 창(startDate/endDate, period "custom")을 모두 다룬다.
+const REQUEST_PERIOD_LABELS: Record<string, string> = {
+  ...PERIOD_LABELS,
+  "6m": "6개월",
+  "10y": "10년",
+  "20y": "20년",
+};
+
+// 실행 조건(백테스트 기간·초기 자본) 텍스트 — 실행 요청·저장된 DSL(settings)·기록의
+// executedRequest가 모두 같은 키(period/startDate/endDate/risk.init_cash)를 쓰므로 한 곳에서 만든다.
+export function backtestRunTextsFromRequest(
+  req:
+    | {
+        period?: string | null;
+        startDate?: string | null;
+        endDate?: string | null;
+        risk?: Record<string, unknown> | null;
+        initial_capital?: number | null;
+      }
+    | null
+    | undefined
+): { backtestPeriodText?: string; initialCapitalText?: string } {
+  if (!req) return {};
+  const risk = (req.risk ?? {}) as Record<string, unknown>;
+  const rawCapital = risk.init_cash ?? req.initial_capital;
+  const capital = typeof rawCapital === "number" && Number.isFinite(rawCapital) ? rawCapital : null;
+  return {
+    backtestPeriodText: formatRequestPeriodLabel(req) ?? undefined,
+    initialCapitalText: capital != null ? formatInitialCapital(capital) : undefined,
+  };
+}
+
+export function formatRequestPeriodLabel(req: {
+  period?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+}): string | null {
+  const from = req.startDate ?? null;
+  const to = req.endDate ?? null;
+  if (from || to) {
+    return formatBacktestPeriodLabel({
+      backtest_period: null,
+      backtest_start_date: from,
+      backtest_end_date: to,
+    });
+  }
+  const period = req.period ? String(req.period).toLowerCase() : null;
+  if (!period || period === "custom") return null;
+  return t(REQUEST_PERIOD_LABELS[period] ?? period);
 }
 
 function resolveUniverseLabelFromId(universeId: string | null | undefined): string {
@@ -735,6 +797,10 @@ export function buildStrategySummaryFromRequest(
 ) {
   if (!req) return undefined;
 
+  // 실행 창 — 상대 기간(period) 또는 직접 지정 창(startDate/endDate). 초기 자본은 risk.init_cash.
+  period?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
   const risk = (req.risk ?? {}) as Record<string, unknown>;
   const num = (v: unknown): number | null =>
     typeof v === "number" && Number.isFinite(v) ? v : null;
@@ -843,6 +909,7 @@ export function isRawSymbolUniverseName(value: string): boolean {
   const tokens = value.split(/[,\s]+/).map((token) => token.trim()).filter(Boolean);
   return tokens.length > 0 && tokens.every((token) => /^\d{6}$/.test(token));
 }
+    ...backtestRunTextsFromRequest(req),
 
 export function buildStrategySummaryChips(
   summary: StrategySummaryDisplay | null | undefined
@@ -1075,3 +1142,10 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
     rebalancingText,
   };
 }
+    ...backtestRunTextsFromRequest({
+      period: legacyStrategy.period,
+      startDate: legacyStrategy.startDate,
+      endDate: legacyStrategy.endDate,
+      risk: (strategy.risk ?? null) as unknown as Record<string, unknown> | null,
+      initial_capital: legacyStrategy.initial_capital,
+    }),

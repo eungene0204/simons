@@ -33,6 +33,11 @@ export interface MonthlyReturnDataPoint {
   value: number; // Percentage
 }
 
+// 롤링 수익률 지점 — 창 종료일(time)에 창 시작일(start)을 동반한다(툴팁 "시작 ~ 종료").
+export interface RollingReturnDataPoint extends MonthlyReturnDataPoint {
+  start?: string; // YYYY-MM-DD
+}
+
 export interface SeasonalDataPoint {
   year: string;
   data: MonthlyReturnDataPoint[];
@@ -43,7 +48,7 @@ interface BacktestChartProps {
   equityData?: EquityDataPoint[];
   drawdownData?: DrawdownDataPoint[];
   monthlyData?: MonthlyReturnDataPoint[];
-  rollingData?: MonthlyReturnDataPoint[];
+  rollingData?: RollingReturnDataPoint[];
   seasonalData?: SeasonalDataPoint[];
   trades?: { date: string; type: string; price: number | string }[];
   height?: number;
@@ -164,6 +169,15 @@ export default function BacktestChart({
         time: dateToTimestamp(item.time),
         value: item.value,
       }));
+  }, [type, rollingData]);
+  // 창 종료일 → 창 시작일. 툴팁 콜백은 차트 생성 시 한 번 등록되므로 ref로 최신 데이터를 읽는다.
+  const rollingWindowStartRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    const m = new Map<string, string>();
+    if (type === "rolling_returns") {
+      for (const item of rollingData) if (item.start) m.set(item.time, item.start);
+    }
+    rollingWindowStartRef.current = m;
   }, [type, rollingData]);
 
   const YEAR_COLORS = useMemo(() => [
@@ -471,9 +485,17 @@ export default function BacktestChart({
             // Format time — equity/drawdown span multiple years, so show the full date;
             // seasonal/monthly charts are normalized to a single year, so show the month.
             const date = new Date((param.time as number) * 1000);
+            const dateStr = date.toISOString().split("T")[0];
+            // 롤링 수익률 지점은 "창 시작 ~ 창 종료" 구간의 수익률이므로 구간 전체를 표기한다.
+            const rollingStart =
+              type === "rolling_returns" ? rollingWindowStartRef.current.get(dateStr) : undefined;
             const headerLabel =
-              type === "equity" || type === "drawdown" || type === "rolling_returns"
-                ? date.toISOString().split("T")[0]
+              type === "rolling_returns"
+                ? rollingStart
+                  ? `${rollingStart} ~ ${dateStr}`
+                  : dateStr
+                : type === "equity" || type === "drawdown"
+                ? dateStr
                 : t("{0}월 수익률", date.getMonth() + 1);
 
             let tooltipContent = `<div class="font-bold text-gray-400 mb-1 border-b border-gray-800 pb-1">${headerLabel}</div>`;
@@ -568,7 +590,7 @@ export default function BacktestChart({
             tooltip.innerHTML = tooltipContent;
 
             // Positioning
-            const tooltipWidth = 140;
+            const tooltipWidth = type === "rolling_returns" ? 220 : 140;
             const tooltipHeight = 80;
             const margin = 15;
             let left = param.point.x + margin;

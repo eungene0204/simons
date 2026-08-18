@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   buildRollingReturnSeries,
+  buildRollingWindowPoints,
+  buildRollingWindowStatsTable,
   hasRollingWindowSpan,
   subtractMonths,
+  summarizeRollingWindows,
 } from "@/components/strategy/backtest/rollingReturns";
 
 describe("subtractMonths", () => {
@@ -61,6 +64,82 @@ describe("buildRollingReturnSeries", () => {
       1
     );
     expect(series).toHaveLength(0);
+  });
+});
+
+describe("buildRollingWindowPoints", () => {
+  // 1개월 창 안에서 고점 대비 낙폭이 생기는 자산곡선
+  const dates = ["2024-01-02", "2024-01-15", "2024-01-25", "2024-02-05", "2024-02-20"];
+  const equity = [100, 120, 90, 110, 100];
+
+  it("창 시작·종료 거래일과 창 안 MDD를 함께 돌려줘야 함", () => {
+    const points = buildRollingWindowPoints(dates, equity, 1);
+    // 02-05: 1개월 전=01-05 → 기준=01-02(100). 창 [100,120,90,110]: 고점 120→90 = -25%
+    // 02-20: 1개월 전=01-20 → 기준=01-15(120). 창 [120,90,110,100]: 고점 120→90 = -25%
+    expect(points).toHaveLength(2);
+    expect(points[0]).toMatchObject({ start: "2024-01-02", end: "2024-02-05" });
+    expect(points[0].value).toBeCloseTo(10, 6);
+    expect(points[0].mdd).toBeCloseTo(-25, 6);
+    expect(points[1]).toMatchObject({ start: "2024-01-15", end: "2024-02-20" });
+    expect(points[1].value).toBeCloseTo(-16.666666, 4);
+    expect(points[1].mdd).toBeCloseTo(-25, 6);
+  });
+
+  it("MDD의 고점은 창 시작에서 다시 세야 함(창 밖 고점 무시)", () => {
+    // 첫날 고점 200 이후 계속 100 근처 → 02-20 창(기준 01-15=100)의 MDD는 창 밖 200을 보지 않음
+    const points = buildRollingWindowPoints(
+      ["2024-01-02", "2024-01-15", "2024-02-05", "2024-02-20"],
+      [200, 100, 105, 102],
+      1
+    );
+    const last = points[points.length - 1];
+    expect(last.start).toBe("2024-01-15");
+    expect(last.mdd).toBeCloseTo((102 / 105 - 1) * 100, 6);
+  });
+
+  it("buildRollingReturnSeries는 창 종료일·수익률에 창 시작일을 동반한 투영이어야 함", () => {
+    const points = buildRollingWindowPoints(dates, equity, 1);
+    const series = buildRollingReturnSeries(dates, equity, 1);
+    expect(series).toEqual(points.map((p) => ({ time: p.end, value: p.value, start: p.start })));
+    // 툴팁 "시작 ~ 종료" 근거: 첫 지점은 01-02 ~ 02-05
+    expect(series[0]).toMatchObject({ start: "2024-01-02", time: "2024-02-05" });
+  });
+});
+
+describe("summarizeRollingWindows / buildRollingWindowStatsTable", () => {
+  const points = [
+    { start: "2024-01-02", end: "2024-02-01", value: 10, mdd: -5 },
+    { start: "2024-01-03", end: "2024-02-02", value: -20, mdd: -30 },
+    { start: "2024-01-04", end: "2024-02-05", value: 4, mdd: -1 },
+  ];
+
+  it("평균·중앙값·최저·최고·손실 비율·MDD 평균·최악과 해당 창을 요약해야 함", () => {
+    const s = summarizeRollingWindows(1, points);
+    expect(s).not.toBeNull();
+    expect(s!.count).toBe(3);
+    expect(s!.meanReturn).toBeCloseTo(-2, 6);
+    expect(s!.medianReturn).toBe(4);
+    expect(s!.minReturn).toBe(-20);
+    expect(s!.minReturnWindow).toEqual({ start: "2024-01-03", end: "2024-02-02" });
+    expect(s!.maxReturn).toBe(10);
+    expect(s!.maxReturnWindow).toEqual({ start: "2024-01-02", end: "2024-02-01" });
+    expect(s!.lossRatio).toBeCloseTo(33.3333, 3);
+    expect(s!.meanMdd).toBeCloseTo(-12, 6);
+    expect(s!.worstMdd).toBe(-30);
+    expect(s!.worstMddWindow).toEqual({ start: "2024-01-03", end: "2024-02-02" });
+  });
+
+  it("창이 없으면 null", () => {
+    expect(summarizeRollingWindows(1, [])).toBeNull();
+  });
+
+  it("표는 창을 담을 수 있는 투자 기간만 행으로 만들어야 함", () => {
+    const dates = ["2024-01-02", "2024-02-01", "2024-03-04", "2024-04-01"];
+    const equity = [100, 110, 121, 133.1];
+    const rows = buildRollingWindowStatsTable(dates, equity, [1, 3, 12]);
+    // 1개월: 2개 창, 3개월: 04-01-3개월=01-01 < 01-02 → 창 없음, 12개월: 구간 부족
+    expect(rows.map((r) => r.windowMonths)).toEqual([1]);
+    expect(rows[0].count).toBe(2);
   });
 });
 

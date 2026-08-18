@@ -1,5 +1,6 @@
 import type { BacktestResult } from "@/types/strategy";
 import { profitFactorForRanking } from "@/lib/format-profit-factor";
+import { backtestRunTextsFromRequest } from "@/lib/strategy-summary";
 import { t } from "@/lib/i18n";
 
 export interface BacktestStrategySummary {
@@ -11,6 +12,9 @@ export interface BacktestStrategySummary {
   exitBlocks?: string[];
   positionText?: string;
   riskText?: string;
+  rebalancingText?: string;
+  backtestPeriodText?: string;
+  initialCapitalText?: string;
 }
 
 export interface HistorySummary {
@@ -23,17 +27,26 @@ export interface HistorySummary {
   blockNames: string[];
   positionText?: string;
   riskText?: string;
+  rebalancingText?: string;
+  backtestPeriodText?: string;
+  initialCapitalText?: string;
 }
 
 // BacktestHistory.conditions(표시용 names 스키마)를 화면 배지용 요약으로 변환하는 단일 빌더.
 // /backtest/[id]와 /api/strategy/[id]가 같은 경로·같은 로직으로 SOT를 공유하도록 통일한다.
 // 레거시 평면 스키마(conditions가 string[] 또는 { logic, names })도 함께 처리한다.
+// 백테스트 기간·초기 자본은 conditions(backtestPeriod/initialCapital, 2026-08-18부터 저장)에서
+// 읽고, 그 전에 저장된 행은 결과에 동봉된 실행 요청(executedRequest)에서 되살린다.
 export function buildHistorySummary(args: {
   conditions: unknown;
   universeName?: string | null;
   strategyName?: string | null;
+  executedRequest?: Record<string, unknown> | null;
 }): HistorySummary {
   const conds = (args.conditions ?? {}) as Record<string, any>;
+  const runTexts = backtestRunTextsFromRequest(
+    (args.executedRequest ?? null) as Parameters<typeof backtestRunTextsFromRequest>[0]
+  );
   const entry =
     conds.entry ??
     (Array.isArray(args.conditions)
@@ -53,6 +66,13 @@ export function buildHistorySummary(args: {
     blockNames: [...entryBlocks, ...exitBlocks],
     positionText: conds.position,
     riskText: conds.risk,
+    rebalancingText: typeof conds.rebalancing === "string" ? conds.rebalancing : undefined,
+    backtestPeriodText:
+      (typeof conds.backtestPeriod === "string" ? conds.backtestPeriod : undefined) ??
+      runTexts.backtestPeriodText,
+    initialCapitalText:
+      (typeof conds.initialCapital === "string" ? conds.initialCapital : undefined) ??
+      runTexts.initialCapitalText,
   };
 }
 
@@ -68,6 +88,20 @@ export function historySummaryHasContent(summary: HistorySummary): boolean {
   );
 }
 
+// BacktestHistory.conditions(표시용) — 자동 저장·명시 저장이 같은 스키마를 쓴다.
+// 백테스트 기간·초기 자본·리밸런싱도 함께 남겨 저장된 기록의 요약이 실행 조건까지 정확히 보이게 한다.
+export function buildHistoryConditions(strategySummary: BacktestStrategySummary) {
+  return {
+    entry: { logic: strategySummary.entryLogic || "AND", names: strategySummary.entryBlocks || [] },
+    exit: { logic: strategySummary.exitLogic || "AND", names: strategySummary.exitBlocks || [] },
+    position: strategySummary.positionText,
+    risk: strategySummary.riskText,
+    rebalancing: strategySummary.rebalancingText,
+    backtestPeriod: strategySummary.backtestPeriodText,
+    initialCapital: strategySummary.initialCapitalText,
+  };
+}
+
 export function buildAutoSaveHistoryPayload(
   result: BacktestResult,
   strategySummary: BacktestStrategySummary,
@@ -79,12 +113,7 @@ export function buildAutoSaveHistoryPayload(
     strategyName: strategySummary.strategyName || prompt?.trim() || t("이름 없는 전략"),
     prompt: prompt?.trim() || undefined,
     universe: strategySummary.universeName,
-    conditions: {
-      entry: { logic: strategySummary.entryLogic || "AND", names: strategySummary.entryBlocks || [] },
-      exit: { logic: strategySummary.exitLogic || "AND", names: strategySummary.exitBlocks || [] },
-      position: strategySummary.positionText,
-      risk: strategySummary.riskText,
-    },
+    conditions: buildHistoryConditions(strategySummary),
     metrics: {
       totalReturn: result.totalReturn || 0,
       cagr: result.cagr || 0,

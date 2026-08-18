@@ -87,6 +87,70 @@ describe("buildAutoSaveHistoryPayload", () => {
   });
 });
 
+describe("백테스트 기간·초기 자본의 저장·복원 (2026-08-18)", () => {
+  // 저장된 전략·기록에서도 실행 조건이 정확히 보여야 한다 — 요약 DTO의 기간·자본 텍스트를
+  // conditions(backtestPeriod/initialCapital)로 남기고, 그 전에 저장된 행은 실행 요청에서 되살린다.
+  it("자동 저장 payload가 기간·초기 자본·리밸런싱을 conditions에 남긴다", () => {
+    const payload = buildAutoSaveHistoryPayload(baseResult, {
+      ...summary,
+      positionText: "최대 12종목",
+      rebalancingText: "매월 리밸런싱",
+      riskText: "손절 -10%",
+      backtestPeriodText: "3년",
+      initialCapitalText: "10,000,000원",
+    });
+    expect(payload.conditions).toMatchObject({
+      position: "최대 12종목",
+      rebalancing: "매월 리밸런싱",
+      risk: "손절 -10%",
+      backtestPeriod: "3년",
+      initialCapital: "10,000,000원",
+    });
+  });
+
+  it("buildHistorySummary는 conditions의 기간·자본을 그대로 복원한다", () => {
+    const restored = buildHistorySummary({
+      conditions: {
+        entry: { logic: "AND", names: ["MACD"] },
+        exit: { logic: "AND", names: [] },
+        backtestPeriod: "3년",
+        initialCapital: "10,000,000원",
+        rebalancing: "매월 리밸런싱",
+      },
+      universeName: "KOSPI",
+    });
+    expect(restored.backtestPeriodText).toBe("3년");
+    expect(restored.initialCapitalText).toBe("10,000,000원");
+    expect(restored.rebalancingText).toBe("매월 리밸런싱");
+  });
+
+  it("기간·자본이 없는 구버전 행은 결과의 실행 요청(executedRequest)에서 되살린다", () => {
+    const restored = buildHistorySummary({
+      conditions: { entry: { logic: "AND", names: ["MACD"] }, exit: { logic: "AND", names: [] } },
+      universeName: "KOSPI",
+      executedRequest: { period: "3y", risk: { init_cash: 10_000_000 }, entry: {}, exit: {} },
+    });
+    expect(restored.backtestPeriodText).toBe("3년");
+    expect(restored.initialCapitalText).toBe("10,000,000원");
+    // 직접 지정 창도 같은 경로
+    const custom = buildHistorySummary({
+      conditions: {},
+      executedRequest: { period: "custom", startDate: "2020-01-01", endDate: "2023-01-01", risk: {} },
+    });
+    expect(custom.backtestPeriodText).toBe("3년 (2020-01-01 ~ 2023-01-01)");
+    expect(custom.initialCapitalText).toBeUndefined();
+  });
+
+  it("conditions 값이 실행 요청보다 우선한다", () => {
+    const restored = buildHistorySummary({
+      conditions: { backtestPeriod: "5년", initialCapital: "50,000,000원" },
+      executedRequest: { period: "3y", risk: { init_cash: 10_000_000 } },
+    });
+    expect(restored.backtestPeriodText).toBe("5년");
+    expect(restored.initialCapitalText).toBe("50,000,000원");
+  });
+});
+
 describe("buildHistorySummary", () => {
   it("표시용 names 스키마를 진입/청산/포지션/리스크 배지로 변환한다", () => {
     const summary = buildHistorySummary({
