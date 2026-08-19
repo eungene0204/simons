@@ -1,3 +1,4 @@
+import contextlib
 import copy
 import itertools
 import math
@@ -5,6 +6,16 @@ from typing import Any, Callable, Dict, List, Optional
 
 # 낮을수록 좋은 목표 지표 — 그리드·베이지안이 방향 판정을 공유한다.
 MINIMIZE_METRICS = ("maxDrawdown", "mdd")
+
+
+def optimization_session(engine):
+    """최적화 한 번(=같은 날짜 범위의 백테스트 반복) 동안 엔진의 Phase1 산출물 캐시를 켠다.
+
+    BacktestEngine이면 ``optimization_session()``, 테스트용 스텁 엔진처럼 없으면 no-op.
+    결과는 캐시 유무와 무관하게 동일하다(engine/prep_cache.py 계약).
+    """
+    session = getattr(engine, "optimization_session", None)
+    return session() if callable(session) else contextlib.nullcontext()
 
 
 def is_minimize_metric(target_metric: str) -> bool:
@@ -162,7 +173,12 @@ class StrategyOptimizer:
         Returns the top results sorted by `target_metric`.
 
         should_cancel: 협조적 취소 훅 — 조합마다 확인해 True면 즉시 중단한다.
+        전 조합이 같은 날짜 범위를 쓰므로 엔진의 Phase1 캐시 세션을 열고 돈다.
         """
+        with optimization_session(self.engine):
+            return self._optimize(base_request, ranges, target_metric, progress_callback, should_cancel)
+
+    def _optimize(self, base_request, ranges, target_metric, progress_callback, should_cancel) -> Dict[str, Any]:
         permutations = generate_permutations(ranges)
         if len(permutations) > MAX_GRID_COMBINATIONS:
             return {

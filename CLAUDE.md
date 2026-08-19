@@ -326,6 +326,14 @@ python scripts/qa_template_detect.py --category <카테고리> --refresh   # 치
 - 예시가 조건을 **조용히** 잃으면(질문도 없이 사라지면) **예시 문구를 바꾸기 전에 파서 쪽 원인을 먼저 규명한다**(엔진이 표현할 수 없는 문구일 때만 예시를 고친다)
 - **되묻기는 실패가 아니다** — 값이 빠진 팩터를 묻는 것은 전략 agent의 정상 동작이다(말하지 않은 값을 기본값으로 확정 금지). 되묻는 팩터를 치명·미탐지로 세지 않는다(2026-07-29 판정 수정, 회귀 `backend/tests/test_qa_template_detect_verdict.py`)
 
+### 백테스트 성능 경로 수정 시 결과 동일성 게이트 실행 필수
+`backend/engine/phase1.py`·`phase1_pool.py`·`prep_cache.py`·`wfa_workers.py`·`rebalance_comparison.py`·`walk_forward.py`·`grid_optimizer.py`·`optuna_optimizer.py` 또는 `backtest_engine.py`의 Phase1/세션/풀 구간을 수정하면 **실제 데이터 전수 대조를 돌려 불일치 0을 확인한다**(종료 코드 0).
+```bash
+python scripts/qa_backtest_equivalence.py --wfa      # 세션 캐시·Phase1 풀·창 병렬 vs 기준 경로, 28개 전략 전수 대조
+```
+- 성능 경로는 "답을 바꾸지 않는다"가 계약이다 — 캐시·병렬 유무로 거래·자산곡선·지표가 1비트라도 다르면 최적화가 아니라 버그다
+- 새 지표가 새 이름의 파라미터를 읽으면 `engine/prep_cache.py`의 `STRUCTURAL_PARAM_KEYS`에 추가한다(`tests/test_prep_cache.py` 소스 스캔이 강제)
+
 ### Agent 구조 변경 시 시각화 동기화 필수
 agent 파이프라인(전략 해석·플래너·분류기·빌더·수정·검증·AI 리포트·테마 학습·종목 대응)의 **처리 흐름 구조**가 바뀌면 — 단계 추가/삭제, 실행 순서, 분기, 되묻기 조건, 안전장치(가드) 추가/제거 — 같은 작업에서 운영 콘솔 시각화(`components/admin/AgentsTab.tsx`)의 해당 agent 흐름도 데이터를 함께 갱신한다.
 - 해당 경로를 수정하면 PostToolUse 훅(`.claude/settings.json`)이 자동으로 리마인드한다

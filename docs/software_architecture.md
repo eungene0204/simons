@@ -140,7 +140,11 @@ simons/
 │   │   ├── data_resolver.py         # 유니버스 필터링
 │   │   ├── virtual_trader.py        # 가상매매 실시간 엔진 (상장 상태 체크 포함)
 │   │   ├── listing_status.py        # 상장 상태 머신 (7단계) + DART 분류 + DB 동기화
-│   │   ├── walk_forward.py          # 워크포워드 분석
+│   │   ├── walk_forward.py          # 워크포워드 분석 (창 단위 spawn 프로세스 병렬, FR-BT-049c)
+│   │   ├── wfa_workers.py           # 워크포워드 창 병렬 워커 + 부모 풀 헬퍼(WindowPool) — 진행률 mp.Queue·취소 mp.Event
+│   │   ├── prep_cache.py            # 최적화 세션 Phase1 산출물 캐시(종목별 지표·전처리 재사용, 구조 파라미터 서명 키)
+│   │   ├── phase1.py                # 종목별 Phase1 파이프라인 정본(순수 함수, ctx 입력) — 스레드/프로세스 경로 공용
+│   │   ├── phase1_pool.py           # Phase1 상주 spawn 프로세스 풀(결정적 샤딩, 세션 브로드캐스트) — 모든 백테스트 코어 병렬
 │   │   ├── market_data.py           # 시장 데이터 조회
 │   │   └── providers/               # 데이터 공급자 (KIS, pykrx, Naver, yfinance)
 │   ├── ai/

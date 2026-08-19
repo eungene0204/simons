@@ -18,6 +18,9 @@ import polars as pl  # noqa: E402
 
 from engine.rebalance_comparison import (  # noqa: E402
     REBALANCE_PERIODS,
+    assemble_comparison,
+    periods_to_simulate,
+    simulate_period_rows,
     rebalance_applies,
     run_rebalance_period_comparison,
 )
@@ -113,3 +116,27 @@ def test_engine_attaches_rebalance_comparison_matching_main_result():
     daily = next(r for r in cmp["periods"] if r["period"] == "daily")
     assert daily["trades"] >= monthly["trades"]
     assert result["timing"]["rebalanceComparison"] >= 0
+
+
+def test_position_cap_absent_simulates_once_and_replicates_six_rows():
+    """보유 상한이 없으면 시뮬레이터 rebalance_mode가 어떤 주기에서도 False라 6번이 같다 —
+    한 번만 돌리고 복제해도 결과가 동일하고 시간은 1/6이다."""
+    risk = {"max_positions": None, "rebalancing_period": "none"}
+    assert periods_to_simulate(risk) == ("daily",)
+    assert len(periods_to_simulate({"max_positions": 3})) == 6
+    calls = []
+    out = run_rebalance_period_comparison(lambda rp: calls.append(rp["rebalancing_period"]) or object(),
+                                          risk, 1.0, summarize=lambda pf, c: {"cagr": 1.2})
+    assert calls == ["daily"]
+    assert [r["period"] for r in out["periods"]] == list(REBALANCE_PERIODS)
+    assert all(r["cagr"] == 1.2 and r["error"] is None for r in out["periods"])
+    assert out["positionCapAbsent"] is True
+
+
+def test_assemble_comparison_orders_rows_by_period_and_marks_missing():
+    rows = simulate_period_rows(lambda rp: object(), {"max_positions": 2}, 1.0, ("monthly", "daily"),
+                                summarize=lambda pf, c: {"cagr": 0.0})
+    out = assemble_comparison(rows, {"max_positions": 2})
+    assert [r["period"] for r in out["periods"]] == list(REBALANCE_PERIODS)
+    assert out["periods"][0]["error"] is None            # daily 있음
+    assert out["periods"][3]["error"] == "결과 없음"      # quarterly 없음
