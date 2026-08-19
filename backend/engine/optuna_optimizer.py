@@ -9,6 +9,7 @@ from optuna.trial import TrialState
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 from engine.grid_optimizer import (
+    optimization_session,
     set_nested_value,
     satisfies_param_order_constraints,
     is_minimize_metric,
@@ -51,7 +52,12 @@ class OptunaOptimizer:
         return satisfies_param_order_constraints(params)
 
     def _warm_cache(self, base_request: Dict[str, Any]):
-        """Pre-load symbol data into DataLoader cache before optimization loop."""
+        """Pre-load symbol data into DataLoader cache before optimization loop.
+
+        Phase1 프로세스 풀이 켜져 있으면 데이터는 워커가 들고 있으므로 부모 캐시 예열은 낭비다.
+        """
+        if getattr(self.engine, "phase1_pool_active", False):
+            return
         symbols = base_request.get('symbols') or [base_request.get('symbol')]
         if not symbols or symbols == [None]:
             return
@@ -153,7 +159,14 @@ class OptunaOptimizer:
         should_cancel: 협조적 취소 훅 — 시도(trial)마다 확인해 True면 study를 중단한다.
         holdout_validation: True면 최적 파라미터로 70/30 홀드아웃 검증(백테스트 2회 추가)을 덧붙인다.
             기본 False — 워크포워드처럼 결과를 쓰지 않는 호출부가 비용만 치르지 않게 한다.
+        전 시도가 같은 날짜 범위를 쓰므로 엔진의 Phase1 캐시 세션을 열고 돈다.
         """
+        with optimization_session(self.engine):
+            return self._optimize(base_request, ranges, target_metric, n_trials,
+                                  progress_callback, should_cancel, holdout_validation)
+
+    def _optimize(self, base_request, ranges, target_metric, n_trials,
+                  progress_callback, should_cancel, holdout_validation) -> Dict[str, Any]:
         if should_cancel is not None and should_cancel():
             return {"status": "cancelled", "message": "최적화 시작 전에 취소되었습니다."}
         # Pre-load all symbol data into memory before trial loop

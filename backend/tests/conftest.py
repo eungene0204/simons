@@ -134,6 +134,16 @@ def _pin_dag_planner_off(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _pin_process_pools_off(monkeypatch):
+    """유닛 테스트 기본은 프로세스 풀 없이(스레드 경로·순차 창) 돈다 — 테스트마다 tmp 데이터
+    디렉터리가 달라 Phase1 상주 풀(engine/phase1_pool.py)이 디렉터리별로 워커 8개씩 쌓이고,
+    워크포워드 창 풀은 스텁 엔진과 맞지 않는다. 풀 자체를 검증하는 test_phase1_pool.py·
+    test_walk_forward_parallel.py는 setenv로 명시 오버라이드한다."""
+    monkeypatch.setenv("BACKTEST_PHASE1_WORKERS", "1")
+    monkeypatch.setenv("WALK_FORWARD_WORKERS", "1")
+
+
+@pytest.fixture(autouse=True)
 def _disable_parse_validator_network(monkeypatch):
     """parse() 룰베이스 검증 LLM 레이어는 항상 인라인이지만, 유닛 테스트는 네트워크에
     의존하면 안 된다(로컬 ollama가 떠 있으면 실제 호출이 나간다). 기본적으로 LLM 도달

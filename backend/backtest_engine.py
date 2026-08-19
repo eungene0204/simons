@@ -1,7 +1,8 @@
+import contextlib
 import os
 import polars as pl
 import pandas as pd
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 # Import refactored modules
 from engine.loader import DataLoader
@@ -10,6 +11,10 @@ from engine.signals import SignalEngine, FUNDAMENTAL_LABELS
 from engine.simulator import Simulator
 from engine.result_handler import ResultHandler
 from engine.data_resolver import DataResolver
+from engine.prep_cache import SymbolPrepCache
+from engine.phase1 import date_key
+from engine import phase1 as _phase1
+from engine import phase1_pool as _phase1_pool
 from engine import universe_pit
 from engine import data_coverage
 
@@ -132,20 +137,8 @@ def _max_indicator_period(*groups) -> int:
     return max_p
 
 
-def _date_key() -> pl.Expr:
-    """백테스트 창 비교용 날짜 키(YYYY-MM-DD) — **날짜 부분만** 본다.
-
-    타임스탬프를 통째로 문자열화해 비교하면 종료 경계가 배타적이 된다:
-    `"2024-12-30 00:00:00.000000" <= "2024-12-30"` 은 거짓이다(접두가 같고 더 긴 쪽이
-    크다). 그래서 **명시 종료일 당일 봉이 매번 통째로 빠졌다** — 삼성전자 실측:
-    endDate=2024-12-30으로 요청하면 마지막 봉이 2024-12-27이었다(12-30 봉은 존재).
-    시작 경계는 같은 규칙이 우연히 맞는 방향이라(더 긴 쪽이 크므로 `>=` 통과) 끝에서만
-    하루가 사라지는 비대칭이었고, 종료일이 휴장일이면 증상이 가려져 오래 남았다.
-
-    잘라내는 방식을 쓰는 이유는 `date` 컬럼 타입이 파일마다 갈리기 때문이다(실측:
-    Datetime[us] 5,066개 · Datetime[ns] 1개 · String 1개) — Date 캐스팅은 타입을 가린다.
-    """
-    return pl.col("date").cast(pl.Utf8).str.slice(0, 10)
+# 날짜 키(YYYY-MM-DD 문자열 비교)는 Phase1 모듈이 정본 — 종목별 파이프라인과 같은 규칙을 쓴다.
+_date_key = date_key
 
 
 # 랭킹을 말하지 않은 전략의 후보 우선순위 산정 기간(거래일, v16.3) — 매수 조건 충족 종목이
@@ -173,6 +166,63 @@ class BacktestEngine:
 
         # Load AI Engine lazily
         self._ai_engine = None
+
+        # 최적화·워크포워드 세션 동안만 켜지는 Phase1 산출물 캐시(engine/prep_cache.py).
+        # None이면 세션 밖(단일 백테스트의 기본 경로).
+        self._prep_cache: Optional[SymbolPrepCache] = None
+
+    @contextlib.contextmanager
+    def optimization_session(self):
+        """최적화·워크포워드처럼 지표(metrics)만 쓰는 백테스트를 반복하는 동안 켜는 세션.
+
+        - 종목별 Phase1 산출물을 재사용한다(같은 날짜 범위 + 같은 구조 파라미터면 적중).
+          결과 지표·거래·자산곡선은 세션 유무와 무관하게 동일하다.
+        - 결과 화면 전용 부가 산출물(리밸런싱 6주기 비교, FR-BT-064)은 만들지 않는다 —
+          시도(trial)마다 버려지는 재시뮬레이션이라 적중 시 남는 시간의 절반이었다.
+        중첩 호출은 바깥 세션을 그대로 쓴다. 세션이 끝나면 캐시를 버린다.
+        """
+        if self._prep_cache is not None:
+            yield self._prep_cache
+            return
+        cache = SymbolPrepCache()
+        self._prep_cache = cache
+        # Phase1 프로세스 풀이 켜져 있으면 워커들도 같은 세션을 연다(워커별 캐시).
+        pool = self._phase1_pool() if self.phase1_pool_active else None
+        if pool is not None:
+            pool.session("open")
+        try:
+            yield cache
+        finally:
+            self._prep_cache = None
+            worker_stats = None
+            if pool is not None:
+                try:
+                    worker_stats = pool.session("close")
+                except Exception as exc:
+                    print(f"[BT-ENGINE] Phase1 풀 세션 종료 실패: {exc}", flush=True)
+            print(f"[BT-ENGINE] optimization-session 종료: {cache.stats()}"
+                  + (f", workers={worker_stats}" if worker_stats else ""), flush=True)
+
+    @property
+    def in_optimization_session(self) -> bool:
+        return self._prep_cache is not None
+
+    def _phase1_pool(self):
+        """설정상 켜져 있으면 상주 Phase1 프로세스 풀(engine/phase1_pool.py), 아니면 None."""
+        try:
+            return _phase1_pool.get_pool(self.worker_spec())
+        except Exception as exc:  # 풀 기동 실패는 스레드 경로로 조용히 폴백하지 않고 로그로 드러낸다
+            print(f"[BT-ENGINE] Phase1 풀 기동 실패 — 스레드 경로로 실행: {exc}", flush=True)
+            return None
+
+    @property
+    def phase1_pool_active(self) -> bool:
+        return _phase1_pool.resolve_worker_count() > 1
+
+    def worker_spec(self) -> Dict[str, Any]:
+        """워커 프로세스에서 이 엔진과 같은 엔진을 다시 만들 생성자 kwargs
+        (워크포워드 창 병렬, engine/wfa_workers.py). 이 메서드가 있는 엔진만 병렬 대상이다."""
+        return {"data_dir": self.loader.data_dir}
 
     @property
     def ai_engine(self):
@@ -631,135 +681,55 @@ class BacktestEngine:
             # day, so the forced exit there is a real liquidation, labelled accordingly.
             _delisted_dates = universe_pit.get_delisting_dates(symbols)
 
-            def _close_at_last_available_row(entry_signals, exit_signals, exit_reasons, sym=None):
-                if len(exit_signals) == 0:
-                    return
-                if exec_type == 'next_open':
-                    if len(exit_signals) < 2:
-                        return
-                    exit_idx = len(exit_signals) - 2
-                else:
-                    exit_idx = len(exit_signals) - 1
-                entry_signals[exit_idx:] = False
-                exit_signals[exit_idx] = True
-                if not exit_reasons[exit_idx]:
-                    exit_reasons[exit_idx] = "상장폐지" if sym in _delisted_dates else "데이터 종료"
+            # ── 종목별 Phase1 파이프라인은 engine/phase1.py(순수 함수)가 정본 ──
+            # 요청-수준 상수는 피클 가능한 ctx로 묶는다 — 엔진 안 스레드 경로와
+            # 프로세스 풀 경로(engine/phase1_pool.py)가 같은 코드·같은 입력으로 돈다.
+            _p1_ctx = _phase1.build_context(
+                entry=req.get('entry'), exit_=req.get('exit'),
+                warmup_start_str=_warmup_start_str, has_period_filter=_has_period_filter,
+                period_start_str=_period_start_str, end_str=_end_str,
+                apply_dividends=apply_dividends,
+                skip_risk=bool(risk_params.get('skip_risk_management', False)),
+                skip_pos=bool(risk_params.get('skip_position_setting', False)),
+                init_cash=init_cash, pos_size_pct=pos_size_pct, liquid_limit=liquid_limit,
+                exec_type=exec_type, delisted_symbols=set(_delisted_dates or {}),
+                rank_metric_cols=_rank_metric_cols, tracked_metrics=_tracked_metrics,
+                ai_needed=ai_needed,
+            )
+            # 최적화 세션 캐시 — AI 백테스트(Phase2 일괄 추론 경로)는 대상 밖.
+            _prep = self._prep_cache if not ai_needed else None
+
+            def _apply_side(side: Dict[str, Any]) -> None:
+                for w in side.get("warnings") or ():
+                    self.warnings.add(w)
+                if side.get("res_logs"):
+                    all_resolution_logs.extend(side["res_logs"])
 
             def _process_symbol(sym):
-                try:
-                    # 1.1 Load Data
-                    df_pl = self.loader.load_symbol_data(sym)
-                    if df_pl is None or len(df_pl) == 0:
-                        self.warnings.add(f"{sym}: 데이터 없음 — 백테스트 대상에서 제외되었습니다.")
-                        return None
-
-                    # 3.1.5 Pre-filter: clip to warmup window BEFORE indicator calculation.
-                    # Reduces KOSPI200 from ~3000 rows to ~1400 rows before expensive indicator work.
-                    if _warmup_start_str is not None:
-                        df_pl = df_pl.filter(_date_key() >= _warmup_start_str)
-                    if len(df_pl) == 0:
-                        return None
-
-                    # 3.2 Indicators
-                    indicators = []
-                    def collect_indicators(group):
-                        if not group: return
-                        for c in group.get('conditions', []):
-                            if 'conditions' in c: collect_indicators(c)
-                            else: indicators.append(c)
-
-                    collect_indicators(req.get('entry'))
-                    collect_indicators(req.get('exit'))
-                    df_pl = self.indicator_engine.calculate(df_pl, indicators)
-
-                    # 3.2.5 DataResolver: 누락 데이터 즉시 해결
-                    resolver = DataResolver()
-                    df_pl, res_logs = resolver.resolve(sym, df_pl, req.get('entry'), req.get('exit'))
-                    if res_logs:
-                        all_resolution_logs.extend(res_logs)
-
-                    # 3.3 AI: Phase1 전용 — df_pl과 AI 입력용 pdf를 저장하고 추론은 나중에 일괄 처리
-                    if ai_needed:
-                        _phase1_data[sym] = {
-                            "df_pl": df_pl,
-                            "pdf_for_ai": df_pl.to_pandas(),
-                        }
-                        return ("phase1_done", sym)
-                    # AI 불필요: 기존 흐름 계속
-
-                    # 3.4 Period Filtering (strip warmup rows, apply exact period bounds)
-                    df_pl = _filter_to_backtest_window(df_pl)
-
-                    if len(df_pl) < 1:
-                        return None
-
-                    # 3.5 Preprocessing (Adjusted Prices)
-                    pdf = self.loader.preprocess_data(df_pl, apply_dividends=apply_dividends)
-                    
-                    # 3.6 Liquidity Check — compute the mask now, but defer the exclusion
-                    # warning until we know the strategy actually wants to enter this symbol.
-                    # Otherwise every fully-illiquid universe name (e.g. a delisted stock whose
-                    # only in-window rows are 거래정지) emits noise even when the strategy would
-                    # never trade it.
-                    skip_risk = risk_params.get('skip_risk_management', False)
-                    skip_pos = risk_params.get('skip_position_setting', False)
-
-                    liquidity_ok = None
-                    if not (skip_risk or skip_pos):
-                        target_pos_amount = init_cash * (pos_size_pct / 100.0)
-                        liquidity_ok = self.loader.check_liquidity(pdf, target_pos_amount, liquid_limit)
-
-                    # 3.7 Signal Generation
-                    entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
-                    exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
-                    _close_at_last_available_row(entry_signals, exit_signals, exit_reasons, sym)
-
-                    if entry_signals is None:
-                        return None
-
-                    # Apply Liquidity Mask. Warn only when the strategy WANTED to enter but
-                    # liquidity blocked every entry — a name the strategy never enters needs no message.
-                    if liquidity_ok is not None:
-                        wanted_entry = bool(entry_signals.any())
-                        entry_signals = entry_signals & liquidity_ok
-                        if wanted_entry and not entry_signals.any():
-                            return ("warning", f"{sym}: 유동성 기준 미달 (거래대금 부족)")
-                    
-                    # Return result package
-                    res = {
-                        "symbol": sym,
-                        "price": pdf['close'],
-                        "exec_price": pdf['close'] if exec_type == 'same_close' else pdf['open'],
-                        "high": pdf['high'] if 'high' in pdf.columns else pdf['close'],
-                        "low": pdf['low'] if 'low' in pdf.columns else pdf['close'],
-                        "entries": pd.Series(entry_signals, index=pdf.index),
-                        "exits": pd.Series(exit_signals, index=pdf.index),
-                        "entry_reasons": pd.Series(entry_reasons, index=pdf.index),
-                        "exit_reasons": pd.Series(exit_reasons, index=pdf.index),
-                        "index": pdf.index
-                    }
-                    if not (skip_risk or skip_pos):
-                        res["liquidity"] = pd.Series(liquidity_ok, index=pdf.index)
-                    if 'volume' in pdf.columns:
-                        res["trading_value"] = pdf['close'] * pdf['volume']
-                    if 'pbr' in pdf.columns: res["pbr"] = pdf['pbr']
-                    if 'roe_or_gpa' in pdf.columns: res["roe"] = pdf['roe_or_gpa']
-                    if _rank_metric_cols:
-                        res["fund_rank_values"] = {
-                            col: pdf[col] for col in _rank_metric_cols if col in pdf.columns
-                        }
-                    if _tracked_metrics:
-                        res["coverage"] = data_coverage.symbol_stats(pdf, _tracked_metrics)
-                    return ("success", res)
-
-                except Exception as e:
-                    return ("warning", f"{sym}: 처리 오류 ({e})")
+                """스레드 경로: 순수 파이프라인 호출 + 부수효과 반영. 반환은 기존 규약(None | (status, data))."""
+                status, data, side = _phase1.process_symbol(
+                    sym, _p1_ctx, self.loader, self.indicator_engine, self.signal_engine, prep_cache=_prep,
+                )
+                _apply_side(side)
+                if status == "skip":
+                    return None
+                if status == "phase1_done":
+                    _phase1_data[sym] = data
+                    return ("phase1_done", sym)
+                return (status, data)
 
             import concurrent.futures
             import os
 
             # Maximize threads for I/O and pre-processing. The global lock in AIEngine will protect the GPU/CPU Inference.
+            # BACKTEST_PHASE1_THREADS: 워크포워드 창 병렬 워커처럼 프로세스가 여럿일 때 코어를 나눠 쓰기 위한 상한.
             max_threads = min(32, (os.cpu_count() or 1) + 4)
+            _thr_env = os.environ.get("BACKTEST_PHASE1_THREADS")
+            if _thr_env:
+                try:
+                    max_threads = max(1, min(max_threads, int(_thr_env)))
+                except ValueError:
+                    pass
 
             def _collect_result(result):
                 """결과 dict를 공유 컬렉션에 병합"""
@@ -787,20 +757,31 @@ class BacktestEngine:
                         _coverage_acc.fold(data["coverage"])
                     processed_symbols.append(sym)
 
-            # Phase 1: 병렬 데이터 로드 + 지표 계산
+            # Phase 1: 종목별 데이터 로드 + 지표 계산.
+            # 프로세스 풀(engine/phase1_pool.py)이 켜져 있고 AI 경로가 아니면 워커에 샤딩해 돌린다 —
+            # Phase1은 GIL에 묶여 스레드로는 코어를 못 쓴다(2026-08-19 실측). 아니면 기존 스레드 경로.
             _t1 = _time.time()
-            print(f"[BT-ENGINE] Phase1 시작: {len(symbols)}종목, period={period_req}", flush=True)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
-                future_to_sym = {executor.submit(_process_symbol, sym): sym for sym in symbols}
-                for future in concurrent.futures.as_completed(future_to_sym):
-                    result = future.result()
-                    if result is None:
-                        continue
-                    status, data = result
-                    if status == "phase1_done":
-                        pass  # AI 종목: Phase2에서 일괄 처리
-                    else:
-                        _collect_result(result)
+            _pool = self._phase1_pool() if (not ai_needed and len(symbols) >= _phase1_pool.min_symbols()) else None
+            print(f"[BT-ENGINE] Phase1 시작: {len(symbols)}종목, period={period_req}"
+                  + (f", workers={_pool.n_workers}" if _pool is not None else ""), flush=True)
+            if _pool is not None:
+                _job_timeout = float(os.environ.get("BACKTEST_TIMEOUT_S", "600")) + 30.0
+                for status, data, side in _pool.run(_p1_ctx, symbols, timeout_s=_job_timeout):
+                    _apply_side(side)
+                    if status in ("warning", "success"):
+                        _collect_result((status, data))
+            else:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
+                    future_to_sym = {executor.submit(_process_symbol, sym): sym for sym in symbols}
+                    for future in concurrent.futures.as_completed(future_to_sym):
+                        result = future.result()
+                        if result is None:
+                            continue
+                        status, data = result
+                        if status == "phase1_done":
+                            pass  # AI 종목: Phase2에서 일괄 처리
+                        else:
+                            _collect_result(result)
 
             # Phase 2: AI 일괄 추론 (단일 lock, 단일 XGBoost 호출)
             if ai_needed and _phase1_data:
@@ -851,7 +832,7 @@ class BacktestEngine:
 
                         entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
                         exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
-                        _close_at_last_available_row(entry_signals, exit_signals, exit_reasons, sym)
+                        _phase1.close_at_last_available_row(entry_signals, exit_signals, exit_reasons, sym, _p1_ctx)
 
                         if entry_signals is None:
                             return None
@@ -1310,6 +1291,35 @@ class BacktestEngine:
             _t3 = _time.time()
             print(f"[BT-ENGINE] Simulator 완료: {_t3-_t2:.2f}s", flush=True)
 
+            # ── 리밸런싱 기간별 비교(FR-BT-064)를 Phase1 풀 워커에 미리 제출 ──
+            # 결과 화면 전용 재시뮬레이션(6주기)이라 메인 결과 정리(Format)와 겹쳐 돌린다 —
+            # 시뮬레이터 입력 프레임을 넘기고 아래 조립 지점에서 행을 받는다. 풀이 없거나
+            # 최적화 세션이면 제출하지 않는다(세션은 아예 만들지 않음, 풀 없음은 동기 경로).
+            _rc_job = None
+            _rc_periods_todo = None
+            if not self.in_optimization_session:
+                from engine.rebalance_comparison import periods_to_simulate
+                _rc_periods_todo = periods_to_simulate(risk_params)
+                _rc_pool = self._phase1_pool() if len(_rc_periods_todo) > 1 else None
+                if _rc_pool is not None:
+                    try:
+                        _rc_job = _rc_pool.submit_rebalance_rows(
+                            {
+                                "frames": {
+                                    "price_df": price_df, "exec_px_df": exec_px_df, "ents_df": ents_df,
+                                    "exts_df": exts_df, "rank_df": rank_df, "high_df": high_df,
+                                    "low_df": low_df, "available_df": available_df,
+                                },
+                                "simulator_options": simulator_options,
+                                "risk_params": risk_params,
+                                "init_cash": float(risk_params.get('init_cash') or 10000000.0),
+                            },
+                            list(_rc_periods_todo),
+                        )
+                    except Exception as _rc_exc:
+                        print(f"[BT-ENGINE] 리밸런싱 비교 워커 제출 실패 — 동기 경로: {_rc_exc}", flush=True)
+                        _rc_job = None
+
             # 넘친 날 고지(v16.3): 랭킹을 말하지 않은 전략에서 매수 조건 충족 종목이 빈 자리보다
             # 많았던 날이 있으면, 무엇이 골랐는지 결과에 남긴다(조용한 기본값 금지).
             _overflow_days = int(getattr(self.simulator, 'overflow_days', 0) or 0)
@@ -1447,22 +1457,41 @@ class BacktestEngine:
             # 1단계 입력(가격·신호·랭킹)은 그대로 두고 rebalancing_period만 6주기로 바꿔
             # 시뮬레이션만 반복한다 — 결과 화면 탭이 별도 실행 없이 바로 보여준다.
             # 비교 실패는 메인 결과에 영향을 주지 않는다(로그만).
-            try:
-                from engine.rebalance_comparison import run_rebalance_period_comparison
-                _t_rc0 = _time.time()
-                final["rebalanceComparison"] = run_rebalance_period_comparison(
-                    lambda _rp: Simulator().run(
-                        price_df, exec_px_df, ents_df, exts_df, _rp, simulator_options,
-                        rank_df=rank_df, high_df=high_df, low_df=low_df, available_df=available_df,
-                    ),
-                    risk_params,
-                    float(risk_params.get('init_cash') or 10000000.0),
-                )
-                final["timing"]["rebalanceComparison"] = round(_time.time() - _t_rc0, 2)
-                print(f"[BT-ENGINE] 리밸런싱 6주기 비교 완료: {_time.time()-_t_rc0:.2f}s", flush=True)
-            except Exception as _rce:
-                import logging
-                logging.getLogger(__name__).warning(f"[BacktestEngine] 리밸런싱 기간별 비교 실패: {_rce}")
+            # 최적화 세션(시도별 지표만 쓰는 반복) 안에서는 만들지 않는다 — 결과 화면 전용.
+            if self.in_optimization_session:
+                final["rebalanceComparison"] = None
+            else:
+                try:
+                    from engine.rebalance_comparison import (
+                        assemble_comparison, run_rebalance_period_comparison,
+                    )
+                    _t_rc0 = _time.time()
+                    _rc_rows = None
+                    if _rc_job is not None:
+                        # 워커가 Format 동안 돌려 둔 행을 받는다 — 실패하면 동기 경로로 다시 계산한다.
+                        try:
+                            _rc_rows = _rc_job.result(timeout_s=float(os.environ.get("BACKTEST_TIMEOUT_S", "600")))
+                        except Exception as _rc_exc:
+                            print(f"[BT-ENGINE] 리밸런싱 비교 워커 결과 실패 — 동기 재계산: {_rc_exc}", flush=True)
+                            _rc_rows = None
+                    if _rc_rows is not None:
+                        final["rebalanceComparison"] = assemble_comparison(_rc_rows, risk_params)
+                        _rc_where = f"워커 {len(_rc_rows)}행 대기"
+                    else:
+                        final["rebalanceComparison"] = run_rebalance_period_comparison(
+                            lambda _rp: Simulator().run(
+                                price_df, exec_px_df, ents_df, exts_df, _rp, simulator_options,
+                                rank_df=rank_df, high_df=high_df, low_df=low_df, available_df=available_df,
+                            ),
+                            risk_params,
+                            float(risk_params.get('init_cash') or 10000000.0),
+                        )
+                        _rc_where = f"동기 {len(_rc_periods_todo or ())}주기"
+                    final["timing"]["rebalanceComparison"] = round(_time.time() - _t_rc0, 2)
+                    print(f"[BT-ENGINE] 리밸런싱 6주기 비교 완료: {_time.time()-_t_rc0:.2f}s ({_rc_where})", flush=True)
+                except Exception as _rce:
+                    import logging
+                    logging.getLogger(__name__).warning(f"[BacktestEngine] 리밸런싱 기간별 비교 실패: {_rce}")
 
             # Add no-trades warning
             if pf.trades.count() == 0:

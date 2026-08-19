@@ -15,11 +15,33 @@ Anchored/Expanding 방식 (anchor=True):
 
 import copy
 import math
+import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
-from engine.grid_optimizer import set_nested_value
+from engine.grid_optimizer import optimization_session, set_nested_value
 
 # 윈도우 하나마다 IS 최적화(수십 회 백테스트)가 반복되므로 폭주 방지 상한.
 MAX_WINDOWS = 24
+
+# 창 단위 병렬 워커 수 상한 기본값 — 워커마다 엔진·데이터 캐시·Phase1 캐시를 따로 가지므로
+# 코어 수와 메모리 둘 다 본다. WALK_FORWARD_WORKERS로 명시하면 그 값을 쓴다(1=순차).
+DEFAULT_MAX_WORKERS = 8
+
+
+def resolve_worker_count(n_windows: int) -> int:
+    """창 병렬 워커 수. 창이 1개면 항상 1(프로세스 풀 기동 비용만 든다).
+
+    WALK_FORWARD_WORKERS: 양의 정수(1=순차). 없으면 min(cpu-1, DEFAULT_MAX_WORKERS, 창 수).
+    """
+    if n_windows <= 1:
+        return 1
+    raw = os.environ.get("WALK_FORWARD_WORKERS")
+    if raw not in (None, ""):
+        try:
+            return max(1, min(int(raw), n_windows))
+        except ValueError:
+            pass
+    cpu = os.cpu_count() or 1
+    return max(1, min(cpu - 1, DEFAULT_MAX_WORKERS, n_windows))
 
 # 윈도우/집계 결과에 담는 성과 지표 키 (엔진 결과 키와 동일).
 METRIC_KEYS = [
@@ -66,6 +88,21 @@ class WalkForwardAnalyzer:
         """
         Walk-Forward Analysis 실행.
 
+        전체를 엔진의 최적화 세션 안에서 돈다 — 창 안의 IS 시도들이 Phase1 산출물을
+        재사용하고, 기간 확인·OOS 백테스트도 결과 화면 전용 부가 산출물을 만들지 않는다.
+        (재계산 제거, 2026-08-19 실측: 백테스트 시간의 97%가 Phase1)
+        """
+        with optimization_session(self.engine):
+            return self._analyze(
+                base_request, ranges, n_splits, train_pct, anchor, target_metric,
+                n_trials, method, is_bars, oos_bars, progress_callback, should_cancel,
+            )
+
+    def _analyze(
+        self, base_request, ranges, n_splits, train_pct, anchor, target_metric,
+        n_trials, method, is_bars, oos_bars, progress_callback, should_cancel,
+    ) -> Dict[str, Any]:
+        """
         Returns:
           {
             status, n_splits, anchor, target_metric,
@@ -87,6 +124,37 @@ class WalkForwardAnalyzer:
             except Exception:
                 pass
 
+        # 0. 창 병렬 워커 풀을 먼저 띄운다 — 워커 기동(spawn+import ≈ 5~9s)이 아래 '기간 확인'
+        # 백테스트와 겹치게. 창 수는 아직 모르므로 힌트(n_splits, 명시 창이면 상한)로 잡고,
+        # 실제 창 수가 1이거나 워커가 1이면 순차로 돌고 풀은 닫는다.
+        # 워커는 엔진을 자기 프로세스에서 다시 만들어야 하므로 worker_spec()을 제공하는
+        # 엔진(BacktestEngine)만 병렬 대상이다 — 테스트용 스텁 엔진은 순차로 돈다.
+        pool = None
+        can_parallel = callable(getattr(self.engine, "worker_spec", None))
+        if can_parallel:
+            hint = int(n_splits or 0) if not (is_bars and oos_bars) else MAX_WINDOWS
+            hinted_workers = resolve_worker_count(hint)
+            if hinted_workers > 1:
+                pool = self._start_pool(hinted_workers)
+        try:
+            return self._analyze_with_pool(
+                pool, base_request, ranges, n_splits, train_pct, anchor, target_metric,
+                n_trials, method, is_bars, oos_bars, _notify, should_cancel,
+            )
+        finally:
+            if pool is not None:
+                pool.close()
+
+    def _start_pool(self, n_workers: int):
+        from engine.wfa_workers import WindowPool
+        pool = WindowPool(n_workers, self.engine.worker_spec())
+        pool.start()
+        return pool
+
+    def _analyze_with_pool(
+        self, pool, base_request, ranges, n_splits, train_pct, anchor, target_metric,
+        n_trials, method, is_bars, oos_bars, _notify, should_cancel,
+    ) -> Dict[str, Any]:
         # 1. 백테스트 날짜 범위 획득 (표시=실행: 화면에 보인 기간과 동일)
         _notify({"stage": "prepare", "message": "백테스트 기간 데이터를 확인하는 중..."})
         dates = self._get_backtest_dates(base_request)
@@ -111,11 +179,71 @@ class WalkForwardAnalyzer:
 
         print(f"[WFA] {len(windows)} windows, total={len(dates)} days", flush=True)
 
-        # 3. 각 윈도우 실행
-        window_results = []
+        # 3. 각 윈도우 실행 — 창은 서로 독립이라 워커 풀이 있고 창이 2개 이상이면 병렬 실행.
+        run_args = (windows, base_request, ranges, target_metric, n_trials, method, _notify, should_cancel)
+        if pool is not None and len(windows) > 1:
+            outcome = self._run_windows_parallel(pool, *run_args)
+        else:
+            outcome = self._run_windows_sequential(*run_args)
+        if outcome.get("status") in ("cancelled", "error"):
+            return outcome
+        window_results = outcome["windows"]
+
         # WFE 표본: 창 단위로 (IS CAGR, OOS CAGR) 짝을 맞춰 모은다 — 한쪽만 있는 창은 제외.
         wfe_pairs: List[Tuple[float, float]] = []
+        for w_result in window_results:
+            is_cagr = _finite(w_result.get("is_metrics", {}).get("cagr"))
+            oos_cagr = _finite(w_result.get("oos_metrics", {}).get("cagr"))
+            if is_cagr is not None and oos_cagr is not None:
+                wfe_pairs.append((is_cagr, oos_cagr))
 
+        # 모든 윈도우가 실패했으면 부분 결과 대신 즉시 에러로 알린다 (Fail Fast).
+        errors = [w.get("error") for w in window_results]
+        if all(errors):
+            return {
+                "status": "error",
+                "message": f"모든 윈도우가 실패했습니다: {errors[0]}",
+            }
+
+        # 4. 집계
+        aggregate = self._aggregate(window_results)
+        combined_equity, combined_dates = self._combine_equity(window_results)
+
+        # Walk-Forward Efficiency (WFE) = 창별 OOS CAGR 평균 / 창별 IS CAGR 평균 (Pardo 정의: 연환산끼리).
+        # 총수익률(totalReturn)로 나누면 안 된다 — IS 창이 OOS 창보다 길어(기본 50%:15%≈3.3배)
+        # 정상성 있는 전략(IS=OOS CAGR)조차 WFE≈0.3으로 '과최적화'로 찍힌다(2026-08-19 감사).
+        # IS·OOS 한쪽만 유효한 창은 표본에서 함께 제외해 분자·분모의 창 집합을 일치시킨다.
+        # IS 평균이 0 이하이면 비율의 부호가 뒤집혀 해석 불능이므로(감사 M9)
+        # wfe_valid=False로 표시하고 0을 반환한다.
+        avg_is = sum(p[0] for p in wfe_pairs) / len(wfe_pairs) if wfe_pairs else 0.0
+        avg_oos = sum(p[1] for p in wfe_pairs) / len(wfe_pairs) if wfe_pairs else 0.0
+        wfe_valid = avg_is > 0
+        wfe = (avg_oos / avg_is) if wfe_valid else 0.0
+
+        return {
+            "status": "ok",
+            "n_splits": len(windows),
+            "anchor": anchor,
+            "target_metric": target_metric,
+            "windows": window_results,
+            "aggregate": aggregate,
+            "combined_equity": combined_equity,
+            "combined_dates": combined_dates,
+            "walk_forward_efficiency": round(wfe, 4),
+            "wfe_valid": wfe_valid,
+            # WFE 산정 기준. 구버전 저장 결과(총수익률 기준)에는 이 키가 없다 — UI가 문구를 구분한다.
+            "wfe_basis": "cagr",
+        }
+
+    # ─────────────────────────────────────────────────────────
+    # 창 실행 — 순차 / 병렬
+    # ─────────────────────────────────────────────────────────
+
+    def _run_windows_sequential(
+        self, windows, base_request, ranges, target_metric, n_trials, method, _notify, should_cancel,
+    ) -> Dict[str, Any]:
+        """창을 이 프로세스에서 순서대로 실행한다(WALK_FORWARD_WORKERS=1 또는 창 1개)."""
+        window_results: List[Dict[str, Any]] = []
         for i, (is_start, is_end, oos_start, oos_end) in enumerate(windows):
             # 협조적 취소: 창 경계 + (아래 _run_window를 통해) 창 내부 시도/조합 단위로도 확인
             if should_cancel is not None and should_cancel():
@@ -159,49 +287,134 @@ class WalkForwardAnalyzer:
                 print(f"[WFA] cancelled during window {i+1}/{len(windows)}", flush=True)
                 return {"status": "cancelled", "message": f"창 {i+1}/{len(windows)} 진행 중 취소되었습니다."}
             window_results.append(w_result)
+        return {"status": "ok", "windows": window_results}
 
-            is_cagr = _finite(w_result.get("is_metrics", {}).get("cagr"))
-            oos_cagr = _finite(w_result.get("oos_metrics", {}).get("cagr"))
-            if is_cagr is not None and oos_cagr is not None:
-                wfe_pairs.append((is_cagr, oos_cagr))
+    def _run_windows_parallel(
+        self, pool, windows, base_request, ranges, target_metric, n_trials, method, _notify, should_cancel,
+    ) -> Dict[str, Any]:
+        """창을 spawn 프로세스 풀(engine/wfa_workers.WindowPool)에 흩뿌려 병렬 실행한다.
 
-        # 모든 윈도우가 실패했으면 부분 결과 대신 즉시 에러로 알린다 (Fail Fast).
-        errors = [w.get("error") for w in window_results]
-        if all(errors):
+        결과는 순차 실행과 동일하다 — 창은 독립이고 옵튜나 샘플러는 시드가 고정돼 있다.
+        진행률은 워커가 큐로 올린 창별 시도 이벤트를 부모가 합산해 알린다:
+          {stage:'window', window, total, is_period, oos_period, trial, trial_total, timing,
+           windows_done, trials_done, workers, active_windows}
+        취소는 부모가 mp.Event를 세우면 워커가 시도 경계에서 협조적으로 멈춘다.
+        """
+        import concurrent.futures as cf
+
+        total = len(windows)
+        n_workers = pool.n_workers
+        periods = {i + 1: (f"{w[0]} ~ {w[1]}", f"{w[2]} ~ {w[3]}") for i, w in enumerate(windows)}
+        print(f"[WFA] {total} windows on {n_workers} worker processes", flush=True)
+
+        # 진행 상태(창별) — 부모가 합산해 한 이벤트로 알린다.
+        trial_state: Dict[int, Dict[str, Any]] = {}
+        active: List[int] = []
+        done_windows: List[int] = []
+        results: Dict[int, Dict[str, Any]] = {}
+
+        def _emit_progress(from_window: int) -> None:
+            st = trial_state.get(from_window, {})
+            is_p, oos_p = periods[from_window]
+            trials_done = sum(int(v.get("trial") or 0) for v in trial_state.values())
+            event: Dict[str, Any] = {
+                "stage": "window",
+                "window": from_window,
+                "total": total,
+                "is_period": is_p,
+                "oos_period": oos_p,
+                "windows_done": len(done_windows),
+                "trials_done": trials_done,
+                "workers": n_workers,
+                "active_windows": sorted(active),
+            }
+            if st.get("trial_total"):
+                event["trial"] = st.get("trial", 0)
+                event["trial_total"] = st["trial_total"]
+            if st.get("timing"):
+                event["timing"] = st["timing"]
+            _notify(event)
+
+        def _handle_msg(msg: Dict[str, Any]) -> None:
+            w = int(msg.get("window", 0))
+            if w not in periods:
+                return
+            kind = msg.get("event")
+            if kind == "start":
+                if w not in active:
+                    active.append(w)
+                trial_state.setdefault(w, {})
+                print(f"[WFA] Window {w}/{total} started: IS={periods[w][0]}, OOS={periods[w][1]}", flush=True)
+            elif kind == "trial":
+                st = trial_state.setdefault(w, {})
+                st["trial"] = msg.get("trial", 0)
+                st["trial_total"] = msg.get("trial_total")
+                if msg.get("timing"):
+                    st["timing"] = msg["timing"]
+            elif kind == "done":
+                if w in active:
+                    active.remove(w)
+                if w not in done_windows:
+                    done_windows.append(w)
+                st = trial_state.setdefault(w, {})
+                if st.get("trial_total"):
+                    st["trial"] = st["trial_total"]
+            _emit_progress(w)
+
+        cancelled = False
+        try:
+            futures = {}
+            for i, (is_start, is_end, oos_start, oos_end) in enumerate(windows):
+                spec = {
+                    "window_idx": i + 1,
+                    "base_request": base_request, "ranges": ranges,
+                    "is_start": is_start, "is_end": is_end, "oos_start": oos_start, "oos_end": oos_end,
+                    "target_metric": target_metric, "n_trials": n_trials, "method": method,
+                }
+                futures[pool.submit_window(spec)] = i + 1
+            pending = set(futures)
+            while pending:
+                if not cancelled and should_cancel is not None and should_cancel():
+                    cancelled = True
+                    pool.cancel()
+                    print("[WFA] cancel requested — signalling workers", flush=True)
+                finished, pending = cf.wait(pending, timeout=0.2, return_when=cf.FIRST_COMPLETED)
+                pool.drain(_handle_msg)
+                for fut in finished:
+                    w = futures[fut]
+                    try:
+                        results[w] = fut.result()
+                    except Exception as exc:  # 워커 안의 예외 → 창 단위 오류(다른 창은 계속)
+                        print(f"[WFA] Window {w} failed in worker: {exc}", flush=True)
+                        is_p, oos_p = periods[w]
+                        results[w] = {
+                            "window": w, "is_period": is_p, "oos_period": oos_p,
+                            "best_params": {}, "is_metrics": {}, "oos_metrics": {},
+                            "oos_equity": [], "oos_dates": [], "error": f"창 실행 오류: {exc}",
+                        }
+                if cancelled:
+                    # 워커는 시도 경계에서 멈춰 cancelled 결과를 돌려준다 — 아직 시작 안 한 제출분은 취소
+                    for fut in pending:
+                        fut.cancel()
+                    pending = {f for f in pending if not f.cancelled()}
+            pool.drain(_handle_msg)
+        except cf.process.BrokenProcessPool as exc:
             return {
                 "status": "error",
-                "message": f"모든 윈도우가 실패했습니다: {errors[0]}",
+                "message": (
+                    "병렬 창 실행 프로세스가 중단되었습니다(메모리 부족 가능). "
+                    f"WALK_FORWARD_WORKERS를 줄여 다시 시도해 주세요. ({exc})"
+                ),
             }
 
-        # 4. 집계
-        aggregate = self._aggregate(window_results)
-        combined_equity, combined_dates = self._combine_equity(window_results)
+        if cancelled or any(r.get("cancelled") for r in results.values()):
+            done_n = sum(1 for r in results.values() if r and not r.get("cancelled") and not r.get("error"))
+            return {"status": "cancelled", "message": f"창 {done_n}/{total} 완료 후 취소되었습니다."}
 
-        # Walk-Forward Efficiency (WFE) = 창별 OOS CAGR 평균 / 창별 IS CAGR 평균 (Pardo 정의: 연환산끼리).
-        # 총수익률(totalReturn)로 나누면 안 된다 — IS 창이 OOS 창보다 길어(기본 50%:15%≈3.3배)
-        # 정상성 있는 전략(IS=OOS CAGR)조차 WFE≈0.3으로 '과최적화'로 찍힌다(2026-08-19 감사).
-        # IS·OOS 한쪽만 유효한 창은 표본에서 함께 제외해 분자·분모의 창 집합을 일치시킨다.
-        # IS 평균이 0 이하이면 비율의 부호가 뒤집혀 해석 불능이므로(감사 M9)
-        # wfe_valid=False로 표시하고 0을 반환한다.
-        avg_is = sum(p[0] for p in wfe_pairs) / len(wfe_pairs) if wfe_pairs else 0.0
-        avg_oos = sum(p[1] for p in wfe_pairs) / len(wfe_pairs) if wfe_pairs else 0.0
-        wfe_valid = avg_is > 0
-        wfe = (avg_oos / avg_is) if wfe_valid else 0.0
-
-        return {
-            "status": "ok",
-            "n_splits": len(windows),
-            "anchor": anchor,
-            "target_metric": target_metric,
-            "windows": window_results,
-            "aggregate": aggregate,
-            "combined_equity": combined_equity,
-            "combined_dates": combined_dates,
-            "walk_forward_efficiency": round(wfe, 4),
-            "wfe_valid": wfe_valid,
-            # WFE 산정 기준. 구버전 저장 결과(총수익률 기준)에는 이 키가 없다 — UI가 문구를 구분한다.
-            "wfe_basis": "cagr",
-        }
+        window_results = [results[i + 1] for i in range(total) if (i + 1) in results]
+        if len(window_results) != total:
+            return {"status": "error", "message": "일부 창의 결과를 받지 못했습니다."}
+        return {"status": "ok", "windows": window_results}
 
     # ─────────────────────────────────────────────────────────
     # Private helpers

@@ -583,10 +583,13 @@ function filterExcludedParameterRanges(
 ): Record<string, unknown> {
   if (!excludedLabels || excludedLabels.length === 0) return ranges;
 
+  // path 기반 디스크립터 키는 라벨 매칭 없이 정확히 그 경로만 제외한다 — 경로를 라벨로
+  // 되읽으면 "lookbackPeriod"의 'per'가 PER 판정을 타서 PBR·거래대금까지 함께 빠졌다
+  // (2026-08-19: 돌파 기간 제외 → 176조합이 16조합으로 축소).
   const next: Record<string, unknown> = {};
   for (const [path, range] of Object.entries(ranges)) {
     const excluded = excludedLabels.some(
-      (key) => key === path || rangePathMatchesStepLabel(baseStrategy, key, path)
+      (key) => key === path || (!(key in ranges) && rangePathMatchesStepLabel(baseStrategy, key, path))
     );
     if (!excluded) next[path] = range;
   }
@@ -722,9 +725,12 @@ function rangePathMatchesStepLabel(baseStrategy: StrategyBacktestRequest, label:
   const condition = conditionForRangePath(baseStrategy, path);
   const haystack = `${path} ${condition?.id ?? ""} ${condition?.type ?? ""} ${JSON.stringify(condition?.params ?? {})}`.toLowerCase();
 
-  if (/pbr/i.test(normalized)) return /pbr/.test(haystack);
-  if (/per/i.test(normalized)) return /per/.test(haystack);
-  if (/roe/i.test(normalized)) return /roe/.test(haystack);
+  // 재무 지표 라벨은 조건 id로만 판정한다 — params JSON까지 훑으면 "operator"의 'per'가
+  // 모든 필터 조건을 PER로 오인한다.
+  const conditionId = String(condition?.id ?? "").toLowerCase();
+  if (/pbr/i.test(normalized)) return /pbr/.test(conditionId);
+  if (/per/i.test(normalized)) return /per/.test(conditionId);
+  if (/roe/i.test(normalized)) return /roe/.test(conditionId);
 
   const compact = normalized.replace(/\s+/g, "");
   return !!compact && haystack.replace(/\s+/g, "").includes(compact);

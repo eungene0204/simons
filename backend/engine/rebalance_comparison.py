@@ -107,17 +107,18 @@ def summarize_portfolio(pf, init_cash: float) -> Dict[str, Any]:
     }
 
 
-def run_rebalance_period_comparison(
+def simulate_period_rows(
     run_simulation: Callable[[Dict[str, Any]], Any],
     risk_params: Dict[str, Any],
     init_cash: float,
+    periods: tuple[str, ...] | List[str],
     *,
     summarize: Callable[[Any, float], Dict[str, Any]] = summarize_portfolio,
-    periods: tuple[str, ...] = REBALANCE_PERIODS,
-) -> Dict[str, Any]:
-    """`rebalancing_period`만 바꿔 시뮬레이션을 반복한다.
+) -> List[Dict[str, Any]]:
+    """주기 목록만큼 `rebalancing_period`를 바꿔 시뮬레이션하고 비교표 행을 돌려준다.
 
-    run_simulation(risk_params) → vbt Portfolio. 한 주기의 실패는 그 행만 error로 남기고 계속한다.
+    부모(동기 경로)와 Phase1 풀 워커(engine/phase1_pool.py, 프레임을 넘겨받아 실행)가 같이 쓴다.
+    한 주기의 실패는 그 행만 error로 남기고 계속한다.
     """
     rows: List[Dict[str, Any]] = []
     for period in periods:
@@ -129,9 +130,63 @@ def run_rebalance_period_comparison(
         except Exception as exc:  # noqa: BLE001 — 한 주기 실패가 메인 결과·다른 주기를 죽이지 않게
             row = {"period": period, "error": str(exc)}
         rows.append(row)
+    return rows
+
+
+def periods_to_simulate(risk_params: Dict[str, Any], periods: tuple[str, ...] = REBALANCE_PERIODS) -> tuple[str, ...]:
+    """실제로 시뮬레이션할 주기. 주기가 결과에 영향을 못 주는 전략(보유 상한 없음 등,
+    시뮬레이터의 rebalance_mode가 어떤 주기에서도 False)은 6번이 같은 결과이므로 한 번만 돌리고
+    복제한다 — 결과는 동일하고 시간만 1/6이다."""
+    return periods if rebalance_applies(risk_params) else periods[:1]
+
+
+def assemble_comparison(rows: List[Dict[str, Any]], risk_params: Dict[str, Any],
+                        periods: tuple[str, ...] = REBALANCE_PERIODS) -> Dict[str, Any]:
+    """행 목록(전 주기 또는 대표 1주기)을 응답 형태로 조립한다. 대표 1주기면 6주기로 복제한다."""
+    if len(rows) == 1 and not rebalance_applies(risk_params):
+        # 대표 1주기 → 6주기 복제(periods_to_simulate 계약: 주기가 결과에 영향을 못 주는 전략)
+        template = rows[0]
+        rows = [{**template, "period": p} for p in periods]
+    else:
+        by_period = {r["period"]: r for r in rows}
+        rows = [by_period.get(p) or {"period": p, "error": "결과 없음"} for p in periods]
     return {
         "periods": rows,
         "currentPeriod": str(risk_params.get("rebalancing_period") or "none"),
         # 보유 상한이 없어 주기가 결과에 영향을 주지 않는 전략 — 화면이 "6행이 같을 수 있음"을 안내한다.
         "positionCapAbsent": not rebalance_applies(risk_params),
     }
+
+
+def run_rebalance_period_comparison(
+    run_simulation: Callable[[Dict[str, Any]], Any],
+    risk_params: Dict[str, Any],
+    init_cash: float,
+    *,
+    summarize: Callable[[Any, float], Dict[str, Any]] = summarize_portfolio,
+    periods: tuple[str, ...] = REBALANCE_PERIODS,
+) -> Dict[str, Any]:
+    """`rebalancing_period`만 바꿔 시뮬레이션을 반복한다(동기 경로).
+
+    run_simulation(risk_params) → vbt Portfolio. 한 주기의 실패는 그 행만 error로 남기고 계속한다.
+    """
+    todo = periods_to_simulate(risk_params, periods)
+    rows = simulate_period_rows(run_simulation, risk_params, init_cash, todo, summarize=summarize)
+    return assemble_comparison(rows, risk_params, periods)
+
+
+def simulate_rows_from_frames(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """워커용 진입점 — 피클로 넘어온 시뮬레이터 입력 프레임으로 주기별 행을 만든다."""
+    from engine.simulator import Simulator
+
+    frames = payload["frames"]
+    options = payload["simulator_options"]
+
+    def _run(rp):
+        return Simulator().run(
+            frames["price_df"], frames["exec_px_df"], frames["ents_df"], frames["exts_df"], rp, options,
+            rank_df=frames.get("rank_df"), high_df=frames.get("high_df"), low_df=frames.get("low_df"),
+            available_df=frames.get("available_df"),
+        )
+
+    return simulate_period_rows(_run, payload["risk_params"], float(payload["init_cash"]), tuple(payload["periods"]))

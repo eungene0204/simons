@@ -13,6 +13,11 @@ export interface WalkForwardProgressEvent {
   trial_total?: number;
   // 최근 백테스트 단계별 소요 시간 (초)
   timing?: WalkForwardTiming;
+  // 창 단위 병렬 실행일 때만 붙는 합산 진행률 (백엔드 WALK_FORWARD_WORKERS ≥ 2)
+  windows_done?: number;   // 완료된 창 수
+  trials_done?: number;    // 전 창 합산 완료 시도 수
+  workers?: number;        // 동시 실행 워커 수
+  active_windows?: number[]; // 지금 실행 중인 창 번호
 }
 
 export interface WalkForwardTiming {

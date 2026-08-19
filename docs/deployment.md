@@ -240,6 +240,16 @@ APEX_DOMAIN=nullstock.im
 KMP_DUPLICATE_LIB_OK=TRUE
 OMP_NUM_THREADS=1
 POLARS_MAX_THREADS=1
+
+# --- 워크포워드·최적화 성능 (선택, FR-BT-049c) ---
+# WALK_FORWARD_WORKERS: 창 단위 병렬 워커 수(1=순차). 없으면 min(cpu-1, 8, 창 수) — 2 vCPU 박스는 자동으로 순차.
+# 워커마다 엔진+데이터 캐시+Phase1 캐시를 따로 가지므로 코어 수와 메모리(워커당 ~1GB+)를 함께 본다.
+# BACKTEST_PREP_CACHE_MB: 최적화 세션 Phase1 캐시 예산(기본 2048; 병렬이면 워커 수로 나눠 배분).
+# BACKTEST_PHASE1_THREADS: 백테스트 1회의 종목별 Phase1 스레드 상한(기본 cpu+4; 워커에서는 코어÷워커·최대 4로 자동).
+# BACKTEST_PHASE1_WORKERS: 모든 백테스트의 종목별 준비 계산(Phase1)을 나눠 도는 상주 프로세스 풀 크기.
+#   기본 min(cpu-1, 8) — 2 vCPU는 1(=풀 없음, 스레드 경로). 워커당 상주 RSS ~0.5GB + 자기 샤드의 parquet 캐시.
+# BACKTEST_PHASE1_POOL_MIN_SYMBOLS: 이 수 미만 종목은 풀을 안 쓴다(기본 8).
+# WALK_FORWARD_WORKERS=4
 ```
 
 ---
@@ -343,7 +353,7 @@ curl -s http://localhost:8000/model/status   # Modal LLM 연결 상태
 ## 12. 스케일 한계 / 향후 과제
 
 - **Modal 콜드스타트(~90~320초)**: scale-to-zero 트레이드오프. 완화책(GET warmup, num_ctx, undici 타임아웃)은 이미 적용됨(§2). 더 줄이려면 `scaledown_window` 상향(상시과금↑) 또는 `min_containers=1`.
-- **Vultr 2 vCPU**: 백테스트 동시 처리량이 코어 수에 비례. 느려지면 인스턴스 리사이즈.
+- **Vultr 2 vCPU**: 백테스트 동시 처리량이 코어 수에 비례. 느려지면 인스턴스 리사이즈. 워크포워드는 창 단위 프로세스 병렬(`WALK_FORWARD_WORKERS`)을 지원하므로 코어를 늘리면 창 수만큼 벽시계가 줄어든다(2 vCPU에서는 자동 순차). Phase1은 GIL에 묶여 **스레드로는 안 빨라지고 프로세스로만** 빨라진다 — 인스턴스 리사이즈 시 코어 수가 곧 병렬도다(`BACKTEST_PHASE1_WORKERS` 상주 풀이 모든 백테스트를 코어 수만큼 나눠 돈다: 실측 KOSPI200 5Y 3.9s→1.3s(8워커)). GPU는 현 엔진(종목별 pandas 지표·순차 체결 루프·numba)에 붙일 자리가 없다(`docs/walk_forward_performance.md`).
 - **앱 수평 확장**: DB는 이미 Postgres(Supabase)로 외부화되어 있어 이전보다 수월하지만, **VirtualTrader·scheduler는 반드시 단일 워커**로 유지해야 한다(중복 주문/중복 동기화 방지) — 여러 대로 늘리려면 이 두 서비스만 별도 분리.
 - **뉴스 시스템**: 현재 수집 비활성(`NEWSV2_COLLECTION_ENABLED=false`). 재개 시 로컬 postgres 컨테이너 부하·Supabase 통합 여부를 재검토.
 
