@@ -77,6 +77,11 @@ export interface WalkForwardRunProgress {
   trial?: number;
   trial_total?: number;
   timing?: WalkForwardTiming;
+  // 창 단위 병렬 실행일 때만 붙는 합산 진행률(백엔드가 워커 2개 이상으로 돌 때).
+  windows_done?: number;
+  trials_done?: number;
+  workers?: number;
+  active_windows?: number[];
 }
 
 export interface WalkForwardTiming {
@@ -134,6 +139,8 @@ interface WalkForwardFormState {
 const FALLBACK_TOTAL_BARS = 252 * 5;
 // 기준 백테스트 실측 시간이 없을 때 쓰는 백테스트 1회당 기본 소요(초). 대략적 폴백값.
 const FALLBACK_PER_BACKTEST_SEC = 0.6;
+// 최적화 세션의 Phase1 캐시 적중 시도 1회 비용 비율(전체 백테스트 대비). 실측 ≈ 0.06, 보수적으로 0.1.
+const CACHED_TRIAL_COST_RATIO = 0.1;
 type OptimizationMethod = "bayesian" | "grid";
 
 // 초 단위를 "약 3분", "약 1시간 20분", "1분 미만"처럼 사람이 읽는 문구로 바꾼다.
@@ -161,6 +168,14 @@ const MAX_GRID_COMBINATIONS = 500;
 // 백엔드 engine/walk_forward.py의 MAX_WINDOWS와 동일한 값으로 유지한다.
 const MAX_WALK_FORWARD_WINDOWS = 24;
 // 이보다 짧은 검증 창은 CAGR 연환산 잡음이 커진다(약 3개월 미만) — 실행은 막지 않고 안내만 한다.
+// 한 구간 안에서 학습이 차지하는 비율의 조절 범위 — 양 끝에서 한쪽이 최소 구간보다
+// 짧아지지 않도록 폭을 제한한다.
+const TRAIN_RATIO_MIN_PCT = 20;
+const TRAIN_RATIO_MAX_PCT = 80;
+
+// 학습·검증 비율 막대를 이루는 눈금 개수 — 화면 폭과 무관하게 고정한다.
+const TIMELINE_TICKS = 80;
+
 const SHORT_VALIDATION_BARS = 63;
 
 type ParameterStepConfig = {
@@ -702,26 +717,31 @@ export function WalkForwardPanel({
 
   const maxTrainBars = Math.max(minWindowBars, totalBars - minWindowBars);
   const maxValidationBars = Math.max(minWindowBars, totalBars - formState.trainBars);
+  // 한 구간(학습+검증)의 길이와 그 안의 학습 비중으로 조절한다 — 비율을 올리면 학습이 늘고
+  // 검증이 그만큼 줄어, 두 기간이 항상 반대로 움직인다.
+  const windowSliderMin = Math.min(minWindowBars * 5, totalBars);
+  const windowSliderMax = totalBars;
+  const currentWindowBars = formState.trainBars + formState.validationBars;
+  const currentTrainRatioPct = Math.round((formState.trainBars / Math.max(currentWindowBars, 1)) * 100);
 
-  const applyTrainBars = (value: number) => {
-    const nextTrainBars = clamp(value, minWindowBars, maxTrainBars);
-    setFormState((current) => {
-      const nextValidationMax = Math.max(minWindowBars, totalBars - nextTrainBars);
-      return {
-        ...current,
-        trainBars: nextTrainBars,
-        validationBars: clamp(current.validationBars, minWindowBars, nextValidationMax),
-      };
-    });
-  };
-
-  const applyValidationBars = (value: number) => {
-    const nextValidationMax = Math.max(minWindowBars, totalBars - formState.trainBars);
+  // 구간 길이와 학습 비중에서 두 기간을 함께 확정한다 — 한쪽만 바뀌는 경로를 두지 않는다.
+  const applyWindow = (nextWindowBars: number, nextTrainRatioPct: number) => {
+    const windowBars = clamp(Math.round(nextWindowBars), windowSliderMin, windowSliderMax);
+    const ratio = clamp(nextTrainRatioPct, TRAIN_RATIO_MIN_PCT, TRAIN_RATIO_MAX_PCT) / 100;
+    const trainBars = clamp(
+      Math.round(windowBars * ratio),
+      minWindowBars,
+      Math.max(minWindowBars, windowBars - minWindowBars)
+    );
     setFormState((current) => ({
       ...current,
-      validationBars: clamp(value, minWindowBars, nextValidationMax),
+      trainBars,
+      validationBars: Math.max(minWindowBars, windowBars - trainBars),
     }));
   };
+
+  const applyWindowBars = (value: number) => applyWindow(value, currentTrainRatioPct);
+  const applyTrainRatioPct = (value: number) => applyWindow(currentWindowBars, value);
 
   // 구간 수 상한 초과 시 안내할 두 가지 해결 예시 — 각각 검증기간/학습기간만 늘려 상한 이하로 낮추는 최소값
   const windowCountExceedsCap = derivedSettings.n_splits > MAX_WALK_FORWARD_WINDOWS;
@@ -745,8 +765,15 @@ export function WalkForwardPanel({
   const firstValidationEnd = backtestDates[firstValidationEndIndex] ?? null;
   const periodStart = backtestDates[0];
   const periodEnd = backtestDates[backtestDates.length - 1];
-  const timelineTrainPct = (formState.trainBars / totalBars) * 100;
-  const timelineValidationPct = (formState.validationBars / totalBars) * 100;
+  // 한 구간(학습+검증)을 눈금 TIMELINE_TICKS개로 나눠 그린다 — 눈금 수만 학습:검증 비율을 따르고,
+  // 간격은 바깥 flex 한 줄이 균일하게 잡는다(그룹별로 나누면 경계에서 간격이 좁아진다).
+  const windowBars = Math.max(formState.trainBars + formState.validationBars, 1);
+  const timelineTrainTicks = clamp(
+    Math.round((TIMELINE_TICKS * formState.trainBars) / windowBars),
+    1,
+    TIMELINE_TICKS - 1
+  );
+  const timelineValidationTicks = TIMELINE_TICKS - timelineTrainTicks;
   const timelineMaxIndex = Math.max(backtestDates.length - 1, 1);
   const timelinePositionForIndex = (index: number) => clamp((index / timelineMaxIndex) * 100, 0, 100);
 
@@ -954,21 +981,33 @@ export function WalkForwardPanel({
   const perBacktestSec = baseBacktestSeconds && baseBacktestSeconds > 0
     ? baseBacktestSeconds
     : FALLBACK_PER_BACKTEST_SEC;
-  const estimatedRunSeconds = totalBacktests * perBacktestSec;
+  // 백엔드는 최적화 세션 동안 종목별 데이터 준비(Phase1)를 재사용한다 — 한 구간의 두 번째
+  // 시도부터는 전체 비용의 일부만 든다(2026-08-19 실측 ≈ 6%, 보수적으로 10%). 전체 비용은
+  // 준비 1회 + 구간마다 첫 시도 1회 + OOS 1회.
+  const fullCostBacktests = totalBacktests > 0
+    ? PREPARE_BACKTESTS + derivedSettings.n_splits * 2
+    : 0;
+  const cachedTrialBacktests = Math.max(0, totalBacktests - fullCostBacktests);
+  const estimatedRunSeconds = (fullCostBacktests + cachedTrialBacktests * CACHED_TRIAL_COST_RATIO) * perBacktestSec;
   const estimatedDurationLabel = formatDurationRange(estimatedRunSeconds);
 
   // 실행 중 남은 시간(라이브 ETA): 완료 백테스트 수를 빼고 실측 평균으로 곱한다.
+  // 창 병렬(trials_done 있음)이면 전 창 합산 완료 수를 쓰고 워커 수로 나눈다.
+  const isParallelProgress = runProgress?.stage === "window" && typeof runProgress.trials_done === "number";
   const completedBacktests = runProgress?.stage === "window" && runProgress.window
-    ? PREPARE_BACKTESTS + (runProgress.window - 1) * (backtestsPerWindow + 1) + (runProgress.trial ?? 0)
+    ? isParallelProgress
+      ? PREPARE_BACKTESTS + (runProgress.trials_done ?? 0) + (runProgress.windows_done ?? 0)
+      : PREPARE_BACKTESTS + (runProgress.window - 1) * (backtestsPerWindow + 1) + (runProgress.trial ?? 0)
     : 0;
   const remainingBacktests = Math.max(0, totalBacktests - completedBacktests);
+  const parallelWorkers = isParallelProgress ? Math.max(1, runProgress?.workers ?? 1) : 1;
   const liveEtaSeconds = avgBacktestSec != null && totalBacktests > 0
-    ? remainingBacktests * avgBacktestSec
+    ? (remainingBacktests * avgBacktestSec) / parallelWorkers
     : null;
   const runDisabledReason = gridSearchExceedsCap
     ? t("조합 수({0}개)가 상한({1}개)을 초과했습니다. 파라미터 범위나 step을 조정해 주세요.", gridSearchEstimate.toLocaleString(), MAX_GRID_COMBINATIONS.toLocaleString())
     : windowCountExceedsCap
-      ? t("구간 수({0}개)가 상한({1}개)을 초과했습니다. 학습기간이나 검증기간을 늘려 주세요.", derivedSettings.n_splits, MAX_WALK_FORWARD_WINDOWS)
+      ? t("구간 수({0}개)가 상한({1}개)을 초과했습니다. 구간 길이를 늘려 주세요.", derivedSettings.n_splits, MAX_WALK_FORWARD_WINDOWS)
       : disabledReason;
   const isRunBlocked = !onRun || !canRun || gridSearchExceedsCap || windowCountExceedsCap;
   const isRunDisabled = isRunning || isRunBlocked;
@@ -982,16 +1021,36 @@ export function WalkForwardPanel({
             isRunning={isRunning}
             progressRatio={
               runProgress?.total
-                ? (Math.max(0, (runProgress.window ?? 1) - 1) +
-                    (runProgress.trial_total ? Math.min(1, (runProgress.trial ?? 0) / runProgress.trial_total) : 0)) /
-                  runProgress.total
+                ? isParallelProgress
+                  // 창 병렬: (완료 시도 합산 + 완료 창의 OOS) / (창 수 × (시도 수 + 1))
+                  ? runProgress.trial_total
+                    ? Math.min(
+                        1,
+                        ((runProgress.trials_done ?? 0) + (runProgress.windows_done ?? 0)) /
+                          (runProgress.total * (runProgress.trial_total + 1))
+                      )
+                    : Math.min(1, (runProgress.windows_done ?? 0) / runProgress.total)
+                  : (Math.max(0, (runProgress.window ?? 1) - 1) +
+                      (runProgress.trial_total ? Math.min(1, (runProgress.trial ?? 0) / runProgress.trial_total) : 0)) /
+                    runProgress.total
                 : undefined
             }
             progressLabel={
               runProgress?.stage === "window" && runProgress.total
-                ? runProgress.trial_total
-                  ? t("{0}/{1} 구간 · {2}/{3} 시도", runProgress.window, runProgress.total, runProgress.trial ?? 0, runProgress.trial_total)
-                  : t("{0}/{1} 구간 분석 중", runProgress.window, runProgress.total)
+                ? isParallelProgress
+                  ? runProgress.trial_total
+                    ? t(
+                        "{0}/{1} 구간 완료 · {2}/{3} 시도 · {4}개 구간 동시 실행",
+                        runProgress.windows_done ?? 0,
+                        runProgress.total,
+                        runProgress.trials_done ?? 0,
+                        runProgress.total * runProgress.trial_total,
+                        runProgress.workers ?? 1
+                      )
+                    : t("{0}/{1} 구간 완료 · {2}개 구간 동시 실행", runProgress.windows_done ?? 0, runProgress.total, runProgress.workers ?? 1)
+                  : runProgress.trial_total
+                    ? t("{0}/{1} 구간 · {2}/{3} 시도", runProgress.window, runProgress.total, runProgress.trial ?? 0, runProgress.trial_total)
+                    : t("{0}/{1} 구간 분석 중", runProgress.window, runProgress.total)
                 : runProgress?.stage === "prepare"
                   ? runProgress.message ?? t("백테스트 기간 데이터를 확인하는 중...")
                   : isRunning
@@ -1001,17 +1060,30 @@ export function WalkForwardPanel({
             detail={
               runProgress?.stage === "window" ? (
                 <>
-                  {runProgress.is_period && (
+                  {isParallelProgress ? (
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-gray-500">{t("학습 구간")}</span>
-                      <span className="tabular-nums text-white">{runProgress.is_period}</span>
+                      <span className="text-gray-500">{t("실행 중 구간")}</span>
+                      <span className="tabular-nums text-white">
+                        {(runProgress.active_windows ?? []).length > 0
+                          ? (runProgress.active_windows ?? []).join(", ")
+                          : "—"}
+                      </span>
                     </div>
-                  )}
-                  {runProgress.oos_period && (
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-gray-500">{t("검증 구간")}</span>
-                      <span className="tabular-nums text-white">{runProgress.oos_period}</span>
-                    </div>
+                  ) : (
+                    <>
+                      {runProgress.is_period && (
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-gray-500">{t("학습 구간")}</span>
+                          <span className="tabular-nums text-white">{runProgress.is_period}</span>
+                        </div>
+                      )}
+                      {runProgress.oos_period && (
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-gray-500">{t("검증 구간")}</span>
+                          <span className="tabular-nums text-white">{runProgress.oos_period}</span>
+                        </div>
+                      )}
+                    </>
                   )}
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-gray-500">{t("최적화 방법")}</span>
@@ -1076,7 +1148,8 @@ export function WalkForwardPanel({
                           <span className="text-white">{runProgress.timing.format.toFixed(2)}s</span>
                         </div>
                         <div className="flex items-center justify-between gap-3">
-                          <span className="text-gray-400">{t("총 소요")}</span>
+                          {/* 직전 백테스트 1회의 소요 — 누적이 아니다(세션 캐시 적중으로 회차마다 줄어든다). */}
+                          <span className="text-gray-400">{t("1회 소요")}</span>
                           <span className="font-black text-white">{runProgress.timing.total.toFixed(2)}s</span>
                         </div>
                       </div>
@@ -1102,74 +1175,78 @@ export function WalkForwardPanel({
                     <div className="py-4">
                       <div className="flex items-start justify-between gap-4">
                         <div>
-                          <label htmlFor="walk-forward-train-bars" className="text-xs font-bold uppercase tracking-widest text-gray-500">
-                            {t("학습기간")}
+                          <label htmlFor="walk-forward-window-bars" className="text-xs font-bold uppercase tracking-widest text-gray-500">
+                            {t("구간 길이")}
                           </label>
                           <p className="mt-2 text-base font-black text-white font-outfit">
-                            {formatBarsLabel(formState.trainBars)}
+                            {formatBarsLabel(currentWindowBars)}
                           </p>
                           <p className="mt-1 text-xs font-bold leading-5 text-gray-400">
-                            {formatApproxDuration(formState.trainBars)}
+                            {formatApproxDuration(currentWindowBars)}
                           </p>
                         </div>
                         <div className="text-right">
                           <p className="mt-2 text-xs font-bold leading-5 text-gray-300">
-                            {formatDateLabel(firstTrainStart)} - {formatDateLabel(firstTrainEnd)}
+                            {formatDateLabel(firstTrainStart)} - {formatDateLabel(firstValidationEnd ?? undefined)}
                           </p>
                         </div>
                       </div>
                       <input
-                        id="walk-forward-train-bars"
-                        aria-label={t("학습기간")}
+                        id="walk-forward-window-bars"
+                        aria-label={t("구간 길이")}
                         type="range"
-                        min={minWindowBars}
-                        max={maxTrainBars}
+                        min={windowSliderMin}
+                        max={windowSliderMax}
                         step={1}
-                        value={formState.trainBars}
-                        onChange={(event) => applyTrainBars(Number(event.target.value))}
+                        value={currentWindowBars}
+                        onChange={(event) => applyWindowBars(Number(event.target.value))}
                         className="mt-4 h-2 w-full cursor-pointer appearance-none rounded-full bg-white/[0.08]"
-                        style={sliderTrackStyle(formState.trainBars, minWindowBars, maxTrainBars)}
+                        style={sliderTrackStyle(currentWindowBars, windowSliderMin, windowSliderMax)}
                       />
                       <div className="mt-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                        <span>{formatBarsLabel(minWindowBars)}</span>
-                        <span>{formatBarsLabel(maxTrainBars)}</span>
+                        <span>{formatBarsLabel(windowSliderMin)}</span>
+                        <span>{formatBarsLabel(windowSliderMax)}</span>
                       </div>
                     </div>
                     <div className="py-4">
                       <div className="flex items-start justify-between gap-4">
                         <div>
-                          <label htmlFor="walk-forward-validation-bars" className="text-xs font-bold uppercase tracking-widest text-gray-500">
-                            {t("검증기간")}
+                          <label htmlFor="walk-forward-train-ratio" className="text-xs font-bold uppercase tracking-widest text-gray-500">
+                            {t("학습 비중")}
                           </label>
                           <p className="mt-2 text-base font-black text-white font-outfit">
-                            {formatBarsLabel(formState.validationBars)}
+                            {t("{0}%", currentTrainRatioPct)}
                           </p>
                           <p className="mt-1 text-xs font-bold leading-5 text-gray-400">
-                            {formatApproxDuration(formState.validationBars)}
+                            {t("학습 {0} · 검증 {1}", formatBarsLabel(formState.trainBars), formatBarsLabel(formState.validationBars))}
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{t("첫 검증 구간")}</p>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{t("학습")}</p>
+                          <p className="mt-2 text-xs font-bold leading-5 text-gray-300">
+                            {formatDateLabel(firstTrainStart)} - {formatDateLabel(firstTrainEnd)}
+                          </p>
+                          <p className="mt-3 text-[10px] font-bold uppercase tracking-widest text-gray-500">{t("검증")}</p>
                           <p className="mt-2 text-xs font-bold leading-5 text-gray-300">
                             {formatDateLabel(firstValidationStart ?? undefined)} - {formatDateLabel(firstValidationEnd ?? undefined)}
                           </p>
                         </div>
                       </div>
                       <input
-                        id="walk-forward-validation-bars"
-                        aria-label={t("검증기간")}
+                        id="walk-forward-train-ratio"
+                        aria-label={t("학습 비중")}
                         type="range"
-                        min={minWindowBars}
-                        max={maxValidationBars}
+                        min={TRAIN_RATIO_MIN_PCT}
+                        max={TRAIN_RATIO_MAX_PCT}
                         step={1}
-                        value={formState.validationBars}
-                        onChange={(event) => applyValidationBars(Number(event.target.value))}
+                        value={currentTrainRatioPct}
+                        onChange={(event) => applyTrainRatioPct(Number(event.target.value))}
                         className="mt-4 h-2 w-full cursor-pointer appearance-none rounded-full bg-white/[0.08]"
-                        style={sliderTrackStyle(formState.validationBars, minWindowBars, maxValidationBars)}
+                        style={sliderTrackStyle(currentTrainRatioPct, TRAIN_RATIO_MIN_PCT, TRAIN_RATIO_MAX_PCT)}
                       />
                       <div className="mt-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                        <span>{formatBarsLabel(minWindowBars)}</span>
-                        <span>{formatBarsLabel(maxValidationBars)}</span>
+                        <span>{t("{0}%", TRAIN_RATIO_MIN_PCT)}</span>
+                        <span>{t("{0}%", TRAIN_RATIO_MAX_PCT)}</span>
                       </div>
                       {formState.validationBars < SHORT_VALIDATION_BARS && (
                         <p data-testid="walk-forward-short-validation-note" className="mt-3 text-xs font-bold leading-5 text-amber-300">
@@ -1177,21 +1254,31 @@ export function WalkForwardPanel({
                         </p>
                       )}
                       <div data-testid="walk-forward-period-timeline" className="mt-5">
-                        <div className="relative h-8 w-full">
-                          <div
-                            data-testid="walk-forward-timeline-train"
-                            className="absolute inset-y-0 left-0 flex min-w-0 items-center justify-center rounded-md border border-white/[0.18] px-2.5 text-[9px] font-black uppercase tracking-widest text-white"
-                            style={{ width: `${timelineTrainPct}%` }}
-                          >
-                            <span className="truncate">{t("학습기간")}</span>
+                        {/* 눈금은 바깥 한 줄이 직접 배치한다 — 색 그룹은 display:contents(=className "contents")로
+                            레이아웃에서 빠져 있어야 경계 눈금도 같은 간격으로 선다. */}
+                        <div className="flex h-10 w-full items-stretch justify-between gap-[2px]" aria-hidden="true">
+                          <div data-testid="walk-forward-timeline-train" className="contents">
+                            {Array.from({ length: timelineTrainTicks }, (_, index) => (
+                              <span key={index} className="h-full w-[2px] flex-none rounded-full bg-[#62A8CB]" />
+                            ))}
                           </div>
-                          <div
-                            data-testid="walk-forward-timeline-validation"
-                            className="absolute inset-y-0 flex min-w-0 items-center justify-center rounded-md border border-white/[0.18] bg-white/[0.08] px-2.5 text-[9px] font-black uppercase tracking-widest text-white"
-                            style={{ left: `${timelineTrainPct}%`, width: `${timelineValidationPct}%` }}
-                          >
-                            <span className="truncate">{t("검증기간")}</span>
+                          <div data-testid="walk-forward-timeline-validation" className="contents">
+                            {Array.from({ length: timelineValidationTicks }, (_, index) => (
+                              <span key={index} className="h-full w-[2px] flex-none rounded-full bg-[#FF9933]" />
+                            ))}
                           </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-bold text-gray-300">
+                          <span className="flex items-center gap-2">
+                            <span className="h-2.5 w-2.5 flex-none rounded-sm bg-[#62A8CB]" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-[#62A8CB]">{t("학습기간")}</span>
+                            <span className="text-white">{formatBarsLabel(formState.trainBars)}</span>
+                          </span>
+                          <span className="flex items-center gap-2">
+                            <span className="h-2.5 w-2.5 flex-none rounded-sm bg-[#FF9933]" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-[#FF9933]">{t("검증기간")}</span>
+                            <span className="text-white">{formatBarsLabel(formState.validationBars)}</span>
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -1268,17 +1355,28 @@ export function WalkForwardPanel({
                                 <span className="text-sm font-black leading-5">
                                   {t(target.label)}
                                 </span>
-                                <span
-                                  data-testid={`walk-forward-target-range-${target.label}`}
-                                  className="mt-3 text-[11px] font-bold leading-4 tabular-nums tracking-wide text-gray-500"
-                                >
-                                  {isExcluded
-                                    ? t("제외됨")
-                                    : range?.values
-                                      ? range.values.map((value) => formatStepWithUnit(value, unit)).join(", ")
-                                      : range
-                                        ? `${formatStepWithUnit(range.min, unit)}~${formatStepWithUnit(range.max, unit)}`
-                                        : ""}
+                                <span className="mt-3 flex flex-col gap-1">
+                                  <span
+                                    data-testid={`walk-forward-target-range-${target.label}`}
+                                    className="text-[11px] font-bold leading-4 tabular-nums tracking-wide text-gray-500"
+                                  >
+                                    {isExcluded
+                                      ? t("제외됨")
+                                      : range?.values
+                                        ? range.values.map((value) => formatStepWithUnit(value, unit)).join(", ")
+                                        : range
+                                          ? `${formatStepWithUnit(range.min, unit)}~${formatStepWithUnit(range.max, unit)}`
+                                          : ""}
+                                  </span>
+                                  {/* 고정 후보값(allowedValues)만 쓰는 파라미터는 step 개념이 없어 표시하지 않는다. */}
+                                  {!isExcluded && range && !range.values && range.step > 0 && (
+                                    <span
+                                      data-testid={`walk-forward-target-step-${target.label}`}
+                                      className="text-[10px] font-bold leading-4 tabular-nums tracking-wide text-gray-500"
+                                    >
+                                      {`STEP ${formatStepWithUnit(range.step, unit)}`}
+                                    </span>
+                                  )}
                                 </span>
                               </button>
                             );
@@ -1318,35 +1416,40 @@ export function WalkForwardPanel({
                     </div>
                     {/* 그리드 조합 수와 실행 가능 여부는 아래 '예상 소요 시간' 카드 하나로 합쳤다 —
                         두 카드가 같은 상태(상한 초과 = 실행 불가)를 중복 안내했다(2026-08-19). */}
-                    {!isGridMethod && (
-                      <div className="py-4">
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("베이지안 최적화 시도 횟수")}</p>
-                          <HelpTooltip label={t("베이지안 최적화 시도 횟수")}>
-                            <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
-                              {t("베이지안 최적화 시도 횟수")}
-                            </span>
-                            <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                              {t("각 워크포워드 구간에서 파라미터 조합을 몇 번 탐색할지 정합니다. 횟수가 늘면 더 많은 조합을 계산하지만 실행 시간이 길어집니다.")}
-                            </span>
-                            <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
-                              {t("예: 30회는 손절 5/7/10%, 이동평균 20/60일 같은 후보 조합을 최대 30번 평가해 과거 학습 구간의 목표 지표가 높게 나온 조합을 기록합니다.")}
-                            </span>
-                          </HelpTooltip>
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {[20, 30, 50].map((value) => (
-                            <button
-                              key={value}
-                              onClick={() => setFormState((current) => ({ ...current, n_trials: value }))}
-                              className={buttonClass(formState.n_trials === value)}
-                            >
-                              {t("{0}회", value)}
-                            </button>
-                          ))}
-                        </div>
+                    {/* 그리드 탐색에는 시도 횟수가 없지만 블록을 걷어내면 섹션 높이가 방법을 바꿀 때마다
+                        출렁인다 — 자리는 그대로 두고 내용만 숨긴다(2026-08-19). */}
+                    <div
+                      data-testid="walk-forward-trials-block"
+                      className={`py-4 ${isGridMethod ? "invisible" : ""}`}
+                      aria-hidden={isGridMethod || undefined}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("베이지안 최적화 시도 횟수")}</p>
+                        <HelpTooltip label={t("베이지안 최적화 시도 횟수")}>
+                          <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
+                            {t("베이지안 최적화 시도 횟수")}
+                          </span>
+                          <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
+                            {t("각 워크포워드 구간에서 파라미터 조합을 몇 번 탐색할지 정합니다. 횟수가 늘면 더 많은 조합을 계산하지만 실행 시간이 길어집니다.")}
+                          </span>
+                          <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
+                            {t("예: 30회는 손절 5/7/10%, 이동평균 20/60일 같은 후보 조합을 최대 30번 평가해 과거 학습 구간의 목표 지표가 높게 나온 조합을 기록합니다.")}
+                          </span>
+                        </HelpTooltip>
                       </div>
-                    )}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {[20, 30, 50].map((value) => (
+                          <button
+                            key={value}
+                            tabIndex={isGridMethod ? -1 : undefined}
+                            onClick={() => setFormState((current) => ({ ...current, n_trials: value }))}
+                            className={buttonClass(formState.n_trials === value)}
+                          >
+                            {t("{0}회", value)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     {canShowEstimate && (
                       <div className="py-4">
                         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
@@ -1359,7 +1462,7 @@ export function WalkForwardPanel({
                                     {t("예상 소요 시간")}
                                   </span>
                                   <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                                    {t("총 {0}회 백테스트(준비 1회 + 구간 {1}개 × 구간당 {2}회)를 기준 백테스트 실측 속도로 추정한 값입니다.", totalBacktests.toLocaleString(), derivedSettings.n_splits, (backtestsPerWindow + 1).toLocaleString())}
+                                    {t("총 {0}회 백테스트(준비 1회 + 구간 {1}개 × 구간당 {2}회)를 기준 백테스트 실측 속도로 추정한 값입니다. 같은 구간의 반복 시도는 종목별 데이터 준비를 재사용해 첫 시도보다 훨씬 빠릅니다.", totalBacktests.toLocaleString(), derivedSettings.n_splits, (backtestsPerWindow + 1).toLocaleString())}
                                   </span>
                                   <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
                                     {t("실제 시간은 데이터 로딩·서버 상황·조건 조합에 따라 달라질 수 있으며, 실행을 시작하면 실측값으로 남은 시간을 다시 계산합니다.")}

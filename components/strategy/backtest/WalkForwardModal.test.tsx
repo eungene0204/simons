@@ -56,8 +56,9 @@ describe("WalkForwardModal", () => {
     });
 
     act(() => {
-      fireEvent.change(screen.getByLabelText("학습기간"), { target: { value: "84" } });
-      fireEvent.change(screen.getByLabelText("검증기간"), { target: { value: "28" } });
+      // 학습 84 + 검증 28 = 구간 112거래일, 학습 비중 75%
+      fireEvent.change(screen.getByLabelText("구간 길이"), { target: { value: "112" } });
+      fireEvent.change(screen.getByLabelText("학습 비중"), { target: { value: "75" } });
     });
 
     expect(screen.getByText("예상 구간 수")).toBeInTheDocument();
@@ -85,42 +86,33 @@ describe("WalkForwardModal", () => {
     expect(screen.getByRole("button", { name: "PBR" })).toHaveClass("min-h-[86px]");
     expect(screen.getByRole("button", { name: "PBR" })).toHaveTextContent("PBR");
     expect(within(screen.getByRole("button", { name: "PBR" })).getByTestId("walk-forward-target-range-PBR")).toHaveTextContent("0.8~1.2");
-    expect(screen.getByRole("button", { name: "PBR" })).not.toHaveTextContent("0.25");
-    expect(screen.getByRole("button", { name: "PBR" })).not.toHaveTextContent(/step/i);
+    expect(within(screen.getByRole("button", { name: "PBR" })).getByTestId("walk-forward-target-step-PBR")).toHaveTextContent("STEP 0.25");
     expect(screen.getByText("손절라인")).toBeInTheDocument();
     expect(within(screen.getByRole("button", { name: "손절라인" })).getByTestId("walk-forward-target-range-손절라인")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "손절라인" })).not.toHaveTextContent("2.5%p");
-    expect(screen.getByRole("button", { name: "손절라인" })).not.toHaveTextContent(/step/i);
+    expect(within(screen.getByRole("button", { name: "손절라인" })).getByTestId("walk-forward-target-step-손절라인")).toHaveTextContent("STEP 2.5%p");
     expect(within(screen.getByRole("button", { name: "익절라인" })).getByTestId("walk-forward-target-range-익절라인")).toHaveTextContent("5%p~60%p");
-    expect(screen.getByRole("button", { name: "익절라인" })).not.toHaveTextContent(/step/i);
+    expect(within(screen.getByRole("button", { name: "익절라인" })).getByTestId("walk-forward-target-step-익절라인")).toHaveTextContent("STEP 5%p");
     expect(screen.queryByText("CAGR")).not.toBeInTheDocument();
     expect(screen.getByLabelText("베이지안 최적화 시도 횟수 도움말")).toBeInTheDocument();
+    expect(screen.getByTestId("walk-forward-trials-block")).not.toHaveClass("invisible");
     expect(screen.getByText(/파라미터 조합을 몇 번 탐색할지/)).toBeInTheDocument();
     expect(screen.getByLabelText("학습 창 방식 도움말")).toBeInTheDocument();
     expect(screen.getByText(/학습 구간은 파라미터를 맞추는 구간/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "30회" })).toHaveClass("rounded-md");
     expect(screen.getByRole("button", { name: "롤링" })).toHaveClass("rounded-md");
     const timeline = screen.getByTestId("walk-forward-period-timeline");
-    expect(within(timeline).getAllByText("학습기간").length).toBeGreaterThan(0);
-    expect(within(timeline).getAllByText("검증기간").length).toBeGreaterThan(0);
-    expect(screen.getByTestId("walk-forward-timeline-train")).toHaveStyle({ width: "35%" });
-    expect(screen.getByTestId("walk-forward-timeline-train")).toHaveClass("text-white");
-    expect(screen.getByTestId("walk-forward-timeline-train")).toHaveClass("border", "border-white/[0.18]");
-    expect(screen.getByTestId("walk-forward-timeline-train")).not.toHaveClass("bg-[#3f78b5]");
-    expect(screen.getByTestId("walk-forward-timeline-validation")).toHaveClass("text-white");
-    expect(screen.getByTestId("walk-forward-timeline-validation")).toHaveClass("border", "border-white/[0.18]");
-    expect(screen.getByTestId("walk-forward-timeline-validation")).toHaveClass("bg-white/[0.08]");
-    expect(screen.getByTestId("walk-forward-timeline-validation")).not.toHaveClass("bg-[#c84b36]");
-    expect(screen.getByTestId("walk-forward-timeline-validation")).toHaveStyle({
-      width: "11.666666666666666%",
-    });
-    expect(screen.queryByTestId("walk-forward-timeline-train-dates")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("walk-forward-timeline-validation-dates")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("walk-forward-timeline-axis-train-dates")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("walk-forward-timeline-axis-validation-dates")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("walk-forward-timeline-axis-train-range")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("walk-forward-timeline-axis-validation-range")).not.toBeInTheDocument();
-    expect(within(timeline).queryByText("2024.08.27")).not.toBeInTheDocument();
+    expect(within(timeline).getByText("학습기간")).toBeInTheDocument();
+    expect(within(timeline).getByText("검증기간")).toBeInTheDocument();
+    // 섹션 폭을 꽉 채우는 눈금 막대 — 눈금 수가 학습:검증 비율(35 : 11.6667 = 75% : 25%)을 따른다.
+    const trainTicks = screen.getByTestId("walk-forward-timeline-train");
+    const validationTicks = screen.getByTestId("walk-forward-timeline-validation");
+    // 경계 눈금도 같은 간격으로 서도록 그룹은 레이아웃에서 빠진다(display: contents).
+    expect(trainTicks).toHaveClass("contents");
+    expect(validationTicks).toHaveClass("contents");
+    expect(trainTicks.children).toHaveLength(60);
+    expect(validationTicks.children).toHaveLength(20);
+    expect(trainTicks.firstElementChild).toHaveClass("bg-[#62A8CB]");
+    expect(validationTicks.firstElementChild).toHaveClass("bg-[#FF9933]");
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "PBR" }));
@@ -177,8 +169,7 @@ describe("WalkForwardModal", () => {
     await user.click(screen.getByRole("button", { name: "저장" }));
     expect(screen.queryByRole("dialog", { name: "PBR 값 설정" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "PBR" })).toHaveTextContent("PBR");
-    expect(screen.getByRole("button", { name: "PBR" })).not.toHaveTextContent("0.5");
-    expect(screen.getByRole("button", { name: "PBR" })).not.toHaveTextContent(/step/i);
+    expect(within(screen.getByRole("button", { name: "PBR" })).getByTestId("walk-forward-target-step-PBR")).toHaveTextContent("STEP 0.5");
     await user.click(screen.getByRole("button", { name: "손절라인" }));
     const stopLossStepDialog = screen.getByRole("dialog", { name: "손절라인 값 설정" });
     expect(screen.getByLabelText("손절라인 하한값")).toHaveAttribute("type", "number");
@@ -281,6 +272,9 @@ describe("WalkForwardModal", () => {
     expect(screen.getByText("최근 백테스트")).toBeInTheDocument();
     expect(screen.getByText("11.95s (976종목)")).toBeInTheDocument();
     expect(screen.getByText("12.60s")).toBeInTheDocument();
+    // '최근 백테스트' 박스의 합계는 직전 1회 소요다 — 누적으로 읽히는 '총 소요'로 표시하지 않는다.
+    expect(screen.getByText("1회 소요")).toBeInTheDocument();
+    expect(screen.queryByText("총 소요")).not.toBeInTheDocument();
     // 각 단계 옆 도움말(?) 아이콘과 툴팁 설명.
     expect(screen.getByLabelText("Phase1 도움말")).toBeInTheDocument();
     expect(screen.getByLabelText("Simulator 도움말")).toBeInTheDocument();
@@ -288,6 +282,59 @@ describe("WalkForwardModal", () => {
     expect(screen.getByText(/어떤 날 사고 팔지 후보를 계산하는 단계/)).toBeInTheDocument();
     expect(screen.getByText(/계산된 신호대로 실제로 사고팔았다고 돌려보는 단계/)).toBeInTheDocument();
     expect(screen.getByText(/돌린 결과를 CAGR·MDD 같은 숫자로 정리하는 단계/)).toBeInTheDocument();
+  });
+
+  it("창 병렬 진행 이벤트(trials_done/windows_done/workers)는 합산 진행률·라벨·실행 중 구간으로 표시한다", async () => {
+    // 백엔드가 창을 워커 여러 개로 동시에 돌리면 창 번호가 번갈아 오므로, 창별 이벤트 대신
+    // 합산 필드로 진행 바를 그리고 '실행 중 구간'을 보여준다.
+    let progressFn: ((event: any) => void) | undefined;
+    const onRun = vi.fn().mockImplementation((_settings, _signal, onProgress) => {
+      progressFn = onProgress;
+      return new Promise(() => {});
+    });
+
+    await act(async () => {
+      render(
+        <WalkForwardModal
+          open
+          onOpenChange={() => {}}
+          onRun={onRun}
+          backtestDates={buildDates(240)}
+          baseStrategy={baseStrategy}
+          optimizationTargets={[{ id: "summary-0", label: "PBR" }]}
+        />
+      );
+    });
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "워크포워드 분석 시작" }));
+    await waitFor(() => expect(progressFn).toBeDefined());
+
+    act(() => {
+      progressFn!({
+        stage: "window",
+        window: 2,
+        total: 3,
+        is_period: "2024-01-03 ~ 2024-09-05",
+        oos_period: "2024-09-06 ~ 2025-01-10",
+        trial: 5,
+        trial_total: 30,
+        windows_done: 1,
+        trials_done: 40,
+        workers: 3,
+        active_windows: [2, 3],
+        timing: { phase1: 0.4, simulator: 0.05, format: 0.1, total: 0.6, symbols: 200 },
+      });
+    });
+
+    // (완료 시도 40 + 완료 창 1) / (3창 × (30+1)) = 41/93 ≈ 44%
+    await waitFor(() => {
+      expect(screen.getByText("1/3 구간 완료 · 40/90 시도 · 3개 구간 동시 실행")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("progressbar", { name: "워크포워드 분석" })).toHaveAttribute("aria-valuenow", "44");
+    expect(screen.getByText("실행 중 구간")).toBeInTheDocument();
+    expect(screen.getByText("2, 3")).toBeInTheDocument();
+    // 창별 학습/검증 구간 행은 병렬에서는 의미가 없어 숨긴다
+    expect(screen.queryByText("학습 구간")).not.toBeInTheDocument();
   });
 
   it("그리드 탐색 선택 시 예상 조합 수를 보여주고 실행 버튼을 활성화한다", async () => {
@@ -313,7 +360,9 @@ describe("WalkForwardModal", () => {
 
     expect(screen.getByRole("button", { name: /그리드 탐색 설정한 범위를 기준으로 전체 조합 수를 먼저 확인합니다\./ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /그리드 탐색 설정한 범위를 기준으로 전체 조합 수를 먼저 확인합니다\./ })).toHaveClass("bg-white/[0.03]");
-    expect(screen.queryByText("베이지안 최적화 시도 횟수")).not.toBeInTheDocument();
+    // 시도 횟수 블록은 자리를 지키고 내용만 숨긴다 — 걷어내면 방법을 바꿀 때마다 섹션 높이가 출렁인다.
+    expect(screen.getByTestId("walk-forward-trials-block")).toHaveClass("invisible");
+    expect(screen.getByTestId("walk-forward-trials-block")).toHaveAttribute("aria-hidden", "true");
     // 조합 수는 별도 '그리드 탐색 예상' 카드가 아니라 '예상 소요 시간' 카드 하나에서만 안내한다
     expect(screen.queryByText("그리드 탐색 예상")).not.toBeInTheDocument();
     expect(screen.getByTestId("walk-forward-grid-combination-note")).toHaveTextContent(
@@ -419,7 +468,9 @@ describe("WalkForwardModal", () => {
     // 기본값(1000일의 15% = 150거래일)은 안내 없음
     expect(screen.queryByTestId("walk-forward-short-validation-note")).not.toBeInTheDocument();
     act(() => {
-      fireEvent.change(screen.getByLabelText("검증기간"), { target: { value: "40" } });
+      // 구간 200거래일 · 학습 80% = 학습 160 / 검증 40거래일
+      fireEvent.change(screen.getByLabelText("구간 길이"), { target: { value: "200" } });
+      fireEvent.change(screen.getByLabelText("학습 비중"), { target: { value: "80" } });
     });
     expect(screen.getByTestId("walk-forward-short-validation-note")).toHaveTextContent("63거래일(약 3개월)보다 짧습니다");
   });
@@ -495,7 +546,7 @@ describe("WalkForwardModal", () => {
     });
   });
 
-  it("확장 모드에서는 전체 백테스트 기간 대비 학습 비율을 사용한다", async () => {
+  it("확장 모드에서는 전체 백테스트 기간 대비 학습 비중을 사용한다", async () => {
     const onRun = vi.fn().mockResolvedValue({
       status: "ok",
       n_splits: 3,
@@ -520,8 +571,9 @@ describe("WalkForwardModal", () => {
     });
 
     act(() => {
-      fireEvent.change(screen.getByLabelText("학습기간"), { target: { value: "120" } });
-      fireEvent.change(screen.getByLabelText("검증기간"), { target: { value: "40" } });
+      // 학습 120 + 검증 40 = 구간 160거래일, 학습 비중 75%
+      fireEvent.change(screen.getByLabelText("구간 길이"), { target: { value: "160" } });
+      fireEvent.change(screen.getByLabelText("학습 비중"), { target: { value: "75" } });
     });
     await userEvent.setup().click(screen.getByRole("button", { name: "확장" }));
     await userEvent.setup().click(screen.getByRole("button", { name: "워크포워드 분석 시작" }));
@@ -542,6 +594,36 @@ describe("WalkForwardModal", () => {
         expect.any(Function)
       );
     });
+  });
+
+  it("학습 비중을 올리면 학습기간이 늘어난 만큼 검증기간이 줄고 구간 길이는 그대로다", async () => {
+    await act(async () => {
+      render(
+        <WalkForwardModal
+          open
+          onOpenChange={() => {}}
+          onRun={vi.fn()}
+          backtestDates={buildDates(240)}
+        />
+      );
+    });
+
+    const windowSlider = screen.getByLabelText("구간 길이") as HTMLInputElement;
+    const ratioSlider = screen.getByLabelText("학습 비중") as HTMLInputElement;
+
+    act(() => {
+      fireEvent.change(windowSlider, { target: { value: "160" } });
+      fireEvent.change(ratioSlider, { target: { value: "50" } });
+    });
+    expect(screen.getByText("학습 80거래일 · 검증 80거래일")).toBeInTheDocument();
+
+    act(() => {
+      fireEvent.change(ratioSlider, { target: { value: "75" } });
+    });
+    // 두 기간이 반대로 움직이고 합(구간 길이)은 그대로다.
+    expect(screen.getByText("학습 120거래일 · 검증 40거래일")).toBeInTheDocument();
+    expect(windowSlider.value).toBe("160");
+    expect(screen.getAllByText("160거래일").length).toBeGreaterThan(0);
   });
 
   it("구간별 최적 파라미터를 변수명이 아니라 한글 라벨로 보여준다", async () => {
@@ -693,6 +775,8 @@ describe("WalkForwardModal", () => {
     expect(screen.getByTestId("walk-forward-target-range-이동평균 장기")).toHaveTextContent(
       "5일선, 10일선, 20일선, 60일선, 120일선"
     );
+    // 고정 후보값만 쓰는 파라미터는 step 개념이 없어 카드에도 표시하지 않는다.
+    expect(screen.queryByTestId("walk-forward-target-step-이동평균 장기")).not.toBeInTheDocument();
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "이동평균 장기" }));
@@ -727,8 +811,10 @@ describe("WalkForwardModal", () => {
 
   it("실행 전 기준 백테스트 실측 속도로 예상 소요 시간을 미리 보여준다", async () => {
     // 240일 백테스트, 기본 설정: n_splits=3, 베이지안 30시도 → 총 준비 1 + 3×(30+1)=94회.
-    // 백테스트 1회 비용은 구간 길이와 거의 무관(고정비 지배)하므로 기준 실측 10s를
-    // 그대로 써서 총 940s. 범위(0.7~1.4배) = 11분 ~ 22분.
+    // 백테스트 1회 비용은 구간 길이와 거의 무관(고정비 지배)하므로 기준 실측 10s를 쓴다.
+    // 백엔드 최적화 세션이 구간 안 반복 시도의 데이터 준비를 재사용하므로 전체 비용은
+    // 준비 1 + 구간 3×(첫 시도 1 + OOS 1) = 7회, 나머지 87회는 10% 비용(8.7회분) → 15.7회 × 10s = 157s.
+    // 범위(0.7~1.4배) = 약 2분 ~ 4분.
     await act(async () => {
       render(
         <WalkForwardModal
@@ -744,7 +830,7 @@ describe("WalkForwardModal", () => {
     });
 
     expect(screen.getAllByText("예상 소요 시간").length).toBeGreaterThan(0);
-    expect(screen.getByText("약 11분 ~ 22분 소요될 것으로 예상됩니다.")).toBeInTheDocument();
+    expect(screen.getByText("약 2분 ~ 4분 소요될 것으로 예상됩니다.")).toBeInTheDocument();
     expect(screen.getByText("총 94회")).toBeInTheDocument();
     expect(screen.getByTestId("walk-forward-run-capacity-badge")).toHaveClass("text-gray-400");
     expect(
