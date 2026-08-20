@@ -143,7 +143,7 @@ describe("StrategyLab auth entry", () => {
 
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("아이디어를 전략으로 만들어 드립니다")).toBeInTheDocument();
-    expect(screen.getByText("Google로 3초만에 시작하세요")).toBeInTheDocument();
+    expect(screen.getByText("Google 또는 이메일로 시작하세요")).toBeInTheDocument();
     expect(screen.getByText("카드 등록 불필요")).toBeInTheDocument();
     expect(screen.queryByText("PER 10 이하 종목 전략 만들어줘")).not.toBeInTheDocument();
 

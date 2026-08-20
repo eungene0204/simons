@@ -18,6 +18,7 @@ import {
   Flask,
   SlidersHorizontal,
   CaretDown,
+  EnvelopeSimple,
   GearSix,
   GoogleLogo,
   List,
@@ -678,12 +679,10 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         ) : authState === "anonymous" ? (
           <button
             type="button"
-            onClick={handleGoogleLogin}
-            disabled={isStartingLogin || !isSupabaseConfigured()}
-            className="flex flex-shrink-0 items-center gap-2 rounded-full border border-white/[0.08] bg-white px-4 py-2 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => setIsLoginModalOpen(true)}
+            className="flex flex-shrink-0 items-center gap-2 rounded-full border border-white/[0.08] bg-white px-4 py-2 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90"
           >
-            <GoogleLogo size={18} weight="fill" />
-            <span>{isStartingLogin ? t("로그인 준비 중...") : t("Google 로그인")}</span>
+            <span>{t("로그인")}</span>
           </button>
         ) : (
           <div
@@ -780,12 +779,13 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
               ) : authState === "anonymous" ? (
                 <button
                   type="button"
-                  onClick={() => void handleGoogleLogin()}
-                  disabled={isStartingLogin || !isSupabaseConfigured()}
-                  className="flex w-full items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-black text-black disabled:opacity-60"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    setIsLoginModalOpen(true);
+                  }}
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-black text-black"
                 >
-                  <GoogleLogo size={18} weight="fill" />
-                  <span>{isStartingLogin ? t("로그인 준비 중...") : t("Google 로그인")}</span>
+                  <span>{t("로그인")}</span>
                 </button>
               ) : (
                 <div className="h-10 animate-pulse rounded-full bg-white/[0.06]" />
@@ -1033,7 +1033,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                 {t("로그인 후 이용할 수 있습니다")}
               </p>
               <p className="text-sm font-bold leading-relaxed text-gray-400">
-                {t("Google로 3초만에 시작하세요")}
+                {t("Google 또는 이메일로 시작하세요")}
               </p>
             </div>
             <div className="mt-6 flex flex-col items-center gap-3">
@@ -1044,7 +1044,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                 type="button"
                 onClick={() => void handleGoogleLogin()}
                 disabled={isStartingLogin || !isSupabaseConfigured()}
-                className="flex items-center gap-2 rounded-full border border-white/[0.08] bg-white px-4 py-2 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex w-full max-w-[280px] items-center justify-center gap-2 rounded-full border border-white/[0.08] bg-white px-4 py-2.5 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <GoogleLogo size={18} weight="fill" />
                 <span>{isStartingLogin ? t("로그인 준비 중...") : t("Google로 시작하기")}</span>
@@ -1052,9 +1052,10 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
               <Link
                 href="/login"
                 onClick={() => setIsLoginModalOpen(false)}
-                className="text-xs font-bold text-gray-400 transition-colors hover:text-white"
+                className="flex w-full max-w-[280px] items-center justify-center gap-2 rounded-full border border-white/[0.15] px-4 py-2.5 text-sm font-black text-white transition-colors duration-200 hover:bg-white/[0.08]"
               >
-                {t("이메일로 로그인")}
+                <EnvelopeSimple size={18} weight="bold" />
+                <span>{t("이메일로 시작하기")}</span>
               </Link>
               <button
                 type="button"

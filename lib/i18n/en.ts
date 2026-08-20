@@ -2312,6 +2312,8 @@ export const en: Record<string, string> = {
   "이 결과에는 리밸런싱 기간별 비교가 저장되어 있지 않습니다. 새로 실행된 백테스트부터 함께 계산됩니다.": "This result does not include the rebalancing period comparison. It is calculated together with newly run backtests.",
   "이 전략은 최대 보유 종목 수·비율 선정이 없어 리밸런싱 주기가 결과에 영향을 주지 않습니다 — 6주기 결과가 모두 같게 나올 수 있습니다.": "This strategy has no maximum position count or percentage selection, so the rebalancing period does not affect the result — all six periods may show identical figures.",
   // 이메일 가입·로그인
+  "Google 또는 이메일로 시작하세요": "Start with Google or email",
+  "이메일로 시작하기": "Start with email",
   "이메일로 가입": "Sign up with email",
   "이메일로 로그인": "Log in with email",
   "이름": "Name",
