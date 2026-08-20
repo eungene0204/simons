@@ -189,8 +189,10 @@ describe("/api/register", () => {
 
       expect(res.status).toBe(201);
       expect(data.user.id).toBe(9);
-      // 인증 행 조회 자체를 하지 않는다
+      // 인증 행 조회·삭제 자체를 하지 않는다 (2026-08-20 사고: off인데 deleteMany를
+      // 호출해 구버전 Prisma 클라이언트를 든 dev 서버에서 생성 직후 500)
       expect(verificationFindUnique).not.toHaveBeenCalled();
+      expect(verificationDeleteMany).not.toHaveBeenCalled();
       expect(cookieSet).toHaveBeenCalled();
     } finally {
       vi.unstubAllEnvs();

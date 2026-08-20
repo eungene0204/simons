@@ -155,7 +155,12 @@ export async function POST(request: NextRequest) {
       throw createError
     }
 
-    await prisma.emailVerification.deleteMany({ where: { email } })
+    // 인증번호 단계가 꺼져 있으면 지울 인증 행 자체가 없다 — 건너뛴다.
+    // (2026-08-20 사고: off인데도 이 호출을 타는 바람에, 새 모델을 모르는 구버전
+    //  Prisma 클라이언트를 든 dev 서버에서 계정 생성 직후 500이 났다)
+    if (isEmailVerificationRequired()) {
+      await prisma.emailVerification.deleteMany({ where: { email } })
+    }
 
     // 가입 직후 자동 로그인 — /api/login과 동일한 쿠키 계약.
     await ensureUserBootstrap(user.id)
