@@ -32,6 +32,7 @@ import {
   getUsagePercent,
 } from "./planUsageFormat";
 import LanguageToggle from "@/lib/i18n/LanguageToggle";
+import NullstockLogoMark from "./NullstockLogoMark";
 import { getLocale, t } from "@/lib/i18n";
 
 const QuickSearchModal = dynamic(() => import("./QuickSearchModal"), {
@@ -546,42 +547,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         {/* Logo */}
         <div className="mr-8 flex flex-shrink-0 items-center gap-3">
           <Link href="/" className="group flex items-center gap-3">
-            <svg
-              aria-hidden="true"
-              viewBox="510 215 400 330"
-              className="h-[1.125rem] w-[1.375rem] overflow-hidden transition-transform duration-300 group-hover:scale-105"
-              data-testid="nullstock-logo-mark"
-            >
-              <defs>
-                <filter
-                  id="nullstock-transparent-background"
-                  x="-10%"
-                  y="-10%"
-                  width="120%"
-                  height="120%"
-                  colorInterpolationFilters="sRGB"
-                >
-                  <feColorMatrix
-                    type="matrix"
-                    values="
-                      1 0 0 0 0
-                      0 1 0 0 0
-                      0 0 1 0 0
-                      0.2126 0.7152 0.0722 0 -0.2
-                    "
-                  />
-                  <feComponentTransfer>
-                    <feFuncA type="linear" slope="2.2" intercept="0" />
-                  </feComponentTransfer>
-                </filter>
-              </defs>
-              <image
-                href="/nullStock.png"
-                width="1408"
-                height="768"
-                filter="url(#nullstock-transparent-background)"
-              />
-            </svg>
+            <NullstockLogoMark className="h-[1.125rem] w-[1.375rem] transition-transform duration-300 group-hover:scale-105" />
             <span className="text-[15px] font-black tracking-tight text-white">{t("널스탁")}</span>
           </Link>
           <span className="rounded-md bg-blue-500/15 px-2 py-0.5 text-[9px] font-black tracking-[0.14em] text-blue-300">
