@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
-import { isEmailSignupEnabled } from "@/lib/server/email-verification";
+import {
+  isEmailSignupEnabled,
+  isEmailVerificationRequired,
+} from "@/lib/server/email-verification";
 import RegisterForm from "./RegisterForm";
 
 // 이메일 가입은 테스트용 한시 기능 — 킬 스위치(EMAIL_SIGNUP_ENABLED=off)가 켜지면
@@ -10,5 +13,5 @@ export default function RegisterPage() {
   if (!isEmailSignupEnabled()) {
     redirect("/");
   }
-  return <RegisterForm />;
+  return <RegisterForm verificationRequired={isEmailVerificationRequired()} />;
 }

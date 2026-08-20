@@ -174,6 +174,40 @@ describe("/api/register", () => {
     expect(userCreate).not.toHaveBeenCalled();
   });
 
+  it("인증번호 단계 off(EMAIL_SIGNUP_VERIFICATION=off)면 code 없이 가입된다", async () => {
+    vi.stubEnv("EMAIL_SIGNUP_VERIFICATION", "off");
+    try {
+      userFindUnique.mockResolvedValue(null);
+      userCreate.mockResolvedValue({ id: 9, email: "user@example.com", name: "Tester" });
+      verificationDeleteMany.mockResolvedValue({});
+      ensureUserBootstrap.mockResolvedValue(undefined);
+      userUpdate.mockResolvedValue({});
+
+      const { code: _omitted, ...bodyWithoutCode } = validBody;
+      const res = await POST(req(bodyWithoutCode));
+      const data = await res.json();
+
+      expect(res.status).toBe(201);
+      expect(data.user.id).toBe(9);
+      // 인증 행 조회 자체를 하지 않는다
+      expect(verificationFindUnique).not.toHaveBeenCalled();
+      expect(cookieSet).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("인증번호 단계 off여도 비밀번호 정책은 그대로 강제된다", async () => {
+    vi.stubEnv("EMAIL_SIGNUP_VERIFICATION", "off");
+    try {
+      const res = await POST(req({ ...validBody, code: undefined, password: "short1" }));
+      expect(res.status).toBe(400);
+      expect(userCreate).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("킬 스위치(EMAIL_SIGNUP_ENABLED=off)면 404이고 계정이 생기지 않는다", async () => {
     vi.stubEnv("EMAIL_SIGNUP_ENABLED", "off");
     try {

@@ -11,6 +11,13 @@ export function isEmailSignupEnabled(): boolean {
   return process.env.EMAIL_SIGNUP_ENABLED !== 'off'
 }
 
+// 인증번호 단계 스위치 — 테스트 기간(사용자 지시 08-20)에는 off로 두어 코드 확인 없이
+// 가입한다(비밀번호 정책·레이트리밋·중복 확인·약관 동의는 그대로). 기본값은 켜짐:
+// SMTP를 갖추고 정식 운영할 때 env만 지우면 인증 요구가 복원된다.
+export function isEmailVerificationRequired(): boolean {
+  return process.env.EMAIL_SIGNUP_VERIFICATION !== 'off'
+}
+
 export const CODE_TTL_MS = 10 * 60 * 1000
 export const MAX_CODE_ATTEMPTS = 5
 

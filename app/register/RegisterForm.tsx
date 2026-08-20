@@ -7,7 +7,12 @@ import { t } from "@/lib/i18n";
 // 이메일 가입 — 2단계 플로우.
 // 1) 정보 입력 + 약관 동의 → 인증번호 발송(/api/register/request-code)
 // 2) 메일로 받은 6자리 인증번호 확인 → 계정 생성(/api/register) → 자동 로그인
-export default function RegisterForm() {
+// verificationRequired=false(테스트 기간, EMAIL_SIGNUP_VERIFICATION=off)면 1단계에서 바로 가입한다.
+export default function RegisterForm({
+  verificationRequired = true,
+}: {
+  verificationRequired?: boolean;
+}) {
   const [step, setStep] = useState<"form" | "verify">("form");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -46,6 +51,29 @@ export default function RegisterForm() {
     return true;
   };
 
+  // 계정 생성 요청 — 인증번호 단계가 꺼져 있으면 code 없이 보낸다(서버도 검사하지 않음).
+  const submitRegistration = async (): Promise<void> => {
+    const response = await fetch("/api/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        password: formData.password,
+        ...(verificationRequired ? { code } : {}),
+        termsAgreed: agreed,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      setError(data.error || t("회원가입에 실패했습니다."));
+      setLoading(false);
+      return;
+    }
+    // 가입 성공 = 자동 로그인(쿠키 발급됨). 전체 리로드로 인증 상태를 반영한다.
+    window.location.href = "/";
+  };
+
   const handleRequestCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -74,6 +102,10 @@ export default function RegisterForm() {
 
     setLoading(true);
     try {
+      if (!verificationRequired) {
+        await submitRegistration();
+        return;
+      }
       const sent = await requestCode();
       if (sent) {
         setCode("");
@@ -81,7 +113,10 @@ export default function RegisterForm() {
       }
     } catch {
       setError(t("서버 오류가 발생했습니다. 다시 시도해주세요."));
-    } finally {
+      setLoading(false);
+      return;
+    }
+    if (verificationRequired) {
       setLoading(false);
     }
   };
@@ -111,25 +146,7 @@ export default function RegisterForm() {
 
     setLoading(true);
     try {
-      const response = await fetch("/api/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: formData.name.trim(),
-          email: formData.email.trim(),
-          password: formData.password,
-          code,
-          termsAgreed: agreed,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        setError(data.error || t("회원가입에 실패했습니다."));
-        setLoading(false);
-        return;
-      }
-      // 가입 성공 = 자동 로그인(쿠키 발급됨). 전체 리로드로 인증 상태를 반영한다.
-      window.location.href = "/";
+      await submitRegistration();
     } catch {
       setError(t("서버 오류가 발생했습니다. 다시 시도해주세요."));
       setLoading(false);
@@ -252,7 +269,11 @@ export default function RegisterForm() {
                 disabled={loading}
                 className="w-full rounded-md bg-gray-900 text-white py-2.5 font-medium hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? t("처리 중...") : t("인증번호 받기")}
+                {loading
+                  ? t("처리 중...")
+                  : verificationRequired
+                    ? t("인증번호 받기")
+                    : t("가입 완료")}
               </button>
 
               <p className="text-center text-sm text-gray-600 dark:text-gray-400">

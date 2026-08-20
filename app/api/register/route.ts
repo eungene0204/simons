@@ -19,6 +19,7 @@ import {
   hashVerificationCode,
   isAcceptablePassword,
   isEmailSignupEnabled,
+  isEmailVerificationRequired,
   normalizeEmail,
 } from '@/lib/server/email-verification'
 
@@ -75,45 +76,48 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (typeof code !== 'string' || !/^\d{6}$/.test(code)) {
-      return NextResponse.json(
-        { error: '인증번호 6자리를 입력해주세요.' },
-        { status: 400 }
-      )
-    }
+    // 인증번호 단계 — 테스트 기간에는 EMAIL_SIGNUP_VERIFICATION=off로 건너뛴다.
+    if (isEmailVerificationRequired()) {
+      if (typeof code !== 'string' || !/^\d{6}$/.test(code)) {
+        return NextResponse.json(
+          { error: '인증번호 6자리를 입력해주세요.' },
+          { status: 400 }
+        )
+      }
 
-    const verification = await prisma.emailVerification.findUnique({
-      where: { email },
-    })
-
-    if (!verification || verification.expiresAt.getTime() < Date.now()) {
-      return NextResponse.json(
-        { error: '인증번호가 만료되었거나 발송되지 않았습니다. 다시 요청해주세요.' },
-        { status: 400 }
-      )
-    }
-
-    if (verification.attempts >= MAX_CODE_ATTEMPTS) {
-      return NextResponse.json(
-        { error: '인증 시도 횟수를 초과했습니다. 인증번호를 다시 요청해주세요.' },
-        { status: 400 }
-      )
-    }
-
-    const expected = Buffer.from(verification.codeHash, 'hex')
-    const actual = Buffer.from(hashVerificationCode(code), 'hex')
-    const codeMatches =
-      expected.length === actual.length && timingSafeEqual(expected, actual)
-
-    if (!codeMatches) {
-      await prisma.emailVerification.update({
+      const verification = await prisma.emailVerification.findUnique({
         where: { email },
-        data: { attempts: { increment: 1 } },
       })
-      return NextResponse.json(
-        { error: '인증번호가 올바르지 않습니다.' },
-        { status: 400 }
-      )
+
+      if (!verification || verification.expiresAt.getTime() < Date.now()) {
+        return NextResponse.json(
+          { error: '인증번호가 만료되었거나 발송되지 않았습니다. 다시 요청해주세요.' },
+          { status: 400 }
+        )
+      }
+
+      if (verification.attempts >= MAX_CODE_ATTEMPTS) {
+        return NextResponse.json(
+          { error: '인증 시도 횟수를 초과했습니다. 인증번호를 다시 요청해주세요.' },
+          { status: 400 }
+        )
+      }
+
+      const expected = Buffer.from(verification.codeHash, 'hex')
+      const actual = Buffer.from(hashVerificationCode(code), 'hex')
+      const codeMatches =
+        expected.length === actual.length && timingSafeEqual(expected, actual)
+
+      if (!codeMatches) {
+        await prisma.emailVerification.update({
+          where: { email },
+          data: { attempts: { increment: 1 } },
+        })
+        return NextResponse.json(
+          { error: '인증번호가 올바르지 않습니다.' },
+          { status: 400 }
+        )
+      }
     }
 
     // 이메일 소유는 방금 증명됐으므로, 여기서의 중복 안내는 열거 누설이 아니다.
