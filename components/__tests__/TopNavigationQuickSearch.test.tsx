@@ -370,6 +370,34 @@ describe("TopNavigation quick search", () => {
     });
   });
 
+  it("비로그인 상태에서 검색 버튼을 누르면 검색 모달 대신 로그인 모달을 보여준다", async () => {
+    renderWithQueryClient(<TopNavigation />);
+
+    await screen.findByRole("button", { name: "로그인" });
+
+    fireEvent.click(screen.getByTestId("desktop-search-trigger"));
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("로그인 후 이용할 수 있습니다")).toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText("종목, 전략, 계좌, 백테스트를 검색하세요")
+    ).not.toBeInTheDocument();
+  });
+
+  it("비로그인 상태에서 '/' 단축키를 눌러도 검색 모달 대신 로그인 모달을 보여준다", async () => {
+    renderWithQueryClient(<TopNavigation />);
+
+    await screen.findByRole("button", { name: "로그인" });
+
+    fireEvent.keyDown(window, { key: "/" });
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("로그인 후 이용할 수 있습니다")).toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText("종목, 전략, 계좌, 백테스트를 검색하세요")
+    ).not.toBeInTheDocument();
+  });
+
   it("가상계좌 query가 남아 있어도 전략연구소의 정식 경로로 이동한다", async () => {
     pathnameMock.current = "/analytics/chat";
     searchParamsMock.current = "virtualAccount=open";
