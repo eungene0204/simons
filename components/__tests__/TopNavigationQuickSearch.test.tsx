@@ -272,7 +272,7 @@ describe("TopNavigation quick search", () => {
   it("모바일 메뉴를 열고 메뉴 항목을 선택하면 Drawer를 닫고 이동한다", async () => {
     renderWithQueryClient(<TopNavigation />);
 
-    await screen.findByRole("button", { name: "Google 로그인" });
+    await screen.findByRole("button", { name: "로그인" });
     const menuButton = screen.getByRole("button", { name: "메뉴 열기" });
     expect(menuButton).toHaveClass("touch-manipulation");
 
@@ -292,17 +292,27 @@ describe("TopNavigation quick search", () => {
     expect(document.body.style.overflow).toBe("");
   });
 
-  it("비로그인 상태에서는 프로필 버튼 대신 Google 로그인 버튼을 보여준다", async () => {
+  it("비로그인 상태에서는 프로필 버튼 대신 로그인 버튼을 보여주고, 클릭하면 Google/이메일 선택 모달이 뜬다", async () => {
     renderWithQueryClient(<TopNavigation />);
 
     const loginButton = await screen.findByRole("button", {
-      name: "Google 로그인",
+      name: "로그인",
     });
 
     expect(loginButton).toBeInTheDocument();
     expect(screen.queryByLabelText(/사용자 메뉴/)).not.toBeInTheDocument();
 
     fireEvent.click(loginButton);
+
+    // 로그인 버튼은 바로 OAuth를 시작하지 않고 Google/이메일 선택 모달을 연다
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /이메일로 시작하기/ })).toHaveAttribute(
+      "href",
+      "/login"
+    );
+    expect(signInWithOAuthMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Google로 시작하기" }));
 
     await waitFor(() => {
       expect(signInWithOAuthMock).toHaveBeenCalledWith({
@@ -322,14 +332,14 @@ describe("TopNavigation quick search", () => {
     renderWithQueryClient(<TopNavigation />);
 
     await screen.findByRole("button", {
-      name: "Google 로그인",
+      name: "로그인",
     });
 
     fireEvent.click(screen.getByRole("link", { name: /모의투자/i }));
 
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("로그인 후 이용할 수 있습니다")).toBeInTheDocument();
-    expect(screen.getByText("Google로 3초만에 시작하세요")).toBeInTheDocument();
+    expect(screen.getByText("Google 또는 이메일로 시작하세요")).toBeInTheDocument();
     expect(screen.getByText("카드 등록 불필요")).toBeInTheDocument();
     expect(pushMock).not.toHaveBeenCalled();
 
@@ -455,7 +465,7 @@ describe("TopNavigation quick search", () => {
     });
 
     expect(profileButton).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Google 로그인" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "로그인" })).not.toBeInTheDocument();
 
     fireEvent.click(profileButton);
 
@@ -476,7 +486,7 @@ describe("TopNavigation quick search", () => {
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
 
     expect(
-      await screen.findByRole("button", { name: "Google 로그인" })
+      await screen.findByRole("button", { name: "로그인" })
     ).toBeInTheDocument();
     expect(screen.queryByLabelText(/사용자 메뉴/)).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/logout", {
@@ -521,7 +531,7 @@ describe("TopNavigation quick search", () => {
     fireEvent.click(profileButton);
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
 
-    await screen.findByRole("button", { name: "Google 로그인" });
+    await screen.findByRole("button", { name: "로그인" });
 
     expect(sessionStorage.getItem("simons.strategyChatState")).toBeNull();
     expect(sessionStorage.getItem("simons.pendingStrategyPrompt")).toBeNull();

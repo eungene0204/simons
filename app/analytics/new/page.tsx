@@ -36,6 +36,7 @@ import {
   ChartLineUp,
   Question,
   Info,
+  EnvelopeSimple,
   GoogleLogo,
   X,
 } from "phosphor-react";
@@ -5098,7 +5099,7 @@ function StrategyLabContent() {
                 {t("아이디어를 전략으로 만들어 드립니다")}
               </p>
               <p className="text-sm font-bold leading-relaxed text-gray-400">
-                {t("Google로 3초만에 시작하세요")}
+                {t("Google 또는 이메일로 시작하세요")}
               </p>
             </div>
             <div className="mt-6 flex flex-col items-center gap-3">
@@ -5114,6 +5115,13 @@ function StrategyLabContent() {
                 <GoogleLogo size={18} weight="fill" />
                 <span>{isStartingGoogleLogin ? t("로그인 준비 중...") : t("Google로 시작하기")}</span>
               </button>
+              <a
+                href="/login"
+                className="flex items-center gap-2 rounded-full border border-white/[0.15] px-4 py-2 text-sm font-black text-white transition-colors duration-200 hover:bg-white/[0.08]"
+              >
+                <EnvelopeSimple size={18} weight="bold" />
+                <span>{t("이메일로 시작하기")}</span>
+              </a>
               <button
                 type="button"
                 onClick={() => setIsAuthModalOpen(false)}
