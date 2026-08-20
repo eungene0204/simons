@@ -14,6 +14,7 @@ import { consumeRateLimit } from '@/lib/server/rate-limit'
 import {
   CODE_TTL_MS,
   hashVerificationCode,
+  isEmailSignupEnabled,
   normalizeEmail,
 } from '@/lib/server/email-verification'
 import {
@@ -28,6 +29,10 @@ function clientIp(request: NextRequest): string {
 }
 
 export async function POST(request: NextRequest) {
+  // 테스트용 한시 기능 킬 스위치(EMAIL_SIGNUP_ENABLED=off) — 관리자 콘솔 선례대로 404 은닉
+  if (!isEmailSignupEnabled()) {
+    return NextResponse.json({ error: 'Not Found' }, { status: 404 })
+  }
   try {
     const body = await request.json()
     const email = normalizeEmail(body?.email)
