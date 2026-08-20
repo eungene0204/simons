@@ -156,9 +156,22 @@ describe("runMonteCarloSimulation", () => {
     expect(result.status).toBe("ok");
     expect(result.underwater).toBeDefined();
     expect(result.underwater.median).toBeGreaterThanOrEqual(0);
+    expect(result.underwaterUnrecoveredRatio).toBeGreaterThanOrEqual(0);
+    expect(result.underwaterUnrecoveredRatio).toBeLessThanOrEqual(1);
     expect(result.sufficiency).toBeDefined();
     expect(result.sufficiency.effectiveSamples).toBeGreaterThan(0);
     expect(typeof result.sufficiency.low).toBe("boolean");
+  });
+
+  it("기간 끝까지 고점을 회복하지 못한 시나리오 비율을 집계한다(검열 고지 근거)", async () => {
+    // 매 스텝 하락하는 equity → 모든 재표본 경로도 전 구간 하락 → 미회복 100%,
+    // 최장 언더워터는 경로 길이(수익률 포인트 수) 전체가 된다.
+    let value = 10_000_000;
+    const equity = Array.from({ length: 260 }, () => (value *= 0.999));
+    const result = await runMonteCarloSimulation({ equity, initialCapital: 10_000_000 }, settings);
+    expect(result.status).toBe("ok");
+    expect(result.underwaterUnrecoveredRatio).toBe(1);
+    expect(result.underwater.median).toBe(equity.length - 1);
   });
 
   it("실행 파라미터(seed 포함)를 결과에 담아 화면 표시에 쓸 수 있다", async () => {
@@ -363,6 +376,8 @@ describe("runMonteCarloSimulation — 거래 재표본 모드", () => {
     expect(result.cagrHistogram.reduce((sum, bin) => sum + bin.count, 0)).toBe(result.nIterations);
     expect(result.mdd.min).toBeGreaterThanOrEqual(0);
     expect(result.cagr.min).toBeLessThanOrEqual(result.cagr.max);
+    expect(result.underwaterUnrecoveredRatio).toBeGreaterThanOrEqual(0);
+    expect(result.underwaterUnrecoveredRatio).toBeLessThanOrEqual(1);
   });
 
   it("같은 seed는 같은 거래 재표본 분포를 재현한다", async () => {

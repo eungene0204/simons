@@ -6,11 +6,13 @@ import VirtualAccountDetailPage from "@/app/virtual-account/[id]/page";
 const {
   fetchMock,
   getAccountMock,
+  getMarketLogsMock,
   refreshOverviewCacheMock,
   updateTradingModeMock,
 } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
   getAccountMock: vi.fn(),
+  getMarketLogsMock: vi.fn(),
   refreshOverviewCacheMock: vi.fn(),
   updateTradingModeMock: vi.fn(),
 }));
@@ -71,7 +73,7 @@ vi.mock("@/components/stock/StockSearchModal", () => ({
 }));
 
 vi.mock("@/lib/virtual-market", () => ({
-  getMarketLogs: vi.fn(() => new Promise(() => undefined)),
+  getMarketLogs: getMarketLogsMock,
 }));
 
 vi.mock("@/lib/hooks/useStockPrices", () => ({
@@ -102,6 +104,8 @@ describe("VirtualAccountDetailPage loading", () => {
     window.sessionStorage.clear();
     getAccountMock.mockReset();
     getAccountMock.mockImplementation(() => new Promise(() => undefined));
+    getMarketLogsMock.mockReset();
+    getMarketLogsMock.mockImplementation(() => new Promise(() => undefined));
     refreshOverviewCacheMock.mockReset();
     refreshOverviewCacheMock.mockResolvedValue([]);
     updateTradingModeMock.mockReset();
@@ -639,5 +643,49 @@ describe("VirtualAccountDetailPage loading", () => {
       "text-[var(--main-blue)]"
     );
     expect(screen.getByText(/해지 2026\.\s?06\.\s?20\.?/)).toBeInTheDocument();
+  });
+
+  it("shows the 매매 신호 shimmer until the first log response lands, never the empty message", async () => {
+    getAccountMock.mockResolvedValue({
+      id: "account-123",
+      name: "테스트 계좌",
+      initialAmount: 10_000_000,
+      currentBalance: 10_000_000,
+      totalValue: 10_000_000,
+      tradingMode: "manual",
+      createdAt: "2026-06-01T00:00:00.000Z",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+    });
+
+    let resolveLogs: (logs: unknown[]) => void = () => {};
+    getMarketLogsMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveLogs = resolve;
+        })
+    );
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/stocks/names") {
+        return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+      }
+      if (url === "/api/virtual-market/account-123") {
+        return Promise.resolve({ ok: true, json: async () => ({ symbols: [] }) } as Response);
+      }
+      return new Promise<Response>(() => undefined);
+    });
+
+    render(<VirtualAccountDetailPage />);
+
+    expect(await screen.findByTestId("signal-log-skeleton")).toBeInTheDocument();
+    expect(screen.queryByText(/매매 신호가 발생하지 않았습니다/)).not.toBeInTheDocument();
+    expect(screen.queryByText("0건")).not.toBeInTheDocument();
+
+    resolveLogs([]);
+
+    expect(await screen.findByText(/매매 신호가 발생하지 않았습니다/)).toBeInTheDocument();
+    expect(screen.queryByTestId("signal-log-skeleton")).not.toBeInTheDocument();
+    expect(screen.getByText("0건")).toBeInTheDocument();
   });
 });

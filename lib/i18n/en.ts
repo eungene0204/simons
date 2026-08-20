@@ -1730,7 +1730,9 @@ export const en: Record<string, string> = {
   "학습 구간 연평균 수익률의 약 {0}%가 처음 보는 검증 구간에서도 유지되었습니다(WFE, 연환산 수익률 기준). 100%에 가까울수록 학습·검증 성과 차이가 작았다는 뜻이고, 낮을수록 특정 구간에만 맞춰진(과최적화) 결과였을 가능성이 있습니다.": "About {0}% of the training windows' annualized return was retained in the unseen validation windows (WFE, based on annualized returns). Closer to 100% means the gap between training and validation performance was small; lower values suggest the settings may have been fitted to specific windows (over-optimization).",
   "이 WFE는 구버전 방식(총수익률 기준)으로 계산된 값입니다. 학습 구간이 검증 구간보다 긴 만큼 낮게 나올 수 있어, 다시 실행하면 연환산 기준 값으로 계산됩니다.": "This WFE was calculated with the legacy method (based on total returns). Because training windows are longer than validation windows, it can come out low; running again computes it on an annualized basis.",
   "학습 구간에서는 수익이 났지만 검증 구간에서는 평균적으로 손실이 났습니다(WFE 음수). 학습 구간에만 잘 맞는 설정이었을 가능성이 있습니다.": "The training windows were profitable but the validation windows lost money on average (negative WFE). The settings may have fit only the training windows.",
-  "한 번 손실을 본 뒤 다시 고점을 회복하기까지 가장 오래 걸린 구간은, 시나리오 중앙값으로 약 {0}{1}, 회복이 더딘 편(상위 5%)에서는 약 {2}{3}였습니다.": "The longest time from a loss back to a new peak was about {0}{1} in the median scenario, and about {2}{3} in the slow-recovery scenarios (top 5%).",
+  "한 번 고점을 찍은 뒤 그 아래에 머문 가장 긴 구간은, 시나리오 중앙값으로 약 {0}{1}, 긴 편(상위 5%)에서는 약 {2}{3}였습니다.": "The longest stretch spent below a prior peak was about {0}{1} in the median scenario, and about {2}{3} in the longer cases (top 5%).",
+  " 시나리오 중 {0}는 이 구간이 기간 끝까지 이어져 이전 고점을 회복하지 못했고, 그 경우 위 수치는 회복에 걸린 기간이 아니라 '최소 이만큼'이라는 뜻입니다.": " In {0} of scenarios this stretch lasted until the end of the period without regaining the prior peak — for those, the figures above are a minimum, not a completed recovery time.",
+  " 모든 시나리오는 기간 안에 이전 고점을 회복했습니다.": " Every scenario regained its prior peak within the period.",
   // ── components/strategy/backtest/RunProgressModal.tsx
   "실행 오류": "Run error",
   // ── components/strategy/backtest/SaveValidationButton.tsx

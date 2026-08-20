@@ -33,6 +33,7 @@ import { refreshVirtualAccountOverviewCache } from "@/components/virtual-account
 import TrackedSymbolRow from "@/components/virtual-account/TrackedSymbolRow";
 import TrackedSymbolsSkeleton from "@/components/virtual-account/TrackedSymbolsSkeleton";
 import StrategySummarySkeleton from "@/components/virtual-account/StrategySummarySkeleton";
+import SignalLogSkeleton from "@/components/virtual-account/SignalLogSkeleton";
 import {
   resolveHoldingDisplayNames,
   resolveStockDisplayName,
@@ -143,6 +144,7 @@ export default function VirtualAccountDetailPage() {
   const [isStockSearchOpen, setIsStockSearchOpen] = useState(false);
   const [isAddingTrackedSymbols, setIsAddingTrackedSymbols] = useState(false);
   const [signalLogs, setSignalLogs] = useState<VirtualMarketLog[]>([]);
+  const [isSignalLogsLoading, setIsSignalLogsLoading] = useState(true);
   const [isStrategyReplaceOpen, setIsStrategyReplaceOpen] = useState(false);
   const [isMissingStrategyModalOpen, setIsMissingStrategyModalOpen] = useState(false);
   const [missingStrategyModalTitle, setMissingStrategyModalTitle] = useState(t("자동매매 설정"));
@@ -415,12 +417,18 @@ export default function VirtualAccountDetailPage() {
   };
 
   const loadSignalLogs = async () => {
-    const logs = await getMarketLogs(accountId, 30);
-    setSignalLogs(
-      [...logs].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      )
-    );
+    // 첫 응답이 확정되기 전에는 "신호가 없다"는 안내를 보여주지 않고 shimmer만 보여준다.
+    // 5초 폴링에서는 이미 false라 shimmer가 다시 뜨지 않는다.
+    try {
+      const logs = await getMarketLogs(accountId, 30);
+      setSignalLogs(
+        [...logs].sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        )
+      );
+    } finally {
+      setIsSignalLogsLoading(false);
+    }
   };
 
   const handleRemoveTrackedSymbol = async (symbol: string) => {
@@ -1136,16 +1144,24 @@ export default function VirtualAccountDetailPage() {
                       </div>
                       <p className="text-xs text-gray-500 mt-0.5">{t("최근 발생한 전략 신호")}</p>
                     </div>
-                    <span className="text-xs font-bold text-gray-500 bg-white/[0.05] px-2.5 py-0.5 rounded-md">
-                      {t("{0}건", signalLogs.length)}
-                    </span>
+                    {isSignalLogsLoading ? (
+                      <div className="shimmer h-5 w-11 rounded-md bg-white/[0.05]" aria-hidden="true" />
+                    ) : (
+                      <span className="text-xs font-bold text-gray-500 bg-white/[0.05] px-2.5 py-0.5 rounded-md">
+                        {t("{0}건", signalLogs.length)}
+                      </span>
+                    )}
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
-                    <SignalLog
-                      logs={signalLogs}
-                      accountCreatedAt={account.createdAt}
-                      onStrategyReplace={handleStrategyReplaceClick}
-                    />
+                    {isSignalLogsLoading ? (
+                      <SignalLogSkeleton />
+                    ) : (
+                      <SignalLog
+                        logs={signalLogs}
+                        accountCreatedAt={account.createdAt}
+                        onStrategyReplace={handleStrategyReplaceClick}
+                      />
+                    )}
                   </div>
                 </div>
               </div>

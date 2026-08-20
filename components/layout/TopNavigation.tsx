@@ -304,7 +304,11 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         
         if (!isInputFocused) {
           e.preventDefault();
-          setIsSearchModalOpen(true);
+          if (authState === "anonymous") {
+            setIsLoginModalOpen(true);
+          } else {
+            setIsSearchModalOpen(true);
+          }
         }
       }
       
@@ -324,7 +328,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isSearchModalOpen, isProfileMenuOpen, isMobileMenuOpen]);
+  }, [isSearchModalOpen, isProfileMenuOpen, isMobileMenuOpen, authState]);
 
   useEffect(() => {
     if (!isMobileMenuOpen) return;
@@ -346,6 +350,10 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
 
   const handleSearchClick = () => {
     setIsMobileMenuOpen(false);
+    if (authState === "anonymous") {
+      setIsLoginModalOpen(true);
+      return;
+    }
     setIsSearchModalOpen(true);
   };
 

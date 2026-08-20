@@ -114,6 +114,35 @@ describe("buildMonteCarloPlainSummary", () => {
     expect(legacy.join("\n")).toContain("수수료·거래세 차감 전");
   });
 
+  it("고점 미회복(검열) 시나리오가 있으면 회복 완료로 단정하지 않고 하한임을 밝힌다", () => {
+    const items = buildMonteCarloPlainSummary({
+      ...monteCarloBase,
+      underwater: { median: 1104, p95: 1131 },
+      underwaterUnrecoveredRatio: 0.997,
+    });
+    const joined = items.join("\n");
+    expect(joined).toContain("고점을 찍은 뒤 그 아래에 머문 가장 긴 구간");
+    expect(joined).toContain("약 1104거래일");
+    expect(joined).toContain("99.7%는 이 구간이 기간 끝까지 이어져 이전 고점을 회복하지 못했");
+    expect(joined).toContain("'최소 이만큼'");
+    // 옛 문구 — 미회복 구간까지 회복 완료처럼 읽히게 했던 표현
+    expect(joined).not.toContain("회복하기까지");
+  });
+
+  it("모두 회복했으면 그렇게 서술하고, 구버전(비율 없음)은 회복 여부를 단정하지 않는다", () => {
+    const recovered = buildMonteCarloPlainSummary({
+      ...monteCarloBase,
+      underwater: { median: 35, p95: 80 },
+      underwaterUnrecoveredRatio: 0,
+    });
+    expect(recovered.join("\n")).toContain("모든 시나리오는 기간 안에 이전 고점을 회복했습니다");
+
+    const legacy = buildMonteCarloPlainSummary({ ...monteCarloBase, underwater: { median: 35, p95: 80 } });
+    const joinedLegacy = legacy.join("\n");
+    expect(joinedLegacy).toContain("머문 가장 긴 구간");
+    expect(joinedLegacy).not.toContain("회복");
+  });
+
   it("원래 순서 위치는 MDD로만 서술하고 CAGR 위치는 서술하지 않는다", () => {
     // CAGR은 성장배수의 곱이라 순서와 무관 — 부트스트랩 분포 한가운데에 늘 오므로 위치 해석이 성립하지 않는다.
     const items = buildMonteCarloPlainSummary({ ...monteCarloBase, observed: { mdd: 0.183, mddPct: 0.28 } });
