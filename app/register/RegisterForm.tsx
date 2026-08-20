@@ -157,7 +157,7 @@ export default function RegisterForm({
     "w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100";
 
   return (
-    <main className="min-h-screen grid grid-cols-1 lg:grid-cols-2 overflow-x-hidden max-w-full">
+    <main className="min-h-screen grid grid-cols-1 lg:grid-cols-2 overflow-x-hidden max-w-full pt-[var(--top-menu-bar-height,76px)]">
       <section className="flex items-center justify-center p-8">
         <div className="w-full max-w-md">
           <div className="mb-8 flex items-center gap-3">
