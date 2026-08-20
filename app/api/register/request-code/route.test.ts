@@ -98,6 +98,19 @@ describe("/api/register/request-code", () => {
     expect(verificationUpsert).not.toHaveBeenCalled();
   });
 
+  it("킬 스위치(EMAIL_SIGNUP_ENABLED=off)면 404이고 아무것도 하지 않는다", async () => {
+    vi.stubEnv("EMAIL_SIGNUP_ENABLED", "off");
+    try {
+      const res = await POST(req({ email: "user@example.com" }));
+      expect(res.status).toBe(404);
+      expect(userFindUnique).not.toHaveBeenCalled();
+      expect(verificationUpsert).not.toHaveBeenCalled();
+      expect(sendVerificationEmail).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("메일 발송 실패는 500으로 드러난다", async () => {
     userFindUnique.mockResolvedValue(null);
     verificationUpsert.mockResolvedValue({});

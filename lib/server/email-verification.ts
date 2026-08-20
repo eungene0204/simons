@@ -4,6 +4,13 @@
 
 import { createHash } from 'crypto'
 
+// 테스트용 킬 스위치 — 이메일 가입은 한시 운영 기능이다. EMAIL_SIGNUP_ENABLED=off면
+// 가입·이메일 로그인 페이지는 랜딩 리다이렉트(종전 동작), API는 404로 닫힌다.
+// 기본값은 켜짐(env 미설정=on). 끄기: prod .env에 off 추가 후 compose up -d.
+export function isEmailSignupEnabled(): boolean {
+  return process.env.EMAIL_SIGNUP_ENABLED !== 'off'
+}
+
 export const CODE_TTL_MS = 10 * 60 * 1000
 export const MAX_CODE_ATTEMPTS = 5
 

@@ -174,6 +174,18 @@ describe("/api/register", () => {
     expect(userCreate).not.toHaveBeenCalled();
   });
 
+  it("킬 스위치(EMAIL_SIGNUP_ENABLED=off)면 404이고 계정이 생기지 않는다", async () => {
+    vi.stubEnv("EMAIL_SIGNUP_ENABLED", "off");
+    try {
+      const res = await POST(req(validBody));
+      expect(res.status).toBe(404);
+      expect(verificationFindUnique).not.toHaveBeenCalled();
+      expect(userCreate).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("레이트리밋 초과면 429", async () => {
     consumeRateLimit.mockReturnValue(false);
     const res = await POST(req(validBody));

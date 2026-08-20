@@ -18,6 +18,7 @@ import {
   MAX_CODE_ATTEMPTS,
   hashVerificationCode,
   isAcceptablePassword,
+  isEmailSignupEnabled,
   normalizeEmail,
 } from '@/lib/server/email-verification'
 
@@ -28,6 +29,10 @@ function clientIp(request: NextRequest): string {
 }
 
 export async function POST(request: NextRequest) {
+  // 테스트용 한시 기능 킬 스위치(EMAIL_SIGNUP_ENABLED=off) — 관리자 콘솔 선례대로 404 은닉
+  if (!isEmailSignupEnabled()) {
+    return NextResponse.json({ error: 'Not Found' }, { status: 404 })
+  }
   try {
     const body = await request.json()
     const { name, password, code, termsAgreed } = body ?? {}
