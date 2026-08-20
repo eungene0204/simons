@@ -1049,6 +1049,13 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                 <GoogleLogo size={18} weight="fill" />
                 <span>{isStartingLogin ? t("로그인 준비 중...") : t("Google로 시작하기")}</span>
               </button>
+              <Link
+                href="/login"
+                onClick={() => setIsLoginModalOpen(false)}
+                className="text-xs font-bold text-gray-400 transition-colors hover:text-white"
+              >
+                {t("이메일로 로그인")}
+              </Link>
               <button
                 type="button"
                 onClick={() => setIsLoginModalOpen(false)}

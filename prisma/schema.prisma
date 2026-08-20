@@ -55,6 +55,18 @@ model BacktestResult {
   @@index([strategyId, createdAt])
 }
 
+// 이메일 회원가입 인증번호 — 이메일당 1행(가장 최근 발송 코드만 유효).
+// 코드 원문은 저장하지 않는다(SHA-256 해시만). 만료·시도 상한은 가입 API가 강제한다.
+// 프로덕션 반영: 배포는 마이그레이션을 실행하지 않으므로 prod DB에 수동 CREATE 필요.
+model EmailVerification {
+  email      String   @id
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int      @default(0) // 잘못된 코드 입력 횟수 — 상한 도달 시 재발송 필요
+  lastSentAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+}
+
 // 전략 최적화(워크포워드·몬테카를로) 검증 결과를 사용자가 명시적으로 저장한 스냅샷.
 // 목록은 summary(경량 요약)만 읽고, 불러오기 시 result(전체 JSON)를 조회한다.
 model SavedValidation {
