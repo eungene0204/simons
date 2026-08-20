@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import NullstockLogoMark from "@/components/layout/NullstockLogoMark";
 import { t } from "@/lib/i18n";
 
 // 이메일 로그인 — /api/login의 이메일·비밀번호 경로를 사용한다.
@@ -49,7 +50,10 @@ export default function LoginForm() {
     <main className="min-h-screen flex items-center justify-center p-8 pt-[calc(var(--top-menu-bar-height,76px)+2rem)]">
       <div className="w-full max-w-md">
         <div className="mb-8 flex items-center gap-3">
-          <div className="h-10 w-10 rounded bg-gray-900 dark:bg-gray-100" />
+          <NullstockLogoMark
+            className="h-8 w-10"
+            filterId="nullstock-logo-login"
+          />
           <div>
             <p className="text-sm text-gray-500 dark:text-gray-400">{t("널스탁")}</p>
             <h1 className="text-xl font-semibold">{t("이메일로 로그인")}</h1>
