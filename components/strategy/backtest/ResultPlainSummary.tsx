@@ -30,8 +30,10 @@ interface MonteCarloPlainSummaryInput {
   observed?: { mdd: number; mddPct: number };
   /** trades 모드의 거래 비용 반영 여부. 구버전엔 없을 수 있다(=gross). */
   tradeCosts?: "net" | "gross";
-  /** 낙폭 지속(회복까지) 스텝 분포 — returns=거래일, trades=거래. 구버전엔 없을 수 있다. */
+  /** 낙폭 지속(고점 아래 머문 최장 구간) 스텝 분포 — returns=거래일, trades=거래. 구버전엔 없을 수 있다. */
   underwater?: { median: number; p95: number };
+  /** 최장 낙폭 구간이 기간 끝까지 이어져 고점을 회복하지 못한 시나리오 비율(0~1). 구버전엔 없을 수 있다. */
+  underwaterUnrecoveredRatio?: number;
   /** 표본 충분성. 구버전엔 없을 수 있다. */
   sufficiency?: { effectiveSamples: number; low: boolean };
 }
@@ -144,9 +146,17 @@ export function buildMonteCarloPlainSummary(result: MonteCarloPlainSummaryInput)
 
   if (result.underwater) {
     const unit = result.mode === "trades" ? t("거래") : t("거래일");
-    items.push(
-      t("한 번 손실을 본 뒤 다시 고점을 회복하기까지 가장 오래 걸린 구간은, 시나리오 중앙값으로 약 {0}{1}, 회복이 더딘 편(상위 5%)에서는 약 {2}{3}였습니다.", Math.round(result.underwater.median), unit, Math.round(result.underwater.p95), unit)
-    );
+    // "회복까지 걸린 기간"으로 단정하지 않는다 — 기간 끝까지 회복하지 못한(검열된) 구간도 함께 집계되므로,
+    // 미회복 비율을 알 때만 회복 여부를 서술하고, 미회복이 있으면 수치가 하한임을 밝힌다.
+    let underwaterSentence = t("한 번 고점을 찍은 뒤 그 아래에 머문 가장 긴 구간은, 시나리오 중앙값으로 약 {0}{1}, 긴 편(상위 5%)에서는 약 {2}{3}였습니다.", Math.round(result.underwater.median), unit, Math.round(result.underwater.p95), unit);
+    const unrecovered = result.underwaterUnrecoveredRatio;
+    if (unrecovered !== undefined) {
+      underwaterSentence +=
+        unrecovered > 0
+          ? t(" 시나리오 중 {0}는 이 구간이 기간 끝까지 이어져 이전 고점을 회복하지 못했고, 그 경우 위 수치는 회복에 걸린 기간이 아니라 '최소 이만큼'이라는 뜻입니다.", ratioPct(unrecovered))
+          : t(" 모든 시나리오는 기간 안에 이전 고점을 회복했습니다.");
+    }
+    items.push(underwaterSentence);
   }
 
   if (result.mode === "returns" && result.blockSize !== undefined && result.blockSize <= 1) {

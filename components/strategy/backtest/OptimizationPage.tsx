@@ -201,8 +201,13 @@ interface MonteCarloResult {
   mddHistogram: MonteCarloHistogramBin[];
   /** 실제 백테스트(원래 순서) 지표의 분포 내 위치. 구버전 저장 결과에는 없을 수 있다. */
   observed?: MonteCarloObserved;
-  /** 낙폭 지속(회복까지) 스텝 수 분포 — returns 모드는 거래일, trades 모드는 거래 건. 구버전엔 없을 수 있다. */
+  /** 낙폭 지속(고점 아래 머문 최장 구간) 스텝 수 분포 — returns 모드는 거래일, trades 모드는 거래 건. 구버전엔 없을 수 있다. */
   underwater?: MonteCarloSummary;
+  /**
+   * 최장 낙폭 구간이 기간 끝까지 이어져 이전 고점을 회복하지 못한 시나리오 비율(0~1).
+   * 이 비율이 높으면 underwater 분포는 실제 회복 소요가 아니라 하한(검열된 값)이다. 구버전엔 없을 수 있다.
+   */
+  underwaterUnrecoveredRatio?: number;
   /** 표본 충분성 지표. 구버전 저장 결과에는 없을 수 있다. */
   sufficiency?: MonteCarloSufficiency;
 }
@@ -490,6 +495,7 @@ async function runTradeResampleSimulation(
   const sharpes: number[] = [];
   const mdds: number[] = [];
   const underwaters: number[] = [];
+  let unrecoveredCount = 0;
 
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     if (iteration % MONTE_CARLO_CHUNK_SIZE === 0 && iteration > 0) {
@@ -531,6 +537,8 @@ async function runTradeResampleSimulation(
     sharpes.push(std > 1e-12 ? (mean / std) * Math.sqrt(tradesPerYear) : 0);
     mdds.push(Math.abs(worstDrawdown));
     underwaters.push(longestUnderwater);
+    // 최장 낙폭 구간이 경로 끝까지 이어졌으면(고점 미회복) 그 길이는 회복 소요가 아니라 하한이다.
+    if (longestUnderwater > 0 && underwaterRun === longestUnderwater) unrecoveredCount += 1;
   }
 
   onProgress?.(1);
@@ -560,6 +568,7 @@ async function runTradeResampleSimulation(
       mddPct: percentileRank(mdds, observedPath.mdd),
     },
     underwater: summarizeMonteCarlo(underwaters),
+    underwaterUnrecoveredRatio: unrecoveredCount / iterations,
     sufficiency: {
       effectiveSamples: n,
       low: n < MC_MIN_EFFECTIVE_SAMPLES,
@@ -609,6 +618,7 @@ export async function runMonteCarloSimulation(
   const sharpes: number[] = [];
   const mdds: number[] = [];
   const underwaters: number[] = [];
+  let unrecoveredCount = 0;
 
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     // UI가 진행률을 그리고 취소에 반응할 수 있도록 일정 주기로 이벤트 루프에 양보한다.
@@ -651,6 +661,8 @@ export async function runMonteCarloSimulation(
     sharpes.push(std > 1e-12 ? (avgReturn / std) * Math.sqrt(KRX_TRADING_DAYS_PER_YEAR) : 0);
     mdds.push(Math.abs(worstDrawdown));
     underwaters.push(longestUnderwater);
+    // 최장 낙폭 구간이 경로 끝까지 이어졌으면(고점 미회복) 그 길이는 회복 소요가 아니라 하한이다.
+    if (longestUnderwater > 0 && underwaterRun === longestUnderwater) unrecoveredCount += 1;
   }
 
   onProgress?.(1);
@@ -680,6 +692,7 @@ export async function runMonteCarloSimulation(
       mddPct: percentileRank(mdds, observedPath.mdd),
     },
     underwater: summarizeMonteCarlo(underwaters),
+    underwaterUnrecoveredRatio: unrecoveredCount / iterations,
     sufficiency: {
       effectiveSamples,
       low: effectiveSamples < MC_MIN_EFFECTIVE_SAMPLES,
