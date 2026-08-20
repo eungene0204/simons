@@ -2255,13 +2255,11 @@ function BacktestTerminalLog({
   const symbolCount = result.symbols?.length ?? (result.symbol ? 1 : 0);
 
   type LogLevel = "INFO" | "WARN" | "ERROR" | "SUCCESS";
-  const logs: { level: LogLevel; message: string; ts?: string }[] = [];
-
-  const ts = (_i: number) => start.slice(0, 10);
+  const logs: { level: LogLevel; message: string }[] = [];
 
   // 초기화
-  logs.push({ level: "INFO", ts: ts(0), message: t("백테스트 엔진 초기화 완료") });
-  logs.push({ level: "INFO", ts: ts(1), message: t("기간: {0} ~ {1} ({2}일)", start, now, totalDays) });
+  logs.push({ level: "INFO", message: t("백테스트 엔진 초기화 완료") });
+  logs.push({ level: "INFO", message: t("기간: {0} ~ {1} ({2}일)", start, now, totalDays) });
   const UNIVERSE_NAMES: Record<string, string> = {
     kospi: "KOSPI", kospi200: "KOSPI 200", kosdaq: "KOSDAQ", kosdaq150: "KOSDAQ 150",
     kospi_kosdaq: "KOSPI+KOSDAQ", kosdaq_kospi: "KOSPI+KOSDAQ",
@@ -2270,12 +2268,12 @@ function BacktestTerminalLog({
     ? (UNIVERSE_NAMES[result.universeId] ?? result.universeId.toUpperCase())
     : "KOSPI";
   const logInitialCapital = result.initialCapital || result.equity?.[0] || 0;
-  logs.push({ level: "INFO", ts: ts(2), message: t("유니버스: {0} / 초기자금: {1}원", universeLabel, logInitialCapital.toLocaleString()) });
+  logs.push({ level: "INFO", message: t("유니버스: {0} / 초기자금: {1}원", universeLabel, logInitialCapital.toLocaleString()) });
 
   // 매수 신호 통계
   const buyCount = result.tradesList?.filter(tv => tv.type === "buy").length ?? 0;
   const sellCount = result.tradesList?.filter(tv => tv.type === "sell").length ?? 0;
-  logs.push({ level: "INFO", ts: ts(3), message: t("시그널 처리 완료 — 매수 {0}회 / 매도 {1}회", buyCount, sellCount) });
+  logs.push({ level: "INFO", message: t("시그널 처리 완료 — 매수 {0}회 / 매도 {1}회", buyCount, sellCount) });
 
   // 연도별 수익률
   if (result.yearlyReturns && Object.keys(result.yearlyReturns).length > 0) {
@@ -2283,19 +2281,19 @@ function BacktestTerminalLog({
     years.forEach((yr, i) => {
       const ret = result.yearlyReturns[yr];
       const sign = ret >= 0 ? "+" : "";
-      logs.push({ level: ret >= 0 ? "SUCCESS" : "WARN", ts: ts(4 + i), message: t("{0}년 수익률: {1}{2}%", yr, sign, ret.toFixed(2)) });
+      logs.push({ level: ret >= 0 ? "SUCCESS" : "WARN", message: t("{0}년 수익률: {1}{2}%", yr, sign, ret.toFixed(2)) });
     });
   }
 
   // 리스크 지표
-  logs.push({ level: "INFO", ts: ts(20), message: t("MDD: {0}% / Sharpe: {1} / Calmar: {2} / 평균보유일: {3}일", (result.maxDrawdown ?? 0).toFixed(2), (result.sharpe ?? 0).toFixed(2), (result.calmar ?? 0).toFixed(2), Math.round(result.avgHoldingDays ?? 0)) });
-  logs.push({ level: "INFO", ts: ts(21), message: t("승률: {0}% / 손익비: {1} / CAGR: {2}%", (result.winRate ?? 0).toFixed(1), formatProfitFactor(result.profitFactor), (result.cagr ?? 0).toFixed(2)) });
+  logs.push({ level: "INFO", message: t("MDD: {0}% / Sharpe: {1} / Calmar: {2} / 평균보유일: {3}일", (result.maxDrawdown ?? 0).toFixed(2), (result.sharpe ?? 0).toFixed(2), (result.calmar ?? 0).toFixed(2), Math.round(result.avgHoldingDays ?? 0)) });
+  logs.push({ level: "INFO", message: t("승률: {0}% / 손익비: {1} / CAGR: {2}%", (result.winRate ?? 0).toFixed(1), formatProfitFactor(result.profitFactor), (result.cagr ?? 0).toFixed(2)) });
 
   if ((result.avgProfit ?? 0) !== 0 || (result.avgLoss ?? 0) !== 0) {
-    logs.push({ level: "INFO", ts: ts(22), message: t("평균수익: +{0}% / 평균손실: -{1}%", (result.avgProfit ?? 0).toFixed(2), (result.avgLoss ?? 0).toFixed(2)) });
+    logs.push({ level: "INFO", message: t("평균수익: +{0}% / 평균손실: -{1}%", (result.avgProfit ?? 0).toFixed(2), (result.avgLoss ?? 0).toFixed(2)) });
   }
   if ((result.maxConsecutiveWins ?? 0) > 0 || (result.maxConsecutiveLosses ?? 0) > 0) {
-    logs.push({ level: "INFO", ts: ts(23), message: t("최대 연속수익: {0}회 / 최대 연속손실: {1}회", result.maxConsecutiveWins ?? 0, result.maxConsecutiveLosses ?? 0) });
+    logs.push({ level: "INFO", message: t("최대 연속수익: {0}회 / 최대 연속손실: {1}회", result.maxConsecutiveWins ?? 0, result.maxConsecutiveLosses ?? 0) });
   }
 
   // 상위 종목
@@ -2306,11 +2304,11 @@ function BacktestTerminalLog({
     const bot3 = sorted.slice(-3).reverse();
     top3.forEach((s, i) => {
       const name = stockMetadata[s.symbol]?.name ?? s.symbol;
-      logs.push({ level: "INFO", ts: ts(30 + i), message: t("TOP{0} {1}({2}): +{3}원 / 수익률 {4}% / {5}거래", i+1, name, s.symbol, Math.round(s.profit).toLocaleString(), s.totalReturn.toFixed(1), s.trades) });
+      logs.push({ level: "INFO", message: t("TOP{0} {1}({2}): +{3}원 / 수익률 {4}% / {5}거래", i+1, name, s.symbol, Math.round(s.profit).toLocaleString(), s.totalReturn.toFixed(1), s.trades) });
     });
     bot3.forEach((s, i) => {
       const name = stockMetadata[s.symbol]?.name ?? s.symbol;
-      logs.push({ level: "INFO", ts: ts(33 + i), message: t("BOT{0} {1}({2}): {3}원 / 수익률 {4}% / {5}거래", i+1, name, s.symbol, Math.round(s.profit).toLocaleString(), s.totalReturn.toFixed(1), s.trades) });
+      logs.push({ level: "INFO", message: t("BOT{0} {1}({2}): {3}원 / 수익률 {4}% / {5}거래", i+1, name, s.symbol, Math.round(s.profit).toLocaleString(), s.totalReturn.toFixed(1), s.trades) });
     });
   }
 
@@ -2332,7 +2330,7 @@ function BacktestTerminalLog({
         const name = stockMetadata[sym]?.name;
         if (name) msg = msg.replace(`[${sym}]`, `[${name}(${sym})]`);
       }
-      logs.push({ level: lvl, ts: ts(36 + count * 0.5), message: msg });
+      logs.push({ level: lvl, message: msg });
     }
   }
 
@@ -2346,13 +2344,13 @@ function BacktestTerminalLog({
         const name = stockMetadata[sym]?.name;
         if (name) msg = w.replace(sym, `${name}(${sym})`);
       }
-      logs.push({ level: "WARN", ts: ts(40 + i), message: msg });
+      logs.push({ level: "WARN", message: msg });
     });
   }
 
   // 완료
   const logFinalEquity = result.finalEquity || result.equity?.[result.equity.length - 1] || 0;
-  logs.push({ level: "SUCCESS", ts: ts(99), message: t("백테스트 완료 — 총 {0}회 거래 / 최종자산 {1}원 / 수익률 {2}%", result.trades ?? 0, logFinalEquity.toLocaleString(), (result.totalReturn ?? 0).toFixed(2)) });
+  logs.push({ level: "SUCCESS", message: t("백테스트 완료 — 총 {0}회 거래 / 최종자산 {1}원 / 수익률 {2}%", result.trades ?? 0, logFinalEquity.toLocaleString(), (result.totalReturn ?? 0).toFixed(2)) });
 
   const levelStyle: Record<LogLevel, string> = {
     INFO: "text-blue-400",
@@ -2369,7 +2367,6 @@ function BacktestTerminalLog({
       <div className={`px-4 py-3 overflow-y-auto custom-scrollbar font-mono text-xs ${fill ? "flex-1 min-h-0 space-y-1" : "max-h-64 space-y-1"}`}>
         {logs.map((log, i) => (
           <div key={i} className="flex gap-3 leading-relaxed">
-            <span className="text-gray-600 shrink-0">[{log.ts ?? now}]</span>
             <span className={`font-bold shrink-0 ${levelStyle[log.level]}`}>[{log.level}]</span>
             <span className="text-gray-300">{log.message}</span>
           </div>
