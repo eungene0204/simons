@@ -46,7 +46,7 @@ export default function LoginForm() {
     "w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100";
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-8">
+    <main className="min-h-screen flex items-center justify-center p-8 pt-[calc(var(--top-menu-bar-height,76px)+2rem)]">
       <div className="w-full max-w-md">
         <div className="mb-8 flex items-center gap-3">
           <div className="h-10 w-10 rounded bg-gray-900 dark:bg-gray-100" />
