@@ -32,6 +32,27 @@ interface SavedStrategy {
 const DEFAULT_VISIBLE_COUNT = 20;
 const BUSINESS_INFO_TEXT =
   "상호명 : 널스페이스   사업자등록번호 : 898-50-00737   통신판매업신고번호 : 2026-서울서대문-0758   대표 : 이응준   주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호   이메일 : nullspace.support@gmail.com";
+const BUSINESS_EMAIL = "nullspace.support@gmail.com";
+
+function BusinessInfoText() {
+  const info = t(BUSINESS_INFO_TEXT);
+  const emailIndex = info.indexOf(BUSINESS_EMAIL);
+  if (emailIndex < 0) {
+    return <>{info}</>;
+  }
+  return (
+    <>
+      {info.slice(0, emailIndex)}
+      <a
+        href={`mailto:${BUSINESS_EMAIL}`}
+        className="underline underline-offset-4 transition-colors hover:text-white"
+      >
+        {BUSINESS_EMAIL}
+      </a>
+      {info.slice(emailIndex + BUSINESS_EMAIL.length)}
+    </>
+  );
+}
 
 export const EXAMPLES: Example[] = [
   {
@@ -917,7 +938,7 @@ export function StrategyExampleTabs({
             {t("개인정보처리방침")}
           </Link>
           <div className="mx-auto mb-3 max-w-6xl text-xs font-bold leading-relaxed text-gray-500">
-            {t(BUSINESS_INFO_TEXT)}
+            <BusinessInfoText />
           </div>
           <p className="mx-auto max-w-5xl text-xs font-bold leading-relaxed text-gray-600">
             <span className="block">
