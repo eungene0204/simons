@@ -174,6 +174,20 @@ def test_strategy_advice_carries_no_canned_reply():
     assert result.suggested_reply is None
 
 
+def test_prompt_separates_performance_goals_from_selection_criteria():
+    """[규제 안전, 2026-08-23 사고] 'CAGR 최대화·MDD 최소화 전략 만들자'가
+    STRATEGY_ADVICE로 분류돼 추천 불가 안내 없이 빌더로 바로 들어갔다 — 9B가 CAGR·MDD를
+    '종목 선별 기준(지표명)'으로 읽은 것이다. 성과 지표는 백테스트 **결과**이지 조건이
+    아니므로, 그것만 말한 요청은 전략을 대신 골라 달라는 열린 요청(STRATEGY_PICK)이다.
+    라이브 게이트는 scripts/qa_intent_open_pick_scope.py."""
+    prompt = interpreter.SYSTEM_PROMPT
+    pick_block = prompt.split("STRATEGY_PICK —")[1].split("PERSONAL_ADVICE —")[0]
+    assert "성과 목표만" in pick_block
+    assert "결과로 나오는 수치" in pick_block
+    # 진행 중인 전략의 성과 개선은 다듬기다 — 안내문이 대화를 끊지 않아야 한다.
+    assert "[진행 중인 전략]이 있는 상태에서" in pick_block
+
+
 # ── 종목 정본 매핑(원문 스캔이 아니라 LLM 추출 문자열 → registry) ──────────────
 
 def test_stock_name_from_llm_is_resolved_through_registry():

@@ -64,21 +64,41 @@ CASES = [
     ("어떤 전략이 제일 좋아?", "STRATEGY_PICK"),
     ("전략 추천해줘", "STRATEGY_PICK"),
     ("괜찮은 전략 좀 골라줘", "STRATEGY_PICK"),
+    # 2026-08-23 사고: 성과 지표(CAGR·MDD·수익률·샤프)를 종목 선별 기준으로 읽어
+    # STRATEGY_ADVICE로 분류 → 추천 불가 안내 없이 빌더로 직행했다. 성과 지표는
+    # 백테스트 결과이지 조건이 아니므로 이것만 있으면 열린 요청이다.
+    ("cagr를 최대화 하고 mdd를 최소화 하는 전략을 만들자", "STRATEGY_PICK"),
+    ("수익률 극대화 전략 만들어줘", "STRATEGY_PICK"),
+    ("손실 최소화 하는 전략 짜줘", "STRATEGY_PICK"),
+    ("샤프지수 높은 전략 만들어줘", "STRATEGY_PICK"),
+    # 성과 목표에 종목 선별 기준이 붙으면 다시 설계 요청이다.
+    ("코스닥에서 수익률 높은 전략 만들어줘", "STRATEGY_ADVICE"),
+    ("PER 10 이하 종목으로 MDD 낮은 전략 만들어줘", "STRATEGY_ADVICE"),
+]
+
+# 진행 중인 전략이 있을 때의 성과 개선 요청 — 새 전략을 골라 달라는 것이 아니라
+# 지금 전략을 다듬는 것이므로 안내문이 대화를 끊으면 안 된다.
+ACTIVE_CASES = [
+    ("mdd를 좀 줄이고 싶어", "STRATEGY_ADVICE"),
+    ("수익률을 더 높이고 싶어", "STRATEGY_ADVICE"),
 ]
 
 
 def main() -> int:
     runs = int(sys.argv[1]) if len(sys.argv) > 1 else 5
     fail = 0
-    for text, expected in CASES:
+    for text, expected, active in (
+        [(t, e, False) for t, e in CASES] + [(t, e, True) for t, e in ACTIVE_CASES]
+    ):
         labels: Counter = Counter()
         for _ in range(runs):
-            interp = interpreter.interpret(text, llm)
+            interp = interpreter.interpret(text, llm, active_strategy=active)
             labels[interp.intent.value if interp else "PARSE_FAIL"] += 1
         ok = set(labels) == {expected}
         if not ok:
             fail += 1
-        print(f"{'OK ' if ok else 'BAD'} {text!r} 기대={expected} 실측={dict(labels)}")
+        tag = "[전략중] " if active else ""
+        print(f"{'OK ' if ok else 'BAD'} {tag}{text!r} 기대={expected} 실측={dict(labels)}")
     return 1 if fail else 0
 
 
