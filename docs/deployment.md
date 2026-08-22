@@ -82,11 +82,13 @@ GPU가 없으므로 로컬 LLM은 돌리지 않는다. 백테스트(vectorbt/opt
 | 엔드포인트 | `https://eugene204--simons-ollama-ollama-server.modal.run` (proxy auth 필수) |
 | GPU | L4, `min_containers=0`(scale-to-zero), `scaledown_window=300`초 |
 | 모델 | `hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M` — 전 슬롯 단일 서빙(`modal_ollama.py` `MODELS`, 2026-08-03 9B 단일화) |
+| Ollama 버전 | **0.32.14 핀** (`modal_ollama.py` `OLLAMA_VERSION` → install.sh `?version=`) — 로컬 dev(`brew install ollama`)와 같은 값 유지 |
 | 소스 | [`modal_ollama.py`](../modal_ollama.py) — Ollama를 그대로 web_server로 노출(`/api/chat`, `/v1`) |
 | 배포 | `modal deploy modal_ollama.py` |
 
 > **2모델 구성(2026-07-21)**: AI 리포트(백테스트 총평)만 9B를 쓰도록 `SUMMARIZE_OLLAMA_MODEL`로 분리했다. 나머지(NL 파서/코치)는 `NL_OLLAMA_MODEL`(4B) 유지. Modal 볼륨에 두 모델을 모두 캐시하고, `.env`의 두 모델명이 각각 `MODELS`에 있어야 한다.
 > **인터프리터 9B 승격(2026-07-26)**: 전략 인터프리터(strategy_conversation)는 전용 슬롯 `STRATEGY_INTERPRETER_MODEL`(9B)을 쓴다 — 미설정 시 `NL_OLLAMA_MODEL`로 폴백하므로 prod `.env`에 명시해야 shadow/primary가 9B로 돈다. 9B는 SUMMARIZE와 같은 모델이라 Modal 추가 배포 불요.
+> **Ollama 버전 핀 실배선(2026-08-21)**: `OLLAMA_VERSION`은 "핀: 빌드 재현성" 주석과 함께 선언만 돼 있었고 설치 명령에 전달되지 않아, 이미지를 다시 빌드할 때마다 최신 Ollama가 깔렸다 — 프로덕션 0.30.8 vs 로컬 dev 0.30.7로 추론 스택이 조용히 어긋났다. 같은 프롬프트·같은 가중치 digest·temperature 0에서도 전략 해석이 갈려, 프로덕션만 `최대 보유 기간은 20거래일`을 `hold_period_days=20`에 정상 반영하고도 같은 표현을 `unsupported_features`에 이중 기입해 거짓 "지원하지 않아 전략에 반영하지 못했어요" 안내가 나갔다(3회 재생 완전 동일 — 결정적 재현). 수정: install.sh에 `OLLAMA_VERSION`을 실제로 전달하고 양쪽을 **0.32.14**로 통일. **올릴 때는 `brew upgrade ollama`와 `OLLAMA_VERSION`을 같은 커밋에서 함께 바꾼다.** 회귀 `backend/tests/test_modal_ollama_version_pin.py`(핀이 설치 명령에 전달되는지 소스 스캔). **결과: 배포 후 프로덕션에서 증상 소멸** — 같은 프롬프트 재생에 `unsupported_features=[]`(2회 동일). 즉 이 결함은 **CUDA 쪽 0.30.8에만** 있었고 0.32.14가 해소했다. 진단 중 "버전은 범인이 아니다"라고 본 것은 오판이었다 — 로컬은 0.30.7에서 이미 정상이라 버전을 올려도 아무것도 드러낼 수 없는 대조군이었다(로컬 KV 캐시 q8_0·flash attention을 Modal에 맞춰도 계속 정상). **로컬에서 재현되지 않는 prod 결함은 로컬을 아무리 흔들어도 반증되지 않는다 — 판정은 prod 쪽 변인을 직접 바꿔서만 가능하다.**
 > **9B 단일화(2026-08-03)**: 분류·파서·코치 슬롯(`NL_OLLAMA_MODEL`)도 9B로 통합 — 4B는 bare enum JSON 파손(전수조사 34%)·해외기업명 테마 오분류가 실측돼 폐기. 세 슬롯이 전부 같은 9B이므로 Modal `MODELS`는 한 항목이다. 반영 순서: ① 앱 env 교체(9B는 이미 서빙 중이라 즉시 동작) ② `modal deploy`(MODELS에서 4B 제거 반영) ③ `modal run modal_ollama.py::remove_model --name hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M`(볼륨 정리).
 
 **모델 전환/추가 절차(3단계)**:

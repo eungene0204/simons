@@ -59,14 +59,21 @@ OLLAMA_PORT = 11434
 SCALEDOWN_WINDOW = 300      # 마지막 요청 후 5분 warm 유지 → 테스트 세션 중 콜드스타트 감소(비용 trade-off)
 STARTUP_TIMEOUT = 600       # 첫 콜드스타트에서 모델 로드/풀까지 대기 여유
 
-OLLAMA_VERSION = "0.5.7"    # 핀: 빌드 재현성
+# Ollama 버전 핀 — 로컬 dev(Homebrew)와 **같은 값**으로 유지한다.
+# 2026-08-21: 이 상수는 선언만 돼 있고 install.sh에 전달되지 않아 빌드마다 최신판이
+# 깔렸다(프로덕션 0.30.8 vs 로컬 0.30.7). 같은 프롬프트·같은 가중치·temperature 0에도
+# 해석 결과가 갈려("최대 보유 기간"을 반영하고도 unsupported_features에 이중 기입해
+# 거짓 "지원하지 않아 반영하지 못했어요" 안내), 로컬에서 재현되지 않았다.
+# install.sh는 $OLLAMA_VERSION을 다운로드 URL의 ?version= 으로 넘긴다(접두사 v 없이).
+# 올릴 때는 `brew upgrade ollama`와 이 값을 **같은 커밋에서 함께** 바꾼다.
+OLLAMA_VERSION = "0.32.14"
 
 # ── 이미지: Ollama 설치 ────────────────────────────────────────────────────────
 image = (
     modal.Image.debian_slim()
     .apt_install("curl", "zstd")  # zstd: 최신 ollama 설치 스크립트가 추출에 요구
     .run_commands(
-        "curl -fsSL https://ollama.com/install.sh | sh",
+        f"curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION={OLLAMA_VERSION} sh",
     )
     .env(
         {
