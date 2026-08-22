@@ -223,8 +223,10 @@ simons/
 │
 ├── data/
 │   ├── ohlcv/                       # 4052개 한국 주식 OHLCV Parquet 파일
+│   ├── ohlcv-us/                    # S&P 500 미국 주식 OHLCV Parquet (한국과 동일 스키마)
 │   ├── fundamentals/                # 재무 지표 (ROE, EPS, BPS 등)
 │   ├── korea-stocks.json            # 한국 주식 메타데이터
+│   ├── us-stocks.json               # 미국 주식(S&P 500) 메타데이터
 │   └── kospi200-cache.json          # KOSPI200 캐시
 │
 ├── model/
@@ -1149,6 +1151,8 @@ ChatQaLog       — 전략연구소 대화 기록 (질문·답변 한 턴 = 1행
 | 경로 | 형식 | 내용 |
 |------|------|------|
 | `data/ohlcv/{symbol}.parquet` | Parquet | 4052개 종목 OHLCV |
+| `data/ohlcv-us/{symbol}.parquet` | Parquet | **미국 전 상장 보통주** OHLCV + 기본 재무(5,947종목). 한국 파케이와 **동일 컬럼·순서·dtype·단위 규약**(회귀 테스트가 강제, 한국 파일은 읽기 전용 대조에만 사용). 소스=yfinance(무료), 백필=`scripts/backfill_us_stocks.py`. 단위는 한국이 컬럼마다 다른 규약을 그대로 복제 — 억달러: market_cap·net_income·owner_net_income·ebitda·ebit·ev·revenue·`*_cf_amount`, raw USD: total_equity·capex(양수 규모)·fcf·`*_cash_flow`. `dividends`=배당락일 DPS(그 외 0, 엔진이 롤링 합으로 TTM 생성). 수준 재무=분기(기간종료+60일 반영), 성장률=연간 YoY(+90일 반영), 둘 다 15개월 stale cap. ROE는 지배주주 기준. **시총**=분할조정 주식수×종가, 주식수는 yfinance 실측(2015-10~)+SEC EDGAR companyfacts(2009~, 제출일 기준) — 최초 실측 이전은 역채움하지 않고 NaN. **외국 기업 환산**: yfinance는 주가를 달러로, 재무제표를 현지 통화로 준다(485종목·29개 통화). `financialCurrency`가 달러가 아니면 일별 환율(`<통화>=X`)로 **금액과 성장률을 모두** 달러 기준으로 환산한다 — 성장률을 현지통화로 두면 초인플레이션 통화의 가치 하락이 '성장'으로 잡혀 성장 스크리닝이 깨진다(BBAR: 페소 -32.3% vs 달러 -51.9%) — 미환산 시 TSMC PER이 31 대신 1.14로 나와 저PER 스크리닝이 저평가가 아니라 환율로 종목을 고른다. 주식수·무단위 비율(ROE·마진·부채비율)은 환산하지 않는다. 환율 이력 이전(2001~2003년 이전) 구간은 NaN. **한계**: 상폐 종목 미수록(생존편향 잔존), 법인 재등록 종목은 시총이 2015년부터 |
+| `data/us-stocks.json` | JSON | 미국 주식(S&P 500) 마스터 — symbol/name/market(거래소)/sector/industry(GICS), 유니버스 SOT=Wikipedia S&P 500 |
 | `data/fundamentals/` | JSON/CSV | ROE, EPS, BPS, 부채비율 |
 | `data/korea-stocks.json` | JSON | 종목명, 코드, 시장, 섹터 (현재 상장 — 섹터 SOT) |
 | `data/stock-master.json` | JSON | PIT 종목 마스터(상장폐지 포함, 생존편향 제거) + 상폐 종목 industry/sector 백필(`backend/scripts/backfill_delisted_sectors.py`, 재빌드는 `build_stock_master.py`) |
@@ -1528,6 +1532,7 @@ run_backtest → 1단계(데이터·지표·신호·랭킹) → 메인 시뮬레
 | `test_lookahead_no_prelisting_trades.py` | bfill 룩어헤드 가드(상장 전 미체결) + same_close 경고 발생 검증 |
 | `test_random_strategy_stress.py` | 랜덤 전략 스트레스(#14): 예외/현금음수/비정상 NAV 없음 (N_STRESS env로 수천 건 확장) |
 | `test_dividends.py` / `test_backfill_dividends.py` | 배당 토탈리턴 보정 + parquet 백필(스텁 provider 라운드트립) |
+| `test_backfill_us_stocks.py` | 미국 주식 파케이 백필 순수 변환(네트워크 불필요): 한국 스키마 컬럼 일치·분할수정 주식수·TTM 4분기·공시 지연/15개월 cap·분할일 스테일 주식수 글리치·A/B 클래스 주당지표 |
 | `test_strategy_converter.py` | ParsedStrategy → BacktestRequest 변환 |
 | `test_ai_code_fixes.py` | AI 관련 버그 픽스 회귀 테스트 |
 | `test_news_dedup.py` | 뉴스 중복 제거: Jaccard 유사도·body hash·시간윈도우·intra-batch (22개) |

@@ -22,6 +22,7 @@ langsmith==0.8.11
 numpy==2.4.4
 stockstats==0.6.8        # engine/indicators.py
 pykrx==1.2.8             # engine/data_fetcher.py
+yfinance==1.6.0          # scripts/backfill_us_stocks.py — 미국 주식 OHLCV/재무 백필(무료 프로토타입)
 finance-datareader==0.9.202  # scripts/sync_data.py — 스케줄러 일일 OHLCV/상폐 동기화(top-level import, 누락 시 sync 기동 실패)
 tqdm==4.68.1             # scripts/sync_data.py 진행바
 httpx==0.28.1            # news providers

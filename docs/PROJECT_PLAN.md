@@ -1718,7 +1718,7 @@ WatchlistSymbol {
 
 | 작업 | 상세 | 우선순위 |
 |------|------|----------|
-| 미국 시장 데이터 | NASDAQ/NYSE OHLCV 수집 | P3 |
+| 미국 시장 데이터 | NASDAQ/NYSE OHLCV 수집 — ✅ 완료(2026-08-22): **미국 전 상장 보통주 5,947종목** OHLCV+기본 재무 파케이(`data/ohlcv-us/`, 마스터 `data/us-stocks.json` 5,950종목, 백필 `scripts/backfill_us_stocks.py`). 무료 소스만 사용 — 시세·배당·분할·환율=yfinance, 성장률=yfinance 연간 재무, 발행주식수=yfinance 실측+SEC EDGAR(2009~), 유니버스=Nasdaq Trader 상장 디렉터리(ETF·워런트·SPAC 유닛·우선주 제외), 섹터=GICS 11종으로 어휘 통일. 외국 기업 485종목(29개 통화)은 재무 금액·성장률을 모두 달러로 환산(주식수·무단위 비율은 환산 제외). 한국 파케이와 컬럼·순서·dtype·단위 규약 동일(회귀 테스트 `test_backfill_us_stocks.py` 31개가 강제). **남은 한계**: ① 상폐 종목 미수록(생존편향 잔존) ② 법인 재등록·분할상장 종목은 시총이 2015년부터 ③ 아직 엔진에 미배선(유니버스·통화 처리 별도 작업) ④ 시세 없는 3종목(BTLN·SNSC·SVA) 미수집 | P3 |
 | 다중 통화 | USD/KRW 환산, 글로벌 포트폴리오 | P3 |
 | PostgreSQL 마이그레이션 | SQLite → PostgreSQL (확장성) | P3 |
 | Redis 캐싱 | 시세/백테스트 캐시 (현재 인메모리 PriceCache) | P3 |
