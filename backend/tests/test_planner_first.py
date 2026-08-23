@@ -131,6 +131,33 @@ def test_apply_observed_learned_sector():
     assert parsed.sector == "반도체"
 
 
+def test_sector_observation_defers_to_theme_companies(monkeypatch):
+    """업종 근사 관찰보다 테마 상장사가 우선한다 — 2026-08-24 '블랙핑크' 사고 2차:
+    학습된 업종 근사가 kg_resolve_sector에 히트하자 9B DAG가 테마 조회 노드를 생략한
+    턴에서 '관련주'가 업종 전체로 확정됐다. 채택 규칙은 planner가 어떤 노드를
+    계획했는지와 무관하게 고정 체인과 동일해야 한다."""
+    applied = {}
+
+    def _fake_apply(parsed, term):
+        applied["term"] = term
+        parsed.target_symbols = ["352820", "035900"]
+        return f"'{term}' 관련 상장사 2곳을 대상 종목으로 설정했어요."
+
+    monkeypatch.setattr(nl_parser, "apply_theme_companies", _fake_apply)
+    parsed = ParsedStrategy(description="테스트")
+    notices: list = []
+    result = _plan_result([
+        ("classify_universe", "블랙핑크", {"universe_type": "CONCEPT"}),
+        ("kg_resolve_sector", "블랙핑크", {"sector": "미디어/엔터"}),
+    ])
+    resolved, unresolved = _apply_planner_first_universe(result, parsed, notices)
+    assert applied["term"] == "블랙핑크"
+    assert resolved == {"블랙핑크"} and unresolved == set()
+    assert parsed.target_symbols == ["352820", "035900"]
+    assert parsed.sector is None          # 업종 전체로 확정하지 않는다
+    assert notices == []                  # 섹터 해석 안내도 나가지 않는다
+
+
 def test_non_concept_classification_counts_as_resolved():
     """MARKET/SECTOR/SINGLE_STOCK/ETF 분류는 그 자체로 해석 완료 — 병합 없음."""
     parsed = ParsedStrategy(description="테스트")

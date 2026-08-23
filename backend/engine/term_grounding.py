@@ -300,8 +300,15 @@ def resolve_sector(
     lexicon_path: Optional[Path] = None,
     on_search: Optional[Callable[[], None]] = None,
     on_kg_lookup: Optional[Callable[[], None]] = None,
+    text_is_term: bool = False,
 ) -> Optional[str]:
     """업종 언급을 어휘집 → 내부 지식 LLM → 검색 그라운딩 순으로 해석한다.
+
+    text_is_term=True는 입력이 문장이 아니라 **상류 LLM이 이미 뽑아낸 용어**라는 호출부
+    계약이다(ground_term 도구 — planner·term-in 체인). 이때 용어 추출 LLM이 null을 내도
+    입력 자체를 검색어로 삼아 검색을 진행한다 — 추출 단계는 문장에서 용어를 골라내는
+    도구인데, 문맥이 떼어진 낱말('블랙핑크')을 다시 심사해 "테마 용어 아님"으로 뒤집으면
+    상류 판정과 모순되고 검색이 영영 실행되지 않는다(2026-08-24 '블랙핑크 관련주' 사고).
 
     반환값은 정본 섹터명 또는 None(기존 되묻기 흐름으로 폴백). 검색이 실제 수행되면
     결과는 성공/실패 모두 어휘집에 저장돼 같은 용어를 다시 검색하지 않는다.
@@ -359,6 +366,8 @@ def resolve_sector(
             except Exception:  # noqa: BLE001 — 진행 표시 실패가 해석을 깨면 안 된다
                 pass
         term = _extract_term(text, chat)
+        if not term and text_is_term:
+            term = text.strip()  # 입력이 이미 용어라는 호출부 계약 — 재심사가 검색을 막지 않는다
         if not term:
             return None
         from engine.universe_pit import normalize_sector

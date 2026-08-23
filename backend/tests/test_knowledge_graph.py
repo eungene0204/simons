@@ -277,6 +277,41 @@ def test_theme_companies_via_verified_concept_hop(tmp_path, monkeypatch):
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
 
 
+def test_concept_hop_fallback_skips_learned_neighbors(tmp_path, monkeypatch):
+    """개념 1홉 폴백은 큐레이션 카테고리 노드만 경유한다 — 학습 개체(learned:) 간 수평
+    연결(뉴스 공동 언급)로 상대 개체의 종목을 수입하지 않는다(2026-08-24 '블랙핑크' 사고,
+    concept_universe와 같은 계약)."""
+    from engine.knowledge_graph import theme_listed_companies
+
+    lexicon = tmp_path / "term_lexicon.json"
+    lexicon.write_text(json.dumps({
+        "bts": {"term": "BTS", "sector": "미디어/엔터",
+                "searched_at": "2026-07-25T10:10:03+00:00",
+                "edges": [
+                    {"type": "related_company", "target": "company:004170",
+                     "target_name": "신세계", "support": 2, "status": "verified"},
+                ]},
+        "블랙핑크": {"term": "블랙핑크", "sector": "미디어/엔터",
+                 "searched_at": "2026-08-23T19:31:29+00:00",
+                 "edges": [
+                     {"type": "related_to", "target": "kpop-agency",
+                      "support": 5, "status": "verified"},
+                     {"type": "related_to", "target": "learned:bts",
+                      "target_name": "BTS", "support": 9, "status": "verified"},
+                 ]},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    result = theme_listed_companies("블랙핑크 관련주")
+    assert result is not None
+    symbols = {c["symbol"] for c in result["companies"]}
+    assert "352820" in symbols      # 카테고리(kpop-agency) 경유 하이브는 유지
+    assert "004170" not in symbols  # BTS(학습 개체) 경유 신세계는 전이 금지
+
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
 def test_theme_backtest_companies_expands_learned_anchor(tmp_path, monkeypatch):
     """'bts 관련 종목' 사고 2차(2026-07-25) — 직접 verified 엣지가 몇 건 있어도 학습 앵커의
     백테스트 제안 목록(theme_backtest_companies)은 Concept Universe(FR-STR-072, 기본 임계

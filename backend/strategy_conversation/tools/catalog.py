@@ -74,7 +74,10 @@ def _ground_term(inp: GroundTermIn) -> GroundTermOut:
         raise ToolError("ground_term은 chat(공유 LLM 호출자) 주입이 필요합니다")
     from engine.term_grounding import resolve_sector
 
-    return GroundTermOut(sector=resolve_sector(inp.text, inp.chat))
+    # text_is_term: 이 도구의 입력 계약은 '상류 LLM이 이미 뽑아낸 표현'이다(planner·
+    # term-in 체인, § 3-2 지식 조회). 내부 용어 추출 LLM이 낱말을 재심사해 null을 내도
+    # 입력 자체를 검색어로 검색을 진행한다(2026-08-24 '블랙핑크' 사고).
+    return GroundTermOut(sector=resolve_sector(inp.text, inp.chat, text_is_term=True))
 
 
 # ── classify_universe — 유니버스 표현의 타입 결정(Universe-first, Phase 5) ──────

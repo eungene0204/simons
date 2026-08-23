@@ -126,9 +126,18 @@ def test_ground_term_requires_chat_injection():
 def test_ground_term_delegates(monkeypatch):
     import engine.term_grounding as tg
 
-    monkeypatch.setattr(tg, "resolve_sector", lambda text, chat, **kw: "에너지/원자력")
+    seen = {}
+
+    def _fake(text, chat, **kw):
+        seen.update(kw)
+        return "에너지/원자력"
+
+    monkeypatch.setattr(tg, "resolve_sector", _fake)
     out = call("ground_term", text="SMR 관련주", chat=lambda s, u: "")
     assert out.sector == "에너지/원자력"
+    # 도구 입력은 상류 LLM이 뽑은 표현 — 추출 null이 검색을 막지 않는 계약을 전달한다
+    # (2026-08-24 '블랙핑크' 사고 회귀 가드)
+    assert seen.get("text_is_term") is True
 
 
 # ── 검증·컴파일 파이프라인 위임 ───────────────────────────────────────────────

@@ -2143,6 +2143,17 @@ def _apply_planner_first_universe(
                 unresolved.discard(term)
                 continue
         if obs.get("sector"):
+            # 업종 근사보다 테마 상장사가 우선한다 — 채택 규칙은 planner가 어떤 노드를
+            # 계획했는지와 무관하게 고정 체인·미해결 체인과 동일해야 한다. 2026-08-24
+            # '블랙핑크' 사고 2차: 학습된 업종 근사가 kg_resolve_sector에 히트하자
+            # 9B DAG가 테마 조회 노드를 생략한 턴에서 '관련주'가 업종 전체(미디어/엔터
+            # 수십 곳)로 확정됐다. 테마 조회는 결정론 지식 조회(~ms)라 여기서 보충한다.
+            if apply_theme_companies(parsed, term):
+                _log_llm("✓ planner-first 테마",
+                         f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳(업종 근사 대체)")
+                resolved.add(term)
+                unresolved.discard(term)
+                continue
             _merge_learned_sector(parsed, obs["sector"])
             _log_llm("✓ planner-first 섹터", f"'{term}' → 섹터 '{obs['sector']}'")
             notices.append(

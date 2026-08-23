@@ -793,7 +793,12 @@ DAG(JSON)**이고 실행은 전부 결정론 러너다: `dag.py`가 구조 검�
 하나 표면화하며(관찰이 질문을 불필요하게 만들 수 있어 LLM에 수정 1턴), 질문은 출력
 관문(output_guard)을 통과한다. 동일 도구+인자는 한 번만 실행(관찰 재사용),
 ground_term 학습 후 테마 재조회는 결정론 에필로그, 확정값(sector·companies)은 도구
-관찰값에서만 채택한다. validate_intent·compile_strategy는 DAG 구조상 허용하되 러너
+관찰값에서만 채택한다. **채택 규칙은 planner가 어떤 노드를 계획했는지와 무관하게 고정
+체인과 동일하다** — 개념 표현에 업종 근사(sector) 관찰만 있어도 병합 전에
+apply_theme_companies로 테마 상장사를 한 번 더 결정론 조회해 있으면 그쪽을 채택한다
+(2026-08-24 '블랙핑크' 사고: 학습된 업종 근사가 kg_resolve_sector에 히트하자 9B가 테마
+조회 노드를 생략한 턴에서 '관련주'가 업종 전체(미디어/엔터)로 확정됐다 — 같은 표현이
+직전 턴에는 테마 11곳으로 해석됐으므로 계획의 비결정성이 유니버스 의미를 바꾼 것). validate_intent·compile_strategy는 DAG 구조상 허용하되 러너
 보유 intent 상태가 필요해 shadow 단계에선 실행하지 않는다(primary 승격 시 배선).
 모든 실패(JSON 파싱·계약 위반·도구 장애·턴 예산 `STRATEGY_DAG_PLANNER_MAX_TURNS`
 소진·무진전 동일 발행)는 None → 기존 파이프라인이 그대로 담당. 9B 실측 교정:

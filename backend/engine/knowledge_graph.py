@@ -413,6 +413,11 @@ class KnowledgeGraph:
             other = e["target"] if e["source"] == node_id else e["source"]
             if other.startswith(("company:", "etf:", "sector:")):
                 continue
+            if other.startswith("learned:"):
+                # 경유는 큐레이션된 카테고리 노드만 — 학습 개체 간 수평 연결(뉴스 공동
+                # 언급)로 상대 개체의 종목을 수입하지 않는다(concept_universe의
+                # _collect_candidates와 같은 계약, 2026-08-24 '블랙핑크' 사고).
+                continue
             for c in self.listed_companies(other):
                 if c["symbol"] in seen:
                     continue
