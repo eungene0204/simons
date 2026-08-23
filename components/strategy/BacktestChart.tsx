@@ -10,7 +10,7 @@ import {
   LineSeries,
   AreaSeries,
   LineStyle,
-  HistogramSeries,
+  BaselineSeries,
   LineType,
   SeriesMarker,
 } from "lightweight-charts";
@@ -102,7 +102,7 @@ export default function BacktestChart({
   const buyHoldSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const vbtEquitySeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const drawdownSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const monthlySeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const monthlySeriesRef = useRef<ISeriesApi<"Baseline"> | null>(null);
   const rollingSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const seasonalSeriesRefs = useRef<Record<string, ISeriesApi<"Line">>>({});
   const tooltipRef = useRef<HTMLDivElement>(null);
@@ -156,7 +156,6 @@ export default function BacktestChart({
     return monthlyData.map((item) => ({
       time: dateToTimestamp(item.time),
       value: item.value,
-      color: item.value >= 0 ? "rgba(239, 68, 68, 0.8)" : "rgba(55, 122, 244, 0.8)", // red for gain, blue for loss
     }));
   }, [type, monthlyData]);
 
@@ -388,14 +387,31 @@ export default function BacktestChart({
             (equitySeries as any).setMarkers(markers);
           }
         } else if (type === "monthly_returns") {
-          // Create monthly returns histogram series
-          const monthlySeries = chart.addSeries(HistogramSeries, {
+          // 월별 수익률 라인 — 0을 기준선으로 두어 이익 구간은 빨강, 손실 구간은 파랑으로 그린다.
+          const monthlySeries = chart.addSeries(BaselineSeries, {
+            baseValue: { type: "price", price: 0 },
+            topLineColor: "rgb(239, 68, 68)",
+            bottomLineColor: "rgb(55, 122, 244)",
+            topFillColor1: "transparent",
+            topFillColor2: "transparent",
+            bottomFillColor1: "transparent",
+            bottomFillColor2: "transparent",
+            lineWidth: 2,
+            lineType: LineType.Curved,
             priceFormat: {
               type: "price",
               precision: 2,
               minMove: 0.01,
             },
             priceScaleId: "right",
+          });
+          monthlySeries.createPriceLine({
+            price: 0,
+            color: "rgba(255,255,255,0.25)",
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: false,
+            title: "",
           });
           monthlySeriesRef.current = monthlySeries;
 
