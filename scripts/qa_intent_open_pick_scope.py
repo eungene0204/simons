@@ -7,7 +7,9 @@ STRATEGY_PICK으로 오분류 → 추천 불가 안내문이 잘못 나감. 프�
 
 이 스크립트는 그 회귀 게이트다 — 프롬프트(intent/interpreter.SYSTEM_PROMPT)를 바꾸면
 재실행한다. 라우트(/query/classify)와 동일 조건으로 로컬 Ollama 9B를 호출한다
-(think:false, temperature 0.3, top_p 0.9, num_predict 220, num_ctx 16384).
+(think:false, temperature 0.3, top_p 0.9, num_predict 220, num_ctx=_OLLAMA_NUM_CTX).
+num_ctx는 하드코딩하지 않는다 — Ollama 러너는 적재 시점 num_ctx로 고정되므로 값이
+다르면 keep_alive=-1로 고정된 러너 때문에 모든 호출이 무한 대기한다(2026-07-30 사고).
 
 실행:
     python scripts/qa_intent_open_pick_scope.py [반복수=5]
@@ -25,6 +27,7 @@ from pathlib import Path
 BACKEND = str(Path(__file__).resolve().parent.parent / "backend")
 sys.path.insert(0, BACKEND)
 
+from engine.nl_parser import _OLLAMA_NUM_CTX  # noqa: E402
 from intent import interpreter  # noqa: E402
 
 MODEL = os.environ.get("NL_OLLAMA_MODEL", "hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M")
@@ -44,7 +47,7 @@ def llm(system_prompt: str, user_msg: str) -> str:
             "temperature": 0.3,
             "top_p": 0.9,
             "num_predict": 220,
-            "num_ctx": 16384,
+            "num_ctx": _OLLAMA_NUM_CTX,
         },
     }).encode()
     req = urllib.request.Request(
