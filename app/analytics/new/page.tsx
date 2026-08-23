@@ -4621,9 +4621,18 @@ function StrategyLabContent() {
   const latestAssistantMessage = [...messages]
     .reverse()
     .find((message) => message.role === "assistant");
-  const latestBuilderPresentation = [...messages]
-    .reverse()
-    .find((message) => message.builderPresentation)?.builderPresentation;
+  // 전략 요약 카드('현재까지 이해한 전략입니다')는 **지금 상태 하나**를 잇는 카드다
+  // (FR-STR-019w ⑤ — 답이 끝난 질문은 사라지고 정해진 내용은 이 카드가 잇는다).
+  // 빌더 턴마다 새 assistant 메시지가 붙으므로 각 메시지에 그리면 같은 제목의 카드가
+  // 대화에 쌓인다 — 가장 아래(최신) 것 하나만 그린다(2026-08-23 사용자 지시).
+  const latestBuilderPresentationIndex = messages.reduce(
+    (last, message, index) => (message.builderPresentation ? index : last),
+    -1,
+  );
+  const latestBuilderPresentation =
+    latestBuilderPresentationIndex >= 0
+      ? messages[latestBuilderPresentationIndex].builderPresentation
+      : undefined;
   const activeStrategyProgressItems =
     latestBuilderPresentation &&
     (latestAssistantMessage?.builderQuestion === true ||
@@ -4810,7 +4819,7 @@ function StrategyLabContent() {
                         )}
                         {msg.infoText && (
                           <>
-                            {msg.builderPresentation && (
+                            {msg.builderPresentation && i === latestBuilderPresentationIndex && (
                               <div
                                 className={`max-w-[88%] py-0.5 ${MESSAGE_ENTER_CLASS}`}
                               >
@@ -4901,7 +4910,8 @@ function StrategyLabContent() {
                             {/* 안내문(infoText) 블록이 이미 같은 카드를 그렸으면 다시
                                 그리지 않는다 — 부가 발화 응답 + 되묻기 재질문이 한
                                 메시지에 함께 오는 턴에서 카드가 두 번 보였다. */}
-                            {msg.builderPresentation && !msg.infoText && (
+                            {msg.builderPresentation && !msg.infoText &&
+                              i === latestBuilderPresentationIndex && (
                               <div
                                 className={`flex flex-col gap-2.5 py-0.5 ${MESSAGE_ENTER_CLASS}`}
                               >
