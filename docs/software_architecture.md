@@ -1246,6 +1246,7 @@ install_socket_tracking). 토큰은 contextvar라 워커 스레드 진입 함수
 - `POST /api/strategy/rollback/resolve` — 되돌릴 지점 판정(FR-SA-008). 변경 이력을 요청에 실어 보내고(백엔드 무상태) 판정만 받는다 — 복원은 스냅샷을 보유한 클라이언트가 결정론으로 수행한다. 판정 실패는 전부 되묻기로 강등(임의 보정 금지)
 - `POST /api/strategy/backtest-stream` — 단일 전략 SSE 백테스트. 동일 strategy_id/cacheKey라도 항상 엔진을 재실행하고, 결과는 cacheKey로 upsert 저장(재사용 목적 아닌 dedup 저장용)
 - `POST /api/strategy/save-with-backtest` — 전략 저장 + 백테스트 동시 실행
+- `POST /api/strategy/ensure` — 백테스트 전략의 Strategy 행 확정(있으면 그대로, 없으면 저장). 백테스트 결과 화면의 '계좌 만들기'가 계좌 생성 직전에 호출한다
 - `GET/POST /api/strategy/batch-runs` — 배치 실행 시작/상세 조회/최근 이력/취소
 - `POST /api/advisor/review` — RAG + Experience Memory 전략 리뷰/개선 조언
 - `GET /api/ai/runtime/metrics` — AI 런타임 latency 메트릭 조회

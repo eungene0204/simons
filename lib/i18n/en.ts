@@ -1380,6 +1380,9 @@ export const en: Record<string, string> = {
   "포트폴리오 제어": "Portfolio controls",
   "현금 {0}%": "Cash {0}%",
   // ── components/strategy/backtest/BacktestDashboard.tsx
+  "계좌 만들기": "Create account",
+  "가상계좌를 만들었습니다.": "The virtual account has been created.",
+  "전략을 저장하지 못해 계좌를 만들지 못했습니다.": "The account was not created because the strategy could not be saved.",
   "[ 공식 ]": "[ Formula ]",
   "{0} ~ {1} · 최근 {2}년": "{0} ~ {1} · last {2} years",
   "{0} 탭 도움말": "{0} tab help",
@@ -1951,6 +1954,8 @@ export const en: Record<string, string> = {
   "기준 기간": "lookback period",
   "설정된 매도 규칙 중 하나 충족 ({0}){1}": "One of the configured sell rules met ({0}){1}",
   // ── components/ui/CreateAccountModal.tsx
+  "방금 백테스트한 전략이 이 계좌의 운용 전략이 됩니다. 아직 저장 전이라면 계좌를 만들 때 내 전략에 함께 저장됩니다.":
+    "The strategy you just backtested becomes this account's trading strategy. If it has not been saved yet, it is saved to My strategies when the account is created.",
   "{0} / {1}개": "{0} / {1}",
   "가상계좌 만들기": "Create virtual account",
   "계좌 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.": "Failed to create the account. Please try again shortly.",
@@ -1961,7 +1966,6 @@ export const en: Record<string, string> = {
   "만들기": "Create",
   "매매 방식": "Trading mode",
   "사용자 프롬프트": "User prompt",
-  "선택한 전략의 핵심 조건을 먼저 확인합니다.": "Review the key conditions of the selected strategy first.",
   "업그레이드": "Upgrade",
   "예: 저PBR 전략, 모멘텀 전략, 가치주 전략...": "e.g. Low-PBR strategy, momentum strategy, value strategy...",
   "저장된 전략이 없습니다": "No saved strategies",

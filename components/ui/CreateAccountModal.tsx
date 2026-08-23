@@ -16,12 +16,24 @@ interface CreateAccountModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreate: (name: string, amount: number, strategyId?: string, strategyName?: string, tradingMode?: "auto" | "manual") => void | Promise<void>;
+  /**
+   * 운용 전략이 이미 정해진 채로 여는 경우(백테스트 결과에서 바로 계좌 만들기).
+   * 전략 목록·드롭다운 대신 이 전략을 고정해 보여준다. 아직 저장 전일 수 있어 id 가 없으므로,
+   * onCreate 의 strategyId 는 undefined 로 전달되고 전략 행 확정은 부모가 맡는다.
+   */
+  presetStrategy?: {
+    name: string;
+    description?: string;
+    /** 결과 화면 '내 전략' 팝오버와 같은 라벨·값 행 목록(promptSummaryRows). */
+    summaryRows?: { label: string; values: string[] }[];
+  };
 }
 
 export default function CreateAccountModal({
   isOpen,
   onClose,
   onCreate,
+  presetStrategy,
 }: CreateAccountModalProps) {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
@@ -38,15 +50,31 @@ export default function CreateAccountModal({
     accountsLimit: number;
   } | null>(null);
 
+  // 부모가 매 렌더 새 객체를 넘겨도 이름이 그대로면 효과가 다시 돌지 않게 한다
+  // (돌면 사용자가 고쳐 넣은 계좌 이름을 되돌려 버린다).
+  const presetStrategyName = presetStrategy?.name ?? null;
+
   useEffect(() => {
     if (!isOpen) return;
+    if (presetStrategyName !== null) {
+      // 전략이 이미 정해져 있으면 목록을 불러올 이유가 없다.
+      setName(presetStrategyName.slice(0, 20));
+      setStrategies([]);
+      // 백테스트로 검증을 마친 전략을 그대로 돌려보려고 여는 화면이라 전략 시뮬레이션을 켜둔다
+      // (드롭다운으로 전략을 고르는 기존 경로의 기본값은 OFF 그대로).
+      setTradingMode("auto");
+      return;
+    }
     setLoadingStrategies(true);
     fetch("/api/strategy")
       .then((res) => res.ok ? res.json() : [])
       .then((data: Strategy[]) => setStrategies(data))
       .catch(() => setStrategies([]))
       .finally(() => setLoadingStrategies(false));
+  }, [isOpen, presetStrategyName]);
 
+  useEffect(() => {
+    if (!isOpen) return;
     fetch("/api/user/plan")
       .then((res) => res.ok ? res.json() : null)
       .then((data) =>
@@ -70,10 +98,26 @@ export default function CreateAccountModal({
 
   if (!isOpen) return null;
 
-  const isNoStrategySelected = selectedStrategyId === NO_STRATEGY_ID;
+  const isNoStrategySelected = !presetStrategy && selectedStrategyId === NO_STRATEGY_ID;
   const selectedStrategy = strategies.find((s) => s.id === selectedStrategyId);
   const selectedSummary = buildStrategySummaryFromDsl(selectedStrategy as unknown as StrategyDSL);
   const summaryChips = buildStrategySummaryChips(selectedSummary);
+  // 드롭다운 선택이든 고정 전략이든 아래 화면은 같은 한 벌로 그린다.
+  const boundStrategy = presetStrategy
+    ? {
+        name: presetStrategy.name,
+        description: presetStrategy.description,
+        chips: [] as string[],
+        rows: presetStrategy.summaryRows ?? [],
+      }
+    : selectedStrategy
+    ? {
+        name: selectedStrategy.name,
+        description: selectedStrategy.description,
+        chips: summaryChips,
+        rows: [] as { label: string; values: string[] }[],
+      }
+    : null;
 
   const accountLimitReached =
     planInfo !== null && planInfo.accountsUsed >= planInfo.accountsLimit;
@@ -93,7 +137,7 @@ export default function CreateAccountModal({
       return;
     }
 
-    if (!selectedStrategyId) {
+    if (!presetStrategy && !selectedStrategyId) {
       setError(t("전략을 선택해주세요."));
       return;
     }
@@ -107,8 +151,8 @@ export default function CreateAccountModal({
       await onCreate(
         name.trim(),
         initialInvestment,
-        isNoStrategySelected ? undefined : selectedStrategyId,
-        isNoStrategySelected ? undefined : selectedStrategy?.name,
+        presetStrategy || isNoStrategySelected ? undefined : selectedStrategyId,
+        presetStrategy ? presetStrategy.name : isNoStrategySelected ? undefined : selectedStrategy?.name,
         isNoStrategySelected ? "manual" : tradingMode
       );
       setName("");
@@ -116,8 +160,13 @@ export default function CreateAccountModal({
       setTradingMode("manual");
       setIsPromptVisible(false);
       onClose();
-    } catch {
-      setError(t("계좌 생성에 실패했습니다. 잠시 후 다시 시도해 주세요."));
+    } catch (e) {
+      // 부모가 이유를 담아 던지면(전략 저장 한도 등) 그 문구를 그대로 보여준다.
+      setError(
+        e instanceof Error && e.message
+          ? e.message
+          : t("계좌 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.")
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -190,6 +239,7 @@ export default function CreateAccountModal({
             )}
           </div>
 
+          {presetStrategy ? null : (
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
               {t("전략 선택")}
@@ -269,19 +319,20 @@ export default function CreateAccountModal({
               )}
             </div>
           </div>
+          )}
 
-          {selectedStrategy && (
+          {boundStrategy && (
             <div className="rounded-lg border border-white/[0.08] bg-[#171717] p-3">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-white">
+                  <p className="text-xs font-semibold text-gray-500">
                     {t("운용 전략")}
                   </p>
-                  <p className="mt-0.5 text-xs text-gray-500">
-                    {t("선택한 전략의 핵심 조건을 먼저 확인합니다.")}
+                  <p data-testid="bound-strategy-name" className="mt-0.5 text-sm font-semibold text-white">
+                    {boundStrategy.name}
                   </p>
                 </div>
-                {selectedStrategy.description && (
+                {boundStrategy.description && (
                   <button
                     type="button"
                     onClick={() => {
@@ -296,9 +347,29 @@ export default function CreateAccountModal({
                 )}
               </div>
 
-              {summaryChips.length > 0 && (
+              {boundStrategy.rows.length > 0 ? (
+                /* 결과 화면 '내 전략' 팝오버와 같은 규칙 — 라벨 열을 고정한 그리드에 값을
+                   한 줄에 하나씩 쌓아 세로줄을 맞춘다. */
+                <dl data-testid="bound-strategy-rows" className="border-t border-white/[0.06] pt-1">
+                  {boundStrategy.rows.map((row) => (
+                    <div
+                      key={row.label}
+                      className="grid grid-cols-[64px_minmax(0,1fr)] gap-3 py-1.5 text-xs leading-relaxed"
+                    >
+                      <dt className="break-keep font-bold text-gray-500">{row.label}</dt>
+                      <dd className="min-w-0 break-keep font-bold text-gray-200">
+                        <span className="flex flex-col gap-0.5">
+                          {row.values.map((value, i) => (
+                            <span key={`${value}-${i}`}>{value}</span>
+                          ))}
+                        </span>
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : boundStrategy.chips.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
-                  {summaryChips.map((chip) => (
+                  {boundStrategy.chips.map((chip) => (
                     <span
                       key={chip}
                       className="rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1.5 text-xs font-semibold text-gray-200"
@@ -307,23 +378,29 @@ export default function CreateAccountModal({
                     </span>
                   ))}
                 </div>
-              )}
+              ) : null}
 
-              {isPromptVisible && selectedStrategy.description && (
+              {isPromptVisible && boundStrategy.description && (
                 <div className="mt-3 rounded-lg border border-white/[0.08] bg-[#111111] p-3">
                   <p className="mb-1 text-xs font-semibold text-gray-500">
                     {t("사용자 프롬프트")}
                   </p>
                   <p className="whitespace-pre-wrap text-sm leading-6 text-gray-300">
-                    {selectedStrategy.description}
+                    {boundStrategy.description}
                   </p>
                 </div>
               )}
             </div>
           )}
 
-          {/* 매매 모드 선택 — 전략을 선택했을 때만 표시 */}
-          {selectedStrategyId && !isNoStrategySelected && (
+          {presetStrategy && (
+            <p className="text-xs leading-5 text-gray-500">
+              {t("방금 백테스트한 전략이 이 계좌의 운용 전략이 됩니다. 아직 저장 전이라면 계좌를 만들 때 내 전략에 함께 저장됩니다.")}
+            </p>
+          )}
+
+          {/* 매매 모드 선택 — 전략이 정해졌을 때만 표시 */}
+          {(presetStrategy || (selectedStrategyId && !isNoStrategySelected)) && (
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
                 {t("매매 방식")}
