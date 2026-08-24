@@ -513,3 +513,113 @@ def test_growth_unchanged_for_usd_reporters():
     cf = pd.DataFrame({c: [10.0] for c in cols}, index=["Operating Cash Flow"])
     out = us.build_annual_growth(inc, cf, None)
     assert out.loc[cols[1], "revenue_growth"] == pytest.approx(20.0)
+
+
+# ── 일일 증분(--update): append_daily_rows ─────────────────────────────────────
+
+
+def _stored_frame(dates=("2026-08-19", "2026-08-20", "2026-08-21"), close=(10.0, 10.5, 11.0)):
+    """COLUMNS 스키마의 최소 저장 프레임 — 파생 검증에 필요한 재무 값만 채운다."""
+    n = len(dates)
+    df = pd.DataFrame({c: [np.nan] * n for c in us.COLUMNS})
+    df["date"] = pd.DatetimeIndex(dates).astype("datetime64[us]")
+    df["close"] = list(close)
+    df["open"] = df["high"] = df["low"] = df["close"]
+    df["volume"] = 1000.0
+    df["change"] = pd.Series(close).pct_change() * 100.0
+    df["sector"] = "Information Technology"
+    df["dividends"] = 0.0
+    df["eps"] = 2.0
+    df["bps"] = 5.0
+    df["sps"] = 4.0
+    df["market_cap"] = df["close"] * 1e9 / us.EOK      # 주식수 10억 주
+    df["ev"] = df["market_cap"] + 50.0                  # 순부채 50억달러
+    df["ebitda"] = 10.0
+    df["ebit"] = 8.0
+    df["operating_cash_flow"] = 2e9
+    df["net_income"] = 7.0
+    df["eps_growth_status"] = "TURN_POSITIVE"
+    for c in us.STATUS_COLUMNS:
+        df[c] = df[c].astype("string")
+    return df[us.COLUMNS]
+
+
+def _bars(rows: dict) -> pd.DataFrame:
+    """{date: (close, dividend, split)} → yf.download 형태의 일봉 프레임."""
+    idx = pd.DatetimeIndex(list(rows))
+    closes = [v[0] for v in rows.values()]
+    return pd.DataFrame({
+        "Open": closes, "High": closes, "Low": closes, "Close": closes,
+        "Volume": [2000.0] * len(idx),
+        "Dividends": [v[1] for v in rows.values()],
+        "Stock Splits": [v[2] for v in rows.values()],
+    }, index=idx)
+
+
+def test_append_adds_rows_and_recomputes_price_derived_columns():
+    stored = _stored_frame()
+    bars = _bars({"2026-08-21": (11.0, 0.0, 0.0), "2026-08-24": (12.1, 0.0, 0.0)})
+    out = us.append_daily_rows(stored, bars)
+    assert len(out) == 4
+    assert list(out.columns) == us.COLUMNS
+    assert str(out["date"].dtype) == "datetime64[us]"
+    row = out.iloc[-1]
+    assert row["close"] == pytest.approx(12.1)
+    assert row["change"] == pytest.approx(10.0)                       # 11.0 → 12.1
+    assert row["market_cap"] == pytest.approx(12.1 * 1e9 / us.EOK)    # 역산 주식수 10억 주
+    assert row["per"] == pytest.approx(12.1 / 2.0)
+    assert row["pbr"] == pytest.approx(12.1 / 5.0)
+    assert row["psr"] == pytest.approx(12.1 / 4.0)
+    assert row["ev"] == pytest.approx(12.1 * 1e9 / us.EOK + 50.0)     # 순부채 상수 유지
+    assert row["ev_ebitda"] == pytest.approx(row["ev"] / 10.0)
+    assert row["pcr"] == pytest.approx(row["market_cap"] * us.EOK / 2e9)
+
+
+def test_append_carries_fundamentals_and_status_forward():
+    stored = _stored_frame()
+    bars = _bars({"2026-08-21": (11.0, 0.0, 0.0), "2026-08-24": (12.0, 0.0, 0.0)})
+    out = us.append_daily_rows(stored, bars)
+    row = out.iloc[-1]
+    assert row["eps"] == 2.0
+    assert row["net_income"] == 7.0
+    assert row["sector"] == "Information Technology"
+    assert row["eps_growth_status"] == "TURN_POSITIVE"
+    assert str(out["eps_growth_status"].dtype) == "string"
+
+
+def test_append_without_new_bars_returns_stored_unchanged():
+    stored = _stored_frame()
+    bars = _bars({"2026-08-20": (10.5, 0.0, 0.0), "2026-08-21": (11.0, 0.0, 0.0)})
+    out = us.append_daily_rows(stored, bars)
+    assert len(out) == len(stored)
+
+
+def test_append_requests_full_refresh_on_split():
+    """새 구간에 분할이 있으면 과거 전체가 소급 조정되므로 이어붙이면 안 된다."""
+    stored = _stored_frame()
+    bars = _bars({"2026-08-21": (11.0, 0.0, 0.0), "2026-08-24": (3.0, 0.0, 4.0)})
+    assert us.append_daily_rows(stored, bars) is None
+
+
+def test_append_requests_full_refresh_on_overlap_close_drift():
+    """겹침일 종가가 저장분과 어긋나면(소급 수정) 전량 재수집."""
+    stored = _stored_frame()
+    bars = _bars({"2026-08-21": (5.5, 0.0, 0.0), "2026-08-24": (5.6, 0.0, 0.0)})
+    assert us.append_daily_rows(stored, bars) is None
+
+
+def test_append_requests_full_refresh_when_overlap_day_missing():
+    """저장분 마지막 거래일이 다운로드 구간에 없으면 연속성을 검증할 수 없다."""
+    stored = _stored_frame()
+    bars = _bars({"2026-08-24": (12.0, 0.0, 0.0)})
+    assert us.append_daily_rows(stored, bars) is None
+
+
+def test_append_dividend_on_new_day_updates_ttm_columns():
+    stored = _stored_frame()
+    bars = _bars({"2026-08-21": (11.0, 0.0, 0.0), "2026-08-24": (12.0, 0.5, 0.0)})
+    out = us.append_daily_rows(stored, bars)
+    row = out.iloc[-1]
+    assert row["dividends"] == pytest.approx(0.5)
+    assert row["dividend_yield"] == pytest.approx(0.5 / 12.0 * 100.0)   # 저장분 배당 0 + 새 0.5
+    assert row["payout_rate"] == pytest.approx(0.5 / 2.0 * 100.0)

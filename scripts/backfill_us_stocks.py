@@ -39,6 +39,16 @@
   python scripts/backfill_us_stocks.py                 # S&P 500 전체 (기존 파일 스킵)
   python scripts/backfill_us_stocks.py --symbols AAPL,MSFT
   python scripts/backfill_us_stocks.py --limit 5 --force
+  python scripts/backfill_us_stocks.py --update        # 일일 증분 (scheduler_us.py가 매일 07:00 KST 실행)
+
+일일 증분(--update):
+  전량 재수집(--force)은 종목당 ~5초 × 5,947종목 ≈ 9시간이라 매일 돌릴 수 없다. --update는
+  벌크 다운로드(yf.download, 배치당 1요청)로 최근 구간만 받아 기존 파케이 뒤에 이어 붙인다.
+  - 가격 파생 컬럼(change·market_cap·per·pbr·psr·pcr·ev*·배당 4종)은 새 종가로 재계산,
+    재무 컬럼은 마지막 행을 이어 쓴다(전량 백필의 분기 사이 ffill과 같은 의미).
+  - 새 구간에 분할이 있거나 겹침일 종가가 저장분과 어긋나면(소급 수정) 그 종목만 전량 재수집.
+  - 새 분기 재무 반영과 STALE_CAP_DAYS 만료는 증분이 못 한다 — 재무는 분기 주기로 갱신한다:
+    미국 스케줄러(scripts/scheduler_us.py)가 12주마다 일요일 09:00 KST에 --force를 돌린다.
 """
 
 from __future__ import annotations
@@ -765,6 +775,181 @@ def detect_currencies(master: list, by_symbol: dict, symbols: list, sleep_s: flo
     return 0
 
 
+# ---------------------------------------------------------------- 일일 증분 갱신
+
+UPDATE_WINDOW_DAYS = 45   # 벌크 다운로드 조회 구간 — 겹침 검증·배당 TTM 이어붙이기에 충분한 길이
+UPDATE_BATCH_SIZE = 100   # yf.download 배치당 종목 수
+DRIFT_TOL = 0.001         # 겹침일 종가 상대 오차 허용치 — 초과면 소급 조정으로 보고 전량 재수집
+_DIV_TAIL_DAYS = 800      # 배당 TTM·전년 TTM 재계산에 필요한 저장분 꼬리(365+365+여유)
+
+
+def append_daily_rows(stored: pd.DataFrame, bars: pd.DataFrame) -> pd.DataFrame | None:
+    """저장 파케이 뒤에 새 일봉을 이어 붙인 프레임을 돌려준다.
+
+    가격 파생 컬럼은 재계산하고 재무 컬럼은 마지막 행을 이어 쓴다(분기 사이 ffill과 동일).
+    새 구간에 분할이 있거나 겹침일 종가가 어긋나면(소급 수정) None — 호출자가 전량 재수집한다.
+    새 봉이 없으면 stored를 그대로 반환한다.
+    """
+    bars = bars.copy()
+    idx = pd.DatetimeIndex(bars.index.tz_localize(None) if getattr(bars.index, "tz", None) else bars.index)
+    bars.index = idx.normalize()
+    bars = bars[~bars.index.duplicated(keep="last")].sort_index()
+    bars = bars[bars["Close"].notna()]  # Yahoo 구멍(OHLC 전부 NaN)은 거래일이 아니다 — 전량 백필과 같은 규약
+
+    last_date = pd.Timestamp(stored["date"].iloc[-1])
+    last = stored.iloc[-1]
+    new_bars = bars[bars.index > last_date]
+    if new_bars.empty:
+        return stored
+
+    # 새 구간에 분할이 있으면 과거 전체가 소급 조정된다(주식수·종가 모두) — 이어붙이기 불가.
+    splits = new_bars.get("Stock Splits")
+    if splits is not None and (splits.fillna(0.0) > 0).any():
+        return None
+    # 겹침일 검증: 저장분 마지막 거래일이 다운로드 구간에 있어야 하고 종가가 일치해야 한다.
+    # 어긋나면 분할·소급 수정이 있었던 것이므로 이어붙이면 과거와 새 구간의 기준이 갈린다.
+    if last_date not in bars.index:
+        return None
+    last_close = float(last["close"])
+    if last_close <= 0 or abs(float(bars.loc[last_date, "Close"]) - last_close) > last_close * DRIFT_TOL:
+        return None
+
+    new = pd.DataFrame(index=new_bars.index)
+    new["open"] = new_bars["Open"].astype(float)
+    new["high"] = new_bars["High"].astype(float)
+    new["low"] = new_bars["Low"].astype(float)
+    new["close"] = new_bars["Close"].astype(float)
+    new["volume"] = new_bars["Volume"].astype(float)
+    closes = pd.concat([pd.Series([last_close], index=[last_date]), new["close"]])
+    new["change"] = (closes.pct_change() * 100.0).iloc[1:]
+    new["sector"] = last["sector"]
+
+    def const(v) -> pd.Series:
+        return pd.Series(v, index=new.index, dtype=float)
+
+    # 시총: 마지막 행에서 역산한 분할수정 주식수 × 새 종가 (분할은 위에서 전량 재수집으로 빠졌다).
+    last_mc = float(last["market_cap"]) if pd.notna(last["market_cap"]) else np.nan
+    shares = last_mc * EOK / last_close if np.isfinite(last_mc) else np.nan
+    new["market_cap"] = new["close"] * shares / EOK
+
+    # 배당: 저장분 꼬리 + 새 배당락으로 TTM·수익률·성장률을 전량 백필과 같은 식으로 재계산.
+    div_new = new_bars.get("Dividends")
+    div_new = div_new.fillna(0.0).astype(float) if div_new is not None else pd.Series(0.0, index=new.index)
+    new["dividends"] = div_new
+    tail = stored[stored["date"] > last_date - pd.Timedelta(days=_DIV_TAIL_DAYS)]
+    div_all = pd.concat([
+        pd.Series(tail["dividends"].fillna(0.0).to_numpy(), index=pd.DatetimeIndex(tail["date"])),
+        div_new,
+    ])
+    div_ttm_all = div_all.rolling("365D").sum()
+    div_ttm = div_ttm_all.reindex(new.index)
+    new["dividend_yield"] = (div_ttm / new["close"] * 100.0).where(new["close"] > 0)
+    prior_ttm = div_ttm_all.reindex(new.index.shift(-365, freq="D"), method="ffill")
+    prior_ttm.index = new.index
+    new["dividend_growth"] = ((div_ttm / prior_ttm - 1.0) * 100.0).where(prior_ttm > 0)
+
+    # 가격배수: 재무(분모)는 마지막 행 값 그대로, 가격(분자)만 갱신 — build_daily_frame과 같은 식.
+    new["per"] = safe_div(new["close"], const(last["eps"]))
+    new["pbr"] = safe_div(new["close"], const(last["bps"]))
+    new["psr"] = safe_div(new["close"], const(last["sps"]))
+    new["pcr"] = safe_div(new["market_cap"] * EOK, const(last["operating_cash_flow"]))
+    new["payout_rate"] = safe_div(div_ttm, const(last["eps"]), 100.0)
+    # EV = 시총 + 순부채. 순부채(= 저장분 ev − 시총)는 분기 사이 상수다.
+    net_debt = float(last["ev"]) - last_mc if pd.notna(last["ev"]) and np.isfinite(last_mc) else np.nan
+    new["ev"] = new["market_cap"] + net_debt
+    new["ev_ebitda"] = safe_div(new["ev"], const(last["ebitda"]))
+    new["ev_ebit"] = safe_div(new["ev"], const(last["ebit"]))
+
+    # 나머지(재무·성장률·상태 컬럼)는 마지막 행을 이어 쓴다.
+    for c in COLUMNS:
+        if c != "date" and c not in new.columns:
+            new[c] = last[c]
+
+    new.index.name = "date"
+    new = new.reset_index()
+    new["date"] = new["date"].astype("datetime64[us]")
+    out = pd.concat([stored, new[COLUMNS]], ignore_index=True)
+    for c in STATUS_COLUMNS:
+        out[c] = out[c].astype("string")
+    return out
+
+
+def _full_refresh(sym: str, by_symbol: dict) -> int:
+    """한 종목을 전량 재수집해 저장한다. 저장한 행 수 반환(실패는 예외)."""
+    hist, qdf, shares, meta, adf = fetch_symbol(sym, by_symbol.get(sym, {}).get("cik"))
+    sector = by_symbol.get(sym, {}).get("sector", "")
+    df = build_daily_frame(hist, qdf, shares, sector or meta["sector"], adf)
+    df.to_parquet(OUT_DIR / f"{sym}.parquet", index=False)
+    return len(df)
+
+
+def update_existing(symbols: list[str], by_symbol: dict, sleep_s: float) -> int:
+    """기존 파케이 전체에 최근 시세를 이어 붙인다(일일 증분). 파케이 없는 종목은 건너뛴다."""
+    import yfinance as yf
+
+    targets = [s for s in symbols if (OUT_DIR / f"{s}.parquet").exists()]
+    no_file = len(symbols) - len(targets)
+    start = (pd.Timestamp.now().normalize() - pd.Timedelta(days=UPDATE_WINDOW_DAYS)).date().isoformat()
+    print(f"일일 증분 시작: 대상 {len(targets)}종목 (파케이 없음 {no_file}종목 제외), {start}~")
+
+    appended = unchanged = refreshed = 0
+    no_data: list[str] = []
+    failed: list[str] = []
+    for pos in range(0, len(targets), UPDATE_BATCH_SIZE):
+        batch = targets[pos:pos + UPDATE_BATCH_SIZE]
+        data = None
+        for attempt in range(3):
+            try:
+                data = yf.download(batch, start=start, auto_adjust=False, actions=True,
+                                   group_by="ticker", progress=False, threads=True)
+                break
+            except Exception as exc:
+                wait = 30 * (attempt + 1)
+                print(f"  배치 다운로드 실패({exc}) — {wait}초 후 재시도 {attempt + 1}/3")
+                time.sleep(wait)
+        if data is None or data.empty:
+            failed.extend(batch)
+            continue
+        multi = isinstance(data.columns, pd.MultiIndex)
+        for sym in batch:
+            try:
+                bars = data[sym] if multi else data
+            except KeyError:
+                no_data.append(sym)
+                continue
+            if bars["Close"].dropna().empty:
+                no_data.append(sym)  # 상폐·거래정지 등 — 구간에 시세 없음
+                continue
+            out_path = OUT_DIR / f"{sym}.parquet"
+            try:
+                stored = pd.read_parquet(out_path)
+                updated = append_daily_rows(stored, bars)
+                if updated is None:
+                    rows = _full_refresh(sym, by_symbol)
+                    refreshed += 1
+                    print(f"  {sym}: 분할·소급 수정 감지 — 전량 재수집({rows}행)")
+                elif len(updated) == len(stored):
+                    unchanged += 1
+                else:
+                    updated.to_parquet(out_path, index=False)
+                    appended += 1
+            except Exception as exc:
+                failed.append(sym)
+                print(f"  {sym}: 실패({exc})")
+        done = min(pos + UPDATE_BATCH_SIZE, len(targets))
+        print(f"[{done}/{len(targets)}] 추가 {appended} · 최신 {unchanged} · 재수집 {refreshed} "
+              f"· 시세없음 {len(no_data)} · 실패 {len(failed)}")
+        time.sleep(sleep_s)
+
+    print(f"\n증분 완료: 추가 {appended} · 이미 최신 {unchanged} · 전량 재수집 {refreshed} "
+          f"· 시세없음 {len(no_data)} · 실패 {len(failed)}")
+    if no_data:
+        print("시세없음(상폐·정지 추정):", ", ".join(no_data[:30]) + (" …" if len(no_data) > 30 else ""))
+    if failed:
+        print("실패 종목:", ", ".join(failed))
+    return 1 if failed else 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--symbols", help="쉼표 구분 티커 (기본: 마스터 전체)")
@@ -772,6 +957,8 @@ def main() -> int:
                     help="sp500=S&P 500만, all=미국 전 상장 보통주(ETF·우선주 제외)")
     ap.add_argument("--limit", type=int, help="앞에서 N종목만")
     ap.add_argument("--force", action="store_true", help="기존 파케이 덮어쓰기")
+    ap.add_argument("--update", action="store_true",
+                    help="일일 증분: 기존 파케이에 최근 시세만 이어 붙인다(재무는 마지막 값 유지)")
     ap.add_argument("--sleep", type=float, default=0.6, help="종목 간 대기(초)")
     ap.add_argument("--detect-currency", action="store_true",
                     help="시세·재무를 받지 않고 재무제표 통화만 조사해 마스터에 기록(이어받기 가능)")
@@ -799,6 +986,9 @@ def main() -> int:
 
     if args.detect_currency:
         return detect_currencies(master, by_symbol, symbols, args.sleep)
+
+    if args.update:
+        return update_existing(symbols, by_symbol, args.sleep)
 
     ok = skip = fail = 0
     failed: list[str] = []
