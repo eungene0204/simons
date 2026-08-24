@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cache } from '@/lib/cache'
 import { loadStockList } from '@/lib/krx-stocks'
+import { loadUsStockList } from '@/lib/us-stocks'
 import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices'
 import { prisma } from '@/lib/prisma'
 import {
@@ -178,9 +179,20 @@ export async function GET(
       })(),
     ]);
 
-    const stockName = koreaStocksResult.stockName;
-    const stockSector = koreaStocksResult.stockSector;
+    let stockName = koreaStocksResult.stockName;
+    let stockSector = koreaStocksResult.stockSector;
     const stockMarket = koreaStocksResult.stockMarket;
+
+    // 한국 마스터에 없는 심볼은 미국 마스터(data/us-stocks.json)에서 이름·섹터를 찾는다
+    if (!stockName) {
+      const usStock = await loadUsStockList()
+        .then((list) => list.find((s) => s.symbol === symbol))
+        .catch(() => undefined);
+      if (usStock) {
+        stockName = usStock.name_kr || usStock.name;
+        stockSector = usStock.sector || "";
+      }
+    }
 
     const companyNameForLookup = pickStockName(
       symbol,

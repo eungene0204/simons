@@ -126,6 +126,9 @@ class TestMarketDataProvider:
         mdp.providers = providers
         # 테스트에서는 ws_provider 미설정 (환경변수 없음) → WS 경로 건너뜀
         mdp.ws_provider = KISWebSocketProvider()
+        # 미국 레인 provider — 테스트 환경변수 없음 → 미설정으로 건너뜀
+        from engine.providers.toss_us import TossUSProvider
+        mdp.us_provider = TossUSProvider()
         mdp._health = {}
         for p in providers:
             from engine.providers.base import ProviderHealth

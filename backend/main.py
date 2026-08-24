@@ -34,6 +34,8 @@ from nl_cache import nl_cache_key
 from stream_progress import build_backtest_stream_status, simulation_phase_label
 import cancellation
 import ui_language
+from us_ohlcv import load_us_ohlcv
+from engine.providers.toss_us import is_us_symbol, us_master_entry
 from engine.watchdog import (
     BacktestTimeoutError,
     backtest_timeout_s,
@@ -428,6 +430,12 @@ async def walk_forward_stream(request: WalkForwardRequest):
 def get_stock_ohlcv(symbol: str, limit: int = 1260):
     try:
         df = engine.loader.load_symbol_data(symbol)  # polars DataFrame
+        if df is None:
+            # 한국 파케이에 없는 심볼 — 미국 데이터(data/ohlcv-us) 폴백 (차트/시세 표시 전용)
+            us_response = load_us_ohlcv(symbol, limit)
+            if us_response is not None:
+                return us_response
+            raise FileNotFoundError(symbol)
         df_tail = df.tail(limit)
 
         candles = []
@@ -479,6 +487,46 @@ async def market_price(symbol: str):
     return result.to_dict()
 
 
+def _build_us_stock_detail_payload(symbol: str, info, master, quote) -> dict:
+    """미국 종목 상세 payload — 토스 종목정보 + 마스터(us-stocks.json) + 토스 시세.
+
+    KIS·한국 공공데이터를 쓰지 않으므로 대표자·사업자번호 등 국내 법인 필드는 없다
+    (없는 값은 비워서 내려보낸다 — 잘못된 국내 회사 정보보다 공란이 옳다).
+    """
+    info = info or {}
+    master = master or {}
+
+    name = info.get("name") or master.get("name_kr") or master.get("name") or symbol
+    english_name = master.get("name") or info.get("englishName") or ""
+    listing_date = re.sub(r"\D", "", str(info.get("listDate") or master.get("listed_date") or ""))
+
+    shares = info.get("sharesOutstanding") or master.get("shares_outstanding") or 0
+    try:
+        shares = int(float(shares))
+    except (TypeError, ValueError):
+        shares = 0
+
+    price = float(quote.close) if quote else 0.0
+    market_cap = int(shares * price) if shares and price > 0 else None
+
+    return {
+        "symbol": symbol,
+        "name": name,
+        "currentPrice": price or None,
+        "previousClose": (quote.prev_close if quote else 0) or None,
+        "changePercent": quote.change_rate if quote else None,
+        "volume": quote.volume if quote else 0,
+        "marketCap": market_cap,
+        "listingDate": listing_date or None,
+        "sector": master.get("sector") or "",
+        "industry": master.get("industry") or "",
+        "description": "",
+        "companyBasic": {"englishName": english_name} if english_name else None,
+        "summaryFinancials": None,
+        "source": "toss_stock_info",
+    }
+
+
 @app.get("/market/stock-detail/{symbol}")
 async def market_stock_detail(
     symbol: str,
@@ -490,7 +538,27 @@ async def market_stock_detail(
     """
     KIS 상세 현재가 조회.
     시가총액/거래량 등 종목 매매 페이지용 실데이터를 우선 제공한다.
+    미국 티커는 토스 Open API 종목정보 + 마스터로 응답한다 — KIS·한국 공공데이터
+    (기업기본정보 API)는 한국 법인 전용이라 미국 심볼을 넣으면 엉뚱한 국내 회사에
+    매칭되는 오염이 발생한다 (2026-08-24 AAPL→DB Inc. 사고).
     """
+    if is_us_symbol(symbol):
+        master = us_master_entry(symbol)
+        # 종목정보는 정적 데이터 — 백필된 마스터(name_kr 보유)면 API를 호출하지 않는다.
+        # 미백필 종목(토스 미조회 SPAC류 등)만 토스 종목정보 API로 폴백.
+        if master and master.get("name_kr"):
+            info = None
+            us_quote = await market_data_provider.get_price(symbol)
+        else:
+            info_map, us_quote = await asyncio.gather(
+                market_data_provider.us_provider.get_stock_info([symbol]),
+                market_data_provider.get_price(symbol),
+            )
+            info = info_map.get(symbol)
+        if not info and not master and not us_quote:
+            raise HTTPException(status_code=404, detail=f"{symbol} 종목정보를 찾을 수 없습니다")
+        return _build_us_stock_detail_payload(symbol, info, master, us_quote)
+
     quote, app_key, app_secret, token = await _resolve_kis_orderbook_context(symbol)
 
     async def _fetch_public_info_or_none():
@@ -1329,9 +1397,11 @@ def _fetch_company_basic_from_public_api(
         params,
     )
     # 이름 검색 결과 없으면 한글 부분만 추출해서 재시도 (예: "SK하이닉스" → "하이닉스")
+    # 한글이 전혀 없으면 재시도하지 않는다 — 영문명(예: "Apple Inc.")에서 문장부호만
+    # 남은 문자열(".")로 검색하면 무관한 국내 회사 100건이 반환돼 오염 매칭된다.
     if not items and company_name and not crno:
         korean_part = re.sub(r"[A-Za-z0-9&\s]+", "", company_name).strip()
-        if korean_part and korean_part != company_name:
+        if korean_part and korean_part != company_name and re.search(r"[가-힣]", korean_part):
             items = _fetch_public_data_items(
                 "https://apis.data.go.kr/1160100/service/GetCorpBasicInfoService_V2/getCorpOutline_V2",
                 {"numOfRows": 100, "pageNo": 1, "corpNm": korean_part},
