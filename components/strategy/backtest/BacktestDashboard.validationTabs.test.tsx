@@ -26,7 +26,7 @@ vi.mock("./WalkForwardModal", () => ({
 }));
 vi.mock("@/components/ui/CreateAccountModal", () => ({ default: () => null }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), usePathname: () => "/" }));
 
 import BacktestDashboard from "./BacktestDashboard";
 

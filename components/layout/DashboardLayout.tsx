@@ -9,6 +9,7 @@ import {
   memo,
 } from "react";
 import { usePathname } from "next/navigation";
+import { stripRegionPrefix } from "@/lib/geo/region";
 
 // 주문 페이지 컨텍스트
 interface OrderContextType {
@@ -92,7 +93,7 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
             paddingTop: `${topMenuBarHeight}px`,
           }}
         >
-          <div className={`relative ${pathname === "/dashboard" ? dashboardFillClass : ""}`}>
+          <div className={`relative ${stripRegionPrefix(pathname ?? "") === "/dashboard" ? dashboardFillClass : ""}`}>
             {children}
           </div>
           

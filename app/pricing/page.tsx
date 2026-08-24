@@ -6,8 +6,16 @@ import { getPlan } from "@/lib/plans";
 import PricingPlans from "@/components/pricing/PricingPlans";
 import { t } from "@/lib/i18n";
 import { getRequestLanguage } from "@/lib/i18n/server";
+import { getRequestRegion } from "@/lib/geo/server";
+import UsPricingPage from "@/components/pricing/us/UsPricingPage";
 
 export default async function PricingPage() {
+  // 글로벌 서비스(/us/pricing)는 영어·USD 전용 트리로 완전히 분리한다 —
+  // 아래 한국(토스페이먼츠) 경로는 심사 중이라 그대로 둔다.
+  if (getRequestRegion() === "us") {
+    return <UsPricingPage />;
+  }
+
   const user = await getCurrentUser();
   if (!user) {
     redirect("/");

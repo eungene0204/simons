@@ -1,4 +1,10 @@
 import { fetch as undiciFetch, Agent } from "undici";
+import {
+  isRegion,
+  REGION_COOKIE,
+  REGION_HEADER,
+  REGION_LANGUAGE,
+} from "@/lib/geo/region";
 
 const DEFAULT_BACKEND_URLS = [
   "http://localhost:8000",
@@ -40,14 +46,16 @@ function combineSignals(callerSignal: AbortSignal | null | undefined, timeoutMs:
   return combined.signal;
 }
 
-// 요청 쿠키의 UI 언어를 백엔드에 X-UI-Language 헤더로 넘긴다 — 백엔드 LLM 자유 서술(되묻기
-// 질문·리포트·일반 답변)의 언어 지시에 쓰인다. 라우트 핸들러 밖(요청 컨텍스트 없음)이면 생략.
+// 요청 지역(미들웨어 헤더, API 라우트는 지역 쿠키 폴백)의 UI 언어를 백엔드에 X-UI-Language
+// 헤더로 넘긴다 — 백엔드 LLM 자유 서술(되묻기 질문·리포트·일반 답변)의 언어 지시에 쓰인다.
+// 라우트 핸들러 밖(요청 컨텍스트 없음)이면 생략.
 function uiLanguageHeader(): Record<string, string> {
   try {
     // 정적 import를 피한다 — 이 모듈은 요청 컨텍스트 밖(스케줄러 등)에서도 쓰이므로 필요할 때만 읽는다.
-    const { cookies } = require("next/headers") as typeof import("next/headers");
-    const value = cookies().get("nullstock.lang")?.value;
-    return value === "en" || value === "ko" ? { "X-UI-Language": value } : {};
+    const { cookies, headers } = require("next/headers") as typeof import("next/headers");
+    const headerValue = headers().get(REGION_HEADER);
+    const region = isRegion(headerValue) ? headerValue : cookies().get(REGION_COOKIE)?.value;
+    return isRegion(region) ? { "X-UI-Language": REGION_LANGUAGE[region] } : {};
   } catch {
     return {};
   }

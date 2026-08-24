@@ -54,6 +54,7 @@ import { buildRealizedPerformanceSeries } from "@/app/virtual-account/performanc
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
 import type { StrategyDSL } from "@/types/strategy";
 import { getLocale, t } from "@/lib/i18n";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 type AccountDetailCache = {
   account: VirtualAccount;
@@ -113,6 +114,7 @@ function writeAccountDetailCache(
 
 export default function VirtualAccountDetailPage() {
   const router = useRouter();
+  const regionHref = useRegionHref();
   const params = useParams();
   const accountId = params.id as string;
 
@@ -503,7 +505,7 @@ export default function VirtualAccountDetailPage() {
   };
 
   const handleStockSelect = (symbol: string, name: string) => {
-    router.push(`/stock-order?symbol=${symbol}&name=${encodeURIComponent(name)}`);
+    router.push(regionHref(`/stock-order?symbol=${symbol}&name=${encodeURIComponent(name)}`));
   };
 
   const handleAutoTradingClick = async () => {
@@ -889,7 +891,7 @@ export default function VirtualAccountDetailPage() {
                   <button
                     onClick={() => {
                       forgetVirtualAccountDetail(accountId);
-                      router.push("/virtual-account");
+                      router.push(regionHref("/virtual-account"));
                     }}
                     className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-[var(--main-blue)] transition-all duration-200 hover:text-[var(--main-blue)]/80"
                   >
@@ -1493,7 +1495,7 @@ export default function VirtualAccountDetailPage() {
           onClose={() => setIsMissingStrategyModalOpen(false)}
           onCreateStrategy={() => {
             startCreateStrategyTransition(() => {
-              router.push("/analytics/new");
+              router.push(regionHref("/analytics/new"));
             });
           }}
         />

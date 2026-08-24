@@ -23,6 +23,7 @@ vi.mock("next/navigation", () => ({
     prefetch: vi.fn(),
     push: vi.fn(),
   }),
+  usePathname: () => "/virtual-account/account-123",
 }));
 
 vi.mock("@/components/layout/DashboardLayout", () => ({

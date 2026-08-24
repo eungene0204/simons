@@ -7,6 +7,8 @@ import { calculateAccountValue, moneyToNumber } from "@/lib/server/assetService"
 import { getUserUsage } from "@/lib/server/planLimits";
 import { t } from "@/lib/i18n";
 import { getRequestLanguage } from "@/lib/i18n/server";
+import { getRequestRegion } from "@/lib/geo/server";
+import { withRegionPath } from "@/lib/geo/region";
 
 function formatWon(value: number) {
   return t("{0}원", Math.round(value).toLocaleString("ko-KR"));
@@ -79,7 +81,7 @@ export default async function AssetsPage() {
                   </p>
                 </div>
                 <Link
-                  href="/pricing"
+                  href={withRegionPath(getRequestRegion(), "/pricing")}
                   className="self-start rounded-xl border border-white/[0.1] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-white/[0.06] md:self-auto"
                 >
                   {t("요금제 보기")}

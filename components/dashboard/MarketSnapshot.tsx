@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { stripRegionPrefix } from "@/lib/geo/region";
 import { CaretUp, CaretDown } from "phosphor-react";
 import type { MarketSnapshotItem } from "@/types/dashboard";
 import { t } from "@/lib/i18n";
@@ -63,17 +64,19 @@ export default function MarketSnapshot() {
     }
   };
 
+  const isDashboardPath = stripRegionPrefix(pathname ?? "") === "/dashboard";
+
   useEffect(() => {
-    if (pathname === "/dashboard") {
+    if (isDashboardPath) {
       return;
     }
 
     fetchData();
     const id = setInterval(fetchData, 30000);
     return () => clearInterval(id);
-  }, [pathname]);
+  }, [pathname, isDashboardPath]);
 
-  if (pathname === "/dashboard") {
+  if (isDashboardPath) {
     return null;
   }
 

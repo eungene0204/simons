@@ -135,6 +135,22 @@ Simons는 사용자가 자신만의 주식 투자 전략을 **설계 → 검증 
 | 중급 트레이더 | 기술적 분석 활용 | 자연어 전략 설계, 대화형 파라미터 조정 |
 | 고급 퀀트 | 알고리즘 트레이딩 연구 | AI 모델 결합, Optuna 최적화, XAI 분석 |
 
+### 2.4 지역 기반 서비스 구조
+
+KR/EN 언어 토글 대신 URL 경로로 지역 서비스를 나눈다.
+
+| 항목 | 한국 서비스 | 글로벌 서비스 |
+|------|------------|--------------|
+| URL | `www.nullstock.im` | `www.nullstock.im/us` |
+| 언어 | 한국어 전용 | 영어 전용 |
+| 지원 시장 | KOSPI·KOSDAQ·ETF·미국 주식 | NYSE·NASDAQ·AMEX·ETF |
+| 통화 | KRW | USD |
+| 결제 | Toss Payments | PayPal Checkout (Stripe 확장 대비) |
+
+- 최초 접속 시 국가 신호(CDN 국가 헤더 → Accept-Language 폴백)로 비한국 사용자를 `/us`로 자동 리다이렉트한다. 직접 입력한 URL과 이전에 방문한 지역(쿠키 `nullstock.region`)은 존중하며, 크롤러는 리다이렉트하지 않는다.
+- 백테스트 엔진은 지역별로 분리하지 않고 하나를 공유하며, 시장별 차이(캘린더·데이터 공급자·통화·심볼)만 추상화한다.
+- SEO(메타·hreflang·sitemap)와 가격(`lib/pricing/kr.ts`·`us.ts`)은 지역별로 관리한다.
+
 ---
 
 ## 3. 기능 요구사항

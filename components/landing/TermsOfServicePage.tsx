@@ -224,8 +224,9 @@ const createSections = (companyName: string, serviceName: string): TermsSection[
 ];
 
 export function TermsOfServicePage() {
-  const companyName = process.env.COMPANY_NAME || t("널스페이스");
-  const serviceName = process.env.SERVICE_NAME || t("널스탁");
+  // 회사·서비스명은 환경변수의 한국어 원문을 표시 지점 언어로 번역한다(영문 페이지=nullspace).
+  const companyName = t(process.env.COMPANY_NAME || "널스페이스");
+  const serviceName = t(process.env.SERVICE_NAME || "널스탁");
   const sections =
     getLanguage() === "en"
       ? createTermsSectionsEn(companyName, serviceName)
@@ -293,7 +294,7 @@ export function TermsOfServicePage() {
               {businessInfoItems.map((item) => (
                 <div key={item.label} className="contents">
                   <dt className="text-gray-500">{item.label}</dt>
-                  <dd className="text-gray-300">{item.value || t("미정")}</dd>
+                  <dd className="text-gray-300">{item.value ? t(item.value) : t("미정")}</dd>
                 </div>
               ))}
             </dl>

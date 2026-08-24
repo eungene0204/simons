@@ -15,6 +15,8 @@ import { flushSync } from "react-dom";
 import dynamic from "next/dynamic";
 import { createClient } from "@supabase/supabase-js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRegionHref } from "@/lib/geo/useRegion";
+import { stripRegionPrefix } from "@/lib/geo/region";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { StrategyExampleTabs } from "@/components/strategy/StrategyExampleTabs";
 import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
@@ -1678,9 +1680,11 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
 
 function StrategyLabContent() {
   const router = useRouter();
+  const regionHref = useRegionHref();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const isChatPage = pathname === "/analytics/chat" || searchParams.get("chat") === "1";
+  const isChatPage =
+    stripRegionPrefix(pathname ?? "") === "/analytics/chat" || searchParams.get("chat") === "1";
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [authState, setAuthState] = useState<AuthState>("loading");
@@ -4513,7 +4517,7 @@ function StrategyLabContent() {
       // 무시
     }
     if (isChatPage) {
-      router.push("/analytics");
+      router.push(regionHref("/analytics"));
     }
     setTimeout(() => chatInputRef.current?.focus(), 100);
   };
@@ -4941,7 +4945,11 @@ function StrategyLabContent() {
                             </div>
                             {msg.coachText && (
                               <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
-                                {parseCoachSegments(msg.coachText).map((seg, segIdx) =>
+                                {/* 표시 지점에서 번역한다 — coachText는 세션 스냅샷으로 복원될 수
+                                    있어(이전 지역에서 저장된 한국어 원문) 저장 시점 언어에 의존하면
+                                    /us에서 한국어가 그대로 보인다. 사전 미등록 문구(LLM 자유 서술·
+                                    조합 문구)는 t()가 원문을 그대로 돌려준다. */}
+                                {parseCoachSegments(t(msg.coachText)).map((seg, segIdx) =>
                                   seg.type === "link" ? (
                                     <a
                                       key={segIdx}
@@ -5126,7 +5134,7 @@ function StrategyLabContent() {
                 <span>{isStartingGoogleLogin ? t("로그인 준비 중...") : t("Google로 시작하기")}</span>
               </button>
               <a
-                href="/login"
+                href={regionHref("/login")}
                 className="flex items-center gap-2 rounded-full border border-white/[0.15] px-4 py-2 text-sm font-black text-white transition-colors duration-200 hover:bg-white/[0.08]"
               >
                 <EnvelopeSimple size={18} weight="bold" />

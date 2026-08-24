@@ -5,15 +5,13 @@ import {
   getLanguage,
   getLocale,
   hasTranslation,
-  persistLanguage,
   setLanguage,
   t,
 } from "@/lib/i18n";
 
 afterEach(() => {
   __resetLanguageForTests();
-  document.cookie = "nullstock.lang=; path=/; max-age=0";
-  window.localStorage.removeItem("nullstock.lang");
+  window.history.replaceState(null, "", "/");
 });
 
 describe("t()", () => {
@@ -46,23 +44,27 @@ describe("t()", () => {
   });
 });
 
-describe("언어 감지·영속", () => {
-  it("쿠키가 있으면 쿠키 언어로 초기화한다", () => {
-    document.cookie = "nullstock.lang=en; path=/";
+describe("언어 감지 — 경로 파생", () => {
+  it("/us 트리에서는 영어로 초기화한다", () => {
+    window.history.replaceState(null, "", "/us/backtest");
     expect(getLanguage()).toBe("en");
     expect(getLocale()).toBe("en-US");
   });
 
-  it("persistLanguage는 쿠키와 localStorage에 함께 남긴다", () => {
-    persistLanguage("en");
-    expect(document.cookie).toContain("nullstock.lang=en");
-    expect(window.localStorage.getItem("nullstock.lang")).toBe("en");
+  it("/us 자체 경로도 영어다", () => {
+    window.history.replaceState(null, "", "/us");
     expect(getLanguage()).toBe("en");
   });
 
-  it("쿠키·저장소가 없으면 한국어가 기본이다", () => {
+  it("한국 트리(기본)는 한국어다", () => {
+    window.history.replaceState(null, "", "/backtest");
     expect(getLanguage()).toBe("ko");
     expect(getLocale()).toBe("ko-KR");
+  });
+
+  it("/user 처럼 /us로 시작하기만 하는 경로는 한국 트리다", () => {
+    window.history.replaceState(null, "", "/user");
+    expect(getLanguage()).toBe("ko");
   });
 });
 

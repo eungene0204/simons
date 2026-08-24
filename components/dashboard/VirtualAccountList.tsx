@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { VirtualAccountListData } from "@/app/api/dashboard/virtual-account-list/route";
 import { t } from "@/lib/i18n";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 function formatKRW(v: number): string {
   const abs = Math.abs(v);
@@ -40,6 +41,7 @@ function StatusBadge({ status }: { status: "ACTIVE" | "CLOSED" }) {
 
 export default function VirtualAccountList({ initialData }: { initialData: VirtualAccountListData }) {
   const router = useRouter();
+  const regionHref = useRegionHref();
   const [data, setData] = useState<VirtualAccountListData>(initialData);
   const loading = false;
 
@@ -112,7 +114,7 @@ export default function VirtualAccountList({ initialData }: { initialData: Virtu
             <button
               key={a.id}
               type="button"
-              onClick={() => router.push(`/virtual-account/${a.id}`)}
+              onClick={() => router.push(regionHref(`/virtual-account/${a.id}`))}
               className="grid w-full grid-cols-[minmax(0,1fr)_120px_110px] gap-2 items-center px-2 py-3 text-left hover:bg-white/[0.02] rounded-xl transition-colors cursor-pointer"
             >
               {/* 계좌명 */}

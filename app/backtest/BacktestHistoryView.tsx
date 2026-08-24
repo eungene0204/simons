@@ -20,6 +20,7 @@ import {
   X,
 } from "phosphor-react";
 import { t } from "@/lib/i18n";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 type SortField = 'timestamp' | 'totalReturn' | 'cagr' | 'mdd' | 'profitFactor' | 'trades' | 'score';
 
@@ -43,6 +44,7 @@ function HistoryMetric({
 // 방금 저장한 기록이 빠진 목록을 보여주는 일로 이어지지 않는다.
 export default function BacktestHistoryView() {
   const router = useRouter();
+  const regionHref = useRegionHref();
   const cachedHistory = getCachedBacktestHistory();
   const [history, setHistory] = useState<BacktestHistoryItem[]>(cachedHistory ?? []);
   const [isLoading, setIsLoading] = useState(!cachedHistory);
@@ -155,7 +157,7 @@ export default function BacktestHistoryView() {
               <div className="pointer-events-none absolute -inset-x-8 -inset-y-4 bg-[radial-gradient(ellipse_at_center,rgba(55,122,244,0.28)_0%,rgba(34,197,94,0.12)_38%,rgba(15,15,15,0)_72%)] blur-2xl" />
               <button
                 type="button"
-                onClick={() => router.push("/analytics")}
+                onClick={() => router.push(regionHref("/analytics"))}
                 className="relative rounded-lg border border-white/[0.12] bg-[#111111] px-7 py-4 text-base font-black text-white transition-colors hover:bg-[#181818]"
               >
                 {t("전략 만들기")}
@@ -230,7 +232,7 @@ export default function BacktestHistoryView() {
                 onClick={() => {
                   if (navigatingId) return;
                   setNavigatingId(item.id);
-                  router.push(`/backtest/${item.id}`);
+                  router.push(regionHref(`/backtest/${item.id}`));
                 }}
                 className="flat-card group relative cursor-pointer rounded-2xl border border-white/[0.08] p-4 transition-colors hover:border-white/[0.14] lg:p-5"
                 data-testid="backtest-history-card"

@@ -5,10 +5,10 @@
 //   한국어 원문 자체가 사전 키다(별도 키 네이밍 없음). 사전에 없는 키는 원문(한국어)을
 //   그대로 돌려주므로 번역 누락이 빈칸이나 깨진 화면으로 번지지 않는다.
 // - 치환은 `{0}`, `{1}` … 위치 인자다: `t("총 {0}회 거래", n)`.
-// - 언어는 쿠키(`nullstock.lang`)와 localStorage에 함께 저장한다. 쿠키는 서버 렌더링(SSR /
-//   서버 컴포넌트)이 요청 언어를 알기 위한 것이고, localStorage는 클라이언트 초기화용이다.
-// - 전환은 페이지 새로고침으로 반영한다(LanguageToggle 참조). 모듈 상수·useMemo·캐시에
-//   남은 옛 언어 문자열이 새 언어로 섞여 보이는 상태를 구조적으로 배제하기 위해서다.
+// - 언어는 URL 경로의 지역에서 파생한다 — `/` 트리는 한국어, `/us` 트리는 영어(lib/geo).
+//   언어 토글은 없다. 서버는 미들웨어가 실어 준 지역 헤더를(server.ts), 클라이언트는
+//   브라우저 경로를 읽는다. 지역이 바뀌는 이동은 전체 페이지 로드로 일어나므로 모듈
+//   상수·useMemo·캐시에 옛 언어 문자열이 섞여 남는 상태가 구조적으로 배제된다.
 //
 // 규칙
 // - `t()`는 렌더·이벤트 핸들러 안에서만 호출한다. 모듈 최상위 상수(`const TABS = [{ label:
@@ -16,12 +16,11 @@
 //   키를 두고 표시 지점에서 `t(item.label)`로 감싼다.
 // - 백엔드로 보내는 값(파서 프롬프트·칩 에코·비교 대상 문자열)은 감싸지 않는다 — 번역은
 //   표시 전용이다.
+import { REGION_LANGUAGE, regionFromPathname } from "@/lib/geo/region";
 import { en } from "./en";
 
 export type Language = "ko" | "en";
 
-export const LANGUAGE_COOKIE = "nullstock.lang";
-export const LANGUAGE_STORAGE_KEY = "nullstock.lang";
 export const DEFAULT_LANGUAGE: Language = "ko";
 export const SUPPORTED_LANGUAGES: readonly Language[] = ["ko", "en"];
 
@@ -36,29 +35,13 @@ export function isLanguage(value: unknown): value is Language {
   return value === "ko" || value === "en";
 }
 
-function readCookieLanguage(): Language | null {
-  if (typeof document === "undefined") return null;
-  const match = document.cookie.match(
-    new RegExp(`(?:^|;\\s*)${LANGUAGE_COOKIE.replace(".", "\\.")}=([^;]*)`)
-  );
-  const value = match ? decodeURIComponent(match[1]) : null;
-  return isLanguage(value) ? value : null;
-}
-
-function readStoredLanguage(): Language | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const value = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    return isLanguage(value) ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-/** 현재 표시 언어. 클라이언트에선 쿠키 → localStorage → 기본값(ko) 순으로 초기화한다. */
+/** 현재 표시 언어. 클라이언트에선 브라우저 경로의 지역(`/us` = 영어)에서 초기화한다. */
 export function getLanguage(): Language {
   if (currentLanguage) return currentLanguage;
-  const detected = readCookieLanguage() ?? readStoredLanguage() ?? DEFAULT_LANGUAGE;
+  const detected =
+    typeof window === "undefined"
+      ? DEFAULT_LANGUAGE
+      : REGION_LANGUAGE[regionFromPathname(window.location.pathname)];
   currentLanguage = detected;
   return detected;
 }
@@ -66,25 +49,8 @@ export function getLanguage(): Language {
 /**
  * 프로세스(서버) 또는 탭(클라이언트)의 현재 언어를 지정한다.
  * LanguageProvider가 렌더 시점에 호출해 SSR과 클라이언트가 같은 언어로 그리게 한다.
- * 영속(쿠키·localStorage)은 하지 않는다 — 그건 persistLanguage의 몫이다.
  */
 export function setLanguage(language: Language): void {
-  currentLanguage = language;
-}
-
-/** 브라우저에 언어를 영속한다(쿠키 1년 + localStorage). */
-export function persistLanguage(language: Language): void {
-  if (typeof document !== "undefined") {
-    const maxAge = 60 * 60 * 24 * 365;
-    document.cookie = `${LANGUAGE_COOKIE}=${language}; path=/; max-age=${maxAge}; samesite=lax`;
-  }
-  if (typeof window !== "undefined") {
-    try {
-      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
-    } catch {
-      // localStorage 접근 불가(프라이버시 모드 등) — 쿠키만으로 충분하다.
-    }
-  }
   currentLanguage = language;
 }
 

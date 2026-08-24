@@ -244,6 +244,18 @@ simons/
 
 ## 3. 프론트엔드 아키텍처
 
+### 3.0 지역 기반 서비스 구조 (한국 `/` · 글로벌 `/us`)
+
+KR/EN 언어 토글을 폐지하고 **URL 경로 기반의 지역 서비스**로 운영한다 — `/` 트리는 한국 서비스(한국어·KRW·토스페이먼츠), `/us` 트리는 글로벌 서비스(영어·USD·PayPal 예정). 지역의 단일 진실 원천은 경로다.
+
+- **미들웨어** (`middleware.ts`): `/us/*` 요청을 같은 라우트 트리로 rewrite(페이지 파일 중복 없음)하면서 내부 헤더 `x-nullstock-region`에 지역을 실어 준다(외부 위장 헤더는 덮어씀). 루트(`/`) **최초 방문**(지역 쿠키 `nullstock.region` 없음)이고 비한국 신호(CDN 국가 헤더 `cf-ipcountry` 등 → 없으면 Accept-Language 폴백)면 `/us`로 리다이렉트한다. 크롤러 UA는 리다이렉트하지 않는다(한국 서비스 색인 보존 — 양쪽 색인은 홈 hreflang `alternates`로 안내). 직접 입력한 경로는 항상 존중하며, 마지막 방문 지역을 쿠키에 기억한다.
+- **지역 코어** (`lib/geo/`): `region.ts`(순수 — `regionFromPathname`/`withRegionPath`/`stripRegionPrefix`, 지역↔언어·통화 매핑), `country.ts`(순수 — 최초 방문 국가 판별), `server.ts`(`getRequestRegion()`: 미들웨어 헤더 → 지역 쿠키 폴백. API 라우트는 미들웨어 매처 밖이라 쿠키로 읽는다), `useRegion.ts`(클라이언트 훅 `useRegionHref()` — 내부 링크·`router.push` 경로에 지역 프리픽스 부여).
+- **i18n**: `t()` 사전 구조는 유지하되 언어를 지역에서 파생한다 — 서버는 `getRequestLanguage()`가 `getRequestRegion()`을 읽고, 클라이언트는 `window.location.pathname`에서 읽는다. 언어 쿠키(`nullstock.lang`)·localStorage·`persistLanguage`·`LanguageToggle`은 제거되었다. 백엔드 `X-UI-Language` 헤더(`lib/server/backend.ts`)도 지역에서 파생한다.
+- **가격** (`lib/pricing/`): `kr.ts`(KRW — 진실 원천은 토스 결제 경로가 읽는 `lib/plans.ts`, 어댑터로만 노출)·`us.ts`(USD — 독립 관리)·`getRegionPricing(region)`.
+- **결제 추상화** (`lib/payment/`): `PaymentProvider` 인터페이스(`createCheckout`/`verifyPayment`/`cancel`/`refund`) + `TossProvider`(기존 `lib/server/tossPayments.ts`를 감싸는 어댑터 — 심사 중인 기존 결제 라우트는 아직 이관하지 않음) + `PaypalProvider`(Orders v2, `PAYPAL_*` 환경변수). 향후 `StripeProvider` 추가를 전제로 한 구조.
+- **요금제 분기**: `/us/pricing`은 `app/pricing/page.tsx` 최상단에서 지역 분기로 `components/pricing/us/UsPricingPage.tsx`(영어·USD 전용, PayPal 배선 전까지 유료 CTA는 준비 중 표시)를 렌더한다. 한국(토스) 경로는 변경 없이 유지된다.
+- **SEO**: 지역별 title/description(`app/layout.tsx`), 홈 hreflang(`app/page.tsx`), `app/sitemap.ts`(양 지역 진입점), `app/robots.ts`.
+
 ### 3.1 페이지 구조
 
 | 경로 | 용도 | 핵심 컴포넌트 |

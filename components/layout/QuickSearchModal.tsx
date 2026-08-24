@@ -18,6 +18,7 @@ import type { QuickSearchResponse } from "@/types/quick-search";
 import type { PopularStocksResponse } from "@/app/api/stock/popular/route"; // FALLBACK_POPULAR_STOCKS 타입용
 import type { StockPriceSnapshot } from "@/lib/stock-prices";
 import { getLocale, t } from "@/lib/i18n";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 interface QuickSearchModalProps {
   isOpen: boolean;
@@ -205,6 +206,7 @@ export default function QuickSearchModal({
   onClose,
 }: QuickSearchModalProps) {
   const router = useRouter();
+  const regionHref = useRegionHref();
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const setInputRef = useCallback((el: HTMLInputElement | null) => {
@@ -418,7 +420,7 @@ export default function QuickSearchModal({
       kind: "stock",
       title: stock.name,
       subtitle: `${stock.symbol} · ${stock.region === "KR" ? stock.type : stock.region}`,
-      href: `/stock-order?symbol=${encodeURIComponent(stock.symbol)}&name=${encodeURIComponent(stock.name)}`,
+      href: regionHref(`/stock-order?symbol=${encodeURIComponent(stock.symbol)}&name=${encodeURIComponent(stock.name)}`),
       icon: TrendUp,
     }));
 
@@ -429,7 +431,7 @@ export default function QuickSearchModal({
       subtitle: [strategy.strategyType, strategy.universe, strategy.description]
         .filter(Boolean)
         .join(" · "),
-      href: `/analytics/${strategy.id}`,
+      href: regionHref(`/analytics/${strategy.id}`),
       icon: ChartLineUp,
     }));
 
@@ -441,12 +443,12 @@ export default function QuickSearchModal({
         account.strategyName || t("전략 미연결"),
         account.tradingMode === "auto" ? t("자동매매") : t("수동매매"),
       ].join(" · "),
-      href: `/virtual-account/${account.id}`,
+      href: regionHref(`/virtual-account/${account.id}`),
       icon: Bank,
     }));
 
     return [...stocks, ...strategies, ...accounts];
-  }, [stockResults, strategyResults, virtualAccountResults]);
+  }, [stockResults, strategyResults, virtualAccountResults, regionHref]);
 
   const groupedItems = useMemo(
     () => ({

@@ -60,6 +60,7 @@ import {
   type ExportFormat,
 } from "@/lib/backtest-export";
 import { t } from "@/lib/i18n";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 const processedExecutionIds = new Set<string>();
 
@@ -403,6 +404,7 @@ export default function BacktestDashboard({
   const resolvedFinalEquity = result.finalEquity || result.equity?.[result.equity.length - 1] || 0;
 
   const router = useRouter();
+  const regionHref = useRegionHref();
   const [activeTab, setActiveTab] = useState<ValidationTab>("chart");
   const [isOptimizationPageOpen, setIsOptimizationPageOpen] = useState(false);
   const [promptTooltipOpen, setPromptTooltipOpen] = useState(false);
@@ -1442,7 +1444,7 @@ export default function BacktestDashboard({
               </div>
               <div className="flex gap-2">
                 <a
-                  href="/pricing"
+                  href={regionHref("/pricing")}
                   className="flex-1 py-2.5 rounded-xl bg-[var(--main-blue)] text-white hover:opacity-90 text-sm font-bold transition-colors text-center"
                 >
                   {t("요금제 보기")}
@@ -2036,7 +2038,7 @@ export default function BacktestDashboard({
                        {t("프로 또는 프리미엄 플랜을 이용하시면 백테스트 결과에 대한 AI 분석 리포트를 확인할 수 있습니다.")}
                      </p>
                      <a
-                       href="/pricing"
+                       href={regionHref("/pricing")}
                        className="mt-6 inline-flex items-center justify-center rounded-lg border border-gray-500 px-5 py-2.5 text-sm font-black text-gray-300 transition-colors hover:bg-white/[0.05]"
                      >
                        {t("플랜 변경")}
@@ -2136,7 +2138,7 @@ export default function BacktestDashboard({
                              return (
                                <tr
                                  key={sym}
-                                 onClick={() => router.push(`/stock-order?symbol=${encodeURIComponent(sym)}&name=${encodeURIComponent(meta?.name || sym)}`)}
+                                 onClick={() => router.push(regionHref(`/stock-order?symbol=${encodeURIComponent(sym)}&name=${encodeURIComponent(meta?.name || sym)}`))}
                                  className="cursor-pointer hover:bg-white/[0.02] transition-colors duration-150"
                                >
                                   <td className="px-4 py-2.5 pl-5">

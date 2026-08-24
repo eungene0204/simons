@@ -31,9 +31,10 @@ import {
   formatUsageValue,
   getUsagePercent,
 } from "./planUsageFormat";
-import LanguageToggle from "@/lib/i18n/LanguageToggle";
 import NullstockLogoMark from "./NullstockLogoMark";
 import { getLocale, t } from "@/lib/i18n";
+import { stripRegionPrefix } from "@/lib/geo/region";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 const QuickSearchModal = dynamic(() => import("./QuickSearchModal"), {
   ssr: false,
@@ -143,6 +144,7 @@ function getInitials(value: string) {
 
 function TopNavigationComponent({ userName }: { userName?: string }) {
   const pathname = usePathname();
+  const regionHref = useRegionHref();
   const searchParams = useSearchParams();
   const router = useRouter();
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -410,7 +412,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       }
     } finally {
       setIsLoggingOut(false);
-      router.replace("/");
+      router.replace(regionHref("/"));
       router.refresh();
     }
   };
@@ -461,17 +463,19 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
     }
 
     e.preventDefault();
-    router.push(item.href);
+    router.push(regionHref(item.href));
   };
 
   const activeMenuItemId = useMemo(() => {
     if (!pathname) return null;
+    // 메뉴 상수는 지역 무관 경로라, 브라우저 경로의 `/us` 프리픽스를 벗겨 비교한다.
+    const regionlessPath = stripRegionPrefix(pathname);
 
-    if (pathname === "/") {
+    if (regionlessPath === "/") {
       return "analytics";
     }
 
-    if (pathname === "/dashboard") {
+    if (regionlessPath === "/dashboard") {
       return "dashboard";
     }
 
@@ -483,7 +487,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         continue;
       }
 
-      if (pathname === item.href || pathname.startsWith(item.href + "/")) {
+      if (regionlessPath === item.href || regionlessPath.startsWith(item.href + "/")) {
         const pathLength = item.href.length;
         if (!bestMatch || pathLength > bestMatch.pathLength) {
           bestMatch = { id: item.id, href: item.href, pathLength };
@@ -507,7 +511,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       >
         <div className="flex min-w-0 items-center gap-2">
           <Link
-            href="/"
+            href={regionHref("/")}
             onClick={() => setIsMobileMenuOpen(false)}
             className="group flex min-w-0 items-center gap-2"
           >
@@ -528,7 +532,6 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         </div>
 
         <div className="flex flex-shrink-0 items-center gap-1">
-          <LanguageToggle className="mr-1" />
           <button
             type="button"
             onClick={handleSearchClick}
@@ -554,7 +557,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       <nav className="relative hidden items-center gap-1 overflow-x-auto bg-black/40 px-4 py-3 backdrop-blur-xl scrollbar-hide lg:flex 2xl:px-6">
         {/* Logo */}
         <div className="mr-4 flex flex-shrink-0 items-center gap-3 xl:mr-6 2xl:mr-8">
-          <Link href="/" className="group flex items-center gap-3">
+          <Link href={regionHref("/")} className="group flex items-center gap-3">
             <NullstockLogoMark className="h-[1.125rem] w-[1.375rem] transition-transform duration-300 group-hover:scale-105" />
             <span className="text-[15px] font-black tracking-tight text-white">{t("널스탁")}</span>
           </Link>
@@ -575,7 +578,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             return (
               <Link
                 key={item.id}
-                href={item.href}
+                href={regionHref(item.href)}
                 onClick={(e) => handleMenuClick(item, e)}
                 className={`relative flex items-center gap-1.5 px-2.5 py-2 rounded-xl transition-all duration-300 whitespace-nowrap group xl:gap-2 xl:px-3 2xl:px-4 ${
                   isActive
@@ -618,9 +621,6 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             </span>
           </button>
         </div>
-
-        {/* Language toggle (KR / EN) — sits left of the profile */}
-        <LanguageToggle className="mr-2 2xl:mr-3" />
 
         {/* User Profile */}
         {authState === "authenticated" ? (
@@ -702,7 +702,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                   return (
                     <Link
                       key={item.id}
-                      href={item.href}
+                      href={regionHref(item.href)}
                       onClick={(event) => handleMenuClick(item, event)}
                       className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 transition-colors ${
                         isActive
@@ -1024,7 +1024,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                 <span>{isStartingLogin ? t("로그인 준비 중...") : t("Google로 시작하기")}</span>
               </button>
               <Link
-                href="/login"
+                href={regionHref("/login")}
                 onClick={() => setIsLoginModalOpen(false)}
                 className="flex w-full max-w-[280px] items-center justify-center gap-2 rounded-full border border-white/[0.15] px-4 py-2.5 text-sm font-black text-white transition-colors duration-200 hover:bg-white/[0.08]"
               >

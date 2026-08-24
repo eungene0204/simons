@@ -17,7 +17,7 @@ vi.mock("@/components/strategy/BacktestChart", () => ({ default: () => null }));
 vi.mock("./BacktestSummaryCard", () => ({ default: () => null }));
 vi.mock("./XAIModal", () => ({ default: () => null }));
 vi.mock("./WalkForwardModal", () => ({ default: () => null }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), usePathname: () => "/" }));
 
 import BacktestDashboard from "./BacktestDashboard";
 

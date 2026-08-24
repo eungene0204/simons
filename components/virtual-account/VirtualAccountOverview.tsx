@@ -13,6 +13,7 @@ import {
   refreshVirtualAccountOverviewCache,
 } from "./virtualAccountOverviewCache";
 import { getLocale, t } from "@/lib/i18n";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 const formatPrice = (value: number) =>
   new Intl.NumberFormat("ko-KR").format(Math.round(value));
@@ -39,6 +40,7 @@ const cacheAccountDetailSnapshot = (account: VirtualAccount) => {
 };
 
 export default function VirtualAccountOverview() {
+  const regionHref = useRegionHref();
   const initialAccounts = getCachedVirtualAccounts();
   const [accounts, setAccounts] = useState<VirtualAccount[]>(initialAccounts ?? []);
   const [loading, setLoading] = useState(!initialAccounts);
@@ -109,7 +111,7 @@ export default function VirtualAccountOverview() {
     event: MouseEvent<HTMLElement>,
     account: VirtualAccount
   ) => {
-    const accountPath = `/virtual-account/${account.id}`;
+    const accountPath = regionHref(`/virtual-account/${account.id}`);
 
     if (
       event.defaultPrevented ||
@@ -274,7 +276,7 @@ export default function VirtualAccountOverview() {
                     className={`group relative max-w-lg rounded-lg border border-white/[0.08] bg-[#111111] p-4 text-left transition-colors hover:bg-[#151515] ${accountLinkClass}`}
                   >
                     <Link
-                      href={`/virtual-account/${account.id}`}
+                      href={regionHref(`/virtual-account/${account.id}`)}
                       onClick={(event) => handleAccountClick(event, account)}
                       aria-disabled={openingAccountId === account.id}
                       aria-label={t("{0} 상세 보기", account.name)}

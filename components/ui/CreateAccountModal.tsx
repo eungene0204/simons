@@ -8,6 +8,7 @@ import {
 } from "@/lib/strategy-summary";
 import type { StrategyDSL } from "@/types/strategy";
 import { t } from "@/lib/i18n";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 type Strategy = Pick<StrategyDSL, "id" | "name" | "description" | "universe" | "entry" | "exit" | "risk">;
 const NO_STRATEGY_ID = "__none__";
@@ -35,6 +36,7 @@ export default function CreateAccountModal({
   onCreate,
   presetStrategy,
 }: CreateAccountModalProps) {
+  const regionHref = useRegionHref();
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [strategies, setStrategies] = useState<Strategy[]>([]);
@@ -229,7 +231,7 @@ export default function CreateAccountModal({
                 </p>
                 <div className="mt-1 flex justify-end">
                   <a
-                    href="/pricing"
+                    href={regionHref("/pricing")}
                     className="inline-flex items-center rounded-[4px] border border-gray-500/50 px-1.5 py-px text-[9px] font-black text-gray-300 transition-colors hover:border-gray-300/70 hover:text-white"
                   >
                     {t("업그레이드")}
