@@ -250,22 +250,22 @@ describe("TopNavigation quick search", () => {
     expect(screen.queryByAltText("NullStock Logo")).not.toBeInTheDocument();
   });
 
-  it("데스크톱에서 탑메뉴 묶음을 화면 가운데에 배치한다", async () => {
+  it("탑메뉴 묶음을 흐름 안에서 가운데 두어 좁은 데스크톱에서도 가려지지 않게 한다", async () => {
     renderWithQueryClient(<TopNavigation />);
 
     const menu = await screen.findByTestId("top-navigation-menu");
 
-    expect(menu).toHaveClass(
-      "xl:absolute",
-      "xl:left-1/2",
-      "xl:-translate-x-1/2"
-    );
+    // 절대 위치 중앙정렬은 1024~1440px 구간에서 검색창이 마지막 메뉴('요금제')를
+    // 덮어 가렸다. 흐름 안 중앙정렬 + 검색창 축소로 겹침·잘림을 없앤다.
+    expect(menu).toHaveClass("flex-1", "justify-center", "min-w-0");
+    expect(menu.className).not.toMatch(/absolute/);
     expect(screen.getByTestId("desktop-search-trigger")).toHaveClass(
-      "min-w-[180px]",
-      "xl:w-[160px]",
-      "xl:min-w-0",
-      "min-[1320px]:w-auto",
-      "min-[1320px]:min-w-[180px]"
+      "xl:w-[150px]",
+      "2xl:w-auto",
+      "2xl:min-w-[180px]"
+    );
+    expect(screen.getByTestId("desktop-search-trigger").className).not.toMatch(
+      /(^|\s)min-w-\[180px\]/
     );
   });
 

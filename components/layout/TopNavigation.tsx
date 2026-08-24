@@ -551,21 +551,21 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         </div>
       </nav>
 
-      <nav className="relative hidden items-center gap-1 overflow-x-auto bg-black/40 px-6 py-3 backdrop-blur-xl scrollbar-hide lg:flex">
+      <nav className="relative hidden items-center gap-1 overflow-x-auto bg-black/40 px-4 py-3 backdrop-blur-xl scrollbar-hide lg:flex 2xl:px-6">
         {/* Logo */}
-        <div className="mr-8 flex flex-shrink-0 items-center gap-3">
+        <div className="mr-4 flex flex-shrink-0 items-center gap-3 xl:mr-6 2xl:mr-8">
           <Link href="/" className="group flex items-center gap-3">
             <NullstockLogoMark className="h-[1.125rem] w-[1.375rem] transition-transform duration-300 group-hover:scale-105" />
             <span className="text-[15px] font-black tracking-tight text-white">{t("널스탁")}</span>
           </Link>
-          <span className="rounded-md bg-blue-500/15 px-2 py-0.5 text-[9px] font-black tracking-[0.14em] text-blue-300">
+          <span className="hidden rounded-md bg-blue-500/15 px-2 py-0.5 text-[9px] font-black tracking-[0.14em] text-blue-300 2xl:block">
             OPEN BETA
           </span>
         </div>
 
         {/* Menu Items */}
         <div
-          className="flex flex-1 items-center gap-1 xl:absolute xl:left-1/2 xl:flex-none xl:-translate-x-1/2"
+          className="flex min-w-0 flex-1 items-center justify-center gap-0.5 2xl:gap-1"
           data-testid="top-navigation-menu"
         >
           {menuItems.map((item) => {
@@ -577,7 +577,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                 key={item.id}
                 href={item.href}
                 onClick={(e) => handleMenuClick(item, e)}
-                className={`relative flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-300 whitespace-nowrap group ${
+                className={`relative flex items-center gap-1.5 px-2.5 py-2 rounded-xl transition-all duration-300 whitespace-nowrap group xl:gap-2 xl:px-3 2xl:px-4 ${
                   isActive
                     ? "bg-white/10 text-white shadow-lg"
                     : "text-gray-500 hover:text-gray-300 hover:bg-white/[0.02]"
@@ -601,26 +601,26 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         </div>
 
         {/* Search Bar */}
-        <div className="flex items-center gap-2 ml-auto mr-4">
+        <div className="flex items-center gap-2 ml-auto mr-2 2xl:mr-4">
           <button
             type="button"
             onClick={handleSearchClick}
-            className="group relative flex min-w-[180px] items-center rounded-xl border border-white/[0.1] bg-[#111116] px-2.5 py-1 text-left shadow-[0_8px_22px_rgba(0,0,0,0.22)] transition-all duration-200 hover:border-white/[0.18] hover:bg-[#17171d] xl:w-[160px] xl:min-w-0 min-[1320px]:w-auto min-[1320px]:min-w-[180px]"
+            className="group relative flex h-9 items-center rounded-xl border border-white/[0.1] bg-[#111116] px-2.5 py-1 text-left shadow-[0_8px_22px_rgba(0,0,0,0.22)] transition-all duration-200 hover:border-white/[0.18] hover:bg-[#17171d] xl:w-[150px] 2xl:w-auto 2xl:min-w-[180px]"
             aria-label={t("검색 열기")}
             data-testid="desktop-search-trigger"
           >
-            <MagnifyingGlass size={18} className="mr-2.5 flex-shrink-0 text-gray-500 group-hover:text-gray-300" />
-            <span className="mr-2 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-white/[0.07] text-xs font-black text-gray-400">
+            <MagnifyingGlass size={18} className="flex-shrink-0 text-gray-500 group-hover:text-gray-300 xl:mr-2.5" />
+            <span className="mr-2 hidden h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-white/[0.07] text-xs font-black text-gray-400 2xl:flex">
               /
             </span>
-            <span className="min-w-0 flex-1 truncate text-xs font-bold tracking-tight text-gray-500 group-hover:text-gray-300">
+            <span className="hidden min-w-0 flex-1 truncate text-xs font-bold tracking-tight text-gray-500 group-hover:text-gray-300 xl:block">
               {t("를 눌러 검색하세요")}
             </span>
           </button>
         </div>
 
         {/* Language toggle (KR / EN) — sits left of the profile */}
-        <LanguageToggle className="mr-3" />
+        <LanguageToggle className="mr-2 2xl:mr-3" />
 
         {/* User Profile */}
         {authState === "authenticated" ? (
@@ -630,7 +630,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             aria-label={t("{0} 사용자 메뉴", userProfile.name)}
             aria-expanded={isProfileMenuOpen}
             onClick={() => setIsProfileMenuOpen((open) => !open)}
-            className="flex flex-shrink-0 items-center gap-3 rounded-full border border-white/[0.08] bg-black/40 py-1.5 pl-1.5 pr-3 text-white transition-colors duration-200 hover:border-white/[0.16] hover:bg-white/[0.04]"
+            className="flex flex-shrink-0 items-center gap-2 rounded-full border border-white/[0.08] bg-black/40 py-1.5 pl-1.5 pr-2 text-white transition-colors duration-200 hover:border-white/[0.16] hover:bg-white/[0.04] 2xl:gap-3 2xl:pr-3"
           >
             <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-white/[0.12] bg-white/[0.08] text-xs font-black text-white">
               {userProfile.avatarUrl ? (
@@ -645,7 +645,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                 getInitials(userProfile.name)
               )}
             </span>
-            <span className="max-w-[120px] truncate text-sm font-black tracking-tight text-white">
+            <span className="hidden max-w-[80px] truncate text-sm font-black tracking-tight text-white xl:block 2xl:max-w-[120px]">
               {userProfile.name}
             </span>
             <CaretDown size={16} weight="bold" className="text-gray-400" />
@@ -661,7 +661,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         ) : (
           <div
             aria-hidden="true"
-            className="h-[44px] w-[160px] flex-shrink-0 rounded-full border border-white/[0.08] bg-black/30"
+            className="h-[44px] w-[76px] flex-shrink-0 rounded-full border border-white/[0.08] bg-black/30 xl:w-[150px] 2xl:w-[160px]"
           />
         )}
       </nav>
