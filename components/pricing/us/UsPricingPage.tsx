@@ -2,19 +2,15 @@
 //
 // 한국 요금제 화면(PricingPlans + 토스 체크아웃)과 완전히 분리된 트리다. 토스페이먼츠
 // 심사 영역(components/pricing/PricingPlans·PaymentCheckout 등)은 여기서 일절 쓰지 않는다.
-// 결제는 PayPal Checkout(lib/payment/PaypalProvider)으로 배선 예정이며, 배선 전까지
-// 유료 플랜 CTA는 준비 중으로 표시한다.
+// 카드 레이아웃은 한국 화면과 동일하게 맞추되(UsPricingPlans), 결제는 PayPal Checkout
+// (lib/payment/PaypalProvider)으로 배선 예정이며 배선 전까지 CTA는 준비 중으로 표시한다.
 
 import { redirect } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { getCurrentUser } from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
-import { getPlan, PLANS } from "@/lib/plans";
-import { US_PRICING } from "@/lib/pricing/us";
-
-function formatUsd(amount: number): string {
-  return `$${amount.toLocaleString("en-US")}`;
-}
+import { getPlan } from "@/lib/plans";
+import UsPricingPlans from "@/components/pricing/us/UsPricingPlans";
 
 export default async function UsPricingPage() {
   const user = await getCurrentUser();
@@ -37,66 +33,12 @@ export default async function UsPricingPage() {
               Choose your plan
             </h1>
             <p className="mt-2 text-sm font-bold text-gray-500">
-              Validate more strategies with more virtual accounts and backtests.
+              Validate more strategies with more simulated capital and virtual accounts.
             </p>
           </div>
 
-          <div className="mt-14 grid gap-6 md:grid-cols-3">
-            {US_PRICING.planOrder.map((planId) => {
-              const plan = PLANS[planId];
-              const price = US_PRICING.monthlyPrice[planId];
-              const isCurrent = planId === currentPlanId;
-
-              return (
-                <div
-                  key={planId}
-                  className={`flex flex-col rounded-3xl border p-6 ${
-                    isCurrent
-                      ? "border-blue-500/40 bg-blue-500/[0.06]"
-                      : "border-white/[0.08] bg-white/[0.02]"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-xl font-black tracking-tight">{plan.name}</h2>
-                    {isCurrent && (
-                      <span className="rounded-full bg-blue-500/15 px-2.5 py-1 text-[10px] font-black tracking-wide text-blue-300">
-                        CURRENT PLAN
-                      </span>
-                    )}
-                  </div>
-
-                  <p className="mt-4 text-3xl font-black">
-                    {price === 0 ? "Free" : `${formatUsd(price)}`}
-                    {price > 0 && (
-                      <span className="text-sm font-bold text-gray-500"> / month</span>
-                    )}
-                  </p>
-
-                  <ul className="mt-6 flex-1 space-y-2 text-sm font-bold text-gray-400">
-                    <li>{plan.monthlyBacktestLimit.toLocaleString("en-US")} backtests / month</li>
-                    <li>
-                      {plan.isUnlimitedStrategies
-                        ? "Unlimited saved strategies"
-                        : `${plan.maxStrategies} saved strategies`}
-                    </li>
-                    <li>
-                      {plan.maxVirtualAccounts} virtual account
-                      {plan.maxVirtualAccounts > 1 ? "s" : ""}
-                    </li>
-                  </ul>
-
-                  {price === 0 ? (
-                    <p className="mt-6 rounded-xl border border-white/[0.08] px-4 py-2.5 text-center text-sm font-black text-gray-400">
-                      {isCurrent ? "Your current plan" : "Included at sign-up"}
-                    </p>
-                  ) : (
-                    <p className="mt-6 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-center text-sm font-black text-gray-500">
-                      Paid plans launching soon
-                    </p>
-                  )}
-                </div>
-              );
-            })}
+          <div className="mt-14">
+            <UsPricingPlans currentPlanId={currentPlanId} />
           </div>
 
           <p className="mt-8 text-center text-xs font-bold text-gray-600">

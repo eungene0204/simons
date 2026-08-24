@@ -14,4 +14,7 @@ export const KR_PRICING: RegionPricing = {
   monthlyPrice: Object.fromEntries(
     PLAN_ORDER.map((planId) => [planId, PLANS[planId].monthlyPrice])
   ) as Record<PlanId, number>,
+  initialInvestmentAmount: Object.fromEntries(
+    PLAN_ORDER.map((planId) => [planId, PLANS[planId].initialInvestmentAmount])
+  ) as Record<PlanId, number>,
 };

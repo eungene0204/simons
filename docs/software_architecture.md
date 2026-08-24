@@ -253,7 +253,7 @@ KR/EN 언어 토글을 폐지하고 **URL 경로 기반의 지역 서비스**로
 - **i18n**: `t()` 사전 구조는 유지하되 언어를 지역에서 파생한다 — 서버는 `getRequestLanguage()`가 `getRequestRegion()`을 읽고, 클라이언트는 `window.location.pathname`에서 읽는다. 언어 쿠키(`nullstock.lang`)·localStorage·`persistLanguage`·`LanguageToggle`은 제거되었다. 백엔드 `X-UI-Language` 헤더(`lib/server/backend.ts`)도 지역에서 파생한다.
 - **가격** (`lib/pricing/`): `kr.ts`(KRW — 진실 원천은 토스 결제 경로가 읽는 `lib/plans.ts`, 어댑터로만 노출)·`us.ts`(USD — 독립 관리)·`getRegionPricing(region)`.
 - **결제 추상화** (`lib/payment/`): `PaymentProvider` 인터페이스(`createCheckout`/`verifyPayment`/`cancel`/`refund`) + `TossProvider`(기존 `lib/server/tossPayments.ts`를 감싸는 어댑터 — 심사 중인 기존 결제 라우트는 아직 이관하지 않음) + `PaypalProvider`(Orders v2, `PAYPAL_*` 환경변수). 향후 `StripeProvider` 추가를 전제로 한 구조.
-- **요금제 분기**: `/us/pricing`은 `app/pricing/page.tsx` 최상단에서 지역 분기로 `components/pricing/us/UsPricingPage.tsx`(영어·USD 전용, PayPal 배선 전까지 유료 CTA는 준비 중 표시)를 렌더한다. 한국(토스) 경로는 변경 없이 유지된다.
+- **요금제 분기**: `/us/pricing`은 `app/pricing/page.tsx` 최상단에서 지역 분기로 `components/pricing/us/UsPricingPage.tsx`(영어·USD 전용, PayPal 배선 전까지 유료 CTA는 준비 중 표시)를 렌더한다. 카드 자체는 `components/pricing/us/UsPricingPlans.tsx`가 한국 카드(`PricingPlans`)와 **동일한 레이아웃·8행 기능 목록**으로 그리며, 결제 배선만 다르다(토스 체크아웃 미사용 → CTA 비활성). 표시 금액은 `lib/pricing/us.ts`의 `monthlyPrice`·`initialInvestmentAmount`(둘 다 확정 필요한 초기값)에서 온다. 한국(토스) 경로는 변경 없이 유지된다.
 - **SEO**: 지역별 title/description(`app/layout.tsx`), 홈 hreflang(`app/page.tsx`), `app/sitemap.ts`(양 지역 진입점), `app/robots.ts`.
 
 ### 3.1 페이지 구조

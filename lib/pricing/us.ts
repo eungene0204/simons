@@ -15,4 +15,11 @@ export const US_PRICING: RegionPricing = {
     PRO: 19,
     PREMIUM: 39,
   } satisfies Record<PlanId, number>,
+  // 계좌당 초기 모의 투자금(가상계좌 시뮬레이션용 모의 자금) — 한국 금액
+  // (1천만/5천만/1억원)을 달러 단위로 옮긴 초기값(placeholder)이다.
+  initialInvestmentAmount: {
+    FREE: 10_000,
+    PRO: 50_000,
+    PREMIUM: 100_000,
+  } satisfies Record<PlanId, number>,
 };
