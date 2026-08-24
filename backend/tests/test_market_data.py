@@ -126,6 +126,17 @@ class TestMarketDataProvider:
         mdp.providers = providers
         # 테스트에서는 ws_provider 미설정 (환경변수 없음) → WS 경로 건너뜀
         mdp.ws_provider = KISWebSocketProvider()
+        # 미국 레인·한국 배치 레인 provider — 자격증명을 비워 항상 미설정(건너뜀)으로.
+        # (환경변수 의존 금지: 다른 테스트가 main.py를 import하면 .env의 실제 키가
+        #  로드돼 테스트가 실제 API를 호출하게 된다)
+        from engine.providers.toss_us import TossUSProvider
+        from engine.providers.toss_kr import TossKRProvider
+        mdp.us_provider = TossUSProvider()
+        mdp.us_provider._client_id = ""
+        mdp.us_provider._client_secret = ""
+        mdp.kr_batch_provider = TossKRProvider()
+        mdp.kr_batch_provider._client_id = ""
+        mdp.kr_batch_provider._client_secret = ""
         mdp._health = {}
         for p in providers:
             from engine.providers.base import ProviderHealth
@@ -189,6 +200,74 @@ class TestMarketDataProvider:
         assert result["000660"].source == "p2"  # 두 번째 provider에서 가져옴
 
     @pytest.mark.asyncio
+    async def test_kr_batch_lane_serves_multi_symbol_before_rest(self):
+        """2종목 이상 조회는 토스 KR 배치 레인이 REST 체인보다 먼저 받는다."""
+        rest = MockProvider(should_fail=True)  # REST 체인이 불리면 실패하도록
+        rest.name = "rest"
+        mdp = self._make_provider([rest])
+        batch = MockProvider(quotes={
+            "005930": _make_quote("005930", source="toss_kr"),
+            "000660": _make_quote("000660", source="toss_kr"),
+        })
+        batch.name = "toss_kr"
+        mdp.kr_batch_provider = batch
+
+        result = await mdp.get_prices(["005930", "000660"])
+        assert result["005930"].source == "toss_kr"
+        assert result["000660"].source == "toss_kr"
+
+    @pytest.mark.asyncio
+    async def test_single_symbol_skips_kr_batch_lane(self):
+        """단건 조회는 OHLC·거래량을 주는 기존 REST 체인 유지 — 배치 레인 미진입."""
+        rest = MockProvider(quotes={"005930": _make_quote(source="rest")})
+        rest.name = "rest"
+        mdp = self._make_provider([rest])
+
+        class _Boom:
+            name = "toss_kr"
+
+            def is_configured(self):
+                return True
+
+            async def get_prices(self, symbols):
+                raise AssertionError("단건 조회가 배치 레인을 타면 안 된다")
+
+        mdp.kr_batch_provider = _Boom()
+        result = await mdp.get_prices(["005930"])
+        assert result["005930"].source == "rest"
+
+    @pytest.mark.asyncio
+    async def test_kr_batch_failure_falls_back_to_rest(self):
+        """배치 레인 실패(예외)는 REST 체인이 흡수한다."""
+        rest = MockProvider(quotes={
+            "005930": _make_quote("005930", source="rest"),
+            "000660": _make_quote("000660", source="rest"),
+        })
+        rest.name = "rest"
+        mdp = self._make_provider([rest])
+        batch = MockProvider(should_fail=True)
+        batch.name = "toss_kr"
+        mdp.kr_batch_provider = batch
+
+        result = await mdp.get_prices(["005930", "000660"])
+        assert result["005930"].source == "rest"
+        assert result["000660"].source == "rest"
+
+    @pytest.mark.asyncio
+    async def test_kr_batch_leftover_falls_to_rest(self):
+        """배치가 일부만 채우면 나머지는 REST 체인이 이어받는다."""
+        rest = MockProvider(quotes={"000660": _make_quote("000660", source="rest")})
+        rest.name = "rest"
+        mdp = self._make_provider([rest])
+        batch = MockProvider(quotes={"005930": _make_quote("005930", source="toss_kr")})
+        batch.name = "toss_kr"
+        mdp.kr_batch_provider = batch
+
+        result = await mdp.get_prices(["005930", "000660"])
+        assert result["005930"].source == "toss_kr"
+        assert result["000660"].source == "rest"
+
+    @pytest.mark.asyncio
     async def test_result_cached_after_fetch(self):
         """provider 조회 결과가 캐시에 저장되는지 확인"""
         p = MockProvider(quotes={"005930": _make_quote(source="cached_test")})
@@ -199,6 +278,41 @@ class TestMarketDataProvider:
         cached = mdp.cache.get("005930")
         assert cached is not None
         assert cached.source == "cached_test"
+
+    @pytest.mark.asyncio
+    async def test_stale_ws_cache_falls_back_to_rest(self, monkeypatch):
+        """2026-08-24 사고 재현: WS 캐시에 죽은 틱(신선도 초과)이 남아 있어도
+        REST 폴백 체인으로 내려가 살아있는 시세를 가져와야 한다."""
+        monkeypatch.setenv("KIS_APP_KEY", "test-app-key")
+        monkeypatch.setenv("KIS_APP_SECRET", "test-app-secret")
+
+        rest = MockProvider(quotes={"005930": _make_quote(source="rest", close=257000)})
+        rest.name = "rest"
+        mdp = self._make_provider([rest])
+
+        stale = _make_quote(source="kis_ws_total", close=269500)
+        stale.timestamp = time.time() - 3600  # 1시간 전 틱
+        mdp.ws_provider._cache["005930"] = stale
+
+        result = await mdp.get_price("005930")
+        assert result is not None
+        assert result.source == "rest"
+        assert result.close == 257000
+
+    @pytest.mark.asyncio
+    async def test_fresh_ws_cache_served_first(self, monkeypatch):
+        """신선한 WS 캐시는 그대로 최우선 서빙된다(기존 동작 보존)."""
+        monkeypatch.setenv("KIS_APP_KEY", "test-app-key")
+        monkeypatch.setenv("KIS_APP_SECRET", "test-app-secret")
+
+        rest = MockProvider(quotes={"005930": _make_quote(source="rest")})
+        rest.name = "rest"
+        mdp = self._make_provider([rest])
+        mdp.ws_provider._cache["005930"] = _make_quote(source="kis_ws_total")
+
+        result = await mdp.get_price("005930")
+        assert result is not None
+        assert result.source == "kis_ws_total"
 
     def test_get_health(self):
         """health 엔드포인트 구조 확인"""

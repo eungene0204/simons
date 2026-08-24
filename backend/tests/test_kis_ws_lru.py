@@ -81,17 +81,40 @@ def test_eviction_clears_caches(monkeypatch):
     asyncio.run(scenario())
 
 
-def test_oversized_single_batch_does_not_evict_its_own_members(monkeypatch):
+def test_oversized_single_batch_is_trimmed_to_cap(monkeypatch):
+    """2026-08-24 사고 재현: 배치 멤버 보호 예외로 30종목이 상한을 통과해 KIS
+    세션 등록 정원 초과(MAX SUBSCRIBE OVER) → 거부 종목 영구 틱 침묵. 상한은
+    배치 크기와 무관하게 강제하고, 최신(뒤쪽) 종목만 남긴다."""
     monkeypatch.setenv("KIS_APP_KEY", "k")
     monkeypatch.setenv("KIS_APP_SECRET", "s")
 
     async def scenario():
         p = KISWebSocketProvider()
         p._max_symbols = 2
-        # 한 번에 상한보다 많은 종목을 요청해도, 방금 요청한 종목끼리는 서로
-        # 밀어내지 않는다(요청한 종목을 즉시 버리지 않기 위함).
         await p.subscribe(["A", "B", "C", "D"])
-        assert list(p._subscribed) == ["A", "B", "C", "D"]
+        assert list(p._subscribed) == ["C", "D"]
+        # A·B는 등록해 본 적이 없다 — 해제를 보내면 not found desync 소음만 생긴다
         assert _drain(p._pending_unsubscribe) == []
+        assert _drain(p._pending_subscribe) == ["C", "D"]
+
+    asyncio.run(scenario())
+
+
+def test_oversized_batch_unsubscribes_preexisting_members(monkeypatch):
+    """상한 초과 배치가 기존 구독을 밀어낼 때, 서버에 실제 등록돼 있던(기존)
+    종목만 해제 큐로 보낸다."""
+    monkeypatch.setenv("KIS_APP_KEY", "k")
+    monkeypatch.setenv("KIS_APP_SECRET", "s")
+
+    async def scenario():
+        p = KISWebSocketProvider()
+        p._max_symbols = 2
+        await p.subscribe(["A", "B"])
+        _drain(p._pending_subscribe)
+        await p.subscribe(["C", "D", "E"])
+        assert list(p._subscribed) == ["D", "E"]
+        # 기존 등록 A·B만 해제 — 이번 배치에서 잘린 C는 해제 대상 아님
+        assert _drain(p._pending_unsubscribe) == ["A", "B"]
+        assert _drain(p._pending_subscribe) == ["D", "E"]
 
     asyncio.run(scenario())
