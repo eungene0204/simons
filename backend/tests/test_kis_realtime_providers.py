@@ -1,3 +1,4 @@
+import json
 import pytest
 from pathlib import Path
 import sys
@@ -222,3 +223,88 @@ async def test_kis_ws_provider_get_orderbook_includes_recent_trades(monkeypatch)
     assert result["recentTrades"] == [
         {"price": 70100, "quantity": 10, "type": "buy", "timestamp": 456.0},
     ]
+
+
+def test_kis_ws_provider_signed_decline_diff_not_double_counted():
+    """2026-08-24 사고 재현: KRX 피드가 전일대비를 부호 포함(-12000)으로 보내면
+    하락 분기(prev = price + diff)에서 이중 감산돼 전일종가가 257500으로 틀렸다.
+    방향은 부호 필드로만 판정하고 변동폭은 절대값을 써야 한다."""
+    provider = KISWebSocketProvider()
+    fields = ["0"] * 47
+    fields[0] = "005930"
+    fields[1] = "090100"
+    fields[2] = "269500"
+    fields[3] = "5"         # 하락
+    fields[4] = "-12000"    # 부호 포함 전일대비
+    fields[5] = "-4.26"
+    fields[7] = "271500"
+    fields[8] = "272000"
+    fields[9] = "269000"
+    fields[13] = "850413"
+
+    raw = f"0|H0STCNT0|1|{'^'.join(fields)}"
+    quote = provider._parse_realtime(raw)
+
+    assert quote is not None
+    assert quote.prev_close == 281500  # 269500 + |−12000|
+    assert quote.change_rate == -4.26
+
+
+@pytest.mark.asyncio
+async def test_kis_ws_provider_stale_quote_not_served(monkeypatch):
+    """2026-08-24 사고 재현: 틱이 끊긴 뒤에도 캐시가 남아 아침 시세가 하루 종일
+    서빙됐다. 신선도 한도를 넘긴 캐시는 None/제외로 반환해 REST 폴백이 동작해야 한다."""
+    import time as _time
+    from engine.providers.base import StockQuote
+
+    monkeypatch.setenv("KIS_APP_KEY", "test-app-key")
+    monkeypatch.setenv("KIS_APP_SECRET", "test-app-secret")
+    provider = KISWebSocketProvider()
+
+    def _quote(symbol, ts):
+        return StockQuote(
+            symbol=symbol, name=symbol, date="2026-08-24",
+            open=271500, high=272000, low=269000, close=269500,
+            volume=850413, source="kis_ws_total", timestamp=ts,
+        )
+
+    provider._cache["005930"] = _quote("005930", _time.time() - 3600)  # 1시간 전 틱
+    provider._cache["000660"] = _quote("000660", _time.time())          # 방금 틱
+
+    assert await provider.get_price("005930") is None
+    assert (await provider.get_price("000660")) is not None
+
+    prices = await provider.get_prices(["005930", "000660"])
+    assert "005930" not in prices
+    assert "000660" in prices
+
+
+def test_kis_ws_provider_max_subscribe_over_triggers_resync():
+    """MAX SUBSCRIBE OVER(OPSP0008) 응답이 오면 세션 재정합 플래그가 서고,
+    쿨다운 안의 반복 재정합은 막힌다."""
+    provider = KISWebSocketProvider()
+
+    ack = json.dumps({
+        "header": {"tr_id": "H0STCNT0", "tr_key": "005930"},
+        "body": {"rt_cd": "1", "msg_cd": "OPSP0008", "msg1": "MAX SUBSCRIBE OVER"},
+    })
+    provider._log_subscribe_ack(ack)
+    assert provider._resync_needed is True
+
+    assert provider._resync_due() is True       # 첫 재정합 실행
+    assert provider._resync_needed is False     # 플래그 소모
+
+    provider._log_subscribe_ack(ack)            # 쿨다운 안에서 재발
+    assert provider._resync_due() is False      # 재연결 폭주 방지
+
+
+def test_kis_ws_provider_unsubscribe_not_found_no_resync():
+    """UNSUBSCRIBE ERROR(not found, OPSP0003)는 서버에 이미 없는 등록이므로
+    재정합을 트리거하지 않는다."""
+    provider = KISWebSocketProvider()
+    ack = json.dumps({
+        "header": {"tr_id": "H0STCNT0", "tr_key": "005930"},
+        "body": {"rt_cd": "1", "msg_cd": "OPSP0003", "msg1": "UNSUBSCRIBE ERROR(not found!)"},
+    })
+    provider._log_subscribe_ack(ack)
+    assert provider._resync_needed is False

@@ -49,6 +49,14 @@ def _max_ws_symbols() -> int:
     except (TypeError, ValueError):
         return _DEFAULT_MAX_WS_SYMBOLS
 
+# WS 캐시 신선도 한도(초). 구독 desync·연결 끊김으로 틱이 멈춰도 캐시 항목은 남으므로,
+# 이 한도를 넘긴 시세는 반환하지 않는다 → 상위(market_data)가 REST 폴백 체인으로 내려가
+# 살아있는 시세를 가져온다. (2026-08-24 사고: 09:01에 멈춘 틱이 하루 종일 서빙됨)
+_MAX_QUOTE_AGE_S = 300
+
+# MAX SUBSCRIBE OVER 재정합(재연결) 최소 간격 — 재연결 폭주 방지.
+_RESYNC_COOLDOWN_S = 60
+
 # H0UNCNT0 응답 필드 인덱스 (KIS 공식 문서 기준)
 # 0:유가증권단축종목코드 1:주식체결시간 2:주식현재가 3:전일대비부호 4:전일대비
 # 5:전일대비율 6:가중평균주식가격 7:주식시가 8:주식최고가 9:주식최저가
@@ -119,6 +127,10 @@ class KISWebSocketProvider(BaseProvider):
 
         # 재접속 대기 시간 (초), 최대 60초
         self._reconnect_delay = 5
+
+        # 서버 구독 정원 초과(MAX SUBSCRIBE OVER) 감지 → 세션 재연결로 재정합
+        self._resync_needed = False
+        self._last_resync_ts = 0.0
 
     def is_configured(self) -> bool:
         return bool(self._app_key and self._app_secret)
@@ -206,8 +218,27 @@ class KISWebSocketProvider(BaseProvider):
                 "[KIS_WS] 구독 응답 실패 tr_id=%s tr_key=%s rt_cd=%s msg_cd=%s msg1=%s",
                 tr_id, tr_key, rt_cd, body.get("msg_cd"), body.get("msg1"),
             )
+            # OPSP0008(MAX SUBSCRIBE OVER): 서버 등록 슬롯이 클라이언트 LRU와 어긋나
+            # 정원 초과 — 해제가 not found로 실패해 슬롯이 반환되지 않는 desync 상태.
+            # 세션을 끊으면 서버 등록이 전부 해제되므로 재연결로 재정합한다.
+            if body.get("msg_cd") == "OPSP0008":
+                self._resync_needed = True
         else:
             logger.info("[KIS_WS] 구독 응답 OK tr_id=%s tr_key=%s", tr_id, tr_key)
+
+    def _resync_due(self) -> bool:
+        """MAX SUBSCRIBE OVER 재정합 실행 여부. True면 호출부가 연결을 끊어 서버
+        구독 등록을 전부 비우고(세션 종료 시 자동 해제) 현재 LRU만 재등록한다.
+        쿨다운(_RESYNC_COOLDOWN_S) 안의 반복 재연결은 막는다."""
+        if not self._resync_needed:
+            return False
+        now = time.time()
+        if now - self._last_resync_ts < _RESYNC_COOLDOWN_S:
+            return False
+        self._last_resync_ts = now
+        self._resync_needed = False
+        logger.warning("[KIS_WS] MAX SUBSCRIBE OVER — 세션 재연결로 서버 구독 상태를 재정합합니다")
+        return True
 
     async def _drain_pending(self, ws) -> None:
         """대기 중인 LRU 해제·신규 구독 큐를 WebSocket으로 전송한다(해제 먼저)."""
@@ -251,8 +282,10 @@ class KISWebSocketProvider(BaseProvider):
 
             today = datetime.now().strftime("%Y-%m-%d")
 
-            # 전일대비: 부호(1=상한,2=상승,3=보합,4=하한,5=하락)와 변동폭으로 전일종가 계산
-            diff = int(fields[_F_DIFF] or "0")
+            # 전일대비: 부호(1=상한,2=상승,3=보합,4=하한,5=하락)와 변동폭으로 전일종가 계산.
+            # KRX 피드(H0STCNT0)는 전일대비에 '-' 부호가 붙어 올 수 있으므로 방향은
+            # 부호 필드로만 판정하고 변동폭은 절대값으로 쓴다(부호 이중 반영 방지).
+            diff = abs(int(fields[_F_DIFF] or "0"))
             sign = fields[_F_SIGN]
             if sign in ("4", "5"):   # 하락/하한: 전일종가 = 현재가 + 변동폭
                 prev_close = price + diff
@@ -410,6 +443,8 @@ class KISWebSocketProvider(BaseProvider):
                         except asyncio.TimeoutError:
                             # 타임아웃: pending 해제/구독 큐만 처리하고 다시 recv
                             await self._drain_pending(ws)
+                            if self._resync_due():
+                                break  # 연결 종료 → 외부 루프가 재접속하며 LRU만 재등록
                             continue
 
                         if isinstance(raw, bytes):
@@ -427,6 +462,8 @@ class KISWebSocketProvider(BaseProvider):
                             else:
                                 # 등록 거부(상한·미지원 등)면 WARNING으로 원인을 남긴다.
                                 self._log_subscribe_ack(raw)
+                                if self._resync_due():
+                                    break  # 연결 종료 → 외부 루프가 재접속하며 LRU만 재등록
                             continue
 
                         # 체결가 파싱 및 캐시 업데이트
@@ -494,36 +531,42 @@ class KISWebSocketProvider(BaseProvider):
         """
         종목 구독 추가 (LRU).
         - 이미 구독 중이면 최근 사용으로 갱신(move_to_end)해 LRU에서 살아남게 한다.
-        - 신규 종목은 등록 큐에 넣고, 상한 초과 시 가장 오래된 종목을 해제 큐로 보낸다.
+        - 상한은 배치 크기와 무관하게 예외 없이 강제한다 — 2026-08-24 사고: 배치
+          멤버 보호 예외로 30종목이 상한(14)을 통과해 KIS 세션 등록 정원을 초과
+          (MAX SUBSCRIBE OVER)했고, 거부된 종목들이 영구 틱 침묵에 빠졌다.
+          상한보다 큰 배치는 최신(뒤쪽) 종목만 남고, 넘친 종목은 REST 폴백이 맡는다.
         WebSocket이 연결된 상태라면 큐를 통해 다음 루프에서 즉시 전송된다.
         """
-        new_symbols: list[str] = []
+        added: list[str] = []
         evicted: list[str] = []
-        # 이번 호출에서 새로 들어온 종목은 보호(자기 자신을 evict 하지 않도록)
-        incoming = set(symbols)
         async with self._cache_lock:
             for s in symbols:
                 if s in self._subscribed:
                     self._subscribed.move_to_end(s)  # 최근 사용 갱신
                     continue
                 self._subscribed[s] = None  # 신규 = 가장 최근
-                new_symbols.append(s)
-                # 상한 초과 시 가장 오래된(LRU) 종목부터 해제
-                while len(self._subscribed) > self._max_symbols:
-                    oldest = next(iter(self._subscribed))
-                    if oldest in incoming:
-                        # 이번에 추가된 종목들만 남았으면 더 못 줄임 — 중단
-                        break
-                    self._subscribed.pop(oldest, None)
-                    self._cache.pop(oldest, None)
-                    self._orderbook_cache.pop(oldest, None)
-                    self._recent_trades.pop(oldest, None)
-                    evicted.append(oldest)
+                added.append(s)
+            # 상한 초과 시 가장 오래된(LRU) 종목부터 예외 없이 해제
+            while len(self._subscribed) > self._max_symbols:
+                oldest = next(iter(self._subscribed))
+                self._subscribed.pop(oldest, None)
+                self._cache.pop(oldest, None)
+                self._orderbook_cache.pop(oldest, None)
+                self._recent_trades.pop(oldest, None)
+                evicted.append(oldest)
 
+        # 이번 배치에서 들어왔다 바로 잘린 종목은 서버에 등록한 적이 없다 —
+        # 해제를 보내면 UNSUBSCRIBE not found로 desync 소음만 만든다.
+        added_set = set(added)
+        evicted_set = set(evicted)
         for sym in evicted:
+            if sym in added_set:
+                continue
             await self._pending_unsubscribe.put(sym)
             logger.info("[KIS_WS] LRU 초과 해제 큐 추가: %s", sym)
-        for sym in new_symbols:
+        for sym in added:
+            if sym in evicted_set:
+                continue
             await self._pending_subscribe.put(sym)
             logger.info("[KIS_WS] 구독 큐 추가: %s", sym)
 
@@ -540,19 +583,28 @@ class KISWebSocketProvider(BaseProvider):
     #  BaseProvider 구현                                                   #
     # ------------------------------------------------------------------ #
 
+    def _is_fresh(self, quote: StockQuote) -> bool:
+        """신선도 한도를 넘긴 시세는 죽은 틱(구독 desync·연결 끊김)으로 본다."""
+        return (time.time() - quote.timestamp) <= _MAX_QUOTE_AGE_S
+
     async def get_price(self, symbol: str) -> Optional[StockQuote]:
-        """캐시에서 최신 시세 반환 (WebSocket 수신 데이터)"""
+        """캐시에서 최신 시세 반환 (WebSocket 수신 데이터). 신선도 초과 시 None을
+        반환해 상위(market_data)가 REST 폴백 체인으로 내려가게 한다."""
         if not self.is_configured():
             return None
         async with self._cache_lock:
-            return self._cache.get(symbol)
+            quote = self._cache.get(symbol)
+        if quote is None or not self._is_fresh(quote):
+            return None
+        return quote
 
     async def get_prices(self, symbols: list[str]) -> dict[str, StockQuote]:
-        """캐시에서 여러 종목 시세 반환"""
+        """캐시에서 여러 종목 시세 반환 (신선도 초과 종목은 제외 → REST 폴백)"""
         if not self.is_configured():
             return {}
         async with self._cache_lock:
-            return {s: self._cache[s] for s in symbols if s in self._cache}
+            found = {s: self._cache[s] for s in symbols if s in self._cache}
+        return {s: q for s, q in found.items() if self._is_fresh(q)}
 
     async def get_orderbook(self, symbol: str) -> Optional[dict]:
         if not self.is_configured():

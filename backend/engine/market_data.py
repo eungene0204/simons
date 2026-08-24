@@ -25,6 +25,7 @@ from engine.providers.yfinance_kr import YFinanceKRProvider
 from engine.providers.pykrx_provider import PykrxProvider
 from engine.providers.krx_api_provider import KRXApiProvider
 from engine.providers.toss_us import TossUSProvider, is_us_symbol
+from engine.providers.toss_kr import TossKRProvider
 
 # ─────────────────────────────────────────────
 # 상장폐지 종목 관리
@@ -242,6 +243,19 @@ class MarketDataProvider:
         print(f"[MarketData] {self.us_provider.name}: "
               f"{'등록됨 (미국 시세)' if self.us_provider.is_configured() else '미설정 (환경변수 없음) — 건너뜀'}")
 
+        # 한국 배치 시세 레인 — 여러 종목 조회는 토스 배치(200종목/1요청)가 주력.
+        # REST 체인(KIS·네이버…)은 종목별 개별 호출이라 대량 조회에서 낭비가 크고
+        # (2026-08-24 사고의 WS 구독 압력도 여기서 왔다), 단건 조회는 OHLC·거래량을
+        # 주는 KIS REST 체인을 그대로 쓴다.
+        self.kr_batch_provider = TossKRProvider()
+        self._health[self.kr_batch_provider.name] = ProviderHealth(
+            name=self.kr_batch_provider.name,
+            available=False,
+            configured=self.kr_batch_provider.is_configured(),
+        )
+        print(f"[MarketData] {self.kr_batch_provider.name}: "
+              f"{'등록됨 (한국 배치 시세)' if self.kr_batch_provider.is_configured() else '미설정 (환경변수 없음) — 건너뜀'}")
+
     async def start_ws(self) -> None:
         """KIS WebSocket 백그라운드 루프 시작"""
         # KIS는 appkey당 WS 세션이 1개뿐이라, 같은 키를 쓰는 로컬 개발 백엔드가 켜져
@@ -293,6 +307,23 @@ class MarketDataProvider:
             self.circuit_breaker.record_failure(provider.name)
             self._update_health(provider.name, False, (time.time() - t0) * 1000, str(e))
         return result
+
+    async def _fetch_kr_batch(self, symbols: list[str]) -> dict[str, StockQuote]:
+        """한국 대량 조회 레인 — 토스 배치(200종목/1요청). 실패는 REST 체인이 흡수한다."""
+        provider = self.kr_batch_provider
+        if not provider.is_configured() or self.circuit_breaker.is_open(provider.name):
+            return {}
+        t0 = time.time()
+        try:
+            fetched = await provider.get_prices(symbols)
+        except Exception as e:
+            self.circuit_breaker.record_failure(provider.name)
+            self._update_health(provider.name, False, (time.time() - t0) * 1000, str(e))
+            return {}
+        if fetched:
+            self.circuit_breaker.record_success(provider.name)
+            self._update_health(provider.name, True, (time.time() - t0) * 1000)
+        return fetched
 
     async def get_price(self, symbol: str) -> Optional[StockQuote]:
         """단일 종목 현재가 — WebSocket 실시간 캐시 우선, 외부캐시 → provider 체인 순회"""
@@ -384,6 +415,18 @@ class MarketDataProvider:
         if not uncached:
             return result
 
+        # 2.5 대량 조회(2종목 이상)는 토스 KR 배치 레인 우선 — 종목별 개별 호출인
+        # REST 체인을 N번 때리는 대신 1요청으로 받는다. 단건은 OHLC·거래량까지 주는
+        # KIS REST 체인 유지. 배치가 못 채운 종목만 아래 체인이 이어받는다.
+        if len(uncached) >= 2:
+            batch = await self._fetch_kr_batch(uncached)
+            for sym, quote in batch.items():
+                self.cache.put(sym, quote)
+                result[sym] = quote
+            uncached = [s for s in uncached if s not in batch]
+            if not uncached:
+                return result
+
         for provider in self.providers:
             if not provider.is_configured():
                 continue
@@ -418,7 +461,7 @@ class MarketDataProvider:
     def get_health(self) -> dict:
         """전체 provider 상태 + 캐시 통계"""
         providers_status = []
-        for p in [*self.providers, self.us_provider]:
+        for p in [*self.providers, self.kr_batch_provider, self.us_provider]:
             h = self._health.get(p.name, ProviderHealth(name=p.name, available=False, configured=False))
             cb = self.circuit_breaker.get_status(p.name)
             providers_status.append({

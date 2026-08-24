@@ -1,31 +1,24 @@
 """
-토스증권 Open API Provider — 미국 주식 실시간 시세 전용
+토스증권 Open API Provider — 미국 주식 실시간 시세
 
-- OAuth2 client_credentials 토큰(24h)을 캐시하고 GET /api/v1/prices로 최대 200종목 배치 조회
-- 응답에는 현재가·통화만 있어 전일종가는 로컬 미국 파케이(data/ohlcv-us)에서 보강한다
-- 시세 조회 전용 — 주문·계좌 API는 절대 사용하지 않는다 (모의투자 전용 규제 원칙)
+- 인증·토큰 캐시·배치 조회는 공통부(toss_base.TossOpenAPIProvider) 구현을 사용한다
+- 미국 규약: 영문 티커 필터, 뉴욕 시간대 날짜, 달러 소수가, 전일종가=data/ohlcv-us 파케이
+- 종목명·섹터는 미국 마스터(data/us-stocks.json)에서 조회한다
 """
 
 import asyncio
 import json
-import os
-import re
-import threading
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
+import re
 
-import requests
+import requests  # noqa: F401 — 테스트가 toss_us.requests를 패치한다 (공통부와 같은 모듈 객체)
 
-from .base import BaseProvider, StockQuote
-
-_BASE_URL = "https://openapi.tossinvest.com"
-_REQUEST_TIMEOUT = 5
-_BATCH_MAX = 200          # /api/v1/prices 심볼 상한
-_TOKEN_MARGIN = 300       # 만료 5분 전 선제 재발급
-_PREV_CLOSE_TTL = 1800    # 전일종가 파케이 캐시 — 일 단위 데이터라 30분이면 충분
+from .base import StockQuote
+from .toss_base import TossOpenAPIProvider
 
 _ROOT = Path(__file__).resolve().parents[3]
 _US_OHLCV_DIR = _ROOT / "data" / "ohlcv-us"
@@ -62,93 +55,13 @@ def _us_name(symbol: str) -> str:
     return (entry or {}).get("name") or symbol
 
 
-def _load_last_closes(symbol: str, data_dir: Optional[Path] = None) -> tuple[float, float]:
-    """파케이 마지막 두 종가 (c_last, c_prev). 파일이 없으면 (0, 0)."""
-    path = (data_dir or _US_OHLCV_DIR) / f"{symbol}.parquet"
-    if not path.exists():
-        return 0.0, 0.0
-    import polars as pl
-    closes = [
-        float(v)
-        for v in pl.read_parquet(path, columns=["close"]).drop_nulls()["close"].tail(2)
-    ]
-    if not closes:
-        return 0.0, 0.0
-    if len(closes) == 1:
-        return closes[0], closes[0]
-    return closes[1], closes[0]
-
-
-class TossUSProvider(BaseProvider):
+class TossUSProvider(TossOpenAPIProvider):
     name = "toss_us"
 
-    def __init__(self):
-        self._client_id = os.environ.get("TOSS_INVEST_CLIENT_ID", "")
-        self._client_secret = os.environ.get("TOSS_INVEST_CLIENT_SECRET", "")
-        self._token = ""
-        self._token_expiry = 0.0
-        self._token_lock = threading.Lock()
-        # symbol → (c_last, c_prev, loaded_at)
-        self._prev_close_cache: dict[str, tuple[float, float, float]] = {}
+    # ── 미국 규약 ──────────────────────────────────
 
-    def is_configured(self) -> bool:
-        return bool(self._client_id and self._client_secret)
-
-    # ── 인증 ──────────────────────────────────────
-
-    def _get_token(self) -> str:
-        with self._token_lock:
-            if self._token and time.time() < self._token_expiry - _TOKEN_MARGIN:
-                return self._token
-            resp = requests.post(
-                f"{_BASE_URL}/oauth2/token",
-                data={
-                    "grant_type": "client_credentials",
-                    "client_id": self._client_id,
-                    "client_secret": self._client_secret,
-                },
-                timeout=_REQUEST_TIMEOUT,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            self._token = data["access_token"]
-            self._token_expiry = time.time() + float(data.get("expires_in", 86400))
-            return self._token
-
-    def _invalidate_token(self) -> None:
-        with self._token_lock:
-            self._token = ""
-
-    # ── 시세 조회 ──────────────────────────────────
-
-    def _fetch_quotes(self, symbols: list[str]) -> dict[str, StockQuote]:
-        """동기 함수: 토스 /api/v1/prices 배치 조회 (스레드에서 실행)"""
-        result: dict[str, StockQuote] = {}
-        for i in range(0, len(symbols), _BATCH_MAX):
-            batch = symbols[i : i + _BATCH_MAX]
-            # 클래스주 표기 차이: 우리 마스터/파케이는 대시(BRK-B), 토스는 점(BRK.B)
-            request_map = {s.replace("-", "."): s for s in batch}
-            resp = self._request_prices(list(request_map.keys()))
-            if resp.status_code == 401:
-                # 토큰 폐기/만료 — 1회 재발급 후 재시도
-                self._invalidate_token()
-                resp = self._request_prices(list(request_map.keys()))
-            resp.raise_for_status()
-            for item in resp.json().get("result", []):
-                toss_symbol = item.get("symbol", "")
-                our_symbol = request_map.get(toss_symbol, toss_symbol)
-                quote = self._to_quote(item, our_symbol)
-                if quote:
-                    result[quote.symbol] = quote
-        return result
-
-    def _request_prices(self, batch: list[str]):
-        return requests.get(
-            f"{_BASE_URL}/api/v1/prices",
-            params={"symbols": ",".join(batch)},
-            headers={"Authorization": f"Bearer {self._get_token()}"},
-            timeout=_REQUEST_TIMEOUT,
-        )
+    def _data_dir(self) -> Path:
+        return _US_OHLCV_DIR
 
     def _to_quote(self, item: dict, symbol: Optional[str] = None) -> Optional[StockQuote]:
         symbol = symbol or item.get("symbol", "")
@@ -183,46 +96,7 @@ class TossUSProvider(BaseProvider):
             change_rate=round((close - prev_close) / prev_close * 100, 2) if prev_close > 0 else 0.0,
         )
 
-    def _prev_close(self, symbol: str, live_price: float) -> float:
-        cached = self._prev_close_cache.get(symbol)
-        if cached and time.time() - cached[2] < _PREV_CLOSE_TTL:
-            c_last, c_prev = cached[0], cached[1]
-        else:
-            c_last, c_prev = _load_last_closes(symbol)
-            self._prev_close_cache[symbol] = (c_last, c_prev, time.time())
-        # 장 마감 후 파케이가 이미 오늘 봉을 반영했으면(현재가 == 마지막 종가) 직전 봉이 전일종가
-        if c_last > 0 and abs(live_price - c_last) < 1e-9:
-            return c_prev
-        return c_last
-
-    # ── 종목정보 (GET /api/v1/stocks) ──────────────
-
-    def _fetch_stock_info_sync(self, symbols: list[str]) -> dict[str, dict]:
-        """동기 함수: 토스 종목정보 배치 조회 — {마스터 심볼: 응답 항목}"""
-        result: dict[str, dict] = {}
-        for i in range(0, len(symbols), _BATCH_MAX):
-            batch = symbols[i : i + _BATCH_MAX]
-            request_map = {s.replace("-", "."): s for s in batch}
-
-            def _request():
-                return requests.get(
-                    f"{_BASE_URL}/api/v1/stocks",
-                    params={"symbols": ",".join(request_map.keys())},
-                    headers={"Authorization": f"Bearer {self._get_token()}"},
-                    timeout=_REQUEST_TIMEOUT,
-                )
-
-            resp = _request()
-            if resp.status_code == 401:
-                self._invalidate_token()
-                resp = _request()
-            resp.raise_for_status()
-            for item in resp.json().get("result", []):
-                toss_symbol = item.get("symbol", "")
-                our_symbol = request_map.get(toss_symbol, toss_symbol)
-                if our_symbol:
-                    result[our_symbol] = item
-        return result
+    # ── 공개 API ───────────────────────────────────
 
     async def get_stock_info(self, symbols: list[str]) -> dict[str, dict]:
         """종목 기본 정보 조회 (한글명·영문명·ISIN·상장일·발행주식수 등)."""
@@ -230,11 +104,6 @@ class TossUSProvider(BaseProvider):
         if not us_symbols or not self.is_configured():
             return {}
         return await asyncio.to_thread(self._fetch_stock_info_sync, us_symbols)
-
-    # ── BaseProvider 인터페이스 ────────────────────
-
-    async def get_price(self, symbol: str) -> Optional[StockQuote]:
-        return (await self.get_prices([symbol])).get(symbol)
 
     async def get_prices(self, symbols: list[str]) -> dict[str, StockQuote]:
         us_symbols = [s for s in symbols if is_us_symbol(s)]
