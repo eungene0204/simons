@@ -34,7 +34,9 @@ import {
 import NullstockLogoMark from "./NullstockLogoMark";
 import { getLocale, t } from "@/lib/i18n";
 import { stripRegionPrefix } from "@/lib/geo/region";
-import { useRegionHref } from "@/lib/geo/useRegion";
+import { useRegion, useRegionHref } from "@/lib/geo/useRegion";
+import { isValidPlanId } from "@/lib/plans";
+import { US_PRICING } from "@/lib/pricing/us";
 
 const QuickSearchModal = dynamic(() => import("./QuickSearchModal"), {
   ssr: false,
@@ -118,6 +120,10 @@ function formatWon(value: number) {
   return t("{0}원", Math.round(value).toLocaleString("ko-KR"));
 }
 
+function formatUsd(value: number) {
+  return `$${Math.round(value).toLocaleString("en-US")}`;
+}
+
 function formatPlanDate(value?: string | null) {
   if (!value) return t("미등록");
 
@@ -144,6 +150,7 @@ function getInitials(value: string) {
 
 function TopNavigationComponent({ userName }: { userName?: string }) {
   const pathname = usePathname();
+  const region = useRegion();
   const regionHref = useRegionHref();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -870,7 +877,14 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                     ],
                     [
                       t("계좌당 초기 모의 투자금"),
-                      formatWon(planUsage.plan.initialInvestmentAmount),
+                      // /us에서는 플랜의 미국 초기 자금(USD 정본: lib/pricing/us.ts)을 표시한다
+                      region === "us" && isValidPlanId(planUsage.plan.planId)
+                        ? formatUsd(
+                            US_PRICING.initialInvestmentAmount[
+                              planUsage.plan.planId
+                            ]
+                          )
+                        : formatWon(planUsage.plan.initialInvestmentAmount),
                     ],
                   ].map(([label, value]) => (
                     <div

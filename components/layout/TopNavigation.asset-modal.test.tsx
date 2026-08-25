@@ -26,8 +26,10 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+const navState = vi.hoisted(() => ({ pathname: "/" }));
+
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/",
+  usePathname: () => navState.pathname,
   useSearchParams: () => new URLSearchParams(""),
   useRouter: () => ({
     push: pushMock,
@@ -74,10 +76,12 @@ function renderWithQueryClient(ui: ReactNode) {
 }
 
 function mockAuthenticatedPlanUsage({
+  plan = { planId: "PRO", name: "Pro", initialInvestmentAmount: 50_000_000 },
   strategies = { used: 12, limit: 50, unlimited: false },
   planStartDate = null,
   planEndDate = null,
 }: {
+  plan?: { planId: string; name: string; initialInvestmentAmount: number };
   strategies?: { used: number; limit: number | null; unlimited: boolean };
   planStartDate?: string | null;
   planEndDate?: string | null;
@@ -103,9 +107,7 @@ function mockAuthenticatedPlanUsage({
         ok: true,
         json: async () => ({
           plan: {
-            planId: "PRO",
-            name: "Pro",
-            initialInvestmentAmount: 50_000_000,
+            ...plan,
             planStartDate,
             planEndDate,
           },
@@ -147,6 +149,7 @@ async function openPlanModal() {
 describe("TopNavigation plan modal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    navState.pathname = "/";
     isSupabaseConfiguredMock.mockReturnValue(true);
     getSessionMock.mockResolvedValue({ data: { session: null } });
     signOutMock.mockResolvedValue(undefined);
@@ -164,6 +167,21 @@ describe("TopNavigation plan modal", () => {
     expect(screen.getAllByText("미등록")).toHaveLength(2);
     expect(screen.getByText("계좌당 초기 모의 투자금")).toBeInTheDocument();
     expect(screen.getByText("50,000,000원")).toHaveClass("text-gray-300");
+  });
+
+  it("/us에서는 초기 모의 투자금을 미국 가격표(USD)로 표시한다", async () => {
+    navState.pathname = "/us";
+    mockAuthenticatedPlanUsage({
+      plan: {
+        planId: "PREMIUM",
+        name: "Premium",
+        initialInvestmentAmount: 100_000_000,
+      },
+    });
+    await openPlanModal();
+
+    expect(await screen.findByText("$100,000")).toHaveClass("text-gray-300");
+    expect(screen.queryByText("100,000,000원")).not.toBeInTheDocument();
   });
 
   it("계좌/전략/백테스트 사용량을 표시한다", async () => {
