@@ -189,6 +189,14 @@ def suggest_similar_stocks(query: str, *, max_distance: int = 2) -> list[StockRe
     q = (query or "").strip()
     if len(q) < 2 or not all("가" <= ch <= "힣" for ch in q):
         return []
+    # /us(표시 언어 en)에서는 한국 종목을 제안하지 않는다 — 이 인덱스는 KR 마스터
+    # 전용이라 지역 격리 계약(test_us_region_isolation)을 깨뜨린다. 실측 2026-08-26
+    # 레드팀 EN u5-1: "Samsung Electronics"에 "혹시 '삼성전기'를 말씀하신 건가요?"가
+    # 나갔다 — /us는 한국 시장을 지원하지 않으므로 고를 수 없는 선택지다.
+    import ui_language
+
+    if ui_language.get_ui_language() == "en":
+        return []
     if resolve_by_symbol(q) is not None:  # 코드면 오타 아님
         return []
     qj = _to_jamo(q)

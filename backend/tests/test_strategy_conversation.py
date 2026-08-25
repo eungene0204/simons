@@ -1375,7 +1375,7 @@ class _StubPrimaryInterpreter:
             unreflected_numbers=unreflected,
         )
 
-    def interpret(self, user_input, draft=None, pending_question=None, on_stage=None):
+    def interpret(self, user_input, draft=None, pending_question=None, on_stage=None, **kwargs):
         return self._result
 
 
@@ -1878,7 +1878,7 @@ def test_primary_interpreter_error_falls_back(monkeypatch):
     from strategy_conversation.interpreter.llm_strategy_interpreter import InterpreterError
 
     class _Failing:
-        def interpret(self, user_input, draft=None, on_stage=None):
+        def interpret(self, user_input, draft=None, on_stage=None, **kwargs):
             raise InterpreterError("boom")
 
     monkeypatch.setattr(primary, "_interpreter_singleton", _Failing())
@@ -2376,7 +2376,7 @@ def test_modify_primary_deterministic_fast_path_skips_interpreter(monkeypatch):
     monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "fast_path_first")
 
     class _MustNotBeCalled:
-        def interpret(self, user_input, draft=None, on_stage=None):
+        def interpret(self, user_input, draft=None, on_stage=None, **kwargs):
             raise AssertionError("결정적 fast-path 처리 가능한 입력에 인터프리터가 호출됨")
 
     monkeypatch.setattr(primary, "_interpreter_singleton", _MustNotBeCalled())
@@ -2490,7 +2490,7 @@ def test_modify_primary_forwards_pending_question_to_interpreter(monkeypatch):
     seen: dict = {}
 
     class _Interpreter:
-        def interpret(self, user_input, draft=None, pending_question=None, on_stage=None):
+        def interpret(self, user_input, draft=None, pending_question=None, on_stage=None, **kwargs):
             seen["pending_question"] = pending_question
             raise RuntimeError("stop")  # 해석 결과는 이 테스트의 관심사가 아니다
 
@@ -2913,7 +2913,7 @@ def test_shadow_records_diff_and_writes_log(tmp_path, monkeypatch):
     intent = StrategyIntent.model_validate(_full_intent_dict())
 
     class _StubInterpreter:
-        def interpret(self, user_input, draft=None, on_stage=None):
+        def interpret(self, user_input, draft=None, on_stage=None, **kwargs):
             return InterpreterResult(
                 intent=intent, raw_output="{}", repair_attempts=0,
                 latency_ms=1.0, model_name="stub",

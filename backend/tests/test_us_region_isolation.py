@@ -164,3 +164,17 @@ def test_compile_us_default_capital_is_usd():
     assert parsed.initial_capital == 10_000.0
     parsed_kr = compile_strategy(_intent([]), _ready(), "저PER 종목 매수")
     assert parsed_kr.initial_capital == 10_000_000.0
+
+
+def test_typo_suggestion_offers_no_korean_stock_in_us_region():
+    """[지역 격리] /us에서는 한국 종목 오타 제안을 하지 않는다.
+
+    실측(2026-08-26, 레드팀 EN u5-1): "Backtest a golden cross on Samsung Electronics"에
+    "혹시 '삼성전기'를 말씀하신 건가요?"가 나갔다 — 제안 인덱스가 KR 마스터 전용이라
+    /us 사용자에게 **고를 수 없는 선택지**를 내민다(한국 시장 미지원). KR 경로는 불변.
+    """
+    from stock_analysis.symbol_resolver import suggest_similar_stocks
+
+    assert [r.name for r in suggest_similar_stocks("삼성전자")], "KR 기본 경로는 제안한다"
+    with ui_language.bind("en"):
+        assert suggest_similar_stocks("삼성전자") == []

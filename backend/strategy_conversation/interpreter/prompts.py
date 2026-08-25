@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "4.5"
+PROMPT_VERSION = "4.7"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -189,7 +189,8 @@ NON_STRATEGY_REQUEST(전략과 무관)
    take_profit(금지) — 전부 unsupported_features에 원문 조각으로.
    **자주 놓치는 미지원 개념**(보이면 반드시 unsupported_features에): 최소 보유 기간,
    분할 매도, 흑자전환·연속 흑자, 장중·분봉 매매, 우선주, VWAP, 현금 비중, 신저가,
-   베타, 뉴스·수급.
+   베타, 뉴스·수급, **공매도·숏(short/short-selling)**(엔진은 매수 후 매도만 지원합니다 —
+   "Short overvalued stocks"의 'Short'를 버리고 매수 전략으로 바꾸지 마세요).
    미국 **시장·지수**(S&P500·나스닥·다우·미국 ETF)는 지원합니다 — 규칙 6의 매핑을 쓰세요.
    미국 **테마**("미국 AI 반도체 관련주", "GLP-1 비만치료제" 등)는 규칙 6-0-2대로
    universe.sectors에 넣으세요 — 시스템이 미국 테마 카탈로그로 구성 종목을 조회합니다
@@ -635,6 +636,10 @@ markets=["US"]로만 출력하면 사용자가 말한 범위(빅테크)가 미�
 이름이 통째로 소실됐습니다): "Among US cloud software stocks trading above ..."
 → universe={{"markets":["US"],"sectors":["cloud software"]}} — 'US'는 markets로,
 'cloud software'는 sectors로 둘 다 채웁니다("stocks"는 범주어라 이름에서 뺍니다).
+"US big tech stocks above the 50-day moving average"도 같습니다 →
+markets=["US"] **그리고** sectors=["big tech"] — 뒤에 오는 기술 조건(이동평균 등)에
+정신이 팔려 종목군 이름을 빠뜨리면 사용자가 말한 범위가 미국 전체로 넓어집니다
+(실측 2026-08-26: sectors가 비어 나갔습니다).
 "US energy sector stocks"처럼 **업종(sector) 이름**도 같습니다 → sectors=["energy"] —
 지원 여부 판정은 시스템 몫이니 버리지 말고 실으세요(버리면 사용자가 말한 범위가
 미국 전체로 조용히 넓어집니다. 시스템이 미지원이면 명시 안내를 냅니다).
@@ -728,6 +733,7 @@ def _number_checklist(user_input: str) -> str:
 
 def build_user_prompt(
     user_input: str, draft: dict | None = None, pending_question: str | None = None,
+    pending_slot: str | None = None,
 ) -> str:
     # 오늘 날짜는 매 요청 주입한다 — 모델이 학습 시점 기억으로 과거 연도를 미래로
     # 오판해 명시 날짜를 누락하는 드리프트 방지(시스템 프롬프트 규칙 12와 짝).
@@ -737,8 +743,20 @@ def build_user_prompt(
         # 직전 턴에 우리가 던진 질문. 사용자가 "3억원"처럼 필드를 밝히지 않고 값만
         # 답할 때 어느 필드의 답인지는 이 질문이 정한다 — 문맥 없이 값만 보면 귀속할
         # 수 없어 같은 질문을 다시 던지게 된다(2026-07-31 초기자금 무한 되묻기).
+        # 그 질문이 **어느 칸을 묻는지**는 시스템이 안다(우리가 방금 발행한 ask의 topic →
+        # strategy_slots.answer_target_for_topic). 알려주면 LLM의 일이 '필드 찾기 + 값
+        # 해석' 둘에서 '값 해석' 하나로 줄어든다 — 정성·비수치 표현("eight stocks"·
+        # "double my money"·"close it out after a month")이 전부 되묻기로 되돌아오던
+        # 자리다(2026-08-26 /us 자유입력 QA). 결정론이 정하는 것은 우리 자신의 상태이지
+        # 사용자 표현의 의미가 아니다(§ 3-2).
+        slot_line = (
+            f"이 질문이 채우는 칸: {pending_slot}\n"
+            if pending_question and pending_question.strip() and pending_slot
+            else ""
+        )
         pending_block = (
-            f"답을 기다리는 질문(직전 턴에 우리가 물은 것):\n\"{pending_question.strip()}\"\n\n"
+            f"답을 기다리는 질문(직전 턴에 우리가 물은 것):\n\"{pending_question.strip()}\"\n"
+            f"{slot_line}\n"
             if pending_question and pending_question.strip()
             else ""
         )
@@ -747,7 +765,10 @@ def build_user_prompt(
         # 값이 없으면 패치 대신 CLARIFY_STRATEGY로 질문을 유지하게 계약한다.
         answer_rule = (
             " 사용자 입력이 위 질문에 대한 답이면(값만 말했더라도) 그 질문이 묻는 필드의 "
-            "패치로 출력하세요. 단, 입력에 값이 없으면(항목·주제 이름만 말한 경우) 값을 "
+            "패치로 출력하세요. 숫자를 낱말로 쓰거나(eight=8, a dozen=12) 배수·기간으로 "
+            "에둘러 말해도(double my money=익절 100%, a month=21거래일, 3x the average="
+            "거래량 급증) 그 뜻을 값으로 옮기세요 — 값이 **있는데** 표기가 낯설다는 이유로 "
+            "되묻지 마세요(되묻기는 값이 아예 없을 때만입니다). 단, 입력에 값이 없으면(항목·주제 이름만 말한 경우) 값을 "
             "지어내 패치하지 마세요 — 초안의 다른 필드 값을 복사하지 말고, "
             "intent=CLARIFY_STRATEGY에 patches는 비우고 clarification_questions로 그 "
             "질문을 다시 내세요."

@@ -327,6 +327,16 @@ US 예시(`components/strategy/usExamples.ts`)·영어 번역(`lib/i18n/en.ts` �
 QA_TIMEOUT=420 python scripts/qa_template_detect.py --source us            # 한국어 원문 게이트
 QA_TIMEOUT=420 python scripts/qa_template_detect.py --source us --lang en  # 영어 입력 게이트(/us 전송 경로 재현)
 ```
+
+### /us 영어 레인 수정 시 QA 하니스
+`/us` 파싱·분류·되묻기 경로를 고치면 아래 영어 판 하니스로 확인한다(전부 `--lang en`).
+```bash
+python scripts/qa_redteam_validation.py --lang en   # 레드팀 51케이스(규제·시장 경계·달러 단위)
+python scripts/qa_free_input.py modify --lang en    # 되묻기 자유 답변 35케이스(fill 계열도)
+python scripts/qa_multiturn_binding.py --lang en    # 멀티턴 결속 6시나리오
+```
+- 판정은 사람이 결과(JSONL·로그)를 읽고 한다 — 되묻기는 실패가 아니다(값 없는 팩터를 묻는 것은 정상)
+- `--lang en`의 계약: **파서 입력만 영어**이고 백엔드 되묻기 문구는 한국어 정본이다(표시 번역은 프론트 `t()` 소관)
 - 어휘·상품명·업종이 정본에 매칭되는지 확인하는 것만으로는 부족하다 — 2026-07-27 사고: 매칭만 확인하고 파싱을 돌리지 않아 재무+랭킹 복합 예시가 빈 전략으로 나가는 것을 사용자가 먼저 발견했다
 - 예시가 조건을 **조용히** 잃으면(질문도 없이 사라지면) **예시 문구를 바꾸기 전에 파서 쪽 원인을 먼저 규명한다**(엔진이 표현할 수 없는 문구일 때만 예시를 고친다)
 - **되묻기는 실패가 아니다** — 값이 빠진 팩터를 묻는 것은 전략 agent의 정상 동작이다(말하지 않은 값을 기본값으로 확정 금지). 되묻는 팩터를 치명·미탐지로 세지 않는다(2026-07-29 판정 수정, 회귀 `backend/tests/test_qa_template_detect_verdict.py`)

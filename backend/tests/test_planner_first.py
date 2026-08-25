@@ -363,7 +363,7 @@ class _StubInterpreter:
             raw_output="{}", repair_attempts=0, latency_ms=1.0, model_name="stub",
         )
 
-    def interpret(self, user_input, draft=None, on_stage=None):
+    def interpret(self, user_input, draft=None, on_stage=None, **kwargs):
         return self._result
 
 
