@@ -26,8 +26,12 @@ _UNIVERSE_KIND_SUPPORT: dict[str, dict[str, bool]] = {
 
 
 def universe_kind(universe: Optional[Iterable[str]]) -> str:
-    """ParsedStrategy.universe → 유니버스 종류("ETF" | "STOCK")."""
-    if universe and "ETF" in set(universe):
+    """ParsedStrategy.universe → 유니버스 종류("ETF" | "STOCK").
+
+    미국 ETF(US_ETF)도 같은 ETF 종류다 — 여러 기업을 묶은 상품이라 기업 재무지표를
+    조건으로 쓸 수 없다는 계약이 시장과 무관하게 동일하다.
+    """
+    if universe and set(universe) & {"ETF", "US_ETF"}:
         return "ETF"
     return "STOCK"
 

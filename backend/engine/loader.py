@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 class DataLoader:
     def __init__(self, data_dir: str):
         self.data_dir = data_dir
+        # 미국 파케이는 형제 디렉터리(data/ohlcv-us) — 심볼 형태로 결정적 라우팅한다
+        # (한국 6자리·숫자 시작 vs 미국 영문 시작, universe_pit.is_us_symbol).
+        self.us_data_dir = os.path.join(
+            os.path.dirname(os.path.normpath(data_dir)), "ohlcv-us")
         self._cache: dict[str, pl.DataFrame] = {}
 
     def load_symbol_data(self, symbol: str) -> pl.DataFrame:
@@ -19,7 +23,16 @@ class DataLoader:
         if symbol in self._cache:
             return self._cache[symbol]
 
+        # 기본 디렉터리 우선, 없고 미국 티커 형태면 형제 디렉터리(ohlcv-us)로 폴백 —
+        # 우선순위를 뒤집으면 테스트 픽스처 등 기본 디렉터리에 실재하는 대문자 심볼을
+        # 납치한다(2026-08-25 전체 스위트 19건 실측).
+        from_us = False
         file_path = os.path.join(self.data_dir, f"{symbol}.parquet")
+        if not os.path.exists(file_path) and self._is_us(symbol):
+            us_path = os.path.join(self.us_data_dir, f"{symbol}.parquet")
+            if os.path.exists(us_path):
+                file_path = us_path
+                from_us = True
 
         if not os.path.exists(file_path):
             return None
@@ -29,9 +42,10 @@ class DataLoader:
         # ROE 미보유 시 캐시에서 빠르게 enrichment 시도. ETF는 기업 재무제표가 없어
         # KIS 재무비율 API가 항상 실패/공백만 반환하므로 건너뛴다(불필요한 API 호출·
         # 로그 소음 방지 — universe_capabilities가 애초에 ETF엔 재무 조건을 허용하지
-        # 않으므로 이 데이터는 어차피 쓰이지 않는다).
+        # 않으므로 이 데이터는 어차피 쓰이지 않는다). 미국 종목도 건너뛴다 — KIS는
+        # 한국 전용이고, 미국 재무는 EDGAR 백필이 파케이에 이미 담았다.
         if ("roe_or_gpa" not in df.columns or df["roe_or_gpa"].is_null().all()) \
-                and not self._is_etf(symbol):
+                and not from_us and not self._is_etf(symbol):
             df = self._enrich_fundamentals(symbol, df)
 
         self._cache[symbol] = df
@@ -41,6 +55,11 @@ class DataLoader:
     def _is_etf(symbol: str) -> bool:
         from .universe_pit import is_etf_symbol
         return is_etf_symbol(symbol)
+
+    @staticmethod
+    def _is_us(symbol: str) -> bool:
+        from .universe_pit import is_us_symbol
+        return is_us_symbol(symbol)
 
     def _enrich_fundamentals(self, symbol: str, df: pl.DataFrame) -> pl.DataFrame:
         """ROE/EPS/BPS 미보유 종목을 캐시 → API 순으로 enrichment."""

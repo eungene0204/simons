@@ -380,6 +380,13 @@ class BacktestEngine:
 
         시장을 끝내 알 수 없으면(ETF 유니버스 등) KODEX 200으로 둔다.
         """
+        # 미국 유니버스·미국 지정 종목 — 지수별 대응 ETF(SPY/QQQ/DIA)로 비교한다.
+        _us_kind = universe_pit.us_universe_kind(universe_id)
+        if _us_kind:
+            return universe_pit.us_benchmark(_us_kind)
+        if symbols and universe_pit.is_us_symbol_set(symbols):
+            return universe_pit.us_benchmark(None)
+
         universe_parts = {part for part in (universe_id or "").lower().split("_") if part}
         # 대형주 지수(kospi200)는 그 지수 ETF가 따로 있어 별도 분기지만, kosdaq150은
         # 벤치마크가 코스닥 전체와 같은 KODEX KOSDAQ 150이라 코스닥 계열로 묶는다.
@@ -468,6 +475,14 @@ class BacktestEngine:
                 raise Exception(
                     "AI 예측 신호 기능이 현재 비활성화되어 있습니다. "
                     "AI 신호(ai_model/ai_drop_model)를 제거하고 다시 실행해 주세요."
+                )
+            # 미국 유니버스 × AI 신호는 모델 선로드(아래 fail-fast) 전에 거절한다 —
+            # 한국 데이터로 학습된 모델이라 미국에서 쓸 수 없고, 로드할 이유도 없다.
+            if ai_needed and universe_pit.us_universe_kind(req.get('universe_id')):
+                raise Exception(
+                    "AI 예측 신호(ai_model/ai_drop_model)는 한국 시장 데이터로 학습된 "
+                    "모델이라 미국 유니버스에서는 사용할 수 없습니다. AI 신호를 제거하고 "
+                    "다시 실행해 주세요."
                 )
 
             # 횡단면 AI 하락 랭킹 청산: exit에 ai_drop_model(exitMode='rank')이 있으면 매일
@@ -576,9 +591,40 @@ class BacktestEngine:
             # *during* the window are included for the period they were alive. The legacy caller
             # passes only currently-listed symbols, which silently drops every delisted name and
             # inflates returns. universe_id=None (custom symbol set) leaves the list untouched.
-            _markets, _index_top_n = universe_pit.parse_universe_markets(req.get('universe_id'))
-            _is_etf_universe = universe_pit.is_etf_universe(req.get('universe_id'))
-            if _markets:
+            # ── 미국 유니버스 (US 레인 Phase 1) ──
+            # 미국 데이터셋은 현재 상장 종목만 담고 있어(상장폐지 부재) PIT 시총 근사도
+            # 같은 생존편향을 가진다 — 지수는 현행 구성종목 명부를 쓰고 정직하게 고지한다.
+            # 미국 시장에는 증권거래세(매도세)가 없다 — 명시 옵션이 없으면 0으로 둔다.
+            _us_kind = universe_pit.us_universe_kind(req.get('universe_id'))
+            _markets, _index_top_n = ([], None) if _us_kind else \
+                universe_pit.parse_universe_markets(req.get('universe_id'))
+            _is_etf_universe = (not _us_kind) and universe_pit.is_etf_universe(req.get('universe_id'))
+            if _us_kind:
+                # AI 신호 거절은 모델 선로드 전(위 fail-fast 구역)에서 이미 처리됐다.
+                if req.get('sector'):
+                    raise ValueError("미국 유니버스의 업종 필터는 아직 지원되지 않습니다.")
+                if req.get('listing_from') or req.get('listing_to'):
+                    raise ValueError("미국 유니버스의 신규 상장 필터는 아직 지원되지 않습니다.")
+                _us_symbols = universe_pit.resolve_us_symbols(_us_kind)
+                if not _us_symbols:
+                    raise ValueError(
+                        f"미국 유니버스({_us_kind}) 종목을 찾지 못했습니다 — "
+                        "미국 데이터(us-index-membership.json 등) 수집 상태를 확인해 주세요."
+                    )
+                symbols = _us_symbols
+                if options.get('sell_tax_rate') is None:
+                    options['sell_tax_rate'] = 0.0
+                self.warnings.add(
+                    "미국 유니버스는 현재 상장 종목 기준입니다 — 기간 중 상장폐지된 종목이 "
+                    "빠져 있어 장기 결과가 실제보다 유리하게 나올 수 있습니다(생존 편향)."
+                )
+                if _us_kind in ("sp500", "nasdaq100", "dow30"):
+                    self.warnings.add(
+                        "지수 유니버스는 현재 구성종목 명부 기준입니다 — 과거의 편입·편출은 "
+                        "반영되지 않습니다."
+                    )
+                print(f"[BT-ENGINE] US universe({_us_kind}): {len(symbols)}종목", flush=True)
+            elif _markets:
                 _aof_symbols = universe_pit.resolve_symbols(req.get('universe_id'), _period_start_str, _end_str)
                 if _aof_symbols:
                     symbols = _aof_symbols
@@ -612,6 +658,19 @@ class BacktestEngine:
                         )
                 print(f"[BT-ENGINE] ETF universe: {len(symbols)}종목 "
                       f"(theme={req.get('etf_theme')})", flush=True)
+
+            # 지정 종목 모드(universe_id=None): 한·미 혼합은 거절한다 — 세금·벤치마크·
+            # 통화가 시장 단위 계약이라 혼합하면 어느 쪽 기준도 성립하지 않는다.
+            # 전부 미국 티커면 증권거래세 0(미국 유니버스 분기와 같은 규칙).
+            if not _us_kind and symbols:
+                _us_cnt = sum(1 for s in symbols if universe_pit.is_us_symbol(s))
+                if 0 < _us_cnt < len(symbols):
+                    raise ValueError(
+                        "한국 종목과 미국 종목을 한 백테스트에 함께 지정할 수 없습니다 — "
+                        "시장별로 나눠 실행해 주세요."
+                    )
+                if _us_cnt == len(symbols) and options.get('sell_tax_rate') is None:
+                    options['sell_tax_rate'] = 0.0
 
             # ── 섹터/업종 제한 ──
             # 섹터 분류는 현재 상장(korea-stocks.json) + 상폐 백필(stock-master.json sector,
