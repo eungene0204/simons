@@ -595,13 +595,17 @@ async def resolve_rollback(req: RollbackResolveRequest) -> RollbackResolveRespon
 # ─── /knowledge/graph ───────────────────────────────────────────────────────────
 
 @router.get("/knowledge/graph")
-async def knowledge_graph_dump() -> dict:
+async def knowledge_graph_dump(market: str = "kr") -> dict:
     """합성 지식그래프 전체 덤프 — 관리자 콘솔 KG 시각화(FR-STR-070c)용 읽기 전용 뷰.
 
-    시드+정본(섹터·기업·ETF)+학습 오버레이가 합성된 그래프를 그대로 내보낸다.
+    한국(kr, 기본)=시드+정본(섹터·기업·ETF)+학습 오버레이, 미국(us)=시드+테마
+    카탈로그(engine/us_knowledge_graph.py). 합성된 그래프를 그대로 내보낸다.
     객관적 관계 데이터 표시이며 추천·전망이 아니다.
     """
-    from engine.knowledge_graph import get_graph
+    if market == "us":
+        from engine.us_knowledge_graph import get_graph
+    else:
+        from engine.knowledge_graph import get_graph
 
     graph = await asyncio.to_thread(get_graph)
     return {

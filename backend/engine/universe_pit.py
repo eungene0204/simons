@@ -952,3 +952,23 @@ def us_display_name(ticker: Optional[str]) -> Optional[str]:
         if s.get("symbol") == t:
             return s.get("name_kr") or s.get("name") or None
     return None
+
+
+# ── 미국 테마 해석 (US 레인, 2026-08-25) ──
+# 테마어(LLM이 뽑은 짧은 문자열) → 구성 티커의 registry 정본. 원문 패턴 매칭에
+# 쓰지 않는다. 구성 목록은 객관적 소속 정보이며 추천이 아니다. 해석된 구성 종목은
+# '테마 유래 지정 종목'으로 전개된다(theme 출처 표기 계약 —
+# ParsedStrategy.theme_universe / UniverseSpec.theme).
+# 정본은 미국 지식그래프(engine/us_knowledge_graph.py — 시드+테마 카탈로그 합성).
+
+
+def resolve_us_theme(term: Optional[str]) -> Optional[tuple[str, list[str]]]:
+    """테마어 → (정본 테마명, 파케이 보유 구성 티커 목록). 그래프 밖이면 None.
+
+    '미국' 접두는 벗겨 본다("미국 사이버보안" → "사이버보안") — 시장 한정어일 뿐
+    테마 정체성이 아니다. 데이터 없는 티커는 조용히 제외하지 않고 그대로 두되,
+    KG 무결성 테스트가 전 티커의 파케이 보유를 강제한다(Fail Fast는 데이터 층에서).
+    """
+    from engine.us_knowledge_graph import resolve_theme  # 지연 import(순환 방지)
+
+    return resolve_theme(term)

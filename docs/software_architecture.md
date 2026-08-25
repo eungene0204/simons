@@ -137,6 +137,7 @@ simons/
 │   │   ├── universe_capabilities.py # 유니버스별 지원 팩터 레지스트리(ETF=기업 재무지표 불가, FR-STR-067)
 │   │   ├── term_grounding.py        # 용어 그라운딩 — 어휘집→지식그래프→LLM→검색 체인으로 테마 용어를 정본 섹터에 매핑(FR-STR-069)
 │   │   ├── knowledge_graph.py       # Investment Knowledge Graph — 개념·공급망·기업·ETF 노드/엣지 합성·탐색(FR-STR-070, docs/knowledge_graph.md)
+│   │   ├── us_knowledge_graph.py    # 미국 지식그래프 — 시드+테마 카탈로그 합성, 테마어→구성 티커 해석(US 레인, docs/knowledge_graph.md 미국 섹션)
 │   │   ├── data_resolver.py         # 유니버스 필터링
 │   │   ├── virtual_trader.py        # 가상매매 실시간 엔진 (상장 상태 체크 포함)
 │   │   ├── listing_status.py        # 상장 상태 머신 (7단계) + DART 분류 + DB 동기화

@@ -130,9 +130,29 @@ describe("KnowledgeTab 서브탭", () => {
     expect(screen.getByText(/섹터 1/)).toBeInTheDocument();
     expect(screen.getByText(/상장사 1/)).toBeInTheDocument();
     expect(screen.getByText(/학습 용어 1/)).toBeInTheDocument();
+    // 기본 조회는 한국 그래프(market=kr) — 시장 토글이 미국(us)으로 전환한다
     expect(
-      (global.fetch as any).mock.calls.some((c) => String(c[0]) === "/api/admin/knowledge/graph")
+      (global.fetch as any).mock.calls.some(
+        (c) => String(c[0]) === "/api/admin/knowledge/graph?market=kr"
+      )
     ).toBe(true);
+  });
+
+  it("시장 토글로 미국 그래프(market=us)를 다시 조회한다", async () => {
+    render(<KnowledgeTab />);
+    fireEvent.click(screen.getByText("KG 시각화"));
+    await waitFor(() => {
+      expect(screen.getByText(/노드 4 · 엣지 2/)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("미국"));
+    await waitFor(() => {
+      expect(
+        (global.fetch as any).mock.calls.some(
+          (c) => String(c[0]) === "/api/admin/knowledge/graph?market=us"
+        )
+      ).toBe(true);
+    });
   });
 
   it("검색창에 이름 부분일치 노드가 드롭다운으로 표시된다", async () => {

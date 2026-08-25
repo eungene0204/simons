@@ -5,14 +5,16 @@ import { fetchBackend } from '@/lib/server/backend'
 export const dynamic = 'force-dynamic'
 
 // KG 시각화 데이터(FR-STR-070c) — 백엔드가 합성한 지식그래프(시드+정본+학습 오버레이)
-// 전체를 프록시한다. 합성 로직의 SOT는 backend/engine/knowledge_graph.py이며 여기서
-// 파일을 직접 읽어 재합성하지 않는다(정본을 두 번 적지 않는다).
-export async function GET() {
+// 전체를 프록시한다. 합성 로직의 SOT는 backend/engine/knowledge_graph.py(한국)·
+// us_knowledge_graph.py(미국, market=us)이며 여기서 파일을 직접 읽어 재합성하지
+// 않는다(정본을 두 번 적지 않는다).
+export async function GET(request: Request) {
   const admin = await requireAdmin()
   if (!admin) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
 
+  const market = new URL(request.url).searchParams.get('market') === 'us' ? 'us' : 'kr'
   try {
-    const res = await fetchBackend('/knowledge/graph', { timeoutMs: 15_000 })
+    const res = await fetchBackend(`/knowledge/graph?market=${market}`, { timeoutMs: 15_000 })
     if (!res.ok) {
       return NextResponse.json({ error: '백엔드 그래프 조회 실패' }, { status: 502 })
     }
