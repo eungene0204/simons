@@ -103,6 +103,15 @@ def resolve_by_symbol(symbol: str) -> Optional[StockRef]:
         return None
     row = _symbol_index().get(symbol.strip())
     if row is None:
+        # 미국 종목·ETF — 데이터 보유 티커면 마스터 표시명으로 해석한다(US 레인 2026-08-25).
+        try:
+            from engine.universe_pit import us_display_name, us_ticker_with_data
+
+            us = us_ticker_with_data(symbol)
+            if us:
+                return StockRef(symbol=us, name=us_display_name(us) or us, overseas=True)
+        except Exception:  # noqa: BLE001 — 미국 마스터 로드 실패가 국내 해석을 막으면 안 된다
+            pass
         # 해외 티커(별칭 맵의 값)도 허용한다.
         if symbol.strip().upper() in set(_OVERSEAS_ALIASES.values()):
             return StockRef(symbol=symbol.strip().upper(), name=symbol.strip().upper(), overseas=True)

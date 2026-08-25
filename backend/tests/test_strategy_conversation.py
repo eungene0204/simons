@@ -2738,9 +2738,11 @@ def test_patch_invalid_path_rejected():
 
 
 def test_patch_schema_violation_rejected():
+    # NASDAQ은 2026-08-25 US 레인 승격으로 유효한 시장이 됐다 — 여전히 스키마 밖인
+    # 값으로 위반 거부 계약을 검증한다.
     with pytest.raises(PatchError):
         apply_patches(_spec(), [
-            PatchOp(op="replace", path="/universe/markets", value=["NASDAQ"]),
+            PatchOp(op="replace", path="/universe/markets", value=["NIKKEI225"]),
         ])
 
 

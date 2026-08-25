@@ -73,11 +73,18 @@ def test_resolve_symbols_reports_unresolved():
     assert unresolved == ["존재하지않는회사명입니다"]
 
 
-def test_resolve_symbols_rejects_overseas():
-    """해외 종목은 백테스트 OHLCV가 없어 지정해도 실행 불가 — 조용히 통과시키지 않는다."""
+def test_resolve_symbols_resolves_us_tickers_with_data():
+    """미국 종목은 2026-08-25 US 레인 승격으로 정식 지원 — 파케이 보유 티커만 인정한다.
+
+    구계약(전면 거부)의 정신은 유지된다: 데이터 없는 티커를 조용히 통과시키면
+    0거래로 끝나므로 여전히 해석 실패로 보고한다."""
     codes, unresolved = resolve_symbols(["AAPL"])
-    assert codes == []
-    assert unresolved == ["AAPL"]
+    assert codes == ["AAPL"]
+    assert unresolved == []
+
+    codes2, unresolved2 = resolve_symbols(["ZZZZZZZQ"])  # 데이터 없는 티커
+    assert codes2 == []
+    assert unresolved2 == ["ZZZZZZZQ"]
 
 
 def test_resolve_symbols_reports_non_string_items():

@@ -403,6 +403,10 @@ def _estimate_universe_symbol_count(markets: List[str]) -> Optional[int]:
     """Return cheap counts when available without resolving full symbol lists."""
     if markets == ["KOSPI200"] or set(markets) == {"KOSPI200"}:
         return 200
+    # 미국 지수 — 현행 구성 명부 기준의 대략치(표시용)
+    _us_counts = {"SP500": 500, "NASDAQ100": 100, "DOW30": 30}
+    if len(markets) == 1 and markets[0] in _us_counts:
+        return _us_counts[markets[0]]
     return None
 
 

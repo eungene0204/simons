@@ -488,7 +488,8 @@ class ParsedStrategy(BaseModel):
     description: str = Field(description="사용자가 입력한 원문 전략 설명 (그대로 복사)")
 
     # ── 유니버스
-    universe: List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150", "ETF"]] = Field(
+    universe: List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150", "ETF",
+                           "SP500", "NASDAQ100", "NASDAQ", "DOW30", "US", "US_ETF"]] = Field(
         default=["KOSPI200"],
         description=(
             "투자 대상 시장. 언급 없으면 ['KOSPI200'] (KOSPI 전체 종목, 유동성 우선). "
@@ -583,6 +584,15 @@ class ParsedStrategy(BaseModel):
                 "코스피": "KOSPI", "코스닥": "KOSDAQ", "코스피200": "KOSPI200",
                 "KOSDAQ150": "KOSDAQ150", "코스닥150": "KOSDAQ150",
                 "ETF": "ETF", "ETN": "ETF", "이티에프": "ETF", "상장지수펀드": "ETF",
+                # 미국 시장 (US 레인 Phase 2) — interpreter/models.py 코어서와 같은 표기 정규화
+                "SP500": "SP500", "S&P500": "SP500", "SNP500": "SP500",
+                "에스앤피500": "SP500", "에스앤피": "SP500",
+                "NASDAQ100": "NASDAQ100", "나스닥100": "NASDAQ100",
+                "NASDAQ": "NASDAQ", "나스닥": "NASDAQ",
+                "DOW30": "DOW30", "DOW": "DOW30", "DOWJONES": "DOW30",
+                "다우30": "DOW30", "다우": "DOW30", "다우존스": "DOW30",
+                "US": "US", "미국": "US", "USETF": "US_ETF",
+                "US_ETF": "US_ETF", "미국ETF": "US_ETF",
             }
             markets: list[str] = []
             moved_sector = False
@@ -820,7 +830,9 @@ class ParsedStrategyDiff(BaseModel):
     _normalize_ratio_sign = field_validator(*_RATIO_SIGN_FIELDS)(_abs_ratio)
     _clamp_positions = field_validator("max_positions", mode="before")(_clamp_max_positions)
     description: Optional[str] = None
-    universe: Optional[List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "ETF"]]] = None
+    universe: Optional[List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "ETF",
+                                    "SP500", "NASDAQ100", "NASDAQ", "DOW30",
+                                    "US", "US_ETF"]]] = None
     sector: Optional[Union[str, List[str]]] = Field(
         default=None,
         description=(
@@ -3790,9 +3802,10 @@ _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("atr_stop", r"atr"),
     ("averaging_down", r"물타기|불타기|피라미딩|추가매수"),
     ("intraday", r"(?:실시간|장중|분봉|틱)[^,.]{0,10}(?:리밸런|매매|체결|대응|감시|전략)"),
-    # 해외 시장/종목 — 국내(코스피·코스닥·국내 ETF)만 지원. 개별 해외 종목명(애플 등)은
-    # _mentioned_unsupported_concepts가 symbol_resolver의 overseas 판정으로 잡는다.
-    ("overseas", r"나스닥|nasdaq|s&p|snp500|다우존?스?지수|qqq|spy|voo|미국주식|해외주식|미국증시|해외증시|미국시장|해외시장|미국etf|해외etf"),
+    # 미국 시장·지수·종목·ETF 상품 지정은 2026-08-25 정식 지원으로 승격되어 목록에서
+    # 제거됐다(개념 구현 시 목록 제거 원칙) — 시장은 LLM 레인의 markets enum이,
+    # 지정 종목·티커는 universe_resolver의 미국 registry(universe_pit.resolve_us_ref)가
+    # 해석한다. 데이터 없는 티커는 registry가 해석 실패로 보고한다.
     # 우선주 — 종목 마스터가 보통주만 담고 있어 우선주 지정은 표현 불가. 보통주로 조용히
     # 바꿔치기하지 않는다(레드팀 QA 10-6).
     ("preferred_stock", r"우선주"),
@@ -3842,7 +3855,6 @@ _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
     "atr_stop": "ATR 기반 스탑(고정 % 손절·트레일링 스탑으로 대체 가능)",
     "averaging_down": "물타기/추가 매수(분할 진입)",
     "intraday": "실시간/장중 단위 매매·리밸런싱(일봉 기준만 지원)",
-    "overseas": "해외 시장/종목(국내 주식·국내 상장 ETF만 지원)",
     "preferred_stock": "우선주 종목 지정(보통주 데이터만 지원)",
     "ichimoku": "이치모쿠(일목균형표) 지표",
     "vwap": "VWAP(거래량 가중 평균가) 지표",
@@ -3866,15 +3878,8 @@ def _mentioned_unsupported_concepts(user_input: str) -> list[str]:
     치지 않는다('반도체 관련주'=지원, '로봇 관련주'=목록 밖 → LLM 위임 + 안내)."""
     compact = _compact(user_input)
     names = [name for name, rx in _UNSUPPORTED_CONCEPT_RE if rx.search(compact)]
-    # 해외 개별 종목명(애플·엔비디아 등)은 시장 키워드 패턴이 못 잡는다 — symbol_resolver의
-    # overseas 판정으로 보강한다(조용히 드롭되던 레드팀 QA 9-1/10-3 보정).
-    if "overseas" not in names:
-        try:
-            from stock_analysis.symbol_resolver import find_in_text
-            if any(ref.overseas for ref in find_in_text(user_input)):
-                names.append("overseas")
-        except Exception:  # noqa: BLE001 — 리졸버 실패가 파싱을 막으면 안 된다
-            pass
+    # 해외 개별 종목명(애플 등)의 미지원 보강은 2026-08-25 US 레인 승격으로 제거됐다 —
+    # 이제 지정 종목 해석 레인(universe_resolver)이 미국 티커로 정상 해석한다.
     if "sector" in names and (
         _extract_sector(user_input) is not None or _SECTOR_AGNOSTIC_RE.search(compact)
     ):

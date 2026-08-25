@@ -65,15 +65,18 @@ def _resolve_via_knowledge_graph(term: str) -> Optional[str]:
 
 
 def resolve_symbols(refs: Sequence[str]) -> Tuple[List[str], List[str]]:
-    """지정 종목 표현 목록 → (6자리 종목코드 목록, 해석 실패 표현 목록).
+    """지정 종목 표현 목록 → (종목코드/티커 목록, 해석 실패 표현 목록).
 
-    국내 상장 종목만 대상으로 한다 — 해외 종목은 백테스트 OHLCV가 없어 지정해도
-    실행할 수 없으므로 해석 실패로 돌린다(조용히 통과시키면 0거래로 끝난다).
+    국내 상장 종목은 6자리 코드로, 미국 종목·ETF는 티커로 해석한다(US 레인,
+    2026-08-25). 미국은 파케이 보유분만 인정한다 — 데이터 없는 티커를 조용히
+    통과시키면 0거래로 끝난다. 한·미 혼합 지정은 엔진이 명시적으로 거절한다.
     """
     try:
         from stock_analysis.symbol_resolver import find_in_text, resolve_by_symbol
     except Exception:  # noqa: BLE001 — 마스터 로드 실패 시 지정 없음으로 강등
         return [], list(refs or [])
+
+    from engine.universe_pit import resolve_us_ref, us_ticker_with_data
 
     codes: List[str] = []
     unresolved: List[str] = []
@@ -91,9 +94,20 @@ def resolve_symbols(refs: Sequence[str]) -> Tuple[List[str], List[str]]:
             resolve_by_symbol(ref) if _SYMBOL_CODE_RE.match(ref)
             else next((r for r in find_in_text(ref) if not r.overseas), None)
         )
-        if resolved is None or resolved.overseas:
-            if ref not in unresolved:
-                unresolved.append(ref)
-        elif resolved.symbol not in codes:
-            codes.append(resolved.symbol)
+        if resolved is not None and not resolved.overseas:
+            if resolved.symbol not in codes:
+                codes.append(resolved.symbol)
+            continue
+        # 국내 해석 실패 → 미국 registry 조회(티커·영문명·한글명 정확 일치).
+        # find_in_text의 해외 별칭 판정(애플→AAPL)도 데이터 보유 확인 후 인정한다.
+        us_ticker = resolve_us_ref(ref)
+        if us_ticker is None:
+            alias = next((r for r in find_in_text(ref) if r.overseas), None)
+            if alias is not None:
+                us_ticker = us_ticker_with_data(alias.symbol)
+        if us_ticker is not None:
+            if us_ticker not in codes:
+                codes.append(us_ticker)
+        elif ref not in unresolved:
+            unresolved.append(ref)
     return codes, unresolved
