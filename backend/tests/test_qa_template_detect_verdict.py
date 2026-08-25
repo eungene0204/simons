@@ -112,7 +112,7 @@ def test_parse_call_failure_counts_fatal(qatd, monkeypatch, tmp_path, capsys):
     '치명 0 · exit 0'으로 조용히 통과했다 — 검증이 성립하지 않은 실행은 실패다.
     """
     tpl = _template(qatd, "KOSPI에서 PER 10 이하 종목 매수")
-    monkeypatch.setattr(qatd, "load_templates", lambda: [tpl])
+    monkeypatch.setattr(qatd, "load_templates", lambda source="kr": [tpl])
 
     def _boom(prompt):
         raise RuntimeError("HTTP Error 501: Unsupported method ('POST')")

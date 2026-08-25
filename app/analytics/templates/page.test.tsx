@@ -11,6 +11,8 @@ const push = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
+  // useRegion(지역별 예시 분기)이 경로를 읽는다 — 기본 KR 경로로 둔다.
+  usePathname: () => "/analytics/templates",
 }));
 
 vi.mock("../new/chatNavigation", () => ({

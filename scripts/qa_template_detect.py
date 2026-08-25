@@ -174,7 +174,9 @@ def expected_scalar_values(prompt: str) -> list[tuple[str, str, Any]]:
     if mdd is not None:
         out.append(("MDD한도", "max_mdd_limit_pct", mdd))
     capital = nlp._extract_capital_amount(prompt)
-    if capital is not None:
+    # 미국 예시: 원화 전제 추출기가 달러 금액("거래대금 5천만 달러")을 자본으로 오인한다
+    # — '자본'이 명시된 경우에만 대조한다(2026-08-25 오탐 3건 실측).
+    if capital is not None and not (SOURCE == "us" and "자본" not in prompt):
         out.append(("초기자본", "initial_capital", capital))
 
     for key, (label, pattern) in _RISK_PCT_PATTERNS.items():
@@ -242,9 +244,23 @@ class Template:
     prompt: str
 
 
-def load_templates() -> list[Template]:
-    text = TSX_PATH.read_text(encoding="utf-8")
-    start = text.index("export const EXAMPLES")
+# 예시 소스 — kr: 한국 예시(StrategyExampleTabs), us: 미국 예시(usExamples, US 레인 Phase 4)
+_SOURCES = {
+    "kr": (TSX_PATH, "export const EXAMPLES"),
+    "us": (ROOT / "components/strategy/usExamples.ts", "export const US_EXAMPLES"),
+}
+
+# 판정에 쓰는 현재 소스(main이 설정) — 미국 예시는 ETF=티커 지정 계약, 달러 금액 등
+# 한국 전제 판정이 오탐을 낸다(2026-08-25 실측: ETF 유니버스 18건·초기자본 3건 오탐).
+SOURCE = "kr"
+
+_US_TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
+
+
+def load_templates(source: str = "kr") -> list[Template]:
+    path, anchor = _SOURCES[source]
+    text = path.read_text(encoding="utf-8")
+    start = text.index(anchor)
     end = text.index("];", start)
     body = text[start:end]
     obj_re = re.compile(
@@ -416,19 +432,30 @@ def analyze(tpl: Template, res: dict) -> Flags:
     if res.get("clarification_priority") == "interpretation_failed":
         f.fatal.append("해석 실패(빈 전략)")
     if tpl.category == "ETF":
-        if p.get("universe") != ["ETF"]:
-            f.fatal.append(f"ETF 유니버스 아님({p.get('universe')})")
+        if SOURCE == "us":
+            # 미국 ETF 예시의 계약: 상품 **티커 지정**(target_symbols, 단일/복수) 또는
+            # 미국 ETF 전체 유니버스(US_ETF). KR ETF 유니버스·etf_theme(KR 마스터 정본)
+            # 판정은 적용하지 않는다.
+            tgt = p.get("target_symbols") or []
+            us_ok = (tgt and all(_US_TICKER_RE.fullmatch(str(s or "")) for s in tgt)) \
+                or p.get("universe") == ["US_ETF"]
+            if not us_ok:
+                f.fatal.append(
+                    f"미국 ETF 지정/유니버스 아님(uni={p.get('universe')}, tgt={tgt})")
+        else:
+            if p.get("universe") != ["ETF"]:
+                f.fatal.append(f"ETF 유니버스 아님({p.get('universe')})")
+            # 테마·상품명을 잃으면 전체 ETF(1,300여 종목) 전략으로 왜곡된다. 기대값은 ETF 마스터
+            # 자기검증 추출기(정본)로 얻는다 — QA 대조용 ground truth, 파스 경로가 아니다.
+            expected_theme = expected_etf_theme(prompt)
+            if expected_theme and not p.get("etf_theme"):
+                f.fatal.append(f"ETF 테마 소실(기대 '{expected_theme}')")
         # ETF엔 기업 재무제표가 없다(universe_capabilities) — 조건이 붙으면 예시가 잘못됐다.
         # trading_value는 가격·거래량 파생이라 ETF에서도 허용되므로 제외한다.
         etf_illegal = [x.get("metric") for x in p.get("fundamental_filters", [])
                        if x.get("metric") != "trading_value"]
         if etf_illegal:
             f.fatal.append(f"ETF에 재무 조건({','.join(etf_illegal)})")
-        # 테마·상품명을 잃으면 전체 ETF(1,300여 종목) 전략으로 왜곡된다. 기대값은 ETF 마스터
-        # 자기검증 추출기(정본)로 얻는다 — QA 대조용 ground truth, 파스 경로가 아니다.
-        expected_theme = expected_etf_theme(prompt)
-        if expected_theme and not p.get("etf_theme"):
-            f.fatal.append(f"ETF 테마 소실(기대 '{expected_theme}')")
     if tpl.category == "테마" and not p.get("sector") and not p.get("target_symbols"):
         f.fatal.append("업종/테마 미반영")
     # 명시적 청산 규칙('N일선 이탈 시 청산', '데드크로스면 매도')은 신호로 남아야 한다 —
@@ -575,9 +602,13 @@ def main() -> int:
                     help="카테고리 필터(콤마 구분). 예: --category ETF,테마")
     ap.add_argument("--refresh", action="store_true",
                     help="캐시를 무시하고 다시 파싱한다(파서 수정 후 재검증용)")
+    ap.add_argument("--source", default="kr", choices=sorted(_SOURCES),
+                    help="예시 소스: kr(한국, 기본) | us(미국 — usExamples.ts)")
     args = ap.parse_args()
 
-    templates = load_templates()
+    global SOURCE
+    SOURCE = args.source
+    templates = load_templates(args.source)
     if args.category:
         wanted = {c.strip() for c in args.category.split(",") if c.strip()}
         templates = [t for t in templates if t.category in wanted]

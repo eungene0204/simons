@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { Sparkle, Spinner, X } from "phosphor-react";
 import { getLocale, t } from "@/lib/i18n";
 import { useRegion, useRegionHref } from "@/lib/geo/useRegion";
+import { US_EXAMPLES } from "./usExamples";
 
 export type ExampleCategory = "가치투자" | "기술분석" | "모멘텀" | "복합전략" | "ETF" | "테마";
 export type ExampleLevel = "beginner" | "intermediate" | "expert";
@@ -675,6 +676,9 @@ export function StrategyExampleTabs({
   onPreviewOpenChange?: (isOpen: boolean) => void;
 }) {
   const regionHref = useRegionHref();
+  const region = useRegion();
+  // /us는 미국 시장 예시(usExamples.ts), 한국은 기존 예시 — 지역이 예시 집합을 결정한다.
+  const baseExamples = region === "us" ? US_EXAMPLES : EXAMPLES;
   const [activeTab, setActiveTab] = useState<StrategyTab>("examples");
   const [myStrategies, setMyStrategies] = useState<SavedStrategy[]>([]);
   const [isLoadingStrategies, setIsLoadingStrategies] = useState(false);
@@ -683,13 +687,13 @@ export function StrategyExampleTabs({
   const [deletingStrategyIds, setDeletingStrategyIds] = useState<Set<string>>(() => new Set());
   const [selectedExample, setSelectedExample] = useState<Example | null>(null);
   const [exampleContentHeight, setExampleContentHeight] = useState<number | null>(null);
-  const [orderedExamples, setOrderedExamples] = useState<Example[]>(EXAMPLES);
+  const [orderedExamples, setOrderedExamples] = useState<Example[]>(baseExamples);
   const examplesContentRef = useRef<HTMLDivElement>(null);
 
   // 마운트 이후에만 섞는다 — 서버 렌더 결과와 순서가 어긋나면 하이드레이션이 깨진다.
   useEffect(() => {
-    setOrderedExamples(shuffleExamples(EXAMPLES));
-  }, []);
+    setOrderedExamples(shuffleExamples(baseExamples));
+  }, [baseExamples]);
 
   const visibleExamples = orderedExamples.slice(0, DEFAULT_VISIBLE_COUNT);
 
@@ -752,7 +756,7 @@ export function StrategyExampleTabs({
     return () => resizeObserver.disconnect();
   }, [activeTab]);
 
-  const hasMoreExamples = DEFAULT_VISIBLE_COUNT < EXAMPLES.length;
+  const hasMoreExamples = DEFAULT_VISIBLE_COUNT < baseExamples.length;
 
   const handleDeleteStrategy = async (strategyId: string) => {
     setDeletingStrategyIds((prev) => {
