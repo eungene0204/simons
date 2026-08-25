@@ -11,17 +11,17 @@ const KR_MARKET_TERMS = ["KOSPI", "KOSDAQ", "코스피", "코스닥", "억 원",
 const FUNDAMENTAL_TERMS = ["PER", "PBR", "ROE", "ROA", "부채비율", "영업이익", "현금흐름", "매출"];
 
 describe("US_EXAMPLES", () => {
-  it("82개(테마 보류)이고 카드 key로 쓰이는 제목이 중복되지 않는다", () => {
-    expect(US_EXAMPLES.length).toBe(82);
+  it("100개(테마 18 포함)이고 카드 key로 쓰이는 제목이 중복되지 않는다", () => {
+    expect(US_EXAMPLES.length).toBe(100);
     const titles = US_EXAMPLES.map((example) => example.title);
     expect(new Set(titles).size).toBe(titles.length);
   });
 
-  it("모든 카테고리에 배지 스타일이 있고, 테마는 아직 없다(미국 업종/테마 미지원 보류)", () => {
+  it("모든 카테고리에 배지 스타일이 있고, 테마는 카탈로그 기반 18개다", () => {
     for (const example of US_EXAMPLES) {
       expect(CATEGORY_STYLE[example.category]).toBeDefined();
     }
-    expect(US_EXAMPLES.some((example) => example.category === "테마")).toBe(false);
+    expect(US_EXAMPLES.filter((example) => example.category === "테마").length).toBe(18);
   });
 
   it("예시는 한국 시장 어휘를 쓰지 않는다", () => {

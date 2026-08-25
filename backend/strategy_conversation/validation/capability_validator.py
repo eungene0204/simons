@@ -312,9 +312,48 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 "(S&P500·나스닥100·나스닥·다우·미국 전체·미국 ETF 중 하나)"
             )
         if strategy.universe.sectors:
-            unsupported.append("미국 유니버스 × 업종 필터")
-            errors.append("미국 유니버스의 업종/섹터 필터는 아직 지원되지 않습니다")
-            strategy.universe.sectors = []
+            # 미국 테마 카탈로그(registry) 해석 — 카탈로그 정본 테마는 '테마 유래 지정
+            # 종목'으로 전개한다(구성 티커 → universe.symbols, 출처는 theme 표기 계약).
+            # 카탈로그 밖 테마만 명시적 미지원 안내(조용한 제거 금지).
+            from engine.universe_pit import resolve_us_theme
+
+            _kept_sectors: List[str] = []
+            _us_theme_resolved = False
+            for _sector_term in strategy.universe.sectors:
+                _theme = resolve_us_theme(_sector_term)
+                if _theme is None:
+                    _kept_sectors.append(_sector_term)
+                    continue
+                _us_theme_resolved = True
+                _theme_name, _theme_symbols = _theme
+                for _sym in _theme_symbols:
+                    if _sym not in strategy.universe.symbols:
+                        strategy.universe.symbols.append(_sym)
+                if not strategy.universe.theme:
+                    strategy.universe.theme = _theme_name
+            if _us_theme_resolved:
+                # 상류(한국 테마 전개)가 같은 테마어를 한국 종목으로 먼저 확장했을 수 있다
+                # ("크립토" → 미국 6티커 + 한국 61코드 실측, 2026-08-26). 미국 시장 문맥의
+                # 테마에서 한국 코드(숫자 시작)는 시스템이 넣은 잘못된 시장의 전개이지
+                # 사용자 지정이 아니므로 제거한다 — 두면 한·미 혼합으로 엔진이 거절한다.
+                _kr_expanded = [s for s in strategy.universe.symbols
+                                if str(s)[:1].isdigit()]
+                if _kr_expanded:
+                    strategy.universe.symbols = [
+                        s for s in strategy.universe.symbols if not str(s)[:1].isdigit()
+                    ]
+                    warnings.append(
+                        f"미국 테마 유니버스에서 한국 종목 전개 {len(_kr_expanded)}건을 "
+                        "제외했습니다(미국 시장 전략)."
+                    )
+            strategy.universe.sectors = _kept_sectors
+            if _kept_sectors:
+                unsupported.append("미국 유니버스 × 업종 필터")
+                errors.append(
+                    "미국 유니버스의 업종/테마 필터 중 카탈로그에 없는 항목은 아직 "
+                    f"지원되지 않습니다: {', '.join(_kept_sectors)}"
+                )
+                strategy.universe.sectors = []
         if strategy.universe.new_listing_only:
             unsupported.append("미국 유니버스 × 신규 상장 종목")
             errors.append("미국 유니버스에는 신규 상장(IPO) 제한을 아직 적용할 수 없습니다")
