@@ -338,7 +338,7 @@ export const en: Record<string, string> = {
   "청산 신호": "Exit signal",
   "취소": "Cancel",
   "카드 등록 불필요": "No card required",
-  "투자 아이디어를 전략으로 만들고": "Turn your investment idea into a strategy",
+  "투자 아이디어를 전략으로 만들고": "Turn your idea into a strategy",
   "파라미터 계산에 실패했습니다.": "Parameter calculation failed.",
   "파라미터 계산을 완료하지 못했습니다: {0}": "Couldn't complete the parameter calculation: {0}",
   "파라미터 계산을 취소했습니다.": "Parameter calculation cancelled.",
