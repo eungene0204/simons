@@ -55,6 +55,8 @@ interface BacktestChartProps {
   hideLegend?: boolean;
   // "currency": compact KRW (억/만/천). "ratio": normalized equity multiple (1.05x) — 2 decimals.
   valueMode?: "currency" | "ratio";
+  // 통화 — 미국 전략은 달러 축약($1.2M)로 표기한다(시뮬레이션이 달러로 돌았다). 기본 krw.
+  currency?: "krw" | "usd";
 }
 
 // Convert YYYY-MM-DD to timestamp
@@ -78,6 +80,16 @@ const formatCompactPrice = (price: number): string => {
   return price.toFixed(0);
 };
 
+// 달러 축약 (K/M/B) — 미국 전략 자산곡선 축·툴팁용
+const formatCompactUsd = (price: number): string => {
+  const abs = Math.abs(price);
+  const sign = price < 0 ? "-" : "";
+  if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(1)}K`;
+  return `${sign}$${abs.toFixed(0)}`;
+};
+
 export default function BacktestChart({
   type,
   equityData = [],
@@ -89,10 +101,16 @@ export default function BacktestChart({
   height = 400,
   hideLegend = false,
   valueMode = "currency",
+  currency = "krw",
 }: BacktestChartProps) {
   const formatValue = useCallback(
-    (value: number) => (valueMode === "ratio" ? value.toFixed(2) : formatCompactPrice(value)),
-    [valueMode],
+    (value: number) =>
+      valueMode === "ratio"
+        ? value.toFixed(2)
+        : currency === "usd"
+          ? formatCompactUsd(value)
+          : formatCompactPrice(value),
+    [valueMode, currency],
   );
   const priceMinMove = valueMode === "ratio" ? 0.01 : 1;
 

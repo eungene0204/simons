@@ -1,6 +1,7 @@
 "use client";
 
 import { BacktestResult } from "@/types/strategy";
+import { formatUsd, isUsBacktestResult, isUsUniverseId } from "@/lib/us-symbols";
 import BacktestChart from "@/components/strategy/BacktestChart";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
 import {
@@ -371,6 +372,9 @@ function benchmarkLabelForResult(result: BacktestResult): string {
   // universeId로 프론트가 다시 추정하면 백엔드와 어긋난다.
   if (result.benchmarkLabel) return result.benchmarkLabel;
   const universeId = result.universeId?.toLowerCase();
+  if (universeId === "nasdaq100" || universeId === "nasdaq") return "Invesco QQQ (QQQ)";
+  if (universeId === "dow30") return "SPDR Dow Jones Industrial Average (DIA)";
+  if (isUsUniverseId(universeId)) return "SPDR S&P 500 (SPY)";
   if (universeId === "kospi") return t("KODEX 코스피 (226490)");
   if (universeId === "kosdaq") return "KODEX KOSDAQ 150 (229200)";
   return "KODEX 200 (069500)";
@@ -648,11 +652,20 @@ export default function BacktestDashboard({
     fetchStockMetadata();
   }, []);
 
+  // 미국 전략(유니버스 id 또는 미국 티커 지정 종목)은 달러로 표기한다 —
+  // 엔진이 미국 파케이(달러)로 시뮬레이션한 값이라 원화 표기가 오히려 거짓이 된다.
+  const isUsResult = isUsBacktestResult(result);
+
   const formatKRW = (val: number) => {
     const num = Number(val);
+    if (isUsResult) return formatUsd(num);
     if (isNaN(num) || num === 0) return t("0원");
     return t("{0}원", Math.round(num).toLocaleString());
   };
+
+  // 체결가는 달러에서 소수 2자리가 유의미하다($214.00) — 원화는 기존 정수 표기 유지.
+  const formatTradePrice = (val: number) =>
+    isUsResult ? formatUsd(val, { price: true }) : formatKRW(val);
 
   const calculateMonthlyReturns = () => {
     if (!result.dates || !result.equity || result.dates.length === 0) return {};
@@ -1712,6 +1725,7 @@ export default function BacktestDashboard({
                         type="equity"
                         height={340}
                         equityData={equityCurveData}
+                        currency={isUsResult ? "usd" : "krw"}
                         hideLegend
                       />
                     </div>
@@ -2148,10 +2162,10 @@ export default function BacktestDashboard({
                                      </div>
                                   </td>
                                   <td className="px-4 py-2.5 text-sm font-bold text-gray-400 text-right tabular-nums">
-                                     {prices?.entryPrice != null ? formatKRW(prices.entryPrice) : "-"}
+                                     {prices?.entryPrice != null ? formatTradePrice(prices.entryPrice) : "-"}
                                   </td>
                                   <td className="px-4 py-2.5 text-sm font-bold text-gray-400 text-right tabular-nums">
-                                     {prices?.exitPrice != null ? formatKRW(prices.exitPrice) : "-"}
+                                     {prices?.exitPrice != null ? formatTradePrice(prices.exitPrice) : "-"}
                                   </td>
                                   <td className={`px-4 py-2.5 text-sm font-bold text-right tabular-nums ${(stats?.profit || 0) > 0 ? 'text-[var(--main-red)]' : (stats?.profit || 0) < 0 ? 'text-[var(--main-blue)]' : 'text-white'}`}>
                                      {stats ? formatKRW(stats.profit) : "-"}
@@ -2424,9 +2438,12 @@ function BacktestTerminalLog({
     });
   }
 
-  // 완료
+  // 완료 — 미국 전략은 달러 표기(시뮬레이션 통화와 일치)
   const logFinalEquity = result.finalEquity || result.equity?.[result.equity.length - 1] || 0;
-  logs.push({ level: "SUCCESS", message: t("백테스트 완료 — 총 {0}회 거래 / 최종자산 {1}원 / 수익률 {2}%", result.trades ?? 0, logFinalEquity.toLocaleString(), (result.totalReturn ?? 0).toFixed(2)) });
+  const logEquityLabel = isUsBacktestResult(result)
+    ? formatUsd(logFinalEquity)
+    : t("{0}원", logFinalEquity.toLocaleString());
+  logs.push({ level: "SUCCESS", message: t("백테스트 완료 — 총 {0}회 거래 / 최종자산 {1} / 수익률 {2}%", result.trades ?? 0, logEquityLabel, (result.totalReturn ?? 0).toFixed(2)) });
 
   const levelStyle: Record<LogLevel, string> = {
     INFO: "text-blue-400",
