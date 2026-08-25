@@ -1,0 +1,319 @@
+{
+ "generatedAt": "2026-08-25T02:44:48.276656+09:00",
+ "counts": {
+  "total": 31,
+  "hasOhlcv": 31
+ },
+ "etfs": [
+  {
+   "symbol": "SPY",
+   "name": "SPDR S&P 500 ETF Trust",
+   "name_kr": "S&P500",
+   "category": "지수",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "1993-01-29",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "QQQ",
+   "name": "Invesco QQQ Trust",
+   "name_kr": "나스닥100",
+   "category": "지수",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "1999-03-10",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "DIA",
+   "name": "SPDR Dow Jones Industrial Average ETF Trust",
+   "name_kr": "다우존스30",
+   "category": "지수",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "1998-01-20",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "IWM",
+   "name": "iShares Russell 2000 ETF",
+   "name_kr": "러셀2000 중소형주",
+   "category": "지수",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2000-05-26",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "VTI",
+   "name": "Vanguard Total Stock Market ETF",
+   "name_kr": "미국 전체 시장",
+   "category": "지수",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2001-06-15",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "XLK",
+   "name": "Technology Select Sector SPDR Fund",
+   "name_kr": "기술 섹터",
+   "category": "섹터",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "1998-12-22",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "XLV",
+   "name": "Health Care Select Sector SPDR Fund",
+   "name_kr": "헬스케어 섹터",
+   "category": "섹터",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "1998-12-22",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "XLF",
+   "name": "Financial Select Sector SPDR Fund",
+   "name_kr": "금융 섹터",
+   "category": "섹터",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "1998-12-22",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "XLE",
+   "name": "Energy Select Sector SPDR Fund",
+   "name_kr": "에너지 섹터",
+   "category": "섹터",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "1998-12-22",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "XLI",
+   "name": "Industrial Select Sector SPDR Fund",
+   "name_kr": "산업재 섹터",
+   "category": "섹터",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "1998-12-22",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "XLU",
+   "name": "Utilities Select Sector SPDR Fund",
+   "name_kr": "유틸리티 섹터",
+   "category": "섹터",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "1998-12-22",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "XLY",
+   "name": "Consumer Discretionary Select Sector SPDR Fund",
+   "name_kr": "경기소비재 섹터",
+   "category": "섹터",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "1998-12-22",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "XLP",
+   "name": "Consumer Staples Select Sector SPDR Fund",
+   "name_kr": "필수소비재 섹터",
+   "category": "섹터",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "1998-12-22",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "XLB",
+   "name": "Materials Select Sector SPDR Fund",
+   "name_kr": "소재 섹터",
+   "category": "섹터",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "1998-12-22",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "XLRE",
+   "name": "Real Estate Select Sector SPDR Fund",
+   "name_kr": "부동산 섹터",
+   "category": "섹터",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2015-10-08",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "XLC",
+   "name": "Communication Services Select Sector SPDR Fund",
+   "name_kr": "커뮤니케이션 섹터",
+   "category": "섹터",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2018-06-19",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "SMH",
+   "name": "VanEck Semiconductor ETF",
+   "name_kr": "반도체",
+   "category": "산업",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2000-06-05",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "SOXX",
+   "name": "iShares Semiconductor ETF",
+   "name_kr": "반도체",
+   "category": "산업",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2001-07-13",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "IBB",
+   "name": "iShares Biotechnology ETF",
+   "name_kr": "바이오테크",
+   "category": "산업",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2001-02-12",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "ITA",
+   "name": "iShares U.S. Aerospace & Defense ETF",
+   "name_kr": "방산·항공우주",
+   "category": "산업",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2006-05-05",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "URA",
+   "name": "Global X Uranium ETF",
+   "name_kr": "우라늄·원자력",
+   "category": "테마",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2010-11-05",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "HACK",
+   "name": "Amplify Cybersecurity ETF",
+   "name_kr": "사이버보안",
+   "category": "테마",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2014-11-12",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "BOTZ",
+   "name": "Global X Robotics & Artificial Intelligence ETF",
+   "name_kr": "로봇·인공지능",
+   "category": "테마",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2016-09-13",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "ICLN",
+   "name": "iShares Global Clean Energy ETF",
+   "name_kr": "클린에너지",
+   "category": "테마",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2008-06-25",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "ARKK",
+   "name": "ARK Innovation ETF",
+   "name_kr": "혁신 성장주",
+   "category": "테마",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2014-10-31",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "SCHD",
+   "name": "Schwab U.S. Dividend Equity ETF",
+   "name_kr": "미국 배당주",
+   "category": "배당",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2011-10-20",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "VYM",
+   "name": "Vanguard High Dividend Yield ETF",
+   "name_kr": "미국 고배당주",
+   "category": "배당",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2006-11-16",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "GLD",
+   "name": "SPDR Gold Shares",
+   "name_kr": "금",
+   "category": "자산",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2004-11-18",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "SLV",
+   "name": "iShares Silver Trust",
+   "name_kr": "은",
+   "category": "자산",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2006-04-28",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "TLT",
+   "name": "iShares 20+ Year Treasury Bond ETF",
+   "name_kr": "미국 장기국채(20년+)",
+   "category": "자산",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2002-07-30",
+   "dataEnd": "2026-08-24"
+  },
+  {
+   "symbol": "IEF",
+   "name": "iShares 7-10 Year Treasury Bond ETF",
+   "name_kr": "미국 중기국채(7-10년)",
+   "category": "자산",
+   "delistingDate": null,
+   "hasOhlcv": true,
+   "dataStart": "2002-07-30",
+   "dataEnd": "2026-08-24"
+  }
+ ]
+}

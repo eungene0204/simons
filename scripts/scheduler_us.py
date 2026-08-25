@@ -89,9 +89,15 @@ def _run(label: str, cmd: list[str], *, stream: bool = False) -> int:
 
 
 def run_update() -> int:
-    """시세 증분 sync (재무 컬럼은 건드리지 않는다)."""
-    return _run("미국 시세 증분 동기화",
-                [sys.executable, "scripts/backfill_us_stocks.py", "--update"])
+    """시세 증분 sync (재무 컬럼은 건드리지 않는다). 개별주 → ETF 순서로 돈다.
+
+    ETF 증분(backfill_us_etf.py)은 파케이 없는 티커를 건너뛰므로 ETF 시딩 전에도 안전하다.
+    """
+    rc_stocks = _run("미국 시세 증분 동기화",
+                     [sys.executable, "scripts/backfill_us_stocks.py", "--update"])
+    rc_etf = _run("미국 ETF 시세 증분 동기화",
+                  [sys.executable, "scripts/backfill_us_etf.py", "--update"])
+    return rc_stocks if rc_stocks != 0 else rc_etf
 
 
 def run_full_refresh() -> int:
@@ -100,8 +106,22 @@ def run_full_refresh() -> int:
     자식도 -u(무버퍼)로 띄운다 — 로그가 파이프면 자식 stdout이 블록 버퍼링돼, 9시간 내내
     한 줄도 안 보이다가 끝나서야 쏟아진다(진행 중인지 멈춘 건지 구분할 수 없다).
     """
-    return _run("미국 데이터 전량 재수집(분기 재무)",
-                [sys.executable, "-u", "scripts/backfill_us_stocks.py", "--force"], stream=True)
+    rc = _run("미국 데이터 전량 재수집(분기 재무)",
+              [sys.executable, "-u", "scripts/backfill_us_stocks.py", "--force"], stream=True)
+    if rc == 0:
+        # 전량 재수집은 파케이를 야후 데이터로 통째로 다시 쓰므로 EDGAR 재무 이력
+        # (2009~, backfill_us_fundamentals_edgar.py)이 사라진다 — 반드시 재적용한다.
+        # 재적용이 실패하면 rc에 반영해 마커를 막는다(재무 이력이 잘린 채 12주를
+        # 방치하는 것이 재시도 비용보다 나쁘다).
+        rc = _run("EDGAR 재무 이력 재적용",
+                  [sys.executable, "-u", "scripts/backfill_us_fundamentals_edgar.py",
+                   "--force"], stream=True)
+    # 지수 구성종목(S&P500·나스닥100·다우30)은 분기 리밸런싱 주기로만 바뀐다 — 같은
+    # 주기로 갱신한다. 실패해도 rc에 섞지 않는다: 위키/API 일시 장애 때문에 마커가
+    # 안 찍혀 9시간짜리 전량 재수집을 다음 주에 통째로 다시 돌리게 하지 않는다.
+    _run("미국 지수 구성종목 갱신",
+         [sys.executable, "scripts/backfill_us_index_membership.py"])
+    return rc
 
 
 # ───────────────────────────── 시세 신선도 (일일 증분) ─────────────────────────────

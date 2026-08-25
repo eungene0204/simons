@@ -65,6 +65,7 @@ ENV/
 /data/ohlcv/*.json
 /data/ohlcv-us/*.parquet
 /data/ohlcv-us/.last_full_refresh
+/data/ohlcv-us/.edgar_fundamentals_done
 
 # 수정 요청 학습 코퍼스 (런타임 누적, bind-mount 영속)
 /data/modify_corpus/
