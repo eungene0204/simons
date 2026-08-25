@@ -1,6 +1,7 @@
 import {
   formatFundamentalFilter,
   formatInitialCapital,
+  isUsParsedUniverse,
   formatDownsidePercent,
   getDisplayUniverseLabels,
   getPositionLabel,
@@ -469,7 +470,9 @@ export function buildBuilderTurnPresentation({
   if (initialCapital && initialCapitalExplicit) {
     summaryItems.push({
       label: t("초기 자본"),
-      value: formatInitialCapital(initialCapital),
+      value: formatInitialCapital(initialCapital, {
+        usd: isUsParsedUniverse(parsed?.universe ?? null),
+      }),
     });
   }
   if (riskLabel) summaryItems.push({ label: t("리스크 관리"), value: riskLabel });

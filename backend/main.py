@@ -3369,14 +3369,14 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         enforce_strategy_minimums,
         synthesize_risk_overrides,
     )
-    from engine.nl_parser import MAX_INITIAL_CAPITAL, backtest_window_is_empty
+    from engine.nl_parser import backtest_window_is_empty, initial_capital_bounds
     from engine.strategy_converter import to_backtest_request
 
     # 허용 범위를 벗어나 **버려지는** 설정은 enforce가 기본값으로 되돌리므로 **되돌리기
     # 전에** 잡아 두어야 한다 — 그러지 않으면 되돌아온 기본값이 '사용자가 정한 값'
     # (explicit)으로 남아 되묻기 게이트가 그냥 통과시킨다.
     reask_fields = []
-    if parsed.initial_capital > MAX_INITIAL_CAPITAL:      # 초기 자금 상한 100억
+    if parsed.initial_capital > initial_capital_bounds(parsed)[1]:  # 상한(KR 100억·US $10M)
         reask_fields.append("initial_capital")
     if backtest_window_is_empty(parsed):                  # 창 전체가 데이터 밖(미래·1996 이전)
         reask_fields.append("backtest_period")

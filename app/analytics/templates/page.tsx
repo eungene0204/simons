@@ -14,7 +14,7 @@ import {
 import { US_EXAMPLES } from "@/components/strategy/usExamples";
 import { beginStrategyChatNavigation } from "../new/chatNavigation";
 import { t } from "@/lib/i18n";
-import { useRegion } from "@/lib/geo/useRegion";
+import { useRegion, useRegionHref } from "@/lib/geo/useRegion";
 
 type TemplateCategoryTab = "전체" | ExampleCategory;
 
@@ -33,6 +33,7 @@ const TEMPLATE_PAGE_SIZE = 24;
 export default function StrategyTemplatesPage() {
   const router = useRouter();
   const region = useRegion();
+  const regionHref = useRegionHref();
   // /us는 미국 시장 예시, 한국은 기존 예시 — StrategyExampleTabs와 같은 분기.
   const baseExamples = region === "us" ? US_EXAMPLES : EXAMPLES;
   const [activeCategory, setActiveCategory] = useState<TemplateCategoryTab>("전체");
@@ -59,7 +60,8 @@ export default function StrategyTemplatesPage() {
     : "transition-[filter,opacity] duration-200";
 
   const handleSelectTemplate = (prompt: string) => {
-    beginStrategyChatNavigation(prompt, (url) => router.push(url));
+    // 채팅 진입도 내부 링크다 — 지역 프리픽스 필수(/us에서 KR 트리로 이탈 금지).
+    beginStrategyChatNavigation(prompt, (url) => router.push(regionHref(url)));
   };
 
   return (

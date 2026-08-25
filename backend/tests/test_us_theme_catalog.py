@@ -58,7 +58,8 @@ def test_resolve_us_theme_exact_and_us_prefix():
     # '미국' 접두는 시장 한정어 — 벗겨서 조회한다
     assert resolve_us_theme("미국 사이버보안")[0] == "사이버보안"
     # 정확 일치만 — 부분 문자열 매칭 금지(오폭 방지)
-    assert resolve_us_theme("반도체") is None
+    # '반도체'는 앵커 소속 합집합으로 전개된다(설계 전환 2026-08-26 — 종전 None)
+    assert resolve_us_theme("반도체")[0] == "반도체 산업"
     assert resolve_us_theme("없는테마") is None
     assert resolve_us_theme(None) is None
 

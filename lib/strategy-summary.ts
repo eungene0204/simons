@@ -1,5 +1,6 @@
 import type { StrategyDSL } from "@/types/strategy";
 import { getLanguage, t } from "@/lib/i18n";
+import { formatUsd, isUsUniverseId } from "@/lib/us-symbols";
 
 export interface ParsedSummary {
   description: string;
@@ -259,12 +260,20 @@ export function backtestDataCeilingDate(today: Date = new Date()): string {
 }
 
 // 초기자금 배지 문자열을 만든다. 1억 이상이면 '50억원'처럼 한글 단위로, 미만이면 콤마 포함 원 단위로 표시.
-export function formatInitialCapital(value: number): string {
+export function formatInitialCapital(value: number, options?: { usd?: boolean }): string {
+  // 미국 전략의 초기 자본은 엔진 숫자가 곧 달러다(시장 통화) — 원화 표기($10,000을
+  // "10,000원")로 나가면 값 자체가 오독된다(2026-08-26).
+  if (options?.usd) return formatUsd(value);
   if (Number.isFinite(value) && value >= 100_000_000) {
     const amount = formatMarketCapValue(value);
     return getLanguage() === "en" ? amount : t("{0}원", amount);
   }
   return t("{0}원", KO_NUMBER_FORMAT.format(value));
+}
+
+/** 전략의 유니버스가 미국 시장인가 — 초기 자본 통화(달러) 표기 판정. */
+export function isUsParsedUniverse(universe: string[] | null | undefined): boolean {
+  return (universe ?? []).some((u) => isUsUniverseId(normalizeUniverseId(u)));
 }
 
 export const PERIOD_LABELS: Record<string, string> = {
@@ -727,7 +736,10 @@ export function buildStrategySummary(
     // 백테스트 기간·초기 자본 — 대화 카드(ParsedSummaryBubble)와 같은 행을 결과 화면에도
     // 보이기 위한 값(2026-08-18: 카드에만 있고 결과 화면 요약 DTO에는 칸이 없어 빠졌다).
     backtestPeriodText: formatBacktestPeriodLabel(parsed) ?? undefined,
-    initialCapitalText: formatInitialCapital(parsed.initial_capital ?? 10_000_000),
+    initialCapitalText: formatInitialCapital(
+      parsed.initial_capital ?? 10_000_000,
+      { usd: isUsParsedUniverse(parsed.universe) },
+    ),
   };
 }
 
@@ -746,6 +758,7 @@ export function backtestRunTextsFromRequest(
   req:
     | {
         period?: string | null;
+        universe_id?: string | null;
         startDate?: string | null;
         endDate?: string | null;
         risk?: Record<string, unknown> | null;
@@ -760,7 +773,10 @@ export function backtestRunTextsFromRequest(
   const capital = typeof rawCapital === "number" && Number.isFinite(rawCapital) ? rawCapital : null;
   return {
     backtestPeriodText: formatRequestPeriodLabel(req) ?? undefined,
-    initialCapitalText: capital != null ? formatInitialCapital(capital) : undefined,
+    initialCapitalText:
+      capital != null
+        ? formatInitialCapital(capital, { usd: isUsUniverseId(req.universe_id) })
+        : undefined,
   };
 }
 

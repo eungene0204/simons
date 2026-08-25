@@ -579,3 +579,55 @@ def test_chip_answer_turn_still_replans(monkeypatch):
     )
     assert result is not None
     assert result["clarification_question"] == "언제 팔까요?"
+
+
+# ─── 미국 시장 문맥의 term-in 체인 (US 레인 EN 경로, 2026-08-26) ─────────────────
+
+def test_us_context_blocks_kr_theme_and_sector_merge():
+    """미국 시장 문맥에서 term-in 체인은 KR KG/업종 기계를 타지 않는다.
+
+    실측(2026-08-26, /us 영어 게이트 예시 83): EN 입력의 "semiconductor"가 '반도체'
+    업종으로 병합되고 KG 소속 전개가 한국 종목 66코드를 target_symbols에 실었다 —
+    미국 전략에 한국 종목 주입(한·미 혼합 금지 위반). capability validator의 혼합
+    제거 가드는 universe.symbols만 보므로 이 채널을 막지 못한다. US 카탈로그 미스는
+    미해결로 남겨 되묻기·미지원 안내가 표면화한다(KR 폴백 확정 금지).
+    """
+    parsed = ParsedStrategy(description="테스트", universe=["US"])
+    notices: list = []
+    result = _plan_result([
+        ("ground_term", "semiconductor", {"sector": "반도체"}),
+    ])
+    resolved, unresolved = _apply_planner_first_universe(result, parsed, notices)
+    assert parsed.sector is None
+    # 2026-08-26 앵커 전개 설계 전환: 'semiconductor'는 미해결이 아니라 US KG 앵커
+    # 소속 합집합(미국 티커)으로 확정된다 — KR 업종 병합·한국 코드 주입은 여전히 금지.
+    assert resolved == {"semiconductor"} and unresolved == set()
+    assert parsed.target_symbols
+    assert all(not str(s)[:1].isdigit() for s in parsed.target_symbols), "한국 코드 금지"
+    assert parsed.theme_universe == "반도체 산업"
+
+
+def test_us_context_leaves_unknown_theme_unresolved():
+    """미국 문맥에서 카탈로그·KG 밖 표현은 KR 폴백 없이 미해결로 남는다(되묻기 표면화)."""
+    parsed = ParsedStrategy(description="테스트", universe=["US"])
+    result = _plan_result([
+        ("ground_term", "used cars", {"sector": "유통"}),
+    ])
+    resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
+    assert parsed.sector is None
+    assert not parsed.target_symbols
+    assert unresolved == {"used cars"} and resolved == set()
+
+
+def test_us_context_resolves_catalog_theme_to_us_tickers():
+    """미국 문맥에서 US 카탈로그 정본 테마어는 미국 티커 지정 종목으로 전개된다 —
+    영어 시장 접두("US")·범주 접미("stocks")는 테마 정체성이 아니므로 벗겨 매칭한다."""
+    parsed = ParsedStrategy(description="테스트", universe=["US"])
+    result = _plan_result([
+        ("ground_term", "US cloud software stocks", {"sector": "IT/소프트웨어"}),
+    ])
+    resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
+    assert resolved == {"US cloud software stocks"} and unresolved == set()
+    assert parsed.target_symbols, "US 테마 구성 티커가 실려야 한다"
+    assert all(not s[:1].isdigit() for s in parsed.target_symbols), "한국 코드 금지"
+    assert parsed.theme_universe == "클라우드 소프트웨어"

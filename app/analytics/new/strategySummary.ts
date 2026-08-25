@@ -17,6 +17,7 @@ export {
   FUNDAMENTAL_FILTER_SECTION_LABEL,
   formatFundamentalFilter,
   formatInitialCapital,
+  isUsParsedUniverse,
   formatMarketCapValue,
   formatDownsidePercent,
   formatBacktestPeriodLabel,

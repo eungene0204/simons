@@ -3516,6 +3516,23 @@ MAX_INITIAL_CAPITAL_NOTICE = (
 )
 DEFAULT_INITIAL_CAPITAL = 10_000_000.0
 
+# 미국 시장 전략의 초기 자본 체계(달러) — 엔진 숫자는 데이터 통화 그대로다(US=달러
+# 가격 ÷ 자본). 원화 체계(기본 1천만·하한 100만·상한 100억)를 미국 전략에 그대로 쓰면
+# 기본값이 $10,000,000이 된다(2026-08-26 실측 계열). 기본 $10,000은 플랜 모달 FREE
+# 모의 투자금과 정합, 상한 $10M은 원화 상한(100억)과 같은 유동성 논리의 달러 등가.
+USD_MIN_INITIAL_CAPITAL = 1_000.0
+USD_MAX_INITIAL_CAPITAL = 10_000_000.0
+USD_DEFAULT_INITIAL_CAPITAL = 10_000.0
+
+
+def initial_capital_bounds(parsed: ParsedStrategy) -> tuple[float, float, float]:
+    """전략의 시장 통화에 맞는 (하한, 상한, 기본값) — US 유니버스면 달러 체계."""
+    from engine.strategy_slots import is_us_market_strategy
+
+    if is_us_market_strategy(parsed):
+        return USD_MIN_INITIAL_CAPITAL, USD_MAX_INITIAL_CAPITAL, USD_DEFAULT_INITIAL_CAPITAL
+    return MIN_INITIAL_CAPITAL, MAX_INITIAL_CAPITAL, DEFAULT_INITIAL_CAPITAL
+
 
 def enforce_initial_capital_bounds(parsed: ParsedStrategy) -> Optional[str]:
     """초기자금을 허용 범위로 강제하고 사용자 안내 문구를 반환한다(보정 없으면 None).
@@ -3523,12 +3540,30 @@ def enforce_initial_capital_bounds(parsed: ParsedStrategy) -> Optional[str]:
     하한선 미만은 하한선으로 **보정**하고, 상한선 초과는 값을 **버려** 기본값으로 되돌린다.
     되돌린 기본값이 '사용자가 정한 값'으로 굳지 않도록, 호출부는 이 경우 초기 자본의
     explicit provenance를 떼어내 다시 묻는다(main._finalize_parse_result).
+    범위·기본값은 전략의 시장 통화를 따른다(initial_capital_bounds — US=달러).
     """
-    if parsed.initial_capital > MAX_INITIAL_CAPITAL:
-        parsed.initial_capital = DEFAULT_INITIAL_CAPITAL
+    import ui_language
+
+    lo, hi, default = initial_capital_bounds(parsed)
+    usd = hi == USD_MAX_INITIAL_CAPITAL and default == USD_DEFAULT_INITIAL_CAPITAL
+    if parsed.initial_capital > hi:
+        parsed.initial_capital = default
+        if usd:
+            return ui_language.msg(
+                "초기 자금은 최대 $10,000,000까지 설정할 수 있어요. 입력하신 금액은 "
+                "반영하지 않았으니 그 이하로 다시 선택해 주세요.",
+                "Initial capital can be set up to $10,000,000. The amount you entered "
+                "was not applied — please choose a value at or below that limit.",
+            )
         return MAX_INITIAL_CAPITAL_NOTICE
-    if parsed.initial_capital < MIN_INITIAL_CAPITAL:
-        parsed.initial_capital = MIN_INITIAL_CAPITAL
+    if parsed.initial_capital < lo:
+        parsed.initial_capital = lo
+        if usd:
+            return ui_language.msg(
+                "최소 초기자금은 $1,000입니다. 입력하신 금액이 작아 $1,000으로 설정했어요.",
+                "The minimum initial capital is $1,000. The amount you entered was too "
+                "small, so it was set to $1,000.",
+            )
         return MIN_INITIAL_CAPITAL_NOTICE
     return None
 

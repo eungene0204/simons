@@ -15,6 +15,8 @@ from __future__ import annotations
 import re
 from typing import List, Optional, Sequence, Tuple, Union
 
+import ui_language
+
 _SYMBOL_CODE_RE = re.compile(r"^\d{6}$")
 
 SectorValue = Optional[Union[str, List[str]]]
@@ -90,10 +92,17 @@ def resolve_symbols(refs: Sequence[str]) -> Tuple[List[str], List[str]]:
         if not ref.strip():
             continue
         ref = ref.strip()
-        resolved = (
-            resolve_by_symbol(ref) if _SYMBOL_CODE_RE.match(ref)
-            else next((r for r in find_in_text(ref) if not r.overseas), None)
-        )
+        # [지역 격리, 2026-08-26] /us 요청(표시 언어 en — 지역이 곧 언어)에서는 한국
+        # 종목을 지정할 수 없다 — 국내 해석을 건너뛰어 KR 이름·6자리 코드는 아래 미국
+        # registry에서 못 찾으면 unresolved로 보고된다(조용한 소실 아님 — 상류 미해석
+        # 안내 채널이 표면화). 미국 종목의 한글명("애플")은 미국 registry가 해석한다.
+        if ui_language.get_ui_language() == "en":
+            resolved = None
+        else:
+            resolved = (
+                resolve_by_symbol(ref) if _SYMBOL_CODE_RE.match(ref)
+                else next((r for r in find_in_text(ref) if not r.overseas), None)
+            )
         if resolved is not None and not resolved.overseas:
             if resolved.symbol not in codes:
                 codes.append(resolved.symbol)

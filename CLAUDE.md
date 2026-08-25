@@ -322,6 +322,11 @@ Domain 검증            Registry + validation/ (지표 지원 여부·범위·�
 ```bash
 python scripts/qa_template_detect.py --category <카테고리> --refresh   # 치명 0이어야 함(종료 코드 0)
 ```
+US 예시(`components/strategy/usExamples.ts`)·영어 번역(`lib/i18n/en.ts` — /us에서는 번역이 파서 입력)을 수정하면 두 게이트 모두 돌린다:
+```bash
+QA_TIMEOUT=420 python scripts/qa_template_detect.py --source us            # 한국어 원문 게이트
+QA_TIMEOUT=420 python scripts/qa_template_detect.py --source us --lang en  # 영어 입력 게이트(/us 전송 경로 재현)
+```
 - 어휘·상품명·업종이 정본에 매칭되는지 확인하는 것만으로는 부족하다 — 2026-07-27 사고: 매칭만 확인하고 파싱을 돌리지 않아 재무+랭킹 복합 예시가 빈 전략으로 나가는 것을 사용자가 먼저 발견했다
 - 예시가 조건을 **조용히** 잃으면(질문도 없이 사라지면) **예시 문구를 바꾸기 전에 파서 쪽 원인을 먼저 규명한다**(엔진이 표현할 수 없는 문구일 때만 예시를 고친다)
 - **되묻기는 실패가 아니다** — 값이 빠진 팩터를 묻는 것은 전략 agent의 정상 동작이다(말하지 않은 값을 기본값으로 확정 금지). 되묻는 팩터를 치명·미탐지로 세지 않는다(2026-07-29 판정 수정, 회귀 `backend/tests/test_qa_template_detect_verdict.py`)

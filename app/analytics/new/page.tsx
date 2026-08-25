@@ -15,7 +15,7 @@ import { flushSync } from "react-dom";
 import dynamic from "next/dynamic";
 import { createClient } from "@supabase/supabase-js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useRegionHref } from "@/lib/geo/useRegion";
+import { regionRequestHeaders, useRegionHref } from "@/lib/geo/useRegion";
 import { stripRegionPrefix } from "@/lib/geo/region";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { StrategyExampleTabs } from "@/components/strategy/StrategyExampleTabs";
@@ -48,6 +48,7 @@ import {
   FUNDAMENTAL_FILTER_SECTION_LABEL,
   formatFundamentalFilter,
   formatInitialCapital,
+  isUsParsedUniverse,
   formatDownsidePercent,
   getDisplayUniverseLabels,
   getPositionLabel,
@@ -956,7 +957,7 @@ async function requestBuilderStepData(
 ): Promise<any> {
   const res = await fetch("/api/strategy/builder/step", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
     body: JSON.stringify(payload),
     signal,
   });
@@ -1539,7 +1540,7 @@ function ParsedSummaryBubble({
         <div className="flex flex-wrap gap-1.5 items-center">
           <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{t("초기 자본")}</span>
           <div className="flex flex-wrap gap-1">
-            <FilterBadge label={formatInitialCapital(parsed.initial_capital ?? 10000000)} />
+            <FilterBadge label={formatInitialCapital(parsed.initial_capital ?? 10000000, { usd: isUsParsedUniverse(parsed.universe) })} />
           </div>
         </div>
         {(parsed.stop_loss_pct || parsed.take_profit_pct || parsed.trailing_stop_pct) && (
@@ -2921,7 +2922,7 @@ function StrategyLabContent() {
     try {
       const res = await fetch("/api/strategy/rollback/resolve", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
         body: JSON.stringify({
           query: userText,
           events: toResolvePayload(changeLogRef.current),
@@ -2952,7 +2953,7 @@ function StrategyLabContent() {
       try {
         const res = await fetch("/api/strategy/compile", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
           body: JSON.stringify({ parsed: result.parsed }),
           signal: chatSignal(),
         });
@@ -2996,7 +2997,7 @@ function StrategyLabContent() {
     try {
       const res = await fetch("/api/query/classify", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
         signal: chatSignal(),
         body: JSON.stringify({
           query: userText,
@@ -3055,7 +3056,7 @@ function StrategyLabContent() {
     updateLastAssistant({ isLoading: true, loadingStage: "parsing" });
     const res = await fetch("/api/strategy/parse/stream", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
       signal: chatSignal(),
       body: JSON.stringify({
         prompt: promptText,
@@ -3391,7 +3392,7 @@ function StrategyLabContent() {
       if (confirmedParsed) {
         const res = await fetch("/api/strategy/compile", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
           body: JSON.stringify({ parsed: confirmedParsed }),
           signal: chatSignal(),
         });
@@ -3558,7 +3559,9 @@ function StrategyLabContent() {
     }
 
     if (shouldBeginStrategyChatNavigation(isChatPage, messages.length)) {
-      beginStrategyChatNavigation(userText, (url) => router.push(url));
+      // 채팅 진입도 내부 링크다 — 지역 프리픽스 필수(/us 탭이 KR 트리로 이탈하면
+      // 언어·통화가 통째로 kr로 바뀐다, 2026-08-26).
+      beginStrategyChatNavigation(userText, (url) => router.push(regionHref(url)));
       return;
     }
 
@@ -4015,7 +4018,7 @@ function StrategyLabContent() {
       try {
         const res = await fetch("/api/query/general", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
           body: JSON.stringify({ query: userText, history: classifyResult?.history ?? [] }),
           signal: chatSignal(),
         });
@@ -4042,7 +4045,7 @@ function StrategyLabContent() {
       try {
         const res = await fetch("/api/query/general", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
           body: JSON.stringify({
             query: userText,
             history: classifyResult?.history ?? [],
@@ -4205,7 +4208,7 @@ function StrategyLabContent() {
     try {
       const coachRes = await fetch("/api/strategy/coach", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
         signal: chatSignal(),
         body: JSON.stringify({
           action: "create_session",
@@ -4271,7 +4274,7 @@ function StrategyLabContent() {
       const sessionId = coachSessionIdRef.current;
       const coachRes = await fetch("/api/strategy/coach", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
         signal: chatSignal(),
         body: JSON.stringify(sessionId
           ? {
@@ -4374,7 +4377,7 @@ function StrategyLabContent() {
     try {
       const res = await fetch("/api/strategy/backtest-stream", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
         body: JSON.stringify(effectiveReq),
         // '대화 종료'가 실행 중인 백테스트 스트림도 끊는다 — 종료 뒤 뒤늦게 도착한 결과가
         // 빈 대화 위에 결과 화면을 되살리지 않도록.

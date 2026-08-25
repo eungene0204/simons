@@ -140,6 +140,12 @@ const INITIAL_CAPITAL_BY_CHOICE: Record<string, number> = {
   "1,000만원": 10_000_000,
   "3,000만원": 30_000_000,
   "5,000만원": 50_000_000,
+  // 미국 전략의 달러 칩 — 엔진 숫자는 시장 통화 그대로다(backend strategy_slots
+  // CAPITAL_CHIP_VALUES 정본과 동일 값, 2026-08-26).
+  "$10,000": 10_000,
+  "$30,000": 30_000,
+  "$50,000": 50_000,
+  "$100,000": 100_000,
 };
 
 function parseFirstNumber(choice: string): number | null {

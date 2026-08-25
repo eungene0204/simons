@@ -80,8 +80,10 @@ def test_multiple_us_indices_rejected():
 
 
 def test_us_sector_filter_unsupported_and_cleared():
+    # '반도체'는 2026-08-26부터 앵커 합집합으로 카탈로그 전개된다 — 카탈로그 밖
+    # 표현만 미지원 안내로 남는 계약을 정본 밖 업종으로 검증한다.
     spec = StrategySpec(
-        universe=UniverseSpec(markets=["SP500"], sectors=["반도체"]),
+        universe=UniverseSpec(markets=["SP500"], sectors=["농기계"]),
         entry_conditions=[_cond("fundamental.per")],
     )
     intent = StrategyIntent(intent="CREATE_STRATEGY", strategy=spec)
@@ -89,6 +91,19 @@ def test_us_sector_filter_unsupported_and_cleared():
     assert any("업종" in e for e in errors)
     assert intent.strategy.universe.sectors == []
     assert any("업종" in u for u in unsupported)
+
+
+def test_us_semiconductor_sector_expands_via_anchor_union():
+    # 광의어 '반도체'는 미지원 안내가 아니라 앵커 소속 합집합의 지정 종목으로 선다
+    spec = StrategySpec(
+        universe=UniverseSpec(markets=["SP500"], sectors=["반도체"]),
+        entry_conditions=[_cond("fundamental.per")],
+    )
+    intent = StrategyIntent(intent="CREATE_STRATEGY", strategy=spec)
+    errors, _w, _u, _f = validate_capability(intent)
+    assert not any("업종" in e for e in errors)
+    assert "NVDA" in intent.strategy.universe.symbols
+    assert intent.strategy.universe.theme == "반도체 산업"
 
 
 def test_us_ai_signal_unsupported_and_removed():

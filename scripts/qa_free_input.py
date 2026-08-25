@@ -177,6 +177,62 @@ CASES = [
     ("initial_capital", "30000000", field("initial_capital", 30_000_000)),
 ]
 
+# ── /us 영어 판(--lang en, 2026-08-26) ─────────────────────────────────────
+# /us 사용자는 영어로 답하지만 pending_question은 프론트가 든 한국어 정본이 그대로
+# 실린다(page.tsx openClarificationRef — t()는 표시 지점 번역). 따라서 EN 모드는
+# **질문=한국어 정본 + 답변=영어**로 실제 /us 턴을 재현한다. 초기 자본은 /us 통화
+# 사양이 미확정이라(제품 결정 대기) 의도적으로 제외한다.
+_BASE_PATH_EN = Path(__file__).with_name(".qa_free_input_base_us.json")
+_BASE_PROMPT_EN = (
+    "Buy Nasdaq-100 stocks when they break above the 20-day high, sell on a dead cross, "
+    "stop-loss -6%, take-profit 30%, at most 3 stocks, monthly rebalancing, last 5 years."
+)
+
+CASES_EN = [
+    # ── 매수 조건 ──
+    ("entry", "buy when RSI drops below 30", sig_entry("rsi", operator="<=", value=30)),
+    ("entry", "when the 5-day line crosses above the 20-day line", sig_entry("ma_crossover", short_period=5, long_period=20)),
+    ("entry", "when volume explodes to 3x the average", sig_entry("volume_spike")),
+    ("entry", "undervalued stocks with per 10 or below", filt("per", "<=", 10)),
+    ("entry", "MACD golden cross", sig_entry("macd")),
+    ("entry", "when it breaks the 60-day high", sig_entry("breakout", lookback_period=60)),
+    # ── 매도 조건 ──
+    ("exit", "sell on a dead cross", sig_exit("ma_crossover")),
+    ("exit", "sell when RSI goes above 70", sig_exit("rsi", operator=">=", value=70)),
+    ("exit", "exit after holding for 20 trading days", field("hold_period_days", 20)),
+    ("exit", "sell when it touches the upper Bollinger band", sig_exit("bollinger_bands")),
+    ("exit", "close it out after a month", field("hold_period_days", 21)),
+    # ── 최대 보유 ──
+    ("max_positions", "5 stocks", field("max_positions", 5)),
+    ("max_positions", "up to 10", field("max_positions", 10)),
+    ("max_positions", "spread it across 20 names", field("max_positions", 20)),
+    ("max_positions", "eight stocks", field("max_positions", 8)),
+    ("max_positions", "7", field("max_positions", 7)),
+    # ── 리밸런싱 ──
+    ("rebalancing", "monthly", field("rebalancing_period", "monthly")),
+    ("rebalancing", "every quarter", field("rebalancing_period", "quarterly")),
+    ("rebalancing", "once every 3 months", field("rebalancing_period", "quarterly")),
+    ("rebalancing", "redo it every week", field("rebalancing_period", "weekly")),
+    ("rebalancing", "no rebalancing", field("rebalancing_period", "none")),
+    ("rebalancing", "once a year", field("rebalancing_period", "yearly")),
+    # ── 손절 ──
+    ("stop_loss", "-7%", field("stop_loss_pct", 7)),
+    ("stop_loss", "cut it at 10%", field("stop_loss_pct", 10)),
+    ("stop_loss", "5 percent", field("stop_loss_pct", 5)),
+    ("stop_loss", "12", field("stop_loss_pct", 12)),
+    # ── 익절 ──
+    ("take_profit", "20%", field("take_profit_pct", 20)),
+    ("take_profit", "sell when I'm up 15%", field("take_profit_pct", 15)),
+    ("take_profit", "double my money", field("take_profit_pct", 100)),
+    ("take_profit", "40", field("take_profit_pct", 40)),
+    # ── 백테스트 기간 ──
+    ("backtest_period", "3 years", field("backtest_period", "3y")),
+    ("backtest_period", "the last year", field("backtest_period", "1y")),
+    ("backtest_period", "the full period", field("backtest_period", "full")),
+    ("backtest_period", "from January 2020 to December 2024", dates("2020-01-01", "2024-12-31")),
+    ("backtest_period", "10 years", years_window(10)),
+]
+
 # 답변이 건드리면 안 되는 필드(다른 슬롯 침범 감시). 해당 슬롯 자신은 제외한다.
 GUARDED = {
     "universe": "유니버스",
@@ -269,13 +325,18 @@ def run(family):
 
 
 if __name__ == "__main__":
-    family = sys.argv[1] if len(sys.argv) > 1 else "modify"
+    args = [a for a in sys.argv[1:] if a != "--lang"]
+    LANG = "en" if "en" in args else "kr"
+    family = next((a for a in args if a in ("fill", "modify")), "modify")
+    if LANG == "en":
+        _BASE_PATH, _BASE_PROMPT, CASES = _BASE_PATH_EN, _BASE_PROMPT_EN, CASES_EN
     BASE = load_base()
     PREV = BASE["parsed"]
     PREV_EXPLICIT = BASE.get("explicit_fields") or []
-    print(f"=== 질문 계열: {family} / 케이스 {len(CASES)}개 ===", flush=True)
+    print(f"=== 질문 계열: {family} / 언어 {LANG} / 케이스 {len(CASES)}개 ===", flush=True)
     rows = run(family)
-    out_path = str(Path(__file__).with_name(f".qa_free_input_result_{family}.json"))
+    out_path = str(Path(__file__).with_name(
+        f".qa_free_input_result_{family}{'_us' if LANG == 'en' else ''}.json"))
     json.dump(rows, open(out_path, "w"), ensure_ascii=False, default=str)
     counts = {}
     for r in rows:

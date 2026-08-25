@@ -102,6 +102,13 @@ describe("StrategyLab unknown intent fallback", () => {
         fetchMock.mock.calls.some(([input]) => String(input).includes("/api/strategy/parse"))
       ).toBe(false);
     });
+
+    // 지역 분리 계약 — 대화 레인의 API 호출은 호출한 탭의 경로에서 파생한 지역 헤더를
+    // 싣는다(전역 '마지막 방문 지역' 쿠키에 기대면 KR/US 탭 간 오염, 2026-08-26).
+    const classifyCall = fetchMock.mock.calls.find(
+      ([input]) => String(input) === "/api/query/classify"
+    );
+    expect(classifyCall?.[1]?.headers).toMatchObject({ "x-nullstock-region": "kr" });
   });
 
   it("starts a metric research conversation by asking for the market", async () => {

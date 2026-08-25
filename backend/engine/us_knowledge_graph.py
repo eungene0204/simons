@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 from functools import lru_cache
 from pathlib import Path
@@ -134,6 +135,23 @@ class USKnowledgeGraph:
                     found.append(symbol)
         return found
 
+    def concept_member_companies(self, node_id: str) -> list[str]:
+        """개념 앵커의 구성 — 소속(part_of/is_a) 하위 테마 상장사의 합집합(깊이 1).
+
+        직접 종목 엣지가 없는 앵커(ai·semiconductor·datacenter)의 유니버스 전개.
+        2026-08-26 사용자 결정: 앵커 비확정(None)을 하위 테마 합집합 확정으로 전환 —
+        /us에서 'AI 관련주'가 유니버스로 서야 한다(KR KG의 광의 테마와 동일한 눈높이).
+        공급망 주변부(benefits_from·demanded_by·used_in 등)는 구성원이 아니다 —
+        소속 관계(part_of/is_a)만 센다(공급망 전체로 번지지 않는다는 기존 원칙 유지)."""
+        found: list[str] = []
+        for e in self._in.get(node_id, []):
+            if e["type"] not in ("part_of", "is_a"):
+                continue
+            for symbol in self.companies(e["source"]):
+                if symbol not in found:
+                    found.append(symbol)
+        return found
+
 
 # ── 합성 로드(mtime 캐시) ──────────────────────────────────────────────────────
 
@@ -226,6 +244,14 @@ def _build() -> USKnowledgeGraph:
                 "id": target, "name": registry[symbol], "category": "company",
             })
             edges.append({"source": node_id, "type": "related_company", "target": target})
+        # 상위 개념 소속(concepts) — 시드의 개념 앵커에 part_of 엣지로 합류한다.
+        # 앵커의 유니버스 전개(concept_member_companies)가 이 소속을 따라 하위 테마
+        # 합집합을 만든다. 시드에 없는 개념 참조는 무결성 경고(fail-fast — 테스트가 0 단언).
+        for concept_id in theme.get("concepts", []):
+            if concept_id in nodes:
+                edges.append({"source": node_id, "type": "part_of", "target": concept_id})
+            else:
+                issues.append(f"카탈로그 테마 '{theme['id']}'의 concepts 미정의: {concept_id}")
 
     # 3) GICS 업종 레이어 — us-stocks.json의 섹터(11)·산업 분류를 소속 엣지로 합성.
     #    전 종목이 그래프에 들어온다(콘솔 탐색·향후 GICS 필터 기반). 테마 해석에는
@@ -288,20 +314,38 @@ def resolve_theme(term: Optional[str]) -> Optional[tuple[str, list[str]]]:
     """테마어 → (정본 테마명, 구성 티커 목록). 그래프 밖이면 None.
 
     '미국' 접두는 벗겨 본다("미국 사이버보안" → "사이버보안") — 시장 한정어일 뿐
-    테마 정체성이 아니다. 정확 일치만 — 부분 매칭은 오폭원. 구성이 비는 개념 앵커
-    노드(ai·datacenter 등)는 None — 범위가 넓어 단일 유니버스로 확정하지 않는다."""
+    테마 정체성이 아니다. 영어 입력 레인의 시장 접두("US"·"U.S."·"American")와 범주
+    접미("stocks"·"names"·"-related" 등 — '관련주'의 영어 판)도 같은 이유로 벗긴다
+    (2026-08-26 실측: "US cloud software stocks"·"crypto-related"가 정확 일치에 실패해
+    테마가 소실되거나 한국 체인으로 흘렀다). 정확 일치만 — 부분 매칭은 오폭원. 직접
+    구성이 비는 개념 앵커 노드(ai·semiconductor·datacenter)는 소속(part_of/is_a) 하위
+    테마의 합집합으로 전개한다(concept_member_companies — 2026-08-26 사용자 결정,
+    종전 '앵커=None' 비확정 설계를 대체). 하위 소속까지 비면 그대로 None."""
     if not term or not isinstance(term, str):
         return None
     graph = get_graph()
     # '미국' 접두와 '관련주/테마' 접미는 시장·범주 한정어일 뿐 테마 정체성이 아니다 —
     # 벗긴 조합까지 정확 일치로 본다("미국 빅테크 관련주" → "빅테크"). 부분 매칭은 않는다.
     candidates = [term.strip()]
+    en_stripped = re.sub(r"^(?:the\s+)?(?:u\.?s\.?a?\.?|american)\s+", "",
+                         term.strip(), flags=re.IGNORECASE)
+    if en_stripped != term.strip():
+        candidates.append(en_stripped)
     if _norm_key(term).startswith(_norm_key(_MARKET_PREFIX)):
         candidates.append(term.strip()[len(_MARKET_PREFIX):].strip())
     for base in list(candidates):
         for suffix in ("관련주", "테마"):
             if base.endswith(suffix) and len(base) > len(suffix):
                 candidates.append(base[: -len(suffix)].strip())
+        stripped = base
+        while True:  # "crypto-related stocks" → "crypto-related" → "crypto"
+            trimmed = re.sub(
+                r"[\s-]+(?:related|linked|stocks?|names?|companies|shares|sector|theme)$",
+                "", stripped, flags=re.IGNORECASE)
+            if trimmed == stripped or not trimmed:
+                break
+            stripped = trimmed.strip()
+            candidates.append(stripped)
     node = None
     for cand in candidates:
         node = graph.theme_node(cand)
@@ -310,6 +354,8 @@ def resolve_theme(term: Optional[str]) -> Optional[tuple[str, list[str]]]:
     if node is None:
         return None
     symbols = graph.companies(node["id"])
+    if not symbols:
+        symbols = graph.concept_member_companies(node["id"])
     if not symbols:
         return None
     return node.get("name", ""), symbols

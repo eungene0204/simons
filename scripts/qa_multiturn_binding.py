@@ -61,10 +61,44 @@ SCENARIOS = [
     ]),
 ]
 
+# ── /us 영어 판(--lang en, 2026-08-26) — 같은 결속 증상을 영어 발화로 재현한다.
+# 백엔드 되묻기 문구는 한국어 정본이므로(표시 번역은 프론트 t() 소관) 질문 반복·금지어
+# 판정은 KR과 같은 한국어 대조가 그대로 성립한다.
+SCENARIOS_EN = [
+    ("U1", "질문 → 답변 연결(EN)", [
+        "Build a strategy with S&P 500 stocks with a PER of 10 or below",
+        "monthly rebalancing",
+        "5 stocks max",
+    ]),
+    ("U2", "결정한 값 재질문 여부(EN)", [
+        "Buy Nasdaq-100 stocks on a 20-day high breakout, sell on a dead cross",
+        "stop-loss 7%",
+        "the last 3 years",
+    ]),
+    ("U3", "이전 결정 수정 후 흐름(EN)", [
+        "A strategy buying S&P 500 stocks with PER 10 or below",
+        "monthly rebalancing",
+        "actually, change the PER to 15",
+    ]),
+    ("U4-ETF", "ETF 상품 지정 질문 적합성(EN)", [
+        "Build a strategy with SPY, the S&P 500 ETF",
+    ]),
+    ("U4-단일", "단일 종목 질문 적합성(EN)", [
+        "A strategy with just AAPL",
+    ]),
+    ("U5", "짧은 답의 귀속(EN)", [
+        "Buy Nasdaq stocks when volume spikes",
+        "3",
+    ]),
+]
+
 # 유니버스별로 **물으면 안 되는** 것 — dataset.py의 forbidden_terms와 같은 계약.
 FORBIDDEN = {
     "S4-ETF": ["PER", "PBR", "ROE", "EPS", "영업이익", "순이익", "매출"],
     "S4-단일": ["최대 몇 종목", "몇 종목을", "리밸런싱 주기"],
+    # ETF 티커 지정·단일 종목의 계약은 언어와 무관하다.
+    "U4-ETF": ["PER", "PBR", "ROE", "EPS", "영업이익", "순이익", "매출"],
+    "U4-단일": ["최대 몇 종목", "몇 종목을", "리밸런싱 주기"],
 }
 
 
@@ -167,9 +201,12 @@ def run_scenario(sid: str, desc: str, turns: list[str]) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--only", help="시나리오 id 하나만 실행")
+    parser.add_argument("--lang", default="kr", choices=["kr", "en"],
+                        help="en: /us 영어 시나리오(SCENARIOS_EN)")
     args = parser.parse_args()
 
-    targets = [s for s in SCENARIOS if not args.only or s[0] == args.only]
+    pool = SCENARIOS_EN if args.lang == "en" else SCENARIOS
+    targets = [s for s in pool if not args.only or s[0] == args.only]
     if not targets:
         print(f"시나리오 없음: {args.only}", file=sys.stderr)
         return 2

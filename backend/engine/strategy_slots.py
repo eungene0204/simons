@@ -211,9 +211,10 @@ def suggestions_for_topic(
     if not field:
         return []
     chips = list(_question_for(parsed, field)[1])
-    from engine.universe_capabilities import is_etf_strategy
+    from engine.universe_capabilities import is_etf_product_strategy
 
-    if is_etf_strategy(universe):
+    targets = list(getattr(parsed, "target_symbols", None) or []) if parsed is not None else []
+    if is_etf_product_strategy(universe, targets):
         chips = [c for c in chips if c not in _FUNDAMENTAL_CHIPS]
     return chips
 
@@ -319,6 +320,32 @@ _QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
 }
 
+# 미국 시장 전략의 초기 자본 — 엔진 숫자는 데이터 통화 그대로라(US=달러) 원화 칩을
+# 노출하면 "1,000만원" 클릭이 $10,000,000이 된다(2026-08-26 /us 실측 계열).
+# 기본 $10,000은 플랜 모달 FREE 모의 투자금과 정합. 질문 문구는 KR 정본과 같은 키
+# (프론트 사전이 옮긴다), 칩은 달러 리터럴 — 값 결속은 CAPITAL_CHIP_VALUES 정본 표가
+# 담당한다(달러 표기는 원화 보정 파서(_apply_prompt_overrides)가 읽지 못한다).
+_US_MARKETS_FOR_SLOTS: frozenset = frozenset(
+    {"SP500", "NASDAQ100", "NASDAQ", "DOW30", "US", "US_ETF"}
+)
+_US_INITIAL_CAPITAL_QUESTION: tuple[str, tuple[str, ...]] = (
+    "초기 투자 자금을 얼마로 설정할까요?",
+    ("$10,000", "$30,000", "$50,000", "$100,000"),
+)
+# 칩 → 초기 자본 값(정본, 칩=값 결속 계약). 발행·클릭 양쪽이 이 표만 본다.
+CAPITAL_CHIP_VALUES: dict[str, float] = {
+    "$10,000": 10_000.0,
+    "$30,000": 30_000.0,
+    "$50,000": 50_000.0,
+    "$100,000": 100_000.0,
+}
+
+
+def is_us_market_strategy(parsed: Any) -> bool:
+    """전략의 유니버스가 미국 시장인가 — 초기 자본 통화(달러) 판정의 정본."""
+    universe = getattr(parsed, "universe", None) or []
+    return bool({str(u).upper() for u in universe} & _US_MARKETS_FOR_SLOTS)
+
 # 개별 기업 재무제표에서 계산되는 칩 — ETF 유니버스에는 노출하지 않는다
 # (suggestions_for_topic, engine.universe_capabilities의 fundamental 미지원 계약).
 _FUNDAMENTAL_CHIPS: frozenset = frozenset({"PER 10 이하", "ROE 15% 이상"})
@@ -373,9 +400,11 @@ def _quantile_groups(parsed: Any) -> Optional[int]:
 
 
 def _question_for(parsed: Any, field: str) -> tuple[str, tuple[str, ...]]:
-    """필드의 되묻기 문구·칩 — 분위 그룹 전략의 '최대 보유'만 전용 변형을 쓴다."""
+    """필드의 되묻기 문구·칩 — 분위 그룹 '최대 보유'·미국 전략 '초기 자본'만 전용 변형."""
     if field == MAX_POSITIONS and _quantile_groups(parsed):
         return _QUANTILE_MAX_POSITIONS_QUESTION
+    if field == INITIAL_CAPITAL and is_us_market_strategy(parsed):
+        return _US_INITIAL_CAPITAL_QUESTION
     return _QUESTIONS[field]
 
 

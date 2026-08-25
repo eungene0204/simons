@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
+import ui_language
 from strategy_conversation.interpreter.models import StrategyIntent
 from strategy_conversation.registry import capability_registry as caps
 from strategy_conversation.registry.concept_ontology import (
@@ -298,8 +299,26 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
     # ── 미국 시장 제약 (US 레인 Phase 2, 2026-08-25) ──
     # 엔진 US 레인이 지원하지 않는 조합을 컴파일 전에 명시적으로 걸러 되묻기/안내로
     # 보낸다 — 조용히 제거하지 않는다(엔진에서 늦게 터지면 원인 설명이 어려워진다).
+    #
+    # [지역 격리, 2026-08-26] /us 요청(표시 언어 en — 지역이 곧 언어)은 미국 시장
+    # 전용이다: ① 한국 시장 명시는 거절 안내(조용한 제거 금지 — 접근 불가를 알린다)
+    # ② 시장 미언급도 미국 문맥으로 보고 아래 US 제약·테마 전개를 적용한다(컴파일
+    # 기본값도 S&P500 — strategy_compiler). markets를 여기서 채우지는 않는다 —
+    # provenance(explicit_fields_from_spec)가 '사용자 명시'로 오인한다.
+    _en_region = ui_language.get_ui_language() == "en"
+    _kr_markets_named = set(strategy.universe.markets) - set(caps.US_MARKETS)
+    if _en_region and _kr_markets_named:
+        errors.append(ui_language.msg(
+            "이 서비스는 미국 시장 전용입니다 — 한국 시장(코스피·코스닥·국내 ETF) "
+            "백테스트는 한국 서비스에서 이용할 수 있어요. 미국 유니버스(S&P500·"
+            "나스닥100·나스닥·다우·미국 전체·미국 ETF) 중 하나로 진행해 주세요.",
+            "This service covers US markets only — Korean markets (KOSPI, KOSDAQ, "
+            "Korean ETFs) are available on the Korean service. Please choose a US "
+            "universe: S&P 500, Nasdaq-100, Nasdaq, Dow 30, the entire US market, "
+            "or US ETFs.",
+        ))
     _us_markets = set(strategy.universe.markets) & set(caps.US_MARKETS)
-    if _us_markets:
+    if _us_markets or (_en_region and not strategy.universe.markets):
         _kr_markets = set(strategy.universe.markets) - set(caps.US_MARKETS)
         if _kr_markets:
             errors.append(
@@ -416,6 +435,11 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 f"리밸런싱 주기 '{strategy.portfolio.rebalance_frequency}'을(를) 해석할 수 없습니다 "
                 f"(지원: {', '.join(caps.SUPPORTED_REBALANCE_FREQUENCIES)})"
             )
+            # 오류만 내고 값을 두면 부분 컴파일이 ParsedStrategy Literal에서 크래시해
+            # 해석 실패(빈 전략)로 둔갑한다(2026-08-26 실측, /us 영어 게이트 41 —
+            # "every 2 weeks"→"biweekly"). 위 오류가 안내를 담당하므로 조용한 소실이
+            # 아니다. 비슷한 지원 값으로 바꿔치지는 않는다(2주≠2개월).
+            strategy.portfolio.rebalance_frequency = None
         else:
             strategy.portfolio.rebalance_frequency = freq
 

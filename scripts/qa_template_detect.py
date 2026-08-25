@@ -12,6 +12,13 @@ repo 루트에 둔다(uvicorn --reload-dir backend 감시 대상이 아니므로
 
 실행: python scripts/qa_template_detect.py [--out docs/template_detect_report.md]
       python scripts/qa_template_detect.py --category ETF,테마 --refresh   # 예시 추가 후 검증
+      python scripts/qa_template_detect.py --source us --lang en           # /us 영어 입력 게이트
+
+**--lang en (US 영어 레인)**: /us는 예시의 en.ts 번역을 파서에 그대로 전송한다
+(t(example.prompt) — 번역이 곧 파서 입력). 이 모드는 그 경로를 재현한다: 파서 입력=영어
+번역, **판정 기대값=한국어 원문**(결정적 추출기 재사용 — 수치·조건은 번역과 동일해야
+하므로, 번역이 조건을 잃어도 파서가 영어를 못 읽어도 똑같이 게이트가 붉는다).
+되묻기·안내는 영어로 오므로 커버리지 패턴은 한·영 겸용이고 asked 대조만 대소문자 무시.
 
 **예시를 추가·수정하면 반드시 이 스크립트로 검증한다**(2026-07-27 사고: ETF·테마 예시
 16개를 문구 검증만 하고 파싱은 돌리지 않아, 재무+랭킹 복합 예시가 해석 실패로 빈 전략을
@@ -40,6 +47,8 @@ import urllib.request
 # 기본은 로컬 개발 백엔드. 8000이 다른 앱에 점유된 환경에서는 QA_BACKEND로 바꿔 띄운다
 # (예: QA_BACKEND=http://localhost:8010).
 BACKEND = os.environ.get("QA_BACKEND", "http://localhost:8000")
+# 테마 예시는 KG 전개가 붙어 180초를 넘길 수 있다 — 필요 시 QA_TIMEOUT으로 상향.
+TIMEOUT = int(os.environ.get("QA_TIMEOUT", "180"))
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 
@@ -242,6 +251,15 @@ class Template:
     category: str
     title: str
     prompt: str
+    # 파서에 실제로 보내는 텍스트. 기본은 prompt(한국어 원문)와 같고, --lang en이면
+    # en.ts 번역이 실린다 — /us는 t(example.prompt)를 전송하므로(StrategyExampleTabs:597)
+    # 번역이 곧 파서 입력이다. **판정 기대값은 항상 prompt(한국어 원문)에서 뽑는다** —
+    # 결정적 추출기가 한국어 전제이고, 번역이 조건·수치를 잃으면 파스 결과에 그대로
+    # 드러나 게이트가 잡는다(번역 결함 검출을 겸한다).
+    input: str = ""
+
+    def parse_input(self) -> str:
+        return self.input or self.prompt
 
 
 # 예시 소스 — kr: 한국 예시(StrategyExampleTabs), us: 미국 예시(usExamples, US 레인 Phase 4)
@@ -253,11 +271,26 @@ _SOURCES = {
 # 판정에 쓰는 현재 소스(main이 설정) — 미국 예시는 ETF=티커 지정 계약, 달러 금액 등
 # 한국 전제 판정이 오탐을 낸다(2026-08-25 실측: ETF 유니버스 18건·초기자본 3건 오탐).
 SOURCE = "kr"
+# 파서 입력 언어(main이 설정). "en"이면 되묻기·안내(asked)가 영어로 오므로
+# asked 대조는 대소문자 무시로 한다(한국어 판정은 영향 없음 — 지표명만 라틴 문자).
+LANG = "kr"
 
 _US_TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 
+EN_TS_PATH = ROOT / "lib/i18n/en.ts"
 
-def load_templates(source: str = "kr") -> list[Template]:
+
+def load_en_map() -> dict[str, str]:
+    """lib/i18n/en.ts의 한국어 원문→영어 사전을 읽는다(키·값 모두 이중따옴표 리터럴)."""
+    text = EN_TS_PATH.read_text(encoding="utf-8")
+    pair_re = re.compile(
+        r'^\s*"(?P<key>(?:[^"\\]|\\.)*)":\s*"(?P<val>(?:[^"\\]|\\.)*)",?\s*$', re.MULTILINE
+    )
+    unescape = lambda s: s.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")  # noqa: E731
+    return {unescape(m.group("key")): unescape(m.group("val")) for m in pair_re.finditer(text)}
+
+
+def load_templates(source: str = "kr", lang: str = "kr") -> list[Template]:
     path, anchor = _SOURCES[source]
     text = path.read_text(encoding="utf-8")
     start = text.index(anchor)
@@ -274,6 +307,19 @@ def load_templates(source: str = "kr") -> list[Template]:
     for m in obj_re.finditer(body):
         prompt = m.group("prompt").replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
         out.append(Template(m.group("level"), m.group("category"), m.group("title"), prompt))
+    if lang == "en":
+        # en.ts 번역이 파서 입력이다. 누락이면 t()가 한국어 원문을 그대로 보내므로
+        # 이 게이트는 영어를 검증하지 못한다 — 조용히 폴백하지 않고 즉시 실패한다
+        # (i18n 커버리지 게이트와 같은 계약, Fail Fast).
+        en_map = load_en_map()
+        missing = [t.title for t in out if t.prompt not in en_map]
+        if missing:
+            raise SystemExit(
+                f"en.ts에 번역 없는 예시 {len(missing)}개 — 파서 입력이 성립하지 않음: "
+                + ", ".join(missing)
+            )
+        for t in out:
+            t.input = en_map[t.prompt]
     return out
 
 
@@ -284,7 +330,7 @@ def parse_strategy(prompt: str) -> dict:
         f"{BACKEND}/strategy/parse", data=data,
         headers={"Content-Type": "application/json"}, method="POST",
     )
-    with urllib.request.urlopen(req, timeout=180) as r:
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
         return json.loads(r.read())
 
 
@@ -320,31 +366,39 @@ def duplicated_conditions(items: list[dict]) -> list[str]:
     return dups
 
 
+# 패턴은 한·영 겸용이다 — 존재 판정은 항상 한국어 원문(tpl.prompt)에서 하므로 영어
+# 대안은 거기서 놀지만, 되묻기·안내(asked)와 pending source_text는 --lang en에서 영어로
+# 오므로 '되묻는 중=소실 아님' 예외가 성립하려면 영어 표기도 잡아야 한다.
 COVERAGE_CHECKS: list[tuple[str, str, Any]] = [
-    ("PBR", r"PBR", lambda p: _has_fund(p, "pbr")),
-    ("PER", r"PER", lambda p: _has_fund(p, "per")),
+    ("PBR", r"PBR|P/B", lambda p: _has_fund(p, "pbr")),
+    ("PER", r"PER|P/E", lambda p: _has_fund(p, "per")),
     ("ROE", r"ROE", lambda p: _has_fund(p, "roe_or_gpa")),
-    ("부채비율", r"부채비율", lambda p: _has_fund(p, "debt_ratio")),
-    ("시가총액", r"시가총액|시총", lambda p: _has_fund(p, "market_cap")),
-    ("거래대금", r"거래대금", lambda p: _has_fund(p, "trading_value") or _has_sig(p, "trading_value")),
+    ("부채비율", r"부채비율|debt", lambda p: _has_fund(p, "debt_ratio")),
+    ("시가총액", r"시가총액|시총|market\s*cap", lambda p: _has_fund(p, "market_cap")),
+    ("거래대금", r"거래대금|trading\s*value|dollar\s*volume|turnover",
+     lambda p: _has_fund(p, "trading_value") or _has_sig(p, "trading_value")),
     # 이동평균/EMA 상하 관계('20일선 위에 있는', '5일 EMA가 20일 EMA 위')는 crossover 표기로
     # 반영돼야 한다. 2026-07-27: 이 검사가 없어 4개 예시가 조건을 잃은 채 통과했다
     # (기준값 되묻기로 조건 드롭 — 인터프리터가 value 요구 연산자를 쓴 드리프트).
-    ("이동평균", r"이동평균선|\d+일선", lambda p: _has_any(p, ["ma_crossover", "ema"])),
-    ("EMA", r"EMA", lambda p: _has_any(p, ["ema", "ma_crossover"])),
+    ("이동평균", r"이동평균선|\d+일선|moving\s*average|\d+[- ]?day\s*(?:MA|SMA|line|average)",
+     lambda p: _has_any(p, ["ma_crossover", "ema"])),
+    ("EMA", r"EMA|exponential\s*moving", lambda p: _has_any(p, ["ema", "ma_crossover"])),
     ("RSI", r"RSI", lambda p: _has_sig(p, "rsi")),
     ("MACD", r"MACD", lambda p: _has_sig(p, "macd")),
-    ("볼린저", r"볼린저", lambda p: _has_sig(p, "bollinger_bands")),
+    ("볼린저", r"볼린저|Bollinger", lambda p: _has_sig(p, "bollinger_bands")),
     ("ADX", r"ADX", lambda p: _has_sig(p, "adx")),
-    ("스토캐스틱", r"스토캐스틱", lambda p: _has_sig(p, "stochastic")),
+    ("스토캐스틱", r"스토캐스틱|Stochastic", lambda p: _has_sig(p, "stochastic")),
     ("CCI", r"CCI", lambda p: _has_sig(p, "cci")),
     # 신고가/박스권만 breakout으로 본다(EMA/볼린저 '상향 돌파'와 구분).
-    ("신고가돌파", r"신고가|박스권", lambda p: _has_sig(p, "breakout")),
-    ("거래량", r"거래량", lambda p: _has_any(p, ["volume_spike"]) or _has_fund(p, "trading_value")),
+    ("신고가돌파", r"신고가|박스권|new\s+high|\d+[- ]?day\s+high|box\s*range|breakout",
+     lambda p: _has_sig(p, "breakout")),
+    ("거래량", r"거래량|volume", lambda p: _has_any(p, ["volume_spike"]) or _has_fund(p, "trading_value")),
 ]
 
-RISK_KEYWORDS = [("손절", "stop_loss_pct", r"손절"), ("익절", "take_profit_pct", r"익절|수익\s*[0-9]+%\s*나면")]
-REBAL_WORDS = r"리밸런싱|리밸런스|로테이션|매주\s*.*순위|매월\s*.*순위|순위를\s*다시|점검"
+RISK_KEYWORDS = [("손절", "stop_loss_pct", r"손절|stop[- ]?loss"),
+                 ("익절", "take_profit_pct", r"익절|수익\s*[0-9]+%\s*나면|take[- ]?profit|profit\s*target")]
+REBAL_WORDS = (r"리밸런싱|리밸런스|로테이션|매주\s*.*순위|매월\s*.*순위|순위를\s*다시|점검"
+               r"|rebalanc|rotation|re[- ]?rank")
 
 
 def intended_positions(prompt: str) -> Optional[int]:
@@ -425,6 +479,9 @@ def analyze(tpl: Template, res: dict) -> Flags:
     p = res.get("parsed", {})
     prompt = tpl.prompt
     asked = asked_about(res)
+    # asked(되묻기·안내·pending source_text) 대조 — --lang en에서는 영어로 오므로
+    # 대소문자를 무시한다("stop loss"·"p/e"). 존재 판정(prompt=한국어 원문)은 종전대로.
+    asked_has = lambda pat: re.search(pat, asked, re.IGNORECASE if LANG == "en" else 0)  # noqa: E731
 
     # ── 치명 항목: 해석 실패·유니버스 오류·진입 규칙 공백
     # 2026-07-27 사고: '반도체 업종 ROE·부채비율+모멘텀' 예시가 interpretation_failed로
@@ -467,7 +524,7 @@ def analyze(tpl: Template, res: dict) -> Flags:
     # 미탐지 판정에서 '되묻고 있는 팩터'는 제외한다 — 값 없이 언급된 조건('부채비율과 ROE
     # 조건을 충족하는 종목')을 되묻는 것은 정상 동작이지 소실이 아니다.
     for name, pat, check in COVERAGE_CHECKS:
-        if re.search(pat, prompt) and not check(p) and not re.search(pat, asked):
+        if re.search(pat, prompt) and not check(p) and not asked_has(pat):
             f.missing.append(name)
 
     # ── 값 대조: "있는지"가 아니라 "얼마인지"를 본다 ────────────────────────────
@@ -530,11 +587,11 @@ def analyze(tpl: Template, res: dict) -> Flags:
                            f"{', '.join(dup)})")
 
     for name, field_name, pat in RISK_KEYWORDS:
-        if re.search(pat, prompt) and p.get(field_name) is None and not re.search(pat, asked):
+        if re.search(pat, prompt) and p.get(field_name) is None and not asked_has(pat):
             f.missing.append(name)
 
     if (re.search(REBAL_WORDS, prompt) and p.get("rebalancing_period") in (None, "none")
-            and not re.search(REBAL_WORDS, asked)):
+            and not asked_has(REBAL_WORDS)):
         f.missing.append("리밸런싱")
 
     want = intended_positions(prompt)
@@ -604,11 +661,17 @@ def main() -> int:
                     help="캐시를 무시하고 다시 파싱한다(파서 수정 후 재검증용)")
     ap.add_argument("--source", default="kr", choices=sorted(_SOURCES),
                     help="예시 소스: kr(한국, 기본) | us(미국 — usExamples.ts)")
+    ap.add_argument("--lang", default="kr", choices=["kr", "en"],
+                    help="파서 입력 언어: kr(원문, 기본) | en(en.ts 번역 — /us 전송 경로 재현)")
     args = ap.parse_args()
+    if args.lang == "en" and args.source != "us":
+        # /us만 번역을 파서에 보낸다(지역=URL 경로, KR 페이지는 항상 한국어 전송).
+        ap.error("--lang en은 --source us에서만 의미가 있다")
 
-    global SOURCE
+    global SOURCE, LANG
     SOURCE = args.source
-    templates = load_templates(args.source)
+    LANG = args.lang
+    templates = load_templates(args.source, args.lang)
     if args.category:
         wanted = {c.strip() for c in args.category.split(",") if c.strip()}
         templates = [t for t in templates if t.category in wanted]
@@ -616,19 +679,23 @@ def main() -> int:
     if RAW_CACHE.exists():
         cache = json.loads(RAW_CACHE.read_text())
 
-    lines = ["# 전략 템플릿 파싱 검출 리포트 (정제판)\n", f"- 대상: {len(templates)}개\n"]
+    lines = ["# 전략 템플릿 파싱 검출 리포트 (정제판)\n",
+             f"- 대상: {len(templates)}개 (source={args.source}, lang={args.lang})\n"]
     problems: list[str] = []
     n_missing = n_pos = n_fatal = n_unmatched = 0
 
     for i, tpl in enumerate(templates, 1):
-        if tpl.prompt in cache and not args.refresh:
-            res = cache[tpl.prompt]
+        # 캐시 키=파서 입력 텍스트. --lang en이면 영어 번역이 키가 되므로 한국어 실행과
+        # 캐시가 섞이지 않고, 번역 문구가 바뀌면 자연히 새로 파싱한다.
+        text = tpl.parse_input()
+        if text in cache and not args.refresh:
+            res = cache[text]
         elif args.use_cache:
             print(f"[{i}] 캐시 없음, 건너뜀", file=sys.stderr)
             continue
         else:
             try:
-                res = parse_strategy(tpl.prompt)
+                res = parse_strategy(text)
             except Exception as e:
                 # 호출 자체가 죽으면(백엔드 미기동·포트 선점 501 등) 검증이 성립하지 않는다 —
                 # 치명으로 세워 게이트를 붉게 만든다(2026-08-14: 81건 전부 501인데 exit 0으로 통과).
@@ -636,7 +703,7 @@ def main() -> int:
                 lines.append(f"\n## {i}. {tpl.title}\n- ❌ 파싱 오류: {e}")
                 problems.append(f"{i}. {tpl.title} — 치명[파싱 호출 실패: {e}]")
                 continue
-            cache[tpl.prompt] = res
+            cache[text] = res
             RAW_CACHE.write_text(json.dumps(cache, ensure_ascii=False))
         print(f"[{i}/{len(templates)}] {tpl.title}", file=sys.stderr)
 
@@ -644,6 +711,8 @@ def main() -> int:
         f = analyze(tpl, res)
         lines.append(f"\n## {i}. [{tpl.category}/{tpl.level}] {tpl.title}\n")
         lines.append(f"> {tpl.prompt}\n")
+        if tpl.input and tpl.input != tpl.prompt:
+            lines.append(f"> (파서 입력 EN) {tpl.input}\n")
         lines.append(f"- **요약**: {summarize(p)}")
         if f.fatal:
             n_fatal += 1

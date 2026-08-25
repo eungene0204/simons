@@ -575,3 +575,28 @@ def test_decline_chips_are_offered_on_risk_questions():
             ParsedStrategy(description="빈 전략"), fields=[field]))
         assert chip in status.suggestions
         assert slots.DECLINE_CHIP_FIELDS[chip] == field
+
+
+def test_etf_product_designation_hides_fundamental_chips():
+    """ETF **상품 지정**(SPY·KODEX류)도 재무 칩(PER·ROE)을 숨긴다.
+
+    실측(2026-08-26, /us 멀티턴 EN U4-ETF): "SPY, the S&P 500 ETF" 지정에 매수조건
+    칩으로 PER·ROE가 노출됐다 — 종전 판정이 universe 표기(ETF/US_ETF)만 보고 지정
+    종목(target_symbols)은 보지 않았다. ETF엔 기업 재무제표가 없다는 계약은 유니버스
+    표기 방식과 무관하다(engine.universe_capabilities.is_etf_product_strategy).
+    """
+    from types import SimpleNamespace
+
+    from engine.strategy_slots import suggestions_for_topic
+
+    parsed = SimpleNamespace(target_symbols=["SPY"], ranking_metric=None,
+                             ranking_quantile_groups=None)
+    chips = suggestions_for_topic("매수조건", universe=None, parsed=parsed)
+    assert chips, "칩 자체는 나와야 한다"
+    assert "PER 10 이하" not in chips and "ROE 15% 이상" not in chips
+
+    # 개별 기업 지정은 재무 칩 유지(재무제표 있음).
+    parsed2 = SimpleNamespace(target_symbols=["AAPL"], ranking_metric=None,
+                              ranking_quantile_groups=None)
+    chips2 = suggestions_for_topic("매수조건", universe=None, parsed=parsed2)
+    assert "PER 10 이하" in chips2

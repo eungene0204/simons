@@ -89,17 +89,30 @@ def test_resolve_us_prefix_and_exact_only():
     assert uskg.resolve_theme(None) is None
 
 
-def test_concept_anchor_without_companies_resolves_none():
-    # ai·datacenter 같은 상위 개념 앵커는 구성 종목이 없어 유니버스로 확정하지 않는다
+def test_concept_anchor_expands_to_member_theme_union():
+    # ai·semiconductor·datacenter 앵커는 직접 종목 엣지 없이 소속(part_of/is_a)
+    # 하위 테마 상장사의 합집합으로 전개한다(2026-08-26 사용자 결정 — 종전 '앵커=None'
+    # 비확정 설계 대체: /us "AI 관련주"가 유니버스로 서야 한다).
     graph = uskg.get_graph()
     assert graph.theme_node("AI") is not None
-    assert uskg.resolve_theme("AI") is None
+    name, symbols = uskg.resolve_theme("AI")
+    assert name == "AI"
+    # AI 반도체(NVDA)·AI 소프트웨어(MSFT)·AI 서버(SMCI)가 모두 합류하고 중복은 없다
+    assert {"NVDA", "MSFT", "SMCI"} <= set(symbols)
+    assert len(symbols) == len(set(symbols))
+    # 공급망 주변부(benefits_from·demanded_by)는 구성원이 아니다 — datacenter의
+    # HVAC(CARR)·구리(FCX)는 합류하지 않는다
+    _, dc_symbols = uskg.resolve_theme("데이터센터")
+    assert {"SMCI"} <= set(dc_symbols)
+    assert not {"CARR", "FCX"} & set(dc_symbols)
 
 
 def test_universe_pit_delegates_to_graph():
     # 기존 진입점(resolve_us_theme)은 그래프 위임 후에도 계약이 같다
     assert resolve_us_theme("스트리밍") == uskg.resolve_theme("스트리밍")
-    assert resolve_us_theme("반도체") is None  # 광의어 미등록 — 오폭 금지
+    # 광의어 '반도체'는 앵커 소속 합집합으로 전개된다(설계 전환 2026-08-26)
+    name, symbols = resolve_us_theme("반도체")
+    assert name == "반도체 산업" and "NVDA" in symbols
 
 
 def test_seed_wins_over_catalog_and_unknown_catalog_symbol_skipped(tmp_path, monkeypatch):
@@ -211,3 +224,25 @@ def test_seed_typo_ticker_fails_fast(tmp_path, monkeypatch):
     finally:
         uskg._CACHED = None
         uskg._CACHED_MTIMES = None
+
+
+@pytest.mark.parametrize("term,expected", [
+    # 영어 시장 접두·범주 접미는 테마 정체성이 아니다 — 벗겨서 정확 일치(2026-08-26,
+    # /us 영어 게이트: "US cloud software stocks"·"crypto-related"가 소실되던 실측).
+    ("US cloud software stocks", "클라우드 소프트웨어"),
+    ("U.S. cloud software", "클라우드 소프트웨어"),
+    ("crypto-related stocks", "크립토 관련주"),
+    ("US crypto-linked stocks", "크립토 관련주"),
+    ("US AI semiconductor names", "AI 반도체"),
+    ("American big tech", "빅테크"),
+    # 앵커 별칭 — 광의어도 소속 합집합으로 전개(설계 전환 2026-08-26)
+    ("semiconductor", "반도체 산업"),
+    ("AI-related stocks", "AI"),
+    # 벗긴 뒤에도 정확 일치만 — 부분 매칭 금지 계약 유지.
+    ("used cars", None),
+])
+def test_resolve_theme_strips_english_qualifiers(term, expected):
+    from engine.us_knowledge_graph import resolve_theme
+
+    got = resolve_theme(term)
+    assert (got[0] if got else None) == expected

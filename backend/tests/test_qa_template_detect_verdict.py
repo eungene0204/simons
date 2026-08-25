@@ -112,7 +112,7 @@ def test_parse_call_failure_counts_fatal(qatd, monkeypatch, tmp_path, capsys):
     '치명 0 · exit 0'으로 조용히 통과했다 — 검증이 성립하지 않은 실행은 실패다.
     """
     tpl = _template(qatd, "KOSPI에서 PER 10 이하 종목 매수")
-    monkeypatch.setattr(qatd, "load_templates", lambda source="kr": [tpl])
+    monkeypatch.setattr(qatd, "load_templates", lambda source="kr", lang="kr": [tpl])
 
     def _boom(prompt):
         raise RuntimeError("HTTP Error 501: Unsupported method ('POST')")
@@ -316,3 +316,57 @@ def test_stated_scalar_lost_entirely_is_fatal(qatd):
     # 값이 살아 있으면 조용하다(정상 예시를 붉히지 않는다).
     parsed_ok = {**parsed, "hold_period_days": 40}
     assert qatd.analyze(_template(qatd, prompt), {"parsed": parsed_ok}).fatal == []
+
+
+# ── --lang en (US 영어 레인, 2026-08-25) ──────────────────────────────────
+# /us는 예시의 en.ts 번역을 파서에 그대로 전송한다(t(example.prompt)). 하니스의
+# 영어 모드 계약: 파서 입력=영어 번역, 판정 기대값=한국어 원문, asked(되묻기·안내)는
+# 영어로 오므로 커버리지 패턴이 한·영 겸용이고 asked 대조는 대소문자 무시.
+
+
+def test_us_en_templates_all_translated(qatd):
+    """US 예시 82개 전부에 en.ts 번역이 있고, 파서 입력이 영어로 실린다."""
+    templates = qatd.load_templates("us", "en")
+    assert templates, "US 예시가 비어 있다"
+    for t in templates:
+        assert t.input and t.input != t.prompt, f"번역 미적재: {t.title}"
+        # 번역이 실제 영어인지(한글이 남아 있으면 en.ts 값이 잘못 실린 것).
+        assert not any("가" <= ch <= "힣" for ch in t.input), t.title
+
+
+def test_en_asked_exclusion_matches_english(qatd):
+    """[계약] 영어 되묻기가 그 팩터를 묻고 있으면 미탐지·소실로 세지 않는다.
+
+    한국어 원문이 손절·PBR을 말했고 파싱에 아직 없지만, 에이전트가 영어로
+    "stop-loss"·"P/B"를 묻는 중이면 조용한 소실이 아니다(되묻기=실패 아님 계약의
+    영어 판). LANG=kr였다면 영어 asked를 읽지 못해 오탐이 났을 자리다.
+    """
+    prompt = "S&P500에서 PBR이 낮은 종목을 사고 손절도 걸어 주세요."
+    res = {
+        "parsed": {"universe": ["SP500"], "max_positions": 10,
+                   "entry_signals": [{"indicator": "rsi", "operator": "<=", "value": 30.0}],
+                   "fundamental_filters": []},
+        "clarification_question": "What P/B threshold and Stop-Loss percentage would you like?",
+    }
+    old = qatd.LANG
+    qatd.LANG = "en"
+    try:
+        flags = qatd.analyze(_template(qatd, prompt), res)
+    finally:
+        qatd.LANG = old
+    assert "PBR" not in flags.missing, flags.missing
+    assert "손절" not in flags.missing, flags.missing
+
+
+def test_kr_lang_keeps_case_sensitive_asked(qatd):
+    """[가드] 한국어 모드 판정은 종전과 동일 — 영어 asked 대소문자 완화는 en 전용이다."""
+    prompt = "KOSPI에서 PBR이 낮은 종목을 담아 주세요."
+    res = {
+        "parsed": {"universe": ["KOSPI"], "max_positions": 10,
+                   "entry_signals": [{"indicator": "rsi", "operator": "<=", "value": 30.0}],
+                   "fundamental_filters": []},
+        "clarification_question": "pbr 기준값을 알려 주세요.",  # 소문자 — kr 모드는 민감 대조
+    }
+    assert qatd.LANG == "kr"
+    flags = qatd.analyze(_template(qatd, prompt), res)
+    assert "PBR" in flags.missing

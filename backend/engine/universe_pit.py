@@ -25,6 +25,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+import ui_language
 from engine.console_logging import console_logger
 from engine.sector_mapper import MAPPING_RULES, NL_SAFE_TERMS
 
@@ -844,6 +845,16 @@ def _load_us_membership() -> dict:
 
 
 @lru_cache(maxsize=1)
+@lru_cache(maxsize=1)
+def _us_etf_symbol_set() -> frozenset[str]:
+    return frozenset(e["symbol"] for e in _load_us_etf_master())
+
+
+def is_us_etf_symbol(symbol: str) -> bool:
+    """이 심볼이 미국 ETF 마스터에 속하는가(is_etf_symbol의 US 판)."""
+    return symbol in _us_etf_symbol_set()
+
+
 def _load_us_etf_master() -> list[dict]:
     try:
         return json.loads(_US_ETF_MASTER_PATH.read_text())["etfs"]
@@ -950,6 +961,11 @@ def us_display_name(ticker: Optional[str]) -> Optional[str]:
             return e.get("name") or None  # ETF는 영문 상품명이 정본(한글명은 테마성 일반어)
     for s in _load_us_stocks():
         if s.get("symbol") == t:
+            # 표시명은 요청 언어를 따른다 — /us(en)는 영문 정식명, KR은 한글명 우선.
+            # 한글명 고정이면 /us 요약 카드에 "슈퍼 마이크로 컴퓨터 (SMCI)"처럼 한글이
+            # 나간다(2026-08-26 실측). 표시 메타데이터일 뿐 엔진은 심볼만 쓴다.
+            if ui_language.get_ui_language() == "en":
+                return s.get("name") or s.get("name_kr") or None
             return s.get("name_kr") or s.get("name") or None
     return None
 

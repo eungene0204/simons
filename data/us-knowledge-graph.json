@@ -8,15 +8,15 @@
       "name_en": "Artificial Intelligence",
       "category": "concept",
       "synonyms": ["인공지능"],
-      "description": "학습·추론을 수행하는 컴퓨팅 기술. 반도체·데이터센터·소프트웨어 밸류체인의 상위 개념 앵커 — 직접 종목 엣지 없음(범위가 넓어 단일 유니버스로 확정하지 않는다)"
+      "description": "학습·추론을 수행하는 컴퓨팅 기술. 반도체·데이터센터·소프트웨어 밸류체인의 상위 개념 앵커 — 직접 종목 엣지는 없고, 소속(part_of/is_a) 하위 테마의 합집합으로 전개한다(2026-08-26 사용자 결정: /us 테마 유니버스 성립)"
     },
     {
       "id": "semiconductor",
       "name": "반도체 산업",
       "name_en": "Semiconductor industry",
       "category": "concept",
-      "synonyms": [],
-      "description": "설계(EDA·IP)→제조(파운드리)→메모리로 이어지는 공급망의 상위 개념 앵커 — 직접 종목 엣지 없음"
+      "synonyms": ["반도체", "semiconductor", "semiconductors"],
+      "description": "설계(EDA·IP)→제조(파운드리)→메모리로 이어지는 공급망의 상위 개념 앵커 — 직접 종목 엣지는 없고 소속 하위 테마의 합집합으로 전개한다"
     },
     {
       "id": "datacenter",
@@ -434,6 +434,7 @@
     { "source": "semiconductor", "type": "benefits_from", "target": "ai" },
     { "source": "datacenter", "type": "benefits_from", "target": "ai" },
     { "source": "ai-server", "type": "part_of", "target": "datacenter" },
+    { "source": "ai-server", "type": "part_of", "target": "ai" },
     { "source": "networking", "type": "used_in", "target": "datacenter" },
     { "source": "datacenter-reit", "type": "related_to", "target": "datacenter" },
     { "source": "hvac", "type": "benefits_from", "target": "datacenter", "note": "데이터센터 냉각 수요" },

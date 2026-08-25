@@ -180,13 +180,23 @@ company 노드 자동 생성 + 오타 fail-fast, mtime 캐시)을 미국 시장�
 - **시드**: `data/us-knowledge-graph.json` — 한국 시드와 동일 스키마(nodes/edges,
   KR·EN 동의어). 개념 앵커(AI·반도체·데이터센터)와 테마 50여 개(스트리밍·결제·
   셰일·주택건설·금광 등), `company:TICKER` 엣지는 `us-stocks.json` 정본 대조.
-- **카탈로그 레이어**: `data/us-theme-catalog.json`(평면 테마→티커) — 같은 별칭이
-  겹치면 시드(큐레이션) 승. 카탈로그의 정본 밖 티커는 조용히 스킵(한국과 동일 계약).
+- **카탈로그 레이어**: `data/us-theme-catalog.json`(평면 테마→티커, 25테마) — 같은
+  별칭이 겹치면 시드(큐레이션) 승. 카탈로그의 정본 밖 티커는 조용히 스킵(한국과 동일
+  계약). 수동 큐레이션 17종 + **테마 ETF 유래 8종**(`scripts/build_us_theme_catalog.py`
+  — 대표 ETF 상위 보유(yfinance)를 정본∩파케이로 거르고 최소 4종목·별칭 충돌
+  사전검사·멱등 병합(`source: etf:*`만 교체). 로봇 자동화·클린에너지·유전체·수자원·
+  지역은행·리츠·소프트웨어·배당귀족). 테마의 `concepts` 필드는 개념 앵커 소속
+  (part_of 엣지) 선언이다.
 - **해석 진입점**: `universe_pit.resolve_us_theme` → `us_knowledge_graph.resolve_theme`.
-  입력은 LLM이 추출한 짧은 테마어(원문 아님), 정확 일치만, '미국' 접두는 시장
-  한정어로 벗겨 조회. 구성이 없는 개념 앵커는 None(단일 유니버스로 확정 금지).
-  소비자는 `capability_validator`(미국 유니버스 × sectors → 테마 유래 지정 종목
-  전개, `UniverseSpec.theme` 출처 표기).
+  입력은 LLM이 추출한 짧은 테마어(원문 아님), 정확 일치만, '미국' 접두·영어
+  한정어("US"/"American" 접두, "-related/stocks" 등 접미)는 벗겨 조회. 직접 구성이
+  없는 개념 앵커(ai·semiconductor·datacenter)는 **소속(part_of/is_a) 하위 테마
+  상장사의 합집합**으로 전개한다(`concept_member_companies`, 2026-08-26 — 종전
+  '앵커=None' 비확정 설계를 대체. 카탈로그 테마의 `concepts` 필드가 앵커 소속을
+  선언하고 로더가 part_of 엣지로 합성한다. 공급망 주변부 benefits_from·demanded_by
+  등은 구성원이 아니다). 소비자는 `capability_validator`(미국 유니버스 × sectors →
+  테마 유래 지정 종목 전개, `UniverseSpec.theme` 출처 표기)와 primary의
+  `_resolve_sector_terms_us`(미국 시장 문맥 테마 체인 — KR KG·검색 그라운딩 불사용).
 - **한국 KG 대비 의도적 부재**(해당 소스·소비자가 없다): 문장 스캔(US 레인은
   LLM-first — 원문을 읽는 경로 자체가 없음), 섹터 해석(미국 GICS 업종 필터 미지원),
   학습 오버레이(네이버 그라운딩 KR 전용), 지분 엣지(DART KR 전용).
