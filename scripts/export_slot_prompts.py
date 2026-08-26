@@ -38,6 +38,10 @@ def build_fixture() -> dict:
                 slots.VARIANT_QUANTILE: entry(slots.MAX_POSITIONS, slots.VARIANT_QUANTILE),
                 slots.VARIANT_RANKING: entry(slots.MAX_POSITIONS, slots.VARIANT_RANKING),
             },
+            slots.INITIAL_CAPITAL: {
+                # 미국 시장 전략은 초기 자본 칩이 달러다(계좌·엔진 숫자가 곧 통화).
+                slots.VARIANT_US: entry(slots.INITIAL_CAPITAL, slots.VARIANT_US),
+            },
             slots.ENTRY: {
                 # 단일 종목: 여러 종목을 비교하는 랭킹 선택지가 성립하지 않는다.
                 "single_asset": {"suggestions": slots.entry_chips(cross_sectional=False)},

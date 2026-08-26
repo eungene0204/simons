@@ -407,10 +407,15 @@ _RANKING_MAX_POSITIONS_QUESTION: tuple[str, tuple[str, ...]] = (
 # 다르지만(랭킹 여부를 보는 필드가 다르다) 문구는 여기 하나다.
 VARIANT_QUANTILE = "quantile"
 VARIANT_RANKING = "ranking"
+# 미국 시장 전략의 초기 자본 — 칩이 달러다(2026-08-26). 변형으로 등록해야 프론트
+# 픽스처(scripts/export_slot_prompts.py → __fixtures__/slot-prompts.json)에도 실린다:
+# 프론트는 칩 답변을 백엔드 왕복 없이 즉시 적용하므로 문구를 로컬 픽스처에서 읽는다.
+VARIANT_US = "us"
 
 _SLOT_VARIANTS: dict[tuple[str, str], tuple[str, tuple[str, ...]]] = {
     (MAX_POSITIONS, VARIANT_QUANTILE): _QUANTILE_MAX_POSITIONS_QUESTION,
     (MAX_POSITIONS, VARIANT_RANKING): _RANKING_MAX_POSITIONS_QUESTION,
+    (INITIAL_CAPITAL, VARIANT_US): _US_INITIAL_CAPITAL_QUESTION,
 }
 
 

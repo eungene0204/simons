@@ -336,3 +336,25 @@ describe("손절·익절 '안 함' 거부", () => {
     expect(promptForSlot("take_profit").suggestions).toContain("익절 안 함");
   });
 });
+
+describe("초기 자본 칩의 통화", () => {
+  // 되묻기 칩은 프론트 픽스처(__fixtures__/slot-prompts.json, 정본=engine/strategy_slots)
+  // 에서 그려진다. 미국 전략에 원화 칩("1,000만원")이 나가면 화면에 ₩10,000,000으로
+  // 표시되고 클릭 시 $10,000,000이 된다 — 엔진 숫자가 곧 시장 통화이기 때문(2026-08-26).
+  it("미국 전략은 달러 칩을 쓴다", () => {
+    const prompt = promptForSlot("initial_capital", { ...base, universe: ["SP500"] });
+    expect(prompt.suggestions).toEqual(["$10,000", "$30,000", "$50,000", "$100,000"]);
+  });
+
+  it("한국 전략은 원화 칩 그대로다", () => {
+    const prompt = promptForSlot("initial_capital", base);
+    expect(prompt.suggestions).toEqual(["500만원", "1,000만원", "3,000만원", "5,000만원"]);
+  });
+
+  it("미국 유니버스 전 종류에서 달러 칩이다", () => {
+    for (const universe of [["NASDAQ100"], ["NASDAQ"], ["DOW30"], ["US"], ["US_ETF"]]) {
+      const prompt = promptForSlot("initial_capital", { ...base, universe });
+      expect(prompt.suggestions[0]).toBe("$10,000");
+    }
+  });
+});

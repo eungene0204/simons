@@ -108,6 +108,17 @@
         ]
       }
     },
+    "initial_capital": {
+      "us": {
+        "question": "초기 투자 자금을 얼마로 설정할까요?",
+        "suggestions": [
+          "$10,000",
+          "$30,000",
+          "$50,000",
+          "$100,000"
+        ]
+      }
+    },
     "entry": {
       "single_asset": {
         "suggestions": [

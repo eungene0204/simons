@@ -7,6 +7,7 @@
 import type { ParsedSummary } from "@/lib/strategy-summary";
 
 import slotPrompts from "./__fixtures__/slot-prompts.json";
+import { isUsParsedUniverse } from "@/lib/strategy-summary";
 
 export type MissingBacktestCondition = {
   field:
@@ -238,6 +239,11 @@ export const SINGLE_ASSET_ENTRY_CHIPS: string[] =
 const RANKING_MAX_POSITIONS_PROMPT: { question: string; suggestions: string[] } =
   slotPrompts.variants.max_positions.ranking;
 
+// 미국 시장 전략의 초기 자본 칩은 달러다 — 엔진·계좌 숫자가 곧 통화라
+// 원화 칩("1,000만원" → 표시 ₩10,000,000)을 그대로 쓰면 $10,000,000이 된다(2026-08-26).
+const US_INITIAL_CAPITAL_PROMPT: { question: string; suggestions: string[] } =
+  slotPrompts.variants.initial_capital.us;
+
 function promptFor(
   field: MissingBacktestCondition["field"],
   parsed: ParsedSummary | undefined | null,
@@ -247,6 +253,9 @@ function promptFor(
   }
   if (field === "max_positions" && parsed?.ranking_metric) {
     return RANKING_MAX_POSITIONS_PROMPT;
+  }
+  if (field === "initial_capital" && isUsParsedUniverse(parsed?.universe)) {
+    return US_INITIAL_CAPITAL_PROMPT;
   }
   return SLOT_PROMPTS[field];
 }
