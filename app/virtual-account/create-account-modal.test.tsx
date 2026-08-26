@@ -88,14 +88,14 @@ describe("CreateAccountModal trading mode", () => {
     fireEvent.click(screen.getByRole("button", { name: "만들기" }));
   }
 
-  it("only shows the auto trading toggle and keeps it off by default", async () => {
+  it("only shows the auto trading toggle and keeps it on by default", async () => {
     const onCreate = await renderAndSelectStrategy();
 
     expect(screen.getByText("매매 방식")).toBeInTheDocument();
-    const autoTradingButton = screen.getByRole("button", { name: "전략 시뮬레이션 OFF" });
-    expect(autoTradingButton).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByText("OFF")).toBeInTheDocument();
-    expect(screen.getByText("전략 시뮬레이션은 꺼져 있습니다. 계좌 생성 후에도 직접 켤 수 있습니다.")).toBeInTheDocument();
+    const autoTradingButton = screen.getByRole("button", { name: "전략 시뮬레이션 ON" });
+    expect(autoTradingButton).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("ON")).toBeInTheDocument();
+    expect(screen.getByText("전략 신호가 발생하면 현재가로 모의 주문이 실행됩니다.")).toBeInTheDocument();
 
     await act(async () => {
       fillNameAndSubmit();
@@ -106,7 +106,7 @@ describe("CreateAccountModal trading mode", () => {
       10_000_000,
       savedStrategy.id,
       savedStrategy.name,
-      "manual"
+      "auto"
     );
   });
 
@@ -125,21 +125,21 @@ describe("CreateAccountModal trading mode", () => {
       10_000_000,
       savedStrategy.id,
       savedStrategy.name,
-      "manual"
+      "auto"
     );
   });
 
-  it("creates strategy accounts with auto mode after turning the toggle on", async () => {
+  it("creates strategy accounts with manual mode after turning the toggle off", async () => {
     const onCreate = await renderAndSelectStrategy();
-    const autoTradingButton = screen.getByRole("button", { name: "전략 시뮬레이션 OFF" });
+    const autoTradingButton = screen.getByRole("button", { name: "전략 시뮬레이션 ON" });
 
     await act(async () => {
       fireEvent.click(autoTradingButton);
     });
 
-    const enabledAutoTradingButton = screen.getByRole("button", { name: "전략 시뮬레이션 ON" });
-    expect(enabledAutoTradingButton).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("ON")).toBeInTheDocument();
+    const disabledAutoTradingButton = screen.getByRole("button", { name: "전략 시뮬레이션 OFF" });
+    expect(disabledAutoTradingButton).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText("OFF")).toBeInTheDocument();
 
     await act(async () => {
       fillNameAndSubmit();
@@ -150,7 +150,7 @@ describe("CreateAccountModal trading mode", () => {
       10_000_000,
       savedStrategy.id,
       savedStrategy.name,
-      "auto"
+      "manual"
     );
   });
 

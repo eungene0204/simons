@@ -49,7 +49,7 @@ export default function CreateAccountModal({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [loadingStrategies, setLoadingStrategies] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [tradingMode, setTradingMode] = useState<"auto" | "manual">("manual");
+  const [tradingMode, setTradingMode] = useState<"auto" | "manual">("auto");
   const [isPromptVisible, setIsPromptVisible] = useState(false);
   const [planInfo, setPlanInfo] = useState<{
     planId: PlanId | null;
@@ -68,8 +68,7 @@ export default function CreateAccountModal({
       // 전략이 이미 정해져 있으면 목록을 불러올 이유가 없다.
       setName(presetStrategyName.slice(0, 20));
       setStrategies([]);
-      // 백테스트로 검증을 마친 전략을 그대로 돌려보려고 여는 화면이라 전략 시뮬레이션을 켜둔다
-      // (드롭다운으로 전략을 고르는 기존 경로의 기본값은 OFF 그대로).
+      // 전략이 정해진 계좌의 기본값은 전략 시뮬레이션 ON (모달을 다시 열면 껐던 상태를 되돌린다).
       setTradingMode("auto");
       return;
     }
@@ -166,7 +165,7 @@ export default function CreateAccountModal({
       );
       setName("");
       setSelectedStrategyId("");
-      setTradingMode("manual");
+      setTradingMode("auto");
       setIsPromptVisible(false);
       onClose();
     } catch (e) {
@@ -313,7 +312,7 @@ export default function CreateAccountModal({
                         onClick={() => {
                           if (isSubmitting) return;
                           setSelectedStrategyId(strategy.id);
-                          setTradingMode("manual");
+                          setTradingMode("auto");
                           setIsDropdownOpen(false);
                         }}
                         className={`w-full px-3 py-2 text-left text-sm hover:bg-white/[0.06] ${
