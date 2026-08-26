@@ -648,13 +648,18 @@ def test_rebalance_method_is_not_asked_without_rebalancing():
         assert status.derived_status is slots.DerivedStatus.NOT_APPLICABLE
 
 
-def test_rebalance_method_is_korea_only_for_now():
-    """[2026-08-26 사용자 지시] 미국 레인은 이번 범위 밖 — 묻지 않고 종목 교체로 돈다."""
-    us = _with_rebalancing(universe=["SP500"])
-    status = next(s for s in slots.evaluate(
-        us, explicit_fields=[], require_explicit=True, fields=[slots.REBALANCE_METHOD]))
-    assert status.filled
-    assert status.derived_status is slots.DerivedStatus.NOT_APPLICABLE
+def test_rebalance_method_is_asked_in_every_market():
+    """[2026-08-27 미국 레인 합류] 방식은 통화·세금처럼 시장이 정하는 값이 아니라
+    포트폴리오 운영 규칙이다 — 미국 전략도 같은 질문·같은 칩을 받는다(초기 자본이
+    시장별 변형을 갖는 것과 다른 축)."""
+    for universe in (["KOSPI"], ["SP500"], ["NASDAQ100"], ["US_ETF"]):
+        parsed = _with_rebalancing(universe=universe)
+        status = next(s for s in slots.evaluate(
+            parsed, explicit_fields=[], require_explicit=True,
+            fields=[slots.REBALANCE_METHOD]))
+        assert not status.filled, f"{universe}에서 방식을 묻지 않는다"
+        assert status.derived_status is slots.DerivedStatus.APPLICABLE
+        assert status.suggestions == ("종목 교체 리밸런싱", "비중 조정 리밸런싱 (균등 유지)")
 
 
 def test_rebalance_method_chips_bind_to_engine_values():

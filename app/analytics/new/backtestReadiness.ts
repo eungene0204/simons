@@ -101,14 +101,14 @@ export function isSlotFilled(
   if (field === "rebalancing" && (targetSymbolCount === 1 || options.allowNoRebalancing === true)) {
     return true;
   }
-  // 리밸런싱 방식(FR-BT-067)은 리밸런싱을 켠 뒤에만 성립하는 질문이다. 미국 전략은
-  // 이번 범위에서 제외(2026-08-26 사용자 지시) — 묻지 않고 엔진 기본값(종목 교체)으로 돈다.
+  // 리밸런싱 방식(FR-BT-067)은 리밸런싱을 켠 뒤에만 성립하는 질문이다. 시장과는 무관하다
+  // (2026-08-27 미국 레인 합류) — 방식은 통화·세금처럼 시장이 정하는 값이 아니라 포트폴리오
+  // 운영 규칙이라 미국 전략도 같은 질문을 받는다(백엔드 _decided와 동형).
   if (field === "rebalance_method") {
     if (
       targetSymbolCount === 1 ||
       options.allowNoRebalancing === true ||
-      !hasRebalancing ||
-      isUsParsedUniverse(parsed.universe)
+      !hasRebalancing
     ) {
       return true;
     }

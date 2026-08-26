@@ -649,10 +649,9 @@ def _decided(parsed: Any, field: str, declined: frozenset[str]) -> Optional[_Dec
         rebal = getattr(parsed, "rebalancing_period", None)
         if len(symbols) == 1 or REBALANCING in declined or not (rebal and rebal != "none"):
             return _Decided(not_applicable=True)
-        # ② 미국 시장 전략은 이번 범위에서 제외한다(2026-08-26 사용자 지시: KR 먼저).
-        #    묻지 않으므로 엔진 기본값인 종목 교체로 돈다.
-        if is_us_market_strategy(parsed):
-            return _Decided(not_applicable=True)
+        # 시장과 무관하다(2026-08-27 미국 레인 합류) — 방식은 통화·세금처럼 시장이 정하는
+        # 값이 아니라 포트폴리오 운영 규칙이라, 미국 전략도 같은 질문을 받는다. 초기 자본이
+        # 시장별 변형(달러 칩)을 갖는 것과 다른 축이다.
         return None
     if field in (STOP_LOSS, TAKE_PROFIT) and field in declined:
         # 값이 있는데 거부가 함께 오면 값이 이긴다 — 사용자가 값을 준 뒤 마음을 바꾼

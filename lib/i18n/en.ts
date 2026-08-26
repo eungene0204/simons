@@ -2262,6 +2262,8 @@ export const en: Record<string, string> = {
   "그룹당 20종목": "20 stocks per group",
   "그룹당 30종목": "30 stocks per group",
   "다음으로 어떤 조건에서 매수할지 정해볼까요?": "Next, shall we decide the conditions for buying?",
+  "리밸런싱을 어떤 방식으로 할까요?\n\n· 종목 교체 — 리밸런싱일마다 조건에 맞는 종목으로 목표 구성을 다시 정합니다(조건에서 벗어난 보유 종목은 매도).\n· 비중 조정 — 보유 종목은 그대로 두고, 오른 종목은 오른 만큼 덜어내고 내린 종목은 내린 만큼 더 사서 균등 비중으로 되돌립니다.":
+    "How would you like to rebalance?\n\n· Reconstitution — on each rebalancing date, the target holdings are chosen again from the stocks that meet your conditions (holdings that no longer qualify are sold).\n· Weight adjustment — the holdings stay the same; winners are trimmed by however much they rose and losers are topped up by however much they fell, back to equal weights.",
   "다음으로 포트폴리오를 얼마나 자주 다시 구성할지 정해볼까요?": "Next, shall we decide how often to rebalance the portfolio?",
   "단기·장기 이동평균 기간을 정해볼까요? (단기가 장기를 상향 돌파=매수)": "Shall we set the short- and long-term moving-average periods? (short crossing above long = buy)",
   "단순(SMA)": "Simple (SMA)",

@@ -135,6 +135,10 @@ def build_cases() -> list[dict]:
             "listing_to": "2026-12-31", "backtest_start_date": "2026-01-01",
         }, explicit=[f for f in ALL_EXPLICIT if f != "backtest_period"]),
         # 명시 날짜가 있는 창 — 날짜가 있다고 판정이 뒤집히지 않는다(회귀 고정).
+        # 미국 전략도 리밸런싱 방식을 묻는다(2026-08-27) — 시장이 정하는 값이 아니라
+        # 포트폴리오 운영 규칙이다. 초기 자본만 시장별 변형(달러 칩)을 갖는다.
+        _case("미국 전략 — 리밸런싱 방식은 시장 무관", patch={"universe": ["SP500"]},
+              explicit=[f for f in ALL_EXPLICIT if f != "rebalance_method"]),
         _case("명시 날짜가 있는 백테스트 창", patch={
             "backtest_start_date": "2020-01-01", "backtest_end_date": "2024-12-31",
         }),
