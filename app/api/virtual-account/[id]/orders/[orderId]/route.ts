@@ -31,8 +31,10 @@ export async function DELETE(
 
       // 매수 지정가 취소 → 예약 현금 환급
       if (order.side === 'BUY') {
-        const refund = calcBuyCost(moneyToNumber(order.price), order.quantity);
         const account = await tx.virtualAccount.findUnique({ where: { id: params.id } });
+        // 예약금 환불은 예약 산식과 동일해야 한다 — 계좌 통화 기준(2026-08-26)
+        const usd = ((account as { currency?: string } | null)?.currency ?? 'KRW') === 'USD';
+        const refund = calcBuyCost(moneyToNumber(order.price), order.quantity, usd);
         if (!account) throw new Error('ACCOUNT_NOT_FOUND');
         await tx.virtualAccount.update({
           where: { id: params.id },

@@ -1,4 +1,8 @@
 // Order Engine — 슬리피지, 수수료, 틱 단위, 체결 판단 로직
+//
+// [통화, 2026-08-26] usd=true(미국 종목·USD 계좌)면 달러 규칙을 쓴다:
+// 호가단위 $0.01(소수 유지), 증권거래세 0(백테스트 엔진 US 레인과 동일 계약),
+// 수수료는 동률(0.015%)에 센트 절사. 기본(usd 생략)은 종전 원화 규칙 그대로다.
 
 export const FEE_RATE = 0.00015;       // 수수료 0.015% (한국 MTS 수준)
 export const TAX_RATE = 0.0015;        // 증권거래세 0.15% (매도 시 적용, 2025년~ / 백테스트 엔진 기본값과 동일)
@@ -7,7 +11,8 @@ export const MARKET_SLIPPAGE = 0.0005; // 시장가 슬리피지 0.05%
 /**
  * 한국거래소 호가 단위(tick size) 적용 (2023-01 개편, 코스피/코스닥 공통)
  */
-export function roundToTick(price: number): number {
+export function roundToTick(price: number, usd = false): number {
+  if (usd) return Math.max(0.01, Math.round(price * 100) / 100); // 센트 단위
   if (price < 2_000)   return Math.round(price);
   if (price < 5_000)   return Math.round(price / 5) * 5;
   if (price < 20_000)  return Math.round(price / 10) * 10;
@@ -20,31 +25,34 @@ export function roundToTick(price: number): number {
 /** 시장가 체결가 (슬리피지 + 틱 반올림) */
 export function calcMarketFilledPrice(
   basePrice: number,
-  side: "BUY" | "SELL"
+  side: "BUY" | "SELL",
+  usd = false
 ): number {
   const slippage = basePrice * MARKET_SLIPPAGE;
   const raw = side === "BUY" ? basePrice + slippage : basePrice - slippage;
-  return roundToTick(Math.max(1, raw));
+  return usd ? roundToTick(raw, true) : roundToTick(Math.max(1, raw));
 }
 
 /** 수수료 (원 단위 절사) */
-export function calcFee(filledPrice: number, quantity: number): number {
+export function calcFee(filledPrice: number, quantity: number, usd = false): number {
+  if (usd) return Math.floor(filledPrice * quantity * FEE_RATE * 100) / 100; // 센트 절사
   return Math.floor(filledPrice * quantity * FEE_RATE);
 }
 
 /** 증권거래세 — 매도 시 적용 (원 단위 절사) */
-export function calcTransactionTax(filledPrice: number, quantity: number): number {
+export function calcTransactionTax(filledPrice: number, quantity: number, usd = false): number {
+  if (usd) return 0; // 미국 시장에는 증권거래세(매도세)가 없다 — 백테스트 US 레인과 동일
   return Math.floor(filledPrice * quantity * TAX_RATE);
 }
 
 /** 매수 총비용 (체결가 × 수량 + 수수료) */
-export function calcBuyCost(filledPrice: number, quantity: number): number {
-  return filledPrice * quantity + calcFee(filledPrice, quantity);
+export function calcBuyCost(filledPrice: number, quantity: number, usd = false): number {
+  return filledPrice * quantity + calcFee(filledPrice, quantity, usd);
 }
 
 /** 매도 순수익 (체결가 × 수량 − 수수료 − 증권거래세) */
-export function calcSellProceeds(filledPrice: number, quantity: number): number {
-  return filledPrice * quantity - calcFee(filledPrice, quantity) - calcTransactionTax(filledPrice, quantity);
+export function calcSellProceeds(filledPrice: number, quantity: number, usd = false): number {
+  return filledPrice * quantity - calcFee(filledPrice, quantity, usd) - calcTransactionTax(filledPrice, quantity, usd);
 }
 
 /**

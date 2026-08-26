@@ -8,7 +8,10 @@ import {
 } from "@/lib/strategy-summary";
 import type { StrategyDSL } from "@/types/strategy";
 import { t } from "@/lib/i18n";
-import { useRegionHref } from "@/lib/geo/useRegion";
+import { useRegion, useRegionHref } from "@/lib/geo/useRegion";
+import { US_PRICING } from "@/lib/pricing/us";
+import { formatUsd } from "@/lib/us-symbols";
+import type { PlanId } from "@/lib/plans";
 
 type Strategy = Pick<StrategyDSL, "id" | "name" | "description" | "universe" | "entry" | "exit" | "risk">;
 const NO_STRATEGY_ID = "__none__";
@@ -37,6 +40,8 @@ export default function CreateAccountModal({
   presetStrategy,
 }: CreateAccountModalProps) {
   const regionHref = useRegionHref();
+  // /us에서는 초기 모의 투자금을 미국 가격표(USD)로 보여준다 — 생성 서버도 같은 판정으로 USD 시드.
+  const region = useRegion();
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [strategies, setStrategies] = useState<Strategy[]>([]);
@@ -47,6 +52,7 @@ export default function CreateAccountModal({
   const [tradingMode, setTradingMode] = useState<"auto" | "manual">("manual");
   const [isPromptVisible, setIsPromptVisible] = useState(false);
   const [planInfo, setPlanInfo] = useState<{
+    planId: PlanId | null;
     initialInvestmentAmount: number;
     accountsUsed: number;
     accountsLimit: number;
@@ -83,6 +89,7 @@ export default function CreateAccountModal({
         setPlanInfo(
           data
             ? {
+                planId: (data.plan.planId ?? null) as PlanId | null,
                 initialInvestmentAmount: data.plan.initialInvestmentAmount,
                 accountsUsed: data.accounts.used,
                 accountsLimit: data.accounts.limit,
@@ -214,7 +221,9 @@ export default function CreateAccountModal({
               <span className="text-sm font-medium text-gray-300">{t("계좌당 초기 모의 투자금")}</span>
               <span className="text-sm font-semibold text-white">
                 {planInfo
-                  ? t("{0}원", planInfo.initialInvestmentAmount.toLocaleString("ko-KR"))
+                  ? region === "us"
+                    ? formatUsd(US_PRICING.initialInvestmentAmount[planInfo.planId ?? "FREE"])
+                    : t("{0}원", planInfo.initialInvestmentAmount.toLocaleString("ko-KR"))
                   : "—"}
               </span>
             </div>

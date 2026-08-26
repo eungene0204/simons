@@ -19,10 +19,13 @@ import math
 import time
 import uuid
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 import db as appdb  # 공용 앱 DB 어댑터(Supabase Postgres)
 
+from engine import us_market_calendar
+from engine.universe_pit import is_us_symbol
 from engine.live_signal_utils import (
     count_holding_sessions,
     evaluate_live_strategy_signals,
@@ -37,12 +40,17 @@ logger = logging.getLogger(__name__)
 
 # ── 상수 ────────────────────────────────────────────────────────────────────
 _KST = timezone(timedelta(hours=9))
+# 미국 동부 — 서머타임(DST)이 있어 고정 오프셋으로 대체할 수 없다.
+_ET = ZoneInfo("America/New_York")
 REFRESH_INTERVAL = 30          # 장중 시그널 평가 간격 (초)
 HALT_RESUME_SWEEP_INTERVAL = 600  # 거래정지 종목 재개 감지 스윕 간격 (초)
 
 FEE_RATE = 0.00015             # 수수료 0.015%
 TAX_RATE = 0.0015              # 증권거래세 0.15% (2025년~, 백테스트 엔진 기본값과 동일)
 MARKET_SLIPPAGE = 0.0005       # 시장가 슬리피지 0.05%
+# [통화, 2026-08-26] 미국 종목(USD 계좌)은 달러 정산 규칙을 쓴다 — 호가 $0.01(소수 유지),
+# 증권거래세 0(백테스트 엔진 US 레인과 동일 계약), 수수료 동률에 센트 절사.
+# 판정은 심볼 형태(universe_pit.is_us_symbol)다 — 통화 격리 가드로 계좌 통화와 일치한다.
 
 
 # ── 주문 계산 유틸 ──────────────────────────────────────────────────────────
@@ -58,28 +66,34 @@ def _round_tick(price: float) -> int:
     return round(price / 1_000) * 1_000
 
 
-def _filled_price(price: float, side: str) -> int:
+def _filled_price(price: float, side: str, us: bool = False) -> float:
     raw = price * (1 + MARKET_SLIPPAGE) if side == "BUY" else price * (1 - MARKET_SLIPPAGE)
+    if us:
+        return max(0.01, round(raw, 2))  # 센트 단위, 정수 절사 금지
     return _round_tick(max(1, raw))
 
 
-def _fee(filled: int, qty: int) -> int:
+def _fee(filled: float, qty: int, us: bool = False) -> float:
+    if us:
+        return math.floor(filled * qty * FEE_RATE * 100) / 100  # 센트 절사
     return math.floor(filled * qty * FEE_RATE)
 
 
-def _tax(filled: int, qty: int) -> int:
+def _tax(filled: float, qty: int, us: bool = False) -> float:
+    if us:
+        return 0.0  # 미국 시장에는 증권거래세(매도세)가 없다
     return math.floor(filled * qty * TAX_RATE)
 
 
-def _buy_cost(filled: int, qty: int) -> int:
-    return filled * qty + _fee(filled, qty)
+def _buy_cost(filled: float, qty: int, us: bool = False) -> float:
+    return filled * qty + _fee(filled, qty, us)
 
 
-def _sell_proceeds(filled: int, qty: int) -> float:
-    return filled * qty - _fee(filled, qty) - _tax(filled, qty)
+def _sell_proceeds(filled: float, qty: int, us: bool = False) -> float:
+    return filled * qty - _fee(filled, qty, us) - _tax(filled, qty, us)
 
 
-def _realized_pnl(sell_price: int, avg_buy: float, qty: int, fee: int, tax: int) -> float:
+def _realized_pnl(sell_price: float, avg_buy: float, qty: int, fee: float, tax: float) -> float:
     return (sell_price - avg_buy) * qty - fee - tax
 
 
@@ -116,12 +130,52 @@ def _parse_db_datetime(value) -> Optional[datetime]:
 
 # ── 시장 시간 ────────────────────────────────────────────────────────────────
 
-def _is_market_hours() -> bool:
-    now = datetime.now(_KST)
+def _is_market_hours(now: Optional[datetime] = None) -> bool:
+    """한국(KRX) 정규장 — 평일 09:00~15:30 KST. now는 테스트 주입용."""
+    now = now.astimezone(_KST) if now is not None else datetime.now(_KST)
     if now.weekday() >= 5:
         return False
     t = now.hour * 100 + now.minute
     return 900 <= t <= 1530
+
+
+def _is_us_market_hours(now: Optional[datetime] = None) -> bool:
+    """미국 정규장 — 평일 09:30~16:00 ET(서머타임 자동 반영). now는 테스트 주입용.
+
+    미국 계좌(USD)의 자동매매는 이 시간에만 돈다(2026-08-26). 종전에는 루프 전체가
+    KST 게이트라 미국 계좌는 시세가 갱신되지 않는 시간에만 깨어 사실상 거래가
+    일어나지 않았다. 프리마켓·애프터마켓은 제외한다 — 시세 소스(토스 US)가 주간거래
+    시각을 별도 규약으로 다루고, 백테스트(정규장 종가 기준)와 눈높이를 맞춘다.
+    휴장일·조기 종료일은 토스 공식 장 운영 달력(engine/us_market_calendar)이 정본이다
+    — 공휴일이면 정규장 세션이 null로 오고, 조기 종료일(추수감사절 다음날 등)은
+    종료 시각이 13:00 ET로 내려와 그대로 반영된다. 달력 조회가 실패하면(자격증명·
+    네트워크) 아래 고정 규칙으로 진행한다(fail-open) — 달력 장애로 자동매매가 조용히
+    멈추는 편이 더 나쁘고, 휴장일 오작동은 시세 신선도 방어(_fresh_price_map)가 막는다.
+    """
+    now = now.astimezone(_ET) if now is not None else datetime.now(_ET)
+    calendar_says = us_market_calendar.is_open(now)
+    if calendar_says is not None:
+        return calendar_says
+    if now.weekday() >= 5:
+        return False
+    t = now.hour * 100 + now.minute
+    return 930 <= t <= 1600
+
+
+def _account_is_usd(account: dict) -> bool:
+    """계좌 통화가 USD인가 — 시장 시간·거래일 판정의 정본(VirtualAccount.currency)."""
+    return (account.get("currency") or "KRW") == "USD"
+
+
+def _market_now(account: dict) -> datetime:
+    """계좌 시장의 현재 시각 — 거래일(today) 산출 기준."""
+    return datetime.now(_ET if _account_is_usd(account) else _KST)
+
+
+def _account_market_open(account: dict, now: Optional[datetime] = None) -> bool:
+    return (
+        _is_us_market_hours(now) if _account_is_usd(account) else _is_market_hours(now)
+    )
 
 
 def _is_strategy_execution_window(execution_timing: str) -> bool:
@@ -132,7 +186,7 @@ def _is_strategy_execution_window(execution_timing: str) -> bool:
     return 900 <= t <= 905
 
 
-def _fresh_price_map(quotes: dict, today: str) -> dict[str, int]:
+def _fresh_price_map(quotes: dict, today: str) -> dict[str, float]:
     """오늘 날짜(KST)의 시세만 매매에 사용한다.
 
     평일 공휴일(KRX 휴장)에는 제공자들이 마지막 거래일 날짜(또는 None)를 반환하므로
@@ -190,11 +244,15 @@ class VirtualTrader:
     async def _loop(self):
         while self._running:
             try:
-                if _is_market_hours():
+                kr_open = _is_market_hours()
+                if kr_open:
+                    # 거래정지 재개 스윕은 KRX 전용 관심사(KIS 종목상태코드)다.
                     await self._sweep_suspended_resume()
+                if kr_open or _is_us_market_hours():
+                    # 계좌별로 자기 시장의 개장 여부를 다시 본다(_refresh_all).
                     await self._refresh_all()
                 else:
-                    logger.debug("[VirtualTrader] 장외 시간, 대기")
+                    logger.debug("[VirtualTrader] 장외 시간(한국·미국 모두), 대기")
             except Exception as e:
                 logger.error("[VirtualTrader] 루프 예외: %s", e, exc_info=True)
             await asyncio.sleep(REFRESH_INTERVAL)
@@ -232,6 +290,10 @@ class VirtualTrader:
         accounts = await asyncio.to_thread(self._fetch_running_accounts)
         if not accounts:
             return
+        # 자기 시장이 열린 계좌만 돈다 — 미국 계좌는 ET 정규장, 한국 계좌는 KST 정규장.
+        accounts = [a for a in accounts if _account_market_open(a)]
+        if not accounts:
+            return
         logger.info("[VirtualTrader] 새로고침: %d개 계좌", len(accounts))
         for account in accounts:
             try:
@@ -247,7 +309,7 @@ class VirtualTrader:
         try:
             rows = con.execute("""
                 SELECT
-                    a.id, a."currentCash", a."strategyId", a."tradingMode",
+                    a.id, a."currentCash", a."strategyId", a."tradingMode", a.currency,
                     s.symbols, s.id AS "stateId"
                 FROM "VirtualMarketState" s
                 JOIN "VirtualAccount" a ON a.id = s."accountId"
@@ -355,7 +417,10 @@ class VirtualTrader:
         trading_mode = account["tradingMode"]
         symbols: list[str] = json.loads(account["symbols"])
         strategy_id = account["strategyId"]
-        today = datetime.now(_KST).strftime("%Y-%m-%d")
+        # 거래일은 계좌 시장의 날짜다 — 시세 날짜 대조(_fresh_price_map)·일일 로그
+        # dedupe·시그널 캐시가 모두 이 값을 쓴다. 미국 계좌에 KST 날짜를 쓰면
+        # 미국 장중(= KST 밤~새벽, 날짜가 하루 앞섬)에 모든 시세가 스테일로 걸러진다.
+        today = _market_now(account).strftime("%Y-%m-%d")
 
         # 1. 전략 조건 파싱
         entry_group = {}
@@ -387,6 +452,18 @@ class VirtualTrader:
         pending_orders = await asyncio.to_thread(self._fetch_pending_orders, account_id)
         execution_timing = risk.get("execution_timing") or "next_open"
         signal_symbols = await asyncio.to_thread(resolve_live_universe, dsl, symbols)
+        # [통화 격리, 2026-08-26] 자동매매는 주문 라우트를 거치지 않고 DB에 직접 쓰므로
+        # 같은 가드를 여기서 건다 — 계좌 통화와 다른 시장의 종목은 **매수 후보에서**
+        # 제외한다(환율 변환이 없어 잔고·손익이 무의미해진다). 보유 포지션은 손대지
+        # 않는다: 리스크 청산·전략 매도가 계속 동작해야 한다(TS 가드와 같은 계약).
+        _want_us = _account_is_usd(account)
+        _cross = [s for s in signal_symbols if is_us_symbol(s) != _want_us]
+        if _cross:
+            signal_symbols = [s for s in signal_symbols if is_us_symbol(s) == _want_us]
+            logger.warning(
+                "[VirtualTrader] 계좌 %s(%s): 통화가 다른 종목 %d개를 매수 후보에서 제외(%s…)",
+                account_id, "USD" if _want_us else "KRW", len(_cross), ", ".join(_cross[:3]),
+            )
 
         # next_open signals depend only on completed bars, so evaluate the full universe
         # once per day before requesting live prices for actionable symbols.
@@ -442,7 +519,7 @@ class VirtualTrader:
             if halt_changed:
                 logger.info("[VirtualTrader] 거래정지 상태 동기화: %s", halt_changed)
 
-        price_map: dict[str, int] = _fresh_price_map(quotes, today)
+        price_map: dict[str, float] = _fresh_price_map(quotes, today)
         if quotes and not price_map:
             logger.debug("[VirtualTrader] 계좌 %s: 오늘(%s) 시세 없음 — 휴장일 또는 스테일 데이터, 매매 보류", account_id, today)
         name_map: dict[str, str] = await asyncio.to_thread(self._fetch_stock_names, quote_symbols)
@@ -726,20 +803,21 @@ class VirtualTrader:
         account_id: str,
         symbol: str,
         name: str,
-        price: int,
+        price: float,
         current_cash: float,
         position_size_pct: float,
     ) -> Optional[str]:
+        us = is_us_symbol(symbol)
         invest = current_cash * (position_size_pct / 100)
-        filled = _filled_price(price, "BUY")
+        filled = _filled_price(price, "BUY", us)
         # 수수료 포함 총비용이 투자금 안에 들어오도록 수량 산정 (100% 투자 시에도 매수 가능)
         qty = int(invest // (filled * (1 + FEE_RATE)))
         if qty <= 0:
             return None
-        cost = _buy_cost(filled, qty)
+        cost = _buy_cost(filled, qty, us)
         if cost > current_cash:
             return None
-        fee = _fee(filled, qty)
+        fee = _fee(filled, qty, us)
 
         order_id = str(uuid.uuid4())
         now_ms = _db_now()
@@ -790,14 +868,15 @@ class VirtualTrader:
         account_id: str,
         symbol: str,
         name: str,
-        price: int,
+        price: float,
         quantity: int,
         avg_buy_price: float,
     ) -> Optional[str]:
-        filled = _filled_price(price, "SELL")
-        fee = _fee(filled, quantity)
-        tax = _tax(filled, quantity)
-        proceeds = _sell_proceeds(filled, quantity)
+        us = is_us_symbol(symbol)
+        filled = _filled_price(price, "SELL", us)
+        fee = _fee(filled, quantity, us)
+        tax = _tax(filled, quantity, us)
+        proceeds = _sell_proceeds(filled, quantity, us)
         pnl = _realized_pnl(filled, avg_buy_price, quantity, fee, tax)
 
         order_id = str(uuid.uuid4())
@@ -841,11 +920,12 @@ class VirtualTrader:
         finally:
             con.close()
 
-    def _fill_pending_order(self, account_id: str, order: dict, current_price: int):
+    def _fill_pending_order(self, account_id: str, order: dict, current_price: float):
         side = order["side"]
         qty = order["quantity"]
         filled = order["price"]  # 지정가로 체결
-        fee = _fee(int(filled), qty)
+        us = is_us_symbol(str(order["symbol"]))
+        fee = _fee(filled if us else int(filled), qty, us)
         now_ms = _db_now()
 
         con = appdb.connect()
@@ -877,7 +957,7 @@ class VirtualTrader:
                     """, (new_qty, new_avg, current_price, new_peak, now_ms, account_id, order["symbol"]))
                 else:
                     pos_id = str(uuid.uuid4())
-                    peak = max(int(filled), current_price)
+                    peak = max(filled if us else int(filled), current_price)
                     con.execute("""
                         INSERT INTO "VirtualPosition" (id, "accountId", symbol, name, quantity, "avgPrice", "currentPrice", "peakPrice", "openedAt", "updatedAt")
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -899,9 +979,10 @@ class VirtualTrader:
                     return
 
                 avg_buy = pos[1]
-                tax = _tax(int(filled), qty)
-                proceeds = _sell_proceeds(int(filled), qty)
-                pnl = _realized_pnl(int(filled), avg_buy, qty, fee, tax)
+                _f = filled if us else int(filled)
+                tax = _tax(_f, qty, us)
+                proceeds = _sell_proceeds(_f, qty, us)
+                pnl = _realized_pnl(_f, avg_buy, qty, fee, tax)
 
                 claimed = con.execute("""
                     UPDATE "VirtualOrder" SET status = 'FILLED', "filledPrice" = ?, fee = ?, tax = ?,
@@ -944,7 +1025,7 @@ class VirtualTrader:
         finally:
             con.close()
 
-    def _update_positions(self, account_id: str, price_map: dict[str, int], quotes: dict):
+    def _update_positions(self, account_id: str, price_map: dict[str, float], quotes: dict):
         con = appdb.connect()
         now_ms = _db_now()
         try:

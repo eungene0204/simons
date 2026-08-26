@@ -314,7 +314,7 @@ async def test_next_open_refresh_evaluates_universe_but_quotes_actions_only(monk
     monkeypatch.setattr(
         virtual_trader_module,
         "resolve_live_universe",
-        lambda _dsl, _fallback: ["A", "B", "C"],
+        lambda _dsl, _fallback: ["000111", "000222", "000333"],
     )
     monkeypatch.setattr(
         virtual_trader_module,
@@ -328,16 +328,16 @@ async def test_next_open_refresh_evaluates_universe_but_quotes_actions_only(monk
         "risk": {"execution_timing": "next_open", "max_positions": 1},
     })
     monkeypatch.setattr(trader, "_fetch_positions", lambda _account_id: [
-        {"symbol": "HELD", "avgPrice": 100, "peakPrice": 100, "quantity": 1}
+        {"symbol": "000900", "avgPrice": 100, "peakPrice": 100, "quantity": 1}
     ])
     monkeypatch.setattr(trader, "_fetch_pending_orders", lambda _account_id: [
-        {"symbol": "PENDING", "side": "BUY", "price": 90}
+        {"symbol": "000800", "side": "BUY", "price": 90}
     ])
 
     def fake_evaluate(symbols, *_args, **_kwargs):
         evaluated.extend(symbols)
         return [
-            {"symbol": symbol, "entry_signal": symbol == "B", "exit_signal": False}
+            {"symbol": symbol, "entry_signal": symbol == "000222", "exit_signal": False}
             for symbol in symbols
         ]
 
@@ -363,8 +363,8 @@ async def test_next_open_refresh_evaluates_universe_but_quotes_actions_only(monk
         "strategyId": "strategy-1",
     })
 
-    assert evaluated == ["A", "B", "C"]
-    assert market_data.symbols == ["B", "HELD", "PENDING"]
+    assert evaluated == ["000111", "000222", "000333"]
+    assert market_data.symbols == ["000222", "000900", "000800"]
 
 
 @pytest.mark.asyncio

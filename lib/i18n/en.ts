@@ -49,6 +49,8 @@ export const en: Record<string, string> = {
   "백테스트 기간": "Backtest period",
   "유니버스": "Universe",
   "초기 자본": "Initial capital",
+  "초기 자본 {0} 기준": "Based on {0} initial capital",
+  "계좌 통화와 종목 통화가 다릅니다 — 달러 계좌에서는 미국 종목만, 원화 계좌에서는 한국 종목만 매수할 수 있어요.": "The account currency and the stock's currency differ — USD accounts can only buy US stocks, and KRW accounts can only buy Korean stocks.",
   "최대 보유": "Max holdings",
   // ── app/analytics/new/backtestResultFacts.ts
   "{0}거래일": "{0} trading days",

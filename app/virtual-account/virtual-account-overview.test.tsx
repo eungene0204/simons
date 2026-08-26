@@ -295,3 +295,27 @@ describe("VirtualAccountOverview navigation", () => {
     expect(assignMock).not.toHaveBeenCalled();
   });
 });
+
+describe("USD 계좌 표기", () => {
+  it("USD 계좌는 금액을 달러로 표기한다(원화 오독 방지)", async () => {
+    // 계좌 통화(2026-08-26): /us 생성 계좌는 숫자=달러 — ₩ 고정 표기가 나가면 안 된다.
+    setCachedVirtualAccounts([
+      {
+        ...cachedAccount,
+        id: "acc-usd",
+        name: "달러 계좌",
+        currency: "USD",
+        initialAmount: 10_000,
+        currentBalance: 9_000,
+        totalValue: 10_500,
+      },
+    ]);
+
+    render(<VirtualAccountOverview />);
+
+    expect(await screen.findByText("$10,500")).toBeInTheDocument();
+    expect(screen.getByText("$9,000")).toBeInTheDocument();
+    expect(screen.getByText("$10,000")).toBeInTheDocument();
+    expect(screen.queryByText(/10,500원|10,000,000원/)).not.toBeInTheDocument();
+  });
+});

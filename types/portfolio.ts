@@ -3,8 +3,9 @@
 export interface VirtualAccount {
   id: string;
   name: string;
-  initialAmount: number; // 초기 투자금액 (단위: 원)
-  currentBalance: number; // 현재 잔액 (단위: 원)
+  initialAmount: number; // 초기 투자금액 (단위: 계좌 통화)
+  currency?: "KRW" | "USD"; // 계좌 통화(2026-08-26) — /us 생성 계좌는 USD, 기본 KRW
+  currentBalance: number; // 현재 잔액 (단위: 계좌 통화)
   totalValue: number; // 총 자산 가치 (현금 + 주식 가치)
   strategyId?: string; // 연결된 전략 ID
   strategyName?: string; // 연결된 전략 이름

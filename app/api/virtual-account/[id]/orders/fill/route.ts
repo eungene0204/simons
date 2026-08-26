@@ -51,10 +51,12 @@ export async function POST(
       try {
         const didFill = await prisma.$transaction(async (tx) => {
           const account = await tx.virtualAccount.findUnique({ where: { id: params.id } });
+          // 달러 정산 규칙 — 계좌 통화가 정본(숫자=계좌 통화, 2026-08-26)
+          const usd = ((account as { currency?: string } | null)?.currency ?? 'KRW') === 'USD';
           if (!account) throw new Error('ACCOUNT_NOT_FOUND');
 
           const filledPrice = orderPrice; // 지정가로 체결
-          const fee = calcFee(filledPrice, order.quantity);
+          const fee = calcFee(filledPrice, order.quantity, usd);
 
           if (order.side === 'BUY') {
             // VirtualTrader(백엔드 30초 루프)와의 이중 체결 방지:
@@ -108,7 +110,7 @@ export async function POST(
           }
 
           const avgBuyPrice = moneyToNumber(pos.avgPrice);
-          const tax = calcTransactionTax(filledPrice, order.quantity);
+          const tax = calcTransactionTax(filledPrice, order.quantity, usd);
           const realizedPnl = calcRealizedPnl(filledPrice, avgBuyPrice, order.quantity, fee, tax);
 
           const claimed = await tx.virtualOrder.updateMany({
@@ -129,7 +131,7 @@ export async function POST(
             });
           }
 
-          const proceeds = calcSellProceeds(filledPrice, order.quantity);
+          const proceeds = calcSellProceeds(filledPrice, order.quantity, usd);
           await tx.virtualAccount.update({
             where: { id: params.id },
             data: { currentCash: toMoney(moneyToNumber(account.currentCash) + proceeds) },

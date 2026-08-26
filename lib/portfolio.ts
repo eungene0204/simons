@@ -1,6 +1,7 @@
 // Portfolio Utility Functions — API 기반 (DB 저장)
 
 import { VirtualAccount, PortfolioHolding, Transaction, PendingOrder } from "@/types/portfolio";
+import { regionRequestHeaders } from "@/lib/geo/useRegion";
 
 // ─── 가상계좌 관리 ────────────────────────────────────────────────────────────
 
@@ -25,7 +26,9 @@ export async function createAccount(
 ): Promise<VirtualAccount> {
   const res = await fetch("/api/virtual-account", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // 지역 헤더 — /us 탭의 생성은 USD 계좌로 시드된다(서버가 탭 경로 기준으로 판정,
+    // '마지막 방문 지역' 쿠키 오염 방지 — regionRequestHeaders 계약).
+    headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
     body: JSON.stringify({ name, initialAmount, strategyId, strategyName, tradingMode }),
   });
   return res.json();

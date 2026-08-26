@@ -72,6 +72,7 @@ function mapAccount(
     id: a.id,
     name: a.name,
     initialAmount: moneyToNumber(a.initialCash),
+    currency: (a.currency ?? "KRW") as "KRW" | "USD",
     currentBalance: currentCash,
     totalValue,
     status: a.status ?? "ACTIVE",

@@ -20,6 +20,8 @@ import { formatCompactNumberEn, t } from "@/lib/i18n";
 interface Props {
   accountId: string;
   initialAmount: number;
+  // 계좌 통화(기본 KRW) — USD 계좌는 금액을 $ 표기(숫자=통화 단위 그대로).
+  currency?: "KRW" | "USD";
 }
 
 const fmt = (n: number) =>
@@ -40,9 +42,11 @@ const metricTone = (value: number): MetricTone =>
 
 const formatSignedCurrency = (
   value: number,
-  formatter: (amount: number) => string = fmt
+  formatter: (amount: number) => string = fmt,
+  usd = false
 ) => {
   const normalized = Object.is(value, -0) ? 0 : value;
+  if (usd) return `${normalized > 0 ? "+" : normalized < 0 ? "-" : ""}$${fmt(Math.abs(normalized))}`;
   return t("{0}{1}원", normalized > 0 ? "+" : "", formatter(normalized));
 };
 
@@ -184,7 +188,8 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
-export default function VirtualTradingDashboard({ accountId, initialAmount }: Props) {
+export default function VirtualTradingDashboard({ accountId, initialAmount, currency }: Props) {
+  const usd = currency === "USD";
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [dailyRange, setDailyRange] = useState<30 | 60 | 90>(30);
@@ -229,14 +234,14 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
     [
       {
         label: t("총 실현 손익"),
-        value: formatSignedCurrency(Math.round(stats.totalRealizedPnl)),
+        value: formatSignedCurrency(Math.round(stats.totalRealizedPnl), fmt, usd),
         sub: t("누적 매도 체결 기준"),
         tone: metricTone(stats.totalRealizedPnl),
       },
       {
         label: t("실현 수익률"),
         value: formatSignedPercent(stats.totalReturn),
-        sub: t("초기 자본 {0}원 기준", fmtShort(initialAmount)),
+        sub: usd ? t("초기 자본 {0} 기준", `$${fmt(initialAmount)}`) : t("초기 자본 {0}원 기준", fmtShort(initialAmount)),
         tone: metricTone(stats.totalReturn),
       },
       {
@@ -255,7 +260,7 @@ export default function VirtualTradingDashboard({ accountId, initialAmount }: Pr
     [
       {
         label: t("평균 수익"),
-        value: formatSignedCurrency(stats.avgWin, fmtShort),
+        value: formatSignedCurrency(stats.avgWin, fmtShort, usd),
         sub: t("이익 거래 평균"),
         tone: metricTone(stats.avgWin),
       },
