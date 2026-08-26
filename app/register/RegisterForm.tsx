@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import NullstockLogoMark from "@/components/layout/NullstockLogoMark";
 import { t } from "@/lib/i18n";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 // 이메일 가입 — 2단계 플로우.
 // 1) 정보 입력 + 약관 동의 → 인증번호 발송(/api/register/request-code)
@@ -14,6 +15,7 @@ export default function RegisterForm({
 }: {
   verificationRequired?: boolean;
 }) {
+  const regionHref = useRegionHref();
   const [step, setStep] = useState<"form" | "verify">("form");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -72,7 +74,7 @@ export default function RegisterForm({
       return;
     }
     // 가입 성공 = 자동 로그인(쿠키 발급됨). 전체 리로드로 인증 상태를 반영한다.
-    window.location.href = "/";
+    window.location.href = regionHref("/");
   };
 
   const handleRequestCode = async (e: React.FormEvent) => {
@@ -258,11 +260,11 @@ export default function RegisterForm({
                 />
                 <span>
                   {t("만 14세 이상이며 아래에 동의합니다.")}{" "}
-                  <Link href="/?legal=terms" className="text-blue-500 hover:underline" target="_blank">
+                  <Link href={regionHref("/?legal=terms")} className="text-blue-500 hover:underline" target="_blank">
                     {t("이용약관")}
                   </Link>
                   {" · "}
-                  <Link href="/?legal=privacy" className="text-blue-500 hover:underline" target="_blank">
+                  <Link href={regionHref("/?legal=privacy")} className="text-blue-500 hover:underline" target="_blank">
                     {t("개인정보처리방침")}
                   </Link>
                 </span>
@@ -282,7 +284,7 @@ export default function RegisterForm({
 
               <p className="text-center text-sm text-gray-600 dark:text-gray-400">
                 {t("이미 계정이 있으신가요?")}{" "}
-                <Link href="/login" className="text-blue-500 hover:underline">
+                <Link href={regionHref("/login")} className="text-blue-500 hover:underline">
                   {t("로그인")}
                 </Link>
               </p>

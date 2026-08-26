@@ -13,10 +13,12 @@ import StockSearchModal from "@/components/stock/StockSearchModal";
 import { addMultipleToWatchlist, removeFromWatchlist } from "@/lib/watchlist";
 import { useWatchlistMarket } from "@/lib/hooks/useWatchlistMarket";
 import { t } from "@/lib/i18n";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 export default function Watchlist() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const router = useRouter();
+  const regionHref = useRegionHref();
   const { items, loading, refetch } = useWatchlistMarket(3000);
 
   const handleAddToWatchlist = async (items: Array<{ symbol: string; name: string }>) => {
@@ -117,7 +119,7 @@ export default function Watchlist() {
               items.map((item) => (
                 <tr
                   key={item.symbol}
-                  onClick={() => router.push(`/stock/${item.symbol}`)}
+                  onClick={() => router.push(regionHref(`/stock/${item.symbol}`))}
                   className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer"
                 >
                   {/* 종목 (로고 + 이름) */}

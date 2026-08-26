@@ -1,11 +1,15 @@
 import type { StrategyDSL } from "@/types/strategy";
 import { getLanguage, t } from "@/lib/i18n";
+import { formatUsd, isUsUniverseId } from "@/lib/us-symbols";
 
 export interface ParsedSummary {
   description: string;
   universe: string[];
   // 섹터/업종 제한(정본 섹터명, 예: "반도체"). 복수면 배열(합집합). 없으면 null/생략.
   sector?: string | string[] | null;
+  // 미국 유니버스의 업종 필터(GICS 정본 라벨) — 한국 sector와 분류 체계가 달라 필드가
+  // 따로다(FR-STR-074 ⑩). 배지에 드러내지 않으면 유니버스가 조용히 좁혀진 것처럼 보인다.
+  us_industry?: string | null;
   // ETF 유니버스 전용 테마/상품명 필터("반도체", "KODEX 200"). 없으면 null/생략.
   etf_theme?: string | null;
   // 신규 상장(IPO) 유니버스(FR-STR-073) — 상장일이 이 구간에 속하는 종목만 대상.
@@ -68,6 +72,9 @@ export interface ParsedSummary {
   max_positions: number;
   hold_period_days: number | null;
   rebalancing_period: string;
+  // 리밸런싱 방식(FR-BT-067) — 'reconstitute'(종목 교체) | 'weights_only'(비중 조정).
+  // 리밸런싱을 켠 KR 전략에서만 사용자가 고른다(미국 레인은 이번 범위 밖).
+  rebalance_method?: string | null;
   stop_loss_pct: number | null;
   take_profit_pct: number | null;
   trailing_stop_pct?: number | null;
@@ -91,6 +98,7 @@ type LegacyStrategySummaryFields = {
   max_positions?: number | null;
   hold_period_days?: number | null;
   rebalancing_period?: string | null;
+  rebalance_method?: string | null;
   stop_loss_pct?: number | null;
   take_profit_pct?: number | null;
   trailing_stop_pct?: number | null;
@@ -259,12 +267,20 @@ export function backtestDataCeilingDate(today: Date = new Date()): string {
 }
 
 // 초기자금 배지 문자열을 만든다. 1억 이상이면 '50억원'처럼 한글 단위로, 미만이면 콤마 포함 원 단위로 표시.
-export function formatInitialCapital(value: number): string {
+export function formatInitialCapital(value: number, options?: { usd?: boolean }): string {
+  // 미국 전략의 초기 자본은 엔진 숫자가 곧 달러다(시장 통화) — 원화 표기($10,000을
+  // "10,000원")로 나가면 값 자체가 오독된다(2026-08-26).
+  if (options?.usd) return formatUsd(value);
   if (Number.isFinite(value) && value >= 100_000_000) {
     const amount = formatMarketCapValue(value);
     return getLanguage() === "en" ? amount : t("{0}원", amount);
   }
   return t("{0}원", KO_NUMBER_FORMAT.format(value));
+}
+
+/** 전략의 유니버스가 미국 시장인가 — 초기 자본 통화(달러) 표기 판정. */
+export function isUsParsedUniverse(universe: string[] | null | undefined): boolean {
+  return (universe ?? []).some((u) => isUsUniverseId(normalizeUniverseId(u)));
 }
 
 export const PERIOD_LABELS: Record<string, string> = {
@@ -323,6 +339,28 @@ export const REBAL_LABELS: Record<string, string> = {
   quarterly: "분기",
   yearly: "매년",
 };
+
+// 리밸런싱 방식(FR-BT-067) 표기. 백엔드 칩 정본(engine/strategy_slots.py
+// REBALANCE_METHOD_CHIP_VALUES)이 정하는 두 값과 1:1이다.
+export const REBAL_METHOD_LABELS: Record<string, string> = {
+  reconstitute: "종목 교체",
+  weights_only: "비중 조정",
+};
+
+/** 리밸런싱 배지 문구 — 주기와 방식을 한 칸에 함께 보인다.
+ *  방식이 배지에 없으면 사용자가 고른 값이 화면 어디에도 남지 않아, 무엇으로 돌았는지
+ *  결과만 보고는 알 수 없다(주기만 보이던 종전 표기). 방식 미지정(기존 전략)은 종전
+ *  표기를 그대로 둔다 — 고르지 않은 값을 화면이 확정해 보이지 않는다. */
+export function formatRebalancingText(
+  period: string | null | undefined,
+  method: string | null | undefined,
+  translate: (template: string, ...values: Array<string | number>) => string,
+): string | undefined {
+  if (!period || period === "none") return undefined;
+  const base = translate("{0} 리밸런싱", translate(REBAL_LABELS[period] ?? period));
+  const methodLabel = method ? REBAL_METHOD_LABELS[method] : undefined;
+  return methodLabel ? `${base} · ${translate(methodLabel)}` : base;
+}
 
 export const FUNDAMENTAL_FILTER_SECTION_LABEL = "진입 신호";
 
@@ -524,6 +562,9 @@ export function getDisplayUniverseLabels(
     );
   }
 
+  // 미국 업종 필터 배지 — 라벨이 영문 정본이라 "{0} 업종"으로 감싼다("Airlines 업종").
+  if (parsed.us_industry) sectorLabel.push(t("{0} 업종", parsed.us_industry));
+
   const newListingLabel = formatNewListingLabel(parsed);
   if (newListingLabel) sectorLabel.push(newListingLabel);
 
@@ -720,14 +761,16 @@ export function buildStrategySummary(
       takeProfitPct ? t("익절 {0}%", takeProfitPct) : "",
       trailingStopPct ? t("트레일링 스탑 {0}%", trailingStopPct) : "",
     ].filter(Boolean).join(", ") || undefined,
-    rebalancingText:
-      parsed.rebalancing_period && parsed.rebalancing_period !== "none"
-        ? t("{0} 리밸런싱", t(REBAL_LABELS[parsed.rebalancing_period] ?? parsed.rebalancing_period))
-        : undefined,
+    rebalancingText: formatRebalancingText(
+      parsed.rebalancing_period, parsed.rebalance_method, t,
+    ),
     // 백테스트 기간·초기 자본 — 대화 카드(ParsedSummaryBubble)와 같은 행을 결과 화면에도
     // 보이기 위한 값(2026-08-18: 카드에만 있고 결과 화면 요약 DTO에는 칸이 없어 빠졌다).
     backtestPeriodText: formatBacktestPeriodLabel(parsed) ?? undefined,
-    initialCapitalText: formatInitialCapital(parsed.initial_capital ?? 10_000_000),
+    initialCapitalText: formatInitialCapital(
+      parsed.initial_capital ?? 10_000_000,
+      { usd: isUsParsedUniverse(parsed.universe) },
+    ),
   };
 }
 
@@ -746,6 +789,7 @@ export function backtestRunTextsFromRequest(
   req:
     | {
         period?: string | null;
+        universe_id?: string | null;
         startDate?: string | null;
         endDate?: string | null;
         risk?: Record<string, unknown> | null;
@@ -760,7 +804,10 @@ export function backtestRunTextsFromRequest(
   const capital = typeof rawCapital === "number" && Number.isFinite(rawCapital) ? rawCapital : null;
   return {
     backtestPeriodText: formatRequestPeriodLabel(req) ?? undefined,
-    initialCapitalText: capital != null ? formatInitialCapital(capital) : undefined,
+    initialCapitalText:
+      capital != null
+        ? formatInitialCapital(capital, { usd: isUsUniverseId(req.universe_id) })
+        : undefined,
   };
 }
 
@@ -827,6 +874,7 @@ export function buildStrategySummaryFromRequest(
   const maxHoldingDays = num(risk.max_holding_days);
   const maxPositions = num(risk.max_positions);
   const rebalancingPeriod = typeof risk.rebalancing_period === "string" ? risk.rebalancing_period : "none";
+  const rebalanceMethod = typeof risk.rebalance_method === "string" ? risk.rebalance_method : null;
 
   const rankingLabel = getRankingLabel({
     ranking_metric: (risk.ranking_metric as string | null) ?? null,
@@ -905,10 +953,7 @@ export function buildStrategySummaryFromRequest(
       ]
         .filter(Boolean)
         .join(", ") || undefined,
-    rebalancingText:
-      rebalancingPeriod && rebalancingPeriod !== "none"
-        ? t("{0} 리밸런싱", t(REBAL_LABELS[rebalancingPeriod] ?? rebalancingPeriod))
-        : undefined,
+    rebalancingText: formatRebalancingText(rebalancingPeriod, rebalanceMethod, t),
     ...backtestRunTextsFromRequest(req),
   };
 }
@@ -1134,10 +1179,11 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
     backtest_period: "full",
     initial_capital: 0,
   });
-  const rebalancingText =
-    rebalancingPeriod && rebalancingPeriod !== "none"
-      ? t("{0} 리밸런싱", t(REBAL_LABELS[rebalancingPeriod] ?? rebalancingPeriod))
-      : undefined;
+  const rebalancingText = formatRebalancingText(
+    rebalancingPeriod,
+    strategy.risk?.rebalance_method ?? legacyStrategy.rebalance_method,
+    t,
+  );
 
   return {
     strategyName: strategy.name,

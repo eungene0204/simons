@@ -31,7 +31,7 @@ def _complete() -> ParsedStrategy:
     )
 
 
-ALL_EXPLICIT = ["universe", "max_positions", "rebalancing",
+ALL_EXPLICIT = ["universe", "max_positions", "rebalancing", "rebalance_method",
                 "backtest_period", "initial_capital"]
 
 
@@ -41,7 +41,9 @@ def test_materialized_defaults_are_not_user_input():
     """값이 있어도 사용자가 말하지 않았으면 채워진 것이 아니다."""
     empty = ParsedStrategy(description="빈 전략")
     assert empty.universe and empty.max_positions  # 기본값이 실제로 있다
-    assert slots.filled_slots(empty, require_explicit=True) == []
+    # '리밸런싱 방식'은 리밸런싱을 켜야 성립하는 질문이라 빈 전략에서는 해당 없음이다
+    # (단독 종목의 리밸런싱과 같은 축) — 물을 대상이 아닌 칸은 완료로 센다.
+    assert slots.filled_slots(empty, require_explicit=True) == ["리밸런싱 방식"]
     # provenance를 보지 않는 레인(레거시 게이트)은 값 기준으로 판정한다.
     assert "유니버스" in slots.filled_slots(empty, require_explicit=False)
 
@@ -49,13 +51,14 @@ def test_materialized_defaults_are_not_user_input():
 def test_explicit_fields_promote_slots_one_by_one():
     empty = ParsedStrategy(description="빈 전략")
     assert slots.filled_slots(
-        empty, explicit_fields=["universe"], require_explicit=True) == ["유니버스"]
+        empty, explicit_fields=["universe"],
+        require_explicit=True) == ["유니버스", "리밸런싱 방식"]
     assert slots.filled_slots(
         empty, explicit_fields=["universe", "initial_capital"],
-        require_explicit=True) == ["유니버스", "초기 자본"]
+        require_explicit=True) == ["유니버스", "리밸런싱 방식", "초기 자본"]
 
 
-# ── 슬롯 그룹(8칸)과 필드(9개) ────────────────────────────────────────────────
+# ── 슬롯 그룹(9칸)과 필드(10개) ────────────────────────────────────────────────
 
 def test_risk_slot_needs_both_stop_and_take():
     """리스크 관리 슬롯은 손절·익절이 모두 있어야 충족 — 한쪽만 있으면 물을 것이 남았다."""
@@ -78,7 +81,14 @@ def test_complete_strategy_fills_every_slot():
 def test_progress_order_is_the_skeleton_order():
     empty = ParsedStrategy(description="빈 전략")
     order = [s.field for s in slots.missing(empty, require_explicit=True)]
-    assert order == list(slots.FIELD_ORDER)
+    # 리밸런싱 방식은 주기를 켠 뒤에만 성립한다 — 빈 전략의 진행 순서에는 없다.
+    assert order == [f for f in slots.FIELD_ORDER if f != slots.REBALANCE_METHOD]
+    # 주기를 켜면 방식이 제자리(리밸런싱 바로 뒤)에 들어온다 — 같은 설정이 매도 조건
+    # 슬롯도 채우므로(정기 리밸런싱=청산 규칙) exit만 빠진다.
+    rebalancing = empty.model_copy(update={"rebalancing_period": "monthly"})
+    assert [s.field for s in slots.missing(rebalancing, require_explicit=True)] == [
+        f for f in slots.FIELD_ORDER if f != slots.EXIT
+    ]
 
 
 # ── 대상 구성에 따른 면제 ──────────────────────────────────────────────────────
@@ -575,3 +585,98 @@ def test_decline_chips_are_offered_on_risk_questions():
             ParsedStrategy(description="빈 전략"), fields=[field]))
         assert chip in status.suggestions
         assert slots.DECLINE_CHIP_FIELDS[chip] == field
+
+
+def test_etf_product_designation_hides_fundamental_chips():
+    """ETF **상품 지정**(SPY·KODEX류)도 재무 칩(PER·ROE)을 숨긴다.
+
+    실측(2026-08-26, /us 멀티턴 EN U4-ETF): "SPY, the S&P 500 ETF" 지정에 매수조건
+    칩으로 PER·ROE가 노출됐다 — 종전 판정이 universe 표기(ETF/US_ETF)만 보고 지정
+    종목(target_symbols)은 보지 않았다. ETF엔 기업 재무제표가 없다는 계약은 유니버스
+    표기 방식과 무관하다(engine.universe_capabilities.is_etf_product_strategy).
+    """
+    from types import SimpleNamespace
+
+    from engine.strategy_slots import suggestions_for_topic
+
+    parsed = SimpleNamespace(target_symbols=["SPY"], ranking_metric=None,
+                             ranking_quantile_groups=None)
+    chips = suggestions_for_topic("매수조건", universe=None, parsed=parsed)
+    assert chips, "칩 자체는 나와야 한다"
+    assert "PER 10 이하" not in chips and "ROE 15% 이상" not in chips
+
+    # 개별 기업 지정은 재무 칩 유지(재무제표 있음).
+    parsed2 = SimpleNamespace(target_symbols=["AAPL"], ranking_metric=None,
+                              ranking_quantile_groups=None)
+    chips2 = suggestions_for_topic("매수조건", universe=None, parsed=parsed2)
+    assert "PER 10 이하" in chips2
+
+
+
+# ── 리밸런싱 방식(FR-BT-067, 2026-08-26) ──────────────────────────────────────
+# 리밸런싱에는 종목을 교체하는 방식과 같은 종목의 비중만 균등으로 되돌리는 방식이 있고
+# 결과가 크게 다르다. 종전에는 교체만 있었고 묻지도 않았다 — 주기만 답한 사용자는 자기가
+# 무엇을 고른 줄도 몰랐다. 여기서 고정하는 계약은 **리밸런싱을 켠 KR 전략에서만 묻는다**.
+
+def _with_rebalancing(**update) -> ParsedStrategy:
+    return _complete().model_copy(update={"rebalancing_period": "monthly", **update})
+
+
+def test_rebalance_method_is_asked_right_after_the_cycle():
+    parsed = _with_rebalancing()
+    explicit_without_method = [f for f in ALL_EXPLICIT if f != "rebalance_method"]
+    nxt = slots.next_missing(
+        parsed, explicit_fields=explicit_without_method, require_explicit=True)
+    assert nxt is not None and nxt.field == slots.REBALANCE_METHOD
+    assert nxt.suggestions == ("종목 교체 리밸런싱", "비중 조정 리밸런싱 (균등 유지)")
+    # 답하면 더 묻지 않는다(값은 스키마 기본값으로 이미 있으므로 provenance가 가른다).
+    assert slots.next_missing(
+        parsed, explicit_fields=ALL_EXPLICIT, require_explicit=True) is None
+
+
+def test_rebalance_method_is_not_asked_without_rebalancing():
+    """리밸런싱을 하지 않으면 방식이라는 질문 자체가 성립하지 않는다(해당 없음)."""
+    for parsed, kwargs in (
+        (_complete().model_copy(update={"rebalancing_period": "none"}), {}),
+        (_with_rebalancing(), {"declined_fields": ["rebalancing"]}),
+        (_with_rebalancing(target_symbols=["005930"]), {}),
+    ):
+        status = next(s for s in slots.evaluate(
+            parsed, explicit_fields=[], require_explicit=True,
+            fields=[slots.REBALANCE_METHOD], **kwargs))
+        assert status.filled, f"물을 대상이 아닌데 되묻는다: {parsed.rebalancing_period}"
+        assert status.derived_status is slots.DerivedStatus.NOT_APPLICABLE
+
+
+def test_rebalance_method_is_asked_in_every_market():
+    """[2026-08-27 미국 레인 합류] 방식은 통화·세금처럼 시장이 정하는 값이 아니라
+    포트폴리오 운영 규칙이다 — 미국 전략도 같은 질문·같은 칩을 받는다(초기 자본이
+    시장별 변형을 갖는 것과 다른 축)."""
+    for universe in (["KOSPI"], ["SP500"], ["NASDAQ100"], ["US_ETF"]):
+        parsed = _with_rebalancing(universe=universe)
+        status = next(s for s in slots.evaluate(
+            parsed, explicit_fields=[], require_explicit=True,
+            fields=[slots.REBALANCE_METHOD]))
+        assert not status.filled, f"{universe}에서 방식을 묻지 않는다"
+        assert status.derived_status is slots.DerivedStatus.APPLICABLE
+        assert status.suggestions == ("종목 교체 리밸런싱", "비중 조정 리밸런싱 (균등 유지)")
+
+
+def test_rebalance_method_chips_bind_to_engine_values():
+    """칩=값 결속 계약 — 칩 문구는 정본 표가 값으로 바꿔 준다(원문 정규식 아님)."""
+    question_chips = slots.slot_question(slots.REBALANCE_METHOD)[1]
+    assert set(question_chips) == set(slots.REBALANCE_METHOD_CHIP_VALUES)
+    assert set(slots.REBALANCE_METHOD_CHIP_VALUES.values()) == {"reconstitute", "weights_only"}
+    # 엔진 스키마 Literal과 1:1이어야 값이 컴파일 단계에서 살아남는다.
+    from strategy_conversation.registry.capability_registry import SUPPORTED_REBALANCE_METHODS
+    assert set(slots.REBALANCE_METHOD_CHIP_VALUES.values()) == set(SUPPORTED_REBALANCE_METHODS)
+
+
+def test_rebalance_method_topic_does_not_collide_with_the_cycle():
+    """'리밸런싱'이 '리밸런싱 방식'의 부분 문자열이라, 포함 매칭만 하면 주기가 방식 질문의
+    topic까지 삼켜 그 질문에 주기 칩이 붙는다(질문에 답하지 못하는 칩)."""
+    assert slots.slot_for_topic("리밸런싱") == slots.REBALANCING
+    assert slots.slot_for_topic("리밸런싱 방식") == slots.REBALANCE_METHOD
+    assert slots.suggestions_for_topic("리밸런싱 방식") == list(
+        slots.REBALANCE_METHOD_CHIP_VALUES
+    )

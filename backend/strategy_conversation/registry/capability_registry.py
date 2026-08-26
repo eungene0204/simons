@@ -13,10 +13,18 @@ SUPPORTED_REBALANCE_FREQUENCIES = (
     "none", "daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly",
 )
 
+# 엔진 ParsedStrategy.rebalance_method Literal과 1:1 (FR-BT-067)
+# reconstitute = 리밸런싱일마다 목표 종목 재선정, weights_only = 종목 교체 없이 비중만 균등 리셋
+SUPPORTED_REBALANCE_METHODS = ("reconstitute", "weights_only")
+
 # 엔진은 동일비중만 지원한다(별도 가중 방식 없음)
 SUPPORTED_WEIGHTINGS = ("equal",)
 
-SUPPORTED_MARKETS = ("KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150")
+SUPPORTED_MARKETS = ("KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150",
+                     "SP500", "NASDAQ100", "NASDAQ", "DOW30", "US")
+
+# 미국 시장 토큰 — 한국 시장과 혼합 금지·업종/신규상장/AI 미지원 검증에 쓴다
+US_MARKETS = ("SP500", "NASDAQ100", "NASDAQ", "DOW30", "US", "US_ETF")
 
 SUPPORTED_BACKTEST_PERIODS = ("1y", "3y", "5y", "full")
 

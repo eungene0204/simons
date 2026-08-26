@@ -7,6 +7,7 @@
 import type { ParsedSummary } from "@/lib/strategy-summary";
 
 import slotPrompts from "./__fixtures__/slot-prompts.json";
+import { isUsParsedUniverse } from "@/lib/strategy-summary";
 
 export type MissingBacktestCondition = {
   field:
@@ -15,6 +16,7 @@ export type MissingBacktestCondition = {
     | "exit"
     | "max_positions"
     | "rebalancing"
+    | "rebalance_method"
     | "stop_loss"
     | "take_profit"
     | "backtest_period"
@@ -36,6 +38,7 @@ export type ExplicitField =
   | "universe"
   | "max_positions"
   | "rebalancing"
+  | "rebalance_method"
   | "backtest_period"
   | "initial_capital";
 
@@ -98,6 +101,18 @@ export function isSlotFilled(
   if (field === "rebalancing" && (targetSymbolCount === 1 || options.allowNoRebalancing === true)) {
     return true;
   }
+  // 리밸런싱 방식(FR-BT-067)은 리밸런싱을 켠 뒤에만 성립하는 질문이다. 시장과는 무관하다
+  // (2026-08-27 미국 레인 합류) — 방식은 통화·세금처럼 시장이 정하는 값이 아니라 포트폴리오
+  // 운영 규칙이라 미국 전략도 같은 질문을 받는다(백엔드 _decided와 동형).
+  if (field === "rebalance_method") {
+    if (
+      targetSymbolCount === 1 ||
+      options.allowNoRebalancing === true ||
+      !hasRebalancing
+    ) {
+      return true;
+    }
+  }
   // 사용자가 '안 함'을 고른 슬롯(백엔드 _decided ②). 값이 있으면 값이 이긴다 — 거부한
   // 뒤 값을 준 경우 화면의 값과 판정이 어긋나면 안 된다(백엔드와 같은 순서).
   if (
@@ -146,6 +161,10 @@ export function isSlotFilled(
     case "rebalancing":
       hasValue = hasRebalancing;
       break;
+    case "rebalance_method":
+      // 스키마 기본값('reconstitute')이 물질화되므로 값은 늘 있다 — provenance가 가른다.
+      hasValue = Boolean(parsed.rebalance_method);
+      break;
     case "stop_loss":
       hasValue = (parsed.stop_loss_pct ?? 0) > 0;
       break;
@@ -175,6 +194,8 @@ export function isSlotFilled(
       return targetSymbolCount > 0 || isExplicit("max_positions", explicitFields);
     case "rebalancing":
       return isExplicit("rebalancing", explicitFields);
+    case "rebalance_method":
+      return isExplicit("rebalance_method", explicitFields);
     case "backtest_period":
       return isExplicit("backtest_period", explicitFields);
     case "initial_capital":
@@ -184,13 +205,16 @@ export function isSlotFilled(
   }
 }
 
-/** 진행 골격 8칸 중 채워진 슬롯 라벨(백엔드 filled_slots와 동형 — 리스크 관리는 손절·익절 둘 다). */
+/** 진행 골격 9칸 중 채워진 슬롯 라벨(백엔드 filled_slots와 동형 — 리스크 관리는 손절·익절 둘 다). */
 export const SLOT_LABELS: Record<MissingBacktestCondition["field"], string> = {
   universe: "유니버스",
   entry: "매수 조건",
   exit: "매도 조건",
   max_positions: "최대 보유",
   rebalancing: "리밸런싱",
+  // 리밸런싱과 별도 칸이다(백엔드 SLOT_LABELS와 동형) — 라벨을 공유시키면 주기는 답했는데
+  // "리밸런싱이 안 찼다"로만 보여 주기를 다시 묻는다.
+  rebalance_method: "리밸런싱 방식",
   stop_loss: "리스크 관리",
   take_profit: "리스크 관리",
   backtest_period: "백테스트 기간",
@@ -218,7 +242,7 @@ export function isClosedChoiceSlot(field: string | null | undefined): boolean {
 
 // 진행 순서 = 사용자에게 보이는 골격 순서(백엔드 FIELD_ORDER와 동일).
 export const SLOT_FIELD_ORDER: MissingBacktestCondition["field"][] = [
-  "universe", "entry", "exit", "max_positions", "rebalancing",
+  "universe", "entry", "exit", "max_positions", "rebalancing", "rebalance_method",
   "stop_loss", "take_profit", "backtest_period", "initial_capital",
 ];
 
@@ -238,6 +262,11 @@ export const SINGLE_ASSET_ENTRY_CHIPS: string[] =
 const RANKING_MAX_POSITIONS_PROMPT: { question: string; suggestions: string[] } =
   slotPrompts.variants.max_positions.ranking;
 
+// 미국 시장 전략의 초기 자본 칩은 달러다 — 엔진·계좌 숫자가 곧 통화라
+// 원화 칩("1,000만원" → 표시 ₩10,000,000)을 그대로 쓰면 $10,000,000이 된다(2026-08-26).
+const US_INITIAL_CAPITAL_PROMPT: { question: string; suggestions: string[] } =
+  slotPrompts.variants.initial_capital.us;
+
 function promptFor(
   field: MissingBacktestCondition["field"],
   parsed: ParsedSummary | undefined | null,
@@ -247,6 +276,9 @@ function promptFor(
   }
   if (field === "max_positions" && parsed?.ranking_metric) {
     return RANKING_MAX_POSITIONS_PROMPT;
+  }
+  if (field === "initial_capital" && isUsParsedUniverse(parsed?.universe)) {
+    return US_INITIAL_CAPITAL_PROMPT;
   }
   return SLOT_PROMPTS[field];
 }

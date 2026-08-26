@@ -179,12 +179,16 @@ class RankingSpec(BaseModel):
 
 
 class UniverseSpec(BaseModel):
-    markets: List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150", "ETF"]] = Field(
+    markets: List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150", "ETF",
+                          "SP500", "NASDAQ100", "NASDAQ", "DOW30", "US", "US_ETF"]] = Field(
         default_factory=list,
         description=(
             "투자 대상 시장. **언급이 없으면 빈 배열** — 기본값은 시스템이 정하므로 "
             "지어내지 말 것(빈 배열이 '사용자가 시장을 말하지 않았다'는 신호다). "
-            "ETF/ETN/상장지수펀드 상품 대상이면 ['ETF'] 단독(주식 시장과 혼합 금지)"
+            "ETF/ETN/상장지수펀드 상품 대상이면 ['ETF'] 단독(주식 시장과 혼합 금지). "
+            "미국: S&P500=['SP500'], 나스닥100=['NASDAQ100'], 나스닥 전체=['NASDAQ'], "
+            "다우=['DOW30'], 미국 전체=['US'], 미국 ETF=['US_ETF'] 단독. "
+            "한국·미국 시장은 혼합 금지(둘 다 언급되면 되묻기)"
         ),
     )
     sectors: List[str] = Field(
@@ -268,6 +272,15 @@ class UniverseSpec(BaseModel):
                 "KOSDAQ150": "KOSDAQ150", "코스닥150": "KOSDAQ150",
                 "ETF": "ETF", "ETN": "ETF", "이티에프": "ETF", "상장지수펀드": "ETF",
                 "KOSPI_KOSDAQ": None,  # 아래에서 양시장으로 전개
+                # 미국 시장 — 표기 드리프트만 정규화한다(의미 선택은 LLM 몫)
+                "SP500": "SP500", "S&P500": "SP500", "SNP500": "SP500",
+                "에스앤피500": "SP500", "에스앤피": "SP500",
+                "NASDAQ100": "NASDAQ100", "나스닥100": "NASDAQ100",
+                "NASDAQ": "NASDAQ", "나스닥": "NASDAQ",
+                "DOW30": "DOW30", "DOW": "DOW30", "DOWJONES": "DOW30",
+                "다우30": "DOW30", "다우": "DOW30", "다우존스": "DOW30",
+                "US": "US", "미국": "US", "USETF": "US_ETF",
+                "US_ETF": "US_ETF", "미국ETF": "US_ETF",
             }
             out: list[str] = []
             for item in v:
@@ -327,6 +340,15 @@ class PortfolioSpec(BaseModel):
     rebalance_frequency: Optional[str] = Field(
         default=None,
         description="리밸런싱 주기: daily/weekly/monthly/bimonthly/quarterly/yearly. 언급 없으면 null",
+    )
+    rebalance_method: Optional[str] = Field(
+        default=None,
+        description=(
+            "리밸런싱 방식: reconstitute(리밸런싱일마다 종목을 다시 고름 — '종목 교체', "
+            "'갈아탄다', '새로 고른다') / weights_only(종목은 그대로 두고 비중만 균등으로 "
+            "되돌림 — '비중만 조정', '오른 건 팔고 내린 건 더 산다', '균등 비중 유지'). "
+            "언급 없으면 null"
+        ),
     )
     hold_period_days: Optional[int] = Field(default=None, description="최대 보유 기간(거래일)")
 

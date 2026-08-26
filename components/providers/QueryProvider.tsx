@@ -3,17 +3,21 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
+import { useRegionHref } from "@/lib/geo/useRegion";
+import { stripRegionPrefix } from "@/lib/geo/region";
 
 const PUBLIC_PATHS = new Set(["/", "/login", "/register"]);
 
 function isPublicPath(pathname: string | null) {
   if (!pathname) return true;
-  return PUBLIC_PATHS.has(pathname);
+  // 지역 프리픽스(/us)를 벗겨 판정한다 — /us·/us/login도 공개 경로다.
+  return PUBLIC_PATHS.has(stripRegionPrefix(pathname));
 }
 
 function AuthSessionGuard() {
   const pathname = usePathname();
   const router = useRouter();
+  const regionHref = useRegionHref();
 
   useEffect(() => {
     if (isPublicPath(pathname)) return;
@@ -30,7 +34,7 @@ function AuthSessionGuard() {
 
         if (!isMounted || data.user) return;
 
-        router.replace("/");
+        router.replace(regionHref("/"));
         router.refresh();
       } catch {
         // Keep the current screen on transient network errors.
@@ -55,7 +59,7 @@ function AuthSessionGuard() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.clearInterval(intervalId);
     };
-  }, [pathname, router]);
+  }, [pathname, router, regionHref]);
 
   return null;
 }

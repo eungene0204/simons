@@ -19,7 +19,7 @@ vi.mock("./XAIModal", () => ({ default: () => null }));
 vi.mock("./WalkForwardModal", () => ({ default: () => null }));
 
 const pushMock = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock }), usePathname: () => "/" }));
 
 import BacktestDashboard from "./BacktestDashboard";
 

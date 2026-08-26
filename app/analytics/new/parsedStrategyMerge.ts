@@ -519,6 +519,9 @@ export function buildCandidateBacktestRequest(
   if (candidate.max_mdd_limit_pct !== undefined) risk.max_mdd_limit_pct = candidate.max_mdd_limit_pct;
   if (candidate.hold_period_days !== undefined) risk.max_holding_days = candidate.hold_period_days;
   if (candidate.rebalancing_period !== undefined) risk.rebalancing_period = candidate.rebalancing_period;
+  // 방식(FR-BT-067)이 요청에 실리지 않으면 사용자가 고른 '비중 조정'이 조용히 사라지고
+  // 엔진 기본값(종목 교체)으로 돈다 — 주기와 같은 자리에서 함께 나른다.
+  if (candidate.rebalance_method !== undefined) risk.rebalance_method = candidate.rebalance_method;
   if (candidate.initial_capital !== undefined) risk.init_cash = candidate.initial_capital;
 
   const entryConditions = [

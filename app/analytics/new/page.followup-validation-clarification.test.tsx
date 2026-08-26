@@ -179,9 +179,13 @@ describe("후속 질문 턴 — 진행 골격 순서대로 되묻는다", () => 
   });
 
   it("익절 차례면 익절을 묻는다 — 선택지·진행률이 함께 선다", async () => {
-    mockFetch(baseParsed({ rebalancing_period: "monthly" }), [
-      "universe", "max_positions", "rebalancing", "backtest_period", "initial_capital",
-    ]);
+    mockFetch(
+      baseParsed({ rebalancing_period: "monthly", rebalance_method: "reconstitute" }),
+      [
+        "universe", "max_positions", "rebalancing", "rebalance_method",
+        "backtest_period", "initial_capital",
+      ],
+    );
 
     await startStrategy();
     await screen.findByText(/익절 기준을 몇 %로/, undefined, { timeout: 5000 });

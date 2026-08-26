@@ -91,4 +91,19 @@ export interface StockListItem {
   industry?: string; // 업종
   marketCap?: number; // 시가총액
   listedDate?: string; // 상장일
+  name_en?: string; // 영문 종목명 (예: SamsungElec) — scripts/backfill_kr_stock_info.py로 백필
+}
+
+export interface UsStockListItem {
+  symbol: string; // 티커 (예: AAPL)
+  name: string; // 종목명 (예: Apple Inc.)
+  market: string; // 거래소 (NYSE, NASDAQ, NYSE AMEX 등)
+  sector?: string;
+  industry?: string;
+  cik?: string;
+  financial_currency?: string; // 재무제표 통화 — 거래 통화(USD)와 다를 수 있음(ADR)
+  name_kr?: string; // 한글 종목명 (예: 애플) — scripts/backfill_us_stock_info.py로 백필
+  isin?: string;
+  listed_date?: string; // 상장일 (YYYY-MM-DD)
+  shares_outstanding?: number; // 발행주식수
 }

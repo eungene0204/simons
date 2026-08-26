@@ -5,7 +5,8 @@ import { adminFetch, ErrorNotice, inputClass } from './shared'
 
 // KG 시각화(FR-STR-070c) — 백엔드가 합성한 지식그래프(시드+정본 섹터·기업·ETF+학습
 // 오버레이)를 포스 레이아웃 캔버스로 표시한다. 객관적 관계 데이터의 표시일 뿐
-// 추천·전망이 아니다.
+// 추천·전망이 아니다. 시장 토글(한국/미국)로 미국 지식그래프(us_knowledge_graph.py —
+// 시드+테마 카탈로그, 섹터·학습·ETF 레이어 없음)도 같은 화면에서 본다.
 //
 // 기본 화면은 테마 레벨(종목 숨김)이다 — 테마 카탈로그 확장으로 종목 노드가 전체의
 // 8할이라 다 그리면 헤어볼이 된다. 종목은 노드 선택 시 그 이웃만 펼치고, 범례의
@@ -30,20 +31,24 @@ interface KgEdge {
   support?: number
 }
 
-type GroupId = 'concept' | 'sector' | 'learned' | 'company' | 'etf'
+type GroupId = 'concept' | 'sector' | 'industry' | 'learned' | 'company' | 'etf'
 
 const GROUPS: Record<GroupId, { label: string; color: string; shape: 'circle' | 'diamond' | 'square' }> = {
   concept: { label: '개념·테마', color: '#3987e5', shape: 'circle' },
   sector: { label: '섹터', color: '#199e70', shape: 'diamond' },
+  // GICS 산업(미국 전용 레이어) — 주황은 학습 용어(원)와 색이 겹치지만 도형(마름모)이
+  // 다르고, 두 그룹은 같은 시장에 공존하지 않는다(학습=한국, 산업=미국)
+  industry: { label: 'GICS 산업', color: '#d95926', shape: 'diamond' },
   learned: { label: '학습 용어', color: '#d95926', shape: 'circle' },
   company: { label: '상장사', color: '#8a8983', shape: 'circle' },
   etf: { label: 'ETF', color: '#c3c2b7', shape: 'square' },
 }
 
-const GROUP_ORDER: GroupId[] = ['concept', 'sector', 'learned', 'company', 'etf']
+const GROUP_ORDER: GroupId[] = ['concept', 'sector', 'industry', 'learned', 'company', 'etf']
 
 function groupOf(node: KgNode): GroupId {
   if (node.id.startsWith('sector:')) return 'sector'
+  if (node.id.startsWith('industry:')) return 'industry'
   if (node.id.startsWith('company:')) return 'company'
   if (node.id.startsWith('etf:')) return 'etf'
   if (node.id.startsWith('learned:')) return 'learned'
@@ -80,6 +85,7 @@ export default function KnowledgeGraphView() {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [error, setError] = useState('')
+  const [market, setMarket] = useState<'kr' | 'us'>('kr')
   const [data, setData] = useState<{ nodes: KgNode[]; edges: KgEdge[]; issues: string[] } | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [resetKey, setResetKey] = useState(0)
@@ -133,13 +139,25 @@ export default function KnowledgeGraphView() {
   }
 
   useEffect(() => {
-    adminFetch<{ nodes: KgNode[]; edges: KgEdge[]; issues: string[] }>('/api/admin/knowledge/graph')
+    adminFetch<{ nodes: KgNode[]; edges: KgEdge[]; issues: string[] }>(
+      `/api/admin/knowledge/graph?market=${market}`
+    )
       .then(setData)
       .catch((e) => setError(e instanceof Error ? e.message : '조회 실패'))
-  }, [])
+  }, [market])
+
+  const switchMarket = (next: 'kr' | 'us') => {
+    if (next === market) return
+    setMarket(next)
+    // 시장이 바뀌면 그래프가 통째로 바뀐다 — 이전 시장의 선택·검색을 남기지 않는다
+    setData(null)
+    setSelectedId(null)
+    setQuery('')
+    setError('')
+  }
 
   const groupCounts = useMemo(() => {
-    const counts = { concept: 0, sector: 0, learned: 0, company: 0, etf: 0 } as Record<GroupId, number>
+    const counts = { concept: 0, sector: 0, industry: 0, learned: 0, company: 0, etf: 0 } as Record<GroupId, number>
     for (const n of data?.nodes ?? []) counts[groupOf(n)] += 1
     return counts
   }, [data])
@@ -621,61 +639,79 @@ export default function KnowledgeGraphView() {
 
   return (
     <div className="space-y-3">
-      <div className="relative w-full max-w-xs">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value)
-            setDropdownOpen(true)
-          }}
-          onFocus={() => setDropdownOpen(true)}
-          onBlur={() => setTimeout(() => setDropdownOpen(false), 120)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && matches[0]) selectMatch(matches[0])
-            else if (e.key === 'Escape') {
-              setQuery('')
-              setDropdownOpen(false)
-            }
-          }}
-          placeholder="노드 검색 (이름·별칭)"
-          className={`${inputClass} w-full`}
-        />
-        {dropdownOpen && query && (
-          <ul className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto rounded-lg border border-white/10 bg-[#1a1a1a] shadow-xl">
-            {matches.length === 0 && (
-              <li className="px-3 py-2 text-xs font-bold text-gray-600">일치하는 노드 없음</li>
-            )}
-            {matches.map((m) => (
-              <li key={m.id}>
-                <button
-                  type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    selectMatch(m)
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-bold text-gray-200 hover:bg-white/10"
-                >
-                  <span
-                    className={GROUPS[groupOf(m)].shape === 'circle' ? 'inline-block h-2 w-2 shrink-0 rounded-full' : 'inline-block h-2 w-2 shrink-0'}
-                    style={{
-                      backgroundColor: GROUPS[groupOf(m)].color,
-                      transform: GROUPS[groupOf(m)].shape === 'diamond' ? 'rotate(45deg)' : undefined,
+      <div className="flex items-center gap-2">
+        <div className="flex shrink-0 rounded-lg border border-white/10 p-0.5 text-xs font-bold">
+          {(['kr', 'us'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => switchMarket(m)}
+              className={`rounded-md px-2.5 py-1 ${
+                market === m ? 'bg-white/10 text-gray-200' : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {m === 'kr' ? '한국' : '미국'}
+            </button>
+          ))}
+        </div>
+        <div className="relative w-full max-w-xs">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setDropdownOpen(true)
+            }}
+            onFocus={() => setDropdownOpen(true)}
+            onBlur={() => setTimeout(() => setDropdownOpen(false), 120)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && matches[0]) selectMatch(matches[0])
+              else if (e.key === 'Escape') {
+                setQuery('')
+                setDropdownOpen(false)
+              }
+            }}
+            placeholder="노드 검색 (이름·별칭)"
+            className={`${inputClass} w-full`}
+          />
+          {dropdownOpen && query && (
+            <ul className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto rounded-lg border border-white/10 bg-[#1a1a1a] shadow-xl">
+              {matches.length === 0 && (
+                <li className="px-3 py-2 text-xs font-bold text-gray-600">일치하는 노드 없음</li>
+              )}
+              {matches.map((m) => (
+                <li key={m.id}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      selectMatch(m)
                     }}
-                  />
-                  <span className="truncate">{m.name}</span>
-                  <span className="ml-auto shrink-0 text-[11px] font-bold text-gray-500">
-                    {GROUPS[groupOf(m)].label}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-bold text-gray-200 hover:bg-white/10"
+                  >
+                    <span
+                      className={GROUPS[groupOf(m)].shape === 'circle' ? 'inline-block h-2 w-2 shrink-0 rounded-full' : 'inline-block h-2 w-2 shrink-0'}
+                      style={{
+                        backgroundColor: GROUPS[groupOf(m)].color,
+                        transform: GROUPS[groupOf(m)].shape === 'diamond' ? 'rotate(45deg)' : undefined,
+                      }}
+                    />
+                    <span className="truncate">{m.name}</span>
+                    <span className="ml-auto shrink-0 text-[11px] font-bold text-gray-500">
+                      {GROUPS[groupOf(m)].label}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-bold text-gray-400">
         {GROUP_ORDER.map((g) => {
+          // 미국 그래프엔 섹터·학습·ETF 레이어가 없다 — 0개 그룹 범례는 숨긴다
+          if (groupCounts[g] === 0 && g !== 'company') return null
           const dot = (
             <span
               className={GROUPS[g].shape === 'circle' ? 'inline-block h-2.5 w-2.5 rounded-full' : 'inline-block h-2.5 w-2.5'}

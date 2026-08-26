@@ -8,15 +8,22 @@ import ChunkErrorRecovery from "@/components/ChunkErrorRecovery";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { getRequestLanguage } from "@/lib/i18n/server";
 import { Inter, Outfit } from "next/font/google";
-import { t } from "@/lib/i18n";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" });
 
 export function generateMetadata(): Metadata {
+  const isGlobal = getRequestLanguage() === "en";
   return {
-    title: getRequestLanguage() === "en" ? "nullstock" : t("널스탁"),
-    description: "",
+    metadataBase: new URL(
+      process.env.DOMAIN ? `https://${process.env.DOMAIN}` : "https://www.nullstock.im"
+    ),
+    title: isGlobal
+      ? "NullStock | Quantitative Investing Platform for U.S. Stocks"
+      : "퀀트 백테스트 | 널스탁",
+    description: isGlobal
+      ? "Design, backtest, and simulate your own U.S. stock strategies."
+      : "나만의 주식 투자 전략을 설계하고 백테스트로 검증하세요.",
   };
 }
 

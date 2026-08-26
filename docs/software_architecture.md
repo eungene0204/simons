@@ -137,6 +137,9 @@ simons/
 │   │   ├── universe_capabilities.py # 유니버스별 지원 팩터 레지스트리(ETF=기업 재무지표 불가, FR-STR-067)
 │   │   ├── term_grounding.py        # 용어 그라운딩 — 어휘집→지식그래프→LLM→검색 체인으로 테마 용어를 정본 섹터에 매핑(FR-STR-069)
 │   │   ├── knowledge_graph.py       # Investment Knowledge Graph — 개념·공급망·기업·ETF 노드/엣지 합성·탐색(FR-STR-070, docs/knowledge_graph.md)
+│   │   ├── us_knowledge_graph.py    # 미국 지식그래프 — 시드+테마 카탈로그+공시 학습 오버레이 합성, 테마어→구성 티커 해석(US 레인, docs/knowledge_graph.md 미국 섹션)
+│   │   ├── us_industry_registry.py   # 미국 업종 분류 registry — GICS 섹터·산업 정본 → 종목 명부(테마와 다른 축, 표기 변종 병합, FR-STR-074 ⑦)
+│   │   ├── us_term_grounding.py     # 미국 용어 그라운딩 — 카탈로그 밖 테마어를 SEC 공시 전문검색(EDGAR FTS)으로 학습, CIK 정본 조인+LLM 소속 심사(FR-STR-074)
 │   │   ├── data_resolver.py         # 유니버스 필터링
 │   │   ├── virtual_trader.py        # 가상매매 실시간 엔진 (상장 상태 체크 포함)
 │   │   ├── listing_status.py        # 상장 상태 머신 (7단계) + DART 분류 + DB 동기화
@@ -243,6 +246,18 @@ simons/
 ---
 
 ## 3. 프론트엔드 아키텍처
+
+### 3.0 지역 기반 서비스 구조 (한국 `/` · 글로벌 `/us`)
+
+KR/EN 언어 토글을 폐지하고 **URL 경로 기반의 지역 서비스**로 운영한다 — `/` 트리는 한국 서비스(한국어·KRW·토스페이먼츠), `/us` 트리는 글로벌 서비스(영어·USD·PayPal 예정). 지역의 단일 진실 원천은 경로다.
+
+- **미들웨어** (`middleware.ts`): `/us/*` 요청을 같은 라우트 트리로 rewrite(페이지 파일 중복 없음)하면서 내부 헤더 `x-nullstock-region`에 지역을 실어 준다(외부 위장 헤더는 덮어씀). 루트(`/`) **최초 방문**(지역 쿠키 `nullstock.region` 없음)이고 비한국 신호(CDN 국가 헤더 `cf-ipcountry` 등 → 없으면 Accept-Language 폴백)면 `/us`로 리다이렉트한다. 크롤러 UA는 리다이렉트하지 않는다(한국 서비스 색인 보존 — 양쪽 색인은 홈 hreflang `alternates`로 안내). 직접 입력한 경로는 항상 존중하며, 마지막 방문 지역을 쿠키에 기억한다.
+- **지역 코어** (`lib/geo/`): `region.ts`(순수 — `regionFromPathname`/`withRegionPath`/`stripRegionPrefix`, 지역↔언어·통화 매핑), `country.ts`(순수 — 최초 방문 국가 판별), `server.ts`(`getRequestRegion()`: 미들웨어 헤더 → 지역 쿠키 폴백. API 라우트는 미들웨어 매처 밖이라 쿠키로 읽는다), `useRegion.ts`(클라이언트 훅 `useRegionHref()` — 내부 링크·`router.push` 경로에 지역 프리픽스 부여).
+- **i18n**: `t()` 사전 구조는 유지하되 언어를 지역에서 파생한다 — 서버는 `getRequestLanguage()`가 `getRequestRegion()`을 읽고, 클라이언트는 `window.location.pathname`에서 읽는다. 언어 쿠키(`nullstock.lang`)·localStorage·`persistLanguage`·`LanguageToggle`은 제거되었다. 백엔드 `X-UI-Language` 헤더(`lib/server/backend.ts`)도 지역에서 파생한다.
+- **가격** (`lib/pricing/`): `kr.ts`(KRW — 진실 원천은 토스 결제 경로가 읽는 `lib/plans.ts`, 어댑터로만 노출)·`us.ts`(USD — 독립 관리)·`getRegionPricing(region)`.
+- **결제 추상화** (`lib/payment/`): `PaymentProvider` 인터페이스(`createCheckout`/`verifyPayment`/`cancel`/`refund`) + `TossProvider`(기존 `lib/server/tossPayments.ts`를 감싸는 어댑터 — 심사 중인 기존 결제 라우트는 아직 이관하지 않음) + `PaypalProvider`(Orders v2, `PAYPAL_*` 환경변수). 향후 `StripeProvider` 추가를 전제로 한 구조.
+- **요금제 분기**: `/us/pricing`은 `app/pricing/page.tsx` 최상단에서 지역 분기로 `components/pricing/us/UsPricingPage.tsx`(영어·USD 전용, PayPal 배선 전까지 유료 CTA는 준비 중 표시)를 렌더한다. 카드 자체는 `components/pricing/us/UsPricingPlans.tsx`가 한국 카드(`PricingPlans`)와 **동일한 레이아웃·8행 기능 목록**으로 그리며, 결제 배선만 다르다(토스 체크아웃 미사용 → CTA 비활성). 표시 금액은 `lib/pricing/us.ts`의 `monthlyPrice`·`initialInvestmentAmount`(둘 다 확정 필요한 초기값)에서 온다. 한국(토스) 경로는 변경 없이 유지된다.
+- **SEO**: 지역별 title/description(`app/layout.tsx`), 홈 hreflang(`app/page.tsx`), `app/sitemap.ts`(양 지역 진입점), `app/robots.ts`.
 
 ### 3.1 페이지 구조
 
@@ -793,7 +808,12 @@ DAG(JSON)**이고 실행은 전부 결정론 러너다: `dag.py`가 구조 검�
 하나 표면화하며(관찰이 질문을 불필요하게 만들 수 있어 LLM에 수정 1턴), 질문은 출력
 관문(output_guard)을 통과한다. 동일 도구+인자는 한 번만 실행(관찰 재사용),
 ground_term 학습 후 테마 재조회는 결정론 에필로그, 확정값(sector·companies)은 도구
-관찰값에서만 채택한다. validate_intent·compile_strategy는 DAG 구조상 허용하되 러너
+관찰값에서만 채택한다. **채택 규칙은 planner가 어떤 노드를 계획했는지와 무관하게 고정
+체인과 동일하다** — 개념 표현에 업종 근사(sector) 관찰만 있어도 병합 전에
+apply_theme_companies로 테마 상장사를 한 번 더 결정론 조회해 있으면 그쪽을 채택한다
+(2026-08-24 '블랙핑크' 사고: 학습된 업종 근사가 kg_resolve_sector에 히트하자 9B가 테마
+조회 노드를 생략한 턴에서 '관련주'가 업종 전체(미디어/엔터)로 확정됐다 — 같은 표현이
+직전 턴에는 테마 11곳으로 해석됐으므로 계획의 비결정성이 유니버스 의미를 바꾼 것). validate_intent·compile_strategy는 DAG 구조상 허용하되 러너
 보유 intent 상태가 필요해 shadow 단계에선 실행하지 않는다(primary 승격 시 배선).
 모든 실패(JSON 파싱·계약 위반·도구 장애·턴 예산 `STRATEGY_DAG_PLANNER_MAX_TURNS`
 소진·무진전 동일 발행)는 None → 기존 파이프라인이 그대로 담당. 9B 실측 교정:
@@ -1151,8 +1171,11 @@ ChatQaLog       — 전략연구소 대화 기록 (질문·답변 한 턴 = 1행
 | 경로 | 형식 | 내용 |
 |------|------|------|
 | `data/ohlcv/{symbol}.parquet` | Parquet | 4052개 종목 OHLCV |
-| `data/ohlcv-us/{symbol}.parquet` | Parquet | **미국 전 상장 보통주** OHLCV + 기본 재무(5,947종목). 한국 파케이와 **동일 컬럼·순서·dtype·단위 규약**(회귀 테스트가 강제, 한국 파일은 읽기 전용 대조에만 사용). 소스=yfinance(무료), 백필=`scripts/backfill_us_stocks.py`. 단위는 한국이 컬럼마다 다른 규약을 그대로 복제 — 억달러: market_cap·net_income·owner_net_income·ebitda·ebit·ev·revenue·`*_cf_amount`, raw USD: total_equity·capex(양수 규모)·fcf·`*_cash_flow`. `dividends`=배당락일 DPS(그 외 0, 엔진이 롤링 합으로 TTM 생성). 수준 재무=분기(기간종료+60일 반영), 성장률=연간 YoY(+90일 반영), 둘 다 15개월 stale cap. ROE는 지배주주 기준. **시총**=분할조정 주식수×종가, 주식수는 yfinance 실측(2015-10~)+SEC EDGAR companyfacts(2009~, 제출일 기준) — 최초 실측 이전은 역채움하지 않고 NaN. **외국 기업 환산**: yfinance는 주가를 달러로, 재무제표를 현지 통화로 준다(485종목·29개 통화). `financialCurrency`가 달러가 아니면 일별 환율(`<통화>=X`)로 **금액과 성장률을 모두** 달러 기준으로 환산한다 — 성장률을 현지통화로 두면 초인플레이션 통화의 가치 하락이 '성장'으로 잡혀 성장 스크리닝이 깨진다(BBAR: 페소 -32.3% vs 달러 -51.9%) — 미환산 시 TSMC PER이 31 대신 1.14로 나와 저PER 스크리닝이 저평가가 아니라 환율로 종목을 고른다. 주식수·무단위 비율(ROE·마진·부채비율)은 환산하지 않는다. 환율 이력 이전(2001~2003년 이전) 구간은 NaN. **한계**: 상폐 종목 미수록(생존편향 잔존), 법인 재등록 종목은 시총이 2015년부터 |
+| `data/ohlcv-us/{symbol}.parquet` | Parquet | **미국 전 상장 보통주** OHLCV + 기본 재무(5,947종목). 한국 파케이와 **동일 컬럼·순서·dtype·단위 규약**(회귀 테스트가 강제, 한국 파일은 읽기 전용 대조에만 사용). 소스=yfinance(무료), 백필=`scripts/backfill_us_stocks.py`. 단위는 한국이 컬럼마다 다른 규약을 그대로 복제 — 억달러: market_cap·net_income·owner_net_income·ebitda·ebit·ev·revenue·`*_cf_amount`, raw USD: total_equity·capex(양수 규모)·fcf·`*_cash_flow`. `dividends`=배당락일 DPS(그 외 0, 엔진이 롤링 합으로 TTM 생성). 수준 재무=분기(기간종료+60일 반영), 성장률=연간 YoY(+90일 반영), 둘 다 15개월 stale cap. ROE는 지배주주 기준. **시총**=분할조정 주식수×종가, 주식수는 yfinance 실측(2015-10~)+SEC EDGAR companyfacts(2009~, 제출일 기준) — 최초 실측 이전은 역채움하지 않고 NaN. **외국 기업 환산**: yfinance는 주가를 달러로, 재무제표를 현지 통화로 준다(485종목·29개 통화). `financialCurrency`가 달러가 아니면 일별 환율(`<통화>=X`)로 **금액과 성장률을 모두** 달러 기준으로 환산한다 — 성장률을 현지통화로 두면 초인플레이션 통화의 가치 하락이 '성장'으로 잡혀 성장 스크리닝이 깨진다(BBAR: 페소 -32.3% vs 달러 -51.9%) — 미환산 시 TSMC PER이 31 대신 1.14로 나와 저PER 스크리닝이 저평가가 아니라 환율로 종목을 고른다. 주식수·무단위 비율(ROE·마진·부채비율)은 환산하지 않는다. 환율 이력 이전(2001~2003년 이전) 구간은 NaN. **한계**: 상폐 종목 미수록(생존편향 잔존), 법인 재등록 종목은 시총이 2015년부터. **재무 이력 확장(2026-08-25)**: yfinance 분기 재무가 최근 ~5분기뿐이라 TTM 팩터가 약 3개월치였던 것을 SEC EDGAR companyfacts XBRL로 2009~부터 재구축(`scripts/backfill_us_fundamentals_edgar.py`, 4,971종목 갱신 — yfinance 재무제표 모양 어댑터로 기존 지표 정의·룩어헤드 규약 재사용, YTD 차분 분기화, 개념 우선순위 병합, 비USD·CEF류는 기존값 유지). TTM 팩터 2012~ 커버리지 80~90%. 12주 전량 재수집이 파케이를 다시 쓰면 이력이 사라지므로 `scheduler_us.py`가 재수집 직후 재적용을 강제한다(실패 시 마커 차단) |
 | `data/us-stocks.json` | JSON | 미국 주식(S&P 500) 마스터 — symbol/name/market(거래소)/sector/industry(GICS), 유니버스 SOT=Wikipedia S&P 500 |
+| `data/us-etf-master.json` | JSON | 미국 대표 ETF 31종 마스터(지수·섹터 SPDR·산업·테마·배당·자산) — 카탈로그 정본은 `scripts/backfill_us_etf.py`의 CATALOG 상수, 파케이는 `data/ohlcv-us/`에 개별주와 동일 스키마(재무 컬럼 NaN — ETF 재무 불가 계약). 일일 증분은 `scheduler_us.py`가 개별주 뒤에 실행 |
+| `data/us-term-lexicon.json` | JSON | 미국 테마어 학습 원장 — `engine/us_term_grounding.py`가 SEC 공시 전문검색으로 학습한 테마어 → 구성 티커(verified/pending, 근거 공시 URL). US 지식그래프가 학습 오버레이로 합성(verified만) — 별칭 우선순위는 시드 > 카탈로그 > 학습. 런타임 생성물이라 검색이 처음 성공한 뒤부터 존재한다 |
+| `data/us-index-membership.json` | JSON | 미국 지수 **현행** 구성종목 — S&P500(위키 503)·나스닥100(나스닥 공식 API 102)·다우30(stockanalysis.com 30). 편입/편출 이력(PIT)은 무료 소스 부재로 미수집(파일에 명시) — US 지수 유니버스는 이 명부 기준이며 엔진이 생존편향·현행 명부 경고를 남긴다. 수집기 `scripts/backfill_us_index_membership.py`(정상 범위 Fail-Fast), 12주 전량 재수집 주기에 함께 갱신 |
 | `data/fundamentals/` | JSON/CSV | ROE, EPS, BPS, 부채비율 |
 | `data/korea-stocks.json` | JSON | 종목명, 코드, 시장, 섹터 (현재 상장 — 섹터 SOT) |
 | `data/stock-master.json` | JSON | PIT 종목 마스터(상장폐지 포함, 생존편향 제거) + 상폐 종목 industry/sector 백필(`backend/scripts/backfill_delisted_sectors.py`, 재빌드는 `build_stock_master.py`) |
@@ -1241,6 +1264,7 @@ install_socket_tracking). 토큰은 contextvar라 워커 스레드 진입 함수
 - `POST /api/strategy/rollback/resolve` — 되돌릴 지점 판정(FR-SA-008). 변경 이력을 요청에 실어 보내고(백엔드 무상태) 판정만 받는다 — 복원은 스냅샷을 보유한 클라이언트가 결정론으로 수행한다. 판정 실패는 전부 되묻기로 강등(임의 보정 금지)
 - `POST /api/strategy/backtest-stream` — 단일 전략 SSE 백테스트. 동일 strategy_id/cacheKey라도 항상 엔진을 재실행하고, 결과는 cacheKey로 upsert 저장(재사용 목적 아닌 dedup 저장용)
 - `POST /api/strategy/save-with-backtest` — 전략 저장 + 백테스트 동시 실행
+- `POST /api/strategy/ensure` — 백테스트 전략의 Strategy 행 확정(있으면 그대로, 없으면 저장). 백테스트 결과 화면의 '계좌 만들기'가 계좌 생성 직전에 호출한다
 - `GET/POST /api/strategy/batch-runs` — 배치 실행 시작/상세 조회/최근 이력/취소
 - `POST /api/advisor/review` — RAG + Experience Memory 전략 리뷰/개선 조언
 - `GET /api/ai/runtime/metrics` — AI 런타임 latency 메트릭 조회

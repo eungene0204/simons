@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useState } from "react";
 import NullstockLogoMark from "@/components/layout/NullstockLogoMark";
 import { t } from "@/lib/i18n";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 // 이메일 로그인 — /api/login의 이메일·비밀번호 경로를 사용한다.
 // (Google 로그인은 상단 내비게이션/로그인 모달에서 제공)
 export default function LoginForm() {
+  const regionHref = useRegionHref();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [email, setEmail] = useState("");
@@ -36,7 +38,7 @@ export default function LoginForm() {
         return;
       }
       // 쿠키 발급됨 — 전체 리로드로 인증 상태를 반영한다.
-      window.location.href = "/";
+      window.location.href = regionHref("/");
     } catch {
       setError(t("서버 오류가 발생했습니다. 다시 시도해주세요."));
       setLoading(false);
@@ -106,7 +108,7 @@ export default function LoginForm() {
 
           <p className="text-center text-sm text-gray-600 dark:text-gray-400">
             {t("계정이 없으신가요?")}{" "}
-            <Link href="/register" className="text-blue-500 hover:underline">
+            <Link href={regionHref("/register")} className="text-blue-500 hover:underline">
               {t("이메일로 가입")}
             </Link>
           </p>

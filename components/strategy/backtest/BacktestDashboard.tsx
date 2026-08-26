@@ -1,6 +1,7 @@
 "use client";
 
 import { BacktestResult } from "@/types/strategy";
+import { formatUsd, isUsBacktestResult, isUsUniverseId } from "@/lib/us-symbols";
 import BacktestChart from "@/components/strategy/BacktestChart";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
 import {
@@ -20,6 +21,7 @@ import {
   Spinner,
   Crown,
   DownloadSimple,
+  Wallet,
 } from "phosphor-react";
 
 
@@ -42,6 +44,8 @@ import {
 import { buildAutoSaveHistoryPayload, buildHistoryConditions } from "@/lib/backtest-history";
 import { invalidateBacktestHistoryCache } from "@/lib/backtest-history-cache";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
+import CreateAccountModal from "@/components/ui/CreateAccountModal";
+import { createAccount } from "@/lib/portfolio";
 import { buildPromptSummaryRows } from "./promptSummaryRows";
 import { buildMonthlyReturnSeries, buildMonthlyReturnTableData } from "./monthlyReturns";
 import { buildRollingReturnSeries, buildRollingWindowStatsTable } from "./rollingReturns";
@@ -57,6 +61,7 @@ import {
   type ExportFormat,
 } from "@/lib/backtest-export";
 import { t } from "@/lib/i18n";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 const processedExecutionIds = new Set<string>();
 
@@ -367,6 +372,9 @@ function benchmarkLabelForResult(result: BacktestResult): string {
   // universeId로 프론트가 다시 추정하면 백엔드와 어긋난다.
   if (result.benchmarkLabel) return result.benchmarkLabel;
   const universeId = result.universeId?.toLowerCase();
+  if (universeId === "nasdaq100" || universeId === "nasdaq") return "Invesco QQQ (QQQ)";
+  if (universeId === "dow30") return "SPDR Dow Jones Industrial Average (DIA)";
+  if (isUsUniverseId(universeId)) return "SPDR S&P 500 (SPY)";
   if (universeId === "kospi") return t("KODEX 코스피 (226490)");
   if (universeId === "kosdaq") return "KODEX KOSDAQ 150 (229200)";
   return "KODEX 200 (069500)";
@@ -400,6 +408,7 @@ export default function BacktestDashboard({
   const resolvedFinalEquity = result.finalEquity || result.equity?.[result.equity.length - 1] || 0;
 
   const router = useRouter();
+  const regionHref = useRegionHref();
   const [activeTab, setActiveTab] = useState<ValidationTab>("chart");
   const [isOptimizationPageOpen, setIsOptimizationPageOpen] = useState(false);
   const [promptTooltipOpen, setPromptTooltipOpen] = useState(false);
@@ -477,6 +486,9 @@ export default function BacktestDashboard({
   const [saveDescription, setSaveDescription] = useState("");
   const [isSavingStrategy, setIsSavingStrategy] = useState(false);
   const [saveResult, setSaveResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // 이 백테스트 전략으로 가상계좌 만들기 모달
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
 
   // 결과 다운로드 모달 (Pro/Premium 전용)
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
@@ -640,11 +652,20 @@ export default function BacktestDashboard({
     fetchStockMetadata();
   }, []);
 
+  // 미국 전략(유니버스 id 또는 미국 티커 지정 종목)은 달러로 표기한다 —
+  // 엔진이 미국 파케이(달러)로 시뮬레이션한 값이라 원화 표기가 오히려 거짓이 된다.
+  const isUsResult = isUsBacktestResult(result);
+
   const formatKRW = (val: number) => {
     const num = Number(val);
+    if (isUsResult) return formatUsd(num);
     if (isNaN(num) || num === 0) return t("0원");
     return t("{0}원", Math.round(num).toLocaleString());
   };
+
+  // 체결가는 달러에서 소수 2자리가 유의미하다($214.00) — 원화는 기존 정수 표기 유지.
+  const formatTradePrice = (val: number) =>
+    isUsResult ? formatUsd(val, { price: true }) : formatKRW(val);
 
   const calculateMonthlyReturns = () => {
     if (!result.dates || !result.equity || result.dates.length === 0) return {};
@@ -791,6 +812,52 @@ export default function BacktestDashboard({
   }, [currentOptions]);
 
   const isPremiumValidationEnabled = planId === "PREMIUM";
+
+  // 백테스트 전략의 표시 이름 — 계좌 모달에 고정 전략으로 넘긴다.
+  const accountStrategyName =
+    strategySummary?.strategyName?.trim() ||
+    (typeof normalizedBacktestDsl?.name === "string" ? normalizedBacktestDsl.name.trim() : "") ||
+    t("백테스트 전략");
+  /**
+   * 가상계좌는 Strategy 행을 참조해야 추적 종목·자동매매 신호가 붙는다. 그래서 아직 저장 전인
+   * 백테스트 전략이면 계좌를 만들기 직전에 한 번 저장하고(이미 저장돼 있으면 그 행을 그대로 쓴다),
+   * 확정된 전략 id 로 계좌를 만든다.
+   */
+  const handleCreateAccountFromBacktest = async (
+    accountName: string,
+    amount: number,
+    _strategyId: string | undefined,
+    _strategyName: string | undefined,
+    tradingMode?: "auto" | "manual"
+  ) => {
+    const ensured = await fetch("/api/strategy/ensure", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: accountStrategyName,
+        description: promptText?.trim() || "",
+        dsl: normalizedBacktestDsl,
+      }),
+    });
+    const ensuredData = await ensured.json().catch(() => null);
+    if (!ensured.ok || !ensuredData?.id) {
+      throw new Error(
+        ensuredData?.message || ensuredData?.error || t("전략을 저장하지 못해 계좌를 만들지 못했습니다.")
+      );
+    }
+
+    const account = await createAccount(
+      accountName,
+      amount,
+      ensuredData.id,
+      ensuredData.name || accountStrategyName,
+      tradingMode
+    );
+    if (!account?.id) {
+      throw new Error(t("계좌 생성에 실패했습니다. 잠시 후 다시 시도해 주세요."));
+    }
+    setToast({ type: "success", message: t("가상계좌를 만들었습니다.") });
+  };
 
   const handleOpenSaveModal = () => {
     setSaveStrategyName("");
@@ -1119,6 +1186,18 @@ export default function BacktestDashboard({
       style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
     >
 
+      {/* 이 백테스트 전략으로 가상계좌 만들기 */}
+      <CreateAccountModal
+        isOpen={isAccountModalOpen}
+        onClose={() => setIsAccountModalOpen(false)}
+        onCreate={handleCreateAccountFromBacktest}
+        presetStrategy={{
+          name: accountStrategyName,
+          description: promptText,
+          summaryRows: promptSummaryRows,
+        }}
+      />
+
       {/* 전략 저장 모달 */}
       <AnimatePresence>
         {isSaveModalOpen && (
@@ -1378,7 +1457,7 @@ export default function BacktestDashboard({
               </div>
               <div className="flex gap-2">
                 <a
-                  href="/pricing"
+                  href={regionHref("/pricing")}
                   className="flex-1 py-2.5 rounded-xl bg-[var(--main-blue)] text-white hover:opacity-90 text-sm font-bold transition-colors text-center"
                 >
                   {t("요금제 보기")}
@@ -1436,6 +1515,53 @@ export default function BacktestDashboard({
           <span className="text-sm font-mono text-gray-500 font-normal">
             {result.dates[0] && result.dates[result.dates.length-1] && `${result.dates[0]} ~ ${result.dates[result.dates.length-1]}`}
           </span>
+          {(promptText || strategySummary) && (
+            <div className="static lg:relative" ref={promptTooltipRef}>
+              <button
+                type="button"
+                onClick={() => setPromptTooltipOpen((v) => !v)}
+                className="px-2 py-0.5 bg-white/[0.04] hover:bg-white/[0.08] text-gray-300 hover:text-white text-xs font-bold rounded-md transition-colors border border-white/10 hover:border-white/15 active:scale-95 flex items-center gap-1"
+              >
+                <ClipboardText className="w-3.5 h-3.5" weight="bold" />
+                {t("내 전략")}
+              </button>
+              {promptTooltipOpen && (
+                <div
+                  data-testid="backtest-prompt-popover"
+                  className="absolute left-4 right-4 top-full z-50 mt-2 rounded-xl border border-white/[0.10] bg-[#111318] p-4 shadow-2xl space-y-2.5 lg:right-auto lg:left-0 lg:w-96"
+                >
+                  {promptText && (
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">{t("프롬프트")}</span>
+                      <p className="text-xs text-gray-200 leading-5 whitespace-pre-wrap">{promptText}</p>
+                    </div>
+                  )}
+                  {promptSummaryRows.length > 0 && (
+                    /* 라벨 폭이 제각각이면 값이 계단처럼 흩어진다 — 대화 화면의 '전략 요약'
+                       카드(BuilderStrategyOverview)와 같은 규칙으로 라벨 열을 고정한 그리드에
+                       값을 한 줄에 하나씩 쌓아 세로줄을 맞춘다. */
+                    <dl className="border-t border-white/[0.06] pt-1">
+                      {promptSummaryRows.map((row) => (
+                        <div
+                          key={row.label}
+                          className="grid grid-cols-[64px_minmax(0,1fr)] gap-3 py-1.5 text-xs leading-relaxed"
+                        >
+                          <dt className="break-keep font-bold text-[var(--text-label)]">{row.label}</dt>
+                          <dd className="min-w-0 break-keep font-bold text-gray-200">
+                            <span className="flex flex-col gap-0.5">
+                              {row.values.map((value, i) => (
+                                <span key={`${value}-${i}`}>{value}</span>
+                              ))}
+                            </span>
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div
@@ -1497,52 +1623,15 @@ export default function BacktestDashboard({
               <Faders className="w-4 h-4" weight="bold" />
               {t("전략 최적화")}
             </button>
-            {(promptText || strategySummary) && (
-              <div className="static lg:relative" ref={promptTooltipRef}>
-                <button
-                  type="button"
-                  onClick={() => setPromptTooltipOpen((v) => !v)}
-                  className="px-4 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] text-gray-300 hover:text-white text-sm font-bold rounded-lg transition-colors border border-white/10 hover:border-white/15 active:scale-95 flex items-center gap-1.5"
-                >
-                  <ClipboardText className="w-4 h-4" weight="bold" />
-                  {t("내 전략")}
-                </button>
-                {promptTooltipOpen && (
-                  <div
-                    data-testid="backtest-prompt-popover"
-                    className="absolute left-4 right-4 top-full z-50 mt-2 rounded-xl border border-white/[0.10] bg-[#111318] p-4 shadow-2xl space-y-2.5 lg:left-auto lg:right-0 lg:w-96"
-                  >
-                    {promptText && (
-                      <div className="space-y-1">
-                        <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">{t("프롬프트")}</span>
-                        <p className="text-xs text-gray-200 leading-5 whitespace-pre-wrap">{promptText}</p>
-                      </div>
-                    )}
-                    {promptSummaryRows.length > 0 && (
-                      /* 라벨 폭이 제각각이면 값이 계단처럼 흩어진다 — 대화 화면의 '전략 요약'
-                         카드(BuilderStrategyOverview)와 같은 규칙으로 라벨 열을 고정한 그리드에
-                         값을 한 줄에 하나씩 쌓아 세로줄을 맞춘다. */
-                      <dl className="border-t border-white/[0.06] pt-1">
-                        {promptSummaryRows.map((row) => (
-                          <div
-                            key={row.label}
-                            className="grid grid-cols-[64px_minmax(0,1fr)] gap-3 py-1.5 text-xs leading-relaxed"
-                          >
-                            <dt className="break-keep font-bold text-[var(--text-label)]">{row.label}</dt>
-                            <dd className="min-w-0 break-keep font-bold text-gray-200">
-                              <span className="flex flex-col gap-0.5">
-                                {row.values.map((value, i) => (
-                                  <span key={`${value}-${i}`}>{value}</span>
-                                ))}
-                              </span>
-                            </dd>
-                          </div>
-                        ))}
-                      </dl>
-                    )}
-                  </div>
-                )}
-              </div>
+            {normalizedBacktestDsl && (
+              <button
+                type="button"
+                onClick={() => setIsAccountModalOpen(true)}
+                className="px-4 py-1.5 bg-white/[0.05] hover:bg-white/10 text-gray-300 hover:text-white text-sm font-bold rounded-lg transition-all border border-white/5 hover:border-white/10 flex items-center gap-2 active:scale-95"
+              >
+                <Wallet className="w-4 h-4" weight="bold" />
+                {t("계좌 만들기")}
+              </button>
             )}
             <button
               onClick={handleOpenSaveModal}
@@ -1636,6 +1725,7 @@ export default function BacktestDashboard({
                         type="equity"
                         height={340}
                         equityData={equityCurveData}
+                        currency={isUsResult ? "usd" : "krw"}
                         hideLegend
                       />
                     </div>
@@ -1962,7 +2052,7 @@ export default function BacktestDashboard({
                        {t("프로 또는 프리미엄 플랜을 이용하시면 백테스트 결과에 대한 AI 분석 리포트를 확인할 수 있습니다.")}
                      </p>
                      <a
-                       href="/pricing"
+                       href={regionHref("/pricing")}
                        className="mt-6 inline-flex items-center justify-center rounded-lg border border-gray-500 px-5 py-2.5 text-sm font-black text-gray-300 transition-colors hover:bg-white/[0.05]"
                      >
                        {t("플랜 변경")}
@@ -2062,7 +2152,7 @@ export default function BacktestDashboard({
                              return (
                                <tr
                                  key={sym}
-                                 onClick={() => router.push(`/stock-order?symbol=${encodeURIComponent(sym)}&name=${encodeURIComponent(meta?.name || sym)}`)}
+                                 onClick={() => router.push(regionHref(`/stock-order?symbol=${encodeURIComponent(sym)}&name=${encodeURIComponent(meta?.name || sym)}`))}
                                  className="cursor-pointer hover:bg-white/[0.02] transition-colors duration-150"
                                >
                                   <td className="px-4 py-2.5 pl-5">
@@ -2072,10 +2162,10 @@ export default function BacktestDashboard({
                                      </div>
                                   </td>
                                   <td className="px-4 py-2.5 text-sm font-bold text-gray-400 text-right tabular-nums">
-                                     {prices?.entryPrice != null ? formatKRW(prices.entryPrice) : "-"}
+                                     {prices?.entryPrice != null ? formatTradePrice(prices.entryPrice) : "-"}
                                   </td>
                                   <td className="px-4 py-2.5 text-sm font-bold text-gray-400 text-right tabular-nums">
-                                     {prices?.exitPrice != null ? formatKRW(prices.exitPrice) : "-"}
+                                     {prices?.exitPrice != null ? formatTradePrice(prices.exitPrice) : "-"}
                                   </td>
                                   <td className={`px-4 py-2.5 text-sm font-bold text-right tabular-nums ${(stats?.profit || 0) > 0 ? 'text-[var(--main-red)]' : (stats?.profit || 0) < 0 ? 'text-[var(--main-blue)]' : 'text-white'}`}>
                                      {stats ? formatKRW(stats.profit) : "-"}
@@ -2348,9 +2438,12 @@ function BacktestTerminalLog({
     });
   }
 
-  // 완료
+  // 완료 — 미국 전략은 달러 표기(시뮬레이션 통화와 일치)
   const logFinalEquity = result.finalEquity || result.equity?.[result.equity.length - 1] || 0;
-  logs.push({ level: "SUCCESS", message: t("백테스트 완료 — 총 {0}회 거래 / 최종자산 {1}원 / 수익률 {2}%", result.trades ?? 0, logFinalEquity.toLocaleString(), (result.totalReturn ?? 0).toFixed(2)) });
+  const logEquityLabel = isUsBacktestResult(result)
+    ? formatUsd(logFinalEquity)
+    : t("{0}원", logFinalEquity.toLocaleString());
+  logs.push({ level: "SUCCESS", message: t("백테스트 완료 — 총 {0}회 거래 / 최종자산 {1} / 수익률 {2}%", result.trades ?? 0, logEquityLabel, (result.totalReturn ?? 0).toFixed(2)) });
 
   const levelStyle: Record<LogLevel, string> = {
     INFO: "text-blue-400",

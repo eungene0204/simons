@@ -12,6 +12,7 @@ vi.mock("next/navigation", () => ({
     replace: vi.fn(),
     refresh: vi.fn(),
   }),
+  usePathname: () => "/",
 }));
 
 vi.stubGlobal("fetch", fetchMock);

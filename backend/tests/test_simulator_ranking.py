@@ -536,3 +536,155 @@ def test_signal_strategy_with_rebalancing_honors_exit_signals():
     result = engine.run_backtest(req)
     sells = _signal_dates(result, "SIGRB_EXIT", "sell")
     assert sells and sells[0] == "2024-01-20", f"매도 신호가 리밸런싱일까지 미뤄짐/무시됨: {sells}"
+
+
+# ── 리밸런싱 방식: 비중 유지(weights_only, FR-BT-067) ─────────────────────────
+# 리밸런싱에는 종목을 바꾸는 방식(reconstitute)만 있는 것이 아니라, 같은 종목의 비중을
+# 원래 비율로 되돌리는 방식도 있다 — 오른 종목은 오른 만큼 팔고 내린 종목은 내린 만큼
+# 더 사서 균등 비중을 유지한다. 두 시뮬레이터 경로(순수 목표비중·커스텀 루프)가 같은
+# 계약을 지키는지 각각 확인한다: **편출 0 + 비중 리셋 발생 + 빈 자리만 채움**.
+
+def _rebal_method_req(symbols: list[str], method: str, **extra_risk) -> dict:
+    """랭킹 회전 전략(진입 신호 없음) — 방식만 바꿔 두 경로를 대조한다."""
+    return {
+        "symbols": symbols,
+        "entry": {"conditions": []},
+        "exit": {"conditions": []},
+        "risk": {
+            "position_size_pct": 50,
+            "max_positions": 2,
+            "ranking_metric": "return",
+            "ranking_lookback_days": 5,
+            "rebalancing_period": "monthly",
+            "rebalance_method": method,
+            "liquidity_multiplier": 0,
+            **extra_risk,
+        },
+        "options": {"execution_type": "same_close"},
+    }
+
+
+def _write_rotation_trio(data_dir: str, prefix: str, dates) -> list[str]:
+    """순위가 도중에 뒤바뀌는 세 종목 — 교체 방식이면 회전이, 유지 방식이면 고정이 보인다."""
+    _write_series(data_dir, f"{prefix}_STEADY", [100 + 1.0 * i for i in range(100)], dates)
+    early = [100 + 3.0 * i for i in range(31)]
+    early += [early[-1] - 3.0 * (i + 1) for i in range(69)]
+    _write_series(data_dir, f"{prefix}_EARLY", early, dates)
+    late = [100.0 for _ in range(31)] + [100 + 4.0 * (i + 1) for i in range(69)]
+    _write_series(data_dir, f"{prefix}_LATE", late, dates)
+    return [f"{prefix}_STEADY", f"{prefix}_EARLY", f"{prefix}_LATE"]
+
+
+def _dropout_sells(result) -> list[dict]:
+    return [
+        s for s in result["signals"]
+        if s["type"] == "sell" and "리밸런싱 제외" in s["condition"]
+    ]
+
+
+def test_weights_only_rebalancing_keeps_holdings_pure_path():
+    """비중 유지 방식(순수 경로): 순위에서 밀려도 편출하지 않는다 — 교체 방식과 대조."""
+    dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
+    symbols = _write_rotation_trio(data_dir, "WOP", dates)
+    engine = BacktestEngine(data_dir=data_dir)
+
+    rotated = engine.run_backtest(_rebal_method_req(symbols, "reconstitute"))
+    assert _dropout_sells(rotated), "대조군(종목 교체)에서 편출이 일어나지 않아 비교가 성립하지 않는다"
+
+    held = engine.run_backtest(_rebal_method_req(symbols, "weights_only"))
+    assert not _dropout_sells(held), f"비중 유지인데 편출이 발생: {_dropout_sells(held)}"
+    # 처음 채운 2종목만 보유한다 — 교체가 없으므로 세 번째 종목은 들어오지 않는다.
+    bought = {s["symbol"] for s in held["signals"] if s["type"] == "buy"}
+    assert len(bought) == 2, f"교체 없이 새 종목이 편입됨: {bought}"
+
+
+def test_weights_only_rebalancing_keeps_holdings_custom_loop_path():
+    """비중 유지 방식(커스텀 루프 = 리스크 관리 병행): 같은 계약이 지켜진다."""
+    dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
+    symbols = _write_rotation_trio(data_dir, "WOL", dates)
+    engine = BacktestEngine(data_dir=data_dir)
+
+    # stop_loss 90%는 발동하지 않는다 — 커스텀 루프로 라우팅만 시킨다.
+    rotated = engine.run_backtest(_rebal_method_req(symbols, "reconstitute", stop_loss_pct=90))
+    assert _dropout_sells(rotated), "대조군(종목 교체)에서 편출이 일어나지 않아 비교가 성립하지 않는다"
+
+    held = engine.run_backtest(_rebal_method_req(symbols, "weights_only", stop_loss_pct=90))
+    assert not _dropout_sells(held), f"비중 유지인데 편출이 발생: {_dropout_sells(held)}"
+    assert any("비중만 균등으로 되돌립니다" in w for w in held.get("warnings", [])), (
+        held.get("warnings")
+    )
+
+
+def test_weights_only_rebalancing_resets_weights_custom_loop_path():
+    """비중 리셋이 실제로 주문을 낸다 — 종전 커스텀 루프는 비중 리셋 자체가 없었다.
+
+    두 종목을 끝까지 보유(회전 불가)하게 두고, 한쪽만 오르게 한다. 교체 방식이면
+    최초 매수 뒤 주문이 없고, 비중 유지 방식이면 리밸런싱일마다 오른 쪽을 덜어
+    내린 쪽을 더 산다.
+    """
+    dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
+    _write_series(data_dir, "WRS_UP", [100 + 2.0 * i for i in range(100)], dates)
+    _write_series(data_dir, "WRS_FLAT", [100.0 - 0.2 * i for i in range(100)], dates)
+    symbols = ["WRS_UP", "WRS_FLAT"]
+    engine = BacktestEngine(data_dir=data_dir)
+
+    rotated = engine.run_backtest(_rebal_method_req(symbols, "reconstitute", stop_loss_pct=90))
+    held = engine.run_backtest(_rebal_method_req(symbols, "weights_only", stop_loss_pct=90))
+
+    def _trims(result):
+        return [
+            s for s in result["signals"]
+            if s["type"] == "sell" and "리밸런싱 비중 조정" in s["condition"]
+        ]
+
+    # 교체 방식(커스텀 루프): 두 종목 다 목표에 남아 있어 최초 매수 이후 주문이 없다.
+    assert not _trims(rotated), f"교체 방식인데 비중 리셋이 일어남: {_trims(rotated)}"
+    # 비중 유지 방식: 리밸런싱일마다 오른 종목을 목표 비중까지 덜어낸다.
+    trims = _trims(held)
+    assert [s["date"] for s in trims] == ["2024-03-01", "2024-04-01"], trims
+    assert all(s["symbol"] == "WRS_UP" for s in trims), trims
+    # 덜어낸 현금은 내린 종목 추가 매수로 들어간다 — 매수 기록은 기존 포지션에 합쳐지므로
+    # (부분 매도만 기록이 갈린다) 평균 매입가가 낮아진 것으로 확인한다.
+    def _final_return(result, symbol):
+        return next(
+            s for s in result["signals"]
+            if s["symbol"] == symbol and s["type"] == "sell" and "백테스트 종료" in s["condition"]
+        )["condition"]
+
+    assert _final_return(held, "WRS_FLAT") != _final_return(rotated, "WRS_FLAT"), (
+        "내린 종목의 추가 매수(평균 단가 하락)가 일어나지 않았다"
+    )
+
+
+def test_reconstitute_trim_is_not_reported_as_a_sell_signal():
+    """[정리 2026-08-26] 매도 조건을 하나도 말하지 않은 전략의 거래 내역에 '전략 매도 조건
+    충족'이 찍히던 결함.
+
+    순수 리밸런싱 경로는 **종목 교체 방식에서도** 리밸런싱일마다 동일가중으로 비중을
+    리셋하므로 오른 종목이 목표 비중까지 잘린다(부분 매도). 그 트림에 사유가 없으면
+    result_handler의 일반 추론이 존재하지도 않는 매도 조건을 사유로 적는다.
+    """
+    dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(data_dir, exist_ok=True)
+    symbols = _write_rotation_trio(data_dir, "TRIM", dates)
+
+    engine = BacktestEngine(data_dir=data_dir)
+    req = _rebal_method_req(symbols, "reconstitute")
+    assert req["exit"]["conditions"] == [], "매도 조건이 없는 전략이어야 검증이 성립한다"
+    result = engine.run_backtest(req)
+
+    sells = [s for s in result["signals"] if s["type"] == "sell"]
+    assert sells, "리밸런싱 회전이 없으면 이 검증이 성립하지 않는다"
+    assert not [s for s in sells if "전략 매도 조건 충족" in s["condition"]], (
+        f"매도 조건이 없는데 매도 조건 충족으로 보고: {[s['condition'] for s in sells]}"
+    )
+    # 트림은 트림으로, 편출은 편출로 — 두 사건이 한 라벨로 뭉개지지 않는다.
+    assert any("리밸런싱 비중 조정" in s["condition"] for s in sells), sells
+    assert any("리밸런싱 제외" in s["condition"] for s in sells), sells

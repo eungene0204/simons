@@ -93,6 +93,7 @@ ENTRY = "entry"
 EXIT = "exit"
 MAX_POSITIONS = "max_positions"
 REBALANCING = "rebalancing"
+REBALANCE_METHOD = "rebalance_method"
 STOP_LOSS = "stop_loss"
 TAKE_PROFIT = "take_profit"
 BACKTEST_PERIOD = "backtest_period"
@@ -105,17 +106,21 @@ INITIAL_CAPITAL = "initial_capital"
 # (사용자 결정). 후보가 빈 자리를 넘는 날의 우선순위는 엔진이 최근 수익률 순으로 정하고
 # 결과에 고지한다(엔진 v16.3). 랭킹은 사용자가 말했을 때만(모멘텀·재무 순위) 전략의 일부다.
 FIELD_ORDER: tuple[str, ...] = (
-    UNIVERSE, ENTRY, EXIT, MAX_POSITIONS, REBALANCING,
+    UNIVERSE, ENTRY, EXIT, MAX_POSITIONS, REBALANCING, REBALANCE_METHOD,
     STOP_LOSS, TAKE_PROFIT, BACKTEST_PERIOD, INITIAL_CAPITAL,
 )
 
-# ── 슬롯(진행 골격 8칸) — planner State·진행률 표시가 쓰는 라벨 ──────────────────
+# ── 슬롯(진행 골격 9칸) — planner State·진행률 표시가 쓰는 라벨 ──────────────────
 SLOT_LABELS: dict[str, str] = {
     UNIVERSE: "유니버스",
     ENTRY: "매수 조건",
     EXIT: "매도 조건",
     MAX_POSITIONS: "최대 보유",
     REBALANCING: "리밸런싱",
+    # 리밸런싱과 **별도 칸**이다(2026-08-26). 같은 라벨을 공유시키면 planner가 보는
+    # filled_slots에서 "리밸런싱이 안 찼다"로만 보여, 주기는 이미 답했는데 주기를 다시
+    # 묻는다(손절·익절이 라벨을 공유해도 되는 것은 둘 다 '리스크 관리' 값이기 때문이다).
+    REBALANCE_METHOD: "리밸런싱 방식",
     STOP_LOSS: "리스크 관리",
     TAKE_PROFIT: "리스크 관리",
     BACKTEST_PERIOD: "백테스트 기간",
@@ -123,14 +128,14 @@ SLOT_LABELS: dict[str, str] = {
 }
 SLOT_ORDER: tuple[str, ...] = (
     "유니버스", "매수 조건", "매도 조건", "최대 보유",
-    "리밸런싱", "리스크 관리", "백테스트 기간", "초기 자본",
+    "리밸런싱", "리밸런싱 방식", "리스크 관리", "백테스트 기간", "초기 자본",
 )
 
 # provenance(사용자가 실제로 말했는지)를 함께 봐야 하는 필드 — ParsedStrategy가
 # 기본값을 물질화하는 필드들이다. 나머지(진입·청산·손절·익절)는 기본값이 없어
 # 값의 존재가 곧 사용자 입력이다.
 PROVENANCE_FIELDS: frozenset[str] = frozenset(
-    {UNIVERSE, MAX_POSITIONS, REBALANCING, BACKTEST_PERIOD, INITIAL_CAPITAL}
+    {UNIVERSE, MAX_POSITIONS, REBALANCING, REBALANCE_METHOD, BACKTEST_PERIOD, INITIAL_CAPITAL}
 )
 
 # 확정(CONFIRM, 설계 스펙 § 7)이 성립하는 필드 — 값이 이미 물질화돼 PROVISIONAL로 남는
@@ -169,8 +174,14 @@ def _field_for_topic(topic: Optional[str], candidates: Sequence[str]) -> Optiona
     normalized = (topic or "").replace(" ", "")
     if not normalized:
         return None
-    for field in candidates:
-        label = SLOT_LABELS[field].replace(" ", "")
+    labels = {field: SLOT_LABELS[field].replace(" ", "") for field in candidates}
+    # 정확 일치가 먼저다 — '리밸런싱'은 '리밸런싱방식'의 부분 문자열이라, 포함만 보면
+    # FIELD_ORDER상 앞선 리밸런싱(주기)이 방식 질문의 topic까지 삼켜 그 질문에 주기 칩이
+    # 붙는다(칩=값 결속 계약 위반: 질문에 답하지 못하는 칩).
+    for field, label in labels.items():
+        if label == normalized:
+            return field
+    for field, label in labels.items():
         if label in normalized or normalized in label:
             return field
     return None
@@ -184,7 +195,7 @@ def confirmable_field_for_topic(topic: Optional[str]) -> Optional[str]:
 def slot_for_topic(topic: Optional[str]) -> Optional[str]:
     """ask의 topic이 가리키는 진행 골격 슬롯(없으면 None).
 
-    `confirmable_field_for_topic`이 확정 가능한 4개만 보는 것과 달리 8칸 전체를 본다 —
+    `confirmable_field_for_topic`이 확정 가능한 4개만 보는 것과 달리 전체 칸을 본다 —
     planner가 칩 없는 ask를 냈을 때 그 슬롯의 정본 칩으로 보완하기 위한 것이다.
     `stop_loss`·`take_profit`은 라벨('리스크 관리')을 공유하므로 FIELD_ORDER상 앞선
     `stop_loss`가 잡힌다 — 두 슬롯을 구분해야 하면 topic이 아니라 필드로 받아야 한다.
@@ -211,9 +222,10 @@ def suggestions_for_topic(
     if not field:
         return []
     chips = list(_question_for(parsed, field)[1])
-    from engine.universe_capabilities import is_etf_strategy
+    from engine.universe_capabilities import is_etf_product_strategy
 
-    if is_etf_strategy(universe):
+    targets = list(getattr(parsed, "target_symbols", None) or []) if parsed is not None else []
+    if is_etf_product_strategy(universe, targets):
         chips = [c for c in chips if c not in _FUNDAMENTAL_CHIPS]
     return chips
 
@@ -299,6 +311,17 @@ _QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
         "다음으로 포트폴리오를 얼마나 자주 다시 구성할지 정해볼까요?",
         ("매주 리밸런싱", "매월 리밸런싱", "분기마다 리밸런싱", "리밸런싱 안 함"),
     ),
+    # 리밸런싱에는 두 가지가 있고 결과가 크게 다르다(FR-BT-067, 2026-08-26 사용자 지시).
+    # 종전에는 종목 교체만 있었고 사용자에게 묻지 않았다 — 주기만 답한 사용자는 자기가
+    # 무엇을 고른 줄도 모른 채 교체 방식으로 실행됐다. 값을 묻지 않고 확정하지 않는다.
+    REBALANCE_METHOD: (
+        "리밸런싱을 어떤 방식으로 할까요?\n\n"
+        "· 종목 교체 — 리밸런싱일마다 조건에 맞는 종목으로 목표 구성을 다시 정합니다"
+        "(조건에서 벗어난 보유 종목은 매도).\n"
+        "· 비중 조정 — 보유 종목은 그대로 두고, 오른 종목은 오른 만큼 덜어내고 내린 종목은 "
+        "내린 만큼 더 사서 균등 비중으로 되돌립니다.",
+        ("종목 교체 리밸런싱", "비중 조정 리밸런싱 (균등 유지)"),
+    ),
     # 손절·익절은 쓰지 않는 것도 정상적인 전략 설계다 — '안 함'을 고를 수 없으면
     # 값을 넣어야만 실행 게이트를 통과할 수 있다(2026-08-10 사용자 지시).
     STOP_LOSS: (
@@ -318,6 +341,41 @@ _QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
         ("500만원", "1,000만원", "3,000만원", "5,000만원"),
     ),
 }
+
+# 미국 시장 전략의 초기 자본 — 엔진 숫자는 데이터 통화 그대로라(US=달러) 원화 칩을
+# 노출하면 "1,000만원" 클릭이 $10,000,000이 된다(2026-08-26 /us 실측 계열).
+# 기본 $10,000은 플랜 모달 FREE 모의 투자금과 정합. 질문 문구는 KR 정본과 같은 키
+# (프론트 사전이 옮긴다), 칩은 달러 리터럴 — 값 결속은 CAPITAL_CHIP_VALUES 정본 표가
+# 담당한다(달러 표기는 원화 보정 파서(_apply_prompt_overrides)가 읽지 못한다).
+_US_MARKETS_FOR_SLOTS: frozenset = frozenset(
+    {"SP500", "NASDAQ100", "NASDAQ", "DOW30", "US", "US_ETF"}
+)
+_US_INITIAL_CAPITAL_QUESTION: tuple[str, tuple[str, ...]] = (
+    "초기 투자 자금을 얼마로 설정할까요?",
+    ("$10,000", "$30,000", "$50,000", "$100,000"),
+)
+# 칩 → 리밸런싱 방식 값(정본, 칩=값 결속 계약). 발행·클릭 양쪽이 이 표만 본다.
+# 원문 보정 파서(_apply_prompt_overrides)에 어휘를 넣어 읽게 하지 않는다 — 그것은
+# 사용자 원문을 정규식으로 해석하는 레인이고(대원칙 1), 칩은 우리가 만든 열거형이라
+# 값을 표로 확정하는 것이 맞다(달러 초기 자본 칩과 같은 계약).
+REBALANCE_METHOD_CHIP_VALUES: dict[str, str] = {
+    "종목 교체 리밸런싱": "reconstitute",
+    "비중 조정 리밸런싱 (균등 유지)": "weights_only",
+}
+
+# 칩 → 초기 자본 값(정본, 칩=값 결속 계약). 발행·클릭 양쪽이 이 표만 본다.
+CAPITAL_CHIP_VALUES: dict[str, float] = {
+    "$10,000": 10_000.0,
+    "$30,000": 30_000.0,
+    "$50,000": 50_000.0,
+    "$100,000": 100_000.0,
+}
+
+
+def is_us_market_strategy(parsed: Any) -> bool:
+    """전략의 유니버스가 미국 시장인가 — 초기 자본 통화(달러) 판정의 정본."""
+    universe = getattr(parsed, "universe", None) or []
+    return bool({str(u).upper() for u in universe} & _US_MARKETS_FOR_SLOTS)
 
 # 개별 기업 재무제표에서 계산되는 칩 — ETF 유니버스에는 노출하지 않는다
 # (suggestions_for_topic, engine.universe_capabilities의 fundamental 미지원 계약).
@@ -344,10 +402,15 @@ _RANKING_MAX_POSITIONS_QUESTION: tuple[str, tuple[str, ...]] = (
 # 다르지만(랭킹 여부를 보는 필드가 다르다) 문구는 여기 하나다.
 VARIANT_QUANTILE = "quantile"
 VARIANT_RANKING = "ranking"
+# 미국 시장 전략의 초기 자본 — 칩이 달러다(2026-08-26). 변형으로 등록해야 프론트
+# 픽스처(scripts/export_slot_prompts.py → __fixtures__/slot-prompts.json)에도 실린다:
+# 프론트는 칩 답변을 백엔드 왕복 없이 즉시 적용하므로 문구를 로컬 픽스처에서 읽는다.
+VARIANT_US = "us"
 
 _SLOT_VARIANTS: dict[tuple[str, str], tuple[str, tuple[str, ...]]] = {
     (MAX_POSITIONS, VARIANT_QUANTILE): _QUANTILE_MAX_POSITIONS_QUESTION,
     (MAX_POSITIONS, VARIANT_RANKING): _RANKING_MAX_POSITIONS_QUESTION,
+    (INITIAL_CAPITAL, VARIANT_US): _US_INITIAL_CAPITAL_QUESTION,
 }
 
 
@@ -373,9 +436,11 @@ def _quantile_groups(parsed: Any) -> Optional[int]:
 
 
 def _question_for(parsed: Any, field: str) -> tuple[str, tuple[str, ...]]:
-    """필드의 되묻기 문구·칩 — 분위 그룹 전략의 '최대 보유'만 전용 변형을 쓴다."""
+    """필드의 되묻기 문구·칩 — 분위 그룹 '최대 보유'·미국 전략 '초기 자본'만 전용 변형."""
     if field == MAX_POSITIONS and _quantile_groups(parsed):
         return _QUANTILE_MAX_POSITIONS_QUESTION
+    if field == INITIAL_CAPITAL and is_us_market_strategy(parsed):
+        return _US_INITIAL_CAPITAL_QUESTION
     return _QUESTIONS[field]
 
 
@@ -520,6 +585,10 @@ def _has_value(parsed: Any, field: str) -> bool:
         return _positive(g("max_positions"))
     if field == REBALANCING:
         return has_rebalancing
+    if field == REBALANCE_METHOD:
+        # 방식은 스키마에서 항상 물질화된다(기본 'reconstitute') — REBALANCING과 같이
+        # 값의 존재가 아니라 provenance(_explicit_ok)가 되묻기를 가른다.
+        return bool(g("rebalance_method"))
     if field == STOP_LOSS:
         return _positive(g("stop_loss_pct"))
     if field == TAKE_PROFIT:
@@ -573,6 +642,16 @@ def _decided(parsed: Any, field: str, declined: frozenset[str]) -> Optional[_Dec
             return _Decided(not_applicable=True)
         if REBALANCING in declined:
             return _Decided(value=ValueStatus.CONFIRMED)
+        return None
+    if field == REBALANCE_METHOD:
+        # ① 리밸런싱을 하지 않으면 방식이라는 질문 자체가 성립하지 않는다(단독 종목·
+        #    '리밸런싱 안 함'·주기 미설정). 리밸런싱을 켠 뒤에만 묻는다.
+        rebal = getattr(parsed, "rebalancing_period", None)
+        if len(symbols) == 1 or REBALANCING in declined or not (rebal and rebal != "none"):
+            return _Decided(not_applicable=True)
+        # 시장과 무관하다(2026-08-27 미국 레인 합류) — 방식은 통화·세금처럼 시장이 정하는
+        # 값이 아니라 포트폴리오 운영 규칙이라, 미국 전략도 같은 질문을 받는다. 초기 자본이
+        # 시장별 변형(달러 칩)을 갖는 것과 다른 축이다.
         return None
     if field in (STOP_LOSS, TAKE_PROFIT) and field in declined:
         # 값이 있는데 거부가 함께 오면 값이 이긴다 — 사용자가 값을 준 뒤 마음을 바꾼
@@ -724,7 +803,7 @@ _VALUE_PRECEDENCE: tuple[ValueStatus, ...] = (
 
 
 def slot_statuses(parsed: Any, **kwargs: Any) -> Dict[str, SlotState]:
-    """진행 골격 8칸의 대표 상태(진행 순서). 진행률 표시의 입력이다.
+    """진행 골격 9칸의 대표 상태(진행 순서). 진행률 표시의 입력이다.
 
     `filled_slots`가 답하지 못하던 것을 답한다 — 어떤 칸이 '해당 없음'이라 분모에서
     빠져야 하고, 어떤 칸이 '값은 있으나 미확인'인지. 리스크 관리 슬롯만 손절·익절 두
@@ -763,7 +842,7 @@ def _pick(precedence: tuple, members: list, fallback):
 
 
 def filled_slots(parsed: Any, **kwargs: Any) -> List[str]:
-    """채워진 골격 슬롯 라벨(8칸 기준, 진행 순서). 리스크 관리는 손절·익절이 모두
+    """채워진 골격 슬롯 라벨(9칸 기준, 진행 순서). 리스크 관리는 손절·익절이 모두
     채워져야 충족 — 한쪽만 있으면 아직 물을 것이 남았다."""
     statuses = {s.field: s.filled for s in evaluate(parsed, **kwargs)}
     done: List[str] = []

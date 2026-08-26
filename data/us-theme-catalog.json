@@ -1,0 +1,559 @@
+{
+  "note": "미국 테마 정본 카탈로그 (US 레인, 2026-08-25). 테마어(LLM 추출 짧은 문자열) → 구성 티커의 registry 정본 — 원문 패턴 매칭에 쓰지 않는다. 구성 목록은 객관적 소속 정보(사실)이며 추천이 아니다. 티커는 data/ohlcv-us 파케이 보유분만 등록한다(테스트가 강제). 미국 지식그래프(engine/us_knowledge_graph.py)의 카탈로그 레이어로 합성된다 — 별칭이 시드(us-knowledge-graph.json)와 겹치면 시드 승(교차 충돌은 테스트가 금지). 편집 후 반드시: cd backend && pytest tests/test_us_theme_catalog.py tests/test_us_knowledge_graph.py",
+  "generatedAt": "2026-08-25",
+  "themes": [
+    {
+      "id": "ai-semiconductor",
+      "name": "AI 반도체",
+      "name_en": "AI semiconductors",
+      "aliases": [
+        "AI 반도체",
+        "인공지능 반도체",
+        "AI 칩",
+        "AI chip",
+        "AI semiconductor"
+      ],
+      "symbols": [
+        "NVDA",
+        "AMD",
+        "AVGO",
+        "TSM",
+        "MU",
+        "MRVL",
+        "ARM",
+        "SMCI"
+      ],
+      "concepts": [
+        "ai",
+        "semiconductor"
+      ]
+    },
+    {
+      "id": "semiconductor-equipment",
+      "name": "반도체 장비",
+      "name_en": "Semiconductor equipment",
+      "aliases": [
+        "반도체 장비",
+        "반도체 장비주",
+        "semiconductor equipment"
+      ],
+      "symbols": [
+        "ASML",
+        "AMAT",
+        "LRCX",
+        "KLAC",
+        "TER",
+        "ENTG"
+      ],
+      "concepts": [
+        "semiconductor"
+      ]
+    },
+    {
+      "id": "big-tech",
+      "name": "빅테크",
+      "name_en": "Big Tech",
+      "aliases": [
+        "빅테크",
+        "매그니피센트7",
+        "매그니피센트 7",
+        "big tech",
+        "magnificent 7",
+        "M7"
+      ],
+      "symbols": [
+        "AAPL",
+        "MSFT",
+        "GOOGL",
+        "AMZN",
+        "META",
+        "NVDA",
+        "TSLA"
+      ]
+    },
+    {
+      "id": "cybersecurity",
+      "name": "사이버보안",
+      "name_en": "Cybersecurity",
+      "aliases": [
+        "사이버보안",
+        "사이버 보안",
+        "보안주",
+        "cybersecurity"
+      ],
+      "symbols": [
+        "CRWD",
+        "PANW",
+        "ZS",
+        "FTNT",
+        "OKTA",
+        "NET",
+        "S"
+      ]
+    },
+    {
+      "id": "glp1-obesity",
+      "name": "GLP-1 비만치료제",
+      "name_en": "GLP-1 obesity drugs",
+      "aliases": [
+        "GLP-1 비만치료제",
+        "GLP-1",
+        "비만치료제",
+        "비만 치료제",
+        "obesity drugs"
+      ],
+      "symbols": [
+        "LLY",
+        "NVO",
+        "AMGN",
+        "VKTX"
+      ]
+    },
+    {
+      "id": "datacenter-power",
+      "name": "데이터센터 전력 인프라",
+      "name_en": "Data center power infrastructure",
+      "aliases": [
+        "데이터센터 전력 인프라",
+        "데이터센터 전력",
+        "전력 인프라",
+        "AI 전력",
+        "data center power"
+      ],
+      "symbols": [
+        "VST",
+        "CEG",
+        "NRG",
+        "ETN",
+        "VRT",
+        "PWR",
+        "GEV"
+      ],
+      "concepts": [
+        "datacenter"
+      ]
+    },
+    {
+      "id": "nuclear-smr",
+      "name": "원자력·SMR",
+      "name_en": "Nuclear & SMR",
+      "aliases": [
+        "원자력·SMR",
+        "원자력",
+        "SMR",
+        "소형모듈원전",
+        "소형모듈원자로",
+        "nuclear"
+      ],
+      "symbols": [
+        "CCJ",
+        "SMR",
+        "OKLO",
+        "BWXT",
+        "LEU",
+        "UEC"
+      ]
+    },
+    {
+      "id": "cloud-software",
+      "name": "클라우드 소프트웨어",
+      "name_en": "Cloud software",
+      "aliases": [
+        "클라우드 소프트웨어",
+        "클라우드",
+        "SaaS",
+        "cloud software"
+      ],
+      "symbols": [
+        "CRM",
+        "NOW",
+        "SNOW",
+        "DDOG",
+        "MDB",
+        "WDAY",
+        "TEAM",
+        "HUBS"
+      ]
+    },
+    {
+      "id": "humanoid-robotics",
+      "name": "휴머노이드 로봇",
+      "name_en": "Humanoid robotics",
+      "aliases": [
+        "휴머노이드 로봇",
+        "휴머노이드",
+        "로봇",
+        "로보틱스",
+        "robotics",
+        "humanoid"
+      ],
+      "symbols": [
+        "TSLA",
+        "NVDA",
+        "SYM",
+        "ROK",
+        "ISRG",
+        "TER"
+      ]
+    },
+    {
+      "id": "defense-aerospace",
+      "name": "방산·항공우주",
+      "name_en": "Defense & aerospace",
+      "aliases": [
+        "방산·항공우주",
+        "방산",
+        "방위산업",
+        "항공우주",
+        "defense"
+      ],
+      "symbols": [
+        "LMT",
+        "RTX",
+        "NOC",
+        "GD",
+        "HII",
+        "LHX",
+        "AXON"
+      ]
+    },
+    {
+      "id": "space",
+      "name": "우주 산업",
+      "name_en": "Space industry",
+      "aliases": [
+        "우주 산업",
+        "우주",
+        "우주항공",
+        "스페이스",
+        "space"
+      ],
+      "symbols": [
+        "RKLB",
+        "LUNR",
+        "ASTS",
+        "PL",
+        "RDW"
+      ]
+    },
+    {
+      "id": "ev-autonomous",
+      "name": "전기차·자율주행",
+      "name_en": "EV & autonomous driving",
+      "aliases": [
+        "전기차·자율주행",
+        "전기차",
+        "자율주행",
+        "EV",
+        "electric vehicle"
+      ],
+      "symbols": [
+        "TSLA",
+        "RIVN",
+        "LCID",
+        "GM",
+        "F",
+        "MBLY"
+      ]
+    },
+    {
+      "id": "reshoring-infrastructure",
+      "name": "리쇼어링·인프라",
+      "name_en": "Reshoring & infrastructure",
+      "aliases": [
+        "리쇼어링·인프라",
+        "리쇼어링",
+        "인프라 건설",
+        "인프라",
+        "reshoring",
+        "infrastructure"
+      ],
+      "symbols": [
+        "CAT",
+        "VMC",
+        "MLM",
+        "URI",
+        "PWR",
+        "EME",
+        "NUE"
+      ]
+    },
+    {
+      "id": "quantum-computing",
+      "name": "양자컴퓨팅",
+      "name_en": "Quantum computing",
+      "aliases": [
+        "양자컴퓨팅",
+        "양자 컴퓨팅",
+        "퀀텀컴퓨팅",
+        "quantum computing",
+        "quantum"
+      ],
+      "symbols": [
+        "IONQ",
+        "RGTI",
+        "QBTS"
+      ]
+    },
+    {
+      "id": "crypto",
+      "name": "크립토 관련주",
+      "name_en": "Crypto-linked stocks",
+      "aliases": [
+        "크립토 관련주",
+        "크립토",
+        "코인 관련주",
+        "암호화폐",
+        "가상자산",
+        "crypto"
+      ],
+      "symbols": [
+        "COIN",
+        "MSTR",
+        "MARA",
+        "RIOT",
+        "CLSK",
+        "HOOD"
+      ]
+    },
+    {
+      "id": "ai-software",
+      "name": "AI 소프트웨어",
+      "name_en": "AI software",
+      "aliases": [
+        "AI 소프트웨어",
+        "인공지능 소프트웨어",
+        "AI software"
+      ],
+      "symbols": [
+        "MSFT",
+        "GOOGL",
+        "META",
+        "PLTR",
+        "CRM",
+        "NOW"
+      ],
+      "concepts": [
+        "ai"
+      ]
+    },
+    {
+      "id": "healthcare-large",
+      "name": "헬스케어 대형주",
+      "name_en": "Health care large caps",
+      "aliases": [
+        "헬스케어 대형주",
+        "미국 헬스케어 대형주"
+      ],
+      "symbols": [
+        "LLY",
+        "UNH",
+        "JNJ",
+        "ABBV",
+        "MRK",
+        "TMO",
+        "ABT",
+        "PFE"
+      ]
+    },
+    {
+      "id": "robotics-automation",
+      "name": "로봇 자동화",
+      "name_en": "Robotics & automation",
+      "aliases": [
+        "로봇 자동화",
+        "산업 자동화",
+        "산업용 로봇",
+        "industrial robotics",
+        "factory automation",
+        "robotics automation"
+      ],
+      "symbols": [
+        "NVDA",
+        "ISRG",
+        "CGNX",
+        "AUR"
+      ],
+      "source": "etf:BOTZ",
+      "as_of": "2026-08-26"
+    },
+    {
+      "id": "clean-energy",
+      "name": "클린에너지",
+      "name_en": "Clean energy",
+      "aliases": [
+        "클린에너지",
+        "친환경 에너지",
+        "재생에너지",
+        "신재생에너지",
+        "clean energy",
+        "renewable energy",
+        "green energy"
+      ],
+      "symbols": [
+        "FSLR",
+        "NXT",
+        "BE",
+        "ENPH",
+        "PLUG"
+      ],
+      "source": "etf:ICLN",
+      "as_of": "2026-08-26"
+    },
+    {
+      "id": "genomics",
+      "name": "유전체·유전자 치료",
+      "name_en": "Genomics",
+      "aliases": [
+        "유전체",
+        "유전자",
+        "유전자 치료",
+        "genomics",
+        "gene editing",
+        "genomic revolution"
+      ],
+      "symbols": [
+        "TXG",
+        "TWST",
+        "TEM",
+        "CRSP",
+        "PSNL",
+        "ABSI",
+        "GH",
+        "ILMN",
+        "LLY",
+        "CDNA"
+      ],
+      "source": "etf:ARKG",
+      "as_of": "2026-08-26"
+    },
+    {
+      "id": "water",
+      "name": "수자원",
+      "name_en": "Water resources",
+      "aliases": [
+        "수자원",
+        "물 관련주",
+        "물 산업",
+        "water",
+        "water stocks",
+        "water resources"
+      ],
+      "symbols": [
+        "ROP",
+        "ECL",
+        "FERG",
+        "WAT",
+        "IDXX",
+        "VLTO",
+        "AWK",
+        "XYL",
+        "A",
+        "IEX"
+      ],
+      "source": "etf:PHO",
+      "as_of": "2026-08-26"
+    },
+    {
+      "id": "regional-banks",
+      "name": "지역은행",
+      "name_en": "Regional banks",
+      "aliases": [
+        "지역은행",
+        "미국 지역은행",
+        "regional banks",
+        "regional banking"
+      ],
+      "symbols": [
+        "CFR",
+        "PNFP",
+        "HOMB",
+        "BPOP",
+        "UMBF",
+        "CFG",
+        "MTB",
+        "ONB",
+        "SSB",
+        "HWC"
+      ],
+      "source": "etf:KRE",
+      "as_of": "2026-08-26"
+    },
+    {
+      "id": "reits",
+      "name": "리츠",
+      "name_en": "REITs",
+      "aliases": [
+        "리츠",
+        "부동산 리츠",
+        "REIT",
+        "REITs",
+        "real estate investment trusts"
+      ],
+      "symbols": [
+        "WELL",
+        "PLD",
+        "EQIX",
+        "AMT",
+        "SPG",
+        "DLR",
+        "O",
+        "PSA",
+        "VTR"
+      ],
+      "source": "etf:VNQ",
+      "as_of": "2026-08-26"
+    },
+    {
+      "id": "software",
+      "name": "소프트웨어",
+      "name_en": "Software",
+      "aliases": [
+        "소프트웨어",
+        "소프트웨어 관련주",
+        "software",
+        "software stocks"
+      ],
+      "symbols": [
+        "PANW",
+        "MSFT",
+        "PLTR",
+        "CRWD",
+        "CRM",
+        "ORCL",
+        "NOW",
+        "ADBE",
+        "FTNT",
+        "APP"
+      ],
+      "source": "etf:IGV",
+      "as_of": "2026-08-26"
+    },
+    {
+      "id": "dividend-aristocrats",
+      "name": "배당귀족",
+      "name_en": "Dividend aristocrats",
+      "aliases": [
+        "배당귀족",
+        "배당 성장",
+        "배당성장주",
+        "dividend aristocrats",
+        "dividend growth"
+      ],
+      "symbols": [
+        "ADP",
+        "SJM",
+        "BEN",
+        "WST",
+        "SWK",
+        "NUE",
+        "ABBV",
+        "GWW",
+        "GD",
+        "HRL"
+      ],
+      "source": "etf:NOBL",
+      "as_of": "2026-08-26"
+    }
+  ]
+}

@@ -17,7 +17,12 @@ export async function POST(req: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       cache: 'no-store',
-      timeoutMs: 30_000,
+      // 분류 LLM은 워밍업 시 ~3초지만 콜드/경합 시 68초 실측(2026-08-26 트레이스
+      // 16632690d244 — "hello"가 67.9s 만에 GREETING). 30초에서 끊으면 호출부 폴백이
+      // STRATEGY_ADVICE로 강등해 인사가 전략 파싱 레인으로 새고, 사용자에게는
+      // "인사 룰이 없는 것"처럼 보인다. 잘못된 레인이 늦은 정답보다 나쁘다 — 예산을
+      // 실측 worst-case 위로 두고, 조기 중단은 사용자의 '대화 종료'(chatSignal)가 담당한다.
+      timeoutMs: 120_000,
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }))

@@ -9,6 +9,7 @@
  * 보이지 않게 한다.
  */
 import {
+  REBAL_METHOD_LABELS,
   formatBacktestPeriodLabel,
   formatFundamentalFilter,
   getDisplayUniverseLabels,
@@ -104,6 +105,20 @@ export function listStrategyItems(parsed: ParsedSummary | null | undefined): Str
       slot: "rebalancing",
       label: t("리밸런싱"),
       value: REBALANCE_LABELS[String(parsed.rebalancing_period)] ?? String(parsed.rebalancing_period),
+    });
+  }
+  // 방식은 리밸런싱을 켠 전략에서만 자기 줄을 갖는다 — 리밸런싱이 없으면 성립하지 않는
+  // 설정이라 표시할 값도 없다(백엔드 슬롯 판정과 같은 조건).
+  if (
+    parsed.rebalancing_period &&
+    parsed.rebalancing_period !== "none" &&
+    parsed.rebalance_method
+  ) {
+    items.push({
+      id: "rebalance_method",
+      slot: "rebalance_method",
+      label: t("리밸런싱 방식"),
+      value: t(REBAL_METHOD_LABELS[String(parsed.rebalance_method)] ?? String(parsed.rebalance_method)),
     });
   }
   if ((parsed.hold_period_days ?? 0) > 0) {

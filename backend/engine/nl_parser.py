@@ -71,15 +71,35 @@ _OLLAMA_COLD_START_STATUSES = {400, 408, 425, 429, 500, 502, 503, 504}
 _OLLAMA_RETRY_BUDGET_S = 320.0
 _OLLAMA_RETRY_BACKOFF_S = 3.0
 _OLLAMA_MAX_ATTEMPT_TIMEOUT_S = 240  # 콜드스타트 단일 요청(VRAM 로드 ~60s + 첫 추론 ~70s) 커버
+# 로컬 Ollama에는 콜드스타트가 없다 — 한 호출이 이만큼 걸리면 지연이 아니라 **정지**다(러너 교착 등).
+# 프론트 프록시 예산(app/api/strategy/parse/stream/route.ts, 240초)보다 확실히 작아야 한다:
+# 같으면 프록시가 경주에서 이겨 사용자에게는 원인과 무관한 "The operation was aborted due to
+# timeout"만 남고, 백엔드가 진단을 말할 기회를 **구조적으로** 얻지 못한다(2026-08-26 컨텍스트
+# 초과 400 오분류, 2026-08-27 러너 재고정 — 같은 증상으로 두 번 반복됐다). 240초를 넘겨야
+# 성공하던 호출은 어차피 프록시가 끊었으므로, 이 상한을 낮춰도 잃는 성공 케이스는 없다.
+_OLLAMA_LOCAL_MAX_ATTEMPT_TIMEOUT_S = 200
 _OLLAMA_WARMUP_BUDGET_S = 200.0  # 본문 없는 GET으로 콜드 컨테이너를 깨우는 예산
 # 코치 system prompt(~5.5KB)+user+context는 ~5800토큰이라 ollama 기본 num_ctx(4096)를 넘어
 # "exceeds the available context size" 400을 낸다(프로덕션 실측). 응답·후속대화 여유까지 커버.
 # 2026-08-14 16384→20480: 인터프리터 프롬프트(온톨로지 주입 포함)가 15,682토큰으로 실측돼
 # 출력 여유가 ~700토큰뿐 — 전체 StrategyIntent JSON이 잘려 복구 재시도까지 실패했다.
-# 변경 시 parse_validator._VALIDATION_NUM_CTX와 반드시 같이 바꿀 것(러너 재고정 사고 방지).
-_OLLAMA_NUM_CTX = 20480
-# 콜드스타트 일시 400과 구별할 영구 400(설정 오류) 시그니처 — 이런 본문은 재시도하지 않는다.
-_OLLAMA_PERMANENT_400_SIGNATURES = ("model is required", "not found", "no such model")
+# 2026-08-27 20480→32768(사용자 지시): 수정 턴은 누적 발화 + 이전 전략 + 시스템 프롬프트를
+# 함께 보내므로 대화가 길어지면 정원을 넘어 Ollama가 400(exceed_context_size_error)을 냈다.
+# 여유를 키워 긴 대화의 수정이 성립하게 한다.
+# 변경 시 parse_validator._VALIDATION_NUM_CTX와 반드시 같이 바꿀 것(러너 재고정 사고 방지) —
+# 두 값의 일치는 tests/test_nl_parser_overrides.py가 강제한다.
+_OLLAMA_NUM_CTX = 32768
+# 콜드스타트 일시 400과 구별할 영구 400 시그니처 — 이런 본문은 재시도하지 않는다.
+# **컨텍스트 초과가 여기 있어야 하는 이유**(2026-08-26 실측): 같은 요청을 다시 보내도 토큰
+# 수는 그대로라 재시도가 성립하지 않는다. 종전에는 일시 오류로 보고 330초 예산이 닳을 때까지
+# 반복했고, 그 사이 프론트 프록시 240초가 먼저 끊어 사용자에게는 원인과 무관한
+# "aborted due to timeout"이 떴다(로그에는 "Modal cold start?"라는 거짓 진단이 남았다).
+# 로컬 Ollama 본문: {"error":"request (51010 tokens) exceeds the available context size
+# (20480 tokens), try increasing it","type":"exceed_context_size_error"}
+_OLLAMA_PERMANENT_400_SIGNATURES = (
+    "model is required", "not found", "no such model",
+    "exceeds the available context size", "exceed_context_size_error",
+)
 
 
 def _http_400_is_permanent(err) -> bool:
@@ -89,10 +109,16 @@ def _http_400_is_permanent(err) -> bool:
     보수적으로 False(=일시 오류로 보고 재시도)를 반환한다.
     """
     try:
-        body = err.read().decode("utf-8", "replace").lower()
+        body = err.read().decode("utf-8", "replace")
     except Exception:
         return False
-    return any(sig in body for sig in _OLLAMA_PERMANENT_400_SIGNATURES)
+    lowered = body.lower()
+    if not any(sig in lowered for sig in _OLLAMA_PERMANENT_400_SIGNATURES):
+        return False
+    # 재시도로 풀리지 않는 400은 **왜 실패했는지**를 로그에 남긴다 — 본문을 읽고 버리면
+    # 남는 것이 'HTTPError 400: Bad Request'뿐이라 원인을 짚을 단서가 사라진다.
+    logger.error("ollama 영구 400 — 재시도하지 않는다 | body=%s", body[:400])
+    return True
 
 
 def _is_local_connection_error(err: Exception) -> bool:
@@ -155,6 +181,119 @@ def _ollama_ensure_warm(budget_s: float = _OLLAMA_WARMUP_BUDGET_S) -> None:
         raise last_err
 
 
+# 러너 정합 가드 — /api/ps 조회는 로컬에서 1ms 미만이라 추론마다 걸어도 비용이 없다.
+_OLLAMA_PS_TIMEOUT_S = 3
+_OLLAMA_RELEASE_TIMEOUT_S = 60
+
+
+def _ollama_loaded_runner_num_ctx() -> int | None:
+    """지금 적재돼 있는 9B 러너의 context_length를 읽는다.
+
+    반환: 적재된 러너의 num_ctx / 러너 미적재면 None. 조회 실패는 예외로 올린다
+    (판정은 호출자 몫 — 가드가 조회 실패를 '불일치'로 오독하면 안 된다).
+    """
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"{OLLAMA_BASE_URL}/api/ps", headers=ollama_auth_headers(), method="GET"
+    )
+    with urllib.request.urlopen(req, timeout=_OLLAMA_PS_TIMEOUT_S) as resp:
+        payload = json.loads(resp.read().decode())
+    for entry in payload.get("models") or []:
+        if OLLAMA_MODEL_9B in (entry.get("model"), entry.get("name")):
+            ctx = entry.get("context_length")
+            return ctx if isinstance(ctx, int) else None
+    return None
+
+
+def _ollama_release_runner() -> None:
+    """적재된 9B 러너를 내린다(keep_alive=0). 다음 요청이 자기 num_ctx로 다시 띄운다."""
+    import urllib.request
+
+    body = json.dumps({"model": OLLAMA_MODEL_9B, "keep_alive": 0}).encode()
+    req = urllib.request.Request(
+        f"{OLLAMA_BASE_URL}/api/generate",
+        data=body,
+        headers={"Content-Type": "application/json", **ollama_auth_headers()},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=_OLLAMA_RELEASE_TIMEOUT_S) as resp:
+        resp.read()
+
+
+def _ollama_align_runner_num_ctx() -> bool:
+    """우리와 **다른 num_ctx로 고정된** 러너를 미리 내린다. 반환: 실제로 내렸으면 True.
+
+    Ollama 러너는 적재 시점 옵션으로 뜨고, 다른 num_ctx 요청이 오면 러너를 갈아끼운다.
+    그런데 워밍업이 keep_alive=-1(영구 상주)로 고정한 러너는 교체가 끝나지 않아 요청이
+    **에러도 없이 무한 대기**한다 — 프록시 예산(240초)이 먼저 끊어 사용자에게는 원인과
+    무관한 "The operation was aborted due to timeout"만 뜬다.
+
+    러너는 머신 전역 자원이라 체크아웃별로 격리되지 않는다는 것이 재발의 뿌리다
+    (2026-08-27 실측: `_OLLAMA_NUM_CTX`를 20480→32768로 올린 뒤, 옛 커밋을 담은 임시
+    워크트리에서 백엔드가 한 번 뜨면서 20480짜리 러너를 다시 영구 고정했다. 이 프로세스는
+    곧 종료됐지만 고정은 남아 이후 모든 파싱이 240초를 채우고 실패했다 — 실측 대조:
+    num_ctx=20480 요청 0.55초 / 32768 요청 45초 무응답). 워밍업 시점의 일치만으로는
+    막을 수 없으므로, 추론을 열기 직전에 매번 러너를 확인해 어긋나 있으면 먼저 내린다.
+    내리고 나면 우리 요청이 자기 num_ctx로 새 러너를 띄운다(적재 ~3초).
+
+    조회·해제 실패는 삼킨다 — 가드가 새 실패 경로가 되면 안 된다. 원격(Modal)은
+    러너 고정 개념이 없고 /api/ps도 없으므로 로컬에서만 동작한다.
+    """
+    if not is_local_ollama():
+        return False
+    try:
+        loaded = _ollama_loaded_runner_num_ctx()
+    except Exception as e:  # noqa: BLE001 — 가드는 어떤 이유로도 호출을 막지 않는다
+        logger.debug("ollama 러너 num_ctx 조회 실패 — 가드 생략 | err=%r", e)
+        return False
+    if loaded is None or loaded == _OLLAMA_NUM_CTX:
+        return False
+    logger.error(
+        "ollama 러너가 다른 num_ctx로 고정돼 있다 — 내리고 재적재한다 | "
+        "loaded_num_ctx=%d expected=%d model=%s "
+        "(다른 체크아웃/구 커밋에서 뜬 프로세스가 워밍업으로 고정했을 때 발생한다)",
+        loaded,
+        _OLLAMA_NUM_CTX,
+        OLLAMA_MODEL_9B,
+    )
+    try:
+        _ollama_release_runner()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("ollama 러너 해제 실패 — 그대로 진행한다 | err=%r", e)
+        return False
+    return True
+
+
+def _ollama_timeout_error(err: Exception, waited_s: int) -> Exception:
+    """무응답을 **원인을 말하는** 예외로 바꾼다 — 이 문자열이 그대로 사용자 화면에 뜬다.
+
+    `main.parse_nl_strategy_stream`이 `str(exc)`를 SSE `error.detail`로 실어 보내므로,
+    여기서 붙인 진단이 곧 사용자가 보는 문구다. 종전에는 백엔드 상한과 프론트 프록시
+    예산이 똑같이 240초라 **언제나 프록시가 먼저 끊었고**, 사용자는 원인과 무관한
+    "The operation was aborted due to timeout"만 봤다(두 번 반복된 실측 사고).
+
+    원격(Modal)은 콜드스타트 무응답이 정상 범주라 원래 예외를 그대로 올린다.
+    """
+    if not is_local_ollama():
+        return err
+    try:
+        loaded = _ollama_loaded_runner_num_ctx()
+    except Exception:  # noqa: BLE001 — 진단이 실패해도 원인 없는 타임아웃은 올려야 한다
+        loaded = None
+    if loaded is not None and loaded != _OLLAMA_NUM_CTX:
+        return TimeoutError(
+            f"로컬 Ollama가 {waited_s}초 동안 응답하지 않았습니다. 적재된 러너가 "
+            f"num_ctx={loaded}로 고정돼 있어 이번 요청(num_ctx={_OLLAMA_NUM_CTX})과 맞지 "
+            f"않습니다 — 다른 체크아웃이나 구 커밋에서 뜬 프로세스가 러너를 고정하면 "
+            f"생깁니다. 러너를 내리면 복구됩니다."
+        )
+    return TimeoutError(
+        f"로컬 Ollama가 {waited_s}초 동안 응답하지 않았습니다 (model={OLLAMA_MODEL_9B}). "
+        f"러너 상태를 확인하세요 — curl localhost:11434/api/ps"
+    )
+
+
 def _ollama_open_with_retry(req, timeout: int):
     """Ollama(Modal) HTTP 요청을 콜드스타트 내성 있게 연다.
 
@@ -173,8 +312,18 @@ def _ollama_open_with_retry(req, timeout: int):
         # 모든 LLM 호출의 공통 관문이라, 취소된 요청은 다음 호출에서 반드시 멈춘다.
         cancellation.raise_if_cancelled()
         attempt += 1
+        if attempt == 1:
+            # 다른 num_ctx로 고정된 러너를 먼저 내린다 — 어긋난 채로 열면 응답 없이
+            # attempt_timeout(최대 240초)을 통째로 태운다(_ollama_align_runner_num_ctx 주석).
+            # 취소 확인 뒤에 둔다 — 끊긴 요청은 네트워크를 건드리지 않는다.
+            _ollama_align_runner_num_ctx()
         remaining = deadline - time.monotonic()
-        attempt_timeout = max(15, min(_OLLAMA_MAX_ATTEMPT_TIMEOUT_S, int(remaining)))
+        cap = (
+            _OLLAMA_LOCAL_MAX_ATTEMPT_TIMEOUT_S
+            if is_local_ollama()
+            else _OLLAMA_MAX_ATTEMPT_TIMEOUT_S
+        )
+        attempt_timeout = max(15, min(cap, int(remaining)))
         try:
             return urllib.request.urlopen(req, timeout=attempt_timeout)
         except urllib.error.HTTPError as e:
@@ -192,8 +341,9 @@ def _ollama_open_with_retry(req, timeout: int):
             transient = True
         except (TimeoutError, OSError) as e:
             cancellation.raise_if_cancelled()
-            # cold-start hang이 attempt_timeout을 초과한 것 — 재시도하면 역효과
-            raise e
+            # cold-start hang이 attempt_timeout을 초과한 것 — 재시도하면 역효과.
+            # 로컬이면 무응답의 **원인을 붙여** 올린다(이 문자열이 그대로 사용자에게 간다).
+            raise _ollama_timeout_error(e, attempt_timeout)
         if not transient:
             raise last_err
         remaining = deadline - time.monotonic()
@@ -225,6 +375,10 @@ def _ollama_preload_model(model: str, timeout: int = 600) -> None:
     "operation was aborted due to timeout"). 옵션을 맞추면 같은 요청이 0.6초다.
     """
     import urllib.request
+
+    # 이전 프로세스(다른 체크아웃·구 커밋)가 다른 num_ctx로 영구 고정해 둔 러너가 있으면
+    # 이 적재 요청부터 무한 대기한다 — 먼저 내려서 우리 값으로 뜨게 한다.
+    _ollama_align_runner_num_ctx()
 
     body = json.dumps({
         "model": model,
@@ -488,7 +642,8 @@ class ParsedStrategy(BaseModel):
     description: str = Field(description="사용자가 입력한 원문 전략 설명 (그대로 복사)")
 
     # ── 유니버스
-    universe: List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150", "ETF"]] = Field(
+    universe: List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150", "ETF",
+                           "SP500", "NASDAQ100", "NASDAQ", "DOW30", "US", "US_ETF"]] = Field(
         default=["KOSPI200"],
         description=(
             "투자 대상 시장. 언급 없으면 ['KOSPI200'] (KOSPI 전체 종목, 유동성 우선). "
@@ -511,6 +666,15 @@ class ParsedStrategy(BaseModel):
             "지원 섹터: " + ", ".join(_CANONICAL_SECTORS_DOC) + ". "
             "목록에 없는 업종이거나 언급이 없으면 null"
         ),
+    )
+
+    # 미국 업종 필터(FR-STR-074 ⑩) — 분류 체계가 한국(45섹터)과 다르므로 필드를 따로
+    # 둔다. sector 필드는 정본 검증기가 한국 섹터만 통과시켜 미국 라벨을 조용히 버린다
+    # (여기 담았다면 유니버스 제한이 소리 없이 사라진다). 값은 GICS 섹터·산업 정본 라벨
+    # (us_industry_registry)이고 시스템이 채운다.
+    us_industry: Optional[str] = Field(
+        default=None,
+        description="미국 유니버스의 업종/산업 필터(GICS 정본 라벨, 시스템이 채움). LLM은 채우지 말 것",
     )
 
     @field_validator("sector")
@@ -538,6 +702,15 @@ class ParsedStrategy(BaseModel):
     theme_universe: Optional[str] = Field(
         default=None,
         description="테마 유래 지정 종목의 출처 테마 정본 표기(시스템이 채움). LLM은 채우지 말 것",
+    )
+    # 지정 종목이 **어느 축**에서 왔는지(FR-STR-074 ⑦, 2026-08-27). theme_universe가
+    # '무엇에서 왔나'라면 이 필드는 '어떤 종류의 근거였나'다 — 분류 명부는 정본이고
+    # (근거가 정의 자체), 테마는 근거로 관측된 집합이라 시점(first_known_date)을 갖는다.
+    # 둘을 한 필드로 뭉뚱그리면 "오늘의 관측을 정본처럼" 다루게 된다. canonical DSL
+    # 화이트리스트에는 넣지 않는다 — 출처 표기이지 실행 결과를 바꾸는 값이 아니다.
+    universe_source: Optional[Literal["theme_catalog", "theme_learned", "industry"]] = Field(
+        default=None,
+        description="지정 종목의 출처 축(시스템이 채움). LLM은 채우지 말 것",
     )
 
     # ── 신규 상장 유니버스 (FR-STR-073)
@@ -583,6 +756,15 @@ class ParsedStrategy(BaseModel):
                 "코스피": "KOSPI", "코스닥": "KOSDAQ", "코스피200": "KOSPI200",
                 "KOSDAQ150": "KOSDAQ150", "코스닥150": "KOSDAQ150",
                 "ETF": "ETF", "ETN": "ETF", "이티에프": "ETF", "상장지수펀드": "ETF",
+                # 미국 시장 (US 레인 Phase 2) — interpreter/models.py 코어서와 같은 표기 정규화
+                "SP500": "SP500", "S&P500": "SP500", "SNP500": "SP500",
+                "에스앤피500": "SP500", "에스앤피": "SP500",
+                "NASDAQ100": "NASDAQ100", "나스닥100": "NASDAQ100",
+                "NASDAQ": "NASDAQ", "나스닥": "NASDAQ",
+                "DOW30": "DOW30", "DOW": "DOW30", "DOWJONES": "DOW30",
+                "다우30": "DOW30", "다우": "DOW30", "다우존스": "DOW30",
+                "US": "US", "미국": "US", "USETF": "US_ETF",
+                "US_ETF": "US_ETF", "미국ETF": "US_ETF",
             }
             markets: list[str] = []
             moved_sector = False
@@ -762,6 +944,16 @@ class ParsedStrategy(BaseModel):
         default="none",
         description="정기 리밸런싱 주기. '매일'=daily, '매주/주간'=weekly, '매월'=monthly, '격월/두 달에 한 번'=bimonthly, '분기'=quarterly, '매년/1년마다'=yearly, 언급없음=none"
     )
+    rebalance_method: Literal["reconstitute", "weights_only"] = Field(
+        default="reconstitute",
+        description=(
+            "리밸런싱 방식(FR-BT-067). 리밸런싱일에 목표 종목을 다시 고르면 reconstitute, "
+            "보유 종목은 그대로 두고 비중만 균등으로 되돌리면 weights_only. "
+            "'종목을 갈아탄다/교체한다/새로 고른다'=reconstitute, "
+            "'종목은 그대로 두고 비중만 맞춘다/오른 건 팔고 내린 건 더 산다/균등 비중 유지'=weights_only. "
+            "언급없음=reconstitute"
+        ),
+    )
 
     # ── 리스크 관리
     stop_loss_pct: Optional[float] = Field(
@@ -820,7 +1012,9 @@ class ParsedStrategyDiff(BaseModel):
     _normalize_ratio_sign = field_validator(*_RATIO_SIGN_FIELDS)(_abs_ratio)
     _clamp_positions = field_validator("max_positions", mode="before")(_clamp_max_positions)
     description: Optional[str] = None
-    universe: Optional[List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "ETF"]]] = None
+    universe: Optional[List[Literal["KOSPI", "KOSDAQ", "KOSPI200", "ETF",
+                                    "SP500", "NASDAQ100", "NASDAQ", "DOW30",
+                                    "US", "US_ETF"]]] = None
     sector: Optional[Union[str, List[str]]] = Field(
         default=None,
         description=(
@@ -869,6 +1063,7 @@ class ParsedStrategyDiff(BaseModel):
     max_positions_pct: Optional[float] = Field(default=None, gt=0, le=100)
     hold_period_days: Optional[int] = None
     rebalancing_period: Optional[Literal["none", "daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly"]] = None
+    rebalance_method: Optional[Literal["reconstitute", "weights_only"]] = None
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
     trailing_stop_pct: Optional[float] = None
@@ -3504,6 +3699,23 @@ MAX_INITIAL_CAPITAL_NOTICE = (
 )
 DEFAULT_INITIAL_CAPITAL = 10_000_000.0
 
+# 미국 시장 전략의 초기 자본 체계(달러) — 엔진 숫자는 데이터 통화 그대로다(US=달러
+# 가격 ÷ 자본). 원화 체계(기본 1천만·하한 100만·상한 100억)를 미국 전략에 그대로 쓰면
+# 기본값이 $10,000,000이 된다(2026-08-26 실측 계열). 기본 $10,000은 플랜 모달 FREE
+# 모의 투자금과 정합, 상한 $10M은 원화 상한(100억)과 같은 유동성 논리의 달러 등가.
+USD_MIN_INITIAL_CAPITAL = 1_000.0
+USD_MAX_INITIAL_CAPITAL = 10_000_000.0
+USD_DEFAULT_INITIAL_CAPITAL = 10_000.0
+
+
+def initial_capital_bounds(parsed: ParsedStrategy) -> tuple[float, float, float]:
+    """전략의 시장 통화에 맞는 (하한, 상한, 기본값) — US 유니버스면 달러 체계."""
+    from engine.strategy_slots import is_us_market_strategy
+
+    if is_us_market_strategy(parsed):
+        return USD_MIN_INITIAL_CAPITAL, USD_MAX_INITIAL_CAPITAL, USD_DEFAULT_INITIAL_CAPITAL
+    return MIN_INITIAL_CAPITAL, MAX_INITIAL_CAPITAL, DEFAULT_INITIAL_CAPITAL
+
 
 def enforce_initial_capital_bounds(parsed: ParsedStrategy) -> Optional[str]:
     """초기자금을 허용 범위로 강제하고 사용자 안내 문구를 반환한다(보정 없으면 None).
@@ -3511,12 +3723,30 @@ def enforce_initial_capital_bounds(parsed: ParsedStrategy) -> Optional[str]:
     하한선 미만은 하한선으로 **보정**하고, 상한선 초과는 값을 **버려** 기본값으로 되돌린다.
     되돌린 기본값이 '사용자가 정한 값'으로 굳지 않도록, 호출부는 이 경우 초기 자본의
     explicit provenance를 떼어내 다시 묻는다(main._finalize_parse_result).
+    범위·기본값은 전략의 시장 통화를 따른다(initial_capital_bounds — US=달러).
     """
-    if parsed.initial_capital > MAX_INITIAL_CAPITAL:
-        parsed.initial_capital = DEFAULT_INITIAL_CAPITAL
+    import ui_language
+
+    lo, hi, default = initial_capital_bounds(parsed)
+    usd = hi == USD_MAX_INITIAL_CAPITAL and default == USD_DEFAULT_INITIAL_CAPITAL
+    if parsed.initial_capital > hi:
+        parsed.initial_capital = default
+        if usd:
+            return ui_language.msg(
+                "초기 자금은 최대 $10,000,000까지 설정할 수 있어요. 입력하신 금액은 "
+                "반영하지 않았으니 그 이하로 다시 선택해 주세요.",
+                "Initial capital can be set up to $10,000,000. The amount you entered "
+                "was not applied — please choose a value at or below that limit.",
+            )
         return MAX_INITIAL_CAPITAL_NOTICE
-    if parsed.initial_capital < MIN_INITIAL_CAPITAL:
-        parsed.initial_capital = MIN_INITIAL_CAPITAL
+    if parsed.initial_capital < lo:
+        parsed.initial_capital = lo
+        if usd:
+            return ui_language.msg(
+                "최소 초기자금은 $1,000입니다. 입력하신 금액이 작아 $1,000으로 설정했어요.",
+                "The minimum initial capital is $1,000. The amount you entered was too "
+                "small, so it was set to $1,000.",
+            )
         return MIN_INITIAL_CAPITAL_NOTICE
     return None
 
@@ -3790,9 +4020,10 @@ _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("atr_stop", r"atr"),
     ("averaging_down", r"물타기|불타기|피라미딩|추가매수"),
     ("intraday", r"(?:실시간|장중|분봉|틱)[^,.]{0,10}(?:리밸런|매매|체결|대응|감시|전략)"),
-    # 해외 시장/종목 — 국내(코스피·코스닥·국내 ETF)만 지원. 개별 해외 종목명(애플 등)은
-    # _mentioned_unsupported_concepts가 symbol_resolver의 overseas 판정으로 잡는다.
-    ("overseas", r"나스닥|nasdaq|s&p|snp500|다우존?스?지수|qqq|spy|voo|미국주식|해외주식|미국증시|해외증시|미국시장|해외시장|미국etf|해외etf"),
+    # 미국 시장·지수·종목·ETF 상품 지정은 2026-08-25 정식 지원으로 승격되어 목록에서
+    # 제거됐다(개념 구현 시 목록 제거 원칙) — 시장은 LLM 레인의 markets enum이,
+    # 지정 종목·티커는 universe_resolver의 미국 registry(universe_pit.resolve_us_ref)가
+    # 해석한다. 데이터 없는 티커는 registry가 해석 실패로 보고한다.
     # 우선주 — 종목 마스터가 보통주만 담고 있어 우선주 지정은 표현 불가. 보통주로 조용히
     # 바꿔치기하지 않는다(레드팀 QA 10-6).
     ("preferred_stock", r"우선주"),
@@ -3842,7 +4073,6 @@ _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
     "atr_stop": "ATR 기반 스탑(고정 % 손절·트레일링 스탑으로 대체 가능)",
     "averaging_down": "물타기/추가 매수(분할 진입)",
     "intraday": "실시간/장중 단위 매매·리밸런싱(일봉 기준만 지원)",
-    "overseas": "해외 시장/종목(국내 주식·국내 상장 ETF만 지원)",
     "preferred_stock": "우선주 종목 지정(보통주 데이터만 지원)",
     "ichimoku": "이치모쿠(일목균형표) 지표",
     "vwap": "VWAP(거래량 가중 평균가) 지표",
@@ -3866,15 +4096,8 @@ def _mentioned_unsupported_concepts(user_input: str) -> list[str]:
     치지 않는다('반도체 관련주'=지원, '로봇 관련주'=목록 밖 → LLM 위임 + 안내)."""
     compact = _compact(user_input)
     names = [name for name, rx in _UNSUPPORTED_CONCEPT_RE if rx.search(compact)]
-    # 해외 개별 종목명(애플·엔비디아 등)은 시장 키워드 패턴이 못 잡는다 — symbol_resolver의
-    # overseas 판정으로 보강한다(조용히 드롭되던 레드팀 QA 9-1/10-3 보정).
-    if "overseas" not in names:
-        try:
-            from stock_analysis.symbol_resolver import find_in_text
-            if any(ref.overseas for ref in find_in_text(user_input)):
-                names.append("overseas")
-        except Exception:  # noqa: BLE001 — 리졸버 실패가 파싱을 막으면 안 된다
-            pass
+    # 해외 개별 종목명(애플 등)의 미지원 보강은 2026-08-25 US 레인 승격으로 제거됐다 —
+    # 이제 지정 종목 해석 레인(universe_resolver)이 미국 티커로 정상 해석한다.
     if "sector" in names and (
         _extract_sector(user_input) is not None or _SECTOR_AGNOSTIC_RE.search(compact)
     ):

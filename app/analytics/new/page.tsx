@@ -15,6 +15,8 @@ import { flushSync } from "react-dom";
 import dynamic from "next/dynamic";
 import { createClient } from "@supabase/supabase-js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { regionRequestHeaders, useRegionHref } from "@/lib/geo/useRegion";
+import { stripRegionPrefix } from "@/lib/geo/region";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { StrategyExampleTabs } from "@/components/strategy/StrategyExampleTabs";
 import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
@@ -46,6 +48,7 @@ import {
   FUNDAMENTAL_FILTER_SECTION_LABEL,
   formatFundamentalFilter,
   formatInitialCapital,
+  isUsParsedUniverse,
   formatDownsidePercent,
   getDisplayUniverseLabels,
   getPositionLabel,
@@ -55,6 +58,7 @@ import {
   hasBuyCriteria,
   PERIOD_LABELS,
   REBAL_LABELS,
+  REBAL_METHOD_LABELS,
   type ParsedSummary,
 } from "./strategySummary";
 import {
@@ -151,6 +155,7 @@ const EXPLICIT_GATE_FIELDS: readonly string[] = [
   "universe",
   "max_positions",
   "rebalancing",
+  "rebalance_method",
   "backtest_period",
   "initial_capital",
 ];
@@ -954,7 +959,7 @@ async function requestBuilderStepData(
 ): Promise<any> {
   const res = await fetch("/api/strategy/builder/step", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
     body: JSON.stringify(payload),
     signal,
   });
@@ -1522,6 +1527,9 @@ function ParsedSummaryBubble({
             <FilterBadge label={getPositionLabel(parsed)} />
             {parsed.hold_period_days && <FilterBadge label={t("{0}일 보유", parsed.hold_period_days)} />}
             {parsed.rebalancing_period !== "none" && <FilterBadge label={t("{0} 리밸런싱", REBAL_LABELS[parsed.rebalancing_period])} />}
+            {parsed.rebalancing_period !== "none" && parsed.rebalance_method && (
+              <FilterBadge label={t(REBAL_METHOD_LABELS[parsed.rebalance_method] ?? parsed.rebalance_method)} />
+            )}
           </div>
         </div>
         {/* 백테스트 기간·초기 자본은 포트폴리오 구성(종목 수·보유·리밸런싱)이 아니라 실행
@@ -1537,7 +1545,7 @@ function ParsedSummaryBubble({
         <div className="flex flex-wrap gap-1.5 items-center">
           <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{t("초기 자본")}</span>
           <div className="flex flex-wrap gap-1">
-            <FilterBadge label={formatInitialCapital(parsed.initial_capital ?? 10000000)} />
+            <FilterBadge label={formatInitialCapital(parsed.initial_capital ?? 10000000, { usd: isUsParsedUniverse(parsed.universe) })} />
           </div>
         </div>
         {(parsed.stop_loss_pct || parsed.take_profit_pct || parsed.trailing_stop_pct) && (
@@ -1678,9 +1686,11 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
 
 function StrategyLabContent() {
   const router = useRouter();
+  const regionHref = useRegionHref();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const isChatPage = pathname === "/analytics/chat" || searchParams.get("chat") === "1";
+  const isChatPage =
+    stripRegionPrefix(pathname ?? "") === "/analytics/chat" || searchParams.get("chat") === "1";
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [authState, setAuthState] = useState<AuthState>("loading");
@@ -2917,7 +2927,7 @@ function StrategyLabContent() {
     try {
       const res = await fetch("/api/strategy/rollback/resolve", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
         body: JSON.stringify({
           query: userText,
           events: toResolvePayload(changeLogRef.current),
@@ -2948,7 +2958,7 @@ function StrategyLabContent() {
       try {
         const res = await fetch("/api/strategy/compile", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
           body: JSON.stringify({ parsed: result.parsed }),
           signal: chatSignal(),
         });
@@ -2992,7 +3002,7 @@ function StrategyLabContent() {
     try {
       const res = await fetch("/api/query/classify", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
         signal: chatSignal(),
         body: JSON.stringify({
           query: userText,
@@ -3051,7 +3061,7 @@ function StrategyLabContent() {
     updateLastAssistant({ isLoading: true, loadingStage: "parsing" });
     const res = await fetch("/api/strategy/parse/stream", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
       signal: chatSignal(),
       body: JSON.stringify({
         prompt: promptText,
@@ -3387,7 +3397,7 @@ function StrategyLabContent() {
       if (confirmedParsed) {
         const res = await fetch("/api/strategy/compile", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
           body: JSON.stringify({ parsed: confirmedParsed }),
           signal: chatSignal(),
         });
@@ -3554,7 +3564,9 @@ function StrategyLabContent() {
     }
 
     if (shouldBeginStrategyChatNavigation(isChatPage, messages.length)) {
-      beginStrategyChatNavigation(userText, (url) => router.push(url));
+      // 채팅 진입도 내부 링크다 — 지역 프리픽스 필수(/us 탭이 KR 트리로 이탈하면
+      // 언어·통화가 통째로 kr로 바뀐다, 2026-08-26).
+      beginStrategyChatNavigation(userText, (url) => router.push(regionHref(url)));
       return;
     }
 
@@ -4011,7 +4023,7 @@ function StrategyLabContent() {
       try {
         const res = await fetch("/api/query/general", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
           body: JSON.stringify({ query: userText, history: classifyResult?.history ?? [] }),
           signal: chatSignal(),
         });
@@ -4038,7 +4050,7 @@ function StrategyLabContent() {
       try {
         const res = await fetch("/api/query/general", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
           body: JSON.stringify({
             query: userText,
             history: classifyResult?.history ?? [],
@@ -4201,7 +4213,7 @@ function StrategyLabContent() {
     try {
       const coachRes = await fetch("/api/strategy/coach", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
         signal: chatSignal(),
         body: JSON.stringify({
           action: "create_session",
@@ -4267,7 +4279,7 @@ function StrategyLabContent() {
       const sessionId = coachSessionIdRef.current;
       const coachRes = await fetch("/api/strategy/coach", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
         signal: chatSignal(),
         body: JSON.stringify(sessionId
           ? {
@@ -4370,7 +4382,7 @@ function StrategyLabContent() {
     try {
       const res = await fetch("/api/strategy/backtest-stream", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
         body: JSON.stringify(effectiveReq),
         // '대화 종료'가 실행 중인 백테스트 스트림도 끊는다 — 종료 뒤 뒤늦게 도착한 결과가
         // 빈 대화 위에 결과 화면을 되살리지 않도록.
@@ -4513,7 +4525,7 @@ function StrategyLabContent() {
       // 무시
     }
     if (isChatPage) {
-      router.push("/analytics");
+      router.push(regionHref("/analytics"));
     }
     setTimeout(() => chatInputRef.current?.focus(), 100);
   };
@@ -4941,7 +4953,11 @@ function StrategyLabContent() {
                             </div>
                             {msg.coachText && (
                               <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
-                                {parseCoachSegments(msg.coachText).map((seg, segIdx) =>
+                                {/* 표시 지점에서 번역한다 — coachText는 세션 스냅샷으로 복원될 수
+                                    있어(이전 지역에서 저장된 한국어 원문) 저장 시점 언어에 의존하면
+                                    /us에서 한국어가 그대로 보인다. 사전 미등록 문구(LLM 자유 서술·
+                                    조합 문구)는 t()가 원문을 그대로 돌려준다. */}
+                                {parseCoachSegments(t(msg.coachText)).map((seg, segIdx) =>
                                   seg.type === "link" ? (
                                     <a
                                       key={segIdx}
@@ -5126,7 +5142,7 @@ function StrategyLabContent() {
                 <span>{isStartingGoogleLogin ? t("로그인 준비 중...") : t("Google로 시작하기")}</span>
               </button>
               <a
-                href="/login"
+                href={regionHref("/login")}
                 className="flex items-center gap-2 rounded-full border border-white/[0.15] px-4 py-2 text-sm font-black text-white transition-colors duration-200 hover:bg-white/[0.08]"
               >
                 <EnvelopeSimple size={18} weight="bold" />

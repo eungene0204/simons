@@ -129,14 +129,26 @@ export async function POST(
       });
       if (!account) throw new Error('ACCOUNT_NOT_FOUND');
       if (account.status === 'CLOSED') throw new Error('ACCOUNT_CLOSED');
+      // [통화 격리, 2026-08-26] 계좌 통화와 종목 통화가 다르면 매수 거절 — 환율 변환이
+      // 없으므로 USD 계좌에 원화 종목가($로 오독), KRW 계좌에 달러 종목가(원으로 오독)가
+      // 숫자 그대로 섞이면 잔고·손익이 통째로 무의미해진다(기존 잔여 사고의 원천 차단).
+      // 매도는 막지 않는다 — 과거에 섞여 들어간 포지션의 청산 길은 남겨야 한다.
+      const isUsSymbol = /^[A-Z][A-Z0-9.\-]{0,9}$/.test(symbol);
+      const accountCurrency = (account as { currency?: string }).currency ?? 'KRW';
+      if (side === 'BUY' && (accountCurrency === 'USD') !== isUsSymbol) {
+        throw new Error('CURRENCY_MISMATCH');
+      }
+      // 달러 정산 규칙(호가 $0.01·거래세 0·센트 절사) — 계좌 통화가 정본, 혼입 청산
+      // (KRW 계좌의 US 포지션 매도)도 계좌 통화(원 규칙)로 정산한다(숫자=계좌 통화 계약).
+      const usd = accountCurrency === 'USD';
 
       // ── 시장가 주문 ───────────────────────────────────────────────────────
       if (oType === 'MARKET') {
-        const filledPrice = calcMarketFilledPrice(prc, side);
-        const fee = calcFee(filledPrice, qty);
+        const filledPrice = calcMarketFilledPrice(prc, side, usd);
+        const fee = calcFee(filledPrice, qty, usd);
 
         if (side === 'BUY') {
-          const cost = calcBuyCost(filledPrice, qty);
+          const cost = calcBuyCost(filledPrice, qty, usd);
           const currentCash = moneyToNumber(account.currentCash);
           if (currentCash < cost) throw new Error('INSUFFICIENT_BALANCE');
 
@@ -159,9 +171,9 @@ export async function POST(
             where: { accountId_symbol: { accountId: params.id, symbol } },
           });
           const avgBuyPrice = pos ? moneyToNumber(pos.avgPrice) : filledPrice;
-          const tax = calcTransactionTax(filledPrice, qty);
+          const tax = calcTransactionTax(filledPrice, qty, usd);
           const realizedPnl = calcRealizedPnl(filledPrice, avgBuyPrice, qty, fee, tax);
-          const proceeds = calcSellProceeds(filledPrice, qty);
+          const proceeds = calcSellProceeds(filledPrice, qty, usd);
           await reducePosition(tx, params.id, symbol, qty);
           await tx.virtualAccount.update({
             where: { id: params.id },
@@ -187,10 +199,10 @@ export async function POST(
       if (immediateFill) {
         // 즉시 체결: 지정가격으로 체결 (슬리피지 없음)
         const filledPrice = limitPrice;
-        const fee = calcFee(filledPrice, qty);
+        const fee = calcFee(filledPrice, qty, usd);
 
         if (side === 'BUY') {
-          const cost = calcBuyCost(filledPrice, qty);
+          const cost = calcBuyCost(filledPrice, qty, usd);
           const currentCash = moneyToNumber(account.currentCash);
           if (currentCash < cost) throw new Error('INSUFFICIENT_BALANCE');
           await upsertPosition(tx, params.id, symbol, name, qty, filledPrice);
@@ -212,9 +224,9 @@ export async function POST(
             where: { accountId_symbol: { accountId: params.id, symbol } },
           });
           const avgBuyPrice = pos ? moneyToNumber(pos.avgPrice) : filledPrice;
-          const tax = calcTransactionTax(filledPrice, qty);
+          const tax = calcTransactionTax(filledPrice, qty, usd);
           const realizedPnl = calcRealizedPnl(filledPrice, avgBuyPrice, qty, fee, tax);
-          const proceeds = calcSellProceeds(filledPrice, qty);
+          const proceeds = calcSellProceeds(filledPrice, qty, usd);
           await reducePosition(tx, params.id, symbol, qty);
           await tx.virtualAccount.update({
             where: { id: params.id },
@@ -236,7 +248,7 @@ export async function POST(
       // PENDING 등록
       if (side === 'BUY') {
         // 매수 지정가: 예약 현금 차감 (수수료 추정 포함)
-        const reserved = calcBuyCost(limitPrice, qty);
+        const reserved = calcBuyCost(limitPrice, qty, usd);
         const currentCash = moneyToNumber(account.currentCash);
         if (currentCash < reserved) throw new Error('INSUFFICIENT_BALANCE');
         await tx.virtualAccount.update({
@@ -276,6 +288,10 @@ export async function POST(
       return NextResponse.json({ error: '계좌를 찾을 수 없습니다.' }, { status: 404 });
     if (msg === 'ACCOUNT_CLOSED')
       return NextResponse.json({ error: '닫힌 계좌에서는 매매할 수 없습니다.' }, { status: 400 });
+    if (msg === 'CURRENCY_MISMATCH')
+      return NextResponse.json(
+        { error: '계좌 통화와 종목 통화가 다릅니다 — 달러 계좌에서는 미국 종목만, 원화 계좌에서는 한국 종목만 매수할 수 있어요.' },
+        { status: 400 });
     console.error('Failed to execute order:', error);
     return NextResponse.json({ error: 'Failed to execute order' }, { status: 500 });
   }

@@ -135,6 +135,48 @@ def test_learned_anchor_hop_decay_and_pending_excluded(tmp_path, monkeypatch):
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
 
 
+def test_learned_to_learned_hop_is_blocked(tmp_path, monkeypatch):
+    """학습 개체 간 수평 연결(뉴스 공동 언급 related_to)은 상대 개체의 종목을 전이시키지
+    않는다 — 2026-08-24 '블랙핑크' 사고: 블랙핑크—BTS 공동 언급 엣지를 타고 BTS의 학습
+    종목(신세계)이 블랙핑크 유니버스로 수입됐다. 큐레이션 카테고리(kpop-agency) 경유는
+    유지된다."""
+    import engine.concept_universe as cu
+
+    monkeypatch.setattr(cu, "_EQUITY_PATH", tmp_path / "no-equity.json")
+    monkeypatch.setattr(cu, "_EQUITY_CACHE", None)
+    lexicon = tmp_path / "term_lexicon.json"
+    lexicon.write_text(json.dumps({
+        "bts": {"term": "BTS", "sector": "미디어/엔터",
+                "searched_at": "2026-07-25T10:10:03+00:00",
+                "edges": [
+                    {"type": "related_company", "target": "company:004170",
+                     "target_name": "신세계", "support": 1, "status": "verified"},
+                ]},
+        "블랙핑크": {"term": "블랙핑크", "sector": "미디어/엔터",
+                 "searched_at": "2026-08-23T19:31:29+00:00",
+                 "edges": [
+                     {"type": "related_to", "target": "kpop-agency",
+                      "support": 5, "status": "verified"},
+                     {"type": "related_to", "target": "learned:bts",
+                      "target_name": "BTS", "support": 9, "status": "verified"},
+                 ]},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    result = build_concept_universe("블랙핑크")
+    assert result is not None and result["concept_id"] == "learned:블랙핑크"
+    by_symbol = {s["symbol"]: s for s in result["stocks"]}
+    assert "041510" in by_symbol       # 카테고리(kpop-agency) 경유 기획사는 유지
+    assert "004170" not in by_symbol   # BTS(학습 개체) 경유 신세계는 전이 금지
+
+    # BTS 자신의 유니버스에서는 신세계가 직접 엣지로 남는다(앵커 직접 근거는 차단 대상 아님)
+    bts = build_concept_universe("bts")
+    assert "004170" in {s["symbol"] for s in bts["stocks"]}
+
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+
 def test_equity_hop_brings_shareholder_with_decay(tmp_path, monkeypatch):
     """지분 관계 회사 홉(FR-STR-072b) — DART 타법인출자현황 엣지로 유니버스 종목의
     주주가 ×0.7 감쇠로 편입된다('넷마블=하이브 지분 9.2%' 실측 시나리오). 저점수

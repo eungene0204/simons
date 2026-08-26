@@ -24,12 +24,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 BACKEND = "http://localhost:8000"
+
+# --lang en(/us 재현)일 때 전 요청에 실리는 헤더 — 백엔드 미들웨어가 X-UI-Language를
+# 요청 컨텍스트에 결속해 scope_us 영어 카탈로그·영어 응답 레인을 태운다(main.py:110).
+HEADERS: dict[str, str] = {}
 
 # 프론트 conversationDecision.fallbackMessage와 동일한 폴백 문구(요약 키워드만).
 FALLBACK = {
@@ -46,7 +53,7 @@ def post(path: str, body: dict, timeout: int) -> dict:
     req = urllib.request.Request(
         f"{BACKEND}{path}",
         data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **HEADERS},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -99,9 +106,13 @@ def run_case(case: dict) -> dict:
                 reply = c.get("suggested_reply")
                 symbols = c.get("symbols") or []
 
-                if intent in ("GREETING", "OFF_TOPIC", "UNSUPPORTED_FEATURE"):
+                if intent in ("GREETING", "OFF_TOPIC", "UNSUPPORTED_FEATURE",
+                              "PERSONAL_ADVICE", "LIVE_TRADING"):
+                    # PERSONAL_ADVICE·LIVE_TRADING도 프론트는 정형 거절 respond다
+                    # (conversationDecision.ts:1017) — 누락 시 parse로 새어 규제 케이스가
+                    # 러너 결함으로 FAIL 판정된다(2026-08-26 u4-3·u4-6 실측).
                     ev["action"] = "respond"
-                    ev["reply"] = reply or FALLBACK[intent]
+                    ev["reply"] = reply or FALLBACK.get(intent, "")
                 elif intent in ("STOCK_PICK", "STRATEGY_PICK", "ONBOARDING") and parsed is None:
                     ev["action"] = "start_builder"
                     ev["reply"] = reply or FALLBACK[intent]
@@ -351,14 +362,25 @@ CASES: list[dict] = [
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default="docs/qa_redteam_validation_results.jsonl")
+    ap.add_argument("--out", default=None)
     ap.add_argument("--only", default=None, help="쉼표 구분 케이스 id만 실행")
+    ap.add_argument("--lang", default="kr", choices=["kr", "en"],
+                    help="en: /us 영어 케이스 세트(qa_redteam_cases_us.py) + X-UI-Language 헤더")
     args = ap.parse_args()
 
-    cases = CASES
+    if args.lang == "en":
+        from qa_redteam_cases_us import CASES_US
+
+        cases = CASES_US
+        HEADERS["X-UI-Language"] = "en"
+    else:
+        cases = CASES
+    if args.out is None:
+        args.out = ("docs/qa_redteam_validation_results_us.jsonl" if args.lang == "en"
+                    else "docs/qa_redteam_validation_results.jsonl")
     if args.only:
         wanted = set(args.only.split(","))
-        cases = [c for c in CASES if c["id"] in wanted]
+        cases = [c for c in cases if c["id"] in wanted]
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

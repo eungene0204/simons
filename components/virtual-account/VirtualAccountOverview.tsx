@@ -13,6 +13,8 @@ import {
   refreshVirtualAccountOverviewCache,
 } from "./virtualAccountOverviewCache";
 import { getLocale, t } from "@/lib/i18n";
+import { formatAccountMoney, formatAccountSignedMoney, isUsdAccount } from "@/lib/account-money";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 const formatPrice = (value: number) =>
   new Intl.NumberFormat("ko-KR").format(Math.round(value));
@@ -39,6 +41,7 @@ const cacheAccountDetailSnapshot = (account: VirtualAccount) => {
 };
 
 export default function VirtualAccountOverview() {
+  const regionHref = useRegionHref();
   const initialAccounts = getCachedVirtualAccounts();
   const [accounts, setAccounts] = useState<VirtualAccount[]>(initialAccounts ?? []);
   const [loading, setLoading] = useState(!initialAccounts);
@@ -109,7 +112,7 @@ export default function VirtualAccountOverview() {
     event: MouseEvent<HTMLElement>,
     account: VirtualAccount
   ) => {
-    const accountPath = `/virtual-account/${account.id}`;
+    const accountPath = regionHref(`/virtual-account/${account.id}`);
 
     if (
       event.defaultPrevented ||
@@ -274,7 +277,7 @@ export default function VirtualAccountOverview() {
                     className={`group relative max-w-lg rounded-lg border border-white/[0.08] bg-[#111111] p-4 text-left transition-colors hover:bg-[#151515] ${accountLinkClass}`}
                   >
                     <Link
-                      href={`/virtual-account/${account.id}`}
+                      href={regionHref(`/virtual-account/${account.id}`)}
                       onClick={(event) => handleAccountClick(event, account)}
                       aria-disabled={openingAccountId === account.id}
                       aria-label={t("{0} 상세 보기", account.name)}
@@ -313,10 +316,14 @@ export default function VirtualAccountOverview() {
                           {t("총 자산 가치")}
                         </p>
                         <p className="mt-2 text-2xl font-black tabular-nums tracking-tight text-white">
-                          {formatPrice(account.totalValue)}
-                          <span className="ml-1 text-xs font-bold text-gray-500">
-                            {t("원")}
-                          </span>
+                          {isUsdAccount(account.currency)
+                            ? formatAccountMoney(account.totalValue, account.currency)
+                            : formatPrice(account.totalValue)}
+                          {!isUsdAccount(account.currency) && (
+                            <span className="ml-1 text-xs font-bold text-gray-500">
+                              {t("원")}
+                            </span>
+                          )}
                         </p>
                         <p
                           className={`mt-2 text-sm font-black tabular-nums ${
@@ -327,7 +334,7 @@ export default function VirtualAccountOverview() {
                                 : "text-gray-500"
                           }`}
                         >
-                          {t("{0}{1}원 ({2})", isPositive ? "+" : isNegative ? "-" : "", formatPrice(Math.abs(profit)), formatSignedPercent(profitPercent))}
+                          {`${formatAccountSignedMoney(profit, account.currency)} (${formatSignedPercent(profitPercent)})`}
                         </p>
                       </div>
 
@@ -337,7 +344,7 @@ export default function VirtualAccountOverview() {
                             {t("현금 잔액")}
                           </p>
                           <p className="mt-2 text-sm font-black tabular-nums text-white">
-                            {t("{0}원", formatPrice(account.currentBalance))}
+                            {formatAccountMoney(account.currentBalance, account.currency)}
                           </p>
                         </div>
                         <div className="rounded-md border border-white/[0.06] bg-white/[0.02] p-3">
@@ -345,7 +352,7 @@ export default function VirtualAccountOverview() {
                             {t("초기 모의 투자금")}
                           </p>
                           <p className="mt-2 text-sm font-black tabular-nums text-white">
-                            {t("{0}원", formatPrice(account.initialAmount))}
+                            {formatAccountMoney(account.initialAmount, account.currency)}
                           </p>
                         </div>
                       </div>

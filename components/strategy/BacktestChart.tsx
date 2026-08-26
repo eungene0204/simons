@@ -10,7 +10,7 @@ import {
   LineSeries,
   AreaSeries,
   LineStyle,
-  HistogramSeries,
+  BaselineSeries,
   LineType,
   SeriesMarker,
 } from "lightweight-charts";
@@ -55,6 +55,8 @@ interface BacktestChartProps {
   hideLegend?: boolean;
   // "currency": compact KRW (억/만/천). "ratio": normalized equity multiple (1.05x) — 2 decimals.
   valueMode?: "currency" | "ratio";
+  // 통화 — 미국 전략은 달러 축약($1.2M)로 표기한다(시뮬레이션이 달러로 돌았다). 기본 krw.
+  currency?: "krw" | "usd";
 }
 
 // Convert YYYY-MM-DD to timestamp
@@ -78,6 +80,16 @@ const formatCompactPrice = (price: number): string => {
   return price.toFixed(0);
 };
 
+// 달러 축약 (K/M/B) — 미국 전략 자산곡선 축·툴팁용
+const formatCompactUsd = (price: number): string => {
+  const abs = Math.abs(price);
+  const sign = price < 0 ? "-" : "";
+  if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(1)}K`;
+  return `${sign}$${abs.toFixed(0)}`;
+};
+
 export default function BacktestChart({
   type,
   equityData = [],
@@ -89,10 +101,16 @@ export default function BacktestChart({
   height = 400,
   hideLegend = false,
   valueMode = "currency",
+  currency = "krw",
 }: BacktestChartProps) {
   const formatValue = useCallback(
-    (value: number) => (valueMode === "ratio" ? value.toFixed(2) : formatCompactPrice(value)),
-    [valueMode],
+    (value: number) =>
+      valueMode === "ratio"
+        ? value.toFixed(2)
+        : currency === "usd"
+          ? formatCompactUsd(value)
+          : formatCompactPrice(value),
+    [valueMode, currency],
   );
   const priceMinMove = valueMode === "ratio" ? 0.01 : 1;
 
@@ -102,7 +120,7 @@ export default function BacktestChart({
   const buyHoldSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const vbtEquitySeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const drawdownSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const monthlySeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const monthlySeriesRef = useRef<ISeriesApi<"Baseline"> | null>(null);
   const rollingSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const seasonalSeriesRefs = useRef<Record<string, ISeriesApi<"Line">>>({});
   const tooltipRef = useRef<HTMLDivElement>(null);
@@ -156,7 +174,6 @@ export default function BacktestChart({
     return monthlyData.map((item) => ({
       time: dateToTimestamp(item.time),
       value: item.value,
-      color: item.value >= 0 ? "rgba(239, 68, 68, 0.8)" : "rgba(55, 122, 244, 0.8)", // red for gain, blue for loss
     }));
   }, [type, monthlyData]);
 
@@ -388,14 +405,31 @@ export default function BacktestChart({
             (equitySeries as any).setMarkers(markers);
           }
         } else if (type === "monthly_returns") {
-          // Create monthly returns histogram series
-          const monthlySeries = chart.addSeries(HistogramSeries, {
+          // 월별 수익률 라인 — 0을 기준선으로 두어 이익 구간은 빨강, 손실 구간은 파랑으로 그린다.
+          const monthlySeries = chart.addSeries(BaselineSeries, {
+            baseValue: { type: "price", price: 0 },
+            topLineColor: "rgb(239, 68, 68)",
+            bottomLineColor: "rgb(55, 122, 244)",
+            topFillColor1: "transparent",
+            topFillColor2: "transparent",
+            bottomFillColor1: "transparent",
+            bottomFillColor2: "transparent",
+            lineWidth: 2,
+            lineType: LineType.Curved,
             priceFormat: {
               type: "price",
               precision: 2,
               minMove: 0.01,
             },
             priceScaleId: "right",
+          });
+          monthlySeries.createPriceLine({
+            price: 0,
+            color: "rgba(255,255,255,0.25)",
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: false,
+            title: "",
           });
           monthlySeriesRef.current = monthlySeries;
 

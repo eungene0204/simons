@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StrategyExampleTabs } from "./StrategyExampleTabs";
 
@@ -11,6 +11,17 @@ vi.mock("next/link", () => ({
     </a>
   ),
 }));
+
+// 지역(useRegion)은 경로에서 파생된다 — 테스트별로 브라우저 경로를 바꿔 지역을 시뮬레이션한다.
+const pathnameRef = { current: "/" };
+vi.mock("next/navigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/navigation")>()),
+  usePathname: () => pathnameRef.current,
+}));
+
+beforeEach(() => {
+  pathnameRef.current = "/";
+});
 
 describe("StrategyExampleTabs legal links", () => {
   it("renders terms and privacy policy links in the usage notice", () => {
@@ -34,5 +45,23 @@ describe("StrategyExampleTabs legal links", () => {
     expect(
       within(usageNotice).getByRole("link", { name: "nullspace.support@gmail.com" })
     ).toHaveAttribute("href", "mailto:nullspace.support@gmail.com");
+  });
+
+  it("글로벌(/us) 푸터에는 연락처(이메일)만 남기고 사업자 정보를 표시하지 않는다", () => {
+    pathnameRef.current = "/us";
+    render(<StrategyExampleTabs onSelectExample={vi.fn()} />);
+
+    const usageNotice = screen.getByRole("contentinfo", { name: "전략연구소 이용 안내" });
+    expect(
+      within(usageNotice).getByRole("link", { name: "nullspace.support@gmail.com" })
+    ).toHaveAttribute("href", "mailto:nullspace.support@gmail.com");
+
+    const noticeText = usageNotice.textContent ?? "";
+    expect(noticeText).not.toContain("Company:"); // 상호
+    expect(noticeText).not.toContain("CEO:"); // 대표
+    expect(noticeText).not.toContain("898-50-00737"); // 사업자등록번호
+    expect(noticeText).not.toContain("2026-Seoul Seodaemun-0758"); // 통신판매업신고번호
+    expect(noticeText).not.toContain("2026-서울서대문-0758");
+    expect(noticeText).not.toMatch(/Address:|주소 :/); // 주소
   });
 });

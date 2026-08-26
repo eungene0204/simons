@@ -1,0 +1,920 @@
+# 전략 템플릿 파싱 검출 리포트 (정제판)
+
+- 대상: 100개 (source=us, lang=en)
+
+
+## 1. [가치투자/beginner] S&P500 저PER 분기 점검
+
+> S&P500에서 PER 15 이하인 종목을 대상으로 설정해 주세요. 최대 보유 종목은 10개, 점검 주기는 3개월, 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) Target S&P 500 stocks with a PER of 15 or below. Set the maximum holdings to 10, the review interval to 3 months, and the stop-loss example value to -10%.
+
+- **요약**: 유니버스=SP500 · 펀더멘털=per<=15.0 · max_pos=10 · 리밸=quarterly · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 2. [가치투자/beginner] 다우 30 저PBR 5종목 담기
+
+> 다우지수 30개 종목 중에서 PBR이 낮은 순서로 5종목을 골라 동일한 비중으로 투자하고 싶어요. 두 달에 한 번 다시 점검하고, 손절은 -8%로 부탁드립니다.
+
+> (파서 입력 EN) From the 30 Dow stocks, pick the 5 with the lowest PBR and invest in them with equal weights. Review every two months, and set the stop-loss to -8%.
+
+- **요약**: 유니버스=DOW30 · 랭킹=pbr(Noned) · max_pos=5 · 리밸=bimonthly · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 3. [가치투자/beginner] S&P500 ROE 15% 우량주 보유
+
+> S&P500에서 ROE 15% 이상인 종목만 추려서 8종목 정도 나눠 사고 싶습니다. 점검 주기는 3개월, 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) From the S&P 500, keep only stocks with ROE of 15% or higher and split my investment across about 8 of them. Set the review interval to 3 months and the stop-loss example value to -10%.
+
+- **요약**: 유니버스=SP500 · 펀더멘털=roe_or_gpa>=15.0 · max_pos=8 · 리밸=quarterly · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 4. [가치투자/beginner] 나스닥 저부채 실속주 고르기
+
+> 나스닥100에서 부채비율 80% 이하이면서 PER 20 이하인 종목을 대상으로 설정해 주세요. 최대 보유 종목은 8개, 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) Target Nasdaq-100 stocks with a debt ratio of 80% or below and a PER of 20 or below. Set the maximum holdings to 8 and the stop-loss example value to -9%.
+
+- **요약**: 유니버스=NASDAQ100 · 업종=IT 하드웨어 · 펀더멘털=debt_ratio<=80.0,per<=20.0 · max_pos=8 · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 5. [가치투자/beginner] S&P500 시총 상위 균등 분산
+
+> 종목 고르기가 어려워서 미국 대표 대기업에 나눠 두고 싶어요. S&P500에서 시가총액 상위 10개 종목을 동일 비중으로 담고 분기마다 재조정해 주세요. 손절은 -12%로 넉넉하게 부탁드립니다.
+
+> (파서 입력 EN) Picking stocks is hard, so I'd like to spread my money across America's biggest companies. Hold the top 10 S&P 500 stocks by market cap with equal weights and rebalance quarterly. Set a generous stop-loss of -12%.
+
+- **요약**: 유니버스=SP500 · 랭킹=market_cap(Noned) · max_pos=10 · 리밸=quarterly · 리스크=SL12.0
+- ℹ️ clarification 되물음
+
+## 6. [가치투자/intermediate] S&P500 저PER·고ROE 결합
+
+> S&P500에서 PER 12 이하이면서 ROE 12% 이상인 종목을 매수 조건으로 설정해 주세요. 최대 보유 종목은 10개, 점검 주기는 1개월, 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) Set the buy condition to S&P 500 stocks with a PER of 12 or below and ROE of 12% or higher. Set the maximum holdings to 10, the review interval to 1 month, and the stop-loss example value to -10%.
+
+- **요약**: 유니버스=SP500 · 펀더멘털=per<=12.0,roe_or_gpa>=12.0 · max_pos=10 · 리밸=monthly · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 7. [가치투자/intermediate] 다우 30 저평가 반등 노리기
+
+> 다우지수 종목 중 PBR 1.5 이하인 종목에서 RSI가 40 아래로 내려갔다가 회복하면 매수해 주세요. 최대 보유 종목은 5개, 익절 예시값은 +12%, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Among Dow stocks with a PBR of 1.5 or below, buy when RSI drops below 40 and then recovers. Set the maximum holdings to 5, the take-profit example value to +12%, and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=DOW30 · 펀더멘털=pbr<=1.5 · 진입=rsi,rsi · max_pos=5 · 리스크=SL8.0/TP12.0
+- ℹ️ clarification 되물음
+
+## 8. [가치투자/intermediate] 나스닥 성장주 합리적 가격 매수
+
+> 나스닥100에서 매출이 늘고 있으면서 PER 25 이하인 종목을 대상으로 설정해 주세요. 최대 보유 종목은 8개, 점검 주기는 2개월, 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) Target Nasdaq-100 stocks with growing revenue and a PER of 25 or below. Set the maximum holdings to 8, the review interval to 2 months, and the stop-loss example value to -10%.
+
+- **요약**: 유니버스=NASDAQ100 · 업종=IT 하드웨어 · 펀더멘털=per<=25.0 · max_pos=8 · 리밸=bimonthly · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 9. [가치투자/intermediate] S&P500 현금흐름 좋은 기업
+
+> 영업현금흐름이 안정적인 회사를 좋아합니다. S&P500에서 영업현금흐름이 흑자이고 부채비율 100% 이하인 종목을 8종목 골라 주세요. 점검 주기는 3개월, 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) I like companies with steady operating cash flow. From the S&P 500, pick 8 stocks with positive operating cash flow and a debt ratio of 100% or below. Set the review interval to 3 months and the stop-loss example value to -10%.
+
+- **요약**: 유니버스=SP500 · 펀더멘털=operating_cf_amount>0.0,debt_ratio<=100.0 · max_pos=8 · 리밸=quarterly · 리스크=SL10.0
+- ℹ️ clarification 되물음
+- ℹ️ 현금흐름/성장 팩터
+
+## 10. [가치투자/intermediate] S&P500 저PBR 상위 월간 교체
+
+> S&P500에서 PBR이 낮은 순서로 상위 10종목을 편입하고 매달 순위를 다시 산정해 교체해 주세요. 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) Hold the 10 S&P 500 stocks with the lowest PBR and re-rank them every month, swapping as needed. Set the stop-loss example value to -9%.
+
+- **요약**: 유니버스=SP500 · 랭킹=pbr(Noned) · max_pos=10 · 리밸=monthly · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 11. [가치투자/expert] S&P500 밸류 복합 랭킹 분기 운용
+
+> S&P500에서 PER과 PBR을 함께 반영한 복합 순위로 상위 10종목을 뽑아 분기마다 리밸런싱해 주세요. 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) From the S&P 500, pick the top 10 stocks by a composite ranking that combines PER and PBR, and rebalance quarterly. Set the stop-loss example value to -10%.
+
+- **요약**: 유니버스=SP500 · 랭킹=composite(Noned) · max_pos=10 · 리밸=quarterly · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 12. [가치투자/expert] 퀄리티·밸류 교집합 월간 로테이션
+
+> S&P500에서 ROE가 높은 순서와 PER이 낮은 순서를 함께 반영한 복합 순위로 8종목을 편입하고 매달 재산정해 주세요. 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) From the S&P 500, hold 8 stocks by a composite ranking that combines high ROE and low PER, re-ranking every month. Set the stop-loss example value to -9%.
+
+- **요약**: 유니버스=SP500 · 랭킹=composite(Noned) · max_pos=8 · 리밸=monthly · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 13. [가치투자/expert] 다우 30 낙폭 과대 가치주 역발상
+
+> 다우지수 종목 중 최근 60거래일 수익률이 낮은 순서로 상위 5종목 중 PER 12 이하인 종목을 담아 반등을 기다리는 전략을 만들어 주세요. 최대 보유 기간은 6개월, 손절 예시값은 -12%로 설정해 주세요.
+
+> (파서 입력 EN) Among the 5 Dow stocks with the lowest returns over the last 60 trading days, hold the ones with a PER of 12 or below and wait for a rebound. Set the maximum holding period to 6 months and the stop-loss example value to -12%.
+
+- **요약**: 유니버스=DOW30 · 펀더멘털=per<=12.0 · 진입=ma_crossover · 랭킹=return(60d) · max_pos=5 · 보유=126d · 리스크=SL12.0
+- ℹ️ clarification 되물음
+
+## 14. [가치투자/expert] 나스닥 대형 성장주 눌림 접근
+
+> 나스닥100에서 시가총액 1000억 달러 이상이면서 ROE 20% 이상인 종목이 20일 이동평균선 근처까지 내려오면 매수해 주세요. 최대 보유 종목은 6개, 익절 예시값은 +20%, 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) Among Nasdaq-100 stocks with a market cap of $100 billion or more and ROE of 20% or higher, buy when they pull back near the 20-day moving average. Set the maximum holdings to 6, the take-profit example value to +20%, and the stop-loss example value to -10%.
+
+- **요약**: 유니버스=NASDAQ100 · 펀더멘털=market_cap>=1000.0,roe_or_gpa>=20.0 · 진입=ema · max_pos=6 · 리스크=SL10.0/TP20.0
+- ℹ️ clarification 되물음
+
+## 15. [기술분석/beginner] S&P500 골든크로스 입문
+
+> 미국 주식은 처음이라 간단한 것부터 해보고 싶어요. S&P500 종목 중 5일 이동평균선이 20일선을 위로 뚫으면 매수하고 반대로 내려오면 매도해 주세요. 최대 10종목, 손절은 -8%로 부탁드립니다.
+
+> (파서 입력 EN) I'm new to US stocks and want to start simple. Among S&P 500 stocks, buy when the 5-day moving average crosses above the 20-day line, and sell on the opposite cross. At most 10 stocks, with a stop-loss of -8%.
+
+- **요약**: 유니버스=SP500 · 진입=ma_crossover · 청산=ma_crossover · max_pos=10 · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 16. [기술분석/beginner] 나스닥 RSI 과매도 반등
+
+> 나스닥100에서 RSI가 30 아래로 떨어졌다가 다시 올라오는 종목을 매수 조건으로 설정해 주세요. 최대 보유 종목은 8개, 익절 예시값은 +10%, 손절 예시값은 -7%로 설정해 주세요.
+
+> (파서 입력 EN) Set the buy condition to Nasdaq-100 stocks whose RSI drops below 30 and then climbs back. Set the maximum holdings to 8, the take-profit example value to +10%, and the stop-loss example value to -7%.
+
+- **요약**: 유니버스=NASDAQ100 · 진입=rsi,rsi · max_pos=8 · 리스크=SL7.0/TP10.0
+- ℹ️ clarification 되물음
+
+## 17. [기술분석/beginner] 다우 30 20일선 위 보유
+
+> 다우지수 종목 중 종가가 20일 이동평균선 위에 있는 종목만 담고, 아래로 내려오면 정리해 주세요. 최대 보유 종목은 6개, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Hold only Dow stocks whose close is above the 20-day moving average, and exit when they fall below it. Set the maximum holdings to 6 and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=DOW30 · 진입=ma_crossover · 청산=ma_crossover · max_pos=6 · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 18. [기술분석/beginner] S&P500 박스권 상단 돌파
+
+> 최근 한 달간 갇혀 있던 가격대를 위로 뚫는 종목을 따라가고 싶어요. S&P500에서 20일 고점을 돌파하면 매수하고 박스 안으로 되돌아오면 매도해 주세요. 최대 8종목, 손절은 -7%로 부탁드립니다.
+
+> (파서 입력 EN) I want to follow stocks breaking out of the range they've been stuck in for the past month. In the S&P 500, buy on a breakout above the 20-day high and sell when the price falls back into the range. At most 8 stocks, with a stop-loss of -7%.
+
+- **요약**: 유니버스=SP500 · 진입=breakout,ma_crossover · 청산=ma_crossover · max_pos=8 · 리스크=SL7.0
+- ℹ️ clarification 되물음
+
+## 19. [기술분석/beginner] 나스닥 볼린저 하단 반등
+
+> 나스닥100에서 주가가 볼린저밴드 하단에 닿았다가 반등하면 매수해 주세요. 최대 보유 종목은 6개, 최대 보유 기간은 20거래일, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) In the Nasdaq-100, buy when the price touches the lower Bollinger Band and bounces back. Set the maximum holdings to 6, the maximum holding period to 20 trading days, and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=NASDAQ100 · 진입=bollinger_bands · max_pos=6 · 보유=20d · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 20. [기술분석/beginner] 다우 MACD 상향 전환 따라가기
+
+> 다우지수 종목 중 MACD 골든크로스가 나오면 매수하고 MACD 데드크로스가 나오면 매도하도록 설정해 주세요. 최대 보유 종목은 5개, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Among Dow stocks, buy on a MACD golden cross and sell on a MACD dead cross. Set the maximum holdings to 5 and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=DOW30 · 진입=macd · 청산=macd · max_pos=5 · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 21. [기술분석/intermediate] S&P500 60일선 눌림목 진입
+
+> S&P500에서 종가가 60일 이동평균선 위에 있는 종목 중 RSI가 40 아래로 내려갔다가 회복하면 매수하고, 60일선 아래로 내려오면 매도해 주세요. 최대 보유 종목은 8개, 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) In the S&P 500, among stocks whose close is above the 60-day moving average, buy when RSI drops below 40 and then recovers, and sell when the price falls below the 60-day line. Set the maximum holdings to 8 and the stop-loss example value to -9%.
+
+- **요약**: 유니버스=SP500 · 진입=ma_crossover,rsi,rsi · 청산=ma_crossover · max_pos=8 · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 22. [기술분석/intermediate] 나스닥 거래량 동반 신고가
+
+> 나스닥에서 52주 신고가를 새로 쓰면서 거래량이 평소보다 늘어난 종목만 진입해 주세요. 최대 보유 기간은 30거래일, 최대 보유 종목은 6개, 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) On the Nasdaq, only enter stocks setting a new 52-week high with above-average volume. Set the maximum holding period to 30 trading days, the maximum holdings to 6, and the stop-loss example value to -10%.
+
+- **요약**: 유니버스=NASDAQ100 · 진입=breakout,volume_spike · max_pos=6 · 보유=30d · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 23. [기술분석/intermediate] S&P500 EMA 10·50 크로스
+
+> S&P500에서 10일 지수이동평균(EMA)이 50일 EMA를 위로 돌파하면 매수, 반대면 매도로 설정해 주세요. 최대 보유 종목은 8개, 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) In the S&P 500, buy when the 10-day exponential moving average (EMA) crosses above the 50-day EMA, and sell on the opposite cross. Set the maximum holdings to 8 and the stop-loss example value to -9%.
+
+- **요약**: 유니버스=SP500 · 진입=ema · 청산=ema · max_pos=8 · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 24. [기술분석/intermediate] 다우 볼린저 상단 돌파 추세
+
+> 다우지수 종목이 볼린저밴드 상단을 돌파하며 강해질 때 따라붙는 전략을 만들어 주세요. 최대 보유 기간은 15거래일, 최대 보유 종목은 5개, 손절 예시값은 -7%로 설정해 주세요.
+
+> (파서 입력 EN) Build a strategy that rides Dow stocks as they break above the upper Bollinger Band with strength. Set the maximum holding period to 15 trading days, the maximum holdings to 5, and the stop-loss example value to -7%.
+
+- **요약**: 유니버스=DOW30 · 진입=bollinger_bands,adx · max_pos=5 · 보유=15d · 리스크=SL7.0
+- ℹ️ clarification 되물음
+
+## 25. [기술분석/intermediate] 나스닥 MACD·RSI 이중 확인
+
+> 나스닥100에서 MACD가 시그널선을 상향 돌파하고 RSI가 50 이상인 종목만 매수하도록 두 조건을 함께 걸어 주세요. 최대 보유 종목은 8개, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) In the Nasdaq-100, require both conditions: buy only stocks where MACD crosses above the signal line and RSI is 50 or higher. Set the maximum holdings to 8 and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=NASDAQ100 · 진입=macd,rsi · max_pos=8 · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 26. [기술분석/expert] S&P500 장기 추세 속 단기 크로스
+
+> S&P500에서 종가가 200일 이동평균선 위에 있는 종목 중 5일선이 20일선을 돌파할 때만 진입하고 싶습니다. 최대 10종목, 익절 예시값은 +15%, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) In the S&P 500, I only want to enter stocks trading above the 200-day moving average when the 5-day line crosses above the 20-day line. At most 10 stocks, with a take-profit example value of +15% and a stop-loss example value of -8%.
+
+- **요약**: 유니버스=SP500 · 진입=ma_crossover,ma_crossover · 청산=ma_crossover · max_pos=10 · 리스크=SL8.0/TP15.0
+- ℹ️ clarification 되물음
+
+## 27. [기술분석/expert] 나스닥 변동 축소 후 돌파
+
+> 나스닥100에서 최근 30거래일 박스권에 머물던 종목이 거래량이 늘면서 박스 상단을 돌파하면 매수해 주세요. 최대 보유 종목은 6개, 최대 보유 기간은 40거래일, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) In the Nasdaq-100, buy stocks that have been stuck in a range for the last 30 trading days when they break above the range with rising volume. Set the maximum holdings to 6, the maximum holding period to 40 trading days, and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=NASDAQ100 · 진입=breakout,volume_spike · max_pos=6 · 보유=40d · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 28. [기술분석/expert] 다우 과대 낙폭 반등 짧게
+
+> 다우지수 종목이 RSI 30 아래로 급락했을 때 반등을 노려 매수하고, 20일 이동평균선을 회복하면 매도해 주세요. 최대 보유 종목은 5개, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Buy Dow stocks for a rebound when RSI plunges below 30, and sell when the price recovers the 20-day moving average. Set the maximum holdings to 5 and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=DOW30 · 진입=rsi,ma_crossover · max_pos=5 · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 29. [기술분석/expert] S&P500 유동성 상위 골든크로스 스윙
+
+> S&P500에서 하루 거래대금 1억 달러 이상인 종목만 남긴 뒤 골든크로스가 나오면 매수해 주세요. 최대 보유 기간은 25거래일, 최대 8종목, 익절 예시값은 +12%, 손절 예시값은 -7%로 설정해 주세요.
+
+> (파서 입력 EN) In the S&P 500, keep only stocks with daily trading value of $100 million or more, then buy on a golden cross. Set the maximum holding period to 25 trading days, at most 8 stocks, a take-profit example value of +12%, and a stop-loss example value of -7%.
+
+- **요약**: 유니버스=SP500 · 펀더멘털=trading_value>=1.0 · 진입=ma_crossover · 청산=ma_crossover · max_pos=8 · 보유=25d · 리스크=SL7.0/TP12.0
+- ℹ️ clarification 되물음
+
+## 30. [기술분석/expert] 나스닥 신고가 근접 돌파 대기
+
+> 나스닥100에서 52주 신고가를 갱신하는 날 매수하도록 설정해 주세요. 최대 보유 종목은 6개, 최대 보유 기간은 30거래일, 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) In the Nasdaq-100, buy on the day a stock sets a new 52-week high. Set the maximum holdings to 6, the maximum holding period to 30 trading days, and the stop-loss example value to -9%.
+
+- **요약**: 유니버스=NASDAQ100 · 업종=IT 하드웨어 · 진입=breakout · max_pos=6 · 보유=30d · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 31. [모멘텀/beginner] S&P500 3개월 상승 상위 따라가기
+
+> S&P500에서 최근 60거래일 수익률 상위 10종목을 담고 매달 순위를 다시 산정해 주세요. 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) Hold the top 10 S&P 500 stocks by return over the last 60 trading days and re-rank them every month. Set the stop-loss example value to -9%.
+
+- **요약**: 유니버스=SP500 · 랭킹=return(60d) · max_pos=10 · 리밸=monthly · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 32. [모멘텀/beginner] 나스닥 한 달 강세주 주간 교체
+
+> 나스닥100에서 최근 1개월 수익률 상위 5종목을 편입하고 매주 순위를 갱신해 기준에서 벗어난 종목을 교체해 주세요. 손절 예시값은 -7%로 설정해 주세요.
+
+> (파서 입력 EN) Hold the top 5 Nasdaq-100 stocks by 1-month return and refresh the ranking weekly, replacing any that fall out. Set the stop-loss example value to -7%.
+
+- **요약**: 유니버스=NASDAQ100 · 업종=IT 하드웨어 · 랭킹=return(30d) · max_pos=5 · 리밸=weekly · 리스크=SL7.0
+- ℹ️ clarification 되물음
+
+## 33. [모멘텀/beginner] 다우 30 수익률 상위 5 월간
+
+> 다우지수 30종목 중 최근 한 달 수익률 상위 5개를 골라 담고 한 달마다 교체해 주세요. 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) From the 30 Dow stocks, hold the top 5 by return over the past month and rotate monthly. Set the stop-loss example value to -8%.
+
+- **요약**: 유니버스=DOW30 · 랭킹=return(30d) · max_pos=5 · 리밸=monthly · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 34. [모멘텀/beginner] 나스닥 신고가 단기 보유
+
+> 나스닥에서 52주 신고가를 만든 종목을 매수해 20거래일만 보유하고 정리하는 전략을 만들어 주세요. 최대 보유 종목은 6개, 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) Build a strategy that buys Nasdaq stocks making a new 52-week high and holds them for only 20 trading days before exiting. Set the maximum holdings to 6 and the stop-loss example value to -10%.
+
+- **요약**: 유니버스=NASDAQ100 · 진입=breakout · max_pos=6 · 보유=20d · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 35. [모멘텀/beginner] S&P500 5일 연속 상승 추세
+
+> S&P500에서 주가가 5거래일 연속 오른 종목을 매수 조건으로 설정해 주세요. 최대 보유 기간은 10거래일, 최대 보유 종목은 6개, 손절 예시값은 -6%로 설정해 주세요.
+
+> (파서 입력 EN) Set the buy condition to S&P 500 stocks that have risen for 5 consecutive trading days. Set the maximum holding period to 10 trading days, the maximum holdings to 6, and the stop-loss example value to -6%.
+
+- **요약**: 유니버스=SP500 · max_pos=6 · 보유=10d · 리스크=SL6.0
+- ℹ️ clarification 되물음
+
+## 36. [모멘텀/intermediate] S&P500 6개월 모멘텀 분기 교체
+
+> S&P500에서 최근 6개월 수익률 상위 10종목을 편입하고 분기마다 리밸런싱해 주세요. 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) Hold the top 10 S&P 500 stocks by 6-month return and rebalance quarterly. Set the stop-loss example value to -10%.
+
+- **요약**: 유니버스=SP500 · 랭킹=return(180d) · max_pos=10 · 리밸=quarterly · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 37. [모멘텀/intermediate] 나스닥 거래대금 급증 연속 상승
+
+> 나스닥에서 거래량이 급증하면서 5거래일 연속 상승한 종목에 진입해 주세요. 최대 보유 기간은 15거래일, 최대 보유 종목은 6개, 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) On the Nasdaq, enter stocks that have risen for 5 consecutive trading days on surging volume. Set the maximum holding period to 15 trading days, the maximum holdings to 6, and the stop-loss example value to -9%.
+
+- **요약**: 유니버스=NASDAQ100 · 진입=volume_spike · max_pos=6 · 보유=15d · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 38. [모멘텀/intermediate] S&P500 12개월 장기 모멘텀
+
+> S&P500에서 최근 12개월 수익률 상위 10종목을 매달 재산정해 보유하는 전략을 설정해 주세요. 손절 예시값은 -12%로 설정해 주세요.
+
+> (파서 입력 EN) Set up a strategy that holds the top 10 S&P 500 stocks by 12-month return, re-ranked every month. Set the stop-loss example value to -12%.
+
+- **요약**: 유니버스=SP500 · 랭킹=return(12d) · max_pos=10 · 리밸=monthly · 리스크=SL12.0
+- ℹ️ clarification 되물음
+
+## 39. [모멘텀/intermediate] 다우 30 상대 강세 로테이션
+
+> 다우지수 30종목 중 최근 60거래일 수익률 상위 3종목만 집중 보유하고 매달 교체해 주세요. 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) From the 30 Dow stocks, concentrate on just the top 3 by return over the last 60 trading days and rotate monthly. Set the stop-loss example value to -8%.
+
+- **요약**: 유니버스=DOW30 · 랭킹=return(60d) · max_pos=3 · 리밸=monthly · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 40. [모멘텀/intermediate] 나스닥 신고가·거래대금 필터
+
+> 나스닥100에서 하루 거래대금 5천만 달러 이상인 종목 중 52주 신고가를 갱신한 종목만 매수해 주세요. 최대 보유 종목은 6개, 최대 보유 기간은 25거래일, 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) In the Nasdaq-100, buy only stocks with daily trading value of $50 million or more that set a new 52-week high. Set the maximum holdings to 6, the maximum holding period to 25 trading days, and the stop-loss example value to -9%.
+
+- **요약**: 유니버스=NASDAQ100 · 업종=IT 하드웨어 · 펀더멘털=trading_value>=50.0 · 진입=breakout · max_pos=6 · 보유=25d · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 41. [모멘텀/intermediate] 나스닥 20일 수익률 상위 주간 교체
+
+> 나스닥100에서 최근 20거래일 수익률 상위 8종목을 매주 재산정해 교체해 주세요. 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Hold the top 8 Nasdaq-100 stocks by return over the last 20 trading days and re-rank weekly. Set the stop-loss example value to -8%.
+
+- **요약**: 유니버스=NASDAQ100 · 랭킹=return(20d) · max_pos=8 · 리밸=weekly · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 42. [모멘텀/expert] S&P500 이중 기간 모멘텀
+
+> S&P500에서 최근 3개월 수익률과 6개월 수익률을 함께 반영한 복합 순위로 상위 8종목을 골라 매달 리밸런싱해 주세요. 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) From the S&P 500, pick the top 8 stocks by a composite ranking that combines 3-month and 6-month returns, and rebalance monthly. Set the stop-loss example value to -10%.
+
+- **요약**: 유니버스=SP500 · 랭킹=return(90d) · max_pos=8 · 리밸=monthly · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 43. [모멘텀/expert] 나스닥 유동성 필터 장기 모멘텀
+
+> 나스닥에서 하루 거래대금 3천만 달러 이상인 종목 중 최근 12개월 수익률 상위 10종목을 분기마다 교체해 주세요. 손절 예시값은 -12%로 설정해 주세요.
+
+> (파서 입력 EN) On the Nasdaq, among stocks with daily trading value of $30 million or more, hold the top 10 by 12-month return and rotate quarterly. Set the stop-loss example value to -12%.
+
+- **요약**: 유니버스=NASDAQ100 · 펀더멘털=trading_value>=30.0 · 랭킹=return(120d) · max_pos=10 · 리밸=quarterly · 리스크=SL12.0
+- ℹ️ 미대조 수치(전략 어디에도 없음): 3천만
+- ℹ️ clarification 되물음
+
+## 44. [모멘텀/expert] S&P500 추세 확인 모멘텀
+
+> S&P500에서 종가가 200일 이동평균선 위에 있는 종목 중 최근 3개월 수익률 상위 8종목을 매달 재산정해 주세요. 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) In the S&P 500, among stocks trading above the 200-day moving average, hold the top 8 by 3-month return, re-ranked monthly. Set the stop-loss example value to -9%.
+
+- **요약**: 유니버스=SP500 · 진입=ma_crossover · 랭킹=return(90d) · max_pos=8 · 리밸=monthly · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 45. [모멘텀/expert] 다우 타이트 손절 월간 로테이션
+
+> 다우지수에서 최근 3개월 수익률 상위 5종목을 매달 교체하되 손절 예시값을 -5%로 짧게 잡아 하락을 빠르게 끊는 전략을 만들어 주세요.
+
+> (파서 입력 EN) Rotate monthly into the top 5 Dow stocks by 3-month return, but keep the stop-loss example value tight at -5% to cut losses quickly.
+
+- **요약**: 유니버스=DOW30 · 랭킹=return(10d) · max_pos=5 · 리밸=monthly · 리스크=SL5.0
+- ℹ️ clarification 되물음
+
+## 46. [모멘텀/expert] S&P500 신고가 로테이션
+
+> S&P500에서 52주 신고가를 갱신한 종목만 편입 대상으로 삼고 매주 재산정해 교체하는 전략을 설정해 주세요. 최대 보유 종목은 8개, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Set up a strategy that only holds S&P 500 stocks setting new 52-week highs, re-ranked and rotated weekly. Set the maximum holdings to 8 and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=SP500 · 진입=breakout · 랭킹=return(Noned) · max_pos=8 · 리밸=weekly · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 47. [복합전략/beginner] S&P500 저PER·RSI 반등
+
+> S&P500에서 PER 15 이하인 종목 중 RSI가 30 아래로 내려갔다가 회복하면 매수해 주세요. 최대 보유 종목은 8개, 익절 예시값은 +15%, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Among S&P 500 stocks with a PER of 15 or below, buy when RSI drops below 30 and then recovers. Set the maximum holdings to 8, the take-profit example value to +15%, and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=SP500 · 펀더멘털=per<=15.0 · 진입=rsi,rsi · max_pos=8 · 리스크=SL8.0/TP15.0
+- ℹ️ clarification 되물음
+
+## 48. [복합전략/beginner] 다우 ROE·골든크로스
+
+> 다우지수 종목 중 ROE 10% 이상이면서 골든크로스가 나오면 매수하고 데드크로스에 매도해 주세요. 최대 보유 종목은 5개, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Among Dow stocks with ROE of 10% or higher, buy on a golden cross and sell on a dead cross. Set the maximum holdings to 5 and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=DOW30 · 펀더멘털=roe_or_gpa>=10.0 · 진입=ma_crossover · 청산=ma_crossover · max_pos=5 · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 49. [복합전략/beginner] 나스닥 PBR·거래대금 활발주
+
+> 나스닥100에서 PBR 3 이하이면서 하루 거래대금 3천만 달러 이상인 종목을 6종목 담아 주세요. 점검 주기는 2개월, 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) Hold 6 Nasdaq-100 stocks with a PBR of 3 or below and daily trading value of $30 million or more. Set the review interval to 2 months and the stop-loss example value to -9%.
+
+- **요약**: 유니버스=NASDAQ100 · 업종=IT 하드웨어 · 펀더멘털=pbr<=3.0,trading_value>=30.0 · max_pos=6 · 리밸=bimonthly · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 50. [복합전략/beginner] S&P500 ROE·20일선 추세
+
+> S&P500에서 ROE 12% 이상이고 종가가 20일 이동평균선 위에 있는 종목을 매수 조건으로 설정해 주세요. 20일선을 이탈하면 매도하고, 최대 보유 종목은 8개, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Set the buy condition to S&P 500 stocks with ROE of 12% or higher whose close is above the 20-day moving average. Sell when the price breaks below the 20-day line, set the maximum holdings to 8, and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=SP500 · 펀더멘털=roe_or_gpa>=12.0 · 진입=ma_crossover · 청산=ma_crossover · max_pos=8 · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 51. [복합전략/beginner] 나스닥 저PER 눌림목
+
+> 나스닥100에서 PER 20 이하인 종목이 20일 이동평균선 근처로 내려오면 매수해 주세요. 최대 보유 종목은 8개, 최대 보유 기간은 3개월, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) In the Nasdaq-100, buy stocks with a PER of 20 or below when they pull back near the 20-day moving average. Set the maximum holdings to 8, the maximum holding period to 3 months, and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=NASDAQ100 · 업종=IT 하드웨어 · 펀더멘털=per<=20.0 · 진입=ma_crossover · max_pos=8 · 보유=63d · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 52. [복합전략/beginner] 나스닥 PER·이평 교차 입문
+
+> 나스닥100에서 PER 25 이하인 종목 중 5일선이 20일선 위로 올라오면 매수하고 내려오면 매도해 주세요. 최대 보유 종목은 8개, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Among Nasdaq-100 stocks with a PER of 25 or below, buy when the 5-day line crosses above the 20-day line and sell when it crosses below. Set the maximum holdings to 8 and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=NASDAQ100 · 펀더멘털=per<=25.0 · 진입=ma_crossover · 청산=ma_crossover · max_pos=8 · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 53. [복합전략/intermediate] S&P500 저부채·MACD 전환
+
+> S&P500에서 부채비율 100% 이하인 종목 중 MACD가 시그널선을 상향 돌파하면 매수해 주세요. 최대 보유 종목은 8개, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Among S&P 500 stocks with a debt ratio of 100% or below, buy when MACD crosses above the signal line. Set the maximum holdings to 8 and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=SP500 · 펀더멘털=debt_ratio<=100.0 · 진입=macd · max_pos=8 · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 54. [복합전략/intermediate] 다우 저PBR 볼린저 반등
+
+> 다우지수 종목 중 PBR 2 이하인 종목이 볼린저밴드 하단에서 반등하면 매수해 주세요. 최대 보유 종목은 5개, 익절 예시값은 +12%, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Among Dow stocks with a PBR of 2 or below, buy when they bounce off the lower Bollinger Band. Set the maximum holdings to 5, the take-profit example value to +12%, and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=DOW30 · 펀더멘털=pbr<=2.0 · 진입=bollinger_bands · max_pos=5 · 리스크=SL8.0/TP12.0
+- ℹ️ clarification 되물음
+
+## 55. [복합전략/intermediate] S&P500 ROE 상위 추세 확인
+
+> S&P500에서 ROE가 높은 순서로 상위 8종목을 골라, 종가가 60일 이동평균선 위에 있는 종목만 담아 매달 재점검해 주세요. 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) From the S&P 500, pick the top 8 stocks by ROE and hold only those whose close is above the 60-day moving average, reviewed monthly. Set the stop-loss example value to -9%.
+
+- **요약**: 유니버스=SP500 · 진입=ma_crossover · 랭킹=return(Noned) · max_pos=8 · 리밸=monthly · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 56. [복합전략/intermediate] 나스닥 매출 성장 모멘텀
+
+> 나스닥100에서 매출이 증가한 기업 중 최근 3개월 수익률 상위 6종목을 골라 매달 교체해 주세요. 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) Among Nasdaq-100 companies with growing revenue, hold the top 6 by 3-month return and rotate monthly. Set the stop-loss example value to -10%.
+
+- **요약**: 유니버스=NASDAQ100 · 업종=IT 하드웨어 · 랭킹=return(90d) · max_pos=6 · 리밸=monthly · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 57. [복합전략/intermediate] S&P500 대형주 RSI 눌림
+
+> S&P500에서 시가총액 500억 달러 이상인 종목 중 RSI가 35 아래로 내려갔다가 회복하는 종목을 매수해 주세요. 최대 보유 종목은 6개, 익절 예시값은 +10%, 손절 예시값은 -7%로 설정해 주세요.
+
+> (파서 입력 EN) Among S&P 500 stocks with a market cap of $50 billion or more, buy those whose RSI drops below 35 and then recovers. Set the maximum holdings to 6, the take-profit example value to +10%, and the stop-loss example value to -7%.
+
+- **요약**: 유니버스=SP500 · 펀더멘털=market_cap>=500.0 · 진입=rsi,rsi · max_pos=6 · 리스크=SL7.0/TP10.0
+- ℹ️ clarification 되물음
+
+## 58. [복합전략/intermediate] 다우 거래대금·ROE 월간 점검
+
+> 다우지수에서 하루 거래대금 1억 달러 이상인 종목만 남긴 뒤 ROE 10% 이상인 종목을 5개 담고 매달 점검해 주세요. 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) In the Dow, keep only stocks with daily trading value of $100 million or more, then hold 5 of them with ROE of 10% or higher, reviewed monthly. Set the stop-loss example value to -8%.
+
+- **요약**: 유니버스=DOW30 · 펀더멘털=trading_value>=1.0,roe_or_gpa>=10.0 · max_pos=5 · 리밸=monthly · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 59. [복합전략/expert] 나스닥 퀄리티 모멘텀 결합
+
+> 나스닥100에서 ROE 15% 이상, 부채비율 120% 이하인 종목 중 최근 6개월 수익률 상위 6종목을 매달 리밸런싱해 주세요. 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) Among Nasdaq-100 stocks with ROE of 15% or higher and a debt ratio of 120% or below, hold the top 6 by 6-month return and rebalance monthly. Set the stop-loss example value to -10%.
+
+- **요약**: 유니버스=NASDAQ100 · 업종=IT 하드웨어 · 펀더멘털=roe_or_gpa>=15.0,debt_ratio<=120.0 · 랭킹=return(180d) · max_pos=6 · 리밸=monthly · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 60. [복합전략/expert] S&P500 멀티팩터 주간 로테이션
+
+> S&P500에서 PER이 낮은 순서와 최근 3개월 수익률이 높은 순서를 함께 반영한 복합 순위로 상위 8종목을 매주 재산정해 주세요. 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) From the S&P 500, hold the top 8 stocks by a composite ranking that combines low PER and high 3-month return, re-ranked weekly. Set the stop-loss example value to -8%.
+
+- **요약**: 유니버스=SP500 · 랭킹=composite(Noned) · max_pos=8 · 리밸=weekly · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 61. [복합전략/expert] 다우 가치·추세 이중 필터 분기 운용
+
+> 다우지수에서 PER 15 이하이고 종가가 200일 이동평균선 위에 있는 종목만 남겨 5종목을 분기마다 리밸런싱해 주세요. 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) In the Dow, keep only stocks with a PER of 15 or below trading above the 200-day moving average, hold 5 of them, and rebalance quarterly. Set the stop-loss example value to -10%.
+
+- **요약**: 유니버스=DOW30 · 펀더멘털=per<=15.0 · 진입=ma_crossover · max_pos=5 · 리밸=quarterly · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 62. [복합전략/expert] 나스닥 EMA 추세·재무 필터 스윙
+
+> 나스닥100에서 ROE 12% 이상인 종목 중 10일 EMA가 50일 EMA를 위로 돌파하면 매수하고, 아래로 내려오면 매도해 주세요. 최대 보유 종목은 8개, 익절 예시값은 +18%, 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) Among Nasdaq-100 stocks with ROE of 12% or higher, buy when the 10-day EMA crosses above the 50-day EMA and sell when it crosses below. Set the maximum holdings to 8, the take-profit example value to +18%, and the stop-loss example value to -9%.
+
+- **요약**: 유니버스=NASDAQ100 · 펀더멘털=roe_or_gpa>=12.0 · 진입=ema · 청산=ema · max_pos=8 · 리스크=SL9.0/TP18.0
+- ℹ️ clarification 되물음
+
+## 63. [복합전략/expert] S&P500 현금흐름·신고가 결합
+
+> S&P500에서 영업현금흐름이 흑자인 기업 중 52주 신고가를 갱신한 종목을 매수해 주세요. 최대 보유 종목은 6개, 최대 보유 기간은 3개월, 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) Among S&P 500 companies with positive operating cash flow, buy stocks setting a new 52-week high. Set the maximum holdings to 6, the maximum holding period to 3 months, and the stop-loss example value to -9%.
+
+- **요약**: 유니버스=SP500 · 펀더멘털=operating_cf_amount>0.0 · 진입=breakout · max_pos=6 · 보유=63d · 리스크=SL9.0
+- ℹ️ clarification 되물음
+- ℹ️ 현금흐름/성장 팩터
+
+## 64. [복합전략/expert] S&P500 3중 조건 스윙
+
+> S&P500에서 PER 18 이하, ROE 10% 이상인 종목 중 골든크로스가 나오면 매수해 주세요. 최대 보유 기간은 20거래일, 최대 보유 종목은 8개, 익절 예시값은 +12%, 손절 예시값은 -7%로 설정해 주세요.
+
+> (파서 입력 EN) Among S&P 500 stocks with a PER of 18 or below and ROE of 10% or higher, buy on a golden cross. Set the maximum holding period to 20 trading days, the maximum holdings to 8, the take-profit example value to +12%, and the stop-loss example value to -7%.
+
+- **요약**: 유니버스=SP500 · 펀더멘털=per<=18.0,roe_or_gpa>=10.0 · 진입=ma_crossover · 청산=ma_crossover · max_pos=8 · 보유=20d · 리스크=SL7.0/TP12.0
+- ℹ️ clarification 되물음
+
+## 65. [ETF/beginner] S&P500 ETF 골든크로스
+
+> S&P500 지수를 따라가는 ETF인 SPY에 5일선이 20일선을 돌파하면 매수하고 반대면 매도하는 전략을 만들어 주세요. 손절 예시값은 -6%로 설정해 주세요.
+
+> (파서 입력 EN) On SPY, the ETF tracking the S&P 500 index, buy when the 5-day line crosses above the 20-day line and sell on the opposite cross. Set the stop-loss example value to -6%.
+
+- **요약**: 유니버스=US_ETF · 진입=ma_crossover · 청산=ma_crossover · max_pos=10 · 리스크=SL6.0
+- ℹ️ clarification 되물음
+
+## 66. [ETF/beginner] 나스닥100 ETF 20일선 보유
+
+> QQQ를 종가가 20일 이동평균선 위에 있는 동안만 보유하고 이탈하면 매도해 주세요. 손절 예시값은 -7%로 설정해 주세요.
+
+> (파서 입력 EN) Hold QQQ only while its close is above the 20-day moving average, and sell when it breaks below. Set the stop-loss example value to -7%.
+
+- **요약**: 유니버스=NASDAQ100 · 청산=ma_crossover · max_pos=10 · 리스크=SL7.0
+- ℹ️ clarification 되물음
+
+## 67. [ETF/beginner] 다우 ETF RSI 반등
+
+> DIA가 RSI 30 아래로 내려갔다가 회복하면 매수해 주세요. 익절 예시값은 +8%, 손절 예시값은 -6%로 설정해 주세요.
+
+> (파서 입력 EN) Buy DIA when its RSI drops below 30 and then recovers. Set the take-profit example value to +8% and the stop-loss example value to -6%.
+
+- **요약**: 유니버스=US_ETF · 진입=rsi,rsi · max_pos=10 · 리스크=SL6.0/TP8.0
+- ℹ️ clarification 되물음
+
+## 68. [ETF/beginner] 미국 반도체 ETF 60일선 보유
+
+> SMH를 60일 이동평균선 위에 있을 때만 보유하고 이탈하면 매도해 주세요. 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Hold SMH only while it is above the 60-day moving average, and sell when it breaks below. Set the stop-loss example value to -8%.
+
+- **요약**: 유니버스=US_ETF · 청산=ma_crossover · max_pos=10 · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 69. [ETF/beginner] 금 ETF 돌파 따라가기
+
+> 금 ETF인 GLD가 최근 20일 고점을 돌파하면 매수하고 박스권으로 되돌아오면 매도해 주세요. 손절 예시값은 -5%로 설정해 주세요.
+
+> (파서 입력 EN) Buy GLD, the gold ETF, when it breaks above its 20-day high and sell when it falls back into the range. Set the stop-loss example value to -5%.
+
+- **요약**: 유니버스=US_ETF · 진입=breakout · 청산=breakout · max_pos=10 · 리스크=SL5.0
+- ℹ️ clarification 되물음
+
+## 70. [ETF/beginner] 배당 ETF 200일선 장기 보유
+
+> SCHD를 200일 이동평균선 위에 있는 동안 계속 보유하고 아래로 내려오면 정리하는 단순한 장기 전략을 만들어 주세요. 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) Build a simple long-term strategy that keeps holding SCHD while it stays above the 200-day moving average and exits when it falls below. Set the stop-loss example value to -10%.
+
+- **요약**: 유니버스=US_ETF · 청산=ma_crossover · max_pos=10 · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 71. [ETF/intermediate] 기술 섹터 ETF 눌림 진입
+
+> XLK가 종가 기준 60일 이동평균선 위에 있으면서 20일선 근처로 눌리면 매수하고, 60일선을 이탈하면 매도해 주세요. 손절 예시값은 -7%로 설정해 주세요.
+
+> (파서 입력 EN) Buy XLK when its close is above the 60-day moving average but pulling back near the 20-day line, and sell when it breaks below the 60-day line. Set the stop-loss example value to -7%.
+
+- **요약**: 유니버스=KOSPI200 · 진입=ma_crossover,ma_crossover · 청산=ma_crossover · max_pos=10 · 리스크=SL7.0
+- ℹ️ clarification 되물음
+
+## 72. [ETF/intermediate] 헬스케어 ETF MACD 전환
+
+> 헬스케어 섹터 ETF인 XLV에 MACD 골든크로스가 나오면 매수, MACD 데드크로스가 나오면 매도로 설정해 주세요. 손절 예시값은 -7%로 설정해 주세요.
+
+> (파서 입력 EN) On XLV, the health care sector ETF, buy on a MACD golden cross and sell on a MACD dead cross. Set the stop-loss example value to -7%.
+
+- **요약**: 유니버스=US_ETF · 진입=macd · 청산=macd · max_pos=10 · 리스크=SL7.0
+- ℹ️ clarification 되물음
+- ℹ️ 섹터/업종 제약
+
+## 73. [ETF/intermediate] 에너지 ETF 박스권 돌파
+
+> 미국 에너지 섹터 ETF인 XLE가 최근 20일 고점을 돌파하면 매수해 30거래일만 보유하는 전략을 만들어 주세요. 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Build a strategy that buys XLE, the US energy sector ETF, when it breaks above its 20-day high and holds for only 30 trading days. Set the stop-loss example value to -8%.
+
+- **요약**: 유니버스=US_ETF · 진입=breakout · max_pos=10 · 보유=30d · 리스크=SL8.0
+- ℹ️ clarification 되물음
+- ℹ️ 섹터/업종 제약
+
+## 74. [ETF/intermediate] 러셀2000 ETF 신고가 추세
+
+> 미국 중소형주 ETF인 IWM이 52주 신고가를 갱신하면 매수해 20일 이동평균선을 이탈할 때까지 보유해 주세요. 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Buy IWM, the US small-cap ETF, when it sets a new 52-week high, and hold until it breaks below the 20-day moving average. Set the stop-loss example value to -8%.
+
+- **요약**: 유니버스=US_ETF · 진입=breakout,ma_crossover · 청산=ma_crossover · max_pos=10 · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 75. [ETF/intermediate] 장기국채 ETF RSI 과매도
+
+> 미국 장기국채 ETF인 TLT가 RSI 30 아래로 떨어졌다가 회복하면 매수해 주세요. 익절 예시값은 +6%, 손절 예시값은 -5%로 설정해 주세요.
+
+> (파서 입력 EN) Buy TLT, the long-term US Treasury ETF, when its RSI drops below 30 and then recovers. Set the take-profit example value to +6% and the stop-loss example value to -5%.
+
+- **요약**: 유니버스=US_ETF · 진입=rsi,rsi · max_pos=10 · 리스크=SL5.0/TP6.0
+- ℹ️ clarification 되물음
+
+## 76. [ETF/intermediate] 금융 ETF 골든크로스·거래량
+
+> XLF에 골든크로스가 나오고 거래량이 늘었을 때만 진입해 주세요. 손절 예시값은 -7%로 설정해 주세요.
+
+> (파서 입력 EN) Enter XLF, the US financial sector ETF, only when a golden cross appears with rising volume. Set the stop-loss example value to -7%.
+
+- **요약**: 유니버스=KOSPI200 · 진입=ma_crossover,volume_spike · max_pos=10 · 리스크=SL7.0
+- ℹ️ clarification 되물음
+
+## 77. [ETF/intermediate] 바이오 ETF 신고가 단기 스윙
+
+> 바이오테크 ETF인 IBB가 60일 고점을 돌파하면 매수해 15거래일만 보유하는 짧은 전략을 만들어 주세요. 손절 예시값은 -7%로 설정해 주세요.
+
+> (파서 입력 EN) Build a short strategy that buys IBB, the biotech ETF, when it breaks above its 60-day high and holds for only 15 trading days. Set the stop-loss example value to -7%.
+
+- **요약**: 유니버스=KOSPI200 · 진입=breakout · max_pos=10 · 보유=15d · 리스크=SL7.0
+- ℹ️ clarification 되물음
+
+## 78. [ETF/expert] 미국 섹터 ETF 월간 로테이션
+
+> XLK, XLV, XLE, XLF, XLI, XLU 여섯 개 섹터 ETF 중 최근 3개월 수익률 상위 3개를 매달 재산정해 교체하는 로테이션 전략을 만들어 주세요. 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Build a rotation strategy across the six sector ETFs XLK, XLV, XLE, XLF, XLI, and XLU: hold the top 3 by 3-month return, re-ranked monthly. Set the stop-loss example value to -8%.
+
+- **요약**: 유니버스=US_ETF · 랭킹=return(90d) · max_pos=3 · 리밸=monthly · 리스크=SL8.0
+- ℹ️ clarification 되물음
+- ℹ️ 섹터/업종 제약
+
+## 79. [ETF/expert] 지수 ETF 모멘텀 로테이션
+
+> SPY, QQQ, DIA, IWM 네 가지 지수 ETF 중 최근 60거래일 수익률 상위 2개만 보유하고 매달 교체해 주세요. 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Among the four index ETFs SPY, QQQ, DIA, and IWM, hold only the top 2 by return over the last 60 trading days and rotate monthly. Set the stop-loss example value to -8%.
+
+- **요약**: 유니버스=US_ETF · 랭킹=return(60d) · max_pos=2 · 리밸=monthly · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 80. [ETF/expert] 우라늄 ETF MACD·추세 이중 확인
+
+> URA에 종가가 60일 이동평균선 위에 있으면서 MACD가 시그널선을 상향 돌파할 때만 진입하도록 이중 확인을 걸어 주세요. 익절 예시값은 +15%, 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) On URA, require double confirmation: enter only when the close is above the 60-day moving average and MACD crosses above the signal line. Set the take-profit example value to +15% and the stop-loss example value to -9%.
+
+- **요약**: 유니버스=US · 진입=ma_crossover,macd · max_pos=10 · 리스크=SL9.0/TP15.0
+- ℹ️ clarification 되물음
+
+## 81. [ETF/expert] 방산 ETF EMA 크로스 스윙
+
+> 미국 방산·항공우주 ETF인 ITA에 10일 EMA가 30일 EMA를 위로 돌파하면 매수, 아래로 내려오면 매도하는 스윙 전략을 설정해 주세요. 최대 보유 기간은 40거래일, 손절 예시값은 -7%로 설정해 주세요.
+
+> (파서 입력 EN) On ITA, the US aerospace and defense ETF, buy when the 10-day EMA crosses above the 30-day EMA and sell when it crosses below. Set the maximum holding period to 40 trading days and the stop-loss example value to -7%.
+
+- **요약**: 유니버스=US_ETF · 진입=ema · 청산=ema · max_pos=10 · 보유=40d · 리스크=SL7.0
+- ℹ️ clarification 되물음
+
+## 82. [ETF/expert] 반도체 ETF 볼린저 반등 역추세
+
+> 미국 반도체 ETF인 SOXX가 볼린저밴드 하단에 닿았다가 반등하면 매수하고 20일 이동평균선에 도달하면 매도하는 역추세 전략을 만들어 주세요. 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Build a mean-reversion strategy that buys SOXX, the US semiconductor ETF, when it touches the lower Bollinger Band and bounces, then sells when it reaches the 20-day moving average. Set the stop-loss example value to -8%.
+
+- **요약**: 유니버스=US_ETF · 진입=bollinger_bands · 청산=ma_crossover · max_pos=10 · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 83. [테마/beginner] AI 반도체 골든크로스
+
+> 요즘 관심 있는 미국 AI 반도체 관련주만 모아서 실험해 보고 싶어요. 골든크로스가 나오면 매수하고 데드크로스가 나오면 매도해 주세요. 최대 보유 종목은 6개, 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) I'd like to experiment with just the US AI semiconductor names I've been watching. Buy on a golden cross and sell on a dead cross. Set the maximum holdings to 6 and the stop-loss example value to -9%.
+
+- **요약**: 유니버스=US · 업종=반도체 · 진입=ma_crossover · 청산=ma_crossover · max_pos=6 · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 84. [테마/beginner] 빅테크 20일선 위 보유
+
+> 미국 빅테크 종목 중 종가가 20일 이동평균선 위에 있는 종목만 보유하고, 20일선 아래로 내려오면 매도해 주세요. 최대 보유 종목은 7개, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Among US Big Tech stocks, hold only those whose close is above the 20-day moving average, and sell when the price falls below the 20-day line. Set the maximum holdings to 7 and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=US · 업종=플랫폼 · 진입=ma_crossover · 청산=ma_crossover · max_pos=7 · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 85. [테마/beginner] 사이버보안 신고가 돌파
+
+> 미국 사이버보안 관련주 중 52주 신고가를 돌파하는 종목을 매수해 주세요. 최대 보유 종목은 5개, 최대 보유 기간은 30거래일, 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) Among US cybersecurity stocks, buy those breaking out to a new 52-week high. Set the maximum holdings to 5, the maximum holding period to 30 trading days, and the stop-loss example value to -10%.
+
+- **요약**: 유니버스=US · 업종=소프트웨어 · 진입=breakout · max_pos=5 · 보유=30d · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 86. [테마/beginner] 전기차·자율주행 20일선 추세
+
+> 미국 전기차·자율주행 관련주 중 종가가 20일 이동평균선 위에 있고 거래량이 늘어난 종목을 6개 담아 주세요. 20일선 아래로 내려오면 매도하고, 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) Among US EV and autonomous-driving stocks, hold 6 whose close is above the 20-day moving average with rising volume. Sell when the price falls below the 20-day line, and set the stop-loss example value to -9%.
+
+- **요약**: 유니버스=US · 업종=자동차 · 진입=ma_crossover,volume_spike · 청산=ma_crossover · max_pos=6 · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 87. [테마/beginner] 반도체 장비주 골든크로스
+
+> 미국 반도체 장비 관련주에서 골든크로스가 나오면 매수하고 데드크로스가 나오면 매도해 주세요. 최대 보유 종목은 6개, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Among US semiconductor equipment stocks, buy on a golden cross and sell on a dead cross. Set the maximum holdings to 6 and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=US · 업종=반도체 소재 · 진입=ma_crossover · 청산=ma_crossover · max_pos=6 · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 88. [테마/intermediate] 비만치료제 제약주 RSI 반등
+
+> 미국 GLP-1 비만치료제 관련주가 RSI 35 아래로 내려갔다가 회복하면 매수해 주세요. 최대 보유 종목은 4개, 익절 예시값은 +15%, 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) Buy US GLP-1 obesity-drug stocks when RSI drops below 35 and then recovers. Set the maximum holdings to 4, the take-profit example value to +15%, and the stop-loss example value to -10%.
+
+- **요약**: 유니버스=US · 진입=rsi,rsi · max_pos=4 · 리스크=SL10.0/TP15.0
+- ℹ️ clarification 되물음
+
+## 89. [테마/intermediate] 데이터센터 전력 인프라 추세
+
+> 미국 데이터센터 전력 인프라 관련주 중 종가가 60일 이동평균선 위에 있는 종목을 6개 담고 매달 점검해 주세요. 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) Among US data-center power infrastructure stocks, hold 6 whose close is above the 60-day moving average, reviewed monthly. Set the stop-loss example value to -9%.
+
+- **요약**: 유니버스=US · 진입=ma_crossover · max_pos=6 · 리밸=monthly · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 90. [테마/intermediate] 원자력·SMR 거래량 급증 진입
+
+> 미국 원자력·SMR 관련주 중 거래량이 급증하며 상승하는 종목에 진입해 주세요. 최대 보유 기간은 20거래일, 최대 보유 종목은 5개, 손절 예시값은 -12%로 설정해 주세요.
+
+> (파서 입력 EN) Among US nuclear and SMR stocks, enter those rising on surging volume. Set the maximum holding period to 20 trading days, the maximum holdings to 5, and the stop-loss example value to -12%.
+
+- **요약**: 유니버스=US · 업종=에너지/원자력 · 진입=volume_spike · max_pos=5 · 보유=20d · 리스크=SL12.0
+- ℹ️ clarification 되물음
+
+## 91. [테마/intermediate] 클라우드 소프트웨어 눌림 매수
+
+> 미국 클라우드 소프트웨어 관련주 중 종가가 60일 이동평균선 위에 있는 종목이 RSI 40 아래로 내려갔다가 회복하면 매수하고, 60일선 아래로 내려오면 매도해 주세요. 최대 보유 종목은 6개, 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) Among US cloud software stocks trading above the 60-day moving average, buy when RSI drops below 40 and then recovers, and sell when the price falls below the 60-day line. Set the maximum holdings to 6 and the stop-loss example value to -9%.
+
+- **요약**: 유니버스=US · 업종=소프트웨어 · 진입=ma_crossover,rsi · 청산=ma_crossover · max_pos=6 · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 92. [테마/intermediate] 휴머노이드 로봇 추세 추종
+
+> 미국 휴머노이드 로봇 관련주 중 종가가 20일 이동평균선 위이고 거래량이 늘어난 종목을 따라가 주세요. 최대 보유 종목은 5개, 최대 보유 기간은 30거래일, 손절 예시값은 -11%로 설정해 주세요.
+
+> (파서 입력 EN) Follow US humanoid-robotics stocks whose close is above the 20-day moving average with rising volume. Set the maximum holdings to 5, the maximum holding period to 30 trading days, and the stop-loss example value to -11%.
+
+- **요약**: 유니버스=US · 진입=ma_crossover,volume_spike · max_pos=5 · 보유=30d · 리스크=SL11.0
+- ℹ️ clarification 되물음
+
+## 93. [테마/intermediate] 방산·항공우주 MACD 전환
+
+> 미국 방산·항공우주 관련주에 MACD 골든크로스가 나오면 매수하고 MACD 데드크로스가 나오면 매도해 주세요. 최대 보유 종목은 6개, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Among US defense and aerospace stocks, buy on a MACD golden cross and sell on a MACD dead cross. Set the maximum holdings to 6 and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=US · 업종=우주항공/방산 · 진입=macd · 청산=macd · max_pos=6 · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 94. [테마/intermediate] 우주 산업 신고가 따라가기
+
+> 미국 우주 산업 관련주 중 52주 신고가를 갱신하는 종목을 매수해 주세요. 최대 보유 종목은 4개, 최대 보유 기간은 25거래일, 손절 예시값은 -12%로 설정해 주세요.
+
+> (파서 입력 EN) Among US space-industry stocks, buy those setting a new 52-week high. Set the maximum holdings to 4, the maximum holding period to 25 trading days, and the stop-loss example value to -12%.
+
+- **요약**: 유니버스=US · 진입=breakout · max_pos=4 · 보유=25d · 리스크=SL12.0
+- ℹ️ clarification 되물음
+
+## 95. [테마/intermediate] 리쇼어링·인프라 가치 필터
+
+> 미국 리쇼어링·인프라 관련주 중 PER 20 이하인 종목을 6개 담아 분기마다 점검해 주세요. 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) Among US reshoring and infrastructure stocks, hold 6 with a PER of 20 or below, reviewed quarterly. Set the stop-loss example value to -9%.
+
+- **요약**: 유니버스=US · 업종=IT 하드웨어 · 펀더멘털=per<=20.0 · max_pos=6 · 리밸=quarterly · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 96. [테마/intermediate] 헬스케어 대형주 저PER 반등
+
+> 미국 헬스케어 대형주 종목 중 PER 15 이하이면서 RSI가 40 아래로 내려갔다가 회복하면 매수해 주세요. 최대 보유 종목은 5개, 점검 주기는 2개월, 손절 예시값은 -9%로 설정해 주세요.
+
+> (파서 입력 EN) Among US health care large caps with a PER of 15 or below, buy when RSI drops below 40 and then recovers. Set the maximum holdings to 5, the review interval to 2 months, and the stop-loss example value to -9%.
+
+- **요약**: 유니버스=US · 펀더멘털=per<=15.0 · 진입=rsi,rsi · max_pos=10 · 리밸=bimonthly · 리스크=SL9.0
+- ℹ️ clarification 되물음
+
+## 97. [테마/expert] 양자컴퓨팅 돌파 단타
+
+> 미국 양자컴퓨팅 관련주에서 거래량이 늘면서 52주 신고가를 돌파할 때만 진입해 주세요. 최대 보유 기간은 10거래일, 최대 보유 종목은 3개, 손절 예시값은 -8%로 설정해 주세요.
+
+> (파서 입력 EN) Among US quantum-computing stocks, enter only on a new 52-week high with rising volume. Set the maximum holding period to 10 trading days, the maximum holdings to 3, and the stop-loss example value to -8%.
+
+- **요약**: 유니버스=US · 진입=breakout,volume_spike · max_pos=3 · 보유=10d · 리스크=SL8.0
+- ℹ️ clarification 되물음
+
+## 98. [테마/expert] 크립토 관련주 모멘텀 스윙
+
+> 미국 크립토 관련주 중 최근 20거래일 수익률 상위 4종목을 담고 매달 교체하되, 최대 보유 기간은 15거래일, 손절 예시값은 -10%로 위험을 제한해 주세요.
+
+> (파서 입력 EN) Among US crypto-linked stocks, hold the top 4 by return over the last 20 trading days and rotate monthly, limiting risk with a maximum holding period of 15 trading days and a stop-loss example value of -10%.
+
+- **요약**: 유니버스=US · 랭킹=return(20d) · max_pos=4 · 보유=15d · 리밸=monthly · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 99. [테마/expert] AI 소프트웨어 성장·모멘텀
+
+> 미국 AI 소프트웨어 관련주 중 매출이 증가한 기업만 남기고, 그중 최근 3개월 수익률 상위 5종목을 매달 교체해 주세요. 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) Among US AI software stocks, keep only companies with growing revenue, then hold the top 5 by 3-month return, rotated monthly. Set the stop-loss example value to -10%.
+
+- **요약**: 유니버스=US · 업종=소프트웨어 · 펀더멘털=revenue_growth>0.0 · 랭킹=return(90d) · max_pos=5 · 리밸=monthly · 리스크=SL10.0
+- ℹ️ clarification 되물음
+
+## 100. [테마/expert] 빅테크 실적·신고가 결합
+
+> 미국 빅테크 종목 중 ROE 20% 이상이면서 52주 신고가를 갱신한 종목을 매수해 주세요. 최대 보유 종목은 5개, 익절 예시값은 +20%, 손절 예시값은 -10%로 설정해 주세요.
+
+> (파서 입력 EN) Among US Big Tech stocks with ROE of 20% or higher, buy those setting a new 52-week high. Set the maximum holdings to 5, the take-profit example value to +20%, and the stop-loss example value to -10%.
+
+- **요약**: 유니버스=US · 업종=플랫폼 · 펀더멘털=roe_or_gpa>=20.0 · 진입=breakout · max_pos=5 · 리스크=SL10.0/TP20.0
+- ℹ️ clarification 되물음
+
+---
+## 종합
+
+- 치명(예시가 전략이 되지 못함): **0개**
+- 미탐지 표현: **0개**
+- 종목수 이슈: **0개**
+- 미대조 수치(참고): **1개**
+
+### 점검 필요

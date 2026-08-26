@@ -18,6 +18,7 @@ import {
   getUsagePercent,
 } from "./planUsageFormat";
 import { getLocale, t } from "@/lib/i18n";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 type SubscriptionSummary = {
   planId: string;
@@ -91,6 +92,7 @@ export default function SettingsModal({
   onAccountDeleted,
 }: SettingsModalProps) {
   const router = useRouter();
+  const regionHref = useRegionHref();
   const [activeTab, setActiveTab] = useState<SettingsTab>("account");
   const [searchQuery, setSearchQuery] = useState("");
   const [summary, setSummary] = useState<SettingsPlanSummary | null>(null);
@@ -373,7 +375,7 @@ export default function SettingsModal({
                         type="button"
                         onClick={() => {
                           onClose();
-                          router.push("/pricing");
+                          router.push(regionHref("/pricing"));
                         }}
                         className="w-full flex-shrink-0 rounded-xl bg-white/[0.08] px-4 py-2.5 text-xs font-black text-gray-200 transition-colors duration-200 hover:bg-white/[0.14] lg:mt-1 lg:w-auto"
                       >

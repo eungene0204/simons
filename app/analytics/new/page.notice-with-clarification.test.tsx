@@ -103,6 +103,7 @@ describe("미반영 안내는 되묻기와 함께 보인다", () => {
             fundamental_filters: [],
             max_positions: 5,
             rebalancing_period: "monthly",
+            rebalance_method: "reconstitute",
             backtest_period: "5y",
             initial_capital: 10000000,
             stop_loss_pct: 8,
@@ -113,7 +114,8 @@ describe("미반영 안내는 되묻기와 함께 보인다", () => {
           clarification_priority: null,
           pending_ask: null,
           explicit_fields: [
-            "universe", "max_positions", "rebalancing", "backtest_period", "initial_capital",
+            "universe", "max_positions", "rebalancing", "rebalance_method",
+            "backtest_period", "initial_capital",
           ],
           notices: [NOTICE],
         }));

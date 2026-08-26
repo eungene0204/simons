@@ -25,6 +25,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+import ui_language
 from engine.console_logging import console_logger
 from engine.sector_mapper import MAPPING_RULES, NL_SAFE_TERMS
 
@@ -789,3 +790,219 @@ def get_delisting_dates(symbols: list[str]) -> dict[str, str]:
         if e["symbol"] in wanted and e.get("delistingDate")
     })
     return dates
+
+
+# ---------------------------------------------------------------------------
+# ── 미국 유니버스 (US 레인 Phase 1, 2026-08-25) ──
+#
+# 미국 데이터셋(data/ohlcv-us)은 현재 상장 종목만 담고 있어(상장폐지 부재 — 감사
+# 리포트) 시총 상위 N 근사를 써도 같은 생존편향을 가진다. 따라서 지수 유니버스는
+# 사용자 기대와 일치하는 **현행 구성종목 명부**(data/us-index-membership.json)를
+# 쓰고, 엔진이 생존편향·현행 명부 기준임을 경고로 고지한다.
+
+_US_MEMBERSHIP_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "us-index-membership.json"
+_US_ETF_MASTER_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "us-etf-master.json"
+_US_STOCKS_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "us-stocks.json"
+_US_OHLCV_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "ohlcv-us"
+
+# 한국 심볼은 6자리·숫자 시작(005930, 0000D0), 미국 티커는 영문 시작(AAPL, BRK-B)
+_US_SYMBOL_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
+
+# universe_id 정확 일치만 인정 — 한국 시장 토큰과의 혼합("kospi_sp500")은 지원하지 않는다
+# nasdaq = 나스닥 거래소 전체(사용자가 '나스닥'만 말했을 때 100종목 제한을 확정하지 않기 위함)
+US_UNIVERSE_IDS = ("us", "sp500", "nasdaq100", "nasdaq", "dow30", "us_etf")
+
+_US_INDEX_KEYS = {"sp500": "SP500", "nasdaq100": "NASDAQ100", "dow30": "DOW30"}
+
+
+def is_us_symbol(symbol: str) -> bool:
+    """미국 티커 형식 여부 (providers/toss_us.py와 동일 규칙)."""
+    return bool(_US_SYMBOL_RE.fullmatch(symbol or ""))
+
+
+def is_us_symbol_set(symbols: Optional[list[str]]) -> bool:
+    """심볼 집합의 과반이 미국 티커면 True — 지정 종목 백테스트의 벤치마크 추론용."""
+    if not symbols:
+        return False
+    us = sum(1 for s in symbols if is_us_symbol(s))
+    return us * 2 > len(symbols)
+
+
+def us_universe_kind(universe_id: Optional[str]) -> Optional[str]:
+    """universe_id → "us"|"sp500"|"nasdaq100"|"dow30"|"us_etf" 또는 None."""
+    if not universe_id:
+        return None
+    uid = universe_id.strip().lower()
+    return uid if uid in US_UNIVERSE_IDS else None
+
+
+@lru_cache(maxsize=1)
+def _load_us_membership() -> dict:
+    try:
+        return json.loads(_US_MEMBERSHIP_PATH.read_text())["indices"]
+    except Exception:
+        return {}
+
+
+@lru_cache(maxsize=1)
+@lru_cache(maxsize=1)
+def _us_etf_symbol_set() -> frozenset[str]:
+    return frozenset(e["symbol"] for e in _load_us_etf_master())
+
+
+def is_us_etf_symbol(symbol: str) -> bool:
+    """이 심볼이 미국 ETF 마스터에 속하는가(is_etf_symbol의 US 판)."""
+    return symbol in _us_etf_symbol_set()
+
+
+def _load_us_etf_master() -> list[dict]:
+    try:
+        return json.loads(_US_ETF_MASTER_PATH.read_text())["etfs"]
+    except Exception:
+        return []
+
+
+@lru_cache(maxsize=1)
+def _load_us_stocks() -> list[dict]:
+    try:
+        return json.loads(_US_STOCKS_PATH.read_text())
+    except Exception:
+        return []
+
+
+def resolve_us_symbols(kind: str) -> list[str]:
+    """미국 유니버스 → 파케이를 보유한 심볼 목록.
+
+    - sp500/nasdaq100/dow30: 현행 구성종목 명부(모듈 서두 주석 참고 — 근사가 아니라
+      명부를 쓰는 이유는 생존편향 동치 때문)
+    - us: 미국 전 상장 보통주(us-stocks.json)
+    - us_etf: 수집된 대표 ETF(us-etf-master.json)
+    """
+    if kind in _US_INDEX_KEYS:
+        members = _load_us_membership().get(_US_INDEX_KEYS[kind], [])
+        symbols = [m["symbol"] for m in members]
+    elif kind == "us":
+        symbols = [s["symbol"] for s in _load_us_stocks()]
+    elif kind == "nasdaq":
+        symbols = [s["symbol"] for s in _load_us_stocks() if s.get("market") == "NASDAQ"]
+    elif kind == "us_etf":
+        symbols = [e["symbol"] for e in _load_us_etf_master()]
+    else:
+        return []
+    return [s for s in symbols if (_US_OHLCV_DIR / f"{s}.parquet").exists()]
+
+
+def us_benchmark(kind: Optional[str]) -> tuple[str, str]:
+    """미국 유니버스의 벤치마크 ETF (심볼, 표시명) — 한국 레인의 KODEX 계열과 대칭."""
+    if kind in ("nasdaq100", "nasdaq"):
+        return "QQQ", "Invesco QQQ (QQQ)"
+    if kind == "dow30":
+        return "DIA", "SPDR Dow Jones Industrial Average (DIA)"
+    return "SPY", "SPDR S&P 500 (SPY)"
+
+
+@lru_cache(maxsize=1)
+def _us_ref_lookup() -> dict[str, str]:
+    """미국 종목·ETF 조회 인덱스 — 티커/영문명(소문자)/한글명(공백 제거) → 티커.
+
+    LLM이 뽑은 짧은 지정 표현("SPY", "애플", "엔비디아")을 정본 티커로 매핑하는
+    registry다(원문 스캔 아님). 정확 일치만 — 부분 문자열 매칭은 오폭원이라 하지 않는다.
+    """
+    out: dict[str, str] = {}
+
+    def put(key: Optional[str], ticker: str) -> None:
+        if not key:
+            return
+        k = key.strip().lower().replace(" ", "")
+        if k and k not in out:
+            out[k] = ticker
+
+    # ETF를 먼저 넣는다 — 대표 상품 위주 소규모 목록이라 이름 충돌 시 우선권을 준다.
+    # name_kr은 넣지 않는다 — "S&P500"·"금"처럼 일반어라 시장·자산 표현을 상품 지정으로
+    # 오폭한다(지정은 티커·영문 상품명으로, 한글 표현은 US_ETF 유니버스/테마 몫).
+    for e in _load_us_etf_master():
+        put(e.get("symbol"), e["symbol"])
+        put(e.get("name"), e["symbol"])
+    for s in _load_us_stocks():
+        put(s.get("symbol"), s["symbol"])
+        put(s.get("name"), s["symbol"])
+        put(s.get("name_kr"), s["symbol"])
+    return out
+
+
+def us_ticker_with_data(ticker: Optional[str]) -> Optional[str]:
+    """티커가 미국 파케이를 보유하면 정규화된 티커, 아니면 None."""
+    if not ticker:
+        return None
+    t = ticker.strip().upper()
+    if not is_us_symbol(t):
+        return None
+    return t if (_US_OHLCV_DIR / f"{t}.parquet").exists() else None
+
+
+def resolve_us_ref(ref: Optional[str]) -> Optional[str]:
+    """지정 표현(티커·영문명·한글명) → 데이터 보유 미국 티커, 없으면 None."""
+    if not ref or not isinstance(ref, str):
+        return None
+    key = ref.strip().lower().replace(" ", "")
+    if not key:
+        return None
+    ticker = _us_ref_lookup().get(key)
+    return us_ticker_with_data(ticker)
+
+
+def us_display_name(ticker: Optional[str]) -> Optional[str]:
+    """미국 티커 → 표시명(한글명 우선, 없으면 영문명). 마스터에 없으면 None."""
+    if not ticker:
+        return None
+    t = ticker.strip().upper()
+    for e in _load_us_etf_master():
+        if e.get("symbol") == t:
+            return e.get("name") or None  # ETF는 영문 상품명이 정본(한글명은 테마성 일반어)
+    for s in _load_us_stocks():
+        if s.get("symbol") == t:
+            # 표시명은 요청 언어를 따른다 — /us(en)는 영문 정식명, KR은 한글명 우선.
+            # 한글명 고정이면 /us 요약 카드에 "슈퍼 마이크로 컴퓨터 (SMCI)"처럼 한글이
+            # 나간다(2026-08-26 실측). 표시 메타데이터일 뿐 엔진은 심볼만 쓴다.
+            if ui_language.get_ui_language() == "en":
+                return s.get("name") or s.get("name_kr") or None
+            return s.get("name_kr") or s.get("name") or None
+    return None
+
+
+# ── 미국 테마 해석 (US 레인, 2026-08-25) ──
+# 테마어(LLM이 뽑은 짧은 문자열) → 구성 티커의 registry 정본. 원문 패턴 매칭에
+# 쓰지 않는다. 구성 목록은 객관적 소속 정보이며 추천이 아니다. 해석된 구성 종목은
+# '테마 유래 지정 종목'으로 전개된다(theme 출처 표기 계약 —
+# ParsedStrategy.theme_universe / UniverseSpec.theme).
+# 정본은 미국 지식그래프(engine/us_knowledge_graph.py — 시드+테마 카탈로그 합성).
+
+
+def us_industry_label(term: Optional[str]) -> Optional[str]:
+    """분류 표현 → 정본 라벨(GICS 섹터·산업) | None. 판정은 us_industry_registry 위임."""
+    from engine.us_industry_registry import classification_label
+
+    return classification_label(term)
+
+
+def filter_by_us_industry(symbols: list[str], label: str) -> list[str]:
+    """미국 종목 목록을 GICS 분류 정본으로 필터링한다(분류 미상 종목은 제외).
+
+    한국 filter_by_sector의 미국 판 — 분류 체계가 다르므로(KR 45섹터 vs US 244산업)
+    필드도 필터도 따로 둔다. 정본은 us-stocks.json의 sector/industry다."""
+    from engine.us_industry_registry import industry_members
+
+    members = set(industry_members(label))
+    return [s for s in symbols if s in members] if members else []
+
+
+def resolve_us_theme(term: Optional[str]) -> Optional[tuple[str, list[str]]]:
+    """테마어 → (정본 테마명, 파케이 보유 구성 티커 목록). 그래프 밖이면 None.
+
+    '미국' 접두는 벗겨 본다("미국 사이버보안" → "사이버보안") — 시장 한정어일 뿐
+    테마 정체성이 아니다. 데이터 없는 티커는 조용히 제외하지 않고 그대로 두되,
+    KG 무결성 테스트가 전 티커의 파케이 보유를 강제한다(Fail Fast는 데이터 층에서).
+    """
+    from engine.us_knowledge_graph import resolve_theme  # 지연 import(순환 방지)
+
+    return resolve_theme(term)

@@ -675,8 +675,15 @@ def _explicit_breakout_lookback(text: Optional[str]) -> Optional[int]:
     from engine.nl_parser import _compact
 
     match = re.search(r"(\d+)\s*(주|일)?\s*(?:신고가|최고가|고점|저점)", _compact(text))
-    if not match:
-        return None
+    if match is None:
+        # 영어 인용(2026-08-26, /us 영어 레인): "20-day high"·"52-week high".
+        match = re.search(r"(\d+)[- ]?(week|day)s?\s+(?:high|low)", text, re.IGNORECASE)
+        if match is None:
+            return None
+        value = int(match.group(1))
+        if match.group(2).lower() == "week":
+            return value * 5 if value < 52 else 252
+        return value
     value = int(match.group(1))
     unit = match.group(2)
     if unit == "주":
@@ -686,7 +693,12 @@ def _explicit_breakout_lookback(text: Optional[str]) -> Optional[int]:
     return 252 if value == 52 else value
 
 
-_MA_PERIOD_IN_QUOTE_RE = re.compile(r"(\d+)일(?:선|이평선?|이동평균선?|ema|지수이동평균)")
+# 영어 인용도 읽는다(2026-08-26 /us 자유입력 실측: "the 5-day line crosses above the
+# 20-day line" 인용에서 기간 복원 불발 → 1/5 오배치 통과). compact 인용은 공백이 없다
+# ("5-dayline"). 'day' 뒤 이동평균 어휘를 요구해 "20-day high"(신고가) 기간은 집지 않는다.
+_MA_PERIOD_IN_QUOTE_RE = re.compile(
+    r"(\d+)(?:일(?:선|이평선?|이동평균선?|ema|지수이동평균)"
+    r"|-?day(?:line|sma|ema|movingaverage|ma(?![a-z])))")
 
 
 # 이동평균 조건임을 뒷받침하는 인용 어휘(이 중 하나도 없으면 근거가 인용에 없다).
@@ -728,6 +740,17 @@ def _quote_belongs_to_another_slot(factor: Optional[str], compact_quote: str) ->
     return bool(_OTHER_SLOT_VOCAB_RE.search(compact_quote))
 
 
+_BREAKOUT_QUOTE_RE = re.compile(
+    r"신고가|최고가|고점|박스권|박스\s*상단|(?:\d+[- ]?(?:day|week)s?\s+)?high\b|box|range",
+    re.IGNORECASE)
+_BOLLINGER_VOCAB_RE = re.compile(r"볼린저|밴드|bollinger|band", re.IGNORECASE)
+
+
+def _quotes_price_breakout(text: str) -> bool:
+    """인용이 신고가/고점/박스권 돌파를 말하고 볼린저 어휘는 없는가(§ 3-2 인용 판독)."""
+    return bool(_BREAKOUT_QUOTE_RE.search(text)) and not _BOLLINGER_VOCAB_RE.search(text)
+
+
 def _quotes_ema(text: Optional[str]) -> bool:
     """조건의 인용이 EMA(지수이동평균)를 지목하는지. 인용은 LLM 출력이다(§ 3-2)."""
     if not text:
@@ -749,6 +772,59 @@ def _explicit_ma_periods(text: Optional[str]) -> List[int]:
     from engine.nl_parser import _compact
 
     return sorted({int(x) for x in _MA_PERIOD_IN_QUOTE_RE.findall(_compact(text))})
+
+
+# 인용 선두의 손절/익절 선언 — "Set the stop-loss (example value) to -9%"·"손절 -9%".
+# 선두 정박(match)이라 조건 서술 뒤에 리스크가 덧붙은 인용은 잡지 않는다(오폭 방지).
+_SL_QUOTE_RE = re.compile(
+    r"^\s*(?:set\s+)?(?:the\s+)?(?:stop[- ]?loss|손절)[^%]{0,40}?(\d+(?:\.\d+)?)\s*%",
+    re.IGNORECASE)
+_TP_QUOTE_RE = re.compile(
+    r"^\s*(?:set\s+)?(?:the\s+)?(?:take[- ]?profit|익절)[^%]{0,40}?(\d+(?:\.\d+)?)\s*%",
+    re.IGNORECASE)
+
+_AMOUNT_TOKEN_RE = re.compile(
+    r"(?P<jo>\d+(?:\.\d+)?)\s*조(?:\s*(?P<joeok>\d+(?:\.\d+)?)\s*억)?"
+    r"|(?P<eok>\d+(?:\.\d+)?)\s*억"
+    r"|(?P<cheonman>\d+(?:\.\d+)?)\s*천만"
+    r"|(?P<baekman>\d+(?:\.\d+)?)\s*백만"
+    r"|(?P<man>\d+(?:\.\d+)?)\s*만"
+    r"|\$?\s*(?P<en>\d+(?:\.\d+)?)\s*(?P<mag>trillion|billion|million)\b",
+    re.IGNORECASE,
+)
+
+
+def _explicit_amount_eok(text: Optional[str]) -> Optional[float]:
+    """금액 조건의 source_text(LLM 인용)에서 금액 표기 하나를 억 단위로 환산한다.
+
+    입력은 사용자 원문이 아니라 LLM이 '이 조건의 출처'라고 인용한 짧은 조각이다
+    (`_explicit_breakout_lookback`과 같은 § 3-2). 산술은 자릿수 환산뿐이다:
+    조=1만억, 천만=0.1억, 만=0.0001억, million=0.01억, billion=10억, trillion=1만억
+    (통화 불문 — 엔진이 억 단위 × 데이터 통화로 비교한다). 표기가 없거나 둘 이상이면
+    None — 어느 표기가 이 조건의 임계값인지는 표기만으로 결정할 수 없다.
+    """
+    if not text:
+        return None
+    found: List[float] = []
+    for m in _AMOUNT_TOKEN_RE.finditer(text.replace(",", "")):
+        if m.group("jo") is not None:
+            found.append(float(m.group("jo")) * 10000.0
+                         + (float(m.group("joeok")) if m.group("joeok") else 0.0))
+        elif m.group("eok") is not None:
+            found.append(float(m.group("eok")))
+        elif m.group("cheonman") is not None:
+            found.append(float(m.group("cheonman")) * 0.1)
+        elif m.group("baekman") is not None:
+            found.append(float(m.group("baekman")) * 0.01)
+        elif m.group("man") is not None:
+            found.append(float(m.group("man")) * 0.0001)
+        else:
+            mult = {"trillion": 10000.0, "billion": 10.0,
+                    "million": 0.01}[m.group("mag").lower()]
+            found.append(float(m.group("en")) * mult)
+    if len(found) != 1:
+        return None
+    return found[0]
 
 
 def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
@@ -778,6 +854,10 @@ def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
        선언대로 청산 레인으로 옮긴다(연산자 덮어쓰기와 같은 선언 기반 정규화 — 원문을
        읽지 않는다). 단 인용에 매수 계열 표기가 있으면 역발상 진입 발화이므로 옮기지 않는다
        (인용 판독은 § 3-2 — ②와 같은 형태).
+
+    ④ 금액 임계 검산: 억원 단위 지표(시가총액·거래대금 등)의 value를 인용의 금액
+       표기와 대조해 다르면 인용의 환산값으로 교정한다(9B의 영어 단위 미환산 드리프트,
+       2026-08-26 실측 — 프롬프트 명시 예시로도 고정 불가).
 
     반환값은 사용자에게 보일 안내 문구 목록이다(호출부가 notices에 합친다).
     """
@@ -823,6 +903,19 @@ def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
         spec = REGISTRY.get(cond.factor)
         if spec is None:
             continue
+        # 신고가/박스권 인용의 오분류 교정(§ 3-2 인용 판독): 인용이 고점 돌파·박스권을
+        # 말하는데("break above its 20-day high"·"박스 상단 돌파") 그 지표의 어휘(볼린저
+        # 밴드·이동평균선)가 하나도 없으면 지표가 바뀐 것이다 — 밴드·이평선과 박스권은
+        # 다른 개념이라 신호 의미가 달라진다(실측 2026-08-26, /us 게이트 27·69: 볼린저로,
+        # KR 27 재파싱에선 ma_crossover로 나감 — 같은 드리프트의 두 착지). EMA 인용
+        # 착지(_quotes_ema)와 같은 계약 — 인용에 적힌 지표를 따른다. ma_crossover는
+        # 인용에 이동평균 어휘가 있으면(정당한 '20일선 돌파') 건드리지 않는다.
+        if (cond.source_text and _quotes_price_breakout(cond.source_text)
+                and (spec.id == "technical.bollinger_bands"
+                     or (spec.id == "technical.ma_crossover"
+                         and not _MA_VOCAB_RE.search(_compact(cond.source_text))))):
+            cond.factor = "technical.breakout"
+            spec = REGISTRY.get(cond.factor) or spec
         if spec.id == "technical.breakout":
             lookback = _explicit_breakout_lookback(cond.source_text)
             current = cond.parameters.get("lookback_period")
@@ -879,7 +972,43 @@ def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
                 cond.operator = "crosses_above"
                 cond.value = None
 
-    # ④ 지원되는 설정을 미지원으로 신고하고 슬롯은 비운 모순(2026-08-18 실측): "손절 -7%,
+        # ④ 금액 임계 검산: 인용의 금액 표기와 value가 다르면 인용이 이긴다 —
+        # breakout lookback과 같은 계약(LLM 출력 두 조각의 대조). 9B가 영어 단위를
+        # 억 환산 없이 그대로 옮기는 드리프트("$50 billion"→50, "$100 million"→100)는
+        # 프롬프트 명시 예시(4.1)로도 고정되지 않았다(2026-08-26 실측, /us 영어 전수
+        # 게이트 57·58). 인용에 금액 표기가 정확히 하나일 때만 판정하고, 값이 비어
+        # 있으면 인용의 값으로 채워 헛질문을 막는다(breakout과 동형). elif 체인 밖에
+        # 두는 이유: 재분류(위 trading_value→volume_spike)가 끝난 뒤의 지표로 판정해야
+        # 하며, volume_spike가 된 조건은 억원 지표가 아니므로 자연히 대상에서 빠진다.
+        spec = REGISTRY.get(cond.factor) or spec
+        if spec.value_type == "억원":
+            want = _explicit_amount_eok(cond.source_text)
+            if want is not None and (
+                cond.value is None or abs(float(cond.value) - want) > 1e-6
+            ):
+                cond.value = want
+
+    # ④-2 리스크 인용의 조건 오배치: 인용이 손절/익절 선언으로 **시작**하는 조건은
+    #    리스크 슬롯의 오배치다(실측 2026-08-26, /us 영어 게이트 83: "Set the stop-loss
+    #    example value to -9%" 인용이 fundamental.trading_value>=9 조건으로 나가고
+    #    stop_loss는 비었다). 인용 판독은 § 3-2(LLM 출력 두 조각의 대조)이며, 인용
+    #    선두가 리스크 선언일 때만 옮긴다 — 조건+리스크가 섞인 긴 인용을 오폭하지
+    #    않기 위한 보수 조건. 옮긴 값은 빈 슬롯에만 넣는다(숫자를 바꾸지 않는다).
+    for cond in list(strategy.entry_conditions) + list(strategy.exit_conditions):
+        quote = cond.source_text or ""
+        for rx, slot in ((_SL_QUOTE_RE, "stop_loss"), (_TP_QUOTE_RE, "take_profit")):
+            m = rx.match(quote)
+            if m is None:
+                continue
+            if cond in strategy.entry_conditions:
+                strategy.entry_conditions.remove(cond)
+            elif cond in strategy.exit_conditions:
+                strategy.exit_conditions.remove(cond)
+            if strategy.risk_management is not None and                     getattr(strategy.risk_management, slot, None) is None:
+                setattr(strategy.risk_management, slot, float(m.group(1)))
+            break
+
+    # ⑤ 지원되는 설정을 미지원으로 신고하고 슬롯은 비운 모순(2026-08-18 실측): "손절 -7%,
     #    보유 기간 상한 40거래일을 추가해 주세요"처럼 **문장 끝에 온** 보유 기간이
     #    unsupported_features에 '최대 보유 기간 40거래일'로 인용된 채 portfolio는 비었다.
     #    LLM 자신이 '최대 보유 기간'이라 부른 개념은 프롬프트 규칙 5가 지원한다고 명시한
@@ -909,19 +1038,27 @@ def _hold_days_from_unsupported_feature(feature: str) -> Optional[int]:
     읽지 않는다. 하한 표현('최소 N개월 보유')은 실제로 미지원이므로 건드리지 않는다.
     """
     compact = feature.replace(" ", "")
-    if not re.search(r"보유|들고|유지", compact):
+    if not re.search(r"보유|들고|유지|hold", compact, re.IGNORECASE):
         return None
     # 하한('최소 3개월 보유'·'3개월 이상 보유')은 실제로 미지원 개념이다 — 뒤집어 넣지 않는다.
-    if "최소" in compact or "이상" in compact:
+    if ("최소" in compact or "이상" in compact
+            or re.search(r"at\s*least|minimum", compact, re.IGNORECASE)):
         return None
     # 상한 낱말('최대'·'상한')을 요구하지 않는 이유: '15거래일 정도만 보유'처럼 낱말 없이도
     # 상한을 말한다(2026-08-18 예시 55 — 이 문구가 "지원하지 않아 반영하지 못했어요"라는
     # 틀린 안내로 나갔다). 하한만 걸러내면 나머지 보유 기간 표현은 프롬프트 규칙 5가 정한
     # 대로 hold_period_days(최대 보유)다 — 새로운 의미 판정이 아니라 그 계약의 적용이다.
     match = re.search(r"(\d+)\s*(개월|년|거래일|일)", feature)
-    if match is None:
-        return None
-    unit_days = dict(_HOLD_UNIT_DAYS)[match.group(2)]
+    if match is not None:
+        unit_days = dict(_HOLD_UNIT_DAYS)[match.group(2)]
+    else:
+        # 영어 신고 표기(2026-08-26, /us 영어 레인): "hold for 15 trading days" 등.
+        match = re.search(r"(\d+)\s*(trading\s*day|day|month|year)s?", feature,
+                          re.IGNORECASE)
+        if match is None:
+            return None
+        unit_days = {"tradingday": 1, "day": 1, "month": 21, "year": 252}[
+            re.sub(r"\s+", "", match.group(2)).lower()]
     days = int(match.group(1)) * unit_days
     return days if 1 <= days <= 2000 else None
 
@@ -1250,6 +1387,31 @@ def run_primary_parse(
                     validated.intent)
         return None
 
+    # [지역 격리] /us 요청의 한국 시장 명시는 컴파일 전에 거절한다 — 검증기 오류만으로는
+    # create 레인에서 표면화 경로가 없고(오류→질문 변환은 수정 레인 전용), 컴파일을
+    # 지나면 한국 유니버스 전략 카드가 /us에 물질화된다(2026-08-26 실측: KOSPI200 지정이
+    # PER 되묻기로 진행). 전략은 만들지 않고 거절 안내를 되묻기 채널로 낸다.
+    _region_refusal = _us_region_kr_market_refusal(validated)
+    if _region_refusal is not None:
+        from engine.nl_parser import ParsedStrategy
+
+        return finalize_user_response({
+            "parsed": ParsedStrategy(description=user_input),
+            "clarification_question": _region_refusal,
+            "clarification_suggestions": None,
+            "clarification_priority": "region_market_unsupported",
+            "notices": [],
+            "interpreter": {
+                "mode": "primary_region_market_refusal",
+                "model_name": result.model_name,
+                "prompt_version": result.prompt_version,
+                "repair_attempts": result.repair_attempts,
+                "llm_latency_ms": result.latency_ms,
+                "validation_status": report.status,
+                "confidence": validated.confidence,
+            },
+        })
+
     notices: List[str] = list(report.warnings) + repair_notices
     try:
         compiled = call_tool("compile_strategy", intent=validated, report=report,
@@ -1330,7 +1492,16 @@ def run_primary_parse(
             t for t in unresolved_sector_terms
             if t.replace(" ", "").lower() not in handled_keys
         ]
-    if unresolved_sector_terms:
+    if unresolved_sector_terms and _us_market_context(parsed):
+        # [시장 격리] 미국 시장 문맥의 테마어는 US 카탈로그·KG로만 해석한다. 아래 KR
+        # 체인(KG 상장사·네이버 검색 그라운딩)은 한국 시장 기계라, 여기로 흘리면 미국
+        # 전략에 한국 종목이 실린다(2026-08-26 실측: /us EN "AI-Related Stock
+        # Investment Strategy"가 KR 66코드 유니버스로 조립). 카탈로그 밖 표현은
+        # 조용히 소실시키지 않고 되묻기로 표면화한다.
+        sector_question, sector_suggestions = _resolve_sector_terms_us(
+            parsed, unresolved_sector_terms, on_stage=on_stage,
+        )
+    elif unresolved_sector_terms:
         if config.planner_mode() == "primary":
             # Phase 3 승격(2026-07-26): 미해석 표현 구간을 planner가 담당 —
             # planner 실패는 표현 단위로 아래 고정 체인 폴백(단독 실패 지점 불가).
@@ -1908,6 +2079,20 @@ def _bind_chips(
             bound.append(text)
             declines[text] = decline_field
             continue
+        method_value = strategy_slots.REBALANCE_METHOD_CHIP_VALUES.get(text)
+        if method_value is not None:
+            # 리밸런싱 방식 칩(FR-BT-067) — 원문 보정 파서에 방식 어휘를 넣지 않으므로
+            # (원문 해석은 LLM 소관, 대원칙 1) 정본 표로 직접 결속한다.
+            bound.append(text)
+            bindings[text] = {"rebalance_method": method_value}
+            continue
+        capital_value = strategy_slots.CAPITAL_CHIP_VALUES.get(text)
+        if capital_value is not None:
+            # 달러 초기 자본 칩(미국 전략) — 원화 보정 파서는 "$10,000" 표기를 읽지
+            # 못하므로 정본 표로 직접 결속한다(거부 칩과 같은 하드코딩 정본 계약).
+            bound.append(text)
+            bindings[text] = {"initial_capital": capital_value}
+            continue
         unsupported = _mentioned_unsupported_concepts(text)
         if unsupported:
             _log_llm("↩ 칩 노출 제외",
@@ -2098,6 +2283,172 @@ def _ambiguous_candidate_terms(result: Any) -> Dict[str, List[str]]:
     return ambiguous
 
 
+def _us_region_kr_market_refusal(validated: Any) -> Optional[str]:
+    """/us 요청(표시 언어 en)이 한국 시장을 명시했으면 거절 안내 문구, 아니면 None.
+
+    판정 입력은 LLM 구조화 출력(universe.markets)과 요청 메타(언어)뿐이다 — 원문을
+    읽지 않는다. 문구는 capability_validator의 지역 오류와 같은 내용(값 없는 고정
+    문구지만 검증 오류 채널은 문자열이 합류·조립돼 프론트 사전 키와 어긋나므로
+    ui_language.msg로 양언어를 백엔드에서 확정한다)."""
+    if ui_language.get_ui_language() != "en":
+        return None
+    strategy = getattr(validated, "strategy", None)
+    if strategy is None:
+        return None
+    from strategy_conversation.registry.capability_registry import US_MARKETS
+
+    kr_named = set(strategy.universe.markets) - set(US_MARKETS)
+    if not kr_named:
+        return None
+    _log_llm("⛔ 지역 격리", f"한국 시장 지정 거절: {sorted(kr_named)}")
+    return ui_language.msg(
+        "이 서비스는 미국 시장 전용입니다 — 한국 시장(코스피·코스닥·국내 ETF) "
+        "백테스트는 한국 서비스에서 이용할 수 있어요. 미국 유니버스(S&P500·"
+        "나스닥100·나스닥·다우·미국 전체·미국 ETF) 중 하나로 진행해 주세요.",
+        "This service covers US markets only — Korean markets (KOSPI, KOSDAQ, "
+        "Korean ETFs) are available on the Korean service. Please choose a US "
+        "universe: S&P 500, Nasdaq-100, Nasdaq, Dow 30, the entire US market, "
+        "or US ETFs.",
+    )
+
+
+def _us_market_context(parsed: Any) -> bool:
+    """이 전략이 미국 시장 문맥인가 — parsed.universe(컴파일 확정값) ∩ US_MARKETS.
+
+    /us 요청은 시장 미언급이어도 컴파일 기본값이 미국이므로(strategy_compiler —
+    지역이 곧 언어) 여기 걸린다. 테마·업종 해석 체인의 KR/US 분기가 이 판정 하나를
+    공유한다."""
+    from strategy_conversation.registry.capability_registry import US_MARKETS
+
+    return bool(set(getattr(parsed, "universe", None) or []) & set(US_MARKETS))
+
+
+def _resolve_sector_terms_us(
+    parsed: Any, unresolved_terms: List[str], on_stage=None,
+) -> tuple[Optional[str], Optional[List[str]]]:
+    """미국 시장 문맥의 미해결 테마어 — US 카탈로그·KG + 공시 검색 그라운딩으로 해석한다.
+
+    KR 체인(_resolve_sector_terms_term_in)과 같은 반환 계약: 전부 해석되면
+    (None, None), 아니면 (되묻기 질문, 칩 없음 — 무칩 ask). 체인은 ① US 카탈로그·
+    시드·학습 오버레이 조회 → ② SEC 공시 전문검색 그라운딩(us_term_grounding —
+    후보 정본 조인 + LLM 소속 심사 + 최소 구성 게이트)이고, 둘 다 실패하면 되묻는다.
+    KR KG·네이버 검색 그라운딩은 한국 시장 기계라 여기서 부르지 않는다(시장 격리) —
+    US 그라운딩은 소스가 미국 공시라 같은 자리에 서도 한국 종목이 실리지 않는다."""
+    from engine.universe_pit import resolve_us_theme
+
+    still_unresolved: List[str] = []
+    for term in unresolved_terms:
+        # [축 순서] 분류(정본) → 카탈로그·시드 테마 → 공시 학습. 업종 이름이면 업종
+        # 분류가 답한다 — 실측(2026-08-27): 시드의 산업형 테마는 표본 수준이라
+        # 'airlines' 4곳 vs 분류 18곳, 'restaurants' 5곳 vs 54곳, 'semiconductors'
+        # 20곳 vs 72곳이다. 카탈로그 테마는 분류가 표현할 수 없는 것(AI 반도체·
+        # 빅테크·GLP-1)을 위해 남는다.
+        if _apply_us_industry(parsed, term):
+            continue
+        if _apply_us_theme_companies(parsed, term):
+            parsed.universe_source = "theme_catalog"
+            _log_llm("✓ US 테마 상장사",
+                     f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
+            continue
+        resolved = resolve_us_theme(term)
+        if resolved is not None and getattr(parsed, "theme_universe", None) == resolved[0]:
+            # 검증기(capability_validator의 US 테마 전개)가 같은 테마로 이미 확정 —
+            # 재적용 불필요(지정 종목 보유 시 _apply_us_theme_companies는 불개입 계약).
+            continue
+        if _ground_us_theme_term(parsed, term, on_stage=on_stage):
+            continue
+        still_unresolved.append(term)
+    if not still_unresolved:
+        return None, None
+    _log_llm("? US 테마 되묻기", f"미해결 표현: {', '.join(still_unresolved)}")
+    question = ui_language.msg(
+        "'{terms}'은(는) 아직 미국 테마 카탈로그에서 찾지 못했어요. 다른 테마로 "
+        "바꾸거나, S&P500·나스닥100 같은 지수 유니버스로 진행해 주시겠어요?",
+        "I couldn't find '{terms}' in the US theme catalog yet. Could you try a "
+        "different theme, or use an index universe like the S&P 500 or Nasdaq-100?",
+        terms=", ".join(still_unresolved),
+    )
+    return question, None
+
+
+def _apply_us_theme_companies(parsed: Any, term: str) -> bool:
+    """US 테마 카탈로그 정본이면 구성 티커를 '테마 유래 지정 종목'으로 적용한다.
+
+    apply_theme_companies(KR KG)의 US 카탈로그 판 — 같은 계약(지정 종목 + 출처 표기,
+    이미 지정 종목이 있으면 불개입). 입력은 LLM/planner가 뽑은 짧은 표현이다(§ 3-2).
+    """
+    if getattr(parsed, "target_symbols", None):
+        return False
+    from engine.universe_pit import resolve_us_theme
+
+    theme = resolve_us_theme(term)
+    if theme is None:
+        return False
+    theme_name, theme_symbols = theme
+    parsed.target_symbols = list(theme_symbols)
+    parsed.sector = None
+    parsed.theme_universe = theme_name
+    parsed.universe_source = "theme_catalog"
+    return True
+
+
+def _apply_us_industry(parsed: Any, term: str) -> bool:
+    """분류(GICS 섹터·산업) 표현이면 미국 업종 **필터**로 확정한다(FR-STR-074 ⑩).
+
+    [축 구분, 2026-08-27] 분류는 정본이라 결정론 조회로 끝나고, 유니버스에 교집합으로
+    적용된다 — 테마처럼 종목 목록으로 전개하지 않는다(전개하면 지수 선택과 조합할 수
+    없고 명부가 큰 섹터는 세울 수조차 없다). 정상 경로에서는 컴파일러가 이미 채우므로
+    여기는 planner 관찰값 등 컴파일러가 보지 못한 표현의 보완이다."""
+    from engine.universe_pit import us_industry_label
+
+    label = us_industry_label(term)
+    if label is None:
+        return False
+    if getattr(parsed, "us_industry", None) == label:
+        return True  # 컴파일러가 이미 확정 — 중복 적용 불필요
+    if getattr(parsed, "us_industry", None):
+        return False  # 다른 업종이 이미 확정돼 있으면 덮어쓰지 않는다
+    parsed.us_industry = label
+    parsed.universe_source = "industry"
+    _log_llm("✓ US 업종 필터", f"'{term}' → '{label}'")
+    return True
+
+
+def _ground_us_theme_term(parsed: Any, term: str, on_stage=None) -> bool:
+    """카탈로그 밖 테마어를 SEC 공시 전문검색으로 학습해 지정 종목으로 적용한다.
+
+    한국 체인의 검색 그라운딩(_ground_sector_term)과 같은 자리·같은 계약이다 —
+    실패는 조용한 확정이 아니라 False(되묻기 소관)이고, 그라운딩 예외가 파스를 깨지
+    않는다. 소스는 미국 공시(EDGAR)라 한국 종목이 섞일 경로가 없다(시장 격리)."""
+    if getattr(parsed, "target_symbols", None):
+        return False  # 이미 지정 종목이 있으면 불개입(_apply_us_theme_companies와 동일)
+    try:
+        from engine.us_term_grounding import ground_us_theme
+        from strategy_conversation.planner.shadow import _default_chat
+
+        def _searching() -> None:
+            if on_stage is not None:
+                on_stage("searching")
+
+        grounded = ground_us_theme(term, _default_chat(), on_search=_searching)
+    except Exception:  # noqa: BLE001 — 그라운딩 실패가 파스를 깨면 안 된다
+        logger.debug("us theme grounding failed | term=%r", term, exc_info=True)
+        return False
+    finally:
+        if on_stage is not None:
+            on_stage("thinking")
+    if grounded is None:
+        return False
+    theme_name, theme_symbols = grounded
+    parsed.target_symbols = list(theme_symbols)
+    parsed.sector = None
+    parsed.theme_universe = theme_name
+    parsed.universe_source = "theme_learned"
+    _log_llm("✓ US 테마 공시 학습",
+             f"'{term}' → '{theme_name}' 지정 종목 {len(theme_symbols)}곳")
+    return True
+
+
 def _apply_planner_first_universe(
     result: Any, parsed: Any, notices: List[str]
 ) -> tuple[set, set]:
@@ -2116,6 +2467,10 @@ def _apply_planner_first_universe(
     resolved: set = set()
     unresolved: set = set()
     ambiguous_terms = _ambiguous_candidate_terms(result)
+    # 미국 시장 문맥 판정 — 아래 루프에서 테마·업종 해석 체인을 US 카탈로그로 한정한다.
+    from strategy_conversation.registry.capability_registry import US_MARKETS
+
+    _us_ctx = bool(set(getattr(parsed, "universe", None) or []) & set(US_MARKETS))
     for term, obs in _planner_observations(result):
         term = (term or "").strip()
         if not term:
@@ -2133,6 +2488,23 @@ def _apply_planner_first_universe(
             resolved.add(term)
             unresolved.discard(term)
             continue
+        if _us_ctx:
+            # 미국 시장 문맥: 테마 해석은 US 카탈로그(정본 registry)만 쓴다. 아래 KR
+            # KG·업종 근사 체인은 한국 시장 기계라, 여기로 흘리면 미국 전략에 한국
+            # 종목이 실린다(2026-08-26 실측: EN 입력 "semiconductor"→'반도체' 업종
+            # 병합→KG 소속 전개로 한국 66코드가 target_symbols에 주입 — capability
+            # validator의 혼합 제거 가드는 universe.symbols만 보므로 이 채널을 못
+            # 막는다). 카탈로그 미스는 미해결로 남긴다 — 되묻기·미지원 안내 채널이
+            # 표면화한다(조용한 소실 금지, KR 폴백 확정보다 정직하다).
+            _us_theme = _apply_us_theme_companies(parsed, term)
+            if _us_theme:
+                _log_llm("✓ planner-first US 테마",
+                         f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
+                resolved.add(term)
+                unresolved.discard(term)
+            else:
+                unresolved.add(term)
+            continue
         if obs.get("found") and obs.get("companies"):
             # 적용 안내는 사용자 notices에 싣지 않는다(2026-08-02 사용자 지시 —
             # 요약 카드가 유니버스를 이미 표시, 반환 문구는 적용 신호 전용).
@@ -2143,6 +2515,17 @@ def _apply_planner_first_universe(
                 unresolved.discard(term)
                 continue
         if obs.get("sector"):
+            # 업종 근사보다 테마 상장사가 우선한다 — 채택 규칙은 planner가 어떤 노드를
+            # 계획했는지와 무관하게 고정 체인·미해결 체인과 동일해야 한다. 2026-08-24
+            # '블랙핑크' 사고 2차: 학습된 업종 근사가 kg_resolve_sector에 히트하자
+            # 9B DAG가 테마 조회 노드를 생략한 턴에서 '관련주'가 업종 전체(미디어/엔터
+            # 수십 곳)로 확정됐다. 테마 조회는 결정론 지식 조회(~ms)라 여기서 보충한다.
+            if apply_theme_companies(parsed, term):
+                _log_llm("✓ planner-first 테마",
+                         f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳(업종 근사 대체)")
+                resolved.add(term)
+                unresolved.discard(term)
+                continue
             _merge_learned_sector(parsed, obs["sector"])
             _log_llm("✓ planner-first 섹터", f"'{term}' → 섹터 '{obs['sector']}'")
             notices.append(
@@ -2743,6 +3126,60 @@ def _changed_universe_terms(patched: Any, previous: Any) -> List[str]:
     ]
 
 
+def _resolve_us_universe_change(
+    parsed: Any, term: str, notices: List[str], on_stage=None,
+) -> Optional[tuple[str, List[str]]]:
+    """수정 턴의 유니버스 교체 표현을 **미국 축 체인**으로 해석한다(FR-STR-074 ⑦⑩).
+
+    [시장 격리] 생성 경로(_resolve_sector_terms_us)와 같은 계약·같은 순서다 —
+    ① 분류(GICS) → ② 카탈로그·시드·학습 테마 → ③ 공시 학습 → 되묻기. 한국 판
+    (_resolve_theme_change)은 네이버 카탈로그·검색 그라운딩을 부르는 한국 시장
+    기계라 미국 문맥에서 부르면 한국 종목이 실린다 — 생성 레인에서 막아 둔 구멍이
+    수정 레인에 남아 있었다(2026-08-27 축 작업 중 발견).
+
+    반환: None(적용 완료) | (질문, 칩) — 되묻기(호출부가 전략을 무변경으로 유지)."""
+    from engine.universe_pit import us_industry_label
+
+    previous_theme = getattr(parsed, "theme_universe", None)
+
+    def _clear_previous_theme() -> None:
+        # 이전 **테마에서 온** 종목만 비운다 — 사용자가 직접 지목한 종목은 건드리지 않는다
+        # (한국 replace_theme_universe와 같은 판정 근거: theme_universe 출처 표기).
+        if previous_theme:
+            parsed.target_symbols = []
+            parsed.theme_universe = None
+
+    label = us_industry_label(term)
+    if label is not None:
+        _clear_previous_theme()
+        parsed.us_industry = label
+        parsed.universe_source = "industry"
+        _log_llm("✓ US 업종 교체", f"'{term}' → '{label}'")
+        return None
+
+    # 분류가 아니면 테마 축 — 카탈로그·학습 조회 후 공시 학습까지 생성 경로와 동일하다.
+    parsed.us_industry = None  # 업종 필터에서 테마로 바꾸는 턴
+    parsed.target_symbols = []
+    parsed.theme_universe = None
+    if _apply_us_theme_companies(parsed, term):
+        parsed.universe_source = "theme_catalog"
+        _log_llm("✓ US 테마 교체", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
+        return None
+    if _ground_us_theme_term(parsed, term, on_stage=on_stage):
+        return None
+
+    # 되묻기 — 전략은 그대로 두고 범위를 묻는다(생성 경로와 같은 문구).
+    _log_llm("? US 유니버스 교체 되묻기", f"미해결 표현: {term}")
+    parsed.us_industry = getattr(parsed, "us_industry", None)
+    return ui_language.msg(
+        "'{terms}'은(는) 아직 미국 테마 카탈로그에서 찾지 못했어요. 다른 테마로 "
+        "바꾸거나, S&P500·나스닥100 같은 지수 유니버스로 진행해 주시겠어요?",
+        "I couldn't find '{terms}' in the US theme catalog yet. Could you try a "
+        "different theme, or use an index universe like the S&P 500 or Nasdaq-100?",
+        terms=term,
+    ), []
+
+
 def _resolve_theme_change(
     parsed: Any, term: str, notices: List[str], on_stage=None,
 ) -> Optional[tuple[str, List[str]]]:
@@ -3332,7 +3769,11 @@ def run_primary_modification(
         # "무엇을 비워도 되는지"를 이 출처 표기로 판정한다.
         parsed.theme_universe = prev.theme_universe
         parsed.target_symbols = list(prev.target_symbols)
-        theme_ask = _resolve_theme_change(parsed, theme_terms[0], notices, on_stage)
+        theme_ask = (
+            _resolve_us_universe_change(parsed, theme_terms[0], notices, on_stage)
+            if _us_market_context(parsed)
+            else _resolve_theme_change(parsed, theme_terms[0], notices, on_stage)
+        )
         if theme_ask is not None:
             # 해석 못 한 테마로 전략을 바꾸지 않는다 — 전략은 그대로 두고 범위를 묻는다.
             # 우선순위 마커: 유니버스 범위는 조건 질문보다 선행 결정 사항이라, 프론트

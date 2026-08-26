@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
+import ui_language
 from strategy_conversation.interpreter.models import StrategyIntent
 from strategy_conversation.registry import capability_registry as caps
 from strategy_conversation.registry.concept_ontology import (
@@ -245,7 +246,7 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
     # 유니버스별 팩터 검증 — ETF는 여러 기업을 묶은 상품이라 기업 재무지표를 조건으로 쓸
     # 수 없다(engine/universe_capabilities와 동일 계약). 조용히 제거하지 않고 오류+대안
     # 제안으로 사용자 확인을 받는다. 거래대금(trading_value)은 가격·거래량 파생이라 허용.
-    if "ETF" in strategy.universe.markets:
+    if set(strategy.universe.markets) & {"ETF", "US_ETF"}:
         etf_conflicts: List[str] = []
         for role, attr in (("진입", "entry_conditions"), ("청산", "exit_conditions")):
             for cond in getattr(strategy, attr):
@@ -295,8 +296,127 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 strategy.universe.etf_theme = strategy.universe.sectors[0]
             strategy.universe.sectors = []
 
-    # 유니버스 섹터 — 정본 섹터명 화이트리스트로 판정(조용한 왜곡 방지)
-    if strategy.universe.sectors:
+    # ── 미국 시장 제약 (US 레인 Phase 2, 2026-08-25) ──
+    # 엔진 US 레인이 지원하지 않는 조합을 컴파일 전에 명시적으로 걸러 되묻기/안내로
+    # 보낸다 — 조용히 제거하지 않는다(엔진에서 늦게 터지면 원인 설명이 어려워진다).
+    #
+    # [지역 격리, 2026-08-26] /us 요청(표시 언어 en — 지역이 곧 언어)은 미국 시장
+    # 전용이다: ① 한국 시장 명시는 거절 안내(조용한 제거 금지 — 접근 불가를 알린다)
+    # ② 시장 미언급도 미국 문맥으로 보고 아래 US 제약·테마 전개를 적용한다(컴파일
+    # 기본값도 S&P500 — strategy_compiler). markets를 여기서 채우지는 않는다 —
+    # provenance(explicit_fields_from_spec)가 '사용자 명시'로 오인한다.
+    _en_region = ui_language.get_ui_language() == "en"
+    _kr_markets_named = set(strategy.universe.markets) - set(caps.US_MARKETS)
+    if _en_region and _kr_markets_named:
+        errors.append(ui_language.msg(
+            "이 서비스는 미국 시장 전용입니다 — 한국 시장(코스피·코스닥·국내 ETF) "
+            "백테스트는 한국 서비스에서 이용할 수 있어요. 미국 유니버스(S&P500·"
+            "나스닥100·나스닥·다우·미국 전체·미국 ETF) 중 하나로 진행해 주세요.",
+            "This service covers US markets only — Korean markets (KOSPI, KOSDAQ, "
+            "Korean ETFs) are available on the Korean service. Please choose a US "
+            "universe: S&P 500, Nasdaq-100, Nasdaq, Dow 30, the entire US market, "
+            "or US ETFs.",
+        ))
+    _us_markets = set(strategy.universe.markets) & set(caps.US_MARKETS)
+    if _us_markets or (_en_region and not strategy.universe.markets):
+        _kr_markets = set(strategy.universe.markets) - set(caps.US_MARKETS)
+        if _kr_markets:
+            errors.append(
+                "한국 시장과 미국 시장은 한 전략에서 혼합할 수 없습니다 — "
+                "어느 시장으로 백테스트할지 선택해 주세요"
+            )
+        if len(_us_markets) > 1:
+            errors.append(
+                "미국 시장/지수는 한 전략에 하나만 지정할 수 있습니다 "
+                "(S&P500·나스닥100·나스닥·다우·미국 전체·미국 ETF 중 하나)"
+            )
+        if strategy.universe.sectors:
+            # 미국 테마 카탈로그(registry) 해석 — 카탈로그 정본 테마는 '테마 유래 지정
+            # 종목'으로 전개한다(구성 티커 → universe.symbols, 출처는 theme 표기 계약).
+            # 카탈로그 밖 테마만 명시적 미지원 안내(조용한 제거 금지).
+            from engine.universe_pit import resolve_us_theme, us_industry_label
+
+            _kept_sectors: List[str] = []
+            _us_theme_resolved = False
+            for _sector_term in strategy.universe.sectors:
+                # [축 순서] 분류(정본) → 카탈로그·시드 테마 → 공시 학습. 업종 이름이면
+                # 업종 분류가 답한다 — 시드의 산업형 테마는 표본 수준이라 실측에서
+                # 'airlines' 4곳 vs 분류 18곳이었다. 분류는 유니버스 **필터**이므로
+                # 종목으로 전개하지 않고 표현을 남겨 컴파일러가 us_industry로 옮긴다.
+                if us_industry_label(_sector_term) is not None:
+                    _kept_sectors.append(_sector_term)
+                    continue
+                _theme = resolve_us_theme(_sector_term)
+                if _theme is None:
+                    _kept_sectors.append(_sector_term)
+                    continue
+                _us_theme_resolved = True
+                _theme_name, _theme_symbols = _theme
+                for _sym in _theme_symbols:
+                    if _sym not in strategy.universe.symbols:
+                        strategy.universe.symbols.append(_sym)
+                if not strategy.universe.theme:
+                    strategy.universe.theme = _theme_name
+            if _us_theme_resolved:
+                # 상류(한국 테마 전개)가 같은 테마어를 한국 종목으로 먼저 확장했을 수 있다
+                # ("크립토" → 미국 6티커 + 한국 61코드 실측, 2026-08-26). 미국 시장 문맥의
+                # 테마에서 한국 코드(숫자 시작)는 시스템이 넣은 잘못된 시장의 전개이지
+                # 사용자 지정이 아니므로 제거한다 — 두면 한·미 혼합으로 엔진이 거절한다.
+                _kr_expanded = [s for s in strategy.universe.symbols
+                                if str(s)[:1].isdigit()]
+                if _kr_expanded:
+                    strategy.universe.symbols = [
+                        s for s in strategy.universe.symbols if not str(s)[:1].isdigit()
+                    ]
+                    warnings.append(
+                        f"미국 테마 유니버스에서 한국 종목 전개 {len(_kr_expanded)}건을 "
+                        "제외했습니다(미국 시장 전략)."
+                    )
+            strategy.universe.sectors = _kept_sectors
+            # 분류 라벨은 필터로 살아남는다 — 미지원 안내 대상은 '분류도 테마도 아닌' 표현뿐.
+            _unknown_sectors = [t for t in _kept_sectors if us_industry_label(t) is None]
+            if _unknown_sectors:
+                unsupported.append("미국 유니버스 × 업종 필터")
+                errors.append(
+                    "미국 유니버스의 업종/테마 필터 중 카탈로그에 없는 항목은 아직 "
+                    f"지원되지 않습니다: {', '.join(_unknown_sectors)}"
+                )
+                strategy.universe.sectors = [
+                    t for t in _kept_sectors if us_industry_label(t) is not None
+                ]
+        if strategy.universe.new_listing_only:
+            unsupported.append("미국 유니버스 × 신규 상장 종목")
+            errors.append("미국 유니버스에는 신규 상장(IPO) 제한을 아직 적용할 수 없습니다")
+            strategy.universe.new_listing_only = False
+            strategy.universe.listing_from = None
+            strategy.universe.listing_to = None
+        # AI 예측 신호는 한국 시장 데이터로 학습된 모델 — 미국 유니버스에서 미지원
+        # (engine/backtest_engine.py US 분기의 거절과 동일 계약, 여기서 먼저 안내).
+        _ai_used = [
+            cond for attr in ("entry_conditions", "exit_conditions")
+            for cond in getattr(strategy, attr)
+            if cond.factor in ("technical.ai_model", "technical.ai_drop_model")
+        ]
+        if _ai_used:
+            unsupported.append("미국 유니버스 × AI 예측 신호")
+            errors.append(
+                "AI 예측 신호는 한국 시장 데이터로 학습된 모델이라 "
+                "미국 유니버스에서는 사용할 수 없습니다"
+            )
+            strategy.entry_conditions = [
+                c for c in strategy.entry_conditions
+                if c.factor not in ("technical.ai_model", "technical.ai_drop_model")
+            ]
+            strategy.exit_conditions = [
+                c for c in strategy.exit_conditions
+                if c.factor not in ("technical.ai_model", "technical.ai_drop_model")
+            ]
+
+    # 유니버스 섹터 — 정본 섹터명 화이트리스트로 판정(조용한 왜곡 방지).
+    # [축 구분, FR-STR-074 ⑩] 이 화이트리스트는 **한국 섹터 정본**이다 — 미국 문맥에서는
+    # 위 US 블록이 이미 분류/테마를 갈라 두었으므로 여기서 다시 재단하지 않는다(미국
+    # 분류 라벨 'Airlines'가 "지원 섹터 목록에 없습니다"로 거절되던 경로).
+    if strategy.universe.sectors and not (_us_markets or (_en_region and not strategy.universe.markets)):
         from engine.universe_pit import expand_legacy_sector
 
         normalized_sectors: List[str] = []
@@ -329,8 +449,23 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 f"리밸런싱 주기 '{strategy.portfolio.rebalance_frequency}'을(를) 해석할 수 없습니다 "
                 f"(지원: {', '.join(caps.SUPPORTED_REBALANCE_FREQUENCIES)})"
             )
+            # 오류만 내고 값을 두면 부분 컴파일이 ParsedStrategy Literal에서 크래시해
+            # 해석 실패(빈 전략)로 둔갑한다(2026-08-26 실측, /us 영어 게이트 41 —
+            # "every 2 weeks"→"biweekly"). 위 오류가 안내를 담당하므로 조용한 소실이
+            # 아니다. 비슷한 지원 값으로 바꿔치지는 않는다(2주≠2개월).
+            strategy.portfolio.rebalance_frequency = None
         else:
             strategy.portfolio.rebalance_frequency = freq
+
+    if strategy.portfolio.rebalance_method is not None \
+            and strategy.portfolio.rebalance_method not in caps.SUPPORTED_REBALANCE_METHODS:
+        errors.append(
+            f"리밸런싱 방식 '{strategy.portfolio.rebalance_method}'을(를) 해석할 수 없습니다 "
+            f"(지원: 종목 교체(reconstitute), 비중 조정(weights_only))"
+        )
+        # 주기와 같은 계약 — 값을 남기면 부분 컴파일이 ParsedStrategy Literal에서 크래시해
+        # 해석 실패(빈 전략)로 둔갑한다. 오류가 안내를 담당하므로 조용한 소실이 아니다.
+        strategy.portfolio.rebalance_method = None
 
     if strategy.backtest.period is not None \
             and strategy.backtest.period not in caps.SUPPORTED_BACKTEST_PERIODS:

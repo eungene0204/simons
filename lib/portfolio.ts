@@ -1,6 +1,7 @@
 // Portfolio Utility Functions — API 기반 (DB 저장)
 
 import { VirtualAccount, PortfolioHolding, Transaction, PendingOrder } from "@/types/portfolio";
+import { regionRequestHeaders } from "@/lib/geo/useRegion";
 
 // ─── 가상계좌 관리 ────────────────────────────────────────────────────────────
 
@@ -25,9 +26,17 @@ export async function createAccount(
 ): Promise<VirtualAccount> {
   const res = await fetch("/api/virtual-account", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // 지역 헤더 — /us 탭의 생성은 USD 계좌로 시드된다(서버가 탭 경로 기준으로 판정,
+    // '마지막 방문 지역' 쿠키 오염 방지 — regionRequestHeaders 계약).
+    headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
     body: JSON.stringify({ name, initialAmount, strategyId, strategyName, tradingMode }),
   });
+  // 실패 응답을 계좌로 착각해 조용히 닫히면(권한 만료·플랜 한도·서버 오류) 사용자에게는
+  // "계좌가 안 만들어진다"로만 보인다 — 이유를 던져 생성 모달이 그대로 보여주게 한다.
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({} as { error?: string; message?: string }));
+    throw new Error(data.message || data.error || "Failed to create account");
+  }
   return res.json();
 }
 

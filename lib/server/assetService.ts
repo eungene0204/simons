@@ -107,6 +107,8 @@ export async function createFundedAccount(
     userId: number;
     name: string;
     initialAmount: Prisma.Decimal.Value;
+    // 계좌 통화(기본 KRW) — /us 생성 계좌는 USD(금액 숫자=통화 단위 그대로).
+    currency?: "KRW" | "USD";
     strategyId?: string | null;
     strategyName?: string | null;
     tradingMode?: string | null;
@@ -122,6 +124,7 @@ export async function createFundedAccount(
       name: params.name,
       initialCash: allocation,
       currentCash: allocation,
+      currency: params.currency ?? "KRW",
       status: "ACTIVE",
       strategyId: params.strategyId || null,
       strategyName: params.strategyName || null,

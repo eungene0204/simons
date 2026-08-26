@@ -54,6 +54,8 @@ import { buildRealizedPerformanceSeries } from "@/app/virtual-account/performanc
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
 import type { StrategyDSL } from "@/types/strategy";
 import { getLocale, t } from "@/lib/i18n";
+import { formatAccountMoney, isUsdAccount } from "@/lib/account-money";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 type AccountDetailCache = {
   account: VirtualAccount;
@@ -113,6 +115,7 @@ function writeAccountDetailCache(
 
 export default function VirtualAccountDetailPage() {
   const router = useRouter();
+  const regionHref = useRegionHref();
   const params = useParams();
   const accountId = params.id as string;
 
@@ -503,7 +506,7 @@ export default function VirtualAccountDetailPage() {
   };
 
   const handleStockSelect = (symbol: string, name: string) => {
-    router.push(`/stock-order?symbol=${symbol}&name=${encodeURIComponent(name)}`);
+    router.push(regionHref(`/stock-order?symbol=${symbol}&name=${encodeURIComponent(name)}`));
   };
 
   const handleAutoTradingClick = async () => {
@@ -780,7 +783,7 @@ export default function VirtualAccountDetailPage() {
                           className="flex-1 px-3 py-1.5 text-sm font-bold rounded-xl bg-white/[0.05] text-white border border-white/[0.05] focus:outline-none tabular-nums"
                           placeholder="0"
                         />
-                        <span className="text-xs font-bold text-gray-500">{t("원")}</span>
+                        <span className="text-xs font-bold text-gray-500">{isUsdAccount(account?.currency) ? "$" : t("원")}</span>
                         <button
                           onClick={() => { const p = parseFloat(price || "0"); const np = p + p * 0.01; setPrice(np.toFixed(0)); setSelectedOrderPrice(np); }}
                           className="px-2.5 py-1.5 text-xs font-bold bg-white/[0.05] text-gray-300 rounded-lg hover:bg-white/10 transition-all duration-200"
@@ -792,7 +795,7 @@ export default function VirtualAccountDetailPage() {
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">{t("총 거래금액")}</span>
                         <span className="text-lg font-black text-white tabular-nums font-outfit">
-                          {t("{0}원", quantity && price ? formatPrice(parseFloat(quantity) * parseFloat(price)) : "0")}
+                          {formatAccountMoney(quantity && price ? parseFloat(quantity) * parseFloat(price) : 0, account?.currency)}
                         </span>
                       </div>
                     </div>
@@ -889,7 +892,7 @@ export default function VirtualAccountDetailPage() {
                   <button
                     onClick={() => {
                       forgetVirtualAccountDetail(accountId);
-                      router.push("/virtual-account");
+                      router.push(regionHref("/virtual-account"));
                     }}
                     className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-[var(--main-blue)] transition-all duration-200 hover:text-[var(--main-blue)]/80"
                   >
@@ -908,7 +911,7 @@ export default function VirtualAccountDetailPage() {
                   >
                     {formatPrice(account.totalValue)}
                   </p>
-                  <p className="mt-1 text-[10px] font-bold text-gray-500">{t("원")}</p>
+                  <p className="mt-1 text-[10px] font-bold text-gray-500">{isUsdAccount(account?.currency) ? "USD" : t("원")}</p>
                 </div>
                 <div className="border-r border-b border-white/[0.08] px-5 py-4">
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t("주문 가능")}</span>
@@ -918,7 +921,7 @@ export default function VirtualAccountDetailPage() {
                   >
                     {formatPrice(account.currentBalance)}
                   </p>
-                  <p className="mt-1 text-[10px] font-bold text-gray-500">{t("원")}</p>
+                  <p className="mt-1 text-[10px] font-bold text-gray-500">{isUsdAccount(account?.currency) ? "USD" : t("원")}</p>
                 </div>
                 <div className="border-r border-b border-white/[0.08] px-5 py-4">
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t("당일 실현손익")}</span>
@@ -1307,7 +1310,7 @@ export default function VirtualAccountDetailPage() {
                               <p className="text-sm font-bold text-white tabular-nums text-right">{formatPrice(tv.filledPrice ?? tv.price)}</p>
                               <p className="text-sm font-bold text-gray-400 tabular-nums text-right">{tv.quantity}</p>
                               <p className="text-sm font-bold text-white tabular-nums text-right">{formatPrice(tv.totalAmount)}</p>
-                              <p className="text-sm font-bold text-gray-500 tabular-nums text-right">{tv.fee != null ? t("{0}원", formatPrice(tv.fee)) : "—"}</p>
+                              <p className="text-sm font-bold text-gray-500 tabular-nums text-right">{tv.fee != null ? formatAccountMoney(tv.fee, account?.currency) : "—"}</p>
                               <div className="text-right">
                                 {tv.realizedPnl != null ? (
                                   <span className={`text-sm font-black tabular-nums ${tv.realizedPnl === 0 ? "text-white" : tv.realizedPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
@@ -1410,11 +1413,11 @@ export default function VirtualAccountDetailPage() {
                           </div>
                           <div className="py-3">
                             <p className="text-xs font-bold uppercase tracking-widest text-gray-600">{t("초기 모의 투자금")}</p>
-                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{t("{0}원", formatPrice(account.initialAmount))}</p>
+                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatAccountMoney(account.initialAmount, account.currency)}</p>
                           </div>
                           <div className="py-3">
                             <p className="text-xs font-bold uppercase tracking-widest text-gray-600">{t("주식 평가 금액")}</p>
-                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{t("{0}원", formatPrice(investedValue))}</p>
+                            <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatAccountMoney(investedValue, account.currency)}</p>
                           </div>
                           <div className="py-3">
                             <p className="text-xs font-bold uppercase tracking-widest text-gray-600">{t("보유 종목 수")}</p>
@@ -1440,7 +1443,7 @@ export default function VirtualAccountDetailPage() {
                           DETAIL
                         </span>
                       </div>
-                      <VirtualTradingDashboard accountId={accountId} initialAmount={account.initialAmount} />
+                      <VirtualTradingDashboard accountId={accountId} initialAmount={account.initialAmount} currency={account.currency} />
                     </div>
                   </div>
                 )}
@@ -1493,7 +1496,7 @@ export default function VirtualAccountDetailPage() {
           onClose={() => setIsMissingStrategyModalOpen(false)}
           onCreateStrategy={() => {
             startCreateStrategyTransition(() => {
-              router.push("/analytics/new");
+              router.push(regionHref("/analytics/new"));
             });
           }}
         />

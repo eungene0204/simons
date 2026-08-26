@@ -4983,8 +4983,16 @@ def _capture_warmup_body(monkeypatch, call) -> dict:
         def read(self):
             return b'{"message": {"content": ""}, "done": true}'
 
+    class _PsResp:
+        def read(self):
+            return b'{"models": []}'
+
     @contextmanager
     def _fake_urlopen(req, timeout=600):
+        # 러너 정합 가드의 GET /api/ps는 본문이 없다 — 워밍업 body만 가로챈다.
+        if req.data is None:
+            yield _PsResp()
+            return
         captured["body"] = _json.loads(req.data.decode())
         yield _FakeResp()
 
@@ -5038,3 +5046,280 @@ def test_every_engine_indicator_has_a_frontend_badge_label():
         "lib/strategy-summary.ts INDICATOR_LABELS에 라벨이 없는 엔진 지표: "
         f"{sorted(indicators - labeled)}"
     )
+
+
+# ── Ollama 400 분류 (2026-08-26 실측 사고) ────────────────────────────────────
+
+def test_context_overflow_400_is_permanent_not_a_cold_start():
+    """컨텍스트 초과 400은 재시도로 풀리지 않는다 — 같은 요청은 토큰 수가 그대로다.
+
+    종전에는 일시 오류(Modal 콜드스타트)로 보고 330초 예산이 닳을 때까지 같은 요청을
+    반복했고, 그 사이 프론트 프록시 240초가 먼저 끊어 사용자에게는 원인과 무관한
+    'aborted due to timeout'이 떴다(로그에는 'Modal cold start?'라는 거짓 진단만 남았다).
+    """
+    import io
+    import urllib.error
+
+    from engine.nl_parser import _http_400_is_permanent
+
+    body = (
+        '{"error":"{\\"error\\":{\\"code\\":400,\\"message\\":\\"request (51010 tokens) '
+        'exceeds the available context size (20480 tokens), try increasing it\\",'
+        '\\"type\\":\\"exceed_context_size_error\\"}}"}'
+    )
+    err = urllib.error.HTTPError(
+        "http://localhost:11434/api/chat", 400, "Bad Request", {},
+        io.BytesIO(body.encode()),
+    )
+    assert _http_400_is_permanent(err) is True
+
+
+def test_unknown_400_body_still_retries_as_cold_start():
+    """알 수 없는 400은 보수적으로 일시 오류 — Modal 콜드스타트 프록시 400이 그 자리다."""
+    import io
+    import urllib.error
+
+    from engine.nl_parser import _http_400_is_permanent
+
+    err = urllib.error.HTTPError(
+        "http://x/api/chat", 400, "Bad Request", {}, io.BytesIO(b"missing request body"),
+    )
+    assert _http_400_is_permanent(err) is False
+
+
+def _fake_ollama_calls(monkeypatch, loaded_num_ctx, ps_error=None):
+    """/api/ps 응답을 심고 그동안 오간 요청을 기록한다. 반환: [(method, url, body|None)]."""
+    import json as _json
+    from contextlib import contextmanager
+
+    from llm_backend import OLLAMA_MODEL_9B
+
+    calls: list[tuple[str, str, dict | None]] = []
+
+    class _Resp:
+        def __init__(self, payload: bytes):
+            self._payload = payload
+
+        def read(self):
+            return self._payload
+
+    @contextmanager
+    def _fake_urlopen(req, timeout=None):
+        body = _json.loads(req.data.decode()) if req.data else None
+        calls.append((req.get_method(), req.full_url, body))
+        if req.full_url.endswith("/api/ps"):
+            if ps_error is not None:
+                raise ps_error
+            models = (
+                []
+                if loaded_num_ctx is None
+                else [{"model": OLLAMA_MODEL_9B, "context_length": loaded_num_ctx}]
+            )
+            yield _Resp(_json.dumps({"models": models}).encode())
+            return
+        yield _Resp(b'{"done": true}')
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    return calls
+
+
+def test_ollama_guard_releases_runner_pinned_at_other_num_ctx(monkeypatch):
+    """다른 num_ctx로 고정된 러너는 추론 전에 내린다 — 안 내리면 240초 무응답이다.
+
+    회귀(2026-08-27 실측): _OLLAMA_NUM_CTX를 20480→32768로 올린 뒤, 옛 커밋을 담은 임시
+    워크트리에서 백엔드가 한 번 뜨며 20480짜리 러너를 keep_alive=-1로 다시 고정했다.
+    그 프로세스는 곧 종료됐지만 고정은 남아, 이후 모든 파싱이 러너 교체를 기다리다
+    프록시 240초 예산을 태우고 "The operation was aborted due to timeout"으로 실패했다
+    (대조 실측: num_ctx=20480 요청 0.55초 / 32768 요청 45초 무응답). 러너는 머신 전역
+    자원이라 체크아웃별로 격리되지 않으므로, 워밍업 시점 일치만으로는 막을 수 없다.
+    """
+    from engine.nl_parser import _OLLAMA_NUM_CTX, _ollama_align_runner_num_ctx
+    from llm_backend import OLLAMA_MODEL_9B
+
+    calls = _fake_ollama_calls(monkeypatch, loaded_num_ctx=_OLLAMA_NUM_CTX - 4096)
+
+    assert _ollama_align_runner_num_ctx() is True
+    releases = [body for _, url, body in calls if url.endswith("/api/generate")]
+    assert releases == [{"model": OLLAMA_MODEL_9B, "keep_alive": 0}]
+
+
+def test_ollama_guard_keeps_runner_that_already_matches(monkeypatch):
+    """num_ctx가 일치하는 러너는 건드리지 않는다 — 매 호출 재적재는 그 자체로 사고다."""
+    from engine.nl_parser import _OLLAMA_NUM_CTX, _ollama_align_runner_num_ctx
+    from llm_backend import OLLAMA_BASE_URL
+
+    calls = _fake_ollama_calls(monkeypatch, loaded_num_ctx=_OLLAMA_NUM_CTX)
+
+    assert _ollama_align_runner_num_ctx() is False
+    assert [url for _, url, _ in calls] == [f"{OLLAMA_BASE_URL}/api/ps"]
+
+
+def test_ollama_guard_is_noop_when_no_runner_loaded(monkeypatch):
+    """러너가 없으면 내릴 것도 없다 — 첫 요청이 자기 num_ctx로 띄운다."""
+    from engine.nl_parser import _ollama_align_runner_num_ctx
+    from llm_backend import OLLAMA_BASE_URL
+
+    calls = _fake_ollama_calls(monkeypatch, loaded_num_ctx=None)
+
+    assert _ollama_align_runner_num_ctx() is False
+    assert [url for _, url, _ in calls] == [f"{OLLAMA_BASE_URL}/api/ps"]
+
+
+def test_ollama_guard_swallows_probe_failure(monkeypatch):
+    """조회가 실패해도 호출을 막지 않는다 — 가드가 새 실패 경로가 되면 안 된다."""
+    from engine.nl_parser import _ollama_align_runner_num_ctx
+
+    _fake_ollama_calls(monkeypatch, loaded_num_ctx=None, ps_error=OSError("boom"))
+
+    assert _ollama_align_runner_num_ctx() is False
+
+
+def test_ollama_inference_gate_aligns_runner_before_opening(monkeypatch):
+    """추론 공통 관문이 러너 정합을 먼저 확인해야 실제 서비스가 보호된다.
+
+    가드 함수만 있고 관문에서 부르지 않으면 2026-08-27 사고가 그대로 재발한다 —
+    파싱·빌더·검증의 모든 LLM 호출이 여기를 지난다.
+    """
+    import urllib.request
+
+    from engine import nl_parser
+    from llm_backend import OLLAMA_BASE_URL
+
+    seen: list[str] = []
+    monkeypatch.setattr(
+        nl_parser, "_ollama_align_runner_num_ctx", lambda: seen.append("aligned") or False
+    )
+    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout=None: "resp")
+
+    req = urllib.request.Request(f"{OLLAMA_BASE_URL}/api/chat", data=b"{}", method="POST")
+    assert nl_parser._ollama_open_with_retry(req, timeout=10) == "resp"
+    assert seen == ["aligned"]
+
+
+def test_ollama_preload_aligns_runner_before_pinning(monkeypatch):
+    """워밍업 적재도 먼저 정합을 맞춘다 — 어긋난 러너 위에 고정 요청을 얹으면 그것부터 멈춘다."""
+    from engine import nl_parser
+    from engine.nl_parser import _OLLAMA_NUM_CTX
+    from llm_backend import OLLAMA_MODEL_9B
+
+    calls = _fake_ollama_calls(monkeypatch, loaded_num_ctx=_OLLAMA_NUM_CTX - 4096)
+    nl_parser._ollama_preload_model(OLLAMA_MODEL_9B)
+
+    generates = [body for _, url, body in calls if url.endswith("/api/generate")]
+    assert generates[0] == {"model": OLLAMA_MODEL_9B, "keep_alive": 0}  # 해제가 먼저
+    assert generates[1]["keep_alive"] == -1
+    assert generates[1]["options"]["num_ctx"] == _OLLAMA_NUM_CTX
+
+
+def test_no_source_hardcodes_a_num_ctx_literal():
+    """`num_ctx`를 숫자 리터럴로 적은 소스가 하나도 없어야 한다 — 값 하나가 어긋나면 머신이 멈춘다.
+
+    Ollama 러너는 **머신 전역 자원**이라 체크아웃·프로세스별로 격리되지 않는다. 같은 9B 슬롯에
+    다른 `num_ctx`를 보내는 코드가 저장소 어딘가에 하나라도 있으면, 그것을 실행하는 순간 러너가
+    그 값으로 갈아끼워지고 이후 앱의 모든 파싱이 무응답에 빠진다 — 지연이 아니라 정지다.
+
+    실측 사고(2026-08-27): 옛 커밋을 담은 워크트리에서 백엔드가 뜨며 러너를 20480으로 재고정해
+    이후 모든 파싱이 240초를 채우고 실패했다. 같은 조사에서 `scripts/build_modify_corpus.py`가
+    같은 9B 슬롯에 `num_ctx: 4096`을 하드코딩해 둔 것이 발견됐다 — 그 스크립트를 한 번 돌리면
+    똑같은 사고가 났을 지뢰였다(2026-08-23 `qa_intent_open_pick_scope.py` 16384 하드코딩과 같은 계열,
+    세 번째 재발). 값 일치를 사람의 주의력에 맡기지 않고 여기서 강제한다.
+
+    통과 방법은 하나다 — `engine.nl_parser._OLLAMA_NUM_CTX`를 import해서 쓴다.
+    """
+    import ast
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    offenders: list[str] = []
+
+    # 문자열·주석의 산문("num_ctx=16384 요청이 240초 무응답")은 위반이 아니므로 AST로 본다 —
+    # 실제 코드에서 num_ctx에 **숫자 리터럴**이 붙은 자리만 잡는다.
+    for root in (repo / "backend", repo / "scripts"):
+        for path in root.rglob("*.py"):
+            if "tests" in path.parts or path.name == "conftest.py":
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                bad = False
+                if isinstance(node, ast.Dict):
+                    bad = any(
+                        isinstance(k, ast.Constant) and k.value == "num_ctx"
+                        and isinstance(v, ast.Constant) and isinstance(v.value, int)
+                        for k, v in zip(node.keys, node.values)
+                    )
+                elif isinstance(node, ast.keyword):
+                    bad = (
+                        node.arg == "num_ctx"
+                        and isinstance(node.value, ast.Constant)
+                        and isinstance(node.value.value, int)
+                    )
+                if bad:
+                    offenders.append(f"{path.relative_to(repo)}:{node.lineno}")
+
+    assert not offenders, (
+        "num_ctx를 숫자로 하드코딩한 곳이 있다 — engine.nl_parser._OLLAMA_NUM_CTX를 쓸 것:\n"
+        + "\n".join(offenders)
+    )
+
+
+def test_local_llm_budget_is_smaller_than_the_frontend_proxy_budget():
+    """백엔드 LLM 상한 < 프론트 프록시 예산 — 아니면 **백엔드가 원인을 말할 기회를 못 얻는다**.
+
+    두 값이 같으면(둘 다 240초) 언제나 프록시가 경주에서 이겨, 사용자에게는 원인과 무관한
+    "The operation was aborted due to timeout"만 남는다. 실제로 이 증상으로 두 번 사고가
+    났다 — 2026-08-26(컨텍스트 초과 400을 콜드스타트로 오분류), 2026-08-27(러너 재고정).
+    프록시 예산은 route.ts에 있어 사람이 한쪽만 고치기 쉬우므로 여기서 위계를 강제한다.
+    """
+    import re
+    from pathlib import Path
+
+    from engine.nl_parser import _OLLAMA_LOCAL_MAX_ATTEMPT_TIMEOUT_S
+
+    route = (
+        Path(__file__).resolve().parents[2]
+        / "app" / "api" / "strategy" / "parse" / "stream" / "route.ts"
+    )
+    m = re.search(r"timeoutMs:\s*([\d_]+)", route.read_text(encoding="utf-8"))
+    assert m, "프록시 route.ts에서 timeoutMs를 찾지 못했다"
+    proxy_budget_s = int(m.group(1).replace("_", "")) / 1000
+
+    assert _OLLAMA_LOCAL_MAX_ATTEMPT_TIMEOUT_S < proxy_budget_s, (
+        f"로컬 LLM 상한({_OLLAMA_LOCAL_MAX_ATTEMPT_TIMEOUT_S}s)이 프록시 예산"
+        f"({proxy_budget_s}s) 이상이면 원인 불명 타임아웃이 다시 사용자에게 뜬다"
+    )
+
+
+def test_local_timeout_names_the_runner_mismatch(monkeypatch):
+    """로컬 무응답은 **원인을 붙여** 올린다 — 이 문자열이 그대로 사용자 화면에 뜬다."""
+    from engine import nl_parser
+    from engine.nl_parser import _OLLAMA_NUM_CTX
+
+    monkeypatch.setattr(nl_parser, "_ollama_loaded_runner_num_ctx", lambda: 20480)
+    err = nl_parser._ollama_timeout_error(TimeoutError("read timed out"), 200)
+
+    assert isinstance(err, TimeoutError)
+    assert "20480" in str(err) and str(_OLLAMA_NUM_CTX) in str(err)
+
+
+def test_remote_timeout_is_passed_through_untouched(monkeypatch):
+    """원격(Modal)은 콜드스타트 무응답이 정상 범주 — 진단을 붙이지 않고 그대로 올린다."""
+    from engine import nl_parser
+
+    monkeypatch.setattr(nl_parser, "is_local_ollama", lambda: False)
+    original = TimeoutError("read timed out")
+
+    assert nl_parser._ollama_timeout_error(original, 240) is original
+
+
+def test_parser_and_validator_share_one_num_ctx():
+    """파싱 본경로와 검증기의 num_ctx는 반드시 같다.
+
+    다르면 Ollama가 호출마다 러너를 갈아끼운다 — 2026-07-30 실측에서는 재고정된 러너에
+    다른 num_ctx 요청이 들어가 240초+ 무응답이 났다(프록시가 먼저 끊어 사용자에겐 원인
+    불명 타임아웃). 두 상수가 떨어져 있어(무거운 import 회피) 사람이 한쪽만 고치기 쉬우므로
+    여기서 강제한다.
+    """
+    from engine.nl_parser import _OLLAMA_NUM_CTX
+    from engine.parse_validator import _VALIDATION_NUM_CTX
+
+    assert _VALIDATION_NUM_CTX == _OLLAMA_NUM_CTX

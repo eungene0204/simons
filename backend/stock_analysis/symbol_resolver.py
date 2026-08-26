@@ -103,6 +103,15 @@ def resolve_by_symbol(symbol: str) -> Optional[StockRef]:
         return None
     row = _symbol_index().get(symbol.strip())
     if row is None:
+        # 미국 종목·ETF — 데이터 보유 티커면 마스터 표시명으로 해석한다(US 레인 2026-08-25).
+        try:
+            from engine.universe_pit import us_display_name, us_ticker_with_data
+
+            us = us_ticker_with_data(symbol)
+            if us:
+                return StockRef(symbol=us, name=us_display_name(us) or us, overseas=True)
+        except Exception:  # noqa: BLE001 — 미국 마스터 로드 실패가 국내 해석을 막으면 안 된다
+            pass
         # 해외 티커(별칭 맵의 값)도 허용한다.
         if symbol.strip().upper() in set(_OVERSEAS_ALIASES.values()):
             return StockRef(symbol=symbol.strip().upper(), name=symbol.strip().upper(), overseas=True)
@@ -179,6 +188,14 @@ def suggest_similar_stocks(query: str, *, max_distance: int = 2) -> list[StockRe
     """
     q = (query or "").strip()
     if len(q) < 2 or not all("가" <= ch <= "힣" for ch in q):
+        return []
+    # /us(표시 언어 en)에서는 한국 종목을 제안하지 않는다 — 이 인덱스는 KR 마스터
+    # 전용이라 지역 격리 계약(test_us_region_isolation)을 깨뜨린다. 실측 2026-08-26
+    # 레드팀 EN u5-1: "Samsung Electronics"에 "혹시 '삼성전기'를 말씀하신 건가요?"가
+    # 나갔다 — /us는 한국 시장을 지원하지 않으므로 고를 수 없는 선택지다.
+    import ui_language
+
+    if ui_language.get_ui_language() == "en":
         return []
     if resolve_by_symbol(q) is not None:  # 코드면 오타 아님
         return []

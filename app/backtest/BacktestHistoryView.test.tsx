@@ -51,6 +51,7 @@ function stubHistoryFetch(items: BacktestHistoryItem[]) {
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
+  usePathname: () => "/backtest",
 }));
 
 vi.mock("@/components/layout/DashboardLayout", () => ({

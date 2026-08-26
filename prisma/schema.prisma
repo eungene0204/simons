@@ -495,6 +495,9 @@ model VirtualAccount {
   name               String
   initialCash        Decimal
   currentCash        Decimal
+  // 계좌 통화(2026-08-26) — /us 생성 계좌는 USD, 기존·한국 계좌는 KRW.
+  // 금액 숫자는 이 통화 단위 그대로다(엔진·시세와 동일 계약: 숫자=통화).
+  currency           String              @default("KRW")
   status             String              @default("ACTIVE")
   strategyId         String?
   strategyName       String?

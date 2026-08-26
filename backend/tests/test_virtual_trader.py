@@ -20,7 +20,15 @@ from engine.virtual_trader import (
     _filled_price,
     _buy_cost,
     _fee,
+    _tax,
+    _sell_proceeds,
     _fresh_price_map,
+    _is_market_hours,
+    _is_us_market_hours,
+    _account_market_open,
+    _market_now,
+    _ET,
+    _KST,
     TAX_RATE,
 )
 
@@ -344,3 +352,132 @@ def test_log_signal_records_stock_name(trader):
     trader._log_signal("acc1", "2026-07-08", "005930", 10000, "entry", "이유", "auto_executed", "oid", "삼성전자")
     rows = _query(trader, 'SELECT "stockName" FROM "VirtualMarketLog" WHERE symbol=\'005930\'')
     assert rows[0][0] == "삼성전자"
+
+
+# ── 달러 정산(미국 종목, 2026-08-26) ─────────────────────────────────────────
+
+def test_us_settlement_uses_cent_ticks_and_no_transaction_tax():
+    """미국 종목은 달러 규칙 — 호가 $0.01(소수 보존), 증권거래세 0, 수수료 센트 절사.
+
+    원화 규칙(정수 절사·틱 반올림·거래세 0.15%)을 달러 가격에 그대로 쓰면 $214.53이
+    $215로 뭉개지고 있지도 않은 매도세가 붙는다(백테스트 US 레인은 매도세 0 계약).
+    """
+    # 체결가: 소수 둘째 자리까지 보존(정수 절사·틱 반올림 금지)
+    assert _filled_price(214.53, "BUY", True) == 214.64   # +0.05% 슬리피지
+    assert _filled_price(214.53, "SELL", True) == 214.42
+    # 저가주도 1달러로 올림되지 않는다(원화 규칙은 max(1, ...))
+    assert _filled_price(0.50, "BUY", True) == 0.5
+
+    # 수수료는 동률(0.015%)에 센트 절사, 증권거래세는 0
+    assert _fee(214.64, 10, True) == 0.32
+    assert _tax(214.64, 10, True) == 0.0
+    assert _sell_proceeds(214.64, 10, True) == pytest.approx(214.64 * 10 - 0.32)
+
+
+def test_kr_settlement_rules_unchanged():
+    """한국 종목 정산은 종전 그대로 — 틱 반올림·정수 수수료·증권거래세 유지."""
+    assert _filled_price(70_000, "BUY") == 70_000  # 70,035 → 100원 틱 반올림
+    assert _fee(70_050, 10) == 105
+    assert _tax(70_050, 10) == 1050
+
+
+# ── 시장별 장 시간(2026-08-26) ───────────────────────────────────────────────
+
+def test_us_market_hours_regular_session_only():
+    """미국 정규장 09:30~16:00 ET — 프리/애프터마켓·주말 제외, DST 자동 반영."""
+    def et(month, day, hour, minute):
+        return datetime(2026, month, day, hour, minute, tzinfo=_ET)
+
+    assert not _is_us_market_hours(et(8, 25, 9, 29))   # 개장 1분 전
+    assert _is_us_market_hours(et(8, 25, 9, 30))       # 개장
+    assert _is_us_market_hours(et(8, 25, 16, 0))       # 종료
+    assert not _is_us_market_hours(et(8, 25, 16, 1))   # 종료 1분 후
+    assert not _is_us_market_hours(et(8, 29, 12, 0))   # 토요일
+    # 서머타임(EDT)과 표준시(EST) 모두 현지 시각 기준으로 같게 판정된다
+    assert _is_us_market_hours(et(1, 15, 12, 0))
+
+
+def test_korean_market_hours_unchanged():
+    kst = lambda h, m: datetime(2026, 8, 26, h, m, tzinfo=_KST)
+    assert not _is_market_hours(kst(8, 59))
+    assert _is_market_hours(kst(9, 0))
+    assert _is_market_hours(kst(15, 30))
+    assert not _is_market_hours(kst(15, 31))
+    assert not _is_market_hours(datetime(2026, 8, 29, 12, 0, tzinfo=_KST))  # 토요일
+
+
+def test_account_gate_follows_account_currency():
+    """계좌 통화가 시장 시간 판정의 정본 — 미국 장중(KST 밤)에 USD 계좌만 깨어난다."""
+    us_noon = datetime(2026, 8, 25, 12, 0, tzinfo=_ET)   # KST 새벽 01:00
+    kr_noon = datetime(2026, 8, 26, 12, 0, tzinfo=_KST)  # ET 전날 23:00
+
+    assert _account_market_open({"currency": "USD"}, us_noon)
+    assert not _account_market_open({"currency": "KRW"}, us_noon)
+    assert _account_market_open({"currency": "KRW"}, kr_noon)
+    assert not _account_market_open({"currency": "USD"}, kr_noon)
+    # currency 누락(구 계좌)은 KRW로 본다
+    assert _account_market_open({}, kr_noon)
+
+
+def test_market_now_uses_account_market_date():
+    """거래일은 계좌 시장의 날짜다 — KST 날짜를 쓰면 미국 장중 시세가 전부 스테일 처리된다."""
+    now_kst = datetime.now(_KST)
+    now_et = datetime.now(_ET)
+    assert _market_now({"currency": "USD"}).strftime("%Y-%m-%d") == now_et.strftime("%Y-%m-%d")
+    assert _market_now({"currency": "KRW"}).strftime("%Y-%m-%d") == now_kst.strftime("%Y-%m-%d")
+
+
+# ── 자동매매 통화 격리(2026-08-26) ──────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_auto_trading_excludes_cross_currency_buy_candidates(monkeypatch):
+    """자동매매는 주문 라우트를 우회해 DB에 직접 쓴다 — 같은 통화 가드를 여기서도 건다.
+
+    USD 계좌의 매수 후보는 미국 티커만 남고, 한국 코드는 제외된다(환율 변환 부재).
+    """
+    from types import SimpleNamespace
+
+    import engine.virtual_trader as vt
+
+    evaluated: list[list[str]] = []
+
+    class StubMarketData:
+        async def get_prices(self, symbols):
+            return {
+                s: SimpleNamespace(close=100.0, high=100.0, trading_halted=None,
+                                   date=vt._market_now({"currency": "USD"}).strftime("%Y-%m-%d"))
+                for s in symbols
+            }
+
+    trader = vt.VirtualTrader(StubMarketData(), data_loader=None)
+    monkeypatch.setattr(vt, "resolve_live_universe",
+                        lambda _dsl, _fallback: ["AAPL", "005930", "MSFT", "000660"])
+    monkeypatch.setattr(vt, "_is_strategy_execution_window", lambda _timing: True)
+    monkeypatch.setattr(trader, "_fetch_strategy", lambda _sid: {
+        "universe_id": "sp500", "entry": {"conditions": []}, "exit": {"conditions": []},
+        "risk": {"execution_timing": "current_close", "max_positions": 1},
+    })
+    monkeypatch.setattr(trader, "_fetch_positions", lambda _a: [])
+    monkeypatch.setattr(trader, "_fetch_pending_orders", lambda _a: [])
+    monkeypatch.setattr(trader, "_fetch_stock_names", lambda _s: {})
+    monkeypatch.setattr(trader, "_fetch_delisting_policy", lambda _a: "AUTO_LIQUIDATE")
+    monkeypatch.setattr(trader, "_fetch_today_logs", lambda *_a: set())
+    monkeypatch.setattr(trader, "_count_positions", lambda _a: 0)
+    monkeypatch.setattr(trader, "_log_signal", lambda *_a: None)
+    monkeypatch.setattr(trader, "_update_positions", lambda *_a: None)
+    monkeypatch.setattr(trader, "_update_last_refreshed", lambda *_a: None)
+    monkeypatch.setattr(vt, "get_stock_listing_status",
+                        lambda _s: vt.ListingStatus.NORMAL)
+
+    def fake_evaluate(symbols, *_args, **_kwargs):
+        evaluated.append(list(symbols))
+        return []
+
+    monkeypatch.setattr(trader, "_evaluate_signals", fake_evaluate)
+
+    await trader._refresh_account({
+        "id": "acct-usd", "tradingMode": "manual", "currency": "USD",
+        "symbols": '["AAPL"]', "strategyId": "s1",
+    })
+
+    assert evaluated == [["AAPL", "MSFT"]]  # 한국 코드는 매수 후보에서 제외

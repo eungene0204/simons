@@ -14,6 +14,7 @@ import logging
 import re
 from typing import Dict, List, Optional, Set, Tuple
 
+import ui_language
 from engine.nl_parser import FundamentalFilter, ParsedStrategy, TechnicalSignal
 from strategy_conversation.interpreter.models import (
     StrategyCondition,
@@ -133,6 +134,13 @@ def _compile_condition(cond: StrategyCondition, role: str):
             f"'{cond.factor}'은(는) 청산 신호로 쓸 수 없습니다 (기술적 신호만 가능)"
         )
     return "exit_signals", _compile_technical(cond, engine_key, "sell")
+
+
+def _is_us_markets(markets: List[str]) -> bool:
+    """시장 목록이 미국 유니버스인가(초기 자본 통화 판정 — strategy_slots와 동일 정본)."""
+    from strategy_conversation.registry.capability_registry import US_MARKETS
+
+    return bool(set(markets or []) & set(US_MARKETS))
 
 
 def compile_strategy(
@@ -391,9 +399,34 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
     new_listing_only = strategy.universe.new_listing_only
     listing_from = strategy.universe.listing_from
     listing_to = strategy.universe.listing_to
-    markets = list(strategy.universe.markets) or (
-        ["KOSPI", "KOSDAQ"] if (sector_value or new_listing_only) else ["KOSPI200"]
-    )
+    # [축 구분, FR-STR-074 ⑩] 미국 분류 라벨은 sector(한국 정본)가 아니라 us_industry로
+    # 간다 — 한국 섹터 검증기가 미국 라벨을 조용히 버리기 때문이다. 라벨로 인식된 표현은
+    # 미해결 목록에서도 뺀다(되묻기·미지원 안내가 중복으로 나가지 않게).
+    us_industry = None
+    if ui_language.get_ui_language() == "en":
+        from engine.universe_pit import us_industry_label
+
+        for term in strategy.universe.sectors:
+            label = us_industry_label(term)
+            if label is not None:
+                us_industry = label
+                unresolved_sectors = [t for t in unresolved_sectors if t != term]
+                break
+
+    if ui_language.get_ui_language() == "en":
+        # [지역 격리] /us 요청(표시 언어 en — 지역이 곧 언어, lib/geo/region)의 시장
+        # 미언급 기본값은 S&P500이다(KR 기본 KOSPI200과 같은 '대형주·유동성 우선' 눈높이).
+        # KR 기본값이 새면 미국 서비스가 한국 유니버스를 조립한다(2026-08-26 실측:
+        # /us EN "AI-Related Stock Investment Strategy" → KR 66종목). 명시 지정은
+        # 그대로 두고 — 한국 시장 명시는 capability validator가 거절한다.
+        # 업종 필터가 있는데 시장을 말하지 않았으면 미국 **전체**가 기본이다 — S&P500을
+        # 기본으로 두면 "airline stocks"가 지수 안의 3~4곳으로 조용히 좁혀진다(한국이
+        # 섹터 전략에서 양시장을 기본으로 두는 것과 같은 이유, FR-STR-066 ③).
+        markets = list(strategy.universe.markets) or (["US"] if us_industry else ["SP500"])
+    else:
+        markets = list(strategy.universe.markets) or (
+            ["KOSPI", "KOSDAQ"] if (sector_value or new_listing_only) else ["KOSPI200"]
+        )
     etf_theme = strategy.universe.etf_theme if markets == ["ETF"] else None
 
     portfolio = strategy.portfolio
@@ -404,6 +437,9 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         description=user_input,
         universe=markets,
         sector=sector_value,
+        us_industry=us_industry,
+        # 출처 축 표기 — 분류로 확정된 유니버스임을 남긴다(테마는 체인이 채운다).
+        universe_source="industry" if us_industry else None,
         target_symbols=target_symbols,
         etf_theme=etf_theme,
         # 테마 출처는 지정 종목이 있을 때만 통과시킨다 — 이 필드는 "이 종목들이 어느
@@ -433,6 +469,9 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         max_positions_pct=portfolio.selection_percent,
         hold_period_days=portfolio.hold_period_days,
         rebalancing_period=portfolio.rebalance_frequency or "none",
+        # 방식 미언급은 종전 동작(종목 교체)이다 — 되묻기 게이트가 provenance로 물으며,
+        # 여기서 조용히 다른 값으로 확정하지 않는다(FR-BT-067).
+        rebalance_method=portfolio.rebalance_method or "reconstitute",
         stop_loss_pct=risk.stop_loss,
         take_profit_pct=risk.take_profit,
         trailing_stop_pct=risk.trailing_stop,
@@ -441,7 +480,13 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         backtest_start_date=bt.start_date,
         backtest_end_date=bt.end_date,
         execution_timing=bt.execution_timing or "next_open",
-        initial_capital=bt.initial_capital if bt.initial_capital is not None else 10_000_000.0,
+        # 초기 자본 기본값은 시장 통화를 따른다 — 엔진 숫자는 데이터 통화 그대로라
+        # 미국 전략에 원화 기본(1천만)을 쓰면 $10,000,000이 된다(2026-08-26).
+        # $10,000은 플랜 모달 FREE 모의 투자금과 정합(engine.nl_parser USD 체계).
+        initial_capital=(
+            bt.initial_capital if bt.initial_capital is not None
+            else (10_000.0 if _is_us_markets(markets) else 10_000_000.0)
+        ),
         fee_rate=bt.fee_rate if bt.fee_rate is not None else 0.015,
         slippage_rate=bt.slippage_rate if bt.slippage_rate is not None else 0.05,
     )

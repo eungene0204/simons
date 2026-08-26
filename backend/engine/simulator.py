@@ -17,6 +17,12 @@ DEFAULT_SLIPPAGE_RATE = 0.0020
 # 않도록 시뮬레이터가 직접 사유를 기록한다.
 REBALANCE_EXIT_REASON = "리밸런싱 제외 (목표 종목 이탈)"
 
+# 리밸런싱일에 목표 비중을 넘어선 보유를 덜어내는 부분 매도(트림)의 사유 — 방식과 무관하다.
+# 종목 교체·비중 유지 둘 다 동일가중으로 비중을 리셋하므로 오른 종목이 목표 비중까지 잘리고,
+# 라벨이 없으면 result_handler의 일반 추론이 '전략 매도 조건 충족'으로 적어 **매도 조건을
+# 하나도 말하지 않은 전략**의 거래 내역에 존재하지 않는 매도 조건이 사유로 찍힌다.
+REBALANCE_TRIM_REASON = "리밸런싱 비중 조정 (목표 비중 초과분 매도)"
+
 
 def select_ranked_targets(cand_sorted, eff_max_pos, sel_pct, sel_band, band_cap=None):
     """랭킹 내림차순 후보 배열에서 목표 종목을 고른다 (FR-BT-060).
@@ -129,6 +135,10 @@ class Simulator:
         rebalance_dates = compute_rebalance_dates(
             entries_df.index, str(risk_params.get('rebalancing_period') or 'none')
         )
+        # 리밸런싱 방식(FR-BT-067) — 사용자가 고른다. 'weights_only'는 종목을 교체하지
+        # 않고 비중만 균등으로 되돌린다(오른 종목 일부 매도 → 내린 종목 추가 매수).
+        # 기본은 종전 동작(reconstitute = 리밸런싱일마다 목표 종목 재선정)이다.
+        weights_only = str(risk_params.get('rebalance_method') or 'reconstitute') == 'weights_only'
         rebalance_mode = (not skip_pos) and bool(max_pos or sel_pct or sel_band) and bool(rebalance_dates.any())
         has_position_risk = use_risk_mgmt and (sl_pct > 0 or tp_pct > 0 or ts_pct > 0 or max_hold > 0)
         # 매수 조건이 있는 전략은 순수 경로로 보내지 않는다(v16.3) — 그 경로는 매도 신호를
@@ -138,6 +148,7 @@ class Simulator:
                 price_df, exec_price_df, entries_df, rank_df, rebalance_dates,
                 eff_max_pos, init_cash, buy_fee, sell_fee, slippage_val,
                 sel_pct=sel_pct, sel_band=sel_band, band_cap=band_cap,
+                weights_only=weights_only,
             )
 
         symbols = entries_df.columns.tolist()
@@ -213,8 +224,9 @@ class Simulator:
         # (순수 랭킹 리밸런싱은 위에서 from_orders 목표비중으로 분기됨). 리밸런싱일에 목표
         # 집합(후보 상위 K)을 재구성한다. 비리밸런싱일의 신규 진입은 순수 랭킹 회전에서만
         # 차단하고, 매수 조건 전략(entry_signal_driven)은 그날 신호도 빈 자리만큼 담는다(v16.3).
-        # 주의: 이 경로는 유지 종목의 비중 리셋은 하지 않는다(reconstitution only) — 엔진이
-        # 경고로 고지한다.
+        # 주의: 이 경로의 **종목 교체(reconstitution) 방식**은 유지 종목의 비중 리셋을 하지
+        # 않는다 — 엔진이 경고로 고지한다. 비중 유지 방식(weights_only)은 반대로 교체 없이
+        # 비중만 되돌리므로 리밸런싱일마다 보유 전체에 목표비중을 다시 준다.
         current_target_mask = np.zeros(num_symbols, dtype=bool)
         rank_values_all = rank_df.values if rank_df is not None else None
         # 비율/분위 선정 모드에선 목표 종목 수가 리밸런싱일마다 달라진다 — 슬롯 상한과
@@ -301,13 +313,40 @@ class Simulator:
                 if len(sel) < len(cand):
                     self.overflow_days += 1
                 current_target_mask = np.zeros(num_symbols, dtype=bool)
-                current_target_mask[sel] = True
+                if weights_only:
+                    # 비중 유지 리밸런싱(FR-BT-067): 종목 교체가 없다 — 보유는 목표에서
+                    # 빠지지 않고(편출 0), 목표 종목 수에 미달하는 빈 자리만 후보로 채운다.
+                    keep = active_mask | pending_exit
+                    current_target_mask |= keep
+                    free = max(0, len(sel) - int(keep.sum()))
+                    if free > 0:
+                        fills = [c for c in sel if not keep[c]][:free]
+                        current_target_mask[fills] = True
+                else:
+                    current_target_mask[sel] = True
                 if sel_pct or sel_band:
                     cur_cap = max(len(sel), 1)
                     if risk_params.get('allocation_type') == 'equal':
                         cur_size = 1.0 / cur_cap
 
-                dropouts = active_mask & ~current_target_mask & ~pending_exit
+                if weights_only:
+                    # 비중 리셋 — 보유 종목에 동일가중 목표비중을 다시 준다(오른 종목은
+                    # 일부 매도, 내린 종목은 추가 매수). 오늘 청산이 예정·체결된 종목과
+                    # 거래 불가일 종목은 제외한다(같은 셀에 상반된 주문을 낼 수 없다).
+                    # 트림(소량 매도)에 매수 수수료가 적용되는 근사는 순수 경로와 같다.
+                    reset = active_mask & ~pending_exit & avail_values[i]
+                    if reset.any():
+                        target_values[i, reset] = cur_size
+                        # 트림(목표 비중 초과분 매도) 사유 — 오늘 청산이 확정된 종목은
+                        # 위 Step 1·2에서 active_mask가 이미 꺼져 여기 들어오지 않는다
+                        # (리스크 청산 사유를 덮어쓰지 않는다).
+                        for s_idx in np.where(reset)[0]:
+                            self.exit_reason_overrides.setdefault(
+                                symbols[s_idx], {}
+                            )[date_strs[i]] = REBALANCE_TRIM_REASON
+                    dropouts = np.zeros(num_symbols, dtype=bool)
+                else:
+                    dropouts = active_mask & ~current_target_mask & ~pending_exit
                 if dropouts.any():
                     # 정밀 사유 예약 — 즉시/이월 어느 경로로 체결되든 _book_exit이 남긴다.
                     exit_reason_pending[dropouts] = REBALANCE_EXIT_REASON
@@ -409,12 +448,17 @@ class Simulator:
                               slippage_val: float,
                               sel_pct: Optional[float] = None,
                               sel_band: Optional[list] = None,
-                              band_cap: Optional[int] = None) -> vbt.Portfolio:
+                              band_cap: Optional[int] = None,
+                              weights_only: bool = False) -> vbt.Portfolio:
         """순수 리밸런싱 경로 — vbt 네이티브 from_orders(목표비중)로 비중 리셋까지 수행.
 
         리밸런싱일마다 후보(entries=True)를 rank 상위 K로 골라 동일가중 목표비중을 주고,
         목표에서 빠진 보유는 비중 0으로 청산한다. 비리밸런싱일은 NaN(주문 없음 = 보유 유지).
         call_seq='auto'로 매도→매수 순서를 보장해 청산 현금으로 신규 편입을 채운다.
+
+        ``weights_only``(비중 유지 리밸런싱, FR-BT-067)면 종목 교체를 하지 않는다 —
+        보유 종목은 그대로 두고 동일가중으로 비중만 되돌리며(오른 종목 일부 매도,
+        내린 종목 추가 매수), 목표 종목 수에 미달하는 빈 자리만 후보로 채운다.
 
         수수료: 목표비중 0 셀은 매도 비용(수수료+거래세), 양수 셀은 매수 수수료를
         적용한다. 유지 종목의 비중 리셋 트림(소량 매도)에는 매수 수수료가 적용되는
@@ -436,6 +480,12 @@ class Simulator:
             sel = select_ranked_targets(cand, eff_max_pos, sel_pct, sel_band, band_cap)
             if len(sel) < len(cand):
                 self.overflow_days += 1
+            if weights_only:
+                # 비중 유지: 보유는 목표에서 빠지지 않는다. 목표 종목 수(sel 길이 =
+                # 상한·비율·분위 규칙이 정한 수)에 미달하는 만큼만 후보로 채운다.
+                free = max(0, len(sel) - int(held.sum()))
+                fills = [c for c in sel if not held[c]][:free]
+                sel = np.concatenate((np.where(held)[0], np.asarray(fills, dtype=int)))
             row = np.zeros(num_syms)            # 0 = 목표에서 빠진 보유는 전량 청산
             if len(sel) > 0:
                 row[sel] = 1.0 / len(sel)        # 동일가중 목표비중 (비중 리셋)
@@ -445,6 +495,16 @@ class Simulator:
                 self.exit_reason_overrides.setdefault(
                     symbols[s_idx], {}
                 )[date_strs[i]] = REBALANCE_EXIT_REASON
+            # 목표에 남은 보유의 부분 매도(트림) 사유 — **두 방식 모두**에 붙인다. 이
+            # 경로는 종목 교체에서도 리밸런싱일마다 동일가중으로 비중을 리셋하므로(위 row)
+            # 오른 종목이 목표 비중까지 잘린다. 라벨이 없으면 result_handler의 일반 추론이
+            # '전략 매도 조건 충족'으로 적어, 매도 조건을 하나도 말하지 않은 전략의 거래
+            # 내역에 존재하지 않는 매도 조건이 사유로 찍힌다(2026-08-26 실측·사용자 지시로 정리).
+            # 매수로 끝난 종목엔 그날 매도 기록이 없어 이 예약은 쓰이지 않는다(사유는 매도에만 붙는다).
+            for s_idx in np.where(held & (row > 0.0))[0]:
+                self.exit_reason_overrides.setdefault(
+                    symbols[s_idx], {}
+                )[date_strs[i]] = REBALANCE_TRIM_REASON
             held = row > 0.0
             target[i, :] = row
 

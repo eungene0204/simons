@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { VirtualAccount } from "@/types/portfolio";
 import { getLocale, t } from "@/lib/i18n";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 const formatPrice = (price: number) => {
   return new Intl.NumberFormat("ko-KR").format(price);
@@ -14,13 +15,14 @@ interface VirtualAccountCardProps {
 
 export default function VirtualAccountCard({ account }: VirtualAccountCardProps) {
   const router = useRouter();
+  const regionHref = useRegionHref();
 
   const profit = account.totalValue - account.initialAmount;
   const profitPercent = (profit / account.initialAmount) * 100;
 
   return (
     <div
-      onClick={() => router.push(`/virtual-account/${account.id}`)}
+      onClick={() => router.push(regionHref(`/virtual-account/${account.id}`))}
       className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 cursor-pointer hover:shadow-md transition-shadow hover:border-blue-500 dark:hover:border-blue-500"
     >
       <div className="flex flex-col h-full">

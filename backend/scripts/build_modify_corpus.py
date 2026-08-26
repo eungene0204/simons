@@ -141,6 +141,11 @@ def _build_specs():
 
 
 def _ollama_phrasings(intent: str, n: int) -> list[str]:
+    # num_ctx는 앱 추론 본경로와 같은 값을 쓴다(FR-STR-019o ⑥) — 같은 9B 슬롯이라
+    # 다른 값을 보내면 dev 서버가 keep_alive=-1로 고정해 둔 러너를 갈아끼우려다
+    # **머신 전체의 파싱이 멈춘다**(2026-08-27 실측 사고와 같은 구조).
+    from engine.nl_parser import _OLLAMA_NUM_CTX
+
     prompt = (
         f"다음 의도를 한국어로 표현하는 짧고 자연스러운 사용자 채팅 명령 {n}개를 만드세요.\n"
         f"의도: {intent}\n"
@@ -153,7 +158,7 @@ def _ollama_phrasings(intent: str, n: int) -> list[str]:
         "stream": False,
         "think": False,
         "format": "json",
-        "options": {"temperature": 0.7, "num_ctx": 4096, "num_predict": 512},
+        "options": {"temperature": 0.7, "num_ctx": _OLLAMA_NUM_CTX, "num_predict": 512},
     }).encode()
     req = urllib.request.Request(
         f"{OLLAMA_BASE_URL}/api/chat",

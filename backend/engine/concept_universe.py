@@ -172,6 +172,13 @@ def _collect_candidates(graph, anchor: dict) -> list[dict]:
     for edge, other in graph.neighbor_edges(anchor_id):
         if other.startswith(("company:", "etf:", "sector:")):
             continue
+        # 개념 1홉 경유는 큐레이션된 카테고리 노드(시드·카탈로그)만 — 학습 개체(learned:)
+        # 간 수평 연결(뉴스 공동 언급 related_to)은 상대 개체의 종목까지 전이시키지 않는다.
+        # 2026-08-24 '블랙핑크' 사고: 블랙핑크—BTS 공동 언급 엣지를 타고 BTS의 학습 종목
+        # (신세계·LB인베스트먼트)이 블랙핑크 유니버스로 수입됐다. 앵커 자신의 직접 엣지는
+        # 위에서 이미 수집했으므로 여기서 막는 건 '남의 개체를 경유한 확장'뿐이다.
+        if other.startswith("learned:"):
+            continue
         concept_name = graph.nodes.get(other, {}).get("name", other)
         for c in _company_candidates_of(graph, other, concept_name):
             _keep({

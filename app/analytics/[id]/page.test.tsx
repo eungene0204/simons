@@ -13,6 +13,7 @@ vi.mock("next/navigation", () => ({
     push: pushMock,
     back: backMock,
   }),
+  usePathname: () => "/analytics/strategy-1",
 }));
 
 vi.mock("@/components/layout/DashboardLayout", () => ({

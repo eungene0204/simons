@@ -1375,7 +1375,7 @@ class _StubPrimaryInterpreter:
             unreflected_numbers=unreflected,
         )
 
-    def interpret(self, user_input, draft=None, pending_question=None, on_stage=None):
+    def interpret(self, user_input, draft=None, pending_question=None, on_stage=None, **kwargs):
         return self._result
 
 
@@ -1878,7 +1878,7 @@ def test_primary_interpreter_error_falls_back(monkeypatch):
     from strategy_conversation.interpreter.llm_strategy_interpreter import InterpreterError
 
     class _Failing:
-        def interpret(self, user_input, draft=None, on_stage=None):
+        def interpret(self, user_input, draft=None, on_stage=None, **kwargs):
             raise InterpreterError("boom")
 
     monkeypatch.setattr(primary, "_interpreter_singleton", _Failing())
@@ -2376,7 +2376,7 @@ def test_modify_primary_deterministic_fast_path_skips_interpreter(monkeypatch):
     monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "fast_path_first")
 
     class _MustNotBeCalled:
-        def interpret(self, user_input, draft=None, on_stage=None):
+        def interpret(self, user_input, draft=None, on_stage=None, **kwargs):
             raise AssertionError("결정적 fast-path 처리 가능한 입력에 인터프리터가 호출됨")
 
     monkeypatch.setattr(primary, "_interpreter_singleton", _MustNotBeCalled())
@@ -2490,7 +2490,7 @@ def test_modify_primary_forwards_pending_question_to_interpreter(monkeypatch):
     seen: dict = {}
 
     class _Interpreter:
-        def interpret(self, user_input, draft=None, pending_question=None, on_stage=None):
+        def interpret(self, user_input, draft=None, pending_question=None, on_stage=None, **kwargs):
             seen["pending_question"] = pending_question
             raise RuntimeError("stop")  # 해석 결과는 이 테스트의 관심사가 아니다
 
@@ -2738,9 +2738,11 @@ def test_patch_invalid_path_rejected():
 
 
 def test_patch_schema_violation_rejected():
+    # NASDAQ은 2026-08-25 US 레인 승격으로 유효한 시장이 됐다 — 여전히 스키마 밖인
+    # 값으로 위반 거부 계약을 검증한다.
     with pytest.raises(PatchError):
         apply_patches(_spec(), [
-            PatchOp(op="replace", path="/universe/markets", value=["NASDAQ"]),
+            PatchOp(op="replace", path="/universe/markets", value=["NIKKEI225"]),
         ])
 
 
@@ -2911,7 +2913,7 @@ def test_shadow_records_diff_and_writes_log(tmp_path, monkeypatch):
     intent = StrategyIntent.model_validate(_full_intent_dict())
 
     class _StubInterpreter:
-        def interpret(self, user_input, draft=None, on_stage=None):
+        def interpret(self, user_input, draft=None, on_stage=None, **kwargs):
             return InterpreterResult(
                 intent=intent, raw_output="{}", repair_attempts=0,
                 latency_ms=1.0, model_name="stub",
@@ -4089,3 +4091,189 @@ def test_condition_recall_pass_restores_dropped_conditions():
     intent = _recall_intent(base)
     assert recover_missing_conditions(intent, user_input, _stub_chat("no json")) == []
     assert len(intent.strategy.entry_conditions) == 1
+
+
+def test_amount_threshold_reconciled_from_quote():
+    """④ 금액 검산: 9B가 영어 단위를 억 환산 없이 옮기면 인용이 이긴다.
+
+    실측(2026-08-26, /us 영어 전수 게이트 57·58): "$50 billion"→value 50(500이어야 함),
+    "$100 million"→value 100(1이어야 함). 프롬프트 4.1의 명시 환산 예시로도 고정되지
+    않아, breakout lookback과 같은 인용 대조(§ 3-2)로 결정론 교정한다.
+    """
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.market_cap", "operator": ">=", "value": 50,
+             "unit": "억원", "source_text": "market cap of $50 billion or more"},
+            {"factor": "fundamental.trading_value", "operator": ">=", "value": 100,
+             "unit": "억원", "source_text": "daily trading value of $100 million or more"},
+        ],
+    ))
+    _fill_deterministic_condition_params(intent)
+    conds = intent.strategy.entry_conditions
+    assert conds[0].value == 500.0
+    assert conds[1].value == 1.0
+
+
+def test_amount_threshold_kr_jo_drift_reconciled():
+    """④ 금액 검산(한국어): '1조'를 100000(10조)으로 내는 자릿수 드리프트도 같은 자리에서
+    교정된다(2026-08-18 사고 — 같은 문장이 프롬프트가 바뀔 때마다 10000↔100000을 오갔다)."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.market_cap", "operator": ">=", "value": 100000,
+             "unit": "억원", "source_text": "시가총액 1조 원 이상"},
+        ],
+    ))
+    _fill_deterministic_condition_params(intent)
+    assert intent.strategy.entry_conditions[0].value == 10000.0
+
+
+def test_amount_guard_leaves_correct_and_ambiguous_values():
+    """④ 금액 검산의 불개입 조건: 값이 이미 맞으면 그대로, 인용에 금액 표기가 둘이면
+    어느 쪽이 임계값인지 표기만으로 결정할 수 없으므로 판정하지 않는다. 퍼센트 지표는
+    억원 지표가 아니므로 대상 밖이다("ROE 10%"의 10을 금액으로 읽지 않는다)."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.market_cap", "operator": ">=", "value": 500,
+             "unit": "억원", "source_text": "시가총액 500억 달러 이상"},
+            {"factor": "fundamental.trading_value", "operator": ">=", "value": 3000,
+             "unit": "억원", "source_text": "3000억 이상 3조 이하"},
+            {"factor": "fundamental.roe_or_gpa", "operator": ">=", "value": 10,
+             "unit": "percent", "source_text": "ROE of 10% or higher"},
+        ],
+    ))
+    _fill_deterministic_condition_params(intent)
+    conds = intent.strategy.entry_conditions
+    assert conds[0].value == 500.0   # 이미 정답 — 무개입
+    assert conds[1].value == 3000.0  # 표기 2개 — 무개입
+    assert conds[2].value == 10.0    # 억원 지표 아님 — 무개입
+
+
+def test_amount_guard_fills_missing_value_from_quote():
+    """④ 금액 검산: 인용에 금액이 명시됐는데 value가 비면 채운다(breakout lookback과
+    동형) — 사용자가 이미 말한 값을 되묻는 헛질문을 막는다."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.trading_value", "operator": ">=", "value": None,
+             "unit": "억원", "source_text": "거래대금 5천만 달러 이상"},
+        ],
+    ))
+    _fill_deterministic_condition_params(intent)
+    assert intent.strategy.entry_conditions[0].value == 0.5
+
+
+def test_risk_quote_condition_relocated_to_risk_slot():
+    """④-2 리스크 인용 오배치: 손절 선언 인용을 든 조건은 리스크 슬롯으로 옮긴다.
+
+    실측(2026-08-26, /us 영어 게이트 83): "Set the stop-loss example value to -9%" 인용이
+    fundamental.trading_value>=9 조건으로 나가고 stop_loss는 비었다 — 손절이 거래대금
+    임계로 둔갑. 인용 선두가 리스크 선언일 때만 옮기고(보수 조건), 빈 슬롯에만 넣는다.
+    """
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.trading_value", "operator": ">=", "value": 9,
+             "unit": "억원", "source_text": "Set the stop-loss example value to -9%."},
+        ],
+        risk_management={"stop_loss": None},
+    ))
+    _fill_deterministic_condition_params(intent)
+    assert intent.strategy.entry_conditions == []
+    assert intent.strategy.risk_management.stop_loss == 9.0
+
+    # 선두가 리스크 선언이 아니면(조건 서술 뒤 리스크 덧붙음) 옮기지 않는다 — 오폭 방지.
+    intent2 = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.trading_value", "operator": ">=", "value": 100,
+             "unit": "억원", "source_text": "거래대금 100억 이상, 손절 9%"},
+        ],
+        risk_management={"stop_loss": None},
+    ))
+    _fill_deterministic_condition_params(intent2)
+    assert len(intent2.strategy.entry_conditions) == 1
+
+
+def test_hold_rescue_reads_english_unsupported_quote():
+    """⑤ 보유기간 구제의 영어 판: LLM이 영어로 신고한 보유 기간도 슬롯으로 옮긴다
+    (2026-08-26, /us 영어 게이트 77: "holds for only 15 trading days" 소실)."""
+    from strategy_conversation.primary import _hold_days_from_unsupported_feature
+
+    assert _hold_days_from_unsupported_feature("hold for 15 trading days") == 15
+    assert _hold_days_from_unsupported_feature("holding period of 6 months") == 126
+    # 하한(최소 보유)은 실제 미지원 — 뒤집어 넣지 않는다.
+    assert _hold_days_from_unsupported_feature("hold at least 3 months") is None
+
+
+def test_unresolvable_rebalance_cleared_not_crashing():
+    """해석 불가 리밸런싱 주기는 오류 안내와 함께 필드를 비운다 — 부분 컴파일 생존.
+
+    실측(2026-08-26, /us 영어 게이트 41): LLM이 "every 2 weeks"를 biweekly로 정확히
+    옮겼지만 검증기가 오류만 내고 값을 남겨, 부분 컴파일이 ParsedStrategy Literal에서
+    크래시해 해석 실패(빈 전략)로 둔갑했다. 2주≠2개월 — 비슷한 지원 값으로 조용히
+    바꾸지 않는다(임의 값 확정 금지). 별칭('분기별' 등)은 종전대로 정규화된다.
+    """
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        portfolio={"selection_count": 8, "rebalance_frequency": "biweekly"},
+    ))
+    validated, report = run_validation(intent)
+    assert validated.strategy.portfolio.rebalance_frequency is None
+    assert any("biweekly" in e for e in report.errors)
+    # 부분 컴파일이 크래시 없이 전략 골격을 유지한다(빈 전략 둔갑 방지).
+    from strategy_conversation.compiler.strategy_compiler import compile_partial
+
+    parsed, dropped, pending = compile_partial(
+        validated, report, "top 8 by return, re-rank every 2 weeks")
+    assert parsed.max_positions == 8
+
+
+def test_breakout_quote_reclassifies_bollinger_condition():
+    """신고가/박스권 인용의 볼린저 오분류 교정(§ 3-2 인용 판독).
+
+    실측(2026-08-26, /us 게이트 27·69 — 한·영 공통): "break above its 20-day high"·
+    "박스 상단 돌파" 인용이 bollinger_bands로 나갔다. 밴드와 박스권은 다른 개념이다.
+    볼린저 어휘가 인용에 있으면(정당한 볼린저 조건) 건드리지 않는다.
+    """
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.bollinger_bands", "operator": "crosses_above",
+             "value": None, "source_text": "buy when it breaks above its 20-day high"},
+            {"factor": "technical.bollinger_bands", "operator": "crosses_below",
+             "value": None, "parameters": {"period": 20},
+             "source_text": "볼린저 하단에 닿으면 매수"},
+        ],
+    ))
+    _fill_deterministic_condition_params(intent)
+    conds = intent.strategy.entry_conditions
+    assert conds[0].factor == "technical.breakout"
+    assert conds[0].parameters.get("lookback_period") == 20.0  # EN "20-day high" 환산
+    assert conds[1].factor == "technical.bollinger_bands"  # 볼린저 어휘 → 불개입
+
+
+def test_breakout_quote_reclassifies_ma_condition_without_ma_vocab():
+    """같은 드리프트의 ma_crossover 착지(KR 27 재파싱 실측): '박스 상단 돌파' 인용에
+    이동평균 어휘가 없으면 breakout으로 되돌린다. '20일선 돌파'(정당한 MA)는 불개입."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.ma_crossover", "operator": "crosses_above",
+             "value": None, "source_text": "박스 상단을 돌파하면 매수"},
+            {"factor": "technical.ma_crossover", "operator": "crosses_above",
+             "value": None, "parameters": {"short_period": 1, "long_period": 20},
+             "source_text": "종가가 20일선을 위로 돌파하면"},
+        ],
+    ))
+    _fill_deterministic_condition_params(intent)
+    conds = intent.strategy.entry_conditions
+    assert conds[0].factor == "technical.breakout"
+    assert conds[1].factor == "technical.ma_crossover"

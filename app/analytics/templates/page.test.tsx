@@ -5,12 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import StrategyTemplatesPage from "./page";
 import { EXAMPLES, shuffleExamples } from "@/components/strategy/StrategyExampleTabs";
+import { US_EXAMPLES } from "@/components/strategy/usExamples";
 
 const beginStrategyChatNavigation = vi.fn();
 const push = vi.fn();
+// useRegion(지역별 예시 분기)·useRegionHref(채팅 진입 지역 프리픽스)가 경로를 읽는다 —
+// 기본 KR 경로, /us 케이스는 테스트에서 바꾼다.
+let mockPathname = "/analytics/templates";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
+  usePathname: () => mockPathname,
 }));
 
 vi.mock("../new/chatNavigation", () => ({
@@ -52,6 +57,7 @@ describe("StrategyTemplatesPage", () => {
     beginStrategyChatNavigation.mockClear();
     push.mockClear();
     sessionStorage.clear();
+    mockPathname = "/analytics/templates";
   });
 
   it("전략 종류별 탭을 보여주고 선택한 종류의 템플릿만 보여준다", async () => {
@@ -155,6 +161,20 @@ describe("StrategyTemplatesPage", () => {
     expect(screen.queryByRole("button", { name: "템플릿 사용" })).not.toBeInTheDocument();
     expect(beginStrategyChatNavigation).toHaveBeenCalledWith(editedPrompt);
     expect(push).toHaveBeenCalledWith("/analytics/chat");
+  });
+
+  it("/us에서는 채팅 진입 경로에 지역 프리픽스를 유지한다", () => {
+    // KR/US가 같은 /analytics?chat=1로 합류하던 회귀(2026-08-26) — 채팅 진입도
+    // 내부 링크이므로 regionHref를 거쳐야 /us 탭이 KR 트리로 이탈하지 않는다.
+    mockPathname = "/us/analytics/templates";
+
+    render(<StrategyTemplatesPage />);
+
+    const usExampleTitle = US_EXAMPLES[0].title;
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(usExampleTitle) }));
+    fireEvent.click(screen.getByRole("button", { name: "예시로 시작" }));
+
+    expect(push).toHaveBeenCalledWith("/us/analytics/chat");
   });
 
   it("미리보기 모달에서 취소를 누르면 전략 채팅으로 이동하지 않는다", async () => {

@@ -243,7 +243,7 @@ export function PrivacyPolicyPage() {
               {businessInfoItems.map((item) => (
                 <div key={item.label} className="contents">
                   <dt className="text-gray-500">{item.label}</dt>
-                  <dd className="text-gray-300">{item.value || t("미정")}</dd>
+                  <dd className="text-gray-300">{item.value ? t(item.value) : t("미정")}</dd>
                 </div>
               ))}
             </dl>

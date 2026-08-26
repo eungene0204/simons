@@ -239,6 +239,9 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         "sector": sorted(strategy.sector) if isinstance(strategy.sector, list) else strategy.sector,
         # ETF 테마 필터 — None이면 _drop_none이 제거하므로 기존 전략 해시는 변하지 않는다.
         "etf_theme": strategy.etf_theme,
+        # 미국 업종 필터(FR-STR-074 ⑩) — 결과(종목 집합)를 바꾸는 값이라 해시에 포함한다.
+        # None이면 _drop_none이 제거 → 기존 전략 해시 불변.
+        "us_industry": strategy.us_industry,
         # 신규 상장 유니버스(FR-STR-073). None이면 _drop_none이 제거 → 기존 해시 불변.
         "listing_from": strategy.listing_from,
         "listing_to": strategy.listing_to,
@@ -289,6 +292,12 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         "max_positions": strategy.max_positions,
         "hold_period_days": strategy.hold_period_days,
         "rebalancing_period": strategy.rebalancing_period,
+        # 리밸런싱 방식(FR-BT-067) — 기본값(reconstitute)은 None으로 내려 _drop_none이
+        # 제거하게 한다: 방식이 생기기 전에 저장된 전략의 strategy_id 해시가 불변이어야
+        # 캐시·기록이 같은 전략을 같은 것으로 본다(ranking_direction과 같은 계약).
+        "rebalance_method": (
+            None if strategy.rebalance_method == "reconstitute" else strategy.rebalance_method
+        ),
         "stop_loss_pct": strategy.stop_loss_pct,
         "take_profit_pct": strategy.take_profit_pct,
         "trailing_stop_pct": strategy.trailing_stop_pct,
@@ -403,6 +412,10 @@ def _estimate_universe_symbol_count(markets: List[str]) -> Optional[int]:
     """Return cheap counts when available without resolving full symbol lists."""
     if markets == ["KOSPI200"] or set(markets) == {"KOSPI200"}:
         return 200
+    # 미국 지수 — 현행 구성 명부 기준의 대략치(표시용)
+    _us_counts = {"SP500": 500, "NASDAQ100": 100, "DOW30": 30}
+    if len(markets) == 1 and markets[0] in _us_counts:
+        return _us_counts[markets[0]]
     return None
 
 
@@ -482,6 +495,9 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "max_mdd_limit_pct": strategy.max_mdd_limit_pct,
         "max_holding_days": max_holding_days,
         "rebalancing_period": strategy.rebalancing_period,
+        # 리밸런싱일에 목표 종목을 다시 고를지(reconstitute), 보유는 그대로 두고 비중만
+        # 균등으로 되돌릴지(weights_only) — FR-BT-067. 시뮬레이터가 두 경로에서 읽는다.
+        "rebalance_method": strategy.rebalance_method,
         "init_cash": strategy.initial_capital,
         "ranking_enabled": not explicit_symbols,
         "ranking_weight_value": 0.5,
@@ -532,6 +548,9 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "sector": None if target_symbols else strategy.sector,
         # ETF 테마/상품명 필터 — universe_id="etf"일 때 엔진이 이름 키워드로 좁힌다.
         "etf_theme": None if target_symbols else strategy.etf_theme,
+        # 미국 업종 필터 — 지정 종목 모드에서는 유니버스 자체가 없으므로 싣지 않는다
+        # (etf_theme와 동일 규칙).
+        "us_industry": None if target_symbols else strategy.us_industry,
         # 신규 상장 제한 — 엔진이 상장일이 이 구간에 속하는 종목만 남긴다.
         # 지정 종목 모드는 사용자가 종목을 직접 고른 것이므로 적용하지 않는다.
         "listing_from": None if target_symbols else strategy.listing_from,

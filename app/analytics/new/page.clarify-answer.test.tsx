@@ -61,6 +61,7 @@ function completeParsed(initialCapital: number) {
     fundamental_filters: [],
     max_positions: 3,
     rebalancing_period: "monthly",
+    rebalance_method: "reconstitute",
     stop_loss_pct: 6,
     take_profit_pct: 30,
     backtest_period: "5y",
@@ -69,7 +70,8 @@ function completeParsed(initialCapital: number) {
 }
 
 const EXPLICIT_FIELDS = [
-  "universe", "max_positions", "rebalancing", "backtest_period", "initial_capital",
+  "universe", "max_positions", "rebalancing", "rebalance_method",
+  "backtest_period", "initial_capital",
 ];
 
 function sseResultResponse(data: Record<string, unknown>) {

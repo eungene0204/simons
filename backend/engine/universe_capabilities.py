@@ -26,14 +26,37 @@ _UNIVERSE_KIND_SUPPORT: dict[str, dict[str, bool]] = {
 
 
 def universe_kind(universe: Optional[Iterable[str]]) -> str:
-    """ParsedStrategy.universe → 유니버스 종류("ETF" | "STOCK")."""
-    if universe and "ETF" in set(universe):
+    """ParsedStrategy.universe → 유니버스 종류("ETF" | "STOCK").
+
+    미국 ETF(US_ETF)도 같은 ETF 종류다 — 여러 기업을 묶은 상품이라 기업 재무지표를
+    조건으로 쓸 수 없다는 계약이 시장과 무관하게 동일하다.
+    """
+    if universe and set(universe) & {"ETF", "US_ETF"}:
         return "ETF"
     return "STOCK"
 
 
 def is_etf_strategy(universe: Optional[Iterable[str]]) -> bool:
     return universe_kind(universe) == "ETF"
+
+
+def is_etf_product_strategy(
+    universe: Optional[Iterable[str]], target_symbols: Optional[Iterable[str]] = None
+) -> bool:
+    """ETF 유니버스이거나 **지정 종목이 전부 ETF 상품**인 전략인가.
+
+    ETF 상품 지정("SPY만"·"KODEX 200만")은 universe에 ETF 표기가 없어도 같은 계약이다
+    — 기업 재무제표가 없으므로 재무 지표를 조건·질문 칩으로 쓸 수 없다(2026-08-26 실측:
+    /us "SPY, the S&P 500 ETF" 지정에 매수조건 칩으로 PER·ROE가 노출됐다).
+    """
+    if is_etf_strategy(universe):
+        return True
+    symbols = [s for s in (target_symbols or []) if s]
+    if not symbols:
+        return False
+    from engine.universe_pit import is_etf_symbol, is_us_etf_symbol
+
+    return all(is_etf_symbol(str(s)) or is_us_etf_symbol(str(s)) for s in symbols)
 
 
 def fundamental_metric_supported(universe: Optional[Iterable[str]], metric: str) -> bool:

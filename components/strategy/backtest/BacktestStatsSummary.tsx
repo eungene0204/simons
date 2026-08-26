@@ -3,6 +3,7 @@
 import { BacktestResult } from "@/types/strategy";
 import { formatProfitFactor } from "@/lib/format-profit-factor";
 import { formatCompactNumberEn, t } from "@/lib/i18n";
+import { isUsBacktestResult } from "@/lib/us-symbols";
 
 interface Props {
   result: BacktestResult;
@@ -37,6 +38,16 @@ function krw(v: number) {
   return v.toLocaleString();
 }
 
+// 미국 전략 금액 — 달러 축약(K/M/B). 시뮬레이션이 달러로 돌았으므로 원화 축약이 거짓이 된다.
+function usd(v: number) {
+  const abs = Math.abs(v);
+  const sign = v < 0 ? "-" : "";
+  if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(1)}K`;
+  return `${sign}$${abs.toLocaleString("en-US")}`;
+}
+
 function returnColor(v: number | undefined) {
   if (v == null) return "text-gray-400";
   if (v > 0) return "text-main-red";
@@ -51,6 +62,8 @@ function riskColor(v: number | undefined, invert = false) {
 }
 
 export default function BacktestStatsSummary({ result }: Props) {
+  const isUs = isUsBacktestResult(result);
+  const money = (v: number) => (isUs ? usd(v) : t("{0}원", krw(v)));
   const volatility =
     result.volatility ??
     (result.sharpe > 0 ? (result.cagr || 0) / result.sharpe : 0);
@@ -89,12 +102,12 @@ export default function BacktestStatsSummary({ result }: Props) {
         },
         {
           label: t("최종 자산"),
-          value: t("{0}원", krw(result.finalEquity)),
+          value: money(result.finalEquity),
           color: "text-gray-300",
         },
         {
           label: t("순 수익"),
-          value: t("{0}{1}원", result.finalEquity - result.initialCapital >= 0 ? "+" : "", krw(result.finalEquity - result.initialCapital)),
+          value: `${result.finalEquity - result.initialCapital >= 0 ? "+" : ""}${money(result.finalEquity - result.initialCapital)}`,
           color: returnColor(result.finalEquity - result.initialCapital),
         },
       ],

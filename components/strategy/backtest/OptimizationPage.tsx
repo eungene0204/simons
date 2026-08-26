@@ -26,6 +26,7 @@ import {
   type SavedValidationSummary,
 } from "@/lib/validation-storage";
 import { t } from "@/lib/i18n";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 type OptimizationModel = "walkForward" | "monteCarlo";
 
@@ -977,6 +978,7 @@ export default function OptimizationPage({
   strategySummary,
   onClose,
 }: OptimizationPageProps) {
+  const regionHref = useRegionHref();
   const [selectedModel, setSelectedModel] = useState<OptimizationModel>("walkForward");
   const [loadedWalkForward, setLoadedWalkForward] = useState<any | null>(null);
   const [isSavedListOpen, setIsSavedListOpen] = useState(false);
@@ -1081,7 +1083,7 @@ export default function OptimizationPage({
             {t("프리미엄 플랜을 이용하시면 워크포워드 분석과 몬테카를로 시뮬레이션을 통해 더 깊은 검증을 할 수 있습니다.")}
           </p>
           <a
-            href="/pricing"
+            href={regionHref("/pricing")}
             className="mt-6 inline-flex items-center justify-center rounded-lg border border-gray-500 px-5 py-2.5 text-sm font-black text-gray-300 transition-colors hover:bg-white/[0.05]"
           >
             {t("플랜 변경")}

@@ -74,7 +74,10 @@ def _ground_term(inp: GroundTermIn) -> GroundTermOut:
         raise ToolError("ground_term은 chat(공유 LLM 호출자) 주입이 필요합니다")
     from engine.term_grounding import resolve_sector
 
-    return GroundTermOut(sector=resolve_sector(inp.text, inp.chat))
+    # text_is_term: 이 도구의 입력 계약은 '상류 LLM이 이미 뽑아낸 표현'이다(planner·
+    # term-in 체인, § 3-2 지식 조회). 내부 용어 추출 LLM이 낱말을 재심사해 null을 내도
+    # 입력 자체를 검색어로 검색을 진행한다(2026-08-24 '블랙핑크' 사고).
+    return GroundTermOut(sector=resolve_sector(inp.text, inp.chat, text_is_term=True))
 
 
 # ── classify_universe — 유니버스 표현의 타입 결정(Universe-first, Phase 5) ──────
@@ -86,6 +89,13 @@ _MARKET_CANONICAL = {
     # 지수명을 명시한 경우만 지수 유니버스로 본다 — "코스닥 대형주"처럼 지수를 짚지 않은
     # 표현까지 KOSDAQ150으로 넘기면 사용자가 말하지 않은 150종목 제한을 확정하게 된다.
     "코스닥150": "KOSDAQ150", "kosdaq150": "KOSDAQ150",
+    # 미국 시장·지수 (2026-08-25 US 레인) — 지수를 짚은 표현만 지수 유니버스로 본다
+    "s&p500": "SP500", "sp500": "SP500", "snp500": "SP500",
+    "에스앤피500": "SP500", "에스앤피": "SP500", "s&p": "SP500",
+    "나스닥100": "NASDAQ100", "nasdaq100": "NASDAQ100",
+    "나스닥": "NASDAQ", "nasdaq": "NASDAQ",
+    "다우": "DOW30", "다우존스": "DOW30", "다우30": "DOW30", "dow": "DOW30",
+    "미국": "US", "미국주식": "US", "미국시장": "US",
 }
 _ETF_MARKERS = ("etf", "etn", "상장지수")
 
@@ -114,6 +124,16 @@ def _classify_universe(inp: ClassifyUniverseIn) -> ClassifyUniverseOut:
     symbol_codes, unresolved = resolve_symbols([inp.text])
     if symbol_codes and not unresolved:
         return ClassifyUniverseOut(universe_type="SINGLE_STOCK", canonical=symbol_codes[0])
+    # 미국 테마 카탈로그 — '미국' 표지가 있는 표현만("미국 빅테크") 미국 정본으로 분류한다.
+    # 표지 없는 표현("빅테크")은 기존 KR 체인(KG 후보·검색 학습)을 보존한다 — 같은 어휘가
+    # 한국 대화에선 한국 테마 학습 대상이다. KR KG에 없는 미국 테마어가 CONCEPT 체인에서
+    # 소실되던 공백 보정(2026-08-26 실측: "미국 빅테크"·"미국 헬스케어 대형주").
+    if key.startswith(("미국", "us")):
+        from engine.universe_pit import resolve_us_theme
+
+        _us_theme = resolve_us_theme(inp.text)
+        if _us_theme is not None:
+            return ClassifyUniverseOut(universe_type="SECTOR", canonical=_us_theme[0])
     sector = normalize_sector(inp.text)
     # 표현이 정본 섹터명 밖으로 나가는 근사(예: '태양광'→'에너지/원자력', 원자력·풍력·석유
     # 등을 한 섹터로 묶은 MAPPING_RULES 버킷에서 파생)일 때만, 더 구체적인 카탈로그 테마가

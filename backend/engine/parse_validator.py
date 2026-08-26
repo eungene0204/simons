@@ -27,16 +27,18 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field, ValidationError
 
 import cancellation
-from llm_backend import OLLAMA_BASE_URL, ollama_auth_headers
+from llm_backend import OLLAMA_BASE_URL, OLLAMA_MODEL_9B, ollama_auth_headers
 
 logger = logging.getLogger(__name__)
 
 # LLM 호출 예산. 룰 파스 즉답을 막지 않도록 짧게 유지한다.
 _VALIDATION_PROBE_TIMEOUT_S = 3.0   # LLM 도달 가능성 probe(GET /api/tags) — refused/cold면 즉시 degrade
 _VALIDATION_TIMEOUT_S = 120         # 단일 생성 호출(워밍업된 서버 ~9s). 재시도 없음.
-# 파싱 본경로(_OLLAMA_NUM_CTX=20480)와 반드시 같은 값 유지 — num_ctx가 다르면 Ollama가
-# 러너를 재시작해 호출마다 콜드 페널티가 붙는다.
-_VALIDATION_NUM_CTX = 20480
+# 파싱 본경로(engine.nl_parser._OLLAMA_NUM_CTX)와 반드시 같은 값 유지 — num_ctx가 다르면
+# Ollama가 러너를 재시작해 호출마다 콜드 페널티가 붙는다(2026-07-30 무응답 사고).
+# 상수를 import하지 않고 값을 적어 두는 이유는 nl_parser import가 무거워서다 —
+# 대신 일치를 테스트가 강제한다(tests/test_nl_parser_overrides.py).
+_VALIDATION_NUM_CTX = 32768
 # 출력 계약이 diff(correctedFields, 바뀐 필드만)라 전체 전략 재출력이 없다. 유효 판정은
 # {"isValid":true,"confidence":..} 한 줄이면 끝 — 생성 토큰이 검증 지연의 지배 항이라
 # 여기를 줄이는 것이 곧 시간 단축이다.
@@ -300,8 +302,18 @@ def _run_validation_llm(parser, system_prompt: str, user_message: str) -> Option
     if not _ollama_reachable():
         return None
 
+    validation_model = os.environ.get("NL_VALIDATOR_MODEL", "").strip() or parser.ollama_model
+    # 후행 검증은 파싱 본경로의 공통 관문(_ollama_open_with_retry)을 지나지 않으므로
+    # 러너 정합 가드를 여기서 한 번 더 건다 — 어긋난 러너에 요청을 얹으면 응답 없이
+    # _VALIDATION_TIMEOUT_S를 통째로 태운다(nl_parser._ollama_align_runner_num_ctx 주석).
+    # 검증 전용 경량 모델(NL_VALIDATOR_MODEL)을 쓰는 중이면 9B 슬롯과 무관하므로 건너뛴다.
+    if validation_model == OLLAMA_MODEL_9B:
+        from engine.nl_parser import _ollama_align_runner_num_ctx
+
+        _ollama_align_runner_num_ctx()
+
     body = json.dumps({
-        "model": os.environ.get("NL_VALIDATOR_MODEL", "").strip() or parser.ollama_model,
+        "model": validation_model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},

@@ -26,7 +26,9 @@ from typing import Callable, Optional
 from engine.console_logging import console_logger
 from stock_analysis.symbol_resolver import StockRef, find_in_text, resolve_by_symbol
 
-from . import interpreter, platform_defaults, stock_facts, stock_lists
+import ui_language
+
+from . import interpreter, platform_defaults, scope_us, stock_facts, stock_lists
 from .config import classifier_mode
 from .schemas import (
     ChatTurn,
@@ -559,6 +561,22 @@ _LABEL_REPLIES: dict[QueryIntent, str] = {
     QueryIntent.UNSUPPORTED_FEATURE: UNSUPPORTED_FEATURE_REPLY,
 }
 
+# US 서비스(/us, 요청 언어 en) 카탈로그 — 같은 라벨 키에 US 전용 문구(intent/scope_us.py).
+# 어느 카탈로그를 쓸지는 요청 컨텍스트의 UI 언어가 정한다(원문 해석이 아니다).
+_LABEL_REPLIES_EN: dict[QueryIntent, str] = {
+    QueryIntent.OFF_TOPIC: scope_us.OFFTOPIC_REFUSAL,
+    QueryIntent.STRATEGY_PICK: scope_us.STRATEGY_PICK_REPLY,
+    QueryIntent.PERSONAL_ADVICE: scope_us.PERSONAL_ADVICE_REPLY,
+    QueryIntent.LIVE_TRADING: scope_us.LIVE_TRADING_REPLY,
+    QueryIntent.ONBOARDING: scope_us.ONBOARDING_REPLY,
+    QueryIntent.UNSUPPORTED_FEATURE: scope_us.UNSUPPORTED_FEATURE_REPLY,
+}
+
+
+def _use_us_catalog() -> bool:
+    """이 요청의 정형 응답 카탈로그가 US(en)인지 — 지역이 곧 언어다(lib/geo/region)."""
+    return ui_language.get_ui_language() == "en"
+
 
 # 워크플로 제어 효과 → 정형 안내 문구. 라벨을 키로 정해진 문구를 고르는 결정론 매핑이다
 # (원문을 다시 읽지 않는다). RESUME은 안내 없이 이어서 진행하므로 문구가 없다.
@@ -578,6 +596,12 @@ _EFFECT_REPLIES: dict[WorkflowEffect, str] = {
     # 마친 뒤에야 정해진다(설계 스펙 § 19, /strategy/rollback/resolve).
     # CORRECT는 되돌린 자리에 재해석 결과가 그대로 답이 된다 — 정정을 사과하거나
     # 설명하지 않는다(설계 스펙 § 20 "잘못 해석한 내용을 변명하지 마라").
+}
+
+_EFFECT_REPLIES_EN: dict[WorkflowEffect, str] = {
+    WorkflowEffect.PAUSE: scope_us.EFFECT_PAUSE_REPLY,
+    WorkflowEffect.CANCEL: scope_us.EFFECT_CANCEL_REPLY,
+    WorkflowEffect.RESTART: scope_us.EFFECT_RESTART_REPLY,
 }
 
 # 제어 효과를 인정하지 않는 라벨 — 규제·범위 게이트라 정형 안내가 반드시 나가야 한다.
@@ -765,28 +789,32 @@ def _apply_domain_policy(
     ref = _resolve_stock(interp, last_symbol) if intent in _STOCK_BEARING_INTENTS else None
     fact_metric, fact_answer = _resolve_stock_fact(interp, ref)
     list_scope, list_answer = _resolve_stock_listing(interp)
+    # 정형 응답 카탈로그 선택 — 라벨→문구 결정론 매핑을 요청 언어(ko=KR, en=US)로 고른다.
+    # 해석 레인(LLM)은 두 지역이 공유하고, 여기 문구만 카탈로그로 갈린다(같은 설계 두 벌).
+    en = _use_us_catalog()
     if fact_answer is not None:
         suggested_reply = fact_answer
     elif list_answer is not None:
         suggested_reply = list_answer
     elif intent == QueryIntent.STOCK_ANALYSIS:
-        suggested_reply = stock_question_redirect(
+        redirect = scope_us.stock_question_redirect if en else stock_question_redirect
+        suggested_reply = redirect(
             ref.name if ref else None,
             ref.market if ref else None,
             ref.sector if ref else None,
             overseas=ref.overseas if ref else False,
         )
     elif intent == QueryIntent.GREETING:
-        suggested_reply = greeting_reply(query)
+        suggested_reply = (scope_us.greeting_reply if en else greeting_reply)(query)
     elif intent == QueryIntent.STOCK_PICK:
-        suggested_reply = stock_pick_reply(query)
+        suggested_reply = (scope_us.stock_pick_reply if en else stock_pick_reply)(query)
     else:
-        suggested_reply = _LABEL_REPLIES.get(intent)
+        suggested_reply = (_LABEL_REPLIES_EN if en else _LABEL_REPLIES).get(intent)
     # 워크플로 제어가 성립하면 그 안내가 라벨 안내를 대신한다 — 제어는 라벨과 직교하지만
     # 사용자에게 보일 문장은 하나뿐이고, 제어 결과를 알리는 쪽이 우선이다. 규제 게이트
     # 라벨은 _resolve_workflow가 이미 NONE으로 강등했으므로 여기 도달하지 않는다.
     if effect in _EFFECT_REPLIES:
-        suggested_reply = _EFFECT_REPLIES[effect]
+        suggested_reply = (_EFFECT_REPLIES_EN if en else _EFFECT_REPLIES)[effect]
     return IntentResult(
         intent=intent,
         symbols=_to_detected([ref] if ref else []),

@@ -22,7 +22,7 @@ export async function POST(
     const { userId } = await getOwnershipContext();
     const account = await prisma.virtualAccount.findFirst({
       where: withOwnership({ id: params.id }, userId),
-      select: { id: true },
+      select: { id: true, currency: true },
     });
     if (!account) {
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
@@ -89,10 +89,14 @@ export async function POST(
     } catch {}
 
     const qty = position.quantity;
-    const filledPrice = Math.round(executionPrice * 0.9995); // 슬리피지
-    const fee = calcFee(filledPrice, qty);
-    const tax = calcTransactionTax(filledPrice, qty);
-    const proceeds = calcSellProceeds(filledPrice, qty);
+    // 달러 정산 — 계좌 통화가 정본(호가 $0.01·거래세 0, 2026-08-26)
+    const usd = (account.currency ?? 'KRW') === 'USD';
+    const filledPrice = usd
+      ? Math.max(0.01, Math.round(executionPrice * 0.9995 * 100) / 100)
+      : Math.round(executionPrice * 0.9995); // 슬리피지
+    const fee = calcFee(filledPrice, qty, usd);
+    const tax = calcTransactionTax(filledPrice, qty, usd);
+    const proceeds = calcSellProceeds(filledPrice, qty, usd);
     const avgPrice = moneyToNumber(position.avgPrice);
     const realizedPnl = calcRealizedPnl(filledPrice, avgPrice, qty, fee, tax);
 

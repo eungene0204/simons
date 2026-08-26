@@ -538,16 +538,21 @@ def test_dag_state_summary_from_parsed():
 def test_dag_state_summary_does_not_count_materialized_defaults_as_filled():
     """[회귀 2026-07-29] ParsedStrategy는 유니버스·최대 보유·기간·초기 자본에 기본값을
     물질화한다 — 값만 보면 **빈 전략조차 4/8 완료**로 보여 planner가 그 슬롯을 영영
-    묻지 않는다. 판정은 provenance(explicit_fields)를 함께 봐야 한다."""
+    묻지 않는다. 판정은 provenance(explicit_fields)를 함께 봐야 한다.
+
+    '리밸런싱 방식'만 예외다 — 리밸런싱을 켜야 성립하는 질문이라 리밸런싱 없는 전략에서는
+    물을 대상이 아니고(해당 없음), 그래서 물을 것이 남지 않았다는 뜻으로 완료에 든다."""
     from engine.nl_parser import ParsedStrategy
     from strategy_conversation.primary import _dag_state_summary
 
     empty = ParsedStrategy(description="빈 전략")
     # 기본값은 실제로 채워져 있다(값 존재 ≠ 사용자 언급).
     assert empty.universe and empty.max_positions and empty.backtest_period
-    assert _dag_state_summary(empty, [])["filled_slots"] == []
+    assert _dag_state_summary(empty, [])["filled_slots"] == ["리밸런싱 방식"]
     # 사용자가 말한 설정만 채워짐으로 올라온다.
-    assert _dag_state_summary(empty, ["universe", "초기 자본"])["filled_slots"] == ["유니버스"]
+    assert _dag_state_summary(empty, ["universe", "초기 자본"])["filled_slots"] == [
+        "유니버스", "리밸런싱 방식",
+    ]
 
 
 def test_dag_state_summary_ranking_fills_entry_slot():

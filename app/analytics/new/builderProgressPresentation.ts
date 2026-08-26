@@ -1,6 +1,8 @@
 import {
+  REBAL_METHOD_LABELS,
   formatFundamentalFilter,
   formatInitialCapital,
+  isUsParsedUniverse,
   formatDownsidePercent,
   getDisplayUniverseLabels,
   getPositionLabel,
@@ -455,6 +457,15 @@ export function buildBuilderTurnPresentation({
       label: t("리밸런싱"),
       value: cycle,
     });
+    // 사용자가 고른 방식은 요약에도 남긴다 — 화면 어디에도 없으면 무엇으로 돌았는지
+    // 결과만 보고는 알 수 없다(주기만 보이던 종전 표기).
+    const method = parsed?.rebalance_method;
+    if (normalizedCycle !== "none" && method) {
+      summaryItems.push({
+        label: t("리밸런싱 방식"),
+        value: t(REBAL_METHOD_LABELS[String(method)] ?? String(method)),
+      });
+    }
   }
   // 명시 날짜가 있으면 상대 기간 라벨("5년") 대신 실제 창을 보여준다 — 신규 상장
   // 코호트처럼 시스템이 창을 조정한 경우 라벨과 실행 구간이 어긋난다(FR-STR-073).
@@ -469,7 +480,9 @@ export function buildBuilderTurnPresentation({
   if (initialCapital && initialCapitalExplicit) {
     summaryItems.push({
       label: t("초기 자본"),
-      value: formatInitialCapital(initialCapital),
+      value: formatInitialCapital(initialCapital, {
+        usd: isUsParsedUniverse(parsed?.universe ?? null),
+      }),
     });
   }
   if (riskLabel) summaryItems.push({ label: t("리스크 관리"), value: riskLabel });
@@ -497,6 +510,9 @@ export function buildBuilderTurnPresentation({
           specifiedSymbolCount > 0 || (Boolean(holdingCount) && holdingCountExplicit),
       },
       { label: t("리밸런싱"), complete: (Boolean(rebalanceCycle) && rebalanceExplicit) || slotFilled("rebalancing") },
+      // 리밸런싱 방식(FR-BT-067)은 리밸런싱을 켠 뒤에만 성립한다 — 게이트와 **같은
+      // 술어**를 써서 해당 없음(리밸런싱 없음·단독 종목·미국 전략)도 완료로 센다.
+      { label: t("리밸런싱 방식"), complete: slotFilled("rebalance_method") },
       { label: t("리스크 관리"), complete: riskComplete },
       // 게이트와 **같은 술어**를 쓴다 — 판정을 여기 다시 적으면 게이트만 고쳐지고 진행률은
       // 낡은 채 남는다(2026-07-29: 창이 자동 확정됐는데 체크가 안 되던 사고).

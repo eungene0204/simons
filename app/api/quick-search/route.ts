@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { loadStockList } from "@/lib/krx-stocks";
+import { loadUsStockList } from "@/lib/us-stocks";
 import { scoreSmartMatch, normalizeSearchText } from "@/lib/smart-search";
+import { matchStocks } from "./stock-search";
 import {
   getOwnershipContext,
   isUnauthorizedAccessError,
@@ -59,8 +61,9 @@ export async function GET(request: NextRequest) {
 
   try {
     const { userId } = await getOwnershipContext();
-    const [stocks, strategies, accounts] = await Promise.all([
+    const [stocks, usStocks, strategies, accounts] = await Promise.all([
       loadStockList(),
+      loadUsStockList(),
       prisma.strategy.findMany({
         where: withOwnership({ isSaved: true }, userId),
         orderBy: { createdAt: "desc" },
@@ -71,30 +74,7 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
-    const matchedStocks: QuickSearchStockItem[] = stocks
-      .map((stock) => {
-        const score =
-          scoreSmartMatch(query, [stock.symbol]) * 5 +
-          scoreSmartMatch(query, [stock.name]) * 4 +
-          scoreSmartMatch(query, [stock.market, stock.sector, stock.industry]);
-
-        return {
-          score,
-          item: {
-            symbol: stock.symbol,
-            name: stock.name,
-            type: stock.market,
-            region: "KR",
-            currency: "KRW",
-            matchScore: score,
-            sector: stock.sector,
-            industry: stock.industry,
-          },
-        };
-      })
-      .filter((entry) => entry.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .map((entry) => entry.item);
+    const matchedStocks: QuickSearchStockItem[] = matchStocks(query, stocks, usStocks);
 
     const matchedStrategies: StrategyQuickSearchItem[] = strategies
       .map((strategy) => {

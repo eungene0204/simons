@@ -28,6 +28,7 @@ const parsedStrategy = {
   max_positions: 5,
   hold_period_days: null,
   rebalancing_period: "monthly",
+  rebalance_method: "reconstitute",
   stop_loss_pct: 10,
   take_profit_pct: 20,
   trailing_stop_pct: null,
@@ -164,6 +165,7 @@ const ALL_EXPLICIT = [
   "universe",
   "max_positions",
   "rebalancing",
+  "rebalance_method",
   "backtest_period",
   "initial_capital",
 ];
@@ -471,6 +473,8 @@ describe("StrategyLabPage scroll behavior", () => {
         .map((item) => item.getAttribute("aria-label")),
     ).toEqual([
       "매수 조건: 완료",
+      // 이 전략은 리밸런싱이 없어(rebalancing_period="none") 방식은 물을 대상이 아니다.
+      "리밸런싱 방식: 완료",
       "유니버스: 진행 전",
       "매도 조건: 진행 전",
       "최대 보유: 진행 전",
@@ -535,6 +539,16 @@ describe("StrategyLabPage scroll behavior", () => {
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "매월 리밸런싱" }));
+    // 주기를 고르면 방식을 묻는다(FR-BT-067) — 종목을 바꾸는 리밸런싱과 비중만 되돌리는
+    // 리밸런싱은 결과가 다르므로 값을 확정하지 않고 사용자에게 묻는다.
+    expect(
+      await screen.findByRole("button", { name: "종목 교체 리밸런싱" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "비중 조정 리밸런싱 (균등 유지)" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "비중 조정 리밸런싱 (균등 유지)" }));
     expect(
       await screen.findByRole("button", { name: "손절 -10%" }),
     ).toBeInTheDocument();
@@ -1845,6 +1859,9 @@ describe("strategy builder progress presentation", () => {
       { label: "매도 조건", complete: false },
       { label: "최대 보유", complete: false },
       { label: "리밸런싱", complete: false },
+      // 리밸런싱을 켜지 않은 전략에는 방식이라는 질문이 성립하지 않는다 — 해당 없음은
+      // 물을 것이 남지 않았다는 뜻이라 완료로 센다(백엔드 NOT_APPLICABLE과 동형).
+      { label: "리밸런싱 방식", complete: true },
       { label: "리스크 관리", complete: false },
       { label: "백테스트 기간", complete: false },
       { label: "초기 자본", complete: false },
@@ -1946,13 +1963,23 @@ describe("strategy builder progress presentation", () => {
       ...explicitOptions,
       explicitFields: ["universe", "max_positions"],
     })?.field).toBe("rebalancing");
+    // 주기를 답하면 방식(FR-BT-067)이 바로 다음 차례다 — 리밸런싱을 켠 전략에서만 선다.
     expect(getNextMissingBacktestCondition(parsedStrategy, {
       ...explicitOptions,
       explicitFields: ["universe", "max_positions", "rebalancing"],
+    })).toMatchObject({
+      field: "rebalance_method",
+      suggestions: ["종목 교체 리밸런싱", "비중 조정 리밸런싱 (균등 유지)"],
+    });
+    expect(getNextMissingBacktestCondition(parsedStrategy, {
+      ...explicitOptions,
+      explicitFields: ["universe", "max_positions", "rebalancing", "rebalance_method"],
     })?.field).toBe("backtest_period");
     expect(getNextMissingBacktestCondition(parsedStrategy, {
       ...explicitOptions,
-      explicitFields: ["universe", "max_positions", "rebalancing", "backtest_period"],
+      explicitFields: [
+        "universe", "max_positions", "rebalancing", "rebalance_method", "backtest_period",
+      ],
     })).toMatchObject({
       field: "initial_capital",
       suggestions: ["500만원", "1,000만원", "3,000만원", "5,000만원"],
@@ -1963,6 +1990,7 @@ describe("strategy builder progress presentation", () => {
         "universe",
         "max_positions",
         "rebalancing",
+        "rebalance_method",
         "backtest_period",
         "initial_capital",
       ],

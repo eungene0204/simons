@@ -26,7 +26,7 @@ vi.mock("./WalkForwardModal", () => ({
 }));
 vi.mock("@/components/ui/CreateAccountModal", () => ({ default: () => null }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), usePathname: () => "/" }));
 
 import BacktestDashboard from "./BacktestDashboard";
 
@@ -138,8 +138,9 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
     expect(screen.getByTestId("backtest-prompt-popover")).toHaveClass(
       "left-4",
       "right-4",
-      "lg:left-auto",
-      "lg:right-0",
+      // 버튼이 전략 기간 옆(좌측)으로 옮겨져 lg에서는 왼쪽 정렬로 펼친다.
+      "lg:right-auto",
+      "lg:left-0",
       "lg:w-96"
     );
   });

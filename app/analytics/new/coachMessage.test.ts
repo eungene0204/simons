@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { __resetLanguageForTests, setLanguage, t } from "@/lib/i18n";
 import { normalizeCoachMessage } from "./coachMessage";
+
+afterEach(() => {
+  __resetLanguageForTests();
+});
 
 describe("normalizeCoachMessage", () => {
   it("uses plain coach text as-is", () => {
@@ -28,6 +33,22 @@ describe("normalizeCoachMessage", () => {
     expect(
       normalizeCoachMessage('{"is_valid":true,"issues":[]}', "fallback")
     ).toBe("전략 정의가 완료되었습니다. 백테스트를 실행할 수 있습니다.");
+  });
+
+  it("글로벌 서비스(영어)에서는 완료 안내가 영어로 나온다", () => {
+    setLanguage("en");
+    expect(
+      normalizeCoachMessage('{"is_valid":true,"issues":[]}', "fallback")
+    ).toBe("The strategy definition is complete. You can run the backtest.");
+  });
+
+  it("스냅샷에서 복원된 한국어 완료 안내도 표시 지점 t()로 영어가 된다", () => {
+    // 코치 말풍선 렌더는 t(msg.coachText)를 거친다(page.tsx) — 이전 지역(/)에서
+    // 저장된 세션 스냅샷의 한국어 원문이 /us에서 복원돼도 영어로 표시돼야 한다.
+    setLanguage("en");
+    expect(t("전략 정의가 완료되었습니다. 백테스트를 실행할 수 있습니다.")).toBe(
+      "The strategy definition is complete. You can run the backtest."
+    );
   });
 
   it("익절 조건만 누락된 경우 입력을 요청한다", () => {

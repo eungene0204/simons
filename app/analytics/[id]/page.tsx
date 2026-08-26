@@ -20,6 +20,7 @@ import {
 } from "../new/parsedStrategyMerge";
 import { formatApiErrorDetail, runWalkForwardStream, type WalkForwardProgressHandler } from "../new/walkForwardStream";
 import { t } from "@/lib/i18n";
+import { useRegionHref } from "@/lib/geo/useRegion";
 
 function mapBacktestResponse(raw: any): BacktestResult {
   const equity: number[] = raw.equity ?? [];
@@ -100,6 +101,7 @@ function mapBacktestResponse(raw: any): BacktestResult {
 function StrategyResultContent() {
   const params = useParams();
   const router = useRouter();
+  const regionHref = useRegionHref();
   const id = params.id as string;
 
   const [loading, setLoading] = useState(true);
@@ -268,7 +270,7 @@ function StrategyResultContent() {
           <Warning size={32} className="text-[var(--main-blue)]" weight="fill" />
           <p className="text-sm font-bold text-[var(--main-blue)]">{error ?? t("결과를 불러올 수 없습니다.")}</p>
           <button
-            onClick={() => router.push("/analytics")}
+            onClick={() => router.push(regionHref("/analytics"))}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.05] hover:bg-white/10 text-gray-400 hover:text-white text-xs font-bold transition-all duration-200"
           >
             <ArrowLeft size={13} />

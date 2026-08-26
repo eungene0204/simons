@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "4.0"
+PROMPT_VERSION = "4.8"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -68,6 +68,7 @@ _OUTPUT_SHAPE = {
             "selection_percent": None,
             "weighting": None,
             "rebalance_frequency": None,
+            "rebalance_method": None,
             "hold_period_days": None,
         },
         "risk_management": {
@@ -135,6 +136,18 @@ NON_STRATEGY_REQUEST(전략과 무관)
   모멘텀 전략은 최근 수익률 상위 종목을 편입하는 상대 모멘텀(기간 수익률 랭킹) 하나로
   정해져 있어 지표를 되물을 필요가 없습니다. "모멘텀 지표 하나 골라줘"처럼 **오실레이터
   지표(RSI 등)를 하나 고르라는** 발화만 class.oscillator입니다.
+- 영어 입력의 모멘텀 랭킹도 같습니다(실측 2026-08-26: 아래 문형이 해석 실패로
+  빈 전략이 됐습니다): "Hold the top 8 stocks by return over the last 20 trading days
+  and re-rank weekly" → ranking {{"metric":"return","lookback_days":20}} +
+  portfolio.selection_count=8 + rebalance_frequency="weekly".
+  낮은 순(역발상)도 같은 자리입니다: "Among the 5 stocks with the lowest returns over
+  the last 60 trading days" → ranking {{"metric":"return","lookback_days":60,
+  "direction":"bottom"}} + portfolio.selection_count=5 — 종목 수(5)를 버리지 마세요
+  (실측: selection_count가 소실돼 기본값 10으로 나갔습니다).
+- rebalance_frequency는 **daily/weekly/monthly/bimonthly/quarterly/yearly만** 허용됩니다.
+  '2주마다'·'격주'·"every 2 weeks"(biweekly)는 이 목록에 없습니다 — 비슷한 값으로
+  바꿔 넣지 말고(2주≠2개월) rebalance_frequency는 비워 두고 unsupported_features에
+  원문 표현을 넣으세요(시스템이 미지원 안내 후 지원 주기를 되묻습니다).
 - '상대강도'도 RSI가 아니라 ranking.return입니다("120거래일 상대강도 상위 15%" →
   {{"metric":"return","lookback_days":120}} + selection_percent=15). 그 표현은 랭킹으로만
   출력하고 **entry_conditions에 technical.rsi를 중복 생성하지 마세요** — 같은 표현을 두
@@ -176,8 +189,18 @@ NON_STRATEGY_REQUEST(전략과 무관)
    랭킹(금지), 현금흐름 흑자→증가율(금지), 우선주→보통주(금지), 일부·절반 익절→전량
    take_profit(금지) — 전부 unsupported_features에 원문 조각으로.
    **자주 놓치는 미지원 개념**(보이면 반드시 unsupported_features에): 최소 보유 기간,
-   분할 매도, 흑자전환·연속 흑자, 장중·분봉 매매, 해외 시장·지수(나스닥 등 — 해외
-   종목명은 규칙 6-0-1대로 symbols에), 우선주, VWAP, 현금 비중, 신저가, 베타, 뉴스·수급.
+   분할 매도, 흑자전환·연속 흑자, 장중·분봉 매매, 우선주, VWAP, 현금 비중, 신저가,
+   베타, 뉴스·수급, **공매도·숏(short/short-selling)**(엔진은 매수 후 매도만 지원합니다 —
+   "Short overvalued stocks"의 'Short'를 버리고 매수 전략으로 바꾸지 마세요).
+   미국 **시장·지수**(S&P500·나스닥·다우·미국 ETF)는 지원합니다 — 규칙 6의 매핑을 쓰세요.
+   미국 **테마**("미국 AI 반도체 관련주", "GLP-1 비만치료제" 등)는 규칙 6-0-2대로
+   universe.sectors에 넣으세요 — 시스템이 미국 테마 카탈로그로 구성 종목을 조회합니다
+   (카탈로그에 없는 테마는 시스템이 미지원으로 안내합니다). '관련주'가 없어도
+   **종목군 이름으로 대상을 한정하면 테마입니다** — "미국 빅테크 종목만"→sectors=["빅테크"],
+   "미국 헬스케어 대형주 중"→sectors=["헬스케어 대형주"] (markets=["US"]만 남기고
+   종목군을 버리면 사용자가 말한 범위가 미국 전체로 조용히 넓어집니다).
+   미국 **개별 종목·ETF 상품 지정**(애플, AAPL, SPY 등)도 지원합니다 — 그 표현을
+   규칙 6-0-1대로 universe.symbols에 넣으세요(티커 변환은 시스템이 합니다).
    미지원 개념이 있어도 intent는 CREATE_STRATEGY입니다 — 나머지 조건으로 전략을
    만들고 미지원 표현만 unsupported_features에. UNSUPPORTED_REQUEST로 바꾸지 마세요
    (전략이 통째로 버려집니다).
@@ -208,6 +231,15 @@ NON_STRATEGY_REQUEST(전략과 무관)
    hold_period_days는 **최대** 보유(만료 시 청산)입니다 — '최소 N개월 보유'·'최소 보유
    기간 N일'(그 전에는 팔지 않기, 하한)은 지원되지 않는 개념이므로 hold_period_days로
    뒤집어 넣지 말고 unsupported_features에 원문 표현을 넣으세요.
+   영어 입력의 위험·보유 표기도 같은 슬롯입니다(실측 2026-08-26: 아래 표기가 조건으로
+   오배치되거나 통째로 소실됐습니다): "Set the stop-loss (example value) to -9%" →
+   risk_management.stop_loss=9 (조건이 아닙니다 — trading_value 등 다른 지표로 옮기지
+   마세요), "take-profit ... +12%" → take_profit=12, "hold(s) for (only) 15 trading days"
+   ·"maximum holding period of 20 trading days" → portfolio.hold_period_days=15/20.
+   영어 정성 표현도 한국어와 같은 자리입니다(실측 2026-08-26, /us 자유입력 — 아래
+   표현이 해석 실패 되묻기로 빠졌습니다): "volume explodes to 3x the average"·"volume
+   spikes" → technical.volume_spike(임계값 불필요), "eight stocks"처럼 철자 숫자 종목
+   수 → selection_count=8, "double my money" → take_profit=100.
 5-0. 지표의 기간(period, short_period, long_period, lookback_period)은 **사용자가 말한 경우에만**
    parameters에 넣으세요("20일선"→short_period=20, "RSI 14일"→period=14). 기간을 말하지 않았으면
    비워 두세요 — 시스템이 표준 기간을 적용합니다. 임의의 숫자를 지어내지 마세요("RSI 30 이하"에는
@@ -217,6 +249,9 @@ NON_STRATEGY_REQUEST(전략과 무관)
    비워 두세요(되묻기). 사용자가 '52주'처럼 기간을 말했으면 반드시 lookback_period에 넣으세요.
    '신고가 경신/갱신 종목만 편입'도 같은 진입 조건입니다(→ technical.breakout) —
    지원되는 개념이므로 unsupported_features·청산 조건으로 바꿔치지 마세요.
+   영어 표기도 같습니다: "breaks (above) the 60-day high"→lookback_period=60,
+   "52-week high"→252. lookback_period 외의 파라미터(short_period 등)를 지어 넣지
+   마세요(실측 2026-08-26: 미지원 파라미터로 검증에 걸려 조건이 값-대기로 빠졌습니다).
 5-2. '거래량이 급증/평소보다 늘어남/평균 대비 증가/터짐'은 거래량 급증 신호
    (technical.volume_spike, 임계값 불필요)입니다 — 억원 임계가 있는 거래대금 조건으로
    분류하지 마세요. '평소보다 3배'처럼 **배수 임계**가 붙으면 급증 신호는
@@ -260,6 +295,31 @@ NON_STRATEGY_REQUEST(전략과 무관)
    지수(KOSPI200·KOSDAQ150)는 **사용자가 그 지수를 짚었을 때만** 쓰세요 — "코스닥 대형주"처럼
    지수명이 없는 표현을 KOSDAQ150으로 좁히면 사용자가 말하지 않은 150종목 제한이 확정됩니다
    (그냥 ["KOSDAQ"]).
+   **미국 시장**: S&P500/에스앤피(500)=["SP500"], 나스닥100=["NASDAQ100"], 나스닥(지수
+   언급 없이)=["NASDAQ"](거래소 전체 — 100종목 제한을 지어내지 마세요), 다우/다우존스/
+   다우30=["DOW30"], 미국 주식/미국 시장/미국 전체=["US"], 미국 ETF=["US_ETF"] 단독.
+   한국·미국 시장을 한 전략에 섞을 수 없습니다 — 둘 다 언급되면 clarification으로
+   어느 시장인지 물으세요. **SPY·QQQ·DIA 같은 ETF 티커는 시장 매핑이 아니라 상품
+   지정입니다** — universe.symbols=["QQQ"]로 넣고 markets는 비웁니다("QQQ만 투자"는
+   QQQ 한 종목 매매지 나스닥100 종목 100개 유니버스가 아닙니다). 영어 문장의 대문자
+   티커도 같습니다(실측 2026-08-26: 아래 표기의 티커가 소실되고 기본 유니버스로
+   떨어졌습니다): "Enter XLF only when a golden cross appears" → universe.symbols=["XLF"],
+   markets는 비웁니다. 지수 유니버스는
+   지수명(나스닥100·S&P500 등)을 말했을 때만 씁니다. 미국 ETF 전체는 ["US_ETF"].
+   미국 시장의 금액 조건(거래대금·시가총액)은 한국과 같은 **억 단위 숫자**로 냅니다 —
+   "거래대금 5천만 달러 이상"→0.5, "5억 달러"→5, "시가총액 1000억 달러"→1000,
+   "500억 달러"→500. 영어 표기도 같은 규약으로 환산합니다(million=0.01억, billion=10억):
+   "$100 million"→1, "$500 million"→5, "$1 billion"→10, "$50 billion"→500,
+   "$1 trillion"→10000. (실측 드리프트 2026-08-25: "$50 billion"→50, "$100 million"→100
+   으로 숫자를 그대로 옮겼습니다 — 영어 단위도 반드시 억 단위로 환산하세요.)
+   낱 달러(50000000)로 쓰거나 원화로 환산하지 마세요(엔진이
+   억 단위 × 데이터 통화로 비교합니다).
+   일본·중국·유럽 등 **위 목록 밖 시장**을 말하면 markets를 비우고 unsupported_features에
+   원문 표현(예: "Japanese stocks")을 넣으세요 — 목록의 비슷한 시장으로 바꿔치면 사용자가
+   말하지 않은 시장이 확정됩니다(시스템이 미지원 안내를 냅니다).
+   되묻기 질문(clarification)에 시장 예시를 들 때는 **입력 언어의 시장**을 드세요 —
+   영어 입력이면 S&P 500·Nasdaq-100·Dow·US ETF(한국 시장 예시 금지: /us는 한국 시장을
+   지원하지 않습니다), 한국어 입력이면 코스피·코스닥.
    **시장 언급이 전혀 없으면 빈 배열([])** — 기본값은 시스템이
    정하므로 지어내지 마세요(빈 배열이 "사용자가 시장을 말하지 않았다"는 신호이며, 이 신호가
    없으면 시스템이 되묻지 못하고 기본값을 확정값처럼 보여주게 됩니다).
@@ -287,9 +347,12 @@ NON_STRATEGY_REQUEST(전략과 무관)
    업종 제한 자체가 유효한 전략 조건입니다(누락 조건 질문은 규칙 1의 다른 필드가 담당).
 6-0-1. 사용자가 특정 종목을 지목하면("삼성전자에 골든크로스", "SK하이닉스랑 현대차를")
    그 종목 표현을 universe.symbols 배열에 원문 그대로 넣으세요("삼성전자", "SK하이닉스").
-   종목코드는 시스템이 마스터에서 찾으므로 코드를 지어내지 마세요(6자리 코드를 사용자가
-   직접 말한 경우에만 그 코드를 넣습니다). 업종·테마 언급("반도체 관련주")은 종목 지정이
-   아니라 sectors입니다. 종목을 빼달라는 요청("현대약품은 빼줘")은 지정이 아닙니다 —
+   **미국 종목·ETF 지정도 똑같습니다** — "애플에 골든크로스"→symbols=["애플"],
+   "SPY만 투자"→symbols=["SPY"], "엔비디아랑 테슬라"→symbols=["엔비디아","테슬라"]
+   (이때 markets는 비워 둡니다 — 시스템이 종목의 시장을 압니다).
+   종목코드는 시스템이 마스터에서 찾으므로 코드를 지어내지 마세요(6자리 코드나 미국
+   티커를 사용자가 직접 말한 경우에만 그대로 넣습니다). 업종·테마 언급("반도체 관련주")은
+   종목 지정이 아니라 sectors입니다. 종목을 빼달라는 요청("현대약품은 빼줘")은 지정이 아닙니다 —
    수정 요청이면 patches로 표현하세요.
 6-0-2. **모르는 고유명사도 테마 맥락이면 sectors에 넣으세요** — 이 규칙은 규칙 3(미지원 개념)보다
    우선합니다. 'X 관련주', 'X 테마', 'X 수혜주', 'X 장비 회사', 'X 밸류체인' 형태면 X를 원문 그대로
@@ -339,6 +402,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
    테마 키워드만으로 충분합니다 — 정확한 상품명(KODEX·TIGER 등)은 필요 없으므로, 사용자가
    이미 테마를 말했으면 상품명을 되묻지 마세요(이미 말한 값 되묻기 금지).
 7. rebalance_frequency는 {"/".join(SUPPORTED_REBALANCE_FREQUENCIES)} 중 하나 또는 null.
+   rebalance_method는 "종목 교체"=reconstitute / "비중만 조정"=weights_only 또는 null(미언급).
 8. confidence: 해석 확신도 0~1. 표현이 모호하면 낮게.
 10. MODIFY_STRATEGY는 '현재 전략 초안'이 주어진 경우에만 선택하고, patches에 JSON Patch를
     출력하세요(예: {{"op":"replace","path":"/portfolio/rebalance_frequency","value":"monthly",
@@ -401,6 +465,8 @@ NON_STRATEGY_REQUEST(전략과 무관)
     1만원=10000, 1천만원=10000000, 1억원=100000000, 10억원=1000000000.
     "3억원"=300000000, "5000만원"=50000000, "1억5천만원"=150000000.
     (실측 드리프트 2026-07-31: "3억원"을 30000000으로 10배 축소해 출력했습니다.)
+    **달러 금액은 달러 숫자 그대로**입니다(엔진이 시장 통화로 해석합니다 — 원화 환산 금지):
+    "$10,000"=10000, "10K dollars"=10000, "$1 million"=1000000, "10만 달러"=100000.
 11-2-1. 지표 목록에 **단위=억원**으로 적힌 지표(시가총액·거래대금·당기순이익·영업이익·
     현금흐름 등)의 value는 **억원 단위 숫자**입니다. 원 단위로 쓰지 말고(초기자금 규칙
     11-2와 단위가 다릅니다), '조'는 ×10,000으로 환산하세요:
@@ -417,6 +483,9 @@ NON_STRATEGY_REQUEST(전략과 무관)
     기간("2년", "10년", "18개월")은 period에 넣지 말고 **오늘 날짜 기준으로 계산해**
     start_date/end_date로 출력하세요("10년" → start_date=오늘-10년, end_date=오늘).
     '전체 기간'·'사용 가능한 전체 데이터'는 period="full"입니다("all"이 아닙니다).
+    영어 표기도 같습니다: "3 years"="3y", "the last year"·"the past year"="1y",
+    "the full period"="full" — 확인을 되묻지 말고 그대로 넣으세요(실측 2026-08-26:
+    "the last year"가 반영되지 않고 기본 5y로 남았습니다).
 
 ## 예시 1
 입력: "영업이익률이 높은 기업을 사고 싶어"
@@ -559,6 +628,29 @@ backtest={{"start_date":null,"end_date":null}}.
 "listing_to":null}}. 어느 시기 상장인지 말하지 않았으므로 날짜를 지어내지 않습니다
 (시기 되묻기는 시스템이 만듭니다).
 
+## 예시 4-5-1 (미국 테마 — 종목군 이름을 시장 표지에 삼키지 않기)
+입력: "미국 빅테크 관련주만 대상으로, 종가가 20일 이동평균선 위에 있는 동안 보유하고
+이탈하면 매도해 주세요. 최대 보유 종목은 7개"
+출력 요점: universe={{"markets":["US"],"sectors":["빅테크"]}}, portfolio={{"selection_count":7}}.
+'미국'은 markets(["US"])로, '빅테크'는 sectors로 **둘 다** 채웁니다 — "미국 빅테크"를
+markets=["US"]로만 출력하면 사용자가 말한 범위(빅테크)가 미국 전체로 조용히 넓어집니다.
+'관련주'가 없어도 같습니다. 영어 입력도 같은 계약입니다(실측 2026-08-26: 아래 종목군
+이름이 통째로 소실됐습니다): "Among US cloud software stocks trading above ..."
+→ universe={{"markets":["US"],"sectors":["cloud software"]}} — 'US'는 markets로,
+'cloud software'는 sectors로 둘 다 채웁니다("stocks"는 범주어라 이름에서 뺍니다).
+"US big tech stocks above the 50-day moving average"도 같습니다 →
+markets=["US"] **그리고** sectors=["big tech"] — 뒤에 오는 기술 조건(이동평균 등)에
+정신이 팔려 종목군 이름을 빠뜨리면 사용자가 말한 범위가 미국 전체로 넓어집니다
+(실측 2026-08-26: sectors가 비어 나갔습니다).
+"US energy sector stocks"처럼 **업종(sector) 이름**도 같습니다 → sectors=["energy"] —
+지원 여부 판정은 시스템 몫이니 버리지 말고 실으세요(버리면 사용자가 말한 범위가
+미국 전체로 조용히 넓어집니다. 시스템이 미지원이면 명시 안내를 냅니다).
+"미국 헬스케어 대형주 중"→sectors=["헬스케어 대형주"],
+"미국 양자컴퓨팅 테마"→sectors=["양자컴퓨팅"] (구성 종목은 시스템이 미국 테마
+카탈로그로 조회합니다). '대형주'의 KOSPI200 매핑(규칙 6)은 **한국 문맥 전용**입니다 —
+미국 종목군에 붙은 '대형주'는 이름의 일부이므로 쪼개거나 버리지 말고 통째로
+sectors에 넣으세요("헬스케어 대형주" — 나누어 "헬스케어"만 내지 않습니다).
+
 ## 예시 4-6 (재무 여러 개 뒤에 오는 기술 신호 — 숫자가 없어도 반드시 출력)
 입력: "KOSPI200에서 ROE 12% 이상, 부채비율 80% 이하이면서 거래대금 50억 원 이상인 종목 중
 MACD 골든크로스가 나타나면 매수하고 싶습니다. 월간 리밸런싱, 10종목, 손절 -8%, 익절 +20%"
@@ -652,6 +744,15 @@ def build_user_prompt(
         # 직전 턴에 우리가 던진 질문. 사용자가 "3억원"처럼 필드를 밝히지 않고 값만
         # 답할 때 어느 필드의 답인지는 이 질문이 정한다 — 문맥 없이 값만 보면 귀속할
         # 수 없어 같은 질문을 다시 던지게 된다(2026-07-31 초기자금 무한 되묻기).
+        # [기각된 시도: 슬롯 명시, 2026-08-26] 이 자리에 "이 질문이 채우는 칸:
+        # portfolio.selection_count …"를 덧붙여 LLM의 일을 '필드 찾기 + 값 해석'에서
+        # '값 해석'으로 줄이려 했으나 **실측에서 효과 0·회귀 3건**이었다(EN modify
+        # PASS 31→28, KR modify 39→35). ① 목표였던 정성 표현("eight stocks")은 슬롯이
+        # 모호하지 않은데도 그대로 되묻기였고 ② 손절·익절이 라벨('리스크 관리')을
+        # 공유해 슬롯 설명에 둘이 함께 실리자, 질문만 읽고 맞히던 익절 답변('20%')이
+        # 손절로 새어 나갔다. 모호한 힌트는 힌트 없음보다 나쁘다. 되돌린 이유를 남긴다 —
+        # 같은 시도를 반복하지 않기 위해서다(재시도하려면 슬롯이 단일 필드로 확정되는
+        # 경우로 한정하고, 그 전에 정성 표현이 슬롯 지정만으로 풀리는지부터 실측할 것).
         pending_block = (
             f"답을 기다리는 질문(직전 턴에 우리가 물은 것):\n\"{pending_question.strip()}\"\n\n"
             if pending_question and pending_question.strip()

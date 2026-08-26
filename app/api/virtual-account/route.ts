@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { resolveTrackedSymbolsForStrategy } from '@/lib/strategy-tracked-symbols';
 import { createFundedAccount, moneyToNumber, toMoney } from '@/lib/server/assetService';
 import { getPlan } from '@/lib/plans';
+import { getRequestRegion } from '@/lib/geo/server';
+import { US_PRICING } from '@/lib/pricing/us';
 import {
   assertCanCreateAccount,
   getUserPlan,
@@ -27,6 +29,7 @@ function mapAccount(a: any, priceMap: Record<string, number>) {
     id: a.id,
     name: a.name,
     initialAmount: moneyToNumber(a.initialCash),
+    currency: (a.currency ?? "KRW") as "KRW" | "USD",
     currentBalance: currentCash,
     totalValue,
     status: a.status ?? "ACTIVE",
@@ -82,9 +85,15 @@ export async function POST(request: Request) {
       : null;
 
     // 초기 투자금은 사용자의 현재 플랜에서 서버가 결정한다(클라이언트 금액 무시).
-    // 비로그인은 FREE 플랜 기준.
+    // 비로그인은 FREE 플랜 기준. /us 요청은 미국 가격표(USD 모의 자금)로 시드하고
+    // 계좌 통화를 USD로 기록한다 — 금액 숫자는 계좌 통화 단위 그대로다(2026-08-26).
     const plan = userId == null ? getPlan("FREE") : await getUserPlan(prisma, userId);
-    const amount = plan.initialInvestmentAmount;
+    const region = getRequestRegion();
+    const currency = region === "us" ? "USD" : "KRW";
+    const amount =
+      region === "us"
+        ? US_PRICING.initialInvestmentAmount[plan.planId]
+        : plan.initialInvestmentAmount;
 
     const account =
       userId == null
@@ -94,6 +103,7 @@ export async function POST(request: Request) {
               name,
               initialCash: toMoney(amount),
               currentCash: toMoney(amount),
+              currency,
               status: "ACTIVE",
               strategyId: strategyId || null,
               strategyName: strategyName || null,
@@ -108,6 +118,7 @@ export async function POST(request: Request) {
               userId,
               name,
               initialAmount: amount,
+              currency,
               strategyId: strategyId || null,
               strategyName: strategyName || null,
               tradingMode: tradingMode || "manual",

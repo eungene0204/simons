@@ -25,10 +25,13 @@ from typing import Any, Dict, Iterable, List, Optional
 UNIVERSE = "universe"
 MAX_POSITIONS = "max_positions"
 REBALANCING = "rebalancing"
+REBALANCE_METHOD = "rebalance_method"
 BACKTEST_PERIOD = "backtest_period"
 INITIAL_CAPITAL = "initial_capital"
 
-KNOWN_FIELDS = (UNIVERSE, MAX_POSITIONS, REBALANCING, BACKTEST_PERIOD, INITIAL_CAPITAL)
+KNOWN_FIELDS = (
+    UNIVERSE, MAX_POSITIONS, REBALANCING, REBALANCE_METHOD, BACKTEST_PERIOD, INITIAL_CAPITAL,
+)
 
 
 def explicit_fields_from_spec(strategy: Any) -> List[str]:
@@ -55,6 +58,8 @@ def explicit_fields_from_spec(strategy: Any) -> List[str]:
         fields.append(MAX_POSITIONS)
     if portfolio is not None and getattr(portfolio, "rebalance_frequency", None) is not None:
         fields.append(REBALANCING)
+    if portfolio is not None and getattr(portfolio, "rebalance_method", None) is not None:
+        fields.append(REBALANCE_METHOD)
     if backtest is not None and any((
         getattr(backtest, "period", None),
         getattr(backtest, "start_date", None),
@@ -71,6 +76,7 @@ _PATCH_PATH_FIELDS: tuple[tuple[str, str], ...] = (
     ("universe", UNIVERSE),
     ("portfolio.selection_count", MAX_POSITIONS),
     ("portfolio.rebalance_frequency", REBALANCING),
+    ("portfolio.rebalance_method", REBALANCE_METHOD),
     ("backtest.period", BACKTEST_PERIOD),
     ("backtest.start_date", BACKTEST_PERIOD),
     ("backtest.end_date", BACKTEST_PERIOD),

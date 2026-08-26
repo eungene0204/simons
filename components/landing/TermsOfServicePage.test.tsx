@@ -1,9 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { __resetLanguageForTests, setLanguage } from "@/lib/i18n";
 import { TermsOfServicePage } from "./TermsOfServicePage";
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  __resetLanguageForTests();
 });
 
 describe("TermsOfServicePage", () => {
@@ -44,5 +46,25 @@ describe("TermsOfServicePage", () => {
     expect(screen.getByText("898-50-00737")).toBeInTheDocument();
     expect(screen.getByText("이메일")).toBeInTheDocument();
     expect(screen.getByText("nullspace.support@gmail.com")).toBeInTheDocument();
+  });
+
+  it("영문(글로벌) 페이지에서는 사업자 정보 값도 영어로 표시된다", () => {
+    vi.stubEnv("COMPANY_NAME", "널스페이스");
+    vi.stubEnv("BUSINESS_REPRESENTATIVE_NAME", "이응준");
+    vi.stubEnv("BUSINESS_ADDRESS", "서울특별시 서대문구 이화여대7길 37, 3층 S88호(대현동)");
+    vi.stubEnv("BUSINESS_REGISTRATION_NUMBER", "898-50-00737");
+    vi.stubEnv("BUSINESS_EMAIL", "nullspace.support@gmail.com");
+    setLanguage("en");
+
+    render(<TermsOfServicePage />);
+
+    expect(screen.getByText("Business information")).toBeInTheDocument();
+    expect(screen.getAllByText("nullspace").length).toBeGreaterThan(0);
+    expect(screen.getByText("Eungjun Lee")).toBeInTheDocument();
+    expect(
+      screen.getByText("3F S88, 37 Ewhayeodae 7-gil, Seodaemun-gu, Seoul (Daehyeon-dong)")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("이응준")).not.toBeInTheDocument();
+    expect(screen.queryByText(/서울특별시 서대문구/)).not.toBeInTheDocument();
   });
 });

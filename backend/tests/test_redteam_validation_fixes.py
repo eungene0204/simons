@@ -90,16 +90,23 @@ def test_overseas_stock_redirect_does_not_offer_backtest():
     assert "애플에 골든크로스" not in reply
 
 
-@pytest.mark.parametrize("prompt", [
-    "QQQ만 투자하는 전략",
-    "엔비디아 백테스트",
-    "애플만 골든크로스 전략",
+@pytest.mark.parametrize("prompt,expected_ticker", [
+    ("QQQ만 투자하는 전략", "QQQ"),
+    ("엔비디아 백테스트", "NVDA"),
+    ("애플만 골든크로스 전략", "AAPL"),
 ])
-def test_overseas_symbols_get_unsupported_notice(prompt):
-    """9-1/10-3: 해외 종목은 조용히 드롭하지 않고 미지원 안내."""
+def test_overseas_symbols_resolve_instead_of_notice(prompt, expected_ticker):
+    """9-1/10-3의 계승: 미국 종목 지정은 2026-08-25 US 레인 승격으로 정식 지원 —
+    미지원 안내 대신 지정 종목 해석 레인이 티커로 해석한다(조용한 드롭 없음은 동일 계약:
+    데이터 없는 티커는 unresolved로 보고된다, test_us_symbol_lane 참조)."""
     from engine.nl_parser import build_unsupported_concept_notice
+    from strategy_conversation.registry.universe_resolver import resolve_symbols
+
     notice = build_unsupported_concept_notice(prompt)
-    assert notice is not None and "해외" in notice
+    assert notice is None or "해외" not in notice
+    codes, unresolved = resolve_symbols([prompt.split("만")[0].split(" ")[0]])
+    assert codes == [expected_ticker]
+    assert unresolved == []
 
 
 # ── 파서 오귀속(심각도 2) ────────────────────────────────────────────────────

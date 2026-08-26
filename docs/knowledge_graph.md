@@ -171,6 +171,51 @@ HBM 조립장비"). 동일 개념은 하나의 노드로 통합하고 표기 변
   기존 뉴스 검색 학습으로 폴백. 배치 수집과 파서·스코프 가드(인물·정치·이벤트
   제외)를 공유한다(엔진 모듈이 정의, 스크립트가 임포트).
 
+## 미국 지식그래프 (US 레인, 2026-08-25)
+
+한국 KG와 같은 구조 원칙(시드 그래프 + 카탈로그 레이어 합성, 정본 재사용,
+company 노드 자동 생성 + 오타 fail-fast, mtime 캐시)을 미국 시장에 적용한
+별도 그래프. 엔진 `backend/engine/us_knowledge_graph.py`.
+
+- **시드**: `data/us-knowledge-graph.json` — 한국 시드와 동일 스키마(nodes/edges,
+  KR·EN 동의어). 개념 앵커(AI·반도체·데이터센터)와 테마 50여 개(스트리밍·결제·
+  셰일·주택건설·금광 등), `company:TICKER` 엣지는 `us-stocks.json` 정본 대조.
+- **카탈로그 레이어**: `data/us-theme-catalog.json`(평면 테마→티커, 25테마) — 같은
+  별칭이 겹치면 시드(큐레이션) 승. 카탈로그의 정본 밖 티커는 조용히 스킵(한국과 동일
+  계약). 수동 큐레이션 17종 + **테마 ETF 유래 8종**(`scripts/build_us_theme_catalog.py`
+  — 대표 ETF 상위 보유(yfinance)를 정본∩파케이로 거르고 최소 4종목·별칭 충돌
+  사전검사·멱등 병합(`source: etf:*`만 교체). 로봇 자동화·클린에너지·유전체·수자원·
+  지역은행·리츠·소프트웨어·배당귀족). 테마의 `concepts` 필드는 개념 앵커 소속
+  (part_of 엣지) 선언이다.
+- **해석 진입점**: `universe_pit.resolve_us_theme` → `us_knowledge_graph.resolve_theme`.
+  입력은 LLM이 추출한 짧은 테마어(원문 아님), 정확 일치만, '미국' 접두·영어
+  한정어("US"/"American" 접두, "-related/stocks" 등 접미)는 벗겨 조회. 직접 구성이
+  없는 개념 앵커(ai·semiconductor·datacenter)는 **소속(part_of/is_a) 하위 테마
+  상장사의 합집합**으로 전개한다(`concept_member_companies`, 2026-08-26 — 종전
+  '앵커=None' 비확정 설계를 대체. 카탈로그 테마의 `concepts` 필드가 앵커 소속을
+  선언하고 로더가 part_of 엣지로 합성한다. 공급망 주변부 benefits_from·demanded_by
+  등은 구성원이 아니다). 소비자는 `capability_validator`(미국 유니버스 × sectors →
+  테마 유래 지정 종목 전개, `UniverseSpec.theme` 출처 표기)와 primary의
+  `_resolve_sector_terms_us`(미국 시장 문맥 테마 체인 — KR KG·검색 그라운딩 불사용).
+- **한국 KG 대비 의도적 부재**(해당 소스·소비자가 없다): 문장 스캔(US 레인은
+  LLM-first — 원문을 읽는 경로 자체가 없음), 섹터 해석(미국 GICS 업종 필터 미지원),
+  학습 오버레이(네이버 그라운딩 KR 전용), 지분 엣지(DART KR 전용).
+- **GICS 업종 레이어(2026-08-26)**: `us-stocks.json`의 GICS 섹터 11·산업 253 분류를
+  소속 엣지로 합성(회사 -belongs_to→ `industry:` -part_of→ `sector:`) — 분류 보유
+  전 종목 5,853곳이 그래프에 등재된다(총 6,187노드). 산업이 두 섹터에 걸치면
+  (Consumer Electronics 실측 1건) 소속 엣지를 모두 남기고, 분류 결측 98곳은 테마
+  참조 시에만 등재. **테마 해석에는 불참**(별칭 인덱스가 sector:/industry: 제외) —
+  업종 필터는 백테스트 미지원이라 업종명이 테마어로 조용히 유니버스가 되지 않게
+  막는다. 콘솔 탐색·향후 GICS 필터의 기반 레이어.
+- **콘솔 시각화**: 관리자 콘솔 'KG 시각화' 서브탭의 시장 토글(한국/미국) —
+  `GET /knowledge/graph?market=us`(같은 라우트의 분기), 카탈로그 테마도
+  related_company 엣지로 합성돼(한국과 동일 표현) 종목 이웃과 함께 그려진다.
+  'GICS 산업' 그룹(주황 마름모)이 추가되고, 시장에 없는 레이어(미국=학습·ETF,
+  한국=GICS 산업)의 0개 그룹 범례는 숨김.
+- 테스트: `backend/tests/test_us_knowledge_graph.py`(무결성 0·별칭 충돌 금지(시드
+  내부+시드-카탈로그 교차)·파케이 전수·레이어 우선순위·fail-fast·덤프 라우트 분기),
+  `backend/tests/test_us_theme_catalog.py`(카탈로그 무결성·검증기 전개).
+
 ## 산출물
 
 - 엔진: `backend/engine/knowledge_graph.py`

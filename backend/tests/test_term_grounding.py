@@ -312,6 +312,47 @@ def test_extracted_known_sector_term_is_not_learned(tmp_path):
     assert not lexicon.exists()       # 학습(저장)하지 않는다
 
 
+def test_text_is_term_searches_even_when_extractor_returns_null(tmp_path, monkeypatch):
+    """입력이 이미 뽑아낸 용어(text_is_term=True)면 추출 LLM의 null이 검색을 막지 않는다 —
+    2026-08-24 '블랙핑크' 사고: planner가 검색을 선택했는데 추출 단계가 낱말을 재심사해
+    null을 내는 바람에 네이버 검색이 한 번도 실행되지 않고 되묻기로 끝났다.
+
+    지식그래프 어휘집도 tmp로 격리한다 — 실서비스가 같은 용어를 학습해 실제
+    data/term_lexicon.json에 올라오면 ①b 그래프 조회가 검색 전에 해석해 버려
+    이 테스트가 라이브 데이터에 따라 죽는다(2026-08-24 실측)."""
+    import engine.knowledge_graph as kg
+
+    lexicon = tmp_path / "lex.json"
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+    chat = _ChatStub(None, {"definition": "K-pop 걸그룹 관련 상장사 테마", "sector": "미디어/엔터"})
+    search = _SearchStub(_SNIPPETS)
+    got = resolve_sector("블랙핑크", chat, search_fn=search, lexicon_path=lexicon,
+                         text_is_term=True)
+    assert got == "미디어/엔터"
+    assert search.calls == 1          # 검색이 실제 수행됐다
+    saved = json.loads(lexicon.read_text(encoding="utf-8"))
+    assert saved["블랙핑크"]["sector"] == "미디어/엔터"
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_sentence_input_without_term_still_skips_search(tmp_path, monkeypatch):
+    """기본(text_is_term=False) 경로는 기존 계약 유지 — 추출 null이면 검색하지 않는다
+    (문장 전체를 검색어로 쓰는 회귀 방지)."""
+    import engine.knowledge_graph as kg
+
+    lexicon = tmp_path / "lex.json"
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+    chat = _ChatStub(None, {"definition": "정의", "sector": "미디어/엔터"})
+    search = _SearchStub(_SNIPPETS)
+    assert resolve_sector("전략 하나 만들어줘", chat, search_fn=search,
+                          lexicon_path=lexicon) is None
+    assert search.calls == 0
+    assert not lexicon.exists()
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
 def test_general_facts_block_kg_seed_is_deterministic(tmp_path):
     """지식그래프 시드 개념(ESS)은 검색·LLM 없이 정의 사실 블록으로 나온다 —
     일반 지식 답변이 ESS를 '에너지 효율성'으로 환각하던 사고(스크린샷) 방지."""
