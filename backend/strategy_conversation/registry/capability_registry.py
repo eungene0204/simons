@@ -13,6 +13,10 @@ SUPPORTED_REBALANCE_FREQUENCIES = (
     "none", "daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly",
 )
 
+# 엔진 ParsedStrategy.rebalance_method Literal과 1:1 (FR-BT-067)
+# reconstitute = 리밸런싱일마다 목표 종목 재선정, weights_only = 종목 교체 없이 비중만 균등 리셋
+SUPPORTED_REBALANCE_METHODS = ("reconstitute", "weights_only")
+
 # 엔진은 동일비중만 지원한다(별도 가중 방식 없음)
 SUPPORTED_WEIGHTINGS = ("equal",)
 

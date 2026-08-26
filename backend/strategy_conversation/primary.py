@@ -2079,6 +2079,13 @@ def _bind_chips(
             bound.append(text)
             declines[text] = decline_field
             continue
+        method_value = strategy_slots.REBALANCE_METHOD_CHIP_VALUES.get(text)
+        if method_value is not None:
+            # 리밸런싱 방식 칩(FR-BT-067) — 원문 보정 파서에 방식 어휘를 넣지 않으므로
+            # (원문 해석은 LLM 소관, 대원칙 1) 정본 표로 직접 결속한다.
+            bound.append(text)
+            bindings[text] = {"rebalance_method": method_value}
+            continue
         capital_value = strategy_slots.CAPITAL_CHIP_VALUES.get(text)
         if capital_value is not None:
             # 달러 초기 자본 칩(미국 전략) — 원화 보정 파서는 "$10,000" 표기를 읽지

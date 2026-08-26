@@ -16,6 +16,8 @@ const complete: ParsedSummary = {
   max_positions: 10,
   hold_period_days: null,
   rebalancing_period: "monthly",
+  // 리밸런싱을 켠 전략은 방식까지 정해져야 완성이다(FR-BT-067).
+  rebalance_method: "reconstitute",
   stop_loss_pct: 10,
   take_profit_pct: 20,
   backtest_period: "5y",

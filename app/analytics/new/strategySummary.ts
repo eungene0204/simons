@@ -27,6 +27,7 @@ export {
   METRIC_LABELS,
   PERIOD_LABELS,
   REBAL_LABELS,
+  REBAL_METHOD_LABELS,
   UNIVERSE_LABELS,
   type ParsedSummary,
   type StrategySummaryDisplay,

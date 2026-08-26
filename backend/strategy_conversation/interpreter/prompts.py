@@ -68,6 +68,7 @@ _OUTPUT_SHAPE = {
             "selection_percent": None,
             "weighting": None,
             "rebalance_frequency": None,
+            "rebalance_method": None,
             "hold_period_days": None,
         },
         "risk_management": {
@@ -401,6 +402,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
    테마 키워드만으로 충분합니다 — 정확한 상품명(KODEX·TIGER 등)은 필요 없으므로, 사용자가
    이미 테마를 말했으면 상품명을 되묻지 마세요(이미 말한 값 되묻기 금지).
 7. rebalance_frequency는 {"/".join(SUPPORTED_REBALANCE_FREQUENCIES)} 중 하나 또는 null.
+   rebalance_method는 "종목 교체"=reconstitute / "비중만 조정"=weights_only 또는 null(미언급).
 8. confidence: 해석 확신도 0~1. 표현이 모호하면 낮게.
 10. MODIFY_STRATEGY는 '현재 전략 초안'이 주어진 경우에만 선택하고, patches에 JSON Patch를
     출력하세요(예: {{"op":"replace","path":"/portfolio/rebalance_frequency","value":"monthly",

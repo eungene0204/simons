@@ -52,6 +52,10 @@ class RiskManagement(BaseModel):
     execution_timing: Optional[str] = "next_open"
     allocation_type: Optional[str] = "equal"
     rebalancing_period: Optional[str] = "none"
+    # 리밸런싱 방식(FR-BT-067): 'reconstitute'=리밸런싱일마다 목표 종목 재선정,
+    # 'weights_only'=보유 종목 유지하고 비중만 균등 리셋. 스키마에 없으면 model_dump가
+    # 조용히 버려 엔진이 못 받는다 — ranking_metric 0거래 사고와 동일 함정.
+    rebalance_method: Optional[str] = "reconstitute"
     skip_risk_management: Optional[bool] = False
     skip_position_setting: Optional[bool] = False
     init_cash: Optional[float] = 10000000.0

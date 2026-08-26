@@ -76,10 +76,23 @@ _OLLAMA_WARMUP_BUDGET_S = 200.0  # 본문 없는 GET으로 콜드 컨테이너�
 # "exceeds the available context size" 400을 낸다(프로덕션 실측). 응답·후속대화 여유까지 커버.
 # 2026-08-14 16384→20480: 인터프리터 프롬프트(온톨로지 주입 포함)가 15,682토큰으로 실측돼
 # 출력 여유가 ~700토큰뿐 — 전체 StrategyIntent JSON이 잘려 복구 재시도까지 실패했다.
-# 변경 시 parse_validator._VALIDATION_NUM_CTX와 반드시 같이 바꿀 것(러너 재고정 사고 방지).
-_OLLAMA_NUM_CTX = 20480
-# 콜드스타트 일시 400과 구별할 영구 400(설정 오류) 시그니처 — 이런 본문은 재시도하지 않는다.
-_OLLAMA_PERMANENT_400_SIGNATURES = ("model is required", "not found", "no such model")
+# 2026-08-27 20480→32768(사용자 지시): 수정 턴은 누적 발화 + 이전 전략 + 시스템 프롬프트를
+# 함께 보내므로 대화가 길어지면 정원을 넘어 Ollama가 400(exceed_context_size_error)을 냈다.
+# 여유를 키워 긴 대화의 수정이 성립하게 한다.
+# 변경 시 parse_validator._VALIDATION_NUM_CTX와 반드시 같이 바꿀 것(러너 재고정 사고 방지) —
+# 두 값의 일치는 tests/test_nl_parser_overrides.py가 강제한다.
+_OLLAMA_NUM_CTX = 32768
+# 콜드스타트 일시 400과 구별할 영구 400 시그니처 — 이런 본문은 재시도하지 않는다.
+# **컨텍스트 초과가 여기 있어야 하는 이유**(2026-08-26 실측): 같은 요청을 다시 보내도 토큰
+# 수는 그대로라 재시도가 성립하지 않는다. 종전에는 일시 오류로 보고 330초 예산이 닳을 때까지
+# 반복했고, 그 사이 프론트 프록시 240초가 먼저 끊어 사용자에게는 원인과 무관한
+# "aborted due to timeout"이 떴다(로그에는 "Modal cold start?"라는 거짓 진단이 남았다).
+# 로컬 Ollama 본문: {"error":"request (51010 tokens) exceeds the available context size
+# (20480 tokens), try increasing it","type":"exceed_context_size_error"}
+_OLLAMA_PERMANENT_400_SIGNATURES = (
+    "model is required", "not found", "no such model",
+    "exceeds the available context size", "exceed_context_size_error",
+)
 
 
 def _http_400_is_permanent(err) -> bool:
@@ -89,10 +102,16 @@ def _http_400_is_permanent(err) -> bool:
     보수적으로 False(=일시 오류로 보고 재시도)를 반환한다.
     """
     try:
-        body = err.read().decode("utf-8", "replace").lower()
+        body = err.read().decode("utf-8", "replace")
     except Exception:
         return False
-    return any(sig in body for sig in _OLLAMA_PERMANENT_400_SIGNATURES)
+    lowered = body.lower()
+    if not any(sig in lowered for sig in _OLLAMA_PERMANENT_400_SIGNATURES):
+        return False
+    # 재시도로 풀리지 않는 400은 **왜 실패했는지**를 로그에 남긴다 — 본문을 읽고 버리면
+    # 남는 것이 'HTTPError 400: Bad Request'뿐이라 원인을 짚을 단서가 사라진다.
+    logger.error("ollama 영구 400 — 재시도하지 않는다 | body=%s", body[:400])
+    return True
 
 
 def _is_local_connection_error(err: Exception) -> bool:
@@ -772,6 +791,16 @@ class ParsedStrategy(BaseModel):
         default="none",
         description="정기 리밸런싱 주기. '매일'=daily, '매주/주간'=weekly, '매월'=monthly, '격월/두 달에 한 번'=bimonthly, '분기'=quarterly, '매년/1년마다'=yearly, 언급없음=none"
     )
+    rebalance_method: Literal["reconstitute", "weights_only"] = Field(
+        default="reconstitute",
+        description=(
+            "리밸런싱 방식(FR-BT-067). 리밸런싱일에 목표 종목을 다시 고르면 reconstitute, "
+            "보유 종목은 그대로 두고 비중만 균등으로 되돌리면 weights_only. "
+            "'종목을 갈아탄다/교체한다/새로 고른다'=reconstitute, "
+            "'종목은 그대로 두고 비중만 맞춘다/오른 건 팔고 내린 건 더 산다/균등 비중 유지'=weights_only. "
+            "언급없음=reconstitute"
+        ),
+    )
 
     # ── 리스크 관리
     stop_loss_pct: Optional[float] = Field(
@@ -881,6 +910,7 @@ class ParsedStrategyDiff(BaseModel):
     max_positions_pct: Optional[float] = Field(default=None, gt=0, le=100)
     hold_period_days: Optional[int] = None
     rebalancing_period: Optional[Literal["none", "daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly"]] = None
+    rebalance_method: Optional[Literal["reconstitute", "weights_only"]] = None
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
     trailing_stop_pct: Optional[float] = None

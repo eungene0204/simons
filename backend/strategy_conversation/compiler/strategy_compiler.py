@@ -449,6 +449,9 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         max_positions_pct=portfolio.selection_percent,
         hold_period_days=portfolio.hold_period_days,
         rebalancing_period=portfolio.rebalance_frequency or "none",
+        # 방식 미언급은 종전 동작(종목 교체)이다 — 되묻기 게이트가 provenance로 물으며,
+        # 여기서 조용히 다른 값으로 확정하지 않는다(FR-BT-067).
+        rebalance_method=portfolio.rebalance_method or "reconstitute",
         stop_loss_pct=risk.stop_loss,
         take_profit_pct=risk.take_profit,
         trailing_stop_pct=risk.trailing_stop,

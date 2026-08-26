@@ -64,6 +64,7 @@ _FIELD_LABELS: Dict[str, str] = {
     "max_positions_pct": "편입 비율(%)",
     "hold_period_days": "보유 기간",
     "rebalancing_period": "리밸런싱 주기",
+    "rebalance_method": "리밸런싱 방식",
     "stop_loss_pct": "손절",
     "take_profit_pct": "익절",
     "trailing_stop_pct": "트레일링 스탑",

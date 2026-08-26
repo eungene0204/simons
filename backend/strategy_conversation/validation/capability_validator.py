@@ -443,6 +443,16 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
         else:
             strategy.portfolio.rebalance_frequency = freq
 
+    if strategy.portfolio.rebalance_method is not None \
+            and strategy.portfolio.rebalance_method not in caps.SUPPORTED_REBALANCE_METHODS:
+        errors.append(
+            f"리밸런싱 방식 '{strategy.portfolio.rebalance_method}'을(를) 해석할 수 없습니다 "
+            f"(지원: 종목 교체(reconstitute), 비중 조정(weights_only))"
+        )
+        # 주기와 같은 계약 — 값을 남기면 부분 컴파일이 ParsedStrategy Literal에서 크래시해
+        # 해석 실패(빈 전략)로 둔갑한다. 오류가 안내를 담당하므로 조용한 소실이 아니다.
+        strategy.portfolio.rebalance_method = None
+
     if strategy.backtest.period is not None \
             and strategy.backtest.period not in caps.SUPPORTED_BACKTEST_PERIODS:
         errors.append(f"백테스트 기간 '{strategy.backtest.period}'은(는) 지원되지 않습니다")

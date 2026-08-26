@@ -5038,3 +5038,56 @@ def test_every_engine_indicator_has_a_frontend_badge_label():
         "lib/strategy-summary.ts INDICATOR_LABELS에 라벨이 없는 엔진 지표: "
         f"{sorted(indicators - labeled)}"
     )
+
+
+# ── Ollama 400 분류 (2026-08-26 실측 사고) ────────────────────────────────────
+
+def test_context_overflow_400_is_permanent_not_a_cold_start():
+    """컨텍스트 초과 400은 재시도로 풀리지 않는다 — 같은 요청은 토큰 수가 그대로다.
+
+    종전에는 일시 오류(Modal 콜드스타트)로 보고 330초 예산이 닳을 때까지 같은 요청을
+    반복했고, 그 사이 프론트 프록시 240초가 먼저 끊어 사용자에게는 원인과 무관한
+    'aborted due to timeout'이 떴다(로그에는 'Modal cold start?'라는 거짓 진단만 남았다).
+    """
+    import io
+    import urllib.error
+
+    from engine.nl_parser import _http_400_is_permanent
+
+    body = (
+        '{"error":"{\\"error\\":{\\"code\\":400,\\"message\\":\\"request (51010 tokens) '
+        'exceeds the available context size (20480 tokens), try increasing it\\",'
+        '\\"type\\":\\"exceed_context_size_error\\"}}"}'
+    )
+    err = urllib.error.HTTPError(
+        "http://localhost:11434/api/chat", 400, "Bad Request", {},
+        io.BytesIO(body.encode()),
+    )
+    assert _http_400_is_permanent(err) is True
+
+
+def test_unknown_400_body_still_retries_as_cold_start():
+    """알 수 없는 400은 보수적으로 일시 오류 — Modal 콜드스타트 프록시 400이 그 자리다."""
+    import io
+    import urllib.error
+
+    from engine.nl_parser import _http_400_is_permanent
+
+    err = urllib.error.HTTPError(
+        "http://x/api/chat", 400, "Bad Request", {}, io.BytesIO(b"missing request body"),
+    )
+    assert _http_400_is_permanent(err) is False
+
+
+def test_parser_and_validator_share_one_num_ctx():
+    """파싱 본경로와 검증기의 num_ctx는 반드시 같다.
+
+    다르면 Ollama가 호출마다 러너를 갈아끼운다 — 2026-07-30 실측에서는 재고정된 러너에
+    다른 num_ctx 요청이 들어가 240초+ 무응답이 났다(프록시가 먼저 끊어 사용자에겐 원인
+    불명 타임아웃). 두 상수가 떨어져 있어(무거운 import 회피) 사람이 한쪽만 고치기 쉬우므로
+    여기서 강제한다.
+    """
+    from engine.nl_parser import _OLLAMA_NUM_CTX
+    from engine.parse_validator import _VALIDATION_NUM_CTX
+
+    assert _VALIDATION_NUM_CTX == _OLLAMA_NUM_CTX

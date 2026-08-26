@@ -289,6 +289,12 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         "max_positions": strategy.max_positions,
         "hold_period_days": strategy.hold_period_days,
         "rebalancing_period": strategy.rebalancing_period,
+        # 리밸런싱 방식(FR-BT-067) — 기본값(reconstitute)은 None으로 내려 _drop_none이
+        # 제거하게 한다: 방식이 생기기 전에 저장된 전략의 strategy_id 해시가 불변이어야
+        # 캐시·기록이 같은 전략을 같은 것으로 본다(ranking_direction과 같은 계약).
+        "rebalance_method": (
+            None if strategy.rebalance_method == "reconstitute" else strategy.rebalance_method
+        ),
         "stop_loss_pct": strategy.stop_loss_pct,
         "take_profit_pct": strategy.take_profit_pct,
         "trailing_stop_pct": strategy.trailing_stop_pct,
@@ -486,6 +492,9 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "max_mdd_limit_pct": strategy.max_mdd_limit_pct,
         "max_holding_days": max_holding_days,
         "rebalancing_period": strategy.rebalancing_period,
+        # 리밸런싱일에 목표 종목을 다시 고를지(reconstitute), 보유는 그대로 두고 비중만
+        # 균등으로 되돌릴지(weights_only) — FR-BT-067. 시뮬레이터가 두 경로에서 읽는다.
+        "rebalance_method": strategy.rebalance_method,
         "init_cash": strategy.initial_capital,
         "ranking_enabled": not explicit_symbols,
         "ranking_weight_value": 0.5,

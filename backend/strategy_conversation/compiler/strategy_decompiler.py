@@ -167,6 +167,11 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             rebalance_frequency=(
                 None if parsed.rebalancing_period == "none" else parsed.rebalancing_period
             ),
+            # 방식도 왕복시킨다 — 누락되면 수정 턴마다 비중 유지 전략이 종목 교체로
+            # 되돌아간다(사용자가 말한 값이 조용히 사라지는 경로).
+            rebalance_method=(
+                None if parsed.rebalance_method == "reconstitute" else parsed.rebalance_method
+            ),
             hold_period_days=parsed.hold_period_days,
         ),
         risk_management=RiskSpec(

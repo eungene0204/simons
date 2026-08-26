@@ -68,6 +68,7 @@ const PARSED = {
   exit_signals: [{ indicator: "ma_crossover", signal_type: "sell" }],
   max_positions: 8,
   rebalancing_period: "monthly",
+  rebalance_method: "reconstitute",
   backtest_period: "5y",
   initial_capital: 10000000,
   stop_loss_pct: 8,
@@ -121,7 +122,8 @@ describe("유지/변경 체크박스 선택", () => {
           clarification_priority: null,
           pending_ask: null,
           explicit_fields: [
-            "universe", "max_positions", "rebalancing", "backtest_period", "initial_capital",
+            "universe", "max_positions", "rebalancing", "rebalance_method",
+            "backtest_period", "initial_capital",
           ],
           notices: [],
         }));

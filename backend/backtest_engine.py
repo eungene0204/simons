@@ -1575,12 +1575,23 @@ class BacktestEngine:
                 float(risk_params.get(k) or 0) > 0
                 for k in ('stop_loss_pct', 'take_profit_pct', 'trailing_stop_pct', 'max_holding_days')
             )
+            _weights_only = str(
+                risk_params.get('rebalance_method') or 'reconstitute'
+            ) == 'weights_only'
             if _rebal_period != 'none' and risk_params.get('max_positions') and (
                 _has_pos_risk or _entry_signal_driven
             ):
                 # H8: 리스크 관리와 혼합된 리밸런싱, 그리고 매수 조건이 있는 전략의 리밸런싱은
-                # 커스텀 루프(종목 교체 = reconstitution)로 돈다 — 비중 리셋 없음.
-                if _entry_signal_driven:
+                # 커스텀 루프로 돈다. 방식에 따라 하는 일이 반대다 — 종목 교체(reconstitution)는
+                # 목표 밖 보유를 편출하고 비중은 리셋하지 않으며, 비중 유지(weights_only)는
+                # 편출 없이 비중만 균등으로 되돌린다(FR-BT-067).
+                if _weights_only:
+                    self.warnings.add(
+                        "리밸런싱일에는 보유 종목을 교체하지 않고 비중만 균등으로 되돌립니다"
+                        "(오른 종목은 일부 매도, 내린 종목은 추가 매수) — 목표 종목 수에 미달하는 "
+                        "빈 자리만 매수 조건 충족 종목으로 채웁니다. 매도 조건·손절/익절은 그대로 적용됩니다."
+                    )
+                elif _entry_signal_driven:
                     self.warnings.add(
                         "리밸런싱일에는 그날 매수 조건을 충족한 종목 중에서 포트폴리오를 다시 구성합니다"
                         "(충족하지 않는 보유 종목은 편출) — 그 사이 날에도 매수 조건 충족 종목을 빈 자리만큼 "

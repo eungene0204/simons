@@ -19,6 +19,9 @@ const base: ParsedSummary = {
   max_positions: 10,
   hold_period_days: null,
   rebalancing_period: "none",
+  // 백엔드 응답의 parsed에는 엔진 기본값이 물질화돼 늘 값이 있다(provenance가 되묻기를
+  // 가른다) — 픽스처도 실제 페이로드와 같은 형태로 둔다.
+  rebalance_method: "reconstitute",
   stop_loss_pct: null,
   take_profit_pct: null,
   backtest_period: "5y",
@@ -101,7 +104,10 @@ describe("isBacktestReady", () => {
           entry_signals: [{ indicator: "ma_crossover", signal_type: "buy" }],
           rebalancing_period: "monthly",
         },
-        { ...options, explicitFields: [...options.explicitFields, "rebalancing"] },
+        {
+          ...options,
+          explicitFields: [...options.explicitFields, "rebalancing", "rebalance_method"],
+        },
       ),
     ).toBe(true);
   });
@@ -182,6 +188,7 @@ describe("explicit_fields 기반 되묻기 게이트 (원문 정규식 폐지)",
     "universe",
     "max_positions",
     "rebalancing",
+    "rebalance_method",
     "backtest_period",
     "initial_capital",
   ];
@@ -253,7 +260,9 @@ describe("분위 그룹 전략의 최대 보유 되묻기 (FR-BT-060b)", () => {
     rebalancing_period: "quarterly",
   } as ParsedSummary;
   const options = {
-    explicitFields: ["universe", "rebalancing", "backtest_period", "initial_capital"],
+    explicitFields: [
+      "universe", "rebalancing", "rebalance_method", "backtest_period", "initial_capital",
+    ],
     requireExplicitConfiguration: true,
   };
 
@@ -273,7 +282,9 @@ describe("분위 그룹 전략의 최대 보유 되묻기 (FR-BT-060b)", () => {
   it("일반 전략은 기존 질문·칩 그대로다", () => {
     const next = getNextMissingBacktestCondition(
       { ...base, rebalancing_period: "monthly" } as ParsedSummary,
-      { explicitFields: ["universe", "rebalancing", "backtest_period", "initial_capital"],
+      { explicitFields: [
+          "universe", "rebalancing", "rebalance_method", "backtest_period", "initial_capital",
+        ],
         requireExplicitConfiguration: true },
     );
     if (next?.field === "max_positions") {
@@ -297,7 +308,8 @@ describe("손절·익절 '안 함' 거부", () => {
   const options = {
     requireExplicitConfiguration: true,
     explicitFields: [
-      "universe", "max_positions", "rebalancing", "backtest_period", "initial_capital",
+      "universe", "max_positions", "rebalancing", "rebalance_method",
+      "backtest_period", "initial_capital",
     ],
   };
 

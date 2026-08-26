@@ -60,6 +60,9 @@ export interface RiskManagement {
   execution_timing?: "next_open" | "current_close";
   allocation_type?: "equal" | "fixed_pct";
   rebalancing_period?: string;
+  /** 리밸런싱 방식(FR-BT-067) — 'reconstitute'=리밸런싱일마다 목표 종목 재선정,
+   *  'weights_only'=종목 교체 없이 비중만 균등 리셋. 없으면 엔진 기본값(종목 교체). */
+  rebalance_method?: "reconstitute" | "weights_only";
   skip_risk_management?: boolean;
   skip_position_setting?: boolean;
 }

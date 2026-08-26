@@ -58,6 +58,7 @@ import {
   hasBuyCriteria,
   PERIOD_LABELS,
   REBAL_LABELS,
+  REBAL_METHOD_LABELS,
   type ParsedSummary,
 } from "./strategySummary";
 import {
@@ -154,6 +155,7 @@ const EXPLICIT_GATE_FIELDS: readonly string[] = [
   "universe",
   "max_positions",
   "rebalancing",
+  "rebalance_method",
   "backtest_period",
   "initial_capital",
 ];
@@ -1525,6 +1527,9 @@ function ParsedSummaryBubble({
             <FilterBadge label={getPositionLabel(parsed)} />
             {parsed.hold_period_days && <FilterBadge label={t("{0}일 보유", parsed.hold_period_days)} />}
             {parsed.rebalancing_period !== "none" && <FilterBadge label={t("{0} 리밸런싱", REBAL_LABELS[parsed.rebalancing_period])} />}
+            {parsed.rebalancing_period !== "none" && parsed.rebalance_method && (
+              <FilterBadge label={t(REBAL_METHOD_LABELS[parsed.rebalance_method] ?? parsed.rebalance_method)} />
+            )}
           </div>
         </div>
         {/* 백테스트 기간·초기 자본은 포트폴리오 구성(종목 수·보유·리밸런싱)이 아니라 실행

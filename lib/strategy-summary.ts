@@ -69,6 +69,9 @@ export interface ParsedSummary {
   max_positions: number;
   hold_period_days: number | null;
   rebalancing_period: string;
+  // 리밸런싱 방식(FR-BT-067) — 'reconstitute'(종목 교체) | 'weights_only'(비중 조정).
+  // 리밸런싱을 켠 KR 전략에서만 사용자가 고른다(미국 레인은 이번 범위 밖).
+  rebalance_method?: string | null;
   stop_loss_pct: number | null;
   take_profit_pct: number | null;
   trailing_stop_pct?: number | null;
@@ -92,6 +95,7 @@ type LegacyStrategySummaryFields = {
   max_positions?: number | null;
   hold_period_days?: number | null;
   rebalancing_period?: string | null;
+  rebalance_method?: string | null;
   stop_loss_pct?: number | null;
   take_profit_pct?: number | null;
   trailing_stop_pct?: number | null;
@@ -332,6 +336,28 @@ export const REBAL_LABELS: Record<string, string> = {
   quarterly: "분기",
   yearly: "매년",
 };
+
+// 리밸런싱 방식(FR-BT-067) 표기. 백엔드 칩 정본(engine/strategy_slots.py
+// REBALANCE_METHOD_CHIP_VALUES)이 정하는 두 값과 1:1이다.
+export const REBAL_METHOD_LABELS: Record<string, string> = {
+  reconstitute: "종목 교체",
+  weights_only: "비중 조정",
+};
+
+/** 리밸런싱 배지 문구 — 주기와 방식을 한 칸에 함께 보인다.
+ *  방식이 배지에 없으면 사용자가 고른 값이 화면 어디에도 남지 않아, 무엇으로 돌았는지
+ *  결과만 보고는 알 수 없다(주기만 보이던 종전 표기). 방식 미지정(기존 전략)은 종전
+ *  표기를 그대로 둔다 — 고르지 않은 값을 화면이 확정해 보이지 않는다. */
+export function formatRebalancingText(
+  period: string | null | undefined,
+  method: string | null | undefined,
+  translate: (template: string, ...values: Array<string | number>) => string,
+): string | undefined {
+  if (!period || period === "none") return undefined;
+  const base = translate("{0} 리밸런싱", translate(REBAL_LABELS[period] ?? period));
+  const methodLabel = method ? REBAL_METHOD_LABELS[method] : undefined;
+  return methodLabel ? `${base} · ${translate(methodLabel)}` : base;
+}
 
 export const FUNDAMENTAL_FILTER_SECTION_LABEL = "진입 신호";
 
@@ -729,10 +755,9 @@ export function buildStrategySummary(
       takeProfitPct ? t("익절 {0}%", takeProfitPct) : "",
       trailingStopPct ? t("트레일링 스탑 {0}%", trailingStopPct) : "",
     ].filter(Boolean).join(", ") || undefined,
-    rebalancingText:
-      parsed.rebalancing_period && parsed.rebalancing_period !== "none"
-        ? t("{0} 리밸런싱", t(REBAL_LABELS[parsed.rebalancing_period] ?? parsed.rebalancing_period))
-        : undefined,
+    rebalancingText: formatRebalancingText(
+      parsed.rebalancing_period, parsed.rebalance_method, t,
+    ),
     // 백테스트 기간·초기 자본 — 대화 카드(ParsedSummaryBubble)와 같은 행을 결과 화면에도
     // 보이기 위한 값(2026-08-18: 카드에만 있고 결과 화면 요약 DTO에는 칸이 없어 빠졌다).
     backtestPeriodText: formatBacktestPeriodLabel(parsed) ?? undefined,
@@ -843,6 +868,7 @@ export function buildStrategySummaryFromRequest(
   const maxHoldingDays = num(risk.max_holding_days);
   const maxPositions = num(risk.max_positions);
   const rebalancingPeriod = typeof risk.rebalancing_period === "string" ? risk.rebalancing_period : "none";
+  const rebalanceMethod = typeof risk.rebalance_method === "string" ? risk.rebalance_method : null;
 
   const rankingLabel = getRankingLabel({
     ranking_metric: (risk.ranking_metric as string | null) ?? null,
@@ -921,10 +947,7 @@ export function buildStrategySummaryFromRequest(
       ]
         .filter(Boolean)
         .join(", ") || undefined,
-    rebalancingText:
-      rebalancingPeriod && rebalancingPeriod !== "none"
-        ? t("{0} 리밸런싱", t(REBAL_LABELS[rebalancingPeriod] ?? rebalancingPeriod))
-        : undefined,
+    rebalancingText: formatRebalancingText(rebalancingPeriod, rebalanceMethod, t),
     ...backtestRunTextsFromRequest(req),
   };
 }
@@ -1150,10 +1173,11 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
     backtest_period: "full",
     initial_capital: 0,
   });
-  const rebalancingText =
-    rebalancingPeriod && rebalancingPeriod !== "none"
-      ? t("{0} 리밸런싱", t(REBAL_LABELS[rebalancingPeriod] ?? rebalancingPeriod))
-      : undefined;
+  const rebalancingText = formatRebalancingText(
+    rebalancingPeriod,
+    strategy.risk?.rebalance_method ?? legacyStrategy.rebalance_method,
+    t,
+  );
 
   return {
     strategyName: strategy.name,

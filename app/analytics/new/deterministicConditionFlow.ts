@@ -36,6 +36,14 @@ const REBALANCING_BY_CHOICE: Record<string, string> = {
   "안 함": "none",
 };
 
+// 리밸런싱 방식(FR-BT-067) 칩 → 값. 백엔드 정본(engine/strategy_slots.py
+// REBALANCE_METHOD_CHIP_VALUES)과 **같은 문구·같은 값**이어야 한다 — 어느 레인에서
+// 발행된 칩을 눌렀든 결과가 같아야 하기 때문이다(칩=값 결속 계약).
+const REBALANCE_METHOD_BY_CHOICE: Record<string, string> = {
+  "종목 교체 리밸런싱": "reconstitute",
+  "비중 조정 리밸런싱 (균등 유지)": "weights_only",
+};
+
 const PERIOD_BY_CHOICE: Record<string, string> = {
   "최근 1년 데이터": "1y",
   "최근 3년 데이터": "3y",
@@ -220,6 +228,11 @@ export function applyDeterministicConditionChoice({
           allowNoRebalancing: rebalancingPeriod === "none",
         }
       : null;
+  }
+
+  if (condition.field === "rebalance_method") {
+    const method = REBALANCE_METHOD_BY_CHOICE[choice];
+    return method ? { parsed: { ...parsed, rebalance_method: method } } : null;
   }
 
   if (condition.field === "stop_loss" || condition.field === "take_profit") {

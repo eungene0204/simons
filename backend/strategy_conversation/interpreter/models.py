@@ -341,6 +341,15 @@ class PortfolioSpec(BaseModel):
         default=None,
         description="리밸런싱 주기: daily/weekly/monthly/bimonthly/quarterly/yearly. 언급 없으면 null",
     )
+    rebalance_method: Optional[str] = Field(
+        default=None,
+        description=(
+            "리밸런싱 방식: reconstitute(리밸런싱일마다 종목을 다시 고름 — '종목 교체', "
+            "'갈아탄다', '새로 고른다') / weights_only(종목은 그대로 두고 비중만 균등으로 "
+            "되돌림 — '비중만 조정', '오른 건 팔고 내린 건 더 산다', '균등 비중 유지'). "
+            "언급 없으면 null"
+        ),
+    )
     hold_period_days: Optional[int] = Field(default=None, description="최대 보유 기간(거래일)")
 
     _coerce_count = field_validator("selection_count", "hold_period_days", mode="before")(_coerce_number)

@@ -233,6 +233,12 @@ export const en: Record<string, string> = {
   "볼린저밴드 상단 터치 시 매도": "Sell on touch of upper Bollinger Band",
   "볼린저밴드 하단 터치 시 매수": "Buy on touch of lower Bollinger Band",
   "분기마다 리밸런싱": "Quarterly rebalancing",
+  // 리밸런싱 방식(FR-BT-067) — 되묻기 칩·요약 배지·진행 골격 라벨.
+  "종목 교체 리밸런싱": "Reconstitution rebalancing",
+  "비중 조정 리밸런싱 (균등 유지)": "Weight-only rebalancing (keep equal weights)",
+  "종목 교체": "Reconstitution",
+  "비중 조정": "Weight adjustment",
+  "리밸런싱 방식": "Rebalancing method",
   "사용 가능한 전체 데이터": "All available data",
   "안 함": "None",
   "최근 1년 데이터": "Last 1 year of data",
