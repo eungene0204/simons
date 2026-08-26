@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "4.7"
+PROMPT_VERSION = "4.8"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -733,7 +733,6 @@ def _number_checklist(user_input: str) -> str:
 
 def build_user_prompt(
     user_input: str, draft: dict | None = None, pending_question: str | None = None,
-    pending_slot: str | None = None,
 ) -> str:
     # 오늘 날짜는 매 요청 주입한다 — 모델이 학습 시점 기억으로 과거 연도를 미래로
     # 오판해 명시 날짜를 누락하는 드리프트 방지(시스템 프롬프트 규칙 12와 짝).
@@ -743,20 +742,17 @@ def build_user_prompt(
         # 직전 턴에 우리가 던진 질문. 사용자가 "3억원"처럼 필드를 밝히지 않고 값만
         # 답할 때 어느 필드의 답인지는 이 질문이 정한다 — 문맥 없이 값만 보면 귀속할
         # 수 없어 같은 질문을 다시 던지게 된다(2026-07-31 초기자금 무한 되묻기).
-        # 그 질문이 **어느 칸을 묻는지**는 시스템이 안다(우리가 방금 발행한 ask의 topic →
-        # strategy_slots.answer_target_for_topic). 알려주면 LLM의 일이 '필드 찾기 + 값
-        # 해석' 둘에서 '값 해석' 하나로 줄어든다 — 정성·비수치 표현("eight stocks"·
-        # "double my money"·"close it out after a month")이 전부 되묻기로 되돌아오던
-        # 자리다(2026-08-26 /us 자유입력 QA). 결정론이 정하는 것은 우리 자신의 상태이지
-        # 사용자 표현의 의미가 아니다(§ 3-2).
-        slot_line = (
-            f"이 질문이 채우는 칸: {pending_slot}\n"
-            if pending_question and pending_question.strip() and pending_slot
-            else ""
-        )
+        # [기각된 시도: 슬롯 명시, 2026-08-26] 이 자리에 "이 질문이 채우는 칸:
+        # portfolio.selection_count …"를 덧붙여 LLM의 일을 '필드 찾기 + 값 해석'에서
+        # '값 해석'으로 줄이려 했으나 **실측에서 효과 0·회귀 3건**이었다(EN modify
+        # PASS 31→28, KR modify 39→35). ① 목표였던 정성 표현("eight stocks")은 슬롯이
+        # 모호하지 않은데도 그대로 되묻기였고 ② 손절·익절이 라벨('리스크 관리')을
+        # 공유해 슬롯 설명에 둘이 함께 실리자, 질문만 읽고 맞히던 익절 답변('20%')이
+        # 손절로 새어 나갔다. 모호한 힌트는 힌트 없음보다 나쁘다. 되돌린 이유를 남긴다 —
+        # 같은 시도를 반복하지 않기 위해서다(재시도하려면 슬롯이 단일 필드로 확정되는
+        # 경우로 한정하고, 그 전에 정성 표현이 슬롯 지정만으로 풀리는지부터 실측할 것).
         pending_block = (
-            f"답을 기다리는 질문(직전 턴에 우리가 물은 것):\n\"{pending_question.strip()}\"\n"
-            f"{slot_line}\n"
+            f"답을 기다리는 질문(직전 턴에 우리가 물은 것):\n\"{pending_question.strip()}\"\n\n"
             if pending_question and pending_question.strip()
             else ""
         )
@@ -765,10 +761,7 @@ def build_user_prompt(
         # 값이 없으면 패치 대신 CLARIFY_STRATEGY로 질문을 유지하게 계약한다.
         answer_rule = (
             " 사용자 입력이 위 질문에 대한 답이면(값만 말했더라도) 그 질문이 묻는 필드의 "
-            "패치로 출력하세요. 숫자를 낱말로 쓰거나(eight=8, a dozen=12) 배수·기간으로 "
-            "에둘러 말해도(double my money=익절 100%, a month=21거래일, 3x the average="
-            "거래량 급증) 그 뜻을 값으로 옮기세요 — 값이 **있는데** 표기가 낯설다는 이유로 "
-            "되묻지 마세요(되묻기는 값이 아예 없을 때만입니다). 단, 입력에 값이 없으면(항목·주제 이름만 말한 경우) 값을 "
+            "패치로 출력하세요. 단, 입력에 값이 없으면(항목·주제 이름만 말한 경우) 값을 "
             "지어내 패치하지 마세요 — 초안의 다른 필드 값을 복사하지 말고, "
             "intent=CLARIFY_STRATEGY에 patches는 비우고 clarification_questions로 그 "
             "질문을 다시 내세요."

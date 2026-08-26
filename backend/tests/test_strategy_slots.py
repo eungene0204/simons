@@ -601,27 +601,3 @@ def test_etf_product_designation_hides_fundamental_chips():
     chips2 = suggestions_for_topic("매수조건", universe=None, parsed=parsed2)
     assert "PER 10 이하" in chips2
 
-
-def test_answer_target_covers_all_slots():
-    """되묻기 답변 귀속 대상(슬롯→필드 경로)이 8칸 전부에 있다.
-
-    자유 서술 답변은 칩과 달리 LLM 레인으로 가는데, 종전에는 질문 **문장**만 넘어가
-    LLM이 '어느 필드인가'와 '이 표현이 무슨 값인가'를 동시에 풀어야 했다 — 영어 정성
-    표현("eight stocks"·"double my money")이 전부 되묻기로 되돌아온 자리다(2026-08-26
-    /us 자유입력 QA). 어느 칸인지는 우리가 발행한 ask가 아는 정보다(§ 3-2).
-    """
-    from engine.strategy_slots import SLOT_LABELS, answer_target_for_topic
-
-    for label in set(SLOT_LABELS.values()):
-        assert answer_target_for_topic(label), f"슬롯 라벨 '{label}'의 답변 대상 없음"
-    assert answer_target_for_topic(None) is None
-    assert answer_target_for_topic("알 수 없는 주제") is None
-
-
-def test_answer_target_for_shared_risk_label_offers_both():
-    """손절·익절은 라벨('리스크 관리')을 공유한다 — 한쪽으로 확정하지 않고 둘 다 제시한다
-    (없는 구분을 지어내면 사용자가 답한 값이 반대 슬롯에 실린다)."""
-    from engine.strategy_slots import answer_target_for_topic
-
-    target = answer_target_for_topic("리스크 관리")
-    assert "stop_loss" in target and "take_profit" in target

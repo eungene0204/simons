@@ -3210,16 +3210,8 @@ def run_primary_modification(
     if on_stage is not None:
         on_stage("thinking")
     try:
-        # 답변 귀속 대상(어느 칸의 답인가)은 우리가 발행한 ask의 topic이 정한다 —
-        # 자유 서술 답변도 칩과 같은 근거를 갖게 해 LLM이 필드를 추측하지 않게 한다.
-        from engine.strategy_slots import answer_target_for_topic
-
-        pending_slot = answer_target_for_topic(
-            (pending_ask or {}).get("topic") if isinstance(pending_ask, dict) else None
-        )
         result = _get_interpreter(StrategyInterpreter).interpret(
             user_input, draft=draft_spec.model_dump(), pending_question=pending_question,
-            pending_slot=pending_slot,
         )
     except InterpreterError as exc:
         logger.warning("modify primary interpreter failed, falling back | err=%s", str(exc)[:200])

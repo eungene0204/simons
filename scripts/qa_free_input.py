@@ -273,12 +273,29 @@ def load_base() -> dict:
     return base
 
 
-def call(prompt, question):
+# 하니스 슬롯 → 되묻기 topic(정본 라벨). 프론트는 pending_ask를 그대로 에코하므로
+# (page.tsx:3070) 하니스도 같이 실어야 실제 턴이 재현된다 — **질문 문장만** 보내면
+# 백엔드가 '어느 칸의 답인가'를 모르는 상태로 LLM에 넘기게 되어, 슬롯 명시 경로
+# (primary.answer_target_for_topic)가 통째로 실행되지 않는다(2026-08-26 실측: 그
+# 경로를 넣고도 결과가 그대로여서 무효 검증이 됐다).
+_SLOT_TOPICS = {
+    "entry": "매수 조건", "exit": "매도 조건", "max_positions": "최대 보유",
+    "rebalancing": "리밸런싱", "stop_loss": "리스크 관리", "take_profit": "리스크 관리",
+    "backtest_period": "백테스트 기간", "initial_capital": "초기 자본",
+}
+
+
+def call(prompt, question, slot=None):
     body = {
         "prompt": prompt, "backend": "ollama",
         "previous_parsed": PREV, "previous_explicit_fields": PREV_EXPLICIT,
         "pending_question": question,
     }
+    topic = _SLOT_TOPICS.get(slot or "")
+    if topic:
+        # 칩은 비운다 — 이 하니스가 보는 것은 **자유 서술** 답변 레인이다(칩 정확 일치는
+        # run_chip_answer가 결정론으로 처리하는 별개 경로).
+        body["pending_ask"] = {"question": question, "topic": topic, "chips": []}
     return _post(body)
 
 
@@ -288,7 +305,7 @@ def run(family):
         question = QUESTIONS[slot][family]
         started = time.perf_counter()
         try:
-            out = call(prompt, question)
+            out = call(prompt, question, slot)
         except Exception as exc:  # noqa: BLE001
             rows.append((slot, prompt, "ERROR", str(exc)[:90], 0))
             print(f"  ERROR {slot} {prompt!r} {exc}", flush=True)

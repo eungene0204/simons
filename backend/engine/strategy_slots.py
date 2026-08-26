@@ -181,42 +181,6 @@ def confirmable_field_for_topic(topic: Optional[str]) -> Optional[str]:
     return _field_for_topic(topic, CONFIRMABLE_FIELDS)
 
 
-# 슬롯 → StrategyIntent의 필드 경로·값 설명. 되묻기 답변을 해석할 때 **어느 칸의 답인지**를
-# LLM에게 알려주기 위한 정본이다(2026-08-26). 이 정보의 출처는 우리가 방금 발행한 ask이지
-# 사용자 원문이 아니다 — 값의 의미 해석은 그대로 LLM 몫이다(자연어 해석 구조 원칙 § 3-2).
-# 실측 배경: 자유 서술 답변은 질문 **문장**만 프롬프트에 실려, LLM이 '어느 필드인가'와
-# '이 표현이 무슨 값인가'를 동시에 풀어야 했다. 영어 정성 표현("eight stocks"·"double my
-# money"·"close it out after a month")이 전부 되묻기로 되돌아왔다(/us 자유입력 QA).
-_SLOT_ANSWER_TARGET: dict[str, str] = {
-    UNIVERSE: "universe(markets/sectors/symbols) — 대상 시장·업종·종목",
-    ENTRY: "entry_conditions — 매수(진입) 조건 목록",
-    EXIT: "exit_conditions(지표 기반 청산) 또는 portfolio.hold_period_days"
-          "(기간 기반 청산, 거래일 정수)",
-    MAX_POSITIONS: "portfolio.selection_count — 최대 보유 종목 수(정수)",
-    REBALANCING: "portfolio.rebalance_frequency — daily/weekly/monthly/bimonthly/"
-                 "quarterly/yearly 중 하나",
-    # 손절·익절은 라벨('리스크 관리')을 공유해 topic만으로는 갈리지 않는다(SLOT_LABELS
-    # 주석). 둘 다 제시하고 어느 쪽인지는 질문 문장이 가리키게 둔다 — 없는 구분을
-    # 지어내 한쪽으로 확정하면 사용자가 답한 값이 반대 슬롯에 실린다.
-    STOP_LOSS: "risk_management.stop_loss(손절) 또는 risk_management.take_profit(익절) "
-               "중 **질문이 묻는 쪽** — 비율(%, 크기만)",
-    TAKE_PROFIT: "risk_management.take_profit — 익절 비율(%, 크기만)",
-    BACKTEST_PERIOD: "backtest.period(\"1y\"/\"3y\"/\"5y\"/\"full\") 또는 "
-                     "backtest.start_date·end_date",
-    INITIAL_CAPITAL: "backtest.initial_capital — 초기 자금(원 단위 정수)",
-}
-
-
-def answer_target_for_topic(topic: Optional[str]) -> Optional[str]:
-    """ask의 topic이 가리키는 슬롯의 **답변 귀속 대상**(필드 경로·값 설명). 없으면 None.
-
-    칩 클릭은 결정론으로 결속되지만(run_chip_answer) 자유 서술 답변은 LLM 레인으로 간다 —
-    그 레인에 '어느 칸의 답인지'를 함께 넘기기 위한 조회다.
-    """
-    field = slot_for_topic(topic)
-    return _SLOT_ANSWER_TARGET.get(field) if field else None
-
-
 def slot_for_topic(topic: Optional[str]) -> Optional[str]:
     """ask의 topic이 가리키는 진행 골격 슬롯(없으면 None).
 

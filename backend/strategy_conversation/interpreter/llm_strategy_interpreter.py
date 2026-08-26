@@ -292,7 +292,6 @@ class StrategyInterpreter:
         self, user_input: str, draft: Optional[dict] = None,
         pending_question: Optional[str] = None,
         on_stage: Optional[Callable[[str], None]] = None,
-        pending_slot: Optional[str] = None,
     ) -> InterpreterResult:
         """본체는 _interpret다 — 이 래퍼는 관찰 span만 연다(비활성 시 no-op).
 
@@ -305,13 +304,11 @@ class StrategyInterpreter:
         with span(
             "Interpreter · 전략 해석", "chain",
             inputs={"user_input": user_input, "draft": draft,
-                    "pending_question": pending_question,
-                    "pending_slot": pending_slot},
+                    "pending_question": pending_question},
             metadata={"model": self.model_name, "prompt_version": PROMPT_VERSION,
                       "mode": "modify" if draft else "create"},
         ) as trace:
-            result = self._interpret(user_input, draft, pending_question, on_stage,
-                                     pending_slot)
+            result = self._interpret(user_input, draft, pending_question, on_stage)
             # 복구 재시도 = LLM 출력이 스키마를 못 맞춰 다시 부른 횟수(스펙 § Retry Count).
             trace.meta(retry_count=result.repair_attempts,
                        interpreter_latency_ms=result.latency_ms,
@@ -331,10 +328,9 @@ class StrategyInterpreter:
         self, user_input: str, draft: Optional[dict] = None,
         pending_question: Optional[str] = None,
         on_stage: Optional[Callable[[str], None]] = None,
-        pending_slot: Optional[str] = None,
     ) -> InterpreterResult:
         started = time.perf_counter()
-        user_prompt = build_user_prompt(user_input, draft, pending_question, pending_slot)
+        user_prompt = build_user_prompt(user_input, draft, pending_question)
         # UI 언어가 영어면 자유 서술(clarification 질문 등)을 영어로 쓰라는 지시를 **사용자
         # 프롬프트 끝**에 붙인다 — 시스템 프롬프트(프리픽스 캐시)는 언어와 무관하게 고정.
         from ui_language import append_directive
