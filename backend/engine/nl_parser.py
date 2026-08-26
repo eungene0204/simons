@@ -71,6 +71,13 @@ _OLLAMA_COLD_START_STATUSES = {400, 408, 425, 429, 500, 502, 503, 504}
 _OLLAMA_RETRY_BUDGET_S = 320.0
 _OLLAMA_RETRY_BACKOFF_S = 3.0
 _OLLAMA_MAX_ATTEMPT_TIMEOUT_S = 240  # 콜드스타트 단일 요청(VRAM 로드 ~60s + 첫 추론 ~70s) 커버
+# 로컬 Ollama에는 콜드스타트가 없다 — 한 호출이 이만큼 걸리면 지연이 아니라 **정지**다(러너 교착 등).
+# 프론트 프록시 예산(app/api/strategy/parse/stream/route.ts, 240초)보다 확실히 작아야 한다:
+# 같으면 프록시가 경주에서 이겨 사용자에게는 원인과 무관한 "The operation was aborted due to
+# timeout"만 남고, 백엔드가 진단을 말할 기회를 **구조적으로** 얻지 못한다(2026-08-26 컨텍스트
+# 초과 400 오분류, 2026-08-27 러너 재고정 — 같은 증상으로 두 번 반복됐다). 240초를 넘겨야
+# 성공하던 호출은 어차피 프록시가 끊었으므로, 이 상한을 낮춰도 잃는 성공 케이스는 없다.
+_OLLAMA_LOCAL_MAX_ATTEMPT_TIMEOUT_S = 200
 _OLLAMA_WARMUP_BUDGET_S = 200.0  # 본문 없는 GET으로 콜드 컨테이너를 깨우는 예산
 # 코치 system prompt(~5.5KB)+user+context는 ~5800토큰이라 ollama 기본 num_ctx(4096)를 넘어
 # "exceeds the available context size" 400을 낸다(프로덕션 실측). 응답·후속대화 여유까지 커버.
@@ -174,6 +181,119 @@ def _ollama_ensure_warm(budget_s: float = _OLLAMA_WARMUP_BUDGET_S) -> None:
         raise last_err
 
 
+# 러너 정합 가드 — /api/ps 조회는 로컬에서 1ms 미만이라 추론마다 걸어도 비용이 없다.
+_OLLAMA_PS_TIMEOUT_S = 3
+_OLLAMA_RELEASE_TIMEOUT_S = 60
+
+
+def _ollama_loaded_runner_num_ctx() -> int | None:
+    """지금 적재돼 있는 9B 러너의 context_length를 읽는다.
+
+    반환: 적재된 러너의 num_ctx / 러너 미적재면 None. 조회 실패는 예외로 올린다
+    (판정은 호출자 몫 — 가드가 조회 실패를 '불일치'로 오독하면 안 된다).
+    """
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"{OLLAMA_BASE_URL}/api/ps", headers=ollama_auth_headers(), method="GET"
+    )
+    with urllib.request.urlopen(req, timeout=_OLLAMA_PS_TIMEOUT_S) as resp:
+        payload = json.loads(resp.read().decode())
+    for entry in payload.get("models") or []:
+        if OLLAMA_MODEL_9B in (entry.get("model"), entry.get("name")):
+            ctx = entry.get("context_length")
+            return ctx if isinstance(ctx, int) else None
+    return None
+
+
+def _ollama_release_runner() -> None:
+    """적재된 9B 러너를 내린다(keep_alive=0). 다음 요청이 자기 num_ctx로 다시 띄운다."""
+    import urllib.request
+
+    body = json.dumps({"model": OLLAMA_MODEL_9B, "keep_alive": 0}).encode()
+    req = urllib.request.Request(
+        f"{OLLAMA_BASE_URL}/api/generate",
+        data=body,
+        headers={"Content-Type": "application/json", **ollama_auth_headers()},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=_OLLAMA_RELEASE_TIMEOUT_S) as resp:
+        resp.read()
+
+
+def _ollama_align_runner_num_ctx() -> bool:
+    """우리와 **다른 num_ctx로 고정된** 러너를 미리 내린다. 반환: 실제로 내렸으면 True.
+
+    Ollama 러너는 적재 시점 옵션으로 뜨고, 다른 num_ctx 요청이 오면 러너를 갈아끼운다.
+    그런데 워밍업이 keep_alive=-1(영구 상주)로 고정한 러너는 교체가 끝나지 않아 요청이
+    **에러도 없이 무한 대기**한다 — 프록시 예산(240초)이 먼저 끊어 사용자에게는 원인과
+    무관한 "The operation was aborted due to timeout"만 뜬다.
+
+    러너는 머신 전역 자원이라 체크아웃별로 격리되지 않는다는 것이 재발의 뿌리다
+    (2026-08-27 실측: `_OLLAMA_NUM_CTX`를 20480→32768로 올린 뒤, 옛 커밋을 담은 임시
+    워크트리에서 백엔드가 한 번 뜨면서 20480짜리 러너를 다시 영구 고정했다. 이 프로세스는
+    곧 종료됐지만 고정은 남아 이후 모든 파싱이 240초를 채우고 실패했다 — 실측 대조:
+    num_ctx=20480 요청 0.55초 / 32768 요청 45초 무응답). 워밍업 시점의 일치만으로는
+    막을 수 없으므로, 추론을 열기 직전에 매번 러너를 확인해 어긋나 있으면 먼저 내린다.
+    내리고 나면 우리 요청이 자기 num_ctx로 새 러너를 띄운다(적재 ~3초).
+
+    조회·해제 실패는 삼킨다 — 가드가 새 실패 경로가 되면 안 된다. 원격(Modal)은
+    러너 고정 개념이 없고 /api/ps도 없으므로 로컬에서만 동작한다.
+    """
+    if not is_local_ollama():
+        return False
+    try:
+        loaded = _ollama_loaded_runner_num_ctx()
+    except Exception as e:  # noqa: BLE001 — 가드는 어떤 이유로도 호출을 막지 않는다
+        logger.debug("ollama 러너 num_ctx 조회 실패 — 가드 생략 | err=%r", e)
+        return False
+    if loaded is None or loaded == _OLLAMA_NUM_CTX:
+        return False
+    logger.error(
+        "ollama 러너가 다른 num_ctx로 고정돼 있다 — 내리고 재적재한다 | "
+        "loaded_num_ctx=%d expected=%d model=%s "
+        "(다른 체크아웃/구 커밋에서 뜬 프로세스가 워밍업으로 고정했을 때 발생한다)",
+        loaded,
+        _OLLAMA_NUM_CTX,
+        OLLAMA_MODEL_9B,
+    )
+    try:
+        _ollama_release_runner()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("ollama 러너 해제 실패 — 그대로 진행한다 | err=%r", e)
+        return False
+    return True
+
+
+def _ollama_timeout_error(err: Exception, waited_s: int) -> Exception:
+    """무응답을 **원인을 말하는** 예외로 바꾼다 — 이 문자열이 그대로 사용자 화면에 뜬다.
+
+    `main.parse_nl_strategy_stream`이 `str(exc)`를 SSE `error.detail`로 실어 보내므로,
+    여기서 붙인 진단이 곧 사용자가 보는 문구다. 종전에는 백엔드 상한과 프론트 프록시
+    예산이 똑같이 240초라 **언제나 프록시가 먼저 끊었고**, 사용자는 원인과 무관한
+    "The operation was aborted due to timeout"만 봤다(두 번 반복된 실측 사고).
+
+    원격(Modal)은 콜드스타트 무응답이 정상 범주라 원래 예외를 그대로 올린다.
+    """
+    if not is_local_ollama():
+        return err
+    try:
+        loaded = _ollama_loaded_runner_num_ctx()
+    except Exception:  # noqa: BLE001 — 진단이 실패해도 원인 없는 타임아웃은 올려야 한다
+        loaded = None
+    if loaded is not None and loaded != _OLLAMA_NUM_CTX:
+        return TimeoutError(
+            f"로컬 Ollama가 {waited_s}초 동안 응답하지 않았습니다. 적재된 러너가 "
+            f"num_ctx={loaded}로 고정돼 있어 이번 요청(num_ctx={_OLLAMA_NUM_CTX})과 맞지 "
+            f"않습니다 — 다른 체크아웃이나 구 커밋에서 뜬 프로세스가 러너를 고정하면 "
+            f"생깁니다. 러너를 내리면 복구됩니다."
+        )
+    return TimeoutError(
+        f"로컬 Ollama가 {waited_s}초 동안 응답하지 않았습니다 (model={OLLAMA_MODEL_9B}). "
+        f"러너 상태를 확인하세요 — curl localhost:11434/api/ps"
+    )
+
+
 def _ollama_open_with_retry(req, timeout: int):
     """Ollama(Modal) HTTP 요청을 콜드스타트 내성 있게 연다.
 
@@ -192,8 +312,18 @@ def _ollama_open_with_retry(req, timeout: int):
         # 모든 LLM 호출의 공통 관문이라, 취소된 요청은 다음 호출에서 반드시 멈춘다.
         cancellation.raise_if_cancelled()
         attempt += 1
+        if attempt == 1:
+            # 다른 num_ctx로 고정된 러너를 먼저 내린다 — 어긋난 채로 열면 응답 없이
+            # attempt_timeout(최대 240초)을 통째로 태운다(_ollama_align_runner_num_ctx 주석).
+            # 취소 확인 뒤에 둔다 — 끊긴 요청은 네트워크를 건드리지 않는다.
+            _ollama_align_runner_num_ctx()
         remaining = deadline - time.monotonic()
-        attempt_timeout = max(15, min(_OLLAMA_MAX_ATTEMPT_TIMEOUT_S, int(remaining)))
+        cap = (
+            _OLLAMA_LOCAL_MAX_ATTEMPT_TIMEOUT_S
+            if is_local_ollama()
+            else _OLLAMA_MAX_ATTEMPT_TIMEOUT_S
+        )
+        attempt_timeout = max(15, min(cap, int(remaining)))
         try:
             return urllib.request.urlopen(req, timeout=attempt_timeout)
         except urllib.error.HTTPError as e:
@@ -211,8 +341,9 @@ def _ollama_open_with_retry(req, timeout: int):
             transient = True
         except (TimeoutError, OSError) as e:
             cancellation.raise_if_cancelled()
-            # cold-start hang이 attempt_timeout을 초과한 것 — 재시도하면 역효과
-            raise e
+            # cold-start hang이 attempt_timeout을 초과한 것 — 재시도하면 역효과.
+            # 로컬이면 무응답의 **원인을 붙여** 올린다(이 문자열이 그대로 사용자에게 간다).
+            raise _ollama_timeout_error(e, attempt_timeout)
         if not transient:
             raise last_err
         remaining = deadline - time.monotonic()
@@ -244,6 +375,10 @@ def _ollama_preload_model(model: str, timeout: int = 600) -> None:
     "operation was aborted due to timeout"). 옵션을 맞추면 같은 요청이 0.6초다.
     """
     import urllib.request
+
+    # 이전 프로세스(다른 체크아웃·구 커밋)가 다른 num_ctx로 영구 고정해 둔 러너가 있으면
+    # 이 적재 요청부터 무한 대기한다 — 먼저 내려서 우리 값으로 뜨게 한다.
+    _ollama_align_runner_num_ctx()
 
     body = json.dumps({
         "model": model,

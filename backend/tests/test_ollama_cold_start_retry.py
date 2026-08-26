@@ -35,6 +35,18 @@ class _FakeResp:
         return b""
 
 
+@pytest.fixture(autouse=True)
+def _no_runner_align(monkeypatch):
+    """이 파일은 **재시도 semantics**만 본다 — 러너 정합 가드는 꺼 둔다.
+
+    러너 정합 가드(호출 전)와 무응답 진단(타임아웃 후)은 각각 GET /api/ps를 한 번 던지므로,
+    urlopen 호출 횟수로 재시도를 세는 아래 테스트들이 그만큼 어긋난다. 두 기능 자체는
+    tests/test_nl_parser_overrides.py의 test_ollama_guard_*·test_local_timeout_* 가 검증한다.
+    """
+    monkeypatch.setattr(nl_parser, "_ollama_align_runner_num_ctx", lambda: False)
+    monkeypatch.setattr(nl_parser, "_ollama_loaded_runner_num_ctx", lambda: None)
+
+
 def _http_503():
     return urllib.error.HTTPError(
         url="http://x/api/chat", code=503, msg="Service Unavailable", hdrs=None, fp=None

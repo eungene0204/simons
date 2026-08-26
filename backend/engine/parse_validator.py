@@ -27,7 +27,7 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field, ValidationError
 
 import cancellation
-from llm_backend import OLLAMA_BASE_URL, ollama_auth_headers
+from llm_backend import OLLAMA_BASE_URL, OLLAMA_MODEL_9B, ollama_auth_headers
 
 logger = logging.getLogger(__name__)
 
@@ -302,8 +302,18 @@ def _run_validation_llm(parser, system_prompt: str, user_message: str) -> Option
     if not _ollama_reachable():
         return None
 
+    validation_model = os.environ.get("NL_VALIDATOR_MODEL", "").strip() or parser.ollama_model
+    # 후행 검증은 파싱 본경로의 공통 관문(_ollama_open_with_retry)을 지나지 않으므로
+    # 러너 정합 가드를 여기서 한 번 더 건다 — 어긋난 러너에 요청을 얹으면 응답 없이
+    # _VALIDATION_TIMEOUT_S를 통째로 태운다(nl_parser._ollama_align_runner_num_ctx 주석).
+    # 검증 전용 경량 모델(NL_VALIDATOR_MODEL)을 쓰는 중이면 9B 슬롯과 무관하므로 건너뛴다.
+    if validation_model == OLLAMA_MODEL_9B:
+        from engine.nl_parser import _ollama_align_runner_num_ctx
+
+        _ollama_align_runner_num_ctx()
+
     body = json.dumps({
-        "model": os.environ.get("NL_VALIDATOR_MODEL", "").strip() or parser.ollama_model,
+        "model": validation_model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
