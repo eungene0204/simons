@@ -11,6 +11,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 import ui_language
 from strategy_conversation.compiler.strategy_compiler import compile_strategy
 from strategy_conversation.interpreter.models import (
@@ -22,6 +26,10 @@ from strategy_conversation.interpreter.models import (
 )
 from strategy_conversation.registry.universe_resolver import resolve_symbols
 from strategy_conversation.validation.capability_validator import validate_capability
+
+_HAS_US_DATA = (Path(__file__).resolve().parents[2] / "data" / "ohlcv-us" / "AAPL.parquet").exists()
+
+needs_us_data = pytest.mark.skipif(not _HAS_US_DATA, reason="미국 파케이 미러 없음")
 
 
 def _ready() -> ValidationReport:
@@ -86,6 +94,7 @@ def test_validator_expands_us_theme_without_market_mention():
 
 # ── 지정 종목 해석: 미국 registry만 ─────────────────────────────────────────
 
+@needs_us_data
 def test_resolve_symbols_blocks_kr_stocks_on_us_request():
     with ui_language.bind("en"):
         codes, unresolved = resolve_symbols(["삼성전자", "005930", "AAPL", "애플"])
@@ -93,6 +102,7 @@ def test_resolve_symbols_blocks_kr_stocks_on_us_request():
     assert set(unresolved) == {"삼성전자", "005930"}
 
 
+@needs_us_data
 def test_resolve_symbols_kr_request_unchanged():
     codes, unresolved = resolve_symbols(["삼성전자", "AAPL"])
     assert codes == ["005930", "AAPL"]

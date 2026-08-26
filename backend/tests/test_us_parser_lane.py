@@ -1,5 +1,7 @@
 """US 파서 레인 (Phase 2) — markets enum·정규화·검증·컨버터·미지원 목록 회귀."""
 
+from pathlib import Path
+
 import pytest
 
 from engine import universe_capabilities
@@ -12,6 +14,10 @@ from strategy_conversation.interpreter.models import (
 )
 from strategy_conversation.registry.capability_registry import SUPPORTED_MARKETS, US_MARKETS
 from strategy_conversation.validation.capability_validator import validate_capability
+
+_HAS_US_DATA = (Path(__file__).resolve().parents[2] / "data" / "ohlcv-us" / "AAPL.parquet").exists()
+
+needs_us_data = pytest.mark.skipif(not _HAS_US_DATA, reason="미국 파케이 미러 없음")
 
 
 def _cond(factor: str, operator: str = "<=", value: float = 10.0) -> StrategyCondition:
@@ -174,6 +180,7 @@ def test_us_market_terms_no_longer_flagged_unsupported():
         assert "overseas" not in _mentioned_unsupported_concepts(text), text
 
 
+@needs_us_data
 def test_us_stock_and_etf_refs_resolve_to_tickers():
     # 미국 개별 종목·ETF 티커 지정 — universe_resolver의 미국 registry 해석 (2026-08-25)
     from strategy_conversation.registry.universe_resolver import resolve_symbols

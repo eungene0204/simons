@@ -6,10 +6,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from intent.classifier import classify
 from intent.schemas import QueryIntent
+
+_HAS_US_DATA = (Path(__file__).resolve().parents[2] / "data" / "ohlcv-us" / "AAPL.parquet").exists()
+
+needs_us_data = pytest.mark.skipif(not _HAS_US_DATA, reason="미국 파케이 미러 없음")
 
 
 @pytest.fixture(autouse=True)
@@ -90,6 +96,7 @@ def test_overseas_stock_redirect_does_not_offer_backtest():
     assert "애플에 골든크로스" not in reply
 
 
+@needs_us_data
 @pytest.mark.parametrize("prompt,expected_ticker", [
     ("QQQ만 투자하는 전략", "QQQ"),
     ("엔비디아 백테스트", "NVDA"),
