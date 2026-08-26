@@ -978,6 +978,24 @@ def us_display_name(ticker: Optional[str]) -> Optional[str]:
 # 정본은 미국 지식그래프(engine/us_knowledge_graph.py — 시드+테마 카탈로그 합성).
 
 
+def us_industry_label(term: Optional[str]) -> Optional[str]:
+    """분류 표현 → 정본 라벨(GICS 섹터·산업) | None. 판정은 us_industry_registry 위임."""
+    from engine.us_industry_registry import classification_label
+
+    return classification_label(term)
+
+
+def filter_by_us_industry(symbols: list[str], label: str) -> list[str]:
+    """미국 종목 목록을 GICS 분류 정본으로 필터링한다(분류 미상 종목은 제외).
+
+    한국 filter_by_sector의 미국 판 — 분류 체계가 다르므로(KR 45섹터 vs US 244산업)
+    필드도 필터도 따로 둔다. 정본은 us-stocks.json의 sector/industry다."""
+    from engine.us_industry_registry import industry_members
+
+    members = set(industry_members(label))
+    return [s for s in symbols if s in members] if members else []
+
+
 def resolve_us_theme(term: Optional[str]) -> Optional[tuple[str, list[str]]]:
     """테마어 → (정본 테마명, 파케이 보유 구성 티커 목록). 그래프 밖이면 None.
 

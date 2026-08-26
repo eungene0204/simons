@@ -143,7 +143,7 @@ def test_dow30_golden_cross_backtest_runs(monkeypatch):
 @engine_integration
 @needs_membership
 @needs_us_data
-def test_us_universe_rejects_ai_and_sector():
+def test_us_universe_rejects_ai_and_kr_sector():
     eng = BacktestEngine()
     base = {
         "universe_id": "sp500",
@@ -156,8 +156,37 @@ def test_us_universe_rejects_ai_and_sector():
         eng.run_backtest({**base, "entry": {"logic": "AND", "conditions": [
             {"id": "ai_drop_model", "params": {}}]}})
 
+    # 한국 섹터 정본은 미국 유니버스에 적용할 수 없다(분류 체계가 다르다) — 미국 업종은
+    # us_industry 필드가 담당한다(FR-STR-074 ⑩).
     eng2 = BacktestEngine()
-    with pytest.raises(ValueError, match="업종 필터"):
+    with pytest.raises(ValueError, match="한국 업종 분류"):
         eng2.run_backtest({**base, "sector": "반도체",
                            "entry": {"logic": "AND", "conditions": [
                                {"id": "ma_crossover", "params": {}}]}})
+
+
+@engine_integration
+@needs_membership
+@needs_us_data
+def test_us_industry_filter_narrows_universe():
+    """미국 업종 필터(FR-STR-074 ⑩) — GICS 분류 정본으로 유니버스를 교집합한다.
+
+    분류는 현행 기준이라(과거 재분류 미반영) 그 사실을 경고로 남긴다 — 테마가 소속
+    최초 관측일을 갖는 것과 갈리는 지점이다."""
+    base = {
+        "universe_id": "sp500",
+        "symbols": [],
+        "exit": {"conditions": []},
+        "risk": {"position_size_pct": 20, "liquidity_multiplier": 0},
+        "period": "1Y",
+        "entry": {"logic": "AND", "conditions": [{"id": "ma_crossover", "params": {}}]},
+    }
+    eng = BacktestEngine()
+    result = eng.run_backtest({**base, "us_industry": "Airlines"})
+    assert result is not None
+    assert any("업종(Airlines) 필터는 현재 분류 기준" in w for w in eng.warnings)
+
+    # 분류에 해당하는 종목이 유니버스에 없으면 조용히 0거래로 끝내지 않고 명시 실패
+    eng2 = BacktestEngine()
+    with pytest.raises(ValueError, match="업종에 해당하는 종목을 찾지 못했"):
+        eng2.run_backtest({**base, "universe_id": "dow30", "us_industry": "Airlines"})

@@ -178,3 +178,32 @@ def test_typo_suggestion_offers_no_korean_stock_in_us_region():
     assert [r.name for r in suggest_similar_stocks("삼성전자")], "KR 기본 경로는 제안한다"
     with ui_language.bind("en"):
         assert suggest_similar_stocks("삼성전자") == []
+
+
+# ── 검색 그라운딩도 미국 소스만 ─────────────────────────────────────────────
+
+def test_us_grounding_never_imports_kr_machinery():
+    """US 공시 그라운딩은 한국 기계를 import하지 않는다(소스 스캔).
+
+    한국 그라운딩(term_grounding·knowledge_graph·naver_*)은 네이버 검색·한국 종목
+    마스터를 쓴다 — US 레인에서 한 줄만 불러도 미국 전략에 한국 종목이 실리는 경로가
+    다시 열린다. 배선 실수를 기계가 잡는다(리뷰가 아니라)."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "engine" / "us_term_grounding.py").read_text()
+    forbidden = (
+        "engine.term_grounding", "engine.knowledge_graph", "engine.naver_theme_live",
+        "engine.nl_parser", "stock_analysis.symbol_resolver",
+    )
+    hits = [name for name in forbidden if name in source]
+    assert hits == [], f"US 그라운딩이 한국 기계를 참조한다: {hits}"
+
+
+def test_us_grounding_wired_into_us_theme_chain():
+    """미해결 테마어 체인(US)이 그라운딩을 실제로 호출한다 — 배선 회귀 가드."""
+    import inspect
+
+    from strategy_conversation import primary
+
+    assert "_ground_us_theme_term" in inspect.getsource(primary._resolve_sector_terms_us)
+    assert "us_term_grounding" in inspect.getsource(primary._ground_us_theme_term)

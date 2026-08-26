@@ -7,6 +7,9 @@ export interface ParsedSummary {
   universe: string[];
   // 섹터/업종 제한(정본 섹터명, 예: "반도체"). 복수면 배열(합집합). 없으면 null/생략.
   sector?: string | string[] | null;
+  // 미국 유니버스의 업종 필터(GICS 정본 라벨) — 한국 sector와 분류 체계가 달라 필드가
+  // 따로다(FR-STR-074 ⑩). 배지에 드러내지 않으면 유니버스가 조용히 좁혀진 것처럼 보인다.
+  us_industry?: string | null;
   // ETF 유니버스 전용 테마/상품명 필터("반도체", "KODEX 200"). 없으면 null/생략.
   etf_theme?: string | null;
   // 신규 상장(IPO) 유니버스(FR-STR-073) — 상장일이 이 구간에 속하는 종목만 대상.
@@ -558,6 +561,9 @@ export function getDisplayUniverseLabels(
       /[a-z]/i.test(parsed.etf_theme) ? parsed.etf_theme : t("{0} 테마", parsed.etf_theme)
     );
   }
+
+  // 미국 업종 필터 배지 — 라벨이 영문 정본이라 "{0} 업종"으로 감싼다("Airlines 업종").
+  if (parsed.us_industry) sectorLabel.push(t("{0} 업종", parsed.us_industry));
 
   const newListingLabel = formatNewListingLabel(parsed);
   if (newListingLabel) sectorLabel.push(newListingLabel);

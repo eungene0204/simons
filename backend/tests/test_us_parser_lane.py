@@ -93,17 +93,31 @@ def test_us_sector_filter_unsupported_and_cleared():
     assert any("업종" in u for u in unsupported)
 
 
-def test_us_semiconductor_sector_expands_via_anchor_union():
-    # 광의어 '반도체'는 미지원 안내가 아니라 앵커 소속 합집합의 지정 종목으로 선다
+def test_us_semiconductor_sector_becomes_industry_filter():
+    """광의어 '반도체'는 미지원 안내가 아니라 유니버스로 선다 — 축 분리(2026-08-27)
+    이후에는 **업종 필터**로 선다(FR-STR-074 ⑦⑩).
+
+    종전에는 시드 앵커의 소속 합집합을 지정 종목으로 전개했다. 업종 이름에는 업종
+    분류가 답한다는 축 순서에 따라 이제 분류 'Semiconductors'(72곳)가 담당하고,
+    지수와 교집합할 수 있게 필터로 실린다(전개하면 SP500 선택과 조합되지 않는다)."""
+    import ui_language
+    from engine.universe_pit import filter_by_us_industry
+    from strategy_conversation.compiler.strategy_compiler import compile_strategy
+    from strategy_conversation.interpreter.models import ValidationReport
+
     spec = StrategySpec(
         universe=UniverseSpec(markets=["SP500"], sectors=["반도체"]),
         entry_conditions=[_cond("fundamental.per")],
     )
     intent = StrategyIntent(intent="CREATE_STRATEGY", strategy=spec)
-    errors, _w, _u, _f = validate_capability(intent)
+    with ui_language.bind("en"):
+        errors, _w, _u, _f = validate_capability(intent)
+        parsed = compile_strategy(
+            intent, ValidationReport(is_valid=True, status="READY"), "semiconductor stocks")
     assert not any("업종" in e for e in errors)
-    assert "NVDA" in intent.strategy.universe.symbols
-    assert intent.strategy.universe.theme == "반도체 산업"
+    assert parsed.us_industry == "Semiconductors" and not parsed.target_symbols
+    # 필터가 실제로 NVDA를 포함한다 — 표현만 바뀌었지 대상이 사라진 것이 아니다
+    assert "NVDA" in filter_by_us_industry(["NVDA", "JPM"], "Semiconductors")
 
 
 def test_us_ai_signal_unsupported_and_removed():

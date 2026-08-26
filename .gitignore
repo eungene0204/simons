@@ -122,6 +122,7 @@ top200.txt
 
 # 용어 그라운딩 어휘집(런타임 학습 산출물 — 환경별로 자라남)
 /data/term_lexicon.json
+/data/us-term-lexicon.json
 /data/kg-equity-edges.progress.json
 /data/cashflow-activity-backfill.progress.json
 /data/owner-net-income-backfill.progress.json

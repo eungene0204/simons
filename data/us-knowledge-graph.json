@@ -67,14 +67,6 @@
       "description": "GPU 서버·랙 시스템 설계·제조"
     },
     {
-      "id": "datacenter-reit",
-      "name": "데이터센터 리츠",
-      "name_en": "Data center REITs",
-      "category": "theme",
-      "synonyms": ["데이터센터 임대", "data center REIT"],
-      "description": "데이터센터 부동산을 보유·임대하는 리츠"
-    },
-    {
       "id": "streaming",
       "name": "스트리밍",
       "name_en": "Streaming",
@@ -131,14 +123,6 @@
       "description": "온라인 여행 예약·숙박 공유 플랫폼"
     },
     {
-      "id": "airlines",
-      "name": "항공사",
-      "name_en": "Airlines",
-      "category": "theme",
-      "synonyms": ["항공주", "airlines"],
-      "description": "미국 여객 항공사"
-    },
-    {
       "id": "cruise",
       "name": "크루즈",
       "name_en": "Cruise lines",
@@ -177,14 +161,6 @@
       "category": "theme",
       "synonyms": ["거래소주", "exchanges"],
       "description": "증권·파생상품 거래소 운영사"
-    },
-    {
-      "id": "solar",
-      "name": "태양광",
-      "name_en": "Solar",
-      "category": "theme",
-      "synonyms": ["태양광주", "태양광 에너지", "solar"],
-      "description": "태양광 모듈·인버터·설치"
     },
     {
       "id": "oil-gas",
@@ -227,14 +203,6 @@
       "description": "신약 개발 중심 바이오 제약사"
     },
     {
-      "id": "medical-devices",
-      "name": "의료기기",
-      "name_en": "Medical devices",
-      "category": "theme",
-      "synonyms": ["의료기기주", "medical devices"],
-      "description": "수술 로봇·심혈관·정형외과·혈당 관리 등 의료기기"
-    },
-    {
       "id": "managed-care",
       "name": "건강보험·관리의료",
       "name_en": "Managed care",
@@ -265,14 +233,6 @@
       "category": "theme",
       "synonyms": ["게임주", "비디오게임", "gaming", "video games"],
       "description": "게임 개발·플랫폼·게임 엔진"
-    },
-    {
-      "id": "restaurants",
-      "name": "외식",
-      "name_en": "Restaurants",
-      "category": "theme",
-      "synonyms": ["외식주", "레스토랑", "restaurants"],
-      "description": "패스트푸드·커피·캐주얼 다이닝 체인"
     },
     {
       "id": "sportswear",
@@ -307,14 +267,6 @@
       "description": "글로벌 음료 브랜드"
     },
     {
-      "id": "household-products",
-      "name": "생활용품",
-      "name_en": "Household products",
-      "category": "theme",
-      "synonyms": ["생활용품주", "필수소비재", "household products", "consumer staples"],
-      "description": "생활용품·퍼스널케어 필수소비재"
-    },
-    {
       "id": "rideshare-delivery",
       "name": "라이드셰어·배달",
       "name_en": "Rideshare & delivery",
@@ -345,22 +297,6 @@
       "category": "theme",
       "synonyms": ["리튬주", "lithium"],
       "description": "리튬 채굴·정제 — 배터리 원재료"
-    },
-    {
-      "id": "steel",
-      "name": "철강",
-      "name_en": "Steel",
-      "category": "theme",
-      "synonyms": ["철강주", "steel"],
-      "description": "미국 철강 생산"
-    },
-    {
-      "id": "copper",
-      "name": "구리",
-      "name_en": "Copper",
-      "category": "theme",
-      "synonyms": ["구리 관련주", "copper"],
-      "description": "구리 채굴 — 전력망·전기차 수요 원자재"
     },
     {
       "id": "rare-earth",
@@ -395,36 +331,12 @@
       "description": "소포 배송·화물 운송"
     },
     {
-      "id": "railroads",
-      "name": "철도",
-      "name_en": "Railroads",
-      "category": "theme",
-      "synonyms": ["철도주", "railroads"],
-      "description": "미국 화물 철도"
-    },
-    {
-      "id": "waste",
-      "name": "폐기물 처리",
-      "name_en": "Waste management",
-      "category": "theme",
-      "synonyms": ["폐기물", "폐기물 처리주", "waste management"],
-      "description": "폐기물 수거·처리·환경 서비스"
-    },
-    {
       "id": "hvac",
       "name": "냉난방 공조",
       "name_en": "HVAC",
       "category": "theme",
       "synonyms": ["공조", "냉난방", "HVAC"],
       "description": "냉난방·공조 설비 — 데이터센터 냉각 수요 수혜 산업"
-    },
-    {
-      "id": "industrial-gases",
-      "name": "산업가스",
-      "name_en": "Industrial gases",
-      "category": "theme",
-      "synonyms": ["산업가스주", "industrial gases"],
-      "description": "산업용 가스 생산·공급"
     }
   ],
   "edges": [
@@ -436,9 +348,7 @@
     { "source": "ai-server", "type": "part_of", "target": "datacenter" },
     { "source": "ai-server", "type": "part_of", "target": "ai" },
     { "source": "networking", "type": "used_in", "target": "datacenter" },
-    { "source": "datacenter-reit", "type": "related_to", "target": "datacenter" },
     { "source": "hvac", "type": "benefits_from", "target": "datacenter", "note": "데이터센터 냉각 수요" },
-    { "source": "copper", "type": "demanded_by", "target": "datacenter", "note": "전력망·배선 수요" },
 
     { "source": "memory-semi", "type": "produced_by", "target": "company:MU" },
     { "source": "memory-semi", "type": "produced_by", "target": "company:WDC" },
@@ -460,8 +370,6 @@
     { "source": "ai-server", "type": "produced_by", "target": "company:DELL" },
     { "source": "ai-server", "type": "produced_by", "target": "company:HPE" },
 
-    { "source": "datacenter-reit", "type": "related_company", "target": "company:EQIX" },
-    { "source": "datacenter-reit", "type": "related_company", "target": "company:DLR" },
 
     { "source": "streaming", "type": "related_company", "target": "company:NFLX" },
     { "source": "streaming", "type": "related_company", "target": "company:DIS" },
@@ -501,10 +409,6 @@
     { "source": "travel-platform", "type": "related_company", "target": "company:ABNB" },
     { "source": "travel-platform", "type": "related_company", "target": "company:EXPE" },
 
-    { "source": "airlines", "type": "related_company", "target": "company:DAL" },
-    { "source": "airlines", "type": "related_company", "target": "company:UAL" },
-    { "source": "airlines", "type": "related_company", "target": "company:AAL" },
-    { "source": "airlines", "type": "related_company", "target": "company:LUV" },
 
     { "source": "cruise", "type": "related_company", "target": "company:RCL" },
     { "source": "cruise", "type": "related_company", "target": "company:CCL" },
@@ -529,10 +433,6 @@
     { "source": "exchanges", "type": "related_company", "target": "company:ICE" },
     { "source": "exchanges", "type": "related_company", "target": "company:NDAQ" },
 
-    { "source": "solar", "type": "related_company", "target": "company:FSLR" },
-    { "source": "solar", "type": "related_company", "target": "company:ENPH" },
-    { "source": "solar", "type": "related_company", "target": "company:RUN" },
-    { "source": "solar", "type": "related_company", "target": "company:SEDG" },
 
     { "source": "oil-gas", "type": "related_company", "target": "company:XOM" },
     { "source": "oil-gas", "type": "related_company", "target": "company:CVX" },
@@ -566,12 +466,6 @@
     { "source": "biotech", "type": "related_company", "target": "company:BIIB" },
     { "source": "biotech", "type": "related_company", "target": "company:MRNA" },
 
-    { "source": "medical-devices", "type": "related_company", "target": "company:ISRG" },
-    { "source": "medical-devices", "type": "related_company", "target": "company:MDT" },
-    { "source": "medical-devices", "type": "related_company", "target": "company:SYK" },
-    { "source": "medical-devices", "type": "related_company", "target": "company:BSX" },
-    { "source": "medical-devices", "type": "related_company", "target": "company:EW" },
-    { "source": "medical-devices", "type": "related_company", "target": "company:DXCM" },
 
     { "source": "managed-care", "type": "related_company", "target": "company:UNH" },
     { "source": "managed-care", "type": "related_company", "target": "company:CI" },
@@ -591,11 +485,6 @@
     { "source": "gaming", "type": "related_company", "target": "company:RBLX" },
     { "source": "gaming", "type": "related_company", "target": "company:U", "note": "게임 엔진(유니티)" },
 
-    { "source": "restaurants", "type": "related_company", "target": "company:SBUX" },
-    { "source": "restaurants", "type": "related_company", "target": "company:MCD" },
-    { "source": "restaurants", "type": "related_company", "target": "company:CMG" },
-    { "source": "restaurants", "type": "related_company", "target": "company:YUM" },
-    { "source": "restaurants", "type": "related_company", "target": "company:DPZ" },
 
     { "source": "sportswear", "type": "related_company", "target": "company:NKE" },
     { "source": "sportswear", "type": "related_company", "target": "company:LULU" },
@@ -612,10 +501,6 @@
     { "source": "beverages", "type": "related_company", "target": "company:KO" },
     { "source": "beverages", "type": "related_company", "target": "company:PEP" },
 
-    { "source": "household-products", "type": "related_company", "target": "company:PG" },
-    { "source": "household-products", "type": "related_company", "target": "company:CL" },
-    { "source": "household-products", "type": "related_company", "target": "company:KMB" },
-    { "source": "household-products", "type": "related_company", "target": "company:CHD" },
 
     { "source": "rideshare-delivery", "type": "related_company", "target": "company:UBER" },
     { "source": "rideshare-delivery", "type": "related_company", "target": "company:LYFT" },
@@ -632,12 +517,7 @@
     { "source": "lithium", "type": "related_company", "target": "company:ALB" },
     { "source": "lithium", "type": "related_company", "target": "company:SQM" },
 
-    { "source": "steel", "type": "related_company", "target": "company:NUE" },
-    { "source": "steel", "type": "related_company", "target": "company:STLD" },
-    { "source": "steel", "type": "related_company", "target": "company:CLF" },
 
-    { "source": "copper", "type": "related_company", "target": "company:FCX" },
-    { "source": "copper", "type": "related_company", "target": "company:SCCO" },
 
     { "source": "rare-earth", "type": "related_company", "target": "company:MP" },
 
@@ -656,20 +536,12 @@
     { "source": "logistics", "type": "related_company", "target": "company:FDX" },
     { "source": "logistics", "type": "related_company", "target": "company:ODFL" },
 
-    { "source": "railroads", "type": "related_company", "target": "company:UNP" },
-    { "source": "railroads", "type": "related_company", "target": "company:CSX" },
-    { "source": "railroads", "type": "related_company", "target": "company:NSC" },
 
-    { "source": "waste", "type": "related_company", "target": "company:WM" },
-    { "source": "waste", "type": "related_company", "target": "company:RSG" },
-    { "source": "waste", "type": "related_company", "target": "company:CLH" },
 
     { "source": "hvac", "type": "related_company", "target": "company:TT" },
     { "source": "hvac", "type": "related_company", "target": "company:CARR" },
     { "source": "hvac", "type": "related_company", "target": "company:JCI" },
-    { "source": "hvac", "type": "related_company", "target": "company:LII" },
+    { "source": "hvac", "type": "related_company", "target": "company:LII" }
 
-    { "source": "industrial-gases", "type": "related_company", "target": "company:LIN" },
-    { "source": "industrial-gases", "type": "related_company", "target": "company:APD" }
   ]
 }

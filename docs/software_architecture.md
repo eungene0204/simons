@@ -137,7 +137,9 @@ simons/
 │   │   ├── universe_capabilities.py # 유니버스별 지원 팩터 레지스트리(ETF=기업 재무지표 불가, FR-STR-067)
 │   │   ├── term_grounding.py        # 용어 그라운딩 — 어휘집→지식그래프→LLM→검색 체인으로 테마 용어를 정본 섹터에 매핑(FR-STR-069)
 │   │   ├── knowledge_graph.py       # Investment Knowledge Graph — 개념·공급망·기업·ETF 노드/엣지 합성·탐색(FR-STR-070, docs/knowledge_graph.md)
-│   │   ├── us_knowledge_graph.py    # 미국 지식그래프 — 시드+테마 카탈로그 합성, 테마어→구성 티커 해석(US 레인, docs/knowledge_graph.md 미국 섹션)
+│   │   ├── us_knowledge_graph.py    # 미국 지식그래프 — 시드+테마 카탈로그+공시 학습 오버레이 합성, 테마어→구성 티커 해석(US 레인, docs/knowledge_graph.md 미국 섹션)
+│   │   ├── us_industry_registry.py   # 미국 업종 분류 registry — GICS 섹터·산업 정본 → 종목 명부(테마와 다른 축, 표기 변종 병합, FR-STR-074 ⑦)
+│   │   ├── us_term_grounding.py     # 미국 용어 그라운딩 — 카탈로그 밖 테마어를 SEC 공시 전문검색(EDGAR FTS)으로 학습, CIK 정본 조인+LLM 소속 심사(FR-STR-074)
 │   │   ├── data_resolver.py         # 유니버스 필터링
 │   │   ├── virtual_trader.py        # 가상매매 실시간 엔진 (상장 상태 체크 포함)
 │   │   ├── listing_status.py        # 상장 상태 머신 (7단계) + DART 분류 + DB 동기화
@@ -1172,6 +1174,7 @@ ChatQaLog       — 전략연구소 대화 기록 (질문·답변 한 턴 = 1행
 | `data/ohlcv-us/{symbol}.parquet` | Parquet | **미국 전 상장 보통주** OHLCV + 기본 재무(5,947종목). 한국 파케이와 **동일 컬럼·순서·dtype·단위 규약**(회귀 테스트가 강제, 한국 파일은 읽기 전용 대조에만 사용). 소스=yfinance(무료), 백필=`scripts/backfill_us_stocks.py`. 단위는 한국이 컬럼마다 다른 규약을 그대로 복제 — 억달러: market_cap·net_income·owner_net_income·ebitda·ebit·ev·revenue·`*_cf_amount`, raw USD: total_equity·capex(양수 규모)·fcf·`*_cash_flow`. `dividends`=배당락일 DPS(그 외 0, 엔진이 롤링 합으로 TTM 생성). 수준 재무=분기(기간종료+60일 반영), 성장률=연간 YoY(+90일 반영), 둘 다 15개월 stale cap. ROE는 지배주주 기준. **시총**=분할조정 주식수×종가, 주식수는 yfinance 실측(2015-10~)+SEC EDGAR companyfacts(2009~, 제출일 기준) — 최초 실측 이전은 역채움하지 않고 NaN. **외국 기업 환산**: yfinance는 주가를 달러로, 재무제표를 현지 통화로 준다(485종목·29개 통화). `financialCurrency`가 달러가 아니면 일별 환율(`<통화>=X`)로 **금액과 성장률을 모두** 달러 기준으로 환산한다 — 성장률을 현지통화로 두면 초인플레이션 통화의 가치 하락이 '성장'으로 잡혀 성장 스크리닝이 깨진다(BBAR: 페소 -32.3% vs 달러 -51.9%) — 미환산 시 TSMC PER이 31 대신 1.14로 나와 저PER 스크리닝이 저평가가 아니라 환율로 종목을 고른다. 주식수·무단위 비율(ROE·마진·부채비율)은 환산하지 않는다. 환율 이력 이전(2001~2003년 이전) 구간은 NaN. **한계**: 상폐 종목 미수록(생존편향 잔존), 법인 재등록 종목은 시총이 2015년부터. **재무 이력 확장(2026-08-25)**: yfinance 분기 재무가 최근 ~5분기뿐이라 TTM 팩터가 약 3개월치였던 것을 SEC EDGAR companyfacts XBRL로 2009~부터 재구축(`scripts/backfill_us_fundamentals_edgar.py`, 4,971종목 갱신 — yfinance 재무제표 모양 어댑터로 기존 지표 정의·룩어헤드 규약 재사용, YTD 차분 분기화, 개념 우선순위 병합, 비USD·CEF류는 기존값 유지). TTM 팩터 2012~ 커버리지 80~90%. 12주 전량 재수집이 파케이를 다시 쓰면 이력이 사라지므로 `scheduler_us.py`가 재수집 직후 재적용을 강제한다(실패 시 마커 차단) |
 | `data/us-stocks.json` | JSON | 미국 주식(S&P 500) 마스터 — symbol/name/market(거래소)/sector/industry(GICS), 유니버스 SOT=Wikipedia S&P 500 |
 | `data/us-etf-master.json` | JSON | 미국 대표 ETF 31종 마스터(지수·섹터 SPDR·산업·테마·배당·자산) — 카탈로그 정본은 `scripts/backfill_us_etf.py`의 CATALOG 상수, 파케이는 `data/ohlcv-us/`에 개별주와 동일 스키마(재무 컬럼 NaN — ETF 재무 불가 계약). 일일 증분은 `scheduler_us.py`가 개별주 뒤에 실행 |
+| `data/us-term-lexicon.json` | JSON | 미국 테마어 학습 원장 — `engine/us_term_grounding.py`가 SEC 공시 전문검색으로 학습한 테마어 → 구성 티커(verified/pending, 근거 공시 URL). US 지식그래프가 학습 오버레이로 합성(verified만) — 별칭 우선순위는 시드 > 카탈로그 > 학습. 런타임 생성물이라 검색이 처음 성공한 뒤부터 존재한다 |
 | `data/us-index-membership.json` | JSON | 미국 지수 **현행** 구성종목 — S&P500(위키 503)·나스닥100(나스닥 공식 API 102)·다우30(stockanalysis.com 30). 편입/편출 이력(PIT)은 무료 소스 부재로 미수집(파일에 명시) — US 지수 유니버스는 이 명부 기준이며 엔진이 생존편향·현행 명부 경고를 남긴다. 수집기 `scripts/backfill_us_index_membership.py`(정상 범위 Fail-Fast), 12주 전량 재수집 주기에 함께 갱신 |
 | `data/fundamentals/` | JSON/CSV | ROE, EPS, BPS, 부채비율 |
 | `data/korea-stocks.json` | JSON | 종목명, 코드, 시장, 섹터 (현재 상장 — 섹터 SOT) |

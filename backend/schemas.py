@@ -76,6 +76,9 @@ class BacktestRequest(BaseModel):
     # ETF 유니버스(universe_id="etf") 전용 테마/상품명 필터("반도체", "KODEX 200").
     # sector와 동일하게 스키마 미선언 시 model_dump가 조용히 버리므로 반드시 선언한다.
     etf_theme: Optional[str] = None
+    # 미국 유니버스 전용 업종 필터(GICS 정본 라벨 — "Airlines", "Health Care").
+    # 한국 sector와 분류 체계가 달라 필드를 분리했다. 위와 동일한 이유로 반드시 선언한다.
+    us_industry: Optional[str] = None
     # 신규 상장 유니버스(FR-STR-073) — 상장일이 이 구간에 속하는 종목만 대상으로 한다.
     # 위 두 필드와 동일한 이유로 반드시 선언한다(미선언 시 model_dump가 조용히 버림).
     listing_from: Optional[str] = None

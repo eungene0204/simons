@@ -101,10 +101,11 @@ def test_concept_anchor_expands_to_member_theme_union():
     assert {"NVDA", "MSFT", "SMCI"} <= set(symbols)
     assert len(symbols) == len(set(symbols))
     # 공급망 주변부(benefits_from·demanded_by)는 구성원이 아니다 — datacenter의
-    # HVAC(CARR)·구리(FCX)는 합류하지 않는다
+    # HVAC(CARR)는 합류하지 않는다(구리 테마는 분류 중복이라 시드에서 제거됐다,
+    # 2026-08-27 축 정리 — FCX는 이제 분류 'Copper'가 담당한다)
     _, dc_symbols = uskg.resolve_theme("데이터센터")
     assert {"SMCI"} <= set(dc_symbols)
-    assert not {"CARR", "FCX"} & set(dc_symbols)
+    assert not {"CARR"} & set(dc_symbols)
 
 
 def test_universe_pit_delegates_to_graph():
@@ -166,8 +167,11 @@ def test_dump_route_market_us():
         e["source"] == "theme:ai-semiconductor" and e["target"] == "company:NVDA"
         for e in data["edges"]
     )
-    # 한국 전용 레이어(학습 오버레이)는 미국 그래프에 없다
-    assert not any(i.startswith("learned:") for i in node_ids)
+    # 미국 그래프에 한국 종목은 없다 — 6자리 코드 노드가 하나라도 있으면 교차-시장 오염
+    # (학습 오버레이 자체는 2026-08-26부터 미국에도 있다 — 소스가 미국 공시라 한국
+    # 기계를 부르지 않는다, FR-STR-074. 종전의 'learned: 노드 금지' 단언을 대체)
+    assert not any(i.startswith("company:") and i.split(":", 1)[1][:1].isdigit()
+                   for i in node_ids)
     # GICS 업종 레이어는 있다(전 종목 등재 — 콘솔 탐색용)
     assert "sector:Health Care" in node_ids
 

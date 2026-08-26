@@ -602,7 +602,9 @@ class BacktestEngine:
             if _us_kind:
                 # AI 신호 거절은 모델 선로드 전(위 fail-fast 구역)에서 이미 처리됐다.
                 if req.get('sector'):
-                    raise ValueError("미국 유니버스의 업종 필터는 아직 지원되지 않습니다.")
+                    # 한국 섹터 정본이 미국 유니버스로 들어온 경우 — 분류 체계가 달라
+                    # 적용할 수 없다(미국 업종은 us_industry 필드가 담당).
+                    raise ValueError("한국 업종 분류는 미국 유니버스에 적용할 수 없습니다.")
                 if req.get('listing_from') or req.get('listing_to'):
                     raise ValueError("미국 유니버스의 신규 상장 필터는 아직 지원되지 않습니다.")
                 _us_symbols = universe_pit.resolve_us_symbols(_us_kind)
@@ -623,6 +625,25 @@ class BacktestEngine:
                         "지수 유니버스는 현재 구성종목 명부 기준입니다 — 과거의 편입·편출은 "
                         "반영되지 않습니다."
                     )
+                # ── 미국 업종 필터(FR-STR-074 ⑩) ──
+                # 분류 정본은 us-stocks.json의 GICS 섹터·산업이다. 미국 ETF 유니버스엔
+                # 기업 분류가 없으므로 적용하지 않는다(한국 ETF와 같은 계약).
+                _us_industry = req.get('us_industry')
+                if _us_industry and _us_kind != "us_etf":
+                    _before = len(symbols)
+                    symbols = universe_pit.filter_by_us_industry(symbols, _us_industry)
+                    if not symbols:
+                        raise ValueError(
+                            f"'{_us_industry}' 업종에 해당하는 종목을 찾지 못했습니다."
+                        )
+                    # 분류는 **현행 기준**이다 — 과거의 업종 재분류·편입은 반영되지 않는다
+                    # (테마와 갈리는 지점: 테마는 소속 최초 관측일을 갖는다, FR-STR-074 ⑦).
+                    self.warnings.add(
+                        f"업종({_us_industry}) 필터는 현재 분류 기준입니다 — 기간 중의 "
+                        "업종 재분류는 반영되지 않습니다."
+                    )
+                    print(f"[BT-ENGINE] US 업종 필터({_us_industry}): "
+                          f"{_before}→{len(symbols)}종목", flush=True)
                 print(f"[BT-ENGINE] US universe({_us_kind}): {len(symbols)}종목", flush=True)
             elif _markets:
                 _aof_symbols = universe_pit.resolve_symbols(req.get('universe_id'), _period_start_str, _end_str)

@@ -533,6 +533,15 @@ class ParsedStrategy(BaseModel):
         ),
     )
 
+    # 미국 업종 필터(FR-STR-074 ⑩) — 분류 체계가 한국(45섹터)과 다르므로 필드를 따로
+    # 둔다. sector 필드는 정본 검증기가 한국 섹터만 통과시켜 미국 라벨을 조용히 버린다
+    # (여기 담았다면 유니버스 제한이 소리 없이 사라진다). 값은 GICS 섹터·산업 정본 라벨
+    # (us_industry_registry)이고 시스템이 채운다.
+    us_industry: Optional[str] = Field(
+        default=None,
+        description="미국 유니버스의 업종/산업 필터(GICS 정본 라벨, 시스템이 채움). LLM은 채우지 말 것",
+    )
+
     @field_validator("sector")
     @classmethod
     def _normalize_sector_name(cls, v):
@@ -558,6 +567,15 @@ class ParsedStrategy(BaseModel):
     theme_universe: Optional[str] = Field(
         default=None,
         description="테마 유래 지정 종목의 출처 테마 정본 표기(시스템이 채움). LLM은 채우지 말 것",
+    )
+    # 지정 종목이 **어느 축**에서 왔는지(FR-STR-074 ⑦, 2026-08-27). theme_universe가
+    # '무엇에서 왔나'라면 이 필드는 '어떤 종류의 근거였나'다 — 분류 명부는 정본이고
+    # (근거가 정의 자체), 테마는 근거로 관측된 집합이라 시점(first_known_date)을 갖는다.
+    # 둘을 한 필드로 뭉뚱그리면 "오늘의 관측을 정본처럼" 다루게 된다. canonical DSL
+    # 화이트리스트에는 넣지 않는다 — 출처 표기이지 실행 결과를 바꾸는 값이 아니다.
+    universe_source: Optional[Literal["theme_catalog", "theme_learned", "industry"]] = Field(
+        default=None,
+        description="지정 종목의 출처 축(시스템이 채움). LLM은 채우지 말 것",
     )
 
     # ── 신규 상장 유니버스 (FR-STR-073)

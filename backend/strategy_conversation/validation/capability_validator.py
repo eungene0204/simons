@@ -334,11 +334,18 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
             # 미국 테마 카탈로그(registry) 해석 — 카탈로그 정본 테마는 '테마 유래 지정
             # 종목'으로 전개한다(구성 티커 → universe.symbols, 출처는 theme 표기 계약).
             # 카탈로그 밖 테마만 명시적 미지원 안내(조용한 제거 금지).
-            from engine.universe_pit import resolve_us_theme
+            from engine.universe_pit import resolve_us_theme, us_industry_label
 
             _kept_sectors: List[str] = []
             _us_theme_resolved = False
             for _sector_term in strategy.universe.sectors:
+                # [축 순서] 분류(정본) → 카탈로그·시드 테마 → 공시 학습. 업종 이름이면
+                # 업종 분류가 답한다 — 시드의 산업형 테마는 표본 수준이라 실측에서
+                # 'airlines' 4곳 vs 분류 18곳이었다. 분류는 유니버스 **필터**이므로
+                # 종목으로 전개하지 않고 표현을 남겨 컴파일러가 us_industry로 옮긴다.
+                if us_industry_label(_sector_term) is not None:
+                    _kept_sectors.append(_sector_term)
+                    continue
                 _theme = resolve_us_theme(_sector_term)
                 if _theme is None:
                     _kept_sectors.append(_sector_term)
@@ -366,13 +373,17 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                         "제외했습니다(미국 시장 전략)."
                     )
             strategy.universe.sectors = _kept_sectors
-            if _kept_sectors:
+            # 분류 라벨은 필터로 살아남는다 — 미지원 안내 대상은 '분류도 테마도 아닌' 표현뿐.
+            _unknown_sectors = [t for t in _kept_sectors if us_industry_label(t) is None]
+            if _unknown_sectors:
                 unsupported.append("미국 유니버스 × 업종 필터")
                 errors.append(
                     "미국 유니버스의 업종/테마 필터 중 카탈로그에 없는 항목은 아직 "
-                    f"지원되지 않습니다: {', '.join(_kept_sectors)}"
+                    f"지원되지 않습니다: {', '.join(_unknown_sectors)}"
                 )
-                strategy.universe.sectors = []
+                strategy.universe.sectors = [
+                    t for t in _kept_sectors if us_industry_label(t) is not None
+                ]
         if strategy.universe.new_listing_only:
             unsupported.append("미국 유니버스 × 신규 상장 종목")
             errors.append("미국 유니버스에는 신규 상장(IPO) 제한을 아직 적용할 수 없습니다")
@@ -401,8 +412,11 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 if c.factor not in ("technical.ai_model", "technical.ai_drop_model")
             ]
 
-    # 유니버스 섹터 — 정본 섹터명 화이트리스트로 판정(조용한 왜곡 방지)
-    if strategy.universe.sectors:
+    # 유니버스 섹터 — 정본 섹터명 화이트리스트로 판정(조용한 왜곡 방지).
+    # [축 구분, FR-STR-074 ⑩] 이 화이트리스트는 **한국 섹터 정본**이다 — 미국 문맥에서는
+    # 위 US 블록이 이미 분류/테마를 갈라 두었으므로 여기서 다시 재단하지 않는다(미국
+    # 분류 라벨 'Airlines'가 "지원 섹터 목록에 없습니다"로 거절되던 경로).
+    if strategy.universe.sectors and not (_us_markets or (_en_region and not strategy.universe.markets)):
         from engine.universe_pit import expand_legacy_sector
 
         normalized_sectors: List[str] = []

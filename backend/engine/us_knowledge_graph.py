@@ -7,9 +7,11 @@
 - **합성 로드(정본 두 번 안 적기)**: 시드 `data/us-knowledge-graph.json`(큐레이션
   그래프 — 노드·엣지·동의어) + 테마 카탈로그 `data/us-theme-catalog.json`(평면
   테마→티커 목록) + GICS 업종 레이어(us-stocks.json의 섹터 11·산업 253 분류를
-  소속 엣지로 — 전 종목 등재, 콘솔 탐색·향후 GICS 필터 기반이며 테마 해석 불참).
+  소속 엣지로 — 전 종목 등재, 콘솔 탐색·향후 GICS 필터 기반이며 테마 해석 불참)
+  + 학습 오버레이 `data/us-term-lexicon.json`(us_term_grounding이 SEC 공시 전문검색으로
+  학습한 테마어 — verified 구성만 합성, pending은 콘솔 승인 대기).
   같은 별칭이 겹치면 시드(큐레이션)가 이긴다 — 한국 KG의 시드>카탈로그 삽입 순서
-  계약과 동일.
+  계약과 동일하고, 학습분은 그 아래(시드 > 카탈로그 > 학습).
 - **company:TICKER 자동 노드**: us-stocks.json·us-etf-master.json 정본에서 참조 시
   생성. 시드의 정본 밖 티커는 issues로 fail-fast(무결성 테스트가 0을 단언),
   카탈로그의 정본 밖 티커는 조용히 스킵(한국 카탈로그 로더 계약과 동일).
@@ -18,7 +20,6 @@
 한국 KG 대비 의도적 부재(미국엔 해당 소스·소비자가 없다):
 - 문장 스캔(find_concepts) — 원문을 읽는 KR nl_parser 경로가 US엔 없음
 - 섹터 해석(resolve_sector) — 미국 GICS 업종 필터 자체가 미지원
-- 학습 오버레이(term_lexicon) — 네이버 뉴스 그라운딩 검색이 KR 전용
 - 지분 엣지 — DART 타법인출자현황이 KR 전용
 """
 
@@ -42,6 +43,7 @@ _SEED_PATH = _BASE_DIR / "data" / "us-knowledge-graph.json"
 _CATALOG_PATH = _BASE_DIR / "data" / "us-theme-catalog.json"
 _STOCKS_PATH = _BASE_DIR / "data" / "us-stocks.json"
 _ETF_PATH = _BASE_DIR / "data" / "us-etf-master.json"
+_LEXICON_PATH = _BASE_DIR / "data" / "us-term-lexicon.json"  # 공시 검색 학습 원장
 
 # 상장사로 전개되는 관계 타입 — 한국 KG listed_companies와 같은 계약(직접 엣지만).
 _COMPANY_EDGE_TYPES = frozenset({
@@ -161,7 +163,7 @@ _CACHE_LOCK = threading.Lock()
 
 
 def _mtimes() -> tuple:
-    paths = (_SEED_PATH, _CATALOG_PATH, _STOCKS_PATH, _ETF_PATH)
+    paths = (_SEED_PATH, _CATALOG_PATH, _STOCKS_PATH, _ETF_PATH, _LEXICON_PATH)
     return tuple(p.stat().st_mtime if p.exists() else None for p in paths)
 
 
@@ -253,6 +255,53 @@ def _build() -> USKnowledgeGraph:
             else:
                 issues.append(f"카탈로그 테마 '{theme['id']}'의 concepts 미정의: {concept_id}")
 
+    # 2b) 학습 오버레이 — us_term_grounding이 공시 검색으로 학습한 테마어를 노드로 편입.
+    #     별칭 경쟁에서 최하위다(시드 > 카탈로그 > 학습) — 큐레이션 정본이 항상 이긴다.
+    #     verified 구성만 합성한다: pending은 관리자 콘솔 승인 대기분이라 유니버스로
+    #     서지 않는다(한국 KG의 학습 엣지 계약과 동일). 정본 밖 티커는 조용히 스킵.
+    from engine.us_industry_registry import classification_label  # 지연(순환 방지)
+
+    learned_count = 0
+    for key, entry in _load_json(_LEXICON_PATH, {}).items():
+        if not isinstance(entry, dict):
+            continue
+        if classification_label(entry.get("term") or key) is not None:
+            # [축 구분] 분류 라벨과 같은 표현은 학습 테마로 세우지 않는다 — 원장에 남은
+            # 과거 오염이나 정본 갱신으로 새로 분류가 된 표현이 테마 축을 가리는 것을
+            # 막는다(쓰기 방지는 us_term_grounding, 여기는 읽기 쪽 방어).
+            continue
+        members = [
+            m for m in entry.get("members") or []
+            if isinstance(m, dict) and m.get("symbol") and m.get("status") == "verified"
+        ]
+        if not members:
+            continue  # 소속을 못 찾았거나 전부 검토 대기 — 노드로 세우지 않는다
+        node_id = f"learned:{key}"
+        if node_id in nodes:
+            continue
+        nodes[node_id] = {
+            "id": node_id,
+            "name": entry.get("term", key),
+            "category": "learned_theme",
+            "synonyms": [entry.get("term", key)],
+            "source": entry.get("source"),
+            "searched_at": entry.get("searched_at"),
+            # 소속 최초 관측일과 관측 창 시작일 — 테마는 '오늘의 명부'가 아니라
+            # 시점을 가진 관측이다(분류 축과 갈리는 지점, FR-STR-074 ⑦).
+            "first_known_date": entry.get("first_known_date"),
+            "observed_from": entry.get("observed_from"),
+        }
+        learned_count += 1
+        for member in members:
+            symbol = member["symbol"]
+            if symbol not in registry:
+                continue
+            target = f"company:{symbol}"
+            nodes.setdefault(target, {
+                "id": target, "name": registry[symbol], "category": "company",
+            })
+            edges.append({"source": node_id, "type": "related_company", "target": target})
+
     # 3) GICS 업종 레이어 — us-stocks.json의 섹터(11)·산업 분류를 소속 엣지로 합성.
     #    전 종목이 그래프에 들어온다(콘솔 탐색·향후 GICS 필터 기반). 테마 해석에는
     #    불참(_build_theme_index가 sector:/industry: 제외). 산업이 두 섹터에 걸치면
@@ -289,9 +338,9 @@ def _build() -> USKnowledgeGraph:
 
     graph = USKnowledgeGraph(nodes, edges, issues)
     logger.info(
-        "US KG 로드: 노드 %d개(시드 %d)·엣지 %d개·카탈로그 테마 %d개·경고 %d건",
+        "US KG 로드: 노드 %d개(시드 %d)·엣지 %d개·카탈로그 테마 %d개·학습 테마 %d개·경고 %d건",
         len(nodes), len(seed.get("nodes", [])), len(edges),
-        len(catalog.get("themes", [])), len(issues),
+        len(catalog.get("themes", [])), learned_count, len(issues),
     )
     for issue in issues:
         logger.warning("US KG 무결성: %s", issue)
@@ -310,22 +359,15 @@ def get_graph() -> USKnowledgeGraph:
         return _CACHED
 
 
-def resolve_theme(term: Optional[str]) -> Optional[tuple[str, list[str]]]:
-    """테마어 → (정본 테마명, 구성 티커 목록). 그래프 밖이면 None.
+def theme_term_candidates(term: str) -> list[str]:
+    """테마어의 조회 후보 표기 목록(원표기 → 한정어를 벗긴 표기 순).
 
-    '미국' 접두는 벗겨 본다("미국 사이버보안" → "사이버보안") — 시장 한정어일 뿐
-    테마 정체성이 아니다. 영어 입력 레인의 시장 접두("US"·"U.S."·"American")와 범주
-    접미("stocks"·"names"·"-related" 등 — '관련주'의 영어 판)도 같은 이유로 벗긴다
-    (2026-08-26 실측: "US cloud software stocks"·"crypto-related"가 정확 일치에 실패해
-    테마가 소실되거나 한국 체인으로 흘렀다). 정확 일치만 — 부분 매칭은 오폭원. 직접
-    구성이 비는 개념 앵커 노드(ai·semiconductor·datacenter)는 소속(part_of/is_a) 하위
-    테마의 합집합으로 전개한다(concept_member_companies — 2026-08-26 사용자 결정,
-    종전 '앵커=None' 비확정 설계를 대체). 하위 소속까지 비면 그대로 None."""
-    if not term or not isinstance(term, str):
-        return None
-    graph = get_graph()
-    # '미국' 접두와 '관련주/테마' 접미는 시장·범주 한정어일 뿐 테마 정체성이 아니다 —
-    # 벗긴 조합까지 정확 일치로 본다("미국 빅테크 관련주" → "빅테크"). 부분 매칭은 않는다.
+    '미국' 접두와 '관련주/테마' 접미는 시장·범주 한정어일 뿐 테마 정체성이 아니다 —
+    벗긴 조합까지 정확 일치로 본다("미국 빅테크 관련주" → "빅테크"). 영어 입력 레인의
+    시장 접두("US"·"U.S."·"American")와 범주 접미("stocks"·"names"·"-related" 등 —
+    '관련주'의 영어 판)도 같은 이유로 벗긴다(2026-08-26 실측: "US cloud software
+    stocks"·"crypto-related"가 정확 일치에 실패해 테마가 소실되거나 한국 체인으로
+    흘렀다). 부분 매칭은 하지 않는다 — 오폭원."""
     candidates = [term.strip()]
     en_stripped = re.sub(r"^(?:the\s+)?(?:u\.?s\.?a?\.?|american)\s+", "",
                          term.strip(), flags=re.IGNORECASE)
@@ -346,6 +388,32 @@ def resolve_theme(term: Optional[str]) -> Optional[tuple[str, list[str]]]:
                 break
             stripped = trimmed.strip()
             candidates.append(stripped)
+    return candidates
+
+
+def normalize_theme_term(term: str) -> str:
+    """한정어를 모두 벗긴 테마 정체성 표기 — 검색 그라운딩의 질의어·학습 테마명.
+
+    "mrna-Related" → "mrna", "US cloud software stocks" → "cloud software".
+    조회(resolve_theme)와 같은 규칙을 쓰므로 학습된 이름이 다음 턴에 그대로 다시 잡힌다."""
+    return theme_term_candidates(term)[-1] if term and isinstance(term, str) else ""
+
+
+def resolve_theme(term: Optional[str]) -> Optional[tuple[str, list[str]]]:
+    """테마어 → (정본 테마명, 구성 티커 목록). 그래프 밖이면 None.
+
+    '미국' 접두는 벗겨 본다("미국 사이버보안" → "사이버보안") — 시장 한정어일 뿐
+    테마 정체성이 아니다. 영어 입력 레인의 시장 접두("US"·"U.S."·"American")와 범주
+    접미("stocks"·"names"·"-related" 등 — '관련주'의 영어 판)도 같은 이유로 벗긴다
+    (2026-08-26 실측: "US cloud software stocks"·"crypto-related"가 정확 일치에 실패해
+    테마가 소실되거나 한국 체인으로 흘렀다). 정확 일치만 — 부분 매칭은 오폭원. 직접
+    구성이 비는 개념 앵커 노드(ai·semiconductor·datacenter)는 소속(part_of/is_a) 하위
+    테마의 합집합으로 전개한다(concept_member_companies — 2026-08-26 사용자 결정,
+    종전 '앵커=None' 비확정 설계를 대체). 하위 소속까지 비면 그대로 None."""
+    if not term or not isinstance(term, str):
+        return None
+    graph = get_graph()
+    candidates = theme_term_candidates(term)
     node = None
     for cand in candidates:
         node = graph.theme_node(cand)

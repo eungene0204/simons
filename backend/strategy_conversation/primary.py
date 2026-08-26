@@ -1499,7 +1499,7 @@ def run_primary_parse(
         # Investment Strategy"가 KR 66코드 유니버스로 조립). 카탈로그 밖 표현은
         # 조용히 소실시키지 않고 되묻기로 표면화한다.
         sector_question, sector_suggestions = _resolve_sector_terms_us(
-            parsed, unresolved_sector_terms,
+            parsed, unresolved_sector_terms, on_stage=on_stage,
         )
     elif unresolved_sector_terms:
         if config.planner_mode() == "primary":
@@ -2324,18 +2324,29 @@ def _us_market_context(parsed: Any) -> bool:
 
 
 def _resolve_sector_terms_us(
-    parsed: Any, unresolved_terms: List[str],
+    parsed: Any, unresolved_terms: List[str], on_stage=None,
 ) -> tuple[Optional[str], Optional[List[str]]]:
-    """미국 시장 문맥의 미해결 테마어 — US 카탈로그·KG 합성 그래프로만 해석한다.
+    """미국 시장 문맥의 미해결 테마어 — US 카탈로그·KG + 공시 검색 그라운딩으로 해석한다.
 
     KR 체인(_resolve_sector_terms_term_in)과 같은 반환 계약: 전부 해석되면
-    (None, None), 아니면 (되묻기 질문, 칩 없음 — 무칩 ask). KR KG·네이버 검색
-    그라운딩은 한국 시장 기계라 여기서 부르지 않는다(시장 격리)."""
+    (None, None), 아니면 (되묻기 질문, 칩 없음 — 무칩 ask). 체인은 ① US 카탈로그·
+    시드·학습 오버레이 조회 → ② SEC 공시 전문검색 그라운딩(us_term_grounding —
+    후보 정본 조인 + LLM 소속 심사 + 최소 구성 게이트)이고, 둘 다 실패하면 되묻는다.
+    KR KG·네이버 검색 그라운딩은 한국 시장 기계라 여기서 부르지 않는다(시장 격리) —
+    US 그라운딩은 소스가 미국 공시라 같은 자리에 서도 한국 종목이 실리지 않는다."""
     from engine.universe_pit import resolve_us_theme
 
     still_unresolved: List[str] = []
     for term in unresolved_terms:
+        # [축 순서] 분류(정본) → 카탈로그·시드 테마 → 공시 학습. 업종 이름이면 업종
+        # 분류가 답한다 — 실측(2026-08-27): 시드의 산업형 테마는 표본 수준이라
+        # 'airlines' 4곳 vs 분류 18곳, 'restaurants' 5곳 vs 54곳, 'semiconductors'
+        # 20곳 vs 72곳이다. 카탈로그 테마는 분류가 표현할 수 없는 것(AI 반도체·
+        # 빅테크·GLP-1)을 위해 남는다.
+        if _apply_us_industry(parsed, term):
+            continue
         if _apply_us_theme_companies(parsed, term):
+            parsed.universe_source = "theme_catalog"
             _log_llm("✓ US 테마 상장사",
                      f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
             continue
@@ -2343,6 +2354,8 @@ def _resolve_sector_terms_us(
         if resolved is not None and getattr(parsed, "theme_universe", None) == resolved[0]:
             # 검증기(capability_validator의 US 테마 전개)가 같은 테마로 이미 확정 —
             # 재적용 불필요(지정 종목 보유 시 _apply_us_theme_companies는 불개입 계약).
+            continue
+        if _ground_us_theme_term(parsed, term, on_stage=on_stage):
             continue
         still_unresolved.append(term)
     if not still_unresolved:
@@ -2375,6 +2388,64 @@ def _apply_us_theme_companies(parsed: Any, term: str) -> bool:
     parsed.target_symbols = list(theme_symbols)
     parsed.sector = None
     parsed.theme_universe = theme_name
+    parsed.universe_source = "theme_catalog"
+    return True
+
+
+def _apply_us_industry(parsed: Any, term: str) -> bool:
+    """분류(GICS 섹터·산업) 표현이면 미국 업종 **필터**로 확정한다(FR-STR-074 ⑩).
+
+    [축 구분, 2026-08-27] 분류는 정본이라 결정론 조회로 끝나고, 유니버스에 교집합으로
+    적용된다 — 테마처럼 종목 목록으로 전개하지 않는다(전개하면 지수 선택과 조합할 수
+    없고 명부가 큰 섹터는 세울 수조차 없다). 정상 경로에서는 컴파일러가 이미 채우므로
+    여기는 planner 관찰값 등 컴파일러가 보지 못한 표현의 보완이다."""
+    from engine.universe_pit import us_industry_label
+
+    label = us_industry_label(term)
+    if label is None:
+        return False
+    if getattr(parsed, "us_industry", None) == label:
+        return True  # 컴파일러가 이미 확정 — 중복 적용 불필요
+    if getattr(parsed, "us_industry", None):
+        return False  # 다른 업종이 이미 확정돼 있으면 덮어쓰지 않는다
+    parsed.us_industry = label
+    parsed.universe_source = "industry"
+    _log_llm("✓ US 업종 필터", f"'{term}' → '{label}'")
+    return True
+
+
+def _ground_us_theme_term(parsed: Any, term: str, on_stage=None) -> bool:
+    """카탈로그 밖 테마어를 SEC 공시 전문검색으로 학습해 지정 종목으로 적용한다.
+
+    한국 체인의 검색 그라운딩(_ground_sector_term)과 같은 자리·같은 계약이다 —
+    실패는 조용한 확정이 아니라 False(되묻기 소관)이고, 그라운딩 예외가 파스를 깨지
+    않는다. 소스는 미국 공시(EDGAR)라 한국 종목이 섞일 경로가 없다(시장 격리)."""
+    if getattr(parsed, "target_symbols", None):
+        return False  # 이미 지정 종목이 있으면 불개입(_apply_us_theme_companies와 동일)
+    try:
+        from engine.us_term_grounding import ground_us_theme
+        from strategy_conversation.planner.shadow import _default_chat
+
+        def _searching() -> None:
+            if on_stage is not None:
+                on_stage("searching")
+
+        grounded = ground_us_theme(term, _default_chat(), on_search=_searching)
+    except Exception:  # noqa: BLE001 — 그라운딩 실패가 파스를 깨면 안 된다
+        logger.debug("us theme grounding failed | term=%r", term, exc_info=True)
+        return False
+    finally:
+        if on_stage is not None:
+            on_stage("thinking")
+    if grounded is None:
+        return False
+    theme_name, theme_symbols = grounded
+    parsed.target_symbols = list(theme_symbols)
+    parsed.sector = None
+    parsed.theme_universe = theme_name
+    parsed.universe_source = "theme_learned"
+    _log_llm("✓ US 테마 공시 학습",
+             f"'{term}' → '{theme_name}' 지정 종목 {len(theme_symbols)}곳")
     return True
 
 
@@ -3055,6 +3126,60 @@ def _changed_universe_terms(patched: Any, previous: Any) -> List[str]:
     ]
 
 
+def _resolve_us_universe_change(
+    parsed: Any, term: str, notices: List[str], on_stage=None,
+) -> Optional[tuple[str, List[str]]]:
+    """수정 턴의 유니버스 교체 표현을 **미국 축 체인**으로 해석한다(FR-STR-074 ⑦⑩).
+
+    [시장 격리] 생성 경로(_resolve_sector_terms_us)와 같은 계약·같은 순서다 —
+    ① 분류(GICS) → ② 카탈로그·시드·학습 테마 → ③ 공시 학습 → 되묻기. 한국 판
+    (_resolve_theme_change)은 네이버 카탈로그·검색 그라운딩을 부르는 한국 시장
+    기계라 미국 문맥에서 부르면 한국 종목이 실린다 — 생성 레인에서 막아 둔 구멍이
+    수정 레인에 남아 있었다(2026-08-27 축 작업 중 발견).
+
+    반환: None(적용 완료) | (질문, 칩) — 되묻기(호출부가 전략을 무변경으로 유지)."""
+    from engine.universe_pit import us_industry_label
+
+    previous_theme = getattr(parsed, "theme_universe", None)
+
+    def _clear_previous_theme() -> None:
+        # 이전 **테마에서 온** 종목만 비운다 — 사용자가 직접 지목한 종목은 건드리지 않는다
+        # (한국 replace_theme_universe와 같은 판정 근거: theme_universe 출처 표기).
+        if previous_theme:
+            parsed.target_symbols = []
+            parsed.theme_universe = None
+
+    label = us_industry_label(term)
+    if label is not None:
+        _clear_previous_theme()
+        parsed.us_industry = label
+        parsed.universe_source = "industry"
+        _log_llm("✓ US 업종 교체", f"'{term}' → '{label}'")
+        return None
+
+    # 분류가 아니면 테마 축 — 카탈로그·학습 조회 후 공시 학습까지 생성 경로와 동일하다.
+    parsed.us_industry = None  # 업종 필터에서 테마로 바꾸는 턴
+    parsed.target_symbols = []
+    parsed.theme_universe = None
+    if _apply_us_theme_companies(parsed, term):
+        parsed.universe_source = "theme_catalog"
+        _log_llm("✓ US 테마 교체", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
+        return None
+    if _ground_us_theme_term(parsed, term, on_stage=on_stage):
+        return None
+
+    # 되묻기 — 전략은 그대로 두고 범위를 묻는다(생성 경로와 같은 문구).
+    _log_llm("? US 유니버스 교체 되묻기", f"미해결 표현: {term}")
+    parsed.us_industry = getattr(parsed, "us_industry", None)
+    return ui_language.msg(
+        "'{terms}'은(는) 아직 미국 테마 카탈로그에서 찾지 못했어요. 다른 테마로 "
+        "바꾸거나, S&P500·나스닥100 같은 지수 유니버스로 진행해 주시겠어요?",
+        "I couldn't find '{terms}' in the US theme catalog yet. Could you try a "
+        "different theme, or use an index universe like the S&P 500 or Nasdaq-100?",
+        terms=term,
+    ), []
+
+
 def _resolve_theme_change(
     parsed: Any, term: str, notices: List[str], on_stage=None,
 ) -> Optional[tuple[str, List[str]]]:
@@ -3644,7 +3769,11 @@ def run_primary_modification(
         # "무엇을 비워도 되는지"를 이 출처 표기로 판정한다.
         parsed.theme_universe = prev.theme_universe
         parsed.target_symbols = list(prev.target_symbols)
-        theme_ask = _resolve_theme_change(parsed, theme_terms[0], notices, on_stage)
+        theme_ask = (
+            _resolve_us_universe_change(parsed, theme_terms[0], notices, on_stage)
+            if _us_market_context(parsed)
+            else _resolve_theme_change(parsed, theme_terms[0], notices, on_stage)
+        )
         if theme_ask is not None:
             # 해석 못 한 테마로 전략을 바꾸지 않는다 — 전략은 그대로 두고 범위를 묻는다.
             # 우선순위 마커: 유니버스 범위는 조건 질문보다 선행 결정 사항이라, 프론트
