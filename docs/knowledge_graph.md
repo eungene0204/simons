@@ -189,7 +189,10 @@ company 노드 자동 생성 + 오타 fail-fast, mtime 캐시)을 미국 시장�
   (part_of 엣지) 선언이다.
 - **해석 진입점**: `universe_pit.resolve_us_theme` → `us_knowledge_graph.resolve_theme`.
   입력은 LLM이 추출한 짧은 테마어(원문 아님), 정확 일치만, '미국' 접두·영어
-  한정어("US"/"American" 접두, "-related/stocks" 등 접미)는 벗겨 조회. 직접 구성이
+  한정어("US"/"American" 접두, "-related/stocks" 등 접미)는 벗겨 조회. 별칭 대조 키는
+  공백과 **하이픈**을 지운다(2026-08-27) — 영어 레인이 복합어를 하이픈으로 묶어 내므로
+  ("humanoid-robotics") 남기면 같은 테마가 표기 하나로 빗나간다. 정본 별칭과 조회어가
+  같은 규칙을 통과하므로 짝이 어긋나지 않고, 충돌은 별칭 충돌 금지 테스트가 감시한다. 직접 구성이
   없는 개념 앵커(ai·semiconductor·datacenter)는 **소속(part_of/is_a) 하위 테마
   상장사의 합집합**으로 전개한다(`concept_member_companies`, 2026-08-26 — 종전
   '앵커=None' 비확정 설계를 대체. 카탈로그 테마의 `concepts` 필드가 앵커 소속을
@@ -197,9 +200,34 @@ company 노드 자동 생성 + 오타 fail-fast, mtime 캐시)을 미국 시장�
   등은 구성원이 아니다). 소비자는 `capability_validator`(미국 유니버스 × sectors →
   테마 유래 지정 종목 전개, `UniverseSpec.theme` 출처 표기)와 primary의
   `_resolve_sector_terms_us`(미국 시장 문맥 테마 체인 — KR KG·검색 그라운딩 불사용).
+- **회사 앵커 축 — 'X 관련주'(2026-08-27)**: 개별 상장사는 테마 별칭 색인에서 의도적으로
+  제외돼 있어(`company:` 노드 격리) 'nvidia 관련주'는 테마로도 단일 종목으로도 서지
+  못했다. 테마와 나란한 **별도 축**으로 세운다.
+  - 진입점 `universe_pit.resolve_us_company_related` → `us_knowledge_graph.resolve_company_related`.
+    조회 키는 **앵커 티커**다(`related:NVDA`) — 'Nvidia 관련주'와 'nvidia Related Stock'은
+    같은 집합이므로 표기를 키로 삼으면 언어별로 갈린다. 그래서 `related:` 노드도 테마
+    별칭 색인에서 제외한다.
+  - 축 진입 조건은 표기 판정 둘뿐이다: 범주 접미가 있고(`has_group_suffix` — '관련주'와
+    "related/stocks" 등 영어 판) 접미를 벗긴 표기가 정본 상장사와 정확히 일치할 것
+    (`us_term_grounding.us_company_anchor`, 티커는 대문자 정확 일치·회사명은 영문/한글).
+    접미가 없는 'nvidia'는 단일 종목 지정 소관이다.
+  - 학습은 테마와 **같은 기계, 다른 심사 축**이다(`ground_us_company_related` → 공통
+    몸통 `_ground`): 앵커 회사명으로 EDGAR 전문검색 → 정본 CIK 조인 → LLM이 "기준
+    기업과 공급·고객·파트너·경쟁 관계가 사업에 실재하는가"를 닫힌 후보 목록 위에서
+    심사(테마 프롬프트의 '그 사업을 영위하는가'와 다른 질문). 앵커 자신은 후보에 있으면
+    구성에 포함한다. 근거는 기업 자신의 연차보고서 기술이라 관계 목록은 객관적 사실이며
+    추천이 아니다.
+  - 원장 표기는 한국어 정본으로 고정하고(`term: "Nvidia 관련주"`, `kind: company_related`,
+    `anchor: NVDA`) 표시 라벨만 요청 언어를 따른다(`company_related_label` — /us는
+    "Nvidia-related stocks"). 출처 축은 `ParsedStrategy.universe_source="company_related"`.
+  - 소비자는 테마 축과 같다: `capability_validator`(학습분 **결정론 조회만** — 검증기는
+    네트워크·LLM을 부르지 않는다)와 primary의 `_resolve_sector_terms_us`
+    ·`_resolve_us_universe_change`(생성·수정 두 레인 모두).
 - **한국 KG 대비 의도적 부재**(해당 소스·소비자가 없다): 문장 스캔(US 레인은
   LLM-first — 원문을 읽는 경로 자체가 없음), 섹터 해석(미국 GICS 업종 필터 미지원),
-  학습 오버레이(네이버 그라운딩 KR 전용), 지분 엣지(DART KR 전용).
+  지분 엣지(DART KR 전용). 학습 오버레이는 **소스가 다를 뿐 존재한다** — 네이버 뉴스가
+  아니라 SEC 공시 전문검색(`engine/us_term_grounding.py`)이고, verified 구성만 그래프에
+  합성된다(pending은 콘솔 승인 대기).
 - **GICS 업종 레이어(2026-08-26)**: `us-stocks.json`의 GICS 섹터 11·산업 253 분류를
   소속 엣지로 합성(회사 -belongs_to→ `industry:` -part_of→ `sector:`) — 분류 보유
   전 종목 5,853곳이 그래프에 등재된다(총 6,187노드). 산업이 두 섹터에 걸치면
@@ -214,7 +242,9 @@ company 노드 자동 생성 + 오타 fail-fast, mtime 캐시)을 미국 시장�
   한국=GICS 산업)의 0개 그룹 범례는 숨김.
 - 테스트: `backend/tests/test_us_knowledge_graph.py`(무결성 0·별칭 충돌 금지(시드
   내부+시드-카탈로그 교차)·파케이 전수·레이어 우선순위·fail-fast·덤프 라우트 분기),
-  `backend/tests/test_us_theme_catalog.py`(카탈로그 무결성·검증기 전개).
+  `backend/tests/test_us_theme_catalog.py`(카탈로그 무결성·검증기 전개),
+  `backend/tests/test_us_term_grounding.py`(공시 학습·상투어 게이트·회사 앵커 축·
+  표기 판정·체인 전수 회귀 — 검색은 전부 주입이라 네트워크를 타지 않는다).
 
 ## 산출물
 

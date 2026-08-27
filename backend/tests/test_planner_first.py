@@ -159,14 +159,75 @@ def test_sector_observation_defers_to_theme_companies(monkeypatch):
 
 
 def test_non_concept_classification_counts_as_resolved():
-    """MARKET/SECTOR/SINGLE_STOCK/ETF 분류는 그 자체로 해석 완료 — 병합 없음."""
-    parsed = ParsedStrategy(description="테스트")
+    """MARKET/SECTOR/SINGLE_STOCK/ETF 분류는 **전략에 반영돼 있으면** 해석 완료 —
+    인터프리터가 원래 필드로 이미 표현했으므로 병합할 것이 없다."""
+    parsed = ParsedStrategy(description="테스트", universe=["KOSPI"])
     result = _plan_result([
         ("classify_universe", "코스피", {"universe_type": "MARKET", "canonical": "KOSPI"}),
     ])
     resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
     assert resolved == {"코스피"} and unresolved == set()
     assert parsed.sector is None and not parsed.target_symbols
+
+
+def test_classification_not_reflected_stays_unresolved():
+    """[회귀] 2026-08-27 사고 — 분류만으로 '해석 완료' 도장을 찍으면 표현이 증발한다.
+
+    /us "nvidia Related Stock Investment Strategy": 분류기가 문구 속 회사명만 보고
+    SINGLE_STOCK(NVDA)로 읽어 완료 처리했는데, 인터프리터는 그 표현을 sectors에 담았고
+    검증기가 지웠다 — 되묻기도 안내도 없이 미국 전체 유니버스만 남았다. 반영이 확인되지
+    않으면 미해결로 남겨 해석 체인·되묻기가 표면화해야 한다."""
+    parsed = ParsedStrategy(description="테스트", universe=["US"])
+    result = _plan_result([
+        ("classify_universe", "nvidia Related Stock",
+         {"universe_type": "SINGLE_STOCK", "canonical": "NVDA"}),
+    ])
+    resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
+    assert resolved == set() and unresolved == {"nvidia Related Stock"}
+    assert not parsed.target_symbols  # 조용한 확정도 하지 않는다
+
+
+def test_designated_symbol_is_recovered_deterministically():
+    """[회귀] 2026-08-27 — 상품 티커가 유니버스 칸으로 새면 정본 관찰값으로 되돌린다.
+
+    실측: "Buy DIA when …"이 markets=["US_ETF"](미국 ETF 전체)로 파스돼 **상품 하나가
+    전체 유니버스로 벌어졌다**. 프롬프트로는 수렴하지 않는다 — 규칙을 옮길 때마다 이기는
+    티커만 바뀌는 시소였다(4.8/4.9/변형 C 실측: 각 3/5·3/5·2/5, DIA는 10/10↔0/10).
+    반면 planner 관찰값은 이미 정본 registry로 티커를 확정해 둔다. 그것을 적용하면
+    5티커 중 4개가 5/5로 붙는다(ITA는 planner가 설명구를 뽑아 관찰값에 티커가 없다)."""
+    parsed = ParsedStrategy(description="테스트", universe=["US_ETF"])
+    result = _plan_result([
+        ("classify_universe", "DIA", {"universe_type": "SINGLE_STOCK", "canonical": "DIA"}),
+    ])
+    resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
+    assert parsed.target_symbols == ["DIA"]
+    assert resolved == {"DIA"} and unresolved == set()
+
+
+def test_designated_symbol_recovery_does_not_touch_existing_universe():
+    """이미 지정 종목이 있으면 불개입 — 테마 전개·사용자 지목과 섞지 않는다.
+
+    다른 적용기(_apply_us_theme_companies)와 같은 계약이다."""
+    parsed = ParsedStrategy(description="테스트", universe=["US"],
+                            target_symbols=["NVDA", "AMD"], theme_universe="AI 반도체")
+    result = _plan_result([
+        ("classify_universe", "DIA", {"universe_type": "SINGLE_STOCK", "canonical": "DIA"}),
+    ])
+    resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
+    assert parsed.target_symbols == ["NVDA", "AMD"]   # 불변
+    assert resolved == set() and unresolved == {"DIA"}  # 조용히 삼키지 않고 체인으로
+
+
+def test_not_universe_classification_needs_no_reflection():
+    """NOT_UNIVERSE는 '유니버스 표현이 아니다'라는 결론 자체 — 반영할 필드가 없다.
+
+    미해결로 남기면 지표 조건 구가 테마 되묻기로 흘러 오라우팅 백스톱이 무의미해진다."""
+    parsed = ParsedStrategy(description="테스트")
+    result = _plan_result([
+        ("classify_universe", "당기순이익이 높은 종목", {"universe_type": "NOT_UNIVERSE"}),
+    ])
+    resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
+    assert resolved == {"당기순이익이 높은 종목"} and unresolved == set()
 
 
 def test_unresolved_concept_stays_for_universe_ask():

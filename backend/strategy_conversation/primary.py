@@ -2333,8 +2333,11 @@ def _resolve_sector_terms_us(
     시드·학습 오버레이 조회 → ② SEC 공시 전문검색 그라운딩(us_term_grounding —
     후보 정본 조인 + LLM 소속 심사 + 최소 구성 게이트)이고, 둘 다 실패하면 되묻는다.
     KR KG·네이버 검색 그라운딩은 한국 시장 기계라 여기서 부르지 않는다(시장 격리) —
-    US 그라운딩은 소스가 미국 공시라 같은 자리에 서도 한국 종목이 실리지 않는다."""
-    from engine.universe_pit import resolve_us_theme
+    US 그라운딩은 소스가 미국 공시라 같은 자리에 서도 한국 종목이 실리지 않는다.
+
+    축은 셋이다: 분류(GICS 필터) → 테마(카탈로그·시드·학습) → 회사 앵커('X 관련주').
+    회사 앵커는 테마 색인이 회사명을 의도적으로 제외하기 때문에 필요한 별도 축이다."""
+    from engine.universe_pit import resolve_us_company_related, resolve_us_theme
 
     still_unresolved: List[str] = []
     for term in unresolved_terms:
@@ -2350,10 +2353,18 @@ def _resolve_sector_terms_us(
             _log_llm("✓ US 테마 상장사",
                      f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
             continue
+        if _apply_us_company_related(parsed, term, on_stage=on_stage):
+            continue
+        # 검증기(capability_validator)가 같은 축으로 이미 확정했으면 재적용 불필요다
+        # (지정 종목 보유 시 _apply_us_* 는 불개입 계약이라 False를 돌려준다). 축마다
+        # 이 가드를 두지 않으면 유니버스는 붙어 있는데 "찾지 못했어요" 되묻기가 함께
+        # 나간다 — 회사 앵커 축을 추가하며 실측한 모순이다(2026-08-27).
+        already = getattr(parsed, "theme_universe", None)
         resolved = resolve_us_theme(term)
-        if resolved is not None and getattr(parsed, "theme_universe", None) == resolved[0]:
-            # 검증기(capability_validator의 US 테마 전개)가 같은 테마로 이미 확정 —
-            # 재적용 불필요(지정 종목 보유 시 _apply_us_theme_companies는 불개입 계약).
+        if resolved is not None and already == resolved[0]:
+            continue
+        _related = resolve_us_company_related(term)
+        if _related is not None and already == _related[0]:
             continue
         if _ground_us_theme_term(parsed, term, on_stage=on_stage):
             continue
@@ -2389,6 +2400,50 @@ def _apply_us_theme_companies(parsed: Any, term: str) -> bool:
     parsed.sector = None
     parsed.theme_universe = theme_name
     parsed.universe_source = "theme_catalog"
+    return True
+
+
+def _apply_us_company_related(parsed: Any, term: str, on_stage=None) -> bool:
+    """'X 관련주'(X=미국 상장사)를 관계 기업 집합으로 전개한다(FR-STR-074 ⑦, 2026-08-27).
+
+    테마 축과 나란한 **회사 앵커 축**이다 — 미국 지식그래프는 회사명을 테마 별칭에서
+    의도적으로 제외하므로('company:' 노드 격리), 이 레인이 없으면 'nvidia 관련주'는
+    테마로도 단일 종목으로도 서지 못하고 표현이 사라진다(2026-08-27 사고).
+
+    순서는 테마 축과 같다: ① 학습 오버레이 결정론 조회 → ② SEC 공시 그라운딩. 관계
+    목록의 근거는 기업 자신의 연차보고서 기술이므로 객관적 사실이지 추천이 아니다.
+    실패는 False — 조용한 확정 없이 호출부의 되묻기가 표면화한다."""
+    if getattr(parsed, "target_symbols", None):
+        return False  # 이미 지정 종목이 있으면 불개입(_apply_us_theme_companies와 동일)
+    from engine.universe_pit import has_group_suffix, resolve_us_company_related
+
+    if not has_group_suffix(term):
+        return False  # 범주 접미가 없으면 이 축이 아니다(단일 종목 지정 소관)
+    related = resolve_us_company_related(term)
+    if related is None:
+        try:
+            from engine.us_term_grounding import ground_us_company_related
+            from strategy_conversation.planner.shadow import _default_chat
+
+            def _searching() -> None:
+                if on_stage is not None:
+                    on_stage("searching")
+
+            related = ground_us_company_related(term, _default_chat(), on_search=_searching)
+        except Exception:  # noqa: BLE001 — 그라운딩 실패가 파스를 깨면 안 된다
+            logger.debug("us company-related grounding failed | term=%r", term, exc_info=True)
+            return False
+        finally:
+            if on_stage is not None:
+                on_stage("thinking")
+    if related is None:
+        return False
+    label, symbols = related
+    parsed.target_symbols = list(symbols)
+    parsed.sector = None
+    parsed.theme_universe = label
+    parsed.universe_source = "company_related"
+    _log_llm("✓ US 관련주 앵커", f"'{term}' → '{label}' 지정 종목 {len(symbols)}곳")
     return True
 
 
@@ -2449,6 +2504,71 @@ def _ground_us_theme_term(parsed: Any, term: str, on_stage=None) -> bool:
     return True
 
 
+def _classification_reflected(
+    parsed: Any, universe_type: str, canonical: Optional[str]
+) -> bool:
+    """분류기가 낸 유니버스 판정이 실제 전략에 반영돼 있는가(값 대조뿐).
+
+    planner 관찰값을 '해석 완료'로 인정할지의 판정이다. 대조는 확정값끼리만 한다 —
+    사용자 원문을 다시 읽지 않는다(계약 § 판정 기준). 정본 표기가 없는 판정
+    (canonical=None인 ETF 등)은 해당 축이 채워졌는지만 본다."""
+    def _sector_values() -> List[str]:
+        raw = getattr(parsed, "sector", None)
+        if isinstance(raw, str):
+            return [raw]
+        return [s for s in (raw or []) if isinstance(s, str)]
+
+    if universe_type == "SINGLE_STOCK":
+        return bool(canonical) and canonical in (getattr(parsed, "target_symbols", None) or [])
+    if universe_type == "MARKET":
+        return bool(canonical) and canonical in (getattr(parsed, "universe", None) or [])
+    if universe_type == "SECTOR":
+        # 테마는 종목으로, 분류는 업종 필터로, 한국 섹터는 sector로 착지한다 — 축마다
+        # 착지점이 다르므로 canonical이 어느 축에 들어갔는지를 모두 본다.
+        return bool(canonical) and (
+            canonical in _sector_values()
+            or canonical == getattr(parsed, "us_industry", None)
+            or canonical == getattr(parsed, "theme_universe", None)
+        )
+    if universe_type == "ETF":
+        return bool(getattr(parsed, "etf_theme", None)) or bool(
+            {"ETF", "US_ETF"} & set(getattr(parsed, "universe", None) or [])
+        )
+    return True
+
+
+def _apply_designated_symbol(
+    parsed: Any, term: str, universe_type: str, canonical: Optional[str]
+) -> bool:
+    """분류기가 확정한 **지정 종목**을 전략에 결정론으로 적용한다(2026-08-27).
+
+    해석기가 상품 티커를 유니버스 칸에 넣어버리는 드리프트의 결정론 복구다 — 실측:
+    "Buy DIA when …"이 markets=["US_ETF"](미국 ETF 전체)로 파스돼 **상품 하나가 전체
+    유니버스로 벌어졌다**. 프롬프트로는 수렴하지 않는다(규칙을 옮길 때마다 이기는
+    티커만 바뀌는 시소 — 4.8/4.9/변형 C 실측). 반면 결정론 층은 답을 이미 알고 있다:
+    planner가 뽑은 짧은 표현을 classify_universe가 정본 registry로 SINGLE_STOCK +
+    티커까지 확정해 둔다. 그 관찰값을 쓰기만 하면 된다.
+
+    계약은 다른 적용기(_apply_us_theme_companies 등)와 같다 — 입력은 LLM이 뽑은 표현,
+    확정은 정본 registry, **이미 지정 종목이 있으면 불개입**(테마 전개·사용자 지목과
+    섞지 않는다). 원문은 읽지 않는다.
+    """
+    if universe_type != "SINGLE_STOCK" or not canonical:
+        return False
+    from engine.universe_pit import has_group_suffix
+
+    if has_group_suffix(term):
+        # 범주 접미가 붙은 표현('X 관련주')을 한 종목으로 좁히지 않는다 — 분류기가
+        # 드리프트해 SINGLE_STOCK을 내더라도(A1 가드가 정상이면 CONCEPT이다) 여기서
+        # 적용하면 2026-08-27 사고를 그대로 되살린다: 'nvidia 관련주' 유니버스가
+        # NVDA 한 종목으로 조용히 좁혀진다. 집합 표현은 해석 체인 소관이다.
+        return False
+    if getattr(parsed, "target_symbols", None):
+        return False
+    parsed.target_symbols = [canonical]
+    return True
+
+
 def _apply_planner_first_universe(
     result: Any, parsed: Any, notices: List[str]
 ) -> tuple[set, set]:
@@ -2482,11 +2602,34 @@ def _apply_planner_first_universe(
         if term in resolved:
             unresolved.discard(term)
             continue
-        # MARKET/SECTOR/SINGLE_STOCK/ETF 분류는 그 자체로 해석 완료 — 인터프리터가
-        # 원래 필드(universe/sector/target_symbols)로 표현하므로 병합할 것이 없다.
-        if obs.get("universe_type") not in (None, "CONCEPT"):
+        # MARKET/SECTOR/SINGLE_STOCK/ETF 분류는 인터프리터가 원래 필드(universe·
+        # sector·target_symbols)로 표현하므로 여기서 병합할 것이 없다 — **다만 실제로
+        # 표현됐는지 확인한다.** 확인 없이 완료로 도장을 찍던 종전 계약은 두 컴포넌트가
+        # 서로 "상대가 했겠지"로 어긋나는 순간 표현을 통째로 삼켰다(2026-08-27 사고:
+        # 'nvidia Related Stock'을 분류기가 SINGLE_STOCK NVDA로 읽어 완료 처리했는데
+        # 인터프리터는 sectors에 담았고 검증기가 그것을 지워, 되묻기도 안내도 없이
+        # 미국 전체 유니버스만 남았다). 반영이 없으면 미해결로 남겨 해석 체인·되묻기가
+        # 표면화한다 — 조용한 소실 금지.
+        _utype = obs.get("universe_type")
+        if _utype == "NOT_UNIVERSE":
+            # 유니버스 표현이 아니라는 판정 자체가 결론이다(지표 조건 구 오라우팅
+            # 백스톱) — 반영할 필드가 없으므로 확인 대상이 아니다.
             resolved.add(term)
             unresolved.discard(term)
+            continue
+        if _utype not in (None, "CONCEPT"):
+            if _classification_reflected(parsed, _utype, obs.get("canonical")):
+                resolved.add(term)
+                unresolved.discard(term)
+            elif _apply_designated_symbol(parsed, term, _utype, obs.get("canonical")):
+                _log_llm("✓ 지정 종목 복구",
+                         f"'{term}' → {obs.get('canonical')} (해석기 미반영분 결정론 적용)")
+                resolved.add(term)
+                unresolved.discard(term)
+            else:
+                _log_llm("· 분류 미반영",
+                         f"'{term}' {_utype}({obs.get('canonical')}) — 전략에 없어 해석 체인으로")
+                unresolved.add(term)
             continue
         if _us_ctx:
             # 미국 시장 문맥: 테마 해석은 US 카탈로그(정본 registry)만 쓴다. 아래 KR
@@ -3164,6 +3307,8 @@ def _resolve_us_universe_change(
     if _apply_us_theme_companies(parsed, term):
         parsed.universe_source = "theme_catalog"
         _log_llm("✓ US 테마 교체", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
+        return None
+    if _apply_us_company_related(parsed, term, on_stage=on_stage):
         return None
     if _ground_us_theme_term(parsed, term, on_stage=on_stage):
         return None

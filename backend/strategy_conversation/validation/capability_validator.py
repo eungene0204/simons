@@ -334,7 +334,11 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
             # 미국 테마 카탈로그(registry) 해석 — 카탈로그 정본 테마는 '테마 유래 지정
             # 종목'으로 전개한다(구성 티커 → universe.symbols, 출처는 theme 표기 계약).
             # 카탈로그 밖 테마만 명시적 미지원 안내(조용한 제거 금지).
-            from engine.universe_pit import resolve_us_theme, us_industry_label
+            from engine.universe_pit import (
+                resolve_us_company_related,
+                resolve_us_theme,
+                us_industry_label,
+            )
 
             _kept_sectors: List[str] = []
             _us_theme_resolved = False
@@ -346,7 +350,14 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 if us_industry_label(_sector_term) is not None:
                     _kept_sectors.append(_sector_term)
                     continue
+                # 테마 축이 비면 회사 앵커 축('X 관련주')을 본다 — **학습분 결정론
+                # 조회만** 한다(그라운딩 검색은 해석 체인 소관이다. 검증기는 네트워크·
+                # LLM을 부르지 않는다). 이미 아는 집합까지 미지원으로 알리면 모순이다.
                 _theme = resolve_us_theme(_sector_term)
+                _axis = "theme_catalog"
+                if _theme is None:
+                    _theme = resolve_us_company_related(_sector_term)
+                    _axis = "company_related"
                 if _theme is None:
                     _kept_sectors.append(_sector_term)
                     continue
@@ -357,6 +368,7 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                         strategy.universe.symbols.append(_sym)
                 if not strategy.universe.theme:
                     strategy.universe.theme = _theme_name
+                    strategy.universe.theme_source = _axis
             if _us_theme_resolved:
                 # 상류(한국 테마 전개)가 같은 테마어를 한국 종목으로 먼저 확장했을 수 있다
                 # ("크립토" → 미국 6티커 + 한국 61코드 실측, 2026-08-26). 미국 시장 문맥의

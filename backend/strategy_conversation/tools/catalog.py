@@ -121,8 +121,15 @@ def _classify_universe(inp: ClassifyUniverseIn) -> ClassifyUniverseOut:
         return ClassifyUniverseOut(universe_type="MARKET", canonical=_MARKET_CANONICAL[key])
     if any(marker in key for marker in _ETF_MARKERS):
         return ClassifyUniverseOut(universe_type="ETF")
+    # 범주 접미('관련주'·"related stocks")가 붙은 표현은 **집합**이지 한 종목이 아니다.
+    # 종목 해석기(resolve_symbols)는 문구 안에서 회사 이름을 찾아내는 스캐너를 폴백으로
+    # 쓰므로 'nvidia Related Stock'을 NVDA 하나로 접는다 — 그러면 상류가 "해석 완료"로
+    # 도장을 찍고 관련주 표현이 되묻기도 없이 증발한다(2026-08-27 사고). 판정은 어미
+    # 표기뿐이고 무엇에 관한 집합인지는 아래 해석 레인이 정한다.
+    from engine.universe_pit import has_group_suffix
+
     symbol_codes, unresolved = resolve_symbols([inp.text])
-    if symbol_codes and not unresolved:
+    if symbol_codes and not unresolved and not has_group_suffix(inp.text):
         return ClassifyUniverseOut(universe_type="SINGLE_STOCK", canonical=symbol_codes[0])
     # 미국 테마 카탈로그 — '미국' 표지가 있는 표현만("미국 빅테크") 미국 정본으로 분류한다.
     # 표지 없는 표현("빅테크")은 기존 KR 체인(KG 후보·검색 학습)을 보존한다 — 같은 어휘가

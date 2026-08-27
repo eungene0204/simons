@@ -3065,6 +3065,10 @@ _SHAPE_OMISSIONS: dict[str, dict[str, str]] = {
         # 형태에 실으면 반대 사고가 난다: 생성 턴에 테마가 sectors 대신 여기로 가서
         # 해석 체인(지식그래프·검색)을 타지 못하고 표기만 남는다.
         "theme": "수정 전용(초안 에코로 전달) — 생성 턴에 채우면 sectors 해석 체인을 우회",
+        # theme의 출처 축 표기(theme_catalog | company_related)를 검증기·체인이 채운다.
+        # 모델이 낼 값이 아니고, 형태에 실으면 theme과 함께 생성 턴에 채워져 해석 체인을
+        # 우회하는 같은 사고를 만든다.
+        "theme_source": "시스템이 채우는 출처 축 — LLM 입력이 아니고 theme과 같은 우회 위험",
     },
     "risk_management": {
         # 엔진 미지원(동일비중만) — capability_validator가 오류로 잡는다. 형태에 실으면

@@ -32,6 +32,26 @@ def universe_cache_stamp() -> str:
     return "|".join(parts)
 
 
+def _ui_language() -> str:
+    """요청 컨텍스트의 표시 언어(=지역). 컨텍스트 밖이면 기본값."""
+    try:
+        import ui_language
+
+        return ui_language.get_ui_language()
+    except Exception:  # noqa: BLE001 — 캐시 키 계산이 요청을 깨면 안 된다
+        return ""
+
+
+def _interpreter_prompt_version() -> str:
+    """해석 프롬프트 버전. 임포트 실패는 빈 문자열(키가 덜 좁아질 뿐 오염은 없다)."""
+    try:
+        from strategy_conversation.interpreter.prompts import PROMPT_VERSION
+
+        return str(PROMPT_VERSION)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def nl_cache_key(
     prompt: str, backend: str, model: str | None, previous_parsed: dict | None,
     pending_ask: dict | None = None, pending_question: str | None = None,
@@ -47,6 +67,15 @@ def nl_cache_key(
         # 같은 답("3억원")이라도 어떤 질문에 대한 답이냐에 따라 귀속 필드가 달라진다 —
         # pending_ask와 같은 이유로 키에 포함한다.
         "pending_question": pending_question or "",
+        # 표시 언어 = **지역**이다(/us는 en, KR은 ko — lib/geo/region). 지역이 유니버스
+        # 기본값(SP500 vs KOSPI200)·지역 격리 가드·되묻기 언어를 모두 좌우하므로 키에서
+        # 빠지면 같은 문장에 대해 **먼저 온 지역의 결과를 다른 지역이 받는다**
+        # (2026-08-27 실측: /us 게이트가 KR 문맥으로 채워진 캐시를 그대로 받아 왔다).
+        "ui_language": _ui_language(),
+        # 해석 프롬프트가 바뀌면 같은 문장의 결과도 바뀐다 — 버전이 키에 없으면 프롬프트를
+        # 고쳐도 캐시가 옛 결과를 계속 돌려주고, QA 게이트가 수정 전을 재측정한다(실측:
+        # 4.9로 고친 뒤 게이트 100건 중 1건만 새 프롬프트로 파싱됐다).
+        "prompt_version": _interpreter_prompt_version(),
         "universe_stamp": universe_cache_stamp(),
         # 상대 기간 표현("백테스트 2년")은 파싱 시점의 오늘 기준 명시 날짜로 변환돼 결과에
         # 저장되므로, 장수 프로세스에서 자정을 넘겨도 스테일 날짜가 반환되지 않게 키를 일 단위로 돌린다.

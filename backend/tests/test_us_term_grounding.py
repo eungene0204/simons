@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -51,6 +52,11 @@ def _found(spec: dict[str, int], total: Optional[int] = None) -> dict:
     """search_fn 반환 계약({total, filings})."""
     filings = _filings(spec)
     return {"total": len(filings) if total is None else total, "filings": filings}
+
+
+def entry_term(lexicon_path) -> str:
+    """원장에 남은 표기(표시 라벨과 갈리는지 보기 위한 헬퍼)."""
+    return grounding.company_related_entry("NVDA", lexicon_path=lexicon_path)["term"]
 
 
 def _chat_picking(symbols: list[str]):
@@ -227,6 +233,122 @@ def test_learned_term_is_not_researched_twice(tmp_path):
     assert first == second and calls["n"] == 1
 
 
+def _age_entry(lexicon_path, key: str, days: float) -> None:
+    """원장 항목의 검색 시각을 과거로 돌린다(경과 시간 의존 없는 TTL 검사)."""
+    data = json.loads(lexicon_path.read_text())
+    data[key]["searched_at"] = (
+        datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    lexicon_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+@needs_data
+def test_under_minimum_entry_is_retried_sooner_than_success(tmp_path):
+    """[회귀] 2026-08-27 — 미달 학습이 90일간 재시도를 막아 상류를 고쳐도 증상이 남았다.
+
+    실측 오염: 하이픈 정규화 누락으로 카탈로그를 빗나간 테마 3건이 빈 원장 항목
+    (verified 0곳)으로 굳어, 정규화를 고친 뒤에도 그 표현은 계속 되묻기로 끝났다.
+    미달은 '테마가 아니다'라는 결론이 아니라 '이번 검색이 세우지 못했다'는 잠정
+    상태이므로 짧은 주기(기본 3일)로 다시 찾아본다. 성공분은 종전 TTL(90일) 그대로다."""
+    lex = tmp_path / "lex.json"
+    calls = {"n": 0}
+
+    def search_short(_term):
+        calls["n"] += 1
+        return _found({"MRNA": 2, "ALNY": 2})  # 확정 2곳 — 최소 구성 4곳 미달
+
+    picks = _chat_picking(["MRNA", "ALNY"])
+    assert grounding.ground_us_theme(
+        "mrna", picks, search_fn=search_short, lexicon_path=lex) is None
+    assert calls["n"] == 1
+
+    # 미달 TTL 안(1일 경과)에서는 다시 찾지 않는다 — 매 턴 20초짜리 검색 반복 금지
+    _age_entry(lex, "mrna", days=1)
+    assert grounding.ground_us_theme(
+        "mrna", picks, search_fn=search_short, lexicon_path=lex) is None
+    assert calls["n"] == 1
+
+    # 미달 TTL(3일)을 넘기면 다시 찾아본다 — 이번엔 구성이 차서 테마가 선다
+    _age_entry(lex, "mrna", days=5)
+
+    def search_full(_term):
+        calls["n"] += 1
+        return _found({"MRNA": 2, "ALNY": 2, "IONS": 2, "VRTX": 2})
+
+    out = grounding.ground_us_theme(
+        "mrna", _chat_picking(["MRNA", "ALNY", "IONS", "VRTX"]),
+        search_fn=search_full, lexicon_path=lex)
+    assert calls["n"] == 2 and out is not None and len(out[1]) == 4
+
+    # 성공분은 짧은 TTL의 대상이 아니다 — 같은 5일 경과에도 다시 찾지 않는다
+    _age_entry(lex, "mrna", days=5)
+    assert grounding.ground_us_theme(
+        "mrna", picks, search_fn=search_full, lexicon_path=lex) is not None
+    assert calls["n"] == 2
+
+
+def test_english_singular_plural_variants_resolve():
+    """[회귀] 2026-08-27 — 정본은 복수, 입력은 단수라 한 글자 차이로 테마가 샜다.
+
+    "US GLP-1 obesity-drug stocks"는 범주 접미('stocks')를 벗기면 단수가 되는데
+    카탈로그 정본은 'GLP-1 obesity drugs'(복수)다. 이 미스로 카탈로그에 있는 테마가
+    공시 학습으로 흘러 되묻기로 끝났다(게이트 88번). 분류 registry가 이미 허용하는
+    단·복수 계약을 테마 축에도 맞춘다."""
+    from engine.us_knowledge_graph import resolve_theme
+
+    for spelling in ("obesity drugs", "obesity drug",
+                     "GLP-1 obesity-drug", "US GLP-1 obesity-drug stocks"):
+        resolved = resolve_theme(spelling)
+        assert resolved is not None, spelling
+        assert resolved[0] == "GLP-1 비만치료제", spelling
+    # 변형은 후보를 더 만들 뿐이라 기존 해석은 그대로다
+    assert resolve_theme("AI 반도체")[0] == "AI 반도체"
+    assert resolve_theme("crypto-related stocks")[0] == "크립토 관련주"
+    assert resolve_theme("cloud software")[0] == "클라우드 소프트웨어"
+
+
+def test_ampersand_and_and_are_the_same_classification(tmp_path):
+    """[회귀] 2026-08-27 — '&'와 'and'가 갈려 GICS 산업명이 축 가드를 빠져나갔다.
+
+    _token_key는 'and'를 무시하는데 조회 키(_norm)는 '&'를 그대로 둬서 정본
+    'Aerospace & Defense'와 입력 'aerospace and defense'가 다른 키가 됐다. 그 결과
+    산업명이 **테마로 학습**돼(양방향 축 가드 무력화) /us "On ITA, the US aerospace and
+    defense ETF …"가 ETF 상품 대신 방산주 10곳 포트폴리오로 조립됐다(게이트 #81)."""
+    from engine.us_industry_registry import classification_label
+    from engine.us_knowledge_graph import resolve_theme
+
+    for spelling in ("Aerospace & Defense", "aerospace and defense",
+                     "Aerospace and Defense"):
+        assert classification_label(spelling) == "Aerospace & Defense", spelling
+    # 분류 라벨이면 테마 축에 서지 않는다(읽기 가드) — 학습도 막힌다(쓰기 가드)
+    assert resolve_theme("aerospace and defense") is None
+
+    def search(_term):
+        raise AssertionError("분류 표현으로 공시 검색을 하면 안 된다")
+
+    assert grounding.ground_us_theme(
+        "aerospace and defense", _chat_picking([]), search_fn=search,
+        lexicon_path=tmp_path / "lex.json") is None
+
+
+def test_hyphen_is_a_word_separator_in_alias_keys():
+    """[회귀] 2026-08-27 — 영어 레인의 하이픈 복합어가 카탈로그를 빗나갔다.
+
+    /us 영어 게이트에서 테마 6건이 이 이유로 미해석 → 공시 학습으로 새고, 실패분이
+    원장에 굳었다. 하이픈은 공백과 같은 낱말 구분자로 본다(정규화이지 해석이 아니다 —
+    정본 별칭과 조회어가 같은 규칙을 통과하므로 짝이 어긋나지 않는다)."""
+    from engine.us_knowledge_graph import _norm_key, resolve_theme
+
+    assert _norm_key("humanoid-robotics") == _norm_key("humanoid robotics")
+    assert _norm_key("data-center power") == _norm_key("data center power")
+    for spelling in ("humanoid robotics", "humanoid-robotics"):
+        assert resolve_theme(spelling)[0] == "휴머노이드 로봇", spelling
+    for spelling in ("data center power", "data-center power infrastructure"):
+        assert resolve_theme(spelling)[0] == "데이터센터 전력 인프라", spelling
+    # 하이픈이 정체성인 표기도 그대로 잡힌다(양쪽이 같은 규칙을 통과하므로)
+    assert resolve_theme("GLP-1")[0] == "GLP-1 비만치료제"
+    assert resolve_theme("e-commerce")[0] == "이커머스"
+
+
 def test_search_failure_is_not_persisted(tmp_path):
     """검색 실패(네트워크·차단)는 저장하지 않는다 — 복구 후 재시도할 수 있어야 한다."""
     lex = tmp_path / "lex.json"
@@ -319,6 +441,102 @@ def test_learned_overlay_resolves_in_knowledge_graph(tmp_path, monkeypatch):
     assert symbols == ["MRNA", "ALNY"]  # pending(ARCT)은 그래프에 서지 않는다
     # 큐레이션 정본은 학습분보다 우선한다(시드 > 카탈로그 > 학습)
     assert kg.resolve_theme("AI 반도체")[0] == "AI 반도체"
+
+
+# ── 회사 앵커 축: 'X 관련주'(2026-08-27) ────────────────────────────────────
+
+def test_group_suffix_is_a_notation_judgement():
+    """범주 접미 판정은 어미 표기뿐 — 시장 접두는 범주를 바꾸지 않는다."""
+    from engine.us_knowledge_graph import has_group_suffix
+
+    assert has_group_suffix("nvidia Related Stock")
+    assert has_group_suffix("엔비디아 관련주")
+    assert has_group_suffix("crypto-related stocks")
+    assert not has_group_suffix("애플")
+    assert not has_group_suffix("미국 애플")   # 접두는 정체성만 좁힌다
+    assert not has_group_suffix("AI 반도체")
+    assert not has_group_suffix(None)
+
+
+@needs_data
+def test_bare_company_name_is_not_a_related_set(tmp_path):
+    """접미 없는 회사명은 단일 종목 지정 소관 — 관련주 학습이 가로채지 않는다."""
+    def search(_term):
+        raise AssertionError("접미 없는 회사명으로 검색하면 안 된다")
+
+    for term in ("Nvidia", "NVDA"):
+        assert grounding.ground_us_company_related(
+            term, _chat_picking([]), search_fn=search,
+            lexicon_path=tmp_path / "lex.json") is None
+
+
+@needs_data
+def test_non_company_anchor_is_not_a_related_set(tmp_path):
+    """앵커가 정본 상장사가 아니면 이 축이 아니다 — 테마 학습 소관으로 넘긴다."""
+    def search(_term):
+        raise AssertionError("테마어를 회사 앵커로 검색하면 안 된다")
+
+    assert grounding.ground_us_company_related(
+        "quantum computing stocks", _chat_picking([]), search_fn=search,
+        lexicon_path=tmp_path / "lex.json") is None
+
+
+@needs_data
+def test_company_related_learns_relations_and_keeps_anchor(tmp_path):
+    """'Nvidia 관련주' → 앵커 이름으로 검색하고 관계 기업을 학습한다(앵커 자신 포함).
+
+    [회귀] 2026-08-27 사고: 회사명은 테마 색인에서 제외돼 있고 테마 학습도 회사명을
+    막으므로, 이 축이 없으면 'nvidia 관련주'는 갈 곳이 없어 표현이 통째로 사라졌다."""
+    lex = tmp_path / "lex.json"
+    queried: list[str] = []
+
+    def search(term):
+        queried.append(term)
+        return _found({"NVDA": 2, "VRTX": 2, "JPM": 2, "BA": 2}, total=500)
+
+    # 심사가 앵커를 빠뜨려도 앵커는 관계 집합에 남는다(가장 직접적인 종목)
+    out = grounding.ground_us_company_related(
+        "nvidia Related Stock", _chat_picking(["VRTX", "JPM", "BA"]),
+        search_fn=search, lexicon_path=lex,
+    )
+    assert queried == ["Nvidia"]            # 질의어는 접미를 벗긴 정본 회사명
+    assert out is not None
+    label, symbols = out
+    assert label == "Nvidia 관련주"          # 표시 라벨(요청 언어 ko 기본)
+    assert entry_term(lex) == "Nvidia 관련주"  # 원장 표기는 언어와 무관한 한국어 정본
+    assert symbols[0] == "NVDA" and set(symbols) == {"NVDA", "VRTX", "JPM", "BA"}
+    entry = grounding.company_related_entry("NVDA", lexicon_path=lex)
+    assert entry["kind"] == "company_related" and entry["anchor"] == "NVDA"
+
+
+@needs_data
+def test_company_related_overlay_resolves_by_anchor_not_spelling(tmp_path, monkeypatch):
+    """학습된 관계 집합의 조회 키는 **앵커 티커**다 — 한국어/영어 표기 차가 미스를
+    만들면 안 된다. 그래서 테마 색인에는 넣지 않는다(별칭 경쟁 없음)."""
+    from engine import us_knowledge_graph as kg
+
+    lex = tmp_path / "us-term-lexicon.json"
+    lex.write_text(json.dumps({"related:NVDA": {
+        "term": "Nvidia 관련주", "kind": "company_related", "anchor": "NVDA",
+        "source": "edgar:fts", "searched_at": "2026-08-27T00:00:00+00:00",
+        "members": [
+            {"symbol": "NVDA", "name": "Nvidia", "support": 3, "status": "verified"},
+            {"symbol": "VRTX", "name": "Vertex", "support": 2, "status": "verified"},
+            {"symbol": "ARCT", "name": "Arcturus", "support": 1, "status": "pending"},
+        ],
+    }}, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lex)
+    monkeypatch.setattr(kg, "_CACHED", None)
+    monkeypatch.setattr(kg, "_CACHED_MTIMES", None)
+
+    for spelling in ("nvidia Related Stock", "엔비디아 관련주", "NVDA related stocks"):
+        resolved = kg.resolve_company_related(spelling)
+        assert resolved is not None, spelling
+        assert resolved == ("Nvidia 관련주", ["NVDA", "VRTX"])  # pending은 서지 않는다
+    # 접미 없는 표기는 이 축이 아니고, 테마 색인도 오염되지 않는다
+    assert kg.resolve_company_related("Nvidia") is None
+    assert kg.resolve_theme("Nvidia 관련주") is None
+    assert kg.resolve_theme("Nvidia") is None
 
 
 # ── 분류 축: 필터 승격(FR-STR-074 ⑩) ────────────────────────────────────────
@@ -476,3 +694,57 @@ def test_industry_aliases_are_consistent_across_spellings():
     # 개념 앵커(반도체 산업)는 구조가 붙어 있어 노드로 남지만, 표현은 분류로 통일된다
     assert classification_label("반도체") == "Semiconductors"
     assert classification_label("semiconductor") == "Semiconductors"
+
+
+@needs_data
+def test_company_related_expression_survives_the_us_chain(tmp_path, monkeypatch):
+    """[회귀] 2026-08-27 사고 전수 — 'nvidia 관련주'가 유니버스로 서고, 못 서면 되묻는다.
+
+    사고 당시에는 셋 다 실패했다: ① 분류기가 문구 속 회사명만 보고 SINGLE_STOCK으로
+    접었고 ② 상류가 그것을 '해석 완료'로 도장 찍었고 ③ 회사 앵커 축이 없어 체인에
+    도달해도 갈 곳이 없었다. 결과는 되묻기도 안내도 없는 미국 전체 유니버스였다."""
+    import ui_language
+    from engine import us_knowledge_graph as kg
+    from engine.nl_parser import ParsedStrategy
+    from strategy_conversation import primary
+    from strategy_conversation.tools.catalog import (
+        ClassifyUniverseIn, _classify_universe,
+    )
+
+    # ① 분류: 범주 접미가 붙은 표현은 단일 종목이 아니다(접미 없는 표기는 그대로 종목)
+    assert _classify_universe(
+        ClassifyUniverseIn(text="nvidia Related Stock")).universe_type == "CONCEPT"
+    single = _classify_universe(ClassifyUniverseIn(text="nvidia"))
+    assert (single.universe_type, single.canonical) == ("SINGLE_STOCK", "NVDA")
+
+    lex = tmp_path / "us-term-lexicon.json"
+    lex.write_text(json.dumps({"related:NVDA": {
+        "term": "Nvidia 관련주", "kind": "company_related", "anchor": "NVDA",
+        "source": "edgar:fts", "searched_at": "2026-08-27T00:00:00+00:00",
+        "members": [
+            {"symbol": s, "name": s, "support": 2, "status": "verified"}
+            for s in ("NVDA", "VRTX", "JPM", "BA")
+        ],
+    }}, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lex)
+    monkeypatch.setattr(kg, "_CACHED", None)
+    monkeypatch.setattr(kg, "_CACHED_MTIMES", None)
+
+    with ui_language.bind("en"):
+        # ③ 체인: 학습된 관계 집합이 지정 종목으로 전개된다(출처는 회사 앵커 축)
+        parsed = ParsedStrategy(description="t", universe=["US"])
+        assert primary._resolve_sector_terms_us(
+            parsed, ["nvidia Related Stock"]) == (None, None)
+        # /us(en)에서는 표시 라벨도 영어다 — 요약 카드에 한국어가 섞이면 안 된다
+        assert parsed.theme_universe == "Nvidia-related stocks"
+        assert set(parsed.target_symbols) == {"NVDA", "VRTX", "JPM", "BA"}
+        assert parsed.universe_source == "company_related"
+
+        # 학습 이력이 없는 앵커는 조용히 넘어가지 않는다 — 되묻기로 표면화한다
+        # (그라운딩은 네트워크 검색이므로 여기서는 차단하고 되묻기까지만 확인)
+        monkeypatch.setenv("US_TERM_GROUNDING", "off")
+        parsed2 = ParsedStrategy(description="t", universe=["US"])
+        question, _chips = primary._resolve_sector_terms_us(
+            parsed2, ["Tesla related stocks"])
+        assert question is not None and "Tesla related stocks" in question
+        assert not parsed2.target_symbols

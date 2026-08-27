@@ -60,6 +60,23 @@ def expected_etf_theme(prompt: str) -> Optional[str]:
     return extract_etf_theme(prompt)
 
 
+def expected_us_tickers(prompt: str) -> list[str]:
+    """QA 기대값: 예시가 **명시적으로 짚은** 미국 ETF 티커(정본 마스터 자기검증).
+
+    파스 경로가 아니라 QA 대조용 ground truth다(expected_etf_theme와 같은 계약).
+    2026-08-27 실측: "Buy SPY when …"이 markets=["US_ETF"](미국 ETF 전체)로 파스되는데도
+    아래 판정이 US_ETF 단독을 정상으로 인정해 **상품 하나가 전체 유니버스로 벌어지는
+    결함을 게이트가 통째로 못 봤다**. 예시가 티커를 짚었으면 그 티커가 지정 종목에
+    있어야 한다."""
+    from engine.universe_pit import is_us_etf_symbol
+
+    found: list[str] = []
+    for token in re.findall(r"(?<![A-Za-z0-9])[A-Z][A-Z0-9.\-]{1,9}(?![A-Za-z0-9])", prompt):
+        if is_us_etf_symbol(token) and token not in found:
+            found.append(token)
+    return found
+
+
 # 억원 단위 금액 지표 — 값이 억원이라 자릿수가 하나만 틀려도 전략이 10배 달라진다.
 AMOUNT_METRIC_LABELS = {"market_cap": "시가총액", "trading_value": "거래대금"}
 
@@ -325,7 +342,16 @@ def load_templates(source: str = "kr", lang: str = "kr") -> list[Template]:
 
 def parse_strategy(prompt: str) -> dict:
     # dev/배포 기본값은 ollama. mlx는 로컬 dev에 모델이 로드돼 있지 않아 503이 난다.
-    data = json.dumps({"prompt": prompt, "backend": "ollama"}).encode()
+    # **지역 신호**(2026-08-27): /us는 지역이 곧 표시 언어다(lib/geo/region → 프록시가
+    # X-UI-Language를 실어 보내고 백엔드가 요청 컨텍스트에 묶는다). 이걸 안 실으면
+    # 백엔드는 한국 요청으로 응대한다 — 지역 격리 가드가 발동하지 않고 시장 미언급의
+    # 기본 유니버스가 한국 기본값(KOSPI200)이 된다(실측: /us ETF 예시가 KOSPI200으로
+    # 파스). 아래 asked 대조가 "--lang en에서는 영어로 온다"를 전제하고 있었는데
+    # 전송이 빠져 있어 하니스가 스스로와 어긋나 있었다.
+    body = {"prompt": prompt, "backend": "ollama"}
+    if LANG == "en":
+        body["language"] = "en"
+    data = json.dumps(body).encode()
     req = urllib.request.Request(
         f"{BACKEND}/strategy/parse", data=data,
         headers={"Content-Type": "application/json"}, method="POST",
@@ -337,6 +363,18 @@ def parse_strategy(prompt: str) -> dict:
 # ── 검출 술어 ────────────────────────────────────────────────────────────
 def _has_fund(p: dict, metric: str) -> bool:
     return any(f.get("metric") == metric for f in p.get("fundamental_filters", []))
+
+
+def _has_rank(p: dict, metric: str) -> bool:
+    """랭킹 축에 그 지표가 쓰였는가 — 재무 **필터**와 다른 자리다(FR-STR-074 축 구분).
+
+    "시총 상위 10종목"은 필터가 아니라 **정렬 기준**이라 ranking_metric/ranking으로
+    착지한다. 필터만 보면 정상 반영된 전략이 '미탐지'로 잡힌다(2026-08-27 실측 #5:
+    ranking_metric=market_cap으로 반영됐는데 시가총액 미탐지로 보고됐다)."""
+    if p.get("ranking_metric") == metric:
+        return True
+    return any(r.get("metric") == metric for r in p.get("ranking") or []
+               if isinstance(r, dict))
 
 
 def _has_sig(p: dict, ind: str) -> bool:
@@ -374,9 +412,11 @@ COVERAGE_CHECKS: list[tuple[str, str, Any]] = [
     ("PER", r"PER|P/E", lambda p: _has_fund(p, "per")),
     ("ROE", r"ROE", lambda p: _has_fund(p, "roe_or_gpa")),
     ("부채비율", r"부채비율|debt", lambda p: _has_fund(p, "debt_ratio")),
-    ("시가총액", r"시가총액|시총|market\s*cap", lambda p: _has_fund(p, "market_cap")),
+    ("시가총액", r"시가총액|시총|market\s*cap",
+     lambda p: _has_fund(p, "market_cap") or _has_rank(p, "market_cap")),
     ("거래대금", r"거래대금|trading\s*value|dollar\s*volume|turnover",
-     lambda p: _has_fund(p, "trading_value") or _has_sig(p, "trading_value")),
+     lambda p: _has_fund(p, "trading_value") or _has_sig(p, "trading_value")
+     or _has_rank(p, "trading_value")),
     # 이동평균/EMA 상하 관계('20일선 위에 있는', '5일 EMA가 20일 EMA 위')는 crossover 표기로
     # 반영돼야 한다. 2026-07-27: 이 검사가 없어 4개 예시가 조건을 잃은 채 통과했다
     # (기준값 되묻기로 조건 드롭 — 인터프리터가 value 요구 연산자를 쓴 드리프트).
@@ -494,11 +534,21 @@ def analyze(tpl: Template, res: dict) -> Flags:
             # 미국 ETF 전체 유니버스(US_ETF). KR ETF 유니버스·etf_theme(KR 마스터 정본)
             # 판정은 적용하지 않는다.
             tgt = p.get("target_symbols") or []
-            us_ok = (tgt and all(_US_TICKER_RE.fullmatch(str(s or "")) for s in tgt)) \
-                or p.get("universe") == ["US_ETF"]
-            if not us_ok:
-                f.fatal.append(
-                    f"미국 ETF 지정/유니버스 아님(uni={p.get('universe')}, tgt={tgt})")
+            # 예시가 티커를 짚었으면 US_ETF 전체는 정답이 아니다 — 상품 지정이 유니버스
+            # 전체로 벌어지는 것이 정확히 잡아야 할 결함이다(2026-08-27).
+            want = expected_us_tickers(prompt)
+            if want:
+                missing = [t for t in want if t not in tgt]
+                if missing:
+                    f.fatal.append(
+                        f"미국 ETF 상품 지정 소실({','.join(missing)} → "
+                        f"uni={p.get('universe')}, tgt={tgt})")
+            else:
+                us_ok = (tgt and all(_US_TICKER_RE.fullmatch(str(s or "")) for s in tgt)) \
+                    or p.get("universe") == ["US_ETF"]
+                if not us_ok:
+                    f.fatal.append(
+                        f"미국 ETF 지정/유니버스 아님(uni={p.get('universe')}, tgt={tgt})")
         else:
             if p.get("universe") != ["ETF"]:
                 f.fatal.append(f"ETF 유니버스 아님({p.get('universe')})")
@@ -513,7 +563,12 @@ def analyze(tpl: Template, res: dict) -> Flags:
                        if x.get("metric") != "trading_value"]
         if etf_illegal:
             f.fatal.append(f"ETF에 재무 조건({','.join(etf_illegal)})")
-    if tpl.category == "테마" and not p.get("sector") and not p.get("target_symbols"):
+    # 업종/테마는 세 축 중 하나로 착지한다(FR-STR-074): 한국 섹터=sector,
+    # 테마·회사 앵커=target_symbols, 미국 분류=us_industry(유니버스 **필터**라 종목
+    # 목록으로 펼치지 않는다 — 2026-08-27 필터 승격). us_industry를 보지 않으면
+    # 멀쩡히 반영된 미국 업종 전략이 '미반영'으로 잡힌다.
+    if (tpl.category == "테마" and not p.get("sector")
+            and not p.get("target_symbols") and not p.get("us_industry")):
         f.fatal.append("업종/테마 미반영")
     # 명시적 청산 규칙('N일선 이탈 시 청산', '데드크로스면 매도')은 신호로 남아야 한다 —
     # 손절·보유기간만 남으면 전략의 성격이 바뀐다(2026-07-27 실측: 예시 3의 청산 소실).

@@ -88,13 +88,21 @@ _EXTRA_ALIASES = {
 }
 
 def _norm(text: str) -> str:
-    return (text or "").strip().lower().replace(" ", "")
+    """조회 정규화 키 — 공백 제거·소문자 + **'&'와 'and'를 같은 것으로 본다**.
+
+    _token_key는 이미 'and'를 무시하는데 조회 키는 '&'를 그대로 둬서, 정본
+    'Aerospace & Defense'와 입력 'aerospace and defense'가 갈렸다(2026-08-27 실측).
+    그 결과 **GICS 산업명이 분류 축 가드를 빠져나가 테마로 학습됐고**(양방향 축 가드가
+    무력화), /us "On ITA, the US aerospace and defense ETF …"가 ETF 상품 대신 방산주
+    10곳 포트폴리오로 조립됐다. 표기 변종 판정이지 의미 해석이 아니다."""
+    return (text or "").strip().lower().replace("&", "and").replace(" ", "")
 
 
 def _token_key(label: str) -> tuple:
-    """토큰 다중집합 — 순서·구분자·'and'를 무시한 표기 동일성 판정."""
+    """토큰 다중집합 — 순서·구분자·'and'('&' 포함)를 무시한 표기 동일성 판정."""
     return tuple(sorted(
-        t for t in re.split(r"[^a-z0-9&]+", (label or "").lower()) if t and t != "and"
+        t for t in re.split(r"[^a-z0-9]+", (label or "").replace("&", " and ").lower())
+        if t and t != "and"
     ))
 
 

@@ -69,3 +69,27 @@ def test_nl_cache_key_includes_pending_question():
         nl_cache.nl_cache_key("3억원", "ollama", None, prev)
         == nl_cache.nl_cache_key("3억원", "ollama", None, prev, None, None)
     )
+
+
+def test_cache_key_separates_region_and_prompt_version(monkeypatch):
+    """[회귀] 2026-08-27 — 지역·프롬프트 버전이 키에 없어 캐시가 결과를 섞었다.
+
+    표시 언어가 곧 지역이다(/us=en, KR=ko — lib/geo/region). 지역은 유니버스 기본값
+    (SP500 vs KOSPI200)·지역 격리 가드·되묻기 언어를 좌우하는데 키에 없어서 **먼저 온
+    지역의 결과를 다른 지역이 받았다**(실측: /us 게이트가 KR 문맥 캐시를 그대로 받음).
+    프롬프트 버전도 같은 이유다 — 해석 프롬프트를 고쳐도 캐시가 옛 결과를 돌려줘
+    QA 게이트가 수정 전을 재측정했다(4.9 적용 후 100건 중 1건만 새 프롬프트로 파싱).
+    """
+    import ui_language
+    from nl_cache import nl_cache_key
+
+    ko = nl_cache_key("Buy SPY", "ollama", None, None)
+    with ui_language.bind("en"):
+        en = nl_cache_key("Buy SPY", "ollama", None, None)
+    assert ko != en, "지역이 다른데 캐시 키가 같다 — 응답이 섞인다"
+
+    import nl_cache
+
+    monkeypatch.setattr(nl_cache, "_interpreter_prompt_version", lambda: "9.9")
+    bumped = nl_cache_key("Buy SPY", "ollama", None, None)
+    assert bumped != ko, "프롬프트 버전이 바뀌었는데 캐시 키가 같다 — 옛 결과가 남는다"
