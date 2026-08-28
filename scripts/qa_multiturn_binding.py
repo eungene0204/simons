@@ -28,6 +28,15 @@ import urllib.request
 BASE_URL = os.environ.get("QA_BACKEND_URL", "http://localhost:8000") + "/strategy/parse"
 TIMEOUT = int(os.environ.get("QA_TIMEOUT", "300"))
 
+# --lang en(/us 재현)일 때 전 턴에 실리는 지역 신호. /us 프론트는 지역을 X-UI-Language
+# 헤더로만 보내고(lib/server/backend.ts:52) 백엔드 미들웨어가 요청 컨텍스트에 묶는다
+# (main.py:108). 이걸 빼면 --lang en이 **발화만 영어로 바꾸고 지역은 한국인 채**여서
+# 지역 격리 가드가 발동하지 않는다 — 실측(2026-08-29) U4-ETF "SPY, the S&P 500 ETF"와
+# U4-단일 "just AAPL"이 둘 다 universe=KOSPI200으로 파스돼 **한국 레인을 검증하고 있었다**
+# (헤더를 실으면 각각 US·SP500). 되묻기 질문·칩은 헤더 유무와 무관하게 한국어 정본이므로
+# 아래 FORBIDDEN 한국어 대조와 질문 반복 비교는 그대로 성립한다(같은 실측).
+HEADERS: dict[str, str] = {}
+
 # 시나리오: (id, 설명, [사용자 발화...])
 # 각 발화는 직전 턴의 응답을 프론트 계약대로 에코하며 이어진다.
 SCENARIOS = [
@@ -105,7 +114,8 @@ FORBIDDEN = {
 def post(payload: dict) -> dict:
     body = json.dumps(payload).encode()
     req = urllib.request.Request(
-        BASE_URL, data=body, headers={"Content-Type": "application/json"})
+        BASE_URL, data=body,
+        headers={"Content-Type": "application/json", **HEADERS})
     with urllib.request.urlopen(req, timeout=TIMEOUT) as res:
         return json.loads(res.read().decode())
 
@@ -205,6 +215,8 @@ def main() -> int:
                         help="en: /us 영어 시나리오(SCENARIOS_EN)")
     args = parser.parse_args()
 
+    if args.lang == "en":
+        HEADERS["X-UI-Language"] = "en"
     pool = SCENARIOS_EN if args.lang == "en" else SCENARIOS
     targets = [s for s in pool if not args.only or s[0] == args.only]
     if not targets:

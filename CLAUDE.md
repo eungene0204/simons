@@ -320,13 +320,15 @@ Domain 검증            Registry + validation/ (지표 지원 여부·범위·�
 ### 전략 예시(EXAMPLES) 추가·수정 시 파싱 검증 필수
 `components/strategy/StrategyExampleTabs.tsx`의 예시를 추가하거나 문구를 바꾸면 **반드시 실제 파싱까지 돌려서 확인한다.**
 ```bash
-python scripts/qa_template_detect.py --category <카테고리> --refresh   # 치명 0이어야 함(종료 코드 0)
+python scripts/qa_template_detect.py --category <카테고리>   # 치명 0이어야 함(종료 코드 0)
 ```
 US 예시(`components/strategy/usExamples.ts`)·영어 번역(`lib/i18n/en.ts` — /us에서는 번역이 파서 입력)을 수정하면 두 게이트 모두 돌린다:
 ```bash
 QA_TIMEOUT=420 python scripts/qa_template_detect.py --source us            # 한국어 원문 게이트
 QA_TIMEOUT=420 python scripts/qa_template_detect.py --source us --lang en  # 영어 입력 게이트(/us 전송 경로 재현)
 ```
+
+게이트는 **매번 백엔드에 다시 묻는다**(캐시 재사용 없음 — 낡은 답 위에서 '치명 0'이 나오는 것을 막는다). `--refresh`는 폐지됐고(기본 동작), `--use-cache`는 판정 로직만 손볼 때 쓰는 오프라인 모드다 — **게이트 용도로 쓰지 않는다.**
 
 ### /us 영어 레인 수정 시 QA 하니스
 `/us` 파싱·분류·되묻기 경로를 고치면 아래 영어 판 하니스로 확인한다(전부 `--lang en`).

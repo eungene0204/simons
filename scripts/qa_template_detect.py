@@ -38,6 +38,7 @@ import json
 import os
 import re
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -709,11 +710,13 @@ def summarize(p: dict) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=None)
-    ap.add_argument("--use-cache", action="store_true", help="저장된 원시 파스 캐시만 사용(백엔드 미호출)")
+    ap.add_argument("--use-cache", action="store_true",
+                    help="백엔드를 부르지 않고 저장된 원시 파스 캐시만 읽는다(판정 로직만 손볼 때). "
+                         "**게이트 용도로 쓰지 말 것** — 낡은 답으로 '치명 0'이 나온다")
     ap.add_argument("--category", default=None,
                     help="카테고리 필터(콤마 구분). 예: --category ETF,테마")
     ap.add_argument("--refresh", action="store_true",
-                    help="캐시를 무시하고 다시 파싱한다(파서 수정 후 재검증용)")
+                    help="(폐지 — 이제 기본 동작이다. 기존 명령 호환을 위해 받기만 한다)")
     ap.add_argument("--source", default="kr", choices=sorted(_SOURCES),
                     help="예시 소스: kr(한국, 기본) | us(미국 — usExamples.ts)")
     ap.add_argument("--lang", default="kr", choices=["kr", "en"],
@@ -730,9 +733,23 @@ def main() -> int:
     if args.category:
         wanted = {c.strip() for c in args.category.split(",") if c.strip()}
         templates = [t for t in templates if t.category in wanted]
+    # 원시 파스 캐시는 **기록**이지 근거가 아니다 — 기본 경로는 매번 백엔드에 다시 묻는다.
+    # 종전엔 캐시에 있으면 무조건 재사용했고(--refresh를 붙여야만 재파싱), CLAUDE.md가
+    # 지정한 US 게이트 명령 두 개에는 그 플래그가 없다 → **"치명 0"이라는 합격선이 임의로
+    # 낡은 백엔드의 답 위에서 나올 수 있었다**(2026-08-29 발견. 같은 트랩이 qa_free_input의
+    # 기준 전략 캐시에서 실제 사고로 터졌다 — 원화 기본값이 박힌 사본을 4일간 기준선으로 썼다).
+    # 표식(git 커밋·소스 해시)으로는 못 막는다: 하니스는 답을 HTTP로 **남의 프로세스**에
+    # 물어보므로 로컬 파일은 그 서버의 빌드를 증명하지 못하고, LLM 모델·프롬프트 교체는
+    # 어떤 파일 목록으로도 안 덮인다. 답이 현행인지 아는 유일한 방법은 현행에 다시 묻는 것이다.
     cache: dict[str, dict] = {}
     if RAW_CACHE.exists():
         cache = json.loads(RAW_CACHE.read_text())
+    if args.use_cache:
+        # 남은 재사용 경로(판정 로직만 손볼 때)는 **조용하지 않게** 만든다 — 무엇을 보고
+        # 판정하는지 사람이 알아야 한다.
+        age_h = (time.time() - RAW_CACHE.stat().st_mtime) / 3600 if RAW_CACHE.exists() else 0.0
+        print(f"⚠️  --use-cache: 백엔드를 부르지 않는다. 캐시 {len(cache)}건, "
+              f"마지막 기록 {age_h:.1f}시간 전 — 현행 백엔드의 답이 아니다.", file=sys.stderr)
 
     lines = ["# 전략 템플릿 파싱 검출 리포트 (정제판)\n",
              f"- 대상: {len(templates)}개 (source={args.source}, lang={args.lang})\n"]
@@ -743,11 +760,11 @@ def main() -> int:
         # 캐시 키=파서 입력 텍스트. --lang en이면 영어 번역이 키가 되므로 한국어 실행과
         # 캐시가 섞이지 않고, 번역 문구가 바뀌면 자연히 새로 파싱한다.
         text = tpl.parse_input()
-        if text in cache and not args.refresh:
-            res = cache[text]
-        elif args.use_cache:
-            print(f"[{i}] 캐시 없음, 건너뜀", file=sys.stderr)
-            continue
+        if args.use_cache:
+            res = cache.get(text)
+            if res is None:
+                print(f"[{i}] 캐시 없음, 건너뜀", file=sys.stderr)
+                continue
         else:
             try:
                 res = parse_strategy(text)
