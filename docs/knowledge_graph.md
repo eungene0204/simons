@@ -171,7 +171,7 @@ HBM 조립장비"). 동일 개념은 하나의 노드로 통합하고 표기 변
   기존 뉴스 검색 학습으로 폴백. 배치 수집과 파서·스코프 가드(인물·정치·이벤트
   제외)를 공유한다(엔진 모듈이 정의, 스크립트가 임포트).
 
-## 미국 지식그래프 (US 레인, 2026-08-25)
+## 미국 지식그래프 (US 레인, 2026-08-25 · 테마 확장 2026-08-29)
 
 한국 KG와 같은 구조 원칙(시드 그래프 + 카탈로그 레이어 합성, 정본 재사용,
 company 노드 자동 생성 + 오타 fail-fast, mtime 캐시)을 미국 시장에 적용한
@@ -180,13 +180,54 @@ company 노드 자동 생성 + 오타 fail-fast, mtime 캐시)을 미국 시장�
 - **시드**: `data/us-knowledge-graph.json` — 한국 시드와 동일 스키마(nodes/edges,
   KR·EN 동의어). 개념 앵커(AI·반도체·데이터센터)와 테마 50여 개(스트리밍·결제·
   셰일·주택건설·금광 등), `company:TICKER` 엣지는 `us-stocks.json` 정본 대조.
-- **카탈로그 레이어**: `data/us-theme-catalog.json`(평면 테마→티커, 25테마) — 같은
+- **카탈로그 레이어**: `data/us-theme-catalog.json`(평면 테마→티커, **37테마**) — 같은
   별칭이 겹치면 시드(큐레이션) 승. 카탈로그의 정본 밖 티커는 조용히 스킵(한국과 동일
-  계약). 수동 큐레이션 17종 + **테마 ETF 유래 8종**(`scripts/build_us_theme_catalog.py`
-  — 대표 ETF 상위 보유(yfinance)를 정본∩파케이로 거르고 최소 4종목·별칭 충돌
-  사전검사·멱등 병합(`source: etf:*`만 교체). 로봇 자동화·클린에너지·유전체·수자원·
-  지역은행·리츠·소프트웨어·배당귀족). 테마의 `concepts` 필드는 개념 앵커 소속
-  (part_of 엣지) 선언이다.
+  계약). 수동 큐레이션 17종 + **테마 ETF 유래 20종**(`scripts/build_us_theme_catalog.py`).
+  테마의 `concepts` 필드는 개념 앵커 소속(part_of 엣지) 선언이다.
+- **테마 ETF 빌더 계약**(`scripts/build_us_theme_catalog.py`): 대표 ETF 보유목록을
+  정본∩파케이로 거르고 최소 4종목 게이트·별칭 충돌 사전검사·멱등 병합
+  (`source: etf:*`만 교체 — 수동 큐레이션 17종 불가침).
+  - **보유목록 소스 3종**: `globalx`(assets.globalxetfs.com 전체 보유 CSV — 파일명이
+    영업일자라 최근 10일 역탐색, 첫 성공일을 캐시) · `ark`(assets.ark-funds.com 전체
+    보유 CSV — 표 끝 면책 문구 행은 비중 파싱에서 탈락) · `yfinance`(**상위 10종만**.
+    전체 보유 CSV가 열리지 않는 운용사(iShares·Invesco·SPDR·Vanguard·ProShares)
+    테마만 남아 있고 신규에는 쓰지 않는다).
+  - **구성 상한 30종**(`MAX_MEMBERS`, 2026-08-29): 상한이 없으면 PAVE(100종)·
+    MILN(80종) 같은 광범위 ETF가 테마가 아니라 지수 유니버스가 된다. 상한은 정본
+    필터 **뒤에** 적용한다 — 앞에 두면 해외 상장분(`6861 JP`)이 자리를 차지한다.
+  - 2026-08-29 확장(Global X 12 + ARK/Global X 갱신 8): AI 빅데이터·사물인터넷·
+    고령화·밀레니얼 소비·블록체인·클린테크·우라늄·e스포츠·은 광산·수소·배터리·
+    구리 광산 신규. 전체 보유 전환으로 기존 테마도 깊어졌다(로봇 자동화 4→23,
+    유전체 10→30). 상위 10종 기준으로 탈락했던 LIT(배터리)가 게이트를 통과했다.
+  - **소스 선정 경위**: MarketScreener 투자 테마를 소스로 쓰려던 요청(2026-08-29)은
+    그 사이트가 자동 접근을 전면 차단(모든 URL 403, robots.txt 포함)해 불가능했다.
+    접근 가능한 운용사 공시로 같은 taxonomy(Millennials·Ageing Population·Hydrogen·
+    IoT·Strategic Metals 등)를 재현했다. 구성 목록은 운용사가 공시하는 객관적 소속
+    정보(사실)이며 추천이 아니다.
+  - **시드가 같은 id로 소유한 테마는 싣지 않는다**: FINX(핀테크)·EBIZ(이커머스)·
+    SOCL(소셜미디어)는 시드 `fintech`·`ecommerce`·`social-media` 노드가 이미 별칭을
+    소유한다. 시드가 이기므로 실으면 조용히 가려진다 — 2026-08-29 실측으로 30·30·28종을
+    싣고도 조회는 시드 6·5·4종으로만 갔다. **별칭 충돌 검사기가 소유자 문자열의
+    접미(`...:fintech`)만 보고 신규 테마 자신으로 오인해 통과시킨 버그**였고,
+    소유자 완전 일치(`new:<id>`)로 고쳤다(회귀
+    `test_seed_node_sharing_the_theme_id_is_still_a_collision`). 시드 구성을 깊게
+    할지는 별도 결정 사항이다.
+- **회사 앵커 관련주 축 보강(2026-08-29)**: `resolve_company_related`는 학습분
+  (`related:<앵커티커>`)에 **앵커 대표 테마의 동료**를 얹는다. 공시 전문검색은
+  '자기 공시에 앵커를 적은 회사'(고객·파트너·의존 기업)를 찾으므로 나란히 경쟁하는
+  동료는 후보에 오르지도 않는다 — 실측: 'Nvidia 관련주' 후보 40곳에 AVGO·MRVL·
+  TSM·MU·SMCI가 전무했고, 큐레이션은 이미 이들을 'AI 반도체'로 묶어 뒀는데 이 축이
+  보지 않아 조용히 빠졌다(15종 → 보강 후 21종).
+  - 대표 테마 판정 `representative_theme`: **앵커와 같은 GICS 산업을 공유하는 구성
+    비율**(응집도)이 가장 높은 테마. 동률이면 좁은 테마 → id 사전순(결정성).
+    구성 수가 가장 적은 테마를 고르면 NVDA가 '휴머노이드 로봇'(6종)으로 빠진다.
+  - 응집도 하한 `_PEER_THEME_MIN_COHESION = 0.30`: 실측 NVDA→AI 반도체 0.86 ·
+    JPM→대형 은행 0.60 · LLY→헬스케어 대형주 0.43 · TSLA→전기차·자율주행 0.40이
+    통과하고, 동료 테마가 없는 AAPL의 최고값 0.03(AI 빅데이터 30종)은 걸린다.
+    하한이 없으면 '애플 관련주'가 30종으로 번진다.
+  - 후보는 테마 노드뿐 — `sector:`/`industry:`(GICS)·`related:`·`company:`·`etf:`는
+    제외. **학습 이력이 없으면 종전대로 None** — 결정론 조회 계층이 그라운딩(학습)
+    기회를 가로채지 않는다.
 - **해석 진입점**: `universe_pit.resolve_us_theme` → `us_knowledge_graph.resolve_theme`.
   입력은 LLM이 추출한 짧은 테마어(원문 아님), 정확 일치만, '미국' 접두·영어
   한정어("US"/"American" 접두, "-related/stocks" 등 접미)는 벗겨 조회. 별칭 대조 키는
@@ -243,6 +284,8 @@ company 노드 자동 생성 + 오타 fail-fast, mtime 캐시)을 미국 시장�
 - 테스트: `backend/tests/test_us_knowledge_graph.py`(무결성 0·별칭 충돌 금지(시드
   내부+시드-카탈로그 교차)·파케이 전수·레이어 우선순위·fail-fast·덤프 라우트 분기),
   `backend/tests/test_us_theme_catalog.py`(카탈로그 무결성·검증기 전개),
+  `backend/tests/test_build_us_theme_catalog.py`(빌더 순수 로직 — 정본·최소 구성·
+  구성 상한·별칭 충돌(시드 동일 id 포함)·멱등 병합·보유 CSV 비중 파싱. 네트워크 미사용),
   `backend/tests/test_us_term_grounding.py`(공시 학습·상투어 게이트·회사 앵커 축·
   표기 판정·체인 전수 회귀 — 검색은 전부 주입이라 네트워크를 타지 않는다).
 

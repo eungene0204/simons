@@ -372,10 +372,29 @@
         "NVDA",
         "ISRG",
         "CGNX",
-        "AUR"
+        "GOOGL",
+        "AUR",
+        "PATH",
+        "TSLA",
+        "AVAV",
+        "BIDU",
+        "JBTM",
+        "XPEV",
+        "SYM",
+        "PONY",
+        "OUST",
+        "HSAI",
+        "WRD",
+        "APPN",
+        "OMCL",
+        "PRCT",
+        "CRNC",
+        "SERV",
+        "RR",
+        "EH"
       ],
       "source": "etf:BOTZ",
-      "as_of": "2026-08-26"
+      "as_of": "2026-08-29"
     },
     {
       "id": "clean-energy",
@@ -398,7 +417,7 @@
         "PLUG"
       ],
       "source": "etf:ICLN",
-      "as_of": "2026-08-26"
+      "as_of": "2026-08-29"
     },
     {
       "id": "genomics",
@@ -413,19 +432,39 @@
         "genomic revolution"
       ],
       "symbols": [
-        "TXG",
         "TWST",
+        "TXG",
         "TEM",
         "CRSP",
         "PSNL",
         "ABSI",
-        "GH",
         "ILMN",
+        "NTRA",
+        "GH",
+        "CDNA",
         "LLY",
-        "CDNA"
+        "BEAM",
+        "CMPS",
+        "ADPT",
+        "RXRX",
+        "NRIX",
+        "WGS",
+        "SDGR",
+        "BFLY",
+        "VCYT",
+        "IONS",
+        "NTLA",
+        "ALMR",
+        "PRME",
+        "GENB",
+        "MASS",
+        "CERS",
+        "PACB",
+        "SCTX",
+        "FRNM"
       ],
       "source": "etf:ARKG",
-      "as_of": "2026-08-26"
+      "as_of": "2026-08-29"
     },
     {
       "id": "water",
@@ -452,7 +491,7 @@
         "IEX"
       ],
       "source": "etf:PHO",
-      "as_of": "2026-08-26"
+      "as_of": "2026-08-29"
     },
     {
       "id": "regional-banks",
@@ -477,7 +516,7 @@
         "HWC"
       ],
       "source": "etf:KRE",
-      "as_of": "2026-08-26"
+      "as_of": "2026-08-29"
     },
     {
       "id": "reits",
@@ -502,7 +541,7 @@
         "VTR"
       ],
       "source": "etf:VNQ",
-      "as_of": "2026-08-26"
+      "as_of": "2026-08-29"
     },
     {
       "id": "software",
@@ -527,7 +566,7 @@
         "APP"
       ],
       "source": "etf:IGV",
-      "as_of": "2026-08-26"
+      "as_of": "2026-08-29"
     },
     {
       "id": "dividend-aristocrats",
@@ -553,7 +592,408 @@
         "HRL"
       ],
       "source": "etf:NOBL",
-      "as_of": "2026-08-26"
+      "as_of": "2026-08-29"
+    },
+    {
+      "id": "ai-bigdata",
+      "name": "AI 빅데이터",
+      "name_en": "AI & big data",
+      "aliases": [
+        "AI 빅데이터",
+        "인공지능 빅데이터",
+        "빅데이터",
+        "big data",
+        "AI and big data"
+      ],
+      "symbols": [
+        "PLTR",
+        "MSFT",
+        "ORCL",
+        "SPCX",
+        "NFLX",
+        "TSLA",
+        "AMZN",
+        "NVDA",
+        "GOOGL",
+        "TSM",
+        "CSCO",
+        "AAPL",
+        "AVGO",
+        "MU",
+        "META",
+        "INTC",
+        "AMD",
+        "BABA",
+        "SAP",
+        "IBM",
+        "MRVL",
+        "CRM",
+        "STX",
+        "SHOP",
+        "QCOM",
+        "UBER",
+        "NOW",
+        "ADBE",
+        "ACN",
+        "SNOW"
+      ],
+      "source": "etf:AIQ",
+      "as_of": "2026-08-29"
+    },
+    {
+      "id": "iot",
+      "name": "사물인터넷",
+      "name_en": "Internet of Things",
+      "aliases": [
+        "사물인터넷",
+        "IoT",
+        "IoT 관련주",
+        "internet of things"
+      ],
+      "symbols": [
+        "DXCM",
+        "GRMN",
+        "LSCC",
+        "IOT",
+        "SWKS",
+        "RMBS",
+        "SLAB",
+        "CSCO",
+        "ST",
+        "QCOM",
+        "ADT",
+        "ADI",
+        "EMR",
+        "PI",
+        "JCI",
+        "BDC",
+        "IBM",
+        "ITRI",
+        "BMI",
+        "NXPI",
+        "SYNA",
+        "ROK",
+        "AMBA",
+        "DGII",
+        "ALRM",
+        "HON",
+        "KARO",
+        "BB",
+        "GFS",
+        "HONA"
+      ],
+      "source": "etf:SNSR",
+      "as_of": "2026-08-29"
+    },
+    {
+      "id": "aging-population",
+      "name": "고령화",
+      "name_en": "Ageing population",
+      "aliases": [
+        "고령화",
+        "고령화 사회",
+        "실버산업",
+        "실버 산업",
+        "aging population",
+        "ageing population"
+      ],
+      "symbols": [
+        "LLY",
+        "AMGN",
+        "MRK",
+        "ABBV",
+        "WELL",
+        "EW",
+        "BMY",
+        "JNJ",
+        "VTR",
+        "REGN",
+        "MDT",
+        "SYK",
+        "ONC",
+        "AZN",
+        "DXCM",
+        "BSX",
+        "INCY",
+        "UTHR",
+        "ZBH",
+        "NBIX",
+        "EXEL",
+        "OHI",
+        "HALO",
+        "DVA",
+        "GKOS",
+        "PODD",
+        "ENSG",
+        "NVCR",
+        "MNKD",
+        "CGON"
+      ],
+      "source": "etf:AGNG",
+      "as_of": "2026-08-29"
+    },
+    {
+      "id": "millennials",
+      "name": "밀레니얼 소비",
+      "name_en": "Millennials",
+      "aliases": [
+        "밀레니얼",
+        "밀레니얼 세대",
+        "밀레니얼 소비",
+        "millennials"
+      ],
+      "symbols": [
+        "DASH",
+        "ABNB",
+        "SE",
+        "AAPL",
+        "BKNG",
+        "PYPL",
+        "CVNA",
+        "SBUX",
+        "AMZN",
+        "CMG",
+        "SPOT",
+        "GOOGL",
+        "UBER",
+        "DIS",
+        "VMRK",
+        "HD",
+        "INTU",
+        "XYZ",
+        "EBAY",
+        "META",
+        "COST",
+        "NKE",
+        "LOW",
+        "TJX",
+        "NFLX",
+        "EXPE",
+        "WSM",
+        "FISV",
+        "SN",
+        "SOFI"
+      ],
+      "source": "etf:MILN",
+      "as_of": "2026-08-29"
+    },
+    {
+      "id": "blockchain",
+      "name": "블록체인",
+      "name_en": "Blockchain",
+      "aliases": [
+        "블록체인",
+        "블록체인 관련주",
+        "blockchain"
+      ],
+      "symbols": [
+        "COIN",
+        "CRCL",
+        "BMNR",
+        "IREN",
+        "GLXY",
+        "MARA",
+        "RIOT",
+        "APLD",
+        "CLSK",
+        "WULF",
+        "CORZ",
+        "BTDR",
+        "CIFR",
+        "ETOR",
+        "BLSH",
+        "BTBT",
+        "CAN",
+        "GEMI",
+        "EXOD",
+        "BKKT",
+        "SLNH",
+        "BTCS",
+        "CANG",
+        "CD",
+        "FUFU",
+        "ABTC"
+      ],
+      "source": "etf:BKCH",
+      "as_of": "2026-08-29"
+    },
+    {
+      "id": "cleantech",
+      "name": "클린테크",
+      "name_en": "Cleantech",
+      "aliases": [
+        "클린테크",
+        "친환경 기술",
+        "cleantech",
+        "clean technology"
+      ],
+      "symbols": [
+        "BE",
+        "FSLR",
+        "NXT",
+        "ENPH",
+        "QS",
+        "PLUG",
+        "SEDG",
+        "FLNC",
+        "AMPX",
+        "SHLS",
+        "EOSE",
+        "CSIQ",
+        "DQ",
+        "AMRC",
+        "ENVX",
+        "ARRY",
+        "BLDP",
+        "JKS",
+        "MVST"
+      ],
+      "source": "etf:CTEC",
+      "as_of": "2026-08-29"
+    },
+    {
+      "id": "uranium",
+      "name": "우라늄",
+      "name_en": "Uranium",
+      "aliases": [
+        "우라늄",
+        "우라늄 광산",
+        "uranium",
+        "uranium miners"
+      ],
+      "symbols": [
+        "UEC",
+        "OKLO",
+        "LEU",
+        "SMR",
+        "XE",
+        "NNE",
+        "URG",
+        "UROY",
+        "IMSR",
+        "LTBR",
+        "NKLR",
+        "NUCL"
+      ],
+      "source": "etf:URA",
+      "as_of": "2026-08-29"
+    },
+    {
+      "id": "esports",
+      "name": "e스포츠",
+      "name_en": "Esports",
+      "aliases": [
+        "e스포츠",
+        "이스포츠",
+        "e 스포츠",
+        "esports",
+        "e-sports"
+      ],
+      "symbols": [
+        "U",
+        "TTWO",
+        "NTES",
+        "RBLX",
+        "BILI",
+        "CRSR",
+        "GRVY",
+        "IMMR",
+        "TBCH",
+        "HUYA",
+        "PLTK"
+      ],
+      "source": "etf:HERO",
+      "as_of": "2026-08-29"
+    },
+    {
+      "id": "silver",
+      "name": "은 광산",
+      "name_en": "Silver miners",
+      "aliases": [
+        "은 광산",
+        "은광",
+        "실버 광산",
+        "silver",
+        "silver miners"
+      ],
+      "symbols": [
+        "WPM",
+        "PAAS",
+        "CDE",
+        "HL",
+        "SSRM",
+        "BVN",
+        "EXK",
+        "HYMC",
+        "MUX"
+      ],
+      "source": "etf:SIL",
+      "as_of": "2026-08-29"
+    },
+    {
+      "id": "hydrogen",
+      "name": "수소",
+      "name_en": "Hydrogen",
+      "aliases": [
+        "수소",
+        "수소 경제",
+        "수소 에너지",
+        "hydrogen"
+      ],
+      "symbols": [
+        "BE",
+        "PLUG",
+        "FCEL",
+        "BLDP",
+        "APD",
+        "CMI",
+        "HY"
+      ],
+      "source": "etf:HYDR",
+      "as_of": "2026-08-29"
+    },
+    {
+      "id": "battery",
+      "name": "배터리",
+      "name_en": "Battery technology",
+      "aliases": [
+        "배터리",
+        "이차전지",
+        "2차전지",
+        "battery",
+        "battery technology"
+      ],
+      "symbols": [
+        "RIO",
+        "ALB",
+        "TSLA",
+        "SQM",
+        "ENS",
+        "LCID",
+        "SGML"
+      ],
+      "source": "etf:LIT",
+      "as_of": "2026-08-29"
+    },
+    {
+      "id": "copper",
+      "name": "구리 광산",
+      "name_en": "Copper miners",
+      "aliases": [
+        "구리",
+        "구리 광산",
+        "동광",
+        "copper",
+        "copper miners"
+      ],
+      "symbols": [
+        "SCCO",
+        "FCX",
+        "TGB",
+        "IE"
+      ],
+      "source": "etf:COPX",
+      "as_of": "2026-08-29"
     }
   ]
 }

@@ -560,7 +560,12 @@ def test_company_related_overlay_resolves_by_anchor_not_spelling(tmp_path, monke
     for spelling in ("nvidia Related Stock", "엔비디아 관련주", "NVDA related stocks"):
         resolved = kg.resolve_company_related(spelling)
         assert resolved is not None, spelling
-        assert resolved == ("Nvidia 관련주", ["NVDA", "VRTX"])  # pending은 서지 않는다
+        label, symbols = resolved
+        assert label == "Nvidia 관련주"
+        assert symbols[:2] == ["NVDA", "VRTX"]   # 학습분이 먼저(점수순)
+        assert "ARCT" not in symbols             # pending은 서지 않는다
+        # 2026-08-29: 학습분에 앵커 대표 테마('AI 반도체')의 동료가 얹힌다
+        assert {"AVGO", "MRVL"} <= set(symbols)
     # 접미 없는 표기는 이 축이 아니고, 테마 색인도 오염되지 않는다
     assert kg.resolve_company_related("Nvidia") is None
     assert kg.resolve_theme("Nvidia 관련주") is None
@@ -765,7 +770,7 @@ def test_company_related_expression_survives_the_us_chain(tmp_path, monkeypatch)
             parsed, ["nvidia Related Stock"]) == (None, None)
         # /us(en)에서는 표시 라벨도 영어다 — 요약 카드에 한국어가 섞이면 안 된다
         assert parsed.theme_universe == "Nvidia-related stocks"
-        assert set(parsed.target_symbols) == {"NVDA", "VRTX", "JPM", "BA"}
+        assert {"NVDA", "VRTX", "JPM", "BA"} <= set(parsed.target_symbols)
         assert parsed.universe_source == "company_related"
 
         # 학습 이력이 없는 앵커는 조용히 넘어가지 않는다 — 되묻기로 표면화한다
@@ -776,3 +781,52 @@ def test_company_related_expression_survives_the_us_chain(tmp_path, monkeypatch)
             parsed2, ["Tesla related stocks"])
         assert question is not None and "Tesla related stocks" in question
         assert not parsed2.target_symbols
+
+
+def test_company_related_adds_representative_theme_peers(tmp_path, monkeypatch):
+    """[회귀] 2026-08-29 — '엔비디아 관련주'에 AVGO·MRVL 같은 동료가 빠지던 문제.
+
+    공시 전문검색은 '자기 공시에 앵커를 적은 회사'(고객·파트너·의존 기업)를 찾으므로
+    나란히 경쟁하는 동료는 후보에 오르지도 않는다(실측: 후보 40곳에 AVGO·MRVL·TSM·
+    MU·SMCI 전무). 큐레이션은 이미 이들을 'AI 반도체'로 묶어 뒀는데 이 축이 보지
+    않아 조용히 빠졌다 — 학습분에 앵커 대표 테마의 동료를 얹는다.
+    """
+    from engine import us_knowledge_graph as kg
+
+    lex = tmp_path / "us-term-lexicon.json"
+    lex.write_text(json.dumps({"related:NVDA": {
+        "term": "Nvidia 관련주", "kind": "company_related", "anchor": "NVDA",
+        "source": "edgar:fts", "searched_at": "2026-08-29T00:00:00+00:00",
+        "members": [
+            {"symbol": "NVDA", "name": "Nvidia", "support": 3, "status": "verified"},
+            {"symbol": "IREN", "name": "IREN", "support": 2, "status": "verified"},
+        ],
+    }}, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lex)
+    monkeypatch.setattr(kg, "_CACHED", None)
+    monkeypatch.setattr(kg, "_CACHED_MTIMES", None)
+
+    resolved = kg.resolve_company_related("Nvidia 관련주")
+    assert resolved is not None
+    _label, symbols = resolved
+    assert symbols[:2] == ["NVDA", "IREN"]            # 학습분이 앞
+    assert {"AVGO", "MRVL", "TSM", "MU"} <= set(symbols)
+    assert len(symbols) == len(set(symbols))          # 중복 없음(AMD·NVDA 겹침)
+
+
+def test_company_related_without_learning_stays_none(tmp_path, monkeypatch):
+    """학습 이력이 없으면 종전대로 None — 결정론 조회 계층이 학습 기회를 가로채지 않는다.
+
+    AAPL은 카탈로그 테마('빅테크' 등)에 속하지만, 그것만으로 이 축이 서면
+    그라운딩 단계가 영영 돌지 않는다.
+    """
+    from engine import us_knowledge_graph as kg
+
+    lex = tmp_path / "us-term-lexicon.json"
+    lex.write_text(json.dumps({}, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lex)
+    monkeypatch.setattr(kg, "_CACHED", None)
+    monkeypatch.setattr(kg, "_CACHED_MTIMES", None)
+
+    assert kg.resolve_company_related("애플 관련주") is None
+    assert kg.resolve_company_related("Nvidia 관련주") is None

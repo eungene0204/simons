@@ -51,6 +51,13 @@ _COMPANY_EDGE_TYPES = frozenset({
     "related_company", "invests_in",
 })
 
+# 회사 앵커 관련주에 큐레이션 동료를 얹을 때의 응집도 하한(2026-08-29).
+# 앵커와 같은 GICS 산업을 공유하는 구성 비율이 이보다 낮은 테마는 '대표 테마'가
+# 아니다 — 실측: NVDA→AI 반도체 0.86 · JPM→대형 은행 0.60 · LLY→헬스케어 대형주
+# 0.43 · TSLA→전기차·자율주행 0.40 이 통과하고, 동료 테마가 없는 AAPL의 최고값
+# 0.03(AI 빅데이터 30종)은 걸린다. 하한이 없으면 '애플 관련주'가 30종으로 번진다.
+_PEER_THEME_MIN_COHESION = 0.30
+
 # 시장 한정어 접두 — "미국 사이버보안"의 '미국'은 테마 정체성이 아니다.
 _MARKET_PREFIX = "미국"
 
@@ -165,6 +172,51 @@ class USKnowledgeGraph:
                 if symbol not in found:
                     found.append(symbol)
         return found
+
+    def company_industry(self, symbol: str) -> Optional[str]:
+        """회사의 GICS 산업 노드 id — 대표 테마 판정용(해석에는 쓰지 않는다)."""
+        for e in self._out.get(f"company:{symbol}", []):
+            target = e.get("target", "")
+            if target.startswith("industry:"):
+                return target
+        return None
+
+    def representative_theme(self, symbol: str) -> Optional[str]:
+        """앵커가 속한 테마 중 **앵커를 가장 잘 대표하는** 노드 id | None.
+
+        회사 앵커 관련주(resolve_company_related)를 큐레이션으로 보강할 때, 앵커가
+        여러 테마에 걸쳐 있으면 어느 테마의 동료를 얹을지 골라야 한다. NVDA는 AI
+        반도체·빅테크·휴머노이드 로봇·로봇 자동화·AI 빅데이터 5곳에 속하는데,
+        '엔비디아 관련주'로 사람이 떠올리는 동료는 반도체 쪽이다.
+
+        판정은 **앵커와 같은 GICS 산업을 공유하는 구성 비율**(응집도)로 한다 —
+        구성 수가 가장 적은 테마를 고르면 NVDA가 휴머노이드 로봇(6종)으로 빠져
+        AVGO·MRVL을 놓친다(2026-08-29 실측). 동률이면 좁은 테마, 그다음 id 사전순
+        (결정성). GICS·ETF·회사·회사앵커 노드는 후보가 아니다.
+        """
+        anchor_industry = self.company_industry(symbol)
+        if anchor_industry is None:
+            return None
+        best: Optional[tuple[float, int, str]] = None
+        for e in self._in.get(f"company:{symbol}", []):
+            if e["type"] not in _COMPANY_EDGE_TYPES:
+                continue
+            source = e["source"]
+            if source.startswith(("company:", "etf:", "sector:", "industry:", "related:")):
+                continue
+            members = self.companies(source)
+            peers = [m for m in members if m != symbol]
+            if not peers:
+                continue  # 앵커 혼자인 테마엔 얹을 동료가 없다
+            same = sum(1 for m in peers if self.company_industry(m) == anchor_industry)
+            cohesion = same / len(peers)
+            if cohesion < _PEER_THEME_MIN_COHESION:
+                continue
+            # 응집도 내림차순 → 좁은 테마 → id 사전순
+            key = (-cohesion, len(members), source)
+            if best is None or key < best:
+                best = key
+        return best[2] if best else None
 
 
 # ── 합성 로드(mtime 캐시) ──────────────────────────────────────────────────────
@@ -523,7 +575,21 @@ def resolve_company_related(term: Optional[str]) -> Optional[tuple[str, list[str
     if node is None:
         return None
     symbols = graph.companies(node["id"])
-    return (company_related_label(anchor[1]), symbols) if symbols else None
+    if not symbols:
+        return None
+    # 학습분에 **앵커 대표 테마의 동료**를 얹는다(2026-08-29 사용자 결정).
+    # 공시 전문검색은 '자기 공시에 앵커를 적은 회사'(고객·파트너·의존 기업)를
+    # 찾으므로, 나란히 경쟁하는 동료는 후보에 오르지도 않는다 — 'Nvidia 관련주'
+    # 후보 40곳에 AVGO·MRVL·TSM·MU·SMCI가 아예 없었다. 큐레이션은 이미 이들을
+    # 'AI 반도체'로 묶어 두고 있었는데 이 축이 보지 않아 조용히 빠졌다.
+    # 학습 이력이 있을 때만 얹는다 — 없으면 종전대로 None을 돌려 그라운딩 단계가
+    # 학습을 시도한다(결정론 조회 계층이 학습 기회를 가로채지 않는다).
+    peer_theme = graph.representative_theme(anchor[0])
+    if peer_theme:
+        for symbol in graph.companies(peer_theme):
+            if symbol not in symbols:
+                symbols.append(symbol)
+    return (company_related_label(anchor[1]), symbols)
 
 
 def company_related_label(company_name: str) -> str:
