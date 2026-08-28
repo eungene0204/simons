@@ -306,6 +306,34 @@ def test_english_singular_plural_variants_resolve():
     assert resolve_theme("cloud software")[0] == "클라우드 소프트웨어"
 
 
+@needs_data
+def test_us_etf_universe_does_not_take_industry_filter():
+    """[회귀] 2026-08-27 — ETF × 업종 필터는 항상 공집합이라 조용히 0종목이 된다.
+
+    ETF는 여러 기업을 묶은 **상품**이라 GICS 분류가 없다(정본이 us-etf-master.json).
+    실측: US_ETF 31종 × 'Aerospace & Defense' → 0종목. 종전에는 산업명이 축 가드를
+    빠져나가 테마로 학습되면서 이 조합을 가리고 있었고, 가드를 복구하자 드러났다.
+    검증기는 ETF일 때 sectors를 etf_theme로 승격하며 비우므로 필터를 붙일 수 있는
+    자리는 해석 체인뿐이다 — 거기서 적용하지 않고 미해결로 남긴다."""
+    import ui_language
+    from engine.nl_parser import ParsedStrategy
+    from engine.universe_pit import filter_by_us_industry, resolve_us_symbols
+    from strategy_conversation import primary
+
+    # 전제: 교집합이 실제로 비어 있다(가드의 근거)
+    assert filter_by_us_industry(resolve_us_symbols("us_etf"), "Aerospace & Defense") == []
+
+    with ui_language.bind("en"):
+        etf = ParsedStrategy(description="t", universe=["US_ETF"])
+        assert primary._apply_us_industry(etf, "aerospace and defense") is False
+        assert etf.us_industry is None            # 조용한 공집합을 만들지 않는다
+
+        # 주식 유니버스에서는 종전대로 성립한다(가드가 과잉 차단하지 않는다)
+        stocks = ParsedStrategy(description="t", universe=["US"])
+        assert primary._apply_us_industry(stocks, "aerospace and defense") is True
+        assert stocks.us_industry == "Aerospace & Defense"
+
+
 def test_ampersand_and_and_are_the_same_classification(tmp_path):
     """[회귀] 2026-08-27 — '&'와 'and'가 갈려 GICS 산업명이 축 가드를 빠져나갔다.
 

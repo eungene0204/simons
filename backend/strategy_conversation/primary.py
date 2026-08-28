@@ -2459,6 +2459,15 @@ def _apply_us_industry(parsed: Any, term: str) -> bool:
     label = us_industry_label(term)
     if label is None:
         return False
+    if {"ETF", "US_ETF"} & set(getattr(parsed, "universe", None) or []):
+        # ETF 유니버스에는 업종 필터가 성립하지 않는다 — ETF는 여러 기업을 묶은
+        # **상품**이라 GICS 분류가 없다(정본이 us-etf-master.json이고 종목 정본이
+        # 아니다). 교집합이 항상 공집합이라 전략이 조용히 0종목이 된다(실측
+        # 2026-08-27: US_ETF 31종 × 'Aerospace & Defense' → 0). 검증기는 ETF일 때
+        # sectors를 etf_theme로 승격하며 비우므로, 이 체인만이 필터를 붙일 수 있는
+        # 자리다. 적용하지 않고 미해결로 남겨 되묻기가 표면화한다(조용한 공집합 금지).
+        _log_llm("· ETF×업종 미적용", f"'{term}' → '{label}' (ETF엔 업종 분류가 없다)")
+        return False
     if getattr(parsed, "us_industry", None) == label:
         return True  # 컴파일러가 이미 확정 — 중복 적용 불필요
     if getattr(parsed, "us_industry", None):
