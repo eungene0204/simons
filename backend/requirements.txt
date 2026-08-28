@@ -5,6 +5,9 @@ pyarrow==23.0.1
 pydantic==2.12.5
 pandas==2.3.3
 vectorbt==1.0.0
+# plotly는 vectorbt의 전이 의존(plotly>=4.12.0)이라 핀이 없으면 최신을 받는다. plotly 7.0.0이
+# scattermapbox 트레이스를 제거해 vectorbt import가 ValueError로 죽는다(2026-08-26 CI 전수 수집 실패).
+plotly==6.8.0            # vectorbt 1.0.0과 검증된 조합. 올릴 때는 vectorbt import부터 확인할 것
 backtrader==1.9.78.123  # reference engine for cross-validation tests only
 optuna==4.9.0
 python-dotenv

@@ -4,6 +4,10 @@
 (docs/nl_interpretation_contract.md § 3, 1a+4 마이그레이션).
 """
 
+from pathlib import Path
+
+import pytest
+
 from strategy_conversation.compiler.strategy_compiler import compile_strategy
 from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
 from strategy_conversation.interpreter.models import (
@@ -15,6 +19,10 @@ from strategy_conversation.interpreter.models import (
     ValidationReport,
 )
 from strategy_conversation.registry.universe_resolver import resolve_sectors, resolve_symbols
+
+_HAS_US_DATA = (Path(__file__).resolve().parents[2] / "data" / "ohlcv-us" / "AAPL.parquet").exists()
+
+needs_us_data = pytest.mark.skipif(not _HAS_US_DATA, reason="미국 파케이 미러 없음")
 
 
 # ── 업종/테마 해석 ────────────────────────────────────────────────────────────
@@ -73,6 +81,7 @@ def test_resolve_symbols_reports_unresolved():
     assert unresolved == ["존재하지않는회사명입니다"]
 
 
+@needs_us_data
 def test_resolve_symbols_resolves_us_tickers_with_data():
     """미국 종목은 2026-08-25 US 레인 승격으로 정식 지원 — 파케이 보유 티커만 인정한다.
 
