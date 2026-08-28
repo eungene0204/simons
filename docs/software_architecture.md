@@ -760,6 +760,14 @@ Strategy Compiler (compiler/strategy_compiler.py) — 검증 READY만 컴파일(
 | `validate_intent` | validation/pipeline.run_validation | ✅ |
 | `compile_strategy` | compiler(compile_strategy/compile_partial, `partial` 플래그) | ✅ |
 
+`kg_theme_companies`(백테스트 유니버스 확정 뷰)는 직접 상장사 엣지가 없어 **개념 1홉
+폴백으로만** 채워진 목록에 앵커 기준 근거 게이트를 건다 — 관계 원장(kg_research)에
+(앵커, 종목) 근거가 있거나, 앵커 정본 섹터가 경유 이웃 개념 중 하나와 일치해야 한다.
+통과분이 없으면 미해석(None)으로 돌려 THEME_NOT_FOUND 되묻기로 종결한다('베트남' 사고
+2026-08-29: 뉴스 동시언급으로 이어진 데이터센터의 종목 2곳이 베트남 관련주로 확정됐다).
+조회 레인의 `theme_listed_companies` 폴백은 불변이다. 상세는 `docs/knowledge_graph.md`
+「개념 1홉 폴백 — 백테스트 유니버스 승격에는 앵커 기준 근거가 필요하다」.
+
 - 경계 규칙: 도메인 예외(StrategyCompileError 등)는 전파(폴백 판단은 호출부 소관),
   `ToolError`는 계약 위반(미등록 이름·입출력 형식)에만. 입출력 검증은 base.py::call 단일
   진입점이 수행한다.

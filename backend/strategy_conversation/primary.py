@@ -3105,6 +3105,9 @@ def _resolve_sector_terms_term_in(
         if apply_theme_companies(parsed, term):
             _log_llm("✓ 테마 상장사", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
             continue
+        # 표기 변형 흡수 — 결정론 스캔이 놓쳤을 때만(닫힌 목록 LLM 선택)
+        if _apply_theme_via_canonical_match(parsed, term):
+            continue
         learned = _ground_sector_term(term, on_stage=on_stage)
         if learned:
             # 학습이 테마 앵커를 만들었으면 상장사 적용이 우선(레거시 학습→테마 순서와 동일),
@@ -3180,6 +3183,9 @@ def _resolve_sector_terms_planner_primary(
         if apply_theme_companies(parsed, term):
             _log_llm("✓ planner 테마", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
             continue
+        # 고정 체인과 같은 순서 — 업종 근사보다 테마 정본 매핑이 먼저다
+        if _apply_theme_via_canonical_match(parsed, term):
+            continue
         if result.sector:
             _merge_learned_sector(parsed, result.sector)
             _log_llm("✓ planner 해석", f"'{term}' → 섹터 '{result.sector}'")
@@ -3208,6 +3214,39 @@ def _resolve_sector_terms_planner_primary(
         if clarify is None and question:
             clarify = (question, suggestions)
     return clarify if clarify is not None else (None, None)
+
+
+def _apply_theme_via_canonical_match(parsed: Any, term: str) -> bool:
+    """결정론 조회가 놓친 표기를 KG 테마 정본 이름으로 매핑해 다시 적용한다(KR 레인).
+
+    개념 인식이 정규화 문자열 정확 일치라 표기 변형('코로나' vs '코로나19')은 별칭을 손으로
+    적어야만 잡혔다 — 그 열거는 끝나지 않는다. 의미 판정만 LLM으로 옮기고(닫힌 목록에서
+    고르기만 한다) 적용은 종전과 같은 결정론 경로(apply_theme_companies)를 재사용한다.
+
+    스캔이 맞힌 표현은 여기 도달하지 않으므로 기존 경로의 지연·동작은 변하지 않는다.
+    실패는 조용히 False — 기존 그라운딩·되묻기 체인이 그대로 담당한다.
+
+    KG_THEME_CANONICAL_MATCH=off면 이 단계를 건너뛴다(운영 기본 on). 테스트는 conftest가
+    off로 고정한다 — 체인 테스트가 조용히 실 LLM을 타면 느려지고 결정성을 잃는다."""
+    import os
+
+    from engine.nl_parser import apply_theme_companies
+
+    if os.getenv("KG_THEME_CANONICAL_MATCH", "on").strip().lower() == "off":
+        return False
+    try:
+        from engine.term_grounding import resolve_kg_theme
+        from strategy_conversation.planner.shadow import _default_chat
+
+        canonical = resolve_kg_theme(term, _default_chat())
+    except Exception:  # noqa: BLE001 — 정본 매핑 실패가 파스를 깨면 안 된다
+        logger.debug("KG 테마 정본 매핑 실패 | term=%r", term, exc_info=True)
+        return False
+    if not canonical or not apply_theme_companies(parsed, canonical):
+        return False
+    _log_llm("✓ 테마 정본 매핑",
+             f"'{term}' → '{canonical}' → 지정 종목 {len(parsed.target_symbols)}곳")
+    return True
 
 
 def _ground_sector_term(term: str, on_stage=None) -> Optional[str]:

@@ -1,0 +1,551 @@
+{
+  "concept": {
+    "id": "vietnam",
+    "canonical_name": "베트남",
+    "canonical_name_en": "Vietnam",
+    "aliases": [],
+    "definition": "베트남에 생산기지·현지법인·지분을 보유해 사업 노출이 확인된 한국 상장사 집합.",
+    "investment_context": "의류·신발 OEM, 전자부품, 화학/섬유, 건설·개발, 금융 등 여러 업종에 걸쳐 있어 단일 업종으로 묶이지 않는다. 등재 기준은 베트남 현지법인·공장·지분 보유라는 과거·현재의 사실이며 전망·평가는 담지 않는다.",
+    "industry": [],
+    "related_keywords": [
+      "베트남 진출",
+      "베트남 법인",
+      "베트남 공장",
+      "현지법인"
+    ],
+    "sources": []
+  },
+  "related_etfs": [],
+  "stocks": [
+    {
+      "company_name": "한세실업",
+      "ticker": "105630",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 92,
+      "reason": "의류 OEM 생산의 주력 기지가 베트남이다. 베트남에만 다수의 생산법인을 두고 협력업체 포함 약 2만 5천명을 고용하며, 지난해 베트남 생산 의류 수출 규모는 약 10억 달러다(인용 기사 본문 직접 확인).",
+      "business_evidence": "베트남 다수 생산법인 운영, 협력사 포함 고용 약 2.5만명, 베트남 생산 의류 수출 약 10억 달러.",
+      "verified": true,
+      "sources": [
+        {
+          "source_name": "서울파이낸스",
+          "document_title": "한세실업 베트남 생산·수출 규모",
+          "document_type": "news",
+          "url": "https://www.seoulfn.com/news/articleView.html?idxno=492074",
+          "evidence": "베트남 법인 고용 약 2.5만명, 베트남 생산 의류 수출 약 10억 달러"
+        }
+      ]
+    },
+    {
+      "company_name": "화승엔터프라이즈",
+      "ticker": "241590",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 91,
+      "reason": "신발 ODM 생산을 베트남 동나이 화승비나 공장에서 수행한다. 대규모 부지와 인력을 갖춘 단일 최대 생산기지이며 생산물의 대부분을 수출한다.",
+      "business_evidence": "베트남 동나이 화승비나 신발 ODM 생산기지 운영.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "노컷뉴스",
+          "document_title": "화승비나 베트남 생산기지",
+          "document_type": "news",
+          "url": "https://m.nocutnews.co.kr/news/amp/6244160",
+          "evidence": "동나이 화승비나 공장 규모·인력·월 생산량"
+        },
+        {
+          "source_name": "더벨",
+          "document_title": "화승엔터프라이즈 ODM 사업",
+          "document_type": "news",
+          "url": "https://www.thebell.co.kr/free/content/ArticleView.asp?key=201912111427031640102872&lcode=00",
+          "evidence": "베트남 생산기지 기반 ODM 사업"
+        }
+      ]
+    },
+    {
+      "company_name": "캠시스",
+      "ticker": "050110",
+      "exchange": "KOSDAQ",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 90,
+      "reason": "중국 공장 매각 이후 카메라모듈 생산을 베트남 법인으로 일원화했다. 카메라모듈이 매출의 대부분을 차지해 생산 거점이 사실상 베트남 단일이다.",
+      "business_evidence": "카메라모듈 생산을 베트남 법인으로 일원화(중국 공장 매각 이후).",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "딜사이트",
+          "document_title": "캠시스 생산 베트남 이전",
+          "document_type": "news",
+          "url": "https://dealsite.co.kr/articles/65184",
+          "evidence": "생산 베트남 이전 완료, 카메라모듈 매출 비중"
+        }
+      ]
+    },
+    {
+      "company_name": "효성화학",
+      "ticker": "298000",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Core",
+      "relevance_score": 88,
+      "reason": "베트남 바리아붕따우에 PP·탈수소(DH)·LPG 설비를 두고 있으며, '베트남'을 별도 사업부문으로 구분해 실적을 공시한다.",
+      "business_evidence": "바리아붕따우 PP·DH·LPG 설비 운영, 베트남을 별도 사업부문으로 공시.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "뉴스웨이",
+          "document_title": "효성화학 베트남 사업부문",
+          "document_type": "news",
+          "url": "https://newsway.co.kr/news/view?ud=2026072115113796385",
+          "evidence": "베트남 투자 규모 및 베트남 부문 실적 공시"
+        }
+      ]
+    },
+    {
+      "company_name": "오리온",
+      "ticker": "271560",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 85,
+      "reason": "호치민·하노이 2개 제과 공장을 가동하는 현지 생산·판매 법인을 운영한다. 베트남은 회사 해외 매출에서 비중이 큰 시장이다.",
+      "business_evidence": "호치민·하노이 2개 제과 공장 가동.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "시사저널e",
+          "document_title": "오리온 베트남 법인 실적",
+          "document_type": "news",
+          "url": "http://www.sisajournal-e.com/news/articleView.html?idxno=227128",
+          "evidence": "베트남 법인 누적 매출 및 해외 매출 비중"
+        }
+      ]
+    },
+    {
+      "company_name": "대우건설",
+      "ticker": "047040",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Infrastructure",
+      "relevance": "Strong",
+      "relevance_score": 85,
+      "reason": "하노이 스타레이크시티 신도시 개발 사업의 시행자다. 단순 도급이 아니라 부지 조성부터 분양까지 수행하는 개발 사업이다.",
+      "business_evidence": "하노이 스타레이크시티 신도시 개발 사업 시행, 2단계 착공(2024.11).",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "아세안익스프레스",
+          "document_title": "스타레이크시티 2단계 착공",
+          "document_type": "news",
+          "url": "https://www.aseanexpress.co.kr/news/article.html?no=10769",
+          "evidence": "스타레이크 2단계 착공 및 사업 규모"
+        }
+      ]
+    },
+    {
+      "company_name": "영원무역",
+      "ticker": "111770",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 84,
+      "reason": "베트남 남딘에 봉제·가방·염색·편직을 수직계열화한 복합 생산단지를 운영한다.",
+      "business_evidence": "남딘 복합 생산단지에서 봉제·가방·염색·편직 수직계열 운영.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "오케이패션",
+          "document_title": "영원무역 남딘 공장",
+          "document_type": "news",
+          "url": "http://okfashion.co.kr/detail.php?number=45316&thread=81r20",
+          "evidence": "남딘 공장 부지 면적·고용 인원"
+        }
+      ]
+    },
+    {
+      "company_name": "코오롱인더",
+      "ticker": "120110",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 83,
+      "reason": "베트남 빈즈엉 바우방에 PET 타이어코드 공장을 두고 있으며 증설을 진행 중이다.",
+      "business_evidence": "빈즈엉 바우방 PET 타이어코드 공장 운영 및 증설.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "코오롱 뉴스룸",
+          "document_title": "베트남 타이어코드 증설",
+          "document_type": "ir",
+          "url": "https://www.kolon.com/kr/media/newsDtl?detailsKey=8308",
+          "evidence": "베트남 타이어코드 공장 증설 투자·가동 계획"
+        }
+      ]
+    },
+    {
+      "company_name": "GS건설",
+      "ticker": "006360",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Infrastructure",
+      "relevance": "Strong",
+      "relevance_score": 82,
+      "reason": "100% 자회사를 통해 호치민 일대 신도시 부지의 토지사용권을 보유하고 개발 사업을 수행한다.",
+      "business_evidence": "자회사 VGSE/VGSI를 통해 호치민 3개 신도시 개발.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "CEO스코어데일리",
+          "document_title": "GS건설 베트남 개발사업",
+          "document_type": "news",
+          "url": "https://www.ceoscoredaily.com/page/view/2025092417094771676",
+          "evidence": "VGSE/VGSI 및 호치민 신도시 프로젝트"
+        }
+      ]
+    },
+    {
+      "company_name": "삼성전기",
+      "ticker": "009150",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 82,
+      "reason": "베트남 타이응우옌 생산법인을 운영하며 반도체 기판(FCBGA) 라인 증설 투자를 진행했다.",
+      "business_evidence": "타이응우옌 생산법인 운영, FCBGA 기판 라인 증설.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "파이낸셜뉴스",
+          "document_title": "삼성전기 베트남 기판 증설",
+          "document_type": "news",
+          "url": "https://www.fnnews.com/news/202608071048558091",
+          "evidence": "베트남 AI 기판 라인 증설"
+        },
+        {
+          "source_name": "스트레이트뉴스",
+          "document_title": "삼성전기 베트남 투자",
+          "document_type": "news",
+          "url": "https://www.straightnews.co.kr/news/articleView.html?idxno=204450",
+          "evidence": "베트남 투자 규모 및 투자허가"
+        }
+      ]
+    },
+    {
+      "company_name": "신한지주",
+      "ticker": "055550",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 82,
+      "reason": "100% 자회사인 신한베트남은행과 신한베트남파이낸스를 통해 베트남에서 은행·소비자금융 영업을 직접 수행한다.",
+      "business_evidence": "신한베트남은행(100%)·신한베트남파이낸스 운영.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "뉴스프리존",
+          "document_title": "신한베트남은행 실적",
+          "document_type": "news",
+          "url": "https://www.newsfreezone.co.kr/news/articleView.html?idxno=607898",
+          "evidence": "신한베트남은행 연간 순이익"
+        },
+        {
+          "source_name": "블로터",
+          "document_title": "신한베트남파이낸스",
+          "document_type": "news",
+          "url": "https://www.bloter.net/news/articleView.html?idxno=671489",
+          "evidence": "베트남 법인 실적 및 해외 기여도"
+        }
+      ]
+    },
+    {
+      "company_name": "LG이노텍",
+      "ticker": "011070",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 80,
+      "reason": "베트남 하이퐁 공장에 대규모 투자를 집행해 스마트폰 카메라모듈 생산능력을 확대했다.",
+      "business_evidence": "하이퐁 공장 투자, 카메라모듈 생산능력 확대.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "디일렉",
+          "document_title": "LG이노텍 하이퐁 증설",
+          "document_type": "news",
+          "url": "https://www.thelec.kr/news/articleView.html?idxno=21748",
+          "evidence": "하이퐁 공장 증설 투자"
+        }
+      ]
+    },
+    {
+      "company_name": "미래에셋증권",
+      "ticker": "006800",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 80,
+      "reason": "현지법인 미래에셋증권베트남을 통해 베트남에서 증권업을 직접 영위하며, 현지 외국계 증권사 중 자산 규모가 큰 편이다.",
+      "business_evidence": "미래에셋증권베트남 현지법인 운영.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "더구루",
+          "document_title": "미래에셋증권베트남 자산 규모",
+          "document_type": "news",
+          "url": "https://www.theguru.co.kr/news/article.html?no=99874",
+          "evidence": "현지법인 총자산 및 외국계 증권사 순위"
+        }
+      ]
+    },
+    {
+      "company_name": "금호타이어",
+      "ticker": "073240",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 79,
+      "reason": "베트남 빈즈엉 공장을 2008년부터 가동하고 증설을 진행했으며, 생산량 대부분을 수출한다.",
+      "business_evidence": "빈즈엉 타이어 공장 운영 및 증설.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "인사이드비나",
+          "document_title": "금호타이어 베트남 증설",
+          "document_type": "news",
+          "url": "http://www.insidevina.com/news/articleView.html?idxno=16246",
+          "evidence": "베트남 공장 증설 투자·연산 능력"
+        }
+      ]
+    },
+    {
+      "company_name": "우리금융지주",
+      "ticker": "316140",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 78,
+      "reason": "베트남우리은행을 통해 현지 다수 도시에서 은행 영업망을 운영한다.",
+      "business_evidence": "베트남우리은행 현지 영업망 운영.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "딜사이트",
+          "document_title": "베트남우리은행 영업 현황",
+          "document_type": "news",
+          "url": "https://dealsite.co.kr/articles/149798",
+          "evidence": "베트남우리은행 네트워크·실적"
+        }
+      ]
+    },
+    {
+      "company_name": "대상",
+      "ticker": "001680",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 78,
+      "reason": "1994년 베트남에 진출해 현지에 복수의 생산시설을 운영한다.",
+      "business_evidence": "베트남 내 복수 생산시설 운영(1994년 진출).",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "대상베트남",
+          "document_title": "대상 베트남 생산시설 소개",
+          "document_type": "ir",
+          "url": "https://daesang.vn/en/introduce-st2",
+          "evidence": "베트남 생산시설 목록 및 연혁"
+        }
+      ]
+    },
+    {
+      "company_name": "엠씨넥스",
+      "ticker": "097520",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 77,
+      "reason": "베트남에 복수의 생산공장을 두고 카메라모듈과 액추에이터를 생산한다.",
+      "business_evidence": "베트남 3·4공장에서 카메라모듈·액추에이터 생산.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "디일렉",
+          "document_title": "엠씨넥스 베트남 공장",
+          "document_type": "news",
+          "url": "https://www.thelec.kr/news/articleView.html?idxno=2484",
+          "evidence": "베트남 4공장 투자 및 생산 품목"
+        }
+      ]
+    },
+    {
+      "company_name": "TP",
+      "ticker": "007980",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 76,
+      "reason": "베트남 타인호아성에 봉제 공장을 두고 아웃도어 의류 OEM을 생산한다(2024년 태평양물산에서 사명 변경).",
+      "business_evidence": "타인호아성 VPT 봉제공장 운영.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "TENANT뉴스",
+          "document_title": "태평양물산 베트남 봉제공장",
+          "document_type": "news",
+          "url": "https://tnnews.co.kr/archives/9629",
+          "evidence": "VPT 타인호아 공장 인력·라인 증설"
+        }
+      ]
+    },
+    {
+      "company_name": "하나금융지주",
+      "ticker": "086790",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Investor",
+      "relevance": "Strong",
+      "relevance_score": 75,
+      "reason": "하나은행이 베트남 BIDV 지분을 인수해 2대주주 지위를 보유한다. 직접 영업이 아니라 지분 관계다.",
+      "business_evidence": "베트남 BIDV 지분 보유(2대주주).",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "이코리아",
+          "document_title": "하나은행 BIDV 지분 인수",
+          "document_type": "news",
+          "url": "https://www.ekoreanews.co.kr/news/articleView.html?idxno=40823",
+          "evidence": "BIDV 지분율·인수 금액·주식 수"
+        }
+      ]
+    },
+    {
+      "company_name": "제이에스코퍼레이션",
+      "ticker": "194370",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 75,
+      "reason": "핸드백 ODM 생산기지를 베트남으로 이전·확대했다.",
+      "business_evidence": "베트남 핸드백 ODM 공장 운영, 생산능력 확대.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "이데일리",
+          "document_title": "제이에스코퍼레이션 생산기지 이전",
+          "document_type": "news",
+          "url": "https://edaily.co.kr/news/read?mediaCodeNo=257&newsId=01252966612519032",
+          "evidence": "중국 편중 완화 및 베트남 생산능력 확대"
+        },
+        {
+          "source_name": "딜사이트",
+          "document_title": "베트남 공장 완공",
+          "document_type": "news",
+          "url": "https://dealsite.co.kr/articles/26443",
+          "evidence": "2017년 베트남 공장 완공"
+        }
+      ]
+    },
+    {
+      "company_name": "효성티앤씨",
+      "ticker": "298020",
+      "exchange": "KOSPI",
+      "country": "KR",
+      "relation_type": "Producer",
+      "relevance": "Strong",
+      "relevance_score": 74,
+      "reason": "베트남 바리아붕따우에 바이오BDO 공장을 건설 중이며, 효성그룹의 대베트남 투자 축 가운데 하나다.",
+      "business_evidence": "바리아붕따우 바이오BDO 공장 투자.",
+      "verified": false,
+      "sources": [
+        {
+          "source_name": "글로벌이코노믹",
+          "document_title": "효성티앤씨 바이오BDO 투자",
+          "document_type": "news",
+          "url": "https://www.g-enews.com/article/Industry/2024/04/202404161201472889e8b8a793f7_1",
+          "evidence": "바이오BDO 공장 투자 규모·가동 계획"
+        },
+        {
+          "source_name": "경제일보",
+          "document_title": "효성그룹 베트남 투자",
+          "document_type": "news",
+          "url": "http://www.kyungjeilbo.com/view/20221129161727874",
+          "evidence": "그룹 누적 대베트남 투자 및 진출 연혁"
+        }
+      ]
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "company_name": "락앤락",
+      "reason": "2024-12-09 KOSPI 상장폐지 — 상장사 범위 밖"
+    },
+    {
+      "company_name": "두산에너빌리티",
+      "ticker": "034020",
+      "reason": "두산비나를 2025년 매각 — 현재 베트남 노출 아님"
+    },
+    {
+      "company_name": "이마트",
+      "ticker": "139480",
+      "reason": "이마트베트남 지분 전량 매각, 현재 마스터프랜차이즈 로열티 수취만"
+    },
+    {
+      "company_name": "롯데웰푸드",
+      "ticker": "280360",
+      "reason": "비비카 지분 2020년 전량 매각, 현재 생산법인 확인 불가"
+    },
+    {
+      "company_name": "매일유업",
+      "ticker": "267980",
+      "reason": "2012년 철수, 현재 유통 계약만"
+    },
+    {
+      "company_name": "삼양식품",
+      "ticker": "003230",
+      "reason": "베트남 공장이 검토 단계 — 미래 사실이라 등재 대상 아님"
+    },
+    {
+      "company_name": "삼성전자",
+      "ticker": "005930",
+      "reason": "베트남 생산 사실은 확인되나 회사 전체 대비 일부 — 사용자 결정(2026-08-29)으로 순수 노출 기업만 등재"
+    },
+    {
+      "company_name": "삼성물산",
+      "ticker": "028260",
+      "reason": "위와 동일 — 대형주 제외 결정"
+    },
+    {
+      "company_name": "CJ제일제당",
+      "ticker": "097950",
+      "reason": "위와 동일 — 대형주 제외 결정"
+    },
+    {
+      "company_name": "롯데쇼핑",
+      "ticker": "023530",
+      "reason": "위와 동일 — 대형주 제외 결정"
+    }
+  ],
+  "summary": "베트남 사업 노출이 공개 자료로 확인된 한국 상장사 21곳. 대형주 4곳은 사용자 결정으로 제외했다(베트남이 회사 전체에서 차지하는 비중이 작아 테마 성격이 흐려짐).",
+  "researched_at": "2026-08-29",
+  "audit_note": "근거 문구에는 출처 본문으로 확인한 사실만 적었다. 조사 단계에서 인용 출처에 없는 수치가 발견된 사례(한세실업 '생산량 62%')가 있어, 직접 fetch로 확인하지 못한 수치는 문구에서 제외하고 verified=false로 표기했다. verified=true는 본문을 직접 확인한 건에만 부여한다(한세실업 1건). 나머지는 출처 URL을 남겨 후속 검증이 가능하게 했다."
+}

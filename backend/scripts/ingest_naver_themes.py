@@ -42,9 +42,8 @@ from ingest_judal_themes import (  # noqa: E402 — 제외 목록·동의어 규
 )
 
 from engine.knowledge_graph import TEST_RESERVED_TERMS  # noqa: E402
-from engine.naver_theme_live import (  # noqa: E402 — 라이브 편입과 파서·스코프 가드 공유
+from engine.naver_theme_live import (  # noqa: E402 — 라이브 편입과 파서 공유
     DETAIL_URL,
-    EXCLUDE_NAME_PATTERNS,
     FETCH_DELAY_S,
     THEME_LIST_URL,
     UPJONG_LIST_URL,
@@ -102,8 +101,7 @@ def main() -> None:
         seen_ids.add(theme_id)
         base = strip_paren(name)
         if (name in EXCLUDE_PERSON or base in EXCLUDE_PERSON or name in EXCLUDE_EVENT
-                or name in EXCLUDE_MARKET or base in EXCLUDE_MARKET
-                or EXCLUDE_NAME_PATTERNS.search(name)):
+                or name in EXCLUDE_MARKET or base in EXCLUDE_MARKET):
             report["excluded_scope"].append(name)
             continue
         if _norm_key(name) in TEST_RESERVED_TERMS or _norm_key(base) in TEST_RESERVED_TERMS:

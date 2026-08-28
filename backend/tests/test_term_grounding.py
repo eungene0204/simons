@@ -473,9 +473,12 @@ def test_company_edges_from_naver_groups_auto_verified(tmp_path, monkeypatch):
     """관련 기업 엣지는 뉴스 동시언급이 아니라 네이버 금융 분류로 만든다(FR-STR-071 개정
     2026-07-27, 사용자 지시 — 뉴스 노이즈 폐기·자동 등록).
 
-    LLM은 분류 이름 닫힌 목록에서만 고르고(목록 밖 이름·스코프 제외 분류는 드롭),
-    종목은 그 분류의 수록 목록에서 결정적으로 수집해 자동 verified로 등록한다(콘솔
-    사후 반려 가능). 뉴스 스니펫에 상장사가 함께 언급돼도 기업 엣지는 생기지 않는다."""
+    LLM은 분류 이름 닫힌 목록에서만 고르고(목록 밖 이름은 드롭), 종목은 그 분류의 수록
+    목록에서 결정적으로 수집해 자동 verified로 등록한다(콘솔 사후 반려 가능). 뉴스 스니펫에
+    상장사가 함께 언급돼도 기업 엣지는 생기지 않는다.
+
+    이름 키워드 스코프 가드는 폐지됐다(2026-08-29) — 종전에 '정치인 인맥' 같은 표기가
+    결정적으로 드롭되던 자리에서 이제는 닫힌 목록 소속 여부만 본다. 되살리지 말 것."""
     import engine.knowledge_graph as kg
     import engine.naver_theme_live as ntl
     import engine.term_grounding as tg
@@ -486,7 +489,7 @@ def test_company_edges_from_naver_groups_auto_verified(tmp_path, monkeypatch):
     groups = [
         {"no": 901, "name": "비만치료제", "kind": "theme"},
         {"no": 902, "name": "건강기능식품", "kind": "theme"},
-        {"no": 903, "name": "정치인 인맥", "kind": "theme"},  # 스코프 제외 가드
+        {"no": 903, "name": "정치인 인맥", "kind": "theme"},  # 키워드 가드 폐지 → 드롭 안 됨
     ]
     monkeypatch.setattr(tg, "_naver_groups_for_learning", lambda **k: groups)
     stocks_by_no = {
@@ -501,7 +504,7 @@ def test_company_edges_from_naver_groups_auto_verified(tmp_path, monkeypatch):
         {"title": "위고비 국내 시장 동향", "description": "신한지주, SK하이닉스 언급 기사",
          "link": "https://a.com/1", "date": "2024-03-05"},
     ]
-    # LLM이 스코프 제외('정치인 인맥')·목록 밖('없는분류') 이름을 답해도 드롭된다
+    # LLM이 목록 밖('없는분류') 이름을 답하면 드롭된다(닫힌 목록 계약)
     chat = _ChatStub("위고비", {"definition": "주사형 비만 치료제", "sector": "바이오/제약"},
                      groups=["비만치료제", "건강기능식품", "정치인 인맥", "없는분류"])
     got = resolve_sector("위고비 관련주 전략을 만들어줘", chat,
@@ -510,8 +513,9 @@ def test_company_edges_from_naver_groups_auto_verified(tmp_path, monkeypatch):
 
     saved = json.loads(lexicon.read_text(encoding="utf-8"))["위고비"]
     by_target = {e["target"]: e for e in saved["edges"] if e["type"] == "related_company"}
-    # 뉴스 동시언급(신한지주·SK하이닉스)은 미편입 — 분류 수록 종목만
-    assert set(by_target) == {"company:005930", "company:035720"}
+    # 뉴스 동시언급(신한지주)은 미편입 — 분류 수록 종목만.
+    # 000660은 뉴스가 아니라 '정치인 인맥' 분류 수록분으로 들어온다(키워드 가드 폐지).
+    assert set(by_target) == {"company:005930", "company:035720", "company:000660"}
     assert all(e["status"] == "verified" for e in by_target.values())  # 자동 등록
     assert by_target["company:005930"]["support"] == 2  # 두 분류에 수록 → 출처 2
     assert by_target["company:005930"]["target_name"] == "삼성전자"
@@ -523,7 +527,7 @@ def test_company_edges_from_naver_groups_auto_verified(tmp_path, monkeypatch):
     theme = theme_listed_companies("위고비 관련해서 백테스트")
     assert theme is not None
     assert theme["term"] == "위고비"
-    assert {c["symbol"] for c in theme["companies"]} == {"005930", "035720"}
+    assert {c["symbol"] for c in theme["companies"]} == {"005930", "035720", "000660"}
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
 
 
@@ -694,3 +698,59 @@ def test_snippet_dedupe_by_link():
     ]
     deduped = _dedupe_snippets(snippets)
     assert [s["title"] for s in deduped] == ["A", "B", "무링크"]
+
+
+def test_kg_theme_canonical_match_picks_only_from_closed_list():
+    """KG 테마 정본 매핑 — 표기 변형을 정본 이름 하나로 흡수한다(2026-08-29).
+
+    개념 인식이 정규화 문자열 정확 일치라 '코로나'가 '코로나19'를 못 찾아 업종 근사로
+    빠졌다. 별칭을 손으로 늘리는 방식은 표기 변형을 따라잡을 수 없어(어휘 문제가 아니라
+    레인 문제) 의미 판정만 LLM으로 옮겼다.
+
+    지어내기 차단이 계약이다 — LLM은 닫힌 목록에서 **고르기만** 하고, 목록 밖 이름은
+    드롭한다(네이버 분류 대조와 같은 계약)."""
+    from engine.term_grounding import (
+        _kg_theme_names,
+        _reset_theme_match_cache_for_tests,
+        resolve_kg_theme,
+    )
+
+    names = _kg_theme_names()
+    assert len(names) > 100                      # 시드+카탈로그 정본이 실려 있다
+    assert "HBM" in names                        # category가 theme이 아닌 시드도 포함
+    assert not any(n.startswith("sector:") for n in names)
+
+    def never(*a, **k):
+        raise AssertionError("정확 일치는 LLM을 부르지 않는다")
+
+    # 정본 표기와 정확히 일치하면 LLM 없이 끊는다
+    _reset_theme_match_cache_for_tests()
+    assert resolve_kg_theme("HBM", never) == "HBM"
+
+    # 업종 이름은 테마 축이 아니다 — LLM에 묻지 않고 차단(축 침범 금지)
+    _reset_theme_match_cache_for_tests()
+    assert resolve_kg_theme("반도체", never) is None
+
+    # 목록 밖 이름을 답하면 드롭한다(지어내기 차단)
+    _reset_theme_match_cache_for_tests()
+    assert resolve_kg_theme("코비드19", lambda *a, **k: '{"theme": "없는테마"}') is None
+
+    # 목록 안 이름이면 정본 표기로 돌려준다
+    _reset_theme_match_cache_for_tests()
+    got = resolve_kg_theme("코비드19", lambda *a, **k: '{"theme": "데이터센터"}')
+    assert got == "데이터센터"
+
+    # 같은 용어를 두 번 묻지 않는다(캐시)
+    assert resolve_kg_theme("코비드19", never) == "데이터센터"
+    _reset_theme_match_cache_for_tests()
+
+
+def test_kg_theme_canonical_match_returns_none_on_llm_refusal():
+    """확신 없으면 null — 틀린 테마를 고르는 것보다 미해석이 낫다(되묻기 체인이 받는다)."""
+    from engine.term_grounding import _reset_theme_match_cache_for_tests, resolve_kg_theme
+
+    _reset_theme_match_cache_for_tests()
+    assert resolve_kg_theme("정체불명표현", lambda *a, **k: '{"theme": null}') is None
+    _reset_theme_match_cache_for_tests()
+    assert resolve_kg_theme("정체불명표현2", lambda *a, **k: "깨진 응답") is None
+    _reset_theme_match_cache_for_tests()
