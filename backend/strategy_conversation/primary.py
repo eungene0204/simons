@@ -644,6 +644,34 @@ def _patch_provenance_supported(patch, compact_input: str, input_numbers: set) -
     return False
 
 
+def _unresolvable_symbol_names(rejected_patches: List[Any], compact_input: str) -> List[str]:
+    """거부된 종목 패치 값 중 **발화에 그대로 등장하는데 registry가 못 푼** 이름 목록.
+
+    환각(모델이 지어낸 이름)과 registry 공백(구 사명·미등록·오타)을 가르는 판정이다.
+    값이 사용자 발화에 실재하면 지어낸 이름일 수 없다 — 인용 대조(§ 3-1)이지 의미
+    해석이 아니다. 이름을 임의로 다른 종목으로 바꾸지 않고, 못 찾았다는 사실만 알린다.
+    """
+    from engine.nl_parser import _compact
+    from strategy_conversation.registry.universe_resolver import resolve_symbols
+
+    names: List[str] = []
+    for patch in rejected_patches:
+        if "symbols" not in [t for t in patch.path.split("/") if t]:
+            continue
+        values = [
+            v for v in (patch.value if isinstance(patch.value, list) else [patch.value])
+            if isinstance(v, str) and v.strip()
+        ]
+        if not values:
+            continue
+        _codes, unresolved = resolve_symbols(values)
+        for name in unresolved:
+            compact_name = _compact(name)
+            if compact_name and compact_name in compact_input and name not in names:
+                names.append(name)
+    return names
+
+
 _CONDITION_LIST_FIELDS = ("entry_conditions", "exit_conditions")
 
 
@@ -3783,10 +3811,25 @@ def run_primary_modification(
         # 미해석을 정직하게 안내한다(QA 20-3: 임의 변형 차단이 핵심). 과거의 질문 판정
         # 정규식(원문 의도 분류)과 fast-path 상담(원문 파서 상담)은 계약 위반이라 제거했다
         # (2026-07-26) — 후속 질문 라우팅은 상류 분류기(history 배선, FR-SA-002c-3) 소관.
-        notices = [
-            "요청을 전략 변경으로 해석하지 못해 전략은 그대로 유지했어요. "
-            "바꾸고 싶은 조건(예: 손절 10%로, 종목 20개로)을 구체적으로 말씀해 주세요."
-        ]
+        #
+        # 다만 종목 패치의 거부 사유는 둘로 갈린다: 이름을 지어냈거나(환각), 사용자가
+        # 실제로 부른 이름을 registry가 모르거나(구 사명·미등록·오타). 후자에 "해석하지
+        # 못했다"고 답하면 원인이 감춰진다 — 사용자는 분명히 종목을 말했는데 무엇이
+        # 문제인지 알 수 없다(2026-08-29 사고: "제이콘텐트리 종목을 추가해줘" → 구 사명이라
+        # 무매칭 → 환각으로 판정 → 위 문구). 발화에 그대로 등장하는 이름이면 환각이 아니므로
+        # 그 이름을 짚어 안내한다(전략은 여전히 무변경 — 임의 치환 금지).
+        unknown_names = _unresolvable_symbol_names(rejected_patches, compact_input)
+        if unknown_names:
+            names = ", ".join(f"'{n}'" for n in unknown_names)
+            notices = [
+                f"{names} 종목을 찾지 못해 전략은 그대로 유지했어요. "
+                "상장 종목의 정확한 이름이나 6자리 종목코드로 다시 말씀해 주세요."
+            ]
+        else:
+            notices = [
+                "요청을 전략 변경으로 해석하지 못해 전략은 그대로 유지했어요. "
+                "바꾸고 싶은 조건(예: 손절 10%로, 종목 20개로)을 구체적으로 말씀해 주세요."
+            ]
         return finalize_user_response({
             "parsed": prev,
             "clarification_question": None,

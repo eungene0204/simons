@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 
-from .symbol_resolver import _KOREAN_ALIASES, _load_stocks
+from .symbol_resolver import _load_stocks, known_aliases
 
 _NORMALIZE_STRIP = re.compile(r"[\s\-_./()&]+")
 
@@ -39,7 +39,7 @@ class MasterEntry:
 @lru_cache(maxsize=1)
 def _aliases_by_ticker() -> dict[str, tuple[str, ...]]:
     out: dict[str, list[str]] = {}
-    for alias, ticker in _KOREAN_ALIASES.items():
+    for alias, ticker in known_aliases().items():
         out.setdefault(ticker, []).append(alias)
     return {k: tuple(v) for k, v in out.items()}
 

@@ -5536,12 +5536,12 @@ def _target_surface_forms(refs: list) -> list[str]:
     별칭('하이닉스')으로 매칭돼도 StockRef는 등록명(SK하이닉스)만 담으므로, 그 종목을
     가리키는 별칭 전부를 함께 돌려줘야 수정 fast-path의 잔여 판정이 깨끗해진다.
     """
-    from stock_analysis.symbol_resolver import _KOREAN_ALIASES
+    from stock_analysis.symbol_resolver import known_aliases
 
     forms: list[str] = []
     for ref in refs:
         forms.extend([ref.name, ref.symbol])
-        forms.extend(alias for alias, code in _KOREAN_ALIASES.items() if code == ref.symbol)
+        forms.extend(alias for alias, code in known_aliases().items() if code == ref.symbol)
     return forms
 
 

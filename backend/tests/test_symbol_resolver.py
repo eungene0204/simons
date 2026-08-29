@@ -164,3 +164,54 @@ def test_symbol_typo_term_in_chip_falls_back_to_name_when_absent_from_prompt():
         ParsedStrategy(description="x"), "그 회사로 전략 만들어줘", terms=["삼서전자"])
     assert q is not None
     assert chips == ["삼성전자"]
+
+
+def test_former_company_name_resolves_to_current_listing():
+    """[2026-08-29 회귀] 구 사명 '제이콘텐트리'가 무매칭이라 종목 추가 요청이 통째로
+    무시됐다(수정 레인 환각 게이트가 '지어낸 이름'으로 판정). 종목코드는 그대로이므로
+    구 사명도 현재 등록 종목(콘텐트리중앙 036420)으로 해석돼야 한다."""
+    from stock_analysis.symbol_resolver import find_in_text
+
+    refs = find_in_text("제이콘텐트리 종목을 추가해줘")
+    assert [(r.symbol, r.name) for r in refs] == [("036420", "콘텐트리중앙")]
+
+
+def test_former_names_come_from_collected_history_not_hardcoding():
+    """구 사명은 손으로 적지 않고 KRX 스냅샷 대조 산출물에서 온다
+    (`scripts/build_stock_name_history.py` → `data/stock-name-history.json`).
+    개별 이름을 코드에 박는 방식으로 되돌아가면 이 계약이 깨진다."""
+    from stock_analysis.symbol_resolver import _KOREAN_ALIASES, _former_names, known_aliases
+
+    former = _former_names()
+    assert former.get("제이콘텐트리") == "036420"
+    assert len(former) > 500  # 전수 수집물(한두 개 하드코딩이 아니다)
+    assert "제이콘텐트리" not in _KOREAN_ALIASES
+    assert known_aliases()["현대차"] == "005380"  # 통칭도 함께 노출
+
+
+def test_former_name_never_overrides_a_current_listing_name():
+    """지금 어느 상장사가 쓰는 이름은 구 사명 별칭이 가로채지 못한다 — 두 데이터 파일이
+    따로 갱신되므로 읽는 쪽에서도 막는다(정본은 언제나 현재 등록명)."""
+    import json
+
+    from stock_analysis.symbol_resolver import _load_stocks, _former_names
+
+    current = {"".join(str(r["name"]).split()).lower() for r in _load_stocks()}
+    clashes = [n for n in _former_names() if "".join(n.split()).lower() in current]
+    assert clashes == []
+
+
+def test_former_name_aliases_are_unambiguous():
+    """한 구 사명이 두 종목을 가리키면 등재하지 않는다 — 무매칭이 오해석보다 안전하다."""
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "data" / "stock-name-history.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    bearers: dict[str, set] = {}
+    for event in data["renames"]:
+        for name in (event["from"], event["to"]):
+            bearers.setdefault("".join(name.split()).lower(), set()).add(event["symbol"])
+    for name, symbol in data["formerNames"].items():
+        key = "".join(name.split()).lower()
+        assert bearers[key] == {symbol}, f"{name} → {sorted(bearers[key])}"

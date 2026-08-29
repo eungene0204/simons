@@ -51,6 +51,13 @@ _KOREAN_ALIASES: dict[str, str] = {
     "sk hynix": "000660",
 }
 
+# 구 사명(상장 유지 + 종목코드 동일). 사용자는 바뀌기 전 이름으로 부르는 일이 흔한데
+# korea-stocks.json은 현재 등록명만 담아 무매칭이 된다. 무매칭은 조용한 실패로 끝나지 않고
+# '모델이 이름을 지어냈다'는 판정(수정 레인 환각 게이트)까지 불러 요청을 통째로 버린다
+# (2026-08-29 사고: "제이콘텐트리 종목을 추가해줘"). 손으로 적지 않고 KRX 월별 스냅샷
+# 대조로 수집한다 — `scripts/build_stock_name_history.py`, 산출물이 아래 파일이다.
+_NAME_HISTORY_PATH = Path(__file__).resolve().parents[2] / "data" / "stock-name-history.json"
+
 
 @dataclass(frozen=True)
 class StockRef:
@@ -74,18 +81,53 @@ def _load_stocks() -> list[dict]:
 
 
 @lru_cache(maxsize=1)
+def _former_names() -> dict[str, str]:
+    """구 사명 → 종목코드. 수집·모호성 배제는 빌드 스크립트가 끝냈고 여기서는 읽기만 한다.
+
+    다만 **현재 등록명과 겹치는 구 사명은 읽는 쪽에서도 한 번 더 버린다** — 두 파일
+    (korea-stocks.json·stock-name-history.json)은 따로 갱신되므로, 신규 상장사가 어느
+    상장사의 옛 이름을 그대로 쓰기 시작하면 낡은 별칭이 현재 회사를 가로챈다. 현재
+    등록명이 언제나 이긴다.
+    """
+    try:
+        data = json.loads(_NAME_HISTORY_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        logger.exception("stock-name-history.json 로드 실패: %s", _NAME_HISTORY_PATH)
+        return {}
+    current = {_normalize_name(str(row["name"])) for row in _load_stocks()}
+    return {
+        name: ticker
+        for name, ticker in (data.get("formerNames") or {}).items()
+        if _normalize_name(name) not in current
+    }
+
+
+def _normalize_name(name: str) -> str:
+    return "".join(name.split()).lower()
+
+
+def known_aliases() -> dict[str, str]:
+    """등록명이 아닌 국내 인식 이름 전부(통칭 + 구 사명) → 종목코드."""
+    return {**_former_names(), **_KOREAN_ALIASES}
+
+
+@lru_cache(maxsize=1)
 def _match_index() -> tuple[tuple[str, dict], ...]:
     """매칭 문자열 길이 내림차순으로 정렬된 (match_str, row) 목록.
 
-    등록명과 국내 통칭(_KOREAN_ALIASES)을 한 인덱스에 합쳐 '가장 긴 이름 우선'으로
+    등록명과 국내 통칭·구 사명(known_aliases)을 한 인덱스에 합쳐 '가장 긴 이름 우선'으로
     매칭한다. 별칭도 같은 길이 정렬을 거치므로 '하이닉스'가 '이닉스'보다 먼저 잡혀
-    충돌이 발생하지 않는다(별칭은 해당 등록 row로 해석된다)."""
+    충돌이 발생하지 않는다(별칭은 해당 등록 row로 해석된다). 구 사명이 다른 회사의 현재
+    등록명을 부분 문자열로 품거나 그 반대인 경우도 이 정렬이 처리한다 — 언제나 더 긴
+    쪽이 이기므로 문장에 적힌 이름 그대로 해석된다."""
     rows = _load_stocks()
     by_symbol = {str(row["symbol"]).strip(): row for row in rows}
     indexed: list[tuple[str, dict]] = [
         (str(row["name"]).strip(), row) for row in rows if len(str(row["name"]).strip()) >= 2
     ]
-    for alias, ticker in _KOREAN_ALIASES.items():
+    for alias, ticker in known_aliases().items():
         row = by_symbol.get(ticker)
         if row is not None and len(alias) >= 2:
             indexed.append((alias, row))

@@ -4281,3 +4281,61 @@ def test_breakout_quote_reclassifies_ma_condition_without_ma_vocab():
     conds = intent.strategy.entry_conditions
     assert conds[0].factor == "technical.breakout"
     assert conds[1].factor == "technical.ma_crossover"
+
+
+def test_modify_primary_reports_unknown_symbol_name_instead_of_uninterpreted(monkeypatch):
+    """[2026-08-29 회귀] 발화에 실재하는 종목명을 registry가 못 풀면(구 사명·미등록),
+    환각 게이트가 패치를 버리고 "전략 변경으로 해석하지 못해"라고 답해 원인이 감춰졌다.
+    분명히 종목을 말한 사용자에게는 **그 이름을 못 찾았다**고 알려야 한다(전략은 무변경).
+    """
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [{"op": "add", "path": "/universe/symbols/-",
+                     "value": "없는회사이름입니다",
+                     "source_text": "없는회사이름입니다 종목을 추가해줘"}],
+    })
+    prev = _rich_parsed().model_dump()
+    result = run_primary_modification("없는회사이름입니다 종목을 추가해줘", prev)
+    assert result is not None
+    assert result["interpreter"]["mode"] == "primary_modify_rejected_patches"
+    notice = " ".join(result["notices"])
+    assert "없는회사이름입니다" in notice
+    assert "해석하지 못해" not in notice
+    # 전략은 임의로 바뀌지 않는다
+    assert result["parsed"].target_symbols == _rich_parsed().target_symbols
+
+
+def test_modify_primary_keeps_generic_notice_for_fabricated_symbol(monkeypatch):
+    """발화에 없는 이름을 모델이 지어낸 경우는 여전히 환각이다 — 그 이름을 사용자에게
+    되읽어 주면 안 되므로 일반 미해석 안내를 유지한다."""
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [{"op": "add", "path": "/universe/symbols/-",
+                     "value": "없는회사이름입니다", "source_text": "다른 예는 없어?"}],
+    })
+    result = run_primary_modification("다른 예는 없어?", _rich_parsed().model_dump())
+    assert result is not None
+    assert result["interpreter"]["mode"] == "primary_modify_rejected_patches"
+    notice = " ".join(result["notices"])
+    assert "없는회사이름입니다" not in notice
+    assert "해석하지 못해" in notice
+
+
+def test_modify_primary_adds_former_named_stock(monkeypatch):
+    """구 사명으로 부른 종목 추가가 지정 종목 합집합으로 반영된다(2026-08-29 사고 경로)."""
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [{"op": "add", "path": "/universe/symbols/-", "value": "제이콘텐트리",
+                     "source_text": "제이콘텐트리 종목을 추가해줘"}],
+    })
+    prev = _rich_parsed().model_dump()
+    prev["target_symbols"] = ["093320", "035760"]
+    result = run_primary_modification("제이콘텐트리 종목을 추가해줘", prev)
+    assert result is not None
+    assert result["parsed"].target_symbols == ["093320", "035760", "036420"]

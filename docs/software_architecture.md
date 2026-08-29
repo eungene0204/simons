@@ -707,6 +707,11 @@ Strategy Compiler (compiler/strategy_compiler.py) — 검증 READY만 컴파일(
   ② 패치 수치와 입력 수치의 대조(단위 환산 포함), ③ 지정 종목의 해석 가능성(마스터 조회).
   셋 다 근거가 없으면 환각으로 거부하고 전략 유지+미해석 안내(QA 20-3). 과거의 필드별
   한국어 어휘 큐 스캔(_PATCH_FIELD_CUES)은 발화 어휘 스캔이라 폐기(§ 3-1 (b), 2026-07-26).
+  **거부 사유가 ③(종목 해석 실패)이면 안내가 갈린다(2026-08-29)**: 값이 발화에 그대로
+  실재하는 이름이면 모델이 지어냈을 수 없으므로(구 사명·미등록·오타) '전략 변경으로
+  해석하지 못했다' 대신 **그 이름을 못 찾았다**고 알린다(`_unresolvable_symbol_names` —
+  LLM 출력과 원문의 포함 대조일 뿐 의미 해석이 아니다). 전략은 여전히 무변경이며 이름을
+  임의로 다른 종목으로 치환하지 않는다.
   **판정 단위는 필드가 아니라 조건 하나다(2026-07-31)**: 같은 조건 객체를 겨냥한 형제
   패치(`/entry_conditions/0/{factor,operator,value}`)는 지표를 통째로 갈아끼우는 **한
   덩어리의 수정**이라 `_patch_group_key`로 묶어 함께 판정한다 — 그룹 안에 출처가 확인된
@@ -1186,6 +1191,7 @@ ChatQaLog       — 전략연구소 대화 기록 (질문·답변 한 턴 = 1행
 | `data/us-index-membership.json` | JSON | 미국 지수 **현행** 구성종목 — S&P500(위키 503)·나스닥100(나스닥 공식 API 102)·다우30(stockanalysis.com 30). 편입/편출 이력(PIT)은 무료 소스 부재로 미수집(파일에 명시) — US 지수 유니버스는 이 명부 기준이며 엔진이 생존편향·현행 명부 경고를 남긴다. 수집기 `scripts/backfill_us_index_membership.py`(정상 범위 Fail-Fast), 12주 전량 재수집 주기에 함께 갱신 |
 | `data/fundamentals/` | JSON/CSV | ROE, EPS, BPS, 부채비율 |
 | `data/korea-stocks.json` | JSON | 종목명, 코드, 시장, 섹터 (현재 상장 — 섹터 SOT) |
+| `data/stock-name-history.json` | JSON | 국내 종목 **사명 변경 이력**과 구 사명 별칭(`formerNames`: 구 사명 → 종목코드). KRX 월별 전종목 스냅샷(MDCSTAT01501, 2000-01~)을 대조해 같은 코드의 이름이 바뀐 지점을 관측한 것 — `backend/scripts/build_stock_name_history.py`(KRX_ID/PW 필요, 스냅샷 캐시=data/cache/krx-name-snapshots/, `--rebuild-only`는 무통신 재집계). 모호한 이름은 등재하지 않는다: 지금 다른 상장사가 쓰는 이름·두 코드가 나눠 쓴 이름(상폐 포함)·3자 미만. registry(`symbol_resolver.known_aliases`)가 통칭과 함께 매칭 인덱스에 넣어 '가장 긴 이름 우선'으로 해석한다 |
 | `data/stock-master.json` | JSON | PIT 종목 마스터(상장폐지 포함, 생존편향 제거) + 상폐 종목 industry/sector 백필(`backend/scripts/backfill_delisted_sectors.py`, 재빌드는 `build_stock_master.py`) |
 | `data/etf-master.json` | JSON | ETF 유니버스 마스터(FDR ETF/KR ∩ 로컬 OHLCV + 상폐 백필 병합, `backend/scripts/build_etf_master.py`) — 상폐 미백필 상태에서만 엔진이 생존편향 경고 |
 | `data/etf-delisted.json` | JSON | 상폐 ETF 멤버십(`backend/scripts/backfill_delisted_etf.py` — KRX Open API 승인 또는 KRX_ID/PW 필요, 일별 캐시=data/cache/krx-etf-daily/) |
