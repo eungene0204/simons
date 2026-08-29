@@ -193,6 +193,61 @@ def test_reattach_noop_without_open_question():
     assert primary._reattach_open_question({}, "") == {}
 
 
+# ── 2026-08-29: 되붙인 슬롯 질문이 선택지를 잃던 사고 ────────────────────────
+#
+# 프론트 게이트가 물은 슬롯 질문에는 백엔드 pending_ask가 없다(문구·칩이 프론트 정본
+# 픽스처에서 나온다) — 그래서 미반영 턴은 질문 문자열만 되붙였고, 우선순위 마커 때문에
+# 프론트가 자기 게이트의 칩 있는 같은 질문 대신 그 무칩 사본을 그렸다: 매수 조건 선택지
+# 박스가 사라지고 채팅 입력창만 남았다("제이콘텐트리 종목을 추가해줘" 실측).
+
+def test_reattached_slot_question_carries_canonical_chips():
+    """질문만 에코된 슬롯 되묻기도 정본 칩과 함께 되붙는다(결속된 칩만)."""
+    prev = _kospi_per_strategy()
+    result = primary._reattach_open_question(
+        None, "다음으로 어떤 조건에서 매수할지 정해볼까요?", prev)
+
+    assert result["clarification_priority"] == "modify_unapplied"
+    chips = result["clarification_suggestions"]
+    assert chips, "슬롯 질문을 되붙이면 그 슬롯의 정본 칩도 함께 나간다"
+    assert "골든크로스(5일/20일) 발생 시 매수" in chips
+    # 칩=값 결속 계약 — 되붙인 칩도 클릭 귀속이 성립하는 ask에 실린다.
+    ask = result["pending_ask"]
+    assert ask["topic"] == "매수 조건"
+    assert ask["chips"] == chips
+    assert ask["chip_bindings"]["골든크로스(5일/20일) 발생 시 매수"]["entry_signals"]
+
+
+def test_reattached_free_form_question_stays_chipless():
+    """정본 슬롯 문구가 아닌 질문(인터프리터 즉석 되묻기)은 그대로 질문만 되붙는다 —
+    지어낸 칩으로 메우지 않는다."""
+    result = primary._reattach_open_question(
+        None, "영업이익률 기준값을 얼마로 할까요?", _kospi_per_strategy())
+
+    assert result["clarification_question"] == "영업이익률 기준값을 얼마로 할까요?"
+    assert "clarification_suggestions" not in result
+    assert "pending_ask" not in result
+
+
+def test_rejected_patches_turn_reattaches_slot_question_with_chips(monkeypatch):
+    """사고 재현(2026-08-29): 미해석 수정 턴이 열려 있던 매수 조건 질문을 되붙이되
+    선택지를 잃었다."""
+    monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "llm_first")
+    _stub(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [{"op": "replace", "path": "/portfolio/rebalance_frequency",
+                     "value": "monthly"}],
+    })
+    prev = _kospi_per_strategy()
+    result = primary.run_primary_modification(
+        "제이콘텐트리 종목을 추가해줘", prev.model_dump(),
+        pending_question="다음으로 어떤 조건에서 매수할지 정해볼까요?")
+
+    assert result is not None
+    assert result["notices"], "미반영 안내는 유지된다"
+    assert result["clarification_question"] == "다음으로 어떤 조건에서 매수할지 정해볼까요?"
+    assert "골든크로스(5일/20일) 발생 시 매수" in (result["clarification_suggestions"] or [])
+
+
 # ── #4 후속: 후보 1개 표현의 해석 완료 전파 ─────────────────────────────────
 
 def test_single_candidate_source_term_marked_resolved(monkeypatch):

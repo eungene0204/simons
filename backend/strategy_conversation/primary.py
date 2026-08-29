@@ -338,7 +338,8 @@ def _modify_clarification(
 
 
 def _reattach_open_question(
-    pending_ask: Optional[Dict[str, Any]], pending_question: Optional[str]
+    pending_ask: Optional[Dict[str, Any]], pending_question: Optional[str],
+    parsed: Any = None,
 ) -> Dict[str, Any]:
     """미반영 안내(notices-only) 응답에 직전 열린 질문을 되붙인다(2026-08-02 감사 #3 #7).
 
@@ -346,6 +347,14 @@ def _reattach_open_question(
     메시지의 clarification만 렌더하므로 답을 기다리던 질문("익절은?")이 화면에서
     사라졌다 — FR-SA-015(부가 발화의 되묻기 보존)와 같은 증상의 파스 레인판.
     에코된 pending_ask/pending_question을 그대로 되돌려줄 뿐 새 판정은 없다.
+
+    질문만 에코된 경우(프론트 게이트가 물은 슬롯 질문에는 백엔드 pending_ask가 없다)
+    그 슬롯의 **정본 칩도 함께** 되붙인다(2026-08-29 사고). 질문만 돌려주면 우선순위
+    마커(modify_unapplied) 때문에 프론트가 자기 게이트의 칩 있는 같은 질문 대신 이
+    무칩 사본을 그려, 선택지 박스가 사라지고 채팅 입력창만 남는다 — 되묻기를 지우지
+    않으려고 만든 되붙이기가 되묻기의 선택지를 지운 셈이다.
+    슬롯 판정은 우리가 발행한 정본 문구의 정확 일치이고(slot_for_question), 칩은 슬롯
+    SOT의 하드코딩 정본을 발행 시점에 결속해 나간다(칩=값 결속 계약).
     """
     if isinstance(pending_ask, dict) and pending_ask.get("question"):
         return {
@@ -356,10 +365,22 @@ def _reattach_open_question(
             "clarification_priority": "modify_unapplied",
         }
     if pending_question and str(pending_question).strip():
-        return {
-            "clarification_question": str(pending_question),
+        question = str(pending_question)
+        field = strategy_slots.slot_for_question(question)
+        chips = strategy_slots.suggestions_for_field(
+            field, universe=getattr(parsed, "universe", None), parsed=parsed,
+        )
+        ask = _pending_ask_payload(
+            question, chips or None, strategy_slots.SLOT_LABELS.get(field or ""), parsed,
+        )
+        reattached: Dict[str, Any] = {
+            "clarification_question": question,
             "clarification_priority": "modify_unapplied",
         }
+        if ask is not None:
+            reattached["clarification_suggestions"] = ask["chips"]
+            reattached["pending_ask"] = ask
+        return reattached
     return {}
 
 
@@ -3655,7 +3676,7 @@ def run_primary_modification(
             "clarification_question": None,
             "clarification_suggestions": None,
             # 답을 기다리던 질문이 있으면 되붙인다 — 설명 턴이 되묻기를 삼키지 않게.
-            **_reattach_open_question(pending_ask, pending_question),
+            **_reattach_open_question(pending_ask, pending_question, prev),
             "notices": notices,
             "interpreter": {
                 "mode": "primary_modify_explain" if is_question else "primary_modify_unsupported",
@@ -3836,7 +3857,7 @@ def run_primary_modification(
             "clarification_suggestions": None,
             # 답을 기다리던 질문이 있으면 되붙인다(감사 #3 C1-T6: 미반영 안내가
             # 열려 있던 익절 질문을 화면에서 지웠다).
-            **_reattach_open_question(pending_ask, pending_question),
+            **_reattach_open_question(pending_ask, pending_question, prev),
             "notices": notices,
             "interpreter": {
                 "mode": "primary_modify_rejected_patches",

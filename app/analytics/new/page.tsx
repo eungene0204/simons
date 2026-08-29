@@ -3222,7 +3222,14 @@ function StrategyLabContent() {
           ? {
               question: parsedPayload.clarification_question as string,
               suggestions: (parsedPayload.clarification_suggestions ?? []) as string[],
-              missingCondition: null,
+              // 백엔드가 되붙인 질문이 게이트가 물은 바로 그 질문이면 슬롯도 함께
+              // 물려준다(_reattach_open_question). 필드가 비면 닫힌 선택지인 시장
+              // 질문에도 '직접 입력'이 붙는다(isClosedChoiceSlot 판정 입력).
+              missingCondition:
+                explicitMissingCondition &&
+                explicitMissingCondition.question === parsedPayload.clarification_question
+                  ? explicitMissingCondition
+                  : null,
             }
           : null;
       let presentedClarification = priorityClarification ?? (explicitMissingCondition

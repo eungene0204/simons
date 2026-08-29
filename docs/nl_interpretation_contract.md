@@ -1390,6 +1390,10 @@ ETF 전환 시 capability 충돌)가 나면 레인 전체가 폴백해 "해석�
 ③ **미반영 턴의 열린 질문 소실** — 설명·미지원·전량 거부 응답(notices-only)이 답을
 기다리던 되묻기를 화면에서 지웠다(FR-SA-015의 파스 레인판). 에코된
 pending_ask/pending_question을 그대로 되붙인다(`_reattach_open_question` — 새 판정 없음).
+질문 문자열만 에코된 경우(프론트 게이트가 물은 슬롯 질문에는 백엔드 pending_ask가 없다)
+그 슬롯의 **정본 칩도 함께** 되붙인다(2026-08-29) — 슬롯 판정은 우리가 발행한 정본 문구의
+정확 일치(`strategy_slots.slot_for_question`)라 원문 해석이 아니라 표기 정규화이고, 칩은
+슬롯 SOT를 발행 시점에 결속해 나간다(`_pending_ask_payload` — 칩=값 결속 계약).
 ④ **워크플로 제어의 분류 드리프트** — "잠깐 멈춰"→LIVE_TRADING, "처음부터 다시
 만들자"→STRATEGY_PICK 오분류로 규제 게이트의 제어 거부가 PAUSE/RESTART를 삼키고
 동문서답 안내가 나갔다. 분류 프롬프트에 규칙 4-2(작업 제어 발화는 게이트 라벨이 아니다)
