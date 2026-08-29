@@ -693,6 +693,37 @@ def _unresolvable_symbol_names(rejected_patches: List[Any], compact_input: str) 
     return names
 
 
+def _renamed_symbol_notices(symbol_terms: Iterable[Any], target_symbols: List[str]) -> List[str]:
+    """구 사명으로 담긴 종목의 **이름이 바뀌었다는 사실**을 알리는 안내 문구.
+
+    사용자가 부른 이름과 화면에 뜨는 이름이 다르면, 이유를 말해 주지 않는 한 엉뚱한
+    종목이 담긴 것처럼 보인다(사용자 요청, 2026-08-29). 정본 표기로 조용히 바꿔치기하지
+    않고 바뀐 사실을 드러낸다. 입력은 LLM이 종목명으로 낸 짧은 문자열이며, 구 사명 판정과
+    현재 등록명 조회는 registry 소관이다(계약 § 3-2).
+
+    테마·업종 전개로 따라 들어온 종목은 대상이 아니다 — 사용자가 그 이름을 부르지 않았다.
+    """
+    from stock_analysis.symbol_resolver import former_name_symbol, resolve_by_symbol
+
+    notices: List[str] = []
+    seen: set[str] = set()
+    for term in symbol_terms or []:
+        if not isinstance(term, str) or not term.strip():
+            continue
+        code = former_name_symbol(term.strip())
+        if code is None or code not in target_symbols or code in seen:
+            continue
+        current = resolve_by_symbol(code)
+        if current is None or current.name == term.strip():
+            continue
+        seen.add(code)
+        notices.append(
+            f"'{term.strip()}'의 현재 이름은 '{current.name}({code})'이에요 — "
+            "이름이 바뀐 종목이라 바뀐 이름으로 담았어요."
+        )
+    return notices
+
+
 _CONDITION_LIST_FIELDS = ("entry_conditions", "exit_conditions")
 
 
@@ -1473,6 +1504,10 @@ def run_primary_parse(
     _log_llm("✓ 컴파일", (
         f"{'전체' if report.is_valid else '부분'} 컴파일 — 제외 조건: {', '.join(dropped) or '없음'}"
     ))
+    # 이름으로 지목된 종목이 구 사명이면 알린다(수정 레인과 같은 계약) — 요약 카드에는
+    # 현재 등록명만 뜨므로, 말하지 않으면 다른 종목이 담긴 것처럼 보인다.
+    notices += _renamed_symbol_notices(
+        getattr(validated.strategy.universe, "symbols", None), parsed.target_symbols)
     # 레거시 파서와 동일한 결정적 보정 전체를 적용한다 — 명시적 날짜·지정 종목만 부분
     # 적용하던 시절, '최근 3년'→MA 365일 오귀속(QA 11-1), 익절 0.0001% 드롭(14-5),
     # 시총 100조→100억 단위 오류(24-2), 슬리피지 드롭(24-10) 등 인터프리터 LLM의 수치
@@ -4080,6 +4115,9 @@ def run_primary_modification(
                 "못해 요청을 반영하지 못했어요. 기존 전략을 그대로 유지했어요."
             )
             _log_llm("△ 시장 필터 미반영", f"{unmet} 소속 0곳 — 전략 유지+안내")
+    # 이번 턴에 이름으로 지목된 종목이 구 사명이면 그 사실을 알린다 — 요약 카드에는
+    # 현재 등록명만 뜨므로, 말하지 않으면 다른 종목이 담긴 것처럼 보인다.
+    notices += _renamed_symbol_notices(patched_spec.universe.symbols, parsed.target_symbols)
     final_diff = _diff_fields(prev_dump, parsed.model_dump())
     _log_llm("✓ 수정 완료", f"변경 필드(원본 대비): {'; '.join(final_diff) or '없음'}")
 

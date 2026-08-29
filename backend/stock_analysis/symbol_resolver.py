@@ -114,6 +114,23 @@ def known_aliases() -> dict[str, str]:
 
 
 @lru_cache(maxsize=1)
+def _former_name_index() -> dict[str, str]:
+    return {_normalize_name(name): ticker for name, ticker in _former_names().items()}
+
+
+def former_name_symbol(term: str) -> Optional[str]:
+    """표현이 **구 사명**이면 그 종목코드, 아니면 None.
+
+    입력은 LLM이 '이건 종목명'이라고 뽑아 준 짧은 문자열이다(계약 § 3-2 지식 조회) —
+    원문 스캔이 아니다. 호출부는 이 판정으로 '사용자가 부른 이름 ≠ 현재 등록명'을 알아
+    사용자에게 알린다(조용한 정본 치환 금지).
+    """
+    if not term:
+        return None
+    return _former_name_index().get(_normalize_name(term))
+
+
+@lru_cache(maxsize=1)
 def _match_index() -> tuple[tuple[str, dict], ...]:
     """매칭 문자열 길이 내림차순으로 정렬된 (match_str, row) 목록.
 

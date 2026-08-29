@@ -4339,3 +4339,50 @@ def test_modify_primary_adds_former_named_stock(monkeypatch):
     result = run_primary_modification("제이콘텐트리 종목을 추가해줘", prev)
     assert result is not None
     assert result["parsed"].target_symbols == ["093320", "035760", "036420"]
+
+
+def test_renamed_symbol_notice_tells_user_the_name_changed(monkeypatch):
+    """구 사명으로 종목을 담으면 **이름이 바뀌었다는 사실**을 알린다(2026-08-29 사용자 요청).
+    요약 카드에는 현재 등록명만 뜨므로, 말하지 않으면 다른 종목이 담긴 것처럼 보인다."""
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [{"op": "add", "path": "/universe/symbols/-", "value": "제이콘텐트리",
+                     "source_text": "제이콘텐트리 추가 해줘"}],
+    })
+    prev = _rich_parsed().model_dump()
+    prev["target_symbols"] = ["093320"]
+    result = run_primary_modification("제이콘텐트리 추가 해줘", prev)
+    assert result is not None
+    assert result["parsed"].target_symbols == ["093320", "036420"]
+    notice = " ".join(result["notices"])
+    assert "제이콘텐트리" in notice and "콘텐트리중앙(036420)" in notice
+
+
+def test_current_name_symbol_gets_no_rename_notice(monkeypatch):
+    """현재 등록명으로 부른 종목에는 이름 변경 안내를 붙이지 않는다(불필요한 잡음 금지)."""
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [{"op": "add", "path": "/universe/symbols/-", "value": "콘텐트리중앙",
+                     "source_text": "콘텐트리중앙 추가 해줘"}],
+    })
+    prev = _rich_parsed().model_dump()
+    prev["target_symbols"] = ["093320"]
+    result = run_primary_modification("콘텐트리중앙 추가 해줘", prev)
+    assert result is not None
+    assert result["parsed"].target_symbols == ["093320", "036420"]
+    assert not any("이름이 바뀐" in n for n in result["notices"])
+
+
+def test_rename_notice_skips_symbols_pulled_in_by_theme_expansion():
+    """테마·업종 전개로 따라 들어온 종목은 안내 대상이 아니다 — 사용자가 그 이름을
+    부르지 않았으므로 설명할 것이 없다."""
+    from strategy_conversation.primary import _renamed_symbol_notices
+
+    # 사용자가 부른 이름이 아니라 코드로만 들어온 경우
+    assert _renamed_symbol_notices(["036420"], ["036420"]) == []
+    # 이름은 불렸지만 그 종목이 최종 유니버스에 없으면 알릴 것이 없다
+    assert _renamed_symbol_notices(["제이콘텐트리"], ["005930"]) == []
