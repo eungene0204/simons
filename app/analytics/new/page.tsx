@@ -11,7 +11,7 @@ import {
   Suspense,
   type ReactNode,
 } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import dynamic from "next/dynamic";
 import { createClient } from "@supabase/supabase-js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -115,6 +115,7 @@ import {
   presentStrategyClarification,
   shouldContinueWithSingleAssetBuilder,
 } from "./clarificationPresentation";
+import { choiceOptionHelp, helpBubbleWidth, placeHelpBubble } from "./choiceOptionHelp";
 import { normalizeCoachMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
 import { runButtonPlacement } from "./runButtonPlacement";
@@ -613,6 +614,10 @@ const END_CHAT_CONTROL_CLASS =
 // 면이 없으므로 유리(.chat-glass)도 붙이지 않는다 — 흐릴 자기 배경이 없다.
 const CHOICE_CHIP_CLASS =
   "rounded-lg border border-[var(--chat-hairline)] bg-[var(--chat-chip-surface)] px-2.5 py-1.5 text-[12px] font-bold text-gray-200 text-left transition-colors duration-200 hover:border-[var(--chat-accent-line)] hover:bg-[var(--chat-chip-surface-hover)] hover:text-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]";
+// 칩 오른쪽 설명 아이콘. 칩과 같은 헤어라인 언어를 쓰되 면을 두지 않아, 눌러야 하는
+// 것은 칩이고 이것은 곁다리라는 위계가 형태로 드러난다(강조색은 hover에서만 쓴다).
+const CHOICE_HELP_TRIGGER_CLASS =
+  "absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full text-[var(--text-label)] transition-colors duration-200 hover:text-[var(--chat-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]";
 // 진입 연출은 클래스로 둔다 — 인라인 animation은 prefers-reduced-motion으로 끌 수 없다.
 const MESSAGE_ENTER_CLASS = "chat-card-enter";
 
@@ -701,6 +706,77 @@ function builderQuestionPatch({
   };
 }
 
+/** 선택 칩의 설명 풍선(마우스 오버·포커스·탭). 설명은 choiceOptionHelp 정본에서 온다.
+ *
+ *  풍선은 document.body로 포털해 화면 좌표(fixed)로 띄운다 — 칩 목록은 진입 연출
+ *  (.chat-choice-rise)의 transform 안에 있고, 되묻기 카드는 화면 하단에 고정된 채
+ *  overflow를 자르므로, 칩 옆에 그대로 그리면 아래쪽 칩의 풍선이 잘린다. */
+function ChoiceOptionHelpBubble({ option, help }: { option: string; help: string }) {
+  const [trigger, setTrigger] = useState<{ top: number; left: number; right: number } | null>(null);
+  const [placement, setPlacement] = useState<{ top: number; left: number; width: number } | null>(
+    null,
+  );
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const bubbleRef = useRef<HTMLDivElement>(null);
+
+  // 자리는 풍선이 그려진 **뒤**에 실제 높이를 재서 정한다 — 줄 수가 글마다 달라 예산으로는
+  // 못 맞춘다. 재기 전에는 invisible로 두어 자리를 잡기 전 모습이 보이지 않는다.
+  useEffect(() => {
+    if (!trigger) {
+      setPlacement(null);
+      return;
+    }
+    const height = bubbleRef.current?.offsetHeight ?? 0;
+    setPlacement(placeHelpBubble(trigger, window.innerWidth, window.innerHeight, height));
+  }, [trigger]);
+
+  const open = () => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setTrigger({ top: rect.top, left: rect.left, right: rect.right });
+  };
+  const close = () => setTrigger(null);
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-label={t("{0} 설명", t(option))}
+        onMouseEnter={open}
+        onMouseLeave={close}
+        onFocus={open}
+        onBlur={close}
+        // 터치 기기에는 hover가 없다 — 탭으로 열고 닫는다(칩 버튼의 형제라 선택은 되지 않는다).
+        onClick={() => (trigger ? close() : open())}
+        className={CHOICE_HELP_TRIGGER_CLASS}
+      >
+        <Question size={13} weight="bold" />
+      </button>
+      {trigger &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={bubbleRef}
+            role="tooltip"
+            data-testid="choice-option-help-bubble"
+            style={{
+              top: placement?.top ?? 0,
+              left: placement?.left ?? 0,
+              width: placement?.width ?? helpBubbleWidth(window.innerWidth),
+            }}
+            className={`pointer-events-none fixed z-50 rounded-2xl border border-[var(--chat-hairline)] bg-[#101010] p-3 text-left text-xs font-bold leading-relaxed text-gray-300 shadow-2xl shadow-black/50 ${
+              placement ? "" : "invisible"
+            }`}
+          >
+            {t(help)}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 /** 선택지 목록 — 세로 한 줄씩, 화면 아래에서 위로 떠오르며 나타난다.
  *  '직접 입력'을 고르면 목록 그 자리에서 입력창이 열린다(하단 공용 입력창을 다시
  *  여는 방식 폐지). 입력 답변은 자유 서술과 같은 경로(handleSend)로 보낸다. */
@@ -763,28 +839,35 @@ function ChoiceOptionList({
             </div>
           );
         }
+        // 설명은 정본에 있는 칩에만 붙는다 — 없으면 아이콘도 그리지 않는다(테마·종목명
+        // 처럼 그때그때 만들어지는 칩에 억지 설명을 붙이지 않는다).
+        const help = choiceOptionHelp(option);
         return (
-          <button
-            key={option}
-            type="button"
-            onClick={() =>
-              option === FREE_INPUT_CHIP ? setFreeInputOpen(true) : onSelect(option)
-            }
-            className={`${CHOICE_CHIP_CLASS} w-full`}
-          >
-            {/* 순번은 장식이라 접근성 이름에서 뺀다 — 넣으면 칩 이름이 "1 익절 10%"가 되어
-                칩 문자열(백엔드 답변 프로토콜)로 칩을 찾는 경로가 어긋난다.
-                확정 칩은 선택지가 아니라 단일 실행 동작이라 번호를 매기지 않는다(2026-08-06 지시). */}
-            {option !== CONFIRM_STRATEGY_CHIP && (
-              <span
-                aria-hidden="true"
-                className="mr-2 tabular-nums text-[var(--text-label)]"
-              >
-                {index + 1}
-              </span>
-            )}
-            {t(option)}
-          </button>
+          <div key={option} className="relative w-full">
+            <button
+              type="button"
+              onClick={() =>
+                option === FREE_INPUT_CHIP ? setFreeInputOpen(true) : onSelect(option)
+              }
+              className={`${CHOICE_CHIP_CLASS} w-full ${help ? "pr-8" : ""}`}
+            >
+              {/* 순번은 장식이라 접근성 이름에서 뺀다 — 넣으면 칩 이름이 "1 익절 10%"가 되어
+                  칩 문자열(백엔드 답변 프로토콜)로 칩을 찾는 경로가 어긋난다.
+                  확정 칩은 선택지가 아니라 단일 실행 동작이라 번호를 매기지 않는다(2026-08-06 지시). */}
+              {option !== CONFIRM_STRATEGY_CHIP && (
+                <span
+                  aria-hidden="true"
+                  className="mr-2 tabular-nums text-[var(--text-label)]"
+                >
+                  {index + 1}
+                </span>
+              )}
+              {t(option)}
+            </button>
+            {/* 설명 아이콘은 칩 **밖**의 형제 버튼이다 — 칩 안에 중첩하면 버튼 안 버튼이 되고,
+                아이콘을 눌렀을 때 선택지가 함께 골라진다. */}
+            {help && <ChoiceOptionHelpBubble option={option} help={help} />}
+          </div>
         );
       })}
       {trailing}
