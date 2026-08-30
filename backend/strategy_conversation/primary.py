@@ -2662,6 +2662,31 @@ def _apply_designated_symbol(
     return True
 
 
+# 업종 해석 안내의 식별 구간. 입력은 우리가 만든 안내 문구이므로(사용자 원문 아님)
+# 표기만 보고 결정되는 정규화다 — [대원칙 1]의 해석 레인이 아니다.
+_SECTOR_NOTICE_RE = re.compile(r"'[^']+' 업종 관련으로 해석했어요")
+
+
+def sector_notice_already_present(notices: Iterable[str], candidate: str) -> bool:
+    """candidate와 같은 업종을 알리는 안내가 이미 notices에 있는지 본다."""
+    match = _SECTOR_NOTICE_RE.search(candidate)
+    if match is None:
+        return False
+    return any(match.group(0) in n for n in notices)
+
+
+def _append_sector_notice(notices: List[str], sector: str, text: str) -> None:
+    """같은 업종으로 해석했다는 안내는 한 턴에 한 번만 싣는다.
+
+    한 요청에서 표현이 여러 개 잡히면('nvidia 관련주'와 'nvidia') 각 표현이 따로 해석돼
+    같은 업종 안내가 그만큼 반복됐다(2026-08-29 사용자 보고: '반도체' 안내 2회). 표현이
+    다를 뿐 사용자가 얻는 정보는 같으므로 먼저 나간 것만 남긴다 — 해석·병합 자체는 그대로다.
+    """
+    if any(f"'{sector}' 업종 관련으로 해석했어요" in n for n in notices):
+        return
+    notices.append(text)
+
+
 def _apply_planner_first_universe(
     result: Any, parsed: Any, notices: List[str]
 ) -> tuple[set, set]:
@@ -2764,9 +2789,10 @@ def _apply_planner_first_universe(
                 continue
             _merge_learned_sector(parsed, obs["sector"])
             _log_llm("✓ planner-first 섹터", f"'{term}' → 섹터 '{obs['sector']}'")
-            notices.append(
+            _append_sector_notice(
+                notices, obs["sector"],
                 f"'{term}'은(는) '{obs['sector']}' 업종 관련으로 해석했어요. "
-                "다른 업종을 원하시면 말씀해 주세요."
+                "다른 업종을 원하시면 말씀해 주세요.",
             )
             resolved.add(term)
             unresolved.discard(term)
@@ -3201,9 +3227,10 @@ def _resolve_sector_terms_term_in(
             else:
                 _merge_learned_sector(parsed, learned)
                 _log_llm("✓ 검색 학습", f"'{term}' → 섹터 '{learned}'")
-                notices.append(
+                _append_sector_notice(
+                    notices, learned,
                     f"'{term}'은(는) 인터넷 검색으로 확인해 '{learned}' 업종 관련으로 "
-                    "해석했어요. 다른 업종을 원하시면 말씀해 주세요."
+                    "해석했어요. 다른 업종을 원하시면 말씀해 주세요.",
                 )
             continue
         still_unresolved.append(term)
@@ -3273,9 +3300,10 @@ def _resolve_sector_terms_planner_primary(
         if result.sector:
             _merge_learned_sector(parsed, result.sector)
             _log_llm("✓ planner 해석", f"'{term}' → 섹터 '{result.sector}'")
-            notices.append(
+            _append_sector_notice(
+                notices, result.sector,
                 f"'{term}'은(는) '{result.sector}' 업종 관련으로 해석했어요. "
-                "다른 업종을 원하시면 말씀해 주세요."
+                "다른 업종을 원하시면 말씀해 주세요.",
             )
             continue
         if result.companies:
@@ -3504,9 +3532,10 @@ def _resolve_theme_change(
             if notice is None:
                 _merge_learned_sector(parsed, learned)
                 _log_llm("✓ 검색 학습(테마 교체)", f"'{term}' → 섹터 '{learned}'")
-                notices.append(
+                _append_sector_notice(
+                    notices, learned,
                     f"'{term}'은(는) 인터넷 검색으로 확인해 '{learned}' 업종 관련으로 "
-                    "해석했어요. 다른 업종을 원하시면 말씀해 주세요."
+                    "해석했어요. 다른 업종을 원하시면 말씀해 주세요.",
                 )
                 return None
     if notice is None:

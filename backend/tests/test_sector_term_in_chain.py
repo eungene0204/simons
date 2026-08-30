@@ -210,3 +210,49 @@ def test_sector_approximation_remains_when_no_canonical_theme(monkeypatch):
     assert parsed.sector == "바이오/제약"
     assert notices and "인터넷 검색으로 확인해" in notices[0]
     tg._reset_theme_match_cache_for_tests()
+
+
+def test_same_sector_notice_shown_once(monkeypatch):
+    """같은 업종 해석 안내는 표현이 여러 개여도 한 번만 나간다 (2026-08-29 사용자 보고).
+
+    'nvidia 관련주 투자 전략'에서 'nvidia 관련주'와 'nvidia'가 따로 해석돼 "'반도체' 업종
+    관련으로 해석했어요"가 두 번 표시됐다 — 표현만 다르고 정보는 같은 중복.
+    """
+    notices: list = []
+
+    primary._append_sector_notice(
+        notices, "반도체",
+        "'nvidia 관련주'은(는) '반도체' 업종 관련으로 해석했어요. "
+        "다른 업종을 원하시면 말씀해 주세요.",
+    )
+    primary._append_sector_notice(
+        notices, "반도체",
+        "'nvidia'은(는) '반도체' 업종 관련으로 해석했어요. "
+        "다른 업종을 원하시면 말씀해 주세요.",
+    )
+    primary._append_sector_notice(
+        notices, "2차전지",
+        "'배터리'은(는) '2차전지' 업종 관련으로 해석했어요. "
+        "다른 업종을 원하시면 말씀해 주세요.",
+    )
+
+    assert len(notices) == 2
+    assert notices[0].startswith("'nvidia 관련주'")
+    assert "'2차전지' 업종" in notices[1]
+
+
+def test_search_grounded_notice_dedupes_against_plain_notice():
+    """검색 학습 문구와 일반 문구는 접두만 다르다 — 같은 업종이면 하나만 남는다."""
+    notices: list = []
+
+    primary._append_sector_notice(
+        notices, "반도체",
+        "'nvidia 관련주'은(는) '반도체' 업종 관련으로 해석했어요. "
+        "다른 업종을 원하시면 말씀해 주세요.",
+    )
+    grounded = ("'nvidia'은(는) 인터넷 검색으로 확인해 '반도체' 업종 관련으로 "
+                "해석했어요. 다른 업종을 원하시면 말씀해 주세요.")
+
+    assert primary.sector_notice_already_present(notices, grounded)
+    primary._append_sector_notice(notices, "반도체", grounded)
+    assert len(notices) == 1
