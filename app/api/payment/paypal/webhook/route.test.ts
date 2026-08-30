@@ -241,6 +241,31 @@ describe("/api/payment/paypal/webhook", () => {
     expect(recordPaypalSubscriptionPayment).not.toHaveBeenCalled();
   });
 
+  it("청구한 구독의 플랜 매핑이 저장값을 이긴다 — 업그레이드 이탈 중 옛 구독 갱신 오기록 방지", async () => {
+    // 저장값은 PREMIUM(업그레이드 예약)인데 실제 청구한 구독은 PRO 기본 플랜
+    userFindUnique.mockResolvedValue({ subscriptionPlanId: "PREMIUM" });
+    getSubscription.mockResolvedValue({
+      subscriptionId: "I-SUB-OLD",
+      status: "ACTIVE",
+      active: true,
+      providerPlanId: "P-PRO-1",
+      nextBillingTime: "2026-09-30T10:00:00Z",
+    });
+
+    await POST(
+      req({
+        id: "WH-EVENT-OLDSALE",
+        event_type: "PAYMENT.SALE.COMPLETED",
+        resource: { id: "SALE-OLD", billing_agreement_id: "I-SUB-OLD", custom_id: "42" },
+      })
+    );
+
+    expect(recordPaypalSubscriptionPayment).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ planId: "PRO", saleId: "SALE-OLD" })
+    );
+  });
+
   it("해지 통지는 남은 기간을 유지하고, 정지·만료는 즉시 FREE로 내린다", async () => {
     await POST(
       req({
@@ -260,6 +285,50 @@ describe("/api/payment/paypal/webhook", () => {
       })
     );
     expect(downgradePaypalSubscriber).toHaveBeenCalledWith(expect.anything(), 42);
+  });
+
+  // 회귀(2026-08-31 실사고): 업그레이드 구독의 plan_id는 1회성 플랜이라 env 매핑에 없다.
+  // 폴백 없이 "모르는 플랜"으로 무시하면 등급 미전환·이전 구독 미해지(이중 청구)가 난다.
+  it("업그레이드 활성화 — 1회성 플랜이라도 저장된 청구 예정 플랜으로 전환한다", async () => {
+    userFindUnique
+      .mockResolvedValueOnce({
+        paypalSubscriptionId: "I-SUB-NEW",
+        subscriptionPlanId: "PREMIUM",
+      }) // 플랜 폴백 조회
+      .mockResolvedValueOnce({ paypalPriorSubscriptionId: "I-SUB-OLD" }); // 이전 구독 조회
+
+    const res = await POST(
+      req(
+        activatedEvent({
+          resource: { id: "I-SUB-NEW", plan_id: "P-UPGRADE-ONEOFF", custom_id: "42" },
+        })
+      )
+    );
+
+    expect(res.status).toBe(200);
+    expect(activatePaypalSubscription).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ userId: 42, planId: "PREMIUM", subscriptionId: "I-SUB-NEW" })
+    );
+    expect(cancelSubscription).toHaveBeenCalledWith("I-SUB-OLD", expect.any(String));
+  });
+
+  it("1회성 플랜인데 저장된 구독 ID와도 다르면 반영하지 않는다", async () => {
+    userFindUnique.mockResolvedValue({
+      paypalSubscriptionId: "I-DIFFERENT",
+      subscriptionPlanId: "PREMIUM",
+    });
+
+    const res = await POST(
+      req(
+        activatedEvent({
+          resource: { id: "I-SUB-STRANGE", plan_id: "P-UPGRADE-ONEOFF", custom_id: "42" },
+        })
+      )
+    );
+
+    expect(res.status).toBe(200);
+    expect(activatePaypalSubscription).not.toHaveBeenCalled();
   });
 
   it("업그레이드 새 구독이 활성화되면 보관해 둔 이전 구독을 해지한다", async () => {

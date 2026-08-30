@@ -97,8 +97,27 @@ export async function POST(request: Request) {
 
     switch (eventType) {
       case "BILLING.SUBSCRIPTION.ACTIVATED": {
-        const planId = planIdFromPaypalPlan(resource?.plan_id);
-        if (!planId || !resource?.id) {
+        if (!resource?.id) {
+          return NextResponse.json({ ok: true, ignored: "no-subscription-id" });
+        }
+        // 업그레이드 구독의 plan_id는 1회성 플랜이라 env 매핑에 없다 — 그 경우 구독 생성 때
+        // 저장해 둔 청구 예정 플랜(subscriptionPlanId)을 정본으로 쓴다(구독 ID 일치 확인).
+        // 이 폴백이 없으면 활성화가 "모르는 플랜"으로 무시돼 등급 미전환·이전 구독 미해지로
+        // 이중 청구가 난다(2026-08-31 실사고).
+        let planId = planIdFromPaypalPlan(resource.plan_id);
+        if (!planId) {
+          const stored = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { paypalSubscriptionId: true, subscriptionPlanId: true },
+          });
+          if (
+            stored?.paypalSubscriptionId === resource.id &&
+            (stored.subscriptionPlanId === "PRO" || stored.subscriptionPlanId === "PREMIUM")
+          ) {
+            planId = stored.subscriptionPlanId;
+          }
+        }
+        if (!planId) {
           return NextResponse.json({ ok: true, ignored: "unknown-plan" });
         }
         await activatePaypalSubscription(prisma, {
@@ -137,20 +156,25 @@ export async function POST(request: Request) {
           where: { id: userId },
           select: { subscriptionPlanId: true },
         });
-        let planId: PlanId | null =
+        const storedPlanId: PlanId | null =
           record?.subscriptionPlanId && record.subscriptionPlanId !== "FREE"
             ? (record.subscriptionPlanId as PlanId)
             : null;
 
-        // 구독을 조회해 플랜과 다음 청구일을 PayPal에서 받아온다. 두 가지를 동시에 푼다:
+        // 구독을 조회해 플랜과 다음 청구일을 PayPal에서 받아온다. 세 가지를 동시에 푼다:
         // ① 첫 달 청구가 활성화 통지보다 먼저 와도(PayPal은 순서를 보장하지 않는다) 플랜을
         //    알아내 이력을 남긴다 ② 다음 청구일을 우리가 계산하지 않는다 — 갱신 주체가
-        //    PayPal이라 저쪽 값이 정본이다(우리가 더하면 첫 결제에서 한 달이 밀렸다).
+        //    PayPal이라 저쪽 값이 정본이다 ③ 실제로 청구한 구독의 플랜 매핑을 저장값보다
+        //    우선한다 — 업그레이드 승인 이탈 상태에서 옛 구독의 갱신이 새 플랜으로
+        //    오기록되면 안 된다. 매핑 불가(1회성 업그레이드 플랜)일 때만 저장값을 쓴다.
+        let planId: PlanId | null = null;
         let nextBillingTime: string | undefined;
         if (resource.billing_agreement_id) {
           const state = await new PaypalProvider().getSubscription(resource.billing_agreement_id);
-          planId = planId ?? planIdFromPaypalPlan(state.providerPlanId);
+          planId = planIdFromPaypalPlan(state.providerPlanId) ?? storedPlanId;
           nextBillingTime = state.nextBillingTime;
+        } else {
+          planId = storedPlanId;
         }
         if (!planId) {
           return NextResponse.json({ ok: true, ignored: "no-active-plan" });

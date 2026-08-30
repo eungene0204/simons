@@ -104,6 +104,34 @@ describe("activatePaypalSubscription", () => {
     expect(userUpdate).not.toHaveBeenCalled();
   });
 
+  it("업그레이드 완료(이전 구독 보관 중)는 예약-보류를 우회하고 즉시 등급을 올린다", async () => {
+    userFindUnique.mockResolvedValue({
+      planTier: "PRO",
+      paypalSubscriptionId: "I-SUB-NEW",
+      paypalPriorSubscriptionId: "I-SUB-OLD", // 업그레이드 전환 중 표식
+      subscriptionPlanId: "PREMIUM",
+      subscriptionCanceledAt: null,
+      nextBillingAt: new Date("2026-09-30T10:00:00Z"),
+    });
+
+    const changed = await activatePaypalSubscription(prisma, {
+      userId: 42,
+      planId: "PREMIUM",
+      subscriptionId: "I-SUB-NEW",
+      nextBillingTime: "2026-10-15T10:00:00Z",
+    });
+
+    expect(changed).toBe(true);
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          planTier: "PREMIUM",
+          nextBillingAt: new Date("2026-10-15T10:00:00Z"),
+        }),
+      })
+    );
+  });
+
   it("활성 상태여도 다음 청구일이 PayPal 값과 다르면 맞춘다(드리프트 복구)", async () => {
     userFindUnique.mockResolvedValue({
       planTier: "PRO",

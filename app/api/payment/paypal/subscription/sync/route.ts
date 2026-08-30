@@ -17,7 +17,7 @@ export async function POST(request: Request) {
 
     const record = await prisma.user.findUnique({
       where: { id: user.id },
-      select: { paypalSubscriptionId: true, planTier: true },
+      select: { paypalSubscriptionId: true, planTier: true, subscriptionPlanId: true },
     });
     const subscriptionId = record?.paypalSubscriptionId;
     if (!subscriptionId) {
@@ -30,7 +30,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "구독 정보가 일치하지 않습니다." }, { status: 403 });
     }
 
-    const planId = planIdFromPaypalPlan(state.providerPlanId);
+    // 업그레이드 구독의 plan_id는 1회성 플랜이라 매핑에 없다 — 구독 생성 때 저장한
+    // 청구 예정 플랜으로 폴백한다(없으면 성공 화면이 이전 등급을 잘못 보여준다).
+    const planId =
+      planIdFromPaypalPlan(state.providerPlanId) ??
+      (record.subscriptionPlanId === "PRO" || record.subscriptionPlanId === "PREMIUM"
+        ? record.subscriptionPlanId
+        : null);
     if (!state.active || !planId) {
       return NextResponse.json({ status: state.status, planId: record?.planTier ?? "FREE" });
     }

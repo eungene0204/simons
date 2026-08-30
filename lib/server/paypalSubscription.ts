@@ -27,6 +27,7 @@ export async function activatePaypalSubscription(
     select: {
       planTier: true,
       paypalSubscriptionId: true,
+      paypalPriorSubscriptionId: true,
       subscriptionPlanId: true,
       subscriptionCanceledAt: true,
       nextBillingAt: true,
@@ -43,10 +44,13 @@ export async function activatePaypalSubscription(
     // 예약된 플랜 변경 상태: 청구 플랜은 이미 input.planId인데 등급(planTier)은 이전 유료
     // 플랜이다. 등급 전환은 다음 결제(recordPaypalSubscriptionPayment)가 수행한다 — 여기서
     // 앞당기면 남은 기간의 상위 플랜을 빼앗는다(sync 재호출 등 조회 경로가 이 상태를 지나간다).
-    if (current.planTier !== input.planId && current.planTier !== "FREE") {
+    // 단, 업그레이드 전환 중(이전 구독 보관 상태)은 예약이 아니라 즉시 전환이다 — 이미
+    // 새 구독으로 결제가 일어났으므로 등급을 지금 올린다.
+    const isUpgradeCompletion = current.paypalPriorSubscriptionId != null;
+    if (current.planTier !== input.planId && current.planTier !== "FREE" && !isUpgradeCompletion) {
       return false;
     }
-    if (current.planTier === input.planId) {
+    if (current.planTier === input.planId && !isUpgradeCompletion) {
       if (nextBillingMatches) return false;
       // 날짜가 PayPal 값과 어긋나 있으면 맞춘다 — 조회 경로가 드리프트를 고칠 수 있어야 한다
       await prisma.user.update({

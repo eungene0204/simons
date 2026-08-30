@@ -126,7 +126,12 @@ describe("/api/payment/paypal/subscription/change", () => {
     expect(reviseSubscriptionPlan).not.toHaveBeenCalled();
     expect(userUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { paypalPriorSubscriptionId: "I-SUB-1", paypalSubscriptionId: "I-SUB-NEW" },
+        data: {
+          paypalPriorSubscriptionId: "I-SUB-1",
+          paypalSubscriptionId: "I-SUB-NEW",
+          // 업그레이드 구독의 plan_id는 1회성이라, 웹훅·이력이 참조할 정본 플랜을 미리 기록
+          subscriptionPlanId: "PREMIUM",
+        },
       })
     );
     vi.useRealTimers();

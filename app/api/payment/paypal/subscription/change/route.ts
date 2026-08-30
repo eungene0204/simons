@@ -97,12 +97,17 @@ export async function POST(request: Request) {
         subscriberEmail: user.email,
         requestId: `upg-sub-${user.id}-${planId}-${Date.now()}`,
       });
-      // 이전 구독은 보관만 한다 — 새 구독 활성화(웹훅) 확인 후에 해지한다
+      // 이전 구독은 보관만 한다 — 새 구독 활성화(웹훅) 확인 후에 해지한다.
+      // subscriptionPlanId를 대상 플랜으로 미리 바꿔 둔다: 업그레이드 구독의 plan_id는
+      // 1회성 플랜이라 env 매핑으로 알 수 없으므로, 웹훅·이력 기록은 이 값을 정본으로 쓴다
+      // (2026-08-31 사고: 이 기록이 없어 활성화 웹훅이 "모르는 플랜"으로 무시 → 등급 미전환·
+      //  이전 구독 미해지·이력 오기록 3중 결함).
       await prisma.user.update({
         where: { id: user.id },
         data: {
           paypalPriorSubscriptionId: record.paypalSubscriptionId,
           paypalSubscriptionId: session.subscriptionId,
+          subscriptionPlanId: planId,
         },
       });
       return NextResponse.json({ approveUrl: session.approveUrl });
