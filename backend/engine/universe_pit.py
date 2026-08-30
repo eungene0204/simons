@@ -1006,3 +1006,20 @@ def resolve_us_theme(term: Optional[str]) -> Optional[tuple[str, list[str]]]:
     from engine.us_knowledge_graph import resolve_theme  # 지연 import(순환 방지)
 
     return resolve_theme(term)
+
+
+def has_group_suffix(term: Optional[str]) -> bool:
+    """표현이 범주 접미('관련주'·"related stocks")를 달고 있는가 — 표기 판정 위임."""
+    from engine.us_knowledge_graph import has_group_suffix as _impl
+
+    return _impl(term)
+
+
+def resolve_us_company_related(term: Optional[str]) -> Optional[tuple[str, list[str]]]:
+    """'X 관련주'(X=미국 상장사) → (표시명, 관계 기업 티커). 학습 이력 밖이면 None.
+
+    resolve_us_theme의 회사 앵커 판 — 테마 축과 나란한 별도 축이다(회사명은 테마가
+    아니다). 관계 목록은 기업 자신의 공시 기술에서 나온 객관적 사실이며 추천이 아니다."""
+    from engine.us_knowledge_graph import resolve_company_related
+
+    return resolve_company_related(term)

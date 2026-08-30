@@ -289,6 +289,29 @@ describe("CreateAccountModal presetStrategy", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("모달 높이를 화면에 맞춰 고정하고 내용은 모달 안에서 스크롤한다", async () => {
+    mockFetch();
+
+    render(
+      <CreateAccountModal isOpen={true} onClose={vi.fn()} onCreate={vi.fn()} presetStrategy={preset} />
+    );
+
+    await screen.findByTestId("bound-strategy-name");
+    expect(screen.getByTestId("create-account-panel")).toHaveClass(
+      "max-h-[calc(100dvh-2rem)]",
+      "lg:max-h-[85vh]",
+      "flex",
+      "flex-col",
+      "overflow-hidden"
+    );
+    expect(screen.getByTestId("create-account-body")).toHaveClass(
+      "flex-1",
+      "min-h-0",
+      "overflow-y-auto",
+      "overscroll-contain"
+    );
+  });
+
   it("계좌 생성이 이유를 담아 실패하면 그 문구를 그대로 보여준다", async () => {
     const onCreate = vi.fn().mockRejectedValue(new Error("전략 저장 한도에 도달했습니다."));
     mockFetch();

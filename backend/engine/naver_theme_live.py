@@ -33,11 +33,10 @@ DETAIL_URL = "https://finance.naver.com/sise/sise_group_detail.naver?type={kind}
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
 FETCH_DELAY_S = 0.2
 
-# 네이버 표기의 인물·이벤트 테마 스코프 제외(인물·정치·선거·재해·질병) 결정적 키워드 가드 —
-# 배치 수집과 라이브 편입이 같은 스코프 계약을 지키게 여기서 정의한다.
-EXCLUDE_NAME_PATTERNS = re.compile(
-    r"인맥|정치|선거|대선|월드컵|올림픽|코로나|독감|엠폭스|장마|폭염|황사|지진"
-)
+# 인물·이벤트 스코프 키워드 가드는 폐지됐다(2026-08-29 사용자 결정) — 346개 분류 중 8개
+# (코로나19 4종·황사/미세먼지·재난/안전·태풍 및 장마·스포츠행사 수혜)만 막고 있었고 그중
+# 일곱은 실제 사업 실체가 있는 테마였다. 도입 커밋(ff8e1114)에 근거가 기록돼 있지 않았다.
+# 되살리지 말 것 — 편입 여부는 분류 이름이 아니라 근거로 판단한다.
 
 
 def _fetch(url: str) -> str:
@@ -144,10 +143,7 @@ def lookup_and_ingest(
             logger.info("네이버 분류 조회 실패(용어=%r) — 검색 학습 체인으로 폴백", term, exc_info=True)
             return False
 
-    matches = [
-        g for g in groups
-        if key in _group_match_keys(g["name"]) and not EXCLUDE_NAME_PATTERNS.search(g["name"])
-    ]
+    matches = [g for g in groups if key in _group_match_keys(g["name"])]
     if not matches:
         logger.info("네이버 분류 정합 없음: 용어=%r (분류 %d개 대조)", term, len(groups))
         return False

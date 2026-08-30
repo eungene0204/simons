@@ -4005,7 +4005,13 @@ def _run_nl_parse_traced(request: NLParseRequest, on_stage=None,
             from strategy_conversation.primary import apply_primary_meta
             apply_primary_meta(result, primary_holder)
         if grounding_notice:
-            result["notices"] = [grounding_notice] + list(result.get("notices") or [])
+            # 해석 체인이 같은 업종 안내를 이미 실었으면 앞에 또 붙이지 않는다 —
+            # 표현만 다르고 정보가 같은 안내의 중복(2026-08-29 사용자 보고).
+            from strategy_conversation.primary import sector_notice_already_present
+
+            if not sector_notice_already_present(result.get("notices") or [],
+                                                 grounding_notice):
+                result["notices"] = [grounding_notice] + list(result.get("notices") or [])
         # provenance 이월 — 인터프리터가 판정하지 않은 턴(폴백·레거시 레인)에서도 이전
         # 턴까지의 명시 필드를 잃지 않는다(프론트 에코 계약의 무상태 누적).
         _finalize_parse_result(result, request)

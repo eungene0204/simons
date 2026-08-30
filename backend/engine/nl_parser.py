@@ -708,7 +708,11 @@ class ParsedStrategy(BaseModel):
     # (근거가 정의 자체), 테마는 근거로 관측된 집합이라 시점(first_known_date)을 갖는다.
     # 둘을 한 필드로 뭉뚱그리면 "오늘의 관측을 정본처럼" 다루게 된다. canonical DSL
     # 화이트리스트에는 넣지 않는다 — 출처 표기이지 실행 결과를 바꾸는 값이 아니다.
-    universe_source: Optional[Literal["theme_catalog", "theme_learned", "industry"]] = Field(
+    # company_related = 'X 관련주'(X=개별 상장사)의 공시 학습 집합. 테마와 같은 관측
+    # 축이지만 앵커가 기업이라 축을 나눈다 — 'AI 반도체'(사업 분야)와 'Nvidia 관련주'
+    # (관계망)는 근거의 종류가 다르다(2026-08-27).
+    universe_source: Optional[Literal[
+        "theme_catalog", "theme_learned", "industry", "company_related"]] = Field(
         default=None,
         description="지정 종목의 출처 축(시스템이 채움). LLM은 채우지 말 것",
     )
@@ -5532,12 +5536,12 @@ def _target_surface_forms(refs: list) -> list[str]:
     별칭('하이닉스')으로 매칭돼도 StockRef는 등록명(SK하이닉스)만 담으므로, 그 종목을
     가리키는 별칭 전부를 함께 돌려줘야 수정 fast-path의 잔여 판정이 깨끗해진다.
     """
-    from stock_analysis.symbol_resolver import _KOREAN_ALIASES
+    from stock_analysis.symbol_resolver import known_aliases
 
     forms: list[str] = []
     for ref in refs:
         forms.extend([ref.name, ref.symbol])
-        forms.extend(alias for alias, code in _KOREAN_ALIASES.items() if code == ref.symbol)
+        forms.extend(alias for alias, code in known_aliases().items() if code == ref.symbol)
     return forms
 
 

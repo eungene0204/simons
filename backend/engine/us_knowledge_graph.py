@@ -51,6 +51,13 @@ _COMPANY_EDGE_TYPES = frozenset({
     "related_company", "invests_in",
 })
 
+# 회사 앵커 관련주에 큐레이션 동료를 얹을 때의 응집도 하한(2026-08-29).
+# 앵커와 같은 GICS 산업을 공유하는 구성 비율이 이보다 낮은 테마는 '대표 테마'가
+# 아니다 — 실측: NVDA→AI 반도체 0.86 · JPM→대형 은행 0.60 · LLY→헬스케어 대형주
+# 0.43 · TSLA→전기차·자율주행 0.40 이 통과하고, 동료 테마가 없는 AAPL의 최고값
+# 0.03(AI 빅데이터 30종)은 걸린다. 하한이 없으면 '애플 관련주'가 30종으로 번진다.
+_PEER_THEME_MIN_COHESION = 0.30
+
 # 시장 한정어 접두 — "미국 사이버보안"의 '미국'은 테마 정체성이 아니다.
 _MARKET_PREFIX = "미국"
 
@@ -71,8 +78,16 @@ _GICS_SECTOR_KR = {
 
 
 def _norm_key(text: str) -> str:
-    """별칭 정규화 키 — 공백 제거·소문자. 정확 일치 전용(부분 매칭은 오폭원)."""
-    return (text or "").strip().lower().replace(" ", "")
+    """별칭 정규화 키 — 공백·하이픈 제거·소문자. 정확 일치 전용(부분 매칭은 오폭원).
+
+    하이픈은 공백과 같은 **낱말 구분자**로 본다. 영어 레인이 복합어를 하이픈으로 묶어
+    내놓기 때문에("humanoid-robotics", "GLP-1 obesity-drug", "data-center power
+    infrastructure") 하이픈을 남기면 같은 테마가 표기 하나로 카탈로그를 빗나간다
+    (2026-08-27 실측: /us 영어 게이트에서 테마 6건이 이 이유로 미해석 → 공시 학습으로
+    새고, 그중 실패분이 원장에 남아 재시도까지 막혔다). 정규화이지 해석이 아니다 —
+    양쪽(정본 별칭·조회어)이 같은 규칙을 통과하므로 짝이 어긋나지 않는다.
+    충돌 위험은 별칭 충돌 금지 테스트가 감시한다."""
+    return (text or "").strip().lower().replace(" ", "").replace("-", "")
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -102,10 +117,14 @@ class USKnowledgeGraph:
 
         GICS 레이어(sector:/industry:)는 제외한다 — 미국 업종 필터는 백테스트
         미지원이라, 테마어가 업종명에 우연히 닿아 조용히 유니버스로 확정되는 일을
-        막는다(콘솔 탐색·향후 GICS 필터 기반용 레이어일 뿐 해석에 불참)."""
+        막는다(콘솔 탐색·향후 GICS 필터 기반용 레이어일 뿐 해석에 불참).
+
+        회사 앵커 관련주(related:)도 제외한다 — 이 축의 조회는 앵커 티커로 하지
+        표기 별칭으로 하지 않는다(resolve_company_related). 별칭을 색인에 넣으면
+        'Nvidia 관련주'와 'nvidia Related Stock'의 표기 차이가 곧 미스가 된다."""
         index: dict[str, str] = {}
         for node_id, node in self.nodes.items():
-            if node_id.startswith(("company:", "etf:", "sector:", "industry:")):
+            if node_id.startswith(("company:", "etf:", "sector:", "industry:", "related:")):
                 continue
             terms = [node.get("name", ""), node.get("name_en", "")]
             terms += list(node.get("synonyms", []))
@@ -153,6 +172,51 @@ class USKnowledgeGraph:
                 if symbol not in found:
                     found.append(symbol)
         return found
+
+    def company_industry(self, symbol: str) -> Optional[str]:
+        """회사의 GICS 산업 노드 id — 대표 테마 판정용(해석에는 쓰지 않는다)."""
+        for e in self._out.get(f"company:{symbol}", []):
+            target = e.get("target", "")
+            if target.startswith("industry:"):
+                return target
+        return None
+
+    def representative_theme(self, symbol: str) -> Optional[str]:
+        """앵커가 속한 테마 중 **앵커를 가장 잘 대표하는** 노드 id | None.
+
+        회사 앵커 관련주(resolve_company_related)를 큐레이션으로 보강할 때, 앵커가
+        여러 테마에 걸쳐 있으면 어느 테마의 동료를 얹을지 골라야 한다. NVDA는 AI
+        반도체·빅테크·휴머노이드 로봇·로봇 자동화·AI 빅데이터 5곳에 속하는데,
+        '엔비디아 관련주'로 사람이 떠올리는 동료는 반도체 쪽이다.
+
+        판정은 **앵커와 같은 GICS 산업을 공유하는 구성 비율**(응집도)로 한다 —
+        구성 수가 가장 적은 테마를 고르면 NVDA가 휴머노이드 로봇(6종)으로 빠져
+        AVGO·MRVL을 놓친다(2026-08-29 실측). 동률이면 좁은 테마, 그다음 id 사전순
+        (결정성). GICS·ETF·회사·회사앵커 노드는 후보가 아니다.
+        """
+        anchor_industry = self.company_industry(symbol)
+        if anchor_industry is None:
+            return None
+        best: Optional[tuple[float, int, str]] = None
+        for e in self._in.get(f"company:{symbol}", []):
+            if e["type"] not in _COMPANY_EDGE_TYPES:
+                continue
+            source = e["source"]
+            if source.startswith(("company:", "etf:", "sector:", "industry:", "related:")):
+                continue
+            members = self.companies(source)
+            peers = [m for m in members if m != symbol]
+            if not peers:
+                continue  # 앵커 혼자인 테마엔 얹을 동료가 없다
+            same = sum(1 for m in peers if self.company_industry(m) == anchor_industry)
+            cohesion = same / len(peers)
+            if cohesion < _PEER_THEME_MIN_COHESION:
+                continue
+            # 응집도 내림차순 → 좁은 테마 → id 사전순
+            key = (-cohesion, len(members), source)
+            if best is None or key < best:
+                best = key
+        return best[2] if best else None
 
 
 # ── 합성 로드(mtime 캐시) ──────────────────────────────────────────────────────
@@ -276,14 +340,18 @@ def _build() -> USKnowledgeGraph:
         ]
         if not members:
             continue  # 소속을 못 찾았거나 전부 검토 대기 — 노드로 세우지 않는다
-        node_id = f"learned:{key}"
+        # 회사 앵커 관련주는 테마가 아니라 **관계 집합**이다 — 별도 id·범주로 세우고
+        # 테마 색인에서 격리한다(_build_theme_index). 조회는 앵커 티커로 한다.
+        _is_related = entry.get("kind") == "company_related"
+        node_id = f"related:{entry.get('anchor')}" if _is_related else f"learned:{key}"
         if node_id in nodes:
             continue
         nodes[node_id] = {
             "id": node_id,
             "name": entry.get("term", key),
-            "category": "learned_theme",
+            "category": "company_related" if _is_related else "learned_theme",
             "synonyms": [entry.get("term", key)],
+            **({"anchor": entry.get("anchor")} if _is_related else {}),
             "source": entry.get("source"),
             "searched_at": entry.get("searched_at"),
             # 소속 최초 관측일과 관측 창 시작일 — 테마는 '오늘의 명부'가 아니라
@@ -376,19 +444,73 @@ def theme_term_candidates(term: str) -> list[str]:
     if _norm_key(term).startswith(_norm_key(_MARKET_PREFIX)):
         candidates.append(term.strip()[len(_MARKET_PREFIX):].strip())
     for base in list(candidates):
-        for suffix in ("관련주", "테마"):
-            if base.endswith(suffix) and len(base) > len(suffix):
-                candidates.append(base[: -len(suffix)].strip())
-        stripped = base
-        while True:  # "crypto-related stocks" → "crypto-related" → "crypto"
-            trimmed = re.sub(
-                r"[\s-]+(?:related|linked|stocks?|names?|companies|shares|sector|theme)$",
-                "", stripped, flags=re.IGNORECASE)
-            if trimmed == stripped or not trimmed:
-                break
-            stripped = trimmed.strip()
-            candidates.append(stripped)
+        for peeled in _group_suffix_peels(base):
+            candidates.append(peeled)
     return candidates
+
+
+def _plural_variants(candidates: list[str]) -> list[str]:
+    """영어 단·복수 표기 변형 — **조회 전용** 추가 후보(정체성 표기가 아니다).
+
+    분류 registry가 이미 허용하는 것과 같은 계약이다. 정본은 복수로 적히는 일이
+    흔한데("obesity drugs") 입력은 범주 접미를 벗기면서 단수가 된다
+    ("GLP-1 obesity-drug stocks" → "GLP-1 obesity-drug") — 2026-08-27 실측: 이 한 글자
+    때문에 카탈로그에 있는 테마가 공시 학습으로 새고 되묻기로 끝났다(게이트 88번).
+
+    theme_term_candidates에 섞지 않는 이유: 그 목록의 **마지막 항목이 곧 테마 정체성**
+    (normalize_theme_term — 학습 이름·질의어)이라, 변형이 꼬리에 붙으면 'Moderna'가
+    'Modernas'로 학습되고 개별 기업명 차단 게이트까지 빗나간다(실측 회귀).
+    빗나간 변형은 정확 일치에 실패해 조용히 사라진다(오폭이 아니라 미스)."""
+    out: list[str] = []
+    for base in candidates:
+        head, _, last = base.rpartition(" ")
+        word = last or base
+        if len(word) <= 3:
+            continue
+        variant = word[:-1] if word.endswith("s") else word + "s"
+        candidate = f"{head} {variant}".strip()
+        if candidate not in candidates and candidate not in out:
+            out.append(candidate)
+    return out
+
+
+# 범주(집합) 접미 — '관련주'와 그 영어 판. 표현이 **한 종목**이 아니라 **종목의 집합**을
+# 가리킨다는 표기 신호다. 시장 접두('미국'·'US')와 달리 정체성이 아니라 범주를 바꾼다.
+_GROUP_SUFFIX_EN_RE = re.compile(
+    r"[\s-]+(?:related|linked|stocks?|names?|companies|shares|sector|theme)$",
+    re.IGNORECASE,
+)
+_GROUP_SUFFIX_KR = ("관련주", "테마")
+
+
+def _group_suffix_peels(base: str) -> list[str]:
+    """범주 접미를 한 겹씩 벗긴 표기들(벗길 것이 없으면 빈 목록)."""
+    peels: list[str] = []
+    for suffix in _GROUP_SUFFIX_KR:
+        if base.endswith(suffix) and len(base) > len(suffix):
+            peels.append(base[: -len(suffix)].strip())
+    stripped = base
+    while True:  # "crypto-related stocks" → "crypto-related" → "crypto"
+        trimmed = _GROUP_SUFFIX_EN_RE.sub("", stripped)
+        if trimmed == stripped or not trimmed:
+            break
+        stripped = trimmed.strip()
+        peels.append(stripped)
+    return peels
+
+
+def has_group_suffix(term: Optional[str]) -> bool:
+    """표현이 범주 접미('관련주'·"related stocks")를 달고 있는가 — 순수 표기 판정.
+
+    입력은 LLM/planner가 뽑은 짧은 표현이고 판정은 어미 표기뿐이다(§ 판정 기준:
+    표기만 보면 결정 가능 → 정규화). **의미를 읽지 않는다** — 무엇에 관한 집합인지는
+    아래 해석 레인(테마 카탈로그·회사 앵커)이 정한다.
+
+    쓰임: 'nvidia Related Stock'을 단일 종목 NVDA로 접는 오분류 차단(2026-08-27 사고).
+    시장 접두('미국 애플')는 여기 해당하지 않는다 — 접두는 범주를 바꾸지 않는다."""
+    if not term or not isinstance(term, str):
+        return False
+    return bool(_group_suffix_peels(term.strip()))
 
 
 def normalize_theme_term(term: str) -> str:
@@ -414,8 +536,10 @@ def resolve_theme(term: Optional[str]) -> Optional[tuple[str, list[str]]]:
         return None
     graph = get_graph()
     candidates = theme_term_candidates(term)
+    # 정확 일치 사다리를 먼저 다 훑고, 그래도 없으면 단·복수 변형까지 본다 — 변형은
+    # 조회 전용이라 정체성 표기(normalize_theme_term)를 건드리지 않는다.
     node = None
-    for cand in candidates:
+    for cand in [*candidates, *_plural_variants(candidates)]:
         node = graph.theme_node(cand)
         if node is not None:
             break
@@ -427,3 +551,54 @@ def resolve_theme(term: Optional[str]) -> Optional[tuple[str, list[str]]]:
     if not symbols:
         return None
     return node.get("name", ""), symbols
+
+
+def resolve_company_related(term: Optional[str]) -> Optional[tuple[str, list[str]]]:
+    """'X 관련주'(X=개별 상장사) → (표시명, 관계 기업 티커) | None. 학습분만.
+
+    조회는 **앵커 티커**로 한다 — 'Nvidia 관련주'와 'nvidia Related Stock'은 같은
+    관계 집합이므로 표기를 색인 키로 삼으면 언어별로 갈린다(테마 색인이 related:를
+    제외하는 이유). 앵커 확정은 정본 registry 정확 일치이고(us_company_anchor),
+    범주 접미가 없는 표현은 이 축이 아니다(단일 종목 지정 소관).
+
+    학습 이력이 없으면 None — 여기서 검색하지 않는다(결정론 조회 계층). 학습은
+    호출부의 그라운딩 단계(ground_us_company_related) 소관이다."""
+    if not term or not isinstance(term, str) or not has_group_suffix(term):
+        return None
+    from engine.us_term_grounding import us_company_anchor  # 지연 import(순환 방지)
+
+    anchor = us_company_anchor(normalize_theme_term(term))
+    if anchor is None:
+        return None
+    graph = get_graph()
+    node = graph.nodes.get(f"related:{anchor[0]}")
+    if node is None:
+        return None
+    symbols = graph.companies(node["id"])
+    if not symbols:
+        return None
+    # 학습분에 **앵커 대표 테마의 동료**를 얹는다(2026-08-29 사용자 결정).
+    # 공시 전문검색은 '자기 공시에 앵커를 적은 회사'(고객·파트너·의존 기업)를
+    # 찾으므로, 나란히 경쟁하는 동료는 후보에 오르지도 않는다 — 'Nvidia 관련주'
+    # 후보 40곳에 AVGO·MRVL·TSM·MU·SMCI가 아예 없었다. 큐레이션은 이미 이들을
+    # 'AI 반도체'로 묶어 두고 있었는데 이 축이 보지 않아 조용히 빠졌다.
+    # 학습 이력이 있을 때만 얹는다 — 없으면 종전대로 None을 돌려 그라운딩 단계가
+    # 학습을 시도한다(결정론 조회 계층이 학습 기회를 가로채지 않는다).
+    peer_theme = graph.representative_theme(anchor[0])
+    if peer_theme:
+        for symbol in graph.companies(peer_theme):
+            if symbol not in symbols:
+                symbols.append(symbol)
+    return (company_related_label(anchor[1]), symbols)
+
+
+def company_related_label(company_name: str) -> str:
+    """앵커 회사명 → 표시 라벨. 원장은 한국어 정본이고 표시는 요청 언어를 따른다.
+
+    us_display_name과 같은 계약 — /us(en) 요약 카드에 'Nvidia 관련주'가 그대로 나가면
+    영어 화면에 한국어가 섞인다. 엔진은 심볼만 쓰므로 이 값은 표시 메타데이터다."""
+    import ui_language  # 지연 import(엔진 모듈의 요청 컨텍스트 의존 최소화)
+
+    if ui_language.get_ui_language() == "en":
+        return f"{company_name}-related stocks"
+    return f"{company_name} 관련주"

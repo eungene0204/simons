@@ -13,6 +13,12 @@ import urllib.request
 from pathlib import Path
 
 BASE_URL = os.environ.get("QA_BACKEND_URL", "http://localhost:8000") + "/strategy/parse"
+# --lang en(/us 재현)일 때 전 요청에 실리는 지역 신호. /us 프론트는 지역을 X-UI-Language
+# 헤더로만 보내고(lib/server/backend.ts:52) 백엔드 미들웨어가 요청 컨텍스트에 묶는다
+# (main.py:108). 이걸 빼면 --lang en이 **문장만 영어로 바꾸고 지역은 한국인 채**여서
+# 지역 격리 가드가 발동하지 않는다(실측 2026-08-29: 시장 미언급 EN 발화가 KOSPI200으로
+# 파스). 기준 전략이 시장을 명시해도 답변 턴의 US 레인 판정이 달라진다.
+HEADERS: dict[str, str] = {}
 # 진행 골격 8칸이 모두 채워진 기준 전략. 파일이 없으면 한 번 파싱해 만들어 캐시한다.
 _BASE_PATH = Path(__file__).with_name(".qa_free_input_base.json")
 _BASE_PROMPT = (
@@ -259,18 +265,49 @@ OWNED = {
 def _post(payload: dict) -> dict:
     req = urllib.request.Request(
         BASE_URL, data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"})
+        headers={"Content-Type": "application/json", **HEADERS})
     with urllib.request.urlopen(req, timeout=300) as resp:
         return json.loads(resp.read())
 
 
+# 기준 전략(PREV)은 **매 실행 새로 파싱한다** — 파일은 사람이 들여다보는 사본일 뿐,
+# 다음 실행의 근거로 되읽지 않는다.
+#
+# 종전엔 파일이 있으면 무조건 재사용했고, 그래서 기준선이 백엔드와 조용히 어긋났다
+# (2026-08-29 실측: 08-26 04:58에 찍힌 EN 사본의 initial_capital이 1천만원(원화 기본값)
+# 이었는데, 달러 초기자본을 물린 커밋 ae33fd34는 그 4시간 40분 **뒤**에 들어왔다.
+# initial_capital은 GUARDED(침범 감시) 대상이라 collateral 판정이 내내 틀린 기준선과
+# 대조되고 있었다).
+#
+# 표식을 적어 두고 불일치 시 재생성하는 방법은 여기서 성립하지 않는다 — 이 하니스는
+# 기준 전략을 **HTTP로 남의 프로세스에** 물어본다. 로컬 git 커밋이나 소스 해시는 그
+# 서버가 무엇을 돌리고 있는지 증명하지 못하고(다른 빌드의 컨테이너일 수 있다),
+# LLM 모델·프롬프트 교체는 어떤 파일 목록으로도 덮이지 않는다. 답이 현행인지 아는
+# 유일한 방법은 현행에 다시 물어보는 것이다. 비용은 실행당 파싱 1회다.
 def load_base() -> dict:
-    if _BASE_PATH.exists():
-        return json.loads(_BASE_PATH.read_text(encoding="utf-8"))
-    print("기준 전략 생성 중(1회)...", flush=True)
+    print("기준 전략 파싱 중(매 실행 1회 — 캐시 재사용 없음)...", flush=True)
     base = _post({"prompt": _BASE_PROMPT, "backend": "ollama"})
     _BASE_PATH.write_text(json.dumps(base, ensure_ascii=False), encoding="utf-8")
     return base
+
+
+def print_base(base: dict) -> None:
+    """판정하는 사람이 **무엇과 대조되고 있는지** 보게 한다 — 위 사고가 오래 안 보인
+    이유가 기준선을 아무도 화면에서 못 봤기 때문이다."""
+    p = base.get("parsed") or {}
+    fields = ["universe", "target_symbols", *GUARDED, "entry_signals", "exit_signals"]
+    seen: list[str] = []
+    for k in fields:
+        if k in seen:
+            continue
+        seen.append(k)
+        v = p.get(k)
+        if v in (None, [], {}):
+            continue
+        if k in ("entry_signals", "exit_signals"):
+            v = [x.get("indicator") for x in v if isinstance(x, dict)]
+        print(f"    {k:<18} = {v}", flush=True)
+    print(f"    explicit_fields    = {base.get('explicit_fields') or []}", flush=True)
 
 
 # 하니스 슬롯 → 되묻기 topic(정본 라벨). 프론트는 pending_ask를 그대로 에코하므로
@@ -347,10 +384,13 @@ if __name__ == "__main__":
     family = next((a for a in args if a in ("fill", "modify")), "modify")
     if LANG == "en":
         _BASE_PATH, _BASE_PROMPT, CASES = _BASE_PATH_EN, _BASE_PROMPT_EN, CASES_EN
+        HEADERS["X-UI-Language"] = "en"
     BASE = load_base()
     PREV = BASE["parsed"]
     PREV_EXPLICIT = BASE.get("explicit_fields") or []
     print(f"=== 질문 계열: {family} / 언어 {LANG} / 케이스 {len(CASES)}개 ===", flush=True)
+    print("  기준 전략(이 값들과의 차이로 판정한다):", flush=True)
+    print_base(BASE)
     rows = run(family)
     out_path = str(Path(__file__).with_name(
         f".qa_free_input_result_{family}{'_us' if LANG == 'en' else ''}.json"))

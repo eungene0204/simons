@@ -3,7 +3,8 @@
 핵심 계약:
   - 목록 파서는 상세 링크(no)와 이름만 취하고 중복 no는 1회만.
   - 종목 파서는 텍스트 있는 종목 링크만(차트 링크 자연 제외), 중복 코드 1회만.
-  - 스코프 제외(인물·정치·이벤트)는 결정적 키워드 가드로 걸러진다.
+  - 스코프 제외는 명시 목록(EXCLUDE_PERSON·EXCLUDE_EVENT·EXCLUDE_MARKET)만 쓴다 —
+    이름 키워드 가드(인물·정치·재해·질병)는 2026-08-29 폐지.
 """
 
 from __future__ import annotations
@@ -45,10 +46,15 @@ def test_parse_group_stocks_skips_chart_links():
     assert ing.parse_group_stocks(_DETAIL_HTML) == [("035420", "NAVER"), ("035720", "카카오")]
 
 
-def test_scope_exclusion_patterns():
-    pat = ing.EXCLUDE_NAME_PATTERNS
-    assert pat.search("정치/인맥(이재명)")
-    assert pat.search("코로나19(진단키트)")
-    assert pat.search("스포츠행사 수혜(올림픽, 월드컵 등)")
-    assert not pat.search("LCD 부품/소재")
-    assert not pat.search("테마파크")
+def test_scope_keyword_guard_is_abolished():
+    """인물·이벤트 스코프 키워드 가드 폐지(2026-08-29 사용자 결정) — 되살리지 말 것.
+
+    이 가드는 네이버 346개 분류 중 8개(코로나19 4종·황사/미세먼지·재난/안전·태풍 및 장마·
+    스포츠행사 수혜)만 막았고 그중 일곱은 실제 사업 실체가 있는 테마였다(마스크·공기청정기·
+    소방·진단기기). 도입 커밋(ff8e1114)에 근거가 기록돼 있지 않았다. 편입 여부는 분류 이름의
+    키워드가 아니라 근거로 판단한다.
+
+    이름 기반 스코프 제외는 명시 목록(EXCLUDE_PERSON·EXCLUDE_EVENT·EXCLUDE_MARKET)만 남는다."""
+    assert not hasattr(ing, "EXCLUDE_NAME_PATTERNS")
+    import engine.naver_theme_live as live
+    assert not hasattr(live, "EXCLUDE_NAME_PATTERNS")

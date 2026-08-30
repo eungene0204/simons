@@ -84,7 +84,9 @@
     {"id": "kpop-agency", "name": "K-팝 기획사", "name_en": "K-Pop Agency", "category": "concept", "synonyms": ["K팝", "케이팝", "연예기획사", "아이돌 기획사", "아이돌"], "description": "아티스트 발굴·매니지먼트와 음반·음원 기획제작이 주업인 연예기획사. 음반·콘서트·MD·팬덤 플랫폼이 매출 축이다('엔터'는 섹터 어휘라 동의어 제외)"},
     {"id": "drama-production", "name": "드라마 제작사", "name_en": "Drama Production", "category": "concept", "synonyms": ["드라마 제작", "K드라마", "K-드라마"], "description": "방송사·OTT용 드라마를 기획·제작하고 IP를 확보·판매하는 산업. 글로벌 OTT 수요와 IP 보유 여부가 수익성을 좌우한다('드라마' 단독은 부분 문자열 오폭 위험으로 동의어 제외)"},
     {"id": "webtoon", "name": "웹툰", "name_en": "Webtoon", "category": "concept", "synonyms": ["웹소설", "웹툰 플랫폼", "웹툰 제작사", "웹툰 IP"], "description": "웹툰·웹소설의 제작·출판·플랫폼 유통 산업. 드라마·게임으로 확장되는 원천 IP의 출발점('웹툰' 단독은 섹터 어휘라 스캔 제외 — 동의어가 담당, '양극재' 전례)"},
-    {"id": "fandom-platform", "name": "팬덤 플랫폼", "name_en": "Fandom Platform", "category": "concept", "synonyms": ["팬덤", "팬 플랫폼", "팬덤 비즈니스"], "description": "아티스트-팬 소통·커머스를 구독 모델로 제공하는 플랫폼. 플랫폼사(소프트웨어)와 기획사 겸업이 섞인 다업종이라 소속 엣지 없음('버블'·'위버스' 상품명은 동의어 금지)"}
+    {"id": "fandom-platform", "name": "팬덤 플랫폼", "name_en": "Fandom Platform", "category": "concept", "synonyms": ["팬덤", "팬 플랫폼", "팬덤 비즈니스"], "description": "아티스트-팬 소통·커머스를 구독 모델로 제공하는 플랫폼. 플랫폼사(소프트웨어)와 기획사 겸업이 섞인 다업종이라 소속 엣지 없음('버블'·'위버스' 상품명은 동의어 금지)"},
+    {"id": "vietnam", "name": "베트남", "name_en": "Vietnam", "category": "theme", "synonyms": [], "description": "베트남에 생산기지·현지법인·지분을 보유해 사업 노출이 확인된 한국 상장사 테마. 의류·신발 OEM·전자부품·화학/섬유·건설·금융 등 다업종에 걸쳐 단일 섹터 소속을 두지 않는다(데이터센터와 같은 관례)"},
+    {"id": "covid19", "name": "코로나19", "name_en": "COVID-19", "category": "theme", "synonyms": ["코로나", "코로나바이러스", "코로나19바이러스", "백신/진단시약/방역(신종플루, AI 등)"], "description": "코로나19 관련 상장사 표현. 종목 명부는 네이버 금융 '백신/진단시약/방역(신종플루, AI 등)' 분류 수록 종목이며(카탈로그 표기 정합), 이 노드는 '코로나19'라는 표현이 그 분류를 가리킨다는 표기 매핑만 담는다 — 개별 종목의 관계 근거를 주장하지 않는다(2026-08-29 복구)"}
   ],
   "edges": [
     {"source": "hbm", "type": "is_a", "target": "memory-semi"},
@@ -383,6 +385,27 @@
     {"source": "led-tech", "type": "produced_by", "target": "company:046890", "note": "LED 제조가 주력 — 2026 1분기 연결 순매출 2,382억원, 2025년 연간 매출 1조135억원(Core 85)"},
     {"source": "optical-communication", "type": "produced_by", "target": "company:138080", "note": "광트랜시버(광모듈)가 사업 전부 — 2025년 매출 574억원(전년 대비 79.2%↑), AI 데이터센터·일본 NTT향 물량 확대로 2026년 흑자전환 전망(Core 80)"},
     {"source": "optical-communication", "type": "related_to", "target": "data-center"},
-    {"source": "optical-communication", "type": "related_to", "target": "5g-equipment"}
+    {"source": "optical-communication", "type": "related_to", "target": "5g-equipment"},
+    {"source": "vietnam", "type": "related_company", "target": "company:105630", "note": "베트남 다수 생산법인 운영, 협력사 포함 고용 약 2.5만명, 베트남 생산 의류 수출 약 10억 달러. (Producer/Core 92)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:241590", "note": "베트남 동나이 화승비나 신발 ODM 생산기지 운영. (Producer/Core 91)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:050110", "note": "카메라모듈 생산을 베트남 법인으로 일원화(중국 공장 매각 이후). (Producer/Core 90)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:298000", "note": "바리아붕따우 PP·DH·LPG 설비 운영, 베트남을 별도 사업부문으로 공시. (Producer/Core 88)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:271560", "note": "호치민·하노이 2개 제과 공장 가동. (Producer/Strong 85)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:047040", "note": "하노이 스타레이크시티 신도시 개발 사업 시행, 2단계 착공(2024.11). (Infrastructure/Strong 85)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:111770", "note": "남딘 복합 생산단지에서 봉제·가방·염색·편직 수직계열 운영. (Producer/Strong 84)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:120110", "note": "빈즈엉 바우방 PET 타이어코드 공장 운영 및 증설. (Producer/Strong 83)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:006360", "note": "자회사 VGSE/VGSI를 통해 호치민 3개 신도시 개발. (Infrastructure/Strong 82)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:009150", "note": "타이응우옌 생산법인 운영, FCBGA 기판 라인 증설. (Producer/Strong 82)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:055550", "note": "신한베트남은행(100%)·신한베트남파이낸스 운영. (Producer/Strong 82)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:011070", "note": "하이퐁 공장 투자, 카메라모듈 생산능력 확대. (Producer/Strong 80)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:006800", "note": "미래에셋증권베트남 현지법인 운영. (Producer/Strong 80)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:073240", "note": "빈즈엉 타이어 공장 운영 및 증설. (Producer/Strong 79)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:316140", "note": "베트남우리은행 현지 영업망 운영. (Producer/Strong 78)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:001680", "note": "베트남 내 복수 생산시설 운영(1994년 진출). (Producer/Strong 78)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:097520", "note": "베트남 3·4공장에서 카메라모듈·액추에이터 생산. (Producer/Strong 77)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:007980", "note": "타인호아성 VPT 봉제공장 운영. (Producer/Strong 76)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:086790", "note": "베트남 BIDV 지분 보유(2대주주). (Investor/Strong 75)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:194370", "note": "베트남 핸드백 ODM 공장 운영, 생산능력 확대. (Producer/Strong 75)"},
+    {"source": "vietnam", "type": "related_company", "target": "company:298020", "note": "바리아붕따우 바이오BDO 공장 투자. (Producer/Strong 74)"}
   ]
 }

@@ -139,7 +139,7 @@ simons/
 │   │   ├── knowledge_graph.py       # Investment Knowledge Graph — 개념·공급망·기업·ETF 노드/엣지 합성·탐색(FR-STR-070, docs/knowledge_graph.md)
 │   │   ├── us_knowledge_graph.py    # 미국 지식그래프 — 시드+테마 카탈로그+공시 학습 오버레이 합성, 테마어→구성 티커 해석(US 레인, docs/knowledge_graph.md 미국 섹션)
 │   │   ├── us_industry_registry.py   # 미국 업종 분류 registry — GICS 섹터·산업 정본 → 종목 명부(테마와 다른 축, 표기 변종 병합, FR-STR-074 ⑦)
-│   │   ├── us_term_grounding.py     # 미국 용어 그라운딩 — 카탈로그 밖 테마어를 SEC 공시 전문검색(EDGAR FTS)으로 학습, CIK 정본 조인+LLM 소속 심사(FR-STR-074)
+│   │   ├── us_term_grounding.py     # 미국 용어 그라운딩 — 카탈로그 밖 테마어 + 회사 앵커 'X 관련주'를 SEC 공시 전문검색(EDGAR FTS)으로 학습, CIK 정본 조인+LLM 심사(테마=사업 영위 / 앵커=관계 실재, FR-STR-074 ⑪)
 │   │   ├── data_resolver.py         # 유니버스 필터링
 │   │   ├── virtual_trader.py        # 가상매매 실시간 엔진 (상장 상태 체크 포함)
 │   │   ├── listing_status.py        # 상장 상태 머신 (7단계) + DART 분류 + DB 동기화
@@ -707,6 +707,13 @@ Strategy Compiler (compiler/strategy_compiler.py) — 검증 READY만 컴파일(
   ② 패치 수치와 입력 수치의 대조(단위 환산 포함), ③ 지정 종목의 해석 가능성(마스터 조회).
   셋 다 근거가 없으면 환각으로 거부하고 전략 유지+미해석 안내(QA 20-3). 과거의 필드별
   한국어 어휘 큐 스캔(_PATCH_FIELD_CUES)은 발화 어휘 스캔이라 폐기(§ 3-1 (b), 2026-07-26).
+  **거부 사유가 ③(종목 해석 실패)이면 안내가 갈린다(2026-08-29)**: 값이 발화에 그대로
+  실재하는 이름이면 모델이 지어냈을 수 없으므로(구 사명·미등록·오타) '전략 변경으로
+  해석하지 못했다' 대신 **그 이름을 못 찾았다**고 알린다(`_unresolvable_symbol_names` —
+  LLM 출력과 원문의 포함 대조일 뿐 의미 해석이 아니다). 전략은 여전히 무변경이며 이름을
+  임의로 다른 종목으로 치환하지 않는다. 반대로 **구 사명이 해석에 성공한 경우**에는 이름이 바뀌었다는
+  사실을 안내한다(`_renamed_symbol_notices`, 생성·수정 두 레인 공통) — 요약 카드는 현재 등록명만
+  보여주므로 조용한 정본 치환은 사용자에게 다른 종목으로 보인다.
   **판정 단위는 필드가 아니라 조건 하나다(2026-07-31)**: 같은 조건 객체를 겨냥한 형제
   패치(`/entry_conditions/0/{factor,operator,value}`)는 지표를 통째로 갈아끼우는 **한
   덩어리의 수정**이라 `_patch_group_key`로 묶어 함께 판정한다 — 그룹 안에 출처가 확인된
@@ -759,6 +766,14 @@ Strategy Compiler (compiler/strategy_compiler.py) — 검증 READY만 컴파일(
 | `lookup_capabilities` | registry/capability_registry 정본 상수 | ✅ |
 | `validate_intent` | validation/pipeline.run_validation | ✅ |
 | `compile_strategy` | compiler(compile_strategy/compile_partial, `partial` 플래그) | ✅ |
+
+`kg_theme_companies`(백테스트 유니버스 확정 뷰)는 직접 상장사 엣지가 없어 **개념 1홉
+폴백으로만** 채워진 목록에 앵커 기준 근거 게이트를 건다 — 관계 원장(kg_research)에
+(앵커, 종목) 근거가 있거나, 앵커 정본 섹터가 경유 이웃 개념 중 하나와 일치해야 한다.
+통과분이 없으면 미해석(None)으로 돌려 THEME_NOT_FOUND 되묻기로 종결한다('베트남' 사고
+2026-08-29: 뉴스 동시언급으로 이어진 데이터센터의 종목 2곳이 베트남 관련주로 확정됐다).
+조회 레인의 `theme_listed_companies` 폴백은 불변이다. 상세는 `docs/knowledge_graph.md`
+「개념 1홉 폴백 — 백테스트 유니버스 승격에는 앵커 기준 근거가 필요하다」.
 
 - 경계 규칙: 도메인 예외(StrategyCompileError 등)는 전파(폴백 판단은 호출부 소관),
   `ToolError`는 계약 위반(미등록 이름·입출력 형식)에만. 입출력 검증은 base.py::call 단일
@@ -1174,10 +1189,11 @@ ChatQaLog       — 전략연구소 대화 기록 (질문·답변 한 턴 = 1행
 | `data/ohlcv-us/{symbol}.parquet` | Parquet | **미국 전 상장 보통주** OHLCV + 기본 재무(5,947종목). 한국 파케이와 **동일 컬럼·순서·dtype·단위 규약**(회귀 테스트가 강제, 한국 파일은 읽기 전용 대조에만 사용). 소스=yfinance(무료), 백필=`scripts/backfill_us_stocks.py`. 단위는 한국이 컬럼마다 다른 규약을 그대로 복제 — 억달러: market_cap·net_income·owner_net_income·ebitda·ebit·ev·revenue·`*_cf_amount`, raw USD: total_equity·capex(양수 규모)·fcf·`*_cash_flow`. `dividends`=배당락일 DPS(그 외 0, 엔진이 롤링 합으로 TTM 생성). 수준 재무=분기(기간종료+60일 반영), 성장률=연간 YoY(+90일 반영), 둘 다 15개월 stale cap. ROE는 지배주주 기준. **시총**=분할조정 주식수×종가, 주식수는 yfinance 실측(2015-10~)+SEC EDGAR companyfacts(2009~, 제출일 기준) — 최초 실측 이전은 역채움하지 않고 NaN. **외국 기업 환산**: yfinance는 주가를 달러로, 재무제표를 현지 통화로 준다(485종목·29개 통화). `financialCurrency`가 달러가 아니면 일별 환율(`<통화>=X`)로 **금액과 성장률을 모두** 달러 기준으로 환산한다 — 성장률을 현지통화로 두면 초인플레이션 통화의 가치 하락이 '성장'으로 잡혀 성장 스크리닝이 깨진다(BBAR: 페소 -32.3% vs 달러 -51.9%) — 미환산 시 TSMC PER이 31 대신 1.14로 나와 저PER 스크리닝이 저평가가 아니라 환율로 종목을 고른다. 주식수·무단위 비율(ROE·마진·부채비율)은 환산하지 않는다. 환율 이력 이전(2001~2003년 이전) 구간은 NaN. **한계**: 상폐 종목 미수록(생존편향 잔존), 법인 재등록 종목은 시총이 2015년부터. **재무 이력 확장(2026-08-25)**: yfinance 분기 재무가 최근 ~5분기뿐이라 TTM 팩터가 약 3개월치였던 것을 SEC EDGAR companyfacts XBRL로 2009~부터 재구축(`scripts/backfill_us_fundamentals_edgar.py`, 4,971종목 갱신 — yfinance 재무제표 모양 어댑터로 기존 지표 정의·룩어헤드 규약 재사용, YTD 차분 분기화, 개념 우선순위 병합, 비USD·CEF류는 기존값 유지). TTM 팩터 2012~ 커버리지 80~90%. 12주 전량 재수집이 파케이를 다시 쓰면 이력이 사라지므로 `scheduler_us.py`가 재수집 직후 재적용을 강제한다(실패 시 마커 차단) |
 | `data/us-stocks.json` | JSON | 미국 주식(S&P 500) 마스터 — symbol/name/market(거래소)/sector/industry(GICS), 유니버스 SOT=Wikipedia S&P 500 |
 | `data/us-etf-master.json` | JSON | 미국 대표 ETF 31종 마스터(지수·섹터 SPDR·산업·테마·배당·자산) — 카탈로그 정본은 `scripts/backfill_us_etf.py`의 CATALOG 상수, 파케이는 `data/ohlcv-us/`에 개별주와 동일 스키마(재무 컬럼 NaN — ETF 재무 불가 계약). 일일 증분은 `scheduler_us.py`가 개별주 뒤에 실행 |
-| `data/us-term-lexicon.json` | JSON | 미국 테마어 학습 원장 — `engine/us_term_grounding.py`가 SEC 공시 전문검색으로 학습한 테마어 → 구성 티커(verified/pending, 근거 공시 URL). US 지식그래프가 학습 오버레이로 합성(verified만) — 별칭 우선순위는 시드 > 카탈로그 > 학습. 런타임 생성물이라 검색이 처음 성공한 뒤부터 존재한다 |
+| `data/us-term-lexicon.json` | JSON | 미국 테마어·회사 앵커 학습 원장 — `engine/us_term_grounding.py`가 SEC 공시 전문검색으로 학습한 표현 → 구성 티커(verified/pending, 근거 공시 URL). 키는 테마=정규화 표기, 회사 앵커=`related:<티커>`(`kind: company_related`·`anchor`). US 지식그래프가 학습 오버레이로 합성(verified만) — 테마는 `learned:` 노드로 별칭 색인에 들어가고(우선순위 시드 > 카탈로그 > 학습), 회사 앵커는 `related:` 노드로 색인에서 제외돼 앵커 티커로만 조회된다. 런타임 생성물이라 검색이 처음 성공한 뒤부터 존재한다 |
 | `data/us-index-membership.json` | JSON | 미국 지수 **현행** 구성종목 — S&P500(위키 503)·나스닥100(나스닥 공식 API 102)·다우30(stockanalysis.com 30). 편입/편출 이력(PIT)은 무료 소스 부재로 미수집(파일에 명시) — US 지수 유니버스는 이 명부 기준이며 엔진이 생존편향·현행 명부 경고를 남긴다. 수집기 `scripts/backfill_us_index_membership.py`(정상 범위 Fail-Fast), 12주 전량 재수집 주기에 함께 갱신 |
 | `data/fundamentals/` | JSON/CSV | ROE, EPS, BPS, 부채비율 |
 | `data/korea-stocks.json` | JSON | 종목명, 코드, 시장, 섹터 (현재 상장 — 섹터 SOT) |
+| `data/stock-name-history.json` | JSON | 국내 종목 **사명 변경 이력**과 구 사명 별칭(`formerNames`: 구 사명 → 종목코드). KRX 월별 전종목 스냅샷(MDCSTAT01501, 2000-01~)을 대조해 같은 코드의 이름이 바뀐 지점을 관측한 것 — `backend/scripts/build_stock_name_history.py`(KRX_ID/PW 필요, 스냅샷 캐시=data/cache/krx-name-snapshots/, `--rebuild-only`는 무통신 재집계). 모호한 이름은 등재하지 않는다: 지금 다른 상장사가 쓰는 이름·두 코드가 나눠 쓴 이름(상폐 포함)·3자 미만. registry(`symbol_resolver.known_aliases`)가 통칭과 함께 매칭 인덱스에 넣어 '가장 긴 이름 우선'으로 해석한다 |
 | `data/stock-master.json` | JSON | PIT 종목 마스터(상장폐지 포함, 생존편향 제거) + 상폐 종목 industry/sector 백필(`backend/scripts/backfill_delisted_sectors.py`, 재빌드는 `build_stock_master.py`) |
 | `data/etf-master.json` | JSON | ETF 유니버스 마스터(FDR ETF/KR ∩ 로컬 OHLCV + 상폐 백필 병합, `backend/scripts/build_etf_master.py`) — 상폐 미백필 상태에서만 엔진이 생존편향 경고 |
 | `data/etf-delisted.json` | JSON | 상폐 ETF 멤버십(`backend/scripts/backfill_delisted_etf.py` — KRX Open API 승인 또는 KRX_ID/PW 필요, 일별 캐시=data/cache/krx-etf-daily/) |

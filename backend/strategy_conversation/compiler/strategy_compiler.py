@@ -438,8 +438,12 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         universe=markets,
         sector=sector_value,
         us_industry=us_industry,
-        # 출처 축 표기 — 분류로 확정된 유니버스임을 남긴다(테마는 체인이 채운다).
-        universe_source="industry" if us_industry else None,
+        # 출처 축 표기 — 분류로 확정된 유니버스이거나, 검증기가 이미 전개한 테마·회사
+        # 앵커 집합이면 그 축을 남긴다(둘 다 아니면 체인이 채운다).
+        universe_source=(
+            "industry" if us_industry
+            else (strategy.universe.theme_source if target_symbols else None)
+        ),
         target_symbols=target_symbols,
         etf_theme=etf_theme,
         # 테마 출처는 지정 종목이 있을 때만 통과시킨다 — 이 필드는 "이 종목들이 어느

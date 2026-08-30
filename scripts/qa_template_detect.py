@@ -38,6 +38,7 @@ import json
 import os
 import re
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -58,6 +59,23 @@ def expected_etf_theme(prompt: str) -> Optional[str]:
     from engine.universe_pit import extract_etf_theme
 
     return extract_etf_theme(prompt)
+
+
+def expected_us_tickers(prompt: str) -> list[str]:
+    """QA 기대값: 예시가 **명시적으로 짚은** 미국 ETF 티커(정본 마스터 자기검증).
+
+    파스 경로가 아니라 QA 대조용 ground truth다(expected_etf_theme와 같은 계약).
+    2026-08-27 실측: "Buy SPY when …"이 markets=["US_ETF"](미국 ETF 전체)로 파스되는데도
+    아래 판정이 US_ETF 단독을 정상으로 인정해 **상품 하나가 전체 유니버스로 벌어지는
+    결함을 게이트가 통째로 못 봤다**. 예시가 티커를 짚었으면 그 티커가 지정 종목에
+    있어야 한다."""
+    from engine.universe_pit import is_us_etf_symbol
+
+    found: list[str] = []
+    for token in re.findall(r"(?<![A-Za-z0-9])[A-Z][A-Z0-9.\-]{1,9}(?![A-Za-z0-9])", prompt):
+        if is_us_etf_symbol(token) and token not in found:
+            found.append(token)
+    return found
 
 
 # 억원 단위 금액 지표 — 값이 억원이라 자릿수가 하나만 틀려도 전략이 10배 달라진다.
@@ -325,7 +343,16 @@ def load_templates(source: str = "kr", lang: str = "kr") -> list[Template]:
 
 def parse_strategy(prompt: str) -> dict:
     # dev/배포 기본값은 ollama. mlx는 로컬 dev에 모델이 로드돼 있지 않아 503이 난다.
-    data = json.dumps({"prompt": prompt, "backend": "ollama"}).encode()
+    # **지역 신호**(2026-08-27): /us는 지역이 곧 표시 언어다(lib/geo/region → 프록시가
+    # X-UI-Language를 실어 보내고 백엔드가 요청 컨텍스트에 묶는다). 이걸 안 실으면
+    # 백엔드는 한국 요청으로 응대한다 — 지역 격리 가드가 발동하지 않고 시장 미언급의
+    # 기본 유니버스가 한국 기본값(KOSPI200)이 된다(실측: /us ETF 예시가 KOSPI200으로
+    # 파스). 아래 asked 대조가 "--lang en에서는 영어로 온다"를 전제하고 있었는데
+    # 전송이 빠져 있어 하니스가 스스로와 어긋나 있었다.
+    body = {"prompt": prompt, "backend": "ollama"}
+    if LANG == "en":
+        body["language"] = "en"
+    data = json.dumps(body).encode()
     req = urllib.request.Request(
         f"{BACKEND}/strategy/parse", data=data,
         headers={"Content-Type": "application/json"}, method="POST",
@@ -337,6 +364,18 @@ def parse_strategy(prompt: str) -> dict:
 # ── 검출 술어 ────────────────────────────────────────────────────────────
 def _has_fund(p: dict, metric: str) -> bool:
     return any(f.get("metric") == metric for f in p.get("fundamental_filters", []))
+
+
+def _has_rank(p: dict, metric: str) -> bool:
+    """랭킹 축에 그 지표가 쓰였는가 — 재무 **필터**와 다른 자리다(FR-STR-074 축 구분).
+
+    "시총 상위 10종목"은 필터가 아니라 **정렬 기준**이라 ranking_metric/ranking으로
+    착지한다. 필터만 보면 정상 반영된 전략이 '미탐지'로 잡힌다(2026-08-27 실측 #5:
+    ranking_metric=market_cap으로 반영됐는데 시가총액 미탐지로 보고됐다)."""
+    if p.get("ranking_metric") == metric:
+        return True
+    return any(r.get("metric") == metric for r in p.get("ranking") or []
+               if isinstance(r, dict))
 
 
 def _has_sig(p: dict, ind: str) -> bool:
@@ -374,9 +413,11 @@ COVERAGE_CHECKS: list[tuple[str, str, Any]] = [
     ("PER", r"PER|P/E", lambda p: _has_fund(p, "per")),
     ("ROE", r"ROE", lambda p: _has_fund(p, "roe_or_gpa")),
     ("부채비율", r"부채비율|debt", lambda p: _has_fund(p, "debt_ratio")),
-    ("시가총액", r"시가총액|시총|market\s*cap", lambda p: _has_fund(p, "market_cap")),
+    ("시가총액", r"시가총액|시총|market\s*cap",
+     lambda p: _has_fund(p, "market_cap") or _has_rank(p, "market_cap")),
     ("거래대금", r"거래대금|trading\s*value|dollar\s*volume|turnover",
-     lambda p: _has_fund(p, "trading_value") or _has_sig(p, "trading_value")),
+     lambda p: _has_fund(p, "trading_value") or _has_sig(p, "trading_value")
+     or _has_rank(p, "trading_value")),
     # 이동평균/EMA 상하 관계('20일선 위에 있는', '5일 EMA가 20일 EMA 위')는 crossover 표기로
     # 반영돼야 한다. 2026-07-27: 이 검사가 없어 4개 예시가 조건을 잃은 채 통과했다
     # (기준값 되묻기로 조건 드롭 — 인터프리터가 value 요구 연산자를 쓴 드리프트).
@@ -494,11 +535,21 @@ def analyze(tpl: Template, res: dict) -> Flags:
             # 미국 ETF 전체 유니버스(US_ETF). KR ETF 유니버스·etf_theme(KR 마스터 정본)
             # 판정은 적용하지 않는다.
             tgt = p.get("target_symbols") or []
-            us_ok = (tgt and all(_US_TICKER_RE.fullmatch(str(s or "")) for s in tgt)) \
-                or p.get("universe") == ["US_ETF"]
-            if not us_ok:
-                f.fatal.append(
-                    f"미국 ETF 지정/유니버스 아님(uni={p.get('universe')}, tgt={tgt})")
+            # 예시가 티커를 짚었으면 US_ETF 전체는 정답이 아니다 — 상품 지정이 유니버스
+            # 전체로 벌어지는 것이 정확히 잡아야 할 결함이다(2026-08-27).
+            want = expected_us_tickers(prompt)
+            if want:
+                missing = [t for t in want if t not in tgt]
+                if missing:
+                    f.fatal.append(
+                        f"미국 ETF 상품 지정 소실({','.join(missing)} → "
+                        f"uni={p.get('universe')}, tgt={tgt})")
+            else:
+                us_ok = (tgt and all(_US_TICKER_RE.fullmatch(str(s or "")) for s in tgt)) \
+                    or p.get("universe") == ["US_ETF"]
+                if not us_ok:
+                    f.fatal.append(
+                        f"미국 ETF 지정/유니버스 아님(uni={p.get('universe')}, tgt={tgt})")
         else:
             if p.get("universe") != ["ETF"]:
                 f.fatal.append(f"ETF 유니버스 아님({p.get('universe')})")
@@ -513,7 +564,12 @@ def analyze(tpl: Template, res: dict) -> Flags:
                        if x.get("metric") != "trading_value"]
         if etf_illegal:
             f.fatal.append(f"ETF에 재무 조건({','.join(etf_illegal)})")
-    if tpl.category == "테마" and not p.get("sector") and not p.get("target_symbols"):
+    # 업종/테마는 세 축 중 하나로 착지한다(FR-STR-074): 한국 섹터=sector,
+    # 테마·회사 앵커=target_symbols, 미국 분류=us_industry(유니버스 **필터**라 종목
+    # 목록으로 펼치지 않는다 — 2026-08-27 필터 승격). us_industry를 보지 않으면
+    # 멀쩡히 반영된 미국 업종 전략이 '미반영'으로 잡힌다.
+    if (tpl.category == "테마" and not p.get("sector")
+            and not p.get("target_symbols") and not p.get("us_industry")):
         f.fatal.append("업종/테마 미반영")
     # 명시적 청산 규칙('N일선 이탈 시 청산', '데드크로스면 매도')은 신호로 남아야 한다 —
     # 손절·보유기간만 남으면 전략의 성격이 바뀐다(2026-07-27 실측: 예시 3의 청산 소실).
@@ -654,11 +710,13 @@ def summarize(p: dict) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=None)
-    ap.add_argument("--use-cache", action="store_true", help="저장된 원시 파스 캐시만 사용(백엔드 미호출)")
+    ap.add_argument("--use-cache", action="store_true",
+                    help="백엔드를 부르지 않고 저장된 원시 파스 캐시만 읽는다(판정 로직만 손볼 때). "
+                         "**게이트 용도로 쓰지 말 것** — 낡은 답으로 '치명 0'이 나온다")
     ap.add_argument("--category", default=None,
                     help="카테고리 필터(콤마 구분). 예: --category ETF,테마")
     ap.add_argument("--refresh", action="store_true",
-                    help="캐시를 무시하고 다시 파싱한다(파서 수정 후 재검증용)")
+                    help="(폐지 — 이제 기본 동작이다. 기존 명령 호환을 위해 받기만 한다)")
     ap.add_argument("--source", default="kr", choices=sorted(_SOURCES),
                     help="예시 소스: kr(한국, 기본) | us(미국 — usExamples.ts)")
     ap.add_argument("--lang", default="kr", choices=["kr", "en"],
@@ -675,9 +733,23 @@ def main() -> int:
     if args.category:
         wanted = {c.strip() for c in args.category.split(",") if c.strip()}
         templates = [t for t in templates if t.category in wanted]
+    # 원시 파스 캐시는 **기록**이지 근거가 아니다 — 기본 경로는 매번 백엔드에 다시 묻는다.
+    # 종전엔 캐시에 있으면 무조건 재사용했고(--refresh를 붙여야만 재파싱), CLAUDE.md가
+    # 지정한 US 게이트 명령 두 개에는 그 플래그가 없다 → **"치명 0"이라는 합격선이 임의로
+    # 낡은 백엔드의 답 위에서 나올 수 있었다**(2026-08-29 발견. 같은 트랩이 qa_free_input의
+    # 기준 전략 캐시에서 실제 사고로 터졌다 — 원화 기본값이 박힌 사본을 4일간 기준선으로 썼다).
+    # 표식(git 커밋·소스 해시)으로는 못 막는다: 하니스는 답을 HTTP로 **남의 프로세스**에
+    # 물어보므로 로컬 파일은 그 서버의 빌드를 증명하지 못하고, LLM 모델·프롬프트 교체는
+    # 어떤 파일 목록으로도 안 덮인다. 답이 현행인지 아는 유일한 방법은 현행에 다시 묻는 것이다.
     cache: dict[str, dict] = {}
     if RAW_CACHE.exists():
         cache = json.loads(RAW_CACHE.read_text())
+    if args.use_cache:
+        # 남은 재사용 경로(판정 로직만 손볼 때)는 **조용하지 않게** 만든다 — 무엇을 보고
+        # 판정하는지 사람이 알아야 한다.
+        age_h = (time.time() - RAW_CACHE.stat().st_mtime) / 3600 if RAW_CACHE.exists() else 0.0
+        print(f"⚠️  --use-cache: 백엔드를 부르지 않는다. 캐시 {len(cache)}건, "
+              f"마지막 기록 {age_h:.1f}시간 전 — 현행 백엔드의 답이 아니다.", file=sys.stderr)
 
     lines = ["# 전략 템플릿 파싱 검출 리포트 (정제판)\n",
              f"- 대상: {len(templates)}개 (source={args.source}, lang={args.lang})\n"]
@@ -688,11 +760,11 @@ def main() -> int:
         # 캐시 키=파서 입력 텍스트. --lang en이면 영어 번역이 키가 되므로 한국어 실행과
         # 캐시가 섞이지 않고, 번역 문구가 바뀌면 자연히 새로 파싱한다.
         text = tpl.parse_input()
-        if text in cache and not args.refresh:
-            res = cache[text]
-        elif args.use_cache:
-            print(f"[{i}] 캐시 없음, 건너뜀", file=sys.stderr)
-            continue
+        if args.use_cache:
+            res = cache.get(text)
+            if res is None:
+                print(f"[{i}] 캐시 없음, 건너뜀", file=sys.stderr)
+                continue
         else:
             try:
                 res = parse_strategy(text)

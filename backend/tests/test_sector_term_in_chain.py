@@ -155,3 +155,104 @@ def test_gate_uses_validator_criterion_not_kg_resolution():
     한다(테마 상장사 적용이 섹터 근사보다 우선 — FR-STR-071c)."""
     terms = primary._sector_terms_for_chain(["LCD 부품", "반도체", " ", "LCD 부품"])
     assert terms == ["LCD 부품"]  # 정본 사전 해석분(반도체)·공백·중복 제외
+
+
+def test_canonical_theme_match_beats_sector_approximation(monkeypatch):
+    """표기 변형은 업종 근사보다 먼저 테마 정본으로 매핑된다(2026-08-29).
+
+    실측 사고: "코로나 관련주 투자 전략"이 42곳짜리 테마 대신 '바이오/제약' 업종 근사로
+    확정됐다 — 시드 인식 어휘가 '코로나19'뿐이라 '코로나'가 스캔에 걸리지 않았기 때문.
+    이제 결정론 스캔이 놓치면 닫힌 목록 LLM 선택이 정본 이름을 찾아 같은 결정론 경로로
+    적용한다. 이 단계가 없으면 업종 근사 안내로 빠진다(아래 대조군)."""
+    import engine.knowledge_graph as kg
+    import engine.term_grounding as tg
+    import strategy_conversation.planner.shadow as shadow
+
+    monkeypatch.setenv("KG_THEME_CANONICAL_MATCH", "on")
+    tg._reset_theme_match_cache_for_tests()
+    # 결정론 조회는 정본 이름일 때만 맞힌다(표기 변형은 놓친다 — 실제 스캔과 같은 성질)
+    monkeypatch.setattr(kg, "theme_backtest_companies",
+                        lambda text: _theme_hit(text) if text == "코로나19" else None)
+    monkeypatch.setattr(tg, "resolve_kg_theme",
+                        lambda term, chat: "코로나19" if term == "코로나" else None)
+    monkeypatch.setattr(shadow, "_default_chat", lambda *a, **k: (lambda *x, **y: "{}"))
+    monkeypatch.setattr(primary, "_ground_sector_term", lambda term, on_stage=None: "바이오/제약")
+
+    parsed = ParsedStrategy(description="코로나 관련주 투자 전략")
+    notices: list = []
+    q, _ = primary._resolve_sector_terms_term_in(parsed, ["코로나"], notices)
+
+    assert q is None
+    assert parsed.target_symbols == ["035900", "352820"]  # 테마 종목이 적용됐다
+    assert parsed.sector is None                          # 업종 근사로 빠지지 않았다
+    assert notices == []                                  # 업종 해석 안내도 없다
+    tg._reset_theme_match_cache_for_tests()
+
+
+def test_sector_approximation_remains_when_no_canonical_theme(monkeypatch):
+    """대조군 — 정본 매핑이 없으면 종전대로 업종 근사 체인으로 넘어간다(회귀 방지)."""
+    import engine.knowledge_graph as kg
+    import engine.term_grounding as tg
+    import strategy_conversation.planner.shadow as shadow
+
+    monkeypatch.setenv("KG_THEME_CANONICAL_MATCH", "on")
+    tg._reset_theme_match_cache_for_tests()
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: None)
+    monkeypatch.setattr(tg, "resolve_kg_theme", lambda term, chat: None)
+    monkeypatch.setattr(shadow, "_default_chat", lambda *a, **k: (lambda *x, **y: "{}"))
+    monkeypatch.setattr(primary, "_ground_sector_term", lambda term, on_stage=None: "바이오/제약")
+
+    parsed = ParsedStrategy(description="마운자로 관련주 전략")
+    notices: list = []
+    q, _ = primary._resolve_sector_terms_term_in(parsed, ["마운자로"], notices)
+
+    assert q is None
+    assert parsed.sector == "바이오/제약"
+    assert notices and "인터넷 검색으로 확인해" in notices[0]
+    tg._reset_theme_match_cache_for_tests()
+
+
+def test_same_sector_notice_shown_once(monkeypatch):
+    """같은 업종 해석 안내는 표현이 여러 개여도 한 번만 나간다 (2026-08-29 사용자 보고).
+
+    'nvidia 관련주 투자 전략'에서 'nvidia 관련주'와 'nvidia'가 따로 해석돼 "'반도체' 업종
+    관련으로 해석했어요"가 두 번 표시됐다 — 표현만 다르고 정보는 같은 중복.
+    """
+    notices: list = []
+
+    primary._append_sector_notice(
+        notices, "반도체",
+        "'nvidia 관련주'은(는) '반도체' 업종 관련으로 해석했어요. "
+        "다른 업종을 원하시면 말씀해 주세요.",
+    )
+    primary._append_sector_notice(
+        notices, "반도체",
+        "'nvidia'은(는) '반도체' 업종 관련으로 해석했어요. "
+        "다른 업종을 원하시면 말씀해 주세요.",
+    )
+    primary._append_sector_notice(
+        notices, "2차전지",
+        "'배터리'은(는) '2차전지' 업종 관련으로 해석했어요. "
+        "다른 업종을 원하시면 말씀해 주세요.",
+    )
+
+    assert len(notices) == 2
+    assert notices[0].startswith("'nvidia 관련주'")
+    assert "'2차전지' 업종" in notices[1]
+
+
+def test_search_grounded_notice_dedupes_against_plain_notice():
+    """검색 학습 문구와 일반 문구는 접두만 다르다 — 같은 업종이면 하나만 남는다."""
+    notices: list = []
+
+    primary._append_sector_notice(
+        notices, "반도체",
+        "'nvidia 관련주'은(는) '반도체' 업종 관련으로 해석했어요. "
+        "다른 업종을 원하시면 말씀해 주세요.",
+    )
+    grounded = ("'nvidia'은(는) 인터넷 검색으로 확인해 '반도체' 업종 관련으로 "
+                "해석했어요. 다른 업종을 원하시면 말씀해 주세요.")
+
+    assert primary.sector_notice_already_present(notices, grounded)
+    primary._append_sector_notice(notices, "반도체", grounded)
+    assert len(notices) == 1

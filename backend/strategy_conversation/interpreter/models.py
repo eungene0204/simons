@@ -222,6 +222,14 @@ class UniverseSpec(BaseModel):
             "직접 채우거나 패치하지 말 것 — 업종·테마 지정·교체는 sectors로 표현한다"
         ),
     )
+    # theme이 '무엇에서 왔나'라면 이 필드는 '어느 축의 조회였나'다(2026-08-27). 검증기가
+    # 전개한 유니버스도 컴파일 뒤 출처 축(ParsedStrategy.universe_source)을 잃지 않게
+    # 한다 — 같은 유니버스가 어느 레인이 먼저 확정했느냐에 따라 다른 출처를 보고하면
+    # 근거 대조가 성립하지 않는다.
+    theme_source: Optional[Literal["theme_catalog", "company_related"]] = Field(
+        default=None,
+        description="theme의 출처 축(시스템이 채움). LLM은 채우지 말 것",
+    )
 
     # 신규 상장 유니버스(FR-STR-073)는 '개념'과 '값'을 분리한다 — 조건의 factor/value와
     # 같은 이유다. "신규 상장 종목"에는 기간 수치가 없으므로 값을 지어내면 무단 확정이

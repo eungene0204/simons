@@ -579,6 +579,99 @@ def _naver_term_is_industry(term: str, definition: Optional[str], chat: ChatFn) 
     return data.get("industry") is True
 
 
+# ── KG 테마 정본 매핑 — 결정론 스캔이 놓친 표기를 닫힌 목록 선택으로 흡수 ────────
+# 개념 인식은 정규화 문자열 정확 일치라 표기 변형을 손으로 별칭에 적어야만 커버된다
+# ('코로나'가 '코로나19'를 못 찾아 업종 근사로 빠지던 2026-08-29 사고). 별칭 열거는
+# 표기 변형을 따라잡을 수 없다 — 어휘 문제가 아니라 레인 문제다(CLAUDE.md 대원칙 1).
+# 그래서 의미 판정만 LLM으로 옮긴다: 목록은 정본이고 LLM은 **고르기만** 한다.
+# 계약은 네이버 분류 대조(_naver_group_match_prompt)와 같다 — 목록 밖 이름은 드롭.
+_THEME_MATCH_CACHE: dict[str, Optional[str]] = {}
+
+
+def _kg_theme_names() -> list[str]:
+    """정본 테마 이름 닫힌 목록 — **실제로 종목을 답할 수 있는** 시드·카탈로그 개념만.
+
+    기준을 category로 잡으면 안 된다: 시드는 theme 말고도 technology·concept·commodity를
+    쓰므로 HBM 같은 핵심 개념이 통째로 빠진다(실측 8개만 남음). 종목 보유 여부로 잡으면
+    LLM에게 '골라도 빈 유니버스가 나오는 이름'을 주지 않게 되는 이점도 있다.
+
+    자동 생성 노드(sector:·company:·etf:)는 각자 다른 축이 답한다. 학습 노드(learned:)는
+    넣지 않는다 — 아직 정본이 아닌 관측치를 정답 후보로 주면 LLM이 그쪽을 고른다."""
+    from engine.knowledge_graph import get_graph
+
+    graph = get_graph()
+    names = {
+        n["name"] for node_id, n in graph.nodes.items()
+        if n.get("name")
+        and not node_id.startswith(("sector:", "company:", "etf:", "learned:"))
+        and graph.listed_companies(node_id)
+    }
+    return sorted(names)
+
+
+def _kg_theme_match_prompt() -> str:
+    return (
+        "너는 투자 용어를 우리 서비스의 테마 이름 목록과 대조하는 도구다.\n"
+        "용어가 가리키는 대상이 목록에 있으면 그 이름을 **그대로** 하나만 고른다.\n"
+        "표기만 다르고 같은 대상이면 고른다(줄임말·풀네임·외래어 표기 차이 등).\n"
+        "느슨한 연상, 상위·하위 개념, 일부만 겹치는 테마는 고르지 않는다.\n"
+        "조금이라도 확신이 없으면 null을 낸다 — 틀린 테마를 고르는 것이 더 나쁘다.\n"
+        '설명 없이 JSON만 출력한다. 예: {"theme": "이름"} 또는 {"theme": null}'
+    )
+
+
+def resolve_kg_theme(term: str, chat: ChatFn) -> Optional[str]:
+    """표기 변형을 정본 테마 이름 하나로 매핑한다. 대응 없음·불확실이면 None.
+
+    호출부 계약: **결정론 조회(find_concepts·카탈로그 정합)가 이미 실패한 뒤**에만 부른다 —
+    스캔이 맞히면 LLM을 부르지 않으므로 기존 경로의 지연·동작은 변하지 않는다.
+
+    지어내기 차단: 반환값은 반드시 닫힌 목록 안의 이름이다(정규화 대조 후 정본 표기로
+    돌려준다). 목록 밖 이름·복수 선택·빈 값은 전부 None이다."""
+    key = _term_key(term)
+    if not key:
+        return None
+    if key in _THEME_MATCH_CACHE:
+        return _THEME_MATCH_CACHE[key]
+    # 업종 이름은 테마 축이 아니다 — 분류는 별도 경로가 답한다(축 침범 금지).
+    from engine.universe_pit import normalize_sector  # 지연 import(무거운 엔진 모듈)
+
+    if normalize_sector(term):
+        _THEME_MATCH_CACHE[key] = None
+        return None
+    names = _kg_theme_names()
+    if not names:
+        return None
+    by_key = {_term_key(n): n for n in names}
+    if key in by_key:  # 결정론으로 이미 잡혔어야 하지만 방어적으로 짧게 끊는다
+        _THEME_MATCH_CACHE[key] = by_key[key]
+        return by_key[key]
+    lines = [
+        f"용어: {term}",
+        "테마 목록: " + json.dumps(names, ensure_ascii=False),
+    ]
+    try:
+        data = _extract_json(
+            chat(_kg_theme_match_prompt(), "\n".join(lines), max_tokens=80)
+        ) or {}
+    except Exception:  # noqa: BLE001 — 매핑 실패는 기존 체인(그라운딩·되묻기)이 담당
+        logger.debug("KG 테마 정본 매핑 실패 | term=%r", term, exc_info=True)
+        return None
+    picked = data.get("theme")
+    canonical = by_key.get(_term_key(picked)) if isinstance(picked, str) else None
+    if canonical is None:
+        logger.info("KG 테마 정본 매핑 없음: 용어=%r (후보 %d개, LLM 응답=%r)",
+                    term, len(names), picked)
+    else:
+        logger.info("KG 테마 정본 매핑: 용어=%r → %r (후보 %d개)", term, canonical, len(names))
+    _THEME_MATCH_CACHE[key] = canonical
+    return canonical
+
+
+def _reset_theme_match_cache_for_tests() -> None:
+    _THEME_MATCH_CACHE.clear()
+
+
 def _naver_group_match_prompt() -> str:
     return (
         "너는 투자 용어를 네이버 금융의 업종·테마 분류 이름 목록과 대조하는 도구다.\n"
@@ -601,7 +694,7 @@ def _naver_company_edges(
     목록 밖 이름은 드롭), 종목은 그 분류의 수록 목록에서 결정적으로 가져온다. 네이버
     분류 수록은 객관적 사실이므로 자동 verified로 등록한다(사용자 지시 — 콘솔에서 사후
     반려 가능). 대응 분류 없음·수집 실패면 기업 엣지 없음(뉴스 폴백 없음)."""
-    from engine.naver_theme_live import DETAIL_URL, EXCLUDE_NAME_PATTERNS, fetch_group_stocks
+    from engine.naver_theme_live import DETAIL_URL, fetch_group_stocks
 
     if not groups:
         return []
@@ -620,8 +713,7 @@ def _naver_company_edges(
         return []
     candidates = {}
     for g in groups:
-        if not EXCLUDE_NAME_PATTERNS.search(g["name"]):
-            candidates.setdefault(g["name"], g)
+        candidates.setdefault(g["name"], g)
     lines = [
         f"용어: {term}" + (f" — {definition}" if definition else ""),
         "분류 목록: " + json.dumps(sorted(candidates), ensure_ascii=False),

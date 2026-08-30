@@ -3,7 +3,8 @@
 핵심 계약(2026-07-27 사용자 지시: KG에 없으면 네이버를 항상 우선 검색해 KG에 넣는다):
   - 표기 정합은 정규화 정확 일치만(원명·괄호 제거 본체·슬래시 변형) — 부분·접두 금지.
   - 정합 시 카탈로그 파일에 병합 저장되고 그래프가 즉시 합성한다(테마→종목 조회).
-  - 정본에 없는 심볼 드롭·스코프 제외(인물·정치 등)·수집 실패 = False(기존 체인 폴백).
+  - 정본에 없는 심볼 드롭·수집 실패 = False(기존 체인 폴백). 이름 키워드 스코프
+    가드(인물·정치·재해·질병)는 2026-08-29 폐지 — 되살리지 말 것.
   - term_grounding 검색 레인은 뉴스 검색 학습 전에 이 조회를 먼저 시도한다
     (search_fn 주입 시엔 건너뛴다 — 테스트·대체 검색 경로의 실네트워크 차단).
 """
@@ -76,14 +77,15 @@ def test_lookup_paren_variant_match_records_term_synonym(tmp_path, monkeypatch):
     assert theme["synonyms"] == ["가상수집테마"]
 
 
-def test_lookup_rejects_partial_and_scope_excluded(tmp_path):
+def test_lookup_rejects_partial_match(tmp_path):
     # 접두·부분 일치 금지 — 복합 테마구 오확정 가드와 동일 원칙
     fetch = _fake_fetch(_pages("가상수집테마"))
     assert ntl.lookup_and_ingest("가상수집", catalog_path=tmp_path / "c.json", fetch=fetch) is False
     assert not any("sise_group_detail" in u for u in fetch.calls)  # 상세 페이지 미접근
-    # 스코프 제외(인물·정치·이벤트) — 배치 수집과 같은 가드
+    # 이름 키워드 스코프 가드는 폐지됐다(2026-08-29) — 종전에 '인맥' 표기만으로 반려되던
+    # 분류도 이제 표기가 정합하면 그대로 수록된다. 되살리지 말 것.
     fetch2 = _fake_fetch(_pages("가상정치인맥"))
-    assert ntl.lookup_and_ingest("가상정치인맥", catalog_path=tmp_path / "c.json", fetch=fetch2) is False
+    assert ntl.lookup_and_ingest("가상정치인맥", catalog_path=tmp_path / "c.json", fetch=fetch2) is True
 
 
 def test_lookup_fetch_failure_falls_back(tmp_path):

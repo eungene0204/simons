@@ -941,3 +941,188 @@ def test_hbm_real_catalog_universe_composed():
     # 시드 직접 엣지 6곳(생산 2·공급 4)은 카탈로그 수록분에도 전부 있다
     assert {"000660", "005930", "042700", "089030", "095340", "031980"} <= symbols
     assert len(symbols) >= 30  # 2026-08-02 수집분 33곳
+
+
+def test_hop_fallback_without_anchor_evidence_is_not_a_backtest_universe(tmp_path, monkeypatch):
+    """'베트남' 사고 재현(2026-08-29) — 뉴스 동시언급으로 이어진 이웃 개념의 종목을 앵커
+    기준 근거 없이 백테스트 유니버스로 승격하지 않는다.
+
+    학습 앵커 '베트남'은 직접 상장사 엣지가 0개라 개념 1홉 폴백이 유일한 verified 이웃
+    (데이터센터)의 종목을 그대로 지정 종목으로 확정했다(픽스처 용어는 합성어를 쓴다 —
+    '베트남'은 같은 날 시드 테마로 등재돼 실노드와 충돌한다). 그 종목들의 관계 근거는 전부
+    데이터센터 기준이라 베트남과의 연결을 뒷받침하지 못한다. 앵커의 정본 섹터가 해석되지
+    않고(국가명) 이웃 섹터와도 맞지 않으며 관계 원장에도 없으므로 미해석으로 종결한다.
+
+    조회 레인(theme_listed_companies)의 폴백은 계약대로 유지된다 — 이 게이트는 백테스트
+    유니버스 승격에만 건다."""
+    from engine.knowledge_graph import theme_backtest_companies, theme_listed_companies
+
+    lexicon = tmp_path / "term_lexicon.json"
+    lexicon.write_text(json.dumps({
+        "테스트지역어": {"term": "테스트지역어", "sector": None,
+                   "searched_at": "2026-08-28T18:13:21+00:00",
+                   "edges": [
+                       {"type": "related_to", "target": "data-center",
+                        "target_name": "데이터센터", "support": 2, "status": "verified"},
+                   ]},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    listed = theme_listed_companies("테스트지역어 관련주")
+    assert listed is not None and listed["companies"]         # 조회 레인은 불변
+    assert theme_backtest_companies("테스트지역어 관련주") is None  # 백테스트 유니버스는 미해석
+
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_hop_fallback_passes_when_anchor_sector_matches_neighbor(tmp_path, monkeypatch):
+    """섹터가 일치하는 카테고리 경유는 그대로 통과한다 — 이 폴백의 도입 사유(블랙핑크→
+    K-팝 기획사, 2026-07-25)를 '베트남' 게이트가 죽이면 안 된다.
+
+    간선 타입은 둘 다 related_to라 타입으로는 가를 수 없다. 앵커의 그라운딩 섹터
+    (미디어/엔터)와 이웃 개념의 정본 섹터가 같다는 구조 신호가 통과 근거다."""
+    from engine.knowledge_graph import theme_backtest_companies
+
+    lexicon = tmp_path / "term_lexicon.json"
+    lexicon.write_text(json.dumps({
+        "블랙핑크": {"term": "블랙핑크", "sector": "미디어/엔터",
+                 "searched_at": "2026-08-23T19:31:29+00:00",
+                 "edges": [
+                     {"type": "related_to", "target": "kpop-agency",
+                      "support": 5, "status": "verified"},
+                 ]},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    result = theme_backtest_companies("블랙핑크 관련주")
+    assert result is not None
+    assert "352820" in {c["symbol"] for c in result["companies"]}  # 하이브
+
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_hop_fallback_passes_with_anchor_relation_ledger(tmp_path, monkeypatch):
+    """앵커 기준 관계 원장(kg_research)에 근거가 적혀 있으면 섹터가 미해석이어도 통과한다.
+
+    원장은 사람이 공식 자료를 조사해 남긴 근거다 — 근거가 있는데 섹터 표기 때문에 막으면
+    게이트가 데이터를 이긴다. 근거를 지어내지는 않는다: 원장에 없으면 통과하지 못한다."""
+    from engine import kg_research
+    from engine.knowledge_graph import theme_backtest_companies
+
+    lexicon = tmp_path / "term_lexicon.json"
+    lexicon.write_text(json.dumps({
+        "테스트지역어": {"term": "테스트지역어", "sector": None,
+                   "searched_at": "2026-08-28T18:13:21+00:00",
+                   "edges": [
+                       {"type": "related_to", "target": "data-center",
+                        "target_name": "데이터센터", "support": 2, "status": "verified"},
+                   ]},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    monkeypatch.setattr(
+        kg_research, "lookup",
+        lambda concept_id, symbol: (
+            {"relation_type": "Producer", "direct": True, "relevance": "Strong"}
+            if concept_id == "learned:테스트지역어" and symbol == "018260" else None
+        ),
+    )
+    result = theme_backtest_companies("테스트지역어 관련주")
+    assert result is not None
+    assert {c["symbol"] for c in result["companies"]} == {"018260"}  # 근거 있는 1곳만
+
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_hop_fallback_keeps_company_reachable_by_evidenced_path(tmp_path, monkeypatch):
+    """한 종목이 여러 이웃을 거쳐 도달하면 경유 경로를 전부 기록한다 — 근거를 통과하는
+    경로가 있는데 먼저 발견된 다른 경로 때문에 탈락하면 안 된다(아이오닉9: 카탈로그
+    테마 '현대차그룹'이 먼저 잡혀 시드 개념 '전기차' 경유가 가려지던 문제)."""
+    from engine.knowledge_graph import get_graph
+
+    lexicon = tmp_path / "term_lexicon.json"
+    lexicon.write_text(json.dumps({
+        "아이오닉9": {"term": "아이오닉9", "sector": "자동차",
+                   "searched_at": "2026-08-01T00:00:00+00:00",
+                   "edges": [
+                       {"type": "uses", "target": "electric-vehicle",
+                        "target_name": "전기차", "support": 3, "status": "verified"},
+                   ]},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    hop = get_graph().listed_companies_via_concepts("learned:아이오닉9")
+    assert hop, "전기차 경유 상장사가 있어야 한다"
+    assert all(c.get("via_concepts") for c in hop)  # 경유 출처를 지운 채 내보내지 않는다
+    assert any("electric-vehicle" in c["via_concepts"] for c in hop)
+
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
+def test_vietnam_seed_theme_resolves_to_curated_companies():
+    """'베트남' 사고의 데이터 측 해소(2026-08-29) — 베트남은 시드 테마로 등재돼 직접 회사
+    엣지를 갖는다. 학습 앵커(learned:베트남)를 시드가 이기므로 뉴스 동시언급 1홉 폴백
+    (데이터센터 경유 삼성에스디에스·LG씨엔에스)은 발동조차 하지 않는다.
+
+    등재 종목은 관계 원장(data/kg-research/vietnam.json)의 근거를 달고 나온다 — 근거
+    없는 종목이 유니버스에 서지 않는다는 계약을 데이터로도 지킨다."""
+    from engine.knowledge_graph import theme_backtest_companies
+
+    result = theme_backtest_companies("베트남 관련주")
+    assert result is not None
+    symbols = {c["symbol"] for c in result["companies"]}
+    assert len(symbols) >= 20
+    assert {"105630", "241590", "050110", "298000"} <= symbols  # 한세실업·화승·캠시스·효성화학
+    # 뉴스 1홉으로 끌려오던 데이터센터 종목은 더 이상 베트남 유니버스가 아니다
+    assert "018260" not in symbols and "064400" not in symbols
+    # 전 종목이 관계 원장 근거를 달고 나온다(근거 없는 편입 금지)
+    assert all(c.get("relation") for c in result["companies"])
+    # 시드 큐레이션이라 시점 편향 경고 대상이 아니다
+    assert result["first_known_date"] is None
+
+
+def test_covid19_resolves_via_catalog_notation_match():
+    """'코로나19' 복구(2026-08-29) — 1홉 근거 게이트 도입으로 함께 막혔던 42곳을 되살린다.
+
+    되살리는 방법이 곧 계약이다. 이 42곳은 네이버 금융 '백신/진단시약/방역' 분류 수록
+    종목일 뿐 개별 종목에 조사된 관계 근거가 없다 — 관계 원장(kg_research)에 42건을 적으면
+    없는 근거를 지어내는 것이라 원장 계약을 어긴다. 대신 '코로나19'라는 표현이 그 분류를
+    가리킨다는 **표기 매핑**만 시드에 두어 카탈로그 표기 정합 경로로 해석되게 했다
+    (시드 'AI' → 네이버 '지능형로봇/인공지능(AI)'와 같은 관례).
+
+    그래서 출처 등급은 'catalog'로 남는다 — 근거가 조사된 관계('research')인 척하지 않는다.
+    카탈로그 정합은 1홉 폴백을 타지 않으므로 게이트와 무관하다."""
+    from engine.knowledge_graph import theme_backtest_companies
+
+    result = theme_backtest_companies("코로나19 관련주")
+    assert result is not None
+    assert result["term"] == "코로나19"
+    # 표기 변형 '코로나'도 같은 앵커로 해석된다 — 이 표기가 없으면 어휘집 학습 항목
+    # learned:코로나(업종 근사 바이오/제약)가 앵커를 가져가 42곳 대신 업종 전체로
+    # 확정된다(2026-08-29 실측: "코로나 관련주 투자 전략" → 업종=바이오/제약).
+    short = theme_backtest_companies("코로나 관련주 투자 전략")
+    assert short is not None and short["term"] == "코로나19"
+    assert {c["symbol"] for c in short["companies"]} == {c["symbol"] for c in result["companies"]}
+    assert len(result["companies"]) >= 40
+    assert {"096530", "302440"} <= {c["symbol"] for c in result["companies"]}  # 씨젠·SK바이오사이언스
+    # 카탈로그 수록이 근거다 — 조사된 관계 근거가 있는 척하지 않는다
+    assert {c["evidence_source"] for c in result["companies"]} == {"catalog"}
+    assert all(c.get("relation") is None for c in result["companies"])
+    # 카탈로그 큐레이션 분류라 시점 편향 경고 대상이 아니다
+    assert result["first_known_date"] is None
+
+
+def test_covid19_alias_does_not_hijack_vaccine_theme():
+    """'코로나19' 표기 매핑이 기존 '백신' 조회 경로를 가로채지 않는다 — 같은 42곳으로
+    수렴하되 앵커는 각자의 정본(백신=카탈로그 노드, 코로나19=시드 표기 매핑)을 유지한다."""
+    from engine.knowledge_graph import theme_backtest_companies
+
+    vaccine = theme_backtest_companies("백신 관련주")
+    covid = theme_backtest_companies("코로나19 관련주")
+    assert vaccine is not None and covid is not None
+    assert vaccine["term"] == "백신/진단시약/방역(신종플루, AI 등)"
+    assert {c["symbol"] for c in vaccine["companies"]} == {c["symbol"] for c in covid["companies"]}

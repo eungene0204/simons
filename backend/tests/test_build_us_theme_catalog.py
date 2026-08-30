@@ -103,3 +103,52 @@ def test_shipped_spec_has_unique_ids_and_aliases():
         [dict(s, symbols=[]) for s in mod.ETF_THEMES], {},
     )
     assert errors == []
+
+
+def test_seed_node_sharing_the_theme_id_is_still_a_collision():
+    """시드가 같은 id로 별칭을 소유하면 충돌이다 — '자기 자신'으로 오인하면 안 된다.
+
+    2026-08-29 회귀: 소유자 문자열의 접미('...:fintech')만 보고 넘기던 가드가
+    'seed:fintech'를 신규 테마 자신으로 오인해 통과시켰다. 그 결과 카탈로그가
+    30종목짜리 fintech 테마를 실었는데도 조회는 시드 6종목으로만 갔다(조용한 소실).
+    """
+    errors = mod.check_alias_collisions(
+        [{"id": "fintech", "name": "핀테크", "name_en": "Fintech", "aliases": ["fintech"]}],
+        {"핀테크": "seed:fintech"},
+    )
+    assert errors and "seed:fintech" in errors[0]
+
+
+def test_catalog_owner_sharing_the_theme_id_is_still_a_collision():
+    """수동 카탈로그 테마가 같은 id로 별칭을 소유해도 같은 이유로 충돌이다."""
+    errors = mod.check_alias_collisions(
+        [{"id": "reits", "name": "리츠", "name_en": None, "aliases": []}],
+        {"리츠": "catalog:reits"},
+    )
+    assert errors and "catalog:reits" in errors[0]
+
+
+# ── 구성 상한 ────────────────────────────────────────────────────────────────
+
+def test_build_theme_caps_members_after_registry_filter():
+    """상한은 정본 필터 **뒤에** 적용한다 — 앞에 두면 해외 상장분이 자리를 차지한다."""
+    registry = {f"S{i:03d}" for i in range(100)}
+    holdings = ["X.T", "Y.SW"] + [f"S{i:03d}" for i in range(100)]
+    theme, reason = mod.build_theme(_spec(), registry=registry, holdings=holdings)
+    assert theme is not None
+    assert len(theme["symbols"]) == mod.MAX_MEMBERS
+    assert theme["symbols"][0] == "S000"  # 비중 상위부터
+    assert "상한" in reason
+
+
+# ── 보유목록 CSV 파싱(네트워크 없이) ─────────────────────────────────────────
+
+def test_weighted_tickers_sorts_by_weight_and_drops_non_holding_rows():
+    rows = [
+        {"t": "AAA", "w": "1.20"},
+        {"t": "BBB", "w": "10.5%"},
+        {"t": "", "w": "3.0"},          # 현금·머니마켓 — 티커 없음
+        {"t": "CCC", "w": "면책 문구"},   # 표 밖 행
+        {"t": "DDD", "w": "5"},
+    ]
+    assert mod._weighted_tickers(rows, "t", "w") == ["BBB", "DDD", "AAA"]

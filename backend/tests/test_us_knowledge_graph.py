@@ -250,3 +250,40 @@ def test_resolve_theme_strips_english_qualifiers(term, expected):
 
     got = resolve_theme(term)
     assert (got[0] if got else None) == expected
+
+
+# ── 회사 앵커 대표 테마(2026-08-29) ──────────────────────────────────────────
+
+@needs_data
+def test_representative_theme_prefers_gics_cohesion_not_smallest():
+    """대표 테마는 **앵커와 같은 GICS 산업을 공유하는 비율**로 고른다.
+
+    [회귀] 구성 수가 가장 적은 테마를 고르면 NVDA가 '휴머노이드 로봇'(6종)으로
+    빠져 AVGO·MRVL을 놓친다 — 'AI 반도체'(8종)가 더 크지만 응집도가 높다.
+    """
+    graph = _fresh_graph()
+    node_id = graph.representative_theme("NVDA")
+    assert node_id is not None
+    peers = graph.companies(node_id)
+    assert {"AVGO", "MRVL", "TSM", "MU"} <= set(peers)
+    assert "ISRG" not in peers  # 휴머노이드 로봇 쪽이 아니다
+
+
+@needs_data
+def test_representative_theme_is_none_below_cohesion_floor():
+    """동료 테마가 없는 앵커엔 아무것도 얹지 않는다.
+
+    AAPL은 최고 응집도가 0.03('AI 빅데이터' 30종)이다. 하한이 없으면
+    '애플 관련주'가 30종으로 번진다.
+    """
+    graph = _fresh_graph()
+    assert graph.representative_theme("AAPL") is None
+
+
+@needs_data
+def test_representative_theme_ignores_gics_and_anchor_layers():
+    """후보는 테마 노드뿐 — GICS 산업/섹터·회사 앵커(related:)는 대표 테마가 아니다."""
+    graph = _fresh_graph()
+    node_id = graph.representative_theme("NVDA")
+    assert node_id is not None
+    assert not node_id.startswith(("sector:", "industry:", "related:", "company:", "etf:"))

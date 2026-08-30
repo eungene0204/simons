@@ -137,4 +137,66 @@ describe("미반영 안내는 되묻기와 함께 보인다", () => {
       expect(screen.getByRole("button", { name: "익절 10%" })).toBeInTheDocument();
     }, { timeout: 5000 });
   });
+
+  // [회귀 2026-08-29] 미반영 턴이 열려 있던 슬롯 질문을 되붙일 때(우선순위 마커가 붙어
+  // 프론트 게이트를 이긴다) 그 질문이 게이트가 물은 바로 그 질문이면 슬롯도 함께
+  // 물려받아야 한다 — 필드가 비면 닫힌 선택지인 시장 질문에 '직접 입력'이 되살아난다.
+  it("되붙인 시장 질문은 닫힌 선택지로 남는다(직접 입력 없음)", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+      if (url === "/api/user") {
+        return Promise.resolve(
+          createJsonResponse({ user: { name: "Tester", email: "tester@example.com" } })
+        );
+      }
+      if (url === "/api/query/classify") {
+        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+      }
+      if (url === "/api/strategy/parse/stream") {
+        return Promise.resolve(sseResultResponse({
+          parsed: {
+            description: "골든크로스 전략",
+            universe: ["KOSPI"],
+            sector: null,
+            target_symbols: [],
+            entry_signals: [{ type: "ma_crossover", direction: "golden_cross" }],
+            exit_signals: [],
+            fundamental_filters: [],
+            max_positions: 5,
+            rebalancing_period: "monthly",
+            rebalance_method: "reconstitute",
+            backtest_period: "5y",
+            initial_capital: 10000000,
+            stop_loss_pct: null,
+            take_profit_pct: null,
+          },
+          // 백엔드가 되붙인 질문 = 게이트가 물었을 그 질문(시장 슬롯 미명시).
+          clarification_question: "먼저 어떤 시장·종목을 대상으로 할지 정해볼까요?",
+          clarification_suggestions: [
+            "코스피", "코스닥", "코스피200", "코스피·코스닥 전체", "ETF",
+          ],
+          clarification_priority: "modify_unapplied",
+          pending_ask: null,
+          explicit_fields: [],
+          notices: [NOTICE],
+        }));
+      }
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "수급 좋은 종목을 골든크로스에 매수" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "코스피200" })).toBeInTheDocument();
+    }, { timeout: 5000 });
+    expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
+  });
 });

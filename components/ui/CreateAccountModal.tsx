@@ -181,9 +181,9 @@ export default function CreateAccountModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50">
-      <div className="bg-[#111111] border border-white/[0.08] rounded-lg shadow-xl w-full max-w-md mx-4">
-        <div className="flex items-center justify-between p-4 border-b border-white/[0.08]">
+    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 px-4 py-4">
+      <div data-testid="create-account-panel" className="bg-[#111111] border border-white/[0.08] rounded-lg shadow-xl w-full max-w-md max-h-[calc(100dvh-2rem)] lg:max-h-[85vh] flex flex-col overflow-hidden">
+        <div className="shrink-0 flex items-center justify-between p-4 border-b border-white/[0.08]">
           <h2 className="text-lg font-semibold text-white">
             {t("가상계좌 만들기")}
           </h2>
@@ -199,7 +199,7 @@ export default function CreateAccountModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+        <form data-testid="create-account-body" onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
               {t("계좌 이름")}

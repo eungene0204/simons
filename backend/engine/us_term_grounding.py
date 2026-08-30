@@ -84,6 +84,14 @@ _AUTO_VERIFY_SUPPORT = 2
 _MIN_MEMBERS = 4
 # 학습 항목 재검토 TTL(일) — 경과 항목은 재언급 시 조건부 재학습(부정 캐시 영구 고착 방지)
 _REGROUND_TTL_DAYS_DEFAULT = 90.0
+# **미달 항목**(확정 구성 4곳 미만)의 재검토 TTL — 성공분보다 훨씬 짧다.
+# 미달은 '이 표현은 테마가 아니다'라는 결론이 아니라 **이번 검색이 세우지 못했다**는
+# 잠정 상태다: 표기 정규화 결함·검색 표본·심사 흔들림 어느 것으로도 0곳이 나올 수 있고,
+# 그것이 90일간 재시도를 막으면 상류를 고쳐도 증상이 그대로 남는다(2026-08-27 실측:
+# 하이픈 정규화 누락으로 카탈로그를 빗나간 테마 3건이 빈 원장 항목으로 굳어 있었다).
+# 재검색 비용을 아끼려 캐시하되(같은 표현을 매 턴 20초씩 다시 찾지 않는다) 자가 치유
+# 주기를 짧게 둔다.
+_MISS_REGROUND_TTL_DAYS_DEFAULT = 3.0
 
 # chat 계약은 공유 파서와 동일: (system_prompt, user_msg, *, max_tokens) -> str
 ChatFn = Callable[..., str]
@@ -115,7 +123,7 @@ _REGISTRY_CACHE: Optional[tuple[float, dict[str, dict]]] = None
 
 
 def _registry_by_cik() -> dict[str, dict]:
-    """CIK(앞자리 0 제거) → {symbol, name, industry}. 파케이 보유 종목만.
+    """CIK(앞자리 0 제거) → {symbol, name, name_kr, industry}. 파케이 보유 종목만.
 
     백테스트할 수 없는 티커는 후보에도 올리지 않는다 — 데이터 없는 종목이 테마
     유니버스에 실리면 KG 무결성 테스트가 잡기 전에 사용자 전략이 먼저 깨진다."""
@@ -143,6 +151,10 @@ def _registry_by_cik() -> dict[str, dict]:
         table[key] = {
             "symbol": symbol,
             "name": s.get("name") or symbol,
+            # 한글명은 앵커 대조에만 쓴다(us-stocks.json 정본). /us 입력은 영어지만
+            # 같은 해석 레인을 KR 대화도 쓴다 — "엔비디아 관련주"가 앵커를 못 찾으면
+            # 같은 관계 집합이 언어에 따라 갈린다.
+            "name_kr": (s.get("name_kr") or "").strip(),
             "industry": (s.get("industry") or s.get("sector") or "").strip(),
             "sector": (s.get("sector") or "").strip(),
         }
@@ -150,22 +162,35 @@ def _registry_by_cik() -> dict[str, dict]:
     return table
 
 
-def _is_registry_company_name(term: str) -> bool:
-    """표현이 개별 상장사 그 자체인가 — 테마 학습 차단 게이트.
-
-    'Moderna'를 테마로 학습해 유니버스로 세우면 단일 종목 지정과 의미가 어긋난다
-    (한국 그라운딩의 find_in_text 가드와 같은 계약).
+def us_company_anchor(term: str) -> Optional[tuple[str, str]]:
+    """표현이 개별 상장사 그 자체인가 → (티커, 정본 회사명) | None.
 
     티커는 **대문자 정확 일치**일 때만 종목으로 본다 — 표기가 곧 신호다. 테마어와
     티커 철자가 겹치는 실측 사례가 있다("mrna 관련주"의 mRNA vs 모더나 티커 MRNA):
     대소문자를 뭉개면 이 테마가 영영 학습되지 않는다. 회사명은 대소문자·공백을
-    무시하고 본다(표기 변형이 흔하다)."""
+    무시하고 본다(표기 변형이 흔하다).
+
+    소비자는 둘이다: ① 테마 학습 차단 게이트(회사명은 테마가 아니다)
+    ② 회사 앵커 관련주 학습(ground_us_company_related)의 앵커 확정."""
     registry = _registry_by_cik()
     stripped = (term or "").strip()
-    if any(stripped == entry["symbol"] for entry in registry.values()):
-        return True
+    for entry in registry.values():
+        if stripped == entry["symbol"]:
+            return entry["symbol"], entry["name"]
     key = _term_key(term)
-    return any(key == _term_key(entry["name"]) for entry in registry.values())
+    for entry in registry.values():
+        if key and key in (_term_key(entry["name"]), _term_key(entry.get("name_kr") or "")):
+            return entry["symbol"], entry["name"]
+    return None
+
+
+def _is_registry_company_name(term: str) -> bool:
+    """표현이 개별 상장사 그 자체인가 — 테마 학습 차단 게이트.
+
+    'Moderna'를 테마로 학습해 유니버스로 세우면 단일 종목 지정과 의미가 어긋난다
+    (한국 그라운딩의 find_in_text 가드와 같은 계약). 'Moderna 관련주'처럼 범주 접미가
+    붙은 표현은 회사 앵커 레인(ground_us_company_related) 소관이다."""
+    return us_company_anchor(term) is not None
 
 
 # ─── EDGAR 전문검색 ────────────────────────────────────────────────────────────
@@ -303,6 +328,24 @@ _JUDGE_PROMPT = (
 )
 
 
+# 회사 앵커('X 관련주')용 심사 프롬프트 — 테마 판정과 **묻는 것이 다르다**. 테마는
+# "그 사업을 영위하는가"이고, 앵커는 "그 회사와 사업상 관계가 공시에 기술돼 있는가"다.
+# 같은 프롬프트를 쓰면 9B가 앵커를 테마어로 읽어 '엔비디아 사업을 하는 기업'을 찾다가
+# 후보를 거의 다 버린다(테마 프롬프트의 '사업의 축' 지시가 관계 기업과 맞지 않는다).
+_COMPANY_JUDGE_PROMPT = (
+    "너는 공시 검색 결과에서 **기준 기업과 사업상 관계가 있는 기업**을 골라내는 도구다.\n"
+    "후보는 연차보고서(10-K·20-F) 본문에 기준 기업 이름이 등장한 기업이며, 관련도는 그 "
+    "기업을 얼마나 비중 있게 다루는지를 나타내는 검색 점수다.\n"
+    "회사명·산업 분류·관련도를 근거로, 기준 기업과 **공급·고객·파트너·경쟁·핵심 기술 의존** "
+    "관계가 사업에 실재하는 기업을 **모두** 고른다(해당하면 20곳이든 30곳이든 모두).\n"
+    "제외할 것은 기준 기업을 리스크 요인·일반 시장 동향으로 스치듯 언급했을 뿐인 기업이다"
+    "(예: 자산운용사가 보유 종목 목록에 이름을 올린 경우).\n"
+    "이것은 관계 판정이지 투자 추천이 아니다 — 유망성·전망·우열은 판단하지 않는다.\n"
+    "목록에 있는 티커만 고른다. 해당 기업이 없으면 빈 배열.\n"
+    '설명 없이 JSON만 출력한다. 예: {"symbols": ["AAA", "BBB", "CCC"]} 또는 {"symbols": []}'
+)
+
+
 def _extract_json(raw: str) -> Optional[dict]:
     match = re.search(r"\{.*\}", raw or "", re.DOTALL)
     if not match:
@@ -332,15 +375,21 @@ def _is_boilerplate_term(total: int, candidates: list[dict]) -> bool:
     return share < _MIN_SECTOR_SHARE
 
 
-def _judge_batch(term: str, batch: list[dict], chat: ChatFn) -> list[str]:
-    """후보 묶음 하나를 심사한다 → 티커 목록(묶음 밖·중복은 드롭 — 닫힌 세계 게이트)."""
-    lines = [f"테마: {term}", "후보(티커 | 회사명 | 산업 분류 | 관련도 | 공시 건수):"]
+def _judge_batch(
+    term: str, batch: list[dict], chat: ChatFn,
+    prompt: str = _JUDGE_PROMPT, subject_label: str = "테마",
+) -> list[str]:
+    """후보 묶음 하나를 심사한다 → 티커 목록(묶음 밖·중복은 드롭 — 닫힌 세계 게이트).
+
+    prompt/subject_label은 심사 축을 고른다: 테마 소속(기본) 또는 회사 앵커 관계
+    (_COMPANY_JUDGE_PROMPT · '기준 기업'). 후보 형식·닫힌 세계 계약은 둘이 같다."""
+    lines = [f"{subject_label}: {term}", "후보(티커 | 회사명 | 산업 분류 | 관련도 | 공시 건수):"]
     lines += [
         f"{i}. {c['symbol']} | {c['name']} | {c['industry'] or '분류 없음'} | "
         f"{c['score']} | {c['support']}"
         for i, c in enumerate(batch, 1)
     ]
-    data = _extract_json(chat(_JUDGE_PROMPT, "\n".join(lines), max_tokens=400)) or {}
+    data = _extract_json(chat(prompt, "\n".join(lines), max_tokens=400)) or {}
     raw = data.get("symbols")
     allowed = {c["symbol"] for c in batch}
     picked: list[str] = []
@@ -350,7 +399,10 @@ def _judge_batch(term: str, batch: list[dict], chat: ChatFn) -> list[str]:
     return picked
 
 
-def _judge_members(term: str, candidates: list[dict], chat: ChatFn) -> list[str]:
+def _judge_members(
+    term: str, candidates: list[dict], chat: ChatFn,
+    prompt: str = _JUDGE_PROMPT, subject_label: str = "테마",
+) -> list[str]:
     """후보를 _JUDGE_BATCH개씩 나눠 심사하고 합집합을 만든다(순서 보존).
 
     한 번에 40곳을 물으면 9B가 목록 앞머리 2~9곳만 고르고 나머지를 통째로 흘린다 —
@@ -361,7 +413,8 @@ def _judge_members(term: str, candidates: list[dict], chat: ChatFn) -> list[str]
     모두 고르라"가 실제로 수행되는 과제 크기가 된다."""
     picked: list[str] = []
     for start in range(0, len(candidates), _JUDGE_BATCH):
-        for symbol in _judge_batch(term, candidates[start:start + _JUDGE_BATCH], chat):
+        batch = candidates[start:start + _JUDGE_BATCH]
+        for symbol in _judge_batch(term, batch, chat, prompt, subject_label):
             if symbol not in picked:
                 picked.append(symbol)
     return picked
@@ -400,8 +453,21 @@ def _reground_ttl_days() -> float:
         return _REGROUND_TTL_DAYS_DEFAULT
 
 
+def _miss_reground_ttl_days() -> float:
+    try:
+        return float(os.getenv("US_TERM_MISS_REGROUND_TTL_DAYS",
+                               str(_MISS_REGROUND_TTL_DAYS_DEFAULT)))
+    except ValueError:
+        return _MISS_REGROUND_TTL_DAYS_DEFAULT
+
+
 def _entry_is_stale(entry: Optional[dict]) -> bool:
-    ttl = _reground_ttl_days()
+    # 미달 항목은 잠정 상태라 짧은 주기로 다시 찾아본다(위 상수 주석 참조).
+    ttl = (
+        _reground_ttl_days()
+        if len(verified_symbols(entry)) >= _MIN_MEMBERS
+        else _miss_reground_ttl_days()
+    )
     if ttl <= 0 or not isinstance(entry, dict):
         return False
     raw = entry.get("searched_at")
@@ -487,14 +553,96 @@ def ground_us_theme(
         logger.info("테마어 '%s'는 분류 라벨 — 테마로 학습하지 않음(분류 축 소관)", name)
         return None
 
-    path = lexicon_path or _LEXICON_PATH
-    key = _term_key(name)
+    return _ground(
+        key=_term_key(name), display=name, query=name, chat=chat,
+        judge_prompt=_JUDGE_PROMPT, subject_label="테마", axis="테마어",
+        search_fn=search_fn, path=lexicon_path or _LEXICON_PATH, on_search=on_search,
+    )
+
+
+def ground_us_company_related(
+    term: str,
+    chat: ChatFn,
+    search_fn: Optional[SearchFn] = None,
+    lexicon_path: Optional[Path] = None,
+    on_search: Optional[Callable[[], None]] = None,
+) -> Optional[tuple[str, list[str]]]:
+    """'X 관련주'(X=개별 상장사)를 공시 검색으로 학습한다 → (표시명, 구성 티커) | None.
+
+    테마 학습(ground_us_theme)과 **같은 기계, 다른 축**이다. 테마는 "그 사업을 영위하는
+    기업"을 묻고, 여기는 "기준 기업과 사업상 관계가 공시에 기술된 기업"을 묻는다 —
+    근거는 둘 다 기업 자신의 연차보고서라 관계 목록은 객관적 사실이지 추천이 아니다.
+
+    이 레인이 없던 동안 'nvidia 관련주'는 갈 곳이 없었다(2026-08-27 사고): 회사명은
+    테마 색인에서 제외돼 있고(us_knowledge_graph 계약) 테마 학습도 회사명을 막으므로,
+    표현이 통째로 사라진 채 미국 전체 유니버스만 남았다.
+
+    호출 계약: **범주 접미가 붙은 표현**만 넘어온다(has_group_suffix) — 'nvidia' 단독은
+    단일 종목 지정 소관이다. 앵커 자신은 관계 집합의 구성원으로 포함한다(빠지면 가장
+    직접적인 종목이 이유 없이 누락된 것으로 읽힌다).
+    """
+    if not term or not isinstance(term, str):
+        return None
+    if not grounding_available():
+        return None  # 운영 스위치 off — 테마 학습과 같은 차단 계약
+    from engine.us_knowledge_graph import has_group_suffix, normalize_theme_term
+
+    if not has_group_suffix(term):
+        return None  # 범주 접미가 없으면 집합 표현이 아니다(단일 종목 지정 소관)
+    anchor = us_company_anchor(normalize_theme_term(term))
+    if anchor is None:
+        return None  # 앵커가 정본 상장사가 아니면 이 레인이 아니다(테마 학습 소관)
+    symbol, name = anchor
+    from engine.us_knowledge_graph import company_related_label
+
+    out = _ground(
+        # 원장 표기는 한국어 정본으로 고정한다 — 학습 시점의 요청 언어에 따라 원장이
+        # 갈리면 같은 관계 집합이 두 이름으로 남는다. 표시만 요청 언어를 따른다.
+        key=f"related:{symbol}", display=f"{name} 관련주", query=name, chat=chat,
+        judge_prompt=_COMPANY_JUDGE_PROMPT, subject_label="기준 기업", axis="회사 앵커",
+        search_fn=search_fn, path=lexicon_path or _LEXICON_PATH, on_search=on_search,
+        extra={"kind": "company_related", "anchor": symbol},
+        always_include=symbol,
+    )
+    return (company_related_label(name), out[1]) if out is not None else None
+
+
+def company_related_entry(
+    symbol: str, lexicon_path: Optional[Path] = None
+) -> Optional[dict]:
+    """회사 앵커 관련주의 학습 항목(티커 정확 일치) — 없으면 None."""
+    if not symbol or not isinstance(symbol, str):
+        return None
+    return _load_lexicon(lexicon_path or _LEXICON_PATH).get(f"related:{symbol.strip()}")
+
+
+def _ground(
+    *,
+    key: str,
+    display: str,
+    query: str,
+    chat: ChatFn,
+    judge_prompt: str,
+    subject_label: str,
+    axis: str,
+    search_fn: Optional[SearchFn],
+    path: Path,
+    on_search: Optional[Callable[[], None]],
+    extra: Optional[dict] = None,
+    always_include: Optional[str] = None,
+) -> Optional[tuple[str, list[str]]]:
+    """공시 검색 → 후보 → LLM 심사 → 원장 저장의 공통 몸통(테마·회사 앵커 공용).
+
+    축(axis)마다 다른 것은 **원장 키·표시명·질의어·심사 프롬프트**뿐이다. 검색 실패·
+    상투어·구성 미달의 처리와 저장 형식은 같아야 한다 — 갈라 두면 한쪽만 고쳐진다.
+    always_include는 후보에 있으면 심사 결과와 무관하게 구성에 넣는 티커(회사 앵커 자신).
+    """
     previous = _load_lexicon(path).get(key)
     if previous is not None and not _entry_is_stale(previous):
         # 같은 표현을 두 번 검색하지 않는다 — 성공분은 지식그래프가 이미 결정론으로
         # 해석하므로 여기 오는 건 대개 미달 항목이다(그대로 되묻기).
         symbols = verified_symbols(previous)
-        return (previous.get("term", name), symbols) if len(symbols) >= _MIN_MEMBERS else None
+        return (previous.get("term", display), symbols) if len(symbols) >= _MIN_MEMBERS else None
 
     if on_search is not None:
         try:
@@ -502,19 +650,25 @@ def ground_us_theme(
         except Exception:  # noqa: BLE001 — 진행 표시 실패가 해석을 깨면 안 된다
             pass
 
-    found = (search_fn or _default_search)(name)
+    found = (search_fn or _default_search)(query)
     if found is None:
-        logger.warning("테마어 '%s' 공시 검색 실패 — 저장하지 않음(복구 후 재시도 가능)", name)
+        logger.warning("%s '%s' 공시 검색 실패 — 저장하지 않음(복구 후 재시도 가능)",
+                       axis, query)
         return None
     total = int(found.get("total") or 0)
     candidates = _candidates(found.get("filings") or [])
     if _is_boilerplate_term(total, candidates):
         # 선별력 없는 표현 — 공시 언급이 소속의 증거가 되지 못한다. 지어내지 않고 되묻는다.
-        logger.info("테마어 '%s' 공시 %d건·상위 후보 업종 분산 — 상투어로 보고 학습하지 않음",
-                    name, total)
+        logger.info("%s '%s' 공시 %d건·상위 후보 업종 분산 — 상투어로 보고 학습하지 않음",
+                    axis, query, total)
         return None
-    picked = _judge_members(name, candidates, chat) if candidates else []
+    picked = (
+        _judge_members(query, candidates, chat, judge_prompt, subject_label)
+        if candidates else []
+    )
     by_symbol = {c["symbol"]: c for c in candidates}
+    if always_include and always_include in by_symbol and always_include not in picked:
+        picked.insert(0, always_include)
     members = [
         {
             "symbol": symbol,
@@ -534,7 +688,7 @@ def ground_us_theme(
     if previous is not None:
         members = _merge_members(previous.get("members") or [], members)
     entry = {
-        "term": name,
+        "term": display,
         "members": members,
         "candidates_seen": len(candidates),
         # 테마 최초 관측일 = 확정 구성원 중 가장 이른 공시 제출일. observed_from은
@@ -545,14 +699,15 @@ def ground_us_theme(
         "observed_from": found.get("observed_from"),
         "searched_at": datetime.now(timezone.utc).isoformat(),
         "source": "edgar:fts",
+        **(extra or {}),
     }
     _save_entry(path, key, entry)
     symbols = verified_symbols(entry)
     logger.info(
-        "테마어 학습: %s → 후보 %d곳·소속 %d곳(확정 %d곳)",
-        name, len(candidates), len(members), len(symbols),
+        "%s 학습: %s → 후보 %d곳·소속 %d곳(확정 %d곳)",
+        axis, display, len(candidates), len(members), len(symbols),
     )
     if len(symbols) < _MIN_MEMBERS:
-        # 구성 미달은 테마 미성립 — 조용히 축소 반영하지 않는다(되묻기 유지)
+        # 구성 미달은 미성립 — 조용히 축소 반영하지 않는다(되묻기 유지)
         return None
-    return name, symbols
+    return display, symbols

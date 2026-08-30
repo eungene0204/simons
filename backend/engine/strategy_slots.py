@@ -218,7 +218,19 @@ def suggestions_for_topic(
     universe가 ETF면 개별 기업 재무 칩(PER·ROE)은 제외한다 — ETF는 기업 재무제표
     지표를 조건으로 쓸 수 없다(engine.universe_capabilities).
     """
-    field = slot_for_topic(topic)
+    return suggestions_for_field(slot_for_topic(topic), universe=universe, parsed=parsed)
+
+
+def suggestions_for_field(
+    field: Optional[str], universe: Optional[Sequence[str]] = None,
+    parsed: Any = None,
+) -> List[str]:
+    """슬롯 필드의 정본 예시 칩(필드가 없으면 빈 목록).
+
+    `suggestions_for_topic`이 topic 라벨로 들어오는 것과 같은 표를 필드로 조회한다 —
+    슬롯을 이미 아는 호출자(질문 문구로 슬롯을 찾은 되붙이기 등)가 라벨을 거쳐
+    되돌아오지 않게 한다.
+    """
     if not field:
         return []
     chips = list(_question_for(parsed, field)[1])
@@ -228,6 +240,26 @@ def suggestions_for_topic(
     if is_etf_product_strategy(universe, targets):
         chips = [c for c in chips if c not in _FUNDAMENTAL_CHIPS]
     return chips
+
+
+def slot_for_question(question: Optional[str]) -> Optional[str]:
+    """정본 슬롯 질문 문구가 가리키는 슬롯 필드(정확 일치, 없으면 None).
+
+    입력은 **우리가 발행한 정본 문구**다(프론트가 열린 되묻기를 그대로 에코한 것) —
+    사용자 원문이 아니므로 표기 대조는 해석이 아니라 정규화다(계약 § 판정 기준).
+    그래서 정확 일치만 본다: 부분 일치를 허용하면 그 순간 문구 해석이 된다.
+    변형 문구(분위 그룹 최대 보유·미국 초기 자본)도 같은 표에서 찾는다.
+    """
+    text = (question or "").strip()
+    if not text:
+        return None
+    for field, (canonical, _chips) in _QUESTIONS.items():
+        if canonical == text:
+            return field
+    for (field, _variant), (canonical, _chips) in _SLOT_VARIANTS.items():
+        if canonical == text:
+            return field
+    return None
 
 
 @dataclass(frozen=True)

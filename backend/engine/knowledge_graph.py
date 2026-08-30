@@ -406,9 +406,17 @@ class KnowledgeGraph:
         'bts 관련주' 사고(2026-07-25): 검색 학습이 상장사 엣지를 검증하지 못해도(출처 1건
         pending) verified 개념 엣지(bts→K-팝 기획사)가 있으면 그 개념의 직접 상장사
         (하이브 등)가 답이었다. 그래프에 합성된 엣지는 전부 검증분이므로 신뢰 등급은
-        유지되며, 공급망 전체로 번지지 않게 개념 경유는 정확히 1홉만 허용한다."""
+        유지되며, 공급망 전체로 번지지 않게 개념 경유는 정확히 1홉만 허용한다.
+
+        각 종목에 경유한 이웃 개념을 **전부**(via_concepts) 남긴다 — 이 목록의 관계
+        근거(relation)는 **이웃 개념 기준**이지 앵커 기준이 아니다('베트남' 사고
+        2026-08-29: 삼성에스디에스의 근거는 '동탄 데이터센터 액침냉각'이라 베트남을 한
+        글자도 뒷받침하지 않는다). 백테스트 유니버스로 승격할 때 그 구분이 필요하므로
+        출처를 지운 채 내보내지 않는다. 먼저 발견한 경로 하나만 남기면 근거를 통과하는
+        경로를 가진 종목이 다른 경로 때문에 탈락한다(아이오닉9: 현대차그룹 경유가 먼저
+        잡혀 전기차 경유가 가려짐)."""
         result: list[dict] = []
-        seen: set[str] = set()
+        index: dict[str, dict] = {}
         for e in self._out.get(node_id, []) + self._in.get(node_id, []):
             other = e["target"] if e["source"] == node_id else e["source"]
             if other.startswith(("company:", "etf:", "sector:")):
@@ -419,10 +427,14 @@ class KnowledgeGraph:
                 # _collect_candidates와 같은 계약, 2026-08-24 '블랙핑크' 사고).
                 continue
             for c in self.listed_companies(other):
-                if c["symbol"] in seen:
+                existing = index.get(c["symbol"])
+                if existing is not None:
+                    if other not in existing["via_concepts"]:
+                        existing["via_concepts"].append(other)
                     continue
-                seen.add(c["symbol"])
-                result.append(c)
+                entry = {**c, "via_concepts": [other]}
+                index[c["symbol"]] = entry
+                result.append(entry)
         return result
 
     def expand(self, node_id: str, max_depth: int = 2) -> dict:
@@ -872,6 +884,45 @@ def theme_listed_companies(text: str) -> Optional[dict]:
     return {"term": anchor.get("name"), "companies": companies, "first_known_date": first}
 
 
+def _hop_companies_with_anchor_evidence(
+    graph: "KnowledgeGraph", anchor: dict, companies: list[dict],
+) -> list[dict]:
+    """개념 1홉 폴백으로 끌어온 종목 중 **앵커 자신을 뒷받침하는 근거가 있는 것만**.
+
+    '베트남' 사고(2026-08-29): 학습 앵커 '베트남'은 직접 상장사 엣지가 없어 1홉 폴백이
+    유일한 verified 이웃(데이터센터)의 종목 2곳을 그대로 유니버스로 확정했다. 그런데 그
+    종목들의 관계 근거는 전부 데이터센터 기준이라 베트남과의 연결을 한 글자도 뒷받침하지
+    못한다 — 뉴스 동시언급(related_to)을 소속 관계처럼 쓴 것이다.
+
+    그래프는 '소속'과 '같이 언급됨'을 구분해 저장하지 않으므로(둘 다 related_to) 간선
+    타입으로는 가를 수 없다 — 도입 사유였던 블랙핑크→K-팝 기획사도 같은 related_to다.
+    그래서 **앵커 기준 근거**를 요구한다. 둘 중 하나면 통과한다:
+
+      (A) 관계 원장(kg_research)에 (앵커, 종목) 관계가 적혀 있다 — 사람이 조사한 근거.
+      (B) 앵커의 정본 섹터가 해석되고, 경유한 이웃 개념 **중 하나라도** 정본 섹터가
+          그와 같다 —
+          '블랙핑크(미디어/엔터) → K-팝 기획사(미디어/엔터)'는 통과하고,
+          '베트남(미해석) → 데이터센터(미해석)'는 통과하지 못한다.
+
+    (B)는 저장된 두 필드(그라운딩이 남긴 앵커 섹터·큐레이션 소속 엣지)를 맞춰보는 구조
+    판정이다 — 원문을 다시 읽지 않는다(대원칙 1). 근거를 지어내지도 않는다: 원장에 없는
+    관계에 근거를 붙이지 않는 kg_research의 계약을 그대로 따른다."""
+    from engine import kg_research
+
+    anchor_id = anchor["id"]
+    anchor_sector = graph.resolve_sector(anchor_id)
+    kept: list[dict] = []
+    for c in companies:
+        if kg_research.lookup(anchor_id, c["symbol"]) is not None:
+            kept.append(c)
+            continue
+        if not anchor_sector:
+            continue
+        if any(graph.resolve_sector(v) == anchor_sector for v in c.get("via_concepts") or ()):
+            kept.append(c)
+    return kept
+
+
 def theme_backtest_companies(text: str) -> Optional[dict]:
     """백테스트 대상 제안용 테마 상장사 — 되묻기(FR-STR-071)·빌더 전용 확장 뷰.
 
@@ -882,11 +933,36 @@ def theme_backtest_companies(text: str) -> Optional[dict]:
     최소 크기 완화 편입(score<0.5)을 백테스트 대상 제안에 섞지 않는다. 시드·카탈로그
     앵커는 큐레이션 직접 엣지가 유니버스 정의라 확장하지 않는다(지분 홉 노이즈 차단 —
     HBM 되묻기에 지주·계열 편입 방지). first_known_date는 직접 학습 엣지의 뉴스 보도일을
-    심볼 매칭으로 이월해 시점 편향 경고를 유지한다."""
+    심볼 매칭으로 이월해 시점 편향 경고를 유지한다.
+
+    개념 1홉 폴백으로만 채워진 목록은 앵커 기준 근거를 통과한 종목만 싣는다('베트남' 사고
+    2026-08-29, _hop_companies_with_anchor_evidence). 남는 종목이 없으면 미해석으로 돌려
+    THEME_NOT_FOUND 되묻기로 종결한다 — 근거 없는 추측을 백테스트 유니버스로 승격하느니
+    찾지 못했다고 말한다. 정밀 목록(theme_listed_companies)의 폴백은 조회 레인용으로
+    그대로 유지된다."""
     base = theme_listed_companies(text)
     graph = get_graph()
     concepts = graph.find_concepts(text)
     anchor = concepts[0] if concepts else None
+    if base and anchor is not None and any(c.get("via_concepts") for c in base["companies"]):
+        kept = _hop_companies_with_anchor_evidence(graph, anchor, base["companies"])
+        if not kept:
+            logger.info(
+                "KG 백테스트 테마 확장: 앵커=%s[%s] → 개념 1홉 폴백 %d곳 전부 앵커 기준 "
+                "근거 없음(원장 미등재·섹터 불일치), 백테스트 유니버스 미해석 처리",
+                anchor.get("name"), anchor["id"], len(base["companies"]),
+            )
+            return None
+        logger.info(
+            "KG 백테스트 테마 확장: 앵커=%s[%s] → 개념 1홉 폴백 %d곳 중 앵커 기준 근거 "
+            "%d곳 채택=%s, Concept Universe 확장 생략",
+            anchor.get("name"), anchor["id"], len(base["companies"]),
+            len(kept), _fmt_companies(kept),
+        )
+        # 확장은 '직접 엣지가 있는 앵커의 대표성 보강'이 목적이다(bts 사고 2차). 직접
+        # 상장사가 하나도 없어 1홉 폴백으로만 채워진 앵커를 확장하면 근거를 통과하지 못한
+        # 바로 그 이웃들을 점수 경로로 다시 끌어온다 — 게이트를 우회하므로 하지 않는다.
+        return {**base, "companies": kept}
     if anchor is None or anchor.get("category") != "learned":
         if anchor is not None:
             logger.info(
