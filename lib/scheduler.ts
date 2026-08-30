@@ -58,14 +58,24 @@ export async function callSchedulerAPI(action: string): Promise<void> {
 // 장 스케줄과 달리 주말에도 실행한다(결제 주기는 달력 기준).
 async function runBillingRenewal(ts: string): Promise<void> {
   try {
-    const [{ processDueBillingRenewals }, { prisma }] = await Promise.all([
-      import("@/lib/server/billingRenewal"),
-      import("@/lib/prisma"),
-    ]);
+    const [{ processDueBillingRenewals }, { processDuePaypalExpirations }, { prisma }] =
+      await Promise.all([
+        import("@/lib/server/billingRenewal"),
+        import("@/lib/server/paypalSubscriptionExpiry"),
+        import("@/lib/prisma"),
+      ]);
     const result = await processDueBillingRenewals(prisma);
     if (result.renewed || result.retried || result.downgraded) {
       console.log(
         `[Scheduler] ${ts} KST — 구독 갱신: 결제 ${result.renewed}건, 재시도 예약 ${result.retried}건, FREE 전환 ${result.downgraded}건`
+      );
+    }
+
+    // PayPal 구독은 PayPal이 갱신하므로 위 잡의 대상이 아니다 — 해지 예약분의 기간 만료만 처리한다
+    const paypal = await processDuePaypalExpirations(prisma);
+    if (paypal.downgraded) {
+      console.log(
+        `[Scheduler] ${ts} KST — PayPal 구독 만료: FREE 전환 ${paypal.downgraded}건`
       );
     }
   } catch (e) {
