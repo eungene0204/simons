@@ -783,6 +783,7 @@ def test_company_related_expression_survives_the_us_chain(tmp_path, monkeypatch)
         assert not parsed2.target_symbols
 
 
+@needs_data
 def test_company_related_adds_representative_theme_peers(tmp_path, monkeypatch):
     """[회귀] 2026-08-29 — '엔비디아 관련주'에 AVGO·MRVL 같은 동료가 빠지던 문제.
 
@@ -814,6 +815,7 @@ def test_company_related_adds_representative_theme_peers(tmp_path, monkeypatch):
     assert len(symbols) == len(set(symbols))          # 중복 없음(AMD·NVDA 겹침)
 
 
+@needs_data
 def test_company_related_without_learning_stays_none(tmp_path, monkeypatch):
     """학습 이력이 없으면 종전대로 None — 결정론 조회 계층이 학습 기회를 가로채지 않는다.
 
