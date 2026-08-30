@@ -21,6 +21,7 @@ const SANDBOX_API_BASE = "https://api-m.sandbox.paypal.com";
 /** 수신 라우트가 실제로 처리하는 이벤트만 구독한다(app/api/payment/paypal/webhook/route.ts). */
 const EVENT_TYPES = [
   "BILLING.SUBSCRIPTION.ACTIVATED",
+  "BILLING.SUBSCRIPTION.UPDATED",
   "BILLING.SUBSCRIPTION.CANCELLED",
   "BILLING.SUBSCRIPTION.SUSPENDED",
   "BILLING.SUBSCRIPTION.EXPIRED",
@@ -111,8 +112,24 @@ async function main() {
 
   const duplicate = webhooks.find((hook) => hook.url === url);
   if (duplicate) {
-    console.log(`\n같은 URL이 이미 등록돼 있습니다 — 새로 만들지 않습니다.`);
-    console.log(`  → .env에 PAYPAL_WEBHOOK_ID=${duplicate.id}`);
+    // 이미 등록된 웹훅이면 구독 이벤트 목록만 현행으로 맞춘다(ID 유지 — env 교체 불필요)
+    console.log(`\n같은 URL이 이미 등록돼 있습니다(${duplicate.id}) — 이벤트 목록을 갱신합니다.`);
+    if (!apply) {
+      console.log("미리보기입니다 — 실제로 갱신하려면 --apply를 붙여 다시 실행하세요.");
+      return;
+    }
+    const res = await fetch(`${apiBase}/v1/notifications/webhooks/${duplicate.id}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify([
+        { op: "replace", path: "/event_types", value: EVENT_TYPES.map((name) => ({ name })) },
+      ]),
+    });
+    if (!res.ok) {
+      throw new Error(`웹훅 이벤트 갱신 실패 (HTTP ${res.status})`);
+    }
+    console.log(`이벤트 갱신 완료: ${EVENT_TYPES.join(", ")}`);
+    console.log(`  → PAYPAL_WEBHOOK_ID=${duplicate.id} (변경 없음)`);
     return;
   }
 

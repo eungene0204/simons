@@ -82,6 +82,14 @@ describe("/api/payment/paypal/subscription", () => {
     expect(createSubscription).not.toHaveBeenCalled();
   });
 
+  // PayPal 구독은 저쪽에 계약으로 살아 있어서 겹쳐 만들면 두 구독이 동시에 청구된다
+  it("PayPal 구독이 살아 있어도 409 — 플랜 변경은 revise 경로가 담당한다", async () => {
+    userFindUnique.mockResolvedValue({ paymentProvider: "paypal", subscriptionPlanId: "PREMIUM" });
+    const res = await POST(req({ planId: "PRO" }));
+    expect(res.status).toBe(409);
+    expect(createSubscription).not.toHaveBeenCalled();
+  });
+
   it("승인 URL을 돌려주고 구독 ID만 저장한다(플랜은 아직 올리지 않는다)", async () => {
     const res = await POST(req({ planId: "PRO" }));
 

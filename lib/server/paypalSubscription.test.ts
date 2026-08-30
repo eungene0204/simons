@@ -83,6 +83,27 @@ describe("activatePaypalSubscription", () => {
     expect(userUpdate).not.toHaveBeenCalled();
   });
 
+  // 예약된 플랜 변경(PREMIUM→PRO revise 승인) 중에는 조회 경로(sync)가 등급을 앞당기면 안 된다
+  it("플랜 변경 예약 중에는 등급(planTier)을 건드리지 않는다", async () => {
+    userFindUnique.mockResolvedValue({
+      planTier: "PREMIUM", // 남은 기간의 등급
+      paypalSubscriptionId: "I-SUB-1",
+      subscriptionPlanId: "PRO", // 다음 결제일부터의 청구 플랜
+      subscriptionCanceledAt: null,
+      nextBillingAt: new Date("2026-09-30T10:00:00Z"),
+    });
+
+    const changed = await activatePaypalSubscription(prisma, {
+      userId: 42,
+      planId: "PRO",
+      subscriptionId: "I-SUB-1",
+      nextBillingTime: "2026-09-30T10:00:00Z",
+    });
+
+    expect(changed).toBe(false);
+    expect(userUpdate).not.toHaveBeenCalled();
+  });
+
   it("활성 상태여도 다음 청구일이 PayPal 값과 다르면 맞춘다(드리프트 복구)", async () => {
     userFindUnique.mockResolvedValue({
       planTier: "PRO",
@@ -136,7 +157,11 @@ describe("recordPaypalSubscriptionPayment", () => {
     );
     expect(userUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ nextBillingAt: new Date("2026-10-30T10:00:00Z") }),
+        // 청구가 확정된 플랜이 곧 등급이다 — 예약된 플랜 변경은 이 순간 전환된다
+        data: expect.objectContaining({
+          planTier: "PRO",
+          nextBillingAt: new Date("2026-10-30T10:00:00Z"),
+        }),
       })
     );
   });

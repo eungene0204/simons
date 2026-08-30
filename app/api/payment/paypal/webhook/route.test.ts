@@ -27,11 +27,14 @@ vi.mock("@/lib/payment/PaypalProvider", () => ({
   },
 }));
 
+const schedulePaypalPlanChange = vi.fn();
+
 vi.mock("@/lib/server/paypalSubscription", () => ({
   activatePaypalSubscription: (...a) => activatePaypalSubscription(...a),
   recordPaypalSubscriptionPayment: (...a) => recordPaypalSubscriptionPayment(...a),
   markPaypalSubscriptionCanceled: (...a) => markPaypalSubscriptionCanceled(...a),
   downgradePaypalSubscriber: (...a) => downgradePaypalSubscriber(...a),
+  schedulePaypalPlanChange: (...a) => schedulePaypalPlanChange(...a),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -247,6 +250,29 @@ describe("/api/payment/paypal/webhook", () => {
       })
     );
     expect(downgradePaypalSubscriber).toHaveBeenCalledWith(expect.anything(), 42);
+  });
+
+  it("플랜 변경(UPDATED)은 청구 플랜만 예약하고 등급 전환은 하지 않는다", async () => {
+    const res = await POST(
+      req({
+        id: "WH-EVENT-REVISE",
+        event_type: "BILLING.SUBSCRIPTION.UPDATED",
+        resource: {
+          id: "I-SUB-1",
+          plan_id: "P-PRO-1",
+          custom_id: "42",
+          billing_info: { next_billing_time: "2026-09-30T10:00:00Z" },
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(schedulePaypalPlanChange).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ userId: 42, planId: "PRO", nextBillingTime: "2026-09-30T10:00:00Z" })
+    );
+    // 남은 기간의 등급을 빼앗으면 안 된다 — 전환은 다음 결제가 수행한다
+    expect(activatePaypalSubscription).not.toHaveBeenCalled();
   });
 
   it("처리 중 실패하면 이벤트 기록을 되돌려 재처리를 허용한다", async () => {

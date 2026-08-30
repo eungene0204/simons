@@ -236,6 +236,32 @@ export class PaypalProvider implements PaymentProvider, SubscriptionProvider {
     };
   }
 
+  /**
+   * 구독을 유지한 채 빌링 플랜만 바꾼다(revise) — 다음 결제일부터 새 플랜 가격이 청구된다.
+   * 구매자 재승인이 필요하면 approve URL이 돌아오고, 승인 후 BILLING.SUBSCRIPTION.UPDATED
+   * 웹훅이 온다. 등급(planTier) 전환 시점은 우리 쪽 정책이다(다음 결제일).
+   */
+  async reviseSubscriptionPlan(input: {
+    subscriptionId: string;
+    providerPlanId: string;
+    returnUrl: string;
+    cancelUrl: string;
+  }): Promise<{ approveUrl?: string }> {
+    const result = await paypalRequest<{ links?: Array<{ rel: string; href: string }> }>(
+      "POST",
+      `/v1/billing/subscriptions/${encodeURIComponent(input.subscriptionId)}/revise`,
+      {
+        plan_id: input.providerPlanId,
+        application_context: {
+          brand_name: BRAND_NAME,
+          return_url: input.returnUrl,
+          cancel_url: input.cancelUrl,
+        },
+      }
+    );
+    return { approveUrl: result.links?.find((link) => link.rel === "approve")?.href };
+  }
+
   /** 즉시 해지 — 다음 청구가 일어나지 않는다. 남은 기간 플랜 유지는 우리 쪽 기록으로 처리한다. */
   async cancelSubscription(subscriptionId: string, reason?: string): Promise<void> {
     await paypalRequestVoid(

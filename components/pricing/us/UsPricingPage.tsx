@@ -38,6 +38,11 @@ export default async function UsPricingPage() {
       ? {
           nextBillingAt: record.nextBillingAt?.toISOString() ?? null,
           canceled: record.subscriptionCanceledAt != null,
+          // 청구 플랜(subscriptionPlanId)과 등급(planTier)이 다르면 플랜 변경이 예약된 상태다
+          pendingPlanId:
+            record.subscriptionPlanId !== currentPlanId
+              ? (record.subscriptionPlanId as "PRO" | "PREMIUM")
+              : null,
         }
       : null;
   const paypalEnabled = isPaypalConfigured() && isPaypalSubscriptionConfigured();

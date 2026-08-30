@@ -71,6 +71,8 @@ interface UsPricingPlansProps {
   subscription?: {
     nextBillingAt: string | null;
     canceled: boolean;
+    /** 예약된 플랜 변경 — 다음 결제일부터 이 플랜으로 청구·전환된다 */
+    pendingPlanId?: PlanId | null;
   } | null;
   /** PayPal 자격증명·플랜이 주입돼 있는지. 미설정 환경에서는 CTA를 열지 않는다. */
   paypalEnabled?: boolean;
@@ -114,6 +116,37 @@ export default function UsPricingPlans({
       window.location.href = data.approveUrl;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not start the subscription.");
+      setPendingPlanId(null);
+    }
+  };
+
+  /**
+   * 구독 중 플랜 변경 — 구독을 새로 만들지 않고 PayPal revise로 빌링 플랜만 바꾼다.
+   * 남은 기간은 현재 플랜 유지, 다음 결제일부터 새 플랜이다. 재승인이 필요하면 PayPal로 이동.
+   */
+  const handleChangePlan = async (planId: PlanId) => {
+    if (pendingPlanId) return;
+    setPendingPlanId(planId);
+    setError(null);
+    try {
+      const res = await fetch("/api/payment/paypal/subscription/change", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
+        credentials: "same-origin",
+        body: JSON.stringify({ planId }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error ?? "Could not change the plan.");
+      }
+      if (data?.approveUrl) {
+        window.location.href = data.approveUrl;
+        return;
+      }
+      router.refresh();
+      setPendingPlanId(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not change the plan.");
       setPendingPlanId(null);
     }
   };
@@ -208,17 +241,26 @@ export default function UsPricingPlans({
                 ))}
               </ul>
 
-              {/* CTA — 유료는 PayPal 구독 생성, FREE 카드는 구독 중일 때 해지 버튼이 된다 */}
+              {/* CTA — 유료: 무구독=구독 생성 / 구독 중=플랜 변경(revise). FREE: 해지 버튼 */}
               <button
                 type="button"
                 disabled={
                   isCurrent ||
-                  (planId === "FREE" ? !hasActiveSubscription || canceling : !paypalEnabled || pendingPlanId !== null)
+                  (planId === "FREE"
+                    ? !hasActiveSubscription || canceling
+                    : !paypalEnabled ||
+                      pendingPlanId !== null ||
+                      subscription?.canceled === true ||
+                      subscription?.pendingPlanId === planId)
                 }
                 onClick={() => {
                   if (isCurrent) return;
                   if (planId === "FREE") {
                     void handleCancel();
+                    return;
+                  }
+                  if (hasActiveSubscription) {
+                    void handleChangePlan(planId);
                     return;
                   }
                   void handleSubscribe(planId);
@@ -243,6 +285,12 @@ export default function UsPricingPlans({
                   ? "Coming soon"
                   : pendingPlanId === planId
                   ? "Redirecting..."
+                  : subscription?.pendingPlanId === planId
+                  ? `Scheduled for ${formatBillingDate(subscription.nextBillingAt)}`
+                  : subscription?.canceled
+                  ? "Available after expiry"
+                  : hasActiveSubscription
+                  ? "Change plan"
                   : "Subscribe"}
               </button>
 
@@ -254,6 +302,8 @@ export default function UsPricingPlans({
                 >
                   {subscription.canceled ? (
                     <p>{`Canceled - access until ${formatBillingDate(subscription.nextBillingAt)}`}</p>
+                  ) : subscription.pendingPlanId ? (
+                    <p>{`Changes to ${PLANS[subscription.pendingPlanId].name} on ${formatBillingDate(subscription.nextBillingAt)}`}</p>
                   ) : (
                     <p>{`Next billing date: ${formatBillingDate(subscription.nextBillingAt)}`}</p>
                   )}

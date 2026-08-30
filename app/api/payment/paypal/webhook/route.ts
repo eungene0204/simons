@@ -8,6 +8,7 @@ import {
   downgradePaypalSubscriber,
   markPaypalSubscriptionCanceled,
   recordPaypalSubscriptionPayment,
+  schedulePaypalPlanChange,
 } from "@/lib/server/paypalSubscription";
 
 // POST: PayPal 웹훅 수신. 유료 플랜의 승격·강등은 이 경로가 정본이다.
@@ -143,6 +144,20 @@ export async function POST(request: Request) {
           saleId: resource.id,
           approvedAt: resource.create_time,
           nextBillingTime,
+        });
+        break;
+      }
+
+      // 플랜 변경(revise) 승인 — 다음 청구 플랜만 예약하고 등급은 다음 결제에서 바뀐다
+      case "BILLING.SUBSCRIPTION.UPDATED": {
+        const planId = planIdFromPaypalPlan(resource?.plan_id);
+        if (!planId) {
+          return NextResponse.json({ ok: true, ignored: "unknown-plan" });
+        }
+        await schedulePaypalPlanChange(prisma, {
+          userId,
+          planId,
+          nextBillingTime: resource?.billing_info?.next_billing_time,
         });
         break;
       }

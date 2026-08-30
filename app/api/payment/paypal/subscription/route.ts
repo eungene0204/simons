@@ -31,14 +31,16 @@ export async function POST(request: Request) {
       );
     }
 
-    // 한국(토스) 자동결제가 살아 있는 계정이 PayPal 구독까지 만들면 이중 청구가 된다
+    // 구독이 하나라도 살아 있으면 새 구독을 만들지 않는다 — PayPal 구독은 저쪽에 계약으로
+    // 남아 있어서, 겹쳐 만들면 두 구독이 동시에 청구된다(이중 청구). 플랜 변경은 revise
+    // 경로(subscription/change)가 담당하고, 해지 예약 중에는 만료 후에만 재구독할 수 있다.
     const record = await prisma.user.findUnique({
       where: { id: user.id },
-      select: { paymentProvider: true, subscriptionPlanId: true, tossBillingKey: true },
+      select: { paymentProvider: true, subscriptionPlanId: true },
     });
-    if (record?.subscriptionPlanId && record.paymentProvider === "toss") {
+    if (record?.subscriptionPlanId) {
       return NextResponse.json(
-        { error: "이미 진행 중인 구독이 있습니다. 기존 구독을 해지한 뒤 다시 시도해주세요." },
+        { error: "이미 진행 중인 구독이 있습니다. 플랜 변경은 요금제 화면에서, 재구독은 기존 구독 만료 후에 할 수 있습니다." },
         { status: 409 }
       );
     }

@@ -133,6 +133,63 @@ describe("UsPricingPlans", () => {
     expect(canceledCta).toBeDisabled();
   });
 
+  it("구독 중이면 다른 유료 카드가 플랜 변경 버튼이 되고 revise 경로를 부른다", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { approveUrl: "https://paypal.com/revise/1" }));
+    const location = { href: "", pathname: "/us/pricing" };
+    Object.defineProperty(window, "location", { value: location, writable: true });
+
+    render(
+      <UsPricingPlans
+        currentPlanId="PREMIUM"
+        paypalEnabled
+        subscription={{ nextBillingAt: "2026-09-30T00:00:00Z", canceled: false }}
+      />
+    );
+
+    const proCta = within(screen.getByTestId("pricing-plan-card-PRO")).getByRole("button");
+    expect(proCta).toHaveTextContent("Change plan");
+    fireEvent.click(proCta);
+
+    await waitFor(() => expect(location.href).toBe("https://paypal.com/revise/1"));
+    // 새 구독 생성이 아니라 변경(revise) 라우트여야 한다 — 겹쳐 만들면 이중 청구다
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/payment/paypal/subscription/change");
+  });
+
+  it("플랜 변경이 예약되면 대상 카드가 잠기고 현재 카드에 전환 예정을 표시한다", () => {
+    render(
+      <UsPricingPlans
+        currentPlanId="PREMIUM"
+        paypalEnabled
+        subscription={{
+          nextBillingAt: "2026-09-30T00:00:00Z",
+          canceled: false,
+          pendingPlanId: "PRO",
+        }}
+      />
+    );
+
+    const proCta = within(screen.getByTestId("pricing-plan-card-PRO")).getByRole("button");
+    expect(proCta).toHaveTextContent("Scheduled for September 30, 2026");
+    expect(proCta).toBeDisabled();
+    expect(screen.getByTestId("subscription-renewal-status")).toHaveTextContent(
+      "Changes to Pro on September 30, 2026"
+    );
+  });
+
+  it("해지 예약 중에는 다른 유료 카드도 잠긴다(만료 후 재구독)", () => {
+    render(
+      <UsPricingPlans
+        currentPlanId="PREMIUM"
+        paypalEnabled
+        subscription={{ nextBillingAt: "2026-09-30T00:00:00Z", canceled: true }}
+      />
+    );
+
+    const proCta = within(screen.getByTestId("pricing-plan-card-PRO")).getByRole("button");
+    expect(proCta).toHaveTextContent("Available after expiry");
+    expect(proCta).toBeDisabled();
+  });
+
   it("이용 중인 유료 플랜에 다음 결제일·해지 예약 상태를 표시한다", () => {
     const { rerender } = render(
       <UsPricingPlans

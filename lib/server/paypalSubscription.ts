@@ -35,15 +35,26 @@ export async function activatePaypalSubscription(
   const nextBillingMatches =
     !input.nextBillingTime ||
     current?.nextBillingAt?.getTime() === new Date(input.nextBillingTime).getTime();
-  if (
+  const sameBinding =
     current?.paypalSubscriptionId === input.subscriptionId &&
     current?.subscriptionPlanId === input.planId &&
-    current?.planTier === input.planId &&
-    current?.subscriptionCanceledAt == null &&
-    // 날짜가 PayPal 값과 어긋나 있으면 맞춘다 — 조회 경로가 드리프트를 고칠 수 있어야 한다
-    nextBillingMatches
-  ) {
-    return false;
+    current?.subscriptionCanceledAt == null;
+  if (sameBinding) {
+    // 예약된 플랜 변경 상태: 청구 플랜은 이미 input.planId인데 등급(planTier)은 이전 유료
+    // 플랜이다. 등급 전환은 다음 결제(recordPaypalSubscriptionPayment)가 수행한다 — 여기서
+    // 앞당기면 남은 기간의 상위 플랜을 빼앗는다(sync 재호출 등 조회 경로가 이 상태를 지나간다).
+    if (current.planTier !== input.planId && current.planTier !== "FREE") {
+      return false;
+    }
+    if (current.planTier === input.planId) {
+      if (nextBillingMatches) return false;
+      // 날짜가 PayPal 값과 어긋나 있으면 맞춘다 — 조회 경로가 드리프트를 고칠 수 있어야 한다
+      await prisma.user.update({
+        where: { id: input.userId },
+        data: { nextBillingAt: new Date(input.nextBillingTime as string) },
+      });
+      return true;
+    }
   }
 
   const now = new Date();
@@ -112,12 +123,32 @@ export async function recordPaypalSubscriptionPayment(
     prisma.user.update({
       where: { id: input.userId },
       data: {
+        // 청구가 확정된 플랜이 곧 등급이다 — 예약된 플랜 변경(revise)은 이 순간 전환된다
+        planTier: input.planId,
         ...(input.nextBillingTime ? { nextBillingAt: new Date(input.nextBillingTime) } : {}),
         billingFailCount: 0,
       },
     }),
   ]);
   return true;
+}
+
+/**
+ * 플랜 변경(revise) 승인 반영 — 다음 청구 플랜(subscriptionPlanId)만 바꾸고 등급(planTier)은
+ * 건드리지 않는다. 남은 기간은 기존 플랜을 유지하고, 다음 결제가 들어올 때
+ * recordPaypalSubscriptionPayment가 등급을 청구 플랜으로 전환한다.
+ */
+export async function schedulePaypalPlanChange(
+  prisma: PrismaClient,
+  input: { userId: number; planId: PlanId; nextBillingTime?: string }
+): Promise<void> {
+  await prisma.user.update({
+    where: { id: input.userId },
+    data: {
+      subscriptionPlanId: input.planId,
+      ...(input.nextBillingTime ? { nextBillingAt: new Date(input.nextBillingTime) } : {}),
+    },
+  });
 }
 
 /**
