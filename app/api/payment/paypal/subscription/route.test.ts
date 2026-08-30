@@ -34,9 +34,13 @@ vi.mock("@/lib/payment/PaypalProvider", () => ({
 
 let POST;
 
-function req(body) {
+// 회귀(2026-08-31 prod): 컨테이너 안 Next.js는 request.url을 localhost:3000으로 재구성한다.
+// 복귀 URL은 request.url이 아니라 방문자의 Host 헤더에서 만들어야 한다 — 이 목은 그 상황을
+// 그대로 재현한다(내부 URL + 실제 Host 헤더).
+function req(body, headers = { host: "www.nullstock.im", "x-forwarded-proto": "https" }) {
   return {
-    url: "https://www.nullstock.im/api/payment/paypal/subscription",
+    url: "http://localhost:3000/api/payment/paypal/subscription",
+    headers: new Headers(headers),
     json: async () => body,
   };
 }
@@ -90,6 +94,7 @@ describe("/api/payment/paypal/subscription", () => {
       expect.objectContaining({
         providerPlanId: "P-PRO-1",
         userRef: "42",
+        // request.url(localhost:3000)이 아니라 Host 헤더 기준이어야 한다
         returnUrl: "https://www.nullstock.im/us/pricing/success",
         cancelUrl: "https://www.nullstock.im/us/pricing",
       })

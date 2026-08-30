@@ -5,6 +5,7 @@ import { isValidPlanId } from "@/lib/plans";
 import { PaypalProvider, PaypalError, isPaypalConfigured } from "@/lib/payment/PaypalProvider";
 import { isPaypalSubscriptionConfigured, paypalPlanIdFor } from "@/lib/payment/paypalPlans";
 import { US_PRICING } from "@/lib/pricing/us";
+import { publicOriginFrom } from "@/lib/server/publicOrigin";
 
 // POST: 글로벌(/us) 정기구독 생성. PayPal에 구독을 만들고 사용자를 보낼 승인 URL을 돌려준다.
 // 이 시점에는 청구가 일어나지 않으며, 유료 전환은 승인 뒤 웹훅(정본)이 처리한다.
@@ -42,7 +43,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const origin = new URL(request.url).origin;
+    // request.url의 origin은 컨테이너 내부 주소(localhost:3000)라 복귀 URL에 쓰면 안 된다
+    const origin = publicOriginFrom(request);
     const session = await new PaypalProvider().createSubscription({
       providerPlanId: paypalPlanIdFor(planId),
       // 웹훅이 이 값으로 사용자를 되찾는다
