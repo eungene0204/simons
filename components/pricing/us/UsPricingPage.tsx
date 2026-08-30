@@ -6,6 +6,7 @@
 // (app/api/payment/paypal/*)으로 배선돼 있다. 자격증명·플랜이 주입되지 않은 환경에서는
 // CTA가 열리지 않는다(준비 중 표시).
 
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { getCurrentUser } from "@/lib/get-user";
@@ -72,6 +73,17 @@ export default async function UsPricingPage() {
             {paypalEnabled
               ? "Prices are in USD. Subscriptions renew monthly via PayPal until canceled."
               : "Prices are in USD. Checkout via PayPal is being prepared."}
+          </p>
+          {/* 결제 전 고지 — 약관(환불 정책 Article 12 포함)에 대한 동의를 결제 지점에서 밝힌다 */}
+          <p className="mt-2 text-center text-xs font-bold text-gray-600">
+            {"By subscribing you agree to the "}
+            <Link
+              href="/us/?legal=terms"
+              className="underline underline-offset-2 hover:text-gray-400"
+            >
+              Terms of Service
+            </Link>
+            {", including the refund policy. You can cancel anytime; access continues until the end of the paid period."}
           </p>
         </div>
       </div>
