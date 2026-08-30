@@ -21,8 +21,17 @@ const getSubscription = vi.fn();
 
 const cancelSubscription = vi.fn();
 
+class MockPaypalError extends Error {
+  httpStatus;
+  constructor(message, httpStatus) {
+    super(message);
+    this.httpStatus = httpStatus;
+  }
+}
+
 vi.mock("@/lib/payment/PaypalProvider", () => ({
   verifyWebhookSignature: (...a) => verifyWebhookSignature(...a),
+  PaypalError: MockPaypalError,
   PaypalProvider: class {
     getSubscription(...a) {
       return getSubscription(...a);
@@ -88,7 +97,11 @@ beforeEach(async () => {
   webhookEventDeleteMany.mockResolvedValue({});
   userUpdate.mockResolvedValue({});
   cancelSubscription.mockResolvedValue(undefined);
-  userFindUnique.mockResolvedValue({ paypalPriorSubscriptionId: null });
+  userFindUnique.mockResolvedValue({
+    paypalSubscriptionId: "I-SUB-1",
+    subscriptionPlanId: "PREMIUM",
+    paypalPriorSubscriptionId: null,
+  });
 });
 
 describe("/api/payment/paypal/webhook", () => {
@@ -263,6 +276,48 @@ describe("/api/payment/paypal/webhook", () => {
     expect(recordPaypalSubscriptionPayment).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ planId: "PRO", saleId: "SALE-OLD" })
+    );
+  });
+
+  // 회귀(2026-08-31 재검증): 업그레이드가 옛 구독을 해지하면 그 CANCELLED 통지가 따라오는데,
+  // 어느 구독의 통지인지 확인하지 않으면 새 구독이 해지 예약으로 물들어 만료 스윕이
+  // 유료 사용자를 FREE로 내린다(PayPal은 계속 청구).
+  it("현재 구독이 아닌 해지·정지 통지는 무시한다", async () => {
+    userFindUnique.mockResolvedValue({ paypalSubscriptionId: "I-SUB-NEW" });
+
+    const res = await POST(
+      req({
+        id: "WH-STALE-CXL",
+        event_type: "BILLING.SUBSCRIPTION.CANCELLED",
+        resource: { id: "I-SUB-OLD", custom_id: "42" },
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, ignored: "stale-subscription" });
+    expect(markPaypalSubscriptionCanceled).not.toHaveBeenCalled();
+
+    await POST(
+      req({
+        id: "WH-STALE-SUSP",
+        event_type: "BILLING.SUBSCRIPTION.SUSPENDED",
+        resource: { id: "I-SUB-OLD", custom_id: "42" },
+      })
+    );
+    expect(downgradePaypalSubscriber).not.toHaveBeenCalled();
+  });
+
+  it("이미 해지된 이전 구독(4xx)은 성공으로 간주하고 보관 필드를 비운다", async () => {
+    // 매핑 가능한 플랜이라 조회는 이전 구독 확인 1회뿐 — Once를 더 쌓으면 다음 테스트로 샌다
+    userFindUnique.mockResolvedValueOnce({ paypalPriorSubscriptionId: "I-SUB-OLD" });
+    cancelSubscription.mockRejectedValue(new MockPaypalError("already cancelled", 422));
+
+    const res = await POST(
+      req(activatedEvent({ resource: { id: "I-SUB-NEW", plan_id: "P-PRO-1", custom_id: "42" } }))
+    );
+
+    expect(res.status).toBe(200);
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { paypalPriorSubscriptionId: null } })
     );
   });
 

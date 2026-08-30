@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import type { PlanId } from "@/lib/plans";
-import { PaypalProvider, verifyWebhookSignature } from "@/lib/payment/PaypalProvider";
+import { PaypalError, PaypalProvider, verifyWebhookSignature } from "@/lib/payment/PaypalProvider";
 import { planIdFromPaypalPlan } from "@/lib/payment/paypalPlans";
 import {
   activatePaypalSubscription,
@@ -134,12 +134,18 @@ export async function POST(request: Request) {
           select: { paypalPriorSubscriptionId: true },
         });
         if (prior?.paypalPriorSubscriptionId && prior.paypalPriorSubscriptionId !== resource.id) {
-          await new PaypalProvider()
-            .cancelSubscription(prior.paypalPriorSubscriptionId, "Upgraded to a new subscription")
-            .catch((error) => {
-              // 해지 실패는 이중 청구 위험이라 삼키지 않고 드러낸다 — 웹훅 재전송이 재시도한다
+          try {
+            await new PaypalProvider().cancelSubscription(
+              prior.paypalPriorSubscriptionId,
+              "Upgraded to a new subscription"
+            );
+          } catch (error) {
+            // 이미 해지·만료된 구독(4xx)은 목적 달성으로 간주한다 — 여기서 던지면 재전송이
+            // 무한 재시도에 빠진다. 5xx(일시 장애)만 드러내 재전송이 재시도하게 한다.
+            if (!(error instanceof PaypalError) || error.httpStatus >= 500) {
               throw error;
-            });
+            }
+          }
           await prisma.user.update({
             where: { id: userId },
             data: { paypalPriorSubscriptionId: null },
@@ -204,16 +210,29 @@ export async function POST(request: Request) {
         break;
       }
 
-      // 해지 통지 — 남은 기간은 유지하고 만료 스윕이 FREE로 내린다
+      // 해지·정지·만료 통지 — 반드시 "현재 구독"의 통지일 때만 반영한다. 업그레이드는
+      // 우리가 옛 구독을 해지하므로 그 CANCELLED가 뒤따라오는데, 이걸 그대로 반영하면
+      // 방금 활성화된 새 구독이 해지 예약으로 물들고 만료 스윕이 유료 사용자를 FREE로
+      // 내린다(PayPal은 계속 청구 — 2026-08-31 재검증에서 실제 발생, 데이터 수동 정정).
       case "BILLING.SUBSCRIPTION.CANCELLED":
-        await markPaypalSubscriptionCanceled(prisma, userId);
-        break;
-
-      // 정지·만료는 더 이상 청구되지 않으므로 즉시 FREE로 내린다
       case "BILLING.SUBSCRIPTION.SUSPENDED":
-      case "BILLING.SUBSCRIPTION.EXPIRED":
-        await downgradePaypalSubscriber(prisma, userId);
+      case "BILLING.SUBSCRIPTION.EXPIRED": {
+        const rec = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { paypalSubscriptionId: true },
+        });
+        if (rec?.paypalSubscriptionId !== resource?.id) {
+          return NextResponse.json({ ok: true, ignored: "stale-subscription" });
+        }
+        if (eventType === "BILLING.SUBSCRIPTION.CANCELLED") {
+          // 해지 — 남은 기간은 유지하고 만료 스윕이 FREE로 내린다
+          await markPaypalSubscriptionCanceled(prisma, userId);
+        } else {
+          // 정지·만료는 더 이상 청구되지 않으므로 즉시 FREE로 내린다
+          await downgradePaypalSubscriber(prisma, userId);
+        }
         break;
+      }
 
       default:
         // 관심 없는 이벤트도 기록만 남기고 200으로 닫는다(재전송 방지)
