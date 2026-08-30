@@ -44,6 +44,24 @@ def test_empty_remote_raises():
         mirror_data.build_rsync_cmd(remote="", ssh_key=None, push=False, dry_run=False)
 
 
+def test_us_subpath_targets_ohlcv_us():
+    """--us는 data/ohlcv-us를 미러한다(정본=프로덕션 scheduler-us, 2026-08-31)."""
+    cmd = mirror_data.build_rsync_cmd(
+        remote=REMOTE, ssh_key=None, push=False, dry_run=False,
+        local_dir=mirror_data._LOCAL_OHLCV_US,
+        remote_subpath=mirror_data._REMOTE_SUBPATH_US,
+    )
+    src, dst = cmd[-2], cmd[-1]
+    assert src == f"{REMOTE}/data/ohlcv-us/"
+    assert dst.endswith("data/ohlcv-us/") and not dst.startswith(REMOTE)
+
+
+def test_default_subpath_unchanged_by_us_addition():
+    """--us 추가가 기본(한국 data/ohlcv) 경로를 건드리지 않는다."""
+    cmd = mirror_data.build_rsync_cmd(remote=REMOTE, ssh_key=None, push=False, dry_run=False)
+    assert cmd[-2] == f"{REMOTE}/data/ohlcv/"
+
+
 def test_stall_timeouts_always_present():
     """SSH 행 시 무기한 스톨 방지(2026-08-04 스케줄러 pull 30시간 좀비 회귀).
 

@@ -5,8 +5,13 @@
 parquet을 유지한다. 양쪽이 각자 FDR/pykrx에서 독립적으로 받으면 깊은 과거(KIS 백필)·
 보정(sanitize)·enrichment 타이밍 차이로 절대 동일해지지 않으므로, 반드시 rsync 미러로 맞춘다.
 
+미국 파케이(data/ohlcv-us, --us)도 같은 원칙이다 — 프로덕션 scheduler-us가 정본으로
+수집하고(2026-08-31 시딩), 로컬은 pull 한다(EDGAR 재적용·소급 수정 타이밍이 run마다 달라
+양쪽 독립 수집은 동일해지지 않는다).
+
 사용:
-  python scripts/mirror_data.py            # pull: 프로덕션 → 로컬 (기본)
+  python scripts/mirror_data.py            # pull: 프로덕션 → 로컬 (기본, 한국 data/ohlcv)
+  python scripts/mirror_data.py --us       # 미국 data/ohlcv-us 대상 (pull)
   python scripts/mirror_data.py --check    # 차이만 출력(전송 안 함, --dry-run)
   python scripts/mirror_data.py --push     # push: 로컬 → 프로덕션 (백필 반영 등, 주의해서)
 
@@ -30,8 +35,10 @@ from dotenv import load_dotenv
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _LOCAL_OHLCV = _REPO_ROOT / "data" / "ohlcv"
-# 미러 대상 하위 경로(정본 기준 상대경로). 현재는 OHLCV parquet만 미러한다.
+# 미러 대상 하위 경로(정본 기준 상대경로). 기본은 한국 OHLCV, --us면 미국 OHLCV.
 _REMOTE_SUBPATH = "data/ohlcv"
+_LOCAL_OHLCV_US = _REPO_ROOT / "data" / "ohlcv-us"
+_REMOTE_SUBPATH_US = "data/ohlcv-us"
 # rsync 무전송 중단(초)과 재시도. 스톨로 끊겨도(exit 10/12/30/35 — 소켓 I/O·프로토콜·타임아웃)
 # 이미 옮긴 파일은 원자적으로 완성돼 있으므로(임시파일→rename, --partial 안 씀) 다시 돌리면
 # 남은 파일만 이어간다. 큰 델타에서 한 번에 안 끝나는 일이 잦아 최대 _RSYNC_MAX_ATTEMPTS회.
@@ -48,6 +55,7 @@ def build_rsync_cmd(
     push: bool,
     dry_run: bool,
     local_dir: Path = _LOCAL_OHLCV,
+    remote_subpath: str = _REMOTE_SUBPATH,
 ) -> list[str]:
     """rsync argv를 구성한다. 미러이므로 trailing slash로 디렉터리 내용만 동기화한다."""
     if not remote:
@@ -64,7 +72,7 @@ def build_rsync_cmd(
         ssh = f"ssh -i {os.path.expanduser(ssh_key)} {ssh_opts}"
 
     local = f"{str(local_dir).rstrip('/')}/"
-    remote_path = f"{remote.rstrip('/')}/{_REMOTE_SUBPATH}/"
+    remote_path = f"{remote.rstrip('/')}/{remote_subpath}/"
 
     cmd = ["rsync", "-a", f"--timeout={_RSYNC_STALL_TIMEOUT_S}", "-e", ssh]
     if dry_run:
@@ -80,6 +88,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="로컬↔프로덕션 OHLCV parquet 미러 (정본=프로덕션)")
     parser.add_argument("--push", action="store_true", help="로컬 → 프로덕션 (기본은 pull)")
     parser.add_argument("--check", action="store_true", help="차이만 출력하고 전송하지 않음(dry-run)")
+    parser.add_argument("--us", action="store_true", help="미국 파케이(data/ohlcv-us) 대상 (기본은 한국 data/ohlcv)")
     args = parser.parse_args(argv)
 
     # 로컬 .env의 DATA_MIRROR_* 로드(컨테이너는 env_file 주입돼 no-op). 실행 시점에만 로드.
@@ -90,10 +99,13 @@ def main(argv=None) -> int:
         print("[mirror] DATA_MIRROR_REMOTE 미설정 — 미러를 건너뜁니다(로컬 .env에 설정 필요).")
         return 2
 
-    _LOCAL_OHLCV.mkdir(parents=True, exist_ok=True)
-    cmd = build_rsync_cmd(remote=remote, ssh_key=ssh_key, push=args.push, dry_run=args.check)
+    local_dir = _LOCAL_OHLCV_US if args.us else _LOCAL_OHLCV
+    remote_subpath = _REMOTE_SUBPATH_US if args.us else _REMOTE_SUBPATH
+    local_dir.mkdir(parents=True, exist_ok=True)
+    cmd = build_rsync_cmd(remote=remote, ssh_key=ssh_key, push=args.push, dry_run=args.check,
+                          local_dir=local_dir, remote_subpath=remote_subpath)
     direction = "로컬 → 프로덕션(push)" if args.push else "프로덕션 → 로컬(pull)"
-    print(f"[mirror] {direction}{' [check]' if args.check else ''}: {remote}/{_REMOTE_SUBPATH}")
+    print(f"[mirror] {direction}{' [check]' if args.check else ''}: {remote}/{remote_subpath}")
     return run_with_retries(cmd)
 
 

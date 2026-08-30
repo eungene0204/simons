@@ -37,7 +37,8 @@
 │    ├─ caddy        443/80 → web (Let's Encrypt 자동 TLS)                      │
 │    ├─ web          Next.js (프론트 + API 라우트)                              │
 │    ├─ backend      FastAPI + VirtualTrader — OLLAMA_HOST로 Modal 호출         │
-│    ├─ scheduler    매일 OHLCV 동기화 (단일 인스턴스)                          │
+│    ├─ scheduler    매일 21:00 KST 한국 OHLCV 동기화 (단일 인스턴스)           │
+│    ├─ scheduler-us 매일 07:00 KST 미국 OHLCV 증분 + 12주 전량 재수집          │
 │    ├─ redis        news_v2 celery 브로커 (backend가 워커 자체 spawn)          │
 │    └─ postgres     news_v2 전용 로컬 Postgres (수집 현재 비활성화)            │
 │                                                                               │

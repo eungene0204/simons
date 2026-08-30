@@ -125,3 +125,37 @@ def test_ensure_marker_skips_when_not_seeded(tmp_path, monkeypatch):
     monkeypatch.setattr(sched, "_newest_data_date", lambda: None)
     sched._ensure_marker(date(2026, 8, 24))
     assert not marker.exists()
+
+
+# ── 미러 모드(로컬): DATA_MIRROR_REMOTE가 있으면 수집 대신 프로덕션 pull ──────────
+
+
+def test_is_mirror_follows_env(monkeypatch):
+    monkeypatch.delenv("DATA_MIRROR_REMOTE", raising=False)
+    assert sched._is_mirror() is False
+    monkeypatch.setenv("DATA_MIRROR_REMOTE", "root@example.com:/opt/simons")
+    assert sched._is_mirror() is True
+    monkeypatch.setenv("DATA_MIRROR_REMOTE", "   ")   # 공백만 = 미설정
+    assert sched._is_mirror() is False
+
+
+def test_run_update_mirror_pulls_us_dataset(monkeypatch):
+    """미러 모드의 run_update는 수집 스크립트가 아니라 mirror_data.py --us를 부른다."""
+    monkeypatch.setenv("DATA_MIRROR_REMOTE", "root@example.com:/opt/simons")
+    calls = []
+    monkeypatch.setattr(sched, "_run", lambda label, cmd, **kw: calls.append(cmd) or 0)
+    assert sched.run_update() == 0
+    assert len(calls) == 1
+    assert calls[0][-2:] == ["scripts/mirror_data.py", "--us"]
+
+
+def test_run_update_source_mode_collects(monkeypatch):
+    """정본 모드(DATA_MIRROR_REMOTE 없음)는 기존대로 개별주 → ETF 증분을 돈다."""
+    monkeypatch.delenv("DATA_MIRROR_REMOTE", raising=False)
+    calls = []
+    monkeypatch.setattr(sched, "_run", lambda label, cmd, **kw: calls.append(cmd) or 0)
+    assert sched.run_update() == 0
+    assert [c[-2:] for c in calls] == [
+        ["scripts/backfill_us_stocks.py", "--update"],
+        ["scripts/backfill_us_etf.py", "--update"],
+    ]

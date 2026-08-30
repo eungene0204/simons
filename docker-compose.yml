@@ -99,6 +99,15 @@ services:
     working_dir: /app
     command: python3 scripts/scheduler.py
 
+  scheduler-us:                   # 매일 07:00 KST 미국 OHLCV 증분 + 12주 일요일 전량 재수집
+    image: simons-app:latest      # 한국 scheduler와 별도 프로세스(스톨 시 운명 분리 — scheduler_us.py 참고)
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    working_dir: /app
+    command: python3 scripts/scheduler_us.py
+
   # 참고: 뉴스 celery 워커 + 스케줄러는 backend가 startup에서 직접 spawn한다
   # (news_v2/scheduler.py start_scheduler → APScheduler + celery worker 서브프로세스).
   # 따라서 별도 news-worker/news-scheduler 서비스는 중복(이중 디스패치+RAM 낭비)이라 제거했다.
