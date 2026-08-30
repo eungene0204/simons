@@ -1,10 +1,31 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import UsPricingPlans from "./UsPricingPlans";
+
+const refresh = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => refresh() }),
+  usePathname: () => "/us/pricing",
+}));
+
+const fetchMock = vi.fn();
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function jsonResponse(status: number, body: unknown) {
+  return { ok: status >= 200 && status < 300, status, json: async () => body };
+}
 
 describe("UsPricingPlans", () => {
   // 글로벌 요금제 카드는 한국 카드(components/pricing/PricingPlans)와 같은 형태여야 한다.
@@ -37,8 +58,8 @@ describe("UsPricingPlans", () => {
     expect(screen.getAllByText("/ month")).toHaveLength(3);
   });
 
-  it("결제 배선 전까지 유료 CTA는 비활성 안내로 둔다", () => {
-    render(<UsPricingPlans currentPlanId="FREE" />);
+  it("PayPal이 설정되지 않은 환경에서는 유료 CTA를 열지 않는다", () => {
+    render(<UsPricingPlans currentPlanId="FREE" paypalEnabled={false} />);
 
     const current = within(screen.getByTestId("pricing-plan-card-FREE")).getByRole("button");
     expect(current).toHaveTextContent("Current plan");
@@ -47,6 +68,93 @@ describe("UsPricingPlans", () => {
       expect(cta).toHaveTextContent("Coming soon");
       expect(cta).toBeDisabled();
     }
+  });
+
+  it("유료 CTA는 구독을 만들고 PayPal 승인 페이지로 보낸다", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, { subscriptionId: "I-SUB-1", approveUrl: "https://paypal.com/approve/1" })
+    );
+    // jsdom은 location 대입을 막으므로 대체 가능한 객체로 바꿔 이동을 관찰한다
+    // pathname까지 넣어야 지역 헤더가 경로에서 파생된다(실제 /us 탭과 같은 조건)
+    const location = { href: "", pathname: "/us/pricing" };
+    Object.defineProperty(window, "location", { value: location, writable: true });
+
+    render(<UsPricingPlans currentPlanId="FREE" paypalEnabled />);
+    fireEvent.click(within(screen.getByTestId("pricing-plan-card-PRO")).getByRole("button"));
+
+    await waitFor(() => expect(location.href).toBe("https://paypal.com/approve/1"));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/payment/paypal/subscription");
+    expect(JSON.parse(init.body)).toEqual({ planId: "PRO" });
+    // 지역 헤더가 빠지면 /us 탭의 호출이 KR로 오염된다
+    expect(init.headers).toMatchObject({ "x-nullstock-region": "us" });
+  });
+
+  it("구독 생성이 실패하면 승인 페이지로 보내지 않고 오류를 보여준다", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(409, { error: "Subscription already in progress." }));
+
+    render(<UsPricingPlans currentPlanId="FREE" paypalEnabled />);
+    fireEvent.click(within(screen.getByTestId("pricing-plan-card-PREMIUM")).getByRole("button"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("us-pricing-error")).toHaveTextContent(
+        "Subscription already in progress."
+      )
+    );
+  });
+
+  it("구독 중이면 FREE 카드가 해지 버튼이 되고, 해지 예약 뒤에는 다시 누를 수 없다", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { ok: true, expiresAt: null }));
+
+    const { rerender } = render(
+      <UsPricingPlans
+        currentPlanId="PRO"
+        paypalEnabled
+        subscription={{ nextBillingAt: "2026-09-30T00:00:00Z", canceled: false }}
+      />
+    );
+
+    const freeCta = within(screen.getByTestId("pricing-plan-card-FREE")).getByRole("button");
+    expect(freeCta).toHaveTextContent("Cancel subscription");
+    fireEvent.click(freeCta);
+
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/payment/paypal/subscription/cancel");
+
+    rerender(
+      <UsPricingPlans
+        currentPlanId="PRO"
+        paypalEnabled
+        subscription={{ nextBillingAt: "2026-09-30T00:00:00Z", canceled: true }}
+      />
+    );
+    const canceledCta = within(screen.getByTestId("pricing-plan-card-FREE")).getByRole("button");
+    expect(canceledCta).toHaveTextContent("Cancellation scheduled");
+    expect(canceledCta).toBeDisabled();
+  });
+
+  it("이용 중인 유료 플랜에 다음 결제일·해지 예약 상태를 표시한다", () => {
+    const { rerender } = render(
+      <UsPricingPlans
+        currentPlanId="PRO"
+        paypalEnabled
+        subscription={{ nextBillingAt: "2026-09-30T00:00:00Z", canceled: false }}
+      />
+    );
+    expect(screen.getByTestId("subscription-renewal-status")).toHaveTextContent(
+      "Next billing date: September 30, 2026"
+    );
+
+    rerender(
+      <UsPricingPlans
+        currentPlanId="PRO"
+        paypalEnabled
+        subscription={{ nextBillingAt: "2026-09-30T00:00:00Z", canceled: true }}
+      />
+    );
+    expect(screen.getByTestId("subscription-renewal-status")).toHaveTextContent(
+      "Canceled - access until September 30, 2026"
+    );
   });
   // 회귀: phosphor-react가 createContext를 쓰므로 RSC에서 임포트하면 렌더가 터진다
   // (2026-08-25 — /us/pricing 서버 에러). jsdom 렌더는 양쪽 다 통과하므로 소스로 확인한다.

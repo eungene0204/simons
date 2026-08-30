@@ -2,14 +2,17 @@
 //
 // 한국 요금제 화면(PricingPlans + 토스 체크아웃)과 완전히 분리된 트리다. 토스페이먼츠
 // 심사 영역(components/pricing/PricingPlans·PaymentCheckout 등)은 여기서 일절 쓰지 않는다.
-// 카드 레이아웃은 한국 화면과 동일하게 맞추되(UsPricingPlans), 결제는 PayPal Checkout
-// (lib/payment/PaypalProvider)으로 배선 예정이며 배선 전까지 CTA는 준비 중으로 표시한다.
+// 카드 레이아웃은 한국 화면과 동일하게 맞추고(UsPricingPlans), 결제는 PayPal 정기구독
+// (app/api/payment/paypal/*)으로 배선돼 있다. 자격증명·플랜이 주입되지 않은 환경에서는
+// CTA가 열리지 않는다(준비 중 표시).
 
 import { redirect } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { getCurrentUser } from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
 import { getPlan } from "@/lib/plans";
+import { isPaypalConfigured } from "@/lib/payment/PaypalProvider";
+import { isPaypalSubscriptionConfigured } from "@/lib/payment/paypalPlans";
 import UsPricingPlans from "@/components/pricing/us/UsPricingPlans";
 
 export default async function UsPricingPage() {
@@ -20,9 +23,24 @@ export default async function UsPricingPage() {
 
   const record = await prisma.user.findUnique({
     where: { id: user.id },
-    select: { planTier: true },
+    select: {
+      planTier: true,
+      paymentProvider: true,
+      subscriptionPlanId: true,
+      nextBillingAt: true,
+      subscriptionCanceledAt: true,
+    },
   });
   const currentPlanId = getPlan(record?.planTier).planId;
+  // PayPal 구독 상태만 표시한다 — 토스 구독은 한국 화면의 소관이다
+  const subscription =
+    record?.paymentProvider === "paypal" && record.subscriptionPlanId
+      ? {
+          nextBillingAt: record.nextBillingAt?.toISOString() ?? null,
+          canceled: record.subscriptionCanceledAt != null,
+        }
+      : null;
+  const paypalEnabled = isPaypalConfigured() && isPaypalSubscriptionConfigured();
 
   return (
     <DashboardLayout userName={user.name || "Guest"}>
@@ -38,11 +56,17 @@ export default async function UsPricingPage() {
           </div>
 
           <div className="mt-14">
-            <UsPricingPlans currentPlanId={currentPlanId} />
+            <UsPricingPlans
+              currentPlanId={currentPlanId}
+              subscription={subscription}
+              paypalEnabled={paypalEnabled}
+            />
           </div>
 
           <p className="mt-8 text-center text-xs font-bold text-gray-600">
-            Prices are in USD. Checkout via PayPal is being prepared.
+            {paypalEnabled
+              ? "Prices are in USD. Subscriptions renew monthly via PayPal until canceled."
+              : "Prices are in USD. Checkout via PayPal is being prepared."}
           </p>
         </div>
       </div>

@@ -3,15 +3,19 @@
 // 글로벌 서비스(/us) 요금제 카드 — 한국 요금제 카드(components/pricing/PricingPlans)와
 // 동일한 레이아웃·기능 목록을 영어·USD로 표시한다.
 //
-// 결제 배선만 다르다: 토스페이먼츠 체크아웃(심사 영역)은 여기서 일절 쓰지 않으며,
-// PayPal 배선 전까지 CTA는 비활성 안내로 둔다.
+// 결제 배선만 다르다: 토스페이먼츠 체크아웃(심사 영역)은 여기서 일절 쓰지 않고,
+// PayPal 정기구독 라우트(app/api/payment/paypal/*)를 호출한다. 유료 CTA는 구독을 만들고
+// PayPal 승인 페이지로 보내며, 유료 전환 자체는 승인 뒤 웹훅이 확정한다.
 //
-// 상호작용은 없지만 phosphor-react가 createContext를 쓰므로 클라이언트 컴포넌트여야 한다
+// phosphor-react가 createContext를 쓰므로 클라이언트 컴포넌트여야 한다
 // (RSC에서 임포트하면 렌더 시점에 터진다).
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Check, X, Lightning, Rocket, Crown } from "phosphor-react";
 import { PLANS, Plan, PlanId } from "@/lib/plans";
 import { US_PRICING } from "@/lib/pricing/us";
+import { regionRequestHeaders } from "@/lib/geo/useRegion";
 
 function formatUsd(value: number) {
   return `$${value.toLocaleString("en-US")}`;
@@ -63,11 +67,87 @@ function planFeatures(planId: PlanId, plan: Plan): FeatureRow[] {
 
 interface UsPricingPlansProps {
   currentPlanId: PlanId;
+  /** PayPal 정기구독 상태 — 구독 중일 때만 존재 */
+  subscription?: {
+    nextBillingAt: string | null;
+    canceled: boolean;
+  } | null;
+  /** PayPal 자격증명·플랜이 주입돼 있는지. 미설정 환경에서는 CTA를 열지 않는다. */
+  paypalEnabled?: boolean;
 }
 
-export default function UsPricingPlans({ currentPlanId }: UsPricingPlansProps) {
+function formatBillingDate(iso: string | null): string {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+}
+
+export default function UsPricingPlans({
+  currentPlanId,
+  subscription,
+  paypalEnabled = false,
+}: UsPricingPlansProps) {
+  const router = useRouter();
+  const [pendingPlanId, setPendingPlanId] = useState<PlanId | null>(null);
+  const [canceling, setCanceling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const hasActiveSubscription = Boolean(subscription && !subscription.canceled);
+
+  /** 유료 플랜 구독 — 구독을 만들고 PayPal 승인 페이지로 보낸다(유료 전환은 승인 뒤). */
+  const handleSubscribe = async (planId: PlanId) => {
+    if (pendingPlanId) return;
+    setPendingPlanId(planId);
+    setError(null);
+    try {
+      const res = await fetch("/api/payment/paypal/subscription", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
+        credentials: "same-origin",
+        body: JSON.stringify({ planId }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.approveUrl) {
+        throw new Error(data?.error ?? "Could not start the subscription.");
+      }
+      window.location.href = data.approveUrl;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not start the subscription.");
+      setPendingPlanId(null);
+    }
+  };
+
+  /** 해지 — 즉시 내리지 않고 결제 기간이 끝날 때까지 유료 플랜을 유지한다. */
+  const handleCancel = async () => {
+    if (canceling) return;
+    setCanceling(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/payment/paypal/subscription/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
+        credentials: "same-origin",
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error ?? "Could not cancel the subscription.");
+      }
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not cancel the subscription.");
+    } finally {
+      setCanceling(false);
+    }
+  };
+
   return (
     <div>
+      {error ? (
+        <p data-testid="us-pricing-error" className="mb-4 text-sm font-black text-[var(--main-red)]">
+          {error}
+        </p>
+      ) : null}
       <div
         data-testid="pricing-plan-grid"
         className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-3"
@@ -128,22 +208,57 @@ export default function UsPricingPlans({ currentPlanId }: UsPricingPlansProps) {
                 ))}
               </ul>
 
-              {/* CTA — PayPal 배선 전까지 비활성 안내 */}
+              {/* CTA — 유료는 PayPal 구독 생성, FREE 카드는 구독 중일 때 해지 버튼이 된다 */}
               <button
                 type="button"
-                disabled
+                disabled={
+                  isCurrent ||
+                  (planId === "FREE" ? !hasActiveSubscription || canceling : !paypalEnabled || pendingPlanId !== null)
+                }
+                onClick={() => {
+                  if (isCurrent) return;
+                  if (planId === "FREE") {
+                    void handleCancel();
+                    return;
+                  }
+                  void handleSubscribe(planId);
+                }}
                 className={`mt-10 w-full rounded-2xl px-4 py-4 text-sm font-black transition-colors disabled:cursor-not-allowed ${
                   isCurrent
                     ? "bg-white/[0.04] text-gray-500"
-                    : "border border-white/[0.12] text-white disabled:opacity-60"
+                    : "border border-white/[0.12] text-white hover:bg-white/[0.06] disabled:opacity-60"
                 }`}
               >
                 {isCurrent
                   ? "Current plan"
                   : planId === "FREE"
-                  ? "Included at sign-up"
-                  : "Coming soon"}
+                  ? hasActiveSubscription
+                    ? canceling
+                      ? "Canceling..."
+                      : "Cancel subscription"
+                    : subscription?.canceled
+                    ? "Cancellation scheduled"
+                    : "Included at sign-up"
+                  : !paypalEnabled
+                  ? "Coming soon"
+                  : pendingPlanId === planId
+                  ? "Redirecting..."
+                  : "Subscribe"}
               </button>
+
+              {/* 구독 상태 — 현재 이용 중인 유료 플랜에만 표시 */}
+              {isCurrent && planId !== "FREE" && subscription ? (
+                <div
+                  data-testid="subscription-renewal-status"
+                  className="mt-4 text-center text-xs font-bold text-gray-500"
+                >
+                  {subscription.canceled ? (
+                    <p>{`Canceled - access until ${formatBillingDate(subscription.nextBillingAt)}`}</p>
+                  ) : (
+                    <p>{`Next billing date: ${formatBillingDate(subscription.nextBillingAt)}`}</p>
+                  )}
+                </div>
+              ) : null}
             </div>
           );
         })}
