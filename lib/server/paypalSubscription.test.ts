@@ -1,0 +1,147 @@
+// @ts-nocheck
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// PayPal 구독의 서버 반영 — 승인 복귀와 웹훅이 같은 사실을 두 번 알려오므로 전부 멱등이어야 한다:
+// - 이미 같은 구독으로 활성이면 다시 쓰지 않는다(구독 시작일이 매 통지마다 갱신되면 안 된다)
+// - 같은 결제(saleId)가 두 번 통지돼도 이력이 겹치지 않는다
+// - USD 결제 이력은 센트 단위로 남는다
+
+const userFindUnique = vi.fn();
+const userUpdate = vi.fn();
+const orderFindUnique = vi.fn();
+const orderCreate = vi.fn();
+
+const prisma = {
+  user: { findUnique: (...a) => userFindUnique(...a), update: (...a) => userUpdate(...a) },
+  paymentOrder: {
+    findUnique: (...a) => orderFindUnique(...a),
+    create: (...a) => orderCreate(...a),
+  },
+  $transaction: async (ops) => Promise.all(ops),
+};
+
+let activatePaypalSubscription;
+let recordPaypalSubscriptionPayment;
+let downgradePaypalSubscriber;
+
+beforeEach(async () => {
+  vi.clearAllMocks();
+  ({
+    activatePaypalSubscription,
+    recordPaypalSubscriptionPayment,
+    downgradePaypalSubscriber,
+  } = await import("./paypalSubscription"));
+  userUpdate.mockResolvedValue({});
+  orderCreate.mockImplementation(async ({ data }) => data);
+});
+
+describe("activatePaypalSubscription", () => {
+  it("구독을 활성화하고 다음 결제일을 PayPal이 알려준 시각으로 둔다", async () => {
+    userFindUnique.mockResolvedValue({ planTier: "FREE", paypalSubscriptionId: "I-SUB-1" });
+
+    const changed = await activatePaypalSubscription(prisma, {
+      userId: 42,
+      planId: "PRO",
+      subscriptionId: "I-SUB-1",
+      payerId: "PAYER-1",
+      nextBillingTime: "2026-09-30T10:00:00Z",
+    });
+
+    expect(changed).toBe(true);
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 42 },
+        data: expect.objectContaining({
+          planTier: "PRO",
+          paymentProvider: "paypal",
+          paypalSubscriptionId: "I-SUB-1",
+          subscriptionPlanId: "PRO",
+          nextBillingAt: new Date("2026-09-30T10:00:00Z"),
+          subscriptionCanceledAt: null,
+        }),
+      })
+    );
+  });
+
+  it("이미 같은 구독으로 활성이면 다시 쓰지 않는다", async () => {
+    userFindUnique.mockResolvedValue({
+      planTier: "PRO",
+      paypalSubscriptionId: "I-SUB-1",
+      subscriptionPlanId: "PRO",
+      subscriptionCanceledAt: null,
+    });
+
+    const changed = await activatePaypalSubscription(prisma, {
+      userId: 42,
+      planId: "PRO",
+      subscriptionId: "I-SUB-1",
+    });
+
+    expect(changed).toBe(false);
+    expect(userUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("recordPaypalSubscriptionPayment", () => {
+  it("결제 이력을 센트 단위로 남기고 다음 결제일을 예정 시각 기준 +1개월로 굴린다", async () => {
+    orderFindUnique.mockResolvedValue(null);
+    userFindUnique.mockResolvedValue({ nextBillingAt: new Date("2026-09-30T00:00:00Z") });
+
+    const recorded = await recordPaypalSubscriptionPayment(prisma, {
+      userId: 42,
+      planId: "PRO",
+      saleId: "SALE-1",
+      approvedAt: "2026-09-30T10:00:00Z",
+    });
+
+    expect(recorded).toBe(true);
+    expect(orderCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: 42,
+          planId: "PRO",
+          provider: "paypal",
+          currency: "USD",
+          amount: 1900, // $19.00 — 원 단위 이력과 자릿수가 섞이지 않게 센트로 남긴다
+          status: "DONE",
+          paymentKey: "SALE-1",
+        }),
+      })
+    );
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ nextBillingAt: new Date("2026-10-30T00:00:00Z") }),
+      })
+    );
+  });
+
+  it("같은 결제가 다시 통지되면 이력을 겹쳐 남기지 않는다", async () => {
+    orderFindUnique.mockResolvedValue({ id: "existing" });
+
+    const recorded = await recordPaypalSubscriptionPayment(prisma, {
+      userId: 42,
+      planId: "PRO",
+      saleId: "SALE-1",
+    });
+
+    expect(recorded).toBe(false);
+    expect(orderCreate).not.toHaveBeenCalled();
+    expect(userUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("downgradePaypalSubscriber", () => {
+  it("FREE 전환 시 구독 ID까지 비운다(잔존 ID로 재반영되지 않게)", async () => {
+    await downgradePaypalSubscriber(prisma, 42);
+
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          planTier: "FREE",
+          paypalSubscriptionId: null,
+          subscriptionPlanId: null,
+        }),
+      })
+    );
+  });
+});

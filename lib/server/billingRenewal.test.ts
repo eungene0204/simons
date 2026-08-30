@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // - 결제일 도래 구독 청구 성공 → nextBillingAt이 예정 시각 기준 +1개월로 굴러간다
 // - 해지 예약 구독 → 청구 없이 FREE 전환 + 빌링 상태 초기화
 // - 청구 실패 → 다음 날 재시도 예약, 연속 실패 한도 도달 시 FREE 전환
+// - PayPal 구독자는 조회 자체에서 제외 (토스 청구 시도 → 연속 실패 → FREE 강등 사고 방지)
 
 const chargeBillingKey = vi.fn();
 
@@ -162,6 +163,21 @@ describe("processDueBillingRenewals", () => {
         data: expect.objectContaining({ planTier: "FREE", tossBillingKey: null }),
       })
     );
+  });
+
+  it("PayPal 구독은 조회 대상에서 제외한다(토스 청구를 시도하면 안 된다)", async () => {
+    userFindMany.mockResolvedValue([]);
+
+    await processDueBillingRenewals(prisma, NOW);
+
+    // 필터를 DB 조회에 걸어야 한다 — 여기서 새면 PayPal 구독자가 토스 청구를 맞고
+    // 연속 실패 끝에 FREE로 강등된다
+    expect(userFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ paymentProvider: "toss" }),
+      })
+    );
+    expect(chargeBillingKey).not.toHaveBeenCalled();
   });
 
   it("한 구독의 처리 실패가 다른 구독 갱신을 막지 않는다", async () => {

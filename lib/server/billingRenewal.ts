@@ -1,4 +1,4 @@
-// 자동결제(빌링) 월 갱신 잡 — 스케줄러가 주기적으로 호출한다.
+// 자동결제(빌링) 월 갱신 잡 — 스케줄러가 주기적으로 호출한다. 대상은 토스 구독뿐이다.
 // nextBillingAt이 지난 구독을 찾아: 해지 예약이면 FREE 전환, 아니면 빌링키로 자동 청구한다.
 // 청구 실패는 다음 날 재시도하고, 연속 실패 한도에 도달하면 FREE로 전환한다.
 import crypto from "crypto";
@@ -37,6 +37,9 @@ export async function processDueBillingRenewals(
 
   const due = await prisma.user.findMany({
     where: {
+      // 토스 구독만 이 잡이 청구한다 — PayPal 정기구독(/us)은 PayPal이 스스로 갱신하고
+      // 우리는 웹훅으로 반영하므로, 여기 걸리면 토스 청구를 시도하다 연속 실패로 FREE 강등된다.
+      paymentProvider: "toss",
       subscriptionPlanId: { not: null },
       nextBillingAt: { lte: now },
     },

@@ -333,6 +333,9 @@ model User {
   nextBillingAt          DateTime? // 다음 자동 청구 예정 시각
   subscriptionCanceledAt DateTime? // 해지 예약 시각 — null이면 자동갱신 활성, 설정 시 다음 결제일에 FREE 전환
   billingFailCount       Int       @default(0) // 연속 자동 청구 실패 횟수 — 한도 도달 시 FREE 전환
+  paymentProvider        String    @default("toss") // toss | paypal — 이 구독을 청구하는 PSP. 갱신 잡(billingRenewal)은 toss만 처리한다
+  paypalSubscriptionId   String?   @unique // PayPal 구독 ID(I-...) — 글로벌(/us) 정기구독. 월 갱신은 PayPal이 수행하고 우리는 웹훅으로 반영한다
+  paypalPayerId          String?   // 구독을 승인한 PayPal 계정 식별자 — 구독 조회·대사용
   role           String           @default("USER") // USER | ADMIN — ADMIN 부여는 DB에서만 (관리자 화면/API로 변경 불가)
   status         String           @default("ACTIVE") // ACTIVE | SUSPENDED | DELETED(soft delete)
   lastLoginAt    DateTime?
@@ -352,16 +355,19 @@ model User {
   PaymentOrder   PaymentOrder[]
 }
 
-// 토스페이먼츠 결제 주문 — 결제 승인 시 서버에 저장된 금액과 대조(금액 위변조 검증)하기 위한 기록.
-// 유료 플랜(PRO/PREMIUM) 구독 결제에 사용한다.
+// 결제 주문 — 결제 승인 시 서버에 저장된 금액과 대조(금액 위변조 검증)하기 위한 기록.
+// 유료 플랜(PRO/PREMIUM) 구독 결제에 사용한다. 한국은 토스페이먼츠 주문, 글로벌(/us)은
+// PayPal 구독의 월 청구 기록이 여기 남는다(provider로 구분).
 model PaymentOrder {
   id         String    @id @default(cuid())
-  orderId    String    @unique // 토스페이먼츠 orderId (UUID, 6~64자 영문/숫자/-_)
+  orderId    String    @unique // 우리 쪽 주문 ID (UUID, 6~64자 영문/숫자/-_). 토스는 이 값을 orderId로 그대로 쓴다
   userId     Int
   planId     String // PRO | PREMIUM
-  amount     Int // 결제 금액(원) — 승인 요청 시 이 값과 successUrl amount를 대조한다
+  provider   String    @default("toss") // toss | paypal — 이 주문을 처리한 PSP
+  currency   String    @default("KRW") // KRW | USD
+  amount     Int // 결제 금액(통화 최소 단위 — KRW=원, USD=센트). 토스 승인 시 이 값과 successUrl amount를 대조한다
   status     String    @default("PENDING") // PENDING | DONE | FAILED
-  paymentKey String?   @unique // 승인 완료 시 토스페이먼츠가 발급한 결제 키
+  paymentKey String?   @unique // 승인 완료 시 PSP가 발급한 결제 키 (토스 paymentKey / PayPal 캡처·세일 ID)
   failReason String?
   approvedAt DateTime?
   createdAt  DateTime  @default(now())
@@ -369,6 +375,18 @@ model PaymentOrder {
   User       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+}
+
+// PSP 웹훅 이벤트 수신 기록 — 같은 이벤트의 재전송을 걸러내기 위한 멱등 키 저장소.
+// PayPal은 처리 실패·지연 시 동일 이벤트를 여러 번 보낸다(플랜 승격이 중복 반영되면 안 된다).
+model PaymentWebhookEvent {
+  id         String   @id @default(cuid())
+  provider   String // paypal
+  eventId    String // PSP가 부여한 이벤트 ID
+  eventType  String // 예: BILLING.SUBSCRIPTION.ACTIVATED, PAYMENT.SALE.COMPLETED
+  receivedAt DateTime @default(now())
+
+  @@unique([provider, eventId])
 }
 
 // 관리자 작업 감사 로그 — 모든 관리자 작업을 기록한다. 삭제 API는 제공하지 않는다.
