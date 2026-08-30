@@ -155,6 +155,20 @@ describe("UsPricingPlans", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("/api/payment/paypal/subscription/change");
   });
 
+  it("PRO 구독자에게 PREMIUM 카드는 Upgrade now — 즉시 전환 경로다", () => {
+    render(
+      <UsPricingPlans
+        currentPlanId="PRO"
+        paypalEnabled
+        subscription={{ nextBillingAt: "2026-09-30T00:00:00Z", canceled: false }}
+      />
+    );
+
+    expect(
+      within(screen.getByTestId("pricing-plan-card-PREMIUM")).getByRole("button")
+    ).toHaveTextContent("Upgrade now");
+  });
+
   it("플랜 변경이 예약되면 대상 카드가 잠기고 현재 카드에 전환 예정을 표시한다", () => {
     render(
       <UsPricingPlans

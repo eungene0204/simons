@@ -13,16 +13,22 @@ const recordPaypalSubscriptionPayment = vi.fn();
 const markPaypalSubscriptionCanceled = vi.fn();
 const downgradePaypalSubscriber = vi.fn();
 const webhookEventCreate = vi.fn();
+const userUpdate = vi.fn();
 const webhookEventDeleteMany = vi.fn();
 const userFindUnique = vi.fn();
 
 const getSubscription = vi.fn();
+
+const cancelSubscription = vi.fn();
 
 vi.mock("@/lib/payment/PaypalProvider", () => ({
   verifyWebhookSignature: (...a) => verifyWebhookSignature(...a),
   PaypalProvider: class {
     getSubscription(...a) {
       return getSubscription(...a);
+    }
+    cancelSubscription(...a) {
+      return cancelSubscription(...a);
     }
   },
 }));
@@ -45,6 +51,7 @@ vi.mock("@/lib/prisma", () => ({
     },
     user: {
       findUnique: (...a) => userFindUnique(...a),
+      update: (...a) => userUpdate(...a),
     },
   },
 }));
@@ -79,6 +86,9 @@ beforeEach(async () => {
   verifyWebhookSignature.mockResolvedValue(true);
   webhookEventCreate.mockResolvedValue({});
   webhookEventDeleteMany.mockResolvedValue({});
+  userUpdate.mockResolvedValue({});
+  cancelSubscription.mockResolvedValue(undefined);
+  userFindUnique.mockResolvedValue({ paypalPriorSubscriptionId: null });
 });
 
 describe("/api/payment/paypal/webhook", () => {
@@ -250,6 +260,32 @@ describe("/api/payment/paypal/webhook", () => {
       })
     );
     expect(downgradePaypalSubscriber).toHaveBeenCalledWith(expect.anything(), 42);
+  });
+
+  it("업그레이드 새 구독이 활성화되면 보관해 둔 이전 구독을 해지한다", async () => {
+    userFindUnique.mockResolvedValue({ paypalPriorSubscriptionId: "I-SUB-OLD" });
+
+    const res = await POST(
+      req(activatedEvent({ resource: { id: "I-SUB-NEW", plan_id: "P-PRO-1", custom_id: "42" } }))
+    );
+
+    expect(res.status).toBe(200);
+    expect(cancelSubscription).toHaveBeenCalledWith("I-SUB-OLD", expect.any(String));
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { paypalPriorSubscriptionId: null } })
+    );
+  });
+
+  it("이전 구독 해지가 실패하면 500 — 웹훅 재전송으로 재시도한다(이중 청구 방지)", async () => {
+    userFindUnique.mockResolvedValue({ paypalPriorSubscriptionId: "I-SUB-OLD" });
+    cancelSubscription.mockRejectedValue(new Error("paypal down"));
+
+    const res = await POST(
+      req(activatedEvent({ resource: { id: "I-SUB-NEW", plan_id: "P-PRO-1", custom_id: "42" } }))
+    );
+
+    expect(res.status).toBe(500);
+    expect(webhookEventDeleteMany).toHaveBeenCalled();
   });
 
   it("플랜 변경(UPDATED)은 청구 플랜만 예약하고 등급 전환은 하지 않는다", async () => {

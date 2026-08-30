@@ -108,6 +108,24 @@ export async function POST(request: Request) {
           payerId: resource.subscriber?.payer_id,
           nextBillingTime: resource.billing_info?.next_billing_time,
         });
+        // 업그레이드 전환: 새 구독이 활성화됐으니 보관해 둔 이전 구독을 이제 해지한다.
+        // (먼저 해지하면 사용자가 승인을 이탈했을 때 구독을 잃는다.)
+        const prior = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { paypalPriorSubscriptionId: true },
+        });
+        if (prior?.paypalPriorSubscriptionId && prior.paypalPriorSubscriptionId !== resource.id) {
+          await new PaypalProvider()
+            .cancelSubscription(prior.paypalPriorSubscriptionId, "Upgraded to a new subscription")
+            .catch((error) => {
+              // 해지 실패는 이중 청구 위험이라 삼키지 않고 드러낸다 — 웹훅 재전송이 재시도한다
+              throw error;
+            });
+          await prisma.user.update({
+            where: { id: userId },
+            data: { paypalPriorSubscriptionId: null },
+          });
+        }
         break;
       }
 

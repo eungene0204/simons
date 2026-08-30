@@ -8,16 +8,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getCurrentUser = vi.fn();
 const userFindUnique = vi.fn();
+const userUpdate = vi.fn();
 const reviseSubscriptionPlan = vi.fn();
+const createUpgradePlan = vi.fn();
+const createSubscription = vi.fn();
 
 vi.mock("@/lib/get-user", () => ({ getCurrentUser: (...a) => getCurrentUser(...a) }));
 vi.mock("@/lib/prisma", () => ({
-  prisma: { user: { findUnique: (...a) => userFindUnique(...a) } },
+  prisma: { user: { findUnique: (...a) => userFindUnique(...a), update: (...a) => userUpdate(...a) } },
 }));
 vi.mock("@/lib/payment/PaypalProvider", () => ({
   PaypalProvider: class {
     reviseSubscriptionPlan(...a) {
       return reviseSubscriptionPlan(...a);
+    }
+    createUpgradePlan(...a) {
+      return createUpgradePlan(...a);
+    }
+    createSubscription(...a) {
+      return createSubscription(...a);
     }
   },
   PaypalError: class extends Error {},
@@ -36,10 +45,12 @@ function req(body) {
 
 function paypalSubscriber(overrides = {}) {
   return {
+    planTier: "PREMIUM",
     paymentProvider: "paypal",
     paypalSubscriptionId: "I-SUB-1",
     subscriptionPlanId: "PREMIUM",
     subscriptionCanceledAt: null,
+    nextBillingAt: new Date("2026-09-30T10:00:00Z"),
     ...overrides,
   };
 }
@@ -52,6 +63,14 @@ beforeEach(async () => {
   getCurrentUser.mockResolvedValue({ id: 42, email: "u@example.com", name: "User" });
   userFindUnique.mockResolvedValue(paypalSubscriber());
   reviseSubscriptionPlan.mockResolvedValue({ approveUrl: "https://paypal.com/revise/1" });
+  userUpdate.mockResolvedValue({});
+  createUpgradePlan.mockResolvedValue("P-UPGRADE-1");
+  createSubscription.mockResolvedValue({
+    providerId: "paypal",
+    subscriptionId: "I-SUB-NEW",
+    approveUrl: "https://paypal.com/subscribe/I-SUB-NEW",
+    status: "APPROVAL_PENDING",
+  });
 });
 
 describe("/api/payment/paypal/subscription/change", () => {
@@ -84,6 +103,49 @@ describe("/api/payment/paypal/subscription/change", () => {
     const res = await POST(req({ planId: "PRO" }));
     expect(res.status).toBe(409);
     expect(reviseSubscriptionPlan).not.toHaveBeenCalled();
+  });
+
+  it("업그레이드(PRO→PREMIUM)는 연장된 첫 주기의 새 구독을 만들고 이전 구독을 보관한다", async () => {
+    // PRO 구독자, 결제일까지 15일 남음 → 크레딧 7일 → 첫 주기 37일
+    vi.setSystemTime(new Date("2026-09-15T10:00:00Z"));
+    userFindUnique.mockResolvedValue(
+      paypalSubscriber({ planTier: "PRO", subscriptionPlanId: "PRO" })
+    );
+
+    const res = await POST(req({ planId: "PREMIUM" }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ approveUrl: "https://paypal.com/subscribe/I-SUB-NEW" });
+    expect(createUpgradePlan).toHaveBeenCalledWith(
+      expect.objectContaining({ firstPeriodDays: 37, monthlyPrice: 39 })
+    );
+    expect(createSubscription).toHaveBeenCalledWith(
+      expect.objectContaining({ providerPlanId: "P-UPGRADE-1", userRef: "42" })
+    );
+    // 이전 구독은 해지하지 않고 보관 — 새 구독 활성화 확인 후 웹훅이 해지한다
+    expect(reviseSubscriptionPlan).not.toHaveBeenCalled();
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { paypalPriorSubscriptionId: "I-SUB-1", paypalSubscriptionId: "I-SUB-NEW" },
+      })
+    );
+    vi.useRealTimers();
+  });
+
+  it("예약된 다운그레이드를 현 등급으로 되돌리는 것은 추가 청구 없는 revise다", async () => {
+    // planTier PREMIUM인데 청구 플랜이 PRO(다운그레이드 예약 중) → PREMIUM 복귀는 revise
+    userFindUnique.mockResolvedValue(
+      paypalSubscriber({ planTier: "PREMIUM", subscriptionPlanId: "PRO" })
+    );
+
+    const res = await POST(req({ planId: "PREMIUM" }));
+
+    expect(res.status).toBe(200);
+    expect(reviseSubscriptionPlan).toHaveBeenCalledWith(
+      expect.objectContaining({ subscriptionId: "I-SUB-1", providerPlanId: "P-PREMIUM-1" })
+    );
+    expect(createUpgradePlan).not.toHaveBeenCalled();
+    expect(createSubscription).not.toHaveBeenCalled();
   });
 
   it("같은 플랜·FREE·잘못된 플랜은 400", async () => {

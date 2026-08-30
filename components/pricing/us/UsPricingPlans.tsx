@@ -290,7 +290,9 @@ export default function UsPricingPlans({
                   : subscription?.canceled
                   ? "Available after expiry"
                   : hasActiveSubscription
-                  ? "Change plan"
+                  ? US_PRICING.monthlyPrice[planId] > US_PRICING.monthlyPrice[currentPlanId]
+                    ? "Upgrade now" // 즉시 전환·즉시 청구(남은 기간 가치는 첫 주기 연장으로 보상)
+                    : "Change plan" // 다운그레이드 — 다음 결제일부터 적용
                   : "Subscribe"}
               </button>
 
