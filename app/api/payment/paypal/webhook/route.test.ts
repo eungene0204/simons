@@ -144,8 +144,15 @@ describe("/api/payment/paypal/webhook", () => {
     expect(activatePaypalSubscription).not.toHaveBeenCalled();
   });
 
-  it("월 청구 성공은 현재 구독 플랜으로 결제 이력을 남긴다", async () => {
+  it("월 청구 성공은 현재 구독 플랜으로 이력을 남기고 다음 청구일은 PayPal 값을 쓴다", async () => {
     userFindUnique.mockResolvedValue({ subscriptionPlanId: "PREMIUM" });
+    getSubscription.mockResolvedValue({
+      subscriptionId: "I-SUB-1",
+      status: "ACTIVE",
+      active: true,
+      providerPlanId: "P-PREMIUM-1",
+      nextBillingTime: "2026-09-30T10:00:00Z",
+    });
 
     const res = await POST(
       req({
@@ -163,7 +170,13 @@ describe("/api/payment/paypal/webhook", () => {
     expect(res.status).toBe(200);
     expect(recordPaypalSubscriptionPayment).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ userId: 42, planId: "PREMIUM", saleId: "SALE-1" })
+      expect.objectContaining({
+        userId: 42,
+        planId: "PREMIUM",
+        saleId: "SALE-1",
+        // 우리가 +1개월을 더하면 활성화가 넣어 둔 정본 날짜에서 한 달이 밀린다
+        nextBillingTime: "2026-09-30T10:00:00Z",
+      })
     );
   });
 

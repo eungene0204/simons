@@ -69,29 +69,55 @@ describe("activatePaypalSubscription", () => {
       paypalSubscriptionId: "I-SUB-1",
       subscriptionPlanId: "PRO",
       subscriptionCanceledAt: null,
+      nextBillingAt: new Date("2026-09-30T10:00:00Z"),
     });
 
     const changed = await activatePaypalSubscription(prisma, {
       userId: 42,
       planId: "PRO",
       subscriptionId: "I-SUB-1",
+      nextBillingTime: "2026-09-30T10:00:00Z",
     });
 
     expect(changed).toBe(false);
     expect(userUpdate).not.toHaveBeenCalled();
   });
+
+  it("활성 상태여도 다음 청구일이 PayPal 값과 다르면 맞춘다(드리프트 복구)", async () => {
+    userFindUnique.mockResolvedValue({
+      planTier: "PRO",
+      paypalSubscriptionId: "I-SUB-1",
+      subscriptionPlanId: "PRO",
+      subscriptionCanceledAt: null,
+      nextBillingAt: new Date("2026-10-30T10:00:00Z"),
+    });
+
+    const changed = await activatePaypalSubscription(prisma, {
+      userId: 42,
+      planId: "PRO",
+      subscriptionId: "I-SUB-1",
+      nextBillingTime: "2026-09-30T10:00:00Z",
+    });
+
+    expect(changed).toBe(true);
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ nextBillingAt: new Date("2026-09-30T10:00:00Z") }),
+      })
+    );
+  });
 });
 
 describe("recordPaypalSubscriptionPayment", () => {
-  it("결제 이력을 센트 단위로 남기고 다음 결제일을 예정 시각 기준 +1개월로 굴린다", async () => {
+  it("결제 이력을 센트 단위로 남기고 다음 결제일은 PayPal이 알려준 값으로 맞춘다", async () => {
     orderFindUnique.mockResolvedValue(null);
-    userFindUnique.mockResolvedValue({ nextBillingAt: new Date("2026-09-30T00:00:00Z") });
 
     const recorded = await recordPaypalSubscriptionPayment(prisma, {
       userId: 42,
       planId: "PRO",
       saleId: "SALE-1",
       approvedAt: "2026-09-30T10:00:00Z",
+      nextBillingTime: "2026-10-30T10:00:00Z",
     });
 
     expect(recorded).toBe(true);
@@ -110,9 +136,25 @@ describe("recordPaypalSubscriptionPayment", () => {
     );
     expect(userUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ nextBillingAt: new Date("2026-10-30T00:00:00Z") }),
+        data: expect.objectContaining({ nextBillingAt: new Date("2026-10-30T10:00:00Z") }),
       })
     );
+  });
+
+  // 회귀(2026-08-31 prod E2E): 활성화가 PayPal 정본 날짜를 넣은 뒤 첫 결제가 거기에 +1개월을
+  // 더해 한 달이 밀렸다(PayPal 9/30 vs 우리 10/30). 이제 날짜는 PayPal 값만 쓴다.
+  it("다음 청구 시각을 모르면 기존 값을 그대로 둔다(우리가 계산하지 않는다)", async () => {
+    orderFindUnique.mockResolvedValue(null);
+
+    await recordPaypalSubscriptionPayment(prisma, {
+      userId: 42,
+      planId: "PRO",
+      saleId: "SALE-2",
+    });
+
+    const data = userUpdate.mock.calls[0][0].data;
+    expect(data.nextBillingAt).toBeUndefined();
+    expect(data.billingFailCount).toBe(0);
   });
 
   it("같은 결제가 다시 통지되면 이력을 겹쳐 남기지 않는다", async () => {

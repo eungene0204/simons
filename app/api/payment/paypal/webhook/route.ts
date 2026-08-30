@@ -123,12 +123,15 @@ export async function POST(request: Request) {
             ? (record.subscriptionPlanId as PlanId)
             : null;
 
-        // 첫 달 청구는 활성화 통지보다 먼저 도착할 수 있다(PayPal은 순서를 보장하지 않는다).
-        // 우리 상태가 아직 비어 있으면 구독을 직접 조회해 플랜을 알아낸다 — 이 보강이 없으면
-        // 첫 결제 이력이 조용히 사라진다(2026-08-31 E2E에서 실제로 발생).
-        if (!planId && resource.billing_agreement_id) {
+        // 구독을 조회해 플랜과 다음 청구일을 PayPal에서 받아온다. 두 가지를 동시에 푼다:
+        // ① 첫 달 청구가 활성화 통지보다 먼저 와도(PayPal은 순서를 보장하지 않는다) 플랜을
+        //    알아내 이력을 남긴다 ② 다음 청구일을 우리가 계산하지 않는다 — 갱신 주체가
+        //    PayPal이라 저쪽 값이 정본이다(우리가 더하면 첫 결제에서 한 달이 밀렸다).
+        let nextBillingTime: string | undefined;
+        if (resource.billing_agreement_id) {
           const state = await new PaypalProvider().getSubscription(resource.billing_agreement_id);
-          planId = planIdFromPaypalPlan(state.providerPlanId);
+          planId = planId ?? planIdFromPaypalPlan(state.providerPlanId);
+          nextBillingTime = state.nextBillingTime;
         }
         if (!planId) {
           return NextResponse.json({ ok: true, ignored: "no-active-plan" });
@@ -139,6 +142,7 @@ export async function POST(request: Request) {
           planId,
           saleId: resource.id,
           approvedAt: resource.create_time,
+          nextBillingTime,
         });
         break;
       }

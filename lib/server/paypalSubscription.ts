@@ -29,13 +29,19 @@ export async function activatePaypalSubscription(
       paypalSubscriptionId: true,
       subscriptionPlanId: true,
       subscriptionCanceledAt: true,
+      nextBillingAt: true,
     },
   });
+  const nextBillingMatches =
+    !input.nextBillingTime ||
+    current?.nextBillingAt?.getTime() === new Date(input.nextBillingTime).getTime();
   if (
     current?.paypalSubscriptionId === input.subscriptionId &&
     current?.subscriptionPlanId === input.planId &&
     current?.planTier === input.planId &&
-    current?.subscriptionCanceledAt == null
+    current?.subscriptionCanceledAt == null &&
+    // 날짜가 PayPal 값과 어긋나 있으면 맞춘다 — 조회 경로가 드리프트를 고칠 수 있어야 한다
+    nextBillingMatches
   ) {
     return false;
   }
@@ -61,12 +67,25 @@ export async function activatePaypalSubscription(
 }
 
 /**
- * 월 청구 성공을 기록하고 다음 결제일을 굴린다. saleId가 결제의 고유 키라
- * 같은 결제가 두 번 통지돼도 이력이 겹쳐 쌓이지 않는다(paymentKey unique).
+ * 월 청구 성공을 기록하고 다음 결제일을 PayPal이 알려준 값으로 맞춘다.
+ *
+ * 다음 청구일을 우리가 계산하지 않는다 — 갱신 주체가 PayPal이기 때문이다. 종전엔 저장값에
+ * +1개월을 더했는데, 활성화 통지가 이미 PayPal의 정본 값을 넣어 둔 뒤라 첫 결제에서 한 달이
+ * 밀렸다(2026-08-31 prod E2E: PayPal 9/30 vs 우리 10/30). nextBillingTime이 없으면 기존
+ * 값을 그대로 둔다 — 모르는 값을 지어내지 않는다.
+ *
+ * saleId가 결제의 고유 키라 같은 결제가 두 번 통지돼도 이력이 겹쳐 쌓이지 않는다(paymentKey unique).
  */
 export async function recordPaypalSubscriptionPayment(
   prisma: PrismaClient,
-  input: { userId: number; planId: PlanId; saleId: string; approvedAt?: string }
+  input: {
+    userId: number;
+    planId: PlanId;
+    saleId: string;
+    approvedAt?: string;
+    /** PayPal이 알려준 다음 청구 예정 시각(ISO) */
+    nextBillingTime?: string;
+  }
 ): Promise<boolean> {
   const existing = await prisma.paymentOrder.findUnique({
     where: { paymentKey: input.saleId },
@@ -75,10 +94,6 @@ export async function recordPaypalSubscriptionPayment(
   if (existing) return false;
 
   const now = new Date();
-  const user = await prisma.user.findUnique({
-    where: { id: input.userId },
-    select: { nextBillingAt: true },
-  });
 
   await prisma.$transaction([
     prisma.paymentOrder.create({
@@ -97,8 +112,7 @@ export async function recordPaypalSubscriptionPayment(
     prisma.user.update({
       where: { id: input.userId },
       data: {
-        // 예정 시각 기준으로 굴린다 — 통지가 늦어도 주기가 밀리지 않는다
-        nextBillingAt: addMonthsClamped(user?.nextBillingAt ?? now, 1),
+        ...(input.nextBillingTime ? { nextBillingAt: new Date(input.nextBillingTime) } : {}),
         billingFailCount: 0,
       },
     }),
