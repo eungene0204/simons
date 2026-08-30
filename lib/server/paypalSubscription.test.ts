@@ -104,21 +104,26 @@ describe("activatePaypalSubscription", () => {
     expect(userUpdate).not.toHaveBeenCalled();
   });
 
-  it("업그레이드 완료(이전 구독 보관 중)는 예약-보류를 우회하고 즉시 등급을 올린다", async () => {
+  it("업그레이드 완료 — 즉시 등급 전환 + 옛 플랜의 백테스트 잔여를 새 주기에 병합한다", async () => {
+    const planStart = new Date("2026-08-20T10:00:00Z");
     userFindUnique.mockResolvedValue({
       planTier: "PRO",
+      planStartDate: planStart,
       paypalSubscriptionId: "I-SUB-NEW",
       paypalPriorSubscriptionId: "I-SUB-OLD", // 업그레이드 전환 중 표식
       subscriptionPlanId: "PREMIUM",
       subscriptionCanceledAt: null,
       nextBillingAt: new Date("2026-09-30T10:00:00Z"),
+      // PRO 500회 중 100회 사용 — 잔여 400회가 이월돼야 한다
+      backtestUsageMonth: planStart.toISOString(),
+      backtestCountThisMonth: 100,
     });
 
     const changed = await activatePaypalSubscription(prisma, {
       userId: 42,
       planId: "PREMIUM",
       subscriptionId: "I-SUB-NEW",
-      nextBillingTime: "2026-10-15T10:00:00Z",
+      nextBillingTime: "2026-09-30T10:00:00Z",
     });
 
     expect(changed).toBe(true);
@@ -126,8 +131,35 @@ describe("activatePaypalSubscription", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           planTier: "PREMIUM",
-          nextBillingAt: new Date("2026-10-15T10:00:00Z"),
+          // 음수 카운터 = 병합된 이월분(500 - 100 = 400)
+          backtestCountThisMonth: -400,
         }),
+      })
+    );
+  });
+
+  it("업그레이드 병합은 사용량 주기가 지난 옛 기록을 이월하지 않는다 — 잔여는 전액", async () => {
+    userFindUnique.mockResolvedValue({
+      planTier: "PRO",
+      planStartDate: new Date("2026-08-20T10:00:00Z"),
+      paypalSubscriptionId: "I-SUB-NEW",
+      paypalPriorSubscriptionId: "I-SUB-OLD",
+      subscriptionPlanId: "PREMIUM",
+      subscriptionCanceledAt: null,
+      nextBillingAt: null,
+      backtestUsageMonth: "stale-old-key", // 지난 주기 기록 — 이번 주기 사용량은 0
+      backtestCountThisMonth: 480,
+    });
+
+    await activatePaypalSubscription(prisma, {
+      userId: 42,
+      planId: "PREMIUM",
+      subscriptionId: "I-SUB-NEW",
+    });
+
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ backtestCountThisMonth: -500 }),
       })
     );
   });

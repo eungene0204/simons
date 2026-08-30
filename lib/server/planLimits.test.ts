@@ -175,6 +175,21 @@ describe("planLimits — 사용량 요약", () => {
     expect(noneUsage.subscription).toBeNull();
   });
 
+  // 회귀(2026-08-31): 플랜 업그레이드 때 옛 플랜의 미사용 백테스트를 새 주기에 병합한다 —
+  // 이월분은 음수 카운터로 저장되고, 표시로는 used=0에 한도가 그만큼 늘어난 것으로 보인다
+  it("업그레이드 이월분(음수 카운터)은 used=0 + 한도 가산으로 보고한다", async () => {
+    const now = new Date("2026-06-15T03:00:00Z");
+    const planStartDate = new Date("2026-06-10T00:00:00Z");
+    const client = createClient({
+      planTier: "PREMIUM",
+      planStartDate,
+      backtestUsageMonth: currentUsagePeriodKey(planStartDate, now),
+      backtestCountThisMonth: -400, // PRO에서 이월된 잔여 400회
+    });
+    const usage = await getUserUsage(client as any, 1, now);
+    expect(usage.backtests).toEqual({ used: 0, limit: 1400 });
+  });
+
   it("지난 달 사용량은 이번 달 used=0으로 보고한다", async () => {
     const now = new Date("2026-06-15T03:00:00Z");
     const client = createClient({

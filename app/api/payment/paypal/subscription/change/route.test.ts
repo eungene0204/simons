@@ -10,7 +10,6 @@ const getCurrentUser = vi.fn();
 const userFindUnique = vi.fn();
 const userUpdate = vi.fn();
 const reviseSubscriptionPlan = vi.fn();
-const createUpgradePlan = vi.fn();
 const createSubscription = vi.fn();
 
 vi.mock("@/lib/get-user", () => ({ getCurrentUser: (...a) => getCurrentUser(...a) }));
@@ -21,9 +20,6 @@ vi.mock("@/lib/payment/PaypalProvider", () => ({
   PaypalProvider: class {
     reviseSubscriptionPlan(...a) {
       return reviseSubscriptionPlan(...a);
-    }
-    createUpgradePlan(...a) {
-      return createUpgradePlan(...a);
     }
     createSubscription(...a) {
       return createSubscription(...a);
@@ -64,7 +60,6 @@ beforeEach(async () => {
   userFindUnique.mockResolvedValue(paypalSubscriber());
   reviseSubscriptionPlan.mockResolvedValue({ approveUrl: "https://paypal.com/revise/1" });
   userUpdate.mockResolvedValue({});
-  createUpgradePlan.mockResolvedValue("P-UPGRADE-1");
   createSubscription.mockResolvedValue({
     providerId: "paypal",
     subscriptionId: "I-SUB-NEW",
@@ -105,9 +100,7 @@ describe("/api/payment/paypal/subscription/change", () => {
     expect(reviseSubscriptionPlan).not.toHaveBeenCalled();
   });
 
-  it("업그레이드(PRO→PREMIUM)는 연장된 첫 주기의 새 구독을 만들고 이전 구독을 보관한다", async () => {
-    // PRO 구독자, 결제일까지 15일 남음 → 크레딧 7일 → 첫 주기 37일
-    vi.setSystemTime(new Date("2026-09-15T10:00:00Z"));
+  it("업그레이드(PRO→PREMIUM)는 기본 상위 플랜의 새 구독 — 갱신일이 변경일로 고정된다", async () => {
     userFindUnique.mockResolvedValue(
       paypalSubscriber({ planTier: "PRO", subscriptionPlanId: "PRO" })
     );
@@ -116,11 +109,10 @@ describe("/api/payment/paypal/subscription/change", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ approveUrl: "https://paypal.com/subscribe/I-SUB-NEW" });
-    expect(createUpgradePlan).toHaveBeenCalledWith(
-      expect.objectContaining({ firstPeriodDays: 37, monthlyPrice: 39 })
-    );
+    // 갱신일 고정 정책(2026-08-31 정정): 기간 연장용 1회성 플랜을 만들지 않는다 —
+    // 기본 플랜 구독이라 다음 갱신은 자동으로 변경일 + 1개월이다
     expect(createSubscription).toHaveBeenCalledWith(
-      expect.objectContaining({ providerPlanId: "P-UPGRADE-1", userRef: "42" })
+      expect.objectContaining({ providerPlanId: "P-PREMIUM-1", userRef: "42" })
     );
     // 이전 구독은 해지하지 않고 보관 — 새 구독 활성화 확인 후 웹훅이 해지한다
     expect(reviseSubscriptionPlan).not.toHaveBeenCalled();
@@ -129,12 +121,10 @@ describe("/api/payment/paypal/subscription/change", () => {
         data: {
           paypalPriorSubscriptionId: "I-SUB-1",
           paypalSubscriptionId: "I-SUB-NEW",
-          // 업그레이드 구독의 plan_id는 1회성이라, 웹훅·이력이 참조할 정본 플랜을 미리 기록
           subscriptionPlanId: "PREMIUM",
         },
       })
     );
-    vi.useRealTimers();
   });
 
   it("예약된 다운그레이드를 현 등급으로 되돌리는 것은 추가 청구 없는 revise다", async () => {
@@ -149,7 +139,6 @@ describe("/api/payment/paypal/subscription/change", () => {
     expect(reviseSubscriptionPlan).toHaveBeenCalledWith(
       expect.objectContaining({ subscriptionId: "I-SUB-1", providerPlanId: "P-PREMIUM-1" })
     );
-    expect(createUpgradePlan).not.toHaveBeenCalled();
     expect(createSubscription).not.toHaveBeenCalled();
   });
 

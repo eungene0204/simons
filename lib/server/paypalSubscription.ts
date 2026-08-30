@@ -6,7 +6,11 @@ import crypto from "crypto";
 import type { PrismaClient } from "@prisma/client";
 import type { PlanId } from "@/lib/plans";
 import { usdCentsFor } from "@/lib/payment/paypalPlans";
-import { addMonthsClamped } from "@/lib/server/planLimits";
+import {
+  addMonthsClamped,
+  currentUsagePeriodKey,
+  getEffectivePlan,
+} from "@/lib/server/planLimits";
 
 export interface ActivateInput {
   userId: number;
@@ -26,11 +30,14 @@ export async function activatePaypalSubscription(
     where: { id: input.userId },
     select: {
       planTier: true,
+      planStartDate: true,
       paypalSubscriptionId: true,
       paypalPriorSubscriptionId: true,
       subscriptionPlanId: true,
       subscriptionCanceledAt: true,
       nextBillingAt: true,
+      backtestUsageMonth: true,
+      backtestCountThisMonth: true,
     },
   });
   const nextBillingMatches =
@@ -62,11 +69,35 @@ export async function activatePaypalSubscription(
   }
 
   const now = new Date();
+
+  // 업그레이드 병합(2026-08-31 정책): 갱신일·사용량 주기가 변경일로 리셋되므로, 옛 플랜의
+  // 미사용 백테스트 횟수를 버리지 않고 새 주기에 보너스로 이월한다(음수 카운터 = 이월분).
+  // 예: PRO 500회 중 100회 사용 → 잔여 400 → PREMIUM 새 주기 한도 1000+400.
+  let backtestCarry: { backtestUsageMonth: string; backtestCountThisMonth: number } | null = null;
+  if (
+    current?.paypalPriorSubscriptionId != null &&
+    current.planTier !== "FREE" &&
+    current.planTier !== input.planId
+  ) {
+    const oldPlan = await getEffectivePlan(prisma, current.planTier);
+    const oldPeriodKey = currentUsagePeriodKey(current.planStartDate, now);
+    const usedThisPeriod =
+      current.backtestUsageMonth === oldPeriodKey ? current.backtestCountThisMonth : 0;
+    const remaining = Math.max(0, oldPlan.monthlyBacktestLimit - usedThisPeriod);
+    if (remaining > 0) {
+      backtestCarry = {
+        backtestUsageMonth: currentUsagePeriodKey(now, now),
+        backtestCountThisMonth: -remaining,
+      };
+    }
+  }
+
   await prisma.user.update({
     where: { id: input.userId },
     data: {
       planTier: input.planId,
       planStartDate: now,
+      ...(backtestCarry ?? {}),
       paymentProvider: "paypal",
       paypalSubscriptionId: input.subscriptionId,
       ...(input.payerId ? { paypalPayerId: input.payerId } : {}),

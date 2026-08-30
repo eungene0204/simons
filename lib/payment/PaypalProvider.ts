@@ -237,55 +237,6 @@ export class PaypalProvider implements PaymentProvider, SubscriptionProvider {
   }
 
   /**
-   * 업그레이드 전용 1회성 플랜 생성 — 첫 주기를 (기본 30일 + 크레딧 일수)로 늘려 남은
-   * 하위 플랜 가치를 기간으로 얹는다. PayPal은 일할계산(proration)을 해주지 않으므로
-   * "유료 TRIAL 1회(연장된 첫 주기) → REGULAR 매월" 구조로 표현한다(2026-08-31 sandbox 검증).
-   */
-  async createUpgradePlan(input: {
-    basePlanId: string;
-    planName: string;
-    firstPeriodDays: number;
-    monthlyPrice: number;
-    requestId: string;
-  }): Promise<string> {
-    // 상품 ID는 기존 플랜에서 얻는다 — 업그레이드 플랜도 같은 상품에 속해야 한다
-    const basePlan = await paypalRequest<{ product_id: string }>(
-      "GET",
-      `/v1/billing/plans/${encodeURIComponent(input.basePlanId)}`
-    );
-    const price = { value: input.monthlyPrice.toFixed(2), currency_code: "USD" };
-    const plan = await paypalRequest<{ id: string }>(
-      "POST",
-      "/v1/billing/plans",
-      {
-        product_id: basePlan.product_id,
-        name: input.planName,
-        description: "Upgrade with remaining-period credit applied to the first cycle",
-        status: "ACTIVE",
-        billing_cycles: [
-          {
-            frequency: { interval_unit: "DAY", interval_count: input.firstPeriodDays },
-            tenure_type: "TRIAL", // 유료 TRIAL — 승인 시점에 첫 결제가 일어난다
-            sequence: 1,
-            total_cycles: 1,
-            pricing_scheme: { fixed_price: price },
-          },
-          {
-            frequency: { interval_unit: "MONTH", interval_count: 1 },
-            tenure_type: "REGULAR",
-            sequence: 2,
-            total_cycles: 0,
-            pricing_scheme: { fixed_price: price },
-          },
-        ],
-        payment_preferences: { auto_bill_outstanding: true, payment_failure_threshold: 3 },
-      },
-      { "PayPal-Request-Id": input.requestId }
-    );
-    return plan.id;
-  }
-
-  /**
    * 구독을 유지한 채 빌링 플랜만 바꾼다(revise) — 다음 결제일부터 새 플랜 가격이 청구된다.
    * 구매자 재승인이 필요하면 approve URL이 돌아오고, 승인 후 BILLING.SUBSCRIPTION.UPDATED
    * 웹훅이 온다. 등급(planTier) 전환 시점은 우리 쪽 정책이다(다음 결제일).

@@ -303,8 +303,11 @@ export async function getUserUsage(
   const periodKey = currentUsagePeriodKey(cycleAnchor, now);
   // 표시용 시작일: 유료 플랜은 구독 시작일 그대로(기존 동작), FREE는 현재 주기 시작일
   const planStartDate: Date | null = user?.planStartDate ?? cycle?.start ?? null;
-  const backtestsUsed =
+  const backtestsRaw =
     user?.backtestUsageMonth === periodKey ? user.backtestCountThisMonth : 0;
+  // 음수 카운터 = 플랜 업그레이드 때 이월된 잔여 횟수(병합분) — 표시로는 한도에 얹는다
+  const backtestsUsed = Math.max(0, backtestsRaw);
+  const backtestCarry = Math.max(0, -backtestsRaw);
 
   return {
     plan,
@@ -323,6 +326,6 @@ export async function getUserUsage(
       limit: plan.maxStrategies,
       unlimited: plan.isUnlimitedStrategies,
     },
-    backtests: { used: backtestsUsed, limit: plan.monthlyBacktestLimit },
+    backtests: { used: backtestsUsed, limit: plan.monthlyBacktestLimit + backtestCarry },
   };
 }
