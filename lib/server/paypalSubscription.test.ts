@@ -138,6 +138,32 @@ describe("activatePaypalSubscription", () => {
     );
   });
 
+  // 회귀(2026-08-31): sync와 웹훅이 활성화를 두 번 부르면 두 번째 실행이 planStartDate를
+  // 다시 옮겨 사용량 주기 키가 이월 기록과 어긋나고 병합분이 조용히 증발했다(8초 차).
+  it("업그레이드 완료 후 두 번째 활성화는 멱등 — planStartDate·이월분을 건드리지 않는다", async () => {
+    userFindUnique.mockResolvedValue({
+      planTier: "PREMIUM", // 첫 활성화가 이미 전환을 끝낸 상태
+      planStartDate: new Date("2026-08-30T20:21:49Z"),
+      paypalSubscriptionId: "I-SUB-NEW",
+      paypalPriorSubscriptionId: "I-SUB-OLD", // 이전 구독 해지 전이라 아직 남아 있음
+      subscriptionPlanId: "PREMIUM",
+      subscriptionCanceledAt: null,
+      nextBillingAt: new Date("2026-09-30T10:00:00Z"),
+      backtestUsageMonth: "2026-08-30T20:21:49.000Z",
+      backtestCountThisMonth: -500,
+    });
+
+    const changed = await activatePaypalSubscription(prisma, {
+      userId: 42,
+      planId: "PREMIUM",
+      subscriptionId: "I-SUB-NEW",
+      nextBillingTime: "2026-09-30T10:00:00Z",
+    });
+
+    expect(changed).toBe(false);
+    expect(userUpdate).not.toHaveBeenCalled();
+  });
+
   it("업그레이드 병합은 사용량 주기가 지난 옛 기록을 이월하지 않는다 — 잔여는 전액", async () => {
     userFindUnique.mockResolvedValue({
       planTier: "PRO",

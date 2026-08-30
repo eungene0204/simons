@@ -57,7 +57,11 @@ export async function activatePaypalSubscription(
     if (current.planTier !== input.planId && current.planTier !== "FREE" && !isUpgradeCompletion) {
       return false;
     }
-    if (current.planTier === input.planId && !isUpgradeCompletion) {
+    // 등급까지 이미 일치하면(업그레이드 완료 직후 웹훅 재활성화 포함) 멱등 처리한다 —
+    // 여기서 풀 업데이트로 흘리면 planStartDate가 다시 이동해 사용량 주기 키가 이월
+    // 기록(backtestUsageMonth)과 어긋나고, 병합해 둔 잔여 횟수가 조용히 증발한다
+    // (2026-08-31 재검증에서 sync·웹훅 이중 활성화로 실제 발생 — 8초 차이).
+    if (current.planTier === input.planId) {
       if (nextBillingMatches) return false;
       // 날짜가 PayPal 값과 어긋나 있으면 맞춘다 — 조회 경로가 드리프트를 고칠 수 있어야 한다
       await prisma.user.update({
