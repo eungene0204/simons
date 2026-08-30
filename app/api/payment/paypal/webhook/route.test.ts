@@ -16,8 +16,15 @@ const webhookEventCreate = vi.fn();
 const webhookEventDeleteMany = vi.fn();
 const userFindUnique = vi.fn();
 
+const getSubscription = vi.fn();
+
 vi.mock("@/lib/payment/PaypalProvider", () => ({
   verifyWebhookSignature: (...a) => verifyWebhookSignature(...a),
+  PaypalProvider: class {
+    getSubscription(...a) {
+      return getSubscription(...a);
+    }
+  },
 }));
 
 vi.mock("@/lib/server/paypalSubscription", () => ({
@@ -158,6 +165,54 @@ describe("/api/payment/paypal/webhook", () => {
       expect.anything(),
       expect.objectContaining({ userId: 42, planId: "PREMIUM", saleId: "SALE-1" })
     );
+  });
+
+  // 회귀(2026-08-31 prod E2E): PayPal이 첫 달 청구를 활성화보다 먼저 보내 우리 DB에
+  // 구독 플랜이 아직 없었고, 그 결과 첫 결제 이력이 조용히 사라졌다.
+  it("활성화보다 결제 통지가 먼저 와도 구독을 조회해 이력을 남긴다", async () => {
+    userFindUnique.mockResolvedValue({ subscriptionPlanId: null });
+    getSubscription.mockResolvedValue({
+      subscriptionId: "I-SUB-1",
+      status: "ACTIVE",
+      active: true,
+      providerPlanId: "P-PRO-1",
+    });
+
+    const res = await POST(
+      req({
+        id: "WH-EVENT-EARLY",
+        event_type: "PAYMENT.SALE.COMPLETED",
+        resource: { id: "SALE-EARLY", billing_agreement_id: "I-SUB-1", custom_id: "42" },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(getSubscription).toHaveBeenCalledWith("I-SUB-1");
+    expect(recordPaypalSubscriptionPayment).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ userId: 42, planId: "PRO", saleId: "SALE-EARLY" })
+    );
+  });
+
+  it("구독을 조회해도 우리 플랜이 아니면 이력을 남기지 않는다", async () => {
+    userFindUnique.mockResolvedValue({ subscriptionPlanId: null });
+    getSubscription.mockResolvedValue({
+      subscriptionId: "I-SUB-9",
+      status: "ACTIVE",
+      active: true,
+      providerPlanId: "P-STRANGER",
+    });
+
+    const res = await POST(
+      req({
+        id: "WH-EVENT-STRANGER",
+        event_type: "PAYMENT.SALE.COMPLETED",
+        resource: { id: "SALE-9", billing_agreement_id: "I-SUB-9", custom_id: "42" },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(recordPaypalSubscriptionPayment).not.toHaveBeenCalled();
   });
 
   it("해지 통지는 남은 기간을 유지하고, 정지·만료는 즉시 FREE로 내린다", async () => {

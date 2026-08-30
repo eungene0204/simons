@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyWebhookSignature } from "@/lib/payment/PaypalProvider";
+import type { PlanId } from "@/lib/plans";
+import { PaypalProvider, verifyWebhookSignature } from "@/lib/payment/PaypalProvider";
 import { planIdFromPaypalPlan } from "@/lib/payment/paypalPlans";
 import {
   activatePaypalSubscription,
@@ -110,17 +111,32 @@ export async function POST(request: Request) {
       }
 
       case "PAYMENT.SALE.COMPLETED": {
+        if (!resource?.id) {
+          return NextResponse.json({ ok: true, ignored: "no-sale-id" });
+        }
         const record = await prisma.user.findUnique({
           where: { id: userId },
           select: { subscriptionPlanId: true },
         });
-        const planId = record?.subscriptionPlanId;
-        if (!planId || planId === "FREE" || !resource?.id) {
+        let planId: PlanId | null =
+          record?.subscriptionPlanId && record.subscriptionPlanId !== "FREE"
+            ? (record.subscriptionPlanId as PlanId)
+            : null;
+
+        // 첫 달 청구는 활성화 통지보다 먼저 도착할 수 있다(PayPal은 순서를 보장하지 않는다).
+        // 우리 상태가 아직 비어 있으면 구독을 직접 조회해 플랜을 알아낸다 — 이 보강이 없으면
+        // 첫 결제 이력이 조용히 사라진다(2026-08-31 E2E에서 실제로 발생).
+        if (!planId && resource.billing_agreement_id) {
+          const state = await new PaypalProvider().getSubscription(resource.billing_agreement_id);
+          planId = planIdFromPaypalPlan(state.providerPlanId);
+        }
+        if (!planId) {
           return NextResponse.json({ ok: true, ignored: "no-active-plan" });
         }
+
         await recordPaypalSubscriptionPayment(prisma, {
           userId,
-          planId: planId as "PRO" | "PREMIUM",
+          planId,
           saleId: resource.id,
           approvedAt: resource.create_time,
         });
