@@ -27,11 +27,11 @@
 ```
 ┌──────────── Namecheap (도메인/DNS) ────────────┐
 │  nullstock.im / www.nullstock.im               │
-│  A 레코드 → 137.220.41.38                       │
+│  A 레코드 → 45.77.214.226                       │
 └──────────────────────┬──────────────────────────┘
                         │
 ┌───────────────────────▼──────────────────────── Vultr 박스 (앱, CPU only) ───┐
-│  137.220.41.38 · Ubuntu · 2 vCPU/15GB/112GB · /opt/simons                    │
+│  45.77.214.226 · Ubuntu · 2 vCPU HP-AMD/4GB/100GB · /opt/simons                    │
 │                                                                               │
 │  Docker Compose (docker-compose.yml):                                        │
 │    ├─ caddy        443/80 → web (Let's Encrypt 자동 TLS)                      │
@@ -67,11 +67,11 @@
 ### Vultr (앱 박스)
 | 항목 | 값 |
 |---|---|
-| IP | `137.220.41.38` |
+| IP | `45.77.214.226` |
 | OS | Ubuntu 26.04 |
-| 스펙 | 2 vCPU / 15GB RAM / 112GB 디스크 + swap 8G |
+| 스펙 | 2 vCPU(고성능 AMD) / 4GB RAM / 100GB NVMe + swap 8G — `vhp-2c-4gb-amd` $24/mo (2026-08-31 다운사이즈, 구 vx1-m-2c-16g-120s $70 → 백테스트 Modal 이전으로 축소) |
 | 코드 경로 | `/opt/simons` (git, GitHub **deploy key** 등록됨) |
-| SSH | `ssh -i ~/.ssh/vultr_simons root@137.220.41.38` |
+| SSH | `ssh -i ~/.ssh/vultr_simons root@45.77.214.226` |
 | 방화벽 | 22(등록된 IP만)/80/443만 개방. 3000/8000/5432/6379는 외부 차단 |
 
 GPU가 없으므로 로컬 LLM은 돌리지 않는다. 백테스트(vectorbt/optuna)·웹·스케줄러 CPU 워크로드만 처리한다.
@@ -157,7 +157,7 @@ Python 백엔드는 `backend/db.py`(psycopg v3 어댑터, sqlite3와 유사한 �
 
 ### Namecheap (도메인/DNS)
 - 도메인 `nullstock.im`을 Namecheap에서 구매.
-- Namecheap DNS에 A레코드: `www.nullstock.im`, `nullstock.im`(apex) 둘 다 → `137.220.41.38`.
+- Namecheap DNS에 A레코드: `www.nullstock.im`, `nullstock.im`(apex) 둘 다 → `45.77.214.226`.
 - TLS는 Namecheap이 아니라 **Caddy가 Let's Encrypt로 자동 발급**(HTTP-01 챌린지) — Namecheap 쪽은 DNS만 담당.
 - `.env`: `DOMAIN=www.nullstock.im`, `APEX_DOMAIN=nullstock.im`([`Caddyfile`](../Caddyfile)이 apex→www 301 리다이렉트 처리).
 - ⚠️ **raw IP로는 ACME 발급 불가** — DNS가 해석되기 전에 컨테이너를 띄우면 Let's Encrypt 요청이 반복 실패해 rate limit 위험. DNS 전파 확인 후 `DOMAIN` 설정할 것.
@@ -224,7 +224,7 @@ Supabase는 fresh start로 이관했으므로 SQLite 백업/rsync 같은 시딩 
 npm run pull-data          # scripts/mirror_data.py — 프로덕션 → 로컬
 npm run pull-data:check    # 드라이런
 ```
-`.env`의 `DATA_MIRROR_REMOTE=root@137.220.41.38:/opt/simons` / `DATA_MIRROR_SSH_KEY`가 대상을 지정한다. **프로덕션에는 이 두 변수를 절대 설정하지 말 것**(자기 자신을 미러하게 됨).
+`.env`의 `DATA_MIRROR_REMOTE=root@45.77.214.226:/opt/simons` / `DATA_MIRROR_SSH_KEY`가 대상을 지정한다. **프로덕션에는 이 두 변수를 절대 설정하지 말 것**(자기 자신을 미러하게 됨).
 
 ---
 
@@ -319,7 +319,7 @@ docker compose up -d --remove-orphans
 ```
 - `reset --hard`인 이유: 박스가 런타임 산출물(`data/universe-history.json` 등)로 더럽혀져 ff-only pull이 실패하기 때문.
 - 마이그레이션 실패 시 `set -e`로 배포가 중단되고 **구버전 컨테이너가 계속 떠 있어 서비스는 안 죽는다**.
-- 필수 GitHub Secrets: `VULTR_SSH_HOST`(=137.220.41.38), `VULTR_SSH_USER`, `VULTR_SSH_KEY`.
+- 필수 GitHub Secrets: `VULTR_SSH_HOST`(=45.77.214.226), `VULTR_SSH_USER`, `VULTR_SSH_KEY`.
 
 **서비스 구성**([`docker-compose.yml`](../docker-compose.yml)):
 
