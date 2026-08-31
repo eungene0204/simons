@@ -36,6 +36,7 @@ import cancellation
 import ui_language
 from us_ohlcv import load_us_ohlcv
 from engine.providers.toss_us import is_us_symbol, us_master_entry
+import backtest_executor
 from engine.watchdog import (
     BacktestTimeoutError,
     backtest_timeout_s,
@@ -240,7 +241,7 @@ def run_backtest(http_req: Request, request: BacktestRequest):
         start_time = time.time()
         req_dict = request.model_dump()
         # 워치독: 엔진이 행에 빠져도 요청은 제한 시간 안에 반드시 끝난다.
-        result = watchdog_run_with_timeout(lambda: engine.run_backtest(req_dict))
+        result = watchdog_run_with_timeout(lambda: backtest_executor.run(engine, req_dict))
         end_time = time.time()
         result['executionTime'] = end_time - start_time
 
@@ -4175,7 +4176,7 @@ async def backtest_stream(request: BacktestRequest):
             req_dict = request.model_dump()
             sym_count = len(req_dict.get("symbols", []))
             print(f"[BT-STREAM] 엔진 시작: {sym_count}종목", flush=True)
-            result = engine.run_backtest(req_dict)
+            result = backtest_executor.run(engine, req_dict)
             elapsed = time.time() - start_time
             result["executionTime"] = elapsed
             result_holder["data"] = result

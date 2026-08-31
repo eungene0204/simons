@@ -1,6 +1,6 @@
 # Simons 배포 가이드 — Vultr + Modal + Supabase 하이브리드
 
-이 문서는 Simons의 **실제 운영 중인(as-built)** 배포 구성을 설명한다. 앱 전체는 **Vultr CPU 박스** 1대에 Docker Compose로 올리고, LLM(코치/NL파서/뉴스요약)만 **Modal 서버리스 GPU**에서 Ollama로 서빙한다. 앱 DB는 **Supabase Postgres**, 도메인은 **Namecheap**에서 구매해 Vultr IP로 DNS 연결했다.
+이 문서는 Simons의 **실제 운영 중인(as-built)** 배포 구성을 설명한다. 앱 전체는 **Vultr CPU 박스** 1대에 Docker Compose로 올리고, LLM(코치/NL파서/뉴스요약)은 **Modal 서버리스 GPU**에서 Ollama로, **백테스트 실행은 Modal 서버리스 CPU 워커**(`modal_backtest.py`, 2026-08-31~)에서 오토스케일로 처리한다. 앱 DB는 **Supabase Postgres**, 도메인은 **Namecheap**에서 구매해 Vultr IP로 DNS 연결했다.
 
 > 관련 파일: [`Dockerfile`](../Dockerfile) · [`docker-compose.yml`](../docker-compose.yml) · [`Caddyfile`](../Caddyfile) · [`.dockerignore`](../.dockerignore) · [`modal_ollama.py`](../modal_ollama.py) · [`.env.production.example`](../.env.production.example) · [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 
@@ -107,6 +107,28 @@ GPU가 없으므로 로컬 LLM은 돌리지 않는다. 백테스트(vectorbt/opt
 - Next 프록시(`lib/server/backend.ts`)는 Node 내장 fetch(undici) 기본 `headersTimeout=300s`를 우회하기 위해 **undici 자체 `Agent({headersTimeout:0, bodyTimeout:0})`** 사용, `COACH_TIMEOUT_MS=560000`
 
 콜드 e2e 실측: 첫 요청 ~90~320초(모델 크기·컨테이너 상태에 따라), 5분 내 재요청은 웜(수초).
+
+### Modal (서버리스 CPU 백테스트 워커) — 2026-08-31 추가
+| 항목 | 값 |
+|---|---|
+| 앱 이름 | `simons-backtest` |
+| 엔드포인트 | `https://eugene204--simons-backtest-run-backtest.modal.run` (proxy auth 필수 — LLM과 같은 `MODAL_KEY`/`MODAL_SECRET`) |
+| 컨테이너 | CPU 8코어/16GB, 컨테이너당 요청 1개, `min_containers=0`, `max_containers=64`, `scaledown_window=600`초 |
+| 소스 | [`modal_backtest.py`](../modal_backtest.py) — `BacktestEngine.run_backtest`를 FastAPI 엔드포인트로 노출 |
+| 데이터 | Volume `simons-backtest-data` (ohlcv/ohlcv-us/fundamentals/메타 JSON). **정본=박스 `/opt/simons/data`** — 갱신 후 박스에서 `bash scripts/sync_modal_backtest_data.sh` 재실행 |
+| 배포 | `.venv/bin/modal deploy modal_backtest.py` |
+
+**왜**: 백테스트는 "버튼 누르는 순간 터지는" CPU 부하라 상시 박스 증설로는 동시 50건을 감당할 수 없다(2 vCPU 박스는 10명 테스트용). Modal 오토스케일이 요청 수만큼 컨테이너를 늘려 각 백테스트가 전용 코어로 병렬 실행된다(실측 1건 ≈ 10~20 코어·초, 120종목·5Y).
+
+**백엔드 배선**: `backend/backtest_executor.py`가 디스패치한다 — `.env`에 `BACKTEST_EXECUTOR=modal` + `BACKTEST_REMOTE_URL=<엔드포인트>`가 있을 때만 원격, 아니면 종전 그대로 인프로세스(로컬 dev 무변경). **원격 실패는 로컬로 폴백하지 않는다**(x86 ULP로 레인이 섞이면 같은 전략이 실행마다 다른 정본을 가짐). `/backtest`·`/strategy/backtest-stream` 두 사용자 경로만 원격이고, 최적화·워크포워드·가상매매는 박스 인프로세스 유지.
+
+**결과 동일성 계약**: `modal_backtest.py`의 `PINNED_DEPS`는 prod 백엔드 컨테이너 실측 버전과 동일 핀(Python 3.11 · numpy 2.4.4 · scipy 1.17.1 · numba 0.67.0 · vectorbt 1.0.0 등). 라이브러리를 올릴 때는 `backend/requirements.txt`와 **같은 커밋에서 함께** 올리고, 전환·업그레이드 전 반드시 전수 대조:
+```bash
+# ① 기준 덤프(박스 x86·정본 데이터에서): 
+docker compose exec -T backend python3 /app/scripts/qa_backtest_modal_equivalence.py --dump /tmp/eq_dump.json
+# ② 대조(어디서든, MODAL_KEY/SECRET env): 
+python3 scripts/qa_backtest_modal_equivalence.py --compare eq_dump.json --url <워커 URL>   # 불일치 0이어야 함
+```
 
 ### Supabase (앱 DB + Auth)
 | 항목 | 값 |
