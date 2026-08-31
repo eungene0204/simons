@@ -22,6 +22,7 @@
     "test:frontend": "vitest run"
   },
   "dependencies": {
+    "@next/third-parties": "^14.2.35",
     "@prisma/client": "^5.7.1",
     "@supabase/supabase-js": "^2.57.0",
     "@tanstack/react-query": "^5.96.2",

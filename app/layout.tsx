@@ -8,6 +8,7 @@ import ChunkErrorRecovery from "@/components/ChunkErrorRecovery";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { getRequestLanguage } from "@/lib/i18n/server";
 import { Inter, Outfit } from "next/font/google";
+import { GoogleAnalytics } from "@next/third-parties/google";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" });
@@ -47,6 +48,9 @@ export default function RootLayout({
             </OrderAccountProvider>
           </QueryProvider>
         </LanguageProvider>
+        {process.env.NEXT_PUBLIC_GA_ID && (
+          <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
+        )}
       </body>
     </html>
   );

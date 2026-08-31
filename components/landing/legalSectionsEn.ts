@@ -312,6 +312,11 @@ export const privacySectionsEn: LegalSection[] = [
         content:
           "Payment gateway — designed so that core payment-method data such as full card numbers is processed by the payment gateway and not stored directly by the Company.",
       },
+      {
+        label: "Usage analytics",
+        content:
+          "Google LLC (United States) — cookie identifiers, pages visited, access times and browser/device information, processed for Service usage statistics via Google Analytics",
+      },
     ],
     list: [
       "The names of processors in the actual operating environment, destination countries, transferred items and contact details are confirmed and announced on the Service screen or in a separate notice.",
@@ -323,6 +328,8 @@ export const privacySectionsEn: LegalSection[] = [
     list: [
       "The Company may use cookies and browser storage to keep users logged in, verify security and store display settings. The session token (JWT) used to keep users logged in is stored in a cookie in the user's browser and is not separately stored on the Company's servers.",
       "Users may refuse or delete cookies through browser settings. However, restricting cookies or session storage may prevent some features such as login, strategy creation, saving and virtual accounts from working properly.",
+      "The Company uses Google Analytics, a web analytics tool provided by Google LLC, to analyze Service usage statistics. Google Analytics collects Service usage records such as pages visited, access times and browser/device information through cookies, and the Company does not pass information that directly identifies a user to Google Analytics. Collected information may be processed by Google on servers located overseas, including in the United States.",
+      "Users may opt out of Google Analytics collection through browser cookie settings or the Google Analytics opt-out browser add-on (tools.google.com/dlpage/gaoptout); opting out does not restrict use of the Service.",
     ],
   },
   {
