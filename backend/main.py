@@ -31,7 +31,15 @@ from engine.live_signal_utils import prepare_signal_dataframe
 from engine.virtual_trader import VirtualTrader
 from engine.vi_utils import build_vi_display
 from nl_cache import nl_cache_key
-from stream_progress import build_backtest_stream_status, simulation_phase_label
+from stream_progress import (
+    AGGREGATING_TRADES,
+    ANALYSIS_COMPLETE,
+    APPLYING_FUNDAMENTAL_FILTERS,
+    CALCULATING_METRICS,
+    LOADING_STOCK_DATA,
+    build_backtest_stream_status,
+    simulation_phase_label,
+)
 import cancellation
 import ui_language
 from us_ohlcv import load_us_ohlcv
@@ -4201,8 +4209,13 @@ async def backtest_stream(request: BacktestRequest):
         period = request.period or "5y"
         period_years = {"1y": 1, "3y": 3, "5y": 5, "full": 10}.get(period, 5)
 
-        def emit(msg: str) -> str:
-            return f"data: {json.dumps({'type': 'status', 'message': msg})}\n\n"
+        def emit(msg: str, *args: object) -> str:
+            # message는 한국어 정본 템플릿, args는 {0} 치환 인자다 — 프론트가 t(message, *args)로
+            # 표시 언어에 맞춰 옮긴다(/us 영어 표시).
+            payload: dict[str, object] = {"type": "status", "message": msg}
+            if args:
+                payload["args"] = list(args)
+            return f"data: {json.dumps(payload)}\n\n"
 
         # 백테스트 스레드 시작
         thread.start()
@@ -4210,7 +4223,7 @@ async def backtest_stream(request: BacktestRequest):
         # ── Step 1: 종목 데이터 로딩
         # 종목 수는 표기하지 않는다 — request.symbols는 '현재 상장' 종목 수라 실제 백테스트
         # 유니버스(시점별 상장분 + 상장폐지분)와 달라 오해를 준다(아래 시뮬레이션 문구 참고).
-        yield emit("종목 데이터 로딩 중...")
+        yield emit(LOADING_STOCK_DATA)
 
         # ── Step 2: 재무 필터 정보
         filter_descs = []
@@ -4220,13 +4233,13 @@ async def backtest_stream(request: BacktestRequest):
                 val = c.params.get("value", "")
                 filter_descs.append(f"{c.id.upper()} {op} {val}")
         if filter_descs:
-            yield emit(f"재무 필터 적용 중... ({', '.join(filter_descs[:4])})")
+            yield emit(APPLYING_FUNDAMENTAL_FILTERS, ", ".join(filter_descs[:4]))
 
         # ── Step 3: 실제 백테스트 완료 대기 (0.2초 단위 폴링, 인위적 지연 없음)
         phases = [
             simulation_phase_label(period_years),
-            "거래 내역 집계 중...",
-            "성과 지표 계산 중...",
+            (AGGREGATING_TRADES, []),
+            (CALCULATING_METRICS, []),
         ]
         # 워치독: 엔진 스레드가 행에 빠지면 이 폴링 루프가 무한 상태 메시지를 내보낸다.
         # 벽시계 제한 시간을 넘기면 에러 이벤트를 보내고 스트림을 끝낸다(데몬 스레드는 유기).
@@ -4240,7 +4253,7 @@ async def backtest_stream(request: BacktestRequest):
                 return
             status_message = build_backtest_stream_status(wait_count, phases)
             if status_message:
-                yield emit(status_message)
+                yield emit(status_message[0], *status_message[1])
             await asyncio.sleep(0.2)
             wait_count += 1
 
@@ -4250,7 +4263,7 @@ async def backtest_stream(request: BacktestRequest):
         if "error" in error_holder:
             yield f"data: {json.dumps({'type': 'error', 'message': error_holder['error']})}\n\n"
         elif "data" in result_holder:
-            yield emit("분석 완료!")
+            yield emit(ANALYSIS_COMPLETE)
             await asyncio.sleep(0.3)
             yield f"data: {json.dumps({'type': 'result', 'data': result_holder['data']})}\n\n"
 

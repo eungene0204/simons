@@ -1655,6 +1655,7 @@ Next 라우트 핸들러 ─► lib/server/backend.ts fetchBackend ─► X-UI-L
 - **핵심 파일**: `lib/i18n/index.ts`(t·getLanguage·getLocale·formatCompactNumberEn), `lib/i18n/en.ts`(사전, 원문=키), `lib/i18n/LanguageProvider.tsx`(SSR/CSR 언어 고정), `lib/i18n/LanguageToggle.tsx`(KR/EN, 새로고침 반영), `lib/i18n/server.ts`(쿠키 읽기), `backend/ui_language.py`.
 - **도구**: `scripts/i18n_wrap_jsx.js`(JSX 텍스트/속성/표현식을 t()로 감싸는 코드모드, `--literals`는 표시 문맥 리터럴, `--all`은 검토 끝난 파일 전체, `// i18n-ignore-file`), `scripts/i18n_extract_keys.js`(사전 키 추출, `--missing`).
 - **불변 규칙**: 번역은 표시 전용 — 백엔드 프로토콜 값(파서 프롬프트·칩 에코·비교 문자열)은 한국어 정본 그대로. `t()`는 렌더 시점에만(모듈 상수 금지). 게이트: `tests/i18n-coverage.test.ts`.
+- **백엔드가 보내는 표시 문구** [2026-09-01]: 완성된 문장이 아니라 **한국어 정본 템플릿 + 위치 인자**로 싣는다(SSE `{type:"status", message, args}`) — 값이 박힌 문장은 사전 키가 매번 달라져 `/us`에서 번역할 수 없다. 프론트가 표시 지점에서 `t(message, ...args)`로 옮긴다. 백테스트 진행 문구의 정본은 `backend/stream_progress.py` 상수 한 곳에 모으고, 게이트 `tests/backtest-stream-progress-i18n.test.ts`가 그 파일을 스캔해 `en.ts` 누락을 막는다. 배포는 프론트가 백엔드보다 뒤처지면 안 된다(구 프론트 + 신 백엔드는 `{0}`이 그대로 노출된다).
 - **SSR 주의**: 언어는 모듈 싱글턴이라 서버에서 동시 요청이 겹치면 이론상 다른 요청의 언어가 섞일 수 있다(서버 컴포넌트는 await 뒤 `getRequestLanguage()`를 다시 호출해 요청 언어를 고정한다). 하이드레이션 시 클라이언트가 바로잡는다.
 
 ## 9. 외부 의존성

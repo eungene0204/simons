@@ -4500,7 +4500,9 @@ function StrategyLabContent() {
 
         const event = JSON.parse(payload);
         if (event.type === "status") {
-          setStatusMessage(event.message);
+          // 백엔드는 한국어 정본 템플릿과 {0} 치환 인자만 싣는다 — 표시 번역은 여기서 한다
+          // (/us는 영어). 사전에 없으면 t()가 원문을 그대로 돌려주므로 한국어 표시는 그대로다.
+          setStatusMessage(t(event.message, ...(event.args ?? [])));
         } else if (event.type === "meta") {
           nlCacheKey = event.cacheKey ?? undefined;
         } else if (event.type === "result") {
