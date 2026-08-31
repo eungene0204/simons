@@ -2127,6 +2127,7 @@ export const en: Record<string, string> = {
   // ── components/virtual-account/TrackedSymbolRow.tsx
   "{0} 추적 제거": "Stop tracking {0}",
   "대기": "Waiting",
+  "미지원": "N/A",
   "보유중": "Holding",
   "추적 제거": "Stop tracking",
   // ── components/virtual-account/VirtualAccountOverview.tsx

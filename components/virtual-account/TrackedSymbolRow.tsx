@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "phosphor-react";
-import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
+import { isUsSymbol, type StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
 import { getStatusBadge, getStatusBadgeClasses } from "@/lib/listing-status";
 import type { ListingStatusValue } from "@/lib/listing-status";
 import { t } from "@/lib/i18n";
@@ -38,6 +38,7 @@ export default function TrackedSymbolRow({
   );
   const statusBadge = getStatusBadge(effectiveStatus);
 
+  const isUs = isUsSymbol(symbol);
   const hasPrice = !!quote && quote.price > 0;
   const changePercent = quote?.changePercent ?? 0;
   const changeColor = changePercent === 0 ? "text-white" : changePercent > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]";
@@ -62,7 +63,12 @@ export default function TrackedSymbolRow({
         </div>
       </div>
       <p className="text-xs font-bold text-right text-white tabular-nums">
-        {hasPrice ? formatPrice(quote.price) : <span className="text-gray-600">-</span>}
+        {hasPrice ? (
+          // 미국 종목은 달러 소수가($313.74) — 원화 반올림 포맷은 센트를 뭉갠다
+          isUs ? `$${quote.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : formatPrice(quote.price)
+        ) : (
+          <span className="text-gray-600">-</span>
+        )}
       </p>
       <p
         className={`text-xs font-bold text-right tabular-nums ${
@@ -74,7 +80,14 @@ export default function TrackedSymbolRow({
         {hasPrice ? changeLabel : "-"}
       </p>
       <p className="text-xs font-bold text-right text-gray-400 tabular-nums">
-        {hasPrice ? quote.volume.toLocaleString("ko-KR") : <span className="text-gray-600">-</span>}
+        {isUs ? (
+          // 미국 실시간 시세(토스 US)는 거래량을 제공하지 않는다
+          <span className="text-gray-600">{t("미지원")}</span>
+        ) : hasPrice ? (
+          quote.volume.toLocaleString("ko-KR")
+        ) : (
+          <span className="text-gray-600">-</span>
+        )}
       </p>
       <div className="flex items-center justify-center text-center">
         {hasHolding ? (

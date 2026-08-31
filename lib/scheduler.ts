@@ -6,12 +6,16 @@
  *
  * 스케줄:
  *   08:50 KST  — 장전 데이터 워밍 (평일)
- *   09:00 KST  — 장 개장: auto 모드 계좌 자동 시작 (running 전환, 평일)
- *   15:30 KST  — 장 마감: 실행 중인 계좌 일시정지 (paused 전환, 평일)
+ *   09:00 KST  — 장 개장: KRW auto 계좌 자동 시작 (running 전환, 평일)
+ *   15:30 KST  — 장 마감: 실행 중인 KRW 계좌 일시정지 (paused 전환, 평일)
+ *   09:30 ET   — 미국장 개장: USD auto 계좌 자동 시작 (평일, 서머타임 자동 반영)
+ *   16:00 ET   — 미국장 마감: 실행 중인 USD 계좌 일시정지 (평일)
  *
  * 장중 시그널 평가·체결(자동매매)은 이 스케줄러가 하지 않는다 — 정본은 FastAPI
  * 백엔드의 VirtualTrader(backend/engine/virtual_trader.py, 30초 간격)다.
  * 이 스케줄러는 계좌의 running/paused 생명주기와 캐시 워밍만 담당한다.
+ * 미국 휴장일·조기 종료 판정도 여기서 하지 않는다 — 개장 이벤트가 휴장일에 계좌를
+ * running 으로 돌려도 VirtualTrader 의 장 운영 달력 게이트가 매매를 막는다.
  */
 
 import { runSchedulerAction } from "@/lib/server/scheduler-actions";
@@ -32,6 +36,29 @@ function formatKST(d: Date): string {
   return d.toISOString().replace("T", " ").slice(0, 19);
 }
 
+/** 뉴욕(ET) 현재 시각 파트 — 서머타임은 Intl 시간대 데이터가 자동 반영한다. */
+function nowETParts(): { h: number; m: number; weekday: number; dateStr: string } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    weekday: "short",
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const weekdayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return {
+    // hour12:false 는 일부 엔진에서 자정을 "24"로 내놓는다
+    h: Number(get("hour")) % 24,
+    m: Number(get("minute")),
+    weekday: weekdayMap[get("weekday")] ?? 0,
+    dateStr: `${get("year")}-${get("month")}-${get("day")}`,
+  };
+}
+
 // 스케줄러 액션을 인-프로세스로 직접 실행한다.
 // 예전에는 자기 자신의 /api/scheduler 라우트를 HTTP 로 self-fetch 했는데,
 // dev 모드에서 HMR 재컴파일이 일어나면 그 라우트가 일시적으로 404(HTML)를 반환해
@@ -48,6 +75,12 @@ export async function callSchedulerAPI(action: string): Promise<void> {
     } else if (action === "market-close") {
       const count = typeof result.paused === "number" ? result.paused : 0;
       console.log(`[Scheduler] ${ts} KST — 장 마감 처리 완료 — ${count}개 계좌 일시정지`);
+    } else if (action === "us-market-open") {
+      const count = Array.isArray(result.results) ? result.results.length : 0;
+      console.log(`[Scheduler] ${ts} KST — 미국장 개장 처리 완료 — ${count}개 계좌`);
+    } else if (action === "us-market-close") {
+      const count = typeof result.paused === "number" ? result.paused : 0;
+      console.log(`[Scheduler] ${ts} KST — 미국장 마감 처리 완료 — ${count}개 계좌 일시정지`);
     }
   } catch (e) {
     console.error(`[Scheduler] ${ts} KST — 스케줄러 액션 실패 (${action}):`, e);
@@ -102,7 +135,26 @@ function tick(): void {
     void runBillingRenewal(formatKST(kst));
   }
 
-  // 평일만 (1=월 ~ 5=금)
+  // 미국 정규장 개장·마감 — ET 기준, USD 계좌 전용.
+  // 금요일 마감(16:00 ET)은 KST 로 토요일 새벽이므로 아래 KST 주말 가드보다 먼저 평가한다.
+  const et = nowETParts();
+  if (et.weekday >= 1 && et.weekday <= 5) {
+    const usOpenKey = `${et.dateStr}_us_market_open`;
+    if (et.h === 9 && et.m === 30 && !firedToday.has(usOpenKey)) {
+      firedToday.add(usOpenKey);
+      console.log(`[Scheduler] ${formatKST(kst)} KST — 미국장 개장(09:30 ET) — USD auto 계좌 시작`);
+      callSchedulerAPI("us-market-open");
+    }
+
+    const usCloseKey = `${et.dateStr}_us_market_close`;
+    if (et.h === 16 && et.m === 0 && !firedToday.has(usCloseKey)) {
+      firedToday.add(usCloseKey);
+      console.log(`[Scheduler] ${formatKST(kst)} KST — 미국장 마감(16:00 ET) — USD 계좌 일시정지`);
+      callSchedulerAPI("us-market-close");
+    }
+  }
+
+  // 평일만 (1=월 ~ 5=금) — 이하 한국장 이벤트
   if (weekday < 1 || weekday > 5) return;
 
   // 08:50 KST — 장전 데이터 워밍 (캐시 사전 로드)

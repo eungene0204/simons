@@ -1,6 +1,7 @@
 import { cache } from "@/lib/cache";
 import {
   emptyStockPriceSnapshot,
+  isUsSymbol,
   normalizeSymbols,
   type StockPriceSnapshot,
 } from "@/lib/stock-prices";
@@ -121,6 +122,52 @@ function toSnapshot(quote?: BackendQuote | null): StockPriceSnapshot {
   };
 }
 
+/** 백엔드 /market/prices 배치 조회. 실패 시 null (호출부가 빈 스냅샷 처리·캐시 제외). */
+async function fetchSnapshotsFromBackend(
+  symbols: string[],
+  subscribe: boolean
+): Promise<Record<string, StockPriceSnapshot> | null> {
+  try {
+    if (subscribe) {
+      // fire-and-forget: prices 조회를 block하지 않도록 병렬 실행
+      fetch(`${BACKEND_URL}/market/subscribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols }),
+        signal: AbortSignal.timeout(3000),
+        cache: "no-store",
+      }).catch(() => {
+        // 구독 실패 시에도 현재가 조회는 진행한다.
+      });
+    }
+
+    const response = await fetch(`${BACKEND_URL}/market/prices`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols }),
+      signal: AbortSignal.timeout(8000),
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data: Record<string, BackendQuote> = await response.json();
+    return Object.fromEntries(
+      symbols.map((symbol) => [symbol, toSnapshot(data[symbol])])
+    );
+  } catch {
+    return null;
+  }
+}
+
+function emptySnapshots(symbols: string[]): Record<string, StockPriceSnapshot> {
+  return Object.fromEntries(
+    symbols.map((symbol) => [symbol, emptyStockPriceSnapshot()])
+  );
+}
+
 export async function fetchStockPriceSnapshots(
   symbols: string[],
   options?: FetchStockPriceSnapshotOptions
@@ -141,65 +188,44 @@ export async function fetchStockPriceSnapshots(
     }
   }
 
-  // 로컬 개발 전용: 프로덕션 공개 API로 진짜 KIS 실시간 시세를 프록시한다.
-  const proxyBase = process.env.STOCK_REALTIME_PROXY_URL?.replace(/\/+$/, "");
-  if (proxyBase) {
-    const entries = await Promise.all(
-      normalizedSymbols.map(
-        async (symbol) =>
-          [symbol, await fetchSnapshotFromProxy(symbol, proxyBase)] as const
-      )
-    );
-    const result = Object.fromEntries(entries);
-    if (config.useCache && config.ttlSeconds > 0) {
-      cache.set(cacheKey, result, config.ttlSeconds);
-    }
-    return result;
-  }
-
   const subscribe = options?.subscribe ?? true;
 
-  try {
-    if (subscribe) {
-      // fire-and-forget: prices 조회를 block하지 않도록 병렬 실행
-      fetch(`${BACKEND_URL}/market/subscribe`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbols: normalizedSymbols }),
-        signal: AbortSignal.timeout(3000),
-        cache: "no-store",
-      }).catch(() => {
-        // 구독 실패 시에도 현재가 조회는 진행한다.
-      });
-    }
-
-    const response = await fetch(`${BACKEND_URL}/market/prices`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbols: normalizedSymbols }),
-      signal: AbortSignal.timeout(8000),
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      return Object.fromEntries(
-        normalizedSymbols.map((symbol) => [symbol, emptyStockPriceSnapshot()])
-      );
-    }
-
-    const data: Record<string, BackendQuote> = await response.json();
-    const result = Object.fromEntries(
-      normalizedSymbols.map((symbol) => [symbol, toSnapshot(data[symbol])])
-    );
-
+  // 로컬 개발 전용: 프로덕션 공개 API로 진짜 KIS 실시간 시세를 프록시한다.
+  // KIS WS는 한국 심볼 전용이므로 한국 종목만 프록시를 경유하고,
+  // 미국 티커는 로컬 백엔드(토스 US 레인)로 직접 조회한다.
+  const proxyBase = process.env.STOCK_REALTIME_PROXY_URL?.replace(/\/+$/, "");
+  if (proxyBase) {
+    const krSymbols = normalizedSymbols.filter((s) => !isUsSymbol(s));
+    const usSymbols = normalizedSymbols.filter(isUsSymbol);
+    const [krEntries, usResult] = await Promise.all([
+      Promise.all(
+        krSymbols.map(
+          async (symbol) =>
+            [symbol, await fetchSnapshotFromProxy(symbol, proxyBase)] as const
+        )
+      ),
+      usSymbols.length > 0
+        ? fetchSnapshotsFromBackend(usSymbols, false)
+        : ({} as Record<string, StockPriceSnapshot>),
+    ]);
+    const result = {
+      ...Object.fromEntries(krEntries),
+      ...(usResult ?? emptySnapshots(usSymbols)),
+    };
     if (config.useCache && config.ttlSeconds > 0) {
       cache.set(cacheKey, result, config.ttlSeconds);
     }
-
     return result;
-  } catch {
-    return Object.fromEntries(
-      normalizedSymbols.map((symbol) => [symbol, emptyStockPriceSnapshot()])
-    );
   }
+
+  const result = await fetchSnapshotsFromBackend(normalizedSymbols, subscribe);
+  if (result === null) {
+    return emptySnapshots(normalizedSymbols);
+  }
+
+  if (config.useCache && config.ttlSeconds > 0) {
+    cache.set(cacheKey, result, config.ttlSeconds);
+  }
+
+  return result;
 }
