@@ -115,12 +115,21 @@ GPU가 없으므로 로컬 LLM은 돌리지 않는다. 백테스트(vectorbt/opt
 | 엔드포인트 | `https://eugene204--simons-backtest-run-backtest.modal.run` (proxy auth 필수 — LLM과 같은 `MODAL_KEY`/`MODAL_SECRET`) |
 | 컨테이너 | CPU 8코어/16GB, 컨테이너당 요청 1개, `min_containers=0`, `max_containers=64`, `scaledown_window=600`초 |
 | 소스 | [`modal_backtest.py`](../modal_backtest.py) — `BacktestEngine.run_backtest`를 FastAPI 엔드포인트로 노출 |
-| 데이터 | Volume `simons-backtest-data` (ohlcv/ohlcv-us/fundamentals/메타 JSON). **정본=박스 `/opt/simons/data`** — 갱신 후 박스에서 `bash scripts/sync_modal_backtest_data.sh` 재실행 |
+| 데이터 | Volume `simons-backtest-data` (ohlcv/ohlcv-us/fundamentals/메타 JSON). **정본=박스 `/opt/simons/data`** — 갱신은 아래 자동 동기화가 반영 |
 | 배포 | `.venv/bin/modal deploy modal_backtest.py` |
 
 **왜**: 백테스트는 "버튼 누르는 순간 터지는" CPU 부하라 상시 박스 증설로는 동시 50건을 감당할 수 없다(2 vCPU 박스는 10명 테스트용). Modal 오토스케일이 요청 수만큼 컨테이너를 늘려 각 백테스트가 전용 코어로 병렬 실행된다(실측 1건 ≈ 10~20 코어·초, 120종목·5Y).
 
 **백엔드 배선**: `backend/backtest_executor.py`가 디스패치한다 — `.env`에 `BACKTEST_EXECUTOR=modal` + `BACKTEST_REMOTE_URL=<엔드포인트>`가 있을 때만 원격, 아니면 종전 그대로 인프로세스(로컬 dev 무변경). **원격 실패는 로컬로 폴백하지 않는다**(x86 ULP로 레인이 섞이면 같은 전략이 실행마다 다른 정본을 가짐). `/backtest`·`/strategy/backtest-stream` 두 사용자 경로만 원격이고, 최적화·워크포워드·가상매매는 박스 인프로세스 유지.
+
+**데이터 자동 동기화(2026-08-31)**: 일일 갱신(KR 21:00·US 07:00 KST)이 Volume에 자동 반영되도록
+박스 호스트 cron(`/etc/cron.d/simons-modal-sync`)이 30분마다 `scripts/auto_sync_modal_backtest_data.sh`를
+돌린다 — 감시 대상(ohlcv/ohlcv-us/fundamentals/최상위 JSON)의 mtime이 지난 동기화 이후이고
+**15분 이상 잠잠할 때만**(쓰기 도중 절단 방지) `sync_modal_backtest_data.sh`를 실행하고 스탬프
+(`/var/lib/simons-modal-sync.stamp`)를 갱신한다. 변경 없으면 no-op. 로그 `/var/log/simons-modal-sync.log`.
+Modal CLI는 호스트 `/opt/modal-cli/bin/modal`(venv), 인증은 호스트 `~/.modal.toml`(CLI 토큰 —
+`.env`의 `MODAL_KEY`(wk-)는 proxy 전용이라 CLI 인증에 못 쓴다). **박스 재구축 시 cron 파일·
+modal-cli venv·~/.modal.toml 세 가지를 다시 설치해야 한다.**
 
 **결과 동일성 계약**: `modal_backtest.py`의 `PINNED_DEPS`는 prod 백엔드 컨테이너 실측 버전과 동일 핀(Python 3.11 · numpy 2.4.4 · scipy 1.17.1 · numba 0.67.0 · vectorbt 1.0.0 등). 라이브러리를 올릴 때는 `backend/requirements.txt`와 **같은 커밋에서 함께** 올리고, 전환·업그레이드 전 반드시 전수 대조:
 ```bash
