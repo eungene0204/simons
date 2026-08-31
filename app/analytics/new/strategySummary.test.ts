@@ -623,12 +623,32 @@ describe("strategySummary", () => {
     });
 
     expect(groups).toEqual([
-      { label: "유니버스", chips: ["KOSPI · 반도체 업종"] },
+      // universeName은 " · "로 이어 붙인 문자열 — 칩으로 되돌려 한 줄에 하나씩 표시한다
+      { label: "유니버스", chips: ["KOSPI", "반도체 업종"] },
       { label: "진입신호", chips: ["126일 수익률 상위"] },
       { label: "청산신호", chips: ["손절 -10% 하락시 매도", "익절 20% 이상 수익시 매도"] },
       { label: "리스트", chips: ["최대 5종목"] },
       { label: "리스크 관리", chips: ["손절 -10%, 익절 20%"] },
     ]);
+  });
+
+  it("buildStrategySummaryGroups는 지정 종목 유니버스를 종목별 칩으로 분리한다", () => {
+    const groups = buildStrategySummaryGroups({
+      universeName: "Nvidia (NVDA) · Recursion Pharmaceuticals, Inc. (RXRX) · Advanced Micro Devices (AMD)",
+      entryBlocks: ["RSI < 30"],
+      exitBlocks: [],
+      positionText: undefined,
+      riskText: undefined,
+    });
+
+    expect(groups[0]).toEqual({
+      label: "유니버스",
+      chips: [
+        "Nvidia (NVDA)",
+        "Recursion Pharmaceuticals, Inc. (RXRX)",
+        "Advanced Micro Devices (AMD)",
+      ],
+    });
   });
 
   it("buildStrategySummaryGroups는 비어있는 카테고리를 생략하고, 심볼 CSV 유니버스는 제외한다", () => {

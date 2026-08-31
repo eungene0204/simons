@@ -1010,7 +1010,9 @@ export function buildStrategySummaryGroups(
     universeName && universeName !== "미정" && !isRawSymbolUniverseName(universeName);
 
   const groups: StrategySummaryGroup[] = [
-    { label: t("유니버스"), chips: showUniverse ? [universeName!] : [] },
+    // universeName은 코드가 " · "로 이어 붙인 문자열(지정 종목 라벨·업종 등) — 칩으로
+    // 되돌려 한 줄에 하나씩 표시한다. '·' 연결은 항목이 늘면 끊김이 안 보인다(2026-08-06 지시).
+    { label: t("유니버스"), chips: showUniverse ? universeName!.split(" · ") : [] },
     { label: t("진입신호"), chips: (summary.entryBlocks ?? []).filter(Boolean) },
     { label: t("청산신호"), chips: (summary.exitBlocks ?? []).filter(Boolean) },
     {
