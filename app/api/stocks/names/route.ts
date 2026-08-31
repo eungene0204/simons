@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loadStockList, loadStockMasterNameMap, loadEtfMasterNameMap } from "@/lib/krx-stocks";
+import { loadUsStockList, loadUsEtfMasterNameMap } from "@/lib/us-stocks";
 import { cache } from "@/lib/cache";
 
 // 런타임에 볼륨 마운트되는 data/stock-master.json(상폐 종목명)을 읽으므로 정적 prerender 금지.
@@ -17,10 +18,12 @@ export async function GET(request: NextRequest) {
     }
     */
 
-    const [stocks, masterNames, etfNames] = await Promise.all([
+    const [stocks, masterNames, etfNames, usStocks, usEtfNames] = await Promise.all([
       loadStockList(),
       loadStockMasterNameMap(),
       loadEtfMasterNameMap(),
+      loadUsStockList(),
+      loadUsEtfMasterNameMap(),
     ]);
     const metadataMap: Record<string, { name: string, sector: string }> = {};
 
@@ -38,6 +41,18 @@ export async function GET(request: NextRequest) {
         name: stock.name,
         sector: stock.sector || stock.industry || "-"
       };
+    });
+
+    // 미국 티커(알파벳)는 한국 코드(6자리 숫자)와 겹치지 않아 같은 맵에 병합한다.
+    // 없으면 /us 백테스트 거래내역에 이름 대신 티커만 노출된다.
+    usStocks.forEach(stock => {
+      metadataMap[stock.symbol] = {
+        name: stock.name,
+        sector: stock.sector || stock.industry || "-"
+      };
+    });
+    Object.entries(usEtfNames).forEach(([symbol, name]) => {
+      metadataMap[symbol] = { name, sector: "ETF" };
     });
 
     // Cache for 1 hour

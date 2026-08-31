@@ -9,6 +9,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { cache } from "@/lib/cache";
 
+vi.mock("@/lib/us-stocks", () => ({
+  loadUsStockList: vi.fn().mockResolvedValue([
+    { symbol: "AEP", name: "American Electric Power", market: "NASDAQ", sector: "Utilities" },
+    { symbol: "BRK-B", name: "Berkshire Hathaway", market: "NYSE", sector: "Financials" },
+  ]),
+  loadUsEtfMasterNameMap: vi.fn().mockResolvedValue({
+    SPY: "SPDR S&P 500 ETF Trust",
+  }),
+}));
+
 vi.mock("@/lib/krx-stocks", () => ({
   loadStockList: vi.fn().mockResolvedValue([
     { symbol: "005930", name: "삼성전자", sector: "반도체", industry: "반도체", market: "KOSPI" },
@@ -52,5 +62,16 @@ describe("GET /api/stocks/names", () => {
     const map = await getMap();
     expect(map["091160"]?.name).toBe("KODEX 반도체");
     expect(map["381180"]?.name).toBe("TIGER 미국필라델피아반도체나스닥");
+  });
+
+  it("미국 종목도 티커가 아니라 이름을 반환한다 (/us 거래내역 표시)", async () => {
+    const map = await getMap();
+    expect(map["AEP"]).toEqual({ name: "American Electric Power", sector: "Utilities" });
+    expect(map["BRK-B"]?.name).toBe("Berkshire Hathaway");
+  });
+
+  it("미국 ETF도 티커가 아니라 이름을 반환한다", async () => {
+    const map = await getMap();
+    expect(map["SPY"]).toEqual({ name: "SPDR S&P 500 ETF Trust", sector: "ETF" });
   });
 });
