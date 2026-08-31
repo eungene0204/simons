@@ -44,6 +44,8 @@ import {
 import { buildAutoSaveHistoryPayload, buildHistoryConditions } from "@/lib/backtest-history";
 import { invalidateBacktestHistoryCache } from "@/lib/backtest-history-cache";
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
+import { inferStrategyType } from "@/lib/strategy-type";
+import { trackEvent } from "@/lib/analytics";
 import CreateAccountModal from "@/components/ui/CreateAccountModal";
 import { createAccount } from "@/lib/portfolio";
 import { buildPromptSummaryRows } from "./promptSummaryRows";
@@ -928,6 +930,16 @@ export default function BacktestDashboard({
           }),
         }).catch(() => {/* 히스토리 저장 실패는 무시 */});
       }
+
+      // 저장이 서버에서 확정된 뒤에만 보낸다(위 throw를 지나온 시점).
+      trackEvent("strategy_save", {
+        strategy_name: saveStrategyName.trim(),
+        strategy_type: inferStrategyType(
+          saveStrategyName.trim(),
+          saveDescription.trim(),
+          normalizedBacktestDsl
+        ),
+      });
 
       setSaveResult({ ok: true, message: t("전략이 저장되었습니다.") });
       onSave?.();

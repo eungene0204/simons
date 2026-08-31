@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { t } from "@/lib/i18n";
+import { getPlan } from "@/lib/plans";
+import { trackEvent } from "@/lib/analytics";
 
 interface PaymentSuccessProps {
   authKey: string;
@@ -44,6 +46,23 @@ export default function PaymentSuccess({ authKey, customerKey, orderId }: Paymen
         }
         setPlanName(data.planName ?? "");
         setStatus("done");
+
+        // 서버 승인(/api/payment/confirm)이 확정된 뒤에만 보낸다 — 결제 버튼 클릭 시점 금지.
+        // 금액은 사용자 개인 정보가 아니라 공개된 플랜 가격이다.
+        const plan = getPlan(data.planId);
+        trackEvent("purchase", {
+          transaction_id: orderId,
+          value: plan.monthlyPrice,
+          currency: "KRW",
+          plan_name: data.planName ?? plan.planId,
+        });
+        // 토스 빌링은 승인 성공 = 빌링키 발급 + 첫 결제 = 구독 활성화 시점이다.
+        trackEvent("subscription_start", {
+          plan_name: data.planName ?? plan.planId,
+          billing_period: "monthly",
+          value: plan.monthlyPrice,
+          currency: "KRW",
+        });
       } catch (e) {
         setStatus("error");
         setMessage(e instanceof Error ? e.message : t("결제 승인에 실패했습니다."));

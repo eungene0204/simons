@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/firebase";
+import { trackEvent } from "@/lib/analytics";
 import {
   PENDING_STRATEGY_PROMPT_KEY,
   STRATEGY_CHAT_STATE_KEY,
@@ -254,6 +255,11 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         const hydratedName = loginData.user.name?.trim();
         const hydratedEmail = loginData.user.email?.trim();
         const hydratedAvatarUrl = loginData.user.avatarUrl?.trim();
+
+        // 이 분기는 앱 쿠키가 없고 Supabase 세션만 있을 때(구글 OAuth 복귀 직후)만
+        // 도달한다 — 세션 교환 성공이 곧 로그인 성공 시점이다. 이후 방문은 위의
+        // 쿠키 경로에서 조기 반환되므로 페이지 로드마다 중복 전송되지 않는다.
+        trackEvent("login", { method: "google" });
 
         setAuthState("authenticated");
         setUserProfile({

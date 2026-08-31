@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import NullstockLogoMark from "@/components/layout/NullstockLogoMark";
 import { t } from "@/lib/i18n";
 import { useRegionHref } from "@/lib/geo/useRegion";
+import { useAnalytics } from "@/lib/hooks/useAnalytics";
 
 // 이메일 가입 — 2단계 플로우.
 // 1) 정보 입력 + 약관 동의 → 인증번호 발송(/api/register/request-code)
@@ -16,6 +17,7 @@ export default function RegisterForm({
   verificationRequired?: boolean;
 }) {
   const regionHref = useRegionHref();
+  const analytics = useAnalytics();
   const [step, setStep] = useState<"form" | "verify">("form");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -74,6 +76,8 @@ export default function RegisterForm({
       return;
     }
     // 가입 성공 = 자동 로그인(쿠키 발급됨). 전체 리로드로 인증 상태를 반영한다.
+    // GA 이벤트는 리다이렉트 직전에 보낸다 — gtag는 beacon 전송이라 페이지 이탈에도 살아남는다.
+    analytics.signUp("email");
     window.location.href = regionHref("/");
   };
 

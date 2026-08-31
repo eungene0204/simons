@@ -16,6 +16,7 @@ import dynamic from "next/dynamic";
 import { createClient } from "@supabase/supabase-js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { regionRequestHeaders, useRegionHref } from "@/lib/geo/useRegion";
+import { backtestRunParamsFromRequest, trackEvent } from "@/lib/analytics";
 import { stripRegionPrefix } from "@/lib/geo/region";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { StrategyExampleTabs } from "@/components/strategy/StrategyExampleTabs";
@@ -4506,6 +4507,8 @@ function StrategyLabContent() {
           setResult(mapRawBacktestResult(event.data, `nl_${Date.now()}`, nlCacheKey));
           setExecutedReq(effectiveReq);
           setStage("done");
+          // Activation 핵심 지표 — 버튼 클릭이 아니라 결과 생성이 확정된 이 지점에서만 보낸다.
+          trackEvent("backtest_run", backtestRunParamsFromRequest(effectiveReq));
         } else if (event.type === "error") {
           throw new Error(event.message);
         }

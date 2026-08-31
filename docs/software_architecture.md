@@ -431,6 +431,19 @@ interface BacktestResult {
 - Advisor learning용 export는 `format=advisor-learning-results`를 사용한다.
 - 대형 learning run은 실패/중단 시 source run과 resume run을 `advisor_smoke_0001`..`advisor_smoke_10000` sample_id 기준으로 병합해 `data/advisor-learning` artifact를 재생성한다.
 
+### 3.6 GA4 이벤트 추적 계층 (`lib/analytics/`)
+
+초기화는 루트 레이아웃의 `<GoogleAnalytics>`(@next/third-parties, `NEXT_PUBLIC_GA_ID` 없으면 미렌더) 한 곳이고, **컴포넌트는 `window.gtag`를 직접 호출하지 않는다** — 서비스 레이어를 거친다.
+
+```text
+사용자 행동 → React Component → lib/analytics(trackEvent) → window.gtag → GA4
+```
+
+- `lib/analytics/types.ts`: 이벤트명↔파라미터를 `AnalyticsEventMap`으로 컴파일 타임 결속. 개인정보(이메일·이름·전화·계좌·보유 종목·투자 금액) 파라미터 금지 — 전략 종류·시장·리밸런싱 주기·백테스트 기간·플랜명 같은 비식별 메타데이터만.
+- `lib/analytics/events.ts`: `trackEvent(event, params)` — SSR·GA 미설정·스크립트 차단·gtag 예외 모두 조용히 no-op(분석 실패가 서비스 동작에 영향 없음). `backtestRunParamsFromRequest(req)` — 이미 컴파일된 엔진 요청에서 market(universe_id 정규화)·rebalance_period·backtest_period·stock_count를 뽑는다.
+- `lib/hooks/useAnalytics.ts`: 이벤트별 메서드(`signUp`/`login`/`backtestRun`/...)를 메모이즈해 제공.
+- 배선 지점 7곳: `sign_up`(RegisterForm 가입 확정)·`login`(LoginForm 이메일, TopNavigation 구글 OAuth 세션 교환 성공)·`backtest_run`(**Activation 지표** — `/analytics/new` SSE `result` 수신 시점, 버튼 클릭 아님)·`strategy_save`(BacktestDashboard 저장 성공)·`pricing_view`(`components/pricing/PricingViewTracker` — ref 가드로 방문당 1회, KR·US 분기 모두)·`purchase`+`subscription_start`(토스 승인 확정, KRW)·`subscription_start`(PayPal sync ACTIVE, USD).
+
 ---
 
 ## 4. 백엔드 아키텍처

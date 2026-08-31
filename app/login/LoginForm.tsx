@@ -5,11 +5,13 @@ import { useState } from "react";
 import NullstockLogoMark from "@/components/layout/NullstockLogoMark";
 import { t } from "@/lib/i18n";
 import { useRegionHref } from "@/lib/geo/useRegion";
+import { useAnalytics } from "@/lib/hooks/useAnalytics";
 
 // 이메일 로그인 — /api/login의 이메일·비밀번호 경로를 사용한다.
 // (Google 로그인은 상단 내비게이션/로그인 모달에서 제공)
 export default function LoginForm() {
   const regionHref = useRegionHref();
+  const analytics = useAnalytics();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [email, setEmail] = useState("");
@@ -38,6 +40,8 @@ export default function LoginForm() {
         return;
       }
       // 쿠키 발급됨 — 전체 리로드로 인증 상태를 반영한다.
+      // GA 이벤트는 리다이렉트 직전에 보낸다 — gtag는 beacon 전송이라 페이지 이탈에도 살아남는다.
+      analytics.login("email");
       window.location.href = regionHref("/");
     } catch {
       setError(t("서버 오류가 발생했습니다. 다시 시도해주세요."));

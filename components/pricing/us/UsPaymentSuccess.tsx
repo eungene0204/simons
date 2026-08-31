@@ -10,6 +10,9 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { regionRequestHeaders, useRegionHref } from "@/lib/geo/useRegion";
+import { US_PRICING } from "@/lib/pricing/us";
+import { isValidPlanId } from "@/lib/plans";
+import { trackEvent } from "@/lib/analytics";
 
 type Status = "checking" | "active" | "pending" | "error";
 
@@ -37,8 +40,18 @@ export default function UsPaymentSuccess() {
           throw new Error(data?.error ?? "We could not confirm your subscription.");
         }
         if (data?.status === "ACTIVE") {
-          setPlanId(typeof data.planId === "string" ? data.planId : "");
+          const activePlanId = typeof data.planId === "string" ? data.planId : "";
+          setPlanId(activePlanId);
           setStatus("active");
+
+          // 구독이 ACTIVE로 확인된 시점에만 보낸다(승인 복귀만으로는 미확정 —
+          // pending이면 웹훅이 정본으로 처리하므로 이 화면에서는 보내지 않는다).
+          trackEvent("subscription_start", {
+            plan_name: activePlanId || "unknown",
+            billing_period: "monthly",
+            value: isValidPlanId(activePlanId) ? US_PRICING.monthlyPrice[activePlanId] : 0,
+            currency: "USD",
+          });
         } else {
           setStatus("pending");
         }

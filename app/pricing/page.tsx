@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
 import { getPlan } from "@/lib/plans";
 import PricingPlans from "@/components/pricing/PricingPlans";
+import PricingViewTracker from "@/components/pricing/PricingViewTracker";
 import { t } from "@/lib/i18n";
 import { getRequestLanguage } from "@/lib/i18n/server";
 import { getRequestRegion } from "@/lib/geo/server";
@@ -13,7 +14,12 @@ export default async function PricingPage() {
   // 글로벌 서비스(/us/pricing)는 영어·USD 전용 트리로 완전히 분리한다 —
   // 아래 한국(토스페이먼츠) 경로는 심사 중이라 그대로 둔다.
   if (getRequestRegion() === "us") {
-    return <UsPricingPage />;
+    return (
+      <>
+        <PricingViewTracker />
+        <UsPricingPage />
+      </>
+    );
   }
 
   const user = await getCurrentUser();
@@ -43,6 +49,7 @@ export default async function PricingPage() {
   getRequestLanguage();
   return (
     <DashboardLayout userName={user.name || t("게스트")}>
+      <PricingViewTracker />
       <div className="min-h-[calc(100vh-var(--top-menu-bar-height,76px))] bg-[#050505] px-5 py-6 text-white sm:px-8 lg:px-10">
         <div className="mx-auto flex min-h-[calc(100vh-var(--top-menu-bar-height,76px)-3rem)] w-full max-w-7xl flex-col">
           <div className="text-center">
