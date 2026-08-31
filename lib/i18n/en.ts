@@ -938,6 +938,7 @@ export const en: Record<string, string> = {
   "기관": "Institutions",
   "데이터 없음": "No data",
   "데이터 조회 실패": "Failed to load data",
+  "미국 종목에선 지원하지 않습니다": "Not supported for US stocks",
   "순매도": "Net sell",
   "순매수": "Net buy",
   "외국인": "Foreigners",

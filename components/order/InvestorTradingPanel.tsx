@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Minus } from "phosphor-react";
+import { isUsSymbol } from "@/lib/stock-prices";
 import { t } from "@/lib/i18n";
 
 interface InvestorRow {
@@ -45,9 +46,12 @@ export default function InvestorTradingPanel({ symbol }: Props) {
   const [rows, setRows] = useState<InvestorRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 투자자별 매매동향은 토스 스펙상 국내 전용(US는 400 unsupported-market) —
+  // 미국 티커는 요청 없이 미지원 안내만 보여준다.
+  const isUs = isUsSymbol(symbol);
 
   useEffect(() => {
-    if (!symbol) return;
+    if (!symbol || isUsSymbol(symbol)) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -96,7 +100,11 @@ export default function InvestorTradingPanel({ symbol }: Props) {
 
       {/* 데이터 행 */}
       <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
-        {loading ? (
+        {isUs ? (
+          <div className="flex h-full items-center justify-center px-4 text-center">
+            <p className="text-xs font-bold text-gray-500">{t("미국 종목에선 지원하지 않습니다")}</p>
+          </div>
+        ) : loading ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-xs font-bold text-gray-500">{t("불러오는 중...")}</p>
           </div>
