@@ -475,7 +475,7 @@ interface BacktestResult {
 **시장 데이터**
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
-| GET | `/stock/{symbol}/ohlcv` | OHLCV 캔들 데이터 |
+| GET | `/stock/{symbol}/ohlcv` | OHLCV 캔들 데이터 — US 티커는 float 가격 경로(`us_ohlcv.py`)를 로더보다 먼저 태운다(KR 원 정수 절삭이 달러 소수점을 뭉개는 것 방지) |
 | GET | `/market/price/{symbol}` | 현재가 조회 |
 | GET | `/market/stock-detail/{symbol}` | 종목 상세 (호가, 거래량) |
 | POST | `/market/prices` | 배치 현재가 조회 |

@@ -448,12 +448,15 @@ async def walk_forward_stream(request: WalkForwardRequest):
 @app.get("/stock/{symbol}/ohlcv")
 def get_stock_ohlcv(symbol: str, limit: int = 1260):
     try:
+        # 미국 티커는 float 가격 경로(us_ohlcv)를 먼저 태운다 — 엔진 로더가 US 파케이도
+        # 돌려주게 된 뒤(8164294e)로는 아래 KR 경로에 도달해 int() 절삭이 달러 소수점을
+        # 뭉갠다(14.73 → 14.00, 등락 0%). KR 심볼(숫자 시작)은 US 정규식에 걸리지 않는다.
+        us_response = load_us_ohlcv(symbol, limit)
+        if us_response is not None:
+            return us_response
+
         df = engine.loader.load_symbol_data(symbol)  # polars DataFrame
         if df is None:
-            # 한국 파케이에 없는 심볼 — 미국 데이터(data/ohlcv-us) 폴백 (차트/시세 표시 전용)
-            us_response = load_us_ohlcv(symbol, limit)
-            if us_response is not None:
-                return us_response
             raise FileNotFoundError(symbol)
         df_tail = df.tail(limit)
 
@@ -778,20 +781,29 @@ async def force_liquidate_position(account_id: str, symbol: str):
         qty = pos["quantity"]
         avg_price = pos["avgPrice"]
 
+        # 미국 종목은 달러 소수점 유지·매도세 없음 (원 단위 정수 규약은 한국 전용)
+        us = is_us_symbol(symbol)
+
         # 최근 시세 조회
         try:
             quote = await market_data_provider.get_price(symbol)
-            price = quote.close if quote and quote.close > 0 else int(avg_price)
+            price = quote.close if quote and quote.close > 0 else (
+                float(avg_price) if us else int(avg_price))
         except Exception:
-            price = int(avg_price)
+            price = float(avg_price) if us else int(avg_price)
 
         # 청산 실행 (시장가)
         import math, uuid as _uuid
         fee_rate = 0.00015
         tax_rate = 0.002
-        filled = int(price * (1 - 0.0005))  # 슬리피지
-        fee = math.floor(filled * qty * fee_rate)
-        tax = math.floor(filled * qty * tax_rate)
+        if us:
+            filled = round(price * (1 - 0.0005), 2)  # 슬리피지, 센트 단위
+            fee = math.floor(filled * qty * fee_rate * 100) / 100  # 센트 절사
+            tax = 0.0
+        else:
+            filled = int(price * (1 - 0.0005))  # 슬리피지
+            fee = math.floor(filled * qty * fee_rate)
+            tax = math.floor(filled * qty * tax_rate)
         proceeds = filled * qty - fee - tax
         pnl = (filled - avg_price) * qty - fee - tax
         now = _appdb.now()
@@ -2485,13 +2497,18 @@ def market_signals(body: dict):
                 exit_signal = bool(exit_arr[-1])
                 exit_reason = exit_reasons[-1]
 
+            # 한국 시세는 원 단위 정수 규약, 미국 시세는 달러 소수점 유지 (int 절삭 금지)
+            us = is_us_symbol(symbol)
+            def _px(value):
+                return round(float(value), 4) if us else int(value)
+
             results.append({
                 "symbol": symbol,
                 "date": date_str,
-                "close": int(last_row.get("close", 0)),
-                "open": int(last_row.get("open", 0)),
-                "high": int(last_row.get("high", 0)),
-                "low": int(last_row.get("low", 0)),
+                "close": _px(last_row.get("close", 0)),
+                "open": _px(last_row.get("open", 0)),
+                "high": _px(last_row.get("high", 0)),
+                "low": _px(last_row.get("low", 0)),
                 "volume": int(last_row.get("volume", 0)),
                 "entry_signal": entry_signal,
                 "exit_signal": exit_signal,

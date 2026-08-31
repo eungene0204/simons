@@ -97,6 +97,13 @@ def _realized_pnl(sell_price: float, avg_buy: float, qty: int, fee: float, tax: 
     return (sell_price - avg_buy) * qty - fee - tax
 
 
+def _price_display(price: float, symbol: str) -> str:
+    """사유 문구용 가격 표기 — 한국은 원 단위 정수, 미국은 달러 소수점 유지."""
+    if is_us_symbol(str(symbol)):
+        return f"${price:,.2f}"
+    return f"{int(price):,}원"
+
+
 def _coerce_numeric(value, default: float = 0.0) -> float:
     if value is None:
         return default
@@ -590,7 +597,9 @@ class VirtualTrader:
                 peak = pos.get("peakPrice") or avg
                 dd_pct = (current_price - peak) / peak * 100
                 if dd_pct <= -trailing_stop_pct:
-                    risk_exits[pos["symbol"]] = f"트레일링스톱 (최고가 {int(peak):,}원 대비 {dd_pct:.1f}% 하락)"
+                    risk_exits[pos["symbol"]] = (
+                        f"트레일링스톱 (최고가 {_price_display(peak, pos['symbol'])} 대비 {dd_pct:.1f}% 하락)"
+                    )
                     continue
             if max_holding_days > 0:
                 opened_dt = _parse_db_datetime(pos.get("openedAt"))

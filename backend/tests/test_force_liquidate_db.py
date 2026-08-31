@@ -64,3 +64,41 @@ def test_force_liquidate_settles_position(app_db, monkeypatch):
         ("acc_fl", "005930"),
     ).fetchone()
     assert audit["actionType"] == "AUTO_LIQUIDATE"
+
+
+def test_force_liquidate_us_symbol_keeps_cents_and_no_tax(app_db, monkeypatch):
+    """미국 종목 강제청산 — 달러 소수점 유지(int 절삭 금지)·증권거래세 없음."""
+    app_db.execute(
+        'INSERT INTO "VirtualAccount" (id, name, "initialCash", "currentCash", "updatedAt")'
+        " VALUES (?, ?, ?, ?, ?)",
+        ("acc_fl_us", "US청산테스트", 10_000, 5_000, datetime(2026, 1, 1)),
+    )
+    app_db.execute(
+        'INSERT INTO "VirtualPosition" (id, "accountId", symbol, name, quantity, "avgPrice", "updatedAt")'
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("pos_fl_us", "acc_fl_us", "AES", "AES", 10, 13.5, datetime(2026, 1, 1)),
+    )
+    app_db.commit()
+
+    import main
+
+    class _Quote:
+        close = 14.73
+
+    async def _fake_get_price(symbol):
+        return _Quote()
+
+    monkeypatch.setattr(main.market_data_provider, "get_price", _fake_get_price)
+
+    result = asyncio.run(main.force_liquidate_position("acc_fl_us", "AES"))
+
+    assert result["success"] is True
+
+    order = app_db.execute(
+        'SELECT "filledPrice", tax FROM "VirtualOrder" WHERE "accountId" = ?',
+        ("acc_fl_us",),
+    ).fetchone()
+    # 슬리피지 반영가 14.73 * 0.9995 = 14.72... — int 절삭이면 14
+    assert float(order["filledPrice"]) == pytest.approx(round(14.73 * 0.9995, 2))
+    assert float(order["filledPrice"]) != 14
+    assert float(order["tax"]) == 0.0  # 미국 매도세 없음
