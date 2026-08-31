@@ -1021,12 +1021,14 @@ Dataset에 정답 전략을 두지 않는다 — **되묻기는 실패가 아니
 
 ### 4.3 백테스트 엔진 파이프라인
 
-> **실행 장소 (2026-08-31~)**: 사용자 단일 실행 경로(`POST /backtest`, `/strategy/backtest-stream`)는
-> `backend/backtest_executor.py`가 디스패치한다 — prod는 `BACKTEST_EXECUTOR=modal`로
-> **Modal 서버리스 CPU 워커**(`modal_backtest.py`, 오토스케일·컨테이너당 1건·전용 8코어)에서 실행하고,
-> 로컬 dev·테스트·최적화/워크포워드/가상매매는 종전대로 인프로세스다. 원격 실패는 로컬로
+> **실행 장소 (2026-08-31~)**: 사용자 실행 경로(`POST /backtest`, `/strategy/backtest-stream`,
+> `/optimize`, `/walk-forward`, `/walk-forward/stream`)는 `backend/backtest_executor.py`가
+> 디스패치한다 — prod는 `BACKTEST_EXECUTOR=modal`로 **Modal 서버리스 CPU 워커**
+> (`modal_backtest.py` — 단일 실행 8코어, 최적화/워크포워드 잡 16코어)에서 실행하고,
+> 로컬 dev·테스트·가상매매는 종전대로 인프로세스다. `/walk-forward/stream`은 워커 SSE를
+> 백엔드가 그대로 통과시킨다(이벤트 형식 동일, 연결 종료 = 협조적 취소). 원격 실패는 로컬로
 > 폴백하지 않는다(아키텍처 간 ULP 차이로 정본 레인이 섞이는 것 금지). 결과 동일성은
-> `scripts/qa_backtest_modal_equivalence.py`(prod x86 기준 덤프 ↔ 워커 전수 대조)로 보증한다.
+> `scripts/qa_backtest_modal_equivalence.py`(단일 실행 전수 + `--jobs` 픽스처)로 보증한다.
 
 ```
 BacktestEngine.run_backtest(request)

@@ -271,15 +271,13 @@ def clear_data_cache():
 def optimize_strategy(request: OptimizationRequest):
     print(f"\n[DEBUG] BACKEND: Received optimize request. Goal: {request.user_prompt}", flush=True)
     try:
-        from ai.local_optimization_agent import LocalOptimizationAgent
-        agent = LocalOptimizationAgent(engine)
-        
-        result = agent.run_optimization_loop(
+        result = backtest_executor.run_optimization(
+            engine,
             base_request=request.base_strategy.model_dump(),
             user_prompt=request.user_prompt,
             ranges=request.ranges,
             target_metric=request.target_metric,
-            n_trials=request.n_trials
+            n_trials=request.n_trials,
         )
         
         if result.get("status") == "error":
@@ -297,9 +295,7 @@ def optimize_strategy(request: OptimizationRequest):
 def walk_forward_analysis(request: WalkForwardRequest):
     print(f"\n[DEBUG] BACKEND: Walk-Forward Analysis request. splits={request.n_splits}, train={request.train_pct}, anchor={request.anchor}", flush=True)
     try:
-        from engine.walk_forward import WalkForwardAnalyzer
-        analyzer = WalkForwardAnalyzer(engine)
-        result = analyzer.analyze(
+        result = backtest_executor.run_walk_forward(engine, dict(
             base_request=request.base_strategy.model_dump(),
             ranges=request.ranges,
             n_splits=request.n_splits,
@@ -310,7 +306,7 @@ def walk_forward_analysis(request: WalkForwardRequest):
             method=request.method,
             is_bars=request.is_bars,
             oos_bars=request.oos_bars,
-        )
+        ))
         if result.get("status") == "error":
             raise HTTPException(status_code=400, detail=result.get("message"))
         return result
@@ -331,6 +327,20 @@ async def walk_forward_stream(request: WalkForwardRequest):
     """
     import threading
     import queue as _queue
+
+    # 원격 실행 모드면 워커의 SSE를 그대로 통과시킨다(이벤트 형식 동일 — modal_backtest.py).
+    if backtest_executor.remote_url():
+        payload = dict(
+            base_request=request.base_strategy.model_dump(),
+            ranges=request.ranges, n_splits=request.n_splits, train_pct=request.train_pct,
+            anchor=request.anchor, target_metric=request.target_metric, n_trials=request.n_trials,
+            method=request.method, is_bars=request.is_bars, oos_bars=request.oos_bars,
+        )
+        return StreamingResponse(
+            backtest_executor.iter_walk_forward_stream(payload),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     progress_q: _queue.Queue = _queue.Queue()
     result_holder: dict = {}
