@@ -55,6 +55,7 @@ export function mapRawBacktestResult(
       quantity: s.quantity ?? 0,
       amount: s.amount ?? 0,
       reason: s.condition,
+      reasonParts: s.conditionParts,
     })),
     monthlyReturns: {},
     yearlyReturns: {},

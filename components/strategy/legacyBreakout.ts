@@ -1,6 +1,13 @@
 import { BacktestResult, Condition, StrategyDSL } from "@/types/strategy";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
 import { t } from "@/lib/i18n";
+import {
+  REASON_TEMPLATE,
+  firstReasonTemplate,
+  isTradeReasonSegments,
+  renderTradeReasonSegments,
+  type TradeReasonSegment,
+} from "@/lib/trade-reason";
 
 function normalizeLegacyBreakoutCondition(condition: Condition): Condition {
   if (condition.id !== "breakout" || condition.params?.lookbackPeriod !== 52) {
@@ -67,13 +74,15 @@ function describeExitCondition(condition: Condition): string {
   switch (condition.id) {
     case "breakout": {
       const lookbackPeriod = Number(condition.params?.lookbackPeriod);
-      const direction = condition.params?.signalType === "sell" ? "신저가 돌파" : "신고가 돌파";
-      return `${formatBreakoutPeriodLabel(lookbackPeriod)} ${direction}`;
+      const periodLabel = formatBreakoutPeriodLabel(lookbackPeriod);
+      return condition.params?.signalType === "sell"
+        ? t("{0} 신저가 돌파", periodLabel)
+        : t("{0} 신고가 돌파", periodLabel);
     }
     case "ma_crossover": {
       const shortMA = condition.params?.shortMA;
       const longMA = condition.params?.longMA;
-      const crossType = condition.params?.crossType === "dead" ? "데드크로스" : "골든크로스";
+      const crossType = condition.params?.crossType === "dead" ? t("데드크로스") : t("골든크로스");
       if (shortMA && longMA) {
         return t("{0}일/{1}일 {2}", shortMA, longMA, crossType);
       }
@@ -133,6 +142,63 @@ export function resolveTradeReason(
   }
 
   return `${baseReason}${details}`;
+}
+
+/** 청산 조건 서술 — 사유가 '전략 매도 조건 충족'뿐일 때 이 문구로 바꿔 보여준다. */
+function describeExitConditions(strategy: Pick<StrategyDSL, "exit"> | null | undefined): string | null {
+  const exitConditions = strategy?.exit?.conditions ?? [];
+  if (exitConditions.length === 1) {
+    return t("{0} 충족", describeExitCondition(exitConditions[0]));
+  }
+  if (exitConditions.length > 1) {
+    return t("설정된 매도 규칙 중 하나 충족 ({0})", exitConditions.map(describeExitCondition).join(" / "));
+  }
+  return null;
+}
+
+/** 252거래일 돌파는 '52주'로 읽는 것이 사용자 표기다(구조화 사유에도 같은 규칙 적용). */
+function normalizeBreakoutSegments(segments: TradeReasonSegment[]): TradeReasonSegment[] {
+  return segments.map((seg) => {
+    if (!("t" in seg)) return seg;
+    const lookback = Number((seg.a ?? [])[0]);
+    if (lookback !== 252 && lookback !== 52) return seg;
+    if (seg.t === REASON_TEMPLATE.breakoutHigh) return { t: REASON_TEMPLATE.breakoutHigh52w };
+    if (seg.t === REASON_TEMPLATE.breakoutLow) return { t: REASON_TEMPLATE.breakoutLow52w };
+    return seg;
+  });
+}
+
+/**
+ * 거래 내역에 표시할 매매사유.
+ *
+ * 엔진이 구조화 사유(reasonParts)를 주면 템플릿을 번역해 렌더링하고, 없으면(구버전 결과)
+ * 백엔드가 준 한국어 문장을 종전 규칙대로 다듬어 쓴다.
+ */
+export function resolveTradeReasonDisplay(
+  reason: string | null | undefined,
+  parts: unknown,
+  tradeType: "buy" | "sell",
+  strategy: Pick<StrategyDSL, "exit"> | null | undefined,
+  formatMoney: (value: number) => string
+): string {
+  if (!isTradeReasonSegments(parts) || parts.length === 0) {
+    return resolveTradeReason(reason, tradeType, strategy) ?? "";
+  }
+
+  let segments = normalizeBreakoutSegments(parts);
+
+  // 손절/익절 판정은 백엔드 exit_type(result_handler)만 신뢰한다 — 여기서는 일반 매도
+  // 사유('전략 매도 조건 충족')를 전략의 청산 조건 서술로 바꾸는 일만 한다.
+  if (tradeType === "sell" && firstReasonTemplate(segments) === REASON_TEMPLATE.exitStrategySignal) {
+    const described = describeExitConditions(strategy);
+    if (described) {
+      segments = segments.map((seg) =>
+        "t" in seg && seg.t === REASON_TEMPLATE.exitStrategySignal ? { s: described } : seg
+      );
+    }
+  }
+
+  return renderTradeReasonSegments(segments, formatMoney);
 }
 
 export function inferBacktestOptionsFromResult(result: BacktestResult): BacktestConfigOptions {

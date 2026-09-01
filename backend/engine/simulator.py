@@ -4,6 +4,7 @@ import numpy as np
 from typing import Dict, Any, Optional
 
 from engine.rebalance import compute_rebalance_dates
+from engine import trade_reason as tr
 
 # ── 거래 비용 기본값 ──────────────────────────────────────────────────────────
 # 매수/매도 수수료는 legacy 'fee_rate'(대칭)를 상속하고, 증권거래세는 매도측에만
@@ -15,13 +16,13 @@ DEFAULT_SLIPPAGE_RATE = 0.0020
 # 리밸런싱일에 목표 집합에서 빠져(조건 미충족·랭킹 이탈) 매도되는 청산의 정밀 사유.
 # 신호/리스크 청산이 아니므로 결과 라벨이 추상적인 '전략 매도 조건 충족'으로 뭉개지지
 # 않도록 시뮬레이터가 직접 사유를 기록한다.
-REBALANCE_EXIT_REASON = "리밸런싱 제외 (목표 종목 이탈)"
+REBALANCE_EXIT_REASON = tr.encode([tr.part(tr.REBALANCE_DROPOUT)])
 
 # 리밸런싱일에 목표 비중을 넘어선 보유를 덜어내는 부분 매도(트림)의 사유 — 방식과 무관하다.
 # 종목 교체·비중 유지 둘 다 동일가중으로 비중을 리셋하므로 오른 종목이 목표 비중까지 잘리고,
 # 라벨이 없으면 result_handler의 일반 추론이 '전략 매도 조건 충족'으로 적어 **매도 조건을
 # 하나도 말하지 않은 전략**의 거래 내역에 존재하지 않는 매도 조건이 사유로 찍힌다.
-REBALANCE_TRIM_REASON = "리밸런싱 비중 조정 (목표 비중 초과분 매도)"
+REBALANCE_TRIM_REASON = tr.encode([tr.part(tr.REBALANCE_TRIM)])
 
 
 def select_ranked_targets(cand_sorted, eff_max_pos, sel_pct, sel_band, band_cap=None):
@@ -191,9 +192,12 @@ class Simulator:
         # '전략 매도 조건 충족'으로 오분류하던 문제가 있었다(라벨을 사유의 정답 소스로 통일).
         def _fmt_pct(v: float) -> str:
             return str(int(v)) if v == int(v) else str(v)
-        sl_reason = f"손절매 실행 (-{_fmt_pct(sl_pct)}%)" if sl_pct > 0 else "손절매 실행"
-        tp_reason = f"익절매 실행 (+{_fmt_pct(tp_pct)}%)" if tp_pct > 0 else "익절매 실행"
-        ts_reason = f"트레일링 스탑 실행 (-{_fmt_pct(ts_pct)}%)" if ts_pct > 0 else "트레일링 스탑 실행"
+        sl_reason = tr.encode([tr.part(tr.STOP_LOSS_PCT, _fmt_pct(sl_pct)) if sl_pct > 0
+                               else tr.part(tr.STOP_LOSS)])
+        tp_reason = tr.encode([tr.part(tr.TAKE_PROFIT_PCT, _fmt_pct(tp_pct)) if tp_pct > 0
+                               else tr.part(tr.TAKE_PROFIT)])
+        ts_reason = tr.encode([tr.part(tr.TRAILING_STOP_EXEC_PCT, _fmt_pct(ts_pct)) if ts_pct > 0
+                               else tr.part(tr.TRAILING_STOP_EXEC)])
 
         # from_orders 입력: NaN=주문 없음, 양수=진입 목표비중(NAV 대비), 0=전량 청산
         target_values = np.full((n_rows, num_symbols), np.nan)

@@ -6,6 +6,7 @@ import polars as pl
 import numpy as np
 
 from engine.indicator_columns import bollinger_columns, macd_columns, stochastic_columns
+from engine import trade_reason as tr
 
 
 # Fundamental filter metrics. The condition id equals the parquet column name, so the
@@ -125,22 +126,25 @@ class SignalEngine:
 
         final = sig_result & fil_result
 
-        # Fix 4: 이유 문자열은 True인 행에 대해서만 생성 (희소 접근으로 오버헤드 최소화)
+        # Fix 4: 이유는 True인 행에 대해서만 생성 (희소 접근으로 오버헤드 최소화).
+        # 표시 번역은 프론트 t() 소관이라 완성 문장이 아니라 한국어 정본 템플릿과 인자를
+        # 실어 보낸다(engine/trade_reason.py).
         reasons: List[Optional[str]] = [None] * data_len
         true_indices = np.where(final)[0]
         if len(true_indices) > 0:
-            sig_descs = [self.get_condition_description(c) for c in signals]
-            fil_descs = [self.get_condition_description(c) for c in filters]
+            sig_segs = [self.get_condition_segments(c) for c in signals]
+            fil_segs = [self.get_condition_segments(c) for c in filters]
+            sig_joiner = [tr.SEP_AND] if logic == 'AND' else tr.or_separator()
             for i in true_indices:
-                active_sig = [d for d, arr in zip(sig_descs, sig_arrays) if arr[i] and d]
-                active_fil = [d for d, arr in zip(fil_descs, fil_arrays) if arr[i] and d]
-                sig_joiner = " + " if logic == 'AND' else " 또는 "
-                sig_part = sig_joiner.join(active_sig)
-                fil_part = " + ".join(active_fil)
+                active_sig = [d for d, arr in zip(sig_segs, sig_arrays) if arr[i] and d]
+                active_fil = [d for d, arr in zip(fil_segs, fil_arrays) if arr[i] and d]
+                sig_part = tr.join(active_sig, sig_joiner)
+                fil_part = tr.join(active_fil, [tr.SEP_AND])
                 if sig_part and fil_part:
-                    reasons[i] = f"({sig_part}) + {fil_part}"
+                    combined = [tr.PAREN_OPEN] + sig_part + [tr.PAREN_CLOSE, tr.SEP_AND] + fil_part
                 else:
-                    reasons[i] = sig_part or fil_part or None
+                    combined = sig_part or fil_part
+                reasons[i] = tr.encode(combined) if combined else None
 
         return final, reasons
 
@@ -459,7 +463,7 @@ class SignalEngine:
             sig_res = True
         else:
             sig_res = True if logic == 'AND' else False
-        sig_desc = None
+        sig_segs: List[List[Dict[str, Any]]] = []
 
         for cond in signals:
             res = self.evaluate_condition(cond, idx, df)
@@ -467,38 +471,40 @@ class SignalEngine:
                 if not res:
                     sig_res = False
                 elif sig_res:
-                    desc = self.get_condition_description(cond)
-                    if desc:
-                        sig_desc = f"{sig_desc} + {desc}" if sig_desc else desc
+                    segs = self.get_condition_segments(cond)
+                    if segs:
+                        sig_segs.append(segs)
             else:
                 if res:
                     sig_res = True
-                    desc = self.get_condition_description(cond)
-                    if desc:
-                        sig_desc = f"{sig_desc} 또는 {desc}" if sig_desc else desc
+                    segs = self.get_condition_segments(cond)
+                    if segs:
+                        sig_segs.append(segs)
 
         fil_res = True
-        fil_desc = None
+        fil_segs: List[List[Dict[str, Any]]] = []
 
         for cond in filters:
             res = self.evaluate_condition(cond, idx, df)
             if not res:
                 fil_res = False
-                fil_desc = None
+                fil_segs = []
                 break
             else:
-                desc = self.get_condition_description(cond)
-                if desc:
-                    fil_desc = f"{fil_desc} + {desc}" if fil_desc else desc
+                segs = self.get_condition_segments(cond)
+                if segs:
+                    fil_segs.append(segs)
 
         final_res = sig_res and fil_res
 
         if final_res:
-            if sig_desc and fil_desc:
-                final_desc = f"({sig_desc}) + {fil_desc}"
+            sig_part = tr.join(sig_segs, [tr.SEP_AND] if logic == 'AND' else tr.or_separator())
+            fil_part = tr.join(fil_segs, [tr.SEP_AND])
+            if sig_part and fil_part:
+                final_segs = [tr.PAREN_OPEN] + sig_part + [tr.PAREN_CLOSE, tr.SEP_AND] + fil_part
             else:
-                final_desc = sig_desc or fil_desc
-            return True, str(final_desc) if final_desc else None
+                final_segs = sig_part or fil_part
+            return True, tr.encode(final_segs) if final_segs else None
 
         return False, None
 
@@ -765,82 +771,103 @@ class SignalEngine:
         return False
 
     def get_condition_description(self, cond: Dict[str, Any]) -> str:
+        """조건의 한국어 서술. 표시용 구조화 표현은 get_condition_segments가 정본이다."""
+        return tr.render_kr(self.get_condition_segments(cond))
+
+    def get_condition_segments(self, cond: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """조건 서술의 구조화 표현(한국어 정본 템플릿 + 인자).
+
+        표시 번역은 프론트 t() 소관이라 완성 문장 대신 템플릿과 인자를 싣는다
+        (engine/trade_reason.py 참고).
+        """
         cid, p = cond['id'], cond['params']
         op = p.get('operator', '')
-        op_kr = {"<": "이하", ">": "이상", "<=": "이하", ">=": "이상", "==": "동일"}.get(op, op)
+        op_seg = {
+            "<": tr.part(tr.OP_LTE), ">": tr.part(tr.OP_GTE),
+            "<=": tr.part(tr.OP_LTE), ">=": tr.part(tr.OP_GTE),
+            "==": tr.part(tr.OP_EQ),
+        }.get(op, tr.literal(op))
 
         if cid == 'ma_crossover':
             short = p.get('shortMA', p.get('short_period', p.get('short', 5)))
             long_ = p.get('longMA', p.get('long_period', p.get('long', 20)))
-            return f"{short}일선-{long_}일선 골든크로스" if p.get('signalType') != 'sell' else f"{short}일선-{long_}일선 데드크로스"
+            sell = p.get('signalType') == 'sell'
+            return [tr.part(tr.MA_DEAD_CROSS if sell else tr.MA_GOLDEN_CROSS, short, long_)]
         elif cid == 'rsi':
             val = p.get('value', 30)
             if p.get('mode') == 'rebound':
-                return f"RSI {val} 상향 돌파(과매도 반등)" if p.get('signalType') != 'sell' else f"RSI {val} 하향 돌파"
-            return f"RSI {val} {op_kr}"
+                sell = p.get('signalType') == 'sell'
+                return [tr.part(tr.RSI_REBOUND_DOWN if sell else tr.RSI_REBOUND_UP, val)]
+            return [tr.part(tr.RSI_LEVEL, val, op_seg)]
         elif cid == 'ema':
             short_p = p.get('shortPeriod', p.get('short'))
             long_p = p.get('longPeriod', p.get('long'))
             if short_p and long_p:
                 if p.get('mode') in ('above', 'below'):
                     above = p.get('mode') == 'above'
-                    return f"EMA{short_p}이 EMA{long_p} {'위' if above else '아래'} 유지"
-                return f"EMA{short_p}-EMA{long_p} 골든크로스" if p.get('signalType') != 'sell' else f"EMA{short_p}-EMA{long_p} 데드크로스"
+                    return [tr.part(tr.EMA_STAY_ABOVE if above else tr.EMA_STAY_BELOW, short_p, long_p)]
+                sell = p.get('signalType') == 'sell'
+                return [tr.part(tr.EMA_DEAD_CROSS if sell else tr.EMA_GOLDEN_CROSS, short_p, long_p)]
             period = p.get('period', 20)
-            return f"가격 EMA{period} 상향 돌파" if p.get('signalType') != 'sell' else f"가격 EMA{period} 하향 돌파"
+            sell = p.get('signalType') == 'sell'
+            return [tr.part(tr.EMA_PRICE_CROSS_DOWN if sell else tr.EMA_PRICE_CROSS_UP, period)]
         elif cid == 'macd':
             mode = p.get('mode', 'crossover')
-            sig_type = p.get('signalType', 'buy')
+            sell = p.get('signalType', 'buy') == 'sell'
             if mode == 'zero':
-                return "MACD 제로선 상향 돌파" if sig_type != 'sell' else "MACD 제로선 하향 돌파"
-            return "MACD 골든크로스" if sig_type != 'sell' else "MACD 데드크로스"
+                return [tr.part(tr.MACD_ZERO_DOWN if sell else tr.MACD_ZERO_UP)]
+            return [tr.part(tr.MACD_DEAD_CROSS if sell else tr.MACD_GOLDEN_CROSS)]
         elif cid == 'stochastic':
             mode = p.get('mode', 'crossover')
             sig_type = p.get('signalType', 'buy')
             if mode == 'level':
                 val = p.get('value', 20 if sig_type != 'sell' else 80)
-                return f"Stochastic K {val} {op_kr}"
-            return "Stochastic 골든크로스" if sig_type != 'sell' else "Stochastic 데드크로스"
+                return [tr.part(tr.STOCHASTIC_LEVEL, val, op_seg)]
+            sell = sig_type == 'sell'
+            return [tr.part(tr.STOCHASTIC_DEAD_CROSS if sell else tr.STOCHASTIC_GOLDEN_CROSS)]
         elif cid == 'cci':
             period = p.get('period', 14)
             val = p.get('value', -100 if p.get('signalType') != 'sell' else 100)
-            return f"CCI({period}) {val} {op_kr}"
+            return [tr.part(tr.CCI_LEVEL, period, val, op_seg)]
         elif cid == 'adx':
             val = p.get('value', 25)
-            return f"ADX {val} {op_kr} (추세 강도)"
+            return [tr.part(tr.ADX_LEVEL, val, op_seg)]
         elif cid == 'williams_r':
             period = p.get('period', 14)
             sig_type = p.get('signalType', 'buy')
             val = p.get('value', -80 if sig_type != 'sell' else -20)
-            return f"Williams %R({period}) {val} {op_kr}"
+            return [tr.part(tr.WILLIAMS_R_LEVEL, period, val, op_seg)]
         elif cid == 'mfi':
             period = p.get('period', 14)
             sig_type = p.get('signalType', 'buy')
             val = p.get('value', 20 if sig_type != 'sell' else 80)
-            return f"MFI({period}) {val} {op_kr}"
+            return [tr.part(tr.MFI_LEVEL, period, val, op_seg)]
         elif cid == 'roc':
             period = p.get('period', 12)
             val = p.get('value', 0)
-            return f"ROC({period}) {val} {op_kr} (모멘텀)"
+            return [tr.part(tr.ROC_LEVEL, period, val, op_seg)]
         elif cid == 'volatility':
             period = p.get('period', 60)
             sig_type = p.get('signalType', 'buy')
             val = p.get('value', 30)
-            vol_op_kr = op_kr or ("이하" if sig_type != 'sell' else "이상")
-            return f"변동성({period}일, 연환산) {val}% {vol_op_kr}"
+            vol_op_seg = op_seg if op else tr.part(tr.OP_LTE if sig_type != 'sell' else tr.OP_GTE)
+            return [tr.part(tr.VOLATILITY_LEVEL, period, val, vol_op_seg)]
         elif cid in ['price', 'price_level']:
             val = float(p.get('value') or 0)
-            return f"현재가 {val:,.0f}원 {op_kr}"
+            return [tr.part(tr.PRICE_LEVEL, val, op_seg, money=[0])]
         elif cid == 'bollinger_bands':
-            return "볼린저 밴드 하단 돌파(매수)" if p.get('signalType') != 'sell' else "볼린저 밴드 상단 돌파(매도)"
+            sell = p.get('signalType') == 'sell'
+            return [tr.part(tr.BOLLINGER_UPPER if sell else tr.BOLLINGER_LOWER)]
         elif cid == 'trading_value':
             val = p.get('value', 100)
-            return f"거래대금 {val}억 이상"
+            return [tr.part(tr.TRADING_VALUE, val)]
         elif cid == 'volume_spike':
-            return "거래량 OBV 골든크로스" if p.get('signalType') != 'sell' else "거래량 OBV 데드크로스"
+            sell = p.get('signalType') == 'sell'
+            return [tr.part(tr.VOLUME_OBV_DEAD_CROSS if sell else tr.VOLUME_OBV_GOLDEN_CROSS)]
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
-            return f"{period}일 신고가 돌파" if p.get('signalType') != 'sell' else f"{period}일 신저가 돌파"
+            sell = p.get('signalType') == 'sell'
+            return [tr.part(tr.BREAKOUT_LOW if sell else tr.BREAKOUT_HIGH, period)]
         elif cid in ['ai_model', 'ai_drop_model']:
             target_type = p.get('targetType')
             if cid == 'ai_drop_model' and not target_type:
@@ -850,35 +877,36 @@ class SignalEngine:
             sig_type = p.get('signalType', 'sell' if target_type == 'down' else 'buy')
             threshold = p.get('minProbability', 70)
             suffix = "%" if isinstance(threshold, (int, float)) and threshold > 1 else ""
+            prob = f"{threshold}{suffix}"
             if target_type == 'up':
                 target = p.get('targetThreshold', p.get('buyThreshold', 7))
-                direction = f"{target}% 상승"
-                return f"AI {direction} 확률 {threshold}{suffix} 이하 (매도)" if sig_type == 'sell' else f"AI {direction} 확률 {threshold}{suffix} 이상 (매수)"
+                template = tr.AI_UP_SELL if sig_type == 'sell' else tr.AI_UP_BUY
             else:
                 target = p.get('targetThreshold', p.get('sellThreshold', 7))
-                direction = f"{target}% 하락"
-                label = "이하 (안전 진입)" if sig_type == 'buy' else "이상 (위험 청산)"
-                return f"AI {direction} 확률 {threshold}{suffix} {label}"
+                template = tr.AI_DOWN_BUY if sig_type == 'buy' else tr.AI_DOWN_SELL
+            return [tr.part(template, target, prob)]
         elif cid == 'price_limit_exit':
             sl, tp = p.get('stopLoss'), p.get('takeProfit')
             sl_m, tp_m = p.get('stopLossMode', 'pct'), p.get('takeProfitMode', 'pct')
-            reasons = []
+            limits: List[List[Dict[str, Any]]] = []
             if sl is not None:
-                unit = "원" if sl_m == 'krw' else "%"
-                reasons.append(f"현재가 {sl:,.0f}{unit} 이하")
+                limits.append([tr.part(tr.PRICE_LIMIT_BELOW, sl, money=[0])] if sl_m == 'krw'
+                              else [tr.part(tr.PRICE_LIMIT_BELOW, f"{sl:,.0f}%")])
             if tp is not None:
-                unit = "원" if tp_m == 'krw' else "%"
-                reasons.append(f"현재가 {tp:,.0f}{unit} 이상")
-            return " 또는 ".join(reasons) if reasons else "가격 제한 청산"
+                limits.append([tr.part(tr.PRICE_LIMIT_ABOVE, tp, money=[0])] if tp_m == 'krw'
+                              else [tr.part(tr.PRICE_LIMIT_ABOVE, f"{tp:,.0f}%")])
+            if not limits:
+                return [tr.part(tr.PRICE_LIMIT_EXIT)]
+            return tr.join(limits, tr.or_separator())
         elif cid == 'max_holding_days':
             days = p.get('days', 0)
-            return f"최대 {days}일 보유 만료"
+            return [tr.part(tr.MAX_HOLDING_EXPIRY, days)]
         elif cid == 'trailing_stop':
             pct = p.get('pips', 0)
-            return f"트레일링 스탑 {pct}%"
+            return [tr.part(tr.TRAILING_STOP_COND, pct)]
         elif cid in FUNDAMENTAL_CIDS:
             label = FUNDAMENTAL_LABELS.get(cid, cid.upper())
-            suffix = "억" if cid in FUNDAMENTAL_AMOUNT_CIDS else ""
-            return f"{label} {p.get('value')}{suffix} {op_kr}"
+            template = tr.FUNDAMENTAL_AMOUNT_LEVEL if cid in FUNDAMENTAL_AMOUNT_CIDS else tr.FUNDAMENTAL_LEVEL
+            return [tr.part(template, tr.part(label), p.get('value'), op_seg)]
 
-        return cid
+        return [tr.literal(cid)]

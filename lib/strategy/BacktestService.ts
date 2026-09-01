@@ -102,7 +102,8 @@ export class BacktestService {
           quantity: s.quantity || 0,
           amount: s.amount || 0,
           pnl: typeof s.pnl === 'number' ? s.pnl : undefined,
-          reason: s.condition
+          reason: s.condition,
+          reasonParts: s.conditionParts,
         })),
         monthlyReturns: {},
         yearlyReturns: {},

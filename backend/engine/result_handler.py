@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Dict, Any
 
 from engine.version import ENGINE_VERSION
+from engine import trade_reason as tr
+from engine.universe_pit import is_us_symbol
 
 # 연환산 계수 — 일별 수익률의 평균·표준편차를 연 단위로 늘릴 때 곱하는 '연간 거래일 수'.
 # KRX 실측(005930 기준 2010~2024): 연평균 246.5 거래일. 미국 관례인 252를 쓰면 분모가
@@ -216,6 +218,13 @@ class ResultHandler:
 
             last_date_str = common_index[-1].strftime('%Y-%m-%d') if len(common_index) > 0 else ''
 
+            # 체결가 통화 규약: KR=정수 원, US=달러 소수 유지(소수점 int 절삭 금지 —
+            # $121.34가 121로 잘려 수량·거래금액 검산이 어긋난다). 심볼 단위로 판별한다.
+            us_symbol_set = {s for s in processed_symbols if is_us_symbol(str(s))}
+
+            def px(value, symbol):
+                return round(float(value), 4) if symbol in us_symbol_set else float(round(value))
+
             # ── Main loop: index-based (no iterrows/itertuples overhead) ──────
             for i in range(n_trades):
                 # 1. Symbol Identification
@@ -244,7 +253,7 @@ class ResultHandler:
                 duration  = int(arr_exit_idx[i] - arr_entry_idx[i])
 
                 # 3. Entry Reason (O(log n) searchsorted)
-                e_reason = "매수 조건 충족 (전략 시그널)"
+                e_reason = tr.encode([tr.part(tr.ENTRY_SIGNAL_FALLBACK)])
                 try:
                     sym_arr_e = get_reason_arr(sym, fast_entries, col_idx_val)
                     if sym_arr_e is not None:
@@ -262,12 +271,16 @@ class ResultHandler:
                 if final_qty >= 1:
                     signals_list.append({
                         "date": get_dt_str(e_idx), "symbol": str(sym), "type": "buy",
-                        "price": float(round(e_price)), "quantity": final_qty,
-                        "amount": float(round(e_price) * final_qty), "condition": e_reason
+                        "price": px(e_price, sym), "quantity": final_qty,
+                        "amount": float(round(px(e_price, sym) * final_qty, 2)),
+                        # condition은 한국어 정본 문장, conditionParts는 표시 번역용 구조화
+                        # 표현이다(engine/trade_reason.py) — /us는 파츠를 t()로 렌더링한다.
+                        "condition": tr.text(e_reason),
+                        "conditionParts": tr.segments_of(e_reason),
                     })
 
                     # 4. Exit Reason (O(log n) searchsorted)
-                    reason_kr = "전략 매도 조건 충족"
+                    reason_kr = tr.encode([tr.part(tr.EXIT_STRATEGY_SIGNAL)])
                     try:
                         sym_arr_x = get_reason_arr(sym, fast_exits, col_idx_val)
                         if sym_arr_x is not None:
@@ -286,22 +299,28 @@ class ResultHandler:
                     signal_reason = reason_kr
 
                     # 5. Risk Management Overrides
-                    if exit_type == 1:   reason_kr = f"손절매 실행 (-{fmt_pct(sl_pct)}%)" if sl_pct > 0 else "손절매 실행"
-                    elif exit_type == 2: reason_kr = f"트레일링 스탑 (-{fmt_pct(ts_pct)}%)" if ts_pct > 0 else "트레일링 스탑 실행"
-                    elif exit_type == 3: reason_kr = f"익절매 실행 (+{fmt_pct(tp_pct)}%)" if tp_pct > 0 else "익절매 실행"
+                    def _reason(template, *args):
+                        return tr.encode([tr.part(template, *args)])
+
+                    if exit_type == 1:
+                        reason_kr = _reason(tr.STOP_LOSS_PCT, fmt_pct(sl_pct)) if sl_pct > 0 else _reason(tr.STOP_LOSS)
+                    elif exit_type == 2:
+                        reason_kr = _reason(tr.TRAILING_STOP_PCT, fmt_pct(ts_pct)) if ts_pct > 0 else _reason(tr.TRAILING_STOP_EXEC)
+                    elif exit_type == 3:
+                        reason_kr = _reason(tr.TAKE_PROFIT_PCT, fmt_pct(tp_pct)) if tp_pct > 0 else _reason(tr.TAKE_PROFIT)
                     elif exit_type == 4:
-                        reason_kr = f"보유 기간 만료 ({duration}거래일 보유)" if duration > 0 else "보유 기간 만료"
+                        reason_kr = _reason(tr.HOLDING_EXPIRED_DAYS, duration) if duration > 0 else _reason(tr.HOLDING_EXPIRED)
                     else:
                         # Fix 8: 종료 이유 추론 — 허용 오차를 1%로 축소하고 우선순위 명확화
                         _TOLERANCE = 1.0
                         if max_hold > 0 and duration >= max_hold:
-                            reason_kr = f"보유 기간 만료 ({duration}거래일 보유)"
+                            reason_kr = _reason(tr.HOLDING_EXPIRED_DAYS, duration)
                         elif sl_pct > 0 and pnl < 0 and abs(ret_val + sl_pct) < _TOLERANCE:
-                            reason_kr = f"손절매 실행 (-{fmt_pct(sl_pct)}%)"
+                            reason_kr = _reason(tr.STOP_LOSS_PCT, fmt_pct(sl_pct))
                         elif tp_pct > 0 and pnl > 0 and abs(ret_val - tp_pct) < _TOLERANCE:
-                            reason_kr = f"익절매 실행 (+{fmt_pct(tp_pct)}%)"
-                        elif ts_pct > 0 and pnl > 0 and reason_kr == "전략 매도 조건 충족":
-                            reason_kr = f"트레일링 스탑 실행 (-{fmt_pct(ts_pct)}%)"
+                            reason_kr = _reason(tr.TAKE_PROFIT_PCT, fmt_pct(tp_pct))
+                        elif ts_pct > 0 and pnl > 0 and tr.first_template(reason_kr) == tr.EXIT_STRATEGY_SIGNAL:
+                            reason_kr = _reason(tr.TRAILING_STOP_EXEC_PCT, fmt_pct(ts_pct))
 
                     # 6. 시뮬레이터가 남긴 정밀 청산 사유(리밸런싱 편출 등)를 최우선 적용.
                     # 신호/리스크 청산과 상호 배타적이므로 위 추론을 덮어써도 안전하다.
@@ -324,19 +343,23 @@ class ResultHandler:
                         get_dt_str(x_idx) == last_date_str
                         and exit_type not in (1, 2, 3, 4)
                         and not override_applied
-                        and signal_reason in ("전략 매도 조건 충족", "데이터 종료")
+                        and tr.first_template(signal_reason) in (tr.EXIT_STRATEGY_SIGNAL, tr.DATA_END)
                     ):
-                        reason_kr = "백테스트 종료"
+                        reason_kr = tr.encode([tr.part(tr.BACKTEST_END)])
 
-                    pnl_label = "수익" if pnl >= 0 else "손실"
+                    detail_template = tr.PNL_DETAIL_PROFIT if pnl >= 0 else tr.PNL_DETAIL_LOSS
+                    exit_segments = tr.segments_of(reason_kr) + [
+                        tr.part(detail_template, f"{ret_val:+.2f}", abs(pnl), money=[1])
+                    ]
                     signals_list.append({
                         "date": get_dt_str(x_idx), "symbol": str(sym), "type": "sell",
-                        "price": float(round(x_price)), "quantity": final_qty,
-                        "amount": float(round(x_price) * final_qty),
+                        "price": px(x_price, sym), "quantity": final_qty,
+                        "amount": float(round(px(x_price, sym) * final_qty, 2)),
                         # 수수료·거래세를 뺀 순손익(원). price×quantity 차액은 비용 전 총손익이라
                         # 거래 재표본(몬테카를로)이 이 값을 써야 백테스트와 같은 기준이 된다.
                         "pnl": float(pnl),
-                        "condition": f"{reason_kr} [수익률: {ret_val:+.2f}%, {pnl_label}: {abs(pnl):,.0f}원]"
+                        "condition": tr.render_kr(exit_segments),
+                        "conditionParts": exit_segments,
                     })
 
         signals_list.sort(key=lambda x: x['date'])

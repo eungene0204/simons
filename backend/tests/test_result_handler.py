@@ -648,3 +648,92 @@ def test_sell_signals_carry_net_pnl_for_trade_resampling():
     dumped = SignalResult(**sells[0]).model_dump()
     assert dumped["pnl"] == sells[0]["pnl"]
     assert SignalResult(**buys[0]).model_dump()["pnl"] is None
+
+
+def test_signals_carry_structured_condition_parts():
+    """거래 내역의 사유는 한국어 문장과 구조화 파츠를 함께 싣는다.
+
+    파츠가 없으면 /us에서 매매사유를 번역할 수 없다(2026-09-01 — 영어 화면에 한국어
+    사유가 그대로 나왔다). condition은 종전과 같은 한국어 문장이어야 한다.
+    """
+    from engine import trade_reason as tr
+
+    trades = _Trades(exit_types=[1, 1])
+    pf = _Portfolio(trades)
+    common_index = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"])
+
+    result = ResultHandler.format_results(
+        pf=pf,
+        processed_symbols=["005930"],
+        _all_entries=None,
+        _all_exits=None,
+        all_entry_reasons={
+            "005930": pd.Series(
+                [tr.encode([tr.part(tr.BREAKOUT_HIGH, 252)])],
+                index=pd.to_datetime(["2024-01-02"]),
+            )
+        },
+        all_exit_reasons={},
+        common_index=common_index,
+        risk_params={"stop_loss_pct": 10},
+        exec_type="close",
+        init_cash=10_000_000,
+    )
+
+    buy = next(s for s in result["signals"] if s["type"] == "buy")
+    assert buy["condition"] == "252일 신고가 돌파"
+    assert buy["conditionParts"] == [tr.part(tr.BREAKOUT_HIGH, 252)]
+
+    sell = next(s for s in result["signals"] if s["type"] == "sell")
+    assert sell["condition"].startswith("손절매 실행 (-10%) [수익률:")
+    assert sell["conditionParts"][0] == tr.part(tr.STOP_LOSS_PCT, "10")
+    # 손익 꼬리표는 금액을 값으로 싣는다 — 통화 표기는 화면(지역)이 정한다.
+    assert sell["conditionParts"][-1]["m"] == [1]
+
+
+def test_us_fill_prices_keep_decimals_and_kr_stay_integer():
+    """체결가 통화 규약 — KR=정수 원, US=달러 소수 유지(int 절삭 금지).
+
+    2026-09-01: /us 거래 내역의 FILL PRICE가 121로 잘려 나왔다($121.34여야 함).
+    round(price)가 심볼 통화와 무관하게 정수로 깎던 회귀. 거래금액도 잘린 가격으로
+    계산돼 수량 검산이 어긋났다.
+    """
+    trades = _Trades()
+    trades.records_readable = trades.records_readable.assign(
+        **{"Column": ["AAPL", "AAPL"], "Avg Entry Price": [121.34, 121.34], "Avg Exit Price": [130.57, 90.25]}
+    )
+    pf = _Portfolio(trades)
+    common_index = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"])
+
+    result = ResultHandler.format_results(
+        pf=pf,
+        processed_symbols=["AAPL"],
+        _all_entries=None,
+        _all_exits=None,
+        all_entry_reasons={},
+        all_exit_reasons={},
+        common_index=common_index,
+        risk_params={},
+        exec_type="close",
+        init_cash=10_000_000,
+    )
+
+    buys = [s for s in result["signals"] if s["type"] == "buy"]
+    assert buys[0]["price"] == 121.34
+    assert buys[0]["amount"] == round(121.34 * buys[0]["quantity"], 2)
+
+    # KR 심볼은 종전 정수 규약 그대로다.
+    kr_result = ResultHandler.format_results(
+        pf=_Portfolio(_Trades()),
+        processed_symbols=["005930"],
+        _all_entries=None,
+        _all_exits=None,
+        all_entry_reasons={},
+        all_exit_reasons={},
+        common_index=common_index,
+        risk_params={},
+        exec_type="close",
+        init_cash=10_000_000,
+    )
+    kr_buy = next(s for s in kr_result["signals"] if s["type"] == "buy")
+    assert kr_buy["price"] == float(int(kr_buy["price"]))

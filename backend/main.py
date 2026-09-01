@@ -22,6 +22,7 @@ from schemas import (
 )
 from backtest_engine import BacktestEngine
 from engine.market_data import market_data_provider, delisted_store
+from engine import trade_reason as tr
 from engine.dart_client import fetch_recent_delisting_notices
 from engine.listing_status import (
     ListingStatus, sync_from_delisted_store, sync_from_dart_notices,
@@ -2487,14 +2488,15 @@ def market_signals(body: dict):
                     df_slice, {"conditions": entry_conditions}
                 )
                 entry_signal = bool(entry_arr[-1])
-                entry_reason = entry_reasons[-1]
+                # 엔진 내부는 구조화 사유를 나른다 — 이 API는 한국어 문장으로 내려보낸다.
+                entry_reason = tr.text(entry_reasons[-1]) or None
 
             if exit_conditions:
                 exit_arr, exit_reasons = sig_engine.generate_signals(
                     df_slice, {"conditions": exit_conditions}
                 )
                 exit_signal = bool(exit_arr[-1])
-                exit_reason = exit_reasons[-1]
+                exit_reason = tr.text(exit_reasons[-1]) or None
 
             # 한국 시세는 원 단위 정수 규약, 미국 시세는 달러 소수점 유지 (int 절삭 금지)
             us = is_us_symbol(symbol)

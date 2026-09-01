@@ -29,15 +29,23 @@ CI 가드(``scripts/check_engine_version_bump.sh`` — .github/workflows/ci.yml�
 """
 
 # ── 현재 엔진 버전 (유일 기준) ────────────────────────────────────────────────
-ENGINE_VERSION = "16.4.1"
+ENGINE_VERSION = "16.4.2"
 
 # 사람이 읽을 수 있는 한 줄 요약. 결과 배지/툴팁 등 표시용이며 값 계산엔 영향 없음.
-ENGINE_VERSION_LABEL = "v16.4.1 — 회사 앵커 관련주 유니버스 해석(결과값 불변)"
+ENGINE_VERSION_LABEL = "v16.4.2 — 매매사유 세그먼트화·US 체결가 소수 유지(체결·지표 불변)"
 
 # ── 버전 이력 ─────────────────────────────────────────────────────────────────
 # 과거 git 이력을 참고해 주요 변경 시점을 정리한 것. 정확한 커밋 단위 이력은
 # git log를, 큰 흐름은 아래 표를 참고한다.
 CHANGELOG = {
+    "16.4.2": "**매매사유 구조화 + US 체결가 소수 유지 — 체결·지표 불변.** ① 거래 내역의 매매사유를 완성 문장 "
+            "대신 한국어 정본 템플릿+인자 세그먼트로 만들어(engine/trade_reason.py — 생성: signals·result_handler·"
+            "simulator·phase1·backtest_engine 랭킹 사유) `condition`(종전과 같은 한국어 문장)과 `conditionParts`"
+            "(표시 번역용 구조)를 함께 싣는다 — /us에서 사유가 한국어로 나오고 손익 꼬리표가 원화로 찍히던 문제의 "
+            "근본 수정. 한국어 문장은 바이트 동일, 파츠는 응답 필드 가산. ② US 심볼의 signals price/amount가 "
+            "원화식 정수 반올림으로 센트를 잃던 것을 심볼 단위 판별로 소수 유지(KR=정수 원 규약 그대로) — "
+            "체결 계산은 원래 float라 거래·자산곡선·지표 모두 불변. 표시 수준 수정이라 PATCH. "
+            "동일성 게이트 31/31 통과(qa_backtest_equivalence --wfa).",
     "16.4.1": "**'X 관련주' 회사 앵커 유니버스 해석 — 결과값 불변**(FR 미국 레인). engine/universe_pit.py에 "
             "`has_group_suffix`(범주 접미 표기 판정)와 `resolve_us_company_related`(미국 상장사 앵커 → 관계 기업 티커) "
             "위임 함수를 덧붙였다. 두 함수 모두 engine/us_knowledge_graph.py로 넘기는 껍데기이고, 호출부는 "

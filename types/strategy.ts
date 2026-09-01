@@ -1,3 +1,5 @@
+import type { TradeReasonSegment } from "@/lib/trade-reason";
+
 // Strategy DSL Types
 export type ConditionType = "indicator" | "flow" | "risk" | "ml" | "filter";
 
@@ -218,7 +220,10 @@ export interface BacktestResult {
     amount?: number;
     /** 매도 체결의 순손익(원, 수수료·거래세 차감). 매수·구버전 결과에는 없다. */
     pnl?: number;
+    /** 백엔드가 만든 한국어 정본 문장. 파츠가 없는 구버전 결과의 표시값이다. */
     reason: string;
+    /** 표시 번역용 구조화 사유(템플릿+인자). 구버전 결과에는 없다 — lib/trade-reason.ts */
+    reasonParts?: TradeReasonSegment[];
   }>;
   monthlyReturns: Record<string, number>;
   yearlyReturns: Record<string, number>;

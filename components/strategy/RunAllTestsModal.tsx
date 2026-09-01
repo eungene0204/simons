@@ -124,6 +124,7 @@ function mapRawBacktestResult(raw: any): BacktestResult {
       amount: signal.amount ?? 0,
       pnl: typeof signal.pnl === "number" ? signal.pnl : undefined,
       reason: signal.condition,
+      reasonParts: signal.conditionParts,
     })),
     monthlyReturns: {},
     yearlyReturns: {},

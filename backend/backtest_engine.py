@@ -15,6 +15,7 @@ from engine.prep_cache import SymbolPrepCache
 from engine.phase1 import date_key
 from engine import phase1 as _phase1
 from engine import phase1_pool as _phase1_pool
+from engine import trade_reason as tr
 from engine import universe_pit
 from engine import data_coverage
 
@@ -31,20 +32,34 @@ def _composite_ranking_components(risk_params: Dict[str, Any]) -> List[Dict[str,
     return comps if len(comps) >= 2 else []
 
 
-def _composite_ranking_label(components: List[Dict[str, Any]], default_lookback=None) -> str:
-    """매수 사유·그룹 라벨용 한글 표기 — '복합 순위(ROE 높은·PER 낮은)'."""
+# 리밸런싱 주기의 한국어 정본 템플릿 — 매수 사유에 인자로 꽂힌다.
+_REBAL_PERIOD_TEMPLATES = {
+    'daily': tr.REBAL_PERIOD_DAILY, 'weekly': tr.REBAL_PERIOD_WEEKLY,
+    'monthly': tr.REBAL_PERIOD_MONTHLY, 'bimonthly': tr.REBAL_PERIOD_BIMONTHLY,
+    'quarterly': tr.REBAL_PERIOD_QUARTERLY, 'yearly': tr.REBAL_PERIOD_YEARLY,
+}
+
+
+def _composite_ranking_label_segment(components: List[Dict[str, Any]], default_lookback=None) -> Dict[str, Any]:
+    """복합 순위 라벨의 구조화 표현 — '복합 순위(ROE 높은·PER 낮은)'."""
     parts = []
     for c in components:
         m = str(c.get('metric'))
         lookback = int(c.get('lookback_days') or default_lookback or 60)
         if m == 'return':
-            name = f"최근 {lookback}거래일 수익률"
+            name = tr.part(tr.COMPOSITE_RETURN_METRIC, lookback)
         elif m == 'volatility':
-            name = f"최근 {lookback}거래일 변동성"
+            name = tr.part(tr.COMPOSITE_VOLATILITY_METRIC, lookback)
         else:
-            name = FUNDAMENTAL_LABELS.get(m, m)
-        parts.append(f"{name} {'낮은' if c.get('direction') == 'bottom' else '높은'}")
-    return f"복합 순위({'·'.join(parts)})"
+            name = tr.part(FUNDAMENTAL_LABELS.get(m, m))
+        bottom = c.get('direction') == 'bottom'
+        parts.append([tr.part(tr.COMPOSITE_COMPONENT_LOW if bottom else tr.COMPOSITE_COMPONENT_HIGH, name)])
+    return tr.part(tr.COMPOSITE_RANK, tr.join(parts, [tr.SEP_MID_DOT]))
+
+
+def _composite_ranking_label(components: List[Dict[str, Any]], default_lookback=None) -> str:
+    """매수 사유·그룹 라벨용 한글 표기 — '복합 순위(ROE 높은·PER 낮은)'."""
+    return tr.render_kr([_composite_ranking_label_segment(components, default_lookback)])
 
 def _ai_signals_enabled() -> bool:
     """AI 예측 신호(ai_model/ai_drop_model) 실행 허용 여부. 운영 스위치(기본 ON).
@@ -240,18 +255,23 @@ class BacktestEngine:
         return self.indicator_engine.calculate(df_pl, conditions)
 
     @staticmethod
-    def _build_rebal_note(rebal_kr: str, max_pos, qg_n: int, sel_pct, group_cap=None) -> str:
-        """랭킹 매수 사유에 붙는 편입 대상 설명 — 선정 방식(분위/비율/상위 K)별 표기."""
-        if not rebal_kr:
-            return ""
+    def _build_rebal_note(rebal_period: str, max_pos, qg_n: int, sel_pct, group_cap=None) -> Dict[str, Any]:
+        """랭킹 매수 사유에 붙는 편입 대상 설명 — 선정 방식(분위/비율/상위 K)별 표기.
+
+        rebal_period는 리밸런싱 주기의 한국어 정본 템플릿(tr.REBAL_PERIOD_*)이고, 반환은
+        사유 템플릿에 인자로 꽂히는 세그먼트다(주기 미지정이면 빈 리터럴).
+        """
+        if not rebal_period:
+            return tr.literal("")
+        period = tr.part(rebal_period)
         if qg_n and qg_n >= 2:
-            cap_note = f"(그룹당 {int(group_cap)}종목)" if group_cap else ""
-            return f", {rebal_kr} 리밸런싱 {int(qg_n)}분위 그룹{cap_note} 편입 대상"
+            cap_note = tr.part(tr.REBAL_NOTE_GROUP_CAP, int(group_cap)) if group_cap else tr.literal("")
+            return tr.part(tr.REBAL_NOTE_QUANTILE, period, int(qg_n), cap_note)
         if sel_pct:
-            return f", {rebal_kr} 리밸런싱 상위 {float(sel_pct):g}% 편입 대상"
+            return tr.part(tr.REBAL_NOTE_PCT, period, f"{float(sel_pct):g}")
         if max_pos:
-            return f", {rebal_kr} 리밸런싱 상위 {int(max_pos)}종목 편입 대상"
-        return ""
+            return tr.part(tr.REBAL_NOTE_TOP_N, period, int(max_pos))
+        return tr.literal("")
 
     @staticmethod
     def _ranking_selection_pool(available_df, valid, large_cap_mask, all_liquidity,
@@ -1102,16 +1122,14 @@ class BacktestEngine:
                         # result_handler의 하드코딩 폴백("매수 조건 충족 (전략 시그널)")으로
                         # 뭉개진다. 후보일(pool=True)마다 그날의 수익률 백분위를 사유로
                         # 남겨 실제 매수 근거(몇 % 상위였는지)가 드러나게 한다.
-                        _rebal_kr = {
-                            'daily': '일간', 'weekly': '주간', 'monthly': '월간',
-                            'bimonthly': '격월', 'quarterly': '분기', 'yearly': '연간',
-                        }.get(str(risk_params.get('rebalancing_period') or ''), '')
+                        _rebal_kr = _REBAL_PERIOD_TEMPLATES.get(
+                            str(risk_params.get('rebalancing_period') or ''), '')
                         _max_pos = risk_params.get('max_positions')
                         _rebal_note = self._build_rebal_note(
                             _rebal_kr, _max_pos, _qg_n, _sel_pct,
                             group_cap=risk_params.get('ranking_group_cap'),
                         )
-                        _dir_kr = "하위" if _direction == 'bottom' else "상위"
+                        _dir_seg = tr.part(tr.RANK_BOTTOM if _direction == 'bottom' else tr.RANK_TOP)
                         _top_pct_df = (1.0 - rank_df) * 100.0
                         for _sym in processed_symbols:
                             _mask = pool[_sym]
@@ -1120,7 +1138,9 @@ class BacktestEngine:
                             _pct_vals = _top_pct_df.loc[_mask, _sym]
                             _reason_ser = pd.Series(np.nan, index=common_index, dtype=object)
                             _reason_ser.loc[_mask] = _pct_vals.apply(
-                                lambda p: f"최근 {lookback}거래일 수익률 {_dir_kr} {max(1, round(p))}%{_rebal_note}"
+                                lambda p: tr.encode([tr.part(
+                                    tr.RANKING_RETURN, lookback, _dir_seg, max(1, round(p)), _rebal_note
+                                )])
                             )
                             all_entry_reasons[_sym] = _reason_ser
                 except Exception as e:
@@ -1165,16 +1185,14 @@ class BacktestEngine:
                         ents_df = pool
 
                         # 매수 사유: 그날의 변동성 백분위(momentum 분기와 같은 계약).
-                        _rebal_kr = {
-                            'daily': '일간', 'weekly': '주간', 'monthly': '월간',
-                            'bimonthly': '격월', 'quarterly': '분기', 'yearly': '연간',
-                        }.get(str(risk_params.get('rebalancing_period') or ''), '')
+                        _rebal_kr = _REBAL_PERIOD_TEMPLATES.get(
+                            str(risk_params.get('rebalancing_period') or ''), '')
                         _max_pos = risk_params.get('max_positions')
                         _rebal_note = self._build_rebal_note(
                             _rebal_kr, _max_pos, _qg_n, _sel_pct,
                             group_cap=risk_params.get('ranking_group_cap'),
                         )
-                        _dir_kr = "하위" if _direction == 'bottom' else "상위"
+                        _dir_seg = tr.part(tr.RANK_BOTTOM if _direction == 'bottom' else tr.RANK_TOP)
                         _top_pct_df = (1.0 - rank_df) * 100.0
                         for _sym in processed_symbols:
                             _mask = pool[_sym]
@@ -1183,7 +1201,9 @@ class BacktestEngine:
                             _pct_vals = _top_pct_df.loc[_mask, _sym]
                             _reason_ser = pd.Series(np.nan, index=common_index, dtype=object)
                             _reason_ser.loc[_mask] = _pct_vals.apply(
-                                lambda p: f"최근 {lookback}거래일 변동성 {_dir_kr} {max(1, round(p))}%{_rebal_note}"
+                                lambda p: tr.encode([tr.part(
+                                    tr.RANKING_VOLATILITY, lookback, _dir_seg, max(1, round(p)), _rebal_note
+                                )])
                             )
                             all_entry_reasons[_sym] = _reason_ser
                 except Exception as e:
@@ -1216,15 +1236,14 @@ class BacktestEngine:
                             common_index, processed_symbols, exec_type,
                         )
                         ents_df = pool
-                        _rebal_kr = {
-                            'daily': '일간', 'weekly': '주간', 'monthly': '월간',
-                            'bimonthly': '격월', 'quarterly': '분기', 'yearly': '연간',
-                        }.get(str(risk_params.get('rebalancing_period') or ''), '')
+                        _rebal_kr = _REBAL_PERIOD_TEMPLATES.get(
+                            str(risk_params.get('rebalancing_period') or ''), '')
                         _rebal_note = self._build_rebal_note(
                             _rebal_kr, risk_params.get('max_positions'), _qg_n, _sel_pct,
                             group_cap=risk_params.get('ranking_group_cap'),
                         )
-                        _metric_kr = _composite_ranking_label(_rank_components, risk_params.get('ranking_lookback_days'))
+                        _metric_seg = _composite_ranking_label_segment(
+                            _rank_components, risk_params.get('ranking_lookback_days'))
                         _top_pct_df = (1.0 - rank_df) * 100.0
                         for _sym in processed_symbols:
                             _mask = pool[_sym]
@@ -1233,7 +1252,9 @@ class BacktestEngine:
                             _pct_vals = _top_pct_df.loc[_mask, _sym]
                             _reason_ser = pd.Series(np.nan, index=common_index, dtype=object)
                             _reason_ser.loc[_mask] = _pct_vals.apply(
-                                lambda p: f"{_metric_kr} 상위 {max(1, round(p))}%{_rebal_note}"
+                                lambda p: tr.encode([tr.part(
+                                    tr.RANKING_COMPOSITE, _metric_seg, max(1, round(p)), _rebal_note
+                                )])
                             )
                             all_entry_reasons[_sym] = _reason_ser
             elif ranking_metric and not all_fund_rank_values.get(ranking_metric):
@@ -1280,12 +1301,10 @@ class BacktestEngine:
 
                         # 매수 사유: 그날의 지표 백분위(momentum 분기와 같은 계약 —
                         # 사유가 없으면 result_handler 폴백 문구로 뭉개진다).
-                        _metric_kr = FUNDAMENTAL_LABELS.get(ranking_metric, ranking_metric)
-                        _dir_kr = "낮은 순 " if _direction == 'bottom' else ""
-                        _rebal_kr = {
-                            'daily': '일간', 'weekly': '주간', 'monthly': '월간',
-                            'bimonthly': '격월', 'quarterly': '분기', 'yearly': '연간',
-                        }.get(str(risk_params.get('rebalancing_period') or ''), '')
+                        _metric_seg = tr.part(FUNDAMENTAL_LABELS.get(ranking_metric, ranking_metric))
+                        _dir_seg = tr.part(tr.RANK_LOWEST_FIRST) if _direction == 'bottom' else tr.literal("")
+                        _rebal_kr = _REBAL_PERIOD_TEMPLATES.get(
+                            str(risk_params.get('rebalancing_period') or ''), '')
                         _max_pos = risk_params.get('max_positions')
                         _rebal_note = self._build_rebal_note(
                             _rebal_kr, _max_pos, _qg_n, _sel_pct,
@@ -1299,7 +1318,9 @@ class BacktestEngine:
                             _pct_vals = _top_pct_df.loc[_mask, _sym]
                             _reason_ser = pd.Series(np.nan, index=common_index, dtype=object)
                             _reason_ser.loc[_mask] = _pct_vals.apply(
-                                lambda p: f"{_metric_kr} {_dir_kr}상위 {max(1, round(p))}%{_rebal_note}"
+                                lambda p: tr.encode([tr.part(
+                                    tr.RANKING_FUNDAMENTAL, _metric_seg, _dir_seg, max(1, round(p)), _rebal_note
+                                )])
                             )
                             all_entry_reasons[_sym] = _reason_ser
                 except Exception as e:

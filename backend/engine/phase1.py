@@ -22,6 +22,7 @@ import polars as pl
 
 from engine import data_coverage
 from engine.data_resolver import DataResolver
+from engine import trade_reason as tr
 from engine.prep_cache import SymbolPrepCache, structural_signature
 
 
@@ -117,7 +118,9 @@ def close_at_last_available_row(entry_signals, exit_signals, exit_reasons, sym, 
     entry_signals[exit_idx:] = False
     exit_signals[exit_idx] = True
     if not exit_reasons[exit_idx]:
-        exit_reasons[exit_idx] = "상장폐지" if sym in ctx["delisted_symbols"] else "데이터 종료"
+        exit_reasons[exit_idx] = tr.encode([tr.part(
+            tr.DELISTED if sym in ctx["delisted_symbols"] else tr.DATA_END
+        )])
 
 
 def prepare_symbol(sym: str, ctx: Dict[str, Any], loader, indicator_engine) -> Dict[str, Any]:

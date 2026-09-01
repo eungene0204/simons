@@ -5,6 +5,7 @@ import polars as pl
 
 sys.path.append(os.path.join(os.getcwd(), "backend"))
 
+from engine import trade_reason
 from engine.signals import SignalEngine
 
 
@@ -32,5 +33,7 @@ def test_generate_signals_reason_does_not_include_gpa_for_roe_filter():
 
     _, reasons = engine.generate_signals(df, group)
 
-    assert reasons[0] == "ROE 10 이상 + 부채비율 100 이하"
-    assert "GPA" not in reasons[0]
+    # 사유는 구조화되어 나른다(engine/trade_reason.py) — 표시 문장은 렌더 결과로 본다.
+    rendered = trade_reason.text(reasons[0])
+    assert rendered == "ROE 10 이상 + 부채비율 100 이하"
+    assert "GPA" not in rendered

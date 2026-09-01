@@ -55,14 +55,14 @@ import RollingReturnTable from "./RollingReturnTable";
 import { ROLLING_WINDOW_OPTIONS, rollingWindowLabel } from "./rollingReturnLabels";
 import {
   normalizeLegacyBreakoutStrategy,
-  resolveTradeReason,
+  resolveTradeReasonDisplay,
 } from "@/components/strategy/legacyBreakout";
 import {
   exportFileName,
   type BacktestExportPayload,
   type ExportFormat,
 } from "@/lib/backtest-export";
-import { t } from "@/lib/i18n";
+import { getLanguage, t } from "@/lib/i18n";
 import { useRegionHref } from "@/lib/geo/useRegion";
 
 const processedExecutionIds = new Set<string>();
@@ -1060,7 +1060,7 @@ export default function BacktestDashboard({
               price: Number(tv.price) || 0,
               quantity: Number(tv.quantity) || 0,
               amount: tv.amount || 0,
-              reason: resolveTradeReason(tv.reason, tv.type, normalizedBacktestDsl) ?? tv.reason ?? "",
+              reason: resolveTradeReasonDisplay(tv.reason, tv.reasonParts, tv.type, normalizedBacktestDsl, formatKRW),
             }))
           : undefined,
     };
@@ -1109,52 +1109,56 @@ export default function BacktestDashboard({
   };
 
   const BASE_METRIC_DESCRIPTIONS = baseMetricDescriptions();
+  // 카드의 작은 두 번째 줄은 한국어 라벨의 영문 병기다 — 영어 화면(/us)에선 위 줄이
+  // 이미 같은 영어라 중복으로 보이므로 감춘다. 벤치마크 카드의 두 번째 줄만은 병기가
+  // 아니라 실제 지수·ETF 이름이므로 언어와 무관하게 남긴다.
+  const englishSubLabel = (label: string) => (getLanguage() === "en" ? undefined : label);
   const overviewMetrics = [
     {
       label: t("총 수익"),
-      englishLabel: "Total Profit",
+      englishLabel: englishSubLabel("Total Profit"),
       value: formatKRW(totalProfit),
       valueClass: totalProfit > 0 ? "text-[var(--main-red)]" : totalProfit < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: metricTooltip(t("총 수익은 백테스트 종료 시점의 순손익입니다."), t("총 수익 = 최종 자산 - 초기 자본"), t("🟢 양수: 순이익\n🟡 0원: 손익 없음\n🔴 음수: 순손실")),
     },
     {
       label: t("총 거래 수"),
-      englishLabel: "Trades",
+      englishLabel: englishSubLabel("Trades"),
       value: t("{0}회", result.trades || 0),
       valueClass: "text-[#FF9933]",
       description: metricTooltip(t("총 거래 수는 백테스트에서 완료된 거래의 집계 건수입니다."), t("총 거래 수 = 백테스트 기간의 완료 거래 건수"), t("🔴 30건 미만: 표본 수가 적어 해석에 주의\n🟡 30 ~ 99건: 중간 표본\n🟢 100건 이상: 상대적으로 큰 표본")),
     },
     {
       label: t("연평균수익률"),
-      englishLabel: "CAGR",
+      englishLabel: englishSubLabel("CAGR"),
       value: `${result.cagr.toFixed(2)}%`,
       valueClass: result.cagr > 0 ? "text-[var(--main-red)]" : result.cagr < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: BASE_METRIC_DESCRIPTIONS.cagr,
     },
     {
       label: t("최대낙폭"),
-      englishLabel: "MDD",
+      englishLabel: englishSubLabel("MDD"),
       value: `${result.maxDrawdown.toFixed(2)}%`,
       valueClass: "text-[var(--main-blue)]",
       description: BASE_METRIC_DESCRIPTIONS.mdd,
     },
     {
       label: t("투자 수익률"),
-      englishLabel: "ROI",
+      englishLabel: englishSubLabel("ROI"),
       value: `${investmentRoi >= 0 ? "+" : ""}${investmentRoi.toFixed(2)}%`,
       valueClass: investmentRoi > 0 ? "text-[var(--main-red)]" : investmentRoi < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: BASE_METRIC_DESCRIPTIONS.totalReturn,
     },
     {
       label: t("샤프 비율"),
-      englishLabel: "Sharpe",
+      englishLabel: englishSubLabel("Sharpe"),
       value: result.sharpe.toFixed(2),
       valueClass: result.sharpe > 0 ? "text-[var(--main-red)]" : result.sharpe < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: BASE_METRIC_DESCRIPTIONS.sharpe,
     },
     {
       label: t("소티노 지수"),
-      englishLabel: "Sortino",
+      englishLabel: englishSubLabel("Sortino"),
       value: sortinoRatio.toFixed(2),
       valueClass: sortinoRatio > 0 ? "text-[var(--main-red)]" : sortinoRatio < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: BASE_METRIC_DESCRIPTIONS.sortino,
@@ -1168,14 +1172,14 @@ export default function BacktestDashboard({
     },
     {
       label: t("승률"),
-      englishLabel: "Win Rate",
+      englishLabel: englishSubLabel("Win Rate"),
       value: `${(result.winRate || 0).toFixed(1)}%`,
       valueClass: (result.winRate || 0) > 0 ? "text-[var(--main-red)]" : "text-white",
       description: metricTooltip(t("승률은 완료 거래 중 수익으로 끝난 거래의 비율입니다."), t("승률 = 수익 거래 수 / 완료 거래 수 × 100"), t("🟢 높음: 60% 이상\n🟡 중간: 40% ~ 60%\n🔴 낮음: 40% 미만\n승률은 평균 수익·손실과 함께 해석")),
     },
     {
       label: t("손익비"),
-      englishLabel: "Profit Factor",
+      englishLabel: englishSubLabel("Profit Factor"),
       value: formatProfitFactor(result.profitFactor),
       valueClass: (result.profitFactor ?? Infinity) > 1 ? "text-[var(--main-red)]" : (result.profitFactor ?? Infinity) < 1 ? "text-[var(--main-blue)]" : "text-white",
       description: BASE_METRIC_DESCRIPTIONS.profitFactor,
@@ -2266,11 +2270,16 @@ export default function BacktestDashboard({
                                          {tv.type === 'buy' ? t("매수") : t("매도")}
                                       </span>
                                    </td>
-                                   <td className="p-3 text-sm font-bold text-gray-300 tabular-nums">{Math.round(Number(tv.price)).toLocaleString()}</td>
+                                   <td className="p-3 text-sm font-bold text-gray-300 tabular-nums">
+                                     {/* US 체결가는 센트가 유의미하다($121.34) — 원화는 기존 정수 표기 유지 */}
+                                     {isUsResult ? formatUsd(Number(tv.price), { price: true }) : Math.round(Number(tv.price)).toLocaleString()}
+                                   </td>
                                     <td className="p-3 text-sm font-bold text-gray-400 tabular-nums">
                                       {t("{0}주", Math.floor(Number(tv.quantity)).toLocaleString())}
                                     </td>
-                                    <td className="p-3 text-xs font-bold text-gray-500">{resolveTradeReason(tv.reason, tv.type, normalizedBacktestDsl)}</td>
+                                    <td className="p-3 text-xs font-bold text-gray-500">
+                                      {resolveTradeReasonDisplay(tv.reason, tv.reasonParts, tv.type, normalizedBacktestDsl, formatKRW)}
+                                    </td>
                                    <td className="p-3 pr-4 text-sm font-bold text-right tabular-nums text-white">
                                       {formatKRW(tradeAmount)}
                                    </td>

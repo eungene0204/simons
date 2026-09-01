@@ -124,6 +124,7 @@ export default function BacktestDetailPage() {
           quantity: signal.quantity ?? 0,
           amount: signal.amount ?? 0,
           reason: signal.condition,
+          reasonParts: signal.conditionParts,
         })),
   };
 
