@@ -792,18 +792,17 @@ async def force_liquidate_position(account_id: str, symbol: str):
         except Exception:
             price = float(avg_price) if us else int(avg_price)
 
-        # 청산 실행 (시장가)
-        import math, uuid as _uuid
-        fee_rate = 0.00015
-        tax_rate = 0.002
+        # 청산 실행 (시장가) — 수수료·세율은 자동매매 정산 정본(virtual_trader)을 재사용한다
+        # (KR 거래세 0.15%·US 매도세 없음. 여기서 상수를 따로 들고 있으면 드리프트한다 —
+        #  실제로 구 하드코딩 0.2%가 정본 0.15%와 어긋나 있었다)
+        import uuid as _uuid
+        from engine.virtual_trader import _fee as vt_fee, _tax as vt_tax
         if us:
             filled = round(price * (1 - 0.0005), 2)  # 슬리피지, 센트 단위
-            fee = math.floor(filled * qty * fee_rate * 100) / 100  # 센트 절사
-            tax = 0.0
         else:
             filled = int(price * (1 - 0.0005))  # 슬리피지
-            fee = math.floor(filled * qty * fee_rate)
-            tax = math.floor(filled * qty * tax_rate)
+        fee = vt_fee(filled, qty, us)
+        tax = vt_tax(filled, qty, us)
         proceeds = filled * qty - fee - tax
         pnl = (filled - avg_price) * qty - fee - tax
         now = _appdb.now()

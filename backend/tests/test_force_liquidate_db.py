@@ -46,13 +46,19 @@ def test_force_liquidate_settles_position(app_db, monkeypatch):
         'SELECT COUNT(*) FROM "VirtualPosition" WHERE "accountId" = ?', ("acc_fl",)
     ).fetchone()[0] == 0
 
-    # 매도 주문(FILLED) 기록됨
+    # 매도 주문(FILLED) 기록됨 — 수수료·세금은 자동매매 정산 정본(virtual_trader) 규약
+    # (KR 거래세 0.15%, 2025년~. 구 하드코딩 0.2%로의 회귀 방지)
     order = app_db.execute(
-        'SELECT side, status, quantity FROM "VirtualOrder" WHERE "accountId" = ?', ("acc_fl",)
+        'SELECT side, status, quantity, "filledPrice", fee, tax FROM "VirtualOrder" WHERE "accountId" = ?',
+        ("acc_fl",)
     ).fetchone()
     assert order["side"] == "SELL"
     assert order["status"] == "FILLED"
     assert order["quantity"] == 10
+    filled = int(80000 * 0.9995)  # 79,960
+    assert float(order["filledPrice"]) == filled
+    assert float(order["fee"]) == 119   # floor(79960*10*0.00015)
+    assert float(order["tax"]) == 1199  # floor(79960*10*0.0015) — 0.2%였다면 1,599
 
     # 현금 증가 (매도 대금 유입)
     cash = app_db.execute('SELECT "currentCash" FROM "VirtualAccount" WHERE id = ?', ("acc_fl",)).fetchone()[0]
