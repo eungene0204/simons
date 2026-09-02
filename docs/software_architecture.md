@@ -294,6 +294,8 @@ KR/EN 언어 토글을 폐지하고 **URL 경로 기반의 지역 서비스**로
 
 **대화 기록 (Q&A 로그, FR-ADM-007)**: 전략연구소에서 오간 질문과 답변을 한 턴에 한 행씩 `ChatQaLog`에 남기고, 콘솔 `Q&A Logs` 탭(`components/admin/QaLogsTab.tsx`)에서 열람한다. 수집 지점은 **화면 메시지 목록 한 곳**이다(`app/analytics/new/page.tsx`의 효과 하나 + 순수 모듈 `app/analytics/new/qaLog.ts`) — 대화 화면은 한 질문에 여러 백엔드 엔드포인트(`/query/classify` → `/query/general`·`/strategy/coach/stream`·`/strategy/parse/stream`·`/strategy/builder/step`)를 타므로 호출부마다 기록을 붙이면 새는 경로가 생긴다. 메시지 갱신이 `QA_LOG_SETTLE_MS`(1.5초) 동안 멎으면 그 턴이 끝난 것으로 보고(코치 스트리밍이 답변을 여러 번 갱신한다) `POST /api/chat-log`으로 fire-and-forget 전송한다. 세션 id는 대화 복원 스냅샷(`STRATEGY_CHAT_STATE_KEY`)에 함께 실려 다른 페이지를 다녀와도 같은 대화로 이어지고, 대화 초기화 시 새로 발급된다. 기록되는 답변은 우리가 이미 화면에 그린 메시지 객체를 텍스트로 옮긴 것이며(전략 요약 카드는 `[전략 요약 카드]` 표시), 사용자 원문의 의미를 다시 판정하지 않는다(대원칙 1). 실측 용량은 한 건 약 2KB(질문 평균 85자·답변 평균 500자, 한글 3바이트 기준 + 메타·인덱스). 관측 계층(`backend/observability/`)의 span 트리 JSONL은 3일 보관 정책을 가진 개발자 디버깅용 별개 채널이며 이 기록을 대체하지 않는다.
 
+**대화 로그 (사용자용, 2026-09-03)**: 위 Q&A 로그와 별개로, 전략연구소 화면 왼쪽(오른쪽은 진행률 패널)에 **지나간 대화 목록**을 보여주고 다시 열 수 있게 하는 브라우저 저장소 채널이다(`app/analytics/new/chatLog.ts` + `ChatLogPanel.tsx`, `localStorage` 키 `simons.strategyChatLog`). 진행 중 대화의 세션 스냅샷(`STRATEGY_CHAT_STATE_KEY`, sessionStorage·한 건)을 저장하는 효과가 같은 스냅샷을 대화(qaSessionId)별 항목으로 함께 쌓는다 — 스냅샷 모양이 같아 마운트 시 복원과 로그에서 열기가 한 함수(`applyChatSnapshot`)를 쓴다. 제목은 첫 사용자 발화의 첫 줄을 표시 길이만 잘라 쓴다(원문 의미 판정 없음, 대원칙 1). 상한 30건, 용량 초과 시 방금 항목의 백테스트 결과(`result`)부터 떨어뜨리고 그래도 넘치면 오래된 항목부터 지운다. 목록은 지금 지역(KR/US)의 대화만 보인다(`/us` 격리). 서버에 저장하지 않으므로 기기·브라우저 간 공유는 없다.
+
 ### 3.2 전략 Lab 컴포넌트 구조 (`/analytics/new`)
 
 ```

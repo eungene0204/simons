@@ -15,7 +15,7 @@ import { createPortal, flushSync } from "react-dom";
 import dynamic from "next/dynamic";
 import { createClient } from "@supabase/supabase-js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { regionRequestHeaders, useRegionHref } from "@/lib/geo/useRegion";
+import { regionRequestHeaders, useRegion, useRegionHref } from "@/lib/geo/useRegion";
 import { backtestRunParamsFromRequest, trackEvent } from "@/lib/analytics";
 import { stripRegionPrefix } from "@/lib/geo/region";
 import DashboardLayout from "@/components/layout/DashboardLayout";
@@ -29,6 +29,13 @@ import {
 import { BacktestResult, type OptimizationResponse } from "@/types/strategy";
 import { mapRawBacktestResult } from "./backtestResultMapper";
 import { buildBacktestResultFacts } from "./backtestResultFacts";
+import { ChatLogPanel } from "./ChatLogPanel";
+import {
+  readChatLog,
+  removeChatLogEntry,
+  upsertChatLogEntry,
+  type ChatLogEntry,
+} from "./chatLog";
 import {
   ArrowUp,
   ArrowRight,
@@ -1773,11 +1780,14 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
 function StrategyLabContent() {
   const router = useRouter();
   const regionHref = useRegionHref();
+  const region = useRegion();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const isChatPage =
     stripRegionPrefix(pathname ?? "") === "/analytics/chat" || searchParams.get("chat") === "1";
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // 우측 대화 로그(localStorage) — 지나간 대화를 다시 열기 위한 목록.
+  const [chatLog, setChatLog] = useState<ChatLogEntry[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [isStartingGoogleLogin, setIsStartingGoogleLogin] = useState(false);
@@ -1972,16 +1982,9 @@ function StrategyLabContent() {
       .catch(() => setModelStatus({ status: "failed", error: "서버에 연결할 수 없습니다" }));
   }, []);
 
-  // 진행 중이던 채팅 복원 — 대시보드 등 다른 페이지로 갔다가 돌아와도 대화가 유지되도록.
-  useEffect(() => {
-    if (chatRestoredRef.current) return;
-    chatRestoredRef.current = true;
-    // 새 채팅을 막 시작하는 중(대기 프롬프트 존재)이면 옛 상태를 복원하지 않는다.
-    if (sessionStorage.getItem(PENDING_STRATEGY_PROMPT_KEY)) return;
-    try {
-      const raw = sessionStorage.getItem(STRATEGY_CHAT_STATE_KEY);
-      if (!raw) return;
-      const snapshot = JSON.parse(raw);
+  // 스냅샷(세션 저장·대화 로그)을 화면 상태로 되살린다. 마운트 시 복원과 우측 대화
+  // 로그에서 지난 대화를 여는 경로가 같은 함수를 쓴다 — 복원 항목이 두 곳에서 어긋나지 않게.
+  const applyChatSnapshot = useCallback((snapshot: any) => {
       if (!Array.isArray(snapshot.messages) || snapshot.messages.length === 0) return;
       pendingScrollToEndRef.current = true;
       chatAutoScrollEnabledRef.current = false;
@@ -2027,8 +2030,29 @@ function StrategyLabContent() {
       pendingMetricResearchPromptRef.current = snapshot.pendingMetricResearchPrompt ?? null;
       researchMetricRef.current = snapshot.researchMetric ?? null;
       metricOptimizationDraftRef.current = snapshot.metricOptimizationDraft ?? null;
+  }, []);
+
+  // 진행 중이던 채팅 복원 — 대시보드 등 다른 페이지로 갔다가 돌아와도 대화가 유지되도록.
+  useEffect(() => {
+    if (chatRestoredRef.current) return;
+    chatRestoredRef.current = true;
+    // 새 채팅을 막 시작하는 중(대기 프롬프트 존재)이면 옛 상태를 복원하지 않는다.
+    if (sessionStorage.getItem(PENDING_STRATEGY_PROMPT_KEY)) return;
+    try {
+      const raw = sessionStorage.getItem(STRATEGY_CHAT_STATE_KEY);
+      if (!raw) return;
+      applyChatSnapshot(JSON.parse(raw));
     } catch {
       // 손상된 스냅샷은 무시한다.
+    }
+  }, [applyChatSnapshot]);
+
+  // 대화 로그는 브라우저 저장소라 마운트 뒤에 읽는다(서버 렌더와 어긋나지 않게).
+  useEffect(() => {
+    try {
+      setChatLog(readChatLog(localStorage));
+    } catch {
+      // 저장소 접근이 막힌 환경에서는 로그 없이 동작한다.
     }
   }, []);
 
@@ -2132,6 +2156,10 @@ function StrategyLabContent() {
         metricOptimizationDraft: metricOptimizationDraftRef.current,
       };
       sessionStorage.setItem(STRATEGY_CHAT_STATE_KEY, JSON.stringify(snapshot));
+      // 같은 스냅샷을 대화 로그(localStorage)에도 남긴다 — 우측 패널에서 다시 연다.
+      setChatLog(
+        upsertChatLogEntry(localStorage, { id: qaSessionIdRef.current, region, snapshot }),
+      );
     } catch {
       // 용량 초과 등은 무시한다 — 복원은 best-effort.
     }
@@ -2144,6 +2172,7 @@ function StrategyLabContent() {
     result,
     executedReq,
     explicitNoRebalancing,
+    region,
   ]);
 
   // 대화 기록 — 답변이 끝난 턴을 한 건씩 서버에 남긴다(운영 콘솔 Q&A 탭에서 열람).
@@ -4571,7 +4600,8 @@ function StrategyLabContent() {
     });
   };
 
-  const handleReset = () => {
+  // 화면·참조의 대화 상태를 모두 비운다 — '대화 종료'와 대화 로그의 '지난 대화 열기'가 공유한다.
+  const clearConversationState = () => {
     // 진행 중인 요청부터 끊는다 — 이후 뒤늦게 도착할 응답·오류가 새 대화에 섞이지 않게.
     // (컨트롤러는 끊긴 채로 둔다 — 다음 턴 진입점이 새것으로 바꾼다. 위 chatAbortRef 주석)
     chatAbortRef.current?.abort();
@@ -4615,6 +4645,10 @@ function StrategyLabContent() {
     metricOptimizationAbortRef.current?.abort();
     metricOptimizationAbortRef.current = null;
     setMetricOptimizationProgress(null);
+  };
+
+  const handleReset = () => {
+    clearConversationState();
     try {
       sessionStorage.removeItem(PENDING_STRATEGY_PROMPT_KEY);
       sessionStorage.removeItem(STRATEGY_CHAT_STATE_KEY);
@@ -4627,6 +4661,21 @@ function StrategyLabContent() {
     setTimeout(() => chatInputRef.current?.focus(), 100);
   };
   handleResetRef.current = handleReset;
+
+  // 우측 대화 로그에서 지난 대화를 연다 — 지금 대화를 비우고 그 스냅샷을 되살린다.
+  // 지금 대화는 이미 로그에 남아 있으므로 잃지 않는다.
+  const handleOpenLoggedChat = (id: string) => {
+    if (id === qaSessionIdRef.current) return;
+    const entry = chatLog.find((e) => e.id === id);
+    if (!entry) return;
+    clearConversationState();
+    applyChatSnapshot(entry.snapshot);
+  };
+  const handleDeleteLoggedChat = (id: string) => {
+    setChatLog(removeChatLogEntry(localStorage, id));
+    // 보고 있는 대화를 지우면 화면도 비운다 — 두면 다음 갱신 때 로그에 되살아난다.
+    if (id === qaSessionIdRef.current) handleReset();
+  };
 
   const shouldShowIntro = isIdle && !isChatPage;
   const strategyPreviewBackgroundClass = isStrategyPreviewModalOpen
@@ -4726,6 +4775,8 @@ function StrategyLabContent() {
   const isLlmWorking = isSending;
   const canSendInput = !isSending && stage !== "running";
   const hasChatStarted = messages.length > 0;
+  // 대화 로그는 채팅 화면에서만, 지금 지역의 대화만 보인다(KR/US 대화를 섞어 열지 않는다).
+  const regionChatLog = hasChatStarted ? chatLog.filter((e) => e.region === region) : [];
   const isLastAssistant = (i: number) => i === messages.length - 1 && messages[i].role === "assistant";
   const latestAssistantMessage = [...messages]
     .reverse()
@@ -4861,6 +4912,16 @@ function StrategyLabContent() {
           // 같은 인자를 늘리는 대신, 표시 전용 정보를 표시하는 곳에서 합친다.
           <StrategyProgressPanel
             items={attachFieldStates(activeStrategyProgressItems, fieldStatesRef.current)}
+          />
+        )}
+
+        {/* 대화 로그 — 왼쪽 고정 레일(오른쪽은 진행률 패널 자리). 1280px 미만은 서랍 버튼. */}
+        {regionChatLog.length > 0 && (
+          <ChatLogPanel
+            entries={regionChatLog}
+            activeId={qaSessionIdRef.current}
+            onSelect={handleOpenLoggedChat}
+            onDelete={handleDeleteLoggedChat}
           />
         )}
 

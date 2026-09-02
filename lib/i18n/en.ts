@@ -36,6 +36,12 @@ export const en: Record<string, string> = {
   // ── app/analytics/new/AdvisorResponseSections.tsx
   "{0}개 섹션": "{0} sections",
   "전략 리뷰": "Strategy review",
+  // ── app/analytics/new/ChatLogPanel.tsx
+  "대화 기록": "Chat history",
+  "대화 기록 열기": "Open chat history",
+  "대화 기록 닫기": "Close chat history",
+  "{0} 대화 삭제": "Delete chat: {0}",
+  "제목 없는 대화": "Untitled chat",
   // ── app/analytics/new/advisorCopy.ts
   "기본안을 그대로 돌린 뒤, 손절 8~10%, 최대 보유기간 20일, 종목 수 5~10개 분산안을 각각 비교해 어느 조건이 손실을 줄이는지 먼저 확인하세요.": "Run the base plan first, then compare variants — stop-loss 8–10%, max holding period 20 days, 5–10 positions — one at a time to see which condition reduces losses.",
   "지금 전략은 근거가 부족합니다. 기본안을 먼저 돌린 뒤 손절, 보유기간, 종목 수 조건을 하나씩만 바꿔 비교하세요.": "The current strategy lacks evidence. Run the base plan first, then change stop-loss, holding period and position count one at a time and compare.",
@@ -2752,7 +2758,6 @@ export const en: Record<string, string> = {
   "데드크로스": "Dead cross",
   "{0} 충족": "{0} met",
   "설정된 매도 규칙 중 하나 충족 ({0})": "One of the configured sell rules met ({0})",
-};
 
   // ── backend/backtest_engine.py (미국 유니버스 경고·거절 — BacktestDashboard 경고 로그가 t()로 표시)
   "미국 유니버스는 현재 상장 종목 기준입니다 — 기간 중 상장폐지된 종목이 빠져 있어 장기 결과가 실제보다 유리하게 나올 수 있습니다(생존 편향).": "US universes are based on currently listed stocks — stocks delisted during the period are missing, so long-term results may look better than reality (survivorship bias).",
@@ -2763,3 +2768,4 @@ export const en: Record<string, string> = {
   "수수료와 슬리피지가 모두 0으로 설정되어 있습니다 — 거래 비용이 없는 결과는 실제보다 유리합니다.": "Commission and slippage are both set to 0 — results without trading costs are more favourable than reality.",
   // ── backend/api/intent_routes.py (일반 질문 답변 폴백 — infoText로 표시)
   "해당 주제에 대한 일반적인 설명을 준비하지 못했습니다. 질문을 좀 더 구체적으로 입력해 주세요.": "I couldn't prepare a general explanation for that topic. Please make the question a bit more specific.",
+};
