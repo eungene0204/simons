@@ -624,8 +624,14 @@ def analyze(tpl: Template, res: dict) -> Flags:
     if signals:
         used = {float(v) for s in signals for k in _SIGNAL_PARAM_KEYS
                 if isinstance((v := s.get(k)), (int, float)) and not isinstance(v, bool)}
+        # 되묻기·값-대기에 오른 숫자는 소실이 아니다 — "ADX 20 하향 이탈"을 값 대기(pending
+        # source_text)로 제외하고 기준값을 묻는 중이면 20은 조용히 사라진 게 아니다(2026-09-03:
+        # 컴파일러 침묵 왜곡 수리 뒤 정상 되묻기를 이 검사가 계속 치명으로 세던 오탐).
+        # asked_about과 같은 계약(되묻는 팩터는 치명·미탐지 어느 쪽으로도 세지 않는다).
+        asked_numbers = {float(x) for x in re.findall(r"\d+(?:\.\d+)?", asked)}
         for label, wants in expected_signal_numbers(prompt):
-            lost = [w for w in wants if not any(abs(u - w) < 1e-6 for u in used)]
+            lost = [w for w in wants if not any(abs(u - w) < 1e-6 for u in used)
+                    and not any(abs(a - w) < 1e-6 for a in asked_numbers)]
             if lost:
                 f.fatal.append(f"{label} 소실(말한 값 {','.join(f'{w:g}' for w in lost)}이 "
                                f"신호 어디에도 없음 — 파싱 {sorted(used)})")

@@ -2455,7 +2455,8 @@ function BacktestTerminalLog({
         const name = stockMetadata[sym]?.name;
         if (name) msg = w.replace(sym, `${name}(${sym})`);
       }
-      logs.push({ level: "WARN", message: msg });
+      // 엔진 경고는 백엔드 한국어 정본 — /us 표시는 사전(en.ts)으로 옮긴다(없으면 원문).
+      logs.push({ level: "WARN", message: t(msg) });
     });
   }
 

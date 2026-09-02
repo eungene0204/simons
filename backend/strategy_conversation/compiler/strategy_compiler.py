@@ -113,6 +113,19 @@ def _compile_technical(
         if cond.operator in ("<", "<=", ">", ">="):
             kwargs["operator"] = cond.operator
             kwargs["value"] = cond.value
+        elif spec is not None and spec.allowed_operators == ("<", "<=", ">", ">="):
+            # 임계값 비교만 지원하는 지표에 부등호·값이 없으면 엔진이 기본값(ADX ≥ 25 등)으로
+            # 조용히 대체한다 — 사용자가 말한 값이 다른 값으로 백테스트되는 침묵 왜곡이다
+            # (2026-09-02 실측: "ADX 20 하향 이탈" 청산이 ADX ≥ 25 청산으로). 재무 조건과
+            # 같은 계약으로 컴파일 불가를 던져 부분 컴파일이 제외+안내로 흐르게 한다.
+            raise StrategyCompileError(
+                f"'{cond.factor}' 조건에 비교 연산자/임계값이 없습니다 (검증 누락?)"
+            )
+        if kwargs.get("operator") is not None and cond.value is None \
+                and spec is not None and spec.allowed_operators == ("<", "<=", ">", ">="):
+            raise StrategyCompileError(
+                f"'{cond.factor}' 조건에 임계값이 없습니다 (검증 누락?)"
+            )
 
     return TechnicalSignal(**kwargs)
 

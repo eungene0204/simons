@@ -21,6 +21,10 @@ from strategy_conversation.registry.concept_ontology import (
 )
 from strategy_conversation.registry.indicator_registry import REGISTRY, resolve
 
+_COMPARISON_OPS = ("<", "<=", ">", ">=")
+# 교차 연산자 → 같은 방향의 수준 비교(오실레이터 전용 정규화, 위 주석 참조)
+_CROSS_TO_COMPARISON = {"crosses_above": ">", "crosses_below": "<"}
+
 
 def _condition_identity(cond) -> tuple:
     """정규화가 끝난 조건의 **구조 동일성** 키 — 값이 None인 파라미터는 없는 것으로 본다."""
@@ -206,6 +210,16 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
             # PARTIALLY_SUPPORTED(재무 지표 전반)에 대한 사전 커버리지 경고는 내지 않는다 —
             # 모든 재무 전략에 매번 붙는 블랭킷 노이즈였고(사고 2026-07-17), 실측 커버리지는
             # 백테스트 시점의 데이터 커버리지 로그(engine/data_coverage.py, FR-BT-016)가 정본.
+            # 임계값 비교만 허용하는 지표(RSI·ADX·CCI 등 오실레이터)에 9B가 교차 연산자를
+            # 낸다("ADX 20 하향 이탈" → crosses_below, 2026-09-02 전수 QA 실측). 재무 지표의
+            # 교차 연산자는 종전대로 오류다(기술 지표 전용 정규화). 프롬프트
+            # 5-5가 지시하는 표현은 부등호이고 엔진도 수준 비교만 표현하므로, 교차 방향을
+            # 같은 방향의 부등호로 정규화한다(LLM 출력 표기 정규화 — 원문을 읽지 않는다).
+            # 종전엔 여기서 오류만 남기고 컴파일러가 연산자·값을 조용히 버려 엔진 기본값
+            # (ADX ≥ 25)으로 백테스트됐다 — 사용자가 말한 값이 반대 방향 기본값으로 바뀐다.
+            if spec.category == "technical" and spec.allowed_operators == _COMPARISON_OPS \
+                    and cond.operator in _CROSS_TO_COMPARISON:
+                cond.operator = _CROSS_TO_COMPARISON[cond.operator]
             if cond.operator is not None and spec.allowed_operators \
                     and cond.operator not in spec.allowed_operators:
                 errors.append(
@@ -321,15 +335,21 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
     if _us_markets or (_en_region and not strategy.universe.markets):
         _kr_markets = set(strategy.universe.markets) - set(caps.US_MARKETS)
         if _kr_markets:
-            errors.append(
+            # US 블록의 안내는 ui_language.msg로 — errors는 되묻기 문장에 이어 붙거나 목록이
+            # 섞여 나가므로 프론트 사전(정확 일치)으로는 옮길 수 없다(위 지역 거절과 같은 레인).
+            errors.append(ui_language.msg(
                 "한국 시장과 미국 시장은 한 전략에서 혼합할 수 없습니다 — "
-                "어느 시장으로 백테스트할지 선택해 주세요"
-            )
+                "어느 시장으로 백테스트할지 선택해 주세요",
+                "Korean and US markets can't be mixed in one strategy — "
+                "please choose which market to backtest",
+            ))
         if len(_us_markets) > 1:
-            errors.append(
+            errors.append(ui_language.msg(
                 "미국 시장/지수는 한 전략에 하나만 지정할 수 있습니다 "
-                "(S&P500·나스닥100·나스닥·다우·미국 전체·미국 ETF 중 하나)"
-            )
+                "(S&P500·나스닥100·나스닥·다우·미국 전체·미국 ETF 중 하나)",
+                "Only one US market or index can be set per strategy "
+                "(S&P 500, Nasdaq-100, Nasdaq, Dow 30, the entire US market, or US ETFs)",
+            ))
         if strategy.universe.sectors:
             # 미국 테마 카탈로그(registry) 해석 — 카탈로그 정본 테마는 '테마 유래 지정
             # 종목'으로 전개한다(구성 티커 → universe.symbols, 출처는 theme 표기 계약).
@@ -380,25 +400,31 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                     strategy.universe.symbols = [
                         s for s in strategy.universe.symbols if not str(s)[:1].isdigit()
                     ]
-                    warnings.append(
-                        f"미국 테마 유니버스에서 한국 종목 전개 {len(_kr_expanded)}건을 "
-                        "제외했습니다(미국 시장 전략)."
-                    )
+                    warnings.append(ui_language.msg(
+                        "미국 테마 유니버스에서 한국 종목 전개 {n}건을 제외했습니다(미국 시장 전략).",
+                        "Excluded {n} Korean stocks expanded from the theme (US market strategy).",
+                        n=len(_kr_expanded),
+                    ))
             strategy.universe.sectors = _kept_sectors
             # 분류 라벨은 필터로 살아남는다 — 미지원 안내 대상은 '분류도 테마도 아닌' 표현뿐.
             _unknown_sectors = [t for t in _kept_sectors if us_industry_label(t) is None]
             if _unknown_sectors:
                 unsupported.append("미국 유니버스 × 업종 필터")
-                errors.append(
+                errors.append(ui_language.msg(
                     "미국 유니버스의 업종/테마 필터 중 카탈로그에 없는 항목은 아직 "
-                    f"지원되지 않습니다: {', '.join(_unknown_sectors)}"
-                )
+                    "지원되지 않습니다: {items}",
+                    "Industry/theme filters not in the US catalog aren't supported yet: {items}",
+                    items=", ".join(_unknown_sectors),
+                ))
                 strategy.universe.sectors = [
                     t for t in _kept_sectors if us_industry_label(t) is not None
                 ]
         if strategy.universe.new_listing_only:
             unsupported.append("미국 유니버스 × 신규 상장 종목")
-            errors.append("미국 유니버스에는 신규 상장(IPO) 제한을 아직 적용할 수 없습니다")
+            errors.append(ui_language.msg(
+                "미국 유니버스에는 신규 상장(IPO) 제한을 아직 적용할 수 없습니다",
+                "A new-listing (IPO) filter can't be applied to US universes yet",
+            ))
             strategy.universe.new_listing_only = False
             strategy.universe.listing_from = None
             strategy.universe.listing_to = None
@@ -411,10 +437,12 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
         ]
         if _ai_used:
             unsupported.append("미국 유니버스 × AI 예측 신호")
-            errors.append(
+            errors.append(ui_language.msg(
                 "AI 예측 신호는 한국 시장 데이터로 학습된 모델이라 "
-                "미국 유니버스에서는 사용할 수 없습니다"
-            )
+                "미국 유니버스에서는 사용할 수 없습니다",
+                "The AI prediction signal is a model trained on Korean market data "
+                "and isn't available for US universes",
+            ))
             strategy.entry_conditions = [
                 c for c in strategy.entry_conditions
                 if c.factor not in ("technical.ai_model", "technical.ai_drop_model")

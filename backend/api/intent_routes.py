@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 import cancellation
+import ui_language
 from intent.classifier import classify, format_history_context
 from intent.schemas import ChatTurn, IntentRequest, IntentResult
 from intent import platform_defaults, strategy_builder
@@ -285,9 +286,12 @@ async def strategy_builder_step_stream(req: BuilderStepRequest):
     # 요청 취소 토큰 — 클라이언트가 스트림을 끊으면('대화 종료') 빌더 스텝 스레드의 LLM
     # 호출(리스크 추출·업종 해석·자유 서술 해석·검색 그라운딩)을 멈춘다(cancellation.py).
     cancel_token = cancellation.CancelToken()
+    # UI 언어는 contextvar라 스레드로 전파되지 않는다 — 여기서 잡아 스레드 안에서 다시 묶는다
+    # (main.py run_parse와 같은 계약).
+    request_language = ui_language.get_ui_language()
 
     def run_step():
-        with cancellation.bind(cancel_token):
+        with cancellation.bind(cancel_token), ui_language.bind(request_language):
             try:
                 step_result = _run_builder_step(
                     state, req.input, risk_extractor, sector_resolver, freetext_interpreter

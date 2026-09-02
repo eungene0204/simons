@@ -217,3 +217,23 @@ def test_us_grounding_wired_into_us_theme_chain():
 
     assert "_ground_us_theme_term" in inspect.getsource(primary._resolve_sector_terms_us)
     assert "us_term_grounding" in inspect.getsource(primary._ground_us_theme_term)
+
+
+# ── 검증기 US 블록 안내 = ui_language.msg 레인 (2026-09-02) ─────────────────────
+# errors는 되묻기 문장에 이어 붙거나 목록으로 섞여 나가므로 프론트 사전(정확 일치)으로는
+# 옮길 수 없다 — 지역 거절(:311)과 같이 백엔드가 언어를 고른다. /us에 한국어가 새던 6건.
+
+def test_validator_us_block_messages_follow_ui_language():
+    mixed = _intent(["SP500", "KOSPI"])
+    two_us = _intent(["SP500", "NASDAQ100"])
+    ipo = _intent(["SP500"], new_listing_only=True)
+    with ui_language.bind("en"):
+        en_mixed, _w, _u, _f = validate_capability(mixed)
+        en_two, _w, _u, _f = validate_capability(two_us)
+        en_ipo, _w, _u, _f = validate_capability(ipo)
+    assert any("can't be mixed" in e for e in en_mixed)
+    assert any("Only one US market" in e for e in en_two)
+    assert any("IPO" in e and "US universes" in e for e in en_ipo)
+    assert not any(any("가" <= ch <= "힣" for ch in e) for e in en_mixed + en_two + en_ipo)
+    ko_mixed, _w, _u, _f = validate_capability(_intent(["SP500", "KOSPI"]))
+    assert any("혼합할 수 없습니다" in e for e in ko_mixed)

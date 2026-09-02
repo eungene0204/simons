@@ -2753,3 +2753,13 @@ export const en: Record<string, string> = {
   "{0} 충족": "{0} met",
   "설정된 매도 규칙 중 하나 충족 ({0})": "One of the configured sell rules met ({0})",
 };
+
+  // ── backend/backtest_engine.py (미국 유니버스 경고·거절 — BacktestDashboard 경고 로그가 t()로 표시)
+  "미국 유니버스는 현재 상장 종목 기준입니다 — 기간 중 상장폐지된 종목이 빠져 있어 장기 결과가 실제보다 유리하게 나올 수 있습니다(생존 편향).": "US universes are based on currently listed stocks — stocks delisted during the period are missing, so long-term results may look better than reality (survivorship bias).",
+  "지수 유니버스는 현재 구성종목 명부 기준입니다 — 과거의 편입·편출은 반영되지 않습니다.": "Index universes use the current constituent list — past additions and removals are not reflected.",
+  "한국 업종 분류는 미국 유니버스에 적용할 수 없습니다.": "Korean sector classifications can't be applied to US universes.",
+  "미국 유니버스의 신규 상장 필터는 아직 지원되지 않습니다.": "The new-listing filter isn't supported for US universes yet.",
+  "미국 데이터에는 상장폐지 종목의 가격 이력이 없습니다 — 테마·지정 종목 백테스트도 현재 상장 종목만으로 구성돼 장기 결과가 실제보다 유리하게 나올 수 있습니다(생존 편향).": "US data has no price history for delisted stocks — theme and custom-ticker backtests are also built only from currently listed names, so long-run results may look better than reality (survivorship bias).",
+  "수수료와 슬리피지가 모두 0으로 설정되어 있습니다 — 거래 비용이 없는 결과는 실제보다 유리합니다.": "Commission and slippage are both set to 0 — results without trading costs are more favourable than reality.",
+  // ── backend/api/intent_routes.py (일반 질문 답변 폴백 — infoText로 표시)
+  "해당 주제에 대한 일반적인 설명을 준비하지 못했습니다. 질문을 좀 더 구체적으로 입력해 주세요.": "I couldn't prepare a general explanation for that topic. Please make the question a bit more specific.",

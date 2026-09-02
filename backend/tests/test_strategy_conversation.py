@@ -4386,3 +4386,69 @@ def test_rename_notice_skips_symbols_pulled_in_by_theme_expansion():
     assert _renamed_symbol_notices(["036420"], ["036420"]) == []
     # 이름은 불렸지만 그 종목이 최종 유니버스에 없으면 알릴 것이 없다
     assert _renamed_symbol_notices(["제이콘텐트리"], ["005930"]) == []
+
+
+# ─── 오실레이터 교차 연산자: 값 소실 없이 부등호로 정규화 (2026-09-02 KR 전수 QA 치명 1건) ──
+# "청산은 ADX 20 하향 이탈"을 9B가 exit adx operator=crosses_below, value=null,
+# parameters.lookback_period=20으로 냈다. 검증기는 허용 연산자 오류만 남기고, 컴파일러는
+# 연산자·값을 조용히 버려 엔진 기본값(ADX ≥ 25 청산)으로 백테스트됐다 — 질문도 안내도
+# 없이 말한 값이 반대 방향 기본값으로 바뀌는 침묵 왜곡.
+
+
+def test_oscillator_cross_operator_normalized_to_comparison():
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        exit_conditions=[
+            {"factor": "technical.adx", "operator": "crosses_below", "value": 20,
+             "source_text": "ADX 20 하향 이탈"},
+            {"factor": "technical.rsi", "operator": "crosses_above", "value": 70,
+             "source_text": "RSI 70 상향 돌파"},
+        ],
+    ))
+    validated, report = run_validation(intent)
+    ops = {c.factor: c.operator for c in validated.strategy.exit_conditions}
+    assert ops == {"technical.adx": "<", "technical.rsi": ">"}
+    assert not any("허용되지 않습니다" in e for e in report.errors)
+    parsed = compile_strategy(validated, report, "원문")
+    adx = next(s for s in parsed.exit_signals if s.indicator == "adx")
+    assert (adx.operator, adx.value) == ("<", 20.0)
+
+
+def test_oscillator_cross_operator_without_value_asks_instead_of_defaulting():
+    # 실측 형태 그대로: 값이 lookback_period로 새고 value는 null — 값을 묻고, 조건은
+    # 값 대기로 제외된다(엔진 기본값 확정 금지).
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        exit_conditions=[
+            {"factor": "technical.adx", "operator": "crosses_below", "value": None,
+             "parameters": {"lookback_period": 20}, "source_text": "ADX 20 하향 이탈"},
+        ],
+    ))
+    validated, report = run_validation(intent)
+    assert not report.is_valid
+    assert any("ADX" in q.question and "기준값" in q.question
+               for q in report.clarification_questions)
+    parsed, dropped, pending = compile_partial(validated, report, "원문")
+    assert not any(s.indicator == "adx" for s in parsed.exit_signals)
+    assert [p["role"] for p in pending] == ["exit"]
+    assert "ADX" in dropped[0]
+
+
+def test_compile_technical_refuses_valueless_oscillator_signal():
+    from strategy_conversation.compiler.strategy_compiler import (
+        StrategyCompileError, _compile_technical,
+    )
+
+    for op in (None, "crosses_below"):
+        with pytest.raises(StrategyCompileError):
+            _compile_technical(
+                StrategyCondition(factor="technical.adx", operator=op, value=20), "adx", "sell"
+            )
+    with pytest.raises(StrategyCompileError):
+        _compile_technical(
+            StrategyCondition(factor="technical.adx", operator="<", value=None), "adx", "sell"
+        )
+    # 이벤트형(볼린저·MACD)은 교차 연산자가 정상 표현이다 — 회귀 없음
+    sig = _compile_technical(
+        StrategyCondition(factor="technical.bollinger_bands", operator="crosses_below",
+                          value=None), "bollinger_bands", "buy",
+    )
+    assert sig.indicator == "bollinger_bands"

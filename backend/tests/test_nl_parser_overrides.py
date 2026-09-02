@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import ui_language
 
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
@@ -5323,3 +5324,37 @@ def test_parser_and_validator_share_one_num_ctx():
     from engine.parse_validator import _VALIDATION_NUM_CTX
 
     assert _VALIDATION_NUM_CTX == _OLLAMA_NUM_CTX
+
+
+def test_build_parse_result_skips_raw_prompt_clarifications_on_primary_lane():
+    # [회귀 2026-09-02 /us 'period' → 'PER은 몇 이하로 할까요?'] 원문을 정규식으로 읽는
+    # 진입 공백/정성 지표 되묻기는 레거시 레인 전용이다 — primary(LLM 해석) 결과에 붙이면
+    # 영어 문장의 'period'가 `per` 패턴에 걸려 한국어 PER 질문이 /us에 나간다(US 영어
+    # 전수 게이트 100건 중 17건 실측). primary 레인은 scan_prompt_for_sector=False로 온다.
+    import time
+
+    import main
+    from engine.nl_parser import ParsedStrategy, TechnicalSignal
+
+    prompt = ("In the S&P 500, buy on a golden cross. Set the maximum holding period "
+              "to 25 trading days.")
+    parsed = ParsedStrategy(
+        description=prompt, universe=["SP500"],
+        entry_signals=[TechnicalSignal(indicator="ma_crossover", signal_type="buy",
+                                       short_period=5, long_period=20)],
+    )
+    kwargs = dict(load_ms=0.0, parse_ms=0.0, request_started=time.perf_counter())
+    with ui_language.bind("en"):
+        primary = main._build_parse_result(
+            main.NLParseRequest(prompt=prompt, backend="ollama", language="en"),
+            "ollama", parsed.model_copy(deep=True), None,
+            scan_prompt_for_sector=False, **kwargs,
+        )
+    assert "PER" not in (primary["clarification_question"] or "")
+    # 레거시 레인(원문 스캔 켜짐)의 종전 동작은 그대로다 — 이관 대상이지 여기서 바꾸지 않는다.
+    legacy = main._build_parse_result(
+        main.NLParseRequest(prompt=prompt, backend="ollama"),
+        "rule", parsed.model_copy(deep=True), None,
+        scan_prompt_for_sector=True, **kwargs,
+    )
+    assert "PER" in (legacy["clarification_question"] or "")

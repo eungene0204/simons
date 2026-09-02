@@ -2840,7 +2840,10 @@ def _planner_scope_ask(
         question = result.question
     else:
         term_label = ", ".join(f"'{t}'" for t in sorted(scope_terms))
-        question = f"{term_label}의 범위를 어떻게 정할까요?"
+        # 값(표현)이 섞인 질문이라 프론트 사전으로 못 옮긴다 — ui_language.msg 레인.
+        question = ui_language.msg(
+            "{terms}의 범위를 어떻게 정할까요?", "How should we scope {terms}?", terms=term_label,
+        )
     return question, chips, scope_terms
 
 

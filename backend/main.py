@@ -3511,11 +3511,16 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # ETF 유니버스 × 기업 재무지표 충돌: 조용히 무시하지 않고 이유 설명 + 기술 지표
     # 대안 제안으로 되묻는다(universe_capabilities 레지스트리 판정). 충돌이 없으면
     # 진입(종목 선정) 규칙을 통째로 잃었을 때의 되묻기를 검사한다.
-    if clarification_question is None:
+    # 아래 두 되묻기도 **원문을 정규식으로 읽는** 레거시 레인 전용이다(위 종목 오타 스캔과
+    # 같은 계약). primary 레인(LLM 해석)에는 붙이지 않는다 — 인터프리터의 검증기(ETF×재무
+    # 충돌·완결성)가 같은 판정을 LLM 출력 위에서 이미 수행하며, 원문 스캔이 겹치면 영어
+    # 문장의 'period'가 `per` 패턴에 걸려 /us에 한국어 "PER은 몇 이하로 할까요?"가 나갔다
+    # (2026-09-02 US 영어 전수 게이트 100건 중 17건 실측 — 대원칙 1 위반 지점의 누출).
+    if clarification_question is None and scan_prompt_for_sector:
         clarification_question, clarification_suggestions = detect_etf_factor_conflict(
             parsed, request.prompt
         )
-    if clarification_question is None:
+    if clarification_question is None and scan_prompt_for_sector:
         clarification_question, clarification_suggestions = detect_missing_entry_clarification(
             parsed, request.prompt
         )
@@ -4160,8 +4165,11 @@ async def parse_nl_strategy_stream(request: NLParseRequest):
                         from observability import use_parent
 
                         # 응답 후 단계지만 같은 사용자 요청의 일부다 — 부모를 복원해 같은
-                        # Trace에 붙인다(contextvar는 스레드를 건너지 않는다).
+                        # Trace에 붙인다(contextvar는 스레드를 건너지 않는다). UI 언어도
+                        # 같은 이유로 다시 묶는다 — 빠지면 /us 후행 검증이 ko로 돌아
+                        # 종목 오타 제안·테마 스캔의 US 가드가 꺼진다(run_parse와 동일).
                         with cancellation.bind(cancel_token), \
+                                ui_language.bind(request_language), \
                                 use_parent(defer_holder.get("trace_parent")):
                             try:
                                 update_holder["data"] = _complete_deferred_validation(defer_holder)
