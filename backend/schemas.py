@@ -199,7 +199,8 @@ class OptimizationRequest(BaseModel):
     base_strategy: BacktestRequest
     user_prompt: str
     target_metric: Optional[str] = "cagr"
-    n_trials: Optional[int] = 50
+    # 시행 횟수 상한 — 같은 구간에서 조합을 많이 볼수록 우연히 좋은 조합이 뽑힌다(다중 비교).
+    n_trials: Optional[int] = Field(default=50, ge=1, le=200)
     ranges: Dict[str, Any]  # {path: [values]} or {path: {type, min, max, step}}
 
 
@@ -212,7 +213,7 @@ class WalkForwardRequest(BaseModel):
     train_pct: Optional[float] = 0.7
     anchor: Optional[bool] = False   # False=rolling, True=anchored(expanding)
     target_metric: Optional[str] = "cagr"
-    n_trials: Optional[int] = 30
+    n_trials: Optional[int] = Field(default=30, ge=1, le=100)   # 창당 시행 횟수 상한
     method: Optional[Literal["bayesian", "grid"]] = "bayesian"
     # UI가 보여준 학습/검증 거래일 수 그대로 사용하는 명시적 분할 (지정 시 n_splits/train_pct보다 우선)
     is_bars: Optional[int] = Field(default=None, ge=1)

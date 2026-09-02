@@ -21,6 +21,7 @@ import pandas as pd
 import polars as pl
 
 from engine import data_coverage
+from engine import universe_pit
 from engine.data_resolver import DataResolver
 from engine import trade_reason as tr
 from engine.prep_cache import SymbolPrepCache, structural_signature
@@ -155,7 +156,10 @@ def prepare_symbol(sym: str, ctx: Dict[str, Any], loader, indicator_engine) -> D
     if len(df_pl) < 1:
         return {"outcome": "none", "res_logs": res_logs}
 
-    pdf = loader.preprocess_data(df_pl, apply_dividends=ctx["apply_dividends"])
+    pdf = loader.preprocess_data(
+        df_pl, apply_dividends=ctx["apply_dividends"],
+        sanitize_corporate_actions=not universe_pit.is_us_symbol(sym),
+    )
     return {"outcome": "ok", "df_pl": df_pl, "pdf": pdf, "res_logs": res_logs}
 
 
@@ -236,6 +240,9 @@ def process_symbol(
             res["liquidity"] = pd.Series(liquidity_ok, index=pdf.index)
         if "volume" in pdf.columns:
             res["trading_value"] = pdf["close"] * pdf["volume"]
+        if "market_cap" in pdf.columns:
+            # 일별 실측 시가총액(억원, KRX 스냅샷) — 지수 유니버스 상위 N 판정의 정본.
+            res["market_cap"] = pdf["market_cap"]
         if "pbr" in pdf.columns:
             res["pbr"] = pdf["pbr"]
         if "roe_or_gpa" in pdf.columns:

@@ -78,7 +78,8 @@ class DataLoader:
         """Clear the in-memory data cache."""
         self._cache.clear()
 
-    def preprocess_data(self, df_pl: pl.DataFrame, apply_dividends: bool = False) -> pd.DataFrame:
+    def preprocess_data(self, df_pl: pl.DataFrame, apply_dividends: bool = False,
+                        sanitize_corporate_actions: bool = True) -> pd.DataFrame:
         """OHLCV basic alignment and adjusting prices if needed.
 
         ``apply_dividends`` opt-in: when a ``dividends`` column is present, fold
@@ -129,7 +130,11 @@ class DataLoader:
         # odd one-day bad print. Those create impossible single-day jumps (>±30% price limit)
         # that fake out stop-losses and returns. Neutralise them so the engine sees a
         # continuous adjusted series regardless of source quality.
-        pdf = self._sanitize_corporate_actions(pdf)
+        # 한국 전용 — 임계(±30% 가격제한)가 한국 시장 전제이고, 미국 소스(yfinance)는
+        # 역분할까지 조정된 시계열이라 여기서의 역보정은 실제 갭(실적·인수·급락)을
+        # 미래 봉의 비율로 과거에서 지우는 룩어헤드가 된다. 호출자가 미국 종목이면 끈다.
+        if sanitize_corporate_actions:
+            pdf = self._sanitize_corporate_actions(pdf)
 
         pdf.set_index('date', inplace=True)
         pdf.index = pd.to_datetime(pdf.index)

@@ -111,23 +111,26 @@ class LocalOptimizationAgent:
             if full_cagr > 0 and oos_cagr < full_cagr:
                 cagr_degradation = (1 - oos_cagr / full_cagr) * 100
 
+            # 이 재실행은 아웃오브샘플 검증이 아니다 — 설정값은 전체 기간(후반 30% 포함)으로
+            # 골랐고 그 일부를 다시 잰 것뿐이다. 관찰 사실만 적고 신뢰도·실전 적용 판단은 쓰지 않는다.
             if oos_trades == 0:
-                emoji, verdict = "🔴", "위험"
-                msg = "검증 구간에서 매매가 한 건도 없습니다. **이 설정값은 특정 기간에서만 우연히 작동한 조합**일 가능성이 매우 높습니다."
+                emoji, verdict = "🔴", "매매 없음"
+                msg = "후반 구간에서는 매매가 한 건도 없었습니다 — 이 설정값의 성과는 전반 구간에서만 나왔습니다."
             elif cagr_degradation > 70:
-                emoji, verdict = "🔴", "위험"
-                msg = f"최근 구간 수익률이 **{cagr_degradation:.0f}% 하락**했습니다. 실전 적용을 권장하지 않습니다."
+                emoji, verdict = "🔴", "큰 차이"
+                msg = f"후반 구간 연평균 수익률이 전체 기간보다 **{cagr_degradation:.0f}% 낮았습니다**."
             elif cagr_degradation > 40:
-                emoji, verdict = "🟡", "주의"
-                msg = f"최근 구간 수익률이 **{cagr_degradation:.0f}% 하락**했습니다. 추가 검증이 필요합니다."
+                emoji, verdict = "🟡", "차이 있음"
+                msg = f"후반 구간 연평균 수익률이 전체 기간보다 **{cagr_degradation:.0f}% 낮았습니다**."
             else:
-                emoji, verdict = "🟢", "양호"
-                msg = "최근 구간에서도 비슷한 성과를 보여 신뢰도가 높습니다."
+                emoji, verdict = "🟢", "비슷함"
+                msg = "후반 구간의 성과가 전체 기간과 비슷했습니다."
 
             report += f"""
-#### 실전 신뢰도 검증 {emoji} {verdict}
+#### 후반 30% 구간 재실행 {emoji} {verdict}
 
-최적 설정값이 **최근 데이터(후반 30%, {oos_period})** 에서도 통하는지 검증한 결과입니다.
+전체 기간으로 고른 설정값을 **후반 30%({oos_period})** 에서 다시 잰 결과입니다. 설정값을 고를 때
+이 구간도 함께 봤으므로 **아웃오브샘플 검증이 아니며**, 구간 밖 성과를 말해 주지 않습니다.
 
 | 지표 | 전체 기간 | 최근 검증 구간 |
 |------|:---------:|:-------------:|
@@ -140,12 +143,12 @@ class LocalOptimizationAgent:
 {msg}
 """
         else:
-            report += "\n#### 실전 신뢰도 검증\n\n데이터가 부족하여 검증을 수행하지 못했습니다.\n"
+            report += "\n#### 후반 30% 구간 재실행\n\n데이터가 부족하여 재실행하지 못했습니다.\n"
 
         # ── 6. 주의사항 ──
         report += f"""
 ---
-*{total_trials}회 시뮬레이션으로 찾은 결과이며, 과거 성과가 미래 수익을 보장하지 않습니다. 실전 적용 전 다양한 기간에서 추가 테스트를 권장합니다.*
+*{total_trials}개 조합을 같은 기간에서 비교해 가장 높았던 값입니다(인샘플). 조합을 고른 데이터로 다시 잰 수치라 실제보다 높게 나오는 경향이 있으며, 과거 성과가 미래 수익을 보장하지 않습니다.*
 """
         return report.strip()
 

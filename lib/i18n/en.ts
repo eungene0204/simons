@@ -338,6 +338,7 @@ export const en: Record<string, string> = {
   // ── app/analytics/new/page.tsx
   "\n\n실제로 비교할 파라미터를 선택해 주세요. 최대 3개까지 설정할 수 있습니다.": "\n\nSelect the parameters to actually compare. You can set up to 3.",
   "{0} 기준으로 {1}회 계산을 마쳤습니다.": "Finished {1} calculations based on {0}.",
+  "모든 값은 조합을 고른 같은 기간에서 잰 인샘플 결과입니다 — 실제보다 높게 나오는 경향이 있으며, 구간 밖 성과는 워크포워드 검증으로 확인해 주세요.": "All values are in-sample results measured on the same period used to pick the combinations — they tend to overstate performance; use walk-forward validation to check out-of-sample behaviour.",
   "{0} 기준으로 30개 파라미터 조합을 계산하고 있습니다.": "Calculating 30 parameter combinations based on {0}.",
   "{0} 다시 정하기": "Redo {0}",
   "{0} 단일 종목 전략으로 설정했습니다. 어떤 진입 조건을 사용할까요?": "Set as a single-stock strategy for {0}. Which entry condition would you like to use?",

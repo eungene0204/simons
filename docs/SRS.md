@@ -827,6 +827,10 @@ RiskManagement {
 - `components/strategy/backtest/rebalanceComparison.ts`·`RebalanceComparisonSection.tsx`(신규), `components/strategy/backtest/BacktestDashboard.tsx`(탭), `app/analytics/new/backtestResultMapper.ts`·`lib/strategy/BacktestService.ts`·`lib/server/backtestCache.ts`(필드 전달·저장), `types/strategy.ts`
 - `backend/tests/test_rebalance_comparison.py`·`test_rebalance_dates.py`, `components/__tests__/RebalanceComparisonSection.test.tsx`
 
+**FR-BT-068** [편향 감사 수리 1차, 2026-09-02, 엔진 v16.5.0] 백테스트는 다음을 만족해야 한다. (a) 거래정지 상태로 데이터가 끝나는 종목(정지 꼬리 상폐)의 보유 포지션은 그 종목의 **마지막 실봉**에서 강제 정산한다 — 정지 마스크가 강제청산을 지워 백테스트 종료까지 동결가로 남겨선 안 된다. (b) 한국 가격제한(±30%) 전제의 코퍼레이트 액션 역보정은 **한국 종목에만** 적용한다 — 미국 종목의 실제 갭은 과거 시계열을 다시 스케일하지 않고 손익에 남긴다. (c) 증권거래세는 `sell_tax_rate` 미명시 시 **매도 봉 날짜의 시행일 기준 법정 세율**(농특세 포함, 0.30%~0.15%)을 적용하고, 명시(0 포함)하면 전 구간 고정한다. 결과 고지에 적용 세율(범위)을 밝힌다. (d) 리밸런싱 비중 리셋의 부분 매도(트림)에도 매도 비용(수수료+거래세)을 물린다. (e) KOSPI200·KOSDAQ150 유니버스의 시총 상위 N 판정은 일별 **실측 시가총액**을 정본으로 하고, 실측이 없는 셀만 현재 상장주식수 × 주가로 근사하며 근사 비율을 고지한다. (f) 거래 비용 옵션의 음수는 거절하고(Fail Fast), 수수료와 슬리피지가 모두 0이면 고지한다. (g) 생존편향 고지는 미국 유니버스뿐 아니라 미국 지정 종목·테마 경로, 그리고 한국 시장 유니버스의 상폐 이력 하한(마스터 `delistingFloor`) 이전 구간에도 붙인다. AI 신호는 학습 구간뿐 아니라 **검증 구간** 겹침도 고지한다. (h) 최적화 시행 횟수는 상한을 둔다(최적화 200, 워크포워드 창당 100). 최적화 결과 표시와 리포트는 인샘플임을 밝히고, 전체 기간으로 고른 설정값의 후반 30% 재실행을 아웃오브샘플 검증·신뢰도·실전 적용 판단으로 표현하지 않는다.
+
+**구현 파일:** `backend/engine/transaction_tax.py`(신규), `backend/engine/simulator.py`(`_resolve_fee_rates` 벡터·`_run_orders`), `backend/engine/loader.py`(`sanitize_corporate_actions`), `backend/engine/phase1.py`(US 플래그·`market_cap` 동봉), `backend/engine/universe_pit.py`(`delisting_floor`), `backend/backtest_engine.py`, `backend/schemas.py`, `backend/ai/local_optimization_agent.py`, `app/analytics/new/page.tsx`, `lib/i18n/en.ts`. 회귀: `backend/tests/test_bias_audit_fixes.py`, `test_transaction_tax.py`, `test_engine_simulator.py`.
+
 ---
 
 ### 3.3 AI/ML 시스템

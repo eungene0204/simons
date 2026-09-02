@@ -532,6 +532,8 @@ function buildMetricOptimizationResultText(
   return [
     t("{0} 기준으로 {1}회 계산을 마쳤습니다.", metricLabel, response.total_iterations ?? rows.length),
     ...resultLines,
+    // 인샘플 고지 — 조합을 고른 기간에서 다시 잰 수치라 과최적화 편향이 있다(숨기지 않는다).
+    t("모든 값은 조합을 고른 같은 기간에서 잰 인샘플 결과입니다 — 실제보다 높게 나오는 경향이 있으며, 구간 밖 성과는 워크포워드 검증으로 확인해 주세요."),
   ].join("\n\n");
 }
 

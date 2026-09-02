@@ -49,6 +49,15 @@ def _load_master() -> list[dict]:
     return json.loads(_MASTER_PATH.read_text(encoding="utf-8")).get("stocks", [])
 
 
+def delisting_floor() -> Optional[str]:
+    """주식 마스터의 상폐 이력 하한일(delistingFloor). 이 날짜 이전 구간엔 상폐 종목이
+    없어 시장 유니버스가 생존 종목만으로 구성된다 — 엔진이 고지에 쓴다."""
+    if not _MASTER_PATH.exists():
+        return None
+    val = json.loads(_MASTER_PATH.read_text(encoding="utf-8")).get("delistingFloor")
+    return str(val) if val else None
+
+
 def reload_master() -> None:
     """Drop the cached master (call after regenerating the file)."""
     _load_master.cache_clear()

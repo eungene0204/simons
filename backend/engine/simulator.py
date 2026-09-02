@@ -5,12 +5,15 @@ from typing import Dict, Any, Optional
 
 from engine.rebalance import compute_rebalance_dates
 from engine import trade_reason as tr
+from engine.transaction_tax import CURRENT_KR_SELL_TAX_RATE, kr_sell_tax_rates
 
 # ── 거래 비용 기본값 ──────────────────────────────────────────────────────────
 # 매수/매도 수수료는 legacy 'fee_rate'(대칭)를 상속하고, 증권거래세는 매도측에만
-# 부과한다(2025년 기준 0.15%). 'sell_tax_rate' 옵션으로 명시 제어(0 포함) 가능.
+# 부과한다. 'sell_tax_rate'를 명시하지 않으면 매도 봉의 날짜에 맞는 **시행일 기준
+# 법정 세율**(engine/transaction_tax.py, 0.30%→0.15%)을 쓴다 — 과거 매도에 현행
+# 세율을 일괄 적용하면 장기 결과가 실제보다 유리해진다. 명시(0 포함)하면 고정 세율.
 DEFAULT_FEE_RATE = 0.0015
-DEFAULT_SELL_TAX_RATE = 0.0015
+DEFAULT_SELL_TAX_RATE = CURRENT_KR_SELL_TAX_RATE   # 현행(2025~) 세율 — 가상계좌 정산과 공유
 DEFAULT_SLIPPAGE_RATE = 0.0020
 
 # 리밸런싱일에 목표 집합에서 빠져(조건 미충족·랭킹 이탈) 매도되는 청산의 정밀 사유.
@@ -106,7 +109,7 @@ class Simulator:
         ts_pct = float(risk_params.get('trailing_stop_pct') or 0)  # Fix 1
         max_hold = int(risk_params.get('max_holding_days') or 0)
 
-        buy_fee, sell_fee = self._resolve_fee_rates(options)
+        buy_fee, sell_fee = self._resolve_fee_rates(options, entries_df.index)
         slippage_raw = options.get('slippage_rate')
         slippage_val = float(slippage_raw) if slippage_raw is not None else DEFAULT_SLIPPAGE_RATE
         exec_type = options.get('execution_type', 'same_close')
@@ -212,7 +215,7 @@ class Simulator:
             """
             nonlocal active_count
             target_values[i, mask] = 0.0
-            fees_values[i, mask] = sell_fee
+            fees_values[i, mask] = sell_fee[i]
             active_mask[mask] = False
             peak_price[mask] = 0.0
             active_count -= int(mask.sum())
@@ -337,7 +340,7 @@ class Simulator:
                     # 비중 리셋 — 보유 종목에 동일가중 목표비중을 다시 준다(오른 종목은
                     # 일부 매도, 내린 종목은 추가 매수). 오늘 청산이 예정·체결된 종목과
                     # 거래 불가일 종목은 제외한다(같은 셀에 상반된 주문을 낼 수 없다).
-                    # 트림(소량 매도)에 매수 수수료가 적용되는 근사는 순수 경로와 같다.
+                    # 트림(소량 매도)의 매도 비용은 _run_orders가 실현 주문을 보고 적용한다.
                     reset = active_mask & ~pending_exit & avail_values[i]
                     if reset.any():
                         target_values[i, reset] = cur_size
@@ -404,28 +407,16 @@ class Simulator:
         # 감지한 청산을 목표비중 0 주문으로 주입하며, 체결은 exec_price(시장가)로
         # 이뤄진다. vbt 내장 스탑은 '정확히 스탑 가격 체결'(갭 무시)을 가정해
         # 리스크 관리를 인위적으로 완벽하게 만들기 때문.
-        return vbt.Portfolio.from_orders(
-            close=price_df,
-            size=target_df,
-            size_type='targetpercent',
-            price=exec_price_df,
-            fees=fees_values,
-            slippage=slippage_val,
-            init_cash=init_cash,
-            cash_sharing=True,
-            group_by=True,
-            call_seq='auto',          # 매도 → 매수 순서: 청산 현금으로 신규 편입
-            direction='longonly',
-            size_granularity=1.0,     # 정수 주식 단위 (소수점 주식 금지)
-            freq='D',
-        )
+        return self._run_orders(price_df, exec_price_df, target_df, fees_values,
+                                buy_fee, sell_fee, slippage_val, init_cash)
 
     @staticmethod
-    def _resolve_fee_rates(options: Dict[str, Any]) -> tuple:
-        """(매수 수수료율, 매도 수수료율+거래세율)을 옵션에서 해석한다.
+    def _resolve_fee_rates(options: Dict[str, Any], index: pd.Index) -> tuple:
+        """(매수 수수료율, 봉별 매도 수수료율+거래세율 벡터)를 옵션에서 해석한다.
 
         - buy_fee_rate / sell_fee_rate: 명시 시 legacy fee_rate보다 우선.
-        - sell_tax_rate: 증권거래세(매도측). 기본 0.15%, 0으로 명시 시 미부과.
+        - sell_tax_rate: 증권거래세(매도측). 명시하지 않으면 봉 날짜의 시행일 기준
+          법정 세율(engine/transaction_tax.py), 명시(0 포함)하면 전 구간 고정.
         """
         fee_rate_raw = options.get('fee_rate')
         fee_rate = float(fee_rate_raw) if fee_rate_raw is not None else DEFAULT_FEE_RATE
@@ -436,8 +427,61 @@ class Simulator:
 
         buy_fee = float(buy_raw) if buy_raw is not None else fee_rate
         sell_fee = float(sell_raw) if sell_raw is not None else fee_rate
-        sell_tax = float(tax_raw) if tax_raw is not None else DEFAULT_SELL_TAX_RATE
+        if tax_raw is not None:
+            sell_tax = np.full(len(index), float(tax_raw))
+        else:
+            sell_tax = kr_sell_tax_rates(index)
         return buy_fee, sell_fee + sell_tax
+
+    @staticmethod
+    def _run_orders(price_df: pd.DataFrame,
+                    exec_price_df: pd.DataFrame,
+                    target_df: pd.DataFrame,
+                    fees_values: np.ndarray,
+                    buy_fee: float,
+                    sell_fee: np.ndarray,
+                    slippage_val: float,
+                    init_cash: float) -> vbt.Portfolio:
+        """목표비중 주문을 체결하고, 양수 목표 셀에서 **실현된 매도**(비중 리셋 트림)에
+        매도 비용(수수료+거래세)을 물려 다시 체결한다.
+
+        vbt from_orders의 수수료는 셀 단위라 주문 방향을 미리 모른다 — 트림은 목표비중이
+        양수인 셀에서 나오는 매도이므로 1차 체결의 주문 기록(side)으로 셀을 찾아 매도
+        비용으로 바꾼 뒤 재실행한다(트림이 없으면 1회로 끝난다). 재실행으로 NAV가 미세하게
+        달라져 방향이 뒤집히는 셀은 2회차에서 한 번 더 잡는다.
+        """
+        from vectorbt.portfolio.enums import OrderSide
+
+        def _run(fees: np.ndarray) -> vbt.Portfolio:
+            return vbt.Portfolio.from_orders(
+                close=price_df,
+                size=target_df,
+                size_type='targetpercent',
+                price=exec_price_df,
+                fees=fees,
+                slippage=slippage_val,
+                init_cash=init_cash,
+                cash_sharing=True,
+                group_by=True,
+                call_seq='auto',          # 매도 → 매수 순서: 청산 현금으로 신규 편입
+                direction='longonly',
+                size_granularity=1.0,     # 정수 주식 단위 (소수점 주식 금지)
+                freq='D',
+            )
+
+        pf = _run(fees_values)
+        for _ in range(2):
+            rec = pf.orders.records_arr
+            sells = rec[rec['side'] == OrderSide.Sell]
+            if len(sells) == 0:
+                break
+            idx, col = sells['idx'], sells['col']
+            under = fees_values[idx, col] < sell_fee[idx]
+            if not under.any():
+                break
+            fees_values[idx[under], col[under]] = sell_fee[idx[under]]
+            pf = _run(fees_values)
+        return pf
 
     def _run_target_rebalance(self,
                               price_df: pd.DataFrame,
@@ -448,7 +492,7 @@ class Simulator:
                               eff_max_pos: int,
                               init_cash: float,
                               buy_fee: float,
-                              sell_fee: float,
+                              sell_fee: np.ndarray,
                               slippage_val: float,
                               sel_pct: Optional[float] = None,
                               sel_band: Optional[list] = None,
@@ -464,9 +508,9 @@ class Simulator:
         보유 종목은 그대로 두고 동일가중으로 비중만 되돌리며(오른 종목 일부 매도,
         내린 종목 추가 매수), 목표 종목 수에 미달하는 빈 자리만 후보로 채운다.
 
-        수수료: 목표비중 0 셀은 매도 비용(수수료+거래세), 양수 셀은 매수 수수료를
-        적용한다. 유지 종목의 비중 리셋 트림(소량 매도)에는 매수 수수료가 적용되는
-        근사가 남는다(트림 규모가 작아 영향 미미).
+        수수료: 목표비중 0 셀은 매도 비용(수수료+거래세), 양수 셀은 매수 수수료로 시작하고,
+        유지 종목의 비중 리셋 트림(양수 셀의 실현 매도)은 _run_orders가 주문 기록으로
+        찾아 매도 비용을 적용한다.
         """
         num_rows, num_syms = entries_df.shape
         entries_values = entries_df.values
@@ -517,20 +561,7 @@ class Simulator:
         # 체결을 하루 더 늦추는 이중 지연이었다(커스텀 루프 경로와 체결일이 어긋나던 버그).
         target_df = pd.DataFrame(target, index=entries_df.index, columns=entries_df.columns)
 
-        fees_values = np.where(target_df.values == 0.0, sell_fee, buy_fee)
+        fees_values = np.where(target_df.values == 0.0, sell_fee[:, None], buy_fee)
 
-        return vbt.Portfolio.from_orders(
-            close=price_df,
-            size=target_df,
-            size_type='targetpercent',
-            price=exec_price_df,
-            fees=fees_values,
-            slippage=slippage_val,
-            init_cash=init_cash,
-            cash_sharing=True,
-            group_by=True,
-            call_seq='auto',
-            direction='longonly',
-            size_granularity=1.0,     # 정수 주식 단위
-            freq='D',
-        )
+        return self._run_orders(price_df, exec_price_df, target_df, fees_values,
+                                buy_fee, sell_fee, slippage_val, init_cash)

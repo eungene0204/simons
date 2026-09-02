@@ -70,8 +70,8 @@ def _ai_signals_enabled() -> bool:
     return os.environ.get("AI_SIGNALS_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
-def _ai_model_train_end() -> str | None:
-    """라이브 AI 모델 메타의 학습 종료일(train_end). 없으면 None. (감사 H7)"""
+def _ai_model_meta() -> dict:
+    """라이브 AI 모델 메타(model/v3 → v2). 없거나 깨졌으면 빈 dict."""
     import json
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # project root
     for ver in ('v3', 'v2'):
@@ -79,11 +79,26 @@ def _ai_model_train_end() -> str | None:
         if os.path.exists(meta_path):
             try:
                 with open(meta_path) as f:
-                    val = json.load(f).get('train_end')
-                return str(val) if val else None
+                    return json.load(f) or {}
             except (ValueError, OSError):
-                return None
-    return None
+                return {}
+    return {}
+
+
+def _ai_model_train_end() -> str | None:
+    """라이브 AI 모델 메타의 학습 종료일(train_end). 없으면 None. (감사 H7)"""
+    val = _ai_model_meta().get('train_end')
+    return str(val) if val else None
+
+
+def _ai_model_val_end(meta: dict | None = None) -> str | None:
+    """검증 구간 종료일 — 'val_range': "2023-01-21 ~ 2024-07-01" 형식의 뒤쪽 날짜.
+    임계값 보정·조기종료가 이 구간으로 정해지므로 학습 구간과 같은 인샘플이다."""
+    val = (meta if meta is not None else _ai_model_meta()).get('val_range')
+    if not val or '~' not in str(val):
+        return None
+    end = str(val).split('~')[-1].strip()
+    return end or None
 
 
 def _max_indicator_period(*groups) -> int:
@@ -458,6 +473,20 @@ class BacktestEngine:
             
             options = req.get('options', {})
             exec_type = options.get('execution_type', 'next_open')
+            # 거래 비용 옵션 검증 — 음수는 리베이트가 되어 결과를 부풀린다(Fail Fast).
+            # 0은 허용하되(연구용) 조용히 지나가지 않는다.
+            for _ck in ('fee_rate', 'buy_fee_rate', 'sell_fee_rate', 'sell_tax_rate', 'slippage_rate'):
+                _cv = options.get(_ck)
+                if _cv is not None and float(_cv) < 0:
+                    raise ValueError(f"거래 비용({_ck})은 음수일 수 없습니다: {_cv}")
+            _fee_keys = [k for k in ('fee_rate', 'buy_fee_rate', 'sell_fee_rate') if options.get(k) is not None]
+            _fee_zero = bool(_fee_keys) and all(float(options[k]) == 0 for k in _fee_keys)
+            _slip_zero = options.get('slippage_rate') is not None and float(options['slippage_rate']) == 0
+            if _fee_zero and _slip_zero:
+                self.warnings.add(
+                    "수수료와 슬리피지가 모두 0으로 설정되어 있습니다 — 거래 비용이 없는 결과는 "
+                    "실제보다 유리합니다."
+                )
             # 배당 재투자(토탈리턴)를 기본값으로 한다 — 가격리턴은 배당을 누락해
             # 수익을 과소평가하고 배당락을 가짜 손실로 오인한다(검증 #8). 전략과
             # 벤치마크 양쪽에 동일 적용해 비교 일관성을 유지한다. total_return=False로
@@ -531,6 +560,7 @@ class BacktestEngine:
             all_highs, all_lows = {}, {}          # 장중 스탑 감지용 (C5)
             all_liquidity = {}                     # 유동성 마스크 패널 (C4/H5)
             all_trading_values = {}                # 전일 거래대금 — 체결 규모 사후 검증 (H5)
+            all_market_caps = {}                   # 일별 실측 시가총액(억원) — 지수 상위 N 판정
             all_drop_scores: dict = {}  # sym → ai_drop_score 시계열 (횡단면 랭킹 청산용)
             # 재무 팩터 랭킹(예: 영업이익률 상위 20종목) — 랭킹 지표의 as-of 컬럼을
             # 심볼별로 수집한다(pbr/roe 블렌드와 같은 경로, 지표만 요청값).
@@ -671,6 +701,14 @@ class BacktestEngine:
                     symbols = _aof_symbols
                     print(f"[BT-ENGINE] PIT universe: {len(symbols)}종목 "
                           f"(markets={_markets}, index_top_n={_index_top_n})", flush=True)
+                # 상폐 이력은 마스터의 delistingFloor(2015-01-01)부터만 있다 — 그 이전 구간은
+                # 생존 종목만으로 돌아가므로 조용히 지나가지 않는다.
+                _floor = universe_pit.delisting_floor()
+                if _floor and (_period_start_str is None or _period_start_str < _floor):
+                    self.warnings.add(
+                        f"상장폐지 종목 이력은 {_floor}부터 반영됩니다 — 그 이전 구간은 현재 생존 "
+                        "종목만으로 구성돼 결과가 실제보다 유리할 수 있습니다(생존 편향)."
+                    )
             elif _is_etf_universe:
                 # ETF 유니버스 — 주식과 혼합하지 않고 ETF 마스터만 조회한다. 마스터는 현재
                 # 상장 ETF만 담으므로(상폐 ETF 미포함) 생존 편향 가능성을 정직하게 알린다.
@@ -710,8 +748,16 @@ class BacktestEngine:
                         "한국 종목과 미국 종목을 한 백테스트에 함께 지정할 수 없습니다 — "
                         "시장별로 나눠 실행해 주세요."
                     )
-                if _us_cnt == len(symbols) and options.get('sell_tax_rate') is None:
-                    options['sell_tax_rate'] = 0.0
+                if _us_cnt == len(symbols):
+                    if options.get('sell_tax_rate') is None:
+                        options['sell_tax_rate'] = 0.0
+                    # 미국 데이터셋에는 상폐 종목 가격 이력이 없다 — 테마·지정 종목 경로도
+                    # 유니버스 경로와 같은 생존 편향을 지니므로 같은 고지를 붙인다.
+                    self.warnings.add(
+                        "미국 데이터에는 상장폐지 종목의 가격 이력이 없습니다 — 테마·지정 종목 "
+                        "백테스트도 현재 상장 종목만으로 구성돼 장기 결과가 실제보다 유리하게 "
+                        "나올 수 있습니다(생존 편향)."
+                    )
 
             # ── 섹터/업종 제한 ──
             # 섹터 분류는 현재 상장(korea-stocks.json) + 상폐 백필(stock-master.json sector,
@@ -850,6 +896,7 @@ class BacktestEngine:
                     all_exit_reasons[sym] = data["exit_reasons"]
                     if "liquidity" in data: all_liquidity[sym] = data["liquidity"]
                     if "trading_value" in data: all_trading_values[sym] = data["trading_value"]
+                    if "market_cap" in data: all_market_caps[sym] = data["market_cap"]
                     for _col, _ser in (data.get("fund_rank_values") or {}).items():
                         all_fund_rank_values[_col][sym] = _ser
                     if "ai_drop_score" in data: all_drop_scores[sym] = data["ai_drop_score"]
@@ -960,6 +1007,8 @@ class BacktestEngine:
                             res["liquidity"] = pd.Series(liquidity_ok, index=pdf.index)
                         if 'volume' in pdf.columns:
                             res["trading_value"] = pdf['close'] * pdf['volume']
+                        if 'market_cap' in pdf.columns:
+                            res["market_cap"] = pdf['market_cap']
                         if 'pbr' in pdf.columns: res["pbr"] = pdf['pbr']
                         if 'roe_or_gpa' in pdf.columns: res["roe"] = pdf['roe_or_gpa']
                         if _rank_metric_cols:
@@ -1039,10 +1088,24 @@ class BacktestEngine:
                         rank_exits = rank_exits.shift(1, fill_value=False)
                     exts_df = (exts_df | rank_exits.astype(bool)) & available_df
 
+            # 상폐·데이터 종료 강제청산(phase1.close_at_last_available_row)은 거래정지 마스크를
+            # 넘어 집행한다. 정지 상태로 끝나는 상폐 종목(합병·해산·SPAC 등 — 2026-09-02 실측
+            # 474개 중 168개)은 마지막 봉 거래량이 0이라 available_df가 강제청산 신호까지 지워
+            # 포지션이 백테스트 끝까지 동결가로 남고 슬롯을 점유했다. 마지막 실봉의 (동결)
+            # 시가로 정산한다 — 합병·만료는 실제로도 그 가격 부근에서 현금·승계주식을 받는다.
+            _forced_exit = pd.DataFrame(False, index=common_index, columns=processed_symbols)
+            for _s in processed_symbols:
+                _last = raw_price_df[_s].last_valid_index()
+                if _last is not None:
+                    _forced_exit.at[_last, _s] = True
+            exts_df |= _forced_exit
+
             # ── 지수 유니버스(KOSPI200·KOSDAQ150) = point-in-time top-N by market cap ──
             # Static current index membership is itself survivorship-biased, so we define the
-            # index universe as the daily top-N alive names of that market by market cap
-            # (close × listed shares). Market cap is evaluated only where price data is actually
+            # index universe as the daily top-N alive names of that market by market cap.
+            # 시총은 파케이의 일별 실측 시가총액(억원, KRX 스냅샷 — scripts/rebuild_market_cap.py)을
+            # 정본으로 쓰고, 실측이 없는 셀만 현재 상장주식수 × 주가로 근사한다(정적 주식수는
+            # 증자·분할 이력을 모른다). Market cap is evaluated only where price data is actually
             # available that day, so delisted names drop out of the ranking once they stop trading.
             large_cap_mask = None
             if _index_top_n:
@@ -1051,7 +1114,20 @@ class BacktestEngine:
                     {s: shares_map.get(s, np.nan) for s in processed_symbols},
                     dtype=float,
                 )
-                mcap = price_df.mul(shares_vec, axis=1).where(available_df)
+                mcap_static = price_df.mul(shares_vec, axis=1) / 1e8   # 억원 — 실측 컬럼과 단위 통일
+                _pit_ratio = 0.0
+                if all_market_caps:
+                    mcap_pit = pd.DataFrame(
+                        all_market_caps, index=common_index, columns=processed_symbols
+                    ).astype(float)
+                    mcap_pit = mcap_pit.where(mcap_pit > 0)
+                    _avail_cells = int(available_df.values.sum())
+                    _pit_cells = int((mcap_pit.notna() & available_df).values.sum())
+                    _pit_ratio = _pit_cells / _avail_cells if _avail_cells else 0.0
+                    mcap = mcap_pit.where(mcap_pit.notna(), mcap_static)
+                else:
+                    mcap = mcap_static
+                mcap = mcap.where(available_df)
                 mcap_rank = mcap.rank(axis=1, ascending=False, method="first")
                 large_cap_mask = (mcap_rank <= _index_top_n).fillna(False)
                 if exec_type == 'next_open':
@@ -1060,10 +1136,17 @@ class BacktestEngine:
                     large_cap_mask = large_cap_mask.shift(1, fill_value=False)
                 ents_df &= large_cap_mask
                 _index_label = "KOSDAQ150" if _index_top_n == 150 else "KOSPI200"
-                self.warnings.add(
-                    f"지수(시가총액 상위 {_index_top_n}) 판정은 현재 상장주식수 × 과거 주가의 근사입니다 — "
-                    f"과거 증자·분할 이력은 반영되지 않아 실제 당시 {_index_label} 구성과 다를 수 있습니다."
-                )
+                if _pit_ratio >= 0.99:
+                    self.warnings.add(
+                        f"지수(시가총액 상위 {_index_top_n}) 판정은 일별 실측 시가총액 순위입니다 — "
+                        f"실제 {_index_label}의 편입·편출 규칙(유동성·업종 배분 등)과는 다를 수 있습니다."
+                    )
+                else:
+                    self.warnings.add(
+                        f"지수(시가총액 상위 {_index_top_n}) 판정은 일별 실측 시가총액 순위이며, 실측이 없는 "
+                        f"{(1 - _pit_ratio) * 100:.0f}% 구간은 현재 상장주식수 × 과거 주가의 근사입니다 — "
+                        f"근사 구간은 증자·분할 이력이 반영되지 않아 실제 당시 {_index_label} 구성과 다를 수 있습니다."
+                    )
 
             rank_df = None
             _tiebreak_rank_used = False
@@ -1440,7 +1523,10 @@ class BacktestEngine:
             try:
                 _bench_df = self.loader.load_symbol_data(_benchmark_sym)
                 if _bench_df is not None:
-                    _bench_pd = self.loader.preprocess_data(_bench_df, apply_dividends=apply_dividends)
+                    _bench_pd = self.loader.preprocess_data(
+                        _bench_df, apply_dividends=apply_dividends,
+                        sanitize_corporate_actions=not universe_pit.is_us_symbol(_benchmark_sym),
+                    )
                     benchmark_prices = _bench_pd['close'].sort_index()
                     # H1: 벤치마크가 자기 존재 구간만, 전략은 전체 구간을 복리로 쌓으므로
                     # 두 수익률의 기간이 다르다 — 전략에 유리한 쪽으로 기우는 비교이고,
@@ -1646,11 +1732,24 @@ class BacktestEngine:
                     )
 
             _tax_raw = options.get('sell_tax_rate')
-            _tax_val = float(_tax_raw) if _tax_raw is not None else 0.0015
-            if _tax_val > 0:
-                self.warnings.add(
-                    f"매도 체결에 증권거래세 {_tax_val * 100:.2f}%가 반영되었습니다."
-                )
+            if _tax_raw is not None:
+                if float(_tax_raw) > 0:
+                    self.warnings.add(
+                        f"매도 체결에 증권거래세 {float(_tax_raw) * 100:.2f}%가 반영되었습니다."
+                    )
+            else:
+                from engine.transaction_tax import kr_sell_tax_rates
+                _rates = kr_sell_tax_rates(common_index)
+                _lo, _hi = float(_rates.min()) * 100, float(_rates.max()) * 100
+                if _lo == _hi:
+                    self.warnings.add(
+                        f"매도 체결에 증권거래세 {_hi:.2f}%(농특세 포함)가 반영되었습니다."
+                    )
+                else:
+                    self.warnings.add(
+                        f"매도 체결에 증권거래세를 시행일 기준 세율({_hi:.2f}%→{_lo:.2f}%, 농특세 포함)로 "
+                        "반영했습니다 — 과거 매도에 현행 세율을 일괄 적용하지 않습니다."
+                    )
 
             # 1년 미만 구간의 CAGR은 정의대로 연환산하지만, 짧은 표본을 1년으로
             # 늘리는 과정에서 잡음이 함께 증폭된다 — 값을 왜곡하는 대신 고지한다.
@@ -1671,11 +1770,20 @@ class BacktestEngine:
 
             if ai_needed:
                 # H7: 백테스트 구간이 AI 모델 학습 데이터와 겹치면 인샘플 낙관 편향
+                _meta = _ai_model_meta()
                 _train_end = _ai_model_train_end()
+                _val_end = _ai_model_val_end(_meta)
                 if _train_end and (_period_start_str is None or _period_start_str < _train_end):
                     self.warnings.add(
                         f"AI 모델 학습 데이터(~{_train_end})와 백테스트 기간이 겹칩니다 — "
                         "겹치는 구간의 AI 신호 성과는 인샘플(낙관 편향)일 수 있습니다."
+                    )
+                # 검증 구간도 인샘플이다 — 신호 임계값·조기종료가 이 구간으로 정해졌다.
+                if _val_end and (_period_start_str is None or _period_start_str < _val_end):
+                    self.warnings.add(
+                        f"AI 모델 검증 데이터(~{_val_end})와 백테스트 기간이 겹칩니다 — "
+                        "신호 임계값이 이 구간으로 보정되어 겹치는 구간의 AI 신호 성과는 "
+                        "인샘플(낙관 편향)일 수 있습니다."
                     )
 
             # H5: 체결 규모 사후 검증 — 매수 금액이 전일 거래대금 한도를 초과한 거래 수

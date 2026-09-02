@@ -309,21 +309,64 @@ def test_simulator_integer_share_quantities(simulator):
     assert float(sizes.iloc[0]) == 3.0  # floor(1000/333)
 
 
-def test_simulator_default_sell_tax_applied(simulator):
-    """H3: 매도 거래세(기본 0.15%)가 매도측에만 부과된다."""
-    price, exec_price, entries, exits = create_dummy_data(days=3, symbols=1)
-    price.iloc[:, 0] = [100.0, 110.0, 110.0]
-    exec_price.iloc[:, 0] = [100.0, 110.0, 110.0]
-    entries.iloc[0, 0] = True
-    exits.iloc[1, 0] = True
-
+def _sell_tax_final_value(simulator, start_date: str) -> float:
+    dates = pd.date_range(start_date, periods=3)
+    price = pd.DataFrame([[100.0], [110.0], [110.0]], index=dates, columns=["SYM0"])
+    entries = pd.DataFrame([[True], [False], [False]], index=dates, columns=["SYM0"])
+    exits = pd.DataFrame([[False], [True], [False]], index=dates, columns=["SYM0"])
     risk_params = {"init_cash": 1000.0, "position_size_pct": 100,
                    "skip_position_setting": True}
     options = {"fee_rate": 0.0, "slippage_rate": 0.0, "execution_type": "same_close"}
-    pf = simulator.run(price, exec_price, entries, exits, risk_params, options)
+    return float(simulator.run(price, price.copy(), entries, exits, risk_params, options).final_value())
 
-    # 매수 10주@100(비용 0) → 매도 10주@110, 거래세 0.15% = 1100*0.0015 = 1.65
-    assert pf.final_value() == pytest.approx(1100.0 - 1.65)
+
+def test_simulator_default_sell_tax_applied(simulator):
+    """H3: 매도 거래세가 매도측에만, 매도 봉 날짜의 시행일 기준 세율로 부과된다."""
+    # 매수 10주@100(비용 0) → 매도 10주@110. 2025년 세율 0.15% = 1100*0.0015 = 1.65
+    assert _sell_tax_final_value(simulator, "2025-01-06") == pytest.approx(1100.0 - 1.65)
+
+
+def test_simulator_sell_tax_follows_statutory_schedule(simulator):
+    """과거 매도에 현행 세율을 일괄 적용하면 장기 결과가 유리해진다 — 2018년 매도는 0.30%,
+    2024년 매도는 0.18%를 물어야 한다(engine/transaction_tax.py 스케줄)."""
+    assert _sell_tax_final_value(simulator, "2018-01-02") == pytest.approx(1100.0 - 1100.0 * 0.0030)
+    assert _sell_tax_final_value(simulator, "2024-01-02") == pytest.approx(1100.0 - 1100.0 * 0.0018)
+
+
+def test_simulator_explicit_sell_tax_is_flat_across_years(simulator):
+    """sell_tax_rate를 명시하면(0 포함) 연도와 무관하게 고정 세율이다."""
+    dates = pd.date_range("2018-01-02", periods=3)
+    price = pd.DataFrame([[100.0], [110.0], [110.0]], index=dates, columns=["SYM0"])
+    entries = pd.DataFrame([[True], [False], [False]], index=dates, columns=["SYM0"])
+    exits = pd.DataFrame([[False], [True], [False]], index=dates, columns=["SYM0"])
+    risk_params = {"init_cash": 1000.0, "position_size_pct": 100, "skip_position_setting": True}
+    options = {"fee_rate": 0.0, "slippage_rate": 0.0, "sell_tax_rate": 0.0,
+               "execution_type": "same_close"}
+    pf = simulator.run(price, price.copy(), entries, exits, risk_params, options)
+    assert pf.final_value() == pytest.approx(1100.0)
+
+
+def test_rebalance_trim_sells_are_charged_sell_costs(simulator):
+    """비중 유지 리밸런싱의 트림(오른 종목 일부 매도)에도 매도 비용(수수료+거래세)이
+    붙어야 한다 — 종전에는 양수 목표비중 셀이라 매수 수수료만 물렸다."""
+    from vectorbt.portfolio.enums import OrderSide
+    dates = pd.bdate_range("2025-01-06", periods=30)
+    n = len(dates)
+    price = pd.DataFrame({"UP": np.linspace(100.0, 200.0, n), "FLAT": np.full(n, 100.0)}, index=dates)
+    entries = pd.DataFrame(True, index=dates, columns=price.columns)
+    exits = pd.DataFrame(False, index=dates, columns=price.columns)
+    risk_params = {"init_cash": 1_000_000.0, "max_positions": 2, "allocation_type": "equal",
+                   "rebalancing_period": "weekly", "rebalance_method": "weights_only",
+                   "skip_risk_management": True}
+    options = {"fee_rate": 0.001, "slippage_rate": 0.0, "execution_type": "same_close"}
+    pf = simulator.run(price, price.copy(), entries, exits, risk_params, options)
+
+    rec = pf.orders.records_readable
+    trims = rec[(rec["Column"] == "UP") & (rec["Side"] == "Sell")]
+    assert len(trims) > 0, "오른 종목의 비중 리셋 트림 매도가 있어야 테스트가 유효하다"
+    for _, o in trims.iterrows():
+        # 매도 비용 = 수수료 0.1% + 2025년 거래세 0.15%
+        assert o["Fees"] == pytest.approx(o["Size"] * o["Price"] * (0.001 + 0.0015))
 
 
 def test_simulator_intraday_low_triggers_stop_loss(simulator):

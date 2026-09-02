@@ -127,7 +127,7 @@ simons/
 │   │   ├── loader.py                # DataLoader (OHLCV 로드 + 캐싱)
 │   │   ├── indicators.py            # IndicatorEngine (지표 계산)
 │   │   ├── signals.py               # SignalEngine (조건 평가, 벡터화)
-│   │   ├── simulator.py             # Simulator (루프=의도 결정 + vbt from_orders 목표비중 체결 — NAV 사이징·정수주·장중 스탑·거래정지 이월·매도 거래세)
+│   │   ├── simulator.py             # Simulator (루프=의도 결정 + vbt from_orders 목표비중 체결 — NAV 사이징·정수주·장중 스탑·거래정지 이월·매도 거래세 시행일 스케줄(transaction_tax.py)·트림 매도 비용 2패스)
 │   │   ├── rebalance.py             # 달력 기준 리밸런싱일 계산 (vbt 비의존; daily/weekly/monthly/bimonthly/quarterly/semiannual/yearly)
 │   │   ├── result_handler.py        # ResultHandler (지표 계산 + 직렬화)
 │   │   ├── version.py               # 엔진 버전 SOT(ENGINE_VERSION·CHANGELOG). MAJOR=결과값 변경, MINOR=표시/버그. 결과에 기록됨(BacktestResponse.version)
@@ -1051,7 +1051,8 @@ BacktestEngine.run_backtest(request)
 │       ├── data/ohlcv/{symbol}.parquet 읽기 (Polars)
 │       ├── in-memory 캐싱 (_cache dict)
 │       ├── 재무 지표 enrichment (ROE, EPS, BPS 병합)
-│       └── preprocess_data(): 수정주가/오류프린트 정규화
+│       └── preprocess_data(): 수정주가/오류프린트 정규화 — 한국 종목 전용(sanitize_corporate_actions,
+│           ±30% 가격제한 전제). 미국 종목은 phase1·벤치마크가 끈다(실제 갭을 과거에서 지우는 룩어헤드 방지)
 │           └── 배당 재투자 토탈리턴 보정 (engine/dividends.py) — **기본 ON**(options.total_return,
 │               기본 True; False면 가격리턴 호환). 전략·벤치마크 양쪽 동일 적용(비교 일관성).
 │               dividends 컬럼 없으면 no-op. 컬럼 백필: scripts/backfill_dividends.py
