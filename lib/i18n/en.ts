@@ -2777,7 +2777,6 @@ export const en: Record<string, string> = {
   "수수료와 슬리피지가 모두 0으로 설정되어 있습니다 — 거래 비용이 없는 결과는 실제보다 유리합니다.": "Commission and slippage are both set to 0 — results without trading costs are more favourable than reality.",
   // ── backend/api/intent_routes.py (일반 질문 답변 폴백 — infoText로 표시)
   "해당 주제에 대한 일반적인 설명을 준비하지 못했습니다. 질문을 좀 더 구체적으로 입력해 주세요.": "I couldn't prepare a general explanation for that topic. Please make the question a bit more specific.",
-};
   // ── backend/engine/result_warnings.py (결과 경고 정본 템플릿 — BacktestDashboard 경고 로그가 warningParts를 t()로 표시, 게이트 tests/result-warnings-i18n.test.ts)
   "체결 방식이 '당일 종가 체결'입니다 — 당일 종가 신호를 당일 종가에 체결하는 비현실적 가정(룩어헤드)입니다. 실거래 판단에는 '익일 시가 체결' 방식 사용을 권장합니다.": "Execution is set to 'same-day close' — filling a signal from the day's close at that same close is an unrealistic (look-ahead) assumption. For real-trading judgement, the 'next-day open' execution is recommended.",
   "업종({0}) 필터는 현재 분류 기준입니다 — 기간 중의 업종 재분류는 반영되지 않습니다.": "The industry ({0}) filter uses the current classification — reclassifications during the period are not reflected.",
@@ -2824,3 +2823,4 @@ export const en: Record<string, string> = {
   "적자(EPS ≤ 0)": "losses (EPS ≤ 0)",
   "자본잠식(BPS ≤ 0)": "negative equity (BPS ≤ 0)",
   "자본잠식(자기자본 ≤ 0)": "negative equity (shareholders' equity ≤ 0)",
+};
