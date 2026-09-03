@@ -42,6 +42,10 @@ def build_fixture() -> dict:
                 # 미국 시장 전략은 초기 자본 칩이 달러다(계좌·엔진 숫자가 곧 통화).
                 slots.VARIANT_US: entry(slots.INITIAL_CAPITAL, slots.VARIANT_US),
             },
+            slots.UNIVERSE: {
+                # /us 서비스의 유니버스 칩(미국 유니버스 6종) — 빌더·되묻기 게이트 공통.
+                slots.VARIANT_US: entry(slots.UNIVERSE, slots.VARIANT_US),
+            },
             slots.ENTRY: {
                 # 단일 종목: 여러 종목을 비교하는 랭킹 선택지가 성립하지 않는다.
                 "single_asset": {"suggestions": slots.entry_chips(cross_sectional=False)},

@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from ui_language import msg
+
 import math
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -40,7 +42,11 @@ def _check_and_intersection(
             spec = REGISTRY.get(factor)
             name = spec.display_name if spec else factor
             described = " AND ".join(f"{name} {c.operator} {c.value}" for c in conds)
-            errors.append(f"{role} 조건이 서로 모순되어 만족하는 종목이 없습니다: {described}")
+            errors.append(msg(
+                "{role} 조건이 서로 모순되어 만족하는 종목이 없습니다: {described}",
+                "The {role} conditions contradict each other, so no stock can satisfy them: {described}",
+                role=msg(role, "entry" if role == "진입" else "exit"), described=described,
+            ))
             if conflicted is not None and slot is not None:
                 conflicted.add(slot)
 
@@ -69,10 +75,13 @@ def validate_conflicts(intent: StrategyIntent) -> Tuple[List[str], List[str], Li
             short = cond.parameters.get("short_period")
             long = cond.parameters.get("long_period")
             if short is not None and long is not None and short >= long:
-                errors.append(
-                    f"'{cond.factor}'의 단기 기간({short:g})이 장기 기간({long:g}) 이상입니다 — "
-                    "단기 < 장기여야 합니다"
-                )
+                errors.append(msg(
+                    "'{factor}'의 단기 기간({short})이 장기 기간({long}) 이상입니다 — "
+                    "단기 < 장기여야 합니다",
+                    "'{factor}' short period ({short}) is not shorter than the long period "
+                    "({long}) — short must be < long",
+                    factor=cond.factor, short=f"{short:g}", long=f"{long:g}",
+                ))
                 conflicted.add(slot)
 
     # 보유 기간 vs 리밸런싱 주기
@@ -80,10 +89,14 @@ def validate_conflicts(intent: StrategyIntent) -> Tuple[List[str], List[str], Li
     freq_days = REBALANCE_FREQUENCY_DAYS.get(portfolio.rebalance_frequency or "")
     if freq_days and portfolio.hold_period_days is not None \
             and portfolio.hold_period_days < freq_days:
-        warnings.append(
-            f"보유 기간({portfolio.hold_period_days}거래일)이 리밸런싱 주기(약 {freq_days}거래일)보다 "
-            "짧아 리밸런싱 전에 모든 포지션이 청산됩니다 — 의도한 설정인지 확인하세요"
-        )
+        warnings.append(msg(
+            "보유 기간({hold}거래일)이 리밸런싱 주기(약 {freq}거래일)보다 "
+            "짧아 리밸런싱 전에 모든 포지션이 청산됩니다 — 의도한 설정인지 확인하세요",
+            "The holding period ({hold} trading days) is shorter than the rebalancing cycle "
+            "(about {freq} trading days), so every position exits before rebalancing — "
+            "please confirm this is intended",
+            hold=portfolio.hold_period_days, freq=freq_days,
+        ))
 
     # 진입과 청산이 완전히 동일한 방향 조건이면 즉시 청산 루프가 된다
     entry_keys = {
@@ -93,9 +106,11 @@ def validate_conflicts(intent: StrategyIntent) -> Tuple[List[str], List[str], Li
     for cond in strategy.exit_conditions:
         if cond.operator and cond.value is not None \
                 and (cond.factor, cond.operator, cond.value) in entry_keys:
-            warnings.append(
-                f"진입과 청산에 동일한 조건({cond.factor} {cond.operator} {cond.value})이 있어 "
-                "매수 직후 매도될 수 있습니다"
-            )
+            warnings.append(msg(
+                "진입과 청산에 동일한 조건({cond})이 있어 매수 직후 매도될 수 있습니다",
+                "Entry and exit share the same condition ({cond}), so positions may be sold "
+                "right after buying",
+                cond=f"{cond.factor} {cond.operator} {cond.value}",
+            ))
 
     return errors, warnings, sorted(conflicted)

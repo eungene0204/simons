@@ -130,3 +130,21 @@ def test_reply_does_not_mention_settings_panel():
     answer = platform_defaults.reply("수수료는?")
     assert "설정 패널" not in answer
     assert "요청하시면" in answer
+
+
+def test_defaults_reply_is_english_and_usd_on_us_lane():
+    """/us(en)에서 기본값 답변은 영어·달러 체계(USD_* 정본)이고 증권거래세는 0이다(2026-09-03).
+    감지 어휘(원문 정규식)는 넓히지 않는다 — 'slippage'/'default'처럼 이미 잡히는 질문만 대상."""
+    import ui_language
+    from intent import platform_defaults
+
+    with ui_language.bind("en"):
+        text = platform_defaults.reply("what is the default slippage?")
+        facts = platform_defaults.facts_block("slippage and fee")
+    assert text is not None and "The default slippage is" in text
+    assert not any("가" <= ch <= "힣" for ch in text)
+    # 사실 블록(LLM 주입)도 같은 레인 — 미국 레인은 거래세 0.
+    assert facts is not None and "The default slippage is 0.05%" in facts
+    assert not any("가" <= ch <= "힣" for ch in facts)
+    ko = platform_defaults.reply("기본 설정값이 뭐야?")
+    assert "만원" in ko

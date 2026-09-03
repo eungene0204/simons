@@ -416,7 +416,10 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
     # 간다 — 한국 섹터 검증기가 미국 라벨을 조용히 버리기 때문이다. 라벨로 인식된 표현은
     # 미해결 목록에서도 뺀다(되묻기·미지원 안내가 중복으로 나가지 않게).
     us_industry = None
-    if ui_language.get_ui_language() == "en":
+    # 판정은 **시장** 기준이다(strategy_slots·nl_parser의 초기 자본 통화 판정과 동일) — 언어로만
+    # 가르면 KR 레인에서 "S&P500에서 반도체"가 한국 섹터 정본(sector)으로 컴파일돼 엔진이
+    # "한국 업종 분류는 미국 유니버스에 적용할 수 없습니다"로 실패한다(2026-09-03 감사).
+    if ui_language.get_ui_language() == "en" or _is_us_markets(list(strategy.universe.markets)):
         from engine.universe_pit import us_industry_label
 
         for term in strategy.universe.sectors:
@@ -425,6 +428,13 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
                 us_industry = label
                 unresolved_sectors = [t for t in unresolved_sectors if t != term]
                 break
+        if _is_us_markets(list(strategy.universe.markets)):
+            # 미국 유니버스에 한국 섹터 정본은 성립하지 않는다 — 라벨로 못 옮긴 표현은
+            # 조용히 버리지 않고 미해결 목록에 남겨 상위(primary) 되묻기·안내 채널로 보낸다.
+            for term in strategy.universe.sectors:
+                if us_industry_label(term) is None and term not in unresolved_sectors:
+                    unresolved_sectors.append(term)
+            sector_value = None
 
     if ui_language.get_ui_language() == "en":
         # [지역 격리] /us 요청(표시 언어 en — 지역이 곧 언어, lib/geo/region)의 시장

@@ -361,6 +361,13 @@ _HOLD_RISK_RE = re.compile(
 
 
 def _parse_universe(text: str) -> Optional[Universe]:
+    # 미국 유니버스는 우리가 발행한 칩 표기(정본 표)와의 **정확 일치**로만 받는다 — 어휘
+    # 정규식을 넓히지 않는다(대원칙 1). 칩 밖의 자유 서술은 freetext_interpreter(LLM)가 맡는다.
+    from engine.strategy_slots import US_UNIVERSE_CHIP_VALUES
+
+    exact = US_UNIVERSE_CHIP_VALUES.get(text.strip())
+    if exact is not None:
+        return exact
     if _UNIV_ETF_RE.search(text):
         return "ETF"
     if _UNIV_BOTH_RE.search(text):
@@ -1400,7 +1407,53 @@ def required_missing(state: BuilderState) -> Optional[str]:
 
 # ─── 응답 생성(다음 질문 / 요약) ─────────────────────────────────────────────────
 
-_UNIVERSE_LABEL = {"KOSPI": "코스피", "KOSDAQ": "코스닥", "KOSPI200": "코스피200", "KOSPI_KOSDAQ": "코스피·코스닥 전체", "ETF": "ETF"}
+_UNIVERSE_LABEL = {"KOSPI": "코스피", "KOSDAQ": "코스닥", "KOSPI200": "코스피200", "KOSPI_KOSDAQ": "코스피·코스닥 전체", "ETF": "ETF",
+                   "SP500": "S&P500", "NASDAQ100": "나스닥100", "NASDAQ": "나스닥", "DOW30": "다우30",
+                   "US": "미국 전체", "US_ETF": "미국 ETF"}
+
+
+def _msg(ko: str, en: str, **values) -> str:
+    """빌더 응답의 값 섞인 문장 — 프론트 사전(정확 일치)으로 못 옮기므로 백엔드가 언어를 고른다."""
+    import ui_language
+
+    return ui_language.msg(ko, en, **values)
+
+
+def _is_en() -> bool:
+    import ui_language
+
+    return ui_language.get_ui_language() == "en"
+
+
+_UNIVERSE_LABEL_EN = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "KOSPI200": "KOSPI 200",
+                      "KOSPI_KOSDAQ": "all KOSPI/KOSDAQ", "ETF": "ETF", "SP500": "S&P 500",
+                      "NASDAQ100": "Nasdaq-100", "NASDAQ": "Nasdaq", "DOW30": "Dow 30",
+                      "US": "the entire US market", "US_ETF": "US ETFs"}
+_TYPE_LABEL_EN = {"momentum": "momentum", "golden_cross": "golden cross", "macd": "MACD",
+                  "bollinger": "Bollinger Bands", "breakout": "breakout", "volume_spike": "volume spike",
+                  "stochastic": "Stochastic", "cci": "CCI", "rsi": "RSI", "mean_reversion": "oversold bounce",
+                  "value": "undervalued value", "custom": "custom"}
+_REBAL_LABEL_EN = {"daily": "daily", "weekly": "weekly", "monthly": "monthly", "quarterly": "quarterly",
+                   "yearly": "yearly", "none": "none"}
+
+
+def _universe_label(code: Optional[str]) -> str:
+    return (_UNIVERSE_LABEL_EN if _is_en() else _UNIVERSE_LABEL).get(code or "", "")
+
+
+def _type_label(code: Optional[str]) -> str:
+    return (_TYPE_LABEL_EN if _is_en() else _TYPE_LABEL).get(code or "", "")
+
+
+def _rebal_label(code: Optional[str]) -> str:
+    return (_REBAL_LABEL_EN if _is_en() else _REBAL_LABEL).get(code or "", "")
+
+
+def _default_universe() -> str:
+    """시장을 말하지 않은 빌더 전략의 기본 유니버스 — /us(en)는 S&P500(컴파일러와 동일 눈높이)."""
+    import ui_language
+
+    return "SP500" if ui_language.get_ui_language() == "en" else "KOSPI"
 _TYPE_LABEL = {
     "momentum": "모멘텀",
     "golden_cross": "골든크로스",
@@ -1566,7 +1619,12 @@ def next_question(
     # '직접 입력'은 답이 아니라 채팅창을 다시 여는 UI 토글이라 프론트가 붙인다
     # (withBuilderNavigationSuggestions) — 어느 표에도 넣지 않는다.
     if field == "universe":
-        question, chips = strategy_slots.slot_question(strategy_slots.UNIVERSE)
+        import ui_language
+
+        question, chips = strategy_slots.slot_question(
+            strategy_slots.UNIVERSE,
+            strategy_slots.VARIANT_US if ui_language.get_ui_language() == "en" else None,
+        )
         return (prefix + question, chips)
     if field == "listing_period":
         question, _ = strategy_slots.builder_question("listing_period")
@@ -1627,11 +1685,11 @@ def _filter_phrases(state: BuilderState) -> list[str]:
     """선택된 옵션 필터를 짧은 한국어 구로. 없으면 빈 리스트."""
     parts: list[str] = []
     if state.trend_filter_ma:
-        parts.append(f"{state.trend_filter_ma}일선 위")
+        parts.append(_msg("{n}일선 위", "above the {n}-day MA", n=state.trend_filter_ma))
     if state.liquidity_min:
-        parts.append(f"거래대금 {_fmt_pct(state.liquidity_min)}억 이상")
+        parts.append(_msg("거래대금 {v}억 이상", "trading value ≥ {v} (100M)", v=_fmt_pct(state.liquidity_min)))
     if state.rsi_filter:
-        parts.append(f"RSI {_fmt_pct(state.rsi_filter)} 이하")
+        parts.append(_msg("RSI {v} 이하", "RSI ≤ {v}", v=_fmt_pct(state.rsi_filter)))
     return parts
 
 
@@ -1645,13 +1703,13 @@ def _risk_phrases(state: BuilderState) -> list[str]:
     """설정된 청산 조건을 짧은 한국어 구로. 없으면 빈 리스트."""
     parts: list[str] = []
     if state.stop_loss_pct is not None:
-        parts.append(f"-{_fmt_pct(state.stop_loss_pct)}% 손절")
+        parts.append(_msg("-{v}% 손절", "{v}% stop-loss", v=_fmt_pct(state.stop_loss_pct)))
     if state.take_profit_pct is not None:
-        parts.append(f"{_fmt_pct(state.take_profit_pct)}% 익절")
+        parts.append(_msg("{v}% 익절", "{v}% take-profit", v=_fmt_pct(state.take_profit_pct)))
     if state.trailing_stop_pct is not None:
-        parts.append(f"최고가 대비 {_fmt_pct(state.trailing_stop_pct)}% 청산")
+        parts.append(_msg("최고가 대비 {v}% 청산", "{v}% trailing stop", v=_fmt_pct(state.trailing_stop_pct)))
     if state.hold_period_days:
-        parts.append(f"{state.hold_period_days}거래일 보유")
+        parts.append(_msg("{n}거래일 보유", "hold {n} trading days", n=state.hold_period_days))
     return parts
 
 
@@ -1660,62 +1718,70 @@ def _listing_window_label(listing_from: Optional[str], listing_to: Optional[str]
     if not listing_from and not listing_to:
         return ""
     if not listing_from:
-        return f"{listing_to} 이전 상장"
+        return _msg("{d} 이전 상장", "listed before {d}", d=listing_to)
     year = listing_from[:4]
     if listing_from == f"{year}-01-01" and listing_to == f"{year}-12-31":
-        return f"{year}년 상장"
+        return _msg("{y}년 상장", "listed in {y}", y=year)
     if not listing_to:
-        return f"{listing_from} 이후 상장"
-    return f"{listing_from}~{listing_to} 상장"
+        return _msg("{d} 이후 상장", "listed since {d}", d=listing_from)
+    return _msg("{a}~{b} 상장", "listed {a}–{b}", a=listing_from, b=listing_to)
 
 
 def _ack_sentence(state: BuilderState, field: str) -> str:
     """단일 필드를 확인하는 완결 문장(마침표 없이)."""
+    join = ", " if _is_en() else "·"
     if field == "risk_done":
         phrases = _risk_phrases(state)
-        return f"{'·'.join(phrases)} 조건으로 하겠습니다" if phrases else ""
+        return _msg("{p} 조건으로 하겠습니다", "I'll use {p} as the exit rule", p=join.join(phrases)) if phrases else ""
     if field == "filters_asked":
         phrases = _filter_phrases(state)
-        return f"{'·'.join(phrases)} 필터를 더하겠습니다" if phrases else "추가 필터 없이 진행하겠습니다"
+        return (_msg("{p} 필터를 더하겠습니다", "I'll add the {p} filter", p=join.join(phrases)) if phrases
+                else _msg("추가 필터 없이 진행하겠습니다", "I'll proceed without extra filters"))
     if field == "rsi_period":
-        return f"RSI {state.rsi_period}일 기준으로 보겠습니다"
+        return _msg("RSI {n}일 기준으로 보겠습니다", "I'll use a {n}-day RSI", n=state.rsi_period)
     if field == "rsi_overbought":
-        return f"과매도 {_fmt_pct(state.rsi_oversold)}·과매수 {_fmt_pct(state.rsi_overbought)} 기준으로 하겠습니다"
+        return _msg("과매도 {lo}·과매수 {hi} 기준으로 하겠습니다", "I'll use oversold {lo} / overbought {hi}",
+                    lo=_fmt_pct(state.rsi_oversold), hi=_fmt_pct(state.rsi_overbought))
     if field == "ma_kind":
-        return f"{'지수' if state.ma_kind == 'ema' else '단순'} 이동평균을 쓰겠습니다"
+        return (_msg("지수 이동평균을 쓰겠습니다", "I'll use exponential moving averages") if state.ma_kind == "ema"
+                else _msg("단순 이동평균을 쓰겠습니다", "I'll use simple moving averages"))
     if field == "ma_long":
-        return f"{state.ma_short}일·{state.ma_long}일 이동평균 교차로 하겠습니다"
+        return _msg("{s}일·{l}일 이동평균 교차로 하겠습니다", "I'll use the {s}/{l}-day moving-average cross",
+                    s=state.ma_short, l=state.ma_long)
     if field == "macd_mode":
-        return f"MACD {'제로선 돌파' if state.macd_mode == 'zero' else '시그널선 교차'}로 하겠습니다"
+        return (_msg("MACD 제로선 돌파로 하겠습니다", "I'll use the MACD zero-line cross") if state.macd_mode == "zero"
+                else _msg("MACD 시그널선 교차로 하겠습니다", "I'll use the MACD signal-line cross"))
     if field == "cci_threshold":
-        return f"CCI ±{_fmt_pct(state.cci_threshold)} 기준으로 하겠습니다"
+        return _msg("CCI ±{v} 기준으로 하겠습니다", "I'll use CCI ±{v}", v=_fmt_pct(state.cci_threshold))
     if field == "volume_period":
-        return f"거래량 흐름(OBV) {state.volume_period}일 평균 기준으로 보겠습니다"
+        return _msg("거래량 흐름(OBV) {n}일 평균 기준으로 보겠습니다", "I'll use a {n}-day OBV average",
+                    n=state.volume_period)
     if field == "value_roe":
         if state.value_pbr is None:  # 한쪽만 채워진 부분 답변 — 채워진 값만 확인한다
-            return f"ROE {_fmt_pct(state.value_roe)} 이상으로 하겠습니다"
-        return f"PBR {_fmt_pct(state.value_pbr)} 이하·ROE {_fmt_pct(state.value_roe)} 이상으로 하겠습니다"
+            return _msg("ROE {v} 이상으로 하겠습니다", "I'll use ROE ≥ {v}", v=_fmt_pct(state.value_roe))
+        return _msg("PBR {p} 이하·ROE {r} 이상으로 하겠습니다", "I'll use P/B ≤ {p} and ROE ≥ {r}",
+                    p=_fmt_pct(state.value_pbr), r=_fmt_pct(state.value_roe))
     if field == "rebalance_cycle":
         if state.rebalance_cycle == "none":
-            return "정기 리밸런싱은 하지 않겠습니다"
-        return f"{_REBAL_LABEL.get(state.rebalance_cycle, '')} 리밸런싱하겠습니다"
+            return _msg("정기 리밸런싱은 하지 않겠습니다", "I won't rebalance on a schedule")
+        return _msg("{c} 리밸런싱하겠습니다", "I'll rebalance {c}", c=_rebal_label(state.rebalance_cycle))
     if field == "holding_count":
-        return f"최대 {state.holding_count}종목으로 하겠습니다"
+        return _msg("최대 {n}종목으로 하겠습니다", "I'll hold up to {n} stocks", n=state.holding_count)
     if field == "lookback_days":
-        return f"최근 {state.lookback_label} 기준으로 보겠습니다"
+        return _msg("최근 {p} 기준으로 보겠습니다", "I'll look back over the last {p}", p=state.lookback_label)
     if field == "entry_rule":
-        return "말씀하신 조건으로 진입하겠습니다"
+        return _msg("말씀하신 조건으로 진입하겠습니다", "I'll enter on the condition you described")
     if field == "strategy_type":
-        return f"{_TYPE_LABEL.get(state.strategy_type, '')} 전략으로 구성해 볼게요"
+        return _msg("{t} 전략으로 구성해 볼게요", "Let's build a {t} strategy", t=_type_label(state.strategy_type))
     if field == "listing_from":
-        return (f"{_listing_window_label(state.listing_from, state.listing_to)} "
-                "종목만 대상으로 하겠습니다")
+        return _msg("{w} 종목만 대상으로 하겠습니다", "I'll only include stocks {w}",
+                    w=_listing_window_label(state.listing_from, state.listing_to))
     if field == "sector":
-        return f"{_sector_label(state)} 업종 종목만 대상으로 하겠습니다"
+        return _msg("{s} 업종 종목만 대상으로 하겠습니다", "I'll only include {s} stocks", s=_sector_label(state))
     if field == "theme_symbols":
-        return f"{state.theme_label} 종목만 대상으로 하겠습니다"
+        return _msg("{t} 종목만 대상으로 하겠습니다", "I'll only include {t} stocks", t=state.theme_label)
     if field == "universe":
-        return f"{_UNIVERSE_LABEL.get(state.universe, '')} 시장을 대상으로 하겠습니다"
+        return _msg("{u} 시장을 대상으로 하겠습니다", "I'll target {u}", u=_universe_label(state.universe))
     return ""
 
 
@@ -1728,21 +1794,22 @@ def _seed_summary(state: BuilderState) -> list[str]:
     single = state.single_symbol is not None
     parts: list[str] = []
     if state.sector and not single:
-        parts.append(f"{_sector_label(state)} 업종 대상")
+        parts.append(_msg("{s} 업종 대상", "{s} sector", s=_sector_label(state)))
     if state.new_listing_only and not single:
         label = _listing_window_label(state.listing_from, state.listing_to)
-        parts.append(f"{label} 종목 대상" if label else "신규 상장 종목 대상")
+        parts.append(_msg("{w} 종목 대상", "stocks {w}", w=label) if label
+                     else _msg("신규 상장 종목 대상", "newly listed stocks"))
     if state.strategy_type:
-        parts.append(f"{_TYPE_LABEL.get(state.strategy_type, '')} 전략")
+        parts.append(_msg("{t} 전략", "{t} strategy", t=_type_label(state.strategy_type)))
     if state.lookback_days and state.strategy_type in ("momentum", "breakout"):
-        parts.append(f"최근 {state.lookback_label} 기준")
+        parts.append(_msg("최근 {p} 기준", "last {p}", p=state.lookback_label))
     if state.holding_count and not single:
-        parts.append(f"{state.holding_count}종목")
+        parts.append(_msg("{n}종목", "{n} stocks", n=state.holding_count))
     if state.rebalance_cycle and not single:
-        parts.append(_REBAL_LABEL.get(state.rebalance_cycle, "") + " 리밸런싱")
+        parts.append(_msg("{c} 리밸런싱", "{c} rebalancing", c=_rebal_label(state.rebalance_cycle)))
     risk = _risk_phrases(state)
     if risk:
-        parts.append("·".join(risk))
+        parts.append((", " if _is_en() else "·").join(risk))
     return parts
 
 
@@ -1766,13 +1833,13 @@ def _ack_prefix(state: BuilderState, just_filled: Optional[set[str]] = None) -> 
     if just_filled is None:
         summary = _seed_summary(state)
         if summary:
-            return "좋아요. " + ", ".join(summary) + "(으)로 이해했어요.\n\n"
+            return _msg("좋아요. {s}(으)로 이해했어요.\n\n", "Got it — {s}.\n\n", s=", ".join(summary))
         return ""
     for field in _ACK_PRIORITY:
         if field in just_filled:
             sentence = _ack_sentence(state, field)
             if sentence:
-                return f"좋아요. {sentence}.\n\n"
+                return _msg("좋아요. {s}.\n\n", "Great. {s}.\n\n", s=sentence)
     return ""
 
 
@@ -1785,7 +1852,7 @@ def _fmt_pct(value: float) -> str:
 def synthesize_prompt(state: BuilderState) -> str:
     """수집한 필드를 기존 NL 파서가 안정적으로 해석하는 한국어 프롬프트로 합성한다."""
     single = state.single_symbol is not None
-    universe = _UNIVERSE_LABEL.get(state.universe or "KOSPI", "코스피")
+    universe = _UNIVERSE_LABEL.get(state.universe or _default_universe(), "코스피")
     if state.theme_symbols and state.theme_label and not single:
         # 테마 종목 목록 확정(FR-STR-071): 종목명 나열로 합성 — custom 유형의 prompt
         # 재파싱 경로에서 _extract_target_symbols가 결정적으로 잡는다('업종/테마' 단어를
@@ -1886,6 +1953,8 @@ def synthesize_prompt(state: BuilderState) -> str:
 _UNIVERSE_DSL = {
     "KOSPI": ["KOSPI"], "KOSDAQ": ["KOSDAQ"], "KOSPI200": ["KOSPI200"],
     "KOSPI_KOSDAQ": ["KOSPI", "KOSDAQ"], "ETF": ["ETF"],
+    "SP500": ["SP500"], "NASDAQ100": ["NASDAQ100"], "NASDAQ": ["NASDAQ"], "DOW30": ["DOW30"],
+    "US": ["US"], "US_ETF": ["US_ETF"],
 }
 
 
@@ -1961,7 +2030,7 @@ def build_parsed_strategy(state: BuilderState):
     theme = bool(state.theme_symbols)
     return ParsedStrategy(
         description=synthesize_prompt(state),
-        universe=_UNIVERSE_DSL.get(state.universe or "KOSPI", ["KOSPI"]),
+        universe=_UNIVERSE_DSL.get(state.universe or _default_universe(), [_default_universe()]),
         sector=None if (single or theme) else state.sector,
         # 단일 종목 모드: 지정 종목·집중 보유·리밸런싱 없음(엔진 계약 FR-STR-068).
         # 테마 종목 목록(FR-STR-071)도 같은 지정 종목 계약을 재사용한다(universe 무시).

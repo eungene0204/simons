@@ -439,10 +439,23 @@ VARIANT_RANKING = "ranking"
 # 프론트는 칩 답변을 백엔드 왕복 없이 즉시 적용하므로 문구를 로컬 픽스처에서 읽는다.
 VARIANT_US = "us"
 
+# /us 서비스의 유니버스 질문 — 칩은 미국 유니버스 6종(engine.universe_pit US 종류와 1:1).
+# 표기는 한국어 정본(프론트 en.ts가 번역)이고, 값 결속은 US_UNIVERSE_CHIP_VALUES가 정한다
+# (빌더 _parse_universe·프론트 deterministicConditionFlow 둘 다 이 표를 본다).
+US_UNIVERSE_CHIP_VALUES: dict[str, str] = {
+    "S&P500": "SP500", "나스닥100": "NASDAQ100", "나스닥": "NASDAQ", "다우30": "DOW30",
+    "미국 전체": "US", "미국 ETF": "US_ETF",
+}
+_US_UNIVERSE_QUESTION: tuple[str, tuple[str, ...]] = (
+    "먼저 어떤 시장·종목을 대상으로 할지 정해볼까요?",
+    tuple(US_UNIVERSE_CHIP_VALUES),
+)
+
 _SLOT_VARIANTS: dict[tuple[str, str], tuple[str, tuple[str, ...]]] = {
     (MAX_POSITIONS, VARIANT_QUANTILE): _QUANTILE_MAX_POSITIONS_QUESTION,
     (MAX_POSITIONS, VARIANT_RANKING): _RANKING_MAX_POSITIONS_QUESTION,
     (INITIAL_CAPITAL, VARIANT_US): _US_INITIAL_CAPITAL_QUESTION,
+    (UNIVERSE, VARIANT_US): _US_UNIVERSE_QUESTION,
 }
 
 

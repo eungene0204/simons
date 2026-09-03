@@ -237,3 +237,15 @@ def test_validator_us_block_messages_follow_ui_language():
     assert not any(any("가" <= ch <= "힣" for ch in e) for e in en_mixed + en_two + en_ipo)
     ko_mixed, _w, _u, _f = validate_capability(_intent(["SP500", "KOSPI"]))
     assert any("혼합할 수 없습니다" in e for e in ko_mixed)
+
+
+# ── 미국 업종 라벨 배정은 언어가 아니라 시장 기준 (2026-09-03) ────────────────────
+
+def test_kr_lane_us_market_with_industry_compiles_to_us_industry():
+    """한국어(ko) 레인에서 "S&P500에서 반도체"를 말하면 sector(한국 정본)가 아니라
+    us_industry로 가야 한다 — 종전엔 en일 때만 라벨을 배정해 엔진이 거절했다."""
+    intent = _intent(["SP500"], sectors=["반도체"])
+    parsed = compile_strategy(intent, _ready(), "S&P500에서 반도체 종목")
+    assert parsed.universe == ["SP500"]
+    assert parsed.us_industry == "Semiconductors"
+    assert parsed.sector is None

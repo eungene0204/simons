@@ -13,6 +13,8 @@ import json
 import logging
 import re
 import time
+
+import ui_language
 from collections import OrderedDict
 from dataclasses import dataclass
 from hashlib import sha256
@@ -1800,7 +1802,8 @@ def _generate_coach_response(
         chat_started = time.perf_counter()
         try:
             raw = parser.chat(
-                COACH_SYSTEM_PROMPT,
+                # /us(en)는 같은 코칭 규칙에 영어 응답 지시만 덧붙인다(AI 리포트와 같은 레인).
+                ui_language.append_directive(COACH_SYSTEM_PROMPT),
                 user_msg,
                 max_tokens=400,
                 temperature=_COACH_TEMPERATURE,
@@ -2148,7 +2151,7 @@ async def coach_strategy_stream(req: CoachRequest):
         try:
             with _main._mlx_inference_lock.priority(1):
                 for delta in parser.stream_chat(
-                    COACH_SYSTEM_PROMPT,
+                    ui_language.append_directive(COACH_SYSTEM_PROMPT),
                     user_msg,
                     max_tokens=400,
                     temperature=_COACH_TEMPERATURE,

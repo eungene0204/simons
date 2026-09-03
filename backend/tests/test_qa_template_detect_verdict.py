@@ -370,3 +370,28 @@ def test_kr_lang_keeps_case_sensitive_asked(qatd):
     assert qatd.LANG == "kr"
     flags = qatd.analyze(_template(qatd, prompt), res)
     assert "PBR" in flags.missing
+
+
+def test_signal_number_pending_in_ask_is_not_fatal(qatd):
+    """되묻기·값-대기에 오른 신호 수치는 소실이 아니다(2026-09-03).
+
+    "ADX 20 하향 이탈" 청산이 값 대기(pending_conditions source_text)로 제외되고 기준값을
+    묻는 중이면 20은 조용히 사라진 게 아니다 — 컴파일러 침묵 왜곡 수리 뒤 정상 되묻기를
+    ③ 신호 수치 검사가 계속 치명으로 세던 오탐."""
+    prompt = ("KOSPI200 종목 중 ADX가 23 이상이면 매수하고, 청산은 ADX 20 하향 이탈로 해주세요.")
+    parsed = {
+        "universe": ["KOSPI200"],
+        "entry_signals": [{"indicator": "adx", "signal_type": "buy", "operator": ">=",
+                           "value": 23.0, "period": 14}],
+        "exit_signals": [],
+        "fundamental_filters": [],
+    }
+    asked = {
+        "parsed": parsed,
+        "clarification_question": "청산 조건의 ADX 기준값을 얼마로 할까요?",
+        "pending_conditions": [{"role": "exit", "label": "ADX", "source_text": "ADX 20 하향 이탈"}],
+    }
+    assert not any("ADX 기준값 소실" in x for x in qatd.analyze(_template(qatd, prompt), asked).fatal)
+    # 질문도 값 대기도 없이 20이 사라지면 종전대로 치명이다.
+    silent = {"parsed": parsed}
+    assert any("ADX 기준값 소실" in x for x in qatd.analyze(_template(qatd, prompt), silent).fatal)

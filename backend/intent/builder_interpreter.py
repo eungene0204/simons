@@ -42,7 +42,9 @@ def freetext_llm_enabled() -> bool:
 
 
 _ENUM_FIELDS = {
-    "universe": {"KOSPI", "KOSDAQ", "KOSPI200", "KOSPI_KOSDAQ", "ETF"},
+    "universe": {"KOSPI", "KOSDAQ", "KOSPI200", "KOSPI_KOSDAQ", "ETF",
+                 # /us 빌더의 미국 유니버스(engine.strategy_slots.US_UNIVERSE_CHIP_VALUES 값)
+                 "SP500", "NASDAQ100", "NASDAQ", "DOW30", "US", "US_ETF"},
     "strategy_type": {
         "momentum", "golden_cross", "macd", "bollinger", "breakout", "stochastic",
         "cci", "volume_spike", "rsi", "mean_reversion", "value", "custom",
@@ -98,7 +100,8 @@ def _build_system_prompt() -> str:
         '- "remove": 이미 설정된 조건의 삭제 요청(빼줘/없애줘/제거/취소)\n'
         '- "reopen": 값 없이 바꾸고 싶다는 의사만 밝힘("시장 바꿔줘") — 그 항목을 다시 묻게 한다\n'
         "필드(값 형식):\n"
-        '- universe: "KOSPI"|"KOSDAQ"|"KOSPI200"|"KOSPI_KOSDAQ"(양시장)|"ETF"\n'
+        '- universe: "KOSPI"|"KOSDAQ"|"KOSPI200"|"KOSPI_KOSDAQ"(양시장)|"ETF"'
+        '|"SP500"|"NASDAQ100"|"NASDAQ"|"DOW30"|"US"(미국 전체)|"US_ETF"(미국 ETF)\n'
         '- strategy_type: "momentum"(상승률 상위)|"golden_cross"|"macd"|"bollinger"|'
         '"breakout"(신고가/박스권 돌파)|"stochastic"|"cci"|"volume_spike"(거래량 급증)|'
         '"rsi"|"mean_reversion"(과매도 반등)|"value"(저평가 가치)|"custom"(직접 서술)\n'

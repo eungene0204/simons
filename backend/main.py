@@ -3468,9 +3468,12 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     unsupported_exclude |= concepts_covered_by_pending(pending_conditions)
     if sector_reask_q or theme_notice or not scan_prompt_for_sector:
         unsupported_exclude.add("sector")
+    # 원문 정규식 미지원 안내도 레거시 레인 전용 — primary(LLM 해석)는 인터프리터의
+    # unsupported_features 보고 채널(primary.py 잔여 미지원 안내)이 같은 역할을 하며, 원문
+    # 스캔이 겹치면 영어 문장의 'ATR'에 한국어 라벨 안내가 /us로 나간다(2026-09-03).
     unsupported_notice = build_unsupported_concept_notice(
         request.prompt, exclude=unsupported_exclude or None,
-    )
+    ) if scan_prompt_for_sector else None
     if unsupported_notice:
         notices.append(unsupported_notice)
     convert_started = time.perf_counter()
