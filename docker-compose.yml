@@ -85,7 +85,7 @@ services:
       BACKEND_URL: http://backend:8000
       # 약관·개인정보처리방침 하단 '사업자 정보'의 연락처(전자상거래법 제10조).
       # 박스 .env에 BUSINESS_PHONE이 있으면 그 값이 이기고, 없으면 아래 기본값을 쓴다.
-      BUSINESS_PHONE: ${BUSINESS_PHONE:-010-9956-9257}
+      BUSINESS_PHONE: ${BUSINESS_PHONE:-070-8027-2252}
     volumes:
       - ./prisma/prisma:/app/prisma/prisma             # Prisma → 동일 SQLite
       - ./data:/app/data                               # fs 읽기 + xai_engine.py 실행에 필요
