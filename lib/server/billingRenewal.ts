@@ -5,6 +5,11 @@ import crypto from "crypto";
 import type { PrismaClient } from "@prisma/client";
 import { PLANS, isValidPlanId } from "@/lib/plans";
 import { addMonthsClamped } from "@/lib/server/planLimits";
+import {
+  backtestUsageCarryOnDowngrade,
+  USAGE_CARRY_SELECT,
+  type UsageCarrySource,
+} from "@/lib/server/planDowngrade";
 import { TossPaymentError, chargeBillingKey } from "@/lib/server/tossPayments";
 
 export const BILLING_MAX_FAIL_COUNT = 3; // 연속 실패 한도 (도달 시 FREE 전환)
@@ -16,9 +21,10 @@ export interface BillingRenewalSummary {
   downgraded: number;
 }
 
-/** 구독을 FREE로 전환하고 빌링 상태를 모두 비운다 */
-function freeDowngradeData() {
+/** 구독을 FREE로 전환하고 빌링 상태를 모두 비운다. 이번 주기 백테스트 사용량은 이어 간다. */
+function freeDowngradeData(user: UsageCarrySource, now: Date) {
   return {
+    ...backtestUsageCarryOnDowngrade(user, now),
     planTier: "FREE",
     planStartDate: null,
     tossBillingKey: null,
@@ -52,6 +58,7 @@ export async function processDueBillingRenewals(
       subscriptionCanceledAt: true,
       billingFailCount: true,
       nextBillingAt: true,
+      ...USAGE_CARRY_SELECT,
     },
   });
 
@@ -64,7 +71,7 @@ export async function processDueBillingRenewals(
         !user.tossCustomerKey ||
         !isValidPlanId(user.subscriptionPlanId ?? "")
       ) {
-        await prisma.user.update({ where: { id: user.id }, data: freeDowngradeData() });
+        await prisma.user.update({ where: { id: user.id }, data: freeDowngradeData(user, now) });
         summary.downgraded += 1;
         continue;
       }
@@ -121,7 +128,7 @@ export async function processDueBillingRenewals(
 
         const failCount = user.billingFailCount + 1;
         if (failCount >= BILLING_MAX_FAIL_COUNT) {
-          await prisma.user.update({ where: { id: user.id }, data: freeDowngradeData() });
+          await prisma.user.update({ where: { id: user.id }, data: freeDowngradeData(user, now) });
           summary.downgraded += 1;
         } else {
           await prisma.user.update({

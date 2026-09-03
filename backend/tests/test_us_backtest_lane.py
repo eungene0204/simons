@@ -135,9 +135,9 @@ def test_dow30_golden_cross_backtest_runs(monkeypatch):
     assert result.get("benchmark_label", "").startswith("SPDR Dow Jones")
     assert len(result.get("benchmark_equity") or []) > 0
     # 미국 시장: 증권거래세 미부과(경고 없음) + 생존편향·현행 명부 고지
-    assert not any("거래세" in w for w in eng.warnings)
-    assert any("생존 편향" in w for w in eng.warnings)
-    assert any("현재 구성종목 명부" in w for w in eng.warnings)
+    assert not any("거래세" in w for w in result["warnings"])
+    assert any("생존 편향" in w for w in result["warnings"])
+    assert any("현재 구성종목 명부" in w for w in result["warnings"])
 
 
 @engine_integration
@@ -184,7 +184,8 @@ def test_us_industry_filter_narrows_universe():
     eng = BacktestEngine()
     result = eng.run_backtest({**base, "us_industry": "Airlines"})
     assert result is not None
-    assert any("업종(Airlines) 필터는 현재 분류 기준" in w for w in eng.warnings)
+    # 엔진 내부 경고는 세그먼트 인코딩이다 — 한국어 문장은 결과의 warnings로 본다.
+    assert any("업종(Airlines) 필터는 현재 분류 기준" in w for w in result["warnings"])
 
     # 분류에 해당하는 종목이 유니버스에 없으면 조용히 0거래로 끝내지 않고 명시 실패
     eng2 = BacktestEngine()

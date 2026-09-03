@@ -95,9 +95,9 @@ export async function runWalkForwardStream(
 
   if (!res.ok || !res.body) {
     const error = await res.json().catch(() => ({}));
-    throw new Error(
-      formatApiErrorDetail(error.detail) ?? formatApiErrorDetail(error.message) ?? t("워크포워드 분석 실패")
-    );
+    // 서버 플랜·로그인 안내(detail)는 한국어 정본 — /us에서는 사전으로 번역해 표시한다.
+    const detail = formatApiErrorDetail(error.detail) ?? formatApiErrorDetail(error.message);
+    throw new Error(detail ? t(detail) : t("워크포워드 분석 실패"));
   }
 
   const reader = res.body.getReader();

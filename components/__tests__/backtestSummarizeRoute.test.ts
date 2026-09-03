@@ -18,6 +18,10 @@ vi.mock("@/lib/server/backend", () => ({
   fetchBackend: mockFetchBackend,
 }));
 
+// AI 리포트는 Pro/Premium 전용(2026-09-03 서버 재검증) — 이 파일은 캐시·저장 계약만 다루므로 유료 사용자로 고정한다.
+vi.mock("@/lib/get-user", () => ({ getCurrentUser: vi.fn(async () => ({ id: 1 })) }));
+vi.mock("@/lib/server/planLimits", () => ({ getUserPlan: vi.fn(async () => ({ planId: "PRO" })) }));
+
 const { POST } = await import("@/app/api/backtest/summarize/route");
 
 function makeRequest(body: object): Request {

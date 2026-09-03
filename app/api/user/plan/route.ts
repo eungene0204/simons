@@ -8,6 +8,8 @@ import {
 import { prisma } from "@/lib/prisma";
 import { getUserUsage } from "@/lib/server/planLimits";
 import { isValidPlanId } from "@/lib/plans";
+import { cancelUserSubscription } from "@/lib/server/subscriptionCancel";
+import { backtestUsageCarryOnDowngrade, USAGE_CARRY_SELECT } from "@/lib/server/planDowngrade";
 
 function serializeUsage(usage: Awaited<ReturnType<typeof getUserUsage>>) {
   const { plan } = usage;
@@ -65,10 +67,14 @@ export async function GET() {
 }
 
 // POST: 플랜 변경 — FREE 전환(다운그레이드)만 허용한다.
-// 유료 플랜(PRO/PREMIUM) 전환은 토스페이먼츠 결제 승인(/api/payment/confirm)에서만 수행해
+// 유료 플랜(PRO/PREMIUM) 전환은 결제 승인(토스 /api/payment/confirm, PayPal 웹훅)에서만 수행해
 // 결제 없이 planTier가 바뀌는 우회를 막는다.
-// FREE로 전환하면 구독 이력이 없는 상태이므로 planStartDate와 자동결제(빌링) 상태를 모두 비운다
-// — 남은 빌링키로 갱신 잡이 청구하는 일이 없도록 즉시 자동갱신을 중단한다.
+//
+// 자동갱신 구독 중이면 즉시 내리지 않고 해지를 예약한다 — 설정 모달의 "요금제 취소"·/us와
+// 같은 의미(남은 결제 기간까지 이용, 약관 제12조 8항). 결제 수단 분기(토스/PayPal)는
+// cancelUserSubscription이 맡는다 — 2026-09-03 감사 전에는 여기서 토스 필드만 비워 PayPal
+// 구독자는 등급만 FREE가 되고 청구는 계속됐다.
+// 구독이 없는데 유료 등급이면(관리자 부여 등) 즉시 FREE로 내리고 빌링 상태를 모두 비운다.
 export async function POST(request: Request) {
   try {
     const { userId } = await getOwnershipContext();
@@ -87,12 +93,28 @@ export async function POST(request: Request) {
       );
     }
 
+    const record = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { subscriptionPlanId: true, ...USAGE_CARRY_SELECT },
+    });
+
+    if (record?.subscriptionPlanId) {
+      const outcome = await cancelUserSubscription(prisma, userId);
+      const usage = await getUserUsage(prisma, userId);
+      return NextResponse.json({
+        ...serializeUsage(usage),
+        cancellation: outcome.status === "none" ? null : outcome,
+      });
+    }
+
     await prisma.user.update({
       where: { id: userId },
       data: {
+        ...backtestUsageCarryOnDowngrade(record ?? {}),
         planTier: planId,
         planStartDate: null,
         tossBillingKey: null,
+        paypalSubscriptionId: null,
         subscriptionPlanId: null,
         nextBillingAt: null,
         subscriptionCanceledAt: null,

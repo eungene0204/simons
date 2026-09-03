@@ -76,6 +76,8 @@ interface UsPricingPlansProps {
   } | null;
   /** PayPal 자격증명·플랜이 주입돼 있는지. 미설정 환경에서는 CTA를 열지 않는다. */
   paypalEnabled?: boolean;
+  /** 표시할 플랜 정의 — 서버가 관리자 한도 오버라이드(PlanConfig)를 병합해 넘긴다. 생략 시 기본값. */
+  plans?: Record<PlanId, Plan>;
 }
 
 function formatBillingDate(iso: string | null): string {
@@ -89,6 +91,7 @@ export default function UsPricingPlans({
   currentPlanId,
   subscription,
   paypalEnabled = false,
+  plans = PLANS,
 }: UsPricingPlansProps) {
   const router = useRouter();
   const [pendingPlanId, setPendingPlanId] = useState<PlanId | null>(null);
@@ -186,7 +189,7 @@ export default function UsPricingPlans({
         className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-3"
       >
         {US_PRICING.planOrder.map((planId) => {
-          const plan = PLANS[planId];
+          const plan = plans[planId];
           const Icon = PLAN_ICONS[planId];
           const isCurrent = planId === currentPlanId;
           const features = planFeatures(planId, plan);

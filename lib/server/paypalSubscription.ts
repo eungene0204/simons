@@ -4,6 +4,11 @@
 // (정본은 웹훅이고, 승인 복귀는 사용자가 결과를 즉시 보게 하기 위한 보조 경로다.)
 import crypto from "crypto";
 import type { PrismaClient } from "@prisma/client";
+import {
+  backtestUsageCarryOnDowngrade,
+  USAGE_CARRY_SELECT,
+  type UsageCarry,
+} from "@/lib/server/planDowngrade";
 import type { PlanId } from "@/lib/plans";
 import { usdCentsFor } from "@/lib/payment/paypalPlans";
 import {
@@ -205,14 +210,20 @@ export async function markPaypalSubscriptionCanceled(
   });
 }
 
-/** FREE 전환 + 구독 상태 비우기 — 잔존 구독 ID로 다시 청구가 반영되지 않게 한다. */
+/**
+ * FREE 전환 + 구독 상태 비우기 — 잔존 구독 ID로 다시 청구가 반영되지 않게 한다.
+ * carry는 이번 주기 백테스트 사용량 이월(lib/server/planDowngrade) — 호출자가 User 필드를
+ * 이미 들고 있으면 계산해서 넘기고, 없으면 downgradePaypalSubscriberById를 쓴다.
+ */
 export async function downgradePaypalSubscriber(
   prisma: PrismaClient,
-  userId: number
+  userId: number,
+  carry: UsageCarry
 ): Promise<void> {
   await prisma.user.update({
     where: { id: userId },
     data: {
+      ...carry,
       planTier: "FREE",
       planStartDate: null,
       paypalSubscriptionId: null,
@@ -222,4 +233,17 @@ export async function downgradePaypalSubscriber(
       billingFailCount: 0,
     },
   });
+}
+
+/** userId만 아는 호출자(웹훅)용 — 사용량 이월 필드를 읽어 강등한다. */
+export async function downgradePaypalSubscriberById(
+  prisma: PrismaClient,
+  userId: number,
+  now: Date = new Date()
+): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: USAGE_CARRY_SELECT,
+  });
+  await downgradePaypalSubscriber(prisma, userId, backtestUsageCarryOnDowngrade(user ?? {}, now));
 }

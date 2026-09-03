@@ -10,13 +10,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import StrategyLabPage from "./page";
 import { STRATEGY_CHAT_STATE_KEY } from "@/components/strategy/strategyTemplateSession";
 import { readChatLog, upsertChatLogEntry } from "./chatLog";
+import { __resetLanguageForTests, setLanguage } from "@/lib/i18n";
 
 const push = vi.fn();
 const fetchMock = vi.fn();
 
+// 지역은 브라우저 경로에서 파생된다(`/us/...` = US) — 케이스마다 바꿔 끼운다.
+let pathname = "/analytics/chat";
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
-  usePathname: () => "/analytics/chat",
+  usePathname: () => pathname,
   useSearchParams: () => new URLSearchParams(),
 }));
 
@@ -75,6 +79,7 @@ function seedCurrentChat() {
 describe("우측 대화 로그", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    pathname = "/analytics/chat";
     sessionStorage.clear();
     localStorage.clear();
     vi.stubGlobal("fetch", fetchMock);
@@ -96,6 +101,7 @@ describe("우측 대화 로그", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    __resetLanguageForTests();
   });
 
   it("채팅 화면에서 지금 지역의 지난 대화만 보이고, 진행 중인 대화도 로그에 남는다", async () => {
@@ -182,5 +188,37 @@ describe("우측 대화 로그", () => {
     await waitFor(() => expect(screen.queryByText("현재 답변")).not.toBeInTheDocument());
     expect(readChatLog(localStorage).map((e) => e.id)).not.toContain("cur");
     expect(sessionStorage.getItem(STRATEGY_CHAT_STATE_KEY)).toBeNull();
+  });
+
+  // /us는 미들웨어 rewrite로 같은 라우트를 쓴다 — 대화 로그도 같은 컴포넌트가 그리되,
+  // 지역이 섞이면 안 된다(US 화면에 한국 대화가 뜨면 격리 계약 위반). 라벨은 영어 사전.
+  it("/us에서는 US 대화만 보이고 라벨이 영어로 나온다", async () => {
+    pathname = "/us/analytics/chat";
+    // 표시 언어는 실제로는 브라우저 경로에서 파생되는데(getLanguage), jsdom의
+    // window.location은 "/"라 경로 mock만으로는 en으로 넘어가지 않는다 — 다른 영어 화면
+    // 테스트와 같은 방식으로 명시 지정한다(LanguageProvider가 하는 일과 같다).
+    setLanguage("en");
+    seedLog();
+    seedCurrentChat();
+    render(<StrategyLabPage />);
+
+    expect(await screen.findByText("현재 답변")).toBeInTheDocument();
+    const list = within(screen.getByTestId("chat-log-panel")).getByTestId("chat-log-list");
+    expect(within(list).getByRole("button", { name: "US chat" })).toBeInTheDocument();
+    expect(within(list).queryByRole("button", { name: "지난 대화 A" })).not.toBeInTheDocument();
+    expect(within(list).queryByRole("button", { name: "지난 대화 B" })).not.toBeInTheDocument();
+
+    // 패널 제목·삭제 버튼 라벨이 en.ts 사전을 탄다.
+    expect(screen.getByRole("complementary", { name: "Chat history" })).toBeInTheDocument();
+    expect(within(list).getByRole("button", { name: "Delete chat: US chat" })).toBeInTheDocument();
+
+    // 지금 진행 중인 대화는 US 지역으로 기록돼 이 화면에 남는다.
+    await waitFor(() => {
+      expect(readChatLog(localStorage).find((e) => e.id === "cur")?.region).toBe("us");
+    });
+    expect(within(list).getByRole("button", { name: "현재 대화" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
   });
 });

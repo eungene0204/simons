@@ -16,6 +16,7 @@ from engine.phase1 import date_key
 from engine import phase1 as _phase1
 from engine import phase1_pool as _phase1_pool
 from engine import trade_reason as tr
+from engine import result_warnings as rw
 from engine import universe_pit
 from engine import data_coverage
 
@@ -483,10 +484,7 @@ class BacktestEngine:
             _fee_zero = bool(_fee_keys) and all(float(options[k]) == 0 for k in _fee_keys)
             _slip_zero = options.get('slippage_rate') is not None and float(options['slippage_rate']) == 0
             if _fee_zero and _slip_zero:
-                self.warnings.add(
-                    "수수료와 슬리피지가 모두 0으로 설정되어 있습니다 — 거래 비용이 없는 결과는 "
-                    "실제보다 유리합니다."
-                )
+                self.warnings.add(rw.warning(rw.ZERO_COST))
             # 배당 재투자(토탈리턴)를 기본값으로 한다 — 가격리턴은 배당을 누락해
             # 수익을 과소평가하고 배당락을 가짜 손실로 오인한다(검증 #8). 전략과
             # 벤치마크 양쪽에 동일 적용해 비교 일관성을 유지한다. total_return=False로
@@ -498,10 +496,7 @@ class BacktestEngine:
             # market has closed). next_open is the realistic default; warn loudly
             # when results are produced under the optimistic same_close model.
             if exec_type == 'same_close':
-                self.warnings.add(
-                    "체결 방식이 '당일 종가 체결'입니다 — 당일 종가 신호를 당일 종가에 체결하는 "
-                    "비현실적 가정(룩어헤드)입니다. 실거래 판단에는 '익일 시가 체결' 방식 사용을 권장합니다."
-                )
+                self.warnings.add(rw.warning(rw.SAME_CLOSE_EXECUTION))
             
             period_req = (req.get('period') or '5Y').upper()
             start_date_req = req.get('startDate')
@@ -666,15 +661,9 @@ class BacktestEngine:
                 symbols = _us_symbols
                 if options.get('sell_tax_rate') is None:
                     options['sell_tax_rate'] = 0.0
-                self.warnings.add(
-                    "미국 유니버스는 현재 상장 종목 기준입니다 — 기간 중 상장폐지된 종목이 "
-                    "빠져 있어 장기 결과가 실제보다 유리하게 나올 수 있습니다(생존 편향)."
-                )
+                self.warnings.add(rw.warning(rw.US_UNIVERSE_SURVIVORSHIP))
                 if _us_kind in ("sp500", "nasdaq100", "dow30"):
-                    self.warnings.add(
-                        "지수 유니버스는 현재 구성종목 명부 기준입니다 — 과거의 편입·편출은 "
-                        "반영되지 않습니다."
-                    )
+                    self.warnings.add(rw.warning(rw.INDEX_UNIVERSE_CURRENT_LIST))
                 # ── 미국 업종 필터(FR-STR-074 ⑩) ──
                 # 분류 정본은 us-stocks.json의 GICS 섹터·산업이다. 미국 ETF 유니버스엔
                 # 기업 분류가 없으므로 적용하지 않는다(한국 ETF와 같은 계약).
@@ -688,10 +677,7 @@ class BacktestEngine:
                         )
                     # 분류는 **현행 기준**이다 — 과거의 업종 재분류·편입은 반영되지 않는다
                     # (테마와 갈리는 지점: 테마는 소속 최초 관측일을 갖는다, FR-STR-074 ⑦).
-                    self.warnings.add(
-                        f"업종({_us_industry}) 필터는 현재 분류 기준입니다 — 기간 중의 "
-                        "업종 재분류는 반영되지 않습니다."
-                    )
+                    self.warnings.add(rw.warning(rw.US_INDUSTRY_CURRENT_CLASSIFICATION, _us_industry))
                     print(f"[BT-ENGINE] US 업종 필터({_us_industry}): "
                           f"{_before}→{len(symbols)}종목", flush=True)
                 print(f"[BT-ENGINE] US universe({_us_kind}): {len(symbols)}종목", flush=True)
@@ -705,10 +691,7 @@ class BacktestEngine:
                 # 생존 종목만으로 돌아가므로 조용히 지나가지 않는다.
                 _floor = universe_pit.delisting_floor()
                 if _floor and (_period_start_str is None or _period_start_str < _floor):
-                    self.warnings.add(
-                        f"상장폐지 종목 이력은 {_floor}부터 반영됩니다 — 그 이전 구간은 현재 생존 "
-                        "종목만으로 구성돼 결과가 실제보다 유리할 수 있습니다(생존 편향)."
-                    )
+                    self.warnings.add(rw.warning(rw.DELISTING_HISTORY_FLOOR, _floor))
             elif _is_etf_universe:
                 # ETF 유니버스 — 주식과 혼합하지 않고 ETF 마스터만 조회한다. 마스터는 현재
                 # 상장 ETF만 담으므로(상폐 ETF 미포함) 생존 편향 가능성을 정직하게 알린다.
@@ -721,20 +704,14 @@ class BacktestEngine:
                 # 상폐 ETF가 백필된 마스터(scripts/backfill_delisted_etf.py)면 경고하지
                 # 않는다 — 미백필 상태에서만 생존 편향 가능성을 정직하게 알린다.
                 if not universe_pit.etf_master_includes_delisted():
-                    self.warnings.add(
-                        "ETF 유니버스는 현재 상장 ETF만 포함합니다 — 기간 중 상장폐지된 ETF는 "
-                        "빠져 있어 생존 편향 가능성이 있습니다."
-                    )
+                    self.warnings.add(rw.warning(rw.ETF_UNIVERSE_SURVIVORSHIP))
                 _etf_theme = req.get('etf_theme')
                 if _etf_theme:
                     _themed = universe_pit.filter_etf_by_theme(symbols, _etf_theme)
                     if _themed:
                         symbols = _themed
                     else:
-                        self.warnings.add(
-                            f"'{_etf_theme}' 테마와 이름이 일치하는 ETF를 찾지 못해 "
-                            "전체 ETF를 대상으로 백테스트했습니다."
-                        )
+                        self.warnings.add(rw.warning(rw.ETF_THEME_NOT_FOUND, _etf_theme))
                 print(f"[BT-ENGINE] ETF universe: {len(symbols)}종목 "
                       f"(theme={req.get('etf_theme')})", flush=True)
 
@@ -753,11 +730,7 @@ class BacktestEngine:
                         options['sell_tax_rate'] = 0.0
                     # 미국 데이터셋에는 상폐 종목 가격 이력이 없다 — 테마·지정 종목 경로도
                     # 유니버스 경로와 같은 생존 편향을 지니므로 같은 고지를 붙인다.
-                    self.warnings.add(
-                        "미국 데이터에는 상장폐지 종목의 가격 이력이 없습니다 — 테마·지정 종목 "
-                        "백테스트도 현재 상장 종목만으로 구성돼 장기 결과가 실제보다 유리하게 "
-                        "나올 수 있습니다(생존 편향)."
-                    )
+                    self.warnings.add(rw.warning(rw.US_SYMBOLS_SURVIVORSHIP))
 
             # ── 섹터/업종 제한 ──
             # 섹터 분류는 현재 상장(korea-stocks.json) + 상폐 백필(stock-master.json sector,
@@ -775,18 +748,17 @@ class BacktestEngine:
                 # 데이터로 유니버스가 확정되면 결과가 달라질 수 있다.
                 _sector_src = universe_pit.sector_map_source()
                 if _sector_src.get("source") == "files":
-                    self.warnings.add(
-                        f"섹터({_sector_label}) 분류를 정본(지식그래프)이 아니라 파일 캐시에서 "
-                        f"읽었습니다 — {_sector_src.get('reason') or '사유 불명'}"
-                    )
+                    self.warnings.add(rw.warning(
+                        rw.SECTOR_MAP_FROM_FILE_CACHE, _sector_label,
+                        _sector_src.get('reason') or tr.part(rw.SECTOR_MAP_REASON_UNKNOWN),
+                    ))
                 symbols = universe_pit.filter_by_sector(symbols, _sector)
                 if not symbols:
                     raise ValueError(f"'{_sector_label}' 섹터에 해당하는 종목을 찾지 못했습니다.")
                 if _sector_unknown:
-                    self.warnings.add(
-                        f"섹터({_sector_label}) 필터: 업종 분류가 없는 상장폐지 종목 "
-                        f"{len(_sector_unknown)}개가 제외되었습니다 — 생존 편향 가능성이 있습니다."
-                    )
+                    self.warnings.add(rw.warning(
+                        rw.SECTOR_UNKNOWN_DELISTED_EXCLUDED, _sector_label, len(_sector_unknown),
+                    ))
                 print(f"[BT-ENGINE] 섹터 필터({_sector_label}): {len(symbols)}종목 "
                       f"(업종 미상 상폐 {len(_sector_unknown)})", flush=True)
 
@@ -807,10 +779,7 @@ class BacktestEngine:
                     )
                 symbols = _new_symbols
                 if _listing_unknown:
-                    self.warnings.add(
-                        f"신규 상장 필터: 상장일을 확인할 수 없는 종목 {len(_listing_unknown)}개가 "
-                        "제외되었습니다."
-                    )
+                    self.warnings.add(rw.warning(rw.LISTING_DATE_UNKNOWN_EXCLUDED, len(_listing_unknown)))
                 print(f"[BT-ENGINE] 신규 상장 필터(상장일 {_listing_label}): "
                       f"{len(symbols)}종목 (상장일 미상 {len(_listing_unknown)})", flush=True)
 
@@ -989,7 +958,7 @@ class BacktestEngine:
                             wanted_entry = bool(entry_signals.any())
                             entry_signals = entry_signals & liquidity_ok
                             if wanted_entry and not entry_signals.any():
-                                return ("warning", f"{sym}: 유동성 기준 미달 (거래대금 부족)")
+                                return ("warning", rw.warning(rw.SYMBOL_LIQUIDITY_BELOW, sym))
 
                         res = {
                             "symbol": sym,
@@ -1021,7 +990,7 @@ class BacktestEngine:
                             res["coverage"] = data_coverage.symbol_stats(pdf, _tracked_metrics)
                         return ("success", res)
                     except Exception as e:
-                        return ("warning", f"{sym}: 처리 오류 ({e})")
+                        return ("warning", rw.warning(rw.SYMBOL_PROCESSING_ERROR, sym, e))
 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
                     for result in executor.map(_finalize_symbol, _phase1_data.keys()):
@@ -1137,16 +1106,12 @@ class BacktestEngine:
                 ents_df &= large_cap_mask
                 _index_label = "KOSDAQ150" if _index_top_n == 150 else "KOSPI200"
                 if _pit_ratio >= 0.99:
-                    self.warnings.add(
-                        f"지수(시가총액 상위 {_index_top_n}) 판정은 일별 실측 시가총액 순위입니다 — "
-                        f"실제 {_index_label}의 편입·편출 규칙(유동성·업종 배분 등)과는 다를 수 있습니다."
-                    )
+                    self.warnings.add(rw.warning(rw.INDEX_TOP_N_MEASURED, _index_top_n, _index_label))
                 else:
-                    self.warnings.add(
-                        f"지수(시가총액 상위 {_index_top_n}) 판정은 일별 실측 시가총액 순위이며, 실측이 없는 "
-                        f"{(1 - _pit_ratio) * 100:.0f}% 구간은 현재 상장주식수 × 과거 주가의 근사입니다 — "
-                        f"근사 구간은 증자·분할 이력이 반영되지 않아 실제 당시 {_index_label} 구성과 다를 수 있습니다."
-                    )
+                    self.warnings.add(rw.warning(
+                        rw.INDEX_TOP_N_APPROXIMATED,
+                        _index_top_n, f"{(1 - _pit_ratio) * 100:.0f}", _index_label,
+                    ))
 
             rank_df = None
             _tiebreak_rank_used = False
@@ -1305,10 +1270,9 @@ class BacktestEngine:
                     default_lookback=risk_params.get('ranking_lookback_days'),
                 )
                 if _missing_labels:
-                    self.warnings.add(
-                        f"복합 순위 구성 지표 '{', '.join(_missing_labels)}' 데이터가 대상 종목에 "
-                        "없어 랭킹 선정이 적용되지 않았습니다."
-                    )
+                    self.warnings.add(rw.warning(
+                        rw.COMPOSITE_RANK_DATA_MISSING, rw.label_list(_missing_labels),
+                    ))
                 elif rank_df is not None:
                     _entry_conditions = (req.get('entry') or {}).get('conditions') or []
                     if not _entry_conditions:
@@ -1343,10 +1307,10 @@ class BacktestEngine:
             elif ranking_metric and not all_fund_rank_values.get(ranking_metric):
                 # 재무 랭킹을 요청했는데 유니버스 전체에 그 컬럼이 없다 — 조용한 0거래로
                 # 두지 않고 경고로 드러낸다(커버리지 로그 FR-BT-016과 같은 정직성 계약).
-                self.warnings.add(
-                    f"랭킹 지표 '{FUNDAMENTAL_LABELS.get(ranking_metric, ranking_metric)}' 데이터가 "
-                    "대상 종목에 없어 랭킹 선정이 적용되지 않았습니다."
-                )
+                self.warnings.add(rw.warning(
+                    rw.RANK_METRIC_DATA_MISSING,
+                    tr.part(FUNDAMENTAL_LABELS.get(ranking_metric, ranking_metric)),
+                ))
             elif ranking_metric:
                 # 재무 팩터 랭킹: as-of 재무 컬럼(연간 결산 전진충전) 값 순위로 상위 종목 선정.
                 # 모멘텀('return') 랭킹과 같은 계약 — 순위 자체가 진입, 회전은 달력 리밸런싱.
@@ -1446,15 +1410,9 @@ class BacktestEngine:
             if _qg_n >= 2:
                 _rebal_ok = str(risk_params.get('rebalancing_period') or 'none') != 'none'
                 if rank_df is None:
-                    self.warnings.add(
-                        "분위 그룹 비교는 랭킹 지표(예: PER 낮은 순)가 있어야 실행됩니다 — "
-                        "이번 실행에서는 그룹 비교를 계산하지 못했습니다."
-                    )
+                    self.warnings.add(rw.warning(rw.QUANTILE_NEEDS_RANKING))
                 elif not _rebal_ok:
-                    self.warnings.add(
-                        "분위 그룹 비교는 정기 리밸런싱 주기가 있어야 실행됩니다 — "
-                        "이번 실행에서는 그룹 비교를 계산하지 못했습니다."
-                    )
+                    self.warnings.add(rw.warning(rw.QUANTILE_NEEDS_REBALANCE))
                 else:
                     _quantile_active = True
                     risk_params = dict(risk_params)
@@ -1509,11 +1467,9 @@ class BacktestEngine:
             _overflow_days = int(getattr(self.simulator, 'overflow_days', 0) or 0)
             if _tiebreak_rank_used and _overflow_days > 0:
                 _cap_note = risk_params.get('max_positions')
-                self.warnings.add(
-                    f"매수 조건을 충족한 종목이 빈 자리(최대 보유 {_cap_note}종목)보다 많았던 날이 "
-                    f"{_overflow_days}일 있어(리밸런싱일 포함), 그날은 최근 {_TIEBREAK_LOOKBACK_DAYS}거래일 "
-                    "수익률이 높은 종목부터 우선 담았습니다."
-                )
+                self.warnings.add(rw.warning(
+                    rw.OVERFLOW_TIEBREAK, _cap_note, _overflow_days, _TIEBREAK_LOOKBACK_DAYS,
+                ))
 
             # 5. Benchmark ETF 로드
             _benchmark_sym, _benchmark_name = self.benchmark_for_universe(
@@ -1532,18 +1488,13 @@ class BacktestEngine:
                     # 두 수익률의 기간이 다르다 — 전략에 유리한 쪽으로 기우는 비교이고,
                     # 데이터로 메울 수 없어 값 보정 대신 공시한다.
                     if len(common_index) > 0 and benchmark_prices.index[0] > pd.Timestamp(common_index[0]):
-                        self.warnings.add(
-                            f"벤치마크({_benchmark_name}) 데이터가 "
-                            f"{benchmark_prices.index[0].strftime('%Y-%m-%d')}부터 존재합니다 — "
-                            "그 이전 구간은 비교에서 제외되어, 벤치마크 수익률은 전략보다 "
-                            "짧은 기간을 기준으로 계산됩니다."
-                        )
+                        self.warnings.add(rw.warning(
+                            rw.BENCHMARK_PARTIAL_PERIOD,
+                            _benchmark_name, benchmark_prices.index[0].strftime('%Y-%m-%d'),
+                        ))
                     # M3: 전략은 토탈리턴인데 벤치마크에 분배금 데이터가 없으면 비대칭 비교
                     if apply_dividends and 'dividends' not in _bench_df.columns:
-                        self.warnings.add(
-                            "벤치마크 ETF에 분배금 데이터가 없어 가격리턴 기준으로 비교됩니다 — "
-                            "전략(배당 재투자 기본)이 상대적으로 유리하게 보일 수 있습니다."
-                        )
+                        self.warnings.add(rw.warning(rw.BENCHMARK_NO_DIVIDENDS))
             except Exception as _be:
                 print(f"[BT-ENGINE] 벤치마크 로드 실패 ({_benchmark_sym}): {_be}", flush=True)
 
@@ -1631,11 +1582,7 @@ class BacktestEngine:
                         # 그룹당 보유 상한(FR-BT-060b) — 없으면 그룹 구간 전체 보유.
                         "groupCap": risk_params.get('ranking_group_cap'),
                     }
-                    self.warnings.add(
-                        f"분위 그룹 비교({_qg_n}개 그룹)는 그룹별 순수 리밸런싱 기준으로 계산되었습니다 — "
-                        "개별 손절/익절/보유기간 제한은 그룹 비교에 적용되지 않습니다. "
-                        "메인 결과는 1그룹 포트폴리오입니다."
-                    )
+                    self.warnings.add(rw.warning(rw.QUANTILE_GROUPS_PURE_REBALANCE, _qg_n))
                 _t5 = _time.time()
                 final["timing"]["quantileGroups"] = round(_t5 - _t4, 2)
                 print(f"[BT-ENGINE] 분위 {_qg_n}그룹 완료: {_t5-_t4:.2f}s", flush=True)
@@ -1683,19 +1630,20 @@ class BacktestEngine:
             # Add no-trades warning
             if pf.trades.count() == 0:
                 liquidity_excluded = [
-                    w.split(":", 1)[0]
+                    rw.symbol_of(w)
                     for w in self.warnings
-                    if isinstance(w, str) and "유동성 기준 미달" in w
+                    if tr.first_template(w) == rw.SYMBOL_LIQUIDITY_BELOW
                 ]
-                msg = "매매 기록이 생성되지 않았습니다. 매수 조건 또는 유동성/포지션 설정을 확인해 주세요."
                 if liquidity_excluded:
-                    preview = ", ".join(liquidity_excluded[:3])
-                    suffix = f" 외 {len(liquidity_excluded) - 3}종목" if len(liquidity_excluded) > 3 else ""
-                    msg += (
-                        f" (유동성 기준 미달로 제외된 종목 {len(liquidity_excluded)}개: {preview}{suffix}"
-                        " — 포지션 크기를 줄이거나 유동성 한도를 낮추면 포함될 수 있습니다)"
-                    )
-                self.warnings.add(msg)
+                    excluded_list = [tr.literal(", ".join(liquidity_excluded[:3]))]
+                    if len(liquidity_excluded) > 3:
+                        excluded_list.append(tr.part(rw.MORE_SYMBOLS, len(liquidity_excluded) - 3))
+                    self.warnings.add(rw.compose(
+                        tr.part(rw.NO_TRADES),
+                        tr.part(rw.NO_TRADES_LIQUIDITY_DETAIL, len(liquidity_excluded), excluded_list),
+                    ))
+                else:
+                    self.warnings.add(rw.warning(rw.NO_TRADES))
 
             # ── 신뢰성 공시 경고 (감사 H5/H7/H8 등) ──────────────────────────
             _rebal_period = str(risk_params.get('rebalancing_period') or 'none')
@@ -1714,59 +1662,34 @@ class BacktestEngine:
                 # 목표 밖 보유를 편출하고 비중은 리셋하지 않으며, 비중 유지(weights_only)는
                 # 편출 없이 비중만 균등으로 되돌린다(FR-BT-067).
                 if _weights_only:
-                    self.warnings.add(
-                        "리밸런싱일에는 보유 종목을 교체하지 않고 비중만 균등으로 되돌립니다"
-                        "(오른 종목은 일부 매도, 내린 종목은 추가 매수) — 목표 종목 수에 미달하는 "
-                        "빈 자리만 매수 조건 충족 종목으로 채웁니다. 매도 조건·손절/익절은 그대로 적용됩니다."
-                    )
+                    self.warnings.add(rw.warning(rw.REBALANCE_WEIGHTS_ONLY))
                 elif _entry_signal_driven:
-                    self.warnings.add(
-                        "리밸런싱일에는 그날 매수 조건을 충족한 종목 중에서 포트폴리오를 다시 구성합니다"
-                        "(충족하지 않는 보유 종목은 편출) — 그 사이 날에도 매수 조건 충족 종목을 빈 자리만큼 "
-                        "담고 매도 조건은 그대로 적용합니다. 유지 종목의 비중은 목표 비중으로 리셋되지 않습니다."
-                    )
+                    self.warnings.add(rw.warning(rw.REBALANCE_RECONSTITUTE))
                 else:
-                    self.warnings.add(
-                        "리밸런싱과 손절/익절/트레일링/보유기간 제한이 함께 설정되어 리밸런싱일에는 "
-                        "종목 교체만 수행합니다 — 유지 종목의 비중은 목표 비중으로 리셋되지 않습니다."
-                    )
+                    self.warnings.add(rw.warning(rw.REBALANCE_WITH_RISK_EXITS))
 
             _tax_raw = options.get('sell_tax_rate')
             if _tax_raw is not None:
                 if float(_tax_raw) > 0:
-                    self.warnings.add(
-                        f"매도 체결에 증권거래세 {float(_tax_raw) * 100:.2f}%가 반영되었습니다."
-                    )
+                    self.warnings.add(rw.warning(rw.SELL_TAX_APPLIED, f"{float(_tax_raw) * 100:.2f}"))
             else:
                 from engine.transaction_tax import kr_sell_tax_rates
                 _rates = kr_sell_tax_rates(common_index)
                 _lo, _hi = float(_rates.min()) * 100, float(_rates.max()) * 100
                 if _lo == _hi:
-                    self.warnings.add(
-                        f"매도 체결에 증권거래세 {_hi:.2f}%(농특세 포함)가 반영되었습니다."
-                    )
+                    self.warnings.add(rw.warning(rw.SELL_TAX_APPLIED_WITH_RURAL, f"{_hi:.2f}"))
                 else:
-                    self.warnings.add(
-                        f"매도 체결에 증권거래세를 시행일 기준 세율({_hi:.2f}%→{_lo:.2f}%, 농특세 포함)로 "
-                        "반영했습니다 — 과거 매도에 현행 세율을 일괄 적용하지 않습니다."
-                    )
+                    self.warnings.add(rw.warning(rw.SELL_TAX_SCHEDULE_APPLIED, f"{_hi:.2f}", f"{_lo:.2f}"))
 
             # 1년 미만 구간의 CAGR은 정의대로 연환산하지만, 짧은 표본을 1년으로
             # 늘리는 과정에서 잡음이 함께 증폭된다 — 값을 왜곡하는 대신 고지한다.
             _bt_years, _ = ResultHandler.time_base(common_index)
             if 0 < _bt_years < 1.0:
-                self.warnings.add(
-                    f"백테스트 기간이 약 {_bt_years * 12:.0f}개월(1년 미만)입니다 — "
-                    "CAGR·샤프·소르티노·변동성은 이 구간을 1년으로 연환산한 값이라 "
-                    "짧은 기간의 우연이 그대로 확대됩니다."
-                )
+                self.warnings.add(rw.warning(rw.SHORT_PERIOD_ANNUALIZED, f"{_bt_years * 12:.0f}"))
 
             _n_trades = int(pf.trades.count())
             if 0 < _n_trades < 30:
-                self.warnings.add(
-                    f"거래 수가 {_n_trades}건으로 30건 미만입니다 — "
-                    "승률·Profit Factor 등 통계의 표본 신뢰도가 낮습니다."
-                )
+                self.warnings.add(rw.warning(rw.FEW_TRADES, _n_trades))
 
             if ai_needed:
                 # H7: 백테스트 구간이 AI 모델 학습 데이터와 겹치면 인샘플 낙관 편향
@@ -1774,17 +1697,10 @@ class BacktestEngine:
                 _train_end = _ai_model_train_end()
                 _val_end = _ai_model_val_end(_meta)
                 if _train_end and (_period_start_str is None or _period_start_str < _train_end):
-                    self.warnings.add(
-                        f"AI 모델 학습 데이터(~{_train_end})와 백테스트 기간이 겹칩니다 — "
-                        "겹치는 구간의 AI 신호 성과는 인샘플(낙관 편향)일 수 있습니다."
-                    )
+                    self.warnings.add(rw.warning(rw.AI_TRAIN_OVERLAP, _train_end))
                 # 검증 구간도 인샘플이다 — 신호 임계값·조기종료가 이 구간으로 정해졌다.
                 if _val_end and (_period_start_str is None or _period_start_str < _val_end):
-                    self.warnings.add(
-                        f"AI 모델 검증 데이터(~{_val_end})와 백테스트 기간이 겹칩니다 — "
-                        "신호 임계값이 이 구간으로 보정되어 겹치는 구간의 AI 신호 성과는 "
-                        "인샘플(낙관 편향)일 수 있습니다."
-                    )
+                    self.warnings.add(rw.warning(rw.AI_VALIDATION_OVERLAP, _val_end))
 
             # H5: 체결 규모 사후 검증 — 매수 금액이 전일 거래대금 한도를 초과한 거래 수
             try:
@@ -1802,10 +1718,7 @@ class BacktestEngine:
                             if prev_tv > 0 and sig.get("amount", 0) > prev_tv * (liquid_limit / 100.0):
                                 _liq_viol += 1
                 if _liq_viol > 0:
-                    self.warnings.add(
-                        f"매수 {_liq_viol}건이 전일 거래대금의 {liquid_limit:.0f}%를 초과하는 규모입니다 — "
-                        "실전에서는 시장충격으로 이 가격에 전량 체결되기 어려울 수 있습니다."
-                    )
+                    self.warnings.add(rw.warning(rw.LIQUIDITY_LIMIT_EXCEEDED, _liq_viol, f"{liquid_limit:.0f}"))
             except Exception:
                 pass
 
@@ -1814,10 +1727,15 @@ class BacktestEngine:
             if _coverage_acc is not None:
                 _coverage_report = _coverage_acc.build()
                 final["dataCoverage"] = _coverage_report
-                for _w in _coverage_report.get("warnings", []):
-                    self.warnings.add(_w)
+                for _parts in _coverage_report.get("warningParts", []):
+                    self.warnings.add(tr.encode(_parts))
 
-            final["warnings"] = list(self.warnings) + list(getattr(pf, 'warnings', []))
+            # 경고는 한국어 문장(warnings, 종전과 동일)과 세그먼트(warningParts)를 같은 순서로
+            # 싣는다 — 프론트가 세그먼트를 t()로 옮긴다(/us 영어). engine/result_warnings.py 참조.
+            _warning_texts, _warning_parts = rw.finalize(self.warnings)
+            _pf_warnings = [str(w) for w in getattr(pf, 'warnings', [])]
+            final["warnings"] = _warning_texts + _pf_warnings
+            final["warningParts"] = _warning_parts + [[tr.literal(w)] for w in _pf_warnings]
             final["resolution_logs"] = all_resolution_logs
             return final
 

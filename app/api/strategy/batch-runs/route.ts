@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/server/adminAuth";
 import { prisma } from "@/lib/prisma";
 import { getExecutionState, type BatchExecutionJob } from "./executionState";
 import { buildRankingSnapshot } from "./rankingSnapshot";
@@ -889,6 +890,11 @@ function pumpBatchRunQueue() {
 }
 
 export async function GET(req: NextRequest) {
+  // 내부 배치 도구 — 화면에 연결돼 있지 않고, 내부 백테스트 호출이 사용자 쿼터를 거치지 않으므로
+  // 관리자만 쓴다(2026-09-03 감사: 무인증으로 열려 있었다).
+  if (!(await requireAdmin())) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   try {
     const runId = req.nextUrl.searchParams.get("runId");
 
@@ -942,6 +948,11 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  // 내부 배치 도구 — 화면에 연결돼 있지 않고, 내부 백테스트 호출이 사용자 쿼터를 거치지 않으므로
+  // 관리자만 쓴다(2026-09-03 감사: 무인증으로 열려 있었다).
+  if (!(await requireAdmin())) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   try {
     const body = await req.json();
 

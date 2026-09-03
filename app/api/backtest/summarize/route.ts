@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { fetchBackend } from "@/lib/server/backend";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/get-user";
+import { getUserPlan } from "@/lib/server/planLimits";
 import {
   deleteSummaryInFlight,
   getSummaryInFlight,
@@ -15,6 +17,12 @@ type SummaryPayload = SummaryCachePayload & {
 };
 
 const SUMMARY_CACHE_GENERATION = "ai-report-expert-v5";
+
+// AI 리포트는 요금제 페이지가 Pro/Premium 전용으로 안내하는 기능이다. 화면 잠금
+// (BacktestDashboard.isAiReportEnabled)만으로는 API 직접 호출을 막지 못하므로 캐시 히트를
+// 포함한 모든 응답 앞에서 로그인·플랜을 재검증한다 — 무료 사용자의 호출로 LLM 비용이 나가면 안 된다.
+const AI_REPORT_ALLOWED_PLANS = new Set(["PRO", "PREMIUM"]);
+const AI_REPORT_PLAN_MESSAGE = "AI 리포트는 Pro 이상 플랜에서 사용할 수 있습니다.";
 
 class SummarizeBackendError extends Error {
   status: number;
@@ -131,6 +139,15 @@ async function fetchSummary(
 
 export async function POST(req: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+    }
+    const plan = await getUserPlan(prisma, user.id);
+    if (!AI_REPORT_ALLOWED_PLANS.has(plan.planId)) {
+      return NextResponse.json({ error: AI_REPORT_PLAN_MESSAGE }, { status: 403 });
+    }
+
     const body = await req.json();
     const { metrics, strategySummary, parsedStrategy, userPrompt, cacheKey, force } = body;
 

@@ -17,6 +17,14 @@ vi.mock("@/lib/server/backend", () => ({
   fetchBackend: mockFetchBackend,
 }));
 
+// AI 리포트는 Pro/Premium 전용 — 기본은 유료 사용자로 두고, 플랜 게이트 케이스에서만 바꾼다.
+const { mockGetCurrentUser, mockGetUserPlan } = vi.hoisted(() => ({
+  mockGetCurrentUser: vi.fn(),
+  mockGetUserPlan: vi.fn(),
+}));
+vi.mock("@/lib/get-user", () => ({ getCurrentUser: mockGetCurrentUser }));
+vi.mock("@/lib/server/planLimits", () => ({ getUserPlan: mockGetUserPlan }));
+
 const { POST } = await import("./route");
 const { __resetSummaryCacheForTests } = await import("./cache");
 
@@ -32,6 +40,25 @@ describe("POST /api/backtest/summarize cache", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetSummaryCacheForTests();
+    mockGetCurrentUser.mockResolvedValue({ id: 1 });
+    mockGetUserPlan.mockResolvedValue({ planId: "PRO" });
+  });
+
+  it("비로그인은 401, 무료 플랜은 403 — 캐시 히트 여부와 무관하게 LLM·DB를 건드리지 않는다", async () => {
+    const body = { cacheKey: "ck-1", metrics: { totalReturn: 1 }, strategySummary: {} };
+
+    mockGetCurrentUser.mockResolvedValue(null);
+    const anonymous = await POST(makeRequest(body));
+    expect(anonymous.status).toBe(401);
+
+    mockGetCurrentUser.mockResolvedValue({ id: 1 });
+    mockGetUserPlan.mockResolvedValue({ planId: "FREE" });
+    const free = await POST(makeRequest(body));
+    expect(free.status).toBe(403);
+    await expect(free.json()).resolves.toMatchObject({ error: expect.stringContaining("Pro") });
+
+    expect(mockFetchBackend).not.toHaveBeenCalled();
+    expect(mockFindUnique).not.toHaveBeenCalled();
   });
 
   it("reuses the memory cache for identical payloads without a DB cacheKey", async () => {

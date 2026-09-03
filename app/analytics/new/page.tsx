@@ -4512,7 +4512,8 @@ function StrategyLabContent() {
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.detail ?? t("백테스트 실패"));
+        // 서버 한도·로그인 안내(detail)는 한국어 정본 — /us에서는 사전으로 번역해 표시한다.
+        throw new Error(typeof err.detail === "string" ? t(err.detail) : t("백테스트 실패"));
       }
 
       const reader = res.body!.getReader();

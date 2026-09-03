@@ -71,6 +71,11 @@ interface PricingPlansProps {
     nextBillingAt: string | null;
     canceled: boolean;
   } | null;
+  /**
+   * 표시할 플랜 정의 — 서버가 관리자 한도 오버라이드(PlanConfig)를 병합해 넘긴다.
+   * 생략하면 기본값(lib/plans.ts). 실제 한도 강제와 같은 값을 보여주기 위함.
+   */
+  plans?: Record<PlanId, Plan>;
 }
 
 function formatBillingDate(iso: string | null): string {
@@ -80,11 +85,19 @@ function formatBillingDate(iso: string | null): string {
   return d.toLocaleDateString(getLocale(), { year: "numeric", month: "long", day: "numeric" });
 }
 
-export default function PricingPlans({ currentPlanId, subscription }: PricingPlansProps) {
+export default function PricingPlans({
+  currentPlanId,
+  subscription,
+  plans = PLANS,
+}: PricingPlansProps) {
   const router = useRouter();
   const [pendingPlanId, setPendingPlanId] = useState<PlanId | null>(null);
   const [checkoutPlanId, setCheckoutPlanId] = useState<PlanId | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // 자동갱신 구독 중이면 FREE 카드의 버튼은 "즉시 전환"이 아니라 해지 예약이다 —
+  // 설정 모달·/us와 같은 의미(남은 결제 기간까지 이용). 서버(/api/user/plan)가 분기한다.
+  const hasActiveSubscription = Boolean(subscription && !subscription.canceled);
 
   const handleSelect = async (planId: PlanId) => {
     if (planId === currentPlanId || pendingPlanId) return;
@@ -92,6 +105,13 @@ export default function PricingPlans({ currentPlanId, subscription }: PricingPla
     // 유료 플랜은 토스페이먼츠 자동결제(빌링) 체크아웃 모달을 연다
     if (planId !== "FREE") {
       setCheckoutPlanId(planId);
+      return;
+    }
+
+    if (
+      hasActiveSubscription &&
+      !window.confirm(t("자동갱신을 해지할까요? 이미 결제된 기간에는 계속 이용할 수 있습니다."))
+    ) {
       return;
     }
 
@@ -123,11 +143,13 @@ export default function PricingPlans({ currentPlanId, subscription }: PricingPla
         className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-3"
       >
         {PLAN_ORDER.map((planId) => {
-          const plan = PLANS[planId];
+          const plan = plans[planId];
           const Icon = PLAN_ICONS[planId];
           const isCurrent = planId === currentPlanId;
           const features = planFeatures(planId, plan);
           const description = t(PLAN_DESCRIPTIONS[planId]);
+          // 해지 예약된 구독은 만료일에 FREE로 내려간다 — 다시 누를 동작이 없다.
+          const isCancellationScheduled = planId === "FREE" && subscription?.canceled === true;
 
           return (
             <div
@@ -183,7 +205,7 @@ export default function PricingPlans({ currentPlanId, subscription }: PricingPla
               {/* CTA */}
               <button
                 type="button"
-                disabled={isCurrent || pendingPlanId !== null}
+                disabled={isCurrent || pendingPlanId !== null || isCancellationScheduled}
                 onClick={() => void handleSelect(planId)}
                 className={`mt-10 w-full rounded-2xl px-4 py-4 text-sm font-black transition-colors disabled:cursor-not-allowed ${
                   isCurrent
@@ -196,7 +218,11 @@ export default function PricingPlans({ currentPlanId, subscription }: PricingPla
                   : pendingPlanId === planId
                   ? t("변경 중...")
                   : planId === "FREE"
-                  ? t("무료로 전환")
+                  ? isCancellationScheduled
+                    ? t("해지 예약됨")
+                    : hasActiveSubscription
+                    ? t("구독 해지")
+                    : t("무료로 전환")
                   : t("구독 시작하기")}
               </button>
 

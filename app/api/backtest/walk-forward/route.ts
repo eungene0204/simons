@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rejectWalkForwardIfNotAllowed } from "./access";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
 export async function POST(req: NextRequest) {
+  const rejected = await rejectWalkForwardIfNotAllowed();
+  if (rejected) return rejected;
+
   // Walk-forward can take a long time (multiple optimization windows).
   // 클라이언트가 취소하면(req.signal) 백엔드로 가는 프록시 fetch도 함께 중단한다.
   const controller = new AbortController();

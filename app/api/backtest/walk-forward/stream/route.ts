@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { rejectWalkForwardIfNotAllowed } from "../access";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
@@ -7,6 +8,9 @@ export const dynamic = "force-dynamic";
 // 워크포워드 SSE 스트리밍 프록시 — 백엔드의 창 단위 진행률 이벤트를 그대로 전달한다.
 // 클라이언트가 취소(req.signal)하면 백엔드 연결도 끊겨 다음 창 경계에서 협조적으로 중단된다.
 export async function POST(req: NextRequest) {
+  const rejected = await rejectWalkForwardIfNotAllowed();
+  if (rejected) return rejected;
+
   const controller = new AbortController();
   // 백엔드가 자체 제한(WALK_FORWARD_TIMEOUT_S, 기본 3600초)에 걸리면 친절한 SSE 에러
   // 이벤트를 내보낸다. 이 안전망은 반드시 그보다 커야 한다 — 같거나 작으면 프록시가
