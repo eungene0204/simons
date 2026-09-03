@@ -252,7 +252,8 @@ export default function BacktestSummaryCard({
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Unknown error");
+      // 서버 플랜 안내(error)는 한국어 정본 — /us에서는 사전으로 번역해 표시한다.
+      if (!res.ok) throw new Error(data.error ? t(data.error) : "Unknown error");
       // degraded = LLM 출력 파싱 실패 폴백 — 리포트로 표시/전파하지 않고 재시도를 안내한다.
       if (data.degraded) {
         throw new Error(data.summary || t("AI 리포트 생성에 실패했습니다. 다시 시도해 주세요."));

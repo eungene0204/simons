@@ -52,6 +52,8 @@ const batchRunCandidateCreateMany = vi.fn(async ({ data }: any) => {
   return { count: rows.length };
 });
 
+// 라우트는 관리자 전용(2026-09-03) — 이 파일은 실행 계약만 다루므로 관리자로 고정한다.
+vi.mock("@/lib/server/adminAuth", () => ({ requireAdmin: vi.fn(async () => ({ id: 1, email: "a@b", name: "admin" })) }));
 vi.mock("@/lib/prisma", () => {
   return {
     prisma: {

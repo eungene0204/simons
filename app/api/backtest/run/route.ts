@@ -16,9 +16,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // 로그인 사용자는 월 백테스트 한도를 검사하고 1회 소비한다(캐시 히트도 실행 1회로 집계).
+  // 월 백테스트 한도를 검사하고 1회 소비한다(캐시 히트도 실행 1회로 집계).
+  // 비로그인은 한도를 셀 주체가 없어 실행하지 않는다 — 요금제의 "월 N회"는 가입자 기준이다.
   const user = await getCurrentUser();
-  if (user) {
+  if (!user) {
+    return NextResponse.json({ detail: "로그인이 필요합니다." }, { status: 401 });
+  }
+  {
     try {
       await consumeBacktestQuota(prisma, user.id);
     } catch (err: any) {

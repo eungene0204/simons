@@ -5,7 +5,7 @@ import { PaypalError, PaypalProvider, verifyWebhookSignature } from "@/lib/payme
 import { planIdFromPaypalPlan } from "@/lib/payment/paypalPlans";
 import {
   activatePaypalSubscription,
-  downgradePaypalSubscriber,
+  downgradePaypalSubscriberById,
   markPaypalSubscriptionCanceled,
   recordPaypalSubscriptionPayment,
   schedulePaypalPlanChange,
@@ -229,7 +229,7 @@ export async function POST(request: Request) {
           await markPaypalSubscriptionCanceled(prisma, userId);
         } else {
           // 정지·만료는 더 이상 청구되지 않으므로 즉시 FREE로 내린다
-          await downgradePaypalSubscriber(prisma, userId);
+          await downgradePaypalSubscriberById(prisma, userId);
         }
         break;
       }

@@ -1039,6 +1039,8 @@ export const en: Record<string, string> = {
   "플랜 변경에 실패했습니다. 잠시 후 다시 시도해주세요.": "Failed to change the plan. Please try again shortly.",
   "해지 예약됨 · {0}까지 이용 가능합니다": "Cancellation scheduled · available until {0}",
   "현재 이용 중": "Current plan",
+  "구독 해지": "Cancel subscription",
+  "해지 예약됨": "Cancellation scheduled",
   // ── components/research/ResearchTestConsole.tsx
   " — PREMIUM 플랜이 필요합니다. 개발 테스트 시 SQLite에서": " — PREMIUM plan required. For local testing, in SQLite",
   "ADX {0}일 ≥ {1} (추세 강도)": "ADX {0}-day ≥ {1} (trend strength)",
@@ -2104,6 +2106,13 @@ export const en: Record<string, string> = {
   "현재 플랜의 가상계좌 수 한도에 도달했습니다.": "You've reached the virtual-account limit of your current plan.",
   "현재 플랜의 가상계좌 수 한도에 도달했습니다. 요금제를 업그레이드하면 더 많은 계좌를 만들 수 있습니다.": "You've reached the virtual-account limit of your current plan. Upgrade your plan to create more accounts.",
   // ── components/ui/StrategyReplaceModal.tsx
+  // ── lib/server/planLimits.ts (서버 한도 안내 — 클라이언트가 t()로 표시)
+  "현재 플랜의 저장 가능 전략 수 한도에 도달했습니다. 요금제를 업그레이드하면 더 많은 전략을 저장할 수 있습니다.": "You've reached the saved-strategy limit of your current plan. Upgrade your plan to save more strategies.",
+  "현재 플랜의 가상계좌 수 한도에 도달했습니다. 요금제를 업그레이드하면 더 많은 가상계좌를 만들 수 있습니다.": "You've reached the virtual-account limit of your current plan. Upgrade your plan to create more virtual accounts.",
+  "이번 달 백테스트 한도를 모두 사용했습니다. 요금제를 업그레이드하면 더 많은 백테스트를 실행할 수 있습니다.": "You've used all backtests for this month. Upgrade your plan to run more backtests.",
+  "결과 다운로드는 Pro 이상 플랜에서 사용할 수 있습니다.": "Result download is available on the Pro plan and above.",
+  "워크포워드 검증은 프리미엄 플랜에서 사용할 수 있습니다.": "Walk-forward validation is available on the Premium plan.",
+  "AI 리포트는 Pro 이상 플랜에서 사용할 수 있습니다.": "The AI report is available on the Pro plan and above.",
   "교체 중...": "Replacing...",
   "설명이 없습니다.": "No description.",
   "연결된 전략 없음": "No linked strategy",

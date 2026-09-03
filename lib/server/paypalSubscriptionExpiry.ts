@@ -8,6 +8,7 @@
 // 들어오므로, 통지가 잠깐 늦었다고 유료 사용자를 내리면 안 된다.
 import type { PrismaClient } from "@prisma/client";
 import { downgradePaypalSubscriber } from "@/lib/server/paypalSubscription";
+import { backtestUsageCarryOnDowngrade, USAGE_CARRY_SELECT } from "@/lib/server/planDowngrade";
 
 export interface PaypalExpirySummary {
   downgraded: number;
@@ -26,12 +27,12 @@ export async function processDuePaypalExpirations(
       subscriptionCanceledAt: { not: null },
       nextBillingAt: { lte: now },
     },
-    select: { id: true },
+    select: { id: true, ...USAGE_CARRY_SELECT },
   });
 
   for (const user of due) {
     try {
-      await downgradePaypalSubscriber(prisma, user.id);
+      await downgradePaypalSubscriber(prisma, user.id, backtestUsageCarryOnDowngrade(user, now));
       summary.downgraded += 1;
     } catch (error) {
       // 한 명의 실패가 나머지를 막지 않도록 개별 격리

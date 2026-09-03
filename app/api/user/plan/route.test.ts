@@ -8,7 +8,9 @@ const getOwnershipContext = vi.fn();
 const getSessionUserId = vi.fn();
 const assertActiveUser = vi.fn();
 const userUpdate = vi.fn();
+const userFindUnique = vi.fn();
 const getUserUsage = vi.fn();
+const cancelUserSubscription = vi.fn();
 
 class FakeUnauthorizedError extends Error {}
 
@@ -21,8 +23,17 @@ vi.mock("@/lib/get-user", () => ({
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    user: { update: (...a) => userUpdate(...a) },
+    user: { update: (...a) => userUpdate(...a), findUnique: (...a) => userFindUnique(...a) },
   },
+}));
+
+vi.mock("@/lib/server/planDowngrade", () => ({
+  backtestUsageCarryOnDowngrade: () => ({ backtestUsageMonth: "2026-09", backtestCountThisMonth: 3 }),
+  USAGE_CARRY_SELECT: {},
+}));
+
+vi.mock("@/lib/server/subscriptionCancel", () => ({
+  cancelUserSubscription: (...a) => cancelUserSubscription(...a),
 }));
 
 vi.mock("@/lib/server/planLimits", () => ({
@@ -39,6 +50,7 @@ beforeEach(async () => {
   getSessionUserId.mockResolvedValue(7);
   assertActiveUser.mockResolvedValue(undefined);
   userUpdate.mockResolvedValue({});
+  userFindUnique.mockResolvedValue({ subscriptionPlanId: null, createdAt: new Date("2026-01-01") });
   getUserUsage.mockResolvedValue({
     plan: {
       planId: "FREE",
@@ -99,23 +111,41 @@ describe("/api/user/plan POST", () => {
     expect(userUpdate).not.toHaveBeenCalled();
   });
 
-  it("FREE 전환은 허용하고 planStartDate와 자동결제(빌링) 상태를 모두 비운다", async () => {
+  it("구독이 없는 유료 등급의 FREE 전환은 즉시 내리고 빌링 상태(토스·PayPal)를 모두 비운다", async () => {
     const res = await POST(req({ planId: "FREE" }));
     expect(res.status).toBe(200);
-    // 빌링키가 남아 있으면 갱신 잡이 계속 청구하므로 반드시 함께 해제되어야 한다
+    expect(cancelUserSubscription).not.toHaveBeenCalled();
+    // 빌링키·구독 ID가 남아 있으면 갱신 잡·웹훅이 계속 청구/승격하므로 반드시 함께 해제되어야 한다
     expect(userUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 7 },
-        data: {
+        data: expect.objectContaining({
           planTier: "FREE",
           planStartDate: null,
           tossBillingKey: null,
+          paypalSubscriptionId: null,
           subscriptionPlanId: null,
           nextBillingAt: null,
           subscriptionCanceledAt: null,
           billingFailCount: 0,
-        },
+          // 이번 주기 백테스트 사용량은 이어 간다(0으로 리셋되던 구멍)
+          backtestUsageMonth: expect.any(String),
+          backtestCountThisMonth: expect.any(Number),
+        }),
       })
     );
+  });
+
+  it("자동갱신 구독 중이면 즉시 내리지 않고 해지를 예약한다(결제 수단 분기는 헬퍼)", async () => {
+    userFindUnique.mockResolvedValue({ subscriptionPlanId: "PRO", createdAt: new Date("2026-01-01") });
+    cancelUserSubscription.mockResolvedValue({ status: "scheduled", expiresAt: "2026-10-01T00:00:00.000Z" });
+
+    const res = await POST(req({ planId: "FREE" }));
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(cancelUserSubscription).toHaveBeenCalledWith(expect.anything(), 7);
+    expect(userUpdate).not.toHaveBeenCalled();
+    expect(data.cancellation).toEqual({ status: "scheduled", expiresAt: "2026-10-01T00:00:00.000Z" });
   });
 });

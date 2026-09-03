@@ -3,6 +3,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import { getCurrentUser } from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
 import { getPlan } from "@/lib/plans";
+import { getEffectivePlans } from "@/lib/server/effectivePlans";
 import PricingPlans from "@/components/pricing/PricingPlans";
 import PricingViewTracker from "@/components/pricing/PricingViewTracker";
 import { t } from "@/lib/i18n";
@@ -27,15 +28,18 @@ export default async function PricingPage() {
     redirect("/");
   }
 
-  const record = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: {
-      planTier: true,
-      subscriptionPlanId: true,
-      nextBillingAt: true,
-      subscriptionCanceledAt: true,
-    },
-  });
+  const [record, plans] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        planTier: true,
+        subscriptionPlanId: true,
+        nextBillingAt: true,
+        subscriptionCanceledAt: true,
+      },
+    }),
+    getEffectivePlans(),
+  ]);
   const currentPlan = getPlan(record?.planTier);
   // 자동결제(빌링) 구독 상태 — 다음 결제일/해지 여부를 플랜 카드에 표시한다
   const subscription = record?.subscriptionPlanId
@@ -62,7 +66,7 @@ export default async function PricingPage() {
           </div>
 
           <div className="mt-14">
-            <PricingPlans currentPlanId={currentPlan.planId} subscription={subscription} />
+            <PricingPlans currentPlanId={currentPlan.planId} subscription={subscription} plans={plans} />
           </div>
         </div>
       </div>

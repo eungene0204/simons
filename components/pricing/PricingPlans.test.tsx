@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PLANS } from "@/lib/plans";
 import PricingPlans from "./PricingPlans";
 
 const routerPush = vi.fn();
@@ -193,6 +194,46 @@ describe("PricingPlans", () => {
     const status = screen.getByTestId("subscription-renewal-status");
     expect(status).toHaveTextContent("해지 예약됨");
     expect(within(status).queryByRole("button", { name: "자동갱신 해지" })).toBeNull();
+  });
+
+  it("자동갱신 구독 중이면 FREE 카드 버튼은 '구독 해지'다(즉시 전환이 아니라 해지 예약)", () => {
+    render(
+      <PricingPlans
+        currentPlanId="PRO"
+        subscription={{ nextBillingAt: "2026-08-10T00:00:00.000Z", canceled: false }}
+      />
+    );
+    const freeCard = screen.getByTestId("pricing-plan-card-FREE");
+    expect(within(freeCard).getByRole("button", { name: "구독 해지" })).toBeEnabled();
+    expect(within(freeCard).queryByRole("button", { name: "무료로 전환" })).toBeNull();
+  });
+
+  it("해지 예약된 구독은 FREE 카드 버튼을 '해지 예약됨'으로 비활성화한다", () => {
+    render(
+      <PricingPlans
+        currentPlanId="PRO"
+        subscription={{ nextBillingAt: "2026-08-10T00:00:00.000Z", canceled: true }}
+      />
+    );
+    const freeCard = screen.getByTestId("pricing-plan-card-FREE");
+    expect(within(freeCard).getByRole("button", { name: "해지 예약됨" })).toBeDisabled();
+  });
+
+  it("구독 없는 유료 등급은 FREE 카드 버튼이 '무료로 전환'(즉시)이다", () => {
+    render(<PricingPlans currentPlanId="PRO" />);
+    const freeCard = screen.getByTestId("pricing-plan-card-FREE");
+    expect(within(freeCard).getByRole("button", { name: "무료로 전환" })).toBeEnabled();
+  });
+
+  it("서버가 넘긴 플랜 정의(관리자 한도 오버라이드)를 카드에 그대로 반영한다", () => {
+    const plans = {
+      ...PLANS,
+      FREE: { ...PLANS.FREE, monthlyBacktestLimit: 50, maxVirtualAccounts: 2 },
+    };
+    render(<PricingPlans currentPlanId="FREE" plans={plans} />);
+    const freeCard = screen.getByTestId("pricing-plan-card-FREE");
+    expect(within(freeCard).getByText("월 백테스트 50회")).toBeInTheDocument();
+    expect(within(freeCard).getByText("시뮬레이션 가상계좌 2개")).toBeInTheDocument();
   });
 
   it("구독 정보가 없으면(FREE) 갱신 상태 UI를 렌더링하지 않는다", () => {

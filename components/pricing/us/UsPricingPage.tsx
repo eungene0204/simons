@@ -12,6 +12,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import { getCurrentUser } from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
 import { getPlan } from "@/lib/plans";
+import { getEffectivePlans } from "@/lib/server/effectivePlans";
 import { isPaypalConfigured } from "@/lib/payment/PaypalProvider";
 import { isPaypalSubscriptionConfigured } from "@/lib/payment/paypalPlans";
 import UsPricingPlans from "@/components/pricing/us/UsPricingPlans";
@@ -22,16 +23,19 @@ export default async function UsPricingPage() {
     redirect("/us");
   }
 
-  const record = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: {
-      planTier: true,
-      paymentProvider: true,
-      subscriptionPlanId: true,
-      nextBillingAt: true,
-      subscriptionCanceledAt: true,
-    },
-  });
+  const [record, plans] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        planTier: true,
+        paymentProvider: true,
+        subscriptionPlanId: true,
+        nextBillingAt: true,
+        subscriptionCanceledAt: true,
+      },
+    }),
+    getEffectivePlans(),
+  ]);
   const currentPlanId = getPlan(record?.planTier).planId;
   // PayPal 구독 상태만 표시한다 — 토스 구독은 한국 화면의 소관이다
   const subscription =
@@ -66,6 +70,7 @@ export default async function UsPricingPage() {
               currentPlanId={currentPlanId}
               subscription={subscription}
               paypalEnabled={paypalEnabled}
+              plans={plans}
             />
           </div>
 

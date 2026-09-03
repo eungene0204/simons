@@ -91,7 +91,8 @@ describe("strategy backtest stream route", () => {
     resolveStrategyId.mockReturnValue("strategy_1");
     saveCachedResult.mockReset();
     getCurrentUser.mockReset();
-    getCurrentUser.mockResolvedValue(null);
+    // 비로그인은 401이므로(2026-09-03) 기본은 로그인 사용자로 둔다 — 비로그인 케이스만 null로 바꾼다.
+    getCurrentUser.mockResolvedValue({ id: 42 });
     consumeBacktestQuota.mockReset();
     consumeBacktestQuota.mockResolvedValue(undefined);
     consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -222,20 +223,18 @@ describe("strategy backtest stream route", () => {
     expect(fetchBackend).not.toHaveBeenCalled();
   });
 
-  it("does not consume quota for an anonymous (logged-out) user", async () => {
+  it("rejects an anonymous (logged-out) user with 401 before touching quota or the engine", async () => {
+    // 요금제의 "월 N회"는 가입자 기준 — 비로그인은 셀 주체가 없어 실행하지 않는다(2026-09-03 감사).
     getCurrentUser.mockResolvedValue(null);
-    fetchBackend.mockResolvedValueOnce(makeSseResponse([
-      'data: {"type":"result","data":{"totalReturn":1.2}}\n\n',
-      "data: [DONE]\n\n",
-    ].join("")));
 
     const response = await route.POST(makeRequest({
       symbols: ["005930"],
       canonical_strategy_dsl: { universe: "KOSPI" },
     }));
-    await response.text();
 
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({ detail: expect.any(String) });
     expect(consumeBacktestQuota).not.toHaveBeenCalled();
-    expect(fetchBackend).toHaveBeenCalledTimes(1);
+    expect(fetchBackend).not.toHaveBeenCalled();
   });
 });

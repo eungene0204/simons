@@ -4,9 +4,9 @@ import { verifyToken } from "@/lib/auth";
 
 const BACKEND = process.env.BACKEND_URL ?? "http://localhost:8000";
 
-const DEV_USER_ID = 1; // 테스트용 고정 userId (로그인 불필요)
-
-async function resolveUserId(): Promise<number> {
+// 비로그인 폴백 없음 — 2026-09-03 감사 전에는 userId=1로 대체해, 1번 계정이 PREMIUM이면 누구나
+// 리서치를 실행할 수 있었다. 백엔드는 X-User-Id의 planTier를 DB에서 다시 확인한다.
+async function resolveUserId(): Promise<number | null> {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
@@ -15,7 +15,7 @@ async function resolveUserId(): Promise<number> {
       if (decoded?.userId) return decoded.userId;
     }
   } catch {}
-  return DEV_USER_ID;
+  return null;
 }
 
 async function proxyToBackend(
@@ -25,6 +25,9 @@ async function proxyToBackend(
   bodyText?: string
 ): Promise<Response> {
   const userId = await resolveUserId();
+  if (userId == null) {
+    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  }
 
   const pathStr = pathSegments.join("/");
   const target = `${BACKEND}/research/${pathStr}${req.nextUrl.search}`;

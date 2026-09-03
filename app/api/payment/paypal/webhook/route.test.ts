@@ -49,6 +49,8 @@ vi.mock("@/lib/server/paypalSubscription", () => ({
   recordPaypalSubscriptionPayment: (...a) => recordPaypalSubscriptionPayment(...a),
   markPaypalSubscriptionCanceled: (...a) => markPaypalSubscriptionCanceled(...a),
   downgradePaypalSubscriber: (...a) => downgradePaypalSubscriber(...a),
+  // 웹훅은 userId만 알아 사용량 이월 필드를 읽어 강등하는 By-Id 변형을 쓴다
+  downgradePaypalSubscriberById: (...a) => downgradePaypalSubscriber(...a),
   schedulePaypalPlanChange: (...a) => schedulePaypalPlanChange(...a),
 }));
 
