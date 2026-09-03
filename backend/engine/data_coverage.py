@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+from . import result_warnings as rw
+from . import trade_reason as tr
 from .signals import FUNDAMENTAL_CIDS, FUNDAMENTAL_LABELS
 
 # 값의 존재가 종목/기간에 따라 달라지는 데이터 의존 지표 = 펀더멘털 지표.
@@ -38,9 +40,9 @@ _NEGATIVE_EXCLUSION_WARN_THRESHOLD = 10.0
 # 판정: metric 값이 NaN & 분모 컬럼 존재 & 분모 ≤ 0 (fetcher의 null 규칙과 동일).
 # roe_or_gpa는 total_equity 우선, 없으면 BPS로 근사 — fetcher와 동일한 폴백.
 _NEGATIVE_EXCLUSION_RULES: Dict[str, Dict[str, Any]] = {
-    "per": {"denoms": ("eps",), "reason": "적자(EPS ≤ 0)"},
-    "pbr": {"denoms": ("bps",), "reason": "자본잠식(BPS ≤ 0)"},
-    "roe_or_gpa": {"denoms": ("total_equity", "bps"), "reason": "자본잠식(자기자본 ≤ 0)"},
+    "per": {"denoms": ("eps",), "reason": rw.NEGATIVE_REASON_EPS},
+    "pbr": {"denoms": ("bps",), "reason": rw.NEGATIVE_REASON_BPS},
+    "roe_or_gpa": {"denoms": ("total_equity", "bps"), "reason": rw.NEGATIVE_REASON_EQUITY},
 }
 
 
@@ -163,10 +165,14 @@ class CoverageAccumulator:
                     )
 
     def build(self) -> Dict[str, Any]:
-        """구조화된 커버리지 리포트 + 사용자 경고 목록을 반환한다."""
+        """구조화된 커버리지 리포트 + 사용자 경고 목록을 반환한다.
+
+        경고는 한국어 문장(`warnings`)과 세그먼트(`warningParts`, engine/result_warnings.py)를
+        같은 순서로 싣는다 — 라벨·사유는 사전 키라 중첩 세그먼트로 넣어 /us에서 번역되게 한다.
+        """
         metric_reports: List[Dict[str, Any]] = []
         used, partial, unused = [], [], []
-        warnings: List[str] = []
+        warning_parts: List[List[tr.Segment]] = []
 
         for metric in self.metrics:
             agg = self._agg[metric]
@@ -179,7 +185,7 @@ class CoverageAccumulator:
             )
             neg_rows = agg["rows_excluded_negative"]
             neg_pct = round(neg_rows / rows_total * 100.0, 1) if rows_total else 0.0
-            neg_reason = _NEGATIVE_EXCLUSION_RULES.get(metric, {}).get("reason", "적자·자본잠식")
+            neg_reason = _NEGATIVE_EXCLUSION_RULES.get(metric, {}).get("reason", rw.NEGATIVE_REASON_DEFAULT)
 
             if agg["symbols_with_data"] == 0:
                 status = "unused"
@@ -209,34 +215,24 @@ class CoverageAccumulator:
             if status == "unused":
                 if neg_rows > 0:
                     # 값이 존재했으나 전부 비율 산정 불가 — '데이터 없음'으로 오인되지 않게 정정.
-                    warnings.append(
-                        f"⚠ {label} 조건은 이번 백테스트에서 적용되지 않았습니다 — 유효한 비율 값이 "
-                        f"없었고, 이 중 {neg_rows}개 시점은 데이터 결측이 아니라 {neg_reason}으로 "
-                        f"비율 산정이 불가한 경우였습니다."
-                    )
+                    warning_parts.append([tr.part(
+                        rw.COVERAGE_UNUSED_ALL_NEGATIVE, tr.part(label), neg_rows, tr.part(neg_reason),
+                    )])
                 else:
-                    warnings.append(
-                        f"⚠ {label} 데이터가 현재 데이터셋(대상 종목·기간)에 존재하지 않아 "
-                        f"이번 백테스트의 해당 조건은 적용되지 않았습니다."
-                    )
+                    warning_parts.append([tr.part(rw.COVERAGE_UNUSED_NO_DATA, tr.part(label))])
             elif period_pct < _LOW_COVERAGE_WARN_THRESHOLD:
-                warnings.append(
-                    f"⚠ 본 백테스트는 {label} 데이터가 전체 기간의 {period_pct}%만 존재하여 "
-                    f"결과 해석에 주의가 필요합니다."
-                )
+                warning_parts.append([tr.part(rw.COVERAGE_LOW_PERIOD, tr.part(label), period_pct)])
             elif symbol_pct < 100.0:
-                warnings.append(
-                    f"일부 종목({agg['symbols_with_data']}/{symbols_total})만 {label} 데이터가 있어 "
-                    f"나머지 종목에는 해당 조건이 적용되지 않았습니다."
-                )
+                warning_parts.append([tr.part(
+                    rw.COVERAGE_PARTIAL_SYMBOLS, agg['symbols_with_data'], symbols_total, tr.part(label),
+                )])
 
             # 음수(적자·자본잠식) 제외가 유의미하면, 위 결측 경고와 별개로 사유를 명시한다.
             # (unused 경로는 이미 위에서 음수 사유를 반영했으므로 중복 고지하지 않는다.)
             if status != "unused" and neg_pct >= _NEGATIVE_EXCLUSION_WARN_THRESHOLD:
-                warnings.append(
-                    f"{label}은(는) 대상 종목·기간 중 {neg_rows}개 시점({neg_pct}%)이 {neg_reason}으로 "
-                    f"비율 산정이 불가해 해당 조건 판정에서 제외됐습니다(데이터 결측과는 별개입니다)."
-                )
+                warning_parts.append([tr.part(
+                    rw.COVERAGE_NEGATIVE_EXCLUDED, tr.part(label), neg_rows, neg_pct, tr.part(neg_reason),
+                )])
 
         return {
             # 항상 존재하는 기반 데이터(참고용) — 사용자가 '무엇으로 계산됐는지' 한눈에 보도록.
@@ -245,5 +241,6 @@ class CoverageAccumulator:
             "usedData": used,
             "partialData": partial,
             "unusedData": unused,
-            "warnings": warnings,
+            "warnings": [tr.render_kr(parts) for parts in warning_parts],
+            "warningParts": warning_parts,
         }

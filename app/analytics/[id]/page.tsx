@@ -83,6 +83,7 @@ function mapBacktestResponse(raw: any): BacktestResult {
     benchmarkPartial: raw.benchmark_partial,
     universeId: raw.universe_id,
     warnings: raw.warnings,
+    warningParts: raw.warningParts,
     executionTime: raw.executionTime,
     fromCache: raw.fromCache ?? false,
     cachedAt: raw.cachedAt,

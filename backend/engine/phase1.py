@@ -24,6 +24,7 @@ from engine import data_coverage
 from engine import universe_pit
 from engine.data_resolver import DataResolver
 from engine import trade_reason as tr
+from engine import result_warnings as rw
 from engine.prep_cache import SymbolPrepCache, structural_signature
 
 
@@ -133,7 +134,7 @@ def prepare_symbol(sym: str, ctx: Dict[str, Any], loader, indicator_engine) -> D
     """
     df_pl = loader.load_symbol_data(sym)
     if df_pl is None or len(df_pl) == 0:
-        return {"outcome": "none", "warning": f"{sym}: 데이터 없음 — 백테스트 대상에서 제외되었습니다."}
+        return {"outcome": "none", "warning": rw.warning(rw.SYMBOL_NO_DATA, sym)}
 
     # Pre-filter: clip to warmup window BEFORE indicator calculation.
     if ctx["warmup_start_str"] is not None:
@@ -221,7 +222,7 @@ def process_symbol(
             wanted_entry = bool(entry_signals.any())
             entry_signals = entry_signals & liquidity_ok
             if wanted_entry and not entry_signals.any():
-                return ("warning", f"{sym}: 유동성 기준 미달 (거래대금 부족)", side)
+                return ("warning", rw.warning(rw.SYMBOL_LIQUIDITY_BELOW, sym), side)
 
         exec_type = ctx["exec_type"]
         res: Dict[str, Any] = {
@@ -255,4 +256,4 @@ def process_symbol(
             res["coverage"] = data_coverage.symbol_stats(pdf, ctx["tracked_metrics"])
         return ("success", res, side)
     except Exception as e:
-        return ("warning", f"{sym}: 처리 오류 ({e})", side)
+        return ("warning", rw.warning(rw.SYMBOL_PROCESSING_ERROR, sym, e), side)

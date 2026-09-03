@@ -140,6 +140,7 @@ function mapRawBacktestResult(raw: any): BacktestResult {
     perAssetStats: raw.perAssetStats,
     universeId: raw.universe_id,
     warnings: raw.warnings,
+    warningParts: raw.warningParts,
     executionTime: raw.executionTime,
     fromCache: raw.fromCache,
     cacheKey: raw.cacheKey,

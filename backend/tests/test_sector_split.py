@@ -395,6 +395,10 @@ def test_engine_warns_when_sector_source_is_not_canonical():
 
     import backtest_engine
 
+    from engine import result_warnings as rw
+
     source = inspect.getsource(backtest_engine)
     assert "sector_map_source()" in source
-    assert "정본(지식그래프)이 아니라 파일 캐시에서" in source
+    # 경고 문구의 정본은 engine/result_warnings.py(템플릿+인자) — 엔진은 그 템플릿을 참조한다.
+    assert "rw.SECTOR_MAP_FROM_FILE_CACHE" in source
+    assert "정본(지식그래프)이 아니라 파일 캐시에서" in rw.SECTOR_MAP_FROM_FILE_CACHE

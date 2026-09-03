@@ -171,6 +171,9 @@ export interface QuantileGroupsResult {
 }
 
 // Backtest Result Types
+/** 백엔드 표시 문구 세그먼트(매매사유·경고 공통) — {t: 한국어 정본 템플릿, a: 인자} 또는 {s: 리터럴}. */
+export type BacktestWarningSegment = { t: string; a?: unknown[]; m?: number[] } | { s: string };
+
 export interface BacktestResult {
   executionId: string;
   strategyId: string;
@@ -251,6 +254,9 @@ export interface BacktestResult {
   benchmarkPartial?: boolean;
   universeId?: string;
   warnings?: string[];
+  /** warnings와 같은 순서의 구조화 경고(한국어 정본 템플릿+인자, backend/engine/result_warnings.py).
+   *  /us 표시 번역용 — 구버전 저장 결과에는 없다(그때는 warnings 문장을 사전 키로 조회). */
+  warningParts?: BacktestWarningSegment[][];
   /** 분위 그룹 비교 결과(FR-BT-060). 분위 그룹 전략일 때만 존재. */
   quantileGroups?: QuantileGroupsResult;
   /** 리밸런싱 기간별 결과 비교(FR-BT-064) — 같은 전략을 6주기로 재시뮬레이션한 지표.
@@ -285,6 +291,7 @@ export interface BacktestResult {
     partialData: string[];
     unusedData: string[];
     warnings: string[];
+    warningParts?: BacktestWarningSegment[][];
   };
   /** 이 결과를 산출한 백테스트 엔진 버전 (backend engine/version.py). */
   engineVersion?: string;

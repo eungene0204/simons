@@ -123,6 +123,7 @@ export class BacktestService {
         universeId: pythonResult.universe_id || strategy.universe.id,
         engineVersion: pythonResult.version,
         warnings: pythonResult.warnings,
+        warningParts: pythonResult.warningParts,
         avgProfit: pythonResult.avgProfit,
         avgLoss: pythonResult.avgLoss,
         maxConsecutiveWins: pythonResult.maxConsecutiveWins,

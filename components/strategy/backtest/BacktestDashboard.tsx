@@ -36,6 +36,7 @@ import QuantileGroupsSection from "./QuantileGroupsSection";
 import RebalanceComparisonSection from "./RebalanceComparisonSection";
 import { buildAiReportMetrics, hasAiReportArtifact } from "./aiReportMetrics";
 import { formatProfitFactor, profitFactorForRanking } from "@/lib/format-profit-factor";
+import { renderTradeReasonSegments } from "@/lib/trade-reason";
 import {
   type AiReportData,
   reportFromSummaryResponse,
@@ -895,7 +896,8 @@ export default function BacktestDashboard({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || t("저장 실패"));
+      // 플랜 한도 초과(403)는 message에 안내 문구가 실린다 — error는 영문 코드라 그대로 보이면 안 된다.
+      if (!res.ok) throw new Error(data.message ? t(data.message) : data.error || t("저장 실패"));
 
       // 저장 버튼을 누른 시점에 BacktestHistory 생성 (저장 목록에 노출)
       if (strategySummary) {
@@ -2374,12 +2376,17 @@ function BacktestTerminalLog({
   const UNIVERSE_NAMES: Record<string, string> = {
     kospi: "KOSPI", kospi200: "KOSPI 200", kosdaq: "KOSDAQ", kosdaq150: "KOSDAQ 150",
     kospi_kosdaq: "KOSPI+KOSDAQ", kosdaq_kospi: "KOSPI+KOSDAQ",
+    us: "US", sp500: "S&P 500", nasdaq100: "NASDAQ 100", nasdaq: "NASDAQ", dow30: "Dow 30", us_etf: "US ETF",
   };
   const universeLabel = result.universeId
     ? (UNIVERSE_NAMES[result.universeId] ?? result.universeId.toUpperCase())
     : "KOSPI";
+  // 금액은 결과의 시장 통화로 — 한국 결과는 "1,000,000원", 미국 결과는 "$10,000".
+  const isUsLog = isUsBacktestResult(result);
+  const logMoney = (value: number) =>
+    isUsLog ? formatUsd(value) : t("{0}원", Math.round(value).toLocaleString());
   const logInitialCapital = result.initialCapital || result.equity?.[0] || 0;
-  logs.push({ level: "INFO", message: t("유니버스: {0} / 초기자금: {1}원", universeLabel, logInitialCapital.toLocaleString()) });
+  logs.push({ level: "INFO", message: t("유니버스: {0} / 초기자금: {1}", universeLabel, logMoney(logInitialCapital)) });
 
   // 매수 신호 통계
   const buyCount = result.tradesList?.filter(tv => tv.type === "buy").length ?? 0;
@@ -2415,11 +2422,11 @@ function BacktestTerminalLog({
     const bot3 = sorted.slice(-3).reverse();
     top3.forEach((s, i) => {
       const name = stockMetadata[s.symbol]?.name ?? s.symbol;
-      logs.push({ level: "INFO", message: t("TOP{0} {1}({2}): +{3}원 / 수익률 {4}% / {5}거래", i+1, name, s.symbol, Math.round(s.profit).toLocaleString(), s.totalReturn.toFixed(1), s.trades) });
+      logs.push({ level: "INFO", message: t("TOP{0} {1}({2}): +{3} / 수익률 {4}% / {5}거래", i+1, name, s.symbol, logMoney(s.profit), s.totalReturn.toFixed(1), s.trades) });
     });
     bot3.forEach((s, i) => {
       const name = stockMetadata[s.symbol]?.name ?? s.symbol;
-      logs.push({ level: "INFO", message: t("BOT{0} {1}({2}): {3}원 / 수익률 {4}% / {5}거래", i+1, name, s.symbol, Math.round(s.profit).toLocaleString(), s.totalReturn.toFixed(1), s.trades) });
+      logs.push({ level: "INFO", message: t("BOT{0} {1}({2}): {3} / 수익률 {4}% / {5}거래", i+1, name, s.symbol, logMoney(s.profit), s.totalReturn.toFixed(1), s.trades) });
     });
   }
 
@@ -2448,15 +2455,18 @@ function BacktestTerminalLog({
   // 경고
   if (result.warnings && result.warnings.length > 0) {
     result.warnings.forEach((w, i) => {
-      let msg = w;
-      const symMatch = w.match(/^([0-9A-Z]{6}):/);
+      // 엔진 경고는 한국어 정본 템플릿+인자(warningParts)로도 실려 온다 — 값이 박힌 문장은 사전
+      // 키가 될 수 없어 세그먼트를 t()로 옮긴다(backend/engine/result_warnings.py). 파츠가 없는
+      // 구버전 결과는 문장 자체를 키로 조회한다(고정 문구만 번역, 나머지는 원문).
+      const parts = result.warningParts?.[i];
+      let msg = parts && parts.length > 0 ? renderTradeReasonSegments(parts, logMoney) : t(w);
+      const symMatch = msg.match(/^([0-9A-Z]{6}):/);
       if (symMatch) {
         const sym = symMatch[1];
         const name = stockMetadata[sym]?.name;
-        if (name) msg = w.replace(sym, `${name}(${sym})`);
+        if (name) msg = msg.replace(sym, `${name}(${sym})`);
       }
-      // 엔진 경고는 백엔드 한국어 정본 — /us 표시는 사전(en.ts)으로 옮긴다(없으면 원문).
-      logs.push({ level: "WARN", message: t(msg) });
+      logs.push({ level: "WARN", message: msg });
     });
   }
 
