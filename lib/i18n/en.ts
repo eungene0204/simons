@@ -1369,7 +1369,7 @@ export const en: Record<string, string> = {
   "부채비율·ROE 보유 조건": "Debt ratio·ROE holding screen",
   "상대강도 + 유동성 가중 로테이션": "Relative strength + liquidity-weighted rotation",
   "상대강도 상위주 월간 교체": "Monthly rotation of top relative-strength stocks",
-  "상호명 : 널스페이스   사업자등록번호 : 898-50-00737   통신판매업신고번호 : 2026-서울서대문-0758   대표 : 이응준   주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호   이메일 : nullspace.support@gmail.com": "Company: nullspace   Business registration no.: 898-50-00737   E-commerce registration no.: 2026-Seoul Seodaemun-0758   CEO: Eungjun Lee   Address: 3F S88, 37 Ewhayeodae 7-gil, Seodaemun-gu, Seoul   E-mail: nullspace.support@gmail.com",
+  "상호명 : 널스페이스   사업자등록번호 : 898-50-00737   통신판매업신고번호 : 2026-서울서대문-0758   대표 : 이응준   주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호   전화번호 : 010-9956-9257   이메일 : nullspace.support@gmail.com": "Company: nullspace   Business registration no.: 898-50-00737   E-commerce registration no.: 2026-Seoul Seodaemun-0758   CEO: Eungjun Lee   Address: 3F S88, 37 Ewhayeodae 7-gil, Seodaemun-gu, Seoul   Tel: +82-10-9956-9257   E-mail: nullspace.support@gmail.com",
   "수익률 상위 종목 주간 교체": "Weekly rotation of top performers",
   "신고가 돌파 거래량 단타": "New-high breakout volume scalping",
   "신고가 돌파주 짧게 보유": "Short holds of new-high breakout stocks",
