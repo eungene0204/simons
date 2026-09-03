@@ -32,17 +32,18 @@ interface SavedStrategy {
 }
 
 const DEFAULT_VISIBLE_COUNT = 20;
-const BUSINESS_INFO_TEXT =
-  "상호명 : 널스페이스   사업자등록번호 : 898-50-00737   통신판매업신고번호 : 2026-서울서대문-0758   대표 : 이응준   주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호   전화번호 : 070-8027-2252   이메일 : nullspace.support@gmail.com";
+// 사업자 정보는 두 줄로 나눠 표시한다 — 대표까지 첫 줄, 주소·연락처는 다음 줄 (2026-09-03 지시).
+const BUSINESS_INFO_LINE_1 =
+  "상호명 : 널스페이스   사업자등록번호 : 898-50-00737   통신판매업신고번호 : 2026-서울서대문-0758   대표 : 이응준";
+const BUSINESS_INFO_LINE_2 =
+  "주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호   전화번호 : 070-8027-2252   이메일 : nullspace.support@gmail.com";
 // 글로벌(/us) 푸터 — 사업자 정보(상호·대표·주소·사업자등록번호·통신판매업신고번호)는
 // 한국 전자상거래법상 표기라 해외 사용자에게는 표시하지 않고 연락처만 남긴다
 // (2026-08-25 지시). 한국 푸터는 법정 표기 유지.
 const US_BUSINESS_INFO_TEXT = "E-mail: nullspace.support@gmail.com";
 const BUSINESS_EMAIL = "nullspace.support@gmail.com";
 
-function BusinessInfoText() {
-  const region = useRegion();
-  const info = region === "us" ? US_BUSINESS_INFO_TEXT : t(BUSINESS_INFO_TEXT);
+function withEmailLink(info: string) {
   const emailIndex = info.indexOf(BUSINESS_EMAIL);
   if (emailIndex < 0) {
     return <>{info}</>;
@@ -57,6 +58,19 @@ function BusinessInfoText() {
         {BUSINESS_EMAIL}
       </a>
       {info.slice(emailIndex + BUSINESS_EMAIL.length)}
+    </>
+  );
+}
+
+function BusinessInfoText() {
+  const region = useRegion();
+  if (region === "us") {
+    return withEmailLink(US_BUSINESS_INFO_TEXT);
+  }
+  return (
+    <>
+      <span className="block">{t(BUSINESS_INFO_LINE_1)}</span>
+      <span className="block">{withEmailLink(t(BUSINESS_INFO_LINE_2))}</span>
     </>
   );
 }

@@ -36,9 +36,15 @@ describe("StrategyExampleTabs legal links", () => {
       "href",
       "/?legal=privacy"
     );
+    // 사업자 정보는 두 줄 — 대표까지 첫 줄, 주소·연락처는 다음 줄
     expect(
       within(usageNotice).getByText(
-        /상호명 : 널스페이스\s+사업자등록번호 : 898-50-00737\s+통신판매업신고번호 : 2026-서울서대문-0758\s+대표 : 이응준\s+주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호\s+전화번호 : 070-8027-2252\s+이메일 :/,
+        /^상호명 : 널스페이스\s+사업자등록번호 : 898-50-00737\s+통신판매업신고번호 : 2026-서울서대문-0758\s+대표 : 이응준$/
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(usageNotice).getByText(
+        /^주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호\s+전화번호 : 070-8027-2252\s+이메일 :/,
         { exact: false }
       )
     ).toBeInTheDocument();
