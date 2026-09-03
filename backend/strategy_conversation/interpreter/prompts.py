@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "4.8"
+PROMPT_VERSION = "4.9"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -239,7 +239,9 @@ NON_STRATEGY_REQUEST(전략과 무관)
    영어 정성 표현도 한국어와 같은 자리입니다(실측 2026-08-26, /us 자유입력 — 아래
    표현이 해석 실패 되묻기로 빠졌습니다): "volume explodes to 3x the average"·"volume
    spikes" → technical.volume_spike(임계값 불필요), "eight stocks"처럼 철자 숫자 종목
-   수 → selection_count=8, "double my money" → take_profit=100.
+   수 → selection_count=8, "double my money" → take_profit=100. 금액이 붙은 거래대금
+   ("daily trading value of $100 million or more")은 volume_spike가 아니라
+   fundamental.trading_value >= 1(억 환산)입니다.
 5-0. 지표의 기간(period, short_period, long_period, lookback_period)은 **사용자가 말한 경우에만**
    parameters에 넣으세요("20일선"→short_period=20, "RSI 14일"→period=14). 기간을 말하지 않았으면
    비워 두세요 — 시스템이 표준 기간을 적용합니다. 임의의 숫자를 지어내지 마세요("RSI 30 이하"에는
@@ -304,7 +306,9 @@ NON_STRATEGY_REQUEST(전략과 무관)
    QQQ 한 종목 매매지 나스닥100 종목 100개 유니버스가 아닙니다). 영어 문장의 대문자
    티커도 같습니다(실측 2026-08-26: 아래 표기의 티커가 소실되고 기본 유니버스로
    떨어졌습니다): "Enter XLF only when a golden cross appears" → universe.symbols=["XLF"],
-   markets는 비웁니다. 지수 유니버스는
+   markets는 비웁니다. 티커 뒤에 붙은 설명구는 테마가 아니라 그 티커의 수식입니다 —
+   "On ITA, the US aerospace and defense ETF, buy when …" → symbols=["ITA"], sectors=[]
+   (실측 2026-09-03: 티커가 사라지고 'aerospace and defense'만 sectors로 갔습니다). 지수 유니버스는
    지수명(나스닥100·S&P500 등)을 말했을 때만 씁니다. 미국 ETF 전체는 ["US_ETF"].
    미국 시장의 금액 조건(거래대금·시가총액)은 한국과 같은 **억 단위 숫자**로 냅니다 —
    "거래대금 5천만 달러 이상"→0.5, "5억 달러"→5, "시가총액 1000억 달러"→1000,

@@ -21,6 +21,8 @@ from strategy_conversation.registry.concept_ontology import (
     logger as ontology_logger,
 )
 from strategy_conversation.registry.indicator_registry import REGISTRY
+from strategy_conversation.registry.display_labels import display_label, param_label, unit_label
+from ui_language import msg
 
 MAX_QUESTIONS_PER_TURN = 3
 
@@ -65,9 +67,12 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
         missing.append("strategy.universe.listing_from")
         questions.append(ClarificationQuestion(
             field="strategy.universe.listing_from",
-            question="어느 시기에 상장한 종목을 대상으로 할까요?",
+            question=msg("어느 시기에 상장한 종목을 대상으로 할까요?",
+                         "Which listing period should the universe cover?"),
             recommended_value=f"{last_year}년 이후 상장",
-            recommendation_reason=f"{last_year}년 이후 상장 종목을 시작값으로 사용할 수 있습니다",
+            recommendation_reason=msg(
+                "{year}년 이후 상장 종목을 시작값으로 사용할 수 있습니다",
+                "Stocks listed since {year} can be used as a starting point", year=last_year),
         ))
 
     # ② 진입 메커니즘 존재 여부 (조건 또는 랭킹)
@@ -76,7 +81,10 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
         missing.append("strategy.entry_conditions")
         questions.append(ClarificationQuestion(
             field="strategy.entry_conditions",
-            question="어떤 조건으로 종목을 선택할까요? (예: 재무 지표 기준, 기술적 신호, 기간 수익률 상위)",
+            question=msg(
+                "어떤 조건으로 종목을 선택할까요? (예: 재무 지표 기준, 기술적 신호, 기간 수익률 상위)",
+                "What criteria should select the stocks? (e.g. fundamentals, a technical signal, "
+                "top period return)"),
         ))
 
     # ③ 조건별 필수값 — 비교 연산 조건인데 임계값이 없으면 질문(추천값은 Registry에서)
@@ -108,13 +116,17 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                     # 역할 라벨은 "매수(진입)"처럼 일상어 먼저, 용어 병기 — 진입/청산
                     # 키워드는 유지한다(답변 패치가 진입/청산 어느 배열에 조건을 추가할지
                     # 이 질문 문구가 유일한 근거다, pending_question 에코 · 규칙 10-4).
-                    role_label = "매수(진입)" if role == "진입" else "매도(청산)"
+                    role_label = msg("매수(진입)", "buy (entry)") if role == "진입" \
+                        else msg("매도(청산)", "sell (exit)")
                     missing.append(f"{field_base}.factor")
                     questions.append(ClarificationQuestion(
                         field=f"{field_base}.factor",
                         question=(
-                            f"{quoted}{role_label} 조건에 어떤 {cls_name} 지표를 사용할까요?"
-                            + (f" {opts} 중에서 고를 수 있습니다." if opts else "")
+                            msg("{quoted}{role} 조건에 어떤 {cls} 지표를 사용할까요?",
+                                "{quoted}Which {cls} indicator should the {role} condition use?",
+                                quoted=quoted, role=role_label, cls=cls_name)
+                            + (msg(" {opts} 중에서 고를 수 있습니다.",
+                                   " You can choose from {opts}.", opts=opts) if opts else "")
                         ),
                     ))
                 continue
@@ -135,16 +147,20 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
             )
             if needs_value and cond.value is None:
                 missing.append(f"{field_base}.value")
-                unit = {"percent": "%", "ratio": "배", "억원": "억원", "point": ""}.get(
-                    spec.value_type or "", ""
-                )
+                unit = unit_label(spec.value_type,
+                                  {"percent": "%", "ratio": "배", "억원": "억원", "point": ""})
                 rec = spec.recommended_value
+                role_en = "entry" if role == "진입" else "exit"
                 questions.append(ClarificationQuestion(
                     field=f"{field_base}.value",
-                    question=f"{role} 조건의 {spec.display_name} 기준값을 얼마로 할까요?",
+                    question=msg("{role} 조건의 {name} 기준값을 얼마로 할까요?",
+                                 "What threshold should the {role} condition use for {name}?",
+                                 role=msg(role, role_en), name=display_label(spec)),
                     recommended_value=rec,
                     recommendation_reason=(
-                        f"일반적인 시작값으로 {rec:g}{unit}을(를) 사용할 수 있습니다" if rec is not None else None
+                        msg("일반적인 시작값으로 {rec}{unit}을(를) 사용할 수 있습니다",
+                            "A common starting value is {rec}{unit}",
+                            rec=f"{rec:g}", unit=unit) if rec is not None else None
                     ),
                 ))
             # 이벤트형 지표의 필수 파라미터 (예: 크로스오버 단기/장기)
@@ -153,10 +169,14 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                     missing.append(f"{field_base}.parameters.{pname}")
                     questions.append(ClarificationQuestion(
                         field=f"{field_base}.parameters.{pname}",
-                        question=f"{spec.display_name}의 {_PARAM_LABELS.get(pname, pname.replace('_', ' '))}을(를) 몇으로 할까요?",
+                        question=msg("{name}의 {param}을(를) 몇으로 할까요?",
+                                     "What {param} should {name} use?",
+                                     name=display_label(spec),
+                                     param=param_label(pname, _PARAM_LABELS.get(pname, pname.replace('_', ' ')))),
                         recommended_value=pspec.default,
                         recommendation_reason=(
-                            f"일반적으로 {pspec.default:g}을(를) 사용합니다" if pspec.default is not None else None
+                            msg("일반적으로 {d}을(를) 사용합니다", "{d} is commonly used",
+                                d=f"{pspec.default:g}") if pspec.default is not None else None
                         ),
                     ))
 
@@ -185,9 +205,13 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                 missing.append(f"strategy.ranking[{idx}].lookback_days")
                 questions.append(ClarificationQuestion(
                     field=f"strategy.ranking[{idx}].lookback_days",
-                    question=f"{lookback_label} 산정 기간을 며칠(거래일)로 할까요?",
+                    question=msg("{what} 산정 기간을 며칠(거래일)로 할까요?",
+                                 "Over how many trading days should {what} be measured?",
+                                 what=msg(lookback_label,
+                                          "volatility" if lookback_label == "변동성" else "return")),
                     recommended_value=60,
-                    recommendation_reason="일반적으로 60거래일(약 3개월)을 사용합니다",
+                    recommendation_reason=msg("일반적으로 60거래일(약 3개월)을 사용합니다",
+                                              "60 trading days (about 3 months) is commonly used"),
                 ))
                 break
         # 편입 규모가 비율(selection_percent)이나 분위 그룹(quantile_groups)으로 이미
@@ -201,17 +225,20 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
             missing.append("strategy.portfolio.selection_count")
             questions.append(ClarificationQuestion(
                 field="strategy.portfolio.selection_count",
-                question="상위 몇 종목을 선택할까요?",
+                question=msg("상위 몇 종목을 선택할까요?", "How many top-ranked stocks should be held?"),
                 recommended_value=10,
-                recommendation_reason="일반적인 시작값으로 10종목을 사용할 수 있습니다",
+                recommendation_reason=msg("일반적인 시작값으로 10종목을 사용할 수 있습니다",
+                                          "10 stocks is a common starting point"),
             ))
         if strategy.portfolio.rebalance_frequency is None:
             missing.append("strategy.portfolio.rebalance_frequency")
             questions.append(ClarificationQuestion(
                 field="strategy.portfolio.rebalance_frequency",
-                question="리밸런싱은 얼마나 자주 할까요? (매월/분기/매년)",
+                question=msg("리밸런싱은 얼마나 자주 할까요? (매월/분기/매년)",
+                             "How often should the portfolio rebalance? (monthly/quarterly/yearly)"),
                 recommended_value="monthly",
-                recommendation_reason="랭킹 전략은 월간 리밸런싱을 시작값으로 흔히 사용합니다",
+                recommendation_reason=msg("랭킹 전략은 월간 리밸런싱을 시작값으로 흔히 사용합니다",
+                                          "Ranking strategies commonly start with monthly rebalancing"),
             ))
 
     # ⑤ 청산 규칙 부재 — 진입 조건형 전략인데 청산·보유기간·리밸런싱·리스크가 모두 없으면
@@ -229,13 +256,17 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
         missing.append("strategy.exit_conditions")
         questions.append(ClarificationQuestion(
             field="strategy.exit_conditions",
-            question=(
+            question=msg(
                 "매수한 종목을 언제 팔지(청산 규칙)가 아직 정해지지 않았습니다. "
                 "어떤 방식으로 매도할까요? 예: 일정 기간 보유 후 매도, "
-                "정해진 주기로 종목 교체(리밸런싱), 일정 비율 손실/이익에서 매도(손절/익절)"
-            ),
+                "정해진 주기로 종목 교체(리밸런싱), 일정 비율 손실/이익에서 매도(손절/익절)",
+                "The exit rule (when to sell) isn't set yet. How should positions be sold? "
+                "e.g. sell after a holding period, replace stocks on a schedule (rebalancing), "
+                "or sell at a loss/profit percentage (stop-loss/take-profit)"),
             recommended_value="monthly",
-            recommendation_reason="이런 선별(스크리닝) 전략은 매월 종목을 교체하는 '매월 리밸런싱'을 흔히 사용합니다",
+            recommendation_reason=msg(
+                "이런 선별(스크리닝) 전략은 매월 종목을 교체하는 '매월 리밸런싱'을 흔히 사용합니다",
+                "Screening strategies like this commonly use monthly rebalancing"),
         ))
 
     return missing, questions[:MAX_QUESTIONS_PER_TURN]

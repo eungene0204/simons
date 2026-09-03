@@ -790,6 +790,13 @@ function ChoiceOptionHelpBubble({ option, help }: { option: string; help: string
 /** 선택지 목록 — 세로 한 줄씩, 화면 아래에서 위로 떠오르며 나타난다.
  *  '직접 입력'을 고르면 목록 그 자리에서 입력창이 열린다(하단 공용 입력창을 다시
  *  여는 방식 폐지). 입력 답변은 자유 서술과 같은 경로(handleSend)로 보낸다. */
+/** 문단("\n\n")마다 t()를 적용한다 — 백엔드가 확인 문장+정본 질문을 합성한 응답(전략 빌더)은
+ *  전체 문자열로는 사전 일치가 없어 정본 질문 문단이 /us에서 한국어로 남았다(2026-09-03).
+ *  t()는 사전에 없으면 원문을 돌려주므로 한국어 표시는 그대로다. */
+function tParagraphs(content: string): string {
+  return content.split("\n\n").map((paragraph) => t(paragraph)).join("\n\n");
+}
+
 function ChoiceOptionList({
   options,
   onSelect,
@@ -4979,7 +4986,7 @@ function StrategyLabContent() {
                         className={`flex justify-end ${MESSAGE_ENTER_CLASS}`}
                       >
                         <div className={`max-w-[80%] px-4 py-2.5 ${USER_CHAT_BUBBLE_CLASS}`}>
-                          <p className="text-sm font-bold text-white leading-relaxed">{t(msg.content ?? "")}</p>
+                          <p className="text-sm font-bold text-white leading-relaxed">{tParagraphs(msg.content ?? "")}</p>
                         </div>
                       </div>
                     )}

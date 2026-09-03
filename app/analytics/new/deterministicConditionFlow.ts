@@ -26,6 +26,13 @@ const UNIVERSE_BY_CHOICE: Record<string, string[]> = {
   "코스피·코스닥 전체": ["KOSPI", "KOSDAQ"],
   ETF: ["ETF"],
   "코스피+코스닥": ["KOSPI", "KOSDAQ"],
+  // /us 유니버스 칩(백엔드 정본 engine/strategy_slots.py US_UNIVERSE_CHIP_VALUES와 같은 표기·값).
+  "S&P500": ["SP500"],
+  나스닥100: ["NASDAQ100"],
+  나스닥: ["NASDAQ"],
+  다우30: ["DOW30"],
+  "미국 전체": ["US"],
+  "미국 ETF": ["US_ETF"],
 };
 
 const REBALANCING_BY_CHOICE: Record<string, string> = {

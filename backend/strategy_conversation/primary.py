@@ -264,11 +264,15 @@ def _clarification_items(
         items.append({"question": line, "chips": chips, "topic": topic,
                       "metric": metric, "slot": slot_item})
     for role in coalesced_cross_roles:
-        role_label = "매수(진입)" if role == "entry" else "매도(청산)"
+        role_label = ui_language.msg("매수(진입)", "buy (entry)") if role == "entry" \
+            else ui_language.msg("매도(청산)", "sell (exit)")
         items.append({
-            "question": (
-                f"{role_label} 이동평균 크로스의 기간(단기/장기)은 몇 일로 할까요? "
-                "(일반적으로 20일/60일을 많이 사용합니다)"
+            "question": ui_language.msg(
+                "{role} 이동평균 크로스의 기간(단기/장기)은 몇 일로 할까요? "
+                "(일반적으로 20일/60일을 많이 사용합니다)",
+                "What short/long periods (in days) should the {role} moving-average cross use? "
+                "(20/60 days is common)",
+                role=role_label,
             ),
             "chips": [_cross_period_chip(role, s, l) for s, l in _CROSS_PERIOD_OPTIONS],
             "topic": None, "metric": None,

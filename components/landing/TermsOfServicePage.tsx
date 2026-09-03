@@ -236,6 +236,7 @@ export function TermsOfServicePage() {
     { label: t("대표자"), value: process.env.BUSINESS_REPRESENTATIVE_NAME },
     { label: t("주소"), value: process.env.BUSINESS_ADDRESS },
     { label: t("사업자등록번호"), value: process.env.BUSINESS_REGISTRATION_NUMBER },
+    { label: t("전화번호"), value: process.env.BUSINESS_PHONE },
     { label: t("이메일"), value: process.env.BUSINESS_EMAIL },
   ];
 

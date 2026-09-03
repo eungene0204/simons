@@ -1,3 +1,4 @@
+import { getLanguage } from "@/lib/i18n";
 // 백테스트 최소 조건 게이트(프론트) — 유니버스·진입·청산·손절·익절이 모두 갖춰졌는지 판정한다.
 // [정책 2026-07-22] 조건이 비면 "현재 상태로도 실행 가능"으로 넘기지 않고 채우도록 가이드하며,
 // 다 채우기 전엔 '백테스트 실행' 버튼을 숨긴다. 백엔드 detect_incomplete_backtest_conditions와
@@ -266,6 +267,14 @@ const RANKING_MAX_POSITIONS_PROMPT: { question: string; suggestions: string[] } 
 // 원화 칩("1,000만원" → 표시 ₩10,000,000)을 그대로 쓰면 $10,000,000이 된다(2026-08-26).
 const US_INITIAL_CAPITAL_PROMPT: { question: string; suggestions: string[] } =
   slotPrompts.variants.initial_capital.us;
+// /us 서비스의 유니버스 질문 — 칩이 미국 유니버스 6종이다. 지역은 표시 언어와 같다
+// (lib/geo/region: /us = en), 유니버스는 parsed가 아직 없을 때 묻는 첫 슬롯이라 언어로 고른다.
+const US_UNIVERSE_PROMPT: { question: string; suggestions: string[] } =
+  slotPrompts.variants.universe.us;
+
+function universePrompt(): { question: string; suggestions: string[] } {
+  return getLanguage() === "en" ? US_UNIVERSE_PROMPT : SLOT_PROMPTS.universe;
+}
 
 function promptFor(
   field: MissingBacktestCondition["field"],
@@ -279,6 +288,9 @@ function promptFor(
   }
   if (field === "initial_capital" && isUsParsedUniverse(parsed?.universe)) {
     return US_INITIAL_CAPITAL_PROMPT;
+  }
+  if (field === "universe") {
+    return universePrompt();
   }
   return SLOT_PROMPTS[field];
 }
@@ -297,7 +309,7 @@ export function getNextMissingBacktestCondition(
   options: BacktestReadinessOptions = {},
 ): MissingBacktestCondition | null {
   if (!parsed) {
-    return { field: "universe", ...SLOT_PROMPTS.universe };
+    return { field: "universe", ...universePrompt() };
   }
   const field = SLOT_FIELD_ORDER.find((f) => !isSlotFilled(f, parsed, options));
   return field ? { field, ...promptFor(field, parsed) } : null;

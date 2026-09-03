@@ -126,6 +126,19 @@
         ]
       }
     },
+    "universe": {
+      "us": {
+        "question": "먼저 어떤 시장·종목을 대상으로 할지 정해볼까요?",
+        "suggestions": [
+          "S&P500",
+          "나스닥100",
+          "나스닥",
+          "다우30",
+          "미국 전체",
+          "미국 ETF"
+        ]
+      }
+    },
     "entry": {
       "single_asset": {
         "suggestions": [

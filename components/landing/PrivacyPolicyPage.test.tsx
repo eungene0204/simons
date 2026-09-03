@@ -12,6 +12,7 @@ describe("PrivacyPolicyPage", () => {
     vi.stubEnv("BUSINESS_REPRESENTATIVE_NAME", "이응준");
     vi.stubEnv("BUSINESS_ADDRESS", "서울 서대문구 이화여대7길 37, 3층 - S88호");
     vi.stubEnv("BUSINESS_REGISTRATION_NUMBER", "898-50-00737");
+    vi.stubEnv("BUSINESS_PHONE", "010-9956-9257");
     vi.stubEnv("BUSINESS_EMAIL", "nullspace.support@gmail.com");
 
     render(<PrivacyPolicyPage />);
@@ -27,6 +28,8 @@ describe("PrivacyPolicyPage", () => {
     expect(screen.getByText("서울 서대문구 이화여대7길 37, 3층 - S88호")).toBeInTheDocument();
     expect(screen.getByText("사업자등록번호")).toBeInTheDocument();
     expect(screen.getByText("898-50-00737")).toBeInTheDocument();
+    expect(screen.getByText("전화번호")).toBeInTheDocument();
+    expect(screen.getByText("010-9956-9257")).toBeInTheDocument();
     expect(screen.getByText("이메일")).toBeInTheDocument();
     expect(screen.getByText("nullspace.support@gmail.com")).toBeInTheDocument();
   });

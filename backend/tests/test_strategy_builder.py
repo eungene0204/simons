@@ -1604,3 +1604,28 @@ def test_etf_universe_skips_listing_period_question():
     parsed = sb.build_parsed_strategy(state)
     assert parsed.new_listing_only is False
     assert parsed.listing_from is None
+
+
+# ── /us 빌더: 미국 유니버스 칩·조립·영어 확인 문장 (2026-09-03) ────────────────────
+
+def test_builder_us_lane_offers_us_universes_and_english_acks():
+    """/us(en)에서 빌더는 미국 유니버스 6종을 묻고 S&P500 기본값으로 조립하며, 확인 문장은
+    영어다(질문 문단은 정본 한국어 — 프론트가 문단 단위 t()로 옮긴다). 종전엔 코스피 칩과
+    KOSPI 기본값으로 한국 전략을 조립했다."""
+    import ui_language
+    from intent import strategy_builder as sb
+
+    with ui_language.bind("en"):
+        first = sb.step(sb.BuilderState(), "")
+        assert first.suggestions == ["S&P500", "나스닥100", "나스닥", "다우30", "미국 전체", "미국 ETF"]
+        after = sb.step(first.state, "S&P500")
+        assert after.state.universe == "SP500"
+        assert after.reply.startswith("Great. I'll target S&P 500.")
+        parsed = sb.build_parsed_strategy(sb.BuilderState(strategy_type="golden_cross", ma_short=5, ma_long=20,
+                                                          holding_count=10, stop_loss_pct=10, risk_done=True))
+        assert parsed is not None and parsed.universe == ["SP500"]
+    # 한국어 레인은 그대로다.
+    ko_first = sb.step(sb.BuilderState(), "")
+    assert ko_first.suggestions[0] == "코스피"
+    ko_after = sb.step(ko_first.state, "코스피")
+    assert ko_after.reply.startswith("좋아요. 코스피 시장을 대상으로 하겠습니다.")

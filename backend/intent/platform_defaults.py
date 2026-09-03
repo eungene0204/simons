@@ -72,12 +72,31 @@ def is_default_question(text: str) -> bool:
     return bool(_mentioned_topics(t) or _GENERIC_DEFAULTS.search(t))
 
 
+def _is_en() -> bool:
+    import ui_language
+
+    return ui_language.get_ui_language() == "en"
+
+
 def _defaults() -> dict:
     # 지연 import — engine.simulator는 vectorbt를 끌고 오므로 모듈 로드 시점 비용을 피한다.
-    from engine.nl_parser import MAX_INITIAL_CAPITAL, MIN_INITIAL_CAPITAL, ParsedStrategy
+    from engine.nl_parser import (
+        MAX_INITIAL_CAPITAL, MIN_INITIAL_CAPITAL, ParsedStrategy,
+        USD_DEFAULT_INITIAL_CAPITAL, USD_MAX_INITIAL_CAPITAL, USD_MIN_INITIAL_CAPITAL,
+    )
     from engine.simulator import DEFAULT_SELL_TAX_RATE
 
     fields = ParsedStrategy.model_fields
+    if _is_en():
+        # /us(en)는 미국 시장 전용 서비스다 — 자본은 달러 체계(engine.nl_parser USD_*),
+        # 증권거래세는 미국 유니버스에서 0(backtest_engine이 sell_tax_rate=0으로 강제).
+        return {
+            "capital": USD_DEFAULT_INITIAL_CAPITAL, "min_capital": USD_MIN_INITIAL_CAPITAL,
+            "max_capital": USD_MAX_INITIAL_CAPITAL,
+            "fee_pct": fields["fee_rate"].default, "slippage_pct": fields["slippage_rate"].default,
+            "sell_tax_pct": 0.0,
+            "next_open": fields["execution_timing"].default == "next_open",
+        }
     return {
         "capital": fields["initial_capital"].default,          # 원
         "min_capital": MIN_INITIAL_CAPITAL,                    # 원
@@ -101,7 +120,36 @@ def _fmt_eok(value: float) -> str:
     return f"{value / 100_000_000:,.0f}억원"
 
 
+def _fmt_usd(value: float) -> str:
+    return f"${value:,.0f}"
+
+
+def _topic_lines_en(topics: list[str]) -> list[str]:
+    d = _defaults()
+    lines = {
+        "capital": (
+            f"The default initial capital is {_fmt_usd(d['capital'])}"
+            f" (minimum {_fmt_usd(d['min_capital'])} — smaller inputs are adjusted automatically,"
+            f" maximum {_fmt_usd(d['max_capital'])} — larger inputs are not applied)."
+        ),
+        "fee": f"The default trading fee is {_fmt_pct(d['fee_pct'])} on each buy and sell.",
+        "tax": "No securities transaction tax is applied to US market backtests (0%).",
+        "slippage": f"The default slippage is {_fmt_pct(d['slippage_pct'])}.",
+        "execution": (
+            "Orders are filled at the next day's open by default"
+            if d["next_open"]
+            else "Orders are filled at the same day's close by default"
+        ) + " (you can choose the same day's close or the next day's open).",
+    }
+    if "fee" in topics and "tax" not in topics:
+        topics = topics + ["tax"]
+    order = ["capital", "fee", "tax", "slippage", "execution"]
+    return [lines[key] for key in order if key in topics]
+
+
 def _topic_lines(topics: list[str]) -> list[str]:
+    if _is_en():
+        return _topic_lines_en(topics)
     d = _defaults()
     lines = {
         "capital": (
@@ -136,6 +184,11 @@ def reply(text: str) -> Optional[str]:
         return None
     topics = _mentioned_topics(text or "") or list(_SETTING_TERMS)
     body = "\n".join(f"- {line}" for line in _topic_lines(topics))
+    if _is_en():
+        return (
+            f"{body}\nYou can change these on request"
+            " (e.g. \"set slippage to 0.1%\"); a changed value is then applied."
+        )
     return (
         f"{body}\n이 값들은 요청하시면 변경할 수 있으며"
         "(예: \"슬리피지를 0.1%로 바꿔줘\"), 변경하셨다면 변경한 값이 적용됩니다."
@@ -152,6 +205,13 @@ def facts_block(text: str) -> Optional[str]:
     if not topics:
         return None
     lines = "\n".join(f"- {line}" for line in _topic_lines(topics))
+    if _is_en():
+        return (
+            "[This platform's actual default settings — when mentioning settings or defaults, "
+            "use only the values below. There is no 'settings panel'; if explaining how to change "
+            "a value, say it can be requested in chat (e.g. \"set slippage to 0.1%\")]\n"
+            + lines
+        )
     return (
         "[이 플랫폼의 실제 기본 설정값 — 설정값·기본값을 언급할 때는 반드시 아래 값만 사용하라. "
         "'설정 패널' 같은 화면 요소는 존재하지 않으니 언급하지 말고, 변경 방법을 안내한다면 "
