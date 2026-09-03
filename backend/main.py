@@ -3468,12 +3468,17 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     unsupported_exclude |= concepts_covered_by_pending(pending_conditions)
     if sector_reask_q or theme_notice or not scan_prompt_for_sector:
         unsupported_exclude.add("sector")
-    # 원문 정규식 미지원 안내도 레거시 레인 전용 — primary(LLM 해석)는 인터프리터의
-    # unsupported_features 보고 채널(primary.py 잔여 미지원 안내)이 같은 역할을 하며, 원문
-    # 스캔이 겹치면 영어 문장의 'ATR'에 한국어 라벨 안내가 /us로 나간다(2026-09-03).
-    unsupported_notice = build_unsupported_concept_notice(
-        request.prompt, exclude=unsupported_exclude or None,
-    ) if scan_prompt_for_sector else None
+    # 원문 정규식 미지원 안내는 **한국어 레인 전용**이다(2026-09-03). 이 함수의 어휘는 한국어
+    # 정본이라 영어 문장에는 성립하지 않는데, 'ATR' 같은 영문 약어만 걸려 /us에 한국어 라벨
+    # 안내가 나갔다. 그렇다고 레인(primary/legacy)으로 끄면 한국어 근사 반영 알림까지 사라진다
+    # — 실측: "최근 거래대금이 증가"(금액 없음 → volume_spike 근사)에 붙던 안내가 없어져
+    # 사용자가 근사를 모르게 됐다(전수 게이트 미탐지로 드러남). 판정 입력은 요청 컨텍스트의
+    # UI 언어뿐이고 원문을 읽지 않는다.
+    unsupported_notice = None
+    if ui_language.get_ui_language() != "en":
+        unsupported_notice = build_unsupported_concept_notice(
+            request.prompt, exclude=unsupported_exclude or None,
+        )
     if unsupported_notice:
         notices.append(unsupported_notice)
     convert_started = time.perf_counter()
