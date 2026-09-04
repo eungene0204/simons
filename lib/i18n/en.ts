@@ -77,6 +77,7 @@ export const en: Record<string, string> = {
   "평균 손실 거래": "Average losing trade",
   "평균 수익 거래": "Average winning trade",
   // ── app/analytics/new/builderProgressPresentation.ts
+  "리밸런싱 시 편출 종목 매도": "Sold when dropped at rebalancing",
   "{0} 조건": "{0} conditions",
   "{0}(값 미정)": "{0} (value pending)",
   "{0}일 보유": "{0}-day hold",

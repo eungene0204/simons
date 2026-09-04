@@ -348,7 +348,7 @@ export function buildBuilderTurnPresentation({
       (parsed ? getDisplayUniverseLabels(parsed, backtestRequest).join(" · ") : null)
     : null;
   const entryLabels = buildEntryLabels(state, parsed);
-  // '매도 조건'은 지표 청산 신호와 보유 기간(기간 기반 청산)을 싣는다 — 손절·익절·
+  // '매도 조건'은 지표 청산 신호·보유 기간(기간 기반 청산)·정기 리밸런싱(편출)을 싣는다 — 손절·익절·
   // 트레일링은 아래 '리스크 관리' 항목이 같은 값을 그대로 보여주므로 함께 넣지 않는다
   // (2026-08-02 지시 — 한 카드에서 같은 설정이 두 번 읽히지 않게).
   // 보유 기간은 매도 슬롯의 값이다(정본 engine/strategy_slots.py: exit = 청산 신호 OR
@@ -357,16 +357,7 @@ export function buildBuilderTurnPresentation({
   // 매도 조건이 체크됐다"로 읽힌다(2026-09-04 사고 — KR·/us 공통). 파싱 요약 카드
   // (lib/strategy-summary.ts getDisplayExitLabels)와 같은 행·같은 문구를 쓴다.
   const holdPeriod = state.hold_period_days ?? parsed?.hold_period_days;
-  const exitLabels = [
-    ...getSignalExitLabels(parsed),
-    ...(hasValue(holdPeriod) ? [t("최대 {0}일 보유 후 매도", holdPeriod)] : []),
-  ];
-  const riskLabel = buildRiskLabel(state, parsed, declinedFields);
   const specifiedSymbolCount = parsed?.target_symbols?.length ?? 0;
-  const holdingCountFromState = hasValue(state.holding_count);
-  const holdingCount = holdingCountFromState ? state.holding_count : parsed?.max_positions;
-  const holdingCountExplicit =
-    holdingCountFromState || isExplicit("max_positions", explicitFields);
   const rebalanceFromState = hasValue(state.rebalance_cycle);
   const rebalanceCycle = rebalanceFromState
     ? state.rebalance_cycle
@@ -378,6 +369,23 @@ export function buildBuilderTurnPresentation({
     specifiedSymbolCount === 1 ||
     rebalanceFromState ||
     isExplicit("rebalancing", explicitFields);
+  // 정기 리밸런싱도 매도 슬롯의 세 번째 값이다(같은 정본 — 편출 종목을 리밸런싱일에 판다).
+  // 보유 기간과 같은 이유로 매도 조건 행에 싣는다: 진행률 '매도 조건'은 리밸런싱만으로
+  // 체크되는데 카드에 매도 행이 없으면 "말하지 않은 매도가 체크됐다"로 읽힌다
+  // (2026-09-04 /us "S&P 500 상위 10, 분기 리밸런싱" 스크린샷). 표시 게이트는 아래
+  // '리밸런싱' 행과 같다 — 카드가 보여주지 않는 리밸런싱을 매도 근거로 먼저 말하지 않는다.
+  const rebalanceShown =
+    Boolean(rebalanceCycle) && String(rebalanceCycle) !== "none" && rebalanceExplicit;
+  const exitLabels = [
+    ...getSignalExitLabels(parsed),
+    ...(hasValue(holdPeriod) ? [t("최대 {0}일 보유 후 매도", holdPeriod)] : []),
+    ...(rebalanceShown ? [t("리밸런싱 시 편출 종목 매도")] : []),
+  ];
+  const riskLabel = buildRiskLabel(state, parsed, declinedFields);
+  const holdingCountFromState = hasValue(state.holding_count);
+  const holdingCount = holdingCountFromState ? state.holding_count : parsed?.max_positions;
+  const holdingCountExplicit =
+    holdingCountFromState || isExplicit("max_positions", explicitFields);
   const backtestPeriod = state.backtest_period ?? state.period ?? parsed?.backtest_period;
   // 슬롯 판정은 게이트와 **같은 술어**(isSlotFilled)에 맡기고, 빌더 state로만 알 수 있는
   // 추가 근거(사용자가 되묻기에 직접 답한 값)를 OR로 얹는다. 판정을 여기 다시 적으면

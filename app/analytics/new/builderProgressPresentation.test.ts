@@ -409,6 +409,36 @@ describe("매도 조건 — 리스크 관리와 값을 중복하지 않는다 (2
     ).toBe(true);
   });
 
+  it("리밸런싱만 말한 전략은 매도 조건 행에 편출 매도를 보여주고 체크와 맞춘다 (2026-09-04)", () => {
+    // [회귀] /us "S&P 500 상위 10종목, 분기 리밸런싱, 손절 -10%": 매도 슬롯은 정기
+    // 리밸런싱으로 채워져 진행률 '매도 조건'이 체크되는데(정본 exit = 청산 신호 OR 보유
+    // 기간 OR 정기 리밸런싱), 카드는 리밸런싱을 '리밸런싱' 행에만 적어 매도 조건 행이
+    // 없었다 — 보유 기간 건(위 테스트)과 같은 어긋남의 세 번째 갈래.
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "",
+      parsed: { ...themeParsed, target_symbols: [], universe: ["SP500"], exit_signals: [], stop_loss_pct: 10, rebalancing_period: "quarterly" },
+      explicitFields: ["universe", "rebalancing"],
+    });
+    const exit = presentation.summaryItems.find((i) => i.label === "매도 조건");
+    expect(exit?.value).toBe("리밸런싱 시 편출 종목 매도");
+    expect(presentation.summaryItems.find((i) => i.label === "리밸런싱")?.value).toBe("분기");
+    expect(
+      presentation.progressItems.find((i) => i.label === "매도 조건")?.complete,
+    ).toBe(true);
+  });
+
+  it("리밸런싱이 명시되지 않아 '리밸런싱' 행이 없으면 매도 조건 행도 편출을 먼저 말하지 않는다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "",
+      parsed: { ...themeParsed, target_symbols: [], universe: ["SP500"], exit_signals: [], rebalancing_period: "quarterly" },
+      explicitFields: ["universe"],
+    });
+    expect(presentation.summaryItems.find((i) => i.label === "리밸런싱")).toBeUndefined();
+    expect(presentation.summaryItems.find((i) => i.label === "매도 조건")).toBeUndefined();
+  });
+
   it("지표 청산도 보유 기간도 없으면 매도 조건 항목 자체를 만들지 않는다", () => {
     const presentation = buildBuilderTurnPresentation({
       state: { stop_loss_pct: 8 },
