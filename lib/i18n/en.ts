@@ -77,6 +77,7 @@ export const en: Record<string, string> = {
   "평균 손실 거래": "Average losing trade",
   "평균 수익 거래": "Average winning trade",
   // ── app/analytics/new/builderProgressPresentation.ts
+  "리밸런싱 시 편출 종목 매도": "Sold when dropped at rebalancing",
   "{0} 조건": "{0} conditions",
   "{0}(값 미정)": "{0} (value pending)",
   "{0}일 보유": "{0}-day hold",
@@ -406,6 +407,12 @@ export const en: Record<string, string> = {
   "생각 중...": "Thinking...",
   "서버에 연결할 수 없습니다": "Cannot connect to the server",
   "선택 예시": "Suggestions",
+  // 선택 칩 묶음(app/analytics/new/choiceOptionGroups.ts)
+  "매수 시점 신호": "Entry timing signals",
+  "순위로 담기": "Rank and hold",
+  "종목 필터": "Stock filters",
+  "원하는 매수 조건을 직접 적어 주세요": "Describe the buy condition you want",
+  "종목 필터와 매수 시점 신호는 함께 쓸 수 있어요. 함께 쓰려면 위 입력창에 한 번에 적어 주세요.": "Stock filters and entry timing signals can be combined. To combine them, describe both together in the box above.",
   "선택 완료": "Done selecting",
   "설정 분석 중...": "Analyzing settings...",
   "성과 지표 계산 중...": "Calculating performance metrics...",

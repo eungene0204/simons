@@ -197,7 +197,7 @@ Whenever a task is completed, update the work details in the relevant documentat
 The Python backtesting service is isolated in `backend/`. Use `backend/main.py` as the FastAPI entry point, `backend/engine/` and `backend/ai/` for backend logic, and `backend/tests/` for pytest coverage. Frontend tests live in `tests/` and `components/__tests__/`. Data files and scripts live in `data/` and `scripts/`.
 
 ## Build, Test, and Development Commands
-Install JS dependencies with `npm install` and Python backend dependencies with `pip install -r backend/requirements.txt`.
+Install JS dependencies with `npm install` and Python dependencies with `uv sync` (reproduces `uv.lock` into `.venv`; uv also provisions Python 3.11). Run Python tools through `uv run` — e.g. `uv run pytest`.
 
 - `npm run dev`: start the Next.js app on port 3000.
 - `npm run dev:backend`: start the FastAPI backend on port 8000 with reload limited to `backend/`.

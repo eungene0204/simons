@@ -46,15 +46,20 @@ services:
       retries: 10
 
   celery-worker:
-    image: python:3.11-slim
+    # uv 이미지 — 의존성은 레포 루트의 uv.lock에서 그대로 재현한다(구 런타임 pip install).
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
     container_name: simons-news-worker
     restart: unless-stopped
     working_dir: /app
     volumes:
       - ./backend:/app
       - ./prisma:/app/_prisma:ro
+      - ./pyproject.toml:/project/pyproject.toml:ro
+      - ./uv.lock:/project/uv.lock:ro
+      - ./.python-version:/project/.python-version:ro
     environment:
       PYTHONPATH: /app
+      UV_PROJECT_ENVIRONMENT: /opt/venv     # /app은 backend 소스 마운트다 — venv를 그 밖에 둔다
       NEWSV2_ENABLED: "true"
       NEWSV2_REDIS_URL: redis://redis:6379/1
       NEWSV2_CELERY_BROKER: redis://redis:6379/2
@@ -65,20 +70,24 @@ services:
       postgres:
         condition: service_healthy
     command: >
-      sh -c "pip install --no-cache-dir -r requirements.txt -r requirements-news-v2.txt &&
-             celery -A news_v2.celery_app.celery_app worker
+      sh -c "uv sync --project /project --frozen --no-default-groups &&
+             /opt/venv/bin/celery -A news_v2.celery_app.celery_app worker
              -Q news.collect.high,news.collect.default,news.analyze,news.maintenance
              --concurrency=4 --loglevel=INFO"
 
   celery-scheduler:
-    image: python:3.11-slim
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
     container_name: simons-news-scheduler
     restart: unless-stopped
     working_dir: /app
     volumes:
       - ./backend:/app
+      - ./pyproject.toml:/project/pyproject.toml:ro
+      - ./uv.lock:/project/uv.lock:ro
+      - ./.python-version:/project/.python-version:ro
     environment:
       PYTHONPATH: /app
+      UV_PROJECT_ENVIRONMENT: /opt/venv
       NEWSV2_ENABLED: "true"
       NEWSV2_REDIS_URL: redis://redis:6379/1
       NEWSV2_CELERY_BROKER: redis://redis:6379/2
@@ -89,8 +98,8 @@ services:
       postgres:
         condition: service_healthy
     command: >
-      sh -c "pip install --no-cache-dir -r requirements.txt -r requirements-news-v2.txt &&
-             python -m news_v2.scheduler"
+      sh -c "uv sync --project /project --frozen --no-default-groups &&
+             /opt/venv/bin/python -m news_v2.scheduler"
 
 volumes:
   simons-news-pgdata:

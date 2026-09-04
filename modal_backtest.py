@@ -8,9 +8,10 @@ LLM은 modal_ollama.py(GPU)가, **백테스트 실행은 이 워커(CPU)**가 �
 계약 (결과 동일성)
 ─────────────────
 백테스트는 "실행 장소가 바뀌어도 답이 바뀌지 않는다"가 계약이다. 이를 위해:
-  - 파이썬·수치 라이브러리 버전을 prod 백엔드와 **정확히 같은 값으로 핀**한다
-    (아래 PINNED_DEPS — 2026-08-31 prod 컨테이너 실측 버전. 올릴 때는 반드시
-    backend/requirements.txt·prod와 같은 커밋에서 함께 올린다).
+  - 파이썬·수치 라이브러리 버전을 prod 백엔드와 **정확히 같은 값으로 핀**한다.
+    2026-09-04부터 이 핀은 손으로 적지 않는다 — requirements-modal.txt가 앱 박스와
+    같은 uv.lock에서 파생되므로 전이 의존(scipy·numba…)까지 자동으로 같은 값이다.
+    (구조: pyproject.toml의 `modal` 그룹이 "무엇을", uv.lock이 "어떤 버전으로"를 정한다)
   - x86_64 리눅스로 prod와 같은 아키텍처다(로컬 ARM Mac과의 ULP 차이는
     project 이력상 이미 알려진 노이즈 — x86끼리는 동일해야 한다).
   - 전환 전 scripts/qa_backtest_modal_equivalence.py 로 prod↔Modal 전수 대조.
@@ -54,34 +55,19 @@ WFA_MEMORY_MB = 24576                     # 창 워커마다 엔진·prep 캐시
 #    창 병렬·창당 풀 크기를 반드시 명시 고정한다 (아래 _pin_wfa_env).
 WFA_ENV = {"WALK_FORWARD_WORKERS": "4", "BACKTEST_PHASE1_WORKERS": "3"}
 
-# prod 백엔드 컨테이너 실측 버전(2026-08-31)과 동일 핀 — 결과 동일성의 전제.
-PINNED_DEPS = [
-    "fastapi==0.135.3",
-    "pydantic==2.12.5",
-    "numpy==2.4.4",
-    "pandas==2.3.3",
-    "polars==1.39.3",
-    "scipy==1.17.1",
-    "numba==0.67.0",
-    "vectorbt==1.0.0",
-    "plotly==6.8.0",       # vectorbt 전이 의존 핀(7.x는 vectorbt import 파손)
-    "pyarrow==23.0.1",
-    "stockstats==0.6.8",
-    "pykrx==1.2.8",
-    "requests==2.33.1",
-    "beautifulsoup4==4.14.3",
-    "python-dotenv",
-    "httpx==0.28.1",
-    "joblib==1.5.3",
-    "xgboost==3.2.0",
-    "optuna==4.9.0",       # run_optimize·워크포워드 bayesian — 누락 시 500(게이트 실사고)
-]
+# 워커 이미지가 설치하는 엔진 의존성 — 앱 박스와 같은 uv.lock에서 내보낸 파생물이다.
+# 무엇이 들어갈지는 pyproject.toml의 [dependency-groups] modal 이 정하고, 어떤 버전으로
+# 들어갈지는 uv.lock이 정한다. 둘 중 하나를 고치면 반드시 재생성하고 함께 커밋한다:
+#     bash scripts/export_modal_requirements.sh
+# (잊으면 backend/tests/test_modal_requirements_export.py 가 실패한다)
+PINNED_REQUIREMENTS = "requirements-modal.txt"
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install(*PINNED_DEPS)
+    .uv_pip_install(requirements=[PINNED_REQUIREMENTS])
     # torch는 CPU 휠로(기본 PyPI 휠은 CUDA 동봉 ~2.5GB) — ai_model/ai_drop_model 지표용.
-    .pip_install("torch==2.12.0", index_url="https://download.pytorch.org/whl/cpu")
+    # 잠금의 리눅스 해석(2.12.0+cpu)과 같은 휠이다.
+    .uv_pip_install("torch==2.12.0", index_url="https://download.pytorch.org/whl/cpu")
     .env(
         {
             # 데드락 가드 — prod compose와 동일(없으면 polars/OMP 스레드 경합으로 행).

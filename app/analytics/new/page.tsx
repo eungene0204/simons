@@ -124,6 +124,7 @@ import {
   shouldContinueWithSingleAssetBuilder,
 } from "./clarificationPresentation";
 import { choiceOptionHelp, helpBubbleWidth, placeHelpBubble } from "./choiceOptionHelp";
+import { groupChoiceOptions } from "./choiceOptionGroups";
 import { normalizeCoachMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
 import { runButtonPlacement } from "./runButtonPlacement";
@@ -227,7 +228,8 @@ interface ChatMessage {
   builderCanGoBack?: boolean;
   // 조건 옵션 버블에서 '돌아가기'로 되돌아갈 이전 단계 상태(유니버스 질문 제외 전 단계에 설정).
   previousStepState?: {
-    parsed: ParsedSummary;
+    // null = 최초 파싱 전(되돌아갈 전략이 없다) — 대화를 비우고 원문을 입력창에 되돌린다.
+    parsed: ParsedSummary | null;
     allowNoRebalancing: boolean;
     // 답을 되돌리면 그 필드의 '사용자가 말했다'(provenance)도 함께 되돌려야 한다 —
     // 남겨두면 게이트가 되돌아온 질문을 이미 답한 것으로 보고 건너뛴다.
@@ -235,6 +237,17 @@ interface ChatMessage {
     // 같은 이유로 거부('안 함')도 되돌린다 — 남겨두면 '안 함'을 취소하려고 돌아와도
     // 그 슬롯이 계속 답한 것으로 보인다.
     declinedFields?: string[];
+    // 파스 턴(자유 서술 답·최초 파싱)의 되돌리기 — 칩 턴과 달리 파스는 아래 상태도 바꾸므로
+    // 함께 되돌린다(남기면 변경 이력에 지운 턴이 남고, 다음 파스 요청이 지운 턴의 상태를 에코한다).
+    parseTurn?: {
+      userText: string;
+      backtestReq: any;
+      changeLog: ChangeLogEntry[];
+      fieldStates: Record<string, SlotState> | null;
+      fieldMetadata: Record<string, unknown> | null;
+      artifacts: Record<string, unknown> | null;
+      pendingAsk: any;
+    };
   };
   // 전략 요약을 막지 않는 보정 안내(예: 초기자금 하한선 보정). 요약 카드와 함께 표시된다.
   notices?: string[];
@@ -797,96 +810,168 @@ function tParagraphs(content: string): string {
   return content.split("\n\n").map((paragraph) => t(paragraph)).join("\n\n");
 }
 
-function ChoiceOptionList({
-  options,
-  onSelect,
-  onFreeSubmit,
-  trailing,
+/** 칩 목록 안에서 여는 한 줄 자유 입력창. 평평한 목록에선 '직접 입력' 칩 자리에 열리고,
+ *  묶인 목록(choiceOptionGroups)에선 칩 위에 처음부터 열려 있다(자유 서술이 주 채널이고
+ *  칩은 그 예시다 — 열 번째 칩으로 목록 끝에 묻히지 않게 한다). */
+function ChoiceFreeInput({
+  placeholder,
+  autoFocus,
+  onSubmit,
 }: {
-  options: string[];
-  onSelect: (option: string) => void;
-  onFreeSubmit: (text: string) => void;
-  trailing?: ReactNode;
+  placeholder: string;
+  autoFocus: boolean;
+  onSubmit: (text: string) => void;
 }) {
-  const [freeInputOpen, setFreeInputOpen] = useState(false);
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (freeInputOpen) inputRef.current?.focus();
-  }, [freeInputOpen]);
+    if (autoFocus) inputRef.current?.focus();
+  }, [autoFocus]);
 
   const trySubmit = () => {
     const text = value.trim();
     if (!text) return;
     setValue("");
-    onFreeSubmit(text);
+    onSubmit(text);
   };
 
   return (
-    <div className="chat-choice-rise flex w-fit min-w-[15rem] max-w-full flex-col gap-1.5">
-      {options.map((option, index) => {
-        if (option === FREE_INPUT_CHIP && freeInputOpen) {
-          return (
-            <div key={option} className="relative w-full">
-              <input
-                ref={inputRef}
-                type="text"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-                    e.preventDefault();
-                    trySubmit();
-                  }
-                }}
-                placeholder={t("원하는 내용을 입력해 주세요")}
-                className="w-full rounded-lg border border-[var(--chat-accent-line)] bg-transparent py-2 pl-3 pr-10 text-[12px] font-bold text-white outline-none placeholder:text-[var(--text-placeholder)] focus:outline-none focus:ring-0"
-              />
-              <button
-                type="button"
-                onClick={trySubmit}
-                disabled={!value.trim()}
-                aria-label={t("전송")}
-                title={t("전송")}
-                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-[#f3f1ec] text-[#2b2b2b] transition-colors duration-200 hover:bg-white active:scale-[0.96] disabled:cursor-not-allowed disabled:bg-[#595959] disabled:text-[#bdbdbd] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
-              >
-                <ArrowUp size={13} weight="bold" />
-              </button>
-            </div>
-          );
-        }
-        // 설명은 정본에 있는 칩에만 붙는다 — 없으면 아이콘도 그리지 않는다(테마·종목명
-        // 처럼 그때그때 만들어지는 칩에 억지 설명을 붙이지 않는다).
-        const help = choiceOptionHelp(option);
-        return (
-          <div key={option} className="relative w-full">
-            <button
-              type="button"
-              onClick={() =>
-                option === FREE_INPUT_CHIP ? setFreeInputOpen(true) : onSelect(option)
-              }
-              className={`${CHOICE_CHIP_CLASS} w-full ${help ? "pr-8" : ""}`}
+    <div className="relative w-full">
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            trySubmit();
+          }
+        }}
+        placeholder={placeholder}
+        className="w-full rounded-lg border border-[var(--chat-accent-line)] bg-transparent py-2 pl-3 pr-10 text-[12px] font-bold text-white outline-none placeholder:text-[var(--text-placeholder)] focus:outline-none focus:ring-0"
+      />
+      <button
+        type="button"
+        onClick={trySubmit}
+        disabled={!value.trim()}
+        aria-label={t("전송")}
+        title={t("전송")}
+        className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-[#f3f1ec] text-[#2b2b2b] transition-colors duration-200 hover:bg-white active:scale-[0.96] disabled:cursor-not-allowed disabled:bg-[#595959] disabled:text-[#bdbdbd] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
+      >
+        <ArrowUp size={13} weight="bold" />
+      </button>
+    </div>
+  );
+}
+
+const CHOICE_CAPTION_CLASS = "text-[11px] font-black text-[var(--text-label)]";
+
+function ChoiceOptionList({
+  options,
+  caption,
+  onSelect,
+  onFreeSubmit,
+  trailing,
+}: {
+  options: string[];
+  /** 목록 머리말("선택 예시"·"전략 확인"). 묶인 목록에선 입력창 **다음**에 온다. */
+  caption?: string;
+  onSelect: (option: string) => void;
+  onFreeSubmit: (text: string) => void;
+  trailing?: ReactNode;
+}) {
+  const [freeInputOpen, setFreeInputOpen] = useState(false);
+
+  const captionNode = caption ? <p className={CHOICE_CAPTION_CLASS}>{t(caption)}</p> : null;
+
+  const renderChip = (option: string, number: number) => {
+    // 설명은 정본에 있는 칩에만 붙는다 — 없으면 아이콘도 그리지 않는다(테마·종목명
+    // 처럼 그때그때 만들어지는 칩에 억지 설명을 붙이지 않는다).
+    const help = choiceOptionHelp(option);
+    return (
+      <div key={option} className="relative w-full">
+        <button
+          type="button"
+          onClick={() =>
+            option === FREE_INPUT_CHIP ? setFreeInputOpen(true) : onSelect(option)
+          }
+          className={`${CHOICE_CHIP_CLASS} w-full ${help ? "pr-8" : ""}`}
+        >
+          {/* 순번은 장식이라 접근성 이름에서 뺀다 — 넣으면 칩 이름이 "1 익절 10%"가 되어
+              칩 문자열(백엔드 답변 프로토콜)로 칩을 찾는 경로가 어긋난다.
+              확정 칩은 선택지가 아니라 단일 실행 동작이라 번호를 매기지 않는다(2026-08-06 지시). */}
+          {option !== CONFIRM_STRATEGY_CHIP && (
+            <span
+              aria-hidden="true"
+              className="mr-2 tabular-nums text-[var(--text-label)]"
             >
-              {/* 순번은 장식이라 접근성 이름에서 뺀다 — 넣으면 칩 이름이 "1 익절 10%"가 되어
-                  칩 문자열(백엔드 답변 프로토콜)로 칩을 찾는 경로가 어긋난다.
-                  확정 칩은 선택지가 아니라 단일 실행 동작이라 번호를 매기지 않는다(2026-08-06 지시). */}
-              {option !== CONFIRM_STRATEGY_CHIP && (
-                <span
-                  aria-hidden="true"
-                  className="mr-2 tabular-nums text-[var(--text-label)]"
-                >
-                  {index + 1}
-                </span>
-              )}
-              {t(option)}
-            </button>
-            {/* 설명 아이콘은 칩 **밖**의 형제 버튼이다 — 칩 안에 중첩하면 버튼 안 버튼이 되고,
-                아이콘을 눌렀을 때 선택지가 함께 골라진다. */}
-            {help && <ChoiceOptionHelpBubble option={option} help={help} />}
-          </div>
-        );
-      })}
+              {number}
+            </span>
+          )}
+          {t(option)}
+        </button>
+        {/* 설명 아이콘은 칩 **밖**의 형제 버튼이다 — 칩 안에 중첩하면 버튼 안 버튼이 되고,
+            아이콘을 눌렀을 때 선택지가 함께 골라진다. */}
+        {help && <ChoiceOptionHelpBubble option={option} help={help} />}
+      </div>
+    );
+  };
+
+  const grouped = groupChoiceOptions(options, FREE_INPUT_CHIP);
+  if (grouped) {
+    // 순번은 묶음을 가로질러 이어진다 — 묶음은 표시일 뿐, 목록은 여전히 하나다.
+    let number = 0;
+    const numbered = grouped.groups.map((group) => ({
+      title: group.title,
+      chips: group.options.map((option) => ({ option, number: ++number })),
+    }));
+    const renderGroup = (group: (typeof numbered)[number]) => (
+      <div key={group.title || "rest"} className="flex flex-col gap-1.5">
+        {group.title && <p className={CHOICE_CAPTION_CLASS}>{t(group.title)}</p>}
+        {group.chips.map(({ option, number }) => renderChip(option, number))}
+      </div>
+    );
+    const [first, ...others] = numbered;
+    return (
+      <div className="chat-choice-rise flex w-fit max-w-full flex-col gap-2">
+        {options.includes(FREE_INPUT_CHIP) && (
+          <ChoiceFreeInput
+            placeholder={t(grouped.placeholder)}
+            autoFocus={false}
+            onSubmit={onFreeSubmit}
+          />
+        )}
+        {captionNode}
+        {/* 첫 묶음이 가장 길다 — 넓은 화면에선 나머지 묶음을 오른쪽 열에 세워 세로 길이를 줄인다. */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
+          <div className="min-w-[15rem]">{renderGroup(first)}</div>
+          {others.length > 0 && (
+            <div className="flex min-w-[15rem] flex-col gap-3">{others.map(renderGroup)}</div>
+          )}
+        </div>
+        <p className="text-[11px] leading-relaxed text-[var(--text-label)]">{t(grouped.note)}</p>
+        {trailing}
+      </div>
+    );
+  }
+
+  return (
+    <div className="chat-choice-rise flex w-fit min-w-[15rem] max-w-full flex-col gap-1.5">
+      {captionNode}
+      {options.map((option, index) =>
+        option === FREE_INPUT_CHIP && freeInputOpen ? (
+          <ChoiceFreeInput
+            key={option}
+            placeholder={t("원하는 내용을 입력해 주세요")}
+            autoFocus
+            onSubmit={onFreeSubmit}
+          />
+        ) : (
+          renderChip(option, index + 1)
+        ),
+      )}
       {trailing}
     </div>
   );
@@ -1218,7 +1303,7 @@ function backtestPeriodLabel(parsed: ParsedSummary): string {
         ? `${startYear}~`
         : `~${endYear}`;
   }
-  return PERIOD_LABELS[parsed.backtest_period];
+  return t(PERIOD_LABELS[parsed.backtest_period]);
 }
 
 // 글자별 진입 연출. 순서는 CSS animation-delay 캐스케이드가 만든다 —
@@ -1263,6 +1348,7 @@ function AnimatedHeadline({ lines }: { lines: string[] }) {
 type ChatInputHandle = {
   focus: () => void;
   clear: () => void;
+  set: (text: string) => void;
 };
 
 type ChatInputBoxProps = {
@@ -1291,6 +1377,7 @@ const ChatInputBox = memo(
       () => ({
         focus: () => textareaRef.current?.focus(),
         clear: () => setValue(""),
+        set: (text: string) => setValue(text),
       }),
       [],
     );
@@ -1603,7 +1690,7 @@ function ParsedSummaryBubble({
         )}
         {entryLabels.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{FUNDAMENTAL_FILTER_SECTION_LABEL}</span>
+            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{t(FUNDAMENTAL_FILTER_SECTION_LABEL)}</span>
             <div className="flex flex-wrap gap-1">
               {entryLabels.map((label, i) => (
                 <FilterBadge key={i} label={label} />
@@ -1626,7 +1713,7 @@ function ParsedSummaryBubble({
           <div className="flex flex-wrap gap-1">
             <FilterBadge label={getPositionLabel(parsed)} />
             {parsed.hold_period_days && <FilterBadge label={t("{0}일 보유", parsed.hold_period_days)} />}
-            {parsed.rebalancing_period !== "none" && <FilterBadge label={t("{0} 리밸런싱", REBAL_LABELS[parsed.rebalancing_period])} />}
+            {parsed.rebalancing_period !== "none" && <FilterBadge label={t("{0} 리밸런싱", t(REBAL_LABELS[parsed.rebalancing_period]))} />}
             {parsed.rebalancing_period !== "none" && parsed.rebalance_method && (
               <FilterBadge label={t(REBAL_METHOD_LABELS[parsed.rebalance_method] ?? parsed.rebalance_method)} />
             )}
@@ -1817,6 +1904,8 @@ function StrategyLabContent() {
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<{ status: string; error: string | null } | null>(null);
   const chatInputRef = useRef<ChatInputHandle>(null);
+  // '돌아가기'로 최초 파싱 전까지 되돌릴 때 입력창에 되돌려 줄 원문(아래 useEffect가 소비).
+  const restoredDraftRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const resultScrollRef = useRef<HTMLDivElement>(null);
   // 대화를 복원하거나 결과 화면에서 돌아온 직후 대화 끝까지 스크롤을 올린다.
@@ -3179,6 +3268,23 @@ function StrategyLabContent() {
     currentBacktestReq: any,
     strategyAssumptions: StrategyAssumptions = {},
   ) => {
+    // 이 턴이 되묻기로 끝나면 카드의 '돌아가기'가 되돌릴 상태 — 파스가 바꾸기 **전**에 남긴다.
+    // 칩 턴(handleSuggestionClick의 previousStepState)과 같은 자리·같은 버튼이다.
+    const stepStateBeforeParse: NonNullable<ChatMessage["previousStepState"]> = {
+      parsed: currentParsed,
+      allowNoRebalancing: explicitNoRebalancingRef.current,
+      explicitFields: [...explicitFieldsRef.current],
+      declinedFields: [...declinedFieldsRef.current],
+      parseTurn: {
+        userText: promptText,
+        backtestReq: currentBacktestReq,
+        changeLog: changeLogRef.current,
+        fieldStates: fieldStatesRef.current,
+        fieldMetadata: fieldMetadataRef.current,
+        artifacts: artifactsRef.current,
+        pendingAsk: pendingAskRef.current,
+      },
+    };
     // NL 파서 규칙 파싱 단계 — 'parsing...' 표시. LLM 폴백 시 'thinking...'으로 전환된다.
     updateLastAssistant({ isLoading: true, loadingStage: "parsing" });
     const res = await fetch("/api/strategy/parse/stream", {
@@ -3435,6 +3541,7 @@ function StrategyLabContent() {
             }
           : undefined,
         notices: parsedPayload.notices?.length ? parsedPayload.notices : undefined,
+        previousStepState: clarificationText ? stepStateBeforeParse : undefined,
       };
       rememberOpenClarification(summaryPatch);
       applySummaryPatch(summaryPatch);
@@ -3556,30 +3663,58 @@ function StrategyLabContent() {
     }
   };
 
+  // 최초 파싱 전으로 되돌린 원문은 **새로 마운트되는** 입력창에 넣는다 — 대화가 비면 고정
+  // 입력창이 내려가고 인라인 입력창이 새로 서므로, 지우는 순간의 ref는 사라질 인스턴스다.
+  useEffect(() => {
+    if (restoredDraftRef.current === null || messages.length > 0) return;
+    chatInputRef.current?.set(restoredDraftRef.current);
+    restoredDraftRef.current = null;
+  }, [messages.length]);
+
   const returnToPreviousCondition = (message: ChatMessage) => {
     if (isSending) return;
     const previous = message.previousStepState;
     if (!previous) return;
 
     setBuilderFreeTextRequested(false);
+    // 최초 파싱 전으로 — 되돌아갈 전략이 없으므로 대화를 비우고 원문을 입력창에 되돌려
+    // 고쳐 보낼 수 있게 한다.
+    if (!previous.parsed) {
+      restoredDraftRef.current = previous.parseTurn?.userText ?? "";
+      clearConversationState();
+      return;
+    }
     latestParsedRef.current = previous.parsed;
     setLatestParsed(previous.parsed);
     explicitNoRebalancingRef.current = previous.allowNoRebalancing;
     setExplicitNoRebalancing(previous.allowNoRebalancing);
     explicitFieldsRef.current = [...previous.explicitFields];
     declinedFieldsRef.current = [...(previous.declinedFields ?? [])];
-    setMessages((previousMessages) => {
-      const currentIndex = previousMessages.length - 1;
-      const selectedConditionIndex = previousMessages
-        .slice(0, currentIndex)
-        .map((m, index) => (m.role === "user" ? index : -1))
-        .filter((index) => index >= 0)
-        .at(-1);
-
-      return previousMessages.filter(
-        (_, index) => index !== currentIndex && index !== selectedConditionIndex,
-      );
-    });
+    if (previous.parseTurn) {
+      const { backtestReq: previousBacktestReq } = previous.parseTurn;
+      backtestReqRef.current = previousBacktestReq;
+      setBacktestReq(previousBacktestReq);
+      setCurrentOptions(previousBacktestReq ? backtestConfigOptions(previousBacktestReq) : null);
+      changeLogRef.current = previous.parseTurn.changeLog;
+      fieldStatesRef.current = previous.parseTurn.fieldStates;
+      fieldMetadataRef.current = previous.parseTurn.fieldMetadata;
+      artifactsRef.current = previous.parseTurn.artifacts;
+      pendingAskRef.current = previous.parseTurn.pendingAsk;
+    }
+    // 이 카드의 답(직전 사용자 버블)부터 끝까지 지운다 — 그 앞의 질문 카드가 다시 '지금 답할
+    // 질문'이 된다. 열린 되묻기 기록도 그 카드로 되돌린다(남겨 두면 다음 자유 답변이
+    // 지워진 질문에 대한 답으로 백엔드에 간다 — pending_question 에코).
+    const cardIndex = messages.indexOf(message);
+    const answerIndex = messages
+      .slice(0, cardIndex < 0 ? messages.length : cardIndex)
+      .map((m, index) => (m.role === "user" ? index : -1))
+      .filter((index) => index >= 0)
+      .at(-1);
+    const remaining = answerIndex === undefined ? messages : messages.slice(0, answerIndex);
+    setMessages(remaining);
+    rememberOpenClarification(
+      [...remaining].reverse().find((m) => m.role === "assistant") ?? {},
+    );
   };
 
   // [전략별 특화 빌더] 빌더가 DSL을 직접 구성해 내려준 완성 전략을 한국어 재파싱 왕복 없이
@@ -4847,10 +4982,8 @@ function StrategyLabContent() {
       {msg.clarificationSuggestions && msg.clarificationSuggestions.length > 0 && (
         <div className="flex items-end justify-between gap-3">
           <div className="space-y-1.5">
-            <p className="text-[11px] font-black text-[var(--text-label)]">
-              {msg.strategyConfirmation ? t("전략 확인") : t("선택 예시")}
-            </p>
             <ChoiceOptionList
+              caption={msg.strategyConfirmation ? "전략 확인" : "선택 예시"}
               options={[
                 ...msg.clarificationSuggestions,
                 // 빌더 질문의 자유 입력 여부는 빌더 레인이 이미 정했다
@@ -5015,12 +5148,8 @@ function StrategyLabContent() {
                               )}
                               {isLastAssistant(i) && msg.infoSuggestions && msg.infoSuggestions.length > 0 && (
                                 <div className="space-y-1.5 pt-1">
-                                  {msg.builderPresentation && (
-                                    <p className="text-[11px] font-black text-[var(--text-label)]">
-                                      {t("선택 예시")}
-                                    </p>
-                                  )}
                                   <ChoiceOptionList
+                                    caption={msg.builderPresentation ? "선택 예시" : undefined}
                                     options={msg.infoSuggestions}
                                     onSelect={(suggestion) => {
                                       if (suggestion === CANCEL_METRIC_OPTIMIZATION_CHIP) {

@@ -133,7 +133,7 @@ Modal CLI는 호스트 `/opt/modal-cli/bin/modal`(venv), 인증은 호스트 `~/
 `.env`의 `MODAL_KEY`(wk-)는 proxy 전용이라 CLI 인증에 못 쓴다). **박스 재구축 시 cron 파일·
 modal-cli venv·~/.modal.toml 세 가지를 다시 설치해야 한다.**
 
-**결과 동일성 계약**: `modal_backtest.py`의 `PINNED_DEPS`는 prod 백엔드 컨테이너 실측 버전과 동일 핀(Python 3.11 · numpy 2.4.4 · scipy 1.17.1 · numba 0.67.0 · vectorbt 1.0.0 등). 라이브러리를 올릴 때는 `backend/requirements.txt`와 **같은 커밋에서 함께** 올리고, 전환·업그레이드 전 반드시 전수 대조:
+**결과 동일성 계약**: Modal 워커는 앱 박스와 **같은 `uv.lock`**에서 설치한다 — `requirements-modal.txt`가 그 잠금에서 내보낸 파생물이고, `modal_backtest.py`가 그 파일을 이미지에 설치한다(Python 3.11 · numpy 2.4.4 · scipy 1.17.1 · numba 0.67.0 · vectorbt 1.0.0 …). 전이 의존까지 자동으로 같은 값이므로 손으로 실측해 옮겨 적을 일이 없다. 의존성을 올릴 때는 `uv lock` 뒤 `bash scripts/export_modal_requirements.sh`를 돌려 **같은 커밋에서 함께** 올리고(가드: `backend/tests/test_modal_requirements_export.py`), 전환·업그레이드 전 반드시 전수 대조:
 ```bash
 # ① 기준 덤프(박스 x86·정본 데이터에서): 
 docker compose exec -T backend python3 /app/scripts/qa_backtest_modal_equivalence.py --dump /tmp/eq_dump.json
@@ -335,14 +335,14 @@ docker compose up -d --remove-orphans
 
 > 뉴스 celery 워커/스케줄러는 별도 서비스가 아니라 `backend`가 startup에서 직접 spawn한다(이중 디스패치 방지).
 
-> **합본 이미지 주의**: `backend/requirements.txt`에 mlx-lm이 있으면 리눅스 빌드 실패(맥 전용, 코드에서 조건부 import). torch는 `+cpu` 휠로 선설치(Modal에만 GPU가 있으므로 앱 박스엔 CPU torch로 충분).
+> **합본 이미지**: 파이썬은 Debian 패키지가 아니라 uv가 받는 3.11이고(Modal 워커·CI와 같은 버전), 의존성은 `uv sync --frozen --no-default-groups`로 `uv.lock`에서 재현한다. mlx-lm은 `pyproject.toml`의 mac 그룹에 `sys_platform == 'darwin'` 마커로 묶여 있어 리눅스 빌드에 애초에 들어오지 않는다(종전엔 사람이 지켜야 하는 규칙이었다). torch는 `[tool.uv.sources]`가 리눅스에서만 pytorch-cpu 인덱스를 보게 해 `+cpu` 휠로 깔린다(Modal에만 GPU가 있으므로 앱 박스엔 CPU torch로 충분).
 
 ---
 
 ## 9. 배포 전 체크리스트
 
 - [ ] `curl <Modal 엔드포인트>/api/tags`가 Modal-Key/Modal-Secret 헤더로 200 응답(모델 목록에 `NL_OLLAMA_MODEL`·`SUMMARIZE_OLLAMA_MODEL` 두 모델 모두 포함)
-- [ ] `backend/requirements.txt`에 mlx-lm 없음(리눅스 빌드 통과)
+- [ ] `uv.lock`이 `pyproject.toml`과 정합(`uv lock --check`) — 어긋나면 `uv sync --frozen`이 실패해 이미지 빌드가 멈춘다
 - [ ] Supabase `DATABASE_URL`(6543+pgbouncer)/`DIRECT_URL`(5432) pooler 경유로 설정, Direct connection 아님
 - [ ] `data/`(parquet + chroma) 준비(`npm run pull-data` 또는 스케줄러가 채움)
 - [ ] §7 데드락 가드 3종 주입

@@ -220,13 +220,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### 테스트
 ```bash
 # 백엔드 (test_backtest_engine, test_engine_ai, test_ai_sell, test_api_isolation 제외 — 서버/AI 모델 필요)
-cd backend && pytest tests/ --ignore=tests/test_backtest_engine.py --ignore=tests/test_engine_ai.py --ignore=tests/test_ai_sell.py --ignore=tests/test_api_isolation.py
+cd backend && uv run --frozen pytest tests/ --ignore=tests/test_backtest_engine.py --ignore=tests/test_engine_ai.py --ignore=tests/test_ai_sell.py --ignore=tests/test_api_isolation.py
 
 # 단일 백엔드 테스트 파일
-cd backend && pytest tests/test_engine_signals.py -v
+cd backend && uv run --frozen pytest tests/test_engine_signals.py -v
 
 # 단일 테스트 함수
-cd backend && pytest tests/test_engine_signals.py::test_function_name -v
+cd backend && uv run --frozen pytest tests/test_engine_signals.py::test_function_name -v
 
 # 프론트엔드 (Vitest + jsdom)
 npm run test:frontend
@@ -320,12 +320,12 @@ Domain 검증            Registry + validation/ (지표 지원 여부·범위·�
 ### 전략 예시(EXAMPLES) 추가·수정 시 파싱 검증 필수
 `components/strategy/StrategyExampleTabs.tsx`의 예시를 추가하거나 문구를 바꾸면 **반드시 실제 파싱까지 돌려서 확인한다.**
 ```bash
-python scripts/qa_template_detect.py --category <카테고리>   # 치명 0이어야 함(종료 코드 0)
+uv run python scripts/qa_template_detect.py --category <카테고리>   # 치명 0이어야 함(종료 코드 0)
 ```
 US 예시(`components/strategy/usExamples.ts`)·영어 번역(`lib/i18n/en.ts` — /us에서는 번역이 파서 입력)을 수정하면 두 게이트 모두 돌린다:
 ```bash
-QA_TIMEOUT=420 python scripts/qa_template_detect.py --source us            # 한국어 원문 게이트
-QA_TIMEOUT=420 python scripts/qa_template_detect.py --source us --lang en  # 영어 입력 게이트(/us 전송 경로 재현)
+QA_TIMEOUT=420 uv run python scripts/qa_template_detect.py --source us            # 한국어 원문 게이트
+QA_TIMEOUT=420 uv run python scripts/qa_template_detect.py --source us --lang en  # 영어 입력 게이트(/us 전송 경로 재현)
 ```
 
 게이트는 **매번 백엔드에 다시 묻는다**(캐시 재사용 없음 — 낡은 답 위에서 '치명 0'이 나오는 것을 막는다). `--refresh`는 폐지됐고(기본 동작), `--use-cache`는 판정 로직만 손볼 때 쓰는 오프라인 모드다 — **게이트 용도로 쓰지 않는다.**
@@ -333,9 +333,9 @@ QA_TIMEOUT=420 python scripts/qa_template_detect.py --source us --lang en  # 영
 ### /us 영어 레인 수정 시 QA 하니스
 `/us` 파싱·분류·되묻기 경로를 고치면 아래 영어 판 하니스로 확인한다(전부 `--lang en`).
 ```bash
-python scripts/qa_redteam_validation.py --lang en   # 레드팀 51케이스(규제·시장 경계·달러 단위)
-python scripts/qa_free_input.py modify --lang en    # 되묻기 자유 답변 35케이스(fill 계열도)
-python scripts/qa_multiturn_binding.py --lang en    # 멀티턴 결속 6시나리오
+uv run python scripts/qa_redteam_validation.py --lang en   # 레드팀 51케이스(규제·시장 경계·달러 단위)
+uv run python scripts/qa_free_input.py modify --lang en    # 되묻기 자유 답변 35케이스(fill 계열도)
+uv run python scripts/qa_multiturn_binding.py --lang en    # 멀티턴 결속 6시나리오
 ```
 - 판정은 사람이 결과(JSONL·로그)를 읽고 한다 — 되묻기는 실패가 아니다(값 없는 팩터를 묻는 것은 정상)
 - `--lang en`의 계약: **파서 입력만 영어**이고 백엔드 되묻기 문구는 한국어 정본이다(표시 번역은 프론트 `t()` 소관)
@@ -346,7 +346,7 @@ python scripts/qa_multiturn_binding.py --lang en    # 멀티턴 결속 6시나�
 ### 백테스트 성능 경로 수정 시 결과 동일성 게이트 실행 필수
 `backend/engine/phase1.py`·`phase1_pool.py`·`prep_cache.py`·`wfa_workers.py`·`rebalance_comparison.py`·`walk_forward.py`·`grid_optimizer.py`·`optuna_optimizer.py` 또는 `backtest_engine.py`의 Phase1/세션/풀 구간을 수정하면 **실제 데이터 전수 대조를 돌려 불일치 0을 확인한다**(종료 코드 0).
 ```bash
-python scripts/qa_backtest_equivalence.py --wfa      # 세션 캐시·Phase1 풀·창 병렬 vs 기준 경로, 28개 전략 전수 대조
+uv run python scripts/qa_backtest_equivalence.py --wfa      # 세션 캐시·Phase1 풀·창 병렬 vs 기준 경로, 28개 전략 전수 대조
 ```
 - 성능 경로는 "답을 바꾸지 않는다"가 계약이다 — 캐시·병렬 유무로 거래·자산곡선·지표가 1비트라도 다르면 최적화가 아니라 버그다
 - 새 지표가 새 이름의 파라미터를 읽으면 `engine/prep_cache.py`의 `STRUCTURAL_PARAM_KEYS`에 추가한다(`tests/test_prep_cache.py` 소스 스캔이 강제)
