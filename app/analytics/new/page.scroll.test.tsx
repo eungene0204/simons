@@ -509,8 +509,9 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(
       fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/coach")
     ).toBe(false);
-    // 최초 질문(유니버스 선택)에는 되돌아갈 이전 단계가 없으므로 '돌아가기' 버튼이 없다.
-    expect(screen.queryByRole("button", { name: "돌아가기" })).not.toBeInTheDocument();
+    // 최초 질문(유니버스 선택)에도 '돌아가기'가 있다 — 되돌아갈 조건은 없지만 파스 턴을
+    // 되돌려 적어 넣은 원문으로 돌아갈 수 있다(2026-09-04, page.back-after-parse.test.tsx).
+    expect(screen.getByRole("button", { name: "돌아가기" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "코스피" }));
     expect(
@@ -521,7 +522,8 @@ describe("StrategyLabPage scroll behavior", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "돌아가기" }));
     expect(await screen.findByRole("button", { name: "코스피" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "돌아가기" })).not.toBeInTheDocument();
+    // 되돌아온 첫 질문에도 '돌아가기'가 남는다 — 그 앞은 파스 턴(원문 복귀)이다.
+    expect(screen.getByRole("button", { name: "돌아가기" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "코스피" }));
     expect(

@@ -228,7 +228,8 @@ interface ChatMessage {
   builderCanGoBack?: boolean;
   // 조건 옵션 버블에서 '돌아가기'로 되돌아갈 이전 단계 상태(유니버스 질문 제외 전 단계에 설정).
   previousStepState?: {
-    parsed: ParsedSummary;
+    // null = 최초 파싱 전(되돌아갈 전략이 없다) — 대화를 비우고 원문을 입력창에 되돌린다.
+    parsed: ParsedSummary | null;
     allowNoRebalancing: boolean;
     // 답을 되돌리면 그 필드의 '사용자가 말했다'(provenance)도 함께 되돌려야 한다 —
     // 남겨두면 게이트가 되돌아온 질문을 이미 답한 것으로 보고 건너뛴다.
@@ -236,6 +237,17 @@ interface ChatMessage {
     // 같은 이유로 거부('안 함')도 되돌린다 — 남겨두면 '안 함'을 취소하려고 돌아와도
     // 그 슬롯이 계속 답한 것으로 보인다.
     declinedFields?: string[];
+    // 파스 턴(자유 서술 답·최초 파싱)의 되돌리기 — 칩 턴과 달리 파스는 아래 상태도 바꾸므로
+    // 함께 되돌린다(남기면 변경 이력에 지운 턴이 남고, 다음 파스 요청이 지운 턴의 상태를 에코한다).
+    parseTurn?: {
+      userText: string;
+      backtestReq: any;
+      changeLog: ChangeLogEntry[];
+      fieldStates: Record<string, SlotState> | null;
+      fieldMetadata: Record<string, unknown> | null;
+      artifacts: Record<string, unknown> | null;
+      pendingAsk: any;
+    };
   };
   // 전략 요약을 막지 않는 보정 안내(예: 초기자금 하한선 보정). 요약 카드와 함께 표시된다.
   notices?: string[];
@@ -1336,6 +1348,7 @@ function AnimatedHeadline({ lines }: { lines: string[] }) {
 type ChatInputHandle = {
   focus: () => void;
   clear: () => void;
+  set: (text: string) => void;
 };
 
 type ChatInputBoxProps = {
@@ -1364,6 +1377,7 @@ const ChatInputBox = memo(
       () => ({
         focus: () => textareaRef.current?.focus(),
         clear: () => setValue(""),
+        set: (text: string) => setValue(text),
       }),
       [],
     );
@@ -1890,6 +1904,8 @@ function StrategyLabContent() {
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<{ status: string; error: string | null } | null>(null);
   const chatInputRef = useRef<ChatInputHandle>(null);
+  // '돌아가기'로 최초 파싱 전까지 되돌릴 때 입력창에 되돌려 줄 원문(아래 useEffect가 소비).
+  const restoredDraftRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const resultScrollRef = useRef<HTMLDivElement>(null);
   // 대화를 복원하거나 결과 화면에서 돌아온 직후 대화 끝까지 스크롤을 올린다.
@@ -3252,6 +3268,23 @@ function StrategyLabContent() {
     currentBacktestReq: any,
     strategyAssumptions: StrategyAssumptions = {},
   ) => {
+    // 이 턴이 되묻기로 끝나면 카드의 '돌아가기'가 되돌릴 상태 — 파스가 바꾸기 **전**에 남긴다.
+    // 칩 턴(handleSuggestionClick의 previousStepState)과 같은 자리·같은 버튼이다.
+    const stepStateBeforeParse: NonNullable<ChatMessage["previousStepState"]> = {
+      parsed: currentParsed,
+      allowNoRebalancing: explicitNoRebalancingRef.current,
+      explicitFields: [...explicitFieldsRef.current],
+      declinedFields: [...declinedFieldsRef.current],
+      parseTurn: {
+        userText: promptText,
+        backtestReq: currentBacktestReq,
+        changeLog: changeLogRef.current,
+        fieldStates: fieldStatesRef.current,
+        fieldMetadata: fieldMetadataRef.current,
+        artifacts: artifactsRef.current,
+        pendingAsk: pendingAskRef.current,
+      },
+    };
     // NL 파서 규칙 파싱 단계 — 'parsing...' 표시. LLM 폴백 시 'thinking...'으로 전환된다.
     updateLastAssistant({ isLoading: true, loadingStage: "parsing" });
     const res = await fetch("/api/strategy/parse/stream", {
@@ -3508,6 +3541,7 @@ function StrategyLabContent() {
             }
           : undefined,
         notices: parsedPayload.notices?.length ? parsedPayload.notices : undefined,
+        previousStepState: clarificationText ? stepStateBeforeParse : undefined,
       };
       rememberOpenClarification(summaryPatch);
       applySummaryPatch(summaryPatch);
@@ -3629,30 +3663,58 @@ function StrategyLabContent() {
     }
   };
 
+  // 최초 파싱 전으로 되돌린 원문은 **새로 마운트되는** 입력창에 넣는다 — 대화가 비면 고정
+  // 입력창이 내려가고 인라인 입력창이 새로 서므로, 지우는 순간의 ref는 사라질 인스턴스다.
+  useEffect(() => {
+    if (restoredDraftRef.current === null || messages.length > 0) return;
+    chatInputRef.current?.set(restoredDraftRef.current);
+    restoredDraftRef.current = null;
+  }, [messages.length]);
+
   const returnToPreviousCondition = (message: ChatMessage) => {
     if (isSending) return;
     const previous = message.previousStepState;
     if (!previous) return;
 
     setBuilderFreeTextRequested(false);
+    // 최초 파싱 전으로 — 되돌아갈 전략이 없으므로 대화를 비우고 원문을 입력창에 되돌려
+    // 고쳐 보낼 수 있게 한다.
+    if (!previous.parsed) {
+      restoredDraftRef.current = previous.parseTurn?.userText ?? "";
+      clearConversationState();
+      return;
+    }
     latestParsedRef.current = previous.parsed;
     setLatestParsed(previous.parsed);
     explicitNoRebalancingRef.current = previous.allowNoRebalancing;
     setExplicitNoRebalancing(previous.allowNoRebalancing);
     explicitFieldsRef.current = [...previous.explicitFields];
     declinedFieldsRef.current = [...(previous.declinedFields ?? [])];
-    setMessages((previousMessages) => {
-      const currentIndex = previousMessages.length - 1;
-      const selectedConditionIndex = previousMessages
-        .slice(0, currentIndex)
-        .map((m, index) => (m.role === "user" ? index : -1))
-        .filter((index) => index >= 0)
-        .at(-1);
-
-      return previousMessages.filter(
-        (_, index) => index !== currentIndex && index !== selectedConditionIndex,
-      );
-    });
+    if (previous.parseTurn) {
+      const { backtestReq: previousBacktestReq } = previous.parseTurn;
+      backtestReqRef.current = previousBacktestReq;
+      setBacktestReq(previousBacktestReq);
+      setCurrentOptions(previousBacktestReq ? backtestConfigOptions(previousBacktestReq) : null);
+      changeLogRef.current = previous.parseTurn.changeLog;
+      fieldStatesRef.current = previous.parseTurn.fieldStates;
+      fieldMetadataRef.current = previous.parseTurn.fieldMetadata;
+      artifactsRef.current = previous.parseTurn.artifacts;
+      pendingAskRef.current = previous.parseTurn.pendingAsk;
+    }
+    // 이 카드의 답(직전 사용자 버블)부터 끝까지 지운다 — 그 앞의 질문 카드가 다시 '지금 답할
+    // 질문'이 된다. 열린 되묻기 기록도 그 카드로 되돌린다(남겨 두면 다음 자유 답변이
+    // 지워진 질문에 대한 답으로 백엔드에 간다 — pending_question 에코).
+    const cardIndex = messages.indexOf(message);
+    const answerIndex = messages
+      .slice(0, cardIndex < 0 ? messages.length : cardIndex)
+      .map((m, index) => (m.role === "user" ? index : -1))
+      .filter((index) => index >= 0)
+      .at(-1);
+    const remaining = answerIndex === undefined ? messages : messages.slice(0, answerIndex);
+    setMessages(remaining);
+    rememberOpenClarification(
+      [...remaining].reverse().find((m) => m.role === "assistant") ?? {},
+    );
   };
 
   // [전략별 특화 빌더] 빌더가 DSL을 직접 구성해 내려준 완성 전략을 한국어 재파싱 왕복 없이
