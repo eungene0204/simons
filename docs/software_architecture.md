@@ -1679,7 +1679,10 @@ Next 라우트 핸들러 ─► lib/server/backend.ts fetchBackend ─► X-UI-L
 | `framer-motion` | 12.27.0 | 애니메이션 |
 | `jsonwebtoken` | 9.0.2 | JWT 인증 |
 
-### 9.2 백엔드 (`backend/requirements.txt`)
+### 9.2 백엔드 (`pyproject.toml` + `uv.lock`)
+
+의존성 정본은 레포 루트의 `pyproject.toml`이고, 전이 의존까지 잠그는 것은 `uv.lock`이다.
+로컬·Docker·CI·Modal 워커가 모두 이 하나의 잠금에서 설치한다(2026-09-04 uv 이관).
 
 | 패키지 | 용도 |
 |--------|------|

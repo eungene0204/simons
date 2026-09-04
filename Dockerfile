@@ -4,31 +4,40 @@
 # 직접 실행하고, fs로 data/ 파일을 읽는다. 따라서 웹·백엔드·스케줄러·뉴스워커가 모두
 # "node + python + 전체 코드"를 필요로 한다 → 이미지 하나로 굽고 서비스별 command만 다르게.
 #
-# ⚠️ 초안: requirements에 OS 라이브러리가 더 필요한 패키지가 있으면 빌드가 실패할 수 있다.
+# ⚠️ 초안: 의존성에 OS 라이브러리가 더 필요한 패키지가 있으면 빌드가 실패할 수 있다.
 #    그럴 땐 아래 apt-get 줄에 필요한 -dev 패키지를 추가하며 반복한다.
-# ⚠️ mlx-lm은 macOS 전용이므로 backend/requirements.txt에 들어있으면 안 된다(리눅스 빌드 실패).
-#    코드에서 조건부 import되므로 리눅스에선 Ollama 경로만 쓰면 된다.
+# ⚠️ mlx-lm(macOS 전용)은 pyproject.toml의 mac 그룹에 `sys_platform == 'darwin'` 마커로
+#    묶여 있어 리눅스 빌드에는 애초에 들어오지 않는다(종전엔 사람이 지켜야 하는 규칙이었다).
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:24-slim
 
-# Python 3.11 + 빌드도구 + sqlite(11GB DB 조회) + openssl(prisma) + curl
+# uv — 파이썬 런타임과 의존성을 uv.lock 그대로 재현 설치한다(버전 핀: 빌드 재현성).
+# Debian의 python3를 쓰지 않는다. 지금은 node:24-slim이 bookworm이라 우연히 3.11.2지만
+# 그건 베이스 이미지 태그가 정하는 값이고, 베이스가 올라가면 예고 없이 따라 올라간다
+# (Modal 워커·CI는 3.11 고정). uv가 .python-version의 3.11을 직접 받아 쓰면 세 곳이
+# 베이스 이미지와 무관하게 같은 마이너 버전으로 묶인다. 덤으로 --break-system-packages도 사라진다.
+COPY --from=ghcr.io/astral-sh/uv:0.12.9 /uv /uvx /usr/local/bin/
+
+# 빌드도구 + sqlite(11GB DB 조회) + openssl(prisma) + curl
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 python3-pip python3-dev build-essential \
-        sqlite3 openssl curl \
+        build-essential sqlite3 openssl curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
+# .venv/bin을 PATH 앞에 둔다 — compose의 `python3 scripts/scheduler.py`, Next의 child_process
+# `python backend/ai/xai_engine.py`(app/api/backtest/explain/route.ts)가 이 인터프리터를 잡는다.
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    PATH="/app/.venv/bin:$PATH"
+
 # ---------- Python 의존성 (레이어 캐시를 위해 코드보다 먼저) ----------
-COPY backend/requirements.txt backend/requirements-news-v2.txt ./backend/
-# torch는 GPU 없는 앱박스용 CPU 휠로 선설치(GPU는 Modal에만).
-# PyPI 기본 torch는 linux amd64·arm64 둘 다 ~2.5GB CUDA(nvidia-*) 빌드라 CPU 박스엔 낭비 →
-# +cpu 휠로 설치(pytorch cpu 인덱스에 manylinux x86_64·aarch64 모두 존재).
-# 이후 requirements의 torch==2.12.0은 2.12.0+cpu로 충족되어 재설치되지 않는다.
-RUN pip3 install --no-cache-dir --break-system-packages \
-        torch==2.12.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
-RUN pip3 install --no-cache-dir --break-system-packages \
-        -r backend/requirements.txt -r backend/requirements-news-v2.txt
+# torch는 GPU 없는 앱박스용 CPU 휠(GPU는 Modal에만) — pyproject의 [tool.uv.sources]가
+# 리눅스에서만 pytorch-cpu 인덱스를 보게 해 2.12.0+cpu를 받는다(PyPI 기본 휠은 CUDA 동봉 ~2.5GB).
+# --no-default-groups: dev(pytest·modal CLI)·mac(mlx) 그룹 제외, 런타임 의존성만.
+COPY pyproject.toml uv.lock .python-version ./
+RUN uv sync --frozen --no-default-groups && rm -rf /root/.cache/uv
 
 # ---------- Node 의존성 ----------
 COPY package*.json ./

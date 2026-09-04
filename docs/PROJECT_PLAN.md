@@ -1942,8 +1942,8 @@ npm install
 npm run db:migrate
 npm run db:generate
 
-# 백엔드 의존성
-cd backend && pip install -r requirements.txt
+# 백엔드 의존성 (uv.lock 그대로 재현 — 파이썬 3.11도 uv가 받는다)
+uv sync
 
 # 개발 서버 실행
 npm run dev          # Frontend (localhost:3000)

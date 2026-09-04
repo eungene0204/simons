@@ -196,7 +196,7 @@ class ModifyRAG:
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError:
-            raise RuntimeError("pip install sentence-transformers 필요")
+            raise RuntimeError("uv sync 필요 — sentence-transformers 미설치")
         self._embedder = SentenceTransformer("BAAI/bge-m3")
 
     def _init_collection(self):
@@ -205,7 +205,7 @@ class ModifyRAG:
         try:
             import chromadb
         except ImportError:
-            raise RuntimeError("pip install chromadb 필요")
+            raise RuntimeError("uv sync 필요 — chromadb 미설치")
 
         client = chromadb.EphemeralClient()
         self._collection = client.get_or_create_collection(

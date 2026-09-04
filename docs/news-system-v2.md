@@ -114,7 +114,7 @@ types/news-v2.ts                        # FE types
 components/stock/NewsImpactPanel.tsx    # status-aware UI (modified)
 
 docker-compose.news-v2.yml              # Redis + PostgreSQL
-backend/requirements-news-v2.txt        # incremental deps
+pyproject.toml                          # deps (news_v2 스택도 여기에 합쳐졌다)
 docs/news-system-v2.md                  # this file
 ```
 

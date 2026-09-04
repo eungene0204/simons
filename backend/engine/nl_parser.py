@@ -1430,7 +1430,7 @@ class NLStrategyParser:
             import instructor
             from openai import OpenAI
         except ImportError:
-            raise RuntimeError("pip install instructor openai 필요")
+            raise RuntimeError("uv sync 필요 — instructor·openai 미설치")
 
         self._client = instructor.from_openai(
             OpenAI(
@@ -1450,7 +1450,7 @@ class NLStrategyParser:
             import outlines.models as models
             import mlx_lm
         except ImportError:
-            raise RuntimeError("pip install outlines mlx-lm 필요")
+            raise RuntimeError("uv sync 필요 — outlines·mlx-lm 미설치(맥 전용 mac 그룹)")
 
         log_label = self._model_log_label(self.mlx_model)
         print(f"[NLParser] {log_label} 모델 로딩: {self.mlx_model} ...", flush=True)
@@ -1471,7 +1471,7 @@ class NLStrategyParser:
             import outlines.models as models
             import mlx_lm
         except ImportError:
-            raise RuntimeError("pip install outlines mlx-lm 필요")
+            raise RuntimeError("uv sync 필요 — outlines·mlx-lm 미설치(맥 전용 mac 그룹)")
 
         log_label = self._model_log_label(self.model_32b)
         print(f"[NLParser] {log_label} 모델 로딩: {self.model_32b} ...", flush=True)
@@ -1794,7 +1794,7 @@ class NLStrategyParser:
         try:
             import mlx_lm
         except ImportError:
-            raise RuntimeError("pip install mlx-lm 필요")
+            raise RuntimeError("uv sync 필요 — mlx-lm 미설치(맥 전용 mac 그룹)")
 
         tokenizer = self._tokenizer
         messages = [
@@ -1838,7 +1838,7 @@ class NLStrategyParser:
         try:
             import mlx_lm
         except ImportError:
-            raise RuntimeError("pip install mlx-lm 필요")
+            raise RuntimeError("uv sync 필요 — mlx-lm 미설치(맥 전용 mac 그룹)")
 
         tokenizer = self._tokenizer
         messages = [

@@ -1,0 +1,145 @@
+# Simons 파이썬 의존성 정본 (uv)
+# ─────────────────────────────────────────────────────────────────────────────
+# 이 파일과 uv.lock이 정본이다. requirements.txt는 폐지됐다(2026-09-04).
+#   - 직접 의존은 여기서 핀하고, 전이 의존은 uv.lock이 해시까지 고정한다.
+#     (2026-08-26 사고: plotly 전이 의존이 잠기지 않아 7.0.0이 올라오며 vectorbt import 파손)
+#   - 로컬·Docker·CI·Modal이 모두 같은 잠금에서 설치한다 → 환경 간 드리프트가 구조적으로 불가능.
+#
+# 사용법
+#   uv sync                     # 런타임 + dev + mac(맥에서만 mlx 설치)
+#   uv sync --frozen --no-dev   # 배포용(잠금 그대로, dev 제외)
+#   uv run pytest tests/...     # .venv 활성화 없이 실행
+#   uv add <pkg> / uv lock --upgrade-package <pkg>   # 의존성 변경은 반드시 이 명령으로(수기 편집 금지)
+# ─────────────────────────────────────────────────────────────────────────────
+[project]
+name = "simons"
+version = "0.1.0"
+description = "널스탁 — 투자 전략 연구·백테스트 플랫폼 (Python 백엔드)"
+requires-python = "==3.11.*"
+
+dependencies = [
+    "fastapi==0.135.3",
+    "uvicorn==0.44.0",
+    "polars==1.39.3",
+    "pyarrow==23.0.1",
+    "pydantic==2.12.5",
+    "pandas==2.3.3",
+    "vectorbt==1.0.0",
+    # plotly는 vectorbt의 전이 의존(plotly>=4.12.0)이다. 7.0.0이 scattermapbox 트레이스를
+    # 제거해 vectorbt import가 ValueError로 죽는다(2026-08-26 CI 전수 수집 실패) → 상한이 아니라
+    # 검증된 조합으로 못박는다. 올릴 때는 vectorbt import부터 확인할 것.
+    "plotly==6.8.0",
+    "backtrader==1.9.78.123",       # 교차검증 테스트 전용 reference engine
+    "optuna==4.9.0",
+    "python-dotenv",
+    "requests==2.33.1",
+    "beautifulsoup4==4.14.3",
+    "websockets==16.0",
+    "langchain-openai==1.2.2",
+    "langchain-google-genai==4.2.4",
+    # 관찰 계층(observability/) — Agent 실행 Trace. langchain-openai의 전이 의존이지만
+    # 우리가 직접 import하므로 명시 고정한다(상위 패키지가 끊어도 깨지지 않게).
+    # 기본은 비활성(LANGSMITH_TRACING 미설정) — 켜지 않으면 외부 전송도 오버헤드도 없다.
+    "langsmith==0.8.11",
+
+    # ── 엔진/AI 런타임 (main.py startup 체인에서 top-level import — 누락 시 기동 실패) ──
+    "numpy==2.4.4",
+    "stockstats==0.6.8",            # engine/indicators.py
+    "pykrx==1.2.8",                 # engine/data_fetcher.py
+    "yfinance==1.6.0",              # scripts/backfill_us_stocks.py — 미국 OHLCV/재무 백필
+    "finance-datareader==0.9.202",  # scripts/sync_data.py — 일일 OHLCV/상폐 동기화(top-level import)
+    "tqdm==4.68.1",                 # scripts/sync_data.py 진행바
+    "httpx==0.28.1",                # news providers
+    # torch: 앱 박스·CI·Modal은 GPU가 없다 → 리눅스에서는 아래 [tool.uv.sources]가 pytorch-cpu
+    # 인덱스로 보내 +cpu 휠을 받는다(PyPI 기본 휠은 CUDA 동봉 ~2.5GB). 맥은 PyPI 정규 휠.
+    "torch==2.12.0",                # ai/ai_engine.py, ai/models.py
+    "xgboost==3.2.0",               # ai/ai_engine.py
+    "joblib==1.5.3",                # ai/ai_engine.py 모델 로드
+    "shap==0.51.0",                 # ai/xai_engine.py (XAI 설명)
+    "chromadb==1.5.9",              # advisor/vector_memory.py — 코치 RAG 메모리
+    "sentence-transformers==5.6.0", # vector_memory/embedding.py — bge-m3 의미 임베딩
+
+    # ── NL 전략 생성 — Ollama 백엔드(배포 기본값) ──
+    # engine/nl_parser.py _init_ollama가 instructor.from_openai로 Ollama의 OpenAI 호환
+    # 엔드포인트(/v1)를 호출한다. 없으면 전략 생성 비활성.
+    # (Mac dev는 MLX 백엔드 — outlines/mlx-lm은 아래 mac 그룹, 리눅스 이미지엔 안 들어간다)
+    "openai==2.41.0",
+    "instructor==1.15.3",
+
+    # 앱 DB(Supabase Postgres) 동기 드라이버 — backend/db.py 공용 어댑터
+    "psycopg[binary]>=3.1",
+
+    # ── 뉴스 v2 워커 스택(news_v2/) — 구 requirements-news-v2.txt ──
+    # NEWSV2_ENABLED로 켜고 끄지만, Docker·CI·compose가 항상 같이 설치해 왔으므로 런타임에 합친다.
+    "redis>=5.0.1",
+    "celery[redis]>=5.3.6",
+    "sqlalchemy>=2.0.25",
+    "greenlet>=3.0.0",
+    "asyncpg>=0.29.0",
+    "psycopg2-binary>=2.9.9",
+    "aiosqlite>=0.19.0",
+    "apscheduler>=3.10.4",
+    "structlog>=24.1.0",
+    "prometheus-client>=0.19.0",
+    "tenacity>=8.2.3",
+]
+
+[dependency-groups]
+# 테스트 러너 — 구 CI는 requirements 밖에서 따로 설치했다(async 테스트 16파일이 @pytest.mark.asyncio 사용).
+dev = [
+    "pytest==9.0.3",
+    "pytest-asyncio==1.3.0",
+    "modal>=1.5.0",   # modal_backtest.py·modal_ollama.py 배포 CLI (백엔드 런타임은 import하지 않는다)
+]
+
+# Mac dev 전용 — NL 파서의 MLX 백엔드. 리눅스 휠이 없으므로 마커로 잠근다
+# (구 Dockerfile 주석 "mlx-lm이 requirements에 있으면 리눅스 빌드 실패"를 사람이 지키던 것을 선언으로 대체).
+mac = [
+    "mlx-lm>=0.31.1 ; sys_platform == 'darwin'",
+    "outlines>=1.2.12 ; sys_platform == 'darwin'",
+]
+
+# Modal 백테스트 워커 이미지에 들어가는 엔진 부분집합(구 modal_backtest.py PINNED_DEPS).
+# 버전은 여기서 핀하지 않는다 — uv.lock의 단일 해석을 그대로 쓰므로 앱 박스와 같은 버전이 보장된다.
+# requirements-modal.txt로 내보내 Modal 이미지가 읽는다(재생성: scripts/export_modal_requirements.sh).
+modal = [
+    "fastapi",
+    "pydantic",
+    "numpy",
+    "pandas",
+    "polars",
+    "scipy",
+    "numba",
+    "vectorbt",
+    "plotly",
+    "pyarrow",
+    "stockstats",
+    "pykrx",
+    "requests",
+    "beautifulsoup4",
+    "python-dotenv",
+    "httpx",
+    "joblib",
+    "xgboost",
+    "optuna",   # run_optimize·워크포워드 bayesian — 누락 시 500(게이트 실사고)
+]
+
+[tool.uv]
+# 백엔드는 설치 가능한 패키지가 아니라 PYTHONPATH로 실행되는 앱이다(빌드하지 않는다).
+package = false
+default-groups = ["dev", "mac"]
+# 잠금이 커버해야 하는 환경 — 맥 dev, 리눅스 앱 박스/CI/Modal(x86_64), arm 빌드(aarch64).
+environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+
+# torch CPU 휠 인덱스 — explicit이라 여기로 명시한 패키지만 이 인덱스를 본다.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]

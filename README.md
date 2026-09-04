@@ -115,7 +115,8 @@ npm install
 npm run db:generate          # Prisma Client
 npm run db:migrate           # 마이그레이션 (로컬 DB)
 
-cd backend && pip install -r requirements.txt
+uv sync                      # 파이썬 의존성 — uv.lock 그대로 .venv에 재현
+                             # (파이썬 3.11도 uv가 받는다. 맥에서는 MLX 백엔드용 mac 그룹 포함)
 ```
 
 ### 3. 실행
