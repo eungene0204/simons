@@ -1303,7 +1303,7 @@ function backtestPeriodLabel(parsed: ParsedSummary): string {
         ? `${startYear}~`
         : `~${endYear}`;
   }
-  return PERIOD_LABELS[parsed.backtest_period];
+  return t(PERIOD_LABELS[parsed.backtest_period]);
 }
 
 // 글자별 진입 연출. 순서는 CSS animation-delay 캐스케이드가 만든다 —
@@ -1690,7 +1690,7 @@ function ParsedSummaryBubble({
         )}
         {entryLabels.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{FUNDAMENTAL_FILTER_SECTION_LABEL}</span>
+            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{t(FUNDAMENTAL_FILTER_SECTION_LABEL)}</span>
             <div className="flex flex-wrap gap-1">
               {entryLabels.map((label, i) => (
                 <FilterBadge key={i} label={label} />
@@ -1713,7 +1713,7 @@ function ParsedSummaryBubble({
           <div className="flex flex-wrap gap-1">
             <FilterBadge label={getPositionLabel(parsed)} />
             {parsed.hold_period_days && <FilterBadge label={t("{0}일 보유", parsed.hold_period_days)} />}
-            {parsed.rebalancing_period !== "none" && <FilterBadge label={t("{0} 리밸런싱", REBAL_LABELS[parsed.rebalancing_period])} />}
+            {parsed.rebalancing_period !== "none" && <FilterBadge label={t("{0} 리밸런싱", t(REBAL_LABELS[parsed.rebalancing_period]))} />}
             {parsed.rebalancing_period !== "none" && parsed.rebalance_method && (
               <FilterBadge label={t(REBAL_METHOD_LABELS[parsed.rebalance_method] ?? parsed.rebalance_method)} />
             )}
