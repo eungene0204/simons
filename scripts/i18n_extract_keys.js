@@ -21,6 +21,7 @@ const RENDER_SITE_FILES = [
   "app/analytics/new/conversationDecision.ts",
   "app/analytics/new/deterministicConditionFlow.ts",
   "app/analytics/new/choiceOptionHelp.ts",
+  "app/analytics/new/choiceOptionGroups.ts",
   "app/analytics/new/coachMessage.ts",
   "app/analytics/new/strategyItems.ts",
   "app/analytics/new/clarificationPresentation.ts",
