@@ -1012,6 +1012,7 @@ export default function BacktestDashboard({
     return {
       metadata: {
         strategyName: downloadStrategyName,
+        currency: isUsResult ? "USD" : "KRW",
         backtestId: result.cacheKey ?? result.executionId,
         exportedAt,
         period: {

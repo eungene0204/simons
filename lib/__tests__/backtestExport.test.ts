@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
+import { __resetLanguageForTests, setLanguage } from "@/lib/i18n";
 import {
   buildExportFile,
   exportFileName,
@@ -184,5 +185,43 @@ describe("buildExportFile JSON", () => {
   it("비율은 소수로 유지하고 pretty print 한다", () => {
     expect(parsed.stockAnalysis[0].winRate).toBe(0.583);
     expect(content).toContain("\n  "); // 들여쓰기(pretty print)
+  });
+});
+
+describe("buildExportFile CSV — 영어 레인(/us)", () => {
+  afterEach(() => {
+    __resetLanguageForTests();
+  });
+
+  // 2026-09-04 사고: 헤더 행의 첫 셀만 t()로 감싸 /us 다운로드 파일에 한글 헤더가 섞여 나갔다.
+  it("종목 분석·매매 기록 헤더 행에 한글이 남지 않는다", () => {
+    setLanguage("en");
+    const { content } = buildExportFile(payload, "csv");
+    const lines = content.split("\r\n");
+    const stockHeader = lines[lines.indexOf("[Stock analysis]") + 1];
+    const tradeHeader = lines[lines.indexOf("[Trade log]") + 1];
+    expect(stockHeader).toBe("Ticker,Name,Trade count,Win rate,Return,Total P&L,Avg. buy price,Avg. sell price");
+    expect(tradeHeader).toBe("Date,Ticker,Name,Type,Fill price,Quantity,Trade amount,Reason");
+    const dataless = lines.filter((l) => !l.startsWith("005930,") && !l.startsWith("2024-03-12,"));
+    expect(dataless.join("\n").replace(payload.metadata.strategyName, "")).not.toMatch(/[가-힣]/);
+  });
+});
+
+describe("buildExportFile CSV — 달러 금액", () => {
+  // US 결과는 float 규약 — 원화식 정수 반올림을 타면 $168.42 평균매수가가 168로 절삭된다.
+  const usdPayload: BacktestExportPayload = {
+    metadata: { ...payload.metadata, currency: "USD", initialCapital: 10_000, finalEquity: 12_345.678 },
+    stockAnalysis: [{ ...payload.stockAnalysis![0], symbol: "ALB", name: "Albemarle", totalProfit: -8_762.5, avgBuyPrice: 168.42, avgSellPrice: 155.1 }],
+    tradeHistory: [{ ...payload.tradeHistory![0], symbol: "ALB", name: "Albemarle", price: 168.42, quantity: 3, amount: 505.26 }],
+  };
+
+  it("USD는 센트까지 남기고 원화는 정수 표기를 유지한다", () => {
+    const { content } = buildExportFile(usdPayload, "csv");
+    const stockLine = content.split("\r\n").find((l) => l.startsWith("ALB,Albemarle,12,"));
+    expect(stockLine).toContain('"-8,762.50",168.42,155.10');
+    expect(content).toContain('"12,345.68"');
+    expect(content).toContain("ALB,Albemarle,매수,168.42,3,505.26,");
+    // 통화 미지정(KRW)은 기존 정수 표기 그대로
+    expect(buildExportFile(payload, "csv").content).toContain('초기자본,"10,000,000"');
   });
 });

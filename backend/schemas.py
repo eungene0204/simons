@@ -108,6 +108,10 @@ class SignalResult(BaseModel):
     quantity: int
     amount: float
     condition: str
+    # 매매사유의 구조화 표현(engine/trade_reason.py 세그먼트) — /us가 t()로 번역해 표시한다.
+    # 미선언 시 response_model이 걸러내 /backtest 응답에서 사라지고, 프론트가 한국어 정본
+    # 문장(condition)으로 폴백해 /us 거래 내역·CSV에 한글이 나간다(2026-09-04 사고).
+    conditionParts: Optional[List[Dict[str, Any]]] = None
     # 매도 신호의 순손익(원, 수수료·거래세 차감). 매수 신호는 None.
     pnl: Optional[float] = None
 
@@ -181,6 +185,9 @@ class BacktestResponse(BaseModel):
     signals: List[SignalResult]
     perAssetStats: Optional[Dict[str, AssetStats]] = Field(default_factory=dict)
     warnings: Optional[List[str]] = Field(default_factory=list)
+    # 경고의 구조화 표현(engine/result_warnings.py) — warnings와 같은 순서, /us 영어 표시용.
+    # 미선언 시 response_model이 걸러내 /backtest 응답에서 사라진다 — conditionParts와 같은 함정.
+    warningParts: Optional[List[List[Dict[str, Any]]]] = None
     # 데이터 커버리지 리포트(펀더멘털 지표별 종목·기간 커버리지). 없으면 null.
     dataCoverage: Optional[Dict[str, Any]] = None
     # 분위 그룹 비교 결과(FR-BT-060) — {groups: [{group, label, pctRange, totalReturn, ...}],
