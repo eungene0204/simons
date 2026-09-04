@@ -19,8 +19,12 @@ export function isExportFormat(value: unknown): value is ExportFormat {
   return value === "csv" || value === "json";
 }
 
+export type ExportCurrency = "KRW" | "USD";
+
 export interface BacktestExportMetadata {
   strategyName: string;
+  /** 금액 통화. 생략하면 KRW(정수 표기). USD는 센트까지 남긴다(US=float 규약) */
+  currency?: ExportCurrency;
   backtestId: string;
   /** ISO 8601 (타임존 포함) */
   exportedAt: string;
@@ -136,14 +140,19 @@ function tradeTypeLabel(type: "buy" | "sell"): string {
   return type === "buy" ? t("매수") : t("매도");
 }
 
-// 금액은 정수로 반올림하고 천단위 콤마를 붙여 사람이 읽기 쉽게 표시한다 (CSV 전용, JSON은 원시 숫자 유지).
-function formatMoney(value: number): string {
-  return Math.round(value).toLocaleString("ko-KR");
+// 금액은 천단위 콤마를 붙여 사람이 읽기 쉽게 표시한다 (CSV 전용, JSON은 원시 숫자 유지).
+// 원화는 정수로 반올림하고, 달러는 센트(소수 둘째 자리)까지 남긴다 — 정수 절삭이면 $168.42가 168이 된다.
+function moneyFormatter(currency: ExportCurrency): (value: number) => string {
+  if (currency === "USD") {
+    return (value) => value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  return (value) => Math.round(value).toLocaleString("ko-KR");
 }
 
 function buildCsv(payload: BacktestExportPayload): string {
   const { metadata, stockAnalysis, tradeHistory } = payload;
   const lines: string[] = [];
+  const formatMoney = moneyFormatter(metadata.currency ?? "KRW");
 
   // 메타데이터 — 전략명은 여기에 한 번만 포함한다.
   lines.push(csvRow([t("전략명"), metadata.strategyName]));
@@ -164,7 +173,9 @@ function buildCsv(payload: BacktestExportPayload): string {
   // 종목 분석 — 종목 분석 탭에서 내보낼 때만 채워진다
   if (stockAnalysis) {
     lines.push(t("[종목 분석]"));
-    lines.push(csvRow([t("종목코드"), "종목명", "거래횟수", "승률", "수익률", "총손익", "평균매수가", "평균매도가"]));
+    lines.push(
+      csvRow([t("종목코드"), t("종목명"), t("거래횟수"), t("승률"), t("수익률"), t("총손익"), t("평균매수가"), t("평균매도가")])
+    );
     for (const r of stockAnalysis) {
       lines.push(
         csvRow([
@@ -184,7 +195,9 @@ function buildCsv(payload: BacktestExportPayload): string {
   // 매매 기록 — 매매 기록 탭에서 내보낼 때만 채워진다
   if (tradeHistory) {
     lines.push(t("[매매 기록]"));
-    lines.push(csvRow([t("날짜"), "종목코드", "종목명", "구분", "체결가", "수량", "거래금액", "매매사유"]));
+    lines.push(
+      csvRow([t("날짜"), t("종목코드"), t("종목명"), t("구분"), t("체결가"), t("수량"), t("거래금액"), t("매매사유")])
+    );
     for (const trade of tradeHistory) {
       lines.push(
         csvRow([trade.date, trade.symbol, trade.name, tradeTypeLabel(trade.type), formatMoney(trade.price), Math.floor(trade.quantity), formatMoney(trade.amount), trade.reason])

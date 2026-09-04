@@ -2225,10 +2225,14 @@ export const en: Record<string, string> = {
   // ── lib/backtest-export.ts
   "[매매 기록]": "[Trade log]",
   "[종목 분석]": "[Stock analysis]",
+  "거래횟수": "Trade count",
   "백테스트 ID": "Backtest ID",
   "생성시간": "Generated at",
+  "총손익": "Total P&L",
   "초기자본": "Initial capital",
   "최종자산": "Final equity",
+  "평균매도가": "Avg. sell price",
+  "평균매수가": "Avg. buy price",
   "포지션": "Position",
   // ── lib/format-market-cap.ts
   "{0}조 {1}억원": "₩{0}T {1}00M",
