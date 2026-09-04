@@ -260,7 +260,6 @@ function buildRiskLabel(
   const stopLoss = state.stop_loss_pct ?? parsed?.stop_loss_pct;
   const takeProfit = state.take_profit_pct ?? parsed?.take_profit_pct;
   const trailingStop = state.trailing_stop_pct ?? parsed?.trailing_stop_pct;
-  const holdPeriod = state.hold_period_days ?? parsed?.hold_period_days;
   const declined = (field: string) => (declinedFields ?? []).includes(field);
   // '안 함'도 사용자가 정한 결과다 — 값이 없다고 요약에서 빼면 답한 것이 사라진 것처럼
   // 보이고, 리스크 관리 항목이 통째로 없어져 진행률 체크와 어긋난다.
@@ -269,7 +268,6 @@ function buildRiskLabel(
   if (hasValue(takeProfit)) labels.push(t("익절 {0}%", takeProfit));
   else if (declined("take_profit")) labels.push(t("익절 안 함"));
   if (hasValue(trailingStop)) labels.push(t("트레일링 스탑 {0}%", formatDownsidePercent(trailingStop)));
-  if (hasValue(holdPeriod)) labels.push(t("{0}일 보유", holdPeriod));
   return labels.length > 0 ? labels.join(" · ") : null;
 }
 
@@ -350,10 +348,19 @@ export function buildBuilderTurnPresentation({
       (parsed ? getDisplayUniverseLabels(parsed, backtestRequest).join(" · ") : null)
     : null;
   const entryLabels = buildEntryLabels(state, parsed);
-  // '매도 조건'은 지표가 만드는 청산 신호만 싣는다 — 손절·익절·트레일링·보유 기간은
-  // 아래 '리스크 관리' 항목이 같은 값을 그대로 보여주므로, 함께 넣으면 한 카드에서
-  // 같은 설정이 두 번 읽힌다(2026-08-02 지시 — 요약 카드와 같은 정리).
-  const exitLabels = getSignalExitLabels(parsed);
+  // '매도 조건'은 지표 청산 신호와 보유 기간(기간 기반 청산)을 싣는다 — 손절·익절·
+  // 트레일링은 아래 '리스크 관리' 항목이 같은 값을 그대로 보여주므로 함께 넣지 않는다
+  // (2026-08-02 지시 — 한 카드에서 같은 설정이 두 번 읽히지 않게).
+  // 보유 기간은 매도 슬롯의 값이다(정본 engine/strategy_slots.py: exit = 청산 신호 OR
+  // 보유 기간 OR 정기 리밸런싱, 매도 되묻기 칩 '20일 보유 후 청산'). 이걸 리스크 관리 행에
+  // 두면 진행률의 '매도 조건'은 체크되는데 카드에는 매도 조건 행이 없어 "말하지 않은
+  // 매도 조건이 체크됐다"로 읽힌다(2026-09-04 사고 — KR·/us 공통). 파싱 요약 카드
+  // (lib/strategy-summary.ts getDisplayExitLabels)와 같은 행·같은 문구를 쓴다.
+  const holdPeriod = state.hold_period_days ?? parsed?.hold_period_days;
+  const exitLabels = [
+    ...getSignalExitLabels(parsed),
+    ...(hasValue(holdPeriod) ? [t("최대 {0}일 보유 후 매도", holdPeriod)] : []),
+  ];
   const riskLabel = buildRiskLabel(state, parsed, declinedFields);
   const specifiedSymbolCount = parsed?.target_symbols?.length ?? 0;
   const holdingCountFromState = hasValue(state.holding_count);
@@ -459,8 +466,15 @@ export function buildBuilderTurnPresentation({
     });
     // 사용자가 고른 방식은 요약에도 남긴다 — 화면 어디에도 없으면 무엇으로 돌았는지
     // 결과만 보고는 알 수 없다(주기만 보이던 종전 표기).
+    // 단, **고른 뒤에만** 보여준다. 방식은 스키마 기본값('reconstitute')이 늘 물질화돼
+    // 값의 존재로는 답했는지 알 수 없다 — 주기만 답한 직후 '종목 교체'가 확정된 것처럼
+    // 보이던 문제(2026-09-04). provenance는 게이트와 같은 축(explicit_fields)을 본다.
     const method = parsed?.rebalance_method;
-    if (normalizedCycle !== "none" && method) {
+    if (
+      normalizedCycle !== "none" &&
+      method &&
+      isExplicit("rebalance_method", explicitFields)
+    ) {
       summaryItems.push({
         label: t("리밸런싱 방식"),
         value: t(REBAL_METHOD_LABELS[String(method)] ?? String(method)),

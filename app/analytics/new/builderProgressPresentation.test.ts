@@ -342,8 +342,34 @@ describe("progressStatusText — 두 축을 화면 문구 하나로", () => {
 });
 
 
+describe("리밸런싱 방식 행 — 고른 뒤에만 보여준다 (2026-09-04)", () => {
+  // [회귀] 방식은 스키마 기본값 '종목 교체'가 늘 물질화돼, 주기만 답한 직후에도 카드가
+  // 방식을 확정된 것처럼 보여줬다(말하지 않은 값을 확정처럼 표시 금지).
+  const monthly = { ...themeParsed, target_symbols: [], universe: ["KOSPI"],
+    rebalancing_period: "monthly", rebalance_method: "reconstitute" } as ParsedSummary;
+
+  it("주기만 답했으면 리밸런싱 행만 있고 방식 행은 없다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {}, reply: "", parsed: monthly,
+      explicitFields: ["universe", "rebalancing"],
+    });
+    expect(presentation.summaryItems.find((i) => i.label === "리밸런싱")?.value).toBe("매월");
+    expect(presentation.summaryItems.find((i) => i.label === "리밸런싱 방식")).toBeUndefined();
+  });
+
+  it("방식을 고르면(explicit_fields) 방식 행이 나타난다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {}, reply: "", parsed: monthly,
+      explicitFields: ["universe", "rebalancing", "rebalance_method"],
+    });
+    expect(presentation.summaryItems.find((i) => i.label === "리밸런싱 방식")?.value).toBe(
+      "종목 교체",
+    );
+  });
+});
+
 describe("매도 조건 — 리스크 관리와 값을 중복하지 않는다 (2026-08-02)", () => {
-  it("매도 조건은 지표 청산만, 손절·익절·보유 기간은 리스크 관리만 보여준다", () => {
+  it("매도 조건은 지표 청산·보유 기간을, 손절·익절은 리스크 관리만 보여준다", () => {
     const presentation = buildBuilderTurnPresentation({
       state: { stop_loss_pct: 8, take_profit_pct: 30, hold_period_days: 25 },
       reply: "",
@@ -356,15 +382,34 @@ describe("매도 조건 — 리스크 관리와 값을 중복하지 않는다 (2
       },
     });
     const exit = presentation.summaryItems.find((i) => i.label === "매도 조건");
-    expect(exit?.value).toBe("MA 데드크로스");
+    expect(exit?.values).toEqual(["MA 데드크로스", "최대 25일 보유 후 매도"]);
     // 같은 값이 카드 안에서 두 번 읽히지 않는다.
     expect(exit?.value).not.toContain("손절");
     expect(exit?.value).not.toContain("익절");
     const risk = presentation.summaryItems.find((i) => i.label === "리스크 관리");
-    expect(risk?.value).toBe("손절 -8% · 익절 30% · 25일 보유");
+    expect(risk?.value).toBe("손절 -8% · 익절 30%");
   });
 
-  it("지표 청산이 없으면 매도 조건 항목 자체를 만들지 않는다", () => {
+  it("보유 기간만 말한 전략은 매도 조건 행에 보유 기간을 보여주고 체크와 맞춘다 (2026-09-04)", () => {
+    // [회귀] "최대 보유 기간 3개월, 손절 -10%"만 말하면 매도 슬롯은 보유 기간으로 채워져
+    // 진행률 '매도 조건'이 체크되는데, 카드는 보유 기간을 리스크 관리 행에 넣어 매도 조건
+    // 행이 없었다 — 사용자에게는 "말하지 않은 매도 조건이 체크됐다"로 보였다(KR·/us 공통).
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "",
+      parsed: { ...themeParsed, exit_signals: [], stop_loss_pct: 10, hold_period_days: 63 },
+    });
+    const exit = presentation.summaryItems.find((i) => i.label === "매도 조건");
+    expect(exit?.value).toBe("최대 63일 보유 후 매도");
+    expect(presentation.summaryItems.find((i) => i.label === "리스크 관리")?.value).toBe(
+      "손절 -10%",
+    );
+    expect(
+      presentation.progressItems.find((i) => i.label === "매도 조건")?.complete,
+    ).toBe(true);
+  });
+
+  it("지표 청산도 보유 기간도 없으면 매도 조건 항목 자체를 만들지 않는다", () => {
     const presentation = buildBuilderTurnPresentation({
       state: { stop_loss_pct: 8 },
       reply: "",
