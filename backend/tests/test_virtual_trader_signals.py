@@ -269,6 +269,49 @@ def test_resolve_live_universe_excludes_delisted_symbols(monkeypatch, tmp_path):
     assert resolve_live_universe({}, ["ALIVE", "OTHER"]) == ["ALIVE"]
 
 
+def test_resolve_live_universe_reads_saved_backtest_request_target_symbols(monkeypatch):
+    """백테스트 요청을 그대로 저장한 지정 종목 전략(최상위 target_symbols 없음)도 전체 목록을
+    매매 대상으로 쓴다 — 종전에는 모니터링 목록(상위 10)으로 폴백해 21종목 중 10종목만 매매."""
+    import engine.live_signal_utils as lsu
+
+    monkeypatch.setattr(lsu, "_load_delisted_symbols", lambda: set())
+    fallback = ["NBIS", "AMD"]
+
+    # 2) 중첩 canonical_strategy_dsl.target_symbols
+    saved = {
+        "backtest_mode": "single_asset", "universe_id": None,
+        "canonical_strategy_dsl": {"universe": ["US"], "target_symbols": ["NVDA", "AMD", "TSM"]},
+        "symbols": ["NVDA", "AMD", "TSM"],
+    }
+    assert resolve_live_universe(saved, fallback) == ["NVDA", "AMD", "TSM"]
+
+    # 3) 최상위 symbols 만 있는 single_asset (한국 레인도 같은 저장 형태)
+    assert resolve_live_universe(
+        {"backtest_mode": "single_asset", "universe_id": None, "symbols": ["005930", "000660", "005930"]},
+        ["005930"],
+    ) == ["005930", "000660"]
+
+    # 1) DSL 정본 target_symbols 가 있으면 그것이 우선
+    assert resolve_live_universe(
+        {"target_symbols": ["MSFT"], "backtest_mode": "single_asset", "symbols": ["NVDA"]}, fallback
+    ) == ["MSFT"]
+
+
+def test_resolve_live_universe_ignores_universe_mode_symbol_snapshot(monkeypatch):
+    """유니버스 모드의 symbols 는 백테스트 시점 스냅샷 — 매매 대상으로 고정하면 생존편향."""
+    import engine.live_signal_utils as lsu
+
+    monkeypatch.setattr(lsu, "_load_delisted_symbols", lambda: set())
+    monkeypatch.setattr(lsu, "resolve_us_symbols", lambda kind: ["AAPL", "MSFT"])
+
+    snapshot = {"backtest_mode": "universe", "universe_id": "sp500", "symbols": ["OLD1", "OLD2"]}
+    assert resolve_live_universe(snapshot, ["NBIS"]) == ["AAPL", "MSFT"]
+    # 유니버스를 못 풀면 스냅샷이 아니라 폴백(모니터링 목록)
+    assert resolve_live_universe(
+        {"backtest_mode": "universe", "universe_id": "unknown_x", "symbols": ["OLD1"]}, ["NBIS"]
+    ) == ["NBIS"]
+
+
 def test_holding_period_counts_trading_rows_not_calendar_days():
     # 심볼 형태가 시장을 결정한다(is_us_symbol) — 한국 케이스는 6자리 코드로 둔다.
     loader = StubLoader({

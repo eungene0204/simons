@@ -313,9 +313,9 @@ def _resolve_universe_symbols(
     fallback_symbols: list[str],
 ) -> list[str]:
     strategy = strategy if isinstance(strategy, dict) else {}
-    target_symbols = strategy.get("target_symbols")
-    if isinstance(target_symbols, list) and target_symbols:
-        return _unique_symbols(target_symbols)
+    target_symbols = _saved_target_symbols(strategy)
+    if target_symbols:
+        return target_symbols
 
     raw_universe = strategy.get("universe_id")
     universe_config = strategy.get("universe")
@@ -396,6 +396,31 @@ def _resolve_universe_symbols(
     except (OSError, ValueError, TypeError):
         pass
     return _unique_symbols(fallback_symbols)
+
+
+def _saved_target_symbols(strategy: dict[str, Any]) -> list[str]:
+    """지정 종목 목록 — 저장 형태 세 가지를 모두 읽는다.
+
+    1. ``target_symbols`` — 전략 DSL 정본
+    2. ``canonical_strategy_dsl.target_symbols`` — 백테스트 요청(to_backtest_request)을
+       그대로 저장한 전략. 최상위에는 target_symbols 가 없다.
+    3. ``symbols`` — 같은 저장 형태의 최상위 목록. **backtest_mode == "single_asset"
+       일 때만** 쓴다 — 유니버스 모드의 symbols 는 백테스트 시점에 풀어 둔 유니버스
+       스냅샷이라, 그것을 매매 대상으로 고정하면 과거 명단(생존편향)이 자동매매로 넘어온다.
+
+    [2026-09-07] 종전에는 1번만 읽어 2·3번 형태의 지정 종목 전략이 계좌 모니터링
+    목록(백테스트 상위 10종목)으로 폴백했다 — 21종목 전략이 10종목만 매매하는 결함.
+    """
+    nested = strategy.get("canonical_strategy_dsl")
+    candidates = (
+        strategy.get("target_symbols"),
+        nested.get("target_symbols") if isinstance(nested, dict) else None,
+        strategy.get("symbols") if strategy.get("backtest_mode") == "single_asset" else None,
+    )
+    for candidate in candidates:
+        if isinstance(candidate, list) and candidate:
+            return _unique_symbols(candidate)
+    return []
 
 
 def _load_delisted_symbols() -> set[str]:
