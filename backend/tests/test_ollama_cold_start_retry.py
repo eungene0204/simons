@@ -235,3 +235,83 @@ def test_gives_up_after_budget(monkeypatch):
     with pytest.raises(urllib.error.HTTPError):
         _ollama_open_with_retry(object(), timeout=120)
     assert calls["n"] >= 1
+
+
+def test_tls_certificate_failure_is_not_retried(monkeypatch):
+    """인증서 검증 실패는 환경 오류다 — 콜드스타트 재시도 예산(320초)을 태우지 않고 즉시,
+    원인을 말하는 예외로 올린다(2026-09-06 prod: 컨테이너 CA 저장소가 비어 106회 재시도)."""
+    import ssl
+    import urllib.error
+    import urllib.request
+
+    from engine import nl_parser
+
+    monkeypatch.setattr(nl_parser, "is_local_ollama", lambda: False)
+    monkeypatch.setattr(nl_parser, "_ollama_align_runner_num_ctx", lambda: False)
+    calls = []
+
+    def fake_urlopen(req, timeout):
+        calls.append(req)
+        raise urllib.error.URLError(
+            ssl.SSLCertVerificationError(1, "certificate verify failed: unable to get local issuer certificate")
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=b"{}", method="POST")
+    with pytest.raises(RuntimeError, match="TLS 인증서"):
+        nl_parser._ollama_open_with_retry(req, timeout=120)
+    assert len(calls) == 1
+
+
+def test_openrouter_daily_rate_limit_is_not_retried(monkeypatch):
+    """OpenRouter 무료 모델 일일 한도(free-models-per-day) 429는 그날 안에 풀리지 않는다 —
+    320초 재시도 대신 원인을 말하는 예외로 즉시 올린다(2026-09-06 prod: 82회 재시도)."""
+    import io
+    import urllib.error
+    import urllib.request
+
+    from engine import nl_parser
+
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setattr(nl_parser, "is_local_ollama", lambda: False)
+    monkeypatch.setattr(nl_parser, "_ollama_align_runner_num_ctx", lambda: False)
+    body = (b'{"error":{"message":"Rate limit exceeded: free-models-per-day. Add 10 credits",'
+            b'"code":429,"metadata":{"limit_source":"openrouter_free_tier_daily"}}}')
+    calls = []
+
+    def fake_urlopen(req, timeout):
+        calls.append(req)
+        raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=b"{}", method="POST")
+    with pytest.raises(RuntimeError, match="일일 요청 한도"):
+        nl_parser._ollama_open_with_retry(req, timeout=120)
+    assert len(calls) == 1
+
+
+def test_openrouter_per_minute_429_is_still_retried(monkeypatch):
+    """분당 한도 429는 일시적이다 — 종전처럼 재시도해 다음 시도에서 성공하면 결과를 돌려준다."""
+    import io
+    import urllib.error
+    import urllib.request
+
+    from engine import nl_parser
+
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setattr(nl_parser, "is_local_ollama", lambda: False)
+    monkeypatch.setattr(nl_parser, "_ollama_align_runner_num_ctx", lambda: False)
+    monkeypatch.setattr(nl_parser.time, "sleep", lambda s: None)
+    body = b'{"error":{"message":"Rate limit exceeded: free-models-per-min","code":429}}'
+    calls = []
+
+    def fake_urlopen(req, timeout):
+        calls.append(req)
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, io.BytesIO(body))
+        return io.BytesIO(b"{}")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=b"{}", method="POST")
+    assert nl_parser._ollama_open_with_retry(req, timeout=120).read() == b"{}"
+    assert len(calls) == 2

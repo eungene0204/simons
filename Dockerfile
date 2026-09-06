@@ -18,9 +18,12 @@ FROM node:24-slim
 # 베이스 이미지와 무관하게 같은 마이너 버전으로 묶인다. 덤으로 --break-system-packages도 사라진다.
 COPY --from=ghcr.io/astral-sh/uv:0.12.9 /uv /uvx /usr/local/bin/
 
-# 빌드도구 + sqlite(11GB DB 조회) + openssl(prisma) + curl
+# 빌드도구 + sqlite(11GB DB 조회) + openssl(prisma) + curl + CA 저장소
+# ca-certificates: uv가 설치한 Python(python-build-standalone)은 /etc/ssl/certs를 신뢰 저장소로
+# 쓴다. node:slim 베이스에는 이 디렉터리가 비어 있어 urllib의 모든 https 호출이
+# CERTIFICATE_VERIFY_FAILED로 죽는다(2026-09-06 prod 실측: OpenRouter·Modal 모두).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential sqlite3 openssl curl \
+        build-essential sqlite3 openssl curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

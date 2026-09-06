@@ -103,6 +103,14 @@ _OLLAMA_PERMANENT_400_SIGNATURES = (
 )
 
 
+def _read_http_error_body(err) -> str:
+    """HTTPError 본문을 소문자 문자열로 읽는다(못 읽으면 빈 문자열)."""
+    try:
+        return err.read().decode("utf-8", "replace").lower()
+    except Exception:
+        return ""
+
+
 def _http_400_is_permanent(err) -> bool:
     """HTTP 400이 콜드스타트 일시 오류가 아니라 영구 설정 오류(모델명 누락/없음)인지 판정한다.
 
@@ -137,6 +145,13 @@ def _is_local_connection_error(err: Exception) -> bool:
     if isinstance(err, urllib.error.HTTPError):
         return False
     return isinstance(err, (urllib.error.URLError, ConnectionError, OSError))
+
+
+def _is_tls_error(err: Exception) -> bool:
+    """URLError의 원인이 SSL/TLS 오류(인증서 검증 실패 등)인지 판정한다."""
+    import ssl
+
+    return isinstance(getattr(err, "reason", None), ssl.SSLError)
 
 
 def _ollama_ensure_warm(budget_s: float = _OLLAMA_WARMUP_BUDGET_S) -> None:
@@ -335,11 +350,29 @@ def _ollama_open_with_retry(req, timeout: int):
             # 콜드스타트 400은 재시도하면 풀리지만, 설정 오류로 인한 영구 400은 즉시 올린다.
             if transient and e.code == 400 and _http_400_is_permanent(e):
                 transient = False
+            # OpenRouter 429 중 **일일 한도**(free-models-per-day, 크레딧 없는 계정 50건/일)는
+            # 그날 안에는 풀리지 않는다 — 재시도로 320초를 태우지 말고 원인을 말하는 예외로
+            # 즉시 올린다(2026-09-06 prod 실측: 82회 재시도 뒤 사용자에겐 타임아웃만 보였다).
+            if transient and e.code == 429 and is_openrouter():
+                body = _read_http_error_body(e)
+                if "per-day" in body:
+                    raise RuntimeError(
+                        "OpenRouter 무료 모델 일일 요청 한도 초과 — 크레딧 충전 또는 일일 리셋 대기 "
+                        f"(응답: {body[:200]})"
+                    ) from e
         except urllib.error.URLError as e:
             # 취소가 진행 중 소켓을 닫아서 난 실패는 콜드스타트 재시도 대상이 아니라 취소다.
             cancellation.raise_if_cancelled()
             if _is_local_connection_error(e):
                 raise
+            if _is_tls_error(e):
+                # 인증서 검증 실패는 재시도로 풀리지 않는 환경 오류다(컨테이너 CA 저장소 비어
+                # 있음 등). 2026-09-06 prod: 106회 재시도로 320초 예산을 다 태운 뒤 사용자에게는
+                # 타임아웃만 보였다 — 원인을 말하는 예외로 즉시 올린다.
+                raise RuntimeError(
+                    f"LLM 엔드포인트 TLS 인증서 검증 실패 — 실행 환경의 CA 저장소를 확인하세요 "
+                    f"(원인: {e.reason!r})"
+                ) from e
             last_err = e
             transient = True
         except (TimeoutError, OSError) as e:
