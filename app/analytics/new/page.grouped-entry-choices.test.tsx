@@ -54,10 +54,14 @@ const ENTRY_CHIPS = [
   "ROE 15% 이상",
 ];
 
+// 유니버스 칩을 누르면 빌더가 내주는 다음 슬롯 질문 — 테스트가 바꿔 끼운다.
+let slotAnswer: { reply: string; suggestions: string[] };
+
 // 매수 조건 칩 목록은 성격이 다른 칩(시점 신호·랭킹·필터)이 평평하게 섞여 있었고, 자유
 // 입력은 열 번째 칩으로 목록 끝에 묻혀 있었다(2026-09-04). 묶음 소제목으로 갈라 보이고
 // 입력창을 칩 위에 처음부터 열어 둔다 — 칩 문구·값·순번은 그대로다(칩=값 결속 계약).
-describe("매수 조건 선택지 묶음", () => {
+// 2026-09-06부터 같은 표시 규칙이 유니버스를 뺀 나머지 슬롯 박스에도 적용된다.
+describe("슬롯 선택지 표시", () => {
   const builderRequests: Array<{ state: Record<string, unknown>; input: string }> = [];
 
   beforeEach(() => {
@@ -71,6 +75,8 @@ describe("매수 조건 선택지 묶음", () => {
     });
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
     vi.stubGlobal("scrollTo", vi.fn());
+
+    slotAnswer = { reply: ENTRY_QUESTION, suggestions: ENTRY_CHIPS };
 
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -90,8 +96,8 @@ describe("매수 조건 선택지 묶음", () => {
           return Promise.resolve(
             createJsonResponse({
               state: { universe: "KOSPI" },
-              reply: ENTRY_QUESTION,
-              suggestions: ENTRY_CHIPS,
+              reply: slotAnswer.reply,
+              suggestions: slotAnswer.suggestions,
             }),
           );
         }
@@ -111,15 +117,17 @@ describe("매수 조건 선택지 묶음", () => {
     vi.unstubAllGlobals();
   });
 
-  async function reachEntryQuestion() {
+  async function reachSlotQuestion(question: string) {
     render(<StrategyLabPage />);
     fireEvent.change(await screen.findByRole("textbox"), {
       target: { value: "어떤 전략이 좋아?" },
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
     fireEvent.click(await screen.findByRole("button", { name: "코스피" }));
-    expect(await screen.findByText(ENTRY_QUESTION)).toBeInTheDocument();
+    expect(await screen.findByText(question)).toBeInTheDocument();
   }
+
+  const reachEntryQuestion = () => reachSlotQuestion(ENTRY_QUESTION);
 
   it("칩을 세 묶음의 소제목 아래 보이고 순번은 묶음을 가로질러 이어진다", async () => {
     await reachEntryQuestion();
@@ -172,5 +180,49 @@ describe("매수 조건 선택지 묶음", () => {
     await waitFor(() => {
       expect(builderRequests.at(-1)).toEqual({ state: { universe: "KOSPI" }, input: "PER 10 이하" });
     });
+  });
+
+  // [2026-09-06 사용자 지시] 같은 설계 의도를 유니버스를 뺀 나머지 슬롯 박스에도 적용했다.
+  // 손절처럼 값/거부가 갈리는 목록은 소제목 둘, 초기 자본처럼 한 축의 값만 있는 목록은
+  // 소제목 없이 평평하게 — 어느 쪽이든 입력창은 칩 위에 열려 있다.
+  it("손절 박스도 입력창을 앞세우고 값·거부를 소제목으로 가른다", async () => {
+    slotAnswer = {
+      reply: "이제 손절 기준을 몇 %로 정할까요?",
+      suggestions: ["손절 -5%", "손절 -10%", "손절 -15%", "손절 안 함"],
+    };
+    await reachSlotQuestion("이제 손절 기준을 몇 %로 정할까요?");
+
+    const freeInput = screen.getByPlaceholderText("원하는 손절 기준을 직접 적어 주세요");
+    expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
+    expect(screen.getByText("손절 폭")).toBeInTheDocument();
+    expect(screen.getByText("사용 안 함")).toBeInTheDocument();
+    expect(screen.getByText(/칩에 없는 값\(예: -7% 손절\)/)).toBeInTheDocument();
+    expect(
+      freeInput.compareDocumentPosition(screen.getByText("손절 폭")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // 칩 문구·순번은 그대로다(칩=값 결속 계약).
+    expect(screen.getByRole("button", { name: "손절 안 함" }).textContent).toBe("4손절 안 함");
+
+    fireEvent.click(screen.getByRole("button", { name: "손절 -10%" }));
+    await waitFor(() => {
+      expect(builderRequests.at(-1)).toEqual({
+        state: { universe: "KOSPI" },
+        input: "손절 -10%",
+      });
+    });
+  });
+
+  it("한 축의 값만 있는 초기 자본 박스는 소제목 없이 입력창·안내만 받는다", async () => {
+    slotAnswer = {
+      reply: "초기 투자 자금을 얼마로 설정할까요?",
+      suggestions: ["500만원", "1,000만원", "3,000만원", "5,000만원"],
+    };
+    await reachSlotQuestion("초기 투자 자금을 얼마로 설정할까요?");
+
+    expect(screen.getByPlaceholderText("원하는 초기 자금을 직접 적어 주세요")).toBeInTheDocument();
+    expect(screen.getByText("칩에 없는 금액도 위 입력창에 적을 수 있어요.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "500만원" }).textContent).toBe("1500만원");
+    expect(screen.getByRole("button", { name: "5,000만원" }).textContent).toBe("45,000만원");
   });
 });

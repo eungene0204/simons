@@ -927,8 +927,8 @@ function ChoiceOptionList({
       title: group.title,
       chips: group.options.map((option) => ({ option, number: ++number })),
     }));
-    const renderGroup = (group: (typeof numbered)[number]) => (
-      <div key={group.title || "rest"} className="flex flex-col gap-1.5">
+    const renderGroup = (group: (typeof numbered)[number], key: number) => (
+      <div key={key} className="flex flex-col gap-1.5">
         {group.title && <p className={CHOICE_CAPTION_CLASS}>{t(group.title)}</p>}
         {group.chips.map(({ option, number }) => renderChip(option, number))}
       </div>
@@ -946,12 +946,18 @@ function ChoiceOptionList({
         {captionNode}
         {/* 첫 묶음이 가장 길다 — 넓은 화면에선 나머지 묶음을 오른쪽 열에 세워 세로 길이를 줄인다. */}
         <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
-          <div className="min-w-[15rem]">{renderGroup(first)}</div>
+          <div className="min-w-[15rem]">{renderGroup(first, 0)}</div>
           {others.length > 0 && (
-            <div className="flex min-w-[15rem] flex-col gap-3">{others.map(renderGroup)}</div>
+            <div className="flex min-w-[15rem] flex-col gap-3">
+              {others.map((group, index) => renderGroup(group, index + 1))}
+            </div>
           )}
         </div>
-        <p className="text-[11px] leading-relaxed text-[var(--text-label)]">{t(grouped.note)}</p>
+        {/* 안내는 칩 하나로 못 고르는 답이 있을 때만 온다 — 질문 본문이 이미 다 말한
+            목록(리밸런싱 방식)에 겹쳐 붙이지 않는다. */}
+        {grouped.note && (
+          <p className="text-[11px] leading-relaxed text-[var(--text-label)]">{t(grouped.note)}</p>
+        )}
         {trailing}
       </div>
     );

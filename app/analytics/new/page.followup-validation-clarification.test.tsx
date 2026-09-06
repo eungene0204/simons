@@ -126,9 +126,11 @@ async function startStrategy() {
 }
 
 async function askHowToProceed() {
-  // 되묻기 칩이 떠 있는 동안에는 입력창이 숨겨진다 — '직접 입력'으로 다시 연다.
-  fireEvent.click(await screen.findByRole("button", { name: "직접 입력" }, { timeout: 5000 }));
-  const input = await screen.findByRole("textbox");
+  // 되묻기 칩이 떠 있는 동안에는 하단 입력창이 숨겨진다. 정본에서 알아본 목록(리밸런싱·
+  // 익절 등)은 카드 안 입력창이 칩 위에 이미 열려 있고, 아니면 '직접 입력'으로 연다.
+  const freeInputChip = screen.queryByRole("button", { name: "직접 입력" });
+  if (freeInputChip) fireEvent.click(freeInputChip);
+  const input = await screen.findByRole("textbox", undefined, { timeout: 5000 });
   fireEvent.change(input, { target: { value: "어떻게 해야 할까?" } });
   fireEvent.click(screen.getByRole("button", { name: /전략 생성|전송/ }));
 }

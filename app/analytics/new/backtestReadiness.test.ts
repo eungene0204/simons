@@ -230,8 +230,10 @@ describe("explicit_fields 기반 되묻기 게이트 (원문 정규식 폐지)",
     ).toBe(true);
   });
 
-  it("유니버스만 선택지가 닫힌 슬롯이다 — 나머지는 자유 입력을 연다", () => {
+  // 리밸런싱 방식은 엔진이 아는 값이 둘뿐이고 질문 본문이 둘을 다 설명한다(2026-09-06 지시).
+  it("유니버스·리밸런싱 방식이 선택지가 닫힌 슬롯이다 — 나머지는 자유 입력을 연다", () => {
     expect(isClosedChoiceSlot("universe")).toBe(true);
+    expect(isClosedChoiceSlot("rebalance_method")).toBe(true);
     for (const field of ["entry", "exit", "max_positions", "rebalancing",
       "stop_loss", "take_profit", "backtest_period", "initial_capital"]) {
       expect(isClosedChoiceSlot(field)).toBe(false);

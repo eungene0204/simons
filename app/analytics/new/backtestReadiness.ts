@@ -233,12 +233,14 @@ const SLOT_PROMPTS = slotPrompts.slots as Record<
   { question: string; suggestions: string[] }
 >;
 
-/** 제시한 선택지가 곧 답의 전부인 슬롯 — 자유 입력 칩("직접 입력")을 붙이지 않는다.
- *  유니버스는 우리가 지원하는 시장 범위가 정본의 목록으로 닫혀 있어, 자유 입력 칩이
- *  "다른 답도 된다"는 없는 여지를 만든다. 빌더 칩 경로는 이미 같은 판정을 한다
+/** 제시한 선택지가 곧 답의 전부인 슬롯 — 자유 입력 칩("직접 입력")도, 카드 안 입력창도
+ *  붙이지 않는다. 유니버스는 우리가 지원하는 시장 범위가 정본의 목록으로 닫혀 있어,
+ *  자유 입력이 "다른 답도 된다"는 없는 여지를 만든다. 리밸런싱 방식도 같다 —
+ *  `REBALANCE_METHOD_CHIP_VALUES`의 두 값(종목 교체·비중 조정)이 엔진이 아는 전부이고
+ *  질문 본문이 둘을 다 설명한다(2026-09-06 지시). 빌더 칩 경로는 이미 같은 판정을 한다
  *  (page.tsx `withBuilderNavigationSuggestions`의 유니버스 단계 분기). */
 export function isClosedChoiceSlot(field: string | null | undefined): boolean {
-  return field === "universe";
+  return field === "universe" || field === "rebalance_method";
 }
 
 // 진행 순서 = 사용자에게 보이는 골격 순서(백엔드 FIELD_ORDER와 동일).

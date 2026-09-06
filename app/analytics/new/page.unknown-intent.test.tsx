@@ -243,9 +243,13 @@ describe("StrategyLab unknown intent fallback", () => {
     fireEvent.click(await screen.findByRole("button", { name: "코스피" }));
     // 빌더에는 리밸런싱 방식 단계가 없다 — 주기만 답한 채 확정되면 게이트가 방식을 묻는다
     // (FR-BT-067: 말하지 않은 방식을 종목 교체로 조용히 확정하지 않는다).
-    fireEvent.click(
-      await screen.findByRole("button", { name: "종목 교체 리밸런싱" }),
-    );
+    const rebalanceMethodChip = await screen.findByRole("button", {
+      name: "종목 교체 리밸런싱",
+    });
+    // 닫힌 선택지다(2026-09-06 지시) — 두 칩이 답의 전부라 입력창도 '직접 입력' 칩도 없다.
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
+    fireEvent.click(rebalanceMethodChip);
     expect(
       await screen.findByText(
         "이제 익절 기준을 몇 %로 정할까요?",
@@ -254,7 +258,10 @@ describe("StrategyLab unknown intent fallback", () => {
     expect(screen.getByRole("button", { name: "익절 10%" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "익절 20%" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "익절 30%" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "직접 입력" })).toBeInTheDocument();
+    // 익절 목록은 정본에서 알아보므로 '직접 입력' 칩 대신 카드 안 입력창이 열려 있다.
+    expect(
+      screen.getByPlaceholderText("원하는 익절 기준을 직접 적어 주세요"),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/현재 상태로도 백테스트를 실행할 수 있습니다/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "백테스트 시작하기" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "익절 20%" }));

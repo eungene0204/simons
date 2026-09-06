@@ -109,8 +109,10 @@ function mockFetch(classifyForPrompt: (query: string) => Record<string, unknown>
 }
 
 async function sendFreeText(text: string) {
-  // 되묻기 칩이 떠 있는 동안에는 입력창이 숨겨진다 — '직접 입력'으로 다시 연다.
-  fireEvent.click(await screen.findByRole("button", { name: "직접 입력" }));
+  // 되묻기 칩이 떠 있는 동안에는 하단 입력창이 숨겨진다. 정본에서 알아본 목록(익절 등)은
+  // 카드 안 입력창이 칩 위에 이미 열려 있고, 그렇지 않은 목록은 '직접 입력'으로 연다.
+  const freeInputChip = screen.queryByRole("button", { name: "직접 입력" });
+  if (freeInputChip) fireEvent.click(freeInputChip);
   const textarea = await screen.findByRole("textbox");
   fireEvent.change(textarea, { target: { value: text } });
   fireEvent.click(screen.getByRole("button", { name: /전략 생성|전송/ }));

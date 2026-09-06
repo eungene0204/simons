@@ -173,8 +173,10 @@ describe("파스 턴 뒤 되묻기 카드의 '돌아가기'", () => {
     // 유니버스는 칩으로, 매도 조건은 자유 서술로 답한다.
     fireEvent.click(screen.getByRole("button", { name: "코스피" }));
     expect(await screen.findByText(EXIT_QUESTION)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "직접 입력" }));
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: FREE_ANSWER } });
+    // 매도 조건 목록은 정본에서 알아보므로 입력창이 칩 위에 이미 열려 있다.
+    fireEvent.change(screen.getByPlaceholderText("원하는 매도 조건을 직접 적어 주세요"), {
+      target: { value: FREE_ANSWER },
+    });
     fireEvent.click(screen.getByRole("button", { name: "전송" }));
 
     // 파스 뒤 다음 질문(최대 보유) 카드에도 '돌아가기'가 있다.
@@ -191,8 +193,9 @@ describe("파스 턴 뒤 되묻기 카드의 '돌아가기'", () => {
     expect(screen.queryByText(FREE_ANSWER)).not.toBeInTheDocument();
 
     // 되돌린 뒤의 자유 답변은 지워진 질문이 아니라 매도 조건 질문의 답으로 나간다.
-    fireEvent.click(screen.getByRole("button", { name: "직접 입력" }));
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "20일 보유 후 청산" } });
+    fireEvent.change(screen.getByPlaceholderText("원하는 매도 조건을 직접 적어 주세요"), {
+      target: { value: "20일 보유 후 청산" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "전송" }));
     await waitFor(() => {
       expect(parseBodies().at(-1).prompt).toBe("20일 보유 후 청산");
