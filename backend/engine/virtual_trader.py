@@ -1,7 +1,7 @@
 """
 VirtualTrader — FastAPI 백그라운드 자동매매 엔진
 
-장중(KST 09:00~15:30, 평일) 30초 간격으로:
+장중(한국 계좌 KST 09:00~15:30 · 미국 계좌 ET 09:30~16:00, 평일) 30초 간격으로:
   1. running 상태의 가상계좌 조회 (SQLite)
   2. 전략 조건 파싱 (Strategy.settings JSON)
   3. 실시간 시세 조회 (MarketDataProvider)
@@ -185,12 +185,43 @@ def _account_market_open(account: dict, now: Optional[datetime] = None) -> bool:
     )
 
 
-def _is_strategy_execution_window(execution_timing: str) -> bool:
-    now = datetime.now(_KST)
+def _is_strategy_execution_window(
+    execution_timing: str,
+    account: Optional[dict] = None,
+    now: Optional[datetime] = None,
+) -> bool:
+    """전략 시그널을 집행하는 시각 창 — 계좌 시장의 시계로 판정한다.
+
+    한국 계좌: next_open=09:00~09:05 KST, current_close=15:30 KST.
+    미국 계좌: next_open=개장 후 5분, current_close=정규장 종료 분(ET) —
+    [2026-09-05] 종전에는 KST 고정이라 미국 계좌는 자기 장중(KST 밤~새벽)에
+    이 창을 한 번도 지나지 못해 전략 매수·매도 시그널이 매 틱 전부 지워졌다
+    (리스크 청산·지정가 체결만 살아 있었다).
+    """
+    if account is not None and _account_is_usd(account):
+        return _is_us_strategy_execution_window(execution_timing, now)
+    now = now.astimezone(_KST) if now is not None else datetime.now(_KST)
     t = now.hour * 100 + now.minute
     if execution_timing == "current_close":
         return t == 1530
     return 900 <= t <= 905
+
+
+def _is_us_strategy_execution_window(
+    execution_timing: str, now: Optional[datetime] = None
+) -> bool:
+    """미국 계좌의 집행 창(ET). 조기 종료일은 달력의 종료 시각(13:00 ET 등)을 따른다."""
+    now = now.astimezone(_ET) if now is not None else datetime.now(_ET)
+    session = us_market_calendar.regular_session(now)
+    if session is not None:
+        start, end = session
+    else:
+        start = now.replace(hour=9, minute=30, second=0, microsecond=0)
+        end = now.replace(hour=16, minute=0, second=0, microsecond=0)
+    minute = now.replace(second=0, microsecond=0)
+    if execution_timing == "current_close":
+        return minute == end.replace(second=0, microsecond=0)
+    return start <= minute <= start + timedelta(minutes=5)
 
 
 def _fresh_price_map(quotes: dict, today: str) -> dict[str, float]:
@@ -393,8 +424,9 @@ class VirtualTrader:
             result = {r[0]: r[1] for r in rows if r[1]}
             missing = [symbol for symbol in symbols if symbol not in result]
             if missing:
-                from engine.universe_pit import etf_name_map
+                from engine.universe_pit import etf_name_map, us_name_map
                 result.update(etf_name_map(missing))
+                result.update(us_name_map([s for s in missing if is_us_symbol(s)]))
             return result
         except Exception:
             return {}
@@ -543,7 +575,7 @@ class VirtualTrader:
                 today,
             )
 
-        strategy_execution_allowed = _is_strategy_execution_window(execution_timing)
+        strategy_execution_allowed = _is_strategy_execution_window(execution_timing, account)
         if not strategy_execution_allowed:
             for signal in signals:
                 signal["entry_signal"] = False
@@ -710,7 +742,7 @@ class VirtualTrader:
                                 pos["quantity"], float(close), exit_reason,
                             )
                         executed_today.add(f"{sym}_exit_auto_executed")
-                        logger.info("[VirtualTrader] 매도 %s %s %d주 @%d", account_id, sym, pos["quantity"], close)
+                        logger.info("[VirtualTrader] 매도 %s %s %d주 @%s", account_id, sym, pos["quantity"], _price_display(close, sym))
                 elif f"{sym}_exit_notified" not in executed_today:
                     # 알림은 하루 1회만 기록 (30초 틱마다 중복 로그 방지)
                     await asyncio.to_thread(
@@ -742,7 +774,7 @@ class VirtualTrader:
                             "entry", sig.get("entry_reason"), "auto_executed", order_id, stock_name
                         )
                         executed_today.add(f"{sym}_entry_auto_executed")
-                        logger.info("[VirtualTrader] 매수 %s %s @%d", account_id, sym, close)
+                        logger.info("[VirtualTrader] 매수 %s %s @%s", account_id, sym, _price_display(close, sym))
                 elif f"{sym}_entry_notified" not in executed_today:
                     await asyncio.to_thread(
                         self._log_signal, account_id, today, sym, close,

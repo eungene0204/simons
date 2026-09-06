@@ -126,3 +126,59 @@ def test_prepare_signal_dataframe_injects_live_ai_scores():
     assert last["close"] == 204.0
     assert last["ai_score"] == 0.91
     assert last["ai_drop_score"] == 0.12
+
+
+# ── 미국 유니버스·가격만 주는 시세 소스(2026-09-05) ────────────────────────────
+
+def test_resolve_live_universe_us_index_uses_us_roster(monkeypatch):
+    """미국 유니버스 id는 백테스트와 같은 명부로 풀린다 — 종전에는 어느 분기에도 걸리지
+    않아 계좌의 한국 모니터링 목록으로 폴백했고, 통화 격리 가드가 전부 제외해 매수 후보 0개."""
+    import engine.live_signal_utils as lsu
+
+    monkeypatch.setattr(lsu, "resolve_us_symbols", lambda kind: {"sp500": ["AAPL", "MSFT", "AAPL"]}.get(kind, []))
+    monkeypatch.setattr(lsu, "_load_delisted_symbols", lambda: set())
+
+    kr_fallback = ["005930", "000660"]
+    assert lsu.resolve_live_universe({"universe_id": "sp500"}, kr_fallback) == ["AAPL", "MSFT"]
+    assert lsu.resolve_live_universe({"universe_id": "SP500"}, kr_fallback) == ["AAPL", "MSFT"]
+    assert lsu.resolve_live_universe({"universe": {"id": "sp500", "filters": {}}}, kr_fallback) == ["AAPL", "MSFT"]
+    assert lsu.resolve_live_universe({"universe": ["SP500"]}, kr_fallback) == ["AAPL", "MSFT"]
+
+
+def test_resolve_live_universe_us_without_roster_never_falls_back_to_kr(monkeypatch):
+    import engine.live_signal_utils as lsu
+
+    monkeypatch.setattr(lsu, "resolve_us_symbols", lambda kind: [])
+    monkeypatch.setattr(lsu, "_load_delisted_symbols", lambda: set())
+
+    assert lsu.resolve_live_universe({"universe_id": "us_etf"}, ["005930", "SPY", "QQQ"]) == ["SPY", "QQQ"]
+    assert lsu.resolve_live_universe({"universe_id": "nasdaq100"}, ["005930"]) == []
+
+
+def test_apply_realtime_quote_ignores_zero_ohlc_from_price_only_source():
+    """토스 US는 lastPrice만 주고 open/high/low/volume을 0으로 채운다 — 0을 덮어쓰면
+    당일 봉 고가·저가가 0이 돼 ATR·볼린저 등이 무너진다. 새 봉은 시고저=현재가."""
+    df = pl.DataFrame({
+        "date": ["2026-09-03"],
+        "open": [100.0], "high": [110.0], "low": [95.0], "close": [105.0], "volume": [1000.0],
+    })
+
+    updated = apply_realtime_quote(df, {
+        "date": "2026-09-04", "open": 0, "high": 0, "low": 0, "close": 107.5, "volume": 0,
+    })
+
+    assert len(updated) == 2
+    last = updated.tail(1).to_dicts()[0]
+    assert last["close"] == 107.5
+    assert last["open"] == 107.5 and last["high"] == 107.5 and last["low"] == 107.5
+    assert last["volume"] == 1000.0  # 알 수 없는 거래량은 직전 봉 값 유지(0으로 무너뜨리지 않음)
+
+
+def test_apply_realtime_quote_same_day_zero_ohlc_keeps_parquet_bar():
+    df = pl.DataFrame({
+        "date": ["2026-09-04"],
+        "open": [100.0], "high": [110.0], "low": [95.0], "close": [105.0], "volume": [1000.0],
+    })
+    updated = apply_realtime_quote(df, {"date": "2026-09-04", "open": 0, "high": 0, "low": 0, "close": 108.0, "volume": 0})
+    last = updated.tail(1).to_dicts()[0]
+    assert (last["open"], last["high"], last["low"], last["close"], last["volume"]) == (100.0, 110.0, 95.0, 108.0, 1000.0)

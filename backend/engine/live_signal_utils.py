@@ -8,6 +8,7 @@ import pandas as pd
 import polars as pl
 
 from engine.indicators import IndicatorEngine
+from engine.universe_pit import is_us_symbol, resolve_us_symbols, us_universe_kind
 
 
 _DATA_DIR = Path(__file__).resolve().parents[2] / "data"
@@ -70,10 +71,12 @@ def apply_realtime_quote(df_pl: pl.DataFrame, quote: Any) -> pl.DataFrame:
     price_fields = ("open", "high", "low", "close", "volume")
     fundamental_fields = ("per", "pbr", "eps", "bps")
     target_idx = len(pdf) - 1
+    appended = False
     if quote_date is not None and last_date is not None and quote_date > last_date:
         target_idx = len(pdf)
+        appended = True
 
-    if target_idx == len(pdf):
+    if appended:
         new_row = last_row.copy()
         if "date" in pdf.columns and date_value is not None:
             new_row["date"] = date_value
@@ -84,11 +87,28 @@ def apply_realtime_quote(df_pl: pl.DataFrame, quote: Any) -> pl.DataFrame:
             return quote.get(field)
         return getattr(quote, field, None)
 
+    # 0 이하의 OHLCV는 "값 없음"으로 본다 — 토스 US처럼 lastPrice만 주는 소스는
+    # open/high/low/volume을 0으로 채워 보내는데, 그대로 덮어쓰면 오늘 봉의 고가·저가가
+    # 0이 돼 ATR·볼린저 등 고저가 기반 지표가 무너진다(2026-09-05). 새로 붙인 당일 봉은
+    # 시가·고가·저가를 알 수 없으니 현재가로 두고, 거래량은 직전 봉 값을 유지한다.
+    provided: dict[str, Any] = {}
     for field in price_fields:
+        value = _get_value(field)
+        if value is None:
+            continue
+        try:
+            if float(value) <= 0:
+                continue
+        except (TypeError, ValueError):
+            continue
+        provided[field] = value
+    if appended and "close" in provided:
+        for field in ("open", "high", "low"):
+            provided.setdefault(field, provided["close"])
+
+    for field, value in provided.items():
         if field in pdf.columns:
-            value = _get_value(field)
-            if value is not None:
-                pdf.at[target_idx, field] = value
+            pdf.at[target_idx, field] = value
 
     # 실시간 PER/PBR/EPS/BPS 반영 (KIS API 등에서 제공 시)
     for field in fundamental_fields:
@@ -313,6 +333,18 @@ def _resolve_universe_symbols(
     universe_id = _UNIVERSE_ALIASES.get(universe_id, universe_id)
     sector = strategy.get("sector") or filters.get("selectedSectors")
 
+    # [2026-09-05] 미국 유니버스(sp500·nasdaq100·dow30·nasdaq·us·us_etf)는 백테스트와 같은
+    # 명부(universe_pit.resolve_us_symbols)로 푼다. 종전에는 아래 한국 분기 어디에도 걸리지
+    # 않아 계좌의 모니터링 목록(한국 종목)으로 폴백 → 통화 격리 가드가 전부 제외해
+    # 미국 계좌의 매수 후보가 항상 0개였다(prod 로그 "통화가 다른 종목 N개 제외" 반복).
+    # 명부가 비어도 한국 종목으로 채우지 않는다 — 폴백 목록 중 미국 티커만 남긴다.
+    us_kind = us_universe_kind(universe_id)
+    if us_kind:
+        us_symbols = _unique_symbols(resolve_us_symbols(us_kind))
+        if us_symbols:
+            return us_symbols
+        return _unique_symbols([s for s in fallback_symbols if is_us_symbol(str(s))])
+
     try:
         if universe_id == "etf":
             payload = json.loads((_DATA_DIR / "etf-master.json").read_text(encoding="utf-8"))
@@ -406,7 +438,7 @@ def count_holding_sessions(
     through_date: str,
     quote: Any = None,
 ) -> int:
-    """Count KRX data rows after the entry session through the current session."""
+    """Count trading-session rows after the entry session through the current session."""
     df = data_loader.load_symbol_data(symbol)
     if df is None or len(df) == 0 or "date" not in df.columns:
         return 0
@@ -414,7 +446,11 @@ def count_holding_sessions(
     dates = pd.to_datetime(live_df["date"].to_list(), errors="coerce")
     opened = pd.Timestamp(opened_at)
     if opened.tzinfo is not None:
-        opened = opened.tz_convert("Asia/Seoul")
+        # 진입 세션의 날짜는 그 종목 시장의 현지 날짜다 — 미국 종목을 KST로 바꾸면
+        # 정규장(ET 오후 = KST 새벽) 진입이 다음 날로 밀려 보유 세션이 하루 덜 세진다.
+        opened = opened.tz_convert(
+            "America/New_York" if is_us_symbol(symbol) else "Asia/Seoul"
+        )
     opened_date = opened.tz_localize(None).normalize()
     through = pd.Timestamp(through_date).normalize()
     return int(((dates > opened_date) & (dates <= through)).sum())

@@ -270,8 +270,9 @@ def test_resolve_live_universe_excludes_delisted_symbols(monkeypatch, tmp_path):
 
 
 def test_holding_period_counts_trading_rows_not_calendar_days():
+    # 심볼 형태가 시장을 결정한다(is_us_symbol) — 한국 케이스는 6자리 코드로 둔다.
     loader = StubLoader({
-        "A": pl.DataFrame({
+        "000001": pl.DataFrame({
             "date": ["2025-01-03", "2025-01-06", "2025-01-07"],
             "open": [100, 100, 100],
             "high": [100, 100, 100],
@@ -282,7 +283,7 @@ def test_holding_period_counts_trading_rows_not_calendar_days():
     })
 
     sessions = count_holding_sessions(
-        loader, "A", "2025-01-03T00:30:00+00:00", "2025-01-07"
+        loader, "000001", "2025-01-03T00:30:00+00:00", "2025-01-07"
     )
 
     assert sessions == 2
@@ -319,7 +320,7 @@ async def test_next_open_refresh_evaluates_universe_but_quotes_actions_only(monk
     monkeypatch.setattr(
         virtual_trader_module,
         "_is_strategy_execution_window",
-        lambda _timing: True,
+        lambda _timing, *_a: True,
     )
     monkeypatch.setattr(trader, "_fetch_strategy", lambda _strategy_id: {
         "universe_id": "kospi",
@@ -391,7 +392,7 @@ async def test_pending_limit_order_blocked_when_trading_suspended(monkeypatch):
         virtual_trader_module, "resolve_live_universe", lambda _dsl, _fallback: []
     )
     monkeypatch.setattr(
-        virtual_trader_module, "_is_strategy_execution_window", lambda _timing: True
+        virtual_trader_module, "_is_strategy_execution_window", lambda _timing, *_a: True
     )
     monkeypatch.setattr(trader, "_fetch_strategy", lambda _strategy_id: {
         "universe_id": "kospi",
@@ -448,3 +449,16 @@ def test_strategy_execution_windows(monkeypatch):
     FakeDateTime.current = (15, 30)
     assert _is_strategy_execution_window("next_open") is False
     assert _is_strategy_execution_window("current_close") is True
+
+
+def test_holding_period_us_symbol_uses_new_york_session_date():
+    """미국 종목의 진입 세션 날짜는 ET 기준 — KST로 바꾸면(ET 오후=KST 새벽 익일) 하루 덜 센다."""
+    loader = StubLoader({
+        "AAPL": pl.DataFrame({
+            "date": ["2025-01-03", "2025-01-06", "2025-01-07"],
+            "open": [100, 100, 100], "high": [100, 100, 100], "low": [100, 100, 100],
+            "close": [100, 100, 100], "volume": [1000, 1000, 1000],
+        })
+    })
+    # 2025-01-03 15:00 ET 체결 = 2025-01-03T20:00Z = KST 01-04 05:00
+    assert count_holding_sessions(loader, "AAPL", "2025-01-03T20:00:00+00:00", "2025-01-07") == 2
