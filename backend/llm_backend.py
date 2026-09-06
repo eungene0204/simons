@@ -18,9 +18,54 @@ import platform
 from typing import Literal, Optional
 
 Backend = Literal["mlx", "ollama"]
+Provider = Literal["ollama", "openrouter"]
 
 # Ollama HTTP 엔드포인트 (배포 시 OLLAMA_HOST 로 교체 가능)
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+
+# ── LLM 전송 프로바이더 ──────────────────────────────────────────────────────
+# LLM_PROVIDER=openrouter 이면 모든 chat 호출(파서·인터프리터·검증기·코치·AI 리포트)이
+# 로컬/Modal Ollama 대신 OpenRouter(OpenAI 호환 API)로 간다(2026-09-06 사용자 결정:
+# 로컬 Qwen 모델·prod Modal LLM 대신 API 사용 실험). 호출부는 Ollama /api/chat 형태의
+# payload를 그대로 만들고, 전송 어댑터(llm_chat.py)가 프로바이더별 형식으로 바꾼다.
+OPENROUTER_BASE_URL = os.environ.get(
+    "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+).rstrip("/")
+# 기본 모델 — 사용자 지정 Qwen3-32B. `:free` 슬러그는 2026-09-06 실측 404
+# ("This model is unavailable for free")라 유료 슬러그가 정본이다.
+OPENROUTER_DEFAULT_MODEL = "qwen/qwen3-32b"
+
+
+def llm_provider() -> Provider:
+    """LLM 전송 프로바이더. 기본 "ollama", LLM_PROVIDER=openrouter 이면 "openrouter"."""
+    value = os.environ.get("LLM_PROVIDER", "ollama").strip().lower()
+    return "openrouter" if value == "openrouter" else "ollama"
+
+
+def is_openrouter() -> bool:
+    return llm_provider() == "openrouter"
+
+
+def openrouter_model() -> str:
+    """OpenRouter 레인의 모델 슬러그(OPENROUTER_MODEL). 전 슬롯이 이 한 모델을 쓴다 —
+    Ollama 슬롯 env(NL_OLLAMA_MODEL 등)는 Ollama 모델명이라 OpenRouter에는 의미가 없다."""
+    return os.environ.get("OPENROUTER_MODEL", "").strip() or OPENROUTER_DEFAULT_MODEL
+
+
+def openrouter_headers() -> dict[str, str]:
+    """OpenRouter 인증 헤더. 키가 없으면 즉시 실패한다 — 조용히 로컬로 폴백하면
+    운영과 다른 모델로 검증하고도 성공한 것처럼 보이는 사고가 난다(FR-STR-019p ⑤)."""
+    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError(
+            "LLM_PROVIDER=openrouter 인데 OPENROUTER_API_KEY 가 비어 있습니다 — "
+            ".env에 키를 넣거나 LLM_PROVIDER를 ollama로 되돌리세요."
+        )
+    return {
+        "Authorization": f"Bearer {key}",
+        "HTTP-Referer": "https://nullstock.im",
+        "X-Title": "nullstock",
+    }
 
 # ── Ollama 모델 슬롯 정본 ────────────────────────────────────────────────────
 # 이 프로젝트가 쓰는 로컬 모델은 **9B 하나뿐이다**(2026-08-03 사용자 결정 — 분류·파서·
@@ -51,6 +96,10 @@ def is_local_ollama() -> bool:
     로컬이면 콜드스타트가 없으므로 서버 시작 시 모델을 즉시 메모리에 적재할 수 있다.
     원격(Modal)은 scale-to-zero 콜드스타트 특성상 GET 워밍업을 따로 쓴다.
     """
+    if is_openrouter():
+        # OpenRouter는 원격 API다 — 로컬 러너 관리(preload·prefill·num_ctx 정합 가드·
+        # 연결거부 fast-fail)는 전부 Ollama 로컬 전용이라 여기서 False로 끊는다.
+        return False
     return any(host in OLLAMA_BASE_URL for host in ("localhost", "127.0.0.1", "0.0.0.0"))
 
 

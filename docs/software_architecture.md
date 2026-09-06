@@ -572,6 +572,9 @@ NLStrategyParser.parse() (backend/engine/nl_parser.py)
     │       실행 후 도착하면 무시한다(실행 스냅샷 일관성). 'validating' stage는 후행 모드에서
     │       보내지 않는다(로딩 표시 회귀 방지). 비스트림 /strategy/parse는 기존 인라인 검증 유지.
     ├── 백엔드 선택: MLX (Mac) 또는 Ollama
+    ├── 전송 프로바이더(llm_chat.py): LLM_PROVIDER=ollama(로컬/Modal Ollama) | openrouter
+    │   (OpenRouter OpenAI 호환 API, 2026-09-06 실험) — 호출부는 Ollama /api/chat 형태만 알고
+    │   어댑터가 형식을 번역한다(§ 7.1 표)
     ├── compact prompt + JSON output → ParsedStrategy 스키마 정규화
     ├── tail-truncated JSON repair, 실패 시 fallback ParsedStrategy 생성
     └── 수정 모드: parse_modification() — 이전 전략 diff 기반 병합
@@ -636,7 +639,9 @@ Registry-driven** 파이프라인. 자연어 의미 해석은 LLM(Qwen 3.5 9B,
     ▼
 LLM Strategy Interpreter (interpreter/llm_strategy_interpreter.py)
     ├── Ollama /api/chat, format=json, think=false, temperature 0 (기존 콜드스타트
-    │   내성 재사용: _ollama_ensure_warm + _ollama_open_with_retry)
+    │   내성 재사용: _ollama_ensure_warm + _ollama_open_with_retry). 요청·응답은
+    │   llm_chat.chat_request/read_chat_response/iter_chat_stream를 지나 프로바이더
+    │   (ollama|openrouter)별 형식으로 번역된다 — 호출부 payload는 Ollama 형태 그대로
     ├── Registry 주입 프롬프트(prompts.py, PROMPT_VERSION) — 지원 지표 canonical ID 계약.
     │   2.8부터 어휘는 지표 온톨로지(registry/concept_ontology.py + 시드
     │   data/indicator-ontology.json)가 분류 계층(is_a)·합성 개념 정본(골든크로스=
@@ -1419,6 +1424,7 @@ FastAPI startup에서 news scheduler가 시작되면 Celery worker를 자동 기
 |------|------|
 | 백엔드 | MLX (Apple Silicon) 또는 Ollama |
 | 기본 모델 | `mlx-community/Qwen3.5-4B-4bit` (MLX) / `hf.co/unsloth/Qwen3.5-4B-GGUF:Q4_K_M` (Ollama) |
+| 전송 프로바이더 | `backend/llm_chat.py` — `LLM_PROVIDER=ollama`(기본: 로컬 dev=localhost:11434, prod=Modal `OLLAMA_HOST`) 또는 `openrouter`(2026-09-06 실험: 로컬 Qwen·prod Modal LLM 대신 OpenRouter API, 전 슬롯 `OPENROUTER_MODEL` 단일 모델, 기본 `qwen/qwen3-32b`). 호출부(파서·인터프리터·검증기·코치·AI 리포트)는 Ollama `/api/chat` 형태 payload를 만들고 어댑터가 OpenAI 호환 `chat/completions`로 번역: `options.num_predict→max_tokens`, `format=json→response_format`, `think=false→` 마지막 user 메시지에 Qwen3 소프트 스위치 ` /no_think` + `reasoning{enabled:false,exclude:true}`(실측: DeepInfra는 reasoning 파라미터를 무시해 thinking이 max_tokens를 태움 — 소프트 스위치가 정본). 응답은 Ollama 형태(`message.content`·`prompt_eval_count`·`eval_count`·진단 `reasoning_eval_count`)로 정규화. `is_local_ollama()`는 openrouter면 False → preload·prefill·num_ctx 정합 가드·연결거부 fast-fail(모두 로컬 Ollama 전용)이 꺼진다. 키 없으면 즉시 실패(조용한 폴백 금지). 유닛 테스트는 conftest가 `LLM_PROVIDER`를 제거해 ollama 형태로 고정 |
 | 출력 형식 | Deterministic extractor 우선, 필요 시 compact JSON LLM output |
 | 신규 전략 | `parse(user_input)` → ParsedStrategy |
 | 전략 수정 | `parse_modification(user_input, previous)` → diff 기반 병합 |

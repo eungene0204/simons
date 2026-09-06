@@ -159,14 +159,13 @@ def _default_ollama_chat(model: str) -> ChatFn:
     # 경로 그대로 — 반환 계약(완성 텍스트)은 두 경로 모두 동일하다.
     def chat(system_prompt: str, user_message: str, *, max_tokens: int | None = None,
              on_chunk: Callable[[str], None] | None = None) -> str:
-        import urllib.request
-
         from engine.nl_parser import (
             _OLLAMA_NUM_CTX,
             _ollama_ensure_warm,
             _ollama_open_with_retry,
         )
-        from llm_backend import OLLAMA_BASE_URL, is_local_ollama, ollama_auth_headers
+        from llm_backend import is_local_ollama
+        from llm_chat import chat_request, iter_chat_stream, read_chat_response
 
         payload = {
             "model": model,
@@ -185,14 +184,8 @@ def _default_ollama_chat(model: str) -> ChatFn:
             # 갱신하므로(기본 5분), startup preload(-1)만으론 첫 요청 후 다시 풀린다.
             # 원격(Modal)은 컨테이너 수명이 별도 관리라 기본값을 유지한다.
             payload["keep_alive"] = -1
-        body = json.dumps(payload).encode()
         _ollama_ensure_warm()
-        req = urllib.request.Request(
-            f"{OLLAMA_BASE_URL}/api/chat",
-            data=body,
-            headers={"Content-Type": "application/json", **ollama_auth_headers()},
-            method="POST",
-        )
+        req = chat_request(payload)  # 프로바이더(ollama/openrouter) 형식은 어댑터가 정한다
         # 관찰 span(비활성 시 no-op) — 호출 자체는 그대로다. 토큰 수는 Ollama 응답에
         # 이미 들어 있는 값을 읽기만 한다(prompt_eval_count/eval_count).
         from observability import span
@@ -213,21 +206,14 @@ def _default_ollama_chat(model: str) -> ChatFn:
             with cancellation.cancellable_io(), \
                     _ollama_open_with_retry(req, timeout=_LLM_CALL_TIMEOUT_S) as resp:
                 if on_chunk is None:
-                    data = json.loads(resp.read())
+                    data = read_chat_response(resp.read())
                     content = (data.get("message") or {}).get("content", "")
                 else:
-                    # 스트리밍(NDJSON) — 조각을 누적해 콜백에 넘기고, done 라인의
+                    # 스트리밍 — 조각을 누적해 콜백에 넘기고, done 청크의
                     # 사용량 통계를 비스트리밍과 동일하게 trace에 기록한다.
                     parts: list[str] = []
                     data = {}
-                    for line in resp:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            obj = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
+                    for obj in iter_chat_stream(resp):
                         piece = (obj.get("message") or {}).get("content", "")
                         if piece:
                             parts.append(piece)
@@ -238,7 +224,9 @@ def _default_ollama_chat(model: str) -> ChatFn:
                         if obj.get("done"):
                             data = obj
                     content = "".join(parts)
-            trace.meta(**ollama_usage(data))
+            # 실제 서빙 모델·프로바이더 — OpenRouter 레인에서는 슬롯명(model)과 다르다.
+            served = {k: data[k] for k in ("model", "provider") if data.get(k)}
+            trace.meta(**ollama_usage(data), **served)
             trace.output(response=content)
             return content
 

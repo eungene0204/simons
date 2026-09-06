@@ -53,7 +53,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}  # Modal LLM 엔드포인트(.env에서 지정)
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}  # Modal LLM 엔드포인트(.env에서 지정). .env LLM_PROVIDER=openrouter면 무시되고 OPENROUTER_API_KEY/MODEL 사용
       KMP_DUPLICATE_LIB_OK: "TRUE"                      # ↓ 기동 데드락 가드(필수)
       OMP_NUM_THREADS: "1"
       POLARS_MAX_THREADS: "1"

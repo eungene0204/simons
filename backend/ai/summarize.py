@@ -26,9 +26,6 @@ OLLAMA_MODEL = os.environ.get(
     "SUMMARIZE_OLLAMA_MODEL",
     os.environ.get("NL_OLLAMA_MODEL", OLLAMA_MODEL_9B),
 )
-# /api/generate가 아니라 /api/chat을 쓴다 — GGUF 임포트 모델(Qwen3.5)은 generate 경로에서
-# think:false가 무시되어 <think> 추론이 응답에 섞인다. chat 경로는 nl_parser에서 검증됨.
-OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/") + "/api/chat"
 FALLBACK_SUMMARY = "모델 출력 형식이 올바르지 않아 요약을 생성하지 못했습니다. 다시 시도해 주세요."
 
 
@@ -1031,12 +1028,10 @@ def summarize_mlx(prompt: str) -> str:
 
 
 def summarize_ollama(prompt: str, num_predict: int = 1200) -> str:
-    import urllib.request
-
-    from llm_backend import ollama_auth_headers  # Modal proxy-auth (배포 시)
     from engine.nl_parser import _OLLAMA_NUM_CTX, _ollama_ensure_warm, _ollama_open_with_retry
+    from llm_chat import chat_request, read_chat_response
 
-    body = json.dumps(
+    payload = (
         {
             "model": OLLAMA_MODEL,
             "messages": [{"role": "user", "content": prompt}],
@@ -1049,20 +1044,15 @@ def summarize_ollama(prompt: str, num_predict: int = 1200) -> str:
             # num_predict: 전문가 리포트(10섹션)는 서술량이 커 상향한 값을 전달받는다.
             "options": {"temperature": 0, "num_predict": num_predict, "num_ctx": _OLLAMA_NUM_CTX},
         }
-    ).encode()
+    )
 
     # Modal scale-to-zero 콜드스타트 내성 — 코치/NL파서와 동일하게
     # ① 본문 없는 GET으로 컨테이너를 먼저 깨우고(콜드 첫 POST body 유실 방지)
     # ② POST는 재시도 예산 안에서 연다. (기존 단발 60s urlopen은 콜드에서 항상 실패했다)
     _ollama_ensure_warm()
-    req = urllib.request.Request(
-        OLLAMA_URL,
-        data=body,
-        headers={"Content-Type": "application/json", **ollama_auth_headers()},
-        method="POST",
-    )
+    req = chat_request(payload)  # 프로바이더(ollama/openrouter) 형식은 어댑터가 정한다
     with _ollama_open_with_retry(req, timeout=120) as resp:
-        data = json.loads(resp.read())
+        data = read_chat_response(resp.read())
     return (data.get("message") or {}).get("content", "").strip()
 
 

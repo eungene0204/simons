@@ -1994,6 +1994,7 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 | 뉴스 API 프록시 | `app/api/news/symbol/[symbol]/route.ts`, `app/api/news/impact/[symbol]/route.ts` |
 | 종목 거래 페이지 | `app/stock-order/page.tsx` (5탭: 차트·호가/종목정보/뉴스·공시/거래현황/커뮤니티) |
 | 장 스케줄러 | `lib/scheduler.ts` |
+| LLM 전송 프로바이더(ollama/openrouter) | `backend/llm_backend.py`, `backend/llm_chat.py` — ✅ 완료(2026-09-06 배선: 로컬 Qwen·Modal 대신 OpenRouter API 실험, 전 슬롯 단일 모델) |
 | DB 스키마 | `prisma/schema.prisma` |
 
 ---

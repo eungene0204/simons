@@ -134,6 +134,15 @@ def _pin_dag_planner_off(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _pin_llm_provider_ollama(monkeypatch):
+    """유닛 테스트의 LLM 전송 레인은 항상 ollama 형태다 — dev .env가 LLM_PROVIDER=openrouter
+    (2026-09-06 실험)를 켜 두면 main import 뒤 /api/chat URL·본문 형식을 검증하는 테스트가
+    OpenRouter 형식으로 바뀌어 깨진다. OpenRouter 변환 자체는 test_llm_chat_openrouter.py가
+    setenv로 명시 오버라이드한다."""
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _pin_process_pools_off(monkeypatch):
     """유닛 테스트 기본은 프로세스 풀 없이(스레드 경로·순차 창) 돈다 — 테스트마다 tmp 데이터
     디렉터리가 달라 Phase1 상주 풀(engine/phase1_pool.py)이 디렉터리별로 워커 8개씩 쌓이고,

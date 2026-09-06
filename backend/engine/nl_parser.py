@@ -29,6 +29,7 @@ from llm_backend import (
     OLLAMA_BASE_URL,
     OLLAMA_MODEL_9B,
     is_local_ollama,
+    is_openrouter,
     ollama_auth_headers,
 )
 from engine import strategy_slots
@@ -149,6 +150,8 @@ def _ollama_ensure_warm(budget_s: float = _OLLAMA_WARMUP_BUDGET_S) -> None:
     import urllib.error
     import urllib.request
 
+    if is_openrouter():
+        return  # 원격 API — 깨울 컨테이너가 없다(콜드스타트 개념 없음)
     url = f"{OLLAMA_BASE_URL}/api/tags"
     deadline = time.monotonic() + budget_s
     last_err: Exception | None = None
@@ -1719,9 +1722,9 @@ class NLStrategyParser:
         16384로 올린다. format="json"으로 JSON 출력을 강제하되, JSON 스키마 제약
         디코딩은 이 모델에서 출력을 조기 절단시키므로 쓰지 않는다(format="json"만).
         """
-        import urllib.request
+        from llm_chat import chat_request, read_chat_response
 
-        body = json.dumps({
+        payload = {
             "model": self.ollama_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -1736,17 +1739,12 @@ class NLStrategyParser:
                 "num_ctx": _OLLAMA_NUM_CTX,
                 "num_predict": 1024,
             },
-        }).encode()
+        }
         # Modal 콜드스타트 프록시가 POST body를 유실시키므로, 본문 없는 GET으로 먼저 깨운다.
         _ollama_ensure_warm()
-        req = urllib.request.Request(
-            f"{OLLAMA_BASE_URL}/api/chat",
-            data=body,
-            headers={"Content-Type": "application/json", **ollama_auth_headers()},
-            method="POST",
-        )
+        req = chat_request(payload)  # 프로바이더(ollama/openrouter) 형식은 어댑터가 정한다
         with _ollama_open_with_retry(req, timeout=120) as resp:
-            data = json.loads(resp.read())
+            data = read_chat_response(resp.read())
         content = (data.get("message") or {}).get("content", "")
         return _parse_model_json_response(content, model_cls)
 
@@ -1874,7 +1872,7 @@ class NLStrategyParser:
         top_p: float,
     ) -> str:
         """Ollama /api/chat 동기 호출 — chat()의 비-MLX 폴백."""
-        import urllib.request
+        from llm_chat import chat_request, read_chat_response
 
         # Qwen3 thinking 모델 thinking 우회: `think: false`를 쓴다.
         # (과거엔 assistant prefill `<think>\n\n</think>\n`을 마지막 메시지로 넣었으나, 현재
@@ -1882,7 +1880,7 @@ class NLStrategyParser:
         #  "No user query found in messages" Jinja 예외로 HTTP 400을 던진다. prefill은 폐기.)
         # `think: false`는 thinking 지원 모델(Qwen3.5)+현행 ollama에서 정상 동작한다(실측 2~3s,
         #  정상 content). think 파라미터를 아예 안 보내면 thinking이 토큰을 소진해 빈 응답이 된다.
-        body = json.dumps({
+        payload = {
             "model": self.ollama_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -1896,17 +1894,12 @@ class NLStrategyParser:
                 "num_predict": max_tokens,
                 "num_ctx": _OLLAMA_NUM_CTX,
             },
-        }).encode()
+        }
         # Modal 콜드스타트 프록시가 POST body를 유실시키므로, 본문 없는 GET으로 먼저 깨운다.
         _ollama_ensure_warm()
-        req = urllib.request.Request(
-            f"{OLLAMA_BASE_URL}/api/chat",
-            data=body,
-            headers={"Content-Type": "application/json", **ollama_auth_headers()},
-            method="POST",
-        )
+        req = chat_request(payload)
         with _ollama_open_with_retry(req, timeout=120) as resp:
-            data = json.loads(resp.read())
+            data = read_chat_response(resp.read())
         return (data.get("message") or {}).get("content", "").strip()
 
     def _stream_chat_ollama(
@@ -1919,11 +1912,11 @@ class NLStrategyParser:
     ):
         """Ollama /api/chat 스트리밍 호출 — stream_chat()의 비-MLX 폴백.
         각 yield는 증분 델타(MLX 경로와 동일)."""
-        import urllib.request
+        from llm_chat import chat_request, iter_chat_stream
 
         # 동기 경로와 동일하게 `think: false`로 thinking 우회(assistant prefill은 현행 Qwen3.5
         # chat template과 충돌해 400을 유발하므로 폐기 — _chat_ollama 주석 참고).
-        body = json.dumps({
+        payload = {
             "model": self.ollama_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -1937,22 +1930,13 @@ class NLStrategyParser:
                 "num_predict": max_tokens,
                 "num_ctx": _OLLAMA_NUM_CTX,
             },
-        }).encode()
+        }
         # Modal 콜드스타트 프록시가 POST body를 유실시키므로, 본문 없는 GET으로 먼저 깨운다.
         _ollama_ensure_warm()
-        req = urllib.request.Request(
-            f"{OLLAMA_BASE_URL}/api/chat",
-            data=body,
-            headers={"Content-Type": "application/json", **ollama_auth_headers()},
-            method="POST",
-        )
+        req = chat_request(payload)
         # 스트리밍은 생성 내내 소켓을 읽는다 — 취소가 소켓을 닫으면 read 예외를 취소로 보고한다.
         with cancellation.cancellable_io(), _ollama_open_with_retry(req, timeout=120) as resp:
-            for line in resp:
-                line = line.strip()
-                if not line:
-                    continue
-                obj = json.loads(line)
+            for obj in iter_chat_stream(resp):
                 delta = (obj.get("message") or {}).get("content", "")
                 if delta:
                     yield delta

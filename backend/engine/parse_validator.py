@@ -27,7 +27,8 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field, ValidationError
 
 import cancellation
-from llm_backend import OLLAMA_BASE_URL, OLLAMA_MODEL_9B, ollama_auth_headers
+from llm_backend import OLLAMA_MODEL_9B
+from llm_chat import chat_request, probe_request, read_chat_response
 
 logger = logging.getLogger(__name__)
 
@@ -312,7 +313,7 @@ def _run_validation_llm(parser, system_prompt: str, user_message: str) -> Option
 
         _ollama_align_runner_num_ctx()
 
-    body = json.dumps({
+    req = chat_request({
         "model": validation_model,
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -326,17 +327,11 @@ def _run_validation_llm(parser, system_prompt: str, user_message: str) -> Option
             "num_ctx": _VALIDATION_NUM_CTX,
             "num_predict": _VALIDATION_NUM_PREDICT,
         },
-    }).encode()
-    req = urllib.request.Request(
-        f"{OLLAMA_BASE_URL}/api/chat",
-        data=body,
-        headers={"Content-Type": "application/json", **ollama_auth_headers()},
-        method="POST",
-    )
+    })
     # 취소가 진행 중 소켓을 닫으면 I/O 예외를 검증 실패가 아니라 취소로 보고한다.
     with cancellation.cancellable_io(), \
             urllib.request.urlopen(req, timeout=_VALIDATION_TIMEOUT_S) as resp:
-        data = json.loads(resp.read())
+        data = read_chat_response(resp.read())
     return (data.get("message") or {}).get("content", "")
 
 
@@ -348,9 +343,7 @@ def _ollama_reachable(timeout: float = _VALIDATION_PROBE_TIMEOUT_S) -> bool:
     import urllib.request
 
     try:
-        req = urllib.request.Request(
-            f"{OLLAMA_BASE_URL}/api/tags", headers=ollama_auth_headers(), method="GET"
-        )
+        req = probe_request()
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             resp.read()
         return True

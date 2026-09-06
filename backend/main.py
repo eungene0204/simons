@@ -3144,7 +3144,11 @@ def preload_nl_parser():
         print(f"[startup] 코치 파서 주입 실패 (무시됨): {coach_err}", flush=True)
 
     if backend == "ollama":
-        from llm_backend import is_local_ollama
+        from llm_backend import is_local_ollama, is_openrouter, openrouter_model
+        if is_openrouter():
+            # 원격 API 레인 — 적재·prefill·콜드 워밍업 대상이 없다. 어느 모델로 도는지만 남긴다.
+            print(f"[startup] LLM 프로바이더=openrouter model={openrouter_model()}", flush=True)
+            return
         if is_local_ollama():
             # 서버 생사부터 확인한다 — 죽어 있으면 적재·prefill은 무의미하고(둘 다 실패를
             # 무시한다) 기동만 조용히 성공해 LLM 없는 백엔드가 된다.

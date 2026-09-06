@@ -813,7 +813,7 @@ const OVERVIEW_LAYERS: ArchLayer[] = [
           location: 'backend 전역 LLM 어댑터 · Modal simons-ollama 앱',
           overview: '모든 LLM 슬롯이 Qwen 9B 하나로 통일돼 있다 — 4B는 형식 결함·오분류 실측으로 폐기됐다.',
           points: [
-            'dev=로컬 Ollama(:11434), prod=Modal 서버리스 GPU(L4, scale-to-zero)',
+            'dev=로컬 Ollama(:11434), prod=Modal 서버리스 GPU(L4, scale-to-zero). LLM_PROVIDER=openrouter면 둘 다 건너뛰고 OpenRouter API(OPENROUTER_MODEL 단일 모델, 기본 qwen/qwen3-32b)로 간다 — 어댑터 backend/llm_chat.py가 Ollama 형태 요청을 OpenAI 호환으로 번역(thinking은 /no_think 소프트 스위치로 차단)',
             '호출 계약 — /api/chat · think:false · format=json · 구조화 출력은 온도 0(greedy), 설명문은 샘플링',
             '4B 폐기 근거 — bare enum JSON 깨짐 34%·기업명 테마 오분류. 비용은 반론이 아님(Modal은 warm GPU-초 과금)',
             '연결 실패는 503으로 정직하게 보고 — 정규식 폴백 부활 금지',
@@ -1818,7 +1818,7 @@ const VIRTUAL_STEPS: FlowStep[] = [
 const DEPLOY_DEV: ArchBox[] = [
   { domain: 'next', title: 'next dev (:3000)', desc: '프론트 + API 라우트' },
   { domain: 'py', title: 'uvicorn (:8000)', desc: 'FastAPI + 엔진' },
-  { domain: 'ai', title: '로컬 Ollama (:11434)', desc: 'Qwen 9B — LLM 슬롯 전부. 파싱 전면 실패는 대부분 ollama 미기동이 원인' },
+  { domain: 'ai', title: '로컬 Ollama (:11434) / OpenRouter', desc: 'LLM_PROVIDER로 선택. ollama=Qwen 9B 슬롯 전부(파싱 전면 실패는 대부분 ollama 미기동이 원인), openrouter=OPENROUTER_MODEL 단일 모델' },
   { domain: 'data', title: '로컬 parquet 미러', desc: '정본=프로덕션 — npm run pull-data로 내려받는다' },
   { domain: 'ext', title: 'Supabase Postgres', desc: '앱 DB (프로덕션과 공유 구조, us-west-1 pooler)' },
 ]
