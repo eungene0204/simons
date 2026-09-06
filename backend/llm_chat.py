@@ -11,12 +11,13 @@ payload(model·messages·stream·think·format·options)를 만들고, 응답도
     · options.temperature/top_p → temperature/top_p, options.num_predict → max_tokens
     · options.num_ctx·keep_alive → 버림(원격 API는 컨텍스트를 서버가 정한다)
     · format="json"    → response_format {"type": "json_object"}
-    · think=False      → 마지막 user 메시지에 Qwen3 소프트 스위치 ` /no_think` 를 붙이고
-                         reasoning {"enabled": false, "exclude": true}도 함께 보낸다.
-                         **소프트 스위치가 정본이다** — 2026-09-06 실측: DeepInfra 등 일부
-                         프로바이더는 `reasoning.enabled=false`·`chat_template_kwargs`를 무시해
-                         thinking이 max_tokens를 전부 태우고 content가 빈 채 돌아왔다.
-                         `/no_think`만 프로바이더와 무관하게 동작했다.
+    · think=False      → reasoning {"enabled": false, "exclude": true}. **Qwen 계열이면**
+                         마지막 user 메시지에 소프트 스위치 ` /no_think` 도 붙인다 —
+                         2026-09-06 실측: DeepInfra 등 일부 프로바이더는 Qwen3에 대해
+                         `reasoning.enabled=false`·`chat_template_kwargs`를 무시해 thinking이
+                         max_tokens를 전부 태우고 content가 빈 채 돌아왔고, `/no_think`만
+                         동작했다. 스위치는 Qwen 전용 토큰이라 다른 모델(Nemotron 등)에는
+                         붙이지 않는다(그쪽은 reasoning 파라미터가 정상 반영됨을 실측).
     · stream=True      → stream_options.include_usage 로 마지막 청크에 usage를 받는다.
 
 이 모듈은 전송 형식만 다룬다. 자연어 해석·프롬프트·재시도 정책은 호출부 소관이다.
@@ -95,7 +96,8 @@ def to_openrouter_payload(payload: dict[str, Any]) -> dict[str, Any]:
         out["response_format"] = {"type": "json_object"}
     if payload.get("think") is False:
         out["reasoning"] = {"enabled": False, "exclude": True}
-        _append_no_think(messages)
+        if "qwen" in out["model"].lower():
+            _append_no_think(messages)
     if out["stream"]:
         out["stream_options"] = {"include_usage": True}
     return out

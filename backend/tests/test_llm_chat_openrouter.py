@@ -68,11 +68,6 @@ def test_openrouter_without_key_fails_fast(monkeypatch):
         llm_chat.chat_request(PAYLOAD)
 
 
-def test_openrouter_model_defaults_to_qwen3_32b(openrouter_env, monkeypatch):
-    monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
-    assert llm_backend.openrouter_model() == "qwen/qwen3-32b"
-
-
 # ── 요청 변환 ─────────────────────────────────────────────────────────────────
 
 def test_ollama_request_is_unchanged(ollama_env, monkeypatch):
@@ -111,6 +106,19 @@ def test_openrouter_think_false_appends_no_think_soft_switch(openrouter_env):
     assert body["messages"][0]["content"] == "sys"     # system은 건드리지 않는다
     # 원본 payload는 변형되지 않는다(호출부가 재사용·로그에 남길 수 있다)
     assert PAYLOAD["messages"][-1]["content"] == "RSI 30 이하 매수"
+
+
+def test_openrouter_no_think_is_qwen_only(openrouter_env, monkeypatch):
+    """/no_think는 Qwen 전용 토큰 — Nemotron 등에는 reasoning 파라미터만 보낸다(실측 정상 반영)."""
+    monkeypatch.setenv("OPENROUTER_MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
+    body = llm_chat.to_openrouter_payload(PAYLOAD)
+    assert body["reasoning"] == {"enabled": False, "exclude": True}
+    assert "/no_think" not in body["messages"][-1]["content"]
+
+
+def test_openrouter_model_defaults_to_free_nemotron(openrouter_env, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
+    assert llm_backend.openrouter_model() == "nvidia/nemotron-3-super-120b-a12b:free"
 
 
 def test_openrouter_no_think_is_idempotent(openrouter_env):
@@ -233,7 +241,7 @@ def test_interpreter_chat_goes_through_adapter_on_openrouter(openrouter_env, mon
         return _Resp(json.dumps(OR_RESPONSE).encode())
 
     monkeypatch.setattr(nl_parser, "_ollama_open_with_retry", fake_open)
-    chat = mod._default_ollama_chat("hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M")
+    chat = mod._default_ollama_chat("hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M")  # 슬롯명(무시됨)
     out = chat("sys", "RSI 30 이하 매수", max_tokens=512)
     assert out == '{"a": 1}'
     assert captured["url"].endswith("/chat/completions")
