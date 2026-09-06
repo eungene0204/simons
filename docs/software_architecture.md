@@ -1309,6 +1309,23 @@ install_socket_tracking). 토큰은 contextvar라 워커 스레드 진입 함수
 `app/analytics/new/page.endChat.test.tsx`, `lib/server/backend.test.ts`,
 `app/api/strategy/parse/stream/route.test.ts`.
 
+**'대화 종료'의 상태 초기화 — 전략 초안 ref는 한 목록으로만 (2026-09-06)**
+
+채팅 진입은 별도 라우트가 아니라 같은 라우트의 쿼리(`/analytics?chat=1`)로 soft navigation한다
+(`chatNavigation.ts` — 무거운 채팅 컴포넌트의 remount와 authState 재조회를 피하는 것이 목적).
+그래서 '대화 종료' 뒤에도 **페이지 컴포넌트와 모든 `useRef`가 살아 있다** — 초기화는 브라우저가
+아니라 `clearConversationState`가 전적으로 책임진다. 전략 초안에 속한 ref(파싱 결과·백테스트 요청·
+빌더 상태·명시/거부 필드·변경 이력·열린 되묻기·pending_ask·재질문 대기열·지표 최적화 초안)는
+`clearStrategyDraft` **하나의 목록**에서만 비우고, `clearConversationState`는 그것을 호출한 뒤
+대화 전용 항목(messages·qa 세션 id·workflow 상태·대기 프롬프트 소비 표식)만 덧붙인다.
+
+두 함수가 각자 ref를 나열하면 새 ref가 늘 때 한쪽이 빠지고, 그 누락은 조용하지 않다 —
+2026-09-06 프로덕션 사고: `openClarificationRef`가 `clearConversationState`에서 빠져 있어
+'대화 종료' 뒤 첫 발화가 해석 실패(`interpretation_failed`)로 끝나자, 실패 안내 턴의
+`preservesOpenQuestion`(`turnMessage.ts` ③)이 **직전 대화의 되묻기**를 되살리고 그 되묻기에
+저장돼 있던 옛 전략 요약 카드가 새 대화에 그려졌다. 회귀:
+`app/analytics/new/page.reset-clears-open-clarification.test.tsx`.
+
 ### 6.2 주요 Next.js API 라우트
 
 **전략**
