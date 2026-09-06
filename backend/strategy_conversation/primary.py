@@ -4168,10 +4168,21 @@ def run_primary_modification(
         if still_missing:
             _log_llm("△ 미반영(안내 없음)", f"{', '.join(still_missing)}")
 
+    # 수정 턴의 명시 필드는 **이번 턴이 바꾼 것**(패치)에서 판정하고 이전 턴 에코와
+    # 합집합한다 — 이전 턴에 말한 값이 이번 턴 침묵으로 지워지지 않게.
+    # 패치 적용 후 State에서 판정하면 안 된다: 그 State는 이전 전략을 디컴파일한 초안이라
+    # 물질화 기본값이 이미 채워져 있고, 값의 존재로 판정하면 사용자가 말한 적 없는 값이
+    # '명시'가 된다(2026-08-02: 기간만 답했는데 초기 자금을 묻지 않게 되던 사고).
+    # 다음 질문(큐 소비·재계획)보다 **먼저** 계산한다 — 이전 턴 에코만 넘기면 방금 답한
+    # 슬롯이 플래너 눈에 여전히 빈 칸이라 같은 질문을 다시 낸다(2026-09-07 실측: 백테스트
+    # 기간을 "2016년부터 2026년까지"로 정확히 답해도 재질문). 칩 확정 레인(run_chip_answer)
+    # 이 재계획 전에 명시 필드를 합치는 것과 같은 순서다.
+    turn_explicit_fields = _modify_explicit_fields(cued_patches, previous_explicit_fields)
+
     # 이월 질문 큐(한 턴에 한 질문)가 있으면 재계획보다 먼저 소비한다 — 자유 서술
     # ('직접 입력' 후 "12% 이상")로 답한 턴에도 남은 기준값 질문이 이어져야 한다.
     # 이미 반영된 항목은 큐 소비가 건너뛴다(재질문 금지).
-    queued_next = _next_ask_from_queue(pending_ask, parsed, previous_explicit_fields)
+    queued_next = _next_ask_from_queue(pending_ask, parsed, turn_explicit_fields)
     if queued_next is not None:
         dag_question, dag_suggestions, dag_priority, dag_pending_ask = queued_next
     else:
@@ -4180,15 +4191,8 @@ def run_primary_modification(
         # 후속 질문·칩도 그에 맞게 재생성 — 사용자 계약 "입력은 답변 귀속이 아니라 State
         # 변경 판정이 먼저").
         dag_question, dag_suggestions, dag_priority, dag_pending_ask = _replan_next_question(
-            user_input, parsed, previous_explicit_fields, previous_declined_fields
+            user_input, parsed, turn_explicit_fields, previous_declined_fields
         )
-
-    # 수정 턴의 명시 필드는 **이번 턴이 바꾼 것**(패치)에서 판정하고 이전 턴 에코와
-    # 합집합한다 — 이전 턴에 말한 값이 이번 턴 침묵으로 지워지지 않게.
-    # 패치 적용 후 State에서 판정하면 안 된다: 그 State는 이전 전략을 디컴파일한 초안이라
-    # 물질화 기본값이 이미 채워져 있고, 값의 존재로 판정하면 사용자가 말한 적 없는 값이
-    # '명시'가 된다(2026-08-02: 기간만 답했는데 초기 자금을 묻지 않게 되던 사고).
-    turn_explicit_fields = _modify_explicit_fields(cued_patches, previous_explicit_fields)
     return finalize_user_response({
         "parsed": parsed,
         "clarification_question": dag_question,

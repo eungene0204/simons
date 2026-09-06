@@ -383,9 +383,87 @@ class RiskSpec(BaseModel):
         return abs(v) if v is not None else None
 
 
-# 버킷(1y/3y/5y/full)이 아닌 상대 기간 표기. 오늘 기준 명시 날짜로 바꾼다.
-_RELATIVE_YEARS_RE = re.compile(r"^(\d{1,2})\s*(?:y|년)$")
-_RELATIVE_MONTHS_RE = re.compile(r"^(\d{1,3})\s*(?:m|개월|달)$")
+# ── backtest.period 정규화 — LLM은 "말한 그대로", 변환은 여기서 ─────────────────────
+# 출력 형태 계약(프롬프트 규칙 12-1, 2026-09-07 개정): 인터프리터는 사용자가 말한 기간을
+# "<정수>y"(년) / "<정수>m"(개월) / "full" 로 **옮겨 적기만** 한다. 어느 값이 지원 버킷인지,
+# 버킷 밖이면 오늘 기준 날짜가 어떻게 되는지는 LLM이 알 필요가 없다 — 그 조건 분기와
+# 날짜 산술을 LLM에 시키던 구 규칙("넷뿐, 아니면 start_date/end_date를 계산하라")은 9B·
+# nemotron-120b 모두 안 지키고 "10년"을 합법 버킷 "full"로 뭉갰다(2026-09-07 사고,
+# 7회 중 6회). 합법 값이라 어떤 검증기도 못 잡는다 — 그래서 규칙이 아니라 형태로 막는다.
+#
+# 여기서 하는 일은 LLM 출력의 **표기 정규화뿐**이다(원문을 읽지 않는다):
+#   · 버킷(1/3/5년·full)과 그 표기 변형("5년"·"3 years"·"전체") → 정본 버킷 문자열
+#   · 버킷 밖 연·월("10y"·"18개월"·"2 years") → 오늘 기준 명시 날짜 창(길이 보존)
+#   · 일수 숫자(구 4B 드리프트 "10년간"→1080) → 버킷 근사치면 버킷, 아니면 날짜 창
+# "가장 가까운 버킷으로 올리기"는 쓰지 않는다 — 사용자가 말한 적 없는 창이 된다.
+_RELATIVE_YEARS_RE = re.compile(r"^(\d{1,2})\s*(?:y|yr|yrs|years?|년)$")
+_RELATIVE_MONTHS_RE = re.compile(r"^(\d{1,3})\s*(?:m|mo|mos|months?|개월|달)$")
+_FULL_PERIOD_ALIASES = frozenset({
+    "full", "all", "entire", "max", "full period", "the full period", "entire period",
+    "전체", "전체기간", "전체 기간", "가능한 전체", "사용 가능한 전체",
+})
+_BUCKET_DAYS = {"1y": 365, "3y": 1095, "5y": 1825}
+_BUCKET_DAYS_TOLERANCE = 31   # 달력일 환산 오차(윤년·월 길이) 안이면 같은 버킷
+
+
+def _months_to_window(months: int) -> tuple[str, str]:
+    """오늘 기준 months개월 전 ~ 오늘(말일 클램프)."""
+    today = date.today()
+    start_year = today.year - months // 12
+    start_month = today.month - months % 12
+    if start_month <= 0:
+        start_month += 12
+        start_year -= 1
+    try:
+        start = date(start_year, start_month, today.day)
+    except ValueError:            # 2월 29일 등 존재하지 않는 날짜 보정
+        start = date(start_year, start_month, 28)
+    return start.isoformat(), today.isoformat()
+
+
+def _normalize_period(value: Any) -> Any:
+    """period 표기를 (정본 버킷 | ("window", months) | 원값)으로 판정한다.
+
+    반환이 문자열이면 정본 버킷, 튜플이면 버킷 밖 창(개월수), None이면 최소 기간(1년)
+    미달이라 표현 불가 — 값을 버려 슬롯이 빈 채로 되묻기에 오르게 한다(300일을 "1y"로
+    올리던 구 매핑은 사용자가 말한 적 없는 창이라 폐기). 그 밖은 손대지 않은 원값이다
+    (Literal 검증이 최종 판정).
+    """
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in ("1y", "3y", "5y"):
+            return s
+        if s in _FULL_PERIOD_ALIASES:
+            return "full"
+        years_match = _RELATIVE_YEARS_RE.match(s)
+        if years_match:
+            years = int(years_match.group(1))
+            if years in (1, 3, 5):
+                return f"{years}y"
+            if 1 <= years <= 30:
+                return ("window", years * 12)
+            return None if years < 1 else value
+        months_match = _RELATIVE_MONTHS_RE.match(s)
+        if months_match:
+            months = int(months_match.group(1))
+            if months in (12, 36, 60):
+                return f"{months // 12}y"
+            if 12 <= months <= 360:
+                return ("window", months)
+            return None if months < 12 else value
+        if not s.replace(",", "").replace(".", "", 1).isdigit():
+            return value
+    number = _coerce_number(value)
+    if isinstance(number, (int, float)) and not isinstance(number, bool):
+        days = float(number)
+        for bucket, bucket_days in _BUCKET_DAYS.items():
+            if abs(days - bucket_days) <= _BUCKET_DAYS_TOLERANCE:
+                return bucket
+        if 365 <= days <= 30 * 366:
+            return ("window", int(round(days / 30.4375)))
+        if 0 <= days < 365:
+            return None
+    return value
 
 
 class BacktestSpec(BaseModel):
@@ -394,86 +472,39 @@ class BacktestSpec(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _relative_period_to_dates(cls, data):
-        """버킷 밖 상대 기간("10y"·"18개월")을 오늘 기준 명시 날짜 창으로 바꾼다.
+        """버킷 밖 상대 기간("10y"·"18개월"·일수)을 오늘 기준 명시 날짜 창으로 바꾼다.
 
         period가 가질 수 있는 값은 넷뿐이라 그 밖의 표기는 Literal 검증에서 탈락하고,
         수정 턴에서는 패치가 통째로 폐기돼 "해석하지 못했어요"로 끝났다(2026-07-31 QA:
-        '10년' 2/2 실패). 가장 가까운 버킷으로 올리는 방식은 쓰지 않는다 — 사용자가 말한
-        적 없는 창이 된다. 명시 날짜 변환은 `nl_parser._extract_backtest_dates`가 같은
+        '10년' 2/2 실패). 명시 날짜 변환은 `nl_parser._extract_backtest_dates`가 같은
         입력에 이미 쓰는 정본 정책이며, 창의 길이가 사용자가 말한 그대로 보존된다.
         """
         if not isinstance(data, dict):
             return data
         period = data.get("period")
-        if not isinstance(period, str):
+        if period is None:
             return data
-        s = period.strip().lower()
-        if s in ("1y", "3y", "5y", "full"):
+        normalized = _normalize_period(period)
+        if normalized is None:
+            return {**data, "period": None}
+        if not isinstance(normalized, tuple):
             return data
         if data.get("start_date") or data.get("end_date"):
             # 명시 날짜가 이미 창을 정했다 — 버킷 밖 표기를 남겨 Literal 검증을
             # 실패시키느니 비운다(날짜가 우선이라는 기존 계약과 같은 방향).
             return {**data, "period": None}
-        years_match = _RELATIVE_YEARS_RE.match(s)
-        months_match = _RELATIVE_MONTHS_RE.match(s)
-        if years_match:
-            years = int(years_match.group(1))
-            if years in (1, 3, 5) or not 1 <= years <= 30:
-                return data
-            months = years * 12
-        elif months_match:
-            months = int(months_match.group(1))
-            if not 12 <= months <= 360:   # 12개월 미만은 백테스트 최소 기간 미달
-                return data
-        else:
-            return data
-        today = date.today()
-        start_year = today.year - months // 12
-        start_month = today.month - months % 12
-        if start_month <= 0:
-            start_month += 12
-            start_year -= 1
-        try:
-            start = date(start_year, start_month, today.day)
-        except ValueError:            # 2월 29일 등 존재하지 않는 날짜 보정
-            start = date(start_year, start_month, 28)
-        return {**data, "period": None,
-                "start_date": start.isoformat(), "end_date": today.isoformat()}
+        start, end = _months_to_window(normalized[1])
+        return {**data, "period": None, "start_date": start, "end_date": end}
 
     @field_validator("period", mode="before")
     @classmethod
     def _coerce_period(cls, v):
-        # 4B 드리프트 실측(2026-07-16): "10년간" → period=1080(일수) 숫자 출력 —
-        # 일수를 가장 가까운 지원 버킷으로 결정적 매핑(달력일 기준).
-        # 정상 버킷 문자열("3y")을 숫자로 오인하지 않도록 먼저 통과시킨다.
-        if isinstance(v, str):
-            s = v.strip().lower()
-            if s in ("1y", "3y", "5y", "full"):
-                return s
-            # 9B 드리프트 실측(2026-07-31): '전체 기간' 자유 입력에 period="all"을 낸다 —
-            # Literal 밖이라 패치가 통째로 폐기돼 "해석하지 못했어요"로 끝났다(2/2 재현).
-            # 뜻이 같은 표기를 정본 값으로 맞추는 것뿐이므로 의미 판단이 아니다.
-            if s in ("all", "entire", "max", "전체", "전체기간", "전체 기간", "가능한 전체"):
-                return "full"
-            # 버킷 연수의 표기 변형("5년"·"5 y"·"5Y")도 같은 정규화 대상이다. 버킷이 아닌
-            # 연수(2년·10년)는 여기서 바꾸지 않는다 — 가장 가까운 버킷으로 올리면 사용자가
-            # 말하지 않은 창이 된다. 그 경우의 정본은 명시 날짜 변환이다(프롬프트 규칙 12-1).
-            bucket_year = re.fullmatch(r"(1|3|5)\s*(?:y|년)", s)
-            if bucket_year:
-                return f"{bucket_year.group(1)}y"
-            if not s.replace(",", "").replace(".", "", 1).isdigit():
-                return v
-        v = _coerce_number(v)
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            days = float(v)
-            if days <= 548:       # ~1.5년까지 1y
-                return "1y"
-            if days <= 1460:      # ~4년까지 3y
-                return "3y"
-            if days <= 2555:      # ~7년까지 5y
-                return "5y"
-            return "full"
-        return v
+        # 표기 변형("5년"·"3 years"·"전체"·"all"·일수 1095)을 정본 버킷으로 맞춘다 —
+        # 뜻이 같은 표기를 정본 값으로 맞추는 것뿐이므로 의미 판단이 아니다(9B 드리프트
+        # 실측 2026-07-31: '전체 기간'에 period="all"을 내 패치가 통째로 폐기됐다).
+        # 버킷 밖 창은 위 model_validator가 이미 날짜로 바꿨으므로 여기 오지 않는다.
+        normalized = _normalize_period(v)
+        return v if isinstance(normalized, tuple) else normalized
     start_date: Optional[str] = Field(default=None, description="YYYY-MM-DD")
     end_date: Optional[str] = Field(default=None, description="YYYY-MM-DD")
     execution_timing: Optional[Literal["next_open", "current_close"]] = Field(

@@ -330,6 +330,17 @@ QA_TIMEOUT=420 uv run python scripts/qa_template_detect.py --source us --lang en
 
 게이트는 **매번 백엔드에 다시 묻는다**(캐시 재사용 없음 — 낡은 답 위에서 '치명 0'이 나오는 것을 막는다). `--refresh`는 폐지됐고(기본 동작), `--use-cache`는 판정 로직만 손볼 때 쓰는 오프라인 모드다 — **게이트 용도로 쓰지 않는다.**
 
+### 인터프리터 프롬프트·LLM 레인/모델 변경 시 되묻기 하니스 실행 필수
+`backend/strategy_conversation/interpreter/prompts.py`를 고치거나 **LLM 레인·모델을 바꾸면**(`.env`의 `LLM_PROVIDER`·`OPENROUTER_MODEL`·`NL_OLLAMA_MODEL`, 또는 Ollama 모델 교체) 같은 작업에서 되묻기 자유 답변 하니스를 **바뀐 레인으로** 돌려 전후를 대조한다.
+```bash
+uv run python scripts/qa_free_input.py modify   # 되묻기 자유 답변(수정 질문 계열)
+uv run python scripts/qa_free_input.py fill     # 진행 골격 질문 계열
+```
+- 2026-09-07 사고: 09-06 OpenRouter(nemotron-120b) 전환 때 게이트를 돌리지 않아, 08-26 9B에서 통과하던 "10년" 답변이 합법 버킷 "full"로 뭉개진 채 열흘 가까이 잠복했다 — 모델 교체는 프롬프트 수정과 같은 무게의 변경이다
+- 어느 모델로 측정했는지 결과에 남긴다 — 트레이스 span 이름은 `llm_backend.active_chat_model`(실제 레인 모델)로 찍힌다. Ollama 슬롯명만 보고 로컬 9B라고 단정하지 않는다
+- 무료 한도(OpenRouter free 1000건/일)를 소모하므로 실행 전 사용자에게 알린다
+- 규칙 위반이 실측되면 **규칙 문구를 늘리지 말고 출력 형태를 바꾼다** — "넷 중 하나가 아니면 계산하라" 같은 조건부 규칙은 9B·120B 모두 안 지켰고, "말한 그대로 옮겨 적기"(`<N>y`/`<N>m`/`full`)로 형태를 바꾼 뒤 변환은 결정론 코드(`BacktestSpec._normalize_period`)가 한다
+
 ### /us 영어 레인 수정 시 QA 하니스
 `/us` 파싱·분류·되묻기 경로를 고치면 아래 영어 판 하니스로 확인한다(전부 `--lang en`).
 ```bash

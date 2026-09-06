@@ -22,6 +22,13 @@ from pydantic import ValidationError
 
 import cancellation
 from llm_backend import OLLAMA_MODEL_9B
+
+
+def _active_model(slot_model: str) -> str:
+    """관찰·응답 메타에 적는 실제 레인 모델명(슬롯명이 아니다 — 2026-09-07 오독 사고)."""
+    from llm_backend import active_chat_model
+
+    return active_chat_model(slot_model)
 from strategy_conversation import config
 from strategy_conversation.interpreter.models import StrategyIntent
 from strategy_conversation.interpreter.output_repair import (
@@ -185,8 +192,10 @@ def _default_ollama_chat(model: str) -> ChatFn:
         from observability import span
         from observability.agent_trace import ollama_usage
 
+        from llm_backend import active_chat_model
+
         with span(
-            f"LLM · {model}", "llm",
+            f"LLM · {active_chat_model(model)}", "llm",
             inputs={"system_prompt": system_prompt, "user_prompt": user_message},
             metadata={"model": model, "temperature": 0,
                       "num_ctx": _OLLAMA_NUM_CTX, "max_tokens": max_tokens or 2048},
@@ -288,7 +297,7 @@ class StrategyInterpreter:
             "Interpreter · 전략 해석", "chain",
             inputs={"user_input": user_input, "draft": draft,
                     "pending_question": pending_question},
-            metadata={"model": self.model_name, "prompt_version": PROMPT_VERSION,
+            metadata={"model": _active_model(self.model_name), "prompt_version": PROMPT_VERSION,
                       "mode": "modify" if draft else "create"},
         ) as trace:
             result = self._interpret(user_input, draft, pending_question, on_stage)
@@ -398,7 +407,7 @@ class StrategyInterpreter:
                     raw_output=current_raw,
                     repair_attempts=attempts,
                     latency_ms=round((time.perf_counter() - started) * 1000, 2),
-                    model_name=self.model_name,
+                    model_name=_active_model(self.model_name),
                     unreflected_numbers=residual,
                 )
             except (ValidationError, ValueError, json.JSONDecodeError) as exc:

@@ -651,3 +651,42 @@ def test_universe_ask_not_flagged_when_still_the_open_question():
     }
     main._flag_unresolved_universe_ask(result, request)
     assert result["notices"] == []
+
+
+def test_free_text_answer_replans_with_this_turns_explicit_fields(monkeypatch):
+    """[회귀 2026-09-07] 자유 서술로 답한 슬롯이 재계획에 '빈 칸'으로 보이던 결함.
+
+    되묻기에 "10년 데이터를 사용해줘"로 답하면 패치는 반영되는데, 다음 질문 재계획에
+    **이전 턴 에코**(previous_explicit_fields)만 넘겨서 플래너의 filled_slots에 백테스트
+    기간이 빠지고 같은 질문을 다시 냈다(날짜를 정확히 답해도 재질문). 칩 확정 레인처럼
+    이번 턴 패치로 판정한 명시 필드를 재계획에 넘겨야 한다."""
+    monkeypatch.setenv("STRATEGY_DAG_PLANNER_MODE", "primary")
+    seen: dict = {}
+
+    def _capture_replan(user_input, parsed, explicit_fields=None, declined_fields=None):
+        seen["explicit_fields"] = list(explicit_fields or [])
+        return None, None, None, None
+
+    monkeypatch.setattr(primary, "_replan_next_question", _capture_replan)
+    _stub_interpreter(monkeypatch, StrategyIntent.model_validate({
+        "intent": "MODIFY_STRATEGY",
+        "patches": [{"op": "replace", "path": "/backtest/period",
+                     "value": "10y", "source_text": "10년 데이터를 사용해줘"}],
+        "confidence": 1.0,
+    }))
+    prev = _prev_cross_strategy(backtest_period="5y")
+    result = primary.run_primary_modification(
+        "10년 데이터를 사용해줘", prev.model_dump(),
+        previous_explicit_fields=["universe"],
+        pending_question="어느 기간의 과거 데이터로 백테스트할까요?",
+    )
+    assert result is not None
+    # 이번 턴이 답한 슬롯이 재계획 입력에 들어간다(이전 턴 에코만 넘기지 않는다).
+    assert "backtest_period" in seen["explicit_fields"]
+    assert "universe" in seen["explicit_fields"]
+    assert "backtest_period" in result["explicit_fields"]
+    # 출력 형태 계약: "10y"는 버킷이 아니라 오늘 기준 10년 창으로 결정론 변환된다.
+    from datetime import date
+    parsed = result["parsed"]
+    assert parsed.backtest_start_date.startswith(str(date.today().year - 10))
+    assert parsed.backtest_end_date == date.today().isoformat()

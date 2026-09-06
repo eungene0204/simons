@@ -559,12 +559,16 @@ def test_recommended_value_list_coerced_to_string():
 
 
 def test_backtest_period_days_mapped_to_bucket():
-    # 실측 드리프트(2026-07-16): "10년간" → period=1080(일수) 숫자 출력
-    for days, expected in ((300, "1y"), (1080, "3y"), (1825, "5y"), (3650, "full")):
+    # 실측 드리프트(2026-07-16): "10년간" → period=1080(일수) 숫자 출력.
+    # 버킷 근사치(달력일 ±31)만 버킷이다. 7년 초과를 "full"로, 300일을 "1y"로 올리던
+    # 구 매핑은 사용자가 말한 적 없는 창이라 폐기(2026-09-07) — 버킷 밖 일수는 날짜 창,
+    # 최소 기간 미달은 값을 버려 되묻기로 간다.
+    for days, expected in ((300, None), (1080, "3y"), (1825, "5y"), (3650, None)):
         intent = StrategyIntent.model_validate(_full_intent_dict(
             backtest={"period": days},
         ))
         assert intent.strategy.backtest.period == expected, days
+    assert intent.strategy.backtest.start_date is not None   # 3650일 → 10년 창
 
 
 def test_ranking_condition_moved_out_of_entry():
@@ -3474,6 +3478,40 @@ def test_non_bucket_relative_period_becomes_explicit_dates():
     # 명시 날짜가 이미 있으면 건드리지 않는다.
     kept = BacktestSpec.model_validate({"period": "10y", "start_date": "2020-01-01"})
     assert kept.start_date == "2020-01-01"
+
+
+def test_period_transcription_shape_is_normalized_deterministically():
+    """[회귀 2026-09-07] 출력 형태 계약 — LLM은 기간을 "<N>y"/"<N>m"/"full"로 옮겨 적기만
+    하고, 버킷 판정·날짜 변환은 코드가 한다. 구 규칙("넷뿐, 아니면 날짜를 계산하라")은
+    9B·nemotron-120b 모두 안 지켜 "10년"을 합법 버킷 "full"로 뭉갰다(7회 중 6회)."""
+    from datetime import date
+
+    from strategy_conversation.interpreter.models import BacktestSpec
+    from strategy_conversation.interpreter.prompts import PROMPT_VERSION, build_system_prompt
+
+    today = date.today()
+    # 버킷 밖 연·월·일수 → 길이가 보존된 명시 날짜 창("가장 가까운 버킷" 금지)
+    for raw in ("10y", "10 years", "10년", 3650):
+        spec = BacktestSpec.model_validate({"period": raw})
+        assert spec.period is None, raw
+        assert spec.start_date.startswith(str(today.year - 10)), raw
+        assert spec.end_date == today.isoformat(), raw
+    assert BacktestSpec.model_validate({"period": "18m"}).start_date is not None
+    # 버킷과 그 표기 변형(달력일 근사 포함)은 정본 버킷 — 7년 초과 일수를 "full"로
+    # 올리던 구 매핑은 폐기됐다.
+    assert BacktestSpec.model_validate({"period": "3 years"}).period == "3y"
+    assert BacktestSpec.model_validate({"period": 1100}).period == "3y"
+    assert BacktestSpec.model_validate({"period": "the full period"}).period == "full"
+    assert BacktestSpec.model_validate({"period": 3650}).period is None
+    # 최소 기간(1년) 미만은 조용히 올리지 않고 값을 버린다(슬롯이 비어 되묻기로).
+    assert BacktestSpec.model_validate({"period": "6m"}).period is None
+    assert BacktestSpec.model_validate({"period": "6m"}).start_date is None
+    # 프롬프트 계약: 옮겨 적기 형태를 알려 주고, 버킷 선택·날짜 산술을 LLM에 시키지 않는다.
+    assert PROMPT_VERSION >= "5.0"
+    prompt = build_system_prompt()
+    assert '"10년"="10y"' in prompt
+    assert "넷뿐" not in prompt
+    assert "start_date=오늘-10년" not in prompt
 
 
 def test_patch_provenance_accepts_quote_inside_condition_value():

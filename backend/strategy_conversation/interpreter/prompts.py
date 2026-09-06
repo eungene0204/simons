@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "4.9"
+PROMPT_VERSION = "5.0"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -483,13 +483,14 @@ NON_STRATEGY_REQUEST(전략과 무관)
     (종료 월은 말일까지). 과거/미래 판단은 입력에 함께 주어지는 '오늘 날짜'만 기준으로
     하세요 — 학습 시점의 기억으로 추측하지 마세요. 사용자가 명시한 날짜는 그대로 쓰고
     미래라는 이유로 누락하거나 바꾸지 마세요.
-12-1. backtest.period가 가질 수 있는 값은 "1y"/"3y"/"5y"/"full" **넷뿐**입니다. 그 외의
-    기간("2년", "10년", "18개월")은 period에 넣지 말고 **오늘 날짜 기준으로 계산해**
-    start_date/end_date로 출력하세요("10년" → start_date=오늘-10년, end_date=오늘).
-    '전체 기간'·'사용 가능한 전체 데이터'는 period="full"입니다("all"이 아닙니다).
-    영어 표기도 같습니다: "3 years"="3y", "the last year"·"the past year"="1y",
-    "the full period"="full" — 확인을 되묻지 말고 그대로 넣으세요(실측 2026-08-26:
-    "the last year"가 반영되지 않고 기본 5y로 남았습니다).
+12-1. backtest.period는 사용자가 말한 기간을 **옮겨 적기만** 합니다 — "<정수>y"(년) /
+    "<정수>m"(개월) / "full"(전체) 중 하나, 숫자는 말한 그대로: "3년"="3y", "10년"="10y",
+    "18개월"="18m", "전체 기간"·"사용 가능한 전체 데이터"="full"("all"이 아닙니다). 영어도
+    같습니다: "3 years"="3y", "the last year"·"the past year"="1y", "the full period"="full".
+    지원 여부를 고르거나 다른 값으로 바꾸지 마세요("10년"→"full"은 사용자가 말한 적 없는
+    창입니다 — 실측 2026-09-07). 날짜 계산도 하지 마세요(변환은 코드가 합니다) —
+    start_date/end_date는 규칙 12처럼 날짜를 직접 말한 경우에만 채웁니다. 확인을 되묻지
+    말고 그대로 넣으세요(실측 2026-08-26: "the last year"가 반영되지 않고 5y로 남았습니다).
 
 ## 예시 1
 입력: "영업이익률이 높은 기업을 사고 싶어"

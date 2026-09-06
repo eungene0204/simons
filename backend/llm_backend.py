@@ -83,6 +83,16 @@ def openrouter_model() -> str:
     return os.environ.get("OPENROUTER_MODEL", "").strip() or OPENROUTER_DEFAULT_MODEL
 
 
+def active_chat_model(payload_model: str) -> str:
+    """이 요청이 실제로 나갈 모델명 — 관찰 라벨(span 이름·로그)용.
+
+    호출부 payload의 model은 Ollama 슬롯명이라 OpenRouter 레인에서는 실제 모델과 다르다.
+    트레이스 span 이름이 슬롯명(Qwen3.5-9B)으로 찍혀 nemotron-120b의 드리프트를 9B 회귀로
+    오독한 사고(2026-09-07)의 재발 방지 — 한도 소진 폴백 중이면 Ollama 슬롯명이 맞다.
+    """
+    return openrouter_model() if is_openrouter() else payload_model
+
+
 def openrouter_headers() -> dict[str, str]:
     """OpenRouter 인증 헤더. 키가 없으면 즉시 실패한다 — 조용히 로컬로 폴백하면
     운영과 다른 모델로 검증하고도 성공한 것처럼 보이는 사고가 난다(FR-STR-019p ⑤)."""
