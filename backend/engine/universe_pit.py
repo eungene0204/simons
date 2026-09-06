@@ -879,6 +879,17 @@ def _load_us_stocks() -> list[dict]:
         return []
 
 
+def us_name_map(symbols: Optional[list[str]] = None) -> dict[str, str]:
+    """symbol -> 미국 종목·ETF 영문명 (symbols=None이면 전체). etf_name_map의 US 판."""
+    wanted = set(symbols) if symbols is not None else None
+    out: dict[str, str] = {}
+    for item in _load_us_etf_master() + _load_us_stocks():
+        sym = item.get("symbol")
+        if sym and item.get("name") and (wanted is None or sym in wanted):
+            out.setdefault(sym, item["name"])
+    return out
+
+
 def resolve_us_symbols(kind: str) -> list[str]:
     """미국 유니버스 → 파케이를 보유한 심볼 목록.
 

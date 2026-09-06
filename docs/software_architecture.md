@@ -1130,9 +1130,11 @@ BacktestEngine.run_backtest(request)
 ```
 VirtualTrader (비동기 루프, FastAPI 메인 스레드 분리)
 │
-├── 장 개장 (09:00 KST) — entry 신호 평가 → 매수 주문
+├── 장 개장 (한국 계좌 09:00 KST · 미국 계좌 09:30 ET) — entry 신호 평가 → 매수 주문
 ├── 정시 새로고침 — exit 신호 확인 → 청산 주문
-└── 장 마감 (15:30 KST) — 최종 포지션 계산 → VirtualMarketLog 저장
+└── 장 마감 (한국 계좌 15:30 KST · 미국 계좌 정규장 종료 분 ET, 조기 종료 반영) — 최종 포지션 계산 → VirtualMarketLog 저장
+
+계좌 통화(`VirtualAccount.currency`)가 시장 시계·거래일·집행 창의 정본이다(FR-VM-074).
 
 거래 비용: 수수료 0.15% / 세금 0.30% / 슬리피지 0.20%
 ```
@@ -1140,7 +1142,7 @@ VirtualTrader (비동기 루프, FastAPI 메인 스레드 분리)
 **신호 대상 유니버스는 화면의 모니터링 목록과 다른 값이다.** 모니터링 목록
 (`VirtualMarketState.symbols`)은 표시·시세구독용으로 백테스트 상위 10종목 수준이고,
 신호 평가 대상은 `resolve_live_universe`(`engine/live_signal_utils.py`)가 전략 DSL에서
-매 사이클 다시 해석한다(KOSPI 832 / KOSDAQ 1756 / KOSPI200 200 / KOSDAQ150 150 등). 지수
+매 사이클 다시 해석한다(KOSPI 832 / KOSDAQ 1756 / KOSPI200 200 / KOSDAQ150 150 등; 미국 유니버스 `sp500`·`nasdaq100`·`dow30`·`nasdaq`·`us`·`us_etf`는 `universe_pit.resolve_us_symbols`의 명부 — 백테스트와 동일). 지수
 유니버스는 명부 파일(`data/kospi200-cache.json`, `data/kosdaq150-cache.json` —
 `engine/kis_master.py`가 KIS 종목마스터에서 읽고 `scripts/build_index_rosters.py`가 생성)로만
 해석하고, 명부가 없으면 시장 전체로 대체하지 않는다.

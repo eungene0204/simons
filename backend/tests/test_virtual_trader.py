@@ -25,6 +25,7 @@ from engine.virtual_trader import (
     _fresh_price_map,
     _is_market_hours,
     _is_us_market_hours,
+    _is_strategy_execution_window,
     _account_market_open,
     _market_now,
     _ET,
@@ -452,7 +453,7 @@ async def test_auto_trading_excludes_cross_currency_buy_candidates(monkeypatch):
     trader = vt.VirtualTrader(StubMarketData(), data_loader=None)
     monkeypatch.setattr(vt, "resolve_live_universe",
                         lambda _dsl, _fallback: ["AAPL", "005930", "MSFT", "000660"])
-    monkeypatch.setattr(vt, "_is_strategy_execution_window", lambda _timing: True)
+    monkeypatch.setattr(vt, "_is_strategy_execution_window", lambda _timing, *_a: True)
     monkeypatch.setattr(trader, "_fetch_strategy", lambda _sid: {
         "universe_id": "sp500", "entry": {"conditions": []}, "exit": {"conditions": []},
         "risk": {"execution_timing": "current_close", "max_positions": 1},
@@ -481,3 +482,61 @@ async def test_auto_trading_excludes_cross_currency_buy_candidates(monkeypatch):
     })
 
     assert evaluated == [["AAPL", "MSFT"]]  # 한국 코드는 매수 후보에서 제외
+
+
+# ── 미국 계좌의 전략 집행 창(2026-09-05) ───────────────────────────────────────
+
+def test_us_account_execution_window_follows_et_session(monkeypatch):
+    """미국 계좌는 ET 시계로 집행 창을 판정한다 — KST 고정이던 종전에는 미국 장중에
+    창이 한 번도 열리지 않아 전략 시그널이 매 틱 전부 지워졌다."""
+    import engine.virtual_trader as vt
+
+    monkeypatch.setattr(vt.us_market_calendar, "regular_session", lambda _now: None)
+    usd = {"currency": "USD"}
+
+    def et(h, m, s=0):
+        return datetime(2026, 9, 3, h, m, s, tzinfo=vt._ET)  # 목요일
+
+    assert _is_strategy_execution_window("next_open", usd, et(9, 30))
+    assert _is_strategy_execution_window("next_open", usd, et(9, 35, 30))
+    assert not _is_strategy_execution_window("next_open", usd, et(9, 36))
+    assert not _is_strategy_execution_window("next_open", usd, et(9, 0))  # KST 09:00 규칙 아님
+    assert _is_strategy_execution_window("current_close", usd, et(16, 0, 30))
+    assert not _is_strategy_execution_window("current_close", usd, et(15, 30))  # KST 15:30 규칙 아님
+    assert not _is_strategy_execution_window("current_close", usd, et(16, 1))
+
+
+def test_us_account_execution_window_honors_early_close_calendar(monkeypatch):
+    import engine.virtual_trader as vt
+
+    def et(h, m, s=0):
+        return datetime(2026, 11, 27, h, m, s, tzinfo=vt._ET)  # 추수감사절 다음날 13:00 조기 종료
+
+    monkeypatch.setattr(vt.us_market_calendar, "regular_session", lambda _now: (et(9, 30), et(13, 0)))
+    usd = {"currency": "USD"}
+    assert _is_strategy_execution_window("current_close", usd, et(13, 0, 15))
+    assert not _is_strategy_execution_window("current_close", usd, et(16, 0))
+
+
+def test_kr_account_execution_window_unchanged_by_account_argument():
+    krw = {"currency": "KRW"}
+    kst = lambda h, m: datetime(2026, 9, 3, h, m, tzinfo=_KST)
+    assert _is_strategy_execution_window("next_open", krw, kst(9, 3))
+    assert not _is_strategy_execution_window("next_open", krw, kst(9, 30))
+    assert _is_strategy_execution_window("current_close", krw, kst(15, 30))
+    assert _is_strategy_execution_window("next_open", None, kst(9, 3))
+
+
+def test_us_market_hours_close_minute_is_inclusive_with_calendar(monkeypatch):
+    """달력이 16:00:00을 종료로 주더라도 16:00:xx 틱은 장중이다 — 아니면 current_close 창에 닿지 못한다."""
+    import engine.virtual_trader as vt
+    from engine import us_market_calendar
+
+    def et(h, m, s=0):
+        return datetime(2026, 9, 3, h, m, s, tzinfo=vt._ET)
+
+    monkeypatch.setattr(us_market_calendar, "regular_session", lambda _now: (et(9, 30), et(16, 0)))
+    monkeypatch.setattr(us_market_calendar, "calendar_available", lambda _now: True)
+    assert _is_us_market_hours(et(16, 0, 30))
+    assert not _is_us_market_hours(et(16, 1))
+    assert not _is_us_market_hours(et(9, 29, 59))

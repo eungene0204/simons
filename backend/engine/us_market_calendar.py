@@ -139,7 +139,9 @@ def is_open(now: Optional[datetime] = None) -> Optional[bool]:
     if session is None:
         return False if calendar_available(ref) else None
     start, end = session
-    return start <= ref <= end
+    # 종료 시각은 분 단위로 비교한다 — 16:00:30을 장외로 치면 30초 루프가 종료 분의
+    # current_close 집행 창(virtual_trader)에 한 번도 닿지 못한다(한국 레인의 분 단위 규칙과 동일).
+    return start <= ref and ref.replace(second=0, microsecond=0) <= end
 
 
 def reset_cache() -> None:
