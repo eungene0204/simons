@@ -4748,46 +4748,23 @@ function StrategyLabContent() {
     // 진행 중인 요청부터 끊는다 — 이후 뒤늦게 도착할 응답·오류가 새 대화에 섞이지 않게.
     // (컨트롤러는 끊긴 채로 둔다 — 다음 턴 진입점이 새것으로 바꾼다. 위 chatAbortRef 주석)
     chatAbortRef.current?.abort();
-    setStage("idle");
+    // 전략 초안(파싱 결과·빌더 상태·열린 되묻기·pending_ask·거부 기록 등)은 초안 초기화와
+    // **한 목록**으로 비운다. 목록을 따로 두면 어긋난다 — 2026-09-06 프로덕션 사고: 여기서
+    // openClarificationRef를 빼먹어, '대화 종료' 뒤 인사("안녕 뭘 만들어 볼까?")의 해석 실패
+    // 안내(preservesOpenQuestion)가 옛 되묻기에 저장된 직전 전략 카드를 되살렸다. 채팅 진입은
+    // 같은 라우트의 ?chat=1 소프트 내비게이션이라 컴포넌트가 remount되지 않아 ref가 산다.
+    clearStrategyDraft();
     setMessages([]);
-    setLatestParsed(null);
-    setBacktestReq(null);
-    setCurrentOptions(null);
-    setResult(null);
-    setExecutedReq(null);
     setIsSending(false);
     chatInputRef.current?.clear();
-    setBuilderFreeTextRequested(false);
-    latestParsedRef.current = null;
-    backtestReqRef.current = null;
-    coachSessionIdRef.current = null;
-    coachConversationRef.current = [];
     firstPromptRef.current = "";
     lastAnalyzedSymbolRef.current = null;
-    builderModeRef.current = false;
-    builderStateRef.current = {};
-    builderHistoryRef.current = [];
-    explicitNoRebalancingRef.current = false;
-    setExplicitNoRebalancing(false);
-    explicitFieldsRef.current = [];
-    fieldStatesRef.current = null;
-    fieldMetadataRef.current = null;
-    artifactsRef.current = null;
-    changeLogRef.current = [];
     workflowStatusRef.current = "IDLE";
-    pendingHoldingPeriodPromptRef.current = null;
-    pendingHoldingPeriodHorizonRef.current = null;
-    pendingMetricResearchPromptRef.current = null;
-    researchMetricRef.current = null;
     pendingPromptConsumedRef.current = false;
-    metricOptimizationDraftRef.current = null;
     // 새 대화는 새 기록 세션이다 — 턴 번호가 0부터 다시 시작하므로 세션 id도 새로 만든다.
     qaSessionIdRef.current = newQaSessionId();
     qaLoggedTurnsRef.current = 0;
     qaTurnStartedAtRef.current = new Map();
-    metricOptimizationAbortRef.current?.abort();
-    metricOptimizationAbortRef.current = null;
-    setMetricOptimizationProgress(null);
   };
 
   const handleReset = () => {
