@@ -1028,8 +1028,8 @@ def summarize_mlx(prompt: str) -> str:
 
 
 def summarize_ollama(prompt: str, num_predict: int = 1200) -> str:
-    from engine.nl_parser import _OLLAMA_NUM_CTX, _ollama_ensure_warm, _ollama_open_with_retry
-    from llm_chat import chat_request, read_chat_response
+    from engine.nl_parser import _OLLAMA_NUM_CTX
+    from llm_chat import open_chat, read_chat_response
 
     payload = (
         {
@@ -1049,9 +1049,8 @@ def summarize_ollama(prompt: str, num_predict: int = 1200) -> str:
     # Modal scale-to-zero 콜드스타트 내성 — 코치/NL파서와 동일하게
     # ① 본문 없는 GET으로 컨테이너를 먼저 깨우고(콜드 첫 POST body 유실 방지)
     # ② POST는 재시도 예산 안에서 연다. (기존 단발 60s urlopen은 콜드에서 항상 실패했다)
-    _ollama_ensure_warm()
-    req = chat_request(payload)  # 프로바이더(ollama/openrouter) 형식은 어댑터가 정한다
-    with _ollama_open_with_retry(req, timeout=120) as resp:
+    # 레인 선택(ollama/openrouter·한도 폴백)과 Modal 워밍업은 어댑터가 맡는다.
+    with open_chat(payload, timeout=120) as resp:
         data = read_chat_response(resp.read())
     return (data.get("message") or {}).get("content", "").strip()
 

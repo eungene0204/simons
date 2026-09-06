@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 import cancellation
 from llm_backend import OLLAMA_MODEL_9B
-from llm_chat import chat_request, probe_request, read_chat_response
+from llm_chat import open_chat, probe_request, read_chat_response
 
 logger = logging.getLogger(__name__)
 
@@ -293,8 +293,6 @@ def _run_validation_llm(parser, system_prompt: str, user_message: str) -> Option
     검증은 '비교+판정' 과제라 파싱 본경로보다 작은 모델로 충분할 수 있다 — 단, 별도
     모델은 Ollama에 추가 로드되므로 메모리 여유가 있을 때만 opt-in.
     """
-    import urllib.request
-
     if getattr(parser, "backend", "ollama") == "mlx":
         return parser.chat(system_prompt, user_message, max_tokens=_VALIDATION_NUM_PREDICT, temperature=0.0)
 
@@ -313,7 +311,7 @@ def _run_validation_llm(parser, system_prompt: str, user_message: str) -> Option
 
         _ollama_align_runner_num_ctx()
 
-    req = chat_request({
+    payload = {
         "model": validation_model,
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -327,10 +325,11 @@ def _run_validation_llm(parser, system_prompt: str, user_message: str) -> Option
             "num_ctx": _VALIDATION_NUM_CTX,
             "num_predict": _VALIDATION_NUM_PREDICT,
         },
-    })
+    }
     # 취소가 진행 중 소켓을 닫으면 I/O 예외를 검증 실패가 아니라 취소로 보고한다.
+    # retry=False: 보조 경로라 콜드스타트 재시도 예산을 태우지 않는다(단발 urlopen).
     with cancellation.cancellable_io(), \
-            urllib.request.urlopen(req, timeout=_VALIDATION_TIMEOUT_S) as resp:
+            open_chat(payload, timeout=_VALIDATION_TIMEOUT_S, retry=False) as resp:
         data = read_chat_response(resp.read())
     return (data.get("message") or {}).get("content", "")
 

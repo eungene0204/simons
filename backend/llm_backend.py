@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import platform
+import time
 from typing import Literal, Optional
 
 Backend = Literal["mlx", "ollama"]
@@ -38,13 +39,42 @@ OPENROUTER_DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
 
 
 def llm_provider() -> Provider:
-    """LLM 전송 프로바이더. 기본 "ollama", LLM_PROVIDER=openrouter 이면 "openrouter"."""
+    """LLM 전송 프로바이더(설정값). 기본 "ollama", LLM_PROVIDER=openrouter 이면 "openrouter".
+
+    실제 전송 레인은 is_openrouter()가 정한다 — OpenRouter 무료 한도가 소진되면 리셋 시각까지
+    Ollama 레인(로컬 dev=localhost, prod=Modal OLLAMA_HOST)으로 자동 폴백한다(2026-09-06 사용자 지시).
+    """
     value = os.environ.get("LLM_PROVIDER", "ollama").strip().lower()
     return "openrouter" if value == "openrouter" else "ollama"
 
 
+# OpenRouter 폴백 상태 — 무료 한도 429(free-models-per-day)를 받은 프로세스가 리셋 시각까지
+# Ollama 레인으로 전환한다. 프로세스 전역이라 한 요청이 한도를 발견하면 이후 모든 슬롯이
+# 함께 전환된다(같은 계정 한도라 개별 재시도는 전부 429다). 시각이 지나면 자동 복귀.
+_openrouter_paused_until: float = 0.0
+
+
 def is_openrouter() -> bool:
-    return llm_provider() == "openrouter"
+    if llm_provider() != "openrouter":
+        return False
+    return time.time() >= _openrouter_paused_until
+
+
+def openrouter_fallback_active() -> bool:
+    """설정은 openrouter인데 한도 소진으로 Ollama 레인을 쓰는 중인가."""
+    return llm_provider() == "openrouter" and time.time() < _openrouter_paused_until
+
+
+def pause_openrouter_until(reset_epoch_s: float) -> None:
+    """OpenRouter를 reset 시각까지 멈추고 Ollama 레인으로 폴백한다."""
+    global _openrouter_paused_until
+    _openrouter_paused_until = reset_epoch_s
+
+
+def resume_openrouter() -> None:
+    """폴백 해제(테스트·수동 복구용)."""
+    global _openrouter_paused_until
+    _openrouter_paused_until = 0.0
 
 
 def openrouter_model() -> str:

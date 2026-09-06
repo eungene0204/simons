@@ -159,13 +159,9 @@ def _default_ollama_chat(model: str) -> ChatFn:
     # 경로 그대로 — 반환 계약(완성 텍스트)은 두 경로 모두 동일하다.
     def chat(system_prompt: str, user_message: str, *, max_tokens: int | None = None,
              on_chunk: Callable[[str], None] | None = None) -> str:
-        from engine.nl_parser import (
-            _OLLAMA_NUM_CTX,
-            _ollama_ensure_warm,
-            _ollama_open_with_retry,
-        )
+        from engine.nl_parser import _OLLAMA_NUM_CTX
         from llm_backend import is_local_ollama
-        from llm_chat import chat_request, iter_chat_stream, read_chat_response
+        from llm_chat import iter_chat_stream, open_chat, read_chat_response
 
         payload = {
             "model": model,
@@ -184,8 +180,6 @@ def _default_ollama_chat(model: str) -> ChatFn:
             # 갱신하므로(기본 5분), startup preload(-1)만으론 첫 요청 후 다시 풀린다.
             # 원격(Modal)은 컨테이너 수명이 별도 관리라 기본값을 유지한다.
             payload["keep_alive"] = -1
-        _ollama_ensure_warm()
-        req = chat_request(payload)  # 프로바이더(ollama/openrouter) 형식은 어댑터가 정한다
         # 관찰 span(비활성 시 no-op) — 호출 자체는 그대로다. 토큰 수는 Ollama 응답에
         # 이미 들어 있는 값을 읽기만 한다(prompt_eval_count/eval_count).
         from observability import span
@@ -203,8 +197,9 @@ def _default_ollama_chat(model: str) -> ChatFn:
             # 프록시 예산(240초)에서 후행 검증 몫(90초)을 남긴 값이다.
             # cancellable_io: 요청 취소('대화 종료')가 진행 중 소켓을 닫으면 read 예외를
             # 해석 실패가 아니라 취소(OperationCancelled)로 보고한다.
+            # 레인 선택(ollama/openrouter·한도 폴백)과 Modal 워밍업은 어댑터(open_chat)가 맡는다.
             with cancellation.cancellable_io(), \
-                    _ollama_open_with_retry(req, timeout=_LLM_CALL_TIMEOUT_S) as resp:
+                    open_chat(payload, timeout=_LLM_CALL_TIMEOUT_S) as resp:
                 if on_chunk is None:
                     data = read_chat_response(resp.read())
                     content = (data.get("message") or {}).get("content", "")

@@ -20,16 +20,25 @@ payload(model·messages·stream·think·format·options)를 만들고, 응답도
                          붙이지 않는다(그쪽은 reasoning 파라미터가 정상 반영됨을 실측).
     · stream=True      → stream_options.include_usage 로 마지막 청크에 usage를 받는다.
 
-이 모듈은 전송 형식만 다룬다. 자연어 해석·프롬프트·재시도 정책은 호출부 소관이다.
+무료 한도 폴백(2026-09-06 사용자 지시): OpenRouter가 `free-models-per-day` 429를 주면
+`open_chat()`이 그 요청부터 Ollama 레인으로 다시 보내고, 프로세스 전역을 리셋 시각까지
+Ollama로 전환한다(llm_backend.pause_openrouter_until). 응답 파싱은 프로바이더 플래그가 아니라
+**응답 형태**(OpenAI `choices` / SSE `data:` vs Ollama `message` / NDJSON)로 판별해, 전환
+순간의 레이스에서도 어느 쪽 응답이든 올바르게 읽는다.
+
+이 모듈은 전송 형식·레인 선택만 다룬다. 자연어 해석·프롬프트·재시도 정책은 호출부 소관이다.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import time
+import urllib.error
 import urllib.request
 from typing import Any, Iterator
 
+import llm_backend
 from llm_backend import (
     OLLAMA_BASE_URL,
     OPENROUTER_BASE_URL,
@@ -44,6 +53,81 @@ logger = logging.getLogger(__name__)
 # Qwen3 계열의 thinking 소프트 스위치 — 사용자 원문을 해석하는 것이 아니라 LLM에 보내는
 # 메시지 끝에 붙이는 제어 토큰이다(프롬프트 계층).
 _NO_THINK_SWITCH = " /no_think"
+
+
+class OpenRouterQuotaExhausted(RuntimeError):
+    """OpenRouter 무료 모델 일일 한도 소진(429 free-models-per-day)."""
+
+    def __init__(self, message: str, reset_epoch_s: float):
+        super().__init__(message)
+        self.reset_epoch_s = reset_epoch_s
+
+
+# 리셋 시각을 응답에서 못 읽으면 이만큼 뒤에 OpenRouter를 다시 시도한다.
+_QUOTA_RETRY_AFTER_S = 3600.0
+
+
+def check_openrouter_quota(err: urllib.error.HTTPError) -> None:
+    """OpenRouter 429가 **일일 한도**면 폴백을 켜고 OpenRouterQuotaExhausted를 올린다.
+
+    분당 한도 429(free-models-per-min)는 일시적이라 그대로 둔다(호출부가 재시도).
+    """
+    if err.code != 429:
+        return
+    try:
+        body = err.read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 — 본문을 못 읽으면 일시 오류로 취급
+        return
+    if "per-day" not in body.lower():
+        return
+    reset = _parse_reset_epoch(body) or (time.time() + _QUOTA_RETRY_AFTER_S)
+    llm_backend.pause_openrouter_until(reset)
+    logger.warning(
+        "OpenRouter 무료 모델 일일 한도 소진 — %s까지 Ollama 레인(%s)으로 폴백 | body=%s",
+        time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(reset)), OLLAMA_BASE_URL, body[:200],
+    )
+    raise OpenRouterQuotaExhausted(
+        f"OpenRouter 무료 모델 일일 요청 한도 초과 — Ollama 레인으로 폴백 (응답: {body[:200]})",
+        reset,
+    ) from err
+
+
+def _parse_reset_epoch(body: str) -> float | None:
+    """429 본문의 metadata.headers.X-RateLimit-Reset(ms epoch) → 초 epoch."""
+    try:
+        headers = json.loads(body)["error"]["metadata"]["headers"]
+        return int(headers["X-RateLimit-Reset"]) / 1000.0
+    except Exception:  # noqa: BLE001 — 형식이 다르면 기본 대기
+        return None
+
+
+def open_chat(payload: dict[str, Any], timeout: int, *, retry: bool = True):
+    """payload를 현재 레인으로 보내 응답 핸들을 연다(컨텍스트 매니저로 쓸 것).
+
+    retry=True면 파싱 본경로의 콜드스타트 재시도 관문(nl_parser._ollama_open_with_retry)을
+    지나고, False면 단발 urlopen(검증기처럼 예산을 태우면 안 되는 보조 경로).
+    OpenRouter 한도 소진이면 **같은 요청을 Ollama 레인으로 다시 보낸다**.
+    """
+    from engine import nl_parser  # 지연 import — nl_parser가 이 모듈을 import한다
+
+    def _open(req):
+        if retry:
+            return nl_parser._ollama_open_with_retry(req, timeout=timeout)
+        try:
+            return urllib.request.urlopen(req, timeout=timeout)
+        except urllib.error.HTTPError as e:
+            if is_openrouter():
+                check_openrouter_quota(e)  # 일일 한도면 OpenRouterQuotaExhausted
+            raise
+
+    if is_openrouter():
+        try:
+            return _open(chat_request(payload))
+        except OpenRouterQuotaExhausted:
+            logger.warning("OpenRouter 한도 소진 — 이 요청을 Ollama 레인으로 다시 보낸다")
+    # Ollama 레인(기본 또는 폴백). Modal 콜드 컨테이너는 본문 없는 GET으로 먼저 깨운다.
+    nl_parser._ollama_ensure_warm()
+    return _open(chat_request(payload))
 
 
 # ── 요청 ─────────────────────────────────────────────────────────────────────
@@ -116,11 +200,11 @@ def _append_no_think(messages: list[dict[str, Any]]) -> None:
 # ── 응답 ─────────────────────────────────────────────────────────────────────
 
 def read_chat_response(raw: bytes) -> dict[str, Any]:
-    """비스트리밍 응답 본문 → Ollama /api/chat 형태 dict."""
+    """비스트리밍 응답 본문 → Ollama /api/chat 형태 dict(응답 형태로 프로바이더 판별)."""
     data = json.loads(raw)
-    if not is_openrouter():
-        return data
-    return from_openrouter_response(data)
+    if isinstance(data, dict) and ("choices" in data or "error" in data and "message" not in data):
+        return from_openrouter_response(data)
+    return data
 
 
 def from_openrouter_response(data: dict[str, Any]) -> dict[str, Any]:
@@ -153,9 +237,16 @@ def iter_chat_stream(resp) -> Iterator[dict[str, Any]]:
     각 청크는 `{"message": {"content": delta}, "done": False}`, 마지막 청크는
     `done=True`에 usage(prompt_eval_count/eval_count)를 싣는다.
     """
-    if not is_openrouter():
-        for line in resp:
-            line = line.strip()
+    lines = (
+        (line.decode("utf-8", "replace") if isinstance(line, bytes) else line).strip()
+        for line in resp
+    )
+    # 첫 비어 있지 않은 줄의 형태로 판별: Ollama NDJSON은 `{`, OpenAI SSE는 `data:`/`:` 주석.
+    first = next((line for line in lines if line), None)
+    if first is None:
+        return
+    if first.startswith("{"):
+        for line in _chain(first, lines):
             if not line:
                 continue
             try:
@@ -167,8 +258,7 @@ def iter_chat_stream(resp) -> Iterator[dict[str, Any]]:
     usage: dict[str, Any] = {}
     meta: dict[str, Any] = {}
     finish_reason = None
-    for line in resp:
-        line = line.decode("utf-8", "replace").strip() if isinstance(line, bytes) else line.strip()
+    for line in _chain(first, lines):
         if not line.startswith("data:"):
             continue  # SSE 주석(": OPENROUTER PROCESSING")·빈 줄
         chunk = line[5:].strip()
@@ -198,6 +288,11 @@ def iter_chat_stream(resp) -> Iterator[dict[str, Any]]:
     final.update(_usage_fields(usage))
     _log_usage(final)
     yield final
+
+
+def _chain(first: str, rest: Iterator[str]) -> Iterator[str]:
+    yield first
+    yield from rest
 
 
 def _usage_fields(usage: dict[str, Any] | None) -> dict[str, Any]:

@@ -103,14 +103,6 @@ _OLLAMA_PERMANENT_400_SIGNATURES = (
 )
 
 
-def _read_http_error_body(err) -> str:
-    """HTTPError 본문을 소문자 문자열로 읽는다(못 읽으면 빈 문자열)."""
-    try:
-        return err.read().decode("utf-8", "replace").lower()
-    except Exception:
-        return ""
-
-
 def _http_400_is_permanent(err) -> bool:
     """HTTP 400이 콜드스타트 일시 오류가 아니라 영구 설정 오류(모델명 누락/없음)인지 판정한다.
 
@@ -351,15 +343,13 @@ def _ollama_open_with_retry(req, timeout: int):
             if transient and e.code == 400 and _http_400_is_permanent(e):
                 transient = False
             # OpenRouter 429 중 **일일 한도**(free-models-per-day, 크레딧 없는 계정 50건/일)는
-            # 그날 안에는 풀리지 않는다 — 재시도로 320초를 태우지 말고 원인을 말하는 예외로
-            # 즉시 올린다(2026-09-06 prod 실측: 82회 재시도 뒤 사용자에겐 타임아웃만 보였다).
+            # 그날 안에는 풀리지 않는다 — 재시도로 320초를 태우지 말고(2026-09-06 prod 실측:
+            # 82회 재시도 뒤 사용자에겐 타임아웃만 보였다) 폴백을 켜고 즉시 올린다.
+            # llm_chat.open_chat이 이 예외를 받아 같은 요청을 Ollama 레인으로 다시 보낸다.
             if transient and e.code == 429 and is_openrouter():
-                body = _read_http_error_body(e)
-                if "per-day" in body:
-                    raise RuntimeError(
-                        "OpenRouter 무료 모델 일일 요청 한도 초과 — 크레딧 충전 또는 일일 리셋 대기 "
-                        f"(응답: {body[:200]})"
-                    ) from e
+                from llm_chat import check_openrouter_quota
+
+                check_openrouter_quota(e)
         except urllib.error.URLError as e:
             # 취소가 진행 중 소켓을 닫아서 난 실패는 콜드스타트 재시도 대상이 아니라 취소다.
             cancellation.raise_if_cancelled()
@@ -1755,7 +1745,7 @@ class NLStrategyParser:
         16384로 올린다. format="json"으로 JSON 출력을 강제하되, JSON 스키마 제약
         디코딩은 이 모델에서 출력을 조기 절단시키므로 쓰지 않는다(format="json"만).
         """
-        from llm_chat import chat_request, read_chat_response
+        from llm_chat import open_chat, read_chat_response
 
         payload = {
             "model": self.ollama_model,
@@ -1773,10 +1763,8 @@ class NLStrategyParser:
                 "num_predict": 1024,
             },
         }
-        # Modal 콜드스타트 프록시가 POST body를 유실시키므로, 본문 없는 GET으로 먼저 깨운다.
-        _ollama_ensure_warm()
-        req = chat_request(payload)  # 프로바이더(ollama/openrouter) 형식은 어댑터가 정한다
-        with _ollama_open_with_retry(req, timeout=120) as resp:
+        # 레인 선택(ollama/openrouter·한도 폴백)과 Modal 워밍업은 어댑터가 맡는다.
+        with open_chat(payload, timeout=120) as resp:
             data = read_chat_response(resp.read())
         content = (data.get("message") or {}).get("content", "")
         return _parse_model_json_response(content, model_cls)
@@ -1905,7 +1893,7 @@ class NLStrategyParser:
         top_p: float,
     ) -> str:
         """Ollama /api/chat 동기 호출 — chat()의 비-MLX 폴백."""
-        from llm_chat import chat_request, read_chat_response
+        from llm_chat import open_chat, read_chat_response
 
         # Qwen3 thinking 모델 thinking 우회: `think: false`를 쓴다.
         # (과거엔 assistant prefill `<think>\n\n</think>\n`을 마지막 메시지로 넣었으나, 현재
@@ -1928,10 +1916,7 @@ class NLStrategyParser:
                 "num_ctx": _OLLAMA_NUM_CTX,
             },
         }
-        # Modal 콜드스타트 프록시가 POST body를 유실시키므로, 본문 없는 GET으로 먼저 깨운다.
-        _ollama_ensure_warm()
-        req = chat_request(payload)
-        with _ollama_open_with_retry(req, timeout=120) as resp:
+        with open_chat(payload, timeout=120) as resp:
             data = read_chat_response(resp.read())
         return (data.get("message") or {}).get("content", "").strip()
 
@@ -1945,7 +1930,7 @@ class NLStrategyParser:
     ):
         """Ollama /api/chat 스트리밍 호출 — stream_chat()의 비-MLX 폴백.
         각 yield는 증분 델타(MLX 경로와 동일)."""
-        from llm_chat import chat_request, iter_chat_stream
+        from llm_chat import iter_chat_stream, open_chat
 
         # 동기 경로와 동일하게 `think: false`로 thinking 우회(assistant prefill은 현행 Qwen3.5
         # chat template과 충돌해 400을 유발하므로 폐기 — _chat_ollama 주석 참고).
@@ -1964,11 +1949,8 @@ class NLStrategyParser:
                 "num_ctx": _OLLAMA_NUM_CTX,
             },
         }
-        # Modal 콜드스타트 프록시가 POST body를 유실시키므로, 본문 없는 GET으로 먼저 깨운다.
-        _ollama_ensure_warm()
-        req = chat_request(payload)
         # 스트리밍은 생성 내내 소켓을 읽는다 — 취소가 소켓을 닫으면 read 예외를 취소로 보고한다.
-        with cancellation.cancellable_io(), _ollama_open_with_retry(req, timeout=120) as resp:
+        with cancellation.cancellable_io(), open_chat(payload, timeout=120) as resp:
             for obj in iter_chat_stream(resp):
                 delta = (obj.get("message") or {}).get("content", "")
                 if delta:

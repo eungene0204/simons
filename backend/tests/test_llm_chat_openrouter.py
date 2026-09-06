@@ -261,3 +261,121 @@ def test_ensure_warm_is_noop_on_openrouter(openrouter_env, monkeypatch):
 
     monkeypatch.setattr(urllib.request, "urlopen", boom)
     nl_parser._ollama_ensure_warm(budget_s=1)
+
+
+# ── 무료 한도 폴백: OpenRouter 429(per-day) → 같은 요청을 Ollama 레인으로 ────────────
+
+QUOTA_429 = (b'{"error":{"message":"Rate limit exceeded: free-models-per-day. Add 10 credits",'
+             b'"code":429,"metadata":{"headers":{"X-RateLimit-Reset":"4102444800000"}}}}')
+
+
+class _Resp(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+@pytest.fixture
+def ollama_host(monkeypatch):
+    monkeypatch.setattr(llm_backend, "OLLAMA_BASE_URL", "http://localhost:11434")
+    monkeypatch.setattr(llm_chat, "OLLAMA_BASE_URL", "http://localhost:11434")
+
+
+def test_open_chat_falls_back_to_ollama_on_daily_quota(openrouter_env, ollama_host, monkeypatch):
+    """한도 소진 429를 받은 그 요청부터 Ollama 레인으로 다시 보내고, 프로세스는 리셋 시각까지
+    Ollama로 전환된다(사용자 지시 2026-09-06: 무료 소진 시 예전 로컬 LLM으로)."""
+    import urllib.error
+    import urllib.request
+    from engine import nl_parser
+
+    monkeypatch.setattr(nl_parser, "_ollama_align_runner_num_ctx", lambda: False)
+    monkeypatch.setattr(nl_parser, "_ollama_ensure_warm", lambda *a, **k: None)
+    calls = []
+
+    def fake_urlopen(req, timeout):
+        calls.append((req.full_url, json.loads(req.data)))
+        if "openrouter.ai" in req.full_url:
+            raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, io.BytesIO(QUOTA_429))
+        return _Resp(json.dumps({"message": {"role": "assistant", "content": "ollama says hi"}, "done": True}).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with llm_chat.open_chat(PAYLOAD, timeout=30) as resp:
+        data = llm_chat.read_chat_response(resp.read())
+    assert data["message"]["content"] == "ollama says hi"
+    assert [u for u, _ in calls] == [
+        "https://openrouter.ai/api/v1/chat/completions",
+        "http://localhost:11434/api/chat",
+    ]
+    assert calls[1][1] == PAYLOAD                      # Ollama 레인은 원본 payload 그대로
+    assert llm_backend.openrouter_fallback_active() is True
+    # 다음 요청은 OpenRouter를 건드리지 않고 곧장 Ollama로 간다
+    calls.clear()
+    with llm_chat.open_chat(PAYLOAD, timeout=30) as resp:
+        resp.read()
+    assert [u for u, _ in calls] == ["http://localhost:11434/api/chat"]
+    assert llm_chat.probe_request().full_url == "http://localhost:11434/api/tags"
+    # 리셋 시각이 지나면 자동 복귀
+    llm_backend.pause_openrouter_until(0.0)
+    assert llm_backend.is_openrouter() is True
+
+
+def test_open_chat_no_retry_lane_also_falls_back(openrouter_env, ollama_host, monkeypatch):
+    """검증기(retry=False, 단발 urlopen)도 같은 폴백을 탄다."""
+    import urllib.error
+    import urllib.request
+    from engine import nl_parser
+
+    monkeypatch.setattr(nl_parser, "_ollama_ensure_warm", lambda *a, **k: None)
+    calls = []
+
+    def fake_urlopen(req, timeout):
+        calls.append(req.full_url)
+        if "openrouter.ai" in req.full_url:
+            raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, io.BytesIO(QUOTA_429))
+        return _Resp(b'{"message":{"content":"ok"},"done":true}')
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with llm_chat.open_chat(PAYLOAD, timeout=5, retry=False) as resp:
+        assert llm_chat.read_chat_response(resp.read())["message"]["content"] == "ok"
+    assert calls == ["https://openrouter.ai/api/v1/chat/completions", "http://localhost:11434/api/chat"]
+
+
+def test_per_minute_429_does_not_trigger_fallback(openrouter_env):
+    """분당 한도 429는 일시적이다 — 폴백을 켜지 않고 그대로 둔다(호출부 재시도)."""
+    import urllib.error
+
+    err = urllib.error.HTTPError("https://openrouter.ai/x", 429, "Too Many Requests", {},
+                                 io.BytesIO(b'{"error":{"message":"free-models-per-min","code":429}}'))
+    llm_chat.check_openrouter_quota(err)  # raise 없음
+    assert llm_backend.openrouter_fallback_active() is False
+
+
+def test_quota_without_reset_header_pauses_for_an_hour(openrouter_env, monkeypatch):
+    import urllib.error
+
+    monkeypatch.setattr(llm_chat.time, "time", lambda: 1000.0)
+    err = urllib.error.HTTPError("https://openrouter.ai/x", 429, "Too Many Requests", {},
+                                 io.BytesIO(b'{"error":{"message":"free-models-per-day","code":429}}'))
+    with pytest.raises(llm_chat.OpenRouterQuotaExhausted):
+        llm_chat.check_openrouter_quota(err)
+    assert llm_backend._openrouter_paused_until == 1000.0 + 3600.0
+
+
+# ── 응답 형태 자동 판별(전환 순간의 레이스 방지) ───────────────────────────────
+
+def test_read_chat_response_detects_shape_regardless_of_lane(openrouter_env):
+    """OpenRouter 레인이어도 Ollama 형태 응답(폴백 직후)은 그대로 통과한다."""
+    raw = {"message": {"role": "assistant", "content": "x"}, "done": True, "eval_count": 3}
+    assert llm_chat.read_chat_response(json.dumps(raw).encode()) == raw
+    # 반대로 ollama 레인에서 OpenAI 형태가 오면 정규화한다
+    llm_backend.pause_openrouter_until(4102444800.0)
+    assert llm_chat.read_chat_response(json.dumps(OR_RESPONSE).encode())["message"]["content"] == '{"a": 1}'
+
+
+def test_iter_chat_stream_detects_ndjson_on_openrouter_lane(openrouter_env):
+    ndjson = json.dumps({"message": {"content": "a"}, "done": False}) + "\n" + \
+        json.dumps({"message": {"content": ""}, "done": True}) + "\n"
+    chunks = list(llm_chat.iter_chat_stream(io.BytesIO(ndjson.encode())))
+    assert [c["message"]["content"] for c in chunks] == ["a", ""]

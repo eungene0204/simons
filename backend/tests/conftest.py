@@ -140,6 +140,12 @@ def _pin_llm_provider_ollama(monkeypatch):
     OpenRouter 형식으로 바뀌어 깨진다. OpenRouter 변환 자체는 test_llm_chat_openrouter.py가
     setenv로 명시 오버라이드한다."""
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    try:
+        import llm_backend
+
+        monkeypatch.setattr(llm_backend, "_openrouter_paused_until", 0.0)
+    except Exception:
+        pass
 
 
 @pytest.fixture(autouse=True)

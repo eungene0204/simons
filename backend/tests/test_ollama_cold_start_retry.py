@@ -265,7 +265,7 @@ def test_tls_certificate_failure_is_not_retried(monkeypatch):
 
 def test_openrouter_daily_rate_limit_is_not_retried(monkeypatch):
     """OpenRouter 무료 모델 일일 한도(free-models-per-day) 429는 그날 안에 풀리지 않는다 —
-    320초 재시도 대신 원인을 말하는 예외로 즉시 올린다(2026-09-06 prod: 82회 재시도)."""
+    320초 재시도 대신 폴백을 켜고 즉시 올린다(2026-09-06 prod: 82회 재시도)."""
     import io
     import urllib.error
     import urllib.request
@@ -276,7 +276,8 @@ def test_openrouter_daily_rate_limit_is_not_retried(monkeypatch):
     monkeypatch.setattr(nl_parser, "is_local_ollama", lambda: False)
     monkeypatch.setattr(nl_parser, "_ollama_align_runner_num_ctx", lambda: False)
     body = (b'{"error":{"message":"Rate limit exceeded: free-models-per-day. Add 10 credits",'
-            b'"code":429,"metadata":{"limit_source":"openrouter_free_tier_daily"}}}')
+            b'"code":429,"metadata":{"headers":{"X-RateLimit-Reset":"4102444800000"},'
+            b'"limit_source":"openrouter_free_tier_daily"}}}')
     calls = []
 
     def fake_urlopen(req, timeout):
@@ -285,9 +286,16 @@ def test_openrouter_daily_rate_limit_is_not_retried(monkeypatch):
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
     req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=b"{}", method="POST")
-    with pytest.raises(RuntimeError, match="일일 요청 한도"):
+    import llm_backend
+    from llm_chat import OpenRouterQuotaExhausted
+
+    with pytest.raises(OpenRouterQuotaExhausted, match="일일 요청 한도"):
         nl_parser._ollama_open_with_retry(req, timeout=120)
     assert len(calls) == 1
+    # 폴백이 켜진다 — 리셋 시각(헤더, ms epoch)까지 Ollama 레인
+    assert llm_backend.openrouter_fallback_active() is True
+    assert llm_backend.is_openrouter() is False
+    assert llm_backend._openrouter_paused_until == 4102444800.0
 
 
 def test_openrouter_per_minute_429_is_still_retried(monkeypatch):
