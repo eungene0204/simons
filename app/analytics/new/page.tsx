@@ -41,6 +41,7 @@ import {
   ArrowRight,
   ArrowLeft,
   ArrowsClockwise,
+  CaretDown,
   CheckCircle,
   Warning,
   ChartLineUp,
@@ -1756,6 +1757,48 @@ function ParsedSummaryBubble({
   );
 }
 
+/** 접어 둔 상세가 있는 요약 행 — 테마에서 전개된 종목 목록은 수십 개라 펼침 버튼
+ *  뒤에 둔다(2026-09-08 지시). 종목 이름은 데이터이므로 t()에 넣지 않는다. */
+function CollapsibleSummaryValue({
+  value,
+  detail,
+  count,
+}: {
+  value: string;
+  detail: string;
+  count?: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <span className="flex flex-col gap-1">
+      <span className="flex flex-wrap items-center gap-1.5">
+        <span>{t(value)}</span>
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          aria-expanded={expanded}
+          className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-white/[0.05] px-1.5 py-0.5 text-[11px] font-bold text-[var(--text-label)] transition-colors hover:text-white"
+        >
+          {expanded
+            ? t("접기")
+            : count
+              ? t("종목 {0}개 펼쳐보기", count)
+              : t("펼쳐보기")}
+          <CaretDown
+            size={10}
+            weight="bold"
+            className={`transition-transform ${expanded ? "rotate-180" : ""}`}
+          />
+        </button>
+      </span>
+      {expanded && (
+        <span className="text-[11px] font-bold leading-relaxed text-gray-300">{detail}</span>
+      )}
+    </span>
+  );
+}
+
 function BuilderStrategyOverview({
   presentation,
 }: {
@@ -1789,6 +1832,12 @@ function BuilderStrategyOverview({
                         <span key={`${part}-${i}`}>{t(part)}</span>
                       ))}
                     </span>
+                  ) : item.detail ? (
+                    <CollapsibleSummaryValue
+                      value={item.value}
+                      detail={item.detail}
+                      count={item.detailCount}
+                    />
                   ) : (
                     t(item.value)
                   )}

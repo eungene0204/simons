@@ -152,6 +152,57 @@ describe("buildBuilderTurnPresentation 지정 종목 배분 표시", () => {
   });
 });
 
+describe("테마 유래 지정 종목 목록은 접어 둔다 (2026-09-08 지시)", () => {
+  it("유니버스 행에는 테마 이름만 두고 종목 목록은 detail로 접는다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "질문",
+      parsed: { ...themeParsed, theme_universe: "반도체 장비" } as ParsedSummary,
+      explicitFields: ["universe"],
+    });
+    expect(
+      presentation.summaryItems.find((item) => item.label === "유니버스"),
+    ).toMatchObject({
+      value: "반도체 장비",
+      detail: "108860 · 139670 · 051160",
+      detailCount: 3,
+    });
+  });
+
+  it("테마 이름이 없으면 종목 수만 적는다 — 이름을 지어내지 않는다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "질문",
+      parsed: themeParsed,
+      explicitFields: ["universe"],
+    });
+    expect(
+      presentation.summaryItems.find((item) => item.label === "유니버스"),
+    ).toMatchObject({ value: "지정 종목", detailCount: 3 });
+  });
+
+  it("단독 종목은 접지 않고 그대로 보여준다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "질문",
+      parsed: { ...themeParsed, target_symbols: ["005930"] } as ParsedSummary,
+      explicitFields: ["universe"],
+    });
+    const item = presentation.summaryItems.find((i) => i.label === "유니버스");
+    expect(item).toMatchObject({ value: "005930" });
+    expect(item?.detail).toBeUndefined();
+  });
+
+  it("시장 유니버스 행은 종전대로 접지 않는다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: { universe: "KOSPI_KOSDAQ" },
+      reply: "",
+    });
+    const item = presentation.summaryItems.find((i) => i.label === "유니버스");
+    expect(item?.detail).toBeUndefined();
+  });
+});
+
 describe("신규 상장 유니버스 표시 (FR-STR-073)", () => {
   it("시장 라벨에 신규 상장 제한을 덧붙인다", () => {
     // [회귀] 2026-07-29: "코스피·코스닥 전체"만 보여 전 종목 대상으로 읽히던 문제.

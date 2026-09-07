@@ -3021,4 +3021,8 @@ export const en: Record<string, string> = {
   "데드크로스(60일/120일) 발생 시 매도": "Sell on dead cross (60/120-day)",
   "최근 1년 내 상장": "Listed within the last year",
   "최근 3년 내 상장": "Listed within the last 3 years",
+  "지정 종목": "Specified stocks",
+  "종목 {0}개 펼쳐보기": "Show {0} stocks",
+  "펼쳐보기": "Show all",
+  "접기": "Hide",
 };

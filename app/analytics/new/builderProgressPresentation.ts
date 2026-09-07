@@ -23,6 +23,11 @@ export type BuilderSummaryItem = {
   // 늘어날수록 어디서 끊기는지 안 보여, 화면에서는 한 줄에 하나씩 세로로 쌓는다
   // (2026-08-06 지시). 2개 이상일 때만 채운다 — 1개면 value와 같아 중복이다.
   values?: string[];
+  // 접어 둔 상세 — 테마에서 전개된 지정 종목 목록처럼 수십 개짜리 값. 행에는 출처
+  // 이름(테마)만 두고 목록은 펼침 버튼으로 연다(2026-09-08 지시). detailCount는
+  // 버튼에 적는 종목 수다.
+  detail?: string;
+  detailCount?: number;
 };
 
 // 진행 골격 8칸의 두 상태 축(백엔드 engine/strategy_slots.py와 동일).
@@ -410,9 +415,16 @@ export function buildBuilderTurnPresentation({
     hasValue(initialCapitalFromState) || isExplicit("initial_capital", explicitFields);
 
   if (target) {
+    // 테마에서 전개된 지정 종목은 수십 개라 한 행에 이어 붙이면 카드가 종목 목록으로
+    // 덮여 나머지 설정이 안 읽힌다 — 행에는 출처 이름(테마)만 두고 종목 목록은 접어
+    // 두고 펼침 버튼으로 연다(2026-09-08 지시). 출처 이름이 없으면(사용자가 종목을
+    // 직접 나열한 경우) 종목 수만 적는다 — 이름을 지어내지 않는다.
+    const symbolListShown = !targetFromState && specifiedSymbolCount > 1;
+    const themeName = parsed?.theme_universe?.trim() || null;
     summaryItems.push({
       label: state.single_label || state.theme_label ? t("대상 종목") : t("유니버스"),
-      value: target,
+      value: symbolListShown ? themeName ?? t("지정 종목") : target,
+      ...(symbolListShown ? { detail: target, detailCount: specifiedSymbolCount } : {}),
     });
   }
   if (state.sector || parsed?.sector) {

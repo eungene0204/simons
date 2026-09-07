@@ -1924,9 +1924,12 @@ describe("strategy builder progress presentation", () => {
         ],
       },
     });
+    // 종목 목록은 접힌 상세(detail)에 담긴다(2026-09-08) — 행에는 출처 이름만 남는다.
     expect(result.summaryItems).toContainEqual({
       label: "유니버스",
-      value: "하이브 (352820) · JYP Ent. (035900)",
+      value: "지정 종목",
+      detail: "하이브 (352820) · JYP Ent. (035900)",
+      detailCount: 2,
     });
 
     // 요청 정보가 없으면 종전처럼 코드만 표시된다(이름 미해석 폴백).
@@ -1938,7 +1941,9 @@ describe("strategy builder progress presentation", () => {
     });
     expect(withoutRequest.summaryItems).toContainEqual({
       label: "유니버스",
-      value: "352820 · 035900",
+      value: "지정 종목",
+      detail: "352820 · 035900",
+      detailCount: 2,
     });
   });
 
