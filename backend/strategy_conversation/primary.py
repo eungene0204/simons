@@ -1532,8 +1532,10 @@ def run_primary_parse(
     # 적용은 고정 체인과 동일한 결정론 경로 재사용).
     planner_resolved_terms: set = set()
     planner_unresolved_terms: set = set()
+    planner_applied_terms: set = set()
     if planner_first is not None:
-        planner_resolved_terms, planner_unresolved_terms = _apply_planner_first_universe(
+        (planner_resolved_terms, planner_unresolved_terms,
+         planner_applied_terms) = _apply_planner_first_universe(
             planner_first, parsed, notices
         )
     # 범위 모호성(카탈로그 후보 2개 이상) 되묻기는 **결정론이 소유한다** — planner가
@@ -1615,7 +1617,13 @@ def run_primary_parse(
         from engine.nl_parser import _extract_sector
         # 체인이 전부 해석했으면(sector_question 없음) 그 표현들의 미지원 항목도 지운다 —
         # 검증기가 걸렀던 '섹터 X'가 테마 상장사로 반영됐는데 안내가 남으면 모순.
-        resolved_theme_terms = unresolved_sector_terms if sector_question is None else []
+        resolved_theme_terms = list(unresolved_sector_terms) if sector_question is None else []
+        # planner-first가 유니버스로 반영한 표현도 같은 자격이다 — 그 표현은 위에서
+        # 이미 체인 목록(unresolved_sector_terms)에서 빠지므로 체인 목록만 보면
+        # 걸러지지 않는다. 2026-09-08 실측: '생명보험 관려주'가 생명보험 테마 상장사
+        # 5곳으로 반영됐는데 "'생명보험 관려주' 조건은 지원하지 않아 전략에 반영하지
+        # 못했어요" 안내가 요약 카드와 함께 나갔다(반영된 표현의 거짓 미반영 안내).
+        resolved_theme_terms += sorted(planner_applied_terms)
         report.unsupported_features = [
             f for f in report.unsupported_features
             if _extract_sector(f) is None
@@ -2693,7 +2701,7 @@ def _append_sector_notice(notices: List[str], sector: str, text: str) -> None:
 
 def _apply_planner_first_universe(
     result: Any, parsed: Any, notices: List[str]
-) -> tuple[set, set]:
+) -> tuple[set, set, set]:
     """planner-first 도구 관찰값을 결정론으로 parsed에 병합한다(관찰값에서만 채택).
 
     적용은 고정 체인과 동일한 결정론 경로(apply_theme_companies·_merge_learned_sector)
@@ -2703,11 +2711,14 @@ def _apply_planner_first_universe(
     '보안주'에 '보안' 테마를 조용히 적용하면서 범위 질문이 함께 나가는 모순이 생긴다
     (실측 사고 2026-07-28 — 조용한 확정 금지는 결정론이 지킨다).
     반환: (해석된 표현, 미해결 표현 — 모호 표현은 범위 되묻기, 나머지는 term-in 체인
-    소관)."""
+    소관, 유니버스에 **실제 반영된** 표현). 세 번째 값은 '반영하지 못했어요' 안내의
+    프루닝 근거다 — 해석 완료(resolved)에는 반영할 필드가 없는 NOT_UNIVERSE 판정도
+    섞여 있어 그것으로 안내를 지우면 진짜 미지원 개념까지 침묵한다."""
     from engine.nl_parser import apply_theme_companies
 
     resolved: set = set()
     unresolved: set = set()
+    applied: set = set()
     ambiguous_terms = _ambiguous_candidate_terms(result)
     # 미국 시장 문맥 판정 — 아래 루프에서 테마·업종 해석 체인을 US 카탈로그로 한정한다.
     from strategy_conversation.registry.capability_registry import US_MARKETS
@@ -2742,11 +2753,13 @@ def _apply_planner_first_universe(
         if _utype not in (None, "CONCEPT"):
             if _classification_reflected(parsed, _utype, obs.get("canonical")):
                 resolved.add(term)
+                applied.add(term)
                 unresolved.discard(term)
             elif _apply_designated_symbol(parsed, term, _utype, obs.get("canonical")):
                 _log_llm("✓ 지정 종목 복구",
                          f"'{term}' → {obs.get('canonical')} (해석기 미반영분 결정론 적용)")
                 resolved.add(term)
+                applied.add(term)
                 unresolved.discard(term)
             else:
                 _log_llm("· 분류 미반영",
@@ -2766,6 +2779,7 @@ def _apply_planner_first_universe(
                 _log_llm("✓ planner-first US 테마",
                          f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
                 resolved.add(term)
+                applied.add(term)
                 unresolved.discard(term)
             else:
                 unresolved.add(term)
@@ -2777,6 +2791,7 @@ def _apply_planner_first_universe(
                 _log_llm("✓ planner-first 테마",
                          f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
                 resolved.add(term)
+                applied.add(term)
                 unresolved.discard(term)
                 continue
         if obs.get("sector"):
@@ -2789,6 +2804,7 @@ def _apply_planner_first_universe(
                 _log_llm("✓ planner-first 테마",
                          f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳(업종 근사 대체)")
                 resolved.add(term)
+                applied.add(term)
                 unresolved.discard(term)
                 continue
             _merge_learned_sector(parsed, obs["sector"])
@@ -2799,6 +2815,7 @@ def _apply_planner_first_universe(
                 "다른 업종을 원하시면 말씀해 주세요.",
             )
             resolved.add(term)
+            applied.add(term)
             unresolved.discard(term)
             continue
         unresolved.add(term)
@@ -2808,6 +2825,7 @@ def _apply_planner_first_universe(
     # 흘러 kg_resolve_sector가 섹터를 **또** 병합한다 — 같은 표현의 이중 해석(테마
     # 60곳 + 섹터)이자 Artifact 근거 대조를 STALE로 오염시키는 원인(실측).
     resolved_keys = {t.replace(" ", "").lower() for t in resolved}
+    applied_keys = {t.replace(" ", "").lower() for t in applied}
     for term, obs in _planner_observations(result):
         term = (term or "").strip()
         candidates = [
@@ -2818,7 +2836,10 @@ def _apply_planner_first_universe(
                 and str(candidates[0]).replace(" ", "").lower() in resolved_keys):
             resolved.add(term)
             unresolved.discard(term)
-    return resolved, unresolved
+            # 정본 표기가 유니버스에 반영됐으면 원 표현도 반영된 것이다(같은 전파).
+            if str(candidates[0]).replace(" ", "").lower() in applied_keys:
+                applied.add(term)
+    return resolved, unresolved, applied
 
 
 def _planner_scope_ask(

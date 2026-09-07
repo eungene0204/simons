@@ -112,7 +112,7 @@ def test_apply_observed_theme_companies(monkeypatch):
         ("kg_theme_companies", "보안주",
          {"found": True, "companies": [{"symbol": "005930"}, {"symbol": "000660"}]}),
     ])
-    resolved, unresolved = _apply_planner_first_universe(result, parsed, notices)
+    resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, notices)
     assert applied["term"] == "보안주"
     assert resolved == {"보안주"} and unresolved == set()
     assert parsed.target_symbols == ["005930", "000660"]
@@ -126,7 +126,7 @@ def test_apply_observed_learned_sector():
     result = _plan_result([
         ("ground_term", "이상한테마", {"sector": "반도체"}),
     ])
-    resolved, unresolved = _apply_planner_first_universe(result, parsed, notices)
+    resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, notices)
     assert resolved == {"이상한테마"} and unresolved == set()
     assert parsed.sector == "반도체"
 
@@ -150,7 +150,7 @@ def test_sector_observation_defers_to_theme_companies(monkeypatch):
         ("classify_universe", "블랙핑크", {"universe_type": "CONCEPT"}),
         ("kg_resolve_sector", "블랙핑크", {"sector": "미디어/엔터"}),
     ])
-    resolved, unresolved = _apply_planner_first_universe(result, parsed, notices)
+    resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, notices)
     assert applied["term"] == "블랙핑크"
     assert resolved == {"블랙핑크"} and unresolved == set()
     assert parsed.target_symbols == ["352820", "035900"]
@@ -165,7 +165,7 @@ def test_non_concept_classification_counts_as_resolved():
     result = _plan_result([
         ("classify_universe", "코스피", {"universe_type": "MARKET", "canonical": "KOSPI"}),
     ])
-    resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
+    resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, [])
     assert resolved == {"코스피"} and unresolved == set()
     assert parsed.sector is None and not parsed.target_symbols
 
@@ -182,7 +182,7 @@ def test_classification_not_reflected_stays_unresolved():
         ("classify_universe", "nvidia Related Stock",
          {"universe_type": "SINGLE_STOCK", "canonical": "NVDA"}),
     ])
-    resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
+    resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, [])
     assert resolved == set() and unresolved == {"nvidia Related Stock"}
     assert not parsed.target_symbols  # 조용한 확정도 하지 않는다
 
@@ -199,7 +199,7 @@ def test_designated_symbol_is_recovered_deterministically():
     result = _plan_result([
         ("classify_universe", "DIA", {"universe_type": "SINGLE_STOCK", "canonical": "DIA"}),
     ])
-    resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
+    resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, [])
     assert parsed.target_symbols == ["DIA"]
     assert resolved == {"DIA"} and unresolved == set()
 
@@ -213,7 +213,7 @@ def test_designated_symbol_recovery_does_not_touch_existing_universe():
     result = _plan_result([
         ("classify_universe", "DIA", {"universe_type": "SINGLE_STOCK", "canonical": "DIA"}),
     ])
-    resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
+    resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, [])
     assert parsed.target_symbols == ["NVDA", "AMD"]   # 불변
     assert resolved == set() and unresolved == {"DIA"}  # 조용히 삼키지 않고 체인으로
 
@@ -226,7 +226,7 @@ def test_not_universe_classification_needs_no_reflection():
     result = _plan_result([
         ("classify_universe", "당기순이익이 높은 종목", {"universe_type": "NOT_UNIVERSE"}),
     ])
-    resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
+    resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, [])
     assert resolved == {"당기순이익이 높은 종목"} and unresolved == set()
 
 
@@ -238,7 +238,7 @@ def test_unresolved_concept_stays_for_universe_ask():
         ("list_concept_candidates", "보안주",
          {"candidates": [{"term": "보안주(정보)", "companies": 50}]}),
     ])
-    resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
+    resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, [])
     assert resolved == set() and unresolved == {"보안주"}
 
 
@@ -261,7 +261,7 @@ def test_ambiguous_scope_blocks_silent_theme_application(monkeypatch, topic):
           {"found": True, "companies": [{"symbol": "012450"}]})],
         outcome="ask", question="범위를 정해 주세요", chips=[], topic=topic,
     )
-    resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
+    resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, [])
     assert resolved == set() and unresolved == {"보안주"}
     assert not parsed.target_symbols
 
@@ -658,7 +658,7 @@ def test_us_context_blocks_kr_theme_and_sector_merge():
     result = _plan_result([
         ("ground_term", "semiconductor", {"sector": "반도체"}),
     ])
-    resolved, unresolved = _apply_planner_first_universe(result, parsed, notices)
+    resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, notices)
     assert parsed.sector is None
     # 2026-08-26 앵커 전개 설계 전환: 'semiconductor'는 미해결이 아니라 US KG 앵커
     # 소속 합집합(미국 티커)으로 확정된다 — KR 업종 병합·한국 코드 주입은 여전히 금지.
@@ -674,7 +674,7 @@ def test_us_context_leaves_unknown_theme_unresolved():
     result = _plan_result([
         ("ground_term", "used cars", {"sector": "유통"}),
     ])
-    resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
+    resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, [])
     assert parsed.sector is None
     assert not parsed.target_symbols
     assert unresolved == {"used cars"} and resolved == set()
@@ -687,7 +687,7 @@ def test_us_context_resolves_catalog_theme_to_us_tickers():
     result = _plan_result([
         ("ground_term", "US cloud software stocks", {"sector": "IT/소프트웨어"}),
     ])
-    resolved, unresolved = _apply_planner_first_universe(result, parsed, [])
+    resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, [])
     assert resolved == {"US cloud software stocks"} and unresolved == set()
     assert parsed.target_symbols, "US 테마 구성 티커가 실려야 한다"
     assert all(not s[:1].isdigit() for s in parsed.target_symbols), "한국 코드 금지"

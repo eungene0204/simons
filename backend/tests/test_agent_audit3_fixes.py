@@ -279,10 +279,14 @@ def test_single_candidate_source_term_marked_resolved(monkeypatch):
         }]
 
     parsed = ParsedStrategy.model_validate({"description": "x", "universe": ["KOSPI200"]})
-    resolved, unresolved = primary._apply_planner_first_universe(_Result(), parsed, [])
+    resolved, unresolved, applied_terms = primary._apply_planner_first_universe(
+        _Result(), parsed, [])
     assert applied == ["전력저장장치(ESS)"]
     assert "ESS" in resolved and "전력저장장치(ESS)" in resolved
     assert unresolved == set()
+    # 정본 표기가 유니버스에 반영됐으므로 원 표현도 '반영됨'이다 — 거짓 미반영 안내
+    # 프루닝의 근거(2026-09-08 '생명보험 관려주' 회귀와 같은 계약).
+    assert applied_terms == {"ESS", "전력저장장치(ESS)"}
 
 
 # ── #5 Artifact 레인 dict 수용 ───────────────────────────────────────────────

@@ -1577,6 +1577,51 @@ def test_primary_unsupported_feature_covered_by_question_not_noticed(monkeypatch
     assert not any("지원하지 않아" in n for n in result["notices"]), result["notices"]
 
 
+def test_primary_planner_applied_universe_term_not_noticed_as_unsupported(monkeypatch):
+    """[회귀] 2026-09-08 '생명보험 관려주' — 반영된 유니버스 표현의 거짓 미반영 안내.
+
+    planner-first가 '생명보험'을 테마 상장사 5곳으로 유니버스에 반영했는데, 인터프리터가
+    같은 표현을 unsupported_features("생명보험 관려주")에도 이중 기입해 요약 카드(유니버스
+    생명보험 5종목)와 "'생명보험 관려주' 조건은 지원하지 않아 전략에 반영하지 못했어요"가
+    한 응답에 함께 나갔다. 프루닝이 term-in 체인이 해석한 표현만 봤기 때문 — planner가
+    반영한 표현은 체인 목록(unresolved_sector_terms)에서 이미 빠져 걸러지지 않았다.
+    """
+    import engine.nl_parser as nl_parser
+    from strategy_conversation import primary
+    from strategy_conversation.planner.dag import DagNode
+    from strategy_conversation.planner.dag_planner import DagPlanResult, ExecutedNode
+
+    def _fake_apply(parsed, term):
+        parsed.target_symbols = ["032830", "088350", "082640", "085620", "003690"]
+        parsed.sector = None
+        parsed.theme_universe = term
+        return f"'{term}' 관련 상장사 5곳을 대상 종목으로 설정했어요."
+
+    monkeypatch.setattr(nl_parser, "apply_theme_companies", _fake_apply)
+    node = DagNode(id="n0", type="tool", tool="kg_theme_companies", args={"text": "생명보험"})
+    plan = DagPlanResult(
+        outcome="finish", question=None, chips=[], sector=None, companies=[], nodes=[],
+        executed={"n0": ExecutedNode(node, {"found": True, "companies": [
+            {"symbol": "032830"}, {"symbol": "088350"}, {"symbol": "082640"},
+            {"symbol": "085620"}, {"symbol": "003690"},
+        ]})},
+    )
+    monkeypatch.setattr(primary, "_plan_first", lambda user_input: plan)
+    monkeypatch.setenv("STRATEGY_DAG_PLANNER_MODE", "primary")
+
+    data = _full_intent_dict(
+        universe={"markets": ["KOSPI", "KOSDAQ"], "sectors": ["생명보험"]},
+        entry_conditions=[],
+    )
+    data["unsupported_features"] = ["생명보험 관려주"]
+    result = _run_primary_with(monkeypatch, data, "생명보험 관려주 투자 전략을 만들어줘")
+    assert result is not None
+    # 유니버스는 실제로 반영됐다 — 그런데 "반영하지 못했어요"가 함께 나가면 모순.
+    assert result["parsed"].target_symbols, result["parsed"]
+    assert not any("생명보험" in n and "반영하지 못했" in n for n in result["notices"]), \
+        result["notices"]
+
+
 def test_interpreter_prompt_forbids_double_entry_of_reflected_expressions():
     """[회귀 2026-08-13] 프롬프트에 '반영한 표현의 unsupported_features 재기입 금지' 규칙 유지.
 
