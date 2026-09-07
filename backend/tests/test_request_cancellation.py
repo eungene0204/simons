@@ -417,3 +417,46 @@ def test_parse_cache_skips_cancelled_request():
         assert key in main._nl_parse_cache
     finally:
         main._nl_parse_cache.pop(key, None)
+
+
+def test_parse_stream_emits_retrying_stage_during_llm_retry(monkeypatch):
+    """/strategy/parse-stream: 파싱 스레드에 llm_progress holder가 결속돼 LLM 재시도 구간이
+    {"type":"stage","stage":"retrying"}('재시도 중...')로 흐르고 끝나면 이전 단계로 복귀한다."""
+    import json
+    import time
+
+    import llm_progress
+    import main
+
+    def fake_parse(request, on_stage=None, defer_holder=None):  # noqa: ARG001
+        on_stage("thinking")
+        time.sleep(0.25)
+        with llm_progress.retrying():
+            time.sleep(0.25)
+        time.sleep(0.25)
+        return {"parsed": {}}
+
+    monkeypatch.setattr(main, "_run_nl_parse", fake_parse)
+    loop = asyncio.new_event_loop()
+    try:
+        response = loop.run_until_complete(
+            main.parse_nl_strategy_stream(main.NLParseRequest(prompt="테스트", backend="ollama"))
+        )
+        chunks = []
+
+        async def drain():
+            async for chunk in response.body_iterator:
+                chunks.append(chunk)
+
+        loop.run_until_complete(drain())
+    finally:
+        loop.close()
+    events = []
+    for chunk in chunks:
+        for line in chunk.splitlines():
+            if line.startswith("data: ") and line != "data: [DONE]":
+                events.append(json.loads(line[6:]))
+    stages = [e["stage"] for e in events if e["type"] == "stage"]
+    assert "retrying" in stages
+    assert stages[stages.index("retrying") + 1] == "thinking"  # 재시도 뒤 이전 단계 복귀
+    assert events[-1]["type"] == "result"

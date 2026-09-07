@@ -177,3 +177,35 @@ def test_step_stream_reports_error_event(monkeypatch):
         body = "".join(r.iter_text())
     events = _events(body)
     assert any(e["type"] == "error" and "빌더 내부 오류" in e["detail"] for e in events)
+
+
+def test_step_stream_emits_retrying_stage_during_llm_retry(monkeypatch):
+    """LLM 호출 재시도 구간(llm_progress.retrying)이 result 전에 retrying stage('재시도 중...')로
+    흐르고, 재시도가 끝나면 이전 단계로 되돌아간다(사용자 지시 2026-09-08)."""
+    import llm_progress
+
+    def fake_helpers(on_search=None, on_kg_lookup=None):
+        def sector_resolver(text):
+            if on_kg_lookup is not None:
+                on_kg_lookup()
+            time.sleep(0.25)
+            with llm_progress.retrying():  # 전송 계층이 재시도에 들어간 상황
+                time.sleep(0.25)
+            time.sleep(0.25)
+            return None
+
+        return None, sector_resolver, None
+
+    monkeypatch.setattr(intent_routes, "_builder_llm_helpers", fake_helpers)
+    with _client().stream(
+        "POST", "/strategy/builder/step-stream",
+        json={"state": {}, "input": "", "seed": "원자로 관련주 전략 만들어줘"},
+    ) as r:
+        body = "".join(r.iter_text())
+    types = [(e["type"], e.get("stage")) for e in _events(body)]
+    assert ("stage", "retrying") in types
+    result_idx = types.index(next(t for t in types if t[0] == "result"))
+    retry_idx = types.index(("stage", "retrying"))
+    assert retry_idx < result_idx
+    # 재시도가 끝나면 이전 단계(kg_lookup)로 되돌아간 이벤트가 다시 흐른다
+    assert ("stage", "kg_lookup") in types[retry_idx + 1:result_idx]

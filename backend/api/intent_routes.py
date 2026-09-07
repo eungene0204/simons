@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 import cancellation
+import llm_progress
 import ui_language
 from intent.classifier import classify, format_history_context
 from intent.schemas import ChatTurn, IntentRequest, IntentResult
@@ -293,7 +294,9 @@ async def strategy_builder_step_stream(req: BuilderStepRequest):
     request_language = ui_language.get_ui_language()
 
     def run_step():
-        with cancellation.bind(cancel_token), ui_language.bind(request_language):
+        # llm_progress: LLM 호출 재시도 구간에 stage_holder를 'retrying'으로 바꿔 '재시도 중...'을 표시한다.
+        with cancellation.bind(cancel_token), ui_language.bind(request_language), \
+                llm_progress.bind(stage_holder):
             try:
                 step_result = _run_builder_step(
                     state, req.input, risk_extractor, sector_resolver, freetext_interpreter

@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import os
 import platform
+import threading
 import time
+from contextlib import contextmanager
 from typing import Literal, Optional
 
 Backend = Literal["mlx", "ollama"]
@@ -54,15 +56,42 @@ def llm_provider() -> Provider:
 _openrouter_paused_until: float = 0.0
 
 
+# 요청 단위 폴백(2026-09-08) — 상류 일시 오류가 재시도 예산을 넘긴 **그 요청만** Ollama 레인으로
+# 보낸다. 프로세스 전역(_openrouter_paused_until)과 달리 스레드 로컬이라 같은 프로세스의 다른
+# 요청은 계속 OpenRouter로 간다(상류 과부하는 초 단위로 풀리는 순간 장애다).
+_request_lane = threading.local()
+
+
+@contextmanager
+def ollama_lane_for_this_request():
+    """이 스레드에서 블록을 벗어날 때까지 is_openrouter()가 False — 요청 빌더·워밍업·레인
+    로그가 전부 Ollama 레인으로 일관되게 동작한다."""
+    previous = getattr(_request_lane, "force_ollama", False)
+    _request_lane.force_ollama = True
+    try:
+        yield
+    finally:
+        _request_lane.force_ollama = previous
+
+
+def request_forced_to_ollama() -> bool:
+    """이 스레드의 현재 요청이 상류 오류 폴백으로 Ollama 레인에 고정돼 있는가."""
+    return bool(getattr(_request_lane, "force_ollama", False))
+
+
 def is_openrouter() -> bool:
     if llm_provider() != "openrouter":
+        return False
+    if request_forced_to_ollama():
         return False
     return time.time() >= _openrouter_paused_until
 
 
 def openrouter_fallback_active() -> bool:
-    """설정은 openrouter인데 한도 소진으로 Ollama 레인을 쓰는 중인가."""
-    return llm_provider() == "openrouter" and time.time() < _openrouter_paused_until
+    """설정은 openrouter인데 한도 소진(전역) 또는 상류 오류(이 요청)로 Ollama 레인을 쓰는 중인가."""
+    if llm_provider() != "openrouter":
+        return False
+    return request_forced_to_ollama() or time.time() < _openrouter_paused_until
 
 
 def pause_openrouter_until(reset_epoch_s: float) -> None:

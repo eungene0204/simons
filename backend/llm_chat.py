@@ -31,6 +31,7 @@ Ollama로 전환한다(llm_backend.pause_openrouter_until). 응답 파싱은 프
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import time
@@ -39,6 +40,7 @@ import urllib.request
 from typing import Any, Iterator
 
 import cancellation
+import llm_progress
 import llm_backend
 from engine.console_logging import console_logger
 from llm_backend import (
@@ -67,6 +69,18 @@ class OpenRouterQuotaExhausted(RuntimeError):
     def __init__(self, message: str, reset_epoch_s: float):
         super().__init__(message)
         self.reset_epoch_s = reset_epoch_s
+
+
+class OpenRouterUpstreamUnavailable(RuntimeError):
+    """OpenRouter 상류 프로바이더 일시 오류가 재시도 예산을 넘겼다(이 요청만 Ollama 레인으로).
+
+    한도 소진(OpenRouterQuotaExhausted)과 달리 프로세스 전체를 전환하지 않는다 — 다음
+    요청은 다시 OpenRouter로 간다(상류 과부하는 초 단위로 풀리는 순간 장애다)."""
+
+    def __init__(self, code: int, body: bytes):
+        super().__init__(f"openrouter 상류 일시 오류 {code}가 재시도 예산을 넘김: {body[:200]!r}")
+        self.code = code
+        self.body = body
 
 
 # 리셋 시각을 응답에서 못 읽으면 이만큼 뒤에 OpenRouter를 다시 시도한다.
@@ -112,7 +126,10 @@ def open_chat(payload: dict[str, Any], timeout: int, *, retry: bool = True):
 
     retry=True면 파싱 본경로의 콜드스타트 재시도 관문(nl_parser._ollama_open_with_retry)을
     지나고, False면 단발 urlopen(검증기처럼 예산을 태우면 안 되는 보조 경로).
-    OpenRouter 한도 소진이면 **같은 요청을 Ollama 레인으로 다시 보낸다**.
+    OpenRouter 한도 소진이면 **같은 요청을 Ollama 레인으로 다시 보낸다**. 상류 일시 오류가
+    재시도 예산을 넘긴 경우도 같다(2026-09-08: 무료 Nemotron 상류 502가 4회 연속이면 요청이
+    통째로 죽어 "해석하지 못했어요"로 표면화됐다 — 이 요청만 Ollama로 보내고 다음 요청은
+    다시 OpenRouter로 간다).
     """
     from engine import nl_parser  # 지연 import — nl_parser가 이 모듈을 import한다
 
@@ -130,14 +147,31 @@ def open_chat(payload: dict[str, Any], timeout: int, *, retry: bool = True):
         _log_lane(payload)
         try:
             if payload.get("stream"):
-                return _open(chat_request(payload))
+                return _open_stream_with_transient_retry(_open, payload)
             return _open_buffered_with_transient_retry(_open, payload)
         except OpenRouterQuotaExhausted:
             logger.warning("OpenRouter 한도 소진 — 이 요청을 Ollama 레인으로 다시 보낸다")
-    # Ollama 레인(기본 또는 폴백). Modal 콜드 컨테이너는 본문 없는 GET으로 먼저 깨운다.
+        except OpenRouterUpstreamUnavailable as exc:
+            logger.warning(
+                "OpenRouter 상류 일시 오류(code=%s)가 재시도 예산(%d회)을 넘김 — 이 요청만 "
+                "Ollama 레인(%s)으로 다시 보낸다", exc.code, len(_TRANSIENT_RETRY_BACKOFF_S),
+                OLLAMA_BASE_URL,
+            )
+            # 요청 빌더·워밍업·레인 로그가 모두 is_openrouter()를 보므로 이 요청에 한해
+            # 레인을 Ollama로 고정한다(응답 핸들을 연 뒤에는 원래 레인으로 돌아간다).
+            # 사용자에게는 이 구간도 '재시도 중...'이다(llm_progress).
+            with llm_backend.ollama_lane_for_this_request(), llm_progress.retrying():
+                return _open_ollama(payload, _open)
+    return _open_ollama(payload, _open)
+
+
+def _open_ollama(payload: dict[str, Any], open_fn):
+    """Ollama 레인(기본 또는 폴백). Modal 콜드 컨테이너는 본문 없는 GET으로 먼저 깨운다."""
+    from engine import nl_parser  # 지연 import — nl_parser가 이 모듈을 import한다
+
     _log_lane(payload)
     nl_parser._ollama_ensure_warm()
-    return _open(chat_request(payload))
+    return open_fn(chat_request(payload))
 
 
 # OpenRouter는 상류 프로바이더가 잠깐 막히면 HTTP 200 본문에 error 객체를 실어 보낸다
@@ -175,28 +209,105 @@ def transient_error_code(raw: bytes) -> int | None:
 
 
 def _open_buffered_with_transient_retry(open_fn, payload: dict[str, Any]):
-    """응답을 열어 본문까지 읽고, 본문이 일시 오류면 짧게 쉬었다가 다시 보낸다.
+    """비스트리밍: 응답을 열어 본문까지 읽고, 본문이 일시 오류면 짧게 쉬었다가 다시 보낸다.
 
-    재시도를 다 쓰면 마지막 본문을 그대로 돌려준다 — read_chat_response가 error 객체를
-    보고 예외를 올리므로 실패가 조용히 빈 답으로 둔갑하지 않는다."""
-    attempt = 0
-    while True:
-        with open_fn(chat_request(payload)) as resp:
+    재시도를 다 써도 일시 오류면 OpenRouterUpstreamUnavailable을 올린다 — 호출부(open_chat)가
+    이 요청을 Ollama 레인으로 넘긴다. 일시 오류가 아닌 error 본문은 그대로 돌려줘
+    read_chat_response가 예외를 올리므로 실패가 조용히 빈 답으로 둔갑하지 않는다."""
+
+    def probe(resp):
+        with resp:
             raw = resp.read()
             status = getattr(resp, "status", None)
             headers = getattr(resp, "headers", None)
-        code = transient_error_code(raw)
-        if code is None or attempt >= len(_TRANSIENT_RETRY_BACKOFF_S):
-            return _BufferedResponse(raw, status, headers)
-        delay = _TRANSIENT_RETRY_BACKOFF_S[attempt]
-        attempt += 1
-        logger.warning(
-            "openrouter 상류 일시 오류(code=%s) — %.1fs 뒤 재시도 %d/%d | body=%s",
-            code, delay, attempt, len(_TRANSIENT_RETRY_BACKOFF_S), raw[:160],
-        )
-        # '대화 종료'로 끊긴 요청은 다시 보내지 않는다(nl_parser 재시도 관문과 같은 계약).
-        cancellation.raise_if_cancelled()
-        time.sleep(delay)
+        return transient_error_code(raw), raw, _BufferedResponse(raw, status, headers)
+
+    return _open_with_transient_retry(open_fn, payload, probe)
+
+
+def _open_stream_with_transient_retry(open_fn, payload: dict[str, Any]):
+    """스트리밍: 첫 `data:` 이벤트까지만 미리 읽어(peek) 일시 오류면 다시 보내고, 정상이면
+    읽어 둔 줄을 앞에 되돌려주는 래퍼를 돌려준다(iter_chat_stream은 차이를 모른다).
+
+    2026-09-08 사고 2: 인터프리터 본 호출(스트리밍, ~2만 토큰)은 재시도 관문 밖이라 상류 502가
+    `data: {"error":…}` 한 줄로 오면 iter_chat_stream이 예외를 올려 요청이 통째로 실패했다 —
+    비스트리밍 호출만 재시도해서는 실제 실패 지점을 못 막는다."""
+
+    def probe(resp):
+        consumed: list[bytes] = []
+        first_event: bytes | None = None
+        try:
+            for line in resp:
+                consumed.append(line)
+                text = line.decode("utf-8", "replace").strip() if isinstance(line, bytes) else line.strip()
+                if not text or text.startswith(":"):
+                    continue  # SSE 주석(": OPENROUTER PROCESSING")·빈 줄
+                if text.startswith("data:"):
+                    text = text[5:].strip()
+                first_event = text.encode("utf-8")
+                break
+        except Exception:
+            resp.close()
+            raise
+        code = transient_error_code(first_event) if first_event else None
+        if code is not None:
+            resp.close()
+        return code, first_event or b"", _ReplayResponse(consumed, resp)
+
+    return _open_with_transient_retry(open_fn, payload, probe)
+
+
+def _open_with_transient_retry(open_fn, payload: dict[str, Any], probe):
+    """공통 재시도 루프. probe(resp) → (일시 오류 코드|None, 로그용 본문, 돌려줄 응답)."""
+    attempt = 0
+    # 첫 재시도가 시작되는 순간부터 함수를 벗어날 때까지 진행 단계가 '재시도 중...'이다
+    # (성공·예산 소진 모두 ExitStack이 이전 단계로 되돌린다).
+    with contextlib.ExitStack() as stack:
+        while True:
+            code, raw, result = probe(open_fn(chat_request(payload)))
+            if code is None:
+                return result
+            if attempt >= len(_TRANSIENT_RETRY_BACKOFF_S):
+                raise OpenRouterUpstreamUnavailable(code, raw)
+            delay = _TRANSIENT_RETRY_BACKOFF_S[attempt]
+            attempt += 1
+            logger.warning(
+                "openrouter 상류 일시 오류(code=%s) — %.1fs 뒤 재시도 %d/%d | body=%s",
+                code, delay, attempt, len(_TRANSIENT_RETRY_BACKOFF_S), raw[:160],
+            )
+            # '대화 종료'로 끊긴 요청은 다시 보내지 않는다(nl_parser 재시도 관문과 같은 계약).
+            cancellation.raise_if_cancelled()
+            if attempt == 1:
+                stack.enter_context(llm_progress.retrying())
+            time.sleep(delay)
+
+
+class _ReplayResponse:
+    """peek로 소비한 줄을 먼저 돌려주고 나머지는 원 응답에 위임하는 스트림 핸들."""
+
+    def __init__(self, consumed: list[bytes], resp):
+        self._consumed = consumed
+        self._resp = resp
+        self.status = getattr(resp, "status", None)
+        self.headers = getattr(resp, "headers", None)
+
+    def __iter__(self):
+        yield from self._consumed
+        self._consumed = []
+        yield from self._resp
+
+    def read(self):
+        return b"".join(self._consumed) + self._resp.read()
+
+    def close(self):
+        self._resp.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
 
 
 def describe_lane(payload: dict[str, Any]) -> str:
@@ -213,7 +324,9 @@ def describe_lane(payload: dict[str, Any]) -> str:
         where = "ollama-local(로컬 모델)"
     else:
         where = "ollama-remote(원격 Ollama·Modal)"
-    if llm_backend.openrouter_fallback_active():
+    if llm_backend.request_forced_to_ollama():
+        where += "[OpenRouter 상류 오류 폴백]"
+    elif llm_backend.openrouter_fallback_active():
         where += "[OpenRouter 한도 소진 폴백]"
     return f"lane={where} model={payload.get('model')} url={OLLAMA_BASE_URL}"
 

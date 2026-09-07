@@ -42,6 +42,7 @@ from stream_progress import (
     simulation_phase_label,
 )
 import cancellation
+import llm_progress
 import ui_language
 from us_ohlcv import load_us_ohlcv
 from engine.providers.toss_us import is_us_symbol, us_master_entry
@@ -4131,7 +4132,9 @@ async def parse_nl_strategy_stream(request: NLParseRequest):
     request_language = request.language or ui_language.get_ui_language()
 
     def run_parse():
-        with cancellation.bind(cancel_token), ui_language.bind(request_language):
+        # llm_progress: LLM 호출 재시도 구간에 stage_holder를 'retrying'으로 바꿔 '재시도 중...'을 표시한다.
+        with cancellation.bind(cancel_token), ui_language.bind(request_language), \
+                llm_progress.bind(stage_holder):
             try:
                 result_holder["data"] = _run_nl_parse(request, on_stage=on_stage, defer_holder=defer_holder)
             except cancellation.OperationCancelled:

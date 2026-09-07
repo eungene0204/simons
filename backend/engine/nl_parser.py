@@ -8,6 +8,7 @@ LLM 백엔드: Ollama (instructor) 또는 MLX (outlines)
 from __future__ import annotations
 
 import calendar
+import contextlib
 import json
 import logging
 import os
@@ -25,6 +26,7 @@ from pydantic import (
 )
 
 import cancellation
+import llm_progress
 from llm_backend import (
     OLLAMA_BASE_URL,
     OLLAMA_MODEL_9B,
@@ -317,71 +319,76 @@ def _ollama_open_with_retry(req, timeout: int):
     deadline = time.monotonic() + _OLLAMA_RETRY_BUDGET_S
     attempt = 0
     last_err: Exception | None = None
-    while time.monotonic() < deadline:
-        # 요청이 취소됐으면('대화 종료') 새 LLM 호출을 열지 않는다 — 여기가 파싱·빌더·검증
-        # 모든 LLM 호출의 공통 관문이라, 취소된 요청은 다음 호출에서 반드시 멈춘다.
-        cancellation.raise_if_cancelled()
-        attempt += 1
-        if attempt == 1:
-            # 다른 num_ctx로 고정된 러너를 먼저 내린다 — 어긋난 채로 열면 응답 없이
-            # attempt_timeout(최대 240초)을 통째로 태운다(_ollama_align_runner_num_ctx 주석).
-            # 취소 확인 뒤에 둔다 — 끊긴 요청은 네트워크를 건드리지 않는다.
-            _ollama_align_runner_num_ctx()
-        remaining = deadline - time.monotonic()
-        cap = (
-            _OLLAMA_LOCAL_MAX_ATTEMPT_TIMEOUT_S
-            if is_local_ollama()
-            else _OLLAMA_MAX_ATTEMPT_TIMEOUT_S
-        )
-        attempt_timeout = max(15, min(cap, int(remaining)))
-        try:
-            return urllib.request.urlopen(req, timeout=attempt_timeout)
-        except urllib.error.HTTPError as e:
-            last_err = e
-            transient = e.code in _OLLAMA_COLD_START_STATUSES
-            # 콜드스타트 400은 재시도하면 풀리지만, 설정 오류로 인한 영구 400은 즉시 올린다.
-            if transient and e.code == 400 and _http_400_is_permanent(e):
-                transient = False
-            # OpenRouter 429 중 **일일 한도**(free-models-per-day, 크레딧 없는 계정 50건/일)는
-            # 그날 안에는 풀리지 않는다 — 재시도로 320초를 태우지 말고(2026-09-06 prod 실측:
-            # 82회 재시도 뒤 사용자에겐 타임아웃만 보였다) 폴백을 켜고 즉시 올린다.
-            # llm_chat.open_chat이 이 예외를 받아 같은 요청을 Ollama 레인으로 다시 보낸다.
-            if transient and e.code == 429 and is_openrouter():
-                from llm_chat import check_openrouter_quota
+    # 첫 재시도부터 함수를 벗어날 때까지 진행 단계가 '재시도 중...'이다(llm_progress —
+    # 성공·예산 소진 모두 ExitStack이 이전 단계로 되돌린다).
+    with contextlib.ExitStack() as retry_stage:
+        while time.monotonic() < deadline:
+            # 요청이 취소됐으면('대화 종료') 새 LLM 호출을 열지 않는다 — 여기가 파싱·빌더·검증
+            # 모든 LLM 호출의 공통 관문이라, 취소된 요청은 다음 호출에서 반드시 멈춘다.
+            cancellation.raise_if_cancelled()
+            attempt += 1
+            if attempt == 1:
+                # 다른 num_ctx로 고정된 러너를 먼저 내린다 — 어긋난 채로 열면 응답 없이
+                # attempt_timeout(최대 240초)을 통째로 태운다(_ollama_align_runner_num_ctx 주석).
+                # 취소 확인 뒤에 둔다 — 끊긴 요청은 네트워크를 건드리지 않는다.
+                _ollama_align_runner_num_ctx()
+            remaining = deadline - time.monotonic()
+            cap = (
+                _OLLAMA_LOCAL_MAX_ATTEMPT_TIMEOUT_S
+                if is_local_ollama()
+                else _OLLAMA_MAX_ATTEMPT_TIMEOUT_S
+            )
+            attempt_timeout = max(15, min(cap, int(remaining)))
+            try:
+                return urllib.request.urlopen(req, timeout=attempt_timeout)
+            except urllib.error.HTTPError as e:
+                last_err = e
+                transient = e.code in _OLLAMA_COLD_START_STATUSES
+                # 콜드스타트 400은 재시도하면 풀리지만, 설정 오류로 인한 영구 400은 즉시 올린다.
+                if transient and e.code == 400 and _http_400_is_permanent(e):
+                    transient = False
+                # OpenRouter 429 중 **일일 한도**(free-models-per-day, 크레딧 없는 계정 50건/일)는
+                # 그날 안에는 풀리지 않는다 — 재시도로 320초를 태우지 말고(2026-09-06 prod 실측:
+                # 82회 재시도 뒤 사용자에겐 타임아웃만 보였다) 폴백을 켜고 즉시 올린다.
+                # llm_chat.open_chat이 이 예외를 받아 같은 요청을 Ollama 레인으로 다시 보낸다.
+                if transient and e.code == 429 and is_openrouter():
+                    from llm_chat import check_openrouter_quota
 
-                check_openrouter_quota(e)
-        except urllib.error.URLError as e:
-            # 취소가 진행 중 소켓을 닫아서 난 실패는 콜드스타트 재시도 대상이 아니라 취소다.
-            cancellation.raise_if_cancelled()
-            if _is_local_connection_error(e):
-                raise
-            if _is_tls_error(e):
-                # 인증서 검증 실패는 재시도로 풀리지 않는 환경 오류다(컨테이너 CA 저장소 비어
-                # 있음 등). 2026-09-06 prod: 106회 재시도로 320초 예산을 다 태운 뒤 사용자에게는
-                # 타임아웃만 보였다 — 원인을 말하는 예외로 즉시 올린다.
-                raise RuntimeError(
-                    f"LLM 엔드포인트 TLS 인증서 검증 실패 — 실행 환경의 CA 저장소를 확인하세요 "
-                    f"(원인: {e.reason!r})"
-                ) from e
-            last_err = e
-            transient = True
-        except (TimeoutError, OSError) as e:
-            cancellation.raise_if_cancelled()
-            # cold-start hang이 attempt_timeout을 초과한 것 — 재시도하면 역효과.
-            # 로컬이면 무응답의 **원인을 붙여** 올린다(이 문자열이 그대로 사용자에게 간다).
-            raise _ollama_timeout_error(e, attempt_timeout)
-        if not transient:
-            raise last_err
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            break
-        logger.warning(
-            "ollama transient failure (Modal cold start?), retrying | attempt=%d err=%r remaining_s=%.0f",
-            attempt,
-            last_err,
-            remaining,
-        )
-        time.sleep(min(_OLLAMA_RETRY_BACKOFF_S, remaining))
+                    check_openrouter_quota(e)
+            except urllib.error.URLError as e:
+                # 취소가 진행 중 소켓을 닫아서 난 실패는 콜드스타트 재시도 대상이 아니라 취소다.
+                cancellation.raise_if_cancelled()
+                if _is_local_connection_error(e):
+                    raise
+                if _is_tls_error(e):
+                    # 인증서 검증 실패는 재시도로 풀리지 않는 환경 오류다(컨테이너 CA 저장소 비어
+                    # 있음 등). 2026-09-06 prod: 106회 재시도로 320초 예산을 다 태운 뒤 사용자에게는
+                    # 타임아웃만 보였다 — 원인을 말하는 예외로 즉시 올린다.
+                    raise RuntimeError(
+                        f"LLM 엔드포인트 TLS 인증서 검증 실패 — 실행 환경의 CA 저장소를 확인하세요 "
+                        f"(원인: {e.reason!r})"
+                    ) from e
+                last_err = e
+                transient = True
+            except (TimeoutError, OSError) as e:
+                cancellation.raise_if_cancelled()
+                # cold-start hang이 attempt_timeout을 초과한 것 — 재시도하면 역효과.
+                # 로컬이면 무응답의 **원인을 붙여** 올린다(이 문자열이 그대로 사용자에게 간다).
+                raise _ollama_timeout_error(e, attempt_timeout)
+            if not transient:
+                raise last_err
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            logger.warning(
+                "ollama transient failure (Modal cold start?), retrying | attempt=%d err=%r remaining_s=%.0f",
+                attempt,
+                last_err,
+                remaining,
+            )
+            if attempt == 1:
+                retry_stage.enter_context(llm_progress.retrying())
+            time.sleep(min(_OLLAMA_RETRY_BACKOFF_S, remaining))
     assert last_err is not None
     raise last_err
 

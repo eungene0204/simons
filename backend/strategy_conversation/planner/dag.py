@@ -165,12 +165,51 @@ def parse_dag(data: Dict) -> List[DagNode]:
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise DagContractError(f"{key} 형식 위반: {node_id}")
             meta[key] = list(effects.get(key, [v.strip() for v in value if v.strip()]))
+        topic = raw.get("topic")
+        if node_type == "ask" and not (isinstance(topic, str) and topic.strip()):
+            # LLM이 ask 노드의 topic을 빠뜨리는 실측 드리프트(2026-09-08: 질문은 정본
+            # "어떤 조건에서 매수할까요?" 그대로인데 topic=null → 칩 결속 게이트 no_chips →
+            # 매수 옵션 박스 없이 질문만 노출, 캐시에 잔존). 질문 문구가 슬롯 정본과
+            # 정확히 일치하면 그 슬롯 라벨로 보완한다 — LLM 출력의 형태 정규화이지
+            # 원문 해석이 아니다(계약 § 판정 기준).
+            topic = _topic_from_canonical_question(raw.get("question"), node_id)
         nodes.append(DagNode(
             id=node_id.strip(), type=node_type, depends_on=list(depends_on),
-            tool=raw.get("tool"), args=args, topic=raw.get("topic"),
+            tool=raw.get("tool"), args=args, topic=topic,
             question=raw.get("question"), chips=chips, **meta,
         ))
     return nodes
+
+
+# planner 프롬프트 예시의 ask 노드 정본(id → topic, 질문). dag_planner._system_prompt의
+# 예시 2와 같은 표다 — 문구가 어긋나면 tests/test_dag_planner.py가 잡는다. LLM이 topic을
+# 빠뜨려도 id나 질문 문구가 이 표와 정확히 일치하면 topic을 되살린다.
+ASK_NODE_CANON: Dict[str, tuple[str, str]] = {
+    "ask_entry": ("매수조건", "어떤 조건에서 매수할까요?"),
+    "ask_exit": ("매도조건", "어떤 조건에서 매도할까요?"),
+    "ask_positions": ("최대보유", "최대 몇 종목을 보유할까요?"),
+    "ask_rebalance": ("리밸런싱", "리밸런싱 주기는 어떻게 할까요?"),
+    "ask_risk": ("리스크관리", "손절·익절 기준을 정할까요?"),
+}
+
+
+def _topic_from_canonical_question(question: object, node_id: object = None) -> Optional[str]:
+    """topic 없는 ask 노드의 topic 보완 — 정확 일치만(부분 일치는 문구 해석이라 금지).
+
+    순서: ① planner 예시 질문 문구 → ② planner 예시 노드 id → ③ 진행 골격 슬롯 정본 질문
+    (engine.strategy_slots). 어디에도 없으면 None(칩 없는 자유 질문)."""
+    text = question.strip() if isinstance(question, str) else ""
+    for topic, canon_question in ASK_NODE_CANON.values():
+        if text and text == canon_question:
+            return topic
+    if isinstance(node_id, str) and node_id.strip() in ASK_NODE_CANON:
+        return ASK_NODE_CANON[node_id.strip()][0]
+    if not text:
+        return None
+    from engine import strategy_slots  # 지연 import — planner 순수 모듈의 의존 방향 유지
+
+    field = strategy_slots.slot_for_question(text)
+    return strategy_slots.SLOT_LABELS.get(field) if field else None
 
 
 def _assert_acyclic(nodes: Sequence[DagNode]) -> None:

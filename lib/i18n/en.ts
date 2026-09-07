@@ -2097,6 +2097,7 @@ export const en: Record<string, string> = {
   "설명 모델": "Explanation model",
   "시가 수익률": "Open return",
   "재시도": "Retry",
+  "재시도 중...": "Retrying...",
   "저가 수익률": "Low return",
   "종가 수익률": "Close return",
   "하락 요인": "Bearish factors",

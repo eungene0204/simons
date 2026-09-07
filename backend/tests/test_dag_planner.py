@@ -809,3 +809,60 @@ def test_llm_emitted_chips_are_still_parsed_and_carried(monkeypatch):
 
     assert result is not None and result.outcome == "ask"
     assert result.chips == ["익절 20%"]
+
+
+# ── ask 노드 topic 누락 보완(2026-09-08) ──────────────────────────────────────
+# 실측: planner LLM이 {"id":"ask_entry","type":"ask","question":"어떤 조건에서 매수할까요?"}를
+# topic 없이 냈다 → 칩 결속 게이트 no_chips → 매수 옵션 박스 없이 질문만 노출(캐시 잔존).
+
+def _bare_ask_node(node_id, question, topic=None):
+    node = {"id": node_id, "type": "ask", "question": question}
+    if topic is not None:
+        node["topic"] = topic
+    return node
+
+
+def test_ask_node_missing_topic_is_filled_from_canonical_question():
+    """실측 노드 그대로: id·질문은 예시와 같고 topic만 없다 → 매수조건(정본 칩이 붙는 라벨)."""
+    from engine import strategy_slots
+
+    nodes = parse_dag({"dag": {"nodes": [_bare_ask_node("ask_entry", "어떤 조건에서 매수할까요?")]}})
+    assert nodes[0].topic == "매수조건"
+    assert strategy_slots.slot_for_topic(nodes[0].topic) == strategy_slots.ENTRY
+    assert strategy_slots.suggestions_for_topic(nodes[0].topic)  # 정본 칩 9개
+
+
+def test_ask_node_missing_topic_falls_back_to_example_node_id():
+    """질문 문구가 달라도 id가 예시 id면 그 topic(정확 일치)."""
+    nodes = parse_dag({"dag": {"nodes": [_bare_ask_node("ask_exit", "언제 팔까요?")]}})
+    assert nodes[0].topic == "매도조건"
+
+
+def test_ask_node_missing_topic_falls_back_to_slot_canonical_question():
+    """진행 골격 슬롯 정본 문구(strategy_slots)도 정확 일치로 보완한다."""
+    from engine import strategy_slots
+
+    question = strategy_slots._QUESTIONS[strategy_slots.MAX_POSITIONS][0]
+    nodes = parse_dag({"dag": {"nodes": [_bare_ask_node("ask_x", question)]}})
+    assert nodes[0].topic == strategy_slots.SLOT_LABELS[strategy_slots.MAX_POSITIONS]
+
+
+def test_ask_node_canon_matches_planner_prompt_examples():
+    """보완 표는 프롬프트 예시와 한 몸이다 — 예시 문구를 바꾸면 여기서 잡는다."""
+    from strategy_conversation.planner.dag import ASK_NODE_CANON
+
+    prompt = _system_prompt()
+    for node_id, (topic, question) in ASK_NODE_CANON.items():
+        assert f'"id": "{node_id}", "type": "ask", "topic": "{topic}"' in prompt, node_id
+        assert f'"question": "{question}"' in prompt, node_id
+
+
+def test_ask_node_explicit_topic_is_kept():
+    nodes = parse_dag({"dag": {"nodes": [_bare_ask_node("ask_entry", "어떤 조건에서 매수할까요?", "매수조건")]}})
+    assert nodes[0].topic == "매수조건"
+
+
+def test_ask_node_free_question_without_topic_stays_none():
+    """정본 문구가 아니면 보완하지 않는다 — 부분 일치는 문구 해석이라 금지."""
+    nodes = parse_dag({"dag": {"nodes": [_bare_ask_node("ask_x", "매수 조건을 어떻게 정할까요?")]}})
+    assert nodes[0].topic is None

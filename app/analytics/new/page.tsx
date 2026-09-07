@@ -1132,6 +1132,8 @@ const ANALYSIS_STAGE_LABEL = {
   exit: "매도 조건 분석 중...",
   risk: "리스크 관리 분석 중...",
   settings: "설정 분석 중...",
+  // LLM 호출 자체가 실패해 백엔드가 다시 보내는 중(llm_progress — 재시도가 끝나면 이전 단계로 복귀).
+  retrying: "재시도 중...",
 } as const;
 type AnalysisStage = keyof typeof ANALYSIS_STAGE_LABEL;
 
@@ -2982,7 +2984,7 @@ function StrategyLabContent() {
       const data = await requestBuilderStepData(
         { state: previousState, input: "" },
         (stage) => {
-          if (stage === "searching" || stage === "kg_lookup") {
+          if (stage === "searching" || stage === "kg_lookup" || stage === "retrying") {
             updateLastAssistant({ isLoading: true, loadingStage: stage });
           }
         },
@@ -4094,7 +4096,7 @@ function StrategyLabContent() {
         const data = await requestBuilderStepData(
           { state: requestState, input: userText },
           (stage) => {
-            if (stage === "searching" || stage === "kg_lookup") {
+            if (stage === "searching" || stage === "kg_lookup" || stage === "retrying") {
               updateLastAssistant({ isLoading: true, loadingStage: stage });
             }
           },
