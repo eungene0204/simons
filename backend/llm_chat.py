@@ -31,24 +31,30 @@ Ollama로 전환한다(llm_backend.pause_openrouter_until). 응답 파싱은 프
 
 from __future__ import annotations
 
+import io
 import json
-import logging
 import time
 import urllib.error
 import urllib.request
 from typing import Any, Iterator
 
+import cancellation
 import llm_backend
+from engine.console_logging import console_logger
 from llm_backend import (
     OLLAMA_BASE_URL,
     OPENROUTER_BASE_URL,
+    is_local_ollama,
     is_openrouter,
     ollama_auth_headers,
     openrouter_headers,
     openrouter_model,
 )
 
-logger = logging.getLogger(__name__)
+# 콘솔 상시 출력 — 앱에 basicConfig가 없어 일반 logger.info는 버려진다(engine/console_logging).
+# 자연어 해석·코치·AI 리포트가 **어느 레인(로컬 Ollama / Modal / OpenRouter 외부 API)의
+# 어떤 모델**로 나가는지는 이 로거의 [LLM] 줄로 확인한다(2026-09-07 사용자 요청).
+logger = console_logger(__name__, "LLM")
 
 # Qwen3 계열의 thinking 소프트 스위치 — 사용자 원문을 해석하는 것이 아니라 LLM에 보내는
 # 메시지 끝에 붙이는 제어 토큰이다(프롬프트 계층).
@@ -121,13 +127,99 @@ def open_chat(payload: dict[str, Any], timeout: int, *, retry: bool = True):
             raise
 
     if is_openrouter():
+        _log_lane(payload)
         try:
-            return _open(chat_request(payload))
+            if payload.get("stream"):
+                return _open(chat_request(payload))
+            return _open_buffered_with_transient_retry(_open, payload)
         except OpenRouterQuotaExhausted:
             logger.warning("OpenRouter 한도 소진 — 이 요청을 Ollama 레인으로 다시 보낸다")
     # Ollama 레인(기본 또는 폴백). Modal 콜드 컨테이너는 본문 없는 GET으로 먼저 깨운다.
+    _log_lane(payload)
     nl_parser._ollama_ensure_warm()
     return _open(chat_request(payload))
+
+
+# OpenRouter는 상류 프로바이더가 잠깐 막히면 HTTP 200 본문에 error 객체를 실어 보낸다
+# (2026-09-08 실측: 무료 Nemotron/Nvidia가 `{"error":{"code":502,"message":"Upstream error
+# from Nvidia: Service temporarily overloaded"}}`를 6회 중 4회, 0.2초 만에). 한 번 더 보내면
+# 대개 바로 성공하는 순간 장애라 짧은 간격으로 몇 번 다시 보낸다. 이 판정의 입력은
+# 프로바이더 응답(구조화 JSON)이지 사용자 원문이 아니다.
+_TRANSIENT_ERROR_CODES = frozenset({408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 529})
+_TRANSIENT_RETRY_BACKOFF_S = (0.5, 1.0, 2.0)  # 재시도 3회, 총 대기 3.5초
+
+
+class _BufferedResponse(io.BytesIO):
+    """미리 읽어 둔 본문을 urlopen 응답처럼(with·read·status·headers) 돌려준다."""
+
+    def __init__(self, raw: bytes, status: int | None, headers: Any):
+        super().__init__(raw)
+        self.status = status
+        self.headers = headers
+
+
+def transient_error_code(raw: bytes) -> int | None:
+    """본문이 일시 오류(error.code가 재시도 가능 코드)면 그 코드, 아니면 None(순수 함수)."""
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    err = data.get("error") if isinstance(data, dict) else None
+    if not isinstance(err, dict):
+        return None
+    try:
+        code = int(err.get("code"))
+    except (TypeError, ValueError):
+        return None
+    return code if code in _TRANSIENT_ERROR_CODES else None
+
+
+def _open_buffered_with_transient_retry(open_fn, payload: dict[str, Any]):
+    """응답을 열어 본문까지 읽고, 본문이 일시 오류면 짧게 쉬었다가 다시 보낸다.
+
+    재시도를 다 쓰면 마지막 본문을 그대로 돌려준다 — read_chat_response가 error 객체를
+    보고 예외를 올리므로 실패가 조용히 빈 답으로 둔갑하지 않는다."""
+    attempt = 0
+    while True:
+        with open_fn(chat_request(payload)) as resp:
+            raw = resp.read()
+            status = getattr(resp, "status", None)
+            headers = getattr(resp, "headers", None)
+        code = transient_error_code(raw)
+        if code is None or attempt >= len(_TRANSIENT_RETRY_BACKOFF_S):
+            return _BufferedResponse(raw, status, headers)
+        delay = _TRANSIENT_RETRY_BACKOFF_S[attempt]
+        attempt += 1
+        logger.warning(
+            "openrouter 상류 일시 오류(code=%s) — %.1fs 뒤 재시도 %d/%d | body=%s",
+            code, delay, attempt, len(_TRANSIENT_RETRY_BACKOFF_S), raw[:160],
+        )
+        # '대화 종료'로 끊긴 요청은 다시 보내지 않는다(nl_parser 재시도 관문과 같은 계약).
+        cancellation.raise_if_cancelled()
+        time.sleep(delay)
+
+
+def describe_lane(payload: dict[str, Any]) -> str:
+    """이 요청이 나갈 레인·모델·엔드포인트를 한 줄로(순수 함수 — 로그·진단용).
+
+    OpenRouter 레인이면 모델은 payload의 Ollama 슬롯명이 아니라 OPENROUTER_MODEL이다.
+    """
+    if is_openrouter():
+        return (
+            f"lane=openrouter(외부 API) model={openrouter_model()} "
+            f"url={OPENROUTER_BASE_URL}"
+        )
+    if is_local_ollama():
+        where = "ollama-local(로컬 모델)"
+    else:
+        where = "ollama-remote(원격 Ollama·Modal)"
+    if llm_backend.openrouter_fallback_active():
+        where += "[OpenRouter 한도 소진 폴백]"
+    return f"lane={where} model={payload.get('model')} url={OLLAMA_BASE_URL}"
+
+
+def _log_lane(payload: dict[str, Any]) -> None:
+    logger.info("chat → %s stream=%s", describe_lane(payload), bool(payload.get("stream", False)))
 
 
 # ── 요청 ─────────────────────────────────────────────────────────────────────

@@ -91,3 +91,22 @@ def test_general_answer_uses_the_prose_adapter(recorder, monkeypatch):
 
     assert recorder.calls
     assert recorder.calls[-1]["temperature"] == 0.3
+
+
+def test_chat_failure_is_reported_on_console_not_swallowed(monkeypatch, caplog):
+    """LLM 호출 예외는 빈 응답으로 보고하되 원인을 WARNING으로 남긴다 — debug로만 남기면
+    basicConfig 없는 앱에서 버려져, OpenRouter 상류 502가 분류 트레이스에 '구조화 출력
+    해석 실패'로만 보였다(2026-09-08)."""
+    import logging
+
+    class _Boom:
+        def chat(self, *a, **k):
+            raise RuntimeError("openrouter error 502: Upstream error from Nvidia: Service temporarily overloaded")
+
+    stub = type("Main", (), {"_active_nl_parser": staticmethod(lambda: _Boom()),
+                             "_mlx_inference_lock": _Lock()})
+    monkeypatch.setattr(intent_routes, "_main_module", lambda: stub)
+    with caplog.at_level(logging.WARNING, logger=intent_routes.logger.name):
+        assert intent_routes._mlx_llm_structured("sys", "user", max_tokens=220) == ""
+    assert any("openrouter error 502" in r.getMessage() and r.levelno == logging.WARNING
+               for r in caplog.records)

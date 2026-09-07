@@ -379,3 +379,162 @@ def test_iter_chat_stream_detects_ndjson_on_openrouter_lane(openrouter_env):
         json.dumps({"message": {"content": ""}, "done": True}) + "\n"
     chunks = list(llm_chat.iter_chat_stream(io.BytesIO(ndjson.encode())))
     assert [c["message"]["content"] for c in chunks] == ["a", ""]
+
+
+# ── 레인·모델 로그(2026-09-07 사용자 요청: 로컬 모델인지 외부 API인지, 어떤 모델인지) ──
+
+def _capture(caplog):
+    """console_logger는 propagate=False라 caplog 기본 수집(root)에 안 잡힌다 — 핸들러를 직접 단다."""
+    llm_chat.logger.addHandler(caplog.handler)
+    return lambda: llm_chat.logger.removeHandler(caplog.handler)
+
+
+def test_describe_lane_openrouter_names_external_api_and_model(openrouter_env):
+    line = llm_chat.describe_lane(PAYLOAD)
+    assert "openrouter(외부 API)" in line
+    assert "model=qwen/qwen3-32b" in line          # Ollama 슬롯명이 아니라 OPENROUTER_MODEL
+    assert "url=https://openrouter.ai/api/v1" in line
+
+
+def test_describe_lane_local_ollama(ollama_env, ollama_host):
+    line = llm_chat.describe_lane(PAYLOAD)
+    assert "ollama-local(로컬 모델)" in line
+    assert f"model={PAYLOAD['model']}" in line
+    assert "url=http://localhost:11434" in line
+    assert "폴백" not in line
+
+
+def test_describe_lane_remote_ollama_is_modal(ollama_env, monkeypatch):
+    monkeypatch.setattr(llm_backend, "OLLAMA_BASE_URL", "https://x--ollama.modal.run")
+    monkeypatch.setattr(llm_chat, "OLLAMA_BASE_URL", "https://x--ollama.modal.run")
+    line = llm_chat.describe_lane(PAYLOAD)
+    assert "ollama-remote(원격 Ollama·Modal)" in line
+    assert "url=https://x--ollama.modal.run" in line
+
+
+def test_open_chat_logs_lane_and_fallback(openrouter_env, ollama_host, monkeypatch, caplog):
+    """요청마다 [LLM] 줄이 남고, 한도 소진 폴백이면 Ollama 레인 줄에 폴백 표기가 붙는다."""
+    import urllib.error
+    import urllib.request
+    from engine import nl_parser
+
+    monkeypatch.setattr(nl_parser, "_ollama_ensure_warm", lambda *a, **k: None)
+
+    def fake_urlopen(req, timeout):
+        if "openrouter.ai" in req.full_url:
+            raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, io.BytesIO(QUOTA_429))
+        return _Resp(b'{"message":{"content":"ok"},"done":true}')
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    undo = _capture(caplog)
+    try:
+        with llm_chat.open_chat(PAYLOAD, timeout=5, retry=False) as resp:
+            resp.read()
+    finally:
+        undo()
+        llm_backend.resume_openrouter()
+    lanes = [r.getMessage() for r in caplog.records if r.getMessage().startswith("chat → ")]
+    assert len(lanes) == 2
+    assert "lane=openrouter(외부 API) model=qwen/qwen3-32b" in lanes[0]
+    assert "lane=ollama-local(로컬 모델)[OpenRouter 한도 소진 폴백]" in lanes[1]
+    assert f"model={PAYLOAD['model']}" in lanes[1]
+
+
+# ── 상류 일시 오류 재시도(2026-09-08) ─────────────────────────────────────────
+# OpenRouter가 HTTP 200 본문에 `{"error":{"code":502,"message":"Upstream error from Nvidia:
+# Service temporarily overloaded"}}`를 실어 보내던 실측 — 분류기가 이를 빈 응답으로 삼켜
+# "해석하지 못했어요"가 나갔다(대화 종료 직후처럼 진행 중인 전략이 없을 때).
+
+UPSTREAM_502 = json.dumps({
+    "error": {"code": 502, "message": "Upstream error from Nvidia: Service temporarily overloaded"},
+    "user_id": "user_x",
+}).encode()
+OK_BODY = json.dumps({
+    "choices": [{"message": {"role": "assistant", "content": '{"intent":"STRATEGY_ADVICE"}'}, "finish_reason": "stop"}],
+    "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+}).encode()
+
+
+@pytest.fixture
+def no_sleep(monkeypatch):
+    slept = []
+    monkeypatch.setattr(llm_chat.time, "sleep", lambda s: slept.append(s))
+    return slept
+
+
+def _openrouter_sequence(monkeypatch, bodies):
+    """OpenRouter로 가는 urlopen이 bodies를 순서대로 HTTP 200으로 돌려준다."""
+    import urllib.request
+
+    calls = []
+    queue = list(bodies)
+
+    def fake_urlopen(req, timeout):
+        calls.append(req.full_url)
+        body = queue.pop(0) if len(queue) > 1 else queue[0]
+        resp = _Resp(body)
+        resp.status = 200
+        resp.headers = {}
+        return resp
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    return calls
+
+
+def test_transient_error_code_is_pure_shape_check():
+    assert llm_chat.transient_error_code(UPSTREAM_502) == 502
+    assert llm_chat.transient_error_code(OK_BODY) is None
+    assert llm_chat.transient_error_code(b'{"error":{"code":400,"message":"bad request"}}') is None
+    assert llm_chat.transient_error_code(b'{"error":{"code":"nope"}}') is None
+    assert llm_chat.transient_error_code(b"not json") is None
+
+
+def test_open_chat_retries_in_body_upstream_502(openrouter_env, monkeypatch, no_sleep):
+    calls = _openrouter_sequence(monkeypatch, [UPSTREAM_502, UPSTREAM_502, OK_BODY])
+    with llm_chat.open_chat(PAYLOAD, timeout=5, retry=False) as resp:
+        data = llm_chat.read_chat_response(resp.read())
+    assert data["message"]["content"] == '{"intent":"STRATEGY_ADVICE"}'
+    assert len(calls) == 3
+    assert no_sleep == [0.5, 1.0]
+
+
+def test_open_chat_gives_up_after_retry_budget_and_surfaces_error(openrouter_env, monkeypatch, no_sleep):
+    """재시도를 다 써도 실패면 빈 답이 아니라 error 객체가 그대로 올라온다(조용한 실패 금지)."""
+    calls = _openrouter_sequence(monkeypatch, [UPSTREAM_502])
+    with llm_chat.open_chat(PAYLOAD, timeout=5, retry=False) as resp:
+        raw = resp.read()
+    with pytest.raises(RuntimeError, match="openrouter error 502"):
+        llm_chat.read_chat_response(raw)
+    assert len(calls) == 1 + len(llm_chat._TRANSIENT_RETRY_BACKOFF_S)
+
+
+def test_open_chat_does_not_retry_permanent_in_body_error(openrouter_env, monkeypatch, no_sleep):
+    bad = b'{"error":{"code":400,"message":"Invalid model"}}'
+    calls = _openrouter_sequence(monkeypatch, [bad])
+    with llm_chat.open_chat(PAYLOAD, timeout=5, retry=False) as resp:
+        raw = resp.read()
+    with pytest.raises(RuntimeError, match="openrouter error 400"):
+        llm_chat.read_chat_response(raw)
+    assert len(calls) == 1
+    assert no_sleep == []
+
+
+def test_open_chat_streaming_is_not_buffered(openrouter_env, monkeypatch, no_sleep):
+    """스트림은 본문을 미리 읽을 수 없다 — 응답 핸들을 그대로 돌려준다(재시도 대상 아님)."""
+    calls = _openrouter_sequence(monkeypatch, [UPSTREAM_502])
+    with llm_chat.open_chat({**PAYLOAD, "stream": True}, timeout=5, retry=False) as resp:
+        assert not isinstance(resp, llm_chat._BufferedResponse)
+    assert len(calls) == 1
+
+
+def test_open_chat_retry_honors_cancellation(openrouter_env, monkeypatch, no_sleep):
+    """'대화 종료'로 끊긴 요청은 다시 보내지 않는다."""
+    import cancellation
+
+    calls = _openrouter_sequence(monkeypatch, [UPSTREAM_502])
+    token = cancellation.CancelToken()
+    token.cancel()
+    with cancellation.bind(token):
+        with pytest.raises(cancellation.OperationCancelled):
+            llm_chat.open_chat(PAYLOAD, timeout=5, retry=False)
+    assert len(calls) == 1

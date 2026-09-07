@@ -67,8 +67,10 @@ def _chat(
                 system_prompt, user_msg,
                 max_tokens=max_tokens, temperature=temperature, top_p=top_p,
             ) or ""
-    except Exception:
-        logger.debug("stock-analysis MLX 호출 실패 — 폴백", exc_info=True)
+    except Exception as e:  # noqa: BLE001 — 실패는 빈 응답으로 보고하되 원인은 콘솔에 남긴다
+        # 종전 debug 로그는 basicConfig 없는 앱에서 버려져, OpenRouter 상류 502가 분류
+        # 트레이스에 "구조화 출력 해석 실패"로만 남았다(2026-09-08 — 원인이 열흘 넘게 안 보였다).
+        logger.warning("LLM 호출 실패 — 빈 응답으로 보고(분류는 해석 실패로 끝난다): %r", e)
         return ""
 
 
