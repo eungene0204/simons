@@ -269,7 +269,7 @@ export default function SettingsModal({
                   aria-current={activeTab === id ? "page" : undefined}
                   className={`flex w-auto flex-shrink-0 items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm font-black transition-colors duration-200 lg:w-full ${
                     activeTab === id
-                      ? "border-[var(--chat-accent)] bg-white/[0.08] text-white"
+                      ? "border-transparent bg-white/[0.08] text-white"
                       : "border-transparent text-gray-400 hover:bg-white/[0.04] hover:text-gray-200"
                   }`}
                 >
