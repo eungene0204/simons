@@ -1,4 +1,4 @@
-"""LLM 재시도 진행 표시 채널(llm_progress) — '재시도 중...' 단계의 결속·복귀 계약."""
+"""LLM 재시도 진행 표시 채널(llm_progress) — '재확인 중...' 단계의 결속·복귀 계약."""
 
 from __future__ import annotations
 

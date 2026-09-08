@@ -326,7 +326,7 @@ def test_openrouter_per_minute_429_is_still_retried(monkeypatch):
 
 
 def test_retry_marks_retrying_stage_and_restores(monkeypatch):
-    """콜드스타트 재시도가 시작되면 결속된 진행 holder가 'retrying'('재시도 중...')이 되고,
+    """콜드스타트 재시도가 시작되면 결속된 진행 holder가 'retrying'('재확인 중...')이 되고,
     성공하면 이전 단계로 되돌아간다(사용자 지시 2026-09-08)."""
     import llm_progress
 

@@ -159,7 +159,7 @@ def open_chat(payload: dict[str, Any], timeout: int, *, retry: bool = True):
             )
             # 요청 빌더·워밍업·레인 로그가 모두 is_openrouter()를 보므로 이 요청에 한해
             # 레인을 Ollama로 고정한다(응답 핸들을 연 뒤에는 원래 레인으로 돌아간다).
-            # 사용자에게는 이 구간도 '재시도 중...'이다(llm_progress).
+            # 사용자에게는 이 구간도 '재확인 중...'이다(llm_progress).
             with llm_backend.ollama_lane_for_this_request(), llm_progress.retrying():
                 return _open_ollama(payload, _open)
     return _open_ollama(payload, _open)
@@ -260,7 +260,7 @@ def _open_stream_with_transient_retry(open_fn, payload: dict[str, Any]):
 def _open_with_transient_retry(open_fn, payload: dict[str, Any], probe):
     """공통 재시도 루프. probe(resp) → (일시 오류 코드|None, 로그용 본문, 돌려줄 응답)."""
     attempt = 0
-    # 첫 재시도가 시작되는 순간부터 함수를 벗어날 때까지 진행 단계가 '재시도 중...'이다
+    # 첫 재시도가 시작되는 순간부터 함수를 벗어날 때까지 진행 단계가 '재확인 중...'이다
     # (성공·예산 소진 모두 ExitStack이 이전 단계로 되돌린다).
     with contextlib.ExitStack() as stack:
         while True:

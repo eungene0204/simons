@@ -180,7 +180,7 @@ def test_step_stream_reports_error_event(monkeypatch):
 
 
 def test_step_stream_emits_retrying_stage_during_llm_retry(monkeypatch):
-    """LLM 호출 재시도 구간(llm_progress.retrying)이 result 전에 retrying stage('재시도 중...')로
+    """LLM 호출 재시도 구간(llm_progress.retrying)이 result 전에 retrying stage('재확인 중...')로
     흐르고, 재시도가 끝나면 이전 단계로 되돌아간다(사용자 지시 2026-09-08)."""
     import llm_progress
 

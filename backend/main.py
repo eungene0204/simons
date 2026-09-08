@@ -4132,7 +4132,7 @@ async def parse_nl_strategy_stream(request: NLParseRequest):
     request_language = request.language or ui_language.get_ui_language()
 
     def run_parse():
-        # llm_progress: LLM 호출 재시도 구간에 stage_holder를 'retrying'으로 바꿔 '재시도 중...'을 표시한다.
+        # llm_progress: LLM 호출 재시도 구간에 stage_holder를 'retrying'으로 바꿔 '재확인 중...'을 표시한다.
         with cancellation.bind(cancel_token), ui_language.bind(request_language), \
                 llm_progress.bind(stage_holder):
             try:

@@ -6,7 +6,7 @@ LLM 전송 계층(`llm_chat`·`engine.nl_parser`)은 그 holder를 모르므로,
 (contextvar — `cancellation.bind`와 같은 계약: 워커 스레드 진입 함수 안에서 연다)에 holder를
 묶어 두고, 재시도가 시작되면 `retrying` 단계를 쓰고 끝나면 이전 단계로 되돌린다.
 
-사용자 지시(2026-09-08): LLM 호출 자체가 실패하면 먼저 재시도하고, 그동안 '재시도 중...'을
+사용자 지시(2026-09-08): LLM 호출 자체가 실패하면 먼저 재시도하고, 그동안 '재확인 중...'을
 보여준다. 단계 어휘는 프론트 `ANALYSIS_STAGE_LABEL`(app/analytics/new/page.tsx)과 동기화한다.
 """
 

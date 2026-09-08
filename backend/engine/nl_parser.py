@@ -319,7 +319,7 @@ def _ollama_open_with_retry(req, timeout: int):
     deadline = time.monotonic() + _OLLAMA_RETRY_BUDGET_S
     attempt = 0
     last_err: Exception | None = None
-    # 첫 재시도부터 함수를 벗어날 때까지 진행 단계가 '재시도 중...'이다(llm_progress —
+    # 첫 재시도부터 함수를 벗어날 때까지 진행 단계가 '재확인 중...'이다(llm_progress —
     # 성공·예산 소진 모두 ExitStack이 이전 단계로 되돌린다).
     with contextlib.ExitStack() as retry_stage:
         while time.monotonic() < deadline:

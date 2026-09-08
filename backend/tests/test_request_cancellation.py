@@ -421,7 +421,7 @@ def test_parse_cache_skips_cancelled_request():
 
 def test_parse_stream_emits_retrying_stage_during_llm_retry(monkeypatch):
     """/strategy/parse-stream: 파싱 스레드에 llm_progress holder가 결속돼 LLM 재시도 구간이
-    {"type":"stage","stage":"retrying"}('재시도 중...')로 흐르고 끝나면 이전 단계로 복귀한다."""
+    {"type":"stage","stage":"retrying"}('재확인 중...')로 흐르고 끝나면 이전 단계로 복귀한다."""
     import json
     import time
 

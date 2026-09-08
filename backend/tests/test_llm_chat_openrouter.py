@@ -566,7 +566,7 @@ def test_upstream_fallback_logs_its_own_lane_tag(openrouter_env, ollama_host, mo
 
 
 def test_retry_and_fallback_show_retrying_stage_then_restore(openrouter_env, ollama_host, monkeypatch, no_sleep):
-    """재시도가 시작되면 결속된 진행 holder가 'retrying'이 되고(프론트 '재시도 중...'), 재시도 중
+    """재시도가 시작되면 결속된 진행 holder가 'retrying'이 되고(프론트 '재확인 중...'), 재시도 중
     폴백까지 끝나 응답 핸들이 열리면 이전 단계로 되돌아간다(사용자 지시 2026-09-08)."""
     import urllib.request
     import llm_progress
