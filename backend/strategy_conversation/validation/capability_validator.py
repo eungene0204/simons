@@ -25,6 +25,11 @@ _COMPARISON_OPS = ("<", "<=", ">", ">=")
 # 교차 연산자 → 같은 방향의 수준 비교(오실레이터 전용 정규화, 위 주석 참조)
 _CROSS_TO_COMPARISON = {"crosses_above": ">", "crosses_below": "<"}
 
+# 교차 방향이 역할(signal_type)로만 정해지는 지표 — 엔진 signals.py의 crossover(direction)이
+# buy=golden/sell=dead로 고정한다. 매수 칸의 crosses_below는 표현 불가(컴파일러도 같은 판정).
+_DIRECTIONAL_CROSS_LEAVES = frozenset({"technical.ma_crossover", "technical.ema", "technical.macd"})
+_ROLE_CROSS_DIRECTION = {"진입": "crosses_above", "청산": "crosses_below"}
+
 
 def _condition_identity(cond) -> tuple:
     """정규화가 끝난 조건의 **구조 동일성** 키 — 값이 None인 파라미터는 없는 것으로 본다."""
@@ -225,6 +230,20 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 errors.append(
                     f"'{spec.display_name}'에 연산자 '{cond.operator}'은(는) 허용되지 않습니다 "
                     f"(허용: {', '.join(spec.allowed_operators)})"
+                )
+            # 교차 방향과 역할의 모순 — 엔진은 이동평균·EMA·MACD의 교차 방향을 signal_type으로만
+            # 정한다(매수=상향, 매도=하향). 매수 칸의 crosses_below·매도 칸의 crosses_above는
+            # 표현할 수 없고, 종전 컴파일러는 연산자를 읽지 않아 "20일선 이탈 시 청산"이 매수
+            # 칸에 앉으면 상향 돌파 매수로 조용히 뒤집혔다(2026-09-08 예시 81 실측). 위 청산
+            # 역할 규칙과 같은 이유로 검증 단계에서 에러를 남긴다 — READY→전량 컴파일이
+            # 전략 전체를 던지지 않고 부분 컴파일이 이 조건만 제외+안내로 흐르게.
+            expected_cross = _ROLE_CROSS_DIRECTION.get(role)
+            if spec.id in _DIRECTIONAL_CROSS_LEAVES and expected_cross is not None \
+                    and cond.operator in ("crosses_above", "crosses_below") \
+                    and cond.operator != expected_cross:
+                errors.append(
+                    f"{role} 조건 '{spec.display_name}'의 교차 방향 '{cond.operator}'은(는) "
+                    f"{role} 신호로 표현할 수 없습니다 ({role}은 {expected_cross}만 가능)"
                 )
         setattr(strategy, attr, _dedupe_identical_conditions(role, kept))
 
