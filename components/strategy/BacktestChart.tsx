@@ -788,16 +788,16 @@ export default function BacktestChart({
           {/* 자산곡선 계열 범례 — 월별/롤링/계절 차트에는 해당 시리즈가 없다. */}
           {type !== "seasonal_returns" && type !== "rolling_returns" && type !== "monthly_returns" && (
           <>
-            <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
+            <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[rgba(15,15,15,0.8)] border border-gray-800 backdrop-blur-sm">
                <div className="w-2.5 h-2.5 rounded-full bg-[#0f62fe]" />
                <span className="text-[10px] font-bold text-white">{t("나의 전략")}</span>
             </div>
-            <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
+            <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[rgba(15,15,15,0.8)] border border-gray-800 backdrop-blur-sm">
                <div className="w-2.5 h-2.5 rounded-full bg-main-green" />
                <span className="text-[10px] font-bold text-white">{t("벤치마크")}</span>
             </div>
             {vbtEquityChartData.length > 0 && (
-              <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
+              <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[rgba(15,15,15,0.8)] border border-gray-800 backdrop-blur-sm">
                  <div
                    className="w-2.5 h-2.5 rounded-full"
                    style={{ backgroundColor: "rgba(163, 163, 255, 0.7)" }}
@@ -808,13 +808,13 @@ export default function BacktestChart({
           </>
           )}
           {type === "rolling_returns" && (
-            <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
+            <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[rgba(15,15,15,0.8)] border border-gray-800 backdrop-blur-sm">
                <div className="w-2.5 h-2.5 rounded-full bg-[#ef4444]" />
                <span className="text-[10px] font-bold text-white">{t("롤링 수익률")}</span>
             </div>
           )}
           {type === "monthly_returns" && (
-            <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
+            <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[rgba(15,15,15,0.8)] border border-gray-800 backdrop-blur-sm">
                <div className="flex gap-1">
                   <div className="w-2.5 h-2.5 rounded-full bg-main-red" />
                   <div className="w-2.5 h-2.5 rounded-full bg-main-blue" />
@@ -825,7 +825,7 @@ export default function BacktestChart({
           {type === "seasonal_returns" && (
             <div className="flex flex-wrap gap-2 max-w-[300px]">
                {Object.keys(seasonalChartData).sort().map((year, idx) => (
-                  <div key={year} className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
+                  <div key={year} className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[rgba(15,15,15,0.8)] border border-gray-800 backdrop-blur-sm">
                      <div 
                         className="w-2 h-2 rounded-full" 
                         style={{ backgroundColor: YEAR_COLORS[idx % YEAR_COLORS.length] }} 
@@ -841,7 +841,7 @@ export default function BacktestChart({
       {/* Custom Tooltip */}
       <div
         ref={tooltipRef}
-        className="absolute z-30 pointer-events-none p-2 px-3 bg-[#0a0a0a]/90 border border-gray-800 rounded-lg shadow-2xl backdrop-blur-md hidden"
+        className="absolute z-30 pointer-events-none p-2 px-3 bg-[rgba(15,15,15,0.9)] border border-gray-800 rounded-lg shadow-2xl backdrop-blur-md hidden"
         style={{ minWidth: "120px" }}
       />
 

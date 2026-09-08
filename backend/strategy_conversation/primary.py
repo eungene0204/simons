@@ -938,6 +938,12 @@ def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
        선언대로 청산 레인으로 옮긴다(연산자 덮어쓰기와 같은 선언 기반 정규화 — 원문을
        읽지 않는다). 단 인용에 매수 계열 표기가 있으면 역발상 진입 발화이므로 옮기지 않는다
        (인용 판독은 § 3-2 — ②와 같은 형태).
+       같은 선언은 잎 팩터에도 있다 — registry가 ma_crossover/ema의 crosses_below를 데드크로스
+       (매도 방향)로 선언하고 엔진은 그 방향을 signal_type으로만 정한다(매수 칸의 crosses_below는
+       표현 불가). 2026-09-08 실측(예시 81 '… 8종목 담고 싶습니다. 월간 리밸런싱, 20일선 이탈 시
+       청산'): 120B가 청산절을 technical.ma_crossover crosses_below(1/20)으로 entry_conditions에
+       냈고, 개념명만 보던 이 재배치가 지나쳐 컴파일러가 buy(상향 돌파)로 뒤집었다 → 잎 팩터의
+       crosses_below도 매도 선언으로 보고 같은 규칙으로 옮긴다.
 
     ④ 금액 임계 검산: 억원 단위 지표(시가총액·거래대금 등)의 value를 인용의 금액
        표기와 대조해 다르면 인용의 환산값으로 교정한다(9B의 영어 단위 미환산 드리프트,
@@ -952,12 +958,22 @@ def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
     if strategy is None:
         return notices
     _SELL_DECLARED_CONCEPTS = {"concept.dead_cross", "concept.macd_dead_cross"}
-    _BUY_CUES = ("매수", "진입", "편입", "사고", "사줘", "사면", "삽")
+    # 잎 팩터의 매도 방향 선언 — registry notes "crosses_below=데드크로스"(ma_crossover)이고
+    # 엔진(signals.py)은 두 지표의 교차 방향을 signal_type으로만 정한다.
+    _SELL_DECLARED_LEAVES = {"technical.ma_crossover", "technical.ema"}
+    # 해석 레인은 KR/US 공유라 인용이 영어로 올 수 있다 — 영어 매수 표기도 같은 자리.
+    _BUY_CUES = ("매수", "진입", "편입", "사고", "사줘", "사면", "삽",
+                 "buy", "enter", "entry", "purchase")
+
+    def _sell_declared(c) -> bool:
+        return (c.factor in _SELL_DECLARED_CONCEPTS
+                or (c.factor in _SELL_DECLARED_LEAVES and c.operator == "crosses_below"))
+
     if not strategy.exit_conditions:
         relocated = []
         for cond in list(strategy.entry_conditions):
-            quote = cond.source_text or ""
-            if (cond.factor in _SELL_DECLARED_CONCEPTS
+            quote = (cond.source_text or "").lower()
+            if (_sell_declared(cond)
                     and not any(cue in quote for cue in _BUY_CUES)):
                 strategy.entry_conditions.remove(cond)
                 relocated.append(cond)

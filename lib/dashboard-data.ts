@@ -51,12 +51,15 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
           })
           .then((links) => links.map((link) => link.BacktestHistory));
 
+  // 계좌 목록 이후의 조회는 서로 독립이므로 한 번의 왕복으로 묶는다(원격 DB 직렬 대기 방지).
+  // CLOSED 계좌는 정산 후 currentCash/포지션이 0/삭제되므로, 정산금(ACCOUNT_LIQUIDATION_RETURN)을 대신 사용한다.
   const [
     runningAccounts,
     todayFilledOrders,
     dailyPnlAgg,
     backtestHistory,
     sellOrders,
+    settlementValues,
   ] = await Promise.all([
     prisma.virtualMarketState.count({ where: { status: "running", ...accountScope } }),
     prisma.virtualOrder.count({ where: { status: "FILLED", filledAt: { gte: todayStart }, ...accountScope } }),
@@ -76,15 +79,13 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
       },
       select: { accountId: true, realizedPnl: true, filledAt: true },
     }),
+    getAccountSettlementValues(prisma, accountIds),
   ]);
 
   // 계좌 단위 집계는 별도 쿼리 없이 accounts에서 파생
   const totalAccounts = accounts.length;
   const autoAccounts = accounts.filter((a) => a.tradingMode === "auto").length;
   const totalPositions = accounts.reduce((s, a) => s + (a.VirtualPosition?.length ?? 0), 0);
-
-  // CLOSED 계좌는 정산 후 currentCash/포지션이 0/삭제되므로, 정산금(ACCOUNT_LIQUIDATION_RETURN)을 대신 사용한다.
-  const settlementValues = await getAccountSettlementValues(prisma, accountIds);
 
   // ── PortfolioStats ──────────────────────────────────────────
   // 삭제(CLOSED)된 계좌는 요약 통계에서 제외한다 — 운용중인 계좌만 집계.

@@ -89,7 +89,7 @@ export default function MarketSnapshot() {
         {[...Array(6)].map((_, i) => (
           <div
             key={i}
-            className="animate-pulse border-b border-r border-white/[0.08] p-2 sm:p-3"
+            className="animate-pulse motion-reduce:animate-none border-b border-r border-white/[0.08] p-2 sm:p-3"
           >
             <div className="h-2 bg-white/5 rounded w-2/3 mb-3" />
             <div className="h-5 bg-white/5 rounded w-3/4 mb-2" />
@@ -103,7 +103,7 @@ export default function MarketSnapshot() {
   return (
     <div className="relative">
       {!connected && (
-        <p className="absolute -top-5 right-0 text-[10px] text-gray-500 animate-pulse">
+        <p className="absolute -top-5 right-0 text-[10px] text-gray-500 animate-pulse motion-reduce:animate-none">
           {t("접속 시도중...")}
         </p>
       )}

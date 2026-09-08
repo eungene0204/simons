@@ -27,7 +27,7 @@ export function PriceRow({
   const getCurrentPriceStyle = () => {
     if (!isCurrent || changePct === undefined) return "";
 
-    return isPulsing ? "animate-pulse" : "";
+    return isPulsing ? "animate-pulse motion-reduce:animate-none" : "";
   };
 
   // 가격 색상은 "어느 쪽 호가인가"로 결정한다 (한국 표준).
@@ -42,7 +42,7 @@ export function PriceRow({
       className={[
         "w-full grid grid-cols-[1fr_auto] items-center gap-3 px-3 py-2 rounded-md",
         "transition-all duration-200 tabular-nums tracking-tighter",
-        "hover:bg-gray-50 dark:hover:bg-gray-700",
+        " hover:bg-gray-700",
         isCurrent ? getCurrentPriceStyle() : "",
       ].join(" ")}
       style={isPulsing ? { animationDuration: "200ms" } : undefined}

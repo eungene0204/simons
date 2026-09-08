@@ -163,6 +163,8 @@ function OrderPageContent() {
   const [holdingQty, setHoldingQty] = useState(0); // 보유수량
   const [avgBuyPrice, setAvgBuyPrice] = useState(0); // 평균매수가
   const [orderConfirmStep, setOrderConfirmStep] = useState(false); // 주문확인 단계
+  // 주문 입력 검증·취소 실패 안내 — 브라우저 alert 대신 폼 안에 그린다(2026-09-08)
+  const [orderError, setOrderError] = useState<string | null>(null);
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [chartPeriod, setChartPeriod] = useState<"day" | "week" | "month">(
     "day"
@@ -299,26 +301,28 @@ function OrderPageContent() {
 
   // 주문 확인 단계
   const handleOrderConfirm = () => {
-    if (!selectedAccountId) { alert(t("가상계좌를 선택해주세요.")); return; }
-    if (!symbol) { alert(t("종목을 선택해주세요.")); return; }
+    setOrderError(null);
+    if (!selectedAccountId) { setOrderError(t("가상계좌를 선택해주세요.")); return; }
+    if (!symbol) { setOrderError(t("종목을 선택해주세요.")); return; }
     if (transactionType !== "buy" && transactionType !== "sell") return;
     const qty = parseInt(quantity);
     const prc = priceType === "market" ? (currentPrice ?? 0) : parseFloat(price);
-    if (!quantity || isNaN(qty) || qty <= 0) { alert(t("수량을 입력해주세요.")); return; }
-    if (priceType !== "market" && (!price || isNaN(prc) || prc <= 0)) { alert(t("가격을 입력해주세요.")); return; }
-    if (transactionType === "sell" && qty > holdingQty) { alert(t("보유수량({0}주)을 초과할 수 없습니다.", holdingQty)); return; }
+    if (!quantity || isNaN(qty) || qty <= 0) { setOrderError(t("수량을 입력해주세요.")); return; }
+    if (priceType !== "market" && (!price || isNaN(prc) || prc <= 0)) { setOrderError(t("가격을 입력해주세요.")); return; }
+    if (transactionType === "sell" && qty > holdingQty) { setOrderError(t("보유수량({0}주)을 초과할 수 없습니다.", holdingQty)); return; }
     setOrderConfirmStep(true);
   };
 
   // 매수/매도 주문 처리
   const handleOrder = async () => {
-    if (!selectedAccountId) { alert(t("가상계좌를 선택해주세요.")); return; }
-    if (!symbol) { alert(t("종목을 선택해주세요.")); return; }
+    setOrderError(null);
+    if (!selectedAccountId) { setOrderError(t("가상계좌를 선택해주세요.")); return; }
+    if (!symbol) { setOrderError(t("종목을 선택해주세요.")); return; }
     if (transactionType !== "buy" && transactionType !== "sell") return;
     const qty = parseInt(quantity);
     const prc = priceType === "market" ? (currentPrice ?? parseFloat(price || "0")) : parseFloat(price);
-    if (isNaN(qty) || qty <= 0) { alert(t("수량을 올바르게 입력해주세요.")); return; }
-    if (priceType !== "market" && (isNaN(prc) || prc <= 0)) { alert(t("가격을 올바르게 입력해주세요.")); return; }
+    if (isNaN(qty) || qty <= 0) { setOrderError(t("수량을 올바르게 입력해주세요.")); return; }
+    if (priceType !== "market" && (isNaN(prc) || prc <= 0)) { setOrderError(t("가격을 올바르게 입력해주세요.")); return; }
 
     setOrderConfirmStep(false);
     const orderTypeMapped: "MARKET" | "LIMIT" = priceType === "market" ? "MARKET" : "LIMIT";
@@ -1073,6 +1077,9 @@ function OrderPageContent() {
                           <span className="text-xs font-bold text-gray-400">{t("미체결 주문")}</span>
                           <button onClick={loadPendingOrders} className="text-xs text-gray-500 hover:text-white">{t("새로고침")}</button>
                         </div>
+                        {orderError && (
+                          <p role="alert" className="text-xs font-bold text-red-400">{orderError}</p>
+                        )}
                         {pendingOrders.length === 0 ? (
                           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-8 text-center text-xs font-bold text-gray-500">
                             {t("미체결 주문이 없습니다.")}
@@ -1100,7 +1107,7 @@ function OrderPageContent() {
                                     const acc = await getAccount(selectedAccountId!);
                                     if (acc) setAvailableAmount(acc.currentBalance);
                                     getAllAccounts().then(setVirtualAccounts);
-                                  } else { alert(res.error ?? t("취소 실패")); }
+                                  } else { setOrderError(res.error ?? t("취소 실패")); }
                                 }}
                                 className="ml-2 rounded-lg border border-white/[0.08] px-2.5 py-1.5 text-xs font-bold text-gray-400 hover:text-white"
                               >{t("취소")}</button>
@@ -1154,6 +1161,9 @@ function OrderPageContent() {
                             <span className="text-white">{moneyText(settlementAmount)}</span>
                           </div>
                         </div>
+                        {orderError && (
+                          <p role="alert" className="text-xs font-bold text-red-400">{orderError}</p>
+                        )}
                         <div className="grid grid-cols-2 gap-2 mt-auto">
                           <button
                             onClick={() => setOrderConfirmStep(false)}
@@ -1322,6 +1332,9 @@ function OrderPageContent() {
                           </div>
                         </div>
 
+                        {orderError && (
+                          <p role="alert" className="text-xs font-bold text-red-400">{orderError}</p>
+                        )}
                         {/* 주문 버튼 */}
                         <button
                           onClick={handleOrderConfirm}

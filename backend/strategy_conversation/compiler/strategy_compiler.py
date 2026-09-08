@@ -62,6 +62,19 @@ def _compile_technical(
 
     kwargs: dict = {"indicator": indicator, "signal_type": signal_type}
 
+    if indicator in ("ma_crossover", "ema", "macd") \
+            and cond.operator in ("crosses_above", "crosses_below"):
+        # 엔진은 이 지표들의 교차 방향을 signal_type으로만 정한다(buy=상향, sell=하향) —
+        # 연산자를 읽지 않고 buy를 붙이면 매수 칸에 앉은 "20일선 이탈 시 청산"(crosses_below)이
+        # 상향 돌파 매수로 조용히 뒤집힌다(2026-09-08 예시 81 실측). 표현할 수 없는 조합은
+        # 오실레이터 임계값 누락과 같은 계약으로 컴파일 불가를 던져 제외+안내로 흐르게 한다.
+        expected = "crosses_above" if signal_type == "buy" else "crosses_below"
+        if cond.operator != expected:
+            raise StrategyCompileError(
+                f"'{cond.factor}' 조건의 교차 방향 '{cond.operator}'은(는) "
+                f"{signal_type} 신호로 표현할 수 없습니다 ({expected}만 가능)"
+            )
+
     if indicator in ("ma_crossover", "ema"):
         # 한 선만 주어졌으면 나머지 칸을 registry 기본값으로 채우지 않는다 — 사용자가
         # 말한 적 없는 두 번째 선이 생기고("20일 EMA 이탈"→20/60 교차), 기본값이 같은

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   Play,
   Pause,
@@ -53,6 +54,7 @@ export default function VirtualMarketPanel({
 }: VirtualMarketPanelProps) {
   const [marketState, setMarketState] = useState<VirtualMarketState | null>(null);
   const [logs, setLogs] = useState<VirtualMarketLog[]>([]);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -220,7 +222,7 @@ export default function VirtualMarketPanel({
   if (loading) {
     return (
       <div className="bg-[#1a1a1a] rounded-lg p-4 mb-6">
-        <div className="animate-pulse h-24 bg-[#252525] rounded" />
+        <div className="animate-pulse motion-reduce:animate-none h-24 bg-[#252525] rounded" />
       </div>
     );
   }
@@ -231,6 +233,7 @@ export default function VirtualMarketPanel({
 
   return (
     <div className="bg-[#1a1a1a] rounded-lg mb-6 overflow-hidden">
+      {confirmDialog}
       {/* 헤더 */}
       <div className="px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -238,7 +241,7 @@ export default function VirtualMarketPanel({
           <h3 className="text-sm font-semibold text-white">{t("실제 시세 연동")}</h3>
           {isRunning && (
             <span className="flex items-center gap-1 px-2 py-0.5 bg-green-900/40 text-green-400 rounded-full text-xs font-medium">
-              <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+              <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse motion-reduce:animate-none" />
               {t("추적중")}
             </span>
           )}
@@ -256,7 +259,7 @@ export default function VirtualMarketPanel({
               disabled={refreshing}
               className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
             >
-              <ArrowClockwise size={14} className={refreshing ? "animate-spin" : ""} />
+              <ArrowClockwise size={14} className={refreshing ? "animate-spin motion-reduce:animate-none" : ""} />
               {refreshing ? t("조회중...") : t("시세 새로고침")}
             </button>
           )}
@@ -390,7 +393,15 @@ export default function VirtualMarketPanel({
                 {logs.length > 0 && (
                   <button
                     onClick={async () => {
-                      if (!confirm(t("시그널 히스토리를 모두 삭제하시겠습니까?"))) return;
+                      if (
+                        !(await confirm({
+                          title: t("시그널 히스토리를 모두 삭제할까요?"),
+                          message: t("삭제한 기록은 되돌릴 수 없습니다."),
+                          confirmLabel: t("전체 삭제"),
+                          danger: true,
+                        }))
+                      )
+                        return;
                       await fetch(`/api/virtual-market/${accountId}/logs`, { method: "DELETE" });
                       setLogs([]);
                     }}

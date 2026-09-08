@@ -43,7 +43,7 @@ export default function RunProgressModal({
       >
         <div className="flex items-center gap-2">
           {isRunning && !error && (
-            <ArrowsClockwise className="h-4 w-4 shrink-0 animate-spin text-[var(--main-blue)]" />
+            <ArrowsClockwise className="h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none text-[var(--main-blue)]" />
           )}
           <p id="run-progress-modal-title" className="text-sm font-black text-white">
             {title}

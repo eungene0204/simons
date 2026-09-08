@@ -6,11 +6,20 @@ import NullstockLogoMark from "@/components/layout/NullstockLogoMark";
 import { t } from "@/lib/i18n";
 import { useRegionHref } from "@/lib/geo/useRegion";
 import { useAnalytics } from "@/lib/hooks/useAnalytics";
+import {
+  AUTH_ERROR_CLASS,
+  AUTH_INPUT_CLASS,
+  AUTH_LABEL_CLASS,
+  AUTH_LINK_CLASS,
+  AUTH_NOTICE_CLASS,
+  AUTH_PRIMARY_BUTTON_CLASS,
+} from "@/components/ui/authStyles";
 
 // 이메일 가입 — 2단계 플로우.
 // 1) 정보 입력 + 약관 동의 → 인증번호 발송(/api/register/request-code)
 // 2) 메일로 받은 6자리 인증번호 확인 → 계정 생성(/api/register) → 자동 로그인
 // verificationRequired=false(테스트 기간, EMAIL_SIGNUP_VERIFICATION=off)면 1단계에서 바로 가입한다.
+// 앱은 다크 전용이다 — `dark:` 조건부 색을 쓰지 않는다(2026-09-08, LoginForm 참고).
 export default function RegisterForm({
   verificationRequired = true,
 }: {
@@ -160,11 +169,8 @@ export default function RegisterForm({
     }
   };
 
-  const inputClass =
-    "w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100";
-
   return (
-    <main className="min-h-screen grid grid-cols-1 lg:grid-cols-2 overflow-x-hidden max-w-full pt-[var(--top-menu-bar-height,76px)]">
+    <main className="grid min-h-[100dvh] max-w-full grid-cols-1 overflow-x-hidden pt-[var(--top-menu-bar-height,76px)] lg:grid-cols-2">
       <section className="flex items-center justify-center p-8">
         <div className="w-full max-w-md">
           <div className="mb-8 flex items-center gap-3">
@@ -173,112 +179,112 @@ export default function RegisterForm({
               filterId="nullstock-logo-register"
             />
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">{t("널스탁")}</p>
-              <h1 className="text-xl font-semibold">{t("이메일로 가입")}</h1>
+              <p className="text-sm font-bold text-[var(--text-label)]">{t("널스탁")}</p>
+              <h1 className="text-xl font-black text-white">{t("이메일로 가입")}</h1>
             </div>
           </div>
 
           {error && (
-            <div className="mb-4 p-3 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <div role="alert" className={AUTH_ERROR_CLASS}>
+              {error}
             </div>
           )}
           {notice && !error && (
-            <div className="mb-4 p-3 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
-              <p className="text-sm text-blue-600 dark:text-blue-400">{notice}</p>
+            <div role="status" className={AUTH_NOTICE_CLASS}>
+              {notice}
             </div>
           )}
 
           {step === "form" ? (
             <form onSubmit={handleRequestCode} className="space-y-4">
               <div>
-                <label htmlFor="name" className="block text-sm font-medium mb-1">
+                <label htmlFor="name" className={AUTH_LABEL_CLASS}>
                   {t("이름")}
                 </label>
                 <input
                   id="name"
                   type="text"
+                  autoComplete="name"
                   placeholder={t("홍길동")}
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className={inputClass}
+                  className={AUTH_INPUT_CLASS}
                   maxLength={50}
                   required
                 />
               </div>
               <div>
-                <label htmlFor="email" className="block text-sm font-medium mb-1">
+                <label htmlFor="email" className={AUTH_LABEL_CLASS}>
                   {t("이메일")}
                 </label>
                 <input
                   id="email"
                   type="email"
+                  autoComplete="email"
                   placeholder="you@example.com"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className={inputClass}
+                  className={AUTH_INPUT_CLASS}
                   required
                 />
               </div>
               <div>
-                <label htmlFor="password" className="block text-sm font-medium mb-1">
+                <label htmlFor="password" className={AUTH_LABEL_CLASS}>
                   {t("비밀번호")}
                 </label>
                 <input
                   id="password"
                   type="password"
+                  autoComplete="new-password"
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className={inputClass}
+                  className={AUTH_INPUT_CLASS}
                   required
                 />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                <p className="mt-1.5 text-xs font-bold text-[var(--text-label)]">
                   {t("8자 이상, 영문과 숫자를 모두 포함해주세요.")}
                 </p>
               </div>
               <div>
-                <label htmlFor="confirm" className="block text-sm font-medium mb-1">
+                <label htmlFor="confirm" className={AUTH_LABEL_CLASS}>
                   {t("비밀번호 확인")}
                 </label>
                 <input
                   id="confirm"
                   type="password"
+                  autoComplete="new-password"
                   placeholder="••••••••"
                   value={formData.confirmPassword}
                   onChange={(e) =>
                     setFormData({ ...formData, confirmPassword: e.target.value })
                   }
-                  className={inputClass}
+                  className={AUTH_INPUT_CLASS}
                   required
                 />
               </div>
 
-              <label className="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-400">
+              <label className="flex items-start gap-2 text-sm font-bold text-gray-300">
                 <input
                   type="checkbox"
                   checked={agreed}
                   onChange={(e) => setAgreed(e.target.checked)}
-                  className="mt-0.5"
+                  className="mt-0.5 accent-[var(--chat-accent)]"
                   required
                 />
                 <span>
                   {t("만 14세 이상이며 아래에 동의합니다.")}{" "}
-                  <Link href={regionHref("/?legal=terms")} className="text-blue-500 hover:underline" target="_blank">
+                  <Link href={regionHref("/?legal=terms")} className={AUTH_LINK_CLASS} target="_blank">
                     {t("이용약관")}
                   </Link>
                   {" · "}
-                  <Link href={regionHref("/?legal=privacy")} className="text-blue-500 hover:underline" target="_blank">
+                  <Link href={regionHref("/?legal=privacy")} className={AUTH_LINK_CLASS} target="_blank">
                     {t("개인정보처리방침")}
                   </Link>
                 </span>
               </label>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full rounded-md bg-gray-900 text-white py-2.5 font-medium hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
+              <button type="submit" disabled={loading} className={AUTH_PRIMARY_BUTTON_CLASS}>
                 {loading
                   ? t("처리 중...")
                   : verificationRequired
@@ -286,20 +292,20 @@ export default function RegisterForm({
                     : t("가입 완료")}
               </button>
 
-              <p className="text-center text-sm text-gray-600 dark:text-gray-400">
+              <p className="text-center text-sm font-bold text-gray-400">
                 {t("이미 계정이 있으신가요?")}{" "}
-                <Link href={regionHref("/login")} className="text-blue-500 hover:underline">
+                <Link href={regionHref("/login")} className={AUTH_LINK_CLASS}>
                   {t("로그인")}
                 </Link>
               </p>
             </form>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
-              <p className="text-sm text-gray-600 dark:text-gray-400">
+              <p className="text-sm font-bold text-gray-300">
                 {t("{0} 주소로 발송된 인증번호 6자리를 입력해주세요.", formData.email.trim())}
               </p>
               <div>
-                <label htmlFor="code" className="block text-sm font-medium mb-1">
+                <label htmlFor="code" className={AUTH_LABEL_CLASS}>
                   {t("인증번호")}
                 </label>
                 <input
@@ -311,20 +317,16 @@ export default function RegisterForm({
                   maxLength={6}
                   value={code}
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-                  className={`${inputClass} tracking-[0.5em] text-center text-lg`}
+                  className={`${AUTH_INPUT_CLASS} text-center text-lg tracking-[0.5em] tabular-nums font-outfit`}
                   required
                 />
               </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full rounded-md bg-gray-900 text-white py-2.5 font-medium hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
+              <button type="submit" disabled={loading} className={AUTH_PRIMARY_BUTTON_CLASS}>
                 {loading ? t("처리 중...") : t("가입 완료")}
               </button>
 
-              <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center justify-between text-sm font-bold">
                 <button
                   type="button"
                   onClick={() => {
@@ -332,7 +334,7 @@ export default function RegisterForm({
                     setError("");
                     setNotice("");
                   }}
-                  className="text-gray-600 dark:text-gray-400 hover:underline"
+                  className="text-gray-400 hover:text-white hover:underline"
                 >
                   {t("정보 수정")}
                 </button>
@@ -340,7 +342,7 @@ export default function RegisterForm({
                   type="button"
                   onClick={() => void handleResend()}
                   disabled={loading || resendLeft > 0}
-                  className="text-blue-500 hover:underline disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline"
+                  className={`${AUTH_LINK_CLASS} disabled:cursor-not-allowed disabled:text-gray-500 disabled:no-underline`}
                 >
                   {resendLeft > 0
                     ? t("{0}초 후 다시 받기", resendLeft)
@@ -352,19 +354,19 @@ export default function RegisterForm({
         </div>
       </section>
 
-      <aside className="hidden lg:block relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600" />
-        <div className="relative h-full w-full p-12 flex flex-col justify-between text-white">
+      {/* 소개 패널 — 장식 강조색은 한 화면에 하나(§2). 이전의 파랑→보라 그라디언트를 평면 면으로. */}
+      <aside className="relative hidden overflow-hidden border-l border-white/[0.08] bg-white/[0.02] lg:block">
+        <div className="relative flex h-full w-full flex-col justify-between p-12 text-white">
           <div>
-            <p className="text-sm font-medium opacity-90">{t("널스탁")}</p>
-            <h2 className="mt-2 text-3xl font-bold leading-tight">
+            <p className="text-sm font-bold text-[var(--text-label)]">{t("널스탁")}</p>
+            <h2 className="mt-2 text-3xl font-black leading-tight">
               {t("투자 전략 연구·시뮬레이션 플랫폼")}
             </h2>
-            <p className="mt-4 max-w-md opacity-90">
+            <p className="mt-4 max-w-md text-sm font-bold leading-relaxed text-gray-400">
               {t("나만의 전략을 설계하고, 과거 데이터로 검증하고, 시뮬레이션으로 연구하세요.")}
             </p>
           </div>
-          <div className="text-xs opacity-90">
+          <div className="text-xs font-bold text-[var(--text-label)]">
             <p>{t("© 널스탁")}</p>
           </div>
         </div>

@@ -3,7 +3,7 @@
 // loading.tsx를 두면 Next.js가 클릭 즉시 이 스켈레톤을 스트리밍해 체감 렌더링이 빨라진다.
 export default function DashboardLoading() {
   return (
-    <div className="w-full min-w-0 border border-white/[0.08] animate-pulse">
+    <div className="w-full min-w-0 border border-white/[0.08] animate-pulse motion-reduce:animate-none">
       <div className="divide-y divide-white/[0.08]">
         {/* PortfolioSummaryBar */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">

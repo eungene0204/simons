@@ -48,8 +48,8 @@ export default function HoldingsDistribution() {
   );
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-      <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4">
+    <div className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-700">
+      <h3 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4">
         Demo Holdings Stats
       </h3>
 
@@ -115,13 +115,13 @@ export default function HoldingsDistribution() {
           {distributions.map((item) => (
             <div
               key={item.type}
-              className="flex justify-between items-center p-2 sm:p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded"
+              className="flex justify-between items-center p-2 sm:p-3 hover:bg-gray-700 rounded"
             >
               <div>
-                <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white">
+                <p className="text-xs sm:text-sm font-medium text-white">
                   {item.count} {item.type}
                 </p>
-                <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-[10px] sm:text-xs text-gray-400">
                   {item.type === "Overactives"
                     ? "High Volatility"
                     : item.type === "Inactives"
@@ -133,7 +133,7 @@ export default function HoldingsDistribution() {
               </div>
               <a
                 href="#"
-                className="text-xs sm:text-sm text-blue-500 dark:text-blue-400 hover:underline"
+                className="text-xs sm:text-sm text-blue-400 hover:underline"
               >
                 List all &gt;
               </a>

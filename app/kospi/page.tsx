@@ -3,13 +3,16 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import { t } from "@/lib/i18n";
 import { getRequestLanguage } from "@/lib/i18n/server";
 
+// 코스피 페이지 — 아직 지수 데이터가 붙지 않은 자리표시자다(내비게이션에 링크되지 않음).
+// 표면만 디자인 시스템(flat 패널·다크 전용)에 맞췄다(2026-09-08). 내용을 채우거나 라우트를
+// 정리하는 것은 별도 결정.
 export default async function KospiPage() {
   const user = await getCurrentUser();
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-500">{t("로그인이 필요합니다.")}</p>
+      <div className="flex min-h-[100dvh] items-center justify-center">
+        <p className="text-sm font-bold text-[var(--text-label)]">{t("로그인이 필요합니다.")}</p>
       </div>
     );
   }
@@ -18,12 +21,10 @@ export default async function KospiPage() {
   getRequestLanguage();
   return (
     <DashboardLayout userName={user.name}>
-      <div className="p-3 sm:p-4 md:p-6 max-w-7xl mx-auto overflow-x-hidden w-full">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-            {t("코스피 (KOSPI)")}
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">
+      <div className="w-full min-w-0 border border-white/[0.08]">
+        <div className="px-5 py-5">
+          <h1 className="text-base font-black text-white font-outfit">{t("코스피 (KOSPI)")}</h1>
+          <p className="mt-2 text-sm font-bold text-gray-400">
             {t("코스피 지수 정보를 확인할 수 있습니다.")}
           </p>
         </div>
@@ -31,4 +32,3 @@ export default async function KospiPage() {
     </DashboardLayout>
   );
 }
-

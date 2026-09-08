@@ -1,6 +1,7 @@
 "use client";
 
 import { BacktestResult } from "@/types/strategy";
+import { formatAccountMoney } from "@/lib/account-money";
 import { formatUsd, isUsBacktestResult, isUsUniverseId } from "@/lib/us-symbols";
 import BacktestChart from "@/components/strategy/BacktestChart";
 import { BacktestConfigOptions } from "@/components/strategy/backtest/BacktestConfig";
@@ -663,7 +664,7 @@ export default function BacktestDashboard({
     const num = Number(val);
     if (isUsResult) return formatUsd(num);
     if (isNaN(num) || num === 0) return t("0원");
-    return t("{0}원", Math.round(num).toLocaleString());
+    return formatAccountMoney(num, "KRW");
   };
 
   // 체결가는 달러에서 소수 2자리가 유의미하다($214.00) — 원화는 기존 정수 표기 유지.
@@ -1116,6 +1117,8 @@ export default function BacktestDashboard({
   // 이미 같은 영어라 중복으로 보이므로 감춘다. 벤치마크 카드의 두 번째 줄만은 병기가
   // 아니라 실제 지수·ETF 이름이므로 언어와 무관하게 남긴다.
   const englishSubLabel = (label: string) => (getLanguage() === "en" ? undefined : label);
+  // 방향(수익·손실)이 있는 값에만 상승·하락색을 준다 — 총 수익·CAGR·ROI·벤치마크. 샤프·소티노·
+  // 승률·손익비·거래 수·MDD는 중립(§2 통계 지표 색상 규칙: 여러 칸을 동시에 색칠하지 않는다, 2026-09-08).
   const overviewMetrics = [
     {
       label: t("총 수익"),
@@ -1128,7 +1131,7 @@ export default function BacktestDashboard({
       label: t("총 거래 수"),
       englishLabel: englishSubLabel("Trades"),
       value: t("{0}회", result.trades || 0),
-      valueClass: "text-[#FF9933]",
+      valueClass: "text-white",
       description: metricTooltip(t("총 거래 수는 백테스트에서 완료된 거래의 집계 건수입니다."), t("총 거래 수 = 백테스트 기간의 완료 거래 건수"), t("🔴 30건 미만: 표본 수가 적어 해석에 주의\n🟡 30 ~ 99건: 중간 표본\n🟢 100건 이상: 상대적으로 큰 표본")),
     },
     {
@@ -1142,7 +1145,7 @@ export default function BacktestDashboard({
       label: t("최대낙폭"),
       englishLabel: englishSubLabel("MDD"),
       value: `${result.maxDrawdown.toFixed(2)}%`,
-      valueClass: "text-[var(--main-blue)]",
+      valueClass: "text-white",
       description: BASE_METRIC_DESCRIPTIONS.mdd,
     },
     {
@@ -1156,14 +1159,14 @@ export default function BacktestDashboard({
       label: t("샤프 비율"),
       englishLabel: englishSubLabel("Sharpe"),
       value: result.sharpe.toFixed(2),
-      valueClass: result.sharpe > 0 ? "text-[var(--main-red)]" : result.sharpe < 0 ? "text-[var(--main-blue)]" : "text-white",
+      valueClass: "text-white",
       description: BASE_METRIC_DESCRIPTIONS.sharpe,
     },
     {
       label: t("소티노 지수"),
       englishLabel: englishSubLabel("Sortino"),
       value: sortinoRatio.toFixed(2),
-      valueClass: sortinoRatio > 0 ? "text-[var(--main-red)]" : sortinoRatio < 0 ? "text-[var(--main-blue)]" : "text-white",
+      valueClass: "text-white",
       description: BASE_METRIC_DESCRIPTIONS.sortino,
     },
     {
@@ -1177,14 +1180,14 @@ export default function BacktestDashboard({
       label: t("승률"),
       englishLabel: englishSubLabel("Win Rate"),
       value: `${(result.winRate || 0).toFixed(1)}%`,
-      valueClass: (result.winRate || 0) > 0 ? "text-[var(--main-red)]" : "text-white",
+      valueClass: "text-white",
       description: metricTooltip(t("승률은 완료 거래 중 수익으로 끝난 거래의 비율입니다."), t("승률 = 수익 거래 수 / 완료 거래 수 × 100"), t("🟢 높음: 60% 이상\n🟡 중간: 40% ~ 60%\n🔴 낮음: 40% 미만\n승률은 평균 수익·손실과 함께 해석")),
     },
     {
       label: t("손익비"),
       englishLabel: englishSubLabel("Profit Factor"),
       value: formatProfitFactor(result.profitFactor),
-      valueClass: (result.profitFactor ?? Infinity) > 1 ? "text-[var(--main-red)]" : (result.profitFactor ?? Infinity) < 1 ? "text-[var(--main-blue)]" : "text-white",
+      valueClass: "text-white",
       description: BASE_METRIC_DESCRIPTIONS.profitFactor,
     },
   ];
@@ -1202,7 +1205,7 @@ export default function BacktestDashboard({
   return (
     <div
       className="flex flex-1 flex-col min-w-0 animate-in fade-in zoom-in-95 duration-300"
-      style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
+      style={{ minHeight: "calc(100dvh - var(--top-menu-bar-height, 76px))" }}
     >
 
       {/* 이 백테스트 전략으로 가상계좌 만들기 */}
@@ -1421,7 +1424,7 @@ export default function BacktestDashboard({
                 >
                   {isSavingStrategy ? (
                     <>
-                      <Spinner size={14} className="animate-spin" />
+                      <Spinner size={14} className="animate-spin motion-reduce:animate-none" />
                       {!cachedReport ? t("AI 리포트 생성 중...") : t("저장 중...")}
                     </>
                   ) : (
@@ -1518,7 +1521,7 @@ export default function BacktestDashboard({
               ) : toast.type === "error" ? (
                 <Warning size={15} weight="fill" />
               ) : (
-                <Spinner size={15} className="animate-spin" />
+                <Spinner size={15} className="animate-spin motion-reduce:animate-none" />
               )}
               {toast.message}
             </div>
@@ -1919,15 +1922,15 @@ export default function BacktestDashboard({
                     <table className="w-full min-w-[1040px] border-collapse">
                       <thead>
                         <tr>
-                          <th className="sticky left-0 z-30 bg-[var(--background)] text-left text-xs font-bold text-gray-600 uppercase tracking-widest py-2 pl-2 pr-4">
+                          <th className="sticky left-0 z-30 bg-[var(--background)] text-left text-xs font-bold text-[var(--text-label)] uppercase tracking-widest py-2 pl-2 pr-4">
                             {t("연도")}
                           </th>
                           {["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"].map((label) => (
-                            <th key={label} className="px-3 py-2 text-right text-xs font-bold text-gray-600 uppercase tracking-widest">
+                            <th key={label} className="px-3 py-2 text-right text-xs font-bold text-[var(--text-label)] uppercase tracking-widest">
                               {t(label)}
                             </th>
                           ))}
-                          <th className="text-right text-xs font-bold text-gray-600 uppercase tracking-widest py-2 pl-4 pr-2">
+                          <th className="text-right text-xs font-bold text-[var(--text-label)] uppercase tracking-widest py-2 pl-4 pr-2">
                             {t("연간 누적")}
                           </th>
                         </tr>
@@ -2055,7 +2058,7 @@ export default function BacktestDashboard({
              <div className="flex flex-1 flex-col py-4">
                {isPlanLoading ? (
                  <div className="flex min-h-[320px] items-center justify-center text-sm font-bold text-gray-500">
-                   <Spinner className="mr-2 h-4 w-4 animate-spin" />
+                   <Spinner className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />
                    {t("플랜 정보를 확인하는 중...")}
                  </div>
                ) : !isAiReportEnabled ? (
@@ -2120,7 +2123,7 @@ export default function BacktestDashboard({
                         className="inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-md border border-white/10 bg-white/[0.05] px-3.5 text-sm font-black text-gray-200 transition-all hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {downloadingFormat === format ? (
-                          <Spinner className="h-4 w-4 animate-spin" />
+                          <Spinner className="h-4 w-4 animate-spin motion-reduce:animate-none" />
                         ) : (
                           <DownloadSimple className="h-4 w-4 text-gray-400" weight="bold" />
                         )}
@@ -2233,7 +2236,7 @@ export default function BacktestDashboard({
                         className="inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-md border border-white/10 bg-white/[0.05] px-3.5 text-sm font-black text-gray-200 transition-all hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {downloadingFormat === format ? (
-                          <Spinner className="h-4 w-4 animate-spin" />
+                          <Spinner className="h-4 w-4 animate-spin motion-reduce:animate-none" />
                         ) : (
                           <DownloadSimple className="h-4 w-4 text-gray-400" weight="bold" />
                         )}
@@ -2306,7 +2309,7 @@ export default function BacktestDashboard({
         )}
       </div>
 
-      <div data-testid="backtest-dashboard-footer" className="mt-auto border-t border-white/[0.08] bg-[#050505] px-0 py-3">
+      <div data-testid="backtest-dashboard-footer" className="mt-auto border-t border-white/[0.08] bg-[var(--background)] px-0 py-3">
         <p className="text-center text-xs font-bold leading-relaxed text-gray-500">
           {t("모든 결과는 과거 데이터의 모의 시뮬레이션 결과이며 미래 수익을 보장하지 않습니다. 실제 매매에서는 체결가·거래비용·슬리피지·유동성 및 데이터 한계로 인해 시뮬레이션 결과와 차이가 발생할 수 있습니다.")}
         </p>
@@ -2573,7 +2576,7 @@ function StatRow({
         : (value.includes("-") ? "text-[var(--main-blue)]" : (parseFloat(value) === 0 ? "text-white" : "text-[var(--main-red)]")));
 
   return (
-    <div className="bg-[#0d0d0d] rounded-lg px-3 pt-2 pb-2 flex flex-col justify-center flex-1">
+    <div className="bg-[var(--background)] rounded-lg px-3 pt-2 pb-2 flex flex-col justify-center flex-1">
        <div className="flex items-center justify-between mb-0.5">
           <div className="text-xs text-gray-400 font-bold">{label}</div>
           {description && onHover && (

@@ -4535,3 +4535,127 @@ def test_compile_technical_refuses_valueless_oscillator_signal():
                           value=None), "bollinger_bands", "buy",
     )
     assert sig.indicator == "bollinger_bands"
+
+
+# ─── 2026-09-08 예시 81: 청산절이 매수 칸에 앉아 상향 돌파 매수로 뒤집힌 사고 ────────────
+# LLM(120B)이 "20일선 이탈 시 청산"을 technical.ma_crossover crosses_below(1/20)으로
+# entry_conditions에 냈다(트레이스 원본). 재배치 ③은 개념명만 봐 지나쳤고 컴파일러는
+# 연산자를 읽지 않아 buy(상향 돌파)를 붙였다 — 세 층을 각각 회귀로 고정한다.
+
+def test_leaf_dead_cross_in_entry_relocated_to_empty_exit():
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.roe_or_gpa", "operator": ">=", "value": 10,
+             "source_text": "ROE 10% 이상"},
+            {"factor": "technical.ma_crossover", "operator": "crosses_below",
+             "parameters": {"short_period": 1, "long_period": 20},
+             "source_text": "20일선 이탈 시 청산"},
+        ],
+    ))
+    _fill_deterministic_condition_params(intent)
+    assert [c.factor for c in intent.strategy.entry_conditions] == ["fundamental.roe_or_gpa"]
+    moved = intent.strategy.exit_conditions
+    assert [(c.factor, c.operator) for c in moved] == [("technical.ma_crossover", "crosses_below")]
+    assert moved[0].parameters == {"short_period": 1, "long_period": 20}
+
+
+def test_leaf_dead_cross_entry_with_buy_cue_stays():
+    # 역발상 진입("20일선 아래로 내려오면 매수")은 옮기지 않는다 — 영어 인용도 같은 자리다
+    # (해석 레인은 KR/US 공유). 표현 불가 판정은 검증기·컴파일러가 안내로 알린다.
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    for quote in ("20일선 아래로 내려오면 매수", "buy when price crosses below the 20-day MA"):
+        intent = StrategyIntent.model_validate(_full_intent_dict(
+            entry_conditions=[
+                {"factor": "technical.ma_crossover", "operator": "crosses_below",
+                 "parameters": {"short_period": 1, "long_period": 20}, "source_text": quote},
+            ],
+        ))
+        _fill_deterministic_condition_params(intent)
+        assert [c.factor for c in intent.strategy.entry_conditions] == ["technical.ma_crossover"]
+        assert intent.strategy.exit_conditions == []
+
+
+def test_leaf_dead_cross_entry_kept_when_exit_present():
+    # 청산이 이미 있으면 배치가 모호하지 않다 — 진입을 건드리지 않는다(개념 규칙과 동일).
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.ema", "operator": "crosses_below",
+             "parameters": {"short_period": 5, "long_period": 20}, "source_text": "EMA 데드크로스"},
+        ],
+        exit_conditions=[
+            {"factor": "technical.ma_crossover", "operator": "crosses_below",
+             "parameters": {"short_period": 1, "long_period": 20}, "source_text": "20일선 이탈 시 매도"},
+        ],
+    ))
+    _fill_deterministic_condition_params(intent)
+    assert [c.factor for c in intent.strategy.entry_conditions] == ["technical.ema"]
+    assert [c.factor for c in intent.strategy.exit_conditions] == ["technical.ma_crossover"]
+
+
+def test_compile_technical_refuses_cross_direction_against_role():
+    # 엔진은 이동평균·EMA·MACD의 교차 방향을 signal_type으로만 정한다 — 매수 칸의
+    # crosses_below, 매도 칸의 crosses_above는 표현 불가이므로 조용히 뒤집지 않고 던진다.
+    from strategy_conversation.compiler.strategy_compiler import _compile_technical
+
+    ma = StrategyCondition(factor="technical.ma_crossover", operator="crosses_below",
+                           parameters={"short_period": 1, "long_period": 20})
+    with pytest.raises(StrategyCompileError):
+        _compile_technical(ma, "ma_crossover", "buy")
+    up = StrategyCondition(factor="technical.ema", operator="crosses_above",
+                           parameters={"short_period": 5, "long_period": 20})
+    with pytest.raises(StrategyCompileError):
+        _compile_technical(up, "ema", "sell")
+    with pytest.raises(StrategyCompileError):
+        _compile_technical(StrategyCondition(factor="technical.macd", operator="crosses_below"),
+                           "macd", "buy")
+    # 역할과 맞는 방향은 종전대로 컴파일된다
+    sell = _compile_technical(ma, "ma_crossover", "sell")
+    assert (sell.signal_type, sell.short_period, sell.long_period) == ("sell", 1, 20)
+    buy = _compile_technical(up, "ema", "buy")
+    assert buy.signal_type == "buy"
+    # 볼린저 하단 이탈 매수는 정상 표현이다(방향이 역할로 고정되지 않는 지표) — 회귀 없음
+    _compile_technical(StrategyCondition(factor="technical.bollinger_bands",
+                                         operator="crosses_below"), "bollinger_bands", "buy")
+
+
+def test_validator_flags_cross_direction_against_role_for_partial_compile():
+    # 검증기가 에러를 남기지 않으면 READY→전량 컴파일이 전략 전체를 던져 '해석 실패'로
+    # 강등된다(청산 역할 규칙과 같은 이유). 에러 → 부분 컴파일이 그 조건만 제외+안내.
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.per", "operator": "<=", "value": 10, "source_text": "PER 10 이하"},
+            {"factor": "technical.ma_crossover", "operator": "crosses_below",
+             "parameters": {"short_period": 1, "long_period": 20},
+             "source_text": "20일선 아래로 내려오면 매수"},
+        ],
+    ))
+    validated, report = run_validation(intent)
+    assert not report.is_valid
+    assert any("교차 방향" in e for e in report.errors)
+    parsed, dropped, pending = compile_partial(validated, report, "테스트")
+    assert [f.metric for f in parsed.fundamental_filters] == ["per"]
+    assert parsed.entry_signals == []
+    assert dropped == ["이동평균 크로스오버"]
+    assert pending == []  # 값 문제가 아니라 표현 불가 — '값 대기'로 안내되지 않는다
+
+
+def test_prompt_example_4_3_places_trailing_exit_clause_in_exit_conditions():
+    """5.1 — 단계 서술('먼저 적용하고 → 그중') 예시에 청산절을 함께 실어 형태로 보인다.
+    종전 예시는 청산절 없이 '세 조건 모두 entry_conditions'만 말해, 같은 문형 뒤에 붙은
+    '20일선 이탈 시 청산'까지 entry로 따라 들어갔다(업종을 바꿔도 2/2 재현, 단계 문형만
+    빼면 2/2 정상)."""
+    from strategy_conversation.interpreter.prompts import PROMPT_VERSION, build_system_prompt
+
+    assert PROMPT_VERSION >= "5.1"
+    prompt = build_system_prompt()
+    start = prompt.index("## 예시 4-3")
+    section = prompt[start:prompt.index("## 예시 4-4")]
+    assert "20일선 이탈 시 청산해 주세요" in section
+    assert '"operator":"crosses_below"' in section
+    assert '"source_text":"20일선 이탈 시 청산"' in section
+    assert "exit_conditions에 둡니다" in section

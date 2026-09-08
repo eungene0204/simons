@@ -257,7 +257,7 @@ export default function OrderBook({
     return (
       <div className="bg-[var(--background)] p-4 h-full flex items-center justify-center">
         <div className="text-center py-8">
-          <p className="text-base text-gray-500 dark:text-gray-400">
+          <p className="text-base text-gray-400">
             {t("종목을 선택하면 호가가 표시됩니다")}
           </p>
         </div>
@@ -269,7 +269,7 @@ export default function OrderBook({
     return (
       <div className="bg-[var(--background)] p-4 h-full flex items-center justify-center">
         <div className="text-center py-8">
-          <p className="text-base text-gray-500 dark:text-gray-400">{t("호가 정보 불러오는중...")}</p>
+          <p className="text-base text-gray-400">{t("호가 정보 불러오는중...")}</p>
         </div>
       </div>
     );
@@ -377,14 +377,14 @@ export default function OrderBook({
       className={[
         "mx-auto w-full h-full flex flex-col",
         "bg-[var(--background)]",
-        "text-gray-900 dark:text-gray-200",
+        " text-gray-200",
         "overflow-hidden",
       ].join(" ")}
       aria-label="Order book"
     >
       {/* Header */}
       <div className="px-3 pt-3 pb-1 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+        <h2 className="text-lg font-semibold text-white">
           {t("호가")}
         </h2>
         {bestAsk && bestBid ? (
@@ -457,7 +457,7 @@ export default function OrderBook({
           </div>
 
           {/* 4️⃣ 왼쪽 하단: 체결 내역 영역 (Trade List Panel) */}
-          <div className="pt-1 min-h-0 flex flex-col border-t border-gray-200 dark:border-gray-700">
+          <div className="pt-1 min-h-0 flex flex-col border-t border-gray-700">
             <TradeList
               tradeStrength={tradeStrength}
               recentTrades={recentTrades}
@@ -467,7 +467,7 @@ export default function OrderBook({
           </div>
 
           {/* 5️⃣ 오른쪽 하단: 매수 영역 (Bid Panel) */}
-          <div className="p-0 pb-2 pt-0 min-h-0 flex flex-col border-t border-gray-200 dark:border-gray-700">
+          <div className="p-0 pb-2 pt-0 min-h-0 flex flex-col border-t border-gray-700">
             <BidVolume
               priceList={buyPriceList}
               maxBuyQty={maxBuyQty}

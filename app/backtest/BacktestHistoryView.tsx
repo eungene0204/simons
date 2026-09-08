@@ -144,8 +144,8 @@ export default function BacktestHistoryView() {
   if (sortedHistory.length === 0) {
     return (
       <DashboardLayout userName="">
-        <div className="min-h-[calc(100vh-var(--top-menu-bar-height,76px))]">
-          <div className="relative flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] flex-col items-center justify-center overflow-hidden px-5 py-8 text-center">
+        <div className="min-h-[calc(100dvh-var(--top-menu-bar-height,76px))]">
+          <div className="relative flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] flex-col items-center justify-center overflow-hidden px-5 py-8 text-center">
             <StrategyWaveBackground />
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(15,15,15,0.18)_0%,rgba(15,15,15,0.72)_72%)]" />
             <p className="relative z-10 max-w-4xl text-4xl font-black leading-tight text-white md:text-6xl">
@@ -242,7 +242,7 @@ export default function BacktestHistoryView() {
                     className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-black/60"
                     data-testid="backtest-history-card-loading"
                   >
-                    <Spinner size={28} className="animate-spin text-white" aria-hidden="true" />
+                    <Spinner size={28} className="animate-spin motion-reduce:animate-none text-white" aria-hidden="true" />
                   </div>
                 )}
                 <div

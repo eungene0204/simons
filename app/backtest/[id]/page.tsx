@@ -18,7 +18,7 @@ import { runWalkForwardStream, type WalkForwardProgressHandler } from "../../ana
 import { t } from "@/lib/i18n";
 
 const backtestEmptyStateClassName =
-  "flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] flex-col items-center justify-center gap-4 px-4 text-center text-gray-500";
+  "flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] flex-col items-center justify-center gap-4 px-4 text-center text-gray-500";
 
 export default function BacktestDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -44,16 +44,16 @@ export default function BacktestDetailPage() {
     return (
       <DashboardLayout userName="">
         <div className="p-4 md:p-5 lg:p-6 space-y-5">
-          <div className="animate-pulse space-y-3">
+          <div className="animate-pulse motion-reduce:animate-none space-y-3">
             <div className="h-6 bg-white/[0.04] rounded-xl w-48" />
             <div className="h-4 bg-white/[0.04] rounded-xl w-32" />
           </div>
-          <div className="animate-pulse grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="animate-pulse motion-reduce:animate-none grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="h-24 bg-white/[0.04] rounded-2xl" />
             ))}
           </div>
-          <div className="animate-pulse h-64 bg-white/[0.04] rounded-2xl" />
+          <div className="animate-pulse motion-reduce:animate-none h-64 bg-white/[0.04] rounded-2xl" />
         </div>
       </DashboardLayout>
     );

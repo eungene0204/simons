@@ -34,7 +34,7 @@ export default function AdminConsole({ adminEmail }: { adminEmail: string }) {
 
   return (
     <div
-      className="min-h-screen bg-[#0f0f0f] text-white"
+      className="min-h-[100dvh] bg-[var(--background)] text-white"
       style={{ paddingTop: 'var(--top-menu-bar-height, 76px)' }}
     >
       <div className="mx-auto flex w-full max-w-[1400px] gap-6 px-5 py-6 sm:px-8">

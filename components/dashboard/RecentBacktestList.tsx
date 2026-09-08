@@ -79,7 +79,7 @@ export default function RecentBacktestList({ initialRecords }: { initialRecords:
       {loading ? (
         <div className="space-y-1">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-10 bg-white/[0.03] rounded-xl animate-pulse" />
+            <div key={i} className="h-10 bg-white/[0.03] rounded-xl animate-pulse motion-reduce:animate-none" />
           ))}
         </div>
       ) : records.length === 0 ? (

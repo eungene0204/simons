@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import SettingsModal from "./SettingsModal";
@@ -72,7 +72,6 @@ describe("SettingsModal", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
   });
 
   function renderModal(userEmail: string | null = "hong@example.com") {
@@ -160,6 +159,9 @@ describe("SettingsModal", () => {
     expect(deleteButton).toBeEnabled();
 
     fireEvent.click(deleteButton);
+    // 브라우저 confirm 대신 앱 내 확인 대화가 뜬다 — 그 안의 '계정 삭제'를 눌러야 실행된다.
+    const deleteDialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(deleteDialog).getByRole("button", { name: "계정 삭제" }));
     await waitFor(() => expect(onAccountDeleted).toHaveBeenCalled());
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/user/account",
@@ -222,6 +224,8 @@ describe("SettingsModal", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    const cancelDialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(cancelDialog).getByRole("button", { name: "해지" }));
     await waitFor(() =>
       expect(
         screen.getByText(/구독이 .*에 만료됩니다\./)

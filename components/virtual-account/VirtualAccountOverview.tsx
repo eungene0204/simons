@@ -172,9 +172,9 @@ export default function VirtualAccountOverview() {
       <div
         role="status"
         aria-label={t("가상계좌 불러오는 중")}
-        className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] flex-col items-center justify-center gap-3"
+        className="flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] flex-col items-center justify-center gap-3"
       >
-        <Spinner size={32} className="animate-spin text-gray-500" aria-hidden="true" />
+        <Spinner size={32} className="animate-spin motion-reduce:animate-none text-gray-500" aria-hidden="true" />
         <p className="text-sm font-bold text-gray-500">{t("불러오는 중...")}</p>
       </div>
     );
@@ -184,7 +184,7 @@ export default function VirtualAccountOverview() {
     <>
       <div
         data-testid="virtual-account-overview-root"
-        className="relative flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] flex-col overflow-hidden"
+        className="relative flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] flex-col overflow-hidden"
       >
         {!loadError && accounts.length === 0 ? (
           <>
@@ -383,7 +383,7 @@ export default function VirtualAccountOverview() {
           aria-modal="true"
           aria-labelledby="delete-account-modal-title"
         >
-          <div className="flex min-h-[320px] w-full max-w-sm flex-col justify-between rounded-3xl border border-white/[0.08] bg-[#080808] px-6 py-10 shadow-2xl shadow-black/60">
+          <div className="flex min-h-[320px] w-full max-w-sm flex-col justify-between rounded-2xl border border-white/[0.08] bg-[var(--background)] px-6 py-10 shadow-2xl shadow-black/60">
             <div>
               <h2
                 id="delete-account-modal-title"

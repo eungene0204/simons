@@ -257,9 +257,9 @@ function StrategyResultContent() {
         <div
           role="status"
           aria-label={t("전략 결과 불러오는 중")}
-          className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] items-center justify-center"
+          className="flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] items-center justify-center"
         >
-          <Spinner size={32} className="animate-spin text-gray-500" aria-hidden="true" />
+          <Spinner size={32} className="animate-spin motion-reduce:animate-none text-gray-500" aria-hidden="true" />
         </div>
       </DashboardLayout>
     );

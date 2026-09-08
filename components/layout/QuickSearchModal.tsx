@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDialogBehavior } from "@/lib/hooks/useDialogBehavior";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
@@ -214,6 +215,8 @@ export default function QuickSearchModal({
     if (el) el.focus();
   }, []);
   const panelRef = useRef<HTMLDivElement>(null);
+  // dialog 계약(Esc·포커스 트랩·닫힌 뒤 포커스 복귀). 초기 포커스는 setInputRef가 이미 입력창에 둔다.
+  useDialogBehavior({ open: isOpen, onClose, containerRef: panelRef });
   const [query, setQuery] = useState("");
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [stockResults, setStockResults] = useState<QuickSearchResponse["stocks"]>([]);
@@ -597,6 +600,9 @@ export default function QuickSearchModal({
   return (
     <div
       data-testid="quick-search-positioner"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("검색")}
       className="fixed left-1/2 z-[70] -translate-x-1/2 px-0 lg:px-3"
       style={{
         top: "calc(var(--top-menu-bar-height, 72px) + 8px)",

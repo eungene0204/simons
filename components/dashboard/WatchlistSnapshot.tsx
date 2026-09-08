@@ -56,7 +56,7 @@ export default function WatchlistSnapshot() {
           {[...Array(6)].map((_, i) => (
             <div
               key={i}
-              className="animate-pulse border-b border-r border-white/[0.08] p-2 sm:p-3"
+              className="animate-pulse motion-reduce:animate-none border-b border-r border-white/[0.08] p-2 sm:p-3"
             >
               <div className="h-2 bg-white/5 rounded w-2/3 mb-3" />
               <div className="h-5 bg-white/5 rounded w-3/4 mb-2" />

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { formatKrwCompact } from "@/lib/account-money";
 import {
   BarChart,
   Bar,
@@ -15,7 +16,7 @@ import {
   Cell,
 } from "recharts";
 import type { DashboardStats } from "@/app/api/virtual-account/[id]/dashboard/route";
-import { formatCompactNumberEn, t } from "@/lib/i18n";
+import { t } from "@/lib/i18n";
 
 interface Props {
   accountId: string;
@@ -27,13 +28,7 @@ interface Props {
 const fmt = (n: number) =>
   new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 }).format(n);
 
-const fmtShort = (n: number) => {
-  const compactEn = formatCompactNumberEn(n);
-  if (compactEn !== null) return compactEn;
-  if (Math.abs(n) >= 100_000_000) return t("{0}억", (n / 100_000_000).toFixed(1));
-  if (Math.abs(n) >= 10_000) return t("{0}만", (n / 10_000).toFixed(0));
-  return fmt(n);
-};
+const fmtShort = (n: number) => formatKrwCompact(n);
 
 type MetricTone = "positive" | "negative" | "neutral";
 
@@ -56,7 +51,8 @@ const formatSignedPercent = (value: number) =>
 const pnlColor = (v: number) =>
   v > 0 ? "#f87171" : v < 0 ? "#60a5fa" : "#ffffff";
 
-const axisStyle = { fill: "#6b7280", fontSize: 10 };
+// 축 라벨은 의미 있는 텍스트다 — #6b7280(3.98:1)은 AA 미달, #9ca3af(7.6:1)로(§2, 2026-09-08)
+const axisStyle = { fill: "#9ca3af", fontSize: 10 };
 
 const valueTone = (v: number) =>
   v > 0
@@ -332,7 +328,7 @@ export default function VirtualTradingDashboard({ accountId, initialAmount, curr
             {hasTrades ? (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={dailyData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
                   <XAxis
                     dataKey="date"
                     tick={axisStyle}
@@ -428,7 +424,7 @@ export default function VirtualTradingDashboard({ accountId, initialAmount, curr
             {hasTrades ? (
               <ResponsiveContainer width="100%" height={220}>
                 <LineChart data={dailyData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
                   <XAxis
                     dataKey="date"
                     tick={axisStyle}
@@ -466,7 +462,7 @@ export default function VirtualTradingDashboard({ accountId, initialAmount, curr
             {hasTrades ? (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={monthlyData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
                   <XAxis dataKey="label" tick={axisStyle} />
                   <YAxis tick={axisStyle} tickFormatter={(v) => fmtShort(v)} width={52} />
                   <Tooltip content={<CustomTooltip />} />

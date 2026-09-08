@@ -361,7 +361,7 @@ export default function BacktestSummaryCard({
           title={t("다시 생성")}
         >
           <ArrowsClockwise
-            className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`}
+            className={`w-3.5 h-3.5 ${loading ? "animate-spin motion-reduce:animate-none" : ""}`}
           />
         </button>
       </div>
@@ -379,7 +379,7 @@ export default function BacktestSummaryCard({
               {[0, 1, 2].map((i) => (
                 <span
                   key={i}
-                  className="w-1 h-1 rounded-full bg-gray-600 animate-bounce"
+                  className="w-1 h-1 rounded-full bg-gray-600 animate-bounce motion-reduce:animate-none"
                   style={{ animationDelay: `${i * 0.15}s` }}
                 />
               ))}

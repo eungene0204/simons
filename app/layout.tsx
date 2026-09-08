@@ -1,17 +1,22 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import TopMenuBar from "@/components/layout/TopMenuBar";
 import ScrollToTop from "@/components/layout/ScrollToTop";
+import VisualViewportInset from "@/components/layout/VisualViewportInset";
 import QueryProvider from "@/components/providers/QueryProvider";
 import { OrderAccountProvider } from "@/contexts/OrderAccountContext";
 import ChunkErrorRecovery from "@/components/ChunkErrorRecovery";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { getRequestLanguage } from "@/lib/i18n/server";
-import { Inter, Outfit } from "next/font/google";
 import { GoogleAnalytics } from "@next/third-parties/google";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
-const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" });
+// viewport-fit=cover가 있어야 env(safe-area-inset-*)이 0이 아닌 값을 준다 — 하단 고정 요소가
+// iOS 홈 인디케이터 위에 머무는 전제(2026-09-08).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 export function generateMetadata(): Metadata {
   const isGlobal = getRequestLanguage() === "en";
@@ -36,12 +41,13 @@ export default function RootLayout({
   const language = getRequestLanguage();
 
   return (
-    <html lang={language} className={`${inter.variable} ${outfit.variable}`}>
-      <body className="page-transition bg-[#050505] text-white font-inter antialiased">
+    <html lang={language}>
+      <body className="page-transition bg-[var(--background)] text-white font-inter antialiased">
         <LanguageProvider initialLanguage={language}>
           <QueryProvider>
             <ChunkErrorRecovery />
             <ScrollToTop />
+            <VisualViewportInset />
             <OrderAccountProvider>
               <TopMenuBar />
               {children}

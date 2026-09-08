@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/firebase";
+import { useDialogBehavior } from "@/lib/hooks/useDialogBehavior";
 import { trackEvent } from "@/lib/analytics";
 import {
   PENDING_STRATEGY_PROMPT_KEY,
@@ -46,24 +47,39 @@ const SettingsModal = dynamic(() => import("./SettingsModal"), {
   ssr: false,
 });
 
-const menuItems = [
+type MenuItem = {
+  label: string;
+  href: string;
+  id: string;
+  Icon: typeof Flask;
+  // 전 페이지가 동적 렌더(루트 레이아웃이 요청 헤더를 읽음)라 기본 prefetch는 loading.tsx
+  // 경계까지만 미리 받는다 — 클릭마다 서버 왕복을 그대로 기다린다. 서버 조회가 없는
+  // 페이지는 전체를 미리 받아 즉시 전환한다. 대시보드·요금제는 서버 데이터를 보여주므로
+  // 기본값을 유지한다(prefetch=true는 5분 캐시라 갱신된 플랜·잔고가 늦게 보일 수 있다).
+  prefetch?: true;
+};
+
+const menuItems: MenuItem[] = [
   {
     label: "전략연구소",
     href: "/analytics",
     id: "analytics",
     Icon: Flask,
+    prefetch: true,
   },
   {
     label: "모의투자",
     href: "/virtual-account",
     id: "virtual-account",
     Icon: ChartLineUp,
+    prefetch: true,
   },
   {
     label: "백테스트 기록",
     href: "/backtest",
     id: "backtest",
     Icon: SlidersHorizontal,
+    prefetch: true,
   },
   {
     label: "대시보드",
@@ -158,6 +174,13 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const loginModalRef = useRef<HTMLDivElement>(null);
+  // Esc·포커스 트랩·포커스 복귀·스크롤 잠금(2026-09-08 — 로그인 모달이 Esc로 닫히지 않았다)
+  useDialogBehavior({
+    open: isLoginModalOpen,
+    onClose: () => setIsLoginModalOpen(false),
+    containerRef: loginModalRef,
+  });
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -539,7 +562,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
               {t("널스탁")}
             </span>
           </Link>
-          <span className="rounded-md bg-blue-500/15 px-1.5 py-0.5 text-[8px] font-black tracking-[0.12em] text-blue-300">
+          <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[8px] font-black tracking-[0.12em] text-gray-400">
             OPEN BETA
           </span>
         </div>
@@ -574,7 +597,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             <NullstockLogoMark className="h-[1.125rem] w-[1.375rem] transition-transform duration-300 group-hover:scale-105" />
             <span className="text-[15px] font-black tracking-tight text-white">{t("널스탁")}</span>
           </Link>
-          <span className="hidden rounded-md bg-blue-500/15 px-2 py-0.5 text-[9px] font-black tracking-[0.14em] text-blue-300 2xl:block">
+          <span className="hidden rounded-md bg-white/[0.06] px-2 py-0.5 text-[9px] font-black tracking-[0.14em] text-gray-400 2xl:block">
             OPEN BETA
           </span>
         </div>
@@ -592,17 +615,18 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
               <Link
                 key={item.id}
                 href={regionHref(item.href)}
+                prefetch={item.prefetch}
                 onClick={(e) => handleMenuClick(item, e)}
                 className={`relative flex items-center gap-1.5 px-2.5 py-2 rounded-xl transition-all duration-300 whitespace-nowrap group xl:gap-2 xl:px-3 2xl:px-4 ${
                   isActive
-                    ? "bg-white/10 text-white shadow-lg"
-                    : "text-gray-500 hover:text-gray-300 hover:bg-white/[0.02]"
+                    ? "bg-white/10 text-white"
+                    : "text-[var(--text-label)] hover:text-gray-200 hover:bg-white/[0.02]"
                 }`}
               >
                 <IconComponent
                   size={18}
                   weight={isActive ? "fill" : "regular"}
-                  className={`transition-colors ${isActive ? "text-blue-400" : "group-hover:text-blue-400"}`}
+                  className={`transition-colors ${isActive ? "text-white" : "group-hover:text-gray-200"}`}
                 />
                 <span
                   className={`text-sm tracking-tight ${
@@ -621,15 +645,15 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
           <button
             type="button"
             onClick={handleSearchClick}
-            className="group relative flex h-9 items-center rounded-xl border border-white/[0.1] bg-[#111116] px-2.5 py-1 text-left shadow-[0_8px_22px_rgba(0,0,0,0.22)] transition-all duration-200 hover:border-white/[0.18] hover:bg-[#17171d] xl:w-[150px] 2xl:w-auto 2xl:min-w-[180px]"
+            className="group relative flex h-9 items-center rounded-xl border border-white/[0.1] bg-[#111116] px-2.5 py-1 text-left transition-all duration-200 hover:border-white/[0.18] hover:bg-[#17171d] xl:w-auto 2xl:min-w-[180px]"
             aria-label={t("검색 열기")}
             data-testid="desktop-search-trigger"
           >
             <MagnifyingGlass size={18} className="flex-shrink-0 text-gray-500 group-hover:text-gray-300 xl:mr-2.5" />
-            <span className="mr-2 hidden h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-white/[0.07] text-xs font-black text-gray-400 2xl:flex">
+            <span className="hidden h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-white/[0.07] text-xs font-black text-gray-400 xl:flex 2xl:mr-2">
               /
             </span>
-            <span className="hidden min-w-0 flex-1 truncate text-xs font-bold tracking-tight text-gray-500 group-hover:text-gray-300 xl:block">
+            <span className="hidden min-w-0 flex-1 truncate text-xs font-bold tracking-tight text-[var(--text-label)] group-hover:text-gray-300 2xl:block">
               {t("를 눌러 검색하세요")}
             </span>
           </button>
@@ -667,7 +691,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
           <button
             type="button"
             onClick={() => setIsLoginModalOpen(true)}
-            className="flex flex-shrink-0 items-center gap-2 rounded-full border border-white/[0.08] bg-white px-4 py-2 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90"
+            className="flex flex-shrink-0 items-center gap-2 rounded-xl bg-[var(--chat-accent)] px-4 py-2 text-sm font-black text-[var(--chat-accent-ink)] transition-colors duration-200 hover:brightness-110 active:translate-y-[1px]"
           >
             <span>{t("로그인")}</span>
           </button>
@@ -692,7 +716,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             role="dialog"
             aria-modal="true"
             aria-label={t("모바일 메뉴")}
-            className="absolute inset-y-0 right-0 flex w-[min(86vw,320px)] flex-col border-l border-white/[0.08] bg-[#050505] shadow-2xl shadow-black/60"
+            className="absolute inset-y-0 right-0 flex w-[min(86vw,320px)] flex-col border-l border-white/[0.08] bg-[var(--background)] shadow-2xl shadow-black/60"
           >
             <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-4">
               <span className="text-sm font-black tracking-tight text-white">{t("메뉴")}</span>
@@ -716,6 +740,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                     <Link
                       key={item.id}
                       href={regionHref(item.href)}
+                      prefetch={item.prefetch}
                       onClick={(event) => handleMenuClick(item, event)}
                       className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 transition-colors ${
                         isActive
@@ -770,12 +795,12 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                     setIsMobileMenuOpen(false);
                     setIsLoginModalOpen(true);
                   }}
-                  className="flex w-full items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-black text-black"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--chat-accent)] px-4 py-2.5 text-sm font-black text-[var(--chat-accent-ink)]"
                 >
                   <span>{t("로그인")}</span>
                 </button>
               ) : (
-                <div className="h-10 animate-pulse rounded-full bg-white/[0.06]" />
+                <div className="h-10 animate-pulse motion-reduce:animate-none rounded-full bg-white/[0.06]" />
               )}
             </div>
           </aside>
@@ -785,7 +810,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       {authState === "authenticated" && isProfileMenuOpen && (
         <div
           ref={profileMenuRef}
-          className="fixed right-6 top-[64px] z-[60] w-56 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#050505] shadow-2xl shadow-black/40"
+          className="fixed right-6 top-[64px] z-[60] w-56 overflow-hidden rounded-2xl border border-white/[0.08] bg-[var(--background)] shadow-2xl shadow-black/40"
         >
           <div className="border-b border-white/[0.06] px-4 py-3">
             <p className="truncate text-sm font-black text-white">{userProfile.name}</p>
@@ -833,7 +858,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
           aria-modal="true"
           aria-labelledby="plan-summary-modal-title"
         >
-          <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-white/[0.08] bg-[#050505] shadow-2xl shadow-black/60">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-white/[0.08] bg-[var(--background)] shadow-2xl shadow-black/60">
             <div className="flex items-start justify-between gap-4 border-b border-white/[0.08] px-6 py-5">
               <div>
                 <h2
@@ -971,7 +996,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                         className="h-2 overflow-hidden rounded-full bg-white/[0.16]"
                       >
                         <div
-                          className="h-full rounded-full bg-[var(--accent-blue)]"
+                          className="h-full rounded-full bg-[var(--chat-accent)]"
                           style={{ width: `${item.percent}%` }}
                         />
                       </div>
@@ -1018,7 +1043,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
           aria-modal="true"
           aria-labelledby="sidebar-login-modal-title"
         >
-          <div className="w-full max-w-md rounded-3xl border border-white/[0.08] bg-[#0b0b0b] p-6 text-center shadow-2xl shadow-black/50">
+          <div ref={loginModalRef} tabIndex={-1} className="w-full max-w-md rounded-2xl border border-white/[0.08] bg-[var(--background)] p-6 text-center shadow-2xl shadow-black/50">
             <div className="space-y-3">
               <p
                 id="sidebar-login-modal-title"
@@ -1031,14 +1056,14 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
               </p>
             </div>
             <div className="mt-6 flex flex-col items-center gap-3">
-              <p className="text-xs font-black text-[#ff6b6b]">
+              <p className="text-xs font-black text-gray-400">
                 {t("카드 등록 불필요")}
               </p>
               <button
                 type="button"
                 onClick={() => void handleGoogleLogin()}
                 disabled={isStartingLogin || !isSupabaseConfigured()}
-                className="flex w-full max-w-[280px] items-center justify-center gap-2 rounded-full border border-white/[0.08] bg-white px-4 py-2.5 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex w-full max-w-[280px] items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white px-4 py-2.5 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <GoogleLogo size={18} weight="fill" />
                 <span>{isStartingLogin ? t("로그인 준비 중...") : t("Google로 시작하기")}</span>
@@ -1046,7 +1071,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
               <Link
                 href={regionHref("/login")}
                 onClick={() => setIsLoginModalOpen(false)}
-                className="flex w-full max-w-[280px] items-center justify-center gap-2 rounded-full border border-white/[0.15] px-4 py-2.5 text-sm font-black text-white transition-colors duration-200 hover:bg-white/[0.08]"
+                className="flex w-full max-w-[280px] items-center justify-center gap-2 rounded-xl border border-white/[0.15] px-4 py-2.5 text-sm font-black text-white transition-colors duration-200 hover:bg-white/[0.08]"
               >
                 <EnvelopeSimple size={18} weight="bold" />
                 <span>{t("이메일로 시작하기")}</span>

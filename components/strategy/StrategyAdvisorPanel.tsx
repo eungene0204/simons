@@ -247,7 +247,7 @@ export function StrategyAdvisorPanel({
         </div>
         <div className="flex items-center gap-2">
           {loading && (
-            <ArrowsClockwise size={14} className="text-gray-500 animate-spin" />
+            <ArrowsClockwise size={14} className="text-gray-500 animate-spin motion-reduce:animate-none" />
           )}
           {onDismiss && (
             <button
@@ -269,7 +269,7 @@ export function StrategyAdvisorPanel({
             {[80, 60, 70].map((w, i) => (
               <div
                 key={i}
-                className="h-11 bg-white/[0.04] rounded-xl animate-pulse"
+                className="h-11 bg-white/[0.04] rounded-xl animate-pulse motion-reduce:animate-none"
                 style={{ animationDelay: `${i * 0.1}s` }}
               />
             ))}

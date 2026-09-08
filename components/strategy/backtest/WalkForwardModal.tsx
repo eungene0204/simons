@@ -2121,7 +2121,7 @@ export function WalkForwardPanel({
               >
                 {isRunning ? (
                   <>
-                    <ArrowsClockwise className="h-4 w-4 animate-spin" />
+                    <ArrowsClockwise className="h-4 w-4 animate-spin motion-reduce:animate-none" />
                     {runProgress?.stage === "window" && runProgress.total
                       ? t("분석 중... ({0}/{1} 구간)", runProgress.window, runProgress.total)
                       : t("분석 중... ({0}개 구간)", derivedSettings.n_splits)}
@@ -2161,7 +2161,7 @@ export default function WalkForwardModal({
             baseStrategy={baseStrategy}
             baseBacktestSeconds={baseBacktestSeconds}
             onClose={() => onOpenChange(false)}
-            maxHeightClass="max-h-[calc(100vh-9rem)]"
+            maxHeightClass="max-h-[calc(100dvh-9rem)]"
           />
         </div>
       </div>

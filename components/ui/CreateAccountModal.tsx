@@ -487,7 +487,7 @@ export default function CreateAccountModal({
             >
               <span className="flex items-center justify-center gap-2">
                 {isSubmitting ? (
-                  <Spinner size={16} className="animate-spin" aria-hidden="true" />
+                  <Spinner size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
                 ) : null}
                 {isSubmitting ? t("계좌 생성중...") : t("만들기")}
               </span>

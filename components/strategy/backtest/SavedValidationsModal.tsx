@@ -111,7 +111,7 @@ export default function SavedValidationsModal({ open, onClose, onSelect }: Saved
         >
           {isLoading && (
             <div className="flex items-center justify-center gap-2 py-12 text-sm font-bold text-gray-400">
-              <Spinner className="h-4 w-4 animate-spin" />{t(" 불러오는 중...")}
+              <Spinner className="h-4 w-4 animate-spin motion-reduce:animate-none" />{t(" 불러오는 중...")}
             </div>
           )}
           {!isLoading && error && (

@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "5.0"
+PROMPT_VERSION = "5.1"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -604,20 +604,24 @@ portfolio={{"selection_count":4}}, risk_management={{"stop_loss":-10}} — 조�
 이동평균은 **20일선 하나만** 언급됐으므로 1/20입니다 — 60 같은 말하지 않은 기간을
 채워 넣지 마세요(다른 예시의 20/60을 습관적으로 베끼는 것은 무단 확정입니다).
 
-## 예시 4-3 (스크리닝 다단계 서술 — '먼저 걸러서 그중'도 전부 entry_conditions)
+## 예시 4-3 (스크리닝 다단계 서술 — '먼저 걸러서 그중'은 전부 entry_conditions, 청산절은 exit_conditions)
 입력: "반도체 업종 종목 중 ROE 10% 이상, 부채비율 120% 이하 조건을 먼저 적용하고, 그중
-최근 60거래일 수익률이 상위권이면서 최근 60일 평균 거래대금이 50억 원 이상인 종목만 8종목 담고 싶습니다"
+최근 60거래일 수익률이 상위권이면서 최근 60일 평균 거래대금이 50억 원 이상인 종목만 8종목 담고 싶습니다. 20일선 이탈 시 청산해 주세요"
 출력 요점: universe={{"markets":["KOSPI","KOSDAQ"],"sectors":["반도체"]}},
 entry_conditions=[{{"factor":"fundamental.roe_or_gpa","operator":">=","value":10,"unit":"percent"}},
 {{"factor":"fundamental.debt_ratio","operator":"<=","value":120,"unit":"percent"}},
 {{"factor":"fundamental.trading_value","operator":">=","value":50,"unit":"억원"}}],
+exit_conditions=[{{"factor":"technical.ma_crossover","operator":"crosses_below","value":null,
+"parameters":{{"short_period":1,"long_period":20}},"source_text":"20일선 이탈 시 청산"}}],
 ranking=[{{"metric":"return","lookback_days":60}}], portfolio={{"selection_count":8}}.
 '60일 평균 거래대금'의 60일은 **거래대금 산정 기간**이라 랭킹 기간과 숫자가 같아도 다른
 조건입니다 — 기간 평균 거래대금은 언제나 fundamental.trading_value이고(technical은 당일
 하루치), 그 기간은 지표 정의에 내장돼 parameters에 넣지 않습니다.
-'먼저 적용하고 → 그중'은 단계 서술일 뿐 세 조건 모두 entry_conditions입니다 —
+'먼저 적용하고 → 그중'은 단계 서술일 뿐 걸러내는 세 조건은 모두 entry_conditions입니다 —
 거래대금을 universe로 처리했다고 적거나 "추가해 드릴까요?"로 되묻지 마세요
-(사용자가 값을 이미 말했으므로 질문할 것이 없습니다).
+(사용자가 값을 이미 말했으므로 질문할 것이 없습니다). 단 문장 끝의 '20일선 이탈 시 청산'은
+매도 규칙이라 entry_conditions에 같이 넣지 않고 exit_conditions에 둡니다 — 매수 칸에 들어가면
+매도 규칙이 사라지고 반대 방향(상향 돌파) 매수 신호가 됩니다.
 
 ## 예시 4-4 (신규 상장 유니버스 — 연도는 상장 시기)
 입력: "2026년 신규 상장 종목 투자 전략"

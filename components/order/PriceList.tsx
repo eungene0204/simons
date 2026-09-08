@@ -137,7 +137,7 @@ export default function PriceList({
               "w-full h-full flex items-center justify-between px-3 rounded-md",
               "border-2 border-white transition-colors duration-150",
               boxColor.bg,
-              isPulsing ? "animate-pulse" : "",
+              isPulsing ? "animate-pulse motion-reduce:animate-none" : "",
             ].join(" ")}
             style={isPulsing ? { animationDuration: "200ms" } : undefined}
           >

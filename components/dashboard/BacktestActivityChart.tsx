@@ -61,7 +61,7 @@ export default function BacktestActivityChart({ initialRecords }: { initialRecor
           {[...Array(7)].map((_, i) => (
             <div
               key={i}
-              className="flex-1 bg-white/[0.04] rounded-xl animate-pulse"
+              className="flex-1 bg-white/[0.04] rounded-xl animate-pulse motion-reduce:animate-none"
               style={{ height: `${30 + Math.random() * 60}%` }}
             />
           ))}

@@ -51,12 +51,21 @@
 --text-placeholder: #8b8f96                       /* 5.9:1 */
 ```
 
+### 배경은 토큰 하나
+
+페이지·패널·모달 배경은 `bg-[var(--background)]` 하나다. `bg-[#050505]`·`#0a0a0a` 같은 근검정 hex를
+직접 쓰지 않는다 — 2026-09-08 이전에는 여섯 값(#050505·#080808·#0a0a0a·#0b0b0b·#0d0d0d·#0f0f0f)이
+섞여 랜딩→약관처럼 페이지를 옮길 때 배경이 눈에 띄게 바뀌었다. 반투명이 필요하면
+`bg-[rgba(15,15,15,0.8)]`. 밝기를 한 단계 바꾸고 싶으면 `globals.css`의 `--background` 한 곳만 고친다.
+
 ### 강조색 단일화
 
 - **한 화면의 장식용 강조색은 하나만 쓴다.** 강조색이 여러 개면 색이 의미를 잃는다.
 - 의미색(`--main-red` 상승, `--main-blue` 하락, `--error-red` 오류)은 강조 목적으로 전용하지 않는다.
 - 강조색에 역할을 부여하고 그 역할에만 쓴다. 전략연구소 대화의 `--chat-accent`는 "사용자 응답이 필요한 지점 + 진행 상태"만 담당한다.
 - 링크도 강조색을 따른다. 별도의 링크 색을 도입하지 않는다.
+- 선택 상태(탭·토글)는 강조색이 아니라 중립 면(`bg-white/[0.12] text-white`)으로 표시한다. 카테고리·종류 배지는 §11 중립 정보 배지다 — 종류마다 색을 주면 강조색이 여섯이 된다.
+- 주 CTA(로그인·구독 시작·결제·예시로 시작·종목 검색)는 전 화면에서 §10 주요 버튼 하나(`bg-[var(--chat-accent)]`)다. 흰 채움은 Google 브랜드 버튼에만 남긴다.
 
 ### 텍스트 대비 (WCAG AA)
 
@@ -64,6 +73,14 @@
 - `text-gray-500`(#6b7280)은 `#0f0f0f` 대비 **3.98:1로 미달**이다. 의미 있는 라벨에는 `text-[var(--text-label)]`를 쓴다.
 - placeholder도 AA 대상이다. `placeholder-gray-600`은 미달이며 `placeholder:text-[var(--text-placeholder)]`를 쓴다.
 - `text-gray-600` 이하는 순수 장식 텍스트에만 허용한다.
+- 포커스 링(`*:focus-visible`)은 `#9ca3af`(7.6:1)다. 이전 `#4b5563`은 2.5:1로 WCAG 2.2 비텍스트 대비(3:1)에 미달했다(2026-09-08 수리). 입력창처럼 테두리 색 변화가 포커스를 이미 알리는 곳만 `focus-visible:outline-none`을 쓴다.
+
+### 다크 전용 — `dark:` 변형 금지
+
+앱에는 라이트 모드가 없고 `tailwind.config.js`에 `darkMode` 설정도 없다(= `media` 전략). 이 상태에서
+`bg-white dark:bg-gray-900` 같은 조건부 색을 쓰면 **기기 색상 설정이 라이트인 사용자에게 라이트 값이
+그대로 나간다** — 2026-09-08 로그인·가입 입력이 배경·글자 모두 `rgb(224,224,224)`로 렌더돼 글자가
+보이지 않았다. 색은 항상 다크 값 하나만 쓴다. 회귀 가드: `components/__tests__/uiDefectGuards.test.ts`.
 
 ### 텍스트 색상 사용 기준
 
@@ -71,13 +88,13 @@
 |------|--------|
 | 주요 텍스트 | `text-white` |
 | 보조 텍스트 | `text-gray-400` |
-| 비활성/힌트 | `text-gray-500`, `text-gray-600` |
-| 라벨/캡션 | `text-gray-300` |
+| 비활성/힌트(순수 장식) | `text-gray-500`, `text-gray-600` |
+| 라벨/캡션/표 헤더/축 라벨 | `text-[var(--text-label)]` |
 | 수익 (양수) | `text-[var(--main-red)]` 또는 `text-emerald-400` |
 | 손실 (음수) | `text-[var(--main-blue)]` |
 | 강조 | `text-indigo-400`, `text-sky-500`, `text-purple-400` |
 
-- 카드 내부의 섹션 제목, 차트 제목, 지표 라벨, 테이블 컬럼 헤더, KPI 카드 라벨은 `text-gray-500`으로 통일한다.
+- 카드 내부의 섹션 제목, 차트 제목, 지표 라벨, 테이블 컬럼 헤더, KPI 카드 라벨은 `text-[var(--text-label)]`로 통일한다(2026-09-08 — 이전 문구의 `text-gray-500`은 위 AA 규칙과 모순됐다). 차트 축 tick은 `#9ca3af`, 격자는 `#2a2a2a`.
 - `text-gray-600`은 보조 설명(sub-text), 힌트, 주석처럼 완전히 부차적인 텍스트에만 사용한다.
 - `text-gray-400` 이상은 주요 텍스트(본문, 값)에만 사용한다.
 
@@ -146,10 +163,9 @@ KOSDAQ:   bg-purple-500/15  text-purple-400
 
 폰트 스택은 `tailwind.config.js`의 `theme.extend.fontFamily`가 SOT다. `globals.css`의 `body`에서 `font-family`를 재지정하면 그 스택을 덮어쓰므로 선언하지 않는다.
 
-- 기본(`font-sans`, `font-inter`): `var(--font-inter)` → `Pretendard` → `Apple SD Gothic Neo` → `Malgun Gothic` → `system-ui`
-  - Inter는 라틴/숫자만 커버한다. 한글 글리프는 뒤따르는 한글 폰트로 글리프 단위 폴백된다.
-  - Inter를 기본으로 두는 이유: 데이터 밀도가 높은 계기판형 UI에서 중성적인 그로테스크가 맞고, 숫자 정렬(`tabular-nums`)이 안정적이다.
-- 숫자/수치 표시: `font-outfit` — KPI 수치, 섹션 제목, 차트 레이블에 사용
+- 기본(`font-sans`, `font-inter`, `font-outfit`) 모두 같은 시스템 스택이다: `Arial` → `Helvetica` → `Apple SD Gothic Neo` → `Malgun Gothic` → `Pretendard` → `sans-serif`(2026-07-25 웹폰트 제거 결정).
+  - `font-outfit`은 "수치·섹션 제목" 자리를 코드에서 읽히게 하는 이름으로만 남아 있다. 렌더 폰트는 같다.
+  - Inter·Outfit 웹폰트는 내려받지 않는다(2026-09-08 — `app/layout.tsx`가 스택에 없는 두 웹폰트를 매 페이지 내려받고 있었다). 웹폰트를 되살리려면 config 스택과 이 문서를 함께 바꾼다.
 
 > ⚠️ 2026-07-25까지 `fontFamily` 확장이 없어 `font-outfit`·`font-inter`는 **정의되지 않은 죽은 클래스**였고(22개 파일이 사용 중), 실제 렌더 폰트는 `globals.css`의 Arial이었다. 회귀 가드: `app/analytics/new/chatSurfaceDesign.test.ts`
 
@@ -276,7 +292,7 @@ space-y-1    (섹션 간 세로 간격 — 카드가 바짝 붙도록)
 {/* 헤더 행 */}
 <div className="grid grid-cols-[minmax(0,1fr)_80px_120px_110px] gap-2 px-2 mb-2">
   {["전략명", "점수", "평균 수익률", "총 수익금"].map((h) => (
-    <span key={h} className="text-xs font-bold uppercase tracking-widest text-gray-500">
+    <span key={h} className="text-xs font-bold uppercase tracking-widest text-[var(--text-label)]">
       {h}
     </span>
   ))}
@@ -285,7 +301,7 @@ space-y-1    (섹션 간 세로 간격 — 카드가 바짝 붙도록)
 <div className="border-t border-white/[0.05] mb-1" />
 ```
 
-- 컬럼 헤더 텍스트: `text-xs font-bold uppercase tracking-widest text-gray-500`
+- 컬럼 헤더 텍스트: `text-xs font-bold uppercase tracking-widest text-[var(--text-label)]`
 - 헤더 구분: 배경색 대신 `border-t border-white/[0.05]` 구분선 사용
 - 그리드 컬럼 정의는 `grid-cols-[minmax(0,1fr)_80px_...]` 형태로 가변+고정 혼합
 
@@ -363,6 +379,20 @@ space-y-1    (섹션 간 세로 간격 — 카드가 바짝 붙도록)
 ```tsx
 style={{ minHeight: "calc(100dvh - var(--top-menu-bar-height, 76px))" }}
 ```
+
+### 하단 고정 요소(입력 바·도킹 카드)
+
+`fixed bottom-4`를 쓰지 않는다. iOS 홈 인디케이터와 소프트 키보드에 가려진다(2026-09-08 — 대화 입력 바가
+키보드 뒤로 숨어 보이지 않는 채 입력하던 결함). `globals.css`의 `.dock-bottom`을 쓴다.
+
+```css
+.dock-bottom { bottom: calc(1rem + env(safe-area-inset-bottom, 0px) + var(--kb-inset, 0px)); }
+```
+
+- `env(safe-area-inset-*)`은 `app/layout.tsx`의 `viewport.viewportFit = "cover"`가 있어야 값이 나온다.
+- `--kb-inset`은 `components/layout/VisualViewportInset.tsx`가 `visualViewport` 변화를 받아 기록한다.
+- 터치 기기(`(pointer: coarse)`)에서는 입력창을 **자동 포커스하지 않는다** — 소프트 키보드가 예시 카드·되묻기
+  카드 위로 멋대로 뜬다. 사용자가 입력창을 직접 누를 때만 연다.
 
 ### 페이지 기본 구조
 
@@ -537,7 +567,8 @@ transition-colors duration-200 (텍스트 색상 변화)
 
 - 반복(infinite) 애니메이션, 진입 연출, 스피너는 **반드시** `prefers-reduced-motion: reduce`에서 멈춘다.
 - **연출을 인라인 `style={{ animation: ... }}`으로 넣지 않는다.** 인라인 선언은 CSS로 덮을 수 없어 감속 설정을 무시하게 된다. `globals.css`에 클래스로 정의하고 감속 블록에 함께 등록한다.
-- Tailwind 유틸리티 애니메이션(`animate-spin` 등)은 `motion-reduce:animate-none`을 함께 붙인다.
+- Tailwind 유틸리티 애니메이션(`animate-spin` 등)은 `motion-reduce:animate-none`을 함께 붙인다(`uiDefectGuards.test.ts`가 강제).
+- `globals.css`의 감속 블록에는 대화 표면 클래스 외에 `.page-transition`(모든 페이지 body)·`.animate-marquee`·`.animate-fade-in`·`.animate-slide-*`도 등록돼 있다(2026-09-08). 새 진입 연출 클래스를 만들면 거기에 함께 넣는다.
 - styled-jsx 스코프 클래스는 globals의 감속 규칙이 이기지 못하므로 같은 스코프 안에서 직접 끈다.
 - 순서가 있는 진입 연출은 React 상태 타이머가 아니라 `animation-delay` 캐스케이드로 만든다(상태 타이머는 프레임마다 전체 리렌더를 유발한다).
 
@@ -732,6 +763,30 @@ transition-colors duration-200 (텍스트 색상 변화)
 </button>
 ```
 
+### 확인 대화 — 브라우저 `confirm`/`alert` 금지
+
+되돌릴 수 없는 동작(강제청산·구독 해지·계정 삭제·기록 삭제)의 확인은 `components/ui/ConfirmDialog.tsx`의
+`useConfirmDialog()`로 띄운다. 입력 검증 실패는 `alert` 대신 폼 안의 `role="alert"` 문장으로 보여 준다
+(2026-09-08 — 사용자 화면 21곳의 기본 대화를 교체). 운영 콘솔(`components/admin/`)만 예외다.
+
+```tsx
+const { confirm, dialog } = useConfirmDialog();
+// ...
+if (!(await confirm({ title: t("계정을 삭제할까요?"), message: t("되돌릴 수 없습니다."), confirmLabel: t("계정 삭제"), danger: true }))) return;
+// ...
+return (<>{dialog}{/* 나머지 */}</>);
+```
+
+- `danger`면 확인 버튼이 위 삭제 버튼 스타일(빨간 테두리·글자, 투명 면)이다.
+- 첫 포커스는 '취소'에 놓인다 — Enter를 잘못 눌러도 파괴적 동작이 실행되지 않는다.
+
+### 모달·다이얼로그 키보드 계약
+
+모든 모달은 `lib/hooks/useDialogBehavior.ts`를 쓴다. Esc로 닫힘, Tab이 안에서 순환(포커스 트랩), 열릴 때
+첫 요소로 포커스 이동, 닫힐 때 열기 전 요소로 복귀, body 스크롤 잠금을 한곳에서 맡는다. 겹쳐 열리면 맨 위
+하나만 키를 받는다. 패널 요소에 `ref`와 `tabIndex={-1}`, `role="dialog"`(파괴적 확인은 `alertdialog`)와
+`aria-modal="true"`, 이름(`aria-label` 또는 `aria-labelledby`)을 붙인다.
+
 ---
 
 ## 11. 배지 & 태그
@@ -768,7 +823,7 @@ transition-colors duration-200 (텍스트 색상 변화)
 {/* 헤더 */}
 <div className="grid grid-cols-[minmax(0,1fr)_80px_120px_110px] gap-2 px-2 mb-2">
   {["항목", "값1", "값2", "값3"].map((h) => (
-    <span key={h} className="text-xs font-bold uppercase tracking-widest text-gray-500">
+    <span key={h} className="text-xs font-bold uppercase tracking-widest text-[var(--text-label)]">
       {h}
     </span>
   ))}
@@ -797,6 +852,12 @@ transition-colors duration-200 (텍스트 색상 변화)
 ```
 
 ---
+
+### 금액 표기 헬퍼
+
+원화·달러 표기는 `lib/account-money.ts` 한곳이다 — `formatAccountMoney`(12,345원 / $12,345),
+`formatAccountSignedMoney`(+1,234원), `formatKrwCompact`(2,932만 · 1.5억, `signed` 옵션, 영어 화면은 K/M).
+파일마다 `formatKRW`를 다시 쓰지 않는다(2026-09-08 — 여섯 벌이 만 단위 자릿수 구분과 부호를 제각각 처리했다).
 
 ## 13. 반응형 설계
 

@@ -259,11 +259,17 @@ describe("TopNavigation quick search", () => {
     // 덮어 가렸다. 흐름 안 중앙정렬 + 검색창 축소로 겹침·잘림을 없앤다.
     expect(menu).toHaveClass("flex-1", "justify-center", "min-w-0");
     expect(menu.className).not.toMatch(/absolute/);
+    // xl(1280~1535px)에서는 아이콘 + '/' 키 배지만(폭 자동), 2xl부터 힌트 문구까지.
+    // 키 배지와 문구의 브레이크포인트가 어긋나면 "를 눌러 검색하세요"만 남는다(2026-09-08).
     expect(screen.getByTestId("desktop-search-trigger")).toHaveClass(
-      "xl:w-[150px]",
-      "2xl:w-auto",
+      "xl:w-auto",
       "2xl:min-w-[180px]"
     );
+    const trigger = screen.getByTestId("desktop-search-trigger");
+    const kbd = Array.from(trigger.querySelectorAll("span")).find((el) => el.textContent?.trim() === "/");
+    const hint = screen.getByText("를 눌러 검색하세요");
+    expect(kbd).toHaveClass("hidden", "xl:flex");
+    expect(hint).toHaveClass("hidden", "2xl:block");
     expect(screen.getByTestId("desktop-search-trigger").className).not.toMatch(
       /(^|\s)min-w-\[180px\]/
     );

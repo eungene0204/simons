@@ -75,7 +75,7 @@ function SkeletonList() {
   return (
     <div className="space-y-2">
       {[...Array(4)].map((_, i) => (
-        <div key={i} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 animate-pulse">
+        <div key={i} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 animate-pulse motion-reduce:animate-none">
           <div className="h-3 bg-white/[0.04] rounded w-1/4 mb-2 ml-auto" />
           <div className="h-4 bg-white/[0.04] rounded w-4/5 mb-1.5" />
           <div className="h-4 bg-white/[0.04] rounded w-3/5 mb-2" />
@@ -94,7 +94,7 @@ function StatusBanner({ status, message }: { status: NewsStatus; message?: strin
     return (
       <div className="rounded-xl border border-amber-400/20 p-4 text-center">
         <p className="text-sm text-amber-300 mb-1">
-          <span className="inline-block w-2 h-2 bg-amber-400 rounded-full animate-pulse mr-2" />
+          <span className="inline-block w-2 h-2 bg-amber-400 rounded-full animate-pulse motion-reduce:animate-none mr-2" />
           {message ?? t("최근 뉴스가 준비 중입니다.")}
         </p>
         <p className="text-xs text-gray-500">{t("준비된 캐시가 생기면 자동으로 표시됩니다.")}</p>
@@ -171,7 +171,7 @@ export default function NewsImpactPanel({ symbol }: { symbol: string }) {
             </span>
           )}
           {isRevalidating && (
-            <span className="text-xs text-amber-400 animate-pulse">
+            <span className="text-xs text-amber-400 animate-pulse motion-reduce:animate-none">
               {t("갱신 중...")}
             </span>
           )}
@@ -181,7 +181,7 @@ export default function NewsImpactPanel({ symbol }: { symbol: string }) {
           disabled={isRevalidating}
           className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-40"
         >
-          <ArrowClockwise size={13} weight="bold" className={isRevalidating ? "animate-spin" : ""} />
+          <ArrowClockwise size={13} weight="bold" className={isRevalidating ? "animate-spin motion-reduce:animate-none" : ""} />
           {t("새로고침")}
         </button>
       </div>

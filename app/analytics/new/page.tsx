@@ -1,5 +1,7 @@
 "use client";
 
+import { useDialogBehavior } from "@/lib/hooks/useDialogBehavior";
+
 import {
   useState,
   useRef,
@@ -629,9 +631,11 @@ const CLARIFICATION_CARD_CLASS =
   "rounded-2xl border border-[var(--chat-hairline)] bg-[#101010]";
 // '대화 종료'는 옵션 카드 안 우하단에 둔다 — 카드가 하단을 덮으므로 밖에 두면 가린다.
 // 모서리는 같은 줄에 서는 선택 칩과 같은 `rounded-lg`다(2026-08-05 지시) — 알약(rounded-full)
-// 모양이면 나란히 놓인 칩과 형태가 어긋난다.
+// 모양이면 나란히 놓인 칩과 형태가 어긋난다. 글자색은 중립이다 — 이 화면의 장식 강조색은
+// --chat-accent 하나뿐이고(§2), 파랑은 하락 의미색이다(2026-09-08). 세 자리(입력 바·도킹 카드·
+// 탈출 버튼)가 모두 이 한 클래스를 쓴다.
 const END_CHAT_CONTROL_CLASS =
-  "inline-flex items-center gap-1.5 rounded-lg border border-white/[0.14] bg-white/[0.05] px-3 py-1.5 text-xs font-bold text-[var(--accent-blue)] transition-colors duration-200 hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]";
+  "inline-flex items-center gap-1.5 rounded-lg border border-white/[0.14] bg-white/[0.05] px-3 py-1.5 text-xs font-bold text-gray-200 transition-colors duration-200 hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]";
 // 선택 칩은 담긴 면이 그대로 비치고(--chat-chip-surface: transparent) 테두리로만
 // 구분한다. 칩이 카드 안(되묻기)과 카드 밖(빌더 안내) 양쪽에 나오므로 값을 박으면
 // 한쪽에서 어긋난다 — 카드 위에서는 알파가 겹쳐 칩만 밝아진다(2026-08-05 반려).
@@ -1366,6 +1370,8 @@ type ChatInputBoxProps = {
   running: boolean;
   canSend: boolean;
   isLlmWorking: boolean;
+  /** 생성 중 정지 — 이번 턴의 요청만 끊는다. 없으면 정지 버튼은 비활성. */
+  onStop?: () => void;
   isStrategyInput: boolean;
   onSend: (text: string) => void;
   onReset?: () => void;
@@ -1375,7 +1381,7 @@ type ChatInputBoxProps = {
 // 리렌더링되지 않도록 입력 상태를 내부에서만 관리한다(모바일 입력 버벅임의 핵심 원인).
 const ChatInputBox = memo(
   forwardRef<ChatInputHandle, ChatInputBoxProps>(function ChatInputBox(
-    { variant, containerClassName = "", running, canSend, isLlmWorking, isStrategyInput, onSend, onReset },
+    { variant, containerClassName = "", running, canSend, isLlmWorking, isStrategyInput, onSend, onReset, onStop },
     ref,
   ) {
     const [value, setValue] = useState("");
@@ -1431,13 +1437,13 @@ const ChatInputBox = memo(
     const sendButton = (
       <div className="absolute bottom-3 right-3 flex items-center gap-2">
         <button
-          onClick={trySend}
-          disabled={!canSubmitInput}
-          aria-label={isLlmWorking ? (isStrategyInput ? t("전략 생성 중") : t("전송 중")) : (isStrategyInput ? t("전략 생성") : t("전송"))}
-          title={isLlmWorking ? (isStrategyInput ? t("전략 생성 중") : t("전송 중")) : (isStrategyInput ? t("전략 생성") : t("전송"))}
+          onClick={isLlmWorking ? onStop : trySend}
+          disabled={isLlmWorking ? !onStop : !canSubmitInput}
+          aria-label={isLlmWorking ? t("생성 중지") : (isStrategyInput ? t("전략 생성") : t("전송"))}
+          title={isLlmWorking ? t("생성 중지") : (isStrategyInput ? t("전략 생성") : t("전송"))}
           className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)] ${
             isLlmWorking
-              ? "cursor-wait bg-[#f3f1ec]"
+              ? "bg-[#f3f1ec] hover:bg-white active:scale-[0.96] disabled:cursor-wait"
               : hasTypedInput
                 ? "bg-[#f3f1ec] text-[#2b2b2b] hover:bg-white active:scale-[0.96] disabled:cursor-not-allowed"
                 : "cursor-not-allowed bg-[#595959] text-[#bdbdbd]"
@@ -1465,13 +1471,13 @@ const ChatInputBox = memo(
 
     return (
       <div
-        className={`fixed bottom-4 left-4 right-4 z-40 mx-auto max-w-4xl rounded-[28px] border border-[var(--glass-border)] bg-[#101010] ${containerClassName}`}
+        className={`fixed dock-bottom left-4 right-4 z-40 mx-auto max-w-4xl rounded-[28px] border border-[var(--glass-border)] bg-[#101010] ${containerClassName}`}
       >
         {textarea}
         <button
           type="button"
           onClick={onReset}
-          className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full border border-white/[0.14] bg-white/[0.05] px-3 py-1.5 text-xs font-bold text-[var(--accent-blue)] transition-colors duration-200 hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
+          className={`absolute bottom-3 left-3 ${END_CHAT_CONTROL_CLASS}`}
         >
           <X size={12} weight="bold" />
           {t("대화 종료")}
@@ -1943,6 +1949,12 @@ function StrategyLabContent() {
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [isStartingGoogleLogin, setIsStartingGoogleLogin] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const authModalRef = useRef<HTMLDivElement>(null);
+  useDialogBehavior({
+    open: isAuthModalOpen,
+    onClose: () => setIsAuthModalOpen(false),
+    containerRef: authModalRef,
+  });
   const [isStrategyPreviewModalOpen, setIsStrategyPreviewModalOpen] = useState(false);
   const [stage, setStage] = useState<Stage>("idle");
   // SSE 스트림 처리 중(오래된 클로저)에도 현재 stage를 읽기 위한 ref — 후행 검증 교정
@@ -2009,6 +2021,20 @@ function StrategyLabContent() {
   const handleSendFromInput = useCallback((text: string) => {
     void handleSendRef.current?.(text);
   }, []);
+  // 이번 턴만 중지 — 진행 중인 요청을 끊고 대화는 그대로 둔다('대화 종료'는 전체를 비운다).
+  // 끊긴 턴은 handleSend가 AbortError로 조용히 끝내므로, 여기서 보내는 중 표시와 생성 중
+  // 말풍선만 걷어내고 안내 한 줄을 남긴다(2026-09-08 — 정지 모양 버튼에 동작이 없던 결함).
+  const handleStopTurn = useCallback(() => {
+    chatAbortRef.current?.abort();
+    setIsSending(false);
+    setStatusMessage("");
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      const kept = last?.role === "assistant" && last.coachLoading ? prev.slice(0, -1) : prev;
+      return [...kept, { role: "assistant", content: t("요청을 중지했어요. 이어서 입력하면 다시 진행합니다.") }];
+    });
+  }, []);
+
   const handleResetFromInput = useCallback(() => {
     handleResetRef.current?.();
   }, []);
@@ -2431,6 +2457,9 @@ function StrategyLabContent() {
 
   useEffect(() => {
     if (!shouldShowChatInput || stage === "running" || result) return;
+    // 터치 기기(coarse pointer)에서는 자동 포커스가 소프트 키보드를 예시 카드·되묻기 카드 위로
+    // 띄운다 — 사용자가 입력창을 직접 누를 때만 열리게 둔다(2026-09-08).
+    if (window.matchMedia?.("(pointer: coarse)")?.matches) return;
 
     const animationFrame = window.requestAnimationFrame(() => {
       chatInputRef.current?.focus();
@@ -4986,7 +5015,7 @@ function StrategyLabContent() {
       data-docked={docked ? "true" : "false"}
       className={`flex flex-col gap-2.5 p-4 ${CLARIFICATION_CARD_CLASS} ${MESSAGE_ENTER_LATE_CLASS} ${
         docked
-          ? "fixed bottom-4 left-4 right-4 z-40 mx-auto max-h-[80dvh] max-w-4xl overflow-y-auto"
+          ? "fixed dock-bottom left-4 right-4 z-40 mx-auto max-h-[80dvh] max-w-4xl overflow-y-auto"
           : ""
       }`}
     >
@@ -5406,6 +5435,7 @@ function StrategyLabContent() {
             isStrategyInput={isStrategyInput}
             onSend={handleSendFromInput}
             onReset={handleResetFromInput}
+            onStop={handleStopTurn}
           />
         )}
 
@@ -5421,12 +5451,12 @@ function StrategyLabContent() {
         {hasChatStarted && !shouldShowChatInput && !isClarificationDocked && (
           <div
             key="fixed-chat-escape"
-            className="fixed bottom-4 left-4 right-4 z-40 mx-auto flex max-w-4xl justify-center"
+            className="fixed dock-bottom left-4 right-4 z-40 mx-auto flex max-w-4xl justify-center"
           >
             <button
               type="button"
               onClick={handleReset}
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.14] bg-white/[0.05] px-4 py-2 text-xs font-bold text-[var(--accent-blue)] shadow-lg transition-colors duration-200 hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
+              className={END_CHAT_CONTROL_CLASS}
             >
               <X size={12} weight="bold" />
               {t("대화 종료")}
@@ -5444,7 +5474,9 @@ function StrategyLabContent() {
           aria-labelledby="strategy-auth-modal-title"
         >
           <div
-            className={`w-full max-w-md rounded-2xl border border-[var(--chat-hairline)] bg-[#0b0b0b] p-6 text-center shadow-2xl shadow-black/50 ${softEnterClass}`}
+            ref={authModalRef}
+            tabIndex={-1}
+            className={`w-full max-w-md rounded-2xl border border-[var(--chat-hairline)] bg-[var(--background)] p-6 text-center shadow-2xl shadow-black/50 ${softEnterClass}`}
           >
             <div className="space-y-3">
               <p
@@ -5458,21 +5490,21 @@ function StrategyLabContent() {
               </p>
             </div>
             <div className="mt-6 flex flex-col items-center gap-3">
-              <p className="text-xs font-black text-[#ff6b6b]">
+              <p className="text-xs font-black text-gray-400">
                 {t("카드 등록 불필요")}
               </p>
               <button
                 type="button"
                 onClick={() => void handleGoogleStart()}
                 disabled={isStartingGoogleLogin}
-                className="flex items-center gap-2 rounded-full border border-white/[0.08] bg-white px-4 py-2 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white px-4 py-2 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <GoogleLogo size={18} weight="fill" />
                 <span>{isStartingGoogleLogin ? t("로그인 준비 중...") : t("Google로 시작하기")}</span>
               </button>
               <a
                 href={regionHref("/login")}
-                className="flex items-center gap-2 rounded-full border border-white/[0.15] px-4 py-2 text-sm font-black text-white transition-colors duration-200 hover:bg-white/[0.08]"
+                className="flex items-center gap-2 rounded-xl border border-white/[0.15] px-4 py-2 text-sm font-black text-white transition-colors duration-200 hover:bg-white/[0.08]"
               >
                 <EnvelopeSimple size={18} weight="bold" />
                 <span>{t("이메일로 시작하기")}</span>

@@ -1334,7 +1334,7 @@ export default function OptimizationPage({
                     disabled={isMonteCarloRunning}
                     className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--main-blue)] px-4 py-2.5 text-sm font-black text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isMonteCarloRunning ? <Spinner className="h-4 w-4 animate-spin" /> : <ArrowsClockwise className="h-4 w-4" />}
+                    {isMonteCarloRunning ? <Spinner className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <ArrowsClockwise className="h-4 w-4" />}
                     {t("몬테카를로 실행")}
                   </button>
                   <p className="text-xs font-bold text-gray-500">

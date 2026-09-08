@@ -37,8 +37,8 @@ export default function CurrentPriceDisplay({
 
   if (!currentPrice) {
     return (
-      <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-        <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
+      <div className="bg-gray-900 p-4 rounded-lg border border-gray-700">
+        <p className="text-sm text-gray-400 text-center">
           {t("종목을 선택하면 현재가가 표시됩니다")}
         </p>
       </div>
@@ -49,17 +49,17 @@ export default function CurrentPriceDisplay({
   const isDown = change && change < 0;
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+    <div className="bg-gray-900 p-4 rounded-lg border border-gray-700">
       <div className="flex items-center justify-between">
         <div className="flex-1">
           <div className="flex items-baseline gap-3 mb-2">
             <span
               className={`text-3xl font-bold ${
                 isUp
-                  ? "text-red-600 dark:text-red-400"
+                  ? "text-red-400"
                   : isDown
-                  ? "text-blue-600 dark:text-blue-400"
-                  : "text-gray-900 dark:text-white"
+                  ? "text-blue-400"
+                  : "text-white"
               }`}
             >
               {formatPrice(currentPrice)}
@@ -69,10 +69,10 @@ export default function CurrentPriceDisplay({
                 <span
                   className={`text-lg font-semibold ${
                     isUp
-                      ? "text-red-600 dark:text-red-400"
+                      ? "text-red-400"
                       : isDown
-                      ? "text-blue-500 dark:text-blue-400"
-                      : "text-gray-900 dark:text-white"
+                      ? "text-blue-400"
+                      : "text-white"
                   }`}
                 >
                   {change >= 0 ? "+" : ""}
@@ -81,10 +81,10 @@ export default function CurrentPriceDisplay({
                 <span
                   className={`text-lg font-semibold ${
                     isUp
-                      ? "text-red-600 dark:text-red-400"
+                      ? "text-red-400"
                       : isDown
-                      ? "text-blue-500 dark:text-blue-400"
-                      : "text-gray-900 dark:text-white"
+                      ? "text-blue-400"
+                      : "text-white"
                   }`}
                 >
                   ({changePercent >= 0 ? "+" : ""}
@@ -94,7 +94,7 @@ export default function CurrentPriceDisplay({
             )}
           </div>
           {volume && (
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-gray-400">
               {t("거래량: {0}", formatVolume(volume))}
             </p>
           )}
@@ -102,32 +102,32 @@ export default function CurrentPriceDisplay({
         <div className="text-right space-y-1">
           {open !== undefined && (
             <div className="flex gap-4 text-xs">
-              <span className="text-gray-500 dark:text-gray-400 w-12">{t("시가")}</span>
-              <span className="text-gray-900 dark:text-white font-medium w-20 text-right">
+              <span className="text-gray-400 w-12">{t("시가")}</span>
+              <span className="text-white font-medium w-20 text-right">
                 {formatPrice(open)}
               </span>
             </div>
           )}
           {high !== undefined && (
             <div className="flex gap-4 text-xs">
-              <span className="text-gray-500 dark:text-gray-400 w-12">{t("고가")}</span>
-              <span className="text-red-600 dark:text-red-400 font-medium w-20 text-right">
+              <span className="text-gray-400 w-12">{t("고가")}</span>
+              <span className="text-red-400 font-medium w-20 text-right">
                 {formatPrice(high)}
               </span>
             </div>
           )}
           {low !== undefined && (
             <div className="flex gap-4 text-xs">
-              <span className="text-gray-500 dark:text-gray-400 w-12">{t("저가")}</span>
-              <span className="text-blue-500 dark:text-blue-400 font-medium w-20 text-right">
+              <span className="text-gray-400 w-12">{t("저가")}</span>
+              <span className="text-blue-400 font-medium w-20 text-right">
                 {formatPrice(low)}
               </span>
             </div>
           )}
           {previousClose !== undefined && (
             <div className="flex gap-4 text-xs">
-              <span className="text-gray-500 dark:text-gray-400 w-12">{t("기준")}</span>
-              <span className="text-gray-900 dark:text-white font-medium w-20 text-right">
+              <span className="text-gray-400 w-12">{t("기준")}</span>
+              <span className="text-white font-medium w-20 text-right">
                 {formatPrice(previousClose)}
               </span>
             </div>
