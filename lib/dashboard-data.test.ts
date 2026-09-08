@@ -97,3 +97,23 @@ describe("getDashboardInitialData portfolio stats", () => {
     expect(closedItem?.totalValue).toBe(5_500_000);
   });
 });
+
+describe("getDashboardInitialData 조회 왕복 묶기", () => {
+  it("정산금 조회는 집계 조회가 끝나기를 기다리지 않고 같은 왕복에 띄운다", async () => {
+    virtualAccountFindMany.mockResolvedValue([makeAccount()]);
+    // 집계 조회 하나를 영원히 대기시켜, 정산금 조회가 그 결과에 직렬로 묶여 있으면 호출조차 안 되게 한다.
+    marketStateCount.mockReturnValue(new Promise(() => {}));
+    orderCount.mockResolvedValue(0);
+    orderAggregate.mockResolvedValue({ _sum: { realizedPnl: null } });
+    orderFindMany.mockResolvedValue([]);
+    userBacktestFindMany.mockResolvedValue([]);
+    assetLedgerFindMany.mockClear();
+    assetLedgerFindMany.mockResolvedValue([]);
+
+    void getDashboardInitialData(1);
+    // 계좌 조회 resolve → 후속 조회 발행까지 마이크로태스크를 몇 번 흘린다.
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+
+    expect(assetLedgerFindMany).toHaveBeenCalledTimes(1);
+  });
+});

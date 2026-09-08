@@ -47,24 +47,39 @@ const SettingsModal = dynamic(() => import("./SettingsModal"), {
   ssr: false,
 });
 
-const menuItems = [
+type MenuItem = {
+  label: string;
+  href: string;
+  id: string;
+  Icon: typeof Flask;
+  // 전 페이지가 동적 렌더(루트 레이아웃이 요청 헤더를 읽음)라 기본 prefetch는 loading.tsx
+  // 경계까지만 미리 받는다 — 클릭마다 서버 왕복을 그대로 기다린다. 서버 조회가 없는
+  // 페이지는 전체를 미리 받아 즉시 전환한다. 대시보드·요금제는 서버 데이터를 보여주므로
+  // 기본값을 유지한다(prefetch=true는 5분 캐시라 갱신된 플랜·잔고가 늦게 보일 수 있다).
+  prefetch?: true;
+};
+
+const menuItems: MenuItem[] = [
   {
     label: "전략연구소",
     href: "/analytics",
     id: "analytics",
     Icon: Flask,
+    prefetch: true,
   },
   {
     label: "모의투자",
     href: "/virtual-account",
     id: "virtual-account",
     Icon: ChartLineUp,
+    prefetch: true,
   },
   {
     label: "백테스트 기록",
     href: "/backtest",
     id: "backtest",
     Icon: SlidersHorizontal,
+    prefetch: true,
   },
   {
     label: "대시보드",
@@ -600,6 +615,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
               <Link
                 key={item.id}
                 href={regionHref(item.href)}
+                prefetch={item.prefetch}
                 onClick={(e) => handleMenuClick(item, e)}
                 className={`relative flex items-center gap-1.5 px-2.5 py-2 rounded-xl transition-all duration-300 whitespace-nowrap group xl:gap-2 xl:px-3 2xl:px-4 ${
                   isActive
@@ -724,6 +740,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                     <Link
                       key={item.id}
                       href={regionHref(item.href)}
+                      prefetch={item.prefetch}
                       onClick={(event) => handleMenuClick(item, event)}
                       className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 transition-colors ${
                         isActive

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/get-user";
+import { getSessionUserId } from "@/lib/get-user";
 import { getDashboardInitialData } from "@/lib/dashboard-data";
+import { prisma } from "@/lib/prisma";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import PortfolioSummaryBar from "@/components/dashboard/PortfolioSummaryBar";
 import BacktestActivityChart from "@/components/dashboard/BacktestActivityChart";
@@ -14,13 +15,21 @@ import { t } from "@/lib/i18n";
 import { getRequestLanguage } from "@/lib/i18n/server";
 
 export default async function DashboardPage() {
-  const user = await getCurrentUser();
-
-  if (!user) {
+  // 세션 확인(DB 없음) → 계정 상태 검증과 대시보드 조회를 같은 왕복에 띄운다.
+  // 원격 DB라 직렬로 기다리면 스켈레톤이 그만큼 오래 남는다.
+  const userId = await getSessionUserId();
+  if (userId == null) {
     redirect("/");
   }
 
-  const dashData = await getDashboardInitialData(user.id);
+  const [user, dashData] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { name: true, status: true } }),
+    getDashboardInitialData(userId),
+  ]);
+  // 정지(SUSPENDED)·삭제(DELETED) 계정은 유효한 토큰이 있어도 세션을 인정하지 않는다(getCurrentUser와 동일 기준).
+  if (!user || user.status !== "ACTIVE") {
+    redirect("/");
+  }
 
   const userName = user.name || t("게스트");
 

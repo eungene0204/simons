@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import { getCurrentUser } from "@/lib/get-user";
+import { getSessionUserId } from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
 import { getPlan } from "@/lib/plans";
 import { getEffectivePlans } from "@/lib/server/effectivePlans";
@@ -23,15 +23,19 @@ export default async function PricingPage() {
     );
   }
 
-  const user = await getCurrentUser();
-  if (!user) {
+  // 세션 확인(DB 없음) → 계정 상태·플랜·구독을 한 조회로 읽고, 플랜 한도는 그와 병렬로 읽는다.
+  // 원격 DB라 조회를 직렬로 기다리면 클릭 후 화면이 멈춘 듯 보인다 — 왕복을 한 번으로 묶는다.
+  const userId = await getSessionUserId();
+  if (userId == null) {
     redirect("/");
   }
 
   const [record, plans] = await Promise.all([
     prisma.user.findUnique({
-      where: { id: user.id },
+      where: { id: userId },
       select: {
+        name: true,
+        status: true,
         planTier: true,
         subscriptionPlanId: true,
         nextBillingAt: true,
@@ -40,6 +44,10 @@ export default async function PricingPage() {
     }),
     getEffectivePlans(),
   ]);
+  // 정지(SUSPENDED)·삭제(DELETED) 계정은 유효한 토큰이 있어도 세션을 인정하지 않는다(getCurrentUser와 동일 기준).
+  if (!record || record.status !== "ACTIVE") {
+    redirect("/");
+  }
   const currentPlan = getPlan(record?.planTier);
   // 자동결제(빌링) 구독 상태 — 다음 결제일/해지 여부를 플랜 카드에 표시한다
   const subscription = record?.subscriptionPlanId
@@ -52,7 +60,7 @@ export default async function PricingPage() {
   // 요청 언어를 서버 렌더에 고정한다(비동기 대기 뒤에 호출해야 다른 요청과 섞이지 않는다).
   getRequestLanguage();
   return (
-    <DashboardLayout userName={user.name || t("게스트")}>
+    <DashboardLayout userName={record.name || t("게스트")}>
       <PricingViewTracker />
       <div className="min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] bg-[var(--background)] px-5 py-6 text-white sm:px-8 lg:px-10">
         <div className="mx-auto flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px)-3rem)] w-full max-w-7xl flex-col">
