@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useRouter } from "next/navigation";
 import { Check, X, Lightning, Rocket, Crown } from "phosphor-react";
 import { PLANS, PLAN_ORDER, Plan, PlanId } from "@/lib/plans";
@@ -98,6 +99,7 @@ export default function PricingPlans({
   // 자동갱신 구독 중이면 FREE 카드의 버튼은 "즉시 전환"이 아니라 해지 예약이다 —
   // 설정 모달·/us와 같은 의미(남은 결제 기간까지 이용). 서버(/api/user/plan)가 분기한다.
   const hasActiveSubscription = Boolean(subscription && !subscription.canceled);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
 
   const handleSelect = async (planId: PlanId) => {
     if (planId === currentPlanId || pendingPlanId) return;
@@ -110,7 +112,12 @@ export default function PricingPlans({
 
     if (
       hasActiveSubscription &&
-      !window.confirm(t("자동갱신을 해지할까요? 이미 결제된 기간에는 계속 이용할 수 있습니다."))
+      !(await confirm({
+        title: t("자동갱신을 해지할까요?"),
+        message: t("이미 결제된 기간에는 계속 이용할 수 있습니다."),
+        confirmLabel: t("해지"),
+        danger: true,
+      }))
     ) {
       return;
     }
@@ -135,6 +142,7 @@ export default function PricingPlans({
 
   return (
     <div>
+      {confirmDialog}
       {error ? (
         <p className="mb-4 text-sm font-black text-[var(--main-red)]">{error}</p>
       ) : null}
@@ -155,13 +163,13 @@ export default function PricingPlans({
             <div
               key={planId}
               data-testid={`pricing-plan-card-${planId}`}
-              className="relative flex h-full flex-col rounded-3xl border border-white/[0.08] bg-[#0a0a0a] px-8 py-10 transition-transform duration-200 ease-out hover:-translate-y-1.5 xl:px-9"
+              className="relative flex h-full flex-col rounded-2xl border border-white/[0.08] bg-[var(--background)] px-8 py-10 transition-transform duration-200 ease-out hover:-translate-y-1.5 xl:px-9"
             >
               {/* 헤더: 아이콘 + 플랜명 */}
               <div className="flex items-center gap-3">
                 <span
                   className={`flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.06] ${
-                    isCurrent ? "text-blue-400" : "text-white"
+                    isCurrent ? "text-[var(--chat-accent)]" : "text-white"
                   }`}
                 >
                   <Icon size={22} weight="fill" />
@@ -178,8 +186,8 @@ export default function PricingPlans({
                 <span className="text-4xl font-black tracking-tight text-white">
                   {formatWon(plan.monthlyPrice)}
                 </span>
-                <span className="pb-1 text-sm font-bold text-gray-500">{t("/ 월")}</span>
-                <span className="pb-1 text-sm font-bold text-gray-500">{t("(VAT 포함)")}</span>
+                <span className="pb-1 text-sm font-bold text-[var(--text-label)]">{t("/ 월")}</span>
+                <span className="pb-1 text-sm font-bold text-[var(--text-label)]">{t("(VAT 포함)")}</span>
               </div>
 
               {/* 기능 목록 */}
@@ -187,13 +195,13 @@ export default function PricingPlans({
                 {features.map((feature) => (
                   <li key={feature.label} className="flex items-center gap-3">
                     {feature.included ? (
-                      <Check size={18} weight="bold" className="shrink-0 text-blue-400" />
+                      <Check size={18} weight="bold" className="shrink-0 text-[var(--chat-accent)]" />
                     ) : (
-                      <X size={18} weight="bold" className="shrink-0 text-gray-600" />
+                      <X size={18} weight="bold" className="shrink-0 text-gray-500" />
                     )}
                     <span
                       className={`text-sm font-bold xl:whitespace-nowrap ${
-                        feature.included ? "text-gray-200" : "text-gray-600"
+                        feature.included ? "text-gray-200" : "text-[var(--text-label)]"
                       }`}
                     >
                       {feature.label}
@@ -207,10 +215,12 @@ export default function PricingPlans({
                 type="button"
                 disabled={isCurrent || pendingPlanId !== null || isCancellationScheduled}
                 onClick={() => void handleSelect(planId)}
-                className={`mt-10 w-full rounded-2xl px-4 py-4 text-sm font-black transition-colors disabled:cursor-not-allowed ${
+                className={`mt-10 w-full rounded-xl px-4 py-4 text-sm font-black transition-colors disabled:cursor-not-allowed ${
                   isCurrent
-                    ? "bg-white/[0.04] text-gray-500"
-                    : "border border-white/[0.12] text-white hover:bg-white/[0.06] disabled:opacity-60"
+                    ? "bg-white/[0.04] text-[var(--text-label)]"
+                    : planId === "FREE"
+                    ? "border border-white/[0.12] text-white hover:bg-white/[0.06] disabled:opacity-60"
+                    : "bg-[var(--chat-accent)] text-[var(--chat-accent-ink)] hover:brightness-110 active:translate-y-[1px] disabled:opacity-60"
                 }`}
               >
                 {isCurrent
@@ -230,7 +240,7 @@ export default function PricingPlans({
               {isCurrent && planId !== "FREE" && subscription ? (
                 <div
                   data-testid="subscription-renewal-status"
-                  className="mt-4 text-center text-xs font-bold text-gray-500"
+                  className="mt-4 text-center text-xs font-bold text-[var(--text-label)]"
                 >
                   {subscription.canceled ? (
                     <p>

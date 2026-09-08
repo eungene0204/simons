@@ -24,7 +24,7 @@ export default async function PaymentSuccessPage({
   if (region === "us") {
     return (
       <DashboardLayout userName={user.name || "Guest"}>
-        <div className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] items-center bg-[#050505] px-5 py-10 text-white sm:px-8 lg:px-10">
+        <div className="flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] items-center bg-[var(--background)] px-5 py-10 text-white sm:px-8 lg:px-10">
           <UsPaymentSuccess />
         </div>
       </DashboardLayout>
@@ -35,7 +35,7 @@ export default async function PaymentSuccessPage({
   getRequestLanguage();
   return (
     <DashboardLayout userName={user.name || t("게스트")}>
-      <div className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] items-center bg-[#050505] px-5 py-10 text-white sm:px-8 lg:px-10">
+      <div className="flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] items-center bg-[var(--background)] px-5 py-10 text-white sm:px-8 lg:px-10">
         <PaymentSuccess
           authKey={searchParams.authKey ?? ""}
           customerKey={searchParams.customerKey ?? ""}

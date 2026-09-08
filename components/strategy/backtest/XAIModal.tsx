@@ -102,7 +102,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
               aria-modal="true"
               aria-labelledby="xai-modal-title"
               data-testid="xai-modal-dialog"
-              className="relative flex max-h-[calc(100dvh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#111] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.8)] pointer-events-auto lg:max-h-[75vh] lg:rounded-3xl"
+              className="relative flex max-h-[calc(100dvh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#111] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.8)] pointer-events-auto lg:max-h-[75vh] lg:rounded-2xl"
             >
             {/* Header - Drag Handle Area */}
             <div className="flex items-center justify-between gap-2 border-b border-white/5 bg-[#161616] px-4 py-3 transition-colors lg:px-6">
@@ -127,7 +127,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto bg-[#0a0a0a] p-3 custom-scrollbar lg:p-5">
+            <div className="flex-1 overflow-y-auto bg-[var(--background)] p-3 custom-scrollbar lg:p-5">
               {loading ? (
                 <div className="h-96 flex flex-col items-center justify-center space-y-4">
                    <motion.div

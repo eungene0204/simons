@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useTransition } from "react";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import VirtualTradingDashboard from "@/components/dashboard/VirtualTradingDashboard";
 import {
   VirtualAccount,
@@ -193,8 +194,20 @@ export default function VirtualAccountDetailPage() {
       .filter(Boolean) as { symbol: string; name: string; listingStatus: string; detail: any }[];
   }, [trackedSymbols, holdings, delistingStatus]);
 
+  // 브라우저 기본 confirm/alert 대신 앱 내 확인 대화·알림 줄을 쓴다(2026-09-08).
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+
   const handleForceLiquidate = async (symbol: string) => {
-    if (!confirm(t("{0} 포지션을 강제청산하시겠습니까?", symbol))) return;
+    if (
+      !(await confirm({
+        title: t("{0} 포지션을 강제청산하시겠습니까?", symbol),
+        confirmLabel: t("강제청산"),
+        danger: true,
+      }))
+    )
+      return;
+    setActionNotice(null);
     try {
       const res = await fetch(`/api/virtual-account/${accountId}/liquidate`, {
         method: "POST",
@@ -202,10 +215,10 @@ export default function VirtualAccountDetailPage() {
         body: JSON.stringify({ symbol }),
       });
       const data = await res.json();
-      if (!res.ok) { alert(data.error ?? t("강제청산에 실패했습니다.")); return; }
+      if (!res.ok) { setActionNotice(data.error ?? t("강제청산에 실패했습니다.")); return; }
       await loadAccountData();
     } catch {
-      alert(t("강제청산 중 오류가 발생했습니다."));
+      setActionNotice(t("강제청산 중 오류가 발생했습니다."));
     }
   };
   const { data: trackedPriceSnapshots } = useStockPrices(trackedSymbolsList, {
@@ -549,7 +562,7 @@ export default function VirtualAccountDetailPage() {
       });
       void refreshVirtualAccountOverviewCache({ force: true });
     } catch {
-      alert(t("저장된 전략을 확인하지 못했습니다."));
+      setActionNotice(t("저장된 전략을 확인하지 못했습니다."));
     } finally {
       setIsCheckingAutoTradingStrategy(false);
     }
@@ -569,7 +582,7 @@ export default function VirtualAccountDetailPage() {
 
       setIsStrategyReplaceOpen(true);
     } catch {
-      alert(t("저장된 전략을 확인하지 못했습니다."));
+      setActionNotice(t("저장된 전략을 확인하지 못했습니다."));
     }
   };
 
@@ -584,7 +597,8 @@ export default function VirtualAccountDetailPage() {
       if (response.ok) { const data = await response.json(); stockName = data.name || stockName; }
     } catch {}
     const result = await executeTrade(accountId, transactionType, selectedSymbol, stockName, qty, prc);
-    if (!result.success) { alert(result.error ?? t("거래에 실패했습니다.")); return; }
+    if (!result.success) { setActionNotice(result.error ?? t("거래에 실패했습니다.")); return; }
+    setActionNotice(null);
     setSelectedSymbol(""); setQuantity(""); setPrice(""); setSelectedOrderPrice(undefined);
     await loadAccountData();
     if (transactionType === "buy") {
@@ -639,9 +653,9 @@ export default function VirtualAccountDetailPage() {
         <div
           role="status"
           aria-label={t("가상계좌 상세 불러오는 중")}
-          className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] items-center justify-center"
+          className="flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] items-center justify-center"
         >
-          <Spinner size={32} className="animate-spin text-gray-500" aria-hidden="true" />
+          <Spinner size={32} className="animate-spin motion-reduce:animate-none text-gray-500" aria-hidden="true" />
         </div>
       </DashboardLayout>
     );
@@ -667,8 +681,25 @@ export default function VirtualAccountDetailPage() {
 
   return (
     <DashboardLayout userName={t("사용자")}>
-      <div className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] w-full min-w-0 flex-col">
+      {confirmDialog}
+      <div className="flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] w-full min-w-0 flex-col">
         <div className="flex-1">
+        {actionNotice && (
+          <div
+            role="alert"
+            className="mb-1 flex items-center justify-between gap-3 border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-400"
+          >
+            <span>{actionNotice}</span>
+            <button
+              type="button"
+              onClick={() => setActionNotice(null)}
+              aria-label={t("닫기")}
+              className="rounded-md px-2 py-1 text-xs font-black text-red-300 hover:bg-red-500/10"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* ── 주문 패널 ── */}
         {shouldShowOrderPage && (
@@ -685,7 +716,7 @@ export default function VirtualAccountDetailPage() {
                   </div>
                   <button
                     onClick={() => { setSelectedSymbol(""); setShowOrderPage(false); }}
-                    className="text-xs font-bold text-blue-500 hover:text-blue-400 transition-colors duration-200"
+                    className="text-xs font-bold text-[var(--text-label)] hover:text-white transition-colors duration-200"
                   >
                     {t("← 돌아가기")}
                   </button>
@@ -806,8 +837,8 @@ export default function VirtualAccountDetailPage() {
                         disabled={!selectedSymbol || !quantity || !price}
                         className={`w-full px-4 py-3 rounded-xl text-sm font-bold text-white transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
                           transactionType === "buy"
-                            ? "bg-gradient-to-r from-blue-600 to-blue-500 hover:shadow-[0_0_15px_rgba(59,130,246,0.4)]"
-                            : "bg-gradient-to-r from-red-600 to-red-500 hover:shadow-[0_0_15px_rgba(239,68,68,0.4)]"
+                            ? "bg-[var(--main-red)] hover:bg-red-500 active:translate-y-[1px]"
+                            : "bg-[var(--main-blue)] hover:bg-blue-500 active:translate-y-[1px]"
                         }`}
                       >
                         {paymentType === "cash" ? t("현금") : t("신용")}{transactionType === "buy" ? t("매수") : t("매도")}
@@ -1012,7 +1043,7 @@ export default function VirtualAccountDetailPage() {
                       {/* 테이블 헤더 */}
                       <div className="grid grid-cols-[1fr_80px_72px_80px_52px_24px] gap-x-3 px-1 mb-1 shrink-0">
                         {["종목", "현재가", "등락률", "거래량", "상태", ""].map((h) => (
-                          <span key={h} className={`text-xs font-bold uppercase tracking-widest text-gray-600 ${h === "현재가" || h === "등락률" || h === "거래량" ? "text-right" : h === "상태" ? "text-center" : ""}`}>
+                          <span key={h} className={`text-xs font-bold uppercase tracking-widest text-[var(--text-label)] ${h === "현재가" || h === "등락률" || h === "거래량" ? "text-right" : h === "상태" ? "text-center" : ""}`}>
                             {t(h)}
                           </span>
                         ))}

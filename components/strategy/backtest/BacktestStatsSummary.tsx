@@ -1,8 +1,9 @@
 "use client";
 
 import { BacktestResult } from "@/types/strategy";
+import { formatKrwCompact } from "@/lib/account-money";
 import { formatProfitFactor } from "@/lib/format-profit-factor";
-import { formatCompactNumberEn, t } from "@/lib/i18n";
+import { t } from "@/lib/i18n";
 import { isUsBacktestResult } from "@/lib/us-symbols";
 
 interface Props {
@@ -30,13 +31,7 @@ function num(v: number | undefined, decimals = 2) {
   return v.toFixed(decimals);
 }
 
-function krw(v: number) {
-  const compactEn = formatCompactNumberEn(v);
-  if (compactEn !== null) return compactEn;
-  if (Math.abs(v) >= 1_0000_0000) return t("{0}억", (v / 1_0000_0000).toFixed(1));
-  if (Math.abs(v) >= 10_000) return t("{0}만", (v / 10_000).toFixed(0));
-  return v.toLocaleString();
-}
+const krw = (v: number) => formatKrwCompact(v);
 
 // 미국 전략 금액 — 달러 축약(K/M/B). 시뮬레이션이 달러로 돌았으므로 원화 축약이 거짓이 된다.
 function usd(v: number) {
@@ -118,12 +113,12 @@ export default function BacktestStatsSummary({ result }: Props) {
         {
           label: t("최대낙폭 (MDD)"),
           value: `${result.maxDrawdown.toFixed(2)}%`,
-          color: result.maxDrawdown > -20 ? "text-emerald-400" : result.maxDrawdown > -30 ? "text-yellow-400" : "text-red-400",
+          color: "text-gray-200",
         },
         {
           label: t("연간 변동성"),
           value: `${volatility.toFixed(2)}%`,
-          color: volatility < 15 ? "text-emerald-400" : volatility < 25 ? "text-yellow-400" : "text-red-400",
+          color: "text-gray-200",
         },
         {
           label: t("칼마 비율"),
@@ -133,12 +128,12 @@ export default function BacktestStatsSummary({ result }: Props) {
         {
           label: t("샤프 지수"),
           value: num(result.sharpe),
-          color: result.sharpe >= 1.5 ? "text-emerald-400" : result.sharpe >= 1 ? "text-yellow-400" : "text-red-400",
+          color: "text-gray-200",
         },
         {
           label: t("소르티노"),
           value: num(result.sortino),
-          color: result.sortino >= 2 ? "text-emerald-400" : result.sortino >= 1 ? "text-yellow-400" : "text-red-400",
+          color: "text-gray-200",
         },
         {
           label: t("켈리 기준"),
@@ -158,12 +153,12 @@ export default function BacktestStatsSummary({ result }: Props) {
         {
           label: t("승률"),
           value: `${result.winRate.toFixed(1)}%`,
-          color: result.winRate >= 55 ? "text-emerald-400" : result.winRate >= 50 ? "text-yellow-400" : "text-red-400",
+          color: "text-gray-200",
         },
         {
           label: t("손익비"),
           value: formatProfitFactor(result.profitFactor),
-          color: (result.profitFactor ?? Infinity) >= 2 ? "text-emerald-400" : (result.profitFactor ?? Infinity) >= 1.5 ? "text-yellow-400" : "text-red-400",
+          color: "text-gray-200",
         },
         {
           label: t("평균 수익"),
@@ -190,9 +185,9 @@ export default function BacktestStatsSummary({ result }: Props) {
   return (
     <div
       data-testid="backtest-stats-summary"
-      className="mb-4 rounded-2xl border border-white/5 bg-[#0d0d0d] px-3 py-4 sm:px-4 lg:px-5"
+      className="mb-4 rounded-2xl border border-white/5 bg-[var(--background)] px-3 py-4 sm:px-4 lg:px-5"
     >
-      <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-3">
+      <p className="text-xs font-bold uppercase tracking-widest text-[var(--text-label)] mb-3">
         {t("상세 통계 요약")}
       </p>
       <div
@@ -211,7 +206,7 @@ export default function BacktestStatsSummary({ result }: Props) {
             <div className="space-y-1.5">
               {group.items.map((item) => (
                 <div key={item.label} className="flex items-center justify-between gap-2">
-                  <span className="text-xs text-gray-600 shrink-0">{item.label}</span>
+                  <span className="text-xs text-[var(--text-label)] shrink-0">{item.label}</span>
                   <span className={`text-xs font-bold font-mono tabular-nums ${item.color ?? "text-gray-300"}`}>
                     {item.value}
                   </span>

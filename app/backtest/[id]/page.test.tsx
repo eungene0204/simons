@@ -258,7 +258,7 @@ describe("BacktestDetailPage", () => {
 
     const message = await screen.findByText("기록을 찾을 수 없습니다.");
     expect(message.parentElement).toHaveClass(
-      "min-h-[calc(100vh-var(--top-menu-bar-height,76px))]",
+      "min-h-[calc(100dvh-var(--top-menu-bar-height,76px))]",
       "justify-center",
       "text-center"
     );
@@ -278,7 +278,7 @@ describe("BacktestDetailPage", () => {
 
     const message = await screen.findByText("이 기록에는 상세 결과가 저장되어 있지 않습니다.");
     expect(message.parentElement).toHaveClass(
-      "min-h-[calc(100vh-var(--top-menu-bar-height,76px))]",
+      "min-h-[calc(100dvh-var(--top-menu-bar-height,76px))]",
       "justify-center",
       "text-center"
     );

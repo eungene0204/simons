@@ -51,7 +51,7 @@ export default function SaveValidationButton({
             : "border-white/15 bg-white/[0.04] text-gray-200 hover:bg-white/[0.08]"
       }`}
     >
-      {state === "saving" && <Spinner className="h-4 w-4 animate-spin" />}
+      {state === "saving" && <Spinner className="h-4 w-4 animate-spin motion-reduce:animate-none" />}
       {state === "saved" && <Check className="h-4 w-4" weight="bold" />}
       {state === "error" && <WarningCircle className="h-4 w-4" weight="bold" />}
       {state === "idle" && <FloppyDisk className="h-4 w-4" weight="bold" />}

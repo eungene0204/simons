@@ -218,7 +218,7 @@ export default function StockSearchModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm px-4 py-6">
-      <div className="flex w-full max-w-2xl max-h-[86vh] flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0f0f10] shadow-2xl shadow-black/40">
+      <div className="flex w-full max-w-2xl max-h-[86vh] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f0f10] shadow-2xl shadow-black/40">
         {/* Header */}
         <div className="border-b border-white/[0.08] bg-white/[0.02] px-5 py-4">
           <div className="flex items-start justify-between gap-4">

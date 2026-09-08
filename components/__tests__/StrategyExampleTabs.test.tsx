@@ -47,8 +47,8 @@ describe("StrategyExampleTabs", () => {
     expect(usageNotice.querySelector("p")).toHaveClass("max-w-5xl");
 
     const categoryBadge = within(screen.getAllByTestId("strategy-example-card")[0]).getByText("기술분석");
-    expect(categoryBadge.className).toContain("bg-black");
-    expect(categoryBadge.className).toContain("text-sky-300");
+    expect(categoryBadge.className).toContain("bg-white/[0.06]");
+    expect(categoryBadge.className).toContain("text-gray-300");
     expect(categoryBadge.className).not.toContain("border");
   });
 
@@ -75,7 +75,7 @@ describe("StrategyExampleTabs", () => {
     expect(screen.getByRole("link", { name: "전체 보기" })).toBeInTheDocument();
   });
 
-  it("선택된 탭 버튼은 main-blue 배경을 사용한다", async () => {
+  it("선택된 탭 버튼은 중립 면(bg-white/[0.12])으로 표시한다 — 파랑은 하락 의미색이라 장식에 쓰지 않는다", async () => {
     const onSelectExample = vi.fn();
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -86,7 +86,8 @@ describe("StrategyExampleTabs", () => {
     render(<StrategyExampleTabs onSelectExample={onSelectExample} />);
 
     const examplesTab = screen.getByRole("button", { name: "백테스트 예시" });
-    expect(examplesTab.className).toContain("bg-[var(--main-blue)]");
+    expect(examplesTab.className).toContain("bg-white/[0.12]");
+    expect(examplesTab.className).not.toContain("main-blue");
     expect(examplesTab.className).toContain("text-white");
 
     await act(async () => {
@@ -94,7 +95,7 @@ describe("StrategyExampleTabs", () => {
     });
 
     const myStrategiesTab = screen.getByRole("button", { name: "내 전략" });
-    expect(myStrategiesTab.className).toContain("bg-[var(--main-blue)]");
+    expect(myStrategiesTab.className).toContain("bg-white/[0.12]");
     expect(myStrategiesTab.className).toContain("text-white");
   });
 
@@ -223,7 +224,6 @@ describe("StrategyExampleTabs", () => {
       "rounded-2xl",
       "p-4",
       "lg:max-h-none",
-      "lg:rounded-[1.75rem]",
       "lg:p-5"
     );
     expect(within(dialog).queryByText(

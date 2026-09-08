@@ -22,7 +22,7 @@ export default function HoldingsCharacteristics() {
       <h3 className="text-base sm:text-lg font-semibold text-white mb-2">
         Holdings Characteristics
       </h3>
-      <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mb-4 sm:mb-6">
+      <p className="text-xs sm:text-sm text-gray-400 mb-4 sm:mb-6">
         (This is a dummy preview)
       </p>
 
@@ -32,14 +32,14 @@ export default function HoldingsCharacteristics() {
           {holdings.map((holding) => (
             <div key={holding.type} className="space-y-1">
               <div className="flex justify-between text-xs sm:text-sm">
-                <span className="text-gray-700 dark:text-gray-300">
+                <span className="text-gray-300">
                   {holding.type}
                 </span>
                 <span className="font-medium text-white">
                   {holding.percentage}%
                 </span>
               </div>
-              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 sm:h-3">
+              <div className="w-full bg-gray-700 rounded-full h-2 sm:h-3">
                 <div
                   className={`${holding.color} h-2 sm:h-3 rounded-full`}
                   style={{ width: `${holding.percentage}%` }}
@@ -49,7 +49,7 @@ export default function HoldingsCharacteristics() {
           ))}
           <div className="pt-2 border-t border-gray-800">
             <div className="flex justify-between text-xs sm:text-sm">
-              <span className="text-blue-500 dark:text-blue-400 font-medium">
+              <span className="text-blue-400 font-medium">
                 Verified Holdings
               </span>
               <span className="font-medium text-white">
@@ -84,10 +84,10 @@ export default function HoldingsCharacteristics() {
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-[10px] sm:text-xs font-medium text-red-600 dark:text-red-400">
+              <span className="text-[10px] sm:text-xs font-medium text-red-400">
                 Fake: {fakeHoldings}%
               </span>
-              <span className="text-xs sm:text-sm font-bold text-blue-500 dark:text-blue-400">
+              <span className="text-xs sm:text-sm font-bold text-blue-400">
                 Real: {realHoldings}%
               </span>
             </div>
@@ -96,10 +96,10 @@ export default function HoldingsCharacteristics() {
       </div>
 
       <div className="mt-4 sm:mt-6 flex flex-wrap gap-2">
-        <button className="px-3 sm:px-4 py-1.5 sm:py-2 bg-blue-100 dark:bg-blue-800 text-blue-500 dark:text-blue-400 rounded-lg font-medium text-xs sm:text-sm">
+        <button className="px-3 sm:px-4 py-1.5 sm:py-2 bg-blue-800 text-blue-400 rounded-lg font-medium text-xs sm:text-sm">
           Holdings
         </button>
-        <button className="px-3 sm:px-4 py-1.5 sm:py-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg font-medium text-xs sm:text-sm hover:bg-gray-200 dark:hover:bg-gray-600">
+        <button className="px-3 sm:px-4 py-1.5 sm:py-2 bg-gray-700 text-gray-400 rounded-lg font-medium text-xs sm:text-sm hover:bg-gray-600">
           Watchlist
         </button>
       </div>

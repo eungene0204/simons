@@ -43,8 +43,7 @@ describe("XAIModal responsive layout", () => {
     expect(screen.getByRole("dialog", { name: "AI 의사결정 분석 (XAI)" })).toHaveClass(
       "max-h-[calc(100dvh-1rem)]",
       "rounded-2xl",
-      "lg:max-h-[75vh]",
-      "lg:rounded-3xl"
+      "lg:max-h-[75vh]"
     );
 
     await waitFor(() => expect(screen.getByText("시계열 특징 기여도 (SHAP Heatmap)")).toBeInTheDocument());

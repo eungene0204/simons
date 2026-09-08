@@ -241,7 +241,7 @@ export function TermsOfServicePage() {
   ];
 
   return (
-    <main className="min-h-screen bg-[#0f0f0f] text-white">
+    <main className="min-h-[100dvh] bg-[var(--background)] text-white">
       <section className="border-b border-white/[0.08] px-6 py-12">
         <div className="mx-auto max-w-4xl">
           <Link

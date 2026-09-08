@@ -14,7 +14,7 @@ export default async function StockDetailPage({
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[100dvh] flex items-center justify-center">
         <p className="text-gray-500">{t("로그인이 필요합니다.")}</p>
       </div>
     );

@@ -35,12 +35,12 @@ export default function QualityGauge({
   const offset = circumference - (score / 100) * circumference;
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+    <div className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-700">
       <div className="text-center mb-4 sm:mb-6">
-        <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 dark:text-white mb-1 sm:mb-2">
+        <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-white mb-1 sm:mb-2">
           {title}
         </h2>
-        <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400">{subtitle}</p>
+        <p className="text-sm sm:text-base text-gray-400">{subtitle}</p>
       </div>
 
       <div className="flex justify-center mb-4 sm:mb-6">
@@ -60,7 +60,7 @@ export default function QualityGauge({
               fill="none"
               stroke="#e5e7eb"
               strokeWidth="12"
-              className="dark:stroke-gray-600"
+              className="stroke-gray-600"
             />
             {/* Colored segments */}
             <circle
@@ -113,10 +113,10 @@ export default function QualityGauge({
       </div>
 
       <div className="text-center">
-        <p className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
+        <p className="text-xs sm:text-sm font-medium text-gray-300">
           Portfolio Quality Score
         </p>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+        <p className="text-xs text-gray-400 mt-1">
           {t("Analyzed by 널스탁")}
         </p>
       </div>

@@ -147,15 +147,15 @@ export default function StockDetail({ symbol }: { symbol: string }) {
 
   if (loading) {
     return (
-      <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/4"></div>
-          <div className="h-32 bg-gray-200 dark:bg-gray-700 rounded"></div>
+      <div className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-700">
+        <div className="animate-pulse motion-reduce:animate-none space-y-4">
+          <div className="h-8 bg-gray-700 rounded w-1/4"></div>
+          <div className="h-32 bg-gray-700 rounded"></div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[...Array(8)].map((_, i) => (
               <div
                 key={i}
-                className="h-20 bg-gray-200 dark:bg-gray-700 rounded"
+                className="h-20 bg-gray-700 rounded"
               ></div>
             ))}
           </div>
@@ -166,9 +166,9 @@ export default function StockDetail({ symbol }: { symbol: string }) {
 
   if (!detail) {
     return (
-      <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+      <div className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-700">
         <div className="text-center py-12">
-          <p className="text-gray-500 dark:text-gray-400">
+          <p className="text-gray-400">
             {t("종목 정보를 불러올 수 없습니다.")}
           </p>
         </div>
@@ -177,18 +177,18 @@ export default function StockDetail({ symbol }: { symbol: string }) {
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-3 sm:p-4 rounded-lg shadow-sm border-t border-x border-gray-200 dark:border-gray-700">
+    <div className="bg-gray-800 p-3 sm:p-4 rounded-lg shadow-sm border-t border-x border-gray-700">
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
         <button
           onClick={() => router.back()}
-          className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          className="p-1.5 hover:bg-gray-700 rounded-lg transition-colors"
         >
-          <ArrowLeft size={16} className="text-gray-600 dark:text-gray-400" />
+          <ArrowLeft size={16} className="text-gray-400" />
         </button>
         <div className="flex items-center gap-2 flex-1">
           {/* Company Logo Placeholder */}
-          <div className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center flex-shrink-0">
+          <div className="w-9 h-9 rounded-full bg-gray-700 flex items-center justify-center flex-shrink-0">
             {detail.logo ? (
               <img
                 src={detail.logo}
@@ -196,16 +196,16 @@ export default function StockDetail({ symbol }: { symbol: string }) {
                 className="w-9 h-9 rounded-full object-cover"
               />
             ) : (
-              <span className="text-sm font-semibold text-gray-600 dark:text-gray-400">
+              <span className="text-sm font-semibold text-gray-400">
                 {detail.name.charAt(0)}
               </span>
             )}
           </div>
           <div>
-            <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
+            <h1 className="text-lg sm:text-xl font-bold text-white">
               {detail.name}
             </h1>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-gray-400">
               {detail.symbol} · {detail.sector} · {detail.industry}
             </p>
           </div>
@@ -213,19 +213,19 @@ export default function StockDetail({ symbol }: { symbol: string }) {
       </div>
 
       {/* Price Section */}
-      <div className="mb-4 px-4 py-2 bg-gray-50 dark:bg-gray-900 rounded-lg">
+      <div className="mb-4 px-4 py-2 bg-gray-900 rounded-lg">
         <div className="flex items-end gap-3 mb-3">
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">
+            <p className="text-xs text-gray-400 mb-0.5">
               {t("현재가")}
             </p>
             <p
               className={`text-2xl sm:text-3xl font-bold ${
                 detail.changePercent >= 0
-                  ? "text-red-600 dark:text-red-400"
+                  ? "text-red-400"
                   : detail.changePercent < 0
-                  ? "text-blue-600 dark:text-blue-400"
-                  : "text-gray-900 dark:text-white"
+                  ? "text-blue-400"
+                  : "text-white"
               }`}
             >
               {formatPrice(detail.currentPrice)}
@@ -233,17 +233,17 @@ export default function StockDetail({ symbol }: { symbol: string }) {
           </div>
           <div className="flex items-center gap-1.5 mb-1.5">
             {detail.changePercent > 0 ? (
-              <CaretUp size={16} weight="fill" className="text-red-600 dark:text-red-400" />
+              <CaretUp size={16} weight="fill" className="text-red-400" />
             ) : detail.changePercent < 0 ? (
-              <CaretDown size={16} weight="fill" className="text-blue-600 dark:text-blue-400" />
+              <CaretDown size={16} weight="fill" className="text-blue-400" />
             ) : null}
             <span
               className={`text-base font-semibold ${
                 detail.changePercent > 0
-                  ? "text-red-600 dark:text-red-400"
+                  ? "text-red-400"
                   : detail.changePercent < 0
-                  ? "text-blue-600 dark:text-blue-400"
-                  : "text-gray-900 dark:text-white"
+                  ? "text-blue-400"
+                  : "text-white"
               }`}
             >
               {detail.changePercent >= 0 ? "+" : ""}
@@ -252,10 +252,10 @@ export default function StockDetail({ symbol }: { symbol: string }) {
             <span
               className={`text-base font-semibold ${
                 detail.change >= 0
-                  ? "text-red-600 dark:text-red-400"
+                  ? "text-red-400"
                   : detail.change < 0
-                  ? "text-blue-500 dark:text-blue-400"
-                  : "text-gray-900 dark:text-white"
+                  ? "text-blue-400"
+                  : "text-white"
               }`}
             >
               ({detail.change >= 0 ? "+" : ""}

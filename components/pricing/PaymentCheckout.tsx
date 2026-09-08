@@ -115,7 +115,7 @@ export default function PaymentCheckout({ planId, onClose }: PaymentCheckoutProp
       aria-label={t("{0} 플랜 구독 결제", plan.name)}
     >
       <div
-        className="max-h-full w-full max-w-lg overflow-y-auto rounded-3xl border border-white/[0.08] bg-[#0a0a0a] p-6 text-white sm:p-8"
+        className="max-h-full w-full max-w-lg overflow-y-auto rounded-2xl border border-white/[0.08] bg-[var(--background)] p-6 text-white sm:p-8"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
@@ -135,22 +135,22 @@ export default function PaymentCheckout({ planId, onClose }: PaymentCheckoutProp
         </div>
 
         {/* 자동 갱신 결제 조건 고지 — 결제 전 화면 고지(약관 제12조 1·7항) */}
-        <div className="mt-6 rounded-3xl border border-white/[0.08] bg-[#050505] p-6">
+        <div className="mt-6 rounded-2xl border border-white/[0.08] bg-[var(--background)] p-6">
           <dl className="space-y-3 text-sm font-bold">
             <div className="flex justify-between">
-              <dt className="text-gray-500">{t("상품")}</dt>
+              <dt className="text-[var(--text-label)]">{t("상품")}</dt>
               <dd className="text-white">{t("{0} 플랜", plan.name)}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-gray-500">{t("결제 금액")}</dt>
+              <dt className="text-[var(--text-label)]">{t("결제 금액")}</dt>
               <dd className="text-white">{t("월 ₩{0} (VAT 포함)", plan.monthlyPrice.toLocaleString("ko-KR"))}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-gray-500">{t("결제 방식")}</dt>
+              <dt className="text-[var(--text-label)]">{t("결제 방식")}</dt>
               <dd className="text-white">{t("신용·체크카드 자동결제 (매월 갱신)")}</dd>
             </div>
           </dl>
-          <ul className="mt-5 space-y-1.5 border-t border-white/[0.08] pt-4 text-xs font-bold leading-relaxed text-gray-500">
+          <ul className="mt-5 space-y-1.5 border-t border-white/[0.08] pt-4 text-xs font-bold leading-relaxed text-[var(--text-label)]">
             <li>{t("· 환불 조건은 이용약관 제12조(환불 정책)를 따릅니다.")}</li>
             {error ? <li className="text-center text-[var(--main-red)]">{error}</li> : null}
           </ul>
@@ -160,7 +160,7 @@ export default function PaymentCheckout({ planId, onClose }: PaymentCheckoutProp
           <button
             type="button"
             onClick={onClose}
-            className="flex w-24 items-center justify-center rounded-lg border border-white/[0.12] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-white/[0.06]"
+            className="flex w-24 items-center justify-center rounded-xl border border-white/[0.12] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-white/[0.06]"
           >
             {t("취소")}
           </button>
@@ -168,7 +168,7 @@ export default function PaymentCheckout({ planId, onClose }: PaymentCheckoutProp
             type="button"
             disabled={!payment || !order || requesting}
             onClick={() => void handleRegisterCard()}
-            className="flex w-24 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-black text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex w-24 items-center justify-center gap-1.5 rounded-xl bg-[var(--chat-accent)] px-4 py-2 text-xs font-black text-[var(--chat-accent-ink)] transition-colors hover:brightness-110 active:translate-y-[1px] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <CreditCard size={14} weight="bold" />
             {requesting ? t("카드 등록창 여는 중...") : t("결제하기")}

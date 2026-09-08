@@ -24,7 +24,7 @@ export default function TradeList({
   return (
     <div className="flex flex-col">
       <div className="px-3 pt-0 pb-2">
-        <div className="text-sm text-gray-700 dark:text-gray-300">
+        <div className="text-sm text-gray-300">
           {t("체결강도: ")}<span className={`tabular-nums ${tradeStrength !== null && tradeStrength >= 100 ? "text-red-400" : "text-blue-400"}`}>
             {tradeStrength !== null ? `${tradeStrength.toFixed(2)}%` : "-"}
           </span>

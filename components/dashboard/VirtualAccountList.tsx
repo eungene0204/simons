@@ -1,18 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatKrwCompact } from "@/lib/account-money";
 import { useRouter } from "next/navigation";
 import type { VirtualAccountListData } from "@/app/api/dashboard/virtual-account-list/route";
 import { t } from "@/lib/i18n";
 import { useRegionHref } from "@/lib/geo/useRegion";
 
-function formatKRW(v: number): string {
-  const abs = Math.abs(v);
-  const sign = v < 0 ? "-" : v > 0 ? "+" : "";
-  if (abs >= 100_000_000) return t("{0}{1}억", sign, (abs / 100_000_000).toFixed(1));
-  if (abs >= 10_000) return t("{0}{1}만", sign, Math.round(abs / 10_000).toLocaleString());
-  return `${sign}${abs.toLocaleString("ko-KR")}`;
-}
+const formatKRW = (v: number): string => formatKrwCompact(v, { signed: true });
 
 function fmtPct(v: number): string {
   return `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
@@ -99,7 +94,7 @@ export default function VirtualAccountList({ initialData }: { initialData: Virtu
           {[...Array(4)].map((_, i) => (
             <div
               key={i}
-              className="h-11 bg-white/[0.03] rounded-xl animate-pulse"
+              className="h-11 bg-white/[0.03] rounded-xl animate-pulse motion-reduce:animate-none"
             />
           ))}
         </div>

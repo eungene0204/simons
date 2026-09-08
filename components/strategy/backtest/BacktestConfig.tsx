@@ -193,7 +193,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
   };
 
   return (
-    <div className="w-full h-full flex flex-col lg:flex-row bg-[#0a0a0a] animate-in fade-in duration-500">
+    <div className="w-full h-full flex flex-col lg:flex-row bg-[var(--background)] animate-in fade-in duration-500">
       
       {/* =========================================================
           Left Column: Functional Inputs (Simulation Parameters)
@@ -250,7 +250,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                       min={BACKTEST_DATA_FLOOR_DATE}
                       max={dataCeiling}
                       onChange={(e) => setStartDate(e.target.value)}
-                      className="bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-main-blue transition-all"
+                      className="bg-[var(--background)] border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-main-blue transition-all"
                     />
                   </div>
                   <div className="flex-1 space-y-1">
@@ -261,7 +261,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
                       min={BACKTEST_DATA_FLOOR_DATE}
                       max={dataCeiling}
                       onChange={(e) => setEndDate(e.target.value)}
-                      className="bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-main-blue transition-all"
+                      className="bg-[var(--background)] border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-bold w-full outline-none focus:border-main-blue transition-all"
                     />
                   </div>
                 </div>
@@ -610,7 +610,7 @@ export default function BacktestConfig({ onRun, isRunning, initialConfig, summar
             >
               {isRunning ? (
                 <>
-                  <ArrowsClockwise className="w-6 h-6 animate-spin" />
+                  <ArrowsClockwise className="w-6 h-6 animate-spin motion-reduce:animate-none" />
                   <span>{t("시뮬레이션 분석 중...")}</span>
                 </>
               ) : (

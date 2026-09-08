@@ -41,7 +41,7 @@ describe("HomePage", () => {
     expect(screen.getByRole("heading", { name: "제20조 (분쟁 해결 및 준거법)" })).toBeInTheDocument();
     expect(screen.getByText(/유료 기능을 단 한 번도 이용하지 않은 경우에는/)).toBeInTheDocument();
     expect(screen.getByText(/영업일 기준 3~7일 이내/)).toBeInTheDocument();
-    expect(container.querySelector("main")).toHaveClass("bg-[#0f0f0f]", "text-white");
+    expect(container.querySelector("main")).toHaveClass("bg-[var(--background)]", "text-white");
   });
 
   it("renders 널스탁 privacy policy when the legal query is privacy", () => {
@@ -59,6 +59,6 @@ describe("HomePage", () => {
     expect(screen.getByText(/AI 모델 학습에 사용하지 않습니다/)).toBeInTheDocument();
     expect(screen.getByText(/만 14세 미만 아동의 회원가입을 허용하지 않으며/)).toBeInTheDocument();
     expect(screen.getByText(/투자 추천, 종목 추천, 포트폴리오 추천/)).toBeInTheDocument();
-    expect(container.querySelector("main")).toHaveClass("bg-[#0f0f0f]", "text-white");
+    expect(container.querySelector("main")).toHaveClass("bg-[var(--background)]", "text-white");
   });
 });

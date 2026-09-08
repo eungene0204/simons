@@ -84,8 +84,10 @@ body {
   outline: none;
 }
 
+/* 포커스 링은 배경 대비 3:1 이상(WCAG 2.2 non-text) — #4b5563은 2.5:1이라 키보드 사용자에게
+   거의 보이지 않았다(2026-09-08). #9ca3af = 7.6:1 */
 *:focus-visible {
-  outline: 2px solid #4b5563;
+  outline: 2px solid #9ca3af;
   outline-offset: 2px;
 }
 
@@ -159,6 +161,11 @@ body {
 
 .animate-fade-in-up {
   animation: fadeInUp 0.4s ease-out;
+}
+
+/* 모달 진입 — 인라인 style={{ animation }}은 감속 설정을 무시하므로 클래스로 둔다(§9) */
+.modal-enter {
+  animation: fadeInUp 720ms cubic-bezier(0.19, 1, 0.22, 1) both;
 }
 
 .animate-fade-in {
@@ -528,7 +535,31 @@ input[type=number] {
   animation-delay: calc(var(--char-index) * 38ms);
 }
 
+/* 소프트 키보드·홈 인디케이터 위에 머무는 하단 고정 요소(대화 입력 바·되묻기 카드).
+   --kb-inset은 components/layout/VisualViewportInset.tsx가 기록한다. */
+.dock-bottom {
+  bottom: calc(1rem + env(safe-area-inset-bottom, 0px) + var(--kb-inset, 0px));
+}
+
 @media (prefers-reduced-motion: reduce) {
+  /* 전 페이지 진입 연출·무한 반복 연출도 감속 설정을 따른다(2026-09-08 — 대화 표면 클래스만
+     등록돼 있어 body의 .page-transition, marquee, animate-fade-in/slide-* 계열이 빠져 있었다) */
+  .page-transition,
+  .page-transition-enter,
+  .page-transition-enter-active,
+  .animate-marquee,
+  .animate-fade-in,
+  .animate-fade-in-up,
+  .animate-slide-in,
+  .animate-slide-up,
+  .animate-slide-in-right,
+  .modal-enter {
+    animation: none;
+    transition: none;
+    opacity: 1;
+    transform: none;
+  }
+
   .animate-dot-fill,
   .chat-enter,
   .chat-enter-late,

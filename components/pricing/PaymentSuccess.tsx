@@ -71,11 +71,11 @@ export default function PaymentSuccess({ authKey, customerKey, orderId }: Paymen
   }, [authKey, customerKey, orderId]);
 
   return (
-    <div className="mx-auto w-full max-w-xl rounded-3xl border border-white/[0.08] bg-[#0a0a0a] px-8 py-12 text-center">
+    <div className="mx-auto w-full max-w-xl rounded-2xl border border-white/[0.08] bg-[var(--background)] px-8 py-12 text-center">
       {status === "confirming" ? (
         <>
           <h1 className="text-2xl font-black tracking-tight text-white">{t("결제 승인 중...")}</h1>
-          <p className="mt-3 text-sm font-bold text-gray-500">
+          <p className="mt-3 text-sm font-bold text-[var(--text-label)]">
             {t("결제를 확정하고 있습니다. 잠시만 기다려주세요.")}
           </p>
         </>
@@ -98,7 +98,7 @@ export default function PaymentSuccess({ authKey, customerKey, orderId }: Paymen
             </Link>
             <Link
               href="/dashboard"
-              className="rounded-2xl bg-blue-600 px-6 py-3 text-sm font-black text-white hover:bg-blue-500"
+              className="rounded-xl bg-[var(--chat-accent)] px-6 py-3 text-sm font-black text-[var(--chat-accent-ink)] transition-colors hover:brightness-110 active:translate-y-[1px]"
             >
               {t("대시보드로 이동")}
             </Link>

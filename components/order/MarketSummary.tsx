@@ -20,7 +20,7 @@ interface MarketSummaryProps {
 function StatItem({
   label,
   value,
-  valueClass = "text-gray-900 dark:text-white",
+  valueClass = "text-white",
 }: {
   label: string;
   value: string;
@@ -28,7 +28,7 @@ function StatItem({
 }) {
   return (
     <div className="min-w-0 px-3 py-[4px]">
-      <span className="text-gray-500 dark:text-gray-400 text-[10px] tracking-wider leading-tight">
+      <span className="text-gray-400 text-[10px] tracking-wider leading-tight">
         {label}
       </span>
       <span className={`${valueClass} block truncate text-[11px] tabular-nums tracking-wider leading-tight font-medium`}>
@@ -69,7 +69,7 @@ export default function MarketSummary({
         <StatItem
           label={t("어제 대비")}
           value={`${yesterdayRatio >= 0 ? "+" : ""}${yesterdayRatio.toFixed(2)}%`}
-          valueClass={yesterdayRatio > 0 ? "text-red-400" : yesterdayRatio < 0 ? "text-blue-400" : "text-gray-900 dark:text-white"}
+          valueClass={yesterdayRatio > 0 ? "text-red-400" : yesterdayRatio < 0 ? "text-blue-400" : "text-white"}
         />
       </div>
     </div>

@@ -31,14 +31,14 @@ export default async function PaymentFailPage({
   getRequestLanguage();
   return (
     <DashboardLayout userName={user.name || t("게스트")}>
-      <div className="flex min-h-[calc(100vh-var(--top-menu-bar-height,76px))] items-center bg-[#050505] px-5 py-10 text-white sm:px-8 lg:px-10">
-        <div className="mx-auto w-full max-w-xl rounded-3xl border border-white/[0.08] bg-[#0a0a0a] px-8 py-12 text-center">
+      <div className="flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] items-center bg-[var(--background)] px-5 py-10 text-white sm:px-8 lg:px-10">
+        <div className="mx-auto w-full max-w-xl rounded-2xl border border-white/[0.08] bg-[var(--background)] px-8 py-12 text-center">
           <h1 className="text-2xl font-black tracking-tight text-[var(--main-red)]">
             {t("결제하지 못했습니다")}
           </h1>
           <p className="mt-3 text-sm font-bold text-gray-400">{message}</p>
           {code ? (
-            <p className="mt-2 text-xs font-bold text-gray-600">{t("오류 코드: {0}", code)}</p>
+            <p className="mt-2 text-xs font-bold text-[var(--text-label)]">{t("오류 코드: {0}", code)}</p>
           ) : null}
           <Link
             href="/pricing"

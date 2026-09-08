@@ -980,12 +980,12 @@ describe("WalkForwardModal", () => {
           onRun={vi.fn()}
           backtestDates={buildDates(240)}
           baseStrategy={baseStrategy}
-          maxHeightClass="max-h-[calc(100vh-9rem)]"
+          maxHeightClass="max-h-[calc(100dvh-9rem)]"
         />
       )
     );
     const modalBody = screen.getByRole("button", { name: /워크포워드 분석 시작/ }).parentElement!
       .previousElementSibling as HTMLElement;
-    expect(modalBody.className).toMatch(/max-h-\[calc\(100vh-9rem\)\] overflow-y-auto/);
+    expect(modalBody.className).toMatch(/max-h-\[calc\(100dvh-9rem\)\] overflow-y-auto/);
   });
 });

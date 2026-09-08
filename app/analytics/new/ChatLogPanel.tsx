@@ -114,7 +114,7 @@ export function ChatLogPanel(props: ChatLogPanelProps) {
             role="dialog"
             aria-modal="true"
             aria-label={t("대화 기록")}
-            className="absolute inset-y-0 left-0 flex w-[min(86vw,320px)] flex-col bg-[#050505] shadow-2xl shadow-black/60"
+            className="absolute inset-y-0 left-0 flex w-[min(86vw,320px)] flex-col bg-[var(--background)] shadow-2xl shadow-black/60"
           >
             <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-4">
               <span className="text-sm font-black tracking-tight text-white">{t("대화 기록")}</span>

@@ -382,7 +382,7 @@ export default function ResearchTestConsole() {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-4 space-y-4 min-h-screen" style={{ background: "var(--background)", color: "var(--foreground)" }}>
+    <div className="p-4 space-y-4 min-h-[100dvh]" style={{ background: "var(--background)", color: "var(--foreground)" }}>
 
       {/* Header */}
       <div className="flex items-center gap-3 pb-2 border-b border-white/[0.08]">
@@ -512,7 +512,7 @@ export default function ResearchTestConsole() {
               className="w-full flex items-center justify-center gap-2 py-2.5 rounded font-bold text-sm bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
             >
               {isCreating ? (
-                <Spinner size={16} className="animate-spin" />
+                <Spinner size={16} className="animate-spin motion-reduce:animate-none" />
               ) : (
                 <Play size={16} weight="fill" />
               )}
@@ -678,7 +678,7 @@ export default function ResearchTestConsole() {
                   </p>
                   {isStreaming && (
                     <span className="flex items-center gap-1 text-[10px] text-sky-400 font-bold">
-                      <Spinner size={10} className="animate-spin" />
+                      <Spinner size={10} className="animate-spin motion-reduce:animate-none" />
                       LIVE
                     </span>
                   )}

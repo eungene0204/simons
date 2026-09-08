@@ -26,27 +26,27 @@ export default function StockListCard({ stock, onClick }: StockListCardProps) {
   return (
     <button
       onClick={() => onClick(stock.symbol, stock.name)}
-      className="w-full p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-500 hover:shadow-md transition-all text-left"
+      className="w-full p-3 bg-gray-800 rounded-lg border border-gray-700 hover:border-blue-500 hover:shadow-md transition-all text-left"
     >
       <div className="flex items-center justify-between">
         <div className="flex-1">
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+          <p className="text-sm font-semibold text-white">
             {stock.name}
           </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          <p className="text-xs text-gray-400 mt-0.5">
             {stock.symbol} · {stock.market}
             {stock.sector && ` · ${stock.sector}`}
           </p>
         </div>
         <div className="text-right">
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+          <p className="text-sm font-semibold text-white">
             {currentPrice > 0 ? t("{0} 원", formatPrice(currentPrice)) : "-"}
           </p>
           <p
             className={`text-xs font-medium ${
               change >= 0
-                ? "text-red-600 dark:text-red-400"
-                : "text-blue-600 dark:text-blue-400"
+                ? "text-red-400"
+                : "text-blue-400"
             }`}
           >
             {currentPrice > 0 ? (

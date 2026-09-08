@@ -159,7 +159,7 @@ describe("StrategyResultPage", () => {
       name: "전략 결과 불러오는 중",
     });
     expect(loadingIndicator).toHaveClass(
-      "min-h-[calc(100vh-var(--top-menu-bar-height,76px))]",
+      "min-h-[calc(100dvh-var(--top-menu-bar-height,76px))]",
       "items-center",
       "justify-center"
     );

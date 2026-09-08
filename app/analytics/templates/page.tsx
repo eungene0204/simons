@@ -68,7 +68,7 @@ export default function StrategyTemplatesPage() {
     <DashboardLayout userName="">
       <main
         className="px-6 py-12"
-        style={{ minHeight: "calc(100vh - var(--top-menu-bar-height, 76px))" }}
+        style={{ minHeight: "calc(100dvh - var(--top-menu-bar-height, 76px))" }}
       >
         <div
           className={`mx-auto w-full max-w-[80rem] space-y-8 ${backgroundBlurClass}`}
@@ -85,7 +85,7 @@ export default function StrategyTemplatesPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-1 rounded-[1.45rem] border border-white/[0.06] bg-[#101010] p-1 sm:grid-cols-4 lg:grid-cols-7">
+          <div className="grid grid-cols-2 gap-1 rounded-2xl border border-white/[0.06] bg-[#101010] p-1 sm:grid-cols-4 lg:grid-cols-7">
             {categoryTabs.map((category) => {
               const isActive = activeCategory === category;
               const style = category === "전체" ? null : CATEGORY_STYLE[category];
@@ -100,9 +100,9 @@ export default function StrategyTemplatesPage() {
                     setActiveCategory(category);
                     setVisibleCount(INITIAL_TEMPLATE_COUNT);
                   }}
-                  className={`h-10 rounded-[1.15rem] px-3 text-sm font-black transition-all duration-200 ${
+                  className={`h-10 rounded-xl px-3 text-sm font-black transition-all duration-200 ${
                     isActive
-                      ? "bg-[var(--main-blue)] text-white shadow-[0_14px_34px_rgba(59,130,246,0.2)]"
+                      ? "bg-white/[0.12] text-white"
                       : "text-gray-500 hover:bg-white/[0.04] hover:text-white"
                   }`}
                 >

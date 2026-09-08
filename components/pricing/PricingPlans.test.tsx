@@ -52,8 +52,9 @@ describe("PricingPlans", () => {
 
     expect(subscriptionButtons).toHaveLength(2);
     subscriptionButtons.forEach((button) => {
-      expect(button).toHaveClass("border", "border-white/[0.12]", "text-white");
-      expect(button).not.toHaveClass("bg-white", "text-black");
+      // 구독 시작 CTA는 §10 주요 버튼(강조색 채움) 하나로 통일 — 흰 채움·회색 외곽선 아님
+      expect(button).toHaveClass("bg-[var(--chat-accent)]", "text-[var(--chat-accent-ink)]", "rounded-xl");
+      expect(button).not.toHaveClass("bg-white", "text-black", "border-white/[0.12]");
     });
   });
 
@@ -97,7 +98,7 @@ describe("PricingPlans", () => {
     const proCard = screen.getByTestId("pricing-plan-card-PRO");
     const premiumCard = screen.getByTestId("pricing-plan-card-PREMIUM");
 
-    expect(within(freeCard).getByText("AI 리포트")).toHaveClass("text-gray-600");
+    expect(within(freeCard).getByText("AI 리포트")).toHaveClass("text-[var(--text-label)]");
     expect(within(proCard).getByText("AI 리포트")).toHaveClass("text-gray-200");
     expect(within(premiumCard).getByText("AI 리포트")).toHaveClass("text-gray-200");
   });
@@ -157,17 +158,17 @@ describe("PricingPlans", () => {
     vi.unstubAllGlobals();
   });
 
-  it("highlights the current plan's icon in blue", () => {
+  it("highlights the current plan's icon in the accent color", () => {
     render(<PricingPlans currentPlanId="PRO" />);
 
     const currentCard = screen.getByTestId("pricing-plan-card-PRO");
     const currentIconWrapper = currentCard.querySelector("svg")?.parentElement;
-    expect(currentIconWrapper).toHaveClass("text-blue-400");
+    expect(currentIconWrapper).toHaveClass("text-[var(--chat-accent)]");
 
     const otherCard = screen.getByTestId("pricing-plan-card-FREE");
     const otherIconWrapper = otherCard.querySelector("svg")?.parentElement;
     expect(otherIconWrapper).toHaveClass("text-white");
-    expect(otherIconWrapper).not.toHaveClass("text-blue-400");
+    expect(otherIconWrapper).not.toHaveClass("text-[var(--chat-accent)]");
   });
 
   it("자동갱신 구독 중이면 현재 플랜 카드에 다음 결제일만 보여준다", () => {

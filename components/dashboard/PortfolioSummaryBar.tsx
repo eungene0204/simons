@@ -1,19 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { formatKrwCompact } from "@/lib/account-money";
 import { Wallet, Vault, TrendUp, CurrencyKrw, ArrowUpRight, ArrowDownRight, Info, CalendarBlank } from "phosphor-react";
 import type { PortfolioStats } from "@/lib/dashboard-data";
-import { formatCompactNumberEn, t } from "@/lib/i18n";
+import { t } from "@/lib/i18n";
 
-function formatKRW(v: number): string {
-  const compactEn = formatCompactNumberEn(v);
-  if (compactEn !== null) return compactEn;
-  const abs = Math.abs(v);
-  const sign = v < 0 ? "-" : "";
-  if (abs >= 100_000_000) return t("{0}{1}억", sign, (abs / 100_000_000).toFixed(1));
-  if (abs >= 10_000) return t("{0}{1}만", sign, Math.round(abs / 10_000).toLocaleString());
-  return `${sign}${abs.toLocaleString("ko-KR")}`;
-}
+const formatKRW = (v: number): string => formatKrwCompact(v);
 
 function profitColorClass(value: number): string {
   if (value > 0) return "text-[var(--main-red)]";

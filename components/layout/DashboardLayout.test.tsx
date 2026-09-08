@@ -38,7 +38,7 @@ describe("DashboardLayout", () => {
     expect(screen.getByText("content")).toBeInTheDocument();
 
     const wrapper = container.querySelector(
-      ".relative.min-h-\\[calc\\(100vh-var\\(--top-menu-bar-height\\,76px\\)\\)\\]"
+      ".relative.min-h-\\[calc\\(100dvh-var\\(--top-menu-bar-height\\,76px\\)\\)\\]"
     );
 
     expect(wrapper).not.toBeNull();

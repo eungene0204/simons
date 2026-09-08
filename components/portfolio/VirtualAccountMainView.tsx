@@ -101,7 +101,7 @@ export default function VirtualAccountMainView() {
   if (loading) {
     return (
       <div className="p-4 md:p-5 lg:p-6 space-y-5">
-        <div className="animate-pulse space-y-5">
+        <div className="animate-pulse motion-reduce:animate-none space-y-5">
           <div className="h-32 bg-white/[0.04] rounded-2xl" />
           <div className="h-64 bg-white/[0.04] rounded-2xl" />
         </div>

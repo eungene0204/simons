@@ -82,8 +82,8 @@ describe("StrategyTemplatesPage", () => {
 
     const firstTemplateCard = screen.getByRole("button", { name: /ROE·부채비율 분기 점검/i });
     const categoryBadge = within(firstTemplateCard).getByText("가치투자");
-    expect(categoryBadge.className).toContain("bg-black");
-    expect(categoryBadge.className).toContain("text-emerald-300");
+    expect(categoryBadge.className).toContain("bg-white/[0.06]");
+    expect(categoryBadge.className).toContain("text-gray-300");
     expect(categoryBadge.className).not.toContain("border");
 
     fireEvent.click(screen.getByRole("button", { name: "기술분석 백테스트 예시 보기" }));

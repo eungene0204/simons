@@ -19,12 +19,12 @@ export default function PortfolioStats() {
       {stats.map((stat) => (
         <div
           key={stat.label}
-          className="bg-yellow-50 dark:bg-yellow-900/20 p-3 sm:p-4 rounded-lg border border-yellow-200 dark:border-yellow-800"
+          className="bg-yellow-900/20 p-3 sm:p-4 rounded-lg border border-yellow-800"
         >
-          <p className="text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+          <p className="text-[10px] sm:text-xs font-medium text-gray-400 mb-1">
             {stat.label}
           </p>
-          <p className="text-base sm:text-lg font-bold text-gray-900 dark:text-white">
+          <p className="text-base sm:text-lg font-bold text-white">
             {stat.value}
           </p>
         </div>

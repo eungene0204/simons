@@ -507,7 +507,7 @@ export default function RunAllTestsModal({
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
       <div
         data-testid="run-all-tests-modal-panel"
-        className="relative flex h-[calc(100dvh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0f0f0f] lg:h-[min(88vh,920px)]"
+        className="relative flex h-[calc(100dvh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[var(--background)] lg:h-[min(88vh,920px)]"
       >
         <div
           data-testid="run-all-tests-modal-header"
@@ -575,7 +575,7 @@ export default function RunAllTestsModal({
                       disabled={splitPromptDataset(datasetText).length === 0 || isRunning}
                       className="inline-flex items-center gap-2 rounded-xl bg-[var(--main-blue)] px-4 py-2 text-xs font-black text-white disabled:opacity-40"
                     >
-                      {isRunning ? <ArrowsClockwise size={13} className="animate-spin" /> : <Sparkle size={13} weight="fill" />}
+                      {isRunning ? <ArrowsClockwise size={13} className="animate-spin motion-reduce:animate-none" /> : <Sparkle size={13} weight="fill" />}
                       {t("모두 테스트 시작")}
                     </button>
                   </div>

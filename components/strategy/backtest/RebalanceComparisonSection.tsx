@@ -90,13 +90,13 @@ export default function RebalanceComparisonSection({ data, current }: Props) {
         <table className="w-full min-w-[720px] border-collapse" data-testid="rebalance-comparison-table">
           <thead>
             <tr>
-              <th className="py-2 pl-2 pr-4 text-left text-xs font-bold uppercase tracking-widest text-gray-600">{t("리밸런싱 주기")}</th>
-              <th className="px-3 py-2 text-right text-xs font-bold uppercase tracking-widest text-gray-600">CAGR</th>
-              <th className="px-3 py-2 text-right text-xs font-bold uppercase tracking-widest text-gray-600">MDD</th>
-              <th className="px-3 py-2 text-right text-xs font-bold uppercase tracking-widest text-gray-600">{t("샤프")}</th>
-              <th className="px-3 py-2 text-right text-xs font-bold uppercase tracking-widest text-gray-600">{t("손익비")}</th>
-              <th className="px-3 py-2 text-right text-xs font-bold uppercase tracking-widest text-gray-600">{t("거래 수")}</th>
-              <th className="px-3 py-2 text-right text-xs font-bold uppercase tracking-widest text-gray-600">{t("회전율")}</th>
+              <th className="py-2 pl-2 pr-4 text-left text-xs font-bold uppercase tracking-widest text-[var(--text-label)]">{t("리밸런싱 주기")}</th>
+              <th className="px-3 py-2 text-right text-xs font-bold uppercase tracking-widest text-[var(--text-label)]">CAGR</th>
+              <th className="px-3 py-2 text-right text-xs font-bold uppercase tracking-widest text-[var(--text-label)]">MDD</th>
+              <th className="px-3 py-2 text-right text-xs font-bold uppercase tracking-widest text-[var(--text-label)]">{t("샤프")}</th>
+              <th className="px-3 py-2 text-right text-xs font-bold uppercase tracking-widest text-[var(--text-label)]">{t("손익비")}</th>
+              <th className="px-3 py-2 text-right text-xs font-bold uppercase tracking-widest text-[var(--text-label)]">{t("거래 수")}</th>
+              <th className="px-3 py-2 text-right text-xs font-bold uppercase tracking-widest text-[var(--text-label)]">{t("회전율")}</th>
             </tr>
             <tr><td colSpan={7}><div className="border-t border-white/[0.05]" /></td></tr>
           </thead>

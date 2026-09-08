@@ -195,7 +195,7 @@ export default function RebalanceComparisonChart({ bars, metric, height = 220 }:
     <div className="group relative w-full" style={{ height: `${height}px` }} data-testid="rebalance-comparison-chart">
       {/* 범례 — 월별 수익률 차트와 같은 모양(좌상단 가로 배치) */}
       <div className="absolute top-4 left-4 z-20 flex flex-row flex-wrap items-center gap-1">
-        <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[#0a0a0a]/80 border border-gray-800 backdrop-blur-sm">
+        <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[rgba(15,15,15,0.8)] border border-gray-800 backdrop-blur-sm">
           <div className="flex gap-1">
             <div className="w-2.5 h-2.5 rounded-full bg-main-red" />
             <div className="w-2.5 h-2.5 rounded-full bg-main-blue" />
@@ -207,7 +207,7 @@ export default function RebalanceComparisonChart({ bars, metric, height = 220 }:
       </div>
       <div
         ref={tooltipRef}
-        className="absolute z-30 pointer-events-none p-2 px-3 bg-[#0a0a0a]/90 border border-gray-800 rounded-lg shadow-2xl backdrop-blur-md hidden"
+        className="absolute z-30 pointer-events-none p-2 px-3 bg-[rgba(15,15,15,0.9)] border border-gray-800 rounded-lg shadow-2xl backdrop-blur-md hidden"
         style={{ minWidth: "120px" }}
       />
       <div ref={containerRef} className="h-full w-full" />

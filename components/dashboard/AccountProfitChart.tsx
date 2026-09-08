@@ -117,10 +117,10 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
         className="flat-card h-full p-3 sm:p-4 lg:p-5"
         data-testid="account-profit-card"
       >
-        <div className="h-4 bg-white/5 rounded w-1/3 mb-5 animate-pulse" />
+        <div className="h-4 bg-white/5 rounded w-1/3 mb-5 animate-pulse motion-reduce:animate-none" />
         <div className="flex items-end gap-8 mt-4" style={{ height: CHART_H }}>
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="flex-1 bg-white/5 rounded-lg animate-pulse"
+            <div key={i} className="flex-1 bg-white/5 rounded-lg animate-pulse motion-reduce:animate-none"
               style={{ height: 40 + i * 30 }} />
           ))}
         </div>

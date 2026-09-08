@@ -800,7 +800,7 @@ describe("StrategyLabPage scroll behavior", () => {
     // 칩으로만 답하는 동안 되묻기 카드가 화면 하단을 차지하고, '대화 종료'는 카드 안에 있다.
     const clarificationCard = screen.getByTestId("clarification-card");
     expect(clarificationCard.dataset.docked).toBe("true");
-    expect(clarificationCard.className).toContain("fixed bottom-4");
+    expect(clarificationCard.className).toContain("fixed dock-bottom");
     const endChatButtons = screen.getAllByRole("button", { name: "대화 종료" });
     expect(endChatButtons).toHaveLength(1);
     expect(clarificationCard).toContainElement(endChatButtons[0]);

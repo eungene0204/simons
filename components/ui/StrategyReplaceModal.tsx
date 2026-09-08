@@ -103,7 +103,7 @@ export default function StrategyReplaceModal({
 
           {loading ? (
             <div className="flex items-center justify-center py-16 text-sm text-gray-500">
-              <ArrowsClockwise size={18} className="mr-2 animate-spin" />
+              <ArrowsClockwise size={18} className="mr-2 animate-spin motion-reduce:animate-none" />
               {t("저장된 전략을 불러오는 중입니다.")}
             </div>
           ) : strategies.length === 0 ? (

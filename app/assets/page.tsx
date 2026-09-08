@@ -5,14 +5,13 @@ import { getCurrentUser } from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
 import { calculateAccountValue, moneyToNumber } from "@/lib/server/assetService";
 import { getUserUsage } from "@/lib/server/planLimits";
+import { formatAccountMoney } from "@/lib/account-money";
 import { t } from "@/lib/i18n";
 import { getRequestLanguage } from "@/lib/i18n/server";
 import { getRequestRegion } from "@/lib/geo/server";
 import { withRegionPath } from "@/lib/geo/region";
 
-function formatWon(value: number) {
-  return t("{0}원", Math.round(value).toLocaleString("ko-KR"));
-}
+const formatWon = (value: number) => formatAccountMoney(value, "KRW");
 
 function formatLimit(limit: number, unlimited: boolean) {
   return unlimited ? t("무제한") : limit.toLocaleString("ko-KR");
@@ -64,19 +63,19 @@ export default async function AssetsPage() {
   getRequestLanguage();
   return (
     <DashboardLayout userName={user.name || t("게스트")}>
-      <div className="min-h-[calc(100vh-var(--top-menu-bar-height,76px))] bg-[#050505] px-5 py-6 text-white sm:px-8 lg:px-10">
+      <div className="min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] px-5 py-6 text-white sm:px-8 lg:px-10">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
-          <section className="overflow-hidden border border-white/[0.08] bg-[#080808]">
+          <section className="overflow-hidden border border-white/[0.08] bg-[var(--background)]">
             <div className="border-b border-white/[0.08] px-6 py-5">
-              <p className="text-xs font-black uppercase tracking-[0.28em] text-blue-300/70">
-                My Plan
+              <p className="text-xs font-bold text-[var(--text-label)]">
+                {t("내 요금제")}
               </p>
               <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                 <div>
-                  <h1 className="text-3xl font-black tracking-[-0.04em] text-white md:text-5xl">
+                  <h1 className="text-3xl font-black text-white font-outfit">
                     {usage.plan.name}
                   </h1>
-                  <p className="mt-2 text-sm font-bold text-gray-500">
+                  <p className="mt-2 text-sm font-bold text-gray-400">
                     {t("계좌당 초기 모의 투자금 {0}", formatWon(usage.plan.initialInvestmentAmount))}
                   </p>
                 </div>
@@ -92,12 +91,12 @@ export default async function AssetsPage() {
             <div className="grid grid-cols-1 divide-y divide-white/[0.08] md:grid-cols-3 md:divide-x md:divide-y-0">
               {usageCards.map((card) => (
                 <div key={card.label} className="p-6">
-                  <p className="text-xs font-black tracking-[0.06em] text-gray-500">
+                  <p className="text-xs font-bold text-[var(--text-label)]">
                     {card.label}
                   </p>
-                  <p className="mt-3 text-2xl font-black text-white">
+                  <p className="mt-3 text-2xl font-black text-white tabular-nums font-outfit">
                     {card.used.toLocaleString("ko-KR")}
-                    <span className="ml-1 text-base font-black text-gray-500">
+                    <span className="ml-1 text-base font-black text-[var(--text-label)]">
                       / {card.limitText}
                     </span>
                   </p>
@@ -106,16 +105,16 @@ export default async function AssetsPage() {
             </div>
           </section>
 
-          <section className="border border-white/[0.08] bg-[#080808]">
+          <section className="border border-white/[0.08] bg-[var(--background)]">
             <div className="border-b border-white/[0.08] px-6 py-4">
               <h2 className="text-lg font-black text-white">{t("가상계좌")}</h2>
-              <p className="mt-1 text-xs font-bold text-gray-600">
+              <p className="mt-1 text-xs font-bold text-[var(--text-label)]">
                 {t("각 계좌의 초기 모의 투자금과 현재 평가금액입니다.")}
               </p>
             </div>
             <div className="divide-y divide-white/[0.08]">
               {accounts.length === 0 ? (
-                <div className="px-6 py-10 text-sm font-bold text-gray-500">
+                <div className="px-6 py-10 text-sm font-bold text-gray-400">
                   {t("아직 운용 중인 가상계좌가 없습니다.")}
                 </div>
               ) : (
@@ -126,23 +125,23 @@ export default async function AssetsPage() {
                   >
                     <div>
                       <p className="text-base font-black text-white">{account.name}</p>
-                      <p className="mt-1 text-xs font-bold uppercase tracking-[0.16em] text-gray-600">
+                      <p className="mt-1 text-xs font-bold text-[var(--text-label)]">
                         {account.tradingMode}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs font-black tracking-[0.06em] text-gray-600">
+                      <p className="text-xs font-bold text-[var(--text-label)]">
                         {t("초기 모의 투자금")}
                       </p>
-                      <p className="mt-1 text-sm font-black text-gray-200">
+                      <p className="mt-1 text-sm font-black text-gray-200 tabular-nums font-outfit">
                         {formatWon(account.initialAmount)}
                       </p>
                     </div>
                     <div className="md:text-right">
-                      <p className="text-xs font-black tracking-[0.06em] text-gray-600">
+                      <p className="text-xs font-bold text-[var(--text-label)]">
                         {t("평가금액")}
                       </p>
-                      <p className="mt-1 text-lg font-black text-blue-200">
+                      <p className="mt-1 text-lg font-black text-white tabular-nums font-outfit">
                         {formatWon(account.value)}
                       </p>
                     </div>

@@ -40,7 +40,7 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
   const [selectedStockName, setSelectedStockName] = useState<string | null>(null);
   const [topMenuBarHeight, setTopMenuBarHeight] = useState(76);
   const dashboardFillClass = [
-    "min-h-[calc(100vh-var(--top-menu-bar-height,76px))]",
+    "min-h-[calc(100dvh-var(--top-menu-bar-height,76px))]",
     "[&>*]:min-h-[inherit]",
     "[&>*]:flex",
     "[&>*]:flex-col",
@@ -86,7 +86,7 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
         clearOrderStock,
       }}
     >
-      <div className="min-h-screen bg-[#050505] text-white flex flex-col relative">
+      <div className="min-h-[100dvh] bg-[var(--background)] text-white flex flex-col relative">
         <main
           className="flex-1 overflow-y-auto overflow-x-hidden max-w-full"
           style={{
@@ -103,7 +103,7 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
               (중심 좌표·색·투명도·펄스 동일, 블러 확산 범위만큼 박스를 키움). */}
           <div className="fixed top-0 left-0 w-full h-full pointer-events-none overflow-hidden -z-10">
             <div
-              className="absolute top-[-25%] left-[-20%] w-[70%] h-[70%] animate-pulse"
+              className="absolute top-[-25%] left-[-20%] w-[70%] h-[70%] animate-pulse motion-reduce:animate-none"
               style={{
                 animationDuration: '8s',
                 background:
@@ -111,7 +111,7 @@ const DashboardLayoutContent = memo(function DashboardLayoutContent({
               }}
             />
             <div
-              className="absolute bottom-[-25%] right-[-20%] w-[70%] h-[70%] animate-pulse"
+              className="absolute bottom-[-25%] right-[-20%] w-[70%] h-[70%] animate-pulse motion-reduce:animate-none"
               style={{
                 animationDuration: '10s',
                 background:

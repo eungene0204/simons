@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useDialogBehavior } from "@/lib/hooks/useDialogBehavior";
+import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useRouter } from "next/navigation";
 import {
   ChartBar,
@@ -102,6 +104,10 @@ export default function SettingsModal({
   const [isCanceling, setIsCanceling] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Esc·포커스 트랩·포커스 복귀·스크롤 잠금(2026-09-08 — 설정 모달만 Esc 처리가 없었다)
+  useDialogBehavior({ open: true, onClose, containerRef: panelRef });
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
 
   useEffect(() => {
     let disposed = false;
@@ -152,9 +158,12 @@ export default function SettingsModal({
   const handleCancelSubscription = async () => {
     if (isCanceling) return;
     if (
-      !window.confirm(
-        t("자동갱신을 해지할까요? 이미 결제된 기간에는 계속 이용할 수 있습니다.")
-      )
+      !(await confirm({
+        title: t("자동갱신을 해지할까요?"),
+        message: t("이미 결제된 기간에는 계속 이용할 수 있습니다."),
+        confirmLabel: t("해지"),
+        danger: true,
+      }))
     ) {
       return;
     }
@@ -181,9 +190,12 @@ export default function SettingsModal({
   const handleDeleteAccount = async () => {
     if (isDeleting || hasActiveRenewal) return;
     if (
-      !window.confirm(
-        t("계정을 삭제할까요? 삭제하면 다시 로그인할 수 없으며 되돌릴 수 없습니다.")
-      )
+      !(await confirm({
+        title: t("계정을 삭제할까요?"),
+        message: t("삭제하면 다시 로그인할 수 없으며 되돌릴 수 없습니다."),
+        confirmLabel: t("계정 삭제"),
+        danger: true,
+      }))
     ) {
       return;
     }
@@ -220,9 +232,12 @@ export default function SettingsModal({
       aria-modal="true"
       aria-label={t("설정")}
     >
+      {confirmDialog}
       <div
+        ref={panelRef}
+        tabIndex={-1}
         data-testid="settings-modal-panel"
-        className="flex h-[calc(100dvh-1rem)] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0a0a0a] shadow-2xl shadow-black/60 lg:h-[min(720px,85vh)] lg:flex-row"
+        className="flex h-[calc(100dvh-1rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[var(--background)] shadow-2xl shadow-black/60 lg:h-[min(720px,85vh)] lg:flex-row"
       >
         {/* 사이드바 */}
         <aside
@@ -254,7 +269,7 @@ export default function SettingsModal({
                   aria-current={activeTab === id ? "page" : undefined}
                   className={`flex w-auto flex-shrink-0 items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm font-black transition-colors duration-200 lg:w-full ${
                     activeTab === id
-                      ? "border-[var(--accent-blue)] bg-white/[0.08] text-white"
+                      ? "border-[var(--chat-accent)] bg-white/[0.08] text-white"
                       : "border-transparent text-gray-400 hover:bg-white/[0.04] hover:text-gray-200"
                   }`}
                 >
@@ -534,7 +549,7 @@ export default function SettingsModal({
                             className="h-2 overflow-hidden rounded-full bg-white/[0.16]"
                           >
                             <div
-                              className="h-full rounded-full bg-[var(--accent-blue)]"
+                              className="h-full rounded-full bg-[var(--chat-accent)]"
                               style={{ width: `${item.percent}%` }}
                             />
                           </div>

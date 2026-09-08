@@ -4,7 +4,7 @@
 // VirtualAccount.currency). 원화 고정 표기("{0}원")를 USD 계좌에 쓰면 $10,000이
 // "10,000원"으로 오독되므로, 계좌 금액 표기는 반드시 이 헬퍼를 거친다.
 
-import { t } from "@/lib/i18n";
+import { formatCompactNumberEn, t } from "@/lib/i18n";
 import { formatUsd } from "@/lib/us-symbols";
 
 export type AccountCurrency = "KRW" | "USD";
@@ -27,4 +27,21 @@ export function formatAccountSignedMoney(value: number, currency?: string | null
   const abs = Math.abs(value);
   if (isUsdAccount(currency)) return `${sign}${formatUsd(abs)}`;
   return t("{0}{1}원", sign, KO_FMT.format(Math.round(abs)));
+}
+
+/**
+ * 원화 축약 표기(억/만): 2,932만 · 1.5억 · 9,500. 영어 화면이면 K/M 축약(formatCompactNumberEn).
+ * 대시보드·통계 요약·차트 축이 같은 규칙을 쓴다 — 2026-09-08 이전에는 파일마다 자기 판이 있어
+ * 만 단위 자릿수 구분(1234만 vs 1,234만)과 부호 처리가 제각각이었다.
+ * `signed`면 양수에 +를 붙인다(손익 표시).
+ */
+export function formatKrwCompact(value: number, options?: { signed?: boolean }): string {
+  const plus = options?.signed && value > 0 ? "+" : "";
+  const compactEn = formatCompactNumberEn(value);
+  if (compactEn !== null) return `${plus}${compactEn}`;
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : plus;
+  if (abs >= 100_000_000) return t("{0}{1}억", sign, (abs / 100_000_000).toFixed(1));
+  if (abs >= 10_000) return t("{0}{1}만", sign, Math.round(abs / 10_000).toLocaleString("ko-KR"));
+  return `${sign}${KO_FMT.format(abs)}`;
 }

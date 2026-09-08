@@ -63,7 +63,7 @@ export default function UsPaymentSuccess() {
   }, []);
 
   return (
-    <div className="mx-auto w-full max-w-xl rounded-3xl border border-white/[0.08] bg-[#0a0a0a] px-8 py-12 text-center">
+    <div className="mx-auto w-full max-w-xl rounded-2xl border border-white/[0.08] bg-[var(--background)] px-8 py-12 text-center">
       {status === "checking" ? (
         <>
           <h1 className="text-2xl font-black tracking-tight text-white">Confirming your subscription...</h1>
@@ -88,7 +88,7 @@ export default function UsPaymentSuccess() {
             </Link>
             <Link
               href={regionHref("/dashboard")}
-              className="rounded-2xl bg-blue-600 px-6 py-3 text-sm font-black text-white hover:bg-blue-500"
+              className="rounded-2xl bg-[var(--chat-accent)] px-6 py-3 text-sm font-black text-[var(--chat-accent-ink)] transition-colors hover:brightness-110 active:translate-y-[1px]"
             >
               Go to dashboard
             </Link>

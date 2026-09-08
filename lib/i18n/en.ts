@@ -3026,4 +3026,16 @@ export const en: Record<string, string> = {
   "종목 {0}개 펼쳐보기": "Show {0} stocks",
   "펼쳐보기": "Show all",
   "접기": "Hide",
+  // ── 2026-09-08 UI 결함 수리(앱 내 확인 대화·정지 버튼·로그인 페이지 Google)
+  "생성 중지": "Stop generating",
+  "요청을 중지했어요. 이어서 입력하면 다시 진행합니다.": "Stopped. Type again to continue.",
+  "또는 이메일로": "or with email",
+  "계정을 삭제할까요?": "Delete your account?",
+  "삭제하면 다시 로그인할 수 없으며 되돌릴 수 없습니다.": "You will not be able to log in again. This cannot be undone.",
+  "이미 결제된 기간에는 계속 이용할 수 있습니다.": "You can keep using the service through the period you already paid for.",
+  "자동갱신을 해지할까요?": "Cancel auto-renewal?",
+  "해지": "Cancel renewal",
+  "삭제한 기록은 되돌릴 수 없습니다.": "Deleted history cannot be restored.",
+  "시그널 히스토리를 모두 삭제할까요?": "Delete all signal history?",
+  "내 요금제": "My plan",
 };
