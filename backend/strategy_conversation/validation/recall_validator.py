@@ -27,6 +27,14 @@ from typing import Any, Iterable, List, Set
 _NUMBER_RE = re.compile(
     r"(\d[\d,]*(?:\.\d+)?)\s*(조|억|천만|백만|십만|만|천|퍼센트|%|일|주|개월|년|종목|개)?")
 
+# 기간을 한글 수사로 말한 표기("한 달", "두 달", "세 달") — 숫자 토큰의 한글 변형일 뿐
+# 귀속은 하지 않는다(모듈 § 3-1 계약 그대로). 이 표기가 앵커에 잡히지 않으면 그 수치를
+# 근거로 한 패치가 **환각으로 거부**된다: 실측 2026-09-10 '한 달 지나면 정리'의
+# hold_period_days=21(프롬프트가 지시한 1개월=21거래일 환산)이 "입력에 21이 없다"는
+# 이유로 버려져 답이 통째로 사라졌다('3개월 지나면 정리'는 숫자가 있어 통과했다).
+_SINO_MONTH_WORDS = {"한": 1, "두": 2, "세": 3, "네": 4, "다섯": 5, "여섯": 6}
+_WORD_MONTH_RE = re.compile(r"(한|두|세|네|다섯|여섯)\s*(달|개월)")
+
 # 6자리 종목코드는 universe.symbols에 문자열로 담기므로 수치 대조 대상이 아니다.
 _SYMBOL_CODE_RE = re.compile(r"^\d{6}$")
 
@@ -129,6 +137,8 @@ def _reflected_numbers(intent) -> Set[float]:
 
 def _input_anchors(user_input: str) -> List[tuple[str, float, str | None]]:
     anchors: List[tuple[str, float, str | None]] = []
+    for m in _WORD_MONTH_RE.finditer(user_input or ""):
+        anchors.append((m.group(0), float(_SINO_MONTH_WORDS[m.group(1)]), "개월"))
     for m in _NUMBER_RE.finditer(user_input or ""):
         raw, unit = m.group(1), m.group(2)
         if _SYMBOL_CODE_RE.match(raw.replace(",", "")):

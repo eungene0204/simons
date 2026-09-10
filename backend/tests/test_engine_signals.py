@@ -658,3 +658,41 @@ def test_dual_ema_state_mode_is_persistent_not_crossover(signal_engine):
     below = dict(state, params=dict(state["params"], mode="below"))
     assert [signal_engine.evaluate_condition(below, i, df) for i in range(5)] == \
         [True, True, False, False, True]
+
+
+def test_ma_state_mode_is_persistent_not_crossover(signal_engine):
+    """단순이동평균의 상하 관계도 **지속 상태**다 — "종가가 60일 이동평균 위이고"는 위에
+    올라선 하루가 아니라 위에 있는 동안 참이어야 한다(2026-09-10 사용자 지적, 엔진 v16.6).
+    mode 없이 같은 파라미터면 종전대로 교차 이벤트다(회귀 경계)."""
+    df = pl.DataFrame({
+        "close_1_sma":  [10.0, 10.0, 12.0, 13.0, 8.0],
+        "close_60_sma": [11.0, 11.0, 11.0, 11.0, 11.0],
+    })
+    state = {"id": "ma_crossover", "params": {"shortMA": 1, "longMA": 60,
+                                              "mode": "above", "signalType": "buy"}}
+    event = {"id": "ma_crossover", "params": {"shortMA": 1, "longMA": 60, "signalType": "buy"}}
+
+    assert [signal_engine.evaluate_condition(state, i, df) for i in range(5)] == \
+        [False, False, True, True, False]
+    assert [signal_engine.evaluate_condition(event, i, df) for i in range(5)] == \
+        [False, False, True, False, False]
+    below = dict(state, params=dict(state["params"], mode="below"))
+    assert [signal_engine.evaluate_condition(below, i, df) for i in range(5)] == \
+        [True, True, False, False, True]
+    # 벡터화 경로도 행별 평가와 같은 답을 낸다(두 경로 동일성 계약).
+    vec = signal_engine._eval_vec(state, df)
+    assert list(vec) == [False, False, True, True, False]
+
+
+def test_ma_state_and_price_cross_reasons_carry_periods(signal_engine):
+    """매매사유는 기간을 싣는다 — short=1은 '1일선'이 아니라 종가로 읽힌다."""
+    def reason(params):
+        return signal_engine.get_condition_description({"id": "ma_crossover", "params": params})
+
+    assert reason({"shortMA": 1, "longMA": 60, "signalType": "buy"}) == "종가가 60일선 상향 돌파"
+    assert reason({"shortMA": 1, "longMA": 60, "signalType": "sell"}) == "종가가 60일선 하향 이탈"
+    assert reason({"shortMA": 20, "longMA": 60, "signalType": "buy"}) == "20일선-60일선 골든크로스"
+    assert reason({"shortMA": 1, "longMA": 60, "mode": "above", "signalType": "buy"}) == \
+        "종가가 60일선 위 유지"
+    assert reason({"shortMA": 20, "longMA": 60, "mode": "below", "signalType": "buy"}) == \
+        "20일선이 60일선 아래 유지"

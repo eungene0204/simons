@@ -181,13 +181,16 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
 
     # ── 기술적 지표 (엔진 TechnicalSignal.indicator와 1:1) ───────────────────
     _technical("ma_crossover", "이동평균 크로스오버", "event",
-               ("crosses_above", "crosses_below"),
+               ("crosses_above", "crosses_below", ">", "<"),
                {"short_period": ParamSpec(default=20, minimum=1, maximum=250, required=True),
                 "long_period": ParamSpec(default=60, minimum=3, maximum=500, required=True)},
                notes="crosses_above=골든크로스, crosses_below=데드크로스. "
                      "short_period=1은 '가격(종가) 대비 N일선' 정본 표기 — "
                      "'종가가 20일선 이탈'=short 1·long 20·crosses_below "
-                     "(엔진 close_1_sma=종가, 레거시 파서와 동일 표기)"),
+                     "(엔진 close_1_sma=종가, 레거시 파서와 동일 표기). "
+                     ">/< 는 EMA와 같은 **머무는 상태** 필터(mode above/below) — "
+                     "'종가가 60일선 위에 있는 동안'=short 1·long 60·'>'. 상태를 "
+                     "교차로 옮기면 조건이 교차 당일 하루로 좁아진다(2026-09-10)"),
     _technical("ema", "지수이동평균(EMA)", "event",
                ("crosses_above", "crosses_below", ">", "<"),
                {"short_period": ParamSpec(default=20, minimum=1, maximum=250),

@@ -95,13 +95,16 @@ def _compile_technical(
         both_periods_given = (
             params.get("short_period") is not None and params.get("long_period") is not None
         )
-        if indicator == "ema" and cond.operator in (">", "<"):
+        if cond.operator in (">", "<"):
             # 부등호는 **지속 상태**다(교차는 crosses_above/below). 두 기간이 다 주어지면
-            # 두 EMA의 정배열/역배열 상태, 하나면 가격 vs EMA 상태 — 어느 쪽이든 mode로
-            # 옮기고 기간은 버리지 않는다(엔진 v16.0이 두 EMA 상태를 직접 평가한다).
+            # 두 선의 정배열/역배열 상태, 하나면 가격 vs 이동평균 상태 — 어느 쪽이든 mode로
+            # 옮기고 기간은 버리지 않는다(엔진 v16.0이 두 EMA 상태를, v16.6이 두 SMA
+            # 상태를 직접 평가한다).
             kwargs["mode"] = "above" if cond.operator == ">" else "below"
             if not both_periods_given:
-                kwargs["short_period"] = None
+                # SMA의 '가격 vs N일선'은 short_period=1(종가)이 정본 표기라 선을 버리지
+                # 않는다 — EMA는 기간 하나를 period로 읽는 별도 경로가 있어 종전대로 비운다.
+                kwargs["short_period"] = 1 if indicator == "ma_crossover" else None
                 kwargs["long_period"] = _int_param("long_period") or _int_param("short_period")
     elif indicator == "macd":
         kwargs["mode"] = "crossover"

@@ -144,8 +144,23 @@ def test_macd_dead_cross_exit_expands():
 
 
 def test_unknown_concept_id_still_errors():
-    """온톨로지에 없는 concept.* 표기는 전개 없이 기존 '알 수 없는 지표' 경로."""
+    """온톨로지에 없는 concept.* 표기는 전개 없이 '알 수 없는 지표' 경로다.
+
+    [2026-09-10 개정] 안내 문구는 **사용자 표현**을 인용한다 — LLM이 지어낸 내부 식별자를
+    그대로 인용하면 사용자가 쓴 적 없는 영문 경로가 화면에 나간다(내부명 노출 금지).
+    식별자는 로그에만 남는다.
+    """
     _, report = run_validation(_intent(
+        entry=[{"factor": "concept.없는개념", "operator": None, "value": None,
+                "source_text": "없는개념으로 매수"}],
+    ))
+    assert any("알 수 없는 지표" in e for e in report.errors), report.errors
+    assert any("없는개념으로 매수" in e for e in report.errors), report.errors
+    assert not any("concept.없는개념" in e for e in report.errors), report.errors
+
+    # 인용이 없으면 지목 없이 일반 표기로 알린다(식별자 노출 금지는 동일).
+    _, bare = run_validation(_intent(
         entry=[{"factor": "concept.없는개념", "operator": None, "value": None}],
     ))
-    assert any("concept.없는개념" in e for e in report.errors)
+    assert any("알 수 없는 지표" in e for e in bare.errors), bare.errors
+    assert not any("concept.없는개념" in e for e in bare.errors), bare.errors

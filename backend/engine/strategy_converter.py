@@ -342,6 +342,8 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
     if sig.indicator == "ma_crossover":
         params["shortMA"] = sig.short_period or 5
         params["longMA"] = sig.long_period or 20
+        if sig.mode:  # 'above'/'below'=추세 필터(지속 상태). 없으면 크로스오버(기존).
+            params["mode"] = sig.mode
 
     elif sig.indicator == "rsi":
         params["period"] = sig.period or 14

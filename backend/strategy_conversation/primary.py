@@ -485,6 +485,28 @@ def _reported_features_echo_input(features: List[str], user_input: str) -> bool:
     return any(_compact(f or "") == compact_input for f in features)
 
 
+def _covered_by_source_texts(feature: str, source_texts: Iterable[str]) -> bool:
+    """미지원 보고 항목이 **이미 반영된 조건의 사용자 표현**을 통째로 담고 있는가.
+
+    같은 표현을 조건으로도 내고 unsupported_features에도 넣는 이중 기입은 프롬프트 4-1이
+    금지하지만 LLM은 종종 어긴다 — 그러면 요약 카드에 반영된 조건이 "지원하지 않아
+    반영하지 못했어요"라는 거짓 안내를 함께 받는다. 판정은 표기 포함 대조뿐이다
+    (LLM 출력 ↔ LLM 출력 — 원문을 읽지 않는다). 포함 방향은 값-대기 대조와 같다:
+    보고 조각이 조건의 인용을 **감쌀 때만** 같은 표현으로 본다 — 반대 방향까지 보면
+    "평소보다 3배"(조건에 담을 수 없는 배수)가 그 조건의 긴 인용에 삼켜진다.
+    """
+    from engine.nl_parser import _compact
+
+    compact_feature = _compact(feature or "")
+    if not compact_feature:
+        return False
+    for raw in source_texts:
+        text = _compact(str(raw or ""))
+        if len(text) >= 4 and text in compact_feature:
+            return True
+    return False
+
+
 def _covered_by_pending_texts(feature: str, pending_conditions: Optional[List[dict]]) -> bool:
     """LLM 미지원 보고 항목이 값-대기 조건의 사용자 표현(source_text)을 담고 있는가.
 
@@ -495,16 +517,9 @@ def _covered_by_pending_texts(feature: str, pending_conditions: Optional[List[di
     (LLM 출력 ↔ 자기 응답 채널 — 원문을 읽지 않는다). 4자 미만 조각은 우연 일치가
     잦아 제외한다.
     """
-    from engine.nl_parser import _compact
-
-    compact_feature = _compact(feature or "")
-    if not compact_feature:
-        return False
-    for p in pending_conditions or []:
-        text = _compact(str((p or {}).get("source_text") or ""))
-        if len(text) >= 4 and text in compact_feature:
-            return True
-    return False
+    return _covered_by_source_texts(
+        feature, [str((p or {}).get("source_text") or "") for p in (pending_conditions or [])]
+    )
 
 
 def _humanize_features(features: List[str]) -> List[str]:
@@ -1850,12 +1865,21 @@ def run_primary_parse(
         # (섀도 대조 실측 2026-08-12: "'volatility' 조건은 지원하지 않아…"가
         # "'변동성 조건'은 아직 직접 지원되지 않아요"와 한 응답에 공존).
         concept_ids = {name for name, _ in _UNSUPPORTED_CONCEPT_RE}
+        # 검증을 통과해 **전략에 남은** 조건의 사용자 인용 — 같은 표현이 조건으로도
+        # 반영되고 미지원으로도 보고되면(프롬프트 4-1 위반) 반영된 조건에 "반영하지
+        # 못했어요"가 붙는다. 값-대기 대조와 같은 표기 포함 판정으로 걷어낸다.
+        reflected_texts = [
+            cond.source_text or ""
+            for cond in (list(validated.strategy.entry_conditions)
+                         + list(validated.strategy.exit_conditions))
+        ] if validated.strategy is not None else []
         leftover_features = [
             f for f in _humanize_features(report.unsupported_features)
             if f and f not in covered_text
             # 값-대기 조건의 사용자 표현을 담은 이중 기입은 거짓 미반영 안내가 된다 —
             # source_text 포함 대조로 걷어낸다(2026-08-14, _covered_by_pending_texts).
             and not _covered_by_pending_texts(f, pending_conditions)
+            and not _covered_by_source_texts(f, reflected_texts)
             and not field_path_rx.search(f)
             and _compact(f) not in concept_ids
             and not any(rx.search(_compact(f)) for _, rx in _UNSUPPORTED_CONCEPT_RE)

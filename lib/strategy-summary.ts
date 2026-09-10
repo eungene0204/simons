@@ -29,6 +29,7 @@ export interface ParsedSummary {
     // (2026-07-26)가 값으로 싣는다. 미지정이면 엔진 실효 기본값(5/20)으로 동작.
     short_period?: number | null;
     long_period?: number | null;
+    period?: number | null;
   }>;
   exit_signals: Array<{
     indicator: string;
@@ -39,6 +40,7 @@ export interface ParsedSummary {
     lookback_period?: number | null;
     short_period?: number | null;
     long_period?: number | null;
+    period?: number | null;
   }>;
   // 진입 게이트 필터(추세·거래대금·RSI 결합) — 진입 신호와 AND 결합. 빌더 전용, 없으면 생략.
   entry_filters?: Array<{
@@ -93,8 +95,8 @@ interface BacktestRequestLike {
 type LegacyStrategySummaryFields = {
   universe?: string | string[] | { id?: string; filters?: Record<string, unknown> };
   fundamental_filters?: Array<{ metric: string; operator: string; value: number }>;
-  entry_signals?: Array<{ indicator: string; signal_type?: string | null; mode?: string | null; lookback_period?: number | null }>;
-  exit_signals?: Array<{ indicator: string; signal_type?: string | null; mode?: string | null; lookback_period?: number | null }>;
+  entry_signals?: Array<{ indicator: string; signal_type?: string | null; mode?: string | null; lookback_period?: number | null; short_period?: number | null; long_period?: number | null; period?: number | null }>;
+  exit_signals?: Array<{ indicator: string; signal_type?: string | null; mode?: string | null; lookback_period?: number | null; short_period?: number | null; long_period?: number | null; period?: number | null }>;
   max_positions?: number | null;
   hold_period_days?: number | null;
   rebalancing_period?: string | null;
@@ -189,9 +191,23 @@ function formatEokAmountEn(eok: number): string {
 
 // **원 단위** 큰 금액(>=1억)을 한글 단위로 표시한다(초기자금 등).
 // 1억 미만이거나 숫자가 아니면 원본을 그대로 둔다(단위가 모호한 값 오변환 방지).
+// 억 미만 잔액은 **끊어서 함께 적는다**("1억 5,000만"). 억 단위 표시기(formatEokAmount)에
+// 넘겨 반올림하면 사용자가 말한 금액이 바뀐다 — 1억 5천만원이 '2억원'으로 보였다
+// (2026-09-10 실측). 만원 단위로 떨어지지 않는 금액은 원 단위 그대로 둔다.
 export function formatMarketCapValue(value: number): string {
   if (!Number.isFinite(value) || value < 100_000_000) return String(value);
-  return formatEokAmount(value / 100_000_000);
+  if (getLanguage() === "en") return formatEokAmountEn(value / 100_000_000);
+
+  const jo = Math.floor(value / 1_000_000_000_000);
+  const eok = Math.floor((value % 1_000_000_000_000) / 100_000_000);
+  const man = (value % 100_000_000) / 10_000;
+  if (!Number.isInteger(man)) return KO_NUMBER_FORMAT.format(value);
+
+  const parts: string[] = [];
+  if (jo) parts.push(t("{0}조", KO_NUMBER_FORMAT.format(jo)));
+  if (eok) parts.push(t("{0}억", KO_NUMBER_FORMAT.format(eok)));
+  if (man) parts.push(t("{0}만", KO_NUMBER_FORMAT.format(man)));
+  return parts.join(" ");
 }
 
 // 펀더멘털 필터 배지 문자열을 만든다. 시총은 한글 단위로, 거래대금은 억 단위 표시, 나머지는 원본 숫자로 표시.
@@ -403,6 +419,41 @@ const DIRECTIONAL_CROSS_LABELS: Record<string, { golden: string; dead: string }>
   macd: { golden: "MACD 골든크로스", dead: "MACD 데드크로스" },
 };
 
+/** 이동평균(SMA/EMA) 신호의 기간까지 담은 라벨. 기간을 모르면 null(일반 라벨로 폴백). */
+function movingAverageLabel(
+  signal: { indicator: string; short_period?: number | null; long_period?: number | null; period?: number | null; mode?: string | null },
+  isDown: boolean,
+): string | null {
+  const isEma = signal.indicator === "ema";
+  if (!isEma && signal.indicator !== "ma_crossover") return null;
+  const short = signal.short_period ?? null;
+  // 선이 하나뿐인 조건(가격 vs 이동평균)의 기간은 long_period에 담겨 온다(컴파일러 계약).
+  const long = signal.long_period ?? signal.period ?? null;
+  if (long == null) return null;
+  const stays = signal.mode === "above" || signal.mode === "below";
+  const down = stays ? signal.mode === "below" : isDown;
+  const priceRelative = short == null || short === 1;
+
+  if (isEma) {
+    if (priceRelative) {
+      if (stays) return down ? t("종가가 EMA{0} 아래 유지", long) : t("종가가 EMA{0} 위 유지", long);
+      return down ? t("가격 EMA{0} 하향 돌파", long) : t("가격 EMA{0} 상향 돌파", long);
+    }
+    if (stays) {
+      return down ? t("EMA{0}이 EMA{1} 아래 유지", short, long) : t("EMA{0}이 EMA{1} 위 유지", short, long);
+    }
+    return down ? t("EMA{0}-EMA{1} 데드크로스", short, long) : t("EMA{0}-EMA{1} 골든크로스", short, long);
+  }
+  if (priceRelative) {
+    if (stays) return down ? t("종가가 {0}일선 아래 유지", long) : t("종가가 {0}일선 위 유지", long);
+    return down ? t("종가가 {0}일선 하향 이탈", long) : t("종가가 {0}일선 상향 돌파", long);
+  }
+  if (stays) {
+    return down ? t("{0}일선이 {1}일선 아래 유지", short, long) : t("{0}일선이 {1}일선 위 유지", short, long);
+  }
+  return down ? t("{0}일선-{1}일선 데드크로스", short, long) : t("{0}일선-{1}일선 골든크로스", short, long);
+}
+
 export function getSignalLabel(
   signal: {
     indicator: string;
@@ -411,6 +462,9 @@ export function getSignalLabel(
     operator?: string | null;
     value?: number | null;
     lookback_period?: number | null;
+    short_period?: number | null;
+    long_period?: number | null;
+    period?: number | null;
   },
   context: "entry" | "exit"
 ): string {
@@ -473,6 +527,12 @@ export function getSignalLabel(
     if (signal.indicator === "macd" && signal.mode === "zero") {
       return isDown ? t("MACD 제로선 하향 돌파") : t("MACD 제로선 상향 돌파");
     }
+    // 이동평균 계열은 기간이 조건의 정체다 — 기간을 버리면 '종가 vs 60일선'과
+    // '20일선 vs 60일선'이 같은 'MA 골든크로스' 한 문구가 되어 서로 다른 두 조건이
+    // 요약 카드에 쌍둥이로 나간다(2026-09-10 사용자 지적). 매매사유(engine/trade_reason.py)와
+    // 같은 문구를 쓴다 — short=1은 종가다.
+    const maLabel = movingAverageLabel(signal, isDown);
+    if (maLabel) return maLabel;
     return t(isDown ? cross.dead : cross.golden);
   }
 

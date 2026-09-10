@@ -421,6 +421,69 @@ def _months_to_window(months: int) -> tuple[str, str]:
     return start.isoformat(), today.isoformat()
 
 
+# ── 금액 표기 → 원/달러 숫자 (초기 자본) ──────────────────────────────────────
+# 인터프리터는 금액을 **말한 그대로 옮겨 적고**("2억5000만원"), 숫자 환산은 여기서 한다.
+# 규칙으로 환산표를 외우게 하던 시절 120B가 "2억5000만원"을 2,500만원으로 냈다(10배 축소,
+# 되묻기 하니스 FAIL — 문장 안에서는 맞히고 금액만 던진 답변 턴에서 틀렸다). 기간 표기를
+# "<N>y"로 옮겨 적게 하고 변환은 결정론 코드가 맡은 것(_normalize_period)과 같은 계약이다.
+_AMOUNT_UNITS = (("조", 1_000_000_000_000), ("억", 100_000_000),
+                 ("천만", 10_000_000), ("백만", 1_000_000), ("만", 10_000))
+# 자릿수 앞의 한글 수사(오천만·삼억)와 수사 없는 단위(천만원=1천만)도 받는다 — 표기
+# 변환표일 뿐 의미 판단이 아니다(_OPERATOR_ALIASES와 같은 레인). 이걸 빼면 "천만원"·
+# "오천만원" 같은 흔한 표기가 환산 불가로 떨어져 값이 통째로 사라진다.
+_SINO_DIGITS = {"일": 1, "이": 2, "삼": 3, "사": 4, "오": 5,
+                "육": 6, "칠": 7, "팔": 8, "구": 9, "십": 10}
+_AMOUNT_TOKEN_RE = re.compile(
+    r"(\d+(?:\.\d+)?|[일이삼사오육칠팔구십])?\s*(조|억|천만|백만|만)"
+)
+_AMOUNT_TRAILING_RE = re.compile(r"(\d+(?:\.\d+)?)\s*원?$")
+_AMOUNT_STRIP_RE = re.compile(r"[\s,원￦₩\$]|달러|dollars?|usd|krw", re.IGNORECASE)
+_AMOUNT_SCALE_SUFFIX = (("million", 1_000_000), ("mn", 1_000_000), ("m", 1_000_000),
+                        ("thousand", 1_000), ("k", 1_000))
+
+
+def _normalize_amount(value: Any) -> Any:
+    """금액 표기를 숫자로 환산한다(표기 정규화 — 원문이 아니라 LLM이 옮겨 적은 짧은 문자열).
+
+    한글 단위는 자리마다 더한다("2억5000만"=2억+5000만). 단위가 없으면 숫자 그대로다
+    (달러 금액·원 단위 정수 모두 이 경로). 풀 수 없는 표기는 **손대지 않고 돌려보내**
+    스키마 검증이 실패하게 둔다 — 의미를 추측해 값을 지어내지 않는다.
+    """
+    if not isinstance(value, str):
+        return value
+    text = _AMOUNT_STRIP_RE.sub("", value).strip().lower()
+    if not text:
+        return value
+    total = 0.0
+    matched = False
+    rest = text
+    for token in _AMOUNT_TOKEN_RE.finditer(text):
+        count = token.group(1)
+        if count is None:
+            number = 1.0                       # 단위만 있으면 1("천만원"=1천만)
+        elif count in _SINO_DIGITS:
+            number = float(_SINO_DIGITS[count])
+        else:
+            number = float(count)
+        total += number * dict(_AMOUNT_UNITS)[token.group(2)]
+        matched = True
+    if matched:
+        rest = _AMOUNT_TOKEN_RE.sub("", text)
+        trailing = _AMOUNT_TRAILING_RE.match(rest.strip()) if rest.strip() else None
+        if rest.strip() and not trailing:
+            return value  # 알 수 없는 꼬리 표기 — 추측하지 않는다
+        if trailing:
+            total += float(trailing.group(1))
+        return total
+    for suffix, scale in _AMOUNT_SCALE_SUFFIX:
+        if text.endswith(suffix):
+            head = text[: -len(suffix)].strip()
+            if _AMOUNT_TRAILING_RE.match(head):
+                return float(head.rstrip("원")) * scale
+    plain = _AMOUNT_TRAILING_RE.match(text)
+    return float(plain.group(1)) if plain else value
+
+
 def _normalize_period(value: Any) -> Any:
     """period 표기를 (정본 버킷 | ("window", months) | 원값)으로 판정한다.
 
@@ -514,11 +577,17 @@ class BacktestSpec(BaseModel):
             "언급이 없으면 null(시스템 기본 next_open=다음 날 시가)"
         ),
     )
-    initial_capital: Optional[float] = Field(default=None, description="초기 자본금(원)")
+    initial_capital: Optional[float] = Field(
+        default=None,
+        description="초기 자본금. 사용자가 말한 표기를 그대로 적는다('2억5000만원'·'$10,000')",
+    )
     fee_rate: Optional[float] = Field(default=None, description="수수료율(%)")
     slippage_rate: Optional[float] = Field(default=None, description="슬리피지율(%)")
 
-    _coerce = field_validator("initial_capital", "fee_rate", "slippage_rate", mode="before")(_coerce_number)
+    _coerce = field_validator("fee_rate", "slippage_rate", mode="before")(_coerce_number)
+    # 금액은 앞자리 숫자만 떼는 _coerce_number로 읽을 수 없다("2억5000만원"→2) — 자리마다
+    # 더하는 금액 환산기를 쓴다(위 _normalize_amount, 옮겨 적기 계약).
+    _coerce_capital = field_validator("initial_capital", mode="before")(_normalize_amount)
 
 
 # 조건 목록에 미러된 스칼라 설정 슬롯의 정본 자리. 트레이스 전수 조사(2026-08-06,
@@ -646,14 +715,27 @@ class StrategySpec(BaseModel):
             kept = []
             for cond in getattr(self, attr):
                 target = _scalar_slot_target(cond.factor)
+                absorbed = cond.value
+                if target is None:
+                    # 지어낸 factor 이름(concept.time_based_exit 등) 아래에 **우리 필드
+                    # 이름**을 파라미터로 적어 오는 드리프트 — 이름은 매번 달라도 파라미터
+                    # 키는 스키마 이름 그대로다(실측 2026-09-10: '한 달 지나면 정리' →
+                    # factor=concept.time_based_exit, parameters={"hold_period_days":21}).
+                    # 이름을 쫓지 않고 **키**로 흡수한다(표기 대조 — 지표 파라미터는
+                    # short_period·period 등이라 스칼라 슬롯 이름과 겹치지 않는다).
+                    for pname, pvalue in (cond.parameters or {}).items():
+                        candidate = _scalar_slot_target(pname)
+                        if candidate is not None and pvalue is not None:
+                            target, absorbed = candidate, pvalue
+                            break
                 if target is not None:
                     slot_attr, field = target
                     spec_obj = getattr(self, slot_attr)
                     current = getattr(spec_obj, field)
-                    if current is None and cond.value is not None:
+                    if current is None and absorbed is not None:
                         try:
                             setattr(self, slot_attr, spec_obj.__class__.model_validate(
-                                {**spec_obj.model_dump(), field: cond.value}))
+                                {**spec_obj.model_dump(), field: absorbed}))
                             current = getattr(getattr(self, slot_attr), field)
                         except ValidationError:
                             current = None

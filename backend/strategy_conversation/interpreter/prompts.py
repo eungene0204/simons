@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "5.1"
+PROMPT_VERSION = "5.3"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -222,8 +222,9 @@ NON_STRATEGY_REQUEST(전략과 무관)
    손절/익절/트레일링은 조건이 아니라 risk_management 필드입니다(% 크기만).
    '최고가 대비/최고가에서 N% 하락(밀리면) 청산'은 stop_loss가 아니라 trailing_stop입니다.
    보유 기간(hold_period_days)은 거래일 단위: 1개월=21, 3개월=63, 6개월=126, 1년=252.
-   'N거래일 경과 시 청산'·'최대/상한 보유 기간 N거래일'·'N일 보유 후 매도'도 exit_conditions가
-   아니라 portfolio.hold_period_days=N입니다 — time.days_held 같은 factor를 지어내지 마세요.
+   'N거래일 경과 시 청산'·'최대/상한 보유 기간 N거래일'·'N일 보유 후 매도/청산'도
+   exit_conditions가 아니라 portfolio.hold_period_days=N입니다 — 'N일 보유'의 N은 이동평균
+   기간이 아니므로 ma_crossover로 옮기지 말고, time.days_held 같은 factor도 지어내지 마세요.
    단 **지표 기반 청산과 보유 기간은 별개 슬롯입니다** — '20일선 이탈 시 청산', '데드크로스면
    매도', 'RSI 70 이상이면 매도'는 보유 기간을 함께 말했더라도 exit_conditions에 반드시
    남깁니다("20일선을 이탈하면 청산하고, 최대 보유 기간은 6개월" → exit_conditions에
@@ -263,13 +264,15 @@ NON_STRATEGY_REQUEST(전략과 무관)
    기준이면 fundamental.trading_value(기본), 그 시점의 진입·청산 트리거면
    technical.trading_value입니다. 둘 다 entry_conditions/exit_conditions에 넣습니다.
 5-3. '~ 위에 있을 때'·'~ 위에 있는 종목'·'정배열'·'주가가 N일선을 상향/하향 돌파'처럼
-   두 선(또는 종가와 이동평균)의 상하 관계는 **crossover 표기**로 옮깁니다 — operator는
-   crosses_above/crosses_below, value는 null, 기간은 parameters에 넣습니다(이동평균이
+   두 선(또는 종가와 이동평균)의 상하 관계는 **넘어서는 사건이면 crossover 표기, 머무는
+   상태면 부등호**로 옮깁니다 — value는 null, 기간은 parameters에 넣습니다(이동평균이
    상대라면 규칙 5-4의 경계 표현보다 이 규칙이 우선입니다).
-   - '종가가 20일 이동평균선 위'·'20일선 상향 돌파' → technical.ma_crossover, crosses_above,
+   - '20일선 상향 돌파' → technical.ma_crossover, crosses_above,
      parameters={{"short_period":1,"long_period":20}} (short_period=1이 종가)
    - '20일선 이탈'·'20일선 아래로 내려오면'·'20일선을 깨고 내려오면' → 같은 factor,
      crosses_below, 같은 parameters
+   - '종가가 20일 이동평균선 위'·'20일선 위에 있는 동안' → 같은 factor, `>`, 같은
+     parameters (아래에 머무는 상태면 `<`)
    - **EMA를 말했으면 factor는 언제나 technical.ema입니다** — ma_crossover·
      concept.golden_cross는 단순이동평균(SMA)이라 지표가 바뀝니다. '종가가 20일 EMA를
      회복/이탈'처럼 **종가와 EMA 한 선**이면 ma_crossover와 같은 표기로 short_period=1
@@ -280,18 +283,18 @@ NON_STRATEGY_REQUEST(전략과 무관)
      parameters={{"short_period":5,"long_period":20}} / 'EMA 데드크로스' → crosses_below
    - '20일 EMA가 60일 EMA **위에 있는**'·'EMA 정배열 상태'처럼 교차 시점이 아니라 **머무는
      상태**면 operator는 `>`(아래면 `<`)이고 기간은 둘 다 넣습니다 —
-     parameters={{"short_period":20,"long_period":60}}. 이때 임계값(value)은 null이며,
-     상태를 crossover로 옮기면 정배열인 동안 계속 참이어야 할 조건이 교차 당일 하루로
-     좁아집니다(반대로 교차 시점을 `>`로 쓰면 조건이 넓어집니다).
+     parameters={{"short_period":20,"long_period":60}}. 상태를 crossover로 옮기면 정배열인
+     동안 계속 참이어야 할 조건이 교차 당일 하루로 좁아지고, 교차 시점을 `>`로 쓰면
+     조건이 넓어집니다.
    - '골든크로스'·'데드크로스'라는 말이 나오면(오타 변형 포함: '골든크러스' 등) factor는
      **concept.golden_cross / concept.dead_cross**입니다 — 두 이동평균의 교차이며 전개
      (연산자·정본 기간 5/20)는 시스템이 합니다. operator·value는 null, 사용자가 기간을
      말했으면("20일선이 60일선을 골든크로스") 그 기간만 parameters에 담으세요.
      short_period=1(종가)은 '주가가 N일선 돌파'처럼 **종가와 한 선**의 관계를 말했을
      때만 쓰며, 그 형태는 technical.ma_crossover 그대로입니다.
-   두 선의 비교에는 임계값이 없습니다 — >, < 처럼 기준값을 요구하는 연산자로 쓰거나 기간을
-   비워 두면 시스템이 "기준값을 얼마로 할까요?"라고 되묻고 **사용자가 이미 말한 조건이
-   전략에서 사라집니다**. 기간을 말했으면 반드시 parameters에 담으세요.
+   두 선의 비교에는 임계값이 없습니다 — value에 숫자를 넣거나 기간을 비워 두면 시스템이
+   "기준값을 얼마로 할까요?"라고 되묻고 **사용자가 이미 말한 조건이 전략에서 사라집니다**.
+   기간을 말했으면 반드시 parameters에 담으세요.
 6. universe.markets: 코스피=["KOSPI"], 코스닥=["KOSDAQ"], 대형주/KOSPI200=["KOSPI200"],
    코스닥150/KOSDAQ150=["KOSDAQ150"], 전체/양시장=["KOSPI","KOSDAQ"].
    지수(KOSPI200·KOSDAQ150)는 **사용자가 그 지수를 짚었을 때만** 쓰세요 — "코스닥 대형주"처럼
@@ -465,12 +468,11 @@ NON_STRATEGY_REQUEST(전략과 무관)
     수익률(%)이므로 '두 배'는 100, '세 배'는 200입니다(N배 → (N-1)×100). '반토막'처럼
     손실 방향의 배수 표현은 stop_loss=50입니다. 확신이 서지 않으면 값을 지어내지 말고
     clarification_questions로 물으세요 — 임의의 숫자는 사용자가 말하지 않은 전략이 됩니다.
-11-2. backtest.initial_capital은 **원 단위 정수**입니다. 한글 금액 단위를 그대로 환산하세요:
-    1만원=10000, 1천만원=10000000, 1억원=100000000, 10억원=1000000000.
-    "3억원"=300000000, "5000만원"=50000000, "1억5천만원"=150000000.
-    (실측 드리프트 2026-07-31: "3억원"을 30000000으로 10배 축소해 출력했습니다.)
-    **달러 금액은 달러 숫자 그대로**입니다(엔진이 시장 통화로 해석합니다 — 원화 환산 금지):
-    "$10,000"=10000, "10K dollars"=10000, "$1 million"=1000000, "10만 달러"=100000.
+11-2. backtest.initial_capital은 **말한 금액 표기를 그대로 옮겨 적습니다** — 숫자로
+    환산하지 마세요(환산은 시스템이 합니다): "2억5000만원"→"2억5000만원",
+    "3천만원"→"3천만원", "1억"→"1억", "$10,000"→"$10,000", "10만 달러"→"10만 달러".
+    (실측 드리프트: 환산을 맡겼더니 "3억원"→30000000, "2억5000만원"→25000000으로
+    10배 축소했습니다. 옮겨 적기는 틀릴 자리가 없습니다.)
 11-2-1. 지표 목록에 **단위=억원**으로 적힌 지표(시가총액·거래대금·당기순이익·영업이익·
     현금흐름 등)의 value는 **억원 단위 숫자**입니다. 원 단위로 쓰지 말고(초기자금 규칙
     11-2와 단위가 다릅니다), '조'는 ×10,000으로 환산하세요:
@@ -594,11 +596,12 @@ unsupported_features=[](복합 순위 합산은 지원 기능) — 'composite' �
 ## 예시 4-2 (ETF 테마 + 조건 여러 개 — 긴 요청에서도 테마 누락 금지)
 입력: "배당 ETF 중 20일선 위에 있는 상품만 4종목 담고, 20일선 이탈 시 청산, 손절 -10%"
 출력 요점: universe={{"markets":["ETF"],"sectors":[],"etf_theme":"배당"}},
-entry_conditions=[{{"factor":"technical.ma_crossover","operator":"crosses_above",
+entry_conditions=[{{"factor":"technical.ma_crossover","operator":">",
 "value":null,"parameters":{{"short_period":1,"long_period":20}}}}],
 exit_conditions=[{{"factor":"technical.ma_crossover","operator":"crosses_below",
 "value":null,"parameters":{{"short_period":1,"long_period":20}}}}],
-portfolio={{"selection_count":4}}, risk_management={{"stop_loss":-10}} — 조건·수치가 많아도
+portfolio={{"selection_count":4}}, risk_management={{"stop_loss":-10}} — '위에 있는'은
+머무는 상태라 `>`입니다. 조건·수치가 많아도
 'X ETF'의 X(배당)는 반드시 etf_theme에 채웁니다. 테마 없이 markets=["ETF"]만 출력하면
 전략이 전체 ETF로 왜곡되므로, etf_theme 누락은 조건 누락(규칙 4-1)과 같은 오류입니다.
 이동평균은 **20일선 하나만** 언급됐으므로 1/20입니다 — 60 같은 말하지 않은 기간을

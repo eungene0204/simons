@@ -33,16 +33,16 @@ def _decompile_technical(sig: TechnicalSignal) -> StrategyCondition:
     parameters: dict = {}
 
     if sig.indicator in ("ma_crossover", "ema"):
-        if sig.indicator == "ema" and sig.mode in ("above", "below"):
+        if sig.mode in ("above", "below"):
+            # 지속 상태(정배열·가격 vs 이동평균). 두 선짜리 상태에서 short_period를 버리면
+            # 재컴파일이 '가격 vs 한 선'으로 되돌아가 수정 라운드트립이 다른 전략을 만든다.
             operator = ">" if sig.mode == "above" else "<"
-            if sig.long_period is not None:
-                parameters["long_period"] = float(sig.long_period)
         else:
             operator = "crosses_above" if sig.signal_type == "buy" else "crosses_below"
-            if sig.short_period is not None:
-                parameters["short_period"] = float(sig.short_period)
-            if sig.long_period is not None:
-                parameters["long_period"] = float(sig.long_period)
+        if sig.short_period is not None:
+            parameters["short_period"] = float(sig.short_period)
+        if sig.long_period is not None:
+            parameters["long_period"] = float(sig.long_period)
     elif sig.indicator == "macd":
         operator = "crosses_above" if sig.signal_type == "buy" else "crosses_below"
     elif sig.indicator == "breakout":

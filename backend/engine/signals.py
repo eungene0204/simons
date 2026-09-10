@@ -192,6 +192,16 @@ class SignalEngine:
             long_ = p.get('longMA', p.get('long_period', p.get('long', 20)))
             s = get_col(f'close_{short}_sma')
             l = get_col(f'close_{long_}_sma')
+            # 지속 상태(mode='above'/'below') — "종가가 60일선 위에 있는 동안"·"20일선이
+            # 60일선 위에 머무는" 게이트다. EMA(아래)와 같은 계약이며, 종전에는 SMA에
+            # 이 모드가 없어 상태 표현이 교차 이벤트(하루)로 좁혀졌다(2026-09-10).
+            # short=1이면 close_1_sma=종가라 '가격 vs N일선' 상태가 같은 식으로 나온다.
+            mode = p.get('mode')
+            if mode in ('above', 'below'):
+                if s is None or l is None:
+                    return result
+                with np.errstate(invalid='ignore'):
+                    return s >= l if mode == 'above' else s <= l
             direction = 'dead' if p.get('signalType') == 'sell' else 'golden'
             return crossover(s, l, direction)
 
@@ -536,6 +546,13 @@ class SignalEngine:
             long_ = p.get('longMA', p.get('long_period', p.get('long', 20)))
             s = safe_get(f'close_{short}_sma', idx)
             l = safe_get(f'close_{long_}_sma', idx)
+            # 지속 상태(mode) — 벡터화 경로와 동일 의미. 교차가 아니라 매 봉에서 참인
+            # 게이트라 idx==0에서도 판정할 수 있다.
+            mode = p.get('mode')
+            if mode in ('above', 'below'):
+                if s is None or l is None:
+                    return False
+                return s >= l if mode == 'above' else s <= l
             if idx == 0 or s is None or l is None:
                 return False
             ps = safe_get(f'close_{short}_sma', idx - 1)
@@ -791,7 +808,17 @@ class SignalEngine:
         if cid == 'ma_crossover':
             short = p.get('shortMA', p.get('short_period', p.get('short', 5)))
             long_ = p.get('longMA', p.get('long_period', p.get('long', 20)))
+            mode = p.get('mode')
+            if mode in ('above', 'below'):
+                above = mode == 'above'
+                if short == 1:
+                    # short=1은 close_1_sma=종가 — '1일선'이라고 쓰면 읽는 사람이 없다.
+                    return [tr.part(tr.MA_PRICE_STAY_ABOVE if above else tr.MA_PRICE_STAY_BELOW,
+                                    long_)]
+                return [tr.part(tr.MA_STAY_ABOVE if above else tr.MA_STAY_BELOW, short, long_)]
             sell = p.get('signalType') == 'sell'
+            if short == 1:
+                return [tr.part(tr.MA_PRICE_CROSS_DOWN if sell else tr.MA_PRICE_CROSS_UP, long_)]
             return [tr.part(tr.MA_DEAD_CROSS if sell else tr.MA_GOLDEN_CROSS, short, long_)]
         elif cid == 'rsi':
             val = p.get('value', 30)
@@ -809,6 +836,10 @@ class SignalEngine:
                 sell = p.get('signalType') == 'sell'
                 return [tr.part(tr.EMA_DEAD_CROSS if sell else tr.EMA_GOLDEN_CROSS, short_p, long_p)]
             period = p.get('period', 20)
+            if p.get('mode') in ('above', 'below'):
+                above = p.get('mode') == 'above'
+                return [tr.part(tr.EMA_PRICE_STAY_ABOVE if above else tr.EMA_PRICE_STAY_BELOW,
+                                period)]
             sell = p.get('signalType') == 'sell'
             return [tr.part(tr.EMA_PRICE_CROSS_DOWN if sell else tr.EMA_PRICE_CROSS_UP, period)]
         elif cid == 'macd':

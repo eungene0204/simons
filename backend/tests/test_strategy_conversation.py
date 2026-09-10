@@ -214,6 +214,28 @@ def test_own_line_comparison_needs_no_threshold_value():
     assert [s.mode for s in parsed.exit_signals] == ["below"]
 
 
+def test_sma_state_comparison_compiles_to_mode_not_crossover():
+    """단순이동평균의 부등호도 **지속 상태**다(엔진 v16.6) — "종가가 60일 이동평균 위이고"가
+    crosses_above로 옮겨지면 위에 있는 동안 참이어야 할 조건이 올라선 하루로 좁아진다
+    (2026-09-10 사용자 지적). 선을 하나만 말했으면 상대는 종가이므로 short_period=1이다."""
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.ma_crossover", "operator": ">", "value": None,
+             "parameters": {"short_period": 1, "long_period": 60},
+             "source_text": "종가가 60일 이동평균 위이고"},
+            {"factor": "technical.ma_crossover", "operator": ">", "value": None,
+             "parameters": {"short_period": 20, "long_period": 60},
+             "source_text": "20일선이 60일선 위에 있는 동안"},
+        ],
+    )
+    validated, report = run_validation(StrategyIntent.model_validate(data))
+    assert not any(f.endswith(".value") for f in report.missing_fields)
+    parsed = compile_strategy(validated, report, "원문")
+    assert [(s.short_period, s.long_period, s.mode) for s in parsed.entry_signals] == [
+        (1, 60, "above"), (20, 60, "above"),
+    ]
+
+
 def test_same_direction_event_exit_still_dropped():
     """같은 방향 이벤트 복제는 새 정보가 없으므로 기존대로 버린다(가드 완화의 경계)."""
     data = _full_intent_dict(
@@ -1620,6 +1642,32 @@ def test_primary_planner_applied_universe_term_not_noticed_as_unsupported(monkey
     assert result["parsed"].target_symbols, result["parsed"]
     assert not any("생명보험" in n and "반영하지 못했" in n for n in result["notices"]), \
         result["notices"]
+
+
+def test_primary_unsupported_feature_already_reflected_not_noticed(monkeypatch):
+    """[회귀 2026-09-10] 조건으로 반영된 인용을 미지원으로도 보고하면(프롬프트 4-1 위반)
+    반영된 조건에 "지원하지 않아 반영하지 못했어요"가 붙는다 — 값-대기 대조와 같은 표기
+    포함 판정으로 걷어낸다. 조건에 담을 수 없는 짧은 조각(배수 등)은 그대로 안내한다."""
+    data = _full_intent_dict(
+        exit_conditions=[
+            {"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
+             "parameters": {"short_period": 20, "long_period": 60},
+             "source_text": "20일선이 60일선을 하향 돌파"},
+        ],
+    )
+    data["unsupported_features"] = ["20일선이 60일선을 하향 돌파하면 청산"]
+    result = _run_primary_with(
+        monkeypatch, data, "20일선이 60일선을 하향 돌파하면 청산하는 전략"
+    )
+    assert result is not None
+    assert result["parsed"].exit_signals, result["parsed"]
+    assert not any("지원하지 않아" in n for n in result["notices"]), result["notices"]
+
+    # 경계: 조건 인용을 감싸지 않는 짧은 조각은 종전대로 안내한다(배수 등 표현 불가 개념).
+    data = _full_intent_dict()
+    data["unsupported_features"] = ["소르티노 지수"]
+    result = _run_primary_with(monkeypatch, data, "PER 10 이하, 소르티노 지수 좋은 종목")
+    assert any("소르티노 지수" in n for n in result["notices"]), result["notices"]
 
 
 def test_interpreter_prompt_forbids_double_entry_of_reflected_expressions():
@@ -3609,6 +3657,94 @@ def test_quote_does_not_rescue_a_value_whose_magnitude_drifted():
         "value": {"value": 30_000_000, "source_text": "3억원"},
     })
     assert _provenance(drifted_inside, "3억원으로 해줘") is False
+
+
+def test_invented_factor_slot_parameter_is_absorbed():
+    """[회귀 2026-09-10] 지어낸 factor 이름 아래에 **우리 필드 이름**을 파라미터로 적어 오면
+    이름을 쫓지 말고 키로 흡수한다.
+
+    실측: 되묻기 답 '한 달 지나면 정리'에 factor='concept.time_based_exit',
+    parameters={'hold_period_days': 21}이 나왔고, 이름이 Registry에 없어 조건이 통째로
+    버려져 사용자가 말한 보유 기간이 사라졌다(안내는 '알 수 없는 청산 조건'). 이름은
+    매번 달라지지만(time.days_held·concept.time_based_exit) 파라미터 키는 스키마 이름
+    그대로라 표기 대조로 결정할 수 있다.
+    """
+    from strategy_conversation.interpreter.models import StrategySpec
+
+    spec = StrategySpec.model_validate({"exit_conditions": [{
+        "factor": "concept.time_based_exit", "operator": None, "value": None,
+        "parameters": {"hold_period_days": 21}, "source_text": "한 달 지나면 정리",
+    }]})
+    assert spec.portfolio.hold_period_days == 21
+    assert spec.exit_conditions == []
+
+    # 경계: 지표 조건의 기간 파라미터는 슬롯 이름이 아니므로 그대로 남는다.
+    kept = StrategySpec.model_validate({"exit_conditions": [{
+        "factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
+        "parameters": {"short_period": 1, "long_period": 20},
+    }]})
+    assert kept.portfolio.hold_period_days is None
+    assert [c.factor for c in kept.exit_conditions] == ["technical.ma_crossover"]
+
+
+def test_word_month_anchor_grounds_converted_patch_value():
+    """[회귀 2026-09-10] '한 달'처럼 한글 수사로 말한 기간도 수치 앵커다.
+
+    앵커가 없으면 그 수치를 환산한 패치(hold_period_days=21)가 '입력에 21이 없다'는
+    이유로 환각 게이트에 거부돼 답이 통째로 사라진다('3개월'은 숫자가 있어 통과했다).
+    """
+    from strategy_conversation.primary import _patch_provenance_supported, _input_number_candidates
+    from strategy_conversation.interpreter.models import PatchOp
+    from engine.nl_parser import _compact
+
+    text = "한 달 지나면 정리"
+    patch = PatchOp.model_validate({
+        "op": "add", "path": "/portfolio/hold_period_days", "value": 21,
+        "source_text": text,
+    })
+    assert _patch_provenance_supported(patch, _compact(text), _input_number_candidates(text))
+    # 경계: 입력에 없는 수치는 여전히 근거 없음이다.
+    bogus = PatchOp.model_validate({
+        "op": "add", "path": "/portfolio/hold_period_days", "value": 77,
+        "source_text": text,
+    })
+    assert not _patch_provenance_supported(bogus, _compact(text), _input_number_candidates(text))
+
+
+def test_initial_capital_transcription_is_converted_deterministically():
+    """[회귀 2026-09-10] 금액은 **옮겨 적기**이고 환산은 결정론 코드가 한다.
+
+    환산을 규칙으로 맡기던 시절 120B가 되묻기 답변 '2억5000만원'을 25000000(10배 축소)으로
+    냈다(하니스 FAIL, 문장 안에서는 맞히고 금액만 던진 답변에서 틀렸다). 기간 표기를
+    '<N>y'로 옮겨 적게 한 것(_normalize_period)과 같은 계약이다.
+    """
+    from strategy_conversation.interpreter.models import BacktestSpec
+
+    def cap(v):
+        return BacktestSpec(initial_capital=v).initial_capital
+
+    assert cap("2억5000만원") == 250_000_000
+    assert cap("2억 5천만원") == 250_000_000
+    assert cap("1억2000만원") == 120_000_000
+    assert cap("2억5백만원") == 205_000_000
+    assert cap("3천만원") == 30_000_000
+    assert cap("5000만원") == 50_000_000
+    assert cap("2.5억") == 250_000_000
+    assert cap("1조") == 1_000_000_000_000
+    # 수사 없는 단위·한글 수사도 표기 변환 대상이다(옮겨 적기가 숫자를 쓴다는 보장은 없다).
+    assert cap("천만원") == 10_000_000
+    assert cap("오천만원") == 50_000_000
+    assert cap("삼억") == 300_000_000
+    assert cap("십억") == 1_000_000_000
+    # 달러·맨숫자는 표기 그대로의 숫자다(시장 통화 해석은 엔진 몫).
+    assert cap("$10,000") == 10_000
+    assert cap("10K") == 10_000
+    assert cap("$1 million") == 1_000_000
+    assert cap("10000000") == 10_000_000
+    assert cap(250_000_000) == 250_000_000
+    # 풀 수 없는 표기는 값을 지어내지 않고 스키마 검증으로 넘긴다.
+    with pytest.raises(Exception):
+        cap("적당히")
 
 
 def test_quote_rescue_survives_when_numbers_agree_or_are_absent():

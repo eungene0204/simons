@@ -1056,6 +1056,26 @@ def test_extract_initial_capital_still_reads_explicit_capital():
     )
 
 
+def test_extract_initial_capital_reads_eok_plus_man_units():
+    """[회귀 2026-09-10] '억' 뒤의 단위는 '천만'(10^7)과 '만'(10^4)이 다르다.
+
+    종전 정규식은 '천'을 선택 사항으로 두고 배수를 천만으로 고정해 "2억5000만원"이
+    502억(2억 + 5000×천만)이 됐고, 상한(100억)을 넘겨 값이 버려지는 바람에 화면에는
+    10배 축소된 금액으로 보였다(되묻기 하니스 FAIL, prompt 5.0~5.2 전 구간 재현).
+    """
+    from engine.nl_parser import _extract_capital_amount
+
+    assert _extract_capital_amount("초기자금 2억5000만원") == 250_000_000.0
+    assert _extract_capital_amount("초기자금 2억 5천만원") == 250_000_000.0
+    assert _extract_capital_amount("초기자금 3억5000만") == 350_000_000.0
+    assert _extract_capital_amount("초기자금 1억5천만원") == 150_000_000.0
+    assert _extract_capital_amount("초기자금 2억5백만원") == 205_000_000.0
+    # 경계: '억'만 있는 표현과 '억' 없는 단독 표현은 종전 그대로다.
+    assert _extract_capital_amount("초기자금 2억") == 200_000_000.0
+    assert _extract_capital_amount("초기자금 5000만원") == 50_000_000.0
+    assert _extract_capital_amount("초기자금 3천만원") == 30_000_000.0
+
+
 def test_apply_prompt_overrides_preserves_comma_delimited_manwon_capital():
     parsed = _apply_prompt_overrides(
         make_base_strategy(),

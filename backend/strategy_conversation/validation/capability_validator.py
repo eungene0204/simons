@@ -9,6 +9,7 @@ suggested_fixes로 명시 제안만 한다(사용자 확인 필요).
 
 from __future__ import annotations
 
+import re
 from typing import List, Tuple
 
 import ui_language
@@ -20,6 +21,26 @@ from strategy_conversation.registry.concept_ontology import (
     logger as ontology_logger,
 )
 from strategy_conversation.registry.indicator_registry import REGISTRY, resolve
+
+# 스키마 필드 경로 꼴의 factor(concept.time_based_exit·technical.beta …)는 LLM이 지어낸
+# **내부 식별자**다 — 사용자 안내에 그대로 인용하면 쓴 적 없는 영문 경로가 화면에 나간다
+# (잔여 미지원 안내의 field_path_rx와 같은 판정). 사람이 읽는 이름('미지의지표')은 그대로 쓴다.
+_IDENTIFIER_FACTOR_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+$")
+# 우리 네임스페이스를 접두로 단 표기도 식별자다("concept.없는개념" — 뒤가 한글이어도
+# 'concept.'은 사용자가 쓴 말이 아니다). 목록은 우리 스키마의 이름들이다.
+_INTERNAL_NAMESPACES = frozenset({
+    "technical", "fundamental", "ranking", "concept", "class",
+    "risk_management", "portfolio", "backtest", "time",
+})
+
+
+def _is_internal_factor_name(factor: str) -> bool:
+    name = (factor or "").strip()
+    if not name:
+        return True
+    if _IDENTIFIER_FACTOR_RE.match(name):
+        return True
+    return "." in name and name.split(".", 1)[0].strip().lower() in _INTERNAL_NAMESPACES
 
 _COMPARISON_OPS = ("<", "<=", ">", ">=")
 # 교차 연산자 → 같은 방향의 수준 비교(오실레이터 전용 정규화, 위 주석 참조)
@@ -138,10 +159,19 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 continue
             spec = resolve(cond.factor)
             if spec is None:
-                unsupported.append(cond.factor)
-                errors.append(
-                    f"{role} 조건 '{cond.factor}'은(는) 알 수 없는 지표입니다"
-                    + (f" (원문: {cond.source_text!r})" if cond.source_text else "")
+                # 안내에는 **사용자 표현**을 담는다 — LLM이 지어낸 내부 식별자
+                # (concept.time_based_exit 등)를 그대로 인용하면 사용자가 쓴 적 없는
+                # 영문 필드 경로가 화면에 나간다(내부명 노출 금지, 레드팀 QA 20-5 —
+                # 미지원 랭킹 기준과 같은 계약). 식별자는 로그에만 남긴다.
+                quoted = (cond.source_text or "").strip()
+                label = quoted or (
+                    ui_language.msg("알 수 없는 지표", "an unrecognized indicator")
+                    if _is_internal_factor_name(cond.factor) else cond.factor
+                )
+                unsupported.append(label)
+                errors.append(f"{role} 조건 '{label}'은(는) 알 수 없는 지표입니다")
+                ontology_logger.info(
+                    "미해석 factor | %s 조건 factor=%s 원문=%r", role, cond.factor, cond.source_text,
                 )
                 kept.append(cond)
                 continue

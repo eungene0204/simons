@@ -3659,11 +3659,15 @@ def _extract_capital_amount(user_input: str, *, allow_bare: bool = False) -> Opt
     compact = re.sub(r"(?<=\d),(?=\d)", "", compact)
     # 거래대금/시가총액 필터의 '억' 수치를 초기자금으로 오인하지 않도록 먼저 제거한다.
     compact = _strip_amount_filter_phrases(compact)
-    match = re.search(r"(\d+(?:\.\d+)?)억(?:(\d+(?:\.\d+)?)천?만)?", compact)
+    # '억' 뒤에 붙는 단위는 '천만'(10^7)과 '만'(10^4)이 다르다 — 종전에는 '천'을 선택
+    # 사항으로 두고 배수는 천만으로 고정해, "2억5000만원"이 502억(=2억+5000×천만)으로
+    # 부풀었다(2026-09-10 되묻기 하니스 실측: 상한 초과로 값이 버려져 10배 오차로 보였다).
+    match = re.search(r"(\d+(?:\.\d+)?)억(?:(\d+(?:\.\d+)?)([천백])?만)?", compact)
     if match:
         capital = float(match.group(1)) * 100_000_000
         if match.group(2):
-            capital += float(match.group(2)) * 10_000_000
+            unit = {"천": 10_000_000, "백": 1_000_000}.get(match.group(3) or "", 10_000)
+            capital += float(match.group(2)) * unit
         return capital
 
     match = re.search(r"(\d+(?:\.\d+)?)천만원?", compact)

@@ -61,6 +61,53 @@ describe("getSignalLabel — 크로스 방향 구체화", () => {
     );
   });
 
+  // [회귀] 2026-09-10 사용자 지적 — "종가가 60일선 위"와 "20일선이 60일선 상향 돌파"가
+  // 요약 카드에 'MA 골든크로스' 두 줄로 나갔다(기간을 버린 라벨이라 서로 다른 두 조건이
+  // 같은 문구가 됐다). 기간이 있으면 기간까지 담아 두 조건을 구별한다.
+  it("이동평균 신호의 기간을 라벨에 담아 서로 다른 조건을 구별한다", () => {
+    const priceVsMa = getSignalLabel(
+      { indicator: "ma_crossover", signal_type: "buy", short_period: 1, long_period: 60 },
+      "entry",
+    );
+    const maPair = getSignalLabel(
+      { indicator: "ma_crossover", signal_type: "buy", short_period: 20, long_period: 60 },
+      "entry",
+    );
+    expect(priceVsMa).toBe("종가가 60일선 상향 돌파");
+    expect(maPair).toBe("20일선-60일선 골든크로스");
+    expect(priceVsMa).not.toBe(maPair);
+    expect(
+      getSignalLabel(
+        { indicator: "ma_crossover", signal_type: "sell", short_period: 20, long_period: 60 },
+        "exit",
+      ),
+    ).toBe("20일선-60일선 데드크로스");
+  });
+
+  it("이동평균 지속 상태(mode)는 '유지'로, 교차와 구별해 라벨링한다", () => {
+    expect(
+      getSignalLabel(
+        { indicator: "ma_crossover", signal_type: "buy", short_period: 1, long_period: 60, mode: "above" },
+        "entry",
+      ),
+    ).toBe("종가가 60일선 위 유지");
+    expect(
+      getSignalLabel(
+        { indicator: "ma_crossover", signal_type: "buy", short_period: 20, long_period: 60, mode: "above" },
+        "entry",
+      ),
+    ).toBe("20일선이 60일선 위 유지");
+    expect(
+      getSignalLabel(
+        { indicator: "ema", signal_type: "buy", short_period: 5, long_period: 20, mode: "below" },
+        "entry",
+      ),
+    ).toBe("EMA5이 EMA20 아래 유지");
+    expect(
+      getSignalLabel({ indicator: "ema", signal_type: "buy", long_period: 20, mode: "above" }, "entry"),
+    ).toBe("종가가 EMA20 위 유지");
+  });
+
   it("MACD 제로선 모드는 제로선 돌파로 라벨링한다", () => {
     expect(getSignalLabel({ indicator: "macd", signal_type: "buy", mode: "zero" }, "entry")).toBe(
       "MACD 제로선 상향 돌파"
@@ -278,6 +325,14 @@ describe("strategySummary", () => {
   it("초기자금 배지는 1억 이상이면 한글 단위(억/조)로 표시한다", () => {
     expect(formatInitialCapital(5_000_000_000)).toBe("50억원");
     expect(formatInitialCapital(1_000_000_000_000)).toBe("1조원");
+  });
+
+  it("초기자금 배지는 억 미만 잔액을 반올림하지 않고 끊어 적는다", () => {
+    // 1억 5천만원이 '2억원'으로 보이던 표시 반올림 회귀(2026-09-10).
+    expect(formatInitialCapital(150_000_000)).toBe("1억 5,000만원");
+    expect(formatInitialCapital(120_000_000)).toBe("1억 2,000만원");
+    expect(formatInitialCapital(1_500_000_000_000)).toBe("1조 5,000억원");
+    expect(formatInitialCapital(123_456_789)).toBe("123,456,789원");
   });
 
   it("초기자금 배지는 1억 미만이면 콤마 포함 원 단위로 표시한다", () => {
