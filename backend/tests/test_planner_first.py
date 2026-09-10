@@ -266,6 +266,28 @@ def test_ambiguous_scope_blocks_silent_theme_application(monkeypatch, topic):
     assert not parsed.target_symbols
 
 
+def test_partial_match_single_candidate_blocks_silent_application(monkeypatch):
+    """[회귀] 2026-09-10 — 표기가 다른 후보 1개도 적용 차단 대상이다. 종전 계약('후보
+    1개=범위가 갈리지 않음')이 '종목'→'철강 주요종목'을 자동 적용해, 사용자가 말한 적
+    없는 철강 11곳이 유니버스로 확정됐다."""
+    def _must_not_apply(parsed, term):
+        raise AssertionError("확인 질문 중 테마가 조용히 적용됐다")
+
+    monkeypatch.setattr(nl_parser, "apply_theme_companies", _must_not_apply)
+    parsed = ParsedStrategy(description="테스트")
+    result = _plan_result(
+        [("classify_universe", "2차전지", {"universe_type": "CONCEPT"}),
+         ("list_concept_candidates", "2차전지",
+          {"candidates": [{"term": "2차전지 장비", "companies": 38, "exact": False}]}),
+         ("kg_theme_companies", "2차전지 장비",
+          {"found": True, "companies": [{"symbol": "112610"}]})],
+        outcome="ask", question="어떤 조건에서 매수할까요?", chips=[], topic="매수조건",
+    )
+    resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, [])
+    assert resolved == set() and unresolved == {"2차전지"}
+    assert not parsed.target_symbols
+
+
 # ─── 범위 모호성 되묻기(_planner_scope_ask — 결정론 소유) ───────────────────────
 
 def test_scope_ask_surfaces_even_when_planner_drifts_to_condition_ask():
@@ -307,7 +329,7 @@ def test_scope_ask_none_without_ambiguous_candidates():
     """후보 1개 이하 표현은 범위 되묻기 대상이 아니다 — term-in 체인 소관."""
     result = _plan_result(
         [("list_concept_candidates", "미용기기",
-          {"candidates": [{"term": "미용기기", "companies": 19}]})],
+          {"candidates": [{"term": "미용기기", "companies": 19, "exact": True}]})],
         outcome="ask", question="어떤 조건에서 매수할까요?", chips=[], topic="매수조건",
     )
     assert _planner_scope_ask(result, {"미용기기"}) is None
@@ -457,6 +479,22 @@ def test_planner_first_universe_ask_wins_over_condition_question(monkeypatch):
     }
 
 
+def test_partial_match_single_candidate_asks_for_confirmation():
+    """[회귀] 2026-09-10 — 표기가 다른 후보 1개는 확인 되묻기 대상이다(자동 확정 금지).
+    '종목'이 '철강 주요종목' 후보 1개를 만들어 철강 11곳이 유니버스로 확정된 사고의
+    두 번째 방어선 — 칩은 후보 정본 표기 그대로라 클릭이 결정론으로 귀속된다."""
+    result = _plan_result(
+        [("list_concept_candidates", "2차전지",
+          {"candidates": [{"term": "2차전지 장비", "companies": 38, "exact": False}]})],
+        outcome="ask", question="어떤 조건에서 매수할까요?", chips=[], topic="매수조건",
+    )
+    ask = _planner_scope_ask(result, {"2차전지"})
+    assert ask is not None
+    question, chips, terms = ask
+    assert chips == ["2차전지 장비"] and terms == {"2차전지"}
+    assert "2차전지 장비" in question and "진행할까요" in question
+
+
 def test_planner_drift_leaves_unresolved_term_to_chain(monkeypatch):
     """'미용기기' 사고 회귀(2026-07-28): planner가 후보 1개 표현을 해석하지 않고 조건
     ask로 드리프트 — 그 표현은 term-in 체인으로 흘러 해석돼야 한다(무조건 제외 금지).
@@ -482,7 +520,7 @@ def test_planner_drift_leaves_unresolved_term_to_chain(monkeypatch):
     plan = _plan_result(
         [("classify_universe", "미용기기", {"universe_type": "CONCEPT"}),
          ("list_concept_candidates", "미용기기",
-          {"candidates": [{"term": "미용기기", "companies": 19}]})],
+          {"candidates": [{"term": "미용기기", "companies": 19, "exact": True}]})],
         outcome="ask", question="어떤 조건에서 매수할까요?",
         chips=["PER 20 이하 및 ROE 10% 이상 재무 건전성 기준"], topic="매수조건",
     )

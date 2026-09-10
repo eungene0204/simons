@@ -1535,18 +1535,20 @@ def test_primary_momentum_lookback_question_gets_priority_and_chips(monkeypatch)
     assert bindings.get("수익률 산정 기간 60일") == {"ranking_lookback_days": 60}
 
 
-def test_primary_does_not_echo_listed_unsupported_features(monkeypatch):
-    """미지원 개념 목록(34개)에 매칭되는 항목은 LLM 보고 채널이 다시 내지 않는다.
+def test_primary_notices_listed_unsupported_features(monkeypatch):
+    """[이관 2026-09-10] 목록 개념('FCF'=cash_flow)도 LLM 보고 채널이 안내한다.
 
-    무필터 인용 폐지(2026-08-01) 후 2026-08-12 가드를 얹어 부활한 채널의 제외 규칙 —
-    목록 개념('FCF'=cash_flow)의 안내와 의도적 제외(이미 반영·값 대기)는 결정론 게이트
-    (build_unsupported_concept_notice)의 소관이라 여기서 내면 중복이거나 오탐 부활이다.
+    종전 규칙은 '목록 개념은 결정론 게이트(build_unsupported_concept_notice) 소관'이라
+    여기서 버리는 것이었다. 그 게이트는 사용자 원문을 정규식으로 읽어 판정하는 재심
+    구조라 primary 레인에서 껐고(대원칙 1), 이제 이 채널이 미지원 안내의 단일 정본이다 —
+    버리면 LLM이 보고한 미지원 개념이 아무 데서도 안내되지 않는다. 이미 반영·값 대기
+    항목의 제외는 이 채널 자신의 가드(source_text·pending 대조·표현된 개념)가 맡는다.
     """
     data = _full_intent_dict()
     data["unsupported_features"] = ["FCF Yield"]
     result = _run_primary_with(monkeypatch, data)
     assert result is not None
-    assert not any("FCF Yield" in n for n in result["notices"])
+    assert any("FCF Yield" in n for n in result["notices"]), result["notices"]
 
 
 def test_primary_notices_unlisted_unsupported_feature(monkeypatch):
@@ -1564,6 +1566,91 @@ def test_primary_notices_unlisted_unsupported_feature(monkeypatch):
     leftover = [n for n in result["notices"] if "소르티노 지수" in n]
     assert leftover, f"목록 밖 미지원 개념이 조용히 사라졌다: {result['notices']}"
     assert any("지원하지 않아" in n for n in leftover), leftover
+
+
+def test_primary_notices_approximated_condition(monkeypatch):
+    """[이관 2026-09-10] 근사 반영 알림의 정본은 LLM의 approximated 신고다.
+
+    종전에는 원문 정규식이 낱말을 보고 "다르게 해석됐을 수 있어요"를 냈다 — 정확히
+    반영된 요청에도 붙는 오탐의 원인. 이제 조건에 approximated=true가 실린 것만 알린다."""
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.volume_spike", "operator": ">", "value": None,
+             "approximated": True, "source_text": "거래대금이 늘어난"},
+        ],
+    )
+    result = _run_primary_with(monkeypatch, data, "거래대금이 늘어난 종목을 사줘")
+    assert result is not None
+    approx = [n for n in result["notices"] if "가깝게 반영" in n]
+    assert approx, f"근사 반영 신고가 안내되지 않았다: {result['notices']}"
+    assert "거래대금이 늘어난" in approx[0] and "거래량 급증" in approx[0]
+
+
+def test_primary_notices_substituted_factor_without_flag(monkeypatch):
+    """신고가 없어도 **지표 대체**는 잡는다(인용 ↔ factor 대조).
+
+    가장 위험한 대체(사용자가 말한 ROIC 대신 ROE를 넣는 것)에서 모델은 approximated
+    신고도, unsupported_features 보고도 하지 않는다 — 신고에만 기대면 조용히 지나간다.
+    둘 다 LLM 출력이므로 표기 대조는 결정론 소관이다(원문을 읽지 않는다)."""
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.roe_or_gpa", "operator": ">=", "value": 15,
+             "source_text": "ROIC 15% 이상"},
+        ],
+    )
+    result = _run_primary_with(monkeypatch, data, "ROIC 15% 이상인 종목만 사줘")
+    assert result is not None
+    approx = [n for n in result["notices"] if "가깝게 반영" in n]
+    assert approx, f"지표 대체가 조용히 지나갔다: {result['notices']}"
+    assert "ROIC 15% 이상" in approx[0] and "ROE" in approx[0]
+
+
+def test_primary_expanded_concept_is_not_reported_as_substitution(monkeypatch):
+    """합성 개념 전개(골든크로스 → ma_crossover)는 대체가 아니다 — 오탐 가드."""
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "concept.golden_cross", "operator": "crosses_above", "value": None,
+             "parameters": {"short_period": 20, "long_period": 60},
+             "source_text": "20일선이 60일선을 골든크로스"},
+        ],
+    )
+    result = _run_primary_with(
+        monkeypatch, data, "20일선이 60일선을 골든크로스하면 매수")
+    assert result is not None
+    assert not any("가깝게 반영" in n for n in result["notices"]), result["notices"]
+
+
+def test_primary_exact_condition_carries_no_approximation_notice(monkeypatch):
+    """정확히 반영한 조건에는 근사 안내가 붙지 않는다(사고의 사용자 관점 회귀).
+
+    "실적 대비 가격이 낮은"은 PER의 한국어 정의이고 approximated도 false다 — 어떤
+    안내도 나가지 않아야 한다."""
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.per", "operator": "<=", "value": 10,
+             "source_text": "실적 대비 가격이 낮은"},
+        ],
+    )
+    result = _run_primary_with(
+        monkeypatch, data, "실적 대비 가격이 낮은 종목을 PER 10 이하로 사줘")
+    assert result is not None
+    assert not any("가깝게 반영" in n or "지원되지 않아요" in n for n in result["notices"]), (
+        result["notices"])
+
+
+def test_primary_notices_listed_unsupported_concept_reported_by_llm(monkeypatch):
+    """[이관 2026-09-10] 목록 개념도 LLM 보고 채널이 안내한다(정본 한국어 라벨로).
+
+    종전에는 34개 목록에 매칭되면 이 채널이 항목을 버렸다 — 같은 개념을 원문 정규식
+    게이트가 안내했기 때문이다. 그 게이트를 primary 레인에서 껐으므로, 버리면 LLM이
+    정직하게 보고한 미지원 개념이 아무 데서도 안내되지 않는다."""
+    data = _full_intent_dict()
+    data["unsupported_features"] = ["volatility"]
+    result = _run_primary_with(monkeypatch, data, "변동성 낮은 종목 위주로 PER 10 이하")
+    assert result is not None
+    leftover = [n for n in result["notices"] if "변동성 조건" in n]
+    assert leftover, f"보고된 미지원 개념이 조용히 사라졌다: {result['notices']}"
+    assert not any("volatility" in n for n in result["notices"]), result["notices"]
 
 
 def test_primary_unsupported_echo_of_full_input_stays_silent(monkeypatch):

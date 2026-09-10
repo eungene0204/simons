@@ -68,6 +68,26 @@ def test_classify_universe_rejects_factor_condition_phrase():
     assert call("classify_universe", text="영업이익률").universe_type == "NOT_UNIVERSE"
 
 
+def test_classify_universe_rejects_bare_generic_stock_noun():
+    """[회귀] 2026-09-10 — "너무 비싸 보이는 종목은 피하고, 실적 대비 가격이 낮은 종목을
+    찾고 싶어"에서 planner가 조건 구를 떼고 남은 머리 명사만 유니버스 표현으로 넘겼다
+    (text="종목"). CONCEPT 판정 → 카탈로그 포함 일치가 '철강 주요종목' 후보 1개를 만들고
+    → 후보 1개 결정론 에필로그가 자동 적용해, 사용자가 말한 적 없는 철강 11곳이 유니버스로
+    확정됐다. 일반명사는 유니버스 표현이 아니다."""
+    for text in ("종목", "주식", "기업", "회사", "전체 종목"):
+        assert call("classify_universe", text=text).universe_type == "NOT_UNIVERSE", text
+
+
+def test_generic_noun_yields_no_catalog_theme_candidates():
+    """같은 사고의 데이터 층 가드 — 일반명사가 포함 일치로 무관한 테마를 긁어오면 안 된다.
+    수식어가 붙은 표현은 그대로 후보를 낸다(가드가 정상 조회를 막지 않는다)."""
+    from engine.knowledge_graph import catalog_theme_candidates
+
+    assert catalog_theme_candidates("종목") == []
+    assert catalog_theme_candidates("기업") == []
+    assert [c["term"] for c in catalog_theme_candidates("보안주")]
+
+
 def test_classify_universe_factor_backstop_keeps_real_universes():
     # 백스톱이 정상 유니버스 판정을 건드리지 않는다 — 시장/업종/미지 테마 각 1건
     assert call("classify_universe", text="코스피").universe_type == "MARKET"

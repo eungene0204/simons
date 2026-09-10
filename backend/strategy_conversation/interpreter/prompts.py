@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "5.3"
+PROMPT_VERSION = "5.4"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -44,6 +44,7 @@ _OUTPUT_SHAPE = {
                 "value": 10,
                 "unit": "ratio",
                 "source_text": "PER이 10보다 낮은",
+                "approximated": False,
             },
             # 크로스오버 조건을 parameters와 **함께** 보여준다 — 형태에 parameters 키가
             # 없으면 9B는 규칙 5-3이 아무리 자세해도 그 자리를 채우지 않고 null로 낸다
@@ -214,6 +215,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
    빠집니다). 표현할 수 없는 것만 unsupported_features로 보냅니다. 반대로, 이미 필드·조건에
    값으로 반영한 표현은 지원된 것입니다 — 같은 표현을 unsupported_features에 다시 넣지 마세요
    (한 표현은 한 곳에만).
+4-1-1. 정확히 같은 지표가 없어 가장 가까운 지원 지표로 대신 반영한 조건에는 "approximated": true를 적으세요.
 4-2. entry_conditions가 여러 개일 때 결합 방식은 entry_logic입니다. 기본값은 "AND"이고
    ("~하면서"·"동시에"·"그리고"·쉼표 나열은 전부 AND — 모두 성립해야 매수), 사용자가
    "또는"·"이거나"·"둘 중 하나만 충족해도"처럼 대안 관계를 **명시했을 때만** "OR"로

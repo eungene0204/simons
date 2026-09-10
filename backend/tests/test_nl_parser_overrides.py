@@ -3337,6 +3337,38 @@ def test_unsupported_concept_routes_to_llm(prompt, concept):
     assert _parse_rule_based_strategy(prompt) is None
 
 
+def test_earnings_notice_covers_only_forward_looking_expressions():
+    """[회귀] 2026-09-10 — '실적' 단독은 미지원 개념이 아니다. "실적 대비 가격이 낮은
+    종목"은 PER의 한국어 정의이고 지난 실적(매출·영업이익·이익률·성장률)도 정식 지원
+    지표라, 종전 패턴은 정확히 반영된 요청에 "지원되지 않아요"를 함께 내보냈다.
+    미지원은 전망·이벤트(컨센서스·추정치·목표주가·어닝서프라이즈·실적 발표일)뿐이다."""
+    from engine.nl_parser import _mentioned_unsupported_concepts
+
+    supported = [
+        "너무 비싸 보이는 종목은 피하고, 실적 대비 가격이 낮은 종목을 찾고 싶어",
+        "실적이 좋아지는 기업 위주로 사는 전략",
+    ]
+    for prompt in supported:
+        assert "earnings" not in _mentioned_unsupported_concepts(prompt), prompt
+    unsupported = [
+        "컨센서스 상회하는 종목에 투자하고 싶어",
+        "목표주가 대비 저평가된 종목 매수",
+        "어닝 서프라이즈 종목 매수",
+        "실적 발표 후 급등하는 종목 매수",
+    ]
+    for prompt in unsupported:
+        assert "earnings" in _mentioned_unsupported_concepts(prompt), prompt
+
+
+def test_per_request_carries_no_unsupported_notice():
+    """같은 사고의 사용자 관점 회귀 — PER 요청에 미지원 안내가 붙지 않는다."""
+    from engine.nl_parser import build_unsupported_concept_notice
+
+    assert build_unsupported_concept_notice(
+        "너무 비싸 보이는 종목은 피하고, 실적 대비 가격이 낮은 종목을 찾고 싶어"
+    ) is None
+
+
 @pytest.mark.parametrize(
     "prompt",
     [
@@ -5344,6 +5376,38 @@ def test_parser_and_validator_share_one_num_ctx():
     from engine.parse_validator import _VALIDATION_NUM_CTX
 
     assert _VALIDATION_NUM_CTX == _OLLAMA_NUM_CTX
+
+
+def test_build_parse_result_skips_raw_prompt_unsupported_notice_on_primary_lane():
+    """[이관 2026-09-10] 원문 정규식 미지원 안내는 레거시 레인 전용이다.
+
+    낱말만 보고 판정하니 정확히 반영된 요청에도 "지원되지 않아요"가 붙었다(사고: PER로
+    반영된 "실적 대비 가격"). primary 레인의 정본은 LLM의 unsupported_features와 조건의
+    approximated 신고이며, 그 판정을 원문 정규식이 다시 읽어 뒤집지 않는다. 여기서는
+    지원 기능인 배당 재투자로 확인한다 — 레거시 레인은 종전 동작 그대로다."""
+    import time
+
+    import main
+    from engine.nl_parser import FundamentalFilter, ParsedStrategy
+
+    prompt = "배당을 재투자하는 전략, PER 10 이하 종목 매수"
+    parsed = ParsedStrategy(
+        description=prompt, universe=["KOSPI"],
+        fundamental_filters=[FundamentalFilter(metric="per", operator="<=", value=10)],
+    )
+    kwargs = dict(load_ms=0.0, parse_ms=0.0, request_started=time.perf_counter())
+    primary = main._build_parse_result(
+        main.NLParseRequest(prompt=prompt, backend="ollama"),
+        "ollama", parsed.model_copy(deep=True), None,
+        scan_prompt_for_sector=False, **kwargs,
+    )
+    assert not any("지원되지 않아요" in n for n in primary["notices"]), primary["notices"]
+    legacy = main._build_parse_result(
+        main.NLParseRequest(prompt=prompt, backend="ollama"),
+        "rule", parsed.model_copy(deep=True), None,
+        scan_prompt_for_sector=True, **kwargs,
+    )
+    assert any("지원되지 않아요" in n for n in legacy["notices"]), legacy["notices"]
 
 
 def test_build_parse_result_skips_raw_prompt_clarifications_on_primary_lane():

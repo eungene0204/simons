@@ -122,8 +122,25 @@ class StrategyCondition(BaseModel):
     source_text: Optional[str] = Field(
         default=None, description="이 조건을 추출한 사용자 원문 표현(디버깅·추적용)"
     )
+    approximated: bool = Field(
+        default=False,
+        description=(
+            "정확히 같은 지표가 없어 가장 가까운 지원 지표로 대신 반영했는가. "
+            "true면 시스템이 '가깝게 반영했다'고 사용자에게 알린다(조용한 대체 방지)"
+        ),
+    )
 
     _coerce_value = field_validator("value", "recommended_value", mode="before")(_coerce_number)
+
+    @field_validator("approximated", mode="before")
+    @classmethod
+    def _coerce_approximated(cls, v):
+        # 표기 정규화 — 모델이 불리언 대신 문자열("true"/"yes")이나 null을 낸다.
+        if v is None:
+            return False
+        if isinstance(v, str):
+            return v.strip().lower() in ("true", "yes", "y", "1")
+        return v
 
     @field_validator("operator", mode="before")
     @classmethod

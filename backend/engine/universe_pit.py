@@ -565,6 +565,24 @@ def is_narrow_sector_approximation(raw: Optional[str]) -> bool:
     return key not in _sector_key(sector)
 
 
+# 유니버스를 좁히지 못하는 일반명사 — 시장·업종·테마·종목명 어느 것도 아니다.
+# planner LLM이 지표 조건 구에서 조건만 떼어내고 머리 명사만 남겨 유니버스 표현으로
+# 넘기는 실측 잔여물이다("실적 대비 가격이 낮은 종목" → text="종목", 2026-09-10).
+_GENERIC_STOCK_TERMS: frozenset[str] = frozenset({
+    "종목", "종목들", "주식", "주식들", "주", "기업", "기업들", "회사", "회사들",
+    "상장사", "상장기업", "상장종목", "전체", "전체종목", "전종목", "시장", "전체시장",
+})
+
+
+def is_generic_stock_term(raw: Optional[str]) -> bool:
+    """표현이 유니버스를 좁히지 못하는 일반명사인가 — 정확 일치(부분 매칭 금지).
+
+    입력은 LLM이 뽑은 짧은 표현이고 판정은 표기 대조뿐이다(계약 § 3-2 형식 정규화 —
+    사용자 원문 해석이 아니다). 수식어가 붙은 표현("반도체 종목")은 정확 일치가
+    아니므로 통과한다."""
+    return _sector_key(raw or "") in _GENERIC_STOCK_TERMS
+
+
 def normalize_sector_value(raw) -> Optional[str | list[str]]:
     """sector 필드 값(str 또는 list)을 정규형으로 정규화한다(FR-STR-066 ⑦ 다중 섹터).
 

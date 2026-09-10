@@ -122,6 +122,34 @@ def _slash_aliases(name: str) -> list[str]:
     return aliases
 
 
+def _notation_forms(name: str) -> set[str]:
+    """표기 변형 집합(정규화 키) — 원 표기·괄호 제거 본체·괄호 안 토큰·슬래시 분해.
+
+    "주어진 두 표기가 같은 것을 가리키는가"만 답한다(카탈로그 정합 판정의 정확 일치 —
+    'ESS'='전력저장장치(ESS)'는 같고, '종목'≠'철강 주요종목'·'2차전지'≠'2차전지 장비'는
+    다르다). 스캔 어휘 가드(일반어·테스트 정본 용어·섹터 어휘)를 적용하지 않는 이유는
+    이 값이 **색인에 들어가지 않기 때문**이다 — 그 가드들은 어휘 오염을 막는 장치이지
+    표기 동일성 판정 기준이 아니다(_slash_aliases·_paren_variants와 갈리는 지점)."""
+    base = re.sub(r"\([^)]*\)", "", name or "").strip()
+    forms = {_norm_key(name), _norm_key(base)}
+    for inner in re.findall(r"\(([^)]*)\)", name or ""):
+        for token in inner.split("/"):
+            token = token.strip()
+            # 괄호 안 조각의 일반어 가드는 _paren_variants와 같다('보안주(정보)'의
+            # '정보'는 그 테마의 다른 이름이 아니라 범위 수식어다).
+            if token and (re.search(r"[a-zA-Z0-9]", token) or len(_norm_key(token)) >= 4):
+                forms.add(_norm_key(token))
+    m = re.fullmatch(r"(.*?)([^\s/]+(?:/[^\s/]+)+)(.*)", base)
+    if m:
+        prefix, group, suffix = m.groups()
+        # 슬래시 병기는 **재조립한 전체 표기**만 같은 이름이다("LCD 부품/소재" →
+        # "LCD 부품"·"LCD 소재"). 조각 단독('부품')은 다른 것을 가리킨다.
+        for part in group.split("/"):
+            forms.add(_norm_key(f"{prefix}{part}{suffix}"))
+    forms.discard("")
+    return forms
+
+
 def _paren_variants(name: str) -> list[str]:
     """괄호 병기 테마명("HBM(고대역폭메모리)")의 결정적 표기 변형 — 괄호 제거 본체
     ("HBM")와 괄호 안 토큰("고대역폭메모리").
@@ -258,8 +286,13 @@ class KnowledgeGraph:
         확정이 아니라 되묻기 선택지(CONCEPT 모호성 ask의 chips) 재료다. 자동 적용
         경로에 쓰면 안 된다: '보안주' → 보안주(정보)/보안주(물리)처럼 범위가 갈리는
         표현은 사용자가 고른다."""
+        from engine.universe_pit import is_generic_stock_term  # 지연 import(무거운 엔진 모듈)
+
         key = _norm_key(term)
-        if len(key) < 2:
+        # 일반명사('종목'·'기업')는 포함 일치로 무관한 테마를 긁어온다 — '종목'이
+        # '철강 주요종목'을 후보로 만들어 철강 11곳이 유니버스로 확정된 사고
+        # (2026-09-10). _ALIAS_STOPWORDS와 같은 취지의 조회 키 가드다.
+        if len(key) < 2 or is_generic_stock_term(term):
             return []
         exact = set(self._catalog_index.get(key, []))
         matched: list[tuple[int, int, str]] = []  # (정확일치 아님, 표기 길이, node_id)
@@ -1052,7 +1085,16 @@ def catalog_theme_candidates(term: str, limit: int = 8) -> list[dict]:
             symbols.update(c["symbol"] for c in graph.listed_companies(node["id"]))
         if not symbols:
             continue
-        candidates.append({"term": representative.get("name"), "companies": len(symbols)})
+        candidates.append({
+            "term": representative.get("name"),
+            "companies": len(symbols),
+            # 표기 동일성(괄호·슬래시 변형 포함)만 자동 확정 대상이다 — 부분 문자열
+            # 일치는 후보가 하나뿐이어도 사용자 확인을 받는다(FR-STR-071b 부분 매칭
+            # 자동 확정 금지, 사고 2026-09-10).
+            "exact": any(
+                _norm_key(term) in _notation_forms(n.get("name", "")) for n in nodes
+            ),
+        })
         if len(candidates) >= limit:
             break
     logger.info(

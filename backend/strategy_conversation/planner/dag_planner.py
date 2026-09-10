@@ -518,12 +518,17 @@ def _plan_strategy_dag(
             text = node.args.get("text")
             _auto_theme_requery(text)
         if node.tool == "list_concept_candidates":
-            # 후보가 정확히 1개면 범위가 갈리지 않는다(계약: 2개 이상만 ask) — 그 후보
-            # 정본 표기로의 테마 조회는 판단이 아니라 절차다. 9B에게 맡기면 관찰을 두고
-            # 매수 질문으로 건너뛰어, 폴백 레인이 원문 표기 시드 앵커(2곳)를 적용하는
-            # 조용한 범위 축소가 났다(2026-08-02 감사 #3 #4: 'ESS' 관찰 60곳 ↔ 적용 2곳).
+            # 후보가 **표기 동일성 1개**면 범위가 갈리지 않는다('ESS'='전력저장장치(ESS)')
+            # — 그 후보 정본 표기로의 테마 조회는 판단이 아니라 절차다. 9B에게 맡기면
+            # 관찰을 두고 매수 질문으로 건너뛰어, 폴백 레인이 원문 표기 시드 앵커(2곳)를
+            # 적용하는 조용한 범위 축소가 났다(2026-08-02 감사 #3 #4: 'ESS' 관찰 60곳 ↔
+            # 적용 2곳).
+            # 부분 문자열 일치는 후보가 하나여도 자동 조회하지 않는다 — 이름 안에 글자가
+            # 들어 있을 뿐 사용자가 말한 범위가 아니다('종목'→'철강 주요종목' 사고
+            # 2026-09-10, '2차전지'→'2차전지 장비' 조용한 축소). 확인 되묻기는
+            # 결정론(primary._planner_scope_ask)이 표면화한다.
             candidates = (observation or {}).get("candidates") or []
-            if len(candidates) == 1:
+            if len(candidates) == 1 and (candidates[0] or {}).get("exact"):
                 term = (candidates[0] or {}).get("term")
                 _auto_theme_requery(term)
         return True

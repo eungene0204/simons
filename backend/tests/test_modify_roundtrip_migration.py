@@ -383,25 +383,48 @@ def test_theme_origin_survives_modify_roundtrip():
 
 
 def test_theme_replacement_asks_scope_and_keeps_strategy(monkeypatch):
-    """테마 교체 패치는 지식 조회 체인으로 넘어가고, 확정 전까지 전략은 무변경이다."""
+    """표기가 다른 후보로만 걸리는 테마 교체는 확인을 받고, 확정 전까지 전략은 무변경이다.
+
+    '클라우드'는 카탈로그에 '클라우드 컴퓨팅'으로만 있다 — 이름 안에 글자가 들어 있을
+    뿐 사용자가 말한 표기가 아니므로 후보가 하나여도 자동 확정하지 않는다(2026-09-10에
+    생성 레인도 같은 기준으로 통일).
+    """
     _stub_interpreter(monkeypatch, StrategyIntent.model_validate({
         "intent": "MODIFY_STRATEGY",
         "patches": [{"op": "replace", "path": "/universe/sectors",
-                     "value": ["쿠팡"], "source_text": "쿠팡 관려주로"}],
+                     "value": ["클라우드"], "source_text": "클라우드 관련주로"}],
         "confidence": 0.8,
     }))
     prev = _theme_strategy()
-    result = primary.run_primary_modification("쿠팡 관려주로 수정해줘", prev.model_dump())
+    result = primary.run_primary_modification("클라우드 관련주로 수정해줘", prev.model_dump())
     assert result is not None
     assert result["interpreter"]["mode"] == "primary_modify_theme_ask"
     # 카탈로그 정본 표기를 칩으로 제시하고 확인받는다(생성 경로와 같은 계약 — 자동 확정 금지)
-    assert result["clarification_suggestions"] == ["쿠팡(coupang)"]
+    assert result["clarification_suggestions"] == ["클라우드 컴퓨팅"]
     assert result["pending_ask"]["topic"] == "유니버스"
     # 확정 전까지 전략은 이전 테마 그대로 — 조용한 오해석도, 조용한 소실도 없다
     assert result["parsed"].theme_universe == "토스(toss)"
     assert result["parsed"].target_symbols == prev.target_symbols
     # 유니버스 범위 질문은 조건 질문보다 선행 — 프론트 게이트가 삼키지 않게 마커를 단다
     assert result["clarification_priority"] == "sector_unresolved"
+
+
+def test_theme_replacement_applies_notation_identity_without_asking(monkeypatch):
+    """[회귀] 2026-09-10 — 표기만 다른 같은 이름('쿠팡'='쿠팡(coupang)')은 확인 없이
+    교체한다. 생성 레인은 후보 1개를 전부 자동 적용하고 수정 레인은 전부 되묻던 비대칭을
+    '표기 동일성=확정, 부분 일치=확인'이라는 한 기준으로 통일했다."""
+    _stub_interpreter(monkeypatch, StrategyIntent.model_validate({
+        "intent": "MODIFY_STRATEGY",
+        "patches": [{"op": "replace", "path": "/universe/sectors",
+                     "value": ["쿠팡"], "source_text": "쿠팡 관련주로"}],
+        "confidence": 0.8,
+    }))
+    prev = _theme_strategy()
+    result = primary.run_primary_modification("쿠팡 관련주로 수정해줘", prev.model_dump())
+    assert result is not None
+    assert result["interpreter"]["mode"] != "primary_modify_theme_ask"
+    assert result["parsed"].theme_universe == "쿠팡(coupang)"
+    assert set(result["parsed"].target_symbols) != set(prev.target_symbols)
 
 
 def test_theme_scope_chip_replaces_only_theme_origin_symbols():

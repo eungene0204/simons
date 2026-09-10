@@ -485,6 +485,69 @@ def _reported_features_echo_input(features: List[str], user_input: str) -> bool:
     return any(_compact(f or "") == compact_input for f in features)
 
 
+def _substituted_factor(cond: Any, spec: Any, registry: Any) -> bool:
+    """조건의 인용이 **다른 지표를 이름으로 부르고 있는가**(대체 감지, 신고 누락 대비).
+
+    입력은 둘 다 LLM 출력이다 — 인용(source_text)과 그 조건의 factor. 인용이 이름으로
+    부른 지표(registry.factor_ids_named_in)에 실제 factor가 없으면, 모델이 사용자가
+    말한 지표 대신 다른 지표를 넣은 것이다("ROIC 15% 이상" → fundamental.roe_or_gpa,
+    "거래대금이 평소보다 늘어난" → technical.volume_spike). 프롬프트가 금지해도 일어나며,
+    그때 모델은 approximated 신고도 하지 않는다 — 신고에만 기대면 **가장 위험한 대체**가
+    조용히 지나간다. 인용이 어떤 지표도 이름으로 부르지 않으면(정성 표현) 판정하지 않는다.
+    """
+    if spec is None:
+        return False
+    named = registry.factor_ids_named_in(cond.source_text or "")
+    return bool(named) and spec.id not in named
+
+
+def _approximation_notices(strategy: Any) -> List[str]:
+    """근사·대체 반영 조건의 사용자 안내 문구 목록.
+
+    두 근거를 함께 쓴다: ① LLM이 자기 출력에 적은 approximated 신고(정성 표현까지 닿지만
+    정직에 의존한다) ② 인용↔factor 대조로 잡은 지표 대체(_substituted_factor — 신고가
+    없어도 잡히지만 인용이 지표를 이름으로 부를 때만 성립한다). 어느 쪽도 사용자 원문을
+    읽지 않는다(계약 § 3-2 — 입력이 LLM 출력이고 표기만 보면 결정 가능하다).
+
+    검증을 통과해 **전략에 남은** 조건만 본다: 미지원으로 걷힌 조건은 근사가 아니라
+    미반영이고, 그쪽은 잔여 미지원 안내가 담당한다. 인용이 길면(자기 말 반 토막을
+    되돌려받는 안내 방지, _QUOTED_FEATURE_MAX_LEN) 지표 이름만으로 알린다."""
+    if strategy is None:
+        return []
+    from strategy_conversation.registry import indicator_registry
+
+    notices: List[str] = []
+    seen: set = set()
+    for cond in list(strategy.entry_conditions) + list(strategy.exit_conditions):
+        spec = indicator_registry.resolve(cond.factor)
+        if not (getattr(cond, "approximated", False)
+                or _substituted_factor(cond, spec, indicator_registry)):
+            continue
+        label = spec.display_name if spec is not None else cond.factor
+        quote = (cond.source_text or "").strip()
+        key = (quote, label)
+        if not label or key in seen:
+            continue
+        seen.add(key)
+        if quote and len(quote) <= _QUOTED_FEATURE_MAX_LEN:
+            notices.append(ui_language.msg(
+                "'{quote}'은(는) 정확히 표현할 수 없어 {label}(으)로 가깝게 반영했어요. "
+                "전략 요약을 확인해 주세요.",
+                "'{quote}' cannot be expressed exactly, so it was approximated with "
+                "{label}. Please check the strategy summary.",
+                quote=quote, label=label,
+            ))
+        else:
+            notices.append(ui_language.msg(
+                "말씀하신 조건 중 일부는 정확히 표현할 수 없어 {label}(으)로 가깝게 "
+                "반영했어요. 전략 요약을 확인해 주세요.",
+                "Some of the conditions you mentioned cannot be expressed exactly, so "
+                "they were approximated with {label}. Please check the strategy summary.",
+                label=label,
+            ))
+    return notices
+
+
 def _covered_by_source_texts(feature: str, source_texts: Iterable[str]) -> bool:
     """미지원 보고 항목이 **이미 반영된 조건의 사용자 표현**을 통째로 담고 있는가.
 
@@ -523,12 +586,36 @@ def _covered_by_pending_texts(feature: str, pending_conditions: Optional[List[di
 
 
 def _humanize_features(features: List[str]) -> List[str]:
-    """내부 식별자(strategy_evaluation 등)만 사람이 읽는 라벨로 치환한다. 그 외(FCF·
-    technical.beta 등)는 기존 표기를 그대로 둔다 — 매핑에 없는 토큰까지 뭉뚱그린 표현으로
-    바꾸면 정보가 사라진다(레드팀 QA 20-5는 매핑된 이름만 대상)."""
-    return list(dict.fromkeys(
-        _INTERNAL_FEATURE_LABELS.get(f, f) for f in dict.fromkeys(features)
-    ))
+    """내부 식별자(strategy_evaluation 등)·미지원 개념 ID(volatility 등)만 사람이 읽는
+    라벨로 치환한다. 그 외(FCF·technical.beta 등)는 기존 표기를 그대로 둔다 — 매핑에 없는
+    토큰까지 뭉뚱그린 표현으로 바꾸면 정보가 사라진다(레드팀 QA 20-5는 매핑된 이름만 대상).
+
+    개념 ID 치환은 2026-09-10 이관분이다 — 종전에는 결정론 게이트가 같은 개념을 한국어로
+    안내했기에 ID 보고를 버렸지만, 게이트가 꺼진 지금은 버리면 안내가 사라진다."""
+    from engine.nl_parser import _UNSUPPORTED_CONCEPT_LABELS
+
+    def _label(f: str) -> str:
+        if f in _INTERNAL_FEATURE_LABELS:
+            return _INTERNAL_FEATURE_LABELS[f]
+        return _UNSUPPORTED_CONCEPT_LABELS.get(str(f).strip().lower(), f)
+
+    return list(dict.fromkeys(_label(f) for f in dict.fromkeys(features)))
+
+
+def _concept_expressed(feature: str, expressed: set) -> bool:
+    """보고 항목이 가리키는 미지원-후보 개념을 전략이 이미 표현했는가.
+
+    판정 입력은 LLM이 보고한 라벨 문자열이다(concepts_covered_by_pending과 같은 계약 —
+    사용자 원문을 읽지 않는다). expressed는 컴파일된 전략에서 산출한 개념 이름 집합이다."""
+    if not expressed:
+        return False
+    from engine.nl_parser import _UNSUPPORTED_CONCEPT_RE, _compact
+
+    compact = _compact(str(feature or ""))
+    if not compact:
+        return False
+    return any(name in expressed and rx.search(compact)
+               for name, rx in _UNSUPPORTED_CONCEPT_RE)
 
 
 # ── 수정 패치 환각 게이트(출처 대조) ──────────────────────────────────────────
@@ -1836,20 +1923,30 @@ def run_primary_parse(
         notices.append(
             f"'{', '.join(uncompilable_drops)}' 조건은 전략에 반영하지 못했어요."
         )
+    # ── 근사 반영 안내(LLM 신고 채널, 2026-09-10 신설) ──
+    # 정확히 같은 지표가 없어 가까운 지표로 대신 반영한 조건을 사용자에게 알린다.
+    # 종전에는 이 알림을 **원문 정규식**(build_unsupported_concept_notice)이 냈다 —
+    # 낱말만 보고 판정하니 정확히 반영된 요청에도 "지원되지 않아요"가 붙었고(사고
+    # 2026-09-10: PER로 반영된 "실적 대비 가격"), 그것은 LLM의 의미 판정을 정규식이
+    # 원문을 다시 읽고 뒤집는 재심 구조였다(대원칙 1 위반). 이제 판정은 LLM이 자기
+    # 출력에 적은 approximated 플래그이고, 여기서는 그 신고를 문구로 옮기기만 한다.
+    notices.extend(_approximation_notices(getattr(validated, "strategy", None)))
     # ── 잔여 미지원 안내(LLM 보고 채널, 2026-08-12 부활 — 사용자 결정) ──
     # 인터프리터가 unsupported_features로 보고했지만 어떤 채널(되묻기·큐·제외 조건 안내·
     # 값 대기)도 다루지 않은 개념의 조용한 소실 방지. 2026-08-01 폐지의 원인은 채널이
     # 아니라 **무필터 인용**이었다 — 수정 레인(primary_modify_unsupported)에서 검증된
     # 가드를 그대로 얹는다: ① 발화 전체 에코 오라벨이면 침묵(기존 채널이 담당),
-    # ② 내부 식별자는 평이화(_humanize_features), ③ 미지원 개념 목록(34개)에 매칭되는
-    # 항목은 제외 — 그 목록의 안내와 의도적 제외(이미 반영·값 대기 중 등)는 결정론
-    # 게이트(build_unsupported_concept_notice)의 소관이라, 여기서 다시 내면 중복이거나
-    # 게이트가 일부러 뺀 오탐이 부활한다. 판정 입력은 전부 LLM 출력·자기 응답 문자열이다
-    # (라벨 정규식 매칭은 concepts_covered_by_pending과 같은 계약 — 원문을 읽지 않는다).
+    # ② 내부 식별자·개념 ID는 평이화(_humanize_features).
+    # [2026-09-10 이관] 종전 ③(미지원 개념 목록 34개에 매칭되면 제외 — 그 안내는 원문
+    # 정규식 게이트 소관)은 폐지했다. primary 레인에서 그 게이트를 끄면서(main.py —
+    # 원문 재심 구조 제거) 이 채널이 미지원 안내의 **단일 정본**이 됐다: 제외를 남겨
+    # 두면 LLM이 정직하게 보고한 미지원 개념이 아무 데서도 안내되지 않는다.
+    # 판정 입력은 전부 LLM 출력·자기 응답 문자열이다(라벨 정규식 매칭은
+    # concepts_covered_by_pending과 같은 계약 — 원문을 읽지 않는다).
     if report.unsupported_features and not _reported_features_echo_input(
         report.unsupported_features, user_input
     ):
-        from engine.nl_parser import _UNSUPPORTED_CONCEPT_RE, _compact
+        from engine.nl_parser import concepts_expressed_in_strategy
 
         covered_text = " ".join(
             [clarification_question or "", queued_question_text]
@@ -1860,11 +1957,10 @@ def run_primary_parse(
         # 조건의 탈락은 제외 조건 안내가 source_text(사용자 표현)로 이미 알리고,
         # 내부명은 노출 금지(레드팀 QA 20-5)이므로 여기서 제외한다.
         field_path_rx = re.compile(r"\b[a-z_]{2,}\.[a-z_0-9]{2,}")
-        # 개념 ID 영문 표기('volatility' 등)도 목록 개념이다 — LLM이 한글 대신 ID로
-        # 보고하면 한글 패턴 매칭을 뚫고 결정론 게이트 안내와 중복된다
-        # (섀도 대조 실측 2026-08-12: "'volatility' 조건은 지원하지 않아…"가
-        # "'변동성 조건'은 아직 직접 지원되지 않아요"와 한 응답에 공존).
-        concept_ids = {name for name, _ in _UNSUPPORTED_CONCEPT_RE}
+        # 개념 ID 영문 표기('volatility' 등)는 사용자에게 보일 말이 아니다 — 정본
+        # 한국어 라벨로 옮긴다(_humanize_features). 종전에는 결정론 게이트가 같은
+        # 개념을 한국어로 안내했으므로 여기서 버렸지만, 게이트가 꺼진 지금 버리면
+        # 그 개념은 어디서도 안내되지 않는다.
         # 검증을 통과해 **전략에 남은** 조건의 사용자 인용 — 같은 표현이 조건으로도
         # 반영되고 미지원으로도 보고되면(프롬프트 4-1 위반) 반영된 조건에 "반영하지
         # 못했어요"가 붙는다. 값-대기 대조와 같은 표기 포함 판정으로 걷어낸다.
@@ -1873,16 +1969,19 @@ def run_primary_parse(
             for cond in (list(validated.strategy.entry_conditions)
                          + list(validated.strategy.exit_conditions))
         ] if validated.strategy is not None else []
+        # 전략이 실제로 표현한 개념(랭킹으로 반영된 현금흐름·이동평균 정배열 등)은
+        # 제외한다 — 결정론 게이트가 하던 '의도적 제외'의 이관분이다(판정 입력은 컴파일
+        # 결과이고, 개념 대조는 LLM이 보고한 라벨 문자열에 건다).
+        expressed = concepts_expressed_in_strategy(parsed, user_input)
         leftover_features = [
             f for f in _humanize_features(report.unsupported_features)
             if f and f not in covered_text
+            and not _concept_expressed(f, expressed)
             # 값-대기 조건의 사용자 표현을 담은 이중 기입은 거짓 미반영 안내가 된다 —
             # source_text 포함 대조로 걷어낸다(2026-08-14, _covered_by_pending_texts).
             and not _covered_by_pending_texts(f, pending_conditions)
             and not _covered_by_source_texts(f, reflected_texts)
             and not field_path_rx.search(f)
-            and _compact(f) not in concept_ids
-            and not any(rx.search(_compact(f)) for _, rx in _UNSUPPORTED_CONCEPT_RE)
         ]
         # 긴 발화 조각(정성 표현 등)은 지목 인용하지 않는다(2026-08-12 사용자 결정) —
         # "'퇴직금 굴려야 하는데 절대 잃으면 안 되는 돈이라…' 조건은"처럼 자기 말
@@ -2406,15 +2505,26 @@ def _planner_observations(result: Any) -> List[tuple[str, Dict[str, Any]]]:
 
 
 def _ambiguous_candidate_terms(result: Any) -> Dict[str, List[str]]:
-    """표현별 카탈로그 범위 후보(2개 이상만) — '범위가 갈리는 표현' 결정론 판정 근거."""
+    """표현별 카탈로그 후보 — **사용자에게 물어야 하는** 표현만 담는다(결정론 판정 근거).
+
+    두 경우가 여기 들어온다(둘 다 "우리가 고를 수 없다"는 같은 결론이다):
+      ① 후보 2개 이상 — 범위가 갈리는 표현('보안주' → 정보/물리)
+      ② 후보 1개인데 **표기가 다른** 표현 — 이름 안에 글자가 들어 있을 뿐이다
+         ('2차전지' → '2차전지 장비'는 장비만으로 좁히는 것이고, '종목' → '철강
+         주요종목'은 아예 무관하다). 표기 동일성 후보 1개('ESS' → '전력저장장치(ESS)')
+         만 확인 없이 확정한다.
+    ②는 2026-09-10 사고의 수정이다 — '후보 1개=범위가 갈리지 않음'이라는 규칙이
+    부분 문자열 일치까지 자동 확정으로 밀어 넣었다(planner 프롬프트·수정 레인은 원래
+    확인을 받으라고 명시하고 있었다 — 코드만 어긋나 있었다)."""
     ambiguous: Dict[str, List[str]] = {}
     for term, obs in _planner_observations(result):
         term = (term or "").strip()
-        candidates = [
-            c.get("term") for c in (obs.get("candidates") or [])
-            if isinstance(c, dict) and c.get("term")
-        ]
-        if term and len(candidates) >= 2:
+        raw = [c for c in (obs.get("candidates") or [])
+               if isinstance(c, dict) and c.get("term")]
+        candidates = [c["term"] for c in raw]
+        if not term or not candidates:
+            continue
+        if len(candidates) >= 2 or not raw[0].get("exact"):
             ambiguous[term] = candidates
     return ambiguous
 
@@ -2760,6 +2870,14 @@ def _apply_planner_first_universe(
     unresolved: set = set()
     applied: set = set()
     ambiguous_terms = _ambiguous_candidate_terms(result)
+    # 사용자가 고르기를 기다리는 후보 표기 자체도 적용 대상이 아니다 — planner가 질문
+    # 대신 후보 이름으로 테마를 조회해 버리면(자기 선택) 되묻기와 적용이 한 턴에 공존한다.
+    # 이 표기는 사용자 표현이 아니라 우리 카탈로그 라벨이므로 미해결 목록에도 넣지 않는다
+    # (해석해야 할 표현은 원 표현이고, 그것은 이미 unresolved에 있다).
+    pending_choice = {
+        (c or "").replace(" ", "").lower()
+        for cands in ambiguous_terms.values() for c in cands
+    }
     # 미국 시장 문맥 판정 — 아래 루프에서 테마·업종 해석 체인을 US 카탈로그로 한정한다.
     from strategy_conversation.registry.capability_registry import US_MARKETS
 
@@ -2771,6 +2889,8 @@ def _apply_planner_first_universe(
         if term in ambiguous_terms:
             # 범위 질문이 나가는 표현 — 사용자가 고르기 전까지 어떤 해석도 확정하지 않는다
             unresolved.add(term)
+            continue
+        if term.replace(" ", "").lower() in pending_choice:
             continue
         if term in resolved:
             unresolved.discard(term)
@@ -2885,10 +3005,11 @@ def _apply_planner_first_universe(
 def _planner_scope_ask(
     result: Any, unresolved_terms: set
 ) -> Optional[tuple[str, List[str], set]]:
-    """범위 모호성(카탈로그 후보 2개 이상) 되묻기의 결정론 확정.
+    """카탈로그 후보 되묻기의 결정론 확정 — 범위 선택(후보 2개 이상)과 범위 확인
+    (표기가 다른 후보 1개, 2026-09-10)을 함께 소유한다.
 
-    모호성 판정은 후보 수(관찰값)로만 한다 — planner가 유니버스 ask를 계획했는지에
-    의존하지 않는다('미용기기' 사고 2026-07-28: planner가 조건 ask로 드리프트하면
+    판정은 관찰값(후보 목록·표기 동일성)으로만 한다 — planner가 유니버스 ask를
+    계획했는지에 의존하지 않는다('미용기기' 사고 2026-07-28: planner가 조건 ask로 드리프트하면
     모호 표현이 어느 레인에도 속하지 않고 증발했다). 질문 문구는 planner의 유니버스
     ask가 있으면 재사용(이미 output_guard 통과), 없으면 고정 템플릿. 칩은 항상
     관찰된 카탈로그 후보 표기 그대로다(9B 칩 지어내기 드리프트 차단 — 후보 표기여야
@@ -2901,6 +3022,16 @@ def _planner_scope_ask(
     chips: List[str] = []
     for term in sorted(scope_terms):
         chips.extend(c for c in ambiguous[term] if c not in chips)
+    if len(scope_terms) == 1 and len(chips) == 1:
+        # 범위 확인 — 후보가 하나지만 표기가 달라 "이게 맞나요"를 묻는다. planner의
+        # 일반 유니버스 질문("어떤 업종을 대상으로?")을 재사용하면 칩 하나와 어긋나므로
+        # 이 경우만 전용 문구를 쓴다(수정 레인 _resolve_theme_change와 같은 계약·문형).
+        term = next(iter(scope_terms))
+        return ui_language.msg(
+            "'{term}'은(는) '{cand}' 테마로 정리되어 있어요. 이 범위로 진행할까요?",
+            "'{term}' is catalogued as the '{cand}' theme. Shall we use that scope?",
+            term=term, cand=chips[0],
+        ), chips, scope_terms
     if result.outcome == "ask" and _is_universe_topic(result.topic) and result.question:
         question = result.question
     else:
@@ -3562,7 +3693,11 @@ def _resolve_theme_change(
     판정하면 "생성 때는 되는데 수정 때는 안 되는" 비대칭이 다시 생긴다(2026-07-30 사고의
     본체는 수정 레인에 이 체인 자체가 없었다는 것):
       ① 카탈로그 후보 2개 이상 = 범위가 갈리는 표현 → 조용히 확정하지 않고 범위 되묻기
-      ② 후보 1개 → 그 정본 표기를 칩 하나로 제시해 확인받는다(자동 확정 금지)
+      ② 후보 1개인데 표기가 다르면 → 그 정본 표기를 칩 하나로 제시해 확인받는다
+         (부분 문자열 일치 자동 확정 금지). 표기 동일성 후보('ESS'→'전력저장장치(ESS)')는
+         확인 없이 ③의 적용 경로로 간다 — 생성 레인(planner)과 같은 기준이다
+         (2026-09-10: 생성은 후보 1개를 전부 자동 적용하고 수정은 전부 되물어, 같은
+         표현이 레인에 따라 다르게 처리되던 비대칭을 한 기준으로 통일했다)
       ③ 후보 0개 → 지식그래프 직접 조회 → 미해석이면 검색 학습 후 재조회 → 그래도
          미해석이면 되묻기(검색이 소진된 표현은 종결 안내)
     적용은 replace_theme_universe — 이전 **테마에서 온** 종목만 교체하고, 사용자가 직접
@@ -3578,9 +3713,14 @@ def _resolve_theme_change(
     )
 
     try:
-        candidates = [c["term"] for c in catalog_theme_candidates(term) if c.get("term")]
+        raw_candidates = [c for c in catalog_theme_candidates(term) if c.get("term")]
     except Exception:  # noqa: BLE001 — 후보 열거 실패가 교체 자체를 막으면 안 된다
         logger.warning("테마 후보 열거 실패 | term=%r", term, exc_info=True)
+        raw_candidates = []
+    candidates = [c["term"] for c in raw_candidates]
+    # 표기 동일성 후보 1개는 확인 대상이 아니다 — 같은 것을 부르는 다른 표기일 뿐이라
+    # 아래 적용 경로(replace_theme_universe)가 그대로 해석한다(생성 레인과 같은 기준).
+    if len(candidates) == 1 and raw_candidates[0].get("exact"):
         candidates = []
     if len(candidates) >= 2:
         _log_llm("? 테마 범위 되묻기", f"'{term}' 후보 {len(candidates)}개 — 조용한 확정 금지")
@@ -4215,6 +4355,9 @@ def run_primary_modification(
     # 이번 턴에 이름으로 지목된 종목이 구 사명이면 그 사실을 알린다 — 요약 카드에는
     # 현재 등록명만 뜨므로, 말하지 않으면 다른 종목이 담긴 것처럼 보인다.
     notices += _renamed_symbol_notices(patched_spec.universe.symbols, parsed.target_symbols)
+    # 근사 반영 안내 — 초기 파스 레인과 같은 채널(LLM이 신고한 approximated 조건).
+    # 수정 레인도 원문 정규식 안내를 더는 받지 않으므로 여기서 함께 낸다.
+    notices += _approximation_notices(patched_spec)
     final_diff = _diff_fields(prev_dump, parsed.model_dump())
     _log_llm("✓ 수정 완료", f"변경 필드(원본 대비): {'; '.join(final_diff) or '없음'}")
 

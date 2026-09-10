@@ -266,7 +266,8 @@ def test_single_concept_candidate_triggers_theme_requery_epilogue(monkeypatch):
     절차라 LLM 턴 없이 결정론 에필로그로 실행된다(2026-08-02 감사 #3 #4: 9B가 관찰된
     카탈로그 후보 60곳을 두고 매수 질문으로 건너뛰어 시드 앵커 2곳이 적용됐다)."""
     monkeypatch.setattr(kg, "catalog_theme_candidates",
-                        lambda text: [{"term": "전력저장장치(ESS)", "companies": 2}])
+                        lambda text: [{"term": "전력저장장치(ESS)", "companies": 2,
+                                       "exact": True}])
     queried = []
 
     def fake_theme(text):
@@ -288,6 +289,27 @@ def test_single_concept_candidate_triggers_theme_requery_epilogue(monkeypatch):
     assert queried == ["전력저장장치(ESS)"], "후보 정본 표기로 결정론 재조회해야 한다"
     assert len(result.auto_steps) == 1
     assert result.companies and result.companies[0]["symbol"] == "006400"
+
+
+def test_partial_match_single_candidate_does_not_auto_requery(monkeypatch):
+    """[회귀] 2026-09-10 — 후보가 하나여도 **표기가 다르면** 자동 조회하지 않는다.
+    이름 안에 글자가 들어 있을 뿐 사용자가 말한 범위가 아니다('종목'→'철강 주요종목',
+    '2차전지'→'2차전지 장비'의 조용한 축소). 확인 되묻기는 결정론이 표면화한다."""
+    monkeypatch.setattr(kg, "catalog_theme_candidates",
+                        lambda text: [{"term": "2차전지 장비", "companies": 38,
+                                       "exact": False}])
+    queried = []
+    monkeypatch.setattr(kg, "theme_backtest_companies",
+                        lambda text: queried.append(text) or None)
+    dag = _dag_json(
+        _tool_node("cand", "list_concept_candidates", text="2차전지"),
+        _ask_node("ask1", "어떤 조건에서 매수할까요?", deps=["cand"]),
+        *_finish_chain(deps=["ask1"]),
+    )
+    result = plan_strategy_dag("2차전지 관련주 전략", ScriptedChat([dag, dag]))
+    assert result is not None and result.outcome == "ask"
+    assert queried == []
+    assert result.auto_steps == []
 
 
 def test_multiple_concept_candidates_do_not_auto_requery(monkeypatch):

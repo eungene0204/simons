@@ -111,12 +111,24 @@ class ClassifyUniverseOut(BaseModel):
 
 def _classify_universe(inp: ClassifyUniverseIn) -> ClassifyUniverseOut:
     from engine.knowledge_graph import catalog_theme_candidates
-    from engine.universe_pit import is_narrow_sector_approximation, normalize_sector
+    from engine.universe_pit import (
+        is_generic_stock_term,
+        is_narrow_sector_approximation,
+        normalize_sector,
+    )
     from strategy_conversation.registry.universe_resolver import resolve_symbols
 
     key = (inp.text or "").replace(" ", "").lower()
     if not key:
         return ClassifyUniverseOut(universe_type="CONCEPT")
+    # 유니버스를 좁히지 못하는 일반명사('종목'·'주식'·'기업')는 유니버스 표현이 아니다.
+    # 아래 지표 조건 구 백스톱과 같은 사고의 잔여물이다 — planner가 조건 구에서 조건만
+    # 떼어내고 머리 명사만 넘긴다("실적 대비 가격이 낮은 종목" → text="종목"). CONCEPT으로
+    # 두면 카탈로그 포함 일치가 '철강 주요종목' 후보 1개를 만들고, 후보 1개는 결정론
+    # 에필로그가 자동 적용해 사용자가 말한 적 없는 철강 11곳이 유니버스로 확정된다
+    # (실측 사고 2026-09-10). 판정은 LLM이 뽑은 표현의 표기 대조뿐이다.
+    if is_generic_stock_term(inp.text):
+        return ClassifyUniverseOut(universe_type="NOT_UNIVERSE")
     if key in _MARKET_CANONICAL:
         return ClassifyUniverseOut(universe_type="MARKET", canonical=_MARKET_CANONICAL[key])
     if any(marker in key for marker in _ETF_MARKERS):

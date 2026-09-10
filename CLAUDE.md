@@ -295,7 +295,7 @@ Domain 검증            Registry + validation/ (지표 지원 여부·범위·�
 
 | 위치 | 상태 |
 |---|---|
-| `engine/nl_parser.py` | 미이관 — 단계적 이관 중 |
+| `engine/nl_parser.py` | 미이관 — 단계적 이관 중. **미지원 개념 안내는 이관 완료(2026-09-10)**: `_UNSUPPORTED_CONCEPT_PATTERNS`(원문 정규식)는 레거시 레인 전용이고, primary 레인의 정본은 LLM의 `unsupported_features`(잔여 미지원 안내)와 조건의 `approximated` 신고 + 인용↔factor 대조(근사·대체 반영 안내)다 |
 | `intent/strategy_builder.py` | 미이관 — 단계적 이관 중 |
 | `api/coach_routes.py::_coach_scope_guard` | 미이관 — `intent/scope.py`의 원문 예측자를 그대로 호출 |
 | `intent/platform_defaults.py` | 미이관 — `/query/general`이 원문에서 설정 항목을 추출 |

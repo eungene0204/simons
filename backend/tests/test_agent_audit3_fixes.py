@@ -268,7 +268,8 @@ def test_single_candidate_source_term_marked_resolved(monkeypatch):
             "cand": ExecutedNode(
                 DagNode(id="cand", type="tool", tool="list_concept_candidates",
                         args={"text": "ESS"}),
-                {"candidates": [{"term": "전력저장장치(ESS)", "companies": 60}]},
+                {"candidates": [{"term": "전력저장장치(ESS)", "companies": 60,
+                                 "exact": True}]},
             ),
         }
         auto_steps = [{
