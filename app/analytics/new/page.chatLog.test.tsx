@@ -126,6 +126,21 @@ describe("우측 대화 로그", () => {
     expect(readChatLog(localStorage).map((e) => e.id)).toEqual(["cur", "u", "b", "a"]);
   });
 
+  it("접기 아이콘을 누르면 왼쪽 패널이 손잡이로 접히고, 다시 누르면 펼쳐진다", async () => {
+    seedLog();
+    seedCurrentChat();
+    render(<StrategyLabPage />);
+    expect(await screen.findByText("현재 답변")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("chat-log-rail-collapse"));
+    expect(screen.queryByTestId("chat-log-panel")).not.toBeInTheDocument();
+
+    const handle = screen.getByTestId("chat-log-rail-trigger");
+    fireEvent.click(handle);
+    expect(screen.getByTestId("chat-log-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-log-rail-trigger")).not.toBeInTheDocument();
+  });
+
   it("대화 로그가 비어 있으면 패널을 그리지 않는다", async () => {
     seedCurrentChat();
     render(<StrategyLabPage />);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ClockCounterClockwise, Trash, X } from "phosphor-react";
+import { CaretDoubleLeft, ClockCounterClockwise, Trash, X } from "phosphor-react";
 import { t } from "@/lib/i18n";
 import type { ChatLogEntry } from "./chatLog";
 
@@ -13,7 +13,7 @@ type ChatLogPanelProps = {
 };
 
 // 왼쪽 대화 로그. 1280px 이상에서는 화면 왼쪽에 고정된 패널로(오른쪽은 진행률 패널 자리),
-// 그 아래에서는 대화 위의 작은 버튼 → 서랍으로 열린다.
+// 접으면 같은 자리에 아이콘 손잡이만 남는다. 그 아래 폭에서는 대화 위의 작은 버튼 → 서랍으로 열린다.
 // 면은 진행률 패널과 같다 — 헤어라인 테두리 + 유리(.chat-glass), 채움 없음(UI §17).
 function ChatLogList({
   entries,
@@ -64,6 +64,7 @@ function ChatLogList({
 
 export function ChatLogPanel(props: ChatLogPanelProps) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isRailOpen, setIsRailOpen] = useState(true);
   const { entries } = props;
   const select = (id: string) => {
     setIsDrawerOpen(false);
@@ -72,21 +73,47 @@ export function ChatLogPanel(props: ChatLogPanelProps) {
 
   return (
     <>
-      <aside
-        aria-label={t("대화 기록")}
-        className="z-20 hidden flex-col rounded-2xl border border-[var(--chat-hairline)] p-4 chat-glass xl:fixed xl:bottom-4 xl:left-4 xl:top-[calc(var(--top-menu-bar-height,76px)+5rem)] xl:flex xl:w-40 2xl:w-56"
-        data-testid="chat-log-panel"
-      >
-        <div className="flex flex-shrink-0 items-end justify-between gap-3">
-          <h2 className="text-xs font-black text-white">{t("대화 기록")}</h2>
-          <span className="font-outfit text-[11px] font-black tabular-nums text-[var(--text-label)]">
-            {entries.length}
-          </span>
-        </div>
-        <div className="custom-scrollbar mt-3 min-h-0 flex-1 overflow-y-auto">
-          <ChatLogList {...props} onSelect={select} />
-        </div>
-      </aside>
+      {isRailOpen ? (
+        <aside
+          aria-label={t("대화 기록")}
+          className="z-20 hidden flex-col rounded-2xl border border-[var(--chat-hairline)] p-4 chat-glass xl:fixed xl:bottom-4 xl:left-4 xl:top-[calc(var(--top-menu-bar-height,76px)+5rem)] xl:flex xl:w-40 2xl:w-56"
+          data-testid="chat-log-panel"
+        >
+          <div className="flex flex-shrink-0 items-center justify-between gap-2">
+            <h2 className="text-xs font-black text-white">{t("대화 기록")}</h2>
+            <div className="flex items-center gap-1.5">
+              <span className="font-outfit text-[11px] font-black tabular-nums text-[var(--text-label)]">
+                {entries.length}
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsRailOpen(false)}
+                aria-label={t("대화 기록 닫기")}
+                aria-expanded="true"
+                className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-label)] transition-colors duration-200 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
+                data-testid="chat-log-rail-collapse"
+              >
+                <CaretDoubleLeft size={13} weight="bold" />
+              </button>
+            </div>
+          </div>
+          <div className="custom-scrollbar mt-3 min-h-0 flex-1 overflow-y-auto">
+            <ChatLogList {...props} onSelect={select} />
+          </div>
+        </aside>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setIsRailOpen(true)}
+          aria-label={t("대화 기록 열기")}
+          aria-expanded="false"
+          className="z-20 hidden items-center gap-1.5 rounded-2xl border border-[var(--chat-hairline)] px-2.5 py-2 text-[11px] font-bold text-gray-200 chat-glass transition-colors duration-200 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)] xl:fixed xl:left-4 xl:top-[calc(var(--top-menu-bar-height,76px)+5rem)] xl:flex"
+          data-testid="chat-log-rail-trigger"
+        >
+          <ClockCounterClockwise size={14} weight="bold" />
+          <span className="font-outfit tabular-nums text-[var(--text-label)]">{entries.length}</span>
+        </button>
+      )}
 
       <div className="relative z-20 flex w-full max-w-4xl xl:hidden">
         <button
