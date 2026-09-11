@@ -1,7 +1,20 @@
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production'
+// 세션 토큰 서명 키. 값이 없을 때 조용히 고정 문자열로 떨어지면 누구나 임의
+// userId 토큰을 위조할 수 있으므로, 운영에서는 미설정을 즉시 실패로 드러낸다.
+function resolveJwtSecret(): string {
+  const secret = process.env.JWT_SECRET
+  if (secret) return secret
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'JWT_SECRET is not set. Refusing to sign or verify session tokens with a default key.'
+    )
+  }
+  return 'dev-only-insecure-jwt-secret'
+}
+
+const JWT_SECRET = resolveJwtSecret()
 
 type SupabaseIdentity = {
   email: string

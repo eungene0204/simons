@@ -3,12 +3,22 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 const backtestHistoryFindUnique = vi.fn();
 const strategyFindUnique = vi.fn();
 const strategyFindFirst = vi.fn();
+const userBacktestHistoryFindUnique = vi.fn();
+const getSessionUserId = vi.fn();
+const assertActiveUser = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     backtestHistory: { findUnique: backtestHistoryFindUnique },
     strategy: { findUnique: strategyFindUnique, findFirst: strategyFindFirst },
+    userBacktestHistory: { findUnique: userBacktestHistoryFindUnique },
   },
+}));
+
+vi.mock("@/lib/get-user", () => ({
+  getSessionUserId: () => getSessionUserId(),
+  assertActiveUser: (userId: number) => assertActiveUser(userId),
+  isUnauthorizedAccessError: () => false,
 }));
 
 let GET: any;
@@ -32,6 +42,9 @@ const baseRow = {
 describe("app/api/backtest/history/[id] GET prompt 해석", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getSessionUserId.mockResolvedValue(7);
+    assertActiveUser.mockResolvedValue(undefined);
+    userBacktestHistoryFindUnique.mockResolvedValue({ id: "link-1" });
   });
 
   it("기록에 스냅샷된 prompt가 있으면 그대로 반환하되, 워크포워드용 settings는 Strategy에서 가져온다", async () => {
@@ -75,7 +88,7 @@ describe("app/api/backtest/history/[id] GET prompt 해석", () => {
     // strategyId가 없으므로 findUnique(strategy)는 호출하지 않고 findFirst(by name)만 호출
     expect(strategyFindUnique).not.toHaveBeenCalled();
     expect(strategyFindFirst).toHaveBeenCalledWith({
-      where: { name: "골드 크로스" },
+      where: { name: "골드 크로스", OR: [{ userId: null }, { userId: 7 }] },
       orderBy: { createdAt: "desc" },
       select: { description: true, settings: true },
     });
@@ -116,5 +129,53 @@ describe("app/api/backtest/history/[id] GET prompt 해석", () => {
     expect(payload.prompt).toBe("");
     expect(payload.strategyName).toBe("골드 크로스");
     expect(payload.settings).toBeNull();
+  });
+});
+
+describe("app/api/backtest/history/[id] GET 소유권", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getSessionUserId.mockResolvedValue(7);
+    assertActiveUser.mockResolvedValue(undefined);
+    userBacktestHistoryFindUnique.mockResolvedValue({ id: "link-1" });
+    backtestHistoryFindUnique.mockResolvedValue({ ...baseRow });
+    strategyFindFirst.mockResolvedValue(null);
+  });
+
+  it("비로그인 요청은 기록을 조회하지 않고 401", async () => {
+    getSessionUserId.mockResolvedValue(null);
+
+    const response = await GET(new Request("http://localhost/api/backtest/history/hist-1"), {
+      params: { id: "hist-1" },
+    });
+
+    expect(response.status).toBe(401);
+    expect(backtestHistoryFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("내 목록에 담기지 않은 남의 기록은 본문을 돌려주지 않고 404", async () => {
+    userBacktestHistoryFindUnique.mockResolvedValue(null);
+
+    const response = await GET(new Request("http://localhost/api/backtest/history/hist-1"), {
+      params: { id: "hist-1" },
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(payload.prompt).toBeUndefined();
+    expect(payload.result).toBeUndefined();
+    expect(userBacktestHistoryFindUnique).toHaveBeenCalledWith({
+      where: { userId_backtestHistoryId: { userId: 7, backtestHistoryId: "hist-1" } },
+      select: { id: true },
+    });
+  });
+
+  it("내 목록에 담긴 기록은 그대로 연다", async () => {
+    const response = await GET(new Request("http://localhost/api/backtest/history/hist-1"), {
+      params: { id: "hist-1" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ id: "hist-1" });
   });
 });

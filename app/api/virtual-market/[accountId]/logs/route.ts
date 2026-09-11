@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getStockNameMap } from "@/lib/krx-stocks";
+import { isUnauthorizedAccessError } from "@/lib/get-user";
+import { findOwnedAccountId } from "@/lib/server/accountOwnership";
+
+// 시그널·거래 로그는 계좌 소유자만 읽고 지울 수 있다.
+const notFound = () => NextResponse.json({ error: "Account not found" }, { status: 404 });
+const unauthorized = () => NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
 // DELETE: 시그널 히스토리 전체 삭제
 export async function DELETE(
@@ -8,11 +14,14 @@ export async function DELETE(
   { params }: { params: { accountId: string } }
 ) {
   try {
+    if (!(await findOwnedAccountId(params.accountId))) return notFound();
+
     await prisma.virtualMarketLog.deleteMany({
       where: { accountId: params.accountId },
     });
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) return unauthorized();
     console.error("Failed to delete market logs:", error);
     return NextResponse.json(
       { error: "Failed to delete logs" },
@@ -27,6 +36,8 @@ export async function GET(
   { params }: { params: { accountId: string } }
 ) {
   try {
+    if (!(await findOwnedAccountId(params.accountId))) return notFound();
+
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get("limit") || "50");
 
@@ -67,6 +78,7 @@ export async function GET(
 
     return NextResponse.json(logsWithName);
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) return unauthorized();
     console.error("Failed to get market logs:", error);
     return NextResponse.json(
       { error: "Failed to get logs" },

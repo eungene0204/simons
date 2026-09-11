@@ -12,7 +12,8 @@
  *   market-refresh — (비활성) 자동매매 체결은 VirtualTrader 로 일원화됨 → no-op
  *   market-close   — 15:30 KST: 실행 중인 계좌 전체 일시정지 (paused 전환)
  *
- * 보안: SCHEDULER_SECRET 환경변수가 설정된 경우 Authorization 헤더 검증
+ * 보안: Authorization 헤더의 SCHEDULER_SECRET을 검증한다. 운영(NODE_ENV=production)에서
+ *       시크릿이 없으면 아무도 부를 수 없다(fail closed).
  */
 
 import { NextResponse } from "next/server";
@@ -21,9 +22,12 @@ import { runSchedulerAction } from "@/lib/server/scheduler-actions";
 const SCHEDULER_SECRET = process.env.SCHEDULER_SECRET;
 
 function isAuthorized(request: Request): boolean {
-  if (!SCHEDULER_SECRET) return true; // 미설정 시 개발 편의상 허용
-  const auth = request.headers.get("Authorization");
-  return auth === `Bearer ${SCHEDULER_SECRET}`;
+  if (SCHEDULER_SECRET) {
+    return request.headers.get("Authorization") === `Bearer ${SCHEDULER_SECRET}`;
+  }
+  // 시크릿 미설정은 개발 편의일 뿐이다. 운영에서 열어 두면 외부에서 전 사용자의
+  // 자동매매 계좌를 일괄 시작·정지할 수 있으므로 닫는 쪽으로 실패한다.
+  return process.env.NODE_ENV !== "production";
 }
 
 export async function POST(request: Request) {

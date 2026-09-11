@@ -1328,6 +1328,16 @@ install_socket_tracking). 토큰은 contextvar라 워커 스레드 진입 함수
 
 ### 6.2 주요 Next.js API 라우트
 
+**사용자 데이터 접근 계약** — 사용자에게 귀속된 데이터(계좌·주문·포지션·전략·검증 결과·관심종목·백테스트 목록)를 다루는 라우트는
+예외 없이 세션에서 얻은 사용자로 쿼리를 묶는다: `getOwnershipContext()`로 사용자를 확인하고 `withOwnership()`으로 `where`에 `userId`를 넣는다
+(비로그인은 `UnauthorizedAccessError` → 401). 경로 파라미터의 id를 그대로 조회 키로 쓰지 않는다.
+
+- **가상 계좌 하위 자원**(`/api/virtual-market/[accountId]`·`/logs`·`/refresh`)은 `lib/server/accountOwnership.ts::findOwnedAccountId()`로
+  계좌 소유를 먼저 확인하고, 소유자가 아니면 존재 여부를 알리지 않도록 404로 답한다.
+- **백테스트 기록**(`BacktestHistory`)은 cacheKey 기준 공유 행이라 행 자체에 소유자가 없다. 소유 판정은 `UserBacktestHistory` 연결로 하며,
+  `GET /api/backtest/history/[id]`는 자기 목록에 담은 사용자에게만 본문(원문 프롬프트·DSL·거래내역)을 준다.
+- 전략 요약·프롬프트 해석에서 **이름만으로 전역 행을 뒤지는 폴백은 두지 않는다** — 이름이 겹치면 남의 기록이 응답에 실린다.
+
 **전략**
 - `POST /api/strategy/parse` — NL → DSL 파싱 프록시
 - `POST /api/strategy/parse/stream` — accepted/skeleton/parsed_final/dsl_ready 이벤트를 보내는 자연어 파싱 SSE 프록시. `parsed_final`은 화이트리스트라 필드를 명시적으로 실어야 한다(`clarification_priority`·`pending_ask`·`explicit_fields`·`field_states`). `field_states`는 진행 골격 8칸의 상태 축(완료/미확인/해당 없음/확인 필요, FR-STR-019q)으로 진행률 카드 표시 전용이며 되묻기·실행 게이트는 쓰지 않는다

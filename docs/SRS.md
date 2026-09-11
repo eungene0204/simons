@@ -1739,6 +1739,8 @@ News Collector
 | NFR-SEC-003 | SQL Injection 방지: Prisma ORM의 파라미터화된 쿼리 사용 |
 | NFR-SEC-004 | 외부 URL을 fetch하는 API는 SSRF 방어를 위해 scheme, hostname, DNS 해석 IP, redirect target을 검증해야 한다 |
 | NFR-SEC-005 | 뉴스 본문 fetch API는 private/loopback/link-local/non-global IP와 localhost를 직접 또는 redirect 경유로 호출하면 안 된다 |
+| NFR-SEC-006 | 사용자에게 귀속된 데이터(계좌·주문·포지션·전략·검증 결과·관심종목·백테스트 기록·가상 계좌 시장 상태·시그널 로그)를 반환하거나 변경하는 API는 경로·본문의 id를 그대로 조회 키로 쓰지 않고, 세션에서 얻은 사용자로 쿼리를 묶어야 한다(`getOwnershipContext()`+`withOwnership()`, 계좌 하위 자원은 `findOwnedAccountId()`). 소유자가 아니면 404로 응답해 자원의 존재 여부를 노출하지 않는다. 소유자가 없는 공유 행(cacheKey 기준 `BacktestHistory`)은 `UserBacktestHistory` 연결로 소유를 판정한다 |
+| NFR-SEC-007 | 인증·권한에 쓰이는 시크릿이 없으면 열지 않고 닫는다(fail closed). `JWT_SECRET` 미설정 시 운영에서 세션 토큰을 서명·검증하지 않고 즉시 실패하며(기본 키 대체 금지), `SCHEDULER_SECRET` 미설정 시 운영에서 스케줄러 배치 API를 전면 차단한다 |
 
 ### 4.5 확장성
 

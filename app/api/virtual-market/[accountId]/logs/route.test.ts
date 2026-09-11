@@ -1,11 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { GET } from "./route";
+import { findOwnedAccountId } from "@/lib/server/accountOwnership";
+import { DELETE, GET } from "./route";
+
+vi.mock("@/lib/server/accountOwnership", () => ({
+  findOwnedAccountId: vi.fn(),
+}));
+
+vi.mock("@/lib/get-user", () => ({
+  isUnauthorizedAccessError: () => false,
+}));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     virtualMarketLog: {
       findMany: vi.fn(),
+      deleteMany: vi.fn(),
     },
     stock: {
       findMany: vi.fn(),
@@ -21,7 +31,9 @@ vi.mock("@/lib/krx-stocks", () => ({
 }));
 
 const mockLogFindMany = vi.mocked(prisma.virtualMarketLog.findMany);
+const mockLogDeleteMany = vi.mocked(prisma.virtualMarketLog.deleteMany);
 const mockStockFindMany = vi.mocked(prisma.stock.findMany);
+const mockFindOwnedAccountId = vi.mocked(findOwnedAccountId);
 
 function makeRequest(): Request {
   return new Request("http://localhost/api/virtual-market/account-1/logs?limit=30");
@@ -48,6 +60,7 @@ describe("/api/virtual-market/[accountId]/logs GET", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStockFindMany.mockResolvedValue([]);
+    mockFindOwnedAccountId.mockResolvedValue("account-1");
   });
 
   it("stockName이 없으면 종목명 맵에서 이름을 채운다", async () => {
@@ -93,5 +106,32 @@ describe("/api/virtual-market/[accountId]/logs GET", () => {
     const body = await res.json();
 
     expect(body[0].stockName).toBeNull();
+  });
+});
+
+// 시그널 로그에는 어떤 종목을 언제 왜 사고팔았는지가 남는다 — 계좌 소유자만 본다.
+describe("/api/virtual-market/[accountId]/logs 계좌 소유권", () => {
+  const params = { params: { accountId: "account-1" } };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindOwnedAccountId.mockResolvedValue(null);
+  });
+
+  it("남의 계좌 로그는 조회하지 않고 404", async () => {
+    const response = await GET(makeRequest(), params);
+
+    expect(response.status).toBe(404);
+    expect(mockLogFindMany).not.toHaveBeenCalled();
+  });
+
+  it("남의 계좌 로그는 지우지 않고 404", async () => {
+    const response = await DELETE(
+      new Request("http://localhost/api/virtual-market/account-1/logs", { method: "DELETE" }),
+      params
+    );
+
+    expect(response.status).toBe(404);
+    expect(mockLogDeleteMany).not.toHaveBeenCalled();
   });
 });

@@ -63,14 +63,10 @@ async function findBacktestHistorySummary(
     if (userSummary) return userSummary;
   }
 
-  const visibleHistory = await prisma.backtestHistory.findFirst({
-    where: {
-      strategyName: strategy.name,
-      isVisible: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  return historyToSummary(visibleHistory, settings) ?? historyToSummary(directHistory, settings);
+  // 전략 이름만으로 전역 BacktestHistory를 뒤지던 마지막 폴백은 제거했다(2026-09-11).
+  // 이름이 겹치기만 하면 남의 기록 id와 조건이 응답에 실려 나갔고, 그 id로
+  // /api/backtest/history/[id]를 부르면 남의 결과 본문까지 열렸다.
+  return null;
 }
 
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {

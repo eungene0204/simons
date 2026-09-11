@@ -8,15 +8,24 @@
 
 import { NextResponse } from "next/server";
 import { refreshVirtualMarket } from "@/lib/server/virtual-market-refresh";
+import { isUnauthorizedAccessError } from "@/lib/get-user";
+import { findOwnedAccountId } from "@/lib/server/accountOwnership";
 
 export async function POST(
   _request: Request,
   { params }: { params: { accountId: string } }
 ) {
   try {
+    if (!(await findOwnedAccountId(params.accountId))) {
+      return NextResponse.json({ error: "Account not found" }, { status: 404 });
+    }
+
     const result = await refreshVirtualMarket(params.accountId);
     return NextResponse.json(result);
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Virtual market refresh error:", error);
     return NextResponse.json({ error: "Refresh failed" }, { status: 500 });
   }

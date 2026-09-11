@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getSessionUserId } from "@/lib/get-user";
 
 /**
  * PATCH /api/backtest/ai-report
@@ -8,6 +9,12 @@ import { prisma } from "@/lib/prisma";
  */
 export async function PATCH(req: Request) {
   try {
+    // cacheKey는 전략 본문의 해시다 — 그 값을 아는 사람은 같은 전략을 직접 돌려 본
+    // 사람뿐이므로, 로그인 여부만 확인하면 무관한 제3자의 덮어쓰기는 막힌다.
+    if ((await getSessionUserId()) == null) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const {
       cacheKey,
       aiSummary,

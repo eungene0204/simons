@@ -26,6 +26,16 @@ const transaction = vi.fn(async (callback: any) =>
   })
 );
 
+// 세션 사용자를 describe마다 바꿔 끼운다 — GET은 로그인 사용자, DELETE는 기존 테스트대로 null.
+const authState = vi.hoisted(() => ({ userId: null as number | null }));
+
+vi.mock("@/lib/get-user", () => ({
+  getOwnershipContext: async () => ({ userId: authState.userId }),
+  withOwnership: (where: Record<string, unknown>, userId: number | null) =>
+    userId == null ? where : { ...where, userId },
+  isUnauthorizedAccessError: () => false,
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     $transaction: transaction,
@@ -57,23 +67,25 @@ beforeAll(async () => {
 describe("app/api/strategy/[id]/route GET", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    strategyFindUnique.mockResolvedValue({
+    authState.userId = 7;
+    strategyFindFirst.mockResolvedValue({
       id: "strategy_a",
       name: "첫번째 전략",
       description: "프롬프트 원문",
       settings: JSON.stringify({ description: "프롬프트 원문" }),
       BacktestResult: [],
     });
-    backtestHistoryFindFirst
-      .mockResolvedValueOnce({
-        id: "hist-direct",
-        strategyId: "strategy_a",
-        strategyName: "첫번째 전략",
-        universe: "000020,000040,000050",
-        conditions: JSON.stringify({ entry: null, exit: null }),
-        createdAt: new Date("2026-06-14T15:00:00Z"),
-      })
-      .mockResolvedValueOnce({
+    backtestHistoryFindFirst.mockResolvedValue({
+      id: "hist-direct",
+      strategyId: "strategy_a",
+      strategyName: "첫번째 전략",
+      universe: "000020,000040,000050",
+      conditions: JSON.stringify({ entry: null, exit: null }),
+      createdAt: new Date("2026-06-14T15:00:00Z"),
+    });
+    // 폴백 후보는 "내 목록에 담은 기록"뿐이다 — 이름만 같은 전역 기록은 후보가 아니다.
+    userBacktestHistoryFindFirst.mockResolvedValue({
+      BacktestHistory: {
         id: "hist-visible",
         strategyId: null,
         strategyName: "첫번째 전략",
@@ -85,8 +97,8 @@ describe("app/api/strategy/[id]/route GET", () => {
           risk: "손절 12%",
         }),
         createdAt: new Date("2026-06-14T15:00:01Z"),
-      });
-    userBacktestHistoryFindFirst.mockResolvedValue(null);
+      },
+    });
   });
 
   it("strategyId 히스토리 조건이 비어 있으면 저장 목록의 조건 SOT를 fallback으로 반환한다", async () => {
@@ -100,13 +112,8 @@ describe("app/api/strategy/[id]/route GET", () => {
       where: { OR: [{ strategyId: "strategy_a" }, { cacheKey: "strategy_a" }] },
       orderBy: { createdAt: "desc" },
     });
-    expect(backtestHistoryFindFirst).toHaveBeenNthCalledWith(2, {
-      where: {
-        strategyName: "첫번째 전략",
-        isVisible: true,
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    // 이름만으로 전역을 뒤지는 2차 조회는 없어졌다(남의 기록 노출 경로)
+    expect(backtestHistoryFindFirst).toHaveBeenCalledTimes(1);
     expect(payload.historySummary).toMatchObject({
       id: "hist-visible",
       universeName: "KOSPI",
@@ -122,7 +129,7 @@ describe("app/api/strategy/[id]/route GET", () => {
     // 화면 배지에 필요한 names/position/risk가 없어 유니버스 배지만 보이는 SOT 위반 버그.
     backtestHistoryFindFirst.mockReset();
     backtestHistoryFindFirst
-      .mockResolvedValueOnce({
+      .mockResolvedValue({
         id: "hist-direct-raw",
         strategyId: "strategy_a",
         strategyName: "첫번째 전략",
@@ -132,8 +139,9 @@ describe("app/api/strategy/[id]/route GET", () => {
           exit: { conditions: [{ type: "indicator", id: "ma_crossover", params: { signalType: "sell", shortMA: 5, longMA: 20 } }] },
         }),
         createdAt: new Date("2026-06-14T15:00:00Z"),
-      })
-      .mockResolvedValueOnce({
+      });
+    userBacktestHistoryFindFirst.mockResolvedValue({
+      BacktestHistory: {
         id: "hist-visible",
         strategyId: null,
         strategyName: "첫번째 전략",
@@ -145,7 +153,8 @@ describe("app/api/strategy/[id]/route GET", () => {
           risk: "손절 8%, 익절 30%",
         }),
         createdAt: new Date("2026-06-14T15:00:01Z"),
-      });
+      },
+    });
 
     const response = await GET(new Request("http://localhost/api/strategy/strategy_a"), {
       params: { id: "strategy_a" },
@@ -162,11 +171,29 @@ describe("app/api/strategy/[id]/route GET", () => {
       riskText: "손절 8%, 익절 30%",
     });
   });
+
+  it("이름만 같은 남의 기록은 내 전략 응답에 실리지 않는다", async () => {
+    // 2026-09-11 이전: 내 전략에 기록이 없으면 이름이 같은 전역 기록을 그대로 붙여,
+    // 응답에 실린 남의 기록 id로 /api/backtest/history/[id]까지 열 수 있었다.
+    backtestHistoryFindFirst.mockReset();
+    backtestHistoryFindFirst.mockResolvedValue(null);
+    userBacktestHistoryFindFirst.mockResolvedValue(null);
+
+    const response = await GET(new Request("http://localhost/api/strategy/strategy_a"), {
+      params: { id: "strategy_a" },
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.historySummary).toBeNull();
+    expect(backtestHistoryFindFirst).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("app/api/strategy/[id]/route DELETE", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.userId = null;
     strategyFindFirst.mockResolvedValue({ id: "strategy_a" });
     virtualAccountFindMany.mockResolvedValue([]);
     virtualAccountUpdateMany.mockResolvedValue({ count: 0 });

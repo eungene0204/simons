@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getStockNameMap, loadEtfMasterNameMap } from "@/lib/krx-stocks";
 import { filterMonitorableSymbols } from "@/lib/strategy-tracked-symbols";
+import { isUnauthorizedAccessError } from "@/lib/get-user";
+import { findOwnedAccountId } from "@/lib/server/accountOwnership";
+
+// 이 라우트의 네 핸들러는 모두 계좌 소유자만 부를 수 있다. 자동매매 추적 상태는
+// 계좌에 딸린 사용자 데이터이므로, 계좌 소유권 확인 없이는 읽지도 쓰지도 않는다.
+// 응답은 호출마다 새로 만든다 — NextResponse 인스턴스는 재사용할 수 없다(본문 스트림 소진).
+const notFound = () => NextResponse.json({ error: "Account not found" }, { status: 404 });
+const unauthorized = () => NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
 async function resolveSymbolNames(symbols: string[]): Promise<Record<string, string>> {
   if (symbols.length === 0) return {};
@@ -27,6 +35,8 @@ export async function GET(
   { params }: { params: { accountId: string } }
 ) {
   try {
+    if (!(await findOwnedAccountId(params.accountId))) return notFound();
+
     const state = await prisma.virtualMarketState.findUnique({
       where: { accountId: params.accountId },
     });
@@ -36,6 +46,7 @@ export async function GET(
     const symbolNames = await resolveSymbolNames(symbols);
     return NextResponse.json({ ...state, symbols, symbolNames });
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) return unauthorized();
     console.error("Failed to get market state:", error);
     return NextResponse.json({ error: "Failed to get market state" }, { status: 500 });
   }
@@ -53,12 +64,7 @@ export async function POST(
       return NextResponse.json({ error: "symbols array is required" }, { status: 400 });
     }
 
-    const account = await prisma.virtualAccount.findUnique({
-      where: { id: params.accountId },
-    });
-    if (!account) {
-      return NextResponse.json({ error: "Account not found" }, { status: 404 });
-    }
+    if (!(await findOwnedAccountId(params.accountId))) return notFound();
 
     const monitorableSymbols = await filterMonitorableSymbols(symbols);
     if (monitorableSymbols.length === 0) {
@@ -104,6 +110,7 @@ export async function POST(
 
     return NextResponse.json({ ...state, symbols: parsedSymbols, symbolNames });
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) return unauthorized();
     console.error("Failed to start market tracking:", error);
     return NextResponse.json({ error: "Failed to start market tracking" }, { status: 500 });
   }
@@ -115,6 +122,8 @@ export async function PATCH(
   { params }: { params: { accountId: string } }
 ) {
   try {
+    if (!(await findOwnedAccountId(params.accountId))) return notFound();
+
     const body = await request.json();
     const data: Record<string, unknown> = { updatedAt: new Date() };
 
@@ -132,6 +141,7 @@ export async function PATCH(
     const symbolNames = await resolveSymbolNames(patchedSymbols);
     return NextResponse.json({ ...state, symbols: patchedSymbols, symbolNames });
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) return unauthorized();
     console.error("Failed to update market state:", error);
     return NextResponse.json({ error: "Failed to update market state" }, { status: 500 });
   }
@@ -143,11 +153,14 @@ export async function DELETE(
   { params }: { params: { accountId: string } }
 ) {
   try {
+    if (!(await findOwnedAccountId(params.accountId))) return notFound();
+
     await prisma.virtualMarketState.deleteMany({
       where: { accountId: params.accountId },
     });
     return NextResponse.json({ message: "Market tracking stopped" });
   } catch (error) {
+    if (isUnauthorizedAccessError(error)) return unauthorized();
     console.error("Failed to stop market tracking:", error);
     return NextResponse.json({ error: "Failed to stop market tracking" }, { status: 500 });
   }
