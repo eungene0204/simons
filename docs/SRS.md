@@ -1740,7 +1740,9 @@ News Collector
 | NFR-SEC-004 | 외부 URL을 fetch하는 API는 SSRF 방어를 위해 scheme, hostname, DNS 해석 IP, redirect target을 검증해야 한다 |
 | NFR-SEC-005 | 뉴스 본문 fetch API는 private/loopback/link-local/non-global IP와 localhost를 직접 또는 redirect 경유로 호출하면 안 된다 |
 | NFR-SEC-006 | 사용자에게 귀속된 데이터(계좌·주문·포지션·전략·검증 결과·관심종목·백테스트 기록·가상 계좌 시장 상태·시그널 로그)를 반환하거나 변경하는 API는 경로·본문의 id를 그대로 조회 키로 쓰지 않고, 세션에서 얻은 사용자로 쿼리를 묶어야 한다(`getOwnershipContext()`+`withOwnership()`, 계좌 하위 자원은 `findOwnedAccountId()`). 소유자가 아니면 404로 응답해 자원의 존재 여부를 노출하지 않는다. 소유자가 없는 공유 행(cacheKey 기준 `BacktestHistory`)은 `UserBacktestHistory` 연결로 소유를 판정한다 |
-| NFR-SEC-007 | 인증·권한에 쓰이는 시크릿이 없으면 열지 않고 닫는다(fail closed). `JWT_SECRET` 미설정 시 운영에서 세션 토큰을 서명·검증하지 않고 즉시 실패하며(기본 키 대체 금지), `SCHEDULER_SECRET` 미설정 시 운영에서 스케줄러 배치 API를 전면 차단한다 |
+| NFR-SEC-007 | 인증·권한에 쓰이는 시크릿이 없으면 열지 않고 닫는다(fail closed). `JWT_SECRET` 미설정 시 운영에서 세션 토큰을 서명·검증하지 않고 즉시 실패하며(기본 키 대체 금지), `SCHEDULER_SECRET` 미설정 시 운영에서 스케줄러 배치 API를 전면 차단한다. 확인 시점은 모듈 로드가 아니라 사용 시점이다 — Next 프로덕션 빌드의 페이지 데이터 수집 단계에는 런타임 환경변수가 없다 |
+| NFR-SEC-008 | 대조만 하면 되는 값(비밀번호·이메일 인증번호)은 단방향 해시로 저장한다(bcrypt / SHA-256). 원문을 되돌려 써야 하는 자격증명(토스 자동결제 빌링키)은 AES-256-GCM으로 암호화해 저장하며(`lib/server/fieldCrypto.ts`, 키는 `FIELD_ENCRYPTION_KEY`), 키가 없으면 평문으로 저장하지 않고 거부한다. 카드번호·CVC 등 결제수단 원문은 수집·저장하지 않는다(PSP가 보관) |
+| NFR-SEC-009 | 목적을 다한 개인정보·운영 로그는 보존기간이 지나면 자동 파기한다(`lib/server/dataRetention.ts`, 매일 04:00 KST). 기간: AI 대화 기록 90일, 이메일 인증번호 만료 후 1일, 결제 웹훅 수신 기록 180일, 관리자 작업 기록 3년. 법정 보존 의무가 있는 기록(`PaymentOrder` 5년)과 개인정보처리방침이 계정 종료 시까지 보유를 약속한 이용자 데이터(모의투자 기록)는 파기 대상에서 제외한다. 기간은 개인정보처리방침 제4조와 일치해야 한다 |
 
 ### 4.5 확장성
 
