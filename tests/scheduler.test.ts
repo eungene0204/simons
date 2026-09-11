@@ -7,7 +7,17 @@ vi.mock("@/lib/server/scheduler-actions", () => ({
   runSchedulerAction: vi.fn(),
 }));
 
+vi.mock("@/lib/server/dataRetention", () => ({
+  purgeExpiredRecords: vi.fn(),
+}));
+
+// 같은 분(정각)에 구독 갱신 잡도 함께 발화하므로, 그 잡이 조용히 끝나도록 최소 형태만 준다.
+vi.mock("@/lib/prisma", () => ({
+  prisma: { user: { findMany: async () => [] } },
+}));
+
 import { runSchedulerAction } from "@/lib/server/scheduler-actions";
+import { purgeExpiredRecords } from "@/lib/server/dataRetention";
 import { callSchedulerAPI, startScheduler, stopScheduler } from "@/lib/scheduler";
 
 const mockedRun = vi.mocked(runSchedulerAction);
@@ -97,5 +107,56 @@ describe("tick — 미국장(ET) 생명주기 발화", () => {
     startScheduler();
 
     expect(mockedRun).not.toHaveBeenCalledWith("us-market-open");
+  });
+});
+
+// 보존기간 파기는 주말에도 돌아야 한다 — 개인정보 파기는 장 달력과 무관하다.
+describe("tick — 보존기간 파기 발화", () => {
+  const mockedPurge = vi.mocked(purgeExpiredRecords);
+
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockedRun.mockReset();
+    mockedRun.mockResolvedValue({ action: "noop" });
+    mockedPurge.mockReset();
+    mockedPurge.mockResolvedValue({
+      chatQaLog: 0,
+      emailVerification: 0,
+      paymentWebhookEvent: 0,
+      adminAuditLog: 0,
+    });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    stopScheduler();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("04:00 KST에 파기 잡을 발화한다", async () => {
+    // 2026-09-09(수) 04:00 KST = 2026-09-08 19:00 UTC
+    vi.setSystemTime(new Date("2026-09-08T19:00:05Z"));
+
+    startScheduler();
+    await vi.waitFor(() => expect(mockedPurge).toHaveBeenCalledTimes(1));
+  });
+
+  it("주말에도 발화한다", async () => {
+    // 2026-09-13(일) 04:00 KST = 2026-09-12 19:00 UTC
+    vi.setSystemTime(new Date("2026-09-12T19:00:05Z"));
+
+    startScheduler();
+    await vi.waitFor(() => expect(mockedPurge).toHaveBeenCalledTimes(1));
+  });
+
+  it("다른 시각에는 발화하지 않는다", () => {
+    // 2026-09-09(수) 05:00 KST
+    vi.setSystemTime(new Date("2026-09-08T20:00:05Z"));
+
+    startScheduler();
+
+    expect(mockedPurge).not.toHaveBeenCalled();
   });
 });

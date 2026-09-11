@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { decryptField, isEncryptedField } from "@/lib/server/fieldCrypto";
 
 // 자동결제(빌링) 승인 보안 가드 회귀 테스트:
 // - 서버 저장 주문/customerKey와 대조 후에만 빌링키 발급·첫 결제 승인
@@ -132,12 +133,18 @@ describe("/api/payment/confirm (빌링)", () => {
         data: expect.objectContaining({ status: "DONE", paymentKey: "pk-1" }),
       })
     );
+    // 빌링키는 평문으로 저장하지 않는다 — 토스에는 원문, DB에는 암호문이 간다.
+    const storedBillingKey = userUpdate.mock.calls[0][0].data.tossBillingKey;
+    expect(storedBillingKey).not.toBe("billing-key-1");
+    expect(isEncryptedField(storedBillingKey)).toBe(true);
+    expect(decryptField(storedBillingKey)).toBe("billing-key-1");
+
     expect(userUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 7 },
         data: expect.objectContaining({
           planTier: "PRO",
-          tossBillingKey: "billing-key-1",
+          tossBillingKey: storedBillingKey,
           subscriptionPlanId: "PRO",
           subscriptionCanceledAt: null,
           billingFailCount: 0,

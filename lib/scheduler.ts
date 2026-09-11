@@ -10,6 +10,7 @@
  *   15:30 KST  — 장 마감: 실행 중인 KRW 계좌 일시정지 (paused 전환, 평일)
  *   09:30 ET   — 미국장 개장: USD auto 계좌 자동 시작 (평일, 서머타임 자동 반영)
  *   16:00 ET   — 미국장 마감: 실행 중인 USD 계좌 일시정지 (평일)
+ *   04:00 KST  — 보존기간 지난 개인정보·운영 로그 파기 (매일)
  *
  * 장중 시그널 평가·체결(자동매매)은 이 스케줄러가 하지 않는다 — 정본은 FastAPI
  * 백엔드의 VirtualTrader(backend/engine/virtual_trader.py, 30초 간격)다.
@@ -116,6 +117,27 @@ async function runBillingRenewal(ts: string): Promise<void> {
   }
 }
 
+// 보존기간 파기 — 기한이 지난 개인정보·운영 로그를 하루 한 번 지운다.
+// 기간 표와 근거는 lib/server/dataRetention.ts 한 곳에만 둔다.
+async function runRetentionPurge(ts: string): Promise<void> {
+  try {
+    const [{ purgeExpiredRecords }, { prisma }] = await Promise.all([
+      import("@/lib/server/dataRetention"),
+      import("@/lib/prisma"),
+    ]);
+    const summary = await purgeExpiredRecords(prisma);
+    const deleted = Object.entries(summary).filter(([, n]) => n > 0);
+    if (deleted.length > 0) {
+      console.log(
+        `[Scheduler] ${ts} KST — 보존기간 파기: ` +
+          deleted.map(([target, n]) => `${target} ${n}건`).join(", ")
+      );
+    }
+  } catch (e) {
+    console.error(`[Scheduler] ${ts} KST — 보존기간 파기 잡 실패:`, e);
+  }
+}
+
 function tick(): void {
   const kst = nowKST();
   const h = kst.getUTCHours();
@@ -133,6 +155,13 @@ function tick(): void {
   if (m === 0 && !firedToday.has(billingRenewalKey)) {
     firedToday.add(billingRenewalKey);
     void runBillingRenewal(formatKST(kst));
+  }
+
+  // 04:00 KST — 보존기간 파기 (주말 포함이라 평일 가드보다 먼저 체크)
+  const retentionKey = `${dateStr}_retention_purge`;
+  if (h === 4 && m === 0 && !firedToday.has(retentionKey)) {
+    firedToday.add(retentionKey);
+    void runRetentionPurge(formatKST(kst));
   }
 
   // 미국 정규장 개장·마감 — ET 기준, USD 계좌 전용.

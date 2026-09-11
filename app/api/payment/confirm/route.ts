@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
+import { assertFieldCryptoReady, encryptField } from "@/lib/server/fieldCrypto";
 import { PLANS, isValidPlanId } from "@/lib/plans";
 import {
   TossPaymentError,
@@ -59,9 +60,14 @@ export async function POST(request: Request) {
       );
     }
 
+    // 빌링키를 암호화해 저장할 수 없는 상태면 결제 전에 멈춘다 — 카드를 먼저 긁고
+    // 저장에 실패하면 청구만 되고 플랜은 올라가지 않는다.
+    assertFieldCryptoReady();
+
     try {
       // 1) 일회성 authKey → 빌링키 교환
       const billing = await issueBillingKey({ authKey, customerKey });
+      const storedBillingKey = encryptField(billing.billingKey);
 
       // 2) 첫 달 즉시 결제 — 금액은 서버 저장 주문 금액만 사용한다
       const payment = await chargeBillingKey({
@@ -89,7 +95,7 @@ export async function POST(request: Request) {
           data: {
             planTier: order.planId,
             planStartDate: now,
-            tossBillingKey: billing.billingKey,
+            tossBillingKey: storedBillingKey,
             subscriptionPlanId: order.planId,
             nextBillingAt: addMonthsClamped(now, 1),
             subscriptionCanceledAt: null,

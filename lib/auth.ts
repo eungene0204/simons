@@ -2,8 +2,12 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 
 // 세션 토큰 서명 키. 값이 없을 때 조용히 고정 문자열로 떨어지면 누구나 임의
-// userId 토큰을 위조할 수 있으므로, 운영에서는 미설정을 즉시 실패로 드러낸다.
-function resolveJwtSecret(): string {
+// userId 토큰을 위조할 수 있으므로, 운영에서는 미설정을 실패로 드러낸다.
+//
+// 모듈 로드가 아니라 쓰는 시점에 확인한다 — Next 프로덕션 빌드는 라우트 모듈을 그냥
+// import 해서 페이지 데이터를 수집하는데, 그 단계에는 런타임 환경변수가 없다.
+// 로드 시점에 던지면 서명·검증을 한 번도 하지 않는 빌드가 통째로 깨진다.
+function jwtSecret(): string {
   const secret = process.env.JWT_SECRET
   if (secret) return secret
   if (process.env.NODE_ENV === 'production') {
@@ -13,8 +17,6 @@ function resolveJwtSecret(): string {
   }
   return 'dev-only-insecure-jwt-secret'
 }
-
-const JWT_SECRET = resolveJwtSecret()
 
 type SupabaseIdentity = {
   email: string
@@ -44,12 +46,14 @@ export function generateToken(
   userId: number,
   profile?: { avatarUrl?: string | null }
 ): string {
-  return jwt.sign({ userId, avatarUrl: profile?.avatarUrl ?? null }, JWT_SECRET, { expiresIn: '7d' })
+  return jwt.sign({ userId, avatarUrl: profile?.avatarUrl ?? null }, jwtSecret(), { expiresIn: '7d' })
 }
 
 export function verifyToken(token: string): AuthTokenPayload | null {
+  // 키 미설정은 설정 오류이므로 밖으로 던진다. 토큰이 틀린 것(만료·위조)만 null이다.
+  const secret = jwtSecret()
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as AuthTokenPayload
+    const decoded = jwt.verify(token, secret) as AuthTokenPayload
     return decoded
   } catch {
     return null

@@ -11,6 +11,7 @@ import {
   type UsageCarrySource,
 } from "@/lib/server/planDowngrade";
 import { TossPaymentError, chargeBillingKey } from "@/lib/server/tossPayments";
+import { decryptField } from "@/lib/server/fieldCrypto";
 
 export const BILLING_MAX_FAIL_COUNT = 3; // 연속 실패 한도 (도달 시 FREE 전환)
 export const BILLING_RETRY_DELAY_MS = 24 * 60 * 60 * 1000; // 실패 시 재시도 간격(1일)
@@ -89,7 +90,8 @@ export async function processDueBillingRenewals(
 
       try {
         const payment = await chargeBillingKey({
-          billingKey: user.tossBillingKey,
+          // 저장값은 암호문이다 — 토스에 보낼 때만 원문으로 되돌린다(lib/server/fieldCrypto).
+          billingKey: decryptField(user.tossBillingKey),
           customerKey: user.tossCustomerKey,
           amount: order.amount,
           orderId: order.orderId,
