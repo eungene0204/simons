@@ -268,7 +268,7 @@ function StrategyResultContent() {
   if (error || !result) {
     return (
       <DashboardLayout userName="">
-        <div className="flex flex-col items-center justify-center h-full gap-4">
+        <div className="flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] flex-col items-center justify-center gap-4">
           <Warning size={32} className="text-[var(--main-blue)]" weight="fill" />
           <p className="text-sm font-bold text-[var(--main-blue)]">{error ?? t("결과를 불러올 수 없습니다.")}</p>
           <button

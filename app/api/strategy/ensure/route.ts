@@ -9,6 +9,31 @@ import {
   PLAN_LIMIT_STRATEGIES,
   PLAN_LIMIT_MESSAGES,
 } from '@/lib/server/planLimits';
+import { buildBacktestResultSummary } from '@/lib/server/backtestResultSummary';
+
+/**
+ * 이 경로로 저장된 전략도 저장 전략 목록에 그대로 뜨므로, 실행한 백테스트 결과를 함께
+ * 남긴다(없으면 /analytics/[id] 가 "저장된 백테스트 결과가 없습니다"로 떨어진다).
+ * 이미 결과 행이 있으면 건드리지 않는다 — AI 리포트까지 붙여 저장한 행을 계좌 생성
+ * 시점의 가벼운 결과로 덮어쓰지 않기 위해서다.
+ */
+async function persistBacktestResult(strategyId: string, backtestResult: any) {
+  if (!backtestResult) return;
+
+  const existingRecord = await prisma.backtestResult.findFirst({
+    where: { strategyId },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (existingRecord) return;
+
+  await prisma.backtestResult.create({
+    data: {
+      strategyId,
+      summary: JSON.stringify(buildBacktestResultSummary(backtestResult)),
+      trades: JSON.stringify(backtestResult.tradesList ?? []),
+    },
+  });
+}
 
 /**
  * 백테스트 결과에서 곧바로 가상계좌를 만들 때 쓰는 "있으면 그대로, 없으면 저장" 경로.
@@ -21,10 +46,11 @@ import {
 export async function POST(request: Request) {
   try {
     const { userId } = await getOwnershipContext();
-    const { name, description, dsl } = (await request.json()) as {
+    const { name, description, dsl, backtestResult } = (await request.json()) as {
       name?: string;
       description?: string;
       dsl?: StrategyDSL;
+      backtestResult?: any;
     };
 
     if (!name?.trim()) {
@@ -39,6 +65,7 @@ export async function POST(request: Request) {
 
     const existing = await prisma.strategy.findUnique({ where: { id: strategyId } });
     if (existing && existing.isSaved && existing.deletedAt == null) {
+      await persistBacktestResult(existing.id, backtestResult);
       return NextResponse.json({ id: existing.id, name: existing.name, created: false });
     }
 
@@ -75,6 +102,8 @@ export async function POST(request: Request) {
         deletedAt: null,
       },
     });
+
+    await persistBacktestResult(strategy.id, backtestResult);
 
     return NextResponse.json({ id: strategy.id, name: strategy.name, created: true });
   } catch (error) {

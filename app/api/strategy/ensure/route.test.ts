@@ -11,6 +11,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const strategyFindUnique = vi.fn();
 const strategyUpsert = vi.fn();
+const backtestResultFindFirst = vi.fn();
+const backtestResultCreate = vi.fn();
 const getOwnershipContext = vi.fn();
 const assertCanSaveStrategy = vi.fn();
 
@@ -19,6 +21,10 @@ vi.mock("@/lib/prisma", () => ({
     strategy: {
       findUnique: (...a) => strategyFindUnique(...a),
       upsert: (...a) => strategyUpsert(...a),
+    },
+    backtestResult: {
+      findFirst: (...a) => backtestResultFindFirst(...a),
+      create: (...a) => backtestResultCreate(...a),
     },
   },
 }));
@@ -52,6 +58,8 @@ describe("POST /api/strategy/ensure", () => {
     getOwnershipContext.mockResolvedValue({ userId: 7 });
     strategyFindUnique.mockResolvedValue(null);
     strategyUpsert.mockImplementation(async ({ create }) => ({ id: create.id, name: create.name }));
+    backtestResultFindFirst.mockResolvedValue(null);
+    backtestResultCreate.mockImplementation(async ({ data }) => ({ id: "bt1", ...data }));
   });
 
   it("이름이나 DSL이 없으면 400", async () => {
@@ -105,6 +113,61 @@ describe("POST /api/strategy/ensure", () => {
     expect(data.created).toBe(true);
     expect(strategyUpsert.mock.calls[0][0].update.isSaved).toBe(true);
     expect(data.name).toBe("저PBR 전략");
+  });
+
+  /**
+   * 이 경로로 저장된 전략도 "내 전략" 목록에 그대로 뜬다. 결과 행이 없으면 목록에서
+   * 눌렀을 때 /analytics/[id] 가 "저장된 백테스트 결과가 없습니다"로만 끝나므로,
+   * 전략을 저장할 때 실행한 백테스트 결과도 함께 남긴다.
+   */
+  it("백테스트 결과를 함께 받으면 전략과 같이 저장한다", async () => {
+    const backtestResult = {
+      totalReturn: 12.5,
+      cagr: 8.1,
+      maxDrawdown: -18,
+      trades: 53,
+      equity: [1000, 1100],
+      dates: ["2024-01-02", "2024-01-03"],
+      tradesList: [{ date: "2024-01-02", symbol: "005930", type: "buy" }],
+      perAssetStats: {},
+    };
+
+    await POST(makeRequest({ name: "저PBR 전략", dsl: DSL, backtestResult }));
+
+    expect(backtestResultCreate).toHaveBeenCalledTimes(1);
+    const data = backtestResultCreate.mock.calls[0][0].data;
+    expect(data.strategyId).toMatch(/^7:/);
+    expect(JSON.parse(data.summary).cagr).toBe(8.1);
+    expect(JSON.parse(data.trades)).toHaveLength(1);
+  });
+
+  it("이미 저장된 전략이라도 결과 행이 없으면 채워 넣는다", async () => {
+    strategyFindUnique.mockResolvedValue({
+      id: "7:abc",
+      name: "내가 붙인 이름",
+      isSaved: true,
+      deletedAt: null,
+    });
+
+    await POST(makeRequest({ name: "백테스트 요약 이름", dsl: DSL, backtestResult: { cagr: 8.1 } }));
+
+    expect(backtestResultCreate).toHaveBeenCalledTimes(1);
+    expect(backtestResultCreate.mock.calls[0][0].data.strategyId).toBe("7:abc");
+  });
+
+  it("이미 결과 행이 있으면 덮어쓰지 않는다", async () => {
+    backtestResultFindFirst.mockResolvedValue({ id: "bt-old" });
+
+    await POST(makeRequest({ name: "저PBR 전략", dsl: DSL, backtestResult: { cagr: 8.1 } }));
+
+    expect(backtestResultCreate).not.toHaveBeenCalled();
+  });
+
+  it("백테스트 결과가 없으면 결과 행을 만들지 않는다", async () => {
+    await POST(makeRequest({ name: "저PBR 전략", dsl: DSL }));
+
+    expect(backtestResultFindFirst).not.toHaveBeenCalled();
+    expect(backtestResultCreate).not.toHaveBeenCalled();
   });
 
   it("전략 저장 한도를 넘으면 403과 안내 문구를 준다", async () => {

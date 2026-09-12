@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { inferStrategyType } from "@/lib/strategy-type";
-import { getTopAssetStats } from "@/lib/backtest-top-symbols";
+import { buildBacktestResultSummary } from "@/lib/server/backtestResultSummary";
 import { computeStrategyIdFromDsl, triggerVectorMemoryBacktestUpsert } from "@/lib/server/backtestCache";
 import {
   getOwnershipContext,
@@ -125,45 +125,18 @@ export async function POST(request: Request) {
 
       let backtestRecord = null;
       if (backtestResult) {
-        // 무거운 배열 데이터(equity, dates, tradesList)는 summary에 통째로 저장
-        const topAssetStats = getTopAssetStats(backtestResult.perAssetStats, 10);
-        const summary = {
-          totalReturn: backtestResult.totalReturn,
-          cagr: backtestResult.cagr,
-          maxDrawdown: backtestResult.maxDrawdown,
-          score: score ?? null,
-          profitFactor: backtestResult.profitFactor,
-          sharpe: backtestResult.sharpe,
-          sortino: backtestResult.sortino,
-          kelly: backtestResult.kelly,
-          volatility: backtestResult.volatility,
-          buyAndHoldReturn: backtestResult.buyAndHoldReturn,
-          trades: backtestResult.trades,
-          avgProfit: backtestResult.avgProfit,
-          avgLoss: backtestResult.avgLoss,
-          maxConsecutiveWins: backtestResult.maxConsecutiveWins,
-          maxConsecutiveLosses: backtestResult.maxConsecutiveLosses,
-          initialCapital: backtestResult.initialCapital,
-          finalEquity: backtestResult.finalEquity,
-          symbols: backtestResult.symbols,
-          perAssetStats: backtestResult.perAssetStats,
-          topSymbols: topAssetStats.map((stat) => stat.symbol),
-          topAssetStats,
-          equity: backtestResult.equity,
-          benchmarkEquity: backtestResult.benchmarkEquity,
-          dates: backtestResult.dates,
-          warnings: backtestResult.warnings,
-          executionTime: backtestResult.executionTime,
-          aiSummary: aiSummary ?? null,
-          aiScore: aiScore ?? null,
-          aiStrengths: aiStrengths ?? [],
-          aiWeaknesses: aiWeaknesses ?? [],
-          aiImprovements: aiImprovements ?? [],
-          aiRisks: aiRisks ?? [],
-          advisorScore: advisorScore ?? null,
-          riskScore: riskScore ?? null,
-          overfitRisk: overfitRisk ?? null,
-        };
+        const summary = buildBacktestResultSummary(backtestResult, {
+          score,
+          aiSummary,
+          aiScore,
+          aiStrengths,
+          aiWeaknesses,
+          aiImprovements,
+          aiRisks,
+          advisorScore,
+          riskScore,
+          overfitRisk,
+        });
 
         if (
           typeof tx.backtestResult.findFirst === "function" &&
@@ -221,7 +194,7 @@ export async function POST(request: Request) {
           riskScore: riskScore ?? null,
           overfitRisk: overfitRisk ?? null,
           perAssetStats: backtestResult.perAssetStats ?? null,
-          topSymbols: topAssetStats.map((stat) => stat.symbol),
+          topSymbols: summary.topSymbols,
         };
 
         if (tx.backtestHistory) {

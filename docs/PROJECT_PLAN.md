@@ -967,7 +967,7 @@ WatchlistSymbol {
 | POST | `/api/strategy/parse` | 자연어 파싱 (MLX/Ollama) |
 | POST | `/api/strategy/backtest-stream` | SSE 백테스트 스트림 |
 | POST | `/api/strategy/save-with-backtest` | 전략 저장 + 백테스트 원자적 실행 |
-| POST | `/api/strategy/ensure` | 백테스트 전략의 Strategy 행 확정(있으면 그대로, 없으면 저장) — 결과 화면 '계좌 만들기' 전용 |
+| POST | `/api/strategy/ensure` | 백테스트 전략의 Strategy 행 확정(있으면 그대로, 없으면 저장) + 백테스트 결과 동반 저장 — 결과 화면 '계좌 만들기' 전용 |
 | GET/POST | `/api/strategy/batch-runs` | 배치 실행 시작/이력 조회/상세 조회/취소 |
 | POST | `/api/strategy/coach` | AI 전략 코치 (단건 응답) |
 | POST | `/api/strategy/coach/stream` | AI 전략 코치 SSE 스트리밍 |

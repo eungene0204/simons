@@ -841,6 +841,9 @@ export default function BacktestDashboard({
         name: accountStrategyName,
         description: promptText?.trim() || "",
         dsl: normalizedBacktestDsl,
+        // 이 경로로 저장된 전략도 저장 목록에 뜨므로 실행한 결과를 함께 남긴다
+        // (없으면 목록에서 눌렀을 때 "저장된 백테스트 결과가 없습니다"만 나온다).
+        backtestResult: result,
       }),
     });
     const ensuredData = await ensured.json().catch(() => null);
