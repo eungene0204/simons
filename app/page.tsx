@@ -10,8 +10,8 @@ export function generateMetadata(): Metadata {
     ? "NullStock | Quantitative Investing Platform for U.S. Stocks"
     : "퀀트 백테스트 | 널스탁";
   const description = isGlobal
-    ? "Turn your investment ideas into strategies and simulate them"
-    : "투자 아이디어를 전략으로 만들고 전략을 시뮬레이션 하세요";
+    ? "Validate quant strategies and simulate them"
+    : "퀀트 전략을 검증하고 전략을 시뮬레이션 하세요";
   return {
     title,
     description,

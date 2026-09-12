@@ -101,7 +101,7 @@ describe("StrategyLab auth entry", () => {
 
     const headline = screen.getByTestId("strategy-lab-headline");
     expect(headline).toHaveTextContent(
-      "투자 아이디어를 전략으로 만들고전략을 시뮬레이션 하세요"
+      "퀀트 전략을 검증하고전략을 시뮬레이션 하세요"
     );
     expect(headline).toHaveClass("text-[27px]", "sm:text-5xl", "lg:text-7xl");
     expect(screen.getByTestId("strategy-lab-headline-stack")).toHaveClass(
@@ -120,7 +120,7 @@ describe("StrategyLab auth entry", () => {
 
     const animatedChars = Array.from(headline.querySelectorAll("span span"));
     expect(animatedChars).toHaveLength(
-      "투자 아이디어를 전략으로 만들고전략을 시뮬레이션 하세요".length
+      "퀀트 전략을 검증하고전략을 시뮬레이션 하세요".length
     );
     expect(animatedChars[0]).toHaveClass("chat-headline-char");
     // 지연 순서는 --char-index가 줄 경계를 넘어 이어져야 한다.
@@ -134,7 +134,7 @@ describe("StrategyLab auth entry", () => {
     render(<StrategyLabPage />);
 
     expect(await screen.findByTestId("strategy-lab-headline")).toHaveTextContent(
-      "투자 아이디어를 전략으로 만들고전략을 시뮬레이션 하세요"
+      "퀀트 전략을 검증하고전략을 시뮬레이션 하세요"
     );
 
     const textarea = await screen.findByRole("textbox");

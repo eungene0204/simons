@@ -1348,7 +1348,7 @@ function buildAnimatedHeadline(lines: string[]) {
   });
 }
 
-const HEADLINE_LINES = ["투자 아이디어를 전략으로 만들고", "전략을 시뮬레이션 하세요"];
+const HEADLINE_LINES = ["퀀트 전략을 검증하고", "전략을 시뮬레이션 하세요"];
 
 // 플레이스홀더는 첫 입력에서만 보여준다 — inline 입력창은 대화 시작 전(messages 0건)에만
 // 렌더되므로, 대화가 시작된 뒤의 하단 고정(fixed) 입력창에서는 노출하지 않는다.
