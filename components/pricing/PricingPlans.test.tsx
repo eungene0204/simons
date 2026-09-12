@@ -58,6 +58,21 @@ describe("PricingPlans", () => {
     });
   });
 
+  it("모든 카드에서 월 백테스트 횟수를 첫 번째 항목으로 보여준다(FREE는 50회)", () => {
+    render(<PricingPlans currentPlanId="FREE" />);
+
+    for (const [planId, label] of [
+      ["FREE", "월 백테스트 50회"],
+      ["PRO", "월 백테스트 500회"],
+      ["PREMIUM", "월 백테스트 1,000회"],
+    ] as const) {
+      const items = within(screen.getByTestId(`pricing-plan-card-${planId}`)).getAllByRole(
+        "listitem"
+      );
+      expect(items[0]).toHaveTextContent(label);
+    }
+  });
+
   it("uses the updated free plan description", () => {
     render(<PricingPlans currentPlanId="FREE" />);
 
@@ -195,6 +210,75 @@ describe("PricingPlans", () => {
     const status = screen.getByTestId("subscription-renewal-status");
     expect(status).toHaveTextContent("해지 예약됨");
     expect(within(status).queryByRole("button", { name: "자동갱신 해지" })).toBeNull();
+  });
+
+  it("연간 결제 탭은 연 금액·월 환산·할인율을 보여준다", () => {
+    render(<PricingPlans currentPlanId="FREE" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "연간 결제 · 20% 할인" }));
+
+    const proCard = screen.getByTestId("pricing-plan-card-PRO");
+    expect(within(proCard).getByText("₩240,000")).toBeInTheDocument();
+    expect(within(proCard).getByText("월 ₩20,000 꼴 · 20% 할인")).toBeInTheDocument();
+    const premiumCard = screen.getByTestId("pricing-plan-card-PREMIUM");
+    expect(within(premiumCard).getByText("₩470,000")).toBeInTheDocument();
+    // 무료 플랜은 주기 개념이 없다 — 어느 탭에서도 월 ₩0 그대로다
+    const freeCard = screen.getByTestId("pricing-plan-card-FREE");
+    expect(within(freeCard).getByText("₩0")).toBeInTheDocument();
+    expect(within(freeCard).getByText("/ 월")).toBeInTheDocument();
+  });
+
+  it("월간 구독자가 연간 탭을 열면 같은 플랜도 '연간 결제로 전환'으로 결제할 수 있다", () => {
+    render(
+      <PricingPlans
+        currentPlanId="PRO"
+        subscription={{ cycle: "monthly", nextBillingAt: "2026-10-03T00:00:00.000Z", canceled: false }}
+      />
+    );
+
+    const proCard = screen.getByTestId("pricing-plan-card-PRO");
+    expect(within(proCard).getByRole("button", { name: "현재 이용 중" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "연간 결제 · 20% 할인" }));
+    expect(within(proCard).getByRole("button", { name: "연간 결제로 전환" })).toBeEnabled();
+  });
+
+  it("연간 구독 중에는 유료 플랜 변경을 잠그고 해지만 남긴다", () => {
+    render(
+      <PricingPlans
+        currentPlanId="PRO"
+        subscription={{ cycle: "yearly", nextBillingAt: "2027-09-13T00:00:00.000Z", canceled: false }}
+      />
+    );
+
+    expect(screen.getByTestId("yearly-lock-notice")).toBeInTheDocument();
+    const premiumCard = screen.getByTestId("pricing-plan-card-PREMIUM");
+    expect(within(premiumCard).getByRole("button", { name: "구독 시작하기" })).toBeDisabled();
+    // 월간 탭으로 돌아가도 잠금은 유지된다(주기만 바꿔 우회 불가)
+    fireEvent.click(screen.getByRole("button", { name: "월간 결제" }));
+    expect(within(premiumCard).getByRole("button", { name: "구독 시작하기" })).toBeDisabled();
+    // 해지는 언제든 가능해야 한다
+    const freeCard = screen.getByTestId("pricing-plan-card-FREE");
+    expect(within(freeCard).getByRole("button", { name: "구독 해지" })).toBeEnabled();
+  });
+
+  it("연간 구독자는 요금제 페이지를 열면 연간 탭이 선택돼 있다", () => {
+    render(
+      <PricingPlans
+        currentPlanId="PRO"
+        subscription={{ cycle: "yearly", nextBillingAt: "2027-09-13T00:00:00.000Z", canceled: false }}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "연간 결제 · 20% 할인" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(
+      within(screen.getByTestId("pricing-plan-card-PRO")).getByRole("button", {
+        name: "현재 이용 중",
+      })
+    ).toBeDisabled();
   });
 
   it("자동갱신 구독 중이면 FREE 카드 버튼은 '구독 해지'다(즉시 전환이 아니라 해지 예약)", () => {

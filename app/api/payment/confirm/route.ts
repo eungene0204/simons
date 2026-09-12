@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
 import { assertFieldCryptoReady, encryptField } from "@/lib/server/fieldCrypto";
-import { PLANS, isValidPlanId } from "@/lib/plans";
+import {
+  PLANS,
+  isValidBillingCycle,
+  isValidPlanId,
+  orderNameFor,
+  type BillingCycle,
+} from "@/lib/plans";
 import {
   TossPaymentError,
   chargeBillingKey,
@@ -11,7 +17,8 @@ import {
 import { addMonthsClamped } from "@/lib/server/planLimits";
 
 // POST: 자동결제(빌링) 구독 확정. 카드 등록창 successUrl로 돌아온 authKey/customerKey와
-// 서버에 저장된 주문(orderId)을 대조한 뒤 빌링키를 발급하고 첫 달 결제를 즉시 승인한다.
+// 서버에 저장된 주문(orderId)을 대조한 뒤 빌링키를 발급하고 첫 주기 결제를 즉시 승인한다.
+// 다음 결제일은 주문에 박힌 청구 주기를 그대로 따른다(월간 +1개월, 연간 +12개월).
 // 성공 시 사용자의 플랜 전환 + 빌링키/다음 결제일을 저장한다 — 유료 전환은 이 경로에서만 일어난다.
 export async function POST(request: Request) {
   try {
@@ -36,6 +43,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "주문의 플랜 정보가 올바르지 않습니다." }, { status: 500 });
     }
     const plan = PLANS[order.planId];
+    const billingCycle: BillingCycle = isValidBillingCycle(order.billingCycle)
+      ? order.billingCycle
+      : "monthly";
 
     // customerKey 위변조 검증: 카드 등록창에 전달한 값(서버 저장 tossCustomerKey)과 다르면 거부
     const record = await prisma.user.findUnique({
@@ -69,13 +79,13 @@ export async function POST(request: Request) {
       const billing = await issueBillingKey({ authKey, customerKey });
       const storedBillingKey = encryptField(billing.billingKey);
 
-      // 2) 첫 달 즉시 결제 — 금액은 서버 저장 주문 금액만 사용한다
+      // 2) 첫 주기 즉시 결제 — 금액은 서버 저장 주문 금액만 사용한다
       const payment = await chargeBillingKey({
         billingKey: billing.billingKey,
         customerKey,
         amount: order.amount,
         orderId: order.orderId,
-        orderName: `널스탁 ${plan.name} 플랜 월 이용료`,
+        orderName: orderNameFor(plan, billingCycle),
         customerEmail: user.email,
         idempotencyKey: order.orderId,
       });
@@ -97,7 +107,8 @@ export async function POST(request: Request) {
             planStartDate: now,
             tossBillingKey: storedBillingKey,
             subscriptionPlanId: order.planId,
-            nextBillingAt: addMonthsClamped(now, 1),
+            billingCycle,
+            nextBillingAt: addMonthsClamped(now, billingCycle === "yearly" ? 12 : 1),
             subscriptionCanceledAt: null,
             billingFailCount: 0,
           },

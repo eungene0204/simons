@@ -41,6 +41,7 @@ type FeatureRow = { label: string; included: boolean };
 
 function planFeatures(planId: PlanId, plan: Plan): FeatureRow[] {
   return [
+    { label: `${formatCount(plan.monthlyBacktestLimit)} backtests / month`, included: true },
     {
       label: `${formatUsd(US_PRICING.initialInvestmentAmount[planId])} simulated starting capital per account`,
       included: true,
@@ -57,7 +58,6 @@ function planFeatures(planId: PlanId, plan: Plan): FeatureRow[] {
         : `${formatCount(plan.maxStrategies)} saved strategies`,
       included: true,
     },
-    { label: `${formatCount(plan.monthlyBacktestLimit)} backtests / month`, included: true },
     { label: "AI report", included: planId !== "FREE" },
     { label: "Backtest result export (CSV/JSON)", included: planId !== "FREE" },
     { label: "Walk-forward validation", included: planId === "PREMIUM" },

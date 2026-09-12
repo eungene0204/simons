@@ -100,6 +100,54 @@ describe("processDueBillingRenewals", () => {
     );
   });
 
+  it("연간 구독은 연 금액으로 청구하고 다음 결제일을 +12개월로 굴린다", async () => {
+    userFindMany.mockResolvedValue([subscriber({ billingCycle: "yearly" })]);
+    chargeBillingKey.mockResolvedValue({
+      paymentKey: "pk-renewal-yearly",
+      status: "DONE",
+      approvedAt: "2026-08-10T10:00:00+09:00",
+    });
+
+    const summary = await processDueBillingRenewals(prisma, NOW);
+
+    expect(summary).toEqual({ renewed: 1, retried: 0, downgraded: 0 });
+    expect(orderCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ planId: "PRO", billingCycle: "yearly", amount: 240000 }),
+      })
+    );
+    expect(chargeBillingKey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 240000,
+        orderName: "널스탁 Pro 플랜 연간 이용료",
+      })
+    );
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ nextBillingAt: new Date("2027-08-10T00:00:00Z") }),
+      })
+    );
+  });
+
+  it("해지 예약된 연간 구독도 청구 없이 FREE로 전환하고 주기를 월간으로 되돌린다", async () => {
+    userFindMany.mockResolvedValue([
+      subscriber({
+        billingCycle: "yearly",
+        subscriptionCanceledAt: new Date("2026-07-20T00:00:00Z"),
+      }),
+    ]);
+
+    const summary = await processDueBillingRenewals(prisma, NOW);
+
+    expect(summary).toEqual({ renewed: 0, retried: 0, downgraded: 1 });
+    expect(chargeBillingKey).not.toHaveBeenCalled();
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ planTier: "FREE", billingCycle: "monthly" }),
+      })
+    );
+  });
+
   it("해지 예약된 구독은 청구 없이 FREE로 전환하고 빌링 상태를 비운다", async () => {
     userFindMany.mockResolvedValue([
       subscriber({ subscriptionCanceledAt: new Date("2026-07-20T00:00:00Z") }),

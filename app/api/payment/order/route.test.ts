@@ -78,6 +78,53 @@ describe("/api/payment/order", () => {
     expect(userUpdate).not.toHaveBeenCalled();
   });
 
+  it("연간 주문은 서버 정의 연 가격(240,000원)과 연간 주문명으로 생성된다", async () => {
+    userFindUnique.mockResolvedValue({ tossCustomerKey: "existing-key-1" });
+    const res = await POST(req({ planId: "PRO", billingCycle: "yearly" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.amount).toBe(240000);
+    expect(body.billingCycle).toBe("yearly");
+    expect(body.orderName).toBe("널스탁 Pro 플랜 연간 이용료");
+    expect(orderCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ planId: "PRO", billingCycle: "yearly", amount: 240000 }),
+      })
+    );
+  });
+
+  it("잘못된 결제 주기는 400 — 임의로 월간으로 보정하지 않는다", async () => {
+    userFindUnique.mockResolvedValue({ tossCustomerKey: "existing-key-1" });
+    const res = await POST(req({ planId: "PRO", billingCycle: "weekly" }));
+    expect(res.status).toBe(400);
+    expect(orderCreate).not.toHaveBeenCalled();
+  });
+
+  it("연간 구독 기간 중에는 주문을 만들 수 없다 (남은 기간 소멸 방지)", async () => {
+    userFindUnique.mockResolvedValue({
+      tossCustomerKey: "existing-key-1",
+      subscriptionPlanId: "PRO",
+      billingCycle: "yearly",
+      subscriptionCanceledAt: null,
+    });
+    const res = await POST(req({ planId: "PREMIUM", billingCycle: "yearly" }));
+    expect(res.status).toBe(409);
+    expect(orderCreate).not.toHaveBeenCalled();
+  });
+
+  it("월간 구독 중에는 다른 플랜 주문을 그대로 만들 수 있다", async () => {
+    userFindUnique.mockResolvedValue({
+      tossCustomerKey: "existing-key-1",
+      subscriptionPlanId: "PRO",
+      billingCycle: "monthly",
+      subscriptionCanceledAt: null,
+    });
+    const res = await POST(req({ planId: "PREMIUM" }));
+    expect(res.status).toBe(200);
+    expect(orderCreate).toHaveBeenCalled();
+  });
+
   it("customerKey가 없으면 UUID를 생성해 저장한다 (이메일 등 유추 가능한 값 금지)", async () => {
     userFindUnique.mockResolvedValue({ tossCustomerKey: null });
     const res = await POST(req({ planId: "PREMIUM" }));

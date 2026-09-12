@@ -38,6 +38,7 @@ export default async function PricingPage() {
         status: true,
         planTier: true,
         subscriptionPlanId: true,
+        billingCycle: true,
         nextBillingAt: true,
         subscriptionCanceledAt: true,
       },
@@ -52,6 +53,7 @@ export default async function PricingPage() {
   // 자동결제(빌링) 구독 상태 — 다음 결제일/해지 여부를 플랜 카드에 표시한다
   const subscription = record?.subscriptionPlanId
     ? {
+        cycle: record.billingCycle === "yearly" ? ("yearly" as const) : ("monthly" as const),
         nextBillingAt: record.nextBillingAt?.toISOString() ?? null,
         canceled: record.subscriptionCanceledAt != null,
       }

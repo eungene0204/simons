@@ -1,9 +1,17 @@
-// 자동결제(빌링) 월 갱신 잡 — 스케줄러가 주기적으로 호출한다. 대상은 토스 구독뿐이다.
+// 자동결제(빌링) 갱신 잡 — 스케줄러가 주기적으로 호출한다. 대상은 토스 구독뿐이다.
+// 갱신 간격은 구독의 청구 주기를 따른다(월간 1개월, 연간 12개월).
 // nextBillingAt이 지난 구독을 찾아: 해지 예약이면 FREE 전환, 아니면 빌링키로 자동 청구한다.
 // 청구 실패는 다음 날 재시도하고, 연속 실패 한도에 도달하면 FREE로 전환한다.
 import crypto from "crypto";
 import type { PrismaClient } from "@prisma/client";
-import { PLANS, isValidPlanId } from "@/lib/plans";
+import {
+  PLANS,
+  isValidBillingCycle,
+  isValidPlanId,
+  orderNameFor,
+  priceFor,
+  type BillingCycle,
+} from "@/lib/plans";
 import { addMonthsClamped } from "@/lib/server/planLimits";
 import {
   backtestUsageCarryOnDowngrade,
@@ -28,6 +36,7 @@ function freeDowngradeData(user: UsageCarrySource, now: Date) {
     ...backtestUsageCarryOnDowngrade(user, now),
     planTier: "FREE",
     planStartDate: null,
+    billingCycle: "monthly",
     tossBillingKey: null,
     subscriptionPlanId: null,
     nextBillingAt: null,
@@ -54,6 +63,7 @@ export async function processDueBillingRenewals(
       id: true,
       email: true,
       subscriptionPlanId: true,
+      billingCycle: true,
       tossBillingKey: true,
       tossCustomerKey: true,
       subscriptionCanceledAt: true,
@@ -79,12 +89,16 @@ export async function processDueBillingRenewals(
 
       const planId = user.subscriptionPlanId as keyof typeof PLANS;
       const plan = PLANS[planId];
+      const billingCycle: BillingCycle = isValidBillingCycle(user.billingCycle)
+        ? user.billingCycle
+        : "monthly";
       const order = await prisma.paymentOrder.create({
         data: {
           orderId: crypto.randomUUID(),
           userId: user.id,
           planId,
-          amount: plan.monthlyPrice,
+          billingCycle,
+          amount: priceFor(plan, billingCycle),
         },
       });
 
@@ -95,7 +109,7 @@ export async function processDueBillingRenewals(
           customerKey: user.tossCustomerKey,
           amount: order.amount,
           orderId: order.orderId,
-          orderName: `널스탁 ${plan.name} 플랜 월 이용료`,
+          orderName: orderNameFor(plan, billingCycle),
           customerEmail: user.email,
           idempotencyKey: order.orderId,
         });
@@ -114,7 +128,10 @@ export async function processDueBillingRenewals(
             data: {
               planTier: planId,
               // 다음 결제일은 예정 시각 기준으로 굴린다(재시도 지연으로 주기가 밀리지 않게)
-              nextBillingAt: addMonthsClamped(user.nextBillingAt ?? now, 1),
+              nextBillingAt: addMonthsClamped(
+                user.nextBillingAt ?? now,
+                billingCycle === "yearly" ? 12 : 1
+              ),
               billingFailCount: 0,
             },
           }),

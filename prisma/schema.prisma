@@ -330,6 +330,7 @@ model User {
   tossCustomerKey String?         @unique // 토스페이먼츠 customerKey — 유추 불가능한 UUID, 최초 결제 주문 시 생성
   tossBillingKey String? // 자동결제(빌링) 키 — 서버 전용, 클라이언트에 절대 노출 금지
   subscriptionPlanId     String?   // 자동갱신 대상 플랜 (PRO | PREMIUM). null이면 자동갱신 구독 없음
+  billingCycle           String    @default("monthly") // monthly | yearly — 자동갱신 청구 주기. yearly는 1년치 선불 후 12개월마다 갱신
   nextBillingAt          DateTime? // 다음 자동 청구 예정 시각
   subscriptionCanceledAt DateTime? // 해지 예약 시각 — null이면 자동갱신 활성, 설정 시 다음 결제일에 FREE 전환
   billingFailCount       Int       @default(0) // 연속 자동 청구 실패 횟수 — 한도 도달 시 FREE 전환
@@ -365,6 +366,7 @@ model PaymentOrder {
   userId     Int
   planId     String // PRO | PREMIUM
   provider   String    @default("toss") // toss | paypal — 이 주문을 처리한 PSP
+  billingCycle String  @default("monthly") // monthly | yearly — 이 주문이 결제한 이용 기간
   currency   String    @default("KRW") // KRW | USD
   amount     Int // 결제 금액(통화 최소 단위 — KRW=원, USD=센트). 토스 승인 시 이 값과 successUrl amount를 대조한다
   status     String    @default("PENDING") // PENDING | DONE | FAILED

@@ -154,6 +154,69 @@ describe("/api/payment/confirm (빌링)", () => {
     );
   });
 
+  it("연간 주문은 연 금액을 청구하고 다음 결제일을 12개월 뒤로 잡는다", async () => {
+    orderFindUnique.mockResolvedValue({
+      ...pendingOrder,
+      billingCycle: "yearly",
+      amount: 240000,
+    });
+    issueBillingKey.mockResolvedValue({
+      billingKey: "billing-key-1",
+      customerKey: "customer-uuid-7",
+    });
+    chargeBillingKey.mockResolvedValue({
+      paymentKey: "pk-2",
+      orderId: "order-uuid-1",
+      status: "DONE",
+      totalAmount: 240000,
+      approvedAt: "2026-09-13T12:00:00+09:00",
+    });
+
+    const res = await POST(req(validBody));
+    expect(res.status).toBe(200);
+
+    expect(chargeBillingKey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 240000,
+        orderName: "널스탁 Pro 플랜 연간 이용료",
+      })
+    );
+
+    const data = userUpdate.mock.calls[0][0].data;
+    expect(data.billingCycle).toBe("yearly");
+    // 다음 결제일은 12개월 뒤 — 월간(+1개월)과 섞이면 안 된다
+    const start = data.planStartDate;
+    const next = data.nextBillingAt;
+    const monthsApart =
+      (next.getUTCFullYear() - start.getUTCFullYear()) * 12 +
+      (next.getUTCMonth() - start.getUTCMonth());
+    expect(monthsApart).toBe(12);
+  });
+
+  it("주기가 없는 기존 주문은 월간으로 승인된다(연간 도입 이전 주문 하위호환)", async () => {
+    orderFindUnique.mockResolvedValue({ ...pendingOrder });
+    issueBillingKey.mockResolvedValue({
+      billingKey: "billing-key-1",
+      customerKey: "customer-uuid-7",
+    });
+    chargeBillingKey.mockResolvedValue({
+      paymentKey: "pk-3",
+      orderId: "order-uuid-1",
+      status: "DONE",
+      totalAmount: 25000,
+      approvedAt: "2026-07-10T12:00:00+09:00",
+    });
+
+    const res = await POST(req(validBody));
+    expect(res.status).toBe(200);
+    const data = userUpdate.mock.calls[0][0].data;
+    expect(data.billingCycle).toBe("monthly");
+    const monthsApart =
+      (data.nextBillingAt.getUTCFullYear() - data.planStartDate.getUTCFullYear()) * 12 +
+      (data.nextBillingAt.getUTCMonth() - data.planStartDate.getUTCMonth());
+    expect(monthsApart).toBe(1);
+  });
+
   it("첫 결제 청구 실패 시 FAILED 기록 후 에러 코드를 전달하고 플랜을 바꾸지 않는다", async () => {
     orderFindUnique.mockResolvedValue({ ...pendingOrder });
     issueBillingKey.mockResolvedValue({

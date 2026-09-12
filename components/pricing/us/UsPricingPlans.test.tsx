@@ -49,6 +49,21 @@ describe("UsPricingPlans", () => {
     }
   });
 
+  it("모든 카드에서 월 백테스트 횟수를 첫 번째 항목으로 보여준다(FREE는 50회)", () => {
+    render(<UsPricingPlans currentPlanId="FREE" />);
+
+    for (const [planId, label] of [
+      ["FREE", "50 backtests / month"],
+      ["PRO", "500 backtests / month"],
+      ["PREMIUM", "1,000 backtests / month"],
+    ] as const) {
+      const items = within(screen.getByTestId(`pricing-plan-card-${planId}`)).getAllByRole(
+        "listitem"
+      );
+      expect(items[0]).toHaveTextContent(label);
+    }
+  });
+
   it("가격을 USD로 표시한다", () => {
     render(<UsPricingPlans currentPlanId="FREE" />);
 

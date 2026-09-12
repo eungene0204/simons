@@ -6,7 +6,7 @@
 // (가입일마저 없는 비정상 데이터는 KST 캘린더 월로 폴백한다.)
 // 가상계좌 수 / 저장 전략 수는 주기 리셋 없이 상시 캡으로 유지된다.
 
-import { Plan, getPlan } from "@/lib/plans";
+import { Plan, getPlan, isValidBillingCycle, type BillingCycle } from "@/lib/plans";
 
 // PrismaClient 또는 TransactionClient 모두 받을 수 있는 최소 인터페이스
 type PlanLimitClient = {
@@ -253,6 +253,8 @@ export interface PlanUsage {
   /** 자동결제(빌링) 구독 상태 — 자동갱신 구독이 없으면 null */
   subscription: {
     planId: string;
+    /** 청구 주기 — 월간(1개월마다) 또는 연간(12개월마다) */
+    cycle: BillingCycle;
     nextBillingAt: Date | null;
     /** 해지 예약됨 — 다음 결제일에 청구 없이 FREE 전환 */
     canceled: boolean;
@@ -281,6 +283,7 @@ export async function getUserUsage(
         backtestUsageMonth: true,
         backtestCountThisMonth: true,
         subscriptionPlanId: true,
+        billingCycle: true,
         nextBillingAt: true,
         subscriptionCanceledAt: true,
       },
@@ -316,6 +319,7 @@ export async function getUserUsage(
     subscription: user?.subscriptionPlanId
       ? {
           planId: user.subscriptionPlanId,
+          cycle: isValidBillingCycle(user.billingCycle) ? user.billingCycle : "monthly",
           nextBillingAt: user.nextBillingAt ?? null,
           canceled: user.subscriptionCanceledAt != null,
         }

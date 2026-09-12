@@ -4,7 +4,16 @@ import { useState } from "react";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useRouter } from "next/navigation";
 import { Check, X, Lightning, Rocket, Crown } from "phosphor-react";
-import { PLANS, PLAN_ORDER, Plan, PlanId } from "@/lib/plans";
+import {
+  PLANS,
+  PLAN_ORDER,
+  Plan,
+  PlanId,
+  YEARLY_DISCOUNT_PERCENT,
+  priceFor,
+  yearlyDiscountPercent,
+  type BillingCycle,
+} from "@/lib/plans";
 import PaymentCheckout from "@/components/pricing/PaymentCheckout";
 import { getLocale, t } from "@/lib/i18n";
 
@@ -44,6 +53,7 @@ const PREMIUM_VALIDATION_FEATURES = [
 
 function planFeatures(planId: PlanId, plan: Plan): FeatureRow[] {
   return [
+    { label: t("월 백테스트 {0}회", formatCount(plan.monthlyBacktestLimit)), included: true },
     {
       label: t("계좌당 초기 모의 투자금 {0}", formatInitialInvestmentAmount(plan.initialInvestmentAmount)),
       included: true,
@@ -55,7 +65,6 @@ function planFeatures(planId: PlanId, plan: Plan): FeatureRow[] {
         : t("전략 {0}개 저장", formatCount(plan.maxStrategies)),
       included: true,
     },
-    { label: t("월 백테스트 {0}회", formatCount(plan.monthlyBacktestLimit)), included: true },
     { label: t("AI 리포트"), included: planId !== "FREE" },
     { label: t("백테스트 결과 익스포트 (CSV/JSON)"), included: planId !== "FREE" },
     ...PREMIUM_VALIDATION_FEATURES.map((label) => ({
@@ -69,6 +78,8 @@ interface PricingPlansProps {
   currentPlanId: PlanId;
   /** 자동결제(빌링) 구독 상태 — 유료 플랜 자동갱신 중일 때만 존재 */
   subscription?: {
+    /** 청구 주기 — 미지정은 월간(연간 도입 이전 구독) */
+    cycle?: BillingCycle;
     nextBillingAt: string | null;
     canceled: boolean;
   } | null;
@@ -92,6 +103,8 @@ export default function PricingPlans({
   plans = PLANS,
 }: PricingPlansProps) {
   const router = useRouter();
+  const currentCycle: BillingCycle = subscription?.cycle === "yearly" ? "yearly" : "monthly";
+  const [billingCycle, setBillingCycle] = useState<BillingCycle>(currentCycle);
   const [pendingPlanId, setPendingPlanId] = useState<PlanId | null>(null);
   const [checkoutPlanId, setCheckoutPlanId] = useState<PlanId | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +112,10 @@ export default function PricingPlans({
   // 자동갱신 구독 중이면 FREE 카드의 버튼은 "즉시 전환"이 아니라 해지 예약이다 —
   // 설정 모달·/us와 같은 의미(남은 결제 기간까지 이용). 서버(/api/user/plan)가 분기한다.
   const hasActiveSubscription = Boolean(subscription && !subscription.canceled);
+  // 연간 구독은 1년치를 미리 낸 상태라 즉시 재결제로 갈아타면 남은 기간(최대 11개월)이 소멸한다.
+  // 만료일까지는 유료 플랜 변경 버튼을 잠근다(해지는 언제든 가능). 서버도 같은 규칙을 강제한다
+  // (/api/payment/order).
+  const isYearlyLocked = hasActiveSubscription && currentCycle === "yearly";
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
 
   const handleSelect = async (planId: PlanId) => {
@@ -146,6 +163,44 @@ export default function PricingPlans({
       {error ? (
         <p className="mb-4 text-sm font-black text-[var(--main-red)]">{error}</p>
       ) : null}
+
+      {/* 결제 주기 선택 — 연간은 1년치를 한 번에 결제하고 그만큼 할인된다 */}
+      <div className="mb-8 flex justify-center">
+        <div
+          data-testid="billing-cycle-toggle"
+          role="group"
+          aria-label={t("결제 주기")}
+          className="inline-flex rounded-xl border border-white/[0.08] bg-white/[0.03] p-1"
+        >
+          {(["monthly", "yearly"] as const).map((cycle) => (
+            <button
+              key={cycle}
+              type="button"
+              aria-pressed={billingCycle === cycle}
+              onClick={() => setBillingCycle(cycle)}
+              className={`rounded-lg px-5 py-2.5 text-xs font-black transition-colors ${
+                billingCycle === cycle
+                  ? "bg-[var(--chat-accent)] text-[var(--chat-accent-ink)]"
+                  : "text-[var(--text-label)] hover:text-white"
+              }`}
+            >
+              {cycle === "monthly"
+                ? t("월간 결제")
+                : t("연간 결제 · {0}% 할인", String(YEARLY_DISCOUNT_PERCENT))}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {isYearlyLocked ? (
+        <p
+          data-testid="yearly-lock-notice"
+          className="mb-6 text-center text-xs font-bold text-[var(--text-label)]"
+        >
+          {t("연간 구독 기간 중에는 플랜을 변경할 수 없습니다. 만료일 이후 변경할 수 있습니다.")}
+        </p>
+      ) : null}
+
       <div
         data-testid="pricing-plan-grid"
         className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-3"
@@ -153,11 +208,19 @@ export default function PricingPlans({
         {PLAN_ORDER.map((planId) => {
           const plan = plans[planId];
           const Icon = PLAN_ICONS[planId];
-          const isCurrent = planId === currentPlanId;
+          // 무료 플랜은 주기 개념이 없다 — 어느 탭에서도 월 ₩0으로 그대로 보여준다.
+          const isPaidCycleShown = plan.monthlyPrice > 0;
+          const monthlyEquivalent = Math.round(plan.yearlyPrice / 12);
+          const discountPercent = yearlyDiscountPercent(plan);
+          // 같은 플랜이라도 결제 주기가 다르면 "현재 이용 중"이 아니다(월간 → 연간 전환 경로).
+          const isCurrent =
+            planId === currentPlanId && (!isPaidCycleShown || billingCycle === currentCycle);
           const features = planFeatures(planId, plan);
           const description = t(PLAN_DESCRIPTIONS[planId]);
           // 해지 예약된 구독은 만료일에 FREE로 내려간다 — 다시 누를 동작이 없다.
           const isCancellationScheduled = planId === "FREE" && subscription?.canceled === true;
+          // 연간 구독 중에는 유료 플랜 변경만 막는다 — 해지(FREE 카드)는 항상 열어 둔다.
+          const isChangeLocked = isYearlyLocked && isPaidCycleShown;
 
           return (
             <div
@@ -184,11 +247,19 @@ export default function PricingPlans({
               {/* 가격 */}
               <div className="mt-9 flex items-end gap-1">
                 <span className="text-4xl font-black tracking-tight text-white">
-                  {formatWon(plan.monthlyPrice)}
+                  {formatWon(priceFor(plan, isPaidCycleShown ? billingCycle : "monthly"))}
                 </span>
-                <span className="pb-1 text-sm font-bold text-[var(--text-label)]">{t("/ 월")}</span>
+                <span className="pb-1 text-sm font-bold text-[var(--text-label)]">
+                  {isPaidCycleShown && billingCycle === "yearly" ? t("/ 년") : t("/ 월")}
+                </span>
                 <span className="pb-1 text-sm font-bold text-[var(--text-label)]">{t("(VAT 포함)")}</span>
               </div>
+              {/* 연간 결제일 때만 월 환산 금액을 덧붙인다 — 월간 요금과 비교할 기준을 준다 */}
+              <p className="mt-2 h-4 text-xs font-bold text-[var(--text-label)]">
+                {isPaidCycleShown && billingCycle === "yearly"
+                  ? t("월 {0} 꼴 · {1}% 할인", formatWon(monthlyEquivalent), String(discountPercent))
+                  : ""}
+              </p>
 
               {/* 기능 목록 */}
               <ul className="mt-10 flex-1 space-y-6">
@@ -213,7 +284,9 @@ export default function PricingPlans({
               {/* CTA */}
               <button
                 type="button"
-                disabled={isCurrent || pendingPlanId !== null || isCancellationScheduled}
+                disabled={
+                  isCurrent || pendingPlanId !== null || isCancellationScheduled || isChangeLocked
+                }
                 onClick={() => void handleSelect(planId)}
                 className={`mt-10 w-full rounded-xl px-4 py-4 text-sm font-black transition-colors disabled:cursor-not-allowed ${
                   isCurrent
@@ -233,6 +306,11 @@ export default function PricingPlans({
                     : hasActiveSubscription
                     ? t("구독 해지")
                     : t("무료로 전환")
+                  : planId === currentPlanId
+                  ? // 같은 플랜을 다른 주기로 다시 결제하는 경로
+                    billingCycle === "yearly"
+                    ? t("연간 결제로 전환")
+                    : t("월간 결제로 전환")
                   : t("구독 시작하기")}
               </button>
 
@@ -259,6 +337,7 @@ export default function PricingPlans({
       {checkoutPlanId ? (
         <PaymentCheckout
           planId={checkoutPlanId}
+          billingCycle={billingCycle}
           onClose={() => setCheckoutPlanId(null)}
         />
       ) : null}

@@ -22,6 +22,7 @@ function createClient(opts: {
   backtestUsageMonth?: string | null;
   backtestCountThisMonth?: number;
   subscriptionPlanId?: string | null;
+  billingCycle?: string;
   nextBillingAt?: Date | null;
   subscriptionCanceledAt?: Date | null;
 } = {}) {
@@ -34,6 +35,7 @@ function createClient(opts: {
         backtestUsageMonth: opts.backtestUsageMonth ?? null,
         backtestCountThisMonth: opts.backtestCountThisMonth ?? 0,
         subscriptionPlanId: opts.subscriptionPlanId ?? null,
+        billingCycle: opts.billingCycle ?? "monthly",
         nextBillingAt: opts.nextBillingAt ?? null,
         subscriptionCanceledAt: opts.subscriptionCanceledAt ?? null,
       }),
@@ -106,11 +108,11 @@ describe("planLimits — 월 백테스트 한도", () => {
     });
   });
 
-  it("이번 달 한도(FREE 30회)에 도달하면 차단하고 카운트를 증가시키지 않는다", async () => {
+  it("이번 달 한도(FREE 50회)에 도달하면 차단하고 카운트를 증가시키지 않는다", async () => {
     const client = createClient({
       planTier: "FREE",
       backtestUsageMonth: thisMonth,
-      backtestCountThisMonth: 30,
+      backtestCountThisMonth: 50,
     });
     await expect(consumeBacktestQuota(client as any, 1, now)).rejects.toThrow(PLAN_LIMIT_BACKTESTS);
     expect(client.user.update).not.toHaveBeenCalled();
@@ -157,9 +159,19 @@ describe("planLimits — 사용량 요약", () => {
     const activeUsage = await getUserUsage(active as any, 1);
     expect(activeUsage.subscription).toEqual({
       planId: "PRO",
+      cycle: "monthly",
       nextBillingAt,
       canceled: false,
     });
+
+    // 연간 구독은 주기를 그대로 보고한다 — 요금제 화면의 변경 잠금이 이 값을 읽는다
+    const yearly = createClient({
+      planTier: "PRO",
+      subscriptionPlanId: "PRO",
+      billingCycle: "yearly",
+      nextBillingAt,
+    });
+    expect((await getUserUsage(yearly as any, 1)).subscription?.cycle).toBe("yearly");
 
     const canceled = createClient({
       planTier: "PRO",
@@ -213,14 +225,14 @@ describe("planLimits — PlanConfig 오버라이드 (관리자 콘솔)", () => {
   it("오버라이드가 없으면 기본값을 그대로 쓴다", async () => {
     const client = withPlanConfig(createClient({ planTier: "FREE" }), null);
     const plan = await getEffectivePlan(client as any, "FREE");
-    expect(plan.monthlyBacktestLimit).toBe(30);
+    expect(plan.monthlyBacktestLimit).toBe(50);
     expect(plan.maxVirtualAccounts).toBe(1);
   });
 
   it("planConfig 미지원 클라이언트(기존 코드 경로)도 기본값으로 동작한다", async () => {
     const client = createClient({ planTier: "FREE" });
     const plan = await getEffectivePlan(client as any, "FREE");
-    expect(plan.monthlyBacktestLimit).toBe(30);
+    expect(plan.monthlyBacktestLimit).toBe(50);
   });
 
   it("오버라이드 필드는 덮어쓰고 null 필드는 기본값을 유지한다", async () => {
@@ -286,11 +298,11 @@ describe("planLimits — PlanConfig 오버라이드 (관리자 콘솔)", () => {
       createClient({
         planTier: "FREE",
         backtestUsageMonth: currentUsageMonth(now),
-        backtestCountThisMonth: 30, // 기본 한도(30)에는 이미 도달
+        backtestCountThisMonth: 50, // 기본 한도(50)에는 이미 도달
       }),
-      { planId: "FREE", monthlyBacktestLimit: 50, maxStrategies: null, maxVirtualAccounts: null }
+      { planId: "FREE", monthlyBacktestLimit: 100, maxStrategies: null, maxVirtualAccounts: null }
     );
-    // 오버라이드 한도 50이므로 통과해야 한다
+    // 오버라이드 한도 100이므로 통과해야 한다
     await expect(consumeBacktestQuota(client as any, 1, now)).resolves.toBeUndefined();
   });
 });

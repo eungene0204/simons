@@ -6,7 +6,7 @@ import {
   loadTossPayments,
   type TossPaymentsPayment,
 } from "@tosspayments/tosspayments-sdk";
-import { PLANS, PlanId } from "@/lib/plans";
+import { PLANS, PlanId, priceFor, type BillingCycle } from "@/lib/plans";
 import { t } from "@/lib/i18n";
 
 interface PaymentOrderInfo {
@@ -20,16 +20,22 @@ interface PaymentOrderInfo {
 
 interface PaymentCheckoutProps {
   planId: PlanId;
+  /** 결제 주기 — 연간은 1년치를 한 번에 결제하고 12개월마다 갱신된다 */
+  billingCycle: BillingCycle;
   onClose: () => void;
 }
 
 // 토스페이먼츠 자동결제(빌링) 체크아웃 모달.
 // 흐름: 주문 생성(/api/payment/order) → requestBillingAuth로 카드 등록창 호출 →
 // successUrl(/pricing/success)에서 서버가 빌링키 발급 + 첫 달 결제 승인(/api/payment/confirm).
-// 이후 매월 서버 갱신 잡이 빌링키로 자동 청구한다.
+// 이후 결제 주기(월간 1개월 / 연간 12개월)마다 서버 갱신 잡이 빌링키로 자동 청구한다.
 // requestBillingAuth는 브라우저 전체를 토스 카드 등록창으로 리다이렉트하므로,
 // 이 모달은 리다이렉트 직전의 주문 확인·자동갱신 고지 단계만 담당한다.
-export default function PaymentCheckout({ planId, onClose }: PaymentCheckoutProps) {
+export default function PaymentCheckout({
+  planId,
+  billingCycle,
+  onClose,
+}: PaymentCheckoutProps) {
   const [payment, setPayment] = useState<TossPaymentsPayment | null>(null);
   const [order, setOrder] = useState<PaymentOrderInfo | null>(null);
   const [requesting, setRequesting] = useState(false);
@@ -49,7 +55,7 @@ export default function PaymentCheckout({ planId, onClose }: PaymentCheckoutProp
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ planId }),
+          body: JSON.stringify({ planId, billingCycle }),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => null);
@@ -68,7 +74,7 @@ export default function PaymentCheckout({ planId, onClose }: PaymentCheckoutProp
         setError(e instanceof Error ? e.message : t("결제 준비에 실패했습니다."));
       }
     })();
-  }, [planId]);
+  }, [planId, billingCycle]);
 
   // Esc로 모달 닫기
   useEffect(() => {
@@ -143,14 +149,25 @@ export default function PaymentCheckout({ planId, onClose }: PaymentCheckoutProp
             </div>
             <div className="flex justify-between">
               <dt className="text-[var(--text-label)]">{t("결제 금액")}</dt>
-              <dd className="text-white">{t("월 ₩{0} (VAT 포함)", plan.monthlyPrice.toLocaleString("ko-KR"))}</dd>
+              <dd className="text-white">
+                {billingCycle === "yearly"
+                  ? t("연 ₩{0} (VAT 포함)", priceFor(plan, "yearly").toLocaleString("ko-KR"))
+                  : t("월 ₩{0} (VAT 포함)", plan.monthlyPrice.toLocaleString("ko-KR"))}
+              </dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-[var(--text-label)]">{t("결제 방식")}</dt>
-              <dd className="text-white">{t("신용·체크카드 자동결제 (매월 갱신)")}</dd>
+              <dd className="text-white">
+                {billingCycle === "yearly"
+                  ? t("신용·체크카드 자동결제 (매년 갱신)")
+                  : t("신용·체크카드 자동결제 (매월 갱신)")}
+              </dd>
             </div>
           </dl>
           <ul className="mt-5 space-y-1.5 border-t border-white/[0.08] pt-4 text-xs font-bold leading-relaxed text-[var(--text-label)]">
+            {billingCycle === "yearly" ? (
+              <li>{t("· 1년(12개월) 이용료를 한 번에 결제하고, 12개월마다 자동 갱신됩니다.")}</li>
+            ) : null}
             <li>{t("· 환불 조건은 이용약관 제12조(환불 정책)를 따릅니다.")}</li>
             {error ? <li className="text-center text-[var(--main-red)]">{error}</li> : null}
           </ul>

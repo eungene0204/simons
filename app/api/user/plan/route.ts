@@ -29,6 +29,7 @@ function serializeUsage(usage: Awaited<ReturnType<typeof getUserUsage>>) {
     subscription: usage.subscription
       ? {
           planId: usage.subscription.planId,
+          cycle: usage.subscription.cycle,
           nextBillingAt: usage.subscription.nextBillingAt?.toISOString() ?? null,
           canceled: usage.subscription.canceled,
         }
@@ -113,6 +114,7 @@ export async function POST(request: Request) {
         ...backtestUsageCarryOnDowngrade(record ?? {}),
         planTier: planId,
         planStartDate: null,
+        billingCycle: "monthly",
         tossBillingKey: null,
         paypalSubscriptionId: null,
         subscriptionPlanId: null,
