@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import AccountProfitChart from "./AccountProfitChart";
@@ -47,6 +47,7 @@ describe("AccountProfitChart", () => {
           id: "account-1",
           name: "신규 계좌",
           initialCash: 10_000_000,
+          createdAt: "2026-07-01T00:00:00.000Z",
           monthlyProfitPct: [0],
         },
       ],
@@ -73,35 +74,23 @@ describe("AccountProfitChart", () => {
           id: "account-1",
           name: "첫전략",
           initialCash: 10_000_000,
+          createdAt: "2026-07-10T00:00:00.000Z",
           monthlyProfitPct: [0],
         },
         {
           id: "account-2",
           name: "내계좌",
           initialCash: 10_000_000,
+          createdAt: "2026-07-11T00:00:00.000Z",
           monthlyProfitPct: [0],
         },
       ],
     };
-    vi.mocked(fetch)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => initialData,
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          accounts: [
-            { id: "account-1", createdAt: "2026-07-10T00:00:00.000Z" },
-            { id: "account-2", createdAt: "2026-07-11T00:00:00.000Z" },
-          ],
-        }),
-      } as Response);
 
     render(<AccountProfitChart initialData={initialData} />);
 
     expect(screen.getByText("7월")).toBeInTheDocument();
-    const bars = await screen.findAllByTestId("account-profit-bar");
+    const bars = screen.getAllByTestId("account-profit-bar");
     expect(bars).toHaveLength(2);
     for (const bar of bars) {
       expect(bar).toHaveStyle({ height: "10px" });
@@ -113,27 +102,14 @@ describe("AccountProfitChart", () => {
     const initialData: AccountMonthlyData = {
       months: ["2026/07"],
       accounts: [
-        { id: "account-1", name: "계좌A", initialCash: 10_000_000, monthlyProfitPct: [20] },
-        { id: "account-2", name: "계좌B", initialCash: 90_000_000, monthlyProfitPct: [0] },
+        { id: "account-1", name: "계좌A", initialCash: 10_000_000, createdAt: "2026-01-01T00:00:00.000Z", monthlyProfitPct: [20] },
+        { id: "account-2", name: "계좌B", initialCash: 90_000_000, createdAt: "2026-01-01T00:00:00.000Z", monthlyProfitPct: [0] },
       ],
     };
-    vi.mocked(fetch)
-      .mockResolvedValueOnce({ ok: true, json: async () => initialData } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          accounts: [
-            { id: "account-1", createdAt: "2026-01-01T00:00:00.000Z" },
-            { id: "account-2", createdAt: "2026-01-01T00:00:00.000Z" },
-          ],
-        }),
-      } as Response);
 
     render(<AccountProfitChart initialData={initialData} />);
 
-    await waitFor(() => {
-      expect(screen.getAllByText("+2.0%").length).toBeGreaterThan(0);
-    });
+    expect(screen.getAllByText("+2.0%").length).toBeGreaterThan(0);
     expect(screen.queryByText("+20.0%")).not.toBeInTheDocument();
     expect(screen.getByText(/투자금 가중/)).toBeInTheDocument();
   });
@@ -142,25 +118,14 @@ describe("AccountProfitChart", () => {
     const initialData: AccountMonthlyData = {
       months: ["2026/07"],
       accounts: [
-        { id: "account-1", name: "이익계좌", initialCash: 10_000_000, monthlyProfitPct: [5] },
-        { id: "account-2", name: "손실계좌", initialCash: 10_000_000, monthlyProfitPct: [-5] },
+        { id: "account-1", name: "이익계좌", initialCash: 10_000_000, createdAt: "2026-01-01T00:00:00.000Z", monthlyProfitPct: [5] },
+        { id: "account-2", name: "손실계좌", initialCash: 10_000_000, createdAt: "2026-01-01T00:00:00.000Z", monthlyProfitPct: [-5] },
       ],
     };
-    vi.mocked(fetch)
-      .mockResolvedValueOnce({ ok: true, json: async () => initialData } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          accounts: [
-            { id: "account-1", createdAt: "2026-01-01T00:00:00.000Z" },
-            { id: "account-2", createdAt: "2026-01-01T00:00:00.000Z" },
-          ],
-        }),
-      } as Response);
 
     render(<AccountProfitChart initialData={initialData} />);
 
-    const bars = await screen.findAllByTestId("account-profit-bar");
+    const bars = screen.getAllByTestId("account-profit-bar");
     expect(bars).toHaveLength(2);
     const negativeBars = bars.filter((bar) => bar.dataset.negative === "true");
     expect(negativeBars).toHaveLength(1);
@@ -168,7 +133,7 @@ describe("AccountProfitChart", () => {
     expect(screen.getByText("빗금 = 손실")).toBeInTheDocument();
   });
 
-  it("keeps months visible but hides account bars before account creation month", async () => {
+  it("keeps months visible but hides account bars before account creation month", () => {
     const initialData: AccountMonthlyData = {
       months: ["2026/02", "2026/03", "2026/04", "2026/05", "2026/06", "2026/07"],
       accounts: [
@@ -176,48 +141,42 @@ describe("AccountProfitChart", () => {
           id: "account-1",
           name: "첫전략",
           initialCash: 10_000_000,
+          createdAt: "2026-06-10T00:00:00.000Z",
           monthlyProfitPct: [0, 0, 0, 0, 0, 0],
         },
         {
           id: "account-2",
           name: "내계좌",
           initialCash: 10_000_000,
+          createdAt: "2026-07-11T00:00:00.000Z",
           monthlyProfitPct: [0, 0, 0, 0, 0, 0],
         },
       ],
     };
-    let resolveAccountList!: (response: Response) => void;
-    const accountListPromise = new Promise<Response>((resolve) => {
-      resolveAccountList = resolve;
-    });
-    vi.mocked(fetch)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => initialData,
-      } as Response)
-      .mockReturnValueOnce(accountListPromise);
 
     render(<AccountProfitChart initialData={initialData} />);
 
-    expect(screen.queryAllByTestId("account-profit-bar")).toHaveLength(0);
-    resolveAccountList({
-      ok: true,
-      json: async () => ({
-        accounts: [
-          { id: "account-1", createdAt: "2026-07-10T00:00:00.000Z" },
-          { id: "account-2", createdAt: "2026-07-11T00:00:00.000Z" },
-        ],
-      }),
-    } as Response);
+    // 6월: account-1만, 7월: 둘 다 → 총 3개
+    expect(screen.getAllByTestId("account-profit-bar")).toHaveLength(3);
+    for (const month of ["2월", "3월", "4월", "5월", "6월", "7월"]) {
+      expect(screen.getByText(month)).toBeInTheDocument();
+    }
+  });
 
-    await waitFor(() => {
-      expect(screen.getAllByTestId("account-profit-bar")).toHaveLength(2);
-    });
-    expect(screen.getByText("2월")).toBeInTheDocument();
-    expect(screen.getByText("3월")).toBeInTheDocument();
-    expect(screen.getByText("4월")).toBeInTheDocument();
-    expect(screen.getByText("5월")).toBeInTheDocument();
-    expect(screen.getByText("6월")).toBeInTheDocument();
-    expect(screen.getByText("7월")).toBeInTheDocument();
+  it("renders bars from server-provided data immediately without waiting for any client fetch", () => {
+    // 회귀: 개설 월을 얻으려고 /virtual-account-list 응답을 기다리는 동안 막대가 전부 비어 있었다.
+    // fetch는 beforeEach에서 영원히 pending → 서버 데이터만으로 첫 렌더에 막대가 있어야 한다.
+    const initialData: AccountMonthlyData = {
+      months: ["2026/06", "2026/07"],
+      accounts: [
+        { id: "account-1", name: "계좌A", initialCash: 10_000_000, createdAt: "2026-01-01T00:00:00.000Z", monthlyProfitPct: [1, 2] },
+      ],
+    };
+
+    render(<AccountProfitChart initialData={initialData} />);
+
+    expect(screen.getAllByTestId("account-profit-bar")).toHaveLength(2);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalledWith("/api/dashboard/virtual-account-list", expect.anything());
   });
 });

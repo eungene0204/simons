@@ -143,7 +143,13 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
         const initialCash = moneyToNumber(acc.initialCash);
         return initialCash > 0 ? (cumPnl / initialCash) * 100 : 0;
       });
-      return { id: acc.id, name: acc.name, initialCash: moneyToNumber(acc.initialCash), monthlyProfitPct };
+      return {
+        id: acc.id,
+        name: acc.name,
+        initialCash: moneyToNumber(acc.initialCash),
+        createdAt: acc.createdAt.toISOString(),
+        monthlyProfitPct,
+      };
     }),
   };
 
@@ -241,10 +247,10 @@ function getMockDashboardData(): DashboardInitialData {
 const MOCK_ACCOUNT_MONTHLY: AccountMonthlyData = {
   months: ["2024/10", "2024/11", "2024/12", "2025/01", "2025/02", "2025/03"],
   accounts: [
-    { id: "1", name: "계좌 A", initialCash: 10_000_000, monthlyProfitPct: [0.8, 1.2, 3.5, 5.1, 4.8,  7.3] },
-    { id: "2", name: "계좌 B", initialCash:  5_000_000, monthlyProfitPct: [0.2, 0.5, 1.8, 2.2, 3.9,  5.0] },
-    { id: "3", name: "계좌 C", initialCash:  8_000_000, monthlyProfitPct: [0.5,-0.8, 0.4,-1.2, 2.1,  3.4] },
-    { id: "4", name: "계좌 D", initialCash:  3_000_000, monthlyProfitPct: [1.0, 2.1, 4.2, 6.0, 5.5,  9.1] },
+    { id: "1", name: "계좌 A", initialCash: 10_000_000, createdAt: "2024-10-01T00:00:00.000Z", monthlyProfitPct: [0.8, 1.2, 3.5, 5.1, 4.8,  7.3] },
+    { id: "2", name: "계좌 B", initialCash:  5_000_000, createdAt: "2024-10-01T00:00:00.000Z", monthlyProfitPct: [0.2, 0.5, 1.8, 2.2, 3.9,  5.0] },
+    { id: "3", name: "계좌 C", initialCash:  8_000_000, createdAt: "2024-10-01T00:00:00.000Z", monthlyProfitPct: [0.5,-0.8, 0.4,-1.2, 2.1,  3.4] },
+    { id: "4", name: "계좌 D", initialCash:  3_000_000, createdAt: "2024-10-01T00:00:00.000Z", monthlyProfitPct: [1.0, 2.1, 4.2, 6.0, 5.5,  9.1] },
   ],
 };
 

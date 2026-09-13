@@ -13,6 +13,7 @@ export interface AccountMonthlyData {
     id: string;
     name: string;
     initialCash: number;
+    createdAt: string;           // ISO — 개설 월 이전 달은 차트에서 숨긴다
     monthlyProfitPct: number[];  // 각 달의 누적 수익률 (%)
   }[];
 }
@@ -73,6 +74,7 @@ export async function GET() {
         id: acc.id,
         name: acc.name,
         initialCash: moneyToNumber(acc.initialCash),
+        createdAt: acc.createdAt.toISOString(),
         monthlyProfitPct,
       };
     });

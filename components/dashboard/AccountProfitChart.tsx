@@ -51,8 +51,6 @@ function createdMonthFromIso(value: string | null | undefined): string | null {
 
 export default function AccountProfitChart({ initialData }: { initialData: AccountMonthlyData | null }) {
   const [data, setData]                     = useState<AccountMonthlyData | null>(initialData);
-  const [accountCreatedMonths, setAccountCreatedMonths] = useState<Record<string, string>>({});
-  const [hasLoadedAccountCreatedMonths, setHasLoadedAccountCreatedMonths] = useState(false);
   const [hoveredMonth, setHoveredMonth]     = useState<number | null>(null);
   const containerRef                        = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -65,20 +63,6 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
       .then((nextData: AccountMonthlyData | null) => {
         if (!isMounted || !nextData) return;
         setData(nextData);
-      })
-      .catch(() => {});
-
-    fetch("/api/dashboard/virtual-account-list", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((nextData: { accounts?: Array<{ id: string; createdAt?: string | null }> } | null) => {
-        if (!isMounted || !nextData?.accounts) return;
-        const createdMonths: Record<string, string> = {};
-        for (const account of nextData.accounts) {
-          const createdMonth = createdMonthFromIso(account.createdAt);
-          if (createdMonth) createdMonths[account.id] = createdMonth;
-        }
-        setAccountCreatedMonths(createdMonths);
-        setHasLoadedAccountCreatedMonths(true);
       })
       .catch(() => {});
 
@@ -162,9 +146,12 @@ export default function AccountProfitChart({ initialData }: { initialData: Accou
 
   const visibleMonthItems = data.months.map((ym, index) => ({ ym, index }));
   const nMonths = visibleMonthItems.length;
+  // 개설 월은 데이터에 동봉되어 오므로(SSR 초기 데이터 포함) 추가 요청 없이 첫 렌더부터 막대를 그린다.
+  const accountCreatedMonths = new Map(
+    data.accounts.map((account) => [account.id, createdMonthFromIso(account.createdAt)])
+  );
   const isAccountVisibleInMonth = (accountId: string, ym: string): boolean => {
-    if (!hasLoadedAccountCreatedMonths) return false;
-    const createdMonth = accountCreatedMonths[accountId];
+    const createdMonth = accountCreatedMonths.get(accountId);
     return createdMonth ? monthOrdinal(ym) >= monthOrdinal(createdMonth) : true;
   };
 
