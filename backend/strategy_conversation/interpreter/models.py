@@ -80,6 +80,15 @@ def _opposes_entry_direction(exit_operator: Optional[str], entry_operators: set)
 _NUMBER_RE = re.compile(r"^-?\d+(?:[.,]\d+)?")
 
 
+def _coerce_flag(v: Any) -> Any:
+    """불리언 플래그 표기 정규화 — 모델이 불리언 대신 문자열("true"/"yes")이나 null을 낸다."""
+    if v is None:
+        return False
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "yes", "y", "1")
+    return v
+
+
 def _coerce_number(v: Any) -> Any:
     """"10%", "12배", "1,000" 같은 문자열 수치를 float로 정규화한다(형식 정규화).
 
@@ -132,15 +141,7 @@ class StrategyCondition(BaseModel):
 
     _coerce_value = field_validator("value", "recommended_value", mode="before")(_coerce_number)
 
-    @field_validator("approximated", mode="before")
-    @classmethod
-    def _coerce_approximated(cls, v):
-        # 표기 정규화 — 모델이 불리언 대신 문자열("true"/"yes")이나 null을 낸다.
-        if v is None:
-            return False
-        if isinstance(v, str):
-            return v.strip().lower() in ("true", "yes", "y", "1")
-        return v
+    _coerce_approximated = field_validator("approximated", mode="before")(_coerce_flag)
 
     @field_validator("operator", mode="before")
     @classmethod
@@ -185,6 +186,10 @@ class RankingSpec(BaseModel):
     # 것과 같은 함정). 미지정은 None으로 남기고, 컴파일러가 지표의 자연 방향
     # (concept_ontology.natural_ranking_direction)으로 채운다.
     direction: Optional[Literal["top", "bottom"]] = Field(default=None)
+    # 조건의 approximated와 같은 계약 — '시장보다 덜 떨어진 종목'처럼 시장지수 시계열이
+    # 없어 정확히 표현할 수 없는 선별을 기간 수익률 랭킹으로 대신 반영했을 때 LLM이
+    # 신고하고, 시스템이 '가깝게 반영했다'고 알린다(조용한 대체 방지).
+    approximated: bool = Field(default=False)
     quantile_groups: Optional[int] = Field(
         default=None,
         description=(
@@ -193,6 +198,8 @@ class RankingSpec(BaseModel):
         ),
     )
     source_text: Optional[str] = None
+
+    _coerce_approximated = field_validator("approximated", mode="before")(_coerce_flag)
 
 
 class UniverseSpec(BaseModel):

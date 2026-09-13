@@ -1586,6 +1586,48 @@ def test_primary_notices_approximated_condition(monkeypatch):
     assert "거래대금이 늘어난" in approx[0] and "거래량 급증" in approx[0]
 
 
+def test_ranking_approximated_flag_coerced():
+    """랭킹 항목의 approximated도 조건과 같은 표기 정규화를 받는다(문자열·null → bool)."""
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[],
+        ranking=[{"metric": "return", "lookback_days": 63, "direction": "top",
+                  "approximated": "true"},
+                 {"metric": "return", "lookback_days": 20, "approximated": None}],
+    ))
+    assert intent.strategy.ranking[0].approximated is True
+    assert intent.strategy.ranking[1].approximated is False
+
+
+def test_primary_notices_approximated_ranking(monkeypatch):
+    """[2026-09-13] '시장보다 덜 떨어진 종목'은 시장지수 시계열이 없어 기간 수익률 랭킹으로
+    근사된다 — 랭킹 항목의 approximated 신고도 조건과 같은 채널로 사용자에게 알린다.
+    종전에는 이 신고 자리가 없어 LLM이 UNSUPPORTED_REQUEST로 떨어뜨렸다(사고 스크린샷)."""
+    data = _full_intent_dict(
+        entry_conditions=[],
+        ranking=[{"metric": "return", "lookback_days": 63, "direction": "top",
+                  "approximated": True, "source_text": "시장보다 덜 떨어진 종목"}],
+        portfolio={"selection_count": 10, "rebalance_frequency": "monthly"},
+    )
+    result = _run_primary_with(
+        monkeypatch, data, "최근 3개월 동안 시장보다 덜 떨어진 종목 10개를 매월 리밸런싱")
+    assert result is not None
+    approx = [n for n in result["notices"] if "가깝게 반영" in n]
+    assert approx, f"랭킹 근사 신고가 안내되지 않았다: {result['notices']}"
+    assert "시장보다 덜 떨어진 종목" in approx[0] and "기간 수익률 랭킹" in approx[0]
+
+
+def test_primary_no_notice_for_plain_momentum_ranking(monkeypatch):
+    """신고가 없는 보통의 모멘텀 랭킹에는 근사 안내가 붙지 않는다(오탐 방지)."""
+    data = _full_intent_dict(
+        entry_conditions=[],
+        ranking=[{"metric": "return", "lookback_days": 60}],
+        portfolio={"selection_count": 10, "rebalance_frequency": "monthly"},
+    )
+    result = _run_primary_with(monkeypatch, data, "최근 60일 수익률 상위 10종목 매월 리밸런싱")
+    assert result is not None
+    assert not [n for n in result["notices"] if "가깝게 반영" in n]
+
+
 def test_primary_notices_substituted_factor_without_flag(monkeypatch):
     """신고가 없어도 **지표 대체**는 잡는다(인용 ↔ factor 대조).
 

@@ -518,13 +518,25 @@ def _approximation_notices(strategy: Any) -> List[str]:
 
     notices: List[str] = []
     seen: set = set()
-    for cond in list(strategy.entry_conditions) + list(strategy.exit_conditions):
-        spec = indicator_registry.resolve(cond.factor)
-        if not (getattr(cond, "approximated", False)
-                or _substituted_factor(cond, spec, indicator_registry)):
+    # 랭킹 항목도 같은 신고 채널이다 — '시장보다 덜 떨어진 종목'은 시장지수 시계열이
+    # 없어 기간 수익률 랭킹으로 근사되며, 그 사실을 알리지 않으면 조용한 대체가 된다.
+    approximated_rankings = [
+        (rank.metric, rank.source_text)
+        for rank in getattr(strategy, "ranking", [])
+        if getattr(rank, "approximated", False)
+    ]
+    items = [(cond.factor, cond.source_text, cond)
+             for cond in list(strategy.entry_conditions) + list(strategy.exit_conditions)]
+    items += [(metric, source_text, None) for metric, source_text in approximated_rankings]
+    for factor, source_text, cond in items:
+        spec = indicator_registry.resolve(factor)
+        if cond is not None and not (
+            getattr(cond, "approximated", False)
+            or _substituted_factor(cond, spec, indicator_registry)
+        ):
             continue
-        label = spec.display_name if spec is not None else cond.factor
-        quote = (cond.source_text or "").strip()
+        label = spec.display_name if spec is not None else factor
+        quote = (source_text or "").strip()
         key = (quote, label)
         if not label or key in seen:
             continue
