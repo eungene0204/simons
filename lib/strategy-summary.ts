@@ -958,9 +958,7 @@ export function buildStrategySummaryFromRequest(
     universe: [],
     fundamental_filters: [],
     entry_signals: [],
-    exit_signals: (req.exit?.conditions ?? [])
-      .map((c) => (c.id ? { indicator: String(c.id) } : null))
-      .filter((s): s is { indicator: string } => Boolean(s)),
+    exit_signals: conditionsToExitSignals(req.exit?.conditions),
     max_positions: maxPositions ?? 0,
     hold_period_days: maxHoldingDays,
     rebalancing_period: rebalancingPeriod,
@@ -1088,25 +1086,61 @@ export function buildStrategySummaryGroups(
   return groups.filter((group) => group.chips.length > 0);
 }
 
-function getIndicatorLabel(indicator: string): string {
-  return t(INDICATOR_LABELS[indicator] ?? indicator);
-}
-
 function uniqueLabels(labels: string[]): string[] {
   return Array.from(new Set(labels.filter(Boolean)));
 }
 
-function conditionToEntryLabel(condition: {
+type CompiledCondition = {
   id?: string;
   type?: string;
   params?: Record<string, unknown>;
-}): string | null {
+};
+
+function paramNumber(params: Record<string, unknown> | undefined, key: string): number | null {
+  const raw = params?.[key];
+  const value = typeof raw === "number" ? raw : raw == null ? NaN : Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * 컴파일된 조건(`{id, type, params}`)을 대화 카드가 쓰는 신호 모양으로 되돌린다.
+ * params 키 이름은 backend/engine/strategy_converter.py::_tech_signal_to_condition의 계약
+ * (signalType·period·operator·value·mode·shortMA/longMA·shortPeriod/longPeriod·lookbackPeriod).
+ * 2026-09-13: 결과 화면·저장 전략 배지가 조건의 `id`만 읽고 params를 버려 "RSI 30 이하"가
+ * "RSI"로, "5일선-20일선 골든크로스"가 "MA 크로스"로 뭉개졌다 — 대화 카드와 같은 라벨 함수
+ * (`getSignalLabel`)를 타도록 여기서 모양만 맞춘다.
+ */
+function conditionToSignal(condition: CompiledCondition & { id: string }) {
+  const params = condition.params;
+  const signalType = params?.signalType;
+  const mode = params?.mode;
+  const operator = params?.operator;
+  return {
+    indicator: condition.id,
+    signal_type: typeof signalType === "string" ? signalType : null,
+    mode: typeof mode === "string" ? mode : null,
+    operator: typeof operator === "string" ? operator : null,
+    value: paramNumber(params, "value"),
+    period: paramNumber(params, "period"),
+    short_period: paramNumber(params, "shortMA") ?? paramNumber(params, "shortPeriod"),
+    long_period: paramNumber(params, "longMA") ?? paramNumber(params, "longPeriod"),
+    lookback_period: paramNumber(params, "lookbackPeriod"),
+  };
+}
+
+function conditionToEntryLabel(condition: CompiledCondition): string | null {
   if (!condition.id) return null;
 
   const metric = condition.id;
-  const rawValue = condition.params?.value;
-  const value = typeof rawValue === "number" ? rawValue : Number(rawValue);
-  if ((condition.type === "filter" || METRIC_LABELS[metric]) && Number.isFinite(value)) {
+  const value = paramNumber(condition.params, "value");
+  // 컴파일러는 기술 신호에만 signalType을 넣는다 — 거래대금처럼 재무 필터 사전과 기술 지표
+  // 사전에 모두 있는 id는 이 표식으로 가른다(재무 필터 "거래대금 >= 100억" / 게이트 "거래대금 100억 이상").
+  const isTechnicalSignal = typeof condition.params?.signalType === "string";
+  // 재무 필터(PBR 등). 기술 지표가 아닌 filter 타입도 재무 필터로 본다(라벨 사전에 없는 지표 대비).
+  const isFundamental =
+    !isTechnicalSignal &&
+    (METRIC_LABELS[metric] || (condition.type === "filter" && !INDICATOR_LABELS[metric]));
+  if (isFundamental && value != null) {
     return formatFundamentalFilter({
       metric,
       operator: String(condition.params?.operator ?? "<="),
@@ -1114,7 +1148,19 @@ function conditionToEntryLabel(condition: {
     });
   }
 
-  return getIndicatorLabel(metric);
+  const signal = conditionToSignal({ ...condition, id: metric });
+  // 진입 게이트 필터(추세·거래대금·RSI 결합)는 대화 카드와 같은 배지 문구를 쓴다.
+  if (condition.type === "filter") {
+    const gateLabel = formatEntryFilter(signal);
+    if (gateLabel) return gateLabel;
+  }
+  return getSignalLabel(signal, "entry");
+}
+
+function conditionsToExitSignals(conditions: CompiledCondition[] | null | undefined) {
+  return (conditions ?? [])
+    .filter((condition): condition is CompiledCondition & { id: string } => Boolean(condition.id))
+    .map(conditionToSignal);
 }
 
 // 서술형 텍스트(프롬프트/설명)에서 유니버스 라벨을 추론한다. 키워드가 없으면 null.
@@ -1224,7 +1270,7 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
     ...legacyEntryBlocks,
   ]);
   const exitSignalBlocks = [
-    ...(strategy.exit?.conditions?.map((condition) => ({ indicator: getIndicatorLabel(condition.id) })) ?? []),
+    ...conditionsToExitSignals(strategy.exit?.conditions),
     ...(legacyStrategy.exit_signals ?? []),
   ];
   const exitBlocks = getDisplayExitLabels({

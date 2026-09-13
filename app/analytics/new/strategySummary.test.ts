@@ -568,8 +568,9 @@ describe("strategySummary", () => {
     });
 
     expect(summary?.universeName).toBe("KOSPI");
-    expect(summary?.entryBlocks).toEqual(["MA 크로스"]);
-    expect(summary?.blockNames).toContain("MA 크로스");
+    // 진입 조건은 대화 카드(getSignalLabel)와 같은 방향 라벨을 쓴다 — 진입=골든크로스.
+    expect(summary?.entryBlocks).toEqual(["MA 골든크로스"]);
+    expect(summary?.blockNames).toContain("MA 골든크로스");
     expect(summary?.exitBlocks).toEqual([
       "손절 -12% 하락시 매도",
       "익절 10% 이상 수익시 매도",
@@ -829,7 +830,70 @@ describe("buildStrategySummaryFromRequest (실행된 요청 기반 배지)", () 
     });
 
     expect(summary?.universeName).toBe("KOSDAQ");
-    expect(summary?.entryBlocks).toEqual(["MA 크로스"]);
+    expect(summary?.entryBlocks).toEqual(["MA 골든크로스"]);
+  });
+
+  it("컴파일된 조건의 params(값·연산자·기간·모드)를 대화 카드와 같은 라벨로 살린다", () => {
+    // [회귀 2026-09-13] "RSI 30 이하 진입 / RSI 70 이상 청산"으로 만든 전략이 결과 화면
+    // '내 전략 확인' 박스에서 진입·청산 모두 "RSI"로만 보여 값이 사라진 것처럼 읽혔다.
+    // 조건 params 키는 backend/engine/strategy_converter.py::_tech_signal_to_condition 계약.
+    const summary = buildStrategySummaryFromRequest({
+      universe_id: "kosdaq_kospi",
+      entry: {
+        conditions: [
+          { type: "indicator", id: "rsi", params: { signalType: "buy", period: 14, operator: "<=", value: 30 } },
+          { type: "indicator", id: "ma_crossover", params: { signalType: "buy", shortMA: 5, longMA: 20 } },
+          { type: "indicator", id: "breakout", params: { signalType: "buy", lookbackPeriod: 252 } },
+          // 진입 게이트 필터(type=filter)는 재무 필터가 아니라 기술 신호로 읽는다.
+          { type: "filter", id: "trading_value", params: { signalType: "buy", operator: ">=", value: 100 } },
+          { type: "filter", id: "pbr", params: { operator: "<=", value: 1 } },
+        ],
+      },
+      exit: {
+        conditions: [
+          { type: "indicator", id: "rsi", params: { signalType: "sell", period: 14, operator: ">=", value: 70 } },
+          { type: "indicator", id: "ma_crossover", params: { signalType: "sell", shortMA: 5, longMA: 20 } },
+        ],
+      },
+      risk: { max_positions: 10, stop_loss_pct: 10, take_profit_pct: 20 },
+    });
+
+    expect(summary?.entryBlocks).toEqual([
+      "RSI 30 이하",
+      "5일선-20일선 골든크로스",
+      "52주 신고가 돌파",
+      "거래대금 100억 이상",
+      "PBR <= 1",
+    ]);
+    expect(summary?.exitBlocks).toEqual([
+      "RSI 70 이상",
+      "5일선-20일선 데드크로스",
+      "손절 -10% 하락시 매도",
+      "익절 20% 이상 수익시 매도",
+    ]);
+  });
+
+  it("RSI 반등 모드(mode=rebound)는 임계값과 방향을 함께 표기한다", () => {
+    const summary = buildStrategySummaryFromRequest({
+      entry: { conditions: [{ type: "indicator", id: "rsi", params: { signalType: "buy", period: 14, operator: "<=", value: 30, mode: "rebound" } }] },
+      exit: { conditions: [{ type: "indicator", id: "rsi", params: { signalType: "sell", period: 14, operator: ">=", value: 70, mode: "rebound" } }] },
+      risk: {},
+    });
+    expect(summary?.entryBlocks).toEqual(["RSI 30 상향 반등"]);
+    expect(summary?.exitBlocks).toEqual(["RSI 70 하향 반전"]);
+  });
+
+  it("저장 전략(DSL)도 같은 변환으로 조건 값을 살린다", () => {
+    const summary = buildStrategySummaryFromDsl({
+      id: "s", name: "n", description: "", version: "1",
+      universe: { id: "kospi", filters: {} },
+      entry: { conditions: [{ id: "rsi", type: "indicator", params: { signalType: "buy", period: 14, operator: "<=", value: 30 } }] },
+      exit: { conditions: [{ id: "rsi", type: "indicator", params: { signalType: "sell", period: 14, operator: ">=", value: 70 } }] },
+      risk: { position_size_pct: 10, max_positions: 10 },
+      created_at: "", updated_at: "",
+    });
+    expect(summary?.entryBlocks).toEqual(["RSI 30 이하"]);
+    expect(summary?.exitBlocks).toEqual(["RSI 70 이상"]);
   });
 
   it("요청이 없으면 undefined를 반환한다", () => {
