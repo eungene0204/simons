@@ -10,6 +10,25 @@ import { t } from "@/lib/i18n";
 import { getRequestLanguage } from "@/lib/i18n/server";
 import { getRequestRegion } from "@/lib/geo/server";
 import UsPricingPage from "@/components/pricing/us/UsPricingPage";
+import type { Metadata } from "next";
+import { buildOpenGraph } from "@/lib/seo/site";
+
+const PRICING_META = {
+  ko: { title: "요금제", description: "널스탁 퀀트 백테스트 플랫폼의 플랜별 백테스트 횟수·가상계좌·검증 기능을 비교하세요." },
+  en: { title: "Pricing", description: "Compare NullStock plans — backtest quota, virtual accounts, and validation features for U.S. stock strategies." },
+} as const;
+
+export function generateMetadata(): Metadata {
+  const language = getRequestLanguage();
+  const { title, description } = PRICING_META[language];
+  const path = language === "en" ? "/us/pricing" : "/pricing";
+  return {
+    title,
+    description,
+    openGraph: buildOpenGraph(language, { title, description, url: path }),
+    alternates: { canonical: path },
+  };
+}
 
 export default async function PricingPage() {
   // 글로벌 서비스(/us/pricing)는 영어·USD 전용 트리로 완전히 분리한다 —

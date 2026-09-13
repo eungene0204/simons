@@ -9,6 +9,15 @@ import ChunkErrorRecovery from "@/components/ChunkErrorRecovery";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { getRequestLanguage } from "@/lib/i18n/server";
 import { GoogleAnalytics } from "@next/third-parties/google";
+import {
+  buildOpenGraph,
+  SITE_DESCRIPTION,
+  SITE_KEYWORDS,
+  SITE_NAME,
+  SITE_TITLE,
+  siteUrl,
+  siteVerification,
+} from "@/lib/seo/site";
 
 // viewport-fit=cover가 있어야 env(safe-area-inset-*)이 0이 아닌 값을 준다 — 하단 고정 요소가
 // iOS 홈 인디케이터 위에 머무는 전제(2026-09-08).
@@ -18,18 +27,27 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
+// 전 페이지 공통 메타 — 문구 정본은 lib/seo/site.ts. 하위 페이지는 `title`만 주면
+// "<페이지> | 널스탁" 템플릿이 붙는다(홈은 absolute로 사이트 제목 그대로).
+// 파비콘·OG 이미지는 app/icon.png·apple-icon.png·opengraph-image.png 파일 규약이 자동 배선한다.
 export function generateMetadata(): Metadata {
-  const isGlobal = getRequestLanguage() === "en";
+  const language = getRequestLanguage();
+  const title = SITE_TITLE[language];
+  const description = SITE_DESCRIPTION[language];
   return {
-    metadataBase: new URL(
-      process.env.DOMAIN ? `https://${process.env.DOMAIN}` : "https://www.nullstock.im"
-    ),
-    title: isGlobal
-      ? "NullStock | Quantitative Investing Platform for U.S. Stocks"
-      : "퀀트 백테스트 | 널스탁",
-    description: isGlobal
-      ? "Design, backtest, and simulate your own U.S. stock strategies."
-      : "나만의 주식 투자 전략을 설계하고 백테스트로 검증하세요.",
+    metadataBase: new URL(siteUrl()),
+    applicationName: SITE_NAME[language],
+    title: { default: title, template: `%s | ${SITE_NAME[language]}` },
+    description,
+    keywords: SITE_KEYWORDS[language],
+    robots: { index: true, follow: true },
+    openGraph: buildOpenGraph(language, {
+      title,
+      description,
+      url: language === "en" ? "/us" : "/",
+    }),
+    twitter: { card: "summary_large_image", title, description },
+    verification: siteVerification(),
   };
 }
 

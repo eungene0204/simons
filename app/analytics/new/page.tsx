@@ -5148,12 +5148,13 @@ function StrategyLabContent() {
                 className="w-full space-y-4 lg:w-auto"
                 data-testid="strategy-lab-headline-stack"
               >
-                <p
+                {/* 페이지 유일 h1 — 검색엔진이 '퀀트 전략 … 시뮬레이션'을 본문 제목으로 읽게 한다. */}
+                <h1
                   data-testid="strategy-lab-headline"
                   className="max-w-5xl text-[27px] leading-none tracking-tight text-[#fcfdff] sm:text-5xl lg:text-7xl [font-weight:950]"
                 >
                   <AnimatedHeadline lines={HEADLINE_LINES.map((line) => t(line))} />
-                </p>
+                </h1>
                 <p className="text-sm font-bold leading-relaxed text-gray-400 sm:text-base">
                   {t("AI와 함께 전략을 설계하고, 바로 백테스트 하세요")}
                 </p>

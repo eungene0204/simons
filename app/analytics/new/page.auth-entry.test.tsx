@@ -103,6 +103,8 @@ describe("StrategyLab auth entry", () => {
     expect(headline).toHaveTextContent(
       "퀀트 전략을 검증하고전략을 시뮬레이션 하세요"
     );
+    // 검색엔진이 본문 제목으로 읽는 페이지 유일 h1이다(SEO 2026-09-13).
+    expect(headline.tagName).toBe("H1");
     expect(headline).toHaveClass("text-[27px]", "sm:text-5xl", "lg:text-7xl");
     expect(screen.getByTestId("strategy-lab-headline-stack")).toHaveClass(
       "w-full",
