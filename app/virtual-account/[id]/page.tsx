@@ -1194,6 +1194,7 @@ export default function VirtualAccountDetailPage() {
                         logs={signalLogs}
                         accountCreatedAt={account.createdAt}
                         onStrategyReplace={handleStrategyReplaceClick}
+                        currency={account.currency}
                       />
                     )}
                   </div>

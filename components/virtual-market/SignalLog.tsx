@@ -2,6 +2,9 @@
 
 import { VirtualMarketLog } from "@/lib/virtual-market";
 import { t } from "@/lib/i18n";
+import { formatAccountMoney, isUsdAccount } from "@/lib/account-money";
+import { tradeReasonText } from "@/lib/trade-reason";
+import { formatUsd } from "@/lib/us-symbols";
 
 const SIGNAL_STALE_DAYS = 3;
 
@@ -10,6 +13,8 @@ interface SignalLogProps {
   symbolNameMap?: Record<string, string>;
   accountCreatedAt?: string;
   onStrategyReplace?: () => void;
+  /** 계좌 통화(KRW/USD) — 가격·사유 속 금액 표기를 정한다. 없으면 KRW. */
+  currency?: string | null;
 }
 
 export default function SignalLog({
@@ -17,9 +22,16 @@ export default function SignalLog({
   symbolNameMap = {},
   accountCreatedAt,
   onStrategyReplace,
+  currency,
 }: SignalLogProps) {
   const formatPrice = (price: number) =>
-    new Intl.NumberFormat("ko-KR").format(price);
+    isUsdAccount(currency)
+      ? formatUsd(price, { price: true })
+      : t("{0}원", new Intl.NumberFormat("ko-KR").format(price));
+  const formatMoney = (value: number) => formatAccountMoney(value, currency);
+  // 사유는 엔진의 세그먼트 페이로드(템플릿+인자)로 저장된다 — 여기서 번역·통화를 입혀
+  // 문장으로 만든다. 저장 문자열을 그대로 찍으면 인코딩 JSON이 노출된다(2026-09-13 사고).
+  const reasonText = (log: VirtualMarketLog) => tradeReasonText(log.reason, null, formatMoney);
 
   if (logs.length === 0) {
     const daysSinceStart = accountCreatedAt
@@ -69,13 +81,13 @@ export default function SignalLog({
                 {log.stockName ?? symbolNameMap[log.symbol] ?? log.symbol}
               </p>
               <p className="text-[10px] text-gray-500 leading-tight">
-                {log.date}{log.reason ? ` · ${log.reason}` : ""}
+                {log.date}{log.reason ? ` · ${reasonText(log)}` : ""}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
             <span className="text-[10px] font-bold text-gray-400 tabular-nums">
-              {t("{0}원", formatPrice(log.price))}
+              {formatPrice(log.price)}
             </span>
             {log.action === "skipped" ? (
               <span className="inline-flex items-center rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-bold text-gray-500">

@@ -88,7 +88,12 @@ def test_return_ranking_supports_126_trading_day_lookback():
 
     assert signals[0]["symbol"] == "A"
     assert signals[0]["entry_signal"] is True
-    assert "126거래일" in signals[0]["entry_reason"]
+    # 사유는 세그먼트 페이로드로 실린다 — 한국어 문장은 tr.text()로 얻는다(2026-09-13).
+    from engine import trade_reason as tr
+
+    assert tr.decode(signals[0]["entry_reason"]) is not None
+    assert "126거래일" in tr.text(signals[0]["entry_reason"])
+    assert "(1/2위)" in tr.text(signals[0]["entry_reason"])
 
 
 def test_return_ranking_excludes_symbols_without_full_history():
@@ -505,3 +510,37 @@ def test_holding_period_us_symbol_uses_new_york_session_date():
     })
     # 2025-01-03 15:00 ET 체결 = 2025-01-03T20:00Z = KST 01-04 05:00
     assert count_holding_sessions(loader, "AAPL", "2025-01-03T20:00:00+00:00", "2025-01-07") == 2
+
+
+def test_live_exit_reasons_are_segment_payloads():
+    """사고(2026-09-13): 자동매매가 리스크 청산 사유를 f-string으로 만들어 엔진의 인코딩된
+    조건 사유와 문자열로 이어 붙였다 → VirtualMarketLog.reason에 깨진 페이로드가 저장되고
+    매매 신호 카드에 `RJ[{"t":...}]`가 그대로 노출. 사유는 전부 세그먼트로 만들고 병합도
+    세그먼트로 한다."""
+    from engine import trade_reason as tr
+    from engine.virtual_trader import _merge_exit_reason
+
+    condition = tr.encode([tr.part(tr.RSI_LEVEL, 40, tr.part(tr.OP_LTE))])
+    stop = tr.encode([tr.part(tr.LIVE_STOP_LOSS, "-12.3", 10)])
+
+    merged = _merge_exit_reason(condition, stop)
+    assert tr.decode(merged) is not None, "병합 결과가 하나의 페이로드여야 한다"
+    assert tr.text(merged) == "RSI 40 이하 + 손절 (-12.3% ≤ -10%)"
+    # 기존 사유가 없으면 그대로.
+    assert _merge_exit_reason(None, stop) == stop
+    assert _merge_exit_reason("", stop) == stop
+    # 구버전 평문 사유와도 섞인다.
+    assert tr.text(_merge_exit_reason("전략 매도 조건 충족", stop)) == (
+        "전략 매도 조건 충족 + 손절 (-12.3% ≤ -10%)"
+    )
+
+
+def test_live_reason_templates_render_korean():
+    from engine import trade_reason as tr
+
+    assert tr.text(tr.encode([tr.part(tr.LIVE_TAKE_PROFIT, "15.2", 15)])) == "익절 (15.2% ≥ +15%)"
+    assert tr.text(tr.encode([tr.part(tr.LIVE_MAX_HOLDING, 21, 20)])) == "최대보유일 초과 (21거래일 ≥ 20거래일)"
+    assert tr.text(tr.encode([tr.part(tr.LIVE_FORCED_LIQUIDATION, "DELISTED")])) == "강제청산 (상장 상태: DELISTED)"
+    trailing = tr.encode([tr.part(tr.LIVE_TRAILING_STOP, 71200, "-8.0", money=[0])])
+    assert tr.text(trailing) == "트레일링스톱 (최고가 71,200원 대비 -8.0% 하락)"
+    assert tr.first_template(tr.encode([tr.part(tr.LIVE_FORCED_LIQUIDATION, "X")])) == tr.LIVE_FORCED_LIQUIDATION

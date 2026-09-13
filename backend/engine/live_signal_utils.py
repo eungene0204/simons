@@ -7,6 +7,7 @@ from typing import Any, Optional
 import pandas as pd
 import polars as pl
 
+from engine import trade_reason as tr
 from engine.indicators import IndicatorEngine
 from engine.universe_pit import is_us_symbol, resolve_us_symbols, us_universe_kind
 
@@ -260,10 +261,12 @@ def evaluate_live_strategy_signals(
     for rank, result in enumerate(selected, start=1):
         top_pct = max(1, round((rank - 1) / candidate_count * 100))
         result["entry_signal"] = True
-        result["entry_reason"] = (
-            f"최근 {lookback}거래일 수익률 상위 {top_pct}% "
-            f"({rank}/{candidate_count}위)"
-        )
+        # 사유는 완성 문장이 아니라 세그먼트(템플릿+인자)로 싣는다 — 조건 사유와 같은
+        # 슬롯이며, 표시 문장은 프론트가 지역에 맞춰 만든다(engine/trade_reason.py).
+        result["entry_reason"] = tr.encode([tr.part(
+            tr.RANKING_RETURN, lookback, tr.part(tr.RANK_TOP), top_pct,
+            [tr.part(tr.LIVE_RANK_POSITION, rank, candidate_count)],
+        )])
 
     selected_symbols = {result["symbol"] for result in selected}
     ranking_ready = any(result["ranking_return"] is not None for result in results)

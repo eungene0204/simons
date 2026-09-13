@@ -24,6 +24,7 @@ from typing import Optional
 
 import db as appdb  # 공용 앱 DB 어댑터(Supabase Postgres)
 
+from engine import trade_reason as tr
 from engine import us_market_calendar
 from engine.universe_pit import is_us_symbol
 from engine.live_signal_utils import (
@@ -102,6 +103,18 @@ def _price_display(price: float, symbol: str) -> str:
     if is_us_symbol(str(symbol)):
         return f"${price:,.2f}"
     return f"{int(price):,}원"
+
+
+def _merge_exit_reason(existing: Optional[str], reason: str) -> str:
+    """청산 사유 둘을 하나의 세그먼트 페이로드로 잇는다(" + " 구분).
+
+    엔진의 조건 사유는 인코딩된 세그먼트 문자열이라, 문자열 덧셈으로 이으면 페이로드가
+    깨져 프론트가 디코딩하지 못하고 원문 JSON이 카드에 노출된다(2026-09-13 사고)."""
+    if not existing:
+        return reason
+    return tr.encode(tr.join(
+        [tr.segments_of(existing), tr.segments_of(reason)], [tr.SEP_AND]
+    ))
 
 
 def _coerce_numeric(value, default: float = 0.0) -> float:
@@ -608,7 +621,7 @@ class VirtualTrader:
                     }
                     signals.append(signal)
                 signal["exit_signal"] = True
-                signal["exit_reason"] = "리밸런싱 제외 (목표 종목 이탈)"
+                signal["exit_reason"] = tr.encode([tr.part(tr.REBALANCE_DROPOUT)])
 
         # 4. 리스크 관리
         risk_exits: dict[str, str] = {}
@@ -620,18 +633,23 @@ class VirtualTrader:
             pnl_pct = (current_price - avg) / avg * 100
 
             if stop_loss_pct > 0 and pnl_pct <= -stop_loss_pct:
-                risk_exits[pos["symbol"]] = f"손절 ({pnl_pct:.1f}% ≤ -{stop_loss_pct}%)"
+                risk_exits[pos["symbol"]] = tr.encode([tr.part(
+                    tr.LIVE_STOP_LOSS, f"{pnl_pct:.1f}", stop_loss_pct
+                )])
                 continue
             if take_profit_pct > 0 and pnl_pct >= take_profit_pct:
-                risk_exits[pos["symbol"]] = f"익절 ({pnl_pct:.1f}% ≥ +{take_profit_pct}%)"
+                risk_exits[pos["symbol"]] = tr.encode([tr.part(
+                    tr.LIVE_TAKE_PROFIT, f"{pnl_pct:.1f}", take_profit_pct
+                )])
                 continue
             if trailing_stop_pct > 0:
                 peak = pos.get("peakPrice") or avg
                 dd_pct = (current_price - peak) / peak * 100
                 if dd_pct <= -trailing_stop_pct:
-                    risk_exits[pos["symbol"]] = (
-                        f"트레일링스톱 (최고가 {_price_display(peak, pos['symbol'])} 대비 {dd_pct:.1f}% 하락)"
-                    )
+                    # 최고가는 금액 인자(money) — 통화 표기는 렌더러가 계좌 통화로 만든다.
+                    risk_exits[pos["symbol"]] = tr.encode([tr.part(
+                        tr.LIVE_TRAILING_STOP, peak, f"{dd_pct:.1f}", money=[0]
+                    )])
                     continue
             if max_holding_days > 0:
                 opened_dt = _parse_db_datetime(pos.get("openedAt"))
@@ -645,17 +663,16 @@ class VirtualTrader:
                         quotes.get(pos["symbol"]),
                     )
                     if holding_days >= max_holding_days:
-                        risk_exits[pos["symbol"]] = (
-                            f"최대보유일 초과 ({holding_days}거래일 ≥ "
-                            f"{max_holding_days}거래일)"
-                        )
+                        risk_exits[pos["symbol"]] = tr.encode([tr.part(
+                            tr.LIVE_MAX_HOLDING, holding_days, max_holding_days
+                        )])
 
         # 리스크 종료를 시그널에 병합
         for sym, reason in risk_exits.items():
             found = next((s for s in signals if s["symbol"] == sym), None)
             if found:
                 found["exit_signal"] = True
-                found["exit_reason"] = (found.get("exit_reason") or "") + f" + {reason}" if found.get("exit_reason") else reason
+                found["exit_reason"] = _merge_exit_reason(found.get("exit_reason"), reason)
             else:
                 price = price_map.get(sym, 0)
                 signals.append({"symbol": sym, "close": price, "entry_signal": False, "exit_signal": True, "exit_reason": reason})
@@ -688,13 +705,13 @@ class VirtualTrader:
                 if pos and delistingPolicy == "AUTO_LIQUIDATE":
                     if sig:
                         sig["exit_signal"] = True
-                        sig["exit_reason"] = f"강제청산 (상장 상태: {status})"
+                        sig["exit_reason"] = tr.encode([tr.part(tr.LIVE_FORCED_LIQUIDATION, status)])
                     else:
                         price = price_map.get(sym, 0)
                         signals.append({
                             "symbol": sym, "close": price,
                             "entry_signal": False, "exit_signal": True,
-                            "exit_reason": f"강제청산 (상장 상태: {status})",
+                            "exit_reason": tr.encode([tr.part(tr.LIVE_FORCED_LIQUIDATION, status)]),
                         })
                     logger.info("[VirtualTrader] 강제청산 예약 %s %s (상태: %s)", account_id, sym, status)
 
@@ -734,12 +751,12 @@ class VirtualTrader:
                             "exit", sig.get("exit_reason"), "auto_executed", order_id, stock_name
                         )
                         # 강제청산 감사 로그
-                        exit_reason = sig.get("exit_reason") or ""
-                        if "강제청산" in exit_reason:
+                        # 사유 종류는 템플릿으로 판별하고, 감사 로그에는 한국어 문장을 남긴다.
+                        if tr.first_template(sig.get("exit_reason")) == tr.LIVE_FORCED_LIQUIDATION:
                             await asyncio.to_thread(
                                 write_audit_log, account_id, sym,
                                 "AUTO_LIQUIDATE", None, None,
-                                pos["quantity"], float(close), exit_reason,
+                                pos["quantity"], float(close), tr.text(sig.get("exit_reason")),
                             )
                         executed_today.add(f"{sym}_exit_auto_executed")
                         logger.info("[VirtualTrader] 매도 %s %s %d주 @%s", account_id, sym, pos["quantity"], _price_display(close, sym))

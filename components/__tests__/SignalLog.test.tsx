@@ -32,3 +32,50 @@ describe("SignalLog 빈 상태", () => {
     expect(screen.getByText("아직 시그널이 발생하지 않았습니다.")).toBeInTheDocument();
   });
 });
+
+describe("SignalLog 사유·가격 표기", () => {
+  // 사고(2026-09-13): 백엔드 자동매매가 VirtualMarketLog.reason에 엔진의 세그먼트 페이로드
+  // (\u001eRJ + JSON)를 그대로 저장했는데 카드가 그 문자열을 찍어 코드가 노출됐다.
+  const encoded =
+    "\u001eRJ" +
+    JSON.stringify([
+      { t: "종가가 {0}일선 상향 돌파", a: [60] },
+      { s: " + " },
+      { t: "RSI {0} {1}", a: [40, { t: "이하" }] },
+    ]);
+  const log = {
+    id: "l1",
+    accountId: "a1",
+    date: "2026-09-11",
+    symbol: "DASH",
+    stockName: "DoorDash",
+    signalType: "entry" as const,
+    reason: encoded,
+    price: 202.55,
+    action: "notified" as const,
+    orderId: null,
+    createdAt: "2026-09-11T00:00:00Z",
+  };
+
+  it("인코딩된 세그먼트 사유를 문장으로 렌더링한다(원문 JSON 노출 금지)", () => {
+    render(<SignalLog logs={[log]} />);
+    expect(screen.getByText(/종가가 60일선 상향 돌파 \+ RSI 40 이하/)).toBeInTheDocument();
+    expect(screen.queryByText(/RJ\[/)).not.toBeInTheDocument();
+  });
+
+  it("평문 사유(구버전 로그)는 그대로 표시한다", () => {
+    render(<SignalLog logs={[{ ...log, reason: "손절매 실행" }]} />);
+    expect(screen.getByText(/손절매 실행/)).toBeInTheDocument();
+  });
+
+  it("USD 계좌는 가격을 달러 소수점으로 표기한다", () => {
+    render(<SignalLog logs={[log]} currency="USD" />);
+    expect(screen.getByText("$202.55")).toBeInTheDocument();
+    expect(screen.queryByText(/원/)).not.toBeInTheDocument();
+  });
+
+  it("KRW 계좌(기본)는 원 표기를 유지한다", () => {
+    render(<SignalLog logs={[{ ...log, price: 71200 }]} />);
+    expect(screen.getByText("71,200원")).toBeInTheDocument();
+  });
+});

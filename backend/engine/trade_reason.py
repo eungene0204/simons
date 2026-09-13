@@ -105,6 +105,16 @@ BACKTEST_END = "백테스트 종료"
 DATA_END = "데이터 종료"
 DELISTED = "상장폐지"
 REBALANCE_DROPOUT = "리밸런싱 제외 (목표 종목 이탈)"
+# ── 가상계좌 자동매매(라이브 신호) 전용 ───────────────────────────────────────
+# 백테스트 청산 사유보다 판정 근거(현재 수익률·임계값)를 함께 싣는다. 2026-09-13 이전에는
+# virtual_trader가 f-string으로 완성 문장을 만들어 엔진의 인코딩된 조건 사유와 문자열로
+# 이어 붙였고, 그 결과 매매 신호 카드에 인코딩 페이로드가 그대로 노출됐다.
+LIVE_STOP_LOSS = "손절 ({0}% ≤ -{1}%)"
+LIVE_TAKE_PROFIT = "익절 ({0}% ≥ +{1}%)"
+LIVE_TRAILING_STOP = "트레일링스톱 (최고가 {0} 대비 {1}% 하락)"
+LIVE_MAX_HOLDING = "최대보유일 초과 ({0}거래일 ≥ {1}거래일)"
+LIVE_FORCED_LIQUIDATION = "강제청산 (상장 상태: {0})"
+LIVE_RANK_POSITION = " ({0}/{1}위)"
 REBALANCE_TRIM = "리밸런싱 비중 조정 (목표 비중 초과분 매도)"
 PNL_DETAIL_PROFIT = " [수익률: {0}%, 수익: {1}]"
 PNL_DETAIL_LOSS = " [수익률: {0}%, 손실: {1}]"

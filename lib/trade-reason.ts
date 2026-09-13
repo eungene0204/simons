@@ -27,6 +27,24 @@ export type TradeReasonSegment =
   | { t: string; a?: unknown[]; m?: number[] }
   | { s: string };
 
+/**
+ * 엔진 내부 문자열 슬롯의 인코딩 접두(backend/engine/trade_reason.py `_PAYLOAD_PREFIX`).
+ * 가상계좌 매매 신호 로그(VirtualMarketLog.reason)는 이 인코딩 문자열을 그대로 저장한다 —
+ * 자료구조를 바꾸지 않고 세그먼트를 나르는 계약이라, 읽는 쪽이 여기서 디코딩한다.
+ */
+const PAYLOAD_PREFIX = "\u001eRJ";
+
+/** 인코딩된 사유 문자열이면 세그먼트 배열, 아니면 null(평문·빈 값). */
+export function decodeTradeReasonPayload(value: unknown): TradeReasonSegment[] | null {
+  if (typeof value !== "string" || !value.startsWith(PAYLOAD_PREFIX)) return null;
+  try {
+    const parsed: unknown = JSON.parse(value.slice(PAYLOAD_PREFIX.length));
+    return isTradeReasonSegments(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 세그먼트 배열인지 확인한다(과거 결과는 평문 문자열이라 없을 수 있다). */
 export function isTradeReasonSegments(value: unknown): value is TradeReasonSegment[] {
   return (
@@ -59,8 +77,9 @@ export function renderTradeReasonSegments(
 }
 
 /**
- * 사유 표시 문장. 구조화 파츠가 있으면 번역해 렌더링하고, 없으면(구버전 결과 등)
- * 백엔드가 준 한국어 문장을 그대로 쓴다.
+ * 사유 표시 문장. 구조화 파츠가 있으면 번역해 렌더링하고, 파츠가 없어도 사유 문자열
+ * 자체가 인코딩 페이로드면 디코딩해 렌더링한다(가상계좌 신호 로그). 둘 다 아니면
+ * (구버전 결과 등) 백엔드가 준 한국어 문장을 그대로 쓴다.
  */
 export function tradeReasonText(
   reason: string | null | undefined,
@@ -69,6 +88,10 @@ export function tradeReasonText(
 ): string {
   if (isTradeReasonSegments(parts) && parts.length > 0) {
     return renderTradeReasonSegments(parts, formatMoney);
+  }
+  const decoded = decodeTradeReasonPayload(reason);
+  if (decoded && decoded.length > 0) {
+    return renderTradeReasonSegments(decoded, formatMoney);
   }
   return reason ?? "";
 }
