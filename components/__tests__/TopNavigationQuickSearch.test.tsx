@@ -237,11 +237,8 @@ describe("TopNavigation quick search", () => {
 
     expect(homeLink).not.toBeNull();
     expect(homeLink).toContainElement(logoMark);
-    expect(homeLink).not.toHaveTextContent("OPEN BETA");
-    expect(screen.getAllByText("OPEN BETA")).toHaveLength(2);
-    for (const betaBadge of screen.getAllByText("OPEN BETA")) {
-      expect(betaBadge.closest("a")).toBeNull();
-    }
+    // 2026-09-13 론칭 정리: 전역 'OPEN BETA' 배지 폐지(유료 요금제와 충돌)
+    expect(screen.queryByText("OPEN BETA")).not.toBeInTheDocument();
     expect(sourceImage).toHaveAttribute("href", "/nullStock.png");
     expect(sourceImage).toHaveAttribute(
       "filter",

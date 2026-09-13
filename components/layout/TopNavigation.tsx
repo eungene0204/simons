@@ -566,9 +566,6 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
               {t("널스탁")}
             </span>
           </Link>
-          <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[8px] font-black tracking-[0.12em] text-gray-400">
-            OPEN BETA
-          </span>
         </div>
 
         <div className="flex flex-shrink-0 items-center gap-1">
@@ -601,9 +598,6 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             <NullstockLogoMark className="h-[1.125rem] w-[1.375rem] transition-transform duration-300 group-hover:scale-105" />
             <span className="text-[15px] font-black tracking-tight text-white">{t("널스탁")}</span>
           </Link>
-          <span className="hidden rounded-md bg-white/[0.06] px-2 py-0.5 text-[9px] font-black tracking-[0.14em] text-gray-400 2xl:block">
-            OPEN BETA
-          </span>
         </div>
 
         {/* Menu Items */}
