@@ -373,6 +373,8 @@ model PaymentOrder {
   paymentKey String?   @unique // 승인 완료 시 PSP가 발급한 결제 키 (토스 paymentKey / PayPal 캡처·세일 ID)
   failReason String?
   approvedAt DateTime?
+  refundedAmount Int    @default(0) // 중도 해지 정산으로 환불한 금액(부분 취소). 0 = 환불 없음
+  refundedAt DateTime? // 환불 집행 시각 — 값이 있으면 이 주문은 다시 정산 대상이 되지 않는다
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   User       User      @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useRouter } from "next/navigation";
 import { Check, X, Lightning, Rocket, Crown } from "phosphor-react";
 import {
@@ -11,6 +10,7 @@ import {
   PlanId,
   YEARLY_DISCOUNT_PERCENT,
   priceFor,
+  ANNUAL_BILLING_ENABLED,
   yearlyDiscountPercent,
   type BillingCycle,
 } from "@/lib/plans";
@@ -90,6 +90,8 @@ interface PricingPlansProps {
    * 생략하면 기본값(lib/plans.ts). 실제 한도 강제와 같은 값을 보여주기 위함.
    */
   plans?: Record<PlanId, Plan>;
+  /** 연간 결제 상품 노출 — 기본값은 lib/plans.ts 스위치. 테스트가 켜서 연간 경로를 검증한다 */
+  annualBillingEnabled?: boolean;
 }
 
 function formatBillingDate(iso: string | null): string {
@@ -103,10 +105,15 @@ export default function PricingPlans({
   currentPlanId,
   subscription,
   plans = PLANS,
+  annualBillingEnabled = ANNUAL_BILLING_ENABLED,
 }: PricingPlansProps) {
   const router = useRouter();
   const currentCycle: BillingCycle = subscription?.cycle === "yearly" ? "yearly" : "monthly";
-  const [billingCycle, setBillingCycle] = useState<BillingCycle>(currentCycle);
+  // 연간이 꺼져 있으면 화면은 월간만 다룬다 — 기존 연간 구독자도 토글 없이 월간 가격표를 본다
+  // (구독 자체는 계약대로 유지, 변경 잠금 안내는 그대로 뜬다).
+  const [billingCycle, setBillingCycle] = useState<BillingCycle>(
+    annualBillingEnabled ? currentCycle : "monthly"
+  );
   const [pendingPlanId, setPendingPlanId] = useState<PlanId | null>(null);
   const [checkoutPlanId, setCheckoutPlanId] = useState<PlanId | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -122,7 +129,6 @@ export default function PricingPlans({
   // 토스로 겹쳐 결제하면 이중 청구라 유료 버튼을 잠근다(서버 /api/payment/order도 409로 거부).
   // 해지(FREE 카드)는 서버가 PSP를 분기하므로(subscriptionCancel.ts) 여기서도 그대로 열어 둔다.
   const isPaypalManaged = Boolean(subscription) && subscription?.provider === "paypal";
-  const { confirm, dialog: confirmDialog } = useConfirmDialog();
 
   // 같은 플랜이라도 결제 주기가 다르면 "현재 이용 중"이 아니다(월간 ↔ 연간 전환 경로).
   // 카드의 "현재 이용 중" 표시와 클릭 차단이 같은 규칙을 써야 한다 — 어긋나면 버튼은
@@ -137,18 +143,6 @@ export default function PricingPlans({
     // 유료 플랜은 토스페이먼츠 자동결제(빌링) 체크아웃 모달을 연다
     if (planId !== "FREE") {
       setCheckoutPlanId(planId);
-      return;
-    }
-
-    if (
-      hasActiveSubscription &&
-      !(await confirm({
-        title: t("자동갱신을 해지할까요?"),
-        message: t("이미 결제된 기간에는 계속 이용할 수 있습니다."),
-        confirmLabel: t("해지"),
-        danger: true,
-      }))
-    ) {
       return;
     }
 
@@ -172,12 +166,12 @@ export default function PricingPlans({
 
   return (
     <div>
-      {confirmDialog}
       {error ? (
         <p className="mb-4 text-sm font-black text-[var(--main-red)]">{error}</p>
       ) : null}
 
       {/* 결제 주기 선택 — 연간은 1년치를 한 번에 결제하고 그만큼 할인된다 */}
+      {annualBillingEnabled ? (
       <div className="mb-8 flex justify-center">
         <div
           data-testid="billing-cycle-toggle"
@@ -204,6 +198,7 @@ export default function PricingPlans({
           ))}
         </div>
       </div>
+      ) : null}
 
       {isPaypalManaged ? (
         <p
@@ -235,8 +230,10 @@ export default function PricingPlans({
           const isCurrent = isCurrentSelection(planId);
           const features = planFeatures(planId, plan);
           const description = t(PLAN_DESCRIPTIONS[planId]);
-          // 해지 예약된 구독은 만료일에 FREE로 내려간다 — 다시 누를 동작이 없다.
-          const isCancellationScheduled = planId === "FREE" && subscription?.canceled === true;
+          // 구독(자동갱신 중이든 해지 예약이든)이 있는 동안 FREE 카드는 갈 곳이 아니라 잠긴 표지다 —
+          // 해지는 "무엇을 해지하는지"가 보이도록 현재 플랜 카드 아래에 둔다(2026-09-13 사용자 결정:
+          // FREE 카드의 '구독 해지'가 "무료 플랜을 해지"로 읽혔다).
+          const isFreeLockedBySubscription = planId === "FREE" && subscription != null;
           // 연간 구독·PayPal 구독 중에는 유료 플랜 변경만 막는다 — 해지(FREE 카드)는 항상 열어 둔다.
           const isChangeLocked = (isYearlyLocked || isPaypalManaged) && isPaidCycleShown;
 
@@ -303,7 +300,10 @@ export default function PricingPlans({
               <button
                 type="button"
                 disabled={
-                  isCurrent || pendingPlanId !== null || isCancellationScheduled || isChangeLocked
+                  isCurrent ||
+                  pendingPlanId !== null ||
+                  isFreeLockedBySubscription ||
+                  isChangeLocked
                 }
                 onClick={() => void handleSelect(planId)}
                 className={`mt-10 w-full rounded-xl px-4 py-4 text-sm font-black transition-colors disabled:cursor-not-allowed ${
@@ -319,10 +319,8 @@ export default function PricingPlans({
                   : pendingPlanId === planId
                   ? t("변경 중...")
                   : planId === "FREE"
-                  ? isCancellationScheduled
-                    ? t("해지 예약됨")
-                    : hasActiveSubscription
-                    ? t("구독 해지")
+                  ? isFreeLockedBySubscription
+                    ? t("무료 플랜")
                     : t("무료로 전환")
                   : planId === currentPlanId
                   ? // 같은 플랜을 다른 주기로 다시 결제하는 경로
@@ -332,8 +330,9 @@ export default function PricingPlans({
                   : t("구독 시작하기")}
               </button>
 
-              {/* 자동갱신 상태 — 현재 이용 중인 유료 플랜에만 표시 */}
-              {isCurrent && planId !== "FREE" && subscription ? (
+              {/* 해지 예약 안내 — 구독 중인 플랜 카드에만(주기 탭과 무관). 다음 결제일·해지는 요금제
+                  페이지에 두지 않는다(2026-09-13 사용자 결정) — 구독 관리는 설정 > 결제에서 한다. */}
+              {planId === currentPlanId && planId !== "FREE" && subscription?.canceled ? (
                 <div
                   data-testid="subscription-renewal-status"
                   className="mt-4 text-center text-xs font-bold text-[var(--text-label)]"
@@ -342,9 +341,7 @@ export default function PricingPlans({
                     <p>
                       {t("해지 예약됨 · {0}까지 이용 가능합니다", formatBillingDate(subscription.nextBillingAt))}
                     </p>
-                  ) : (
-                    <p>{t("다음 결제일: {0}", formatBillingDate(subscription.nextBillingAt))}</p>
-                  )}
+                  ) : null}
                 </div>
               ) : null}
             </div>

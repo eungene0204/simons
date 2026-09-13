@@ -31,7 +31,7 @@ export interface BillingRenewalSummary {
 }
 
 /** 구독을 FREE로 전환하고 빌링 상태를 모두 비운다. 이번 주기 백테스트 사용량은 이어 간다. */
-function freeDowngradeData(user: UsageCarrySource, now: Date) {
+export function freeDowngradeData(user: UsageCarrySource, now: Date) {
   return {
     ...backtestUsageCarryOnDowngrade(user, now),
     planTier: "FREE",

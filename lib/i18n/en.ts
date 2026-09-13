@@ -1087,6 +1087,7 @@ export const en: Record<string, string> = {
   "플랜 변경에 실패했습니다. 잠시 후 다시 시도해주세요.": "Failed to change the plan. Please try again shortly.",
   "해지 예약됨 · {0}까지 이용 가능합니다": "Cancellation scheduled · available until {0}",
   "구독 해지": "Cancel subscription",
+  "무료 플랜": "Free plan",
   "해지 예약됨": "Cancellation scheduled",
   "현재 이용 중": "Current plan",
   // ── components/research/ResearchTestConsole.tsx
@@ -3058,6 +3059,10 @@ export const en: Record<string, string> = {
   "삭제하면 다시 로그인할 수 없으며 되돌릴 수 없습니다.": "You will not be able to log in again. This cannot be undone.",
   "이미 결제된 기간에는 계속 이용할 수 있습니다.": "You can keep using the service through the period you already paid for.",
   "자동갱신을 해지할까요?": "Cancel auto-renewal?",
+  "플랜 취소": "Cancel plan",
+  "취소하면 정기 결제가 중단됩니다. {0}까지는 {1} 플랜을 계속 사용하실 수 있습니다.":
+    "Canceling stops recurring billing. You can keep using the {1} plan until {0}.",
+  "계속 이용": "Keep plan",
   "해지": "Cancel renewal",
   "삭제한 기록은 되돌릴 수 없습니다.": "Deleted history cannot be restored.",
   "시그널 히스토리를 모두 삭제할까요?": "Delete all signal history?",

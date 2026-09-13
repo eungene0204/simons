@@ -103,6 +103,18 @@ export function orderNameFor(plan: Plan, cycle: BillingCycle): string {
 }
 
 /** 요금제 페이지 노출 순서 */
+// ── 결제 정책 스위치 ─────────────────────────────────────────────────────────
+// 2026-09-13 사용자 결정: 연간 결제와 일할 정산 환불을 **끈다(삭제 아님)**. 약관도 연간 도입
+// 전으로 되돌렸다. 다시 켤 때는 약관(제11조 결제 주기·제12조 정산)을 먼저 되살린 뒤 켠다 —
+// 화면·API가 약관에 없는 상품·정산을 내보내면 안 된다.
+//
+// 이미 연간으로 결제한 구독은 계약대로 유지된다(갱신 잡은 User.billingCycle을 그대로 읽는다).
+// 스위치는 새 연간 주문의 생성과 화면 노출만 막는다.
+/** 연간 결제 상품(요금제 토글·연간 주문 생성) */
+export const ANNUAL_BILLING_ENABLED = false;
+/** 중도 해지 일할 정산 환불(관리자 콘솔 일할 집행). 미사용 전액 환불(약관 12조 2항)은 영향 없음 */
+export const PRORATED_REFUND_ENABLED = false;
+
 export const PLAN_ORDER: PlanId[] = ["FREE", "PRO", "PREMIUM"];
 
 /** planTier 문자열(대소문자 무관)을 Plan으로 해석. 미지정/미일치 시 FREE 폴백. */

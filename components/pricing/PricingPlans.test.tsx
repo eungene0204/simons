@@ -26,7 +26,7 @@ beforeEach(() => {
 
 describe("PricingPlans", () => {
   it("renders equal-height pricing cards and unified subscription buttons", () => {
-    render(<PricingPlans currentPlanId="FREE" />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
 
     expect(screen.getByTestId("pricing-plan-grid")).toHaveClass("items-stretch");
     const freeCard = screen.getByTestId("pricing-plan-card-FREE");
@@ -59,7 +59,7 @@ describe("PricingPlans", () => {
   });
 
   it("모든 카드에서 월 백테스트 횟수를 첫 번째 항목으로 보여준다(FREE는 50회)", () => {
-    render(<PricingPlans currentPlanId="FREE" />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
 
     for (const [planId, label] of [
       ["FREE", "월 백테스트 50회"],
@@ -74,7 +74,7 @@ describe("PricingPlans", () => {
   });
 
   it("uses the updated free plan description", () => {
-    render(<PricingPlans currentPlanId="FREE" />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
 
     expect(
       screen.getByText("처음 전략을 만들고 백테스트를 경험해 보세요")
@@ -82,7 +82,7 @@ describe("PricingPlans", () => {
   });
 
   it("uses the updated premium plan description", () => {
-    render(<PricingPlans currentPlanId="FREE" />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
 
     expect(
       screen.getByText("전문가 수준으로 전략을 연구하고 검증 해보세요")
@@ -90,7 +90,7 @@ describe("PricingPlans", () => {
   });
 
   it("renders premium validation features in aligned rows across all cards", () => {
-    render(<PricingPlans currentPlanId="FREE" />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
 
     const premiumCard = screen.getByTestId("pricing-plan-card-PREMIUM");
 
@@ -107,7 +107,7 @@ describe("PricingPlans", () => {
   });
 
   it("shows AI report only for pro and premium plans", () => {
-    render(<PricingPlans currentPlanId="FREE" />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
 
     const freeCard = screen.getByTestId("pricing-plan-card-FREE");
     const proCard = screen.getByTestId("pricing-plan-card-PRO");
@@ -119,7 +119,7 @@ describe("PricingPlans", () => {
   });
 
   it("uses the updated pro plan description", () => {
-    render(<PricingPlans currentPlanId="FREE" />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
 
     expect(
       screen.getByText("여러 전략을 동시에 연구하고 시뮬레이션 해보세요")
@@ -127,7 +127,7 @@ describe("PricingPlans", () => {
   });
 
   it("renders initial simulated investment amounts in compact Korean units", () => {
-    render(<PricingPlans currentPlanId="FREE" />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
 
     expect(screen.getByText("계좌당 초기 모의 투자금 천 만원")).toBeInTheDocument();
     expect(screen.getByText("계좌당 초기 모의 투자금 5천 만원")).toBeInTheDocument();
@@ -138,7 +138,7 @@ describe("PricingPlans", () => {
   });
 
   it("renders virtual account limits with unified simulation wording", () => {
-    render(<PricingPlans currentPlanId="FREE" />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
 
     expect(screen.getByText("시뮬레이션 가상계좌 1개")).toBeInTheDocument();
     expect(screen.getByText("시뮬레이션 가상계좌 10개")).toBeInTheDocument();
@@ -148,7 +148,7 @@ describe("PricingPlans", () => {
   });
 
   it("renders VAT included copy next to each monthly price", () => {
-    render(<PricingPlans currentPlanId="FREE" />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
 
     expect(screen.getAllByText("(VAT 포함)")).toHaveLength(3);
   });
@@ -157,7 +157,7 @@ describe("PricingPlans", () => {
     // 모달이 마운트되며 주문 생성 요청을 보낸다 — 응답은 무시(모달 UI는 즉시 렌더)
     const fetchSpy = vi.fn(() => Promise.resolve({ ok: true, json: async () => ({}) }));
     vi.stubGlobal("fetch", fetchSpy);
-    render(<PricingPlans currentPlanId="FREE" />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
 
     const proCard = screen.getByTestId("pricing-plan-card-PRO");
     fireEvent.click(within(proCard).getByRole("button", { name: "구독 시작하기" }));
@@ -174,7 +174,7 @@ describe("PricingPlans", () => {
   });
 
   it("highlights the current plan's icon in the accent color", () => {
-    render(<PricingPlans currentPlanId="PRO" />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="PRO" />);
 
     const currentCard = screen.getByTestId("pricing-plan-card-PRO");
     const currentIconWrapper = currentCard.querySelector("svg")?.parentElement;
@@ -186,22 +186,24 @@ describe("PricingPlans", () => {
     expect(otherIconWrapper).not.toHaveClass("text-[var(--chat-accent)]");
   });
 
-  it("자동갱신 구독 중이면 현재 플랜 카드에 다음 결제일만 보여준다", () => {
+  it("자동갱신 구독 중이면 요금제 페이지에 다음 결제일·해지를 표시하지 않는다(구독 관리는 설정 > 결제)", () => {
     render(
       <PricingPlans
+        annualBillingEnabled
         currentPlanId="PRO"
         subscription={{ nextBillingAt: "2026-08-10T00:00:00.000Z", canceled: false }}
       />
     );
 
-    const status = screen.getByTestId("subscription-renewal-status");
-    expect(status).toHaveTextContent("다음 결제일");
-    expect(within(status).queryByRole("button", { name: "자동갱신 해지" })).toBeNull();
+    expect(screen.queryByTestId("subscription-renewal-status")).toBeNull();
+    expect(screen.queryByText(/다음 결제일/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "구독 해지" })).toBeNull();
   });
 
   it("해지 예약된 구독은 만료 안내만 보여주고 해지 버튼을 숨긴다", () => {
     render(
       <PricingPlans
+        annualBillingEnabled
         currentPlanId="PRO"
         subscription={{ nextBillingAt: "2026-08-10T00:00:00.000Z", canceled: true }}
       />
@@ -212,8 +214,23 @@ describe("PricingPlans", () => {
     expect(within(status).queryByRole("button", { name: "자동갱신 해지" })).toBeNull();
   });
 
+  it("연간 스위치가 꺼져 있으면(기본값) 결제 주기 토글이 없고 월간 가격만 보인다", () => {
+    render(
+      <PricingPlans
+        currentPlanId="PRO"
+        subscription={{ cycle: "yearly", nextBillingAt: "2027-09-13T00:00:00.000Z", canceled: false }}
+      />
+    );
+
+    expect(screen.queryByTestId("billing-cycle-toggle")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "연간 결제 · 20% 할인" })).not.toBeInTheDocument();
+    expect(screen.queryByText("/ 년")).not.toBeInTheDocument();
+    // 이미 연간으로 결제한 구독은 계약대로 유지되므로 변경 잠금 안내는 그대로 뜬다
+    expect(screen.getByTestId("yearly-lock-notice")).toBeInTheDocument();
+  });
+
   it("연간 결제 탭은 연 금액·월 환산·할인율을 보여준다", () => {
-    render(<PricingPlans currentPlanId="FREE" />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
 
     fireEvent.click(screen.getByRole("button", { name: "연간 결제 · 20% 할인" }));
 
@@ -231,6 +248,7 @@ describe("PricingPlans", () => {
   it("월간 구독자가 연간 탭을 열면 같은 플랜도 '연간 결제로 전환'으로 결제할 수 있다", () => {
     render(
       <PricingPlans
+        annualBillingEnabled
         currentPlanId="PRO"
         subscription={{ cycle: "monthly", nextBillingAt: "2026-10-03T00:00:00.000Z", canceled: false }}
       />
@@ -251,6 +269,7 @@ describe("PricingPlans", () => {
   it("연간 구독 중에는 유료 플랜 변경을 잠그고 해지만 남긴다", () => {
     render(
       <PricingPlans
+        annualBillingEnabled
         currentPlanId="PRO"
         subscription={{ cycle: "yearly", nextBillingAt: "2027-09-13T00:00:00.000Z", canceled: false }}
       />
@@ -264,12 +283,14 @@ describe("PricingPlans", () => {
     expect(within(premiumCard).getByRole("button", { name: "구독 시작하기" })).toBeDisabled();
     // 해지는 언제든 가능해야 한다
     const freeCard = screen.getByTestId("pricing-plan-card-FREE");
-    expect(within(freeCard).getByRole("button", { name: "구독 해지" })).toBeEnabled();
+    expect(within(freeCard).getByRole("button", { name: "무료 플랜" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "구독 해지" })).toBeNull();
   });
 
   it("연간 구독자는 요금제 페이지를 열면 연간 탭이 선택돼 있다", () => {
     render(
       <PricingPlans
+        annualBillingEnabled
         currentPlanId="PRO"
         subscription={{ cycle: "yearly", nextBillingAt: "2027-09-13T00:00:00.000Z", canceled: false }}
       />
@@ -286,31 +307,36 @@ describe("PricingPlans", () => {
     ).toBeDisabled();
   });
 
-  it("자동갱신 구독 중이면 FREE 카드 버튼은 '구독 해지'다(즉시 전환이 아니라 해지 예약)", () => {
+  it("자동갱신 구독 중이면 FREE 카드는 '무료 플랜'으로 잠기고 요금제 페이지에 해지 버튼은 없다", () => {
     render(
       <PricingPlans
+        annualBillingEnabled
         currentPlanId="PRO"
         subscription={{ nextBillingAt: "2026-08-10T00:00:00.000Z", canceled: false }}
       />
     );
     const freeCard = screen.getByTestId("pricing-plan-card-FREE");
-    expect(within(freeCard).getByRole("button", { name: "구독 해지" })).toBeEnabled();
+    expect(within(freeCard).getByRole("button", { name: "무료 플랜" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "구독 해지" })).toBeNull();
     expect(within(freeCard).queryByRole("button", { name: "무료로 전환" })).toBeNull();
   });
 
-  it("해지 예약된 구독은 FREE 카드 버튼을 '해지 예약됨'으로 비활성화한다", () => {
+  it("해지 예약된 구독은 상태줄에 예약을 표시하고 해지 링크와 FREE 전환을 모두 닫는다", () => {
     render(
       <PricingPlans
+        annualBillingEnabled
         currentPlanId="PRO"
         subscription={{ nextBillingAt: "2026-08-10T00:00:00.000Z", canceled: true }}
       />
     );
     const freeCard = screen.getByTestId("pricing-plan-card-FREE");
-    expect(within(freeCard).getByRole("button", { name: "해지 예약됨" })).toBeDisabled();
+    expect(within(freeCard).getByRole("button", { name: "무료 플랜" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "구독 해지" })).toBeNull();
+    expect(screen.getByTestId("subscription-renewal-status")).toHaveTextContent("해지 예약됨");
   });
 
   it("구독 없는 유료 등급은 FREE 카드 버튼이 '무료로 전환'(즉시)이다", () => {
-    render(<PricingPlans currentPlanId="PRO" />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="PRO" />);
     const freeCard = screen.getByTestId("pricing-plan-card-FREE");
     expect(within(freeCard).getByRole("button", { name: "무료로 전환" })).toBeEnabled();
   });
@@ -320,7 +346,7 @@ describe("PricingPlans", () => {
       ...PLANS,
       FREE: { ...PLANS.FREE, monthlyBacktestLimit: 50, maxVirtualAccounts: 2 },
     };
-    render(<PricingPlans currentPlanId="FREE" plans={plans} />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" plans={plans} />);
     const freeCard = screen.getByTestId("pricing-plan-card-FREE");
     expect(within(freeCard).getByText("월 백테스트 50회")).toBeInTheDocument();
     expect(within(freeCard).getByText("시뮬레이션 가상계좌 2개")).toBeInTheDocument();
@@ -329,6 +355,7 @@ describe("PricingPlans", () => {
   it("PayPal 구독자는 유료 결제 버튼이 잠기고 글로벌 요금제 안내가 뜬다", () => {
     render(
       <PricingPlans
+        annualBillingEnabled
         currentPlanId="PRO"
         subscription={{
           provider: "paypal",
@@ -346,12 +373,14 @@ describe("PricingPlans", () => {
     expect(within(premiumCard).getByRole("button", { name: "구독 시작하기" })).toBeDisabled();
     // 해지는 서버가 결제 수단(PSP)을 분기하므로(subscriptionCancel.ts) 여기서도 열어 둔다
     const freeCard = screen.getByTestId("pricing-plan-card-FREE");
-    expect(within(freeCard).getByRole("button", { name: "구독 해지" })).toBeEnabled();
+    expect(within(freeCard).getByRole("button", { name: "무료 플랜" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "구독 해지" })).toBeNull();
   });
 
   it("토스 구독자에게는 PayPal 안내를 렌더링하지 않는다", () => {
     render(
       <PricingPlans
+        annualBillingEnabled
         currentPlanId="PRO"
         subscription={{
           provider: "toss",
@@ -364,7 +393,7 @@ describe("PricingPlans", () => {
   });
 
   it("구독 정보가 없으면(FREE) 갱신 상태 UI를 렌더링하지 않는다", () => {
-    render(<PricingPlans currentPlanId="FREE" />);
+    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
     expect(screen.queryByTestId("subscription-renewal-status")).toBeNull();
   });
 });

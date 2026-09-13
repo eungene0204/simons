@@ -225,7 +225,9 @@ describe("SettingsModal", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
     const cancelDialog = await screen.findByRole("alertdialog");
-    fireEvent.click(within(cancelDialog).getByRole("button", { name: "해지" }));
+    // 해지 예약임을 날짜와 플랜명으로 알린다 — 언제까지 쓸 수 있는지 모른 채 누르지 않게
+    expect(cancelDialog).toHaveTextContent("2026년 8월 1일까지는 Pro 플랜을 계속 사용하실 수 있습니다.");
+    fireEvent.click(within(cancelDialog).getByRole("button", { name: "플랜 취소" }));
     await waitFor(() =>
       expect(
         screen.getByText(/구독이 .*에 만료됩니다\./)

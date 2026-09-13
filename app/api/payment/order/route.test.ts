@@ -1,6 +1,16 @@
 // @ts-nocheck
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// 정책 스위치(lib/plans.ts)는 기본 OFF다 — 켜진 경로를 검증하고, 꺼진 케이스는 flags를 내려 확인한다.
+const flags = { ANNUAL_BILLING_ENABLED: true };
+vi.mock("@/lib/plans", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/plans")>();
+  return {
+    ...actual,
+    get ANNUAL_BILLING_ENABLED() { return flags.ANNUAL_BILLING_ENABLED; },
+  };
+});
+
 // 결제 주문 생성 가드:
 // - 결제 금액은 클라이언트가 아니라 서버의 플랜 정의(lib/plans.ts)에서 계산
 // - customerKey는 유추 불가능한 UUID를 사용자당 1회 생성해 재사용
@@ -99,6 +109,18 @@ describe("/api/payment/order", () => {
     const res = await POST(req({ planId: "PRO", billingCycle: "weekly" }));
     expect(res.status).toBe(400);
     expect(orderCreate).not.toHaveBeenCalled();
+  });
+
+  it("연간 스위치가 꺼져 있으면 연간 주문을 만들지 않는다(화면 우회 차단)", async () => {
+    flags.ANNUAL_BILLING_ENABLED = false;
+    try {
+      const res = await POST(req({ planId: "PRO", billingCycle: "yearly" }));
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(/연간 결제는 현재 제공하지 않습니다/);
+      expect(orderCreate).not.toHaveBeenCalled();
+    } finally {
+      flags.ANNUAL_BILLING_ENABLED = true;
+    }
   });
 
   it("연간 구독 기간 중에는 주문을 만들 수 없다 (남은 기간 소멸 방지)", async () => {

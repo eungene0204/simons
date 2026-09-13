@@ -119,3 +119,32 @@ export async function chargeBillingKey(params: {
     { idempotencyKey: params.idempotencyKey, failMessage: "자동결제 승인에 실패했습니다." }
   );
 }
+
+export interface TossCancelResult {
+  paymentKey: string;
+  orderId: string;
+  status: string; // DONE(부분 취소 후에도 유지) | CANCELED(전액 취소)
+  cancels?: Array<Record<string, unknown>>;
+  [key: string]: unknown;
+}
+
+/**
+ * 결제 취소 API(/v1/payments/{paymentKey}/cancel) 호출.
+ * cancelAmount를 주면 부분 취소, 생략하면 전액 취소다. 중도 해지 정산 환불이
+ * 부분 취소를 쓴다 — 금액은 반드시 서버가 계산한 정산액이어야 한다.
+ */
+export async function cancelPayment(params: {
+  paymentKey: string;
+  cancelReason: string;
+  cancelAmount?: number;
+  idempotencyKey?: string;
+}): Promise<TossCancelResult> {
+  return tossPost<TossCancelResult>(
+    `/v1/payments/${encodeURIComponent(params.paymentKey)}/cancel`,
+    {
+      cancelReason: params.cancelReason,
+      ...(params.cancelAmount === undefined ? {} : { cancelAmount: params.cancelAmount }),
+    },
+    { idempotencyKey: params.idempotencyKey, failMessage: "결제 취소에 실패했습니다." }
+  );
+}

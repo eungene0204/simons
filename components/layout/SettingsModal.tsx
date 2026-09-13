@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDialogBehavior } from "@/lib/hooks/useDialogBehavior";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { cancelSubscriptionPrompt } from "@/lib/subscriptionCancelPrompt";
 import { useRouter } from "next/navigation";
 import {
   ChartBar,
@@ -159,10 +160,10 @@ export default function SettingsModal({
     if (isCanceling) return;
     if (
       !(await confirm({
-        title: t("자동갱신을 해지할까요?"),
-        message: t("이미 결제된 기간에는 계속 이용할 수 있습니다."),
-        confirmLabel: t("해지"),
-        danger: true,
+        ...cancelSubscriptionPrompt(
+          summary?.plan.name ?? "",
+          formatBillingDate(subscription?.nextBillingAt ?? null)
+        ),
       }))
     ) {
       return;

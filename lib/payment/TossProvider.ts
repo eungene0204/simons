@@ -6,7 +6,7 @@
 // 시작하므로 서버 createCheckout이 만들 것이 없다 — successUrl로 돌아온 authKey를
 // verifyPayment에서 빌링키로 교환하고 첫 결제를 승인하는 것이 서버 몫이다.
 
-import { chargeBillingKey, issueBillingKey } from "@/lib/server/tossPayments";
+import { cancelPayment, chargeBillingKey, issueBillingKey } from "@/lib/server/tossPayments";
 import type {
   CheckoutInput,
   CheckoutSession,
@@ -58,9 +58,12 @@ export class TossProvider implements PaymentProvider {
     // 카드 등록창을 중단하면 세션이 그대로 소멸한다 — 서버가 정리할 것이 없다.
   }
 
-  async refund(_providerPaymentKey: string, _amount?: number): Promise<void> {
-    // 결제 취소 API(/v1/payments/{paymentKey}/cancel)는 아직 배선되지 않았다.
-    // 현행 운영은 갱신 중단(subscriptionCanceledAt)만 제공한다 — 필요 시점에 구현한다.
-    throw new Error("토스 환불은 아직 지원하지 않습니다.");
+  /** amount를 주면 부분 취소(중도 해지 정산 환불), 생략하면 전액 취소다. */
+  async refund(providerPaymentKey: string, amount?: number): Promise<void> {
+    await cancelPayment({
+      paymentKey: providerPaymentKey,
+      cancelReason: "환불 처리",
+      cancelAmount: amount,
+    });
   }
 }

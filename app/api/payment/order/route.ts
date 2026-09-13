@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
 import {
+  ANNUAL_BILLING_ENABLED,
   PLANS,
   isValidBillingCycle,
   isValidPlanId,
@@ -34,6 +35,10 @@ export async function POST(request: Request) {
     const billingCycle: BillingCycle = body?.billingCycle === undefined ? "monthly" : body.billingCycle;
     if (!isValidBillingCycle(billingCycle)) {
       return NextResponse.json({ error: "잘못된 결제 주기입니다." }, { status: 400 });
+    }
+    // 연간 상품이 꺼져 있으면 새 연간 주문을 만들지 않는다 — 약관에 없는 상품을 팔면 안 된다.
+    if (billingCycle === "yearly" && !ANNUAL_BILLING_ENABLED) {
+      return NextResponse.json({ error: "연간 결제는 현재 제공하지 않습니다." }, { status: 400 });
     }
 
     const plan = PLANS[planId];
