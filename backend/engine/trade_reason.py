@@ -61,6 +61,9 @@ WILLIAMS_R_LEVEL = "Williams %R({0}) {1} {2}"
 MFI_LEVEL = "MFI({0}) {1} {2}"
 ROC_LEVEL = "ROC({0}) {1} {2} (모멘텀)"
 RELATIVE_RETURN_LEVEL = "시장 대비 초과수익률({0}일) {1}%p {2}"
+# 실측값 동봉 — "0%p 이상"만 보이면 얼마나 앞섰는지 읽을 수 없다(2026-09-13 사용자 지적).
+# {1}=그 봉의 실측 초과수익률(부호 포함, 소수 1자리). 기준값은 싣지 않는다(사용자 지시).
+RELATIVE_RETURN_MEASURED = "시장 대비 초과수익률({0}일) {1}%p"
 VOLATILITY_LEVEL = "변동성({0}일, 연환산) {1}% {2}"
 PRICE_LEVEL = "현재가 {0} {1}"
 BOLLINGER_LOWER = "볼린저 밴드 하단 돌파(매수)"

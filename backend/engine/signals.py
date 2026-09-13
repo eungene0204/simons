@@ -134,10 +134,20 @@ class SignalEngine:
         if len(true_indices) > 0:
             sig_segs = [self.get_condition_segments(c) for c in signals]
             fil_segs = [self.get_condition_segments(c) for c in filters]
+            # 실측값을 싣는 조건(시장 대비 초과수익률)은 행마다 서술이 달라진다 — 그 조건의
+            # 지표 열만 미리 꺼내 두고, 나머지 조건은 정적 서술을 그대로 재사용한다.
+            sig_measured = [self._measured_array(c, df) for c in signals]
+            fil_measured = [self._measured_array(c, df) for c in filters]
             sig_joiner = [tr.SEP_AND] if logic == 'AND' else tr.or_separator()
+
+            def segs_at(cond, static, measured, i):
+                if measured is None:
+                    return static
+                return self.get_condition_segments(cond, measured=float(measured[i]))
+
             for i in true_indices:
-                active_sig = [d for d, arr in zip(sig_segs, sig_arrays) if arr[i] and d]
-                active_fil = [d for d, arr in zip(fil_segs, fil_arrays) if arr[i] and d]
+                active_sig = [segs_at(c, d, m, i) for c, d, m, arr in zip(signals, sig_segs, sig_measured, sig_arrays) if arr[i] and d]
+                active_fil = [segs_at(c, d, m, i) for c, d, m, arr in zip(filters, fil_segs, fil_measured, fil_arrays) if arr[i] and d]
                 sig_part = tr.join(active_sig, sig_joiner)
                 fil_part = tr.join(active_fil, [tr.SEP_AND])
                 if sig_part and fil_part:
@@ -489,13 +499,13 @@ class SignalEngine:
                 if not res:
                     sig_res = False
                 elif sig_res:
-                    segs = self.get_condition_segments(cond)
+                    segs = self.get_condition_segments(cond, measured=self._measured_at(cond, df, idx))
                     if segs:
                         sig_segs.append(segs)
             else:
                 if res:
                     sig_res = True
-                    segs = self.get_condition_segments(cond)
+                    segs = self.get_condition_segments(cond, measured=self._measured_at(cond, df, idx))
                     if segs:
                         sig_segs.append(segs)
 
@@ -509,7 +519,7 @@ class SignalEngine:
                 fil_segs = []
                 break
             else:
-                segs = self.get_condition_segments(cond)
+                segs = self.get_condition_segments(cond, measured=self._measured_at(cond, df, idx))
                 if segs:
                     fil_segs.append(segs)
 
@@ -806,11 +816,44 @@ class SignalEngine:
         """조건의 한국어 서술. 표시용 구조화 표현은 get_condition_segments가 정본이다."""
         return tr.render_kr(self.get_condition_segments(cond))
 
-    def get_condition_segments(self, cond: Dict[str, Any]) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _measured_column(cond: Dict[str, Any]) -> Optional[str]:
+        """사유에 그 봉의 실측값을 싣는 조건의 지표 열 이름. 정적 서술이면 None.
+
+        시장 대비 초과수익률은 기준값("0%p 이상")만 보여주면 얼마나 앞섰는지 읽을 수
+        없어 실측값을 함께 싣는다(2026-09-13).
+        """
+        if cond.get('id') == 'relative_return':
+            return f"relative_return_{cond.get('params', {}).get('period', 60)}"
+        return None
+
+    def _measured_array(self, cond: Dict[str, Any], df: pl.DataFrame) -> Optional[np.ndarray]:
+        col = self._measured_column(cond)
+        if col is None:
+            return None
+        try:
+            return df[col].to_numpy().astype(float)
+        except Exception:
+            return None
+
+    def _measured_at(self, cond: Dict[str, Any], df: pl.DataFrame, idx: int) -> Optional[float]:
+        col = self._measured_column(cond)
+        if col is None:
+            return None
+        try:
+            val = df[col][idx]
+            return float(val) if val is not None else None
+        except Exception:
+            return None
+
+    def get_condition_segments(
+        self, cond: Dict[str, Any], measured: Optional[float] = None
+    ) -> List[Dict[str, Any]]:
         """조건 서술의 구조화 표현(한국어 정본 템플릿 + 인자).
 
         표시 번역은 프론트 t() 소관이라 완성 문장 대신 템플릿과 인자를 싣는다
-        (engine/trade_reason.py 참고).
+        (engine/trade_reason.py 참고). `measured`는 그 봉의 실측 지표값 —
+        `_measured_column`이 열을 정한 조건만 받으며, 없으면 정적 서술이다.
         """
         cid, p = cond['id'], cond['params']
         op = p.get('operator', '')
@@ -897,6 +940,8 @@ class SignalEngine:
             sig_type = p.get('signalType', 'buy')
             val = p.get('value', 0)
             rr_op_seg = op_seg if op else tr.part(tr.OP_GTE if sig_type != 'sell' else tr.OP_LTE)
+            if measured is not None and np.isfinite(measured):
+                return [tr.part(tr.RELATIVE_RETURN_MEASURED, period, f"{measured:+.1f}")]
             return [tr.part(tr.RELATIVE_RETURN_LEVEL, period, val, rr_op_seg)]
         elif cid == 'volatility':
             period = p.get('period', 60)

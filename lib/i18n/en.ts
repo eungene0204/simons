@@ -2767,6 +2767,7 @@ export const en: Record<string, string> = {
   "ADX {0} {1} (추세 강도)": "ADX {0} {1} (trend strength)",
   "ROC({0}) {1} {2} (모멘텀)": "ROC({0}) {1} {2} (momentum)",
   "시장 대비 초과수익률({0}일) {1}%p {2}": "Excess return vs market ({0}d) {1}%p {2}",
+  "시장 대비 초과수익률({0}일) {1}%p": "Excess return vs market ({0}d) {1}%p",
   "변동성({0}일, 연환산) {1}% {2}": "Volatility ({0}D, annualized) {1}% {2}",
   "현재가 {0} {1}": "Price {0} {1}",
   "볼린저 밴드 하단 돌파(매수)": "Breaks below Bollinger lower band (buy)",

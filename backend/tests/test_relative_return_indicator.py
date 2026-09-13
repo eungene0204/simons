@@ -83,6 +83,28 @@ def test_condition_description_names_market_excess_return():
     assert "시장 대비 초과수익률(63일)" in desc and "0" in desc
 
 
+def test_trade_reason_carries_measured_excess_return():
+    # [회귀 2026-09-13] "시장 대비 초과수익률(63일) 0%p 이상"만 보이면 얼마나 앞섰는지 읽을 수 없다 —
+    # 신호가 난 봉의 실측값을 사유에 함께 싣는다. 벡터 경로(generate_signals)와 행별 경로(evaluate_group)
+    # 모두 같은 문장이어야 한다.
+    from engine import trade_reason as tr
+    engine = SignalEngine()
+    df = pl.DataFrame({"relative_return_63": [4.26, -2.0, 0.0, float("nan")], "close": [1.0, 1.0, 1.0, 1.0]})
+    cond = {"id": "relative_return", "params": {"period": 63, "operator": ">", "value": 0, "signalType": "buy"}}
+    group = {"logic": "AND", "conditions": [cond]}
+
+    _, reasons = engine.generate_signals(df, group)
+    assert reasons[1] is None and reasons[2] is None and reasons[3] is None
+    text = tr.render_kr(tr.decode(reasons[0]))
+    assert text == "시장 대비 초과수익률(63일) +4.3%p"
+
+    ok, row_reason = engine.evaluate_group(group, 0, df)
+    assert ok and tr.render_kr(tr.decode(row_reason)) == text
+
+    # 실측값이 없으면(정적 서술 요청) 종전 문장 그대로다.
+    assert engine.get_condition_description(cond) == "시장 대비 초과수익률(63일) 0%p 이상"
+
+
 # ── ③ 레지스트리·온톨로지·컴파일·컨버터 ──────────────────────────────────────
 
 def test_registry_and_ontology_know_the_leaf():
