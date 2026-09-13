@@ -124,8 +124,15 @@ export default function PricingPlans({
   const isPaypalManaged = Boolean(subscription) && subscription?.provider === "paypal";
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
 
+  // 같은 플랜이라도 결제 주기가 다르면 "현재 이용 중"이 아니다(월간 ↔ 연간 전환 경로).
+  // 카드의 "현재 이용 중" 표시와 클릭 차단이 같은 규칙을 써야 한다 — 어긋나면 버튼은
+  // 눌리는데 아무 일도 일어나지 않는다.
+  const isCurrentSelection = (planId: PlanId) =>
+    planId === currentPlanId &&
+    (plans[planId].monthlyPrice <= 0 || billingCycle === currentCycle);
+
   const handleSelect = async (planId: PlanId) => {
-    if (planId === currentPlanId || pendingPlanId) return;
+    if (isCurrentSelection(planId) || pendingPlanId) return;
 
     // 유료 플랜은 토스페이먼츠 자동결제(빌링) 체크아웃 모달을 연다
     if (planId !== "FREE") {
@@ -225,9 +232,7 @@ export default function PricingPlans({
           const isPaidCycleShown = plan.monthlyPrice > 0;
           const monthlyEquivalent = Math.round(plan.yearlyPrice / 12);
           const discountPercent = yearlyDiscountPercent(plan);
-          // 같은 플랜이라도 결제 주기가 다르면 "현재 이용 중"이 아니다(월간 → 연간 전환 경로).
-          const isCurrent =
-            planId === currentPlanId && (!isPaidCycleShown || billingCycle === currentCycle);
+          const isCurrent = isCurrentSelection(planId);
           const features = planFeatures(planId, plan);
           const description = t(PLAN_DESCRIPTIONS[planId]);
           // 해지 예약된 구독은 만료일에 FREE로 내려간다 — 다시 누를 동작이 없다.

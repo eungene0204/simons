@@ -80,11 +80,13 @@ function mockAuthenticatedPlanUsage({
   strategies = { used: 12, limit: 50, unlimited: false },
   planStartDate = null,
   planEndDate = null,
+  subscription = null,
 }: {
   plan?: { planId: string; name: string; initialInvestmentAmount: number };
   strategies?: { used: number; limit: number | null; unlimited: boolean };
   planStartDate?: string | null;
   planEndDate?: string | null;
+  subscription?: { nextBillingAt: string | null; canceled: boolean } | null;
 } = {}) {
   fetchMock.mockImplementation((input: RequestInfo | URL) => {
     const url = String(input);
@@ -111,6 +113,7 @@ function mockAuthenticatedPlanUsage({
             planStartDate,
             planEndDate,
           },
+          subscription,
           accounts: { used: 3, limit: 10 },
           strategies,
           backtests: { used: 7, limit: 100 },
@@ -167,6 +170,34 @@ describe("TopNavigation plan modal", () => {
     expect(screen.getAllByText("미등록")).toHaveLength(2);
     expect(screen.getByText("계좌당 초기 모의 투자금")).toBeInTheDocument();
     expect(screen.getByText("50,000,000원")).toHaveClass("text-gray-300");
+  });
+
+  // 회귀: 연간 구독인데도 "플랜 종료 날짜"에 사용량 초기화일(구독 시작 +1개월)이 찍혀
+  // 연간 결제가 반영되지 않은 것처럼 보이던 결함.
+  it("자동갱신 구독 중에는 사용량 초기화일이 아니라 다음 결제일을 표시한다", async () => {
+    mockAuthenticatedPlanUsage({
+      planStartDate: "2026-09-13T01:29:24.000Z",
+      planEndDate: "2026-10-13T01:29:24.000Z",
+      subscription: { nextBillingAt: "2027-09-13T01:29:24.000Z", canceled: false },
+    });
+    await openPlanModal();
+
+    expect(await screen.findByText("다음 결제일")).toBeInTheDocument();
+    expect(screen.getByText("2027. 09. 13.")).toBeInTheDocument();
+    expect(screen.queryByText("플랜 종료 날짜")).not.toBeInTheDocument();
+    expect(screen.queryByText("2026. 10. 13.")).not.toBeInTheDocument();
+  });
+
+  it("해지 예약된 구독은 이용 종료 날짜로 표시한다", async () => {
+    mockAuthenticatedPlanUsage({
+      planStartDate: "2026-09-13T01:29:24.000Z",
+      planEndDate: "2026-10-13T01:29:24.000Z",
+      subscription: { nextBillingAt: "2027-09-13T01:29:24.000Z", canceled: true },
+    });
+    await openPlanModal();
+
+    expect(await screen.findByText("이용 종료 날짜")).toBeInTheDocument();
+    expect(screen.getByText("2027. 09. 13.")).toBeInTheDocument();
   });
 
   it("/us에서는 초기 모의 투자금을 미국 가격표(USD)로 표시한다", async () => {

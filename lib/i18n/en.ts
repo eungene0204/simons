@@ -973,6 +973,8 @@ export const en: Record<string, string> = {
   "플랜 정보를 불러오는 중입니다.": "Loading plan information.",
   "플랜 정보를 불러오지 못했습니다.": "Couldn't load plan information.",
   "플랜 종료 날짜": "Plan end date",
+  "다음 결제일": "Next billing date",
+  "이용 종료 날짜": "Access ends on",
   "현재 플랜": "Current plan",
   // ── components/order/InvestorTradingPanel.tsx
   "개인": "Individuals",

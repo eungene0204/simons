@@ -128,6 +128,10 @@ type PlanUsageSummary = {
     planStartDate?: string | null;
     planEndDate?: string | null;
   };
+  subscription?: {
+    nextBillingAt?: string | null;
+    canceled: boolean;
+  } | null;
   accounts: { used: number; limit: number };
   strategies: { used: number; limit: number | null; unlimited: boolean };
   backtests: { used: number; limit: number };
@@ -902,10 +906,21 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                       t("플랜 시작 날짜"),
                       formatPlanDate(planUsage.plan.planStartDate),
                     ],
-                    [
-                      t("플랜 종료 날짜"),
-                      formatPlanDate(planUsage.plan.planEndDate),
-                    ],
+                    // 자동갱신 구독이 있으면 이 행은 구독 기준 날짜를 보여준다.
+                    // plan.planEndDate는 백테스트 횟수가 초기화되는 사용량 주기 종료일이라
+                    // 연간 구독이어도 한 달마다 돌아온다 — 만료일 자리에 두면 연간 결제가
+                    // 반영되지 않은 것처럼 읽힌다(리셋 안내는 아래 Usage 칸이 정본).
+                    planUsage.subscription
+                      ? [
+                          planUsage.subscription.canceled
+                            ? t("이용 종료 날짜")
+                            : t("다음 결제일"),
+                          formatPlanDate(planUsage.subscription.nextBillingAt),
+                        ]
+                      : [
+                          t("플랜 종료 날짜"),
+                          formatPlanDate(planUsage.plan.planEndDate),
+                        ],
                     [
                       t("계좌당 초기 모의 투자금"),
                       // /us에서는 플랜의 미국 초기 자금(USD 정본: lib/pricing/us.ts)을 표시한다

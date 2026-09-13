@@ -241,6 +241,11 @@ describe("PricingPlans", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "연간 결제 · 20% 할인" }));
     expect(within(proCard).getByRole("button", { name: "연간 결제로 전환" })).toBeEnabled();
+
+    // 회귀: 버튼은 눌리는데 아무 일도 일어나지 않던 결함 — 클릭 차단이 주기를 보지 않아
+    // 같은 플랜이면 결제 모달을 열기 전에 빠져나갔다.
+    fireEvent.click(within(proCard).getByRole("button", { name: "연간 결제로 전환" }));
+    expect(screen.getByRole("dialog", { name: "Pro 플랜 구독 결제" })).toBeInTheDocument();
   });
 
   it("연간 구독 중에는 유료 플랜 변경을 잠그고 해지만 남긴다", () => {
