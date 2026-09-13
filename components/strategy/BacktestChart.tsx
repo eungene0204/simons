@@ -36,6 +36,7 @@ export interface MonthlyReturnDataPoint {
 // 롤링 수익률 지점 — 창 종료일(time)에 창 시작일(start)을 동반한다(툴팁 "시작 ~ 종료").
 export interface RollingReturnDataPoint extends MonthlyReturnDataPoint {
   start?: string; // YYYY-MM-DD
+  benchmark?: number | null; // 같은 창의 벤치마크 수익률(%) — 결측이면 null(그 지점은 선을 끊는다)
 }
 
 export interface SeasonalDataPoint {
@@ -121,7 +122,8 @@ export default function BacktestChart({
   const vbtEquitySeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const drawdownSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const monthlySeriesRef = useRef<ISeriesApi<"Baseline"> | null>(null);
-  const rollingSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const rollingSeriesRef = useRef<ISeriesApi<"Baseline"> | null>(null);
+  const rollingBenchmarkSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const seasonalSeriesRefs = useRef<Record<string, ISeriesApi<"Line">>>({});
   const tooltipRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -186,6 +188,16 @@ export default function BacktestChart({
         time: dateToTimestamp(item.time),
         value: item.value,
       }));
+  }, [type, rollingData]);
+  // 같은 창의 벤치마크 롤링 수익률 — 결측 지점은 whitespace로 두어 선을 끊는다. 벤치마크가 전혀 없으면 빈 배열.
+  const rollingBenchmarkChartData = useMemo(() => {
+    if (type !== "rolling_returns" || !rollingData || rollingData.length === 0) return [];
+    if (!rollingData.some((item) => typeof item.benchmark === "number" && isFinite(item.benchmark))) return [];
+    return rollingData.map((item) =>
+      typeof item.benchmark === "number" && isFinite(item.benchmark)
+        ? { time: dateToTimestamp(item.time), value: item.benchmark }
+        : { time: dateToTimestamp(item.time) }
+    );
   }, [type, rollingData]);
   // 창 종료일 → 창 시작일. 툴팁 콜백은 차트 생성 시 한 번 등록되므로 ref로 최신 데이터를 읽는다.
   const rollingWindowStartRef = useRef<Map<string, string>>(new Map());
@@ -457,9 +469,15 @@ export default function BacktestChart({
           });
           chart.timeScale().fitContent();
         } else if (type === "rolling_returns") {
-          // Create rolling return line series with a zero baseline
-          const rollingSeries = chart.addSeries(LineSeries, {
-            color: "#ef4444",
+          // 롤링 수익률 라인 — 월별 차트와 같은 규칙으로 0 기준선 위는 빨강, 아래는 파랑.
+          const rollingSeries = chart.addSeries(BaselineSeries, {
+            baseValue: { type: "price", price: 0 },
+            topLineColor: "rgb(239, 68, 68)",
+            bottomLineColor: "rgb(55, 122, 244)",
+            topFillColor1: "transparent",
+            topFillColor2: "transparent",
+            bottomFillColor1: "transparent",
+            bottomFillColor2: "transparent",
             lineWidth: 2,
             lineType: LineType.Curved,
             priceFormat: {
@@ -477,6 +495,22 @@ export default function BacktestChart({
             title: "",
           });
           rollingSeriesRef.current = rollingSeries;
+
+          // 같은 창의 벤치마크 롤링 수익률 — 자산곡선 차트의 벤치마크와 같은 초록.
+          if (rollingBenchmarkChartData.length > 0) {
+            const benchSeries = chart.addSeries(LineSeries, {
+              color: "#22c55e", // --main-green
+              lineWidth: 1,
+              lineType: LineType.Curved,
+              priceFormat: {
+                type: "price",
+                precision: 2,
+                minMove: 0.01,
+              },
+            });
+            rollingBenchmarkSeriesRef.current = benchSeries;
+            benchSeries.setData(rollingBenchmarkChartData);
+          }
 
           if (rollingChartData.length > 0) {
             rollingSeries.setData(rollingChartData);
@@ -639,6 +673,19 @@ export default function BacktestChart({
                   `;
                 }
               }
+              const rollBenchSeries = rollingBenchmarkSeriesRef.current;
+              if (rollBenchSeries) {
+                const benchData = param.seriesData.get(rollBenchSeries);
+                if (benchData && "value" in benchData) {
+                  const val = benchData.value as number;
+                  tooltipContent += `
+                    <div class="text-white text-[10px] flex justify-between gap-4">
+                      <span>${t("벤치마크")}:</span>
+                      <span class="text-main-green font-mono font-bold">${val >= 0 ? "+" : ""}${val.toFixed(2)}%</span>
+                    </div>
+                  `;
+                }
+              }
             }
 
             tooltipContent += `</div>`;
@@ -706,6 +753,7 @@ export default function BacktestChart({
       drawdownSeriesRef.current = null;
       monthlySeriesRef.current = null;
       rollingSeriesRef.current = null;
+      rollingBenchmarkSeriesRef.current = null;
       seasonalSeriesRefs.current = {};
     };
   }, [type, height, handleResize, formatValue, priceMinMove]); // Re-initialize when type changes
@@ -745,6 +793,9 @@ export default function BacktestChart({
       if (rollingSeriesRef.current) {
         rollingSeriesRef.current.setData(rollingChartData);
       }
+      if (rollingBenchmarkSeriesRef.current) {
+        rollingBenchmarkSeriesRef.current.setData(rollingBenchmarkChartData);
+      }
       if (rollingChartData.length > 0 && chartRef.current) {
         chartRef.current.timeScale().fitContent();
       }
@@ -774,7 +825,7 @@ export default function BacktestChart({
         chart.timeScale().fitContent();
       }
     }
-  }, [type, equityChartData, buyHoldChartData, vbtEquityChartData, drawdownChartData, monthlyChartData, rollingChartData, seasonalChartData]);
+  }, [type, equityChartData, buyHoldChartData, vbtEquityChartData, drawdownChartData, monthlyChartData, rollingChartData, rollingBenchmarkChartData, seasonalChartData]);
 
   return (
     <div className="w-full relative group" style={{ height: `${height}px` }}>
@@ -808,10 +859,21 @@ export default function BacktestChart({
           </>
           )}
           {type === "rolling_returns" && (
-            <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[rgba(15,15,15,0.8)] border border-gray-800 backdrop-blur-sm">
-               <div className="w-2.5 h-2.5 rounded-full bg-[#ef4444]" />
-               <span className="text-[10px] font-bold text-white">{t("롤링 수익률")}</span>
-            </div>
+            <>
+              <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[rgba(15,15,15,0.8)] border border-gray-800 backdrop-blur-sm">
+                 <div className="flex gap-1">
+                    <div className="w-2.5 h-2.5 rounded-full bg-main-red" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-main-blue" />
+                 </div>
+                 <span className="text-[10px] font-bold text-white">{t("롤링 수익률")}</span>
+              </div>
+              {rollingBenchmarkChartData.length > 0 && (
+                <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[rgba(15,15,15,0.8)] border border-gray-800 backdrop-blur-sm">
+                   <div className="w-2.5 h-2.5 rounded-full bg-main-green" />
+                   <span className="text-[10px] font-bold text-white">{t("벤치마크")}</span>
+                </div>
+              )}
+            </>
           )}
           {type === "monthly_returns" && (
             <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-[rgba(15,15,15,0.8)] border border-gray-800 backdrop-blur-sm">

@@ -52,7 +52,7 @@ import CreateAccountModal from "@/components/ui/CreateAccountModal";
 import { createAccount } from "@/lib/portfolio";
 import { buildPromptSummaryRows } from "./promptSummaryRows";
 import { buildMonthlyReturnSeries, buildMonthlyReturnTableData } from "./monthlyReturns";
-import { buildRollingReturnSeries, buildRollingWindowStatsTable } from "./rollingReturns";
+import { buildRollingReturnSeries, buildRollingWindowStatsTable, isAnnualizedWindow } from "./rollingReturns";
 import RollingReturnTable from "./RollingReturnTable";
 import { ROLLING_WINDOW_OPTIONS, rollingWindowLabel } from "./rollingReturnLabels";
 import {
@@ -725,9 +725,9 @@ export default function BacktestDashboard({
   const rollingWindowRows = useMemo(
     () =>
       returnsView === "rolling"
-        ? buildRollingWindowStatsTable(result.dates ?? [], result.equity ?? [], ROLLING_WINDOW_OPTIONS)
+        ? buildRollingWindowStatsTable(result.dates ?? [], result.equity ?? [], ROLLING_WINDOW_OPTIONS, result.benchmarkEquity)
         : [],
-    [returnsView, result.dates, result.equity]
+    [returnsView, result.dates, result.equity, result.benchmarkEquity]
   );
   // 표 위 라인 차트 — 선택한 투자 기간의 매 거래일 롤링 수익률(전체 구간). 표에 행이 있는 기간만 선택 가능.
   const [rollingWindowMonths, setRollingWindowMonths] = useState(12);
@@ -739,9 +739,10 @@ export default function BacktestDashboard({
     () =>
       effectiveRollingWindow == null
         ? []
-        : buildRollingReturnSeries(result.dates ?? [], result.equity ?? [], effectiveRollingWindow),
-    [result.dates, result.equity, effectiveRollingWindow]
+        : buildRollingReturnSeries(result.dates ?? [], result.equity ?? [], effectiveRollingWindow, result.benchmarkEquity),
+    [result.dates, result.equity, result.benchmarkEquity, effectiveRollingWindow]
   );
+  const rollingSeriesHasBenchmark = rollingReturnSeries.some((p) => p.benchmark != null);
 
   const sortedSymbols = useMemo(() => {
     if (!result.symbols) return [];
@@ -1890,12 +1891,16 @@ export default function BacktestDashboard({
                   {returnsView === "rolling" && (
                     <RollingReturnTable
                       rows={rollingWindowRows}
+                      benchmarkLabel={benchmarkLabel}
                       chart={
                         rollingReturnSeries.length > 0 && effectiveRollingWindow != null ? (
                           <div>
                             <BacktestChart type="rolling_returns" height={280} rollingData={rollingReturnSeries} />
                             <p className="mt-2 text-[10px] leading-relaxed text-gray-600">
-                              {t("* 각 지점은 해당일 기준 직전 {0} 구간의 수익률입니다. 위 버튼으로 투자 기간을 바꿔 볼 수 있습니다.", rollingWindowLabel(effectiveRollingWindow))}
+                              {isAnnualizedWindow(effectiveRollingWindow)
+                                ? t("* 각 지점은 해당일 기준 직전 {0} 구간의 연환산 수익률입니다. 위 버튼으로 투자 기간을 바꿔 볼 수 있습니다.", rollingWindowLabel(effectiveRollingWindow))
+                                : t("* 각 지점은 해당일 기준 직전 {0} 구간의 수익률입니다. 위 버튼으로 투자 기간을 바꿔 볼 수 있습니다.", rollingWindowLabel(effectiveRollingWindow))}
+                              {rollingSeriesHasBenchmark && ` ${t("초록 선은 같은 구간의 벤치마크({0}) 수익률입니다.", benchmarkLabel)}`}
                             </p>
                           </div>
                         ) : null

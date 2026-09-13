@@ -79,6 +79,49 @@ describe("RollingReturnTable", () => {
     expect(chart.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("1년을 넘는 행에는 '연환산' 표기가 붙고 1년 이하 행에는 없다", () => {
+    // 2021-01-02 ~ 2024-01-02 매월 초(37개월) — 2년·3년 창까지 담긴다
+    const dates: string[] = [];
+    const equity: number[] = [];
+    for (let i = 0; i < 37; i++) {
+      const y = 2021 + Math.floor(i / 12);
+      const m = (i % 12) + 1;
+      dates.push(`${y}-${String(m).padStart(2, "0")}-02`);
+      equity.push(100 * Math.pow(1.005, i));
+    }
+    const rows = buildRollingWindowStatsTable(dates, equity, ROLLING_WINDOW_OPTIONS);
+    render(<RollingReturnTable rows={rows} />);
+    expect(screen.getByTestId("rolling-row-12").textContent).not.toContain("연환산");
+    expect(screen.getByTestId("rolling-row-24").textContent).toContain("연환산");
+    expect(screen.getByTestId("rolling-row-36").textContent).toContain("연환산");
+    expect(screen.getByText(/1년을 넘는 투자 기간의 수익률은 연환산/)).toBeTruthy();
+  });
+
+  it("벤치마크가 있으면 초과 비율·벤치마크 평균을, 없으면 '—'와 안내를 보인다", () => {
+    const benchmark = EQUITY.map((_, i) => 100 * Math.pow(1.01, i));
+    const withBench = buildRollingWindowStatsTable(DATES, EQUITY, [1], benchmark);
+    const { unmount } = render(<RollingReturnTable rows={withBench} benchmarkLabel="KODEX 200" />);
+    const cell = screen.getByTestId("rolling-benchmark-1");
+    expect(cell.textContent).toContain(`${withBench[0].beatBenchmarkRatio!.toFixed(2)}%`);
+    expect(cell.textContent).toContain("벤치마크 평균");
+    expect(screen.getByText(/벤치마크\(KODEX 200\) 수익률보다 높았던/)).toBeTruthy();
+    unmount();
+
+    const noBench = buildRollingWindowStatsTable(DATES, EQUITY, [1]);
+    render(<RollingReturnTable rows={noBench} />);
+    expect(screen.getByTestId("rolling-benchmark-1").textContent).toBe("—");
+    expect(screen.getByText(/벤치마크 자산곡선이 없어/)).toBeTruthy();
+  });
+
+  it("하위 5%·상위 5% 열을 표시한다", () => {
+    const rows = buildRollingWindowStatsTable(DATES, EQUITY, [1]);
+    render(<RollingReturnTable rows={rows} />);
+    expect(screen.getByText("하위 5%")).toBeTruthy();
+    expect(screen.getByText("상위 5%")).toBeTruthy();
+    const row = screen.getByTestId("rolling-row-1");
+    expect(row.textContent).toContain(`${rows[0].p5Return.toFixed(2)}%`);
+  });
+
   it("행이 없으면 기간 부족 안내만 보인다", () => {
     render(<RollingReturnTable rows={[]} />);
     expect(screen.queryByTestId("rolling-return-table")).toBeNull();
