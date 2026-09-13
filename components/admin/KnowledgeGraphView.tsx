@@ -12,7 +12,7 @@ import { adminFetch, ErrorNotice, inputClass } from './shared'
 // 8할이라 다 그리면 헤어볼이 된다. 종목은 노드 선택 시 그 이웃만 펼치고, 범례의
 // '상장사' 토글로 전체 표시도 선택할 수 있다.
 //
-// 색상: 어두운 표면(#0f0f0f)에서 전쌍(all-pairs) 검증을 통과하는 3색(파랑·청록·주황)
+// 색상: 어두운 표면(#141413)에서 전쌍(all-pairs) 검증을 통과하는 3색(파랑·청록·주황)
 // + 중립 회색 2단만 사용한다. 기업/ETF는 회색 계열이라 도형(원/사각형)·크기·라벨·
 // 범례가 2차 인코딩으로 식별을 보장한다(색 단독 식별 금지 원칙).
 
@@ -438,7 +438,7 @@ export default function KnowledgeGraphView() {
         }
         ctx.fill()
         // 마크 간 2px 표면 링 — 겹칠 때 경계를 유지한다
-        ctx.strokeStyle = '#0f0f0f'
+        ctx.strokeStyle = '#141413'
         ctx.lineWidth = 2
         ctx.stroke()
         if (n === selected || n === hovered) {

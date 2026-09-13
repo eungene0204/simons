@@ -107,7 +107,7 @@ function DetailModal({ box, onClose }: { box: ArchBox; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} aria-hidden />
-      <div className="relative max-h-[85vh] w-full max-w-xl overflow-y-auto rounded-xl border border-white/15 bg-[#161616] p-5 shadow-2xl">
+      <div className="relative max-h-[85vh] w-full max-w-xl overflow-y-auto rounded-xl border border-white/15 bg-[var(--card-bg)] p-5 shadow-2xl">
         <div className="mb-3 flex items-start gap-2.5">
           <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${meta.badge}`}>
             {meta.label}
@@ -1179,7 +1179,7 @@ function findBox(title: string): ArchBox | undefined {
 }
 
 const SVG_STROKE: Record<Domain, string> = {
-  user: '#9ca3af',
+  user: '#a8a49a',
   next: '#38bdf8',
   py: '#34d399',
   engine: '#818cf8',
@@ -1511,7 +1511,7 @@ function ArchitectureGraph({ onSelect }: { onSelect: OnSelectBox }) {
                   y={ly}
                   fontSize="10.5"
                   fontWeight={700}
-                  fill="#9ca3af"
+                  fill="#a8a49a"
                   textAnchor={e.anchor ?? 'middle'}
                   stroke="#111111"
                   strokeWidth={4}
@@ -1539,7 +1539,7 @@ function ArchitectureGraph({ onSelect }: { onSelect: OnSelectBox }) {
                 width={n.w}
                 height={NODE_H}
                 rx={10}
-                fill="#161616"
+                fill="var(--card-bg)"
                 stroke={stroke}
                 strokeOpacity={0.6}
                 strokeWidth={1.2}
@@ -1554,7 +1554,7 @@ function ArchitectureGraph({ onSelect }: { onSelect: OnSelectBox }) {
               >
                 {n.title}
               </text>
-              <text x={n.x + n.w / 2} y={n.y + 43} textAnchor="middle" fontSize="10.5" fill="#9ca3af">
+              <text x={n.x + n.w / 2} y={n.y + 43} textAnchor="middle" fontSize="10.5" fill="#a8a49a">
                 {n.sub}
               </text>
               {clickable && (

@@ -1,4 +1,6 @@
 /** @type {import('tailwindcss').Config} */
+const colors = require('tailwindcss/colors')
+
 module.exports = {
   content: [
     './pages/**/*.{js,ts,jsx,tsx,mdx}',
@@ -43,11 +45,24 @@ module.exports = {
           'Pretendard',
           'sans-serif',
         ],
+        // 큰 제목(display) 전용 — app/layout.tsx가 next/font로 --font-serif를 채운다.
+        // 본문·수치에는 쓰지 않는다(수치 자형이 바뀐다). 2026-09-13 전단지 테마.
+        serif: [
+          'var(--font-serif)',
+          'Noto Serif KR',
+          'Apple Myungjo',
+          'Georgia',
+          'serif',
+        ],
       },
       colors: {
         background: 'var(--background)',
         foreground: 'var(--foreground)',
-        white: 'rgb(224, 224, 224)',
+        // 따뜻한 다크 팔레트(2026-09-13): text-white/bg-white는 순백이 아니라 크림(#f4f1ea)이고,
+        // gray-*는 푸른 기가 도는 기본 gray 대신 갈색빛 stone 스케일이다. 배경 #141413과
+        // 같은 온도를 맞추기 위한 것으로, 컴포넌트의 gray-* 클래스는 그대로 두면 된다.
+        white: '#f4f1ea',
+        gray: colors.stone,
         blue: {
           500: 'rgb(59, 134, 247)',
         },
@@ -55,7 +70,7 @@ module.exports = {
         'main-blue': 'rgb(55, 122, 244)',
         'main-red': 'rgb(239, 68, 68)',
         'main-green': 'rgb(34, 197, 94)',
-        tab_black: 'rgb(37, 38, 46)',
+        tab_black: '#262522',
       },
       animation: {
         shimmer: 'shimmer 2s infinite',

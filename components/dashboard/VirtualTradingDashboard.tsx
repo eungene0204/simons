@@ -51,8 +51,8 @@ const formatSignedPercent = (value: number) =>
 const pnlColor = (v: number) =>
   v > 0 ? "#f87171" : v < 0 ? "#60a5fa" : "#ffffff";
 
-// 축 라벨은 의미 있는 텍스트다 — #6b7280(3.98:1)은 AA 미달, #9ca3af(7.6:1)로(§2, 2026-09-08)
-const axisStyle = { fill: "#9ca3af", fontSize: 10 };
+// 축 라벨은 의미 있는 텍스트다 — #6b7280(3.98:1)은 AA 미달, #a8a49a(7.6:1)로(§2, 2026-09-08)
+const axisStyle = { fill: "#a8a49a", fontSize: 10 };
 
 const valueTone = (v: number) =>
   v > 0

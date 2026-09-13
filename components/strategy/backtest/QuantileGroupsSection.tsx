@@ -142,7 +142,7 @@ export default function QuantileGroupsSection({ data }: Props) {
                   textAnchor="middle"
                   fontSize={10}
                   fontFamily="monospace"
-                  fill="#9ca3af"
+                  fill="#a8a49a"
                 >
                   {`${v >= 0 ? "+" : ""}${v.toFixed(1)}%`}
                 </text>
@@ -153,7 +153,7 @@ export default function QuantileGroupsSection({ data }: Props) {
                   textAnchor="middle"
                   fontSize={11}
                   fontWeight={isMain ? 800 : 500}
-                  fill={isMain ? "#e0e0e0" : "#9ca3af"}
+                  fill={isMain ? "#f4f1ea" : "#a8a49a"}
                 >
                   {t("{0}그룹", g.group)}
                 </text>

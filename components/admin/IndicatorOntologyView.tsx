@@ -315,7 +315,7 @@ export default function IndicatorOntologyView() {
           ctx.arc(sx, sy, r, 0, Math.PI * 2)
         }
         ctx.fill()
-        ctx.strokeStyle = '#0f0f0f'
+        ctx.strokeStyle = '#141413'
         ctx.lineWidth = 2
         ctx.stroke()
         if (n === selected || n === hovered) {

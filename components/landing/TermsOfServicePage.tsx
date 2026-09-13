@@ -255,7 +255,7 @@ export function TermsOfServicePage() {
           <p className="mt-10 text-sm font-black uppercase tracking-widest text-gray-500">
             {companyName}
           </p>
-          <h1 className="mt-3 text-4xl font-black tracking-normal text-white sm:text-5xl">
+          <h1 className="mt-3 font-serif text-4xl font-bold tracking-normal text-white sm:text-5xl">
             {t("서비스 이용약관")}
           </h1>
         </div>

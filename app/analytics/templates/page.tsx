@@ -77,7 +77,7 @@ export default function StrategyTemplatesPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="space-y-3">
               <div className="space-y-2">
-                <h1 className="text-3xl font-black text-white">{t("백테스트 입력 예시")}</h1>
+                <h1 className="font-serif text-3xl font-bold text-white">{t("백테스트 입력 예시")}</h1>
                 <p className="text-sm font-bold text-gray-500">
                   {t("가정한 조건을 선택하고 직접 수정한 뒤 과거 데이터로 실험할 수 있습니다")}
                 </p>

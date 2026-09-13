@@ -1538,9 +1538,9 @@ function BacktestRunningStatus({ message }: { message: string }) {
           filter: blur(26px);
           background: radial-gradient(
             ellipse at center,
-            rgba(240, 180, 41, 0.5) 0%,
-            rgba(240, 180, 41, 0.16) 38%,
-            rgba(240, 180, 41, 0) 72%
+            rgba(224, 128, 92, 0.5) 0%,
+            rgba(224, 128, 92, 0.16) 38%,
+            rgba(224, 128, 92, 0) 72%
           );
           animation: backtestAuroraSweep 6.5s ease-in-out infinite;
         }
@@ -5151,7 +5151,7 @@ function StrategyLabContent() {
                 {/* 페이지 유일 h1 — 검색엔진이 '퀀트 전략 … 시뮬레이션'을 본문 제목으로 읽게 한다. */}
                 <h1
                   data-testid="strategy-lab-headline"
-                  className="max-w-5xl text-[27px] leading-none tracking-tight text-[#fcfdff] sm:text-5xl lg:text-7xl [font-weight:950]"
+                  className="max-w-5xl text-[27px] leading-none tracking-tight text-white sm:text-5xl lg:text-7xl [font-weight:950]"
                 >
                   <AnimatedHeadline lines={HEADLINE_LINES.map((line) => t(line))} />
                 </h1>

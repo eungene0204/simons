@@ -105,7 +105,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
               className="relative flex max-h-[calc(100dvh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#111] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.8)] pointer-events-auto lg:max-h-[75vh] lg:rounded-2xl"
             >
             {/* Header - Drag Handle Area */}
-            <div className="flex items-center justify-between gap-2 border-b border-white/5 bg-[#161616] px-4 py-3 transition-colors lg:px-6">
+            <div className="flex items-center justify-between gap-2 border-b border-white/5 bg-[var(--card-bg)] px-4 py-3 transition-colors lg:px-6">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="p-2 bg-main-blue/10 rounded-xl">
                   <ChartBar className="w-5 h-5 text-main-blue" />
@@ -159,21 +159,21 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
                 <div className="space-y-5 animate-in fade-in duration-500">
                    {/* 1. Summary Cards */}
                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                     <div className="bg-[#161616] p-4 rounded-2xl border border-white/5">
+                     <div className="bg-[var(--card-bg)] p-4 rounded-2xl border border-white/5">
                         <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest block mb-2">{t("분석 범위")}</span>
                         <div className="flex items-end gap-2">
                            <span className="text-2xl font-black text-white">{t("60일")}</span>
                            <span className="text-xs text-gray-500 mb-1 font-bold">Lookback Period</span>
                         </div>
                      </div>
-                     <div className="bg-[#161616] p-4 rounded-2xl border border-white/5">
+                     <div className="bg-[var(--card-bg)] p-4 rounded-2xl border border-white/5">
                         <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest block mb-2">{t("설명 모델")}</span>
                         <div className="flex items-end gap-2">
                            <span className="text-2xl font-black text-main-blue">KernelSHAP</span>
                            <span className="text-xs text-gray-500 mb-1 font-bold">Hybrid Model</span>
                         </div>
                      </div>
-                     <div className="bg-[#161616] p-4 rounded-2xl border border-white/5">
+                     <div className="bg-[var(--card-bg)] p-4 rounded-2xl border border-white/5">
                         <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest block mb-2">{t("분석 신뢰도")}</span>
                         <div className="flex items-end gap-2">
                            <span className="text-2xl font-black text-main-green">High</span>
@@ -300,7 +300,7 @@ export default function XAIModal({ isOpen, onClose, symbol, date }: XAIModalProp
             </div>
 
             {/* Footer Info */}
-            <div className="border-t border-white/5 bg-[#161616] px-3 py-3 lg:px-6">
+            <div className="border-t border-white/5 bg-[var(--card-bg)] px-3 py-3 lg:px-6">
                <div className="flex items-start gap-3 bg-white/[0.03] p-3 rounded-xl border border-white/10">
                   <Info className="w-5 h-5 text-main-blue mt-0.5 flex-none" />
                   <p className="text-xs text-gray-400 leading-relaxed font-medium">

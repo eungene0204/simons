@@ -738,7 +738,7 @@ function OrderPageContent() {
           onClick={() => setOrderModal(null)}
         >
           <div
-            className="mx-0 flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#161616] lg:mx-4 lg:max-h-none"
+            className="mx-0 flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[var(--card-bg)] lg:mx-4 lg:max-h-none"
             onClick={(e) => e.stopPropagation()}
           >
             <div className={`flex flex-none flex-col items-center px-4 pb-3 pt-6 lg:px-6 lg:pb-4 lg:pt-8 ${
@@ -1052,7 +1052,7 @@ function OrderPageContent() {
                         <CaretDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
                       </button>
                       {isAccountDropdownOpen && (
-                        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-xl border border-white/[0.08] bg-[#161616] p-1.5 shadow-2xl">
+                        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-xl border border-white/[0.08] bg-[var(--card-bg)] p-1.5 shadow-2xl">
                           {virtualAccounts.length === 0 ? (
                             <div className="px-3 py-2 text-xs text-gray-500">{t("가상계좌가 없습니다")}</div>
                           ) : (

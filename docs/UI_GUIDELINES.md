@@ -7,11 +7,14 @@
 
 ## 1. 디자인 시스템 개요
 
-**Flat Dark** 기반의 다크 테마 UI.
+**Flat Dark** 기반의 다크 테마 UI. 2026-09-13부터 **따뜻한 팔레트**다 — 순검정·순백·푸른 회색 대신
+갈색빛 검정, 크림, 따뜻한 회색(tailwind `stone`)을 쓴다. 값의 정본은 `docs/marketing/flyer_intro_dark.html`
+전단지와 같다.
 
-- 배경: 깊은 검정색 (`#0f0f0f`)
-- 카드: 평면 단색 카드 (`flat-card` 클래스, 그림자/블러 없음)
-- 강조색: 빨강/파랑/초록 3색 체계
+- 배경: 갈색빛 검정 (`#141413`)
+- 글자: 크림 (`#f4f1ea`) — `text-white`가 이 값이다(순백 아님)
+- 카드: 평면 단색 카드 (`flat-card` 클래스, 그림자/블러 없음), 면은 `--card-bg`(`#1e1d1a`)
+- 강조색: 테라코타 `--chat-accent`(`#e0805c`) 하나. 상승/하락/성공은 의미색(빨강/파랑/초록)
 - 폰트: 굵고 대담한 스타일 (`font-black`, `font-bold`)
 
 ---
@@ -21,24 +24,24 @@
 ### CSS 커스텀 속성 (`globals.css`)
 
 ```css
---background:    #0f0f0f                    /* 페이지 배경 */
---foreground:    #e0e0e0                    /* 기본 텍스트 */
+--background:    #141413                    /* 페이지 배경(갈색빛 검정) */
+--foreground:    #f4f1ea                    /* 기본 텍스트(크림) */
 --main-blue:     rgb(55, 122, 244)          /* 상승/포지티브 */
 --main-red:      rgb(239, 68, 68)           /* 하락/네거티브 */
 --main-green:    rgb(34, 197, 94)           /* 수익/성공 */
---card-bg:       rgb(22, 22, 22)            /* 카드 배경 */
---card-border:   rgba(255, 255, 255, 0.05)  /* 카드 테두리 */
---glass-bg:      rgba(255, 255, 255, 0.02)  /* 유리 배경 */
---glass-border:  rgba(255, 255, 255, 0.12)  /* 유리 테두리 */
+--card-bg:       #1e1d1a                    /* 카드 배경 */
+--card-border:   rgba(244, 241, 234, 0.06)  /* 카드 테두리 */
+--glass-bg:      rgba(244, 241, 234, 0.03)  /* 유리 배경 */
+--glass-border:  rgba(244, 241, 234, 0.12)  /* 유리 테두리 */
 --accent-blue:   #3b82f6
 --success-green: #10b981
 --error-red:     #ef4444
---text-muted:    #64748b
+--text-muted:    #8a867d                    /* 5.1:1 */
 
 /* 대화 표면 (전략연구소) */
---chat-accent:           #f0b429                  /* 단일 강조색, #0f0f0f 대비 10.2:1 */
---chat-accent-soft:      rgba(240,180,41,0.14)
---chat-accent-ink:       #191203                  /* accent 채운 버튼의 글자색 */
+--chat-accent:           #e0805c                  /* 단일 강조색(테라코타), #141413 대비 6.5:1 */
+--chat-accent-soft:      rgba(224,128,92,0.14)
+--chat-accent-ink:       #1c0f09                  /* accent 채운 버튼의 글자색, 6.6:1 */
 /* 모든 대화 박스가 이 한 값을 쓴다 — 반투명 유리, 그라디언트 없음(2026-08-05 확정) */
 --chat-surface:           rgba(255,255,255,0.06)
 --chat-user-surface:      var(--chat-surface)     /* 사용자 발화 버블 */
@@ -47,8 +50,8 @@
 --chat-hairline:          rgba(255,255,255,0.09)
 
 /* WCAG AA 통과 보조 텍스트 */
---text-label:       #9ca3af                       /* 7.6:1 */
---text-placeholder: #8b8f96                       /* 5.9:1 */
+--text-label:       #a8a49a                       /* 7.4:1 */
+--text-placeholder: #918d84                       /* 5.6:1 */
 ```
 
 ### 배경은 토큰 하나
@@ -56,7 +59,14 @@
 페이지·패널·모달 배경은 `bg-[var(--background)]` 하나다. `bg-[#050505]`·`#0a0a0a` 같은 근검정 hex를
 직접 쓰지 않는다 — 2026-09-08 이전에는 여섯 값(#050505·#080808·#0a0a0a·#0b0b0b·#0d0d0d·#0f0f0f)이
 섞여 랜딩→약관처럼 페이지를 옮길 때 배경이 눈에 띄게 바뀌었다. 반투명이 필요하면
-`bg-[rgba(15,15,15,0.8)]`. 밝기를 한 단계 바꾸고 싶으면 `globals.css`의 `--background` 한 곳만 고친다.
+`bg-[rgba(20,20,19,0.8)]`. 밝기를 한 단계 바꾸고 싶으면 `globals.css`의 `--background` 한 곳만 고친다.
+카드 면도 `bg-[#161616]` 같은 hex가 아니라 `bg-[var(--card-bg)]`다(2026-09-13 통일).
+
+### 색 온도는 config가 맞춘다
+
+컴포넌트의 `text-white`·`text-gray-400`·`bg-white/[0.06]` 같은 클래스는 그대로 쓴다. `tailwind.config.js`가
+`white`를 크림(`#f4f1ea`)으로, `gray`를 따뜻한 `stone` 스케일로 매핑해 배경과 온도를 맞춘다. 컴포넌트에서
+`stone-*`을 직접 쓰거나 순백 hex를 박지 않는다 — 온도를 바꿀 일이 생기면 config 한 곳만 고친다.
 
 ### 강조색 단일화
 
@@ -70,10 +80,10 @@
 ### 텍스트 대비 (WCAG AA)
 
 - 본문·라벨은 배경 대비 **4.5:1 이상**을 확보한다.
-- `text-gray-500`(#6b7280)은 `#0f0f0f` 대비 **3.98:1로 미달**이다. 의미 있는 라벨에는 `text-[var(--text-label)]`를 쓴다.
+- `text-gray-500`(stone-500 #78716c)은 `#141413` 대비 **3.8:1로 미달**이다. 의미 있는 라벨에는 `text-[var(--text-label)]`를 쓴다.
 - placeholder도 AA 대상이다. `placeholder-gray-600`은 미달이며 `placeholder:text-[var(--text-placeholder)]`를 쓴다.
 - `text-gray-600` 이하는 순수 장식 텍스트에만 허용한다.
-- 포커스 링(`*:focus-visible`)은 `#9ca3af`(7.6:1)다. 이전 `#4b5563`은 2.5:1로 WCAG 2.2 비텍스트 대비(3:1)에 미달했다(2026-09-08 수리). 입력창처럼 테두리 색 변화가 포커스를 이미 알리는 곳만 `focus-visible:outline-none`을 쓴다.
+- 포커스 링(`*:focus-visible`)은 `#a8a29e`(7.3:1)다. 이전 `#4b5563`은 2.5:1로 WCAG 2.2 비텍스트 대비(3:1)에 미달했다(2026-09-08 수리). 입력창처럼 테두리 색 변화가 포커스를 이미 알리는 곳만 `focus-visible:outline-none`을 쓴다.
 
 ### 다크 전용 — `dark:` 변형 금지
 
@@ -94,7 +104,7 @@
 | 손실 (음수) | `text-[var(--main-blue)]` |
 | 강조 | `text-indigo-400`, `text-sky-500`, `text-purple-400` |
 
-- 카드 내부의 섹션 제목, 차트 제목, 지표 라벨, 테이블 컬럼 헤더, KPI 카드 라벨은 `text-[var(--text-label)]`로 통일한다(2026-09-08 — 이전 문구의 `text-gray-500`은 위 AA 규칙과 모순됐다). 차트 축 tick은 `#9ca3af`, 격자는 `#2a2a2a`.
+- 카드 내부의 섹션 제목, 차트 제목, 지표 라벨, 테이블 컬럼 헤더, KPI 카드 라벨은 `text-[var(--text-label)]`로 통일한다(2026-09-08 — 이전 문구의 `text-gray-500`은 위 AA 규칙과 모순됐다). 차트 축 tick은 `#a8a49a`(= `--text-label`), 격자는 `#2a2926`.
 - `text-gray-600`은 보조 설명(sub-text), 힌트, 주석처럼 완전히 부차적인 텍스트에만 사용한다.
 - `text-gray-400` 이상은 주요 텍스트(본문, 값)에만 사용한다.
 
@@ -169,6 +179,18 @@ KOSDAQ:   bg-purple-500/15  text-purple-400
 
 > ⚠️ 2026-07-25까지 `fontFamily` 확장이 없어 `font-outfit`·`font-inter`는 **정의되지 않은 죽은 클래스**였고(22개 파일이 사용 중), 실제 렌더 폰트는 `globals.css`의 Arial이었다. 회귀 가드: `app/analytics/new/chatSurfaceDesign.test.ts`
 
+### 큰 제목(display)은 세리프 — `font-serif`
+
+2026-09-13 전단지 테마부터 **문서성 페이지의 큰 제목(h1, `text-3xl` 이상)** 은 `font-serif`(Noto Serif KR)다.
+약관·개인정보처리방침·자산·템플릿 제목이 여기 해당한다. **랜딩 헤드라인과 요금제 h1은 예외** — 사용자 결정(2026-09-13)으로
+기존 산세리프(`[font-weight:950]`·`font-black`)를 유지한다.
+
+- 서체는 `app/layout.tsx`가 `next/font/google`의 `Noto_Serif_KR`로 자체 호스팅해 `--font-serif` 변수로 넘기고,
+  tailwind `fontFamily.serif`가 그 변수를 앞세운다. 런타임에 Google 폰트 요청은 없다.
+- 굵기는 500·600·700만 내려받는다. 세리프 h1은 `font-bold`. `font-black`(900)은 세리프에 없다.
+- **본문·수치·카드 헤더·라벨에는 쓰지 않는다.** 수치 자형이 바뀌고(2026-07-25 결정의 이유), 작은 크기의 세리프 한글은 가독성이 떨어진다. `text-2xl` 이하 제목은 그대로 산세리프 `font-black`이다.
+- 세리프 제목에는 `uppercase`·`tracking-widest`를 걸지 않는다. 자간은 `tracking-tight` 또는 `-0.03em`까지만.
+
 ### 텍스트 스타일 계층
 
 | 계층 | 크기 | 굵기 | 추가 클래스 | 용도 |
@@ -238,7 +260,7 @@ space-y-1    (섹션 간 세로 간격 — 카드가 바짝 붙도록)
 
 ```css
 .flat-card {
-  background: var(--background);   /* #0f0f0f — 페이지 배경과 동일 */
+  background: var(--background);   /* #141413 — 페이지 배경과 동일 */
   overflow: hidden;
 }
 ```

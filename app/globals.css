@@ -3,34 +3,36 @@
 @tailwind utilities;
 
 :root {
-  --background: #0f0f0f;
-  --foreground: #e0e0e0;
+  /* 따뜻한 다크 팔레트(2026-09-13) — 전단지(docs/marketing/flyer_intro_dark.html)와 같은 값.
+     순검정·순백 대신 갈색빛이 도는 검정과 크림을 쓴다. */
+  --background: #141413;
+  --foreground: #f4f1ea;
   --main-blue: rgb(55, 122, 244);
   --main-red: rgb(239, 68, 68);
   --main-green: rgb(34, 197, 94);
   
   /* Premium Design Tokens */
-  --card-bg: rgb(22, 22, 22);
-  --card-border: rgba(255, 255, 255, 0.05);
-  --glass-bg: rgba(255, 255, 255, 0.02);
-  --glass-border: rgba(255, 255, 255, 0.12);
+  --card-bg: #1e1d1a;
+  --card-border: rgba(244, 241, 234, 0.06);
+  --glass-bg: rgba(244, 241, 234, 0.03);
+  --glass-border: rgba(244, 241, 234, 0.12);
   --accent-blue: #3b82f6;
   --accent-blue-dim: rgba(59, 130, 246, 0.1);
   --success-green: #10b981;
   --error-red: #ef4444;
-  --text-muted: #64748b;
+  --text-muted: #8a867d;         /* 5.1:1 on #141413 */
 
   /* 대화 표면 토큰 — 강조색은 하나만 쓴다(Color Consistency Lock).
      상승/하락(--main-red/--main-blue)과 에러(--error-red)는 의미 색이라
      장식 목적으로 쓰지 않는다. */
-  --chat-accent: #f0b429;                        /* 대비 10.2:1 on #0f0f0f */
-  --chat-accent-soft: rgba(240, 180, 41, 0.14);  /* 옅은 면 */
-  --chat-accent-ink: #191203;                    /* accent 채운 버튼의 글자색 */
+  --chat-accent: #e0805c;                        /* 테라코타, 대비 6.5:1 on #141413 */
+  --chat-accent-soft: rgba(224, 128, 92, 0.14);  /* 옅은 면 */
+  --chat-accent-ink: #1c0f09;                    /* accent 채운 버튼의 글자색, 6.6:1 */
   /* 투명도 단계는 토큰으로 둔다 — tailwind는 `[var(--x)]/50` 형태의 투명도
      수정자에서 아무 클래스도 생성하지 않아(조용한 죽은 클래스) 쓸 수 없다. */
-  --chat-accent-line: rgba(240, 180, 41, 0.6);   /* 호버 테두리 */
-  --chat-accent-ring: rgba(240, 180, 41, 0.5);   /* 포커스 링 */
-  --chat-accent-underline: rgba(240, 180, 41, 0.4);
+  --chat-accent-line: rgba(224, 128, 92, 0.6);   /* 호버 테두리 */
+  --chat-accent-ring: rgba(224, 128, 92, 0.5);   /* 포커스 링 */
+  --chat-accent-underline: rgba(224, 128, 92, 0.4);
   /* ── 대화 면 (2026-08-05 확정) ──
      대화 화면의 모든 박스는 **한 값짜리 반투명 유리**다. 면 안에서 밝기가
      변하는 그라디언트를 쓰지 않는다 — 사용자가 "어디는 어둡고 어디는 밝다"고
@@ -50,15 +52,15 @@
   --error-red-line: rgba(239, 68, 68, 0.28);
 
   /* WCAG AA를 통과하는 보조 텍스트 값. 기존 text-gray-500(#6b7280)은
-     #0f0f0f 대비 3.98:1로 본문 기준(4.5:1) 미달이라 대체한다. */
-  --text-label: #9ca3af;         /* 7.6:1 */
-  --text-placeholder: #8b8f96;   /* 5.9:1 */
+     #141413 대비 4:1 미만으로 본문 기준(4.5:1) 미달이라 대체한다. */
+  --text-label: #a8a49a;         /* 7.4:1 */
+  --text-placeholder: #918d84;   /* 5.6:1 */
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0f0f0f;
-    --foreground: #e0e0e0;
+    --background: #141413;
+    --foreground: #f4f1ea;
   }
 }
 
@@ -85,9 +87,9 @@ body {
 }
 
 /* 포커스 링은 배경 대비 3:1 이상(WCAG 2.2 non-text) — #4b5563은 2.5:1이라 키보드 사용자에게
-   거의 보이지 않았다(2026-09-08). #9ca3af = 7.6:1 */
+   거의 보이지 않았다(2026-09-08). #a8a29e = 7.3:1 on #141413 */
 *:focus-visible {
-  outline: 2px solid #9ca3af;
+  outline: 2px solid #a8a29e;
   outline-offset: 2px;
 }
 

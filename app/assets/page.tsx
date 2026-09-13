@@ -72,7 +72,7 @@ export default async function AssetsPage() {
               </p>
               <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                 <div>
-                  <h1 className="text-3xl font-black text-white font-outfit">
+                  <h1 className="font-serif text-3xl font-bold text-white">
                     {usage.plan.name}
                   </h1>
                   <p className="mt-2 text-sm font-bold text-gray-400">

@@ -192,7 +192,7 @@ export function PrivacyPolicyPage() {
           <p className="mt-10 text-sm font-black uppercase tracking-widest text-gray-500">
             {t("널스페이스")}
           </p>
-          <h1 className="mt-3 text-4xl font-black tracking-normal text-white sm:text-5xl">
+          <h1 className="mt-3 font-serif text-4xl font-bold tracking-normal text-white sm:text-5xl">
             {t("개인정보처리방침")}
           </h1>
           <p className="mt-5 max-w-2xl text-base font-bold leading-7 text-gray-400">

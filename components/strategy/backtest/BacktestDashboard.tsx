@@ -2347,7 +2347,7 @@ export default function BacktestDashboard({
             };
           })()}
         >
-          <div className="w-64 p-4 bg-[#161616] rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200 backdrop-blur-2xl border border-white/10">
+          <div className="w-64 p-4 bg-[var(--card-bg)] rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200 backdrop-blur-2xl border border-white/10">
             <div className="text-[10px] text-[var(--main-blue)] font-bold uppercase tracking-widest mb-1.5 opacity-80">{hoveredMetric.label}</div>
             <p className="text-xs text-white/75 font-bold leading-relaxed whitespace-pre-wrap">{hoveredMetric.description}</p>
           </div>

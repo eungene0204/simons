@@ -328,7 +328,7 @@ export default function CandlestickChart({ data }: CandlestickChartProps) {
         const chart = createChart(container, {
           layout: {
             background: { type: ColorType.Solid, color: bgColor },
-            textColor: "#9ca3af",
+            textColor: "#a8a49a",
           },
           localization: {
             locale: "ko-KR",

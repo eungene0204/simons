@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Noto_Serif_KR } from "next/font/google";
 import "./globals.css";
 import TopMenuBar from "@/components/layout/TopMenuBar";
 import ScrollToTop from "@/components/layout/ScrollToTop";
@@ -18,6 +19,17 @@ import {
   siteUrl,
   siteVerification,
 } from "@/lib/seo/site";
+
+// 큰 제목(display) 전용 세리프 — 마케팅 전단지(docs/marketing/flyer_intro_dark.html)와 같은
+// Noto Serif KR을 next/font로 자체 호스팅한다(빌드 시 내려받아 unicode-range 조각으로 서빙,
+// 런타임에 Google 요청 없음). 본문 스택(tailwind sans/inter/outfit=Arial 우선, 2026-07-25)은
+// 건드리지 않는다 — `font-serif` 클래스를 단 h1만 이 서체를 쓴다(UI_GUIDELINES §3).
+const displaySerif = Noto_Serif_KR({
+  weight: ["500", "600", "700"],
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-serif",
+});
 
 // viewport-fit=cover가 있어야 env(safe-area-inset-*)이 0이 아닌 값을 준다 — 하단 고정 요소가
 // iOS 홈 인디케이터 위에 머무는 전제(2026-09-08).
@@ -59,7 +71,7 @@ export default function RootLayout({
   const language = getRequestLanguage();
 
   return (
-    <html lang={language}>
+    <html lang={language} className={displaySerif.variable}>
       <body className="page-transition bg-[var(--background)] text-white font-inter antialiased">
         <LanguageProvider initialLanguage={language}>
           <QueryProvider>

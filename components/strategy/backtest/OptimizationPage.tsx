@@ -896,8 +896,8 @@ function MonteCarloHistogramChart({
                 fontSize: 11,
                 color: "#e5e7eb",
               }}
-              labelStyle={{ color: "#9ca3af" }}
-              itemStyle={{ color: "#9ca3af" }}
+              labelStyle={{ color: "#a8a49a" }}
+              itemStyle={{ color: "#a8a49a" }}
               formatter={(value: any) => [t("{0}회", Number(value).toLocaleString()), t("빈도")]}
               labelFormatter={(_, payload) => {
                 const bin = payload?.[0]?.payload as (MonteCarloHistogramBin & { label: string }) | undefined;

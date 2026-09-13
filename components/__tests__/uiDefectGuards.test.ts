@@ -101,7 +101,7 @@ describe("UI 결함 회귀 가드(2026-09-08)", () => {
 
   it("globals.css: 포커스 링 대비·감속 블록·하단 도킹 클래스", () => {
     const css = readFileSync(path.join(ROOT, "app/globals.css"), "utf8");
-    expect(css).toMatch(/\*:focus-visible \{\s*outline: 2px solid #9ca3af;/);
+    expect(css).toMatch(/\*:focus-visible \{\s*outline: 2px solid #a8a29e;/);
     expect(css).not.toMatch(/outline: 2px solid #4b5563/);
     const reduce = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
     for (const cls of [".page-transition", ".animate-marquee", ".animate-fade-in", ".animate-slide-up"]) {

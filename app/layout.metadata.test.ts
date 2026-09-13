@@ -10,6 +10,10 @@ vi.mock("@/contexts/OrderAccountContext", () => ({ OrderAccountProvider: () => n
 vi.mock("@/components/ChunkErrorRecovery", () => ({ default: () => null }));
 vi.mock("@/lib/i18n/LanguageProvider", () => ({ LanguageProvider: () => null }));
 vi.mock("@next/third-parties/google", () => ({ GoogleAnalytics: () => null }));
+// next/font는 빌드 시 폰트를 내려받는 컴파일러 훅이라 vitest에서는 함수가 아니다 — 변수명만 돌려준다.
+vi.mock("next/font/google", () => ({
+  Noto_Serif_KR: () => ({ variable: "--font-serif-mock", className: "" }),
+}));
 
 const languageMock = vi.hoisted(() => ({ value: "ko" as "ko" | "en" }));
 vi.mock("@/lib/i18n/server", () => ({
