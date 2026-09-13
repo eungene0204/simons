@@ -46,8 +46,23 @@ export async function POST(request: Request) {
         subscriptionPlanId: true,
         billingCycle: true,
         subscriptionCanceledAt: true,
+        paymentProvider: true,
       },
     });
+
+    // PayPal 구독이 살아 있는 동안에는 토스 주문을 만들지 않는다 — 계정은 KR/US 공용이라
+    // 글로벌(/us)에서 PayPal로 결제한 사용자가 이 화면에 올 수 있고, 여기서 겹쳐 결제하면
+    // 두 구독이 동시에 청구된다(이중 청구). PayPal 쪽(paypal/subscription)의 토스 가드와
+    // 대칭이다. 해지 예약 중에도 만료 전까지는 막는다 — 재구독은 만료 후에 한다.
+    if (record?.subscriptionPlanId && record.paymentProvider === "paypal") {
+      return NextResponse.json(
+        {
+          error:
+            "해외(PayPal) 구독이 이용 중이라 토스 결제를 진행할 수 없습니다. 플랜 변경과 해지는 글로벌 요금제(/us/pricing)에서 할 수 있습니다.",
+        },
+        { status: 409 }
+      );
+    }
 
     // 연간 구독은 남은 기간이 길어(최대 11개월) 즉시 재결제로 갈아타면 그만큼이 소멸한다.
     // 만료일까지는 플랜·주기 변경을 막는다 — 화면 잠금과 같은 규칙을 서버에서도 강제한다.

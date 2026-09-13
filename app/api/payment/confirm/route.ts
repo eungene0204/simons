@@ -50,7 +50,7 @@ export async function POST(request: Request) {
     // customerKey 위변조 검증: 카드 등록창에 전달한 값(서버 저장 tossCustomerKey)과 다르면 거부
     const record = await prisma.user.findUnique({
       where: { id: user.id },
-      select: { tossCustomerKey: true },
+      select: { tossCustomerKey: true, subscriptionPlanId: true, paymentProvider: true },
     });
     if (!record?.tossCustomerKey || record.tossCustomerKey !== customerKey) {
       return NextResponse.json(
@@ -66,6 +66,19 @@ export async function POST(request: Request) {
     if (order.status !== "PENDING") {
       return NextResponse.json(
         { error: "이미 종료된 주문입니다. 결제를 다시 시도해주세요." },
+        { status: 409 }
+      );
+    }
+
+    // PayPal 구독이 살아 있으면 청구 직전에 멈춘다 — 주문 생성(/api/payment/order) 가드와
+    // 같은 규칙의 이중 방어다(주문을 만들어 둔 사이 PayPal 구독이 활성화되는 틈을 막는다).
+    // 여기를 통과시키면 카드까지 긁힌 뒤라 되돌릴 수 없다.
+    if (record.subscriptionPlanId && record.paymentProvider === "paypal") {
+      return NextResponse.json(
+        {
+          error:
+            "해외(PayPal) 구독이 이용 중이라 토스 결제를 진행할 수 없습니다. 플랜 변경과 해지는 글로벌 요금제(/us/pricing)에서 할 수 있습니다.",
+        },
         { status: 409 }
       );
     }
@@ -105,6 +118,9 @@ export async function POST(request: Request) {
           data: {
             planTier: order.planId,
             planStartDate: now,
+            // 갱신 잡(billingRenewal)은 paymentProvider="toss"만 조회한다 — 과거 PayPal
+            // 구독자(만료 후 재구독)의 잔존 "paypal" 값을 여기서 바로잡지 않으면 갱신에서 빠진다.
+            paymentProvider: "toss",
             tossBillingKey: storedBillingKey,
             subscriptionPlanId: order.planId,
             billingCycle,

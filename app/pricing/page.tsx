@@ -41,6 +41,7 @@ export default async function PricingPage() {
         billingCycle: true,
         nextBillingAt: true,
         subscriptionCanceledAt: true,
+        paymentProvider: true,
       },
     }),
     getEffectivePlans(),
@@ -56,6 +57,9 @@ export default async function PricingPage() {
         cycle: record.billingCycle === "yearly" ? ("yearly" as const) : ("monthly" as const),
         nextBillingAt: record.nextBillingAt?.toISOString() ?? null,
         canceled: record.subscriptionCanceledAt != null,
+        // 계정은 KR/US 공용이라 글로벌(/us)에서 PayPal로 결제한 사용자도 이 화면에 온다 —
+        // PayPal 구독이면 토스 결제 버튼을 잠그고 글로벌 요금제로 안내한다(이중 청구 방지)
+        provider: record.paymentProvider === "paypal" ? ("paypal" as const) : ("toss" as const),
       }
     : null;
 

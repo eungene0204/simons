@@ -82,6 +82,8 @@ interface PricingPlansProps {
     cycle?: BillingCycle;
     nextBillingAt: string | null;
     canceled: boolean;
+    /** 결제 수단(PSP) — 미지정은 토스(도입 이전 호출부 하위호환) */
+    provider?: "toss" | "paypal";
   } | null;
   /**
    * 표시할 플랜 정의 — 서버가 관리자 한도 오버라이드(PlanConfig)를 병합해 넘긴다.
@@ -116,6 +118,10 @@ export default function PricingPlans({
   // 만료일까지는 유료 플랜 변경 버튼을 잠근다(해지는 언제든 가능). 서버도 같은 규칙을 강제한다
   // (/api/payment/order).
   const isYearlyLocked = hasActiveSubscription && currentCycle === "yearly";
+  // 글로벌(/us)에서 PayPal로 결제한 구독자 — 계정이 KR/US 공용이라 이 화면에 올 수 있다.
+  // 토스로 겹쳐 결제하면 이중 청구라 유료 버튼을 잠근다(서버 /api/payment/order도 409로 거부).
+  // 해지(FREE 카드)는 서버가 PSP를 분기하므로(subscriptionCancel.ts) 여기서도 그대로 열어 둔다.
+  const isPaypalManaged = Boolean(subscription) && subscription?.provider === "paypal";
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
 
   const handleSelect = async (planId: PlanId) => {
@@ -192,7 +198,14 @@ export default function PricingPlans({
         </div>
       </div>
 
-      {isYearlyLocked ? (
+      {isPaypalManaged ? (
+        <p
+          data-testid="paypal-managed-notice"
+          className="mb-6 text-center text-xs font-bold text-[var(--text-label)]"
+        >
+          {t("해외(PayPal) 구독 이용 중입니다. 플랜 변경은 글로벌 요금제(/us/pricing)에서 할 수 있습니다.")}
+        </p>
+      ) : isYearlyLocked ? (
         <p
           data-testid="yearly-lock-notice"
           className="mb-6 text-center text-xs font-bold text-[var(--text-label)]"
@@ -219,8 +232,8 @@ export default function PricingPlans({
           const description = t(PLAN_DESCRIPTIONS[planId]);
           // 해지 예약된 구독은 만료일에 FREE로 내려간다 — 다시 누를 동작이 없다.
           const isCancellationScheduled = planId === "FREE" && subscription?.canceled === true;
-          // 연간 구독 중에는 유료 플랜 변경만 막는다 — 해지(FREE 카드)는 항상 열어 둔다.
-          const isChangeLocked = isYearlyLocked && isPaidCycleShown;
+          // 연간 구독·PayPal 구독 중에는 유료 플랜 변경만 막는다 — 해지(FREE 카드)는 항상 열어 둔다.
+          const isChangeLocked = (isYearlyLocked || isPaypalManaged) && isPaidCycleShown;
 
           return (
             <div

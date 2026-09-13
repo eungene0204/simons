@@ -113,6 +113,43 @@ describe("/api/payment/order", () => {
     expect(orderCreate).not.toHaveBeenCalled();
   });
 
+  it("PayPal 구독이 살아 있으면 409 — 토스로 겹쳐 결제하면 이중 청구다 (US→KR 교차)", async () => {
+    userFindUnique.mockResolvedValue({
+      tossCustomerKey: "existing-key-1",
+      subscriptionPlanId: "PRO",
+      billingCycle: "monthly",
+      subscriptionCanceledAt: null,
+      paymentProvider: "paypal",
+    });
+    const res = await POST(req({ planId: "PREMIUM" }));
+    expect(res.status).toBe(409);
+    expect(orderCreate).not.toHaveBeenCalled();
+  });
+
+  it("해지 예약된 PayPal 구독도 만료 전에는 409 — 재구독은 만료 후에 한다", async () => {
+    userFindUnique.mockResolvedValue({
+      tossCustomerKey: "existing-key-1",
+      subscriptionPlanId: "PRO",
+      billingCycle: "monthly",
+      subscriptionCanceledAt: new Date("2026-09-01"),
+      paymentProvider: "paypal",
+    });
+    const res = await POST(req({ planId: "PRO" }));
+    expect(res.status).toBe(409);
+    expect(orderCreate).not.toHaveBeenCalled();
+  });
+
+  it("과거 PayPal 이력만 남은 사용자(활성 구독 없음)는 주문을 만들 수 있다", async () => {
+    userFindUnique.mockResolvedValue({
+      tossCustomerKey: "existing-key-1",
+      subscriptionPlanId: null,
+      paymentProvider: "paypal",
+    });
+    const res = await POST(req({ planId: "PRO" }));
+    expect(res.status).toBe(200);
+    expect(orderCreate).toHaveBeenCalled();
+  });
+
   it("월간 구독 중에는 다른 플랜 주문을 그대로 만들 수 있다", async () => {
     userFindUnique.mockResolvedValue({
       tossCustomerKey: "existing-key-1",

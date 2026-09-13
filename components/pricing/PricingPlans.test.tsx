@@ -321,6 +321,43 @@ describe("PricingPlans", () => {
     expect(within(freeCard).getByText("시뮬레이션 가상계좌 2개")).toBeInTheDocument();
   });
 
+  it("PayPal 구독자는 유료 결제 버튼이 잠기고 글로벌 요금제 안내가 뜬다", () => {
+    render(
+      <PricingPlans
+        currentPlanId="PRO"
+        subscription={{
+          provider: "paypal",
+          nextBillingAt: "2026-10-10T00:00:00.000Z",
+          canceled: false,
+        }}
+      />
+    );
+
+    expect(screen.getByTestId("paypal-managed-notice")).toBeInTheDocument();
+    const premiumCard = screen.getByTestId("pricing-plan-card-PREMIUM");
+    expect(within(premiumCard).getByRole("button", { name: "구독 시작하기" })).toBeDisabled();
+    // 주기 탭을 바꿔도 우회할 수 없다
+    fireEvent.click(screen.getByRole("button", { name: "연간 결제 · 20% 할인" }));
+    expect(within(premiumCard).getByRole("button", { name: "구독 시작하기" })).toBeDisabled();
+    // 해지는 서버가 결제 수단(PSP)을 분기하므로(subscriptionCancel.ts) 여기서도 열어 둔다
+    const freeCard = screen.getByTestId("pricing-plan-card-FREE");
+    expect(within(freeCard).getByRole("button", { name: "구독 해지" })).toBeEnabled();
+  });
+
+  it("토스 구독자에게는 PayPal 안내를 렌더링하지 않는다", () => {
+    render(
+      <PricingPlans
+        currentPlanId="PRO"
+        subscription={{
+          provider: "toss",
+          nextBillingAt: "2026-10-10T00:00:00.000Z",
+          canceled: false,
+        }}
+      />
+    );
+    expect(screen.queryByTestId("paypal-managed-notice")).toBeNull();
+  });
+
   it("구독 정보가 없으면(FREE) 갱신 상태 UI를 렌더링하지 않는다", () => {
     render(<PricingPlans currentPlanId="FREE" />);
     expect(screen.queryByTestId("subscription-renewal-status")).toBeNull();

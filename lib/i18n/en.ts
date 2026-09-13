@@ -1040,6 +1040,7 @@ export const en: Record<string, string> = {
   "월간 결제": "Monthly billing",
   "연간 결제 · {0}% 할인": "Yearly billing · {0}% off",
   "연간 구독 기간 중에는 플랜을 변경할 수 없습니다. 만료일 이후 변경할 수 있습니다.": "You cannot change plans during a yearly subscription. Changes are available after it expires.",
+  "해외(PayPal) 구독 이용 중입니다. 플랜 변경은 글로벌 요금제(/us/pricing)에서 할 수 있습니다.": "You have an active PayPal subscription. Plan changes are available on the global pricing page (/us/pricing).",
   "월 {0} 꼴 · {1}% 할인": "{0} / month equivalent · {1}% off",
   "연간 결제로 전환": "Switch to yearly billing",
   "월간 결제로 전환": "Switch to monthly billing",

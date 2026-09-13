@@ -144,6 +144,8 @@ describe("/api/payment/confirm (빌링)", () => {
         where: { id: 7 },
         data: expect.objectContaining({
           planTier: "PRO",
+          // 갱신 잡이 provider="toss"만 조회한다 — 과거 PayPal 이력이 남아 있어도 여기서 바로잡는다
+          paymentProvider: "toss",
           tossBillingKey: storedBillingKey,
           subscriptionPlanId: "PRO",
           subscriptionCanceledAt: null,
@@ -215,6 +217,20 @@ describe("/api/payment/confirm (빌링)", () => {
       (data.nextBillingAt.getUTCFullYear() - data.planStartDate.getUTCFullYear()) * 12 +
       (data.nextBillingAt.getUTCMonth() - data.planStartDate.getUTCMonth());
     expect(monthsApart).toBe(1);
+  });
+
+  it("PayPal 구독이 살아 있으면 청구 전에 409 — 빌링키 발급·결제를 호출하지 않는다", async () => {
+    orderFindUnique.mockResolvedValue({ ...pendingOrder });
+    userFindUnique.mockResolvedValue({
+      tossCustomerKey: "customer-uuid-7",
+      subscriptionPlanId: "PRO",
+      paymentProvider: "paypal",
+    });
+    const res = await POST(req(validBody));
+    expect(res.status).toBe(409);
+    expect(issueBillingKey).not.toHaveBeenCalled();
+    expect(chargeBillingKey).not.toHaveBeenCalled();
+    expect(userUpdate).not.toHaveBeenCalled();
   });
 
   it("첫 결제 청구 실패 시 FAILED 기록 후 에러 코드를 전달하고 플랜을 바꾸지 않는다", async () => {
