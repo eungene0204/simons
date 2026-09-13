@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getStockNameMap, loadEtfMasterNameMap } from "@/lib/krx-stocks";
-import { filterMonitorableSymbols } from "@/lib/strategy-tracked-symbols";
+import { filterMonitorableSymbols, filterSymbolsForCurrency } from "@/lib/strategy-tracked-symbols";
 import { isUnauthorizedAccessError } from "@/lib/get-user";
 import { findOwnedAccountId } from "@/lib/server/accountOwnership";
 
@@ -10,6 +10,15 @@ import { findOwnedAccountId } from "@/lib/server/accountOwnership";
 // 응답은 호출마다 새로 만든다 — NextResponse 인스턴스는 재사용할 수 없다(본문 스트림 소진).
 const notFound = () => NextResponse.json({ error: "Account not found" }, { status: 404 });
 const unauthorized = () => NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+/** 계좌 통화의 시장 종목만 남긴다(USD 계좌에 한국 코드, KRW 계좌에 미국 티커 차단). */
+async function monitorableForAccount(accountId: string, symbols: string[]): Promise<string[]> {
+  const account = await prisma.virtualAccount.findUnique({
+    where: { id: accountId },
+    select: { currency: true },
+  });
+  return filterMonitorableSymbols(filterSymbolsForCurrency(symbols, account?.currency));
+}
 
 async function resolveSymbolNames(symbols: string[]): Promise<Record<string, string>> {
   if (symbols.length === 0) return {};
@@ -66,7 +75,7 @@ export async function POST(
 
     if (!(await findOwnedAccountId(params.accountId))) return notFound();
 
-    const monitorableSymbols = await filterMonitorableSymbols(symbols);
+    const monitorableSymbols = await monitorableForAccount(params.accountId, symbols);
     if (monitorableSymbols.length === 0) {
       return NextResponse.json(
         { error: "모니터링 가능한 종목이 없습니다." },
@@ -129,7 +138,7 @@ export async function PATCH(
 
     if (body.status !== undefined) data.status = body.status;
     if (body.symbols !== undefined) {
-      data.symbols = JSON.stringify(await filterMonitorableSymbols(body.symbols));
+      data.symbols = JSON.stringify(await monitorableForAccount(params.accountId, body.symbols));
     }
 
     const state = await prisma.virtualMarketState.update({

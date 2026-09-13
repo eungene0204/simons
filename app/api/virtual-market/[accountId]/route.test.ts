@@ -16,6 +16,9 @@ vi.mock("@/lib/prisma", () => ({
     stock: {
       findMany: vi.fn(),
     },
+    virtualAccount: {
+      findUnique: vi.fn(),
+    },
     virtualMarketState: {
       upsert: vi.fn(),
       update: vi.fn(),
@@ -42,6 +45,7 @@ vi.mock("@/lib/krx-stocks", () => ({
 }));
 
 const mockStockFindMany = vi.mocked(prisma.stock.findMany);
+const mockAccountFindUnique = vi.mocked(prisma.virtualAccount.findUnique);
 const mockFindOwnedAccountId = vi.mocked(findOwnedAccountId);
 const mockMarketStateFindUnique = vi.mocked(prisma.virtualMarketState.findUnique);
 const mockMarketStateDeleteMany = vi.mocked(prisma.virtualMarketState.deleteMany);
@@ -58,6 +62,8 @@ function makeRequest(body: object): Request {
 
 describe("/api/virtual-market/[accountId]", () => {
   beforeEach(() => {
+    // 통화 가드가 계좌 통화를 읽는다 — 기본은 KRW 계좌.
+    mockAccountFindUnique.mockResolvedValue({ currency: "KRW" } as any);
     vi.clearAllMocks();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
     mockStockFindMany.mockResolvedValue([]);
@@ -163,6 +169,39 @@ describe("/api/virtual-market/[accountId] 계좌 소유권", () => {
     vi.clearAllMocks();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
     mockFindOwnedAccountId.mockResolvedValue(null);
+  });
+
+  it("USD 계좌 POST는 한국 종목을 걷어내고 미국 티커만 저장한다", async () => {
+    // 사고(2026-09-13): USD 계좌 모니터링 목록에 KOSPI 상위 20종목 — 계좌 통화와 다른
+    // 시장의 종목은 어떤 진입 경로로도 추적 목록에 들어가면 안 된다.
+    mockFindOwnedAccountId.mockResolvedValue("account-1");
+    mockAccountFindUnique.mockResolvedValue({ currency: "USD" } as any);
+    mockStockFindMany.mockResolvedValue([]);
+    mockMarketStateUpsert.mockImplementation(async ({ create }: any) => create);
+
+    const response = await POST(makeRequest({ symbols: ["005930", "AAPL", "000660", "MSFT"] }), {
+      params: { accountId: "account-1" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockMarketStateUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ symbols: JSON.stringify(["AAPL", "MSFT"]) }),
+      })
+    );
+  });
+
+  it("USD 계좌 POST에 한국 종목만 주면 저장하지 않는다", async () => {
+    mockFindOwnedAccountId.mockResolvedValue("account-1");
+    mockAccountFindUnique.mockResolvedValue({ currency: "USD" } as any);
+    mockStockFindMany.mockResolvedValue([]);
+
+    const response = await POST(makeRequest({ symbols: ["005930", "000660"] }), {
+      params: { accountId: "account-1" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(mockMarketStateUpsert).not.toHaveBeenCalled();
   });
 
   it("남의 계좌 GET은 상태를 읽지 않고 404", async () => {

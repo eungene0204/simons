@@ -64,6 +64,7 @@ export async function startAccountStrategy(params: {
     strategyId: account.strategyId,
     strategyName: strategy.name,
     strategySettings: strategy.settings,
+    currency: account.currency,
   });
   const symbols = resolved.symbols;
   const symbolSource = resolved.source;

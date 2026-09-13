@@ -130,6 +130,7 @@ export async function POST(request: Request) {
         strategyId,
         strategyName: strategy.name,
         strategySettings: strategy.settings,
+        currency,
       });
 
       if (resolved.symbols.length > 0) {

@@ -201,6 +201,7 @@ export async function PATCH(
             strategyId: body.strategyId,
             strategyName: strategy.name,
             strategySettings: strategy.settings,
+            currency: account.currency,
           })
         : { symbols: [], source: "universe" as const };
       const topSymbols = resolved.symbols;

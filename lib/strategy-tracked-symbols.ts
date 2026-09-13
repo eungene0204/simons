@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { loadStockList } from "@/lib/krx-stocks";
 import { getTopSymbolsFromSummary } from "@/lib/backtest-top-symbols";
+import { isUsSymbol } from "@/lib/stock-prices";
 
 const KOSPI200_TOP = [
   "005930", "000660", "373220", "207940", "005380",
@@ -102,6 +103,42 @@ async function resolveUsUniverseSymbols(universeId: string): Promise<string[]> {
   }
 }
 
+/** 계좌 통화에 맞지 않는 시장의 종목을 걷어낸다 — USD 계좌에 한국 코드, KRW 계좌에 미국 티커.
+ *
+ *  심볼 형태가 시장을 결정한다(6자리 숫자=한국, 대문자 티커=미국 — 백엔드 `_US_SYMBOL_RE`와
+ *  같은 규칙). 통화가 없으면(구 계좌) KRW로 본다. 백엔드 VirtualTrader는 통화가 다른 종목을
+ *  매수 후보에서 제외하지만, 추적 목록에 들어간 종목은 화면에 '모니터링 종목'으로 그대로
+ *  보였다(2026-09-13 사고: S&P 500 전략 USD 계좌에 KOSPI 상위 20종목). */
+export function filterSymbolsForCurrency(
+  symbols: string[],
+  currency?: string | null
+): string[] {
+  const wantUs = currency === "USD";
+  return symbols.filter((symbol) => isUsSymbol(symbol) === wantUs);
+}
+
+/** 저장된 전략 설정에서 유니버스 id를 읽는다 — 저장 형태가 세 가지다.
+ *
+ *  ① 에디터 DSL `settings.universe.id`(`{ id, filters }`), ② 백테스트 요청형
+ *  `settings.universe_id`(대화형 전략 저장·`to_backtest_request`), ③ 정본 DSL
+ *  `settings.canonical_strategy_dsl.universe[0]`("SP500"·"KOSPI" 등). 2026-08-26의 미국
+ *  유니버스 분기는 ①만 읽어서, ②·③ 형태로 저장된 S&P 500 전략이 `undefined` → 기본값
+ *  kospi200으로 떨어져 USD 계좌가 한국 종목을 추적했다(2026-09-13 사고, 백엔드
+ *  `_saved_target_symbols`가 세 형태를 읽는 것과 같은 계약). */
+export function savedUniverseId(settings: any): string | null {
+  const candidates = [
+    settings?.universe?.id,
+    settings?.universe_id,
+    Array.isArray(settings?.canonical_strategy_dsl?.universe)
+      ? settings.canonical_strategy_dsl.universe[0]
+      : undefined,
+  ];
+  for (const value of candidates) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
 export function isUsUniverseIdForTracking(universeId: string): boolean {
   const id = (universeId || "").toLowerCase();
   return id === "us" || id === "us_etf" || id in US_INDEX_ROSTERS;
@@ -190,13 +227,18 @@ export async function resolveTrackedSymbolsForStrategy(params: {
   strategyId: string;
   strategyName: string;
   strategySettings?: string | null;
+  /** 계좌 통화(KRW/USD). 결과는 이 통화의 시장 종목만 담는다. 없으면 KRW. */
+  currency?: string | null;
 }): Promise<{ symbols: string[]; source: TrackedSymbolSource }> {
+  const forCurrency = (symbols: string[]) =>
+    filterSymbolsForCurrency(symbols, params.currency);
+
   const backtestBest = await getBestBacktestSymbols(params.strategyId, params.strategyName);
   if (backtestBest) {
-    return {
-      symbols: await filterMonitorableSymbols(backtestBest.symbols),
-      source: backtestBest.source,
-    };
+    const symbols = await filterMonitorableSymbols(forCurrency(backtestBest.symbols));
+    if (symbols.length > 0) {
+      return { symbols, source: backtestBest.source };
+    }
   }
 
   let settings: any = null;
@@ -208,14 +250,17 @@ export async function resolveTrackedSymbolsForStrategy(params: {
     }
   }
 
-  const universe = settings?.universe || { id: "kospi200", filters: {} };
+  // 유니버스를 알 수 없을 때의 기본값도 계좌 통화를 따른다 — USD 계좌를 kospi200으로
+  // 채우면 통화 가드에 전부 걸려 빈 목록이 되거나(가드 이전엔) 한국 종목이 들어갔다.
+  const defaultUniverse = params.currency === "USD" ? "sp500" : "kospi200";
+  const universeId = savedUniverseId(settings) ?? defaultUniverse;
   const symbols = await resolveUniverseSymbols(
-    universe.id || "kospi200",
-    universe.filters || {}
+    universeId,
+    settings?.universe?.filters || {}
   );
 
   return {
-    symbols: await filterMonitorableSymbols(symbols),
+    symbols: await filterMonitorableSymbols(forCurrency(symbols)),
     source: "universe",
   };
 }
