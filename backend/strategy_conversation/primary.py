@@ -582,6 +582,35 @@ def _covered_by_source_texts(feature: str, source_texts: Iterable[str]) -> bool:
     return False
 
 
+def _covered_by_approximated_texts(feature: str, conditions: Iterable[Any]) -> bool:
+    """미지원 보고 항목이 **근사 반영된 조건의 인용문 안에 들어 있는가**(반대 방향 대조).
+
+    사고(2026-09-13, '큰 폭으로 하락한 뒤 반등 신호가 있을 때만 진입'): LLM이 문장 전체를
+    RSI 조건(approximated=true)으로 반영하고 같은 문장의 조각 '큰 폭으로 하락한 뒤'를
+    unsupported_features에 이중 기입 → "RSI로 가깝게 반영했어요"와 "지원하지 않아 반영하지
+    못했어요"가 한 응답에. _covered_by_source_texts는 보고 조각이 인용을 감쌀 때만
+    잡으므로 이 모양(조각 ⊂ 인용)은 새어 나갔다.
+
+    반대 방향을 모든 조건에 열면 "평소보다 3배"(조건에 담을 수 없는 배수)처럼 긴 인용에
+    포함된 진짜 미지원 보고까지 삼켜진다 — 그래서 **approximated 신고가 붙은 조건에
+    한정**한다: 근사 안내가 이미 "그 문장은 가깝게 반영했다"고 알리는 이상, 같은 문장의
+    일부를 미지원이라고 다시 말하는 것은 모순이다. 판정 입력은 LLM 출력끼리의 표기
+    포함 대조뿐이다(원문을 읽지 않는다). 4자 미만 조각은 우연 일치가 잦아 제외한다.
+    """
+    from engine.nl_parser import _compact
+
+    compact_feature = _compact(feature or "")
+    if len(compact_feature) < 4:
+        return False
+    for cond in conditions:
+        if not getattr(cond, "approximated", False):
+            continue
+        text = _compact(str(getattr(cond, "source_text", "") or ""))
+        if text and compact_feature in text:
+            return True
+    return False
+
+
 def _covered_by_pending_texts(feature: str, pending_conditions: Optional[List[dict]]) -> bool:
     """LLM 미지원 보고 항목이 값-대기 조건의 사용자 표현(source_text)을 담고 있는가.
 
@@ -1976,11 +2005,11 @@ def run_primary_parse(
         # 검증을 통과해 **전략에 남은** 조건의 사용자 인용 — 같은 표현이 조건으로도
         # 반영되고 미지원으로도 보고되면(프롬프트 4-1 위반) 반영된 조건에 "반영하지
         # 못했어요"가 붙는다. 값-대기 대조와 같은 표기 포함 판정으로 걷어낸다.
-        reflected_texts = [
-            cond.source_text or ""
-            for cond in (list(validated.strategy.entry_conditions)
-                         + list(validated.strategy.exit_conditions))
-        ] if validated.strategy is not None else []
+        reflected_conditions = (
+            list(validated.strategy.entry_conditions)
+            + list(validated.strategy.exit_conditions)
+        ) if validated.strategy is not None else []
+        reflected_texts = [cond.source_text or "" for cond in reflected_conditions]
         # 전략이 실제로 표현한 개념(랭킹으로 반영된 현금흐름·이동평균 정배열 등)은
         # 제외한다 — 결정론 게이트가 하던 '의도적 제외'의 이관분이다(판정 입력은 컴파일
         # 결과이고, 개념 대조는 LLM이 보고한 라벨 문자열에 건다).
@@ -1993,6 +2022,9 @@ def run_primary_parse(
             # source_text 포함 대조로 걷어낸다(2026-08-14, _covered_by_pending_texts).
             and not _covered_by_pending_texts(f, pending_conditions)
             and not _covered_by_source_texts(f, reflected_texts)
+            # 근사 반영된 조건의 인용문 **안에 든** 조각도 이중 기입이다(2026-09-13,
+            # _covered_by_approximated_texts) — 근사 안내가 이미 그 문장을 다뤘다.
+            and not _covered_by_approximated_texts(f, reflected_conditions)
             and not field_path_rx.search(f)
         ]
         # 긴 발화 조각(정성 표현 등)은 지목 인용하지 않는다(2026-08-12 사용자 결정) —

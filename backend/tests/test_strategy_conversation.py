@@ -1586,6 +1586,51 @@ def test_primary_notices_approximated_condition(monkeypatch):
     assert "거래대금이 늘어난" in approx[0] and "거래량 급증" in approx[0]
 
 
+def test_primary_approximated_condition_fragment_not_noticed_as_unsupported(monkeypatch):
+    """사고(2026-09-13): '큰 폭으로 하락한 뒤 반등 신호가 있을 때만 진입하고 싶어'를 LLM이
+    문장 전체 인용의 RSI 조건(approximated=true)으로 반영하고, 같은 문장의 조각
+    '큰 폭으로 하락한 뒤'를 unsupported_features에 이중 기입 → "RSI로 가깝게 반영했어요"와
+    "지원하지 않아 반영하지 못했어요"가 한 응답에 실렸다. 인용이 25자를 넘어 근사 안내가
+    문장을 인용하지 않았고, 이중 기입 대조는 조각이 인용을 감싸는 방향만 봐서 새어 나갔다.
+    근사 반영된 조건의 인용문 안에 든 조각은 미지원 안내에서 걷어낸다."""
+    quote = "큰 폭으로 하락한 뒤 반등 신호가 있을 때만 진입하고 싶어"
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.rsi", "operator": "<", "value": None,
+             "approximated": True, "source_text": quote},
+        ],
+    )
+    data["unsupported_features"] = ["큰 폭으로 하락한 뒤"]
+    result = _run_primary_with(monkeypatch, data, f"- “{quote}.”")
+    assert result is not None
+    assert any("가깝게 반영" in n and "RSI" in n for n in result["notices"]), result["notices"]
+    assert not any("지원하지 않아" in n for n in result["notices"]), (
+        f"근사 반영된 문장의 조각이 미지원으로 안내됐다(모순): {result['notices']}"
+    )
+
+
+def test_covered_by_approximated_texts_only_for_approximated_conditions():
+    """반대 방향(조각 ⊂ 인용) 대조는 approximated 조건에 한정한다 — 모든 조건에 열면
+    '평소보다 3배'(조건에 담을 수 없는 배수)처럼 긴 인용에 포함된 진짜 미지원 보고까지
+    삼켜진다."""
+    from strategy_conversation.primary import _covered_by_approximated_texts
+
+    approx = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[{"factor": "technical.rsi", "operator": "<", "value": None,
+                           "approximated": True,
+                           "source_text": "큰 폭으로 하락한 뒤 반등 신호가 있을 때만 진입"}],
+    )).strategy.entry_conditions
+    exact = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[{"factor": "technical.volume_spike", "operator": ">", "value": None,
+                           "approximated": False,
+                           "source_text": "거래량이 평소보다 3배 이상 늘면"}],
+    )).strategy.entry_conditions
+    assert _covered_by_approximated_texts("큰 폭으로 하락한 뒤", approx)
+    assert not _covered_by_approximated_texts("평소보다 3배", exact)
+    assert not _covered_by_approximated_texts("파동이론 저점", approx)
+    assert not _covered_by_approximated_texts("뒤", approx)
+
+
 def test_ranking_approximated_flag_coerced():
     """랭킹 항목의 approximated도 조건과 같은 표기 정규화를 받는다(문자열·null → bool)."""
     intent = StrategyIntent.model_validate(_full_intent_dict(
