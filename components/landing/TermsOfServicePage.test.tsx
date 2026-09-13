@@ -48,10 +48,11 @@ describe("TermsOfServicePage", () => {
     vi.stubEnv("BUSINESS_REPRESENTATIVE_NAME", "이응준");
     vi.stubEnv("BUSINESS_ADDRESS", "서울 서대문구 이화여대7길 37, 3층 - S88호");
     vi.stubEnv("BUSINESS_REGISTRATION_NUMBER", "898-50-00737");
+    vi.stubEnv("BUSINESS_MAIL_ORDER_NUMBER", "2026-서울서대문-0758");
     vi.stubEnv("BUSINESS_PHONE", "070-8027-2252");
     vi.stubEnv("BUSINESS_EMAIL", "nullspace.support@gmail.com");
 
-    render(<TermsOfServicePage />);
+    const { container } = render(<TermsOfServicePage />);
 
     expect(screen.queryByText("운영 전 확정 항목")).not.toBeInTheDocument();
     expect(screen.getByText("널스탁으로 돌아가기")).toBeInTheDocument();
@@ -68,6 +69,18 @@ describe("TermsOfServicePage", () => {
     expect(screen.getByText("070-8027-2252")).toBeInTheDocument();
     expect(screen.getByText("이메일")).toBeInTheDocument();
     expect(screen.getByText("nullspace.support@gmail.com")).toBeInTheDocument();
+    // 전자상거래법 제10조 표시 항목 전부와 그 순서(푸터 표기와 동일).
+    expect(Array.from(container.querySelectorAll("dl dt")).map((el) => el.textContent)).toEqual([
+      "상호",
+      "사업자등록번호",
+      "통신판매업신고번호",
+      "대표자",
+      "주소",
+      "전화번호",
+      "이메일",
+    ]);
+    expect(screen.getByText("2026-서울서대문-0758")).toBeInTheDocument();
+    expect(screen.queryByText("미정")).not.toBeInTheDocument();
   });
 
   it("영문(글로벌) 페이지에서는 사업자 정보 값도 영어로 표시된다", () => {
@@ -75,6 +88,7 @@ describe("TermsOfServicePage", () => {
     vi.stubEnv("BUSINESS_REPRESENTATIVE_NAME", "이응준");
     vi.stubEnv("BUSINESS_ADDRESS", "서울특별시 서대문구 이화여대7길 37, 3층 S88호(대현동)");
     vi.stubEnv("BUSINESS_REGISTRATION_NUMBER", "898-50-00737");
+    vi.stubEnv("BUSINESS_MAIL_ORDER_NUMBER", "2026-서울서대문-0758");
     vi.stubEnv("BUSINESS_EMAIL", "nullspace.support@gmail.com");
     setLanguage("en");
 
@@ -86,6 +100,8 @@ describe("TermsOfServicePage", () => {
     expect(
       screen.getByText("3F S88, 37 Ewhayeodae 7-gil, Seodaemun-gu, Seoul (Daehyeon-dong)")
     ).toBeInTheDocument();
+    expect(screen.getByText("E-commerce registration number")).toBeInTheDocument();
+    expect(screen.getByText("2026-Seoul Seodaemun-0758")).toBeInTheDocument();
     expect(screen.queryByText("이응준")).not.toBeInTheDocument();
     expect(screen.queryByText(/서울특별시 서대문구/)).not.toBeInTheDocument();
   });

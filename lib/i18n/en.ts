@@ -887,6 +887,8 @@ export const en: Record<string, string> = {
   "미정": "TBD",
   "사업자 정보": "Business information",
   "사업자등록번호": "Business registration number",
+  "통신판매업신고번호": "E-commerce registration number",
+  "2026-서울서대문-0758": "2026-Seoul Seodaemun-0758",
   "상호": "Company",
   "이 개인정보처리방침은 널스페이스가 제공하는 nullStock 및 관련 서비스에서 이용자의 개인정보를 어떻게 처리하고 보호하는지 안내합니다. 서비스는 소프트웨어 서비스(SaaS) 방식으로 제공되는 투자 연구 및 시뮬레이션 도구이며, 투자자문, 투자일임, 금융투자상품 매매·중개 또는 개인 맞춤형 금융 조언을 제공하지 않습니다.": "This Privacy Policy explains how nullspace processes and protects users' personal information in nullStock and related services. The service is an investment research and simulation tool provided as software-as-a-service (SaaS) and does not provide investment advice, discretionary investment management, trading/brokerage of financial investment products, or personalized financial advice.",
   "이메일": "E-mail",

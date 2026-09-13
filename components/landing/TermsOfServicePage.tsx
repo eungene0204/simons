@@ -241,11 +241,13 @@ export function TermsOfServicePage() {
     getLanguage() === "en"
       ? createTermsSectionsEn(companyName, serviceName)
       : createSections(companyName, serviceName);
+  // 전자상거래법 제10조 표시 항목 — 순서는 푸터 표기와 같게 둔다(상호→등록번호→통신판매업→대표→연락처).
   const businessInfoItems = [
     { label: t("상호"), value: companyName },
+    { label: t("사업자등록번호"), value: process.env.BUSINESS_REGISTRATION_NUMBER },
+    { label: t("통신판매업신고번호"), value: process.env.BUSINESS_MAIL_ORDER_NUMBER },
     { label: t("대표자"), value: process.env.BUSINESS_REPRESENTATIVE_NAME },
     { label: t("주소"), value: process.env.BUSINESS_ADDRESS },
-    { label: t("사업자등록번호"), value: process.env.BUSINESS_REGISTRATION_NUMBER },
     { label: t("전화번호"), value: process.env.BUSINESS_PHONE },
     { label: t("이메일"), value: process.env.BUSINESS_EMAIL },
   ];
