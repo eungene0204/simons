@@ -474,6 +474,13 @@ class BacktestEngine:
             
             options = req.get('options', {})
             exec_type = options.get('execution_type', 'next_open')
+            # 대화 레인(인터프리터·nl_parser)의 '당일 종가 체결' 어휘는 'current_close'다.
+            # 엔진은 'same_close'/'next_open'만 알아, 정규화 없이는 어느 분기에도 걸리지 않아
+            # 신호 shift 없이 **당일 시가**에 체결되고(종가보다 앞선 룩어헤드) 경고도 빠졌다
+            # (2026-09-13 실측). 여기 한 곳에서 정규화해 phase1·시뮬레이터·경고가 같은 값을 본다.
+            if exec_type == 'current_close':
+                exec_type = 'same_close'
+                options['execution_type'] = exec_type
             # 거래 비용 옵션 검증 — 음수는 리베이트가 되어 결과를 부풀린다(Fail Fast).
             # 0은 허용하되(연구용) 조용히 지나가지 않는다.
             for _ck in ('fee_rate', 'buy_fee_rate', 'sell_fee_rate', 'sell_tax_rate', 'slippage_rate'):

@@ -1133,7 +1133,7 @@ BacktestEngine.run_backtest(request)
 ```
 
 **Simulator 핵심 설계 원칙:**
-- 체결 시점: 기본·권장은 `next_open`(신호 bar 다음날 시가 체결, 룩어헤드 없음). `same_close`는 당일 종가 신호를 당일 종가에 체결하는 비현실적 모드 — 엔진이 결과에 룩어헤드 경고를 자동 첨부(연구용). 독립 엔진(backtrader) 교차검증으로 `next_open` 체결 일치 확인됨
+- 체결 시점: 기본·권장은 `next_open`(신호 bar 다음날 시가 체결, 룩어헤드 없음). `same_close`는 당일 종가 신호를 당일 종가에 체결하는 비현실적 모드 — 엔진이 결과에 룩어헤드 경고를 자동 첨부(연구용). 대화 레인 어휘 `current_close`는 엔진 입구에서 `same_close`로 정규화한다(미정규화 시 어느 분기에도 안 걸려 당일 **시가** 체결·경고 누락 — 2026-09-13 수리). 독립 엔진(backtrader) 교차검증으로 `next_open` 체결 일치 확인됨
 - 리스크 종료: 당일 close 감지 → `exits_values[i]`에 당일 close 주입 (현실적 일봉 시뮬레이션)
 - 벡터화 Step 순서 고정: **Step1 퇴장처리 → Step2 리스크 평가/주입 → Rebalance(목표 집합 재구성/탈락 매도) → Step3 진입처리**
 - 같은 날 매도+매수(리밸런싱 reconstitution)가 겹칠 때는 부기(active_mask/active_count/peak_price)도 즉시 갱신해야 한다 — 그렇지 않으면 빈 슬롯이 "아직 점유 중"으로 보여 신규 편입이 영구 차단되는 고스트 포지션 버그가 발생한다
@@ -1645,7 +1645,7 @@ run_backtest → 1단계(데이터·지표·신호·랭킹) → 메인 시뮬레
 | `test_engine_loader.py` | DataLoader: Parquet 로드, 캐싱 |
 | `test_simulator_validation.py` | 검증 회귀: 핸드칼크·비용 양방향·결정론·next_open 체결·현금 음수 없음·중복 포지션 없음 |
 | `test_reference_engine_crosscheck.py` | 레퍼런스 엔진 교차검증(#13): Simulator vs **backtrader** 진입/청산일·체결가·수량·최종자산 일치(무비용/비용) |
-| `test_lookahead_no_prelisting_trades.py` | bfill 룩어헤드 가드(상장 전 미체결) + same_close 경고 발생 검증 |
+| `test_lookahead_no_prelisting_trades.py` | bfill 룩어헤드 가드(상장 전 미체결) + same_close 경고 발생 검증 + `current_close` 별칭=same_close 정규화 |
 | `test_random_strategy_stress.py` | 랜덤 전략 스트레스(#14): 예외/현금음수/비정상 NAV 없음 (N_STRESS env로 수천 건 확장) |
 | `test_dividends.py` / `test_backfill_dividends.py` | 배당 토탈리턴 보정 + parquet 백필(스텁 provider 라운드트립) |
 | `test_backfill_us_stocks.py` | 미국 주식 파케이 백필 순수 변환(네트워크 불필요): 한국 스키마 컬럼 일치·분할수정 주식수·TTM 4분기·공시 지연/15개월 cap·분할일 스테일 주식수 글리치·A/B 클래스 주당지표 |

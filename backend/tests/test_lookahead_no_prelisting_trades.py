@@ -95,3 +95,19 @@ def test_next_open_has_no_lookahead_warning(data_dir):
     engine = BacktestEngine(data_dir=str(data_dir))
     res = engine.run_backtest(_base_req({"execution_type": "next_open"}))
     assert not any("룩어헤드" in w for w in res["warnings"])
+
+
+def _first_buy(result):
+    return next(s for s in result["signals"] if s["type"] == "buy")
+
+
+def test_current_close_alias_is_normalized_to_same_close(data_dir):
+    """대화 레인 어휘 'current_close'는 'same_close'와 동일하게 처리돼야 한다 — 정규화 전에는
+    어느 분기에도 걸리지 않아 신호 shift 없이 당일 **시가**에 체결되고 경고도 빠졌다."""
+    runs = {}
+    for et in ("current_close", "same_close"):
+        engine = BacktestEngine(data_dir=str(data_dir))
+        runs[et] = engine.run_backtest(_base_req({
+            "execution_type": et, "fee_rate": 0.0, "slippage_rate": 0.0, "sell_tax_rate": 0.0}))
+    assert any("룩어헤드" in w for w in runs["current_close"]["warnings"])
+    assert _first_buy(runs["current_close"]) == _first_buy(runs["same_close"])
