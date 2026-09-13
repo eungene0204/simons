@@ -126,12 +126,18 @@ GPU가 없으므로 로컬 LLM은 돌리지 않는다. 백테스트(vectorbt/opt
 
 **데이터 자동 동기화(2026-08-31)**: 일일 갱신(KR 21:00·US 07:00 KST)이 Volume에 자동 반영되도록
 박스 호스트 cron(`/etc/cron.d/simons-modal-sync`)이 30분마다 `scripts/auto_sync_modal_backtest_data.sh`를
-돌린다 — 감시 대상(ohlcv/ohlcv-us/fundamentals/최상위 JSON)의 mtime이 지난 동기화 이후이고
+돌린다 — 감시 대상(ohlcv/ohlcv-us/fundamentals/index/최상위 JSON)의 mtime이 지난 동기화 이후이고
 **15분 이상 잠잠할 때만**(쓰기 도중 절단 방지) `sync_modal_backtest_data.sh`를 실행하고 스탬프
 (`/var/lib/simons-modal-sync.stamp`)를 갱신한다. 변경 없으면 no-op. 로그 `/var/log/simons-modal-sync.log`.
 Modal CLI는 호스트 `/opt/modal-cli/bin/modal`(venv), 인증은 호스트 `~/.modal.toml`(CLI 토큰 —
 `.env`의 `MODAL_KEY`(wk-)는 proxy 전용이라 CLI 인증에 못 쓴다). **박스 재구축 시 cron 파일·
 modal-cli venv·~/.modal.toml 세 가지를 다시 설치해야 한다.**
+
+**시장지수 파케이(2026-09-13)**: `data/index/{KOSPI,KOSDAQ}.parquet`는 `sync_data.py`가 매일 6단계에서
+`backend/scripts/backfill_index_history.py`로 갱신한다(토스 Open API 최근 200봉 upsert). 파일이 없으면
+같은 호출이 자동으로 전체 백필(토스 2014-07~ + KIS 1996~2014-06, 약 2~3분)을 하므로 배포 후 첫 야간
+sync에서 채워지고, cron 감지기가 `index/`를 Modal 볼륨에 올린다. 즉시 필요하면 박스에서 수동 실행:
+`docker compose exec -T backend python3 /app/backend/scripts/backfill_index_history.py --full`.
 
 **결과 동일성 계약**: Modal 워커는 앱 박스와 **같은 `uv.lock`**에서 설치한다 — `requirements-modal.txt`가 그 잠금에서 내보낸 파생물이고, `modal_backtest.py`가 그 파일을 이미지에 설치한다(Python 3.11 · numpy 2.4.4 · scipy 1.17.1 · numba 0.67.0 · vectorbt 1.0.0 …). 전이 의존까지 자동으로 같은 값이므로 손으로 실측해 옮겨 적을 일이 없다. 의존성을 올릴 때는 `uv lock` 뒤 `bash scripts/export_modal_requirements.sh`를 돌려 **같은 커밋에서 함께** 올리고(가드: `backend/tests/test_modal_requirements_export.py`), 전환·업그레이드 전 반드시 전수 대조:
 ```bash

@@ -397,6 +397,26 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 "Korean and US markets can't be mixed in one strategy — "
                 "please choose which market to backtest",
             ))
+        # 시장 대비 초과수익률(technical.relative_return)은 한국 지수(코스피·코스닥) 시계열로만
+        # 계산된다 — 미국 지수 시계열은 아직 수집하지 않는다(별도 과제). 조용히 제거하면
+        # 엔진이 NaN 조건으로 0거래를 내므로, ETF×재무 랭킹과 같은 계약으로 오류+제거+안내한다.
+        for _role, _attr in (("진입", "entry_conditions"), ("청산", "exit_conditions")):
+            _kept_conds = []
+            for _cond in getattr(strategy, _attr):
+                if _cond.factor != "technical.relative_return":
+                    _kept_conds.append(_cond)
+                    continue
+                _spec = resolve(_cond.factor)
+                _name = _spec.display_name if _spec else _cond.factor
+                unsupported.append(f"미국 시장 × {_name}")
+                errors.append(ui_language.msg(
+                    "미국 시장에서는 {role} 조건 '{name}'을(를) 아직 사용할 수 없습니다 "
+                    "(미국 지수 시계열 미수집) — 기간 수익률 랭킹 등으로 바꿔 주세요",
+                    "The {role} condition '{name}' isn't available for US markets yet "
+                    "(US index history isn't collected) — try a period-return ranking instead",
+                    role=ui_language.msg(_role, "entry" if _role == "진입" else "exit"), name=_name,
+                ))
+            setattr(strategy, _attr, _kept_conds)
         if len(_us_markets) > 1:
             errors.append(ui_language.msg(
                 "미국 시장/지수는 한 전략에 하나만 지정할 수 있습니다 "

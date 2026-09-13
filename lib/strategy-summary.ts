@@ -395,6 +395,7 @@ export const INDICATOR_LABELS: Record<string, string> = {
   williams_r: "Williams %R",
   mfi: "MFI",
   roc: "ROC",
+  relative_return: "시장 대비 초과수익률",
   // 엔진 TechnicalSignal.indicator(backend/engine/nl_parser.py)에 있는 지표는 **빠짐없이**
   // 여기 라벨이 있어야 한다 — 없으면 배지가 내부 변수명을 그대로 노출한다
   // (2026-08-18: 'trading_value'가 진입 신호 배지로 그대로 나갔다).

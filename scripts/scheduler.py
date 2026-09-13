@@ -62,6 +62,7 @@ def run_update():
     """미러 모드면 프로덕션 pull, 정본 모드면 FDR/KIS sync."""
     if _is_mirror():
         _run("프로덕션 데이터 pull", [sys.executable, "scripts/mirror_data.py"])
+        _run("프로덕션 지수 pull", [sys.executable, "scripts/mirror_data.py", "--index"])
     else:
         _run("데이터 동기화", [sys.executable, "scripts/sync_data.py"])
 

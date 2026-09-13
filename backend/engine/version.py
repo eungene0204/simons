@@ -29,15 +29,24 @@ CI 가드(``scripts/check_engine_version_bump.sh`` — .github/workflows/ci.yml�
 """
 
 # ── 현재 엔진 버전 (유일 기준) ────────────────────────────────────────────────
-ENGINE_VERSION = "16.6.0"
+ENGINE_VERSION = "16.7.0"
 
 # 사람이 읽을 수 있는 한 줄 요약. 결과 배지/툴팁 등 표시용이며 값 계산엔 영향 없음.
-ENGINE_VERSION_LABEL = "v16.6.0 — 단순이동평균 지속 상태 필터(mode above/below) 신설"
+ENGINE_VERSION_LABEL = "v16.7.0 — 시장 대비 초과수익률(relative_return) 지표 신설"
 
 # ── 버전 이력 ─────────────────────────────────────────────────────────────────
 # 과거 git 이력을 참고해 주요 변경 시점을 정리한 것. 정확한 커밋 단위 이력은
 # git log를, 큰 흐름은 아래 표를 참고한다.
 CHANGELOG = {
+    "16.7.0": "**시장 대비 초과수익률 지표 신설 — opt-in 가산(MINOR).** 새 기술 지표 `relative_return`"
+              "(종목 N거래일 수익률 − 상장 시장 지수 N거래일 수익률, %p)로 \"최근 3개월 동안 시장보다 "
+              "덜 떨어진 종목\"류 조건을 정확히 표현한다. 지수 시계열은 새 저장소 data/index/"
+              "{KOSPI,KOSDAQ}.parquet(토스 Open API 2014-07~ 정본 + KIS 1996~2014-06 보충, "
+              "scripts/backfill_index_history.py, 야간 갱신은 sync_data.py)이고, phase1이 종목의 "
+              "상장 시장 지수 종가를 날짜 조인(engine/market_index.attach_index_close)한 뒤 "
+              "지표 엔진이 계산한다. 지수 파일이 없거나 시장을 모르면(미국 종목) NaN → 조건 "
+              "fail-closed. 기존 지표·체결 경로는 건드리지 않아 이 지표를 쓰지 않는 전략의 결과는 "
+              "불변이다(qa_backtest_equivalence --wfa 불일치 0).",
     "16.6.0": "**단순이동평균 지속 상태 필터 신설 — opt-in 가산(MINOR).** ma_crossover에 EMA와 같은 `mode`(above/below)를 붙여 \"종가가 60일선 위에 있는 동안\"·\"20일선이 60일선 위 유지\"를 교차 이벤트가 아니라 매 봉 참인 게이트로 평가한다(signals `_eval_vec`·`_eval_row`·사유 세그먼트). 종전에는 SMA에 이 모드가 없어 상태 표현이 crosses_above로 옮겨져 조건이 교차 당일 하루로 좁아졌다 — 인터프리터 프롬프트 5-3도 상태는 부등호로 내도록 함께 고쳤다. mode 없는 기존 신호의 평가는 그대로다(결과 불변). 사유 템플릿 4개 추가(MA_STAY_ABOVE/BELOW·MA_PRICE_STAY_ABOVE/BELOW).",
     "16.5.1": "**결과 경고 구조화 — 체결·지표 불변(PATCH).** 결과 로그의 경고(warnings)는 엔진이 값을 박아 만든 "
               "완성 한국어 문장이라 /us에서 번역할 수 없었다(사전 키가 값마다 달라짐). 매매사유(16.4.2)와 같은 "

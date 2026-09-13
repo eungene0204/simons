@@ -24,7 +24,7 @@ ts() { date "+%F %T"; }
 # 받고, pipefail 아래에서 스크립트 전체가 로그 한 줄 없이 죽는다(실제 사고).
 newest=$(
   {
-    find "$DATA_DIR/ohlcv" "$DATA_DIR/ohlcv-us" "$DATA_DIR/fundamentals" -type f -printf '%T@\n' 2>/dev/null
+    find "$DATA_DIR/ohlcv" "$DATA_DIR/ohlcv-us" "$DATA_DIR/fundamentals" "$DATA_DIR/index" -type f -printf '%T@\n' 2>/dev/null
     find "$DATA_DIR" -maxdepth 1 -name '*.json' -not -name '*.progress.json' -type f -printf '%T@\n' 2>/dev/null
   } | awk '$1>max{max=$1} END{if(max=="")exit 1; printf "%d\n", max}'
 ) || { echo "[$(ts)] ERROR: 감시 대상 파일이 없음 ($DATA_DIR)"; exit 1; }

@@ -331,6 +331,14 @@ class SignalEngine:
             default_op = '>' if sig_type != 'sell' else '<'
             return compare_vec(roc, p.get('operator', default_op), float(p.get('value', 0)))
 
+        elif cid == 'relative_return':
+            # 시장 대비 초과수익률(%p). 시장보다 나은(0 초과) 매수 / 못한(0 미만) 매도 기본.
+            period = p.get('period', 60)
+            rr = get_col(f'relative_return_{period}')
+            sig_type = p.get('signalType', 'buy')
+            default_op = '>' if sig_type != 'sell' else '<'
+            return compare_vec(rr, p.get('operator', default_op), float(p.get('value', 0)))
+
         elif cid == 'volatility':
             # 연환산 변동성(%). 저변동성(임계 이하) 매수 / 고변동성(임계 이상) 매도 기본.
             period = p.get('period', 60)
@@ -691,6 +699,13 @@ class SignalEngine:
             default_op = '>' if sig_type != 'sell' else '<'
             return compare(roc_val, p.get('operator', default_op), float(p.get('value', 0)))
 
+        elif cid == 'relative_return':
+            period = p.get('period', 60)
+            rr_val = safe_get(f'relative_return_{period}', idx)
+            sig_type = p.get('signalType', 'buy')
+            default_op = '>' if sig_type != 'sell' else '<'
+            return compare(rr_val, p.get('operator', default_op), float(p.get('value', 0)))
+
         elif cid == 'volatility':
             period = p.get('period', 60)
             vol_val = safe_get(f'volatility_{period}', idx)
@@ -877,6 +892,12 @@ class SignalEngine:
             period = p.get('period', 12)
             val = p.get('value', 0)
             return [tr.part(tr.ROC_LEVEL, period, val, op_seg)]
+        elif cid == 'relative_return':
+            period = p.get('period', 60)
+            sig_type = p.get('signalType', 'buy')
+            val = p.get('value', 0)
+            rr_op_seg = op_seg if op else tr.part(tr.OP_GTE if sig_type != 'sell' else tr.OP_LTE)
+            return [tr.part(tr.RELATIVE_RETURN_LEVEL, period, val, rr_op_seg)]
         elif cid == 'volatility':
             period = p.get('period', 60)
             sig_type = p.get('signalType', 'buy')

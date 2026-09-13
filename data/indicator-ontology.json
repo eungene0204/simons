@@ -68,6 +68,7 @@
     "technical.williams_r": "class.oscillator",
     "technical.mfi": "class.oscillator",
     "technical.roc": "class.oscillator",
+    "technical.relative_return": "class.oscillator",
 
     "technical.macd": "class.trend",
     "technical.adx": "class.trend",
@@ -208,6 +209,7 @@
     "technical.williams_r": "none",
     "technical.mfi": "none",
     "technical.roc": "none",
+    "technical.relative_return": "higher_better",
     "technical.volatility": "none",
 
     "technical.ai_model": "higher_better",

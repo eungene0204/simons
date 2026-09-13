@@ -22,6 +22,7 @@ import polars as pl
 
 from engine import data_coverage
 from engine import universe_pit
+from engine import market_index
 from engine.data_resolver import DataResolver
 from engine import trade_reason as tr
 from engine import result_warnings as rw
@@ -145,6 +146,9 @@ def prepare_symbol(sym: str, ctx: Dict[str, Any], loader, indicator_engine) -> D
     indicators: List[Dict[str, Any]] = []
     _collect_leaf_conditions(ctx["entry"], indicators)
     _collect_leaf_conditions(ctx["exit"], indicators)
+    # 시장 대비 초과수익률 조건은 종목의 상장 시장 지수 종가가 있어야 계산된다 —
+    # 지표 엔진은 심볼을 모르므로 여기서(심볼을 아는 유일한 지점) 날짜 조인으로 붙인다.
+    df_pl = market_index.attach_index_close(df_pl, sym, indicators, loader.data_dir)
     df_pl = indicator_engine.calculate(df_pl, indicators)
 
     resolver = DataResolver()

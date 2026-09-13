@@ -138,6 +138,21 @@ class IndicatorEngine:
                             * (KRX_TRADING_DAYS_PER_YEAR ** 0.5) * 100.0
                         )
                         target_cols.add(f'volatility_{period}')
+                    elif cid == 'relative_return':
+                        # 시장 대비 초과수익률(%p): 종목 N봉 수익률 − 비교 지수 N봉 수익률.
+                        # 지수 종가(index_close)는 engine/market_index.attach_index_close가
+                        # 종목의 상장 시장 지수를 날짜 조인으로 미리 붙인다 — 이 엔진은 심볼을
+                        # 모르므로 컬럼이 없으면 NaN을 남겨 조건이 fail-closed(False)로 떨어진다.
+                        # stockstats에 없는 지표라 volatility처럼 직접 계산한다.
+                        period = p.get('period', 60)
+                        col = f'relative_return_{period}'
+                        if 'index_close' in sdf.columns:
+                            stock_ret = sdf['close'].pct_change(period)
+                            index_ret = sdf['index_close'].astype(float).pct_change(period)
+                            sdf[col] = (stock_ret - index_ret) * 100.0
+                        else:
+                            sdf[col] = float('nan')
+                        target_cols.add(col)
                     elif cid == 'bollinger_bands':
                         period, std_times = bollinger_params(p)
                         ub_col, lb_col = bollinger_columns(p)

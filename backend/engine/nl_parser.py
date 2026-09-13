@@ -622,8 +622,8 @@ class TechnicalSignal(BaseModel):
         "ma_crossover", "rsi", "ema", "macd",
         "bollinger_bands", "breakout", "volume_spike",
         "stochastic", "cci", "adx", "williams_r", "mfi", "roc", "volatility",
-        "trading_value", "ai_model", "ai_drop_model"
-    ] = Field(description="지표 종류. williams_r=Williams %R(-100~0), mfi=자금흐름지표(0~100), roc=변화율/모멘텀(%), volatility=연환산 변동성(%, 일수익률 롤링 표준편차×√246), ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도")
+        "relative_return", "trading_value", "ai_model", "ai_drop_model"
+    ] = Field(description="지표 종류. williams_r=Williams %R(-100~0), mfi=자금흐름지표(0~100), roc=변화율/모멘텀(%), volatility=연환산 변동성(%, 일수익률 롤링 표준편차×√246), relative_return=시장 대비 초과수익률(%p, 종목 N일 수익률−상장 시장 지수 N일 수익률), ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도")
     signal_type: Literal["buy", "sell"] = Field(default="buy", description="매수=buy, 매도=sell")
 
     # MA / EMA 크로스오버

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import pandas as pd
 import polars as pl
@@ -129,6 +129,8 @@ def prepare_signal_dataframe(
     entry_conditions: list[dict] | None,
     exit_conditions: list[dict] | None,
     ai_engine: Any = None,
+    symbol: Optional[str] = None,
+    data_dir: Optional[str] = None,
 ) -> pl.DataFrame:
     if df_pl is None or len(df_pl) == 0:
         return df_pl
@@ -138,6 +140,11 @@ def prepare_signal_dataframe(
     tech_conditions = [c for c in all_conditions if c.get("id") not in {"ai_model", "ai_drop_model"}]
 
     if tech_conditions:
+        # 시장 대비 초과수익률은 지수 종가 조인이 선행돼야 한다(백테스트 phase1과 같은 계약).
+        # 실시간 봉(당일)에는 지수 당일 종가가 아직 없어 전일 지수로 전진 충전된다.
+        if symbol and data_dir:
+            from engine import market_index
+            live_df = market_index.attach_index_close(live_df, symbol, tech_conditions, data_dir)
         live_df = IndicatorEngine.calculate(live_df, tech_conditions)
 
     if uses_ai_conditions(entry_conditions, exit_conditions):
@@ -199,7 +206,8 @@ def evaluate_live_strategy_signals(
             continue
 
         live_df = prepare_signal_dataframe(
-            df, quotes.get(symbol), entry_conditions, exit_conditions, ai_engine
+            df, quotes.get(symbol), entry_conditions, exit_conditions, ai_engine,
+            symbol=symbol, data_dir=getattr(data_loader, "data_dir", None),
         )
         evaluation_offset = (
             -1

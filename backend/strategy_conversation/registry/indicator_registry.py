@@ -235,6 +235,12 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     _technical("roc", "ROC(변화율/모멘텀)", "percent", _COMPARISON_OPS,
                {"period": ParamSpec(default=20, minimum=2, maximum=250)},
                value_range=(-100, 1000), recommended=0),
+    _technical("relative_return", "시장 대비 초과수익률", "percent", _COMPARISON_OPS,
+               {"period": ParamSpec(default=60, minimum=2, maximum=250)},
+               value_range=(-100, 1000), recommended=0,
+               notes="종목 N거래일 수익률 − 상장 시장 지수(코스피·코스닥) N거래일 수익률(%p). "
+                     "'시장보다 덜 떨어진/강한/웃도는'은 > 0, '시장보다 더 떨어진'은 < 0. "
+                     "period=거래일(3개월=63). 미국 시장은 지수 시계열이 없어 미지원"),
     _technical("volatility", "변동성(연환산)", "percent", _COMPARISON_OPS,
                {"period": ParamSpec(default=60, minimum=5, maximum=250)},
                value_range=(0, 500), recommended=30,
@@ -363,6 +369,8 @@ _ALIASES: Dict[str, str] = {
     "윌리엄스": "technical.williams_r",
     "mfi": "technical.mfi", "자금흐름지표": "technical.mfi",
     "roc": "technical.roc", "모멘텀": "technical.roc",
+    "relative_return": "technical.relative_return", "초과수익률": "technical.relative_return",
+    "시장대비초과수익률": "technical.relative_return", "시장대비수익률": "technical.relative_return",
     "ai_model": "technical.ai_model", "ai상승예측": "technical.ai_model",
     "ai_drop_model": "technical.ai_drop_model", "ai하락예측": "technical.ai_drop_model",
     "return": "ranking.return", "수익률랭킹": "ranking.return", "기간수익률": "ranking.return",

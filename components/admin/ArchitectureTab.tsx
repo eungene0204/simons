@@ -891,7 +891,7 @@ const OVERVIEW_LAYERS: ArchLayer[] = [
           overview: '기술 지표를 시계열 전체에 대해 벡터로 계산한다.',
           points: [
             'MA(5/10/20/60/120)·EMA·RSI·MACD·볼린저·스토캐스틱·CCI·ADX·거래량 급증·돌파·거래대금',
-            'williams_r·mfi·roc 등 퀀트 지표 확장분 포함',
+            'williams_r·mfi·roc·relative_return(시장 대비 초과수익률 — data/index 지수 종가 조인) 등 퀀트 지표 확장분 포함',
           ],
         },
       },

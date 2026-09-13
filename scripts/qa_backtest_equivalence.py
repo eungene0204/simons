@@ -93,6 +93,9 @@ def build_strategies(symbols: List[str], kospi200_ids: List[str]) -> Dict[str, D
         _grp(_cond("williams_r", "exit", period=14, operator=">", value=-20)))
     add("mfi_roc_vol", _grp(_cond("mfi", period=14, operator="<", value=25), _cond("volatility", period=60, operator="<", value=60)),
         _grp(_cond("roc", "exit", period=12, operator=">", value=8)))
+    add("relative_return_market", _grp(_cond("relative_return", period=63, operator=">", value=0)),
+        _grp(_cond("relative_return", "exit", period=63, operator="<", value=0, signalType="sell")),
+        _risk(max_positions=10, rebalancing_period="monthly", position_size_pct=10))
     add("ema_rsi_or", _grp(_cond("ema", shortPeriod=10, longPeriod=30), _cond("rsi", period=14, operator="<", value=40), logic="OR"),
         _grp(_cond("ema", "exit", shortPeriod=10, longPeriod=30, signalType="sell")))
     add("value_per_pbr", _grp(_cond("per", operator="<", value=10), _cond("pbr", operator="<", value=1.0), _cond("rsi", period=14, operator="<", value=45)),

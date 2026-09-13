@@ -497,6 +497,20 @@ def main(argv=None):
     print(f"- Failed: {fund_fail}")
     print(f"- Skipped (already up-to-date): {fund_skip}")
 
+    # 6. 시장지수(코스피·코스닥) 일봉 갱신 — 토스 Open API 최근 200봉 upsert(파일이 없으면 전체 백필).
+    #    OHLCV와 별개 저장소(data/index)라 실패해도 종목 갱신 결과에는 영향이 없다.
+    import subprocess
+    print("\nUpdating market index history (data/index)...")
+    idx_result = subprocess.run(
+        [sys.executable, "backend/scripts/backfill_index_history.py"],
+        capture_output=True, text=True,
+    )
+    for line in (idx_result.stdout or "").strip().splitlines()[-4:]:
+        print(f"  {line}")
+    if idx_result.returncode != 0:
+        print(f"[WARNING] 시장지수 갱신 실패 (exit {idx_result.returncode}): "
+              f"{(idx_result.stderr or '').strip()[-300:]}")
+
     print(f"\nFinal Summary:")
     print(f"- Total Stocks: {len(stocks)}")
     print(f"- New symbols added: {len(new_symbols)}")

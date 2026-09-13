@@ -1,0 +1,152 @@
+"""시장 대비 초과수익률 지표(relative_return, 엔진 v16.7) 배선 전체 회귀.
+
+배경(2026-09-13): "최근 3개월 동안 시장보다 덜 떨어진 종목"이 지수 시계열이 없어
+UNSUPPORTED_REQUEST로 떨어졌다. 지수 저장소(data/index)를 신설한 뒤 이 지표로 정확히
+표현한다. 이 파일은 ① IndicatorEngine 계산식(종목 N봉 수익률 − 지수 N봉 수익률, %p)과
+index_close 부재 시 NaN(fail-closed) ② SignalEngine 매수/매도 기본 방향·매매사유 세그먼트
+③ 레지스트리/온톨로지/컴파일러/컨버터의 canonical 매핑 ④ 미국 시장 거절 ⑤ primary 레인
+end-to-end(스텁 LLM)를 고정한다.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import polars as pl
+import pytest
+
+import ui_language
+from engine.indicators import IndicatorEngine
+from engine.signals import SignalEngine
+from engine.strategy_converter import _tech_signal_to_condition
+from strategy_conversation.compiler.strategy_compiler import compile_strategy
+from strategy_conversation.interpreter.models import (
+    StrategyCondition, StrategyIntent, StrategySpec, UniverseSpec, ValidationReport,
+)
+from strategy_conversation.registry import concept_ontology, indicator_registry
+from strategy_conversation.validation.capability_validator import validate_capability
+
+
+def _frame(close: list[float], index_close: list[float] | None) -> pl.DataFrame:
+    n = len(close)
+    dates = pl.datetime_range(
+        pl.datetime(2024, 1, 1), pl.datetime(2024, 1, 1) + pl.duration(days=n - 1),
+        interval="1d", eager=True,
+    )
+    data = {"date": dates, "open": close, "high": close, "low": close, "close": close,
+            "volume": [1_000_000.0] * n}
+    if index_close is not None:
+        data["index_close"] = index_close
+    return pl.DataFrame(data)
+
+
+_COND = {"id": "relative_return", "params": {"period": 2, "operator": ">", "value": 0, "signalType": "buy"}}
+
+
+# ── ① 지표 계산 ──────────────────────────────────────────────────────────────
+
+def test_indicator_engine_computes_excess_return_in_percent_points():
+    # 종목 100→110(2봉 +10%), 지수 2000→2040(2봉 +2%) → 초과수익률 +8%p
+    out = IndicatorEngine.calculate(
+        _frame([100.0, 105.0, 110.0, 99.0], [2000.0, 2020.0, 2040.0, 2040.0]), [_COND])
+    col = out["relative_return_2"].to_list()
+    assert col[0] is None or np.isnan(col[0])
+    assert col[2] == pytest.approx(8.0)
+    # 종목 105→99(−5.714%), 지수 2020→2040(+0.990%) → −6.70%p
+    assert col[3] == pytest.approx((99 / 105 - 1) * 100 - (2040 / 2020 - 1) * 100)
+
+
+def test_indicator_engine_leaves_nan_without_index_close():
+    """지수 조인이 없으면(지수 파일 부재·미국 종목) 0으로 위장하지 않고 NaN → 조건 False."""
+    out = IndicatorEngine.calculate(_frame([100.0, 105.0, 110.0], None), [_COND])
+    assert all(v is None or np.isnan(v) for v in out["relative_return_2"].to_list())
+    assert list(SignalEngine()._eval_vec(_COND, out)) == [False, False, False]
+
+
+# ── ② 신호 평가·매매사유 ─────────────────────────────────────────────────────
+
+def test_signal_engine_default_direction_and_operator():
+    engine = SignalEngine()
+    df = pl.DataFrame({"relative_return_63": [3.0, -2.0, 0.0, float("nan")]})
+    buy = {"id": "relative_return", "params": {"period": 63, "signalType": "buy"}}
+    sell = {"id": "relative_return", "params": {"period": 63, "signalType": "sell"}}
+    assert list(engine._eval_vec(buy, df)) == [True, False, False, False]
+    assert list(engine._eval_vec(sell, df)) == [False, True, False, False]
+    explicit = {"id": "relative_return", "params": {"period": 63, "operator": "<", "value": -1, "signalType": "buy"}}
+    assert list(engine._eval_vec(explicit, df)) == [False, True, False, False]
+    assert engine.evaluate_condition(buy, 0, df) is True
+    assert engine.evaluate_condition(buy, 1, df) is False
+
+
+def test_condition_description_names_market_excess_return():
+    desc = SignalEngine().get_condition_description(
+        {"id": "relative_return", "params": {"period": 63, "operator": ">", "value": 0, "signalType": "buy"}})
+    assert "시장 대비 초과수익률(63일)" in desc and "0" in desc
+
+
+# ── ③ 레지스트리·온톨로지·컴파일·컨버터 ──────────────────────────────────────
+
+def test_registry_and_ontology_know_the_leaf():
+    spec = indicator_registry.resolve("technical.relative_return")
+    assert spec is not None and spec.supported == "SUPPORTED"
+    assert spec.engine_binding == ("technical_signal", "relative_return")
+    assert indicator_registry.resolve("초과수익률").id == "technical.relative_return"
+    onto = concept_ontology.get_ontology()
+    assert onto.members["technical.relative_return"] == "class.oscillator"
+    assert onto.polarity["technical.relative_return"] == "higher_better"
+
+
+def _intent(markets, operator=">", period=63) -> StrategyIntent:
+    spec = StrategySpec(
+        universe=UniverseSpec(markets=markets),
+        entry_conditions=[StrategyCondition(
+            factor="technical.relative_return", operator=operator, value=0.0,
+            parameters={"period": period}, source_text="시장보다 덜 떨어진",
+        )],
+    )
+    return StrategyIntent(intent="CREATE_STRATEGY", strategy=spec)
+
+
+def test_compile_and_convert_to_engine_condition():
+    parsed = compile_strategy(_intent(["KOSPI200"]), ValidationReport(is_valid=True, status="READY"),
+                              "최근 3개월 동안 시장보다 덜 떨어진 종목")
+    sig = parsed.entry_signals[0]
+    assert (sig.indicator, sig.period, sig.operator, sig.value) == ("relative_return", 63, ">", 0.0)
+    cond = _tech_signal_to_condition(sig)
+    assert cond["id"] == "relative_return"
+    assert cond["params"] == {"signalType": "buy", "period": 63, "operator": ">", "value": 0.0}
+
+
+# ── ④ 미국 시장 거절 ─────────────────────────────────────────────────────────
+
+def test_validator_rejects_relative_return_on_us_markets():
+    intent = _intent(["SP500"])
+    with ui_language.bind("en"):
+        errors, _w, unsupported, _f = validate_capability(intent)
+    assert any("isn't available for US markets" in e for e in errors), errors
+    assert any("미국 시장 ×" in u for u in unsupported)
+    assert intent.strategy.entry_conditions == []
+
+
+def test_validator_keeps_relative_return_on_kr_markets():
+    intent = _intent(["KOSPI"])
+    errors, _w, _u, _f = validate_capability(intent)
+    assert not any("미국 시장" in e for e in errors)
+    assert [c.factor for c in intent.strategy.entry_conditions] == ["technical.relative_return"]
+
+
+# ── ⑤ primary 레인 end-to-end(스텁 LLM) ─────────────────────────────────────
+
+def test_primary_lane_compiles_relative_return_condition(monkeypatch):
+    from tests.test_strategy_conversation import _full_intent_dict, _run_primary_with
+
+    data = _full_intent_dict(
+        entry_conditions=[{"factor": "technical.relative_return", "operator": ">", "value": 0,
+                           "parameters": {"period": 63}, "source_text": "시장보다 덜 떨어진"}],
+        portfolio={"selection_count": 10, "rebalance_frequency": "monthly"},
+    )
+    result = _run_primary_with(
+        monkeypatch, data, "최근 3개월 동안 시장보다 덜 떨어진 종목 10개를 매월 리밸런싱")
+    assert result is not None
+    sig = result["parsed"].entry_signals[0]
+    assert (sig.indicator, sig.period, sig.operator, sig.value) == ("relative_return", 63, ">", 0.0)
+    assert not [n for n in result["notices"] if "지원하지 않아" in n or "가깝게 반영" in n]

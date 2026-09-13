@@ -383,7 +383,7 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
         if sig.value is not None:
             params["value"] = sig.value
 
-    elif sig.indicator in ("cci", "adx", "williams_r", "mfi", "roc", "volatility"):
+    elif sig.indicator in ("cci", "adx", "williams_r", "mfi", "roc", "volatility", "relative_return"):
         if sig.period:
             params["period"] = sig.period
         if sig.operator:

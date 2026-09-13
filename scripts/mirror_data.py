@@ -39,6 +39,9 @@ _LOCAL_OHLCV = _REPO_ROOT / "data" / "ohlcv"
 _REMOTE_SUBPATH = "data/ohlcv"
 _LOCAL_OHLCV_US = _REPO_ROOT / "data" / "ohlcv-us"
 _REMOTE_SUBPATH_US = "data/ohlcv-us"
+# 시장지수 파케이(data/index) — 정본은 프로덕션 sync_data.py(토스 야간 갱신).
+_LOCAL_INDEX = _REPO_ROOT / "data" / "index"
+_REMOTE_SUBPATH_INDEX = "data/index"
 # rsync 무전송 중단(초)과 재시도. 스톨로 끊겨도(exit 10/12/30/35 — 소켓 I/O·프로토콜·타임아웃)
 # 이미 옮긴 파일은 원자적으로 완성돼 있으므로(임시파일→rename, --partial 안 씀) 다시 돌리면
 # 남은 파일만 이어간다. 큰 델타에서 한 번에 안 끝나는 일이 잦아 최대 _RSYNC_MAX_ATTEMPTS회.
@@ -89,6 +92,7 @@ def main(argv=None) -> int:
     parser.add_argument("--push", action="store_true", help="로컬 → 프로덕션 (기본은 pull)")
     parser.add_argument("--check", action="store_true", help="차이만 출력하고 전송하지 않음(dry-run)")
     parser.add_argument("--us", action="store_true", help="미국 파케이(data/ohlcv-us) 대상 (기본은 한국 data/ohlcv)")
+    parser.add_argument("--index", action="store_true", help="시장지수 파케이(data/index) 대상")
     args = parser.parse_args(argv)
 
     # 로컬 .env의 DATA_MIRROR_* 로드(컨테이너는 env_file 주입돼 no-op). 실행 시점에만 로드.
@@ -99,8 +103,12 @@ def main(argv=None) -> int:
         print("[mirror] DATA_MIRROR_REMOTE 미설정 — 미러를 건너뜁니다(로컬 .env에 설정 필요).")
         return 2
 
-    local_dir = _LOCAL_OHLCV_US if args.us else _LOCAL_OHLCV
-    remote_subpath = _REMOTE_SUBPATH_US if args.us else _REMOTE_SUBPATH
+    if args.index:
+        local_dir, remote_subpath = _LOCAL_INDEX, _REMOTE_SUBPATH_INDEX
+    elif args.us:
+        local_dir, remote_subpath = _LOCAL_OHLCV_US, _REMOTE_SUBPATH_US
+    else:
+        local_dir, remote_subpath = _LOCAL_OHLCV, _REMOTE_SUBPATH
     local_dir.mkdir(parents=True, exist_ok=True)
     cmd = build_rsync_cmd(remote=remote, ssh_key=ssh_key, push=args.push, dry_run=args.check,
                           local_dir=local_dir, remote_subpath=remote_subpath)

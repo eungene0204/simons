@@ -24,7 +24,7 @@ fi
 
 echo "[SYNC] $DATA_DIR → modal volume $VOL"
 
-for dir in ohlcv ohlcv-us fundamentals; do
+for dir in ohlcv ohlcv-us fundamentals index; do
   if [ -d "$DATA_DIR/$dir" ]; then
     echo "[SYNC] dir $dir ($(du -sh "$DATA_DIR/$dir" | cut -f1))"
     "$MODAL" volume put --force "$VOL" "$DATA_DIR/$dir" "/$dir"

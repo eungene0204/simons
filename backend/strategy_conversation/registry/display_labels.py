@@ -37,6 +37,7 @@ _EN_LABELS = {
     "technical.breakout": "New-high breakout", "technical.volume_spike": "Volume spike (OBV)",
     "technical.stochastic": "Stochastic", "technical.cci": "CCI", "technical.adx": "ADX",
     "technical.williams_r": "Williams %R", "technical.mfi": "MFI", "technical.roc": "ROC",
+    "technical.relative_return": "Excess return vs market",
     "technical.volatility": "Volatility (annualized)", "technical.trading_value": "Trading value",
     "technical.ai_model": "AI upside prediction", "technical.ai_drop_model": "AI drawdown exit",
     "ranking.return": "Period return ranking (momentum)",

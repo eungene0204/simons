@@ -2467,6 +2467,8 @@ def market_signals(body: dict):
                 entry_conditions,
                 exit_conditions,
                 engine.ai_engine,
+                symbol=symbol,
+                data_dir=engine.loader.data_dir,
             )
             if df_live is None or len(df_live) == 0:
                 results.append({"symbol": symbol, "error": "데이터 없음"})
