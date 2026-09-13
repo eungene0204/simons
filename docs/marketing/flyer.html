@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+  :root{--bg:#0f0f0f;--panel:#171b1f;--panel2:#1e2429;--line:#2a3238;--teal:#3fbfb5;--teal2:#8fe3dc;--saffron:#FF9933;--text:#f2f4f5;--muted:#a7b0b6;--dim:#6f7b83;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1240px;height:1754px;background:var(--bg);color:var(--text);
+    font-family:"Pretendard","Apple SD Gothic Neo","Noto Sans KR",-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+  .page{position:relative;width:1240px;height:1754px;padding:64px 72px 56px;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between}
+  .glow{position:absolute;border-radius:50%;filter:blur(120px);opacity:.28;pointer-events:none}
+  .g1{width:700px;height:700px;background:var(--teal);top:-320px;right:-220px}
+  .g2{width:520px;height:520px;background:#2a4954;bottom:220px;left:-260px;opacity:.5}
+  .grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:56px 56px;mask-image:linear-gradient(#000 0%,transparent 55%);-webkit-mask-image:linear-gradient(#000 0%,transparent 55%)}
+  header{position:relative;display:flex;align-items:center;justify-content:space-between}
+  .brand{display:flex;align-items:center;gap:18px}
+  .brand img{width:96px;height:82px;object-fit:cover;border-radius:16px;border:1px solid var(--line)}
+  .brand .name{font-size:34px;font-weight:800;letter-spacing:-.5px;line-height:1.05}
+  .brand .name small{display:block;font-size:15px;font-weight:600;color:var(--muted);letter-spacing:2px;margin-top:6px}
+  .tag{font-size:16px;font-weight:700;color:var(--teal2);border:1.5px solid rgba(63,191,181,.5);padding:10px 18px;border-radius:999px;background:rgba(63,191,181,.08)}
+  .hero{position:relative;margin-top:58px}
+  .kicker{font-size:22px;font-weight:700;color:var(--teal);letter-spacing:-.2px;margin-bottom:16px}
+  h1{font-size:66px;line-height:1.16;font-weight:900;letter-spacing:-2.5px}
+  h1 em{font-style:normal;color:var(--teal)}
+  .lead{margin-top:26px;font-size:27px;line-height:1.5;color:var(--muted);font-weight:500;max-width:1000px;letter-spacing:-.3px}
+  .lead b{color:var(--text);font-weight:800}
+  .demo{position:relative;margin-top:44px;display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:28px 30px}
+  .card h3{font-size:16px;font-weight:700;color:var(--dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:18px}
+  .bubble{background:var(--panel2);border-radius:18px;padding:22px 24px;font-size:25px;line-height:1.45;font-weight:600;letter-spacing:-.3px;border:1px solid var(--line);position:relative}
+  .bubble::before{content:"“";color:var(--teal);font-size:34px;line-height:0;margin-right:4px;vertical-align:-8px}
+  .bubble::after{content:"”";color:var(--teal);font-size:34px;line-height:0;margin-left:4px;vertical-align:-8px}
+  .arrow{margin:18px 0 6px;font-size:16px;font-weight:700;color:var(--teal);display:flex;align-items:center;gap:10px}
+  .arrow .ln{flex:1;height:1px;background:linear-gradient(90deg,var(--teal),transparent)}
+  .chips{display:flex;flex-wrap:wrap;gap:10px}
+  .chip{font-size:16px;font-weight:600;color:var(--teal2);background:rgba(63,191,181,.10);border:1px solid rgba(63,191,181,.35);padding:8px 14px;border-radius:10px}
+  .metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .m{background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .m .k{font-size:14px;color:var(--dim);font-weight:700;letter-spacing:.5px}
+  .m .v{font-size:30px;font-weight:800;margin-top:6px;letter-spacing:-.8px;color:var(--text)}
+  .m .v.neg{color:var(--saffron)}
+  .curve{margin-top:12px;height:96px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);position:relative;overflow:hidden}
+  .curve svg{position:absolute;inset:0;width:100%;height:100%}
+  .note{margin-top:10px;font-size:13px;color:var(--dim)}
+  .feats{position:relative;margin-top:26px;display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  .f{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:22px 20px 20px}
+  .f .ic{width:44px;height:44px;border-radius:12px;background:rgba(63,191,181,.12);border:1px solid rgba(63,191,181,.35);display:flex;align-items:center;justify-content:center;margin-bottom:14px}
+  .f .ic svg{width:24px;height:24px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .f h4{font-size:21px;font-weight:800;letter-spacing:-.4px;margin-bottom:8px}
+  .f p{font-size:15.5px;line-height:1.5;color:var(--muted)}
+  .bottom{position:relative;margin-top:26px;display:grid;grid-template-columns:1.25fr .95fr;gap:20px;flex:none;align-items:stretch}
+  .nots{background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:26px 30px}
+  .nots h3{font-size:22px;font-weight:800;letter-spacing:-.4px;margin-bottom:16px}
+  .nots ul{list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:12px 20px}
+  .nots li{display:flex;align-items:center;gap:12px;font-size:19px;font-weight:600;color:var(--text)}
+  .x{width:28px;height:28px;border-radius:8px;background:rgba(255,153,51,.12);border:1px solid rgba(255,153,51,.5);color:var(--saffron);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:16px;flex:none}
+  .nots p{margin-top:18px;font-size:16px;line-height:1.55;color:var(--muted)}
+  .cta{background:linear-gradient(160deg,rgba(63,191,181,.16),rgba(63,191,181,.04));border:1.5px solid rgba(63,191,181,.55);border-radius:22px;padding:26px 28px;display:flex;gap:22px;align-items:center}
+  .cta .qr{width:168px;height:168px;background:#fff;border-radius:16px;padding:8px;flex:none}
+  .cta .qr img{width:100%;height:100%;display:block}
+  .cta .t .free{font-size:15px;font-weight:800;color:var(--teal);letter-spacing:1.5px}
+  .cta .t h3{font-size:30px;font-weight:900;letter-spacing:-.8px;margin:6px 0 10px;line-height:1.2}
+  .cta .t ul{list-style:none;font-size:15.5px;color:var(--muted);line-height:1.6}
+  .cta .t ul li::before{content:"•";color:var(--teal);margin-right:8px}
+  .cta .t .url{margin-top:12px;font-size:24px;font-weight:800;color:var(--text);letter-spacing:-.3px}
+  footer{position:relative;margin-top:0;padding-bottom:2px;border-top:1px solid var(--line);padding-top:16px;display:flex;justify-content:space-between;gap:30px;font-size:13.5px;line-height:1.55;color:var(--dim)}
+  footer .disc{max-width:900px}
+  footer .disc b{color:var(--muted)}
+</style></head><body>
+<div class="page">
+  <div class="grid"></div><div class="glow g1"></div><div class="glow g2"></div>
+
+  <header>
+    <div class="brand">
+      <img src="mark.png" alt="">
+      <div class="name">널스탁<small>NULLSTOCK · 투자 연구 플랫폼</small></div>
+    </div>
+    <div class="tag">퀀트 전략 백테스트 · 시뮬레이션</div>
+  </header>
+
+  <section class="hero">
+    <div class="kicker">아무도 당신에게 종목을 찍어주지 않습니다. 당신의 가설을 검증해 드립니다.</div>
+    <h1>떠오른 투자 아이디어,<br>과거 데이터로 <em>직접 검증해</em> 보세요</h1>
+    <p class="lead">코딩도, 조건식 문법도 필요 없습니다. <b>말로 하면 백테스트가 됩니다.</b><br>
+    유튜브·책·커뮤니티에서 들은 그 매매법, 2005년 이후 한국 주식 데이터로 돌려보세요.</p>
+  </section>
+
+  <section class="demo">
+    <div class="card">
+      <h3>이렇게 입력하면</h3>
+      <div class="bubble">시총 상위 200개 중 PER 10 이하이고, RSI가 30 밑으로 내려가면 사줘. 20% 오르면 팔고 10% 떨어지면 손절.</div>
+      <div class="arrow">전략으로 자동 해석 <span class="ln"></span></div>
+      <div class="chips">
+        <span class="chip">유니버스 · 시총 상위 200</span><span class="chip">PER ≤ 10</span><span class="chip">RSI &lt; 30</span>
+        <span class="chip">익절 +20%</span><span class="chip">손절 −10%</span><span class="chip">기간 · 10년</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>과거 데이터로 시뮬레이션 결과를 봅니다</h3>
+      <div class="metrics">
+        <div class="m"><div class="k">CAGR (연평균 수익률)</div><div class="v">11.8%</div></div>
+        <div class="m"><div class="k">MDD (최대 낙폭)</div><div class="v neg">−23.4%</div></div>
+        <div class="m"><div class="k">샤프 비율</div><div class="v">0.84</div></div>
+        <div class="m"><div class="k">총 거래 횟수</div><div class="v">137회</div></div>
+      </div>
+      <div class="curve"><svg viewBox="0 0 400 96" preserveAspectRatio="none">
+        <defs><linearGradient id="gd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3fbfb5" stop-opacity=".35"/><stop offset="1" stop-color="#3fbfb5" stop-opacity="0"/></linearGradient></defs>
+        <path d="M0 82 L25 76 L50 79 L75 66 L100 70 L125 58 L150 63 L175 44 L200 52 L225 62 L250 48 L275 40 L300 44 L325 30 L350 35 L375 22 L400 14 L400 96 L0 96Z" fill="url(#gd)"/>
+        <path d="M0 82 L25 76 L50 79 L75 66 L100 70 L125 58 L150 63 L175 44 L200 52 L225 62 L250 48 L275 40 L300 44 L325 30 L350 35 L375 22 L400 14" stroke="#3fbfb5" stroke-width="2.5" fill="none"/>
+      </svg></div>
+      <div class="note">※ 화면 구성 예시이며 수치는 임의의 예시값입니다. 실제 결과는 전략·기간·비용 설정에 따라 달라지며, 과거 시뮬레이션은 미래 수익을 보장하지 않습니다.</div>
+    </div>
+  </section>
+
+  <section class="feats">
+    <div class="f"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/><path d="M8 9h8M8 12h5"/></svg></div>
+      <h4>자연어 전략 빌더</h4><p>문장으로 입력하면 조건·유니버스·매도 규칙이 전략으로 정리됩니다. 빠진 값은 되물어 확인합니다.</p></div>
+    <div class="f"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16"/><path d="M7 15l4-5 3 3 6-7"/></svg></div>
+      <h4>생존편향 없는 데이터</h4><p>상장폐지 종목까지 포함한 시점별(PIT) 유니버스. 가격은 1996년~, PER·PBR 등 재무 지표는 종목에 따라 2005년~ 보유.</p></div>
+    <div class="f"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+      <h4>워크포워드 · 몬테카를로</h4><p>학습 구간과 검증 구간을 나누고 경로를 무작위로 섞어, 과최적화 여부를 수치로 확인합니다.</p></div>
+    <div class="f"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M8 15h4"/></svg></div>
+      <h4>가상계좌 모의투자</h4><p>검증한 전략을 실제 시세로 가상 체결하고 포트폴리오와 거래 내역을 추적합니다. 실제 주문은 없습니다.</p></div>
+  </section>
+
+  <section class="bottom">
+    <div class="nots">
+      <h3>널스탁이 하지 않는 것</h3>
+      <ul>
+        <li><span class="x">✕</span>종목을 추천하지 않습니다</li>
+        <li><span class="x">✕</span>시장을 전망하지 않습니다</li>
+        <li><span class="x">✕</span>수익을 보장하지 않습니다</li>
+        <li><span class="x">✕</span>리딩방을 운영하지 않습니다</li>
+      </ul>
+      <p>널스탁은 계산·백테스트·시뮬레이션과 객관적인 과거 데이터 표시만 수행하는 연구 도구입니다.
+      모든 투자 판단은 사용자가 직접 내립니다. 그래서 결과를 있는 그대로 보여드릴 수 있습니다.</p>
+    </div>
+    <div class="cta">
+      <div class="qr"><img src="qr.svg" alt="QR"></div>
+      <div class="t">
+        <div class="free">FREE 플랜 · 카드 등록 없음</div>
+        <h3>무료로 지금<br>검증해 보세요</h3>
+        <ul><li>월 백테스트 50회</li><li>전략 3개 저장</li><li>가상계좌 1개</li></ul>
+        <div class="url">nullstock.im</div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="disc"><b>투자 유의사항</b> 본 서비스는 투자 연구·시뮬레이션 플랫폼이며 투자 자문, 종목·전략 추천, 개인 맞춤형 금융 조언을 제공하지 않습니다.
+    표시되는 모든 결과는 과거 데이터 기반 시뮬레이션 결과이며 미래 수익을 보장하지 않습니다. 투자 판단과 그 결과에 대한 책임은 이용자 본인에게 있습니다.</div>
+    <div>널스페이스 · www.nullstock.im</div>
+  </footer>
+</div>
+</body></html>
