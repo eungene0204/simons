@@ -348,6 +348,12 @@ _ALIASES: Dict[str, str] = {
     "ebitda증가율": "fundamental.ebitda_growth", "ebitda_growth": "fundamental.ebitda_growth",
     "영업현금흐름증가율": "fundamental.ocf_growth", "영업활동현금흐름증가율": "fundamental.ocf_growth",
     "ocf_growth": "fundamental.ocf_growth",
+    # 9B 레인이 금액 지표(operating_cf_amount)와 증가율을 섞어 내는 표기 — 2026-09-15 운영
+    # 실측: "최근 4개 분기 영업활동현금흐름 증가율이 10% 이상"이 operating_cf_growth로 나와
+    # 알 수 없는 지표로 탈락하고 "조건은 전략에 반영하지 못했어요" 안내가 나갔다.
+    "operating_cf_growth": "fundamental.ocf_growth",
+    "operating_cash_flow_growth": "fundamental.ocf_growth",
+    "operatingcashflowgrowth": "fundamental.ocf_growth",
     "잉여현금흐름증가율": "fundamental.fcf_growth", "fcf_growth": "fundamental.fcf_growth",
     "시가총액": "fundamental.market_cap", "market_cap": "fundamental.market_cap",
     "거래대금": "fundamental.trading_value", "trading_value": "fundamental.trading_value",
@@ -491,6 +497,11 @@ def resolve(name: str) -> Optional[IndicatorSpec]:
         ]
         if len(matches) == 1:
             return REGISTRY[matches[0]]
+        # 잎이 정본 ID가 아니라 **별칭**인 경우도 같은 표기 정규화다
+        # ("fundamental.operating_cf_growth" → ocf_growth, 2026-09-15 운영 실측).
+        canonical_leaf = _ALIASES.get(leaf)
+        if canonical_leaf and REGISTRY[canonical_leaf].supported != "UNSUPPORTED":
+            return REGISTRY[canonical_leaf]
     return None
 
 

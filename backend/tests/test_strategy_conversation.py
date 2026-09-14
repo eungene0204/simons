@@ -633,6 +633,11 @@ def test_registry_resolves_wrong_namespace_by_unique_leaf():
     assert resolve("fundamental.adx").id == "technical.adx"
     assert resolve("technical.pbr").id == "fundamental.pbr"
     assert resolve("ranking.no_such_leaf") is None
+    # 금액 지표와 증가율을 섞은 9B 표기 — 증가율 지표로 해석한다(2026-09-15 운영 실측).
+    assert resolve("fundamental.operating_cf_growth").id == "fundamental.ocf_growth"
+    assert resolve("operating_cash_flow_growth").id == "fundamental.ocf_growth"
+    # 금액 지표 자체는 그대로다(증가율로 흡수하지 않는다).
+    assert resolve("fundamental.operating_cf_amount").id == "fundamental.operating_cf_amount"
     # 미지원 항목은 잎 폴백 대상이 아니다 — 안내는 source_text 인용 경로(내부명 노출 금지)
     assert resolve("technical.beta") is None
 
