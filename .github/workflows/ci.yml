@@ -79,7 +79,14 @@ jobs:
       - name: Apply app DB schema to test Postgres
         run: |
           command -v psql >/dev/null || (sudo apt-get update -y && sudo apt-get install -y postgresql-client)
-          psql "postgresql://simons:simons@localhost:5432/simons_test" -f prisma/migrations/0_init/migration.sql
+          # 0_init만 적재하면 그 뒤 추가된 테이블·컬럼이 테스트 DB에 없어, 새 테이블을 쓰는
+          # 코드가 "relation does not exist"를 삼키고 조용히 실패한다(2026-09-14 사고:
+          # VirtualScheduledOrder). prod와 같게 전체 마이그레이션을 순서대로 적용한다.
+          # ON_ERROR_STOP=1 — 적재 실패가 테스트 실패로 둔갑하지 않도록 이 단계에서 멈춘다.
+          for f in prisma/migrations/*/migration.sql; do
+            echo "apply $f"
+            psql "postgresql://simons:simons@localhost:5432/simons_test" -v ON_ERROR_STOP=1 -q -f "$f"
+          done
       - name: Run safe test subset (CLAUDE.md 문서화 명령)
         working-directory: backend
         run: |
