@@ -182,6 +182,7 @@ export const PRIVATE_PATHS = [
   "/kospi",
   "/login",
   "/register",
+  "/guest",
 ] as const;
 
 export function robotsDisallowPaths(): string[] {
