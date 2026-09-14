@@ -10,6 +10,7 @@ import {
   priceFor,
   type BillingCycle,
 } from "@/lib/plans";
+import { GUEST_PAYMENT_BLOCKED_MESSAGE, isGuestEmail } from "@/lib/server/guestAccounts";
 
 // POST: 유료 플랜(PRO/PREMIUM) 자동결제(빌링) 구독 주문 생성.
 // 결제 금액은 서버의 플랜 정의(lib/plans.ts)에서만 계산한다 — 클라이언트가 보낸 금액은 신뢰하지 않는다.
@@ -21,6 +22,11 @@ export async function POST(request: Request) {
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // 게스트(특별 계정)는 결제 대상이 아니다 — 발급 시점에 PREMIUM이 주어지고 청구 수단이 없다.
+    if (isGuestEmail(user.email)) {
+      return NextResponse.json({ error: GUEST_PAYMENT_BLOCKED_MESSAGE }, { status: 403 });
     }
 
     const body = await request.json();

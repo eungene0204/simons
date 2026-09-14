@@ -42,5 +42,8 @@ describe('게스트 계정 아이디·비밀번호', () => {
     expect(isGuestEmail(email)).toBe(true)
     expect(isGuestEmail('someone@nullstock.im')).toBe(false)
     expect(isGuestEmail('guest_1234@gmail.com')).toBe(false)
+    // 이메일이 없으면 게스트가 아니다 — 라우트 가드가 던지지 않고 일반 경로로 흘러간다
+    expect(isGuestEmail(null)).toBe(false)
+    expect(isGuestEmail(undefined)).toBe(false)
   })
 })

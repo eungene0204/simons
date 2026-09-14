@@ -397,3 +397,23 @@ describe("PricingPlans", () => {
     expect(screen.queryByTestId("subscription-renewal-status")).toBeNull();
   });
 });
+
+describe("PricingPlans 게스트(특별 계정)", () => {
+  // 게스트는 결제도 플랜 변경도 하지 않는다 — 서버(/api/payment/order·/api/user/plan)가 403으로
+  // 막고, 화면은 버튼을 잠근 채 이유를 먼저 안내한다.
+  it("안내 배너를 띄우고 모든 플랜 버튼을 잠근다", () => {
+    render(<PricingPlans annualBillingEnabled currentPlanId="PREMIUM" isGuest />);
+
+    expect(screen.getByTestId("guest-pricing-notice")).toBeInTheDocument();
+    expect(screen.getByText("특별 계정으로 이용 중입니다.")).toBeInTheDocument();
+    for (const planId of ["FREE", "PRO", "PREMIUM"]) {
+      const cta = within(screen.getByTestId(`pricing-plan-card-${planId}`)).getByRole("button");
+      expect(cta).toBeDisabled();
+    }
+  });
+
+  it("일반 회원에게는 안내 배너가 없다", () => {
+    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
+    expect(screen.queryByTestId("guest-pricing-notice")).not.toBeInTheDocument();
+  });
+});

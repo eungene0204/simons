@@ -4,6 +4,7 @@ import { getSessionUserId } from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
 import { getPlan } from "@/lib/plans";
 import { getEffectivePlans } from "@/lib/server/effectivePlans";
+import { isGuestEmail } from "@/lib/server/guestAccounts";
 import PricingPlans from "@/components/pricing/PricingPlans";
 import PricingViewTracker from "@/components/pricing/PricingViewTracker";
 import { t } from "@/lib/i18n";
@@ -54,6 +55,7 @@ export default async function PricingPage() {
       where: { id: userId },
       select: {
         name: true,
+        email: true,
         status: true,
         planTier: true,
         subscriptionPlanId: true,
@@ -99,7 +101,12 @@ export default async function PricingPage() {
           </div>
 
           <div className="mt-14">
-            <PricingPlans currentPlanId={currentPlan.planId} subscription={subscription} plans={plans} />
+            <PricingPlans
+              currentPlanId={currentPlan.planId}
+              subscription={subscription}
+              plans={plans}
+              isGuest={isGuestEmail(record.email)}
+            />
           </div>
         </div>
       </div>

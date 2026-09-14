@@ -10,8 +10,12 @@ import { getUserUsage } from "@/lib/server/planLimits";
 import { isValidPlanId } from "@/lib/plans";
 import { cancelUserSubscription } from "@/lib/server/subscriptionCancel";
 import { backtestUsageCarryOnDowngrade, USAGE_CARRY_SELECT } from "@/lib/server/planDowngrade";
+import { GUEST_PAYMENT_BLOCKED_MESSAGE, isGuestEmail } from "@/lib/server/guestAccounts";
 
-function serializeUsage(usage: Awaited<ReturnType<typeof getUserUsage>>) {
+function serializeUsage(
+  usage: Awaited<ReturnType<typeof getUserUsage>>,
+  isGuest: boolean = false
+) {
   const { plan } = usage;
   return {
     plan: {
@@ -34,6 +38,9 @@ function serializeUsage(usage: Awaited<ReturnType<typeof getUserUsage>>) {
           canceled: usage.subscription.canceled,
         }
       : null,
+    // 게스트(특별 계정) 여부 — 결제·계정 삭제 안내를 화면이 미리 띄우는 데 쓴다.
+    // 판정 정본은 서버다(화면이 이 값을 못 받아도 라우트 가드가 막는다).
+    isGuest,
     accounts: usage.accounts,
     strategies: {
       used: usage.strategies.used,
@@ -53,11 +60,15 @@ export async function GET() {
     if (userId == null) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const [, usage] = await Promise.all([
+    // 이메일 조회는 기존 배치에 얹는다 — 원격 DB라 직렬로 기다리면 왕복이 하나 늘어난다.
+    const [, usage, account] = await Promise.all([
       assertActiveUser(userId),
       getUserUsage(prisma, userId),
+      prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
     ]);
-    return NextResponse.json(serializeUsage(usage));
+    return NextResponse.json(
+      serializeUsage(usage, account ? isGuestEmail(account.email) : false)
+    );
   } catch (error) {
     if (isUnauthorizedAccessError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -96,8 +107,14 @@ export async function POST(request: Request) {
 
     const record = await prisma.user.findUnique({
       where: { id: userId },
-      select: { subscriptionPlanId: true, ...USAGE_CARRY_SELECT },
+      select: { email: true, subscriptionPlanId: true, ...USAGE_CARRY_SELECT },
     });
+
+    // 게스트(특별 계정)는 구독 없이 PREMIUM이라 이 경로가 즉시 FREE로 내려 버린다.
+    // 다시 올릴 방법이 결제뿐인데 결제도 막혀 있으므로, 발급받은 등급을 잃는 편도 여행이 된다.
+    if (record && isGuestEmail(record.email)) {
+      return NextResponse.json({ error: GUEST_PAYMENT_BLOCKED_MESSAGE }, { status: 403 });
+    }
 
     if (record?.subscriptionPlanId) {
       const outcome = await cancelUserSubscription(prisma, userId);

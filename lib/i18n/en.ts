@@ -9,6 +9,11 @@ export const en: Record<string, string> = {
   "아이디": "ID",
   "아이디와 비밀번호를 입력해주세요.": "Please enter your ID and password.",
   "입장": "Enter",
+  // ── 게스트(특별 계정) 안내 — components/pricing/PricingPlans.tsx, components/layout/SettingsModal.tsx
+  "특별 계정으로 이용 중입니다.": "You are on a special account.",
+  "특별 계정은 Premium 기능을 모두 이용할 수 있어 결제가 필요하지 않습니다. 요금제 결제와 변경은 일반 계정에서만 이용할 수 있습니다.": "Special accounts already include every Premium feature, so no payment is needed. Checkout and plan changes are available on regular accounts only.",
+  "특별 계정은 Premium 기능을 모두 이용할 수 있어 결제가 필요하지 않습니다.": "Special accounts already include every Premium feature, so no payment is needed.",
+  "특별 계정은 직접 삭제할 수 없습니다. 이용을 마치셨다면 계정을 발급해 드린 담당자에게 알려 주세요.": "Special accounts cannot be deleted by the account holder. When you are finished, let the person who issued your account know.",
   // ── app/analytics/[id]/page.tsx
   "결과를 불러올 수 없습니다.": "Could not load the results.",
   "기존 52일 breakout 버그가 감지되었습니다. 필요하면 재실행 버튼으로 252일 기준 결과를 다시 계산해 주세요.": "A legacy 52-day breakout bug was detected. If needed, use the Re-run button to recalculate with the 252-day basis.",

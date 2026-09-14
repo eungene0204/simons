@@ -16,6 +16,7 @@ import { getEffectivePlans } from "@/lib/server/effectivePlans";
 import { isPaypalConfigured } from "@/lib/payment/PaypalProvider";
 import { isPaypalSubscriptionConfigured } from "@/lib/payment/paypalPlans";
 import UsPricingPlans from "@/components/pricing/us/UsPricingPlans";
+import { isGuestEmail } from "@/lib/server/guestAccounts";
 
 export default async function UsPricingPage() {
   const user = await getCurrentUser();
@@ -71,6 +72,7 @@ export default async function UsPricingPage() {
               subscription={subscription}
               paypalEnabled={paypalEnabled}
               plans={plans}
+              isGuest={isGuestEmail(user.email)}
             />
           </div>
 

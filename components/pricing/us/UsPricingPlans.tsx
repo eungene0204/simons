@@ -78,6 +78,8 @@ interface UsPricingPlansProps {
   paypalEnabled?: boolean;
   /** 표시할 플랜 정의 — 서버가 관리자 한도 오버라이드(PlanConfig)를 병합해 넘긴다. 생략 시 기본값. */
   plans?: Record<PlanId, Plan>;
+  /** 게스트(특별 계정) — 결제·플랜 변경이 막혀 있다. 서버가 판정해 넘긴다. */
+  isGuest?: boolean;
 }
 
 function formatBillingDate(iso: string | null): string {
@@ -92,6 +94,7 @@ export default function UsPricingPlans({
   subscription,
   paypalEnabled = false,
   plans = PLANS,
+  isGuest = false,
 }: UsPricingPlansProps) {
   const router = useRouter();
   const [pendingPlanId, setPendingPlanId] = useState<PlanId | null>(null);
@@ -184,6 +187,21 @@ export default function UsPricingPlans({
           {error}
         </p>
       ) : null}
+
+      {/* 게스트(특별 계정) 안내 — 버튼은 잠겨 있고 서버도 403으로 막는다 */}
+      {isGuest ? (
+        <div
+          data-testid="guest-pricing-notice"
+          role="status"
+          className="mb-8 rounded-xl border border-white/[0.08] bg-white/[0.03] px-5 py-4 text-center"
+        >
+          <p className="text-sm font-black text-white">You are on a special account.</p>
+          <p className="mt-1 text-sm font-bold text-[var(--text-label)]">
+            Special accounts already include every Premium feature, so no payment is
+            needed. Checkout and plan changes are available on regular accounts only.
+          </p>
+        </div>
+      ) : null}
       <div
         data-testid="pricing-plan-grid"
         className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-3"
@@ -248,6 +266,7 @@ export default function UsPricingPlans({
               <button
                 type="button"
                 disabled={
+                  isGuest ||
                   isCurrent ||
                   (planId === "FREE"
                     ? !hasActiveSubscription || canceling
@@ -257,7 +276,7 @@ export default function UsPricingPlans({
                       subscription?.pendingPlanId === planId)
                 }
                 onClick={() => {
-                  if (isCurrent) return;
+                  if (isCurrent || isGuest) return;
                   if (planId === "FREE") {
                     void handleCancel();
                     return;

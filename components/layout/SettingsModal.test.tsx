@@ -22,9 +22,11 @@ function mockPlanFetch({
   name = "Free",
   subscription = null,
   orders = [],
+  isGuest = false,
 }: {
   planId?: string;
   name?: string;
+  isGuest?: boolean;
   subscription?: {
     planId: string;
     nextBillingAt: string | null;
@@ -45,6 +47,7 @@ function mockPlanFetch({
         ok: true,
         json: async () => ({
           plan: { planId, name, planEndDate: null },
+          isGuest,
           subscription,
           accounts: { used: 3, limit: 10 },
           strategies: { used: 12, limit: 50, unlimited: false },
@@ -326,5 +329,52 @@ describe("SettingsModal", () => {
     expect(
       screen.getByRole("progressbar", { name: "백테스트 횟수" })
     ).toHaveAttribute("aria-valuenow", "7");
+  });
+});
+
+describe("SettingsModal 게스트(특별 계정)", () => {
+  // 게스트는 발급 시점에 PREMIUM이고 청구 수단이 없다. 계정 삭제는 운영자가 회수하며,
+  // 화면은 왜 눌리지 않는지 먼저 안내한다(서버 /api/user/account·/api/user/plan도 403).
+  it("계정 삭제 버튼을 잠그고 안내 문구를 보여준다", async () => {
+    mockPlanFetch({ planId: "PREMIUM", name: "Premium", isGuest: true });
+    render(
+      <SettingsModal
+        userEmail="guest_1234@guest.nullstock.im"
+        onClose={vi.fn()}
+        onLogout={vi.fn()}
+        onAccountDeleted={vi.fn()}
+      />
+    );
+
+    const deleteButton = await screen.findByRole("button", { name: "계정 삭제" });
+    await waitFor(() => expect(deleteButton).toBeDisabled());
+    expect(
+      screen.getByText(
+        "특별 계정은 직접 삭제할 수 없습니다. 이용을 마치셨다면 계정을 발급해 드린 담당자에게 알려 주세요."
+      )
+    ).toBeInTheDocument();
+    // 확인 대화상자나 DELETE 호출로 이어지지 않는다
+    expect(
+      fetchMock.mock.calls.some(([url, init]) => String(url) === "/api/user/account" && init?.method === "DELETE")
+    ).toBe(false);
+  });
+
+  it("결제 탭에서 요금제 조정 버튼 대신 결제 불필요 안내를 보여준다", async () => {
+    mockPlanFetch({ planId: "PREMIUM", name: "Premium", isGuest: true });
+    render(
+      <SettingsModal
+        userEmail="guest_1234@guest.nullstock.im"
+        onClose={vi.fn()}
+        onLogout={vi.fn()}
+        onAccountDeleted={vi.fn()}
+      />
+    );
+    await screen.findByRole("button", { name: "계정 삭제" });
+    fireEvent.click(screen.getByRole("button", { name: "결제" }));
+
+    expect(
+      await screen.findByText("특별 계정은 Premium 기능을 모두 이용할 수 있어 결제가 필요하지 않습니다.")
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "요금제 조정" })).not.toBeInTheDocument();
   });
 });

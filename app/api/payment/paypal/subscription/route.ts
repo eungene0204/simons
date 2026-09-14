@@ -6,6 +6,7 @@ import { PaypalProvider, PaypalError, isPaypalConfigured } from "@/lib/payment/P
 import { isPaypalSubscriptionConfigured, paypalPlanIdFor } from "@/lib/payment/paypalPlans";
 import { US_PRICING } from "@/lib/pricing/us";
 import { publicOriginFrom } from "@/lib/server/publicOrigin";
+import { GUEST_PAYMENT_BLOCKED_MESSAGE, isGuestEmail } from "@/lib/server/guestAccounts";
 
 // POST: 글로벌(/us) 정기구독 생성. PayPal에 구독을 만들고 사용자를 보낼 승인 URL을 돌려준다.
 // 이 시점에는 청구가 일어나지 않으며, 유료 전환은 승인 뒤 웹훅(정본)이 처리한다.
@@ -15,6 +16,10 @@ export async function POST(request: Request) {
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    // 게스트(특별 계정)는 결제 대상이 아니다 — 한국(토스) 주문 가드와 대칭이다.
+    if (isGuestEmail(user.email)) {
+      return NextResponse.json({ error: GUEST_PAYMENT_BLOCKED_MESSAGE }, { status: 403 });
     }
     if (!isPaypalConfigured() || !isPaypalSubscriptionConfigured()) {
       return NextResponse.json(

@@ -203,3 +203,20 @@ describe("/api/payment/order", () => {
     );
   });
 });
+
+describe("/api/payment/order 게스트(특별 계정) 가드", () => {
+  it("게스트는 주문을 만들 수 없다 — 403, 주문 행이 생기지 않는다", async () => {
+    getCurrentUser.mockResolvedValue({
+      id: 19,
+      email: "guest_1234@guest.nullstock.im",
+      name: "guest_1234",
+    });
+
+    const res = await POST(req({ planId: "PREMIUM" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body.error).toContain("특별 계정");
+    expect(orderCreate).not.toHaveBeenCalled();
+  });
+});

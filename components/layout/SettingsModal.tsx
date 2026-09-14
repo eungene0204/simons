@@ -31,6 +31,8 @@ type SubscriptionSummary = {
 
 type SettingsPlanSummary = {
   plan: { planId: string; name: string; planEndDate?: string | null };
+  /** 게스트(특별 계정) — 결제·계정 삭제가 막혀 있다. 판정은 서버(/api/user/plan)가 한다. */
+  isGuest?: boolean;
   subscription: SubscriptionSummary;
   accounts: { used: number; limit: number };
   strategies: { used: number; limit: number | null; unlimited: boolean };
@@ -155,6 +157,9 @@ export default function SettingsModal({
 
   const subscription = summary?.subscription ?? null;
   const hasActiveRenewal = subscription != null && !subscription.canceled;
+  // 요약을 아직 못 받았으면 게스트인지 알 수 없다 — 그동안은 삭제 버튼을 잠가 둔다
+  // (모르는 상태에서 열어 두면 게스트가 먼저 눌러 볼 수 있다).
+  const isGuest = summary?.isGuest === true;
 
   const handleCancelSubscription = async () => {
     if (isCanceling) return;
@@ -331,14 +336,16 @@ export default function SettingsModal({
                       </div>
                       <div className="flex items-center justify-between gap-5 border-b border-white/[0.06] py-4">
                         <p className="min-w-0 text-sm font-bold text-gray-300">
-                          {hasActiveRenewal
-                            ? t("계정을 삭제하려면 먼저 요금제 구독을 취소해 주세요.")
-                            : t("계정을 삭제하면 다시 로그인할 수 없으며 되돌릴 수 없습니다.")}
+                          {isGuest
+                            ? t("특별 계정은 직접 삭제할 수 없습니다. 이용을 마치셨다면 계정을 발급해 드린 담당자에게 알려 주세요.")
+                            : hasActiveRenewal
+                              ? t("계정을 삭제하려면 먼저 요금제 구독을 취소해 주세요.")
+                              : t("계정을 삭제하면 다시 로그인할 수 없으며 되돌릴 수 없습니다.")}
                         </p>
                         <button
                           type="button"
                           onClick={() => void handleDeleteAccount()}
-                          disabled={hasActiveRenewal || isDeleting}
+                          disabled={isGuest || isLoading || hasActiveRenewal || isDeleting}
                           className="flex-shrink-0 rounded-xl bg-white/[0.08] px-4 py-2 text-xs font-black text-gray-200 transition-colors duration-200 hover:bg-white/[0.14] disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           {isDeleting ? t("삭제 중...") : t("계정 삭제")}
@@ -387,16 +394,22 @@ export default function SettingsModal({
                           </p>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          router.push(regionHref("/pricing"));
-                        }}
-                        className="w-full flex-shrink-0 rounded-xl bg-white/[0.08] px-4 py-2.5 text-xs font-black text-gray-200 transition-colors duration-200 hover:bg-white/[0.14] lg:mt-1 lg:w-auto"
-                      >
-                        {t("요금제 조정")}
-                      </button>
+                      {isGuest ? (
+                        <p className="w-full flex-shrink-0 text-xs font-bold text-[var(--text-label)] lg:mt-1 lg:w-56 lg:text-right">
+                          {t("특별 계정은 Premium 기능을 모두 이용할 수 있어 결제가 필요하지 않습니다.")}
+                        </p>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            router.push(regionHref("/pricing"));
+                          }}
+                          className="w-full flex-shrink-0 rounded-xl bg-white/[0.08] px-4 py-2.5 text-xs font-black text-gray-200 transition-colors duration-200 hover:bg-white/[0.14] lg:mt-1 lg:w-auto"
+                        >
+                          {t("요금제 조정")}
+                        </button>
+                      )}
                     </section>
 
                     {/* 결제 수단 */}

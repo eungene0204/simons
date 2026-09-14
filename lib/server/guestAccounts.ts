@@ -9,6 +9,13 @@
 
 import { randomInt } from 'crypto'
 
+// 게스트가 막히는 동작의 API 응답 문구. 화면은 자기 사전(t())으로 같은 뜻을 안내하고,
+// 이 문구는 API를 직접 부른 경우의 안내다(백엔드는 완성 문장을 표시 정본으로 삼지 않는다).
+export const GUEST_PAYMENT_BLOCKED_MESSAGE =
+  '특별 계정은 Premium 기능을 모두 이용할 수 있어 결제가 필요하지 않습니다. 요금제 결제와 변경은 일반 계정에서만 이용할 수 있습니다.'
+export const GUEST_DELETE_BLOCKED_MESSAGE =
+  '특별 계정은 직접 삭제할 수 없습니다. 이용을 마치셨다면 계정을 발급해 드린 담당자에게 알려 주세요.'
+
 export const GUEST_EMAIL_DOMAIN = 'guest.nullstock.im'
 export const GUEST_ID_PREFIX = 'guest_'
 export const GUEST_PASSWORD_LENGTH = 5
@@ -28,8 +35,9 @@ export function guestEmailFromId(guestId: string): string {
   return `${guestId}@${GUEST_EMAIL_DOMAIN}`
 }
 
-export function isGuestEmail(email: string): boolean {
-  return email.endsWith(`@${GUEST_EMAIL_DOMAIN}`)
+/** 이메일이 없으면(조회 실패·비정상 행) 게스트가 아니다 — 가드가 일반 회원을 막는 쪽으로 기울지 않는다. */
+export function isGuestEmail(email: string | null | undefined): boolean {
+  return typeof email === 'string' && email.endsWith(`@${GUEST_EMAIL_DOMAIN}`)
 }
 
 /** guest_ + 네 자리 숫자(1000~9999 — 앞자리 0 없음) */

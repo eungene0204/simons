@@ -112,3 +112,20 @@ describe("/api/payment/paypal/subscription", () => {
     expect(updateData.planTier).toBeUndefined();
   });
 });
+
+describe("/api/payment/paypal/subscription 게스트(특별 계정) 가드", () => {
+  it("게스트는 PayPal 구독을 만들 수 없다 — 403, PayPal 호출 없음", async () => {
+    getCurrentUser.mockResolvedValue({
+      id: 19,
+      email: "guest_1234@guest.nullstock.im",
+      name: "guest_1234",
+    });
+
+    const res = await POST(req({ planId: "PRO" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body.error).toContain("특별 계정");
+    expect(createSubscription).not.toHaveBeenCalled();
+  });
+});

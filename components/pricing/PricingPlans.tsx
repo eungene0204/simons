@@ -92,6 +92,8 @@ interface PricingPlansProps {
   plans?: Record<PlanId, Plan>;
   /** 연간 결제 상품 노출 — 기본값은 lib/plans.ts 스위치. 테스트가 켜서 연간 경로를 검증한다 */
   annualBillingEnabled?: boolean;
+  /** 게스트(특별 계정) — 결제·플랜 변경이 막혀 있다. 서버가 판정해 넘긴다. */
+  isGuest?: boolean;
 }
 
 function formatBillingDate(iso: string | null): string {
@@ -106,6 +108,7 @@ export default function PricingPlans({
   subscription,
   plans = PLANS,
   annualBillingEnabled = ANNUAL_BILLING_ENABLED,
+  isGuest = false,
 }: PricingPlansProps) {
   const router = useRouter();
   const currentCycle: BillingCycle = subscription?.cycle === "yearly" ? "yearly" : "monthly";
@@ -139,6 +142,9 @@ export default function PricingPlans({
 
   const handleSelect = async (planId: PlanId) => {
     if (isCurrentSelection(planId) || pendingPlanId) return;
+    // 게스트(특별 계정)는 결제도 플랜 변경도 하지 않는다 — 버튼은 이미 잠겨 있고,
+    // 여기는 그 잠금이 풀린 경로로 들어오는 경우의 마지막 차단이다(서버도 403으로 막는다).
+    if (isGuest) return;
 
     // 유료 플랜은 토스페이먼츠 자동결제(빌링) 체크아웃 모달을 연다
     if (planId !== "FREE") {
@@ -168,6 +174,23 @@ export default function PricingPlans({
     <div>
       {error ? (
         <p className="mb-4 text-sm font-black text-[var(--main-red)]">{error}</p>
+      ) : null}
+
+      {/* 게스트(특별 계정) 안내 — 결제 버튼은 잠겨 있고 서버도 403으로 막는다.
+          왜 눌리지 않는지 화면에서 먼저 알려 준다. */}
+      {isGuest ? (
+        <div
+          data-testid="guest-pricing-notice"
+          role="status"
+          className="mb-8 rounded-xl border border-white/[0.08] bg-white/[0.03] px-5 py-4 text-center"
+        >
+          <p className="text-sm font-black text-white">
+            {t("특별 계정으로 이용 중입니다.")}
+          </p>
+          <p className="mt-1 text-sm font-bold text-[var(--text-label)]">
+            {t("특별 계정은 Premium 기능을 모두 이용할 수 있어 결제가 필요하지 않습니다. 요금제 결제와 변경은 일반 계정에서만 이용할 수 있습니다.")}
+          </p>
+        </div>
       ) : null}
 
       {/* 결제 주기 선택 — 연간은 1년치를 한 번에 결제하고 그만큼 할인된다 */}
@@ -300,6 +323,7 @@ export default function PricingPlans({
               <button
                 type="button"
                 disabled={
+                  isGuest ||
                   isCurrent ||
                   pendingPlanId !== null ||
                   isFreeLockedBySubscription ||

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
+import { GUEST_DELETE_BLOCKED_MESSAGE, isGuestEmail } from "@/lib/server/guestAccounts";
 
 // DELETE: 본인 계정 삭제(soft delete, status=DELETED — 관리자 콘솔의 삭제와 동일한 의미).
 // 자동갱신 구독이 활성 상태면 남은 빌링키로 청구가 계속되므로 먼저 구독 취소(해지 예약)를 요구한다.
@@ -10,6 +11,12 @@ export async function DELETE() {
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // 게스트(특별 계정)는 운영자가 발급하고 운영자가 회수한다 — 본인 삭제를 막는다.
+    // 되돌릴 수 없는 soft delete라 실수로 지우면 같은 아이디로 다시 들어올 수 없다.
+    if (isGuestEmail(user.email)) {
+      return NextResponse.json({ error: GUEST_DELETE_BLOCKED_MESSAGE }, { status: 403 });
     }
 
     const record = await prisma.user.findUnique({

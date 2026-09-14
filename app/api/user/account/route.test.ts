@@ -83,3 +83,29 @@ describe("/api/user/account DELETE", () => {
     });
   });
 });
+
+describe("/api/user/account DELETE 게스트(특별 계정) 가드", () => {
+  it("게스트는 본인 삭제가 막힌다 — 403, 어떤 행도 바꾸지 않는다", async () => {
+    getCurrentUser.mockResolvedValue({
+      id: 19,
+      email: "guest_1234@guest.nullstock.im",
+    });
+
+    const res = await DELETE();
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body.error).toContain("특별 계정");
+    expect(userUpdate).not.toHaveBeenCalled();
+    // 구독 조회조차 하지 않는다 — 가드가 앞선다
+    expect(userFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("일반 회원은 종전대로 삭제된다(가드가 과잉 차단하지 않는다)", async () => {
+    const res = await DELETE();
+    expect(res.status).toBe(200);
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 7 } })
+    );
+  });
+});

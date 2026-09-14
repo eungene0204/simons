@@ -149,3 +149,57 @@ describe("/api/user/plan POST", () => {
     expect(data.cancellation).toEqual({ status: "scheduled", expiresAt: "2026-10-01T00:00:00.000Z" });
   });
 });
+
+describe("/api/user/plan 게스트(특별 계정) 가드", () => {
+  const guestRecord = {
+    email: "guest_1234@guest.nullstock.im",
+    subscriptionPlanId: null,
+    createdAt: new Date("2026-09-14"),
+  };
+
+  it("게스트는 FREE 전환이 막힌다 — 403, 등급이 내려가지 않는다", async () => {
+    userFindUnique.mockResolvedValue(guestRecord);
+
+    const res = await POST({ json: async () => ({ planId: "FREE" }) });
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body.error).toContain("특별 계정");
+    // 구독 없는 PREMIUM이라 막지 않으면 즉시 FREE로 내려가고 되돌릴 길이 없다
+    expect(userUpdate).not.toHaveBeenCalled();
+    expect(cancelUserSubscription).not.toHaveBeenCalled();
+  });
+
+  it("일반 회원의 FREE 전환은 종전대로 동작한다(가드가 과잉 차단하지 않는다)", async () => {
+    userFindUnique.mockResolvedValue({
+      email: "u@example.com",
+      subscriptionPlanId: null,
+      createdAt: new Date("2026-01-01"),
+    });
+
+    const res = await POST({ json: async () => ({ planId: "FREE" }) });
+
+    expect(res.status).toBe(200);
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 7 } })
+    );
+  });
+
+  it("GET은 게스트 여부를 함께 돌려준다 — 화면이 안내를 먼저 띄운다", async () => {
+    userFindUnique.mockResolvedValue({ email: "guest_1234@guest.nullstock.im" });
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.isGuest).toBe(true);
+  });
+
+  it("GET은 일반 회원에게 isGuest=false를 준다", async () => {
+    userFindUnique.mockResolvedValue({ email: "u@example.com" });
+
+    const body = await (await GET()).json();
+
+    expect(body.isGuest).toBe(false);
+  });
+});

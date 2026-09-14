@@ -249,3 +249,15 @@ describe("UsPricingPlans", () => {
     expect(source.trimStart().startsWith('"use client";')).toBe(true);
   });
 });
+
+describe("UsPricingPlans 게스트(특별 계정)", () => {
+  it("안내 배너를 띄우고 모든 플랜 버튼을 잠근다(PayPal이 설정돼 있어도)", () => {
+    render(<UsPricingPlans currentPlanId="PREMIUM" paypalEnabled isGuest />);
+
+    expect(screen.getByTestId("guest-pricing-notice")).toBeInTheDocument();
+    for (const planId of ["FREE", "PRO", "PREMIUM"]) {
+      const cta = within(screen.getByTestId(`pricing-plan-card-${planId}`)).getByRole("button");
+      expect(cta).toBeDisabled();
+    }
+  });
+});
