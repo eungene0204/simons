@@ -25,6 +25,7 @@ from engine.market_data import market_data_provider, delisted_store
 from engine import trade_reason as tr
 from engine.dart_client import fetch_recent_delisting_notices
 from engine.listing_status import (
+    is_confirmed_delisting,
     ListingStatus, sync_from_delisted_store, sync_from_dart_notices,
     get_stocks_by_status, update_stock_listing_status, write_audit_log,
 )
@@ -695,7 +696,8 @@ async def list_delisted():
     return {"delisted": delisted_store.all()}
 
 
-_CONFIRMED_DELIST_KEYWORDS = ["상장폐지결정", "상장폐지 결정", "정리매매", "상장폐지예고"]
+# 확정 판정은 engine.listing_status.is_confirmed_delisting 한 곳이다(낱말 목록 중복 금지 —
+# 2026-09-15 '정리매매 절차 미진행'을 확정으로 등록하던 오판의 수리).
 
 
 @app.get("/market/dart/notices")
@@ -717,7 +719,7 @@ async def get_dart_delisting_notices(days: int = 7):
         report_nm = notice["report_nm"]
         if not code:
             continue
-        if any(kw in report_nm for kw in _CONFIRMED_DELIST_KEYWORDS):
+        if is_confirmed_delisting(report_nm):
             if delisted_store.mark(code):
                 market_data_provider.cache.invalidate(code)
                 newly_registered.append(code)

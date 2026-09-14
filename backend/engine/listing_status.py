@@ -89,16 +89,35 @@ def get_trade_block_reason(status: str, side: str) -> Optional[str]:
 # ── DART 공시 → ListingStatus 매핑 ───────────────────────────────────────────
 
 _CONFIRMED_DELIST_KEYWORDS = ["상장폐지결정", "상장폐지 결정", "정리매매", "상장폐지예고"]
+# 확정 낱말이 있어도 **절차가 진행되지 않는다는** 제목은 확정이 아니다 — 2026-09-15 실측:
+# 신라에스지 "기타시장안내(상장폐지 및 정리매매 절차 미진행)"가 '정리매매' 낱말만으로
+# 상장폐지 확정으로 등록돼 정상 거래 중인 종목의 시세 조회가 통째로 막혔다. 반면
+# "…가처분 신청 기각에 따른 정리매매절차 재개"(코다코·코스나인)는 진짜 정리매매라
+# '기각'은 여기 넣지 않는다 — 절차 자체의 보류·중단을 뜻하는 표현만 본다.
+_DELIST_HOLD_KEYWORDS       = ["미진행", "이의신청", "보류", "중단"]
 _REVIEW_KEYWORDS            = ["상장적격성", "관리종목"]
 _SUSPENDED_KEYWORDS         = ["매매거래정지"]
 _WARNING_KEYWORDS           = ["상장폐지"]  # 포괄적 (위 키워드에 걸리지 않은 것)
 
 
+def is_confirmed_delisting(report_nm: str) -> bool:
+    """공시 제목이 상장폐지 **확정**(결정·예고·정리매매 진행)인가 — 자동 등록의 단일 판정.
+
+    거래정지·심사·이의신청·절차 미진행은 확정이 아니다(엔드포인트 계약: "거래정지·심사 중인
+    건은 자동 등록하지 않는다"). 확정 낱말과 보류 낱말이 같이 있으면 보류가 이긴다.
+    """
+    if any(kw in report_nm for kw in _DELIST_HOLD_KEYWORDS):
+        return False
+    return any(kw in report_nm for kw in _CONFIRMED_DELIST_KEYWORDS)
+
+
 def classify_dart_notice(report_nm: str) -> str:
     """DART 공시 report_nm을 ListingStatus로 분류"""
-    for kw in _CONFIRMED_DELIST_KEYWORDS:
-        if kw in report_nm:
-            return ListingStatus.DELISTING_SCHEDULED
+    if any(kw in report_nm for kw in _DELIST_HOLD_KEYWORDS):
+        # 절차 미진행·이의신청 중 — 확정(예정)이 아니라 심사·유보 상태로 본다.
+        return ListingStatus.DELISTING_REVIEW
+    if is_confirmed_delisting(report_nm):
+        return ListingStatus.DELISTING_SCHEDULED
     for kw in _REVIEW_KEYWORDS:
         if kw in report_nm:
             return ListingStatus.DELISTING_REVIEW

@@ -5,7 +5,7 @@ import pytest
 from engine.listing_status import (
     ListingStatus,
     is_buy_allowed, is_sell_allowed, is_zero_valuation,
-    get_trade_block_reason, classify_dart_notice,
+    get_trade_block_reason, classify_dart_notice, is_confirmed_delisting,
 )
 
 
@@ -125,3 +125,33 @@ def test_priority_order():
     assert _priority[ListingStatus.TRADING_SUSPENDED] > _priority[ListingStatus.DELISTING_REVIEW]
     assert _priority[ListingStatus.DELISTING_REVIEW] > _priority[ListingStatus.WARNING]
     assert _priority[ListingStatus.WARNING] > _priority[ListingStatus.NORMAL]
+
+
+# ── 절차 미진행·이의신청은 확정이 아니다(2026-09-15 신라에스지 오등록) ─────────────────
+
+def test_hold_notice_is_not_confirmed_delisting():
+    """"상장폐지 및 정리매매 절차 미진행"은 '정리매매' 낱말이 있어도 확정이 아니다 — 종전엔
+    낱말 포함만 보고 상장폐지 명부에 자동 등록해 정상 거래 종목(025870)의 시세 조회를 막았다."""
+    title = "기타시장안내              (상장폐지 및 정리매매 절차 미진행)"
+    assert is_confirmed_delisting(title) is False
+    assert classify_dart_notice(title) == ListingStatus.DELISTING_REVIEW
+
+
+def test_objection_notice_is_review_not_scheduled():
+    title = "기타시장안내              (상장폐지 관련 이의신청서 접수)"
+    assert is_confirmed_delisting(title) is False
+    assert classify_dart_notice(title) == ListingStatus.DELISTING_REVIEW
+
+
+def test_resumed_cleanup_trading_stays_confirmed():
+    """'기각'은 보류 낱말이 아니다 — 가처분 기각으로 정리매매가 **재개**된 건은 진짜 확정."""
+    title = "기타시장안내              (상장폐지결정 등 효력정지 가처분 신청 기각에 따른 정리매매절차 재개)"
+    assert is_confirmed_delisting(title) is True
+    assert classify_dart_notice(title) == ListingStatus.DELISTING_SCHEDULED
+
+
+def test_suspension_for_delisting_cause_is_not_confirmed():
+    """'상장폐지 사유발생'에 따른 거래정지는 확정이 아니라 정지 상태다."""
+    title = "주권매매거래정지              (상장폐지 사유발생)"
+    assert is_confirmed_delisting(title) is False
+    assert classify_dart_notice(title) == ListingStatus.TRADING_SUSPENDED
