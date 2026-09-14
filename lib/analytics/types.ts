@@ -4,8 +4,8 @@
 // 기록은 어떤 파라미터로도 보내지 않는다. 허용 범위는 전략 종류·시장 종류·
 // 리밸런싱 주기·백테스트 기간·구독 플랜명 같은 비식별 메타데이터뿐이다.
 
-/** 가입·로그인 수단. apple은 아직 미배선(향후 OAuth 추가 대비 타입만 선언). */
-export type AuthMethod = "email" | "google" | "apple";
+/** 가입·로그인 수단. apple은 아직 미배선(향후 OAuth 추가 대비 타입만 선언). guest는 /guest 테스터 입장. */
+export type AuthMethod = "email" | "google" | "apple" | "guest";
 
 export interface BacktestRunParams {
   /** 실행 시점 전략은 무명일 수 있다 — 무명이면 "unnamed" */

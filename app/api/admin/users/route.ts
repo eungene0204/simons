@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireAdmin, writeAuditLog } from '@/lib/server/adminAuth'
 import { currentUsageMonth, getEffectivePlan } from '@/lib/server/planLimits'
 import { isValidPlanId } from '@/lib/plans'
+import { GUEST_EMAIL_DOMAIN, isGuestEmail } from '@/lib/server/guestAccounts'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,11 +19,18 @@ export async function GET(request: NextRequest) {
     const q = params.get('q')?.trim() || ''
     const plan = params.get('plan') || ''
     const status = params.get('status') || ''
+    // guest = 테스터 계정(합성 도메인 이메일)만, member = 게스트 제외
+    const kind = params.get('kind') || ''
     const sort = params.get('sort') || 'createdAt'
     const page = Math.max(1, Number(params.get('page')) || 1)
 
     const where: Record<string, unknown> = {}
     if (q) where.email = { contains: q }
+    if (kind === 'guest') {
+      where.email = { ...(q ? { contains: q } : {}), endsWith: `@${GUEST_EMAIL_DOMAIN}` }
+    } else if (kind === 'member') {
+      where.NOT = { email: { endsWith: `@${GUEST_EMAIL_DOMAIN}` } }
+    }
     if (plan) where.planTier = plan
     if (status) where.status = status
 
@@ -77,6 +85,7 @@ export async function GET(request: NextRequest) {
         id: u.id,
         email: u.email,
         name: u.name,
+        isGuest: isGuestEmail(u.email),
         planTier: u.planTier,
         role: u.role,
         status: u.status,

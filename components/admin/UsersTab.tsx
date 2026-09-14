@@ -23,6 +23,7 @@ interface AdminUser {
   id: number
   email: string
   name: string
+  isGuest: boolean
   planTier: string
   role: string
   status: string
@@ -62,10 +63,20 @@ interface UsersResponse {
   users: AdminUser[]
 }
 
+// 게스트(테스터) 계정 표시 — 이메일이 합성 도메인(guest.nullstock.im)이면 서버가 isGuest를 준다.
+function GuestBadge() {
+  return (
+    <span className="ml-1.5 inline-flex rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-400">
+      GUEST
+    </span>
+  )
+}
+
 export default function UsersTab() {
   const [q, setQ] = useState('')
   const [plan, setPlan] = useState('')
   const [status, setStatus] = useState('')
+  const [kind, setKind] = useState('')
   const [sort, setSort] = useState('createdAt')
   const [page, setPage] = useState(1)
   const [data, setData] = useState<UsersResponse | null>(null)
@@ -83,6 +94,7 @@ export default function UsersTab() {
       if (q) params.set('q', q)
       if (plan) params.set('plan', plan)
       if (status) params.set('status', status)
+      if (kind) params.set('kind', kind)
       const res = await adminFetch<UsersResponse>(`/api/admin/users?${params}`)
       setData(res)
       setSelected((prev) => res.users.find((u) => u.id === prev?.id) ?? prev)
@@ -91,7 +103,7 @@ export default function UsersTab() {
     } finally {
       setLoading(false)
     }
-  }, [q, plan, status, sort, page])
+  }, [q, plan, status, kind, sort, page])
 
   useEffect(() => {
     load()
@@ -213,6 +225,18 @@ export default function UsersTab() {
           <option value="SUSPENDED">SUSPENDED</option>
           <option value="DELETED">DELETED</option>
         </select>
+        <select
+          value={kind}
+          onChange={(e) => {
+            setKind(e.target.value)
+            setPage(1)
+          }}
+          className={inputClass}
+        >
+          <option value="">모든 계정</option>
+          <option value="guest">게스트 계정</option>
+          <option value="member">일반 회원</option>
+        </select>
         <select value={sort} onChange={(e) => setSort(e.target.value)} className={inputClass}>
           <option value="createdAt">가입일순</option>
           <option value="lastLoginAt">최근 로그인순</option>
@@ -250,7 +274,10 @@ export default function UsersTab() {
                       selected?.id === u.id ? 'bg-white/[0.05]' : ''
                     }`}
                   >
-                    <td className={`${tdClass} font-bold`}>{u.email}</td>
+                    <td className={`${tdClass} font-bold`}>
+                      {u.email}
+                      {u.isGuest && <GuestBadge />}
+                    </td>
                     <td className={tdClass}>
                       <PlanBadge plan={u.planTier} />
                     </td>
@@ -290,6 +317,7 @@ export default function UsersTab() {
                 <p className="text-xs font-bold text-gray-500">
                   {selected.name} · ID {selected.id}
                   {selected.role === 'ADMIN' && ' · ADMIN'}
+                  {selected.isGuest && <GuestBadge />}
                 </p>
               </div>
               <button

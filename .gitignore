@@ -146,3 +146,6 @@ docs/template_detect_report.md
 # PNG는 헤드리스 Chrome로 언제든 다시 뽑히는 파생물이고 한 장에 0.5~1MB라
 # 문구를 손볼 때마다 저장소를 흔든다(2026-09-14 사용자 결정).
 docs/marketing/nullstock_*.png
+
+# 게스트(테스터) 계정 발급 기록 — 비밀번호 원문 포함, 추적 금지 (scripts/create-guest-accounts.ts)
+/guest-accounts*.local.json

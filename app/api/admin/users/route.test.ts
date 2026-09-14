@@ -135,3 +135,55 @@ describe("/api/admin/users PATCH 작업", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("/api/admin/users GET 게스트(테스터) 계정 필터", () => {
+  const guestRow = {
+    id: 5,
+    email: "guest_1234@guest.nullstock.im",
+    name: "guest_1234",
+    planTier: "PREMIUM",
+    role: "USER",
+    status: "ACTIVE",
+    createdAt: new Date("2026-09-14T00:00:00Z"),
+    lastLoginAt: null,
+    backtestUsageMonth: null,
+    backtestCountThisMonth: 0,
+    _count: { Strategy: 0, VirtualAccount: 0 },
+  };
+
+  it("kind=guest는 합성 도메인 이메일로만 거르고 isGuest를 준다", async () => {
+    requireAdmin.mockResolvedValue(admin);
+    userCount.mockResolvedValue(1);
+    userFindMany.mockResolvedValue([guestRow]);
+
+    const res = await GET(getReq("?kind=guest"));
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(userFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { email: { endsWith: "@guest.nullstock.im" } },
+      })
+    );
+    expect(data.users[0].isGuest).toBe(true);
+    expect(data.users[0].planTier).toBe("PREMIUM");
+  });
+
+  it("kind=member는 게스트를 제외하고, 일반 회원은 isGuest=false", async () => {
+    requireAdmin.mockResolvedValue(admin);
+    userCount.mockResolvedValue(1);
+    userFindMany.mockResolvedValue([
+      { ...guestRow, id: 6, email: "someone@example.com", name: "Someone", planTier: "FREE" },
+    ]);
+
+    const res = await GET(getReq("?kind=member"));
+    const data = await res.json();
+
+    expect(userFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { NOT: { email: { endsWith: "@guest.nullstock.im" } } },
+      })
+    );
+    expect(data.users[0].isGuest).toBe(false);
+  });
+});
