@@ -239,3 +239,60 @@ def test_market_cap_lower_bound_ask_keeps_single_recommended_chip():
     """시총 하한(이상) 임계값 되묻기는 종전대로 추천값 1개 — 다중화는 상한(소형주) 전용."""
     _q, chips, _topic = _market_cap_ask(">=")
     assert chips == ["시가총액 5000억원 이상"]
+
+
+# ── 라벨을 공유하는 리스크 슬롯 — 익절 질문에 손절 칩이 붙던 사고(2026-09-14) ─────────
+# 손절 -9%는 이미 말했고 익절만 비었는데 planner가 "익절 기준을 정할까요?"를 내자
+# 결속 게이트가 topic '리스크관리'를 FIELD_ORDER상 앞선 손절로만 매핑해 손절 칩을 붙였다.
+# 사용자가 '손절 -15%'를 누르면 손절값만 바뀌고 같은 질문이 반복됐다(prod 트레이스).
+
+def _risk_strategy(**overrides):
+    base = dict(
+        description="리스크 슬롯", universe=["KOSPI"],
+        entry_signals=[{"indicator": "ma_crossover", "signal_type": "buy",
+                        "short_period": 5, "long_period": 20}],
+        exit_signals=[{"indicator": "ma_crossover", "signal_type": "sell",
+                       "short_period": 5, "long_period": 20}],
+    )
+    base.update(overrides)
+    return ParsedStrategy(**base)
+
+
+def test_risk_topic_resolves_to_take_profit_when_stop_loss_already_set():
+    from engine import strategy_slots
+    from strategy_conversation.primary import _bound_ask_with_slot_fallback
+
+    parsed = _risk_strategy(stop_loss_pct=9.0)
+    assert strategy_slots.ask_field_for_topic("리스크관리", parsed) == strategy_slots.TAKE_PROFIT
+    ask, offered = _bound_ask_with_slot_fallback("익절 기준을 정할까요?", None, "리스크관리", parsed)
+    assert offered == list(strategy_slots.suggestions_for_field(strategy_slots.TAKE_PROFIT))
+    assert ask is not None
+    assert ask["chips"] == ["익절 10%", "익절 20%", "익절 30%", "익절 안 함"]
+    assert ask["chip_bindings"]["익절 20%"] == {"take_profit_pct": 20.0}
+    assert ask["chip_declines"] == {"익절 안 함": "take_profit"}
+    # 손절 칩은 하나도 섞이지 않는다 — 질문에 답하지 못하는 칩은 노출 금지(칩=값 결속 계약).
+    assert not any(chip.startswith("손절") for chip in ask["chips"])
+
+
+def test_risk_topic_skips_declined_stop_loss():
+    """'손절 안 함'으로 거부한 뒤에는 값이 없어도 손절은 끝난 질문이다 — 익절 칩이 나온다."""
+    from engine import strategy_slots
+
+    parsed = _risk_strategy()
+    assert strategy_slots.ask_field_for_topic(
+        "리스크관리", parsed, declined_fields=["stop_loss"]) == strategy_slots.TAKE_PROFIT
+    assert strategy_slots.suggestions_for_topic(
+        "리스크 관리", parsed=parsed, declined_fields=["stop_loss"],
+    ) == ["익절 10%", "익절 20%", "익절 30%", "익절 안 함"]
+
+
+def test_risk_topic_keeps_stop_loss_first_when_both_empty():
+    """둘 다 비었으면 기존대로 손절이 먼저다(진행 순서 불변)."""
+    from engine import strategy_slots
+
+    parsed = _risk_strategy()
+    assert strategy_slots.ask_field_for_topic("리스크관리", parsed) == strategy_slots.STOP_LOSS
+    assert strategy_slots.suggestions_for_topic("리스크관리", parsed=parsed) == [
+        "손절 -5%", "손절 -10%", "손절 -15%", "손절 안 함"]
+    # parsed 없이 라벨만 주면 종전 동작 그대로(호출자 호환).
+    assert strategy_slots.ask_field_for_topic("리스크관리") == strategy_slots.STOP_LOSS

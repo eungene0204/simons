@@ -203,9 +203,35 @@ def slot_for_topic(topic: Optional[str]) -> Optional[str]:
     return _field_for_topic(topic, FIELD_ORDER)
 
 
+def ask_field_for_topic(
+    topic: Optional[str], parsed: Any = None,
+    declined_fields: Optional[Iterable[str]] = None,
+) -> Optional[str]:
+    """ask의 topic이 가리키는 슬롯 중 **아직 물어야 할** 필드(없으면 None).
+
+    `slot_for_topic`은 라벨을 공유하는 슬롯(리스크 관리 = 손절·익절)에서 FIELD_ORDER상
+    앞선 손절을 늘 돌려준다. 그래서 손절은 이미 말했고 익절만 비어 planner가 익절을 물을
+    때도 손절 칩이 붙었다(2026-09-14 사고: "익절 기준을 정할까요?" 아래 '손절 -5%·-10%·
+    안 함' 칩 — 사용자가 '손절 -15%'를 눌러 손절값이 바뀌고 같은 질문이 반복됐다).
+    구성원이 여럿이면 State 판정(`evaluate`)에서 채워지지 않은 첫 필드를 고른다 —
+    질문 문구를 읽는 것이 아니라 결정론 상태를 보는 것이다(계약 § 판정 기준). 전부
+    채워졌으면(물을 것이 없는 슬롯 — 호출자 게이트가 먼저 걸러야 한다) 앞선 필드 그대로.
+    """
+    field = slot_for_topic(topic)
+    if field is None or parsed is None:
+        return field
+    members = [f for f in FIELD_ORDER if SLOT_LABELS[f] == SLOT_LABELS[field]]
+    if len(members) == 1:
+        return field
+    for status in evaluate(parsed, fields=members, declined_fields=declined_fields):
+        if not status.filled:
+            return status.field
+    return field
+
+
 def suggestions_for_topic(
     topic: Optional[str], universe: Optional[Sequence[str]] = None,
-    parsed: Any = None,
+    parsed: Any = None, declined_fields: Optional[Iterable[str]] = None,
 ) -> List[str]:
     """topic이 가리키는 슬롯의 정본 예시 칩(없으면 빈 목록).
 
@@ -217,8 +243,11 @@ def suggestions_for_topic(
 
     universe가 ETF면 개별 기업 재무 칩(PER·ROE)은 제외한다 — ETF는 기업 재무제표
     지표를 조건으로 쓸 수 없다(engine.universe_capabilities).
+    라벨을 공유하는 슬롯(손절·익절)은 parsed·declined_fields로 아직 비어 있는 필드의
+    칩을 고른다(ask_field_for_topic) — 질문이 익절인데 손절 칩이 붙지 않게.
     """
-    return suggestions_for_field(slot_for_topic(topic), universe=universe, parsed=parsed)
+    return suggestions_for_field(
+        ask_field_for_topic(topic, parsed, declined_fields), universe=universe, parsed=parsed)
 
 
 def suggestions_for_field(

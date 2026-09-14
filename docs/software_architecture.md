@@ -882,7 +882,10 @@ sector_unresolved 우선순위 질문은 불가침)하고 `clarification_priorit
 칩으로 교체하고(2026-08-02 사용자 결정: 모든 옵션 칩은 하드코딩 정본이어야 지원을 확신할
 수 있다), 유니버스 범위 ask의 칩도 planner가 아니라 도구 관찰의 후보 표기를 쓴다
 (`_planner_scope_ask`). 소비 경로 3곳(`_planner_condition_ask`·`_dag_planner_clarification`·
-`_replan_next_question`)이 전부 그 교체 함수로 수렴한다. 그래서 system 프롬프트에서 칩
+`_replan_next_question`)이 전부 그 교체 함수로 수렴한다. 정본 칩의 필드는 topic 라벨로
+고르되, 라벨을 공유하는 리스크 슬롯(손절·익절)은 `strategy_slots.ask_field_for_topic`이 State
+(parsed·`declined_fields`)에서 아직 비어 있는 첫 필드를 고른다(2026-09-14 — 손절을 말한 뒤 익절
+질문에 손절 칩이 붙던 결함). 그래서 system 프롬프트에서 칩
 생성 요구를 **뺐다** — 출력 계약·예시·유니버스별 디테일 전부. `DagNode.chips` 필드는
 유지한다(변칙 출력 호환, 버리는 판단은 하류 결정론 게이트 소유).
 

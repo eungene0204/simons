@@ -3137,7 +3137,8 @@ def _planner_first_ask(
 
 
 def _bound_ask_with_slot_fallback(
-    question: Optional[str], chips: Optional[List[str]], topic: Optional[str], parsed: Any
+    question: Optional[str], chips: Optional[List[str]], topic: Optional[str], parsed: Any,
+    declined_fields: Optional[Iterable[str]] = None,
 ) -> tuple[Optional[Dict[str, Any]], Optional[List[str]]]:
     """planner ask의 질문은 쓰되, 칩은 **항상** 슬롯 SOT의 정본 칩으로 발행한다.
 
@@ -3155,9 +3156,12 @@ def _bound_ask_with_slot_fallback(
     재무 칩(PER·ROE)이 제외된다(universe_capabilities — ETF는 기업 재무 사용 불가).
     topic이 슬롯에 매칭되지 않으면 칩 없이 질문만 남는다(자유 서술 — LLM 칩으로
     메우지 않는다).
+    손절·익절은 topic 라벨('리스크 관리')을 공유한다 — 어느 쪽 칩인지는 State(parsed·
+    declined_fields)에서 아직 비어 있는 필드로 정한다(strategy_slots.ask_field_for_topic).
     """
     canonical = strategy_slots.suggestions_for_topic(
-        topic, universe=getattr(parsed, "universe", None), parsed=parsed)
+        topic, universe=getattr(parsed, "universe", None), parsed=parsed,
+        declined_fields=declined_fields)
     discarded = [c for c in (chips or []) if c not in canonical]
     if discarded:
         _log_llm("↩ planner 칩 폐기", (
@@ -3197,7 +3201,8 @@ def _replan_next_question(
     from observability.agent_trace import ask_binding_gate
 
     question, chips, topic = dag_clarification
-    next_ask, chips = _bound_ask_with_slot_fallback(question, chips, topic, parsed)
+    next_ask, chips = _bound_ask_with_slot_fallback(
+        question, chips, topic, parsed, declined_fields=declined_fields)
     # 결속된 칩만 보인다(_bind_chips) — 재계획 질문의 칩도 같은 계약을 따른다.
     gate = ask_binding_gate(
         question=question, priority="dag_planner", chips_offered=chips,
