@@ -9,6 +9,7 @@
  * 보이지 않게 한다.
  */
 import {
+  REBAL_LABELS,
   REBAL_METHOD_LABELS,
   formatBacktestPeriodLabel,
   formatFundamentalFilter,
@@ -33,13 +34,9 @@ export type StrategyItem = {
   value: string;
 };
 
+// 정본 REBAL_LABELS(lib/strategy-summary.ts)에서 파생 — 사본 금지(builderProgressPresentation 참조).
 const REBALANCE_LABELS: Record<string, string> = {
-  daily: "매일",
-  weekly: "매주",
-  monthly: "매월",
-  bimonthly: "격월",
-  quarterly: "분기",
-  yearly: "매년",
+  ...REBAL_LABELS,
   none: "리밸런싱 안 함",
 };
 

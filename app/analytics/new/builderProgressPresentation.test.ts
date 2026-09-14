@@ -789,3 +789,32 @@ describe("거래 비용 행 — 사용자가 특정 값으로 말한 항목만 �
     expect(presentation.summaryItems.find((i) => i.label === "거래 비용")?.value).toBe("수수료 0.015%");
   });
 });
+
+
+describe("리밸런싱 주기 라벨 — 백엔드 enum 전부 한국어 정본으로", () => {
+  // 백엔드 정본: engine/nl_parser.py ParsedStrategy.rebalancing_period Literal.
+  const BACKEND_REBALANCING_PERIODS = ["none", "daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly"];
+
+  it("'두 달에 한 번'(bimonthly)이 요약 카드에 영문 enum 그대로 노출되지 않는다", () => {
+    // 2026-09-15 사용자 신고: '점검 주기는 두 달' → 카드에 'bimonthly'. 사본 라벨 표에
+    // bimonthly가 빠져 있었다(정본 REBAL_LABELS엔 있었다). US 혼입이 아니라 표 누락.
+    const presentation = buildBuilderTurnPresentation({
+      state: {},
+      reply: "질문",
+      parsed: { ...themeParsed, rebalancing_period: "bimonthly" } as ParsedSummary,
+      explicitFields: ["universe", "rebalancing"],
+    });
+    const rebal = presentation.summaryItems.find((i) => i.label === "리밸런싱");
+    expect(rebal).toBeDefined();
+    expect(rebal!.value).toBe("격월");
+    expect(rebal!.value).not.toMatch(/[a-z]/);
+  });
+
+  it("정본 라벨 표가 백엔드 enum 값을 하나도 빠뜨리지 않는다", async () => {
+    const { REBAL_LABELS } = await import("@/lib/strategy-summary");
+    for (const period of BACKEND_REBALANCING_PERIODS) {
+      expect(REBAL_LABELS[period], `라벨 누락: ${period}`).toBeTruthy();
+      expect(REBAL_LABELS[period]).not.toMatch(/[a-z]/);
+    }
+  });
+});

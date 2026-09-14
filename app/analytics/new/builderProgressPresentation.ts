@@ -1,4 +1,5 @@
 import {
+  REBAL_LABELS,
   REBAL_METHOD_LABELS,
   formatFundamentalFilter,
   formatInitialCapital,
@@ -221,12 +222,12 @@ const STRATEGY_LABELS: Record<string, string> = {
   custom: "직접 설계",
 };
 
+// 주기 라벨의 정본은 lib/strategy-summary.ts REBAL_LABELS 하나다 — 사본을 두면 백엔드
+// enum(none·daily·weekly·monthly·bimonthly·quarterly·yearly)에 값이 추가될 때 빠진다
+// (2026-09-15 실측: 이 사본에 bimonthly가 없어 요약 카드에 영문 'bimonthly'가 그대로 노출).
+// 'none'만 이 카드의 문맥 문구('설정 안 함')를 유지한다.
 const REBALANCE_LABELS: Record<string, string> = {
-  daily: "매일",
-  weekly: "매주",
-  monthly: "매월",
-  quarterly: "분기",
-  yearly: "매년",
+  ...REBAL_LABELS,
   none: "설정 안 함",
 };
 
