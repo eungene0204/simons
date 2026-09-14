@@ -1158,7 +1158,7 @@ export default function BacktestDashboard({
       label: t("최대낙폭"),
       englishLabel: englishSubLabel("MDD"),
       value: `${result.maxDrawdown.toFixed(2)}%`,
-      valueClass: "text-white",
+      valueClass: "text-[var(--main-blue)]",
       description: BASE_METRIC_DESCRIPTIONS.mdd,
     },
     {
