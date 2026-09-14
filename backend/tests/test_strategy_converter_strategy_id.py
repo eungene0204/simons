@@ -273,3 +273,15 @@ def test_entry_filters_change_canonical_id():
     assert compute_strategy_id(base) != compute_strategy_id(trend)
     assert compute_strategy_id(trend) != compute_strategy_id(trend60)
     assert "entry_filters" in to_canonical_strategy_dsl(trend)
+
+
+def test_to_backtest_request_carries_sell_tax_only_when_spoken():
+    """2026-09-14: 거래세는 사용자가 말한 때만 options에 실린다 — 키가 없으면 시뮬레이터가
+    시행일 기준 법정 세율 스케줄을 쓰고, 0을 말하면 전 구간 0으로 고정된다."""
+    spoken = to_backtest_request(make_strategy(sell_tax_rate=0.0), resolve_symbols=False)
+    assert spoken["options"]["sell_tax_rate"] == 0.0
+    assert spoken["canonical_strategy_dsl"]["sell_tax_rate"] == 0.0
+
+    silent = to_backtest_request(make_strategy(), resolve_symbols=False)
+    assert "sell_tax_rate" not in silent["options"]
+    assert silent["canonical_strategy_dsl"].get("sell_tax_rate") is None

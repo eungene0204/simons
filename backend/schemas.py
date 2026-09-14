@@ -190,6 +190,10 @@ class BacktestResponse(BaseModel):
     warningParts: Optional[List[List[Dict[str, Any]]]] = None
     # 데이터 커버리지 리포트(펀더멘털 지표별 종목·기간 커버리지). 없으면 null.
     dataCoverage: Optional[Dict[str, Any]] = None
+    # 이 결과가 실제로 적용한 거래 비용(engine/simulator.py applied_trading_costs) —
+    # {buyFeeRate, sellFeeRate, slippageRate, sellTaxRate|null, sellTaxRateRange|null}, 소수 비율.
+    # 미선언 시 response_model이 걸러내 결과 로그에서 사라진다 — 반드시 선언한다.
+    tradingCosts: Optional[Dict[str, Any]] = None
     # 분위 그룹 비교 결과(FR-BT-060) — {groups: [{group, label, pctRange, totalReturn, ...}],
     # metricLabel, orderLabel, groupCount, mainGroup}. 없으면 null. 미선언 시 response_model이
     # 필드를 걸러내 프론트가 그룹 비교를 못 받는다 — 반드시 선언한다.

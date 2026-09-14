@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "5.6"
+PROMPT_VERSION = "5.7"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -80,6 +80,7 @@ _OUTPUT_SHAPE = {
             "period": None, "start_date": None, "end_date": None,
             "execution_timing": None,
             "initial_capital": None, "fee_rate": None, "slippage_rate": None,
+            "sell_tax_rate": None,
         },
     },
     "patches": [],
@@ -487,6 +488,9 @@ NON_STRATEGY_REQUEST(전략과 무관)
     "5000억"=5000, "3천억"=3000, "100억원"=100.
     (실측 드리프트 2026-08-18: "시가총액 1조 원 이상"을 value=100000으로 냈습니다 —
     억원 단위에서 100000은 10조라 사용자 요청보다 10배 큰 조건이 됩니다.)
+11-2-2. 수수료·슬리피지·거래세는 말한 %를 숫자로 그대로 적습니다 — "수수료 0.1%"→fee_rate 0.1,
+    "슬리피지 0.05%"→slippage_rate 0.05, "거래세 0%"·"거래세 없이"→sell_tax_rate 0. 말하지 않은
+    항목은 null로 둡니다(기본값을 적지 마세요).
 12. 백테스트 기간이 날짜로 명시되면 backtest.start_date/end_date를 YYYY-MM-DD로 출력하세요.
     "2020년 1월부터 2025년 12월까지" → start_date="2020-01-01", end_date="2025-12-31"
     (종료 월은 말일까지). 과거/미래 판단은 입력에 함께 주어지는 '오늘 날짜'만 기준으로

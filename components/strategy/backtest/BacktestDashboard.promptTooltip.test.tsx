@@ -47,10 +47,10 @@ const baseResult = {
   signals: [],
 } as any;
 
-function renderDashboard(strategySummary: any) {
+function renderDashboard(strategySummary: any, result: any = baseResult) {
   return render(
     <BacktestDashboard
-      result={baseResult}
+      result={result}
       onRestart={() => {}}
       disableHistorySave
       promptText="어떤 종목에 투자 할까?"
@@ -105,5 +105,32 @@ describe("BacktestDashboard 프롬프트 툴팁 진입 신호 배지", () => {
     const entryRow = screen.getByText("진입 신호").parentElement as HTMLElement;
     expect(within(entryRow).getByText("MA 크로스")).toBeInTheDocument();
     expect(within(entryRow).queryByText("RSI")).not.toBeInTheDocument();
+  });
+
+  // 2026-09-14: 결과 로그에 이 결과가 적용한 수수료·슬리피지·거래세가 보이지 않던 공백 수리.
+  it("엔진이 동봉한 적용 거래 비용을 '거래 비용' 행으로 보이고, 동봉이 없으면 행을 만들지 않는다", () => {
+    const summary = {
+      strategyName: "골든크로스 전략",
+      universeName: "KOSPI",
+      entryBlocks: ["MA 크로스"],
+      exitBlocks: [],
+    };
+    renderDashboard(summary, {
+      ...baseResult,
+      tradingCosts: { buyFeeRate: 0.00015, sellFeeRate: 0.00015, slippageRate: 0.0005, sellTaxRate: 0.0018 },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "내 전략" }));
+    const costRow = screen.getByText("거래 비용").parentElement as HTMLElement;
+    expect(within(costRow).getByText("수수료 0.015%")).toBeInTheDocument();
+    expect(within(costRow).getByText("슬리피지 0.05%")).toBeInTheDocument();
+    expect(within(costRow).getByText("거래세 0.18%")).toBeInTheDocument();
+    // 별도 '백테스트 로그' 창에도 같은 값을 한 줄로 남긴다.
+    expect(screen.getByText("거래 비용: 수수료 0.015% / 슬리피지 0.05% / 거래세 0.18%")).toBeInTheDocument();
+
+    cleanup();
+    renderDashboard(summary);
+    fireEvent.click(screen.getByRole("button", { name: "내 전략" }));
+    expect(screen.queryByText("거래 비용")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^거래 비용: /)).not.toBeInTheDocument();
   });
 });

@@ -41,7 +41,11 @@ export type ExplicitField =
   | "rebalancing"
   | "rebalance_method"
   | "backtest_period"
-  | "initial_capital";
+  | "initial_capital"
+  // 거래 비용 셋 — 되묻기 슬롯이 아니라 요약 카드 표시 근거(사용자가 말한 항목만 보인다).
+  | "fee_rate"
+  | "slippage_rate"
+  | "sell_tax_rate";
 
 export type BacktestReadinessOptions = {
   allowNoRebalancing?: boolean;

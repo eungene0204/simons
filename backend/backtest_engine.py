@@ -8,7 +8,7 @@ from typing import Dict, List, Any, Optional
 from engine.loader import DataLoader
 from engine.indicators import IndicatorEngine
 from engine.signals import SignalEngine, FUNDAMENTAL_LABELS
-from engine.simulator import Simulator
+from engine.simulator import Simulator, applied_trading_costs
 from engine.result_handler import ResultHandler
 from engine.data_resolver import DataResolver
 from engine.prep_cache import SymbolPrepCache
@@ -1516,6 +1516,9 @@ class BacktestEngine:
                 exit_reason_overrides=getattr(self.simulator, 'exit_reason_overrides', None),
             )
             final["universe_id"] = req.get('universe_id') or ''
+            # 이 결과가 실제로 적용한 거래 비용 — 설정 화면 값이 아니라 엔진이 해석한 값을 결과
+            # 로그에 남긴다(기록에서 다시 연 결과도 어떤 비용으로 계산됐는지 알 수 있게).
+            final["tradingCosts"] = applied_trading_costs(options, common_index)
             _t4 = _time.time()
             print(f"[BT-ENGINE] Format 완료: {_t4-_t3:.2f}s", flush=True)
             print(f"[BT-ENGINE] 총 소요: {_t4-_t0:.2f}s", flush=True)

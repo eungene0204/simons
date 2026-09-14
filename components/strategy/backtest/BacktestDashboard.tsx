@@ -50,7 +50,7 @@ import { inferStrategyType } from "@/lib/strategy-type";
 import { trackEvent } from "@/lib/analytics";
 import CreateAccountModal from "@/components/ui/CreateAccountModal";
 import { createAccount } from "@/lib/portfolio";
-import { buildPromptSummaryRows } from "./promptSummaryRows";
+import { buildPromptSummaryRows, buildTradingCostRow } from "./promptSummaryRows";
 import { buildMonthlyReturnSeries, buildMonthlyReturnTableData } from "./monthlyReturns";
 import { buildRollingReturnSeries, buildRollingWindowStatsTable, isAnnualizedWindow } from "./rollingReturns";
 import RollingReturnTable from "./RollingReturnTable";
@@ -989,6 +989,10 @@ export default function BacktestDashboard({
   // "프롬프트" 팝오버의 전략 요약 행 — 라벨 하나에 값 여러 개를 세로로 쌓는 구조라
   // 렌더 쪽에서 조건 분기를 반복하지 않도록 행 목록으로 만든다(promptSummaryRows.ts).
   const promptSummaryRows = buildPromptSummaryRows(strategySummary, promptText, result.dates);
+  // 적용 거래 비용(수수료·슬리피지·거래세)은 전략이 아니라 이 실행의 설정이므로 팝오버에만 덧붙이고
+  // 가상계좌 프리셋 요약(summaryRows)에는 싣지 않는다.
+  const tradingCostRow = buildTradingCostRow(result.tradingCosts);
+  const promptPopoverRows = tradingCostRow ? [...promptSummaryRows, tradingCostRow] : promptSummaryRows;
 
   const downloadStrategyName =
     strategySummary?.strategyName?.trim() || promptText?.trim() || t("백테스트 전략");
@@ -1027,10 +1031,15 @@ export default function BacktestDashboard({
         universe: universeLabel,
         initialCapital: resolvedInitialCapital,
         finalEquity: resolvedFinalEquity,
+        // 엔진이 동봉한 적용 비용(result.tradingCosts)을 우선하고, 구버전 결과만 실행 설정값으로 대체한다.
         commission:
-          localOptions?.commissionPct != null ? localOptions.commissionPct / 100 : undefined,
+          result.tradingCosts?.buyFeeRate ??
+          (localOptions?.commissionPct != null ? localOptions.commissionPct / 100 : undefined),
         slippage:
-          localOptions?.slippagePct != null ? localOptions.slippagePct / 100 : undefined,
+          result.tradingCosts?.slippageRate ??
+          (localOptions?.slippagePct != null ? localOptions.slippagePct / 100 : undefined),
+        sellTax: result.tradingCosts?.sellTaxRate ?? undefined,
+        sellTaxRange: result.tradingCosts?.sellTaxRateRange ?? undefined,
         benchmark: benchmarkLabel,
         entrySignals: entrySignals?.length ? entrySignals : undefined,
         exitSignals: strategySummary?.exitBlocks?.length ? strategySummary.exitBlocks : undefined,
@@ -1562,12 +1571,12 @@ export default function BacktestDashboard({
                       <p className="text-xs text-gray-200 leading-5 whitespace-pre-wrap">{promptText}</p>
                     </div>
                   )}
-                  {promptSummaryRows.length > 0 && (
+                  {promptPopoverRows.length > 0 && (
                     /* 라벨 폭이 제각각이면 값이 계단처럼 흩어진다 — 대화 화면의 '전략 요약'
                        카드(BuilderStrategyOverview)와 같은 규칙으로 라벨 열을 고정한 그리드에
                        값을 한 줄에 하나씩 쌓아 세로줄을 맞춘다. */
                     <dl className="border-t border-white/[0.06] pt-1">
-                      {promptSummaryRows.map((row) => (
+                      {promptPopoverRows.map((row) => (
                         <div
                           key={row.label}
                           className="grid grid-cols-[64px_minmax(0,1fr)] gap-3 py-1.5 text-xs leading-relaxed"
@@ -2399,6 +2408,11 @@ function BacktestTerminalLog({
     isUsLog ? formatUsd(value) : t("{0}원", Math.round(value).toLocaleString());
   const logInitialCapital = result.initialCapital || result.equity?.[0] || 0;
   logs.push({ level: "INFO", message: t("유니버스: {0} / 초기자금: {1}", universeLabel, logMoney(logInitialCapital)) });
+  // 이 결과가 실제로 적용한 거래 비용(엔진 동봉) — 팝오버 '거래 비용' 행과 같은 문구를 한 줄로 잇는다.
+  const tradingCostRow = buildTradingCostRow(result.tradingCosts);
+  if (tradingCostRow) {
+    logs.push({ level: "INFO", message: t("거래 비용: {0}", tradingCostRow.values.join(" / ")) });
+  }
 
   // 매수 신호 통계
   const buyCount = result.tradesList?.filter(tv => tv.type === "buy").length ?? 0;

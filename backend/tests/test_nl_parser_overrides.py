@@ -5442,3 +5442,18 @@ def test_build_parse_result_skips_raw_prompt_clarifications_on_primary_lane():
         scan_prompt_for_sector=True, **kwargs,
     )
     assert "PER" in (legacy["clarification_question"] or "")
+
+
+# 2026-09-14: 원문 정규식이 LLM의 수수료·슬리피지 값을 덮어쓰던 블록 제거. 낱말만 있으면
+# `수수료0.1%` 붙여쓰기 형태만 인식하는 정규식으로 값을 다시 뽑고, 못 뽑으면 기본값을 써 넣어
+# "슬리피지를 0.1%로 바꿔줘"가 0.05%로 되돌아갔다(대원칙 1 위반 + 실제 값 소실).
+@pytest.mark.parametrize("text", [
+    "슬리피지를 0.1%로 바꿔줘",
+    "수수료를 0.03%로 올려줘",
+    "슬리피지는 그대로 두고 종목 10개로",
+    "수수료 0.03%, 슬리피지 0.1%로",
+])
+def test_prompt_overrides_do_not_touch_llm_fee_and_slippage(text):
+    parsed = ParsedStrategy(description="x", universe=["KOSPI"], fee_rate=0.03, slippage_rate=0.1)
+    out = _apply_prompt_overrides(parsed, text, skip_signal_validation=True, preserve_universe=True)
+    assert (out.fee_rate, out.slippage_rate) == (0.03, 0.1)

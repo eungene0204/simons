@@ -141,6 +141,7 @@ function mapRawBacktestResult(raw: any): BacktestResult {
     universeId: raw.universe_id,
     warnings: raw.warnings,
     warningParts: raw.warningParts,
+    tradingCosts: raw.tradingCosts ?? undefined,
     executionTime: raw.executionTime,
     fromCache: raw.fromCache,
     cacheKey: raw.cacheKey,

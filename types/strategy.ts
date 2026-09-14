@@ -175,6 +175,14 @@ export interface QuantileGroupsResult {
 /** 백엔드 표시 문구 세그먼트(매매사유·경고 공통) — {t: 한국어 정본 템플릿, a: 인자} 또는 {s: 리터럴}. */
 export type BacktestWarningSegment = { t: string; a?: unknown[]; m?: number[] } | { s: string };
 
+export interface BacktestTradingCosts {
+  buyFeeRate: number;
+  sellFeeRate: number;
+  slippageRate: number;
+  sellTaxRate: number | null;
+  sellTaxRateRange?: [number, number] | null;
+}
+
 export interface BacktestResult {
   executionId: string;
   strategyId: string;
@@ -294,6 +302,10 @@ export interface BacktestResult {
     warnings: string[];
     warningParts?: BacktestWarningSegment[][];
   };
+  /** 이 결과가 실제로 적용한 거래 비용(소수 비율, backend engine/simulator.py applied_trading_costs).
+   *  sellTaxRate는 고정 세율일 때만 값이고, 시행일 기준 법정 세율 스케줄이면 null + sellTaxRateRange.
+   *  구버전 저장 결과에는 없다. */
+  tradingCosts?: BacktestTradingCosts | null;
   /** 이 결과를 산출한 백테스트 엔진 버전 (backend engine/version.py). */
   engineVersion?: string;
   executionTime?: number;

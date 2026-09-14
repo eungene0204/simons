@@ -16,6 +16,57 @@ DEFAULT_FEE_RATE = 0.0015
 DEFAULT_SELL_TAX_RATE = CURRENT_KR_SELL_TAX_RATE   # 현행(2025~) 세율 — 가상계좌 정산과 공유
 DEFAULT_SLIPPAGE_RATE = 0.0020
 
+
+def resolve_cost_rates(options: Dict[str, Any], index: pd.Index) -> tuple:
+    """옵션에서 (매수 수수료율, 매도 수수료율, 봉별 거래세율 벡터)를 해석한다 — 시뮬레이터와
+    결과 로그의 '적용 거래 비용' 동봉이 같은 해석을 본다.
+
+    - buy_fee_rate / sell_fee_rate: 명시 시 legacy fee_rate보다 우선.
+    - sell_tax_rate: 증권거래세(매도측). 명시하지 않으면 봉 날짜의 시행일 기준
+      법정 세율(engine/transaction_tax.py), 명시(0 포함)하면 전 구간 고정.
+    """
+    fee_rate_raw = options.get('fee_rate')
+    fee_rate = float(fee_rate_raw) if fee_rate_raw is not None else DEFAULT_FEE_RATE
+
+    buy_raw = options.get('buy_fee_rate')
+    sell_raw = options.get('sell_fee_rate')
+    tax_raw = options.get('sell_tax_rate')
+
+    buy_fee = float(buy_raw) if buy_raw is not None else fee_rate
+    sell_fee = float(sell_raw) if sell_raw is not None else fee_rate
+    if tax_raw is not None:
+        sell_tax = np.full(len(index), float(tax_raw))
+    else:
+        sell_tax = kr_sell_tax_rates(index)
+    return buy_fee, sell_fee, sell_tax
+
+
+def resolve_slippage_rate(options: Dict[str, Any]) -> float:
+    slippage_raw = options.get('slippage_rate')
+    return float(slippage_raw) if slippage_raw is not None else DEFAULT_SLIPPAGE_RATE
+
+
+def applied_trading_costs(options: Dict[str, Any], index: pd.Index) -> Dict[str, Any]:
+    """결과에 동봉하는 '이 결과가 실제로 적용한 거래 비용'(소수 비율).
+
+    sellTaxRate는 고정 세율(명시값)일 때만 값이고, 시행일 기준 법정 세율 스케줄을 썼으면
+    None이며 그 구간의 [최저, 최고]를 sellTaxRateRange에 싣는다.
+    """
+    buy_fee, sell_fee, sell_tax = resolve_cost_rates(options, index)
+    tax_raw = options.get('sell_tax_rate')
+    if tax_raw is not None:
+        tax_rate, tax_range = float(tax_raw), None
+    else:
+        tax_rate = None
+        tax_range = [float(sell_tax.min()), float(sell_tax.max())] if len(sell_tax) else None
+    return {
+        'buyFeeRate': buy_fee,
+        'sellFeeRate': sell_fee,
+        'slippageRate': resolve_slippage_rate(options),
+        'sellTaxRate': tax_rate,
+        'sellTaxRateRange': tax_range,
+    }
+
 # 리밸런싱일에 목표 집합에서 빠져(조건 미충족·랭킹 이탈) 매도되는 청산의 정밀 사유.
 # 신호/리스크 청산이 아니므로 결과 라벨이 추상적인 '전략 매도 조건 충족'으로 뭉개지지
 # 않도록 시뮬레이터가 직접 사유를 기록한다.
@@ -110,8 +161,7 @@ class Simulator:
         max_hold = int(risk_params.get('max_holding_days') or 0)
 
         buy_fee, sell_fee = self._resolve_fee_rates(options, entries_df.index)
-        slippage_raw = options.get('slippage_rate')
-        slippage_val = float(slippage_raw) if slippage_raw is not None else DEFAULT_SLIPPAGE_RATE
+        slippage_val = resolve_slippage_rate(options)
         exec_type = options.get('execution_type', 'same_close')
 
         skip_pos = risk_params.get('skip_position_setting', False)
@@ -412,25 +462,8 @@ class Simulator:
 
     @staticmethod
     def _resolve_fee_rates(options: Dict[str, Any], index: pd.Index) -> tuple:
-        """(매수 수수료율, 봉별 매도 수수료율+거래세율 벡터)를 옵션에서 해석한다.
-
-        - buy_fee_rate / sell_fee_rate: 명시 시 legacy fee_rate보다 우선.
-        - sell_tax_rate: 증권거래세(매도측). 명시하지 않으면 봉 날짜의 시행일 기준
-          법정 세율(engine/transaction_tax.py), 명시(0 포함)하면 전 구간 고정.
-        """
-        fee_rate_raw = options.get('fee_rate')
-        fee_rate = float(fee_rate_raw) if fee_rate_raw is not None else DEFAULT_FEE_RATE
-
-        buy_raw = options.get('buy_fee_rate')
-        sell_raw = options.get('sell_fee_rate')
-        tax_raw = options.get('sell_tax_rate')
-
-        buy_fee = float(buy_raw) if buy_raw is not None else fee_rate
-        sell_fee = float(sell_raw) if sell_raw is not None else fee_rate
-        if tax_raw is not None:
-            sell_tax = np.full(len(index), float(tax_raw))
-        else:
-            sell_tax = kr_sell_tax_rates(index)
+        """(매수 수수료율, 봉별 매도 수수료율+거래세율 벡터)를 옵션에서 해석한다."""
+        buy_fee, sell_fee, sell_tax = resolve_cost_rates(options, index)
         return buy_fee, sell_fee + sell_tax
 
     @staticmethod

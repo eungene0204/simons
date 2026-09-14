@@ -49,3 +49,38 @@ describe("buildPromptSummaryRows", () => {
     expect(buildPromptSummaryRows(null, undefined, [])).toEqual([]);
   });
 });
+
+/**
+ * '거래 비용' 행 — 결과가 실제로 적용한 수수료·슬리피지·거래세(result.tradingCosts).
+ * 2026-09-14: 결과 로그에 비용이 보이지 않던 공백 수리. 동봉이 없으면(구버전 결과) 행을 만들지 않는다.
+ */
+import { buildTradingCostRow } from "@/components/strategy/backtest/promptSummaryRows";
+
+describe("buildTradingCostRow", () => {
+  it("대칭 수수료·슬리피지·고정 거래세를 한 줄씩 보인다(작은 비율도 0으로 뭉개지 않음)", () => {
+    const row = buildTradingCostRow({
+      buyFeeRate: 0.00015, sellFeeRate: 0.00015, slippageRate: 0.0005, sellTaxRate: 0.0018,
+    });
+    expect(row).toEqual({ label: "거래 비용", values: ["수수료 0.015%", "슬리피지 0.05%", "거래세 0.18%"] });
+  });
+
+  it("법정 세율 스케줄 구간은 최고→최저 범위로, 매수·매도 수수료가 다르면 나눠 보인다", () => {
+    const row = buildTradingCostRow({
+      buyFeeRate: 0.0002, sellFeeRate: 0.0003, slippageRate: 0.002,
+      sellTaxRate: null, sellTaxRateRange: [0.0015, 0.0023],
+    });
+    expect(row?.values).toEqual([
+      "수수료 매수 0.02% · 매도 0.03%",
+      "슬리피지 0.2%",
+      "거래세 0.23% → 0.15% (시행일 기준)",
+    ]);
+  });
+
+  it("거래세 0(미국·ETF)은 0%로 보이고, 동봉이 없으면 행을 만들지 않는다", () => {
+    expect(
+      buildTradingCostRow({ buyFeeRate: 0.0015, sellFeeRate: 0.0015, slippageRate: 0.002, sellTaxRate: 0 })?.values
+    ).toEqual(["수수료 0.15%", "슬리피지 0.2%", "거래세 0%"]);
+    expect(buildTradingCostRow(undefined)).toBeNull();
+    expect(buildTradingCostRow(null)).toBeNull();
+  });
+});

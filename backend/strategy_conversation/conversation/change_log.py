@@ -76,6 +76,7 @@ _FIELD_LABELS: Dict[str, str] = {
     "execution_timing": "체결 시점",
     "fee_rate": "수수료율",
     "slippage_rate": "슬리피지율",
+    "sell_tax_rate": "거래세율",
 }
 
 

@@ -73,7 +73,9 @@ def validate_parameters(intent: StrategyIntent) -> List[str]:
     bt = strategy.backtest
     if bt.initial_capital is not None and bt.initial_capital <= 0:
         errors.append("초기 자본금은 0보다 커야 합니다")
-    for label, value in (("수수료율", bt.fee_rate), ("슬리피지율", bt.slippage_rate)):
+    for label, value in (
+        ("수수료율", bt.fee_rate), ("슬리피지율", bt.slippage_rate), ("거래세율", bt.sell_tax_rate),
+    ):
         if value is not None and not (0 <= value <= 10):
             errors.append(f"{label} {value}%은(는) 0~10% 범위여야 합니다")
 

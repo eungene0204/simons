@@ -201,7 +201,14 @@ export function resolveTradeReasonDisplay(
   return renderTradeReasonSegments(segments, formatMoney);
 }
 
-export function inferBacktestOptionsFromResult(result: BacktestResult): BacktestConfigOptions {
+const rateToPct = (rate: number | null | undefined): number | undefined =>
+  rate == null ? undefined : rate * 100;
+
+export function inferBacktestOptionsFromResult(
+  result: BacktestResult,
+  // 저장된 DSL의 비용 옵션(소수 비율) — 결과에 적용 비용 동봉이 없는 구버전 결과의 차선.
+  dslOptions?: { fee_rate?: number | null; slippage_rate?: number | null } | null,
+): BacktestConfigOptions {
   const tradingDays = result.dates?.length ?? 0;
 
   let period = "5Y";
@@ -216,7 +223,11 @@ export function inferBacktestOptionsFromResult(result: BacktestResult): Backtest
   return {
     period,
     initialCapital: result.initialCapital || 10_000_000,
-    commissionPct: 0.015,
-    slippagePct: 0.05,
+    // 이 결과가 실제로 적용한 비용(tradingCosts)이 먼저, 없으면 DSL이 실은 값, 그것도 없으면
+    // 기본값 — 종전 하드코딩은 사용자가 요청한 수수료·슬리피지를 재실행에서 지웠다(2026-09-14).
+    commissionPct:
+      rateToPct(result.tradingCosts?.buyFeeRate) ?? rateToPct(dslOptions?.fee_rate) ?? 0.015,
+    slippagePct:
+      rateToPct(result.tradingCosts?.slippageRate) ?? rateToPct(dslOptions?.slippage_rate) ?? 0.05,
   };
 }

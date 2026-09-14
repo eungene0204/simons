@@ -11,6 +11,7 @@ import {
   inferBacktestOptionsFromResult,
   normalizeLegacyBreakoutStrategy,
 } from "@/components/strategy/legacyBreakout";
+import { applyRunCosts } from "@/app/analytics/new/backtestOptions";
 import { buildStrategySummaryFromDsl, resolveStrategyPrompt } from "@/lib/strategy-summary";
 import {
   buildWalkForwardParameterRanges,
@@ -84,6 +85,7 @@ function mapBacktestResponse(raw: any): BacktestResult {
     universeId: raw.universe_id,
     warnings: raw.warnings,
     warningParts: raw.warningParts,
+    tradingCosts: raw.tradingCosts ?? undefined,
     executionTime: raw.executionTime,
     fromCache: raw.fromCache ?? false,
     cachedAt: raw.cachedAt,
@@ -139,7 +141,10 @@ function StrategyResultContent() {
 
         const rawSettings = data.settings;
         const normalizedSettings = rawSettings ? normalizeLegacyBreakoutStrategy(rawSettings) : null;
-        const options = inferBacktestOptionsFromResult(data.backtestResult);
+        const options = inferBacktestOptionsFromResult(
+          data.backtestResult,
+          normalizedSettings?.options,
+        );
         const sourcePrompt = resolveStrategyPrompt(normalizedSettings, data.description);
 
         setBacktestDsl(normalizedSettings);
@@ -191,11 +196,8 @@ function StrategyResultContent() {
         ...backtestDsl.risk,
         init_cash: options?.initialCapital ?? backtestDsl.risk?.init_cash,
       },
-      options: {
-        ...backtestDsl.options,
-        fee_rate: (options?.commissionPct ?? 0.015) / 100,
-        slippage_rate: (options?.slippagePct ?? 0.05) / 100,
-      },
+      // 패널 값 > 저장된 DSL이 실은 값(사용자가 문장으로 말한 수수료·슬리피지) > 기본값.
+      options: applyRunCosts(backtestDsl, options),
     };
   };
 

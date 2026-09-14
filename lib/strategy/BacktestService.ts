@@ -124,6 +124,7 @@ export class BacktestService {
         engineVersion: pythonResult.version,
         warnings: pythonResult.warnings,
         warningParts: pythonResult.warningParts,
+        tradingCosts: pythonResult.tradingCosts ?? undefined,
         avgProfit: pythonResult.avgProfit,
         avgLoss: pythonResult.avgLoss,
         maxConsecutiveWins: pythonResult.maxConsecutiveWins,

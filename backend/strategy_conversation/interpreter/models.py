@@ -607,8 +607,10 @@ class BacktestSpec(BaseModel):
     )
     fee_rate: Optional[float] = Field(default=None, description="수수료율(%)")
     slippage_rate: Optional[float] = Field(default=None, description="슬리피지율(%)")
+    # 증권거래세율(%, 매도측). 언급 없으면 null = 봉 날짜의 시행일 기준 법정 세율(engine/transaction_tax.py).
+    sell_tax_rate: Optional[float] = Field(default=None, description="증권거래세율(%)")
 
-    _coerce = field_validator("fee_rate", "slippage_rate", mode="before")(_coerce_number)
+    _coerce = field_validator("fee_rate", "slippage_rate", "sell_tax_rate", mode="before")(_coerce_number)
     # 금액은 앞자리 숫자만 떼는 _coerce_number로 읽을 수 없다("2억5000만원"→2) — 자리마다
     # 더하는 금액 환산기를 쓴다(위 _normalize_amount, 옮겨 적기 계약).
     _coerce_capital = field_validator("initial_capital", mode="before")(_normalize_amount)

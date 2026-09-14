@@ -752,3 +752,40 @@ describe("refreshFieldStatesAfterChoice — 칩 답변 뒤 낡은 백엔드 상�
   });
 });
 
+describe("거래 비용 행 — 사용자가 특정 값으로 말한 항목만 보여준다 (2026-09-14)", () => {
+  const base = { ...themeParsed, target_symbols: [], universe: ["KOSPI"],
+    fee_rate: 0.1, slippage_rate: 0.05, sell_tax_rate: 0 } as ParsedSummary;
+
+  it("말한 항목(explicit_fields)만 정본 순서로 싣고, 물질화된 기본값은 싣지 않는다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {}, reply: "", parsed: base,
+      explicitFields: ["universe", "sell_tax_rate", "fee_rate"],
+    });
+    const row = presentation.summaryItems.find((i) => i.label === "거래 비용");
+    expect(row?.values).toEqual(["수수료 0.1%", "거래세 0%"]);
+    expect(row?.value).toBe("수수료 0.1%");
+  });
+
+  it("하나만 말했으면 values 없이 value 하나다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {}, reply: "", parsed: base, explicitFields: ["universe", "slippage_rate"],
+    });
+    const row = presentation.summaryItems.find((i) => i.label === "거래 비용");
+    expect(row).toEqual({ label: "거래 비용", value: "슬리피지 0.05%" });
+  });
+
+  it("아무것도 말하지 않았으면 행이 없다 — 값이 있어도 기본값 물질화일 뿐이다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {}, reply: "", parsed: base, explicitFields: ["universe"],
+    });
+    expect(presentation.summaryItems.find((i) => i.label === "거래 비용")).toBeUndefined();
+  });
+
+  it("0.015%처럼 작은 비율도 0으로 뭉개지 않는다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {}, reply: "", parsed: { ...base, fee_rate: 0.015 } as ParsedSummary,
+      explicitFields: ["universe", "fee_rate"],
+    });
+    expect(presentation.summaryItems.find((i) => i.label === "거래 비용")?.value).toBe("수수료 0.015%");
+  });
+});

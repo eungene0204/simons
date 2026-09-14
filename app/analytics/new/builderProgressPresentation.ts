@@ -136,6 +136,25 @@ export function refreshFieldStatesAfterChoice(
   return next;
 }
 
+// 0.015% 같은 작은 비율은 소수 2자리로는 0이 된다 — 4자리까지 남기고 뒤 0을 뗀다.
+const formatCostPct = (pct: number): string => `${Number(pct.toFixed(4))}%`;
+
+/** 전략 요약 '거래 비용' 행의 항목 — 사용자가 말한(explicit) 항목만, 말한 순서가 아니라 정본 순서로. */
+export function tradingCostParts(
+  parsed: ParsedSummary | null | undefined,
+  explicitFields: readonly string[] | undefined,
+): string[] {
+  const entries: Array<[ExplicitCostField, string, number | null | undefined]> = [
+    ["fee_rate", t("수수료"), parsed?.fee_rate],
+    ["slippage_rate", t("슬리피지"), parsed?.slippage_rate],
+    ["sell_tax_rate", t("거래세"), parsed?.sell_tax_rate],
+  ];
+  return entries
+    .filter(([field, , value]) => value != null && isExplicit(field, explicitFields))
+    .map(([, label, value]) => `${label} ${formatCostPct(value as number)}`);
+}
+type ExplicitCostField = "fee_rate" | "slippage_rate" | "sell_tax_rate";
+
 export type BuilderTurnPresentation = {
   summaryItems: BuilderSummaryItem[];
   progressItems: BuilderProgressItem[];
@@ -554,6 +573,18 @@ export function buildBuilderTurnPresentation({
     });
   }
   if (riskLabel) summaryItems.push({ label: t("리스크 관리"), value: riskLabel });
+  // 사용자가 문장에서 특정 값으로 말한 거래 비용만 보여준다(2026-09-14 지시). 수수료·슬리피지는
+  // 백엔드가 기본값을 물질화하므로 값의 존재로는 말했는지 알 수 없고 provenance가 가른다 —
+  // 기본값을 사용자가 정한 것처럼 보이지 않는다. 거래세는 말하지 않으면 시행일 기준 법정
+  // 세율이라 행에 적지 않는다(결과 화면의 적용 비용 행이 그 구간을 보인다).
+  const costParts = tradingCostParts(parsed, explicitFields);
+  if (costParts.length > 0) {
+    summaryItems.push(
+      costParts.length > 1
+        ? { label: t("거래 비용"), value: costParts[0], values: costParts }
+        : { label: t("거래 비용"), value: costParts[0] },
+    );
+  }
 
   const entryComplete = isEntryComplete(state, parsed);
   // 리스크 관리 슬롯은 손절·익절이 **둘 다** 있어야 완료다(정본 계약) — 배지가 하나라도

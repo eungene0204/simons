@@ -4969,3 +4969,79 @@ def test_prompt_example_4_3_places_trailing_exit_clause_in_exit_conditions():
     assert '"operator":"crosses_below"' in section
     assert '"source_text":"20일선 이탈 시 청산"' in section
     assert "exit_conditions에 둡니다" in section
+
+
+def test_modify_primary_applies_fee_and_slippage_patches(monkeypatch):
+    """2026-09-14: "슬리피지를 0.1%로 바꿔줘" 같은 수정 턴이 끝까지 값을 옮기는지 — 인터프리터
+    패치(/backtest/fee_rate·slippage_rate) → 컴파일 → ParsedStrategy. 종전에는 결정적 보정이
+    원문의 '슬리피지' 낱말만 보고 기본값 0.05로 되돌려 패치가 무효였다."""
+    from strategy_conversation.primary import run_primary_modification
+
+    utter = "수수료를 0.03%로, 슬리피지를 0.1%로 바꿔줘"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY",
+        "status": "READY",
+        "confidence": 0.95,
+        "patches": [
+            {"op": "replace", "path": "/backtest/fee_rate", "value": 0.03,
+             "source_text": "수수료를 0.03%로"},
+            {"op": "replace", "path": "/backtest/slippage_rate", "value": 0.1,
+             "source_text": "슬리피지를 0.1%로 바꿔줘"},
+        ],
+    })
+    prev = _rich_parsed()
+    prev.fee_rate, prev.slippage_rate = 0.015, 0.05
+    result = run_primary_modification(utter, prev.model_dump())
+    assert result is not None
+    parsed = result["parsed"]
+    assert (parsed.fee_rate, parsed.slippage_rate) == (0.03, 0.1)
+    # 나머지 필드는 보존
+    assert parsed.stop_loss_pct == 8.0
+    assert parsed.max_positions == 15
+
+
+def test_explicit_fields_include_trading_costs_only_when_spoken():
+    """2026-09-14: 전략 요약의 '거래 비용' 행은 사용자가 말한 항목만 보인다 — 근거는
+    인터프리터 출력의 non-null(수수료·슬리피지 기본값은 컴파일러가 물질화하므로 값의
+    존재로는 알 수 없다)."""
+    from strategy_conversation.response.provenance import (
+        explicit_fields_from_patches, explicit_fields_from_spec,
+    )
+
+    data = _full_intent_dict()
+    data["strategy"]["backtest"].update({"fee_rate": 0.1, "sell_tax_rate": 0.0})
+    spec = StrategyIntent.model_validate(data).strategy
+    fields = explicit_fields_from_spec(spec)
+    assert "fee_rate" in fields and "sell_tax_rate" in fields
+    assert "slippage_rate" not in fields   # 말하지 않았다(null)
+
+    assert explicit_fields_from_patches([
+        {"op": "replace", "path": "/backtest/slippage_rate", "value": 0.1},
+    ]) == ["slippage_rate"]
+
+
+def test_sell_tax_rate_roundtrips_compile_decompile():
+    from strategy_conversation.compiler.strategy_compiler import compile_strategy
+    from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
+    from strategy_conversation.interpreter.models import ValidationReport
+
+    prev = _rich_parsed()
+    prev.sell_tax_rate = 0.0
+    spec = decompile_strategy(prev)
+    assert spec.backtest.sell_tax_rate == 0.0
+    intent = StrategyIntent(intent="CREATE_STRATEGY", strategy=spec, confidence=1.0)
+    roundtrip = compile_strategy(intent, ValidationReport(is_valid=True, status="READY"), prev.description)
+    assert roundtrip.sell_tax_rate == 0.0
+    # 말하지 않은 거래세는 기본값을 물질화하지 않는다(None=시행일 기준 법정 세율)
+    assert _rich_parsed().sell_tax_rate is None
+
+
+def test_parameter_validator_bounds_sell_tax_rate():
+    from strategy_conversation.validation.parameter_validator import validate_parameters
+
+    data = _full_intent_dict()
+    data["strategy"]["backtest"]["sell_tax_rate"] = 25.0
+    errors = validate_parameters(StrategyIntent.model_validate(data))
+    assert any("거래세율" in e for e in errors)
+    data["strategy"]["backtest"]["sell_tax_rate"] = 0.0
+    assert not any("거래세율" in e for e in validate_parameters(StrategyIntent.model_validate(data)))

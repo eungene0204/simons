@@ -1,5 +1,6 @@
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
 import { t } from "@/lib/i18n";
+import type { BacktestTradingCosts } from "@/types/strategy";
 
 export interface PromptSummarySource {
   universeName: string;
@@ -52,4 +53,38 @@ export function buildPromptSummaryRows(
   );
   if (riskValues.length > 0) rows.push({ label: t("리스크"), values: riskValues });
   return rows;
+}
+
+// 수수료·슬리피지처럼 작은 비율은 소수 2자리로는 0이 된다(0.015% → 0.01%) — 4자리까지 남기고 뒤 0을 뗀다.
+function formatRate(fraction: number): string {
+  return `${Number((fraction * 100).toFixed(4))}%`;
+}
+
+/**
+ * 결과 화면 "프롬프트" 팝오버의 '거래 비용' 행 — 설정 화면 값이 아니라 **이 결과가 실제로 적용한**
+ * 비용(result.tradingCosts, 엔진 동봉)만 보인다. 구버전 저장 결과처럼 동봉이 없으면 행을 만들지
+ * 않는다(현재 설정값을 적용값처럼 보이면 거짓 안내가 된다).
+ */
+export function buildTradingCostRow(costs: BacktestTradingCosts | null | undefined): PromptSummaryRow | null {
+  if (!costs) return null;
+  const values: string[] = [];
+  if (costs.buyFeeRate === costs.sellFeeRate) {
+    values.push(`${t("수수료")} ${formatRate(costs.buyFeeRate)}`);
+  } else {
+    values.push(
+      `${t("수수료")} ${t("매수")} ${formatRate(costs.buyFeeRate)} · ${t("매도")} ${formatRate(costs.sellFeeRate)}`
+    );
+  }
+  values.push(`${t("슬리피지")} ${formatRate(costs.slippageRate)}`);
+  if (costs.sellTaxRate != null) {
+    values.push(`${t("거래세")} ${formatRate(costs.sellTaxRate)}`);
+  } else if (costs.sellTaxRateRange) {
+    const [lo, hi] = costs.sellTaxRateRange;
+    values.push(
+      lo === hi
+        ? `${t("거래세")} ${formatRate(hi)}`
+        : `${t("거래세")} ${formatRate(hi)} → ${formatRate(lo)} (${t("시행일 기준")})`
+    );
+  }
+  return { label: t("거래 비용"), values };
 }

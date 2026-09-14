@@ -1039,6 +1039,10 @@ class ParsedStrategy(BaseModel):
         default=0.05,
         description="슬리피지율(%). 예: '슬리피지 0.1%'=0.1. 언급 없으면 0.05"
     )
+    sell_tax_rate: Optional[float] = Field(
+        default=None,
+        description="증권거래세율(%, 매도측). 예: '거래세 0%'=0. 언급 없으면 None(시행일 기준 법정 세율)"
+    )
 
 
 # ─── Diff 스키마 (수정 모드용) ────────────────────────────────────────────────
@@ -5814,10 +5818,11 @@ def _apply_prompt_overrides(
     if _extract_execution_timing(user_input) == "current_close":
         updates["execution_timing"] = "current_close"
 
-    if "수수료" in compact_in:
-        updates["fee_rate"] = _extract_rate(user_input, "수수료", 0.015)
-    if "슬리피지" in compact_in:
-        updates["slippage_rate"] = _extract_rate(user_input, "슬리피지", 0.05)
+    # 수수료·슬리피지는 여기서 덮어쓰지 않는다(2026-09-14 제거). 종전에는 원문에 낱말만
+    # 있으면 정규식(`수수료0.1%` 붙여쓰기 형태만 인식)으로 값을 다시 뽑아 LLM 값을 덮었고,
+    # 못 뽑으면 **기본값을 써 넣어** "슬리피지를 0.1%로 바꿔줘"·"슬리피지는 그대로 두고"가
+    # 0.05%로 되돌아갔다. 값의 해석은 인터프리터(LLM)가 하고, 상식 상한(MAX_COST_RATE_PCT)만
+    # 결정론이 지킨다.
 
     # ── Step 1: LLM 환각 신호 제거 (프롬프트에 언급되지 않은 지표 제거) ──
     # Skip signal revalidation for deterministic modifications because short prompts would drop

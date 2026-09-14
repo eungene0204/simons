@@ -309,6 +309,7 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         "execution_timing": strategy.execution_timing,
         "fee_rate": strategy.fee_rate,
         "slippage_rate": strategy.slippage_rate,
+        "sell_tax_rate": strategy.sell_tax_rate,
     })
     return canonical
 
@@ -570,5 +571,11 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "options": {
             "fee_rate": _percent_to_rate(strategy.fee_rate),
             "slippage_rate": _percent_to_rate(strategy.slippage_rate),
+            # 거래세는 사용자가 말한 때만 싣는다 — 키가 없으면 시뮬레이터가 시행일 기준
+            # 법정 세율 스케줄을 쓴다(engine/simulator.resolve_cost_rates).
+            **(
+                {"sell_tax_rate": _percent_to_rate(strategy.sell_tax_rate)}
+                if strategy.sell_tax_rate is not None else {}
+            ),
         },
     }

@@ -28,9 +28,16 @@ REBALANCING = "rebalancing"
 REBALANCE_METHOD = "rebalance_method"
 BACKTEST_PERIOD = "backtest_period"
 INITIAL_CAPITAL = "initial_capital"
+# 거래 비용 셋 — 되묻기 슬롯이 아니라 표시 근거다(전략 요약의 '거래 비용' 행은 사용자가
+# 말한 항목만 보인다, 2026-09-14). 컴파일러가 수수료·슬리피지 기본값을 물질화하므로
+# 값의 존재로는 말했는지 알 수 없고, 인터프리터 출력의 non-null만이 근거다.
+FEE_RATE = "fee_rate"
+SLIPPAGE_RATE = "slippage_rate"
+SELL_TAX_RATE = "sell_tax_rate"
 
 KNOWN_FIELDS = (
     UNIVERSE, MAX_POSITIONS, REBALANCING, REBALANCE_METHOD, BACKTEST_PERIOD, INITIAL_CAPITAL,
+    FEE_RATE, SLIPPAGE_RATE, SELL_TAX_RATE,
 )
 
 
@@ -68,6 +75,10 @@ def explicit_fields_from_spec(strategy: Any) -> List[str]:
         fields.append(BACKTEST_PERIOD)
     if backtest is not None and getattr(backtest, "initial_capital", None) is not None:
         fields.append(INITIAL_CAPITAL)
+    for attr, field in ((FEE_RATE, FEE_RATE), (SLIPPAGE_RATE, SLIPPAGE_RATE),
+                        (SELL_TAX_RATE, SELL_TAX_RATE)):
+        if backtest is not None and getattr(backtest, attr, None) is not None:
+            fields.append(field)
     return fields
 
 
@@ -81,6 +92,9 @@ _PATCH_PATH_FIELDS: tuple[tuple[str, str], ...] = (
     ("backtest.start_date", BACKTEST_PERIOD),
     ("backtest.end_date", BACKTEST_PERIOD),
     ("backtest.initial_capital", INITIAL_CAPITAL),
+    ("backtest.fee_rate", FEE_RATE),
+    ("backtest.slippage_rate", SLIPPAGE_RATE),
+    ("backtest.sell_tax_rate", SELL_TAX_RATE),
 )
 
 

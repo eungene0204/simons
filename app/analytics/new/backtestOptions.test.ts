@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyRunCosts,
   applyRunWindow,
   backtestConfigOptions,
   toPanelPeriodId,
@@ -75,5 +76,54 @@ describe("applyRunWindow", () => {
     const next = applyRunWindow({ period: "5y", startDate: "2016-08-01" }, { period: "full" });
     expect(next.period).toBe("full");
     expect("startDate" in next).toBe(false);
+  });
+});
+
+// 2026-09-14: 사용자가 문장으로 요청한 수수료·슬리피지가 첫 실행에만 살고, 패널 초기값과
+// 재실행 요청은 하드코딩된 0.015%·0.05%로 되돌아갔다 — 요청값이 끝까지 실행되게 한다.
+describe("backtestConfigOptions — 요청이 실은 거래 비용을 패널에 보인다", () => {
+  it("요청의 fee_rate·slippage_rate(소수)를 퍼센트로 옮겨 초기값으로 쓴다", () => {
+    const options = backtestConfigOptions({
+      period: "3y",
+      options: { fee_rate: 0.001, slippage_rate: 0.002 },
+    });
+    expect(options.commissionPct).toBeCloseTo(0.1, 10);
+    expect(options.slippagePct).toBeCloseTo(0.2, 10);
+  });
+
+  it("0%도 값이다 — 기본값으로 바꾸지 않는다", () => {
+    const options = backtestConfigOptions({ period: "3y", options: { fee_rate: 0, slippage_rate: 0 } });
+    expect(options.commissionPct).toBe(0);
+    expect(options.slippagePct).toBe(0);
+  });
+
+  it("요청에 비용이 없으면 기본값이다", () => {
+    expect(backtestConfigOptions({ period: "3y" })).toMatchObject({ commissionPct: 0.015, slippagePct: 0.05 });
+  });
+});
+
+describe("applyRunCosts — 패널 값 > 요청값 > 기본값", () => {
+  const request = { period: "3y", options: { fee_rate: 0.001, slippage_rate: 0.002 } };
+
+  it("패널이 값을 주지 않으면 요청이 실은 값을 그대로 싣는다(재실행에서 요청값이 사라지지 않는다)", () => {
+    expect(applyRunCosts(request, { period: "3Y" } as any)).toEqual({ fee_rate: 0.001, slippage_rate: 0.002 });
+    expect(applyRunCosts(request, null)).toEqual({ fee_rate: 0.001, slippage_rate: 0.002 });
+  });
+
+  it("패널에서 고친 값이 있으면 그것이 이긴다", () => {
+    expect(applyRunCosts(request, { commissionPct: 0.03, slippagePct: 0.1 })).toEqual({
+      fee_rate: 0.0003,
+      slippage_rate: 0.001,
+    });
+  });
+
+  it("요청에도 패널에도 없으면 기본값(0.015%·0.05%)이다", () => {
+    expect(applyRunCosts({ period: "3y" }, null)).toEqual({ fee_rate: 0.00015, slippage_rate: 0.0005 });
+  });
+
+  it("요청 options의 다른 키는 보존한다", () => {
+    expect(
+      applyRunCosts({ period: "3y", options: { fee_rate: 0.001, slippage_rate: 0.002, execution_type: "next_open" } as any }, null),
+    ).toEqual({ fee_rate: 0.001, slippage_rate: 0.002, execution_type: "next_open" });
   });
 });

@@ -36,6 +36,10 @@ export interface BacktestExportMetadata {
   commission?: number;
   /** 슬리피지율 (소수, 예: 0.0005 = 0.05%) */
   slippage?: number;
+  /** 매도 거래세율 (소수) — 고정 세율로 계산했을 때만 */
+  sellTax?: number;
+  /** 시행일 기준 법정 세율 스케줄로 계산했을 때의 [최저, 최고] (소수) */
+  sellTaxRange?: [number, number];
   benchmark?: string;
   /** 전략 배지 — 결과 화면 상단 "프롬프트" 팝오버에 표시되는 것과 동일한 조건 요약 */
   entrySignals?: string[];
@@ -164,6 +168,19 @@ function buildCsv(payload: BacktestExportPayload): string {
   lines.push(csvRow([t("최종자산"), formatMoney(metadata.finalEquity)]));
   if (metadata.commission != null) lines.push(csvRow([t("수수료"), formatRatePercent(metadata.commission)]));
   if (metadata.slippage != null) lines.push(csvRow([t("슬리피지"), formatRatePercent(metadata.slippage)]));
+  if (metadata.sellTax != null) {
+    lines.push(csvRow([t("거래세"), formatRatePercent(metadata.sellTax)]));
+  } else if (metadata.sellTaxRange) {
+    const [lo, hi] = metadata.sellTaxRange;
+    lines.push(
+      csvRow([
+        t("거래세"),
+        lo === hi
+          ? formatRatePercent(hi)
+          : `${formatRatePercent(hi)} → ${formatRatePercent(lo)} (${t("시행일 기준")})`,
+      ])
+    );
+  }
   if (metadata.entrySignals?.length) lines.push(csvRow([t("진입 신호"), metadata.entrySignals.join(" / ")]));
   if (metadata.exitSignals?.length) lines.push(csvRow([t("청산 신호"), metadata.exitSignals.join(" / ")]));
   if (metadata.position) lines.push(csvRow([t("포지션"), metadata.position]));

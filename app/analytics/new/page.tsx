@@ -121,7 +121,9 @@ import {
   promptForSlot,
   SINGLE_ASSET_ENTRY_CHIPS,
 } from "./backtestReadiness";
-import { applyRunWindow, backtestConfigOptions } from "./backtestOptions";
+import { applyRunWindow, backtestConfigOptions,
+  applyRunCosts,
+} from "./backtestOptions";
 import {
   presentStrategyClarification,
   shouldContinueWithSingleAssetBuilder,
@@ -4717,10 +4719,8 @@ function StrategyLabContent() {
       ...applyRunWindow(backtestReq, options),
       engine_version: BACKTEST_ENGINE_VERSION,
       risk: { ...backtestReq.risk, init_cash: options.initialCapital ?? backtestReq.risk?.init_cash },
-      options: {
-        fee_rate: (options.commissionPct ?? 0.015) / 100,
-        slippage_rate: (options.slippagePct ?? 0.05) / 100,
-      },
+      // 패널 값 > 요청이 실은 값(사용자가 문장으로 말한 수수료·슬리피지) > 기본값.
+      options: applyRunCosts(backtestReq, options),
     } : {
       ...backtestReq,
       engine_version: BACKTEST_ENGINE_VERSION,

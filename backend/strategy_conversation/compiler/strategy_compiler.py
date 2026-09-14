@@ -532,4 +532,6 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         ),
         fee_rate=bt.fee_rate if bt.fee_rate is not None else 0.015,
         slippage_rate=bt.slippage_rate if bt.slippage_rate is not None else 0.05,
+        # 거래세는 기본값을 물질화하지 않는다 — None이 곧 '시행일 기준 법정 세율'이다.
+        sell_tax_rate=bt.sell_tax_rate,
     )

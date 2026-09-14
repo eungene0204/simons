@@ -121,8 +121,9 @@ const getRebalancingLabel = (period?: string) => {
 export default function BacktestConfig({ onRun, isRunning, initialConfig, summary }: BacktestConfigProps) {
   const [period, setPeriod] = useState(initialConfig?.period || "3Y");
   const [initialCapital, setInitialCapital] = useState(initialConfig?.initialCapital || 10000000);
-  const [commissionPct, setCommissionPct] = useState(initialConfig?.commissionPct || 0.015);
-  const [slippagePct, setSlippagePct] = useState(initialConfig?.slippagePct || 0.05);
+  // `||`는 0%를 기본값으로 바꾼다 — 사용자가 수수료 0%를 요청한 값도 값이다.
+  const [commissionPct, setCommissionPct] = useState(initialConfig?.commissionPct ?? 0.015);
+  const [slippagePct, setSlippagePct] = useState(initialConfig?.slippagePct ?? 0.05);
   
   console.log("[DEBUG-UI] BacktestConfig summary.entryLogic:", summary.entryLogic);
 

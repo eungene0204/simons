@@ -17,6 +17,23 @@ describe("mapRawBacktestResult", () => {
     expect(result.avgHoldingDays).toBe(16);
   });
 
+  it("엔진이 동봉한 적용 거래 비용(tradingCosts)을 보존한다 — 채팅 레인 누락 사고 2026-09-14", () => {
+    const tradingCosts = {
+      buyFeeRate: 0.0015,
+      sellFeeRate: 0.0015,
+      slippageRate: 0.002,
+      sellTaxRate: null,
+      sellTaxRateRange: [0.0015, 0.0023],
+    };
+    const result = mapRawBacktestResult({ equity: [1000], signals: [], tradingCosts }, "test_exec");
+    expect(result.tradingCosts).toEqual(tradingCosts);
+  });
+
+  it("구버전 결과처럼 tradingCosts가 없으면 undefined로 둔다(현재 설정값으로 대체하지 않는다)", () => {
+    const result = mapRawBacktestResult({ equity: [1000], signals: [] }, "test_exec");
+    expect(result.tradingCosts).toBeUndefined();
+  });
+
   it("avgHoldingDays가 없으면 0으로 기본값 처리한다", () => {
     const result = mapRawBacktestResult({ equity: [1000], signals: [] }, "test_exec");
     expect(result.avgHoldingDays).toBe(0);

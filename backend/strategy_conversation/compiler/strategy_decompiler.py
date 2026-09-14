@@ -188,5 +188,6 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             initial_capital=parsed.initial_capital,
             fee_rate=parsed.fee_rate,
             slippage_rate=parsed.slippage_rate,
+            sell_tax_rate=parsed.sell_tax_rate,
         ),
     )

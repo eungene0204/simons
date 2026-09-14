@@ -150,6 +150,17 @@ describe("legacy breakout normalization", () => {
     ).toBe("손절매 실행 (-12%) [수익률: -15.24%, 손실: 189,925원]");
   });
 
+  it("결과가 적용한 거래 비용(tradingCosts)을 패널 초기값으로 쓴다 — 없으면 DSL 값, 그것도 없으면 기본값 (2026-09-14)", () => {
+    const withCosts = {
+      ...makeResult(800),
+      tradingCosts: { buyFeeRate: 0.001, sellFeeRate: 0.001, slippageRate: 0.002, sellTaxRate: null },
+    } as BacktestResult;
+    expect(inferBacktestOptionsFromResult(withCosts)).toMatchObject({ commissionPct: 0.1, slippagePct: 0.2 });
+    expect(inferBacktestOptionsFromResult(makeResult(800), { fee_rate: 0.0005, slippage_rate: 0.001 }))
+      .toMatchObject({ commissionPct: 0.05, slippagePct: 0.1 });
+    expect(inferBacktestOptionsFromResult(makeResult(800))).toMatchObject({ commissionPct: 0.015, slippagePct: 0.05 });
+  });
+
   it("infers backtest options from short and long result spans", () => {
     expect(inferBacktestOptionsFromResult(makeResult(240)).period).toBe("1Y");
     expect(inferBacktestOptionsFromResult(makeResult(800)).period).toBe("3Y");

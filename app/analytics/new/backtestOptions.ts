@@ -14,10 +14,19 @@
  * 규칙은 하나다 — **화면에 보이는 기간이 곧 실행되는 창이다.**
  */
 
+export interface BacktestCostOptions {
+  fee_rate?: number | null;
+  slippage_rate?: number | null;
+  // 사용자가 말한 때만 실린다 — 없으면 엔진이 시행일 기준 법정 세율을 쓴다.
+  sell_tax_rate?: number | null;
+}
+
 export interface BacktestWindowRequest {
   period?: string | null;
   startDate?: string | null;
   endDate?: string | null;
+  // 파싱이 실은 거래 비용(소수 비율). 사용자가 "수수료 0.1%"처럼 말한 값이 여기 있다.
+  options?: BacktestCostOptions | null;
   risk?: { init_cash?: number | null } | null;
 }
 
@@ -34,6 +43,36 @@ export interface RunOptions {
 export const PANEL_PERIOD_IDS = ["6M", "1Y", "3Y", "5Y", "10Y", "20Y", "full"] as const;
 
 export const CUSTOM_PERIOD_ID = "custom";
+
+// 패널 표기(%)의 기본 거래 비용 — 백엔드 ParsedStrategy 기본값(0.015%·0.05%)과 같다.
+export const DEFAULT_COMMISSION_PCT = 0.015;
+export const DEFAULT_SLIPPAGE_PCT = 0.05;
+
+const rateToPct = (rate: number | null | undefined): number | undefined =>
+  rate == null ? undefined : rate * 100;
+
+/**
+ * 실행 요청에 실을 거래 비용. 패널에서 고친 값이 있으면 그것, 없으면 **요청이 이미 싣고
+ * 있던 값**, 그것도 없으면 기본값이다 — 종전에는 패널 값이 없을 때 곧장 기본값으로
+ * 떨어져 사용자가 문장으로 요청한 수수료·슬리피지가 재실행에서 조용히 사라졌다(2026-09-14).
+ */
+export function applyRunCosts(
+  request: BacktestWindowRequest | null | undefined,
+  options: Pick<RunOptions, "commissionPct" | "slippagePct"> | null | undefined,
+): BacktestCostOptions {
+  const requested = request?.options ?? {};
+  return {
+    ...requested,
+    fee_rate:
+      options?.commissionPct != null
+        ? options.commissionPct / 100
+        : requested.fee_rate ?? DEFAULT_COMMISSION_PCT / 100,
+    slippage_rate:
+      options?.slippagePct != null
+        ? options.slippagePct / 100
+        : requested.slippage_rate ?? DEFAULT_SLIPPAGE_PCT / 100,
+  };
+}
 
 /** 엔진 요청의 period 표기를 패널 id로 맞춘다. 대응하는 버튼이 없으면 null. */
 export function toPanelPeriodId(period: string | null | undefined): string | null {
@@ -56,8 +95,9 @@ export function backtestConfigOptions(
   const endDate = request?.endDate ?? undefined;
   const base = {
     initialCapital: request?.risk?.init_cash ?? 10000000,
-    commissionPct: 0.015,
-    slippagePct: 0.05,
+    // 요청이 실은 비용을 패널에 그대로 보인다 — 화면에 보이는 값이 곧 실행되는 값이다.
+    commissionPct: rateToPct(request?.options?.fee_rate) ?? DEFAULT_COMMISSION_PCT,
+    slippagePct: rateToPct(request?.options?.slippage_rate) ?? DEFAULT_SLIPPAGE_PCT,
   };
   if (startDate || endDate) {
     return { period: CUSTOM_PERIOD_ID, startDate, endDate, ...base };

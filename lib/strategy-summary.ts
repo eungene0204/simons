@@ -84,6 +84,11 @@ export interface ParsedSummary {
   backtest_start_date?: string | null;
   backtest_end_date?: string | null;
   initial_capital: number;
+  // 거래 비용(%, 백엔드 ParsedStrategy 단위). 수수료·슬리피지는 기본값이 물질화되므로
+  // 사용자가 말했는지는 explicit_fields(provenance)가 가른다. 거래세 null=시행일 기준 법정 세율.
+  fee_rate?: number | null;
+  slippage_rate?: number | null;
+  sell_tax_rate?: number | null;
 }
 
 interface BacktestRequestLike {
