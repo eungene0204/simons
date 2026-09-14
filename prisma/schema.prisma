@@ -354,6 +354,7 @@ model User {
   WatchlistSymbol WatchlistSymbol[]
   UserBacktestHistory UserBacktestHistory[]
   SavedValidation SavedValidation[]
+  StrategyChatLog StrategyChatLog[]
   PaymentOrder   PaymentOrder[]
 }
 
@@ -433,6 +434,26 @@ model ChatQaLog {
   @@index([createdAt])
   @@index([userId, createdAt])
   @@index([sessionId, turnIndex])
+}
+
+// 전략연구소 대화 기록(사용자용, 2026-09-14) — 왼쪽 대화 로그 패널의 항목. 위 ChatQaLog(품질 점검용)와
+// 별개로, 사용자가 지난 대화를 다시 여는 용도라 계정별로 저장한다. 계정당 최대 30건, 초과분은 가장
+// 오래 쓰지 않은(updatedAt 오래된) 것부터 지운다(LRU). snapshot은 화면 복원 스냅샷의 JSON 문자열.
+// updatedAt은 대화가 진전됐을 때만 갱신한다(열어 보기만 한 대화는 순서를 바꾸지 않는다) — @updatedAt 아님.
+model StrategyChatLog {
+  id           String   @id @default(cuid())
+  userId       Int
+  sessionId    String // 대화 세션(qaSessionId)
+  region       String // kr | us
+  title        String // 첫 사용자 발화 첫 줄(표시 길이만 자름)
+  messageCount Int
+  snapshot     String // 복원 스냅샷 JSON
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now())
+  User         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sessionId])
+  @@index([userId, updatedAt])
 }
 
 // 플랜별 한도 오버라이드 — null이면 lib/plans.ts 기본값 사용.

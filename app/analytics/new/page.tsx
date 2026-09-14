@@ -20,7 +20,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { regionRequestHeaders, useRegion, useRegionHref } from "@/lib/geo/useRegion";
 import { useEmailLoginEnabled } from "@/components/providers/EmailLoginOptionProvider";
 import { backtestRunParamsFromRequest, trackEvent } from "@/lib/analytics";
-import { stripRegionPrefix } from "@/lib/geo/region";
+import { stripRegionPrefix, type Region } from "@/lib/geo/region";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { StrategyExampleTabs } from "@/components/strategy/StrategyExampleTabs";
 import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
@@ -34,10 +34,16 @@ import { mapRawBacktestResult } from "./backtestResultMapper";
 import { buildBacktestResultFacts } from "./backtestResultFacts";
 import { ChatLogPanel } from "./ChatLogPanel";
 import {
+  chatStorageOwnerOf,
+  reconcileStrategyChatStorage,
+} from "@/components/strategy/strategyChatStorage";
+import {
   readChatLog,
+  readChatLogSnapshot,
   removeChatLogEntry,
   upsertChatLogEntry,
   type ChatLogEntry,
+  type ChatLogSnapshot,
 } from "./chatLog";
 import {
   ArrowUp,
@@ -672,6 +678,9 @@ const MIN_VALIDATION_DELAY_MS = 2400;
 // 대화 기록을 남기기 전에 메시지 갱신이 멎기를 기다리는 시간. 코치 스트리밍은 답변을
 // 조금씩 이어 붙이므로, 이 시간만큼 조용하면 그 턴이 끝난 것으로 본다.
 const QA_LOG_SETTLE_MS = 1500;
+// 대화 로그(DB) 저장은 메시지 갱신이 이만큼 멎은 뒤 한 번만 보낸다 — 코치 스트리밍이
+// 답변을 여러 번 갱신하므로 갱신마다 서버에 쓰지 않는다. 세션 스냅샷은 즉시 저장한다.
+const CHAT_LOG_SAVE_SETTLE_MS = 1500;
 
 // Choice-only prompts can reopen the shared chat input without sending another answer.
 const FREE_INPUT_CHIP = "직접 입력";
@@ -1253,6 +1262,7 @@ type AuthState = "loading" | "authenticated" | "anonymous";
 
 type CurrentUserResponse = {
   user?: {
+    id?: number | null;
     name?: string | null;
     email?: string | null;
     avatarUrl?: string | null;
@@ -1262,6 +1272,7 @@ type CurrentUserResponse = {
 type LoginResponse = {
   error?: string;
   user?: {
+    id?: number | null;
     name?: string | null;
     email?: string | null;
     avatarUrl?: string | null;
@@ -1951,8 +1962,42 @@ function StrategyLabContent() {
   const isChatPage =
     stripRegionPrefix(pathname ?? "") === "/analytics/chat" || searchParams.get("chat") === "1";
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  // 우측 대화 로그(localStorage) — 지나간 대화를 다시 열기 위한 목록.
+  // 왼쪽 대화 로그(계정별 DB) — 지나간 대화를 다시 열기 위한 목록(스냅샷 없음).
   const [chatLog, setChatLog] = useState<ChatLogEntry[]>([]);
+  // 서버 응답은 순서가 뒤바뀔 수 있다(저장 중 삭제 등) — 마지막에 보낸 요청의 목록만 반영한다.
+  const chatLogRequestSeqRef = useRef(0);
+  const applyChatLogResponse = useCallback(
+    (seq: number, entries: ChatLogEntry[] | null) => {
+      if (entries && seq === chatLogRequestSeqRef.current) setChatLog(entries);
+    },
+    [],
+  );
+  // 아직 서버에 보내지 않은 대화 로그 저장분 — settle 타이머가 끝나거나 화면을 떠날 때 보낸다.
+  const pendingChatLogSaveRef = useRef<{ id: string; region: Region; snapshot: ChatLogSnapshot } | null>(null);
+  const chatLogSaveTimerRef = useRef<number | null>(null);
+  const flushChatLogSave = useCallback(
+    (options: { keepalive?: boolean } = {}) => {
+      if (chatLogSaveTimerRef.current !== null) {
+        window.clearTimeout(chatLogSaveTimerRef.current);
+        chatLogSaveTimerRef.current = null;
+      }
+      const pending = pendingChatLogSaveRef.current;
+      if (!pending) return;
+      pendingChatLogSaveRef.current = null;
+      const seq = ++chatLogRequestSeqRef.current;
+      upsertChatLogEntry(pending, options)
+        .then((entries) => applyChatLogResponse(seq, entries))
+        .catch(() => {
+          // 기록 실패는 대화를 막지 않는다 — 다음 갱신 때 다시 저장된다.
+        });
+    },
+    [applyChatLogResponse],
+  );
+  // 화면을 떠날 때 남은 저장분을 보낸다(keepalive — 언마운트 뒤에도 요청은 완료된다).
+  useEffect(() => () => flushChatLogSave({ keepalive: true }), [flushChatLogSave]);
+  // 브라우저에 저장된 대화의 주인(로그인 사용자 id). null = 아직 모름 — 알기 전에는
+  // 저장된 대화를 읽지도 쓰지도 않는다(같은 브라우저의 다른 계정 대화가 보이는 사고 방지).
+  const [chatOwner, setChatOwner] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [isStartingGoogleLogin, setIsStartingGoogleLogin] = useState(false);
@@ -2219,10 +2264,21 @@ function StrategyLabContent() {
       metricOptimizationDraftRef.current = snapshot.metricOptimizationDraft ?? null;
   }, []);
 
-  // 진행 중이던 채팅 복원 — 대시보드 등 다른 페이지로 갔다가 돌아와도 대화가 유지되도록.
+  // 저장된 대화 읽기 — 로그인 계정이 확정된 뒤에만. 먼저 브라우저 스냅샷의 주인을 대조해
+  // 다른 계정(또는 비로그인)의 대화면 지운 다음, 계정의 대화 로그를 서버에서 받고 진행 중이던
+  // 채팅을 복원한다(대시보드 등 다른 페이지로 갔다가 돌아와도 대화가 유지되도록).
   useEffect(() => {
-    if (chatRestoredRef.current) return;
+    if (chatOwner === null || chatRestoredRef.current) return;
     chatRestoredRef.current = true;
+    reconcileStrategyChatStorage(chatOwner);
+    if (chatOwner) {
+      const seq = ++chatLogRequestSeqRef.current;
+      readChatLog()
+        .then((entries) => applyChatLogResponse(seq, entries))
+        .catch(() => {
+          // 목록을 못 받으면 로그 없이 동작한다 — 다음 저장 응답이 목록을 채운다.
+        });
+    }
     // 새 채팅을 막 시작하는 중(대기 프롬프트 존재)이면 옛 상태를 복원하지 않는다.
     if (sessionStorage.getItem(PENDING_STRATEGY_PROMPT_KEY)) return;
     try {
@@ -2232,16 +2288,7 @@ function StrategyLabContent() {
     } catch {
       // 손상된 스냅샷은 무시한다.
     }
-  }, [applyChatSnapshot]);
-
-  // 대화 로그는 브라우저 저장소라 마운트 뒤에 읽는다(서버 렌더와 어긋나지 않게).
-  useEffect(() => {
-    try {
-      setChatLog(readChatLog(localStorage));
-    } catch {
-      // 저장소 접근이 막힌 환경에서는 로그 없이 동작한다.
-    }
-  }, []);
+  }, [applyChatSnapshot, applyChatLogResponse, chatOwner]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2257,6 +2304,7 @@ function StrategyLabContent() {
         if (!isMounted) return;
         if (data.user) {
           setAuthState("authenticated");
+          setChatOwner(chatStorageOwnerOf(data.user));
           return;
         }
       } catch {
@@ -2264,7 +2312,10 @@ function StrategyLabContent() {
       }
 
       if (!isSupabaseConfigured()) {
-        if (isMounted) setAuthState("anonymous");
+        if (isMounted) {
+          setAuthState("anonymous");
+          setChatOwner("");
+        }
         return;
       }
 
@@ -2273,7 +2324,10 @@ function StrategyLabContent() {
         const accessToken = data.session?.access_token;
 
         if (!accessToken) {
-          if (isMounted) setAuthState("anonymous");
+          if (isMounted) {
+            setAuthState("anonymous");
+            setChatOwner("");
+          }
           return;
         }
 
@@ -2288,10 +2342,13 @@ function StrategyLabContent() {
         const loginData = (await loginResponse.json()) as LoginResponse;
 
         if (!isMounted) return;
-        setAuthState(loginResponse.ok && loginData.user ? "authenticated" : "anonymous");
+        const loggedIn = loginResponse.ok && !!loginData.user;
+        setAuthState(loggedIn ? "authenticated" : "anonymous");
+        setChatOwner(loggedIn ? chatStorageOwnerOf(loginData.user) : "");
       } catch {
         if (isMounted) {
           setAuthState("anonymous");
+          setChatOwner("");
         }
       }
     };
@@ -2304,8 +2361,9 @@ function StrategyLabContent() {
   }, []);
 
   // 채팅 상태를 세션에 저장해, 페이지를 떠났다가 돌아와도 복원할 수 있게 한다.
+  // 주인(로그인 계정)이 확정되고 위 효과에서 주인 대조를 마친 뒤에만 쓴다.
   useEffect(() => {
-    if (messages.length === 0) return;
+    if (!chatOwner || messages.length === 0) return;
     try {
       const persistableMessages = selectPersistableChatMessages(messages);
       if (persistableMessages.length === 0) return;
@@ -2343,14 +2401,17 @@ function StrategyLabContent() {
         metricOptimizationDraft: metricOptimizationDraftRef.current,
       };
       sessionStorage.setItem(STRATEGY_CHAT_STATE_KEY, JSON.stringify(snapshot));
-      // 같은 스냅샷을 대화 로그(localStorage)에도 남긴다 — 우측 패널에서 다시 연다.
-      setChatLog(
-        upsertChatLogEntry(localStorage, { id: qaSessionIdRef.current, region, snapshot }),
-      );
+      // 같은 스냅샷을 계정의 대화 로그(DB)에도 남긴다 — 왼쪽 패널에서 다시 연다.
+      // 갱신이 멎은 뒤 한 번만 보낸다.
+      pendingChatLogSaveRef.current = { id: qaSessionIdRef.current, region, snapshot };
+      if (chatLogSaveTimerRef.current !== null) window.clearTimeout(chatLogSaveTimerRef.current);
+      chatLogSaveTimerRef.current = window.setTimeout(() => flushChatLogSave(), CHAT_LOG_SAVE_SETTLE_MS);
     } catch {
       // 용량 초과 등은 무시한다 — 복원은 best-effort.
     }
   }, [
+    chatOwner,
+    flushChatLogSave,
     messages,
     latestParsed,
     backtestReq,
@@ -2397,6 +2458,15 @@ function StrategyLabContent() {
     return () => window.clearTimeout(timer);
   }, [messages]);
 
+  // 복원 직후의 두 번째 끝 맞춤 타이머 — 화면이 내려간 뒤 늦게 발화하지 않게 언마운트 때 거둔다.
+  const settleScrollTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (settleScrollTimerRef.current !== null) window.clearTimeout(settleScrollTimerRef.current);
+    },
+    [],
+  );
+
   useEffect(() => {
     if (messages.length === 0) return;
 
@@ -2407,7 +2477,7 @@ function StrategyLabContent() {
         scrollChatViewToEnd();
         // 요약 카드·버튼이 한 박자 늦게 렌더돼 문서가 길어지면 방금 위치가 끝이 아니게 된다.
         // 레이아웃이 자리를 잡은 뒤 한 번 더 끝으로 맞춘다.
-        window.setTimeout(scrollChatViewToEnd, 300);
+        settleScrollTimerRef.current = window.setTimeout(scrollChatViewToEnd, 300);
         return;
       }
       // 사용자가 다음 메시지를 보내기 전까지는 입력창 회피 자동 스크롤을 돌리지 않는다
@@ -4884,17 +4954,28 @@ function StrategyLabContent() {
   };
   handleResetRef.current = handleReset;
 
-  // 우측 대화 로그에서 지난 대화를 연다 — 지금 대화를 비우고 그 스냅샷을 되살린다.
-  // 지금 대화는 이미 로그에 남아 있으므로 잃지 않는다.
+  // 왼쪽 대화 로그에서 지난 대화를 연다 — 지금 대화의 남은 저장분을 먼저 보내고, 그 대화의
+  // 스냅샷을 서버에서 받아 지금 대화를 비운 뒤 되살린다. 지금 대화는 로그에 남아 있으므로 잃지 않는다.
   const handleOpenLoggedChat = (id: string) => {
     if (id === qaSessionIdRef.current) return;
-    const entry = chatLog.find((e) => e.id === id);
-    if (!entry) return;
-    clearConversationState();
-    applyChatSnapshot(entry.snapshot);
+    if (!chatLog.some((e) => e.id === id)) return;
+    flushChatLogSave();
+    void readChatLogSnapshot(id).then((snapshot) => {
+      if (!snapshot || id === qaSessionIdRef.current) return;
+      clearConversationState();
+      applyChatSnapshot(snapshot);
+    });
   };
   const handleDeleteLoggedChat = (id: string) => {
-    setChatLog(removeChatLogEntry(localStorage, id));
+    // 보내지 않은 저장분이 지우는 대화면 버린다 — 두면 삭제 뒤에 되살아난다.
+    if (pendingChatLogSaveRef.current?.id === id) pendingChatLogSaveRef.current = null;
+    setChatLog((prev) => prev.filter((e) => e.id !== id));
+    const seq = ++chatLogRequestSeqRef.current;
+    removeChatLogEntry(id)
+      .then((entries) => applyChatLogResponse(seq, entries))
+      .catch(() => {
+        // 삭제 실패는 목록 표시를 막지 않는다.
+      });
     // 보고 있는 대화를 지우면 화면도 비운다 — 두면 다음 갱신 때 로그에 되살아난다.
     if (id === qaSessionIdRef.current) handleReset();
   };

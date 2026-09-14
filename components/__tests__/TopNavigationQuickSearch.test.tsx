@@ -558,6 +558,9 @@ describe("TopNavigation quick search", () => {
       JSON.stringify({ messages: [{ role: "user", content: "PBR 1 이하" }], stage: "done" })
     );
     sessionStorage.setItem("simons.pendingStrategyPrompt", "PBR 1 이하");
+    sessionStorage.setItem("simons.strategyChatOwner", "1");
+    localStorage.setItem("simons.strategyChatLog", '[{"id":"a"}]');
+    localStorage.setItem("simons.strategyChatOwner", "1");
 
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
@@ -589,6 +592,10 @@ describe("TopNavigation quick search", () => {
 
     expect(sessionStorage.getItem("simons.strategyChatState")).toBeNull();
     expect(sessionStorage.getItem("simons.pendingStrategyPrompt")).toBeNull();
+    // 같은 브라우저의 다음 계정에게 이 계정의 대화 로그가 보이면 안 된다 — 로그도 지운다.
+    expect(sessionStorage.getItem("simons.strategyChatOwner")).toBeNull();
+    expect(localStorage.getItem("simons.strategyChatLog")).toBeNull();
+    expect(localStorage.getItem("simons.strategyChatOwner")).toBeNull();
     expect(replaceMock).toHaveBeenCalledWith("/");
   });
 

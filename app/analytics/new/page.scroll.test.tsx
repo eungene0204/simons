@@ -422,7 +422,7 @@ describe("StrategyLabPage scroll behavior", () => {
         return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
       }
       if (url === "/api/user") {
-        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+        return Promise.resolve(createJsonResponse({ user: { id: 1, name: "Tester" } }));
       }
       if (url === "/api/query/classify") {
         classifyCallCount += 1;
@@ -646,7 +646,7 @@ describe("StrategyLabPage scroll behavior", () => {
         return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
       }
       if (url === "/api/user") {
-        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+        return Promise.resolve(createJsonResponse({ user: { id: 1, name: "Tester" } }));
       }
       if (url === "/api/query/classify") {
         return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
@@ -693,7 +693,7 @@ describe("StrategyLabPage scroll behavior", () => {
         return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
       }
       if (url === "/api/user") {
-        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+        return Promise.resolve(createJsonResponse({ user: { id: 1, name: "Tester" } }));
       }
       if (url === "/api/query/classify") {
         return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
@@ -728,7 +728,7 @@ describe("StrategyLabPage scroll behavior", () => {
         return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
       }
       if (url === "/api/user") {
-        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+        return Promise.resolve(createJsonResponse({ user: { id: 1, name: "Tester" } }));
       }
       if (url === "/api/query/classify") {
         return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
@@ -768,7 +768,7 @@ describe("StrategyLabPage scroll behavior", () => {
         return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
       }
       if (url === "/api/user") {
-        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+        return Promise.resolve(createJsonResponse({ user: { id: 1, name: "Tester" } }));
       }
       if (url === "/api/query/classify") {
         return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
@@ -839,7 +839,7 @@ describe("StrategyLabPage scroll behavior", () => {
         return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
       }
       if (url === "/api/user") {
-        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+        return Promise.resolve(createJsonResponse({ user: { id: 1, name: "Tester" } }));
       }
       if (url === "/api/query/classify") {
         return Promise.resolve(createJsonResponse({
@@ -963,6 +963,7 @@ describe("StrategyLabPage scroll behavior", () => {
       ...completeSingleAssetStrategy,
       initial_capital: 0,
     };
+    sessionStorage.setItem("simons.strategyChatOwner", "1");
     sessionStorage.setItem("simons.strategyChatState", JSON.stringify({
       messages: [
         {
@@ -987,7 +988,7 @@ describe("StrategyLabPage scroll behavior", () => {
         return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
       }
       if (String(input) === "/api/user") {
-        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+        return Promise.resolve(createJsonResponse({ user: { id: 1, name: "Tester" } }));
       }
       return Promise.resolve(createJsonResponse({}));
     });
@@ -1013,6 +1014,7 @@ describe("StrategyLabPage scroll behavior", () => {
     const riskQuestion =
       "마지막으로 청산 조건을 정해 주세요. 손절·익절·트레일링 스탑·보유기간 중 하나 이상을 자유롭게 말씀해 주세요.";
 
+    sessionStorage.setItem("simons.strategyChatOwner", "1");
     sessionStorage.setItem("simons.strategyChatState", JSON.stringify({
       messages: [
         {
@@ -1051,7 +1053,7 @@ describe("StrategyLabPage scroll behavior", () => {
         return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
       }
       if (url === "/api/user") {
-        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+        return Promise.resolve(createJsonResponse({ user: { id: 1, name: "Tester" } }));
       }
       if (url === "/api/query/classify" || url === "/api/strategy/parse/stream") {
         throw new Error(`빌더 진행 중 호출되면 안 되는 경로: ${url}`);
@@ -1132,6 +1134,7 @@ describe("StrategyLabPage scroll behavior", () => {
   it("빌더 확정 결과가 파싱 폴백을 거쳐도 채워진 슬롯을 유지하고 이전 질문으로 돌아가지 않는다", async () => {
     const builderCalls: Array<Record<string, any>> = [];
 
+    sessionStorage.setItem("simons.strategyChatOwner", "1");
     sessionStorage.setItem("simons.strategyChatState", JSON.stringify({
       messages: [
         {
@@ -1172,7 +1175,7 @@ describe("StrategyLabPage scroll behavior", () => {
         return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
       }
       if (url === "/api/user") {
-        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+        return Promise.resolve(createJsonResponse({ user: { id: 1, name: "Tester" } }));
       }
       if (url === "/api/strategy/builder/step") {
         const body = JSON.parse(String(init?.body ?? "{}"));
@@ -1243,7 +1246,7 @@ describe("StrategyLabPage scroll behavior", () => {
         return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
       }
       if (url === "/api/user") {
-        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+        return Promise.resolve(createJsonResponse({ user: { id: 1, name: "Tester" } }));
       }
       if (url === "/api/query/classify") {
         classifyCallCount += 1;
@@ -1326,7 +1329,7 @@ describe("StrategyLabPage scroll behavior", () => {
         return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
       }
       if (url === "/api/user") {
-        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+        return Promise.resolve(createJsonResponse({ user: { id: 1, name: "Tester" } }));
       }
       if (url === "/api/query/classify") {
         return Promise.resolve(createJsonResponse({ intent: "STRATEGY_PICK", symbols: [] }));
@@ -1569,7 +1572,7 @@ describe("StrategyLabPage scroll behavior", () => {
         return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
       }
       if (url === "/api/user") {
-        return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
+        return Promise.resolve(createJsonResponse({ user: { id: 1, name: "Tester" } }));
       }
       if (url === "/api/query/classify") {
         // 값 없이 지목된 대상은 분류 LLM이 판정한다(프론트 정규식 이관, § 11-20).

@@ -1,120 +1,83 @@
-import { afterEach, describe, expect, it } from "vitest";
+/**
+ * 대화 로그 클라이언트 — 계정별 서버 저장(`/api/strategy-chat-log`)을 부르는 얇은 층.
+ * 목록 응답 정리, 저장 본문 모양, 상한 초과 시 결과 떨어뜨리기, 떠날 때 keepalive.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  MAX_CHAT_LOG_ENTRIES,
-  STRATEGY_CHAT_LOG_KEY,
-  deriveChatLogTitle,
-  readChatLog,
-  removeChatLogEntry,
-  upsertChatLogEntry,
-} from "./chatLog";
+import { readChatLog, readChatLogSnapshot, removeChatLogEntry, upsertChatLogEntry } from "./chatLog";
 
-const snapshotWith = (texts: string[], extra: Record<string, unknown> = {}) => ({
-  messages: texts.map((content, i) => ({ role: i % 2 === 0 ? "user" : "assistant", content })),
-  ...extra,
-});
+const fetchMock = vi.fn();
 
-// setItem이 특정 길이를 넘으면 QuotaExceededError처럼 던지는 가짜 저장소.
-function makeQuotaStorage(limit: number): Storage {
-  const map = new Map<string, string>();
-  return {
-    get length() {
-      return map.size;
-    },
-    key: (i: number) => Array.from(map.keys())[i] ?? null,
-    getItem: (k: string) => map.get(k) ?? null,
-    setItem: (k: string, v: string) => {
-      if (v.length > limit) throw new DOMException("quota", "QuotaExceededError");
-      map.set(k, v);
-    },
-    removeItem: (k: string) => void map.delete(k),
-    clear: () => map.clear(),
-  };
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
-describe("대화 로그 저장소", () => {
-  afterEach(() => localStorage.clear());
+const entry = (id: string, updatedAt: number) => ({
+  id,
+  region: "kr",
+  title: id,
+  messageCount: 1,
+  createdAt: updatedAt,
+  updatedAt,
+});
 
-  it("첫 사용자 발화의 첫 줄을 제목으로 삼고 길면 자른다", () => {
-    expect(deriveChatLogTitle([{ role: "assistant", content: "안내" }, { role: "user", content: " 첫 줄\n둘째 줄 " }]))
-      .toBe("첫 줄");
-    expect(deriveChatLogTitle([{ role: "user", content: "가".repeat(100) }])).toBe(`${"가".repeat(80)}…`);
-    expect(deriveChatLogTitle([{ role: "user", content: "  " }])).toBe("");
+describe("대화 로그 클라이언트", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("목록은 서버 응답에서 모양이 맞는 항목만 최근 사용 순으로 돌려준다", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ entries: [entry("a", 1), { id: "bad" }, entry("b", 2)] }));
+    expect((await readChatLog()).map((e) => e.id)).toEqual(["b", "a"]);
+    expect(fetchMock).toHaveBeenCalledWith("/api/strategy-chat-log", expect.objectContaining({ cache: "no-store" }));
   });
 
-  it("대화별로 한 항목을 두고 최근 갱신 순으로 정렬한다", () => {
-    upsertChatLogEntry(localStorage, { id: "a", region: "kr", snapshot: snapshotWith(["A 전략"]), now: 1 });
-    upsertChatLogEntry(localStorage, { id: "b", region: "kr", snapshot: snapshotWith(["B 전략"]), now: 2 });
-    const entries = upsertChatLogEntry(localStorage, {
-      id: "a",
-      region: "kr",
-      snapshot: snapshotWith(["A 전략", "답", "추가"]),
-      now: 3,
-    });
-    expect(entries.map((e) => e.id)).toEqual(["a", "b"]);
-    expect(entries[0]).toMatchObject({ title: "A 전략", messageCount: 3, createdAt: 1, updatedAt: 3 });
-    expect(readChatLog(localStorage)).toEqual(entries);
+  it("목록 요청이 실패하면 거부한다(호출부가 무시)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ error: "Unauthorized" }, 401));
+    await expect(readChatLog()).rejects.toThrow();
   });
 
-  it("메시지 수가 그대로인 재저장(열어 보기)은 순서를 바꾸지 않는다", () => {
-    upsertChatLogEntry(localStorage, { id: "a", region: "kr", snapshot: snapshotWith(["A"]), now: 1 });
-    upsertChatLogEntry(localStorage, { id: "b", region: "kr", snapshot: snapshotWith(["B"]), now: 2 });
-    const entries = upsertChatLogEntry(localStorage, { id: "a", region: "kr", snapshot: snapshotWith(["A"]), now: 3 });
-    expect(entries.map((e) => e.id)).toEqual(["b", "a"]);
-    expect(entries[1].updatedAt).toBe(1);
+  it("저장은 PUT /api/strategy-chat-log/{id}에 지역과 스냅샷을 보내고 갱신된 목록을 받는다", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ entries: [entry("s 1", 1)] }));
+    const snapshot = { messages: [{ role: "user", content: "PBR 1 이하" }], stage: "ready" };
+    const entries = await upsertChatLogEntry({ id: "s 1", region: "us", snapshot });
+    expect(entries?.map((e) => e.id)).toEqual(["s 1"]);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/strategy-chat-log/s%201");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual({ region: "us", snapshot });
+    expect(init.keepalive).toBeUndefined();
   });
 
-  it("메시지가 없는 스냅샷은 항목을 만들지 않는다", () => {
-    expect(upsertChatLogEntry(localStorage, { id: "a", region: "kr", snapshot: { messages: [] } })).toEqual([]);
-    expect(localStorage.getItem(STRATEGY_CHAT_LOG_KEY)).toBeNull();
+  it("메시지 없는 스냅샷은 보내지 않는다", async () => {
+    expect(await upsertChatLogEntry({ id: "s", region: "kr", snapshot: { messages: [] } })).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("항목 수를 상한으로 자른다", () => {
-    for (let i = 0; i < MAX_CHAT_LOG_ENTRIES + 5; i++) {
-      upsertChatLogEntry(localStorage, { id: `s${i}`, region: "kr", snapshot: snapshotWith([`전략 ${i}`]), now: i });
-    }
-    const entries = readChatLog(localStorage);
-    expect(entries).toHaveLength(MAX_CHAT_LOG_ENTRIES);
-    expect(entries[0].id).toBe(`s${MAX_CHAT_LOG_ENTRIES + 4}`);
-  });
-
-  it("삭제하면 목록에서 빠지고 마지막 항목이 빠지면 키도 지운다", () => {
-    upsertChatLogEntry(localStorage, { id: "a", region: "kr", snapshot: snapshotWith(["A"]), now: 1 });
-    upsertChatLogEntry(localStorage, { id: "b", region: "us", snapshot: snapshotWith(["B"]), now: 2 });
-    expect(removeChatLogEntry(localStorage, "b").map((e) => e.id)).toEqual(["a"]);
-    expect(removeChatLogEntry(localStorage, "a")).toEqual([]);
-    expect(localStorage.getItem(STRATEGY_CHAT_LOG_KEY)).toBeNull();
-  });
-
-  it("손상된 저장값·모양이 다른 항목은 무시한다", () => {
-    localStorage.setItem(STRATEGY_CHAT_LOG_KEY, "{not json");
-    expect(readChatLog(localStorage)).toEqual([]);
-    localStorage.setItem(
-      STRATEGY_CHAT_LOG_KEY,
-      JSON.stringify([{ id: "x" }, { id: "ok", region: "kr", title: "t", updatedAt: 1, snapshot: { messages: [] } }]),
+  it("화면을 떠날 때의 저장은 keepalive로 보낸다", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ entries: [] }));
+    await upsertChatLogEntry(
+      { id: "s", region: "kr", snapshot: { messages: [{ role: "user", content: "x" }] } },
+      { keepalive: true },
     );
-    expect(readChatLog(localStorage).map((e) => e.id)).toEqual(["ok"]);
+    expect(fetchMock.mock.calls[0][1].keepalive).toBe(true);
   });
 
-  it("용량이 넘치면 방금 갱신한 항목의 결과부터 떨어뜨리고, 그래도 넘치면 오래된 항목을 지운다", () => {
-    const storage = makeQuotaStorage(600);
-    upsertChatLogEntry(storage, { id: "old", region: "kr", snapshot: snapshotWith(["오래된 대화"]), now: 1 });
-    const bigResult = { equity: "x".repeat(400) };
-    const entries = upsertChatLogEntry(storage, {
-      id: "new",
-      region: "kr",
-      snapshot: snapshotWith(["새 대화"], { stage: "done", result: bigResult }),
-      now: 2,
-    });
-    expect(entries.map((e) => e.id)).toEqual(["new", "old"]);
-    expect(entries[0].snapshot.result).toBeNull();
-    expect(entries[0].snapshot.stage).toBe("ready");
-    expect(readChatLog(storage).map((e) => e.id)).toEqual(["new", "old"]);
+  it("삭제는 DELETE를 보내고 갱신된 목록을 받는다", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ entries: [entry("a", 1)] }));
+    expect((await removeChatLogEntry("b")).map((e) => e.id)).toEqual(["a"]);
+    expect(fetchMock).toHaveBeenCalledWith("/api/strategy-chat-log/b", expect.objectContaining({ method: "DELETE" }));
+  });
 
-    const tiny = makeQuotaStorage(200);
-    upsertChatLogEntry(tiny, { id: "old", region: "kr", snapshot: snapshotWith(["오래된 대화"]), now: 1 });
-    const evicted = upsertChatLogEntry(tiny, { id: "new", region: "kr", snapshot: snapshotWith(["새 대화"]), now: 2 });
-    expect(evicted.map((e) => e.id)).toEqual(["new"]);
-    expect(readChatLog(tiny).map((e) => e.id)).toEqual(["new"]);
+  it("스냅샷 읽기는 모양이 맞을 때만 돌려주고 실패·손상은 null", async () => {
+    const snapshot = { messages: [{ role: "user", content: "x" }] };
+    fetchMock.mockResolvedValueOnce(jsonResponse({ snapshot }));
+    expect(await readChatLogSnapshot("a")).toEqual(snapshot);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ snapshot: { messages: "x" } }));
+    expect(await readChatLogSnapshot("a")).toBeNull();
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: "Not found" }, 404));
+    expect(await readChatLogSnapshot("a")).toBeNull();
   });
 });
