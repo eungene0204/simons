@@ -6,7 +6,9 @@ import { ReactNode, useEffect, useState } from "react";
 import { useRegionHref } from "@/lib/geo/useRegion";
 import { stripRegionPrefix } from "@/lib/geo/region";
 
-const PUBLIC_PATHS = new Set(["/", "/login", "/register"]);
+// 로그인하지 않고 열 수 있는 화면 — 인증 화면 자체가 여기 들어가야 한다.
+// 빠지면 AuthSessionGuard가 비로그인 방문자를 홈으로 되돌려 페이지에 머물 수 없다.
+const PUBLIC_PATHS = new Set(["/", "/login", "/register", "/guest"]);
 
 function isPublicPath(pathname: string | null) {
   if (!pathname) return true;
