@@ -7,6 +7,7 @@ import {
   verifyPassword,
 } from '@/lib/auth'
 import { ensureUserBootstrap } from '@/lib/get-user'
+import { isEmailSignupEnabled } from '@/lib/server/email-verification'
 import { cookies } from 'next/headers'
 
 export async function POST(request: NextRequest) {
@@ -94,6 +95,12 @@ export async function POST(request: NextRequest) {
         },
         { status: 200 }
       )
+    }
+
+    // 이메일 로그인은 테스트용 한시 기능 — 킬 스위치(EMAIL_SIGNUP_ENABLED=off)면
+    // 가입 API와 같은 방식(404 은닉)으로 닫는다. Google 경로는 위에서 이미 끝났다.
+    if (!isEmailSignupEnabled()) {
+      return NextResponse.json({ error: 'Not Found' }, { status: 404 })
     }
 
     // Validation

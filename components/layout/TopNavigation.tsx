@@ -38,6 +38,7 @@ import { getLocale, t } from "@/lib/i18n";
 import { stripRegionPrefix } from "@/lib/geo/region";
 import { useRegion, useRegionHref } from "@/lib/geo/useRegion";
 import { isValidPlanId } from "@/lib/plans";
+import { useEmailLoginEnabled } from "@/components/providers/EmailLoginOptionProvider";
 import { US_PRICING } from "@/lib/pricing/us";
 
 const QuickSearchModal = dynamic(() => import("./QuickSearchModal"), {
@@ -170,6 +171,7 @@ function getInitials(value: string) {
 }
 
 function TopNavigationComponent({ userName }: { userName?: string }) {
+  const emailLoginEnabled = useEmailLoginEnabled();
   const pathname = usePathname();
   const region = useRegion();
   const regionHref = useRegionHref();
@@ -1061,7 +1063,9 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                 {t("로그인 후 이용할 수 있습니다")}
               </p>
               <p className="text-sm font-bold leading-relaxed text-gray-400">
-                {t("Google 또는 이메일로 시작하세요")}
+                {emailLoginEnabled
+                  ? t("Google 또는 이메일로 시작하세요")
+                  : t("Google 계정으로 시작하세요")}
               </p>
             </div>
             <div className="mt-6 flex flex-col items-center gap-3">
@@ -1077,14 +1081,16 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                 <GoogleLogo size={18} weight="fill" />
                 <span>{isStartingLogin ? t("로그인 준비 중...") : t("Google로 시작하기")}</span>
               </button>
-              <Link
-                href={regionHref("/login")}
-                onClick={() => setIsLoginModalOpen(false)}
-                className="flex w-full max-w-[280px] items-center justify-center gap-2 rounded-xl border border-white/[0.15] px-4 py-2.5 text-sm font-black text-white transition-colors duration-200 hover:bg-white/[0.08]"
-              >
-                <EnvelopeSimple size={18} weight="bold" />
-                <span>{t("이메일로 시작하기")}</span>
-              </Link>
+              {emailLoginEnabled && (
+                <Link
+                  href={regionHref("/login")}
+                  onClick={() => setIsLoginModalOpen(false)}
+                  className="flex w-full max-w-[280px] items-center justify-center gap-2 rounded-xl border border-white/[0.15] px-4 py-2.5 text-sm font-black text-white transition-colors duration-200 hover:bg-white/[0.08]"
+                >
+                  <EnvelopeSimple size={18} weight="bold" />
+                  <span>{t("이메일로 시작하기")}</span>
+                </Link>
+              )}
               <button
                 type="button"
                 onClick={() => setIsLoginModalOpen(false)}

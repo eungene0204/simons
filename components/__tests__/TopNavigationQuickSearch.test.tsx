@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TopNavigation from "@/components/layout/TopNavigation";
+import { EmailLoginOptionProvider } from "@/components/providers/EmailLoginOptionProvider";
 import { mergePopularStocks } from "@/components/layout/QuickSearchModal";
 
 const { pathnameMock, searchParamsMock } = vi.hoisted(() => ({
@@ -293,6 +294,21 @@ describe("TopNavigation quick search", () => {
     expect(pushMock).toHaveBeenCalledWith("/analytics");
     expect(screen.queryByRole("dialog", { name: "모바일 메뉴" })).not.toBeInTheDocument();
     expect(document.body.style.overflow).toBe("");
+  });
+
+  it("이메일 로그인 킬 스위치가 꺼지면 로그인 모달에 Google 버튼만 남고 이메일 진입점이 사라진다", async () => {
+    renderWithQueryClient(
+      <EmailLoginOptionProvider enabled={false}>
+        <TopNavigation />
+      </EmailLoginOptionProvider>
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "로그인" }));
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Google로 시작하기" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /이메일로 시작하기/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Google 계정으로 시작하세요")).toBeInTheDocument();
   });
 
   it("비로그인 상태에서는 프로필 버튼 대신 로그인 버튼을 보여주고, 클릭하면 Google/이메일 선택 모달이 뜬다", async () => {

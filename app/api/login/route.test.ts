@@ -130,3 +130,39 @@ describe("/api/login Google(Supabase) 경로", () => {
     expect(userUpdate).not.toHaveBeenCalled();
   });
 });
+
+describe("/api/login 이메일·비밀번호 경로 킬 스위치", () => {
+  // 이메일 로그인은 테스트용 한시 기능 — EMAIL_SIGNUP_ENABLED=off면 /login 페이지·가입 API처럼
+  // 닫혀야 한다. 페이지만 막고 API를 열어 두면 직접 POST로 로그인이 계속 가능하다.
+  it("EMAIL_SIGNUP_ENABLED=off면 이메일 로그인은 404이고 DB를 조회하지 않는다", async () => {
+    vi.stubEnv("EMAIL_SIGNUP_ENABLED", "off");
+    try {
+      const res = await POST(req({ email: "user@example.com", password: "pw12345678" }));
+      expect(res.status).toBe(404);
+      expect(userFindUnique).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("EMAIL_SIGNUP_ENABLED=off라도 Google(Supabase) 경로는 그대로 통과한다", async () => {
+    vi.stubEnv("EMAIL_SIGNUP_ENABLED", "off");
+    try {
+      verifySupabaseAccessToken.mockResolvedValue(validIdentity);
+      userFindUnique.mockResolvedValue({
+        id: 7,
+        email: "user@example.com",
+        name: "Tester",
+        password: "hashed",
+        status: "ACTIVE",
+      });
+      userUpdate.mockResolvedValue({});
+      ensureUserBootstrap.mockResolvedValue(undefined);
+
+      const res = await POST(req({ supabaseAccessToken: "valid-token" }));
+      expect(res.status).toBe(200);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

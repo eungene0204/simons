@@ -9,6 +9,8 @@ import { OrderAccountProvider } from "@/contexts/OrderAccountContext";
 import ChunkErrorRecovery from "@/components/ChunkErrorRecovery";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { getRequestLanguage } from "@/lib/i18n/server";
+import { EmailLoginOptionProvider } from "@/components/providers/EmailLoginOptionProvider";
+import { isEmailSignupEnabled } from "@/lib/server/email-verification";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import {
   buildOpenGraph,
@@ -79,8 +81,10 @@ export default function RootLayout({
             <ScrollToTop />
             <VisualViewportInset />
             <OrderAccountProvider>
-              <TopMenuBar />
-              {children}
+              <EmailLoginOptionProvider enabled={isEmailSignupEnabled()}>
+                <TopMenuBar />
+                {children}
+              </EmailLoginOptionProvider>
             </OrderAccountProvider>
           </QueryProvider>
         </LanguageProvider>

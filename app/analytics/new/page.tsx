@@ -18,6 +18,7 @@ import dynamic from "next/dynamic";
 import { createClient } from "@supabase/supabase-js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { regionRequestHeaders, useRegion, useRegionHref } from "@/lib/geo/useRegion";
+import { useEmailLoginEnabled } from "@/components/providers/EmailLoginOptionProvider";
 import { backtestRunParamsFromRequest, trackEvent } from "@/lib/analytics";
 import { stripRegionPrefix } from "@/lib/geo/region";
 import DashboardLayout from "@/components/layout/DashboardLayout";
@@ -1943,6 +1944,7 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
 function StrategyLabContent() {
   const router = useRouter();
   const regionHref = useRegionHref();
+  const emailLoginEnabled = useEmailLoginEnabled();
   const region = useRegion();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -5501,7 +5503,9 @@ function StrategyLabContent() {
                 {t("아이디어를 전략으로 만들어 드립니다")}
               </p>
               <p className="text-sm font-bold leading-relaxed text-gray-400">
-                {t("Google 또는 이메일로 시작하세요")}
+                {emailLoginEnabled
+                  ? t("Google 또는 이메일로 시작하세요")
+                  : t("Google 계정으로 시작하세요")}
               </p>
             </div>
             <div className="mt-6 flex flex-col items-center gap-3">
@@ -5517,13 +5521,15 @@ function StrategyLabContent() {
                 <GoogleLogo size={18} weight="fill" />
                 <span>{isStartingGoogleLogin ? t("로그인 준비 중...") : t("Google로 시작하기")}</span>
               </button>
-              <a
-                href={regionHref("/login")}
-                className="flex items-center gap-2 rounded-xl border border-white/[0.15] px-4 py-2 text-sm font-black text-white transition-colors duration-200 hover:bg-white/[0.08]"
-              >
-                <EnvelopeSimple size={18} weight="bold" />
-                <span>{t("이메일로 시작하기")}</span>
-              </a>
+              {emailLoginEnabled && (
+                <a
+                  href={regionHref("/login")}
+                  className="flex items-center gap-2 rounded-xl border border-white/[0.15] px-4 py-2 text-sm font-black text-white transition-colors duration-200 hover:bg-white/[0.08]"
+                >
+                  <EnvelopeSimple size={18} weight="bold" />
+                  <span>{t("이메일로 시작하기")}</span>
+                </a>
+              )}
               <button
                 type="button"
                 onClick={() => setIsAuthModalOpen(false)}
