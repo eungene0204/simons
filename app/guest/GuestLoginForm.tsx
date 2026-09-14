@@ -60,12 +60,12 @@ export default function GuestLoginForm() {
           <NullstockLogoMark className="h-8 w-10" filterId="nullstock-logo-guest" />
           <div>
             <p className="text-sm font-bold text-[var(--text-label)]">{t("널스탁")}</p>
-            <h1 className="text-xl font-black text-white">{t("테스터 입장")}</h1>
+            <h1 className="text-xl font-black text-white">{t("특별 계정")}</h1>
           </div>
         </div>
 
         <p className="mb-6 text-sm font-bold text-gray-400">
-          {t("발급받은 테스터 아이디와 비밀번호로 입장합니다.")}
+          {t("발급받은 아이디와 비밀번호로 입장합니다.")}
         </p>
 
         {error && (

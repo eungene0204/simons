@@ -4,8 +4,8 @@
 /* eslint-disable */
 export const en: Record<string, string> = {
   // ── app/guest/GuestLoginForm.tsx
-  "테스터 입장": "Tester Access",
-  "발급받은 테스터 아이디와 비밀번호로 입장합니다.": "Sign in with the tester ID and password you were issued.",
+  "특별 계정": "Special Account",
+  "발급받은 아이디와 비밀번호로 입장합니다.": "Sign in with the ID and password you were issued.",
   "아이디": "ID",
   "아이디와 비밀번호를 입력해주세요.": "Please enter your ID and password.",
   "입장": "Enter",
