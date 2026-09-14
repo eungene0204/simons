@@ -496,6 +496,21 @@
           "fundamental.market_cap"
         ]
       }
+    },
+    {
+      "id": "mid-cap-maps-to-market-cap-band",
+      "category": "universe",
+      "input": "KOSPI 중형주 유니버스에서 PBR 1.2배 이하인 기업을 10종목 담아 주세요.",
+      "expect": {
+        "intent": "CREATE_STRATEGY",
+        "factors": [
+          "fundamental.market_cap",
+          "fundamental.pbr"
+        ],
+        "missing_value_factors": [
+          "fundamental.market_cap"
+        ]
+      }
     }
   ]
 }

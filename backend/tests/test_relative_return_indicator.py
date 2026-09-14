@@ -156,6 +156,22 @@ def test_validator_keeps_relative_return_on_kr_markets():
     assert [c.factor for c in intent.strategy.entry_conditions] == ["technical.relative_return"]
 
 
+def test_validator_normalizes_relative_return_ranking_to_return_ranking():
+    """[2026-09-14] '상대강도 상위 20%'를 LLM이 랭킹 metric technical.relative_return으로
+    내면 정본 ranking.return으로 정규화한다 — 종전엔 미지원 랭킹으로 제거돼 "'알 수 없는
+    랭킹 기준' 조건은 지원하지 않아" 안내와 함께 랭킹이 사라졌다(예시 2건 실측)."""
+    intent = StrategyIntent(intent="CREATE_STRATEGY", strategy={
+        "universe": {"markets": ["KOSPI200"]},
+        "ranking": [{"metric": "technical.relative_return", "lookback_days": 60,
+                     "direction": "top"}],
+        "portfolio": {"selection_percent": 20},
+    })
+    errors, _w, unsupported, _f = validate_capability(intent)
+    assert unsupported == [], unsupported
+    assert not any("랭킹 기준" in e for e in errors), errors
+    assert [(r.metric, r.lookback_days) for r in intent.strategy.ranking] == [("ranking.return", 60)]
+
+
 # ── ⑤ primary 레인 end-to-end(스텁 LLM) ─────────────────────────────────────
 
 def test_primary_lane_compiles_relative_return_condition(monkeypatch):

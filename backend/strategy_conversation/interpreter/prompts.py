@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "5.7"
+PROMPT_VERSION = "5.8"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -147,6 +147,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
   "direction":"bottom"}} + portfolio.selection_count=5 — 종목 수(5)를 버리지 마세요
   (실측: selection_count가 소실돼 기본값 10으로 나갔습니다).
 - rebalance_frequency는 **daily/weekly/monthly/bimonthly/quarterly/yearly만** 허용됩니다.
+  '두 달에 한 번'·"every two months"는 bimonthly(지원)입니다 — 미지원으로 보고하지 마세요.
   '2주마다'·'격주'·"every 2 weeks"(biweekly)는 이 목록에 없습니다 — 비슷한 값으로
   바꿔 넣지 말고(2주≠2개월) rebalance_frequency는 비워 두고 unsupported_features에
   원문 표현을 넣으세요(시스템이 미지원 안내 후 지원 주기를 되묻습니다).
@@ -190,6 +191,10 @@ NON_STRATEGY_REQUEST(전략과 무관)
    정해져 있고, 물을 것은 임계값뿐이며 그 질문은 시스템이 생성합니다.
    예: "소형주 투자 전략을 만들어줘" → intent=CREATE_STRATEGY, 위 시가총액 조건 1개,
    universe.markets=[]. 단 '대형주'는 규칙 6의 지수 매핑(["KOSPI200"])을 그대로 따릅니다.
+   '중형주'는 시가총액 **하한과 상한 두 조건**입니다 → market_cap ">=" null과 "<=" null
+   각 1개(source_text "중형주"). 시총 범위를 이미 말했으면("3000억 이상 2조 이하 중형주")
+   그 값들이 곧 조건이고 null 조건을 더 내지 마세요. 규모 표현(소형·중형·대형)은
+   섹터가 아니므로 universe.sectors에 넣지 마세요.
 3. 위 목록에 없는 개념은 조건으로 만들지 말고 unsupported_features에 원문 표현을
    넣으세요. 비슷한 지원 지표로 **조용히 바꿔치지 마세요**(사용자가 알아챌 수 없는
    왜곡): ROIC→ROA(금지), 흑자전환·연속 흑자→eps 부호(금지), '시장 대비/보다'→수익률

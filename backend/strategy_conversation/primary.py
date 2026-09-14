@@ -29,8 +29,8 @@ from engine import strategy_slots
 from strategy_conversation import config
 from strategy_conversation.conversation.change_log import changed_field_names
 from strategy_conversation.interpreter.llm_strategy_interpreter import _log_llm
-from strategy_conversation.interpreter.models import StrategyIntent, ValidationReport
-from strategy_conversation.registry.indicator_registry import REGISTRY
+from strategy_conversation.interpreter.models import StrategyCondition, StrategyIntent, ValidationReport
+from strategy_conversation.registry.indicator_registry import REGISTRY, resolve
 from strategy_conversation.response.output_guard import finalize_user_response
 
 logger = logging.getLogger("strategy_interpreter.primary")
@@ -112,6 +112,32 @@ def _new_listing_period_chips() -> List[str]:
 
     year = date.today().year
     return [f"{year}년 상장", f"{year - 1}년 상장", "최근 1년 내 상장", "최근 3년 내 상장"]
+
+
+# 시총 밴드('중형주')의 상한 칩 후보(억원) — 2조·3조·5조. 하한 추천값(5000억)보다 커야
+# 빈 구간이 확정되지 않는다.
+_MARKET_CAP_BAND_UPPER_OPTIONS = (20000, 30000, 50000)
+
+
+def _market_cap_amount(value: int) -> str:
+    """시총 칩의 금액 표기 — 1조 단위로 떨어지면 '{N}조', 아니면 '{N}억원'.
+
+    두 표기 모두 칩 결속(_apply_prompt_overrides의 시총 패턴: (조)?(억)?)이 읽는 정본이다.
+    """
+    if value >= 10000 and value % 10000 == 0:
+        return f"{value // 10000}조"
+    return f"{value:g}억원"
+
+
+def _has_market_cap_bound(strategy: Any, operator_prefix: str) -> bool:
+    """전략의 진입 조건에 주어진 방향(">=" / "<=")의 시가총액 조건이 있는가 — 밴드 판정."""
+    if strategy is None:
+        return False
+    return any(
+        cond.factor == "fundamental.market_cap"
+        and (cond.operator or "").startswith(operator_prefix[:1])
+        for cond in strategy.entry_conditions
+    )
 
 
 def _numeric_options(recommended: Any, *alternates: int) -> List[int]:
@@ -221,13 +247,28 @@ def _clarification_items(
                 # display_name의 괄호 설명은 칩에서 제거해 수정 파서 어휘와 맞춘다
                 name = spec.display_name.split("(")[0]
                 if cond.factor == "fundamental.market_cap" and direction == "이하":
-                    # 시총 상한 되묻기('소형주' 등 시총 규모 표현) — 작은 시총 후보를
-                    # 여러 개 제시해 사용자가 고른다(2026-08-11 사용자 지시). 표기는
-                    # 기존 단일 칩과 동일한 정본 형태라 결속(_bind_chips →
-                    # _apply_prompt_overrides 시총 패턴)이 그대로 성립한다.
+                    if _has_market_cap_bound(strategy, ">="):
+                        # 시총 **밴드**('중형주' = 하한+상한) — 상한 칩이 하한 추천값
+                        # (5000억)과 같거나 작으면 빈 구간이 확정된다. 하한보다 큰
+                        # 후보만 제시한다(2026-09-14, 표기는 결속 정본 '{N}조 이하').
+                        chips.extend(
+                            f"{name} {_market_cap_amount(v)} {direction}"
+                            for v in _MARKET_CAP_BAND_UPPER_OPTIONS
+                        )
+                    else:
+                        # 시총 상한 되묻기('소형주' 등 시총 규모 표현) — 작은 시총 후보를
+                        # 여러 개 제시해 사용자가 고른다(2026-08-11 사용자 지시). 표기는
+                        # 기존 단일 칩과 동일한 정본 형태라 결속(_bind_chips →
+                        # _apply_prompt_overrides 시총 패턴)이 그대로 성립한다.
+                        chips.extend(
+                            f"{name} {v:g}{unit} {direction}"
+                            for v in _numeric_options(q.recommended_value, 1000, 3000)
+                        )
+                elif cond.factor == "fundamental.market_cap" and _has_market_cap_bound(strategy, "<="):
+                    # 밴드의 하한 — 우리 예시가 쓰는 중형주 하한 후보(3000억·5000억·1조).
                     chips.extend(
-                        f"{name} {v:g}{unit} {direction}"
-                        for v in _numeric_options(q.recommended_value, 1000, 3000)
+                        f"{name} {_market_cap_amount(v)} {direction}"
+                        for v in _numeric_options(q.recommended_value, 3000, 10000)
                     )
                 else:
                     chips.append(f"{name} {q.recommended_value:g}{unit} {direction}")
@@ -261,8 +302,11 @@ def _clarification_items(
             topic = slot_topic
             # 슬롯 질문 표식 — 이월 큐에 싣지 않기 위한 판정(아래 큐 구성 참조).
             slot_item = True
+        # direction: 같은 지표의 하한·상한이 함께 열린 밴드('중형주')에서 큐 소비가
+        # 한쪽 답만 보고 다른 쪽 질문을 건너뛰지 않게 하는 표식(_next_ask_from_queue).
         items.append({"question": line, "chips": chips, "topic": topic,
-                      "metric": metric, "slot": slot_item})
+                      "metric": metric, "slot": slot_item,
+                      "direction": (cond.operator or "")[:1] if cond is not None else None})
     for role in coalesced_cross_roles:
         role_label = ui_language.msg("매수(진입)", "buy (entry)") if role == "entry" \
             else ui_language.msg("매도(청산)", "sell (exit)")
@@ -579,6 +623,32 @@ def _covered_by_source_texts(feature: str, source_texts: Iterable[str]) -> bool:
         text = _compact(str(raw or ""))
         if len(text) >= 4 and text in compact_feature:
             return True
+    return False
+
+
+def _covered_by_risk_values(feature: str, parsed: Any) -> bool:
+    """미지원 보고 항목이 **이미 반영된 리스크 슬롯의 라벨+값**을 담고 있는가.
+
+    "20일선 이탈 또는 손절 -8% 도달 시 청산"을 LLM이 청산 조건과 unsupported_features로
+    쪼개 내면(2026-09-14 실측 1/3), 손절은 risk_management에 반영됐는데 "'손절 -8% 도달 시
+    청산' 조건은 지원하지 않아"가 함께 나간다. 판정은 LLM 보고 문자열 ↔ 컴파일된 리스크
+    값의 표기 포함 대조뿐이다(원문을 읽지 않는다). 값이 없는 슬롯은 대조하지 않는다.
+    """
+    from engine.nl_parser import _compact
+
+    compact_feature = _compact(feature or "")
+    if not compact_feature or parsed is None:
+        return False
+    slots = (("손절", getattr(parsed, "stop_loss_pct", None)),
+             ("익절", getattr(parsed, "take_profit_pct", None)),
+             ("트레일링", getattr(parsed, "trailing_stop_pct", None)))
+    for label, value in slots:
+        if not value:
+            continue
+        magnitude = f"{abs(float(value)):g}"
+        for token in (f"{label}-{magnitude}%", f"{label}{magnitude}%", f"{label}+{magnitude}%"):
+            if _compact(token) in compact_feature:
+                return True
     return False
 
 
@@ -1052,6 +1122,104 @@ def _explicit_amount_eok(text: Optional[str]) -> Optional[float]:
     if len(found) != 1:
         return None
     return found[0]
+
+
+# 시총 규모 라벨 → 시가총액 조건 방향(정본 매핑). 값은 항상 null — 시스템이 임계값을 되묻는다.
+# '대형주'는 없다(프롬프트 규칙 6: KOSPI200 지수 매핑을 LLM이 낸다).
+_SIZE_CLASS_BOUNDS: Dict[str, tuple] = {
+    "소형주": ("<=",),
+    "중소형주": ("<=",),
+    "중형주": (">=", "<="),
+}
+
+
+def _normalize_size_class_labels(intent: StrategyIntent) -> None:
+    """LLM이 섹터·미지원 채널에 낸 시총 규모 라벨('중형주')을 시가총액 조건으로 옮긴다.
+
+    입력은 사용자 원문이 아니라 LLM이 뽑은 짧은 라벨(universe.sectors·unsupported_features)
+    이다 — 섹터 registry와 같은 § 3-2 지식 조회다. 프롬프트 규칙 2-1이 1차 방어이지만
+    120B 레인이 "KOSPI 중형주 유니버스"의 '중형주'를 unsupported_features(5.8)·sectors(5.7)에
+    내는 드리프트를 실측했다(2026-09-14: 예시 '현금흐름 개선 기업 집중형'이 "'중형주' 조건은
+    지원하지 않아" 안내로 나감). 이미 같은 방향의 시가총액 조건이 있으면(범위를 말한
+    "3000억 이상 2조 이하 중형주") 라벨만 걷어낸다 — 조건은 그대로.
+    """
+    strategy = intent.strategy
+    if strategy is None:
+        return
+    from engine.nl_parser import _compact
+
+    def _bounds_of(label: Any) -> Optional[tuple]:
+        return _SIZE_CLASS_BOUNDS.get(_compact(str(label or "")))
+
+    labels: List[str] = []
+    kept_sectors: List[str] = []
+    for sector in strategy.universe.sectors:
+        (labels if _bounds_of(sector) else kept_sectors).append(sector)
+    kept_features: List[str] = []
+    for feature in intent.unsupported_features:
+        (labels if _bounds_of(feature) else kept_features).append(feature)
+    if not labels:
+        return
+    strategy.universe.sectors = kept_sectors
+    intent.unsupported_features = kept_features
+    existing = {
+        (cond.operator or "")[:1]
+        for cond in strategy.entry_conditions
+        if (resolve(cond.factor) or type("_", (), {"id": None})).id == "fundamental.market_cap"
+    }
+    for label in labels:
+        for operator in _bounds_of(label) or ():
+            if operator[:1] in existing:
+                continue
+            existing.add(operator[:1])
+            strategy.entry_conditions.append(StrategyCondition(
+                factor="fundamental.market_cap", operator=operator, value=None,
+                unit="억원", value_source="MISSING", source_text=str(label),
+            ))
+    _log_llm("✓ 규모 라벨 정규화", f"{labels} → 시가총액 조건({sorted(existing)})")
+
+
+def _dedupe_relative_return_against_ranking(intent: StrategyIntent) -> List[str]:
+    """'상대강도 상위 N%'가 랭킹(return)과 조건(technical.relative_return)에 **이중으로**
+    실리면 조건 쪽을 걷어내고 안내한다.
+
+    120B 레인은 프롬프트 규칙·지표 notes로도 이 이중 생성을 멈추지 않았다(2026-09-14 실측
+    6/6: 값 0이면 사용자가 말하지 않은 '시장보다 강한' 필터가 생기고, 값 null이면 "시장 대비
+    초과수익률 기준값을 얼마로 할까요?"라는 엉뚱한 되묻기가 나갔다). 판정은 LLM 출력의
+    구조 대조뿐이다 — 같은 산정 기간의 수익률 랭킹이 있고 조건 값이 0 또는 null일 때만
+    중복으로 본다(값이 다르면 별도 조건). 조용히 버리지 않고 어디로 반영됐는지 알린다.
+    """
+    strategy = intent.strategy
+    if strategy is None or not strategy.ranking:
+        return []
+    lookbacks = {
+        rank.lookback_days for rank in strategy.ranking
+        if (resolve(rank.metric) or type("_", (), {"id": None})).id
+        in ("ranking.return", "technical.relative_return")
+    }
+    if not lookbacks:
+        return []
+    kept: List[Any] = []
+    notices: List[str] = []
+    for cond in strategy.entry_conditions:
+        spec = resolve(cond.factor)
+        period = (cond.parameters or {}).get("period")
+        duplicate = (
+            spec is not None and spec.id == "technical.relative_return"
+            and cond.value in (None, 0, 0.0)
+            and (period is None or period in lookbacks or None in lookbacks)
+        )
+        if not duplicate:
+            kept.append(cond)
+            continue
+        quote = (cond.source_text or "").strip()
+        if quote and len(quote) <= _QUOTED_FEATURE_MAX_LEN:
+            notices.append(ui_language.msg(
+                "'{quote}'은(는) 기간 수익률 랭킹으로 반영했어요.",
+                "'{quote}' was reflected as the period-return ranking.", quote=quote))
+        _log_llm("✓ 상대강도 중복 제거", f"relative_return 조건 → 랭킹으로 일원화(인용={quote!r})")
+    strategy.entry_conditions = kept
+    return notices
 
 
 def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
@@ -1559,6 +1727,8 @@ def run_primary_parse(
         return None
 
     repair_notices = _fill_deterministic_condition_params(result.intent)
+    _normalize_size_class_labels(result.intent)
+    repair_notices += _dedupe_relative_return_against_ranking(result.intent)
     # 조건 누락 대조 패스 — 1차 해석은 조건이 여러 개 나열되면 하나를 밀어낸다(2026-08-18
     # 실측: 위치·문장 길이가 무엇이 밀릴지 정하고, 프롬프트 보강·컨텍스트 확대 모두 무효).
     # 빠진 조건을 LLM에게 다시 묻고(해석은 LLM 레인) 되살린다. 환각 가드 앞에 두어
@@ -2022,6 +2192,7 @@ def run_primary_parse(
             # source_text 포함 대조로 걷어낸다(2026-08-14, _covered_by_pending_texts).
             and not _covered_by_pending_texts(f, pending_conditions)
             and not _covered_by_source_texts(f, reflected_texts)
+            and not _covered_by_risk_values(f, parsed)
             # 근사 반영된 조건의 인용문 **안에 든** 조각도 이중 기입이다(2026-09-13,
             # _covered_by_approximated_texts) — 근사 안내가 이미 그 문장을 다뤘다.
             and not _covered_by_approximated_texts(f, reflected_conditions)
@@ -2425,8 +2596,13 @@ def _next_ask_from_queue(
         if not question:
             continue
         metric = item.get("metric")
+        # 밴드('중형주' = 시총 하한+상한)는 같은 지표의 질문이 둘이다 — 하한을 답했다고
+        # 상한 질문을 '기충족'으로 건너뛰면 상한이 조용히 사라진다(2026-09-14). 항목에
+        # 방향이 실려 있으면 같은 방향의 필터가 있을 때만 기충족이다.
+        direction = str(item.get("direction") or "")
         if metric and any(
             getattr(f, "metric", None) == metric
+            and (not direction or str(getattr(f, "operator", "") or "").startswith(direction))
             for f in (getattr(parsed, "fundamental_filters", None) or [])
         ):
             continue  # 답이 이미 반영된 조건 — 재질문 금지
@@ -4225,6 +4401,7 @@ def run_primary_modification(
         confidence=intent.confidence, unsupported_features=intent.unsupported_features,
     )
     repair_notices = _fill_deterministic_condition_params(modify_intent)
+    _normalize_size_class_labels(modify_intent)
     validation = call_tool("validate_intent", intent=modify_intent)
     validated, report = validation.intent, validation.report
     _log_llm("✓ 검증", (

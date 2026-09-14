@@ -515,6 +515,16 @@ def asked_about(res: dict) -> str:
     return " ".join(parts)
 
 
+# 백엔드 잔여 미지원 안내의 정본 문구(primary.py leftover_features) — 한/영 두 판.
+_UNSUPPORTED_NOTICE_RE = re.compile(
+    r"지원하지 않아 전략에 반영하지 못했어요"
+    # 컴파일 불가 탈락 안내(primary.py uncompilable_drops) — 조건이 통째로 빠진 것.
+    r"|조건은 전략에 반영하지 못했어요"
+    r"|not supported, so it was not reflected"
+    r"|not supported and were not reflected"
+)
+
+
 def analyze(tpl: Template, res: dict) -> Flags:
     f = Flags()
     p = res.get("parsed", {})
@@ -529,6 +539,16 @@ def analyze(tpl: Template, res: dict) -> Flags:
     # 끝나 빈 전략(KOSPI200 기본값)이 나갔는데도 리포트상 '되물음' 참고 표시뿐이었다.
     if res.get("clarification_priority") == "interpretation_failed":
         f.fatal.append("해석 실패(빈 전략)")
+    # 미지원 안내("'X' 조건은 지원하지 않아 전략에 반영하지 못했어요")는 사용자 화면에서
+    # '전략을 이해하지 못했다'로 읽힌다. 우리가 내보내는 예시가 이 안내를 내면 예시가 엔진
+    # 밖 개념을 약속했거나 파서가 지원 개념을 미지원으로 오판한 것이다 — 어느 쪽이든
+    # 결함이라 치명으로 센다(2026-09-14: "KOSPI 중형주" 예시가 "섹터 '중형주' 미지원"
+    # 안내를 내는데도 '안내됨=조용한 소실 아님'으로만 처리돼 게이트가 초록이었다).
+    # 근사 반영 안내("…(으)로 가깝게 반영했어요")는 조건이 전략에 남으므로 여기 들지 않는다.
+    # 판정 입력은 백엔드가 만든 안내 문구(정본 템플릿)이지 사용자 원문이 아니다.
+    for notice in res.get("notices") or []:
+        if _UNSUPPORTED_NOTICE_RE.search(str(notice)):
+            f.fatal.append(f"미지원 안내({str(notice).strip()})")
     if tpl.category == "ETF":
         if SOURCE == "us":
             # 미국 ETF 예시의 계약: 상품 **티커 지정**(target_symbols, 단일/복수) 또는

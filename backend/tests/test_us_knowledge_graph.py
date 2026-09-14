@@ -287,3 +287,18 @@ def test_representative_theme_ignores_gics_and_anchor_layers():
     node_id = graph.representative_theme("NVDA")
     assert node_id is not None
     assert not node_id.startswith(("sector:", "industry:", "related:", "company:", "etf:"))
+
+
+def test_english_theme_tokens_resolve_to_catalog_themes():
+    """[2026-09-14 /us 영어 게이트] 120B가 "US EV and autonomous-driving stocks"·"defense and
+    aerospace"를 sectors=["EV","autonomous-driving"]·["defense","aerospace"]로 쪼개 내면
+    'autonomous-driving'·'aerospace'가 카탈로그 별칭에 없어 "미국 유니버스 × 업종 필터" 미지원
+    안내가 나갔다(한국어 '전기차'·'자율주행'·'방산'·'항공우주'는 별칭에 있어 정상). 영어 별칭을
+    카탈로그에 보강한다 — LLM이 뽑은 짧은 라벨의 registry 조회이지 원문 해석이 아니다."""
+    from engine.universe_pit import resolve_us_theme
+
+    for term, theme in (("autonomous-driving", "전기차·자율주행"), ("autonomous driving", "전기차·자율주행"),
+                        ("EV", "전기차·자율주행"), ("aerospace", "방산·항공우주"),
+                        ("defense", "방산·항공우주")):
+        resolved = resolve_us_theme(term)
+        assert resolved is not None and resolved[0] == theme, (term, resolved)

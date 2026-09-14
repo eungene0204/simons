@@ -395,3 +395,80 @@ def test_signal_number_pending_in_ask_is_not_fatal(qatd):
     # 질문도 값 대기도 없이 20이 사라지면 종전대로 치명이다.
     silent = {"parsed": parsed}
     assert any("ADX 기준값 소실" in x for x in qatd.analyze(_template(qatd, prompt), silent).fatal)
+
+
+# ── 미지원 안내는 치명(2026-09-14) ───────────────────────────────────────────
+
+def test_unsupported_notice_is_fatal(qatd):
+    """[2026-09-14] "'X' 조건은 지원하지 않아 전략에 반영하지 못했어요" 안내는 사용자
+    화면에서 '전략을 이해하지 못했다'로 읽힌다 — 우리가 내보내는 예시가 이 안내를 내면
+    결함이다. 실측: "KOSPI 중형주" 예시가 섹터 '중형주' 미지원 안내를 냈는데 하니스는
+    '안내됨'으로만 처리해 게이트가 초록이었다.
+    """
+    prompt = "KOSPI 중형주 유니버스에서 PBR 1.2배 이하인 기업을 10종목 담아 주세요."
+    flags = qatd.analyze(
+        _template(qatd, prompt),
+        {
+            "parsed": {**EMPTY_ENTRY, "fundamental_filters": [
+                {"metric": "pbr", "operator": "<=", "value": 1.2}]},
+            "notices": ["'섹터 '중형주'' 조건은 지원하지 않아 전략에 반영하지 못했어요."],
+        },
+    )
+    assert any(x.startswith("미지원 안내(") and "중형주" in x for x in flags.fatal)
+
+
+def test_unsupported_notice_english_is_fatal(qatd):
+    """--lang en 경로의 영어 판 안내도 같은 판정이다."""
+    prompt = "Mid-cap stocks in KOSPI with PBR at or below 1.2, hold 10 names."
+    flags = qatd.analyze(
+        _template(qatd, prompt),
+        {
+            "parsed": {**EMPTY_ENTRY, "fundamental_filters": [
+                {"metric": "pbr", "operator": "<=", "value": 1.2}]},
+            "notices": ["The condition 'sector 'mid-cap'' is not supported, so it was not "
+                        "reflected in the strategy."],
+        },
+    )
+    assert any(x.startswith("미지원 안내(") for x in flags.fatal)
+
+
+def test_approximation_notice_is_not_unsupported_fatal(qatd):
+    """근사 반영 안내는 조건이 전략에 남는다 — 미지원 치명으로 세지 않는다."""
+    prompt = "KOSDAQ에서 최근 거래대금이 30일 평균보다 높은 경우만 진입해 주세요."
+    flags = qatd.analyze(
+        _template(qatd, prompt),
+        {
+            "parsed": {**EMPTY_ENTRY, "entry_signals": [{"indicator": "volume_spike"}]},
+            "notices": ["'최근 거래대금이 30일 평균보다 높은 경우'은(는) 정확히 표현할 수 없어 "
+                        "거래량 급증(으)로 가깝게 반영했어요. 전략 요약을 확인해 주세요."],
+        },
+    )
+    assert not any(x.startswith("미지원 안내(") for x in flags.fatal)
+
+
+def test_uncompilable_drop_notice_is_fatal(qatd):
+    """조건이 통째로 빠졌다는 안내("'X' 조건은 전략에 반영하지 못했어요")도 예시 결함이다
+    (2026-09-14 실측: ADX 조건이 'fundamental.adx' 표기로 빠졌는데 게이트는 초록)."""
+    prompt = "KOSPI200 종목 중 ADX가 23 이상일 때 10일 고가 돌파 시점에 매수해 주세요."
+    flags = qatd.analyze(
+        _template(qatd, prompt),
+        {
+            "parsed": {**EMPTY_ENTRY, "entry_signals": [{"indicator": "breakout"}]},
+            "notices": ["'ADX가 23 이상' 조건은 전략에 반영하지 못했어요."],
+        },
+    )
+    assert any(x.startswith("미지원 안내(") and "ADX" in x for x in flags.fatal)
+
+
+def test_value_pending_notice_is_not_fatal(qatd):
+    """값 확인 전까지 반영되지 않았다는 안내는 되묻기 진행 중 — 치명 아님."""
+    prompt = "KOSPI에서 PER이 낮은 종목을 8종목 담아 주세요."
+    flags = qatd.analyze(
+        _template(qatd, prompt),
+        {
+            "parsed": EMPTY_ENTRY,
+            "clarification_question": "진입 조건의 PER 기준값을 얼마로 할까요?",
+            "notices": ["'PER' 조건은 값 확인 전까지 전략에 반영되지 않았어요."],
+        },
+    )
+    assert not any(x.startswith("미지원 안내(") for x in flags.fatal)

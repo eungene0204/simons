@@ -205,7 +205,12 @@
         "방산",
         "방위산업",
         "항공우주",
-        "defense"
+        "defense",
+        "aerospace",
+        "defense & aerospace",
+        "aerospace & defense",
+        "defense and aerospace",
+        "military"
       ],
       "symbols": [
         "LMT",
@@ -245,7 +250,13 @@
         "전기차",
         "자율주행",
         "EV",
-        "electric vehicle"
+        "electric vehicle",
+        "autonomous driving",
+        "autonomous-driving",
+        "self-driving",
+        "autonomous vehicles",
+        "EV & autonomous driving",
+        "electric vehicles"
       ],
       "symbols": [
         "TSLA",

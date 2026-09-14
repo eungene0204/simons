@@ -5457,3 +5457,19 @@ def test_prompt_overrides_do_not_touch_llm_fee_and_slippage(text):
     parsed = ParsedStrategy(description="x", universe=["KOSPI"], fee_rate=0.03, slippage_rate=0.1)
     out = _apply_prompt_overrides(parsed, text, skip_signal_validation=True, preserve_universe=True)
     assert (out.fee_rate, out.slippage_rate) == (0.03, 0.1)
+
+
+def test_merge_fundamental_filters_keeps_market_cap_band():
+    """[2026-09-14] 시총은 하한·상한이 함께 성립하는 밴드('중형주')다 — 상한 답이 하한을
+    덮어쓰면 안 된다. 같은 방향은 종전대로 교체하고, 그 외 지표(PBR)는 지표 단위 교체."""
+    from engine.nl_parser import FundamentalFilter, _merge_fundamental_filters
+    lower = FundamentalFilter(metric="market_cap", operator=">=", value=5000.0)
+    upper = FundamentalFilter(metric="market_cap", operator="<=", value=30000.0)
+    merged = _merge_fundamental_filters([lower], [upper])
+    assert [(f.operator, f.value) for f in merged] == [(">=", 5000.0), ("<=", 30000.0)]
+    tighter = FundamentalFilter(metric="market_cap", operator="<=", value=20000.0)
+    merged = _merge_fundamental_filters(merged, [tighter])
+    assert [(f.operator, f.value) for f in merged] == [(">=", 5000.0), ("<=", 20000.0)]
+    pbr_old = FundamentalFilter(metric="pbr", operator="<=", value=2.0)
+    pbr_new = FundamentalFilter(metric="pbr", operator=">=", value=1.0)
+    assert _merge_fundamental_filters([pbr_old], [pbr_new]) == [pbr_new]

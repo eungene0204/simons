@@ -5070,12 +5070,22 @@ def _merge_fundamental_filters(
     같은 지표 조건만 갱신한다(예: 기존 PBR<2 → PBR<1로 교체).
     """
     merged = list(existing)
-    index_by_metric = {f.metric: idx for idx, f in enumerate(merged)}
+
+    def _key(f: FundamentalFilter):
+        # 금액 지표(시총·거래대금)는 하한·상한이 함께 성립하는 **밴드**다('중형주' =
+        # 3000억 이상 3조 이하). 상한 답이 하한을 덮어쓰면 밴드가 한쪽만 남으므로
+        # 방향까지 키에 넣어 같은 방향만 갱신한다(2026-09-14). 그 외 지표는 종전대로
+        # 지표 단위 교체.
+        if f.metric in _AMOUNT_METRICS:
+            return (f.metric, (f.operator or "")[:1])
+        return (f.metric, "")
+
+    index_by_key = {_key(f): idx for idx, f in enumerate(merged)}
     for f in extracted:
-        idx = index_by_metric.get(f.metric)
+        idx = index_by_key.get(_key(f))
         if idx is None:
             merged.append(f)
-            index_by_metric[f.metric] = len(merged) - 1
+            index_by_key[_key(f)] = len(merged) - 1
         elif merged[idx] != f:
             merged[idx] = f
     return merged

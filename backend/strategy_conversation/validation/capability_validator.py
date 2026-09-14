@@ -280,6 +280,13 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
     kept_ranking = []
     for rank in strategy.ranking:
         spec = resolve(rank.metric)
+        if spec is not None and spec.id == "technical.relative_return":
+            # '상대강도 상위 N%'를 LLM이 조건 지표 technical.relative_return(시장 대비
+            # 초과수익률)로 랭킹에 앉히는 드리프트(2026-09-14 실측: 예시 2건이 "알 수 없는
+            # 랭킹 기준" 미지원 안내로 랭킹을 잃었다). 정본은 프롬프트가 정한 대로
+            # ranking.return(기간 수익률 랭킹)이다 — 같은 날짜·같은 기간의 순위라 지수
+            # 수익률을 빼도 순서가 같다. 표기만 보고 결정하는 LLM 출력 정규화다.
+            spec = resolve("ranking.return")
         # 랭킹 가능 지표: ranking.*(모멘텀) + fundamental.*(재무 팩터 랭킹, 2026-08-03 —
         # as-of 재무 컬럼 순위 선정). trading_value는 파케이 컬럼이 아니라 엔진 즉석 계산이라
         # 랭킹 수집 경로에 없어 제외한다(engine.nl_parser.RankingMetricLiteral과 동일 계약).

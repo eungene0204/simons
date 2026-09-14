@@ -240,7 +240,9 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                value_range=(-100, 1000), recommended=0,
                notes="종목 N거래일 수익률 − 상장 시장 지수(코스피·코스닥) N거래일 수익률(%p). "
                      "'시장보다 덜 떨어진/강한/웃도는'은 > 0, '시장보다 더 떨어진'은 < 0. "
-                     "period=거래일(3개월=63). 미국 시장은 지수 시계열이 없어 미지원"),
+                     "period=거래일(3개월=63). 미국 시장은 지수 시계열이 없어 미지원. "
+                     "'상대강도 상위 N%'는 이 지표가 아니라 ranking.return(수익률 랭킹)이다 — "
+                     "그 표현으로 이 조건을 함께 만들지 않는다"),
     _technical("volatility", "변동성(연환산)", "percent", _COMPARISON_OPS,
                {"period": ParamSpec(default=60, minimum=5, maximum=250)},
                value_range=(0, 500), recommended=30,
@@ -476,6 +478,19 @@ def resolve(name: str) -> Optional[IndicatorSpec]:
     canonical = _ALIASES.get(normalized)
     if canonical:
         return REGISTRY[canonical]
+    # 네임스페이스만 틀린 ID('fundamental.adx' — 2026-09-14 실측: ADX 진입·청산 조건이
+    # '알 수 없는 지표'로 통째로 빠졌다). 잎 이름이 레지스트리에서 유일하면 그 지표다 —
+    # LLM 출력의 표기 정규화이지 해석이 아니다. 잎이 둘 이상에 있으면 종전대로 None.
+    if "." in normalized:
+        leaf = normalized.split(".", 1)[1]
+        # 미지원 항목(unsupported.beta)은 대상이 아니다 — 그 조건의 안내는 사용자 표현
+        # (source_text) 인용 경로가 맡는다(내부명 노출 금지 회귀와 같은 계약).
+        matches = [
+            spec_id for spec_id, spec in REGISTRY.items()
+            if spec_id.split(".", 1)[1] == leaf and spec.supported != "UNSUPPORTED"
+        ]
+        if len(matches) == 1:
+            return REGISTRY[matches[0]]
     return None
 
 

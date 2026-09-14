@@ -626,6 +626,17 @@ def test_registry_resolves_aliases():
     assert resolve("fundamental.roe_or_gpa").id == "fundamental.roe_or_gpa"
 
 
+def test_registry_resolves_wrong_namespace_by_unique_leaf():
+    """[2026-09-14] LLM이 네임스페이스만 틀린 ID('fundamental.adx')를 내면 잎 이름이
+    유일한 지표로 해석한다 — 종전엔 None이라 ADX 진입·청산 조건이 통째로 빠졌다
+    (예시 'ADX + 상대강도 결합 스윙'). 잎이 유일하지 않거나 없으면 종전대로 None."""
+    assert resolve("fundamental.adx").id == "technical.adx"
+    assert resolve("technical.pbr").id == "fundamental.pbr"
+    assert resolve("ranking.no_such_leaf") is None
+    # 미지원 항목은 잎 폴백 대상이 아니다 — 안내는 source_text 인용 경로(내부명 노출 금지)
+    assert resolve("technical.beta") is None
+
+
 def test_registry_unsupported_and_unknown():
     assert resolve("FCF").supported == "UNSUPPORTED"
     assert resolve("존재하지않는지표") is None
@@ -1424,6 +1435,64 @@ def test_primary_ready_strategy_compiles_without_questions(monkeypatch):
     assert result["interpreter"]["validation_status"] == "READY"
 
 
+def test_primary_relative_strength_duplicate_condition_folds_into_ranking(monkeypatch):
+    """[2026-09-14] '최근 60거래일 상대강도 상위 20%'를 120B가 랭킹(return 60d)과 조건
+    technical.relative_return(같은 기간)으로 이중 생성 — 값 0이면 말하지 않은 '시장보다
+    강한' 필터가 생기고 null이면 엉뚱한 기준값 되묻기가 나갔다. 조건을 걷고 안내한다."""
+    for value in (0, None):
+        data = _full_intent_dict(
+            universe={"markets": ["KOSPI200"], "sectors": []},
+            entry_conditions=[
+                {"factor": "technical.relative_return", "operator": ">", "value": value,
+                 "parameters": {"period": 60}, "source_text": "최근 60거래일 상대강도가 상위"},
+            ],
+            ranking=[{"metric": "return", "lookback_days": 60, "direction": "top"}],
+            portfolio={"selection_percent": 20, "rebalance_frequency": "monthly"},
+        )
+        result = _run_primary_with(
+            monkeypatch, data, "KOSPI200 종목 중 최근 60거래일 상대강도가 상위 20%에 속한 종목만 매월 리밸런싱, 손절 8%")
+        assert result is not None
+        assert result["parsed"].entry_signals == [], result["parsed"].entry_signals
+        assert result["parsed"].ranking_metric == "return"
+        assert "초과수익률" not in (result["clarification_question"] or "")
+        assert any("기간 수익률 랭킹으로 반영했어요" in n for n in result["notices"]), result["notices"]
+
+
+def test_primary_relative_return_with_own_value_is_kept_beside_ranking(monkeypatch):
+    """값이 0·null이 아닌 초과수익률 조건은 별도 조건이다 — 랭킹과 공존."""
+    data = _full_intent_dict(
+        universe={"markets": ["KOSPI200"], "sectors": []},
+        entry_conditions=[
+            {"factor": "technical.relative_return", "operator": ">", "value": 5,
+             "parameters": {"period": 60}, "source_text": "시장보다 5%p 이상 앞선"},
+        ],
+        ranking=[{"metric": "return", "lookback_days": 60, "direction": "top"}],
+        portfolio={"selection_count": 10, "rebalance_frequency": "monthly"},
+    )
+    result = _run_primary_with(
+        monkeypatch, data, "KOSPI200에서 60일 수익률이 시장보다 5%p 이상 앞선 종목 중 상위 10종목, 매월 리밸런싱, 손절 8%")
+    assert result is not None
+    assert [s.indicator for s in result["parsed"].entry_signals] == ["relative_return"]
+
+
+def test_primary_unsupported_report_echoing_reflected_stop_loss_is_not_noticed(monkeypatch):
+    """[2026-09-14] "20일선 이탈 또는 손절 -8% 도달 시 청산"을 청산 조건 + unsupported_features
+    ('손절 -8% 도달 시 청산')로 쪼개 내면, 손절은 risk_management에 반영됐으므로 미지원
+    안내를 내지 않는다(리스크 슬롯 라벨+값 에코 대조)."""
+    data = _full_intent_dict(
+        exit_conditions=[{"factor": "technical.ma_crossover", "operator": "crosses_below",
+                          "parameters": {"short_period": 1, "long_period": 20},
+                          "source_text": "20일선 이탈"}],
+        risk_management={"stop_loss": 8},
+    )
+    data["unsupported_features"] = ["손절 -8% 도달 시 청산"]
+    result = _run_primary_with(
+        monkeypatch, data, "KOSPI에서 PER 10 이하 20종목 매월 리밸런싱, 20일선 이탈 또는 손절 -8% 도달 시 청산")
+    assert result is not None
+    assert result["parsed"].stop_loss_pct == 8
+    assert not any("지원하지 않아" in n for n in result["notices"]), result["notices"]
+
+
 def test_primary_needs_clarification_partial_compile_with_chips(monkeypatch):
     data = _full_intent_dict(
         entry_conditions=[
@@ -2101,6 +2170,54 @@ def test_slot_questions_are_not_queued_after_value_question(monkeypatch):
     assert "시가총액 5000억원 이하" in ask["chips"]
     # 슬롯(청산) 질문은 큐에 없다 — 기존 되묻기 기제 소관
     assert not any("매도할까요" in q.get("question", "") for q in ask.get("queue", []))
+
+
+def test_primary_mid_cap_label_becomes_market_cap_band_questions(monkeypatch):
+    """[2026-09-14] 120B가 "KOSPI 중형주 유니버스"의 '중형주'를 unsupported_features(프롬프트
+    5.8)·sectors(5.7)에 내는 드리프트 — 예시가 "'중형주' 조건은 지원하지 않아" 안내로 나갔다.
+    규모 라벨은 시가총액 하한·상한 조건(값 없음)으로 옮겨 시스템이 임계값을 되묻는다."""
+    for channel in ({"unsupported_features": ["중형주"]},
+                    {"strategy_universe_sectors": ["중형주"]}):
+        data = _full_intent_dict(
+            universe={"markets": ["KOSPI"], "sectors": channel.get("strategy_universe_sectors", [])},
+            entry_conditions=[{"factor": "fundamental.pbr", "operator": "<=", "value": 1.2,
+                               "source_text": "PBR 1.2배 이하"}],
+        )
+        data["unsupported_features"] = channel.get("unsupported_features", [])
+        result = _run_primary_with(
+            monkeypatch, data, "KOSPI 중형주 유니버스에서 PBR 1.2배 이하인 기업을 20종목 담아 주세요")
+        assert result is not None
+        assert not any("중형주" in n and "지원하지 않아" in n for n in result["notices"]), result["notices"]
+        assert [f.metric for f in result["parsed"].fundamental_filters] == ["pbr"]
+        assert "시가총액 기준값" in (result["clarification_question"] or "")
+        pending = [(pc["label"], pc["source_text"]) for pc in result["pending_conditions"]]
+        assert pending == [("시가총액", "중형주"), ("시가총액", "중형주")]
+        ask = result["pending_ask"]
+        assert ask is not None
+        # 첫 질문(하한) 칩 + 큐의 상한 질문(방향 표식 포함) — 하한을 답해도 상한이 이어진다
+        assert "시가총액 5000억원 이상" in ask["chips"]
+        queued = [q for q in ask.get("queue", []) if q.get("metric") == "market_cap"]
+        assert [q.get("direction") for q in queued] == ["<"]
+        assert "시가총액 2조 이하" in queued[0]["chips"]
+
+
+def test_primary_mid_cap_label_with_explicit_band_only_drops_label(monkeypatch):
+    """범위를 이미 말한 "3000억 이상 2조 이하 중형주"에 라벨이 이중 기입되면 라벨만 걷어낸다."""
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.market_cap", "operator": ">=", "value": 3000,
+             "source_text": "시가총액 3000억 원 이상"},
+            {"factor": "fundamental.market_cap", "operator": "<=", "value": 20000,
+             "source_text": "2조 원 이하"},
+        ],
+    )
+    data["unsupported_features"] = ["중형주"]
+    result = _run_primary_with(
+        monkeypatch, data, "KOSPI에서 시가총액 3000억 원 이상 2조 원 이하 중형주 20종목 매월 리밸런싱, 손절 8%")
+    assert result is not None
+    assert not any("중형주" in n for n in result["notices"]), result["notices"]
+    assert [(f.operator, f.value) for f in result["parsed"].fundamental_filters] == [(">=", 3000.0), ("<=", 20000.0)]
+    assert result["pending_conditions"] == []
 
 
 def test_primary_compiled_entry_drops_entry_question(monkeypatch):

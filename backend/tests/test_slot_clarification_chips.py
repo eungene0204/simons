@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from engine.nl_parser import ParsedStrategy
+from engine.nl_parser import FundamentalFilter, ParsedStrategy
 from strategy_conversation.interpreter.models import (
     ClarificationQuestion,
     StrategyIntent,
@@ -25,6 +25,8 @@ from strategy_conversation.interpreter.models import (
 from strategy_conversation.primary import (
     _bind_chips,
     _build_clarification,
+    _clarification_items,
+    _next_ask_from_queue,
     _pending_ask_payload,
     _SLOT_CHIP_BUILDERS,
 )
@@ -239,6 +241,66 @@ def test_market_cap_lower_bound_ask_keeps_single_recommended_chip():
     """시총 하한(이상) 임계값 되묻기는 종전대로 추천값 1개 — 다중화는 상한(소형주) 전용."""
     _q, chips, _topic = _market_cap_ask(">=")
     assert chips == ["시가총액 5000억원 이상"]
+
+
+def _market_cap_band_ask():
+    """'중형주' = 시총 하한+상한 두 조건(값 없음) — 질문도 둘."""
+    intent = StrategyIntent(intent="CREATE_STRATEGY", strategy={
+        "entry_conditions": [
+            {"factor": "fundamental.market_cap", "operator": ">=", "source_text": "중형주"},
+            {"factor": "fundamental.market_cap", "operator": "<=", "source_text": "중형주"},
+        ],
+    })
+    report = ValidationReport(
+        status="NEEDS_CLARIFICATION",
+        clarification_questions=[
+            ClarificationQuestion(
+                field=f"strategy.entry_conditions[{i}].value",
+                question="진입 조건의 시가총액 기준값을 얼마로 할까요?",
+                recommended_value=5000, recommendation_reason="r")
+            for i in (0, 1)
+        ],
+    )
+    return _clarification_items(report, intent)
+
+
+def test_market_cap_band_upper_chips_exceed_lower_recommendation():
+    """[2026-09-14] '중형주' 밴드의 상한 칩은 하한 추천값(5000억)보다 커야 한다 — 종전
+    소형주 상한 칩(5000/1000/3000억 이하)을 그대로 내면 '5000억 이상' 뒤에 '5000억 이하'가
+    확정돼 빈 구간이 된다. 하한 칩도 예시가 쓰는 중형주 하한(3000억·5000억·1조)이다.
+    두 표기('억원'·'조') 모두 칩=값 결속을 통과해야 한다."""
+    items = _market_cap_band_ask()
+    assert [i["direction"] for i in items] == [">", "<"]
+    lower, upper = items[0]["chips"], items[1]["chips"]
+    assert lower == ["시가총액 5000억원 이상", "시가총액 3000억원 이상", "시가총액 1조 이상"]
+    assert upper == ["시가총액 2조 이하", "시가총액 3조 이하", "시가총액 5조 이하"]
+    for chips in (lower, upper):
+        _bound, bindings, _confirms, _declines = _bind_chips(chips, _base_strategy(), None)
+        unbound = [c for c in chips if c not in bindings]
+        assert not unbound, f"결속되지 않는 칩: {unbound}"
+    # '1조 이상' 칩은 10000억원으로 결속된다(조 표기 정본).
+    _bound, bindings, _c, _d = _bind_chips(["시가총액 1조 이상"], _base_strategy(), None)
+    filt = bindings["시가총액 1조 이상"]["fundamental_filters"]
+    assert [(f["metric"], f["operator"], f["value"]) for f in filt] == [("market_cap", ">=", 10000.0)]
+
+
+def test_market_cap_band_queue_does_not_skip_upper_after_lower_answered():
+    """[2026-09-14] 하한을 답해 market_cap 필터가 생겨도 상한 질문은 기충족이 아니다 —
+    종전 큐 소비는 지표명만 보고 건너뛰어 상한이 조용히 사라졌다."""
+    items = _market_cap_band_ask()
+    upper = items[1]
+    parsed = _base_strategy().model_copy(update={"fundamental_filters": [
+        FundamentalFilter(metric="market_cap", operator=">=", value=5000.0)]})
+    pending = {"question": items[0]["question"], "chips": [], "queue": [upper]}
+    queued = _next_ask_from_queue(pending, parsed, None)
+    assert queued is not None
+    question, chips, priority, _ask = queued
+    assert "시가총액" in question and priority == "pending_values"
+    assert chips == upper["chips"]
+    # 같은 방향(상한)이 이미 있으면 건너뛴다.
+    parsed2 = parsed.model_copy(update={"fundamental_filters": [
+        FundamentalFilter(metric="market_cap", operator="<=", value=30000.0)]})
+    assert _next_ask_from_queue({"queue": [upper]}, parsed2, None) is None
 
 
 # ── 라벨을 공유하는 리스크 슬롯 — 익절 질문에 손절 칩이 붙던 사고(2026-09-14) ─────────
