@@ -7,6 +7,7 @@ import {
   buildBuilderTurnPresentation,
   countProgress,
   progressStatusText,
+  refreshFieldStatesAfterChoice,
 } from "./builderProgressPresentation";
 
 const themeParsed: ParsedSummary = {
@@ -693,3 +694,61 @@ describe("조건이 여러 개인 행의 줄 나눔 목록", () => {
     expect(exit?.values).toBeUndefined();
   });
 });
+
+describe("refreshFieldStatesAfterChoice — 칩 답변 뒤 낡은 백엔드 상태 축 걷어내기 (2026-09-14)", () => {
+  // 리밸런싱 없이 파스된 전략의 백엔드 판정: 방식은 '해당 없음'.
+  const parsedStates = {
+    유니버스: { value: "CONFIRMED" as const, derived: "APPLICABLE" as const },
+    리밸런싱: { value: "UNKNOWN" as const, derived: "APPLICABLE" as const },
+    "리밸런싱 방식": { value: "PROVISIONAL" as const, derived: "NOT_APPLICABLE" as const },
+    "백테스트 기간": { value: "PROVISIONAL" as const, derived: "APPLICABLE" as const },
+  };
+
+  it("주기 칩('분기')을 답하면 방식 칸의 '해당 없음'이 사라진다 — 진행률은 새 State를 따른다", () => {
+    const next = refreshFieldStatesAfterChoice(parsedStates, "rebalancing", {
+      rebalancing_period: "quarterly",
+    });
+    expect(next).toEqual({
+      유니버스: { value: "CONFIRMED", derived: "APPLICABLE" },
+      "백테스트 기간": { value: "PROVISIONAL", derived: "APPLICABLE" },
+    });
+    // 이어서 방식 칩('비중 조정')을 답해도 덧씌울 낡은 판정이 없다 → complete 술어대로 체크.
+    const afterMethod = refreshFieldStatesAfterChoice(next, "rebalance_method", {
+      rebalancing_period: "quarterly",
+    });
+    const items = attachFieldStates(
+      [{ label: "리밸런싱 방식", complete: true }],
+      afterMethod,
+    );
+    expect(items[0].derivedStatus).toBeUndefined();
+    expect(progressStatusText(items[0])).toBeUndefined();
+    expect(countProgress(items)).toEqual({ completed: 1, total: 1 });
+  });
+
+  it("'리밸런싱 안 함'을 답하면 방식 칸은 '해당 없음'이 된다(백엔드 _decided ①과 동형)", () => {
+    const next = refreshFieldStatesAfterChoice(
+      { 리밸런싱: { value: "UNKNOWN", derived: "APPLICABLE" } },
+      "rebalancing",
+      { rebalancing_period: "none" },
+    );
+    expect(next).toEqual({ "리밸런싱 방식": { derived: "NOT_APPLICABLE" } });
+  });
+
+  it("답한 칸만 걷어내고 다른 칸의 판정은 남긴다", () => {
+    const next = refreshFieldStatesAfterChoice(parsedStates, "backtest_period", {
+      rebalancing_period: null,
+    });
+    expect(next).toEqual({
+      유니버스: { value: "CONFIRMED", derived: "APPLICABLE" },
+      리밸런싱: { value: "UNKNOWN", derived: "APPLICABLE" },
+      "리밸런싱 방식": { value: "PROVISIONAL", derived: "NOT_APPLICABLE" },
+    });
+    // 입력 맵은 바꾸지 않는다 — 되돌리기가 이전 맵을 그대로 복원한다.
+    expect(parsedStates["백테스트 기간"]).toBeDefined();
+  });
+
+  it("상태 맵이 없으면 없는 채로 둔다", () => {
+    expect(refreshFieldStatesAfterChoice(null, "rebalancing", { rebalancing_period: "monthly" })).toBeNull();
+  });
+});
+

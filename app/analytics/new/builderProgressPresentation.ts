@@ -13,7 +13,12 @@ import {
   formatNewListingLabel,
   type ParsedSummary,
 } from "./strategySummary";
-import { isExplicit, isSlotFilled } from "./backtestReadiness";
+import {
+  isExplicit,
+  isSlotFilled,
+  SLOT_LABELS,
+  type MissingBacktestCondition,
+} from "./backtestReadiness";
 import { t } from "@/lib/i18n";
 
 export type BuilderSummaryItem = {
@@ -100,6 +105,35 @@ export function attachFieldStates(
       ...(state.derived ? { derivedStatus: state.derived } : {}),
     };
   });
+}
+
+/** 칩 답변이 백엔드 왕복 없이 State에 적용된 뒤, 낡은 백엔드 상태 축을 걷어낸다.
+ *
+ *  field_states는 백엔드가 **매 턴 다시 계산**하는 값인데 칩 레인은 백엔드를 거치지
+ *  않는다 — 그대로 두면 직전 파스 턴의 판정이 새 State 위에 덧씌워진다. 실제 사고
+ *  (2026-09-14): 리밸런싱 없이 파스된 전략에 '분기'·'비중 조정' 칩을 답했는데 진행률의
+ *  "리밸런싱 방식"이 파스 시점의 '해당 없음'에 머물렀다(요약 카드에는 값이 보이는데).
+ *
+ *  판정을 여기서 다시 만들지 않는다 — 답한 칸의 항목을 **지워** 프론트 complete 술어
+ *  (백엔드 filled와 동형)로 되돌린다. 유일한 파생 규칙은 백엔드 `_decided` ①의 사본
+ *  하나다: 리밸런싱 주기가 없으면 방식은 물을 대상이 아니다(backtestReadiness의
+ *  isSlotFilled와 같은 술어). */
+export function refreshFieldStatesAfterChoice(
+  fieldStates: Record<string, SlotState> | null,
+  field: MissingBacktestCondition["field"],
+  parsed: { rebalancing_period?: string | null },
+): Record<string, SlotState> | null {
+  if (!fieldStates) return fieldStates;
+  const next = { ...fieldStates };
+  delete next[SLOT_LABELS[field]];
+  if (field === "rebalancing") {
+    const hasRebalancing = Boolean(
+      parsed.rebalancing_period && parsed.rebalancing_period !== "none",
+    );
+    if (hasRebalancing) delete next[SLOT_LABELS.rebalance_method];
+    else next[SLOT_LABELS.rebalance_method] = { derived: "NOT_APPLICABLE" };
+  }
+  return next;
 }
 
 export type BuilderTurnPresentation = {

@@ -152,6 +152,7 @@ import {
   buildBuilderTurnPresentation,
   attachFieldStates,
   countProgress,
+  refreshFieldStatesAfterChoice,
   getDisplayBuilderProgressItems,
   progressStatusText,
   type SlotState,
@@ -240,6 +241,9 @@ interface ChatMessage {
     // 같은 이유로 거부('안 함')도 되돌린다 — 남겨두면 '안 함'을 취소하려고 돌아와도
     // 그 슬롯이 계속 답한 것으로 보인다.
     declinedFields?: string[];
+    // 칩 턴이 걷어낸 백엔드 상태 축(진행률 표시 전용)도 되돌린다 — 남겨두면 되돌아온
+    // 질문 카드의 진행률이 답한 뒤의 상태를 보여준다.
+    fieldStates?: Record<string, SlotState> | null;
     // 파스 턴(자유 서술 답·최초 파싱)의 되돌리기 — 칩 턴과 달리 파스는 아래 상태도 바꾸므로
     // 함께 되돌린다(남기면 변경 이력에 지운 턴이 남고, 다음 파스 요청이 지운 턴의 상태를 에코한다).
     parseTurn?: {
@@ -2526,6 +2530,7 @@ function StrategyLabContent() {
     const previousAllowNoRebalancing = explicitNoRebalancingRef.current;
     const previousExplicitFields = [...explicitFieldsRef.current];
     const previousDeclinedFields = [...declinedFieldsRef.current];
+    const previousFieldStates = fieldStatesRef.current;
     const allowNoRebalancing = missingCondition.field === "rebalancing"
       ? deterministicChoice.allowNoRebalancing === true
       : previousAllowNoRebalancing;
@@ -2548,6 +2553,13 @@ function StrategyLabContent() {
     }
     latestParsedRef.current = deterministicChoice.parsed;
     setLatestParsed(deterministicChoice.parsed);
+    // 백엔드 상태 축은 이 턴을 모른다 — 답한 칸(과 그에 딸린 리밸런싱 방식)의 낡은
+    // 판정을 걷어내 진행률이 새 State를 따르게 한다(2026-09-14 '해당 없음' 잔존 사고).
+    fieldStatesRef.current = refreshFieldStatesAfterChoice(
+      fieldStatesRef.current,
+      missingCondition.field,
+      deterministicChoice.parsed,
+    );
 
     const nextMissingCondition = getNextMissingBacktestCondition(
       deterministicChoice.parsed,
@@ -2593,6 +2605,7 @@ function StrategyLabContent() {
         allowNoRebalancing: previousAllowNoRebalancing,
         explicitFields: previousExplicitFields,
         declinedFields: previousDeclinedFields,
+        fieldStates: previousFieldStates,
       },
     };
     rememberOpenClarification(nextAssistantMessage);
@@ -3776,6 +3789,7 @@ function StrategyLabContent() {
     setExplicitNoRebalancing(previous.allowNoRebalancing);
     explicitFieldsRef.current = [...previous.explicitFields];
     declinedFieldsRef.current = [...(previous.declinedFields ?? [])];
+    if (previous.fieldStates !== undefined) fieldStatesRef.current = previous.fieldStates;
     if (previous.parseTurn) {
       const { backtestReq: previousBacktestReq } = previous.parseTurn;
       backtestReqRef.current = previousBacktestReq;
