@@ -141,3 +141,8 @@ scripts/.qa_free_input_*.json
 # FR-STR-019x ②). 판정 결과는 커밋 메시지·SRS·PROJECT_PLAN에 서술로 남긴다.
 scripts/.template_parse_cache.json
 docs/template_detect_report.md
+
+# 전단지·소셜 이미지 렌더 산출물 — 원본 HTML(docs/marketing/*.html)과 마크·QR만 추적한다.
+# PNG는 헤드리스 Chrome로 언제든 다시 뽑히는 파생물이고 한 장에 0.5~1MB라
+# 문구를 손볼 때마다 저장소를 흔든다(2026-09-14 사용자 결정).
+docs/marketing/nullstock_*.png
