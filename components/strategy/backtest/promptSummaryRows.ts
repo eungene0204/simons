@@ -11,6 +11,8 @@ export interface PromptSummarySource {
   rebalancingText?: string;
   backtestPeriodText?: string;
   initialCapitalText?: string;
+  /** 체결 가정(익일 시가 / 당일 종가 / 신호 후 N번째 거래일 시가) — 실행 요청에서 파생. */
+  executionText?: string;
 }
 
 export interface PromptSummaryRow {
@@ -52,6 +54,9 @@ export function buildPromptSummaryRows(
     (value): value is string => Boolean(value)
   );
   if (riskValues.length > 0) rows.push({ label: t("리스크"), values: riskValues });
+  // 체결 가정은 전략이 아니라 실행 설정이라 맨 뒤 — 지연 체결(execution_delay_days)을 설정한
+  // 결과가 어떤 체결 가정으로 계산됐는지 여기서만 보인다(2026-09-14).
+  if (summary.executionText) rows.push({ label: t("체결"), values: [summary.executionText] });
   return rows;
 }
 

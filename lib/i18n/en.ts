@@ -1832,6 +1832,8 @@ export const en: Record<string, string> = {
   "포지션 크기 반영": "Position size reflected",
   "가격수익률(사이징 정보 없음)": "Price return (no sizing info)",
   "거래 비용": "Trading costs",
+  "체결": "Execution",
+  "신호 후 {0}번째 거래일 시가": "Open of the {0}th session after the signal",
   "거래세": "Transaction tax",
   "시행일 기준": "by effective date",
   "수수료·거래세 차감": "Fees and transaction tax deducted",

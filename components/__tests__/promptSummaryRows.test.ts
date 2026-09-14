@@ -48,6 +48,16 @@ describe("buildPromptSummaryRows", () => {
   it("요약이 없으면 빈 배열", () => {
     expect(buildPromptSummaryRows(null, undefined, [])).toEqual([]);
   });
+
+  it("체결 가정(executionText)이 있으면 맨 뒤 '체결' 행으로, 없으면 행을 만들지 않는다", () => {
+    const withExecution = buildPromptSummaryRows(
+      { ...SUMMARY, executionText: "신호 후 3번째 거래일 시가" }, undefined, []
+    );
+    expect(withExecution[withExecution.length - 1]).toEqual({
+      label: "체결", values: ["신호 후 3번째 거래일 시가"],
+    });
+    expect(buildPromptSummaryRows(SUMMARY, undefined, []).map((r) => r.label)).not.toContain("체결");
+  });
 });
 
 /**

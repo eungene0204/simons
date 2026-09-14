@@ -30,6 +30,8 @@ export interface HistorySummary {
   rebalancingText?: string;
   backtestPeriodText?: string;
   initialCapitalText?: string;
+  /** 체결 가정(체결 시점·신호 후 지연) — 결과에 동봉된 실행 요청에서만 만든다. */
+  executionText?: string;
 }
 
 // BacktestHistory.conditions(표시용 names 스키마)를 화면 배지용 요약으로 변환하는 단일 빌더.
@@ -73,6 +75,7 @@ export function buildHistorySummary(args: {
     initialCapitalText:
       (typeof conds.initialCapital === "string" ? conds.initialCapital : undefined) ??
       runTexts.initialCapitalText,
+    executionText: runTexts.executionText,
   };
 }
 

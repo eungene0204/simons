@@ -1079,3 +1079,31 @@ describe("신규 상장 유니버스 표시 (FR-STR-073)", () => {
     expect(summary?.universeName).toContain("2026년 상장");
   });
 });
+
+/**
+ * 체결 가정 텍스트(2026-09-14) — 결과 화면 '프롬프트' 팝오버 '체결' 행의 원천. 엔진이 읽는 순서
+ * (options → risk, 별칭 current_close=same_close, 지연은 next_open에서만)와 같아야 표시와 실행이 안 어긋난다.
+ */
+describe("buildStrategySummaryFromRequest executionText", () => {
+  const base = { universe_id: "kospi200", entry: { conditions: [] }, exit: { conditions: [] }, period: "3y" };
+
+  it("지연 N이면 '신호 후 N번째 거래일 시가', 기본은 '익일 시가'", () => {
+    expect(
+      buildStrategySummaryFromRequest({ ...base, risk: { execution_timing: "next_open", execution_delay_days: 3 } })
+        ?.executionText
+    ).toBe("신호 후 3번째 거래일 시가");
+    expect(buildStrategySummaryFromRequest({ ...base, risk: {} })?.executionText).toBe("익일 시가");
+  });
+
+  it("options가 risk보다 우선하고, current_close 별칭은 당일 종가로 보이며 지연은 무시된다", () => {
+    expect(
+      buildStrategySummaryFromRequest({
+        ...base, risk: { execution_delay_days: 2 }, options: { execution_delay_days: 4, execution_type: "next_open" },
+      })?.executionText
+    ).toBe("신호 후 4번째 거래일 시가");
+    expect(
+      buildStrategySummaryFromRequest({ ...base, risk: { execution_timing: "current_close", execution_delay_days: 1 } })
+        ?.executionText
+    ).toBe("당일 종가");
+  });
+});

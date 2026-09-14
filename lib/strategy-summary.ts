@@ -859,11 +859,12 @@ export function backtestRunTextsFromRequest(
         startDate?: string | null;
         endDate?: string | null;
         risk?: Record<string, unknown> | null;
+        options?: Record<string, unknown> | null;
         initial_capital?: number | null;
       }
     | null
     | undefined
-): { backtestPeriodText?: string; initialCapitalText?: string } {
+): { backtestPeriodText?: string; initialCapitalText?: string; executionText?: string } {
   if (!req) return {};
   const risk = (req.risk ?? {}) as Record<string, unknown>;
   const rawCapital = risk.init_cash ?? req.initial_capital;
@@ -874,7 +875,26 @@ export function backtestRunTextsFromRequest(
       capital != null
         ? formatInitialCapital(capital, { usd: isUsUniverseId(req.universe_id) })
         : undefined,
+    executionText: formatExecutionText(req),
   };
+}
+
+// 체결 가정(체결 시점 + 신호 후 지연) — 엔진(backtest_engine)이 읽는 순서 그대로:
+// options.execution_type → risk.execution_timing(없으면 next_open), 대화 레인 별칭 current_close=same_close,
+// 지연은 options.execution_delay_days → risk.execution_delay_days(없으면 1, next_open에서만 뜻이 있다).
+export function formatExecutionText(req: {
+  risk?: Record<string, unknown> | null;
+  options?: Record<string, unknown> | null;
+}): string {
+  const risk = (req.risk ?? {}) as Record<string, unknown>;
+  const options = (req.options ?? {}) as Record<string, unknown>;
+  const timingRaw = options.execution_type ?? risk.execution_timing ?? "next_open";
+  const timing = timingRaw === "current_close" ? "same_close" : timingRaw;
+  if (timing === "same_close") return t("당일 종가");
+  const delayRaw = options.execution_delay_days ?? risk.execution_delay_days;
+  const delay =
+    typeof delayRaw === "number" && Number.isFinite(delayRaw) && delayRaw >= 1 ? Math.trunc(delayRaw) : 1;
+  return delay > 1 ? t("신호 후 {0}번째 거래일 시가", delay) : t("익일 시가");
 }
 
 export function formatRequestPeriodLabel(req: {
@@ -914,6 +934,8 @@ interface ExecutedBacktestRequest {
   period?: string | null;
   startDate?: string | null;
   endDate?: string | null;
+  // 체결 가정(execution_type·execution_delay_days)은 options에, 대화 레인은 risk에 싣는다.
+  options?: Record<string, unknown> | null;
 }
 
 function resolveUniverseLabelFromId(universeId: string | null | undefined): string {
