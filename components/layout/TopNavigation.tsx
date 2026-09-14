@@ -557,13 +557,10 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             onClick={() => setIsMobileMenuOpen(false)}
             className="group flex min-w-0 items-center gap-2"
           >
-            <svg
-              aria-hidden="true"
-              viewBox="510 215 400 330"
-              className="h-[1.125rem] w-[1.375rem] flex-shrink-0 overflow-hidden"
-            >
-              <image href="/nullStock.png" width="1408" height="768" />
-            </svg>
+            <NullstockLogoMark
+              className="h-[1.125rem] w-[1.375rem] flex-shrink-0"
+              filterId="nullstock-logo-mobile"
+            />
             <span className="truncate text-[15px] font-black tracking-tight text-white">
               {t("널스탁")}
             </span>

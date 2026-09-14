@@ -1,5 +1,6 @@
 // 널스탁 로고 마크 — `/nullStock.png`을 SVG <image>로 얹고, 어두운 배경 위에서
 // 원본 이미지의 검은 배경을 지우는 색 필터를 씌운다(내비게이션 로고와 동일한 방식).
+// 2026-09-14 테라코타 마크(휘도 .57)로 바꾸면서 절편 .18 — 마크 알파 1.0, 배경(휘도 .08)은 0.
 //
 // 필터 id는 인스턴스마다 달라야 한다 — 한 화면에 두 개가 놓이면 같은 id가 충돌한다.
 export default function NullstockLogoMark({
@@ -35,7 +36,7 @@ export default function NullstockLogoMark({
             "
           />
           <feComponentTransfer>
-            <feFuncA type="linear" slope="2.2" intercept="0" />
+            <feFuncA type="linear" slope="2.2" intercept="0.18" />
           </feComponentTransfer>
         </filter>
       </defs>

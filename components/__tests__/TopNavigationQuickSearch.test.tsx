@@ -232,7 +232,14 @@ describe("TopNavigation quick search", () => {
   it("상단 로고는 원본 이미지 기반의 투명 NS 마크를 표시한다", async () => {
     renderWithQueryClient(<TopNavigation />);
 
-    const logoMark = screen.getByTestId("nullstock-logo-mark");
+    // 모바일·데스크톱 내비가 각자 마크를 그린다(둘 다 배경 제거 필터, id만 다름)
+    const logoMarks = screen.getAllByTestId("nullstock-logo-mark");
+    expect(logoMarks).toHaveLength(2);
+    expect(logoMarks[0].querySelector("image")).toHaveAttribute(
+      "filter",
+      "url(#nullstock-logo-mobile)"
+    );
+    const logoMark = logoMarks[1];
     const homeLink = logoMark.closest("a");
     const sourceImage = logoMark.querySelector("image");
 
