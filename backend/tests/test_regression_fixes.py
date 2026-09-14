@@ -228,6 +228,7 @@ async def test_virtual_trader_handles_none_risk_values_without_crashing(monkeypa
     ])
     monkeypatch.setattr(trader, "_fetch_today_logs", lambda *_args, **_kwargs: set())
     monkeypatch.setattr(trader, "_fetch_pending_orders", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(trader, "_fetch_scheduled_orders", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(trader, "_update_positions", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(trader, "_update_last_refreshed", lambda *_args, **_kwargs: None)
 

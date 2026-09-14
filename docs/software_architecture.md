@@ -1143,6 +1143,8 @@ BacktestEngine.run_backtest(request)
 
 ### 4.4 가상매매 엔진 (`engine/virtual_trader.py`)
 
+**예약 주문 큐(2026-09-14, FR-VM-075)**: `risk.execution_delay_days>1`(next_open)이면 전략 신호(진입·매도·리밸런싱 편출)는 즉시 집행 대신 `VirtualScheduledOrder`에 예약되고(`engine/virtual_scheduled_orders.py`, 계좌·종목·방향당 1건 멱등), signalDate 뒤 delayDays-1 거래 세션이 지난 첫 집행 창에서 시장가 집행된다(놓치면 이월, 집행 시 보유·슬롯·현금·상장 상태 재검사, 전략 변경=CANCELLED). 리스크·강제청산은 큐를 거치지 않는다. 루프 순서: 3.5 예약 → 4 리스크 → 4.5 상장 상태 → 4.7 만기 예약 집행(매도 먼저) → 5 즉시 집행 → 6 지정가.
+
 ```
 VirtualTrader (비동기 루프, FastAPI 메인 스레드 분리)
 │

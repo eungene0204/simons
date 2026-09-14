@@ -22,7 +22,8 @@ export interface VirtualMarketLog {
   signalType: "entry" | "exit";
   reason: string | null;
   price: number;
-  action: "auto_executed" | "notified" | "skipped";
+  /** scheduled = 예약 주문 큐 등록(신호 후 N거래일 지연 체결), skipped = 예약 만기 시 조건 불충족. */
+  action: "auto_executed" | "notified" | "skipped" | "scheduled";
   orderId: string | null;
   createdAt: string;
 }

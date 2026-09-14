@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 from typing import Optional
 
 import db as appdb  # 공용 앱 DB 어댑터(Supabase Postgres)
+from engine import virtual_scheduled_orders as vso
 
 from engine import trade_reason as tr
 from engine import us_market_calendar
@@ -401,6 +402,10 @@ class VirtualTrader:
         finally:
             con.close()
 
+    def _fetch_scheduled_orders(self, account_id: str) -> list[dict]:
+        """미집행 예약 주문(신호 후 N거래일 지연 체결 큐)."""
+        return vso.fetch_open(account_id)
+
     def _fetch_today_logs(self, account_id: str, today: str) -> set[str]:
         """오늘 기록된 (symbol_signalType_action) 집합 반환 — 하루 1회 중복 방지용"""
         con = appdb.connect()
@@ -503,6 +508,13 @@ class VirtualTrader:
         positions = await asyncio.to_thread(self._fetch_positions, account_id)
         pending_orders = await asyncio.to_thread(self._fetch_pending_orders, account_id)
         execution_timing = risk.get("execution_timing") or "next_open"
+        # 신호 후 N거래일 지연 체결(백테스트 execution_delay_days와 같은 뜻) — 자동매매는 예약 주문
+        # 큐(engine/virtual_scheduled_orders.py)로 대응한다. 지연 1(기본)이면 종전과 같이 즉시 집행.
+        execution_delay_days = max(1, int(_coerce_numeric(risk.get("execution_delay_days"), 1.0)))
+        delay_queue_active = execution_timing == "next_open" and execution_delay_days > 1
+        scheduled_orders = (
+            await asyncio.to_thread(self._fetch_scheduled_orders, account_id) if strategy_id else []
+        )
         signal_symbols = await asyncio.to_thread(resolve_live_universe, dsl, symbols)
         # [통화 격리, 2026-08-26] 자동매매는 주문 라우트를 거치지 않고 DB에 직접 쓰므로
         # 같은 가드를 여기서 건다 — 계좌 통화와 다른 시장의 종목은 **매수 후보에서**
@@ -548,12 +560,14 @@ class VirtualTrader:
                 actionable
                 + [p["symbol"] for p in positions]
                 + [order["symbol"] for order in pending_orders]
+                + [order["symbol"] for order in scheduled_orders]
             ))
         else:
             quote_symbols = list(dict.fromkeys(
                 signal_symbols
                 + [p["symbol"] for p in positions]
                 + [order["symbol"] for order in pending_orders]
+                + [order["symbol"] for order in scheduled_orders]
             ))
 
         # 2.5. Fetch live prices only after next_open candidates have been selected.
@@ -622,6 +636,37 @@ class VirtualTrader:
                     signals.append(signal)
                 signal["exit_signal"] = True
                 signal["exit_reason"] = tr.encode([tr.part(tr.REBALANCE_DROPOUT)])
+
+        # 3.5. 신호 후 N거래일 지연 체결: 전략 신호(진입·매도·리밸런싱 편출)는 바로 집행하지 않고
+        #      예약 주문 큐에 넣는다. 아래 리스크 청산·강제청산은 큐를 거치지 않는다(백테스트와 동일).
+        #      같은 계좌·종목·방향의 미집행 예약이 있거나 이미 보유(매수)/미보유(매도)면 만들지 않는다.
+        if delay_queue_active:
+            open_sides = {(o["symbol"], o["side"]) for o in scheduled_orders}
+            held_symbols = {p["symbol"] for p in positions}
+            for sig in signals:
+                sym = sig["symbol"]
+                for flag, side, stype, reason_key in (
+                    ("entry_signal", "BUY", "entry", "entry_reason"),
+                    ("exit_signal", "SELL", "exit", "exit_reason"),
+                ):
+                    if not sig.get(flag):
+                        continue
+                    sig[flag] = False
+                    held = sym in held_symbols
+                    if (side == "BUY" and held) or (side == "SELL" and not held) or (sym, side) in open_sides:
+                        continue
+                    stock_name = name_map.get(sym) or sym
+                    new_id = await asyncio.to_thread(
+                        vso.enqueue, account_id, strategy_id, sym, stock_name, side, stype,
+                        today, execution_delay_days, sig.get(reason_key),
+                    )
+                    if new_id:
+                        open_sides.add((sym, side))
+                        await asyncio.to_thread(
+                            self._log_signal, account_id, today, sym, price_map.get(sym, 0),
+                            stype, sig.get(reason_key), "scheduled", None, stock_name,
+                        )
+                        logger.info("[VirtualTrader] 예약 %s %s %s (지연 %d거래일)", account_id, side, sym, execution_delay_days)
 
         # 4. 리스크 관리
         risk_exits: dict[str, str] = {}
@@ -721,8 +766,20 @@ class VirtualTrader:
                     sig["exit_signal"] = False
                     sig["entry_signal"] = False
 
-        # 5. 매매 실행
         executed_today = await asyncio.to_thread(self._fetch_today_logs, account_id, today)
+
+        # 4.7. 예약 주문 집행 — 신호일 뒤 delayDays-1 거래 세션이 지난 첫 집행 창에서 시장가 집행.
+        #      창을 놓치면 다음 창으로 이월. 매도를 먼저 집행해 슬롯·현금을 확보한다.
+        if scheduled_orders:
+            positions_dirty = await self._execute_scheduled_orders(
+                account, scheduled_orders, strategy_id, trading_mode, today, price_map, quotes,
+                status_map, name_map, positions, executed_today, max_positions, position_size_pct,
+                strategy_execution_allowed,
+            )
+            if positions_dirty:
+                positions = await asyncio.to_thread(self._fetch_positions, account_id)
+
+        # 5. 매매 실행
 
         # Exits must release slots and cash before ranked replacements are bought.
         signals.sort(key=lambda signal: not signal.get("exit_signal", False))
@@ -827,6 +884,112 @@ class VirtualTrader:
 
         # 8. lastRefreshed 갱신
         await asyncio.to_thread(self._update_last_refreshed, account_id, today)
+
+    # ── 예약 주문 집행 ────────────────────────────────────────────────────────
+
+    async def _execute_scheduled_orders(
+        self, account: dict, scheduled_orders: list[dict], strategy_id: Optional[str],
+        trading_mode: str, today: str, price_map: dict[str, float], quotes: dict,
+        status_map: dict[str, str], name_map: dict[str, str], positions: list[dict],
+        executed_today: set[str], max_positions: int, position_size_pct: float,
+        execution_window_open: bool,
+    ) -> bool:
+        """집행 시점에 보유·슬롯·현금·상장 상태를 다시 검사한다(예약 뒤 사정이 바뀔 수 있다).
+        반환값은 포지션이 바뀌었는지(호출부가 positions를 다시 읽는다)."""
+        account_id = account["id"]
+        dirty = False
+        for order in sorted(scheduled_orders, key=lambda o: o["side"] != "SELL"):
+            sym = order["symbol"]
+            side = order["side"]
+            stype = "entry" if side == "BUY" else "exit"
+            if order.get("strategyId") and order["strategyId"] != strategy_id:
+                await asyncio.to_thread(vso.resolve, order["id"], vso.STATUS_CANCELLED, vso.RES_STRATEGY_CHANGED)
+                continue
+            if not execution_window_open:
+                continue
+            close = price_map.get(sym, 0)
+            if not close:
+                continue
+            sessions = await asyncio.to_thread(
+                vso.sessions_since, self._loader, sym, order["signalDate"], today, quotes.get(sym)
+            )
+            if not vso.is_due(order, sessions):
+                continue
+            status = status_map.get(sym, ListingStatus.NORMAL)
+            if (side == "BUY" and not is_buy_allowed(status)) or (side == "SELL" and not is_sell_allowed(status)):
+                continue  # 거래 가능일까지 이월(백테스트의 거래 불가일 이월과 동일)
+            stock_name = name_map.get(sym) or order.get("name") or sym
+            reason = _merge_exit_reason(order.get("reason"), tr.encode([tr.part(
+                tr.LIVE_DELAYED_FILL, int(order["delayDays"]), order["signalDate"]
+            )]))
+            pos = next((p for p in positions if p["symbol"] == sym), None)
+
+            async def _skip(code: str):
+                await asyncio.to_thread(vso.resolve, order["id"], vso.STATUS_SKIPPED, code)
+                await asyncio.to_thread(
+                    self._log_signal, account_id, today, sym, close, stype, reason, "skipped", None, stock_name
+                )
+
+            if side == "SELL":
+                if not pos:
+                    await _skip(vso.RES_NO_POSITION)
+                    continue
+                if trading_mode != "auto":
+                    if f"{sym}_exit_notified" not in executed_today:
+                        await asyncio.to_thread(
+                            self._log_signal, account_id, today, sym, close, "exit", reason, "notified", None, stock_name
+                        )
+                        executed_today.add(f"{sym}_exit_notified")
+                    await asyncio.to_thread(vso.resolve, order["id"], vso.STATUS_NOTIFIED)
+                    continue
+                if f"{sym}_exit_auto_executed" in executed_today:
+                    await _skip(vso.RES_ALREADY_EXITED_TODAY)
+                    continue
+                order_id = await asyncio.to_thread(
+                    self._execute_sell, account_id, sym, stock_name, close, pos["quantity"], pos["avgPrice"]
+                )
+                if not order_id:
+                    continue  # DB 오류 — 다음 틱에 재시도
+                await asyncio.to_thread(
+                    self._log_signal, account_id, today, sym, close, "exit", reason, "auto_executed", order_id, stock_name
+                )
+                executed_today.add(f"{sym}_exit_auto_executed")
+                await asyncio.to_thread(vso.resolve, order["id"], vso.STATUS_EXECUTED, None, order_id)
+                dirty = True
+                logger.info("[VirtualTrader] 예약 매도 %s %s %d주 @%s", account_id, sym, pos["quantity"], _price_display(close, sym))
+                continue
+
+            # BUY
+            if pos:
+                await _skip(vso.RES_ALREADY_HELD)
+                continue
+            if trading_mode != "auto":
+                if f"{sym}_entry_notified" not in executed_today:
+                    await asyncio.to_thread(
+                        self._log_signal, account_id, today, sym, close, "entry", reason, "notified", None, stock_name
+                    )
+                    executed_today.add(f"{sym}_entry_notified")
+                await asyncio.to_thread(vso.resolve, order["id"], vso.STATUS_NOTIFIED)
+                continue
+            pos_count = await asyncio.to_thread(self._count_positions, account_id)
+            if pos_count >= max_positions:
+                await _skip(vso.RES_MAX_POSITIONS)
+                continue
+            current_cash = await asyncio.to_thread(self._fetch_current_cash, account_id)
+            order_id = await asyncio.to_thread(
+                self._execute_buy, account_id, sym, stock_name, close, current_cash, position_size_pct
+            )
+            if not order_id:
+                await _skip(vso.RES_INSUFFICIENT_CASH)
+                continue
+            await asyncio.to_thread(
+                self._log_signal, account_id, today, sym, close, "entry", reason, "auto_executed", order_id, stock_name
+            )
+            executed_today.add(f"{sym}_entry_auto_executed")
+            await asyncio.to_thread(vso.resolve, order["id"], vso.STATUS_EXECUTED, None, order_id)
+            dirty = True
+            logger.info("[VirtualTrader] 예약 매수 %s %s @%s", account_id, sym, _price_display(close, sym))
+        return dirty
 
     # ── 시그널 평가 (동기, to_thread에서 실행) ────────────────────────────────
 

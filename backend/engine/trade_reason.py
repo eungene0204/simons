@@ -118,6 +118,8 @@ LIVE_TRAILING_STOP = "트레일링스톱 (최고가 {0} 대비 {1}% 하락)"
 LIVE_MAX_HOLDING = "최대보유일 초과 ({0}거래일 ≥ {1}거래일)"
 LIVE_FORCED_LIQUIDATION = "강제청산 (상장 상태: {0})"
 LIVE_RANK_POSITION = " ({0}/{1}위)"
+# 예약 주문 집행(신호 후 N거래일 지연 체결) — 원 사유 뒤에 이어 붙는다.
+LIVE_DELAYED_FILL = "신호 후 {0}거래일 지연 체결 (신호일 {1})"
 REBALANCE_TRIM = "리밸런싱 비중 조정 (목표 비중 초과분 매도)"
 PNL_DETAIL_PROFIT = " [수익률: {0}%, 수익: {1}]"
 PNL_DETAIL_LOSS = " [수익률: {0}%, 손실: {1}]"

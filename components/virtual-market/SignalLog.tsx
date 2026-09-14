@@ -93,6 +93,10 @@ export default function SignalLog({
               <span className="inline-flex items-center rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-bold text-gray-500">
                 {t("스킵")}
               </span>
+            ) : log.action === "scheduled" ? (
+              <span className="inline-flex items-center rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-bold text-gray-400">
+                {log.signalType === "entry" ? t("매수 예약") : t("매도 예약")}
+              </span>
             ) : (
               <span className={`inline-flex items-center rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-bold ${
                 log.signalType === "entry" ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"

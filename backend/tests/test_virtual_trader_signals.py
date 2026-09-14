@@ -379,6 +379,7 @@ async def test_next_open_refresh_evaluates_universe_but_quotes_actions_only(monk
     monkeypatch.setattr(trader, "_fetch_positions", lambda _account_id: [
         {"symbol": "000900", "avgPrice": 100, "peakPrice": 100, "quantity": 1}
     ])
+    monkeypatch.setattr(trader, "_fetch_scheduled_orders", lambda _account_id: [])
     monkeypatch.setattr(trader, "_fetch_pending_orders", lambda _account_id: [
         {"symbol": "000800", "side": "BUY", "price": 90}
     ])
@@ -449,6 +450,7 @@ async def test_pending_limit_order_blocked_when_trading_suspended(monkeypatch):
         "risk": {"execution_timing": "next_open"},
     })
     monkeypatch.setattr(trader, "_fetch_positions", lambda _account_id: [])
+    monkeypatch.setattr(trader, "_fetch_scheduled_orders", lambda _account_id: [])
     monkeypatch.setattr(trader, "_fetch_pending_orders", lambda _account_id: [
         {"symbol": "HALTED", "side": "BUY", "price": 200},
         {"symbol": "OK", "side": "BUY", "price": 200},

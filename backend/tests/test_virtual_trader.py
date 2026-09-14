@@ -460,6 +460,7 @@ async def test_auto_trading_excludes_cross_currency_buy_candidates(monkeypatch):
     })
     monkeypatch.setattr(trader, "_fetch_positions", lambda _a: [])
     monkeypatch.setattr(trader, "_fetch_pending_orders", lambda _a: [])
+    monkeypatch.setattr(trader, "_fetch_scheduled_orders", lambda _a: [])
     monkeypatch.setattr(trader, "_fetch_stock_names", lambda _s: {})
     monkeypatch.setattr(trader, "_fetch_delisting_policy", lambda _a: "AUTO_LIQUIDATE")
     monkeypatch.setattr(trader, "_fetch_today_logs", lambda *_a: set())

@@ -533,6 +533,7 @@ model VirtualAccount {
   VirtualMarketState VirtualMarketState?
   VirtualOrder       VirtualOrder[]
   VirtualPosition    VirtualPosition[]
+  VirtualScheduledOrder VirtualScheduledOrder[]
   DelistingAuditLog  DelistingAuditLog[]
   AssetLedger        AssetLedger[]
 
@@ -600,6 +601,31 @@ model VirtualOrder {
   realizedPnl    Decimal?
   tax            Decimal?
   VirtualAccount VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+// 예약 주문 큐(2026-09-14) — 신호 후 N거래일 지연 체결(risk.execution_delay_days>1)의 자동매매 대응.
+// 신호가 난 날(지연 1이었다면 체결됐을 날)에 행을 만들고, 그 뒤 delayDays-1 거래 세션이 지난 첫
+// 집행 창에서 집행한다(engine/virtual_scheduled_orders.py). 리스크·강제청산은 큐를 거치지 않는다.
+model VirtualScheduledOrder {
+  id             String         @id
+  accountId      String
+  strategyId     String?        // 예약 당시 전략 — 전략이 바뀌면 집행 대신 CANCELLED
+  symbol         String
+  name           String?
+  side           String         // BUY | SELL
+  signalType     String         // entry | exit
+  signalDate     String         // 신호 평가일(계좌 시장 날짜, YYYY-MM-DD)
+  delayDays      Int
+  reason         String?        // 신호 사유(세그먼트 페이로드 — VirtualMarketLog.reason과 같은 계약)
+  status         String         @default("SCHEDULED") // SCHEDULED | EXECUTED | NOTIFIED | SKIPPED | CANCELLED
+  resolution     String?        // SKIPPED/CANCELLED 코드(NO_POSITION 등)
+  orderId        String?        // EXECUTED 시 VirtualOrder.id
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime
+  resolvedAt     DateTime?
+  VirtualAccount VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, status])
 }
 
 model VirtualPosition {
