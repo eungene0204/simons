@@ -44,7 +44,7 @@ describe("StrategyExampleTabs legal links", () => {
     ).toBeInTheDocument();
     expect(
       within(usageNotice).getByText(
-        /^주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호\s+전화번호 : 070-8027-2252\s+이메일 :/,
+        /^주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호\s+이메일 :/,
         { exact: false }
       )
     ).toBeInTheDocument();

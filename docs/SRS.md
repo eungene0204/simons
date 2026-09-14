@@ -2241,6 +2241,7 @@ BacktestHistory                                (백테스트 이력)
 - 만 14세 미만 가입 불허 원칙은 이용약관 제4조와 개인정보처리방침 제8조에서 일관되게 유지해야 한다.
 - 유료서비스 출시 전 사업자 정보, 통신판매업 신고번호, 가격, 정기결제 주기, 청약철회 제한 사유, 환불 산식, 고객센터 정보를 확정해야 한다.
 - 이용약관·개인정보처리방침 하단의 '사업자 정보'는 전자상거래법 제10조 표시 항목(상호·사업자등록번호·통신판매업신고번호·대표자·주소·전화번호·이메일)을 이 순서로 모두 표시한다(2026-09-13 통신판매업신고번호 추가). 값은 환경변수(`COMPANY_NAME`·`BUSINESS_REGISTRATION_NUMBER`·`BUSINESS_MAIL_ORDER_NUMBER`·`BUSINESS_REPRESENTATIVE_NAME`·`BUSINESS_ADDRESS`·`BUSINESS_PHONE`·`BUSINESS_EMAIL`)에서 읽고, 박스 `.env`에 없을 때 '미정'으로 새지 않도록 연락처·신고번호는 `docker-compose.yml`에 기본값을 둔다. 영문(/us) 표기는 `lib/i18n/en.ts`가 값까지 번역한다.
+- 화면 하단 상시 푸터(전략연구소 등)의 사업자 정보에는 전화번호를 표시하지 않는다(2026-09-14 지시) — 전자상거래법 제10조 표시 의무는 이용약관·개인정보처리방침 하단의 '사업자 정보'가 충족한다. 푸터 정본은 `components/strategy/StrategyExampleTabs.tsx`의 `BUSINESS_INFO_LINE_1/2`(한국어 원문=`lib/i18n/en.ts` 번역 키).
 
 #### 규제 안전 원칙 (유사투자자문업 회피)
 
