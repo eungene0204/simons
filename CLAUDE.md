@@ -328,6 +328,11 @@ QA_TIMEOUT=420 uv run python scripts/qa_template_detect.py --source us          
 QA_TIMEOUT=420 uv run python scripts/qa_template_detect.py --source us --lang en  # 영어 입력 게이트(/us 전송 경로 재현)
 ```
 
+값 게이트가 끝나면 **화면 표시 전수 조사**도 돌린다 — 값이 맞아도 프론트 라벨 표에 없으면 요약 카드에
+`bimonthly`·`ocf_growth` 같은 내부 식별자가 그대로 나간다(2026-09-15 실측, 값 게이트는 이걸 못 본다):
+```bash
+QA_DISPLAY_SWEEP=1 npx vitest run scripts/qa_kr_display_sweep.test.ts   # 위 게이트가 남긴 캐시로 81개 렌더, 결함 0이어야 함
+```
 게이트는 **매번 백엔드에 다시 묻는다**(캐시 재사용 없음 — 낡은 답 위에서 '치명 0'이 나오는 것을 막는다). `--refresh`는 폐지됐고(기본 동작), `--use-cache`는 판정 로직만 손볼 때 쓰는 오프라인 모드다 — **게이트 용도로 쓰지 않는다.**
 
 ### 인터프리터 프롬프트·LLM 레인/모델 변경 시 되묻기 하니스 실행 필수

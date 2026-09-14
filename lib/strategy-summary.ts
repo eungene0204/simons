@@ -149,6 +149,14 @@ export const METRIC_LABELS: Record<string, string> = {
   revenue_growth: "매출액증가율",
   operating_income_growth: "영업이익증가율",
   net_income_growth: "순이익증가율",
+  // 백엔드 FundamentalFilter.metric enum 34개를 전부 덮는다 — 빠지면 요약 카드에 'ocf_growth >= 10'
+  // 처럼 내부 식별자가 그대로 나간다(2026-09-15 KR 예시 화면 전수 조사 실측). 회귀:
+  // lib/strategy-summary.labels.test.ts(백엔드 enum × 이 표 전수 대조).
+  ev_ebit: "EV/EBIT",
+  eps_growth: "EPS증가율",
+  ebitda_growth: "EBITDA증가율",
+  ocf_growth: "영업현금흐름증가율",
+  fcf_growth: "잉여현금흐름증가율",
   market_cap: "시총",
   trading_value: "거래대금",
   dividend_yield: "배당수익률",

@@ -520,6 +520,7 @@ export const en: Record<string, string> = {
   "{0}억원": "₩{0}00M",
   "{0}원": "₩{0}",
   "격월": "Bimonthly",
+  "EV/EBIT": "EV/EBIT",
   "보유 기간": "Holding period",
   "트레일링 스탑": "Trailing stop",
   // ── app/analytics/new/walkForwardStream.ts
