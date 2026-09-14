@@ -29,15 +29,19 @@ CI 가드(``scripts/check_engine_version_bump.sh`` — .github/workflows/ci.yml�
 """
 
 # ── 현재 엔진 버전 (유일 기준) ────────────────────────────────────────────────
-ENGINE_VERSION = "16.8.0"
+ENGINE_VERSION = "16.9.0"
 
 # 사람이 읽을 수 있는 한 줄 요약. 결과 배지/툴팁 등 표시용이며 값 계산엔 영향 없음.
-ENGINE_VERSION_LABEL = "v16.8.0 — 체결 시점 별칭 current_close=same_close 정규화(당일 시가 룩어헤드 수리)"
+ENGINE_VERSION_LABEL = "v16.9.0 — 신호 후 N거래일 지연 체결(execution_delay_days) 신설"
 
 # ── 버전 이력 ─────────────────────────────────────────────────────────────────
 # 과거 git 이력을 참고해 주요 변경 시점을 정리한 것. 정확한 커밋 단위 이력은
 # git log를, 큰 흐름은 아래 표를 참고한다.
 CHANGELOG = {
+    "16.9.0": "**신호 후 N거래일 지연 체결 신설 — opt-in 가산(MINOR).** 새 옵션 `execution_delay_days`(risk/"
+              "options, 기본 1)가 next_open 분기의 shift 폭이 된다: 신호·랭킹·유동성·시총 마스크를 N일 밀고 "
+              "상폐·데이터 종료 강제청산 신호도 N봉 앞에 둔다(phase1). 리스크 청산(손절·익절·트레일링)은 "
+              "보호 주문이라 종전대로 감지 다음 거래일 시가 체결. same_close에 1 초과 값은 거절. 기본값 결과 불변.",
     "16.8.0": "**체결 시점 별칭 `current_close`를 `same_close`로 정규화 — 해당 전략 결과값 변경(MINOR).** "
               "대화 레인('당일 종가 체결')이 내는 `current_close`가 엔진의 same_close/next_open 어느 분기에도 "
               "걸리지 않아 신호 shift 없이 **당일 시가**에 체결되고(종가보다 앞선 룩어헤드) 경고도 빠졌다. "

@@ -156,6 +156,7 @@ function buildBacktestCacheConfig(body: any) {
     fee_rate: options.fee_rate ?? body?.fee_rate ?? null,
     slippage_rate: options.slippage_rate ?? body?.slippage_rate ?? null,
     execution_type: options.execution_type ?? risk.execution_timing ?? null,
+    execution_delay_days: options.execution_delay_days ?? risk.execution_delay_days ?? null,
     liquidity_limit_pct: risk.liquidity_limit_pct ?? null,
     liquidity_policy: body?.liquidity_policy ?? body?.liquidityPolicy ?? null,
     engine_version: body?.engine_version ?? body?.engineVersion ?? null,

@@ -64,6 +64,7 @@ def build_context(
     rank_metric_cols: List[str],
     tracked_metrics: Any,
     ai_needed: bool,
+    signal_delay: int = 1,
 ) -> Dict[str, Any]:
     """종목별 파이프라인이 읽는 요청-수준 상수 묶음(피클 가능)."""
     return {
@@ -80,6 +81,8 @@ def build_context(
         "pos_size_pct": float(pos_size_pct),
         "liquid_limit": float(liquid_limit),
         "exec_type": exec_type,
+        # 신호 후 N거래일 지연 체결(next_open shift 폭, 기본 1) — 강제청산 신호 위치가 이를 따른다.
+        "signal_delay": int(signal_delay),
         "delisted_symbols": set(delisted_symbols or ()),
         "rank_metric_cols": list(rank_metric_cols or []),
         "tracked_metrics": tracked_metrics,
@@ -109,13 +112,14 @@ def filter_to_backtest_window(df_pl: pl.DataFrame, ctx: Dict[str, Any]) -> pl.Da
 
 
 def close_at_last_available_row(entry_signals, exit_signals, exit_reasons, sym, ctx) -> None:
-    """상폐/데이터 종료 종목: 마지막 가용 봉에서 강제 청산(next_open이면 그 전 봉에 신호)."""
+    """상폐/데이터 종료 종목: 마지막 가용 봉에서 강제 청산(next_open이면 지연 폭만큼 앞 봉에 신호)."""
     if len(exit_signals) == 0:
         return
     if ctx["exec_type"] == "next_open":
-        if len(exit_signals) < 2:
+        delay = int(ctx.get("signal_delay", 1))
+        if len(exit_signals) < delay + 1:
             return
-        exit_idx = len(exit_signals) - 2
+        exit_idx = len(exit_signals) - 1 - delay
     else:
         exit_idx = len(exit_signals) - 1
     entry_signals[exit_idx:] = False

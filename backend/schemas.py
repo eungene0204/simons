@@ -50,6 +50,10 @@ class RiskManagement(BaseModel):
     # 엔진이 구성 지표를 못 받는다 — ranking_metric 0거래 사고와 동일 함정.
     ranking_components: Optional[List[Dict[str, Any]]] = None
     execution_timing: Optional[str] = "next_open"
+    # 신호 후 N거래일 지연 체결 — next_open의 shift 폭(1=다음 거래일 시가, N=N번째 거래일 시가).
+    # 엔진은 options.execution_delay_days → risk.execution_delay_days 순으로 읽는다. 스키마에
+    # 없으면 model_dump가 조용히 버려 지연이 사라진다 — ranking_metric 0거래 사고와 동일 함정.
+    execution_delay_days: Optional[int] = None
     allocation_type: Optional[str] = "equal"
     rebalancing_period: Optional[str] = "none"
     # 리밸런싱 방식(FR-BT-067): 'reconstitute'=리밸런싱일마다 목표 종목 재선정,

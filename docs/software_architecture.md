@@ -1134,6 +1134,7 @@ BacktestEngine.run_backtest(request)
 
 **Simulator 핵심 설계 원칙:**
 - 체결 시점: 기본·권장은 `next_open`(신호 bar 다음날 시가 체결, 룩어헤드 없음). `same_close`는 당일 종가 신호를 당일 종가에 체결하는 비현실적 모드 — 엔진이 결과에 룩어헤드 경고를 자동 첨부(연구용). 대화 레인 어휘 `current_close`는 엔진 입구에서 `same_close`로 정규화한다(미정규화 시 어느 분기에도 안 걸려 당일 **시가** 체결·경고 누락 — 2026-09-13 수리). 독립 엔진(backtrader) 교차검증으로 `next_open` 체결 일치 확인됨
+- 신호 후 N거래일 지연 체결(v16.9.0, FR-BT-069): `execution_delay_days`(options → risk, 기본 1)가 next_open 분기의 shift 폭이다 — 엔진이 신호·랭킹·유효 마스크·유동성·시총 마스크를 N일 shift하고(`shift(signal_delay)`), phase1 강제청산 신호는 마지막 봉의 N봉 앞에 둔다. 리스크 청산은 보호 주문이라 지연하지 않는다(감지 다음 거래일 시가). same_close에 1 초과 값은 옵션 입구(`_resolve_signal_delay`)가 거절한다
 - 리스크 종료: 당일 close 감지 → `exits_values[i]`에 당일 close 주입 (현실적 일봉 시뮬레이션)
 - 벡터화 Step 순서 고정: **Step1 퇴장처리 → Step2 리스크 평가/주입 → Rebalance(목표 집합 재구성/탈락 매도) → Step3 진입처리**
 - 같은 날 매도+매수(리밸런싱 reconstitution)가 겹칠 때는 부기(active_mask/active_count/peak_price)도 즉시 갱신해야 한다 — 그렇지 않으면 빈 슬롯이 "아직 점유 중"으로 보여 신규 편입이 영구 차단되는 고스트 포지션 버그가 발생한다

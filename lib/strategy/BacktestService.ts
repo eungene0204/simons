@@ -31,7 +31,8 @@ export class BacktestService {
       options: {
         fee_rate: options.commissionPct / 100,
         slippage_rate: options.slippagePct / 100,
-        execution_type: strategy.risk?.execution_timing || "next_open"
+        execution_type: strategy.risk?.execution_timing || "next_open",
+        execution_delay_days: strategy.risk?.execution_delay_days,
       }
     };
 
@@ -169,6 +170,7 @@ export class BacktestService {
         fee_rate: options.commissionPct / 100,
         slippage_rate: options.slippagePct / 100,
         execution_type: strategy.risk?.execution_timing || "next_open",
+        execution_delay_days: strategy.risk?.execution_delay_days,
       },
     };
 
@@ -222,7 +224,8 @@ export class BacktestService {
       options: {
         fee_rate: options.commissionPct / 100,
         slippage_rate: options.slippagePct / 100,
-        execution_type: strategy.risk?.execution_timing || "next_open"
+        execution_type: strategy.risk?.execution_timing || "next_open",
+        execution_delay_days: strategy.risk?.execution_delay_days,
       }
     };
 

@@ -290,8 +290,35 @@ class BacktestEngine:
         return tr.literal("")
 
     @staticmethod
+    def _resolve_signal_delay(options, risk_params, exec_type) -> int:
+        """신호 봉 → 체결 봉 간격(거래일). next_open 분기의 shift 폭이며 기본 1(다음 거래일 시가).
+
+        options.execution_delay_days(프론트 BacktestService가 risk.execution_delay_days를 옵션에
+        싣는다) → risk.execution_delay_days 순으로 읽는다. 1 미만·정수 아님은 거절하고, 지연은
+        next_open에서만 의미가 있으므로 same_close에 1 초과 값을 주면 조용히 무시하지 않고 거절한다.
+        """
+        raw = options.get('execution_delay_days')
+        if raw is None:
+            raw = (risk_params or {}).get('execution_delay_days')
+        if raw is None:
+            return 1
+        try:
+            delay = int(raw)
+            if delay != float(raw):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError(f"체결 지연(execution_delay_days)은 정수여야 합니다: {raw!r}")
+        if delay < 1:
+            raise ValueError(f"체결 지연(execution_delay_days)은 1 이상이어야 합니다: {delay}")
+        if exec_type != 'next_open' and delay != 1:
+            raise ValueError(
+                "체결 지연(execution_delay_days)은 '다음 날 시가 체결'(next_open)에서만 지원합니다"
+                f" — execution_type={exec_type}, delay={delay}")
+        return delay
+
+    @staticmethod
     def _ranking_selection_pool(available_df, valid, large_cap_mask, all_liquidity,
-                                common_index, processed_symbols, exec_type):
+                                common_index, processed_symbols, exec_type, signal_delay=1):
         """랭킹 단독 전략(선정=진입)의 후보 풀 — 값이 정의된 종목에 대형주 마스크·유동성
         게이트를 다시 결합한다(모멘텀 분기 C4 계약과 동일)."""
         pool = available_df & valid
@@ -302,14 +329,14 @@ class BacktestEngine:
                 all_liquidity, index=common_index, columns=processed_symbols
             ).eq(True)  # NaN(데이터 없는 날) → False, bool dtype 보장
             if exec_type == 'next_open':
-                liq_df = liq_df.shift(1, fill_value=False)
+                liq_df = liq_df.shift(signal_delay, fill_value=False)
             pool &= liq_df
         return pool
 
     @staticmethod
     def _composite_rank_panel(components, raw_price_df, all_fund_rank_values,
                               common_index, processed_symbols, exec_type,
-                              default_lookback=None):
+                              default_lookback=None, signal_delay=1):
         """복합 순위 합산(FR-BT-063) 점수 패널.
 
         반환 (rank_df, valid, missing_labels). rank_df는 [0,1] 백분위 평균(높을수록 상위),
@@ -354,8 +381,8 @@ class BacktestEngine:
         rank_df = sum(scores) / float(len(scores))
         if exec_type == 'next_open':
             # 진입 신호는 이미 1일 shift됨 — 랭킹도 전일 값 기준(look-ahead 방지).
-            rank_df = rank_df.shift(1)
-            valid = valid.shift(1, fill_value=False)
+            rank_df = rank_df.shift(signal_delay)
+            valid = valid.shift(signal_delay, fill_value=False)
         return rank_df.fillna(0.0), valid, []
 
     @staticmethod
@@ -481,6 +508,9 @@ class BacktestEngine:
             if exec_type == 'current_close':
                 exec_type = 'same_close'
                 options['execution_type'] = exec_type
+            # 신호 후 N거래일 지연 체결 — next_open 분기들이 신호·랭킹·마스크를 미는 shift 폭.
+            # 1(기본)=다음 거래일 시가, N=N번째 거래일 시가. same_close는 지연 개념이 없다.
+            signal_delay = self._resolve_signal_delay(options, risk_params, exec_type)
             # 거래 비용 옵션 검증 — 음수는 리베이트가 되어 결과를 부풀린다(Fail Fast).
             # 0은 허용하되(연구용) 조용히 지나가지 않는다.
             for _ck in ('fee_rate', 'buy_fee_rate', 'sell_fee_rate', 'sell_tax_rate', 'slippage_rate'):
@@ -814,7 +844,8 @@ class BacktestEngine:
                 skip_risk=bool(risk_params.get('skip_risk_management', False)),
                 skip_pos=bool(risk_params.get('skip_position_setting', False)),
                 init_cash=init_cash, pos_size_pct=pos_size_pct, liquid_limit=liquid_limit,
-                exec_type=exec_type, delisted_symbols=set(_delisted_dates or {}),
+                exec_type=exec_type, signal_delay=signal_delay,
+                delisted_symbols=set(_delisted_dates or {}),
                 rank_metric_cols=_rank_metric_cols, tracked_metrics=_tracked_metrics,
                 ai_needed=ai_needed,
             )
@@ -1048,8 +1079,8 @@ class BacktestEngine:
             exts_df = pd.DataFrame(np.where(_raw_exts.isna(), False, _raw_exts).astype(bool), index=common_index, columns=processed_symbols)
 
             if exec_type == 'next_open':
-                ents_df = ents_df.shift(1, fill_value=False)
-                exts_df = exts_df.shift(1, fill_value=False)
+                ents_df = ents_df.shift(signal_delay, fill_value=False)
+                exts_df = exts_df.shift(signal_delay, fill_value=False)
             ents_df &= available_df
             exts_df &= available_df
 
@@ -1061,7 +1092,7 @@ class BacktestEngine:
                 rank_exits = compute_topk_drop_exits(drop_df, drop_rank_pct, available_df)
                 if rank_exits is not None:
                     if exec_type == 'next_open':
-                        rank_exits = rank_exits.shift(1, fill_value=False)
+                        rank_exits = rank_exits.shift(signal_delay, fill_value=False)
                     exts_df = (exts_df | rank_exits.astype(bool)) & available_df
 
             # 상폐·데이터 종료 강제청산(phase1.close_at_last_available_row)은 거래정지 마스크를
@@ -1109,7 +1140,7 @@ class BacktestEngine:
                 if exec_type == 'next_open':
                     # 진입 신호는 이미 1일 shift됨 — 시총 순위도 전일 종가 기준으로
                     # 맞춰야 당일 종가를 미리 아는 look-ahead가 없다.
-                    large_cap_mask = large_cap_mask.shift(1, fill_value=False)
+                    large_cap_mask = large_cap_mask.shift(signal_delay, fill_value=False)
                 ents_df &= large_cap_mask
                 _index_label = "KOSDAQ150" if _index_top_n == 150 else "KOSPI200"
                 if _pit_ratio >= 0.99:
@@ -1152,8 +1183,8 @@ class BacktestEngine:
                     # 그러지 않으면 순위가 0으로 동률이 되어 임의 종목을 사서 들고 있게 된다.
                     valid = momentum.notna()
                     if exec_type == 'next_open':
-                        rank_df = rank_df.shift(1)
-                        valid = valid.shift(1, fill_value=False)
+                        rank_df = rank_df.shift(signal_delay)
+                        valid = valid.shift(signal_delay, fill_value=False)
                     rank_df = rank_df.fillna(0.0)
                     # 진입 신호가 없으면(선정=진입) 수익률이 정의된 전 종목을 후보로 만들어 상위 K를 채운다.
                     # C4: 이 오버라이드가 대형주(KOSPI200) 마스크와 유동성 게이트를
@@ -1168,7 +1199,7 @@ class BacktestEngine:
                                 all_liquidity, index=common_index, columns=processed_symbols
                             ).eq(True)  # NaN(데이터 없는 날) → False, bool dtype 보장
                             if exec_type == 'next_open':
-                                liq_df = liq_df.shift(1, fill_value=False)
+                                liq_df = liq_df.shift(signal_delay, fill_value=False)
                             pool &= liq_df
                         ents_df = pool
 
@@ -1221,8 +1252,8 @@ class BacktestEngine:
                     # (momentum 분기와 같은 이유 — 0 동률로 임의 종목이 선정되는 것 방지).
                     valid = vol_df.notna()
                     if exec_type == 'next_open':
-                        rank_df = rank_df.shift(1)
-                        valid = valid.shift(1, fill_value=False)
+                        rank_df = rank_df.shift(signal_delay)
+                        valid = valid.shift(signal_delay, fill_value=False)
                     rank_df = rank_df.fillna(0.0)
                     _entry_conditions = (req.get('entry') or {}).get('conditions') or []
                     if not _entry_conditions:
@@ -1235,7 +1266,7 @@ class BacktestEngine:
                                 all_liquidity, index=common_index, columns=processed_symbols
                             ).eq(True)
                             if exec_type == 'next_open':
-                                liq_df = liq_df.shift(1, fill_value=False)
+                                liq_df = liq_df.shift(signal_delay, fill_value=False)
                             pool &= liq_df
                         ents_df = pool
 
@@ -1275,6 +1306,7 @@ class BacktestEngine:
                     _rank_components, raw_price_df, all_fund_rank_values,
                     common_index, processed_symbols, exec_type,
                     default_lookback=risk_params.get('ranking_lookback_days'),
+                    signal_delay=signal_delay,
                 )
                 if _missing_labels:
                     self.warnings.add(rw.warning(
@@ -1287,7 +1319,7 @@ class BacktestEngine:
                         # (대형주 마스크·유동성 게이트 재결합)과 매수 사유 계약.
                         pool = self._ranking_selection_pool(
                             available_df, valid, large_cap_mask, all_liquidity,
-                            common_index, processed_symbols, exec_type,
+                            common_index, processed_symbols, exec_type, signal_delay,
                         )
                         ents_df = pool
                         _rebal_kr = _REBAL_PERIOD_TEMPLATES.get(
@@ -1330,7 +1362,7 @@ class BacktestEngine:
                     ).ffill()
                     if exec_type == 'next_open':
                         # 진입 신호는 이미 1일 shift됨 — 랭킹도 전일 값 기준으로 맞춘다(look-ahead 방지).
-                        metric_df = metric_df.shift(1).ffill()
+                        metric_df = metric_df.shift(signal_delay).ffill()
                     pct = metric_df.rank(axis=1, pct=True)
                     # top=값 높은 순(기본), bottom=값 낮은 순(예: 'PER 낮은 상위 N종목').
                     _direction = str(risk_params.get('ranking_direction') or 'top')
@@ -1349,7 +1381,7 @@ class BacktestEngine:
                                 all_liquidity, index=common_index, columns=processed_symbols
                             ).eq(True)
                             if exec_type == 'next_open':
-                                liq_df = liq_df.shift(1, fill_value=False)
+                                liq_df = liq_df.shift(signal_delay, fill_value=False)
                             pool &= liq_df
                         ents_df = pool
 
@@ -1394,7 +1426,7 @@ class BacktestEngine:
                     _tiebreak = lookback_return_panel(raw_price_df, _TIEBREAK_LOOKBACK_DAYS)
                     rank_df = _tiebreak.rank(axis=1, pct=True)
                     if exec_type == 'next_open':
-                        rank_df = rank_df.shift(1)
+                        rank_df = rank_df.shift(signal_delay)
                     # 수익률이 정의되지 않은 종목(신규 상장 등)은 후보에서 빼지 않고 최하위로
                     # 둔다 — 후보 자격은 매수 조건이 정하므로 우선순위만 뒤로 보낸다.
                     rank_df = rank_df.fillna(0.0)

@@ -61,6 +61,9 @@ export interface RiskManagement {
   /** 복합 순위 합산(FR-BT-063) — ranking_metric='composite'일 때 구성 지표(백분위 순위 동일 가중 평균). */
   ranking_components?: Array<{ metric: string; direction: "top" | "bottom"; lookback_days?: number | null }>;
   execution_timing?: "next_open" | "current_close";
+  /** 신호 후 N거래일 지연 체결 — next_open의 체결 봉 간격(1=다음 거래일 시가, N=N번째 거래일 시가).
+   *  없으면 엔진 기본값 1. current_close에서는 1 초과 값을 엔진이 거절한다. */
+  execution_delay_days?: number;
   allocation_type?: "equal" | "fixed_pct";
   rebalancing_period?: string;
   /** 리밸런싱 방식(FR-BT-067) — 'reconstitute'=리밸런싱일마다 목표 종목 재선정,

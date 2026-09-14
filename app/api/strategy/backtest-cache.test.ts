@@ -64,6 +64,21 @@ describe("backtest cache key", () => {
     expect(lowCost).not.toBe(highCost);
   });
 
+  it("separates identical strategies when the execution delay changes (options or risk lane)", () => {
+    const base = computeCacheKey(baseBody);
+    const viaOptions = computeCacheKey({
+      ...baseBody,
+      options: { ...baseBody.options, execution_delay_days: 3 },
+    });
+    const viaRisk = computeCacheKey({
+      ...baseBody,
+      risk: { ...baseBody.risk, execution_delay_days: 3 },
+    });
+
+    expect(viaOptions).not.toBe(base);
+    expect(viaRisk).toBe(viaOptions);
+  });
+
   it("separates current engine results from legacy cache generations", () => {
     const legacyV2Key = "2e19acbfb06c4644f251b3cc8a0aa036acbed3e3a6d11d6dc7f8da2e5309a168";
 
