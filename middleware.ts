@@ -2,14 +2,14 @@
 //
 // - `/us` 트리는 같은 라우트 트리로 rewrite 하고(파일 중복 없음), 지역을 내부 헤더로 실어 준다.
 // - 한국 트리 요청에는 kr 헤더를 실어 준다.
-// - 루트(`/`) 최초 방문(지역 쿠키 없음)이고 비한국 신호(국가 헤더/Accept-Language)면 `/us`로
-//   리다이렉트한다. 크롤러는 리다이렉트하지 않는다(한국 서비스 색인 보존).
-// - 그 외에는 사용자가 입력한 경로를 그대로 존중하고, 마지막 방문 지역을 쿠키에 기억한다.
+// - 자동 지역 리다이렉트는 없다. `www.nullstock.im/*`는 무조건 한국 서비스이고, 글로벌 서비스는
+//   `/us` 경로로만 진입한다(2026-09-15 — 브라우저 언어가 영어인 한국 방문자가 `/`에서 `/us`로
+//   튕기던 사고로 Accept-Language 기반 첫 방문 리다이렉트를 폐지). 되살리지 않는다.
+// - 사용자가 입력한 경로를 그대로 존중하고, 마지막 방문 지역을 쿠키에 기억한다.
 //
 // API·정적 리소스는 제외한다 — API 라우트는 지역 쿠키를 직접 읽는다(lib/geo/server.ts).
 
 import { NextResponse, type NextRequest } from "next/server";
-import { isKnownBot, resolvePreferredRegion } from "@/lib/geo/country";
 import {
   REGION_COOKIE,
   REGION_HEADER,
@@ -46,20 +46,6 @@ export function middleware(request: NextRequest) {
     const response = NextResponse.rewrite(url, {
       request: { headers: requestHeadersWithRegion(request, "us") },
     });
-    rememberRegion(response, request, "us");
-    return response;
-  }
-
-  const isFirstVisit = !request.cookies.has(REGION_COOKIE);
-  if (
-    pathname === "/" &&
-    isFirstVisit &&
-    !isKnownBot(request.headers.get("user-agent")) &&
-    resolvePreferredRegion((name) => request.headers.get(name)) === "us"
-  ) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/us";
-    const response = NextResponse.redirect(url);
     rememberRegion(response, request, "us");
     return response;
   }
