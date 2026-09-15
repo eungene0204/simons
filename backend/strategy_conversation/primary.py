@@ -1180,45 +1180,72 @@ def _normalize_size_class_labels(intent: StrategyIntent) -> None:
 
 
 def _dedupe_relative_return_against_ranking(intent: StrategyIntent) -> List[str]:
-    """'상대강도 상위 N%'가 랭킹(return)과 조건(technical.relative_return)에 **이중으로**
-    실리면 조건 쪽을 걷어내고 안내한다.
+    """'시장 대비 수익률 상위'가 랭킹과 조건(technical.relative_return)에 **이중으로** 실리면
+    조건 쪽을 걷어내고 어디로 반영됐는지 알린다.
 
     120B 레인은 프롬프트 규칙·지표 notes로도 이 이중 생성을 멈추지 않았다(2026-09-14 실측
     6/6: 값 0이면 사용자가 말하지 않은 '시장보다 강한' 필터가 생기고, 값 null이면 "시장 대비
     초과수익률 기준값을 얼마로 할까요?"라는 엉뚱한 되묻기가 나갔다). 판정은 LLM 출력의
     구조 대조뿐이다 — 같은 산정 기간의 수익률 랭킹이 있고 조건 값이 0 또는 null일 때만
-    중복으로 본다(값이 다르면 별도 조건). 조용히 버리지 않고 어디로 반영됐는지 알린다.
+    중복으로 본다(값이 다르면 별도 조건).
+
+    **매도 슬롯도 본다(2026-09-15)** — prod 레인 실측 4/4: "시장 대비 수익률 상위 5종목을
+    매월 교체"가 랭킹으로 정상 반영되고도 `relative_return > 0` **청산** 조건을 함께 냈다.
+    그대로 두면 "시장을 이기면 판다"는, 사용자가 말한 적 없고 뜻도 뒤집힌 매도 규칙이 된다.
+    단 매도 슬롯에서는 **방향이 뒤집힌 것만** 중복으로 본다 — '시장보다 못하면 매도'(`<`)는
+    사용자가 실제로 말할 수 있는 청산 조건이라 살린다(검증기의 교차 방향×역할 모순과 같은 계약).
     """
     strategy = intent.strategy
     if strategy is None or not strategy.ranking:
         return []
-    lookbacks = {
-        rank.lookback_days for rank in strategy.ranking
-        if (resolve(rank.metric) or type("_", (), {"id": None})).id
-        in ("ranking.return", "ranking.relative_return", "technical.relative_return")
-    }
-    if not lookbacks:
+    _RANK_IDS = ("ranking.return", "ranking.relative_return", "technical.relative_return")
+    matched = [(rank, spec) for rank, spec in
+               ((rank, resolve(rank.metric)) for rank in strategy.ranking)
+               if spec is not None and spec.id in _RANK_IDS]
+    if not matched:
         return []
-    kept: List[Any] = []
+    lookbacks = {rank.lookback_days for rank, _spec in matched}
+    ranking_specs = [spec for _rank, spec in matched]
+    # 안내 문구는 랭킹 정본별로 고정한다 — display_name을 그대로 꽂으면 영어 응답에 한국어
+    # 라벨이 새고, '기간 수익률 랭킹'에 문구를 박아 두면 시장 대비 랭킹으로 반영하고도
+    # 다른 지표로 반영했다고 알리게 된다(v16.10에서 랭킹 정본이 둘이 됐다).
+    _rank_id = ranking_specs[0].id if ranking_specs else None
     notices: List[str] = []
-    for cond in strategy.entry_conditions:
-        spec = resolve(cond.factor)
-        period = (cond.parameters or {}).get("period")
-        duplicate = (
-            spec is not None and spec.id == "technical.relative_return"
-            and cond.value in (None, 0, 0.0)
-            and (period is None or period in lookbacks or None in lookbacks)
-        )
-        if not duplicate:
-            kept.append(cond)
-            continue
-        quote = (cond.source_text or "").strip()
-        if quote and len(quote) <= _QUOTED_FEATURE_MAX_LEN:
-            notices.append(ui_language.msg(
-                "'{quote}'은(는) 기간 수익률 랭킹으로 반영했어요.",
-                "'{quote}' was reflected as the period-return ranking.", quote=quote))
-        _log_llm("✓ 상대강도 중복 제거", f"relative_return 조건 → 랭킹으로 일원화(인용={quote!r})")
-    strategy.entry_conditions = kept
+
+    def _reflected_notice(quote: str) -> str:
+        if _rank_id == "ranking.relative_return":
+            return ui_language.msg(
+                "'{quote}'은(는) 시장 대비 초과수익률 랭킹으로 반영했어요.",
+                "'{quote}' was reflected as the excess-return-vs-market ranking.", quote=quote)
+        return ui_language.msg(
+            "'{quote}'은(는) 기간 수익률 랭킹으로 반영했어요.",
+            "'{quote}' was reflected as the period-return ranking.", quote=quote)
+
+    def _prune(conditions: List[Any], role: str) -> List[Any]:
+        kept: List[Any] = []
+        for cond in conditions:
+            spec = resolve(cond.factor)
+            period = (cond.parameters or {}).get("period")
+            duplicate = (
+                spec is not None and spec.id == "technical.relative_return"
+                and cond.value in (None, 0, 0.0)
+                and (period is None or period in lookbacks or None in lookbacks)
+            )
+            if duplicate and role == "청산":
+                # 매도 칸의 '시장보다 강하면'(>, >=)·연산자 없음만 드리프트로 본다.
+                duplicate = cond.operator in (">", ">=", None)
+            if not duplicate:
+                kept.append(cond)
+                continue
+            quote = (cond.source_text or "").strip()
+            if quote and len(quote) <= _QUOTED_FEATURE_MAX_LEN:
+                notices.append(_reflected_notice(quote))
+            _log_llm("✓ 상대강도 중복 제거",
+                     f"{role} relative_return 조건 → 랭킹으로 일원화(인용={quote!r} 연산자={cond.operator!r})")
+        return kept
+
+    strategy.entry_conditions = _prune(strategy.entry_conditions, "진입")
+    strategy.exit_conditions = _prune(strategy.exit_conditions, "청산")
     return notices
 
 

@@ -211,6 +211,61 @@ def test_compiler_binds_relative_return_ranking_to_engine_metric():
     assert (parsed.ranking_metric, parsed.ranking_lookback_days, parsed.ranking_direction) == ("relative_return", 60, None)
 
 
+def test_primary_prunes_inverted_relative_return_exit_beside_ranking(monkeypatch):
+    """[회귀 2026-09-15, prod 실측 4/4] "시장 대비 수익률 상위 5종목을 매월 교체"를 랭킹으로
+    정상 반영하고도 `relative_return > 0` **청산** 조건을 함께 낸다 — 그대로 두면 "시장을
+    이기면 판다"는, 사용자가 말한 적 없고 뜻도 뒤집힌 매도 규칙이 된다. 09-14 진입 슬롯
+    중복 제거가 매도 슬롯을 보지 않아 열려 있던 구멍."""
+    from tests.test_strategy_conversation import _full_intent_dict, _run_primary_with
+
+    data = _full_intent_dict(
+        universe={"markets": ["KOSPI", "KOSDAQ"], "sectors": ["반도체"]},
+        entry_conditions=[
+            {"factor": "technical.ma_crossover", "operator": ">", "value": None,
+             "parameters": {"short_period": 1, "long_period": 120}, "source_text": "120일선 위"},
+        ],
+        exit_conditions=[
+            {"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
+             "parameters": {"short_period": 1, "long_period": 120}, "source_text": "120일선 이탈"},
+            {"factor": "technical.relative_return", "operator": ">", "value": 0,
+             "parameters": {"period": 60}, "source_text": "시장 대비 수익률 상위"},
+        ],
+        ranking=[{"metric": "ranking.relative_return", "lookback_days": None}],
+        portfolio={"selection_count": 5, "rebalance_frequency": "monthly"},
+        risk_management={"stop_loss": 10},
+    )
+    result = _run_primary_with(
+        monkeypatch, data,
+        "반도체 관련주 중 120일선 위이고 시장 대비 수익률 상위 5종목을 매월 교체, 120일선 이탈 또는 -10% 손절 시 매도")
+    assert result is not None
+    assert [s.indicator for s in result["parsed"].exit_signals] == ["ma_crossover"], \
+        [(s.indicator, s.operator, s.value) for s in result["parsed"].exit_signals]
+    assert result["parsed"].ranking_metric == "relative_return"
+    assert any("시장 대비 초과수익률 랭킹으로 반영했어요" in n for n in result["notices"]), result["notices"]
+
+
+def test_primary_keeps_underperform_exit_condition(monkeypatch):
+    """'시장보다 못하면 매도'(`<`)는 사용자가 실제로 말할 수 있는 청산 조건이다 — 랭킹이
+    함께 있어도 살린다(방향이 뒤집힌 `>`만 드리프트로 본다)."""
+    from tests.test_strategy_conversation import _full_intent_dict, _run_primary_with
+
+    data = _full_intent_dict(
+        universe={"markets": ["KOSPI"], "sectors": []},
+        exit_conditions=[
+            {"factor": "technical.relative_return", "operator": "<", "value": 0,
+             "parameters": {"period": 60}, "source_text": "시장보다 못하면 매도"},
+        ],
+        ranking=[{"metric": "ranking.return", "lookback_days": 60}],
+        portfolio={"selection_count": 5, "rebalance_frequency": "monthly"},
+    )
+    result = _run_primary_with(
+        monkeypatch, data,
+        "KOSPI에서 최근 60거래일 수익률 상위 5종목, 시장보다 못하면 매도, PER 10 이하")
+    assert result is not None
+    assert [s.indicator for s in result["parsed"].exit_signals] == ["relative_return"]
+    assert result["parsed"].exit_signals[0].operator == "<"
+
+
 # ── ④-1 랭킹용 지수 패널(engine/market_index) ───────────────────────────────
 
 def test_relative_return_panel_subtracts_each_symbols_own_market_index(tmp_path, monkeypatch):
