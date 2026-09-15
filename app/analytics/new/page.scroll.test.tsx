@@ -511,19 +511,19 @@ describe("StrategyLabPage scroll behavior", () => {
     ).toBe(false);
     // 최초 질문(유니버스 선택)에도 '돌아가기'가 있다 — 되돌아갈 조건은 없지만 파스 턴을
     // 되돌려 적어 넣은 원문으로 돌아갈 수 있다(2026-09-04, page.back-after-parse.test.tsx).
-    expect(screen.getByRole("button", { name: "돌아가기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "전 단계" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "코스피" }));
     expect(
       await screen.findByRole("button", { name: "데드크로스(5일/20일) 발생 시 매도" }),
     ).toBeInTheDocument();
     // 두 번째 질문(매도 조건)부터는 '돌아가기' 버튼으로 직전 조건 버블로 되돌아갈 수 있다.
-    expect(screen.getByRole("button", { name: "돌아가기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "전 단계" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "돌아가기" }));
+    fireEvent.click(screen.getByRole("button", { name: "전 단계" }));
     expect(await screen.findByRole("button", { name: "코스피" })).toBeInTheDocument();
     // 되돌아온 첫 질문에도 '돌아가기'가 남는다 — 그 앞은 파스 턴(원문 복귀)이다.
-    expect(screen.getByRole("button", { name: "돌아가기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "전 단계" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "코스피" }));
     expect(
@@ -580,7 +580,7 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(
       screen.getByRole("button", { name: "이 전략으로 확정" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "돌아가기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "전 단계" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
     expect(parseCallCount).toBe(1);
     expect(classifyCallCount).toBe(1);
@@ -590,7 +590,7 @@ describe("StrategyLabPage scroll behavior", () => {
         .every((item) => item.getAttribute("data-complete") === "true"),
     ).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: "돌아가기" }));
+    fireEvent.click(screen.getByRole("button", { name: "전 단계" }));
     expect(await screen.findByRole("button", { name: "1,000만원" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "이 전략으로 확정" })).not.toBeInTheDocument();
     expect(parseCallCount).toBe(1);
@@ -1001,9 +1001,9 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(within(summary).getByText("유니버스")).toBeInTheDocument();
     expect(within(summary).getByText("삼성전자 (005930)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "이 전략으로 확정" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "돌아가기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "전 단계" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "돌아가기" }));
+    fireEvent.click(screen.getByRole("button", { name: "전 단계" }));
 
     expect(await screen.findByRole("button", { name: "1,000만원" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "이 전략으로 확정" })).not.toBeInTheDocument();
@@ -1371,7 +1371,7 @@ describe("StrategyLabPage scroll behavior", () => {
       }),
     ).toHaveAttribute("data-complete", "false");
     expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "돌아가기" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "전 단계" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "코스피" }));
 
@@ -1382,9 +1382,9 @@ describe("StrategyLabPage scroll behavior", () => {
       }),
     ).toHaveAttribute("data-complete", "true");
     expect(screen.getByRole("button", { name: "직접 입력" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "돌아가기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "전 단계" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "돌아가기" }));
+    fireEvent.click(screen.getByRole("button", { name: "전 단계" }));
 
     await waitFor(() => {
       expect(builderRequests.at(-1)).toEqual({ state: {}, input: "" });
@@ -1397,7 +1397,7 @@ describe("StrategyLabPage scroll behavior", () => {
       ).toHaveAttribute("data-complete", "false");
     });
     expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "돌아가기" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "전 단계" })).not.toBeInTheDocument();
   });
 
   it("scrolls to the bottom when a follow-up coach reply updates the existing assistant message", async () => {

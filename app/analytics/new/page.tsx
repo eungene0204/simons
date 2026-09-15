@@ -687,7 +687,7 @@ const FREE_INPUT_CHIP = "직접 입력";
 const NO_REBALANCING_CHIP = "안 함";
 const BUILDER_BACK_CHIP = "뒤로가기";
 const CONFIRM_STRATEGY_CHIP = "이 전략으로 확정";
-const CONFIRMATION_BACK_CHIP = "돌아가기";
+const CONFIRMATION_BACK_CHIP = "전 단계";
 
 function withFreeInputSuggestion(suggestions: string[] | undefined): string[] | undefined {
   if (!suggestions?.length || suggestions.includes(FREE_INPUT_CHIP)) return suggestions;

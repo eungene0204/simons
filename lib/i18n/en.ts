@@ -394,7 +394,7 @@ export const en: Record<string, string> = {
   "다시 시도": "Retry",
   "답변을 가져오지 못했습니다.": "Could not fetch a response.",
   "대화 종료": "End chat",
-  "돌아가기": "Go back",
+  "전 단계": "Previous step",
   "되돌린 전략으로 백테스트 요청을 다시 만들지 못했어요. 전략은 그대로 두었으니 바꾸고 싶은 조건을 말씀해 주세요.": "I couldn't rebuild the backtest request from the reverted strategy. The strategy is unchanged — tell me which condition you'd like to change.",
   "되돌릴 지점을 확인하지 못했어요. 어떤 변경을 되돌릴지 말씀해 주시면 반영해 드릴게요.": "I couldn't identify the point to revert to. Tell me which change to undo and I'll apply it.",
   "뒤로가기": "Back",

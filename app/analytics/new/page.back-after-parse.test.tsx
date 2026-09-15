@@ -158,7 +158,7 @@ describe("파스 턴 뒤 되묻기 카드의 '돌아가기'", () => {
   it("처음 적어 넣은 전략의 첫 질문에서 돌아가면 대화가 비고 원문이 입력창에 돌아온다", async () => {
     await sendFirstPrompt();
 
-    fireEvent.click(screen.getByRole("button", { name: "돌아가기" }));
+    fireEvent.click(screen.getByRole("button", { name: "전 단계" }));
 
     await waitFor(() => {
       expect(screen.queryByText(UNIVERSE_QUESTION)).not.toBeInTheDocument();
@@ -184,7 +184,7 @@ describe("파스 턴 뒤 되묻기 카드의 '돌아가기'", () => {
     expect(screen.queryByText(EXIT_QUESTION)).not.toBeInTheDocument();
     expect(parseBodies().at(-1).pending_question).toBe(EXIT_QUESTION);
 
-    fireEvent.click(screen.getByRole("button", { name: "돌아가기" }));
+    fireEvent.click(screen.getByRole("button", { name: "전 단계" }));
 
     // 매도 조건 질문 카드가 다시 '지금 답할 질문'이고, 자유 답변 버블은 지워진다.
     expect(await screen.findByText(EXIT_QUESTION)).toBeInTheDocument();
