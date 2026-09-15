@@ -386,6 +386,18 @@ class SignalEngine:
             direction = 'dead' if p.get('signalType') == 'sell' else 'golden'
             return crossover(obv, obv_sma, direction)
 
+        elif cid == 'volume_ratio':
+            # 거래량 배수(v16.10): 당일 거래량 ÷ 직전 N일 평균 거래량이 배수 임계를 넘는가.
+            # 평균이 없는 초기 구간(NaN)·평균 0은 NaN → compare_vec가 False로 떨어뜨린다.
+            period = p.get('period', 20)
+            vol = get_col('volume')
+            prev_sma = get_col(f'volume_{period}_prev_sma')
+            if vol is None or prev_sma is None:
+                return result
+            with np.errstate(divide='ignore', invalid='ignore'):
+                ratio = np.where(prev_sma > 0, vol / prev_sma, np.nan)
+            return compare_vec(ratio, p.get('operator', '>='), float(p.get('value', 2)))
+
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
             current_high = get_col('high')
@@ -743,6 +755,13 @@ class SignalEngine:
                 return False
             return (p_obv >= p_obv_sma and obv < obv_sma) if p.get('signalType') == 'sell' else (p_obv <= p_obv_sma and obv > obv_sma)
 
+        elif cid == 'volume_ratio':
+            period = p.get('period', 20)
+            vol, prev_sma = safe_get('volume', idx), safe_get(f'volume_{period}_prev_sma', idx)
+            if vol is None or prev_sma is None or not prev_sma > 0:
+                return False
+            return compare(vol / prev_sma, p.get('operator', '>='), float(p.get('value', 2)))
+
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
             current_high = safe_get('high', idx)
@@ -961,6 +980,11 @@ class SignalEngine:
         elif cid == 'volume_spike':
             sell = p.get('signalType') == 'sell'
             return [tr.part(tr.VOLUME_OBV_DEAD_CROSS if sell else tr.VOLUME_OBV_GOLDEN_CROSS)]
+        elif cid == 'volume_ratio':
+            period = p.get('period', 20)
+            val = p.get('value', 2)
+            vr_op_seg = op_seg if op else tr.part(tr.OP_GTE)
+            return [tr.part(tr.VOLUME_RATIO, period, f"{float(val):g}", vr_op_seg)]
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
             sell = p.get('signalType') == 'sell'

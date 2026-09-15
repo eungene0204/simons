@@ -29,6 +29,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+import numpy as np
 import polars as pl
 
 _logger = logging.getLogger(__name__)
@@ -93,6 +94,46 @@ def load_index_frame(market: str, data_dir: str | os.PathLike) -> Optional[pl.Da
     if not path.exists():
         return None
     return _load_cached(str(path), path.stat().st_mtime_ns)
+
+
+def index_close_panel(symbols: Iterable[str], date_index, data_dir: str | os.PathLike):
+    """(날짜 × 종목) 지수 종가 패널 — 각 종목 열에 **그 종목의 상장 시장** 지수 종가를 넣는다.
+
+    시장 대비 초과수익률 **랭킹**(v16.10)용. 코스피·코스닥을 함께 담아도 종목마다 제 시장
+    지수를 빼므로 순위가 정확하다. 지수가 없는 종목(미국·마스터 밖)은 열 전체가 NaN —
+    상대 수익률이 정의되지 않아 후보에서 자연 배제된다(조건 경로의 fail-closed와 같은 계약).
+    """
+    import pandas as pd
+
+    symbols = list(symbols)
+    out = pd.DataFrame(np.nan, index=date_index, columns=symbols, dtype=float)
+    series_by_market: Dict[Optional[str], Optional[Any]] = {}
+    for sym in symbols:
+        market = market_for_symbol(sym)
+        if market not in series_by_market:
+            frame = load_index_frame(market, data_dir) if market else None
+            if frame is None:
+                series_by_market[market] = None
+            else:
+                ser = frame.to_pandas().set_index("date")[INDEX_CLOSE_COL].astype(float)
+                ser.index = pd.DatetimeIndex(ser.index)
+                # 종목 거래일에 지수 휴장일이 섞이는 드문 날은 전진 충전(조건 경로와 동일).
+                series_by_market[market] = ser.reindex(pd.DatetimeIndex(date_index), method="ffill")
+        ser = series_by_market[market]
+        if ser is not None:
+            out[sym] = ser.to_numpy()
+    return out
+
+
+def relative_return_panel(raw_price_df, lookback: int, data_dir: str | os.PathLike):
+    """종목별 N거래일 초과수익률 패널(종목 수익률 − 자기 시장 지수 수익률, 비율) — 랭킹용.
+
+    입력은 bfill 전 원시 종가 패널이어야 한다(lookback_return_panel과 같은 계약, v13.3).
+    """
+    from engine.indicators import lookback_return_panel
+
+    index_panel = index_close_panel(raw_price_df.columns, raw_price_df.index, data_dir)
+    return lookback_return_panel(raw_price_df, lookback) - lookback_return_panel(index_panel, lookback)
 
 
 def uses_relative_return(conditions: Optional[Iterable[Dict[str, Any]]]) -> bool:

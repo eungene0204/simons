@@ -34,6 +34,8 @@ class StrategyValidationAgent:
         "stochastic",
         "trading_value",
         "volume_spike",
+        "volume_ratio",
+        "relative_return",
         "williams_r",
     }
     _RISK_CONDITIONS = {

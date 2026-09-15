@@ -252,6 +252,24 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
             # 같은 방향의 부등호로 정규화한다(LLM 출력 표기 정규화 — 원문을 읽지 않는다).
             # 종전엔 여기서 오류만 남기고 컴파일러가 연산자·값을 조용히 버려 엔진 기본값
             # (ADX ≥ 25)으로 백테스트됐다 — 사용자가 말한 값이 반대 방향 기본값으로 바뀐다.
+            if spec.id == "technical.volume_spike" and cond.value is not None:
+                # 배수가 실린 거래량 조건('평소보다 1.5배')의 정본은 v16.10부터 거래량 배수
+                # 지표(technical.volume_ratio, 당일 거래량 ÷ 직전 N일 평균)다. LLM이 옛 자리
+                # (volume_spike + value)에 내면 지표만 옮긴다 — 값·기간은 그대로이고 표기만
+                # 보고 결정하는 정규화다(원문을 읽지 않는다). 연산자가 없으면 '이상'.
+                ontology_logger.info(
+                    "거래량 배수 정본 착지 | %s 조건 volume_spike(value=%s) → volume_ratio 원문=%r",
+                    role, cond.value, cond.source_text,
+                )
+                spec = resolve("technical.volume_ratio")
+                cond.factor = spec.id
+                if cond.operator not in _COMPARISON_OPS:
+                    cond.operator = ">="
+            elif spec.id == "technical.volume_spike" and cond.operator in _COMPARISON_OPS:
+                # 값 없는 부등호('거래대금이 늘어난' → volume_spike '>')는 배수가 아니라 근사
+                # 표기 드리프트다 — 연산자만 걷는다(OBV 교차에는 연산자가 없다). 종전엔 이
+                # 연산자가 '허용되지 않는 연산자' 오류로 조건을 통째로 탈락시켰다.
+                cond.operator = None
             if spec.category == "technical" and spec.allowed_operators == _COMPARISON_OPS \
                     and cond.operator in _CROSS_TO_COMPARISON:
                 cond.operator = _CROSS_TO_COMPARISON[cond.operator]
@@ -281,12 +299,12 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
     for rank in strategy.ranking:
         spec = resolve(rank.metric)
         if spec is not None and spec.id == "technical.relative_return":
-            # '상대강도 상위 N%'를 LLM이 조건 지표 technical.relative_return(시장 대비
-            # 초과수익률)로 랭킹에 앉히는 드리프트(2026-09-14 실측: 예시 2건이 "알 수 없는
-            # 랭킹 기준" 미지원 안내로 랭킹을 잃었다). 정본은 프롬프트가 정한 대로
-            # ranking.return(기간 수익률 랭킹)이다 — 같은 날짜·같은 기간의 순위라 지수
-            # 수익률을 빼도 순서가 같다. 표기만 보고 결정하는 LLM 출력 정규화다.
-            spec = resolve("ranking.return")
+            # 조건 지표 technical.relative_return(시장 대비 초과수익률)을 랭킹 자리에 낸 출력.
+            # v16.10부터 랭킹 정본은 ranking.relative_return(종목 수익률 − 자기 시장 지수
+            # 수익률 순위)이다 — 코스피·코스닥을 함께 담아도 종목마다 제 시장 지수를 빼므로
+            # 정확하다(2026-09-14~15의 ranking.return 근사와 그 안내는 폐지). 표기만 보고
+            # 옮기는 LLM 출력 정규화다.
+            spec = resolve("ranking.relative_return")
         # 랭킹 가능 지표: ranking.*(모멘텀) + fundamental.*(재무 팩터 랭킹, 2026-08-03 —
         # as-of 재무 컬럼 순위 선정). trading_value는 파케이 컬럼이 아니라 엔진 즉석 계산이라
         # 랭킹 수집 경로에 없어 제외한다(engine.nl_parser.RankingMetricLiteral과 동일 계약).
@@ -424,6 +442,21 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                     role=ui_language.msg(_role, "entry" if _role == "진입" else "exit"), name=_name,
                 ))
             setattr(strategy, _attr, _kept_conds)
+        _kept_ranks = []
+        for _rank in strategy.ranking:
+            _rspec = resolve(_rank.metric)
+            if _rspec is None or _rspec.id != "ranking.relative_return":
+                _kept_ranks.append(_rank)
+                continue
+            unsupported.append(f"미국 시장 × {_rspec.display_name}")
+            errors.append(ui_language.msg(
+                "미국 시장에서는 '{name}'을(를) 아직 사용할 수 없습니다 "
+                "(미국 지수 시계열 미수집) — 기간 수익률 랭킹으로 바꿔 주세요",
+                "'{name}' isn't available for US markets yet "
+                "(US index history isn't collected) — try a period-return ranking instead",
+                name=_rspec.display_name,
+            ))
+        strategy.ranking = _kept_ranks
         if len(_us_markets) > 1:
             errors.append(ui_language.msg(
                 "미국 시장/지수는 한 전략에 하나만 지정할 수 있습니다 "

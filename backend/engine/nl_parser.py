@@ -496,7 +496,7 @@ _FUNDAMENTAL_METRIC_ALIASES: dict[str, str] = {
 # trading_value는 파케이 컬럼이 아니라 엔진이 즉석 계산(close×volume)하는 값이라 랭킹
 # 수집 경로(연간 재무 컬럼 ffill)에 태울 수 없어 제외한다.
 RankingComponentMetricLiteral = Literal[
-    "return", "volatility",
+    "return", "volatility", "relative_return",
     "per", "pbr", "psr", "pcr", "ev_ebitda", "ev_ebit", "roe_or_gpa", "roa", "debt_ratio",
     "current_ratio", "quick_ratio", "reserve_ratio", "net_margin", "gross_margin",
     "operating_margin", "revenue_growth", "operating_income_growth", "net_income_growth",
@@ -620,10 +620,10 @@ class TechnicalSignal(BaseModel):
     """기술적 지표 진입/청산 신호"""
     indicator: Literal[
         "ma_crossover", "rsi", "ema", "macd",
-        "bollinger_bands", "breakout", "volume_spike",
+        "bollinger_bands", "breakout", "volume_spike", "volume_ratio",
         "stochastic", "cci", "adx", "williams_r", "mfi", "roc", "volatility",
         "relative_return", "trading_value", "ai_model", "ai_drop_model"
-    ] = Field(description="지표 종류. williams_r=Williams %R(-100~0), mfi=자금흐름지표(0~100), roc=변화율/모멘텀(%), volatility=연환산 변동성(%, 일수익률 롤링 표준편차×√246), relative_return=시장 대비 초과수익률(%p, 종목 N일 수익률−상장 시장 지수 N일 수익률), ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도")
+    ] = Field(description="지표 종류. williams_r=Williams %R(-100~0), mfi=자금흐름지표(0~100), roc=변화율/모멘텀(%), volatility=연환산 변동성(%, 일수익률 롤링 표준편차×√246), relative_return=시장 대비 초과수익률(%p, 종목 N일 수익률−상장 시장 지수 N일 수익률), volume_ratio=거래량 배수(당일 거래량 ÷ 직전 N일 평균 거래량, value=배수), ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도")
     signal_type: Literal["buy", "sell"] = Field(default="buy", description="매수=buy, 매도=sell")
 
     # MA / EMA 크로스오버
@@ -922,6 +922,7 @@ class ParsedStrategy(BaseModel):
         default=None,
         description=(
             "종목 간 순위로 선정하는 방식. 'return'=최근 수익률 상위 종목 선정(상대강도/모멘텀 랭킹), "
+            "'relative_return'=시장 대비 초과수익률(종목 수익률−상장 시장 지수 수익률) 순위 선정, "
             "'volatility'=연환산 변동성 순위 선정(저변동성 전략은 direction='bottom'), "
             "재무 지표명(operating_margin 등)=그 지표 값 순위로 선정(재무 팩터 랭킹). "
             "예: '최근 60일 수익률 높은 상위 N종목', '변동성 낮은 20종목', '영업이익률 상위 20종목'. "
@@ -930,7 +931,7 @@ class ParsedStrategy(BaseModel):
     )
     ranking_lookback_days: Optional[int] = Field(
         default=None,
-        description="랭킹 산정 기간(거래일). 예: '60거래일 수익률'=60. ranking_metric='return'/'volatility'일 때만. 없으면 null(기본 60)",
+        description="랭킹 산정 기간(거래일). 예: '60거래일 수익률'=60. ranking_metric='return'/'relative_return'/'volatility'일 때만. 없으면 null(기본 60)",
     )
     ranking_direction: Optional[Literal["top", "bottom"]] = Field(
         default=None,
@@ -4050,10 +4051,8 @@ _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     # 우선주 — 종목 마스터가 보통주만 담고 있어 우선주 지정은 표현 불가. 보통주로 조용히
     # 바꿔치기하지 않는다(레드팀 QA 10-6).
     ("preferred_stock", r"우선주"),
-    # 거래량 배수 임계값("평소보다 3배") — volume_spike는 OBV 크로스오버라 배수를 표현할 수
-    # 없다(TechnicalSignal에 해당 필드 없음). 배수 없는 '거래량 급증'은 지원 개념이므로 제외.
-    # 절 경계(쉼표/마침표)를 넘는 매칭 금지 — "거래량 급증, 3배 수익"의 '3배'는 배수 조건이 아니다.
-    ("volume_multiple", r"(?:거래량|거래대금)[^,.]{0,10}\d+(?:\.\d+)?배|\d+(?:\.\d+)?배[^,.]{0,4}(?:거래량|거래대금)"),
+    # 거래량 배수("평소보다 3배")는 v16.10부터 지원 지표(volume_ratio)다 — 구현 시 목록에서
+    # 제거하는 원칙(FR-STR-023d)대로 2026-09-15 제거. 칩 결속 가드는 _CHIP_VOLUME_MULTIPLE_RE.
     # 미지원 기술 지표/분석 기법 — 감지 공백으로 LLM 폴백이 안내 없이 일반 되묻기만 하던
     # 막다른 길(퍼징 QA BF-16) 보정. 구현(지원) 시 이 목록에서 제거할 것(커버리지 가드 원칙).
     ("ichimoku", r"이치모쿠|일목균형표|ichimoku"),
@@ -4092,7 +4091,6 @@ _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
     "min_hold_period": "최소 보유 기간(하한) 조건 — 최대 보유 기간(만료 시 청산)만 지원",
     "partial_exit": "분할 매도/부분 청산",
     "new_low": "신저가 조건",
-    "volume_multiple": "거래량 배수 조건(평소 대비 N배)",
     "atr_stop": "ATR 기반 스탑(고정 % 손절·트레일링 스탑으로 대체 가능)",
     "averaging_down": "물타기/추가 매수(분할 진입)",
     "intraday": "실시간/장중 단위 매매·리밸런싱(일봉 기준만 지원)",
@@ -4110,6 +4108,19 @@ _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
 _SECTOR_AGNOSTIC_RE = re.compile(
     r"(?:업종|섹터|테마|분야)[은는이가]?(?:상관|구분|제한|관계)?없|(?:모든|전체?)(?:업종|섹터)|업종불문"
 )
+
+
+# 칩 텍스트 전용 가드(입력=우리/planner가 만든 칩 문구, 사용자 원문이 아니다). 거래량 배수는 v16.10부터
+# 엔진이 지원하지만 칩 결속기(_apply_prompt_overrides)는 배수를 volume_ratio로 옮기지 못하므로,
+# 배수를 언급한 칩은 '거래량 급증'만 부분 결속돼 배수가 조용히 사라진다(2026-08-02 사고 계급).
+# 결속기가 배수를 옮길 수 있을 때까지 그런 칩은 노출하지 않는다.
+_CHIP_VOLUME_MULTIPLE_RE = re.compile(
+    r"(?:거래량|거래대금)[^,.]{0,10}\d+(?:\.\d+)?배|\d+(?:\.\d+)?배[^,.]{0,4}(?:거래량|거래대금)"
+)
+
+
+def chip_mentions_unbindable_volume_multiple(chip_text: str) -> bool:
+    return bool(_CHIP_VOLUME_MULTIPLE_RE.search(chip_text or ""))
 
 
 def _mentioned_unsupported_concepts(user_input: str) -> list[str]:

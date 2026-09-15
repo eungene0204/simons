@@ -185,6 +185,15 @@ class IndicatorEngine:
                         sdf[f'obv_{period}_sma'] = sdf['obv'].rolling(window=period).mean()
                         target_cols.add('obv')
                         target_cols.add(f'obv_{period}_sma')
+                    elif cid == 'volume_ratio':
+                        # 거래량 배수(v16.10): 당일 거래량 ÷ **직전** N일 평균 거래량. 평균에서
+                        # 당일을 빼는 이유는 '평소 대비'의 평소가 오늘을 포함하면 배수가 자기
+                        # 자신에 희석되기 때문이다(HTS '거래량 평균 대비'와 같은 정의).
+                        # 신호 판정(signals.py)은 배수 임계값과 부등호로 비교한다.
+                        period = p.get('period', 20)
+                        col = f'volume_{period}_prev_sma'
+                        sdf[col] = sdf['volume'].rolling(window=period).mean().shift(1)
+                        target_cols.add(col)
                     elif cid == 'breakout':
                         log("Handling breakout")
                         period = p.get('lookbackPeriod', 20)

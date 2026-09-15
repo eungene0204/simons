@@ -163,6 +163,20 @@ const INITIAL_CAPITAL_BY_CHOICE: Record<string, number> = {
   "$100,000": 100_000,
 };
 
+/** 칩 클릭을 프론트 로컬 레인(게이트 슬롯 값 확정)이 받아도 되는가.
+ *
+ *  로컬 레인은 "게이트가 방금 물은 슬롯"에 칩의 값을 꽂는다 — 판정 근거는 되묻기 메시지가
+ *  기록한 슬롯(clarificationField)이다. 백엔드가 낸 질문(랭킹 산정 기간·조건 기준값 등)은
+ *  게이트 슬롯이 아니라서 그 필드가 비어 있고, 그 칩을 로컬 레인이 받으면 게이트의 다음
+ *  빈 슬롯에 엉뚱한 숫자가 들어간다(2026-09-15 실측: '수익률 산정 기간 60일' → 익절 60%).
+ *  그런 칩은 백엔드 결정론 칩 레인(run_chip_answer, 발행 시 결속값)이 처리한다. */
+export function chipAnswersGateSlot(
+  askedField: string | undefined | null,
+  gateField: MissingBacktestCondition["field"],
+): boolean {
+  return askedField === gateField;
+}
+
 function parseFirstNumber(choice: string): number | null {
   const match = choice.replace(/,/g, "").match(/\d+(?:\.\d+)?/);
   return match ? Number(match[0]) : null;

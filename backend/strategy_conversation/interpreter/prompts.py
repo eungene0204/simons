@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "5.8"
+PROMPT_VERSION = "6.0"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -162,6 +162,11 @@ NON_STRATEGY_REQUEST(전략과 무관)
   parameters {{"period": N}} (N=말한 기간의 거래일 환산: 1개월=21, 3개월=63, 6개월=126, 1년=252).
   '덜 떨어진'·'강한'·'웃도는'은 시장보다 수익률이 **높다**는 뜻이라 ">"입니다(하락을 말해도 "<"가 아님) —
   '시장보다 더 떨어진'만 "<", value 0. ranking.return이나 unsupported_features로 보내지 마세요.
+- ranking.relative_return: '시장 대비 수익률 상위 N종목'·'초과수익률 상위'·'시장보다 많이 오른 순으로
+  N종목'처럼 시장 대비 수익률의 **순위로 종목을 고르는** 요청은 조건이 아니라 strategy.ranking에
+  {{"metric":"relative_return","lookback_days":N}}입니다(기간을 말하지 않았으면 null — 시스템이
+  되묻습니다). 종목 수는 portfolio.selection_count. '시장 대비' 없이 '수익률 상위'·'상대강도 상위'만
+  말했으면 종전대로 ranking.return입니다.
 - ranking.volatility: '변동성 낮은(안정적인) 종목 N개'류 저변동성 선정 → strategy.ranking에 {{"metric":"ranking.volatility"}} (direction은 사용자가 '낮은/높은'을 말했을 때만 — '변동성 낮은'=direction:"bottom". 산정 기간을 말했으면 lookback_days — '200일 변동성'=lookback_days:200). '변동성 하위 10%만 편입'처럼 **비율 편입**이면 그 10은 조건 value(백분위)가 아니라 portfolio.selection_percent=10입니다(아래 비율 규칙과 동일 — 백분위를 조건 value로 넣으면 편입 규모가 사라집니다). '변동성 30% 이하'처럼 **연환산 % 임계값 조건**이면 랭킹이 아니라 entry_conditions에 factor technical.volatility.
 - 재무 지표 상위/하위 N종목 선정('영업이익률 상위 20종목', 'PER 낮은 상위 10종목')은 조건이 아니라 랭킹입니다 → strategy.ranking에 {{"metric":"fundamental.operating_margin","direction":"top"}} (낮은 순은 direction:"bottom"). 종목 수는 portfolio.selection_count로.
 - **direction은 사용자가 정렬 방향을 말했을 때만 출력하세요**('낮은 순'·'높은 순'·'가장 싼'·'상위'가 어느 쪽인지 분명할 때). 방향 언급이 없으면(예: 'PER 기준으로 20종목') direction을 **비워 두세요(null)** — 지표마다 선호 방향이 정해져 있어 시스템이 위 어휘의 [낮을수록 선호]/[높을수록 선호] 표시대로 채웁니다. 임의로 "top"을 채우면 저평가 지표에서 가장 비싼 종목을 고르는 정반대 전략이 됩니다.
@@ -251,8 +256,9 @@ NON_STRATEGY_REQUEST(전략과 무관)
    마세요), "take-profit ... +12%" → take_profit=12, "hold(s) for (only) 15 trading days"
    ·"maximum holding period of 20 trading days" → portfolio.hold_period_days=15/20.
    영어 정성 표현도 한국어와 같은 자리입니다(실측 2026-08-26, /us 자유입력 — 아래
-   표현이 해석 실패 되묻기로 빠졌습니다): "volume explodes to 3x the average"·"volume
-   spikes" → technical.volume_spike(임계값 불필요), "eight stocks"처럼 철자 숫자 종목
+   표현이 해석 실패 되묻기로 빠졌습니다): "volume explodes to 3x the average" →
+   technical.volume_ratio operator ">=" value=3(규칙 5-2), "volume spikes" →
+   technical.volume_spike value=null, "eight stocks"처럼 철자 숫자 종목
    수 → selection_count=8, "double my money" → take_profit=100. 금액이 붙은 거래대금
    ("daily trading value of $100 million or more")은 volume_spike가 아니라
    fundamental.trading_value >= 1(억 환산)입니다.
@@ -268,12 +274,12 @@ NON_STRATEGY_REQUEST(전략과 무관)
    영어 표기도 같습니다: "breaks (above) the 60-day high"→lookback_period=60,
    "52-week high"→252. lookback_period 외의 파라미터(short_period 등)를 지어 넣지
    마세요(실측 2026-08-26: 미지원 파라미터로 검증에 걸려 조건이 값-대기로 빠졌습니다).
-5-2. '거래량이 급증/평소보다 늘어남/평균 대비 증가/터짐'은 거래량 급증 신호
-   (technical.volume_spike, 임계값 불필요)입니다 — 억원 임계가 있는 거래대금 조건으로
-   분류하지 마세요. '평소보다 3배'처럼 **배수 임계**가 붙으면 급증 신호는
-   volume_spike로 넣되 배수는 표현할 수 없으므로 그 배수 표현("평소보다 3배")을
-   unsupported_features에도 넣으세요(조용히 배수를 버리면 조건이 약해진 것을
-   사용자가 모릅니다). 'N억 이상'처럼 금액 임계가 있을 때만 거래대금 조건이고, 종목을 거르는
+5-2. '거래량이 급증/평소보다 늘어남/평균 대비 증가/터짐'처럼 **배수 없이** 말한 거래량 조건은
+   거래량 급증 신호(technical.volume_spike, value=null)입니다 — 억원 임계가 있는 거래대금
+   조건으로 분류하지 마세요. '평소보다 3배'·'20일 평균보다 1.5배 많은'처럼 **배수**를 말했으면
+   거래량 배수 조건(technical.volume_ratio)입니다 → operator ">=", value=3 / 1.5 (unit "ratio"),
+   평균 기간을 말했으면 parameters.period=20. 배수를 버리거나 unsupported_features로 보내지
+   마세요. 'N억 이상'처럼 금액 임계가 있을 때만 거래대금 조건이고, 종목을 거르는
    기준이면 fundamental.trading_value(기본), 그 시점의 진입·청산 트리거면
    technical.trading_value입니다. 둘 다 entry_conditions/exit_conditions에 넣습니다.
 5-3. '~ 위에 있을 때'·'~ 위에 있는 종목'·'정배열'·'주가가 N일선을 상향/하향 돌파'처럼

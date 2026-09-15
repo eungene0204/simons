@@ -3565,23 +3565,18 @@ def test_unsupported_concept_notice_none_for_supported_prompt():
     ) is None
 
 
-def test_volume_multiple_threshold_flagged_as_unsupported():
-    """[침묵 왜곡 방지] '거래량 평소 대비 N배'의 배수 임계값은 volume_spike(OBV 크로스오버)가
-    표현할 수 없다 — 조용히 버리는 대신 미지원 개념으로 안내하고 LLM 폴백에 위임한다."""
+def test_volume_multiple_is_no_longer_an_unsupported_concept():
+    """[2026-09-15, 엔진 v16.10] '거래량 평소 대비 N배'는 거래량 배수 지표(volume_ratio)로 지원된다 —
+    구현 시 미지원 목록에서 제거하는 원칙(FR-STR-023d). 종전엔 미지원 개념으로 안내하고 LLM에
+    위임했다. 배수 없는 '거래량 급증'은 종전대로 지원 개념이다."""
     from engine.nl_parser import build_unsupported_concept_notice
 
     prompt = "거래량이 평소보다 3배 이상 늘면 매수, 손절 8%"
-    assert _mentions_unsupported_concept(prompt) == "volume_multiple"
-    assert _parse_rule_based_strategy(prompt) is None  # 룰 파스가 부분 해석을 내놓지 않는다
-    notice = build_unsupported_concept_notice(prompt)
-    assert notice is not None and "거래량 배수" in notice
-
-    # 역순 표현("평소 대비 2배 거래량")도 잡는다.
-    assert _mentions_unsupported_concept("평소 대비 2배 거래량이면 매수") == "volume_multiple"
-    # 배수 없는 '거래량 급증'은 지원 개념 — 오폴백하지 않는다.
+    assert _mentions_unsupported_concept(prompt) is None
+    assert _mentions_unsupported_concept("평소 대비 2배 거래량이면 매수") is None
     assert _mentions_unsupported_concept("거래량 급증하면 매수, 손절 8%") is None
-    # 절 경계를 넘는 오탐 금지 — '3배'가 거래량이 아니라 수익 목표를 수식하는 경우.
-    assert _mentions_unsupported_concept("거래량 급증 매수, 3배 수익 목표") is None
+    notice = build_unsupported_concept_notice(prompt)
+    assert notice is None or "거래량 배수" not in notice
 
 
 def test_news_condition_flagged_as_unsupported():
@@ -5376,6 +5371,33 @@ def test_parser_and_validator_share_one_num_ctx():
     from engine.parse_validator import _VALIDATION_NUM_CTX
 
     assert _VALIDATION_NUM_CTX == _OLLAMA_NUM_CTX
+
+
+def test_build_parse_result_gate_honors_this_turns_declined_fields():
+    """[회귀 2026-09-15] 거부 칩('익절 안 함')을 백엔드 결정론 레인이 방금 반영한 턴 — 최소 조건
+    게이트가 이번 턴의 거부 목록을 봐야 한다. 종전엔 요청의 이전 턴 목록만 봐서 같은 응답이
+    익절을 다시 물었다(프론트 로컬 레인이 거부 칩을 가로채던 동안 잠복, 칩 게이트 슬롯 가드
+    도입으로 드러남)."""
+    import time
+
+    import main
+    from engine.nl_parser import ParsedStrategy, TechnicalSignal
+
+    parsed = ParsedStrategy(
+        description="테스트", universe=["KOSPI"],
+        entry_signals=[TechnicalSignal(indicator="ma_crossover", signal_type="buy")],
+        exit_signals=[TechnicalSignal(indicator="ma_crossover", signal_type="sell")],
+        max_positions=5, rebalancing_period="monthly", rebalance_method="reconstitute",
+        stop_loss_pct=10, take_profit_pct=None, backtest_period="1y", initial_capital=10_000_000,
+    )
+    kwargs = dict(load_ms=0.0, parse_ms=0.0, request_started=time.perf_counter(),
+                  scan_prompt_for_sector=False)
+    request = main.NLParseRequest(prompt="익절 안 함", backend="ollama", previous_declined_fields=None)
+    stale = main._build_parse_result(request, "ollama", parsed.model_copy(deep=True), None, **kwargs)
+    assert "익절" in (stale["clarification_question"] or "")  # 거부 없이는 익절을 묻는다(대조군)
+    fresh = main._build_parse_result(
+        request, "ollama", parsed.model_copy(deep=True), None, declined_fields=["take_profit"], **kwargs)
+    assert "익절" not in (fresh["clarification_question"] or ""), fresh["clarification_question"]
 
 
 def test_build_parse_result_skips_raw_prompt_unsupported_notice_on_primary_lane():

@@ -3390,8 +3390,14 @@ def _ensure_field_states(result: dict) -> None:
 def _build_parse_result(request: NLParseRequest, backend: str, parsed, validation_report,
                         *, load_ms: float, parse_ms: float, request_started: float,
                         scan_prompt_for_sector: bool = True,
-                        pending_conditions: Optional[List[dict]] = None) -> dict:
+                        pending_conditions: Optional[List[dict]] = None,
+                        declined_fields: Optional[List[str]] = None) -> dict:
     """parsed(ParsedStrategy)로부터 응답 payload를 구성한다.
+
+    declined_fields: **이번 턴까지** 누적된 거부 목록(거부 칩 결정론 레인이 방금 만든 것 포함).
+    None이면 요청에 실린 이전 턴 목록을 쓴다 — 종전엔 항상 이전 턴 목록만 봐서, 백엔드
+    레인에서 '익절 안 함'을 방금 반영한 같은 응답이 익절을 다시 물었다(2026-09-15 실측 —
+    프론트 로컬 레인이 거부 칩을 가로채던 동안 잠복).
 
     인라인 경로(_run_nl_parse)와 후행 검증 경로(_complete_deferred_validation)가 공유한다 —
     교정된 전략도 하한선 보정·DSL 변환·되묻기 감지를 동일하게 거치게 하기 위한 추출.
@@ -3559,7 +3565,8 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         from strategy_conversation.primary import _pending_ask_payload
 
         gate_slots = next_incomplete_backtest_slots(
-            parsed, request.prompt, request.previous_declined_fields)
+            parsed, request.prompt,
+            declined_fields if declined_fields is not None else request.previous_declined_fields)
         if gate_slots:
             slot = gate_slots[0]
             clarification_question = slot.question
@@ -4064,6 +4071,8 @@ def _run_nl_parse_traced(request: NLParseRequest, on_stage=None,
             # 값 대기 조건은 primary가 이미 산출했다 — 미지원 안내 판정에 함께 넘긴다
             # (되묻는 조건을 "지원되지 않아요"라고 안내하던 모순 방지).
             pending_conditions=primary_holder.get("pending_conditions") if primary_holder else None,
+            # 거부 칩 레인이 이번 턴에 만든 거부 목록 — 게이트가 방금 거부한 슬롯을 다시 묻지 않게.
+            declined_fields=primary_holder.get("declined_fields") if primary_holder else None,
         )
         if primary_holder:
             from strategy_conversation.primary import apply_primary_meta

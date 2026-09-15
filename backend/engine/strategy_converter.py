@@ -377,6 +377,13 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
     elif sig.indicator == "volume_spike":
         params["period"] = sig.period or 20
 
+    elif sig.indicator == "volume_ratio":
+        params["period"] = sig.period or 20
+        if sig.operator:
+            params["operator"] = sig.operator
+        if sig.value is not None:
+            params["value"] = sig.value
+
     elif sig.indicator == "stochastic":
         params["mode"] = sig.mode or "crossover"
         if sig.operator:

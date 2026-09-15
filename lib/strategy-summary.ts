@@ -401,6 +401,7 @@ export const INDICATOR_LABELS: Record<string, string> = {
   bollinger_bands: "볼린저밴드",
   breakout: "브레이크아웃",
   volume_spike: "거래량 급증",
+  volume_ratio: "거래량 배수",
   stochastic: "스토캐스틱",
   cci: "CCI",
   adx: "ADX",
@@ -527,6 +528,13 @@ export function getSignalLabel(
   if (signal.indicator === "trading_value" && signal.value != null) {
     const opKr = t(OPERATOR_KO_LABELS[signal.operator ?? ">="] ?? signal.operator ?? "");
     return t("거래대금 {0} {1}", formatEokAmount(signal.value), opKr);
+  }
+
+  // 거래량 배수(엔진 v16.10, 당일 거래량 ÷ 직전 N일 평균)는 배수와 기간이 조건의 정체다 —
+  // "거래량 배수"만 나가면 사용자가 말한 1.5배가 카드에서 사라진다.
+  if (signal.indicator === "volume_ratio" && signal.value != null) {
+    const opKr = t(OPERATOR_KO_LABELS[signal.operator ?? ">="] ?? signal.operator ?? "");
+    return t("거래량 {0}일 평균의 {1}배 {2}", signal.period ?? 20, signal.value, opKr);
   }
 
   if (signal.indicator === "ai_model" && (context === "exit" || signal.signal_type === "sell")) {
@@ -739,6 +747,18 @@ export function getRankingLabel(parsed: ParsedSummary): string | null {
       return days != null ? t("{0}일 수익률 하위", days) : t("수익률 하위(산정 기간 미정)");
     }
     return days != null ? t("{0}일 수익률 상위", days) : t("수익률 상위(산정 기간 미정)");
+  }
+  if (parsed.ranking_metric === "relative_return") {
+    // 시장 대비 초과수익률 랭킹(엔진 v16.10) — 종목 수익률에서 자기 시장 지수 수익률을 뺀 순위.
+    const days = parsed.ranking_lookback_days;
+    if (parsed.ranking_direction === "bottom") {
+      return days != null
+        ? t("{0}일 시장 대비 수익률 하위", days)
+        : t("시장 대비 수익률 하위(산정 기간 미정)");
+    }
+    return days != null
+      ? t("{0}일 시장 대비 수익률 상위", days)
+      : t("시장 대비 수익률 상위(산정 기간 미정)");
   }
   if (parsed.ranking_metric === "volatility") {
     // 엔진의 방향 미지정 기본은 bottom(저변동성 선호) — backtest_engine 변동성 분기 미러.

@@ -1195,7 +1195,7 @@ def _dedupe_relative_return_against_ranking(intent: StrategyIntent) -> List[str]
     lookbacks = {
         rank.lookback_days for rank in strategy.ranking
         if (resolve(rank.metric) or type("_", (), {"id": None})).id
-        in ("ranking.return", "technical.relative_return")
+        in ("ranking.return", "ranking.relative_return", "technical.relative_return")
     }
     if not lookbacks:
         return []
@@ -2505,6 +2505,7 @@ def _bind_chips(
         return list(chips), {}, {}, {}
     from engine.nl_parser import (
         ParsedStrategy, _apply_prompt_overrides, _mentioned_unsupported_concepts,
+        chip_mentions_unbindable_volume_multiple,
     )
 
     try:
@@ -2544,6 +2545,10 @@ def _bind_chips(
             bindings[text] = {"initial_capital": capital_value}
             continue
         unsupported = _mentioned_unsupported_concepts(text)
+        if chip_mentions_unbindable_volume_multiple(text):
+            # 거래량 배수는 엔진(v16.10)이 지원하지만 이 결속기는 배수를 옮기지 못한다 —
+            # '거래량 급증'만 부분 결속된 채 배수가 사라지는 칩은 노출하지 않는다.
+            unsupported = list(unsupported) + ["volume_multiple(결속 불가)"]
         if unsupported:
             _log_llm("↩ 칩 노출 제외",
                      f"칩 '{text}' 미지원 개념 언급({', '.join(unsupported)}) — 부분 결속 여부와 무관")

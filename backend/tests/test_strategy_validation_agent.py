@@ -173,9 +173,13 @@ def test_engine_supported_metrics_are_not_flagged_unsupported():
     from engine.signals import FUNDAMENTAL_CIDS
 
     metric_rules = [{"metric": cid, "operator": ">=", "value": 1} for cid in FUNDAMENTAL_CIDS]
+    # 기술 지표도 엔진 SOT(data_resolver.TECHNICAL_IDS) 전부를 대조한다 — 2026-09-15 실측:
+    # v16.10 신설 volume_ratio가 화이트리스트에 없어 전략 검증 패널이 "지원하지 않는 필드"를 냈다.
+    from engine.data_resolver import TECHNICAL_IDS
+
     indicator_rules = [
         {"indicator": name, "operator": ">=", "value": 1}
-        for name in ("williams_r", "mfi", "roc")
+        for name in sorted(TECHNICAL_IDS)
     ]
     result = StrategyValidationAgent().validate(
         _valid_strategy(entry_rule=metric_rules + indicator_rules)

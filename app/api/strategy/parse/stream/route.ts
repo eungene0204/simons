@@ -13,6 +13,8 @@ type ParseStreamBody = {
   pending_question?: string | null;
   // 이전 턴까지 사용자가 명시한 설정 필드 에코(provenance 누적 — 무상태 계약)
   previous_explicit_fields?: string[];
+  // 이전 턴까지 '안 함'으로 거부한 슬롯 에코(손절·익절 — explicit_fields와 같은 누적 계약)
+  previous_declined_fields?: string[];
   // 값 변경 추적 메타데이터 에코(비권위 — 판정에 쓰지 않는다)
   previous_field_metadata?: Record<string, unknown> | null;
   // 영속 Artifact 상태 에코(비싼 도구 산출물의 근거·유효성)
@@ -175,6 +177,11 @@ export async function POST(req: NextRequest) {
             // 이 값만 보고 판정하므로, 화이트리스트에서 빠지면 모든 설정을 "미언급"으로
             // 보고 영원히 되묻는다(clarification_priority·pending_ask와 같은 함정).
             explicit_fields: data.explicit_fields ?? null,
+            // '안 함'으로 거부한 슬롯 목록(손절·익절). 백엔드 거부 칩 레인이 방금 만든 목록이
+            // 여기서 떨어지면 프론트 게이트가 이전 턴(빈) 목록으로 같은 슬롯을 다시 묻는다
+            // (2026-09-15 실측: '익절 안 함' 직후 "이제 익절 기준을 몇 %로 정할까요?" 재질문 —
+            // explicit_fields와 같은 화이트리스트 함정).
+            declined_fields: data.declined_fields ?? null,
             // 진행 골격 8칸의 상태 축(완료/미확인/해당 없음/확인 필요). 진행률 카드가
             // '해당 없음'을 '완료'로 위장하지 않기 위한 표시 전용 정보다 — 되묻기·실행
             // 게이트는 쓰지 않으므로 누락돼도 흐름은 그대로다(카드 표시만 예전으로 회귀).

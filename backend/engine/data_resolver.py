@@ -37,7 +37,7 @@ FUNDAMENTAL_IDS = set(FUNDAMENTAL_CIDS)
 # 기술적 지표: IndicatorEngine이 계산해야 할 것들
 TECHNICAL_IDS = {
     'ma_crossover', 'rsi', 'ema', 'macd', 'stochastic',
-    'cci', 'adx', 'bollinger_bands', 'volume_spike', 'breakout',
+    'cci', 'adx', 'bollinger_bands', 'volume_spike', 'volume_ratio', 'breakout',
     'williams_r', 'mfi', 'roc', 'relative_return',
 }
 
@@ -103,6 +103,9 @@ def _get_required_columns(cond: Dict) -> List[str]:
     elif cid == 'volume_spike':
         period = p.get('period', 20)
         return ['obv', f'obv_{period}_sma']
+    elif cid == 'volume_ratio':
+        period = p.get('period', 20)
+        return ['volume', f'volume_{period}_prev_sma']
     elif cid == 'breakout':
         period = p.get('lookbackPeriod', 20)
         return [f'high_{period}_max', f'low_{period}_min']

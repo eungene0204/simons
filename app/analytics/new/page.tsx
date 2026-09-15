@@ -169,7 +169,10 @@ import {
   type BuilderSummaryItem,
   type BuilderTurnPresentation,
 } from "./builderProgressPresentation";
-import { applyDeterministicConditionChoice } from "./deterministicConditionFlow";
+import {
+  applyDeterministicConditionChoice,
+  chipAnswersGateSlot,
+} from "./deterministicConditionFlow";
 import { t } from "@/lib/i18n";
 
 // 되묻기 게이트가 provenance(사용자가 실제로 말했나)를 요구하는 설정 필드.
@@ -2573,9 +2576,12 @@ function StrategyLabContent() {
     // 빌더 질문의 답은 빌더가 받는다 — 빌더 질문도 되묻기 카드로 나가게 되면서
     // (2026-08-16) 두 레인의 칩이 같은 필드에 담기므로, 여기서 갈라놓지 않으면 빌더
     // 단계의 답을 게이트가 가로채 State가 갈라진다.
+    // 칩이 게이트가 물은 바로 그 슬롯의 답일 때만 로컬 레인이다 — 백엔드 질문(랭킹 산정
+    // 기간 등)의 칩은 슬롯이 다르므로 백엔드 칩 레인으로 보낸다(chipAnswersGateSlot).
     const deterministicChoice = currentParsed && missingCondition &&
       !latestAssistant?.builderQuestion &&
-      latestAssistant?.clarificationSuggestions?.includes(text)
+      latestAssistant?.clarificationSuggestions?.includes(text) &&
+      chipAnswersGateSlot(latestAssistant?.clarificationField, missingCondition.field)
       ? applyDeterministicConditionChoice({
           parsed: currentParsed,
           condition: missingCondition,

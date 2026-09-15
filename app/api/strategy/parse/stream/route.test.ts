@@ -318,6 +318,30 @@ describe("POST /api/strategy/parse/stream", () => {
     expect(parsedFinal).toMatchObject({ pending_ask: pendingAsk });
   });
 
+  it("parsed_final은 거부 목록(declined_fields)을 보존한다", async () => {
+    // 2026-09-15 실측: 백엔드 거부 칩 레인이 '익절 안 함'을 반영해 declined_fields=["take_profit"]을
+    // 실어 보냈는데 이 화이트리스트에서 떨어져, 프론트 게이트가 이전 턴(빈) 목록으로 익절을
+    // 다시 물었다 — explicit_fields·pending_ask 누락 사고와 같은 유형의 함정.
+    fetchBackend.mockResolvedValueOnce(
+      sseBackendResponse(
+        backendResultEvents({
+          parsed: { description: "반도체 전략", universe: ["KOSPI"] },
+          backtest_request: { strategy_id: "p", symbols: ["005930"], symbol_count: 1 },
+          clarification_question: null,
+          clarification_suggestions: null,
+          declined_fields: ["take_profit"],
+        })
+      )
+    );
+
+    const response = await POST(makeRequest({ prompt: "익절 안 함" }));
+    const events = await readEvents(response);
+    const parsedFinal = events
+      .map((e) => (e === "[DONE]" ? null : JSON.parse(e)))
+      .find((e) => e?.type === "parsed_final");
+    expect(parsedFinal).toMatchObject({ declined_fields: ["take_profit"] });
+  });
+
   it("parsed_final은 값-대기 조건(pending_conditions)을 보존한다", async () => {
     // [회귀 2026-08-03 '당기순이익' 사고 2차] 백엔드는 pending_conditions를 실어 보냈는데
     // 프록시 화이트리스트에서 떨어져, 이해한 조건이 요약에 빈 전략으로 보였다 —

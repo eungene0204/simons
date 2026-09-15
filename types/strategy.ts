@@ -9,6 +9,7 @@ export type IndicatorType =
   | "macd"
   | "bollinger_bands"
   | "volume_spike"
+  | "volume_ratio"
   | "breakout"
   | "stochastic"
   | "cci"

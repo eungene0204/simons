@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { applyDeterministicConditionChoice } from "./deterministicConditionFlow";
+import {
+  applyDeterministicConditionChoice,
+  chipAnswersGateSlot,
+} from "./deterministicConditionFlow";
 import type { ParsedSummary } from "./strategySummary";
 
 // 칩 기간 명시화(2026-07-26): 크로스 칩은 라벨과 값 모두 기간을 명시한다.
@@ -137,5 +140,29 @@ describe("손절·익절 '안 함' 칩", () => {
         choice: "손절 안 함",
       }),
     ).toBeNull();
+  });
+});
+
+describe("칩 로컬 레인 게이트(chipAnswersGateSlot)", () => {
+  // 2026-09-15 사고: 백엔드가 낸 '수익률 산정 기간' 질문의 칩 '수익률 산정 기간 60일'을
+  // 로컬 레인이 게이트의 다음 빈 슬롯(익절)에 꽂아 익절 60%가 확정됐다.
+  it("되묻기 메시지가 기록한 슬롯과 게이트 슬롯이 같을 때만 로컬 레인이다", () => {
+    expect(chipAnswersGateSlot("take_profit", "take_profit")).toBe(true);
+    expect(chipAnswersGateSlot("stop_loss", "take_profit")).toBe(false);
+  });
+
+  it("슬롯 기록이 없는 질문(백엔드 질문)의 칩은 로컬 레인이 받지 않는다", () => {
+    expect(chipAnswersGateSlot(undefined, "take_profit")).toBe(false);
+    expect(chipAnswersGateSlot(null, "max_positions")).toBe(false);
+  });
+
+  it("익절 슬롯 로컬 적용은 여전히 숫자 칩을 값으로 받는다(가드는 슬롯 일치만 본다)", () => {
+    const result = applyDeterministicConditionChoice({
+      parsed,
+      condition: { field: "take_profit", question: "", suggestions: [] },
+      choice: "수익률 산정 기간 60일",
+    });
+    // 가드 없이 이 호출이 일어나면 60이 익절로 들어간다 — 가드가 이 호출 자체를 막는다.
+    expect(result?.parsed.take_profit_pct).toBe(60);
   });
 });

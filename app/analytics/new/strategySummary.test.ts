@@ -182,6 +182,20 @@ describe("getSignalLabel — 크로스 방향 구체화", () => {
     );
   });
 
+  it("거래량 배수 신호(엔진 v16.10)는 기간·배수·부등호를 함께 표기한다", () => {
+    // 2026-09-15: '거래량이 20일 평균보다 1.5배 많은'이 OBV 급증으로 근사되며 배수가 사라지던 결함의
+    // 엔진 지원 — 배지에서 배수가 빠지면 사용자가 말한 조건이 카드에서 사라진다.
+    expect(
+      getSignalLabel(
+        { indicator: "volume_ratio", signal_type: "buy", operator: ">=", value: 1.5, period: 20 },
+        "entry"
+      )
+    ).toBe("거래량 20일 평균의 1.5배 이상");
+    expect(getSignalLabel({ indicator: "volume_ratio", signal_type: "buy" }, "entry")).toBe(
+      "거래량 배수"
+    );
+  });
+
   it("나머지 엔진 지표(윌리엄스·MFI·ROC)도 내부 이름을 노출하지 않는다", () => {
     for (const indicator of ["williams_r", "mfi", "roc"]) {
       expect(getSignalLabel({ indicator, signal_type: "buy" }, "entry")).not.toBe(indicator);
@@ -482,6 +496,22 @@ describe("strategySummary", () => {
       ranking_lookback_days: null,
     });
     expect(volatility?.entryBlocks).toEqual(["변동성 낮은 순 상위(산정 기간 미정)"]);
+  });
+
+  it("시장 대비 초과수익률 랭킹(엔진 v16.10)은 '시장 대비'를 라벨에 남긴다", () => {
+    // 2026-09-15: '시장 대비 수익률 상위 5종목'이 '60일 수익률 상위'로 나가 조건이 바뀐 것처럼 보이던 결함.
+    const top = buildStrategySummary({
+      ...baseParsed,
+      ranking_metric: "relative_return",
+      ranking_lookback_days: 60,
+    });
+    expect(top?.entryBlocks).toEqual(["60일 시장 대비 수익률 상위"]);
+    const pending = buildStrategySummary({
+      ...baseParsed,
+      ranking_metric: "relative_return",
+      ranking_lookback_days: null,
+    });
+    expect(pending?.entryBlocks).toEqual(["시장 대비 수익률 상위(산정 기간 미정)"]);
   });
 
   it("재무 팩터 랭킹 전략은 지표 라벨과 방향을 진입 신호 배지로 노출한다", () => {

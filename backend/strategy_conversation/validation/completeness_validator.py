@@ -198,7 +198,8 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
         # 있든 산정 기간을 묻는다(첫 항목만 보면 뒤 자리의 기간이 조용히 60으로 확정된다).
         # 칩 답('수익률 산정 기간 20일')은 전략 공통 ranking_lookback_days로 결속되고
         # 엔진이 기간 없는 가격 지표에 그 값을 쓴다 — 첫 미정 항목 하나만 묻는다.
-        _LOOKBACK_LABELS = {"ranking.volatility": "변동성", "ranking.return": "수익률"}
+        _LOOKBACK_LABELS = {"ranking.volatility": "변동성", "ranking.return": "수익률",
+                            "ranking.relative_return": "수익률"}
         for idx, rank in enumerate(strategy.ranking):
             lookback_label = _LOOKBACK_LABELS.get(rank.metric)
             if lookback_label is not None and rank.lookback_days is None:

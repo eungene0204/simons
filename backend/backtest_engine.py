@@ -49,6 +49,8 @@ def _composite_ranking_label_segment(components: List[Dict[str, Any]], default_l
         lookback = int(c.get('lookback_days') or default_lookback or 60)
         if m == 'return':
             name = tr.part(tr.COMPOSITE_RETURN_METRIC, lookback)
+        elif m == 'relative_return':
+            name = tr.part(tr.COMPOSITE_RELATIVE_RETURN_METRIC, lookback)
         elif m == 'volatility':
             name = tr.part(tr.COMPOSITE_VOLATILITY_METRIC, lookback)
         else:
@@ -336,7 +338,7 @@ class BacktestEngine:
     @staticmethod
     def _composite_rank_panel(components, raw_price_df, all_fund_rank_values,
                               common_index, processed_symbols, exec_type,
-                              default_lookback=None, signal_delay=1):
+                              default_lookback=None, signal_delay=1, data_dir=None):
         """복합 순위 합산(FR-BT-063) 점수 패널.
 
         반환 (rank_df, valid, missing_labels). rank_df는 [0,1] 백분위 평균(높을수록 상위),
@@ -359,6 +361,10 @@ class BacktestEngine:
             lookback = int(c.get('lookback_days') or default_lookback or 60)
             if m == 'return':
                 panel = lookback_return_panel(raw_price_df, lookback)
+            elif m == 'relative_return':
+                # 시장 대비 초과수익률(v16.10) — 종목마다 제 시장 지수 수익률을 뺀다.
+                from engine.market_index import relative_return_panel
+                panel = relative_return_panel(raw_price_df, lookback, data_dir)
             elif m == 'volatility':
                 panel = annualized_volatility_panel(raw_price_df, lookback)
             else:
@@ -605,7 +611,7 @@ class BacktestEngine:
                     else [c['metric'] for c in _rank_components]
                 )
                 # 모멘텀·변동성은 price_df에서 직접 계산 — 컬럼 수집 불필요
-                if m and m not in ('return', 'volatility', 'composite')
+                if m and m not in ('return', 'relative_return', 'volatility', 'composite')
             ]
             all_fund_rank_values: dict = {col: {} for col in _rank_metric_cols}
             all_resolution_logs: List[Dict[str, str]] = []
@@ -1159,8 +1165,11 @@ class BacktestEngine:
             # 나눠 그룹별로 각각 백테스트한다. 메인 결과는 1그룹(랭킹 최상위 구간)이다.
             _qg_n = int(risk_params.get('ranking_quantile_groups') or 0)
             _sel_pct = risk_params.get('max_positions_pct')
-            if ranking_metric == 'return':
-                # 상대강도(모멘텀) 랭킹: N일 수익률 순위로 상위 종목 선정.
+            if ranking_metric in ('return', 'relative_return'):
+                # 상대강도(모멘텀) 랭킹: N일 수익률 순위로 상위 종목 선정. 'relative_return'
+                # (v16.10)은 같은 계약으로 종목 수익률에서 **자기 시장 지수** 수익률을 뺀
+                # 초과수익률 순위다 — 코스피·코스닥 혼합 유니버스에서도 종목마다 제 지수를 빼므로
+                # 정확하고, 지수가 없는 종목(미국)은 NaN → 후보 배제.
                 # 종목 간 횡단면 순위라 진입 신호 없이 순위 자체가 진입이 된다. 회전(월간 등)은
                 # 달력 리밸런싱(engine/rebalance.py + simulator의 목표비중/재구성 경로)이 구동한다.
                 try:
@@ -1172,7 +1181,11 @@ class BacktestEngine:
                     # 신규 상장 종목이 상위권으로 매수됐다(2023-12-01 실측: 상장 10거래일째
                     # 에코프로머티 '상위 1%'). 변동성 랭킹 v13.2와 같은 계약 — 관측 미달은
                     # NaN → 아래 valid 마스크가 후보에서 배제한다.
-                    momentum = lookback_return_panel(raw_price_df, lookback)
+                    if ranking_metric == 'relative_return':
+                        from engine.market_index import relative_return_panel
+                        momentum = relative_return_panel(raw_price_df, lookback, self.loader.data_dir)
+                    else:
+                        momentum = lookback_return_panel(raw_price_df, lookback)
                     pct = momentum.rank(axis=1, pct=True)
                     # 방향(v16.2): top(기본)=수익률 높은 순, bottom=낮은 순(역발상 — '최근
                     # 3개월 수익률 오름차순'). 변동성·재무·복합 분기는 모두 direction을 읽는데
@@ -1216,6 +1229,8 @@ class BacktestEngine:
                             group_cap=risk_params.get('ranking_group_cap'),
                         )
                         _dir_seg = tr.part(tr.RANK_BOTTOM if _direction == 'bottom' else tr.RANK_TOP)
+                        _rank_tpl = (tr.RANKING_RELATIVE_RETURN if ranking_metric == 'relative_return'
+                                     else tr.RANKING_RETURN)
                         _top_pct_df = (1.0 - rank_df) * 100.0
                         for _sym in processed_symbols:
                             _mask = pool[_sym]
@@ -1225,7 +1240,7 @@ class BacktestEngine:
                             _reason_ser = pd.Series(np.nan, index=common_index, dtype=object)
                             _reason_ser.loc[_mask] = _pct_vals.apply(
                                 lambda p: tr.encode([tr.part(
-                                    tr.RANKING_RETURN, lookback, _dir_seg, max(1, round(p)), _rebal_note
+                                    _rank_tpl, lookback, _dir_seg, max(1, round(p)), _rebal_note
                                 )])
                             )
                             all_entry_reasons[_sym] = _reason_ser
@@ -1306,7 +1321,7 @@ class BacktestEngine:
                     _rank_components, raw_price_df, all_fund_rank_values,
                     common_index, processed_symbols, exec_type,
                     default_lookback=risk_params.get('ranking_lookback_days'),
-                    signal_delay=signal_delay,
+                    signal_delay=signal_delay, data_dir=self.loader.data_dir,
                 )
                 if _missing_labels:
                     self.warnings.add(rw.warning(
@@ -1580,6 +1595,8 @@ class BacktestEngine:
                 _dir_bottom = str(risk_params.get('ranking_direction') or _dir_default) == 'bottom'
                 if ranking_metric == 'return':
                     _metric_kr = f"최근 {int(risk_params.get('ranking_lookback_days') or 60)}거래일 수익률"
+                elif ranking_metric == 'relative_return':
+                    _metric_kr = f"최근 {int(risk_params.get('ranking_lookback_days') or 60)}거래일 시장 대비 초과수익률"
                 elif ranking_metric == 'volatility':
                     _metric_kr = f"최근 {int(risk_params.get('ranking_lookback_days') or 60)}거래일 변동성"
                 elif ranking_metric == 'composite':

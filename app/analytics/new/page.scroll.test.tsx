@@ -975,6 +975,9 @@ describe("StrategyLabPage scroll behavior", () => {
           parsed: awaitingCapital,
           clarification: "초기 투자 자금을 얼마로 설정할까요?",
           clarificationSuggestions: ["500만원", "1,000만원", "3,000만원", "5,000만원"],
+          // 게이트가 낸 슬롯 질문은 슬롯을 기록한다(page.tsx clarificationField) — 로컬 칩
+          // 레인은 이 기록과 게이트 슬롯이 같을 때만 값을 꽂는다(chipAnswersGateSlot).
+          clarificationField: "initial_capital",
         },
       ],
       latestParsed: awaitingCapital,
@@ -1007,6 +1010,62 @@ describe("StrategyLabPage scroll behavior", () => {
 
     expect(await screen.findByRole("button", { name: "1,000만원" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "이 전략으로 확정" })).not.toBeInTheDocument();
+  });
+
+  it("백엔드 질문(랭킹 산정 기간)의 칩은 로컬 레인이 게이트 슬롯에 꽂지 않고 백엔드로 보낸다", async () => {
+    // 2026-09-15 사고: '수익률 산정 기간 60일' 칩이 게이트의 다음 빈 슬롯(익절)에 60으로
+    // 들어가 '익절 60%'가 확정됐고 산정 기간은 미정으로 남았다. 되묻기 메시지에 슬롯
+    // 기록(clarificationField)이 없는 질문은 백엔드가 낸 것이므로 파스 레인으로 보낸다.
+    const awaitingLookback = {
+      ...parsedStrategy,
+      fundamental_filters: [],
+      ranking_metric: "return",
+      ranking_lookback_days: null,
+      take_profit_pct: null,
+    };
+    sessionStorage.setItem("simons.strategyChatOwner", "1");
+    sessionStorage.setItem("simons.strategyChatState", JSON.stringify({
+      messages: [
+        { role: "user", content: "반도체 관련주 중 시장 대비 수익률 상위 5종목을 매월 교체" },
+        {
+          role: "assistant",
+          parsed: awaitingLookback,
+          clarification: "수익률 산정 기간을 며칠(거래일)로 할까요?",
+          clarificationSuggestions: [
+            "수익률 산정 기간 60일", "수익률 산정 기간 20일", "수익률 산정 기간 120일",
+          ],
+        },
+      ],
+      latestParsed: awaitingLookback,
+      backtestReq: backtestRequest,
+      stage: "ready",
+      explicitFields: ["universe", "backtest_period", "initial_capital"],
+    }));
+    let parseCallCount = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+      if (url === "/api/user") {
+        return Promise.resolve(createJsonResponse({ user: { id: 1, name: "Tester" } }));
+      }
+      if (url === "/api/query/classify") {
+        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+      }
+      if (url === "/api/strategy/parse/stream") {
+        parseCallCount += 1;
+        return Promise.resolve(createParseStreamResponse());
+      }
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "수익률 산정 기간 60일" }));
+
+    await waitFor(() => expect(parseCallCount).toBe(1));
+    expect(screen.queryByText(/익절 60%/)).not.toBeInTheDocument();
   });
 
   it("복원된 빌더가 채워진 이동평균 슬롯을 보존하고 청산 답변 뒤 이전 질문으로 돌아가지 않는다", async () => {

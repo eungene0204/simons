@@ -133,7 +133,9 @@ CASES = [
     # ── 매수 조건 ──────────────────────────────────────────────────────────
     ("entry", "RSI 30 이하에서 매수", sig_entry("rsi", operator="<=", value=30)),
     ("entry", "5일선이 20일선을 위로 뚫으면 매수", sig_entry("ma_crossover", short_period=5, long_period=20)),
-    ("entry", "거래량이 평소보다 3배 터지면 사자", sig_entry("volume_spike")),
+    # 엔진 v16.10(2026-09-15)부터 배수는 거래량 배수 지표로 정확히 표현된다 — 종전 기대(volume_spike)는
+    # 배수가 사라진 근사였다.
+    ("entry", "거래량이 평소보다 3배 터지면 사자", sig_entry("volume_ratio", operator=">=", value=3.0)),
     ("entry", "per 10 이하인 저평가 종목", filt("per", "<=", 10)),
     ("entry", "MACD 골든크로스", sig_entry("macd")),
     ("entry", "60일 신고가 뚫을때", sig_entry("breakout", lookback_period=60)),

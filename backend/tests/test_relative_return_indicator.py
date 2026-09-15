@@ -156,20 +156,87 @@ def test_validator_keeps_relative_return_on_kr_markets():
     assert [c.factor for c in intent.strategy.entry_conditions] == ["technical.relative_return"]
 
 
-def test_validator_normalizes_relative_return_ranking_to_return_ranking():
-    """[2026-09-14] '상대강도 상위 20%'를 LLM이 랭킹 metric technical.relative_return으로
-    내면 정본 ranking.return으로 정규화한다 — 종전엔 미지원 랭킹으로 제거돼 "'알 수 없는
-    랭킹 기준' 조건은 지원하지 않아" 안내와 함께 랭킹이 사라졌다(예시 2건 실측)."""
+def test_validator_lands_relative_return_ranking_on_exact_ranking_metric():
+    """[2026-09-15, 엔진 v16.10] LLM이 랭킹 metric을 조건 지표 technical.relative_return으로 내면
+    정본 ranking.relative_return(종목 수익률 − 자기 시장 지수 수익률 순위)으로 옮긴다.
+    09-14의 ranking.return 근사(같은 시장에서만 순서 동일)와 그 안내는 폐지 — 코스피+코스닥
+    혼합에서도 종목마다 제 지수를 빼므로 정확하다."""
+    for markets in (["KOSPI200"], ["KOSPI", "KOSDAQ"], []):
+        intent = StrategyIntent(intent="CREATE_STRATEGY", strategy={
+            "universe": {"markets": markets},
+            "ranking": [{"metric": "technical.relative_return", "lookback_days": 60,
+                         "direction": "top"}],
+            "portfolio": {"selection_count": 5},
+        })
+        errors, warnings, unsupported, _f = validate_capability(intent)
+        assert unsupported == [], unsupported
+        assert not any("랭킹 기준" in e for e in errors), errors
+        assert [(r.metric, r.lookback_days) for r in intent.strategy.ranking] == [("ranking.relative_return", 60)]
+        assert not any("가깝게 반영" in w or "순위와 같아" in w for w in warnings), warnings
+
+
+def test_validator_rejects_relative_return_ranking_on_us_markets():
+    """미국 시장은 지수 시계열이 없다 — 조건과 같은 계약으로 오류+제거+안내."""
     intent = StrategyIntent(intent="CREATE_STRATEGY", strategy={
-        "universe": {"markets": ["KOSPI200"]},
-        "ranking": [{"metric": "technical.relative_return", "lookback_days": 60,
-                     "direction": "top"}],
-        "portfolio": {"selection_percent": 20},
+        "universe": {"markets": ["SP500"]},
+        "ranking": [{"metric": "ranking.relative_return", "lookback_days": 60}],
+        "portfolio": {"selection_count": 5},
     })
     errors, _w, unsupported, _f = validate_capability(intent)
-    assert unsupported == [], unsupported
-    assert not any("랭킹 기준" in e for e in errors), errors
-    assert [(r.metric, r.lookback_days) for r in intent.strategy.ranking] == [("ranking.return", 60)]
+    assert intent.strategy.ranking == []
+    assert any("미국 시장" in e for e in errors), errors
+    assert any("시장 대비 초과수익률 랭킹" in u for u in unsupported), unsupported
+
+
+def test_registry_and_ontology_register_relative_return_ranking():
+    spec = indicator_registry.resolve("ranking.relative_return")
+    assert spec is not None and spec.engine_binding == ("ranking", "relative_return")
+    onto = concept_ontology.get_ontology()
+    assert onto.members["ranking.relative_return"] == "class.ranking"
+    assert onto.polarity["ranking.relative_return"] == "higher_better"
+    assert concept_ontology.natural_ranking_direction("ranking.relative_return") == "top"
+
+
+def test_compiler_binds_relative_return_ranking_to_engine_metric():
+    from strategy_conversation.compiler.strategy_compiler import compile_strategy
+
+    intent = StrategyIntent(intent="CREATE_STRATEGY", strategy={
+        "universe": {"markets": ["KOSPI", "KOSDAQ"], "sectors": []},
+        "ranking": [{"metric": "ranking.relative_return", "lookback_days": 60}],
+        "portfolio": {"selection_count": 5, "rebalance_frequency": "monthly"},
+        "risk_management": {"stop_loss": 10},
+    })
+    validate_capability(intent)
+    parsed = compile_strategy(intent, ValidationReport(is_valid=True, status="READY"), "시장 대비 수익률 상위 5종목")
+    assert (parsed.ranking_metric, parsed.ranking_lookback_days, parsed.ranking_direction) == ("relative_return", 60, None)
+
+
+# ── ④-1 랭킹용 지수 패널(engine/market_index) ───────────────────────────────
+
+def test_relative_return_panel_subtracts_each_symbols_own_market_index(tmp_path, monkeypatch):
+    """코스피 종목은 코스피 지수를, 코스닥 종목은 코스닥 지수를 뺀다. 지수 없는 종목은 NaN."""
+    import pandas as pd
+    from engine import market_index
+
+    data_dir = tmp_path / "ohlcv"
+    data_dir.mkdir()
+    index_dir = tmp_path / "index"
+    index_dir.mkdir()
+    dates = pd.date_range("2024-01-01", periods=4, freq="D")
+    for market, closes in (("KOSPI", [100.0, 110.0, 121.0, 133.1]), ("KOSDAQ", [100.0, 90.0, 81.0, 72.9])):
+        pl.DataFrame({"date": list(dates), "open": closes, "high": closes, "low": closes,
+                      "close": closes, "volume": [1.0] * 4, "source": ["t"] * 4}).write_parquet(
+            index_dir / f"{market}.parquet")
+    monkeypatch.setattr(market_index, "market_for_symbol",
+                        lambda s: {"A": "KOSPI", "B": "KOSDAQ"}.get(s))
+    raw = pd.DataFrame({"A": [100, 120, 144, 172.8], "B": [100, 120, 144, 172.8], "US": [1, 2, 3, 4]},
+                       index=dates, dtype=float)
+    panel = market_index.relative_return_panel(raw, 1, data_dir)
+    # A: 20% − 10% = +10%p, B: 20% − (−10%) = +30%p, US: 지수 없음 → NaN
+    assert abs(panel.loc[dates[1], "A"] - 0.10) < 1e-9
+    assert abs(panel.loc[dates[1], "B"] - 0.30) < 1e-9
+    assert panel["US"].isna().all()
+    assert np.isnan(panel.loc[dates[0], "A"])  # 첫 봉은 수익률 미정
 
 
 # ── ⑤ primary 레인 end-to-end(스텁 LLM) ─────────────────────────────────────

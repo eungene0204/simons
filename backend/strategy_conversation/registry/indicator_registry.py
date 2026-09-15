@@ -216,7 +216,14 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                {"lookback_period": ParamSpec(default=60, minimum=5, maximum=500, required=True)}),
     _technical("volume_spike", "거래량 급증(OBV)", "event", ("crosses_above",),
                {"period": ParamSpec(default=20, minimum=2, maximum=250)},
-               notes="OBV 크로스오버 기반 — '평소 대비 N배' 배수 임계값은 표현 불가"),
+               notes="OBV 크로스오버 기반 — 배수 없이 '거래량이 급증/늘어난/터진'이라고만 말했을 때. "
+                     "'평소보다 N배'처럼 배수를 말했으면 technical.volume_ratio(value=배수)"),
+    _technical("volume_ratio", "거래량 배수(평균 대비)", "ratio", _COMPARISON_OPS,
+               {"period": ParamSpec(default=20, minimum=2, maximum=250)},
+               value_range=(0.1, 100), recommended=2,
+               notes="당일 거래량 ÷ 직전 N일 평균 거래량(배). '평소보다 3배'·'20일 평균의 1.5배 이상' "
+                     "→ operator \">=\", value=3/1.5, 평균 기간을 말했으면 parameters.period=20. "
+                     "배수를 unsupported_features로 보내지 마세요"),
     _technical("stochastic", "스토캐스틱", "point", _COMPARISON_OPS,
                {"period": ParamSpec(default=14, minimum=2, maximum=250)},
                value_range=(0, 100), recommended=20),
@@ -274,6 +281,14 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
         parameters={"lookback_days": ParamSpec(default=60, minimum=5, maximum=500)},
         engine_binding=("ranking", "return")),
     IndicatorSpec(
+        id="ranking.relative_return", display_name="시장 대비 초과수익률 랭킹", category="ranking",
+        supported="SUPPORTED", data_source="ohlcv", value_type="percent",
+        parameters={"lookback_days": ParamSpec(default=60, minimum=5, maximum=500)},
+        engine_binding=("ranking", "relative_return"),
+        notes="종목 N거래일 수익률 − 상장 시장 지수 N거래일 수익률 순위 선정. '시장 대비 수익률 상위 "
+              "N종목'·'초과수익률 상위'처럼 **시장 대비**를 말한 순위 선정만. '상대강도 상위'·'수익률 "
+              "상위'는 ranking.return. 미국 시장은 지수 시계열이 없어 미지원"),
+    IndicatorSpec(
         id="ranking.volatility", display_name="변동성 랭킹(저변동성)", category="ranking",
         supported="SUPPORTED", data_source="ohlcv", value_type="percent",
         parameters={"lookback_days": ParamSpec(default=60, minimum=5, maximum=500)},
@@ -310,8 +325,6 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     _unsupported("ema_alignment", "정배열/역배열", "technical"),
     _unsupported("partial_exit", "분할 매도/부분 청산", "execution"),
     _unsupported("new_low", "신저가 조건", "technical"),
-    _unsupported("volume_multiple", "거래량 배수(평소 대비 N배)", "technical",
-                 alternatives=("technical.volume_spike",)),
     _unsupported("earnings_estimate", "실적 컨센서스/추정치", "fundamental"),
     _unsupported("moat", "경제적 해자 등 정성 평가", "quality"),
 )
@@ -370,6 +383,8 @@ _ALIASES: Dict[str, str] = {
     "bollinger_bands": "technical.bollinger_bands", "볼린저": "technical.bollinger_bands",
     "breakout": "technical.breakout", "신고가돌파": "technical.breakout", "신고가": "technical.breakout",
     "volume_spike": "technical.volume_spike", "거래량급증": "technical.volume_spike",
+    "volume_ratio": "technical.volume_ratio", "거래량배수": "technical.volume_ratio",
+    "volume_multiple": "technical.volume_ratio",
     "스토캐스틱": "technical.stochastic", "stochastic": "technical.stochastic",
     "cci": "technical.cci",
     "adx": "technical.adx",
@@ -382,6 +397,7 @@ _ALIASES: Dict[str, str] = {
     "ai_model": "technical.ai_model", "ai상승예측": "technical.ai_model",
     "ai_drop_model": "technical.ai_drop_model", "ai하락예측": "technical.ai_drop_model",
     "return": "ranking.return", "수익률랭킹": "ranking.return", "기간수익률": "ranking.return",
+    "초과수익률랭킹": "ranking.relative_return", "시장대비수익률랭킹": "ranking.relative_return",
     # 미지원 개념의 canonical 표기(LLM이 이 이름으로 출력하면 UNSUPPORTED로 판정된다)
     "fcf": "unsupported.fcf_yield", "fcf_yield": "unsupported.fcf_yield",
     "잉여현금흐름": "unsupported.fcf_yield",
