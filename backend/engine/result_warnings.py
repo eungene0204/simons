@@ -45,8 +45,10 @@ ETF_THEME_NOT_FOUND = "'{0}' 테마와 이름이 일치하는 ETF를 찾지 못�
 US_SYMBOLS_SURVIVORSHIP = "미국 데이터에는 상장폐지 종목의 가격 이력이 없습니다 — 테마·지정 종목 백테스트도 현재 상장 종목만으로 구성돼 장기 결과가 실제보다 유리하게 나올 수 있습니다(생존 편향)."
 SECTOR_MAP_FROM_FILE_CACHE = "섹터({0}) 분류를 정본(지식그래프)이 아니라 파일 캐시에서 읽었습니다 — {1}"
 SECTOR_MAP_REASON_UNKNOWN = "사유 불명"
+MASTER_GENERATED_UNKNOWN = "생성 시각 미상"
 SECTOR_UNKNOWN_DELISTED_EXCLUDED = "섹터({0}) 필터: 업종 분류가 없는 상장폐지 종목 {1}개가 제외되었습니다 — 생존 편향 가능성이 있습니다."
 LISTING_DATE_UNKNOWN_EXCLUDED = "신규 상장 필터: 상장일을 확인할 수 없는 종목 {0}개가 제외되었습니다."
+PIT_UNIVERSE_MASTER_STALE = "종목 마스터({0} 기준)가 이 기간을 담고 있지 않아 현재 상장 종목 목록으로 백테스트했습니다 — 기간 중 상장폐지된 종목이 빠져 결과가 실제보다 유리할 수 있습니다(생존 편향)."
 
 # ── 종목 단위 (engine/phase1.py) ─────────────────────────────────────────────
 SYMBOL_NO_DATA = "{0}: 데이터 없음 — 백테스트 대상에서 제외되었습니다."

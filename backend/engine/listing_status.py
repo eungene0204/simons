@@ -95,26 +95,45 @@ _CONFIRMED_DELIST_KEYWORDS = ["상장폐지결정", "상장폐지 결정", "정�
 # "…가처분 신청 기각에 따른 정리매매절차 재개"(코다코·코스나인)는 진짜 정리매매라
 # '기각'은 여기 넣지 않는다 — 절차 자체의 보류·중단을 뜻하는 표현만 본다.
 _DELIST_HOLD_KEYWORDS       = ["미진행", "이의신청", "보류", "중단"]
+# 조건부 보류 — 효력정지 가처분은 '상장폐지결정'을 **다투는 중**이라는 뜻이라 확정이 아니다
+# (2026-09-16 실측: 케이엠제약 "기타경영사항(자율공시)(상장폐지결정 등 효력정지 가처분 신청)"이
+# 낱말 포함만으로 확정 처리돼, 가상계좌의 AUTO_LIQUIDATE 정책이 보유 포지션을 강제청산할 수
+# 있는 상태였다). 다만 가처분이 기각·각하·취하되면 절차가 재개되므로 그때는 확정이다
+# (기존 회귀: "…가처분 신청 기각에 따른 정리매매절차 재개").
+_INJUNCTION_KEYWORD         = "가처분"
+_INJUNCTION_RESUME_KEYWORDS = ["기각", "각하", "취하"]
 _REVIEW_KEYWORDS            = ["상장적격성", "관리종목"]
 _SUSPENDED_KEYWORDS         = ["매매거래정지"]
 _WARNING_KEYWORDS           = ["상장폐지"]  # 포괄적 (위 키워드에 걸리지 않은 것)
 
 
+def _is_on_hold(report_nm: str) -> bool:
+    """공시 제목이 '절차가 진행되지 않는다/다투는 중'을 뜻하는가 — 확정 판정의 보류 게이트."""
+    if any(kw in report_nm for kw in _DELIST_HOLD_KEYWORDS):
+        return True
+    return (_INJUNCTION_KEYWORD in report_nm
+            and not any(kw in report_nm for kw in _INJUNCTION_RESUME_KEYWORDS))
+
+
 def is_confirmed_delisting(report_nm: str) -> bool:
-    """공시 제목이 상장폐지 **확정**(결정·예고·정리매매 진행)인가 — 자동 등록의 단일 판정.
+    """공시 제목이 상장폐지 **확정**(결정·예고·정리매매 진행)인가 — 확정 판정의 단일 정본.
+
+    확정은 `DELISTING_SCHEDULED`(아직 상장 상태 — 정리매매로 매도 가능)까지다. 폐지가
+    **완료**됐다는 뜻이 아니므로 시세를 끊는 상장폐지 원장(`data/delisted-stocks.json`)에
+    이 판정으로 등록하지 않는다 — 원장은 KRX 명부 이탈(완료)만 담는다(FR-VM-068b).
 
     거래정지·심사·이의신청·절차 미진행은 확정이 아니다(엔드포인트 계약: "거래정지·심사 중인
     건은 자동 등록하지 않는다"). 확정 낱말과 보류 낱말이 같이 있으면 보류가 이긴다.
     """
-    if any(kw in report_nm for kw in _DELIST_HOLD_KEYWORDS):
+    if _is_on_hold(report_nm):
         return False
     return any(kw in report_nm for kw in _CONFIRMED_DELIST_KEYWORDS)
 
 
 def classify_dart_notice(report_nm: str) -> str:
     """DART 공시 report_nm을 ListingStatus로 분류"""
-    if any(kw in report_nm for kw in _DELIST_HOLD_KEYWORDS):
-        # 절차 미진행·이의신청 중 — 확정(예정)이 아니라 심사·유보 상태로 본다.
+    if _is_on_hold(report_nm):
+        # 절차 미진행·이의신청·가처분 계류 중 — 확정(예정)이 아니라 심사·유보 상태로 본다.
         return ListingStatus.DELISTING_REVIEW
     if is_confirmed_delisting(report_nm):
         return ListingStatus.DELISTING_SCHEDULED
@@ -209,6 +228,37 @@ def sync_from_delisted_store(delisted_symbols: set[str]) -> int:
             )
             count += 1
     return count
+
+
+def clear_delisted_status(symbol: str) -> bool:
+    """오등록 정정 — DELISTED로 굳은 상태를 NORMAL로 되돌린다. 되돌렸으면 True.
+
+    `sync_from_dart_notices`는 DELISTED를 강등하지 않는다(폐지 완료는 번복하지 않는다는
+    정상 계약). 그래서 원장 오등록으로 DELISTED가 된 종목은 공시·시세가 정상으로 돌아와도
+    스스로 회복하지 못하고 0원 평가에 갇힌다 — 원장 해제(`DELETE /market/delist/{symbol}`)만
+    이 강등을 수행한다. NORMAL로 되돌린 뒤 실제 상태는 거래정지 플래그(sync_trading_halt)와
+    공시 분류가 다시 채운다.
+    """
+    if get_stock_listing_status(symbol) != ListingStatus.DELISTED:
+        return False
+    now = db.now()
+    con = db.connect()
+    try:
+        con.execute("""
+            UPDATE "Stock" SET
+                "listingStatus" = ?,
+                "suspensionReason" = NULL,
+                "delistingDate" = NULL,
+                "lastTradableDate" = NULL,
+                "riskFlags" = NULL,
+                "statusUpdatedAt" = ?,
+                "updatedAt" = ?
+            WHERE symbol = ?
+        """, (ListingStatus.NORMAL, now, now, symbol))
+        con.commit()
+    finally:
+        con.close()
+    return True
 
 
 def sync_trading_halt(halt_flags: dict[str, bool]) -> dict[str, str]:

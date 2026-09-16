@@ -25,8 +25,7 @@ from engine.market_data import market_data_provider, delisted_store
 from engine import trade_reason as tr
 from engine.dart_client import fetch_recent_delisting_notices
 from engine.listing_status import (
-    is_confirmed_delisting,
-    ListingStatus, sync_from_delisted_store, sync_from_dart_notices,
+    ListingStatus, clear_delisted_status, sync_from_delisted_store, sync_from_dart_notices,
     get_stocks_by_status, update_stock_listing_status, write_audit_log,
 )
 from engine.live_signal_utils import prepare_signal_dataframe
@@ -686,9 +685,21 @@ async def mark_delisted(symbol: str):
 
 @app.delete("/market/delist/{symbol}")
 async def unmark_delisted(symbol: str):
-    """상장폐지 해제"""
+    """상장폐지 해제 — 원장에서 빼고, DELISTED로 굳은 상장 상태도 함께 정정한다.
+
+    원장만 비우면 Stock.listingStatus가 DELISTED로 남아 0원 평가·거래 차단이 계속된다
+    (공시 동기화는 DELISTED를 강등하지 않는다). 오등록 정정은 두 곳을 같이 되돌려야 한다.
+    """
     removed = delisted_store.unmark(symbol)
-    return {"symbol": symbol, "removed": removed, "delisted": delisted_store.all()}
+    status_cleared = clear_delisted_status(symbol)
+    if removed or status_cleared:
+        market_data_provider.cache.invalidate(symbol)
+    return {
+        "symbol": symbol,
+        "removed": removed,
+        "status_cleared": status_cleared,
+        "delisted": delisted_store.all(),
+    }
 
 
 @app.get("/market/delist")
@@ -704,26 +715,18 @@ async def list_delisted():
 @app.get("/market/dart/notices")
 async def get_dart_delisting_notices(days: int = 7):
     """
-    OpenDART에서 최근 N일간 상장폐지 관련 공시를 조회한다.
-    상장폐지 결정·정리매매 확정 건은 자동으로 DelistedSymbolStore에 등록된다.
-    거래정지·심사 중인 건은 notices에만 포함되고 자동 등록은 하지 않는다.
-    Stock 테이블의 listingStatus도 함께 업데이트된다.
+    OpenDART에서 최근 N일간 상장폐지 관련 공시를 조회해 Stock 테이블의 listingStatus를
+    갱신한다(거래정지·심사·상장폐지 결정 단계 구분).
+
+    공시로는 상장폐지 원장(DelistedSymbolStore)에 등록하지 않는다 — 원장은 시세 조회를
+    통째로 끊고 0원 평가를 유발하는 '폐지 완료' 표식이라, 아직 상장 상태인 결정·정리매매
+    단계를 여기에 올리면 정리매매 매도와 가상계좌 평가가 함께 망가진다(FR-VM-068b).
+    원장 자동 등록은 KRX 명부 이탈(완료) 신호만 수행한다(scripts/sync_data.py).
     """
     try:
         notices = fetch_recent_delisting_notices(days=days)
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
-
-    newly_registered = []
-    for notice in notices:
-        code = notice["stock_code"]
-        report_nm = notice["report_nm"]
-        if not code:
-            continue
-        if is_confirmed_delisting(report_nm):
-            if delisted_store.mark(code):
-                market_data_provider.cache.invalidate(code)
-                newly_registered.append(code)
 
     # Stock 테이블 listingStatus 동기화
     changed = sync_from_dart_notices(notices)
@@ -732,7 +735,6 @@ async def get_dart_delisting_notices(days: int = 7):
     return {
         "days": days,
         "notices": notices,
-        "newly_registered": newly_registered,
         "status_updated": changed,
     }
 

@@ -2,7 +2,7 @@
  "version": 1,
  "description": "섹터 소속 정본(SOT). KG 빌드 시 company -belongs_to→ sector 엣지로 편입된다. korea-stocks.json의 sector 필드는 이 파일에서 파생되는 캐시다. 생성: backend/scripts/build_sector_membership.py",
  "counts": {
-  "symbols": 3242,
+  "symbols": 3243,
   "sectors": 48
  },
  "membership": {
@@ -3120,6 +3120,7 @@
   "463480": "전자부품",
   "464080": "IT 하드웨어",
   "464280": "바이오/제약",
+  "464440": "증권",
   "464490": "바이오/제약",
   "464500": "반도체",
   "464580": "미디어/엔터",

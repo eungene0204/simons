@@ -58,6 +58,14 @@ def delisting_floor() -> Optional[str]:
     return str(val) if val else None
 
 
+def master_generated_at() -> Optional[str]:
+    """종목 마스터의 생성 일자(YYYY-MM-DD) — 낡은 마스터로 as-of가 비었을 때 고지에 쓴다."""
+    if not _MASTER_PATH.exists():
+        return None
+    val = json.loads(_MASTER_PATH.read_text(encoding="utf-8")).get("generatedAt")
+    return str(val)[:10] if val else None
+
+
 def reload_master() -> None:
     """Drop the cached master (call after regenerating the file)."""
     _load_master.cache_clear()

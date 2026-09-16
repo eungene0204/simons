@@ -337,7 +337,7 @@ docker compose up -d --remove-orphans
 |---|---|---|
 | `web` | Next.js (프론트 + API 라우트) | python spawn·fs 위해 `data` 볼륨 공유 |
 | `backend` | FastAPI + VirtualTrader | `OLLAMA_HOST`로 Modal 접속, Supabase Postgres에 DB 접근 |
-| `scheduler` | 매일 OHLCV 동기화 | **단일 인스턴스**(중복 금지) |
+| `scheduler` | 매일 OHLCV 동기화 + 종목 마스터 갱신 | **단일 인스턴스**(중복 금지). 가격 동기화 뒤 `backend/scripts/refresh_stock_master.py`가 돌아 시점 유니버스 정본을 최신화한다 — 낡으면 그 뒤 상장폐지된 종목이 백테스트 유니버스에서 빠져 생존 편향이 되살아난다(FR-VM-067b) |
 | `redis`, `postgres` | 뉴스(news_v2) 인프라 | postgres는 **로컬 컨테이너**(Supabase 아님). 뉴스 수집은 현재 `NEWSV2_COLLECTION_ENABLED=false`로 비활성 |
 | `caddy` | TLS 리버스 프록시 | 443/80 → web:3000, Namecheap DNS 대상 도메인에 Let's Encrypt |
 

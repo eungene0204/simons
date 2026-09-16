@@ -155,3 +155,22 @@ def test_suspension_for_delisting_cause_is_not_confirmed():
     title = "주권매매거래정지              (상장폐지 사유발생)"
     assert is_confirmed_delisting(title) is False
     assert classify_dart_notice(title) == ListingStatus.TRADING_SUSPENDED
+
+
+def test_injunction_filing_is_not_confirmed_delisting():
+    """'상장폐지결정 등 효력정지 가처분 신청'은 결정을 **다투는 중**이라 확정이 아니다.
+
+    2026-09-16 실측(케이엠제약): 낱말 포함만 보고 확정으로 분류되면 가상계좌의
+    AUTO_LIQUIDATE 정책이 보유 포지션을 강제청산한다(DELISTING_SCHEDULED가 강제청산 대상).
+    """
+    title = "기타경영사항(자율공시)              (상장폐지결정 등 효력정지 가처분 신청)"
+    assert is_confirmed_delisting(title) is False
+    assert classify_dart_notice(title) == ListingStatus.DELISTING_REVIEW
+
+
+def test_injunction_dismissed_stays_confirmed():
+    """가처분이 기각·각하·취하되면 절차가 재개되므로 확정이다(기존 '기각' 회귀의 일반화)."""
+    for verdict in ("기각", "각하", "취하"):
+        title = f"기타시장안내              (상장폐지결정 효력정지 가처분 {verdict})"
+        assert is_confirmed_delisting(title) is True, verdict
+        assert classify_dart_notice(title) == ListingStatus.DELISTING_SCHEDULED

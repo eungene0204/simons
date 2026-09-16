@@ -58,13 +58,34 @@ def test_market_and_index_listings_resolve():
         pytest.skip("로컬에 kospi200-cache/stock-master가 없다")
 
     assert listing.kind == "지수"
-    assert len(listing.companies) == 200
+    assert len(listing.companies) == _expected_kospi200_count()
     for variant in ("코스피 200", "KOSPI200"):
         assert stock_lists.resolve_listing(variant).scope == "코스피200"
 
     kosdaq = stock_lists.resolve_listing("코스닥")
     assert kosdaq.kind == "시장"
     assert len(kosdaq.companies) > 1000
+
+
+def _expected_kospi200_count() -> int:
+    """지수 편입 명부(KIS 종목마스터 캐시) ∩ 현재 상장 종목 — 살아 있는 데이터다.
+
+    종전엔 200을 못박았는데, 그 숫자는 종목 마스터가 낡아 신규 편입 1종목이 걸러지면서
+    우연히 맞던 값이었다(2026-09-16: 마스터 갱신 후 201 — 분할 상장 전환기의 실제 명부).
+    이 테스트가 지키려는 계약은 '정본 명부에서 결정론으로 해석해 개수와 함께 답한다'이지
+    특정 숫자가 아니다.
+    """
+    import json
+    from pathlib import Path as _P
+
+    root = _P(__file__).resolve().parents[2]
+    roster = json.loads((root / "data" / "kospi200-cache.json").read_text(encoding="utf-8"))
+    master = {
+        stock["symbol"]
+        for stock in json.loads((root / "data" / "stock-master.json").read_text(encoding="utf-8"))["stocks"]
+        if not stock.get("delistingDate")
+    }
+    return sum(1 for symbol in roster.get("symbols") or [] if symbol in master)
 
 
 def test_prompt_output_shape_includes_market_scope():
@@ -107,7 +128,7 @@ def test_unknown_label_can_carry_a_listing():
         pytest.skip("로컬에 kospi200-cache/stock-master가 없다")
 
     assert scope == "코스피200"
-    assert "총 200곳" in answer
+    assert f"총 {_expected_kospi200_count()}곳" in answer
 
 
 def test_unresolved_scope_keeps_existing_redirect():
@@ -177,7 +198,7 @@ def test_count_only_axis_flows_from_interpretation():
     if scope is None:
         pytest.skip("로컬에 kospi200-cache/stock-master가 없다")
 
-    assert "총 200곳" in answer
+    assert f"총 {_expected_kospi200_count()}곳" in answer
     assert "(" not in answer.split("\n")[0].replace("(플랫폼", "")  # 종목코드 나열 없음
 
 

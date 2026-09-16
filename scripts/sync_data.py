@@ -28,8 +28,49 @@ def _notify_backend(event: str, **kwargs):
         pass
 
 
+def _sync_listing_status_from_dart(days: int = 7) -> None:
+    """DART 공시로 Stock.listingStatus를 갱신한다(백엔드 엔드포인트 위임, 원장 등록 없음)."""
+    print(f"\nSyncing listing status from OpenDART notices (past {days} days)...")
+    try:
+        import requests as req_lib
+        backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
+        resp = req_lib.get(f"{backend_url}/market/dart/notices", params={"days": days}, timeout=60)
+        payload = resp.json() if resp.status_code == 200 else {}
+        notices = payload.get("notices") or []
+        print(f"  DART 상장폐지 관련 공시 {len(notices)}건 발견")
+        for notice in notices:
+            print(f"  - [{notice.get('rcept_dt')}] {notice.get('corp_name')} "
+                  f"({notice.get('stock_code')}): {notice.get('report_nm')}")
+        status_updated = payload.get("status_updated") or {}
+        if status_updated:
+            print(f"  상장 상태 갱신 {len(status_updated)}건: {status_updated}")
+        if not notices:
+            print("  DART 상장폐지 공시 없음")
+    except Exception as e:
+        print(f"  [WARNING] DART 공시 동기화 실패: {e}")
+
+
 def _now_kst() -> datetime:
     return datetime.now(KST)
+
+
+# 한 번의 동기화에서 이 수를 넘겨 명부에서 사라지면 상폐가 아니라 조회 누락으로 본다.
+# 실제 KRX 상장폐지는 하루 0~수 건이다.
+MAX_AUTO_DELIST_PER_SYNC = 20
+
+
+def _mark_delisted(symbol: str) -> bool:
+    """상장폐지 원장에 등록한다(백엔드 경유 — 원장 쓰기 경로를 한 곳으로 유지).
+
+    반환: 새로 등록됐으면 True(이미 있거나 실패면 False)."""
+    try:
+        import requests as req_lib
+        backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
+        r = req_lib.post(f"{backend_url}/market/delist/{symbol}", timeout=5)
+        return r.status_code == 200 and bool(r.json().get("added"))
+    except Exception as e:
+        print(f"  [WARNING] 상장폐지 원장 등록 실패({symbol}): {e}")
+        return False
 
 # Add root and backend to path
 sys.path.append(os.getcwd())
@@ -38,7 +79,6 @@ sys.path.append(os.path.join(os.getcwd(), "backend"))
 from backend.engine.data_fetcher import fetch_and_enrich, enrich_existing_parquet
 from backend.engine.sector_mapper import get_sector_from_industry
 from backend.engine.fundamental_fetcher import _read_cache
-from backend.engine.dart_client import fetch_recent_delisting_notices
 from backend.universe_history import (
     build_universe_sync_log_lines,
     load_universe_history,
@@ -399,36 +439,35 @@ def main(argv=None):
     for line in build_universe_sync_log_lines(history_entry, load_universe_history()):
         print(line)
 
-    # 3. DART 상장폐지 공시 체크 (KRX 스냅샷 비교와 독립적으로 실행)
-    _CONFIRMED_DELIST_KEYWORDS = ["상장폐지결정", "상장폐지 결정", "정리매매", "상장폐지예고"]
-    print("\nChecking OpenDART for delisting notices (past 7 days)...")
-    try:
-        dart_notices = fetch_recent_delisting_notices(days=7)
-        print(f"  DART 상장폐지 관련 공시 {len(dart_notices)}건 발견")
-        dart_confirmed = []
-        for notice in dart_notices:
-            code = notice["stock_code"]
-            name = notice["corp_name"]
-            report = notice["report_nm"]
-            date = notice["rcept_dt"]
-            print(f"  - [{date}] {name} ({code}): {report}")
-            # 상장폐지 확정 건만 DelistedSymbolStore에 등록
-            if any(kw in report for kw in _CONFIRMED_DELIST_KEYWORDS):
-                try:
-                    import requests as req_lib
-                    backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
-                    r = req_lib.post(f"{backend_url}/market/delist/{code}", timeout=3)
-                    if r.status_code == 200 and r.json().get("added"):
-                        dart_confirmed.append({"symbol": code, "name": name})
-                        print(f"    → 상장폐지 등록 완료: {code}")
-                except Exception:
-                    pass
-        if dart_confirmed:
-            _notify_backend("dart_delist", delisted_symbols=dart_confirmed)
-        if not dart_notices:
-            print("  DART 상장폐지 공시 없음")
-    except Exception as e:
-        print(f"  [WARNING] DART 공시 조회 실패: {e}")
+    # 2.5. 상장폐지 원장 자동 등록 — KRX 명부에서 사라진 종목(= 폐지 '완료')만 등록한다.
+    #      원장에 오르면 시세 조회가 provider 체인 진입 전에 끊기고 가상계좌 평가가 0원이
+    #      되므로, 아직 상장 상태인 거래정지·심사·폐지결정 단계는 절대 담지 않는다
+    #      (그 단계들은 Stock.listingStatus가 표현한다 — FR-VM-068b).
+    if symbol_sync_ok and delisted_symbols:
+        if len(delisted_symbols) > MAX_AUTO_DELIST_PER_SYNC:
+            # 한 번의 동기화에서 수십 종목이 한꺼번에 사라지는 일은 실제 상폐가 아니라
+            # KRX 조회 누락이다 — 대량 오등록은 시세를 통째로 끊으므로 등록하지 않는다.
+            print(f"  [WARNING] 명부 이탈 {len(delisted_symbols)}건 — 상한"
+                  f"({MAX_AUTO_DELIST_PER_SYNC}) 초과로 상장폐지 원장 자동 등록을 건너뜁니다"
+                  " (KRX 조회 누락 의심). 실제 상폐면 관리자 등록으로 처리하세요.")
+        else:
+            registered = []
+            for ds in delisted_symbols:
+                if _mark_delisted(ds["symbol"]):
+                    registered.append({"symbol": ds["symbol"], "name": ds.get("name", "")})
+                    print(f"  → 상장폐지 원장 등록: {ds.get('name', '')} ({ds['symbol']})")
+            if registered:
+                _notify_backend("delist_registered", delisted_symbols=registered)
+
+    # 3. DART 공시 → 상장 상태(거래정지·심사·상장폐지 결정) 갱신
+    #
+    # 여기서 상장폐지 원장(data/delisted-stocks.json)에 등록하지 않는다. 원장은 시세 조회를
+    # 통째로 끊고 0원 평가를 유발하는 '폐지 완료' 표식이고, 공시가 말하는 결정·정리매매는
+    # 아직 상장 상태이기 때문이다(정리매매 기간엔 매도할 수 있어야 한다). 확정 판정도 여기서
+    # 다시 하지 않는다 — 낱말 목록 사본이 정본(engine.listing_status.is_confirmed_delisting)과
+    # 갈라져 '절차 미진행' 공시를 폐지로 등록하던 사고가 있었다(2026-09-16). 판정과 상태 반영은
+    # 백엔드 엔드포인트 한 곳에서 한다.
+    _sync_listing_status_from_dart()
 
     if args.symbols_only:
         print(f"\n[--symbols-only] OHLCV 동기화 건너뜀. 종목 목록 업데이트 완료 ({len(stocks)}개)")

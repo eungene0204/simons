@@ -106,3 +106,29 @@ def test_sync_trading_halt_keeps_dart_statuses(app_db):
     assert changed == {}
     assert ls.get_stock_listing_status("111111") == ls.ListingStatus.DELISTING_REVIEW
     assert ls.get_stock_listing_status("222222") == ls.ListingStatus.DELISTED
+
+
+def test_clear_delisted_status_recovers_wrongly_marked_symbol(app_db):
+    """원장 오등록으로 DELISTED가 된 종목은 해제로만 회복된다.
+
+    공시 동기화는 DELISTED를 강등하지 않으므로(폐지 완료는 번복하지 않는다는 정상 계약),
+    거래정지 종목이 원장에 잘못 올라가면 0원 평가·거래 차단에 영구히 갇힌다
+    (2026-09-16: 거래정지 3종목이 원장에 올라와 있었다).
+    """
+    ls = _mod()
+    ls.update_stock_listing_status(
+        "025870", ls.ListingStatus.DELISTED,
+        suspension_reason="상장폐지 완료", risk_flags=["DELISTED"],
+    )
+    assert ls.get_stock_listing_status("025870") == ls.ListingStatus.DELISTED
+
+    assert ls.clear_delisted_status("025870") is True
+    assert ls.get_stock_listing_status("025870") == ls.ListingStatus.NORMAL
+    row = [r for r in ls.get_stocks_by_status(ls.ListingStatus.NORMAL) if r["symbol"] == "025870"][0]
+    assert row["suspensionReason"] is None  # 폐지 사유도 함께 지운다
+    assert row["riskFlags"] is None
+
+    # 멱등 — DELISTED가 아니면 아무것도 하지 않는다(거래정지 상태를 NORMAL로 지우지 않는다)
+    ls.update_stock_listing_status("068240", ls.ListingStatus.TRADING_SUSPENDED)
+    assert ls.clear_delisted_status("068240") is False
+    assert ls.get_stock_listing_status("068240") == ls.ListingStatus.TRADING_SUSPENDED

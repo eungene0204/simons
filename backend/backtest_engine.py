@@ -730,6 +730,15 @@ class BacktestEngine:
                     symbols = _aof_symbols
                     print(f"[BT-ENGINE] PIT universe: {len(symbols)}종목 "
                           f"(markets={_markets}, index_top_n={_index_top_n})", flush=True)
+                else:
+                    # as-of 해석이 비면 프론트가 보낸 **현재 상장** 목록이 그대로 남는다 —
+                    # 생존 편향 제거가 조용히 꺼지는 것이라 반드시 고지한다(2026-09-16 실측:
+                    # 마스터 생성일 이후로 시작하는 창은 전부 0종목이었고 경고도 없었다).
+                    _gen = universe_pit.master_generated_at()
+                    self.warnings.add(rw.warning(rw.PIT_UNIVERSE_MASTER_STALE,
+                                                 _gen or tr.part(rw.MASTER_GENERATED_UNKNOWN)))
+                    print(f"[BT-ENGINE] PIT universe 비어 있음(마스터 {_gen}) — "
+                          f"현재 상장 목록 {len(symbols)}종목으로 진행(생존 편향 고지)", flush=True)
                 # 상폐 이력은 마스터의 delistingFloor(2015-01-01)부터만 있다 — 그 이전 구간은
                 # 생존 종목만으로 돌아가므로 조용히 지나가지 않는다.
                 _floor = universe_pit.delisting_floor()

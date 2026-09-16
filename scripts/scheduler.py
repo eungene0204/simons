@@ -66,6 +66,11 @@ def run_update():
     else:
         _run("데이터 동기화", [sys.executable, "scripts/sync_data.py"])
 
+    # 종목 마스터(생존 편향 제거의 정본)를 가격 동기화 뒤에 갱신한다 — 낡으면 그 시점 이후
+    # 상장폐지된 종목이 백테스트 유니버스에서 통째로 빠지고, 창 시작이 마스터의 가격 커버리지
+    # 끝보다 뒤면 as-of 해석이 0종목이 돼 현재 상장 목록으로 폴백한다(2026-09-16 실측).
+    _run("종목 마스터 갱신", [sys.executable, "backend/scripts/refresh_stock_master.py"])
+
 
 def _newest_data_date():
     """대표 종목 parquet의 마지막(가장 최근) 날짜. 파일이 없거나 읽기 실패 시 None."""
