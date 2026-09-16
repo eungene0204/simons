@@ -70,6 +70,16 @@ def run_update():
     # 상장폐지된 종목이 백테스트 유니버스에서 통째로 빠지고, 창 시작이 마스터의 가격 커버리지
     # 끝보다 뒤면 as-of 해석이 0종목이 돼 현재 상장 목록으로 폴백한다(2026-09-16 실측).
     _run("종목 마스터 갱신", [sys.executable, "backend/scripts/refresh_stock_master.py"])
+    refresh_stock_names()
+
+
+def refresh_stock_names():
+    """korea-stocks.json 종목명을 KIND 공식 회사명으로 맞춘다(사명 변경 반영, 이름만).
+
+    이 파일은 git 추적 파일이라 배포(`git reset --hard`)가 저장소 판으로 되돌린다 — 그래서
+    매일 갱신과 별개로 스케줄러 기동 시(=배포 직후)에도 돌린다. KIND 조회 2건이라 가볍다.
+    """
+    _run("종목명 갱신", [sys.executable, "backend/scripts/refresh_stock_names.py"])
 
 
 def _newest_data_date():
@@ -136,6 +146,8 @@ def main():
         print(f"[{_ts()} KST] 데이터가 밀려 있어 시작 시 캐치업 동기화를 실행합니다.")
         run_update()
         last_sync_date = datetime.now(KST).strftime("%Y-%m-%d")
+    else:
+        refresh_stock_names()  # 배포가 되돌린 종목명 복구(run_update 경로는 이미 포함)
 
     # 정본은 21:00, 미러는 21:15(정본 sync가 끝났을 여유를 둔 뒤) — 하루 1회.
     target_hour, target_minute = (

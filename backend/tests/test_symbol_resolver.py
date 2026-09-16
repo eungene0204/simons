@@ -215,3 +215,25 @@ def test_former_name_aliases_are_unambiguous():
     for name, symbol in data["formerNames"].items():
         key = "".join(name.split()).lower()
         assert bearers[key] == {symbol}, f"{name} → {sorted(bearers[key])}"
+
+
+def test_renamed_stock_name_is_picked_up_without_restart(tmp_path, monkeypatch):
+    """[2026-09-16 회귀] 명부 종목명은 매일 사명 변경을 반영해 제자리 갱신된다
+    (`scripts/refresh_stock_names.py`). 해석기 캐시가 프로세스 수명이면 백엔드를 재시작할
+    때까지 옛 이름('세기상사')이 유니버스 목록에 나간다 — 파일이 바뀌면 다시 읽어야 한다."""
+    import json
+
+    import stock_analysis.symbol_resolver as resolver
+
+    stocks = tmp_path / "korea-stocks.json"
+    monkeypatch.setattr(resolver, "_STOCKS_JSON_PATH", stocks)
+    monkeypatch.setattr(resolver, "_NAME_HISTORY_PATH", tmp_path / "missing.json")
+
+    stocks.write_text(json.dumps([{"symbol": "002420", "name": "세기상사"}], ensure_ascii=False),
+                      encoding="utf-8")
+    assert resolver.resolve_by_symbol("002420").name == "세기상사"
+
+    stocks.write_text(json.dumps([{"symbol": "002420", "name": "우양피앤엘"}], ensure_ascii=False),
+                      encoding="utf-8")
+    assert resolver.resolve_by_symbol("002420").name == "우양피앤엘"
+    assert [r.symbol for r in resolver.find_in_text("우양피앤엘 추가해줘")] == ["002420"]

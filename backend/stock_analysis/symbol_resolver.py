@@ -1,7 +1,7 @@
 """
 종목명 ↔ 종목코드 해석기.
 
-`data/korea-stocks.json`(symbol/name/market/sector/industry)을 1회 로드해
+`data/korea-stocks.json`(symbol/name/market/sector/industry)을 로드해(파일이 바뀌면 다시 읽는다)
 사용자 입력 문자열에서 종목을 식별한다. 대표 해외 종목은 작은 별칭 맵으로만
 인식하되 코드는 티커로 둔다(국내 parquet 데이터가 없어 분석 단계에서
 INSUFFICIENT_DATA로 처리된다).
@@ -15,7 +15,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import wraps
 from pathlib import Path
 from typing import Optional
 
@@ -59,6 +59,38 @@ _KOREAN_ALIASES: dict[str, str] = {
 _NAME_HISTORY_PATH = Path(__file__).resolve().parents[2] / "data" / "stock-name-history.json"
 
 
+def _data_stamp() -> tuple:
+    stamp = []
+    for path in (_STOCKS_JSON_PATH, _NAME_HISTORY_PATH):
+        try:
+            stat = path.stat()
+            stamp.append((stat.st_mtime_ns, stat.st_size))
+        except OSError:
+            stamp.append(None)
+    return tuple(stamp)
+
+
+def _cached_by_data_files(fn):
+    """두 데이터 파일(명부·사명 이력)이 바뀌면 다시 계산하는 1칸 캐시.
+
+    명부의 종목명은 매일 사명 변경을 반영해 제자리 갱신된다(`scripts/refresh_stock_names.py`).
+    프로세스 수명 캐시면 백엔드를 재시작할 때까지 옛 이름이 나가므로 파일 변경을 따라간다.
+    """
+    entry: list = []
+
+    @wraps(fn)
+    def wrapper():
+        stamp = _data_stamp()
+        current = entry[0] if entry else None
+        if current is None or current[0] != stamp:
+            current = (stamp, fn())
+            entry[:] = [current]
+        return current[1]
+
+    wrapper.cache_clear = entry.clear
+    return wrapper
+
+
 @dataclass(frozen=True)
 class StockRef:
     symbol: str
@@ -69,7 +101,7 @@ class StockRef:
     overseas: bool = False
 
 
-@lru_cache(maxsize=1)
+@_cached_by_data_files
 def _load_stocks() -> list[dict]:
     try:
         with _STOCKS_JSON_PATH.open(encoding="utf-8") as fh:
@@ -80,7 +112,7 @@ def _load_stocks() -> list[dict]:
         return []
 
 
-@lru_cache(maxsize=1)
+@_cached_by_data_files
 def _former_names() -> dict[str, str]:
     """구 사명 → 종목코드. 수집·모호성 배제는 빌드 스크립트가 끝냈고 여기서는 읽기만 한다.
 
@@ -113,7 +145,7 @@ def known_aliases() -> dict[str, str]:
     return {**_former_names(), **_KOREAN_ALIASES}
 
 
-@lru_cache(maxsize=1)
+@_cached_by_data_files
 def _former_name_index() -> dict[str, str]:
     return {_normalize_name(name): ticker for name, ticker in _former_names().items()}
 
@@ -130,7 +162,7 @@ def former_name_symbol(term: str) -> Optional[str]:
     return _former_name_index().get(_normalize_name(term))
 
 
-@lru_cache(maxsize=1)
+@_cached_by_data_files
 def _match_index() -> tuple[tuple[str, dict], ...]:
     """매칭 문자열 길이 내림차순으로 정렬된 (match_str, row) 목록.
 
@@ -152,7 +184,7 @@ def _match_index() -> tuple[tuple[str, dict], ...]:
     return tuple(indexed)
 
 
-@lru_cache(maxsize=1)
+@_cached_by_data_files
 def _symbol_index() -> dict[str, dict]:
     return {str(row["symbol"]).strip(): row for row in _load_stocks()}
 
@@ -231,7 +263,7 @@ def _edit_distance(a: str, b: str, cap: int) -> int:
     return prev[-1]
 
 
-@lru_cache(maxsize=1)
+@_cached_by_data_files
 def _jamo_index() -> tuple[tuple[str, dict], ...]:
     """(종목명/통칭의 자모열, row) 목록 — 오타 근접 매칭용(_match_index와 동일 원천)."""
     return tuple((_to_jamo(match_str), row) for match_str, row in _match_index())

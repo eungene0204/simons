@@ -16,13 +16,9 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import koreaStocks from "@/data/korea-stocks.json";
+import { getStockNameMap } from "@/lib/krx-stocks";
 import { fetchStockPriceSnapshots } from "@/lib/server/stock-prices";
 import { moneyToNumber, toMoney } from "@/lib/server/assetService";
-
-const stockNameMap: Record<string, string> = Object.fromEntries(
-  (koreaStocks as Array<{ symbol: string; name: string }>).map((s) => [s.symbol, s.name])
-);
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
@@ -70,6 +66,7 @@ export async function refreshVirtualMarket(
   // 3. 실제 가격 조회 (표시용)
   let priceMap: Record<string, { close: number; open: number; high: number; low: number; volume: number; name: string; date: string }> = {};
   try {
+    const stockNameMap = await getStockNameMap();
     const snapshots = await fetchStockPriceSnapshots(symbols, {
       subscribe: true,
       mode: 'realtime',

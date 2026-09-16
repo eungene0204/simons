@@ -3726,7 +3726,7 @@
   },
   {
     "symbol": "018500",
-    "name": "동원금속",
+    "name": "동원모빌리티",
     "market": "KOSPI",
     "sector": "자동차",
     "industry": "자동차 신품 부품 제조업",
@@ -4812,7 +4812,7 @@
   },
   {
     "symbol": "009810",
-    "name": "플레이그램",
+    "name": "MDS스피어",
     "market": "KOSPI",
     "sector": "유통/상사",
     "industry": "기타 전문 도매업",
@@ -6604,7 +6604,7 @@
   },
   {
     "symbol": "002420",
-    "name": "세기상사",
+    "name": "우양피앤엘",
     "market": "KOSPI",
     "sector": "유통/상사",
     "industry": "연료 소매업",
@@ -9938,7 +9938,7 @@
   },
   {
     "symbol": "396300",
-    "name": "세아메카닉스",
+    "name": "HT로보틱스",
     "market": "KOSDAQ",
     "sector": "화학",
     "industry": "기타 금속 가공제품 제조업",
@@ -9946,7 +9946,7 @@
   },
   {
     "symbol": "366030",
-    "name": "공구우먼",
+    "name": "나인앤컴퍼니",
     "market": "KOSDAQ",
     "sector": "패션",
     "industry": "의복 액세서리 제조업",
@@ -10617,7 +10617,7 @@
   },
   {
     "symbol": "340930",
-    "name": "유일에너테크",
+    "name": "성원에너텍",
     "market": "KOSDAQ",
     "sector": "기계/장비",
     "industry": "특수 목적용 기계 제조업",
@@ -10889,7 +10889,7 @@
   },
   {
     "symbol": "290690",
-    "name": "소룩스",
+    "name": "아리바이오홀딩스",
     "market": "KOSDAQ",
     "sector": "가구/인테리어",
     "industry": "전구 및 조명장치 제조업",
@@ -11001,7 +11001,7 @@
   },
   {
     "symbol": "291650",
-    "name": "압타머사이언스",
+    "name": "츌립앤사이언스",
     "market": "KOSDAQ",
     "sector": "기타 서비스",
     "industry": "자연과학 및 공학 연구개발업",
@@ -11697,7 +11697,7 @@
   },
   {
     "symbol": "282880",
-    "name": "코윈테크",
+    "name": "코윈로보틱스",
     "market": "KOSDAQ",
     "sector": "기계/장비",
     "industry": "특수 목적용 기계 제조업",
@@ -12303,7 +12303,7 @@
   },
   {
     "symbol": "291230",
-    "name": "엔피",
+    "name": "컴투스엔",
     "market": "KOSDAQ",
     "sector": "기타 서비스",
     "industry": "기타 사업지원 서비스업",
@@ -12407,7 +12407,7 @@
   },
   {
     "symbol": "297570",
-    "name": "알로이스",
+    "name": "아틀라스링크",
     "market": "KOSDAQ",
     "sector": "IT 하드웨어",
     "industry": "통신 및 방송 장비 제조업",
@@ -13199,7 +13199,7 @@
   },
   {
     "symbol": "220180",
-    "name": "핸디소프트",
+    "name": "폴라리스AI핸디",
     "market": "KOSDAQ",
     "sector": "소프트웨어",
     "industry": "소프트웨어 개발 및 공급업",
@@ -13343,7 +13343,7 @@
   },
   {
     "symbol": "242040",
-    "name": "나무기술",
+    "name": "나무AX",
     "market": "KOSDAQ",
     "sector": "소프트웨어",
     "industry": "소프트웨어 개발 및 공급업",
@@ -13390,7 +13390,7 @@
   },
   {
     "symbol": "123010",
-    "name": "알엔티엑스",
+    "name": "MSDI",
     "market": "KOSDAQ",
     "sector": "전자부품",
     "industry": "전자부품 제조업",
@@ -13830,7 +13830,7 @@
   },
   {
     "symbol": "175140",
-    "name": "휴먼테크놀로지",
+    "name": "아고스",
     "market": "KOSDAQ",
     "sector": "IT 하드웨어",
     "industry": "통신 및 방송 장비 제조업",
@@ -13838,7 +13838,7 @@
   },
   {
     "symbol": "222080",
-    "name": "씨아이에스",
+    "name": "SFA넥셀",
     "market": "KOSDAQ",
     "sector": "기계/장비",
     "industry": "특수 목적용 기계 제조업",
@@ -14054,7 +14054,7 @@
   },
   {
     "symbol": "215380",
-    "name": "우정바이오",
+    "name": "콜마바이오텍",
     "market": "KOSDAQ",
     "sector": "바이오/제약",
     "industry": "자연과학 및 공학 연구개발업",
@@ -14118,7 +14118,7 @@
   },
   {
     "symbol": "195990",
-    "name": "에이비프로바이오",
+    "name": "루트K",
     "market": "KOSDAQ",
     "sector": "기계/장비",
     "industry": "특수 목적용 기계 제조업",
@@ -15620,7 +15620,7 @@
   },
   {
     "symbol": "070300",
-    "name": "엑스큐어",
+    "name": "퀀텀레일",
     "market": "KOSDAQ",
     "sector": "소프트웨어",
     "industry": "소프트웨어 개발 및 공급업",
@@ -16731,7 +16731,7 @@
   },
   {
     "symbol": "091970",
-    "name": "나노캠텍",
+    "name": "LSK아이로봇",
     "market": "KOSDAQ",
     "sector": "화학",
     "industry": "플라스틱제품 제조업",
@@ -16915,7 +16915,7 @@
   },
   {
     "symbol": "038060",
-    "name": "루멘스",
+    "name": "루멘스바이오스",
     "market": "KOSDAQ",
     "sector": "반도체",
     "industry": "반도체 제조업",
@@ -18634,7 +18634,7 @@
   },
   {
     "symbol": "056190",
-    "name": "에스에프에이",
+    "name": "SFA",
     "market": "KOSDAQ",
     "sector": "기계/장비",
     "industry": "특수 목적용 기계 제조업",
@@ -20456,7 +20456,7 @@
   },
   {
     "symbol": "030520",
-    "name": "한글과컴퓨터",
+    "name": "한컴",
     "market": "KOSDAQ",
     "sector": "소프트웨어",
     "industry": "소프트웨어 개발 및 공급업",
@@ -20944,7 +20944,7 @@
   },
   {
     "symbol": "013720",
-    "name": "THE CUBE&",
+    "name": "청보",
     "market": "KOSDAQ",
     "sector": "자동차",
     "industry": "자동차 신품 부품 제조업",
@@ -21208,7 +21208,7 @@
   },
   {
     "symbol": "019570",
-    "name": "플루토스",
+    "name": "GMI벤처",
     "market": "KOSDAQ",
     "sector": "증권",
     "industry": "신탁업 및 집합투자업",

@@ -165,6 +165,18 @@ def build_renames() -> List[dict]:
     return renames
 
 
+def kept_daily_events() -> List[dict]:
+    """기존 산출물에 쌓인 일일 사명 변경 사건(`scripts/refresh_stock_names.py`, source=KIND).
+
+    재집계는 월별 스냅샷 캐시만으로 renames를 다시 만들기 때문에, 그대로 두면 매일 반영한
+    사건이 지워진다. 스냅샷 사건과 겹치지 않게 뒤에 붙인다.
+    """
+    if not _OUT_PATH.exists():
+        return []
+    data = json.loads(_OUT_PATH.read_text(encoding="utf-8"))
+    return [e for e in data.get("renames", []) if e.get("source") == "KIND"]
+
+
 def build_former_names(renames: List[dict]) -> tuple[Dict[str, str], List[dict]]:
     """구 사명 → 종목코드 표와, 모호해서 제외한 항목 목록을 만든다.
 
@@ -267,6 +279,9 @@ def main() -> None:
         collect(months, _make_fetcher())
 
     renames = build_renames()
+    seen = {(e["symbol"], _normalize(e["from"]), _normalize(e["to"])) for e in renames}
+    renames += [e for e in kept_daily_events()
+                if (e["symbol"], _normalize(e["from"]), _normalize(e["to"])) not in seen]
     former_names, rejected = build_former_names(renames)
     write_output(renames, former_names, rejected)
 

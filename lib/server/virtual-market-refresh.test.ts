@@ -13,7 +13,7 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/lib/server/stock-prices", () => ({
   fetchStockPriceSnapshots: vi.fn(),
 }));
-vi.mock("@/data/korea-stocks.json", () => ({ default: [] }));
+vi.mock("@/lib/krx-stocks", () => ({ getStockNameMap: vi.fn().mockResolvedValue({}) }));
 
 import { refreshVirtualMarket } from "@/lib/server/virtual-market-refresh";
 import { prisma } from "@/lib/prisma";

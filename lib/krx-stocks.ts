@@ -45,19 +45,32 @@ export async function loadStockList(): Promise<StockListItem[]> {
  * 종목 코드→이름 매핑을 캐시하여 반환합니다.
  * global 객체에 보관하여 Next.js HMR로 모듈이 재로드되어도 유지되고,
  * 동시에 들어오는 여러 요청이 같은 Promise를 공유하도록 합니다 (deduplication).
+ * 종목명은 매일 사명 변경을 반영해 제자리 갱신되므로(backend/scripts/refresh_stock_names.py)
+ * 파일 수정 시각이 바뀌면 다시 읽는다 — 프로세스 수명 캐시면 재시작 전까지 옛 이름이 나간다.
  */
 declare global {
   // eslint-disable-next-line no-var
-  var __stockNameMapPromise: Promise<Record<string, string>> | undefined;
+  var __stockNameMapCache:
+    | { mtimeMs: number; map: Promise<Record<string, string>> }
+    | undefined;
 }
 
-export function getStockNameMap(): Promise<Record<string, string>> {
-  if (!global.__stockNameMapPromise) {
-    global.__stockNameMapPromise = loadStockList().then((stocks) =>
-      Object.fromEntries(stocks.map((s) => [s.symbol, s.name]))
-    );
+export async function getStockNameMap(): Promise<Record<string, string>> {
+  const fs = await import('fs/promises');
+  const path = await import('path');
+  let mtimeMs = -1;
+  try {
+    mtimeMs = (await fs.stat(path.join(process.cwd(), 'data', 'korea-stocks.json'))).mtimeMs;
+  } catch {
+    // 파일이 없으면 loadStockList가 실패를 기록하고 빈 목록을 돌려준다
   }
-  return global.__stockNameMapPromise;
+  const cached = global.__stockNameMapCache;
+  if (cached && cached.mtimeMs === mtimeMs) return cached.map;
+  const map = loadStockList().then((stocks) =>
+    Object.fromEntries(stocks.map((s) => [s.symbol, s.name]))
+  );
+  global.__stockNameMapCache = { mtimeMs, map };
+  return map;
 }
 
 /**

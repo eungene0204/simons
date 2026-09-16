@@ -2555,38 +2555,20 @@ def sync_stocks():
         import json
         from pathlib import Path
         from engine.sector_mapper import get_sector_from_industry
+        from stock_analysis.kind_listing import fetch_kind_listing
         from universe_history import build_universe_sync_log_lines, load_universe_history, record_universe_sync
 
         stocks: list[dict] = []
         fetch_errors: list[str] = []
 
-        def _fetch_kind(market_type: str, market_label: str) -> list[dict]:
-            import requests, io, pandas as pd
-            r = _http_session.get(
-                "https://kind.krx.co.kr/corpgeneral/corpList.do",
-                params={"method": "download", "searchType": "13", "marketType": market_type},
-                timeout=15,
-            )
-            r.encoding = "euc-kr"
-            df = pd.read_html(io.StringIO(r.text))[0]
-            result = []
-            for _, row in df.iterrows():
-                symbol = str(row.get("종목코드", "")).strip().zfill(6)
-                name = str(row.get("회사명", "")).strip()
-                industry = str(row.get("업종", "") or "").strip()
-                if not symbol or not name:
-                    continue
-                sector = get_sector_from_industry(symbol, industry, name)
-                result.append({"symbol": symbol, "name": name, "market": market_label,
-                                "sector": sector, "industry": industry})
-            return result
-
         # 1순위: KRX KIND 공식 사이트 (올바른 이름-코드 매핑)
         try:
-            kospi = _fetch_kind("stockMkt", "KOSPI")
-            kosdaq = _fetch_kind("kosdaqMkt", "KOSDAQ")
-            stocks = kospi + kosdaq
-            print(f"[INFO] KRX KIND: KOSPI={len(kospi)}, KOSDAQ={len(kosdaq)}", flush=True)
+            stocks = [
+                {**row, "sector": get_sector_from_industry(row["symbol"], row["industry"], row["name"])}
+                for row in fetch_kind_listing(_http_session)
+            ]
+            kospi = sum(1 for s in stocks if s["market"] == "KOSPI")
+            print(f"[INFO] KRX KIND: KOSPI={kospi}, KOSDAQ={len(stocks) - kospi}", flush=True)
         except Exception as e:
             fetch_errors.append(f"KRX KIND: {e}")
             print(f"[WARN] KRX KIND 실패, FDR fallback 시도: {e}", flush=True)

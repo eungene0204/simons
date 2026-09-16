@@ -4,6 +4,7 @@ import importlib.util
 from datetime import datetime
 from pathlib import Path
 
+import pytest
 import pytz
 
 # scripts/는 backend/scripts/와 네임스페이스 충돌이 있어, 파일 경로로 직접 로드한다.
@@ -114,3 +115,36 @@ def test_run_update_syncs_in_source_mode(monkeypatch):
     monkeypatch.setattr(scheduler, "_run", lambda label, cmd: calls.setdefault("cmd", cmd))
     scheduler.run_update()
     assert calls["cmd"][-1].endswith("scripts/sync_data.py")
+
+
+def test_run_update_refreshes_stock_names_after_master(monkeypatch):
+    """[2026-09-16] 사명 변경을 매일 명부에 반영한다 — 종목 마스터 갱신 뒤에 돈다."""
+    monkeypatch.delenv("DATA_MIRROR_REMOTE", raising=False)
+    cmds = []
+    monkeypatch.setattr(scheduler, "_run", lambda label, cmd: cmds.append(cmd[-1]))
+    scheduler.run_update()
+    assert cmds[-2].endswith("refresh_stock_master.py")
+    assert cmds[-1].endswith("refresh_stock_names.py")
+
+
+def test_startup_without_catchup_still_refreshes_stock_names(monkeypatch):
+    """배포의 `git reset --hard`가 명부를 저장소 판으로 되돌리므로, 데이터가 최신이라 캐치업을
+    건너뛰는 기동(=배포 직후)에도 종목명 갱신은 돈다."""
+    monkeypatch.delenv("DATA_MIRROR_REMOTE", raising=False)
+    monkeypatch.setattr(scheduler, "load_dotenv", lambda *a, **k: None)
+    monkeypatch.setattr(scheduler, "_is_data_stale", lambda: False)
+    calls = []
+    monkeypatch.setattr(scheduler, "run_update", lambda: calls.append("update"))
+    monkeypatch.setattr(scheduler, "refresh_stock_names", lambda: calls.append("names"))
+
+    class _Stop(Exception):
+        pass
+
+    def _stop(_):
+        raise _Stop
+
+    monkeypatch.setattr(scheduler.time, "sleep", _stop)
+    monkeypatch.setattr(scheduler, "_SYNC_HOUR", 24)   # 반복 트리거가 이번 턴에 실행되지 않게
+    with pytest.raises(_Stop):
+        scheduler.main()
+    assert calls == ["names"]
