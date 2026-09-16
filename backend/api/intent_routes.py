@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import sys
 from typing import List, Optional
 
@@ -437,21 +438,35 @@ _RESULT_SYSTEM_PROMPT = (
 )
 
 
-def _build_general_user_msg(req: GeneralQueryRequest, extra_facts: Optional[str] = None) -> str:
+# 한자(CJK 통합·확장 A)·히라가나·가타카나 — LLM 출력 형식 검증용(사용자 원문 해석 아님).
+_FOREIGN_SCRIPT = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]+")
+
+
+def _foreign_script_sample(text: Optional[str]) -> Optional[str]:
+    """LLM 답변에 섞인 한자·가나 조각(첫 덩어리)을 돌려준다. 없으면 None."""
+    m = _FOREIGN_SCRIPT.search(text or "")
+    return m.group(0) if m else None
+
+
+def _build_general_user_msg(
+    req: GeneralQueryRequest,
+    extra_facts: Optional[str] = None,
+    glossary_block: Optional[str] = None,
+) -> str:
     # 설정 용어(슬리피지·수수료 등)가 언급된 개념 질문에는 실제 플랫폼 기본값을 사실로
     # 주입한다 — LLM이 "기본값은 0%" 같은 값을 지어내는 것을 막는다.
-    # 기초 용어(PER·RSI 등) 정의도 사실로 주입한다 — 소형 LLM의 정의 오류(레드팀 QA
-    # 6-1/7-4: "PER=주가순자산비율", "RSI 90=과매도") 방지.
+    # glossary_block: 기초 용어(PER·RSI 등) 정의 — 소형 LLM의 정의 오류(레드팀 QA
+    # 6-1/7-4: "PER=주가순자산비율", "RSI 90=과매도") 방지. 어떤 용어인지는 호출부가
+    # LLM 추출(glossary_facts.extract_terms)로 정한다 — 원문 정규식 판정 금지.
     # extra_facts: 테마 용어 검증 정의 블록(term_grounding.general_facts_block — 지식그래프/
     # 어휘집/검색 그라운딩. ESS를 '에너지 효율성'으로 환각하던 사고 방지).
-    from intent import glossary_facts
     facts_parts = [
         block for block in (
             # 호출부가 확정한 사실(사용자의 실제 결과 수치)이 가장 먼저 온다 — LLM이
             # 일반 지식보다 이 값을 근거로 삼아야 한다.
             f"[사실]\n{req.facts}" if req.facts else None,
             platform_defaults.facts_block(req.query),
-            glossary_facts.facts_block(req.query),
+            glossary_block,
             extra_facts,
         ) if block
     ]
@@ -503,18 +518,26 @@ def generate_general_answer(
             trace.output(source="none", answered=False, reason="llm_unavailable")
             return None
         req = GeneralQueryRequest(query=query, history=history or [], facts=caller_facts)
+        # 기초 용어 정의 주입 — 질문에 어떤 용어가 나왔는지는 LLM이 짧은 문자열로 뽑고
+        # (구조화), 정본 정의 대조만 결정론이다(intent/glossary_facts.py 모듈 설명 참고).
+        glossary_block = None
+        try:
+            from intent import glossary_facts
+
+            glossary_block = glossary_facts.facts_block(
+                glossary_facts.extract_terms(query, _mlx_llm_structured)
+            )
+        except Exception:  # noqa: BLE001 — 사실 주입 실패가 답변 자체를 막으면 안 된다
+            logger.debug("기초 용어 정의 주입 실패 — 주입 없이 답변", exc_info=True)
         # 테마 용어 검증 정의 주입(FR-STR-069) — 기초 용어(glossary/기본값)가 이미 잡힌
         # 질문은 검색 폴백을 건너뛴다(불필요한 용어 추출 LLM 호출·검색 방지).
         # 호출부 사실이 있으면 그것이 이미 권위 있는 근거라 검색까지 갈 이유가 없다.
         extra_facts = None
         if not caller_facts:
             try:
-                from intent import glossary_facts
                 from engine.term_grounding import general_facts_block
 
-                known_vocab = bool(
-                    platform_defaults.facts_block(query) or glossary_facts.facts_block(query)
-                )
+                known_vocab = bool(platform_defaults.facts_block(query) or glossary_block)
                 # 용어 **추출**은 구조화(짧은 문자열 하나), 아래 **답변 생성**만 산문이다.
                 extra_facts = general_facts_block(
                     query, _mlx_llm_structured, allow_search=not known_vocab
@@ -522,9 +545,22 @@ def generate_general_answer(
             except Exception:  # noqa: BLE001 — 사실 주입 실패가 답변 자체를 막으면 안 된다
                 logger.debug("용어 정의 사실 주입 실패 — 주입 없이 답변", exc_info=True)
         system_prompt = _RESULT_SYSTEM_PROMPT if caller_facts else _GENERAL_SYSTEM_PROMPT
-        raw = _mlx_llm_prose(
-            system_prompt, _build_general_user_msg(req, extra_facts), max_tokens=300
-        )
+        user_msg = _build_general_user_msg(req, extra_facts, glossary_block)
+        raw = _mlx_llm_prose(system_prompt, user_msg, max_tokens=300)
+        # 한자·일본어 문자가 섞인 답변은 고치지 않고 오류를 알려 다시 생성한다(계약: 후처리
+        # 임의 보정 금지). 2026-09-17 실측 "주가가一株당 순이익". 재생성도 섞이면 답하지 않는다.
+        foreign = _foreign_script_sample(raw)
+        if foreign:
+            raw = _mlx_llm_prose(
+                system_prompt,
+                user_msg + (
+                    f"\n\n[형식 오류] 직전 답변에 한자·일본어 문자('{foreign}')가 섞였습니다. "
+                    "같은 내용을 한글(영어 답변이면 영어)로만 다시 작성하십시오."
+                ),
+                max_tokens=300,
+            )
+            if _foreign_script_sample(raw):
+                raw = ""
         answer = guardrails.sanitize(raw)
         if caller_facts:
             # 결과 수치 설명에서만 등급 표현을 걷어낸다 — 프롬프트 지시를 9B가 완전히

@@ -240,6 +240,9 @@ class CoachSessionRequest(BaseModel):
     # 전략 수정으로 세션을 새로 만들 때, 직전까지의 코치 대화를 넘겨 받아
     # 이미 설명한 전문용어를 다시 설명하지 않도록 한다.
     conversation_context: Optional[List[Dict[str, Any]]] = None
+    # 사용자가 '안 함'으로 거부한 슬롯(stop_loss·take_profit·rebalancing — strategy_slots.DECLINABLE_FIELDS).
+    # 검증이 이 슬롯을 '입력해 주세요'로 되묻지 않게 한다(값 없음 = 사용자 결정).
+    declined_fields: Optional[List[str]] = None
 
 
 class CoachSessionFollowUpRequest(BaseModel):
@@ -278,9 +281,13 @@ def _validation_payload(parsed_strategy: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
-def _generate_validation_response(parsed_strategy: Dict[str, Any]) -> CoachResponse:
+def _generate_validation_response(
+    parsed_strategy: Dict[str, Any], declined_fields: Optional[List[str]] = None
+) -> CoachResponse:
     return CoachResponse(
-        message=_strategy_validation_agent.validate_json(_validation_payload(parsed_strategy))
+        message=_strategy_validation_agent.validate_json(
+            _validation_payload(parsed_strategy), declined_fields
+        )
     )
 
 
@@ -1895,11 +1902,12 @@ async def coach_strategy(req: CoachRequest) -> CoachResponse:
 async def create_coach_session(req: CoachSessionRequest, response: Response) -> CoachResponse:
     if _STRATEGY_AGENT_MODE == "validation":
         session_id = uuid4().hex
-        validation_response = _generate_validation_response(req.parsed_strategy)
+        validation_response = _generate_validation_response(req.parsed_strategy, req.declined_fields)
         _remember_session(
             session_id,
             {
                 "parsed_strategy": req.parsed_strategy,
+                "declined_fields": req.declined_fields,
                 "advisor_result": None,
                 "memory_strategy_cases": req.memory_strategy_cases,
                 "memory_experiences": req.memory_experiences,
@@ -1996,7 +2004,9 @@ async def continue_coach_session(req: CoachSessionFollowUpRequest) -> CoachRespo
         session = _coach_sessions.get(req.session_id)
         if session is None:
             raise HTTPException(status_code=404, detail="Coach session not found")
-        validation_response = _generate_validation_response(session["parsed_strategy"])
+        validation_response = _generate_validation_response(
+            session["parsed_strategy"], session.get("declined_fields")
+        )
         session["conversation_context"] = [
             *(session.get("conversation_context") or []),
             {"role": "user", "content": req.user_prompt},

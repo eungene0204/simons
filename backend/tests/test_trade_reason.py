@@ -52,7 +52,7 @@ def test_condition_description_matches_legacy_korean_text():
     engine = SignalEngine()
     cases = [
         ({"id": "ma_crossover", "params": {"shortMA": 5, "longMA": 20}}, "5일선-20일선 골든크로스"),
-        ({"id": "rsi", "params": {"value": 30, "operator": "<"}}, "RSI 30 이하"),
+        ({"id": "rsi", "params": {"value": 30, "operator": "<"}}, "RSI 30 미만"),  # 엄격 비교는 경계 미포함(2026-09-17)
         ({"id": "breakout", "params": {"lookbackPeriod": 252}}, "252일 신고가 돌파"),
         ({"id": "volume_spike", "params": {}}, "거래량 OBV 골든크로스"),
         ({"id": "volatility", "params": {"period": 60, "value": 30}}, "변동성(60일, 연환산) 30% 이하"),

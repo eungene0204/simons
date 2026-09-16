@@ -94,7 +94,7 @@ def test_parallel_windows_match_sequential_and_report_aggregated_progress(mock_d
     # 병렬 진행률: 창별 시도 이벤트를 합산한 필드가 붙는다
     window_events = [e for e in par_events if e.get("stage") == "window"]
     assert window_events, "창 진행 이벤트가 있어야 한다"
-    assert all("trials_done" in e and "windows_done" in e and e.get("workers") == 2 for e in window_events)
+    assert all("trials_done" in e and "windows_done" in e and e.get("workers") == min(2, len(seq["windows"])) for e in window_events)
     last = window_events[-1]
     assert last["windows_done"] == len(seq["windows"])
     assert last["trials_done"] == len(seq["windows"]) * 2   # 그리드 2조합 × 창 수
@@ -117,3 +117,32 @@ def test_parallel_cancel_returns_cancelled(mock_data_dir, monkeypatch):
         method="grid", is_bars=100, oos_bars=40, should_cancel=should_cancel,
     )
     assert result["status"] == "cancelled"
+
+
+def test_window_resources_follow_running_windows_not_spawned_workers(monkeypatch):
+    """[회귀 2026-09-17] 슬라이더 경로는 창 수를 모른 채 힌트(MAX_WINDOWS)로 워커 8개를 띄운다.
+    실제 창이 3개인데 세션 캐시 예산·Phase1 스레드를 8로 나눠, 코스피 PER·PBR 10년 워크포워드가
+    시도마다 캐시 적중 0·Phase1 1스레드로 돌았고 진행 창은 "8개 구간 동시 실행"이라 적었다."""
+    from engine.prep_cache import _DEFAULT_BUDGET_MB
+    from engine.wfa_workers import WindowPool
+
+    monkeypatch.delenv("BACKTEST_PREP_CACHE_MB", raising=False)
+    monkeypatch.delenv("BACKTEST_PHASE1_THREADS", raising=False)
+    monkeypatch.setattr(os, "cpu_count", lambda: 10)
+    pool = WindowPool(8, {})
+    try:
+        three = pool.window_resources(3)
+        assert three["prep_cache_mb"] == pytest.approx(_DEFAULT_BUDGET_MB / 3)
+        assert three["phase1_threads"] == 3                       # 10코어 ÷ 3창
+        assert pool.window_resources(24) == pool.window_resources(8)  # 워커 수를 넘지 않는다
+    finally:
+        pool.close()
+
+    # 사용자가 고정한 값은 건드리지 않는다
+    monkeypatch.setenv("BACKTEST_PREP_CACHE_MB", "512")
+    monkeypatch.setenv("BACKTEST_PHASE1_THREADS", "2")
+    pinned = WindowPool(8, {})
+    try:
+        assert pinned.window_resources(3) == {}
+    finally:
+        pinned.close()

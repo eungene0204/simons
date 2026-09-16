@@ -774,6 +774,21 @@ fixture로 legacy 고정).
 그대로 호출한다(동일 위반의 두 번째 인스턴스). `intent/platform_defaults.py`는 `/query/general`
 경로에서 원문으로 설정 항목을 추출한다. 둘 다 미이관.
 
+**[2026-09-17] 같은 경로의 세 번째 인스턴스 — `intent/glossary_facts.py` 이관 완료.** 이 목록에
+오른 적이 없던 위반이다: `/query/general`이 용어 정의 사실 블록을 고를 때 원문에 정규식을
+돌렸다. 실측 사고로 드러났다 — `\bper\b`가 "PER과 PBR이 정확히 무슨 뜻인가요?"의 "PER과"를
+놓쳤고(파이썬 정규식에서 한글도 단어 문자라 R과 '과' 사이에 경계가 없다), 정의가 주입되지
+않은 답변이 PER을 "예상 순이익" 기준으로 설명하며 한자를 섞었다. 어휘(조사 허용 패턴)를
+늘리지 않고 판정을 LLM으로 옮겼다: `extract_terms`(구조화 호출 — 질문에 쓰인 용어 표기
+목록) → `facts_block(terms)`(정본 별칭 정확 대조, LLM 출력 표기 정규화만). 답변의 한자·가나
+혼입은 LLM 출력 형식 검증으로 잡아 오류를 알리고 재생성한다(문자열 임의 보정 금지).
+회귀 `tests/test_general_answer_glossary_lane.py`.
+
+**여전히 남은 같은 계열 격차(보고만)**: `engine/term_grounding.py::general_facts_block`의
+①② 단계가 원문을 직접 스캔한다(`graph.find_concepts(text)`·`_scan_lexicon(text)`) — ③ 검색
+그라운딩만 LLM 추출(`_extract_term`)을 거친다. `api/coach_routes.py::_detect_question_topics`
+(`_QUESTION_TOPIC_PATTERNS`)도 원문에서 질문 주제를 정규식으로 감지한다. 둘 다 미이관.
+
 ### § 11-8. 수정 레인의 지식 조회 이관 (2026-07-30 완료)
 
 § 11-3이 "수정(modify) 레인·빌더의 테마 조회는 단계 3에서 같은 패턴으로 이관"이라고

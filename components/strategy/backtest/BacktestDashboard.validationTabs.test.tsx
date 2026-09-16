@@ -277,7 +277,8 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
       expect(plainSummary).not.toHaveClass("p-4");
       expect(plainSummary).not.toHaveClass("bg-sky-500/[0.05]");
       expect(screen.getByText("쉽게 이해하기")).toHaveClass("text-gray-500");
-      expect(screen.getByText(/일별 수익률을 무작위로 다시 섞어/)).toBeInTheDocument();
+      // 기본 21일 블록 — 쉬운 해석 첫 문장도 블록 방식을 말한다(2026-09-17 수정 전엔 "무작위로 다시 섞어")
+      expect(screen.getByText(/일별 수익률을 21거래일씩 묶어 무작위로 다시 이어 붙여/)).toBeInTheDocument();
       expect(screen.getByText(/30% 넘게 하락한 시나리오는/)).toBeInTheDocument();
       expect(screen.queryByText("위 내용은 모두 과거 데이터 기반 시뮬레이션 결과이며, 미래 수익은 보장되지 않습니다.")).not.toBeInTheDocument();
     });

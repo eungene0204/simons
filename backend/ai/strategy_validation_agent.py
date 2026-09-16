@@ -51,8 +51,13 @@ class StrategyValidationAgent:
     _DAILY_FREQUENCIES = {"1d", "day", "daily"}
     _OPERATORS = {"<", "<=", ">", ">=", "=="}
 
-    def validate(self, strategy: Any) -> dict[str, Any]:
-        """Return the stable validation contract consumed before a backtest."""
+    def validate(self, strategy: Any, declined_fields: Iterable[str] | None = None) -> dict[str, Any]:
+        """Return the stable validation contract consumed before a backtest.
+
+        declined_fields: 사용자가 '안 함'으로 거부한 슬롯(engine/strategy_slots.DECLINABLE_FIELDS 이름 —
+        stop_loss·take_profit·rebalancing). 값이 없는 것이 사용자 결정이므로 누락으로 보고하지 않는다
+        (2026-09-17 실측: '손절 안 함'을 고른 전략에 '손절 조건을 입력해 주세요').
+        """
         payload = self._as_mapping(strategy)
         if payload is None:
             return self._response([
@@ -67,8 +72,11 @@ class StrategyValidationAgent:
 
         issues: list[dict[str, str]] = []
         issues.extend(self._validate_required_fields(payload))
-        issues.extend(self._validate_stop_loss(payload))
-        issues.extend(self._validate_take_profit(payload))
+        declined = {str(field) for field in (declined_fields or ())}
+        if "stop_loss" not in declined:
+            issues.extend(self._validate_stop_loss(payload))
+        if "take_profit" not in declined:
+            issues.extend(self._validate_take_profit(payload))
         issues.extend(self._validate_supported_data(payload))
         issues.extend(self._validate_parameters(payload))
         issues.extend(self._validate_logical_conflicts(payload))
@@ -76,9 +84,9 @@ class StrategyValidationAgent:
         issues.extend(self._validate_empty_universe_risk(payload))
         return self._response(self._deduplicate(issues))
 
-    def validate_json(self, strategy: Any) -> str:
+    def validate_json(self, strategy: Any, declined_fields: Iterable[str] | None = None) -> str:
         """Serialize a validation result without any surrounding prose."""
-        return json.dumps(self.validate(strategy), ensure_ascii=False)
+        return json.dumps(self.validate(strategy, declined_fields), ensure_ascii=False)
 
     @staticmethod
     def _as_mapping(strategy: Any) -> Mapping[str, Any] | None:
@@ -125,7 +133,14 @@ class StrategyValidationAgent:
         holding_period = self._first(
             strategy, ("holding_period",), ("hold_period_days",), ("risk", "max_holding_days")
         )
-        if self._is_empty(exit_rule) and self._is_empty(holding_period):
+        # 정기 리밸런싱도 매도 수단이다(편출 종목을 리밸런싱일에 판다) — 슬롯 정본
+        # engine/strategy_slots.py의 EXIT 술어와 같은 기준. 빠뜨리면 "분기마다 PER·PBR
+        # 상위 20종목 교체" 전략에 '청산 조건을 입력해 주세요'가 뜬다(2026-09-17 실측).
+        rebalancing = self._first(
+            strategy, ("rebalancing_period",), ("risk", "rebalancing_period")
+        )
+        has_rebalancing = not self._is_empty(rebalancing) and str(rebalancing).lower() != "none"
+        if self._is_empty(exit_rule) and self._is_empty(holding_period) and not has_rebalancing:
             issues.append(self._issue(
                 "MISSING_EXIT_RULE", "error", "missing_field", "exit_rule",
                 "청산 조건이 정의되어 있지 않습니다.",

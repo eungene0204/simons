@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { __resetLanguageForTests, setLanguage, t } from "@/lib/i18n";
-import { normalizeCoachMessage } from "./coachMessage";
+import { buildCoachSessionBody, normalizeCoachMessage } from "./coachMessage";
 
 afterEach(() => {
   __resetLanguageForTests();
@@ -118,5 +118,32 @@ describe("normalizeCoachMessage", () => {
   it("falls back when the value is empty or not text", () => {
     expect(normalizeCoachMessage("", "fallback")).toBe("fallback");
     expect(normalizeCoachMessage(undefined, "fallback")).toBe("fallback");
+  });
+});
+
+describe("buildCoachSessionBody", () => {
+  it("'안 함'으로 거부한 슬롯을 검증 요청에 싣는다", () => {
+    // [회귀 2026-09-17] 손절·익절 안 함을 고른 전략에 "손절 조건을 입력해 주세요"가 떴다.
+    const body = buildCoachSessionBody({
+      userText: "PER·PBR 20종목 분기 교체",
+      parsed: { max_positions: 20 },
+      conversation: [],
+      declinedFields: ["stop_loss", "take_profit"],
+    });
+    expect(body).toEqual({
+      action: "create_session",
+      user_prompt: "PER·PBR 20종목 분기 교체",
+      parsed_strategy: { max_positions: 20 },
+      declined_fields: ["stop_loss", "take_profit"],
+    });
+  });
+
+  it("거부 슬롯·대화가 없으면 키를 싣지 않아 기존 요청(캐시 키)과 같다", () => {
+    const body = buildCoachSessionBody({ userText: "q", parsed: {}, conversation: [], declinedFields: [] });
+    expect(body).toEqual({ action: "create_session", user_prompt: "q", parsed_strategy: {} });
+    const withContext = buildCoachSessionBody({
+      userText: "q", parsed: {}, conversation: [{ role: "user", content: "앞 질문" }], declinedFields: [],
+    });
+    expect(withContext.conversation_context).toEqual([{ role: "user", content: "앞 질문" }]);
   });
 });

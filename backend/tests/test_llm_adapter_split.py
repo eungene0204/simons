@@ -81,7 +81,9 @@ def test_general_answer_uses_the_prose_adapter(recorder, monkeypatch):
     """일반 지식 답변은 산문 쪽이어야 한다(구조화로 넘기면 표현이 굳는다)."""
     monkeypatch.setattr(intent_routes, "_llm_available", lambda: True)
     monkeypatch.setattr(intent_routes.platform_defaults, "reply", lambda q: None)
-    # 용어 추출(구조화)은 타지 않게 해 답변 생성 호출만 남긴다.
+    # 용어 추출(구조화)은 따로 막아 답변 생성 호출만 남긴다.
+    from intent import glossary_facts
+    monkeypatch.setattr(glossary_facts, "extract_terms", lambda *a, **k: [])
     monkeypatch.setattr(
         intent_routes, "_mlx_llm_structured", lambda *a, **k: pytest.fail("추출은 이 테스트 대상이 아니다")
     )

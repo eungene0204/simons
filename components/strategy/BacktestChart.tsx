@@ -67,18 +67,22 @@ const dateToTimestamp = (dateStr: string): UTCTimestamp => {
 };
 
 // Format price to compact Korean format
-const formatCompactPrice = (price: number): string => {
-  if (price >= 100000000) {
+// 음수도 같은 축약을 쓴다 — 자동 스케일 여백으로 축 아래에 음수 눈금이 생기면 분기를 모두 건너뛰어
+// "-10000000"이 생숫자로 찍혔다(2026-09-17 실측).
+export const formatCompactPrice = (price: number): string => {
+  const abs = Math.abs(price);
+  const sign = price < 0 ? "-" : "";
+  if (abs >= 100000000) {
     // 1억 이상
-    return t("{0}억", (price / 100000000).toFixed(1));
-  } else if (price >= 10000) {
+    return t("{0}억", `${sign}${(abs / 100000000).toFixed(1)}`);
+  } else if (abs >= 10000) {
     // 1만 이상
-    return t("{0}만", (price / 10000).toFixed(0));
-  } else if (price >= 1000) {
+    return t("{0}만", `${sign}${(abs / 10000).toFixed(0)}`);
+  } else if (abs >= 1000) {
     // 1천 이상
-    return t("{0}천", (price / 1000).toFixed(1));
+    return t("{0}천", `${sign}${(abs / 1000).toFixed(1)}`);
   }
-  return price.toFixed(0);
+  return `${sign}${abs.toFixed(0)}`;
 };
 
 // 달러 축약 (K/M/B) — 미국 전략 자산곡선 축·툴팁용

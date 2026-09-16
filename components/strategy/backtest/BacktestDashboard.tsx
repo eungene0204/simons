@@ -2010,7 +2010,7 @@ export default function BacktestDashboard({
                         desc: BASE_METRIC_DESCRIPTIONS.excessReturn(benchmarkLabel),
                       },
                       { label: t("변동성"), value: annualizedVolatility.toFixed(2), sub: "%", desc: BASE_METRIC_DESCRIPTIONS.volatility },
-                      { label: t("칼마 비율"), value: (result.calmar ?? (result.maxDrawdown !== 0 ? result.cagr / Math.abs(result.maxDrawdown) : 0)).toFixed(2), sub: null, desc: BASE_METRIC_DESCRIPTIONS.calmar },
+                      { label: t("칼마 비율"), value: resolveCalmar(result).toFixed(2), sub: null, desc: BASE_METRIC_DESCRIPTIONS.calmar },
                       { label: t("평균 보유일"), value: t("{0}일", Math.round(result.avgHoldingDays ?? 0)), sub: null, desc: BASE_METRIC_DESCRIPTIONS.avgHoldingDays },
                     ],
                     [
@@ -2374,6 +2374,14 @@ export default function BacktestDashboard({
   );
 }
 
+// 칼마 비율 = CAGR ÷ |MDD|. 응답에 calmar가 없으면(현행 DTO) 카드와 로그가 같은 식으로 계산한다 —
+// 로그만 `calmar ?? 0`을 써서 카드 0.14 옆에 "Calmar: 0.00"이 찍혔다(2026-09-17 실측).
+export function resolveCalmar(result: Pick<BacktestResult, "calmar" | "cagr" | "maxDrawdown">): number {
+  if (typeof result.calmar === "number" && Number.isFinite(result.calmar)) return result.calmar;
+  const mdd = Number(result.maxDrawdown ?? 0);
+  return mdd !== 0 ? Number(result.cagr ?? 0) / Math.abs(mdd) : 0;
+}
+
 function BacktestTerminalLog({
   result,
   stockMetadata,
@@ -2430,7 +2438,7 @@ function BacktestTerminalLog({
   }
 
   // 리스크 지표
-  logs.push({ level: "INFO", message: t("MDD: {0}% / Sharpe: {1} / Calmar: {2} / 평균보유일: {3}일", (result.maxDrawdown ?? 0).toFixed(2), (result.sharpe ?? 0).toFixed(2), (result.calmar ?? 0).toFixed(2), Math.round(result.avgHoldingDays ?? 0)) });
+  logs.push({ level: "INFO", message: t("MDD: {0}% / Sharpe: {1} / Calmar: {2} / 평균보유일: {3}일", (result.maxDrawdown ?? 0).toFixed(2), (result.sharpe ?? 0).toFixed(2), resolveCalmar(result).toFixed(2), Math.round(result.avgHoldingDays ?? 0)) });
   logs.push({ level: "INFO", message: t("승률: {0}% / 손익비: {1} / CAGR: {2}%", (result.winRate ?? 0).toFixed(1), formatProfitFactor(result.profitFactor), (result.cagr ?? 0).toFixed(2)) });
 
   if ((result.avgProfit ?? 0) !== 0 || (result.avgLoss ?? 0) !== 0) {
@@ -2500,7 +2508,7 @@ function BacktestTerminalLog({
   const logFinalEquity = result.finalEquity || result.equity?.[result.equity.length - 1] || 0;
   const logEquityLabel = isUsBacktestResult(result)
     ? formatUsd(logFinalEquity)
-    : t("{0}원", logFinalEquity.toLocaleString());
+    : formatAccountMoney(logFinalEquity, "KRW");
   logs.push({ level: "SUCCESS", message: t("백테스트 완료 — 총 {0}회 거래 / 최종자산 {1} / 수익률 {2}%", result.trades ?? 0, logEquityLabel, (result.totalReturn ?? 0).toFixed(2)) });
 
   const levelStyle: Record<LogLevel, string> = {

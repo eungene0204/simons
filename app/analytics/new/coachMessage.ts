@@ -96,3 +96,29 @@ export function normalizeCoachMessage(value: unknown, fallback: string): string 
 
   return trimmed;
 }
+
+/**
+ * 전략 검증(coach create_session) 요청 본문.
+ * - conversation: 직전까지의 코치 대화 — 이미 설명한 전문용어를 다시 설명하지 않도록 넘긴다.
+ * - declinedFields: '안 함'으로 거부한 슬롯(stop_loss·take_profit·rebalancing). 검증이 이 슬롯을
+ *   "손절 조건을 입력해 주세요"로 되묻지 않게 한다(2026-09-17 PER·PBR 워크스루 실측).
+ */
+export function buildCoachSessionBody({
+  userText,
+  parsed,
+  conversation,
+  declinedFields,
+}: {
+  userText: string;
+  parsed: Record<string, unknown>;
+  conversation: Array<{ role: string; content: string }>;
+  declinedFields: string[];
+}): Record<string, unknown> {
+  return {
+    action: "create_session",
+    user_prompt: userText,
+    parsed_strategy: parsed,
+    ...(declinedFields.length > 0 ? { declined_fields: [...declinedFields] } : {}),
+    ...(conversation.length > 0 ? { conversation_context: conversation } : {}),
+  };
+}

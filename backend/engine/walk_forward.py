@@ -325,7 +325,8 @@ class WalkForwardAnalyzer:
                 "oos_period": oos_p,
                 "windows_done": len(done_windows),
                 "trials_done": trials_done,
-                "workers": n_workers,
+                # 동시에 도는 창 수 — 풀 워커가 창보다 많아도 창 수를 넘지 않는다("8개 구간 동시 실행" 사고).
+                "workers": min(n_workers, total),
                 "active_windows": sorted(active),
             }
             if st.get("trial_total"):
@@ -364,12 +365,15 @@ class WalkForwardAnalyzer:
         cancelled = False
         try:
             futures = {}
+            window_resources = getattr(pool, "window_resources", None)
+            resources = window_resources(total) if callable(window_resources) else {}
             for i, (is_start, is_end, oos_start, oos_end) in enumerate(windows):
                 spec = {
                     "window_idx": i + 1,
                     "base_request": base_request, "ranges": ranges,
                     "is_start": is_start, "is_end": is_end, "oos_start": oos_start, "oos_end": oos_end,
                     "target_metric": target_metric, "n_trials": n_trials, "method": method,
+                    "resources": resources,
                 }
                 futures[pool.submit_window(spec)] = i + 1
             pending = set(futures)

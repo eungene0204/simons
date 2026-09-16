@@ -102,7 +102,7 @@ def test_trade_reason_carries_measured_excess_return():
     assert ok and tr.render_kr(tr.decode(row_reason)) == text
 
     # 실측값이 없으면(정적 서술 요청) 종전 문장 그대로다.
-    assert engine.get_condition_description(cond) == "시장 대비 초과수익률(63일) 0%p 이상"
+    assert engine.get_condition_description(cond) == "시장 대비 초과수익률(63일) 0%p 초과"  # operator ">"
 
 
 # ── ③ 레지스트리·온톨로지·컴파일·컨버터 ──────────────────────────────────────
