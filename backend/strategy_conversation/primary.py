@@ -1007,10 +1007,17 @@ _MA_VOCAB_RE = re.compile(
 # 전략 서술 어디에나 나와서("추세가 확실히 잡힌 **종목**만"), 낱말만으로 판정하면 정당한
 # 정성 표현 매핑을 잘라낸다(실측 오탐 — 그 조건이 사라지면 이 가드가 막으려던 조용한
 # 소실을 스스로 일으킨다).
+# 리스크 항목은 **어순을 가리지 않는다**(2026-09-16 실측 3/3): "-8% 손절 시 매도"처럼
+# 값이 앞에 오는 표기가 흔한데 '손절→숫자' 한 방향만 보던 탓에 손절 구절을 인용한
+# `ma_crossover` 청산 조건이 그대로 통과해, 사용자가 말한 적 없는 "20일선 하향 이탈"
+# 매도 규칙이 붙었다(손절 -8%는 제 칸에 정상 반영된 채로 **이중 생성**). 어휘는 늘리지
+# 않고 방향만 양쪽으로 연다 — 이동평균 어휘가 인용에 있으면 위에서 이미 빠져나가므로
+# "20일선 이탈 시 손절" 같은 정당한 인용은 이 갈래에 닿지 않는다.
 _OTHER_SLOT_VOCAB_RE = re.compile(
     r"(?:보유(?:기간)?|최대보유)[^,.]{0,8}\d"
     r"|\d+\s*(?:종목|개)"
     r"|(?:손절|익절|트레일링)[^,.]{0,8}\d"
+    r"|\d[^,.]{0,8}(?:손절|익절|트레일링)"
     r"|리밸런|초기자금|자본금|투자금|백테스트|수수료|슬리피지"
 )
 _MA_FACTORS = ("technical.ema", "technical.ma_crossover",
@@ -1554,6 +1561,22 @@ def _drop_fabricated_conditions(intent: StrategyIntent, user_input: str) -> List
     return notices
 
 
+# StrategySpec(인터프리터 초안)이 표현하지 못해 decompile→compile 왕복으로 복원되지 않는
+# ParsedStrategy 필드. 수정 레인은 이 셋을 이전 전략에서 **이월**한다 — 왕복 가드가
+# 이 필드의 차이로 오폭해 모든 수정이 레거시 레인에 떨어지는 것을 막는다.
+#   · description    — 초안은 사용자 원문을 담지 않는다
+#   · entry_filters  — 진입 게이트는 조건 목록에 합쳐져 되돌아오지 않는다
+#   · max_positions_explicit — 보유 수의 **출처 표식**. 디컴파일러가 물질화 기본값(10)까지
+#     selection_count에 채워 넣으므로(비우면 수정 턴마다 사용자가 말한 종목 수가 10으로
+#     되돌아간다) 재컴파일은 무조건 '사용자가 말했다'가 된다. 이번 턴이 실제로 바꿨는지는
+#     패치 경로로 판정한다(response/provenance.explicit_fields_from_patches와 같은 계약).
+# execution_timing은 BacktestSpec이 표현할 수 있게 되어(2026-07-26) 여기 없다 — 이월하면
+# "당일 종가로 체결해줘" 같은 수정이 삼켜진다.
+NON_ROUNDTRIP_FIELDS: tuple[str, ...] = (
+    "description", "entry_filters", "max_positions_explicit",
+)
+
+
 # ── 관측 로그 헬퍼 — dev 콘솔 [LLM-INTERPRETER] 흐름 추적용 ────────────────────
 def _short(value: Any) -> str:
     """로그용 값 축약 — 긴 목록(symbols 1747개 등)은 개수로, 그 외는 100자 repr."""
@@ -1772,6 +1795,15 @@ def run_primary_parse(
         recovered = recover_missing_conditions(result.intent, user_input, recall_chat)
         if recovered:
             _log_llm("✓ 누락 조건 회수", ", ".join(recovered))
+        # 설정 슬롯도 같은 결함을 겪는다 — "최근 1년"을 말했는데 기간만 빠져 이미 답한
+        # 값을 다시 묻던 사고(2026-09-16). 기간이 빈 턴에서만 부른다(대부분은 호출 없음).
+        from strategy_conversation.interpreter.condition_recall import (
+            recover_backtest_period,
+        )
+
+        filled_period = recover_backtest_period(result.intent, user_input, recall_chat)
+        if filled_period:
+            _log_llm("✓ 백테스트 기간 회수", filled_period)
     # 출처 인용 대조(환각 조건 가드) — 파라미터 보정 뒤, 검증 전에 뺀다(환각 조건이
     # 완결성 검증에 들어가면 지어낸 조건의 값을 사용자에게 되묻는 사고가 된다).
     repair_notices += _drop_fabricated_conditions(result.intent, user_input)
@@ -4081,11 +4113,8 @@ def run_primary_modification(
             return None
 
     def _carry_over(parsed):
-        # execution_timing은 BacktestSpec이 표현할 수 있게 되어(2026-07-26) draft로 왕복하므로
-        # 여기서 이월하지 않는다 — 이월하면 "당일 종가로 체결해줘" 같은 수정이 삼켜진다.
         return parsed.model_copy(update={
-            "description": prev.description,
-            "entry_filters": prev.entry_filters,
+            field: getattr(prev, field) for field in NON_ROUNDTRIP_FIELDS
         })
 
     draft_spec = decompile_strategy(prev)
@@ -4526,6 +4555,13 @@ def run_primary_modification(
     except StrategyCompileError as exc:
         logger.warning("modify primary compile failed, falling back | err=%s", exc)
         return None
+    # 이번 턴이 보유 수를 실제로 바꿨으면 그때부터는 사용자가 말한 값이다(_carry_over가
+    # 이월한 이전 출처에 이번 턴을 더한다). 판정 근거는 패치 경로뿐이다 — 디컴파일 초안의
+    # 값으로는 '말했다'와 '기본값'을 구분할 수 없다.
+    from strategy_conversation.response.provenance import explicit_fields_from_patches
+
+    if "max_positions" in explicit_fields_from_patches(intent.patches):
+        parsed = parsed.model_copy(update={"max_positions_explicit": True})
     # 레거시 수정 경로와 동일한 결정적 보정(신호 재검증 생략·universe 보존) — 명시된
     # 수치·날짜·리스크 값은 결정적 추출이 최종 진실이다.
     if config.prompt_overrides_enabled():

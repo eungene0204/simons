@@ -860,6 +860,62 @@ def test_paren_variants_deterministic_notation():
     assert kg._paren_variants("전기차") == []
 
 
+def test_listing_variants_deterministic_notation():
+    """나열식 테마명의 표기 변형(_listing_variants) — 슬래시로 갈린 각 항목과
+    접속사('및'·'와'·'과')로 한 번 더 갈린 항목.
+
+    _slash_aliases와 갈리는 지점: 그쪽은 접미를 모든 부분에 붙여 스캔용 변형을
+    만들지만("방위산업 및 테러"), 여기서는 접미를 **마지막 항목에만** 붙인다.
+    가드는 _paren_variants와 같다(두 글자 미만·정본 용어·별칭 일반어·섹터 어휘 제외)."""
+    assert kg._listing_variants("방위산업/전쟁 및 테러") == [
+        "방위산업", "전쟁 및 테러", "전쟁", "테러",
+    ]
+    # 접속사가 없으면 더 쪼개지 않는다 — 접미는 마지막 항목만 가져간다
+    assert kg._listing_variants("구제역/광우병 수혜") == ["구제역", "광우병 수혜"]
+    # 슬래시 주변의 **붙어 있는 토큰**만 항목으로 갈린다(_slash_aliases와 같은 경계) —
+    # 접두·접미가 공유되는지는 표기만으로 결정할 수 없어("LCD 부품/소재"는 공유,
+    # "피지컬 AI/휴머노이드 로봇"은 비공유) 기존 관례를 그대로 따른다.
+    assert kg._listing_variants("피지컬 AI/휴머노이드 로봇") == [
+        "피지컬 AI", "피지컬 휴머노이드 로봇",
+    ]
+    # 별칭 일반어('부품'·'소재') 차단 — 단독 조각은 키가 되면 안 된다
+    assert kg._listing_variants("LCD 부품/소재") == ["LCD 부품", "LCD 소재"]
+    # 슬래시가 없는 이름은 변형 없음
+    assert kg._listing_variants("전기차") == []
+
+
+def test_catalog_listing_derived_keys(tmp_path, monkeypatch):
+    """나열식 표기 변형 파생 키 정합('전쟁 관련주' 사고 2026-09-16 회귀).
+
+    사고: "전쟁 관련주" 전략의 유니버스에 항공사가 섞였다 — 네이버 테마
+    '방위산업/전쟁 및 테러'가 정본인데 정합 키가 '전쟁 및 테러'까지만 있어
+    앵커 '전쟁'이 닿지 못하고 어휘집의 업종 근사(우주항공/방산)로 빠졌다."""
+    catalog = tmp_path / "kg-naver-theme-catalog.json"
+    catalog.write_text(json.dumps({
+        "version": 1, "source": "finance.naver.com", "retrieved_at": "2026-09-16",
+        "themes": [
+            {"id": "naver-theme-144", "name": "방위산업/전쟁 및 테러", "synonyms": [],
+             "stocks": [{"symbol": "012450", "name": "한화에어로스페이스"},
+                        {"symbol": "047810", "name": "한국항공우주"},
+                        {"symbol": "010820", "name": "퍼스텍"}]},
+        ],
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", catalog)
+    monkeypatch.setattr(kg, "_CATALOG_PATH", tmp_path / "no-judal.json")
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    graph = get_graph()
+    expected = {"012450", "047810", "010820"}
+    # 나열된 각 항목이 정합 키다 — 정확 표기('방위산업/전쟁 및 테러')는 물론
+    # '전쟁'·'테러'·'방위산업'으로도 같은 테마에 닿는다.
+    for term in ("방위산업/전쟁 및 테러", "전쟁 및 테러", "전쟁", "테러", "방위산업"):
+        nodes = graph.catalog_theme_nodes(term)
+        assert [n["id"] for n in nodes] == ["theme:naver-theme-144"], term
+        assert {c["symbol"] for c in graph.listed_companies(nodes[0]["id"])} == expected, term
+
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
 def test_catalog_paren_derived_keys(tmp_path, monkeypatch):
     """괄호 표기 변형 파생 키 정합(HBM 시드 6곳 vs 네이버 33곳 사고 2026-08-02 회귀).
 

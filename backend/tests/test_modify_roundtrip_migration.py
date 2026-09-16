@@ -27,6 +27,13 @@ def _clean_cache():
     main._nl_parse_cache.clear()
 
 
+def _carried_over(prev) -> dict:
+    """수정 레인이 이월하는 필드(정본 `primary.NON_ROUNDTRIP_FIELDS`)를 그대로 쓴다.
+
+    목록을 테스트가 따로 복제하면 정본이 늘어날 때 왕복 단언만 조용히 깨진다."""
+    return {field: getattr(prev, field) for field in primary.NON_ROUNDTRIP_FIELDS}
+
+
 def _prev_cross_strategy(**overrides) -> ParsedStrategy:
     """기간 없는 골든/데드크로스 + 지정 종목 2개(사고 당시 전략의 최소 재현)."""
     base = dict(
@@ -81,9 +88,7 @@ def test_normalized_strategy_roundtrips_losslessly():
         StrategyIntent(intent="CREATE_STRATEGY", strategy=spec, confidence=1.0),
         ValidationReport(is_valid=True, status="READY"),
         prev.description,
-    ).model_copy(update={
-        "description": prev.description, "entry_filters": prev.entry_filters,
-    })
+    ).model_copy(update=_carried_over(prev))
     assert roundtrip.model_dump() == prev.model_dump()
 
 
@@ -103,9 +108,7 @@ def test_etf_theme_strategy_roundtrips_losslessly():
         StrategyIntent(intent="CREATE_STRATEGY", strategy=spec, confidence=1.0),
         ValidationReport(is_valid=True, status="READY"),
         prev.description,
-    ).model_copy(update={
-        "description": prev.description, "entry_filters": prev.entry_filters,
-    })
+    ).model_copy(update=_carried_over(prev))
     assert roundtrip.etf_theme == "반도체"
     assert roundtrip.model_dump() == prev.model_dump()
 
@@ -376,9 +379,7 @@ def test_theme_origin_survives_modify_roundtrip():
         StrategyIntent(intent="CREATE_STRATEGY", strategy=spec, confidence=1.0),
         ValidationReport(is_valid=True, status="READY"),
         prev.description,
-    ).model_copy(update={
-        "description": prev.description, "entry_filters": prev.entry_filters,
-    })
+    ).model_copy(update=_carried_over(prev))
     assert roundtrip.model_dump() == prev.model_dump()
 
 

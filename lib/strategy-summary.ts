@@ -72,6 +72,10 @@ export interface ParsedSummary {
   // 선정 범위 판정의 입력이다 — getSelectionScope 참조.
   theme_universe?: string | null;
   max_positions: number;
+  // 보유 수의 출처 표식 — 사용자가 종목 수를 직접 말했는가(백엔드 컴파일러가 채운다).
+  // max_positions는 기본값 10이 물질화되는 필드라 값만으로는 '말했다'와 '안 말했다'를
+  // 구분할 수 없다. 선정 범위 판정의 입력이다 — getSelectionScope 참조.
+  max_positions_explicit?: boolean | null;
   hold_period_days: number | null;
   rebalancing_period: string;
   // 리밸런싱 방식(FR-BT-067) — 'reconstitute'(종목 교체) | 'weights_only'(비중 조정).
@@ -686,9 +690,19 @@ export type SelectionScope = "EXPLICIT" | "CANDIDATE_POOL" | "UNIVERSE";
 
 export function getSelectionScope(parsed: ParsedSummary): SelectionScope {
   if (!(parsed.target_symbols?.length ?? 0)) return "UNIVERSE";
-  // 테마 유래 종목이라도 선정 기준(랭킹)이 있을 때만 후보군이다 — 기준이 없으면
+  // 테마 유래 종목이라도 선정 기준이 있을 때만 후보군이다 — 기준이 없으면
   // 무엇을 기준으로 자를지 아무도 말하지 않았으므로 전부 매수한다.
-  if (parsed.theme_universe && parsed.ranking_metric) return "CANDIDATE_POOL";
+  // 선정 기준은 셋 중 하나다 — 랭킹·보유 수·비율 선정. 셋 다 사용자가 말했을 때만
+  // 값이 선다(보유 수는 기본값이 물질화되므로 출처 표식을 본다). 백엔드
+  // engine/selection_scope.py와 같은 술어여야 한다.
+  if (
+    parsed.theme_universe &&
+    (parsed.ranking_metric ||
+      parsed.max_positions_explicit ||
+      parsed.max_positions_pct != null)
+  ) {
+    return "CANDIDATE_POOL";
+  }
   return "EXPLICIT";
 }
 

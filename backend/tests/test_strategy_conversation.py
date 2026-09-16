@@ -2346,6 +2346,19 @@ def _rich_parsed():
     })
 
 
+# StrategySpec이 표현하지 못해 라운드트립으로 복원되지 않는 필드 — 수정 레인은
+# `_carry_over`가 이전 값을 이월하고(description·entry_filters), 보유 수의 출처 표식은
+# 이월 + 이번 턴 패치 경로로 판정한다. 라운드트립 계약은 **전략 내용**의 무손실이다.
+_NOT_ROUNDTRIPPED = ("max_positions_explicit",)
+
+
+def _strategy_content(parsed) -> dict:
+    dump = parsed.model_dump()
+    for field in _NOT_ROUNDTRIPPED:
+        dump.pop(field, None)
+    return dump
+
+
 def test_decompile_compile_roundtrip_preserves_strategy():
     from strategy_conversation.compiler.strategy_compiler import compile_strategy
     from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
@@ -2356,7 +2369,30 @@ def test_decompile_compile_roundtrip_preserves_strategy():
     intent = StrategyIntent(intent="CREATE_STRATEGY", strategy=spec, confidence=1.0)
     report = ValidationReport(is_valid=True, status="READY")
     roundtrip = compile_strategy(intent, report, prev.description)
-    assert roundtrip.model_dump() == prev.model_dump()
+    assert _strategy_content(roundtrip) == _strategy_content(prev)
+
+
+def test_position_count_provenance_is_not_recoverable_by_roundtrip():
+    """보유 수의 출처는 전략 내용이 아니라 **어떻게 알게 됐는가**다.
+
+    디컴파일러는 `selection_count`에 물질화된 값(기본값 10 포함)을 채워 넣을 수밖에 없어
+    (비우면 수정 턴마다 사용자가 말한 종목 수가 10으로 되돌아간다) 재컴파일은 무조건
+    '사용자가 말했다'가 된다. 그래서 수정 레인은 이 필드를 라운드트립에 맡기지 않고
+    이월하며, 이번 턴이 실제로 바꿨는지는 패치 경로로 판정한다
+    (`response/provenance.explicit_fields_from_patches`와 같은 계약)."""
+    from strategy_conversation.compiler.strategy_compiler import compile_strategy
+    from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
+    from strategy_conversation.interpreter.models import ValidationReport
+
+    prev = _rich_parsed()
+    assert prev.max_positions_explicit is False
+    roundtrip = compile_strategy(
+        StrategyIntent(intent="CREATE_STRATEGY", strategy=decompile_strategy(prev),
+                       confidence=1.0),
+        ValidationReport(is_valid=True, status="READY"), prev.description,
+    )
+    assert roundtrip.max_positions_explicit is True          # 복원 불가 — 이월이 필요한 이유
+    assert roundtrip.max_positions == prev.max_positions     # 값 자체는 보존된다
 
 
 def _stub_modify_interpreter(monkeypatch, intent_data):
@@ -3801,7 +3837,7 @@ def test_new_listing_survives_decompile_compile_roundtrip():
     roundtrip = compile_strategy(
         intent, ValidationReport(is_valid=True, status="READY"), prev.description
     )
-    assert roundtrip.model_dump() == prev.model_dump()
+    assert _strategy_content(roundtrip) == _strategy_content(prev)
 
 
 def test_absent_condition_index_patches_promoted_to_add():
@@ -4439,6 +4475,54 @@ def test_ma_condition_quoting_another_slot_is_dropped_with_notice():
     assert len(intent.strategy.entry_conditions) == 1
 
 
+def test_stop_loss_quote_with_leading_value_is_dropped_from_exit_conditions():
+    """사고(2026-09-16, 재표본 3/3): "데드크로스가 나오거나 **-8% 손절 시 매도**하는 전략"에서
+    인터프리터가 손절 -8%를 제 칸에 정상 반영하면서 **동시에** 그 구절을 인용한
+    `ma_crossover(1,20)` 청산 조건을 하나 더 냈다 — 화면에는 사용자가 말한 적 없는
+    "종가가 20일선 하향 이탈"이 매도 조건으로 떴다.
+
+    슬롯 가드는 이미 있었으나 '손절→숫자' 한 방향만 봐서 값이 앞에 오는 흔한 표기를
+    놓쳤다. 어휘를 늘리지 않고 어순만 양쪽으로 연다."""
+    from strategy_conversation.primary import _drop_fabricated_conditions
+
+    user_input = ("전쟁 관련주 중에서 5일 이동평균선이 20일 이동평균선을 골든크로스하면 "
+                  "매수하고, 데드크로스가 나오거나 -8% 손절 시 매도하는 전략을 만들어 주세요.")
+    intent = _ma_intent(
+        [{"factor": "technical.ma_crossover", "operator": "crosses_above", "value": None,
+          "parameters": {"short_period": 5, "long_period": 20},
+          "source_text": "5일 이동평균선이 20일 이동평균선을 골든크로스하면"}],
+        [{"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
+          "parameters": {"short_period": 5, "long_period": 20},
+          "source_text": "데드크로스가 나오거나"},
+         {"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
+          "parameters": {"short_period": 1, "long_period": 20},
+          "source_text": "-8% 손절 시 매도"}],
+    )
+    notices = _drop_fabricated_conditions(intent, user_input)
+
+    # 데드크로스 청산은 살고, 손절 구절을 인용한 이중 생성분만 빠진다.
+    assert [c.source_text for c in intent.strategy.exit_conditions] == ["데드크로스가 나오거나"]
+    assert any("이동평균 조건이 아니어서" in n for n in notices)
+
+
+def test_ma_exit_quoting_a_stop_loss_alongside_the_moving_average_survives():
+    """가드의 경계 — "20일선 이탈 시 손절"은 손절 낱말이 숫자 뒤에 오지만 인용에
+    이동평균 어휘가 있어 정당한 이동평균 청산이다. 어순을 양쪽으로 열어도 이쪽은
+    살아야 한다(위 갈래에 닿기 전에 이동평균 어휘 검사에서 빠져나간다)."""
+    from strategy_conversation.primary import _drop_fabricated_conditions
+
+    user_input = "20일선 이탈 시 손절하고 싶습니다. 최대 10종목으로 해주세요."
+    intent = _ma_intent(
+        [],
+        [{"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
+          "parameters": {"short_period": 1, "long_period": 20},
+          "source_text": "20일선 이탈 시 손절"}],
+    )
+    notices = _drop_fabricated_conditions(intent, user_input)
+
+    assert len(intent.strategy.exit_conditions) == 1 and notices == []
+
+
 def test_qualitative_trend_mapping_survives_the_slot_guard():
     """'추세가 확실히 잡힌 종목만'처럼 정성 표현을 이동평균으로 매핑하는 것은 정당한
     해석이다(프롬프트 규칙 2) — 이동평균 어휘가 없다는 이유로 자르면 이 가드가 막으려던
@@ -4610,6 +4694,97 @@ def test_condition_recall_pass_restores_dropped_conditions():
     intent = _recall_intent(base)
     assert recover_missing_conditions(intent, user_input, _stub_chat("no json")) == []
     assert len(intent.strategy.entry_conditions) == 1
+
+
+def test_backtest_period_recall_restores_a_dropped_period():
+    """[회귀] 1차 해석이 빠뜨린 백테스트 기간을 회수 패스가 되살린다.
+
+    사고(2026-09-16): "…손절은 -8%, 최대 5종목, 최근 1년, 초기 자본 1000만원으로
+    백테스트해 주세요"에서 인터프리터가 **기간만** 빠뜨려(period=null) 사용자가 이미
+    말한 값을 되묻기로 다시 답해야 했다(같은 문장 API 재표본에서는 5y로 뒤바뀌기도 했다).
+
+    조건 회수와 같은 계약이다 — 판정은 LLM, 결정론은 ① 출처 대조 ② 정본 표기 정규화
+    ③ 덮어쓰기 금지만 한다.
+    """
+    from strategy_conversation.interpreter.condition_recall import recover_backtest_period
+    from strategy_conversation.interpreter.models import StrategyIntent
+
+    user_input = ("전쟁 관련주 중에서 5일선이 20일선을 골든크로스하면 매수해 주세요. "
+                  "손절은 -8%, 최대 5종목, 최근 1년, 초기 자본 1000만원으로 백테스트해 주세요.")
+
+    def _intent(period=None):
+        data = _full_intent_dict()
+        data["strategy"]["backtest"] = {"period": period}
+        return StrategyIntent.model_validate(data)
+
+    # ① 되살린다 — 옮겨 적은 표기를 결정론 정규화(BacktestSpec)가 정본 버킷으로 맞춘다.
+    intent = _intent()
+    assert recover_backtest_period(
+        intent, user_input,
+        _stub_chat('{"quote":"최근 1년","period":"1y"}')) == "1y"
+    assert intent.strategy.backtest.period == "1y"
+
+    # ② 이미 값이 있으면 절대 덮어쓰지 않는다(회수는 빈 칸을 채우는 그물이다).
+    intent = _intent("3y")
+    assert recover_backtest_period(
+        intent, user_input, _stub_chat('{"quote":"최근 1년","period":"1y"}')) is None
+    assert intent.strategy.backtest.period == "3y"
+
+    # ③ 입력에 없는 인용(환각)은 버린다 — 조건 회수와 같은 출처 대조.
+    intent = _intent()
+    assert recover_backtest_period(
+        intent, user_input, _stub_chat('{"quote":"최근 5년","period":"5y"}')) is None
+    assert intent.strategy.backtest.period is None
+
+    # ④ 인용이 없으면 대조할 수 없으므로 채우지 않는다(되묻기가 정상 동작).
+    intent = _intent()
+    assert recover_backtest_period(
+        intent, user_input, _stub_chat('{"quote":null,"period":"1y"}')) is None
+
+    # ⑤ 버킷 밖 기간은 결정론이 날짜 창으로 바꾼다(<N>y 옮겨 적기 계약).
+    intent = _intent()
+    long_input = "전쟁 관련주 전략을 10년 데이터로 백테스트해 주세요."
+    filled = recover_backtest_period(
+        intent, long_input, _stub_chat('{"quote":"10년 데이터","period":"10y"}'))
+    assert filled and intent.strategy.backtest.start_date
+    assert intent.strategy.backtest.period is None  # 버킷이 아니라 명시 창으로 착지
+
+    # ⑥ 형식이 깨진 응답은 조용히 포기한다(보조 그물이 턴을 깨지 않는다).
+    intent = _intent()
+    assert recover_backtest_period(intent, user_input, _stub_chat("no json")) is None
+    assert intent.strategy.backtest.period is None
+
+
+def test_backtest_period_recall_does_not_swallow_a_hold_period():
+    """보유 기간을 백테스트 창으로 삼지 않는다.
+
+    1년 미만 표기는 `_normalize_period`가 버려서 지표 기간·랭킹 산정 기간은 애초에 새지
+    않지만, **1년 이상인 보유 기간**("최대 보유 2년")은 그 하한을 통과한다. 프롬프트의
+    제외 규칙을 모델이 어기면 그대로 백테스트 창이 되므로 길이를 대조해 막는다
+    (판정은 두 숫자 비교뿐 — 원문도 어휘도 보지 않는다)."""
+    from strategy_conversation.interpreter.condition_recall import recover_backtest_period
+    from strategy_conversation.interpreter.models import StrategyIntent
+
+    user_input = "전쟁 관련주를 골든크로스에 사고, 최대 보유 기간은 2년으로 해주세요."
+
+    def _intent(hold_days):
+        data = _full_intent_dict()
+        data["strategy"]["backtest"] = {"period": None}
+        data["strategy"]["portfolio"] = {"hold_period_days": hold_days}
+        return StrategyIntent.model_validate(data)
+
+    # 2년 보유(504거래일)와 같은 길이면 채우지 않는다 — 되묻기가 묻는다.
+    intent = _intent(504)
+    assert recover_backtest_period(
+        intent, user_input, _stub_chat('{"quote":"최대 보유 기간은 2년","period":"2y"}')) is None
+    assert intent.strategy.backtest.period is None
+    assert intent.strategy.backtest.start_date is None
+
+    # 길이가 다르면 정상적으로 채운다(짧은 보유 + 긴 백테스트 창은 흔한 조합이다).
+    both = "전쟁 관련주를 골든크로스에 사고, 20거래일 보유, 최근 3년으로 돌려주세요."
+    intent = _intent(20)
+    assert recover_backtest_period(
+        intent, both, _stub_chat('{"quote":"최근 3년","period":"3y"}')) == "3y"
 
 
 def test_amount_threshold_reconciled_from_quote():

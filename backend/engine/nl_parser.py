@@ -974,6 +974,15 @@ class ParsedStrategy(BaseModel):
             "있으면 max_positions(개수)보다 우선. 없으면 null"
         ),
     )
+    # 보유 수의 **출처 표식**(provenance). max_positions는 기본값 10이 물질화되는 필드라
+    # 값만 보면 "사용자가 10종목이라고 말했다"와 "아무 말도 없었다"를 구분할 수 없다.
+    # 그 구분이 필요한 유일한 자리가 종목 선정 범위 판정이다(engine/selection_scope.py) —
+    # 테마 조회가 채운 66곳을 '지정'으로 볼지 '후보군'으로 볼지가 여기서 갈린다.
+    # 컴파일러만 채운다(StrategyIntent.portfolio.selection_count is not None).
+    max_positions_explicit: bool = Field(
+        default=False,
+        description="사용자가 보유 종목 수를 직접 말했는가(내부 provenance — LLM이 채우지 않는다)",
+    )
     hold_period_days: Optional[int] = Field(
         default=None,
         description="최대 보유 기간(거래일). 1년=252, 6개월=126, 3개월=63, 1개월=21. 없으면 null"

@@ -227,18 +227,23 @@ export function applyDeterministicConditionChoice({
   if (condition.field === "max_positions") {
     const maxPositions = parseFirstNumber(choice);
     if (!maxPositions) return null;
+    // 칩/자유 답변으로 들어온 종목 수는 **사용자가 말한 값**이다 — 출처 표식을 남기지
+    // 않으면 기본값 10과 구분되지 않아, 테마 후보군에서 이 값이 조용히 무시된다
+    // (FR-SA-013 ③ — 백엔드 selection_scope가 이 표식으로 '지정'과 '후보군'을 가른다).
+    // 이 턴은 백엔드 왕복이 없으므로 여기서 남기지 않으면 남길 자리가 없다.
+    const answered = { ...parsed, max_positions_explicit: true };
     // 분위 그룹 전략(FR-BT-060b)에서 종목 수 답변은 '그룹당 보유 상한'이다 — 이미
     // 추출된 값의 자리 배정일 뿐 새 해석이 아니다(백엔드 _apply_prompt_overrides와 동형).
     if (parsed.ranking_quantile_groups) {
       return {
         parsed: {
-          ...parsed,
+          ...answered,
           max_positions: maxPositions,
           ranking_group_cap: maxPositions,
         },
       };
     }
-    return { parsed: { ...parsed, max_positions: maxPositions } };
+    return { parsed: { ...answered, max_positions: maxPositions } };
   }
 
   if (condition.field === "rebalancing") {

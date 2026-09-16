@@ -87,6 +87,43 @@ describe("분위 그룹 전략의 그룹당 상한 칩 (FR-BT-060b)", () => {
   });
 });
 
+describe("종목 수 답변의 출처 표식 (FR-SA-013 ③)", () => {
+  // 칩 턴은 백엔드 왕복이 없다 — 여기서 표식을 남기지 않으면 남길 자리가 없고,
+  // 기본값 10과 구분되지 않아 테마 후보군에서 사용자가 말한 종목 수가 무시된다.
+  it("칩으로 답한 종목 수는 '사용자가 말한 값'으로 표시된다", () => {
+    const result = applyDeterministicConditionChoice({
+      parsed,
+      condition: { field: "max_positions", question: "", suggestions: [] },
+      choice: "최대 5종목",
+    });
+    expect(result?.parsed.max_positions).toBe(5);
+    expect(result?.parsed.max_positions_explicit).toBe(true);
+  });
+
+  it("분위 그룹 전략의 답변에도 같은 표식이 남는다", () => {
+    const quantileParsed = {
+      ranking_quantile_groups: 10,
+      max_positions: 10,
+    } as unknown as ParsedSummary;
+    const result = applyDeterministicConditionChoice({
+      parsed: quantileParsed,
+      condition: { field: "max_positions", question: "", suggestions: [] },
+      choice: "그룹당 20종목",
+    });
+    expect(result?.parsed.max_positions_explicit).toBe(true);
+    expect(result?.parsed.ranking_group_cap).toBe(20);
+  });
+
+  it("다른 슬롯 답변은 표식을 만들지 않는다", () => {
+    const result = applyDeterministicConditionChoice({
+      parsed,
+      condition: { field: "rebalancing", question: "", suggestions: [] },
+      choice: "매월 리밸런싱",
+    });
+    expect(result?.parsed.max_positions_explicit).toBeUndefined();
+  });
+});
+
 // 손절·익절 '안 함'(2026-08-10 사용자 지시) — 쓰지 않는 것도 정상적인 전략 설계인데
 // 거부를 표현할 방법이 없어 값을 넣어야만 실행 게이트를 통과할 수 있었다.
 describe("손절·익절 '안 함' 칩", () => {

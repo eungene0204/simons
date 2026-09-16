@@ -62,6 +62,40 @@ describe("getSelectionScope — 백엔드 판정 미러", () => {
       }),
     ).toBe("CANDIDATE_POOL");
   });
+
+  it("보유 수가 값으로만 있으면(기본값과 구분 불가) 여전히 지정이다", () => {
+    expect(
+      getSelectionScope({
+        ...base,
+        target_symbols: themeSymbols,
+        theme_universe: "이차전지",
+        max_positions: 5,
+      }),
+    ).toBe("EXPLICIT");
+  });
+
+  it("사용자가 보유 수를 직접 말했으면 랭킹이 없어도 고를 대상이다", () => {
+    expect(
+      getSelectionScope({
+        ...base,
+        target_symbols: themeSymbols,
+        theme_universe: "이차전지",
+        max_positions: 5,
+        max_positions_explicit: true,
+      }),
+    ).toBe("CANDIDATE_POOL");
+  });
+
+  it("비율 선정도 같은 기준이다", () => {
+    expect(
+      getSelectionScope({
+        ...base,
+        target_symbols: themeSymbols,
+        theme_universe: "이차전지",
+        max_positions_pct: 10,
+      }),
+    ).toBe("CANDIDATE_POOL");
+  });
 });
 
 describe("getPositionLabel — 배지가 실제 실행과 일치해야 한다", () => {
@@ -94,5 +128,18 @@ describe("getPositionLabel — 배지가 실제 실행과 일치해야 한다", 
         theme_universe: "이차전지",
       }),
     ).toBe("지정 종목 36개 균등 투자");
+  });
+
+  it("[회귀] 사용자가 말한 보유 수를 '지정 36개 균등'으로 덮지 않는다", () => {
+    // 실측 사고(2026-09-16): "전쟁 관련주 … 최대 5종목"이 66종목 균등 매수로 나갔다.
+    expect(
+      getPositionLabel({
+        ...base,
+        target_symbols: themeSymbols,
+        theme_universe: "전쟁",
+        max_positions: 5,
+        max_positions_explicit: true,
+      }),
+    ).toBe("최대 5종목");
   });
 });

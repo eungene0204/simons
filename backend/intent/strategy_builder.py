@@ -2056,6 +2056,9 @@ def build_parsed_strategy(state: BuilderState):
         ranking_metric=ranking_metric,
         ranking_lookback_days=ranking_lookback_days,
         max_positions=1 if single else (state.holding_count or 10),
+        # 위 줄이 기본값 10을 물질화하면서 출처가 지워진다 — 빌더에서 종목 수는 사용자가
+        # 고른 값이므로 그 사실을 남긴다(대화 레인 컴파일러와 같은 계약, FR-SA-013 ③).
+        max_positions_explicit=state.holding_count is not None,
         hold_period_days=state.hold_period_days,
         rebalancing_period="none" if single else (state.rebalance_cycle or "none"),
         stop_loss_pct=state.stop_loss_pct,

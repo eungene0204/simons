@@ -183,6 +183,55 @@ def _paren_variants(name: str) -> list[str]:
     return variants
 
 
+# 네이버 테마명의 나열 접속사 — "전쟁 및 테러"·"금 와 은"처럼 두 표현을 잇는다.
+_CONJUNCTION_RE = re.compile(r"\s*(?:및|와|과)\s+")
+
+
+def _listing_variants(name: str) -> list[str]:
+    """나열식 테마명("방위산업/전쟁 및 테러")의 결정적 표기 변형 — 나열된 **각 항목**.
+
+    의미 해석이 아니라 표기 정규화다(_paren_variants와 같은 정합 인덱스 전용 레인).
+    사고(2026-09-16): "전쟁 관련주" 전략의 유니버스에 항공사(제주항공·에어부산…)가
+    섞였다. 네이버 테마 '방위산업/전쟁 및 테러'(66곳)가 정본인데, 정합 키가
+    '전쟁 및 테러'(슬래시 변형)까지만 있어 앵커 '전쟁'이 닿지 못했고 어휘집의
+    업종 근사(우주항공/방산)로 빠졌다.
+
+    _slash_aliases와 갈리는 지점: 그쪽은 접미를 **모든** 부분에 붙여
+    ("방위산업 및 테러") 스캔용 변형을 만든다. 여기서는 나열된 항목을 그대로 —
+    슬래시로 갈린 각 부분, 그리고 그 부분을 접속사로 한 번 더 나눈 항목 — 키로 삼는다.
+    가드는 _paren_variants와 같다(두 글자 미만·정본 용어·별칭 일반어·섹터 어휘 제외).
+    등록 규칙(①정확 표기 우선 ②카탈로그 순서 ③다의 미등록)은 인덱스 쪽이 맡는다.
+    """
+    from engine.universe_pit import normalize_sector  # 지연 import(무거운 엔진 모듈)
+
+    base = re.sub(r"\([^)]*\)", "", name or "").strip()
+    match = re.fullmatch(r"(.*?)([^\s/]+(?:/[^\s/]+)+)(.*)", base)
+    if not match:
+        return []
+    prefix, group, suffix = match.groups()
+    parts = group.split("/")
+    # 접미는 **마지막 항목에만** 붙인다 — "A/B 및 C"는 'A' 또는 'B 및 C'이지
+    # 'A 및 C'가 아니다(슬래시 변형이 만들던 표기는 어느 테마도 가리키지 않는다).
+    candidates: list[str] = []
+    for index, part in enumerate(parts):
+        item = f"{prefix}{part}{suffix if index == len(parts) - 1 else ''}".strip()
+        candidates.append(item)
+        candidates.extend(
+            bit.strip() for bit in _CONJUNCTION_RE.split(item) if bit.strip()
+        )
+    variants: list[str] = []
+    seen: set[str] = set()
+    for cand in candidates:
+        key = _norm_key(cand)
+        if len(key) < 2 or key in seen or key in TEST_RESERVED_TERMS or key in _ALIAS_STOPWORDS:
+            continue
+        if normalize_sector(cand):
+            continue
+        seen.add(key)
+        variants.append(cand)
+    return variants
+
+
 # ── 조회 로그 포맷터 — 무엇을 KG에서 찾았고 무엇이 나왔는지 추적(운영 관찰용) ──
 
 
@@ -235,8 +284,9 @@ class KnowledgeGraph:
         스캔 인덱스와 달리 taken 경쟁을 하지 않는다 — 같은 표기를 학습 노드가 먼저
         가져갔어도('LCD 부품' 사고 2026-07-27) 카탈로그 테마를 찾을 수 있어야 한다.
 
-        괄호 병기 이름(_paren_variants)의 파생 키를 갭 필러로 더한다(HBM 시드 6곳 vs
-        네이버 33곳 사고 2026-08-02). 파생 키 등록 규칙:
+        괄호 병기 이름(_paren_variants)·나열식 이름(_listing_variants)의 파생 키를 갭
+        필러로 더한다(HBM 시드 6곳 vs 네이버 33곳 사고 2026-08-02, '전쟁 관련주'가 방산
+        테마 66곳 대신 업종 근사로 빠진 사고 2026-09-16). 파생 키 등록 규칙:
         ① 정확 표기 키가 항상 우선 — 파생 키가 다른 테마의 정확 표기("전기차")를
            가로채지 않는다.
         ② 카탈로그 간 충돌은 먼저 합성된 카탈로그(네이버)가 이긴다 — 스캔 인덱스의
@@ -258,9 +308,10 @@ class KnowledgeGraph:
                 bucket = index.setdefault(key, [])
                 if node_id not in bucket:
                     bucket.append(node_id)
-            for variant in _paren_variants(node.get("name", "")):
+            name = node.get("name", "")
+            for variant in _paren_variants(name) + _listing_variants(name):
                 derived.setdefault(_norm_key(variant), []).append(
-                    (str(node.get("source", "")), node.get("name", ""), node_id)
+                    (str(node.get("source", "")), name, node_id)
                 )
         for key, entries in derived.items():
             if key in index:

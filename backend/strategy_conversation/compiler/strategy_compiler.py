@@ -502,6 +502,10 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         ranking_quantile_groups=ranking_quantile_groups,
         ranking_components=ranking_components,
         max_positions=portfolio.selection_count if portfolio.selection_count is not None else 10,
+        # 위 줄이 기본값 10을 물질화하면서 출처가 지워진다 — 그 사실만 따로 남긴다.
+        # 선정 범위 판정(engine/selection_scope.py)이 "사용자가 종목 수를 말했는가"를
+        # 물어야 하는데, 값만으로는 '10이라고 말했다'와 '아무 말 없었다'가 같아 보인다.
+        max_positions_explicit=portfolio.selection_count is not None,
         # 그룹당 보유 상한(FR-BT-060b) — 분위 그룹 모드에서 사용자가 말한 종목 수는
         # 그룹당 상한이다. selection_count는 사용자가 말했을 때만 non-null이므로
         # (LLM 계약: 지어내기 금지) 물질화 기본값(10)과 달리 provenance가 필요 없다.

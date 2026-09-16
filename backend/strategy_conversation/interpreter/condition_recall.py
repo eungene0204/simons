@@ -156,3 +156,120 @@ def recover_missing_conditions(
             known.add(spec.id)
             recovered.append(spec.id)
     return recovered
+
+
+# ── 백테스트 기간 회수 패스 ────────────────────────────────────────────────────
+# 조건과 같은 결함이 설정 슬롯에서도 난다(2026-09-16 실측): "…손절은 -8%, 최대 5종목,
+# 최근 1년, 초기 자본 1000만원으로 백테스트해 주세요"에서 1차 해석이 **기간만** 빠뜨렸고
+# (같은 문장 API 6회 중 1회는 5y로 뒤바뀜), 사용자는 이미 말한 값을 다시 답해야 했다.
+# 조건 회수와 같은 계약이다 — 판정은 LLM, 결정론은 ① 출처 대조 ② 정본 표기 정규화
+# ③ 덮어쓰기 금지만 한다. 조건 회수 프롬프트에 얹지 않고 따로 두는 이유: 기간을 이미
+# 해석한 턴(대부분)에서는 호출 자체가 없어야 하고, 조건 추출 프롬프트를 건드리면
+# 조건 회수 쪽 품질이 함께 흔들린다(프롬프트 분량 회귀 계약).
+_PERIOD_SYSTEM = """당신은 **추출기**입니다. 전략 문장에서 **백테스트 기간을 말한 구절**을 찾으세요.
+
+규칙:
+- 과거 데이터를 얼마나 쓸지 말한 구절만 찾습니다("최근 1년", "3년치 데이터", "전체 기간").
+- 다음은 백테스트 기간이 **아닙니다** — 빼세요: 지표 기간(20일 이동평균), 보유 기간,
+  리밸런싱 주기, 수익률 산정 기간.
+- quote는 **입력 문장에 있는 그대로** 적습니다(요약·번역 금지).
+- period는 말한 그대로 옮겨 적습니다: <N>y(년) / <N>m(개월) / full(전체 기간).
+- 해당 구절이 없으면 {"quote": null, "period": null}.
+- 판단하지 말고 옮겨 적기만 하세요.
+
+출력 형식(JSON만, 설명 금지):
+{"quote": "<입력 조각>", "period": "<N>y"}"""
+
+
+def build_period_system_prompt() -> str:
+    return _PERIOD_SYSTEM
+
+
+def recover_backtest_period(
+    intent: Any,
+    user_input: str,
+    chat: Callable[..., str],
+) -> Optional[str]:
+    """1차 해석이 빠뜨린 백테스트 기간을 되살린다. 반환값은 채워진 표기(없으면 None).
+
+    호출 전제: `strategy.backtest.period`도 명시 날짜도 비어 있는 턴에서만 부른다.
+    이미 값이 있으면 **절대 덮어쓰지 않는다** — 회수는 빈 칸을 채우는 그물이지
+    1차 해석을 교정하는 자리가 아니다(조건 회수의 '추가만 한다'와 같은 계약).
+    """
+    from strategy_conversation.interpreter.models import BacktestSpec
+    from strategy_conversation.interpreter.output_repair import extract_json_object
+    from strategy_conversation.primary import _quote_has_echo
+    from engine.nl_parser import _compact
+
+    strategy = getattr(intent, "strategy", None)
+    if strategy is None:
+        return None
+    spec = strategy.backtest
+    if spec.period is not None or spec.start_date or spec.end_date:
+        return None
+    try:
+        raw = chat(_PERIOD_SYSTEM, f"[전략 문장]\n{user_input}", max_tokens=128)
+    except Exception:  # noqa: BLE001 — 보조 그물이 턴을 깨지 않는다
+        logger.debug("backtest period recall pass failed", exc_info=True)
+        return None
+    try:
+        payload = json.loads(extract_json_object(raw))
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    transcribed = payload.get("period")
+    quote = payload.get("quote")
+    if not isinstance(transcribed, str) or not transcribed.strip():
+        return None
+    # ① 출처 대조 — LLM이 인용한 조각이 입력에 실재해야 한다(환각 조건 가드와 같은 판정).
+    #    인용을 내지 않았으면 대조할 수 없으므로 채우지 않는다(되묻기가 정상 동작).
+    if not isinstance(quote, str) or not quote.strip():
+        return None
+    if not _quote_has_echo(_compact(quote), _compact(user_input)):
+        return None
+    # ② 정본 표기 정규화 — 버킷·날짜 창 변환은 BacktestSpec이 이미 가진 결정론 규칙이다
+    #    (<N>y 옮겨 적기 계약, 2026-09-07). 표현 불가(1년 미만)면 비운 채 되묻기로 보낸다.
+    #    1년 미만이 버려지는 덕에 지표 기간·랭킹 산정 기간·짧은 보유 기간은 애초에 새지 않는다.
+    try:
+        filled = BacktestSpec.model_validate(
+            {**spec.model_dump(), "period": transcribed.strip()}
+        )
+    except Exception:  # noqa: BLE001 — Literal 검증 실패는 '못 읽은 것'과 같다
+        return None
+    if filled.period is None and not filled.start_date:
+        return None
+    # ③ 보유 기간과 같은 길이면 채우지 않는다 — 1년 이상인 보유 기간("최대 보유 2년")은
+    #    위 하한을 통과하므로, 프롬프트의 제외 규칙을 모델이 어기면 그대로 백테스트 창이
+    #    된다. 판정은 두 숫자 대조뿐이다(원문도 어휘도 보지 않는다). 겹치면 되묻기에 맡긴다.
+    if _matches_hold_period(strategy, transcribed.strip()):
+        logger.debug("backtest period recall skipped — matches hold period")
+        return None
+    strategy.backtest = filled
+    return filled.period or f"{filled.start_date}~{filled.end_date}"
+
+
+# 거래일/월 환산 — 되묻기 칩·엔진이 쓰는 근사(1개월 ≈ 21거래일, 1년 ≈ 252거래일)와 같다.
+_TRADING_DAYS_PER_MONTH = 21
+_HOLD_PERIOD_TOLERANCE_DAYS = 21
+
+
+def _matches_hold_period(strategy: Any, transcribed: str) -> bool:
+    """회수한 기간이 이미 잡힌 **보유 기간**과 같은 길이인가(숫자 대조뿐)."""
+    from strategy_conversation.interpreter.models import _normalize_period
+
+    hold_days = getattr(getattr(strategy, "portfolio", None), "hold_period_days", None)
+    if not hold_days:
+        return False
+    normalized = _normalize_period(transcribed)
+    if isinstance(normalized, tuple):                     # ("window", 개월수)
+        months = normalized[1]
+    elif normalized == "1y":
+        months = 12
+    elif normalized == "3y":
+        months = 36
+    elif normalized == "5y":
+        months = 60
+    else:                                                 # "full" 등 — 길이 비교 불가
+        return False
+    return abs(months * _TRADING_DAYS_PER_MONTH - hold_days) <= _HOLD_PERIOD_TOLERANCE_DAYS
