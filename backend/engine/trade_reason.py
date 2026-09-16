@@ -91,6 +91,10 @@ FUNDAMENTAL_AMOUNT_LEVEL = "{0} {1}억 {2}"
 # 연산자 낱말 — LLM 해석이 아니라 조건의 operator 표기에서 결정된다.
 OP_GTE = "이상"
 OP_LTE = "이하"
+# 엄격 비교(>, <)는 경계값을 포함하지 않는다 — "이상/이하"로 적으면 PER > 0 전략의 사유가
+# "PER 0 이상"으로 찍혀 조건과 어긋난다(2026-09-17 PER·PBR 워크스루 실측).
+OP_GT = "초과"
+OP_LT = "미만"
 OP_EQ = "동일"
 
 # ── 청산·리스크 사유 (engine/result_handler.py · engine/simulator.py) ────────

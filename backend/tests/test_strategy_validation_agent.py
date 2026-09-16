@@ -289,3 +289,39 @@ def test_non_object_input_still_returns_json_contract():
 
     assert result["is_valid"] is False
     assert result["issues"][0]["code"] == "INVALID_STRATEGY_TYPE"
+
+
+def test_periodic_rebalancing_counts_as_exit_rule():
+    # [회귀 2026-09-17] "코스피 PER>0·PBR≤1, PER·PBR 합산 순위 20종목, 분기 리밸런싱(종목 교체)" —
+    # 편출 종목을 리밸런싱일에 파는 전략인데 요약 카드 아래 '청산 조건을 입력해 주세요'가 떴다.
+    # 슬롯 정본(engine/strategy_slots.py EXIT)은 정기 리밸런싱을 매도 수단으로 센다.
+    base = {
+        "universe": "KOSPI",
+        "fundamental_filters": [{"metric": "per", "operator": ">", "value": 0}],
+        "entry_rule": [{"metric": "pbr", "operator": "<=", "value": 1}],
+        "rebalance_rule": "quarterly",
+        "position_sizing": {"method": "equal_weight"},
+        "max_positions": 20,
+        "data_frequency": "daily",
+        "backtest_period": "10y",
+    }
+
+    rebalanced = StrategyValidationAgent().validate({**base, "rebalancing_period": "quarterly"})
+    not_rebalanced = StrategyValidationAgent().validate({**base, "rebalancing_period": "none"})
+
+    assert "MISSING_EXIT_RULE" not in _codes(rebalanced)
+    assert "MISSING_EXIT_RULE" in _codes(not_rebalanced)
+
+
+def test_declined_risk_slots_are_not_reported_missing():
+    # [회귀 2026-09-17] '손절 안 함'·'익절 안 함'을 고른 전략 요약 아래 '손절 조건을 입력해 주세요'가 떴다 —
+    # 값이 없는 것이 사용자 결정(declined_fields, engine/strategy_slots.DECLINABLE_FIELDS)인데 누락으로 셌다.
+    strategy = _valid_strategy()
+    strategy.pop("stop_loss_pct", None)
+    strategy.pop("take_profit_pct", None)
+
+    undecided = StrategyValidationAgent().validate(strategy)
+    declined = StrategyValidationAgent().validate(strategy, declined_fields=["stop_loss", "take_profit"])
+
+    assert {"MISSING_STOP_LOSS", "MISSING_TAKE_PROFIT"} <= _codes(undecided)
+    assert not {"MISSING_STOP_LOSS", "MISSING_TAKE_PROFIT"} & _codes(declined)

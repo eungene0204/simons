@@ -1,49 +1,91 @@
 """투자 용어 정의 사실 블록 — /query/general LLM 답변의 정의 오류 방지.
 
 소형 LLM이 기초 용어 정의를 틀리는 실측 사고(레드팀 QA 6-1 "PER=주가순자산비율",
-7-4 "RSI 90=극단적 과매도") 보정. platform_defaults.facts_block(설정 기본값)과 동형으로,
+7-4 "RSI 90=극단적 과매도") 보정. platform_defaults.facts_block(설정 기본값)과 같은 자리에
 질문에 등장한 용어의 정확한 정의를 프롬프트에 사실로 주입한다 — 정의를 언급한다면
 반드시 이 값을 쓰게 한다.
+
+[자연어 해석 계약] 질문에 **어떤 용어가 나왔는지는 LLM이 판단한다**(`extract_terms`).
+이 모듈의 결정론 코드는 LLM이 뽑은 짧은 문자열을 정본 용어에 대조하는 registry일 뿐이다.
+2026-09-17 이전에는 사용자 원문에 정규식을 돌려 용어를 찾았는데, `\\bper\\b`가 "PER과"를
+놓쳐(한글도 단어 문자라 경계가 없다) 정의가 주입되지 않았고, LLM이 PER을 "예상 순이익"
+기준으로 설명하고 한자(一株당)를 섞었다. 어휘를 늘리는 대신 판정을 LLM 레인으로 옮겼다.
 """
 
 from __future__ import annotations
 
-import re
-from typing import Optional
+from typing import Callable, Iterable, Optional
 
-# 용어 → (감지 패턴, 정의 한 줄). 정의는 검증된 표준 정의만 담는다(해석·추천 금지).
-_TERM_FACTS: tuple[tuple[str, str, str], ...] = (
-    ("PER", r"\bper\b|퍼|피이알|주가수익비율",
+ChatFn = Callable[..., str]
+
+# 정본 용어 → (LLM 출력 표기 별칭, 정의 한 줄). 정의는 검증된 표준 정의만 담는다(해석·추천 금지).
+# 별칭은 LLM이 뽑은 문자열의 표기 정규화용이다(소문자·공백 제거 후 정확 일치) — 원문 검색이 아니다.
+_TERMS: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    ("PER", ("per", "주가수익비율", "피이알", "퍼"),
      "PER(주가수익비율) = 주가 ÷ 주당순이익(EPS). 낮을수록 이익 대비 주가가 낮게 평가된 것이다."),
-    ("PBR", r"\bpbr\b|주가순자산비율",
+    ("PBR", ("pbr", "주가순자산비율"),
      "PBR(주가순자산비율) = 주가 ÷ 주당순자산(BPS). 낮을수록 순자산 대비 주가가 낮게 평가된 것이다."),
-    ("ROE", r"\broe\b|자기자본이익률",
+    ("ROE", ("roe", "자기자본이익률"),
      "ROE(자기자본이익률) = 순이익 ÷ 자기자본. 높을수록 자본을 효율적으로 굴려 이익을 낸 것이다."),
-    ("RSI", r"\brsi\b|상대강도지수",
+    ("RSI", ("rsi", "상대강도지수"),
      "RSI(상대강도지수)는 0~100 범위이며 통상 70 이상을 과매수, 30 이하를 과매도로 본다. "
      "90은 극단적인 과매수(과매도가 아님)다."),
-    ("MACD", r"\bmacd\b",
+    ("MACD", ("macd",),
      "MACD는 단기·장기 지수이동평균의 차이로, 종목 가격 수준에 따라 값의 크기가 달라 "
      "'100 이상' 같은 절대 기준값은 보편적으로 성립하지 않는다. 통상 시그널선 교차를 신호로 본다."),
-    ("부채비율", r"부채비율",
+    ("부채비율", ("부채비율",),
      "부채비율 = 부채 ÷ 자기자본. 높을수록 레버리지가 커져 이익과 손실 변동이 모두 커진다 — "
      "높다고 수익이 보장되지 않으며 재무 위험이 커진다."),
-    ("PSR", r"\bpsr\b|주가매출액?비율",
+    ("PSR", ("psr", "주가매출비율", "주가매출액비율"),
      "PSR(주가매출비율) = 시가총액 ÷ 매출액. 낮을수록 매출 대비 주가가 낮게 평가된 것이다."),
-    ("골든크로스", r"골든\s*크로스|데드\s*크로스",
+    ("골든크로스", ("골든크로스", "데드크로스"),
      "골든크로스는 단기 이동평균이 장기 이동평균을 위로 교차하는 사건이다. 추세 신호일 뿐 "
      "상승을 보장하지 않는다."),
 )
 
-_COMPILED = tuple(
-    (name, re.compile(pattern, re.IGNORECASE), fact) for name, pattern, fact in _TERM_FACTS
+_ALIAS_TO_FACT: dict[str, str] = {
+    alias: fact for _, aliases, fact in _TERMS for alias in aliases
+}
+
+TERM_EXTRACT_PROMPT = (
+    "너는 투자 질문에서 용어를 추출하는 도구다. 사용자 질문이 뜻·정의·계산법을 묻거나 "
+    "설명에 쓰는 투자 지표·재무비율·기술적 신호 이름을 질문에 쓰인 표기 그대로 모두 "
+    "추출한다(예: 'PER과 PBR이 정확히 무슨 뜻인가요?' → ['PER', 'PBR']). 조사·설명은 "
+    "붙이지 않는다. 그런 용어가 없으면 빈 배열.\n"
+    '설명 없이 JSON만 출력한다. 예: {"terms": ["PER", "PBR"]} 또는 {"terms": []}'
 )
 
 
-def facts_block(text: str) -> Optional[str]:
-    """질문에 등장한 용어의 정의 사실 블록을 만든다(없으면 None)."""
-    t = text or ""
-    lines = [fact for _, pattern, fact in _COMPILED if pattern.search(t)]
+def extract_terms(query: str, chat: ChatFn) -> list[str]:
+    """질문에 나온 투자 용어를 LLM으로 추출한다(짧은 문자열 목록). 실패·형식 오류면 빈 목록."""
+    from engine.term_grounding import _extract_json
+
+    data = _extract_json(chat(TERM_EXTRACT_PROMPT, query or "", max_tokens=60)) or {}
+    terms = data.get("terms")
+    if not isinstance(terms, list):
+        return []
+    return [t.strip() for t in terms if isinstance(t, str) and t.strip()]
+
+
+def _alias_keys(term: str) -> list[str]:
+    """LLM 표기 정규화 — 소문자·공백 제거, 'PER(주가수익비율)'이면 괄호 앞뒤를 각각 후보로."""
+    key = "".join(term.lower().split())
+    candidates = [key]
+    if "(" in key and key.endswith(")"):
+        head, _, inner = key[:-1].partition("(")
+        candidates += [head, inner]
+    return [c for c in candidates if c]
+
+
+def facts_block(terms: Iterable[str]) -> Optional[str]:
+    """LLM이 뽑은 용어들의 정의 사실 블록을 만든다(정본에 없으면 None)."""
+    lines: list[str] = []
+    for term in terms or ():
+        for key in _alias_keys(term):
+            fact = _ALIAS_TO_FACT.get(key)
+            if fact and fact not in lines:
+                lines.append(fact)
+                break
     if not lines:
         return None
     body = "\n".join(f"- {line}" for line in lines)

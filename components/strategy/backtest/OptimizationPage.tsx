@@ -863,7 +863,8 @@ function MonteCarloHistogramChart({
       <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">{title}</p>
       <div className="mt-3 h-44">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} barCategoryGap={1}>
+          {/* 위 여백 — 원래 순서 기준선 라벨(position top)이 차트 경계 밖으로 잘리지 않게 */}
+          <BarChart data={data} barCategoryGap={1} margin={{ top: 16, right: 5, bottom: 5, left: 5 }}>
             <XAxis
               dataKey="label"
               tick={{ fontSize: 10, fill: "#6b7280", fontWeight: 700 }}

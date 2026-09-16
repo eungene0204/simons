@@ -1778,3 +1778,36 @@ async def test_validation_mode_stream_returns_validation_json_without_llm():
 
     assert event["type"] == "done"
     assert json.loads(event["message"]) == {"is_valid": True, "issues": []}
+
+
+@pytest.mark.asyncio
+async def test_validation_session_honors_declined_risk_slots():
+    """[회귀 2026-09-17] '손절 안 함'·'익절 안 함'을 고른 전략의 검증이 '손절 조건을 입력해 주세요'를 냈다 —
+    프론트가 보내는 declined_fields를 검증 agent까지 넘기고 세션 후속 검증도 같은 목록을 쓴다."""
+    import json as _json
+
+    coach_routes._STRATEGY_AGENT_MODE = "validation"
+    parsed = {
+        **_validation_request().parsed_strategy,
+        "stop_loss_pct": None,
+        "take_profit_pct": None,
+        "rebalancing_period": "quarterly",
+        "exit_signals": [],
+    }
+    response = Response()
+    result = await coach_routes.create_coach_session(
+        coach_routes.CoachSessionRequest(
+            user_prompt="PER·PBR 20종목 분기 교체", parsed_strategy=parsed,
+            declined_fields=["stop_loss", "take_profit"],
+        ),
+        response,
+    )
+    codes = {issue["code"] for issue in _json.loads(result.message)["issues"]}
+    assert not codes & {"MISSING_STOP_LOSS", "MISSING_TAKE_PROFIT", "MISSING_EXIT_RULE"}
+
+    session_id = response.headers["X-Coach-Session-Id"]
+    follow = await coach_routes.continue_coach_session(
+        coach_routes.CoachSessionFollowUpRequest(session_id=session_id, user_prompt="다시 검증")
+    )
+    follow_codes = {issue["code"] for issue in _json.loads(follow.message)["issues"]}
+    assert not follow_codes & {"MISSING_STOP_LOSS", "MISSING_TAKE_PROFIT"}

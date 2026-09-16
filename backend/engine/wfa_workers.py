@@ -95,6 +95,13 @@ def run_window_task(spec: Dict[str, Any]) -> Dict[str, Any]:
             event["timing"] = timing
         _emit(event)
 
+    # 창 수 기준 자원 배분(WindowPool.window_resources) — 세션 캐시는 열 때 예산을 읽는다.
+    resources = spec.get("resources") or {}
+    if resources.get("prep_cache_mb") is not None:
+        os.environ["BACKTEST_PREP_CACHE_MB"] = str(resources["prep_cache_mb"])
+    if resources.get("phase1_threads") is not None:
+        os.environ["BACKTEST_PHASE1_THREADS"] = str(int(resources["phase1_threads"]))
+
     engine = _get_engine()
     analyzer = WalkForwardAnalyzer(engine)
     with engine.optimization_session():
@@ -126,10 +133,11 @@ class WindowPool:
         self._ctx = mp.get_context("spawn")
         self.progress_q = self._ctx.Queue()
         self.cancel_ev = self._ctx.Event()
-        prep_mb = None
-        if "BACKTEST_PREP_CACHE_MB" not in os.environ:
-            from engine.prep_cache import _DEFAULT_BUDGET_MB
-            prep_mb = max(256.0, _DEFAULT_BUDGET_MB / self.n_workers)
+        # 사용자가 환경변수로 고정한 값은 그대로 두고, 나머지만 창 수에 맞춰 나눈다.
+        self._auto_prep_cache = "BACKTEST_PREP_CACHE_MB" not in os.environ
+        self._auto_phase1_threads = "BACKTEST_PHASE1_THREADS" not in os.environ
+        spawn_resources = self.window_resources(self.n_workers)
+        prep_mb = spawn_resources.get("prep_cache_mb")
         cpu = os.cpu_count() or 1
         phase1_threads = max(1, min(4, cpu // self.n_workers))
         # 창 워커 안의 Phase1 프로세스 풀 크기 — 창 워커 수 × Phase1 워커 수 ≤ 코어 수.
@@ -150,6 +158,23 @@ class WindowPool:
                 self.executor.submit(warm_task)
             except Exception:
                 break
+
+    def window_resources(self, n_windows: int) -> Dict[str, Any]:
+        """창 워커 하나가 쓸 세션 캐시 예산·Phase1 스레드 수 — **실제로 동시에 도는 창 수**로 나눈다.
+
+        풀은 창 수를 알기 전에 힌트(슬라이더 경로는 MAX_WINDOWS)로 띄우므로 워커가 8개여도 창은
+        3개일 수 있다. 워커 수로 나누면 캐시가 1/8로 쪼개져 전 시장 전략의 종목 준비물을 다 담지
+        못하고(LRU라 한 종목도 적중하지 못한다), Phase1도 스레드 1개로 돈다 — 2026-09-17 코스피
+        PER·PBR 10년 워크포워드 실측: 시도마다 적중 0·Phase1 약 19초.
+        """
+        n = max(1, min(self.n_workers, int(n_windows or 1)))
+        resources: Dict[str, Any] = {}
+        if self._auto_prep_cache:
+            from engine.prep_cache import _DEFAULT_BUDGET_MB
+            resources["prep_cache_mb"] = max(256.0, _DEFAULT_BUDGET_MB / n)
+        if self._auto_phase1_threads:
+            resources["phase1_threads"] = max(1, min(4, (os.cpu_count() or 1) // n))
+        return resources
 
     def submit_window(self, spec: Dict[str, Any]):
         return self.executor.submit(run_window_task, spec)

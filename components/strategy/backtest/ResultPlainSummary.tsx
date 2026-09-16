@@ -16,6 +16,8 @@ interface MonteCarloPlainSummaryInput {
   nIterations: number;
   mode: "returns" | "trades";
   blockSize?: number;
+  /** returns 모드의 블록 방식(fixed=고정 길이, stationary=평균 길이 가변). 구버전엔 없을 수 있다(=fixed). */
+  blockMethod?: "fixed" | "stationary";
   tradeCount?: number;
   /** 값 단위는 비율 (예: median = 0.123 → 12.3%) */
   cagr: { median: number; p05: number };
@@ -109,10 +111,17 @@ export function buildMonteCarloPlainSummary(result: MonteCarloPlainSummaryInput)
   const items: string[] = [];
   const iterations = result.nIterations.toLocaleString();
 
+  // 첫 문장은 실제로 고른 재표본 방식을 말한다 — 21일 블록으로 돌렸는데 "일별 수익률을 무작위로
+  // 다시 섞어"라고 적어, 블록으로 이어진 흐름을 보존했다는 사실이 사라졌다(2026-09-17 실측).
+  const blockSize = Math.floor(result.blockSize ?? 1);
   items.push(
     result.mode === "trades"
       ? t("백테스트에서 나온 완결 거래 {0}건의 수익률을 무작위로 다시 뽑아 {1}가지 시나리오를 만들었습니다. 거래 순서가 달랐다면 결과가 어떻게 달라졌을지 본 것입니다.", result.tradeCount?.toLocaleString() ?? "-", iterations)
-      : t("백테스트의 일별 수익률을 무작위로 다시 섞어 {0}가지 시나리오를 만들었습니다. 같은 전략이라도 시장 흐름의 순서가 달랐다면 결과가 어떻게 달라졌을지 본 것입니다.", iterations)
+      : blockSize > 1 && result.blockMethod === "stationary"
+        ? t("백테스트의 일별 수익률을 평균 {0}거래일 길이(가변)의 구간으로 묶어 무작위로 다시 이어 붙여 {1}가지 시나리오를 만들었습니다. 같은 전략이라도 시장 흐름의 순서가 달랐다면 결과가 어떻게 달라졌을지 본 것입니다.", blockSize, iterations)
+        : blockSize > 1
+          ? t("백테스트의 일별 수익률을 {0}거래일씩 묶어 무작위로 다시 이어 붙여 {1}가지 시나리오를 만들었습니다. 같은 전략이라도 시장 흐름의 순서가 달랐다면 결과가 어떻게 달라졌을지 본 것입니다.", blockSize, iterations)
+          : t("백테스트의 일별 수익률을 무작위로 다시 섞어 {0}가지 시나리오를 만들었습니다. 같은 전략이라도 시장 흐름의 순서가 달랐다면 결과가 어떻게 달라졌을지 본 것입니다.", iterations)
   );
 
   items.push(
@@ -145,10 +154,14 @@ export function buildMonteCarloPlainSummary(result: MonteCarloPlainSummaryInput)
   }
 
   if (result.underwater) {
-    const unit = result.mode === "trades" ? t("거래") : t("거래일");
     // "회복까지 걸린 기간"으로 단정하지 않는다 — 기간 끝까지 회복하지 못한(검열된) 구간도 함께 집계되므로,
     // 미회복 비율을 알 때만 회복 여부를 서술하고, 미회복이 있으면 수치가 하한임을 밝힌다.
-    let underwaterSentence = t("한 번 고점을 찍은 뒤 그 아래에 머문 가장 긴 구간은, 시나리오 중앙값으로 약 {0}{1}, 긴 편(상위 5%)에서는 약 {2}{3}였습니다.", Math.round(result.underwater.median), unit, Math.round(result.underwater.p95), unit);
+    // 단위마다 조사가 다르다(거래일→이었습니다, 거래→였습니다) — 단위를 인자로 끼우면 "2168거래일였습니다".
+    const median = Math.round(result.underwater.median).toLocaleString();
+    const p95 = Math.round(result.underwater.p95).toLocaleString();
+    let underwaterSentence = result.mode === "trades"
+      ? t("한 번 고점을 찍은 뒤 그 아래에 머문 가장 긴 구간은, 시나리오 중앙값으로 약 {0}거래, 긴 편(상위 5%)에서는 약 {1}거래였습니다.", median, p95)
+      : t("한 번 고점을 찍은 뒤 그 아래에 머문 가장 긴 구간은, 시나리오 중앙값으로 약 {0}거래일, 긴 편(상위 5%)에서는 약 {1}거래일이었습니다.", median, p95);
     const unrecovered = result.underwaterUnrecoveredRatio;
     if (unrecovered !== undefined) {
       underwaterSentence +=

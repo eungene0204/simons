@@ -528,7 +528,7 @@ def test_generate_signals_respects_group_logic_and(signal_engine):
 
     assert list(signals) == [False, True]
     # 사유는 구조화되어 나른다(engine/trade_reason.py) — 표시 문장은 렌더 결과로 본다.
-    assert trade_reason.text(reasons[1]) == "RSI 30 이하 + 5일선-20일선 골든크로스"
+    assert trade_reason.text(reasons[1]) == "RSI 30 미만 + 5일선-20일선 골든크로스"
 
 
 def test_evaluate_group_respects_explicit_and_logic(signal_engine):
@@ -549,7 +549,7 @@ def test_evaluate_group_respects_explicit_and_logic(signal_engine):
     assert signal_engine.evaluate_group(group, 0, df) == (False, None)
     matched, reason = signal_engine.evaluate_group(group, 1, df)
     assert matched is True
-    assert trade_reason.text(reason) == "RSI 30 이하 + 5일선-20일선 골든크로스"
+    assert trade_reason.text(reason) == "RSI 30 미만 + 5일선-20일선 골든크로스"
 
 
 def test_ema_above_below_state_filter(signal_engine):

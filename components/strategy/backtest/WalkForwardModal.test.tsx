@@ -337,6 +337,53 @@ describe("WalkForwardModal", () => {
     expect(screen.queryByText("학습 구간")).not.toBeInTheDocument();
   });
 
+  it("워커가 창보다 많아도 동시 실행 수는 창 수를 넘지 않고, 버튼은 완료 창 수를 따른다", async () => {
+    // [회귀 2026-09-17] 워커 8·창 3에서 "0/3 구간 완료 · 8개 구간 동시 실행", 같은 순간 버튼은
+    // 이벤트를 낸 창 번호로 "분석 중... (2/3 구간)"이 떠 서로 어긋났다.
+    let progressFn: ((event: any) => void) | undefined;
+    const onRun = vi.fn().mockImplementation((_settings, _signal, onProgress) => {
+      progressFn = onProgress;
+      return new Promise(() => {});
+    });
+
+    await act(async () => {
+      render(
+        <WalkForwardModal
+          open
+          onOpenChange={() => {}}
+          onRun={onRun}
+          backtestDates={buildDates(240)}
+          baseStrategy={baseStrategy}
+          optimizationTargets={[{ id: "summary-0", label: "PBR" }]}
+        />
+      );
+    });
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "워크포워드 분석 시작" }));
+    await waitFor(() => expect(progressFn).toBeDefined());
+
+    act(() => {
+      progressFn!({
+        stage: "window",
+        window: 2,
+        total: 3,
+        trial: 28,
+        trial_total: 30,
+        windows_done: 0,
+        trials_done: 84,
+        workers: 8,
+        active_windows: [1, 2, 3],
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("0/3 구간 완료 · 84/90 시도 · 3개 구간 동시 실행")).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/8개 구간 동시 실행/)).not.toBeInTheDocument();
+    expect(screen.getByText("분석 중... (0/3 구간 완료)")).toBeInTheDocument();
+    expect(screen.queryByText("분석 중... (2/3 구간)")).not.toBeInTheDocument();
+  });
+
   it("그리드 탐색 선택 시 예상 조합 수를 보여주고 실행 버튼을 활성화한다", async () => {
     await act(async () => {
       render(

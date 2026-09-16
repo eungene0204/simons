@@ -98,6 +98,26 @@ describe("buildMonteCarloPlainSummary", () => {
     expect(joined).not.toContain("위 내용은 모두 과거 데이터 기반 시뮬레이션 결과이며, 미래 수익은 보장되지 않습니다.");
   });
 
+  it("블록 재표본이면 첫 문장이 블록 방식을 말한다", () => {
+    // [회귀 2026-09-17] 21일 블록으로 돌렸는데 "일별 수익률을 무작위로 다시 섞어"라고 적었다.
+    const fixed = buildMonteCarloPlainSummary({ ...monteCarloBase, blockSize: 21, blockMethod: "fixed" }).join("\n");
+    expect(fixed).toContain("일별 수익률을 21거래일씩 묶어 무작위로 다시 이어 붙여 1,000가지 시나리오");
+    expect(fixed).not.toContain("무작위로 다시 섞어");
+    const stationary = buildMonteCarloPlainSummary({ ...monteCarloBase, blockSize: 10, blockMethod: "stationary" }).join("\n");
+    expect(stationary).toContain("평균 10거래일 길이(가변)의 구간으로 묶어");
+    const daily = buildMonteCarloPlainSummary({ ...monteCarloBase, blockSize: 1 }).join("\n");
+    expect(daily).toContain("일별 수익률을 무작위로 다시 섞어");
+  });
+
+  it("낙폭 지속 문장은 단위에 맞는 조사와 천 단위 구분을 쓴다", () => {
+    // [회귀 2026-09-17] "약 2168거래일였습니다" — 단위를 인자로 끼워 조사가 틀리고 구분 기호가 없었다.
+    const returns = buildMonteCarloPlainSummary({ ...monteCarloBase, underwater: { median: 873, p95: 2168 } }).join("\n");
+    expect(returns).toContain("약 873거래일, 긴 편(상위 5%)에서는 약 2,168거래일이었습니다.");
+    expect(returns).not.toContain("거래일였습니다");
+    const trades = buildMonteCarloPlainSummary({ ...monteCarloBase, mode: "trades", tradeCount: 42, tradeCosts: "net", underwater: { median: 12, p95: 30 } }).join("\n");
+    expect(trades).toContain("약 12거래, 긴 편(상위 5%)에서는 약 30거래였습니다.");
+  });
+
   it("거래 재표본 모드면 거래 건수와 거래 도중 낙폭 미반영 안내를 넣는다", () => {
     const items = buildMonteCarloPlainSummary({ ...monteCarloBase, mode: "trades", tradeCount: 42, tradeCosts: "net" });
     const joined = items.join("\n");
@@ -122,7 +142,7 @@ describe("buildMonteCarloPlainSummary", () => {
     });
     const joined = items.join("\n");
     expect(joined).toContain("고점을 찍은 뒤 그 아래에 머문 가장 긴 구간");
-    expect(joined).toContain("약 1104거래일");
+    expect(joined).toContain("약 1,104거래일");
     expect(joined).toContain("99.7%는 이 구간이 기간 끝까지 이어져 이전 고점을 회복하지 못했");
     expect(joined).toContain("'최소 이만큼'");
     // 옛 문구 — 미회복 구간까지 회복 완료처럼 읽히게 했던 표현

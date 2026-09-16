@@ -322,14 +322,16 @@ def test_patch_provenance_gate_rejects_hallucinated_field():
 
 # ── 일반답변 사실 주입(심각도 6) ─────────────────────────────────────────────
 
-@pytest.mark.parametrize("query,term", [
-    ("PER 써줘", "주가수익비율"),
-    ("RSI 90 이하면 과매도라며?", "과매수"),
+@pytest.mark.parametrize("terms,term", [
+    (["PER"], "주가수익비율"),
+    (["RSI"], "과매수"),
 ])
-def test_glossary_facts_injected(query, term):
-    """6-1/7-4: 기초 용어 정의 사실이 프롬프트에 주입된다."""
+def test_glossary_facts_injected(terms, term):
+    """6-1/7-4: 기초 용어 정의 사실이 프롬프트에 주입된다.
+
+    용어는 LLM이 뽑은 문자열로 받는다(glossary_facts.extract_terms) — 원문 정규식 판정 금지."""
     from intent import glossary_facts
-    block = glossary_facts.facts_block(query)
+    block = glossary_facts.facts_block(terms)
     assert block is not None and term in block
 
 

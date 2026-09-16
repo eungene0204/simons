@@ -877,7 +877,7 @@ class SignalEngine:
         cid, p = cond['id'], cond['params']
         op = p.get('operator', '')
         op_seg = {
-            "<": tr.part(tr.OP_LTE), ">": tr.part(tr.OP_GTE),
+            "<": tr.part(tr.OP_LT), ">": tr.part(tr.OP_GT),
             "<=": tr.part(tr.OP_LTE), ">=": tr.part(tr.OP_GTE),
             "==": tr.part(tr.OP_EQ),
         }.get(op, tr.literal(op))
@@ -958,7 +958,8 @@ class SignalEngine:
             period = p.get('period', 60)
             sig_type = p.get('signalType', 'buy')
             val = p.get('value', 0)
-            rr_op_seg = op_seg if op else tr.part(tr.OP_GTE if sig_type != 'sell' else tr.OP_LTE)
+            # 기본 연산자는 평가 경로와 같다(매수 '>' / 매도 '<').
+            rr_op_seg = op_seg if op else tr.part(tr.OP_GT if sig_type != 'sell' else tr.OP_LT)
             if measured is not None and np.isfinite(measured):
                 return [tr.part(tr.RELATIVE_RETURN_MEASURED, period, f"{measured:+.1f}")]
             return [tr.part(tr.RELATIVE_RETURN_LEVEL, period, val, rr_op_seg)]

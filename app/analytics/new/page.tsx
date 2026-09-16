@@ -138,7 +138,7 @@ import {
 } from "./clarificationPresentation";
 import { choiceOptionHelp, helpBubbleWidth, placeHelpBubble } from "./choiceOptionHelp";
 import { groupChoiceOptions } from "./choiceOptionGroups";
-import { normalizeCoachMessage } from "./coachMessage";
+import { buildCoachSessionBody, normalizeCoachMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
 import { runButtonPlacement } from "./runButtonPlacement";
 import { parseSseBlocks } from "./sseEvents";
@@ -4662,15 +4662,12 @@ function StrategyLabContent() {
         method: "POST",
         headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
         signal: chatSignal(),
-        body: JSON.stringify({
-          action: "create_session",
-          user_prompt: userText,
-          parsed_strategy: parsed as unknown as Record<string, unknown>,
-          // 직전까지의 코치 대화를 넘겨 이미 설명한 전문용어를 다시 설명하지 않도록 한다.
-          ...(coachConversationRef.current.length > 0
-            ? { conversation_context: coachConversationRef.current }
-            : {}),
-        }),
+        body: JSON.stringify(buildCoachSessionBody({
+          userText,
+          parsed: parsed as unknown as Record<string, unknown>,
+          conversation: coachConversationRef.current,
+          declinedFields: declinedFieldsRef.current,
+        })),
       });
 
       await enforceMinValidationDelay(startedAt);

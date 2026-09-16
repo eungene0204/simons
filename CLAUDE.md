@@ -299,6 +299,8 @@ Domain 검증            Registry + validation/ (지표 지원 여부·범위·�
 | `intent/strategy_builder.py` | 미이관 — 단계적 이관 중 |
 | `api/coach_routes.py::_coach_scope_guard` | 미이관 — `intent/scope.py`의 원문 예측자를 그대로 호출 |
 | `intent/platform_defaults.py` | 미이관 — `/query/general`이 원문에서 설정 항목을 추출 |
+| `intent/glossary_facts.py` | **이관 완료(2026-09-17)** — 용어 판정은 LLM 추출(`extract_terms`), 결정론은 정본 별칭 대조만 |
+| `engine/term_grounding.py::general_facts_block` ①② · `api/coach_routes.py::_detect_question_topics` | 미이관 — 원문에서 개념·질문 주제를 스캔(2026-09-17 발견) |
 | `intent/classifier.py` 의도 분류 | **이관 완료(2026-07-30)** — 기본 경로는 `intent/interpreter.py`. 파일 안의 `_classify_deterministic`/`_classify_with_llm`과 `intent/scope.py`의 `is_*(text)` 예측자는 `INTENT_CLASSIFIER_MODE=legacy` 롤백 전용이며, 기본 경로로 되돌리지 않는다 |
 
 **새로 작성하거나 수정하는 코드는 예외 없이 이 계약을 따른다.**

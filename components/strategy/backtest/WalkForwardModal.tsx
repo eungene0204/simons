@@ -994,6 +994,8 @@ export function WalkForwardPanel({
   // 실행 중 남은 시간(라이브 ETA): 완료 백테스트 수를 빼고 실측 평균으로 곱한다.
   // 창 병렬(trials_done 있음)이면 전 창 합산 완료 수를 쓰고 워커 수로 나눈다.
   const isParallelProgress = runProgress?.stage === "window" && typeof runProgress.trials_done === "number";
+  // 동시에 도는 창 수는 워커 수가 아니라 창 수를 넘지 못한다(워커 8·창 3에 "8개 구간 동시 실행" 사고).
+  const concurrentWindows = Math.max(1, Math.min(runProgress?.workers ?? 1, runProgress?.total ?? Infinity));
   const completedBacktests = runProgress?.stage === "window" && runProgress.window
     ? isParallelProgress
       ? PREPARE_BACKTESTS + (runProgress.trials_done ?? 0) + (runProgress.windows_done ?? 0)
@@ -1045,9 +1047,9 @@ export function WalkForwardPanel({
                         runProgress.total,
                         runProgress.trials_done ?? 0,
                         runProgress.total * runProgress.trial_total,
-                        runProgress.workers ?? 1
+                        concurrentWindows
                       )
-                    : t("{0}/{1} 구간 완료 · {2}개 구간 동시 실행", runProgress.windows_done ?? 0, runProgress.total, runProgress.workers ?? 1)
+                    : t("{0}/{1} 구간 완료 · {2}개 구간 동시 실행", runProgress.windows_done ?? 0, runProgress.total, concurrentWindows)
                   : runProgress.trial_total
                     ? t("{0}/{1} 구간 · {2}/{3} 시도", runProgress.window, runProgress.total, runProgress.trial ?? 0, runProgress.trial_total)
                     : t("{0}/{1} 구간 분석 중", runProgress.window, runProgress.total)
@@ -2123,7 +2125,11 @@ export function WalkForwardPanel({
                   <>
                     <ArrowsClockwise className="h-4 w-4 animate-spin motion-reduce:animate-none" />
                     {runProgress?.stage === "window" && runProgress.total
-                      ? t("분석 중... ({0}/{1} 구간)", runProgress.window, runProgress.total)
+                      ? isParallelProgress
+                        // 창 병렬이면 window는 '방금 이벤트를 낸 창 번호'라 진행 창의 완료 수와 어긋난다
+                        // ("0/3 구간 완료" 옆에 "(2/3 구간)" — 2026-09-17 실측). 완료 수로 맞춘다.
+                        ? t("분석 중... ({0}/{1} 구간 완료)", runProgress.windows_done ?? 0, runProgress.total)
+                        : t("분석 중... ({0}/{1} 구간)", runProgress.window, runProgress.total)
                       : t("분석 중... ({0}개 구간)", derivedSettings.n_splits)}
                   </>
                 ) : (
