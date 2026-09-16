@@ -11,6 +11,7 @@ import {
   forwardRef,
   memo,
   Suspense,
+  Fragment,
   type ReactNode,
 } from "react";
 import { createPortal, flushSync } from "react-dom";
@@ -1351,25 +1352,27 @@ function buildAnimatedHeadline(lines: string[]) {
     charOffset += line.length;
 
     return (
-      <span
-        key={`${line}-${lineIndex}`}
-        className="block min-h-[1em] whitespace-normal lg:whitespace-nowrap"
-      >
-        {line.split("").map((char, charIndex) => (
-          <span
-            key={`${line}-${lineIndex}-${charIndex}`}
-            className="chat-headline-char"
-            style={{ "--char-index": String(startIndex + charIndex) } as React.CSSProperties}
-          >
-            {char === " " ? "\u00A0" : char}
-          </span>
-        ))}
-      </span>
+      <Fragment key={`${line}-${lineIndex}`}>
+        {/* 줄 사이 공백 — 줄바꿈은 block 스팬이 화면에서만 만들어서, 이게 없으면 h1 텍스트가
+            '백테스트하고모의투자로'처럼 한 단어로 붙어 검색엔진에 읽힌다. block 사이라 화면엔 안 보인다. */}
+        {lineIndex > 0 && " "}
+        <span className="block min-h-[1em] whitespace-normal lg:whitespace-nowrap">
+          {line.split("").map((char, charIndex) => (
+            <span
+              key={`${line}-${lineIndex}-${charIndex}`}
+              className="chat-headline-char"
+              style={{ "--char-index": String(startIndex + charIndex) } as React.CSSProperties}
+            >
+              {char === " " ? "\u00A0" : char}
+            </span>
+          ))}
+        </span>
+      </Fragment>
     );
   });
 }
 
-const HEADLINE_LINES = ["퀀트 전략을 검증하고", "전략을 시뮬레이션 하세요"];
+const HEADLINE_LINES = ["퀀트 전략을 백테스트하고", "모의투자로 시뮬레이션하세요"];
 
 // 플레이스홀더는 첫 입력에서만 보여준다 — inline 입력창은 대화 시작 전(messages 0건)에만
 // 렌더되므로, 대화가 시작된 뒤의 하단 고정(fixed) 입력창에서는 노출하지 않는다.
@@ -5259,7 +5262,7 @@ function StrategyLabContent() {
                   <AnimatedHeadline lines={HEADLINE_LINES.map((line) => t(line))} />
                 </h1>
                 <p className="text-sm font-bold leading-relaxed text-gray-400 sm:text-base">
-                  {t("AI와 함께 전략을 설계하고, 바로 백테스트 하세요")}
+                  {t("AI와 함께 전략을 설계하고, 과거 데이터로 검증하세요")}
                 </p>
               </div>
             </div>

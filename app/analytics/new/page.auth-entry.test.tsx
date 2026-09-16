@@ -100,8 +100,10 @@ describe("StrategyLab auth entry", () => {
     });
 
     const headline = screen.getByTestId("strategy-lab-headline");
-    expect(headline).toHaveTextContent(
-      "퀀트 전략을 검증하고전략을 시뮬레이션 하세요"
+    // 두 줄 사이에 공백이 있어야 검색엔진이 낱말을 붙여 읽지 않는다 — toHaveTextContent는
+    // 공백을 정규화하므로 textContent를 그대로 비교한다.
+    expect(headline.textContent?.replace(/\u00A0/g, " ")).toBe(
+      "퀀트 전략을 백테스트하고 모의투자로 시뮬레이션하세요"
     );
     // 검색엔진이 본문 제목으로 읽는 페이지 유일 h1이다(SEO 2026-09-13).
     expect(headline.tagName).toBe("H1");
@@ -122,7 +124,7 @@ describe("StrategyLab auth entry", () => {
 
     const animatedChars = Array.from(headline.querySelectorAll("span span"));
     expect(animatedChars).toHaveLength(
-      "퀀트 전략을 검증하고전략을 시뮬레이션 하세요".length
+      "퀀트 전략을 백테스트하고모의투자로 시뮬레이션하세요".length
     );
     expect(animatedChars[0]).toHaveClass("chat-headline-char");
     // 지연 순서는 --char-index가 줄 경계를 넘어 이어져야 한다.
@@ -136,7 +138,7 @@ describe("StrategyLab auth entry", () => {
     render(<StrategyLabPage />);
 
     expect(await screen.findByTestId("strategy-lab-headline")).toHaveTextContent(
-      "퀀트 전략을 검증하고전략을 시뮬레이션 하세요"
+      "퀀트 전략을 백테스트하고 모의투자로 시뮬레이션하세요"
     );
 
     const textarea = await screen.findByRole("textbox");
