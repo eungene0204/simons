@@ -3771,6 +3771,19 @@ def _resolve_sector_terms_planner_primary(
             fallback_terms.append(term)
             continue
         if result.outcome == "clarify":
+            # planner의 결정 권한은 '검색(ground_term)할 표현인가, 되물을 표현인가'뿐이다
+            # (mini_planner 계약). 되묻기를 골랐다고 해서 **우리가 이미 답할 수 있는**
+            # 표현까지 못 한다고 말해서는 안 된다 — 고정 체인(_resolve_sector_terms_term_in)은
+            # 되묻기 전에 테마 상장사·정본 매핑을 먼저 본다. planner 레인만 그 순서를
+            # 건너뛰어, 같은 입력이 레인·표본에 따라 갈렸다(2026-09-16 사용자 제보:
+            # '석유 관련주'가 한 레인에선 네이버 업종 '석유와가스' 13종목으로, 다른
+            # 레인에선 "'섹터 '석유''는 지원하지 않아 반영하지 못했어요"로 끝났다).
+            if apply_theme_companies(parsed, term):
+                _log_llm("✓ planner 테마(되묻기 전 조회)",
+                         f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
+                continue
+            if _apply_theme_via_canonical_match(parsed, term):
+                continue
             # 되묻기 질문은 planner 내부에서 이미 output_guard를 통과했다
             _log_llm("? planner 되묻기", f"'{term}': {result.question}")
             if clarify is None:

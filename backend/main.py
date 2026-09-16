@@ -91,6 +91,7 @@ async def lifespan(_app):
     preload_summarize_model()
     await startup()
     log_universe_status_on_startup()
+    log_term_grounding_status_on_startup()
 
     # news_v2 — best-effort scheduler bootstrap. Disabled if NEWSV2_ENABLED=false
     # or if APScheduler isn't installed.
@@ -2969,6 +2970,19 @@ def log_universe_status_on_startup():
             print(line, flush=True)
     except Exception as e:
         print(f"[startup] universe-sync 로그 출력 실패 (무시됨): {e}", flush=True)
+
+
+def log_term_grounding_status_on_startup():
+    """검색 학습 레인(FR-STR-069) 상태를 기동 로그에 한 줄 남긴다 — 자격증명이 없으면 경고.
+
+    데코레이터를 달지 않는 이유: 이 앱은 lifespan을 직접 지정해 startup 훅이 발화하지
+    않는다(lifespan이 명시 호출한다)."""
+    try:
+        from engine.term_grounding import startup_status_line
+
+        print(f"[startup] {startup_status_line()}", flush=True)
+    except Exception as e:
+        print(f"[startup] term-grounding 상태 로그 출력 실패 (무시됨): {e}", flush=True)
 
 
 @app.on_event("shutdown")

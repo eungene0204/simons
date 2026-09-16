@@ -60,6 +60,19 @@ def search_available() -> bool:
     return bool(os.environ.get("NAVER_CLIENT_ID") and os.environ.get("NAVER_CLIENT_SECRET"))
 
 
+def startup_status_line() -> str:
+    """기동 로그에 남길 검색 학습 레인 상태 한 줄(FR-STR-069 ④).
+
+    자격증명이 없으면 그라운딩은 런타임에서 조용히 비활성화된다 — 동작은 종전 그대로지만
+    그 침묵이 배포 환경에서 오래 발견되지 않은 실측 사고가 있어(2026-09-16 '석유 관련주':
+    박스 .env에 자격증명이 없어 어휘집이 비어 있었고, 로컬에서만 해석됐다) 기동 시 상태를
+    한 줄 남긴다. 판정은 환경변수 존재 여부 + 어휘집 크기뿐이다(검색 호출 없음)."""
+    if not search_available():
+        return ("⚠ 검색 학습 레인 비활성 — NAVER_CLIENT_ID/NAVER_CLIENT_SECRET 미설정. "
+                "어휘집에 없는 업종·테마는 검색 학습 없이 되묻기/미지원으로 종결됩니다.")
+    return f"검색 학습 레인 활성 — 어휘집 {len(_load_lexicon(_LEXICON_PATH))}개 용어"
+
+
 _TAG_RE = re.compile(r"<[^>]+>")
 
 

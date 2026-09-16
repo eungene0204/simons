@@ -189,6 +189,7 @@ Python 백엔드는 `backend/db.py`(psycopg v3 어댑터, sqlite3와 유사한 �
 | `KIS_APP_KEY` / `KIS_APP_SECRET` | 한국투자증권 API(자동매매) |
 | `DART_API_KEY` | DART 공시 |
 | `PUBLIC_DATA_SERVICE_KEY` | 공공데이터포털 |
+| `NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` | 네이버 API 허브 검색 — 용어 그라운딩(FR-STR-069) 학습 레인. **없으면 그라운딩이 비활성화돼 어휘집에 없는 테마가 prod에서만 미지원으로 끝난다**(2026-09-16 '석유 관련주' 사고). 박스 `.env`가 비어 있으면 CI 배포가 GitHub Secrets에서 주입한다(§9 CI/CD) |
 | `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 프론트 Supabase Auth(구글 로그인) — **빌드 타임에 번들 인라인**이라 값 채운 뒤 반드시 재빌드 |
 | `TOSS_SECRET_KEY` / `NEXT_PUBLIC_TOSS_CLIENT_KEY` | 토스페이먼츠 자동결제·빌링(유료 플랜 정기 구독). 실결제 전 테스트 키→**빌링 계약된** 라이브 상점 키로 교체 필수(§9). `NEXT_PUBLIC_TOSS_CLIENT_KEY`는 **빌드 타임 번들 인라인**(Dockerfile ARG + compose build args 배선) — 값 변경 시 재빌드 필수 |
 | `JWT_SECRET`, `SCHEDULER_SECRET` | 인증/스케줄러 보호(임의 난수) |
@@ -327,7 +328,8 @@ docker compose up -d --remove-orphans
 ```
 - `reset --hard`인 이유: 박스가 런타임 산출물(`data/universe-history.json` 등)로 더럽혀져 ff-only pull이 실패하기 때문.
 - 마이그레이션 실패 시 `set -e`로 배포가 중단되고 **구버전 컨테이너가 계속 떠 있어 서비스는 안 죽는다**.
-- 필수 GitHub Secrets: `VULTR_SSH_HOST`(=45.77.214.226), `VULTR_SSH_USER`, `VULTR_SSH_KEY`.
+- 필수 GitHub Secrets: `VULTR_SSH_HOST`(=45.77.214.226), `VULTR_SSH_USER`, `VULTR_SSH_KEY`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`.
+- **자격증명 주입(2026-09-16)**: 박스 `.env`는 수동 관리라 키 하나가 누락돼도 배포는 성공하고 해당 기능만 조용히 죽는다 — 실제로 검색 학습 레인이 그렇게 죽어 있었다. 배포 스크립트가 `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`이 **없거나 값이 비어 있을 때만** 시크릿 값으로 다시 쓴다(박스 수동 값 우선 — 로테이션은 수동). 기동 직후 `docker compose exec backend`로 레인 상태 한 줄(`검색 학습 레인 활성 — 어휘집 N개 용어`)을 배포 로그에 남긴다.
 
 **서비스 구성**([`docker-compose.yml`](../docker-compose.yml)):
 
@@ -356,7 +358,8 @@ docker compose up -d --remove-orphans
 - [ ] 방화벽 80/443만 개방(3000/8000/5432/6379 비공개)
 - [ ] 토스페이먼츠 **자동결제(빌링) 계약 완료된 상점의 라이브 키**로 교체 — 테스트 키로 실결제 불가, 빌링 미계약 키는 `NOT_SUPPORTED_METHOD` 에러
 - [ ] prod DB에 빌링 마이그레이션 적용 확인(`User.tossBillingKey`/`subscriptionPlanId`/`nextBillingAt`/`subscriptionCanceledAt`/`billingFailCount` — CI 배포는 마이그레이션을 실행하지 않음)
-- [ ] GitHub Secrets(`VULTR_SSH_HOST/USER/KEY`) 등록 확인
+- [ ] GitHub Secrets(`VULTR_SSH_HOST/USER/KEY`, `NAVER_CLIENT_ID/SECRET`) 등록 확인
+- [ ] 배포 로그 마지막 줄이 `검색 학습 레인 활성`인지 확인(비활성이면 그라운딩이 죽은 채 서비스가 돈다)
 
 ---
 

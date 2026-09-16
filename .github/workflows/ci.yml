@@ -126,11 +126,17 @@ jobs:
     steps:
       - name: Deploy to Vultr box over SSH
         uses: appleboy/ssh-action@v1
+        env:
+          # 검색 학습 레인 자격증명(FR-STR-069). 박스 .env는 수동 관리라 종전엔 이 두 개가
+          # 누락된 채로도 배포가 성공했고, 그라운딩만 조용히 죽어 있었다(2026-09-16 사고).
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
         with:
           host: ${{ secrets.VULTR_SSH_HOST }}
           username: ${{ secrets.VULTR_SSH_USER }}
           key: ${{ secrets.VULTR_SSH_KEY }}
           command_timeout: 30m
+          envs: NAVER_CLIENT_ID,NAVER_CLIENT_SECRET   # 원격 셸로 전달(값은 로그에 찍지 않는다)
           script: |
             set -euo pipefail
             cd /opt/simons
@@ -143,6 +149,25 @@ jobs:
               echo "# 뉴스 수집 기능 비활성화 — celery worker 자동기동 및 수집/큐 적재 전부 중단" >> .env
               echo "NEWSV2_COLLECTION_ENABLED=false" >> .env
               echo "NEWSV2_WORKER_AUTOSTART_ENABLED=false" >> .env
+            fi
+
+            # 네이버 검색 자격증명 주입 — 박스 .env에 '값이 있는' 두 키가 모두 있으면 손대지
+            # 않는다(수동 값 우선, 로테이션도 수동). 키가 없거나 값이 비어 있으면(템플릿에서
+            # 복사한 `NAVER_CLIENT_ID=` 빈 줄 포함) 시크릿 값으로 다시 쓴다.
+            if grep -qE '^NAVER_CLIENT_ID=.+' .env && grep -qE '^NAVER_CLIENT_SECRET=.+' .env; then
+              echo "[env] 네이버 검색 자격증명: 기존 값 유지"
+            elif [ -n "${NAVER_CLIENT_ID:-}" ] && [ -n "${NAVER_CLIENT_SECRET:-}" ]; then
+              grep -vE '^NAVER_CLIENT_(ID|SECRET)=' .env > .env.next
+              {
+                echo ""
+                echo "# 용어 그라운딩 검색(FR-STR-069) — CI가 GitHub Secrets에서 주입"
+                echo "NAVER_CLIENT_ID=${NAVER_CLIENT_ID}"
+                echo "NAVER_CLIENT_SECRET=${NAVER_CLIENT_SECRET}"
+              } >> .env.next
+              mv .env.next .env
+              echo "[env] 네이버 검색 자격증명 주입 완료"
+            else
+              echo "[env] ⚠ 네이버 검색 자격증명 없음(시크릿 미설정) — 검색 학습 레인 비활성 유지"
             fi
 
             # Keep only the active deployment image. Do not prune volumes; app data may live there.
@@ -167,3 +192,8 @@ jobs:
             docker container prune -f || true
 
             docker compose ps
+
+            # 검색 학습 레인이 실제로 살아났는지 배포 로그에 한 줄 남긴다(자격증명 값은 출력하지
+            # 않는다 — 환경변수 존재 여부와 어휘집 크기만 본다). 실패해도 배포는 막지 않는다.
+            docker compose exec -T backend python3 -c \
+              'from engine.term_grounding import startup_status_line; print("[deploy]", startup_status_line())' || true

@@ -754,3 +754,21 @@ def test_kg_theme_canonical_match_returns_none_on_llm_refusal():
     _reset_theme_match_cache_for_tests()
     assert resolve_kg_theme("정체불명표현2", lambda *a, **k: "깨진 응답") is None
     _reset_theme_match_cache_for_tests()
+
+
+def test_startup_status_line_warns_when_credentials_missing(monkeypatch):
+    """자격증명이 없으면 기동 로그가 경고 한 줄을 남긴다(2026-09-16 사고 회귀).
+
+    프로덕션 박스 .env에 NAVER_CLIENT_ID/SECRET이 없어 검색 학습 레인이 죽어 있었는데
+    런타임이 조용히 비활성화되는 설계라 아무 신호도 없었다 — 동작은 종전대로 두되
+    기동 시 상태는 반드시 드러난다."""
+    from engine.term_grounding import startup_status_line
+
+    monkeypatch.delenv("NAVER_CLIENT_ID", raising=False)
+    monkeypatch.delenv("NAVER_CLIENT_SECRET", raising=False)
+    line = startup_status_line()
+    assert "비활성" in line and "NAVER_CLIENT_ID" in line
+
+    monkeypatch.setenv("NAVER_CLIENT_ID", "id")
+    monkeypatch.setenv("NAVER_CLIENT_SECRET", "secret")
+    assert "활성" in startup_status_line() and "비활성" not in startup_status_line()

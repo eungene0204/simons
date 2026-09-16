@@ -106,3 +106,36 @@ def test_planner_exception_falls_back(parsed, no_llm, monkeypatch):
     notices: list = []
     _resolve_sector_terms_planner_primary(parsed, ["미지테마"], notices)
     assert called["terms"] == ["미지테마"]
+
+
+def test_clarify_does_not_skip_catalog_lookup(parsed, no_llm, monkeypatch):
+    """[2026-09-16] planner가 되묻기를 골라도 카탈로그 정본 조회를 건너뛰지 않는다.
+
+    사용자 제보: '석유 관련주'가 레인에 따라 네이버 업종 '석유와가스' 13종목으로 풀리거나
+    "'섹터 '석유'' 조건은 지원하지 않아 전략에 반영하지 못했어요"로 끝났다. 원인은 planner의
+    clarify 분기가 테마 상장사·정본 매핑 적용을 통째로 건너뛴 것 — planner의 결정 권한은
+    '검색할 표현인가 되물을 표현인가'뿐이고, 우리가 이미 답할 수 있는 표현을 못 한다고
+    말해서는 안 된다(고정 체인은 되묻기 전에 두 조회를 먼저 본다)."""
+    _theme_apply_misses(monkeypatch)
+    monkeypatch.setattr(primary_mod, "_apply_theme_via_canonical_match",
+                        lambda p, term: setattr(p, "target_symbols", ["010950"]) or True)
+    _plan_returns(monkeypatch, PlannerResult(
+        "clarify", None, [], "어떤 업종을 말씀하신 건가요?", [], 5))
+    notices: list = []
+    question, chips = _resolve_sector_terms_planner_primary(parsed, ["석유"], notices)
+    assert question is None and chips is None
+    assert parsed.target_symbols == ["010950"]
+
+
+def test_clarify_theme_companies_applied_before_asking(parsed, no_llm, monkeypatch):
+    """같은 계약의 앞 단계 — 테마 상장사가 있으면 되묻지 않고 반영한다."""
+    import engine.nl_parser as nl_parser
+
+    monkeypatch.setattr(nl_parser, "apply_theme_companies",
+                        lambda p, term: setattr(p, "target_symbols", ["096770"]) or "석유와가스")
+    _plan_returns(monkeypatch, PlannerResult(
+        "clarify", None, [], "어떤 업종을 말씀하신 건가요?", [], 5))
+    notices: list = []
+    question, _ = _resolve_sector_terms_planner_primary(parsed, ["석유"], notices)
+    assert question is None
+    assert parsed.target_symbols == ["096770"]
