@@ -916,6 +916,48 @@ def test_catalog_listing_derived_keys(tmp_path, monkeypatch):
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
 
 
+def test_catalog_exact_notation_resolves_without_an_anchor(tmp_path, monkeypatch):
+    """[회귀] 앵커가 없어도 **표기가 정확히 일치**하는 카탈로그 테마는 해석된다.
+
+    사고(2026-09-16, 프로덕션 실측): '전쟁 관련주'가 로컬에서는 방산 테마 66곳으로
+    풀리는데 프로덕션에서는 "업종을 인식하지 못했어요"로 끝났다. 정합 인덱스의 파생 키는
+    **앵커의 이름·동의어로만** 조회되는데, 로컬의 앵커는 gitignore된 학습 어휘집
+    (`term_lexicon.json`)이 만든 노드였고 박스에는 그 파일이 없다.
+
+    파생 키를 스캔 어휘에 넣는 것은 답이 아니다 — '항공' 같은 두 글자 조각이 스캔에
+    들어가면 그 낱말을 포함한 모든 문장에 오매칭된다(실측: '항공'은 UAM·항공기부품·
+    우주항공산업 등 6개 이름에 부분 문자열로 들어간다). 그래서 **정확 일치로만** 한 번 더
+    본다 — 부분·접두는 여전히 금지이고, 다의(같은 표기가 두 테마)면 자동 확정하지 않는다."""
+    catalog = tmp_path / "kg-naver-theme-catalog.json"
+    catalog.write_text(json.dumps({
+        "version": 1, "source": "finance.naver.com", "retrieved_at": "2026-09-16",
+        "themes": [
+            {"id": "naver-theme-144", "name": "방위산업/전쟁 및 테러", "synonyms": [],
+             "stocks": [{"symbol": "012450", "name": "한화에어로스페이스"},
+                        {"symbol": "047810", "name": "한국항공우주"}]},
+        ],
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", catalog)
+    monkeypatch.setattr(kg, "_CATALOG_PATH", tmp_path / "no-judal.json")
+    # 학습 어휘집이 없는 상태(= 프로덕션 박스)를 재현한다.
+    monkeypatch.setattr(kg, "_LEXICON_PATH", tmp_path / "no-lexicon.json")
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    graph = get_graph()
+    assert graph.find_concepts("전쟁") == [], "스캔에는 '전쟁'이 없어야 한다(어휘 오염 금지)"
+
+    for term in ("전쟁", "테러", "방위산업", "방위산업/전쟁 및 테러"):
+        hit = kg.theme_backtest_companies(term)
+        assert hit is not None, term
+        assert {c["symbol"] for c in hit["companies"]} == {"012450", "047810"}, term
+
+    # 정확 일치가 아닌 문장·부분 표기는 그대로 미해석이다(자동 확정 금지 계약 유지).
+    assert kg.theme_backtest_companies("전쟁 관련주 중에서 골든크로스") is None
+    assert kg.theme_backtest_companies("전") is None
+
+    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
+
+
 def test_catalog_paren_derived_keys(tmp_path, monkeypatch):
     """괄호 표기 변형 파생 키 정합(HBM 시드 6곳 vs 네이버 33곳 사고 2026-08-02 회귀).
 

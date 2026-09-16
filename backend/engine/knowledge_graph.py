@@ -913,6 +913,19 @@ def theme_listed_companies(text: str) -> Optional[dict]:
     graph = get_graph()
     concepts = graph.find_concepts(text)
     if not concepts:
+        # 스캔이 못 찾아도 **표기가 정확히 일치**하는 카탈로그 테마가 있으면 그것이 답이다
+        # ('전쟁 관련주' 사고 2026-09-16). 정합 인덱스의 파생 키(괄호·나열식 표기 변형)는
+        # 스캔 어휘에 넣지 않는다 — '항공' 같은 두 글자 조각이 스캔에 들어가면 그 낱말을
+        # 포함한 모든 문장에 오매칭되기 때문이다. 그래서 파생 키는 **앵커가 있을 때만**
+        # 조회됐고, 앵커가 없는 환경(학습 어휘집이 없는 프로덕션)에서는 영영 닿지 못했다.
+        # 여기서 정확 일치로만 한 번 더 본다: 부분·접두 매칭이 아니라 전체 표기가 같을
+        # 때뿐이고, 같은 표기가 두 테마를 가리키면(다의) 자동 확정하지 않고 되묻기에 맡긴다.
+        exact = graph.catalog_theme_nodes(text)
+        if len(exact) == 1:
+            concepts = exact
+            logger.info("KG 테마 상장사 조회: 질의=%r → 카탈로그 정확 표기 정합=%s",
+                        _log_preview(text), exact[0].get("name"))
+    if not concepts:
         logger.info("KG 테마 상장사 조회: 질의=%r → 매치된 개념 없음", _log_preview(text))
         return None
     anchor = concepts[0]

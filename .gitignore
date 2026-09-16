@@ -149,3 +149,9 @@ docs/marketing/nullstock_*.png
 
 # 게스트(테스터) 계정 발급 기록 — 비밀번호 원문 포함, 추적 금지 (scripts/create-guest-accounts.ts)
 /guest-accounts*.local.json
+
+# 전략 워크스루(데모) 문서·화면 캡처 — 추적 금지 (2026-09-16 사용자 결정).
+# 마케팅 콘텐츠 초안과 실제 화면 캡처는 저장소를 흔드는 대용량 파생물이고,
+# 블로그·트위터로 나가는 순간 저장소에 남길 이유가 없다. 로컬에만 둔다.
+docs/marketing/*-strategy-walkthrough-*.md
+docs/marketing/screenshots/
