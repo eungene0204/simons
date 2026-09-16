@@ -74,10 +74,10 @@ def run_update():
 
 
 def refresh_stock_names():
-    """korea-stocks.json 종목명을 KIND 공식 회사명으로 맞춘다(사명 변경 반영, 이름만).
+    """korea-stocks.json 종목명을 공식 회사명으로 맞춘다(사명 변경 반영, 이름만, 출처=DART).
 
     이 파일은 git 추적 파일이라 배포(`git reset --hard`)가 저장소 판으로 되돌린다 — 그래서
-    매일 갱신과 별개로 스케줄러 기동 시(=배포 직후)에도 돌린다. KIND 조회 2건이라 가볍다.
+    매일 갱신과 별개로 스케줄러 기동 시(=배포 직후)에도 돌린다. 목록 파일 1건 조회라 가볍다.
     """
     _run("종목명 갱신", [sys.executable, "backend/scripts/refresh_stock_names.py"])
 

@@ -38,21 +38,25 @@ def _official(stocks: list[dict], **overrides) -> dict[str, str]:
     return {**{r["symbol"]: r["name"] for r in stocks}, **overrides}
 
 
+def _listed(stocks: list[dict]) -> set[str]:
+    return {r["symbol"] for r in stocks}
+
+
 def test_rename_replaces_only_name_and_keeps_curated_fields():
     stocks = _stocks()
     updated, events = apply_official_names(
-        stocks, _official(stocks, **{"002420": "우양피앤엘"}), "2026-09-16")
+        stocks, _official(stocks, **{"002420": "우양피앤엘"}), _listed(stocks), "2026-09-16")
 
     row = next(r for r in updated if r["symbol"] == "002420")
     assert row == {**stocks[0], "name": "우양피앤엘"}   # sector·industry·market·name_en 보존
     assert events == [{"symbol": "002420", "from": "세기상사", "to": "우양피앤엘",
-                       "observedOn": "2026-09-16", "source": "KIND"}]
+                       "observedOn": "2026-09-16", "source": "DART"}]
 
 
 def test_spacing_only_difference_updates_name_without_rename_event():
     stocks = _stocks()
     updated, events = apply_official_names(
-        stocks, _official(stocks, **{"007700": "F&F홀딩스"}), "2026-09-16")
+        stocks, _official(stocks, **{"007700": "F&F홀딩스"}), _listed(stocks), "2026-09-16")
 
     assert next(r for r in updated if r["symbol"] == "007700")["name"] == "F&F홀딩스"
     assert events == []
@@ -61,8 +65,18 @@ def test_spacing_only_difference_updates_name_without_rename_event():
 def test_symbols_missing_from_listing_are_left_untouched():
     stocks = _stocks()
     official = _official(stocks)
-    del official["002420"]   # KIND에 없는 행(상폐 등) — 추가·삭제는 이 스크립트 몫이 아니다
-    updated, events = apply_official_names(stocks, official, "2026-09-16")
+    del official["002420"]   # 출처에 없는 행(상폐 등) — 추가·삭제는 이 스크립트 몫이 아니다
+    updated, events = apply_official_names(stocks, official, _listed(stocks), "2026-09-16")
+    assert updated == stocks and events == []
+
+
+def test_delisted_symbols_keep_name_despite_legal_name_in_source():
+    """[2026-09-16 실측] DART 목록은 상장폐지 법인에도 등기 법인명을 준다('신영스팩10호' →
+    '신영해피투모로우제10호기업인수목적'). 사명 변경이 아니므로 현재 상장 종목만 바꾼다."""
+    stocks = _stocks()
+    official = _official(stocks, **{"002420": "신영해피투모로우제10호기업인수목적"})
+    updated, events = apply_official_names(
+        stocks, official, _listed(stocks) - {"002420"}, "2026-09-16")
     assert updated == stocks and events == []
 
 
@@ -70,14 +84,14 @@ def test_truncated_listing_aborts():
     stocks = _stocks()
     official = dict(list(_official(stocks).items())[:10])
     with pytest.raises(SuspiciousListingError):
-        apply_official_names(stocks, official, "2026-09-16")
+        apply_official_names(stocks, official, _listed(stocks), "2026-09-16")
 
 
 def test_mass_rename_aborts_as_garbled_response():
     stocks = _stocks()
     garbled = {r["symbol"]: r["name"] + "?" for r in stocks}
     with pytest.raises(SuspiciousListingError):
-        apply_official_names(stocks, garbled, "2026-09-16")
+        apply_official_names(stocks, garbled, _listed(stocks), "2026-09-16")
 
 
 def test_merge_history_registers_former_name_and_dedups(tmp_path, monkeypatch):
