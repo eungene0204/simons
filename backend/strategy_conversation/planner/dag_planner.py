@@ -63,6 +63,12 @@ _EXECUTABLE_TOOLS = (
 
 _OBSERVATION_RENDER_LIMIT = 600  # LLM 상태 제시용 관찰 축약(로그에는 전문 보존)
 
+# 분류 관찰만으로 유니버스 결론이 나는 판정값 — 프롬프트 '유니버스 우선' 규칙 2가 "추가
+# 해석이 필요 없다"고 정한 종류다. CONCEPT만 후보 조회·KG·검색 체인이 이어진다.
+_SETTLED_UNIVERSE_TYPES = frozenset(
+    {"MARKET", "SECTOR", "SINGLE_STOCK", "ETF", "NOT_UNIVERSE"}
+)
+
 
 @dataclass
 class ExecutedNode:
@@ -72,7 +78,9 @@ class ExecutedNode:
 
 @dataclass
 class DagPlanResult:
-    outcome: str  # "ask" | "finish"
+    # "universe_settled": State 없는 턴에서 분류 관찰만으로 유니버스가 종결돼 LLM 재제시
+    # 없이 끝남 — 질문은 파스 뒤 결정론 레인(검증 리포트 질문)이 소유한다.
+    outcome: str  # "ask" | "finish" | "universe_settled"
     question: Optional[str]
     chips: List[str]
     sector: Optional[str]          # 도구 관찰값에서만 채택
@@ -646,6 +654,16 @@ def _plan_strategy_dag(
                     return None
 
         if progressed:
+            # State 없는 턴(planner-first)에서 관찰이 분류뿐이고 전부 종결 판정이면 재제시
+            # 턴을 부르지 않는다. 그 턴이 낼 수 있는 것은 조건 슬롯 ask뿐인데, planner-first
+            # ask는 파스 뒤 결정론 게이트가 공백을 인정할 때만 채택되고 칩은 슬롯 정본에서
+            # 붙으므로 결정론 질문과 같은 슬롯을 묻는다(2026-09-14~16 실측: 이 경우 638턴 중
+            # 채택 8턴, 나머지 630턴의 LLM 호출은 버려졌다 — 요청당 호출 5→4).
+            # 판정 입력은 도구 관찰값(구조화 출력)이지 사용자 원문이 아니다.
+            if not state_summary and _universe_settled_by_classification(executed, auto_steps):
+                logger.info("dag planner 분류로 유니버스 종결 — 재제시 턴 생략")
+                _trace_final_statuses(trace, nodes, set(executed), invalidated, set())
+                return _result("universe_settled")
             # 새 관찰이 생겼다 — ask 표면화 전에 LLM에게 DAG 수정 기회를 한 턴 준다
             # (관찰이 질문을 불필요하게 만들 수 있다: 테마 해석 후 업종 질문 등).
             progressed_last = True
@@ -707,6 +725,23 @@ def _plan_strategy_dag(
     trace.error("TurnBudgetExhausted",
                 f"LLM 턴 예산 {turns}(진전 연장 상한 {hard_cap}) 소진 — 결론 미도달")
     return None
+
+
+def _universe_settled_by_classification(
+    executed: Dict[str, ExecutedNode], auto_steps: List[dict]
+) -> bool:
+    """실행된 도구가 classify_universe뿐이고 판정이 전부 종결 종류인가(관찰값 대조뿐).
+
+    다른 도구(후보 조회·KG·검색 학습)가 하나라도 돌았거나 결정론 에필로그가 있으면
+    해석 사슬이 진행 중이므로 LLM 재제시가 필요하다."""
+    if auto_steps:
+        return False
+    tools = [e for e in executed.values() if e.node.type == "tool"]
+    return bool(tools) and all(
+        e.node.tool == "classify_universe"
+        and (e.observation or {}).get("universe_type") in _SETTLED_UNIVERSE_TYPES
+        for e in tools
+    )
 
 
 def _trace_final_statuses(

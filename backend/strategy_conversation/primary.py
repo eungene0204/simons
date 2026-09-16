@@ -3343,6 +3343,10 @@ def _planner_first_ask(
     반환: (ask, 거부 사유). 채택되면 (ask, None), 거부되면 (None, 사유) — 사유는
     관찰 계층(ask_binding_gate)이 "왜 결속이 없나"를 이름 붙이는 데 쓴다. 거부가 전부
     None 하나로 뭉개져 있으면 Trace에서 원인을 구분할 수 없다."""
+    if result.outcome == "universe_settled":
+        # 분류로 유니버스가 종결돼 planner가 조건 질문을 계획하지 않은 턴 — 거부가 아니라
+        # 설계상 결정론 질문 레인 소관이다(Trace에서 not_ask와 구분).
+        return None, "universe_settled"
     if result.outcome != "ask" or not result.question:
         return None, "not_ask"
     if _is_universe_topic(result.topic):

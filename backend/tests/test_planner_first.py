@@ -391,6 +391,13 @@ def test_finish_outcome_yields_no_ask():
     assert _planner_first_ask(result, ParsedStrategy(description="t")) == (None, "not_ask")
 
 
+def test_universe_settled_outcome_defers_to_deterministic_question():
+    """분류로 유니버스가 종결된 턴은 planner ask가 없다 — 사유를 not_ask와 구분해 남긴다."""
+    result = _plan_result([], outcome="universe_settled")
+    assert _planner_first_ask(result, ParsedStrategy(description="t")) == (
+        None, "universe_settled")
+
+
 def test_condition_ask_rejected_when_slot_has_pending_value_conditions():
     """[회귀 2026-08-03 '당기순이익' 사고 2차] 인터프리터가 매수 조건을 이해했고 값만
     비었는데(compile_partial 드롭 → parsed 공백), planner의 일반 질문("어떤 조건에서

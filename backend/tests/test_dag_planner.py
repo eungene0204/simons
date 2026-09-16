@@ -226,6 +226,56 @@ def test_single_ask_without_finish_chain_surfaces(monkeypatch):
     assert result.sector == "화학"  # 확정값은 여전히 도구 관찰값에서만
 
 
+def test_settled_classification_skips_revision_turn():
+    """[회귀 2026-09-16 OpenRouter 무료 한도 소진] State 없는 턴에서 분류가 MARKET 등
+    종결 판정이면 재제시 LLM 턴을 부르지 않는다 — 그 턴의 조건 ask는 파스 뒤 결정론
+    게이트 소관이라 3일 실측 638턴 중 630턴에서 버려졌다(요청당 호출 5→4)."""
+    one_step = _dag_json(
+        _tool_node("classify", "classify_universe", text="코스피"),
+        _ask_node("ask_entry", "어떤 조건에서 매수할까요?", deps=["classify"],
+                  topic="매수조건"),
+    )
+    chat = ScriptedChat([one_step, one_step])
+
+    result = plan_strategy_dag("코스피에서 골든크로스 전략", chat)
+
+    assert result is not None and result.outcome == "universe_settled"
+    assert result.question is None
+    assert chat.calls == 1
+    # 분류 관찰은 그대로 남아 파스 뒤 유니버스 반영 확인(_apply_planner_first_universe)이 읽는다
+    assert result.executed["classify"].observation["universe_type"] == "MARKET"
+
+
+def test_concept_classification_still_gets_revision_turn():
+    """CONCEPT은 후보 조회·KG·검색 체인이 이어지므로 재제시 턴을 생략하지 않는다."""
+    one_step = _dag_json(
+        _tool_node("classify", "classify_universe", text="보안주"),
+        _ask_node("ask_universe", "어떤 범위로 볼까요?", deps=["classify"],
+                  topic="유니버스"),
+    )
+    chat = ScriptedChat([one_step, one_step])
+
+    result = plan_strategy_dag("보안주 전략", chat)
+
+    assert result is not None and result.outcome == "ask"
+    assert chat.calls == 2
+
+
+def test_settled_classification_with_state_keeps_revision_turn():
+    """State가 제시된 턴(칩 답변 재계획)은 ask 자체가 산출물이라 생략 대상이 아니다."""
+    one_step = _dag_json(
+        _tool_node("classify", "classify_universe", text="코스피"),
+        _ask_node("ask_risk", "손절 기준을 정할까요?", deps=["classify"],
+                  topic="리스크관리"),
+    )
+    chat = ScriptedChat([one_step, one_step])
+
+    result = plan_strategy_dag("코스피 전략", chat, state_summary={"filled_slots": []})
+
+    assert result is not None and result.outcome == "ask"
+    assert chat.calls == 2
+
+
 def test_state_absent_turn_is_contracted_to_one_step():
     """system 프롬프트가 'State 없는 턴엔 ask 하나까지만'을 계약하는지.
 

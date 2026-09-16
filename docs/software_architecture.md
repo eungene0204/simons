@@ -946,6 +946,15 @@ id(`known_ids`)를 받아야 한다 — LLM은 done 재발행을 생략해도 �
 골격 발행으로 회귀). 계약은 확률적이라 일부 턴은 여전히 골격을 낸다 — 결정론 게이트가
 최종 권한이라는 계약은 그대로다. 회귀 `tests/test_dag_planner.py`.
 
+**분류로 종결된 유니버스는 재제시 턴 생략(2026-09-16 호출 수 감사)**: State 없는 턴에서
+실행된 도구가 `classify_universe`뿐이고 판정이 전부 MARKET·SECTOR·SINGLE_STOCK·ETF·
+NOT_UNIVERSE면 러너는 관찰을 LLM에 다시 제시하지 않고 `outcome="universe_settled"`로
+종결한다(`dag_planner._universe_settled_by_classification`). 그 턴의 산출은 조건 슬롯 ask뿐인데
+planner-first ask는 파스 뒤 결정론 게이트가 공백을 인정할 때만 채택되고 칩은 슬롯 정본에서
+붙으므로, 생략해도 결정론 질문 레인이 같은 슬롯을 묻는다(9/14~16 트레이스: 638턴 중 채택
+8턴). 요청당 LLM 호출 5→4. CONCEPT(후보 조회·KG·검색 체인)과 State가 있는 칩 재계획 턴은
+종전대로 재제시한다. `_planner_first_ask`는 사유 `universe_settled`로 구분해 남긴다.
+
 **수치 누락 재요청 폐지 → 체크리스트 선주입(2026-08-07)**: 입력 수치가 출력에 없으면
 (`recall_validator.find_unreflected_numbers` — 크기 대조만, 어느 필드인지는 판단하지 않는다)
 예전에는 LLM에 재생성을 요청했다. 전수 실측으로 **폐지**했다.
