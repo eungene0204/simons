@@ -186,6 +186,17 @@ def _paren_variants(name: str) -> list[str]:
 # 네이버 테마명의 나열 접속사 — "전쟁 및 테러"·"금 와 은"처럼 두 표현을 잇는다.
 _CONJUNCTION_RE = re.compile(r"\s*(?:및|와|과)\s+")
 
+# 출처 간 같은 테마 판정용 — 한글 두 글자 이상 사이에 붙은 접속사('석유와가스'의 '와').
+# 공백 무시 키(_norm_key)는 띄어쓰기 차이('3D 프린터'/'3D프린터')만 묶어, 접속사 하나
+# 차이인 출처 간 중복('석유와가스' 네이버 / '석유가스' 주달)은 별개의 두 테마로 남았다.
+_BOUND_CONJUNCTION_RE = re.compile(r"(?<=[가-힣]{2})(?:와|과|및)(?=[가-힣]{2})")
+
+
+def _catalog_equivalence_key(name: str) -> str:
+    """출처 간 중복 판정 키 — 공백 무시 + 붙은 접속사 제거. 표기 정규화이지 의미 판정이
+    아니다(합성 시 수록 종목 겹침을 함께 요구한다 — _build의 카탈로그 합성 참조)."""
+    return _BOUND_CONJUNCTION_RE.sub("", _norm_key(name))
+
 
 def _listing_variants(name: str) -> list[str]:
     """나열식 테마명("방위산업/전쟁 및 테러")의 결정적 표기 변형 — 나열된 **각 항목**.
@@ -713,22 +724,49 @@ def _build() -> KnowledgeGraph:
     # (시드 중복·섹터 어휘·테스트 용어 제외). 슬래시 병기 이름("LCD 부품/소재")은
     # 결정적 표기 변형을 동의어로 더해 스캔 도달 가능하게 한다.
     catalog_themes: list[dict] = []
+    # 출처 간 같은 테마 귀속 — 표기가 접속사 하나만 다르고('석유와가스'/'석유가스') 수록
+    # 종목이 겹치면 먼저 합성된(1순위) 출처 노드 하나로 접는다. 두 노드로 남기면 정본
+    # 매핑·planner 같은 LLM 단계가 둘 중 하나를 **고르게** 되고, 그 선택이 레인·표본마다
+    # 갈려 같은 문장이 환경마다 다른 유니버스로 풀린다(2026-09-16 프로덕션 실측: 로컬
+    # 네이버 13곳 / 프로덕션 주달 6곳). 공백 무시 키가 같은 완전 중복은 종전대로 두 노드를
+    # 유지한다(정합 인덱스가 같은 키로 묶는다 — 이 규칙의 대상이 아니다). 같은 출처 안의
+    # 이름 차이는 그 출처가 일부러 나눈 분류일 수 있으므로 접지 않는다.
+    first_by_equivalence: dict[str, tuple[str, str, set]] = {}  # 키 → (출처, 노드, 종목)
     for path in _catalog_paths():
         catalog = _load_json(path, {})
+        source = catalog.get("source")
         for theme in catalog.get("themes", []):
             if not isinstance(theme, dict) or not theme.get("id"):
                 continue
             node_id = f"theme:{theme['id']}"
             if node_id in nodes:
                 continue
+            name = theme.get("name", theme["id"])
+            symbols = {
+                stock.get("symbol") for stock in theme.get("stocks", [])
+                if isinstance(stock, dict) and stock.get("symbol")
+            }
+            equivalence = _catalog_equivalence_key(name)
+            primary = first_by_equivalence.get(equivalence)
+            if primary is not None:
+                primary_source, primary_id, primary_symbols = primary
+                owner = nodes[primary_id]
+                if (primary_source != source and primary_symbols & symbols
+                        and _norm_key(name) != _norm_key(owner["name"])):
+                    if name not in owner["synonyms"]:
+                        owner["synonyms"].append(name)
+                    logger.info("카탈로그 출처 간 중복 귀속: %s[%s] → %s[%s]",
+                                name, source, owner["name"], primary_source)
+                    continue
             synonyms = list(theme.get("synonyms", []))
-            synonyms += [a for a in _slash_aliases(theme.get("name", "")) if a not in synonyms]
+            synonyms += [a for a in _slash_aliases(name) if a not in synonyms]
             nodes[node_id] = {
-                "id": node_id, "name": theme.get("name", theme["id"]),
+                "id": node_id, "name": name,
                 "category": "theme_catalog", "synonyms": synonyms,
-                "source": catalog.get("source"), "retrieved_at": catalog.get("retrieved_at"),
+                "source": source, "retrieved_at": catalog.get("retrieved_at"),
             }
             catalog_themes.append(theme)
+            first_by_equivalence.setdefault(equivalence, (source, node_id, symbols))
 
     stock_names = _stock_names()
     etf_names = _etf_names()

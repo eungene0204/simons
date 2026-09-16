@@ -1224,3 +1224,74 @@ def test_covid19_alias_does_not_hijack_vaccine_theme():
     assert vaccine is not None and covid is not None
     assert vaccine["term"] == "백신/진단시약/방역(신종플루, AI 등)"
     assert {c["symbol"] for c in vaccine["companies"]} == {c["symbol"] for c in covid["companies"]}
+
+
+def _write_catalog(path, source, themes):
+    path.write_text(json.dumps({
+        "version": 1, "source": source, "retrieved_at": "2026-09-16", "themes": themes,
+    }, ensure_ascii=False), encoding="utf-8")
+
+
+def test_cross_source_conjunction_variant_folds_into_primary_source(tmp_path, monkeypatch):
+    """[회귀] 출처만 다른 같은 업종이 두 후보로 남아 LLM 선택이 유니버스를 가르지 않는다.
+
+    사고(2026-09-16, 프로덕션 실측): 같은 코드·같은 문장('석유 관련주 …')이 로컬에서는
+    네이버 업종 '석유와가스' 13곳, 프로덕션에서는 주달 '석유가스' 6곳으로 풀렸다.
+    두 이름은 접속사 '와' 하나 차이라 공백 무시 키(_norm_key)로 묶이지 않았고, 정본 매핑
+    LLM의 닫힌 후보 목록에 둘 다 올라가 **어느 쪽을 고르느냐가 레인·표본마다** 갈렸다.
+    표기만 다른 출처 간 중복은 1순위 출처(네이버, FR-STR-071c) 노드 하나로 귀속한다.
+    """
+    naver = tmp_path / "kg-naver-theme-catalog.json"
+    judal = tmp_path / "kg-theme-catalog.json"
+    _write_catalog(naver, "finance.naver.com", [
+        {"id": "naver-upjong-313", "name": "석유와가스", "synonyms": [],
+         "stocks": [{"symbol": "010950", "name": "S-Oil"},
+                    {"symbol": "024060", "name": "흥구석유"},
+                    {"symbol": "034730", "name": "SK"}]},
+    ])
+    _write_catalog(judal, "judal.co.kr", [
+        {"id": "judal-604", "name": "석유가스", "synonyms": [],
+         "stocks": [{"symbol": "010950", "name": "S-Oil"},
+                    {"symbol": "018670", "name": "SK가스"}]},
+    ])
+    monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", naver)
+    monkeypatch.setattr(kg, "_CATALOG_PATH", judal)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    graph = get_graph()
+    assert "theme:judal-604" not in graph.nodes  # 두 번째 후보가 존재하지 않는다
+    for term in ("석유와가스", "석유가스", "석유 가스"):
+        nodes = graph.catalog_theme_nodes(term)
+        assert [n["id"] for n in nodes] == ["theme:naver-upjong-313"], term
+    result = kg.theme_backtest_companies("석유가스")
+    assert result["term"] == "석유와가스"  # 어느 표기로 들어와도 같은 이름·같은 종목
+    assert {c["symbol"] for c in result["companies"]} == {"010950", "024060", "034730"}
+
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+
+def test_cross_source_fold_requires_shared_company_and_different_source(tmp_path, monkeypatch):
+    """접속사만 다른 이름이라도 수록 종목이 하나도 겹치지 않거나 같은 출처 안이면 접지 않는다."""
+    naver = tmp_path / "kg-naver-theme-catalog.json"
+    judal = tmp_path / "kg-theme-catalog.json"
+    _write_catalog(naver, "finance.naver.com", [
+        {"id": "naver-a", "name": "석유와가스", "synonyms": [],
+         "stocks": [{"symbol": "010950", "name": "S-Oil"}]},
+        {"id": "naver-b", "name": "철강과금속", "synonyms": [],
+         "stocks": [{"symbol": "005490", "name": "POSCO홀딩스"}]},
+        {"id": "naver-c", "name": "철강금속", "synonyms": [],
+         "stocks": [{"symbol": "005490", "name": "POSCO홀딩스"}]},
+    ])
+    _write_catalog(judal, "judal.co.kr", [
+        {"id": "judal-x", "name": "석유가스", "synonyms": [],
+         "stocks": [{"symbol": "018670", "name": "SK가스"}]},  # 겹침 없음
+    ])
+    monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", naver)
+    monkeypatch.setattr(kg, "_CATALOG_PATH", judal)
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    graph = get_graph()
+    assert "theme:judal-x" in graph.nodes                          # 겹침 없음 → 별개 테마
+    assert {"theme:naver-b", "theme:naver-c"} <= set(graph.nodes)   # 같은 출처 → 접지 않음
+
+    monkeypatch.setattr(kg, "_CACHED", None)
