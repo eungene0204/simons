@@ -3192,7 +3192,9 @@ def test_draft_store_revision_and_patch():
 def test_interpreter_parses_valid_json():
     good = json.dumps(_full_intent_dict(), ensure_ascii=False)
     interp = StrategyInterpreter(chat_fn=lambda s, u: good, model="stub")
-    result = interp.interpret("PER 10 이하")
+    # 입력은 스텁 출력이 채운 칸(KOSPI·PER·20종목·월간·손절 8%)을 모두 말한다 — "PER 10 이하"만
+    # 주면 조건 인용이 입력 전체이면서 다른 칸도 채운 출력이 돼 형식 위반(재생성) 대상이다.
+    result = interp.interpret("KOSPI에서 PER 10 이하 20종목을 매월 리밸런싱하고 손절 8%")
     assert result.intent.intent == "CREATE_STRATEGY"
     assert result.repair_attempts == 0
 
@@ -4450,12 +4452,168 @@ def test_plain_golden_cross_stays_sma():
     assert [s.indicator for s in parsed.entry_signals] == ["ma_crossover"]
 
 
+# ── 입력 전체를 인용으로 단 조건 = 출력 형식 위반(2026-09-17) ─────────────────────
+# 사고: 120B(temperature 0)가 아래 문장에 입력 **전체**를 source_text로 단
+# ma_crossover(1,20) 매수 조건을 지어냈고, 슬롯 가드가 그 조건을 빼면서 "'<문장 전체>'는
+# 이동평균 조건이 아니어서 매매 신호로 반영하지 않았어요"라는 안내를 냈다 — 사용자 문장을
+# 통째로 되돌려주고, 말한 적 없는 내부 분류(이동평균)를 노출했다. 같은 턴의 조건 구절 나열은
+# {"phrases": []}였다. 입력 전체는 조각이 아니므로(규칙 4) 의미 판정 없이 형식 위반으로
+# 다룬다: 오류를 LLM에 되돌려 1회 재생성 → 그래도 남으면 인용 없이 조용히 뺀다.
+
+_WHOLE_INPUT_SENTENCE = (
+    "AI 관련주 중에서 최근 60일 수익률이 높은 5종목을 매달 갈아타고, -15% 손절하는 전략을 "
+    "만들어 주세요. 최근 3년, 초기 자본 1000만원으로 백테스트해 주세요."
+)
+# 2026-09-17 13:30 인터프리터 원출력 그대로(backend/logs/agent_traces/2026-09-17.jsonl).
+_WHOLE_INPUT_RAW_1330 = (
+    '{"intent": "CREATE_STRATEGY", "strategy": {"name": null, "universe": {"markets": '
+    '["KOSPI", "KOSDAQ"], "sectors": ["AI"], "symbols": [], "etf_theme": null, '
+    '"new_listing_only": false, "listing_from": null, "listing_to": null}, '
+    '"entry_conditions": [{"factor": "technical.ma_crossover", "operator": "crosses_above", '
+    '"value": null, "parameters": {"short_period": 1, "long_period": 20}, "source_text": '
+    '"AI 관련주 중에서 최근 60일 수익률이 높은 5종목을 매달 갈아타고, -15% 손절하는 전략을 '
+    '만들어 주세요. 최근 3년, 초기 자본 1000만원으로 백테스트해 주세요."}], '
+    '"exit_conditions": [], "entry_logic": "AND", "ranking": [{"metric": "return", '
+    '"lookback_days": 60}], "portfolio": {"selection_count": 5, "selection_percent": null, '
+    '"weighting": null, "rebalance_frequency": "monthly", "rebalance_method": null, '
+    '"hold_period_days": null}, "risk_management": {"stop_loss": 15, "take_profit": null, '
+    '"trailing_stop": null, "max_mdd_limit": null}, "backtest": {"period": "3y", '
+    '"start_date": null, "end_date": null, "execution_timing": null, "initial_capital": '
+    '"1000만원", "fee_rate": null, "slippage_rate": null, "sell_tax_rate": null}}, '
+    '"patches": [], "unsupported_features": [], "clarification_questions": [{"field": '
+    '"strategy.entry_conditions[0].factor", "question": "어떤 기술적 신호를 사용할까요? '
+    '(예: 골든크로스, RSI 등)", "recommended_value": null}], "confidence": 0.7}'
+)
+
+
+def _whole_input_chat(regenerated: str):
+    """인터프리터 호출은 기록하고, 조건 구절·기간 회수 호출은 13:30 실측 응답을 돌려준다."""
+    from strategy_conversation.interpreter import condition_recall
+
+    calls: list = []
+
+    def chat(system, user, **_kw):
+        if system == condition_recall.build_system_prompt():
+            return '{"phrases": []}'
+        if system == condition_recall.build_period_system_prompt():
+            return '{"quote": null, "period": null}'
+        calls.append(user)
+        return _WHOLE_INPUT_RAW_1330 if len(calls) == 1 else regenerated
+
+    return chat, calls
+
+
+def test_whole_input_quote_regenerates_once_then_drops_without_quoting(monkeypatch):
+    """재생성본도 같은 위반이면 조건을 **안내 없이** 빼고 나머지 설정은 그대로 둔다."""
+    import llm_backend
+    from strategy_conversation import primary
+
+    monkeypatch.setattr(llm_backend, "is_openrouter", lambda: False)
+    monkeypatch.setenv("STRATEGY_CONDITION_RECALL", "on")
+    chat, calls = _whole_input_chat(_WHOLE_INPUT_RAW_1330)
+    monkeypatch.setattr(primary, "_interpreter_singleton",
+                        StrategyInterpreter(chat_fn=chat, model="stub"))
+
+    result = primary.run_primary_parse(_WHOLE_INPUT_SENTENCE)
+
+    # 재생성 요청은 정확히 1회 — 오류 문구가 위반 필드를 짚는다.
+    assert len(calls) == 2
+    assert "strategy.entry_conditions[0].source_text" in calls[1]
+    assert "입력 문장 전체" in calls[1]
+    # 문장을 인용하는 안내·내부 분류 노출이 없다.
+    joined = " ".join(result["notices"])
+    assert "AI 관련주 중에서" not in joined and "이동평균" not in joined
+    parsed = result["parsed"]
+    assert parsed.entry_signals == [] and parsed.exit_signals == []
+    # 사용자가 말한 설정은 전부 보존된다.
+    assert (parsed.ranking_metric, parsed.ranking_lookback_days) == ("return", 60)
+    assert parsed.stop_loss_pct == 15.0
+    assert parsed.max_positions == 5
+    assert parsed.rebalancing_period == "monthly"
+    assert parsed.backtest_period == "3y"
+    assert parsed.initial_capital == 10_000_000
+
+
+def test_whole_input_quote_regeneration_output_is_used():
+    """재생성본이 위반을 고치면 그 출력을 쓴다 — 원출력의 질문(지어낸 조건에 대한 것)은
+    되살리지 않는다(스키마 수리의 질문 복원은 형식 위반 재생성에 적용하지 않는다)."""
+    fixed = json.loads(_WHOLE_INPUT_RAW_1330)
+    fixed["strategy"]["entry_conditions"] = []
+    fixed["clarification_questions"] = []
+    chat, calls = _whole_input_chat(json.dumps(fixed, ensure_ascii=False))
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(_WHOLE_INPUT_SENTENCE)
+
+    assert len(calls) == 2 and result.repair_attempts == 1
+    assert result.intent.strategy.entry_conditions == []
+    assert result.intent.clarification_questions == []
+    assert result.intent.strategy.risk_management.stop_loss == 15
+
+
+def test_whole_input_quote_regeneration_schema_failure_keeps_original_output():
+    """재생성본이 스키마를 깨도 턴을 해석 실패로 만들지 않는다 — 스키마가 유효했던 원출력으로
+    진행하고(위반 조건은 primary 가드가 뺀다), 재시도는 더 하지 않는다."""
+    chat, calls = _whole_input_chat("no json here")
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(_WHOLE_INPUT_SENTENCE)
+
+    assert len(calls) == 2 and result.repair_attempts == 1
+    assert result.intent.strategy.portfolio.selection_count == 5
+    assert len(result.intent.strategy.entry_conditions) == 1  # 제거는 primary 가드 소관
+
+
+def test_whole_input_quote_shares_the_single_repair_budget():
+    """스키마 수리로 예산(1회)을 이미 썼으면 형식 위반 재생성을 추가로 요청하지 않는다."""
+    calls: list = []
+
+    def chat(system, user, **_kw):
+        calls.append(user)
+        return "이건 JSON이 아닙니다" if len(calls) == 1 else _WHOLE_INPUT_RAW_1330
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(_WHOLE_INPUT_SENTENCE)
+
+    assert len(calls) == 2 and result.repair_attempts == 1
+
+
+def test_fabrication_guard_drops_whole_input_quote_silently():
+    """가드 단독: 입력 전체 인용 조건은 안내 없이 빠지고, 정상 인용 조건은 남는다."""
+    from strategy_conversation.primary import _drop_fabricated_conditions
+
+    intent = StrategyIntent.model_validate(json.loads(_WHOLE_INPUT_RAW_1330))
+    intent.strategy.entry_conditions.append(
+        intent.strategy.entry_conditions[0].model_copy(
+            update={"factor": "technical.rsi", "source_text": "최근 60일 수익률이 높은"}))
+    # 표기만 다른 입력(공백·대소문자)도 같은 문장이다 — 판정은 정규화 후 문자열 동일성뿐.
+    notices = _drop_fabricated_conditions(intent, " " + _WHOLE_INPUT_SENTENCE.lower() + " ")
+
+    assert notices == []
+    assert [c.factor for c in intent.strategy.entry_conditions] == ["technical.rsi"]
+
+
 # ── 다른 슬롯의 문구로 만들어진 매매 신호 차단(2026-08-18, 예시 73) ─────────────
+# 2026-09-17 이관: 판정 근거가 어휘 정규식(`_MA_VOCAB_RE`·`_OTHER_SLOT_VOCAB_RE`)에서 조건 인용
+# 대조(LLM)로 바뀌었다 — "이 인용이 이 조건을 말하나"를 조건마다 yes/no/unclear로 받고, 분명한
+# no만 뺀다. 같은 날 첫 이관("인용이 어느 칸에 관한 말인가")은 9B가 정당한 이동평균 청산을
+# 손절로 분류해 예시 67의 청산 조건을 지웠다(4/4) — 칸 분류가 아니라 조건 중심 질문으로 교정.
+# 아래 테스트는 LLM 응답을 스텁으로 주고(네트워크 없음) 결정론이 enum 값만으로 분기하는지 본다.
+
+def _stub_quote_verdicts(user_input, intent, reply):
+    """조건 인용 대조를 스텁 LLM 응답으로 돌린다 — 대상 선정·파싱·검증까지 실제 코드를 탄다."""
+    from strategy_conversation.interpreter.quote_check import check_quotes, conditions_to_check
+
+    targets = conditions_to_check(intent.strategy)
+    return check_quotes(user_input, targets, lambda _s, _u, **_k: reply)
+
+
+def _items(*pairs):
+    return json.dumps({"items": [{"expresses": e, "describes": d} for e, d in pairs]})
+
 
 def test_ma_condition_quoting_another_slot_is_dropped_with_notice():
     """사고: "최대 보유 기간은 25거래일"을 인용으로 달고 이동평균 청산 조건이 만들어졌다 —
     사용자가 요청하지 않은 매도 규칙이 붙는다. 인용이 입력에 실재하므로 출처 대조는
-    통과하고, 값 대조도 숫자만 보므로 통과한다. 빼면서 **안내**한다(침묵 제거는 모순)."""
+    통과하고, 값 대조도 숫자만 보므로 통과한다. LLM이 인용이 그 조건을 말하지 않는다(no)고
+    답하면 빼면서 **안내**한다(침묵 제거는 모순)."""
     from strategy_conversation.primary import _drop_fabricated_conditions
 
     user_input = ("5일 EMA가 20일 EMA를 골든크로스하면 진입하고, 최대 보유 기간은 "
@@ -4468,7 +4626,9 @@ def test_ma_condition_quoting_another_slot_is_dropped_with_notice():
           "parameters": {"short_period": 1, "long_period": 20},
           "source_text": "최대 보유 기간은 25거래일"}],
     )
-    notices = _drop_fabricated_conditions(intent, user_input)
+    verdicts = _stub_quote_verdicts(
+        user_input, intent, _items(("yes", "moving_average"), ("no", "other")))
+    notices = _drop_fabricated_conditions(intent, user_input, verdicts)
 
     assert intent.strategy.exit_conditions == []
     assert any("이동평균 조건이 아니어서" in n for n in notices)
@@ -4481,8 +4641,8 @@ def test_stop_loss_quote_with_leading_value_is_dropped_from_exit_conditions():
     `ma_crossover(1,20)` 청산 조건을 하나 더 냈다 — 화면에는 사용자가 말한 적 없는
     "종가가 20일선 하향 이탈"이 매도 조건으로 떴다.
 
-    슬롯 가드는 이미 있었으나 '손절→숫자' 한 방향만 봐서 값이 앞에 오는 흔한 표기를
-    놓쳤다. 어휘를 늘리지 않고 어순만 양쪽으로 연다."""
+    종전 어휘 정규식은 '손절→숫자' 한 방향만 봐서 놓쳤다(어순 문제). 이관 후에는 LLM이
+    "이 인용은 이 조건을 말하지 않는다"고 답한 것이 근거다 — 어순·표기와 무관하다."""
     from strategy_conversation.primary import _drop_fabricated_conditions
 
     user_input = ("전쟁 관련주 중에서 5일 이동평균선이 20일 이동평균선을 골든크로스하면 "
@@ -4498,17 +4658,18 @@ def test_stop_loss_quote_with_leading_value_is_dropped_from_exit_conditions():
           "parameters": {"short_period": 1, "long_period": 20},
           "source_text": "-8% 손절 시 매도"}],
     )
-    notices = _drop_fabricated_conditions(intent, user_input)
+    verdicts = _stub_quote_verdicts(user_input, intent, _items(
+        ("yes", "moving_average"), ("yes", "moving_average"), ("no", "other")))
+    notices = _drop_fabricated_conditions(intent, user_input, verdicts)
 
     # 데드크로스 청산은 살고, 손절 구절을 인용한 이중 생성분만 빠진다.
     assert [c.source_text for c in intent.strategy.exit_conditions] == ["데드크로스가 나오거나"]
-    assert any("이동평균 조건이 아니어서" in n for n in notices)
+    assert any("'-8% 손절 시 매도'는 이동평균 조건이 아니어서" in n for n in notices)
 
 
 def test_ma_exit_quoting_a_stop_loss_alongside_the_moving_average_survives():
-    """가드의 경계 — "20일선 이탈 시 손절"은 손절 낱말이 숫자 뒤에 오지만 인용에
-    이동평균 어휘가 있어 정당한 이동평균 청산이다. 어순을 양쪽으로 열어도 이쪽은
-    살아야 한다(위 갈래에 닿기 전에 이동평균 어휘 검사에서 빠져나간다)."""
+    """가드의 경계 — "20일선 이탈 시 손절"은 손절 낱말이 있어도 이동평균 청산이다. LLM이
+    "인용이 이 조건(종가가 20일 이동평균선을 아래로 교차하면 매도)을 말한다"고 답하면 남는다."""
     from strategy_conversation.primary import _drop_fabricated_conditions
 
     user_input = "20일선 이탈 시 손절하고 싶습니다. 최대 10종목으로 해주세요."
@@ -4518,15 +4679,16 @@ def test_ma_exit_quoting_a_stop_loss_alongside_the_moving_average_survives():
           "parameters": {"short_period": 1, "long_period": 20},
           "source_text": "20일선 이탈 시 손절"}],
     )
-    notices = _drop_fabricated_conditions(intent, user_input)
+    verdicts = _stub_quote_verdicts(user_input, intent, _items(("yes", "moving_average")))
+    notices = _drop_fabricated_conditions(intent, user_input, verdicts)
 
     assert len(intent.strategy.exit_conditions) == 1 and notices == []
 
 
 def test_qualitative_trend_mapping_survives_the_slot_guard():
     """'추세가 확실히 잡힌 종목만'처럼 정성 표현을 이동평균으로 매핑하는 것은 정당한
-    해석이다(프롬프트 규칙 2) — 이동평균 어휘가 없다는 이유로 자르면 이 가드가 막으려던
-    조용한 소실을 스스로 일으킨다(가드의 경계, 실측 오탐)."""
+    해석이다(프롬프트 규칙 2) — 판단이 어렵다(unclear)는 답은 빼지 않는다. 자르면 이 가드가
+    막으려던 조용한 소실을 스스로 일으킨다(가드의 경계, 실측 오탐)."""
     from strategy_conversation.primary import _drop_fabricated_conditions
 
     user_input = "추세가 확실히 잡힌 종목만 따라가고 싶습니다. 최대 10종목으로 해주세요."
@@ -4535,9 +4697,215 @@ def test_qualitative_trend_mapping_survives_the_slot_guard():
          "parameters": {"short_period": 20, "long_period": 60},
          "source_text": "추세가 확실히 잡힌 종목만 따라가고"},
     ])
-    notices = _drop_fabricated_conditions(intent, user_input)
+    verdicts = _stub_quote_verdicts(user_input, intent, _items(("unclear", "other")))
+    notices = _drop_fabricated_conditions(intent, user_input, verdicts)
 
     assert len(intent.strategy.entry_conditions) == 1 and notices == []
+
+
+def test_example67_dead_cross_exit_with_stop_loss_elsewhere_is_kept():
+    """[회귀] 2026-09-17 9B 게이트 예시 67 "ETF 골든크로스 따라가기": 문장에 "손절 예시값 -8%"가
+    함께 있을 때 칸 분류 질문은 "데드크로스가 나오면 매도"를 손절로 분류해 **실제 청산 조건을
+    지웠다**(4/4). 조건 중심 질문에는 LLM이 yes로 답하고 조건이 남는다. 렌더링된 조건 문장이
+    요청에 실리는지도 본다(조건을 보여주지 않으면 같은 오답이 난다)."""
+    from strategy_conversation.interpreter.quote_check import check_quotes, conditions_to_check
+    from strategy_conversation.primary import _drop_fabricated_conditions
+
+    user_input = ("KODEX 200 같은 ETF에서 골든크로스가 나오면 매수하고 데드크로스가 나오면 매도, "
+                  "손절 예시값 -8%로 설정해 주세요.")
+    intent = _ma_intent(
+        [{"factor": "concept.golden_cross", "operator": "crosses_above", "value": None,
+          "source_text": "골든크로스가 나오면 매수"}],
+        [{"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
+          "parameters": {"short_period": 5, "long_period": 20},
+          "source_text": "데드크로스가 나오면 매도"}],
+    )
+    sent: list = []
+
+    def chat(_system, user, **_kw):
+        sent.append(user)
+        return _items(("yes", "moving_average"), ("yes", "moving_average"))
+
+    verdicts = check_quotes(user_input, conditions_to_check(intent.strategy), chat)
+    notices = _drop_fabricated_conditions(intent, user_input, verdicts)
+
+    assert "매도 — 5일 이동평균선이 20일 이동평균선을 아래로 교차하면" in sent[0]
+    assert "매수 — 골든크로스" in sent[0]
+    assert len(intent.strategy.exit_conditions) == 1 and notices == []
+
+
+def test_fabricated_ma_conditions_quoting_holdings_and_stop_loss_are_dropped():
+    """[회귀] 2026-09-17 AI 관련주 문장 — 설정 문구("5종목"·"-15% 손절")를 인용으로 단 지어낸
+    이동평균 조건은 LLM이 no로 답하면 빠진다. 긴 인용은 따옴표로 되돌려주지 않는다(25자 상한)."""
+    from strategy_conversation.primary import _drop_fabricated_conditions
+
+    user_input = _WHOLE_INPUT_SENTENCE
+    long_quote = "최근 60일 수익률이 높은 5종목을 매달 갈아타고, -15% 손절하는"
+    intent = _ma_intent(
+        [{"factor": "technical.ma_crossover", "operator": "crosses_above", "value": None,
+          "parameters": {"short_period": 1, "long_period": 20}, "source_text": "5종목"}],
+        [{"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
+          "parameters": {"short_period": 1, "long_period": 20}, "source_text": long_quote}],
+    )
+    verdicts = _stub_quote_verdicts(user_input, intent, _items(("no", "other"), ("no", "other")))
+    notices = _drop_fabricated_conditions(intent, user_input, verdicts)
+
+    assert intent.strategy.entry_conditions == [] and intent.strategy.exit_conditions == []
+    assert any("'5종목'" in n for n in notices)
+    assert not any(long_quote in n for n in notices)
+    assert any("일부 표현은 이동평균 조건이 아니어서" in n for n in notices)
+
+
+def test_quote_check_failure_or_unclear_is_fail_open():
+    """조건 인용 대조 실패(호출 오류·JSON 불성립·항목 수 불일치)는 **판정 없음**, enum 밖 값·
+    unclear는 그 조건만 판정 없음이다 — 다른 설정 문구 가드도 신고가 교정도 동작하지 않고
+    인터프리터 출력이 그대로 남는다. 어휘 정규식으로 되돌아가지 않는다(fail-open)."""
+    from strategy_conversation.interpreter.quote_check import check_quotes, conditions_to_check
+    from strategy_conversation.primary import (
+        _drop_fabricated_conditions,
+        _fill_deterministic_condition_params,
+    )
+
+    user_input = "박스 상단을 돌파하면 매수, 데드크로스가 나오거나 -8% 손절 시 매도"
+
+    def _intent():
+        return _ma_intent(
+            [{"factor": "technical.ma_crossover", "operator": "crosses_above", "value": None,
+              "source_text": "박스 상단을 돌파하면 매수"}],
+            [{"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
+              "parameters": {"short_period": 1, "long_period": 20},
+              "source_text": "-8% 손절 시 매도"}],
+        )
+
+    def _raises(*_a, **_k):
+        raise OSError("upstream 502")
+
+    probe = _intent()
+    targets = conditions_to_check(probe.strategy)
+    assert check_quotes(user_input, targets, _raises) is None
+    assert check_quotes(user_input, targets, lambda *_a, **_k: "no json") is None
+    assert check_quotes(user_input, targets, lambda *_a, **_k: _items(("no", "other"))) is None
+
+    for reply in (None, _items(("maybe", "breakout"), ("unclear", "other"))):
+        intent = _intent()
+        verdicts = (None if reply is None else
+                    check_quotes(user_input, conditions_to_check(intent.strategy),
+                                 lambda *_a, _r=reply, **_k: _r))
+        _fill_deterministic_condition_params(intent, verdicts)
+        notices = _drop_fabricated_conditions(intent, user_input, verdicts)
+        assert intent.strategy.entry_conditions[0].factor == "technical.ma_crossover"
+        assert len(intent.strategy.exit_conditions) == 1 and notices == []
+
+
+def test_quote_check_is_requested_only_for_moving_average_and_bollinger_conditions():
+    """호출 범위: 판정이 결과를 바꿀 수 있는 조건(이동평균 계열·볼린저)만 묻는다.
+    그런 조건이 없으면 호출이 없고, 수정 레인은 이번 턴에 새로 들어온 조건만 묻는다."""
+    from strategy_conversation.primary import _check_condition_quotes
+
+    sent: list = []
+
+    def chat(_system, user, **_kw):
+        sent.append(user)
+        return _items(("yes", "moving_average"), ("yes", "bollinger"))
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(entry_conditions=[
+        {"factor": "fundamental.per", "operator": "<=", "value": 10, "source_text": "PER 10 이하"},
+        {"factor": "technical.ma_crossover", "operator": "crosses_above",
+         "source_text": "골든크로스가 나오면"},
+        {"factor": "technical.bollinger_bands", "operator": "crosses_below",
+         "parameters": {"period": 20}, "source_text": "볼린저 하단에 닿으면"},
+    ]))
+    verdicts = _check_condition_quotes(
+        intent, "PER 10 이하, 골든크로스가 나오면, 볼린저 하단에 닿으면", chat)
+    assert len(sent) == 1 and len(verdicts) == 2
+    body = sent[0].split("[조건]")[1]
+    assert "PER 10 이하" not in body
+    assert "종가가 20일 볼린저 밴드를 아래로 교차하면" in body
+
+    per_only = StrategyIntent.model_validate(_full_intent_dict())
+    assert _check_condition_quotes(per_only, "PER 10 이하", chat) is None
+    # 수정 레인: only에 든 조건만 — 이월 조건은 다시 묻지 않는다.
+    assert _check_condition_quotes(intent, "원문", chat,
+                                   only=[intent.strategy.entry_conditions[0]]) is None
+    assert len(sent) == 1
+    # chat 핸들이 없는 주입 스텁은 판정 없음으로 진행한다.
+    assert _check_condition_quotes(intent, "원문", None) is None
+
+
+def test_primary_parse_drops_stop_loss_quoted_ma_exit_via_quote_check(monkeypatch):
+    """배선: 생성 턴에서 조건 인용 대조가 실제로 한 번 불리고, 그 판정으로 다른 설정 문구 가드가
+    동작한다(2026-09-16 "-8% 손절 시 매도" 이중 생성 사고의 LLM 레인 판)."""
+    import llm_backend
+    from strategy_conversation import primary
+    from strategy_conversation.interpreter import condition_recall, quote_check
+
+    monkeypatch.setattr(llm_backend, "is_openrouter", lambda: False)
+    user_input = ("코스피에서 5일 이동평균선이 20일 이동평균선을 골든크로스하면 매수하고, "
+                  "데드크로스가 나오거나 -8% 손절 시 매도하는 전략")
+    raw = json.dumps(_full_intent_dict(
+        entry_conditions=[{"factor": "technical.ma_crossover", "operator": "crosses_above",
+                           "parameters": {"short_period": 5, "long_period": 20},
+                           "source_text": "5일 이동평균선이 20일 이동평균선을 골든크로스하면"}],
+        exit_conditions=[{"factor": "technical.ma_crossover", "operator": "crosses_below",
+                          "parameters": {"short_period": 5, "long_period": 20},
+                          "source_text": "데드크로스가 나오거나"},
+                         {"factor": "technical.ma_crossover", "operator": "crosses_below",
+                          "parameters": {"short_period": 1, "long_period": 20},
+                          "source_text": "-8% 손절 시 매도"}],
+        backtest={"period": "3y"},
+    ), ensure_ascii=False)
+    check_calls: list = []
+
+    def chat(system, user, **_kw):
+        if system == quote_check.build_system_prompt():
+            check_calls.append(user)
+            return _items(("yes", "moving_average"), ("yes", "moving_average"), ("no", "other"))
+        if system == condition_recall.build_system_prompt():
+            return '{"phrases": []}'
+        return raw
+
+    monkeypatch.setattr(primary, "_interpreter_singleton",
+                        StrategyInterpreter(chat_fn=chat, model="stub"))
+    result = primary.run_primary_parse(user_input)
+
+    assert len(check_calls) == 1
+    assert len(result["parsed"].exit_signals) == 1
+    assert any("-8% 손절 시 매도" in n for n in result["notices"])
+    assert result["parsed"].stop_loss_pct == 8.0
+
+
+def test_single_condition_whole_input_quote_is_not_a_format_violation():
+    """결정 (a): 입력 전체 인용이 형식 위반인 것은 **같은 출력이 다른 칸도 채웠을 때만**이다.
+    조건 하나뿐인 입력("20일선을 돌파하면 매수")은 정당한 인용이 곧 입력 전체라 재생성하지
+    않고, 가드도 빼지 않는다. 다른 칸(손절)이 함께 나오면 같은 인용이 위반이 된다."""
+    from strategy_conversation.primary import _drop_fabricated_conditions
+
+    user_input = "20일선을 돌파하면 매수"
+    cond = {"factor": "technical.ma_crossover", "operator": "crosses_above",
+            "parameters": {"short_period": 1, "long_period": 20}, "source_text": user_input}
+    single = {"intent": "CREATE_STRATEGY", "confidence": 0.9,
+              "strategy": {"entry_conditions": [cond]}}
+    calls: list = []
+
+    def chat(_system, user, **_kw):
+        calls.append(user)
+        return json.dumps(single, ensure_ascii=False)
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(user_input)
+    assert len(calls) == 1 and result.repair_attempts == 0
+    assert _drop_fabricated_conditions(result.intent, user_input) == []
+    assert len(result.intent.strategy.entry_conditions) == 1
+
+    multi = json.loads(json.dumps(single))
+    multi["strategy"]["risk_management"] = {"stop_loss": 8}
+    calls.clear()
+    result = StrategyInterpreter(
+        chat_fn=lambda _s, u, **_k: calls.append(u) or json.dumps(multi, ensure_ascii=False),
+        model="stub",
+    ).interpret(user_input)
+    assert len(calls) == 2 and result.repair_attempts == 1
+    _drop_fabricated_conditions(result.intent, user_input)
+    assert result.intent.strategy.entry_conditions == []
 
 
 def test_prompt_routes_average_trading_value_to_the_screening_lane():
@@ -4933,7 +5301,8 @@ def test_breakout_quote_reclassifies_bollinger_condition():
 
     실측(2026-08-26, /us 게이트 27·69 — 한·영 공통): "break above its 20-day high"·
     "박스 상단 돌파" 인용이 bollinger_bands로 나갔다. 밴드와 박스권은 다른 개념이다.
-    볼린저 어휘가 인용에 있으면(정당한 볼린저 조건) 건드리지 않는다.
+    LLM이 인용을 볼린저라고 답한 조건(정당한 볼린저 조건)은 건드리지 않는다(2026-09-17 어휘
+    정규식에서 조건 인용 대조로 이관 — 스텁 LLM 응답).
     """
     from strategy_conversation.primary import _fill_deterministic_condition_params
 
@@ -4946,7 +5315,10 @@ def test_breakout_quote_reclassifies_bollinger_condition():
              "source_text": "볼린저 하단에 닿으면 매수"},
         ],
     ))
-    _fill_deterministic_condition_params(intent)
+    verdicts = _stub_quote_verdicts(
+        "buy when it breaks above its 20-day high", intent,
+        _items(("no", "new_high_breakout"), ("yes", "bollinger")))
+    _fill_deterministic_condition_params(intent, verdicts)
     conds = intent.strategy.entry_conditions
     assert conds[0].factor == "technical.breakout"
     assert conds[0].parameters.get("lookback_period") == 20.0  # EN "20-day high" 환산
@@ -4954,8 +5326,8 @@ def test_breakout_quote_reclassifies_bollinger_condition():
 
 
 def test_breakout_quote_reclassifies_ma_condition_without_ma_vocab():
-    """같은 드리프트의 ma_crossover 착지(KR 27 재파싱 실측): '박스 상단 돌파' 인용에
-    이동평균 어휘가 없으면 breakout으로 되돌린다. '20일선 돌파'(정당한 MA)는 불개입."""
+    """같은 드리프트의 ma_crossover 착지(KR 27 재파싱 실측): LLM이 '박스 상단 돌파' 인용을
+    신고가·박스권 돌파라고 답하면 breakout으로 되돌린다. '20일선 돌파'(이동평균)는 불개입."""
     from strategy_conversation.primary import _fill_deterministic_condition_params
 
     intent = StrategyIntent.model_validate(_full_intent_dict(
@@ -4967,7 +5339,10 @@ def test_breakout_quote_reclassifies_ma_condition_without_ma_vocab():
              "source_text": "종가가 20일선을 위로 돌파하면"},
         ],
     ))
-    _fill_deterministic_condition_params(intent)
+    verdicts = _stub_quote_verdicts(
+        "박스 상단을 돌파하면 매수", intent,
+        _items(("no", "new_high_breakout"), ("yes", "moving_average")))
+    _fill_deterministic_condition_params(intent, verdicts)
     conds = intent.strategy.entry_conditions
     assert conds[0].factor == "technical.breakout"
     assert conds[1].factor == "technical.ma_crossover"

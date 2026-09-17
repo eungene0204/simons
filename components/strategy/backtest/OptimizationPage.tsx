@@ -599,6 +599,12 @@ export async function runMonteCarloSimulation(
   }
 
   const logReturns: number[] = [];
+  // 첫날 수익률(첫 평가액 ÷ 초기자본) — equity[0]은 첫 거래일 종가 평가액이라 첫날 체결·손익이
+  // 들어 있으면 초기자본과 다르다(v16.12). 같으면(첫날 현금·옛 결과) 종전과 같은 표본이다.
+  const initialCapital = backtestResult.initialCapital;
+  if (initialCapital && initialCapital > 0 && equity[0] !== initialCapital) {
+    logReturns.push(Math.log(equity[0] / initialCapital));
+  }
   for (let i = 1; i < equity.length; i += 1) {
     logReturns.push(Math.log(equity[i] / equity[i - 1]));
   }

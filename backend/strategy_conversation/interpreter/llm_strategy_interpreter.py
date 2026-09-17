@@ -5,6 +5,7 @@
   ① Ollama /api/chat(format=json, think=false)로 구조화 출력을 요청하고
   ② JSON 추출 → Pydantic 검증 → 스키마 실패 시 오류와 함께 1회 자동 수정 요청
      (수치 누락으로 인한 재생성 요청은 2026-08-07 폐지 — recall_validator 상단 참조)
+     — 조건 인용에 입력 전체를 담은 형식 위반도 같은 1회 예산으로 재생성 요청(2026-09-17)
   ③ 다시 실패하면 InterpreterError를 던진다(호출부가 안전한 사용자 응답 담당).
 
 transport(chat_fn)는 주입 가능해 테스트가 LLM 없이 스텁으로 검증할 수 있다.
@@ -35,6 +36,8 @@ from strategy_conversation.interpreter.output_repair import (
     build_repair_prompt,
     extract_json_object,
     salvage_clarification_questions,
+    whole_input_quote_error,
+    whole_input_quote_fields,
 )
 from strategy_conversation.interpreter.prompts import (
     PROMPT_VERSION,
@@ -348,6 +351,11 @@ class StrategyInterpreter:
         attempts = 0
         last_error: Exception | None = None
         current_raw = raw
+        # 형식 위반(입력 전체 인용) 재생성을 요청하기 전의 **스키마 유효** 원출력.
+        # 재생성본이 스키마를 깨면 턴을 해석 실패로 만들지 않고 이 출력으로 진행한다 —
+        # 위반 조건은 primary 환각 가드가 인용 없이 뺀다(재생성은 1회뿐, 무한 재시도 금지).
+        format_fallback_raw: Optional[str] = None
+        fallback_used = False
         while True:
             try:
                 intent = StrategyIntent.model_validate_json(extract_json_object(current_raw))
@@ -355,7 +363,9 @@ class StrategyInterpreter:
                 # 2026-08-10 "리스크 관리"→익절 8% 사고 — salvage_* docstring 참조).
                 # 질문이 사라지면 자기 의심 패치 게이트(primary._self_doubt_patch_fields)가
                 # 볼 신호가 없어져 지어낸 패치가 그대로 확정된다.
-                if attempts and not intent.clarification_questions:
+                # 형식 위반 재생성에는 적용하지 않는다 — 원출력의 질문은 지어낸 조건에 대한
+                # 것일 수 있어("어떤 기술적 신호를 사용할까요?"), 되살리면 없던 되묻기가 된다.
+                if attempts and format_fallback_raw is None and not intent.clarification_questions:
                     salvaged = salvage_clarification_questions(raw)
                     if salvaged:
                         try:
@@ -374,6 +384,30 @@ class StrategyInterpreter:
                 if draft is None and intent.intent in ("MODIFY_STRATEGY", "CLARIFY_STRATEGY") \
                         and intent.strategy is not None:
                     intent = intent.model_copy(update={"intent": "CREATE_STRATEGY"})
+                # 출력 형식 위반 — 조건 인용(source_text)에 입력 전체를 담았다(규칙 4는 조각).
+                # 의미 판정에 보내지 않고 스키마 오류와 같은 레인(오류를 LLM에 되돌려 재생성,
+                # 계약 § 8-1)으로 1회 재생성한다. 재생성 뒤에도 남으면 그대로 두고 primary
+                # 가드가 인용하지 않고 뺀다(2026-09-17 전체 문장 인용 ma_crossover 사고).
+                # 생성 턴만 본다 — 수정 턴은 초안에서 이월된 칸이 있어 '다른 칸도 채웠다'가
+                # 이번 발화의 근거가 되지 못한다.
+                format_violations = (
+                    whole_input_quote_fields(intent, user_input) if draft is None else []
+                )
+                if (format_violations and format_fallback_raw is None
+                        and attempts < config.MAX_REPAIR_ATTEMPTS):
+                    format_fallback_raw = current_raw
+                    attempts += 1
+                    error_message = whole_input_quote_error(format_violations)
+                    _log_llm(f"⟳ 형식 재생성 요청({attempts}회차)", error_message)
+                    current_raw = self._chat(
+                        self._system_prompt,
+                        build_repair_prompt(user_input, current_raw, error_message, draft),
+                    )
+                    _log_llm(f"◀ 형식 재생성 응답({attempts}회차)", current_raw.strip())
+                    continue
+                if format_violations:
+                    _log_llm("△ 입력 전체 인용 잔존",
+                             f"{', '.join(format_violations)} — 이후 가드가 인용 없이 제거")
                 # 수치 반영 대조(§ 3-1). 탐지는 유지하되 **재생성 요청은 하지 않는다**
                 # (2026-08-07 전수 실측으로 폐지). 재요청 62건 중 45건은 아무것도 고치지
                 # 못했고(47%는 1차와 바이트 동일 — temperature=0), 고친 17건도 진짜 구제 3건
@@ -413,6 +447,14 @@ class StrategyInterpreter:
             except (ValidationError, ValueError, json.JSONDecodeError) as exc:
                 last_error = exc
                 if attempts >= config.MAX_REPAIR_ATTEMPTS:
+                    if format_fallback_raw is not None and not fallback_used:
+                        # 형식 재생성본이 스키마를 깼다 — 원출력(스키마 유효)으로 진행한다.
+                        _log_llm("△ 형식 재생성 실패", (
+                            f"재생성본 스키마 불만족: {str(exc)[:200]} — 원출력으로 진행"
+                        ))
+                        fallback_used = True
+                        current_raw = format_fallback_raw
+                        continue
                     break
                 attempts += 1
                 logger.warning(

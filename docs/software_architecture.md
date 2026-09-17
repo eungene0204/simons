@@ -673,6 +673,16 @@ LLM Strategy Interpreter (interpreter/llm_strategy_interpreter.py)
     │   바꿔 '미언급'을 감지하고, 컴파일러가 natural_ranking_direction으로 채운다
     │   (명시 방향은 재심 없이 보존, 선호 방향 없는 지표는 억지 방향 금지)
     └── JSON 추출 → Pydantic 검증 실패 시 오류 첨부 1회 자동 수정 요청(output_repair.py)
+        같은 1회 예산으로 형식 위반(생성 턴, 조건 source_text = 입력 전체이고 같은 출력이
+        다른 칸도 채움)도 재생성 요청 — 재생성본이 스키마를 깨면 원출력으로 진행, 잔존
+        조건은 primary 환각 가드가 안내 없이 제거하고 Trace span에만 기록(2026-09-17)
+    ▼
+조건 인용 대조 (interpreter/quote_check.py, LLM — 이동평균·볼린저 조건이 있을 때만, 턴당 1회)
+    └── 조건을 평이한 문장으로 옮겨 적어 보여주고 항목마다 expresses(yes/no/unclear)·
+        describes(moving_average/bollinger/new_high_breakout/other) enum을 받음 →
+        결정론은 enum 소속만: new_high_breakout=신고가 오분류 교정, 분명한 no=다른 설정 문구
+        제거(25자 상한 안내). planner-first 대기와 겹치게 메인 스레드에서 호출, unclear·실패=
+        판정 없음(교정·제거 안 함). 어휘 정규식 4종 대체(2026-09-17, 칸 분류 질문은 9B 회귀로 폐기)
     ▼
 StrategyIntent (interpreter/models.py, schema_version 1.0)
     ├── intent Enum(CREATE/MODIFY/EXPLAIN/…/UNSUPPORTED/NON_STRATEGY)
@@ -1124,7 +1134,8 @@ BacktestEngine.run_backtest(request)
 │       │   ├── StopLoss / TakeProfit: 당일 close 감지 → 당일 close 청산
 │       │   ├── TrailingStop: peak_price[] 배열로 추적
 │       │   ├── MaxHoldingDays: 보유 기간 초과 시 청산
-│       │   └── Rebalance dropout: 리밸런싱일에 목표 집합 밖 보유 매도, 빈 슬롯 신규 편입
+│       │   ├── Rebalance dropout: 리밸런싱일에 목표 집합 밖 보유 매도, 빈 슬롯 신규 편입
+│       │   └── 손절 종목 대체 편입(v16.12, FR-BT-011b): 순위 회전에서 손절 종목은 그 기간 목표에서 빠지고 리밸런싱일 랭킹 다음 순위가 채움
 │       ├── Ranking: rank_df로 후보 재정렬 (모멘텀 return / 변동성 volatility / 재무 팩터 cid / 복합 순위 합산 composite+ranking_components(FR-BT-063) / 레거시 PBR·ROE 블렌드)
 │       ├── Position Limiting: 최대 동시 포지션 수 제한
 │       └── Liquidity Check: 거래대금 기준 필터
@@ -1162,6 +1173,8 @@ BacktestEngine.run_backtest(request)
 - 벡터화 Step 순서 고정: **Step1 퇴장처리 → Step2 리스크 평가/주입 → Rebalance(목표 집합 재구성/탈락 매도) → Step3 진입처리**
 - 같은 날 매도+매수(리밸런싱 reconstitution)가 겹칠 때는 부기(active_mask/active_count/peak_price)도 즉시 갱신해야 한다 — 그렇지 않으면 빈 슬롯이 "아직 점유 중"으로 보여 신규 편입이 영구 차단되는 고스트 포지션 버그가 발생한다
 - 달력 기준 리밸런싱: `compute_rebalance_dates()`로 주기별 첫 거래일 판정 → 봉중간 리스크 유무로 `from_orders(targetpercent)` / `from_signals` reconstitution 경로를 자동 분기 (하이브리드 라우팅)
+- 랭킹 lookback 패널 입력(v16.12, FR-BT-013b): 창 종가 패널 `raw_price_df`(가용성·상장·상폐 판정)와 별도로 phase1이 창 경계 준비물(`window_boundary_prep`: 워밍업 포함 종가 `warm_close` + 창 직전 N+1봉)을 싣고(세션 캐시에도 함께 보관, 키에 signal_delay), 엔진이 `rank_price_df`로 수익률·변동성·초과수익률 패널을 계산한다. next_open N일 shift는 창 직전 N거래일(`_pre_dates`, phase1 `symbol_signals`의 `pre` 패키지)을 앞에 붙여 민 뒤 창만 남긴다(`_delay_to_window` — 신호·순위·유동성·시총 마스크) — 창 첫날(첫 리밸런싱일)도 창 중간과 같은 규칙으로 체결된다
+- 지표 기준점(v16.12, FR-BT-013c): `equity[0]`은 첫 거래일 종가 평가액이라 첫날 체결이 있으면 초기자본과 다르다 — 결과는 `initialCapital`을 동봉하고, 최대낙폭·낙폭 기간·회복계수·비교표 낙폭/샤프·워크포워드 연결·몬테카를로·벤치마크 첫날 수익률은 초기자본을 기준점으로 계산한다(`ResultHandler.anchored_equity`)
 - 리밸런싱 체결 타이밍 불변식: `next_open`이면 엔진(backtest_engine)이 신호·랭킹을 이미 1일 shift해 넘기므로(row i = 전일 종가 정보 = 체결일), 시뮬레이터는 추가 shift 없이 편입·편출 모두 **리밸런싱일 당일**(그 주기 첫 거래일 시가)에 체결한다. 두 경로(순수/루프)의 체결일이 같아야 하며, 리스크 청산(당일 intraday 정보 기반 → 다음 시가 체결)과는 타이밍 근거가 다르다 — 회귀: `test_simulator_ranking.py::test_next_open_rebalance_fills_on_rebalance_day_*`
 
 ### 4.4 가상매매 엔진 (`engine/virtual_trader.py`)

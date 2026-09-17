@@ -60,6 +60,12 @@ class MonteCarloSimulator:
 
         equity_arr = np.asarray(equity, dtype=np.float64)
         equity_arr = equity_arr[equity_arr > 0]
+        # 초기자본이 있으면 곡선 앞에 붙인다(v16.12) — equity[0]은 첫 거래일 종가 평가액이라 첫날
+        # 체결·첫날 손익이 들어 있고, 첫 값끼리의 로그수익률만 쓰면 그 하루가 표본에서 빠진다.
+        # 같으면(첫날 현금) 종전과 같은 표본을 쓴다 — 프론트 몬테카를로(OptimizationPage)와 같은 규칙.
+        _init = backtest_result.get("initialCapital")
+        if _init and float(_init) > 0 and len(equity_arr) > 0 and float(equity_arr[0]) != float(_init):
+            equity_arr = np.concatenate([[float(_init)], equity_arr])
         if len(equity_arr) < block_size * 3:
             return {"status": "error", "message": "insufficient positive equity points"}
 

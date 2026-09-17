@@ -179,6 +179,9 @@ class BacktestResponse(BaseModel):
     maxConsecutiveWins: Optional[int] = 0
     maxConsecutiveLosses: Optional[int] = 0
     equity: List[float]
+    # 초기자본(v16.12) — equity[0]은 첫 거래일 종가 평가액이라 첫날 체결이 있으면 다르다.
+    # 미선언 시 response_model이 걸러내 프론트가 equity[0]을 초기자금으로 쓴다.
+    initialCapital: Optional[float] = None
     # 벤치마크 지수가 아직 존재하지 않던 구간은 null — 0으로 채우면 그 구간
     # 벤치마크가 평탄했다는 거짓 곡선이 된다(엔진 v11.0).
     benchmark_equity: Optional[List[Optional[float]]] = Field(default_factory=list)

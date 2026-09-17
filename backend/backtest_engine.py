@@ -179,6 +179,28 @@ _date_key = date_key
 _TIEBREAK_LOOKBACK_DAYS = 60
 
 
+def _ranking_lookback_max(risk_params: Dict[str, Any]) -> int:
+    """가격 기반 랭킹 패널이 읽는 최대 lookback(거래일) — 워밍업 산정용(v16.12).
+
+    랭킹 패널은 워밍업 포함 종가로 계산되므로(phase1.window_boundary_prep), lookback이
+    워밍업보다 길면 창 첫날 순위가 여전히 비어 있다. 후보 우선순위(tie-break)도 포함한다.
+    """
+    cands = [_TIEBREAK_LOOKBACK_DAYS]
+    default = risk_params.get('ranking_lookback_days')
+    if risk_params.get('ranking_metric') in ('return', 'relative_return', 'volatility'):
+        cands.append(default or 60)
+    for c in _composite_ranking_components(risk_params) or []:
+        if c.get('metric') in ('return', 'relative_return', 'volatility'):
+            cands.append(c.get('lookback_days') or default or 60)
+    out = 0
+    for v in cands:
+        try:
+            out = max(out, int(v))
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
 class BacktestEngine:
     def __init__(self, data_dir: str = None):
         self.warnings = set()
@@ -319,26 +341,22 @@ class BacktestEngine:
         return delay
 
     @staticmethod
-    def _ranking_selection_pool(available_df, valid, large_cap_mask, all_liquidity,
-                                common_index, processed_symbols, exec_type, signal_delay=1):
+    def _ranking_selection_pool(available_df, valid, large_cap_mask, liq_pool):
         """랭킹 단독 전략(선정=진입)의 후보 풀 — 값이 정의된 종목에 대형주 마스크·유동성
-        게이트를 다시 결합한다(모멘텀 분기 C4 계약과 동일)."""
+        게이트를 다시 결합한다(모멘텀 분기 C4 계약과 동일). 마스크는 호출부가 next_open
+        지연(창 직전 원천 포함, v16.12)까지 맞춰 넘긴다."""
         pool = available_df & valid
         if large_cap_mask is not None:
             pool &= large_cap_mask
-        if all_liquidity:
-            liq_df = pd.DataFrame(
-                all_liquidity, index=common_index, columns=processed_symbols
-            ).eq(True)  # NaN(데이터 없는 날) → False, bool dtype 보장
-            if exec_type == 'next_open':
-                liq_df = liq_df.shift(signal_delay, fill_value=False)
-            pool &= liq_df
+        if liq_pool is not None:
+            pool &= liq_pool
         return pool
 
     @staticmethod
     def _composite_rank_panel(components, raw_price_df, all_fund_rank_values,
                               common_index, processed_symbols, exec_type,
-                              default_lookback=None, signal_delay=1, data_dir=None):
+                              default_lookback=None, signal_delay=1, data_dir=None,
+                              ext_index=None, pre_fund_values=None):
         """복합 순위 합산(FR-BT-063) 점수 패널.
 
         반환 (rank_df, valid, missing_labels). rank_df는 [0,1] 백분위 평균(높을수록 상위),
@@ -346,7 +364,8 @@ class BacktestEngine:
         (rank_df=None, valid=None, 그 지표 라벨들)을 돌려 호출부가 경고로 드러낸다.
 
         구성 지표 값 패널: 재무 컬럼은 as-of ffill, 'return'/'volatility'는 raw_price_df
-        (bfill 오염 없는 원시 가격)에서 산출 — 단일 랭킹 분기들과 같은 계약(v13.2/13.3).
+        (bfill 오염 없는 원시 가격 — 호출부는 워밍업 포함 종가 패널을 넘긴다, v16.12)에서
+        산출하고 common_index로 되돌린다 — 단일 랭킹 분기들과 같은 계약(v13.2/13.3).
         가격 산출 지표의 산정 기간은 구성 지표 자체 값 → 전략 공통값(ranking_lookback_days,
         되묻기 칩 답이 여기로 결속된다) → 60 순으로 정한다.
         백분위는 전 지표가 정의된 풀 안에서만 매긴다 — 그래야 백분위 평균이 순위 합산과
@@ -354,6 +373,10 @@ class BacktestEngine:
         """
         from engine.indicators import lookback_return_panel, annualized_volatility_panel
 
+        # ext_index(v16.12): next_open 창 직전 N거래일 + 창. 값·순위를 여기서 계산해 민 뒤 창만
+        # 남긴다 — 창 첫날이 창 직전 거래일 값을 본다. 없으면 창 인덱스 그대로(종전).
+        idx = common_index if ext_index is None else ext_index
+        n_pre = len(idx) - len(common_index)
         panels: list = []
         missing: list = []
         for c in components:
@@ -372,8 +395,12 @@ class BacktestEngine:
                 if not values:
                     missing.append(FUNDAMENTAL_LABELS.get(m, m))
                     continue
-                panel = pd.DataFrame(values, index=common_index, columns=processed_symbols).ffill()
-            panel = panel.reindex(index=common_index, columns=processed_symbols)
+                panel = pd.DataFrame(values, index=common_index, columns=processed_symbols)
+                pre = (pre_fund_values or {}).get(m)
+                if n_pre and pre is not None:
+                    panel = pd.concat([pre.astype(float), panel])
+                panel = panel.ffill()
+            panel = panel.reindex(index=idx, columns=processed_symbols)
             panels.append((panel, c.get('direction') == 'bottom'))
         if missing:
             return None, None, missing
@@ -389,6 +416,9 @@ class BacktestEngine:
             # 진입 신호는 이미 1일 shift됨 — 랭킹도 전일 값 기준(look-ahead 방지).
             rank_df = rank_df.shift(signal_delay)
             valid = valid.shift(signal_delay, fill_value=False)
+        rank_df, valid = rank_df.iloc[n_pre:], valid.iloc[n_pre:]
+        rank_df.index = common_index
+        valid.index = common_index
         return rank_df.fillna(0.0), valid, []
 
     @staticmethod
@@ -410,9 +440,9 @@ class BacktestEngine:
         # "메인 = 1그룹"인데 두 CAGR이 다르게 나온다.
         years, ppy = ResultHandler.time_base(val.index)
         cagr = ResultHandler.annualize_return(total_return / 100.0, years)
-        dd = (val / val.cummax() - 1.0) if n else None
-        mdd = float(dd.min() * 100.0) if dd is not None and len(dd) else 0.0
-        rets = val.pct_change().dropna() if n else None
+        # 낙폭·수익률은 초기자본을 기준점으로 포함한다(메인 결과와 같은 규약, v16.12).
+        mdd = ResultHandler.max_drawdown_pct(val.values, init_cash) if n else 0.0
+        rets = ResultHandler.anchored_returns(val.values, init_cash) if n else None
         sharpe = (
             float(rets.mean() / rets.std(ddof=1) * np.sqrt(ppy))
             if rets is not None and len(rets) > 1 and float(rets.std(ddof=1)) > 0 else 0.0
@@ -614,6 +644,12 @@ class BacktestEngine:
                 if m and m not in ('return', 'relative_return', 'volatility', 'composite')
             ]
             all_fund_rank_values: dict = {col: {} for col in _rank_metric_cols}
+            # 랭킹 lookback 패널 전용 워밍업 포함 종가(phase1.window_boundary_prep) — 창 시작 절단이
+            # 있는 요청에서만 채워진다. 창 종가 패널(raw_price_df)의 의미는 바꾸지 않는다.
+            all_warm_closes: dict = {}
+            # next_open 창 직전 N봉의 shift 원천(phase1.symbol_signals "pre") — 창 첫날 신호·순위·
+            # 유동성·시총 마스크가 창 직전 거래일 정보를 보게 한다(v16.12).
+            all_pre: dict = {}
             all_resolution_logs: List[Dict[str, str]] = []
             processed_symbols = []
             common_index = None
@@ -647,7 +683,10 @@ class BacktestEngine:
 
             # ≈280 trading days baseline (covers MA-200); 장주기 지표는 동적 확장(H6).
             # 거래일→캘린더일 환산 ≈ ×1.45에 여유분을 더해 ×1.6 + 40일.
-            _max_period = _max_indicator_period(req.get('entry'), req.get('exit'))
+            # 랭킹 lookback(N거래일 수익률·변동성)도 창 첫날부터 값이 있으려면 워밍업이 그만큼
+            # 길어야 한다 — 기본 400일(≈275거래일)을 넘는 긴 lookback에서만 늘어난다.
+            _max_period = max(_max_indicator_period(req.get('entry'), req.get('exit')),
+                              _ranking_lookback_max(risk_params))
             _WARMUP_CALENDAR_DAYS = max(400, int(_max_period * 1.6) + 40)
             _has_period_filter = (period_req != 'FULL') or bool(start_date_req) or bool(end_date_req)
             _end_str = _ts_str(ref_date)
@@ -919,6 +958,8 @@ class BacktestEngine:
                     if "liquidity" in data: all_liquidity[sym] = data["liquidity"]
                     if "trading_value" in data: all_trading_values[sym] = data["trading_value"]
                     if "market_cap" in data: all_market_caps[sym] = data["market_cap"]
+                    if data.get("warm_close") is not None: all_warm_closes[sym] = data["warm_close"]
+                    if data.get("pre") is not None: all_pre[sym] = data["pre"]
                     for _col, _ser in (data.get("fund_rank_values") or {}).items():
                         all_fund_rank_values[_col][sym] = _ser
                     if "ai_drop_score" in data: all_drop_scores[sym] = data["ai_drop_score"]
@@ -985,6 +1026,7 @@ class BacktestEngine:
                             all_resolution_logs.extend(res_logs)
 
                         # Use pre-computed period strings (data already warmup-pre-filtered in Phase1)
+                        _bprep = _phase1.window_boundary_prep(df_pl, sym, _p1_ctx, self.loader)
                         df_pl = _filter_to_backtest_window(df_pl)
 
                         if len(df_pl) < 1:
@@ -994,24 +1036,17 @@ class BacktestEngine:
                         skip_risk = risk_params.get('skip_risk_management', False)
                         skip_pos = risk_params.get('skip_position_setting', False)
 
-                        liquidity_ok = None
-                        if not (skip_risk or skip_pos):
-                            target_pos_amount = init_cash * (pos_size_pct / 100.0)
-                            liquidity_ok = self.loader.check_liquidity(pdf, target_pos_amount, liquid_limit)
-
-                        entry_signals, entry_reasons = self.signal_engine.generate_signals(df_pl, req.get('entry'))
-                        exit_signals, exit_reasons = self.signal_engine.generate_signals(df_pl, req.get('exit'))
-                        _phase1.close_at_last_available_row(entry_signals, exit_signals, exit_reasons, sym, _p1_ctx)
-
-                        if entry_signals is None:
+                        # 신호·유동성(+next_open 창 직전 shift 원천)은 phase1 정본과 같은 함수.
+                        _sig = _phase1.symbol_signals(df_pl, pdf, _bprep, sym, _p1_ctx,
+                                                      self.loader, self.signal_engine)
+                        if _sig is None:
                             return None
-
                         # Warn only when the strategy wanted to enter but liquidity blocked every entry.
-                        if liquidity_ok is not None:
-                            wanted_entry = bool(entry_signals.any())
-                            entry_signals = entry_signals & liquidity_ok
-                            if wanted_entry and not entry_signals.any():
-                                return ("warning", rw.warning(rw.SYMBOL_LIQUIDITY_BELOW, sym))
+                        if _sig["liquidity_blocked"]:
+                            return ("warning", rw.warning(rw.SYMBOL_LIQUIDITY_BELOW, sym))
+                        entry_signals, entry_reasons = _sig["entries"], _sig["entry_reasons"]
+                        exit_signals, exit_reasons = _sig["exits"], _sig["exit_reasons"]
+                        liquidity_ok = _sig["liquidity"]
 
                         res = {
                             "symbol": sym,
@@ -1025,6 +1060,10 @@ class BacktestEngine:
                             "exit_reasons": pd.Series(exit_reasons, index=pdf.index),
                             "index": pdf.index,
                         }
+                        if _bprep["warm_close"] is not None:
+                            res["warm_close"] = _bprep["warm_close"]
+                        if _sig["pre"] is not None:
+                            res["pre"] = _sig["pre"]
                         if not (skip_risk or skip_pos):
                             res["liquidity"] = pd.Series(liquidity_ok, index=pdf.index)
                         if 'volume' in pdf.columns:
@@ -1080,6 +1119,59 @@ class BacktestEngine:
                 available_df &= ~halted_df
             price_df = raw_price_df
             common_index = price_df.index
+            # 랭킹 lookback 패널(N거래일 수익률·변동성·초과수익률)의 입력 — 워밍업 구간을 포함한
+            # 원시 종가. 창으로 잘린 raw_price_df로 계산하면 창의 첫 lookback 거래일 동안 순위가
+            # 없어 현금으로 앉아 있었다(2026-09-17 실측, v16.12). 상장 전 NaN은 그대로라 관측
+            # 미달 신규 상장 종목은 여전히 lookback 봉이 쌓일 때까지 NaN이다(v13.3 계약).
+            # 패널은 계산 뒤 반드시 common_index로 되돌린다(_to_window).
+            rank_price_df = (
+                pd.DataFrame(all_warm_closes, columns=processed_symbols).sort_index()
+                if all_warm_closes else raw_price_df
+            )
+
+            # ── 창 경계 shift(v16.12) ──
+            # next_open은 신호·순위·유동성·시총 마스크를 N거래일 민다. 창 안에서만 밀면 창 첫
+            # N일(첫날 = 첫 리밸런싱일)이 늘 비어 첫 주기가 현금이었다. 창 직전 N거래일(_pre_dates,
+            # 전 종목 창 직전 봉의 합집합 중 마지막 N일)을 앞에 붙여 민 뒤 창 구간만 남긴다 — 창 첫날의
+            # 결정은 창 직전 거래일 정보만 쓴다(룩어헤드 없음, 창 중간 리밸런싱일과 같은 규칙).
+            # 창 이전 봉이 없는 종목(창 안 신규 상장)은 원천이 NaN → 후보가 아니다. same_close·
+            # 창 시작 절단 없는 요청은 _pre_dates가 비어 종전과 같다.
+            if exec_type == 'next_open' and all_pre:
+                _pre_dates = pd.DatetimeIndex(sorted(set().union(
+                    *[set(p["index"]) for p in all_pre.values()])))[-signal_delay:]
+            else:
+                _pre_dates = pd.DatetimeIndex([])
+            _n_pre = len(_pre_dates)
+            ext_index = (pd.DatetimeIndex(_pre_dates).append(pd.DatetimeIndex(common_index))
+                         if _n_pre else pd.DatetimeIndex(common_index))
+
+            def _to_window(panel):
+                return panel.reindex(index=common_index, columns=processed_symbols)
+
+            def _to_ext(panel):
+                return panel.reindex(index=ext_index, columns=processed_symbols)
+
+            def _pre_panel(key, col=None):
+                """창 직전 N거래일 × 종목 원천 패널(없는 칸 NaN)."""
+                data = {}
+                for _s, _p in all_pre.items():
+                    _v = _p.get(key) if col is None else (_p.get(key) or {}).get(col)
+                    if _v is not None:
+                        data[_s] = _v
+                return pd.DataFrame(data, index=_pre_dates, columns=processed_symbols)
+
+            def _extend(window_df, pre_df):
+                if not _n_pre:
+                    return window_df
+                return pd.concat([pre_df, window_df])
+
+            def _delay_to_window(ext_df, fill_value=None):
+                """ext(창 직전 N일 + 창) 패널을 signal_delay만큼 밀고 창 구간만 남긴다."""
+                shifted = (ext_df.shift(signal_delay) if fill_value is None
+                           else ext_df.shift(signal_delay, fill_value=fill_value))
+                out = shifted.iloc[_n_pre:]
+                out.index = common_index   # 이어 붙인 인덱스의 dtype·이름 차이를 지운다(vbt strict 정렬)
+                return out
 
             price_df = price_df.ffill().bfill()
             exec_px_df = pd.DataFrame(all_exec_prices, index=common_index, columns=processed_symbols).ffill().bfill()
@@ -1094,8 +1186,14 @@ class BacktestEngine:
             exts_df = pd.DataFrame(np.where(_raw_exts.isna(), False, _raw_exts).astype(bool), index=common_index, columns=processed_symbols)
 
             if exec_type == 'next_open':
-                ents_df = ents_df.shift(signal_delay, fill_value=False)
-                exts_df = exts_df.shift(signal_delay, fill_value=False)
+                ents_df = _delay_to_window(_extend(ents_df, _pre_panel("entries").eq(True)), fill_value=False)
+                exts_df = _delay_to_window(_extend(exts_df, _pre_panel("exits").eq(True)), fill_value=False)
+                # 창 첫날 체결의 사유는 창 직전 신호 봉의 사유다 — 결과 처리기가 체결일 직전 사유를 찾는다.
+                for _s, _p in all_pre.items():
+                    if _s in all_entry_reasons:
+                        all_entry_reasons[_s] = pd.concat([_p["entry_reasons"], all_entry_reasons[_s]])
+                    if _s in all_exit_reasons:
+                        all_exit_reasons[_s] = pd.concat([_p["exit_reasons"], all_exit_reasons[_s]])
             ents_df &= available_df
             exts_df &= available_df
 
@@ -1137,6 +1235,13 @@ class BacktestEngine:
                     dtype=float,
                 )
                 mcap_static = price_df.mul(shares_vec, axis=1) / 1e8   # 억원 — 실측 컬럼과 단위 통일
+                # 창 직전 N거래일(next_open shift 원천)을 앞에 붙여 같은 규칙으로 판정한다.
+                _pre_close = _pre_panel("close").astype(float)
+                mcap_static = _extend(mcap_static, _pre_close.mul(shares_vec, axis=1) / 1e8)
+                _pre_avail = _pre_close.notna()
+                if all_trading_values:
+                    _pre_avail &= ~_pre_panel("trading_value").astype(float).eq(0.0)
+                _avail_ext = _extend(available_df, _pre_avail)
                 _pit_ratio = 0.0
                 if all_market_caps:
                     mcap_pit = pd.DataFrame(
@@ -1146,16 +1251,18 @@ class BacktestEngine:
                     _avail_cells = int(available_df.values.sum())
                     _pit_cells = int((mcap_pit.notna() & available_df).values.sum())
                     _pit_ratio = _pit_cells / _avail_cells if _avail_cells else 0.0
+                    mcap_pit = _extend(mcap_pit, _pre_panel("market_cap").astype(float))
+                    mcap_pit = mcap_pit.where(mcap_pit > 0)
                     mcap = mcap_pit.where(mcap_pit.notna(), mcap_static)
                 else:
                     mcap = mcap_static
-                mcap = mcap.where(available_df)
+                mcap = mcap.where(_avail_ext)
                 mcap_rank = mcap.rank(axis=1, ascending=False, method="first")
                 large_cap_mask = (mcap_rank <= _index_top_n).fillna(False)
                 if exec_type == 'next_open':
                     # 진입 신호는 이미 1일 shift됨 — 시총 순위도 전일 종가 기준으로
                     # 맞춰야 당일 종가를 미리 아는 look-ahead가 없다.
-                    large_cap_mask = large_cap_mask.shift(signal_delay, fill_value=False)
+                    large_cap_mask = _delay_to_window(large_cap_mask, fill_value=False)
                 ents_df &= large_cap_mask
                 _index_label = "KOSDAQ150" if _index_top_n == 150 else "KOSPI200"
                 if _pit_ratio >= 0.99:
@@ -1165,6 +1272,16 @@ class BacktestEngine:
                         rw.INDEX_TOP_N_APPROXIMATED,
                         _index_top_n, f"{(1 - _pit_ratio) * 100:.0f}", _index_label,
                     ))
+
+            # 랭킹 단독 전략 후보 풀의 유동성 게이트(C4) — next_open이면 창 직전 원천과 함께 민다.
+            _liq_pool = None
+            if all_liquidity:
+                _liq_pool = pd.DataFrame(
+                    all_liquidity, index=common_index, columns=processed_symbols
+                ).eq(True)  # NaN(데이터 없는 날) → False, bool dtype 보장
+                if exec_type == 'next_open':
+                    _liq_pool = _delay_to_window(
+                        _extend(_liq_pool, _pre_panel("liquidity").eq(True)), fill_value=False)
 
             rank_df = None
             _tiebreak_rank_used = False
@@ -1192,9 +1309,10 @@ class BacktestEngine:
                     # NaN → 아래 valid 마스크가 후보에서 배제한다.
                     if ranking_metric == 'relative_return':
                         from engine.market_index import relative_return_panel
-                        momentum = relative_return_panel(raw_price_df, lookback, self.loader.data_dir)
+                        momentum = relative_return_panel(rank_price_df, lookback, self.loader.data_dir)
                     else:
-                        momentum = lookback_return_panel(raw_price_df, lookback)
+                        momentum = lookback_return_panel(rank_price_df, lookback)
+                    momentum = _to_ext(momentum)
                     pct = momentum.rank(axis=1, pct=True)
                     # 방향(v16.2): top(기본)=수익률 높은 순, bottom=낮은 순(역발상 — '최근
                     # 3개월 수익률 오름차순'). 변동성·재무·복합 분기는 모두 direction을 읽는데
@@ -1205,24 +1323,16 @@ class BacktestEngine:
                     # 그러지 않으면 순위가 0으로 동률이 되어 임의 종목을 사서 들고 있게 된다.
                     valid = momentum.notna()
                     if exec_type == 'next_open':
-                        rank_df = rank_df.shift(signal_delay)
-                        valid = valid.shift(signal_delay, fill_value=False)
-                    rank_df = rank_df.fillna(0.0)
+                        rank_df = _delay_to_window(rank_df)
+                        valid = _delay_to_window(valid, fill_value=False)
+                    rank_df = _to_window(rank_df).fillna(0.0)
+                    valid = _to_window(valid).fillna(False).astype(bool)
                     # 진입 신호가 없으면(선정=진입) 수익률이 정의된 전 종목을 후보로 만들어 상위 K를 채운다.
                     # C4: 이 오버라이드가 대형주(KOSPI200) 마스크와 유동성 게이트를
                     # 덮어쓰지 않도록 두 마스크를 후보 풀에 다시 결합한다.
                     _entry_conditions = (req.get('entry') or {}).get('conditions') or []
                     if not _entry_conditions:
-                        pool = available_df & valid
-                        if large_cap_mask is not None:
-                            pool &= large_cap_mask
-                        if all_liquidity:
-                            liq_df = pd.DataFrame(
-                                all_liquidity, index=common_index, columns=processed_symbols
-                            ).eq(True)  # NaN(데이터 없는 날) → False, bool dtype 보장
-                            if exec_type == 'next_open':
-                                liq_df = liq_df.shift(signal_delay, fill_value=False)
-                            pool &= liq_df
+                        pool = self._ranking_selection_pool(available_df, valid, large_cap_mask, _liq_pool)
                         ents_df = pool
 
                         # 랭킹 매수는 개별 조건식이 없어 SignalEngine이 사유를 만들지 못하고
@@ -1268,7 +1378,7 @@ class BacktestEngine:
                     # price_df(ffill+bfill)가 아니라 raw_price_df를 쓴다 — 상장 전 bfill
                     # 구간의 가짜 0% 수익률이 변동성을 0으로 위장해 신규 상장 종목이
                     # 최상위로 선정되는 오염 방지(v13.2, 함수 docstring 참조).
-                    vol_df = annualized_volatility_panel(raw_price_df, lookback)
+                    vol_df = _to_ext(annualized_volatility_panel(rank_price_df, lookback))
                     pct = vol_df.rank(axis=1, pct=True)
                     _direction = str(risk_params.get('ranking_direction') or 'bottom')
                     rank_df = (1.0 - pct) if _direction == 'bottom' else pct
@@ -1276,22 +1386,14 @@ class BacktestEngine:
                     # (momentum 분기와 같은 이유 — 0 동률로 임의 종목이 선정되는 것 방지).
                     valid = vol_df.notna()
                     if exec_type == 'next_open':
-                        rank_df = rank_df.shift(signal_delay)
-                        valid = valid.shift(signal_delay, fill_value=False)
-                    rank_df = rank_df.fillna(0.0)
+                        rank_df = _delay_to_window(rank_df)
+                        valid = _delay_to_window(valid, fill_value=False)
+                    rank_df = _to_window(rank_df).fillna(0.0)
+                    valid = _to_window(valid).fillna(False).astype(bool)
                     _entry_conditions = (req.get('entry') or {}).get('conditions') or []
                     if not _entry_conditions:
                         # 랭킹 단독 전략(선정=진입): 대형주 마스크·유동성 게이트 재결합(C4와 동일).
-                        pool = available_df & valid
-                        if large_cap_mask is not None:
-                            pool &= large_cap_mask
-                        if all_liquidity:
-                            liq_df = pd.DataFrame(
-                                all_liquidity, index=common_index, columns=processed_symbols
-                            ).eq(True)
-                            if exec_type == 'next_open':
-                                liq_df = liq_df.shift(signal_delay, fill_value=False)
-                            pool &= liq_df
+                        pool = self._ranking_selection_pool(available_df, valid, large_cap_mask, _liq_pool)
                         ents_df = pool
 
                         # 매수 사유: 그날의 변동성 백분위(momentum 분기와 같은 계약).
@@ -1327,10 +1429,12 @@ class BacktestEngine:
                 # 정의되지 않으므로 — 중립값 위장 금지, 재무 랭킹 NaN 계약과 동일). 구성 지표의
                 # 순위는 전 지표가 정의된 종목 풀 안에서만 매긴다(그래야 백분위 평균 = 순위 합산).
                 rank_df, valid, _missing_labels = self._composite_rank_panel(
-                    _rank_components, raw_price_df, all_fund_rank_values,
+                    _rank_components, rank_price_df, all_fund_rank_values,
                     common_index, processed_symbols, exec_type,
                     default_lookback=risk_params.get('ranking_lookback_days'),
                     signal_delay=signal_delay, data_dir=self.loader.data_dir,
+                    ext_index=ext_index,
+                    pre_fund_values={m: _pre_panel("fund_rank_values", m) for m in _rank_metric_cols},
                 )
                 if _missing_labels:
                     self.warnings.add(rw.warning(
@@ -1341,10 +1445,7 @@ class BacktestEngine:
                     if not _entry_conditions:
                         # 랭킹 단독 전략(선정=진입): 다른 랭킹 분기와 같은 후보 풀 계약
                         # (대형주 마스크·유동성 게이트 재결합)과 매수 사유 계약.
-                        pool = self._ranking_selection_pool(
-                            available_df, valid, large_cap_mask, all_liquidity,
-                            common_index, processed_symbols, exec_type, signal_delay,
-                        )
+                        pool = self._ranking_selection_pool(available_df, valid, large_cap_mask, _liq_pool)
                         ents_df = pool
                         _rebal_kr = _REBAL_PERIOD_TEMPLATES.get(
                             str(risk_params.get('rebalancing_period') or ''), '')
@@ -1383,10 +1484,12 @@ class BacktestEngine:
                     metric_df = pd.DataFrame(
                         all_fund_rank_values[ranking_metric], index=common_index,
                         columns=processed_symbols,
-                    ).ffill()
+                    )
+                    metric_df = _extend(metric_df, _pre_panel("fund_rank_values", ranking_metric).astype(float)).ffill()
                     if exec_type == 'next_open':
                         # 진입 신호는 이미 1일 shift됨 — 랭킹도 전일 값 기준으로 맞춘다(look-ahead 방지).
-                        metric_df = metric_df.shift(signal_delay).ffill()
+                        # 창 첫날은 창 직전 거래일 값(v16.12).
+                        metric_df = _delay_to_window(metric_df).ffill()
                     pct = metric_df.rank(axis=1, pct=True)
                     # top=값 높은 순(기본), bottom=값 낮은 순(예: 'PER 낮은 상위 N종목').
                     _direction = str(risk_params.get('ranking_direction') or 'top')
@@ -1397,16 +1500,7 @@ class BacktestEngine:
                     if not _entry_conditions:
                         # 랭킹 단독 전략(선정=진입): 값이 정의된 전 종목을 후보로 만들되
                         # 대형주 마스크·유동성 게이트를 다시 결합한다(momentum 분기 C4와 동일).
-                        pool = available_df & valid
-                        if large_cap_mask is not None:
-                            pool &= large_cap_mask
-                        if all_liquidity:
-                            liq_df = pd.DataFrame(
-                                all_liquidity, index=common_index, columns=processed_symbols
-                            ).eq(True)
-                            if exec_type == 'next_open':
-                                liq_df = liq_df.shift(signal_delay, fill_value=False)
-                            pool &= liq_df
+                        pool = self._ranking_selection_pool(available_df, valid, large_cap_mask, _liq_pool)
                         ents_df = pool
 
                         # 매수 사유: 그날의 지표 백분위(momentum 분기와 같은 계약 —
@@ -1447,10 +1541,11 @@ class BacktestEngine:
                 try:
                     from engine.indicators import lookback_return_panel
 
-                    _tiebreak = lookback_return_panel(raw_price_df, _TIEBREAK_LOOKBACK_DAYS)
+                    _tiebreak = _to_ext(lookback_return_panel(rank_price_df, _TIEBREAK_LOOKBACK_DAYS))
                     rank_df = _tiebreak.rank(axis=1, pct=True)
                     if exec_type == 'next_open':
-                        rank_df = rank_df.shift(signal_delay)
+                        rank_df = _delay_to_window(rank_df)
+                    rank_df = _to_window(rank_df)
                     # 수익률이 정의되지 않은 종목(신규 상장 등)은 후보에서 빼지 않고 최하위로
                     # 둔다 — 후보 자격은 매수 조건이 정하므로 우선순위만 뒤로 보낸다.
                     rank_df = rank_df.fillna(0.0)
@@ -1570,6 +1665,7 @@ class BacktestEngine:
                 benchmark_label=_benchmark_name,
                 risk_free_rate=float(options.get('risk_free_rate') or 0.0),
                 exit_reason_overrides=getattr(self.simulator, 'exit_reason_overrides', None),
+                entry_reason_overrides=getattr(self.simulator, 'entry_reason_overrides', None),
             )
             final["universe_id"] = req.get('universe_id') or ''
             # 이 결과가 실제로 적용한 거래 비용 — 설정 화면 값이 아니라 엔진이 해석한 값을 결과

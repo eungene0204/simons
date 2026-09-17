@@ -91,7 +91,8 @@ export class BacktestService {
         volatility: Number(pythonResult.volatility),
         trades: Number(pythonResult.trades),
         finalEquity: pythonResult.equity[pythonResult.equity.length - 1],
-        initialCapital: pythonResult.equity[0],
+        // 초기자본은 엔진 동봉값(v16.12) — equity[0]은 첫 거래일 종가 평가액이라 첫날 체결이 있으면 다르다.
+        initialCapital: pythonResult.initialCapital ?? pythonResult.equity[0],
         equity: pythonResult.equity,
         benchmarkEquity: pythonResult.benchmark_equity,
         dates: pythonResult.dates,

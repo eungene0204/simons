@@ -931,6 +931,9 @@ export function WalkForwardPanel({
   const resultParameterKeys = Object.keys(paramLabelByKey).filter((key) =>
     result?.windows.some((window) => Object.prototype.hasOwnProperty.call(window.best_params ?? {}, key))
   );
+  // 결과 표·분석 카드의 값 단위 — 설정 카드("3%p~37.5%p", "3종목~7종목")와 같은 단위 표를 쓴다.
+  const resultParamUnit = (key: string) =>
+    getParameterStepConfig(paramLabelByKey[key] ?? humanizeParamKey(key)).unit;
   const parameterAnalyses = resultParameterKeys
     .map((key) => buildParameterAnalysis(key, paramLabelByKey[key], result?.windows ?? []))
     .filter((analysis): analysis is WalkForwardParameterAnalysis => analysis !== null);
@@ -1761,7 +1764,9 @@ export function WalkForwardPanel({
                               <td key={key} className="px-3 py-4 text-sm font-black tabular-nums text-white font-outfit">
                                 {window.best_params?.[key] === null || window.best_params?.[key] === undefined
                                   ? "-"
-                                  : String(window.best_params[key])}
+                                  : typeof window.best_params[key] === "number"
+                                    ? formatStepWithUnit(window.best_params[key] as number, resultParamUnit(key))
+                                    : String(window.best_params[key])}
                               </td>
                             ))}
                           </tr>
@@ -1800,12 +1805,12 @@ export function WalkForwardPanel({
                           <div className="mt-3 border-t border-white/[0.10]" />
                           <dl className="mt-3 space-y-2.5">
                             {[
-                              { label: t("대표값"), value: formatParameterAnalysisValue(analysis.representative) },
-                              { label: t("평균"), value: formatParameterAnalysisValue(analysis.mean) },
-                              { label: t("표준편차"), value: formatParameterAnalysisValue(analysis.standardDeviation) },
+                              { label: t("대표값"), value: `${formatParameterAnalysisValue(analysis.representative)}${t(resultParamUnit(analysis.key))}` },
+                              { label: t("평균"), value: `${formatParameterAnalysisValue(analysis.mean)}${t(resultParamUnit(analysis.key))}` },
+                              { label: t("표준편차"), value: `${formatParameterAnalysisValue(analysis.standardDeviation)}${t(resultParamUnit(analysis.key))}` },
                               {
                                 label: t("범위"),
-                                value: `${formatParameterAnalysisValue(analysis.min)} ~ ${formatParameterAnalysisValue(analysis.max)}`,
+                                value: `${formatParameterAnalysisValue(analysis.min)}${t(resultParamUnit(analysis.key))} ~ ${formatParameterAnalysisValue(analysis.max)}${t(resultParamUnit(analysis.key))}`,
                               },
                             ].map((item) => (
                               <div key={item.label} className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3">

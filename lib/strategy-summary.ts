@@ -980,6 +980,14 @@ interface ExecutedBacktestRequest {
   options?: Record<string, unknown> | null;
 }
 
+/** 실행 요청·캐논 DSL의 대상 종목이 후보군인가 — 판정 정본은 백엔드 `engine/selection_scope.py`이고,
+ * 변환기가 그 결과를 `risk.ranking_enabled`(지정=false, 후보군=true)로 싣는다. 후보군은 그중에서
+ * 골라 사므로 "지정 종목 N개 균등 투자"가 아니라 유니버스 전략과 같은 보유 수 문구를 쓴다
+ * (2026-09-17 실측: 테마 66종목 중 60일 수익률 상위 5종목 전략이 "66개 균등 투자"로 표시됐다). */
+function isCandidatePoolRisk(risk: unknown): boolean {
+  return (risk as { ranking_enabled?: unknown } | null | undefined)?.ranking_enabled === true;
+}
+
 function resolveUniverseLabelFromId(universeId: string | null | undefined): string {
   const raw = (universeId ?? "").trim();
   if (!raw) return "";
@@ -1068,7 +1076,7 @@ export function buildStrategySummaryFromRequest(
     blockNames: [...entryBlocks, ...exitBlocks],
     entryBlocks,
     exitBlocks,
-    positionText: targetStockLabels.length
+    positionText: targetStockLabels.length && !isCandidatePoolRisk(risk)
       ? `${targetStockLabels.length === 1 ? t("단일 종목 집중 투자") : t("지정 종목 {0}개 균등 투자", targetStockLabels.length)}${maxHoldingDays ? t(" · {0}일 보유", maxHoldingDays) : ""}`
       : maxPositions
         ? `${t("최대 {0}종목", maxPositions)}${maxHoldingDays ? t(" · {0}일 보유", maxHoldingDays) : ""}`
@@ -1369,7 +1377,7 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
     blockNames: [...entryBlocks, ...exitBlocks],
     entryBlocks,
     exitBlocks,
-    positionText: targetSymbols.length
+    positionText: targetSymbols.length && !isCandidatePoolRisk(strategy.risk)
       ? `${targetSymbols.length === 1 ? t("단일 종목 집중 투자") : t("지정 종목 {0}개 균등 투자", targetSymbols.length)}${maxHoldingDays ? t(" · {0}일 보유", maxHoldingDays) : ""}`
       : maxPositions
         ? `${t("포지션/비중 최대 {0}종목", maxPositions)}${maxHoldingDays ? t(" · {0}일 보유", maxHoldingDays) : ""}`

@@ -79,6 +79,22 @@ REBALANCE_EXIT_REASON = tr.encode([tr.part(tr.REBALANCE_DROPOUT)])
 REBALANCE_TRIM_REASON = tr.encode([tr.part(tr.REBALANCE_TRIM)])
 
 
+def stop_loss_refill_reserve(cand_sorted, sel_band):
+    """손절 종목을 대신할 후보의 랭킹 순서(v16.12) — 리밸런싱일 선정과 같은 범위.
+
+    반환 (후보 배열, 첫 후보의 리밸런싱일 순위 - 1). 상위 K·상위 X%는 리밸런싱일 후보 전체
+    (선정 밖 = 다음 순위부터), 분위 그룹은 자기 구간 안(그룹당 상한 밖 종목)만 — 다음 그룹
+    종목을 끌어오면 그룹 비교가 섞인다. 순위는 구간 기준이 아니라 후보 전체 기준이다.
+    """
+    if sel_band:
+        n = len(cand_sorted)
+        g, groups = int(sel_band[0]), int(sel_band[1])
+        lo = round((g - 1) * n / groups)
+        hi = n if g >= groups else round(g * n / groups)
+        return cand_sorted[lo:hi], lo
+    return cand_sorted, 0
+
+
 def select_ranked_targets(cand_sorted, eff_max_pos, sel_pct, sel_band, band_cap=None):
     """랭킹 내림차순 후보 배열에서 목표 종목을 고른다 (FR-BT-060).
 
@@ -137,6 +153,9 @@ class Simulator:
         # {symbol: {날짜문자열: 정밀 청산 사유}} — 신호/리스크로 설명되지 않는 청산
         # (리밸런싱 편출 등)의 사유를 체결일 기준으로 남겨 result_handler가 우선 적용한다.
         self.exit_reason_overrides: Dict[str, Dict[str, str]] = {}
+        # {symbol: {체결일: 매수 사유}} — 랭킹 사유 배열로 설명되지 않는 매수(손절 종목 대체
+        # 편입, v16.12)의 사유. result_handler가 신호 사유보다 우선 적용한다.
+        self.entry_reason_overrides: Dict[str, Dict[str, str]] = {}
         # 매수 조건 충족 종목이 빈 자리(슬롯)보다 많아 순위가 골라야 했던 날 수(v16.3) —
         # 엔진이 "무엇이 골랐는지" 고지할지 판정하는 근거(랭킹을 말하지 않은 전략의 넘친 날).
         self.overflow_days: int = 0
@@ -286,6 +305,16 @@ class Simulator:
         # 비중만 되돌리므로 리밸런싱일마다 보유 전체에 목표비중을 다시 준다.
         current_target_mask = np.zeros(num_symbols, dtype=bool)
         rank_values_all = rank_df.values if rank_df is not None else None
+        # 손절 종목 대체 편입(v16.12, 사용자 결정): 순위가 있는 달력 회전(선정=진입)에서 손절로
+        # 청산된 종목은 **그 리밸런싱 기간의 목표에서 빠지고**, 빈자리는 그 리밸런싱일 랭킹의
+        # 다음 순위 후보가 채운다. 종전엔 목표 집합에 남아 다음 거래일에 같은 종목을 다시 샀다
+        # (2026-09-17 실측: 아티스트컴퍼니 2024-01 손절→재매수 3회). 다음 리밸런싱일엔 다시
+        # 정상 후보다. 익절·트레일링·보유 기간 만료·매수 조건 전략은 대상이 아니다(미결정).
+        stop_refill = rebalance_mode and not entry_signal_driven and rank_values_all is not None
+        refill_reserve = np.empty(0, dtype=np.int64)    # 리밸런싱일 랭킹 순서(선정 범위)
+        refill_offset = 0                                # refill_reserve[0]의 리밸런싱일 순위 - 1
+        refill_rank = np.zeros(num_symbols, dtype=np.int64)   # 대체 편입 후보의 리밸런싱일 순위(0=아님)
+        stopped_this_period = np.zeros(num_symbols, dtype=bool)
         # 비율/분위 선정 모드에선 목표 종목 수가 리밸런싱일마다 달라진다 — 슬롯 상한과
         # 동일가중 비중을 그때그때 갱신한다(기본 모드에선 기존 정적 값 유지).
         cur_cap = eff_max_pos
@@ -306,6 +335,7 @@ class Simulator:
 
             # Step 2: 당일 리스크 평가 — 장중 low/high로 감지(종가 감지는 장중
             # 급락/급등을 놓친다), 체결은 exec_type 타이밍의 시장가.
+            stop_loss_hit = None
             if active_mask.any():
                 closes = price_values[i]
                 highs = high_values[i]
@@ -316,6 +346,7 @@ class Simulator:
                     peak_price = np.where(active_mask, np.maximum(peak_price, highs), peak_price)
 
                 should_exit = np.zeros(num_symbols, dtype=bool)
+                stop_loss_hit = np.zeros(num_symbols, dtype=bool)
                 # 이미 청산 예약된 종목은 재평가/사유 덮어쓰기에서 제외한다.
                 base = active_mask & ~pending_exit
 
@@ -335,6 +366,7 @@ class Simulator:
                         hit = base & ~should_exit & (low_ret <= (-sl_pct + EPS))
                         exit_reason_pending[hit] = sl_reason
                         should_exit |= hit
+                        stop_loss_hit = hit
                     if tp_pct > 0:
                         high_ret = (highs - safe_entry) / safe_entry * 100
                         hit = base & ~should_exit & (high_ret >= (tp_pct - EPS))
@@ -381,6 +413,11 @@ class Simulator:
                         current_target_mask[fills] = True
                 else:
                     current_target_mask[sel] = True
+                if stop_refill:
+                    # 새 기간 — 손절 이력·대체 후보 표식을 비우고 이번 리밸런싱일 순위로 갈아 끼운다.
+                    refill_reserve, refill_offset = stop_loss_refill_reserve(cand, sel_band)
+                    refill_rank[:] = 0
+                    stopped_this_period[:] = False
                 if sel_pct or sel_band:
                     cur_cap = max(len(sel), 1)
                     if risk_params.get('allocation_type') == 'equal':
@@ -417,6 +454,24 @@ class Simulator:
                         exits_values[i] |= exec_now
                         _book_exit(i, exec_now)
 
+            # 손절 종목 대체(v16.12): 오늘 손절이 결정된 종목을 이번 기간 목표에서 빼고, 리밸런싱일
+            # 랭킹의 다음 순위(목표·보유·청산 대기·이번 기간 손절 종목 제외)로 채운다. 리밸런싱
+            # 단계 뒤에 두는 이유: 리밸런싱일 장중에 손절된 종목은 새 기간의 손절이다.
+            # 후보 풀은 리밸런싱일 선정과 같은 마스크(가용·유동성·시총)를 이미 통과한 목록이고,
+            # 체결 가능 여부는 원래 목표 종목과 똑같이 아래 Step 3이 거래일마다 판정한다.
+            if stop_refill and stop_loss_hit is not None and stop_loss_hit.any():
+                for s_idx in np.where(stop_loss_hit & current_target_mask)[0]:
+                    current_target_mask[s_idx] = False
+                    stopped_this_period[s_idx] = True
+                    refill_rank[s_idx] = 0
+                    for pos, c in enumerate(refill_reserve):
+                        if (current_target_mask[c] or stopped_this_period[c]
+                                or active_mask[c] or pending_exit[c]):
+                            continue
+                        current_target_mask[c] = True
+                        refill_rank[c] = refill_offset + pos + 1
+                        break
+
             # Step 3: Process new entries after exits freed slots.
             # 리밸런싱 모드에서는 '현재 목표 집합'만 진입 후보로 본다(목표가 채워질
             # 때까지 후속 거래일에도 빈 슬롯을 메운다). 같은 날 청산이 예정/실행된
@@ -450,6 +505,11 @@ class Simulator:
                         peak_price[s_idx] = ep   # Fix 1: init peak at entry price
                         target_values[i, s_idx] = cur_size
                         fees_values[i, s_idx] = buy_fee
+                        if refill_rank[s_idx] > 0:
+                            self.entry_reason_overrides.setdefault(symbols[s_idx], {})[date_strs[i]] = (
+                                tr.encode([tr.part(tr.STOP_LOSS_REFILL, int(refill_rank[s_idx]))])
+                            )
+                            refill_rank[s_idx] = 0
 
         target_df = pd.DataFrame(target_values, index=entries_df.index, columns=entries_df.columns)
 

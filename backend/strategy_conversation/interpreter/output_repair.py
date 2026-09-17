@@ -164,6 +164,61 @@ def salvage_clarification_questions(raw_text: str) -> list:
     return []
 
 
+def echoes_whole_input(text: Optional[str], user_input: Optional[str]) -> bool:
+    """LLM 출력 문자열이 사용자 입력 **전체**와 표기상 같은가(공백·대소문자 정규화 후 동일).
+
+    LLM 출력과 입력의 문자열 대조다 — 원문의 의미를 읽지 않는다(계약 § 3-1).
+    """
+    from engine.nl_parser import _compact
+
+    compact_input = _compact(user_input or "")
+    return bool(compact_input) and _compact(text or "") == compact_input
+
+
+def extracted_other_slots(strategy) -> bool:
+    """같은 출력이 조건 말고 다른 칸(유니버스·랭킹·포트폴리오·리스크·백테스트)도 채웠는가.
+
+    출력 필드의 값 존재만 본다(기본값과 다른 필드가 하나라도 있는가) — 원문을 읽지 않는다.
+    """
+    if strategy.ranking:
+        return True
+    return any(
+        section.model_dump(exclude_defaults=True)
+        for section in (strategy.universe, strategy.portfolio,
+                        strategy.risk_management, strategy.backtest)
+    )
+
+
+def whole_input_quote_fields(intent, user_input: Optional[str]) -> list:
+    """source_text에 입력 전체를 담은 조건의 필드 경로 목록(형식 위반).
+
+    프롬프트 규칙 4는 source_text를 **그 조건을 말한 원문 조각**으로 정한다. 같은 출력이
+    다른 칸(랭킹·종목 수·손절·기간·자본·유니버스 등)까지 뽑아냈다면 입력에는 그 조건 말고도
+    다른 말이 있다는 뜻이므로, 입력 전체는 조각이 아니다 — 출처 주장이 성립하지 않는다
+    (2026-09-17 실측: 120B가 전체 문장을 인용으로 단 ma_crossover 매수 조건을 지어냈다).
+    다른 칸이 비어 있으면(조건 하나뿐인 입력 "PER 10 이하") 입력 전체가 곧 정당한 조각이라
+    위반이 아니다(사용자 결정 2026-09-17 (a) — 출력 필드끼리의 구조 대조만 한다).
+    """
+    strategy = getattr(intent, "strategy", None)
+    if strategy is None or not extracted_other_slots(strategy):
+        return []
+    return [
+        f"strategy.{role}[{index}].source_text"
+        for role in ("entry_conditions", "exit_conditions")
+        for index, cond in enumerate(getattr(strategy, role))
+        if cond.source_text and echoes_whole_input(cond.source_text, user_input)
+    ]
+
+
+def whole_input_quote_error(fields: list) -> str:
+    """형식 위반을 LLM에 되돌려줄 검증 오류 문구(build_repair_prompt의 error_message)."""
+    return "\n".join(
+        f"{path}: 입력 문장 전체를 담았습니다. source_text는 그 조건을 말한 입력 조각이어야 "
+        "합니다(규칙 4). 그 조건을 말한 조각이 입력에 없으면 그 조건을 출력하지 마세요."
+        for path in fields
+    )
+
+
 def build_repair_prompt(
     user_input: str,
     bad_output: str,

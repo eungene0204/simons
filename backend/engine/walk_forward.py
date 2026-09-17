@@ -652,6 +652,8 @@ class WalkForwardAnalyzer:
             oos_result = self.engine.run_backtest(oos_req)
             result["oos_metrics"] = {k: oos_result.get(k) for k in METRIC_KEYS}
             result["oos_equity"] = oos_result.get("equity", [])
+            # 창 연결의 기준 — equity[0]은 첫 거래일 종가 평가액이라 첫날 손익이 들어 있다(v16.12).
+            result["oos_initial_capital"] = oos_result.get("initialCapital")
             result["oos_dates"] = oos_result.get("dates", [])
         except Exception as e:
             print(f"[WFA] Window {window_idx} OOS backtest failed: {e}", flush=True)
@@ -691,8 +693,10 @@ class WalkForwardAnalyzer:
             if not eq or not dt:
                 continue
 
-            # Normalize this window's equity to start from running_base
-            first_val = eq[0] if eq[0] != 0 else 1.0
+            # Normalize this window's equity to start from running_base — 기준은 창의 초기자본
+            # (없으면 첫 값). 첫 값으로 나누면 창마다 첫날 손익이 연결 곡선에서 사라진다(v16.12).
+            base_val = w.get("oos_initial_capital") or eq[0]
+            first_val = base_val if base_val else 1.0
             for i, (e, d) in enumerate(zip(eq, dt)):
                 norm = e / first_val * running_base
                 combined_equity.append(round(norm, 2))

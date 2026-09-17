@@ -41,7 +41,9 @@ export function mapRawBacktestResult(
     maxConsecutiveWins: raw.maxConsecutiveWins ?? 0,
     maxConsecutiveLosses: raw.maxConsecutiveLosses ?? 0,
     finalEquity: equity[equity.length - 1] ?? 0,
-    initialCapital: equity[0] ?? 0,
+    // 초기자본은 엔진 동봉값(v16.12) — equity[0]은 첫 거래일 종가 평가액이라 첫날 체결이 있으면 다르다.
+    // 동봉이 없는 옛 결과만 equity[0]으로 대신한다.
+    initialCapital: raw.initialCapital ?? equity[0] ?? 0,
     equity,
     benchmarkEquity: raw.benchmark_equity,
     benchmarkLabel: raw.benchmark_label,

@@ -14,7 +14,10 @@ _BASE_DIR = Path(__file__).resolve().parent.parent
 # v7: 섹터 큐에 '중심/위주' 추가 — "반도체 중심으로"가 섹터 없이 파싱된 결과 무효화
 # v8: '로봇' 독립 정본 섹터 신설(기계/장비에서 분리) + 다중 섹터 — 로봇이 미지원 안내
 #     또는 기계/장비로 파싱된 결과 무효화
-NL_PARSER_CACHE_VERSION = "8"
+# v9: 입력 전체를 인용한 조건 = 형식 위반(1회 재생성 → 잔존 시 안내 없이 제거) — 문장 전체를
+#     "'…'는 이동평균 조건이 아니어서"로 되돌려주던 안내가 담긴 결과 무효화(2026-09-17)
+#     + 조건 인용 판정(다른 설정 문구·신고가 오분류)을 어휘 정규식에서 LLM 조건 인용 대조로 이관
+NL_PARSER_CACHE_VERSION = "9"
 _UNIVERSE_FILES = (
     _BASE_DIR / "data" / "korea-stocks.json",
     _BASE_DIR / "data" / "kospi200-cache.json",

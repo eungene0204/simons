@@ -31,6 +31,7 @@ from engine import strategy_slots
 from strategy_conversation import config
 from strategy_conversation.conversation.change_log import changed_field_names
 from strategy_conversation.interpreter.llm_strategy_interpreter import _log_llm
+from strategy_conversation.interpreter import quote_check
 from strategy_conversation.interpreter.models import StrategyCondition, StrategyIntent, ValidationReport
 from strategy_conversation.registry.indicator_registry import REGISTRY, resolve
 from strategy_conversation.response.output_guard import finalize_user_response
@@ -523,12 +524,9 @@ def _reported_features_echo_input(features: List[str], user_input: str) -> bool:
     입력은 LLM 출력과 사용자 입력의 **대조**다 — 표기를 지우고 같은 문자열인지만 본다.
     원문의 의미를 읽지 않으므로 해석이 아니다(계약 § 3-1 (b), 수치 대조와 같은 형태).
     """
-    from engine.nl_parser import _compact
+    from strategy_conversation.interpreter.output_repair import echoes_whole_input
 
-    compact_input = _compact(user_input or "")
-    if not compact_input:
-        return False
-    return any(_compact(f or "") == compact_input for f in features)
+    return any(echoes_whole_input(f, user_input) for f in features)
 
 
 def _substituted_factor(cond: Any, spec: Any, registry: Any) -> bool:
@@ -1000,63 +998,6 @@ _MA_PERIOD_IN_QUOTE_RE = re.compile(
     r"|-?day(?:line|sma|ema|movingaverage|ma(?![a-z])))")
 
 
-# 이동평균 조건임을 뒷받침하는 인용 어휘(이 중 하나도 없으면 근거가 인용에 없다).
-_MA_VOCAB_RE = re.compile(
-    r"이동평균|이평|ema|지수이동평균|\d+일선|\d+일이동|골든크로스|데드크로스|크로스|정배열|역배열"
-)
-# 다른 칸(슬롯)이 이미 자리를 가진 개념의 어휘 — 인용이 이쪽이면 매매 신호가 아니다.
-# 숫자를 요구하는 항목은 **숫자가 붙어 있을 때만** 인정한다: '종목'·'보유' 같은 낱말은
-# 전략 서술 어디에나 나와서("추세가 확실히 잡힌 **종목**만"), 낱말만으로 판정하면 정당한
-# 정성 표현 매핑을 잘라낸다(실측 오탐 — 그 조건이 사라지면 이 가드가 막으려던 조용한
-# 소실을 스스로 일으킨다).
-# 리스크 항목은 **어순을 가리지 않는다**(2026-09-16 실측 3/3): "-8% 손절 시 매도"처럼
-# 값이 앞에 오는 표기가 흔한데 '손절→숫자' 한 방향만 보던 탓에 손절 구절을 인용한
-# `ma_crossover` 청산 조건이 그대로 통과해, 사용자가 말한 적 없는 "20일선 하향 이탈"
-# 매도 규칙이 붙었다(손절 -8%는 제 칸에 정상 반영된 채로 **이중 생성**). 어휘는 늘리지
-# 않고 방향만 양쪽으로 연다 — 이동평균 어휘가 인용에 있으면 위에서 이미 빠져나가므로
-# "20일선 이탈 시 손절" 같은 정당한 인용은 이 갈래에 닿지 않는다.
-_OTHER_SLOT_VOCAB_RE = re.compile(
-    r"(?:보유(?:기간)?|최대보유)[^,.]{0,8}\d"
-    r"|\d+\s*(?:종목|개)"
-    r"|(?:손절|익절|트레일링)[^,.]{0,8}\d"
-    r"|\d[^,.]{0,8}(?:손절|익절|트레일링)"
-    r"|리밸런|초기자금|자본금|투자금|백테스트|수수료|슬리피지"
-)
-_MA_FACTORS = ("technical.ema", "technical.ma_crossover",
-               "concept.golden_cross", "concept.dead_cross")
-
-
-def _quote_belongs_to_another_slot(factor: Optional[str], compact_quote: str) -> bool:
-    """이동평균 조건인데 인용이 **다른 슬롯의 문구**인지 판정한다.
-
-    사고(2026-08-18 예시 73): "최대 보유 기간은 25거래일"을 인용으로 달고 `ma_crossover`
-    청산 조건이 만들어졌다 — 사용자가 요청하지 않은 매도 규칙이 조용히 붙는다. 인용이
-    입력에 실재하므로 출처 대조(위)는 통과하고, 값 대조 게이트도 숫자만 보므로 통과한다.
-
-    판정은 두 조건을 **모두** 만족할 때만이다 — ① 인용에 이동평균 어휘가 하나도 없고
-    ② 인용이 이미 제 자리를 가진 다른 설정(보유 기간·손절·종목 수 등)의 문구다.
-    ②를 함께 요구하는 이유: '추세가 확실히 잡힌 종목'처럼 **정성 표현을 이동평균으로
-    매핑하는 것은 정당한 해석**이고(프롬프트 규칙 2), ①만으로 자르면 그 조건까지 사라져
-    이 가드가 막으려던 조용한 소실을 스스로 일으킨다.
-    """
-    if factor not in _MA_FACTORS or not compact_quote:
-        return False
-    if _MA_VOCAB_RE.search(compact_quote):
-        return False
-    return bool(_OTHER_SLOT_VOCAB_RE.search(compact_quote))
-
-
-_BREAKOUT_QUOTE_RE = re.compile(
-    r"신고가|최고가|고점|박스권|박스\s*상단|(?:\d+[- ]?(?:day|week)s?\s+)?high\b|box|range",
-    re.IGNORECASE)
-_BOLLINGER_VOCAB_RE = re.compile(r"볼린저|밴드|bollinger|band", re.IGNORECASE)
-
-
-def _quotes_price_breakout(text: str) -> bool:
-    """인용이 신고가/고점/박스권 돌파를 말하고 볼린저 어휘는 없는가(§ 3-2 인용 판독)."""
-    return bool(_BREAKOUT_QUOTE_RE.search(text)) and not _BOLLINGER_VOCAB_RE.search(text)
-
-
 def _quotes_ema(text: Optional[str]) -> bool:
     """조건의 인용이 EMA(지수이동평균)를 지목하는지. 인용은 LLM 출력이다(§ 3-2)."""
     if not text:
@@ -1258,7 +1199,9 @@ def _dedupe_relative_return_against_ranking(intent: StrategyIntent) -> List[str]
     return notices
 
 
-def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
+def _fill_deterministic_condition_params(
+    intent: StrategyIntent, quote_verdicts: Optional[Any] = None,
+) -> None:
     """LLM 인터프리터가 놓치거나 오분류한 조건을 **그 조건의 source_text**로 교정한다.
 
     입력은 사용자 원문이 아니라 LLM 출력이다 — LLM이 '이 조건의 출처'라고 인용한 짧은
@@ -1295,6 +1238,10 @@ def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
     ④ 금액 임계 검산: 억원 단위 지표(시가총액·거래대금 등)의 value를 인용의 금액
        표기와 대조해 다르면 인용의 환산값으로 교정한다(9B의 영어 단위 미환산 드리프트,
        2026-08-26 실측 — 프롬프트 명시 예시로도 고정 불가).
+
+    ⑤ 신고가/박스권 인용의 볼린저·이동평균 오분류: quote_verdicts(조건 인용 대조 — LLM이 조건마다
+       답한 인용의 신호 종류)가 신고가 돌파라고 답한 조건만 breakout으로 되돌린다. 판정이 없으면
+       교정하지 않는다.
 
     반환값은 사용자에게 보일 안내 문구 목록이다(호출부가 notices에 합친다).
     """
@@ -1350,17 +1297,13 @@ def _fill_deterministic_condition_params(intent: StrategyIntent) -> None:
         spec = REGISTRY.get(cond.factor)
         if spec is None:
             continue
-        # 신고가/박스권 인용의 오분류 교정(§ 3-2 인용 판독): 인용이 고점 돌파·박스권을
-        # 말하는데("break above its 20-day high"·"박스 상단 돌파") 그 지표의 어휘(볼린저
-        # 밴드·이동평균선)가 하나도 없으면 지표가 바뀐 것이다 — 밴드·이평선과 박스권은
-        # 다른 개념이라 신호 의미가 달라진다(실측 2026-08-26, /us 게이트 27·69: 볼린저로,
-        # KR 27 재파싱에선 ma_crossover로 나감 — 같은 드리프트의 두 착지). EMA 인용
-        # 착지(_quotes_ema)와 같은 계약 — 인용에 적힌 지표를 따른다. ma_crossover는
-        # 인용에 이동평균 어휘가 있으면(정당한 '20일선 돌파') 건드리지 않는다.
-        if (cond.source_text and _quotes_price_breakout(cond.source_text)
-                and (spec.id == "technical.bollinger_bands"
-                     or (spec.id == "technical.ma_crossover"
-                         and not _MA_VOCAB_RE.search(_compact(cond.source_text))))):
+        # 신고가/박스권 인용의 오분류 교정: LLM이 볼린저·이동평균 조건의 인용을 신고가·고점·
+        # 박스권 돌파라고 답했으면 지표가 바뀐 것이다 — 밴드·이평선과 박스권은 다른 개념이라
+        # 신호 의미가 달라진다(실측 2026-08-26, /us 게이트 27·69: 볼린저로, KR 27 재파싱에선
+        # ma_crossover로 나감 — 같은 드리프트의 두 착지). 판정은 조건 인용 대조(LLM)의 enum
+        # 값뿐이다 — 종전 어휘 정규식 판독은 2026-09-17 이관으로 제거. 판정이 없으면
+        # (패스 실패·호출 없음) 교정하지 않는다.
+        if quote_check.quote_describes_breakout(quote_verdicts, cond):
             cond.factor = "technical.breakout"
             spec = REGISTRY.get(cond.factor) or spec
         if spec.id == "technical.breakout":
@@ -1523,7 +1466,10 @@ def _quote_has_echo(quote: str, compact_input: str) -> bool:
     return any(quote[i:i + 4] in compact_input for i in range(len(quote) - 3))
 
 
-def _drop_fabricated_conditions(intent: StrategyIntent, user_input: str) -> List[str]:
+def _drop_fabricated_conditions(
+    intent: StrategyIntent, user_input: str,
+    quote_verdicts: Optional[Any] = None,
+) -> List[str]:
     """create 턴 조건의 출처 인용 대조 — 인용이 입력에 없는 조건은 환각으로 보고 뺀다.
 
     수정 패치 환각 게이트 ①(출처 인용 대조)과 같은 판정이다(§ 3-1 대조 — 어휘도 의미도
@@ -1532,6 +1478,10 @@ def _drop_fabricated_conditions(intent: StrategyIntent, user_input: str) -> List
     말한 적 없는 '거래대금 50억 원 이상' 조건을 인용문까지 지어내 조용히 추가했다(프롬프트
     예시 코퍼스 유출). 인용이 없는 조건은 대조 불가라 건드리지 않는다(완결성 검증이 묻는다).
     빼면서 안내를 반환한다 — 조용한 임의 변형 방지가 목적이므로 침묵 제거는 모순이다.
+
+    예외: 인용이 **입력 전체**이고 같은 출력이 다른 칸도 채운 조건은 형식 위반이라(인터프리터가
+    1회 재생성을 요청한 뒤에도 남은 것) 안내 없이 빼고 Trace에만 남긴다 — 인용할 조각이 없어 안내가 사용자 문장 전체를
+    되돌려주게 되고(2026-09-17 사고), 사용자가 말한 조건이 아니므로 알릴 내용도 없다.
     """
     from engine.nl_parser import _compact
 
@@ -1542,24 +1492,58 @@ def _drop_fabricated_conditions(intent: StrategyIntent, user_input: str) -> List
     compact_input = _compact(user_input or "")
     if not compact_input:
         return notices
+    from strategy_conversation.interpreter.output_repair import extracted_other_slots
+
+    # 입력 전체 인용이 형식 위반이 되는 조건 — 인터프리터 재생성 판정과 같은 술어(결정 (a)).
+    whole_input_is_violation = extracted_other_slots(strategy)
+    whole_input_dropped: List[Dict[str, Any]] = []
     for role in ("entry_conditions", "exit_conditions"):
         kept = []
         for cond in getattr(strategy, role):
             quote = _compact(cond.source_text or "")
+            # 인용이 입력 전체 — 출처 주장이 성립하지 않는 **형식 위반**이다(규칙 4는 조각).
+            # 인터프리터가 이미 1회 재생성을 요청했는데도 남은 것이므로 의미 판정에 보내지
+            # 않고 뺀다. 안내하지 않는다: 인용할 조각이 없고(문장 전체를 되돌려주는 안내가
+            # 된다 — 2026-09-17 사고), 사용자가 말한 적 없는 조건이라 알릴 내용도 없다.
+            # 기록은 Trace에 남긴다.
+            if quote and quote == compact_input and whole_input_is_violation:
+                whole_input_dropped.append({"role": role, "factor": cond.factor})
+                continue
             if quote and not _quote_has_echo(quote, compact_input):
                 notices.append(
                     f"'{cond.source_text}' 조건은 요청 문장에서 확인되지 않아 반영하지"
                     " 않았어요."
                 )
                 continue
-            if _quote_belongs_to_another_slot(cond.factor, quote):
-                notices.append(
-                    f"'{cond.source_text}'는 이동평균 조건이 아니어서 매매 신호로 반영하지"
-                    " 않았어요."
-                )
+            # 다른 설정의 문구로 만든 이동평균 신호(2026-08-18 예시 73 "최대 보유 기간은
+            # 25거래일", 2026-09-16 "-8% 손절 시 매도") — 인용이 입력에 실재해 출처 대조를
+            # 통과하는 틈이다. 판정은 조건 인용 대조(LLM)가 "인용이 이 조건을 말하지 않는다"고
+            # **분명히** 답했을 때뿐이다(2026-09-17 어휘 정규식에서 이관, 같은 날 칸 분류 →
+            # 조건 중심 질문으로 교정). unclear·판정 없음은 남긴다.
+            if quote_check.quote_does_not_express(quote_verdicts, cond):
+                source = (cond.source_text or "").strip()
+                if len(source) <= _QUOTED_FEATURE_MAX_LEN:
+                    notices.append(
+                        f"'{source}'는 이동평균 조건이 아니어서 매매 신호로 반영하지 않았어요."
+                    )
+                else:
+                    notices.append(
+                        "요청 문장의 일부 표현은 이동평균 조건이 아니어서 매매 신호로 반영하지"
+                        " 않았어요."
+                    )
                 continue
             kept.append(cond)
         setattr(strategy, role, kept)
+    if whole_input_dropped:
+        from observability import span
+
+        _log_llm("✂ 입력 전체 인용 조건 제거", (
+            ", ".join(f"{d['role']}:{d['factor']}" for d in whole_input_dropped)
+            + " — 형식 위반(재생성 후 잔존), 안내 없음"
+        ))
+        with span("Guard · 입력 전체 인용 조건 제거", "chain",
+                  inputs={"user_input": user_input}) as _trace:
+            _trace.output(dropped=whole_input_dropped)
     return notices
 
 
@@ -1726,6 +1710,48 @@ def _field_states(
         return {}
 
 
+def _check_condition_quotes(
+    intent: Any, user_input: str, chat: Any,
+    only: Optional[List[Any]] = None,
+) -> Optional[Any]:
+    """판정이 결과를 바꿀 수 있는 조건(이동평균·볼린저)의 인용만 LLM에 대조시킨다.
+
+    only: 이 조건들만 대상으로 한다(수정 레인 — 이번 턴에 새로 들어온 조건). 생성 턴에서
+    입력 전체를 인용한 형식 위반 조건은 어차피 빠지므로 묻지 않는다. chat이 없는 주입
+    스텁(테스트·QA 하니스)은 판정 없음으로 진행한다.
+    """
+    from strategy_conversation.interpreter.output_repair import whole_input_quote_fields
+
+    strategy = getattr(intent, "strategy", None)
+    if strategy is None or not callable(chat):
+        return None
+    # 입력 전체 인용 형식 위반은 생성 턴 계약이다(수정 턴의 전략에는 이월된 칸이 있어 술어가
+    # 성립하지 않는다).
+    violating = set(whole_input_quote_fields(intent, user_input)) if only is None else set()
+
+    def _is_violation(cond: Any) -> bool:
+        return bool(violating) and any(
+            cond is c
+            for role in ("entry_conditions", "exit_conditions")
+            for index, c in enumerate(getattr(strategy, role))
+            if f"strategy.{role}[{index}].source_text" in violating
+        )
+
+    targets = quote_check.conditions_to_check(strategy, only=only, skip=_is_violation)
+    if not targets:
+        return None
+    verdicts = quote_check.check_quotes(user_input, targets, chat)
+    if verdicts is None:
+        _log_llm("△ 조건 인용 대조 실패", f"{len(targets)}개 조건 — 판정 없음으로 진행(교정·제거 안 함)")
+    else:
+        _log_llm("✓ 조건 인용 대조", "; ".join(
+            f"{cond.source_text}={getattr(verdicts.get(cond), 'expresses', None)}/"
+            f"{getattr(verdicts.get(cond), 'describes', None)}"
+            for cond, _role in targets
+        ))
+    return verdicts
+
+
 def run_primary_parse(
     user_input: str, on_stage=None,
     previous_explicit_fields: Optional[List[str]] = None,
@@ -1797,10 +1823,16 @@ def run_primary_parse(
         logger.warning("interpreter primary failed, reporting failure | err=%s",
                        str(exc)[:200])
         return None
+    # 조건 인용 대조(LLM) — 이동평균·볼린저 조건마다 "인용이 이 조건을 말하나"를 묻는다(신고가
+    # 오분류 교정·다른 설정 문구 가드의 판정 근거). 인터프리터 출력이 입력이라 동시 전송은
+    # 못 하지만, planner-first가 아직 도는 동안 **메인 스레드에서** 보내 대기 시간과 겹친다
+    # (병렬 풀 워커를 더 쓰지 않는다). 해당 조건이 없는 턴은 호출이 없고, 실패는 판정 없음
+    # (교정·제거 안 함, quote_check 모듈 docstring).
+    quote_verdicts = _check_condition_quotes(result.intent, user_input, recall_chat)
     if planner_future is not None:
         planner_first = planner_future.result()
 
-    repair_notices = _fill_deterministic_condition_params(result.intent)
+    repair_notices = _fill_deterministic_condition_params(result.intent, quote_verdicts)
     _normalize_size_class_labels(result.intent)
     repair_notices += _dedupe_relative_return_against_ranking(result.intent)
     # 조건 누락 대조 패스 — 1차 해석은 조건이 여러 개 나열되면 하나를 밀어낸다(2026-08-18
@@ -1830,7 +1862,7 @@ def run_primary_parse(
             _log_llm("✓ 백테스트 기간 회수", filled_period)
     # 출처 인용 대조(환각 조건 가드) — 파라미터 보정 뒤, 검증 전에 뺀다(환각 조건이
     # 완결성 검증에 들어가면 지어낸 조건의 값을 사용자에게 되묻는 사고가 된다).
-    repair_notices += _drop_fabricated_conditions(result.intent, user_input)
+    repair_notices += _drop_fabricated_conditions(result.intent, user_input, quote_verdicts)
     # 검증 전 스냅샷: capability validator는 정본 목록 밖 섹터 표현('이재명 관련주')을
     # 미지원으로 판정하며 universe.sectors에서 제거한다. term-in 해석 체인(§ 11-3)의
     # 입력은 'LLM이 뽑은 표현'이므로 제거 전 값을 보존해야 한다 — 검증 후 값을 읽으면
@@ -4515,7 +4547,19 @@ def run_primary_modification(
         intent="MODIFY_STRATEGY", strategy=patched_spec,
         confidence=intent.confidence, unsupported_features=intent.unsupported_features,
     )
-    repair_notices = _fill_deterministic_condition_params(modify_intent)
+    # 조건 인용 대조는 **이번 턴에 새로 들어온** 이동평균·볼린저 조건만 묻는다 — 이월된 조건은
+    # 자기 턴에서 이미 판정됐다(해당 조건이 없는 수정 턴은 호출이 없다).
+    draft_conditions = list(draft_spec.entry_conditions) + list(draft_spec.exit_conditions)
+    added_conditions = [
+        cond for cond in list(patched_spec.entry_conditions) + list(patched_spec.exit_conditions)
+        if not any(cond == prior for prior in draft_conditions)
+    ]
+    quote_verdicts = _check_condition_quotes(
+        modify_intent, user_input,
+        getattr(_get_interpreter(StrategyInterpreter), "_chat", None),
+        only=added_conditions,
+    )
+    repair_notices = _fill_deterministic_condition_params(modify_intent, quote_verdicts)
     _normalize_size_class_labels(modify_intent)
     validation = call_tool("validate_intent", intent=modify_intent)
     validated, report = validation.intent, validation.report

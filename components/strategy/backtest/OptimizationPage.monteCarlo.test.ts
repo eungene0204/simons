@@ -35,6 +35,18 @@ function buildTrades(count: number) {
 const settings = { iterations: 200, blockSize: 21, seed: 42, mode: "returns" };
 
 describe("runMonteCarloSimulation", () => {
+  it("첫날 수익률(첫 평가액 ÷ 초기자본)을 표본에 넣는다 — 첫날 체결 결과(v16.12)", async () => {
+    // 첫 값 기준으로는 모든 날이 같은 수익률이라 경로가 전부 같다. 초기자본 기준이면 첫날 -10%가 섞인다.
+    const equity = Array.from({ length: 120 }, (_, i) => 9_000_000 * 1.001 ** i);
+    const dates = Array.from({ length: 120 }, (_, i) => new Date(Date.UTC(2024, 0, 2 + i)).toISOString().slice(0, 10));
+    const run = { iterations: 300, blockSize: 5, seed: 7, mode: "returns" };
+    const withInit = await runMonteCarloSimulation({ equity, dates, initialCapital: 10_000_000 }, run);
+    const legacy = await runMonteCarloSimulation({ equity, dates, initialCapital: 9_000_000 }, run);
+    expect(withInit.status).toBe("ok");
+    expect(legacy.status).toBe("ok");
+    expect(withInit.cagr.mean).toBeLessThan(legacy.cagr.mean - 0.001);
+  });
+
   it("equity 데이터가 부족하면 에러를 반환한다", async () => {
     const result = await runMonteCarloSimulation(buildResult(30), settings);
     expect(result.status).toBe("error");
@@ -90,7 +102,10 @@ describe("runMonteCarloSimulation", () => {
     const backtest = buildResult(600);
     for (const s of [
       { ...settings, blockSize: 1, iterations: 400 },
-      { ...settings, blockSize: 21, iterations: 400 },
+      // 블록 20: buildResult는 주기 7 패턴이라 블록 21(7의 배수)이면 v16.12부터(첫날 수익률 포함으로
+      // 수열 위상이 0부터 시작) 모든 블록 구성이 같아 재표본 분포가 한 점으로 모이고, 히스토그램 경계
+      // 비교가 부동소수 오차로 0%가 된다 — 성질이 아니라 픽스처 퇴화라 주기와 어긋난 블록으로 본다.
+      { ...settings, blockSize: 20, iterations: 400 },
       { ...settings, blockSize: 10, blockMethod: "stationary", iterations: 400 },
     ]) {
       const result = await runMonteCarloSimulation(backtest, s);
@@ -128,7 +143,8 @@ describe("runMonteCarloSimulation", () => {
     const result = await runMonteCarloSimulation(backtest, { ...settings, blockSize: 21, iterations: 100 });
     expect(result.status).toBe("ok");
     const equity = backtest.equity;
-    const expected = (equity[equity.length - 1] / equity[0]) ** (1 / (363 / 365.25)) - 1;
+    // 관측 CAGR의 기준은 초기자본이다(v16.12) — 첫 값(첫날 종가 평가액) 기준이면 첫날 손익이 빠진다.
+    const expected = (equity[equity.length - 1] / backtest.initialCapital) ** (1 / (363 / 365.25)) - 1;
     expect(result.observed.cagr).toBeCloseTo(expected, 8);
   });
 
@@ -171,7 +187,8 @@ describe("runMonteCarloSimulation", () => {
     const result = await runMonteCarloSimulation({ equity, initialCapital: 10_000_000 }, settings);
     expect(result.status).toBe("ok");
     expect(result.underwaterUnrecoveredRatio).toBe(1);
-    expect(result.underwater.median).toBe(equity.length - 1);
+    // 첫 값도 초기자본보다 낮아 첫날부터 물속이다(v16.12 첫날 수익률 포함) — 봉 수 전체.
+    expect(result.underwater.median).toBe(equity.length);
   });
 
   it("실행 파라미터(seed 포함)를 결과에 담아 화면 표시에 쓸 수 있다", async () => {

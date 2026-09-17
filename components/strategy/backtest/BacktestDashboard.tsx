@@ -2407,9 +2407,10 @@ function BacktestTerminalLog({
     kospi_kosdaq: "KOSPI+KOSDAQ", kosdaq_kospi: "KOSPI+KOSDAQ",
     us: "US", sp500: "S&P 500", nasdaq100: "NASDAQ 100", nasdaq: "NASDAQ", dow30: "Dow 30", us_etf: "US ETF",
   };
+  // 지정 종목·테마 유니버스는 universeId가 비어 있다 — 시장 이름으로 추정하지 않는다.
   const universeLabel = result.universeId
     ? (UNIVERSE_NAMES[result.universeId] ?? result.universeId.toUpperCase())
-    : "KOSPI";
+    : t("지정 종목");
   // 금액은 결과의 시장 통화로 — 한국 결과는 "1,000,000원", 미국 결과는 "$10,000".
   const isUsLog = isUsBacktestResult(result);
   const logMoney = (value: number) =>

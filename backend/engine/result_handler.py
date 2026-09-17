@@ -79,6 +79,42 @@ class ResultHandler:
         return None if np.isinf(val) else val
 
     @staticmethod
+    def anchored_equity(values, init_cash: float) -> np.ndarray:
+        """자산곡선 앞에 초기자본을 붙인 배열(v16.12) — 수익률·낙폭 지표의 기준점.
+
+        자산곡선의 첫 값은 **첫 거래일 종가 기준 평가액**이다. 첫날 시가에 매수가 체결되면
+        (next_open 창 첫날 체결, same_close 첫날 신호) 수수료·첫날 가격 변동이 이미 반영돼 초기자본과
+        다르다 — 첫 값을 기준으로 쓰면 첫날 손익이 지표에서 사라진다(2026-09-17 실측: 첫 값
+        9,748,557원을 초기자금으로 표시·계산). 첫날이 현금이면 첫 값 = 초기자본이라 결과가 같다.
+        """
+        arr = np.asarray(values, dtype=float)
+        if init_cash and init_cash > 0:
+            return np.concatenate([[float(init_cash)], arr])
+        return arr
+
+    @staticmethod
+    def max_drawdown_pct(values, init_cash: float) -> float:
+        """초기자본을 출발 고점으로 포함한 최대낙폭(%, 음수). vbt max_drawdown은 자산곡선만 본다."""
+        arr = ResultHandler.anchored_equity(values, init_cash)
+        arr = arr[np.isfinite(arr)]
+        if len(arr) == 0:
+            return 0.0
+        peak = np.maximum.accumulate(arr)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            dd = np.where(peak > 0, arr / peak - 1.0, 0.0)
+        return float(dd.min() * 100.0)
+
+    @staticmethod
+    def anchored_returns(values, init_cash: float) -> np.ndarray:
+        """초기자본 기준 일간 수익률 — 첫날 수익률 = 첫 평가액 ÷ 초기자본 − 1(vbt returns와 같은 규약)."""
+        arr = ResultHandler.anchored_equity(values, init_cash)
+        if len(arr) < 2:
+            return np.asarray([], dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rets = arr[1:] / arr[:-1] - 1.0
+        return rets[np.isfinite(rets)]
+
+    @staticmethod
     def safe(val):
         try:
             if val is None: return 0.0
@@ -105,7 +141,8 @@ class ResultHandler:
                        benchmark_prices: "pd.Series | None" = None,
                        benchmark_label: str = "매수 후 보유",
                        risk_free_rate: float = 0.0,
-                       exit_reason_overrides: "Dict[str, Dict[str, str]] | None" = None) -> Dict[str, Any]:
+                       exit_reason_overrides: "Dict[str, Dict[str, str]] | None" = None,
+                       entry_reason_overrides: "Dict[str, Dict[str, str]] | None" = None) -> Dict[str, Any]:
 
         signals_list = []
         sl_pct = float(risk_params.get('stop_loss_pct') or 0)
@@ -266,6 +303,11 @@ class ResultHandler:
                         val = fast_reason_lookup(sym_arr_e, lookup_dt)
                         if val: e_reason = val
                 except: pass
+                # 시뮬레이터가 확정한 매수 사유(손절 종목 대체 편입 등)는 체결일 기준으로 최우선.
+                if entry_reason_overrides:
+                    ov_e = (entry_reason_overrides.get(sym) or {}).get(get_dt_str(e_idx))
+                    if ov_e:
+                        e_reason = ov_e
 
                 final_qty = int(np.floor(size))
                 if final_qty >= 1:
@@ -488,8 +530,15 @@ class ResultHandler:
             # Align benchmark to common_index
             bench_aligned = benchmark_prices.reindex(common_index).ffill()
             bench_valid = bench_aligned.notna()
-            # 첫 유효일은 직전 값이 없어 수익률이 정의되지 않는다 → 0(곡선 시작점).
-            bench_mean_rets = bench_aligned.pct_change().fillna(0.0).where(bench_valid, 0.0)
+            bench_raw_rets = bench_aligned.pct_change()
+            # 전략 수익률의 기준은 첫 거래일 시가 전의 초기자본이다(첫날 체결·첫날 손익 포함, v16.12).
+            # 벤치마크도 같은 출발점에 맞춰 첫날 수익률을 창 직전 종가 대비로 잡는다 — 창 직전 값이
+            # 없으면(지수 ETF 상장 첫날 등) 종전처럼 0(곡선 시작점).
+            if len(common_index) > 0 and bool(bench_valid.iloc[0]):
+                _prev = benchmark_prices[benchmark_prices.index < pd.Timestamp(common_index[0])].dropna()
+                if len(_prev) > 0 and float(_prev.iloc[-1]) > 0:
+                    bench_raw_rets.iloc[0] = float(bench_aligned.iloc[0]) / float(_prev.iloc[-1]) - 1.0
+            bench_mean_rets = bench_raw_rets.fillna(0.0).where(bench_valid, 0.0)
         else:
             # Fallback: equal-weight buy-and-hold of strategy symbols
             bench_rets = pf.benchmark_returns()
@@ -564,13 +613,16 @@ class ResultHandler:
             _w = agg_win_rate / 100.0
             _kelly = (_w - (1.0 - _w) / (avg_win / avg_loss)) * 100.0
 
-        _mdd    = cls.safe(pf.max_drawdown()) * 100
-        _calmar = cagr_val / abs(_mdd) if _mdd != 0 else 0.0
         _equity = to_list(pf.value())
+        # 최대낙폭은 초기자본을 출발 고점으로 포함한다(v16.12) — vbt max_drawdown은 자산곡선만 봐서
+        # 첫날 체결로 첫 평가액이 초기자본보다 낮으면 그 낙폭이 빠졌다.
+        _mdd    = cls.safe(cls.max_drawdown_pct(_equity, init_cash))
+        _calmar = cagr_val / abs(_mdd) if _mdd != 0 else 0.0
         _total_profit = cls.safe(pf.total_profit())
 
         # ── 추가 통계: Exposure / DD Duration / Expectancy / Recovery Factor ──
-        _equity_arr = np.asarray(_equity, dtype=float)
+        # 낙폭 기간·회복계수도 초기자본 기준점을 포함한 곡선으로 센다(첫날이 현금이면 결과 동일).
+        _equity_arr = cls.anchored_equity(_equity, init_cash)
         _exposure = 0.0
         try:
             _asset_val = pf.asset_value(group_by=True)
@@ -634,6 +686,9 @@ class ResultHandler:
             "expectancy":           _sf(_expectancy),
             "recoveryFactor":       _sf(_recovery),
             "equity":               _equity,
+            # 수익률·손익·낙폭 지표의 기준 자본. equity[0]은 첫 거래일 종가 평가액이라 첫날 체결이
+            # 있으면 초기자본과 다르다 — 표시·재계산은 이 값을 기준으로 한다(v16.12).
+            "initialCapital":       float(init_cash),
             "benchmark_equity":     to_list_nullable(init_cash * bench_cum_returns),
             "benchmark_partial":    bench_partial,
             "dates":                _dates,

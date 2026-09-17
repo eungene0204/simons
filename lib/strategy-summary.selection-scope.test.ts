@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  buildStrategySummaryFromDsl,
+  buildStrategySummaryFromRequest,
   getPositionLabel,
   getSelectionScope,
   type ParsedSummary,
@@ -141,5 +143,42 @@ describe("getPositionLabel — 배지가 실제 실행과 일치해야 한다", 
         max_positions_explicit: true,
       }),
     ).toBe("최대 5종목");
+  });
+});
+
+// 2026-09-17 AI 관련주 워크스루 실측: 테마 66종목 중 60일 수익률 상위 5종목 전략의 몬테카를로
+// '검증 대상 전략' 카드가 "지정 종목 66개 균등 투자"로 표시됐다. 실행 요청·DSL에는 백엔드
+// 판정 결과가 risk.ranking_enabled(지정=false, 후보군=true)로 실린다.
+describe("실행 요청·DSL 요약의 보유 종목 문구 — 후보군은 균등 투자가 아니다", () => {
+  const targetStocks = themeSymbols.map((symbol) => ({ symbol, name: `종목${symbol}` }));
+
+  it("실행 요청: 후보군(ranking_enabled)이면 최대 N종목으로 적는다", () => {
+    const summary = buildStrategySummaryFromRequest({
+      target_stocks: targetStocks,
+      entry: { conditions: [] },
+      exit: { conditions: [] },
+      risk: { max_positions: 5, ranking_enabled: true, ranking_metric: "return", ranking_lookback_days: 60 },
+    });
+    expect(summary?.positionText).toBe("최대 5종목");
+  });
+
+  it("실행 요청: 지정 종목(ranking_enabled=false)은 균등 투자로 적는다", () => {
+    const summary = buildStrategySummaryFromRequest({
+      target_stocks: targetStocks.slice(0, 2),
+      entry: { conditions: [] },
+      exit: { conditions: [] },
+      risk: { max_positions: 2, ranking_enabled: false },
+    });
+    expect(summary?.positionText).toBe("지정 종목 2개 균등 투자");
+  });
+
+  it("DSL: 후보군(ranking_enabled)이면 균등 투자로 적지 않는다", () => {
+    const summary = buildStrategySummaryFromDsl({
+      description: "AI 관련주 모멘텀",
+      universe: ["KOSDAQ", "KOSPI"],
+      target_symbols: themeSymbols,
+      risk: { max_positions: 5, ranking_enabled: true },
+    } as never);
+    expect(summary?.positionText).toBe("포지션/비중 최대 5종목");
   });
 });

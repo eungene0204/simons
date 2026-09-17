@@ -81,9 +81,9 @@ def summarize_portfolio(pf, init_cash: float) -> Dict[str, Any]:
     total_return = (final_eq / init_cash - 1.0) * 100.0 if init_cash > 0 else 0.0
     years, ppy = ResultHandler.time_base(val.index)
     cagr = ResultHandler.annualize_return(total_return / 100.0, years)
-    dd = (val / val.cummax() - 1.0) if n else None
-    mdd = float(dd.min() * 100.0) if dd is not None and len(dd) else 0.0
-    rets = val.pct_change().dropna() if n else None
+    # 낙폭·수익률은 초기자본을 기준점으로 포함한다(메인 결과와 같은 규약, v16.12).
+    mdd = ResultHandler.max_drawdown_pct(val.values, init_cash) if n else 0.0
+    rets = ResultHandler.anchored_returns(val.values, init_cash) if n else None
     sharpe = (
         float(rets.mean() / rets.std(ddof=1) * np.sqrt(ppy))
         if rets is not None and len(rets) > 1 and float(rets.std(ddof=1)) > 0 else 0.0

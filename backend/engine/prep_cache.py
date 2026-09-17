@@ -40,6 +40,8 @@ STRUCTURAL_PARAM_KEYS = frozenset({
 })
 
 _DEFAULT_BUDGET_MB = 2048
+# 창 경계 준비물(phase1.window_boundary_prep, v16.12) 중 pandas 시리즈 — 꺼낼 때 복사한다.
+_SERIES_KEYS = ("warm_close", "pre_close", "pre_volume")
 
 
 def _leaf_conditions(group: Optional[Dict[str, Any]]) -> Iterable[Dict[str, Any]]:
@@ -91,6 +93,19 @@ class SymbolPrepCache:
                 total += int(pdf.memory_usage(deep=False).sum())
             except Exception:
                 pass
+        for name in _SERIES_KEYS:
+            ser = entry.get(name)
+            if ser is not None:
+                try:
+                    total += int(ser.memory_usage(deep=False))
+                except Exception:
+                    pass
+        pre_df_pl = entry.get("pre_df_pl")
+        if pre_df_pl is not None:
+            try:
+                total += int(pre_df_pl.estimated_size())
+            except Exception:
+                pass
         df_pl = entry.get("df_pl")
         if df_pl is not None:
             try:
@@ -112,6 +127,9 @@ class SymbolPrepCache:
         out = dict(entry)
         if out.get("pdf") is not None:
             out["pdf"] = out["pdf"].copy()
+        for name in _SERIES_KEYS:
+            if out.get(name) is not None:
+                out[name] = out[name].copy()
         if out.get("res_logs") is not None:
             out["res_logs"] = [dict(l) for l in out["res_logs"]]
         return out
@@ -123,6 +141,9 @@ class SymbolPrepCache:
         stored = dict(entry)
         if stored.get("pdf") is not None:
             stored["pdf"] = stored["pdf"].copy()
+        for name in _SERIES_KEYS:
+            if stored.get(name) is not None:
+                stored[name] = stored[name].copy()
         with self._lock:
             old = self._items.pop(key, None)
             if old is not None:

@@ -34,6 +34,14 @@ describe("mapRawBacktestResult", () => {
     expect(result.tradingCosts).toBeUndefined();
   });
 
+  it("초기자본은 엔진 동봉값을 쓴다 — equity[0]은 첫 거래일 종가 평가액(v16.12)", () => {
+    const result = mapRawBacktestResult(
+      { equity: [9_748_557, 13_853_831], initialCapital: 10_000_000, signals: [] }, "test_exec");
+    expect(result.initialCapital).toBe(10_000_000);
+    // 동봉이 없는 옛 결과만 equity[0]으로 대신한다.
+    expect(mapRawBacktestResult({ equity: [1000, 1100], signals: [] }, "test_exec").initialCapital).toBe(1000);
+  });
+
   it("avgHoldingDays가 없으면 0으로 기본값 처리한다", () => {
     const result = mapRawBacktestResult({ equity: [1000], signals: [] }, "test_exec");
     expect(result.avgHoldingDays).toBe(0);

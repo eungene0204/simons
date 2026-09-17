@@ -765,7 +765,9 @@ describe("WalkForwardModal", () => {
     expect(within(table).queryByRole("columnheader", { name: /UNUSED_PARAMETER/ })).not.toBeInTheDocument();
     expect(within(table).queryByText("99")).not.toBeInTheDocument();
     expect(within(table).getAllByRole("row")).toHaveLength(3);
-    expect(within(table).getByText("6.8")).toBeInTheDocument();
+    // 값에 설정 카드와 같은 단위를 붙인다(2026-09-17 실측: 최적 손절라인 표가 "3"·"13"처럼 단위 없이 나갔다).
+    expect(within(table).getByText("6.8%p")).toBeInTheDocument();
+    expect(within(table).getAllByText("4종목")).toHaveLength(2);
     expect(within(table).getByText("2024-01-01 ~ 2024-06-30")).toBeInTheDocument();
     expect(within(table).getByText("2024-07-01 ~ 2024-09-30")).toBeInTheDocument();
 
@@ -781,9 +783,9 @@ describe("WalkForwardModal", () => {
       "walk-forward-parameter-analysis-risk.stop_loss_pct"
     );
     expect(within(stopLossAnalysis).getByRole("heading", { name: "손절라인" })).toBeInTheDocument();
-    expect(within(stopLossAnalysis).getAllByText("7")).toHaveLength(2);
-    expect(within(stopLossAnalysis).getByText("0.2")).toBeInTheDocument();
-    expect(within(stopLossAnalysis).getByText("6.8 ~ 7.2")).toBeInTheDocument();
+    expect(within(stopLossAnalysis).getAllByText("7%p")).toHaveLength(2);
+    expect(within(stopLossAnalysis).getByText("0.2%p")).toBeInTheDocument();
+    expect(within(stopLossAnalysis).getByText("6.8%p ~ 7.2%p")).toBeInTheDocument();
     expect(within(stopLossAnalysis).getByLabelText("안정성 5점")).toHaveTextContent("★★★★★");
     expect(within(analysisSection).queryByTestId(
       "walk-forward-parameter-analysis-legacy.unused_parameter"
