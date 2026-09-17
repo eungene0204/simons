@@ -185,7 +185,7 @@ describe("planner 유니버스 ask 칩 — 분류 우회 결정론 귀속", () =
       expect(bodyOf(call).query).not.toBe("보안주(정보)");
     }
     expect(
-      screen.queryByText(/투자 전략 및 투자 분석 전용 모델/)
+      screen.queryByText(/현재 질문에는 도움을 드릴 수 없어요/)
     ).not.toBeInTheDocument();
   });
 });

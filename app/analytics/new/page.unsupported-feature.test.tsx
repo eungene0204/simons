@@ -45,7 +45,7 @@ function createJsonResponse(body: unknown) {
 }
 
 const UNSUPPORTED_REPLY =
-  "죄송합니다. 뉴스·공시 같은 재료 분석 기능은 현재 제공하고 있지 않아요. " +
+  "저는 전략 생성·검증·백테스트 전문 도구예요. " +
   "다른 투자 아이디어를 알려주시면 전략으로 만들어 백테스트해 드릴 수 있어요.";
 
 describe("미제공 기능(뉴스 분석) 기반 요청 안내", () => {
@@ -96,7 +96,7 @@ describe("미제공 기능(뉴스 분석) 기반 요청 안내", () => {
 
     // 미제공 안내가 표시된다.
     expect(
-      await screen.findByText(/재료 분석 기능은 현재 제공하고 있지 않아요/, undefined, {
+      await screen.findByText(/전략 생성·검증·백테스트 전문 도구예요/, undefined, {
         timeout: 5000,
       })
     ).toBeInTheDocument();

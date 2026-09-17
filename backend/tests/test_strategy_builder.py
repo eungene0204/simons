@@ -162,7 +162,7 @@ def test_case1_kospi_after_entry_no_refusal_and_next_question():
     assert res.state.universe == "KOSPI"
     assert res.status == "collecting"
     assert OFFTOPIC_REFUSAL not in res.reply
-    assert "현재 질문에는 도움을 드릴 수 없습니다" not in res.reply
+    assert "현재 질문에는 도움을 드릴 수 없어요" not in res.reply
     # 다음 질문은 매수 조건 — 되묻기 게이트와 같은 정본 질문·칩을 쓴다(2026-08-16).
     assert res.reply.endswith(_ENTRY_QUESTION)
     assert res.suggestions == strategy_slots.entry_chips(["KOSPI"])

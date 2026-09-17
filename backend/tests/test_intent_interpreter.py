@@ -152,11 +152,11 @@ def test_llm_connection_error_propagates():
 @pytest.mark.parametrize(
     "label, marker",
     [
-        ("OFF_TOPIC", "투자 전략 및 투자 분석 전용 모델"),
+        ("OFF_TOPIC", "현재 질문에는 도움을 드릴 수 없어요"),
         ("STRATEGY_PICK", "어떤 전략이 더 좋은지 판단하거나 추천해"),
         ("PERSONAL_ADVICE", "개인 상황에 맞춘 전략이나 종목 추천은 제공하지 않아요"),
         ("LIVE_TRADING", "실제 계좌로 매매를 실행하거나"),
-        ("UNSUPPORTED_FEATURE", "재료 분석 기능은 현재 제공하고 있지 않아요"),
+        ("UNSUPPORTED_FEATURE", "전략 생성·검증·백테스트 전문 도구"),
         ("ONBOARDING", "단계별로 함께 전략을 만들어"),
     ],
 )

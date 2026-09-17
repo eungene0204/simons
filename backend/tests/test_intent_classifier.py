@@ -380,7 +380,7 @@ def test_offtopic_is_refused(query):
     result = classify(query)
     assert result.intent == QueryIntent.OFF_TOPIC
     assert result.deterministic is True
-    assert "투자 전략 및 투자 분석 전용" in (result.suggested_reply or "")
+    assert "현재 질문에는 도움을 드릴 수 없어요" in (result.suggested_reply or "")
 
 
 def test_offtopic_with_finance_cue_is_not_refused():
@@ -394,7 +394,7 @@ def test_llm_fallback_offtopic_sets_refusal_reply():
     # 곧바로 보여줄 거절 문구가 채워진다 — 전략 생성으로 새지 않는다.
     result = classify("없어 그냥 너랑 놀려고", llm=lambda s, u: '{"intent": "OFF_TOPIC"}')
     assert result.intent == QueryIntent.OFF_TOPIC
-    assert "투자 전략 및 투자 분석 전용" in (result.suggested_reply or "")
+    assert "현재 질문에는 도움을 드릴 수 없어요" in (result.suggested_reply or "")
 
 
 def test_llm_fallback_offtopic_overridden_when_finance_cue_present():
@@ -540,7 +540,7 @@ def test_unsupported_feature_request_is_declined_not_built(query):
     assert result.intent == QueryIntent.UNSUPPORTED_FEATURE
     assert result.deterministic is True
     assert result.suggested_reply
-    assert "제공하고 있지 않아요" in result.suggested_reply
+    assert "전략 생성·검증·백테스트 전문 도구" in result.suggested_reply
     assert "아이디어" in result.suggested_reply  # 다른 아이디어 유도
 
 
@@ -579,7 +579,7 @@ def test_llm_fallback_unsupported_feature_sets_reply():
     )
     assert result.intent == QueryIntent.UNSUPPORTED_FEATURE
     assert result.suggested_reply
-    assert "제공하고 있지 않아요" in result.suggested_reply
+    assert "전략 생성·검증·백테스트 전문 도구" in result.suggested_reply
 
 
 # ─── 대화 맥락(history) 기반 후속 질문 분류 ──────────────────────────────────────
