@@ -24,7 +24,6 @@ import { backtestRunParamsFromRequest, trackEvent } from "@/lib/analytics";
 import { stripRegionPrefix, type Region } from "@/lib/geo/region";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { StrategyExampleTabs } from "@/components/strategy/StrategyExampleTabs";
-import { StrategyWaveBackground } from "@/components/strategy/StrategyWaveBackground";
 import {
   PENDING_STRATEGY_PROMPT_KEY,
   STRATEGY_CHAT_STATE_KEY,
@@ -5212,8 +5211,6 @@ function StrategyLabContent() {
         data-testid="strategy-lab-background"
         style={{ minHeight: "calc(100dvh - var(--top-menu-bar-height, 76px))" }}
       >
-        {shouldShowIntro && <StrategyWaveBackground />}
-
         {activeStrategyProgressItems && (
           // 상태 축은 렌더 직전에 붙인다 — buildBuilderTurnPresentation 호출부 8곳에
           // 같은 인자를 늘리는 대신, 표시 전용 정보를 표시하는 곳에서 합친다.

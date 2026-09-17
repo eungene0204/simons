@@ -32,6 +32,8 @@ interface SavedStrategy {
 }
 
 const DEFAULT_VISIBLE_COUNT = 20;
+// 시작 말풍선은 첫 줄(xl 5열) 안에서만 고른다 — 20장 중 아무 데나 붙이면 화면 아래에 묻힌다.
+const START_BUBBLE_CANDIDATE_COUNT = 5;
 // 사업자 정보는 두 줄로 나눠 표시한다 — 대표까지 첫 줄, 주소·연락처는 다음 줄 (2026-09-03 지시).
 const BUSINESS_INFO_LINE_1 =
   "상호명 : 널스페이스   사업자등록번호 : 898-50-00737   통신판매업신고번호 : 2026-서울서대문-0758   대표 : 이응준";
@@ -704,11 +706,14 @@ export function StrategyExampleTabs({
   const [selectedExample, setSelectedExample] = useState<Example | null>(null);
   const [exampleContentHeight, setExampleContentHeight] = useState<number | null>(null);
   const [orderedExamples, setOrderedExamples] = useState<Example[]>(baseExamples);
+  const [startBubbleIndex, setStartBubbleIndex] = useState<number | null>(null);
   const examplesContentRef = useRef<HTMLDivElement>(null);
 
   // 마운트 이후에만 섞는다 — 서버 렌더 결과와 순서가 어긋나면 하이드레이션이 깨진다.
   useEffect(() => {
     setOrderedExamples(shuffleExamples(baseExamples));
+    const candidateCount = Math.min(START_BUBBLE_CANDIDATE_COUNT, baseExamples.length);
+    setStartBubbleIndex(Math.floor(Math.random() * candidateCount));
   }, [baseExamples]);
 
   const visibleExamples = orderedExamples.slice(0, DEFAULT_VISIBLE_COUNT);
@@ -845,8 +850,9 @@ export function StrategyExampleTabs({
           {activeTab === "examples" ? (
             <div ref={examplesContentRef} className="space-y-3" data-testid="strategy-examples-content">
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
-                {visibleExamples.map((example) => {
+                {visibleExamples.map((example, index) => {
                   const style = CATEGORY_STYLE[example.category];
+                  const hasStartBubble = index === startBubbleIndex;
                   return (
                     <button
                       key={example.title}
@@ -855,9 +861,25 @@ export function StrategyExampleTabs({
                         setSelectedExample(example);
                         onPreviewOpenChange?.(true);
                       }}
-                      className="group space-y-1.5 rounded-2xl border border-white/[0.05] bg-[#121212] px-3 py-3 text-left transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
+                      className={`group relative space-y-1.5 rounded-2xl border bg-[#121212] px-3 py-3 text-left transition-all duration-200 hover:bg-[#171717] ${
+                        hasStartBubble
+                          ? "border-[var(--chat-accent-line)] shadow-[0_0_20px_var(--chat-accent-soft)]"
+                          : "border-white/[0.05] hover:border-white/[0.12]"
+                      }`}
                       data-testid="strategy-example-card"
                     >
+                      {hasStartBubble && (
+                        <span
+                          className="animate-fade-in pointer-events-none absolute right-3 top-0 z-10 -translate-y-1/2 whitespace-nowrap rounded-lg bg-[var(--chat-accent)] px-2 py-1 text-[10px] font-black text-[var(--chat-accent-ink)] shadow-lg"
+                          data-testid="strategy-example-start-bubble"
+                        >
+                          {t("예시로 시작해 보세요!")}
+                          <span
+                            aria-hidden="true"
+                            className="absolute -bottom-1 right-4 h-2 w-2 rotate-45 bg-[var(--chat-accent)]"
+                          />
+                        </span>
+                      )}
                       <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-black ${style.bg} ${style.border} ${style.color}`}>
                         {t(style.label)}
                       </span>
