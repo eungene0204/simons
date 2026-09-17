@@ -276,7 +276,7 @@ KR/EN 언어 토글을 폐지하고 **URL 경로 기반의 지역 서비스**로
 | `/backtest/[id]` | 백테스트 결과 상세 | `BacktestDashboard` |
 | `/kospi` | KOSPI 시장 현황 | `MarketSnapshot` |
 | `/login`, `/register` | 사용자 인증 | `AuthCard` |
-| `/guest` | 게스트(테스터) 입장 — 발급 아이디·비밀번호(`/api/guest/login`) | `GuestLoginForm` |
+| `/guest` | 게스트(테스터) 입장 — 발급 입장 링크(`/guest#<아이디>.<비밀값>`, 자동 입장) 또는 아이디·비밀번호(`/api/guest/login`) | `GuestLoginForm` |
 | `/stock/[symbol]` | 종목 상세 (차트, 호가, 뉴스) | `StockDetail`, `CandlestickChart`, `OrderBook` |
 | `/stock-order` | 종목 거래 (5탭) | 차트·호가 / 종목정보 / 뉴스·공시(`NewsImpactPanel`) / 거래현황 / 커뮤니티 |
 | `/virtual-account` | 가상 계좌 목록 | `VirtualAccountCard` |

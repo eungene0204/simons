@@ -914,7 +914,7 @@ WatchlistSymbol {
 | Method | Endpoint | 기능 |
 |--------|----------|------|
 | POST | `/api/login` | 로그인 |
-| POST | `/api/guest/login` | 게스트(테스터) 입장 — 발급 아이디·비밀번호, 레이트리밋 |
+| POST | `/api/guest/login` | 게스트(테스터) 입장 — 입장 링크 코드(`invite`) 또는 발급 아이디·비밀번호, 레이트리밋 |
 | POST | `/api/logout` | 로그아웃 |
 | POST | `/api/register` | 회원가입 (이메일 인증번호 확인 + 자동 로그인) |
 | POST | `/api/register/request-code` | 가입 인증번호 발송 (열거 방지 동일 응답·레이트리밋) |

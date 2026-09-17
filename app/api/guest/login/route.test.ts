@@ -138,4 +138,46 @@ describe("/api/guest/login", () => {
     expect(blocked.status).toBe(429);
     expect(userFindUnique).not.toHaveBeenCalled();
   });
+  describe("입장 링크(invite)", () => {
+    const secret = "A".repeat(20) + "b_-" + "9".repeat(20);
+
+    it("코드를 아이디·비밀값으로 나눠 합성 이메일 조회·비밀값 대조 후 쿠키 발급", async () => {
+      userFindUnique.mockResolvedValue(activeGuest);
+      verifyPassword.mockResolvedValue(true);
+      userUpdate.mockResolvedValue({});
+      const res = await POST(req({ invite: `guest_1234.${secret}` }));
+      expect(res.status).toBe(200);
+      expect(userFindUnique).toHaveBeenCalledWith({
+        where: { email: "guest_1234@guest.nullstock.im" },
+      });
+      expect(verifyPassword).toHaveBeenCalledWith(secret, "hashed");
+      expect(cookieSet).toHaveBeenCalledWith("token", "signed-jwt", expect.anything());
+    });
+
+    it("형식이 다른 코드는 DB를 보지 않고 401", async () => {
+      const res = await POST(req({ invite: "guest_1234.short" }));
+      expect(res.status).toBe(401);
+      expect(userFindUnique).not.toHaveBeenCalled();
+    });
+
+    it("비밀값이 틀리면 401, 쿠키 없음", async () => {
+      userFindUnique.mockResolvedValue(activeGuest);
+      verifyPassword.mockResolvedValue(false);
+      const res = await POST(req({ invite: `guest_1234.${secret}` }));
+      expect(res.status).toBe(401);
+      expect(cookieSet).not.toHaveBeenCalled();
+    });
+
+    it("같은 아이디에 틀린 비밀번호 10회가 쌓여도 링크 입장은 막히지 않는다", async () => {
+      userFindUnique.mockResolvedValue(activeGuest);
+      verifyPassword.mockResolvedValue(false);
+      for (let i = 0; i < 10; i++) {
+        await POST(req({ guestId: "guest_1234", password: "wrong" }, `10.0.1.${i}`));
+      }
+      verifyPassword.mockResolvedValue(true);
+      userUpdate.mockResolvedValue({});
+      const res = await POST(req({ invite: `guest_1234.${secret}` }, "10.0.2.1"));
+      expect(res.status).toBe(200);
+    });
+  });
 });

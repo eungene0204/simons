@@ -2,13 +2,15 @@ import { describe, expect, it } from 'vitest'
 import {
   GUEST_EMAIL_DOMAIN,
   generateGuestId,
-  generateGuestPassword,
+  generateGuestInviteSecret,
   guestEmailFromId,
+  guestInviteUrl,
   isGuestEmail,
   normalizeGuestId,
+  parseGuestInviteCode,
 } from './guestAccounts'
 
-describe('게스트 계정 아이디·비밀번호', () => {
+describe('게스트 계정 아이디·입장 링크', () => {
   it('아이디는 guest_ + 네 자리 숫자다', () => {
     for (let i = 0; i < 200; i++) {
       const id = generateGuestId()
@@ -17,13 +19,32 @@ describe('게스트 계정 아이디·비밀번호', () => {
     }
   })
 
-  it('비밀번호는 5자이며 헷갈리는 글자(0/o/1/l/i)와 대문자를 쓰지 않는다', () => {
+  it('입장 링크 비밀값은 256비트 base64url 43자이며 매번 다르다', () => {
+    const seen = new Set<string>()
     for (let i = 0; i < 200; i++) {
-      const pw = generateGuestPassword()
-      expect(pw).toHaveLength(5)
-      expect(pw).toMatch(/^[a-z0-9]+$/)
-      expect(pw).not.toMatch(/[01oli]/)
+      const secret = generateGuestInviteSecret()
+      expect(secret).toMatch(/^[A-Za-z0-9_-]{43}$/)
+      seen.add(secret)
     }
+    expect(seen.size).toBe(200)
+  })
+
+  it('입장 링크는 코드를 # 뒤에 두고, 코드는 아이디·비밀값으로 왕복한다', () => {
+    const secret = generateGuestInviteSecret()
+    const url = guestInviteUrl('guest_1234', secret)
+    expect(url).toBe(`https://www.nullstock.im/guest#guest_1234.${secret}`)
+    expect(parseGuestInviteCode(url.split('#')[1])).toEqual({ guestId: 'guest_1234', secret })
+  })
+
+  it('형식이 다른 입장 코드는 null이다', () => {
+    const secret = generateGuestInviteSecret()
+    expect(parseGuestInviteCode(`guest_1234.${secret.slice(1)}`)).toBeNull()
+    expect(parseGuestInviteCode(`guest_12.${secret}`)).toBeNull()
+    expect(parseGuestInviteCode(`admin.${secret}`)).toBeNull()
+    expect(parseGuestInviteCode(`guest_1234${secret}`)).toBeNull()
+    expect(parseGuestInviteCode(`guest_1234.${secret.slice(0, 42)}!`)).toBeNull()
+    expect(parseGuestInviteCode('')).toBeNull()
+    expect(parseGuestInviteCode(undefined)).toBeNull()
   })
 
   it('폼 입력은 공백을 걷어내고 소문자로 정규화하며, 형식이 다르면 null이다', () => {

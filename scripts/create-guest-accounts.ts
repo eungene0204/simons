@@ -1,5 +1,5 @@
 /**
- * 게스트(테스터) 계정 발급 — PREMIUM 플랜 User 행을 만들고 아이디·비밀번호를 출력한다.
+ * 게스트(테스터) 계정 발급 — PREMIUM 플랜 User 행을 만들고 입장 링크를 출력한다.
  *
  *   npx ts-node --project tsconfig.scripts.json scripts/create-guest-accounts.ts [--count 10] [--name "표시 이름"] [--dry-run]
  *
@@ -7,8 +7,9 @@
  * - 표시 이름: 기본값은 아이디 그대로. `--count 1`일 때만 `--name`으로 바꿀 수 있다
  *   (화면·캡처에 테스터 아이디가 노출되면 곤란한 데모 계정용). 게스트 판별은 이름이
  *   아니라 합성 도메인 이메일이 하므로 이름을 바꿔도 게스트 계약은 그대로다.
- * - 비밀번호: 소문자·숫자 5자. 원문은 DB에 남지 않고(bcrypt) 출력과
- *   `guest-accounts.local.json`(gitignore, 누적 기록)에만 적힌다.
+ * - 입장 링크: `https://www.nullstock.im/guest#<아이디>.<비밀값>`. 비밀값(256비트 난수)이 곧 비밀번호다.
+ *   원문은 DB에 남지 않고(bcrypt) 출력과 `guest-accounts.local.json`(gitignore, 누적 기록)에만 적힌다.
+ *   링크를 받은 사람은 누구나 그 계정으로 들어오므로, 링크가 새면 계정을 지우고 다시 발급한다.
  * - 입장은 /guest 페이지(→ /api/guest/login). 콘솔 Users 탭의 '게스트 계정' 필터로 활동을 본다.
  * - DATABASE_URL이 가리키는 DB에 바로 쓴다(로컬 .env가 prod를 가리키면 prod에 생긴다).
  */
@@ -18,14 +19,15 @@ import path from "path";
 import { hashPassword } from "../lib/auth";
 import {
   generateGuestId,
-  generateGuestPassword,
+  generateGuestInviteSecret,
   guestEmailFromId,
+  guestInviteUrl,
 } from "../lib/server/guestAccounts";
 
 const prisma = new PrismaClient();
 const OUTPUT_FILE = path.join(process.cwd(), "guest-accounts.local.json");
 
-type IssuedAccount = { guestId: string; password: string; email: string; createdAt: string };
+type IssuedAccount = { guestId: string; inviteUrl: string; email: string; createdAt: string };
 
 function argValue(flag: string): string | null {
   const index = process.argv.indexOf(flag);
@@ -65,7 +67,7 @@ async function main() {
   for (let i = 0; i < count; i++) {
     const guestId = await pickUnusedGuestId(taken);
     taken.add(guestId);
-    const password = generateGuestPassword();
+    const secret = generateGuestInviteSecret();
     const email = guestEmailFromId(guestId);
 
     if (!dryRun) {
@@ -73,21 +75,20 @@ async function main() {
         data: {
           email,
           name: displayName ?? guestId,
-          password: await hashPassword(password),
+          password: await hashPassword(secret),
           planTier: "PREMIUM",
           planStartDate: now,
           updatedAt: now,
         },
       });
     }
-    issued.push({ guestId, password, email, createdAt: now.toISOString() });
+    issued.push({ guestId, inviteUrl: guestInviteUrl(guestId, secret), email, createdAt: now.toISOString() });
   }
 
   console.log(dryRun ? `(dry-run — 쓰지 않음) ${count}개 미리보기` : `${count}개 발급 완료 (PREMIUM)`);
   console.log("");
-  console.log("아이디        비밀번호");
   for (const account of issued) {
-    console.log(`${account.guestId}    ${account.password}`);
+    console.log(`${account.guestId}    ${account.inviteUrl}`);
   }
 
   if (!dryRun) {
