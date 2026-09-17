@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { generateToken, verifyPassword } from '@/lib/auth'
 import { ensureUserBootstrap } from '@/lib/get-user'
 import { consumeRateLimit } from '@/lib/server/rate-limit'
+import { isAccountUsable } from '@/lib/accountAccess'
 import {
   guestEmailFromId,
   normalizeGuestId,
@@ -87,9 +88,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (user.status !== 'ACTIVE') {
+    if (!isAccountUsable(user)) {
       return NextResponse.json(
-        { error: '이용이 제한된 계정입니다.' },
+        {
+          error:
+            user.status === 'ACTIVE'
+              ? '이용 기간이 끝난 계정입니다.'
+              : '이용이 제한된 계정입니다.',
+        },
         { status: 403 }
       )
     }

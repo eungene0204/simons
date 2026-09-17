@@ -1704,6 +1704,10 @@ News Collector
 `POST /api/guest/login {invite}` 본문으로만 보낸다. 링크 입장에는 아이디별 레이트리밋을 걸지 않는다(네 자리 아이디에
 틀린 비밀번호를 넣어 링크 받은 사람을 잠그는 공격 차단, IP 제한은 유지). 링크 폐기=비밀번호 재발급 또는 계정 삭제.
 아이디·비밀번호 폼 입장도 그대로 동작한다.
+**이용 기한(2026-09-17)**: `User.accessExpiresAt`(nullable, null=무기한)이 지난 계정은 status가 ACTIVE여도 로그인(`/api/guest/login` 403
+"이용 기간이 끝난 계정입니다.")과 기존 세션(`getCurrentUser`·`assertActiveUser`·대시보드·요금제 페이지·리서치 프록시) 모두 거부한다.
+판정 정본은 `lib/accountAccess.ts::isAccountUsable`이며 요청 시각에 비교하므로 예약 작업 없이 그 시각부터 막힌다.
+2026-09-17 발급한 입장 링크 계정 20개(id 30~49)는 2026-10-01 00:00 KST 만료. 마이그레이션 `20260917000000_add_user_access_expires_at`은 prod 적용 완료.
 
 
 

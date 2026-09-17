@@ -94,6 +94,16 @@ describe("/api/guest/login", () => {
     expect(cookieSet).not.toHaveBeenCalled();
   });
 
+  it("이용 기한이 지난 계정은 403(이용 기간 종료 안내), 쿠키 없음", async () => {
+    userFindUnique.mockResolvedValue({ ...activeGuest, accessExpiresAt: new Date(Date.now() - 1000) });
+    verifyPassword.mockResolvedValue(true);
+    const res = await POST(req({ guestId: "guest_1234", password: "abcde" }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("이용 기간이 끝난 계정입니다.");
+    expect(cookieSet).not.toHaveBeenCalled();
+    expect(userUpdate).not.toHaveBeenCalled();
+  });
+
   it("성공 시 부트스트랩·최근 로그인 갱신·httpOnly 쿠키 발급", async () => {
     userFindUnique.mockResolvedValue(activeGuest);
     verifyPassword.mockResolvedValue(true);

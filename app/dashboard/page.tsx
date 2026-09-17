@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSessionUserId } from "@/lib/get-user";
+import { ACCOUNT_ACCESS_SELECT, isAccountUsable } from "@/lib/accountAccess";
 import { getDashboardInitialData } from "@/lib/dashboard-data";
 import { prisma } from "@/lib/prisma";
 import DashboardLayout from "@/components/layout/DashboardLayout";
@@ -23,11 +24,11 @@ export default async function DashboardPage() {
   }
 
   const [user, dashData] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { name: true, status: true } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { name: true, ...ACCOUNT_ACCESS_SELECT } }),
     getDashboardInitialData(userId),
   ]);
-  // 정지(SUSPENDED)·삭제(DELETED) 계정은 유효한 토큰이 있어도 세션을 인정하지 않는다(getCurrentUser와 동일 기준).
-  if (!user || user.status !== "ACTIVE") {
+  // 정지(SUSPENDED)·삭제(DELETED)·이용 기한이 지난 계정은 유효한 토큰이 있어도 세션을 인정하지 않는다(getCurrentUser와 동일 기준).
+  if (!user || !isAccountUsable(user)) {
     redirect("/");
   }
 

@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 import { verifyToken } from './auth'
 import { prisma } from './prisma'
+import { ACCOUNT_ACCESS_SELECT, isAccountUsable } from './accountAccess'
 
 export class UnauthorizedAccessError extends Error {
   constructor(message = 'Unauthorized') {
@@ -33,13 +34,13 @@ export async function getSessionUserId(): Promise<number | null> {
   return decoded?.userId ?? null
 }
 
-/** 계정이 존재하고 ACTIVE인지 검증 — 아니면 UnauthorizedAccessError throw */
+/** 계정이 존재하고 ACTIVE이며 이용 기한 안인지 검증 — 아니면 UnauthorizedAccessError throw */
 export async function assertActiveUser(userId: number): Promise<void> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { status: true },
+    select: ACCOUNT_ACCESS_SELECT,
   })
-  if (!user || user.status !== 'ACTIVE') {
+  if (!user || !isAccountUsable(user)) {
     throw new UnauthorizedAccessError()
   }
 }
@@ -53,11 +54,11 @@ export async function getCurrentUser() {
 
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: { id: true, email: true, name: true, status: true },
+      select: { id: true, email: true, name: true, ...ACCOUNT_ACCESS_SELECT },
     })
 
-    // 정지(SUSPENDED)·삭제(DELETED) 계정은 유효한 토큰이 있어도 세션을 인정하지 않는다
-    if (!user || user.status !== 'ACTIVE') {
+    // 정지(SUSPENDED)·삭제(DELETED)·이용 기한이 지난 계정은 유효한 토큰이 있어도 세션을 인정하지 않는다
+    if (!user || !isAccountUsable(user)) {
       return null
     }
 

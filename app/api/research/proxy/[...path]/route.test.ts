@@ -2,10 +2,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // 리서치 프록시 회귀 테스트 — 비로그인 요청을 userId=1로 대체하던 폴백 제거(2026-09-03 감사).
-const { cookieGet, verifyToken } = vi.hoisted(() => ({ cookieGet: vi.fn(), verifyToken: vi.fn() }));
+// 세션 인정은 getCurrentUser(정지·이용 기한 판정 포함, 2026-09-17)에 맡긴다.
+const { getCurrentUser } = vi.hoisted(() => ({ getCurrentUser: vi.fn() }));
 
-vi.mock("next/headers", () => ({ cookies: async () => ({ get: cookieGet }) }));
-vi.mock("@/lib/auth", () => ({ verifyToken }));
+vi.mock("@/lib/get-user", () => ({ getCurrentUser }));
 
 const { GET, POST } = await import("./route");
 
@@ -27,8 +27,8 @@ describe("/api/research/proxy", () => {
     );
   });
 
-  it("토큰이 없으면 401이고 백엔드를 호출하지 않는다(userId=1 대체 없음)", async () => {
-    cookieGet.mockReturnValue(undefined);
+  it("세션이 없으면 401이고 백엔드를 호출하지 않는다(userId=1 대체 없음, 정지·기한 만료 포함)", async () => {
+    getCurrentUser.mockResolvedValue(null);
 
     const res = await GET(makeRequest("/api/research/proxy/runs"), { params: Promise.resolve({ path: ["runs"] }) });
     const post = await POST(makeRequest("/api/research/proxy/runs"), { params: Promise.resolve({ path: ["runs"] }) });
@@ -39,8 +39,7 @@ describe("/api/research/proxy", () => {
   });
 
   it("로그인 사용자는 본인 userId를 X-User-Id로 넘긴다", async () => {
-    cookieGet.mockReturnValue({ value: "tok" });
-    verifyToken.mockReturnValue({ userId: 42 });
+    getCurrentUser.mockResolvedValue({ id: 42 });
 
     const res = await GET(makeRequest("/api/research/proxy/runs"), { params: Promise.resolve({ path: ["runs"] }) });
 

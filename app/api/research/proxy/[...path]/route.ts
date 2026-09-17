@@ -1,21 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifyToken } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/get-user";
 
 const BACKEND = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 // 비로그인 폴백 없음 — 2026-09-03 감사 전에는 userId=1로 대체해, 1번 계정이 PREMIUM이면 누구나
 // 리서치를 실행할 수 있었다. 백엔드는 X-User-Id의 planTier를 DB에서 다시 확인한다.
+// 세션은 getCurrentUser로 인정한다 — 토큰만 보면 정지·이용 기한이 지난 계정도 통과한다(2026-09-17).
 async function resolveUserId(): Promise<number | null> {
-  try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get("token")?.value;
-    if (token) {
-      const decoded = verifyToken(token);
-      if (decoded?.userId) return decoded.userId;
-    }
-  } catch {}
-  return null;
+  const user = await getCurrentUser();
+  return user?.id ?? null;
 }
 
 async function proxyToBackend(

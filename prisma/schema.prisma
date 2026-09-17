@@ -340,6 +340,7 @@ model User {
   paypalPriorSubscriptionId String? // 업그레이드 전환 중 보관하는 이전 구독 ID — 새 구독 활성화 확인 후 해지·비움(승인 이탈 시 복구용)
   role           String           @default("USER") // USER | ADMIN — ADMIN 부여는 DB에서만 (관리자 화면/API로 변경 불가)
   status         String           @default("ACTIVE") // ACTIVE | SUSPENDED | DELETED(soft delete)
+  accessExpiresAt DateTime? // 이용 기한 — 이 시각부터 로그인·기존 세션 모두 거부(status가 ACTIVE여도). null=무기한. 게스트 입장 링크 기한용(2026-09-17)
   lastLoginAt    DateTime?
   backtestUsageMonth     String?
   backtestCountThisMonth Int       @default(0)

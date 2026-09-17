@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { getSessionUserId } from "@/lib/get-user";
+import { ACCOUNT_ACCESS_SELECT, isAccountUsable } from "@/lib/accountAccess";
 import { prisma } from "@/lib/prisma";
 import { getPlan } from "@/lib/plans";
 import { getEffectivePlans } from "@/lib/server/effectivePlans";
@@ -56,7 +57,7 @@ export default async function PricingPage() {
       select: {
         name: true,
         email: true,
-        status: true,
+        ...ACCOUNT_ACCESS_SELECT,
         planTier: true,
         subscriptionPlanId: true,
         billingCycle: true,
@@ -67,8 +68,8 @@ export default async function PricingPage() {
     }),
     getEffectivePlans(),
   ]);
-  // 정지(SUSPENDED)·삭제(DELETED) 계정은 유효한 토큰이 있어도 세션을 인정하지 않는다(getCurrentUser와 동일 기준).
-  if (!record || record.status !== "ACTIVE") {
+  // 정지(SUSPENDED)·삭제(DELETED)·이용 기한이 지난 계정은 유효한 토큰이 있어도 세션을 인정하지 않는다(getCurrentUser와 동일 기준).
+  if (!record || !isAccountUsable(record)) {
     redirect("/");
   }
   const currentPlan = getPlan(record?.planTier);
