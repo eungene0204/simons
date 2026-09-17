@@ -935,6 +935,16 @@ id(`known_ids`)를 받아야 한다 — LLM은 done 재발행을 생략해도 �
 동일 프롬프트 실측: planner 3차 발행 752 → 512토큰, 컴파일 산출물(진입·청산·종목 수·
 리밸런싱·손절·익절·섹터) **전부 동일**.
 
+**병렬 요청 — 원문만 보는 호출은 동시에(2026-09-17)**: `primary.run_primary_parse`는
+OpenRouter 레인에서 planner-first와 조건 구절 나열(`condition_recall.extract_condition_phrases`)을
+워커 풀(`_start_parallel`, contextvar 복사)로 보내고 인터프리터를 본 스레드에서 돌린다. 셋 다
+사용자 원문만 입력으로 받으므로 LLM 입출력은 순차와 같고, planner 결과 적용·구절 대조·기간
+회수(1차 해석 결과가 필요)·업종 해석은 인터프리터 뒤에 순차와 같은 순서로 합친다. 로컬·폴백
+Ollama 레인은 순차 유지(한 슬롯 줄서기 + 인터프리터 프리픽스 캐시 축출). 실측 턴 중앙
+9.55→4.91초. 롤백 `STRATEGY_PARALLEL_PARSE=off`. 아래 "인터프리터보다 먼저 돈다"는 순차 레인
+기준이며, 병렬 레인에서도 planner-first가 인터프리터 출력을 보지 않는다는 전제(State 없음)는
+그대로다.
+
 **계획 범위 — State 없는 턴은 한 걸음만(2026-08-07 지연 감사)**: planner-first(Phase 5)는
 인터프리터보다 **먼저** 돌아 `state_summary`가 없다(`primary._plan_first`). filled_slots가
 비면 러너의 채워진-슬롯 건너뛰기 루프가 돌지 않으므로 표면화되는 것은 **준비된 첫 ask

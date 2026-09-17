@@ -66,6 +66,14 @@ def condition_recall_enabled() -> bool:
     return os.environ.get("STRATEGY_CONDITION_RECALL", "on").strip().lower() != "off"
 
 
+# 원문만 입력으로 받는 파스 호출(planner-first·인터프리터·조건 구절 나열)을 동시에 보낸다.
+# 셋은 서로의 출력을 입력으로 받지 않아 LLM이 보는 입출력이 순차와 같다 — 합치는 순서는
+# 그대로 코드가 지킨다. OpenRouter 레인에서만 켠다(로컬·폴백 Ollama는 한 슬롯에 줄을 서서
+# 이득이 없고 긴 인터프리터 프리픽스 캐시만 밀려난다). 롤백은 off.
+def parallel_parse_enabled() -> bool:
+    return os.environ.get("STRATEGY_PARALLEL_PARSE", "on").strip().lower() != "off"
+
+
 def shadow_log_path() -> str:
     return os.environ.get(
         "STRATEGY_INTERPRETER_SHADOW_LOG",

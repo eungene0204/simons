@@ -94,8 +94,13 @@ def recover_missing_conditions(
     intent: Any,
     user_input: str,
     chat: Callable[..., str],
+    phrases: Optional[List[str]] = None,
 ) -> List[str]:
-    """LLM이 나열한 구절 중 **1차 전략에 없는 지표**를 되살린다. 반환값은 factor id 목록."""
+    """LLM이 나열한 구절 중 **1차 전략에 없는 지표**를 되살린다. 반환값은 factor id 목록.
+
+    phrases: 1차 해석과 동시에 미리 뽑아 둔 구절(병렬 파스). 나열 호출은 원문만 입력으로
+    받으므로 먼저 받아도 결과가 같다 — None이면 여기서 뽑는다.
+    """
     from strategy_conversation.interpreter.models import StrategyCondition
     from strategy_conversation.primary import _quote_has_echo
     from engine.nl_parser import _compact
@@ -112,7 +117,8 @@ def recover_missing_conditions(
         _compact(cond.source_text) for cond in existing if cond.source_text
     }
 
-    phrases = extract_condition_phrases(user_input, chat)
+    if phrases is None:
+        phrases = extract_condition_phrases(user_input, chat)
     compact_input = _compact(user_input)
     recovered: List[str] = []
     for phrase in phrases:

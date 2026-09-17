@@ -19,10 +19,12 @@ modify 경로(결정적 병합)가 조건을 채운다 — condition_builder와 
 
 from __future__ import annotations
 
+import concurrent.futures
+import contextvars
 import logging
 import math
 import re
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 import ui_language
 from engine import strategy_slots
@@ -1748,16 +1750,26 @@ def run_primary_parse(
 
     if on_stage is not None:
         on_stage("thinking")
+    from llm_backend import is_openrouter
+
+    # 원문만 입력으로 받는 호출(planner-first·조건 구절 나열)은 인터프리터와 동시에 보낸다 —
+    # 서로의 출력을 입력으로 받지 않으니 LLM이 보는 입출력은 순차와 같고, 결과를 합치는
+    # 순서는 아래 코드가 그대로 지킨다(config.parallel_parse_enabled 주석).
+    parallel = config.parallel_parse_enabled() and is_openrouter()
     # Phase 5(2026-07-28): 제어 역전 — planner가 파스 최선두에서 실행된다(Universe-first).
     # 유니버스 표현의 추출·분류·해석을 planner가 소유해, 인터프리터 sectors 필드 누락이
     # 유니버스 해석 체인 전체를 침묵시키던 '보안주' 사고를 구조적으로 차단한다.
     # 실패(None)·비활성(off/shadow)은 현행 고정 파이프라인 그대로 — 폴백 레인 보존.
     planner_first: Optional[Any] = None
+    planner_future: Optional[concurrent.futures.Future] = None
     if config.dag_planner_mode() == "primary":
         # planner-first는 유니버스 표현의 추출·해석 단계다 — 진행 표시도 그대로 알린다.
         if on_stage is not None:
             on_stage("universe")
-        planner_first = _plan_first(user_input)
+        if parallel:
+            planner_future = _start_parallel(_plan_first, user_input)
+        else:
+            planner_first = _plan_first(user_input)
     # Phase 4 shadow: DAG planner 관측 실행(기본 off, STRATEGY_DAG_PLANNER_MODE=shadow)
     # — 대화 턴 전체를 DAG로 계획하는 실험 레인. 비차단·응답 불변, 로그만 남긴다.
     try:
@@ -1766,8 +1778,18 @@ def run_primary_parse(
         maybe_shadow_plan_dag(user_input)
     except Exception:  # noqa: BLE001 — 관측 실행 실패가 파스를 깨면 안 된다
         logger.debug("dag planner shadow launch failed", exc_info=True)
+    phrases_future: Optional[concurrent.futures.Future] = None
     try:
         interpreter = _get_interpreter(StrategyInterpreter)
+        # 주입 스텁(테스트·QA 하니스)은 chat 핸들을 갖지 않는다 — 그때는 대조 패스를 건너뛴다
+        # (보조 그물이 없다고 턴의 계약이 달라지지 않는다).
+        recall_chat = getattr(interpreter, "_chat", None)
+        if parallel and config.condition_recall_enabled() and callable(recall_chat):
+            from strategy_conversation.interpreter.condition_recall import (
+                extract_condition_phrases,
+            )
+
+            phrases_future = _start_parallel(extract_condition_phrases, user_input, recall_chat)
         # on_stage: 인터프리터가 스트리밍 출력의 섹션 키를 보고 유니버스→매수→매도→리스크
         # 단계 전환을 알린다(비스트리밍 chat 주입 시 자동 비활성 — 동작 동일).
         result = interpreter.interpret(user_input, on_stage=on_stage)
@@ -1775,6 +1797,8 @@ def run_primary_parse(
         logger.warning("interpreter primary failed, reporting failure | err=%s",
                        str(exc)[:200])
         return None
+    if planner_future is not None:
+        planner_first = planner_future.result()
 
     repair_notices = _fill_deterministic_condition_params(result.intent)
     _normalize_size_class_labels(result.intent)
@@ -1783,16 +1807,16 @@ def run_primary_parse(
     # 실측: 위치·문장 길이가 무엇이 밀릴지 정하고, 프롬프트 보강·컨텍스트 확대 모두 무효).
     # 빠진 조건을 LLM에게 다시 묻고(해석은 LLM 레인) 되살린다. 환각 가드 앞에 두어
     # 되살린 조건도 같은 출처 대조를 받게 한다.
-    # 주입 스텁(테스트·QA 하니스)은 chat 핸들을 갖지 않는다 — 그때는 대조 패스를 건너뛴다
-    # (보조 그물이 없다고 턴의 계약이 달라지지 않는다).
-    recall_chat = getattr(interpreter, "_chat", None)
     if (config.condition_recall_enabled() and result.intent.strategy is not None
             and callable(recall_chat)):
         from strategy_conversation.interpreter.condition_recall import (
             recover_missing_conditions,
         )
 
-        recovered = recover_missing_conditions(result.intent, user_input, recall_chat)
+        recovered = recover_missing_conditions(
+            result.intent, user_input, recall_chat,
+            phrases=phrases_future.result() if phrases_future is not None else None,
+        )
         if recovered:
             _log_llm("✓ 누락 조건 회수", ", ".join(recovered))
         # 설정 슬롯도 같은 결함을 겪는다 — "최근 1년"을 말했는데 기간만 빠져 이미 답한
@@ -2718,6 +2742,19 @@ def _pending_ask_payload(
         # '안 함' 칩 — 값이 아니라 거부를 남긴다(같은 이유로 별도 채널).
         payload["chip_declines"] = declines
     return payload
+
+
+# 병렬 파스 전용 풀 — 파스 한 번이 워커 둘(planner-first·조건 구절 나열)을 호출 동안만 쓴다.
+_PARALLEL_POOL = concurrent.futures.ThreadPoolExecutor(
+    max_workers=8, thread_name_prefix="parse-parallel",
+)
+
+
+def _start_parallel(fn: Callable[..., Any], *args: Any) -> concurrent.futures.Future:
+    """fn을 병렬 풀에서 돌린다. 요청 컨텍스트(취소 토큰·trace 부모·진행 표시)를 복사해
+    넘긴다 — contextvar는 스레드를 건너가지 않아, 빠뜨리면 '대화 종료'가 이 호출을 못 끊고
+    trace에서도 span이 떨어져 나간다."""
+    return _PARALLEL_POOL.submit(contextvars.copy_context().run, fn, *args)
 
 
 def _plan_first(user_input: str) -> Optional[Any]:
