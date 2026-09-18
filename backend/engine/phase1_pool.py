@@ -34,6 +34,17 @@ from typing import Any, Dict, List, Optional, Tuple
 DEFAULT_MAX_WORKERS = 8
 _DEFAULT_MIN_SYMBOLS = 8
 
+# 자원(메모리) 부족으로 실행을 끝내지 못했을 때 사용자에게 그대로 나가는 문구.
+# 사용자가 실제로 할 수 있는 조치만 적는다 — 서버 설정 이름은 로그에만 남긴다.
+RESOURCE_EXHAUSTED_MESSAGE = (
+    "요청 범위가 너무 커서 실행할 수 없습니다. "
+    "백테스트 기간을 줄이거나 종목 범위를 좁혀 주세요."
+)
+
+
+class BacktestResourceError(RuntimeError):
+    """메모리 등 자원 부족으로 백테스트를 끝내지 못했다(문구가 곧 사용자 안내)."""
+
 
 def resolve_worker_count() -> int:
     raw = os.environ.get("BACKTEST_PHASE1_WORKERS")
@@ -196,8 +207,13 @@ class Phase1Pool:
             except _queue.Empty:
                 if not self._alive():
                     self._broken = True
-                    raise RuntimeError("Phase1 워커 프로세스가 중단되었습니다(메모리 부족 가능). "
-                                       "BACKTEST_PHASE1_WORKERS를 줄여 다시 시도해 주세요.")
+                    # 워커가 죽는 실사용 원인은 메모리 부족이다(커널이 프로세스를 강제 종료).
+                    # 사용자에게 가는 문구는 예외 문자열 그대로이므로(main.py 스트림 error 이벤트·
+                    # 500 detail) 내부 이름이 아니라 사용자가 취할 수 있는 조치를 적는다.
+                    # 진단에 필요한 내부 값은 로그로만 남긴다.
+                    print(f"[BT-POOL] 워커 중단 — workers={len(self._procs)} "
+                          f"수신 {len(got)}/{expected} (메모리 부족 추정)", flush=True)
+                    raise BacktestResourceError(RESOURCE_EXHAUSTED_MESSAGE)
                 continue
             got[idx] = (status, payload)
         return got

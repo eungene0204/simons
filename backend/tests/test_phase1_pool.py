@@ -101,3 +101,34 @@ def test_pool_below_min_symbols_uses_thread_path(mock_data_dir, monkeypatch, cap
     phase1_line = next(l for l in out.splitlines() if "Phase1 시작" in l)
     assert "workers=" not in phase1_line
     assert len(res["rebalanceComparison"]["periods"]) == 6
+
+
+def test_worker_death_message_is_user_actionable(monkeypatch, capsys):
+    """워커가 죽었을 때 사용자에게 가는 문구에 서버 설정 이름이 들어가면 안 된다.
+
+    2026-09-18: 예외 문자열이 그대로 화면 오류 상자에 실린다(main.py 스트림 error 이벤트·500 detail).
+    기존 문구는 "BACKTEST_PHASE1_WORKERS를 줄여 다시 시도해 주세요"로, 사용자가 할 수 없는 조치였다.
+    """
+    import queue as _queue
+
+    from engine import phase1_pool
+
+    pool = phase1_pool.Phase1Pool.__new__(phase1_pool.Phase1Pool)
+    pool._procs = []                      # _alive() → all([]) 은 True 이므로 죽은 워커를 흉내낸다
+    pool._broken = False
+
+    class DeadWaiter:
+        def get(self, timeout=None):
+            raise _queue.Empty
+
+    monkeypatch.setattr(pool, "_alive", lambda: False)
+    with pytest.raises(phase1_pool.BacktestResourceError) as exc:
+        pool._collect("job", DeadWaiter(), 1, timeout_s=1.0)
+
+    msg = str(exc.value)
+    assert msg == phase1_pool.RESOURCE_EXHAUSTED_MESSAGE
+    assert "BACKTEST_PHASE1_WORKERS" not in msg and "Phase1" not in msg
+    assert "기간을 줄이" in msg and "종목 범위를 좁혀" in msg
+    assert pool._broken is True
+    # 진단용 내부 값은 로그로만 남는다.
+    assert "[BT-POOL]" in capsys.readouterr().out

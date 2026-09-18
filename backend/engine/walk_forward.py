@@ -18,6 +18,7 @@ import math
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from engine.grid_optimizer import optimization_session, set_nested_value
+from engine.phase1_pool import RESOURCE_EXHAUSTED_MESSAGE
 
 # 윈도우 하나마다 IS 최적화(수십 회 백테스트)가 반복되므로 폭주 방지 상한.
 MAX_WINDOWS = 24
@@ -403,13 +404,10 @@ class WalkForwardAnalyzer:
                     pending = {f for f in pending if not f.cancelled()}
             pool.drain(_handle_msg)
         except cf.process.BrokenProcessPool as exc:
-            return {
-                "status": "error",
-                "message": (
-                    "병렬 창 실행 프로세스가 중단되었습니다(메모리 부족 가능). "
-                    f"WALK_FORWARD_WORKERS를 줄여 다시 시도해 주세요. ({exc})"
-                ),
-            }
+            # 사용자에게 가는 문구는 그대로 화면에 실린다 — 내부 설정 이름 대신 취할 수 있는
+            # 조치를 적고, 진단용 원인은 로그로만 남긴다(phase1_pool과 같은 규칙).
+            print(f"[WFA] 병렬 창 프로세스 중단(메모리 부족 추정): {exc}", flush=True)
+            return {"status": "error", "message": RESOURCE_EXHAUSTED_MESSAGE}
 
         if cancelled or any(r.get("cancelled") for r in results.values()):
             done_n = sum(1 for r in results.values() if r and not r.get("cancelled") and not r.get("error"))
