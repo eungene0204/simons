@@ -43,7 +43,14 @@ RESOURCE_EXHAUSTED_MESSAGE = (
 
 
 class BacktestResourceError(RuntimeError):
-    """메모리 등 자원 부족으로 백테스트를 끝내지 못했다(문구가 곧 사용자 안내)."""
+    """메모리 등 자원 부족으로 백테스트를 끝내지 못했다(문구가 곧 사용자 안내).
+
+    인자 없이도 같은 문구를 갖는다 — memory_guard가 다른 스레드에 예외를 심을 때는
+    클래스만 넘길 수 있어(CPython PyThreadState_SetAsyncExc) 인자를 줄 수 없다.
+    """
+
+    def __init__(self, message: str = RESOURCE_EXHAUSTED_MESSAGE) -> None:
+        super().__init__(message)
 
 
 def resolve_worker_count() -> int:

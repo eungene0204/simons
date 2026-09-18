@@ -25,6 +25,7 @@ import httpx
 
 # Modal proxy-auth 헤더(MODAL_KEY/MODAL_SECRET) — LLM 레인과 같은 토큰을 쓴다.
 from llm_backend import ollama_auth_headers as modal_auth_headers
+from engine import memory_guard
 from engine.watchdog import backtest_timeout_s, walk_forward_timeout_s
 
 
@@ -118,7 +119,9 @@ def run(engine, req_dict: Dict[str, Any]) -> Dict[str, Any]:
         return _post_json(url, req_dict, read_timeout_s=backtest_timeout_s() + 45.0, what="백테스트")
     print(f"[BT-EXEC] 박스에서 실행 (칸 {local_slots()}개)", flush=True)
     try:
-        return local.run_backtest(req_dict)
+        # 메모리 가드: 컨테이너 한계에 닿기 전에 끊는다. 한계를 넘으면 커널이 본체를 고를 수 있고,
+        # 그러면 백엔드가 통째로 죽어 사용자는 문구 없이 연결 끊김만 본다(자동매매도 재시작).
+        return memory_guard.guarded(lambda: local.run_backtest(req_dict))
     finally:
         _checkin_local_engine(local, engine)
 
