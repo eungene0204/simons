@@ -87,6 +87,10 @@ def build_strategies(symbols: List[str], kospi200_ids: List[str]) -> Dict[str, D
         _grp(_cond("bollinger_bands", "exit", period=30, stdDev=1.5, signalType="sell")))
     add("breakout_52w", _grp(_cond("breakout", lookbackPeriod=252)),
         _grp(_cond("breakout", "exit", lookbackPeriod=60, signalType="sell")), _risk(stop_loss_pct=10, max_positions=10))
+    add("trading_value_ratio_ema", _grp(_cond("trading_value_ratio", period=30, operator=">", value=1),
+                                        _cond("ema", shortPeriod=20, longPeriod=60)),
+        _grp(_cond("ema", "exit", shortPeriod=20, longPeriod=60, signalType="sell")),
+        _risk(stop_loss_pct=7, take_profit_pct=24, max_positions=9))
     add("volume_spike_stoch", _grp(_cond("volume_spike", period=20), _cond("stochastic", period=14)),
         _grp(_cond("stochastic", "exit", period=14, signalType="sell")))
     add("cci_adx_wr", _grp(_cond("cci", period=20, operator="<", value=-100), _cond("adx", operator=">", value=20)),
