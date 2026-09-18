@@ -120,7 +120,9 @@ GPU가 없으므로 로컬 LLM은 돌리지 않는다. 백테스트(vectorbt/opt
 
 **왜**: 백테스트는 "버튼 누르는 순간 터지는" CPU 부하라 상시 박스 증설로는 동시 50건을 감당할 수 없다(2 vCPU 박스는 10명 테스트용). Modal 오토스케일이 요청 수만큼 컨테이너를 늘려 각 백테스트가 전용 코어로 병렬 실행된다(실측 1건 ≈ 10~20 코어·초, 120종목·5Y).
 
-**백엔드 배선**: `backend/backtest_executor.py`가 디스패치한다 — `.env`에 `BACKTEST_EXECUTOR=modal` + `BACKTEST_REMOTE_URL=<엔드포인트>`가 있을 때만 원격, 아니면 종전 그대로 인프로세스(로컬 dev 무변경). **원격 실패는 로컬로 폴백하지 않는다**(x86 ULP로 레인이 섞이면 같은 전략이 실행마다 다른 정본을 가짐).
+**백엔드 배선**: `backend/backtest_executor.py`가 디스패치한다 — `.env`에 `BACKTEST_EXECUTOR=modal` + `BACKTEST_REMOTE_URL=<엔드포인트>`가 있을 때만 원격, 아니면 종전 그대로 인프로세스(로컬 dev 무변경). **원격 실패는 로컬로 재시도하지 않는다**(에러로 드러냄).
+
+**단일 백테스트 박스 우선(2026-09-17)**: `BACKTEST_LOCAL_SLOTS=N`이면 박스가 단일 백테스트를 최대 N건 동시에 직접 돌리고, 넘치는 요청만 Modal로 보낸다(기본 0 = 전부 Modal). 최적화·워크포워드는 칸과 무관하게 Modal. **칸을 열기 전 확인**: ① 박스 메모리 — **박스에서 직접 재고**(같은 요청이 Mac보다 크게 나온다) 앱 ~2GB를 더해 칸 수를 정한다. 2026-09-18 Contabo 8c/24GB 실측(워커 3): ETF 3Y 3.5GB·KOSPI200 5Y 7.6GB·KOSPI200 full 15.5GB·전체시장 5Y 16.2GB·전체시장 full 20GB 초과 → 1칸 + `BACKEND_MEM_LIMIT=19g` ② 워커가 박스와 같은 커밋으로 배포돼 있어야 한다(`modal app history simons-backtest`의 Commit) — 어긋나면 같은 전략이 장소에 따라 다른 답을 낸다. 원격 호출은 Modal 150초 303 리다이렉트를 따라간다.
 
 **원격 경로(2026-08-31 확장)**: `/backtest`·`/strategy/backtest-stream`(단일 실행) + `/optimize`·`/walk-forward`·`/walk-forward/stream`(장시간 잡). 가상매매(VirtualTrader)만 박스 인프로세스로 남는다. 잡 엔드포인트 URL은 `BACKTEST_REMOTE_URL`의 `run-backtest` 슬러그 치환으로 파생(별도 env 불요 — Modal 웹 URL이 함수명과 1:1이라 가능, `backtest_executor.job_url`). 잡 워커는 16코어/24GB·timeout 3700s(`walk_forward_timeout_s` 3600 + 여유)이고, 컨테이너의 `os.cpu_count()`가 호스트 코어를 보는 함정 때문에 **창 병렬 4 × 창당 Phase1 풀 3을 명시 고정**한다(`modal_backtest.py` `WFA_ENV`). `/walk-forward/stream`은 워커가 인프로세스와 동일한 SSE 이벤트를 만들고 백엔드는 바이트 그대로 통과(proxy)시킨다 — 백엔드가 연결을 끊으면 워커 finally에서 협조적 취소가 발동한다. 잡 동일성은 `qa_backtest_modal_equivalence.py --jobs`(WFA grid + 최적화 optuna seed=42 — 둘 다 결정적)로 대조한다.
 

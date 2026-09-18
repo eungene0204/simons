@@ -51,6 +51,10 @@ services:
         NEXT_PUBLIC_GA_ID: ${NEXT_PUBLIC_GA_ID:-}
     image: simons-app:latest
     restart: unless-stopped
+    # 박스 인프로세스 백테스트(BACKTEST_LOCAL_SLOTS≥1)가 메모리를 폭주시켜도 호스트 OOM 킬러가
+    # postgres·web을 고르지 않게, 백엔드만 한도 안에서 죽고 restart로 살아나게 한다.
+    # 한도는 박스 메모리에 맞춰 .env로 조정한다(미설정이면 제한 없음 = 종전 동작).
+    mem_limit: ${BACKEND_MEM_LIMIT:-0}
     env_file: .env
     environment:
       OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}  # Modal LLM 엔드포인트(.env에서 지정). .env LLM_PROVIDER=openrouter면 무시되고 OPENROUTER_API_KEY/MODEL 사용

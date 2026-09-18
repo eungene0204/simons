@@ -1090,8 +1090,21 @@ Dataset에 정답 전략을 두지 않는다 — **되묻기는 실패가 아니
 > (`modal_backtest.py` — 단일 실행 8코어, 최적화/워크포워드 잡 16코어)에서 실행하고,
 > 로컬 dev·테스트·가상매매는 종전대로 인프로세스다. `/walk-forward/stream`은 워커 SSE를
 > 백엔드가 그대로 통과시킨다(이벤트 형식 동일, 연결 종료 = 협조적 취소). 원격 실패는 로컬로
-> 폴백하지 않는다(아키텍처 간 ULP 차이로 정본 레인이 섞이는 것 금지). 결과 동일성은
+> 재시도하지 않는다. 결과 동일성은
 > `scripts/qa_backtest_modal_equivalence.py`(단일 실행 전수 + `--jobs` 픽스처)로 보증한다.
+>
+> **단일 백테스트 = 박스 우선, 넘치면 Modal (2026-09-17)**: `/backtest`·`/strategy/backtest-stream`은
+> 박스 실행 칸(`BACKTEST_LOCAL_SLOTS`, 기본 0)이 비어 있으면 박스 인프로세스로, 다 차 있으면 기다리지
+> 않고 워커로 보낸다(Modal = 박스가 바쁠 때의 백업, 사용자 결정). 칸마다 엔진 인스턴스를 따로 쓴다
+> (엔진이 실행별 `self.warnings`를 인스턴스에 둔다). 최적화·워크포워드 잡은 원격이면 항상 워커다.
+> 박스 실측(Contabo 8c/24GB, `BACKTEST_PHASE1_WORKERS=3`): ETF 3Y 3.5GB·37s, KOSPI200 5Y 7.6GB·39s,
+> KOSPI200 full 15.5GB, 전체시장 5Y 16.2GB, 전체시장 full은 20GB 초과 실패(원격 워커 16GB에서도 실패).
+> 워커 7개는 메모리만 2배(7.6→14.2GB)이고 속도는 같아 3으로 고정한다. 앱이 ~2GB를 쓰므로 prod는 1칸
+> (`BACKTEST_LOCAL_SLOTS=1`)이고, 폭주 대비로 백엔드 컨테이너에 `BACKEND_MEM_LIMIT`(19g)를 건다 —
+> 호스트 OOM 킬러가 postgres·web을 고르는 대신 백엔드만 죽고 restart된다. 두 장소를 섞는 전제는
+> **같은 엔진 커밋**이다(워커 배포는 CI 밖 수동).
+> 원격 호출은 `follow_redirects=True` — Modal 웹 엔드포인트는 150초를 넘기면 결과 대신 303(결과 조회
+> URL)을 준다(2026-09-17 사고: ETF 1270종목 콜드 168s가 "원격 백테스트 워커 HTTP 303"으로 실패).
 
 ```
 BacktestEngine.run_backtest(request)

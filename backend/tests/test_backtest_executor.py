@@ -1,4 +1,4 @@
-"""backtest_executor 디스패처 — 로컬/원격 분기·원격 실패 시 폴백 금지 검증."""
+"""backtest_executor 디스패처 — 로컬/원격 분기·박스 우선 칸·원격 실패 시 폴백 금지 검증."""
 
 import pytest
 
@@ -12,6 +12,12 @@ class FakeEngine:
     def run_backtest(self, req):
         self.calls.append(req)
         return {"trades": 1, "source": "local"}
+
+
+@pytest.fixture(autouse=True)
+def _no_local_slots(monkeypatch):
+    """박스 실행 칸은 테스트가 명시할 때만 연다(기본 0 = 원격 설정 시 전부 워커)."""
+    monkeypatch.delenv("BACKTEST_LOCAL_SLOTS", raising=False)
 
 
 class FakeResponse:
@@ -47,7 +53,7 @@ def test_remote_success_skips_engine(monkeypatch):
     monkeypatch.setenv("BACKTEST_REMOTE_URL", "https://worker.example/run")
     sent = {}
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, **kw):
         sent.update({"url": url, "json": json, "headers": headers})
         return FakeResponse(payload={"trades": 5, "source": "remote"})
 
@@ -119,7 +125,7 @@ def test_run_optimization_remote_dispatch(monkeypatch):
     monkeypatch.setenv("BACKTEST_REMOTE_URL", REMOTE_BT_URL)
     sent = {}
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, **kw):
         sent.update({"url": url, "json": json})
         return FakeResponse(payload={"status": "ok", "best_params": {}})
 
@@ -137,7 +143,7 @@ def test_run_walk_forward_remote_dispatch(monkeypatch):
     monkeypatch.setenv("BACKTEST_REMOTE_URL", REMOTE_BT_URL)
     sent = {}
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, **kw):
         sent.update({"url": url, "json": json})
         return FakeResponse(payload={"status": "ok"})
 
@@ -183,3 +189,107 @@ def test_walk_forward_stream_error_becomes_sse_event(monkeypatch):
     chunks = b"".join(backtest_executor.iter_walk_forward_stream({"base_request": {}}))
     assert b'"type": "error"' in chunks
     assert b"[DONE]" in chunks
+
+
+def test_remote_follows_modal_303_redirect(monkeypatch):
+    """Modal은 150초 넘는 요청에 303(결과 조회 URL)을 준다 — 따라가야 결과를 받는다.
+
+    2026-09-17 사고: ETF 1270종목 콜드 168s 요청이 워커에서 끝났는데 "원격 백테스트 워커 HTTP 303"으로 실패.
+    """
+    monkeypatch.setenv("BACKTEST_EXECUTOR", "modal")
+    monkeypatch.setenv("BACKTEST_REMOTE_URL", REMOTE_BT_URL)
+    sent = {}
+
+    def fake_post(url, **kw):
+        sent.update(kw)
+        return FakeResponse(payload={"trades": 1})
+
+    monkeypatch.setattr(backtest_executor.httpx, "post", fake_post)
+    backtest_executor.run(FakeEngine(), {})
+    assert sent["follow_redirects"] is True
+
+
+def _remote_marker(monkeypatch):
+    monkeypatch.setenv("BACKTEST_EXECUTOR", "modal")
+    monkeypatch.setenv("BACKTEST_REMOTE_URL", REMOTE_BT_URL)
+    remote_calls = []
+
+    def fake_post(url, json=None, **kw):
+        remote_calls.append(json)
+        return FakeResponse(payload={"source": "remote"})
+
+    monkeypatch.setattr(backtest_executor.httpx, "post", fake_post)
+    return remote_calls
+
+
+def test_free_local_slot_runs_on_box(monkeypatch):
+    """박스 우선: 빈 칸이 있으면 원격 설정이어도 박스 엔진으로 돈다."""
+    remote_calls = _remote_marker(monkeypatch)
+    monkeypatch.setenv("BACKTEST_LOCAL_SLOTS", "1")
+    engine = FakeEngine()
+    assert backtest_executor.run(engine, {"a": 1})["source"] == "local"
+    assert engine.calls == [{"a": 1}]
+    assert remote_calls == []
+
+
+class NestedEngine(FakeEngine):
+    """실행 도중 다른 요청이 들어온 상황 — 칸을 쥔 채로 두 번째 run을 부른다."""
+
+    inner_results: list = []
+
+    def run_backtest(self, req):
+        self.calls.append(req)
+        if req.get("outer"):
+            NestedEngine.inner_results.append(backtest_executor.run(NESTED_SHARED["engine"], {"inner": True}))
+        return {"source": "local", "engine": id(self)}
+
+
+NESTED_SHARED: dict = {}
+
+
+def test_full_local_slots_overflow_to_modal(monkeypatch):
+    """칸이 다 차 있으면 기다리지 않고 워커로 넘친다."""
+    remote_calls = _remote_marker(monkeypatch)
+    monkeypatch.setenv("BACKTEST_LOCAL_SLOTS", "1")
+    engine = NestedEngine()
+    NESTED_SHARED["engine"] = engine
+    NestedEngine.inner_results = []
+    assert backtest_executor.run(engine, {"outer": True})["source"] == "local"
+    assert NestedEngine.inner_results == [{"source": "remote"}]
+    assert remote_calls == [{"inner": True}]
+
+
+def test_concurrent_local_runs_use_separate_engine_instances(monkeypatch):
+    """엔진은 실행별 상태(self.warnings)를 인스턴스에 들고 있다 — 동시 박스 실행은 인스턴스를 나눈다."""
+    remote_calls = _remote_marker(monkeypatch)
+    monkeypatch.setenv("BACKTEST_LOCAL_SLOTS", "2")
+    engine = NestedEngine()
+    NESTED_SHARED["engine"] = engine
+    NestedEngine.inner_results = []
+    outer = backtest_executor.run(engine, {"outer": True})
+    inner = NestedEngine.inner_results[0]
+    assert outer["engine"] == id(engine)
+    assert inner["source"] == "local" and inner["engine"] != id(engine)
+    assert remote_calls == []
+
+
+def test_local_slot_released_after_engine_error(monkeypatch):
+    """박스 실행이 예외로 끝나도 칸은 반납된다(다음 요청이 영영 워커로 가지 않게)."""
+    remote_calls = _remote_marker(monkeypatch)
+    monkeypatch.setenv("BACKTEST_LOCAL_SLOTS", "1")
+
+    class BoomEngine(FakeEngine):
+        def run_backtest(self, req):
+            raise ValueError("boom")
+
+    with pytest.raises(ValueError):
+        backtest_executor.run(BoomEngine(), {})
+    engine = FakeEngine()
+    assert backtest_executor.run(engine, {"b": 2})["source"] == "local"
+    assert remote_calls == []
+
+
+@pytest.mark.parametrize("raw", ["", "abc", "-3"])
+def test_invalid_local_slots_mean_zero(monkeypatch, raw):
+    monkeypatch.setenv("BACKTEST_LOCAL_SLOTS", raw)
+    assert backtest_executor.local_slots() == 0

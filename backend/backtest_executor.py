@@ -1,17 +1,25 @@
 """백테스트 실행 디스패처 — 인프로세스(기본) vs Modal 원격 CPU 워커.
 
-BACKTEST_EXECUTOR=modal 이고 BACKTEST_REMOTE_URL 이 설정된 경우에만 원격 실행한다.
+BACKTEST_EXECUTOR=modal 이고 BACKTEST_REMOTE_URL 이 설정된 경우에만 원격을 쓴다.
 그 외에는 종전 그대로 로컬 엔진을 부른다(로컬 dev·테스트는 env 미설정 → 무변경).
 
-원격 실패는 로컬로 폴백하지 않는다 — CPU 아키텍처 간 부동소수점 ULP 차이로
-실행 장소가 섞이면 같은 전략이 실행마다 미세하게 다른 결과를 갖게 되기 때문
-(정본 레인은 하나여야 한다). 실패는 에러로 드러내 기존 에러 경로(500/504)를 탄다.
+단일 백테스트(run)는 **박스 우선, 넘치면 Modal**이다(2026-09-17 사용자 결정 — Modal은
+박스가 바쁠 때의 백업). 박스 실행 칸 수는 BACKTEST_LOCAL_SLOTS(기본 0 = 전부 Modal)이고,
+칸이 다 차 있으면 기다리지 않고 워커로 보낸다. 칸마다 엔진 인스턴스를 따로 쓴다 —
+엔진은 실행별 상태(self.warnings)를 인스턴스에 들고 있어 동시 실행이 섞이면 안 된다.
+최적화·워크포워드 잡은 박스(2코어) 체급을 넘으므로 원격이면 항상 워커다.
+
+두 장소가 같은 답을 내는 전제: 둘 다 x86 리눅스 + 같은 uv.lock 파생 핀 + **같은 엔진 커밋**
+(워커는 CI 밖 수동 `modal deploy`라 박스 배포와 어긋날 수 있다). 보증은
+scripts/qa_backtest_modal_equivalence.py. 원격 실패는 로컬로 재시도하지 않고 에러로
+드러내 기존 에러 경로(500/504)를 탄다.
 """
 
 from __future__ import annotations
 
 import os
-from typing import Any, Dict
+import threading
+from typing import Any, Dict, List, Optional, Set
 
 import httpx
 
@@ -50,7 +58,10 @@ def job_url(fn_slug: str) -> str | None:
 def _post_json(url: str, payload: Dict[str, Any], *, read_timeout_s: float, what: str) -> Dict[str, Any]:
     timeout = httpx.Timeout(connect=30.0, read=read_timeout_s, write=120.0, pool=30.0)
     try:
-        resp = httpx.post(url, json=payload, headers=modal_auth_headers(), timeout=timeout)
+        # Modal 웹 엔드포인트는 150초를 넘기면 결과 대신 303(결과 조회 URL)을 준다 — 따라가야
+        # 결과를 받는다(2026-09-17 사고: ETF 1270종목 콜드 168s → "원격 백테스트 워커 HTTP 303").
+        resp = httpx.post(url, json=payload, headers=modal_auth_headers(), timeout=timeout,
+                          follow_redirects=True)
     except httpx.HTTPError as exc:
         raise RemoteBacktestError(f"원격 {what} 워커 연결 실패: {exc}") from exc
     if resp.status_code != 200:
@@ -58,12 +69,58 @@ def _post_json(url: str, payload: Dict[str, Any], *, read_timeout_s: float, what
     return resp.json()
 
 
+def local_slots() -> int:
+    """박스에서 동시에 돌릴 단일 백테스트 수(BACKTEST_LOCAL_SLOTS). 미설정·오류 = 0."""
+    try:
+        return max(0, int(os.environ.get("BACKTEST_LOCAL_SLOTS", "0")))
+    except ValueError:
+        return 0
+
+
+_slot_lock = threading.Lock()
+_busy_engines: Set[int] = set()
+_spare_engines: List[Any] = []
+
+
+def _checkout_local_engine(engine) -> Optional[Any]:
+    """빈 칸이 있으면 이 실행 전용 엔진을 내준다(없으면 None = 워커로).
+
+    워치독 타임아웃으로 유기된 실행은 끝날 때까지 칸을 쥐고 있다 — 그동안은 워커로 넘친다.
+    """
+    with _slot_lock:
+        if len(_busy_engines) >= local_slots():
+            return None
+        if id(engine) not in _busy_engines:
+            chosen = engine
+        elif _spare_engines:
+            chosen = _spare_engines.pop()
+        else:
+            chosen = type(engine)()
+        _busy_engines.add(id(chosen))
+        return chosen
+
+
+def _checkin_local_engine(chosen, engine) -> None:
+    with _slot_lock:
+        _busy_engines.discard(id(chosen))
+        if chosen is not engine:
+            _spare_engines.append(chosen)
+
+
 def run(engine, req_dict: Dict[str, Any]) -> Dict[str, Any]:
     url = remote_url()
     if not url:
         return engine.run_backtest(req_dict)
-    # read는 워치독 한도 + 콜드스타트 여유. 워치독(run_with_timeout)이 최종 상한이다.
-    return _post_json(url, req_dict, read_timeout_s=backtest_timeout_s() + 45.0, what="백테스트")
+    local = _checkout_local_engine(engine)
+    if local is None:
+        print(f"[BT-EXEC] 박스 실행 칸 {local_slots()}개 가득 참 → Modal 워커", flush=True)
+        # read는 워치독 한도 + 콜드스타트 여유. 워치독(run_with_timeout)이 최종 상한이다.
+        return _post_json(url, req_dict, read_timeout_s=backtest_timeout_s() + 45.0, what="백테스트")
+    print(f"[BT-EXEC] 박스에서 실행 (칸 {local_slots()}개)", flush=True)
+    try:
+        return local.run_backtest(req_dict)
+    finally:
+        _checkin_local_engine(local, engine)
 
 
 def run_optimization(engine, *, base_request, user_prompt, ranges, target_metric, n_trials) -> Dict[str, Any]:
