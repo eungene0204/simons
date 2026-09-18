@@ -176,6 +176,20 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 kept.append(cond)
                 continue
             cond.factor = spec.id
+            if spec.id in ("fundamental.trading_value", "technical.trading_value") \
+                    and cond.value is None and cond.parameters.get("period") is not None:
+                # 금액 없이 평균 기간만 실린 거래대금 조건은 '자기 N일 평균과 비교'의 옛 자리다
+                # (실측 2026-09-16, '최근 거래대금이 30일 평균보다 높은' → trading_value
+                # period=30 value=null). 금액 임계 지표는 기간 파라미터를 쓰지 않으므로 정본인
+                # 거래대금 배수(v16.13)로 지표만 옮긴다 — 값·기간·연산자는 그대로이고 표기만
+                # 보고 결정하는 정규화다(원문을 읽지 않는다). 금액이 인용에 있으면 앞 단계
+                # (primary ④ 금액 검산)가 value를 채워 이 분기에 오지 않는다.
+                ontology_logger.info(
+                    "거래대금 배수 정본 착지 | %s 조건 %s(period=%s) → trading_value_ratio 원문=%r",
+                    role, spec.id, cond.parameters.get("period"), cond.source_text,
+                )
+                spec = resolve("technical.trading_value_ratio")
+                cond.factor = spec.id
             if spec.engine_binding is not None and spec.engine_binding[0] == "ranking":
                 # 4B 드리프트 실측(2026-07-16): 랭킹을 ranking 배열과 entry 조건에 중복
                 # 출력 — 랭킹은 조건이 아니라 선정 방식이므로 ranking 배열로 이동/중복 제거

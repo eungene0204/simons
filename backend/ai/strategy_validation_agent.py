@@ -35,6 +35,7 @@ class StrategyValidationAgent:
         "trading_value",
         "volume_spike",
         "volume_ratio",
+        "trading_value_ratio",
         "relative_return",
         "williams_r",
     }

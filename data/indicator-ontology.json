@@ -81,6 +81,7 @@
     "technical.volume_spike": "class.volume",
     "technical.trading_value": "class.volume",
     "technical.volume_ratio": "class.volume",
+    "technical.trading_value_ratio": "class.volume",
 
     "technical.ai_model": "class.ai",
     "technical.ai_drop_model": "class.ai",
@@ -200,7 +201,7 @@
     "technical.macd": "none",
     "technical.bollinger_bands": "none",
     "technical.breakout": "none",
-    "technical.volume_spike": "none", "technical.volume_ratio": "none",
+    "technical.volume_spike": "none", "technical.volume_ratio": "none", "technical.trading_value_ratio": "none",
     "technical.trading_value": "none",
     "technical.rsi": "none",
     "technical.stochastic": "none",

@@ -180,6 +180,8 @@ function formatSignal(s: TechnicalSignal): string {
       return t("거래량 급증 (OBV {0}일 평균 상향 돌파)", s.period ?? 20);
     case "volume_ratio":
       return t("거래량 {0}일 평균 대비 {1}배 이상", s.period ?? 20, s.value ?? s.threshold ?? 2);
+    case "trading_value_ratio":
+      return t("거래대금 {0}일 평균 대비 {1}배 이상", s.period ?? 20, s.value ?? s.threshold ?? 1);
     case "breakout":
       return t("가격 돌파 ({0}일 고점)", s.period);
     case "ai_model":

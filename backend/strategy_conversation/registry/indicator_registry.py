@@ -145,8 +145,9 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     _fundamental("trading_value", "일평균거래대금", "liquidity", "억원", recommended=10, value_range=(0, 1_000_000),
                  notes="유동성 스크리닝용 기본값. '거래대금 N억 이상 종목만/으로 거른' 처럼 "
                        "**종목 선정 기준**이면 technical.trading_value가 아니라 이것. "
-                       "'일평균·최근 N일 평균 거래대금'처럼 **기간 평균**이면 항상 이것이다 "
-                       "(technical은 당일 거래대금만 본다)"),
+                       "'일평균·최근 N일 평균 거래대금 N억'처럼 **기간 평균의 금액 임계**면 항상 이것이다 "
+                       "(technical은 당일 거래대금만 본다). 억원 금액 없이 '거래대금이 N일 평균보다 "
+                       "높은'처럼 **자기 평균과 비교**하면 technical.trading_value_ratio"),
     _fundamental("dividend_yield", "배당수익률", "dividend", "percent", recommended=3, value_range=(0, 100)),
     _fundamental("payout_rate", "배당성향", "dividend", "percent", recommended=30, value_range=(0, 1000)),
     _fundamental("dividend_growth", "배당성장률", "dividend", "percent", recommended=5, value_range=(-100, 1000)),
@@ -224,6 +225,12 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                notes="당일 거래량 ÷ 직전 N일 평균 거래량(배). '평소보다 3배'·'20일 평균의 1.5배 이상' "
                      "→ operator \">=\", value=3/1.5, 평균 기간을 말했으면 parameters.period=20. "
                      "배수를 unsupported_features로 보내지 마세요"),
+    _technical("trading_value_ratio", "거래대금 배수(평균 대비)", "ratio", _COMPARISON_OPS,
+               {"period": ParamSpec(default=20, minimum=2, maximum=250)},
+               value_range=(0.1, 100), recommended=1,
+               notes="당일 거래대금 ÷ 직전 N일 평균 거래대금(배). '거래대금이 30일 평균보다 높은' → "
+                     "operator \">\", value=1, parameters.period=30. '20일 평균의 2배 이상' → \">=\", value=2. "
+                     "억원 금액 임계('거래대금 100억 이상')는 이것이 아니라 trading_value"),
     _technical("stochastic", "스토캐스틱", "point", _COMPARISON_OPS,
                {"period": ParamSpec(default=14, minimum=2, maximum=250)},
                value_range=(0, 100), recommended=20),
@@ -385,6 +392,8 @@ _ALIASES: Dict[str, str] = {
     "volume_spike": "technical.volume_spike", "거래량급증": "technical.volume_spike",
     "volume_ratio": "technical.volume_ratio", "거래량배수": "technical.volume_ratio",
     "volume_multiple": "technical.volume_ratio",
+    "trading_value_ratio": "technical.trading_value_ratio",
+    "거래대금배수": "technical.trading_value_ratio",
     "스토캐스틱": "technical.stochastic", "stochastic": "technical.stochastic",
     "cci": "technical.cci",
     "adx": "technical.adx",
@@ -486,6 +495,23 @@ def factor_ids_named_in(text: str) -> set:
                 out.add(canonical)
         elif alias in normalized:
             out.add(canonical)
+    return out
+
+
+# 같은 이름('거래대금')을 공유하는 지표 변형 — 금액 임계(일평균·당일)와 자기 평균 대비 배수는
+# 모두 '거래대금'으로 불린다. 별칭 표는 이름 하나를 정본 하나로만 잇기 때문에(조건 회수가 이
+# 결과로 조건을 되살린다), 대체 감지만 이 표로 변형을 같은 지표로 본다.
+_SAME_NAME_VARIANTS: Dict[str, frozenset] = {
+    "fundamental.trading_value": frozenset({"technical.trading_value",
+                                            "technical.trading_value_ratio"}),
+}
+
+
+def with_same_name_variants(factor_ids: set) -> set:
+    """factor_ids_named_in 결과에 같은 이름을 공유하는 변형 지표를 더한다."""
+    out = set(factor_ids)
+    for factor_id in factor_ids:
+        out |= _SAME_NAME_VARIANTS.get(factor_id, frozenset())
     return out
 
 

@@ -417,7 +417,7 @@ COVERAGE_CHECKS: list[tuple[str, str, Any]] = [
      lambda p: _has_fund(p, "market_cap") or _has_rank(p, "market_cap")),
     ("거래대금", r"거래대금|trading\s*value|dollar\s*volume|turnover",
      lambda p: _has_fund(p, "trading_value") or _has_sig(p, "trading_value")
-     or _has_rank(p, "trading_value")),
+     or _has_sig(p, "trading_value_ratio") or _has_rank(p, "trading_value")),
     # 이동평균/EMA 상하 관계('20일선 위에 있는', '5일 EMA가 20일 EMA 위')는 crossover 표기로
     # 반영돼야 한다. 2026-07-27: 이 검사가 없어 4개 예시가 조건을 잃은 채 통과했다
     # (기준값 되묻기로 조건 드롭 — 인터프리터가 value 요구 연산자를 쓴 드리프트).

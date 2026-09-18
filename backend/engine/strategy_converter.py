@@ -377,7 +377,7 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
     elif sig.indicator == "volume_spike":
         params["period"] = sig.period or 20
 
-    elif sig.indicator == "volume_ratio":
+    elif sig.indicator in ("volume_ratio", "trading_value_ratio"):
         params["period"] = sig.period or 20
         if sig.operator:
             params["operator"] = sig.operator

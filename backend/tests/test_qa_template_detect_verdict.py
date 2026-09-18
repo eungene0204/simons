@@ -446,6 +446,18 @@ def test_approximation_notice_is_not_unsupported_fatal(qatd):
     assert not any(x.startswith("미지원 안내(") for x in flags.fatal)
 
 
+def test_trading_value_ratio_counts_as_trading_value_coverage(qatd):
+    """거래대금 배수(엔진 v16.13)도 거래대금 조건의 반영이다 — 새 지표를 모르면 정본 착지가
+    '미탐지[거래대금]'으로 세진다(2026-09-18 게이트 실측)."""
+    prompt = "KOSDAQ에서 최근 거래대금이 30일 평균보다 높은 경우만 진입해 주세요."
+    flags = qatd.analyze(
+        _template(qatd, prompt),
+        {"parsed": {**EMPTY_ENTRY, "entry_signals": [
+            {"indicator": "trading_value_ratio", "period": 30, "operator": ">", "value": 1}]}},
+    )
+    assert "거래대금" not in flags.missing
+
+
 def test_uncompilable_drop_notice_is_fatal(qatd):
     """조건이 통째로 빠졌다는 안내("'X' 조건은 전략에 반영하지 못했어요")도 예시 결함이다
     (2026-09-14 실측: ADX 조건이 'fundamental.adx' 표기로 빠졌는데 게이트는 초록)."""

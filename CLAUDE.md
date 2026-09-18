@@ -301,6 +301,7 @@ Domain 검증            Registry + validation/ (지표 지원 여부·범위·�
 | `intent/platform_defaults.py` | 미이관 — `/query/general`이 원문에서 설정 항목을 추출 |
 | `intent/glossary_facts.py` | **이관 완료(2026-09-17)** — 용어 판정은 LLM 추출(`extract_terms`), 결정론은 정본 별칭 대조만 |
 | `strategy_conversation/primary.py` 조건 인용 판정(구 `_quote_belongs_to_another_slot`·`_MA_VOCAB_RE`·`_OTHER_SLOT_VOCAB_RE`·`_BREAKOUT_QUOTE_RE`·`_BOLLINGER_VOCAB_RE`) | **이관 완료(2026-09-17)** — 인용이 무엇을 말하는지(다른 설정 문구인가·신고가 돌파인가)를 어휘 정규식이 판정하던 위반(09-17 발견). 판정은 조건 인용 대조(`interpreter/quote_check.py`, LLM — 조건을 보여주고 "인용이 이 조건을 말하나" yes/no/unclear + 신호 종류 enum), 결정론은 enum 소속만. 분명한 no만 제거, unclear·실패=판정 없음. 첫 설계(칸 분류 라벨)는 9B가 이동평균 청산을 손절로 분류해 폐기. 입력 전체 인용은 같은 출력이 다른 칸도 채웠을 때만 형식 위반(1회 재생성 → 잔존 시 무안내 제거) — 9B 게이트 통과(예시 치명 0·되묻기 FAIL 0, 2026-09-17), 120B 게이트 미측정 |
+| `strategy_conversation/primary.py::_fill_deterministic_condition_params` ② 거래대금 인용 급증 판정(`_mentions_volume_surge`) | **이관 완료(2026-09-18)** — 인용을 어휘 정규식으로 다시 읽어 LLM이 고른 trading_value를 거래량 급증(OBV)으로 뒤집던 재심 구조(09-18 발견, 안내 두 줄 사고). 블록 삭제, 정본은 엔진 v16.13 `technical.trading_value_ratio`, 옛 자리(trading_value+period·값 없음)는 검증기가 출력 형태로 옮긴다. 레거시 레인의 같은 함수는 `nl_parser.py` 행 소관 |
 | `engine/term_grounding.py::general_facts_block` ①② · `api/coach_routes.py::_detect_question_topics` | 미이관 — 원문에서 개념·질문 주제를 스캔(2026-09-17 발견) |
 | `intent/classifier.py` 의도 분류 | **이관 완료(2026-07-30)** — 기본 경로는 `intent/interpreter.py`. 파일 안의 `_classify_deterministic`/`_classify_with_llm`과 `intent/scope.py`의 `is_*(text)` 예측자는 `INTENT_CLASSIFIER_MODE=legacy` 롤백 전용이며, 기본 경로로 되돌리지 않는다 |
 

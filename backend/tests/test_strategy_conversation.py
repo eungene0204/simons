@@ -852,24 +852,24 @@ def test_breakout_without_explicit_period_still_asks():
     assert report.status == "NEEDS_CLARIFICATION"
 
 
-def test_volume_surge_misclassified_as_trading_value_reclassified():
-    # 사고(2026-07-21): '거래량이 최근 평균보다 늘어난'을 LLM이 trading_value(거래대금 절대
-    # 임계 필요)로 오분류 → 거래대금 기준값을 되물음. 최종 전략은 volume_spike로 교정되므로
-    # 질문만 헛것. 되묻기 전에 조건의 source_text(LLM 인용) 기준으로 volume_spike(임계값
-    # 불필요)로 재분류한다(원문은 읽지 않는다).
+def test_fill_params_does_not_reinterpret_trading_value_quote_vocabulary():
+    # 대원칙 1(2026-09-18): 종전엔 trading_value 조건의 인용을 어휘 정규식(_mentions_volume_surge)이
+    # 다시 읽어 '급증·평균 대비' 표현이면 volume_spike로 바꿔치고 안내를 붙였다 — 인용의 의미를
+    # 정규식이 판정하고 LLM이 고른 지표를 뒤집는 재심 구조였다(같은 인용에 안내 두 줄의 원인).
+    # 인용 낱말로 지표를 바꾸지 않는다.
     from strategy_conversation.primary import _fill_deterministic_condition_params
 
-    intent = StrategyIntent.model_validate(_full_intent_dict(
-        entry_conditions=[{"factor": "technical.trading_value", "operator": ">",
-                           "value": None, "source_text": "거래량이 최근 평균보다 늘어난"}],
-    ))
-    _fill_deterministic_condition_params(intent)
-    assert intent.strategy.entry_conditions[0].factor == "technical.volume_spike"
-    assert intent.strategy.entry_conditions[0].value is None
-    _, report = run_validation(intent)
-    assert not any(
-        "거래대금" in q.question for q in report.clarification_questions
-    )
+    for factor, quote in (
+        ("technical.trading_value", "거래량이 최근 평균보다 늘어난"),
+        ("fundamental.trading_value", "최근 거래대금이 30일 평균보다 높은"),
+    ):
+        intent = StrategyIntent.model_validate(_full_intent_dict(
+            entry_conditions=[{"factor": factor, "operator": ">",
+                               "value": None, "source_text": quote}],
+        ))
+        notices = _fill_deterministic_condition_params(intent)
+        assert intent.strategy.entry_conditions[0].factor == factor
+        assert notices == []
 
 
 def test_absolute_trading_value_threshold_not_reclassified():
@@ -885,20 +885,58 @@ def test_absolute_trading_value_threshold_not_reclassified():
     assert intent.strategy.entry_conditions[0].value == 100
 
 
-def test_trading_value_average_comparison_converts_with_notice():
-    # 사고(2026-08-14, 예시 '매출성장·PBR 추세 조건'): '최근 거래대금이 30일 평균보다 높은'이
-    # 안내 없이 volume_spike(거래량 급증)로 반영됐다 — 금액(거래대금)→수량(거래량) 근사는
-    # 의미가 옮겨지므로 조용히 바꾸지 않고 안내를 반환한다(프롬프트 규칙 5-2의 배수 표현
-    # 안내와 같은 취지). 반환된 안내는 호출부가 notices에 합쳐 사용자에게 노출한다.
-    from strategy_conversation.primary import _fill_deterministic_condition_params
+def test_trading_value_average_comparison_lands_on_trading_value_ratio():
+    # 사고(2026-09-16, 예시 '매출성장·PBR 추세 조건'): '최근 거래대금이 30일 평균보다 높은'을
+    # LLM이 trading_value(period=30, 값 없음)로 냈고, 인용 정규식 재분류가 거래량 급증(OBV)으로
+    # 바꿔 안내가 두 줄 나갔다. 정본은 엔진 v16.13 거래대금 배수 — 금액 없이 평균 기간만 실린
+    # 거래대금 조건은 검증기가 형태만 보고 지표를 옮기며, 같은 이름('거래대금')의 변형이라
+    # 근사 안내도 없다.
+    from strategy_conversation.primary import (
+        _approximation_notices, _fill_deterministic_condition_params,
+    )
 
     intent = StrategyIntent.model_validate(_full_intent_dict(
         entry_conditions=[{"factor": "fundamental.trading_value", "operator": ">",
-                           "value": None, "source_text": "최근 거래대금이 30일 평균보다 높은"}],
+                           "value": None, "parameters": {"period": 30},
+                           "source_text": "최근 거래대금이 30일 평균보다 높은"}],
     ))
-    notices = _fill_deterministic_condition_params(intent)
-    assert intent.strategy.entry_conditions[0].factor == "technical.volume_spike"
-    assert any("거래대금" in n and "거래량 급증" in n for n in notices)
+    assert _fill_deterministic_condition_params(intent) == []
+    intent, _ = run_validation(intent)
+    cond = intent.strategy.entry_conditions[0]
+    assert (cond.factor, cond.operator, cond.parameters.get("period")) == (
+        "technical.trading_value_ratio", ">", 30)
+    assert _approximation_notices(intent.strategy) == []
+
+
+def test_trading_value_amount_with_average_window_stays_amount_filter():
+    # '60일 평균 거래대금 50억 이상'은 기간 평균의 금액 임계다 — 값이 있으면 배수로 옮기지 않는다.
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[{"factor": "fundamental.trading_value", "operator": ">=",
+                           "value": 50, "parameters": {"period": 60},
+                           "source_text": "최근 60일 평균 거래대금이 50억 원 이상"}],
+    ))
+    intent, _ = run_validation(intent)
+    assert intent.strategy.entry_conditions[0].factor == "fundamental.trading_value"
+
+
+def test_trading_value_ratio_quote_is_not_a_substitution():
+    # 대체 감지는 인용이 부른 이름('거래대금' → 일평균거래대금)과 지표를 대조한다 — 같은 이름의
+    # 변형(당일 금액·평균 대비 배수)을 대체로 오판하면 정본 착지에도 거짓 근사 안내가 붙는다.
+    # 반대로 거래대금을 거래량 급증으로 바꾼 것은 계속 대체다.
+    from strategy_conversation.primary import _substituted_factor
+    from strategy_conversation.registry import indicator_registry
+    from strategy_conversation.interpreter.models import StrategyCondition
+
+    quote = "최근 거래대금이 30일 평균보다 높은"
+    for factor, substituted in (
+        ("technical.trading_value_ratio", False),
+        ("technical.trading_value", False),
+        ("fundamental.trading_value", False),
+        ("technical.volume_spike", True),
+    ):
+        cond = StrategyCondition(factor=factor, source_text=quote)
+        assert _substituted_factor(
+            cond, indicator_registry.resolve(factor), indicator_registry) is substituted
 
 
 def test_pending_source_text_double_report_covered():
@@ -1006,19 +1044,6 @@ def test_paraphrased_quote_condition_survives_echo_guard():
     notices = _drop_fabricated_conditions(intent, user_input)
     assert [c.factor for c in intent.strategy.entry_conditions] == [
         "concept.golden_cross", "technical.rsi"]
-    assert notices == []
-
-
-def test_volume_quote_reclassification_stays_silent():
-    # 인용의 주어가 '거래량'이면 volume_spike가 곧 그 의미다 — 안내를 붙이지 않는다.
-    from strategy_conversation.primary import _fill_deterministic_condition_params
-
-    intent = StrategyIntent.model_validate(_full_intent_dict(
-        entry_conditions=[{"factor": "technical.trading_value", "operator": ">",
-                           "value": None, "source_text": "거래량이 최근 평균보다 늘어난"}],
-    ))
-    notices = _fill_deterministic_condition_params(intent)
-    assert intent.strategy.entry_conditions[0].factor == "technical.volume_spike"
     assert notices == []
 
 
@@ -2983,6 +3008,11 @@ def test_operator_token_drift_repaired():
     # 올바른 JSON에는 no-op(멱등)
     good = '{"operator":">=","value":15}'
     assert json.loads(extract_json_object(good)) == {"operator": ">=", "value": 15}
+    # operator가 객체의 마지막 키여도 no-op이다(2026-09-18: 닫는 따옴표를 다음 키로 오인해
+    # '"operator":">","}'로 깨뜨리던 결함 — 거래대금 비교 대상 대조 출력에서 드러남).
+    last = '{"items":[{"compares":"own_average","operator":">"}]}'
+    assert json.loads(extract_json_object(last)) == {
+        "items": [{"compares": "own_average", "operator": ">"}]}
 
 
 def test_missing_closing_brace_in_nested_patch_value_repaired():
@@ -4927,7 +4957,9 @@ def test_prompt_routes_average_trading_value_to_the_screening_lane():
     # 무관한 예시의 보유기간이 흔들렸다(2026-08-18 실측). 기존 예시 안에 숫자 충돌을
     # 심어 토큰을 늘리지 않고 형태로 가르친다.
     assert "최근 60일 평균 거래대금이 50억 원 이상인 종목만" in prompt
-    assert "기간 평균 거래대금은 언제나 fundamental.trading_value" in prompt
+    # 2026-09-18: '언제나'가 금액 없는 평균 대비 비교('거래대금이 30일 평균보다 높은')까지 끌고 가
+    # 120B가 거래대금 배수 대신 fundamental로 냈다 — 금액이 붙은 경우로 한정한다.
+    assert "금액이 붙은 기간 평균 거래대금은 fundamental.trading_value" in prompt
     # 레인을 가르는 기준: 당일 하루치만 technical.
     assert "당일 하루치" in prompt
 

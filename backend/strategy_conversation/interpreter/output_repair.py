@@ -13,7 +13,10 @@ from typing import Optional
 # 4B 토큰 드리프트 실측(2026-07-16, greedy라 결정적 재현): 비교 연산자 문자열 값에서
 # 콜론·따옴표가 붕괴된다 — '"operator":">=","value"' → '"operator">="value"' 또는
 # '"operator"><=","value"'. 올바른 JSON에는 no-op(멱등)인 기계적 구문 복구.
-_OPERATOR_TOKEN_DRIFT_RE = re.compile(r'"operator"[:\s>]*"?(<=|>=|<|>)"?[,\s]*(?=")')
+# 앞보기는 **다음 키의 시작**("+영문자)이어야 한다 — '"'만 보면 operator가 객체의 마지막 키일 때
+# ('"operator":">"}') 닫는 따옴표를 다음 키로 오인해 멀쩡한 JSON을 '"operator":">","}'로 깨뜨렸다
+# (2026-09-18, 거래대금 비교 대상 대조의 출력 형태에서 드러남).
+_OPERATOR_TOKEN_DRIFT_RE = re.compile(r'"operator"[:\s>]*"?(<=|>=|<|>)"?[,\s]*(?="[A-Za-z_])')
 
 
 def _repair_operator_token_drift(text: str) -> str:

@@ -10,6 +10,7 @@ export type IndicatorType =
   | "bollinger_bands"
   | "volume_spike"
   | "volume_ratio"
+  | "trading_value_ratio"
   | "breakout"
   | "stochastic"
   | "cci"

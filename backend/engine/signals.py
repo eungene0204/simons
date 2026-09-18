@@ -398,6 +398,18 @@ class SignalEngine:
                 ratio = np.where(prev_sma > 0, vol / prev_sma, np.nan)
             return compare_vec(ratio, p.get('operator', '>='), float(p.get('value', 2)))
 
+        elif cid == 'trading_value_ratio':
+            # 거래대금 배수(v16.13): 당일 거래대금(종가×거래량) ÷ 직전 N일 평균 거래대금.
+            # NaN·평균 0 처리는 volume_ratio와 같다(compare_vec가 False로 떨어뜨린다).
+            period = p.get('period', 20)
+            c, v = get_col('close'), get_col('volume')
+            prev_sma = get_col(f'trading_value_{period}_prev_sma')
+            if c is None or v is None or prev_sma is None:
+                return result
+            with np.errstate(divide='ignore', invalid='ignore'):
+                ratio = np.where(prev_sma > 0, (c * v) / prev_sma, np.nan)
+            return compare_vec(ratio, p.get('operator', '>='), float(p.get('value', 1)))
+
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
             current_high = get_col('high')
@@ -762,6 +774,14 @@ class SignalEngine:
                 return False
             return compare(vol / prev_sma, p.get('operator', '>='), float(p.get('value', 2)))
 
+        elif cid == 'trading_value_ratio':
+            period = p.get('period', 20)
+            c, v = safe_get('close', idx), safe_get('volume', idx)
+            prev_sma = safe_get(f'trading_value_{period}_prev_sma', idx)
+            if c is None or v is None or prev_sma is None or not prev_sma > 0:
+                return False
+            return compare(c * v / prev_sma, p.get('operator', '>='), float(p.get('value', 1)))
+
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
             current_high = safe_get('high', idx)
@@ -986,6 +1006,11 @@ class SignalEngine:
             val = p.get('value', 2)
             vr_op_seg = op_seg if op else tr.part(tr.OP_GTE)
             return [tr.part(tr.VOLUME_RATIO, period, f"{float(val):g}", vr_op_seg)]
+        elif cid == 'trading_value_ratio':
+            period = p.get('period', 20)
+            val = p.get('value', 1)
+            tvr_op_seg = op_seg if op else tr.part(tr.OP_GTE)
+            return [tr.part(tr.TRADING_VALUE_RATIO, period, f"{float(val):g}", tvr_op_seg)]
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
             sell = p.get('signalType') == 'sell'

@@ -194,6 +194,15 @@ class IndicatorEngine:
                         col = f'volume_{period}_prev_sma'
                         sdf[col] = sdf['volume'].rolling(window=period).mean().shift(1)
                         target_cols.add(col)
+                    elif cid == 'trading_value_ratio':
+                        # 거래대금 배수(v16.13): 당일 거래대금 ÷ **직전** N일 평균 거래대금.
+                        # 거래대금은 trading_value 지표와 같은 정의(종가 × 거래량)이고, 당일을
+                        # 평균에서 빼는 이유는 volume_ratio와 같다.
+                        period = p.get('period', 20)
+                        col = f'trading_value_{period}_prev_sma'
+                        tv = sdf['close'] * sdf['volume']
+                        sdf[col] = tv.rolling(window=period).mean().shift(1)
+                        target_cols.add(col)
                     elif cid == 'breakout':
                         log("Handling breakout")
                         period = p.get('lookbackPeriod', 20)

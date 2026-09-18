@@ -406,6 +406,7 @@ export const INDICATOR_LABELS: Record<string, string> = {
   breakout: "브레이크아웃",
   volume_spike: "거래량 급증",
   volume_ratio: "거래량 배수",
+  trading_value_ratio: "거래대금 배수",
   stochastic: "스토캐스틱",
   cci: "CCI",
   adx: "ADX",
@@ -539,6 +540,12 @@ export function getSignalLabel(
   if (signal.indicator === "volume_ratio" && signal.value != null) {
     const opKr = t(OPERATOR_KO_LABELS[signal.operator ?? ">="] ?? signal.operator ?? "");
     return t("거래량 {0}일 평균의 {1}배 {2}", signal.period ?? 20, signal.value, opKr);
+  }
+
+  // 거래대금 배수(엔진 v16.13, 당일 거래대금 ÷ 직전 N일 평균) — 거래량 배수와 같은 이유로 배수·기간을 싣는다.
+  if (signal.indicator === "trading_value_ratio" && signal.value != null) {
+    const opKr = t(OPERATOR_KO_LABELS[signal.operator ?? ">="] ?? signal.operator ?? "");
+    return t("거래대금 {0}일 평균의 {1}배 {2}", signal.period ?? 20, signal.value, opKr);
   }
 
   if (signal.indicator === "ai_model" && (context === "exit" || signal.signal_type === "sell")) {

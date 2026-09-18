@@ -558,6 +558,19 @@ LLM 재생성
    남은 인용 판독(`_quotes_ema` EMA 어휘, `_MA_PERIOD_IN_QUOTE_RE` 기간, `_explicit_breakout_lookback`)은
    이번 범위 밖이며 같은 형태인지 판정하지 않았다.
 
+7. ~~**`primary._fill_deterministic_condition_params` ② — 거래대금 인용의 급증 어휘 판정**~~ — **해소(2026-09-18 발견·같은 날 이관)**
+   trading_value 조건의 인용을 `nl_parser._mentions_volume_surge`(거래량/거래대금 + 급증·평균·늘·높 어휘
+   정규식)로 다시 읽어 '급증·평균 대비' 표현이면 LLM이 고른 지표를 volume_spike(OBV)로 뒤집었다 — 인용의
+   의미를 정규식이 판정하는 재심 구조. 근사 탐지와 겹쳐 "'최근 거래대금이 30일 평균보다 높은'…" 안내가
+   두 줄 나갔다. 블록을 삭제하고, 정본은 엔진 v16.13 거래대금 배수(`technical.trading_value_ratio`),
+   옛 자리(trading_value + `period`, 값 없음)는 `capability_validator`가 LLM 출력 형태만 보고 옮긴다.
+   `_mentions_volume_surge` 자체는 레거시 레인(`nl_parser._extract_technical_signals`)에 남아 있다(1번 소관).
+   대가: '거래량이 평균보다 늘어난'을 LLM이 trading_value로 오분류하면 이제 거래대금 금액을 되묻는다
+   (헛질문 — 조용한 대체는 아니다). 교정은 규칙 5-2(LLM 레인) 소관이다.
+   같은 날 후속: 해석기가 평균 비교를 **기간 없이** `fundamental.trading_value`(값 없음)로 내는 잔여
+   (120B 4회 중 1회)는 형태로 가를 수 없어, 거래대금 비교 대상 대조(`interpreter/trading_value_check.py`,
+   LLM — 금액/자기 평균/unclear + 기간·배수·부등호 옮겨 적기)로 판정한다. 결정론은 enum·범위와 지표 이동만.
+
 ### § 11-2. 보정 제거(2+1b) — 2026-07-26 전환 완료
 
 `scripts/qa_prompt_override_ab.py`로 103케이스(LLM이 실제로 개입하는 복잡 전략)를

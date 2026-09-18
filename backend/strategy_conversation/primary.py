@@ -538,11 +538,12 @@ def _substituted_factor(cond: Any, spec: Any, registry: Any) -> bool:
     "거래대금이 평소보다 늘어난" → technical.volume_spike). 프롬프트가 금지해도 일어나며,
     그때 모델은 approximated 신고도 하지 않는다 — 신고에만 기대면 **가장 위험한 대체**가
     조용히 지나간다. 인용이 어떤 지표도 이름으로 부르지 않으면(정성 표현) 판정하지 않는다.
+    같은 이름을 공유하는 변형('거래대금' → 금액 임계·평균 대비 배수)은 대체가 아니다.
     """
     if spec is None:
         return False
     named = registry.factor_ids_named_in(cond.source_text or "")
-    return bool(named) and spec.id not in named
+    return bool(named) and spec.id not in registry.with_same_name_variants(named)
 
 
 def _approximation_notices(strategy: Any) -> List[str]:
@@ -1214,12 +1215,12 @@ def _fill_deterministic_condition_params(
     ① breakout(신고가 돌파) lookback_period: LLM이 '52주 신고가'의 기간을 파라미터로 옮기지
        못하고 비우는 드리프트(프롬프트 규칙 5-1이 1차 방어) → 인용에 명시적 기간이 있을
        때만 채운다(없으면 그대로 두어 되묻기에 맡김).
-    ② trading_value 오분류: '거래량이 평균보다 늘어난' 같은 동적 급증 표현을 LLM이 종종
-       거래대금 임계 신호(trading_value=절대 억원 값 필요)로 오분류(프롬프트 규칙 5-2가
-       1차 방어) → 인용이 급증 표현이면 volume_spike(임계값 불필요)로 고쳐 헛질문을 막는다.
-       단 인용의 주어가 '거래대금'(금액)이면 거래량 급증으로의 근사는 의미가 옮겨진다 —
-       조용히 바꾸지 않고 안내를 반환한다(규칙 5-2의 배수 표현 안내와 같은 취지,
-       2026-08-14: '거래대금이 30일 평균보다 높은'이 안내 없이 volume_spike로 나감).
+    ② (삭제 2026-09-18) 종전엔 trading_value 조건의 인용을 어휘 정규식(_mentions_volume_surge)으로
+       다시 읽어 '급증·평균 대비' 표현이면 volume_spike로 바꿔치고 안내를 붙였다 — 인용의 의미를
+       정규식이 판정하고 LLM이 고른 지표를 뒤집는 재심 구조(대원칙 1 위반)였고, 근사 안내와
+       겹쳐 같은 인용에 안내 두 줄이 나갔다. '거래대금이 N일 평균보다 높은'의 정본은 v16.13
+       거래대금 배수(technical.trading_value_ratio)이며, 옛 자리(trading_value + 평균 기간)는
+       capability_validator가 LLM 출력 형태만 보고 옮긴다.
 
     ③ 매도 선언 개념의 진입 오배치: concept.dead_cross류(선언이 '매도 신호'·crosses_below)를
        LLM이 entry_conditions에 앉히는 드리프트(실측 2026-08-14, '반도체 업종 골든크로스'
@@ -1245,7 +1246,7 @@ def _fill_deterministic_condition_params(
 
     반환값은 사용자에게 보일 안내 문구 목록이다(호출부가 notices에 합친다).
     """
-    from engine.nl_parser import _compact, _mentions_volume_surge
+    from engine.nl_parser import _compact
 
     notices: List[str] = []
     strategy = intent.strategy
@@ -1351,16 +1352,6 @@ def _fill_deterministic_condition_params(
                 if unnamed or degenerate:
                     cond.parameters["short_period"] = None
                     cond.parameters["long_period"] = float(periods[0])
-        elif spec.id in ("technical.trading_value", "fundamental.trading_value"):
-            if cond.source_text and _mentions_volume_surge(_compact(cond.source_text)):
-                if "거래대금" in cond.source_text:
-                    notices.append(
-                        f"'{cond.source_text}' 조건은 거래대금의 평균 대비 비교를 지원하지"
-                        " 않아 거래량 급증 조건으로 반영했어요."
-                    )
-                cond.factor = "technical.volume_spike"
-                cond.operator = "crosses_above"
-                cond.value = None
 
         # ④ 금액 임계 검산: 인용의 금액 표기와 value가 다르면 인용이 이긴다 —
         # breakout lookback과 같은 계약(LLM 출력 두 조각의 대조). 9B가 영어 단위를
@@ -1368,8 +1359,7 @@ def _fill_deterministic_condition_params(
         # 프롬프트 명시 예시(4.1)로도 고정되지 않았다(2026-08-26 실측, /us 영어 전수
         # 게이트 57·58). 인용에 금액 표기가 정확히 하나일 때만 판정하고, 값이 비어
         # 있으면 인용의 값으로 채워 헛질문을 막는다(breakout과 동형). elif 체인 밖에
-        # 두는 이유: 재분류(위 trading_value→volume_spike)가 끝난 뒤의 지표로 판정해야
-        # 하며, volume_spike가 된 조건은 억원 지표가 아니므로 자연히 대상에서 빠진다.
+        # 두는 이유: 위 교정(신고가 등)이 끝난 뒤의 지표로 판정해야 한다.
         spec = REGISTRY.get(cond.factor) or spec
         if spec.value_type == "억원":
             want = _explicit_amount_eok(cond.source_text)
@@ -1752,6 +1742,36 @@ def _check_condition_quotes(
     return verdicts
 
 
+def _resolve_trading_value_comparisons(
+    intent: Any, user_input: str, chat: Any,
+    only: Optional[List[Any]] = None,
+) -> None:
+    """금액도 평균 기간도 없는 거래대금 조건이 금액 비교인지 자기 평균 비교인지 LLM에 묻고,
+    평균 비교면 거래대금 배수로 옮긴다(interpreter/trading_value_check.py).
+
+    2026-09-18 실측: '최근 거래대금이 30일 평균보다 높은'을 120B가 4회 중 1회 기간 없이
+    fundamental.trading_value로 내 "일평균거래대금 기준값을 몇 억?" 헛질문이 나갔다 — 그 형태는
+    '금액을 아직 말하지 않은 거래대금 조건'과 구별되지 않는다. 대상 조건이 없으면 호출이 없고,
+    실패·unclear는 판정 없음(종전대로 금액을 되묻는다). chat이 없는 주입 스텁은 건너뛴다.
+    """
+    from strategy_conversation.interpreter import trading_value_check
+
+    strategy = getattr(intent, "strategy", None)
+    if strategy is None or not callable(chat):
+        return
+    targets = trading_value_check.conditions_to_check(strategy, only=only)
+    if not targets:
+        return
+    pairs = trading_value_check.check_trading_value_quotes(user_input, targets, chat)
+    if pairs is None:
+        _log_llm("△ 거래대금 비교 대상 대조 실패", f"{len(targets)}개 조건 — 판정 없음으로 진행")
+        return
+    moved = trading_value_check.apply_verdicts(pairs)
+    _log_llm("✓ 거래대금 비교 대상 대조", "; ".join(
+        f"{cond.source_text}={verdict.compares}" for cond, verdict in pairs
+    ) + (f" → 거래대금 배수 {len(moved)}개" if moved else ""))
+
+
 def run_primary_parse(
     user_input: str, on_stage=None,
     previous_explicit_fields: Optional[List[str]] = None,
@@ -1829,6 +1849,7 @@ def run_primary_parse(
     # (병렬 풀 워커를 더 쓰지 않는다). 해당 조건이 없는 턴은 호출이 없고, 실패는 판정 없음
     # (교정·제거 안 함, quote_check 모듈 docstring).
     quote_verdicts = _check_condition_quotes(result.intent, user_input, recall_chat)
+    _resolve_trading_value_comparisons(result.intent, user_input, recall_chat)
     if planner_future is not None:
         planner_first = planner_future.result()
 
@@ -4554,10 +4575,12 @@ def run_primary_modification(
         cond for cond in list(patched_spec.entry_conditions) + list(patched_spec.exit_conditions)
         if not any(cond == prior for prior in draft_conditions)
     ]
+    modify_chat = getattr(_get_interpreter(StrategyInterpreter), "_chat", None)
     quote_verdicts = _check_condition_quotes(
-        modify_intent, user_input,
-        getattr(_get_interpreter(StrategyInterpreter), "_chat", None),
-        only=added_conditions,
+        modify_intent, user_input, modify_chat, only=added_conditions,
+    )
+    _resolve_trading_value_comparisons(
+        modify_intent, user_input, modify_chat, only=added_conditions,
     )
     repair_notices = _fill_deterministic_condition_params(modify_intent, quote_verdicts)
     _normalize_size_class_labels(modify_intent)

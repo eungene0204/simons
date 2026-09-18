@@ -196,6 +196,20 @@ describe("getSignalLabel — 크로스 방향 구체화", () => {
     );
   });
 
+  it("거래대금 배수 신호(엔진 v16.13)도 기간·배수·부등호를 함께 표기한다", () => {
+    // 2026-09-18: '최근 거래대금이 30일 평균보다 높은'의 정본 지표 — 배수·기간이 빠지면 카드가
+    // "거래대금 배수"만 남아 사용자가 말한 30일 평균 비교가 보이지 않는다.
+    expect(
+      getSignalLabel(
+        { indicator: "trading_value_ratio", signal_type: "buy", operator: ">", value: 1, period: 30 },
+        "entry"
+      )
+    ).toBe("거래대금 30일 평균의 1배 초과");
+    expect(getSignalLabel({ indicator: "trading_value_ratio", signal_type: "buy" }, "entry")).toBe(
+      "거래대금 배수"
+    );
+  });
+
   it("나머지 엔진 지표(윌리엄스·MFI·ROC)도 내부 이름을 노출하지 않는다", () => {
     for (const indicator of ["williams_r", "mfi", "roc"]) {
       expect(getSignalLabel({ indicator, signal_type: "buy" }, "entry")).not.toBe(indicator);

@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "6.0"
+PROMPT_VERSION = "6.1"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -282,6 +282,8 @@ NON_STRATEGY_REQUEST(전략과 무관)
    마세요. 'N억 이상'처럼 금액 임계가 있을 때만 거래대금 조건이고, 종목을 거르는
    기준이면 fundamental.trading_value(기본), 그 시점의 진입·청산 트리거면
    technical.trading_value입니다. 둘 다 entry_conditions/exit_conditions에 넣습니다.
+   금액 없이 거래대금을 **자기 평균과 비교**하면 거래대금 배수(technical.trading_value_ratio)입니다
+   — '거래대금이 30일 평균보다 높은' → operator ">", value=1, parameters.period=30.
 5-3. '~ 위에 있을 때'·'~ 위에 있는 종목'·'정배열'·'주가가 N일선을 상향/하향 돌파'처럼
    두 선(또는 종가와 이동평균)의 상하 관계는 **넘어서는 사건이면 crossover 표기, 머무는
    상태면 부등호**로 옮깁니다 — value는 null, 기간은 parameters에 넣습니다(이동평균이
@@ -640,8 +642,8 @@ exit_conditions=[{{"factor":"technical.ma_crossover","operator":"crosses_below",
 "parameters":{{"short_period":1,"long_period":20}},"source_text":"20일선 이탈 시 청산"}}],
 ranking=[{{"metric":"return","lookback_days":60}}], portfolio={{"selection_count":8}}.
 '60일 평균 거래대금'의 60일은 **거래대금 산정 기간**이라 랭킹 기간과 숫자가 같아도 다른
-조건입니다 — 기간 평균 거래대금은 언제나 fundamental.trading_value이고(technical은 당일
-하루치), 그 기간은 지표 정의에 내장돼 parameters에 넣지 않습니다.
+조건입니다 — 금액이 붙은 기간 평균 거래대금은 fundamental.trading_value이고(technical은 당일
+하루치), 그 기간은 지표 정의에 내장돼 parameters에 넣지 않습니다(금액 없이 평균과 비교하면 규칙 5-2).
 '먼저 적용하고 → 그중'은 단계 서술일 뿐 걸러내는 세 조건은 모두 entry_conditions입니다 —
 거래대금을 universe로 처리했다고 적거나 "추가해 드릴까요?"로 되묻지 마세요
 (사용자가 값을 이미 말했으므로 질문할 것이 없습니다). 단 문장 끝의 '20일선 이탈 시 청산'은
