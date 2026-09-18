@@ -433,7 +433,8 @@ COVERAGE_CHECKS: list[tuple[str, str, Any]] = [
     # 신고가/박스권만 breakout으로 본다(EMA/볼린저 '상향 돌파'와 구분).
     ("신고가돌파", r"신고가|박스권|new\s+high|\d+[- ]?day\s+high|box\s*range|breakout",
      lambda p: _has_sig(p, "breakout")),
-    ("거래량", r"거래량|volume", lambda p: _has_any(p, ["volume_spike"]) or _has_fund(p, "trading_value")),
+    ("거래량", r"거래량|volume",
+     lambda p: _has_any(p, ["volume_spike", "volume_ratio"]) or _has_fund(p, "trading_value")),
 ]
 
 RISK_KEYWORDS = [("손절", "stop_loss_pct", r"손절|stop[- ]?loss"),

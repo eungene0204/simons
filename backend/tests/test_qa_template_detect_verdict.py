@@ -458,6 +458,19 @@ def test_trading_value_ratio_counts_as_trading_value_coverage(qatd):
     assert "거래대금" not in flags.missing
 
 
+def test_volume_ratio_counts_as_volume_coverage(qatd):
+    """거래량 배수(엔진 v16.10)도 거래량 조건의 반영이다 — 술어가 volume_spike만 알아 9B 전수
+    게이트에서 정본 착지(volume_ratio 20일 >1)가 '미탐지[거래량]'으로 세졌다(2026-09-18)."""
+    prompt = "KOSDAQ에서 종가가 20일 이동평균선 위에 있고 거래량이 최근 평균보다 늘어난 종목을 매수"
+    flags = qatd.analyze(
+        _template(qatd, prompt),
+        {"parsed": {**EMPTY_ENTRY, "entry_signals": [
+            {"indicator": "ma_crossover"},
+            {"indicator": "volume_ratio", "period": 20, "operator": ">", "value": 1}]}},
+    )
+    assert "거래량" not in flags.missing
+
+
 def test_uncompilable_drop_notice_is_fatal(qatd):
     """조건이 통째로 빠졌다는 안내("'X' 조건은 전략에 반영하지 못했어요")도 예시 결함이다
     (2026-09-14 실측: ADX 조건이 'fundamental.adx' 표기로 빠졌는데 게이트는 초록)."""
