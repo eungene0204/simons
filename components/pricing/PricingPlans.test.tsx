@@ -73,22 +73,6 @@ describe("PricingPlans", () => {
     }
   });
 
-  it("uses the updated free plan description", () => {
-    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
-
-    expect(
-      screen.getByText("처음 전략을 만들고 백테스트를 경험해 보세요")
-    ).toBeInTheDocument();
-  });
-
-  it("uses the updated premium plan description", () => {
-    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
-
-    expect(
-      screen.getByText("전문가 수준으로 전략을 연구하고 검증 해보세요")
-    ).toBeInTheDocument();
-  });
-
   it("renders premium validation features in aligned rows across all cards", () => {
     render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
 
@@ -116,14 +100,6 @@ describe("PricingPlans", () => {
     expect(within(freeCard).getByText("AI 리포트")).toHaveClass("text-[var(--text-label)]");
     expect(within(proCard).getByText("AI 리포트")).toHaveClass("text-gray-200");
     expect(within(premiumCard).getByText("AI 리포트")).toHaveClass("text-gray-200");
-  });
-
-  it("uses the updated pro plan description", () => {
-    render(<PricingPlans annualBillingEnabled currentPlanId="FREE" />);
-
-    expect(
-      screen.getByText("여러 전략을 동시에 연구하고 시뮬레이션 해보세요")
-    ).toBeInTheDocument();
   });
 
   it("renders initial simulated investment amounts in compact Korean units", () => {

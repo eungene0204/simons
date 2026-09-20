@@ -38,12 +38,6 @@ const PLAN_ICONS: Record<PlanId, typeof Lightning> = {
   PREMIUM: Crown,
 };
 
-const PLAN_DESCRIPTIONS: Record<PlanId, string> = {
-  FREE: "처음 전략을 만들고 백테스트를 경험해 보세요",
-  PRO: "여러 전략을 동시에 연구하고 시뮬레이션 해보세요",
-  PREMIUM: "전문가 수준으로 전략을 연구하고 검증 해보세요",
-};
-
 type FeatureRow = { label: string; included: boolean };
 
 const PREMIUM_VALIDATION_FEATURES = [
@@ -252,7 +246,6 @@ export default function PricingPlans({
           const discountPercent = yearlyDiscountPercent(plan);
           const isCurrent = isCurrentSelection(planId);
           const features = planFeatures(planId, plan);
-          const description = t(PLAN_DESCRIPTIONS[planId]);
           // 구독(자동갱신 중이든 해지 예약이든)이 있는 동안 FREE 카드는 갈 곳이 아니라 잠긴 표지다 —
           // 해지는 "무엇을 해지하는지"가 보이도록 현재 플랜 카드 아래에 둔다(2026-09-13 사용자 결정:
           // FREE 카드의 '구독 해지'가 "무료 플랜을 해지"로 읽혔다).
@@ -277,10 +270,6 @@ export default function PricingPlans({
                 </span>
                 <h2 className="text-xl font-black tracking-tight text-white">{plan.name}</h2>
               </div>
-
-              <p className="mt-6 text-sm font-bold leading-relaxed text-gray-400">
-                {description}
-              </p>
 
               {/* 가격 */}
               <div className="mt-9 flex items-end gap-1">
