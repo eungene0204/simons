@@ -24,6 +24,7 @@ _EN_LABELS = {
     "fundamental.ebitda_growth": "EBITDA growth",
     "fundamental.ocf_growth": "Operating cash flow growth",
     "fundamental.fcf_growth": "Free cash flow growth", "fundamental.market_cap": "Market cap",
+    "fundamental.roic": "ROIC", "fundamental.fcf_margin": "FCF margin",
     "fundamental.trading_value": "Average daily trading value",
     "fundamental.dividend_yield": "Dividend yield", "fundamental.payout_rate": "Payout ratio",
     "fundamental.dividend_growth": "Dividend growth", "fundamental.eps": "EPS",

@@ -33,6 +33,13 @@ from strategy_conversation.registry.indicator_registry import (
 
 logger = logging.getLogger(__name__)
 
+# 랭킹 정본 → 같은 개념의 조건 지표(이름이 같은 쌍). 랭킹에 있으면 조건으로 되살리지 않는다.
+_RANKING_CONDITION_TWINS = {
+    "ranking.volatility": frozenset({"technical.volatility"}),
+    "ranking.return": frozenset({"technical.roc"}),
+    "ranking.relative_return": frozenset({"technical.relative_return"}),
+}
+
 # 한 턴에 되살리는 조건 수 상한 — 대조 패스가 폭주해 전략을 새로 쓰는 것을 막는다.
 _MAX_RECOVERED = 3
 
@@ -110,12 +117,29 @@ def recover_missing_conditions(
         return []
     existing = list(strategy.entry_conditions) + list(strategy.exit_conditions)
     known = {cond.factor for cond in existing}
+    # 랭킹으로 이미 표현된 지표도 빠진 것이 아니다(2026-09-19 실측 120B: '12개월 수익률에서
+    # 1개월 제외한 모멘텀'·'60일 변동성이 낮은'이 랭킹에 있는데 ROC·변동성 **조건**으로 되살아나
+    # 엉뚱한 기준값 질문이 먼저 나갔다). 랭킹 정본과 같은 개념의 조건 지표를 함께 안다고 본다.
+    for rank in getattr(strategy, "ranking", None) or []:
+        spec = resolve(rank.metric)
+        if spec is None:
+            continue
+        known.add(spec.id)
+        known |= _RANKING_CONDITION_TWINS.get(spec.id, frozenset())
     # 이미 어떤 조건의 **근거로 쓰인 구절**은 빠진 것이 아니다. factor만 대조하면,
     # 결정론 보정이 지표를 바꾼 조건('거래대금이 30일 평균보다 높은'→거래량 급증)을
     # 원래 지표로 되살려 같은 문구가 두 조건이 된다(2026-08-18 실측).
-    used_quotes = {
-        _compact(cond.source_text) for cond in existing if cond.source_text
-    }
+    # 랭킹·시장 국면 필터의 인용과 1차가 미지원으로 보고한 표현도 같은 뜻이다 — 셋 다
+    # 1차가 이미 자리를 정한 구절이다(2026-09-19 실측: '코스피가 200일 이동평균선 아래에
+    # 있으면'이 국면 필터로 반영됐는데 종목 이동평균 매수 조건으로 되살아났다 — 운영의
+    # "이동평균 조건이 아니어서…" 안내와 로컬의 20/60 골든크로스 둔갑이 이 경로였다).
+    quotes = [cond.source_text for cond in existing]
+    quotes += [getattr(r, "source_text", None) for r in getattr(strategy, "ranking", None) or []]
+    market_filter = getattr(strategy, "market_filter", None)
+    if market_filter is not None:
+        quotes.append(market_filter.source_text)
+    quotes += list(getattr(intent, "unsupported_features", None) or [])
+    used_quotes = {_compact(q) for q in quotes if q}
 
     if phrases is None:
         phrases = extract_condition_phrases(user_input, chat)
@@ -140,6 +164,17 @@ def recover_missing_conditions(
         #    (2026-08-18 실측: 대조를 LLM에 맡겼더니 '추세가 확실히 잡힌'→technical.roc,
         #    문장에 없는 AI 예측 조건까지 만들어 없던 되묻기가 생겼다).
         named = factor_ids_named_in(phrase)
+        # 구절이 **미지원 개념만** 부르면 조건으로 되살릴 수는 없지만 조용히 사라지게 둘 수도
+        # 없다 — 1차가 자리를 정하지 않은 구절이므로 미지원 보고로 올린다(2026-09-19 실측 120B
+        # 2/3: '최근 3개월 실적 추정치 상향 여부'가 어디에도 없이 소실). 지식 조회는 LLM이
+        # 뽑은 구절 → 레지스트리 별칭 대조(§ 3-2)다.
+        if named and all(
+            REGISTRY.get(n) is not None and REGISTRY[n].supported == "UNSUPPORTED" for n in named
+        ):
+            features = list(getattr(intent, "unsupported_features", None) or [])
+            if phrase not in features:
+                intent.unsupported_features = features + [phrase]
+            continue
         for factor_id in sorted(named):
             if len(recovered) >= _MAX_RECOVERED:
                 break

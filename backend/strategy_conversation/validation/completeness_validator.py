@@ -242,6 +242,62 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                                           "Ranking strategies commonly start with monthly rebalancing"),
             ))
 
+    # ④-1 변동성 역비중(v16.14) — 변동성 산정 기간을 말하지 않았으면 묻는다(60을 조용히
+    # 확정하지 않는다). 역비중은 리밸런싱일마다 비중을 다시 매기므로 주기가 필요하다 —
+    # 랭킹 전략은 위 ④가 이미 묻고, 조건형 전략은 여기서 묻는다.
+    if strategy.portfolio.weighting == "inverse_volatility":
+        if strategy.portfolio.weighting_lookback_days is None:
+            missing.append("strategy.portfolio.weighting_lookback_days")
+            questions.append(ClarificationQuestion(
+                field="strategy.portfolio.weighting_lookback_days",
+                question=msg("변동성 역비중에 쓸 변동성은 최근 며칠(거래일)로 계산할까요?",
+                             "Over how many trading days should volatility be measured for "
+                             "inverse-volatility weighting?"),
+                recommended_value=60,
+                recommendation_reason=msg("일반적으로 60거래일(약 3개월)을 사용합니다",
+                                          "60 trading days (about 3 months) is commonly used"),
+            ))
+        if not strategy.ranking and strategy.portfolio.rebalance_frequency is None:
+            missing.append("strategy.portfolio.rebalance_frequency")
+            questions.append(ClarificationQuestion(
+                field="strategy.portfolio.rebalance_frequency",
+                question=msg("변동성 역비중은 정해진 주기마다 비중을 다시 맞춥니다. "
+                             "리밸런싱은 얼마나 자주 할까요? (매월/분기/매년)",
+                             "Inverse-volatility weights are reset on a schedule. How often "
+                             "should the portfolio rebalance? (monthly/quarterly/yearly)"),
+                recommended_value="monthly",
+                recommendation_reason=msg("월간 리밸런싱을 시작값으로 흔히 사용합니다",
+                                          "Monthly rebalancing is a common starting point"),
+            ))
+
+    # ④-2 시장 국면 필터(v16.14) — 이동평균 기간과 약세 국면의 투자 비중을 말하지 않았으면
+    # 묻는다(2026-09-19 사용자 결정: 비율은 되묻기 — 기본값 확정 금지).
+    mf = strategy.market_filter
+    if mf is not None:
+        index_name = msg("코스피" if mf.index == "KOSPI" else "코스닥", mf.index)
+        if mf.ma_period is None:
+            missing.append("strategy.market_filter.ma_period")
+            questions.append(ClarificationQuestion(
+                field="strategy.market_filter.ma_period",
+                question=msg("{index} 몇 일 이동평균선을 기준으로 할까요?",
+                             "Which {index} moving average should be the threshold?",
+                             index=index_name),
+                recommended_value=200,
+                recommendation_reason=msg("200일 이동평균선을 흔히 사용합니다",
+                                          "The 200-day moving average is commonly used"),
+            ))
+        if mf.exposure_pct is None:
+            missing.append("strategy.market_filter.exposure_pct")
+            questions.append(ClarificationQuestion(
+                field="strategy.market_filter.exposure_pct",
+                question=msg("{index}가 이동평균선 아래에 있을 때 투자 비중을 몇 %로 줄일까요? "
+                             "(나머지는 현금으로 보유합니다)",
+                             "When {index} is below its moving average, what share of the "
+                             "portfolio should stay invested? (the rest is held in cash)",
+                             index=index_name),
+                recommended_value=None,
+            ))
+
     # ⑤ 청산 규칙 부재 — 진입 조건형 전략인데 청산·보유기간·리밸런싱·리스크가 모두 없으면
     risk = strategy.risk_management
     has_exit_rule = bool(

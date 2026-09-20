@@ -251,6 +251,7 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
                     "metric": item.metric,
                     "operator": item.operator,
                     "value": item.value,
+                    "period": item.period,
                 }
                 for item in strategy.fundamental_filters
             ],
@@ -284,10 +285,16 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         "ranking_components": (
             sorted(
                 [c.model_dump() for c in strategy.ranking_components],
-                key=lambda c: (c["metric"], c["direction"], c.get("lookback_days") or 0),
+                key=lambda c: (c["metric"], c["direction"], c.get("lookback_days") or 0,
+                               c.get("skip_days") or 0, c.get("group") or ""),
             )
             if strategy.ranking_components else None
         ),
+        # v16.14 — 전부 None/기본값이면 _drop_none이 제거해 기존 전략 해시가 변하지 않는다.
+        "ranking_skip_days": strategy.ranking_skip_days,
+        "allocation_type": None if strategy.allocation_type == "equal" else strategy.allocation_type,
+        "allocation_lookback_days": strategy.allocation_lookback_days,
+        "market_regime": strategy.market_regime.model_dump() if strategy.market_regime else None,
         "max_positions_pct": strategy.max_positions_pct,
         "max_positions": strategy.max_positions,
         "hold_period_days": strategy.hold_period_days,
@@ -454,10 +461,13 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
 
     # 재무 필터 → type="filter" 조건
     for f in strategy.fundamental_filters:
+        params = {"operator": f.operator, "value": f.value}
+        if f.period is not None:
+            params["period"] = f.period
         entry_conditions.append({
             "type": "filter",
             "id": f.metric,
-            "params": {"operator": f.operator, "value": f.value},
+            "params": params,
             "weight": 1.0,
         })
 
@@ -526,7 +536,15 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         ),
         "max_positions_pct": strategy.max_positions_pct,
         "execution_timing": strategy.execution_timing,
-        "allocation_type": "equal",
+        # 12-1 모멘텀·변동성 역비중·시장 국면(v16.14).
+        "ranking_skip_days": strategy.ranking_skip_days,
+        "allocation_type": strategy.allocation_type,
+        "allocation_lookback_days": strategy.allocation_lookback_days,
+        # 값 대기(기간·비율 미정)인 국면 필터는 싣지 않는다 — 되묻기가 채운 뒤에 실린다.
+        "market_regime": (
+            strategy.market_regime.model_dump()
+            if strategy.market_regime and strategy.market_regime.is_complete() else None
+        ),
     }
 
     # universe 리스트 → universe_id 문자열 변환

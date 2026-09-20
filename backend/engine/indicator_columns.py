@@ -5,6 +5,7 @@ MACD/스토캐스틱/볼린저는 원래 stockstats 기본값(12/26/9, KDJ 9, BO
 기본값이면 기존 컬럼을 그대로 써서 과거 백테스트 결과와의 동일성을 보존한다.
 """
 
+import re
 from typing import Any, Dict, Tuple
 
 MACD_DEFAULTS = (12, 26, 9)
@@ -63,3 +64,16 @@ def bollinger_columns(p: Dict[str, Any]) -> Tuple[str, str]:
         return f"boll_ub_{period}", f"boll_lb_{period}"
     std_tag = f"{std:g}".replace(".", "p")
     return f"boll_ub_{period}_{std_tag}", f"boll_lb_{period}_{std_tag}"
+
+
+# N일 평균 거래대금 컬럼(v16.14) — 조건 평가(signals)와 해결기(data_resolver)가 같은 이름을 쓴다.
+TRADING_VALUE_SMA_RE = re.compile(r"trading_value_(\d+)_sma")
+
+
+def trading_value_sma_col(period=None) -> str:
+    """'N일 평균 거래대금' 컬럼명. 기간 미지정은 종전 20일."""
+    try:
+        n = int(period) if period else 20
+    except (TypeError, ValueError):
+        n = 20
+    return f"trading_value_{max(n, 1)}_sma"

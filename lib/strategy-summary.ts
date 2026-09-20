@@ -63,7 +63,17 @@ export interface ParsedSummary {
     metric: string;
     direction: "top" | "bottom";
     lookback_days?: number | null;
+    // 최근 N거래일 제외(엔진 v16.14, 12-1 모멘텀)·묶음 점수 이름.
+    skip_days?: number | null;
+    group?: string | null;
   }> | null;
+  // 단일 수익률 랭킹의 최근 제외 기간(엔진 v16.14).
+  ranking_skip_days?: number | null;
+  // 비중 방식(엔진 v16.14) — equal=동일 비중, inverse_volatility=변동성 역비중.
+  allocation_type?: "equal" | "inverse_volatility" | null;
+  allocation_lookback_days?: number | null;
+  // 시장 국면 필터(엔진 v16.14) — 기간·비율이 비어 있으면 되묻는 중(값 미정).
+  market_regime?: MarketRegimeSummary | null;
   // 비율 선정(FR-BT-060) — 상위 X% 편입(개수 대신 비율). 있으면 max_positions보다 우선.
   max_positions_pct?: number | null;
   // 지정 종목(단일 종목) 백테스트 대상 종목코드(FR-STR-068). 비어 있으면 유니버스 전략.
@@ -161,6 +171,8 @@ export const METRIC_LABELS: Record<string, string> = {
   ebitda_growth: "EBITDA증가율",
   ocf_growth: "영업현금흐름증가율",
   fcf_growth: "잉여현금흐름증가율",
+  roic: "ROIC",
+  fcf_margin: "FCF 마진",
   market_cap: "시총",
   trading_value: "거래대금",
   dividend_yield: "배당수익률",
@@ -735,19 +747,78 @@ export function getPositionLabel(parsed: ParsedSummary): string {
   return t("최대 {0}종목", parsed.max_positions);
 }
 
+export type MarketRegimeSummary = {
+  index?: string | null;
+  ma_period?: number | null;
+  exposure_pct?: number | null;
+};
+
+/** 비중 방식 표기(엔진 v16.14) — 동일 비중(기본)이면 null(따로 적지 않는다). */
+export function formatAllocationLabel(
+  type: string | null | undefined,
+  lookbackDays: number | null | undefined,
+): string | null {
+  if (type !== "inverse_volatility") return null;
+  return lookbackDays != null
+    ? t("변동성 역비중({0}일 변동성)", lookbackDays)
+    : t("변동성 역비중(산정 기간 미정)");
+}
+
+/** 시장 국면 필터 표기(엔진 v16.14). 기간·비율이 비면 값 미정으로 적는다(조용한 확정 금지). */
+export function formatMarketRegimeLabel(regime: MarketRegimeSummary | null | undefined): string | null {
+  if (!regime) return null;
+  const index = t(regime.index === "KOSDAQ" ? "코스닥" : "코스피");
+  if (regime.ma_period == null || regime.exposure_pct == null) {
+    return t("{0} 이동평균 국면 필터(값 미정)", index);
+  }
+  return t("{0} {1}일 이동평균 아래면 투자 비중 {2}%", index, regime.ma_period, regime.exposure_pct);
+}
+
 /** 복합 순위 합산(FR-BT-063)의 구성 지표 하나 — "ROE 높은 순"·"PER 낮은 순"·"20일 수익률 높은 순". */
 function componentLabel(
-  c: { metric: string; direction: "top" | "bottom"; lookback_days?: number | null },
+  c: {
+    metric: string; direction: "top" | "bottom"; lookback_days?: number | null;
+    skip_days?: number | null;
+  },
   defaultLookback: number | null | undefined,
 ): string {
   const dir = c.direction === "bottom" ? t("낮은 순") : t("높은 순");
   if (c.metric === "return" || c.metric === "volatility") {
     const days = c.lookback_days ?? defaultLookback;
     const name = c.metric === "return" ? t("수익률") : t("변동성");
+    if (c.metric === "return" && days != null && c.skip_days) {
+      return t("{0}일 수익률(최근 {1}일 제외) {2}", days, c.skip_days, dir);
+    }
     // 산정 기간 미정이면 일수를 붙이지 않는다(단일 랭킹 라벨과 같은 계약).
     return days != null ? t("{0}일 {1} {2}", days, name, dir) : t("{0}(산정 기간 미정) {1}", name, dir);
   }
   return `${t(METRIC_LABELS[c.metric] ?? c.metric)} ${dir}`;
+}
+
+/** 구성 지표를 묶음 점수(group) 단위로 모은 표기 — 묶음은 "묶음(A·B·C)" 한 덩어리로 적는다. */
+function groupedComponentLabels(
+  components: NonNullable<ParsedSummary["ranking_components"]>,
+  defaultLookback: number | null | undefined,
+): string[] {
+  const out: string[] = [];
+  const groups = new Map<string, string[]>();
+  for (const c of components) {
+    const label = componentLabel(c, defaultLookback);
+    if (!c.group) {
+      out.push(label);
+      continue;
+    }
+    if (!groups.has(c.group)) {
+      groups.set(c.group, []);
+      out.push(`\u0000${c.group}`);
+    }
+    groups.get(c.group)!.push(label);
+  }
+  return out.map((item) =>
+    item.startsWith("\u0000")
+      ? t("묶음 점수({0})", groups.get(item.slice(1))!.join("·"))
+      : item,
+  );
 }
 
 export function getRankingLabel(parsed: ParsedSummary): string | null {
@@ -756,9 +827,7 @@ export function getRankingLabel(parsed: ParsedSummary): string | null {
   if (parsed.ranking_metric === "composite" && parsed.ranking_components?.length) {
     // 복합 순위 합산(FR-BT-063) — 구성 지표별 순위를 합산해 상위 선정. 내부명 대신
     // 지표 정본 라벨과 방향을 그대로 보여 준다.
-    const parts = parsed.ranking_components.map((c) =>
-      componentLabel(c, parsed.ranking_lookback_days),
-    );
+    const parts = groupedComponentLabels(parsed.ranking_components, parsed.ranking_lookback_days);
     return t("복합 순위 상위 ({0} 순위 합산)", parts.join(" + "));
   }
   if (parsed.ranking_metric === "return") {
@@ -766,6 +835,9 @@ export function getRankingLabel(parsed: ParsedSummary): string | null {
     // bottom=수익률 낮은 순(역발상) — 엔진 v16.2가 방향을 존중하므로 라벨도 방향을 드러낸다.
     if (parsed.ranking_direction === "bottom") {
       return days != null ? t("{0}일 수익률 하위", days) : t("수익률 하위(산정 기간 미정)");
+    }
+    if (days != null && parsed.ranking_skip_days) {
+      return t("{0}일 수익률(최근 {1}일 제외) 상위", days, parsed.ranking_skip_days);
     }
     return days != null ? t("{0}일 수익률 상위", days) : t("수익률 상위(산정 기간 미정)");
   }
@@ -870,11 +942,15 @@ export function buildStrategySummary(
     blockNames: [...entryLabels, ...exitLabels],
     entryBlocks: entryLabels,
     exitBlocks: exitLabels,
-    positionText: `${getPositionLabel(parsed)}${parsed.hold_period_days ? t(" · {0}일 보유", parsed.hold_period_days) : ""}`,
+    positionText: [
+      `${getPositionLabel(parsed)}${parsed.hold_period_days ? t(" · {0}일 보유", parsed.hold_period_days) : ""}`,
+      formatAllocationLabel(parsed.allocation_type, parsed.allocation_lookback_days),
+    ].filter(Boolean).join(" · "),
     riskText: [
       stopLossPct ? t("손절 {0}%", stopLossPct) : "",
       takeProfitPct ? t("익절 {0}%", takeProfitPct) : "",
       trailingStopPct ? t("트레일링 스탑 {0}%", trailingStopPct) : "",
+      formatMarketRegimeLabel(parsed.market_regime) ?? "",
     ].filter(Boolean).join(", ") || undefined,
     rebalancingText: formatRebalancingText(
       parsed.rebalancing_period, parsed.rebalance_method, t,
@@ -1021,9 +1097,19 @@ export function buildStrategySummaryFromRequest(
   const rebalancingPeriod = typeof risk.rebalancing_period === "string" ? risk.rebalancing_period : "none";
   const rebalanceMethod = typeof risk.rebalance_method === "string" ? risk.rebalance_method : null;
 
+  const allocationLabel = formatAllocationLabel(
+    typeof risk.allocation_type === "string" ? risk.allocation_type : null,
+    num(risk.allocation_lookback_days),
+  );
+  const regimeLabel = formatMarketRegimeLabel(
+    risk.market_regime && typeof risk.market_regime === "object"
+      ? (risk.market_regime as MarketRegimeSummary)
+      : null,
+  );
   const rankingLabel = getRankingLabel({
     ranking_metric: (risk.ranking_metric as string | null) ?? null,
     ranking_lookback_days: num(risk.ranking_lookback_days),
+    ranking_skip_days: num(risk.ranking_skip_days),
     ranking_direction: (risk.ranking_direction as "top" | "bottom" | null) ?? null,
     ranking_components: Array.isArray(risk.ranking_components)
       ? (risk.ranking_components as ParsedSummary["ranking_components"])
@@ -1086,13 +1172,17 @@ export function buildStrategySummaryFromRequest(
     positionText: targetStockLabels.length && !isCandidatePoolRisk(risk)
       ? `${targetStockLabels.length === 1 ? t("단일 종목 집중 투자") : t("지정 종목 {0}개 균등 투자", targetStockLabels.length)}${maxHoldingDays ? t(" · {0}일 보유", maxHoldingDays) : ""}`
       : maxPositions
-        ? `${t("최대 {0}종목", maxPositions)}${maxHoldingDays ? t(" · {0}일 보유", maxHoldingDays) : ""}`
+        ? [
+            `${t("최대 {0}종목", maxPositions)}${maxHoldingDays ? t(" · {0}일 보유", maxHoldingDays) : ""}`,
+            allocationLabel,
+          ].filter(Boolean).join(" · ")
         : undefined,
     riskText:
       [
         stopLossPct ? t("손절 {0}%", stopLossPct) : "",
         takeProfitPct ? t("익절 {0}%", takeProfitPct) : "",
         trailingStopPct ? t("트레일링 스탑 {0}%", trailingStopPct) : "",
+        regimeLabel ?? "",
       ]
         .filter(Boolean)
         .join(", ") || undefined,

@@ -5,7 +5,9 @@ import functools
 import polars as pl
 import numpy as np
 
-from engine.indicator_columns import bollinger_columns, macd_columns, stochastic_columns
+from engine.indicator_columns import (
+    bollinger_columns, macd_columns, stochastic_columns, trading_value_sma_col,
+)
 from engine import trade_reason as tr
 
 
@@ -25,6 +27,8 @@ FUNDAMENTAL_LABELS = {
     "dividend_growth": "배당성장률",
     "eps_growth": "EPS증가율", "ebitda_growth": "EBITDA증가율",
     "ocf_growth": "영업현금흐름증가율", "fcf_growth": "잉여현금흐름증가율",
+    # v16.14 — DART 원재료로 계산(fundamental_fetcher.compute_roic/compute_fcf_margin).
+    "roic": "ROIC", "fcf_margin": "FCF 마진",
     # eps(원)·ebit(억원) 부호 필터로 '흑자/적자'·'영업이익 흑자/적자' 키워드 조건을
     # 표현한다(nl_parser 참고).
     "eps": "EPS",
@@ -437,7 +441,7 @@ class SignalEngine:
 
         elif cid == 'trading_value':
             val = float(p.get('value', 0)) * 100_000_000
-            curr_val = get_col('trading_value_20_sma')
+            curr_val = get_col(trading_value_sma_col(p.get('period')))
             if curr_val is None:
                 c = get_col('close')
                 v = get_col('volume')
@@ -797,7 +801,7 @@ class SignalEngine:
 
         elif cid == 'trading_value':
             val, op = float(p.get('value', 0)) * 100_000_000, p.get('operator', '>=')
-            curr_val = safe_get('trading_value_20_sma', idx)
+            curr_val = safe_get(trading_value_sma_col(p.get('period')), idx)
             if curr_val is None:
                 c, v = safe_get('close', idx), safe_get('volume', idx)
                 if c and v:

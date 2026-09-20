@@ -15,7 +15,7 @@ TechnicalSignal.indicator Literal)과 1:1로 유지해야 한다 — 엔진에 �
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import re
 from typing import Dict, List, Literal, Optional, Tuple
 
@@ -47,6 +47,10 @@ class IndicatorSpec:
     engine_binding: Optional[Tuple[str, str]] = None   # (종류, 엔진 필드값)
     available_from: Optional[str] = None               # 데이터 시작일(알려진 경우)
     partial_data: bool = False                         # 종목/기간별 커버리지 편차 존재
+    # 기능은 완성됐지만 **데이터 적재가 끝나지 않은** 지표 — 사용자에게 '준비 중'으로 알리고
+    # 조건·랭킹에서 뺀다(그대로 두면 fail-closed로 거래 0건 백테스트가 나간다).
+    # 값은 아래 DATA_PENDING_METRICS가 정본이며, 적재가 끝나면 그 집합에서 지우는 것으로 켠다.
+    data_pending: bool = False
     alternatives: Tuple[str, ...] = ()                 # UNSUPPORTED 시 제안 가능한 대체 지표
     notes: Optional[str] = None
 
@@ -54,7 +58,7 @@ class IndicatorSpec:
 def _fundamental(
     metric: str, name: str, category: str, value_type: str,
     recommended: Optional[float] = None, value_range: Optional[Tuple[float, float]] = None,
-    notes: Optional[str] = None,
+    notes: Optional[str] = None, parameters: Optional[Dict[str, "ParamSpec"]] = None,
 ) -> IndicatorSpec:
     # 재무 데이터는 KIS 백필 기반으로 종목·기간별 커버리지 편차가 있다 —
     # 정확한 결측은 데이터 커버리지 로그(FR-BT-016)가 실측으로 알린다.
@@ -71,6 +75,7 @@ def _fundamental(
         engine_binding=("fundamental_filter", metric),
         partial_data=True,
         notes=notes,
+        **({"parameters": parameters} if parameters else {}),
     )
 
 
@@ -111,6 +116,15 @@ def _unsupported(
     )
 
 
+# ── 데이터 적재 대기 지표(2026-09-19 신설, 사용자 결정 09-20) ──────────────────
+# 지표 정의·엔진 배선·해석은 끝났고 **과거 데이터만 아직 없는** 항목. DART 재수집
+# (scripts/backfill_roic_fcf_margin.py)이 운영 데이터까지 반영되면 이 집합에서 지운다 —
+# 그 순간 조건·랭킹·칩이 모두 살아난다(다른 곳에 사본을 두지 않는 이유).
+# 유료라서 못 하는 것이 아니다(DART 오픈API는 무료, 일일 호출 한도만 있음) — 계획이 없는
+# 개념(실적 추정치 등)은 여기가 아니라 UNSUPPORTED로 남긴다: 지키지 못할 약속 금지.
+DATA_PENDING_METRICS: frozenset = frozenset({"fundamental.roic", "fundamental.fcf_margin"})
+
+
 _SPECS: Tuple[IndicatorSpec, ...] = (
     # ── 재무 지표 (엔진 FundamentalFilter.metric과 1:1) ──────────────────────
     _fundamental("per", "PER(주가수익비율)", "valuation", "ratio", recommended=10, value_range=(0, 1000)),
@@ -141,13 +155,24 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                  notes="적자↔흑자 전환기에는 증가율 대신 상태코드(턴어라운드 등)로 표현될 수 있음"),
     _fundamental("fcf_growth", "잉여현금흐름증가율", "growth", "percent", recommended=10, value_range=(-1000, 1000),
                  notes="적자↔흑자 전환기에는 증가율 대신 상태코드(턴어라운드 등)로 표현될 수 있음"),
+    # v16.14(2026-09-19) 지원 승격 — DART 재무상태표·손익계산서 원재료로 계산(fundamental_fetcher).
+    _fundamental("roic", "ROIC(투하자본이익률)", "profitability", "percent", recommended=10,
+                 value_range=(-100, 200),
+                 notes="영업이익×(1−유효세율) ÷ (자본총계+이자부부채−현금). 연간 결산 기준. "
+                       "ROA·ROE로 바꿔 넣지 말 것(다른 지표)"),
+    _fundamental("fcf_margin", "FCF 마진(잉여현금흐름÷매출액)", "profitability", "percent", recommended=5,
+                 value_range=(-500, 500),
+                 notes="잉여현금흐름(영업현금흐름−CAPEX) ÷ 매출액. 연간 결산 기준. "
+                       "'FCF 증가율'(fcf_growth)·'FCF 수익률'(시총 대비, 미지원)과 다른 지표"),
     _fundamental("market_cap", "시가총액", "size", "억원", recommended=5000, value_range=(0, 10_000_000)),
     _fundamental("trading_value", "일평균거래대금", "liquidity", "억원", recommended=10, value_range=(0, 1_000_000),
                  notes="유동성 스크리닝용 기본값. '거래대금 N억 이상 종목만/으로 거른' 처럼 "
                        "**종목 선정 기준**이면 technical.trading_value가 아니라 이것. "
                        "'일평균·최근 N일 평균 거래대금 N억'처럼 **기간 평균의 금액 임계**면 항상 이것이다 "
                        "(technical은 당일 거래대금만 본다). 억원 금액 없이 '거래대금이 N일 평균보다 "
-                       "높은'처럼 **자기 평균과 비교**하면 technical.trading_value_ratio"),
+                       "높은'처럼 **자기 평균과 비교**하면 technical.trading_value_ratio. "
+                       "평균 기간을 말했으면('최근 60일 평균') parameters.period에 담는다(없으면 20일)",
+                 parameters={"period": ParamSpec(minimum=1, maximum=250)}),
     _fundamental("dividend_yield", "배당수익률", "dividend", "percent", recommended=3, value_range=(0, 100)),
     _fundamental("payout_rate", "배당성향", "dividend", "percent", recommended=30, value_range=(0, 1000)),
     _fundamental("dividend_growth", "배당성장률", "dividend", "percent", recommended=5, value_range=(-100, 1000)),
@@ -315,8 +340,6 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                  alternatives=("fundamental.operating_cf_amount", "fundamental.pcr"),
                  notes="영업·투자·재무활동 현금흐름 절대 금액(억원)은 "
                        "operating_cf_amount/investing_cf_amount/financing_cf_amount로 지원됨"),
-    _unsupported("roic", "ROIC(투하자본이익률)", "profitability",
-                 alternatives=("fundamental.roe_or_gpa", "fundamental.roa")),
     _unsupported("beta", "베타(시장 민감도)", "risk"),
     _unsupported("interest_coverage", "이자보상배율", "stability",
                  alternatives=("fundamental.debt_ratio", "fundamental.current_ratio")),
@@ -336,7 +359,12 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     _unsupported("moat", "경제적 해자 등 정성 평가", "quality"),
 )
 
-REGISTRY: Dict[str, IndicatorSpec] = {spec.id: spec for spec in _SPECS}
+REGISTRY: Dict[str, IndicatorSpec] = {
+    spec.id: (
+        replace(spec, data_pending=True) if spec.id in DATA_PENDING_METRICS else spec
+    )
+    for spec in _SPECS
+}
 
 # ── 이름 해석(alias → canonical ID) ─────────────────────────────────────────
 # LLM이 추출한 지표명을 canonical ID로 매핑한다. 여기의 alias는 '동의어 사전'이
@@ -409,11 +437,19 @@ _ALIASES: Dict[str, str] = {
     "초과수익률랭킹": "ranking.relative_return", "시장대비수익률랭킹": "ranking.relative_return",
     # 미지원 개념의 canonical 표기(LLM이 이 이름으로 출력하면 UNSUPPORTED로 판정된다)
     "fcf": "unsupported.fcf_yield", "fcf_yield": "unsupported.fcf_yield",
+    "fcfyield": "unsupported.fcf_yield", "fcf수익률": "unsupported.fcf_yield",
     "잉여현금흐름": "unsupported.fcf_yield",
     "현금흐름": "unsupported.cash_flow", "pcf": "unsupported.cash_flow",
     "변동성": "technical.volatility", "volatility": "technical.volatility",
     "저변동성": "ranking.volatility", "변동성랭킹": "ranking.volatility",
-    "roic": "unsupported.roic", "투하자본이익률": "unsupported.roic",
+    "roic": "fundamental.roic", "투하자본이익률": "fundamental.roic",
+    "estimate_revision": "unsupported.earnings_estimate",
+    "earnings_revision": "unsupported.earnings_estimate",
+    "earnings_estimate": "unsupported.earnings_estimate",
+    "실적추정치": "unsupported.earnings_estimate", "컨센서스": "unsupported.earnings_estimate",
+    "fcf_margin": "fundamental.fcf_margin", "fcf마진": "fundamental.fcf_margin",
+    "잉여현금흐름마진": "fundamental.fcf_margin", "freecashflowmargin": "fundamental.fcf_margin",
+    "잉여현금흐름(fcf)마진": "fundamental.fcf_margin", "fcf(잉여현금흐름)마진": "fundamental.fcf_margin",
     "베타": "unsupported.beta", "beta": "unsupported.beta",
     "이자보상배율": "unsupported.interest_coverage",
     "피오트로스키": "unsupported.quality_score", "f-score": "unsupported.quality_score",

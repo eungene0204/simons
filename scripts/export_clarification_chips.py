@@ -29,7 +29,7 @@ def build_fixture() -> dict:
     seen: set[str] = set()
     values: list[str] = []
     for spec in REGISTRY.values():
-        if spec.id in seen or spec.recommended_value is None:
+        if spec.id in seen or spec.recommended_value is None or spec.data_pending:
             continue
         seen.add(spec.id)
         unit = {"percent": "%", "ratio": "배", "억원": "억원"}.get(spec.value_type or "", "")
@@ -65,6 +65,13 @@ def build_fixture() -> dict:
     # ⑤ 신규 상장 시기 칩 — 연도는 오늘 기준이라 픽스처엔 상대 표기만 싣고, 연도 칩은 프론트
     #    사전이 "{0}년 상장" 템플릿으로는 못 옮기므로 백엔드가 ui_language.msg로 만든다.
     chips["new_listing"] = [c for c in primary._new_listing_period_chips() if "년 상장" not in c]
+    # ⑥ 시장 국면 필터·변동성 역비중 칩(엔진 v16.14) — 정본 표 그대로.
+    from engine import strategy_slots
+    chips["portfolio_extras"] = (
+        list(strategy_slots.MARKET_REGIME_EXPOSURE_CHIP_VALUES)
+        + list(strategy_slots.MARKET_REGIME_MA_CHIP_VALUES)
+        + list(strategy_slots.ALLOCATION_LOOKBACK_CHIP_VALUES)
+    )
     return chips
 
 

@@ -424,6 +424,47 @@ REBALANCE_METHOD_CHIP_VALUES: dict[str, str] = {
     "비중 조정 리밸런싱 (균등 유지)": "weights_only",
 }
 
+# 시장 국면 필터(엔진 v16.14) 되묻기 칩 → ParsedStrategy.market_regime 필드 값(정본, 칩=값 결속
+# 계약). 비율은 2026-09-19 사용자 결정(0%·30%·50% 칩). 발행·클릭 양쪽이 이 표만 본다.
+MARKET_REGIME_EXPOSURE_CHIP_VALUES: dict[str, float] = {
+    "약세 국면 투자 비중 0% (전량 현금)": 0.0,
+    "약세 국면 투자 비중 30%": 30.0,
+    "약세 국면 투자 비중 50%": 50.0,
+}
+MARKET_REGIME_MA_CHIP_VALUES: dict[str, int] = {
+    "지수 120일 이동평균 기준": 120,
+    "지수 200일 이동평균 기준": 200,
+}
+# 변동성 역비중(엔진 v16.14)의 변동성 산정 기간 칩 → allocation_lookback_days.
+ALLOCATION_LOOKBACK_CHIP_VALUES: dict[str, int] = {
+    "비중용 변동성 20일": 20,
+    "비중용 변동성 60일": 60,
+    "비중용 변동성 120일": 120,
+}
+
+
+def portfolio_chip_patch(chip: str, parsed_dump: dict) -> Optional[dict]:
+    """위 세 표의 칩이면 ParsedStrategy 패치(최상위 필드), 아니면 None.
+
+    국면 칩은 되묻는 중인 market_regime(개념은 이미 있음)의 빈 칸을 채운다 — 개념이 없으면
+    답할 대상이 없으므로 결속하지 않는다(None)."""
+    text = (chip or "").strip()
+    regime = parsed_dump.get("market_regime")
+    if text in MARKET_REGIME_EXPOSURE_CHIP_VALUES:
+        if not isinstance(regime, dict):
+            return None
+        return {"market_regime": {**regime, "exposure_pct": MARKET_REGIME_EXPOSURE_CHIP_VALUES[text]}}
+    if text in MARKET_REGIME_MA_CHIP_VALUES:
+        if not isinstance(regime, dict):
+            return None
+        return {"market_regime": {**regime, "ma_period": MARKET_REGIME_MA_CHIP_VALUES[text]}}
+    if text in ALLOCATION_LOOKBACK_CHIP_VALUES:
+        if parsed_dump.get("allocation_type") != "inverse_volatility":
+            return None
+        return {"allocation_lookback_days": ALLOCATION_LOOKBACK_CHIP_VALUES[text]}
+    return None
+
+
 # 칩 → 초기 자본 값(정본, 칩=값 결속 계약). 발행·클릭 양쪽이 이 표만 본다.
 CAPITAL_CHIP_VALUES: dict[str, float] = {
     "$10,000": 10_000.0,

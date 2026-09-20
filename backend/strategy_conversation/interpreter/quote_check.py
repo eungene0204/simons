@@ -15,6 +15,9 @@
 그래서 **조건 중심**으로 묻는다: 조건을 평이한 한국어로 적어 주고("매도 — 5일 이동평균선이 20일
 이동평균선을 아래로 교차하면"), 인용이 그것을 말하는지 yes/no/unclear만 받는다. 신고가 오분류
 교정을 위해 인용이 말하는 신호 종류(describes)를 같은 항목에 함께 받는다.
+제거는 no 하나로 정하지 않는다(2026-09-19 120B 교정): 120B는 세부만 다른 이동평균 조건에도
+no를 답했다. 인용이 이동평균도 볼린저도 신고가도 아닌 **다른 것(other)**을 말한다는 답이 함께
+있을 때만 뺀다.
 
 결정론 코드의 몫: ① 조건을 문장으로 옮겨 적기(LLM 출력 필드의 표기 변환) ② 응답이 정해진
 enum인지 확인 ③ enum 값에 따른 분기. 인용 문자열은 읽지 않는다.
@@ -24,7 +27,7 @@ enum인지 확인 ③ enum 값에 따른 분기. 인용 문자열은 읽지 않�
 
 실패 동작: 호출 오류·JSON 불성립·항목 수 불일치는 **판정 없음(None)** — 교정도 제거도 하지 않는다
 (fail-open, 조건 회수 패스와 같은 원칙). 개별 항목이 enum 밖이거나 "unclear"여도 그 조건은 남긴다.
-제거는 분명한 "no"일 때만이다.
+제거는 분명한 "no"이면서 describes가 "other"일 때만이다.
 """
 
 from __future__ import annotations
@@ -190,14 +193,21 @@ def _verdict(verdicts: Optional[QuoteVerdicts], cond: Any) -> Optional[Verdict]:
 
 
 def quote_does_not_express(verdicts: Optional[QuoteVerdicts], cond: Any) -> bool:
-    """이동평균 조건인데 LLM이 인용이 그 조건을 말하지 **않는다**고 분명히 답했는가.
+    """이동평균 조건인데 LLM이 인용이 그 조건을 말하지 **않고**, 인용이 말하는 것이 이동평균·
+    볼린저·신고가가 아닌 다른 것(other — 종목 수·손절·보유 기간 같은 설정 문구)이라고 답했는가.
 
-    unclear·enum 밖·판정 없음은 False(남긴다). 인용이 신고가 돌파를 말한다고 답한 경우는
-    제거가 아니라 교정 대상이라 False다.
+    no만으로는 빼지 않는다(2026-09-19 120B 게이트): 120B는 세부만 다른 이동평균 조건(20일선
+    '근처' vs '위', 기간을 잘못 옮긴 EMA)에 no/moving_average를 답했고, 예시 53의 청산 규칙이
+    "이동평균 조건이 아니어서"라는 거짓 안내와 함께 지워졌다(4회 중 2회). 트레이스 재생 비교
+    (같은 입력·프롬프트 불변): 120B 거짓 제거 17/104 → 1/104, 설정 문구 조작 제거 12/12 유지 /
+    9B 거짓 제거 2/106 → 0/106, 조작 제거 12/12 → 8/12(9B가 '5종목'·'-15% 손절' 인용에
+    moving_average를 답한다). 낱말 옮겨 적기 형태(signal_words)는 9B가 설정 문구를 통째로
+    옮겨 적어 조작 제거 0/12라 기각했다. unclear·enum 밖·판정 없음은 False(남긴다). 신고가
+    돌파는 제거가 아니라 교정 대상이다(quote_describes_breakout).
     """
     verdict = _verdict(verdicts, cond)
     return (verdict is not None and verdict.expresses == "no"
-            and verdict.describes != "new_high_breakout"
+            and verdict.describes == "other"
             and _canonical_factor(cond.factor) in MA_FACTORS)
 
 

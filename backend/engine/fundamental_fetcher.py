@@ -130,6 +130,38 @@ _DART_PROFIT_LOSS_ACCOUNT_IDS = {"ifrs-full_ProfitLoss", "ifrs_ProfitLoss"}
 # 미작성 등, FR-BT-052k)는 종가÷SPS로 PSR을 만들 수 없어 같은 손익계산서 응답의 매출액을 쓴다.
 # 실측(2026-08-17): 삼진제약 OFS CIS '수익(매출액)'·동국제강 OFS IS '매출액' 모두 ifrs-full_Revenue.
 _DART_REVENUE_ACCOUNT_IDS = {"ifrs-full_Revenue", "ifrs_Revenue"}
+# ROIC 원재료(v16.14, 2026-09-19) — 같은 fnlttSinglAcntAll 응답의 BS·IS/CIS에서 파싱(추가 호출 0).
+# 실측(2024 사업보고서: 삼성전자·현대차·SK하이닉스·LG화학·카카오·클래시스)으로 확인한 계정.
+# 두 IFRS 접두(ifrs_ ~2018 / ifrs-full_ 2019~)를 모두 본다(지배주주순이익 파서와 같은 함정).
+_DART_CASH_ACCOUNT_IDS = {"ifrs-full_CashAndCashEquivalents", "ifrs_CashAndCashEquivalents"}
+_DART_CASH_NAMES = {"현금및현금성자산"}
+_DART_PRETAX_ACCOUNT_IDS = {"ifrs-full_ProfitLossBeforeTax", "ifrs_ProfitLossBeforeTax"}
+_DART_TAX_ACCOUNT_IDS = {
+    "ifrs-full_IncomeTaxExpenseContinuingOperations", "ifrs_IncomeTaxExpenseContinuingOperations",
+}
+# 이자부부채 = 차입금·사채(리스부채 제외). 유동 쪽은 합계 계정(SK하이닉스·LG화학 실측)이 있으면
+# 구성 계정(단기차입금·유동성장기부채)과 이중으로 세지 않도록 합계만 쓴다.
+_DART_CURRENT_DEBT_TOTAL_IDS = {
+    "ifrs-full_CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings",
+    "ifrs_CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings",
+}
+_DART_CURRENT_DEBT_PART_IDS = {
+    "ifrs-full_ShorttermBorrowings", "ifrs_ShorttermBorrowings",
+    "ifrs-full_CurrentPortionOfLongtermBorrowings", "ifrs_CurrentPortionOfLongtermBorrowings",
+    "ifrs-full_CurrentPortionOfNoncurrentBondsIssued", "ifrs_CurrentPortionOfNoncurrentBondsIssued",
+}
+_DART_NONCURRENT_DEBT_IDS = {
+    "ifrs-full_LongtermBorrowings", "ifrs_LongtermBorrowings",
+    "ifrs-full_NoncurrentPortionOfNoncurrentBondsIssued", "ifrs_NoncurrentPortionOfNoncurrentBondsIssued",
+    "ifrs-full_NoncurrentPortionOfNoncurrentLoansReceived", "ifrs_NoncurrentPortionOfNoncurrentLoansReceived",
+    "dart_LongTermBorrowingsGross", "dart_ConvertibleBonds", "dart_BondsIssued",
+}
+# 표준계정코드 미사용 제출본(삼성전자 2024 단기차입금 실측)의 이름 폴백 — **계정ID가 없는 행에만**
+# 쓴다. '차입금' 단독 표기는 유동·비유동을 가를 수 없어 받지 않는다(이중 계상 위험).
+_DART_DEBT_NAMES = {
+    "단기차입금", "유동성장기부채", "유동성장기차입금", "유동성사채", "사채", "장기차입금",
+    "전환사채", "교환사채", "신주인수권부사채",
+}
 _DART_EQUITY_OWNERS_ACCOUNT_IDS = {
     "ifrs-full_EquityAttributableToOwnersOfParent",
     "ifrs_EquityAttributableToOwnersOfParent",
@@ -331,6 +363,9 @@ ANNUAL_FUNDAMENTAL_KEYS = [
     "investing_cash_flow", "financing_cash_flow",
     # 위 3분류의 억원 환산본 — 조건 필터·배지가 쓰는 단위(raw는 PCR·FCF 계산 기준이라 유지).
     "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
+    # FCF 마진(%)·ROIC(%) — v16.14. 원재료(cash_and_equivalents·interest_bearing_debt·
+    # pretax_income·income_tax_expense, 원 단위)는 캐시 레코드에만 두고 parquet엔 싣지 않는다.
+    "fcf_margin", "roic",
 ]
 # 연간 레코드 하나가 공개일부터 이어지는 최대 개월 수 = 결산 주기 12개월 + 사업보고서 제출 지연
 # 약 3개월. 정상적으로 매년 보고하는 회사는 이 안에 다음 레코드가 와서 끊김이 없고, 넘기면
@@ -517,6 +552,126 @@ def _parse_dart_total_equity(rows: list) -> Optional[float]:
         if amount is not None:
             return amount
     return None
+
+
+def _parse_dart_interest_bearing_debt(rows: list) -> Optional[float]:
+    """BS 섹션의 이자부부채(차입금·사채, 원 단위 합계). 해당 계정이 하나도 없으면 None.
+
+    최상위 행만 센다(account_detail이 있는 세부 내역 행 제외). 유동 합계 계정이 있으면 유동
+    구성 계정은 무시한다(이중 계상 방지). 계정ID가 비표준('-표준계정코드 미사용-')인 행만
+    이름으로 받는다.
+    """
+    if not isinstance(rows, list):
+        return None
+    current_total = 0.0
+    current_parts = 0.0
+    noncurrent = 0.0
+    has_total = has_part = has_noncurrent = False
+    for row in rows:
+        if not isinstance(row, dict) or row.get("sj_div") != "BS":
+            continue
+        if str(row.get("account_detail", "-")).strip() not in ("", "-"):
+            continue
+        amount = _parse_number(str(row.get("thstrm_amount", "")))
+        if amount is None:
+            continue
+        account_id = str(row.get("account_id", "")).strip()
+        name = re.sub(r"\s+", "", str(row.get("account_nm", "")))
+        if account_id in _DART_CURRENT_DEBT_TOTAL_IDS:
+            current_total += abs(amount)
+            has_total = True
+        elif account_id in _DART_CURRENT_DEBT_PART_IDS:
+            current_parts += abs(amount)
+            has_part = True
+        elif account_id in _DART_NONCURRENT_DEBT_IDS:
+            noncurrent += abs(amount)
+            has_noncurrent = True
+        elif not account_id.startswith(("ifrs", "dart_")) and name in _DART_DEBT_NAMES:
+            if name in ("사채", "장기차입금", "전환사채", "교환사채", "신주인수권부사채"):
+                noncurrent += abs(amount)
+                has_noncurrent = True
+            else:
+                current_parts += abs(amount)
+                has_part = True
+    if not (has_total or has_part or has_noncurrent):
+        return None
+    return (current_total if has_total else current_parts) + noncurrent
+
+
+def _parse_dart_cash(rows: list) -> Optional[float]:
+    """BS 섹션의 현금및현금성자산(원). 최상위 행만."""
+    if not isinstance(rows, list):
+        return None
+    for row in rows:
+        if not isinstance(row, dict) or row.get("sj_div") != "BS":
+            continue
+        if str(row.get("account_detail", "-")).strip() not in ("", "-"):
+            continue
+        account_id = str(row.get("account_id", "")).strip()
+        name = re.sub(r"\s+", "", str(row.get("account_nm", "")))
+        if account_id in _DART_CASH_ACCOUNT_IDS or (
+                not account_id.startswith(("ifrs", "dart_")) and name in _DART_CASH_NAMES):
+            amount = _parse_number(str(row.get("thstrm_amount", "")))
+            if amount is not None:
+                return amount
+    return None
+
+
+def parse_dart_roic_inputs(rows: list) -> Dict[str, float]:
+    """ROIC·FCF 마진 원재료 — 같은 응답에서 얻을 수 있는 것만 담는다(원 단위 raw).
+
+    cash_and_equivalents·interest_bearing_debt(BS), pretax_income·income_tax_expense(IS/CIS),
+    _revenue_raw(매출액, PSR 폴백과 같은 계정). 파생 계산은 _compute_derived_annual_metrics.
+    """
+    out: Dict[str, float] = {}
+    cash = _parse_dart_cash(rows)
+    if cash is not None:
+        out["cash_and_equivalents"] = cash
+    debt = _parse_dart_interest_bearing_debt(rows)
+    if debt is not None:
+        out["interest_bearing_debt"] = debt
+    pretax = _dart_amount_by_ids(rows, _DART_OWNER_NET_INCOME_SECTIONS, _DART_PRETAX_ACCOUNT_IDS)
+    if pretax is not None:
+        out["pretax_income"] = pretax
+    tax = _dart_amount_by_ids(rows, _DART_OWNER_NET_INCOME_SECTIONS, _DART_TAX_ACCOUNT_IDS)
+    if tax is not None:
+        out["income_tax_expense"] = tax
+    revenue = _dart_amount_by_ids(rows, _DART_OWNER_NET_INCOME_SECTIONS, _DART_REVENUE_ACCOUNT_IDS)
+    if revenue is not None:
+        out["_revenue_raw"] = revenue
+    return out
+
+
+# ROIC 세율 상한 — 유효세율(법인세비용 ÷ 세전이익)이 이 밖이면 일회성 세무 효과로 보고 자른다.
+ROIC_TAX_RATE_CAP = 0.5
+
+
+def compute_roic(ebit_eok, total_equity, interest_bearing_debt, cash,
+                 pretax_income=None, income_tax_expense=None) -> Optional[float]:
+    """ROIC(%) = 영업이익 × (1 − 유효세율) ÷ (자본총계 + 이자부부채 − 현금및현금성자산).
+
+    영업이익은 억원(KIS), 나머지는 DART 원 단위. 유효세율은 세전이익이 양수일 때만
+    법인세비용 ÷ 세전이익을 [0, 0.5]로 잘라 쓰고, 그 밖(세전 적자·값 없음)은 0이다.
+    투하자본이 0 이하면 정의되지 않는다(None). 이자부부채가 없으면(무차입) 0으로 본다 —
+    파서가 None을 낸 것은 차입금·사채 계정이 아예 없다는 뜻이다.
+    """
+    if ebit_eok is None or total_equity is None or cash is None:
+        return None
+    invested = float(total_equity) + float(interest_bearing_debt or 0.0) - float(cash)
+    if invested <= 0:
+        return None
+    rate = 0.0
+    if pretax_income is not None and income_tax_expense is not None and float(pretax_income) > 0:
+        rate = min(max(float(income_tax_expense) / float(pretax_income), 0.0), ROIC_TAX_RATE_CAP)
+    nopat = float(ebit_eok) * 1e8 * (1.0 - rate)
+    return round(nopat / invested * 100.0, 2)
+
+
+def compute_fcf_margin(fcf_raw, revenue_eok) -> Optional[float]:
+    """FCF 마진(%) = 잉여현금흐름(원) ÷ 매출액(억원 × 1e8). 매출이 0 이하면 None."""
+    if fcf_raw is None or revenue_eok is None or float(revenue_eok) <= 0:
+        return None
+    return round(float(fcf_raw) / (float(revenue_eok) * 1e8) * 100.0, 2)
 
 
 def _iter_dart_rows(rows: list, sections: tuple):
@@ -847,10 +1002,9 @@ def _fetch_cash_flow_from_dart(
         )
         if profit_loss is not None:
             record["_profit_loss_raw"] = profit_loss
-        # 매출액(raw 원) — PSR 폴백 분모. 같은 손익계산서 응답이라 추가 호출 0.
-        revenue = _dart_amount_by_ids(rows, _DART_OWNER_NET_INCOME_SECTIONS, _DART_REVENUE_ACCOUNT_IDS)
-        if revenue is not None:
-            record["_revenue_raw"] = revenue
+        # 매출액(raw 원, PSR 폴백·FCF 마진 분모)과 ROIC 원재료(현금·이자부부채·세전이익·
+        # 법인세) — 같은 응답이라 추가 호출 0(v16.14).
+        record.update(parse_dart_roic_inputs(rows))
         results.append(record)
 
     # available_from을 원공시 접수일로 클램프(min) — 정정공시 접수일로 밀린 값 교정.
@@ -1080,6 +1234,17 @@ def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
         profit_loss_raw = rec.get("_profit_loss_raw")
         if profit_loss_raw is not None:
             rec["net_income"] = round(profit_loss_raw / 1e8, 1)
+
+        # FCF 마진·ROIC(v16.14) — 원재료가 있는 연도만. 없으면 키를 만들지 않는다(결측=제외).
+        fcf_margin = compute_fcf_margin(rec.get("fcf"), rec.get("revenue"))
+        if fcf_margin is not None:
+            rec["fcf_margin"] = fcf_margin
+        roic = compute_roic(
+            rec.get("ebit"), rec.get("total_equity"), rec.get("interest_bearing_debt"),
+            rec.get("cash_and_equivalents"), rec.get("pretax_income"), rec.get("income_tax_expense"),
+        )
+        if roic is not None:
+            rec["roic"] = roic
 
         ebitda = rec.get("ebitda")
         ev_ebitda_ratio = rec.get("ev_ebitda")

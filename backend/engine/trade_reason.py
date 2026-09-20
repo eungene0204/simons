@@ -131,6 +131,9 @@ LIVE_RANK_POSITION = " ({0}/{1}위)"
 # 예약 주문 집행(신호 후 N거래일 지연 체결) — 원 사유 뒤에 이어 붙는다.
 LIVE_DELAYED_FILL = "신호 후 {0}거래일 지연 체결 (신호일 {1})"
 REBALANCE_TRIM = "리밸런싱 비중 조정 (목표 비중 초과분 매도)"
+# 시장 국면 필터(v16.14) — 지수가 N일 이동평균 아래로 내려가 보유 비중을 목표 노출까지 줄인
+# 매도. {0}=지수 이름(KOSPI 등, 번역 대상 아님), {1}=이동평균 기간, {2}=목표 노출 비율(%).
+MARKET_REGIME_REDUCE = "시장 국면 비중 축소 ({0} {1}일 이동평균 아래, 목표 노출 {2}%)"
 PNL_DETAIL_PROFIT = " [수익률: {0}%, 수익: {1}]"
 PNL_DETAIL_LOSS = " [수익률: {0}%, 손실: {1}]"
 
@@ -155,6 +158,9 @@ REBAL_PERIOD_QUARTERLY = "분기"
 REBAL_PERIOD_YEARLY = "연간"
 COMPOSITE_RANK = "복합 순위({0})"
 COMPOSITE_RETURN_METRIC = "최근 {0}거래일 수익률"
+# 최근 N거래일을 뺀 수익률(v16.14, 12-1 모멘텀). {0}=산정 기간, {1}=최근 제외 기간.
+COMPOSITE_RETURN_SKIP_METRIC = "최근 {0}거래일 수익률(최근 {1}거래일 제외)"
+RANKING_RETURN_SKIP = "최근 {0}거래일 수익률(최근 {1}거래일 제외) {2} {3}%{4}"
 COMPOSITE_RELATIVE_RETURN_METRIC = "최근 {0}거래일 시장 대비 초과수익률"
 COMPOSITE_VOLATILITY_METRIC = "최근 {0}거래일 변동성"
 COMPOSITE_COMPONENT_HIGH = "{0} 높은"

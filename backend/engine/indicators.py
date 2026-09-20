@@ -31,7 +31,7 @@ def annualized_volatility_panel(raw_price_df, lookback: int):
     return ret.rolling(lookback).std() * (KRX_TRADING_DAYS_PER_YEAR ** 0.5) * 100.0
 
 
-def lookback_return_panel(raw_price_df, lookback: int):
+def lookback_return_panel(raw_price_df, lookback: int, skip_days: int = 0):
     """종목별 N거래일 수익률 패널 — 모멘텀(상대강도) 랭킹용 횡단면 계산.
 
     입력은 **bfill 전** 원시 종가 패널이어야 한다(annualized_volatility_panel과 같은
@@ -41,8 +41,16 @@ def lookback_return_panel(raw_price_df, lookback: int):
     정의될 수 없는 종목). ffill(거래정지 구간 전진 충전)만 허용 — 상장 전 구간은
     NaN이 남아 첫 실봉 이후 lookback 봉이 쌓이기 전까지 NaN이고, 랭킹 후보에서
     자연 배제된다(valid = momentum.notna()).
+
+    skip_days(v16.14): 최근 skip_days 거래일을 뺀 수익률 — '12개월 수익률에서 최근 1개월
+    제외'(12-1 모멘텀)는 lookback=252, skip_days=21로 t-252 → t-21 구간 수익률이다.
+    단기 반전 효과를 빼는 표준 모멘텀 정의. 0(기본)이면 종전 계산 그대로다.
     """
-    return raw_price_df.ffill().pct_change(lookback)
+    if not skip_days:
+        return raw_price_df.ffill().pct_change(lookback)
+    if skip_days >= lookback:
+        raise ValueError(f"최근 제외 기간({skip_days})은 산정 기간({lookback})보다 짧아야 합니다")
+    return raw_price_df.ffill().pct_change(lookback - skip_days).shift(skip_days)
 
 
 class IndicatorEngine:

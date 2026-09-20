@@ -1730,6 +1730,27 @@ def test_covered_by_approximated_texts_only_for_approximated_conditions():
     assert not _covered_by_approximated_texts("뒤", approx)
 
 
+def test_drop_fragments_wrapping_others_keeps_shorter_concept():
+    """같은 미지원 개념이 두 조각으로 보고되면(2026-09-19 실측: 'ATR 기반 리스크 패리티' +
+    '상위 20개 종목에 ATR 기반 리스크 패리티') 안내가 같은 말을 두 번 되돌려준다 —
+    다른 조각을 통째로 감싸는 긴 쪽만 버린다."""
+    from strategy_conversation.primary import _drop_fragments_wrapping_others
+
+    assert _drop_fragments_wrapping_others(
+        ["ATR 기반 리스크 패리티", "상위 20개 종목에 ATR 기반 리스크 패리티"]
+    ) == ["ATR 기반 리스크 패리티"]
+    # 순서가 바뀌어도 같다
+    assert _drop_fragments_wrapping_others(
+        ["상위 20개 종목에 ATR 기반 리스크 패리티", "ATR 기반 리스크 패리티"]
+    ) == ["ATR 기반 리스크 패리티"]
+    # 서로 다른 개념은 둘 다 남는다
+    assert _drop_fragments_wrapping_others(["FCF 수익률", "ATR 기반 리스크 패리티"]) == [
+        "FCF 수익률", "ATR 기반 리스크 패리티",
+    ]
+    # 감싸이는 쪽이 4자 미만이면 우연 일치라 보지 않는다
+    assert _drop_fragments_wrapping_others(["베타", "베타 헤지 전략"]) == ["베타", "베타 헤지 전략"]
+
+
 def test_ranking_approximated_flag_coerced():
     """랭킹 항목의 approximated도 조건과 같은 표기 정규화를 받는다(문자열·null → bool)."""
     intent = StrategyIntent.model_validate(_full_intent_dict(
@@ -4762,6 +4783,44 @@ def test_example67_dead_cross_exit_with_stop_loss_elsewhere_is_kept():
     assert "매도 — 5일 이동평균선이 20일 이동평균선을 아래로 교차하면" in sent[0]
     assert "매수 — 골든크로스" in sent[0]
     assert len(intent.strategy.exit_conditions) == 1 and notices == []
+
+
+def test_example53_no_verdict_about_a_moving_average_quote_keeps_the_condition():
+    """[회귀] 2026-09-19 120B 게이트 예시 53 "EMA 정배열 눌림 재진입": 조건 인용 대조의 no만으로
+    조건을 빼서, 멀쩡한 "20일 EMA를 이탈하면 청산"과 "종가가 5일 EMA를 회복하는 시점"이
+    "이동평균 조건이 아니어서"라는 **거짓 안내**와 함께 지워졌다(4회 중 2회 — 청산 규칙 통째
+    소실). 트레이스 재생에서 120B의 거짓 no는 대부분 인용이 이동평균을 말한다(moving_average)는
+    답과 함께 나왔다(세부 불일치 — 104건 중 17건 오제거). no이면서 인용이 다른 것(other — 설정
+    문구)을 말한다고 답했을 때만 뺀다(재생 오제거 1/104)."""
+    from strategy_conversation.primary import _drop_fabricated_conditions
+
+    user_input = ("KOSDAQ에서 20일 EMA가 60일 EMA 위에 있는 정배열 상태에서 종가가 5일 EMA를 "
+                  "회복하는 시점에 매수하고 싶습니다. 20일 EMA를 이탈하면 청산하고, 보유는 최대 "
+                  "25거래일, 8종목, 손절 -6%로 부탁드립니다.")
+    intent = _ma_intent(
+        [{"factor": "technical.ema", "operator": ">", "value": None,
+          "parameters": {"short_period": 20, "long_period": 60},
+          "source_text": "20일 EMA가 60일 EMA 위에 있는 정배열 상태"},
+         {"factor": "technical.ema", "operator": "crosses_above", "value": None,
+          "parameters": {"short_period": 5, "long_period": 20},
+          "source_text": "종가가 5일 EMA를 회복하는 시점"}],
+        [{"factor": "technical.ema", "operator": "crosses_below", "value": None,
+          "parameters": {"short_period": 1, "long_period": 20},
+          "source_text": "20일 EMA를 이탈하면 청산"}],
+    )
+    verdicts = _stub_quote_verdicts(user_input, intent, _items(
+        ("yes", "moving_average"), ("no", "moving_average"), ("no", "moving_average")))
+    notices = _drop_fabricated_conditions(intent, user_input, verdicts)
+
+    assert len(intent.strategy.entry_conditions) == 2
+    assert [c.source_text for c in intent.strategy.exit_conditions] == ["20일 EMA를 이탈하면 청산"]
+    assert notices == []
+
+    # 인용이 신고가 돌파(교정 대상)·볼린저를 말한다는 no도 빼지 않는다
+    for describes in ("new_high_breakout", "bollinger"):
+        verdicts = _stub_quote_verdicts(user_input, intent, _items(
+            ("yes", "moving_average"), ("no", describes), ("no", describes)))
+        assert _drop_fabricated_conditions(intent, user_input, verdicts) == []
 
 
 def test_fabricated_ma_conditions_quoting_holdings_and_stop_loss_are_dropped():

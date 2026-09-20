@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
+from .indicator_columns import TRADING_VALUE_SMA_RE as _TV_SMA_RE, trading_value_sma_col
 from .signals import FUNDAMENTAL_CIDS, FUNDAMENTAL_LABELS
 
 logger = logging.getLogger(__name__)
@@ -113,7 +114,8 @@ def _get_required_columns(cond: Dict) -> List[str]:
         period = p.get('lookbackPeriod', 20)
         return [f'high_{period}_max', f'low_{period}_min']
     elif cid == 'trading_value':
-        return ['trading_value_20_sma']  # fallback: close, volume
+        # 평균 기간(v16.14) — 'N일 평균 거래대금'. 미지정은 종전 20일.
+        return [trading_value_sma_col(p.get('period'))]  # fallback: close, volume
     elif cid in FUNDAMENTAL_IDS:
         return [cid]
     elif cid in ('ai_model', 'ai_drop_model'):
@@ -212,24 +214,30 @@ class DataResolver:
     # ── 해결 전략 구현 ──────────────────────────────────────────────────
 
     def _resolve_trading_value(self, symbol: str, df_pl: pl.DataFrame, missing: set) -> pl.DataFrame:
-        """trading_value_20_sma: close * volume의 20일 이동평균으로 계산."""
-        if 'trading_value_20_sma' not in missing:
-            return df_pl
+        """trading_value_{N}_sma: close * volume의 N일 이동평균으로 계산(종전 N=20 고정)."""
+        cols = sorted(c for c in missing if _TV_SMA_RE.fullmatch(c))
+        for col in cols:
+            df_pl = self._resolve_trading_value_col(symbol, df_pl, missing, col)
+        return df_pl
+
+    def _resolve_trading_value_col(self, symbol: str, df_pl: pl.DataFrame, missing: set,
+                                   col: str) -> pl.DataFrame:
+        window = int(_TV_SMA_RE.fullmatch(col).group(1))
 
         if 'close' not in df_pl.columns or 'volume' not in df_pl.columns:
             self._log("ERROR", f"[{symbol}] 거래대금 계산 불가 — close/volume 컬럼 없음")
             return df_pl
 
-        self._log("INFO", f"[{symbol}] 거래대금(20일평균) 계산 중 — close × volume → 20일 SMA")
+        self._log("INFO", f"[{symbol}] 거래대금({window}일평균) 계산 중 — close × volume → {window}일 SMA")
         try:
             pdf = df_pl.to_pandas()
             tv = pdf['close'].astype(float) * pdf['volume'].astype(float)
-            tv_sma = tv.rolling(window=20, min_periods=1).mean()
+            tv_sma = tv.rolling(window=window, min_periods=1).mean()
             df_pl = df_pl.with_columns(
-                pl.Series("trading_value_20_sma", tv_sma.values)
+                pl.Series(col, tv_sma.values)
             )
-            missing.discard('trading_value_20_sma')
-            self._log("SUCCESS", f"[{symbol}] 거래대금(20일평균) 계산 완료 ✓")
+            missing.discard(col)
+            self._log("SUCCESS", f"[{symbol}] 거래대금({window}일평균) 계산 완료 ✓")
         except Exception as e:
             self._log("ERROR", f"[{symbol}] 거래대금 계산 실패: {e}")
 

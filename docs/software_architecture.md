@@ -1672,6 +1672,14 @@ SHAP 기반 — 각 예측에 영향을 준 피처와 기여도 반환, 프론�
 
 백테스트 수치를 자연어 요약으로 변환한다. Next.js 프록시 계층은 `metrics + strategySummary` stable hash 기반 LRU cache와 in-flight dedupe를 적용해 동일 결과에 대한 중복 LLM 호출을 제거한다. 요약 생성은 전략 파싱 응답의 critical path에서 제외하고, 백테스트 결과 이후 비동기/지연 실행한다.
 
+### 7.4a 전문가형 퀀트 요소 — 묶음 점수·12-1 모멘텀·변동성 역비중·시장 국면 필터 (엔진 v16.14, FR-BT-070·FR-STR-079)
+
+- **랭킹**: `lookback_return_panel(skip_days)`가 t-lookback → t-skip 수익률을 만든다. 복합 순위(`_composite_rank_panel`)는 구성 지표 `group`이 있으면 묶음 안 백분위를 먼저 평균하고 묶음·단독 지표를 동일 가중 평균한다(없으면 종전 식).
+- **비중**: 엔진이 `annualized_volatility_panel(allocation_lookback_days)`를 신호와 같은 지연으로 맞춰 `Simulator.run(vol_df=…)`에 넘긴다. 순수 리밸런싱 경로는 리밸런싱일 목표 행을 1/σ 비례로, 조건 루프는 `cur_size × (1/σ_i ÷ 기간 평균 1/σ)`로 편입 비중을 정한다.
+- **시장 국면**: `BacktestEngine._market_regime_exposure`가 `data/index/<지수>.parquet` 종가와 N일 SMA로 거래일별 노출(0~1) 배열을 만들고(`ext_index`로 창 직전까지 붙여 지연), `Simulator.run(exposure=…)`가 국면 전환일에 보유 비중을 기준 비중 × 노출로 다시 맞춘다(0%는 청산 부기). 두 입력은 본 실행·분위 그룹·리밸런싱 주기 비교(워커 프레임 포함) 네 호출 지점에 모두 전달된다.
+- **해석기**: `StrategySpec.market_filter`·`declined`, `RankingSpec.skip_days`·`group`, `PortfolioSpec.weighting_lookback_days`. 값 미정 국면 필터는 `ParsedStrategy.market_regime`(기간·비율 None)으로 남고 converter가 엔진 요청에서 뺀다 — 칩(`strategy_slots.MARKET_REGIME_*_CHIP_VALUES`·`ALLOCATION_LOOKBACK_CHIP_VALUES`)이 발행 시점에 그 빈 칸으로 결속된다.
+- **데이터**: ROIC·FCF 마진은 `fundamental_fetcher.parse_dart_roic_inputs`(같은 DART 응답의 현금·이자부부채·세전이익·법인세·매출액) → `_compute_derived_annual_metrics`(`compute_roic`·`compute_fcf_margin`). 원재료는 캐시 JSON에만, 파생 두 값만 parquet 컬럼이다.
+
 ### 7.5 리밸런싱 기간별 결과 비교 (`backend/engine/rebalance_comparison.py`, `components/strategy/backtest/RebalanceComparisonSection.tsx`)
 
 백테스트 결과 페이지 수익률 추이 영역의 세 번째 탭('월별 수익률'·'롤링 수익률'·**'리밸런싱 기간별 결과'**). 별도 실행 없이 **백테스트마다 엔진이 동봉**한다 — 메인 시뮬레이션 뒤 분위 그룹 비교(FR-BT-060)와 같은 자리에서, 이미 준비된 시뮬레이터 입력을 그대로 두고 `rebalancing_period`만 바꿔 시뮬레이션만 6번 반복한다(1단계 데이터 준비 재실행 없음).

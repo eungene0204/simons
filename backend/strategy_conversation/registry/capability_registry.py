@@ -17,8 +17,15 @@ SUPPORTED_REBALANCE_FREQUENCIES = (
 # reconstitute = 리밸런싱일마다 목표 종목 재선정, weights_only = 종목 교체 없이 비중만 균등 리셋
 SUPPORTED_REBALANCE_METHODS = ("reconstitute", "weights_only")
 
-# 엔진은 동일비중만 지원한다(별도 가중 방식 없음)
-SUPPORTED_WEIGHTINGS = ("equal",)
+# 엔진 ParsedStrategy.allocation_type Literal과 1:1 — 동일 비중 / 변동성 역비중(v16.14)
+SUPPORTED_WEIGHTINGS = ("equal", "inverse_volatility")
+
+# 리스크 패리티 계열 표기 — 엔진은 공분산을 쓰지 않는 역변동성 가중(1/σ)으로 반영하므로
+# '가깝게 반영'했다고 알린다(2026-09-19 사용자 결정: 완전 위험기여 균등(ERC) 대신 역변동성).
+RISK_PARITY_WEIGHTING_ALIASES = frozenset({
+    "risk_parity", "riskparity", "risk-parity", "리스크패리티", "리스크_패리티", "erc",
+    "equal_risk_contribution",
+})
 
 SUPPORTED_MARKETS = ("KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150",
                      "SP500", "NASDAQ100", "NASDAQ", "DOW30", "US")
@@ -60,7 +67,11 @@ def normalize_rebalance_frequency(value: Optional[str]) -> Optional[str]:
 def normalize_weighting(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
-    key = value.strip().lower()
+    key = value.strip().lower().replace(" ", "_")
     if key in ("equal", "동일비중", "균등", "equal_weight", "동일"):
         return "equal"
+    if key in ("inverse_volatility", "inverse_vol", "inverse-volatility", "변동성역비중",
+               "변동성_역비중", "역변동성", "volatility_weighted", "inverse_volatility_weighting") \
+            or key in RISK_PARITY_WEIGHTING_ALIASES:
+        return "inverse_volatility"
     return None

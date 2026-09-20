@@ -495,6 +495,8 @@ function filterToCondition(filter: Record<string, unknown>) {
     params: {
       operator: filter.operator,
       value: filter.value,
+      // 평균 기간(거래대금 'N일 평균', 엔진 v16.14) — 빠지면 엔진이 20일로 계산한다.
+      ...(filter.period != null ? { period: filter.period } : {}),
     },
     weight: 1.0,
   };

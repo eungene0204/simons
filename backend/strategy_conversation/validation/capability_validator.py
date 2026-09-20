@@ -20,7 +20,9 @@ from strategy_conversation.registry.concept_ontology import (
     is_class_id,
     logger as ontology_logger,
 )
-from strategy_conversation.registry.indicator_registry import REGISTRY, resolve
+from strategy_conversation.registry.indicator_registry import (
+    REGISTRY, factor_ids_named_in, resolve, with_same_name_variants,
+)
 
 # 스키마 필드 경로 꼴의 factor(concept.time_based_exit·technical.beta …)는 LLM이 지어낸
 # **내부 식별자**다 — 사용자 안내에 그대로 인용하면 쓴 적 없는 영문 경로가 화면에 나간다
@@ -86,6 +88,75 @@ def _dedupe_identical_conditions(role: str, conditions: list) -> list:
         seen.add(key)
         kept.append(cond)
     return kept
+
+
+def _compact_text(text: str) -> str:
+    return re.sub(r"\s+", "", str(text or "")).lower()
+
+
+_LOWER_OPERATORS = ("<", "<=")
+_HIGHER_OPERATORS = (">", ">=")
+# 조건 지표를 랭킹 자리에 낸 출력의 정본 랭킹 지표 — validate_capability의 랭킹 정규화와 거울
+# 대조가 같은 표를 본다(랭킹만 먼저 정규화되면 같은 개념의 조건 껍데기가 거울로 안 잡힌다).
+_RANKING_CANONICAL = {
+    "technical.volatility": "ranking.volatility",
+    "technical.relative_return": "ranking.relative_return",
+}
+
+
+def _ranking_id(metric: str) -> str:
+    spec = resolve(metric)
+    factor_id = spec.id if spec is not None else metric
+    return _RANKING_CANONICAL.get(factor_id, factor_id)
+
+
+def ranking_mirrored_by(cond, ranking):
+    """값 없는 조건이 같은 표현을 담은 랭킹 항목의 거울이면 그 랭킹 항목을 돌려준다.
+
+    입력은 둘 다 LLM 구조화 출력이다(사용자 원문을 읽지 않는다). 거울 조건: 비교 값이 없고,
+    ① 같은 지표가 랭킹에 있으며 방향이 어긋나지 않거나(연산자 없음·랭킹 방향 미지정은 어긋남
+    없음) ② 계열(class.*) 껍데기인데 인용이 이름으로 부른 지원 지표가 전부 랭킹에 있는 경우.
+    """
+    if cond.value is not None:
+        return None
+    by_metric = {}
+    for rank in ranking:
+        by_metric.setdefault(_ranking_id(rank.metric), rank)
+    rank = by_metric.get(_ranking_id(cond.factor))
+    if rank is not None:
+        if cond.operator in _LOWER_OPERATORS and rank.direction == "top":
+            return None
+        if cond.operator in _HIGHER_OPERATORS and rank.direction == "bottom":
+            return None
+        return rank
+    if cond.operator is not None or not str(cond.factor).startswith("class."):
+        return None
+    # 계열(class.*) 껍데기 — 인용이 이름으로 부른 지원 지표가 전부 랭킹에 있으면 같은
+    # 표현의 거울이다(120B 실측: '…종합한 품질 점수'가 품질 묶음 랭킹과 '어떤 퀄리티
+    # 지표를 쓸까요?' 계열 질문 양쪽으로 나갔다). 인용↔레지스트리 대조, 원문 미사용.
+    ranked = set(by_metric)
+    named = {n for n in factor_ids_named_in(cond.source_text or "")
+             if REGISTRY.get(n) is not None and REGISTRY[n].supported != "UNSUPPORTED"}
+    # 부분 문자열 별칭('영업이익률' 안의 '영업이익')이 섞이므로 전부 포함 대신
+    # 랭킹 지표 둘 이상을 부르면 거울로 본다.
+    if named and (named <= ranked or len(named & ranked) >= 2):
+        return next(iter(by_metric.values()))
+    return None
+
+
+def carry_approximation(cond, rank) -> None:
+    """거울로 걷는 조건의 인용이 **다른 지표를 이름으로 불렀다면**(FCF Yield → FCF 마진 대체)
+    그 사실을 랭킹 항목으로 옮긴다 — 조건이 사라지면 대체 안내(근사 반영)도 함께 사라져
+    조용한 대체가 되기 때문이다. 인용↔factor 대조(LLM 출력끼리)이며 원문을 읽지 않는다."""
+    if rank.approximated or not cond.source_text:
+        return
+    spec = resolve(cond.factor)
+    named = factor_ids_named_in(cond.source_text)
+    if spec is not None and named and spec.id not in with_same_name_variants(named):
+        rank.approximated = True
+        if not rank.source_text:
+            rank.source_text = cond.source_text
+
 
 
 def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], List[str], List[str]]:
@@ -310,15 +381,32 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
         setattr(strategy, attr, _dedupe_identical_conditions(role, kept))
 
     kept_ranking = []
+    # 같은 표현을 랭킹과 unsupported_features 양쪽에 낸 모순 출력(LLM ↔ LLM 표기 대조) —
+    # 모델 스스로 표현할 수 없다고 한 개념이므로 랭킹을 만들지 않는다. 2026-09-19 실측:
+    # '최근 3개월 실적 추정치 상향'이 미지원 보고와 동시에 시장 대비 수익률 랭킹으로 들어가
+    # 사용자가 말하지 않은 선정 기준이 생겼다.
+    _unsupported_quotes = {_compact_text(f) for f in (intent.unsupported_features or [])}
     for rank in strategy.ranking:
+        if rank.source_text and _compact_text(rank.source_text) in _unsupported_quotes:
+            continue
         spec = resolve(rank.metric)
-        if spec is not None and spec.id == "technical.relative_return":
-            # 조건 지표 technical.relative_return(시장 대비 초과수익률)을 랭킹 자리에 낸 출력.
-            # v16.10부터 랭킹 정본은 ranking.relative_return(종목 수익률 − 자기 시장 지수
-            # 수익률 순위)이다 — 코스피·코스닥을 함께 담아도 종목마다 제 시장 지수를 빼므로
-            # 정확하다(2026-09-14~15의 ranking.return 근사와 그 안내는 폐지). 표기만 보고
-            # 옮기는 LLM 출력 정규화다.
-            spec = resolve("ranking.relative_return")
+        # 인용이 **미지원 개념만** 이름으로 부르는데 다른 지원 지표를 랭킹에 넣은 바꿔치기
+        # (인용↔factor 대조 — 조건의 _substituted_factor와 같은 레인, LLM 출력끼리 비교).
+        # 2026-09-19 실측 120B 2/3: '최근 3개월 실적 추정치 상향 여부' 인용으로 시장 대비
+        # 수익률 랭킹을 만들고 미지원 보고도 하지 않았다 — 근사 안내로 넘길 대상이 아니라
+        # 사용자가 말하지 않은 선정 기준이므로 제거하고 미지원으로 알린다.
+        named = factor_ids_named_in(rank.source_text or "")
+        if named and spec is not None and spec.id not in named and all(
+            REGISTRY.get(n) is not None and REGISTRY[n].supported == "UNSUPPORTED" for n in named
+        ):
+            unsupported.append(rank.source_text)
+            continue
+        if spec is not None and spec.id in _RANKING_CANONICAL:
+            # 조건 지표(technical.relative_return·technical.volatility)를 랭킹 자리에 낸 출력은
+            # 랭킹 정본(ranking.relative_return — v16.10 종목 수익률 − 자기 시장 지수 순위 /
+            # ranking.volatility — 저변동성 랭킹)으로 옮긴다(2026-09-14~19 실측: '최근 60일 변동성이
+            # 낮은 종목'이 알 수 없는 랭킹 기준으로 버려졌다). 표기만 보고 옮기는 LLM 출력 정규화다.
+            spec = resolve(_RANKING_CANONICAL[spec.id])
         # 랭킹 가능 지표: ranking.*(모멘텀) + fundamental.*(재무 팩터 랭킹, 2026-08-03 —
         # as-of 재무 컬럼 순위 선정). trading_value는 파케이 컬럼이 아니라 엔진 즉석 계산이라
         # 랭킹 수집 경로에 없어 제외한다(engine.nl_parser.RankingMetricLiteral과 동일 계약).
@@ -335,8 +423,16 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
             # 미지원 보고에는 LLM이 지어낸 내부 식별자(metric 원문)를 담지 않는다 —
             # 그 문자열이 안내문에 그대로 노출됐다(내부명 노출 금지, 레드팀 QA 20-5).
             # 사용자 표현(source_text)이 있으면 그것을, 없으면 평이한 일반 표기를 쓴다.
-            unsupported.append(rank.source_text
-                               or ui_language.msg("알 수 없는 랭킹 기준", "an unrecognized ranking metric"))
+            # 인용이 없으면: 레지스트리가 아는 미지원 개념은 그 표시명으로, 모르는 이름은 —
+            # 1차가 이미 미지원 보고를 냈으면 그 보고가 같은 표현을 다룬다(2026-09-19 실측:
+            # '실적 추정치 상향'이 보고와 '알 수 없는 랭킹 기준' 두 번 나갔다) — 일반 표기로.
+            if rank.source_text:
+                unsupported.append(rank.source_text)
+            elif spec is not None and spec.supported == "UNSUPPORTED":
+                unsupported.append(spec.display_name)
+            elif not intent.unsupported_features:
+                unsupported.append(
+                    ui_language.msg("알 수 없는 랭킹 기준", "an unrecognized ranking metric"))
             errors.append(ui_language.msg(
                 "랭킹 기준 '{name}'은(는) 지원되지 않습니다 "
                 "(지원: 기간 수익률 랭킹, 재무 지표 랭킹 — 예: 영업이익률 상위, 여러 지표 순위 합산)",
@@ -349,6 +445,22 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
         rank.metric = spec.id
         kept_ranking.append(rank)
     strategy.ranking = kept_ranking
+
+    # 랭킹으로 이미 표현된 지표를 **값 없는** 매수 조건으로 한 번 더 낸 껍데기
+    # (2026-09-19 실측 120B: 품질 점수 5개 지표가 랭킹과 값 없는 조건 양쪽에 나와 "ROE 기준값을
+    # 얼마로?"가 먼저 물어졌다. 같은 날 '낮은/높은' 방향 연산자(<=·>=)만 달고 값이 없는 껍데기는
+    # 거울로 못 잡아 "EV/EBITDA 기준값을 얼마로?"가 물어졌다). 비교할 값이 없는 조건은 조건이
+    # 아니고 개념은 랭킹이 보존한다 — 청산 미러 가드(_drop_mirrored_valueless_exits)와 같은
+    # 구조 정리다.
+    if kept_ranking:
+        kept_conditions = []
+        for c in strategy.entry_conditions:
+            mirrored = ranking_mirrored_by(c, kept_ranking)
+            if mirrored is None:
+                kept_conditions.append(c)
+                continue
+            carry_approximation(c, mirrored)
+        strategy.entry_conditions = kept_conditions
 
     # 유니버스별 팩터 검증 — ETF는 여러 기업을 묶은 상품이라 기업 재무지표를 조건으로 쓸
     # 수 없다(engine/universe_capabilities와 동일 계약). 조용히 제거하지 않고 오류+대안
@@ -601,14 +713,55 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
 
     # 포트폴리오 기능
     if strategy.portfolio.weighting is not None:
-        weighting = caps.normalize_weighting(strategy.portfolio.weighting)
+        raw_weighting = strategy.portfolio.weighting
+        weighting = caps.normalize_weighting(raw_weighting)
         if weighting is None:
-            unsupported.append(f"비중 방식 '{strategy.portfolio.weighting}'")
+            unsupported.append(f"비중 방식 '{raw_weighting}'")
             errors.append(
-                f"비중 방식 '{strategy.portfolio.weighting}'은(는) 지원되지 않습니다 (지원: 동일비중)"
+                f"비중 방식 '{raw_weighting}'은(는) 지원되지 않습니다 "
+                "(지원: 동일 비중, 변동성 역비중)"
             )
+            strategy.portfolio.weighting = None
         else:
             strategy.portfolio.weighting = weighting
+            if raw_weighting.strip().lower().replace(" ", "_") in caps.RISK_PARITY_WEIGHTING_ALIASES:
+                # 판정 입력은 LLM이 낸 비중 방식 라벨(표기 대조) — 원문을 읽지 않는다.
+                warnings.append(ui_language.msg(
+                    "리스크 패리티는 변동성 역비중(최근 변동성이 낮을수록 큰 비중, 종목 간 상관관계 "
+                    "미반영)으로 가깝게 반영했어요.",
+                    "Risk parity was approximated with inverse-volatility weighting (lower recent "
+                    "volatility gets a larger weight; correlations between stocks are not used).",
+                ))
+        if strategy.portfolio.weighting != "inverse_volatility":
+            strategy.portfolio.weighting_lookback_days = None
+    else:
+        strategy.portfolio.weighting_lookback_days = None
+
+    # 12-1 모멘텀 제외 기간(v16.14)은 수익률 랭킹에서만 성립한다 — 다른 지표에 붙은 값은
+    # 표현할 자리가 없으므로 오류로 알리고 버린다(조용한 적용·조용한 소실 둘 다 금지).
+    for rank in strategy.ranking:
+        if rank.skip_days is not None and rank.metric != "ranking.return":
+            errors.append(ui_language.msg(
+                "최근 기간 제외는 수익률 랭킹에서만 지원됩니다",
+                "Excluding the most recent period is only supported for return rankings",
+            ))
+            rank.skip_days = None
+
+    # 시장 국면 필터(v16.14) — 한국 지수(KOSPI·KOSDAQ)만 지원한다. 미국 전략의 지수 국면은
+    # 지수 시계열 파이프라인이 아직 없어 미지원으로 알린다(조용한 제거 금지).
+    mf = strategy.market_filter
+    if mf is not None:
+        if set(strategy.universe.markets) & set(caps.US_MARKETS) or ui_language.get_ui_language() == "en":
+            unsupported.append(mf.source_text or ui_language.msg(
+                "시장 지수 이동평균 필터", "a market-index moving-average filter"))
+            errors.append(ui_language.msg(
+                "미국 지수 기준 시장 국면 필터는 아직 지원되지 않습니다",
+                "A market regime filter on US indexes isn't supported yet",
+            ))
+            strategy.market_filter = None
+        elif mf.exposure_pct is not None and mf.exposure_pct >= 100:
+            # 100%는 '줄이지 않음'이라 필터가 아니다 — 값을 비워 되묻는다.
+            mf.exposure_pct = None
 
     if strategy.portfolio.rebalance_frequency is not None:
         freq = caps.normalize_rebalance_frequency(strategy.portfolio.rebalance_frequency)

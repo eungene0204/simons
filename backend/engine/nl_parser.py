@@ -22,6 +22,7 @@ from pydantic import (
     Field,
     ValidationError,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -504,6 +505,7 @@ RankingComponentMetricLiteral = Literal[
     "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth", "eps", "ebit", "net_income",
     "owner_net_income",
     "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
+    "roic", "fcf_margin",
 ]
 # 'composite'=복합 순위 합산(FR-BT-063) — 구성 지표는 ranking_components에 담긴다.
 # 단일 지표 랭킹 어휘(RankingComponentMetricLiteral)에 합산 모드 하나를 더한 것.
@@ -529,6 +531,25 @@ class RankingComponent(BaseModel):
     metric: Annotated[RankingComponentMetricLiteral, BeforeValidator(_normalize_metric_alias)]
     direction: Literal["top", "bottom"]
     lookback_days: Optional[int] = Field(default=None, ge=1)
+    # 최근 N거래일 제외(엔진 v16.14, 'return' 전용) — 12-1 모멘텀 = lookback 252, skip 21.
+    skip_days: Optional[int] = Field(default=None, ge=1)
+    # 묶음 점수(엔진 v16.14) — 같은 이름끼리 먼저 평균해 한 점수(예: 'quality')로 만든 뒤 다른
+    # 묶음·단독 지표와 동일 가중 평균한다. 없으면 단독 지표.
+    group: Optional[str] = Field(default=None, max_length=40)
+
+
+class MarketRegime(BaseModel):
+    """시장 국면 필터(엔진 v16.14) — 지수가 N일 이동평균 아래인 날 목표 노출을 줄인다.
+
+    기간·비율은 사용자가 말했을 때만 채워진다 — 비어 있으면 되묻는 중(값 대기)이며
+    엔진 요청에는 싣지 않는다(strategy_converter). 개념은 남겨 칩 답이 그 자리를 채운다."""
+    index: Literal["KOSPI", "KOSDAQ"] = "KOSPI"
+    ma_period: Optional[int] = Field(default=None, ge=5, le=500)
+    exposure_pct: Optional[float] = Field(
+        default=None, ge=0, lt=100, description="국면 약세일 목표 노출 비율(%) — 0=전량 현금")
+
+    def is_complete(self) -> bool:
+        return self.ma_period is not None and self.exposure_pct is not None
 
 
 class FundamentalFilter(BaseModel):
@@ -542,6 +563,7 @@ class FundamentalFilter(BaseModel):
         "eps_growth", "ebitda_growth", "ocf_growth", "fcf_growth", "eps", "ebit",
         "net_income", "owner_net_income",
         "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
+        "roic", "fcf_margin",
     ], BeforeValidator(_normalize_metric_alias)] = Field(
         description=(
             "재무 지표 종류. "
@@ -566,7 +588,9 @@ class FundamentalFilter(BaseModel):
             "귀속 주체를 밝힌 표현일 때만 사용하고 맨 '당기순이익'은 net_income), "
             "operating_cf_amount=영업활동현금흐름(억원, 절대 금액 — 증가율은 ocf_growth), "
             "investing_cf_amount=투자활동현금흐름(억원, 설비·자산 취득이 많으면 음수), "
-            "financing_cf_amount=재무활동현금흐름(억원, 차입 상환·배당 지급이 많으면 음수). "
+            "financing_cf_amount=재무활동현금흐름(억원, 차입 상환·배당 지급이 많으면 음수), "
+            "roic=투하자본이익률(%, 영업이익×(1−유효세율)÷(자본총계+이자부부채−현금)), "
+            "fcf_margin=FCF 마진(%, 잉여현금흐름÷매출액). "
             "eps_growth/ebitda_growth/net_income_growth/operating_income_growth/ocf_growth/fcf_growth는 "
             "적자↔흑자 전환기에는 값 대신 상태코드(TURNAROUND/LOSS_TRANSITION 등)로 표현될 수 있다."
         )
@@ -575,6 +599,17 @@ class FundamentalFilter(BaseModel):
         description="비교 연산자. '이하'='<=', '미만'='<', '이상'='>=', '초과'='>'"
     )
     value: float = Field(description="비교 기준값")
+    # 평균 기간(엔진 v16.14) — trading_value('N일 평균 거래대금') 전용. 없으면 엔진 기본 20일.
+    period: Optional[int] = Field(default=None, ge=1, le=250)
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_period(self, handler):
+        # 기간이 없으면 직렬화에서 뺀다 — 프론트·저장 전략·계약 픽스처가 보는 필터 JSON이
+        # 필드 신설 전과 바이트 그대로여야 한다(값이 있을 때만 새 키가 나타난다).
+        data = handler(self)
+        if isinstance(data, dict) and data.get("period") is None:
+            data.pop("period", None)
+        return data
 
 
 def coerce_fundamental_filters(raw) -> tuple[list, list[str]]:
@@ -960,6 +995,23 @@ class ParsedStrategy(BaseModel):
             "[{metric:'roe_or_gpa',direction:'top'},{metric:'per',direction:'bottom'}]. "
             "없으면 null"
         ),
+    )
+    ranking_skip_days: Optional[int] = Field(
+        default=None, ge=1,
+        description="수익률 랭킹에서 제외할 최근 거래일 수(12-1 모멘텀=21). ranking_metric='return'일 때만. 없으면 null",
+    )
+    # ── 비중·시장 국면(엔진 v16.14)
+    allocation_type: Literal["equal", "inverse_volatility"] = Field(
+        default="equal",
+        description="비중 방식. equal=동일 비중, inverse_volatility=변동성 역비중(1/σ에 비례, 정기 리밸런싱 필요)",
+    )
+    allocation_lookback_days: Optional[int] = Field(
+        default=None, ge=5, le=500,
+        description="변동성 역비중의 변동성 산정 기간(거래일). allocation_type='inverse_volatility'일 때만",
+    )
+    market_regime: Optional[MarketRegime] = Field(
+        default=None,
+        description="시장 국면 필터 — 지수가 N일 이동평균 아래면 목표 노출을 exposure_pct%로 줄인다. 없으면 null",
     )
 
     # ── 포트폴리오

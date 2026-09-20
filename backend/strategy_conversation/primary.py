@@ -297,6 +297,13 @@ def _clarification_items(
                 for n in _numeric_options(q.recommended_value, *alternates)
             )
             topic = "매수 조건"
+        elif q.field == "strategy.market_filter.exposure_pct":
+            # 시장 국면 약세일 투자 비중(v16.14) — 정본 표의 칩(값 결속은 발행 시 확정).
+            chips.extend(strategy_slots.MARKET_REGIME_EXPOSURE_CHIP_VALUES)
+        elif q.field == "strategy.market_filter.ma_period":
+            chips.extend(strategy_slots.MARKET_REGIME_MA_CHIP_VALUES)
+        elif q.field == "strategy.portfolio.weighting_lookback_days":
+            chips.extend(strategy_slots.ALLOCATION_LOOKBACK_CHIP_VALUES)
         slot_item = False
         if q.field in _SLOT_CHIP_BUILDERS:
             # 조건이 아닌 슬롯(포트폴리오·리스크·청산) 질문의 칩과 topic.
@@ -546,6 +553,24 @@ def _substituted_factor(cond: Any, spec: Any, registry: Any) -> bool:
     return bool(named) and spec.id not in registry.with_same_name_variants(named)
 
 
+def _preparing_notice(report: Any) -> List[str]:
+    """데이터 적재 대기 지표(indicator_registry.DATA_PENDING_METRICS) 안내 — '준비 중'.
+
+    미지원 안내와 문구를 나눈다: 이쪽은 기능·해석이 끝났고 과거 데이터만 채우면 되는
+    항목이라 곧 쓸 수 있고, 미지원은 계획이 없는 개념이다(2026-09-20 사용자 지시).
+    """
+    features = list(getattr(report, "preparing_features", None) or [])
+    if not features:
+        return []
+    return [ui_language.msg(
+        "'{items}'은(는) 아직 준비 중인 기능이라 이번 전략에는 반영하지 못했어요. "
+        "데이터 준비가 끝나면 사용하실 수 있어요.",
+        "'{items}' is still being prepared, so it was not applied to this strategy. "
+        "It will be available once the data is ready.",
+        items=", ".join(features),
+    )]
+
+
 def _approximation_notices(strategy: Any) -> List[str]:
     """근사·대체 반영 조건의 사용자 안내 문구 목록.
 
@@ -695,6 +720,26 @@ def _covered_by_pending_texts(feature: str, pending_conditions: Optional[List[di
     return _covered_by_source_texts(
         feature, [str((p or {}).get("source_text") or "") for p in (pending_conditions or [])]
     )
+
+
+def _drop_fragments_wrapping_others(features: List[str]) -> List[str]:
+    """보고 조각이 **다른 보고 조각을 통째로 감싸면** 긴 쪽을 버린다(짧은 쪽이 개념 자체).
+
+    LLM이 같은 미지원 개념을 "ATR 기반 리스크 패리티"와 "상위 20개 종목에 ATR 기반 리스크
+    패리티"처럼 두 조각으로 보고하면 안내가 "'A, 상위 20개 종목에 A' 조건은"으로 같은 말을
+    두 번 되돌려준다(2026-09-19 실측). 판정은 LLM 출력 ↔ LLM 출력의 표기 포함 대조뿐이다
+    (원문을 읽지 않는다) — 감싸이는 쪽이 4자 미만이면 우연 일치라 보지 않는다.
+    """
+    from engine.nl_parser import _compact
+
+    compact = [_compact(f or "") for f in features]
+    return [
+        f for i, f in enumerate(features)
+        if not any(
+            j != i and len(c) >= 4 and c in compact[i] and c != compact[i]
+            for j, c in enumerate(compact)
+        )
+    ]
 
 
 def _humanize_features(features: List[str]) -> List[str]:
@@ -1474,6 +1519,10 @@ def _drop_fabricated_conditions(
     되돌려주게 되고(2026-09-17 사고), 사용자가 말한 조건이 아니므로 알릴 내용도 없다.
     """
     from engine.nl_parser import _compact
+    from strategy_conversation.validation.capability_validator import (
+        carry_approximation,
+        ranking_mirrored_by,
+    )
 
     notices: List[str] = []
     strategy = intent.strategy
@@ -1490,6 +1539,16 @@ def _drop_fabricated_conditions(
     for role in ("entry_conditions", "exit_conditions"):
         kept = []
         for cond in getattr(strategy, role):
+            # 랭킹이 이미 담은 지표의 값 없는 껍데기 — 인용이 "PER, PBR, EV/EBITDA가 낮고"를
+            # 쪼갠 "PER이 낮은"처럼 입력에 없는 꼴이어도 사용자는 그 말을 했고 랭킹이 반영한다.
+            # 출처 대조 안내("요청 문장에서 확인되지 않아 반영하지 않았어요")를 내면 반영된
+            # 조건에 거짓 딱지가 붙는다(2026-09-19 실측: PER·PBR·ROE 3줄). 검증기의 거울
+            # 정리와 같은 판정으로 안내 없이 뺀다(대체였다면 근사 신고는 랭킹으로 옮긴다).
+            if role == "entry_conditions":
+                mirrored = ranking_mirrored_by(cond, strategy.ranking)
+                if mirrored is not None:
+                    carry_approximation(cond, mirrored)
+                    continue
             quote = _compact(cond.source_text or "")
             # 인용이 입력 전체 — 출처 주장이 성립하지 않는 **형식 위반**이다(규칙 4는 조각).
             # 인터프리터가 이미 1회 재생성을 요청했는데도 남은 것이므로 의미 판정에 보내지
@@ -1962,6 +2021,7 @@ def run_primary_parse(
         })
 
     notices: List[str] = list(report.warnings) + repair_notices
+    notices += _preparing_notice(report)
     try:
         compiled = call_tool("compile_strategy", intent=validated, report=report,
                              user_input=user_input, partial=not report.is_valid)
@@ -2334,6 +2394,7 @@ def run_primary_parse(
             and not _covered_by_approximated_texts(f, reflected_conditions)
             and not field_path_rx.search(f)
         ]
+        leftover_features = _drop_fragments_wrapping_others(leftover_features)
         # 긴 발화 조각(정성 표현 등)은 지목 인용하지 않는다(2026-08-12 사용자 결정) —
         # "'퇴직금 굴려야 하는데 절대 잃으면 안 되는 돈이라…' 조건은"처럼 자기 말
         # 반 토막을 되돌려받는 안내가 되므로, 상한 초과 조각은 일반 문구로 뭉뚱그린다.
@@ -2399,6 +2460,8 @@ def run_primary_parse(
                 + (f" 탈락={ask_gate['chips_dropped']}" if ask_gate.get("chips_dropped") else "")
             ))
 
+    turn_declined = list(getattr(validated.strategy, "declined", None) or []) \
+        if validated.strategy is not None else []
     return finalize_user_response({
         "parsed": parsed,
         "clarification_question": clarification_question,
@@ -2406,6 +2469,8 @@ def run_primary_parse(
         "clarification_priority": clarification_priority,
         "pending_ask": pending_ask,
         "explicit_fields": turn_explicit_fields,
+        # 자유 서술의 '손절 안 함'(v16.14, 2026-09-19) — 칩 거부와 같은 채널로 나른다.
+        **({"declined_fields": turn_declined} if turn_declined else {}),
         # 값 미정으로 컴파일에서 제외된 조건(구조화) — parsed에는 없으므로 이 채널이
         # 없으면 프론트 요약이 빈 전략으로 보인다(2026-08-03 '당기순이익' 사고).
         "pending_conditions": pending_conditions,
@@ -2672,6 +2737,13 @@ def _bind_chips(
             # (원문 해석은 LLM 소관, 대원칙 1) 정본 표로 직접 결속한다.
             bound.append(text)
             bindings[text] = {"rebalance_method": method_value}
+            continue
+        portfolio_patch = strategy_slots.portfolio_chip_patch(text, base)
+        if portfolio_patch is not None:
+            # 시장 국면·역비중 기간 칩(v16.14) — 정본 표로 직접 결속한다(원문 보정 파서에
+            # 어휘를 넣지 않는다, 리밸런싱 방식 칩과 같은 계약).
+            bound.append(text)
+            bindings[text] = portfolio_patch
             continue
         capital_value = strategy_slots.CAPITAL_CHIP_VALUES.get(text)
         if capital_value is not None:
@@ -4699,6 +4771,7 @@ def run_primary_modification(
     # 스스로 알아내야 하는 처지가 되어, 모르는 테마의 교체 요청이 무변경으로 끝난다
     # (2026-07-30 "쿠팡 관련주로 수정해줘" 사고).
     notices = list(report.warnings) + repair_notices
+    notices += _preparing_notice(report)
     if (universe_changed and prev.theme_universe
             and set(parsed.target_symbols) <= set(prev.target_symbols)):
         # 유니버스를 바꾸는 턴인데 남은 종목이 전부 이전 테마의 목록이다 — 지정 종목이

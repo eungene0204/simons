@@ -17,6 +17,7 @@ from typing import Optional
 from engine.nl_parser import ParsedStrategy, TechnicalSignal
 from strategy_conversation.interpreter.models import (
     BacktestSpec,
+    MarketFilterSpec,
     PortfolioSpec,
     RankingSpec,
     RiskSpec,
@@ -97,6 +98,8 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
     entry_conditions = [
         StrategyCondition(
             factor=f"fundamental.{f.metric}", operator=f.operator, value=f.value,
+            # 거래대금 평균 기간(v16.14)도 왕복한다 — 빠지면 수정 턴마다 20일로 되돌아간다.
+            parameters={"period": float(f.period)} if f.period is not None else {},
             value_source="USER_CONFIRMED",
         )
         for f in parsed.fundamental_filters
@@ -117,6 +120,9 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
                 ),
                 direction=comp.direction,
                 quantile_groups=parsed.ranking_quantile_groups if i == 0 else None,
+                # 12-1 모멘텀·묶음 점수(v16.14)도 왕복한다.
+                skip_days=comp.skip_days,
+                group=comp.group,
             ))
     elif parsed.ranking_metric is not None:
         # 'return'/'volatility'=가격 산출 랭킹(ranking.*), 그 외=재무 팩터 랭킹(fundamental.*)
@@ -127,6 +133,7 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             direction=parsed.ranking_direction or "top",
             # 분위 그룹도 왕복한다 — 누락되면 수정 턴에서 그룹 비교가 조용히 풀린다.
             quantile_groups=parsed.ranking_quantile_groups,
+            skip_days=parsed.ranking_skip_days,
         ))
 
     return StrategySpec(
@@ -173,6 +180,19 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
                 None if parsed.rebalance_method == "reconstitute" else parsed.rebalance_method
             ),
             hold_period_days=parsed.hold_period_days,
+            # 비중 방식(v16.14) — 동일 비중(기본)은 비워 두어 기존 초안과 같게 둔다.
+            weighting=(
+                parsed.allocation_type if parsed.allocation_type != "equal" else None
+            ),
+            weighting_lookback_days=parsed.allocation_lookback_days,
+        ),
+        market_filter=(
+            MarketFilterSpec(
+                index=parsed.market_regime.index,
+                ma_period=parsed.market_regime.ma_period,
+                exposure_pct=parsed.market_regime.exposure_pct,
+            )
+            if parsed.market_regime is not None else None
         ),
         risk_management=RiskSpec(
             stop_loss=parsed.stop_loss_pct,

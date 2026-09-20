@@ -48,7 +48,9 @@ def _composite_ranking_label_segment(components: List[Dict[str, Any]], default_l
         m = str(c.get('metric'))
         lookback = int(c.get('lookback_days') or default_lookback or 60)
         if m == 'return':
-            name = tr.part(tr.COMPOSITE_RETURN_METRIC, lookback)
+            skip = int(c.get('skip_days') or 0)
+            name = (tr.part(tr.COMPOSITE_RETURN_SKIP_METRIC, lookback, skip) if skip
+                    else tr.part(tr.COMPOSITE_RETURN_METRIC, lookback))
         elif m == 'relative_return':
             name = tr.part(tr.COMPOSITE_RELATIVE_RETURN_METRIC, lookback)
         elif m == 'volatility':
@@ -179,6 +181,14 @@ _date_key = date_key
 _TIEBREAK_LOOKBACK_DAYS = 60
 
 
+INVERSE_VOLATILITY_ALLOCATION = 'inverse_volatility'
+
+
+def _inverse_volatility_allocation(risk_params: Dict[str, Any]) -> bool:
+    """변동성 역비중(v16.14) — 리밸런싱일 목표 종목의 비중을 1/σ(N일)에 비례시킨다."""
+    return risk_params.get('allocation_type') == INVERSE_VOLATILITY_ALLOCATION
+
+
 def _ranking_lookback_max(risk_params: Dict[str, Any]) -> int:
     """가격 기반 랭킹 패널이 읽는 최대 lookback(거래일) — 워밍업 산정용(v16.12).
 
@@ -192,6 +202,9 @@ def _ranking_lookback_max(risk_params: Dict[str, Any]) -> int:
     for c in _composite_ranking_components(risk_params) or []:
         if c.get('metric') in ('return', 'relative_return', 'volatility'):
             cands.append(c.get('lookback_days') or default or 60)
+    if _inverse_volatility_allocation(risk_params):
+        # 변동성 역비중(v16.14)의 변동성 패널도 같은 워밍업 종가로 계산한다.
+        cands.append(risk_params.get('allocation_lookback_days'))
     out = 0
     for v in cands:
         try:
@@ -340,6 +353,34 @@ class BacktestEngine:
                 f" — execution_type={exec_type}, delay={delay}")
         return delay
 
+    def _market_regime_exposure(self, regime, ext_index, n_pre, delay):
+        """시장 국면 필터(v16.14)의 거래일별 목표 노출 비율(0~1) 배열 — 창 구간 길이.
+
+        지수 종가가 ma_period일 단순이동평균 **아래**인 날은 exposure_pct/100, 그 밖(위·같음·
+        이동평균이 아직 정의되지 않은 초기 구간)은 1.0이다. 지수 휴장일과 종목 거래일이
+        어긋나는 날은 직전 지수 값을 쓴다(ffill). next_open이면 delay만큼 밀어 체결일에
+        전일 판정을 쓴다 — 창 직전 N거래일(ext_index 앞부분)을 붙여 밀므로 창 첫날도 창 직전
+        판정을 본다(랭킹 패널과 같은 규칙). 지수 파일이 없으면 None.
+        """
+        import numpy as np
+        from engine.market_index import load_index_frame, INDEX_CLOSE_COL
+
+        market = str(regime.get('index') or 'KOSPI')
+        frame = load_index_frame(market, self.loader.data_dir)
+        if frame is None:
+            return None
+        close = frame.to_pandas().set_index("date")[INDEX_CLOSE_COL].astype(float)
+        close.index = pd.DatetimeIndex(close.index)
+        ma = close.rolling(int(regime.get('ma_period') or 200)).mean()
+        below = close < ma                             # NaN 이동평균 → False → 전액 투자
+        ratio = float(regime.get('exposure_pct') or 0.0) / 100.0
+        exp_ser = pd.Series(np.where(below, ratio, 1.0), index=close.index)
+        exp_ser = exp_ser.reindex(pd.DatetimeIndex(ext_index), method='ffill')
+        if delay:
+            exp_ser = exp_ser.shift(delay)
+        out = exp_ser.iloc[n_pre:].fillna(1.0).to_numpy(dtype=float)
+        return out
+
     @staticmethod
     def _ranking_selection_pool(available_df, valid, large_cap_mask, liq_pool):
         """랭킹 단독 전략(선정=진입)의 후보 풀 — 값이 정의된 종목에 대형주 마스크·유동성
@@ -383,7 +424,7 @@ class BacktestEngine:
             m = str(c.get('metric'))
             lookback = int(c.get('lookback_days') or default_lookback or 60)
             if m == 'return':
-                panel = lookback_return_panel(raw_price_df, lookback)
+                panel = lookback_return_panel(raw_price_df, lookback, int(c.get('skip_days') or 0))
             elif m == 'relative_return':
                 # 시장 대비 초과수익률(v16.10) — 종목마다 제 시장 지수 수익률을 뺀다.
                 from engine.market_index import relative_return_panel
@@ -401,17 +442,28 @@ class BacktestEngine:
                     panel = pd.concat([pre.astype(float), panel])
                 panel = panel.ffill()
             panel = panel.reindex(index=idx, columns=processed_symbols)
-            panels.append((panel, c.get('direction') == 'bottom'))
+            panels.append((panel, c.get('direction') == 'bottom', c.get('group')))
         if missing:
             return None, None, missing
         valid = None
-        for panel, _ in panels:
+        for panel, _, _ in panels:
             valid = panel.notna() if valid is None else (valid & panel.notna())
         scores = []
-        for panel, lower_better in panels:
+        for panel, lower_better, _ in panels:
             pct = panel.where(valid).rank(axis=1, pct=True)
             scores.append((1.0 - pct) if lower_better else pct)
-        rank_df = sum(scores) / float(len(scores))
+        if any(g for _, _, g in panels):
+            # 묶음 점수(v16.14): 같은 group 이름의 구성 지표는 먼저 백분위를 평균해 한 점수
+            # (예: 품질 점수 = ROE·영업이익률·부채비율 평균)로 만들고, 그 묶음 점수들과 묶음
+            # 없는 지표를 다시 동일 가중 평균한다 — '품질 점수 + 모멘텀'에서 품질 지표 수가
+            # 많다고 품질이 더 큰 가중을 받지 않게 한다. group이 하나도 없으면 아래 종전 식.
+            buckets: Dict[str, list] = {}
+            for (_, _, g), sc in zip(panels, scores):
+                buckets.setdefault(str(g) if g else f"__solo_{len(buckets)}", []).append(sc)
+            group_scores = [sum(b) / float(len(b)) for b in buckets.values()]
+            rank_df = sum(group_scores) / float(len(group_scores))
+        else:
+            rank_df = sum(scores) / float(len(scores))
         if exec_type == 'next_open':
             # 진입 신호는 이미 1일 shift됨 — 랭킹도 전일 값 기준(look-ahead 방지).
             rank_df = rank_df.shift(signal_delay)
@@ -1311,7 +1363,8 @@ class BacktestEngine:
                         from engine.market_index import relative_return_panel
                         momentum = relative_return_panel(rank_price_df, lookback, self.loader.data_dir)
                     else:
-                        momentum = lookback_return_panel(rank_price_df, lookback)
+                        momentum = lookback_return_panel(
+                            rank_price_df, lookback, int(risk_params.get('ranking_skip_days') or 0))
                     momentum = _to_ext(momentum)
                     pct = momentum.rank(axis=1, pct=True)
                     # 방향(v16.2): top(기본)=수익률 높은 순, bottom=낮은 순(역발상 — '최근
@@ -1350,6 +1403,7 @@ class BacktestEngine:
                         _dir_seg = tr.part(tr.RANK_BOTTOM if _direction == 'bottom' else tr.RANK_TOP)
                         _rank_tpl = (tr.RANKING_RELATIVE_RETURN if ranking_metric == 'relative_return'
                                      else tr.RANKING_RETURN)
+                        _skip = int(risk_params.get('ranking_skip_days') or 0)
                         _top_pct_df = (1.0 - rank_df) * 100.0
                         for _sym in processed_symbols:
                             _mask = pool[_sym]
@@ -1357,11 +1411,19 @@ class BacktestEngine:
                                 continue
                             _pct_vals = _top_pct_df.loc[_mask, _sym]
                             _reason_ser = pd.Series(np.nan, index=common_index, dtype=object)
-                            _reason_ser.loc[_mask] = _pct_vals.apply(
-                                lambda p: tr.encode([tr.part(
-                                    _rank_tpl, lookback, _dir_seg, max(1, round(p)), _rebal_note
-                                )])
-                            )
+                            if _skip and ranking_metric == 'return':
+                                _reason_ser.loc[_mask] = _pct_vals.apply(
+                                    lambda p: tr.encode([tr.part(
+                                        tr.RANKING_RETURN_SKIP, lookback, _skip, _dir_seg,
+                                        max(1, round(p)), _rebal_note,
+                                    )])
+                                )
+                            else:
+                                _reason_ser.loc[_mask] = _pct_vals.apply(
+                                    lambda p: tr.encode([tr.part(
+                                        _rank_tpl, lookback, _dir_seg, max(1, round(p)), _rebal_note
+                                    )])
+                                )
                             all_entry_reasons[_sym] = _reason_ser
                 except Exception as e:
                     import logging
@@ -1584,9 +1646,42 @@ class BacktestEngine:
                 risk_params = dict(risk_params)
                 risk_params['entry_signal_driven'] = True
 
+            # ── 변동성 역비중·시장 국면 필터(v16.14) ──
+            # 둘 다 신호·순위와 같은 지연 규칙으로 맞춘다(next_open이면 전일 정보, 창 첫날은 창
+            # 직전 거래일 정보). 역비중은 σ가 정의된 종목만 담을 수 있으므로(1/σ) 후보를 σ 유효
+            # 종목으로 좁힌다 — 신규 상장 종목이 σ 없이 들어와 비중을 정할 수 없는 일을 막는다.
+            vol_df = None
+            if _inverse_volatility_allocation(risk_params):
+                if str(risk_params.get('rebalancing_period') or 'none') == 'none':
+                    self.warnings.add(rw.warning(rw.INVERSE_VOL_NEEDS_REBALANCE))
+                else:
+                    from engine.indicators import annualized_volatility_panel
+                    _alloc_lb = int(risk_params.get('allocation_lookback_days') or 60)
+                    _vol_ext = _to_ext(annualized_volatility_panel(rank_price_df, _alloc_lb))
+                    vol_df = (_delay_to_window(_vol_ext) if exec_type == 'next_open'
+                              else _to_window(_vol_ext))
+                    ents_df = ents_df & vol_df.notna()
+            exposure = None
+            _regime = risk_params.get('market_regime')
+            if _regime:
+                exposure = self._market_regime_exposure(
+                    _regime, ext_index, _n_pre, signal_delay if exec_type == 'next_open' else 0)
+                if exposure is None:
+                    self.warnings.add(rw.warning(
+                        rw.MARKET_REGIME_INDEX_MISSING, str(_regime.get('index') or 'KOSPI')))
+                else:
+                    _off_days = int((exposure < 1.0).sum())
+                    _pct = float(_regime.get('exposure_pct') or 0.0)
+                    self.warnings.add(rw.warning(
+                        rw.MARKET_REGIME_APPLIED, str(_regime.get('index') or 'KOSPI'),
+                        int(_regime.get('ma_period') or 0), _off_days,
+                        str(int(_pct)) if _pct == int(_pct) else f"{_pct:g}",
+                    ))
+
             pf = self.simulator.run(
                 price_df, exec_px_df, ents_df, exts_df, risk_params, simulator_options,
                 rank_df=rank_df, high_df=high_df, low_df=low_df, available_df=available_df,
+                vol_df=vol_df, exposure=exposure,
             )
             _t3 = _time.time()
             print(f"[BT-ENGINE] Simulator 완료: {_t3-_t2:.2f}s", flush=True)
@@ -1609,6 +1704,7 @@ class BacktestEngine:
                                     "price_df": price_df, "exec_px_df": exec_px_df, "ents_df": ents_df,
                                     "exts_df": exts_df, "rank_df": rank_df, "high_df": high_df,
                                     "low_df": low_df, "available_df": available_df,
+                                    "vol_df": vol_df, "exposure": exposure,
                                 },
                                 "simulator_options": simulator_options,
                                 "risk_params": risk_params,
@@ -1719,7 +1815,7 @@ class BacktestEngine:
                         _pf_g = _group_sim.run(
                             price_df, exec_px_df, ents_df, exts_df, _rp, simulator_options,
                             rank_df=rank_df, high_df=high_df, low_df=low_df,
-                            available_df=available_df,
+                            available_df=available_df, vol_df=vol_df, exposure=exposure,
                         )
                         _summary = self._quantile_group_summary(_pf_g, _init_cash_val)
                     except Exception as _ge:
@@ -1780,6 +1876,7 @@ class BacktestEngine:
                             lambda _rp: Simulator().run(
                                 price_df, exec_px_df, ents_df, exts_df, _rp, simulator_options,
                                 rank_df=rank_df, high_df=high_df, low_df=low_df, available_df=available_df,
+                                vol_df=vol_df, exposure=exposure,
                             ),
                             risk_params,
                             float(risk_params.get('init_cash') or 10000000.0),

@@ -100,11 +100,12 @@
     "fundamental.net_margin": "class.profitability",
     "fundamental.gross_margin": "class.profitability",
     "fundamental.operating_margin": "class.profitability",
+    "fundamental.roic": "class.profitability",
+    "fundamental.fcf_margin": "class.profitability",
     "fundamental.eps": "class.profitability",
     "fundamental.ebit": "class.profitability",
     "fundamental.net_income": "class.profitability",
     "fundamental.owner_net_income": "class.profitability",
-    "unsupported.roic": "class.profitability",
     "unsupported.profitability_transition": "class.profitability",
 
     "fundamental.debt_ratio": "class.stability",
@@ -181,6 +182,8 @@
     "fundamental.ebitda_growth": "higher_better",
     "fundamental.ocf_growth": "higher_better",
     "fundamental.fcf_growth": "higher_better",
+    "fundamental.roic": "higher_better",
+    "fundamental.fcf_margin": "higher_better",
 
     "fundamental.market_cap": "none",
     "fundamental.trading_value": "higher_better",

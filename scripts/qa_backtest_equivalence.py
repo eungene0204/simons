@@ -117,6 +117,23 @@ def build_strategies(symbols: List[str], kospi200_ids: List[str]) -> Dict[str, D
     add("composite_ranking", _grp(), _grp(),
         _risk(ranking_metric="composite", ranking_components=[{"metric": "return", "direction": "top", "lookback_days": 120}, {"metric": "pbr", "direction": "bottom"}],
               max_positions=10, rebalancing_period="monthly", position_size_pct=10))
+    # 엔진 v16.14 — 12-1 모멘텀·묶음 점수·변동성 역비중·시장 국면·거래대금 평균 기간(2026-09-19 전문가형
+    # 퀀트 전략 요청 문장의 골격). 필터가 있으니 조건 루프, 없으면 순수 리밸런싱 경로를 탄다.
+    add("quant_quality_momentum_regime",
+        _grp(_cond("trading_value", "filter", operator=">=", value=20, period=20)), _grp(),
+        _risk(ranking_metric="composite", ranking_components=[
+            {"metric": "roe_or_gpa", "direction": "top", "group": "quality"},
+            {"metric": "operating_margin", "direction": "top", "group": "quality"},
+            {"metric": "debt_ratio", "direction": "bottom", "group": "quality"},
+            {"metric": "return", "direction": "top", "lookback_days": 252, "skip_days": 21},
+            {"metric": "volatility", "direction": "bottom", "lookback_days": 60}],
+            max_positions=10, rebalancing_period="monthly", position_size_pct=10,
+            allocation_type="inverse_volatility", allocation_lookback_days=60,
+            market_regime={"index": "KOSPI", "ma_period": 200, "exposure_pct": 30}))
+    add("momentum_12_1_regime_cash", _grp(), _grp(),
+        _risk(ranking_metric="return", ranking_lookback_days=252, ranking_skip_days=21, max_positions=10,
+              rebalancing_period="monthly", position_size_pct=10, allocation_type="inverse_volatility",
+              allocation_lookback_days=20, market_regime={"index": "KOSPI", "ma_period": 120, "exposure_pct": 0}))
     add("quantile_groups_per", _grp(), _grp(),
         _risk(ranking_metric="per", ranking_direction="bottom", ranking_quantile_groups=5, max_positions=None, rebalancing_period="quarterly", position_size_pct=5))
     add("no_cap_signal_only", _grp(_cond("rsi", period=14, operator="<", value=30)),

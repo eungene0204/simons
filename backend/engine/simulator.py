@@ -122,6 +122,37 @@ def select_ranked_targets(cand_sorted, eff_max_pos, sel_pct, sel_band, band_cap=
     return cand_sorted[:eff_max_pos]
 
 
+def _regime_label(market_regime: Optional[Dict[str, Any]]) -> Optional[tuple]:
+    """시장 국면 사유 템플릿 인자(지수 이름, 이동평균 기간, 목표 노출 %). 없으면 None."""
+    if not market_regime:
+        return None
+    pct = float(market_regime.get('exposure_pct') or 0.0)
+    return (str(market_regime.get('index') or 'KOSPI'),
+            int(market_regime.get('ma_period') or 0),
+            str(int(pct)) if pct == int(pct) else f"{pct:g}")
+
+
+def _inverse_vol_values(vol_df: Optional[pd.DataFrame]) -> Optional[np.ndarray]:
+    """연환산 변동성 패널 → 1/σ 배열(σ가 없거나 0 이하면 NaN)."""
+    if vol_df is None:
+        return None
+    vol = vol_df.values.astype(float)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        return np.where(vol > 0, 1.0 / vol, np.nan)
+
+
+def _entry_base_size(cur_size: float, inv_vals: Optional[np.ndarray],
+                     inv_norm: Optional[float], i: int, s_idx: int) -> float:
+    """노출 100% 기준 종목 비중 — 동일가중 × (1/σ_i ÷ 기간 정규화 기준). 역비중이 아니거나
+    σ·기준이 없으면 동일가중 그대로."""
+    if inv_vals is None or not inv_norm:
+        return cur_size
+    iv = inv_vals[i, s_idx]
+    if not np.isfinite(iv):
+        return cur_size
+    return cur_size * float(iv) / inv_norm
+
+
 class Simulator:
     """신호 → 주문 변환 시뮬레이터.
 
@@ -148,7 +179,13 @@ class Simulator:
             rank_df: Optional[pd.DataFrame] = None,
             high_df: Optional[pd.DataFrame] = None,
             low_df: Optional[pd.DataFrame] = None,
-            available_df: Optional[pd.DataFrame] = None) -> vbt.Portfolio:
+            available_df: Optional[pd.DataFrame] = None,
+            vol_df: Optional[pd.DataFrame] = None,
+            exposure: Optional[np.ndarray] = None) -> vbt.Portfolio:
+        """vol_df(v16.14): 변동성 역비중용 연환산 변동성 패널(엔진이 신호와 같은 지연으로 맞춰
+        넘긴다) — 있으면 목표 종목 비중을 1/σ에 비례시킨다. exposure(v16.14): 거래일별 목표
+        노출 비율(0~1, 시장 국면 필터) — 있으면 목표 비중에 곱하고, 국면이 바뀐 날 보유 비중을
+        다시 맞춘다. 둘 다 None이면 종전 동작 그대로다."""
 
         # {symbol: {날짜문자열: 정밀 청산 사유}} — 신호/리스크로 설명되지 않는 청산
         # (리밸런싱 편출 등)의 사유를 체결일 기준으로 남겨 result_handler가 우선 적용한다.
@@ -187,7 +224,9 @@ class Simulator:
         use_risk_mgmt = not risk_params.get('skip_risk_management', False)
 
         # Determine size per position (진입 시점 포트폴리오 NAV 대비 비중)
-        if risk_params.get('allocation_type') == 'equal':
+        equal_base = risk_params.get('allocation_type') in ('equal', 'inverse_volatility')
+        if equal_base:
+            # 변동성 역비중도 기준 비중은 동일가중이다 — 종목별로 1/σ 상대값을 곱해 나눈다.
             size_per_pos = 1.0 / max_pos if max_pos and max_pos > 0 else 1.0 / len(entries_df.columns)
         else:
             size_per_pos = pos_size_pct / 100.0
@@ -208,6 +247,7 @@ class Simulator:
         rebalance_dates = compute_rebalance_dates(
             entries_df.index, str(risk_params.get('rebalancing_period') or 'none')
         )
+        regime_label = _regime_label(risk_params.get('market_regime'))
         # 리밸런싱 방식(FR-BT-067) — 사용자가 고른다. 'weights_only'는 종목을 교체하지
         # 않고 비중만 균등으로 되돌린다(오른 종목 일부 매도 → 내린 종목 추가 매수).
         # 기본은 종전 동작(reconstitute = 리밸런싱일마다 목표 종목 재선정)이다.
@@ -221,7 +261,8 @@ class Simulator:
                 price_df, exec_price_df, entries_df, rank_df, rebalance_dates,
                 eff_max_pos, init_cash, buy_fee, sell_fee, slippage_val,
                 sel_pct=sel_pct, sel_band=sel_band, band_cap=band_cap,
-                weights_only=weights_only,
+                weights_only=weights_only, vol_df=vol_df, exposure=exposure,
+                regime_label=regime_label,
             )
 
         symbols = entries_df.columns.tolist()
@@ -319,6 +360,17 @@ class Simulator:
         # 동일가중 비중을 그때그때 갱신한다(기본 모드에선 기존 정적 값 유지).
         cur_cap = eff_max_pos
         cur_size = size_per_pos
+
+        # 변동성 역비중(v16.14): 1/σ 패널과 이번 리밸런싱 기간의 정규화 기준(목표 종목 1/σ 평균).
+        inv_vals = _inverse_vol_values(vol_df)
+        inv_norm: Optional[float] = None
+        # 시장 국면 노출(v16.14): 종목별 '노출 100% 기준 비중'을 들고 있다가 국면이 바뀌면
+        # 기준 비중 × 새 노출로 다시 맞춘다.
+        exp_vals = np.asarray(exposure, dtype=float) if exposure is not None else None
+        pos_base = np.zeros(num_symbols, dtype=np.float64)
+        prev_exp = 1.0
+        regime_reason = (tr.encode([tr.part(tr.MARKET_REGIME_REDUCE, *regime_label)])
+                         if regime_label else REBALANCE_TRIM_REASON)
 
         for i in range(n_rows):
             # Step 0: 이월된 청산을 거래 가능일에 방출
@@ -420,8 +472,15 @@ class Simulator:
                     stopped_this_period[:] = False
                 if sel_pct or sel_band:
                     cur_cap = max(len(sel), 1)
-                    if risk_params.get('allocation_type') == 'equal':
+                    if equal_base:
                         cur_size = 1.0 / cur_cap
+                if inv_vals is not None:
+                    # 이번 기간 역변동성 정규화 기준 — 목표 종목 1/σ의 평균. 종목 비중 =
+                    # cur_size × (1/σ_i) / 평균 → 목표 종목이 모두 담기면 합이 100%다.
+                    _iv = inv_vals[i][current_target_mask]
+                    _iv = _iv[np.isfinite(_iv)]
+                    if len(_iv):
+                        inv_norm = float(_iv.mean())
 
                 if weights_only:
                     # 비중 리셋 — 보유 종목에 동일가중 목표비중을 다시 준다(오른 종목은
@@ -430,7 +489,14 @@ class Simulator:
                     # 트림(소량 매도)의 매도 비용은 _run_orders가 실현 주문을 보고 적용한다.
                     reset = active_mask & ~pending_exit & avail_values[i]
                     if reset.any():
-                        target_values[i, reset] = cur_size
+                        if inv_vals is None and exp_vals is None:
+                            target_values[i, reset] = cur_size
+                        else:
+                            for s_idx in np.where(reset)[0]:
+                                pos_base[s_idx] = _entry_base_size(
+                                    cur_size, inv_vals, inv_norm, i, s_idx)
+                            target_values[i, reset] = pos_base[reset] * (
+                                exp_vals[i] if exp_vals is not None else 1.0)
                         # 트림(목표 비중 초과분 매도) 사유 — 오늘 청산이 확정된 종목은
                         # 위 Step 1·2에서 active_mask가 이미 꺼져 여기 들어오지 않는다
                         # (리스크 청산 사유를 덮어쓰지 않는다).
@@ -472,6 +538,27 @@ class Simulator:
                         refill_rank[c] = refill_offset + pos + 1
                         break
 
+            # 시장 국면 전환(v16.14): 노출 비율이 바뀐 날 보유 비중을 기준 비중 × 새 노출로 다시
+            # 맞춘다. 노출 0%는 전량 현금화(청산으로 부기 — 이후 손절 감시 대상이 아니다).
+            # 판정 근거(지수 종가)는 엔진이 신호와 같은 지연으로 넘기므로 당일 체결한다.
+            cur_exp = float(exp_vals[i]) if exp_vals is not None else 1.0
+            if exp_vals is not None and cur_exp != prev_exp:
+                movable = active_mask & ~pending_exit & avail_values[i] & ~exits_values[i].astype(bool)
+                if cur_exp <= 0.0:
+                    stuck = active_mask & ~pending_exit & ~movable
+                    exit_reason_pending[movable | stuck] = regime_reason
+                    pending_exit |= stuck & ~avail_values[i]
+                    if movable.any():
+                        exits_values[i] |= movable
+                        _book_exit(i, movable)
+                elif movable.any():
+                    target_values[i, movable] = pos_base[movable] * cur_exp
+                    label = regime_reason if cur_exp < prev_exp else REBALANCE_TRIM_REASON
+                    for s_idx in np.where(movable)[0]:
+                        self.exit_reason_overrides.setdefault(
+                            symbols[s_idx], {})[date_strs[i]] = label
+                prev_exp = cur_exp
+
             # Step 3: Process new entries after exits freed slots.
             # 리밸런싱 모드에서는 '현재 목표 집합'만 진입 후보로 본다(목표가 채워질
             # 때까지 후속 거래일에도 빈 슬롯을 메운다). 같은 날 청산이 예정/실행된
@@ -485,6 +572,13 @@ class Simulator:
                 # 담는다(v16.3). 리밸런싱일에는 위에서 편출을 끝낸 뒤 그날 후보로 다시 채운다.
                 entry_pool = entries_values[i] & ~blocked
             candidate_indices = np.where(entry_pool)[0]
+            if exp_vals is not None and cur_exp <= 0.0:
+                candidate_indices = candidate_indices[:0]   # 노출 0% 국면 — 신규 편입 없음
+            if inv_vals is not None and inv_norm is None and len(candidate_indices) > 0:
+                _iv = inv_vals[i][candidate_indices]
+                _iv = _iv[np.isfinite(_iv)]
+                if len(_iv):
+                    inv_norm = float(_iv.mean())
 
             if len(candidate_indices) > 0:
                 free_slots = cur_cap - active_count
@@ -503,7 +597,11 @@ class Simulator:
                         entry_day[s_idx] = i
                         entry_price[s_idx] = ep
                         peak_price[s_idx] = ep   # Fix 1: init peak at entry price
-                        target_values[i, s_idx] = cur_size
+                        if inv_vals is None and exp_vals is None:
+                            target_values[i, s_idx] = cur_size
+                        else:
+                            pos_base[s_idx] = _entry_base_size(cur_size, inv_vals, inv_norm, i, s_idx)
+                            target_values[i, s_idx] = pos_base[s_idx] * cur_exp
                         fees_values[i, s_idx] = buy_fee
                         if refill_rank[s_idx] > 0:
                             self.entry_reason_overrides.setdefault(symbols[s_idx], {})[date_strs[i]] = (
@@ -590,7 +688,10 @@ class Simulator:
                               sel_pct: Optional[float] = None,
                               sel_band: Optional[list] = None,
                               band_cap: Optional[int] = None,
-                              weights_only: bool = False) -> vbt.Portfolio:
+                              weights_only: bool = False,
+                              vol_df: Optional[pd.DataFrame] = None,
+                              exposure: Optional[np.ndarray] = None,
+                              regime_label: Optional[tuple] = None) -> vbt.Portfolio:
         """순수 리밸런싱 경로 — vbt 네이티브 from_orders(목표비중)로 비중 리셋까지 수행.
 
         리밸런싱일마다 후보(entries=True)를 rank 상위 K로 골라 동일가중 목표비중을 주고,
@@ -614,7 +715,30 @@ class Simulator:
         held = np.zeros(num_syms, dtype=bool)   # 직전 리밸런싱에서 목표비중을 받은 보유 종목
 
         target = np.full((num_rows, num_syms), np.nan)
-        for i in np.where(rebalance_dates)[0]:
+        inv_vals = _inverse_vol_values(vol_df)
+        exp_vals = np.asarray(exposure, dtype=float) if exposure is not None else None
+        if exp_vals is None and inv_vals is None:
+            rows = np.where(rebalance_dates)[0]
+        else:
+            rows = np.where(rebalance_dates)[0] if exp_vals is None else np.where(
+                rebalance_dates | np.r_[False, exp_vals[1:] != exp_vals[:-1]])[0]
+        base = np.zeros(num_syms)               # 노출 100% 기준 목표비중(시장 국면 전환 시 재사용)
+        prev_exp = 1.0
+        regime_reason = (tr.encode([tr.part(tr.MARKET_REGIME_REDUCE, *regime_label)])
+                         if regime_label else REBALANCE_TRIM_REASON)
+        for i in rows:
+            if not rebalance_dates[i]:
+                # 시장 국면 전환일(v16.14) — 종목은 그대로, 비중만 기준 비중 × 새 노출로 맞춘다.
+                cur_exp = float(exp_vals[i])
+                row = base * cur_exp
+                label = regime_reason if cur_exp < prev_exp else REBALANCE_TRIM_REASON
+                for s_idx in np.where(held)[0]:
+                    self.exit_reason_overrides.setdefault(
+                        symbols[s_idx], {})[date_strs[i]] = label
+                prev_exp = cur_exp
+                held = row > 0.0
+                target[i, :] = row
+                continue
             cand = np.where(entries_values[i])[0]
             if rank_values is not None and len(cand) > 0:
                 cand = cand[np.argsort(-rank_values[i][cand])]
@@ -630,6 +754,16 @@ class Simulator:
             row = np.zeros(num_syms)            # 0 = 목표에서 빠진 보유는 전량 청산
             if len(sel) > 0:
                 row[sel] = 1.0 / len(sel)        # 동일가중 목표비중 (비중 리셋)
+            if inv_vals is not None or exp_vals is not None:
+                sel_arr = np.asarray(sel, dtype=int)
+                if inv_vals is not None and len(sel_arr) > 0:
+                    iv = inv_vals[i][sel_arr]
+                    if np.isfinite(iv).all() and iv.sum() > 0:
+                        row[sel_arr] = iv / iv.sum()    # 변동성 역비중 — 1/σ에 비례
+                base = row.copy()
+                if exp_vals is not None:
+                    prev_exp = float(exp_vals[i])
+                    row = base * prev_exp
             # 보유 중이던 종목이 목표에서 빠지면(비중 0) 리밸런싱 편출로 매도된다.
             dropouts = np.where(held & (row == 0.0))[0]
             for s_idx in dropouts:

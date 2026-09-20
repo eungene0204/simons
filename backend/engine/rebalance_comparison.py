@@ -187,6 +187,7 @@ def simulate_rows_from_frames(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
             frames["price_df"], frames["exec_px_df"], frames["ents_df"], frames["exts_df"], rp, options,
             rank_df=frames.get("rank_df"), high_df=frames.get("high_df"), low_df=frames.get("low_df"),
             available_df=frames.get("available_df"),
+            vol_df=frames.get("vol_df"), exposure=frames.get("exposure"),
         )
 
     return simulate_period_rows(_run, payload["risk_params"], float(payload["init_cash"]), tuple(payload["periods"]))

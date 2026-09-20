@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import ui_language
-from engine.nl_parser import FundamentalFilter, ParsedStrategy, TechnicalSignal
+from engine.nl_parser import FundamentalFilter, MarketRegime, ParsedStrategy, TechnicalSignal
 from strategy_conversation.interpreter.models import (
     StrategyCondition,
     StrategyIntent,
@@ -40,7 +40,12 @@ def _compile_fundamental(cond: StrategyCondition, metric: str) -> FundamentalFil
         raise StrategyCompileError(
             f"재무 조건 '{cond.factor}'에 연산자/임계값이 없습니다 (검증 누락?)"
         )
-    return FundamentalFilter(metric=metric, operator=cond.operator, value=cond.value)
+    period = cond.parameters.get("period") if metric == "trading_value" else None
+    # 'N일 평균 거래대금'의 N(엔진 v16.14) — 말했을 때만 싣는다(없으면 엔진 기본 20일).
+    return FundamentalFilter(
+        metric=metric, operator=cond.operator, value=cond.value,
+        period=int(period) if period else None,
+    )
 
 
 def _compile_technical(
@@ -309,7 +314,21 @@ def compile_partial(
                 continue
             buckets[name].append(compiled)
 
+    # 시장 국면 필터(v16.14) — 기간·비율이 다 정해지기 전에는 엔진에 싣지 않는다(converter).
+    # 개념은 parsed에 남겨 칩 답이 그 자리에 값을 채우게 하고, 값 대기 채널에 올려 "값 확인
+    # 전까지 반영되지 않았어요"로 알린다(조용한 소실 금지 — 조건 값 대기와 같은 계약).
+    mf = strategy.market_filter
+    if mf is not None and (mf.ma_period is None or mf.exposure_pct is None):
+        dropped.append(MARKET_REGIME_LABEL)
+        pending_conditions.append(
+            {"role": "entry", "label": MARKET_REGIME_LABEL, "source_text": mf.source_text}
+        )
+
     return _build_parsed(strategy, buckets, user_input), dropped, pending_conditions
+
+
+# 값 대기 채널·안내에 쓰는 시장 국면 필터 표기(프론트 en.ts가 번역한다).
+MARKET_REGIME_LABEL = "시장 국면 필터"
 
 
 def _rank_component_from_spec(rank) -> Optional[dict]:
@@ -326,7 +345,13 @@ def _rank_component_from_spec(rank) -> Optional[dict]:
         return None
     direction = rank.direction or natural_ranking_direction(rank.metric) or "top"
     lookback = rank.lookback_days if binding[0] == "ranking" else None
-    return {"metric": binding[1], "direction": direction, "lookback_days": lookback}
+    comp = {"metric": binding[1], "direction": direction, "lookback_days": lookback}
+    # 12-1 모멘텀·묶음 점수(v16.14) — 값이 있을 때만 싣는다(없으면 종전 구성 지표 그대로).
+    if rank.skip_days and binding[1] == "return":
+        comp["skip_days"] = int(rank.skip_days)
+    if rank.group:
+        comp["group"] = rank.group
+    return comp
 
 
 def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
@@ -335,6 +360,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
     ranking_direction = None
     ranking_quantile_groups = None
     ranking_components = None
+    ranking_skip_days = None
     # 검증기(capability_validator)가 metric을 정본 id로 정규화하고 미지원 항목을 제거한 뒤다.
     # 등록되지 않은 metric이 남아 있으면 그 항목은 랭킹에서 뺀다 — 과거의 'return' 폴백은
     # 사용자가 말하지 않은 수익률 랭킹을 만들어냈다(2026-08-17 사고). 임의 보정 금지.
@@ -347,11 +373,11 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
     if len(ranks) >= 2:
         # 복합 순위 합산(FR-BT-063): 랭킹 항목 2개 이상 = 각 지표 순위를 합산해 선정.
         # 같은 지표가 중복 기입되면 한 번만 센다(가중치 조작으로 둔갑 방지).
-        seen: Set[Tuple[str, str]] = set()
+        seen: Set[Tuple[Any, ...]] = set()
         ranking_components = []
         for rank in ranks:
             comp = _rank_component_from_spec(rank)
-            key = (comp["metric"], comp["direction"])
+            key = (comp["metric"], comp["direction"], comp.get("skip_days"), comp.get("group"))
             if key in seen:
                 continue
             seen.add(key)
@@ -388,6 +414,8 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
             # 가격 산출 랭킹 — 엔진 키는 binding[1]('return'/'volatility').
             ranking_metric = binding[1]
             ranking_lookback = rank.lookback_days
+            if rank.skip_days and ranking_metric == "return":
+                ranking_skip_days = int(rank.skip_days)
             # 방향은 재무 팩터 분기와 같은 계약 — 저변동성(lower_better)은 침묵이
             # '가장 출렁이는 종목 선정'으로 뒤집히지 않게 온톨로지가 bottom을 채운다.
             # return(higher_better)은 top이라 저장값 None 그대로다(기존 해시 불변).
@@ -471,6 +499,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
     portfolio = strategy.portfolio
     risk = strategy.risk_management
     bt = strategy.backtest
+    mf = strategy.market_filter
 
     return ParsedStrategy(
         description=user_input,
@@ -501,6 +530,18 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         ranking_direction=ranking_direction,
         ranking_quantile_groups=ranking_quantile_groups,
         ranking_components=ranking_components,
+        ranking_skip_days=ranking_skip_days,
+        # 비중 방식(v16.14) — 검증기가 정본(equal/inverse_volatility)으로 정규화한 뒤다.
+        allocation_type=(
+            "inverse_volatility" if portfolio.weighting == "inverse_volatility" else "equal"
+        ),
+        allocation_lookback_days=(
+            portfolio.weighting_lookback_days if portfolio.weighting == "inverse_volatility" else None
+        ),
+        market_regime=(
+            MarketRegime(index=mf.index, ma_period=mf.ma_period, exposure_pct=mf.exposure_pct)
+            if mf is not None else None
+        ),
         max_positions=portfolio.selection_count if portfolio.selection_count is not None else 10,
         # 위 줄이 기본값 10을 물질화하면서 출처가 지워진다 — 그 사실만 따로 남긴다.
         # 선정 범위 판정(engine/selection_scope.py)이 "사용자가 종목 수를 말했는가"를

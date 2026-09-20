@@ -51,6 +51,13 @@ def validate_parameters(intent: StrategyIntent) -> List[str]:
             errors.append(f"랭킹 산정 기간 {rank.lookback_days}거래일은 유효 범위(5~500)를 벗어났습니다")
         if rank.quantile_groups is not None and not (2 <= rank.quantile_groups <= 10):
             errors.append(f"분위 그룹 수 {rank.quantile_groups}은(는) 2~10 범위여야 합니다")
+        if rank.skip_days is not None:
+            limit = rank.lookback_days
+            if rank.skip_days < 1 or (limit is not None and rank.skip_days >= limit):
+                errors.append(
+                    f"최근 제외 기간 {rank.skip_days}거래일은 산정 기간보다 짧아야 합니다"
+                )
+                rank.skip_days = None
 
     portfolio = strategy.portfolio
     if portfolio.selection_count is not None:
@@ -61,6 +68,20 @@ def validate_parameters(intent: StrategyIntent) -> List[str]:
         errors.append(f"편입 비율 {portfolio.selection_percent}%은(는) 0 초과 100 이하여야 합니다")
     if portfolio.hold_period_days is not None and portfolio.hold_period_days < 1:
         errors.append("보유 기간은 1거래일 이상이어야 합니다")
+    if portfolio.weighting_lookback_days is not None \
+            and not (5 <= portfolio.weighting_lookback_days <= 500):
+        errors.append(
+            f"변동성 산정 기간 {portfolio.weighting_lookback_days}거래일은 유효 범위(5~500)를 벗어났습니다"
+        )
+        portfolio.weighting_lookback_days = None
+    mf = strategy.market_filter
+    if mf is not None:
+        if mf.ma_period is not None and not (5 <= mf.ma_period <= 500):
+            errors.append(f"이동평균 기간 {mf.ma_period}일은 유효 범위(5~500)를 벗어났습니다")
+            mf.ma_period = None
+        if mf.exposure_pct is not None and not (0 <= mf.exposure_pct < 100):
+            errors.append(f"약세 국면 투자 비중 {mf.exposure_pct:g}%는 0 이상 100 미만이어야 합니다")
+            mf.exposure_pct = None
 
     risk = strategy.risk_management
     for label, value in (

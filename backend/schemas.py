@@ -54,7 +54,16 @@ class RiskManagement(BaseModel):
     # 엔진은 options.execution_delay_days → risk.execution_delay_days 순으로 읽는다. 스키마에
     # 없으면 model_dump가 조용히 버려 지연이 사라진다 — ranking_metric 0거래 사고와 동일 함정.
     execution_delay_days: Optional[int] = None
+    # 12-1 모멘텀(v16.14): 수익률 랭킹에서 최근 N거래일을 뺀다(252/21 = 12개월에서 최근 1개월 제외).
+    # 복합 순위 구성 지표는 ranking_components[*].skip_days·group을 쓴다. 스키마 미선언 시
+    # model_dump가 조용히 버린다 — ranking_metric 0거래 사고와 같은 함정.
+    ranking_skip_days: Optional[int] = None
+    # 비중 방식: 'equal'(동일 비중) | 'inverse_volatility'(변동성 역비중, v16.14 — 1/σ(N일)에 비례).
     allocation_type: Optional[str] = "equal"
+    allocation_lookback_days: Optional[int] = None
+    # 시장 국면 필터(v16.14): {"index": "KOSPI", "ma_period": 200, "exposure_pct": 30} — 지수가
+    # N일 이동평균 아래인 날은 목표 노출을 exposure_pct%로 줄인다(나머지 현금).
+    market_regime: Optional[Dict[str, Any]] = None
     rebalancing_period: Optional[str] = "none"
     # 리밸런싱 방식(FR-BT-067): 'reconstitute'=리밸런싱일마다 목표 종목 재선정,
     # 'weights_only'=보유 종목 유지하고 비중만 균등 리셋. 스키마에 없으면 model_dump가

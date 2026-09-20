@@ -27,6 +27,55 @@ from strategy_conversation.validation.parameter_validator import validate_parame
 _STRATEGY_INTENTS = ("CREATE_STRATEGY", "MODIFY_STRATEGY", "CLARIFY_STRATEGY")
 
 
+def _strip_data_pending(intent: StrategyIntent) -> list:
+    """데이터가 아직 없는 지표를 쓰는 조건·랭킹을 제거하고 사용자 표기를 돌려준다.
+
+    표기는 사용자가 말한 인용(source_text)이 있으면 그것, 없으면 지표 정본 표시명이다
+    (내부 식별자 노출 금지 — 미지원 보고와 같은 계약). factor는 이 단계 전에
+    capability_validator가 이미 canonical ID로 정규화했다.
+    """
+    from strategy_conversation.registry.indicator_registry import REGISTRY, resolve
+
+    strategy = intent.strategy
+    if strategy is None:
+        return []
+    labels: list = []
+
+    def _pending_spec(name):
+        spec = REGISTRY.get(name) or resolve(name)
+        return spec if spec is not None and spec.data_pending else None
+
+    def _label(spec, quote):
+        text = (quote or "").strip()
+        return text if text and len(text) <= 40 else spec.display_name
+
+    for attr in ("entry_conditions", "exit_conditions"):
+        kept = []
+        for cond in getattr(strategy, attr):
+            spec = _pending_spec(cond.factor)
+            if spec is None:
+                kept.append(cond)
+                continue
+            labels.append(_label(spec, cond.source_text))
+        setattr(strategy, attr, kept)
+
+    kept_ranking = []
+    for rank in strategy.ranking:
+        spec = _pending_spec(rank.metric)
+        if spec is None:
+            kept_ranking.append(rank)
+            continue
+        labels.append(_label(spec, rank.source_text))
+    strategy.ranking = kept_ranking
+
+    # 같은 지표를 조건·랭킹 양쪽에 쓴 경우 표기가 겹친다 — 안내는 한 번만.
+    out: list = []
+    for label in labels:
+        if label not in out:
+            out.append(label)
+    return out
+
+
 def run_validation(intent: StrategyIntent) -> Tuple[StrategyIntent, ValidationReport]:
     """검증을 실행하고 (정규화된 intent, 통합 리포트)를 반환한다.
 
@@ -71,6 +120,12 @@ def run_validation(intent: StrategyIntent) -> Tuple[StrategyIntent, ValidationRe
                 f"'{term}'은(는) 종목으로 인식되지 않아 전략에 반영하지 못했어요. "
                 "정확한 종목명이나 6자리 종목코드로 다시 말씀해 주세요."
             )
+
+    # ── 데이터 적재 대기 지표 — 조건·랭킹에서 빼고 '준비 중'으로 알린다.
+    # 그대로 두면 엔진이 값 없는 컬럼에 fail-closed로 걸려 **거래 0건 백테스트**가 나가고,
+    # 그 사실은 결과 화면 경고 한 줄로만 남는다(2026-09-20 실측). 적재가 끝나면
+    # DATA_PENDING_METRICS에서 지우는 것만으로 조건·랭킹·칩이 함께 살아난다.
+    report.preparing_features.extend(_strip_data_pending(intent))
 
     # ── Parameter 범위/단위
     report.errors.extend(validate_parameters(intent))

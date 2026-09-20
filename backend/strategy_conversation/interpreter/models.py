@@ -197,9 +197,31 @@ class RankingSpec(BaseModel):
             "그룹별로 각각 백테스트해 비교하는 요청일 때만. 언급 없으면 null"
         ),
     )
+    # 최근 N거래일 제외(엔진 v16.14) — '12개월 수익률에서 최근 1개월 제외'(12-1 모멘텀)는
+    # lookback_days=252, skip_days=21. 수익률 랭킹(ranking.return)에서만 의미가 있다.
+    skip_days: Optional[int] = Field(
+        default=None,
+        description="산정 기간 중 제외할 최근 거래일 수 — '최근 1개월 제외'=21. 언급 없으면 null",
+    )
+    # 묶음 점수(엔진 v16.14) — 여러 지표를 '종합한 품질 점수'처럼 한 점수로 묶은 뒤 다른
+    # 기준과 합산할 때, 묶인 항목에 같은 이름을 적는다. 엔진이 묶음 안을 먼저 평균한다.
+    group: Optional[str] = Field(
+        default=None,
+        description="여러 지표를 한 점수로 묶었을 때의 묶음 이름(예: 'quality'). 묶음이 아니면 null",
+    )
     source_text: Optional[str] = None
 
     _coerce_approximated = field_validator("approximated", mode="before")(_coerce_flag)
+    _coerce_skip = field_validator("skip_days", mode="before")(_coerce_number)
+
+    @field_validator("group", mode="before")
+    @classmethod
+    def _coerce_group(cls, v):
+        # 빈 문자열·공백은 묶음 없음(표기 정규화).
+        if isinstance(v, str):
+            v = v.strip()
+            return v or None
+        return v
 
 
 class UniverseSpec(BaseModel):
@@ -368,7 +390,17 @@ class PortfolioSpec(BaseModel):
         default=None,
         description="선택 비율(%) — '상위 10% 종목 편입'=10. 개수가 아니라 비율로 말했을 때만. 언급 없으면 null",
     )
-    weighting: Optional[str] = Field(default=None, description="비중 방식 (예: 'equal'). 언급 없으면 null")
+    weighting: Optional[str] = Field(
+        default=None,
+        description=(
+            "비중 방식: equal(동일 비중) / inverse_volatility(변동성 역비중·리스크 패리티 — "
+            "변동성이 낮을수록 큰 비중). 언급 없으면 null"
+        ),
+    )
+    weighting_lookback_days: Optional[int] = Field(
+        default=None,
+        description="변동성 역비중의 변동성 산정 기간(거래일). 사용자가 말했을 때만. 없으면 null",
+    )
     rebalance_frequency: Optional[str] = Field(
         default=None,
         description="리밸런싱 주기: daily/weekly/monthly/bimonthly/quarterly/yearly. 언급 없으면 null",
@@ -384,8 +416,49 @@ class PortfolioSpec(BaseModel):
     )
     hold_period_days: Optional[int] = Field(default=None, description="최대 보유 기간(거래일)")
 
-    _coerce_count = field_validator("selection_count", "hold_period_days", mode="before")(_coerce_number)
+    _coerce_count = field_validator(
+        "selection_count", "hold_period_days", "weighting_lookback_days", mode="before")(_coerce_number)
     _coerce_pct = field_validator("selection_percent", mode="before")(_coerce_number)
+
+
+class MarketFilterSpec(BaseModel):
+    """시장 국면 필터(엔진 v16.14) — '코스피가 200일 이동평균 아래면 비중을 줄여 현금 보유'.
+
+    개념(지수·이동평균 기간)과 값(줄일 비율)을 분리한다 — 비율을 말하지 않았으면 null로 두고
+    시스템이 되묻는다(조건의 factor/value와 같은 이유: 지어내면 무단 확정, 비우면 조용한 소실).
+    """
+
+    index: Literal["KOSPI", "KOSDAQ"] = Field(default="KOSPI", description="기준 지수")
+    ma_period: Optional[int] = Field(default=None, description="이동평균 기간(거래일) — '200일선'=200")
+    exposure_pct: Optional[float] = Field(
+        default=None,
+        description=(
+            "지수가 이동평균 **아래**일 때 유지할 투자 비중(%) — '비중을 30%로'=30, "
+            "'전량 현금'·'투자 중단'=0. 줄일 비율을 말하지 않았으면 null"
+        ),
+    )
+    source_text: Optional[str] = None
+
+    _coerce = field_validator("ma_period", "exposure_pct", mode="before")(_coerce_number)
+
+    @field_validator("index", mode="before")
+    @classmethod
+    def _coerce_index(cls, v):
+        # 표기 정규화(한글 지수명·소문자) — 의미 선택은 LLM 몫.
+        if v is None:
+            return "KOSPI"
+        if isinstance(v, str):
+            key = v.replace(" ", "").upper()
+            return {"코스피": "KOSPI", "코스닥": "KOSDAQ", "KOSPI200": "KOSPI",
+                    "코스피200": "KOSPI"}.get(key, key)
+        return v
+
+
+# 사용자가 '안 함'이라고 **말한** 설정 — 값이 없는 것이 사용자의 결정임을 나른다
+# (engine.strategy_slots.DECLINABLE_FIELDS와 같은 이름). 칩 거부('손절 안 함' 클릭)와 같은 축을
+# 자유 서술에서도 표현하기 위한 자리다 — 없으면 "손절매는 적용하지 않는다"가 미지원 안내로 나갔다
+# (2026-09-19 실측).
+DeclinableField = Literal["stop_loss", "take_profit", "rebalancing"]
 
 
 class RiskSpec(BaseModel):
@@ -689,6 +762,36 @@ class StrategySpec(BaseModel):
     portfolio: PortfolioSpec = Field(default_factory=PortfolioSpec)
     risk_management: RiskSpec = Field(default_factory=RiskSpec)
     backtest: BacktestSpec = Field(default_factory=BacktestSpec)
+    market_filter: Optional[MarketFilterSpec] = None
+    declined: List[DeclinableField] = Field(
+        default_factory=list,
+        description="사용자가 명시적으로 쓰지 않겠다고 한 설정(stop_loss/take_profit/rebalancing)",
+    )
+
+    @field_validator("declined", mode="before")
+    @classmethod
+    def _coerce_declined(cls, v):
+        # 단일 문자열·null·허용 밖 이름 드리프트 정규화 — 모르는 이름은 버린다(신뢰 경계).
+        if v is None:
+            return []
+        if isinstance(v, str):
+            v = [v]
+        if isinstance(v, list):
+            allowed = ("stop_loss", "take_profit", "rebalancing")
+            out = []
+            for item in v:
+                # 출력 형태(프롬프트 6.2): {"field": ..., "source_text": 사용자 말 그대로} —
+                # 인용 없는 항목은 '말했다'는 근거가 없으므로 받지 않는다(2026-09-19 실측:
+                # 손절만 말했는데 120B가 익절까지 '안 함'으로 냈다). 문자열 표기도 하위 호환.
+                if isinstance(item, dict):
+                    if not str(item.get("source_text") or "").strip():
+                        continue
+                    item = item.get("field")
+                name = str(item or "").strip().lower().rsplit(".", 1)[-1]
+                if name in allowed and name not in out:
+                    out.append(name)
+            return out
+        return v
 
     @model_validator(mode="after")
     def _drop_mirrored_valueless_exits(self):
@@ -916,6 +1019,10 @@ class ValidationReport(BaseModel):
     warnings: List[str] = Field(default_factory=list)
     missing_fields: List[str] = Field(default_factory=list)
     unsupported_features: List[str] = Field(default_factory=list)
+    # 기능은 있으나 **데이터 적재가 끝나지 않은** 지표(indicator_registry.DATA_PENDING_METRICS).
+    # 미지원과 문구가 달라야 한다 — 이쪽은 곧 쓸 수 있게 되는 '준비 중'이고, 미지원은
+    # 계획이 없는 개념이다(지키지 못할 약속 금지, 2026-09-20 사용자 결정).
+    preparing_features: List[str] = Field(default_factory=list)
     suggested_fixes: List[str] = Field(default_factory=list)
     clarification_questions: List[ClarificationQuestion] = Field(default_factory=list)
     # 모순이 발견된 진행 골격 슬롯 필드(engine.strategy_slots 어휘: 'entry'/'exit').
