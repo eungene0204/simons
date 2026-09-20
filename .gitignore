@@ -128,7 +128,11 @@ top200.txt
 /data/kg-equity-edges.progress.json
 /data/cashflow-activity-backfill.progress.json
 /data/owner-net-income-backfill.progress.json
-/data/quarterly-earnings/
+# 분기 EPS·실적 발표일(engine/quarterly_earnings.py)은 **추적한다** — 배포가 박스로 실어
+# 나르는 유일한 경로이고(야간 수집 스케줄러 미배선), 분기당 1회 갱신이라 히스토리 부담이 작다.
+# 주의: 배포는 `git reset --hard origin/main`이라 **박스에서 갱신한 내용은 되돌아간다**
+# (종목명 명부와 같은 함정) — 수집은 로컬에서 하고 커밋해 내려보낸다.
+# 진행·순서 파일은 그 작업의 로컬 상태라 계속 무시한다(로컬·박스가 서로 다른 진행을 갖는다).
 /data/quarterly-earnings-backfill.progress.json
 /data/quarterly-earnings-backfill.order.json
 /data/owner-net-income-backfill.progress.v2.json
