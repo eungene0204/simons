@@ -234,6 +234,11 @@ interface ChatMessage {
   builderPresentation?: {
     summaryItems: BuilderSummaryItem[];
     progressItems: BuilderProgressItem[];
+    // 이 턴이 해석 실패로 끝났는가(백엔드 clarification_priority='interpretation_failed').
+    // 참이면 '현재까지 이해한 전략입니다' 요약 카드를 그리지 않는다 — 아무것도 해석하지
+    // 못했다고 알리는 바로 위에 같은 제목의 카드가 뜨면 해석에 성공한 것처럼 보인다
+    // (2026-09-20 사용자 지시). 진행률 항목은 그대로 둔다.
+    interpretationFailed?: boolean;
   };
   strategyConfirmation?: boolean;
   // 빌더에 되돌아갈 이전 단계가 있는가 — 되묻기 카드의 '돌아가기' 버튼을 그린다.
@@ -3598,6 +3603,9 @@ function StrategyLabContent() {
       // planner ask 컨텍스트 저장 — 다음 파스 요청이 그대로 에코한다. 없으면 null로
       // 덮어써 이전 턴의 스테일 컨텍스트가 다음 칩 판정에 쓰이지 않게 한다.
       pendingAskRef.current = parsedPayload.pending_ask ?? null;
+      // 해석 실패 턴 — 백엔드가 붙인 우선순위 마커가 정본이다(원문을 다시 읽지 않는다).
+      const interpretationFailed =
+        parsedPayload.clarification_priority === "interpretation_failed";
       const priorityClarification =
         parsedPayload.clarification_priority &&
         parsedPayload.clarification_question
@@ -3692,6 +3700,7 @@ function StrategyLabContent() {
           ? {
               summaryItems: clarificationTurn.summaryItems,
               progressItems: clarificationTurn.progressItems,
+              interpretationFailed,
             }
           : undefined,
         notices: parsedPayload.notices?.length ? parsedPayload.notices : undefined,
@@ -5246,7 +5255,9 @@ function StrategyLabContent() {
                         )}
                         {msg.infoText && (
                           <>
-                            {msg.builderPresentation && i === latestBuilderPresentationIndex && (
+                            {msg.builderPresentation &&
+                              !msg.builderPresentation.interpretationFailed &&
+                              i === latestBuilderPresentationIndex && (
                               <div
                                 className={`max-w-[88%] py-0.5 ${MESSAGE_ENTER_CLASS}`}
                               >
@@ -5334,6 +5345,7 @@ function StrategyLabContent() {
                                 그리지 않는다 — 부가 발화 응답 + 되묻기 재질문이 한
                                 메시지에 함께 오는 턴에서 카드가 두 번 보였다. */}
                             {msg.builderPresentation && !msg.infoText &&
+                              !msg.builderPresentation.interpretationFailed &&
                               i === latestBuilderPresentationIndex && (
                               <div
                                 className={`flex flex-col gap-2.5 py-0.5 ${MESSAGE_ENTER_CLASS}`}
