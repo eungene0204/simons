@@ -209,6 +209,16 @@ class RankingSpec(BaseModel):
         default=None,
         description="잔차 반전 시그널의 잔차 누적 기간(거래일) — '최근 5영업일 잔차 누적'=5. 언급 없으면 null",
     )
+    # 발표 자격 창(엔진 v16.19) — 실적 서프라이즈 시그널(ranking.pead)에서만 의미가 있다.
+    # 기본값(2·60)의 정본은 컴파일러다(여기서는 말한 값만 옮겨 적는다).
+    entry_delay_days: Optional[int] = Field(
+        default=None,
+        description="실적 발표 후 편입까지 기다리는 거래일 — '발표일로부터 2영업일이 지난 종목만 편입'=2. 언급 없으면 null",
+    )
+    expiry_days: Optional[int] = Field(
+        default=None,
+        description="실적 발표 후 제외까지의 거래일 — '발표일로부터 60영업일이 지나면 제외'=60. 언급 없으면 null",
+    )
     # 묶음 점수(엔진 v16.14) — 여러 지표를 '종합한 품질 점수'처럼 한 점수로 묶은 뒤 다른
     # 기준과 합산할 때, 묶인 항목에 같은 이름을 적는다. 엔진이 묶음 안을 먼저 평균한다.
     group: Optional[str] = Field(
@@ -218,7 +228,9 @@ class RankingSpec(BaseModel):
     source_text: Optional[str] = None
 
     _coerce_approximated = field_validator("approximated", mode="before")(_coerce_flag)
-    _coerce_skip = field_validator("skip_days", "accumulation_days", mode="before")(_coerce_number)
+    _coerce_skip = field_validator(
+        "skip_days", "accumulation_days", "entry_delay_days", "expiry_days", mode="before"
+    )(_coerce_number)
 
     @field_validator("group", mode="before")
     @classmethod
@@ -253,6 +265,24 @@ class UniverseSpec(BaseModel):
             "그대로 넣는다('삼성전자', 'SK하이닉스', '005930'). 종목코드 변환은 시스템이 "
             "하므로 코드를 지어내지 말 것. 언급 없으면 빈 배열"
         ),
+    )
+    market_cap_top_n: Optional[int] = Field(
+        default=None,
+        description=(
+            "시가총액 상위 N종목으로 대상을 좁힐 때의 N — '시가총액 상위 500종목 중'=500. "
+            "코스피200·코스닥150처럼 **지수 이름**을 말한 것은 markets이지 이 칸이 아닙니다. 언급 없으면 null"
+        ),
+    )
+    liquidity_exclude_bottom_percent: Optional[float] = Field(
+        default=None,
+        description=(
+            "평균 거래대금 하위 몇 %를 대상에서 뺄지 — '최근 20일 평균 거래대금 하위 20%를 제외'=20. "
+            "언급 없으면 null"
+        ),
+    )
+    liquidity_lookback_days: Optional[int] = Field(
+        default=None,
+        description="그 평균 거래대금의 기간(거래일) — '최근 20일 평균 거래대금'=20. 언급 없으면 null",
     )
     etf_theme: Optional[str] = Field(
         default=None,
@@ -412,6 +442,13 @@ class PortfolioSpec(BaseModel):
         default=None,
         description="종목당 비중 상한(%) — '종목당 비중은 2%를 상한으로'=2. 언급 없으면 null",
     )
+    max_sector_weight_percent: Optional[float] = Field(
+        default=None,
+        description=(
+            "섹터별 비중 상한(%) — 같은 업종 종목을 합쳐 총자산의 몇 %까지만 담을지. "
+            "'섹터별 비중은 총자산의 25%를 상한으로'=25. 언급 없으면 null"
+        ),
+    )
     rebalance_frequency: Optional[str] = Field(
         default=None,
         description="리밸런싱 주기: daily/weekly/monthly/bimonthly/quarterly/yearly. 언급 없으면 null",
@@ -429,7 +466,9 @@ class PortfolioSpec(BaseModel):
 
     _coerce_count = field_validator(
         "selection_count", "hold_period_days", "weighting_lookback_days", mode="before")(_coerce_number)
-    _coerce_pct = field_validator("selection_percent", "max_weight_percent", mode="before")(_coerce_number)
+    _coerce_pct = field_validator(
+        "selection_percent", "max_weight_percent", "max_sector_weight_percent", mode="before"
+    )(_coerce_number)
 
 
 class MarketFilterSpec(BaseModel):

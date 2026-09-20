@@ -239,6 +239,27 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                     question=" ".join(param_errors) + " 며칠로 할까요?",
                 ))
             break
+        # ④-0c 발표 자격 창(v16.19)도 같은 계약 — 범위 밖 값만 되묻고, 말하지 않은 값은
+        # 기본값(편입 2·제외 60거래일)으로 둔다(칩 없는 질문 — 답은 LLM 레인이 해석한다).
+        for idx, rank in enumerate(strategy.ranking):
+            if rank.metric != "ranking.pead":
+                continue
+            from strategy_conversation.validation.parameter_validator import pead_param_errors
+
+            param_errors = pead_param_errors(rank)
+            if param_errors:
+                from strategy_conversation.registry.indicator_registry import resolve as _resolve
+
+                _spec = _resolve("ranking.pead").parameters["entry_delay_days"]
+                bad_delay = (rank.entry_delay_days is not None
+                             and not (_spec.minimum <= rank.entry_delay_days <= _spec.maximum))
+                field = "entry_delay_days" if bad_delay else "expiry_days"
+                missing.append(f"strategy.ranking[{idx}].{field}")
+                questions.append(ClarificationQuestion(
+                    field=f"strategy.ranking[{idx}].{field}",
+                    question=" ".join(param_errors) + " 며칠로 할까요?",
+                ))
+            break
         # 편입 규모가 비율(selection_percent)이나 분위 그룹(quantile_groups)으로 이미
         # 정의된 전략은 종목 수가 성립하지 않는다 — 되묻지 않는다(FR-BT-060).
         has_scale = (

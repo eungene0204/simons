@@ -1297,7 +1297,11 @@ class BacktestEngine:
             # 증자·분할 이력을 모른다). Market cap is evaluated only where price data is actually
             # available that day, so delisted names drop out of the ranking once they stop trading.
             large_cap_mask = None
-            if _index_top_n:
+            # 사용자가 말한 시총 상위 N(v16.19)도 같은 마스크를 쓴다 — 지수 유니버스는
+            # universe_id에서 N이 나오고(KOSPI200=200), 이쪽은 요청이 직접 N을 준다.
+            _user_top_n = risk_params.get('universe_market_cap_top_n')
+            _cap_top_n = _index_top_n or (int(_user_top_n) if _user_top_n else None)
+            if _cap_top_n:
                 shares_map = universe_pit.get_shares(processed_symbols)
                 shares_vec = pd.Series(
                     {s: shares_map.get(s, np.nan) for s in processed_symbols},
@@ -1327,20 +1331,45 @@ class BacktestEngine:
                     mcap = mcap_static
                 mcap = mcap.where(_avail_ext)
                 mcap_rank = mcap.rank(axis=1, ascending=False, method="first")
-                large_cap_mask = (mcap_rank <= _index_top_n).fillna(False)
+                large_cap_mask = (mcap_rank <= _cap_top_n).fillna(False)
                 if exec_type == 'next_open':
                     # 진입 신호는 이미 1일 shift됨 — 시총 순위도 전일 종가 기준으로
                     # 맞춰야 당일 종가를 미리 아는 look-ahead가 없다.
                     large_cap_mask = _delay_to_window(large_cap_mask, fill_value=False)
                 ents_df &= large_cap_mask
-                _index_label = "KOSDAQ150" if _index_top_n == 150 else "KOSPI200"
-                if _pit_ratio >= 0.99:
+                if not _index_top_n:
+                    # 사용자가 말한 시총 상위 N — 지수 편입 규칙이 아님을 밝힌다.
+                    self.warnings.add(rw.warning(rw.MARKET_CAP_TOP_N, _cap_top_n))
+                elif _pit_ratio >= 0.99:
+                    _index_label = "KOSDAQ150" if _index_top_n == 150 else "KOSPI200"
                     self.warnings.add(rw.warning(rw.INDEX_TOP_N_MEASURED, _index_top_n, _index_label))
                 else:
+                    _index_label = "KOSDAQ150" if _index_top_n == 150 else "KOSPI200"
                     self.warnings.add(rw.warning(
                         rw.INDEX_TOP_N_APPROXIMATED,
                         _index_top_n, f"{(1 - _pit_ratio) * 100:.0f}", _index_label,
                     ))
+
+            # 거래대금 하위 분위 제외(v16.19) — 최근 N거래일 평균 거래대금의 **그날 횡단면**
+            # 백분위로 하위 X%를 뺀다. 거래대금을 모르는 종목·관측 미달 구간은 NaN이라
+            # 제외 판정에서 빠진다(조용히 통과시키지 않고 후보에서 뺀다 — fail-closed).
+            _liq_cut = risk_params.get('universe_liquidity_exclude_bottom_pct')
+            if _liq_cut and all_trading_values:
+                _liq_lookback = int(risk_params.get('universe_liquidity_lookback_days') or 20)
+                _tv = pd.DataFrame(
+                    all_trading_values, index=common_index, columns=processed_symbols
+                ).astype(float)
+                _tv = _extend(_tv, _pre_panel("trading_value").astype(float))
+                _tv_avg = _tv.rolling(_liq_lookback, min_periods=_liq_lookback).mean()
+                _tv_avg = _tv_avg.where(_avail_ext if _cap_top_n else _tv.notna())
+                _tv_pct = _tv_avg.rank(axis=1, pct=True)
+                _liq_mask = (_tv_pct > float(_liq_cut) / 100.0).fillna(False)
+                if exec_type == 'next_open':
+                    _liq_mask = _delay_to_window(_liq_mask, fill_value=False)
+                ents_df &= _liq_mask
+                large_cap_mask = _liq_mask if large_cap_mask is None else (large_cap_mask & _liq_mask)
+                self.warnings.add(rw.warning(
+                    rw.LIQUIDITY_PERCENTILE_EXCLUDED, _liq_lookback, f"{float(_liq_cut):g}"))
 
             # 랭킹 단독 전략 후보 풀의 유동성 게이트(C4) — next_open이면 창 직전 원천과 함께 민다.
             _liq_pool = None
@@ -1360,7 +1389,7 @@ class BacktestEngine:
             # 나눠 그룹별로 각각 백테스트한다. 메인 결과는 1그룹(랭킹 최상위 구간)이다.
             _qg_n = int(risk_params.get('ranking_quantile_groups') or 0)
             _sel_pct = risk_params.get('max_positions_pct')
-            if ranking_metric in ('return', 'relative_return', 'residual_reversal'):
+            if ranking_metric in ('return', 'relative_return', 'residual_reversal', 'pead'):
                 # 상대강도(모멘텀) 랭킹: N일 수익률 순위로 상위 종목 선정. 'relative_return'
                 # (v16.10)은 같은 계약으로 종목 수익률에서 **자기 시장 지수** 수익률을 뺀
                 # 초과수익률 순위다 — 코스피·코스닥 혼합 유니버스에서도 종목마다 제 지수를 빼므로
@@ -1393,6 +1422,23 @@ class BacktestEngine:
                             self.warnings.add(rw.warning(
                                 rw.RANK_METRIC_DATA_MISSING, tr.part(tr.RESIDUAL_REVERSAL_METRIC)))
                             raise RuntimeError("잔차 반전 시그널을 계산할 수 없습니다")
+                    elif ranking_metric == 'pead':
+                        # 실적 서프라이즈(v16.19): SUE와 발표일 초과수익률의 횡단면 z-score
+                        # 평균. 발표 자격 창(편입 지연·제외) 밖은 NaN이라 '발표 후 N일이
+                        # 지난 종목만, M일이 지나면 제외'가 시그널 자체로 표현된다.
+                        from engine import earnings_factor
+                        _pead_delay = int(risk_params.get('ranking_entry_delay_days')
+                                          or earnings_factor.DEFAULT_ENTRY_DELAY_DAYS)
+                        _pead_expiry = int(risk_params.get('ranking_expiry_days')
+                                           or earnings_factor.DEFAULT_EXPIRY_DAYS)
+                        momentum = earnings_factor.pead_panel(
+                            rank_price_df, self.loader.data_dir,
+                            entry_delay_days=_pead_delay, expiry_days=_pead_expiry)
+                        if momentum is None or not momentum.notna().any().any():
+                            # 분기 실적을 아는 종목이 없다 — 조용한 0거래 금지.
+                            self.warnings.add(rw.warning(
+                                rw.RANK_METRIC_DATA_MISSING, tr.part(tr.PEAD_METRIC)))
+                            raise RuntimeError("실적 서프라이즈 시그널을 계산할 수 없습니다")
                     else:
                         momentum = lookback_return_panel(
                             rank_price_df, lookback, int(risk_params.get('ranking_skip_days') or 0))
@@ -1435,6 +1481,7 @@ class BacktestEngine:
                         _rank_tpl = (tr.RANKING_RELATIVE_RETURN if ranking_metric == 'relative_return'
                                      else tr.RANKING_RETURN)
                         _residual = ranking_metric == 'residual_reversal'
+                        _pead = ranking_metric == 'pead'
                         _skip = int(risk_params.get('ranking_skip_days') or 0)
                         _top_pct_df = (1.0 - rank_df) * 100.0
                         for _sym in processed_symbols:
@@ -1454,6 +1501,13 @@ class BacktestEngine:
                                 _reason_ser.loc[_mask] = _pct_vals.apply(
                                     lambda p: tr.encode([tr.part(
                                         tr.RANKING_RESIDUAL_REVERSAL, lookback, _accum, _dir_seg,
+                                        max(1, round(p)), _rebal_note,
+                                    )])
+                                )
+                            elif _pead:
+                                _reason_ser.loc[_mask] = _pct_vals.apply(
+                                    lambda p: tr.encode([tr.part(
+                                        tr.RANKING_PEAD, _pead_delay, _pead_expiry, _dir_seg,
                                         max(1, round(p)), _rebal_note,
                                     )])
                                 )

@@ -36,6 +36,8 @@ _OUTPUT_SHAPE = {
         # 나와 전체 ETF 1,384종목 전략이 됐다(규칙 6-1을 적어도 형태에 키가 없으면 안 채운다).
         "universe": {"markets": ["KOSPI", "KOSDAQ"], "sectors": [], "symbols": [],
                      "etf_theme": None, "new_listing_only": False,
+                     "market_cap_top_n": None, "liquidity_exclude_bottom_percent": None,
+                     "liquidity_lookback_days": None,
                      "listing_from": None, "listing_to": None},
         "entry_conditions": [
             {
@@ -70,6 +72,7 @@ _OUTPUT_SHAPE = {
             "weighting": None,
             "weighting_lookback_days": None,
             "max_weight_percent": None,
+            "max_sector_weight_percent": None,
             "rebalance_frequency": None,
             "rebalance_method": None,
             "hold_period_days": None,
@@ -179,6 +182,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
 - **잔차 반전 시그널**('수익률을 시장수익률과 섹터 평균수익률에 회귀시킨 잔차를 누적해 잔차 변동성으로 나누고 z-score로 표준화·부호 반전한 시그널 상위 N종목')은 ranking 하나입니다 → {{"metric":"residual_reversal","lookback_days":60,"accumulation_days":5}} (lookback_days=말한 회귀 기간, accumulation_days=말한 잔차 누적 기간 — 말한 숫자를 그대로 옮기고 말하지 않았으면 null). 회귀·윈저라이즈·z-score·부호 반전은 이 지표에 포함돼 있어 unsupported_features에 넣지 않습니다. 시그널 **하위 종목 매도(공매도)·달러 중립**은 표현할 수 없으니 그 구절만 unsupported_features에.
 - 실적 추정치·컨센서스 상향/하향은 랭킹으로 만들지 마세요(수익률·시장 대비 수익률로 대신하지 않음) — unsupported_features에만.
 - **묶음 점수**: 여러 지표를 '종합한 품질 점수'처럼 한 점수로 묶은 뒤 다른 기준(모멘텀 등)과 다시 합산하면, 묶인 지표마다 ranking 항목을 하나씩 두고 같은 "group"(예: "quality")을 적으세요 — 'quality_score' 같은 점수 이름을 metric으로 지어내지 마세요.
+- **실적 서프라이즈 시그널**('분기 EPS에서 전년 동기 EPS를 뺀 값을 직전 8개 분기 표준편차로 나눈 SUE'·'실적 발표일 전후 초과수익률'을 z-score로 표준화해 평균한 시그널 상위 N종목 = PEAD)은 ranking 하나입니다 → {{"metric":"pead","entry_delay_days":2,"expiry_days":60}} (entry_delay_days=발표 후 편입까지 기다리는 영업일, expiry_days=발표 후 제외까지의 영업일 — 말한 숫자를 그대로 옮기고 말하지 않았으면 null). SUE 계산·초과수익률·z-score·윈저라이즈·평균은 이 지표에 포함돼 있어 unsupported_features에 넣지 않습니다.
 - **direction은 사용자가 정렬 방향을 말했을 때만 출력하세요**('낮은 순'·'높은 순'·'가장 싼'·'상위'가 어느 쪽인지 분명할 때). 방향 언급이 없으면(예: 'PER 기준으로 20종목') direction을 **비워 두세요(null)** — 지표마다 선호 방향이 정해져 있어 시스템이 위 어휘의 [낮을수록 선호]/[높을수록 선호] 표시대로 채웁니다. 임의로 "top"을 채우면 저평가 지표에서 가장 비싼 종목을 고르는 정반대 전략이 됩니다.
 - 종목 수가 아니라 비율로 말하면('상위 10% 종목만 편입') portfolio.selection_percent=10 (selection_count는 null).
 - 지표 순으로 정렬해 종목 수가 동일한 N개 그룹으로 나눠 그룹별로 비교/편입하는 요청('10개 그룹으로 나눠 1그룹에는 PER 가장 낮은 10%…', 'PER 십분위 분석')은 ranking의 quantile_groups=N입니다 → {{"metric":"fundamental.per","direction":"bottom","quantile_groups":10}}. 이때 selection_count/selection_percent는 null(그룹이 편입 규모를 정의합니다). '상위 10%'처럼 **편입 비율만** 말한 것은 그룹 비교가 아닙니다 — quantile_groups를 채우지 마세요.
@@ -439,11 +443,16 @@ NON_STRATEGY_REQUEST(전략과 무관)
    unsupported_features나 sectors·조건으로는 넣지 마세요(엔진이 ETF 상품명과 매칭).
    테마 키워드만으로 충분합니다 — 정확한 상품명(KODEX·TIGER 등)은 필요 없으므로, 사용자가
    이미 테마를 말했으면 상품명을 되묻지 마세요(이미 말한 값 되묻기 금지).
+6-5. **대상을 규모·유동성으로 좁히는 말**은 조건이 아니라 유니버스 칸입니다 —
+   '시가총액 상위 N종목 중'→universe.market_cap_top_n=N, '최근 N일 평균 거래대금 하위 X%를 제외'→
+   universe.liquidity_exclude_bottom_percent=X·universe.liquidity_lookback_days=N.
+   (코스피200·코스닥150처럼 **지수 이름**을 말한 것은 markets입니다. unsupported_features에 넣지 않습니다.)
 7. rebalance_frequency는 {"/".join(SUPPORTED_REBALANCE_FREQUENCIES)} 중 하나 또는 null.
    rebalance_method는 "종목 교체"=reconstitute / "비중만 조정"=weights_only 또는 null(미언급).
 7-1. '변동성 역비중'·'리스크 패리티(Risk Parity)'·'변동성이 낮을수록 더 많이' → portfolio.weighting="inverse_volatility"
    (그 변동성의 기간을 말했을 때만 weighting_lookback_days). '동일 비중'="equal".
    '종목당 비중은 N%를 상한으로'·'한 종목에 최대 N%까지만' → portfolio.max_weight_percent=N (unsupported_features에 넣지 않음).
+   '섹터별(업종별) 비중은 N%를 상한으로'·'한 업종에 최대 N%까지만' → portfolio.max_sector_weight_percent=N (종목당 상한과 다른 칸입니다 — 섹터·업종을 말했으면 이쪽입니다).
 7-2. **시장 국면 필터**: '코스피(코스닥)가 N일 이동평균선 아래면'·'시장 변동성이 급등(급격히 확대)하면' 비중을 줄여 현금 보유 → strategy.market_filter=
    {{"index":"KOSPI","triggers":[말한 판정만: "below_ma"=이동평균선 아래, "volatility_spike"=시장 변동성 급등],"ma_period":N,
    "volatility_multiple":평소의 몇 배 이상인지(말하지 않았으면 null),"volatility_period":변동성 기간(말하지 않았으면 null),

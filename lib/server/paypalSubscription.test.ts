@@ -105,7 +105,9 @@ describe("activatePaypalSubscription", () => {
   });
 
   it("업그레이드 완료 — 즉시 등급 전환 + 옛 플랜의 백테스트 잔여를 새 주기에 병합한다", async () => {
-    const planStart = new Date("2026-08-20T10:00:00Z");
+    // 이 주기 **안**의 시작일이어야 한다 — 고정 날짜를 쓰면 실행 시각이 그 날의 한 달 경계를
+    // 넘는 순간 '주기 지남'으로 갈려 잔여가 전액(-500)이 된다(2026-09-20 19:00 KST부터 실패).
+    const planStart = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
     userFindUnique.mockResolvedValue({
       planTier: "PRO",
       planStartDate: planStart,

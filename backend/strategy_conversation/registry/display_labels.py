@@ -46,6 +46,7 @@ _EN_LABELS = {
     "ranking.return": "Period return ranking (momentum)",
     "ranking.volatility": "Volatility ranking (low volatility)",
     "ranking.residual_reversal": "Residual reversal signal ranking",
+    "ranking.pead": "Earnings surprise signal ranking",
 }
 
 _EN_PARAM_LABELS = {

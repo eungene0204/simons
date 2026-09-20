@@ -296,8 +296,18 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         # 컴파일러가 기본값(60/5)까지 확정해 싣으므로 조합마다 strategy_id가 다르다. 다른
         # 랭킹에서는 None → _drop_none이 제거(기존 전략 해시 불변).
         "ranking_accumulation_days": strategy.ranking_accumulation_days,
+        # 실적 서프라이즈 시그널(v16.19)의 발표 자격 창 — 다른 랭킹에서는 None → _drop_none이
+        # 제거(기존 전략 해시 불변).
+        "ranking_entry_delay_days": strategy.ranking_entry_delay_days,
+        "ranking_expiry_days": strategy.ranking_expiry_days,
         # 종목당 비중 상한(v16.18) — None이면 _drop_none이 제거(기존 전략 해시 불변).
         "max_position_weight_pct": strategy.max_position_weight_pct,
+        # 섹터별 비중 상한(v16.19) — 같은 계약.
+        "max_sector_weight_pct": strategy.max_sector_weight_pct,
+        # 유니버스 사전 필터(v16.19).
+        "universe_market_cap_top_n": strategy.universe_market_cap_top_n,
+        "universe_liquidity_exclude_bottom_pct": strategy.universe_liquidity_exclude_bottom_pct,
+        "universe_liquidity_lookback_days": strategy.universe_liquidity_lookback_days,
         "allocation_type": None if strategy.allocation_type == "equal" else strategy.allocation_type,
         "allocation_lookback_days": strategy.allocation_lookback_days,
         "market_regime": strategy.market_regime.to_request() if strategy.market_regime else None,
@@ -549,7 +559,13 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         # 12-1 모멘텀·변동성 역비중·시장 국면(v16.14).
         "ranking_skip_days": strategy.ranking_skip_days,
         "ranking_accumulation_days": strategy.ranking_accumulation_days,
+        "ranking_entry_delay_days": strategy.ranking_entry_delay_days,
+        "ranking_expiry_days": strategy.ranking_expiry_days,
         "max_position_weight_pct": strategy.max_position_weight_pct,
+        "max_sector_weight_pct": strategy.max_sector_weight_pct,
+        "universe_market_cap_top_n": strategy.universe_market_cap_top_n,
+        "universe_liquidity_exclude_bottom_pct": strategy.universe_liquidity_exclude_bottom_pct,
+        "universe_liquidity_lookback_days": strategy.universe_liquidity_lookback_days,
         "allocation_type": strategy.allocation_type,
         "allocation_lookback_days": strategy.allocation_lookback_days,
         # 값 대기(기간·비율 미정)인 국면 필터는 싣지 않는다 — 되묻기가 채운 뒤에 실린다.

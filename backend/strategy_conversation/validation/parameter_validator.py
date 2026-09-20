@@ -12,6 +12,37 @@ from strategy_conversation.registry.capability_registry import MAX_POSITIONS_RAN
 from strategy_conversation.registry.indicator_registry import REGISTRY
 
 
+def pead_param_errors(rank) -> List[str]:
+    """실적 서프라이즈 시그널 랭킹의 발표 자격 창 오류 문장 — 범위와 '편입 지연 < 제외'.
+
+    판정 입력은 LLM이 낸 구조화 값(숫자)뿐이다. 범위의 정본은 레지스트리 ParamSpec이다.
+    """
+    from strategy_conversation.registry.indicator_registry import resolve
+
+    spec = resolve("ranking.pead").parameters
+    errors: List[str] = []
+    delay, expiry = rank.entry_delay_days, rank.expiry_days
+    delay_spec, expiry_spec = spec["entry_delay_days"], spec["expiry_days"]
+    if delay is not None and not (delay_spec.minimum <= delay <= delay_spec.maximum):
+        errors.append(
+            f"실적 발표 후 편입까지의 기간은 {delay_spec.minimum}~{delay_spec.maximum}거래일 "
+            f"범위에서 정할 수 있습니다({delay}거래일은 지원하지 않습니다)"
+        )
+    if expiry is not None and not (expiry_spec.minimum <= expiry <= expiry_spec.maximum):
+        errors.append(
+            f"실적 발표 후 제외까지의 기간은 {expiry_spec.minimum}~{expiry_spec.maximum}거래일 "
+            f"범위에서 정할 수 있습니다({expiry}거래일은 지원하지 않습니다)"
+        )
+    effective_delay = delay if delay is not None else 2
+    effective_expiry = expiry if expiry is not None else 60
+    if effective_delay >= effective_expiry:
+        errors.append(
+            f"편입까지의 기간({effective_delay}거래일)은 제외까지의 기간"
+            f"({effective_expiry}거래일)보다 짧아야 합니다"
+        )
+    return errors
+
+
 def residual_reversal_param_errors(rank) -> List[str]:
     """잔차 반전 시그널 랭킹의 파라미터 오류 문장 — 허용값(이산)과 '회귀 룩백 ≥ 누적 기간'.
 
@@ -97,6 +128,13 @@ def validate_parameters(intent: StrategyIntent) -> List[str]:
         elif rank.accumulation_days is not None:
             errors.append("잔차 누적 기간은 잔차 반전 시그널 랭킹에서만 지원됩니다")
             rank.accumulation_days = None
+        # 발표 자격 창(v16.19)도 같은 계약 — 값은 지우지 않고 완결성 검증이 되묻는다.
+        if rank.metric == "ranking.pead":
+            errors.extend(pead_param_errors(rank))
+        elif rank.entry_delay_days is not None or rank.expiry_days is not None:
+            errors.append("실적 발표 기준 편입·제외 기간은 실적 서프라이즈 시그널 랭킹에서만 지원됩니다")
+            rank.entry_delay_days = None
+            rank.expiry_days = None
 
     portfolio = strategy.portfolio
     if portfolio.selection_count is not None:
@@ -117,6 +155,11 @@ def validate_parameters(intent: StrategyIntent) -> List[str]:
         errors.append(
             f"종목당 비중 상한 {portfolio.max_weight_percent}%은(는) 0 초과 100 이하여야 합니다")
         portfolio.max_weight_percent = None
+    if portfolio.max_sector_weight_percent is not None and not (
+            0 < portfolio.max_sector_weight_percent <= 100):
+        errors.append(
+            f"섹터별 비중 상한 {portfolio.max_sector_weight_percent}%은(는) 0 초과 100 이하여야 합니다")
+        portfolio.max_sector_weight_percent = None
     mf = strategy.market_filter
     if mf is not None:
         if mf.ma_period is not None and not (5 <= mf.ma_period <= 500):

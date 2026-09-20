@@ -496,6 +496,20 @@ def _capability_conflict_clarification(
 # 판정 입력은 검증기가 낸 필드 경로 문자열이다(원문을 읽지 않는다).
 _RANKING_LOOKBACK_FIELD_RE = re.compile(r"strategy\.ranking\[(\d+)\]\.lookback_days")
 
+# 점 없는 내부 필드명(fee_rate·max_sector_weight_percent 등)을 담은 미지원 보고는 안내하지
+# 않는다(2026-09-20 실측): 120B는 값을 정확히 채워 놓고도 "편도 거래비용 15bp 적용(수수료는
+# fee_rate 로 처리되나 편도/이중 구분 미지원)"처럼 **반영했다는 사실을 적으면서** 미지원
+# 목록에 넣는다. 그대로 내보내면 반영된 설정에 "반영하지 못했어요"가 붙고, 내부 식별자가
+# 사용자 화면에 노출된다(레드팀 QA 20-5 — 점 있는 경로는 field_path_rx가 이미 막는다).
+# 판정 입력은 LLM 출력 문자열뿐이다(원문을 읽지 않는다).
+_INTERNAL_FIELD_NAME_RE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+){1,}\b")
+
+
+def field_name_matcher() -> "re.Pattern[str]":
+    """위 판정에 쓰는 정규식(회귀 테스트 진입점)."""
+    return _INTERNAL_FIELD_NAME_RE
+
+
 # 잔여 미지원 안내에서 지목 인용할 수 있는 항목명 길이 상한(2026-08-12 사용자 결정).
 # 초과 조각(정성 표현 등 발화 반 토막)은 이름을 인용하지 않고 일반 문구로 안내한다 —
 # 레드팀 실측 3-4: "'퇴직금 굴려야 하는데 절대 잃으면 안 되는 돈이라 최대한
@@ -2369,6 +2383,7 @@ def run_primary_parse(
         # 조건의 탈락은 제외 조건 안내가 source_text(사용자 표현)로 이미 알리고,
         # 내부명은 노출 금지(레드팀 QA 20-5)이므로 여기서 제외한다.
         field_path_rx = re.compile(r"\b[a-z_]{2,}\.[a-z_0-9]{2,}")
+        field_name_rx = _INTERNAL_FIELD_NAME_RE
         # 개념 ID 영문 표기('volatility' 등)는 사용자에게 보일 말이 아니다 — 정본
         # 한국어 라벨로 옮긴다(_humanize_features). 종전에는 결정론 게이트가 같은
         # 개념을 한국어로 안내했으므로 여기서 버렸지만, 게이트가 꺼진 지금 버리면
@@ -2398,6 +2413,7 @@ def run_primary_parse(
             # _covered_by_approximated_texts) — 근사 안내가 이미 그 문장을 다뤘다.
             and not _covered_by_approximated_texts(f, reflected_conditions)
             and not field_path_rx.search(f)
+            and not field_name_rx.search(f)
         ]
         leftover_features = _drop_fragments_wrapping_others(leftover_features)
         # 긴 발화 조각(정성 표현 등)은 지목 인용하지 않는다(2026-08-12 사용자 결정) —

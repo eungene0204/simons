@@ -525,9 +525,20 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 errors.append(
                     f"ETF는 소속 섹터가 없어 '{name}'(시장·섹터 회귀 잔차)을 사용할 수 없습니다"
                 )
+            # 실적 서프라이즈 시그널(v16.19)도 같다 — ETF는 기업 분기 실적이 없어 전 종목이
+            # NaN(후보 0)이 된다. 0거래 백테스트로 흘려보내지 않고 오류+제거+안내한다.
+            if rank.metric == "ranking.pead":
+                name = resolve(rank.metric).display_name
+                etf_conflicts.append(name)
+                unsupported.append(f"ETF 유니버스 × {name}")
+                errors.append(
+                    f"ETF는 기업의 분기 실적이 없어 '{name}'(실적 발표 서프라이즈)을 "
+                    "사용할 수 없습니다"
+                )
         strategy.ranking = [
             r for r in strategy.ranking
-            if not r.metric.startswith("fundamental.") and r.metric != "ranking.residual_reversal"
+            if not r.metric.startswith("fundamental.")
+            and r.metric not in ("ranking.residual_reversal", "ranking.pead")
         ]
         if etf_conflicts:
             fixes.append(
@@ -607,7 +618,8 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
         for _rank in strategy.ranking:
             _rspec = resolve(_rank.metric)
             if _rspec is None or _rspec.id not in ("ranking.relative_return",
-                                                   "ranking.residual_reversal"):
+                                                   "ranking.residual_reversal",
+                                                   "ranking.pead"):
                 _kept_ranks.append(_rank)
                 continue
             unsupported.append(f"미국 시장 × {_rspec.display_name}")
@@ -775,18 +787,18 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
 
     # 잔차 반전 시그널(v16.17)은 단독 랭킹 전용이다 — 엔진의 복합 순위 합산 구성 지표가 아니다.
     # 다른 순위 기준과 함께 오면 시그널 쪽을 빼고 알린다(조용한 합산·조용한 소실 둘 다 금지).
-    if len(strategy.ranking) >= 2 and any(
-            r.metric == "ranking.residual_reversal" for r in strategy.ranking):
-        _residual_name = resolve("ranking.residual_reversal").display_name
-        unsupported.append(f"복합 순위 × {_residual_name}")
-        errors.append(ui_language.msg(
-            "'{name}'은(는) 다른 순위 기준과 합산할 수 없습니다 — 단독 순위 기준으로만 지원됩니다",
-            "'{name}' can't be combined with other ranking criteria — it is only supported "
-            "as a standalone ranking",
-            name=_residual_name,
-        ))
-        strategy.ranking = [r for r in strategy.ranking
-                            if r.metric != "ranking.residual_reversal"]
+    for _standalone in ("ranking.residual_reversal", "ranking.pead"):
+        if len(strategy.ranking) >= 2 and any(
+                r.metric == _standalone for r in strategy.ranking):
+            _standalone_name = resolve(_standalone).display_name
+            unsupported.append(f"복합 순위 × {_standalone_name}")
+            errors.append(ui_language.msg(
+                "'{name}'은(는) 다른 순위 기준과 합산할 수 없습니다 — 단독 순위 기준으로만 지원됩니다",
+                "'{name}' can't be combined with other ranking criteria — it is only supported "
+                "as a standalone ranking",
+                name=_standalone_name,
+            ))
+            strategy.ranking = [r for r in strategy.ranking if r.metric != _standalone]
 
     # 12-1 모멘텀 제외 기간(v16.14)은 수익률 랭킹에서만 성립한다 — 다른 지표에 붙은 값은
     # 표현할 자리가 없으므로 오류로 알리고 버린다(조용한 적용·조용한 소실 둘 다 금지).

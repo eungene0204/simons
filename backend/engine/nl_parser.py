@@ -515,7 +515,8 @@ RankingComponentMetricLiteral = Literal[
 # 'composite'=복합 순위 합산(FR-BT-063) — 구성 지표는 ranking_components에 담긴다.
 # 단일 지표 랭킹 어휘(RankingComponentMetricLiteral)에 합산 모드 하나를 더한 것.
 # 'residual_reversal'=시장·섹터 회귀 잔차 반전 시그널(v16.17) — 단독 랭킹 전용(복합 구성 불가).
-RankingMetricLiteral = Literal[RankingComponentMetricLiteral, "composite", "residual_reversal"]
+# 'pead'=실적 발표 서프라이즈 시그널(v16.19) — 단독 랭킹 전용(복합 구성 불가).
+RankingMetricLiteral = Literal[RankingComponentMetricLiteral, "composite", "residual_reversal", "pead"]
 
 
 def _normalize_metric_alias(value):
@@ -996,6 +997,8 @@ class ParsedStrategy(BaseModel):
             "'volatility'=연환산 변동성 순위 선정(저변동성 전략은 direction='bottom'), "
             "'residual_reversal'=시장·섹터 회귀 잔차의 반전 시그널 순위 선정(회귀 룩백="
             "ranking_lookback_days, 잔차 누적 기간=ranking_accumulation_days), "
+            "'pead'=실적 발표 서프라이즈 시그널 순위 선정(SUE와 발표일 초과수익률의 z-score "
+            "평균, 편입 지연=ranking_entry_delay_days, 제외=ranking_expiry_days), "
             "재무 지표명(operating_margin 등)=그 지표 값 순위로 선정(재무 팩터 랭킹). "
             "예: '최근 60일 수익률 높은 상위 N종목', '변동성 낮은 20종목', '영업이익률 상위 20종목'. "
             "진입 신호 없이 순위 자체가 진입. 없으면 null"
@@ -1044,9 +1047,42 @@ class ParsedStrategy(BaseModel):
             "ranking_metric='residual_reversal'일 때만. 없으면 null"
         ),
     )
+    ranking_entry_delay_days: Optional[int] = Field(
+        default=None, ge=0,
+        description=(
+            "실적 서프라이즈 시그널에서 발표 후 편입까지 기다리는 거래일 수"
+            "('발표일로부터 2영업일이 지난 종목만 편입'=2). ranking_metric='pead'일 때만. 없으면 null"
+        ),
+    )
+    ranking_expiry_days: Optional[int] = Field(
+        default=None, ge=1,
+        description=(
+            "실적 서프라이즈 시그널에서 발표 후 제외까지의 거래일 수"
+            "('발표일로부터 60영업일이 지나면 제외'=60). ranking_metric='pead'일 때만. 없으면 null"
+        ),
+    )
     max_position_weight_pct: Optional[float] = Field(
         default=None, gt=0, le=100,
         description="종목당 비중 상한(%, 편입·리밸런싱 시점 목표 비중). 예: '종목당 비중 2% 상한'=2. 없으면 null",
+    )
+    universe_market_cap_top_n: Optional[int] = Field(
+        default=None, ge=1,
+        description="유니버스를 시가총액 상위 N종목으로 좁힐 때의 N. 없으면 null",
+    )
+    universe_liquidity_exclude_bottom_pct: Optional[float] = Field(
+        default=None, gt=0, lt=100,
+        description="평균 거래대금 하위 X%를 유니버스에서 제외. 없으면 null",
+    )
+    universe_liquidity_lookback_days: Optional[int] = Field(
+        default=None, ge=1,
+        description="그 평균 거래대금의 기간(거래일). 없으면 null(기본 20)",
+    )
+    max_sector_weight_pct: Optional[float] = Field(
+        default=None, gt=0, le=100,
+        description=(
+            "섹터별 비중 상한(%, 같은 섹터 종목의 목표 비중 합). "
+            "예: '섹터별 비중은 총자산의 25%를 상한으로'=25. 없으면 null"
+        ),
     )
     # ── 비중·시장 국면(엔진 v16.14)
     allocation_type: Literal["equal", "inverse_volatility"] = Field(

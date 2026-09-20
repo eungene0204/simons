@@ -343,6 +343,18 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
               "accumulation_days=잔차 누적 기간(3·5·10·20 중 말한 값). 윈저라이즈·z-score·부호 반전은 "
               "지표에 포함돼 있다. 단순 '낙폭 과대'·'수익률 하위'는 ranking.return(direction bottom)"),
     IndicatorSpec(
+        id="ranking.pead", display_name="실적 서프라이즈 시그널 랭킹", category="ranking",
+        supported="SUPPORTED", data_source="fundamental", value_type="point",
+        parameters={"entry_delay_days": ParamSpec(default=2, minimum=0, maximum=20),
+                    "expiry_days": ParamSpec(default=60, minimum=5, maximum=250)},
+        engine_binding=("ranking", "pead"),
+        notes="분기 EPS의 전년 동기 대비 서프라이즈를 직전 8개 분기 표준편차로 나눈 SUE와, 실적 "
+              "발표일 전후(직전 거래일~발표 2거래일 후) 시장 대비 초과수익률을 각각 횡단면 "
+              "z-score로 표준화해 평균한 시그널 순위 선정(실적 발표 후 표류·PEAD·어닝 서프라이즈). "
+              "entry_delay_days=발표 후 편입까지 기다리는 거래일, expiry_days=발표 후 제외까지의 "
+              "거래일. 윈저라이즈·z-score·평균은 지표에 포함돼 있다. 분기 실적을 수집한 종목만 "
+              "후보이며 2016년 이후 구간에서만 값이 선다"),
+    IndicatorSpec(
         id="ranking.volatility", display_name="변동성 랭킹(저변동성)", category="ranking",
         supported="SUPPORTED", data_source="ohlcv", value_type="percent",
         parameters={"lookback_days": ParamSpec(default=60, minimum=5, maximum=500)},
@@ -458,6 +470,9 @@ _ALIASES: Dict[str, str] = {
     "ai_drop_model": "technical.ai_drop_model", "ai하락예측": "technical.ai_drop_model",
     "return": "ranking.return", "수익률랭킹": "ranking.return", "기간수익률": "ranking.return",
     "초과수익률랭킹": "ranking.relative_return", "시장대비수익률랭킹": "ranking.relative_return",
+    "pead": "ranking.pead", "실적서프라이즈": "ranking.pead",
+    "실적서프라이즈시그널": "ranking.pead", "실적서프라이즈시그널랭킹": "ranking.pead",
+    "어닝서프라이즈": "ranking.pead", "sue": "ranking.pead",
     "residual_reversal": "ranking.residual_reversal", "잔차반전": "ranking.residual_reversal",
     "잔차반전시그널": "ranking.residual_reversal", "잔차반전시그널랭킹": "ranking.residual_reversal",
     # FCF 수익률(v16.15 지원 승격 — 종전 unsupported.fcf_yield). 맨 'fcf'·'잉여현금흐름'은

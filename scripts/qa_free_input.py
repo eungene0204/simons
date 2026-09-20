@@ -264,11 +264,17 @@ OWNED = {
 }
 
 
+_TIMEOUT_S = int(os.environ.get("QA_TIMEOUT") or 600)
+
+
 def _post(payload: dict) -> dict:
     req = urllib.request.Request(
         BASE_URL, data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json", **HEADERS})
-    with urllib.request.urlopen(req, timeout=300) as resp:
+    # 프록시 예산(600초, 2026-09-19 확장)에 맞춘다 — 하니스가 먼저 포기하면 느린 모델·복잡한
+    # 기준 전략에서 게이트 자체가 돌지 않는다(실측 2026-09-20: 120B 기준 전략 파싱 3회 연속
+    # 300초 타임아웃). QA_TIMEOUT으로 덮어쓸 수 있다.
+    with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
         return json.loads(resp.read())
 
 

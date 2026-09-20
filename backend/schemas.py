@@ -61,9 +61,23 @@ class RiskManagement(BaseModel):
     # 잔차 반전 시그널(v16.17, ranking_metric='residual_reversal')의 잔차 누적 기간. 회귀 룩백은
     # ranking_lookback_days를 쓴다. 스키마 미선언 시 model_dump가 조용히 버린다 — 같은 함정.
     ranking_accumulation_days: Optional[int] = None
+    # 실적 서프라이즈 시그널(v16.19, ranking_metric='pead')의 발표 자격 창(거래일). 편입 지연은
+    # '발표 후 N일이 지난 종목만 편입', 제외는 '발표 후 M일이 지나면 제외'다. 스키마 미선언 시
+    # model_dump가 조용히 버린다 — ranking_metric 0거래 사고와 같은 함정.
+    ranking_entry_delay_days: Optional[int] = None
+    ranking_expiry_days: Optional[int] = None
     # 종목당 비중 상한(%, v16.18) — 편입·리밸런싱 시점 목표 비중에 거는 상한. 스키마 미선언 시
     # model_dump가 조용히 버린다 — ranking_metric 0거래 사고와 같은 함정.
     max_position_weight_pct: Optional[float] = None
+    # 섹터별 비중 상한(%, v16.19) — 같은 섹터 종목의 목표 비중 합에 거는 상한. 넘으면 그
+    # 섹터 안에서 비례 축소하고 잘린 몫은 현금이다. 스키마 미선언 시 model_dump가 조용히 버린다.
+    max_sector_weight_pct: Optional[float] = None
+    # 유니버스 사전 필터(v16.19) — 랭킹·조건 이전에 대상 자체를 좁힌다.
+    # market_cap_top_n: 매 거래일 실측 시가총액 상위 N종목만(지수 구성종목이 아니라 순위).
+    # liquidity_exclude_bottom_pct: 최근 N거래일 평균 거래대금 하위 X%를 제외.
+    universe_market_cap_top_n: Optional[int] = None
+    universe_liquidity_exclude_bottom_pct: Optional[float] = None
+    universe_liquidity_lookback_days: Optional[int] = None
     # 비중 방식: 'equal'(동일 비중) | 'inverse_volatility'(변동성 역비중, v16.14 — 1/σ(N일)에 비례).
     allocation_type: Optional[str] = "equal"
     allocation_lookback_days: Optional[int] = None

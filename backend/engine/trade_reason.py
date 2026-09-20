@@ -148,6 +148,9 @@ RANKING_RELATIVE_RETURN = "최근 {0}거래일 시장 대비 초과수익률 {1}
 # {0}=회귀 룩백, {1}=잔차 누적 기간 — 시장·섹터 회귀 잔차의 반전 시그널 순위(v16.17).
 RANKING_RESIDUAL_REVERSAL = "잔차 반전 시그널(회귀 {0}일·누적 {1}일) {2} {3}%{4}"
 RESIDUAL_REVERSAL_METRIC = "잔차 반전 시그널"
+# {0}=편입 지연 거래일, {1}=제외 거래일 — 실적 발표 서프라이즈 시그널 순위(v16.19).
+RANKING_PEAD = "실적 서프라이즈 시그널(발표 {0}일 후 편입·{1}일 경과 제외) {2} {3}%{4}"
+PEAD_METRIC = "실적 서프라이즈 시그널"
 RANKING_COMPOSITE = "{0} 상위 {1}%{2}"
 RANKING_FUNDAMENTAL = "{0} {1}상위 {2}%{3}"
 RANK_TOP = "상위"

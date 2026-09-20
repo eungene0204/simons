@@ -371,6 +371,8 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
     ranking_components = None
     ranking_skip_days = None
     ranking_accumulation_days = None
+    ranking_entry_delay_days = None
+    ranking_expiry_days = None
     # 검증기(capability_validator)가 metric을 정본 id로 정규화하고 미지원 항목을 제거한 뒤다.
     # 등록되지 않은 metric이 남아 있으면 그 항목은 랭킹에서 뺀다 — 과거의 'return' 폴백은
     # 사용자가 말하지 않은 수익률 랭킹을 만들어냈다(2026-08-17 사고). 임의 보정 금지.
@@ -441,6 +443,25 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
                     rank.lookback_days, _rf.DEFAULT_LOOKBACK, _rf.REGRESSION_LOOKBACKS)
                 ranking_accumulation_days = _allowed(
                     rank.accumulation_days, _rf.DEFAULT_ACCUMULATION, _rf.ACCUMULATION_DAYS)
+            if ranking_metric == "pead":
+                # 발표 자격 창(v16.19): 잔차 반전과 같은 계약 — 말하지 않은 값은 기본값(2·60)으로
+                # 확정해 정본 DSL에 싣는다(조합마다 strategy_id가 달라야 한다). 범위 밖 값은
+                # 싣지 않는다(검증기가 되묻는다 — 임의 값으로 바꿔치지 않는다).
+                from engine import earnings_factor as _ef
+                from strategy_conversation.registry.indicator_registry import resolve as _resolve
+
+                _spec = _resolve("ranking.pead").parameters
+
+                def _within(value, default, param):
+                    if value is None:
+                        return default
+                    value = int(value)
+                    return value if param.minimum <= value <= param.maximum else None
+
+                ranking_entry_delay_days = _within(
+                    rank.entry_delay_days, _ef.DEFAULT_ENTRY_DELAY_DAYS, _spec["entry_delay_days"])
+                ranking_expiry_days = _within(
+                    rank.expiry_days, _ef.DEFAULT_EXPIRY_DAYS, _spec["expiry_days"])
             # 방향은 재무 팩터 분기와 같은 계약 — 저변동성(lower_better)은 침묵이
             # '가장 출렁이는 종목 선정'으로 뒤집히지 않게 온톨로지가 bottom을 채운다.
             # return(higher_better)은 top이라 저장값 None 그대로다(기존 해시 불변).
@@ -544,6 +565,10 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         # (표기를 종목 목록으로 바꾸는 것은 컴파일이 아니라 지식 조회 — primary의 테마 체인.)
         theme_universe=strategy.universe.theme if target_symbols else None,
         new_listing_only=new_listing_only,
+        # 유니버스 사전 필터(v16.19) — 말한 값만 싣는다(기본값 확정 없음).
+        universe_market_cap_top_n=strategy.universe.market_cap_top_n,
+        universe_liquidity_exclude_bottom_pct=strategy.universe.liquidity_exclude_bottom_percent,
+        universe_liquidity_lookback_days=strategy.universe.liquidity_lookback_days,
         listing_from=listing_from,
         listing_to=listing_to,
         fundamental_filters=buckets["fundamental_filters"],
@@ -557,6 +582,8 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         ranking_components=ranking_components,
         ranking_skip_days=ranking_skip_days,
         ranking_accumulation_days=ranking_accumulation_days,
+        ranking_entry_delay_days=ranking_entry_delay_days,
+        ranking_expiry_days=ranking_expiry_days,
         # 비중 방식(v16.14) — 검증기가 정본(equal/inverse_volatility)으로 정규화한 뒤다.
         allocation_type=(
             "inverse_volatility" if portfolio.weighting == "inverse_volatility" else "equal"
@@ -565,6 +592,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
             portfolio.weighting_lookback_days if portfolio.weighting == "inverse_volatility" else None
         ),
         max_position_weight_pct=portfolio.max_weight_percent,
+        max_sector_weight_pct=portfolio.max_sector_weight_percent,
         market_regime=_market_regime_from_spec(mf) if mf is not None else None,
         max_positions=portfolio.selection_count if portfolio.selection_count is not None else 10,
         # 위 줄이 기본값 10을 물질화하면서 출처가 지워진다 — 그 사실만 따로 남긴다.

@@ -76,6 +76,12 @@ export interface ParsedSummary {
   allocation_lookback_days?: number | null;
   // 종목당 비중 상한(%, 엔진 v16.18) — 편입·리밸런싱 시점 목표 비중의 상한.
   max_position_weight_pct?: number | null;
+  max_sector_weight_pct?: number | null;
+  universe_market_cap_top_n?: number | null;
+  universe_liquidity_exclude_bottom_pct?: number | null;
+  universe_liquidity_lookback_days?: number | null;
+  ranking_entry_delay_days?: number | null;
+  ranking_expiry_days?: number | null;
   // 시장 국면 필터(엔진 v16.14) — 기간·비율이 비어 있으면 되묻는 중(값 미정).
   market_regime?: MarketRegimeSummary | null;
   // 비율 선정(FR-BT-060) — 상위 X% 편입(개수 대신 비율). 있으면 max_positions보다 우선.
@@ -783,6 +789,28 @@ export function formatWeightCapLabel(capPct: number | null | undefined): string 
   return capPct != null ? t("종목당 비중 상한 {0}%", capPct) : null;
 }
 
+/** 섹터별 비중 상한 표기(엔진 v16.19) — 같은 업종 종목의 비중 합에 걸린다. */
+export function formatSectorWeightCapLabel(capPct: number | null | undefined): string | null {
+  return capPct != null ? t("섹터별 비중 상한 {0}%", capPct) : null;
+}
+
+/** 유니버스 사전 필터 표기(엔진 v16.19) — 시총 상위 N·거래대금 하위 % 제외. */
+export function formatUniverseFilterLabels(parsed: {
+  universe_market_cap_top_n?: number | null;
+  universe_liquidity_exclude_bottom_pct?: number | null;
+  universe_liquidity_lookback_days?: number | null;
+}): string[] {
+  const labels: string[] = [];
+  if (parsed.universe_market_cap_top_n != null) {
+    labels.push(t("시가총액 상위 {0}종목", parsed.universe_market_cap_top_n));
+  }
+  if (parsed.universe_liquidity_exclude_bottom_pct != null) {
+    const days = parsed.universe_liquidity_lookback_days ?? 20;
+    labels.push(t("{0}일 평균 거래대금 하위 {1}% 제외", days, parsed.universe_liquidity_exclude_bottom_pct));
+  }
+  return labels;
+}
+
 /** 시장 국면 필터 표기(엔진 v16.14). 기간·비율이 비면 값 미정으로 적는다(조용한 확정 금지). */
 export function formatMarketRegimeLabel(regime: MarketRegimeSummary | null | undefined): string | null {
   if (!regime) return null;
@@ -907,6 +935,19 @@ export function getRankingLabel(parsed: ParsedSummary): string | null {
       ? t("잔차 반전 시그널 하위 (회귀 {0}일·누적 {1}일)", lookback, accumulation)
       : t("잔차 반전 시그널 상위 (회귀 {0}일·누적 {1}일)", lookback, accumulation);
   }
+  if (parsed.ranking_metric === "pead") {
+    // 실적 서프라이즈 시그널 랭킹(엔진 v16.19) — SUE와 발표일 초과수익률의 z-score 평균.
+    // 범위 밖 값을 되묻는 동안에는 자격 창이 비어 있다(백엔드가 임의 값으로 채우지 않는다).
+    const delay = parsed.ranking_entry_delay_days;
+    const expiry = parsed.ranking_expiry_days;
+    const bottom = parsed.ranking_direction === "bottom";
+    if (delay == null || expiry == null) {
+      return bottom ? t("실적 서프라이즈 시그널 하위(기간 미정)") : t("실적 서프라이즈 시그널 상위(기간 미정)");
+    }
+    return bottom
+      ? t("실적 서프라이즈 시그널 하위 (발표 {0}일 후 편입·{1}일 경과 제외)", delay, expiry)
+      : t("실적 서프라이즈 시그널 상위 (발표 {0}일 후 편입·{1}일 경과 제외)", delay, expiry);
+  }
   if (parsed.ranking_metric === "volatility") {
     // 엔진의 방향 미지정 기본은 bottom(저변동성 선호) — backtest_engine 변동성 분기 미러.
     const days = parsed.ranking_lookback_days;
@@ -1000,6 +1041,7 @@ export function buildStrategySummary(
       `${getPositionLabel(parsed)}${parsed.hold_period_days ? t(" · {0}일 보유", parsed.hold_period_days) : ""}`,
       formatAllocationLabel(parsed.allocation_type, parsed.allocation_lookback_days),
       formatWeightCapLabel(parsed.max_position_weight_pct),
+      formatSectorWeightCapLabel(parsed.max_sector_weight_pct),
     ].filter(Boolean).join(" · "),
     riskText: [
       stopLossPct ? t("손절 {0}%", stopLossPct) : "",
@@ -1232,6 +1274,7 @@ export function buildStrategySummaryFromRequest(
             `${t("최대 {0}종목", maxPositions)}${maxHoldingDays ? t(" · {0}일 보유", maxHoldingDays) : ""}`,
             allocationLabel,
             formatWeightCapLabel(num(risk.max_position_weight_pct)),
+            formatSectorWeightCapLabel(num(risk.max_sector_weight_pct)),
           ].filter(Boolean).join(" · ")
         : undefined,
     riskText:

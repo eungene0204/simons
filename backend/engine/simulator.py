@@ -1,7 +1,7 @@
 import vectorbt as vbt
 import pandas as pd
 import numpy as np
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 
 from engine.rebalance import compute_rebalance_dates
 from engine import trade_reason as tr
@@ -169,6 +169,48 @@ def _inverse_vol_values(vol_df: Optional[pd.DataFrame]) -> Optional[np.ndarray]:
         return np.where(vol > 0, 1.0 / vol, np.nan)
 
 
+def _sector_weight_cap(risk_params: Dict[str, Any]) -> Optional[float]:
+    """섹터별 비중 상한(v16.19, ``max_sector_weight_pct``) → 비율. 없거나 100% 이상이면 None."""
+    raw = risk_params.get('max_sector_weight_pct')
+    if raw is None:
+        return None
+    cap = float(raw) / 100.0
+    return cap if 0.0 < cap < 1.0 else None
+
+
+def _sector_groups(symbols: List[str]) -> Dict[str, np.ndarray]:
+    """{섹터: 그 섹터 종목의 열 인덱스}. 섹터를 모르는 종목은 어느 묶음에도 들어가지 않는다.
+
+    소속을 모르는 종목까지 한 묶음('미분류')으로 묶으면 서로 무관한 종목들이 한 상한을
+    나눠 갖게 된다 — 모르는 것은 제약하지 않는다(fail-open이 아니라 '제약 대상 아님').
+    """
+    from engine.ksic_sectors import sector_for_symbol
+
+    groups: Dict[str, List[int]] = {}
+    for index, symbol in enumerate(symbols):
+        sector = sector_for_symbol(str(symbol))
+        if sector:
+            groups.setdefault(sector, []).append(index)
+    return {name: np.asarray(members, dtype=int)
+            for name, members in groups.items() if len(members) > 1}
+
+
+def _apply_sector_cap(row: np.ndarray, groups: Dict[str, np.ndarray],
+                      cap: Optional[float]) -> np.ndarray:
+    """섹터 목표 비중 합이 상한을 넘으면 그 섹터 안에서 **비례 축소**한다.
+
+    잘린 몫은 다른 섹터에 재배분하지 않고 현금으로 남는다(종목당 상한 v16.18과 같은 규칙).
+    비례 축소는 섹터 안 상대 비중(랭킹·역변동성이 정한 몫)을 보존한다.
+    """
+    if cap is None or not groups:
+        return row
+    for members in groups.values():
+        total = float(np.nansum(row[members]))
+        if total > cap:
+            row[members] *= cap / total
+    return row
+
+
 def _weight_cap(risk_params: Dict[str, Any]) -> Optional[float]:
     """종목당 비중 상한(v16.18, ``max_position_weight_pct``) → 비율. 없거나 100% 이상이면 None.
 
@@ -266,6 +308,10 @@ class Simulator:
         skip_pos = risk_params.get('skip_position_setting', False)
         use_risk_mgmt = not risk_params.get('skip_risk_management', False)
         weight_cap = _weight_cap(risk_params)
+        # 섹터별 비중 상한(v16.19) — 묶음은 종목 열 인덱스로 미리 만든다(행마다 조회 금지).
+        sector_cap = _sector_weight_cap(risk_params)
+        sector_groups = (_sector_groups(list(entries_df.columns))
+                         if sector_cap is not None else {})
 
         # Determine size per position (진입 시점 포트폴리오 NAV 대비 비중)
         equal_base = risk_params.get('allocation_type') in ('equal', 'inverse_volatility')
@@ -307,6 +353,7 @@ class Simulator:
                 sel_pct=sel_pct, sel_band=sel_band, band_cap=band_cap,
                 weights_only=weights_only, vol_df=vol_df, exposure=exposure,
                 regime_label=regime_label, weight_cap=weight_cap,
+                sector_cap=sector_cap, sector_groups=sector_groups,
             )
 
         symbols = entries_df.columns.tolist()
@@ -358,6 +405,27 @@ class Simulator:
 
         # from_orders 입력: NaN=주문 없음, 양수=진입 목표비중(NAV 대비), 0=전량 청산
         target_values = np.full((n_rows, num_symbols), np.nan)
+        # 섹터별 비중 상한(v16.19) 집행용 — 목표 비중 행렬은 희소(NaN=주문 없음)라 보유
+        # 종목의 현재 목표 비중을 따로 들고 있어야 섹터 합을 알 수 있다.
+        live_target = np.zeros(num_symbols)
+
+        def _enforce_sector_cap(i: int) -> None:
+            """i일 목표 비중의 섹터 합을 상한 이하로 맞춘다 — 넘는 섹터만 비례 축소.
+
+            줄어든 종목은 그날 주문(트림)으로 싣는다. 잘린 몫은 다른 섹터에 재배분하지 않고
+            현금으로 남는다(종목당 상한 v16.18과 같은 규칙).
+            """
+            if sector_cap is None:
+                return
+            for members in sector_groups.values():
+                total = float(live_target[members].sum())
+                if total <= sector_cap:
+                    continue
+                scale = sector_cap / total
+                for idx in members:
+                    if live_target[idx] > 0.0:
+                        live_target[idx] *= scale
+                        target_values[i, idx] = live_target[idx]
         # 셀 단위 수수료: 매수 셀=매수 수수료, 매도 셀=매도 수수료+거래세
         fees_values = np.full((n_rows, num_symbols), buy_fee)
 
@@ -369,6 +437,7 @@ class Simulator:
             """
             nonlocal active_count
             target_values[i, mask] = 0.0
+            live_target[mask] = 0.0
             fees_values[i, mask] = sell_fee[i]
             active_mask[mask] = False
             peak_price[mask] = 0.0
@@ -536,12 +605,14 @@ class Simulator:
                         if inv_vals is None and exp_vals is None:
                             target_values[i, reset] = (
                                 cur_size if weight_cap is None else min(cur_size, weight_cap))
+                            live_target[reset] = target_values[i, reset]
                         else:
                             for s_idx in np.where(reset)[0]:
                                 pos_base[s_idx] = _entry_base_size(
                                     cur_size, inv_vals, inv_norm, i, s_idx, weight_cap)
                             target_values[i, reset] = pos_base[reset] * (
                                 exp_vals[i] if exp_vals is not None else 1.0)
+                            live_target[reset] = target_values[i, reset]
                         # 트림(목표 비중 초과분 매도) 사유 — 오늘 청산이 확정된 종목은
                         # 위 Step 1·2에서 active_mask가 이미 꺼져 여기 들어오지 않는다
                         # (리스크 청산 사유를 덮어쓰지 않는다).
@@ -598,6 +669,7 @@ class Simulator:
                         _book_exit(i, movable)
                 elif movable.any():
                     target_values[i, movable] = pos_base[movable] * cur_exp
+                    live_target[movable] = target_values[i, movable]
                     label = regime_reason if cur_exp < prev_exp else REBALANCE_TRIM_REASON
                     for s_idx in np.where(movable)[0]:
                         self.exit_reason_overrides.setdefault(
@@ -651,12 +723,15 @@ class Simulator:
                             pos_base[s_idx] = _entry_base_size(
                                 cur_size, inv_vals, inv_norm, i, s_idx, weight_cap)
                             target_values[i, s_idx] = pos_base[s_idx] * cur_exp
+                        live_target[s_idx] = target_values[i, s_idx]
                         fees_values[i, s_idx] = buy_fee
                         if refill_rank[s_idx] > 0:
                             self.entry_reason_overrides.setdefault(symbols[s_idx], {})[date_strs[i]] = (
                                 tr.encode([tr.part(tr.STOP_LOSS_REFILL, int(refill_rank[s_idx]))])
                             )
                             refill_rank[s_idx] = 0
+
+            _enforce_sector_cap(i)
 
         target_df = pd.DataFrame(target_values, index=entries_df.index, columns=entries_df.columns)
 
@@ -741,7 +816,10 @@ class Simulator:
                               vol_df: Optional[pd.DataFrame] = None,
                               exposure: Optional[np.ndarray] = None,
                               regime_label: Optional[tuple] = None,
-                              weight_cap: Optional[float] = None) -> vbt.Portfolio:
+                              weight_cap: Optional[float] = None,
+                              sector_cap: Optional[float] = None,
+                              sector_groups: Optional[Dict[str, np.ndarray]] = None,
+                              ) -> vbt.Portfolio:
         """순수 리밸런싱 경로 — vbt 네이티브 from_orders(목표비중)로 비중 리셋까지 수행.
 
         리밸런싱일마다 후보(entries=True)를 rank 상위 K로 골라 동일가중 목표비중을 주고,
@@ -806,6 +884,7 @@ class Simulator:
                 row[sel] = 1.0 / len(sel)        # 동일가중 목표비중 (비중 리셋)
                 if weight_cap is not None:
                     row = np.minimum(row, weight_cap)   # 종목당 비중 상한(v16.18) — 잘린 몫은 현금
+                row = _apply_sector_cap(row, sector_groups or {}, sector_cap)
             if inv_vals is not None or exp_vals is not None:
                 sel_arr = np.asarray(sel, dtype=int)
                 if inv_vals is not None and len(sel_arr) > 0:
@@ -814,6 +893,9 @@ class Simulator:
                         row[sel_arr] = iv / iv.sum()    # 변동성 역비중 — 1/σ에 비례
                 if weight_cap is not None:
                     row = np.minimum(row, weight_cap)   # 종목당 비중 상한(v16.18) — 잘린 몫은 현금
+                # 섹터 상한은 종목당 상한 **뒤에** — 역변동성에서 최종 비중에만 걸어야 상한에
+                # 걸리지 않은 섹터까지 줄어들지 않는다(v16.18이 테스트로 잡은 것과 같은 함정).
+                row = _apply_sector_cap(row, sector_groups or {}, sector_cap)
                 base = row.copy()
                 if exp_vals is not None:
                     prev_exp = float(exp_vals[i])

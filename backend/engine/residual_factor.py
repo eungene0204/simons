@@ -132,7 +132,16 @@ def leave_one_out_sector_return(y: np.ndarray, sector_sum: np.ndarray,
 
 
 def cross_sectional_signal(raw: pd.DataFrame) -> pd.DataFrame:
-    """행(거래일)마다 상하위 1% 윈저라이즈 → z-score → 부호 반전. 유효 종목 2개 미만인 날은 NaN."""
+    """행(거래일)마다 상하위 1% 윈저라이즈 → z-score → **부호 반전**.
+
+    반전은 잔차 반전 시그널의 정의('설명되지 않는 낙폭이 클수록 높은 점수')이지 표준화의
+    일부가 아니다 — 높을수록 좋은 지표(PEAD 등)는 `winsorized_zscore`를 그대로 쓴다.
+    """
+    return -winsorized_zscore(raw)
+
+
+def winsorized_zscore(raw: pd.DataFrame) -> pd.DataFrame:
+    """행(거래일)마다 상하위 1% 윈저라이즈 → z-score. 유효 종목 2개 미만인 날은 NaN."""
     arr = raw.to_numpy(dtype=np.float64, copy=True)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)   # 전부 NaN인 행
@@ -141,9 +150,9 @@ def cross_sectional_signal(raw: pd.DataFrame) -> pd.DataFrame:
         mean = np.nanmean(clipped, axis=1, keepdims=True)
         std = np.nanstd(clipped, axis=1, ddof=1, keepdims=True)
     with np.errstate(divide="ignore", invalid="ignore"):
-        signal = -(clipped - mean) / std
-    signal[~np.isfinite(signal)] = np.nan
-    return pd.DataFrame(signal, index=raw.index, columns=raw.columns)
+        score = (clipped - mean) / std
+    score[~np.isfinite(score)] = np.nan
+    return pd.DataFrame(score, index=raw.index, columns=raw.columns)
 
 
 # ─── 재료: 달력·수익률·섹터 ───────────────────────────────────────────────────
@@ -418,6 +427,26 @@ def raw_score_panel(data_dir: str | os.PathLike, symbols: Iterable[str],
         while len(_MEMO) > _MEMO_MAX:
             _MEMO.popitem(last=False)
     return panel
+
+
+def return_materials(
+    data_dir: str | os.PathLike, symbols: Iterable[str]
+) -> Optional[Tuple[pd.DatetimeIndex, Dict[str, np.ndarray], Dict[str, np.ndarray]]]:
+    """지표 공통 재료 — (달력, 종목별 일간 수익률, 시장별 일간 수익률). 지수가 없으면 None.
+
+    잔차 반전과 실적 서프라이즈(`engine/earnings_factor.py`)가 공유한다 — 둘 다 '지표 전용
+    전체 이력'(배당 반영 수정주가, 백테스트 창과 무관) 계약이라 재료가 같다. 같은 재료를
+    쓰므로 두 지표의 값은 백테스트 창·워밍업 길이에 흔들리지 않는다.
+    """
+    if _calendar(data_dir) is None:
+        return None
+    data_dir = str(data_dir)
+    fingerprint = data_fingerprint(data_dir)
+    _ensure_materials(data_dir, fingerprint)
+    calendar, returns = _read_panel(
+        cache_dir_for(data_dir) / "returns.parquet", list(symbols)
+    )
+    return calendar, returns, _market_returns(data_dir, calendar)
 
 
 def residual_reversal_panel(raw_price_df: pd.DataFrame, lookback: int, accumulation: int,
