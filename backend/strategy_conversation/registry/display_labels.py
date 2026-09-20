@@ -45,6 +45,7 @@ _EN_LABELS = {
     "technical.ai_model": "AI upside prediction", "technical.ai_drop_model": "AI drawdown exit",
     "ranking.return": "Period return ranking (momentum)",
     "ranking.volatility": "Volatility ranking (low volatility)",
+    "ranking.residual_reversal": "Residual reversal signal ranking",
 }
 
 _EN_PARAM_LABELS = {

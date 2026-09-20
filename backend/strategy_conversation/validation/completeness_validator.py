@@ -215,6 +215,30 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                                               "60 trading days (about 3 months) is commonly used"),
                 ))
                 break
+        # ④-0b 잔차 반전 시그널(v16.17)의 개방 파라미터는 이산값만 허용한다. 허용 밖 값은
+        # 컴파일러가 싣지 않으므로(임의 값으로 바꿔치지 않는다) 검증기 오류 문장 그대로 허용값을
+        # 되묻는다. **말하지 않은 값은 묻지 않는다** — 기본값(회귀 60·누적 5)이 사용자 결정이다
+        # (2026-09-20). 칩은 내지 않는다(값 결속 표가 없는 무칩 질문 — 답은 LLM 레인이 해석한다).
+        for idx, rank in enumerate(strategy.ranking):
+            if rank.metric != "ranking.residual_reversal":
+                continue
+            from strategy_conversation.validation.parameter_validator import (
+                residual_reversal_param_errors,
+            )
+
+            param_errors = residual_reversal_param_errors(rank)
+            if param_errors:
+                from engine import residual_factor as _rf
+
+                bad_lookback = (rank.lookback_days is not None
+                                and rank.lookback_days not in _rf.REGRESSION_LOOKBACKS)
+                field = "lookback_days" if bad_lookback else "accumulation_days"
+                missing.append(f"strategy.ranking[{idx}].{field}")
+                questions.append(ClarificationQuestion(
+                    field=f"strategy.ranking[{idx}].{field}",
+                    question=" ".join(param_errors) + " 며칠로 할까요?",
+                ))
+            break
         # 편입 규모가 비율(selection_percent)이나 분위 그룹(quantile_groups)으로 이미
         # 정의된 전략은 종목 수가 성립하지 않는다 — 되묻지 않는다(FR-BT-060).
         has_scale = (

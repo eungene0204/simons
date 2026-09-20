@@ -69,9 +69,13 @@ export interface ParsedSummary {
   }> | null;
   // 단일 수익률 랭킹의 최근 제외 기간(엔진 v16.14).
   ranking_skip_days?: number | null;
+  // 잔차 반전 시그널(엔진 v16.17)의 잔차 누적 기간 — 회귀 기간은 ranking_lookback_days.
+  ranking_accumulation_days?: number | null;
   // 비중 방식(엔진 v16.14) — equal=동일 비중, inverse_volatility=변동성 역비중.
   allocation_type?: "equal" | "inverse_volatility" | null;
   allocation_lookback_days?: number | null;
+  // 종목당 비중 상한(%, 엔진 v16.18) — 편입·리밸런싱 시점 목표 비중의 상한.
+  max_position_weight_pct?: number | null;
   // 시장 국면 필터(엔진 v16.14) — 기간·비율이 비어 있으면 되묻는 중(값 미정).
   market_regime?: MarketRegimeSummary | null;
   // 비율 선정(FR-BT-060) — 상위 X% 편입(개수 대신 비율). 있으면 max_positions보다 우선.
@@ -774,6 +778,11 @@ export function formatAllocationLabel(
     : t("변동성 역비중(산정 기간 미정)");
 }
 
+/** 종목당 비중 상한 표기(엔진 v16.18). */
+export function formatWeightCapLabel(capPct: number | null | undefined): string | null {
+  return capPct != null ? t("종목당 비중 상한 {0}%", capPct) : null;
+}
+
 /** 시장 국면 필터 표기(엔진 v16.14). 기간·비율이 비면 값 미정으로 적는다(조용한 확정 금지). */
 export function formatMarketRegimeLabel(regime: MarketRegimeSummary | null | undefined): string | null {
   if (!regime) return null;
@@ -885,6 +894,19 @@ export function getRankingLabel(parsed: ParsedSummary): string | null {
       ? t("{0}일 시장 대비 수익률 상위", days)
       : t("시장 대비 수익률 상위(산정 기간 미정)");
   }
+  if (parsed.ranking_metric === "residual_reversal") {
+    // 잔차 반전 시그널 랭킹(엔진 v16.17) — 시장·섹터 회귀 잔차의 반전 시그널 순위.
+    // 허용 밖 값을 되묻는 동안에는 기간이 비어 있다(백엔드가 임의 값으로 채우지 않는다).
+    const lookback = parsed.ranking_lookback_days;
+    const accumulation = parsed.ranking_accumulation_days;
+    const bottom = parsed.ranking_direction === "bottom";
+    if (lookback == null || accumulation == null) {
+      return bottom ? t("잔차 반전 시그널 하위(기간 미정)") : t("잔차 반전 시그널 상위(기간 미정)");
+    }
+    return bottom
+      ? t("잔차 반전 시그널 하위 (회귀 {0}일·누적 {1}일)", lookback, accumulation)
+      : t("잔차 반전 시그널 상위 (회귀 {0}일·누적 {1}일)", lookback, accumulation);
+  }
   if (parsed.ranking_metric === "volatility") {
     // 엔진의 방향 미지정 기본은 bottom(저변동성 선호) — backtest_engine 변동성 분기 미러.
     const days = parsed.ranking_lookback_days;
@@ -977,6 +999,7 @@ export function buildStrategySummary(
     positionText: [
       `${getPositionLabel(parsed)}${parsed.hold_period_days ? t(" · {0}일 보유", parsed.hold_period_days) : ""}`,
       formatAllocationLabel(parsed.allocation_type, parsed.allocation_lookback_days),
+      formatWeightCapLabel(parsed.max_position_weight_pct),
     ].filter(Boolean).join(" · "),
     riskText: [
       stopLossPct ? t("손절 {0}%", stopLossPct) : "",
@@ -1142,6 +1165,7 @@ export function buildStrategySummaryFromRequest(
     ranking_metric: (risk.ranking_metric as string | null) ?? null,
     ranking_lookback_days: num(risk.ranking_lookback_days),
     ranking_skip_days: num(risk.ranking_skip_days),
+    ranking_accumulation_days: num(risk.ranking_accumulation_days),
     ranking_direction: (risk.ranking_direction as "top" | "bottom" | null) ?? null,
     ranking_components: Array.isArray(risk.ranking_components)
       ? (risk.ranking_components as ParsedSummary["ranking_components"])
@@ -1207,6 +1231,7 @@ export function buildStrategySummaryFromRequest(
         ? [
             `${t("최대 {0}종목", maxPositions)}${maxHoldingDays ? t(" · {0}일 보유", maxHoldingDays) : ""}`,
             allocationLabel,
+            formatWeightCapLabel(num(risk.max_position_weight_pct)),
           ].filter(Boolean).join(" · ")
         : undefined,
     riskText:

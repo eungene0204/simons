@@ -56,6 +56,7 @@ _FIELD_LABELS: Dict[str, str] = {
     "entry_filters": "매수 필터",
     "ranking_metric": "랭킹 기준",
     "ranking_lookback_days": "랭킹 산정 기간",
+    "max_position_weight_pct": "종목당 비중 상한",
     "ranking_direction": "랭킹 방향",
     "ranking_quantile_groups": "분위 그룹 수",
     "ranking_group_cap": "그룹당 보유 종목 수",

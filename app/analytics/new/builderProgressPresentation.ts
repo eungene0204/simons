@@ -531,6 +531,14 @@ export function buildBuilderTurnPresentation({
       value: t("{0}종목", holdingCount),
     });
   }
+  // 종목당 비중 상한(엔진 v16.18) — 말했을 때만 값이 있다(기본값 없음). 반영됐는데 요약에 없으면
+  // 사용자는 '지원하지 않아요' 안내가 사라진 것만 보고 반영 여부를 알 수 없다(2026-09-20 실측).
+  if (parsed?.max_position_weight_pct != null) {
+    summaryItems.push({
+      label: t("종목당 비중 상한"),
+      value: t("{0}%", parsed.max_position_weight_pct),
+    });
+  }
   if (rebalanceCycle && rebalanceExplicit) {
     const normalizedCycle = String(rebalanceCycle);
     const cycle = t(REBALANCE_LABELS[normalizedCycle] ?? normalizedCycle);

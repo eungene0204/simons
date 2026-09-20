@@ -708,8 +708,9 @@ class BacktestEngine:
                     [risk_params.get('ranking_metric')] if not _rank_components
                     else [c['metric'] for c in _rank_components]
                 )
-                # 모멘텀·변동성은 price_df에서 직접 계산 — 컬럼 수집 불필요
-                if m and m not in ('return', 'relative_return', 'volatility', 'composite')
+                # 모멘텀·변동성·잔차 반전은 가격에서 직접 계산 — 컬럼 수집 불필요
+                if m and m not in ('return', 'relative_return', 'volatility', 'composite',
+                                   'residual_reversal')
             ]
             all_fund_rank_values: dict = {col: {} for col in _rank_metric_cols}
             # 랭킹 lookback 패널 전용 워밍업 포함 종가(phase1.window_boundary_prep) — 창 시작 절단이
@@ -1359,11 +1360,14 @@ class BacktestEngine:
             # 나눠 그룹별로 각각 백테스트한다. 메인 결과는 1그룹(랭킹 최상위 구간)이다.
             _qg_n = int(risk_params.get('ranking_quantile_groups') or 0)
             _sel_pct = risk_params.get('max_positions_pct')
-            if ranking_metric in ('return', 'relative_return'):
+            if ranking_metric in ('return', 'relative_return', 'residual_reversal'):
                 # 상대강도(모멘텀) 랭킹: N일 수익률 순위로 상위 종목 선정. 'relative_return'
                 # (v16.10)은 같은 계약으로 종목 수익률에서 **자기 시장 지수** 수익률을 뺀
                 # 초과수익률 순위다 — 코스피·코스닥 혼합 유니버스에서도 종목마다 제 지수를 빼므로
                 # 정확하고, 지수가 없는 종목(미국)은 NaN → 후보 배제.
+                # 'residual_reversal'(v16.17)은 시장·섹터 회귀 잔차의 반전 시그널이다 — 점수가
+                # 가격 패널이 아니라 지표 전용 전체 이력에서 나오고(engine/residual_factor.py),
+                # 시장·섹터를 모르는 종목은 NaN → 후보 배제. 순위·지연·후보 풀 계약은 같다.
                 # 종목 간 횡단면 순위라 진입 신호 없이 순위 자체가 진입이 된다. 회전(월간 등)은
                 # 달력 리밸런싱(engine/rebalance.py + simulator의 목표비중/재구성 경로)이 구동한다.
                 try:
@@ -1378,6 +1382,17 @@ class BacktestEngine:
                     if ranking_metric == 'relative_return':
                         from engine.market_index import relative_return_panel
                         momentum = relative_return_panel(rank_price_df, lookback, self.loader.data_dir)
+                    elif ranking_metric == 'residual_reversal':
+                        from engine import residual_factor
+                        _accum = int(risk_params.get('ranking_accumulation_days')
+                                     or residual_factor.DEFAULT_ACCUMULATION)
+                        momentum = residual_factor.residual_reversal_panel(
+                            rank_price_df, lookback, _accum, self.loader.data_dir)
+                        if momentum is None or not momentum.notna().any().any():
+                            # 지수 시계열이 없거나 시장·섹터를 아는 종목이 없다 — 조용한 0거래 금지.
+                            self.warnings.add(rw.warning(
+                                rw.RANK_METRIC_DATA_MISSING, tr.part(tr.RESIDUAL_REVERSAL_METRIC)))
+                            raise RuntimeError("잔차 반전 시그널을 계산할 수 없습니다")
                     else:
                         momentum = lookback_return_panel(
                             rank_price_df, lookback, int(risk_params.get('ranking_skip_days') or 0))
@@ -1419,6 +1434,7 @@ class BacktestEngine:
                         _dir_seg = tr.part(tr.RANK_BOTTOM if _direction == 'bottom' else tr.RANK_TOP)
                         _rank_tpl = (tr.RANKING_RELATIVE_RETURN if ranking_metric == 'relative_return'
                                      else tr.RANKING_RETURN)
+                        _residual = ranking_metric == 'residual_reversal'
                         _skip = int(risk_params.get('ranking_skip_days') or 0)
                         _top_pct_df = (1.0 - rank_df) * 100.0
                         for _sym in processed_symbols:
@@ -1431,6 +1447,13 @@ class BacktestEngine:
                                 _reason_ser.loc[_mask] = _pct_vals.apply(
                                     lambda p: tr.encode([tr.part(
                                         tr.RANKING_RETURN_SKIP, lookback, _skip, _dir_seg,
+                                        max(1, round(p)), _rebal_note,
+                                    )])
+                                )
+                            elif _residual:
+                                _reason_ser.loc[_mask] = _pct_vals.apply(
+                                    lambda p: tr.encode([tr.part(
+                                        tr.RANKING_RESIDUAL_REVERSAL, lookback, _accum, _dir_seg,
                                         max(1, round(p)), _rebal_note,
                                     )])
                                 )
@@ -1661,6 +1684,17 @@ class BacktestEngine:
             if _entry_signal_driven:
                 risk_params = dict(risk_params)
                 risk_params['entry_signal_driven'] = True
+
+            # ── 종목당 비중 상한(v16.18) ── 상한 × 최대 종목 수가 100%에 못 미치면 남는 몫은 현금이다.
+            # 수익률이 '일부만 투자한 결과'임을 조용히 두지 않고 결과 경고로 알린다.
+            _cap_pct = risk_params.get('max_position_weight_pct')
+            _cap_max_pos = risk_params.get('max_positions')
+            if _cap_pct is not None and _cap_max_pos and not skip_pos:
+                _cap_total = float(_cap_pct) * int(_cap_max_pos)
+                if _cap_total < 100.0 - 1e-9:
+                    self.warnings.add(rw.warning(
+                        rw.POSITION_WEIGHT_CAP_LEAVES_CASH,
+                        f"{float(_cap_pct):g}", int(_cap_max_pos), f"{_cap_total:g}"))
 
             # ── 변동성 역비중·시장 국면 필터(v16.14) ──
             # 둘 다 신호·순위와 같은 지연 규칙으로 맞춘다(next_open이면 전일 정보, 창 첫날은 창

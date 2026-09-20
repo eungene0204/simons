@@ -370,6 +370,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
     ranking_quantile_groups = None
     ranking_components = None
     ranking_skip_days = None
+    ranking_accumulation_days = None
     # 검증기(capability_validator)가 metric을 정본 id로 정규화하고 미지원 항목을 제거한 뒤다.
     # 등록되지 않은 metric이 남아 있으면 그 항목은 랭킹에서 뺀다 — 과거의 'return' 폴백은
     # 사용자가 말하지 않은 수익률 랭킹을 만들어냈다(2026-08-17 사고). 임의 보정 금지.
@@ -425,6 +426,21 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
             ranking_lookback = rank.lookback_days
             if rank.skip_days and ranking_metric == "return":
                 ranking_skip_days = int(rank.skip_days)
+            if ranking_metric == "residual_reversal":
+                # 개방 파라미터(v16.17, 사용자 결정 2026-09-20): 말하지 않은 값은 기본값(60/5)으로
+                # 확정해 정본 DSL에 싣는다 — 조합마다 strategy_id가 달라야 한다. 허용 밖 값은
+                # 싣지 않는다(검증기가 되묻는다 — 임의 값으로 바꿔치지 않는다).
+                from engine import residual_factor as _rf
+
+                def _allowed(value, default, choices):
+                    if value is None:
+                        return default
+                    return int(value) if int(value) in choices else None
+
+                ranking_lookback = _allowed(
+                    rank.lookback_days, _rf.DEFAULT_LOOKBACK, _rf.REGRESSION_LOOKBACKS)
+                ranking_accumulation_days = _allowed(
+                    rank.accumulation_days, _rf.DEFAULT_ACCUMULATION, _rf.ACCUMULATION_DAYS)
             # 방향은 재무 팩터 분기와 같은 계약 — 저변동성(lower_better)은 침묵이
             # '가장 출렁이는 종목 선정'으로 뒤집히지 않게 온톨로지가 bottom을 채운다.
             # return(higher_better)은 top이라 저장값 None 그대로다(기존 해시 불변).
@@ -540,6 +556,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         ranking_quantile_groups=ranking_quantile_groups,
         ranking_components=ranking_components,
         ranking_skip_days=ranking_skip_days,
+        ranking_accumulation_days=ranking_accumulation_days,
         # 비중 방식(v16.14) — 검증기가 정본(equal/inverse_volatility)으로 정규화한 뒤다.
         allocation_type=(
             "inverse_volatility" if portfolio.weighting == "inverse_volatility" else "equal"
@@ -547,6 +564,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         allocation_lookback_days=(
             portfolio.weighting_lookback_days if portfolio.weighting == "inverse_volatility" else None
         ),
+        max_position_weight_pct=portfolio.max_weight_percent,
         market_regime=_market_regime_from_spec(mf) if mf is not None else None,
         max_positions=portfolio.selection_count if portfolio.selection_count is not None else 10,
         # 위 줄이 기본값 10을 물질화하면서 출처가 지워진다 — 그 사실만 따로 남긴다.

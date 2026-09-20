@@ -12,6 +12,38 @@ from strategy_conversation.registry.capability_registry import MAX_POSITIONS_RAN
 from strategy_conversation.registry.indicator_registry import REGISTRY
 
 
+def residual_reversal_param_errors(rank) -> List[str]:
+    """잔차 반전 시그널 랭킹의 파라미터 오류 문장 — 허용값(이산)과 '회귀 룩백 ≥ 누적 기간'.
+
+    판정 입력은 LLM이 낸 구조화 값(숫자)뿐이다. 허용값의 정본은 engine/residual_factor.py.
+    """
+    from engine import residual_factor as rf
+
+    def _days(choices) -> str:
+        return "·".join(str(c) for c in choices)
+
+    errors: List[str] = []
+    lookback, accumulation = rank.lookback_days, rank.accumulation_days
+    if lookback is not None and lookback not in rf.REGRESSION_LOOKBACKS:
+        errors.append(
+            f"잔차 반전 시그널의 회귀 기간은 {_days(rf.REGRESSION_LOOKBACKS)}거래일 중에서 "
+            f"고를 수 있습니다({lookback}거래일은 지원하지 않습니다)"
+        )
+    if accumulation is not None and accumulation not in rf.ACCUMULATION_DAYS:
+        errors.append(
+            f"잔차 반전 시그널의 잔차 누적 기간은 {_days(rf.ACCUMULATION_DAYS)}거래일 중에서 "
+            f"고를 수 있습니다({accumulation}거래일은 지원하지 않습니다)"
+        )
+    effective_lookback = lookback if lookback is not None else rf.DEFAULT_LOOKBACK
+    effective_accumulation = accumulation if accumulation is not None else rf.DEFAULT_ACCUMULATION
+    if effective_lookback < effective_accumulation:
+        errors.append(
+            f"회귀 기간({effective_lookback}거래일)은 잔차 누적 기간({effective_accumulation}거래일)보다 "
+            "짧을 수 없습니다"
+        )
+    return errors
+
+
 def validate_parameters(intent: StrategyIntent) -> List[str]:
     errors: List[str] = []
     strategy = intent.strategy
@@ -58,6 +90,13 @@ def validate_parameters(intent: StrategyIntent) -> List[str]:
                     f"최근 제외 기간 {rank.skip_days}거래일은 산정 기간보다 짧아야 합니다"
                 )
                 rank.skip_days = None
+        # 잔차 반전 시그널(v16.17)의 개방 파라미터는 이산값만 허용한다. 값은 지우지 않는다 —
+        # 완결성 검증이 같은 값을 보고 허용값을 되묻고, 컴파일러는 허용 밖 값을 싣지 않는다.
+        if rank.metric == "ranking.residual_reversal":
+            errors.extend(residual_reversal_param_errors(rank))
+        elif rank.accumulation_days is not None:
+            errors.append("잔차 누적 기간은 잔차 반전 시그널 랭킹에서만 지원됩니다")
+            rank.accumulation_days = None
 
     portfolio = strategy.portfolio
     if portfolio.selection_count is not None:
@@ -74,6 +113,10 @@ def validate_parameters(intent: StrategyIntent) -> List[str]:
             f"변동성 산정 기간 {portfolio.weighting_lookback_days}거래일은 유효 범위(5~500)를 벗어났습니다"
         )
         portfolio.weighting_lookback_days = None
+    if portfolio.max_weight_percent is not None and not (0 < portfolio.max_weight_percent <= 100):
+        errors.append(
+            f"종목당 비중 상한 {portfolio.max_weight_percent}%은(는) 0 초과 100 이하여야 합니다")
+        portfolio.max_weight_percent = None
     mf = strategy.market_filter
     if mf is not None:
         if mf.ma_period is not None and not (5 <= mf.ma_period <= 500):

@@ -528,6 +528,33 @@ describe("strategySummary", () => {
     expect(pending?.entryBlocks).toEqual(["시장 대비 수익률 상위(산정 기간 미정)"]);
   });
 
+  it("잔차 반전 시그널 랭킹(엔진 v16.17)은 회귀·누적 기간을 라벨에 드러낸다", () => {
+    // 내부 식별자(residual_reversal)가 요약 카드에 그대로 나가지 않아야 한다 — 조합마다 다른 전략이다.
+    const top = buildStrategySummary({
+      ...baseParsed,
+      ranking_metric: "residual_reversal",
+      ranking_lookback_days: 120,
+      ranking_accumulation_days: 10,
+    });
+    expect(top?.entryBlocks).toEqual(["잔차 반전 시그널 상위 (회귀 120일·누적 10일)"]);
+    // 허용 밖 값을 되묻는 동안에는 백엔드가 기간을 비워 둔다.
+    const pending = buildStrategySummary({
+      ...baseParsed,
+      ranking_metric: "residual_reversal",
+      ranking_lookback_days: null,
+      ranking_accumulation_days: 5,
+    });
+    expect(pending?.entryBlocks).toEqual(["잔차 반전 시그널 상위(기간 미정)"]);
+  });
+
+  it("종목당 비중 상한(엔진 v16.18)은 보유 요약에 드러난다", () => {
+    // '종목당 비중은 2%를 상한으로'가 반영됐는데 카드에 안 보이면 사용자는 반영 여부를 알 수 없다.
+    const capped = buildStrategySummary({ ...baseParsed, max_position_weight_pct: 2 });
+    expect(capped?.positionText).toContain("종목당 비중 상한 2%");
+    const plain = buildStrategySummary({ ...baseParsed });
+    expect(plain?.positionText).not.toContain("종목당 비중 상한");
+  });
+
   it("재무 팩터 랭킹 전략은 지표 라벨과 방향을 진입 신호 배지로 노출한다", () => {
     // 2026-08-03 신설 — '영업이익률 상위 20종목'류 재무 랭킹(모멘텀과 같은 선정=진입 계약).
     const top = buildStrategySummary({

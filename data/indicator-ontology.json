@@ -148,6 +148,7 @@
 
     "ranking.return": "class.ranking",
     "ranking.relative_return": "class.ranking", "ranking.volatility": "class.ranking",
+    "ranking.residual_reversal": "class.ranking",
 
     "unsupported.partial_exit": "class.execution"
   },
@@ -201,6 +202,7 @@
 
     "ranking.return": "higher_better",
     "ranking.relative_return": "higher_better", "ranking.volatility": "lower_better",
+    "ranking.residual_reversal": "higher_better",
 
     "technical.ma_crossover": "none",
     "technical.ema": "none",

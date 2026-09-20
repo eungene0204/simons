@@ -244,6 +244,41 @@ def whole_input_quote_error(fields: list) -> str:
     )
 
 
+def is_bare_unsupported_request(intent) -> bool:
+    """무엇이 지원되지 않는지 적지 않은 UNSUPPORTED_REQUEST인가(형식 위반).
+
+    라벨은 '지원하지 않는 것이 있다'고 주장하는데 그 내용(unsupported_features)도 전략 골격도
+    없다 — 이 출력으로는 시스템이 사용자에게 무엇이 안 되는지 말해 줄 수 없고 턴이 "해석하지
+    못했어요"로 끝난다(2026-09-20 실측: 120B가 미지원 개념이 대부분인 퀀트 전략 서술에
+    `{"intent": "UNSUPPORTED_REQUEST"}` 11토큰만 냈다, temperature=0 재현). 출력 필드의
+    값 존재만 본다 — 원문을 읽지 않는다.
+    """
+    return (
+        getattr(intent, "intent", None) == "UNSUPPORTED_REQUEST"
+        and getattr(intent, "strategy", None) is None
+        and not getattr(intent, "unsupported_features", None)
+    )
+
+
+def bare_unsupported_request_error() -> str:
+    """빈 UNSUPPORTED_REQUEST를 LLM에 되돌려줄 검증 오류 문구(build_repair_prompt의 error_message).
+
+    문장 통째 나열을 막는 두 번째 줄은 실측으로 넣었다 — 없으면 120B가 입력의 모든 문장을
+    unsupported_features에 그대로 옮기고 옮길 수 있는 설정(주기·비중·체결 시점·수수료)까지 버린다.
+    """
+    return (
+        "intent: UNSUPPORTED_REQUEST를 냈지만 unsupported_features가 비어 있습니다 — 무엇이 "
+        "지원되지 않는지 적지 않은 UNSUPPORTED_REQUEST는 허용되지 않습니다.\n"
+        "- 입력이 전략 서술이면 intent는 CREATE_STRATEGY입니다. 출력 형식의 필드로 옮길 수 있는 "
+        "표현(종목 수·비중 방식·리밸런싱 주기·체결 시점·수수료·손절 등)은 strategy의 해당 필드에 "
+        "값으로 채우고, 옮길 수 없는 개념만 그 개념을 말한 짧은 입력 조각으로 "
+        "unsupported_features에 하나씩 적으세요(문장 통째 금지, 필드에 반영한 표현은 다시 넣지 "
+        "않음).\n"
+        "- 입력이 종목추천·시장전망 등 역할 밖 행위 요청이면 그 행위를 unsupported_features에 "
+        "적으세요."
+    )
+
+
 def build_repair_prompt(
     user_input: str,
     bad_output: str,

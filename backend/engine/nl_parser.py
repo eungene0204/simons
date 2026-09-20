@@ -514,7 +514,8 @@ RankingComponentMetricLiteral = Literal[
 ]
 # 'composite'=복합 순위 합산(FR-BT-063) — 구성 지표는 ranking_components에 담긴다.
 # 단일 지표 랭킹 어휘(RankingComponentMetricLiteral)에 합산 모드 하나를 더한 것.
-RankingMetricLiteral = Literal[RankingComponentMetricLiteral, "composite"]
+# 'residual_reversal'=시장·섹터 회귀 잔차 반전 시그널(v16.17) — 단독 랭킹 전용(복합 구성 불가).
+RankingMetricLiteral = Literal[RankingComponentMetricLiteral, "composite", "residual_reversal"]
 
 
 def _normalize_metric_alias(value):
@@ -993,6 +994,8 @@ class ParsedStrategy(BaseModel):
             "종목 간 순위로 선정하는 방식. 'return'=최근 수익률 상위 종목 선정(상대강도/모멘텀 랭킹), "
             "'relative_return'=시장 대비 초과수익률(종목 수익률−상장 시장 지수 수익률) 순위 선정, "
             "'volatility'=연환산 변동성 순위 선정(저변동성 전략은 direction='bottom'), "
+            "'residual_reversal'=시장·섹터 회귀 잔차의 반전 시그널 순위 선정(회귀 룩백="
+            "ranking_lookback_days, 잔차 누적 기간=ranking_accumulation_days), "
             "재무 지표명(operating_margin 등)=그 지표 값 순위로 선정(재무 팩터 랭킹). "
             "예: '최근 60일 수익률 높은 상위 N종목', '변동성 낮은 20종목', '영업이익률 상위 20종목'. "
             "진입 신호 없이 순위 자체가 진입. 없으면 null"
@@ -1033,6 +1036,17 @@ class ParsedStrategy(BaseModel):
     ranking_skip_days: Optional[int] = Field(
         default=None, ge=1,
         description="수익률 랭킹에서 제외할 최근 거래일 수(12-1 모멘텀=21). ranking_metric='return'일 때만. 없으면 null",
+    )
+    ranking_accumulation_days: Optional[int] = Field(
+        default=None, ge=1,
+        description=(
+            "잔차 반전 시그널의 잔차 누적 기간(거래일, 3·5·10·20 중 하나). "
+            "ranking_metric='residual_reversal'일 때만. 없으면 null"
+        ),
+    )
+    max_position_weight_pct: Optional[float] = Field(
+        default=None, gt=0, le=100,
+        description="종목당 비중 상한(%, 편입·리밸런싱 시점 목표 비중). 예: '종목당 비중 2% 상한'=2. 없으면 null",
     )
     # ── 비중·시장 국면(엔진 v16.14)
     allocation_type: Literal["equal", "inverse_volatility"] = Field(

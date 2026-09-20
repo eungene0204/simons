@@ -550,6 +550,19 @@ def main(argv=None):
         print(f"[WARNING] 시장지수 갱신 실패 (exit {idx_result.returncode}): "
               f"{(idx_result.stderr or '').strip()[-300:]}")
 
+    # 7. 잔차 반전 시그널 사전계산 캐시(data/factor_cache) — 가격·지수가 확정된 뒤에 만든다.
+    #    캐시는 데이터 지문이 맞을 때만 쓰이므로 실패해도 백테스트 결과는 같다(그 자리 계산으로 느려질 뿐).
+    print("\nBuilding residual factor cache (data/factor_cache)...")
+    factor_result = subprocess.run(
+        [sys.executable, "backend/scripts/build_residual_factor_cache.py"],
+        capture_output=True, text=True,
+    )
+    for line in (factor_result.stdout or "").strip().splitlines()[-2:]:
+        print(f"  {line}")
+    if factor_result.returncode != 0:
+        print(f"[WARNING] 잔차 반전 시그널 캐시 구축 실패 (exit {factor_result.returncode}): "
+              f"{(factor_result.stderr or '').strip()[-300:]}")
+
     print(f"\nFinal Summary:")
     print(f"- Total Stocks: {len(stocks)}")
     print(f"- New symbols added: {len(new_symbols)}")

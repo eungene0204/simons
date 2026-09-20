@@ -892,6 +892,7 @@ const OVERVIEW_LAYERS: ArchLayer[] = [
           points: [
             'MA(5/10/20/60/120)·EMA·RSI·MACD·볼린저·스토캐스틱·CCI·ADX·거래량 급증·돌파·거래대금',
             'williams_r·mfi·roc·relative_return(시장 대비 초과수익률 — data/index 지수 종가 조인) 등 퀀트 지표 확장분 포함',
+            '랭킹 지표 residual_reversal(잔차 반전 시그널, v16.17) — 시장·섹터 회귀 잔차의 반전 순위. 기본 조합(60/5)은 data/factor_cache 사전계산, 나머지는 온디맨드(값은 비트 동일)',
           ],
         },
       },

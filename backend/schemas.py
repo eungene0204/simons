@@ -58,6 +58,12 @@ class RiskManagement(BaseModel):
     # 복합 순위 구성 지표는 ranking_components[*].skip_days·group을 쓴다. 스키마 미선언 시
     # model_dump가 조용히 버린다 — ranking_metric 0거래 사고와 같은 함정.
     ranking_skip_days: Optional[int] = None
+    # 잔차 반전 시그널(v16.17, ranking_metric='residual_reversal')의 잔차 누적 기간. 회귀 룩백은
+    # ranking_lookback_days를 쓴다. 스키마 미선언 시 model_dump가 조용히 버린다 — 같은 함정.
+    ranking_accumulation_days: Optional[int] = None
+    # 종목당 비중 상한(%, v16.18) — 편입·리밸런싱 시점 목표 비중에 거는 상한. 스키마 미선언 시
+    # model_dump가 조용히 버린다 — ranking_metric 0거래 사고와 같은 함정.
+    max_position_weight_pct: Optional[float] = None
     # 비중 방식: 'equal'(동일 비중) | 'inverse_volatility'(변동성 역비중, v16.14 — 1/σ(N일)에 비례).
     allocation_type: Optional[str] = "equal"
     allocation_lookback_days: Optional[int] = None

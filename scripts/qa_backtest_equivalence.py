@@ -140,6 +140,21 @@ def build_strategies(symbols: List[str], kospi200_ids: List[str]) -> Dict[str, D
               rebalancing_period="quarterly", position_size_pct=10,
               market_regime={"index": "KOSPI", "triggers": ["below_ma", "volatility_spike"], "ma_period": 200,
                              "volatility_multiple": 2.0, "exposure_pct": 30}))
+    # 엔진 v16.17 — 잔차 반전 시그널. 기본 조합(60/5)은 사전계산 캐시, 다른 조합은 온디맨드 경로다.
+    add("residual_reversal_default_daily", _grp(), _grp(),
+        _risk(ranking_metric="residual_reversal", ranking_lookback_days=60, ranking_accumulation_days=5,
+              max_positions=10, rebalancing_period="daily", position_size_pct=10))
+    add("residual_reversal_120_10_weekly", _grp(), _grp(),
+        _risk(ranking_metric="residual_reversal", ranking_lookback_days=120, ranking_accumulation_days=10,
+              max_positions=10, rebalancing_period="weekly", position_size_pct=10))
+    # 엔진 v16.18 — 종목당 비중 상한(순수 리밸런싱 경로·조건 루프 경로). 상한 5% × 10종목 = 50% 투자.
+    add("weight_cap_momentum_monthly", _grp(), _grp(),
+        _risk(ranking_metric="return", ranking_lookback_days=60, max_positions=10, rebalancing_period="monthly",
+              position_size_pct=10, max_position_weight_pct=5))
+    add("weight_cap_signal_loop_inverse_vol", _grp(_cond("rsi", period=14, operator="<", value=45)), _grp(),
+        _risk(ranking_metric="volatility", ranking_lookback_days=60, ranking_direction="bottom", max_positions=8,
+              rebalancing_period="monthly", stop_loss_pct=10, allocation_type="inverse_volatility",
+              allocation_lookback_days=60, max_position_weight_pct=10))
     add("quantile_groups_per", _grp(), _grp(),
         _risk(ranking_metric="per", ranking_direction="bottom", ranking_quantile_groups=5, max_positions=None, rebalancing_period="quarterly", position_size_pct=5))
     add("no_cap_signal_only", _grp(_cond("rsi", period=14, operator="<", value=30)),

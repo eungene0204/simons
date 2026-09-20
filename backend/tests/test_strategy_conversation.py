@@ -4653,6 +4653,117 @@ def test_whole_input_quote_shares_the_single_repair_budget():
     assert len(calls) == 2 and result.repair_attempts == 1
 
 
+# ── 빈 UNSUPPORTED_REQUEST 라벨 재생성(2026-09-20) ──────────────────────────────
+# 120B가 미지원 개념이 대부분인 퀀트 전략 서술(잔차 회귀·달러 중립 롱숏·변동성 타깃)에
+# `{"intent": "UNSUPPORTED_REQUEST"}`만 내 턴이 "해석하지 못했어요"로 끝났다(temperature=0 재현).
+_BARE_LABEL_SENTENCE = (
+    "매일 각 종목의 지난 60영업일 일간 수익률을 시장수익률에 회귀시켜 잔차를 구하고 z-score로 "
+    "표준화해 시그널로 쓴다. 시그널 상위 50종목을 동일가중 매수, 하위 50종목을 동일가중 매도하여 "
+    "달러 중립 포트폴리오를 구성한다. 다음 날 시가에 체결하며, 편도 거래비용 15bp를 적용한다."
+)
+_BARE_LABEL_RAW = '{"intent": "UNSUPPORTED_REQUEST"}'
+_BARE_LABEL_UNSUPPORTED = [
+    "매일 각 종목의 지난 60영업일 일간 수익률을 시장수익률에 회귀시켜 잔차를 구하고 z-score로 "
+    "표준화해 시그널로 쓴다",
+    "하위 50종목을 동일가중 매도하여 달러 중립 포트폴리오를 구성한다",
+]
+
+
+def _bare_label_regenerated() -> str:
+    """재생성 응답 — 2026-09-20 120B 실측 출력의 형태(옮길 수 있는 설정은 필드에, 나머지는 미지원에)."""
+    return json.dumps({
+        "intent": "CREATE_STRATEGY",
+        "strategy": {
+            "universe": {"markets": ["KOSPI", "KOSDAQ"]},
+            "portfolio": {"selection_count": 50, "weighting": "equal",
+                          "rebalance_frequency": "daily"},
+            "backtest": {"execution_timing": "next_open", "fee_rate": 0.15},
+        },
+        "unsupported_features": _BARE_LABEL_UNSUPPORTED,
+        "confidence": 0.9,
+    }, ensure_ascii=False)
+
+
+def _bare_label_chat(first: str, regenerated: str):
+    from strategy_conversation.interpreter import condition_recall
+
+    calls: list = []
+
+    def chat(system, user, **_kw):
+        if system == condition_recall.build_system_prompt():
+            return '{"phrases": []}'
+        if system == condition_recall.build_period_system_prompt():
+            return '{"quote": null, "period": null}'
+        calls.append(user)
+        return first if len(calls) == 1 else regenerated
+
+    return chat, calls
+
+
+def test_bare_unsupported_request_regenerates_once_and_turn_proceeds(monkeypatch):
+    """빈 라벨은 오류를 LLM에 되돌려 1회 재생성하고, 재생성본으로 턴이 진행된다 —
+    "해석하지 못했어요"(None) 대신 반영된 설정 + 미지원 안내가 나간다."""
+    import llm_backend
+    from strategy_conversation import primary
+
+    monkeypatch.setattr(llm_backend, "is_openrouter", lambda: False)
+    chat, calls = _bare_label_chat(_BARE_LABEL_RAW, _bare_label_regenerated())
+    monkeypatch.setattr(primary, "_interpreter_singleton",
+                        StrategyInterpreter(chat_fn=chat, model="stub"))
+
+    result = primary.run_primary_parse(_BARE_LABEL_SENTENCE)
+
+    assert len(calls) == 2
+    assert "unsupported_features가 비어 있습니다" in calls[1]
+    assert result is not None
+    parsed = result["parsed"]
+    assert parsed.rebalancing_period == "daily"
+    assert parsed.max_positions == 50
+    assert parsed.execution_timing == "next_open"
+    assert any("지원하지 않아" in notice for notice in result["notices"])
+
+
+def test_bare_unsupported_request_still_bare_after_regeneration_is_returned_as_is():
+    """재생성본도 빈 라벨이면 더 요청하지 않고 그대로 돌려준다(기존 해석 실패 안내 경로)."""
+    chat, calls = _bare_label_chat(_BARE_LABEL_RAW, _BARE_LABEL_RAW)
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(_BARE_LABEL_SENTENCE)
+
+    assert len(calls) == 2 and result.repair_attempts == 1
+    assert result.intent.intent == "UNSUPPORTED_REQUEST" and result.intent.strategy is None
+
+
+def test_bare_unsupported_request_regeneration_schema_failure_keeps_original_output():
+    """재생성본이 스키마를 깨도 예외로 끝내지 않는다 — 원출력(빈 라벨)으로 진행한다."""
+    chat, calls = _bare_label_chat(_BARE_LABEL_RAW, "no json here")
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(_BARE_LABEL_SENTENCE)
+
+    assert len(calls) == 2 and result.repair_attempts == 1
+    assert result.intent.intent == "UNSUPPORTED_REQUEST"
+
+
+def test_unsupported_request_with_reported_features_is_not_regenerated():
+    """무엇이 안 되는지 적은 UNSUPPORTED_REQUEST(역할 밖 행위 거절 포함)는 위반이 아니다."""
+    raw = '{"intent": "UNSUPPORTED_REQUEST", "unsupported_features": ["stock_recommendation"]}'
+    chat, calls = _bare_label_chat(raw, _bare_label_regenerated())
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret("요즘 뭐 사면 좋아요?")
+
+    assert len(calls) == 1 and result.repair_attempts == 0
+    assert result.intent.intent == "UNSUPPORTED_REQUEST"
+
+
+def test_bare_unsupported_request_on_modify_turn_is_not_regenerated():
+    """수정 턴(초안 있음)은 대상이 아니다 — 실측·검증한 범위는 생성 턴뿐이다."""
+    chat, calls = _bare_label_chat(_BARE_LABEL_RAW, _bare_label_regenerated())
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(
+        "달러 중립으로 바꿔줘", draft={"universe": {"markets": ["KOSPI"]}})
+
+    assert len(calls) == 1 and result.repair_attempts == 0
+
+
 def test_fabrication_guard_drops_whole_input_quote_silently():
     """가드 단독: 입력 전체 인용 조건은 안내 없이 빠지고, 정상 인용 조건은 남는다."""
     from strategy_conversation.primary import _drop_fabricated_conditions

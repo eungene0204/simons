@@ -169,16 +169,31 @@ def _inverse_vol_values(vol_df: Optional[pd.DataFrame]) -> Optional[np.ndarray]:
         return np.where(vol > 0, 1.0 / vol, np.nan)
 
 
+def _weight_cap(risk_params: Dict[str, Any]) -> Optional[float]:
+    """종목당 비중 상한(v16.18, ``max_position_weight_pct``) → 비율. 없거나 100% 이상이면 None.
+
+    상한은 편입·리밸런싱 시점의 **목표 비중**에 건다(min). 잘린 몫은 다른 종목에 재배분하지 않고
+    현금으로 남는다 — 동일가중은 재배분할 곳이 없고(전 종목이 같은 상한에 걸린다), 역변동성도 같은
+    규칙으로 둔다. 보유 중 주가 상승으로 비중이 상한을 넘는 것은 다음 리밸런싱의 비중 리셋이 되돌린다.
+    """
+    raw = risk_params.get('max_position_weight_pct')
+    if raw is None:
+        return None
+    cap = float(raw) / 100.0
+    return cap if 0.0 < cap < 1.0 else None
+
+
 def _entry_base_size(cur_size: float, inv_vals: Optional[np.ndarray],
-                     inv_norm: Optional[float], i: int, s_idx: int) -> float:
+                     inv_norm: Optional[float], i: int, s_idx: int,
+                     cap: Optional[float] = None) -> float:
     """노출 100% 기준 종목 비중 — 동일가중 × (1/σ_i ÷ 기간 정규화 기준). 역비중이 아니거나
-    σ·기준이 없으면 동일가중 그대로."""
-    if inv_vals is None or not inv_norm:
-        return cur_size
-    iv = inv_vals[i, s_idx]
-    if not np.isfinite(iv):
-        return cur_size
-    return cur_size * float(iv) / inv_norm
+    σ·기준이 없으면 동일가중 그대로. ``cap``(종목당 비중 상한)이 있으면 그 값으로 자른다."""
+    size = cur_size
+    if inv_vals is not None and inv_norm:
+        iv = inv_vals[i, s_idx]
+        if np.isfinite(iv):
+            size = cur_size * float(iv) / inv_norm
+    return min(size, cap) if cap is not None else size
 
 
 class Simulator:
@@ -250,6 +265,7 @@ class Simulator:
 
         skip_pos = risk_params.get('skip_position_setting', False)
         use_risk_mgmt = not risk_params.get('skip_risk_management', False)
+        weight_cap = _weight_cap(risk_params)
 
         # Determine size per position (진입 시점 포트폴리오 NAV 대비 비중)
         equal_base = risk_params.get('allocation_type') in ('equal', 'inverse_volatility')
@@ -290,7 +306,7 @@ class Simulator:
                 eff_max_pos, init_cash, buy_fee, sell_fee, slippage_val,
                 sel_pct=sel_pct, sel_band=sel_band, band_cap=band_cap,
                 weights_only=weights_only, vol_df=vol_df, exposure=exposure,
-                regime_label=regime_label,
+                regime_label=regime_label, weight_cap=weight_cap,
             )
 
         symbols = entries_df.columns.tolist()
@@ -518,11 +534,12 @@ class Simulator:
                     reset = active_mask & ~pending_exit & avail_values[i]
                     if reset.any():
                         if inv_vals is None and exp_vals is None:
-                            target_values[i, reset] = cur_size
+                            target_values[i, reset] = (
+                                cur_size if weight_cap is None else min(cur_size, weight_cap))
                         else:
                             for s_idx in np.where(reset)[0]:
                                 pos_base[s_idx] = _entry_base_size(
-                                    cur_size, inv_vals, inv_norm, i, s_idx)
+                                    cur_size, inv_vals, inv_norm, i, s_idx, weight_cap)
                             target_values[i, reset] = pos_base[reset] * (
                                 exp_vals[i] if exp_vals is not None else 1.0)
                         # 트림(목표 비중 초과분 매도) 사유 — 오늘 청산이 확정된 종목은
@@ -626,9 +643,13 @@ class Simulator:
                         entry_price[s_idx] = ep
                         peak_price[s_idx] = ep   # Fix 1: init peak at entry price
                         if inv_vals is None and exp_vals is None:
-                            target_values[i, s_idx] = cur_size
+                            # 상한은 최종 비중에만 건다 — 기준 비중(cur_size)을 자르면 역변동성에서
+                            # 상한에 걸리지 않은 종목까지 같이 줄어든다.
+                            target_values[i, s_idx] = (
+                                cur_size if weight_cap is None else min(cur_size, weight_cap))
                         else:
-                            pos_base[s_idx] = _entry_base_size(cur_size, inv_vals, inv_norm, i, s_idx)
+                            pos_base[s_idx] = _entry_base_size(
+                                cur_size, inv_vals, inv_norm, i, s_idx, weight_cap)
                             target_values[i, s_idx] = pos_base[s_idx] * cur_exp
                         fees_values[i, s_idx] = buy_fee
                         if refill_rank[s_idx] > 0:
@@ -719,7 +740,8 @@ class Simulator:
                               weights_only: bool = False,
                               vol_df: Optional[pd.DataFrame] = None,
                               exposure: Optional[np.ndarray] = None,
-                              regime_label: Optional[tuple] = None) -> vbt.Portfolio:
+                              regime_label: Optional[tuple] = None,
+                              weight_cap: Optional[float] = None) -> vbt.Portfolio:
         """순수 리밸런싱 경로 — vbt 네이티브 from_orders(목표비중)로 비중 리셋까지 수행.
 
         리밸런싱일마다 후보(entries=True)를 rank 상위 K로 골라 동일가중 목표비중을 주고,
@@ -782,12 +804,16 @@ class Simulator:
             row = np.zeros(num_syms)            # 0 = 목표에서 빠진 보유는 전량 청산
             if len(sel) > 0:
                 row[sel] = 1.0 / len(sel)        # 동일가중 목표비중 (비중 리셋)
+                if weight_cap is not None:
+                    row = np.minimum(row, weight_cap)   # 종목당 비중 상한(v16.18) — 잘린 몫은 현금
             if inv_vals is not None or exp_vals is not None:
                 sel_arr = np.asarray(sel, dtype=int)
                 if inv_vals is not None and len(sel_arr) > 0:
                     iv = inv_vals[i][sel_arr]
                     if np.isfinite(iv).all() and iv.sum() > 0:
                         row[sel_arr] = iv / iv.sum()    # 변동성 역비중 — 1/σ에 비례
+                if weight_cap is not None:
+                    row = np.minimum(row, weight_cap)   # 종목당 비중 상한(v16.18) — 잘린 몫은 현금
                 base = row.copy()
                 if exp_vals is not None:
                     prev_exp = float(exp_vals[i])

@@ -84,7 +84,7 @@ def _decompile_technical(sig: TechnicalSignal) -> StrategyCondition:
 def _canonical_ranking_id(engine_metric: str) -> str:
     """엔진 랭킹 키 → 온톨로지 정본 id. 'return'/'volatility'는 가격 산출 랭킹(ranking.*),
     나머지는 재무 팩터(fundamental.*). 컴파일러 engine_binding의 역방향."""
-    if engine_metric in ("return", "volatility"):
+    if engine_metric in ("return", "volatility", "residual_reversal"):
         return f"ranking.{engine_metric}"
     return f"fundamental.{engine_metric}"
 
@@ -134,6 +134,7 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             # 분위 그룹도 왕복한다 — 누락되면 수정 턴에서 그룹 비교가 조용히 풀린다.
             quantile_groups=parsed.ranking_quantile_groups,
             skip_days=parsed.ranking_skip_days,
+            accumulation_days=parsed.ranking_accumulation_days,
         ))
 
     return StrategySpec(
@@ -185,6 +186,7 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
                 parsed.allocation_type if parsed.allocation_type != "equal" else None
             ),
             weighting_lookback_days=parsed.allocation_lookback_days,
+            max_weight_percent=parsed.max_position_weight_pct,
         ),
         market_filter=(
             MarketFilterSpec(

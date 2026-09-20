@@ -110,6 +110,25 @@ describe("buildBuilderTurnPresentation 지정 종목 배분 표시", () => {
     ).toMatchObject({ value: "단일 종목 집중 투자" });
   });
 
+  it("종목당 비중 상한(엔진 v16.18)은 말했을 때만 요약 행으로 보인다", () => {
+    // 2026-09-20: 해석·엔진 반영은 됐는데 '현재까지 이해한 전략' 목록에 행이 없어 반영 여부를 알 수 없었다.
+    const build = (cap: number | null) =>
+      buildBuilderTurnPresentation({
+        state: {},
+        reply: "질문",
+        parsed: {
+          ...themeParsed,
+          target_symbols: [],
+          universe: ["KOSPI200"],
+          max_positions: 50,
+          max_position_weight_pct: cap,
+        } as ParsedSummary,
+        explicitFields: ["universe", "max_positions"],
+      }).summaryItems.find((item) => item.label === "종목당 비중 상한");
+    expect(build(2)).toMatchObject({ value: "2%" });
+    expect(build(null)).toBeUndefined();
+  });
+
   it("유니버스 전략은 기존대로 명시된 최대 보유 종목 수를 표시한다", () => {
     const universe = buildBuilderTurnPresentation({
       state: {},

@@ -292,10 +292,13 @@ def _clarification_items(
             )
             chip_label = "변동성" if rank_metric == "ranking.volatility" else "수익률"
             alternates = (120, 200) if rank_metric == "ranking.volatility" else (20, 120)
-            chips.extend(
-                f"{chip_label} 산정 기간 {n}일"
-                for n in _numeric_options(q.recommended_value, *alternates)
-            )
+            # 잔차 반전 시그널(v16.17)의 회귀 기간 질문은 무칩이다 — '수익률 산정 기간 N일' 칩은
+            # 다른 지표의 값 결속이고 허용값(60·120·250)과도 맞지 않는다.
+            if rank_metric != "ranking.residual_reversal":
+                chips.extend(
+                    f"{chip_label} 산정 기간 {n}일"
+                    for n in _numeric_options(q.recommended_value, *alternates)
+                )
             topic = "매수 조건"
         elif q.field == "strategy.market_filter.exposure_pct":
             # 시장 국면 약세일 투자 비중(v16.14) — 정본 표의 칩(값 결속은 발행 시 확정).

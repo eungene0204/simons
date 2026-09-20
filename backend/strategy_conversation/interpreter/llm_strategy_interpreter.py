@@ -33,7 +33,9 @@ def _active_model(slot_model: str) -> str:
 from strategy_conversation import config
 from strategy_conversation.interpreter.models import StrategyIntent
 from strategy_conversation.interpreter.output_repair import (
+    bare_unsupported_request_error,
     build_repair_prompt,
+    is_bare_unsupported_request,
     salvage_unsupported_features,
     extract_json_object,
     salvage_clarification_questions,
@@ -423,6 +425,24 @@ class StrategyInterpreter:
                         build_repair_prompt(user_input, current_raw, error_message, draft),
                     )
                     _log_llm(f"◀ 형식 재생성 응답({attempts}회차)", current_raw.strip())
+                    continue
+                # 출력 형식 위반 — 무엇이 미지원인지 적지 않은 UNSUPPORTED_REQUEST(빈 라벨).
+                # 프롬프트 규칙("미지원 개념이 있어도 CREATE_STRATEGY")을 120B가 미지원 개념이
+                # 대부분인 서술에서 지키지 않는다(2026-09-20 실측, temperature=0 재현). 같은
+                # 레인(오류를 LLM에 되돌려 1회 재생성)으로 보낸다. 재생성본도 빈 라벨이면
+                # 그대로 진행한다(기존 해석 실패 안내). 생성 턴만 본다 — 실측·검증한 범위.
+                if (draft is None and is_bare_unsupported_request(intent)
+                        and format_fallback_raw is None
+                        and attempts < config.MAX_REPAIR_ATTEMPTS):
+                    format_fallback_raw = current_raw
+                    attempts += 1
+                    error_message = bare_unsupported_request_error()
+                    _log_llm(f"⟳ 빈 라벨 재생성 요청({attempts}회차)", error_message)
+                    current_raw = self._chat(
+                        self._system_prompt,
+                        build_repair_prompt(user_input, current_raw, error_message, draft),
+                    )
+                    _log_llm(f"◀ 빈 라벨 재생성 응답({attempts}회차)", current_raw.strip())
                     continue
                 if format_violations:
                     _log_llm("△ 입력 전체 인용 잔존",

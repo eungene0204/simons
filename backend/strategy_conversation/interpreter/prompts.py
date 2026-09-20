@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "6.3"
+PROMPT_VERSION = "6.5"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -69,6 +69,7 @@ _OUTPUT_SHAPE = {
             "selection_percent": None,
             "weighting": None,
             "weighting_lookback_days": None,
+            "max_weight_percent": None,
             "rebalance_frequency": None,
             "rebalance_method": None,
             "hold_period_days": None,
@@ -175,6 +176,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
 - ranking.volatility: '변동성 낮은(안정적인) 종목 N개'류 저변동성 선정 → strategy.ranking에 {{"metric":"ranking.volatility"}} (direction은 사용자가 '낮은/높은'을 말했을 때만 — '변동성 낮은'=direction:"bottom". 산정 기간을 말했으면 lookback_days — '200일 변동성'=lookback_days:200). '변동성 하위 10%만 편입'처럼 **비율 편입**이면 그 10은 조건 value(백분위)가 아니라 portfolio.selection_percent=10입니다(아래 비율 규칙과 동일 — 백분위를 조건 value로 넣으면 편입 규모가 사라집니다). '변동성 30% 이하'처럼 **연환산 % 임계값 조건**이면 랭킹이 아니라 entry_conditions에 factor technical.volatility.
 - 재무 지표 상위/하위 N종목 선정('영업이익률 상위 20종목', 'PER 낮은 상위 10종목')은 조건이 아니라 랭킹입니다 → strategy.ranking에 {{"metric":"fundamental.operating_margin","direction":"top"}} (낮은 순은 direction:"bottom"). 종목 수는 portfolio.selection_count로.
 - **12-1 모멘텀**('최근 12개월 수익률에서 최근 1개월 제외')은 ranking.return 하나입니다 → {{"metric":"return","lookback_days":252,"skip_days":21}} (N개월=N×21거래일). 12일·1일 수익률 두 항목으로 쪼개지 마세요.
+- **잔차 반전 시그널**('수익률을 시장수익률과 섹터 평균수익률에 회귀시킨 잔차를 누적해 잔차 변동성으로 나누고 z-score로 표준화·부호 반전한 시그널 상위 N종목')은 ranking 하나입니다 → {{"metric":"residual_reversal","lookback_days":60,"accumulation_days":5}} (lookback_days=말한 회귀 기간, accumulation_days=말한 잔차 누적 기간 — 말한 숫자를 그대로 옮기고 말하지 않았으면 null). 회귀·윈저라이즈·z-score·부호 반전은 이 지표에 포함돼 있어 unsupported_features에 넣지 않습니다. 시그널 **하위 종목 매도(공매도)·달러 중립**은 표현할 수 없으니 그 구절만 unsupported_features에.
 - 실적 추정치·컨센서스 상향/하향은 랭킹으로 만들지 마세요(수익률·시장 대비 수익률로 대신하지 않음) — unsupported_features에만.
 - **묶음 점수**: 여러 지표를 '종합한 품질 점수'처럼 한 점수로 묶은 뒤 다른 기준(모멘텀 등)과 다시 합산하면, 묶인 지표마다 ranking 항목을 하나씩 두고 같은 "group"(예: "quality")을 적으세요 — 'quality_score' 같은 점수 이름을 metric으로 지어내지 마세요.
 - **direction은 사용자가 정렬 방향을 말했을 때만 출력하세요**('낮은 순'·'높은 순'·'가장 싼'·'상위'가 어느 쪽인지 분명할 때). 방향 언급이 없으면(예: 'PER 기준으로 20종목') direction을 **비워 두세요(null)** — 지표마다 선호 방향이 정해져 있어 시스템이 위 어휘의 [낮을수록 선호]/[높을수록 선호] 표시대로 채웁니다. 임의로 "top"을 채우면 저평가 지표에서 가장 비싼 종목을 고르는 정반대 전략이 됩니다.
@@ -441,6 +443,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
    rebalance_method는 "종목 교체"=reconstitute / "비중만 조정"=weights_only 또는 null(미언급).
 7-1. '변동성 역비중'·'리스크 패리티(Risk Parity)'·'변동성이 낮을수록 더 많이' → portfolio.weighting="inverse_volatility"
    (그 변동성의 기간을 말했을 때만 weighting_lookback_days). '동일 비중'="equal".
+   '종목당 비중은 N%를 상한으로'·'한 종목에 최대 N%까지만' → portfolio.max_weight_percent=N (unsupported_features에 넣지 않음).
 7-2. **시장 국면 필터**: '코스피(코스닥)가 N일 이동평균선 아래면'·'시장 변동성이 급등(급격히 확대)하면' 비중을 줄여 현금 보유 → strategy.market_filter=
    {{"index":"KOSPI","triggers":[말한 판정만: "below_ma"=이동평균선 아래, "volatility_spike"=시장 변동성 급등],"ma_period":N,
    "volatility_multiple":평소의 몇 배 이상인지(말하지 않았으면 null),"volatility_period":변동성 기간(말하지 않았으면 null),

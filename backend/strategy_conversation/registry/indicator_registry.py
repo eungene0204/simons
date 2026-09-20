@@ -332,6 +332,17 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
               "N종목'·'초과수익률 상위'처럼 **시장 대비**를 말한 순위 선정만. '상대강도 상위'·'수익률 "
               "상위'는 ranking.return. 미국 시장은 지수 시계열이 없어 미지원"),
     IndicatorSpec(
+        id="ranking.residual_reversal", display_name="잔차 반전 시그널 랭킹", category="ranking",
+        supported="SUPPORTED", data_source="ohlcv", value_type="point",
+        parameters={"lookback_days": ParamSpec(default=60, minimum=60, maximum=250),
+                    "accumulation_days": ParamSpec(default=5, minimum=3, maximum=20)},
+        engine_binding=("ranking", "residual_reversal"),
+        notes="종목 일간 수익률을 시장 수익률·소속 섹터 평균 수익률에 회귀한 **잔차**의 최근 누적을 "
+              "잔차 변동성으로 나눠 표준화하고 부호를 뒤집은 시그널 순위 선정(통계적 차익거래·잔차 "
+              "반전·시장/섹터 중립 단기 반전). lookback_days=회귀 기간(60·120·250 중 말한 값), "
+              "accumulation_days=잔차 누적 기간(3·5·10·20 중 말한 값). 윈저라이즈·z-score·부호 반전은 "
+              "지표에 포함돼 있다. 단순 '낙폭 과대'·'수익률 하위'는 ranking.return(direction bottom)"),
+    IndicatorSpec(
         id="ranking.volatility", display_name="변동성 랭킹(저변동성)", category="ranking",
         supported="SUPPORTED", data_source="ohlcv", value_type="percent",
         parameters={"lookback_days": ParamSpec(default=60, minimum=5, maximum=500)},
@@ -447,6 +458,8 @@ _ALIASES: Dict[str, str] = {
     "ai_drop_model": "technical.ai_drop_model", "ai하락예측": "technical.ai_drop_model",
     "return": "ranking.return", "수익률랭킹": "ranking.return", "기간수익률": "ranking.return",
     "초과수익률랭킹": "ranking.relative_return", "시장대비수익률랭킹": "ranking.relative_return",
+    "residual_reversal": "ranking.residual_reversal", "잔차반전": "ranking.residual_reversal",
+    "잔차반전시그널": "ranking.residual_reversal", "잔차반전시그널랭킹": "ranking.residual_reversal",
     # FCF 수익률(v16.15 지원 승격 — 종전 unsupported.fcf_yield). 맨 'fcf'·'잉여현금흐름'은
     # 관용상 수익률(시총 대비)을 뜻하는 표기로 남긴다(마진·증가율은 각자 별칭이 있다).
     "fcf": "fundamental.fcf_yield", "fcf_yield": "fundamental.fcf_yield",

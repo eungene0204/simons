@@ -292,6 +292,12 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         ),
         # v16.14 — 전부 None/기본값이면 _drop_none이 제거해 기존 전략 해시가 변하지 않는다.
         "ranking_skip_days": strategy.ranking_skip_days,
+        # 잔차 반전 시그널(v16.17)의 개방 파라미터 — 회귀 룩백은 위 ranking_lookback_days.
+        # 컴파일러가 기본값(60/5)까지 확정해 싣으므로 조합마다 strategy_id가 다르다. 다른
+        # 랭킹에서는 None → _drop_none이 제거(기존 전략 해시 불변).
+        "ranking_accumulation_days": strategy.ranking_accumulation_days,
+        # 종목당 비중 상한(v16.18) — None이면 _drop_none이 제거(기존 전략 해시 불변).
+        "max_position_weight_pct": strategy.max_position_weight_pct,
         "allocation_type": None if strategy.allocation_type == "equal" else strategy.allocation_type,
         "allocation_lookback_days": strategy.allocation_lookback_days,
         "market_regime": strategy.market_regime.to_request() if strategy.market_regime else None,
@@ -505,6 +511,10 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
     explicit_symbols = scope is SelectionScope.EXPLICIT
     if explicit_symbols:
         position_size_pct = round(100.0 / len(target_symbols), 2)
+    # 종목당 비중 상한(v16.18) — 백테스트 엔진은 max_position_weight_pct를 직접 읽고, 1회 매수
+    # 비중으로 position_size_pct를 쓰는 소비자(가상계좌 자동매매)도 같은 상한을 넘지 않게 한다.
+    if strategy.max_position_weight_pct is not None:
+        position_size_pct = min(position_size_pct, float(strategy.max_position_weight_pct))
 
     risk = {
         "position_size_pct": position_size_pct,
@@ -524,7 +534,7 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "ranking_weight_quality": 0.5,
         "ranking_metric": strategy.ranking_metric,
         # lookback은 가격 산출 랭킹('return'·'volatility') 전용 — 재무 팩터 랭킹은 연간 결산값 순위라 기간이 없다.
-        "ranking_lookback_days": strategy.ranking_lookback_days or (60 if strategy.ranking_metric in ("return", "volatility") else None),
+        "ranking_lookback_days": strategy.ranking_lookback_days or (60 if strategy.ranking_metric in ("return", "volatility", "residual_reversal") else None),
         "ranking_direction": strategy.ranking_direction,
         # 분위 그룹 비교·비율 선정(FR-BT-060) — 엔진이 그룹 반복 실행/동적 종목 수로 처리.
         "ranking_quantile_groups": strategy.ranking_quantile_groups,
@@ -538,6 +548,8 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "execution_timing": strategy.execution_timing,
         # 12-1 모멘텀·변동성 역비중·시장 국면(v16.14).
         "ranking_skip_days": strategy.ranking_skip_days,
+        "ranking_accumulation_days": strategy.ranking_accumulation_days,
+        "max_position_weight_pct": strategy.max_position_weight_pct,
         "allocation_type": strategy.allocation_type,
         "allocation_lookback_days": strategy.allocation_lookback_days,
         # 값 대기(기간·비율 미정)인 국면 필터는 싣지 않는다 — 되묻기가 채운 뒤에 실린다.

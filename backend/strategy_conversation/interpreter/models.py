@@ -203,6 +203,12 @@ class RankingSpec(BaseModel):
         default=None,
         description="산정 기간 중 제외할 최근 거래일 수 — '최근 1개월 제외'=21. 언급 없으면 null",
     )
+    # 잔차 누적 기간(엔진 v16.17) — 잔차 반전 시그널(ranking.residual_reversal)에서만 의미가 있다.
+    # 회귀 기간은 lookback_days를 쓴다. 허용값(3·5·10·20)·기본값(5)의 정본은 검증기·컴파일러다.
+    accumulation_days: Optional[int] = Field(
+        default=None,
+        description="잔차 반전 시그널의 잔차 누적 기간(거래일) — '최근 5영업일 잔차 누적'=5. 언급 없으면 null",
+    )
     # 묶음 점수(엔진 v16.14) — 여러 지표를 '종합한 품질 점수'처럼 한 점수로 묶은 뒤 다른
     # 기준과 합산할 때, 묶인 항목에 같은 이름을 적는다. 엔진이 묶음 안을 먼저 평균한다.
     group: Optional[str] = Field(
@@ -212,7 +218,7 @@ class RankingSpec(BaseModel):
     source_text: Optional[str] = None
 
     _coerce_approximated = field_validator("approximated", mode="before")(_coerce_flag)
-    _coerce_skip = field_validator("skip_days", mode="before")(_coerce_number)
+    _coerce_skip = field_validator("skip_days", "accumulation_days", mode="before")(_coerce_number)
 
     @field_validator("group", mode="before")
     @classmethod
@@ -401,6 +407,11 @@ class PortfolioSpec(BaseModel):
         default=None,
         description="변동성 역비중의 변동성 산정 기간(거래일). 사용자가 말했을 때만. 없으면 null",
     )
+    # 종목당 비중 상한(엔진 v16.18) — 편입·리밸런싱 시점 목표 비중에 거는 상한(%).
+    max_weight_percent: Optional[float] = Field(
+        default=None,
+        description="종목당 비중 상한(%) — '종목당 비중은 2%를 상한으로'=2. 언급 없으면 null",
+    )
     rebalance_frequency: Optional[str] = Field(
         default=None,
         description="리밸런싱 주기: daily/weekly/monthly/bimonthly/quarterly/yearly. 언급 없으면 null",
@@ -418,7 +429,7 @@ class PortfolioSpec(BaseModel):
 
     _coerce_count = field_validator(
         "selection_count", "hold_period_days", "weighting_lookback_days", mode="before")(_coerce_number)
-    _coerce_pct = field_validator("selection_percent", mode="before")(_coerce_number)
+    _coerce_pct = field_validator("selection_percent", "max_weight_percent", mode="before")(_coerce_number)
 
 
 class MarketFilterSpec(BaseModel):
