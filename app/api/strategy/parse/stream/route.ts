@@ -248,7 +248,10 @@ export async function POST(req: NextRequest) {
           // 4 tok/s에서 300초). 120초는 정상 처리량에서도 여유가 얇아 경합이 조금만
           // 끼면 파싱이 끝났는데도 프록시가 먼저 끊었다("aborted due to timeout").
           // 백엔드 per-call 상한(180초)과 후행 검증 상한(90초)의 합을 담는 값이다.
-          timeoutMs: 240_000,
+          // 2026-09-19: OpenRouter 무료 한도 소진 → 로컬 9B 폴백 시 복합 전략 한 턴이 257초
+          // 걸려 240초 상한에 끊겼다(같은 문장이 120B에서는 10초대). 폴백 레인의 느린 처리량을
+          // 담도록 600초로 넓힌다.
+          timeoutMs: 600_000,
           signal: upstream.signal,
         });
 
