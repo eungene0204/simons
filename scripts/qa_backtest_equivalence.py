@@ -134,6 +134,12 @@ def build_strategies(symbols: List[str], kospi200_ids: List[str]) -> Dict[str, D
         _risk(ranking_metric="return", ranking_lookback_days=252, ranking_skip_days=21, max_positions=10,
               rebalancing_period="monthly", position_size_pct=10, allocation_type="inverse_volatility",
               allocation_lookback_days=20, market_regime={"index": "KOSPI", "ma_period": 120, "exposure_pct": 0}))
+    # 엔진 v16.16 — 시장 국면 필터의 변동성 급등 판정(이동평균과 OR).
+    add("lowvol_regime_ma_or_vol_spike", _grp(), _grp(),
+        _risk(ranking_metric="volatility", ranking_lookback_days=60, ranking_direction="bottom", max_positions=10,
+              rebalancing_period="quarterly", position_size_pct=10,
+              market_regime={"index": "KOSPI", "triggers": ["below_ma", "volatility_spike"], "ma_period": 200,
+                             "volatility_multiple": 2.0, "exposure_pct": 30}))
     add("quantile_groups_per", _grp(), _grp(),
         _risk(ranking_metric="per", ranking_direction="bottom", ranking_quantile_groups=5, max_positions=None, rebalancing_period="quarterly", position_size_pct=5))
     add("no_cap_signal_only", _grp(_cond("rsi", period=14, operator="<", value=30)),

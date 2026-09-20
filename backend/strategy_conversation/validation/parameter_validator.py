@@ -79,6 +79,13 @@ def validate_parameters(intent: StrategyIntent) -> List[str]:
         if mf.ma_period is not None and not (5 <= mf.ma_period <= 500):
             errors.append(f"이동평균 기간 {mf.ma_period}일은 유효 범위(5~500)를 벗어났습니다")
             mf.ma_period = None
+        if mf.volatility_period is not None and not (5 <= mf.volatility_period <= 250):
+            errors.append(f"시장 변동성 산정 기간 {mf.volatility_period}일은 유효 범위(5~250)를 벗어났습니다")
+            mf.volatility_period = None
+        if mf.volatility_multiple is not None and not (1 < mf.volatility_multiple <= 10):
+            errors.append(
+                f"시장 변동성 급등 배수 {mf.volatility_multiple:g}배는 1 초과 10 이하여야 합니다")
+            mf.volatility_multiple = None
         if mf.exposure_pct is not None and not (0 <= mf.exposure_pct < 100):
             errors.append(f"약세 국면 투자 비중 {mf.exposure_pct:g}%는 0 이상 100 미만이어야 합니다")
             mf.exposure_pct = None

@@ -302,6 +302,8 @@ def _clarification_items(
             chips.extend(strategy_slots.MARKET_REGIME_EXPOSURE_CHIP_VALUES)
         elif q.field == "strategy.market_filter.ma_period":
             chips.extend(strategy_slots.MARKET_REGIME_MA_CHIP_VALUES)
+        elif q.field == "strategy.market_filter.volatility_multiple":
+            chips.extend(strategy_slots.MARKET_REGIME_VOL_MULTIPLE_CHIP_VALUES)
         elif q.field == "strategy.portfolio.weighting_lookback_days":
             chips.extend(strategy_slots.ALLOCATION_LOOKBACK_CHIP_VALUES)
         slot_item = False

@@ -189,7 +189,10 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
         market_filter=(
             MarketFilterSpec(
                 index=parsed.market_regime.index,
+                triggers=parsed.market_regime.triggers,
                 ma_period=parsed.market_regime.ma_period,
+                volatility_period=parsed.market_regime.volatility_period,
+                volatility_multiple=parsed.market_regime.volatility_multiple,
                 exposure_pct=parsed.market_regime.exposure_pct,
             )
             if parsed.market_regime is not None else None

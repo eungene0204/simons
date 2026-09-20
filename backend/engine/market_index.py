@@ -39,6 +39,10 @@ INDEX_MARKETS = ("KOSPI", "KOSDAQ")
 INDEX_CLOSE_COL = "index_close"
 RELATIVE_RETURN_ID = "relative_return"
 INDEX_COLUMNS = ("date", "open", "high", "low", "close", "volume", "source")
+# 시장 국면 필터의 변동성 급등 판정(엔진 v16.16) — 지수 N일 변동성 ÷ 그 변동성의 직전 1년 평균.
+# 산정 기간은 사용자가 말하지 않으면 20거래일이다(2026-09-20 결정 — 결과 경고·매매 사유에 표기).
+REGIME_VOL_DEFAULT_PERIOD = 20
+REGIME_VOL_BASELINE_DAYS = 252
 
 
 def index_dir_for(data_dir: str | os.PathLike) -> Path:

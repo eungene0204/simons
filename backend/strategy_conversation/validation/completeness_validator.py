@@ -271,11 +271,15 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
             ))
 
     # ④-2 시장 국면 필터(v16.14) — 이동평균 기간과 약세 국면의 투자 비중을 말하지 않았으면
-    # 묻는다(2026-09-19 사용자 결정: 비율은 되묻기 — 기본값 확정 금지).
+    # 묻는다(2026-09-19 사용자 결정: 비율은 되묻기 — 기본값 확정 금지). 변동성 급등 판정
+    # (v16.16)의 배수도 같은 계약이다(2026-09-20 결정) — 산정 기간만은 묻지 않고 엔진이 20일로
+    # 계산해 결과에 표기한다.
     mf = strategy.market_filter
     if mf is not None:
         index_name = msg("코스피" if mf.index == "KOSPI" else "코스닥", mf.index)
-        if mf.ma_period is None:
+        uses_ma = "below_ma" in mf.triggers
+        uses_vol = "volatility_spike" in mf.triggers
+        if uses_ma and mf.ma_period is None:
             missing.append("strategy.market_filter.ma_period")
             questions.append(ClarificationQuestion(
                 field="strategy.market_filter.ma_period",
@@ -286,15 +290,42 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                 recommendation_reason=msg("200일 이동평균선을 흔히 사용합니다",
                                           "The 200-day moving average is commonly used"),
             ))
+        if uses_vol and mf.volatility_multiple is None:
+            missing.append("strategy.market_filter.volatility_multiple")
+            questions.append(ClarificationQuestion(
+                field="strategy.market_filter.volatility_multiple",
+                question=msg("{index} 변동성이 평소(직전 1년 평균)의 몇 배 이상이면 급등으로 볼까요?",
+                             "How many times its usual level (prior 1-year average) should "
+                             "{index} volatility reach to count as a spike?",
+                             index=index_name),
+                recommended_value=None,
+            ))
         if mf.exposure_pct is None:
             missing.append("strategy.market_filter.exposure_pct")
+            if uses_ma and uses_vol:
+                exposure_question = msg(
+                    "{index}가 이동평균선 아래에 있거나 변동성이 급등했을 때 투자 비중을 몇 %로 "
+                    "줄일까요? (나머지는 현금으로 보유합니다)",
+                    "When {index} is below its moving average or its volatility spikes, what share "
+                    "of the portfolio should stay invested? (the rest is held in cash)",
+                    index=index_name)
+            elif uses_vol:
+                exposure_question = msg(
+                    "{index} 변동성이 급등했을 때 투자 비중을 몇 %로 줄일까요? "
+                    "(나머지는 현금으로 보유합니다)",
+                    "When {index} volatility spikes, what share of the portfolio should stay "
+                    "invested? (the rest is held in cash)",
+                    index=index_name)
+            else:
+                exposure_question = msg(
+                    "{index}가 이동평균선 아래에 있을 때 투자 비중을 몇 %로 줄일까요? "
+                    "(나머지는 현금으로 보유합니다)",
+                    "When {index} is below its moving average, what share of the "
+                    "portfolio should stay invested? (the rest is held in cash)",
+                    index=index_name)
             questions.append(ClarificationQuestion(
                 field="strategy.market_filter.exposure_pct",
-                question=msg("{index}가 이동평균선 아래에 있을 때 투자 비중을 몇 %로 줄일까요? "
-                             "(나머지는 현금으로 보유합니다)",
-                             "When {index} is below its moving average, what share of the "
-                             "portfolio should stay invested? (the rest is held in cash)",
-                             index=index_name),
+                question=exposure_question,
                 recommended_value=None,
             ))
 

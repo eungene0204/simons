@@ -122,14 +122,42 @@ def select_ranked_targets(cand_sorted, eff_max_pos, sel_pct, sel_band, band_cap=
     return cand_sorted[:eff_max_pos]
 
 
+def _fmt_g(x: float) -> str:
+    return str(int(x)) if x == int(x) else f"{x:g}"
+
+
+def regime_condition_args(market_regime: Dict[str, Any]) -> tuple:
+    """시장 국면 판정 조건의 (종류, 템플릿 인자) — 종류는 'ma'|'vol'|'any'.
+
+    매매 사유(trade_reason)와 결과 경고(result_warnings)가 같은 인자 순서를 쓴다."""
+    from engine.market_index import REGIME_VOL_DEFAULT_PERIOD
+
+    triggers = market_regime.get('triggers') or ['below_ma']
+    index = str(market_regime.get('index') or 'KOSPI')
+    ma_args = (int(market_regime.get('ma_period') or 0),)
+    if 'volatility_spike' not in triggers:
+        return 'ma', (index, *ma_args)
+    vol_args = (int(market_regime.get('volatility_period') or REGIME_VOL_DEFAULT_PERIOD),
+                _fmt_g(float(market_regime.get('volatility_multiple') or 0.0)))
+    if 'below_ma' not in triggers:
+        return 'vol', (index, *vol_args)
+    return 'any', (index, *ma_args, *vol_args)
+
+
+_REGIME_REDUCE_TEMPLATES = {
+    'ma': tr.MARKET_REGIME_REDUCE,
+    'vol': tr.MARKET_REGIME_REDUCE_VOL,
+    'any': tr.MARKET_REGIME_REDUCE_ANY,
+}
+
+
 def _regime_label(market_regime: Optional[Dict[str, Any]]) -> Optional[tuple]:
-    """시장 국면 사유 템플릿 인자(지수 이름, 이동평균 기간, 목표 노출 %). 없으면 None."""
+    """시장 국면 사유 (템플릿, 인자…) — 판정 조건 인자 뒤에 목표 노출 %. 없으면 None."""
     if not market_regime:
         return None
+    kind, args = regime_condition_args(market_regime)
     pct = float(market_regime.get('exposure_pct') or 0.0)
-    return (str(market_regime.get('index') or 'KOSPI'),
-            int(market_regime.get('ma_period') or 0),
-            str(int(pct)) if pct == int(pct) else f"{pct:g}")
+    return (_REGIME_REDUCE_TEMPLATES[kind], *args, _fmt_g(pct))
 
 
 def _inverse_vol_values(vol_df: Optional[pd.DataFrame]) -> Optional[np.ndarray]:
@@ -369,7 +397,7 @@ class Simulator:
         exp_vals = np.asarray(exposure, dtype=float) if exposure is not None else None
         pos_base = np.zeros(num_symbols, dtype=np.float64)
         prev_exp = 1.0
-        regime_reason = (tr.encode([tr.part(tr.MARKET_REGIME_REDUCE, *regime_label)])
+        regime_reason = (tr.encode([tr.part(*regime_label)])
                          if regime_label else REBALANCE_TRIM_REASON)
 
         for i in range(n_rows):
@@ -724,7 +752,7 @@ class Simulator:
                 rebalance_dates | np.r_[False, exp_vals[1:] != exp_vals[:-1]])[0]
         base = np.zeros(num_syms)               # 노출 100% 기준 목표비중(시장 국면 전환 시 재사용)
         prev_exp = 1.0
-        regime_reason = (tr.encode([tr.part(tr.MARKET_REGIME_REDUCE, *regime_label)])
+        regime_reason = (tr.encode([tr.part(*regime_label)])
                          if regime_label else REBALANCE_TRIM_REASON)
         for i in rows:
             if not rebalance_dates[i]:

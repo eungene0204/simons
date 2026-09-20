@@ -294,7 +294,7 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         "ranking_skip_days": strategy.ranking_skip_days,
         "allocation_type": None if strategy.allocation_type == "equal" else strategy.allocation_type,
         "allocation_lookback_days": strategy.allocation_lookback_days,
-        "market_regime": strategy.market_regime.model_dump() if strategy.market_regime else None,
+        "market_regime": strategy.market_regime.to_request() if strategy.market_regime else None,
         "max_positions_pct": strategy.max_positions_pct,
         "max_positions": strategy.max_positions,
         "hold_period_days": strategy.hold_period_days,
@@ -542,7 +542,7 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "allocation_lookback_days": strategy.allocation_lookback_days,
         # 값 대기(기간·비율 미정)인 국면 필터는 싣지 않는다 — 되묻기가 채운 뒤에 실린다.
         "market_regime": (
-            strategy.market_regime.model_dump()
+            strategy.market_regime.to_request()
             if strategy.market_regime and strategy.market_regime.is_complete() else None
         ),
     }

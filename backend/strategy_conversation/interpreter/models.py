@@ -429,7 +429,20 @@ class MarketFilterSpec(BaseModel):
     """
 
     index: Literal["KOSPI", "KOSDAQ"] = Field(default="KOSPI", description="기준 지수")
+    triggers: List[Literal["below_ma", "volatility_spike"]] = Field(
+        default_factory=lambda: ["below_ma"],
+        description=(
+            "약세 판정으로 말한 것 — below_ma='지수가 이동평균선 아래', "
+            "volatility_spike='시장 변동성이 급등·급격히 확대'. 둘 다 말했으면(…이거나 …) 둘 다"
+        ),
+    )
     ma_period: Optional[int] = Field(default=None, description="이동평균 기간(거래일) — '200일선'=200")
+    volatility_period: Optional[int] = Field(
+        default=None, description="변동성 산정 기간(거래일) — 말하지 않았으면 null")
+    volatility_multiple: Optional[float] = Field(
+        default=None,
+        description="변동성 급등 기준 배수 — '평소의 2배 이상'=2. 배수를 말하지 않았으면 null",
+    )
     exposure_pct: Optional[float] = Field(
         default=None,
         description=(
@@ -439,7 +452,23 @@ class MarketFilterSpec(BaseModel):
     )
     source_text: Optional[str] = None
 
-    _coerce = field_validator("ma_period", "exposure_pct", mode="before")(_coerce_number)
+    _coerce = field_validator(
+        "ma_period", "volatility_period", "volatility_multiple", "exposure_pct",
+        mode="before")(_coerce_number)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _fill_triggers(cls, data):
+        # 형식 정규화 — triggers 키를 빠뜨린 출력은 채워진 값 자리로 판정 종류를 정한다(변동성
+        # 자리만 채웠으면 변동성 급등, 그 밖은 종전 계약대로 이동평균). 의미 선택은 LLM 몫.
+        if isinstance(data, dict) and not data.get("triggers"):
+            has_vol = data.get("volatility_multiple") is not None or data.get("volatility_period") is not None
+            has_ma = data.get("ma_period") is not None
+            data = {**data, "triggers": (
+                ["volatility_spike"] if has_vol and not has_ma
+                else ["below_ma", "volatility_spike"] if has_vol else ["below_ma"]
+            )}
+        return data
 
     @field_validator("index", mode="before")
     @classmethod

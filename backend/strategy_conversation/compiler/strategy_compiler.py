@@ -318,7 +318,7 @@ def compile_partial(
     # 개념은 parsed에 남겨 칩 답이 그 자리에 값을 채우게 하고, 값 대기 채널에 올려 "값 확인
     # 전까지 반영되지 않았어요"로 알린다(조용한 소실 금지 — 조건 값 대기와 같은 계약).
     mf = strategy.market_filter
-    if mf is not None and (mf.ma_period is None or mf.exposure_pct is None):
+    if mf is not None and not _market_regime_from_spec(mf).is_complete():
         dropped.append(MARKET_REGIME_LABEL)
         pending_conditions.append(
             {"role": "entry", "label": MARKET_REGIME_LABEL, "source_text": mf.source_text}
@@ -329,6 +329,15 @@ def compile_partial(
 
 # 값 대기 채널·안내에 쓰는 시장 국면 필터 표기(프론트 en.ts가 번역한다).
 MARKET_REGIME_LABEL = "시장 국면 필터"
+
+
+def _market_regime_from_spec(mf) -> MarketRegime:
+    """MarketFilterSpec → 엔진 MarketRegime. 값 대기 판정(is_complete)의 정본은 엔진 모델이다."""
+    return MarketRegime(
+        index=mf.index, triggers=mf.triggers, ma_period=mf.ma_period,
+        volatility_period=mf.volatility_period, volatility_multiple=mf.volatility_multiple,
+        exposure_pct=mf.exposure_pct,
+    )
 
 
 def _rank_component_from_spec(rank) -> Optional[dict]:
@@ -538,10 +547,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         allocation_lookback_days=(
             portfolio.weighting_lookback_days if portfolio.weighting == "inverse_volatility" else None
         ),
-        market_regime=(
-            MarketRegime(index=mf.index, ma_period=mf.ma_period, exposure_pct=mf.exposure_pct)
-            if mf is not None else None
-        ),
+        market_regime=_market_regime_from_spec(mf) if mf is not None else None,
         max_positions=portfolio.selection_count if portfolio.selection_count is not None else 10,
         # 위 줄이 기본값 10을 물질화하면서 출처가 지워진다 — 그 사실만 따로 남긴다.
         # 선정 범위 판정(engine/selection_scope.py)이 "사용자가 종목 수를 말했는가"를

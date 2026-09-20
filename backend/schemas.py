@@ -63,6 +63,8 @@ class RiskManagement(BaseModel):
     allocation_lookback_days: Optional[int] = None
     # 시장 국면 필터(v16.14): {"index": "KOSPI", "ma_period": 200, "exposure_pct": 30} — 지수가
     # N일 이동평균 아래인 날은 목표 노출을 exposure_pct%로 줄인다(나머지 현금).
+    # v16.16: "triggers"(["below_ma","volatility_spike"], 없으면 below_ma)·"volatility_multiple"·
+    # "volatility_period" — 지수 N일 변동성이 직전 1년 평균의 K배 이상인 날도(OR) 약세일로 본다.
     market_regime: Optional[Dict[str, Any]] = None
     rebalancing_period: Optional[str] = "none"
     # 리밸런싱 방식(FR-BT-067): 'reconstitute'=리밸런싱일마다 목표 종목 재선정,

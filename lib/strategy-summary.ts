@@ -749,9 +749,17 @@ export function getPositionLabel(parsed: ParsedSummary): string {
 
 export type MarketRegimeSummary = {
   index?: string | null;
+  // 약세 판정 종류(엔진 v16.16) — 없으면 이동평균(below_ma) 단독.
+  triggers?: string[] | null;
   ma_period?: number | null;
+  volatility_period?: number | null;
+  volatility_multiple?: number | null;
   exposure_pct?: number | null;
 };
+
+// 변동성 급등 판정의 산정 기간 — 말하지 않으면 엔진이 20거래일로 계산한다
+// (backend/engine/market_index.py REGIME_VOL_DEFAULT_PERIOD와 같은 값).
+const REGIME_VOL_DEFAULT_PERIOD = 20;
 
 /** 비중 방식 표기(엔진 v16.14) — 동일 비중(기본)이면 null(따로 적지 않는다). */
 export function formatAllocationLabel(
@@ -768,10 +776,32 @@ export function formatAllocationLabel(
 export function formatMarketRegimeLabel(regime: MarketRegimeSummary | null | undefined): string | null {
   if (!regime) return null;
   const index = t(regime.index === "KOSDAQ" ? "코스닥" : "코스피");
-  if (regime.ma_period == null || regime.exposure_pct == null) {
-    return t("{0} 이동평균 국면 필터(값 미정)", index);
+  const triggers = regime.triggers?.length ? regime.triggers : ["below_ma"];
+  const usesMa = triggers.includes("below_ma");
+  const usesVol = triggers.includes("volatility_spike");
+  const pending =
+    regime.exposure_pct == null ||
+    (usesMa && regime.ma_period == null) ||
+    (usesVol && regime.volatility_multiple == null);
+  if (pending) {
+    return usesVol
+      ? t("{0} 시장 국면 필터(값 미정)", index)
+      : t("{0} 이동평균 국면 필터(값 미정)", index);
   }
-  return t("{0} {1}일 이동평균 아래면 투자 비중 {2}%", index, regime.ma_period, regime.exposure_pct);
+  if (!usesVol) {
+    return t("{0} {1}일 이동평균 아래면 투자 비중 {2}%", index, regime.ma_period, regime.exposure_pct);
+  }
+  const volPeriod = regime.volatility_period ?? REGIME_VOL_DEFAULT_PERIOD;
+  if (!usesMa) {
+    return t(
+      "{0} {1}일 변동성이 평소의 {2}배 이상이면 투자 비중 {3}%",
+      index, volPeriod, regime.volatility_multiple, regime.exposure_pct,
+    );
+  }
+  return t(
+    "{0} {1}일 이동평균 아래이거나 {2}일 변동성이 평소의 {3}배 이상이면 투자 비중 {4}%",
+    index, regime.ma_period, volPeriod, regime.volatility_multiple, regime.exposure_pct,
+  );
 }
 
 /** 복합 순위 합산(FR-BT-063)의 구성 지표 하나 — "ROE 높은 순"·"PER 낮은 순"·"20일 수익률 높은 순". */

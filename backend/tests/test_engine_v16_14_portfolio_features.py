@@ -198,3 +198,61 @@ def test_market_regime_exposure_uses_index_ma_and_delay(tmp_path):
     assert list(same) == [1.0, 1.0, 1.0, 1.0, 0.3, 0.3, 1.0, 1.0]
     delayed = eng._market_regime_exposure(regime, dates, 0, 1)
     assert list(delayed) == [1.0, 1.0, 1.0, 1.0, 1.0, 0.3, 0.3, 1.0]
+
+
+def _write_vol_spike_index(tmp_path, n_calm=300, n_wild=25):
+    """잔잔한 구간(±0.1% 교대) 뒤에 출렁이는 구간(±3% 교대)이 오는 지수 — 이동평균은 계속 위."""
+    ohlcv = tmp_path / "ohlcv"
+    ohlcv.mkdir()
+    (tmp_path / "index").mkdir()
+    n = n_calm + n_wild
+    dates = pd.bdate_range("2022-01-03", periods=n)
+    rets = np.where(np.arange(n) % 2 == 0, 1.0, -1.0) * np.where(np.arange(n) < n_calm, 0.001, 0.03)
+    close = 1000.0 * np.cumprod(1.0 + rets + 0.002)      # 완만한 상승 추세(이동평균 위 유지)
+    pd.DataFrame({"date": dates, "open": close, "high": close, "low": close,
+                  "close": close, "volume": 1.0, "source": "t"}).to_parquet(
+        tmp_path / "index" / "KOSPI.parquet")
+    return BacktestEngine(data_dir=str(ohlcv)), dates, n_calm
+
+
+def test_market_regime_volatility_spike_alone(tmp_path):
+    """v16.16 — 지수 20일 변동성이 직전 1년 평균의 2배 이상인 날만 노출을 줄인다."""
+    eng, dates, n_calm = _write_vol_spike_index(tmp_path)
+    regime = {"index": "KOSPI", "triggers": ["volatility_spike"],
+              "volatility_multiple": 2.0, "exposure_pct": 50}
+    exp = eng._market_regime_exposure(regime, dates, 0, 0)
+    assert (exp[:n_calm] == 1.0).all()          # 잔잔한 구간(기준선 미정의 초기 구간 포함)은 전액 투자
+    assert (exp[n_calm + 5:] == 0.5).all()      # 출렁이는 구간은 축소
+    # 이동평균 판정은 쓰지 않았다 — 같은 지수에 이동평균만 걸면 축소일이 없다.
+    ma_only = eng._market_regime_exposure(
+        {"index": "KOSPI", "ma_period": 200, "exposure_pct": 50}, dates, 0, 0)
+    assert (ma_only == 1.0).all()
+
+
+def test_market_regime_volatility_spike_or_below_ma(tmp_path):
+    """둘을 함께 쓰면 OR — 이동평균 위여도 변동성 급등일은 축소된다."""
+    eng, dates, n_calm = _write_vol_spike_index(tmp_path)
+    regime = {"index": "KOSPI", "triggers": ["below_ma", "volatility_spike"], "ma_period": 200,
+              "volatility_multiple": 2.0, "volatility_period": 20, "exposure_pct": 30}
+    exp = eng._market_regime_exposure(regime, dates, 0, 0)
+    assert (exp[:n_calm] == 1.0).all() and (exp[n_calm + 5:] == 0.3).all()
+
+
+def test_market_regime_volatility_spike_requires_multiple(tmp_path):
+    eng, dates, _ = _write_vol_spike_index(tmp_path)
+    with pytest.raises(ValueError):
+        eng._market_regime_exposure(
+            {"index": "KOSPI", "triggers": ["volatility_spike"], "exposure_pct": 50}, dates, 0, 0)
+
+
+def test_regime_reason_template_follows_triggers():
+    from engine.simulator import _regime_label
+    assert _regime_label({"index": "KOSPI", "ma_period": 200, "exposure_pct": 30}) == (
+        tr.MARKET_REGIME_REDUCE, "KOSPI", 200, "30")
+    assert _regime_label({"index": "KOSPI", "triggers": ["volatility_spike"],
+                          "volatility_multiple": 2.5, "exposure_pct": 0}) == (
+        tr.MARKET_REGIME_REDUCE_VOL, "KOSPI", 20, "2.5", "0")
+    assert _regime_label({"index": "KOSDAQ", "triggers": ["below_ma", "volatility_spike"],
+                          "ma_period": 120, "volatility_period": 60, "volatility_multiple": 2,
+                          "exposure_pct": 50}) == (
+        tr.MARKET_REGIME_REDUCE_ANY, "KOSDAQ", 120, 60, "2", "50")

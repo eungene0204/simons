@@ -172,6 +172,54 @@ def test_market_regime_chip_binds_to_ratio():
     assert after.market_regime.exposure_pct == 30.0 and after.market_regime.ma_period == 200
 
 
+def test_market_filter_volatility_spike_asks_multiple_with_chips():
+    """v16.16 — '시장 변동성이 급격히 확대될 경우'는 배수를 되묻고 값 대기로 둔다(2026-09-20)."""
+    validated, report, parsed, dropped, pending = _compile(_intent(
+        ranking=[{"metric": "ranking.volatility", "lookback_days": 60}],
+        market_filter={"index": "KOSPI", "triggers": ["below_ma", "volatility_spike"],
+                       "ma_period": 200, "volatility_multiple": None, "exposure_pct": 30,
+                       "source_text": "코스피가 200일선 아래에 있거나 시장 변동성이 급격히 확대될 경우"},
+    ))
+    assert "strategy.market_filter.volatility_multiple" in report.missing_fields
+    assert "strategy.market_filter.ma_period" not in report.missing_fields
+    assert "시장 국면 필터" in dropped and any(p["label"] == "시장 국면 필터" for p in pending)
+    assert to_backtest_request(parsed, resolve_symbols=False)["risk"]["market_regime"] is None
+    items = primary._clarification_items(report, validated)
+    chips = [c for i in items for c in i["chips"]]
+    assert "시장 변동성 평소의 2배 이상" in chips
+
+    bound, bindings, _, _ = primary._bind_chips(["시장 변동성 평소의 2배 이상"], parsed, None)
+    assert bound == ["시장 변동성 평소의 2배 이상"]
+    after = ParsedStrategy.model_validate(
+        {**parsed.model_dump(), **bindings["시장 변동성 평소의 2배 이상"]})
+    regime = to_backtest_request(after, resolve_symbols=False)["risk"]["market_regime"]
+    assert regime == {"index": "KOSPI", "triggers": ["below_ma", "volatility_spike"],
+                      "ma_period": 200, "volatility_multiple": 2.0, "exposure_pct": 30.0}
+
+
+def test_market_filter_volatility_spike_alone_does_not_ask_ma_period():
+    _, report, parsed, dropped, _ = _compile(_intent(
+        ranking=[{"metric": "ranking.volatility", "lookback_days": 60}],
+        market_filter={"index": "KOSPI", "triggers": ["volatility_spike"],
+                       "volatility_multiple": 2, "exposure_pct": 50,
+                       "source_text": "시장 변동성이 평소의 2배 이상이면 절반은 현금"},
+    ))
+    assert not [f for f in report.missing_fields if f.startswith("strategy.market_filter")]
+    assert "시장 국면 필터" not in dropped
+    regime = to_backtest_request(parsed, resolve_symbols=False)["risk"]["market_regime"]
+    assert regime == {"index": "KOSPI", "triggers": ["volatility_spike"],
+                      "volatility_multiple": 2.0, "exposure_pct": 50.0}
+
+
+def test_market_filter_triggers_key_missing_is_filled_from_value_slots():
+    """형식 정규화 — triggers를 빠뜨린 출력은 채워진 값 자리로 판정 종류를 정한다."""
+    from strategy_conversation.interpreter.models import MarketFilterSpec
+    assert MarketFilterSpec.model_validate({"ma_period": 200}).triggers == ["below_ma"]
+    assert MarketFilterSpec.model_validate({"volatility_multiple": 2}).triggers == ["volatility_spike"]
+    assert MarketFilterSpec.model_validate(
+        {"ma_period": 200, "volatility_multiple": 2}).triggers == ["below_ma", "volatility_spike"]
+
+
 def test_market_filter_on_us_universe_is_reported_unsupported():
     _, report, parsed, _, _ = _compile(_intent(
         universe={"markets": ["SP500"], "sectors": [], "symbols": []},

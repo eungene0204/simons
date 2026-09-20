@@ -539,17 +539,43 @@ class RankingComponent(BaseModel):
 
 
 class MarketRegime(BaseModel):
-    """시장 국면 필터(엔진 v16.14) — 지수가 N일 이동평균 아래인 날 목표 노출을 줄인다.
+    """시장 국면 필터(엔진 v16.14) — 약세 국면인 날 목표 노출을 줄인다.
 
-    기간·비율은 사용자가 말했을 때만 채워진다 — 비어 있으면 되묻는 중(값 대기)이며
-    엔진 요청에는 싣지 않는다(strategy_converter). 개념은 남겨 칩 답이 그 자리를 채운다."""
+    약세 판정(triggers)은 둘 중 하나 또는 둘의 OR다: below_ma=지수 종가가 N일 이동평균 아래,
+    volatility_spike(v16.16)=지수의 N일 변동성이 직전 1년 평균의 K배 이상(시장 변동성 급등).
+    기간·배수·비율은 사용자가 말했을 때만 채워진다 — 비어 있으면 되묻는 중(값 대기)이며
+    엔진 요청에는 싣지 않는다(strategy_converter). 개념은 남겨 칩 답이 그 자리를 채운다.
+    변동성 산정 기간만은 말하지 않으면 엔진이 20일로 계산하고 결과에 표기한다(2026-09-20 결정)."""
     index: Literal["KOSPI", "KOSDAQ"] = "KOSPI"
+    triggers: List[Literal["below_ma", "volatility_spike"]] = Field(
+        default_factory=lambda: ["below_ma"], min_length=1)
     ma_period: Optional[int] = Field(default=None, ge=5, le=500)
+    volatility_period: Optional[int] = Field(default=None, ge=5, le=250)
+    volatility_multiple: Optional[float] = Field(
+        default=None, gt=1, le=10, description="변동성 급등 기준 — 직전 1년 평균 변동성의 몇 배 이상인가")
     exposure_pct: Optional[float] = Field(
         default=None, ge=0, lt=100, description="국면 약세일 목표 노출 비율(%) — 0=전량 현금")
 
+    @field_validator("triggers", mode="after")
+    @classmethod
+    def _canonical_triggers(cls, v):
+        # 순서·중복 정규화 — 같은 필터가 같은 해시를 갖게 한다.
+        return [t for t in ("below_ma", "volatility_spike") if t in v]
+
     def is_complete(self) -> bool:
-        return self.ma_period is not None and self.exposure_pct is not None
+        if self.exposure_pct is None:
+            return False
+        if "below_ma" in self.triggers and self.ma_period is None:
+            return False
+        return "volatility_spike" not in self.triggers or self.volatility_multiple is not None
+
+    def to_request(self) -> dict:
+        """엔진 요청·전략 해시용 — 쓰지 않는 자리는 싣지 않는다(이동평균만 쓰는 기존 전략의
+        요청·해시가 v16.14와 같게)."""
+        out = self.model_dump(exclude_none=True)
+        if self.triggers == ["below_ma"]:
+            out.pop("triggers")
+        return out
 
 
 class FundamentalFilter(BaseModel):

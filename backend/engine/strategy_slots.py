@@ -435,6 +435,13 @@ MARKET_REGIME_MA_CHIP_VALUES: dict[str, int] = {
     "지수 120일 이동평균 기준": 120,
     "지수 200일 이동평균 기준": 200,
 }
+# 변동성 급등 판정(엔진 v16.16)의 배수 칩 — 지수 변동성이 직전 1년 평균의 몇 배 이상인가
+# (2026-09-20 사용자 결정: 되묻기 + 칩).
+MARKET_REGIME_VOL_MULTIPLE_CHIP_VALUES: dict[str, float] = {
+    "시장 변동성 평소의 1.5배 이상": 1.5,
+    "시장 변동성 평소의 2배 이상": 2.0,
+    "시장 변동성 평소의 2.5배 이상": 2.5,
+}
 # 변동성 역비중(엔진 v16.14)의 변동성 산정 기간 칩 → allocation_lookback_days.
 ALLOCATION_LOOKBACK_CHIP_VALUES: dict[str, int] = {
     "비중용 변동성 20일": 20,
@@ -444,7 +451,7 @@ ALLOCATION_LOOKBACK_CHIP_VALUES: dict[str, int] = {
 
 
 def portfolio_chip_patch(chip: str, parsed_dump: dict) -> Optional[dict]:
-    """위 세 표의 칩이면 ParsedStrategy 패치(최상위 필드), 아니면 None.
+    """위 네 표의 칩이면 ParsedStrategy 패치(최상위 필드), 아니면 None.
 
     국면 칩은 되묻는 중인 market_regime(개념은 이미 있음)의 빈 칸을 채운다 — 개념이 없으면
     답할 대상이 없으므로 결속하지 않는다(None)."""
@@ -458,6 +465,11 @@ def portfolio_chip_patch(chip: str, parsed_dump: dict) -> Optional[dict]:
         if not isinstance(regime, dict):
             return None
         return {"market_regime": {**regime, "ma_period": MARKET_REGIME_MA_CHIP_VALUES[text]}}
+    if text in MARKET_REGIME_VOL_MULTIPLE_CHIP_VALUES:
+        if not isinstance(regime, dict):
+            return None
+        return {"market_regime": {
+            **regime, "volatility_multiple": MARKET_REGIME_VOL_MULTIPLE_CHIP_VALUES[text]}}
     if text in ALLOCATION_LOOKBACK_CHIP_VALUES:
         if parsed_dump.get("allocation_type") != "inverse_volatility":
             return None

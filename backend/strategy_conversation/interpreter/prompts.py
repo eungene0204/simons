@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "6.2"
+PROMPT_VERSION = "6.3"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -441,9 +441,12 @@ NON_STRATEGY_REQUEST(전략과 무관)
    rebalance_method는 "종목 교체"=reconstitute / "비중만 조정"=weights_only 또는 null(미언급).
 7-1. '변동성 역비중'·'리스크 패리티(Risk Parity)'·'변동성이 낮을수록 더 많이' → portfolio.weighting="inverse_volatility"
    (그 변동성의 기간을 말했을 때만 weighting_lookback_days). '동일 비중'="equal".
-7-2. **시장 국면 필터**: '코스피(코스닥)가 N일 이동평균선 아래면 비중을 줄여 현금 보유' → strategy.market_filter=
-   {{"index":"KOSPI","ma_period":N,"exposure_pct":말한 비율(전량 현금=0, 비율을 말하지 않았으면 null),"source_text":"…"}}.
-   지수의 이동평균이지 종목 조건이 아닙니다 — entry_conditions에 ma_crossover를 만들지 마세요.
+7-2. **시장 국면 필터**: '코스피(코스닥)가 N일 이동평균선 아래면'·'시장 변동성이 급등(급격히 확대)하면' 비중을 줄여 현금 보유 → strategy.market_filter=
+   {{"index":"KOSPI","triggers":[말한 판정만: "below_ma"=이동평균선 아래, "volatility_spike"=시장 변동성 급등],"ma_period":N,
+   "volatility_multiple":평소의 몇 배 이상인지(말하지 않았으면 null),"volatility_period":변동성 기간(말하지 않았으면 null),
+   "exposure_pct":말한 비율(전량 현금=0, 비율을 말하지 않았으면 null),"source_text":"…"}}.
+   '…이거나(또는)'로 둘을 말했으면 triggers에 둘 다 넣고, '둘 다 충족할 때만(그리고)'은 지원하지 않으니 unsupported_features에 넣으세요.
+   지수의 이동평균·변동성이지 종목 조건이 아닙니다 — entry_conditions에 ma_crossover나 변동성 조건·랭킹을 만들지 마세요.
 7-3. '손절매는 적용하지 않는다'·'익절 없음'·'리밸런싱 안 함'처럼 **쓰지 않겠다고 말한 설정**은 strategy.declined에
    {{"field":"stop_loss"|"take_profit"|"rebalancing","source_text":"그 설정을 안 쓴다고 말한 원문 조각"}}으로 넣으세요 —
    항목마다 그 설정 이름이 나오는 원문을 옮겨 적습니다(원문에 없는 설정은 넣지 않음). 미지원이 아니므로

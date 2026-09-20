@@ -8,7 +8,7 @@ from typing import Dict, List, Any, Optional
 from engine.loader import DataLoader
 from engine.indicators import IndicatorEngine
 from engine.signals import SignalEngine, FUNDAMENTAL_LABELS
-from engine.simulator import Simulator, applied_trading_costs
+from engine.simulator import Simulator, applied_trading_costs, regime_condition_args
 from engine.result_handler import ResultHandler
 from engine.data_resolver import DataResolver
 from engine.prep_cache import SymbolPrepCache
@@ -357,13 +357,18 @@ class BacktestEngine:
         """시장 국면 필터(v16.14)의 거래일별 목표 노출 비율(0~1) 배열 — 창 구간 길이.
 
         지수 종가가 ma_period일 단순이동평균 **아래**인 날은 exposure_pct/100, 그 밖(위·같음·
-        이동평균이 아직 정의되지 않은 초기 구간)은 1.0이다. 지수 휴장일과 종목 거래일이
+        이동평균이 아직 정의되지 않은 초기 구간)은 1.0이다. 변동성 급등 판정(v16.16,
+        triggers에 volatility_spike)은 지수 일간 수익률의 N일 표준편차가 그 값의 직전 1년
+        (252거래일) 평균의 volatility_multiple배 **이상**인 날이며, 이동평균 판정과 함께 있으면
+        둘 중 하나만 충족해도(OR) 약세일이다. 지수 휴장일과 종목 거래일이
         어긋나는 날은 직전 지수 값을 쓴다(ffill). next_open이면 delay만큼 밀어 체결일에
         전일 판정을 쓴다 — 창 직전 N거래일(ext_index 앞부분)을 붙여 밀므로 창 첫날도 창 직전
         판정을 본다(랭킹 패널과 같은 규칙). 지수 파일이 없으면 None.
         """
         import numpy as np
-        from engine.market_index import load_index_frame, INDEX_CLOSE_COL
+        from engine.market_index import (
+            load_index_frame, INDEX_CLOSE_COL, REGIME_VOL_BASELINE_DAYS, REGIME_VOL_DEFAULT_PERIOD,
+        )
 
         market = str(regime.get('index') or 'KOSPI')
         frame = load_index_frame(market, self.loader.data_dir)
@@ -371,10 +376,21 @@ class BacktestEngine:
             return None
         close = frame.to_pandas().set_index("date")[INDEX_CLOSE_COL].astype(float)
         close.index = pd.DatetimeIndex(close.index)
-        ma = close.rolling(int(regime.get('ma_period') or 200)).mean()
-        below = close < ma                             # NaN 이동평균 → False → 전액 투자
+        triggers = regime.get('triggers') or ['below_ma']
+        weak = pd.Series(False, index=close.index)
+        if 'below_ma' in triggers:
+            ma = close.rolling(int(regime.get('ma_period') or 200)).mean()
+            weak |= close < ma                         # NaN 이동평균 → False → 전액 투자
+        if 'volatility_spike' in triggers:
+            multiple = regime.get('volatility_multiple')
+            if not multiple:
+                raise ValueError("시장 국면 필터의 변동성 급등 배수(volatility_multiple)가 없습니다")
+            vol = close.pct_change().rolling(
+                int(regime.get('volatility_period') or REGIME_VOL_DEFAULT_PERIOD)).std()
+            baseline = vol.rolling(REGIME_VOL_BASELINE_DAYS).mean()
+            weak |= vol >= float(multiple) * baseline  # NaN 기준선 → False → 전액 투자
         ratio = float(regime.get('exposure_pct') or 0.0) / 100.0
-        exp_ser = pd.Series(np.where(below, ratio, 1.0), index=close.index)
+        exp_ser = pd.Series(np.where(weak, ratio, 1.0), index=close.index)
         exp_ser = exp_ser.reindex(pd.DatetimeIndex(ext_index), method='ffill')
         if delay:
             exp_ser = exp_ser.shift(delay)
@@ -1672,9 +1688,11 @@ class BacktestEngine:
                 else:
                     _off_days = int((exposure < 1.0).sum())
                     _pct = float(_regime.get('exposure_pct') or 0.0)
+                    _kind, _cond_args = regime_condition_args(_regime)
                     self.warnings.add(rw.warning(
-                        rw.MARKET_REGIME_APPLIED, str(_regime.get('index') or 'KOSPI'),
-                        int(_regime.get('ma_period') or 0), _off_days,
+                        {'ma': rw.MARKET_REGIME_APPLIED, 'vol': rw.MARKET_REGIME_VOL_APPLIED,
+                         'any': rw.MARKET_REGIME_ANY_APPLIED}[_kind],
+                        *_cond_args, _off_days,
                         str(int(_pct)) if _pct == int(_pct) else f"{_pct:g}",
                     ))
 

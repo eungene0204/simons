@@ -70,6 +70,7 @@ def build_fixture() -> dict:
     chips["portfolio_extras"] = (
         list(strategy_slots.MARKET_REGIME_EXPOSURE_CHIP_VALUES)
         + list(strategy_slots.MARKET_REGIME_MA_CHIP_VALUES)
+        + list(strategy_slots.MARKET_REGIME_VOL_MULTIPLE_CHIP_VALUES)
         + list(strategy_slots.ALLOCATION_LOOKBACK_CHIP_VALUES)
     )
     return chips
