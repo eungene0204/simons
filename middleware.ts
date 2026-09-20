@@ -1,6 +1,7 @@
 // 지역 라우팅 미들웨어.
 //
 // - `/us` 트리는 같은 라우트 트리로 rewrite 하고(파일 중복 없음), 지역을 내부 헤더로 실어 준다.
+//   단, `US_REGION_BLOCKED`가 켜져 있으면 `/us` 트리 전체를 없는 경로로 취급한다(일시 차단).
 // - 한국 트리 요청에는 kr 헤더를 실어 준다.
 // - 자동 지역 리다이렉트는 없다. `www.nullstock.im/*`는 무조건 한국 서비스이고, 글로벌 서비스는
 //   `/us` 경로로만 진입한다(2026-09-15 — 브라우저 언어가 영어인 한국 방문자가 `/`에서 `/us`로
@@ -19,6 +20,10 @@ import {
 } from "@/lib/geo/region";
 
 const REGION_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+
+// 글로벌(/us) 서비스 일시 차단 스위치 — 2026-09-20 사용자 지시.
+// 재개할 때는 이 상수를 false 로 바꾸고 배포한다(다른 설정 변경 없음).
+const US_REGION_BLOCKED = true;
 
 function requestHeadersWithRegion(request: NextRequest, region: Region): Headers {
   const requestHeaders = new Headers(request.headers);
@@ -41,6 +46,12 @@ export function middleware(request: NextRequest) {
   const region = regionFromPathname(pathname);
 
   if (region === "us") {
+    if (US_REGION_BLOCKED) {
+      // 없는 경로로 취급한다 — Next 기본 404 페이지를 404 상태로 돌려준다.
+      // 지역 쿠키도 남기지 않는다(쿠키는 미들웨어 밖 API 라우트의 지역 폴백이다).
+      return NextResponse.rewrite(new URL("/_not-found", request.url));
+    }
+
     const url = request.nextUrl.clone();
     url.pathname = stripRegionPrefix(pathname);
     const response = NextResponse.rewrite(url, {

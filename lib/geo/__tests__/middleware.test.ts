@@ -27,10 +27,18 @@ describe("middleware 지역 라우팅", () => {
     expect(res.headers.get("location")).toBeNull();
   });
 
-  it("`/us` 경로만 글로벌 서비스로 rewrite 한다", () => {
+  // 2026-09-20 — `/us` 글로벌 서비스 일시 차단(middleware.ts::US_REGION_BLOCKED).
+  // 차단을 해제하면 아래 두 테스트를 `/us` rewrite 검증으로 되돌린다:
+  //   x-middleware-rewrite = https://www.nullstock.im/pricing, 지역 헤더·쿠키 = us
+  it("차단 중에는 `/us` 트리를 없는 경로(404)로 돌려준다", () => {
     const res = middleware(request("/us/pricing", { "accept-language": "ko-KR" }));
-    expect(res.headers.get("x-middleware-rewrite")).toBe("https://www.nullstock.im/pricing");
-    expect(res.headers.get("x-middleware-request-" + REGION_HEADER)).toBe("us");
-    expect(res.cookies.get(REGION_COOKIE)?.value).toBe("us");
+    expect(res.headers.get("x-middleware-rewrite")).toBe("https://www.nullstock.im/_not-found");
+    expect(res.headers.get("x-middleware-request-" + REGION_HEADER)).toBeNull();
+  });
+
+  it("차단 중에는 지역 쿠키에 us를 남기지 않는다", () => {
+    const res = middleware(request("/us"));
+    expect(res.headers.get("x-middleware-rewrite")).toBe("https://www.nullstock.im/_not-found");
+    expect(res.cookies.get(REGION_COOKIE)?.value).toBeUndefined();
   });
 });
