@@ -25,6 +25,8 @@ _EN_LABELS = {
     "fundamental.ocf_growth": "Operating cash flow growth",
     "fundamental.fcf_growth": "Free cash flow growth", "fundamental.market_cap": "Market cap",
     "fundamental.roic": "ROIC", "fundamental.fcf_margin": "FCF margin",
+    "fundamental.fcf_yield": "FCF yield",
+    "fundamental.dividend_streak_years": "Consecutive dividend years",
     "fundamental.trading_value": "Average daily trading value",
     "fundamental.dividend_yield": "Dividend yield", "fundamental.payout_rate": "Payout ratio",
     "fundamental.dividend_growth": "Dividend growth", "fundamental.eps": "EPS",

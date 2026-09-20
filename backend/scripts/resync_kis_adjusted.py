@@ -42,8 +42,8 @@ _PRICE_COLS = ("open", "high", "low", "close", "volume", "change")
 # 섞인다. 펀더멘털 백필이 combine_first로 **결측만** 채우므로, 남겨 두면 낡은 기준의 값이
 # 영구히 고착된다. 떼어내서 결측으로 만들어야 다음 백필이 새 종가로 다시 계산한다
 # (배당 3종은 dividends 원본이 보존되므로 data_resolver가 런타임에도 복원한다).
-_CLOSE_DERIVED_COLS = ("per", "pbr", "psr", "pcr", "market_cap",
-                       "dividend_yield", "payout_rate", "dividend_growth")
+_CLOSE_DERIVED_COLS = ("per", "pbr", "psr", "pcr", "market_cap", "fcf_yield",
+                       "dividend_yield", "payout_rate", "dividend_growth", "dividend_streak_years")
 # 위 둘을 뺀 나머지는 전부 이월한다. 연간 펀더멘털은 결산 시점 값을 다음 결산까지
 # 전진충전하지만, 아래 둘은 예외다 — sector는 상수 문자열이고, dividends는 ex-date에만
 # 값이 있는 이벤트 시리즈라 전진충전하면 배당 한 건이 이후 전 구간으로 번진다.

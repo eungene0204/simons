@@ -104,6 +104,7 @@ The parsed strategy object follows this schema (ParsedStrategy):
     reserve_ratio, net_margin, gross_margin, operating_margin, revenue_growth,
     operating_income_growth, net_income_growth, market_cap, trading_value,
     dividend_yield(배당수익률 %), payout_rate(배당성향 %), dividend_growth(배당성장률 %, 전년比),
+    fcf_yield(FCF 수익률 %, 잉여현금흐름÷시가총액), dividend_streak_years(연속 배당 연수 년),
     eps(주당순이익 원 — "흑자 기업"=eps>0, "적자 제외"=eps>0, "적자 기업"=eps<0),
     ebit(영업이익 억원 — "영업이익 흑자"=ebit>0, "영업이익 적자"=ebit<0; 영업이익증가율/영업이익률로 바꿔 해석 금지),
     net_income(당기순이익 억원 — 비지배지분 포함 연결 전체),

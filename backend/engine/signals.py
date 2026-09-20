@@ -29,6 +29,10 @@ FUNDAMENTAL_LABELS = {
     "ocf_growth": "영업현금흐름증가율", "fcf_growth": "잉여현금흐름증가율",
     # v16.14 — DART 원재료로 계산(fundamental_fetcher.compute_roic/compute_fcf_margin).
     "roic": "ROIC", "fcf_margin": "FCF 마진",
+    # v16.15 — FCF 수익률(fcf ÷ market_cap, fundamental_fetcher.recompute_fcf_yield)·연속 배당
+    # 연수(dividends 달력 연도 연속, dividends.dividend_streak_years). parquet에 없으면
+    # data_resolver가 런타임에 계산한다. 라벨은 프론트 요약 표(lib/strategy-summary.ts)와 동일.
+    "fcf_yield": "FCF 수익률", "dividend_streak_years": "연속 배당 연수",
     # eps(원)·ebit(억원) 부호 필터로 '흑자/적자'·'영업이익 흑자/적자' 키워드 조건을
     # 표현한다(nl_parser 참고).
     "eps": "EPS",

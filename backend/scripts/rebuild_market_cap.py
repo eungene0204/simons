@@ -42,7 +42,7 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from engine.fundamental_backfill import apply_real_market_cap  # noqa: E402
-from engine.fundamental_fetcher import recompute_pcr  # noqa: E402
+from engine.fundamental_fetcher import recompute_fcf_yield, recompute_pcr  # noqa: E402
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _OHLCV_DIR = _PROJECT_ROOT / "data" / "ohlcv"
@@ -184,6 +184,7 @@ def apply(symbols: list[str] | None) -> None:
             pdf = pd.read_parquet(f)
             out = apply_real_market_cap(pdf, caps)
             out = recompute_pcr(out)
+            out = recompute_fcf_yield(out)
             covered = pd.to_datetime(out["date"]).dt.normalize().isin(caps.index).mean()
             coverage_sum += covered
             coverage_n += 1

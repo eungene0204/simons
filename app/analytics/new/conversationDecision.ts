@@ -108,11 +108,6 @@ export type SemanticClassification = {
   interpretationFailed?: boolean;
 };
 
-export type StrategyAssumptions = {
-  holdingPeriodDays?: number;
-  holdingHorizon?: "short" | "medium" | "long";
-};
-
 export type ResearchMetric = "sharpe" | "sortino" | "calmar";
 
 export type MetricOptimizationRange = {
@@ -121,8 +116,6 @@ export type MetricOptimizationRange = {
   max: number;
   step: number;
 };
-
-export type HoldingPeriodHorizon = "short" | "long";
 
 export type ConversationDecision =
   | (DecisionBase & {
@@ -158,20 +151,11 @@ export type ConversationDecision =
       action: "start_builder";
       message?: string;
       seedPrompt: string;
-      strategyAssumptions?: StrategyAssumptions;
       researchMetric?: ResearchMetric;
-    })
-  | (DecisionBase & {
-      action: "ask_holding_period";
-      message: string;
-      suggestions: string[];
-      strategyPrompt: string;
-      holdingHorizon: HoldingPeriodHorizon;
     })
   | (DecisionBase & {
       action: "parse_strategy";
       strategyPrompt: string;
-      strategyAssumptions: StrategyAssumptions;
     })
   // 상태 기본 액션 — 아직 정하지 않은 조건을 진행 골격 순서대로 묻는다(FR-SA-016).
   // 질문·선택지는 슬롯 판정 하나에서 오고, 화면 조립기가 진행률 카드를 함께 세운다.
@@ -206,8 +190,6 @@ export type ConversationContext = {
   hasCurrentStrategy: boolean;
   builderMode: boolean;
   lastCoachText: string | null;
-  pendingHoldingPeriodPrompt?: string | null;
-  pendingHoldingPeriodHorizon?: HoldingPeriodHorizon | null;
   pendingResearchMetricPrompt?: string | null;
   /** 진행 골격 상태. 없으면(전략 없음) 상태 기본 액션이 성립하지 않는다. */
   slots?: StrategySlotState | null;
@@ -305,76 +287,6 @@ function researchMetricDecision(prompt: string, pendingPrompt?: string | null): 
     seedPrompt: `${strategyPrompt}\n과거 데이터 연구 목표: ${getResearchMetricLabel(metric)}. 사용자가 선택하는 전략 조건의 파라미터 조합을 이 지표 기준으로 비교한다.`,
   };
 }
-
-const HORIZON_ASSUMPTIONS = [
-  {
-    horizon: "short",
-    pattern: /단기(?!\s*(?:이동\s*평균|이평|sma|ema))(?:\s*(?:전략|투자|보유))?|단타|짧(?:게|은\s*(?:기간|보유|주기))/i,
-  },
-  {
-    days: 63,
-    horizon: "medium",
-    pattern: /중기(?:\s*(?:전략|투자|보유))?|중간\s*(?:기간|정도)\s*보유/,
-  },
-  {
-    horizon: "long",
-    pattern: /장기(?!\s*(?:이동\s*평균|이평|sma|ema))(?:\s*(?:전략|투자|보유))?|장투|오래\s*(?:보유|가져|들고)|긴\s*(?:기간|보유|주기)/i,
-  },
-] as const;
-
-const EXPLICIT_HOLDING_PERIOD_PATTERN =
-  /(?:\d+|한|두|세|반)\s*(?:거래일|일|주|개월|달|년|분기|반기)\s*(?:간|동안|정도)?\s*(?:보유|들고|유지|가져|후\s*청산)/;
-
-export function resolveStrategyAssumptions(prompt: string): StrategyAssumptions {
-  if (EXPLICIT_HOLDING_PERIOD_PATTERN.test(prompt)) return {};
-
-  const matchingHorizons = HORIZON_ASSUMPTIONS.filter(({ pattern }) => pattern.test(prompt));
-  if (matchingHorizons.length !== 1) return {};
-
-  const [matchingHorizon] = matchingHorizons;
-  if (matchingHorizon.horizon !== "medium") {
-    return { holdingHorizon: matchingHorizon.horizon };
-  }
-  return {
-    holdingHorizon: matchingHorizon.horizon,
-    holdingPeriodDays: matchingHorizon.days,
-  };
-}
-
-const LONG_HOLDING_PERIOD_QUESTION =
-  "바이 앤 홀드 전략으로 이해했어요. 얼마나 오래 보유할까요?";
-const LONG_HOLDING_PERIOD_SUGGESTIONS = [
-  "252거래일 (1년)",
-  "504거래일 (2년)",
-  "756거래일 (3년)",
-  "1,260거래일 (5년)",
-  "직접 입력",
-];
-const SHORT_HOLDING_PERIOD_QUESTION =
-  "단기 매매 전략으로 이해했어요. 얼마나 오래 보유할까요?";
-const SHORT_HOLDING_PERIOD_SUGGESTIONS = [
-  "1거래일 (당일)",
-  "5거래일 (1주)",
-  "10거래일 (2주)",
-  "20거래일 (약 1개월)",
-  "60거래일 (약 3개월)",
-  "직접 입력",
-];
-
-const HOLDING_PERIOD_PROMPTS = {
-  short: {
-    question: SHORT_HOLDING_PERIOD_QUESTION,
-    suggestions: SHORT_HOLDING_PERIOD_SUGGESTIONS,
-    invalidMessage: "단기 보유기간은 1~251거래일로 입력해 주세요. 얼마나 오래 보유할까요?",
-    isValid: (days: number) => days >= 1 && days < 252,
-  },
-  long: {
-    question: LONG_HOLDING_PERIOD_QUESTION,
-    suggestions: LONG_HOLDING_PERIOD_SUGGESTIONS,
-    invalidMessage: "장기 보유기간은 252거래일 이상으로 입력해 주세요. 얼마나 오래 보유할까요?",
-    isValid: (days: number) => days >= 252,
-  },
-} as const;
 
 const MODIFICATION_REQUEST_PATTERN =
   /(?:바꾸|바꿔|바꿀|변경|수정|고치|고쳐|교체|다른|새로|설정|옵션|종류|선택|원하|싶|보여|알려)/i;
@@ -658,47 +570,11 @@ export function needsEntrySignalClarification(prompt: string): boolean {
   return getModificationClarification(prompt)?.area === "entry_signal";
 }
 
-export function parseHoldingPeriodDays(prompt: string): number | null {
-  const normalized = prompt.replace(/,/g, "").replace(/\s+/g, "");
-  const tradingDays = normalized.match(/(\d+)(?:거래)?일/);
-  if (tradingDays) return Number(tradingDays[1]);
-
-  const years = normalized.match(/(\d+)년/);
-  const months = normalized.match(/(\d+)(?:개월|달)/);
-  if (years || months) {
-    return Number(years?.[1] ?? 0) * 252 + Number(months?.[1] ?? 0) * 21;
-  }
-
-  const weeks = normalized.match(/(\d+)주/);
-  if (weeks) return Number(weeks[1]) * 5;
-  return null;
-}
-
 function buildStrategyInputDecision(
   prompt: string,
   context: ConversationContext,
   reason: string,
 ): ConversationDecision {
-  const assumptions = resolveStrategyAssumptions(prompt);
-  if (
-    (assumptions.holdingHorizon === "short" || assumptions.holdingHorizon === "long") &&
-    !assumptions.holdingPeriodDays
-  ) {
-    const holdingHorizon = assumptions.holdingHorizon;
-    const holdingPrompt = HOLDING_PERIOD_PROMPTS[holdingHorizon];
-    return {
-      action: "ask_holding_period",
-      speechAct: "ask",
-      topic: "risk",
-      confidence: 1,
-      reason: `${holdingHorizon}_holding_period_required`,
-      message: holdingPrompt.question,
-      suggestions: holdingPrompt.suggestions,
-      strategyPrompt: prompt,
-      holdingHorizon,
-    };
-  }
-
   return {
     action: "parse_strategy",
     speechAct: context.hasCurrentStrategy ? "modify" : "create",
@@ -706,7 +582,6 @@ function buildStrategyInputDecision(
     confidence: 1,
     reason,
     strategyPrompt: prompt,
-    strategyAssumptions: assumptions,
   };
 }
 
@@ -833,37 +708,6 @@ export function decideConversationTurn(
       field: context.reaskNext.field,
       message: context.reaskNext.question,
       suggestions: context.reaskNext.suggestions,
-    };
-  }
-
-  if (context.pendingHoldingPeriodPrompt) {
-    // Snapshots created before horizon persistence only contain long-period prompts.
-    const holdingHorizon = context.pendingHoldingPeriodHorizon ?? "long";
-    const holdingPrompt = HOLDING_PERIOD_PROMPTS[holdingHorizon];
-    const holdingPeriodDays = parseHoldingPeriodDays(prompt);
-    if (holdingPeriodDays === null || !holdingPrompt.isValid(holdingPeriodDays)) {
-      return {
-        action: "ask_holding_period",
-        speechAct: "ask",
-        topic: "risk",
-        confidence: 1,
-        reason: `${holdingHorizon}_holding_period_still_missing`,
-        message: holdingPeriodDays === null
-          ? holdingPrompt.question
-          : holdingPrompt.invalidMessage,
-        suggestions: holdingPrompt.suggestions,
-        strategyPrompt: context.pendingHoldingPeriodPrompt,
-        holdingHorizon,
-      };
-    }
-    return {
-      action: "start_builder",
-      speechAct: context.hasCurrentStrategy ? "modify" : "create",
-      topic: "strategy",
-      confidence: 1,
-      reason: "holding_period_selected",
-      seedPrompt: context.pendingHoldingPeriodPrompt,
-      strategyAssumptions: { holdingPeriodDays },
     };
   }
 
@@ -1116,7 +960,6 @@ export function decideConversationTurn(
   // 진입 판정(isAdvisorFollowUpPrompt)이 원문 정규식인 것은 L2와 같은 이관 대상 부채다.
   if (
     context.hasCurrentStrategy &&
-    Object.keys(resolveStrategyAssumptions(prompt)).length === 0 &&
     isAdvisorFollowUpPrompt(prompt)
   ) {
     return nextConditionDecision(context, "active_strategy_next_condition") ?? {

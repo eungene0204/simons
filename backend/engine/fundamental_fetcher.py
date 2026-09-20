@@ -1581,6 +1581,7 @@ def enrich_ohlcv_with_fundamentals(
     # 과거 비조정 주식 수로 CFPS를 만들면 액면분할 전 기간이 왜곡된다. parquet의
     # 일별 market_cap(억원)을 사용해 동일한 가격 조정 기준을 유지한다.
     df = recompute_pcr(df)
+    df = recompute_fcf_yield(df)
 
     return _add_dividend_metrics(df)
 
@@ -1629,6 +1630,25 @@ def recompute_pcr(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def recompute_fcf_yield(df: pd.DataFrame) -> pd.DataFrame:
+    """FCF 수익률(%) = 잉여현금흐름(raw 원, 최근 연간 결산) ÷ (시가총액 억원 × 1e8) × 100.
+
+    엔진 v16.15. PCR(recompute_pcr)과 같은 정의 자리다 — 일별 실측 market_cap을 쓰므로
+    조정 종가·주식수 근사의 왜곡이 없고, 시총 재구축(scripts/rebuild_market_cap.py)도 같은
+    함수를 부른다. 두 컬럼 중 하나라도 없으면 no-op, 시가총액이 비양수면 null. 음의 FCF는
+    음의 수익률로 그대로 둔다(밸류에이션 지표라 부호가 정보다).
+    """
+    if "market_cap" not in df.columns or "fcf" not in df.columns:
+        return df
+    import numpy as _np
+    valid = df["market_cap"].notna() & (df["market_cap"] > 0) & df["fcf"].notna()
+    df = df.copy()
+    df["fcf_yield"] = (
+        df["fcf"].astype(float) / (df["market_cap"].astype(float) * 1e8) * 100.0
+    ).where(valid).replace([_np.inf, -_np.inf], _np.nan)
+    return df
+
+
 def _add_dividend_metrics(df: pd.DataFrame) -> pd.DataFrame:
     """ex-date별 주당 현금배당(dividends 컬럼, scripts/backfill_dividends.py로 백필)이 있으면
     배당수익률(TTM DPS/종가)과 배당성향(TTM DPS/EPS) 컬럼을 추가한다. 연간 펀더멘털과
@@ -1637,9 +1657,13 @@ def _add_dividend_metrics(df: pd.DataFrame) -> pd.DataFrame:
         return df
     from .dividends import (
         trailing_dividend_yield, dividend_payout_ratio, dividend_growth_yoy,
+        dividend_streak_years,
     )
     df["dividend_yield"] = trailing_dividend_yield(df["close"].astype(float), df["dividends"])
     df["dividend_growth"] = dividend_growth_yoy(df["dividends"])
     if "eps" in df.columns:
         df["payout_rate"] = dividend_payout_ratio(df["dividends"], df["eps"])
+    # 연속 배당 연수(v16.15) — 달력 연도 기준이라 거래일이 필요하다.
+    if "date" in df.columns:
+        df["dividend_streak_years"] = dividend_streak_years(df["dividends"], df["date"])
     return df

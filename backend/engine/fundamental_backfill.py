@@ -25,6 +25,8 @@ from .fundamental_fetcher import (
 # 계산한다 — 펀더멘털 refresh가 combine_first로 결측만 채우도록 목록에 포함(기존 값 보존).
 FUND_COLS = ANNUAL_FUNDAMENTAL_KEYS + ANNUAL_FUNDAMENTAL_STATUS_KEYS + [
     "per", "pbr", "psr", "dividend_yield", "payout_rate", "dividend_growth",
+    # v16.15 — FCF 수익률(fcf ÷ market_cap)·연속 배당 연수(dividends 달력 연도). enrich가 계산.
+    "fcf_yield", "dividend_streak_years",
 ]
 # Sentinel proving the *comprehensive* fundamentals (not just the legacy
 # eps/bps/roe/debt_ratio set) are present — used to skip already-processed parquets.

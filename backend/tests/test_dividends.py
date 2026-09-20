@@ -153,3 +153,50 @@ def test_dividend_growth_cut_is_negative():
     g = dividend_growth_yoy(div)
     # 2023년: 현 TTM=0, 직전 TTM=100 → -100% (배당 삭감이 명확히 드러남)
     assert g.loc[idx[idx.year == 2023][120]] == pytest.approx(-100.0)
+
+
+# ─── 연속 배당 연수(v16.15) ───────────────────────────────────────────────────
+
+def _daily(start: str, end: str):
+    return pd.date_range(start, end, freq="B")
+
+
+def _streak(paid_dates: dict, start="2019-01-02", end="2024-06-28"):
+    from engine.dividends import dividend_streak_years
+    idx = _daily(start, end)
+    div = pd.Series(0.0, index=idx)
+    for d, amt in paid_dates.items():
+        div.loc[pd.Timestamp(d)] = float(amt)
+    return dividend_streak_years(div, pd.Series(idx))
+
+
+def test_dividend_streak_counts_completed_years_only():
+    """2020·2021·2022·2023 연말 배당 → 2024년 중에는 4년 연속. 진행 중인 2024년은 세지 않는다."""
+    s = _streak({"2020-12-29": 100, "2021-12-29": 100, "2022-12-28": 100, "2023-12-27": 100})
+    assert s[pd.Timestamp("2024-03-04")] == 4.0
+    assert s[pd.Timestamp("2024-06-28")] == 4.0
+    # 2023년 안에서는 2020~2022 세 해만 확정
+    assert s[pd.Timestamp("2023-06-01")] == 3.0
+    assert s[pd.Timestamp("2023-12-29")] == 3.0
+
+
+def test_dividend_streak_resets_on_skipped_year():
+    """2022년을 건너뛰면 2023년 배당 뒤에도 연속은 1년이다(2020·2021은 끊겼다)."""
+    s = _streak({"2020-12-29": 100, "2021-12-29": 100, "2023-12-27": 100})
+    assert s[pd.Timestamp("2024-03-04")] == 1.0
+    assert s[pd.Timestamp("2023-03-02")] == 0.0   # 직전 연도(2022) 무배당
+    assert s[pd.Timestamp("2022-03-02")] == 2.0
+
+
+def test_dividend_streak_interim_dividends_count_once_per_year():
+    """분기 배당(한 해에 여러 번)은 연도 하나로만 센다."""
+    s = _streak({"2022-03-30": 50, "2022-06-29": 50, "2022-12-28": 50, "2023-12-27": 100})
+    assert s[pd.Timestamp("2024-01-02")] == 2.0
+
+
+def test_dividend_streak_no_dividends_is_zero_and_nan_is_zero():
+    from engine.dividends import dividend_streak_years
+    idx = _daily("2020-01-02", "2021-12-30")
+    div = pd.Series(np.nan, index=idx)
+    s = dividend_streak_years(div, pd.Series(idx))
+    assert (s == 0.0).all()

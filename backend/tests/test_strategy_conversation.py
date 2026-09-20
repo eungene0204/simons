@@ -643,7 +643,8 @@ def test_registry_resolves_wrong_namespace_by_unique_leaf():
 
 
 def test_registry_unsupported_and_unknown():
-    assert resolve("FCF").supported == "UNSUPPORTED"
+    # 'FCF'는 v16.15부터 FCF 수익률(지원)로 해석된다 — 미지원 표본은 베타로 바꿨다.
+    assert resolve("베타").supported == "UNSUPPORTED"
     assert resolve("존재하지않는지표") is None
 
 
@@ -655,8 +656,11 @@ def test_registry_resolves_new_negative_handling_metrics():
     assert resolve("ebitda_growth").id == "fundamental.ebitda_growth"
     assert resolve("영업현금흐름증가율").id == "fundamental.ocf_growth"
     assert resolve("잉여현금흐름증가율").id == "fundamental.fcf_growth"
-    # FCF 배율(밸류에이션 비율)은 여전히 미지원 — raw FCF 증가율만 지원 범위
-    assert resolve("fcf_yield").supported == "UNSUPPORTED"
+    # FCF 수익률(시총 대비)은 v16.15에서 지원 승격 — 'FCF Yield'·'잉여현금흐름수익률' 표기 모두 이것
+    assert resolve("fcf_yield").id == "fundamental.fcf_yield"
+    assert resolve("FCF Yield").id == "fundamental.fcf_yield"
+    assert resolve("잉여현금흐름수익률").id == "fundamental.fcf_yield"
+    assert resolve("fcf_yield").supported != "UNSUPPORTED"
 
 
 def test_registry_matches_engine_literals():
@@ -714,14 +718,14 @@ def test_unknown_factor_rejected():
 
 def test_unsupported_factor_suggests_alternative_without_substituting():
     intent = StrategyIntent.model_validate(_full_intent_dict(
-        entry_conditions=[{"factor": "unsupported.fcf_yield", "operator": ">=", "value": 5}],
+        entry_conditions=[{"factor": "unsupported.interest_coverage", "operator": ">=", "value": 5}],
     ))
     validated, report = run_validation(intent)
     assert not report.is_valid
-    assert any("FCF" in f for f in report.unsupported_features)
+    assert any("이자보상배율" in f for f in report.unsupported_features)
     assert report.suggested_fixes  # 대체 제안은 하되
     # 조건이 다른 지표로 조용히 대체되지 않았다
-    assert validated.strategy.entry_conditions[0].factor == "unsupported.fcf_yield"
+    assert validated.strategy.entry_conditions[0].factor == "unsupported.interest_coverage"
 
 
 def test_unresolvable_symbol_expression_surfaces_warning():
@@ -3131,6 +3135,29 @@ def test_repair_turn_restores_dropped_clarification_questions():
     questions = result.intent.clarification_questions
     assert len(questions) == 1
     assert questions[0].field == "risk_management.take_profit"
+
+
+def test_repair_turn_restores_dropped_unsupported_features():
+    """[회귀 2026-09-20] 1차 출력이 시장 국면 필터를 배열로 내 스키마 검증에 걸렸고, 수리본이
+    unsupported_features를 []로 비웠다 — "최근 3년 연속 배당을 지급한 기업만 선별하고"가
+    안내 없이 사라졌다. 수리 성공 후 원출력의 미지원 목록을 결정적으로 되살려야 한다."""
+    import json as _json
+
+    phrase = "최근 3년 연속 배당을 지급한 기업만 선별하고"
+    broken = _full_intent_dict(market_filter=[{"index": "KOSPI", "ma_period": 200}])
+    broken["unsupported_features"] = [phrase]
+    repaired = _full_intent_dict(market_filter={"index": "KOSPI", "ma_period": 200})
+    repaired["unsupported_features"] = []
+    outputs = [_json.dumps(broken, ensure_ascii=False), _json.dumps(repaired, ensure_ascii=False)]
+
+    def fake_chat(system_prompt, user_message):
+        return outputs.pop(0)
+
+    result = StrategyInterpreter(chat_fn=fake_chat, model="stub-model").interpret(
+        f"코스피 200일선 위에서 {phrase} PER 10 이하"
+    )
+    assert result.repair_attempts == 1
+    assert result.intent.unsupported_features == [phrase]
 
 
 # ─── JSON Patch / Draft ──────────────────────────────────────────────────────

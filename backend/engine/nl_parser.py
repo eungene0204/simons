@@ -488,6 +488,10 @@ _FUNDAMENTAL_METRIC_ALIASES: dict[str, str] = {
     "net_profit_margin": "net_margin",
     "dividend": "dividend_yield",
     "payout_ratio": "payout_rate",
+    "fcfyield": "fcf_yield",
+    "free_cash_flow_yield": "fcf_yield",
+    "dividend_streak": "dividend_streak_years",
+    "consecutive_dividend_years": "dividend_streak_years",
     "netincome": "net_income",
     "net_profit": "net_income",
 }
@@ -506,6 +510,7 @@ RankingComponentMetricLiteral = Literal[
     "owner_net_income",
     "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
     "roic", "fcf_margin",
+    "fcf_yield", "dividend_streak_years",
 ]
 # 'composite'=복합 순위 합산(FR-BT-063) — 구성 지표는 ranking_components에 담긴다.
 # 단일 지표 랭킹 어휘(RankingComponentMetricLiteral)에 합산 모드 하나를 더한 것.
@@ -590,6 +595,7 @@ class FundamentalFilter(BaseModel):
         "net_income", "owner_net_income",
         "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
         "roic", "fcf_margin",
+        "fcf_yield", "dividend_streak_years",
     ], BeforeValidator(_normalize_metric_alias)] = Field(
         description=(
             "재무 지표 종류. "
@@ -616,7 +622,9 @@ class FundamentalFilter(BaseModel):
             "investing_cf_amount=투자활동현금흐름(억원, 설비·자산 취득이 많으면 음수), "
             "financing_cf_amount=재무활동현금흐름(억원, 차입 상환·배당 지급이 많으면 음수), "
             "roic=투하자본이익률(%, 영업이익×(1−유효세율)÷(자본총계+이자부부채−현금)), "
-            "fcf_margin=FCF 마진(%, 잉여현금흐름÷매출액). "
+            "fcf_margin=FCF 마진(%, 잉여현금흐름÷매출액), "
+            "fcf_yield=FCF 수익률(%, 잉여현금흐름÷시가총액 — 높을수록 저평가), "
+            "dividend_streak_years=연속 배당 연수(년, 직전 연도부터 끊기지 않고 현금배당을 지급한 연도 수). "
             "eps_growth/ebitda_growth/net_income_growth/operating_income_growth/ocf_growth/fcf_growth는 "
             "적자↔흑자 전환기에는 값 대신 상태코드(TURNAROUND/LOSS_TRANSITION 등)로 표현될 수 있다."
         )
@@ -6125,6 +6133,7 @@ _FUNDAMENTAL_METRIC_LABELS: dict[str, str] = {
     "revenue_growth": "매출액증가율", "operating_income_growth": "영업이익증가율",
     "net_income_growth": "순이익증가율", "market_cap": "시가총액",
     "dividend_yield": "배당수익률", "payout_rate": "배당성향", "dividend_growth": "배당성장률",
+    "fcf_yield": "FCF 수익률", "dividend_streak_years": "연속 배당 연수",
     "operating_cf_amount": "영업활동현금흐름", "investing_cf_amount": "투자활동현금흐름",
     "financing_cf_amount": "재무활동현금흐름",
     "owner_net_income": "지배주주순이익",

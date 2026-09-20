@@ -29,5 +29,7 @@
   { "key": "trading_value", "label": "거래대금", "unit": "억", "direction": ">=", "recommend": [50, 100, 500] },
   { "key": "payout_rate", "label": "배당성향", "unit": "%", "direction": ">=", "recommend": [20, 30, 50] },
   { "key": "dividend_growth", "label": "배당성장률", "unit": "%", "direction": ">=", "recommend": [5, 10, 15] },
-  { "key": "dividend_yield", "label": "배당수익률", "unit": "%", "direction": ">=", "recommend": [2, 3, 5, 7] }
+  { "key": "dividend_yield", "label": "배당수익률", "unit": "%", "direction": ">=", "recommend": [2, 3, 5, 7] },
+  { "key": "dividend_streak_years", "label": "연속 배당 연수", "unit": "년", "direction": ">=", "recommend": [3, 5, 10] },
+  { "key": "fcf_yield", "label": "FCF 수익률", "unit": "%", "direction": ">=", "recommend": [3, 5, 8] }
 ]

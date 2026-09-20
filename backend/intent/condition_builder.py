@@ -94,6 +94,9 @@ def _load_registry() -> tuple[MetricSpec, ...]:
     """공유 JSON에서 지표 데이터를 읽어 Python 로컬 패턴과 결합해 레지스트리를 만든다."""
     with open(_REGISTRY_PATH, encoding="utf-8") as f:
         items = json.load(f)
+    # 원문 정규식(_PATTERNS)이 있는 키만 레거시 빌더의 어휘로 삼는다 — 새 지표는 LLM 레인이
+    # 해석하며 여기에 원문 패턴을 더하지 않는다(대원칙 1, v16.15 fcf_yield·dividend_streak_years).
+    # 프론트(parsedStrategyMerge.ts)도 같은 JSON을 같은 방식으로 거른다.
     return tuple(
         MetricSpec(
             key=item["key"], label=item["label"], unit=item["unit"],
@@ -101,6 +104,7 @@ def _load_registry() -> tuple[MetricSpec, ...]:
             pattern=_PATTERNS[item["key"]],
         )
         for item in items
+        if item["key"] in _PATTERNS
     )
 
 

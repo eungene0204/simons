@@ -4,9 +4,7 @@ import {
   decideConversationTurn,
   getModificationClarification,
   needsEntrySignalClarification,
-  parseHoldingPeriodDays,
   parseMetricOptimizationRange,
-  resolveStrategyAssumptions,
   type ConversationContext,
 } from "./conversationDecision";
 
@@ -127,52 +125,36 @@ describe("decideConversationTurn", () => {
     });
   });
 
-  it("asks for a long holding period before parsing", () => {
-    const decision = decideConversationTurn("장기전략으로 만들어 볼까?", baseContext, {
-      intent: "STRATEGY_ADVICE",
-    });
+  // 2026-09-20 사고: 원문 정규식이 "단기 주가 변동에 따른 손절매는 적용하지 않는다"의 '단기'를
+  // 보고 "단기 매매 전략으로 이해했어요. 얼마나 오래 보유할까요?"를 LLM 해석 **전에** 띄웠다.
+  // 보유 기간은 이미 '분기마다 리밸런싱'으로 말한 전략이다. 보유 기간·기간 어감의 해석은
+  // 백엔드 인터프리터(LLM) 소관이고, 화면 중재자는 원문을 판정하지 않고 파싱으로 넘긴다.
+  it("does not pre-judge a holding horizon from the raw prompt (2026-09-20 '단기 주가 변동' 사고)", () => {
+    const prompt =
+      "최근 20일 평균 거래대금이 20억 원 이상인 KOSPI·KOSDAQ 종목 중에서 최근 3년 연속 배당을 지급한 기업만 선별하고, 배당수익률과 잉여현금흐름수익률(FCF Yield)이 높으며 배당성향이 과도하지 않은 기업을 선택한다. 이후 최근 60일 주가 변동성이 낮고 자기자본이익률(ROE)이 안정적으로 유지되는 종목을 대상으로 종합 점수를 산출하여 상위 30개 종목에 동일비중으로 투자하며, 코스피가 200일 이동평균선 아래에 있거나 시장 변동성이 급격히 확대될 경우 현금 비중을 높인다. 포트폴리오는 분기마다 리밸런싱하여 배당 정책이나 재무 건전성이 악화된 종목을 교체하고, 단기 주가 변동에 따른 손절매는 적용하지 않는다.";
+    const decision = decideConversationTurn(prompt, baseContext, { intent: "STRATEGY_ADVICE" });
 
     expect(decision).toEqual({
-      action: "ask_holding_period",
-      speechAct: "ask",
-      topic: "risk",
+      action: "parse_strategy",
+      speechAct: "create",
+      topic: "strategy",
       confidence: 1,
-      reason: "long_holding_period_required",
-      message: "바이 앤 홀드 전략으로 이해했어요. 얼마나 오래 보유할까요?",
-      suggestions: [
-        "252거래일 (1년)",
-        "504거래일 (2년)",
-        "756거래일 (3년)",
-        "1,260거래일 (5년)",
-        "직접 입력",
-      ],
-      strategyPrompt: "장기전략으로 만들어 볼까?",
-      holdingHorizon: "long",
+      reason: "classified_strategy_input",
+      strategyPrompt: prompt,
     });
   });
 
-  it("asks for a short holding period before parsing", () => {
-    const decision = decideConversationTurn("단기 투자 전략을 만들어보자", baseContext, {
-      intent: "STRATEGY_ADVICE",
-    });
+  it.each([
+    "장기전략으로 만들어 볼까?",
+    "단기 투자 전략을 만들어보자",
+    "중기 투자 전략을 만들자",
+  ])("hands a qualitative horizon to the LLM parser instead of asking first: %s", (prompt) => {
+    const decision = decideConversationTurn(prompt, baseContext, { intent: "STRATEGY_ADVICE" });
 
-    expect(decision).toEqual({
-      action: "ask_holding_period",
-      speechAct: "ask",
-      topic: "risk",
-      confidence: 1,
-      reason: "short_holding_period_required",
-      message: "단기 매매 전략으로 이해했어요. 얼마나 오래 보유할까요?",
-      suggestions: [
-        "1거래일 (당일)",
-        "5거래일 (1주)",
-        "10거래일 (2주)",
-        "20거래일 (약 1개월)",
-        "60거래일 (약 3개월)",
-        "직접 입력",
-      ],
-      strategyPrompt: "단기 투자 전략을 만들어보자",
-      holdingHorizon: "short",
+    expect(decision).toMatchObject({
+      action: "parse_strategy",
+      reason: "classified_strategy_input",
+      strategyPrompt: prompt,
     });
   });
 
@@ -202,73 +184,9 @@ describe("decideConversationTurn", () => {
     });
 
     expect(decision).toMatchObject({
-      action: "ask_holding_period",
-      reason: "long_holding_period_required",
-    });
-  });
-
-  it("continues the original strategy after a holding period is selected", () => {
-    const decision = decideConversationTurn("504거래일 (2년)", {
-      ...baseContext,
-      pendingHoldingPeriodPrompt: "장기전략으로 만들어 볼까?",
-      pendingHoldingPeriodHorizon: "long",
-    });
-
-    expect(decision).toEqual({
-      action: "start_builder",
-      speechAct: "create",
-      topic: "strategy",
-      confidence: 1,
-      reason: "holding_period_selected",
-      seedPrompt: "장기전략으로 만들어 볼까?",
-      strategyAssumptions: { holdingPeriodDays: 504 },
-    });
-  });
-
-  it("keeps asking when a long holding period is below one year", () => {
-    const decision = decideConversationTurn("126거래일", {
-      ...baseContext,
-      pendingHoldingPeriodPrompt: "장기전략으로 만들어 볼까?",
-      pendingHoldingPeriodHorizon: "long",
-    });
-
-    expect(decision).toMatchObject({
-      action: "ask_holding_period",
-      reason: "long_holding_period_still_missing",
-      message: "장기 보유기간은 252거래일 이상으로 입력해 주세요. 얼마나 오래 보유할까요?",
-    });
-  });
-
-  it("continues the original short strategy after a valid holding period is selected", () => {
-    const decision = decideConversationTurn("10거래일 (2주)", {
-      ...baseContext,
-      pendingHoldingPeriodPrompt: "단기 투자 전략을 만들어보자",
-      pendingHoldingPeriodHorizon: "short",
-    });
-
-    expect(decision).toEqual({
-      action: "start_builder",
-      speechAct: "create",
-      topic: "strategy",
-      confidence: 1,
-      reason: "holding_period_selected",
-      seedPrompt: "단기 투자 전략을 만들어보자",
-      strategyAssumptions: { holdingPeriodDays: 10 },
-    });
-  });
-
-  it("keeps asking when a short holding period is outside the short range", () => {
-    const decision = decideConversationTurn("252거래일", {
-      ...baseContext,
-      pendingHoldingPeriodPrompt: "단기 투자 전략을 만들어보자",
-      pendingHoldingPeriodHorizon: "short",
-    });
-
-    expect(decision).toMatchObject({
-      action: "ask_holding_period",
-      reason: "short_holding_period_still_missing",
-      message: "단기 보유기간은 1~251거래일로 입력해 주세요. 얼마나 오래 보유할까요?",
-      holdingHorizon: "short",
+      action: "parse_strategy",
+      speechAct: "modify",
+      reason: "preserve_active_strategy",
     });
   });
 
@@ -594,31 +512,6 @@ describe("decideConversationTurn", () => {
   });
 });
 
-describe("resolveStrategyAssumptions", () => {
-  it.each([
-    ["단기 전략으로 구성해줘", { holdingHorizon: "short" }],
-    ["중기 투자 전략을 만들자", { holdingHorizon: "medium", holdingPeriodDays: 63 }],
-    ["오래 보유하는 전략으로 해줘", { holdingHorizon: "long" }],
-  ])("normalizes qualitative holding horizons: %s", (prompt, assumptions) => {
-    expect(resolveStrategyAssumptions(prompt)).toEqual(assumptions);
-  });
-
-  it("does not override an explicit holding period", () => {
-    const prompt = "장기 전략으로 2년 동안 보유해줘";
-    expect(resolveStrategyAssumptions(prompt)).toEqual({});
-  });
-
-  it("does not choose a holding period when multiple horizons are compared", () => {
-    const prompt = "단기와 장기 전략을 비교해줘";
-    expect(resolveStrategyAssumptions(prompt)).toEqual({});
-  });
-
-  it("does not treat moving-average terminology as a holding horizon", () => {
-    const prompt = "장기 이동평균선 위에서 매수하는 전략을 만들어줘";
-    expect(resolveStrategyAssumptions(prompt)).toEqual({});
-  });
-});
-
 describe("needsEntrySignalClarification", () => {
   it.each([
     "진입 신호를 바꾸고 싶어",
@@ -793,24 +686,6 @@ describe("규제 안전 라벨 — 전략 진행 중에도 정형 안내가 나�
       { intent: "LIVE_TRADING", suggestedReply: "백엔드가 확정한 문구" },
     );
     expect(decision.action === "respond" && decision.message).toBe("백엔드가 확정한 문구");
-  });
-});
-
-describe("parseHoldingPeriodDays", () => {
-  it.each([
-    ["252거래일 (1년)", 252],
-    ["1,260거래일 (5년)", 1260],
-    ["1000일", 1000],
-    ["3년", 756],
-    ["18개월", 378],
-    ["1년 6개월", 378],
-    ["60주", 300],
-  ])("parses holding period input: %s", (prompt, days) => {
-    expect(parseHoldingPeriodDays(prompt)).toBe(days);
-  });
-
-  it("returns null for an unrelated answer", () => {
-    expect(parseHoldingPeriodDays("코스피")).toBeNull();
   });
 });
 

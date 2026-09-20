@@ -342,6 +342,18 @@ class DataResolver:
             except Exception as e:
                 self._log("ERROR", f"[{symbol}] PBR 직접 계산 실패: {e}")
 
+        # FCF 수익률(v16.15) — parquet에 컬럼이 없어도 fcf(raw 원)·market_cap(억원)이 있으면
+        # 정의 함수(recompute_fcf_yield, PCR과 같은 자리)로 그 자리에서 계산한다.
+        if 'fcf_yield' in missing and {'market_cap', 'fcf'} <= cols:
+            try:
+                from .fundamental_fetcher import recompute_fcf_yield
+                pdf = recompute_fcf_yield(df_pl.select(['market_cap', 'fcf']).to_pandas())
+                df_pl = df_pl.with_columns(pl.Series("fcf_yield", pdf["fcf_yield"].to_numpy()))
+                missing.discard('fcf_yield')
+                self._log("SUCCESS", f"[{symbol}] FCF 수익률 직접 계산 완료 (FCF ÷ 시가총액) ✓")
+            except Exception as e:
+                self._log("ERROR", f"[{symbol}] FCF 수익률 직접 계산 실패: {e}")
+
         return df_pl
 
     def _resolve_dividend_metrics(self, symbol: str, df_pl: pl.DataFrame, missing: set) -> pl.DataFrame:
@@ -350,12 +362,13 @@ class DataResolver:
         parquet에 dividends는 백필됐으나 메트릭 컬럼이 없는 경우(메트릭 도입 전 백필)의
         폴백. dividends 자체가 없으면 계산 불가 — fail-closed로 남겨 커버리지 로그가 고지한다.
         """
-        needed = missing & {"dividend_yield", "payout_rate", "dividend_growth"}
+        needed = missing & {"dividend_yield", "payout_rate", "dividend_growth", "dividend_streak_years"}
         if not needed or "dividends" not in df_pl.columns:
             return df_pl
 
         from .dividends import (
             trailing_dividend_yield, dividend_payout_ratio, dividend_growth_yoy,
+            dividend_streak_years,
         )
 
         try:
@@ -376,6 +389,11 @@ class DataResolver:
                 df_pl = df_pl.with_columns(pl.Series("payout_rate", p.to_numpy()))
                 missing.discard("payout_rate")
                 self._log("SUCCESS", f"[{symbol}] 배당성향 계산 완료 (TTM 배당 ÷ EPS) ✓")
+            if "dividend_streak_years" in needed and "date" in pdf.columns:
+                s = dividend_streak_years(div, pdf["date"])
+                df_pl = df_pl.with_columns(pl.Series("dividend_streak_years", s.to_numpy()))
+                missing.discard("dividend_streak_years")
+                self._log("SUCCESS", f"[{symbol}] 연속 배당 연수 계산 완료 (달력 연도 연속) ✓")
         except Exception as e:
             self._log("ERROR", f"[{symbol}] 배당 메트릭 계산 실패: {e}")
 

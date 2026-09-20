@@ -38,7 +38,7 @@
     {"id": "class.liquidity", "name": "유동성", "parent": "class.fundamental",
      "description": "거래 유동성 스크리닝(일평균 거래대금)"},
     {"id": "class.dividend", "name": "배당", "parent": "class.fundamental",
-     "description": "배당 수익률·성향·성장률"},
+     "description": "배당 수익률·성향·성장률·연속 배당 연수"},
     {"id": "class.cashflow", "name": "현금흐름", "parent": "class.fundamental",
      "description": "활동별(영업·투자·재무) 순현금흐름 절대 금액"},
     {"id": "class.quality", "name": "퀄리티/정성", "parent": "class.fundamental",
@@ -92,7 +92,7 @@
     "fundamental.pcr": "class.valuation",
     "fundamental.ev_ebitda": "class.valuation",
     "fundamental.ev_ebit": "class.valuation",
-    "unsupported.fcf_yield": "class.valuation",
+    "fundamental.fcf_yield": "class.valuation",
     "unsupported.cash_flow": "class.valuation",
 
     "fundamental.roe_or_gpa": "class.profitability",
@@ -128,6 +128,7 @@
     "fundamental.dividend_yield": "class.dividend",
     "fundamental.payout_rate": "class.dividend",
     "fundamental.dividend_growth": "class.dividend",
+    "fundamental.dividend_streak_years": "class.dividend",
 
     "fundamental.operating_cf_amount": "class.cashflow",
     "fundamental.investing_cf_amount": "class.cashflow",
@@ -184,6 +185,7 @@
     "fundamental.fcf_growth": "higher_better",
     "fundamental.roic": "higher_better",
     "fundamental.fcf_margin": "higher_better",
+    "fundamental.fcf_yield": "higher_better",
 
     "fundamental.market_cap": "none",
     "fundamental.trading_value": "higher_better",
@@ -191,6 +193,7 @@
     "fundamental.dividend_yield": "higher_better",
     "fundamental.payout_rate": "none",
     "fundamental.dividend_growth": "higher_better",
+    "fundamental.dividend_streak_years": "higher_better",
 
     "fundamental.operating_cf_amount": "higher_better",
     "fundamental.investing_cf_amount": "none",

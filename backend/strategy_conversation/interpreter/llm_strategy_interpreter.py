@@ -34,6 +34,7 @@ from strategy_conversation import config
 from strategy_conversation.interpreter.models import StrategyIntent
 from strategy_conversation.interpreter.output_repair import (
     build_repair_prompt,
+    salvage_unsupported_features,
     extract_json_object,
     salvage_clarification_questions,
     whole_input_quote_error,
@@ -379,6 +380,24 @@ class StrategyInterpreter:
                             ))
                         except ValidationError:
                             pass  # 원출력의 질문 조각 자체가 스키마 불만족 — 복원 포기
+                # 수리 재요청이 원출력의 미지원 목록(unsupported_features)을 비우면 되살린다
+                # (결정적 병합, 2026-09-20 "최근 3년 연속 배당" 무안내 소실 사고). 미지원
+                # 목록은 사용자 조건 중 표현 못 한 것의 유일한 기록이라 사라지면 조건이
+                # 조용히 없어진다. 형식 위반 재생성에도 적용한다 — 미지원 신고는 지어낸
+                # 조건이 아니라 사용자 구절이고, 조건으로 반영된 구절의 이중 기입은 잔여
+                # 미지원 안내의 이중 기입 가드가 걷는다(primary 잔여 안내).
+                if attempts:
+                    dropped = [
+                        f for f in salvage_unsupported_features(raw)
+                        if f not in intent.unsupported_features
+                    ]
+                    if dropped:
+                        intent = intent.model_copy(update={
+                            "unsupported_features": list(intent.unsupported_features) + dropped,
+                        })
+                        _log_llm("△ 미지원 목록 복원", (
+                            f"수리본이 지운 unsupported_features {len(dropped)}개를 원출력에서 되살림"
+                        ))
                 # 문맥 보정(결정론): 기존 초안이 없으면 MODIFY/CLARIFY는 성립 불가 —
                 # 4B가 단문 전략 서술을 MODIFY_STRATEGY로 오분류하는 드리프트 실측(2026-07-16).
                 if draft is None and intent.intent in ("MODIFY_STRATEGY", "CLARIFY_STRATEGY") \

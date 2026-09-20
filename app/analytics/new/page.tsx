@@ -107,9 +107,7 @@ import {
   type ConversationDecision,
   type MetricOptimizationRange,
   type ResearchMetric,
-  type HoldingPeriodHorizon,
   type SemanticClassification,
-  type StrategyAssumptions,
   type StrategySlotState,
   type WorkflowEffect,
   type WorkflowStatus,
@@ -230,7 +228,6 @@ interface ChatMessage {
   // LLM 콜드스타트(scale-to-zero, 첫 파스 ~2분)로 스트림이 타임아웃에 끊긴 경우가 주 대상 —
   // 재시도 시점엔 서버가 웜 상태라 두 번째 시도는 수 초 안에 끝난다.
   retryPrompt?: string;
-  retryAssumptions?: StrategyAssumptions;
   infoText?: string;  // 일반 투자 답변 또는 전략 전환 안내
   infoSuggestions?: string[];  // 전략 빌더 옵션 칩(클릭 시 그 답으로 전송)
   builderQuestion?: boolean;  // 복원 후에도 진행 중인 빌더 질문임을 식별
@@ -2107,8 +2104,6 @@ function StrategyLabContent() {
   const builderHistoryRef = useRef<Array<Record<string, any>>>([]);
   const applyBuilderConfirmedStrategyRef =
     useRef<(data: BuilderConfirmedData, currentPrompt?: string) => void>();
-  const pendingHoldingPeriodPromptRef = useRef<string | null>(null);
-  const pendingHoldingPeriodHorizonRef = useRef<HoldingPeriodHorizon | null>(null);
   const pendingMetricResearchPromptRef = useRef<string | null>(null);
   const researchMetricRef = useRef<ResearchMetric | null>(null);
   const metricOptimizationDraftRef = useRef<MetricOptimizationDraft | null>(null);
@@ -2202,8 +2197,6 @@ function StrategyLabContent() {
     pendingAskRef.current = null;
     openClarificationRef.current = null;
     reaskQueueRef.current = [];
-    pendingHoldingPeriodPromptRef.current = null;
-    pendingHoldingPeriodHorizonRef.current = null;
     pendingMetricResearchPromptRef.current = null;
     researchMetricRef.current = null;
     metricOptimizationDraftRef.current = null;
@@ -2262,8 +2255,6 @@ function StrategyLabContent() {
       declinedFieldsRef.current = Array.isArray(snapshot.declinedFields)
         ? snapshot.declinedFields.filter((f: unknown): f is string => typeof f === "string")
         : [];
-      pendingHoldingPeriodPromptRef.current = snapshot.pendingHoldingPeriodPrompt ?? null;
-      pendingHoldingPeriodHorizonRef.current = snapshot.pendingHoldingPeriodHorizon ?? null;
       pendingMetricResearchPromptRef.current = snapshot.pendingMetricResearchPrompt ?? null;
       researchMetricRef.current = snapshot.researchMetric ?? null;
       metricOptimizationDraftRef.current = snapshot.metricOptimizationDraft ?? null;
@@ -2399,8 +2390,6 @@ function StrategyLabContent() {
         // 변경 이력도 대화 상태다 — 복원하지 않으면 새로고침 후 "아까 바꾼 거 되돌려"가
         // 되돌릴 이력을 잃는다(§ 19).
         changeLog: changeLogRef.current,
-        pendingHoldingPeriodPrompt: pendingHoldingPeriodPromptRef.current,
-        pendingHoldingPeriodHorizon: pendingHoldingPeriodHorizonRef.current,
         pendingMetricResearchPrompt: pendingMetricResearchPromptRef.current,
         researchMetric: researchMetricRef.current,
         metricOptimizationDraft: metricOptimizationDraftRef.current,
@@ -3447,7 +3436,6 @@ function StrategyLabContent() {
     promptText: string,
     currentParsed: ParsedSummary | null,
     currentBacktestReq: any,
-    strategyAssumptions: StrategyAssumptions = {},
   ) => {
     // 이 턴이 되묻기로 끝나면 카드의 '돌아가기'가 되돌릴 상태 — 파스가 바꾸기 **전**에 남긴다.
     // 칩 턴(handleSuggestionClick의 previousStepState)과 같은 자리·같은 버튼이다.
@@ -3547,27 +3535,12 @@ function StrategyLabContent() {
 
     const finalizeParse = (backtestRequest: any, symbolCount?: number | null) => {
       if (!parsedPayload) return;
-      const assumedHoldingPeriod = strategyAssumptions.holdingPeriodDays;
       const nextBacktestRequest = backtestRequest
-        ? {
-            ...backtestRequest,
-            symbol_count: symbolCount ?? backtestRequest.symbol_count,
-            ...(assumedHoldingPeriod
-              ? {
-                  risk: {
-                    ...(backtestRequest.risk ?? {}),
-                    max_holding_days: assumedHoldingPeriod,
-                  },
-                }
-              : {}),
-          }
+        ? { ...backtestRequest, symbol_count: symbolCount ?? backtestRequest.symbol_count }
         : backtestRequest;
-      const nextParsedPayload = assumedHoldingPeriod
-        ? { ...parsedPayload.parsed, hold_period_days: assumedHoldingPeriod }
-        : parsedPayload.parsed;
       const mergedResponse = mergeStrategyModification({
         previousParsed: currentParsed,
-        nextParsed: nextParsedPayload,
+        nextParsed: parsedPayload.parsed,
         previousBacktestRequest: currentBacktestReq,
         nextBacktestRequest,
         userPrompt: promptText,
@@ -4070,8 +4043,6 @@ function StrategyLabContent() {
         restoredBuilderQuestion ||
         restoredBuilderProgress,
       lastCoachText: lastCoachText(),
-      pendingHoldingPeriodPrompt: pendingHoldingPeriodPromptRef.current,
-      pendingHoldingPeriodHorizon: pendingHoldingPeriodHorizonRef.current,
       pendingResearchMetricPrompt: pendingMetricResearchPromptRef.current,
       // 진행 골격 상태 — 중재자가 "지금 무엇을 할 수 있는가"를 판정하는 입력이다.
       // 판정 자체는 정본 술어 하나(isSlotFilled)로만 하고 결과를 실어 보낸다.
@@ -4169,16 +4140,7 @@ function StrategyLabContent() {
       return;
     }
 
-    if (turnDecision.action === "ask_holding_period") {
-      pendingHoldingPeriodPromptRef.current = turnDecision.strategyPrompt;
-      pendingHoldingPeriodHorizonRef.current = turnDecision.holdingHorizon;
-      await emitAssistant(composeTurnMessage(turnDecision));
-      setIsSending(false);
-      return;
-    }
-
     if (turnDecision.action === "start_builder") {
-      const holdingPeriodDays = turnDecision.strategyAssumptions?.holdingPeriodDays;
       const researchMetric = turnDecision.researchMetric ?? null;
       // 라벨 분기(열린 추천·온보딩)로 들어온 경우에만 안내 문구가 실려 있다.
       // 열린 전략 추천(STRATEGY_PICK) 안내는 여기서 바로 내보내지 않는다 — 빌더가 시드
@@ -4190,16 +4152,12 @@ function StrategyLabContent() {
       if (introEmitted) {
         await emitAssistant({ isLoading: false, infoText: turnDecision.message });
       }
-      pendingHoldingPeriodPromptRef.current = null;
-      pendingHoldingPeriodHorizonRef.current = null;
       pendingMetricResearchPromptRef.current = null;
       researchMetricRef.current = researchMetric;
       metricOptimizationDraftRef.current = null;
       if (researchMetric) firstPromptRef.current = turnDecision.seedPrompt;
       builderModeRef.current = true;
-      builderStateRef.current = holdingPeriodDays
-        ? { hold_period_days: holdingPeriodDays, risk_done: true }
-        : {};
+      builderStateRef.current = {};
       builderHistoryRef.current = [];
       await startStrategyBuilder({
         // 분류를 거쳐 온 턴은 '분석 중...' 자리표시자가 이미 떠 있다. 안내문이 그 자리를
@@ -4361,14 +4319,11 @@ function StrategyLabContent() {
     }
 
     if (turnDecision.action === "parse_strategy") {
-      pendingHoldingPeriodPromptRef.current = null;
-      pendingHoldingPeriodHorizonRef.current = null;
       try {
         await runStrategyParseFlow(
           turnDecision.strategyPrompt,
           currentParsed,
           currentBacktestReq,
-          turnDecision.strategyAssumptions,
         );
       } catch (e: any) {
         if (isChatAbort(e)) throw e;
@@ -4376,7 +4331,6 @@ function StrategyLabContent() {
           isLoading: false,
           error: e.message ?? "알 수 없는 오류",
           retryPrompt: turnDecision.strategyPrompt,
-          retryAssumptions: turnDecision.strategyAssumptions,
         });
       } finally {
         setIsSending(false);
@@ -4562,7 +4516,6 @@ function StrategyLabContent() {
         retryPrompt,
         currentParsed,
         currentBacktestReq,
-        message.retryAssumptions,
       );
     } catch (e: any) {
       // '대화 종료'로 끊긴 재시도는 뒤처리하지 않는다(상태는 handleReset이 이미 비웠다).
@@ -4573,7 +4526,6 @@ function StrategyLabContent() {
               role: "assistant",
               error: e.message ?? "알 수 없는 오류",
               retryPrompt,
-              retryAssumptions: message.retryAssumptions,
             }
           : m
       ));

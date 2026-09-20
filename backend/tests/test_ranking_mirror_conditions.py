@@ -79,18 +79,20 @@ def test_fabricated_condition_without_ranking_still_gets_notice():
     assert len(notices) == 1 and "확인되지 않아" in notices[0]
 
 
-def test_fcf_yield_swapped_for_fcf_margin_ranking_is_not_silent():
-    """FCF Yield(미지원)를 FCF 마진 랭킹으로 바꿔 낸 출력 — 조건 껍데기가 걷히면서 인용이 랭킹으로
-    옮겨가 검증기의 바꿔치기 규칙이 잡는다: 사용자가 말하지 않은 선정 기준은 남기지 않고
-    미지원으로 알린다(조용한 대체 금지)."""
+def test_fcf_yield_swapped_for_fcf_margin_ranking_is_flagged_as_substitution():
+    """FCF Yield는 v16.15부터 지원 지표(fundamental.fcf_yield)다. 그래도 LLM이 FCF 마진 랭킹으로
+    바꿔 내면 — 조건 껍데기가 걷히면서 인용이 랭킹으로 옮겨가 — 인용↔지표 대조가 대체를 잡아
+    근사 안내로 드러낸다(조용한 대체 금지). 종전(미지원 시절)엔 랭킹을 지우고 미지원으로 알렸다."""
     intent = _intent(
         [_cond("fundamental.fcf_margin", ">=", "잉여현금흐름수익률(FCF Yield)이 높은")],
         [{"metric": "fundamental.fcf_margin", "direction": "top"}],
     )
     _drop_fabricated_conditions(intent, USER_INPUT)
-    _, _, unsupported, _ = validate_capability(intent)
-    assert intent.strategy.ranking == []
-    assert any("FCF Yield" in u for u in unsupported)
+    validate_capability(intent)
+    assert intent.strategy.entry_conditions == []
+    assert [(r.metric, r.approximated) for r in intent.strategy.ranking] == [("fundamental.fcf_margin", True)]
+    notices = _approximation_notices(intent.strategy)
+    assert notices and "FCF Yield" in notices[0] and "FCF 마진" in notices[0]
 
 
 def test_fcf_margin_named_exactly_is_not_an_approximation():
@@ -111,3 +113,33 @@ def test_condition_metric_placed_in_ranking_slot_still_mirrors_after_normalizati
     validate_capability(intent)
     assert [r.metric for r in intent.strategy.ranking] == ["ranking.volatility"]
     assert intent.strategy.entry_conditions == []
+
+
+def test_mirrored_condition_period_carries_into_ranking_lookback():
+    """[회귀 2026-09-20] '최근 60일 주가 변동성이 낮은'을 값 없는 조건(period=60)과 랭킹(기간
+    없음)에 함께 낸 120B 출력 — 거울 정리가 조건을 걷으며 60을 버려 이미 말한 산정 기간을
+    되물었다. 조건의 기간은 랭킹 산정 기간으로 옮겨져야 하고, 완결성 검증은 묻지 않아야 한다."""
+    from strategy_conversation.validation.completeness_validator import validate_completeness
+
+    intent = _intent(
+        [{"factor": "technical.volatility", "operator": "<=", "value": None,
+          "parameters": {"period": 60}, "source_text": "최근 60일 주가 변동성이 낮은"}],
+        [{"metric": "technical.volatility", "direction": "bottom"}],
+    )
+    validate_capability(intent)
+    assert intent.strategy.entry_conditions == []
+    assert [(r.metric, r.lookback_days) for r in intent.strategy.ranking] == [("ranking.volatility", 60)]
+    missing, _questions = validate_completeness(intent)
+    assert not any(field.endswith("lookback_days") for field in missing)
+
+
+def test_mirrored_fundamental_period_is_not_a_ranking_lookback():
+    """재무 지표의 period(연 단위 평균 등)는 거래일 산정 기간이 아니다 — 옮기지 않는다."""
+    intent = _intent(
+        [{"factor": "fundamental.roe_or_gpa", "operator": ">=", "value": None,
+          "parameters": {"period": 3}, "source_text": "3년 평균 ROE가 높은"}],
+        [{"metric": "fundamental.roe_or_gpa", "direction": "top"}],
+    )
+    validate_capability(intent)
+    assert intent.strategy.entry_conditions == []
+    assert [r.lookback_days for r in intent.strategy.ranking] == [None]

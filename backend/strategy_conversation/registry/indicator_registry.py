@@ -163,7 +163,13 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     _fundamental("fcf_margin", "FCF 마진(잉여현금흐름÷매출액)", "profitability", "percent", recommended=5,
                  value_range=(-500, 500),
                  notes="잉여현금흐름(영업현금흐름−CAPEX) ÷ 매출액. 연간 결산 기준. "
-                       "'FCF 증가율'(fcf_growth)·'FCF 수익률'(시총 대비, 미지원)과 다른 지표"),
+                       "'FCF 증가율'(fcf_growth)·'FCF 수익률'(fcf_yield, 시총 대비)과 다른 지표"),
+    # v16.15(2026-09-20) 지원 승격 — 잉여현금흐름(raw)과 일별 시가총액이 parquet에 이미 있어
+    # 백필 없이 런타임 계산된다(fundamental_fetcher.recompute_fcf_yield, PCR과 같은 자리).
+    _fundamental("fcf_yield", "FCF 수익률(잉여현금흐름÷시가총액)", "valuation", "percent", recommended=5,
+                 value_range=(-100, 100),
+                 notes="잉여현금흐름(영업현금흐름−CAPEX, 최근 연간 결산) ÷ 시가총액(일별). "
+                       "'잉여현금흐름수익률'·'FCF Yield'가 이것. 'FCF 마진'(매출 대비)·'FCF 증가율'과 다른 지표"),
     _fundamental("market_cap", "시가총액", "size", "억원", recommended=5000, value_range=(0, 10_000_000)),
     _fundamental("trading_value", "일평균거래대금", "liquidity", "억원", recommended=10, value_range=(0, 1_000_000),
                  notes="유동성 스크리닝용 기본값. '거래대금 N억 이상 종목만/으로 거른' 처럼 "
@@ -176,6 +182,11 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     _fundamental("dividend_yield", "배당수익률", "dividend", "percent", recommended=3, value_range=(0, 100)),
     _fundamental("payout_rate", "배당성향", "dividend", "percent", recommended=30, value_range=(0, 1000)),
     _fundamental("dividend_growth", "배당성장률", "dividend", "percent", recommended=5, value_range=(-100, 1000)),
+    # v16.15(2026-09-20) — ex-date별 주당배당(dividends) 달력 연도 합으로 계산(engine.dividends).
+    _fundamental("dividend_streak_years", "연속 배당 연수", "dividend", "년", recommended=3,
+                 value_range=(0, 50),
+                 notes="직전 달력 연도부터 끊기지 않고 현금배당을 지급한 연도 수(진행 중인 올해 제외). "
+                       "'N년 연속 배당(지급)'·'N년 이상 배당을 이어온' = >= N. 배당수익률·배당성향·배당성장률과 다른 지표"),
     _fundamental("eps", "EPS(주당순이익)", "profitability", "원", recommended=0,
                  value_range=(-1_000_000, 10_000_000),
                  notes="흑자 기업=eps>0, 적자 기업=eps<0 부호 필터로 주로 사용(최근 연간 결산 기준)"),
@@ -329,10 +340,6 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
               "direction bottom(방향 미지정 시 온톨로지 lower_better가 bottom을 채움)"),
 
     # ── 개념은 이해하지만 엔진/데이터 미지원 (조용한 대체 금지 — 명시 제안만) ──
-    _unsupported("fcf_yield", "FCF Yield(잉여현금흐름 수익률)", "valuation",
-                 alternatives=("fundamental.fcf_growth", "fundamental.per"),
-                 notes="시가총액 대비 FCF 배율(밸류에이션 지표)은 미지원 — FCF 금액 자체의 "
-                       "증가율은 fundamental.fcf_growth로 지원됨"),
     # 3분류 절대 금액은 2026-08-05 지원 승격 — 여기 남은 미지원은 FCF/PCF '배율' 계열뿐이다.
     # 항목 자체를 지우지 않는 이유: 어느 분류인지 특정되지 않은 맨 '현금흐름' 언급은 여전히
     # 결정적으로 고를 수 없어 LLM 위임 신호가 필요하다(PCR 승격 때와 같은 판단).
@@ -408,6 +415,11 @@ _ALIASES: Dict[str, str] = {
     "배당수익률": "fundamental.dividend_yield", "dividend_yield": "fundamental.dividend_yield",
     "배당성향": "fundamental.payout_rate", "payout_rate": "fundamental.payout_rate",
     "배당성장률": "fundamental.dividend_growth", "dividend_growth": "fundamental.dividend_growth",
+    "연속배당연수": "fundamental.dividend_streak_years", "dividend_streak_years": "fundamental.dividend_streak_years",
+    "연속배당": "fundamental.dividend_streak_years", "연속배당지급": "fundamental.dividend_streak_years",
+    "배당연속연수": "fundamental.dividend_streak_years", "dividend_streak": "fundamental.dividend_streak_years",
+    "consecutive_dividend_years": "fundamental.dividend_streak_years",
+    "consecutivedividendyears": "fundamental.dividend_streak_years",
     "ma_crossover": "technical.ma_crossover", "이동평균크로스오버": "technical.ma_crossover",
     "골든크로스": "technical.ma_crossover", "데드크로스": "technical.ma_crossover",
     "이동평균": "technical.ma_crossover",
@@ -435,10 +447,13 @@ _ALIASES: Dict[str, str] = {
     "ai_drop_model": "technical.ai_drop_model", "ai하락예측": "technical.ai_drop_model",
     "return": "ranking.return", "수익률랭킹": "ranking.return", "기간수익률": "ranking.return",
     "초과수익률랭킹": "ranking.relative_return", "시장대비수익률랭킹": "ranking.relative_return",
+    # FCF 수익률(v16.15 지원 승격 — 종전 unsupported.fcf_yield). 맨 'fcf'·'잉여현금흐름'은
+    # 관용상 수익률(시총 대비)을 뜻하는 표기로 남긴다(마진·증가율은 각자 별칭이 있다).
+    "fcf": "fundamental.fcf_yield", "fcf_yield": "fundamental.fcf_yield",
+    "fcfyield": "fundamental.fcf_yield", "fcf수익률": "fundamental.fcf_yield",
+    "잉여현금흐름": "fundamental.fcf_yield", "잉여현금흐름수익률": "fundamental.fcf_yield",
+    "잉여현금흐름수익률(fcfyield)": "fundamental.fcf_yield", "freecashflowyield": "fundamental.fcf_yield",
     # 미지원 개념의 canonical 표기(LLM이 이 이름으로 출력하면 UNSUPPORTED로 판정된다)
-    "fcf": "unsupported.fcf_yield", "fcf_yield": "unsupported.fcf_yield",
-    "fcfyield": "unsupported.fcf_yield", "fcf수익률": "unsupported.fcf_yield",
-    "잉여현금흐름": "unsupported.fcf_yield",
     "현금흐름": "unsupported.cash_flow", "pcf": "unsupported.cash_flow",
     "변동성": "technical.volatility", "volatility": "technical.volatility",
     "저변동성": "ranking.volatility", "변동성랭킹": "ranking.volatility",

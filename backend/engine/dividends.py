@@ -92,6 +92,36 @@ def dividend_growth_yoy(
     return g.replace([np.inf, -np.inf], np.nan)
 
 
+def dividend_streak_years(dividends: pd.Series, dates: pd.Series) -> pd.Series:
+    """연속 배당 연수(년) = 직전 달력 연도부터 거슬러 올라가며 현금배당(연간 주당배당 합 > 0)이
+    끊기지 않고 이어진 연도 수.
+
+    진행 중인 올해는 세지 않는다 — 한국 결산 배당의 ex-date는 12월 말이라 올해분은 해가
+    지나야 확정된다(시점 정합: 3월에 "최근 3년 연속 배당"은 직전 3개 연도를 뜻한다).
+    데이터 시작 전 연도는 알 수 없으므로 끊긴 것으로 본다(보수적 하한).
+
+    Args:
+        dividends: ex-date별 주당 현금배당(그 외 0), 분할조정 상태.
+        dates: dividends와 같은 길이의 거래일.
+
+    Returns:
+        연속 배당 연수 시리즈(float, dividends와 같은 인덱스). 배당 이력이 없으면 0.0.
+    """
+    div = np.nan_to_num(dividends.to_numpy(dtype=float), nan=0.0)
+    years = pd.to_datetime(pd.Series(dates.to_numpy())).dt.year.to_numpy()
+    paid_years = {int(y) for y in np.unique(years[div > 0])}
+
+    def _streak(year: int) -> float:
+        n = 0
+        while (year - 1 - n) in paid_years:
+            n += 1
+        return float(n)
+
+    by_year = {int(y): _streak(int(y)) for y in np.unique(years)}
+    out = np.array([by_year[int(y)] for y in years], dtype=float)
+    return pd.Series(out, index=dividends.index)
+
+
 def dividend_payout_ratio(
     dividends: pd.Series, eps: pd.Series, window: int = _TRADING_DAYS_PER_YEAR
 ) -> pd.Series:

@@ -71,7 +71,6 @@ function asksItsOwnQuestion(decision: ConversationDecision): boolean {
     (decision.action === "respond" && Boolean(decision.opensClarification)) ||
     decision.action === "ask_keep_items" ||
     decision.action === "ask_next_condition" ||
-    decision.action === "ask_holding_period" ||
     decision.action === "ask_research_metric"
   );
 }

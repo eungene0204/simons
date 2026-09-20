@@ -32,7 +32,7 @@ def build_fixture() -> dict:
         if spec.id in seen or spec.recommended_value is None or spec.data_pending:
             continue
         seen.add(spec.id)
-        unit = {"percent": "%", "ratio": "배", "억원": "억원"}.get(spec.value_type or "", "")
+        unit = {"percent": "%", "ratio": "배", "억원": "억원", "년": "년"}.get(spec.value_type or "", "")
         name = spec.display_name.split("(")[0]
         for direction in ("이상", "이하"):
             if spec.id == "fundamental.market_cap" and direction == "이하":

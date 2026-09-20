@@ -331,7 +331,11 @@ def test_registry_loaded_from_shared_json():
     import json
     with open(cb._REGISTRY_PATH, encoding="utf-8") as f:
         raw = json.load(f)
-    assert {spec.key for spec in cb._REGISTRY} == {item["key"] for item in raw}
+    # 레거시 빌더는 원문 정규식(_PATTERNS)이 있는 키만 어휘로 삼는다 — 새 지표(v16.15
+    # fcf_yield·dividend_streak_years)는 LLM 레인 전용이라 JSON에는 있고 여기엔 없다(대원칙 1).
+    assert {spec.key for spec in cb._REGISTRY} == {item["key"] for item in raw if item["key"] in cb._PATTERNS}
+    assert {"fcf_yield", "dividend_streak_years"} <= {item["key"] for item in raw}
+    assert not {"fcf_yield", "dividend_streak_years"} & set(cb._PATTERNS)
     # 값이 JSON에서 그대로 왔는지(하드코딩 아님) 표본 확인
     om = cb._spec("operating_margin")
     src = next(i for i in raw if i["key"] == "operating_margin")

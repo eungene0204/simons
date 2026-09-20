@@ -159,6 +159,29 @@ def carry_approximation(cond, rank) -> None:
 
 
 
+# 산정 기간(lookback_days)이 의미 있는 가격 산출 랭킹 — 완결성 검증이 이 지표에만 산정 기간을
+# 묻는다(completeness_validator ④-0). 재무 지표의 period(예: 3년 평균)는 거래일 산정 기간이
+# 아니므로 옮기지 않는다.
+_LOOKBACK_RANKING_METRICS = frozenset({
+    "ranking.volatility", "ranking.return", "ranking.relative_return",
+})
+
+
+def carry_lookback(cond, rank) -> None:
+    """거울로 걷는 조건이 산정 기간을 담고 있었다면 랭킹 항목으로 옮긴다.
+
+    2026-09-20 실측(120B): '최근 60일 주가 변동성이 낮은'을 값 없는 조건(period=60)과 랭킹
+    (기간 없음) 양쪽에 냈고, 거울 정리가 조건을 걷으며 60을 버려 "변동성 산정 기간을 며칠로
+    할까요?"가 사용자가 이미 말한 값을 다시 물었다. 둘 다 LLM 구조화 출력이며 원문을 읽지
+    않는다 — 조건→랭킹 이동 분기(아래 ranking 바인딩)와 같은 자리 배정이다.
+    """
+    if rank.lookback_days is not None or rank.metric not in _LOOKBACK_RANKING_METRICS:
+        return
+    lookback = cond.parameters.get("lookback_days") or cond.parameters.get("period")
+    if lookback:
+        rank.lookback_days = int(lookback)
+
+
 def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], List[str], List[str]]:
     """(errors, warnings, unsupported_features, suggested_fixes)를 반환한다.
 
@@ -460,6 +483,7 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 kept_conditions.append(c)
                 continue
             carry_approximation(c, mirrored)
+            carry_lookback(c, mirrored)
         strategy.entry_conditions = kept_conditions
 
     # 유니버스별 팩터 검증 — ETF는 여러 기업을 묶은 상품이라 기업 재무지표를 조건으로 쓸
