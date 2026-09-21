@@ -349,12 +349,8 @@ def parse_strategy(prompt: str) -> dict:
     # 기본 유니버스가 한국 기본값(KOSPI200)이 된다(실측: /us ETF 예시가 KOSPI200으로
     # 파스). 아래 asked 대조가 "--lang en에서는 영어로 온다"를 전제하고 있었는데
     # 전송이 빠져 있어 하니스가 스스로와 어긋나 있었다.
-    # 지역 신호는 **입력 언어가 아니라 예시의 소속**을 따른다(2026-09-21): KR 레인은
-    # 한국 시장 전용이라 미국 시장 요청을 거절한다(primary._kr_region_us_market_refusal).
-    # `--source us`를 한국어 원문으로 돌릴 때 지역 신호를 빼면 미국 예시 100건이 전부
-    # 그 거절에 걸려, 한국어 원문 게이트가 파싱 품질을 못 본다.
     body = {"prompt": prompt, "backend": "ollama"}
-    if LANG == "en" or SOURCE == "us":
+    if LANG == "en":
         body["language"] = "en"
     data = json.dumps(body).encode()
     req = urllib.request.Request(
@@ -535,11 +531,9 @@ def analyze(tpl: Template, res: dict) -> Flags:
     p = res.get("parsed", {})
     prompt = tpl.prompt
     asked = asked_about(res)
-    # asked(되묻기·안내·pending source_text) 대조 — 미국 예시는 입력 언어와 무관하게
-    # 지역 신호(en)를 싣고 돌리므로(parse_strategy) 영어로 올 수 있다. 대소문자를
-    # 무시한다("stop loss"·"p/e"). 존재 판정(prompt=한국어 원문)은 종전대로.
-    asked_has = lambda pat: re.search(  # noqa: E731
-        pat, asked, re.IGNORECASE if (LANG == "en" or SOURCE == "us") else 0)
+    # asked(되묻기·안내·pending source_text) 대조 — --lang en에서는 영어로 오므로
+    # 대소문자를 무시한다("stop loss"·"p/e"). 존재 판정(prompt=한국어 원문)은 종전대로.
+    asked_has = lambda pat: re.search(pat, asked, re.IGNORECASE if LANG == "en" else 0)  # noqa: E731
 
     # ── 치명 항목: 해석 실패·유니버스 오류·진입 규칙 공백
     # 2026-07-27 사고: '반도체 업종 ROE·부채비율+모멘텀' 예시가 interpretation_failed로

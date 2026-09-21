@@ -2023,10 +2023,7 @@ def run_primary_parse(
     # create 레인에서 표면화 경로가 없고(오류→질문 변환은 수정 레인 전용), 컴파일을
     # 지나면 한국 유니버스 전략 카드가 /us에 물질화된다(2026-08-26 실측: KOSPI200 지정이
     # PER 되묻기로 진행). 전략은 만들지 않고 거절 안내를 되묻기 채널로 낸다.
-    # 거울 방향(2026-09-21 지시): KR 요청의 미국 시장 지정도 같은 자리에서 거절한다 —
-    # 지나가면 미국 요청이 국내 유니버스 전략으로 조용히 바뀐다.
-    _region_refusal = (_us_region_kr_market_refusal(validated)
-                       or _kr_region_us_market_refusal(validated, recall_chat))
+    _region_refusal = _us_region_kr_market_refusal(validated)
     if _region_refusal is not None:
         from engine.nl_parser import ParsedStrategy
 
@@ -3040,68 +3037,6 @@ def _us_region_kr_market_refusal(validated: Any) -> Optional[str]:
         "universe: S&P 500, Nasdaq-100, Nasdaq, Dow 30, the entire US market, "
         "or US ETFs.",
     )
-
-
-KR_ONLY_MARKET_REFUSAL = (
-    "죄송합니다. 현재 저는 한국 주식시장만 지원하고 있습니다.\n\n"
-    "코스피·코스닥에 상장된 종목으로 같은 규칙의 전략을 만들어 드릴까요?"
-)
-
-
-def _kr_region_us_market_refusal(
-    validated: Any, chat: Any = None, only_terms: Optional[List[str]] = None,
-) -> Optional[str]:
-    """KR 요청(표시 언어 ko)이 미국 시장을 대상으로 했으면 거절 안내 문구, 아니면 None.
-
-    /us의 거울이다(_us_region_kr_market_refusal) — 지역 서비스 분리 원칙상 KR 레인은
-    한국 시장 전용이고, 미국 요청을 조용히 국내 유니버스로 바꿔 진행하지 않는다.
-    2026-09-21 실측: "매월 첫 거래일마다 S&P500 ETF를 100만 원씩"이 markets=["ETF"]
-    (한국 ETF)로 조립돼 국내 ETF 전략이 나갔다.
-
-    판정 근거 셋 — 앞의 둘은 결정론, 마지막 하나만 LLM이다(원문은 읽지 않는다):
-      ① LLM이 고른 시장 enum ∩ US_MARKETS
-      ② LLM이 종목으로 뽑은 표현을 registry가 **미국 티커로 푼** 경우('애플'·'SPY')
-      ③ registry가 못 푼 표현의 시장을 LLM에게 물어(market_region_check) 미국이라는 답
-    ③의 입력은 LLM이 뽑은 짧은 문자열이며, 실패·모름은 판정 없음(거절하지 않는다).
-
-    only_terms: ③의 대상을 이번 턴에 새로 들어온 표현으로 좁힌다(수정 레인 — 이월된
-    표현은 자기 턴에서 이미 판정됐다). None이면 미해석 표현 전부가 대상이다."""
-    if ui_language.get_ui_language() == "en":
-        return None
-    strategy = getattr(validated, "strategy", None)
-    if strategy is None:
-        return None
-    from strategy_conversation.registry.capability_registry import US_MARKETS
-
-    us_named = set(strategy.universe.markets) & set(US_MARKETS)
-    if us_named:
-        _log_llm("⛔ 지역 격리", f"미국 시장 지정 거절: {sorted(us_named)}")
-        return KR_ONLY_MARKET_REFUSAL
-    refs = [s for s in (strategy.universe.symbols or []) if isinstance(s, str) and s.strip()]
-    if not refs:
-        return None
-    from engine.universe_pit import is_us_symbol
-    from strategy_conversation.registry.universe_resolver import resolve_symbols
-
-    codes, unresolved = resolve_symbols(refs)
-    us_codes = [c for c in codes if is_us_symbol(c)]
-    if us_codes:
-        _log_llm("⛔ 지역 격리", f"미국 종목 지정 거절: {sorted(us_codes)}")
-        return KR_ONLY_MARKET_REFUSAL
-    terms = [t for t in unresolved if only_terms is None or t in only_terms]
-    if not terms or not callable(chat):
-        return None
-    from strategy_conversation.interpreter import market_region_check
-
-    verdicts = market_region_check.check_markets(terms, chat)
-    if verdicts is None:
-        _log_llm("△ 종목 시장 판정 실패", f"{terms} — 판정 없음으로 진행(거절하지 않음)")
-        return None
-    us_terms = sorted(t for t, market in verdicts.items() if market == "US")
-    if us_terms:
-        _log_llm("⛔ 지역 격리", f"미국 상품 표현 거절: {us_terms}")
-        return KR_ONLY_MARKET_REFUSAL
-    return None
 
 
 def _us_market_context(parsed: Any) -> bool:
@@ -4748,34 +4683,6 @@ def run_primary_modification(
         if not any(cond == prior for prior in draft_conditions)
     ]
     modify_chat = getattr(_get_interpreter(StrategyInterpreter), "_chat", None)
-    # [지역 격리] 수정 턴도 미국 시장으로 넘어갈 수 없다(생성 레인과 같은 계약, 2026-09-21
-    # 지시) — 수정은 적용하지 않고 거절 안내를 되묻기 채널로 낸다. 미해석 표현의 시장을
-    # LLM에 묻는 ③은 **이번 턴에 새로 들어온 표현**만 대상으로 한다(이월분은 자기 턴에서
-    # 판정됐다).
-    _added_symbols = [
-        s for s in (patched_spec.universe.symbols or [])
-        if isinstance(s, str) and s not in (draft_spec.universe.symbols or [])
-    ]
-    _region_refusal = _kr_region_us_market_refusal(
-        modify_intent, modify_chat, only_terms=_added_symbols,
-    )
-    if _region_refusal is not None:
-        return finalize_user_response({
-            "parsed": prev,
-            "clarification_question": _region_refusal,
-            "clarification_suggestions": None,
-            "clarification_priority": "region_market_unsupported",
-            "notices": [],
-            "interpreter": {
-                "mode": "primary_modify_region_market_refusal",
-                "model_name": result.model_name,
-                "prompt_version": result.prompt_version,
-                "repair_attempts": result.repair_attempts,
-                "llm_latency_ms": result.latency_ms,
-                "patch_count": 0,
-                "confidence": intent.confidence,
-            },
-        })
     quote_verdicts = _check_condition_quotes(
         modify_intent, user_input, modify_chat, only=added_conditions,
     )
