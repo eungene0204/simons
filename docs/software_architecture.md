@@ -706,6 +706,16 @@ StrategyIntent (interpreter/models.py, schema_version 1.0)
     └── Completeness: 누락 필수값 → 되묻기 질문 생성(Registry 추천값 제시, 최대 3개/턴).
         사용자가 말하지 않은 값을 조용히 확정하지 않는다.
     ▼
+지역 격리 가드 (primary._kr_region_us_market_refusal / _us_region_kr_market_refusal — 컴파일 전)
+    ├── KR 레인(ko): 미국 시장 대상이면 전략을 만들지 않고 거절 되묻기("죄송합니다. 현재 저는
+    │   한국 주식시장만 지원하고 있습니다" + 국내 전환 제안). 근거 셋 = ① markets ∩ US_MARKETS
+    │   ② registry가 미국 티커로 푼 지정 종목 ③ 못 푼 표현의 상장 시장 LLM 판정
+    │   (interpreter/market_region_check.py — 입력은 LLM이 뽑은 짧은 문자열, KR/US/OTHER/UNKNOWN
+    │   enum, 실패·모름=거절 없음). ③이 필요한 이유: "S&P500 ETF"가 markets=["ETF"](한국 ETF)
+    │   + symbols 미해석으로 조립돼 미국 요청이 국내 전략으로 새던 2026-09-21 실측
+    └── /us 레인(en): 한국 시장 명시면 같은 자리에서 거울 거절(2026-08-26)
+        두 가드는 표시 언어로 배타적이며, 수정 레인도 패치 적용 전 같은 판정을 거친다
+    ▼
 Strategy Compiler (compiler/strategy_compiler.py) — 검증 READY만 컴파일(Fail Fast)
     └── StrategyIntent → ParsedStrategy(기존 내부 DSL, 결정론 매핑만) → 기존 파이프라인 합류
 ```
