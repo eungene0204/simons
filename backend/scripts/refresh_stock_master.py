@@ -32,6 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.build_stock_master import (  # noqa: E402
+    DelistingSourceUnavailable,
     _KST,
     _OUT_PATH,
     _load_active,
@@ -119,11 +120,29 @@ def main(argv: list[str] | None = None) -> int:
     active = _load_active(fdr)
     print(f"[stock-master]   {len(active)} active commons")
     print("[stock-master] loading FDR KRX-DELISTING...")
-    delisted = _load_delisted(fdr)
-    print(f"[stock-master]   {len(delisted)} delisted commons")
+    # 상폐 명부를 못 받아도 **나머지 갱신은 진행한다** — 이 단계가 죽으면 신규 상장·가격
+    # 커버리지 갱신까지 함께 멈춰 마스터가 통째로 낡는다(2026-09-22 실측: 상류가 빈 표를
+    # 돌려주면서 야간 갱신이 KeyError로 중단, 마스터가 나흘 묵었다). 기존 상폐 행은 병합이
+    # 보존하므로(refresh ②는 더하기만 한다) 잃는 것은 **새 상폐분**뿐이고, 그 사실은 로그와
+    # 파일(delistingSourceError)에 남겨 조용한 생존편향이 되지 않게 한다.
+    delisting_error = None
+    try:
+        delisted = _load_delisted(fdr)
+        print(f"[stock-master]   {len(delisted)} delisted commons")
+    except DelistingSourceUnavailable as error:
+        delisting_error = str(error)
+        delisted = {}
+        print(f"[stock-master] [WARNING] 상장폐지 명부를 받지 못했다 — 새 상폐분이 "
+              f"마스터에 반영되지 않는다(기존 상폐 행은 보존): {error}")
 
     before = master.get("counts", {})
     payload = refresh(master, coverage, active, delisted)
+    # 실패 사실을 파일에도 남긴다(로그는 흘러가고 아무도 안 본다). 성공하면 지운다 —
+    # 남아 있으면 그 마스터의 상폐 목록이 그 시점에 멈춰 있다는 뜻이다.
+    if delisting_error:
+        payload["delistingSourceError"] = f"{datetime.now(_KST).date()}: {delisting_error}"
+    elif master.get("delistingSourceError"):
+        print("[stock-master] 상장폐지 명부 복구됨 — delistingSourceError 표식 제거")
     after = payload["counts"]
     print(f"[stock-master] total {before.get('total')} → {after['total']}, "
           f"delisted {before.get('delisted')} → {after['delisted']}")

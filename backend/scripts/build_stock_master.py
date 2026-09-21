@@ -58,21 +58,62 @@ def _scan_local_ohlcv_coverage() -> dict[str, tuple[str, str]]:
     return coverage
 
 
+# KIND 상장법인목록 — 회사명·종목코드·업종·**상장일**을 인증 없이 내려주는 엑셀(euc-kr HTML 표).
+# scripts/sync_data.py::_fetch_kind_market이 korea-stocks.json을 만들 때 쓰는 것과 같은 출처다.
+_KIND_LIST_URL = "https://kind.krx.co.kr/corpgeneral/corpList.do"
+_KIND_MARKET_TYPES = ("stockMkt", "kosdaqMkt")
+
+
+def _fetch_kind_listing_table() -> "pd.DataFrame":
+    """KIND 상장법인목록(유가+코스닥)을 한 표로. 실패는 예외로 올린다."""
+    import io
+
+    import pandas as pd
+    import requests
+
+    frames = []
+    for market_type in _KIND_MARKET_TYPES:
+        response = requests.get(
+            _KIND_LIST_URL,
+            params={"method": "download", "searchType": "13", "marketType": market_type},
+            timeout=30,
+        )
+        response.raise_for_status()
+        response.encoding = "euc-kr"
+        frames.append(pd.read_html(io.StringIO(response.text))[0])
+    return pd.concat(frames, ignore_index=True)
+
+
 def load_kind_listing_dates() -> dict[str, str]:
-    """symbol -> 상장일(YYYY-MM-DD) from FDR "KRX-DESC" (KIND 상장법인목록).
+    """symbol -> 상장일(YYYY-MM-DD) — KIND 상장법인목록.
 
     현행 상장 목록(StockListing("KOSPI"/"KOSDAQ"))에는 상장일 컬럼이 없어 "신규 상장
     종목" 유니버스(FR-STR-073)를 판정할 수 없다. KIND 상장법인목록은 무료·인증 없이
     현행 상장 보통주의 상장일을 사실상 전부 제공한다(실측 2026-07-29: 현행 상장 대비
     99.5%). 상장일이 비어 있는 행(주로 우선주)은 제외한다.
+
+    2026-09-22: **KIND를 직접 부른다**. 종전에는 FDR의 "KRX-DESC"로 같은 목록을 받았는데
+    그 경로가 404를 내면서(상류 변경) 야간 종목 마스터 갱신이 통째로 실패했고, 마스터가
+    낡으면 생존편향이 경고 없이 되살아난다(project_pit_master_staleness). 같은 저장소가
+    이미 쓰는 직접 호출(sync_data._fetch_kind_market)과 같은 출처·같은 표라, FDR 한 겹을
+    걷어낸 것이다. FDR 경로는 폴백으로 남긴다 — KIND가 막히는 날을 위해서다.
     """
-    import FinanceDataReader as fdr
     import pandas as pd
 
-    df = fdr.StockListing("KRX-DESC")
-    dates = pd.to_datetime(df["ListingDate"], errors="coerce")
+    try:
+        df = _fetch_kind_listing_table()
+        codes = df["종목코드"].astype(str).str.strip().str.zfill(6)
+        dates = pd.to_datetime(df["상장일"], errors="coerce")
+    except Exception as error:  # noqa: BLE001 — 한 출처가 막히면 다른 출처로 간다
+        print(f"[stock-master] KIND 직접 조회 실패({error}) — FDR KRX-DESC로 폴백")
+        import FinanceDataReader as fdr
+
+        df = fdr.StockListing("KRX-DESC")
+        codes = df["Code"].astype(str).str.strip()
+        dates = pd.to_datetime(df["ListingDate"], errors="coerce")
+
     out: dict[str, str] = {}
-    for code, listed in zip(df["Code"].astype(str).str.strip(), dates):
+    for code, listed in zip(codes, dates):
         if code and pd.notna(listed):
             out[code] = str(listed)[:10]
     return out
@@ -107,9 +148,24 @@ def _load_active(fdr) -> dict[str, dict]:
     return out
 
 
+class DelistingSourceUnavailable(RuntimeError):
+    """상장폐지 명부를 받지 못했다 — '상폐 0건'과 구분해야 한다(생존편향이 조용히 되살아난다)."""
+
+
 def _load_delisted(fdr) -> dict[str, dict]:
-    """Delisted KOSPI/KOSDAQ commons (>= floor) from FDR KRX-DELISTING."""
+    """Delisted KOSPI/KOSDAQ commons (>= floor) from FDR KRX-DELISTING.
+
+    2026-09-22 실측: 이 출처가 **빈 표**(행 0·컬럼 0)를 돌려준다(상류 변경). 종전에는 그대로
+    KeyError로 죽어 야간 마스터 갱신 전체가 멈췄다 — 빈 응답은 '상폐가 없다'가 아니라 '못
+    받았다'이므로, 조용히 0건으로 넘기지도 않고 전용 예외로 올린다(호출부가 나머지 갱신은
+    진행하고 이 사실을 눈에 띄게 남긴다).
+    """
     d = fdr.StockListing("KRX-DELISTING")
+    required = {"DelistingDate", "ListingDate", "SecuGroup", "Market", "Symbol"}
+    if len(d) == 0 or not required <= set(d.columns):
+        raise DelistingSourceUnavailable(
+            f"KRX-DELISTING 응답에 필요한 컬럼이 없다(행 {len(d)}, 컬럼 {list(d.columns)[:6]})"
+        )
     d["DelistingDate"] = pd.to_datetime(d["DelistingDate"], errors="coerce")
     d["ListingDate"] = pd.to_datetime(d["ListingDate"], errors="coerce")
     mask = (

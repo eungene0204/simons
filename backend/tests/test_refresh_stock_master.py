@@ -86,3 +86,68 @@ def test_refresh_is_idempotent():
     once = refresh(_master(), coverage, {}, {})
     twice = refresh(once, coverage, {}, {})
     assert once["stocks"] == twice["stocks"]
+
+
+# ── 상류 출처가 죽었을 때(2026-09-22 실측) ──────────────────────────────────────
+# 야간 갱신이 FDR의 두 목록에 기대고 있었는데 같은 날 둘 다 고장났다:
+#   · KRX-DESC(상장일) → HTTP 404
+#   · KRX-DELISTING(상폐 명부) → 빈 표(행 0·컬럼 0)
+# 첫째는 KIND 직접 호출로 옮겼고, 둘째는 '조용한 0건'이 되지 않도록 전용 예외로 올린 뒤
+# 호출부가 나머지 갱신을 진행한다 — 이 단계에서 죽으면 신규 상장·가격 커버리지까지 멈춰
+# 마스터가 통째로 낡고, 그게 생존편향이 되살아나는 경로다.
+
+def test_empty_delisting_response_is_an_error_not_zero_delistings():
+    import pandas as pd
+    import pytest
+
+    from scripts.build_stock_master import DelistingSourceUnavailable, _load_delisted
+
+    class _Dead:
+        @staticmethod
+        def StockListing(_key):
+            return pd.DataFrame()
+
+    with pytest.raises(DelistingSourceUnavailable):
+        _load_delisted(_Dead())
+
+    class _Partial:
+        @staticmethod
+        def StockListing(_key):
+            return pd.DataFrame({"Symbol": ["000000"], "Name": ["x"]})   # 컬럼이 모자란다
+
+    with pytest.raises(DelistingSourceUnavailable):
+        _load_delisted(_Partial())
+
+
+def test_listing_dates_come_from_kind_and_fall_back_to_fdr(monkeypatch):
+    """상장일 출처는 KIND 직접 호출이고, 막히면 FDR로 폴백한다(2026-09-22 KRX-DESC 404)."""
+    import pandas as pd
+
+    from scripts import build_stock_master as bsm
+
+    monkeypatch.setattr(bsm, "_fetch_kind_listing_table", lambda: pd.DataFrame(
+        {"종목코드": ["5930", "0220W0"], "상장일": ["1975-06-11", "2026-08-25"]}))
+    dates = bsm.load_kind_listing_dates()
+    assert dates == {"005930": "1975-06-11", "0220W0": "2026-08-25"}   # 6자리로 채운다
+
+    def _dead():
+        raise RuntimeError("KIND 404")
+
+    monkeypatch.setattr(bsm, "_fetch_kind_listing_table", _dead)
+    monkeypatch.setitem(sys.modules, "FinanceDataReader", type("F", (), {
+        "StockListing": staticmethod(lambda key: pd.DataFrame(
+            {"Code": ["005930"], "ListingDate": ["1975-06-11"]})),
+    }))
+    assert bsm.load_kind_listing_dates() == {"005930": "1975-06-11"}
+
+
+def test_refresh_keeps_existing_delistings_when_the_source_is_down():
+    """상폐 출처가 죽은 날에도 기존 상폐 행은 남는다 — 잃는 것은 새 상폐분뿐이다."""
+    master = _master()
+    master["stocks"][1]["delistingDate"] = "2026-06-20"
+
+    payload = refresh(master, {"005930": ("2015-01-02", "2026-09-18")}, {}, {})
+
+    delisted = [s for s in payload["stocks"] if s.get("delistingDate")]
+    assert [s["symbol"] for s in delisted] == [master["stocks"][1]["symbol"]]
+    assert payload["counts"]["delisted"] == 1
