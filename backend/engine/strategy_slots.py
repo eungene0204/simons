@@ -731,6 +731,19 @@ def _has_value(parsed: Any, field: str) -> bool:
     raise ValueError(f"알 수 없는 슬롯 필드: {field}")
 
 
+# 정액 적립식 전략에서 물을 대상이 아닌 슬롯(프론트 backtestReadiness.ts와 동형).
+CONTRIBUTION_NOT_APPLICABLE = frozenset({ENTRY, EXIT, STOP_LOSS, TAKE_PROFIT, REBALANCING, REBALANCE_METHOD})
+
+
+def has_contribution_plan(parsed: Any) -> bool:
+    """납입액과 주기가 둘 다 있는 지정 종목 전략인가 — 반쪽 요청은 적립식이 아니다."""
+    return (
+        _positive(getattr(parsed, "contribution_amount", None))
+        and _nonempty(getattr(parsed, "contribution_period", None))
+        and _nonempty(getattr(parsed, "target_symbols", None))
+    )
+
+
 @dataclass(frozen=True)
 class _Decided:
     """질문이 끝난 이유. `filled`(=이 값의 존재 자체)와 두 상태 축을 함께 나른다."""
@@ -762,6 +775,10 @@ def _decided(parsed: Any, field: str, declined: frozenset[str]) -> Optional[_Dec
     '미언급'으로 남아 매번 다시 묻힌다(2026-07-29 사고).
     """
     symbols = getattr(parsed, "target_symbols", None) or []
+    # ① 정액 적립식(엔진 v16.20)은 납입 일정이 곧 매수 규칙이고 매도가 없다 — 매수·매도 조건,
+    # 손절·익절, 리밸런싱은 물을 대상이 아니다(엔진은 이들과 섞인 적립 요청을 거절한다).
+    if field in CONTRIBUTION_NOT_APPLICABLE and has_contribution_plan(parsed):
+        return _Decided(not_applicable=True)
     if field == REBALANCING:
         # 단독 종목(지정 1개)은 교체가 없다. 지정 종목이라도 여럿이면 포트폴리오이므로
         # 묻는다 — '지정 종목 존재=단독'으로 본 2026-07-28 사고.

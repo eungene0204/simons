@@ -115,6 +115,66 @@ class ResultHandler:
         return rets[np.isfinite(rets)]
 
     @staticmethod
+    def benchmark_daily_returns(benchmark_prices, common_index):
+        """벤치마크 일간 수익률과 커버리지 마스크 — (수익률, 유효 구간). 가격이 없으면 (None, None).
+
+        전략 수익률의 기준은 첫 거래일 시가 전의 초기자본이다(첫날 체결·첫날 손익 포함, v16.12).
+        벤치마크도 같은 출발점에 맞춰 첫날 수익률을 창 직전 종가 대비로 잡는다 — 창 직전 값이
+        없으면(지수 ETF 상장 첫날 등) 종전처럼 0(곡선 시작점). 커버리지 밖 수익률은 0이다.
+        """
+        if benchmark_prices is None or len(benchmark_prices) == 0:
+            return None, None
+        # Align benchmark to common_index
+        bench_aligned = benchmark_prices.reindex(common_index).ffill()
+        bench_valid = bench_aligned.notna()
+        bench_raw_rets = bench_aligned.pct_change()
+        if len(common_index) > 0 and bool(bench_valid.iloc[0]):
+            _prev = benchmark_prices[benchmark_prices.index < pd.Timestamp(common_index[0])].dropna()
+            if len(_prev) > 0 and float(_prev.iloc[-1]) > 0:
+                bench_raw_rets.iloc[0] = float(bench_aligned.iloc[0]) / float(_prev.iloc[-1]) - 1.0
+        return bench_raw_rets.fillna(0.0).where(bench_valid, 0.0), bench_valid
+
+    @staticmethod
+    def risk_ratios(daily_rets: np.ndarray, risk_free_rate: float, periods_per_year: float):
+        """일간 수익률 → (샤프, 소르티노, 연환산 변동성 %)."""
+        _ann = np.sqrt(periods_per_year)
+        # 감사 M7: 연 무위험수익률(risk_free_rate, 기본 0)을 일 단위로 환산해 차감.
+        _rf_daily = (
+            (1.0 + float(risk_free_rate)) ** (1.0 / periods_per_year) - 1.0
+            if risk_free_rate else 0.0
+        )
+        _excess = daily_rets - _rf_daily
+
+        # 표본 표준편차(ddof=1). 관측된 수익률은 모집단이 아니라 표본이며,
+        # numpy 기본값(ddof=0)은 변동성을 과소·샤프를 과대 평가한다.
+        _std = float(daily_rets.std(ddof=1)) if len(daily_rets) > 1 else 0.0
+        _mean_excess = _excess.mean() if len(_excess) else 0.0
+        _sharpe  = float((_mean_excess * _ann) / _std) if _std > 0 else 0.0
+
+        # 감사 H4: Sortino 표준 정의 — 하방편차는 '전체 기간'에 대해 목표(무위험)
+        # 미달분의 RMS로 계산한다. (음수 수익률만의 표준편차는 비표준이며 하방
+        # 위험을 과소/과대평가한다.)
+        _downside = np.minimum(_excess, 0.0)
+        _down_dev = float(np.sqrt(np.mean(_downside ** 2))) if len(_excess) > 0 else 0.0
+        _sortino = float((_mean_excess * _ann) / _down_dev) if _down_dev > 0 else 0.0
+
+        return _sharpe, _sortino, float(_std * _ann) * 100
+
+    @staticmethod
+    def max_drawdown_duration(equity_arr: np.ndarray) -> int:
+        """고점 아래에 머문 최장 연속 봉 수."""
+        if len(equity_arr) <= 1:
+            return 0
+        _running_max = np.maximum.accumulate(equity_arr)
+        _underwater = equity_arr < _running_max - 1e-9
+        if not _underwater.any():
+            return 0
+        _padded = np.concatenate([[0], _underwater.astype(np.int8), [0]])
+        _d = np.diff(_padded)
+        _starts, _ends = np.where(_d == 1)[0], np.where(_d == -1)[0]
+        return int((_ends - _starts).max()) if len(_starts) > 0 else 0
+
+    @staticmethod
     def safe(val):
         try:
             if val is None: return 0.0
@@ -462,7 +522,6 @@ class ResultHandler:
 
         # ── 연환산 기준 (CAGR·샤프·소르티노·변동성·종목별 CAGR이 모두 이걸 쓴다) ──
         n_years, periods_per_year = cls.time_base(common_index)
-        _ann = np.sqrt(periods_per_year)
 
         # ── Per-Asset Stats — extract to numpy arrays, avoid repeated VBT overhead ──
         per_asset_stats = {}
@@ -525,21 +584,8 @@ class ResultHandler:
         # 존재한 구간만, 전략 수익률은 전체 구간을 복리로 쌓은 값이라 기간이 다르다.
         # 이 기간 불일치는 데이터로 메울 수 없으므로 엔진이 경고로 고지한다
         # (backtest_engine의 H1 경고).
-        bench_valid: "pd.Series | None" = None
-        if benchmark_prices is not None and len(benchmark_prices) > 0:
-            # Align benchmark to common_index
-            bench_aligned = benchmark_prices.reindex(common_index).ffill()
-            bench_valid = bench_aligned.notna()
-            bench_raw_rets = bench_aligned.pct_change()
-            # 전략 수익률의 기준은 첫 거래일 시가 전의 초기자본이다(첫날 체결·첫날 손익 포함, v16.12).
-            # 벤치마크도 같은 출발점에 맞춰 첫날 수익률을 창 직전 종가 대비로 잡는다 — 창 직전 값이
-            # 없으면(지수 ETF 상장 첫날 등) 종전처럼 0(곡선 시작점).
-            if len(common_index) > 0 and bool(bench_valid.iloc[0]):
-                _prev = benchmark_prices[benchmark_prices.index < pd.Timestamp(common_index[0])].dropna()
-                if len(_prev) > 0 and float(_prev.iloc[-1]) > 0:
-                    bench_raw_rets.iloc[0] = float(bench_aligned.iloc[0]) / float(_prev.iloc[-1]) - 1.0
-            bench_mean_rets = bench_raw_rets.fillna(0.0).where(bench_valid, 0.0)
-        else:
+        bench_mean_rets, bench_valid = cls.benchmark_daily_returns(benchmark_prices, common_index)
+        if bench_mean_rets is None:
             # Fallback: equal-weight buy-and-hold of strategy symbols
             bench_rets = pf.benchmark_returns()
             if isinstance(bench_rets, pd.DataFrame):
@@ -580,27 +626,7 @@ class ResultHandler:
             _daily_rets = np.asarray(_daily_rets_raw, dtype=float)
         _daily_rets = _daily_rets[np.isfinite(_daily_rets)]
 
-        # 감사 M7: 연 무위험수익률(risk_free_rate, 기본 0)을 일 단위로 환산해 차감.
-        _rf_daily = (
-            (1.0 + float(risk_free_rate)) ** (1.0 / periods_per_year) - 1.0
-            if risk_free_rate else 0.0
-        )
-        _excess = _daily_rets - _rf_daily
-
-        # 표본 표준편차(ddof=1). 관측된 수익률은 모집단이 아니라 표본이며,
-        # numpy 기본값(ddof=0)은 변동성을 과소·샤프를 과대 평가한다.
-        _std = float(_daily_rets.std(ddof=1)) if len(_daily_rets) > 1 else 0.0
-        _mean_excess = _excess.mean() if len(_excess) else 0.0
-        _sharpe  = float((_mean_excess * _ann) / _std) if _std > 0 else 0.0
-
-        # 감사 H4: Sortino 표준 정의 — 하방편차는 '전체 기간'에 대해 목표(무위험)
-        # 미달분의 RMS로 계산한다. (음수 수익률만의 표준편차는 비표준이며 하방
-        # 위험을 과소/과대평가한다.)
-        _downside = np.minimum(_excess, 0.0)
-        _down_dev = float(np.sqrt(np.mean(_downside ** 2))) if len(_excess) > 0 else 0.0
-        _sortino = float((_mean_excess * _ann) / _down_dev) if _down_dev > 0 else 0.0
-
-        _vol = float(_std * _ann) * 100
+        _sharpe, _sortino, _vol = cls.risk_ratios(_daily_rets, risk_free_rate, periods_per_year)
 
         # ── 켈리 기준(%) — f* = W − (1−W)/R,  R = 평균수익률 ÷ 평균손실률 ──────
         # 과거에는 백엔드가 이 값을 아예 계산하지 않아 프론트가 0으로 채웠고,
@@ -632,16 +658,7 @@ class ResultHandler:
         except Exception:
             pass
 
-        _max_dd_duration = 0
-        if len(_equity_arr) > 1:
-            _running_max = np.maximum.accumulate(_equity_arr)
-            _underwater = _equity_arr < _running_max - 1e-9
-            if _underwater.any():
-                _padded = np.concatenate([[0], _underwater.astype(np.int8), [0]])
-                _d = np.diff(_padded)
-                _starts, _ends = np.where(_d == 1)[0], np.where(_d == -1)[0]
-                if len(_starts) > 0:
-                    _max_dd_duration = int((_ends - _starts).max())
+        _max_dd_duration = cls.max_drawdown_duration(_equity_arr)
 
         _expectancy = 0.0  # 평균 거래 수익률 (%): 승률×평균수익 − 패률×평균손실과 동치
         if trade_returns is not None and len(trade_returns) > 0:
@@ -699,4 +716,139 @@ class ResultHandler:
             # 결과를 산출한 백테스트 엔진 버전(SOT: engine/version.py). 어떤 버전으로
             # 테스트했는지 추적하기 위해 모든 결과에 기록한다.
             "version":              ENGINE_VERSION,
+        }
+
+    @classmethod
+    def format_contribution_results(cls, ledger, common_index, init_cash: float,
+                                    amount: float, period: str,
+                                    benchmark_prices: "pd.Series | None" = None,
+                                    benchmark_label: str = "매수 후 보유",
+                                    risk_free_rate: float = 0.0) -> Dict[str, Any]:
+        """정액 적립식 장부(engine/contributions.py) → 결과 DTO.
+
+        자산곡선은 납입으로도 올라가므로 수익률·낙폭·샤프는 **시간가중 수익률**(납입 효과 제거)로
+        계산한다 — totalReturn·cagr·maxDrawdown의 뜻이 일반 백테스트와 같아 나란히 비교할 수 있다.
+        납입 시점·금액을 반영한 수치(총 납입액·평가 손익·금액가중 수익률)는 `contributions`에 따로 싣는다.
+        매도가 없으므로 거래 통계(승률·PF·켈리 등)는 계산하지 않는다(0/None).
+        """
+        from engine.contributions import (
+            contributed_benchmark_equity, money_weighted_return, time_weighted_returns,
+        )
+
+        n_years, periods_per_year = cls.time_base(common_index)
+        twr = time_weighted_returns(ledger.equity, ledger.flows)
+        twr_curve = np.cumprod(1.0 + twr)          # 1에서 출발하는 시간가중 지수(낙폭 기준 곡선)
+        total_return_decimal = float(twr_curve[-1] - 1.0) if len(twr_curve) else 0.0
+        cagr_val = cls.annualize_return(total_return_decimal, n_years)
+        _sharpe, _sortino, _vol = cls.risk_ratios(twr[np.isfinite(twr)], risk_free_rate, periods_per_year)
+        _mdd = cls.safe(cls.max_drawdown_pct(twr_curve, 1.0))
+        _calmar = cagr_val / abs(_mdd) if _mdd != 0 else 0.0
+        _curve_arr = cls.anchored_equity(twr_curve, 1.0)
+        _max_dd_value = float((np.maximum.accumulate(_curve_arr) - _curve_arr).max()) if len(_curve_arr) > 1 else 0.0
+        _recovery = float(total_return_decimal / _max_dd_value) if _max_dd_value > 0 else 0.0
+
+        total_contributed = ledger.total_contributed
+        final_value = ledger.final_value
+        total_profit = final_value - total_contributed
+        mwr = money_weighted_return(common_index, ledger.flows, final_value)
+
+        # ── 벤치마크: 같은 날 같은 금액을 넣은 곡선(목돈 1회 곡선과는 비교가 성립하지 않는다) ──
+        bench_rets, bench_valid = cls.benchmark_daily_returns(benchmark_prices, common_index)
+        bench_total_return, bench_partial, bench_equity = 0.0, False, [None] * len(ledger.equity)
+        if bench_rets is not None:
+            covered = (1 + bench_rets).cumprod().where(bench_valid, np.nan).dropna()
+            bench_total_return = float(covered.iloc[-1] - 1) if len(covered) else 0.0
+            bench_partial = bool(len(covered) < len(bench_rets))
+            _bench_eq = contributed_benchmark_equity(bench_rets.values, ledger.flows)
+            bench_equity = [float(v) if ok else None for v, ok in zip(_bench_eq, bench_valid.values)]
+
+        # ── 매수 내역·종목별 통계 ──
+        us_symbol_set = {s for s in ledger.symbols if is_us_symbol(str(s))}
+
+        def px(value, symbol):
+            return round(float(value), 4) if symbol in us_symbol_set else float(round(value))
+
+        signals_list = []
+        cost_by_symbol: Dict[str, float] = {}
+        buys_by_symbol: Dict[str, int] = {}
+        for order in ledger.orders:
+            sym = order["symbol"]
+            reason = [tr.part(tr.CONTRIBUTION_BUY, int(order["round"]))]
+            price = px(order["price"], sym)
+            signals_list.append({
+                "date": order["date"], "symbol": sym, "type": "buy",
+                "price": price, "quantity": int(order["quantity"]),
+                "amount": float(round(price * order["quantity"], 2)),
+                "condition": tr.render_kr(reason), "conditionParts": reason,
+            })
+            cost_by_symbol[sym] = cost_by_symbol.get(sym, 0.0) + order["price"] * order["quantity"] + order["fee"]
+            buys_by_symbol[sym] = buys_by_symbol.get(sym, 0) + 1
+
+        per_asset_stats = {}
+        for j, sym in enumerate(ledger.symbols):
+            cost_j = cost_by_symbol.get(sym, 0.0)
+            value_j = float(ledger.shares[-1, j] * ledger.close[-1, j]) if len(ledger.shares) else 0.0
+            profit_j = value_j - cost_j if cost_j > 0 else 0.0
+            total_return_j = (profit_j / cost_j * 100.0) if cost_j > 0 else 0.0
+            per_asset_stats[sym] = {
+                "symbol": sym, "totalReturn": total_return_j,
+                "trades": buys_by_symbol.get(sym, 0), "winRate": 0.0, "profit": profit_j,
+                "cagr": cls.annualize_return(total_return_j / 100.0, n_years),
+                "maxDrawdown": ledger.holding_drawdown_pct(j),
+            }
+
+        _asset_value = ledger.equity - ledger.cash
+        _exposure = float((_asset_value > 1e-9).mean()) * 100 if len(_asset_value) else 0.0
+        _dates = pd.DatetimeIndex(common_index).strftime('%Y-%m-%d').tolist()
+
+        def _sf(v: float) -> float:
+            return 0.0 if (np.isnan(v) or np.isinf(v)) else float(v)
+
+        return {
+            "symbols":              list(ledger.symbols),
+            "totalReturn":          _sf(total_return_decimal * 100),
+            "totalProfit":          _sf(total_profit),
+            "cagr":                 _sf(cagr_val),
+            "buyAndHoldReturn":     _sf(bench_total_return * 100),
+            "maxDrawdown":          _sf(_mdd),
+            "winRate":              0.0,
+            "trades":               len(ledger.orders),
+            "avgProfit":            0.0,
+            "avgLoss":              0.0,
+            "maxConsecutiveWins":   0,
+            "maxConsecutiveLosses": 0,
+            "profitFactor":         0.0,
+            "kelly":                None,
+            "sharpe":               _sf(_sharpe),
+            "sortino":              _sf(_sortino),
+            "calmar":               _sf(_calmar),
+            "avgHoldingDays":       0.0,
+            "volatility":           _sf(_vol),
+            "exposure":             _sf(_exposure),
+            "maxDrawdownDuration":  cls.max_drawdown_duration(_curve_arr),
+            "expectancy":           0.0,
+            "recoveryFactor":       _sf(_recovery),
+            "equity":               [_sf(v) for v in ledger.equity],
+            "initialCapital":       float(init_cash),
+            "benchmark_equity":     bench_equity,
+            "benchmark_partial":    bench_partial,
+            "dates":                _dates,
+            "signals":              signals_list,
+            "perAssetStats":        per_asset_stats,
+            "benchmark_label":      benchmark_label,
+            "warnings":             [],
+            "version":              ENGINE_VERSION,
+            # 적립식 전용 — 이 키가 있으면 표시 쪽이 '원금 하나' 계산(최종÷초기−1)을 쓰지 않는다.
+            "contributions": {
+                "period":              period,
+                "amount":              float(amount),
+                "count":               int((ledger.flows > 0).sum()),
+                "totalContributed":    _sf(total_contributed),
+                "finalValue":          _sf(final_value),
+                "profit":              _sf(total_profit),
+                # 단순 수익률 = 평가 손익 ÷ 총 납입액(납입 시점 무시), 금액가중 = XIRR(연, 해가 없으면 None).
+                "simpleReturn":        _sf(total_profit / total_contributed * 100) if total_contributed > 0 else 0.0,
+                "moneyWeightedReturn": None if mwr is None else _sf(mwr * 100),
+                "cumulative":          [float(v) for v in np.cumsum(ledger.flows)],
+            },
         }

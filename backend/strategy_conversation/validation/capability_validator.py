@@ -855,6 +855,40 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
         # 해석 실패(빈 전략)로 둔갑한다. 오류가 안내를 담당하므로 조용한 소실이 아니다.
         strategy.portfolio.rebalance_method = None
 
+    # 정액 적립식(v16.20) — 주기 표기는 리밸런싱 주기와 같은 표로 정규화한다('없음'은 주기가 아니다).
+    bt = strategy.backtest
+    if bt.contribution_period is not None:
+        period = caps.normalize_rebalance_frequency(bt.contribution_period)
+        if period is None or period == "none":
+            errors.append(
+                f"납입 주기 '{bt.contribution_period}'을(를) 해석할 수 없습니다 "
+                f"(지원: {', '.join(f for f in caps.SUPPORTED_REBALANCE_FREQUENCIES if f != 'none')})"
+            )
+            # 값을 남기면 부분 컴파일이 ParsedStrategy Literal에서 크래시한다 — 비우면
+            # completeness_validator가 주기를 되묻는다(조용한 소실 아님).
+            bt.contribution_period = None
+        else:
+            bt.contribution_period = period
+    # 적립식은 지정 종목을 조건 없이 사 모으는 방식만 계산한다(engine/contributions.py) — 조건·랭킹·
+    # 손절과 섞이면 엔진이 거절하므로, 적립 설정을 빼고 무엇이 빠졌는지 알린다(조용한 제거 금지).
+    if (bt.contribution_amount is not None or bt.contribution_period is not None) and (
+        strategy.entry_conditions or strategy.exit_conditions or strategy.ranking
+        or any(v is not None for v in (
+            strategy.risk_management.stop_loss, strategy.risk_management.take_profit,
+            strategy.risk_management.trailing_stop, strategy.portfolio.hold_period_days))
+    ):
+        unsupported.append(ui_language.msg(
+            "매수·매도 조건이 있는 전략의 정액 적립식", "dollar-cost averaging combined with trading conditions"))
+        errors.append(ui_language.msg(
+            "정액 적립식은 지정한 종목을 조건 없이 사 모으는 방식만 지원합니다 — 매수·매도 조건, 랭킹, "
+            "손절·익절·보유 기간과는 함께 쓸 수 없어 적립 설정을 제외했습니다",
+            "Dollar-cost averaging only supports unconditionally accumulating designated symbols — it can't be "
+            "combined with entry/exit conditions, ranking, stop-loss/take-profit or a holding period, so the "
+            "contribution settings were left out",
+        ))
+        bt.contribution_amount = None
+        bt.contribution_period = None
+
     if strategy.backtest.period is not None \
             and strategy.backtest.period not in caps.SUPPORTED_BACKTEST_PERIODS:
         errors.append(f"백테스트 기간 '{strategy.backtest.period}'은(는) 지원되지 않습니다")

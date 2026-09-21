@@ -24,6 +24,8 @@ from typing import Optional
 
 import db as appdb  # 공용 앱 DB 어댑터(Supabase Postgres)
 from engine import virtual_scheduled_orders as vso
+from engine import virtual_contributions as vcontrib
+from engine.contributions import contribution_settings
 
 from engine import trade_reason as tr
 from engine import us_market_calendar
@@ -236,6 +238,40 @@ def _is_us_strategy_execution_window(
     if execution_timing == "current_close":
         return minute == end.replace(second=0, microsecond=0)
     return start <= minute <= start + timedelta(minutes=5)
+
+
+# 정기 납입 매수의 사유(회차 종류별) — VirtualMarketLog.reason에 세그먼트로 실린다.
+CONTRIBUTION_REASON = {
+    vcontrib.START: tr.CONTRIBUTION_START_BUY,
+    vcontrib.DEPOSIT: tr.CONTRIBUTION_DEPOSIT_BUY,
+    vcontrib.CAPPED: tr.CONTRIBUTION_CAPPED_BUY,
+}
+
+
+def _contribution_plan(dsl: dict, entry_group: dict, exit_group: dict, risk: dict,
+                       account_id: str) -> Optional[tuple]:
+    """전략의 정액 적립 계획 (납입액, 주기). 없거나 계산할 수 없는 조합이면 None.
+
+    백테스트 엔진과 같은 계약이다(backtest_engine._run_contribution_backtest) — 지정 종목 전략에서만,
+    매수·매도 조건·랭킹·손절과 섞이지 않았을 때만 납입한다. 섞인 전략에 조용히 돈을 넣으면
+    백테스트에 없던 계좌가 된다.
+    """
+    try:
+        plan = contribution_settings(risk)
+    except ValueError as e:
+        logger.warning("[VirtualTrader] 계좌 %s: 적립 설정을 읽을 수 없어 납입하지 않습니다 — %s", account_id, e)
+        return None
+    if plan is None:
+        return None
+    mixed = (
+        entry_group.get("conditions") or exit_group.get("conditions") or risk.get("ranking_metric")
+        or any(_coerce_numeric(risk.get(k)) > 0 for k in (
+            "stop_loss_pct", "take_profit_pct", "trailing_stop_pct", "max_holding_days"))
+    )
+    if dsl.get("backtest_mode") != "single_asset" or mixed:
+        logger.warning("[VirtualTrader] 계좌 %s: 조건·랭킹·손절과 섞인 적립 설정은 납입하지 않습니다", account_id)
+        return None
+    return plan
 
 
 def _fresh_price_map(quotes: dict, today: str) -> dict[str, float]:
@@ -529,6 +565,9 @@ class VirtualTrader:
                 account_id, "USD" if _want_us else "KRW", len(_cross), ", ".join(_cross[:3]),
             )
 
+        # 정액 적립식 — 납입 계획이 있으면 지정 종목은 신호가 없어도 납입일에 산다.
+        contribution_plan = _contribution_plan(dsl, entry_group, exit_group, risk, account_id)
+
         # next_open signals depend only on completed bars, so evaluate the full universe
         # once per day before requesting live prices for actionable symbols.
         if execution_timing == "next_open":
@@ -558,6 +597,7 @@ class VirtualTrader:
             ]
             quote_symbols = list(dict.fromkeys(
                 actionable
+                + (signal_symbols if contribution_plan else [])
                 + [p["symbol"] for p in positions]
                 + [order["symbol"] for order in pending_orders]
                 + [order["symbol"] for order in scheduled_orders]
@@ -607,6 +647,13 @@ class VirtualTrader:
             for signal in signals:
                 signal["entry_signal"] = False
                 signal["exit_signal"] = False
+
+        # 3.4 정액 적립식 — 체결 창이고 오늘 시세가 있으면(=거래일) 새 납입 주기인지 보고 입금·매수한다.
+        if contribution_plan and trading_mode == "auto" and strategy_execution_allowed and price_map:
+            await asyncio.to_thread(
+                self._run_contribution, account_id, contribution_plan, signal_symbols,
+                today, price_map, name_map,
+            )
 
         # Ranking portfolios replace their target set only on configured rebalance days.
         ranking_rebalance = (
@@ -1018,6 +1065,43 @@ class VirtualTrader:
             return []
 
     # ── 매매 실행 (동기, to_thread에서 실행) ─────────────────────────────────
+
+    def _run_contribution(
+        self, account_id: str, plan: tuple, symbols: list[str], today: str,
+        price_map: dict[str, float], name_map: dict[str, str],
+    ) -> None:
+        """새 납입 회차면 입금을 기록하고 계좌 현금을 지정 종목에 균등하게 나눠 산다.
+
+        1주도 못 산 몫은 계좌 현금에 남아 다음 회차 예산에 합쳐진다(백테스트 장부의 잔돈 이월과
+        같은 방향 — 다만 종목별이 아니라 계좌 단위로 합쳐진다).
+        """
+        amount, period = plan
+        buyable = [s for s in symbols if s in price_map]
+        if not buyable:
+            return
+        con = appdb.connect()
+        try:
+            round_ = vcontrib.claim_round(con, account_id, today, amount, period, _db_now())
+        except Exception as e:
+            con.rollback()
+            logger.error("[VirtualTrader] 계좌 %s 정기 납입 기록 오류: %s", account_id, e)
+            return
+        finally:
+            con.close()
+        if round_ is None:
+            return
+        logger.info("[VirtualTrader] 계좌 %s 정기 납입 %s: 입금 %.0f, 매수 예산 %.0f",
+                    account_id, round_.kind, round_.credited, round_.cash)
+        budget = round_.cash / len(buyable)
+        reason = tr.encode([tr.part(CONTRIBUTION_REASON[round_.kind])])
+        for sym in buyable:
+            stock_name = name_map.get(sym) or sym
+            order_id = self._execute_buy(account_id, sym, stock_name, price_map[sym], budget, 100.0)
+            # 납입 매수도 매수다 — 신호 로그는 유형이 entry가 아니면 '매도'로 그린다. 구분은 사유 문구가 한다.
+            self._log_signal(
+                account_id, today, sym, price_map[sym], "entry", reason,
+                "auto_executed" if order_id else "skipped", order_id, stock_name,
+            )
 
     def _execute_buy(
         self,

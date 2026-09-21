@@ -83,7 +83,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -160,7 +162,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [],
       "allowNoRebalancing": false,
@@ -250,7 +254,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [],
       "allowNoRebalancing": false,
@@ -344,7 +350,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "max_positions",
@@ -434,7 +442,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -531,7 +541,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -623,7 +635,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -715,7 +729,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -805,7 +821,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -897,7 +915,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -1002,7 +1022,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -1105,7 +1127,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -1210,7 +1234,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -1314,7 +1340,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -1419,7 +1447,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -1523,7 +1553,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -1627,7 +1659,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -1734,7 +1768,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -1842,7 +1878,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -1949,7 +1987,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -2053,7 +2093,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -2156,7 +2198,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -2259,7 +2303,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -2363,7 +2409,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "max_positions",
@@ -2469,7 +2517,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "max_positions",
@@ -2560,7 +2610,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -2662,7 +2714,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -2765,7 +2819,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -2870,7 +2926,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -2974,7 +3032,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -3079,7 +3139,9 @@
         "execution_timing": "next_open",
         "fee_rate": 0.015,
         "slippage_rate": 0.05,
-        "sell_tax_rate": null
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null
       },
       "explicitFields": [
         "universe",
@@ -3098,6 +3160,243 @@
         "최대 보유",
         "리밸런싱",
         "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
+    },
+    {
+      "name": "정액 적립식(지정 2종목)",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [],
+        "etf_theme": null,
+        "sector": null,
+        "us_industry": null,
+        "target_symbols": [
+          "069500",
+          "360750"
+        ],
+        "theme_universe": null,
+        "universe_source": null,
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
+        "fundamental_filters": [],
+        "entry_signals": [],
+        "exit_signals": [],
+        "entry_filters": [],
+        "entry_logic": "AND",
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "ranking_direction": null,
+        "ranking_quantile_groups": null,
+        "ranking_group_cap": null,
+        "ranking_components": null,
+        "ranking_skip_days": null,
+        "ranking_accumulation_days": null,
+        "ranking_entry_delay_days": null,
+        "ranking_expiry_days": null,
+        "max_position_weight_pct": null,
+        "universe_market_cap_top_n": null,
+        "universe_liquidity_exclude_bottom_pct": null,
+        "universe_liquidity_lookback_days": null,
+        "max_sector_weight_pct": null,
+        "allocation_type": "equal",
+        "allocation_lookback_days": null,
+        "market_regime": null,
+        "max_positions": 10,
+        "max_positions_pct": null,
+        "max_positions_explicit": false,
+        "hold_period_days": null,
+        "rebalancing_period": "none",
+        "rebalance_method": "reconstitute",
+        "stop_loss_pct": null,
+        "take_profit_pct": null,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05,
+        "sell_tax_rate": null,
+        "contribution_amount": 500000.0,
+        "contribution_period": "monthly"
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "declinedFields": [],
+      "expectedMissingField": null,
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱",
+        "리밸런싱 방식",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
+    },
+    {
+      "name": "정액 적립식 반쪽 요청(주기 없음)",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [],
+        "etf_theme": null,
+        "sector": null,
+        "us_industry": null,
+        "target_symbols": [
+          "069500",
+          "360750"
+        ],
+        "theme_universe": null,
+        "universe_source": null,
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
+        "fundamental_filters": [],
+        "entry_signals": [],
+        "exit_signals": [],
+        "entry_filters": [],
+        "entry_logic": "AND",
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "ranking_direction": null,
+        "ranking_quantile_groups": null,
+        "ranking_group_cap": null,
+        "ranking_components": null,
+        "ranking_skip_days": null,
+        "ranking_accumulation_days": null,
+        "ranking_entry_delay_days": null,
+        "ranking_expiry_days": null,
+        "max_position_weight_pct": null,
+        "universe_market_cap_top_n": null,
+        "universe_liquidity_exclude_bottom_pct": null,
+        "universe_liquidity_lookback_days": null,
+        "max_sector_weight_pct": null,
+        "allocation_type": "equal",
+        "allocation_lookback_days": null,
+        "market_regime": null,
+        "max_positions": 10,
+        "max_positions_pct": null,
+        "max_positions_explicit": false,
+        "hold_period_days": null,
+        "rebalancing_period": "none",
+        "rebalance_method": "reconstitute",
+        "stop_loss_pct": null,
+        "take_profit_pct": null,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05,
+        "sell_tax_rate": null,
+        "contribution_amount": 500000.0,
+        "contribution_period": null
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "declinedFields": [],
+      "expectedMissingField": "entry",
+      "expectedFilledSlots": [
+        "유니버스",
+        "최대 보유",
+        "리밸런싱 방식",
+        "백테스트 기간",
+        "초기 자본"
+      ]
+    },
+    {
+      "name": "정액 적립식인데 지정 종목 없음",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "us_industry": null,
+        "target_symbols": [],
+        "theme_universe": null,
+        "universe_source": null,
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
+        "fundamental_filters": [],
+        "entry_signals": [],
+        "exit_signals": [],
+        "entry_filters": [],
+        "entry_logic": "AND",
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "ranking_direction": null,
+        "ranking_quantile_groups": null,
+        "ranking_group_cap": null,
+        "ranking_components": null,
+        "ranking_skip_days": null,
+        "ranking_accumulation_days": null,
+        "ranking_entry_delay_days": null,
+        "ranking_expiry_days": null,
+        "max_position_weight_pct": null,
+        "universe_market_cap_top_n": null,
+        "universe_liquidity_exclude_bottom_pct": null,
+        "universe_liquidity_lookback_days": null,
+        "max_sector_weight_pct": null,
+        "allocation_type": "equal",
+        "allocation_lookback_days": null,
+        "market_regime": null,
+        "max_positions": 10,
+        "max_positions_pct": null,
+        "max_positions_explicit": false,
+        "hold_period_days": null,
+        "rebalancing_period": "none",
+        "rebalance_method": "reconstitute",
+        "stop_loss_pct": null,
+        "take_profit_pct": null,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05,
+        "sell_tax_rate": null,
+        "contribution_amount": 500000.0,
+        "contribution_period": "monthly"
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "declinedFields": [],
+      "expectedMissingField": "entry",
+      "expectedFilledSlots": [
+        "유니버스",
+        "최대 보유",
+        "리밸런싱 방식",
         "백테스트 기간",
         "초기 자본"
       ]

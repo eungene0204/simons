@@ -21,6 +21,8 @@ import { t } from "@/lib/i18n";
 interface Props {
   accountId: string;
   initialAmount: number;
+  /** 총 납입액(정액 적립식). 초기 자본보다 크면 실현 수익률의 기준 표기가 이 값으로 바뀐다 — API의 분모와 같아야 한다. */
+  totalContributed?: number;
   // 계좌 통화(기본 KRW) — USD 계좌는 금액을 $ 표기(숫자=통화 단위 그대로).
   currency?: "KRW" | "USD";
 }
@@ -184,7 +186,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
-export default function VirtualTradingDashboard({ accountId, initialAmount, currency }: Props) {
+export default function VirtualTradingDashboard({ accountId, initialAmount, totalContributed, currency }: Props) {
   const usd = currency === "USD";
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -237,7 +239,14 @@ export default function VirtualTradingDashboard({ accountId, initialAmount, curr
       {
         label: t("실현 수익률"),
         value: formatSignedPercent(stats.totalReturn),
-        sub: usd ? t("초기 자본 {0} 기준", `$${fmt(initialAmount)}`) : t("초기 자본 {0}원 기준", fmtShort(initialAmount)),
+        sub:
+          (totalContributed ?? initialAmount) > initialAmount
+            ? usd
+              ? t("총 납입액 {0} 기준", `$${fmt(totalContributed ?? initialAmount)}`)
+              : t("총 납입액 {0}원 기준", fmtShort(totalContributed ?? initialAmount))
+            : usd
+              ? t("초기 자본 {0} 기준", `$${fmt(initialAmount)}`)
+              : t("초기 자본 {0}원 기준", fmtShort(initialAmount)),
         tone: metricTone(stats.totalReturn),
       },
       {

@@ -961,10 +961,17 @@ export default function BacktestDashboard({
   const dateRangeLabel = result.dates[0] && result.dates[result.dates.length - 1]
     ? `${result.dates[0]} → ${result.dates[result.dates.length - 1]}`
     : "";
-  const totalProfit = result.totalProfit ?? (resolvedFinalEquity - resolvedInitialCapital);
-  const investmentRoi = resolvedInitialCapital > 0
-    ? ((resolvedFinalEquity - resolvedInitialCapital) / resolvedInitialCapital) * 100
-    : result.totalReturn || 0;
+  // 정액 적립식(엔진 v16.20)은 자산곡선이 납입으로도 오른다 — '최종 − 초기'는 납입액을 수익으로
+  // 세므로 쓰지 않는다. 손익은 평가액 − 총 납입액, 수익률은 엔진의 시간가중 수익률이다.
+  const contributions = result.contributions ?? null;
+  const totalProfit = contributions
+    ? contributions.profit
+    : result.totalProfit ?? (resolvedFinalEquity - resolvedInitialCapital);
+  const investmentRoi = contributions
+    ? result.totalReturn || 0
+    : resolvedInitialCapital > 0
+      ? ((resolvedFinalEquity - resolvedInitialCapital) / resolvedInitialCapital) * 100
+      : result.totalReturn || 0;
   const reportedVolatility = Number(result.volatility);
   const annualizedVolatility = Number.isFinite(reportedVolatility)
     ? reportedVolatility
@@ -1138,10 +1145,14 @@ export default function BacktestDashboard({
       englishLabel: englishSubLabel("Total Profit"),
       value: formatKRW(totalProfit),
       valueClass: totalProfit > 0 ? "text-[var(--main-red)]" : totalProfit < 0 ? "text-[var(--main-blue)]" : "text-white",
-      description: metricTooltip(t("총 수익은 백테스트 종료 시점의 순손익입니다."), t("총 수익 = 최종 자산 - 초기 자본"), t("🟢 양수: 순이익\n🟡 0원: 손익 없음\n🔴 음수: 순손실")),
+      description: metricTooltip(
+        t("총 수익은 백테스트 종료 시점의 순손익입니다."),
+        contributions ? t("총 수익 = 최종 평가액 - 총 납입액") : t("총 수익 = 최종 자산 - 초기 자본"),
+        t("🟢 양수: 순이익\n🟡 0원: 손익 없음\n🔴 음수: 순손실"),
+      ),
     },
     {
-      label: t("총 거래 수"),
+      label: contributions ? t("매수 횟수") : t("총 거래 수"),
       englishLabel: englishSubLabel("Trades"),
       value: t("{0}회", result.trades || 0),
       valueClass: "text-white",
@@ -1189,20 +1200,61 @@ export default function BacktestDashboard({
       valueClass: (result.buyAndHoldReturn || 0) > 0 ? "text-[var(--main-red)]" : (result.buyAndHoldReturn || 0) < 0 ? "text-[var(--main-blue)]" : "text-white",
       description: BASE_METRIC_DESCRIPTIONS.buyHold(benchmarkLabel),
     },
-    {
-      label: t("승률"),
-      englishLabel: englishSubLabel("Win Rate"),
-      value: `${(result.winRate || 0).toFixed(1)}%`,
-      valueClass: "text-white",
-      description: metricTooltip(t("승률은 완료 거래 중 수익으로 끝난 거래의 비율입니다."), t("승률 = 수익 거래 수 / 완료 거래 수 × 100"), t("🟢 높음: 60% 이상\n🟡 중간: 40% ~ 60%\n🔴 낮음: 40% 미만\n승률은 평균 수익·손실과 함께 해석")),
-    },
-    {
-      label: t("손익비"),
-      englishLabel: englishSubLabel("Profit Factor"),
-      value: formatProfitFactor(result.profitFactor),
-      valueClass: "text-white",
-      description: BASE_METRIC_DESCRIPTIONS.profitFactor,
-    },
+    // 적립식은 매도가 없어 승률·손익비가 정의되지 않는다 — 그 자리에 납입 지표를 보인다.
+    ...(contributions
+      ? [
+          {
+            label: t("총 납입액"),
+            englishLabel: englishSubLabel("Total Contributed"),
+            value: formatKRW(contributions.totalContributed),
+            valueClass: "text-white",
+            description: metricTooltip(
+              t("총 납입액은 초기 자본과 회차 납입액을 모두 더한 금액입니다."),
+              t("총 납입액 = 초기 자본 + 회차 납입액 × 납입 횟수"),
+              t("{0}회 납입", contributions.count),
+            ),
+          },
+          {
+            label: t("단순 수익률"),
+            englishLabel: englishSubLabel("Simple Return"),
+            value: `${contributions.simpleReturn >= 0 ? "+" : ""}${contributions.simpleReturn.toFixed(2)}%`,
+            valueClass: contributions.simpleReturn > 0 ? "text-[var(--main-red)]" : contributions.simpleReturn < 0 ? "text-[var(--main-blue)]" : "text-white",
+            description: metricTooltip(
+              t("단순 수익률은 총 납입액 대비 평가 손익의 비율입니다. 납입 시점은 반영하지 않습니다."),
+              t("단순 수익률 = (최종 평가액 - 총 납입액) / 총 납입액 × 100"),
+              t("늦게 납입한 돈은 투자된 기간이 짧아, 같은 값이라도 투자 기간 전체의 수익률과는 다릅니다."),
+            ),
+          },
+          {
+            label: t("금액가중 수익률"),
+            englishLabel: englishSubLabel("Money-weighted (XIRR)"),
+            value: contributions.moneyWeightedReturn == null
+              ? "—"
+              : `${contributions.moneyWeightedReturn >= 0 ? "+" : ""}${contributions.moneyWeightedReturn.toFixed(2)}%`,
+            valueClass: (contributions.moneyWeightedReturn ?? 0) > 0 ? "text-[var(--main-red)]" : (contributions.moneyWeightedReturn ?? 0) < 0 ? "text-[var(--main-blue)]" : "text-white",
+            description: metricTooltip(
+              t("금액가중 수익률은 각 납입의 시점과 금액을 반영한 연 수익률입니다."),
+              t("모든 납입금을 같은 연 수익률로 굴렸을 때 최종 평가액이 되는 수익률(XIRR)"),
+              t("연평균수익률(CAGR)은 납입 효과를 걷어낸 시간가중 수익률이라 이 값과 다를 수 있습니다."),
+            ),
+          },
+        ]
+      : [
+        {
+          label: t("승률"),
+          englishLabel: englishSubLabel("Win Rate"),
+          value: `${(result.winRate || 0).toFixed(1)}%`,
+          valueClass: "text-white",
+          description: metricTooltip(t("승률은 완료 거래 중 수익으로 끝난 거래의 비율입니다."), t("승률 = 수익 거래 수 / 완료 거래 수 × 100"), t("🟢 높음: 60% 이상\n🟡 중간: 40% ~ 60%\n🔴 낮음: 40% 미만\n승률은 평균 수익·손실과 함께 해석")),
+        },
+        {
+          label: t("손익비"),
+          englishLabel: englishSubLabel("Profit Factor"),
+          value: formatProfitFactor(result.profitFactor),
+          valueClass: "text-white",
+          description: BASE_METRIC_DESCRIPTIONS.profitFactor,
+        },
+        ]),
   ];
 
   // 벤치마크 지수가 존재하지 않는 구간은 null로 내려온다(엔진 v11.0). undefined로

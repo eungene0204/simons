@@ -761,11 +761,16 @@ class BacktestSpec(BaseModel):
     slippage_rate: Optional[float] = Field(default=None, description="슬리피지율(%)")
     # 증권거래세율(%, 매도측). 언급 없으면 null = 봉 날짜의 시행일 기준 법정 세율(engine/transaction_tax.py).
     sell_tax_rate: Optional[float] = Field(default=None, description="증권거래세율(%)")
+    # 정액 적립식(엔진 v16.20) — 회차 납입액(말한 표기 그대로, initial_capital과 같은 옮겨 적기
+    # 계약)과 납입 주기. 주기 표기는 capability_validator가 리밸런싱 주기와 같은 표로 정규화한다.
+    contribution_amount: Optional[float] = Field(
+        default=None, description="정기 납입액. 사용자가 말한 표기를 그대로 적는다('50만원'·'$500')")
+    contribution_period: Optional[str] = Field(default=None, description="납입 주기")
 
     _coerce = field_validator("fee_rate", "slippage_rate", "sell_tax_rate", mode="before")(_coerce_number)
     # 금액은 앞자리 숫자만 떼는 _coerce_number로 읽을 수 없다("2억5000만원"→2) — 자리마다
     # 더하는 금액 환산기를 쓴다(위 _normalize_amount, 옮겨 적기 계약).
-    _coerce_capital = field_validator("initial_capital", mode="before")(_normalize_amount)
+    _coerce_capital = field_validator("initial_capital", "contribution_amount", mode="before")(_normalize_amount)
 
 
 # 조건 목록에 미러된 스칼라 설정 슬롯의 정본 자리. 트레이스 전수 조사(2026-08-06,

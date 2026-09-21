@@ -636,4 +636,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         slippage_rate=bt.slippage_rate if bt.slippage_rate is not None else 0.05,
         # 거래세는 기본값을 물질화하지 않는다 — None이 곧 '시행일 기준 법정 세율'이다.
         sell_tax_rate=bt.sell_tax_rate,
+        # 정액 적립식(v16.20) — 기본값을 물질화하지 않는다(둘 다 말해야 적립식이다).
+        contribution_amount=bt.contribution_amount,
+        contribution_period=bt.contribution_period,
     )

@@ -112,6 +112,8 @@ export async function createFundedAccount(
     strategyId?: string | null;
     strategyName?: string | null;
     tradingMode?: string | null;
+    // 정액 적립식 계좌의 총 납입액 상한(플랜 모의 투자금). 없으면 적립 계좌가 아니다.
+    contributionCap?: Prisma.Decimal.Value | null;
   }
 ) {
   const allocation = toMoney(params.initialAmount);
@@ -125,6 +127,7 @@ export async function createFundedAccount(
       initialCash: allocation,
       currentCash: allocation,
       currency: params.currency ?? "KRW",
+      contributionCap: params.contributionCap == null ? null : toMoney(params.contributionCap),
       status: "ACTIVE",
       strategyId: params.strategyId || null,
       strategyName: params.strategyName || null,

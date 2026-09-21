@@ -135,6 +135,8 @@ simons/
 │   │   ├── strategy_converter.py    # ParsedStrategy → BacktestRequest
 │   │   ├── residual_factor.py       # 잔차 반전 시그널 랭킹(residual_reversal, v16.17) — 시장·섹터 회귀 잔차 원점수 + 횡단면 윈저라이즈·z-score·부호 반전, data/factor_cache 사전계산(지문 일치 시만 사용)
 │   │   ├── earnings_factor.py       # 실적 서프라이즈 시그널 랭킹(pead, v16.19) — SUE + 발표일 초과수익률의 횡단면 z-score 평균, 발표 자격 창(편입 지연·제외)으로 후보 한정
+│   │   ├── contributions.py         # 정액 적립식(DCA, v16.20) 장부 — 지정 종목을 납입 일정대로 조건 없이 매수(일반 체결 경로 미경유). 납입 일정(리밸런싱 달력 재사용)·정수 주 장부·시간가중 수익률·금액가중 수익률(XIRR)·같은 납입을 받은 벤치마크 곡선. 결과 조립은 result_handler.format_contribution_results
+│   │   ├── virtual_contributions.py # 가상계좌 정기 납입 — 새 납입 주기 판정(_period_key 재사용)과 하루 한 번 입금 기록(VirtualCashEvent (accountId,date) 유니크, 입금·잔액 증가 한 트랜잭션), 플랜 한도(contributionCap) 집행. 소비자 virtual_trader._run_contribution
 │   │   ├── quarterly_earnings.py    # 분기 EPS·실적 발표일 수집(DART 분기보고서, 2016~) — pead의 원재료, 연결/별도는 종목 단위 고정
 │   │   ├── market_index.py          # 시장지수 저장소 로더(data/index) + 종목→지수 종가 날짜 조인(attach_index_close) — relative_return 지표
 │   │   ├── universe_pit.py          # PIT(생존편향 제거) 유니버스 + 섹터 유니버스(CANONICAL_SECTORS·normalize_sector·filter_by_sector) + ETF 유니버스(resolve_etf_symbols·filter_etf_by_theme·extract_etf_theme)
@@ -1717,6 +1719,7 @@ run_backtest → 1단계(데이터·지표·신호·랭킹) → 메인 시뮬레
 | `test_simulator_ranking.py` | Simulator: 모멘텀 랭킹(상위 K 선정) + 달력 기준 리밸런싱 회전 — 순수 리밸런싱(`from_orders`)/리스크 혼재(`from_signals`) 두 라우팅 경로 검증 |
 | `test_rebalance_dates.py` | `compute_rebalance_dates()`: 일/주/월/격월/분기/반기/년 주기별 리밸런싱일 계산 (vbt 비의존, pandas만) |
 | `test_rebalance_comparison.py` | 리밸런싱 기간별 비교(FR-BT-064): 6주기 순회·행 단위 실패 격리·보유 상한 플래그 + 엔진 통합(결과에 rebalanceComparison 동봉, 메인 주기 행=메인 지표) |
+| `test_contributions.py` | 정액 적립식(FR-BT-076): 납입 일정·정수 주 장부·잔돈 이월·거래 불가 이월·TWR(가격 제자리=0%)·XIRR·적립 벤치마크 + 엔진 통합(contributions 동봉, 조건 혼합·유니버스 요청 거절) + 스키마 관통 + 대화 레인(옮겨 적기·형태 키·반쪽 요청 되묻기·슬롯 '해당 없음') |
 | `test_engine_loader.py` | DataLoader: Parquet 로드, 캐싱 |
 | `test_simulator_validation.py` | 검증 회귀: 핸드칼크·비용 양방향·결정론·next_open 체결·현금 음수 없음·중복 포지션 없음 |
 | `test_reference_engine_crosscheck.py` | 레퍼런스 엔진 교차검증(#13): Simulator vs **backtrader** 진입/청산일·체결가·수량·최종자산 일치(무비용/비용) |

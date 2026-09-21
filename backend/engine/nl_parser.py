@@ -1189,6 +1189,15 @@ class ParsedStrategy(BaseModel):
         default=None,
         description="증권거래세율(%, 매도측). 예: '거래세 0%'=0. 언급 없으면 None(시행일 기준 법정 세율)"
     )
+    # 정액 적립식(엔진 v16.20) — 둘 다 있어야 적립식이다. 지정 종목(target_symbols) 전용.
+    contribution_amount: Optional[float] = Field(
+        default=None, gt=0,
+        description="정기 납입액(원). '매달 50만원씩 적립'=500000. 언급 없으면 None"
+    )
+    contribution_period: Optional[Literal["daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly"]] = Field(
+        default=None,
+        description="납입 주기. '매달'=monthly, '매주'=weekly, '분기마다'=quarterly. 언급 없으면 None"
+    )
 
 
 # ─── Diff 스키마 (수정 모드용) ────────────────────────────────────────────────
@@ -1262,6 +1271,8 @@ class ParsedStrategyDiff(BaseModel):
     execution_timing: Optional[Literal["next_open", "current_close"]] = None
     fee_rate: Optional[float] = None
     slippage_rate: Optional[float] = None
+    contribution_amount: Optional[float] = None
+    contribution_period: Optional[Literal["daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly"]] = None
 
 
 _MODEL_TRAILING_TOKENS = (

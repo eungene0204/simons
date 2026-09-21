@@ -117,8 +117,9 @@ export default function VirtualAccountMainView() {
     );
   }
 
-  const profit = account.totalValue - account.initialAmount;
-  const profitPercent = ((profit / account.initialAmount) * 100);
+  const basis = account.totalContributed ?? account.initialAmount;
+  const profit = account.totalValue - basis;
+  const profitPercent = ((profit / basis) * 100);
   const isPositive = profit >= 0;
 
   return (

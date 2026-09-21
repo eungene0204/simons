@@ -4,6 +4,8 @@ export interface VirtualAccount {
   id: string;
   name: string;
   initialAmount: number; // 초기 투자금액 (단위: 계좌 통화)
+  /** 총 납입액 = 초기 투자금 + 정기 납입 누계(정액 적립식). 수익률의 분모다 — 납입이 없는 계좌는 initialAmount와 같다. */
+  totalContributed?: number;
   currency?: "KRW" | "USD"; // 계좌 통화(2026-08-26) — /us 생성 계좌는 USD, 기본 KRW
   currentBalance: number; // 현재 잔액 (단위: 계좌 통화)
   totalValue: number; // 총 자산 가치 (현금 + 주식 가치)

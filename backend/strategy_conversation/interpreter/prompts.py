@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "6.5"
+PROMPT_VERSION = "6.7"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -86,6 +86,8 @@ _OUTPUT_SHAPE = {
             "execution_timing": None,
             "initial_capital": None, "fee_rate": None, "slippage_rate": None,
             "sell_tax_rate": None,
+            # 정액 적립식(엔진 v16.20) — 형태에 키가 없으면 자리를 채우지 않는다(etf_theme 실측).
+            "contribution_amount": None, "contribution_period": None,
         },
         # 시장 국면 필터·'안 함' 설정(v6.2) — 형태에 키가 없으면 9B/120B가 자리를 채우지 않는다
         # (etf_theme·selection_percent와 같은 실패 방식).
@@ -536,6 +538,10 @@ NON_STRATEGY_REQUEST(전략과 무관)
 11-2-2. 수수료·슬리피지·거래세는 말한 %를 숫자로 그대로 적습니다 — "수수료 0.1%"→fee_rate 0.1,
     "슬리피지 0.05%"→slippage_rate 0.05, "거래세 0%"·"거래세 없이"→sell_tax_rate 0. 말하지 않은
     항목은 null로 둡니다(기본값을 적지 마세요).
+11-2-3. '매달 50만원씩 적립'·'정액 적립식'처럼 **정기적으로 돈을 더 넣어** 지정 종목을 사 모으는 요청은
+    backtest.contribution_amount에 회차 납입액을 규칙 11-2처럼 말한 표기 그대로("50만원"·"$500"),
+    backtest.contribution_period에 주기(weekly|monthly|bimonthly|quarterly|yearly)를 적습니다. 처음에
+    넣는 목돈은 initial_capital입니다. 말하지 않은 쪽은 null로 둡니다(지어내지 마세요).
 12. 백테스트 기간이 날짜로 명시되면 backtest.start_date/end_date를 YYYY-MM-DD로 출력하세요.
     "2020년 1월부터 2025년 12월까지" → start_date="2020-01-01", end_date="2025-12-31"
     (종료 월은 말일까지). 과거/미래 판단은 입력에 함께 주어지는 '오늘 날짜'만 기준으로

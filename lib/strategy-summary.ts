@@ -113,6 +113,9 @@ export interface ParsedSummary {
   fee_rate?: number | null;
   slippage_rate?: number | null;
   sell_tax_rate?: number | null;
+  // 정액 적립식(엔진 v16.20) — 둘 다 있고 지정 종목이 있어야 적립식이다.
+  contribution_amount?: number | null;
+  contribution_period?: string | null;
 }
 
 interface BacktestRequestLike {

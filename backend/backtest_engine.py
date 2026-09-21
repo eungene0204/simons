@@ -8,7 +8,10 @@ from typing import Dict, List, Any, Optional
 from engine.loader import DataLoader
 from engine.indicators import IndicatorEngine
 from engine.signals import SignalEngine, FUNDAMENTAL_LABELS
-from engine.simulator import Simulator, applied_trading_costs, regime_condition_args
+from engine.simulator import (
+    Simulator, applied_trading_costs, regime_condition_args, resolve_cost_rates, resolve_slippage_rate,
+)
+from engine.contributions import contribution_settings
 from engine.result_handler import ResultHandler
 from engine.data_resolver import DataResolver
 from engine.prep_cache import SymbolPrepCache
@@ -39,6 +42,7 @@ _REBAL_PERIOD_TEMPLATES = {
     'monthly': tr.REBAL_PERIOD_MONTHLY, 'bimonthly': tr.REBAL_PERIOD_BIMONTHLY,
     'quarterly': tr.REBAL_PERIOD_QUARTERLY, 'yearly': tr.REBAL_PERIOD_YEARLY,
 }
+_CONTRIBUTION_PERIOD_TEMPLATES = {**_REBAL_PERIOD_TEMPLATES, 'semiannual': tr.REBAL_PERIOD_SEMIANNUAL}
 
 
 def _composite_ranking_label_segment(components: List[Dict[str, Any]], default_lookback=None) -> Dict[str, Any]:
@@ -574,6 +578,87 @@ class BacktestEngine:
         if has_kospi:
             return "226490", "KODEX 코스피 (226490)"
         return "069500", "KODEX 200 (069500)"
+
+    def _load_benchmark_prices(self, req, processed_symbols, common_index, apply_dividends):
+        """유니버스에 맞는 벤치마크 ETF 종가와 이름 — 기간·분배금 비대칭은 경고로 공시한다."""
+        _benchmark_sym, _benchmark_name = self.benchmark_for_universe(
+            req.get('universe_id') or '', processed_symbols
+        )
+        benchmark_prices = None
+        try:
+            _bench_df = self.loader.load_symbol_data(_benchmark_sym)
+            if _bench_df is not None:
+                _bench_pd = self.loader.preprocess_data(
+                    _bench_df, apply_dividends=apply_dividends,
+                    sanitize_corporate_actions=not universe_pit.is_us_symbol(_benchmark_sym),
+                )
+                benchmark_prices = _bench_pd['close'].sort_index()
+                # H1: 벤치마크가 자기 존재 구간만, 전략은 전체 구간을 복리로 쌓으므로
+                # 두 수익률의 기간이 다르다 — 전략에 유리한 쪽으로 기우는 비교이고,
+                # 데이터로 메울 수 없어 값 보정 대신 공시한다.
+                if len(common_index) > 0 and benchmark_prices.index[0] > pd.Timestamp(common_index[0]):
+                    self.warnings.add(rw.warning(
+                        rw.BENCHMARK_PARTIAL_PERIOD,
+                        _benchmark_name, benchmark_prices.index[0].strftime('%Y-%m-%d'),
+                    ))
+                # M3: 전략은 토탈리턴인데 벤치마크에 분배금 데이터가 없으면 비대칭 비교
+                if apply_dividends and 'dividends' not in _bench_df.columns:
+                    self.warnings.add(rw.warning(rw.BENCHMARK_NO_DIVIDENDS))
+        except Exception as _be:
+            print(f"[BT-ENGINE] 벤치마크 로드 실패 ({_benchmark_sym}): {_be}", flush=True)
+        return benchmark_prices, _benchmark_name
+
+    def _run_contribution_backtest(self, req, risk_params, options, contribution, init_cash,
+                                   price_df, exec_px_df, available_df, common_index,
+                                   processed_symbols, apply_dividends):
+        """정액 적립식 레인(v16.20) — 지정 종목을 납입 일정대로 조건 없이 사 모은다.
+
+        일반 체결 경로(시뮬레이터·vectorbt)를 거치지 않는 별도 장부다(engine/contributions.py).
+        조건·랭킹·손절과 섞인 요청은 조용히 무시하지 않고 거절한다.
+        """
+        from engine.contributions import contribution_flows, simulate_contributions
+
+        _mixed = (
+            (req.get('entry') or {}).get('conditions') or (req.get('exit') or {}).get('conditions')
+            or risk_params.get('ranking_metric')
+            or any(float(risk_params.get(k) or 0) > 0 for k in (
+                'stop_loss_pct', 'take_profit_pct', 'trailing_stop_pct', 'max_holding_days'))
+        )
+        if req.get('backtest_mode') != 'single_asset' or _mixed:
+            raise ValueError(
+                "정액 적립식은 지정 종목을 조건 없이 매수하는 방식만 지원합니다 — "
+                "매수·매도 조건, 랭킹, 손절·익절과는 함께 쓸 수 없습니다.")
+
+        amount, period = contribution
+        flows = contribution_flows(common_index, init_cash, amount, period)
+        buy_fee, _sell_fee, _sell_tax = resolve_cost_rates(options, common_index)
+        ledger = simulate_contributions(
+            price_df, exec_px_df, available_df, flows, buy_fee, resolve_slippage_rate(options))
+
+        benchmark_prices, _benchmark_name = self._load_benchmark_prices(
+            req, processed_symbols, common_index, apply_dividends)
+        final = self.handler.format_contribution_results(
+            ledger, common_index, init_cash, amount, period,
+            benchmark_prices=benchmark_prices, benchmark_label=_benchmark_name,
+            risk_free_rate=float(options.get('risk_free_rate') or 0.0),
+        )
+        final["universe_id"] = req.get('universe_id') or ''
+        final["tradingCosts"] = applied_trading_costs(options, common_index)
+        final["rebalanceComparison"] = None
+
+        self.warnings.add(rw.warning(
+            rw.CONTRIBUTION_APPLIED,
+            tr.part(_CONTRIBUTION_PERIOD_TEMPLATES[period]), final["contributions"]["count"]))
+        self.warnings.add(rw.warning(rw.CONTRIBUTION_NO_SELLS))
+        if ledger.missed_rounds:
+            self.warnings.add(rw.warning(rw.CONTRIBUTION_MISSED_ROUNDS, ledger.missed_rounds))
+        if not ledger.orders:
+            self.warnings.add(rw.warning(rw.NO_TRADES))
+        _bt_years, _ = ResultHandler.time_base(common_index)
+        if 0 < _bt_years < 1.0:
+            self.warnings.add(rw.warning(rw.SHORT_PERIOD_ANNUALIZED, f"{_bt_years * 12:.0f}"))
+        final["warnings"], final["warningParts"] = rw.finalize(self.warnings)
+        return final
 
     def run_backtest(self, req: Dict[str, Any]) -> Dict[str, Any]:
         try:
@@ -1713,6 +1798,16 @@ class BacktestEngine:
             _t2 = _time.time()
             print(f"[BT-ENGINE] Phase1 완료: {_t2-_t1:.2f}s ({len(processed_symbols)}종목 처리)", flush=True)
 
+            # ── 정액 적립식(v16.20) ── 납입 일정이 있는 요청은 별도 장부로 계산한다.
+            _contribution = contribution_settings(risk_params)
+            if _contribution is not None:
+                final = self._run_contribution_backtest(
+                    req, risk_params, options, _contribution, init_cash,
+                    price_df, exec_px_df, available_df, common_index,
+                    processed_symbols, apply_dividends)
+                final["resolution_logs"] = all_resolution_logs
+                return final
+
             simulator_options = dict(options)
             simulator_options.setdefault('execution_type', exec_type)
 
@@ -1832,31 +1927,8 @@ class BacktestEngine:
                 ))
 
             # 5. Benchmark ETF 로드
-            _benchmark_sym, _benchmark_name = self.benchmark_for_universe(
-                req.get('universe_id') or '', processed_symbols
-            )
-            benchmark_prices = None
-            try:
-                _bench_df = self.loader.load_symbol_data(_benchmark_sym)
-                if _bench_df is not None:
-                    _bench_pd = self.loader.preprocess_data(
-                        _bench_df, apply_dividends=apply_dividends,
-                        sanitize_corporate_actions=not universe_pit.is_us_symbol(_benchmark_sym),
-                    )
-                    benchmark_prices = _bench_pd['close'].sort_index()
-                    # H1: 벤치마크가 자기 존재 구간만, 전략은 전체 구간을 복리로 쌓으므로
-                    # 두 수익률의 기간이 다르다 — 전략에 유리한 쪽으로 기우는 비교이고,
-                    # 데이터로 메울 수 없어 값 보정 대신 공시한다.
-                    if len(common_index) > 0 and benchmark_prices.index[0] > pd.Timestamp(common_index[0]):
-                        self.warnings.add(rw.warning(
-                            rw.BENCHMARK_PARTIAL_PERIOD,
-                            _benchmark_name, benchmark_prices.index[0].strftime('%Y-%m-%d'),
-                        ))
-                    # M3: 전략은 토탈리턴인데 벤치마크에 분배금 데이터가 없으면 비대칭 비교
-                    if apply_dividends and 'dividends' not in _bench_df.columns:
-                        self.warnings.add(rw.warning(rw.BENCHMARK_NO_DIVIDENDS))
-            except Exception as _be:
-                print(f"[BT-ENGINE] 벤치마크 로드 실패 ({_benchmark_sym}): {_be}", flush=True)
+            benchmark_prices, _benchmark_name = self._load_benchmark_prices(
+                req, processed_symbols, common_index, apply_dividends)
 
             # 5. Format
             final = self.handler.format_results(

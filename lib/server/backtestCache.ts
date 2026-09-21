@@ -157,6 +157,9 @@ function buildBacktestCacheConfig(body: any) {
     slippage_rate: options.slippage_rate ?? body?.slippage_rate ?? null,
     execution_type: options.execution_type ?? risk.execution_timing ?? null,
     execution_delay_days: options.execution_delay_days ?? risk.execution_delay_days ?? null,
+    // 정액 적립식(엔진 v16.20) — 설정 패널이 납입 계획을 바꾸면 다른 결과다.
+    contribution_amount: risk.contribution_amount ?? null,
+    contribution_period: risk.contribution_period ?? null,
     liquidity_limit_pct: risk.liquidity_limit_pct ?? null,
     liquidity_policy: body?.liquidity_policy ?? body?.liquidityPolicy ?? null,
     engine_version: body?.engine_version ?? body?.engineVersion ?? null,

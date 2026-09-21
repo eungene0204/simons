@@ -561,6 +561,9 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         # 균등으로 되돌릴지(weights_only) — FR-BT-067. 시뮬레이터가 두 경로에서 읽는다.
         "rebalance_method": strategy.rebalance_method,
         "init_cash": strategy.initial_capital,
+        # 정액 적립식(v16.20) — 엔진이 지정 종목을 납입 일정대로 사 모으는 별도 장부로 계산한다.
+        "contribution_amount": strategy.contribution_amount,
+        "contribution_period": strategy.contribution_period,
         "ranking_enabled": not explicit_symbols,
         "ranking_weight_value": 0.5,
         "ranking_weight_quality": 0.5,

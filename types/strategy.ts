@@ -66,6 +66,10 @@ export interface RiskManagement {
   /** 신호 후 N거래일 지연 체결 — next_open의 체결 봉 간격(1=다음 거래일 시가, N=N번째 거래일 시가).
    *  없으면 엔진 기본값 1. current_close에서는 1 초과 값을 엔진이 거절한다. */
   execution_delay_days?: number;
+  /** 정액 적립식(엔진 v16.20) — 회차 납입액과 주기. 둘 다 있어야 하고 지정 종목 전략에서만 받는다
+   *  (첫 거래일은 초기 자본, 이후 각 주기의 첫 거래일마다 납입). */
+  contribution_amount?: number | null;
+  contribution_period?: ContributionPeriod | null;
   allocation_type?: "equal" | "fixed_pct";
   rebalancing_period?: string;
   /** 리밸런싱 방식(FR-BT-067) — 'reconstitute'=리밸런싱일마다 목표 종목 재선정,
@@ -179,6 +183,28 @@ export interface QuantileGroupsResult {
 // Backtest Result Types
 /** 백엔드 표시 문구 세그먼트(매매사유·경고 공통) — {t: 한국어 정본 템플릿, a: 인자} 또는 {s: 리터럴}. */
 export type BacktestWarningSegment = { t: string; a?: unknown[]; m?: number[] } | { s: string };
+
+
+export type ContributionPeriod = "daily" | "weekly" | "monthly" | "bimonthly" | "quarterly" | "semiannual" | "yearly";
+
+/** 정액 적립식 결과 요약(backend engine/result_handler.py format_contribution_results). */
+export interface BacktestContributions {
+  period: ContributionPeriod;
+  /** 회차 납입액(시장 통화). */
+  amount: number;
+  /** 납입 횟수(초기 자본 포함). */
+  count: number;
+  totalContributed: number;
+  finalValue: number;
+  /** 평가 손익 = 기말 평가액 − 총 납입액. */
+  profit: number;
+  /** 단순 수익률(%) = 평가 손익 ÷ 총 납입액. 납입 시점은 반영하지 않는다. */
+  simpleReturn: number;
+  /** 금액가중 수익률(연 %, XIRR). 해가 없으면 null. */
+  moneyWeightedReturn: number | null;
+  /** 거래일별 누적 납입액 — dates·equity와 같은 길이. */
+  cumulative: number[];
+}
 
 export interface BacktestTradingCosts {
   buyFeeRate: number;
@@ -311,6 +337,9 @@ export interface BacktestResult {
    *  sellTaxRate는 고정 세율일 때만 값이고, 시행일 기준 법정 세율 스케줄이면 null + sellTaxRateRange.
    *  구버전 저장 결과에는 없다. */
   tradingCosts?: BacktestTradingCosts | null;
+  /** 정액 적립식 결과(엔진 v16.20). 이 값이 있으면 totalReturn·cagr·maxDrawdown·sharpe는 납입 효과를
+   *  걷어낸 시간가중 수익률 기준이고, equity는 납입으로도 오른다 — '최종÷초기−1' 계산을 쓰지 않는다. */
+  contributions?: BacktestContributions | null;
   /** 이 결과를 산출한 백테스트 엔진 버전 (backend engine/version.py). */
   engineVersion?: string;
   executionTime?: number;

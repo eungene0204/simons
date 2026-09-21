@@ -1,3 +1,4 @@
+import { totalContributed } from '@/lib/virtual-account/contributions';
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/get-user'
 import { cache } from '@/lib/cache'
@@ -45,7 +46,9 @@ export async function GET(request: NextRequest) {
     const settlementValues = await getAccountSettlementValues(prisma, accounts.map((account) => account.id))
 
     const accountCount = accounts.length
-    const totalInitialCash = accounts.reduce((sum, account) => sum + moneyToNumber(account.initialCash), 0)
+    // 수익률의 분모는 총 납입액이다(정액 적립식 — 납입이 없는 계좌는 초기 자본과 같다).
+    const totalInitialCash = accounts.reduce(
+      (sum, account) => sum + totalContributed(account.initialCash, account.contributedCash), 0)
     const totalValue = accounts.reduce((sum, account) => {
       const positionsValue = account.VirtualPosition.reduce((positionSum, position) => {
         const currentPrice = moneyToNumber(position.currentPrice ?? position.avgPrice)

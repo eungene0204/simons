@@ -75,8 +75,36 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                 "Stocks listed since {year} can be used as a starting point", year=last_year),
         ))
 
-    # ② 진입 메커니즘 존재 여부 (조건 또는 랭킹)
-    if intent.intent == "CREATE_STRATEGY" \
+    # ①-2 정액 적립식(엔진 v16.20) — 납입액·주기는 둘 다 있어야 하고, 사 모을 종목이 지정돼야 한다.
+    # 말하지 않은 쪽을 기본값으로 채우지 않고 묻는다.
+    bt = strategy.backtest
+    contribution = bt.contribution_amount is not None or bt.contribution_period is not None
+    if contribution:
+        if bt.contribution_amount is None:
+            missing.append("strategy.backtest.contribution_amount")
+            questions.append(ClarificationQuestion(
+                field="strategy.backtest.contribution_amount",
+                question=msg("정액 적립식으로 한 번에 얼마씩 납입할까요?",
+                             "How much should each dollar-cost averaging contribution be?"),
+            ))
+        if bt.contribution_period is None:
+            missing.append("strategy.backtest.contribution_period")
+            questions.append(ClarificationQuestion(
+                field="strategy.backtest.contribution_period",
+                question=msg("얼마나 자주 납입할까요? (매주·매월·격월·분기·매년)",
+                             "How often should contributions be made? (weekly, monthly, every two months, "
+                             "quarterly, yearly)"),
+            ))
+        if not strategy.universe.symbols:
+            missing.append("strategy.universe.symbols")
+            questions.append(ClarificationQuestion(
+                field="strategy.universe.symbols",
+                question=msg("어떤 종목(또는 ETF)을 적립식으로 사 모을까요?",
+                             "Which stock(s) or ETF(s) should be accumulated?"),
+            ))
+
+    # ② 진입 메커니즘 존재 여부 (조건 또는 랭킹) — 적립식은 납입 일정이 곧 매수 규칙이다.
+    if intent.intent == "CREATE_STRATEGY" and not contribution \
             and not strategy.entry_conditions and not strategy.ranking:
         missing.append("strategy.entry_conditions")
         questions.append(ClarificationQuestion(

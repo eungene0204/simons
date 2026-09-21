@@ -143,6 +143,19 @@ def build_cases() -> list[dict]:
             "backtest_start_date": "2020-01-01", "backtest_end_date": "2024-12-31",
         }),
     ]
+    # 정액 적립식(엔진 v16.20) — 납입 일정이 곧 매수 규칙이라 매수·매도·손절·익절·리밸런싱을
+    # 묻지 않는다. 반쪽 요청(주기 없음)·지정 종목 없음은 적립식이 아니라 종전대로 묻는다.
+    _dca_blank = {"entry_signals": [], "exit_signals": [], "rebalancing_period": "none",
+                  "stop_loss_pct": None, "take_profit_pct": None,
+                  "contribution_amount": 500_000, "contribution_period": "monthly"}
+    # 리밸런싱은 말하지 않은 상태다(값 none + provenance 없음) — 적립식이 아니면 되묻는다.
+    _dca_explicit = [f for f in ALL_EXPLICIT if f != "rebalancing"]
+    cases.append(_case("정액 적립식(지정 2종목)", explicit=_dca_explicit, patch={
+        **_dca_blank, "universe": [], "target_symbols": ["069500", "360750"]}))
+    cases.append(_case("정액 적립식 반쪽 요청(주기 없음)", explicit=_dca_explicit, patch={
+        **_dca_blank, "universe": [], "target_symbols": ["069500", "360750"],
+        "contribution_period": None}))
+    cases.append(_case("정액 적립식인데 지정 종목 없음", explicit=_dca_explicit, patch=_dca_blank))
     return cases
 
 

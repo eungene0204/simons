@@ -165,7 +165,14 @@ REBAL_PERIOD_WEEKLY = "주간"
 REBAL_PERIOD_MONTHLY = "월간"
 REBAL_PERIOD_BIMONTHLY = "격월"
 REBAL_PERIOD_QUARTERLY = "분기"
+REBAL_PERIOD_SEMIANNUAL = "반기"
 REBAL_PERIOD_YEARLY = "연간"
+# 정액 적립식(v16.20) — 조건 없이 납입 일정대로 사는 매수. {0}=납입 회차.
+CONTRIBUTION_BUY = "정기 적립 매수 ({0}회차)"
+# 가상계좌 정기 납입 매수(engine/virtual_contributions.py) — 회차 종류별 사유.
+CONTRIBUTION_START_BUY = "정기 적립 시작 — 초기 자본으로 매수"
+CONTRIBUTION_DEPOSIT_BUY = "정기 납입 후 매수"
+CONTRIBUTION_CAPPED_BUY = "플랜 모의 투자금 한도에 도달해 추가 납입 없이 남은 현금으로 매수"
 COMPOSITE_RANK = "복합 순위({0})"
 COMPOSITE_RETURN_METRIC = "최근 {0}거래일 수익률"
 # 최근 N거래일을 뺀 수익률(v16.14, 12-1 모멘텀). {0}=산정 기간, {1}=최근 제외 기간.

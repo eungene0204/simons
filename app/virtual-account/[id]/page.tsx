@@ -626,19 +626,21 @@ export default function VirtualAccountDetailPage() {
         performanceData: [], activeDays: 0, investedValue: 0, cashRatio: 0, filledTradeCount: 0,
       };
     }
-    const p = account.totalValue - account.initialAmount;
-    const pp = (p / account.initialAmount) * 100;
+    // 수익률의 분모는 총 납입액이다(정액 적립식 — 납입이 없는 계좌는 초기 자본과 같다).
+    const basis = account.totalContributed ?? account.initialAmount;
+    const p = account.totalValue - basis;
+    const pp = (p / basis) * 100;
     const todayStr = new Date().toISOString().slice(0, 10);
     const todayPnl = transactions
       .filter((tv) => tv.type === "sell" && tv.status === "FILLED" && tv.filledAt?.startsWith(todayStr))
       .reduce((sum, tv) => sum + (tv.realizedPnl ?? 0), 0);
-    const todayPnlPct = account.initialAmount > 0 ? (todayPnl / account.initialAmount) * 100 : 0;
+    const todayPnlPct = basis > 0 ? (todayPnl / basis) * 100 : 0;
     const startDate = new Date(account.createdAt);
     const days = Math.max(1, Math.round((Date.now() - startDate.getTime()) / 86400000));
     const performanceData = buildRealizedPerformanceSeries(
       account.createdAt,
       transactions,
-      account.initialAmount,
+      basis,
       todayStr
     );
     const investedValue = Math.max(0, account.totalValue - account.currentBalance);
@@ -1447,6 +1449,13 @@ export default function VirtualAccountDetailPage() {
                             <p className="text-xs font-bold uppercase tracking-widest text-gray-600">{t("초기 모의 투자금")}</p>
                             <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatAccountMoney(account.initialAmount, account.currency)}</p>
                           </div>
+                          {/* 정액 적립식 계좌 — 수익률의 분모인 총 납입액(초기 투자금 + 정기 납입 누계)을 함께 보인다. */}
+                          {(account.totalContributed ?? account.initialAmount) > account.initialAmount && (
+                            <div className="py-3">
+                              <p className="text-xs font-bold uppercase tracking-widest text-gray-600">{t("총 납입액")}</p>
+                              <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatAccountMoney(account.totalContributed ?? account.initialAmount, account.currency)}</p>
+                            </div>
+                          )}
                           <div className="py-3">
                             <p className="text-xs font-bold uppercase tracking-widest text-gray-600">{t("주식 평가 금액")}</p>
                             <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{formatAccountMoney(investedValue, account.currency)}</p>
@@ -1475,7 +1484,7 @@ export default function VirtualAccountDetailPage() {
                           DETAIL
                         </span>
                       </div>
-                      <VirtualTradingDashboard accountId={accountId} initialAmount={account.initialAmount} currency={account.currency} />
+                      <VirtualTradingDashboard accountId={accountId} initialAmount={account.initialAmount} totalContributed={account.totalContributed} currency={account.currency} />
                     </div>
                   </div>
                 )}

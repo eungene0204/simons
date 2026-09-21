@@ -543,6 +543,11 @@ model VirtualAccount {
   // 계좌 통화(2026-08-26) — /us 생성 계좌는 USD, 기존·한국 계좌는 KRW.
   // 금액 숫자는 이 통화 단위 그대로다(엔진·시세와 동일 계약: 숫자=통화).
   currency           String              @default("KRW")
+  // 정액 적립식(2026-09-21) — 초기 자본 이후 정기 납입으로 들어온 돈의 누계. 수익률의 분모는
+  // initialCash + contributedCash(총 납입액)다. 납입이 없는 계좌는 0이라 종전 값과 같다.
+  contributedCash    Decimal             @default(0)
+  // 총 납입액 상한(계좌 생성 시점의 플랜 모의 투자금). null이면 적립 계좌가 아니다.
+  contributionCap    Decimal?
   status             String              @default("ACTIVE")
   strategyId         String?
   strategyName       String?
@@ -558,9 +563,27 @@ model VirtualAccount {
   VirtualScheduledOrder VirtualScheduledOrder[]
   DelistingAuditLog  DelistingAuditLog[]
   AssetLedger        AssetLedger[]
+  VirtualCashEvent   VirtualCashEvent[]
 
   @@index([userId, createdAt])
   @@index([userId, status])
+}
+
+// 가상계좌 현금 입금 기록(2026-09-21, 정액 적립식). 자동매매 루프는 30초마다 체결 창에 다시
+// 들어오므로 (accountId, date) 유니크가 '하루 한 번'의 정본이다 — 입금과 잔액 증가는 한 트랜잭션.
+// type: CONTRIBUTION_START(1회차=초기 자본 매수 시작, amount 0) | CONTRIBUTION | CONTRIBUTION_CAPPED(상한 도달, amount 0)
+model VirtualCashEvent {
+  id             String         @id
+  accountId      String
+  type           String
+  amount         Decimal
+  balanceAfter   Decimal
+  date           String
+  createdAt      DateTime       @default(now())
+  VirtualAccount VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, date])
+  @@index([accountId, createdAt])
 }
 
 model AssetLedger {

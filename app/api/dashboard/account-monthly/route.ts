@@ -1,3 +1,4 @@
+import { totalContributed } from "@/lib/virtual-account/contributions";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
@@ -66,14 +67,15 @@ export async function GET() {
           .filter((o) => o.filledAt && o.filledAt.getTime() < monthEnd)
           .reduce((sum, o) => sum + moneyToNumber(o.realizedPnl), 0);
 
-        const initialCash = moneyToNumber(acc.initialCash);
+        const initialCash = totalContributed(acc.initialCash, acc.contributedCash);
         return initialCash > 0 ? (cumPnl / initialCash) * 100 : 0;
       });
 
       return {
         id: acc.id,
         name: acc.name,
-        initialCash: moneyToNumber(acc.initialCash),
+        // 포트폴리오 가중 평균의 가중치 — 월별 수익률과 같은 분모(총 납입액)여야 한다.
+        initialCash: totalContributed(acc.initialCash, acc.contributedCash),
         createdAt: acc.createdAt.toISOString(),
         monthlyProfitPct,
       };

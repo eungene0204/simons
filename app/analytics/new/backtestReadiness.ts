@@ -79,6 +79,21 @@ export function isExplicit(
   return (explicitFields ?? []).includes(field);
 }
 
+const CONTRIBUTION_NOT_APPLICABLE: readonly MissingBacktestCondition["field"][] = [
+  "entry", "exit", "stop_loss", "take_profit", "rebalancing", "rebalance_method",
+];
+
+/** 납입액과 주기가 둘 다 있는 지정 종목 전략인가 — 반쪽 요청은 적립식이 아니다
+ *  (백엔드 strategy_slots.has_contribution_plan과 동형). */
+export function hasContributionPlan(parsed: ParsedSummary | null | undefined): boolean {
+  return Boolean(
+    parsed &&
+      (parsed.contribution_amount ?? 0) > 0 &&
+      parsed.contribution_period &&
+      (parsed.target_symbols?.length ?? 0) > 0,
+  );
+}
+
 /** 슬롯 하나가 채워졌는가 — 프론트의 **유일한** 빈 슬롯 술어.
  *
  * 백엔드 정본(engine/strategy_slots.py)의 `_decided`/`_has_value`/`_explicit_ok` 3축을
@@ -103,6 +118,9 @@ export function isSlotFilled(
   );
 
   // ① 질문이 이미 끝난 필드 — 값 유무·provenance와 무관하다(백엔드 _decided).
+  // 정액 적립식(엔진 v16.20)은 납입 일정이 곧 매수 규칙이고 매도가 없다 — 매수·매도 조건,
+  // 손절·익절, 리밸런싱은 물을 대상이 아니다(백엔드 CONTRIBUTION_NOT_APPLICABLE과 동형).
+  if (CONTRIBUTION_NOT_APPLICABLE.includes(field) && hasContributionPlan(parsed)) return true;
   if (field === "rebalancing" && (targetSymbolCount === 1 || options.allowNoRebalancing === true)) {
     return true;
   }

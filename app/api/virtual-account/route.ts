@@ -5,6 +5,7 @@ import { createFundedAccount, moneyToNumber, toMoney } from '@/lib/server/assetS
 import { getPlan } from '@/lib/plans';
 import { getRequestRegion } from '@/lib/geo/server';
 import { US_PRICING } from '@/lib/pricing/us';
+import { contributionStartCapital, totalContributed } from '@/lib/virtual-account/contributions';
 import {
   assertCanCreateAccount,
   getUserPlan,
@@ -29,6 +30,7 @@ function mapAccount(a: any, priceMap: Record<string, number>) {
     id: a.id,
     name: a.name,
     initialAmount: moneyToNumber(a.initialCash),
+    totalContributed: totalContributed(a.initialCash, a.contributedCash),
     currency: (a.currency ?? "KRW") as "KRW" | "USD",
     currentBalance: currentCash,
     totalValue,
@@ -90,10 +92,15 @@ export async function POST(request: Request) {
     const plan = userId == null ? getPlan("FREE") : await getUserPlan(prisma, userId);
     const region = getRequestRegion();
     const currency = region === "us" ? "USD" : "KRW";
-    const amount =
+    const planAmount =
       region === "us"
         ? US_PRICING.initialInvestmentAmount[plan.planId]
         : plan.initialInvestmentAmount;
+    // 정액 적립식 전략(2026-09-21): 플랜 투자금 전액으로 시작하면 납입할 여유가 없다 — 전략의 초기
+    // 자본으로 시작하고, 초기 자본 + 누적 납입이 플랜 투자금을 넘지 않게 상한을 계좌에 적는다.
+    const contributionStart = contributionStartCapital(strategy?.settings, planAmount);
+    const amount = contributionStart ?? planAmount;
+    const contributionCap = contributionStart == null ? null : planAmount;
 
     const account =
       userId == null
@@ -104,6 +111,7 @@ export async function POST(request: Request) {
               initialCash: toMoney(amount),
               currentCash: toMoney(amount),
               currency,
+              contributionCap: contributionCap == null ? null : toMoney(contributionCap),
               status: "ACTIVE",
               strategyId: strategyId || null,
               strategyName: strategyName || null,
@@ -119,6 +127,7 @@ export async function POST(request: Request) {
               name,
               initialAmount: amount,
               currency,
+              contributionCap,
               strategyId: strategyId || null,
               strategyName: strategyName || null,
               tradingMode: tradingMode || "manual",

@@ -258,11 +258,9 @@ export default function VirtualAccountOverview() {
                 </span>
               </button>
               {accounts.map((account) => {
-                const profit = account.totalValue - account.initialAmount;
-                const profitPercent =
-                  account.initialAmount > 0
-                    ? (profit / account.initialAmount) * 100
-                    : 0;
+                const basis = account.totalContributed ?? account.initialAmount;
+                const profit = account.totalValue - basis;
+                const profitPercent = basis > 0 ? (profit / basis) * 100 : 0;
                 const isPositive = profit > 0;
                 const isNegative = profit < 0;
 

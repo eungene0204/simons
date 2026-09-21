@@ -16,6 +16,7 @@ import {
 } from "./strategySummary";
 import {
   isExplicit,
+  hasContributionPlan,
   isSlotFilled,
   SLOT_LABELS,
   type MissingBacktestCondition,
@@ -588,6 +589,19 @@ export function buildBuilderTurnPresentation({
       }),
     });
   }
+  // 정액 적립식(엔진 v16.20) — 납입액·주기는 기본값이 물질화되지 않으므로 값의 존재가 곧 사용자 발화다.
+  if (hasContributionPlan(parsed) && parsed?.contribution_amount && parsed.contribution_period) {
+    summaryItems.push({
+      label: t("정기 납입"),
+      value: t(
+        "{0}마다 {1}",
+        t(REBALANCE_LABELS[parsed.contribution_period] ?? parsed.contribution_period),
+        formatInitialCapital(parsed.contribution_amount, {
+          usd: isUsParsedUniverse(parsed.universe ?? null),
+        }),
+      ),
+    });
+  }
   if (riskLabel) summaryItems.push({ label: t("리스크 관리"), value: riskLabel });
   // 사용자가 문장에서 특정 값으로 말한 거래 비용만 보여준다(2026-09-14 지시). 수수료·슬리피지는
   // 백엔드가 기본값을 물질화하므로 값의 존재로는 말했는지 알 수 없고 provenance가 가른다 —
@@ -602,7 +616,8 @@ export function buildBuilderTurnPresentation({
     );
   }
 
-  const entryComplete = isEntryComplete(state, parsed);
+  // 정액 적립식은 납입 일정이 곧 매수 규칙이다(게이트와 같은 술어 — 정본 _decided ①).
+  const entryComplete = isEntryComplete(state, parsed) || hasContributionPlan(parsed);
   // 리스크 관리 슬롯은 손절·익절이 **둘 다** 있어야 완료다(정본 계약) — 배지가 하나라도
   // 있으면 완료로 보던 드리프트를 제거했다. 빌더가 청산 단계를 마쳤으면(risk_done)
   // 사용자가 답을 끝낸 것이므로 그것도 완료 근거다.

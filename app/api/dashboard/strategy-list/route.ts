@@ -1,3 +1,4 @@
+import { totalContributed } from "@/lib/virtual-account/contributions";
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -128,7 +129,8 @@ export async function GET() {
           (sum, p) => sum + p.quantity * moneyToNumber(p.currentPrice ?? p.avgPrice),
           0
         );
-        const initialCash = moneyToNumber(a.initialCash);
+        // 수익률의 분모는 총 납입액이다(정액 적립식 — 납입이 없는 계좌는 초기 자본과 같다).
+        const initialCash = totalContributed(a.initialCash, a.contributedCash);
         const liveValue = moneyToNumber(a.currentCash) + posValue;
         const totalValue = resolveAccountTotalValue(a, liveValue, settlementValues);
         const profit = totalValue - initialCash;

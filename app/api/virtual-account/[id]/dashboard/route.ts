@@ -1,3 +1,4 @@
+import { totalContributed } from '@/lib/virtual-account/contributions';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import {
@@ -62,7 +63,8 @@ export async function GET(
     const wins = sellOrders.filter((o) => moneyToNumber(o.realizedPnl) > 0);
     const losses = sellOrders.filter((o) => moneyToNumber(o.realizedPnl) <= 0);
 
-    const initialCash = moneyToNumber(account.initialCash);
+    // 실현손익 수익률의 분모는 총 납입액이다(정액 적립식 — 납입이 없으면 초기 자본과 같다).
+    const initialCash = totalContributed(account.initialCash, account.contributedCash);
     const totalRealizedPnl = sellOrders.reduce((s, o) => s + moneyToNumber(o.realizedPnl), 0);
     const totalReturn = initialCash > 0 ? (totalRealizedPnl / initialCash) * 100 : 0;
 

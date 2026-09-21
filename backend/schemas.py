@@ -94,6 +94,11 @@ class RiskManagement(BaseModel):
     skip_risk_management: Optional[bool] = False
     skip_position_setting: Optional[bool] = False
     init_cash: Optional[float] = 10000000.0
+    # 정액 적립식(v16.20, engine/contributions.py): 회차 납입액과 주기(weekly|monthly|bimonthly|
+    # quarterly|semiannual|yearly|daily). 둘 다 있어야 하고 지정 종목 모드에서만 받는다 — 첫 봉은
+    # init_cash, 이후 각 주기의 첫 거래일마다 납입한다. 미선언 시 model_dump가 조용히 버린다.
+    contribution_amount: Optional[float] = None
+    contribution_period: Optional[str] = None
 
 class BacktestRequest(BaseModel):
     symbols: List[str]
@@ -240,6 +245,10 @@ class BacktestResponse(BaseModel):
     # trades, turnover, ...}], currentPeriod, positionCapAbsent}. 백테스트마다 6주기 재시뮬레이션으로
     # 동봉한다. 미선언 시 response_model이 걸러내 프론트가 못 받는다 — 반드시 선언한다.
     rebalanceComparison: Optional[Dict[str, Any]] = None
+    # 정액 적립식 결과(v16.20) — {period, amount, count, totalContributed, finalValue, profit,
+    # simpleReturn, moneyWeightedReturn|null, cumulative[]}. 이 키가 있으면 totalReturn·cagr·
+    # maxDrawdown·sharpe는 시간가중 수익률 기준이다. 미선언 시 response_model이 걸러낸다.
+    contributions: Optional[Dict[str, Any]] = None
     version: Optional[str] = ENGINE_VERSION
     executionTime: Optional[float] = 0.0
     vbtResult: Optional[VBTNativeResult] = None

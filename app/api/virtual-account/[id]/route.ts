@@ -1,3 +1,4 @@
+import { totalContributed } from '@/lib/virtual-account/contributions';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolveTrackedSymbolsForStrategy } from '@/lib/strategy-tracked-symbols';
@@ -72,6 +73,7 @@ function mapAccount(
     id: a.id,
     name: a.name,
     initialAmount: moneyToNumber(a.initialCash),
+    totalContributed: totalContributed(a.initialCash, a.contributedCash),
     currency: (a.currency ?? "KRW") as "KRW" | "USD",
     currentBalance: currentCash,
     totalValue,

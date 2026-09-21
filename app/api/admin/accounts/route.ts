@@ -1,3 +1,4 @@
+import { totalContributed } from '@/lib/virtual-account/contributions';
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin, writeAuditLog } from '@/lib/server/adminAuth'
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
           name: true,
           status: true,
           initialCash: true,
+          contributedCash: true,
           currentCash: true,
           strategyName: true,
           createdAt: true,
@@ -54,6 +56,7 @@ export async function GET(request: NextRequest) {
           0
         )
         const initialCash = Number(a.initialCash)
+        const basis = totalContributed(a.initialCash, a.contributedCash)
         const totalValue = Number(a.currentCash) + positionsValue
         return {
           id: a.id,
@@ -64,7 +67,8 @@ export async function GET(request: NextRequest) {
           strategyName: a.strategyName,
           initialCash,
           totalValue,
-          returnPct: initialCash > 0 ? ((totalValue - initialCash) / initialCash) * 100 : 0,
+          // 수익률의 분모는 총 납입액이다(정액 적립식 — 납입이 없는 계좌는 초기 자본과 같다).
+          returnPct: basis > 0 ? ((totalValue - basis) / basis) * 100 : 0,
           orderCount: a._count.VirtualOrder,
           createdAt: a.createdAt,
         }
@@ -120,9 +124,12 @@ export async function PATCH(request: NextRequest) {
       await prisma.$transaction([
         prisma.virtualPosition.deleteMany({ where: { accountId } }),
         prisma.virtualOrder.deleteMany({ where: { accountId } }),
+        // 정기 납입 기록도 지운다 — 남겨 두면 현금은 초기 자본인데 총 납입액(수익률 분모)만 부풀어 있고,
+        // 납입 회차도 1회차(초기 자본 매수)부터 다시 시작하지 않는다.
+        prisma.virtualCashEvent.deleteMany({ where: { accountId } }),
         prisma.virtualAccount.update({
           where: { id: accountId },
-          data: { currentCash: account.initialCash },
+          data: { currentCash: account.initialCash, contributedCash: 0 },
         }),
       ])
       await writeAuditLog(admin, {

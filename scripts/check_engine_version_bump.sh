@@ -23,6 +23,7 @@ CORE_FILES=(
   "backend/engine/signals.py"
   "backend/engine/indicators.py"
   "backend/engine/result_handler.py"
+  "backend/engine/contributions.py"
   "backend/engine/rebalance.py"
   "backend/engine/rank_exit.py"
   "backend/engine/vectorbt_native.py"

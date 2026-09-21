@@ -1,3 +1,4 @@
+import { totalContributed } from "@/lib/virtual-account/contributions";
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { withOwnership } from "@/lib/get-user";
@@ -140,13 +141,14 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
         const cumPnl = accOrders
           .filter((o) => o.filledAt && o.filledAt.getTime() < monthEnd)
           .reduce((sum, o) => sum + moneyToNumber(o.realizedPnl), 0);
-        const initialCash = moneyToNumber(acc.initialCash);
+        const initialCash = totalContributed(acc.initialCash, acc.contributedCash);
         return initialCash > 0 ? (cumPnl / initialCash) * 100 : 0;
       });
       return {
         id: acc.id,
         name: acc.name,
-        initialCash: moneyToNumber(acc.initialCash),
+        // 포트폴리오 가중 평균의 가중치 — 월별 수익률과 같은 분모(총 납입액)여야 한다.
+        initialCash: totalContributed(acc.initialCash, acc.contributedCash),
         createdAt: acc.createdAt.toISOString(),
         monthlyProfitPct,
       };
@@ -162,8 +164,9 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
     const initialAmount = moneyToNumber(a.initialCash);
     const liveValue = moneyToNumber(a.currentCash) + posValue;
     const tv = resolveAccountTotalValue(a, liveValue, settlementValues);
-    const profit = tv - initialAmount;
-    const returnPct = initialAmount > 0 ? (profit / initialAmount) * 100 : 0;
+    const basis = totalContributed(a.initialCash, a.contributedCash);
+    const profit = tv - basis;
+    const returnPct = basis > 0 ? (profit / basis) * 100 : 0;
 
     return {
       id: a.id,
