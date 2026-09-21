@@ -684,6 +684,9 @@ export function getDisplayUniverseLabels(
 
   const newListingLabel = formatNewListingLabel(parsed);
   if (newListingLabel) sectorLabel.push(newListingLabel);
+  // 유니버스 사전 필터(엔진 v16.19) — 빼면 '시가총액 상위 500종목 중 …'을 말한 전략이
+  // "코스피·코스닥 전체"로만 보여 반영 여부를 알 수 없다(2026-09-21 실측: 라벨 함수만 있고 미배선).
+  sectorLabel.push(...formatUniverseFilterLabels(parsed));
 
   if (
     normalizedUniverses.length === 1 &&

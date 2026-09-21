@@ -537,8 +537,13 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         # 섹터 전략에서 양시장을 기본으로 두는 것과 같은 이유, FR-STR-066 ③).
         markets = list(strategy.universe.markets) or (["US"] if us_industry else ["SP500"])
     else:
+        # 시가총액 상위 N(v16.19)도 양시장이 기본이다 — KOSPI200이면 모집단이 200종목이라
+        # '상위 500'이 성립하지 않고, 엔진은 지수 상위 N(200)을 먼저 써 사용자의 N을 덮는다
+        # (2026-09-21 실측: 상위 500을 말했는데 유니버스 201종목).
         markets = list(strategy.universe.markets) or (
-            ["KOSPI", "KOSDAQ"] if (sector_value or new_listing_only) else ["KOSPI200"]
+            ["KOSPI", "KOSDAQ"]
+            if (sector_value or new_listing_only or strategy.universe.market_cap_top_n)
+            else ["KOSPI200"]
         )
     etf_theme = strategy.universe.etf_theme if markets == ["ETF"] else None
 

@@ -18,6 +18,11 @@ Usage:
   python scripts/backfill_quarterly_earnings.py --symbol 005930
   python scripts/backfill_quarterly_earnings.py --max-calls 19000
   python scripts/backfill_quarterly_earnings.py --report
+  python scripts/backfill_quarterly_earnings.py --repair-dates   # 이미 받은 종목의 발표일을 원공시일로 교정
+
+`--repair-dates`(2026-09-21): 09-21 이전 수집분은 발표일이 **정정공시 접수일**로 오염돼 있다
+(engine.quarterly_earnings 모듈 docstring ③). EPS는 다시 받지 않고 공시검색 1회(종목당)로
+원공시 접수일만 받아 min 클램프한다 — 재실행해도 결과 불변, 한도 소진 시 종료코드 3.
 """
 from __future__ import annotations
 
@@ -109,6 +114,36 @@ def backfill_symbol(symbol: str, *, start_year: int, dry_run: bool) -> tuple[str
     return f"saved_{len(records)}q", calls
 
 
+def repair_dates(*, dry_run: bool) -> int:
+    """수집된 전 종목의 발표일을 원공시 접수일로 클램프한다. 반환값은 종료코드."""
+    from engine.fundamental_fetcher import _get_dart_corp_code
+
+    qe.reset_dart_calls()
+    symbols = changed_symbols = changed_records = 0
+    for path in sorted((_REPO_ROOT / "data" / "quarterly-earnings").glob("*.json")):
+        symbol = path.stem
+        records = qe.load_quarterly_earnings(symbol)
+        corp_code = _get_dart_corp_code(symbol) if records else None
+        if not corp_code:
+            continue
+        try:
+            originals = qe.fetch_original_filing_dates(corp_code)
+        except DartQuotaExhausted:
+            print(f"[한도] DART 일일 허용량 소진 — {symbols}종목 처리 후 중단")
+            return 3
+        symbols += 1
+        changed = qe.clamp_to_original_filing(records, originals)
+        if changed:
+            changed_symbols += 1
+            changed_records += changed
+            if not dry_run:
+                qe.save_quarterly_earnings(symbol, records)
+            print(f"{symbol} 발표일 교정 {changed}건")
+    print(f"완료: {symbols}종목 조회, {changed_symbols}종목·{changed_records}건 교정 "
+          f"(DART {qe.dart_calls_used()}회{', dry-run' if dry_run else ''})")
+    return 0
+
+
 def report() -> None:
     cached = sorted((_REPO_ROOT / "data" / "quarterly-earnings").glob("*.json"))
     quarters = 0
@@ -140,7 +175,12 @@ def main() -> int:
                         help="시총 순서 캐시를 다시 만든다")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--report", action="store_true", help="수집 없이 현황만")
+    parser.add_argument("--repair-dates", action="store_true",
+                        help="수집된 종목의 발표일을 원공시 접수일로 교정(EPS 재수집 없음)")
     args = parser.parse_args()
+
+    if args.repair_dates:
+        return repair_dates(dry_run=args.dry_run)
 
     if args.report:
         report()

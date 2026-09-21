@@ -539,6 +539,13 @@ export function buildBuilderTurnPresentation({
       value: t("{0}%", parsed.max_position_weight_pct),
     });
   }
+  // 섹터별 비중 상한(엔진 v16.19) — 종목당 상한과 같은 이유(말했을 때만 값이 있다).
+  if (parsed?.max_sector_weight_pct != null) {
+    summaryItems.push({
+      label: t("섹터별 비중 상한"),
+      value: t("{0}%", parsed.max_sector_weight_pct),
+    });
+  }
   if (rebalanceCycle && rebalanceExplicit) {
     const normalizedCycle = String(rebalanceCycle);
     const cycle = t(REBALANCE_LABELS[normalizedCycle] ?? normalizedCycle);

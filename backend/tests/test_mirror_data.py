@@ -14,40 +14,43 @@ REMOTE = "root@example.com:/opt/simons"
 
 
 def test_pull_orders_remote_then_local():
-    cmd = mirror_data.build_rsync_cmd(remote=REMOTE, ssh_key=None, push=False, dry_run=False)
+    cmd = mirror_data.build_rsync_cmd(remote=REMOTE, ssh_key=None, dry_run=False)
     # 마지막 두 인자가 source, dest. pull은 remote → local 순서.
     src, dst = cmd[-2], cmd[-1]
     assert src.endswith("data/ohlcv/") and src.startswith(REMOTE)
     assert dst.endswith("data/ohlcv/") and not dst.startswith(REMOTE)
 
 
-def test_push_orders_local_then_remote():
-    cmd = mirror_data.build_rsync_cmd(remote=REMOTE, ssh_key=None, push=True, dry_run=False)
-    src, dst = cmd[-2], cmd[-1]
-    assert not src.startswith(REMOTE)
-    assert dst.startswith(REMOTE)
+def test_there_is_no_push_direction():
+    """방향은 프로덕션 → 로컬 하나뿐이다(2026-09-21 사용자 지시). 로컬 parquet을 올리는 경로가
+    코드에 남아 있으면 언젠가 쓰인다 — 옵션도 인자도 없어야 한다."""
+    import inspect
+
+    assert "push" not in inspect.signature(mirror_data.build_rsync_cmd).parameters
+    with pytest.raises(SystemExit):
+        mirror_data.main(["--push"])
 
 
 def test_ssh_key_included():
-    cmd = mirror_data.build_rsync_cmd(remote=REMOTE, ssh_key="~/.ssh/k", push=False, dry_run=False)
+    cmd = mirror_data.build_rsync_cmd(remote=REMOTE, ssh_key="~/.ssh/k", dry_run=False)
     i = cmd.index("-e")
     assert "ssh -i" in cmd[i + 1] and "/.ssh/k" in cmd[i + 1]
 
 
 def test_dry_run_adds_flag():
-    cmd = mirror_data.build_rsync_cmd(remote=REMOTE, ssh_key=None, push=False, dry_run=True)
+    cmd = mirror_data.build_rsync_cmd(remote=REMOTE, ssh_key=None, dry_run=True)
     assert "--dry-run" in cmd
 
 
 def test_empty_remote_raises():
     with pytest.raises(ValueError):
-        mirror_data.build_rsync_cmd(remote="", ssh_key=None, push=False, dry_run=False)
+        mirror_data.build_rsync_cmd(remote="", ssh_key=None, dry_run=False)
 
 
 def test_us_subpath_targets_ohlcv_us():
     """--us는 data/ohlcv-us를 미러한다(정본=프로덕션 scheduler-us, 2026-08-31)."""
     cmd = mirror_data.build_rsync_cmd(
-        remote=REMOTE, ssh_key=None, push=False, dry_run=False,
+        remote=REMOTE, ssh_key=None, dry_run=False,
         local_dir=mirror_data._LOCAL_OHLCV_US,
         remote_subpath=mirror_data._REMOTE_SUBPATH_US,
     )
@@ -58,7 +61,7 @@ def test_us_subpath_targets_ohlcv_us():
 
 def test_default_subpath_unchanged_by_us_addition():
     """--us 추가가 기본(한국 data/ohlcv) 경로를 건드리지 않는다."""
-    cmd = mirror_data.build_rsync_cmd(remote=REMOTE, ssh_key=None, push=False, dry_run=False)
+    cmd = mirror_data.build_rsync_cmd(remote=REMOTE, ssh_key=None, dry_run=False)
     assert cmd[-2] == f"{REMOTE}/data/ohlcv/"
 
 
@@ -69,7 +72,7 @@ def test_stall_timeouts_always_present():
     무관하게 항상 포함돼야 한다.
     """
     for ssh_key in (None, "~/.ssh/k"):
-        cmd = mirror_data.build_rsync_cmd(remote=REMOTE, ssh_key=ssh_key, push=False, dry_run=False)
+        cmd = mirror_data.build_rsync_cmd(remote=REMOTE, ssh_key=ssh_key, dry_run=False)
         assert f"--timeout={mirror_data._RSYNC_STALL_TIMEOUT_S}" in cmd
         assert mirror_data._RSYNC_STALL_TIMEOUT_S >= 300  # 큰 델타 정상 전송이 120초에 끊기던 실측
         ssh_arg = cmd[cmd.index("-e") + 1]

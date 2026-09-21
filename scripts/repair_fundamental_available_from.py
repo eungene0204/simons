@@ -16,8 +16,9 @@
 
 Idempotent/재개 가능: min 클램프라 재실행해도 결과 불변. DART 일일 쿼터(status 020)를
 만나면 종료코드 3으로 중단 — 이미 처리한 종목은 저장돼 있으므로 쿼터 리셋 후 재실행하면
-남은 종목만 실질 작업이 된다. 변경된 파일 목록은 --manifest 경로에 누적 기록되어
-프로덕션 스코프 rsync push(--files-from)에 쓴다.
+남은 종목만 실질 작업이 된다. 변경된 파일 목록은 --manifest 경로에 누적 기록된다(2026-08 수리
+때는 이 목록으로 프로덕션에 rsync push 했다 — **그 절차는 폐지**: parquet의 방향은 프로덕션 → 로컬
+하나뿐이고, 수리는 프로덕션에서 실행한다. CLAUDE.md 2026-09-21).
 
 Usage:
   python scripts/repair_fundamental_available_from.py --dry-run --limit 5

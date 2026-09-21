@@ -27,11 +27,11 @@
 ```
 ┌──────────── Namecheap (도메인/DNS) ────────────┐
 │  nullstock.im / www.nullstock.im               │
-│  A 레코드 → 45.77.214.226                       │
+│  A 레코드 → 217.77.4.194                        │
 └──────────────────────┬──────────────────────────┘
                         │
-┌───────────────────────▼──────────────────────── Vultr 박스 (앱, CPU only) ───┐
-│  45.77.214.226 · Ubuntu · 2 vCPU HP-AMD/4GB/100GB · /opt/simons                    │
+┌───────────────────────▼──────────────────────── Contabo 박스 (앱, CPU only) ─┐
+│  217.77.4.194 · Ubuntu · 8 vCPU/24GB/300GB · /opt/simons                           │
 │                                                                               │
 │  Docker Compose (docker-compose.yml):                                        │
 │    ├─ caddy        443/80 → web (Let's Encrypt 자동 TLS)                      │
@@ -64,14 +64,14 @@
 
 ## 2. 인프라 구성 요소
 
-### Vultr (앱 박스)
+### Contabo (앱 박스 — 2026-09-18 Vultr 45.77.214.226에서 이전)
 | 항목 | 값 |
 |---|---|
-| IP | `45.77.214.226` |
+| IP | `217.77.4.194` |
 | OS | Ubuntu 26.04 |
-| 스펙 | 2 vCPU(고성능 AMD) / 4GB RAM / 100GB NVMe + swap 8G — `vhp-2c-4gb-amd` $24/mo (2026-08-31 다운사이즈, 구 vx1-m-2c-16g-120s $70 → 백테스트 Modal 이전으로 축소) |
+| 스펙 | Contabo Cloud VPS 8 — 8 vCPU / 24GB RAM / 300GB + swap 8G, US Central, $20.85/mo (구 Vultr `vhp-2c-4gb-amd` $24는 백테스트 1건도 못 담아 이전 — 박스 우선·Modal 백업) |
 | 코드 경로 | `/opt/simons` (git, GitHub **deploy key** 등록됨) |
-| SSH | `ssh -i ~/.ssh/vultr_simons root@45.77.214.226` |
+| SSH | `ssh -i ~/.ssh/vultr_simons root@217.77.4.194` (키 파일명은 이전 전 그대로). 로컬 `.env`의 `DATA_MIRROR_REMOTE`도 이 주소여야 한다 — 09-18~21 사이 옛 주소로 남아 `scripts/mirror_data.py` pull이 조용히 실패했다 |
 | 방화벽 | 22(등록된 IP만)/80/443만 개방. 3000/8000/5432/6379는 외부 차단 |
 
 GPU가 없으므로 로컬 LLM은 돌리지 않는다. 백테스트(vectorbt/optuna)·웹·스케줄러 CPU 워크로드만 처리한다.
@@ -167,7 +167,7 @@ Python 백엔드는 `backend/db.py`(psycopg v3 어댑터, sqlite3와 유사한 �
 
 ### Namecheap (도메인/DNS)
 - 도메인 `nullstock.im`을 Namecheap에서 구매.
-- Namecheap DNS에 A레코드: `www.nullstock.im`, `nullstock.im`(apex) 둘 다 → `45.77.214.226`.
+- Namecheap DNS에 A레코드: `www.nullstock.im`, `nullstock.im`(apex) 둘 다 → `217.77.4.194`.
 - TLS는 Namecheap이 아니라 **Caddy가 Let's Encrypt로 자동 발급**(HTTP-01 챌린지) — Namecheap 쪽은 DNS만 담당.
 - `.env`: `DOMAIN=www.nullstock.im`, `APEX_DOMAIN=nullstock.im`([`Caddyfile`](../Caddyfile)이 apex→www 301 리다이렉트 처리).
 - ⚠️ **raw IP로는 ACME 발급 불가** — DNS가 해석되기 전에 컨테이너를 띄우면 Let's Encrypt 요청이 반복 실패해 rate limit 위험. DNS 전파 확인 후 `DOMAIN` 설정할 것.

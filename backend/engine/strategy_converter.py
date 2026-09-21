@@ -120,8 +120,30 @@ def _load_index_roster(index_id: str, cache_path: Path, min_size: int) -> Option
     return symbols
 
 
+def _last_known_roster(index_id: str, cache_path: Path, min_size: int) -> Optional[List[str]]:
+    """새 명부를 못 받았을 때의 폴백 — **마지막으로 아는 명부**(만료된 캐시 → 시점별 명단 이력).
+
+    일주일 지난 명부는 실제와 한두 종목 다를 뿐이지만, 시장 전체는 네 배 넓은 다른 유니버스다
+    (2026-09-21 실측: 캐시 만료 + 조회 실패로 KOSPI200이 KOSPI 전체 836종목이 됐다).
+    """
+    try:
+        symbols = json.loads(cache_path.read_text(encoding="utf-8")).get("symbols", [])
+        if len(symbols) >= min_size:
+            logger.warning(f"[{index_id}] 새 명부 조회 실패 — 만료된 캐시({len(symbols)}종목)를 계속 쓴다")
+            return _unique_sorted(symbols)
+    except Exception:
+        pass
+    from engine.index_membership import latest_members
+
+    symbols = latest_members(index_id)
+    if symbols and len(symbols) >= min_size:
+        logger.warning(f"[{index_id}] 새 명부 조회 실패 — 시점별 명단 이력의 마지막 명부({len(symbols)}종목)를 쓴다")
+        return symbols
+    return None
+
+
 def _load_kospi200() -> List[str]:
-    """KOSPI200 구성종목 반환 (KIS 마스터 → 네이버 → KOSPI 전체 순 폴백)"""
+    """KOSPI200 구성종목 반환 (KIS 마스터 → 네이버 → 마지막으로 아는 명부 순 폴백)"""
     symbols = _load_index_roster("kospi200", _KOSPI200_CACHE_PATH, 150)
     if symbols:
         return _normalize_kospi200_symbols(symbols)
@@ -138,14 +160,13 @@ def _load_kospi200() -> List[str]:
         logger.info(f"[KOSPI200] {len(naver_symbols)}종목 조회 완료, 캐시 저장")
         return naver_symbols
 
-    # fallback: KOSPI 전체
-    logger.warning("[KOSPI200] 조회 실패 — KOSPI 전체로 fallback")
-    with open(_STOCKS_PATH, encoding="utf-8") as f:
-        all_stocks = json.load(f)
-    return [
-        s["symbol"] for s in all_stocks
-        if s.get("market") == "KOSPI" and "스팩" not in (s.get("name") or "")
-    ]
+    # 새 명부를 못 받았다 — 마지막으로 아는 명부를 쓴다. **KOSPI 전체로 넓히지 않는다**
+    # (KOSDAQ150과 같은 계약: 200종목 지수를 800종목 시장으로 넓히는 것은 조용한 유니버스 확대다).
+    stale = _last_known_roster("kospi200", _KOSPI200_CACHE_PATH, 150)
+    if stale:
+        return _normalize_kospi200_symbols(stale)
+    logger.warning("[KOSPI200] 명부를 얻지 못했다 — 빈 유니버스를 반환한다")
+    return []
 
 
 def _load_kosdaq150() -> List[str]:
@@ -154,7 +175,8 @@ def _load_kosdaq150() -> List[str]:
     KOSPI200 과 달리 "KOSDAQ 전체"로 폴백하지 않는다 — 150종목 지수를 1,700종목
     시장으로 넓히는 것은 조용한 유니버스 확대이고, 그게 FR-VM-073 이 막는 사고다.
     """
-    symbols = _load_index_roster("kosdaq150", _KOSDAQ150_CACHE_PATH, 100)
+    symbols = (_load_index_roster("kosdaq150", _KOSDAQ150_CACHE_PATH, 100)
+               or _last_known_roster("kosdaq150", _KOSDAQ150_CACHE_PATH, 100))
     if not symbols:
         logger.warning("[KOSDAQ150] 명부를 얻지 못했다 — 빈 유니버스를 반환한다")
     return symbols or []

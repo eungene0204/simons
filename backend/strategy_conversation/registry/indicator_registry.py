@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 import re
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Dict, Iterable, List, Literal, Optional, Tuple
 
 SupportStatus = Literal["SUPPORTED", "PARTIALLY_SUPPORTED", "UNSUPPORTED"]
 
@@ -122,7 +122,12 @@ def _unsupported(
 # 그 순간 조건·랭킹·칩이 모두 살아난다(다른 곳에 사본을 두지 않는 이유).
 # 유료라서 못 하는 것이 아니다(DART 오픈API는 무료, 일일 호출 한도만 있음) — 계획이 없는
 # 개념(실적 추정치 등)은 여기가 아니라 UNSUPPORTED로 남긴다: 지키지 못할 약속 금지.
-DATA_PENDING_METRICS: frozenset = frozenset({"fundamental.roic", "fundamental.fcf_margin"})
+#
+# 2026-09-21 **비웠다**: ROIC·FCF 마진 백필 완료(3,001/3,001종목)와 운영 반영이 끝났다 —
+# 운영 parquet에 ROIC 2,423·FCF 마진 2,617종목의 값이 있고, 쓰기 전후 전수 대조에서 기존
+# 값 변화 0을 확인했다. 값이 없는 종목은 다른 재무 지표와 같은 부분 커버리지(PARTIALLY_
+# SUPPORTED·partial_data)로 다뤄져 그날 후보에서 빠진다.
+DATA_PENDING_METRICS: frozenset = frozenset()
 
 
 _SPECS: Tuple[IndicatorSpec, ...] = (
@@ -592,6 +597,48 @@ def with_same_name_variants(factor_ids: set) -> set:
     for factor_id in factor_ids:
         out |= _SAME_NAME_VARIANTS.get(factor_id, frozenset())
     return out
+
+
+# 합성 시그널 랭킹이 **계산 안에 이미 품은 것** — ① 재료 지표 ② 내장 처리의 이름.
+# 사용자가 시그널의 계산 과정을 풀어 말하면("EPS 데이터가 있는 종목… 초과수익률을 구한다…
+# 상하위 1% 윈저라이즈") 인터프리터가 랭킹을 제대로 고르고도 같은 구절을 계열 껍데기 조건·
+# 미지원 보고로 한 번 더 낸다(2026-09-21 실측 9B: pead 랭킹이 반영된 턴에 "어떤 재무 지표를
+# 사용할까요?" 되묻기와 "'윈저라이즈 처리' 조건은 지원하지 않아" 안내가 함께 나갔다).
+# 대조 입력은 LLM이 낸 짧은 문자열(인용·보고 조각)이다(§ 3-2 지식 조회 — 원문을 훑지 않는다).
+RANKING_INGREDIENTS: Dict[str, frozenset] = {
+    "ranking.pead": frozenset({"fundamental.eps", "technical.relative_return"}),
+}
+_RANKING_BUILT_IN_PROCESSING: Dict[str, Tuple[str, ...]] = {
+    "ranking.pead": ("윈저라이즈", "winsoriz", "winzoriz", "z-score", "zscore", "표준화"),
+    "ranking.residual_reversal": (
+        "윈저라이즈", "winsoriz", "winzoriz", "z-score", "zscore", "표준화", "부호반전"),
+}
+
+
+def ranking_covers(text: str, ranking_ids: Iterable[str]) -> bool:
+    """짧은 문자열이 **전략에 있는 랭킹이 이미 품은 것만** 말하는가.
+
+    이름으로 부른 지표가 전부 그 랭킹 자신이거나 재료 지표이고, 그런 이름이 하나도 없으면
+    내장 처리 이름을 담고 있어야 한다. 다른 지표를 하나라도 부르면("PER 윈저라이즈") 그
+    랭킹이 품은 말이 아니다.
+    """
+    ranked = set(ranking_ids)
+    if not ranked or not text:
+        return False
+    inside = set(ranked)
+    for ranking_id in ranked:
+        inside |= RANKING_INGREDIENTS.get(ranking_id, frozenset())
+    named = factor_ids_named_in(text)
+    if not named <= inside:
+        return False
+    if named:
+        return True
+    normalized = text.replace(" ", "").lower()
+    return any(
+        term in normalized
+        for ranking_id in ranked
+        for term in _RANKING_BUILT_IN_PROCESSING.get(ranking_id, ())
+    )
 
 
 def resolve(name: str) -> Optional[IndicatorSpec]:

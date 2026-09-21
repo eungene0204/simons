@@ -1,5 +1,5 @@
 """
-로컬 ↔ 프로덕션 OHLCV parquet 미러.
+프로덕션 → 로컬 OHLCV parquet 미러(pull 전용).
 
 정본(source of truth)은 **프로덕션**이다. 로컬은 프로덕션을 pull 하여 항상 동일한
 parquet을 유지한다. 양쪽이 각자 FDR/pykrx에서 독립적으로 받으면 깊은 과거(KIS 백필)·
@@ -12,8 +12,13 @@ parquet을 유지한다. 양쪽이 각자 FDR/pykrx에서 독립적으로 받으
 사용:
   python scripts/mirror_data.py            # pull: 프로덕션 → 로컬 (기본, 한국 data/ohlcv)
   python scripts/mirror_data.py --us       # 미국 data/ohlcv-us 대상 (pull)
+  python scripts/mirror_data.py --membership  # 지수 구성종목 시점별 명단(data/index-membership)
   python scripts/mirror_data.py --check    # 차이만 출력(전송 안 함, --dry-run)
-  python scripts/mirror_data.py --push     # push: 로컬 → 프로덕션 (백필 반영 등, 주의해서)
+
+**방향은 프로덕션 → 로컬 하나뿐이다**(2026-09-21 사용자 지시 — `--push`는 폐지했다).
+parquet을 바꾸는 백필·수리는 **프로덕션에서 실행**하고 로컬은 그 결과를 pull 한다. 로컬
+parquet을 올리면 정본이 하루 뒤로 돌아가고 프로덕션에만 있는 컬럼·값이 지워진다(같은 날 실측:
+로컬은 운영보다 하루 뒤였고, 컬럼 2개가 없었고, 백필을 거친 199종목의 EPS·BPS가 비어 있었다).
 
 환경변수(.env):
   DATA_MIRROR_REMOTE   예) root@137.220.41.38:/opt/simons   (필수, 로컬 전용 설정)
@@ -55,7 +60,6 @@ def build_rsync_cmd(
     *,
     remote: str,
     ssh_key: str | None,
-    push: bool,
     dry_run: bool,
     local_dir: Path = _LOCAL_OHLCV,
     remote_subpath: str = _REMOTE_SUBPATH,
@@ -80,19 +84,17 @@ def build_rsync_cmd(
     cmd = ["rsync", "-a", f"--timeout={_RSYNC_STALL_TIMEOUT_S}", "-e", ssh]
     if dry_run:
         cmd += ["--dry-run", "--itemize-changes"]
-    if push:
-        cmd += [local, remote_path]
-    else:
-        cmd += [remote_path, local]
+    cmd += [remote_path, local]          # 항상 프로덕션 → 로컬
     return cmd
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="로컬↔프로덕션 OHLCV parquet 미러 (정본=프로덕션)")
-    parser.add_argument("--push", action="store_true", help="로컬 → 프로덕션 (기본은 pull)")
+    parser = argparse.ArgumentParser(description="프로덕션 → 로컬 OHLCV parquet 미러 (정본=프로덕션, pull 전용)")
     parser.add_argument("--check", action="store_true", help="차이만 출력하고 전송하지 않음(dry-run)")
     parser.add_argument("--us", action="store_true", help="미국 파케이(data/ohlcv-us) 대상 (기본은 한국 data/ohlcv)")
     parser.add_argument("--index", action="store_true", help="시장지수 파케이(data/index) 대상")
+    parser.add_argument("--membership", action="store_true",
+                        help="지수 구성종목 시점별 명단(data/index-membership) 대상")
     args = parser.parse_args(argv)
 
     # 로컬 .env의 DATA_MIRROR_* 로드(컨테이너는 env_file 주입돼 no-op). 실행 시점에만 로드.
@@ -103,17 +105,18 @@ def main(argv=None) -> int:
         print("[mirror] DATA_MIRROR_REMOTE 미설정 — 미러를 건너뜁니다(로컬 .env에 설정 필요).")
         return 2
 
-    if args.index:
+    if args.membership:
+        local_dir, remote_subpath = _REPO_ROOT / "data" / "index-membership", "data/index-membership"
+    elif args.index:
         local_dir, remote_subpath = _LOCAL_INDEX, _REMOTE_SUBPATH_INDEX
     elif args.us:
         local_dir, remote_subpath = _LOCAL_OHLCV_US, _REMOTE_SUBPATH_US
     else:
         local_dir, remote_subpath = _LOCAL_OHLCV, _REMOTE_SUBPATH
     local_dir.mkdir(parents=True, exist_ok=True)
-    cmd = build_rsync_cmd(remote=remote, ssh_key=ssh_key, push=args.push, dry_run=args.check,
+    cmd = build_rsync_cmd(remote=remote, ssh_key=ssh_key, dry_run=args.check,
                           local_dir=local_dir, remote_subpath=remote_subpath)
-    direction = "로컬 → 프로덕션(push)" if args.push else "프로덕션 → 로컬(pull)"
-    print(f"[mirror] {direction}{' [check]' if args.check else ''}: {remote}/{remote_subpath}")
+    print(f"[mirror] 프로덕션 → 로컬(pull){' [check]' if args.check else ''}: {remote}/{remote_subpath}")
     return run_with_retries(cmd)
 
 

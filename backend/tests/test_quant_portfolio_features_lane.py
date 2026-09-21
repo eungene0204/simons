@@ -44,10 +44,10 @@ def _intent(**strategy_overrides):
 
 @pytest.fixture
 def data_ready(monkeypatch):
-    """ROIC·FCF 마진 데이터 적재가 끝난 뒤 상태 — DATA_PENDING_METRICS를 비운 것과 같다.
+    """적재가 끝난 상태 — 2026-09-21부터 DATA_PENDING_METRICS는 비어 있어 이것이 기본이다.
 
-    적재 전에는 '준비 중'으로 빠지므로(아래 pending 테스트), 지표 자체의 배선은 이 상태에서
-    검증한다. 적재 완료 시 레지스트리 한 줄만 고치면 이 동작이 된다는 계약의 회귀다.
+    집합이 다시 채워져도(다음 지표가 적재를 기다릴 때) 이 픽스처를 쓰는 배선 테스트는 그대로
+    지표 자체를 검증한다.
     """
     from strategy_conversation.registry import indicator_registry as reg
 
@@ -56,6 +56,23 @@ def data_ready(monkeypatch):
                             dataclasses.replace(reg.REGISTRY[metric], data_pending=False))
     monkeypatch.setattr(reg, "DATA_PENDING_METRICS", frozenset())
     return True
+
+
+@pytest.fixture
+def data_pending(monkeypatch):
+    """반대 상태 — ROIC·FCF 마진이 아직 적재를 기다리던 때(2026-09-19~09-21)를 재현한다.
+
+    '준비 중' **채널 자체**의 회귀다: 적재가 끝난 지표로는 이 경로를 더 이상 밟을 수 없지만,
+    다음 지표가 같은 자리에 들어올 때 문구·제거·칩 제외가 그대로여야 한다.
+    """
+    from strategy_conversation.registry import indicator_registry as reg
+
+    pending = frozenset({"fundamental.roic", "fundamental.fcf_margin"})
+    for metric in pending:
+        monkeypatch.setitem(reg.REGISTRY, metric,
+                            dataclasses.replace(reg.REGISTRY[metric], data_pending=True))
+    monkeypatch.setattr(reg, "DATA_PENDING_METRICS", pending)
+    return pending
 
 
 def _compile(intent):
@@ -400,7 +417,7 @@ def test_recall_reports_phrase_naming_only_unsupported_concept():
 
 # ── 데이터 적재 대기(2026-09-20 사용자 지시) ─────────────────────────────────────
 
-def test_data_pending_metrics_are_reported_as_preparing_not_unsupported():
+def test_data_pending_metrics_are_reported_as_preparing_not_unsupported(data_pending):
     """ROIC·FCF 마진은 데이터 적재 전까지 조건·랭킹에서 빠지고 '준비 중'으로 알린다.
 
     종전(적재 전 지원 표기)에는 조건이 그대로 엔진에 가서 fail-closed로 **거래 0건**
@@ -423,8 +440,19 @@ def test_data_pending_metrics_are_reported_as_preparing_not_unsupported():
     assert len(notices) == 1 and "준비 중" in notices[0] and "ROIC 10% 이상" in notices[0]
 
 
-def test_preparing_metrics_are_not_offered_as_chips():
+def test_preparing_metrics_are_not_offered_as_chips(data_pending):
     """준비 중 지표는 되묻기 칩으로 제안하지 않는다(누르면 다시 빠질 선택지)."""
+    chips = " ".join(_chip_fixture()["condition_values"])
+    assert "ROIC" not in chips and "FCF 마진" not in chips
+
+
+def test_backfilled_metrics_are_offered_as_chips_again():
+    """적재가 끝나면(2026-09-21) 같은 지표가 칩으로 되살아난다 — 집합 한 줄이 정본이라는 계약."""
+    chips = " ".join(_chip_fixture()["condition_values"])
+    assert "ROIC" in chips and "FCF 마진" in chips
+
+
+def _chip_fixture() -> dict:
     import importlib.util
     from pathlib import Path
 
@@ -433,8 +461,7 @@ def test_preparing_metrics_are_not_offered_as_chips():
         "export_chips", root / "scripts" / "export_clarification_chips.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    chips = " ".join(module.build_fixture()["condition_values"])
-    assert "ROIC" not in chips and "FCF 마진" not in chips
+    return module.build_fixture()
 
 
 def test_backfilled_data_turns_the_metrics_on(data_ready):

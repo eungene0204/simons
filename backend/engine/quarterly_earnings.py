@@ -8,6 +8,14 @@
    `thstrm_add_amount`=당기 누적이다(실측 2026-09-20, 삼성전자·SK하이닉스·NAVER·셀트리온·
    에코프로비엠 5종목 일관). 4분기는 분기보고서가 없으므로 **연간 − 3분기 누적**으로 구한다.
 
+③ **발표일은 원공시 접수일이다.** `fnlttSinglAcntAll`의 `rcept_no`는 정정공시가 있으면
+   **정정본**을 가리킨다(2026-09-21 실측: 셀트리온 2016~2019 4분기 네 건이 모두 2022-05-12 —
+   일괄 정정 접수일. 수집 10,554건 중 342건이 결산 후 180일 초과). 그대로 쓰면 몇 년 전
+   분기가 정정일에 '새로 발표된' 것처럼 자격 창에 들어오고 그 종목의 최신 분기 시그널을
+   끊는다. 공시검색(list.json)에서 결산월별 **최초** 접수일을 받아 min으로 클램프한다 —
+   연간 재무의 available_from 오염(2026-08-04)과 같은 원인·같은 수리다. EPS 값 자체는
+   API가 최신본만 돌려주므로 정정 후 값이다(한계).
+
 가용 구간은 **2016년부터**다 — `fnlttSinglAcntAll`이 2015년 이전 분기보고서를 돌려주지
 않는다(실측: 2010·2013·2015 모두 status 013 '조회된 데이타가 없습니다'). SUE가 직전
 8개 분기를 요구하므로 시그널이 실제로 서는 것은 2018년경부터다.
@@ -25,6 +33,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -91,6 +100,62 @@ def _announce_date(rcept_no: str) -> Optional[str]:
     if len(digits) != 8 or not digits.isdigit():
         return None
     return f"{digits[:4]}-{digits[4:6]}-{digits[6:]}"
+
+
+# 정기보고서 이름의 결산월 — `분기보고서 (2024.09)`·`[기재정정]사업보고서 (2019.12)`.
+_PERIODIC_REPORT_NAME = re.compile(r"(?:사업|반기|분기)보고서\s*\((\d{4})\.(\d{2})\)")
+
+
+def fetch_original_filing_dates(corp_code: str) -> Dict[str, str]:
+    """결산월별 정기보고서 **원공시** 접수일 ``{"YYYY-MM": "YYYY-MM-DD"}``.
+
+    정정본까지 전부 받아(last_reprt_at=N) 결산월마다 최소 접수일을 고른다. 한도 소진은
+    예외로 올리고, 그 밖의 실패는 빈 dict(클램프 생략 — 기존 날짜 유지)다.
+    """
+    global _dart_calls
+    dates: Dict[str, str] = {}
+    page = 1
+    while True:
+        _dart_calls += 1
+        payload = _fetch_dart_json(
+            "list.json",
+            {
+                "corp_code": corp_code,
+                "bgn_de": f"{QUARTERLY_YEAR_FLOOR}0101",
+                "end_de": pd.Timestamp.now().strftime("%Y%m%d"),
+                "pblntf_ty": "A",
+                "last_reprt_at": "N",
+                "page_no": str(page),
+                "page_count": "100",
+            },
+        )
+        if payload.get("status") == "020":
+            raise DartQuotaExhausted(corp_code)
+        if payload.get("status") != "000":
+            break
+        for row in payload.get("list", []):
+            match = _PERIODIC_REPORT_NAME.search(str(row.get("report_nm", "")))
+            filed = _announce_date(row.get("rcept_dt"))
+            if not match or not filed:
+                continue
+            key = f"{match.group(1)}-{match.group(2)}"
+            if key not in dates or filed < dates[key]:
+                dates[key] = filed
+        if page * 100 >= int(payload.get("total_count") or 0):
+            break
+        page += 1
+    return dates
+
+
+def clamp_to_original_filing(records: List[dict], original_dates: Dict[str, str]) -> int:
+    """레코드의 발표일을 원공시 접수일로 당긴다(min 클램프 — 재실행해도 결과 불변). 바뀐 건수."""
+    changed = 0
+    for record in records:
+        original = original_dates.get(str(record.get("period_end", ""))[:7])
+        if original and original < str(record.get("announce_date", "")):
+            record["announce_date"] = original
+            changed += 1
+    return changed
 
 
 def _to_amount(raw) -> Optional[float]:
@@ -206,6 +271,8 @@ def fetch_quarterly_earnings(
                 "fs_div": fs_div,
             })
     records.sort(key=lambda record: record["period_end"])
+    if records:
+        clamp_to_original_filing(records, fetch_original_filing_dates(corp_code))
     return records or None
 
 

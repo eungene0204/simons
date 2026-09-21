@@ -31,11 +31,37 @@ def test_load_universe_reads_kosdaq150_roster(roster):
 
 
 def test_kosdaq150_roster_is_not_widened_to_full_kosdaq(tmp_path, monkeypatch):
-    """명부를 못 얻어도 KOSDAQ 전체(1,700여 종목)로 대체해서는 안 된다."""
+    """명부를 못 얻어도 KOSDAQ 전체(1,700여 종목)로 대체해서는 안 된다 — 아는 명부가 없으면 빈 유니버스."""
+    from engine import index_membership
+
     monkeypatch.setattr(sc, "_KOSDAQ150_CACHE_PATH", tmp_path / "missing.json")
     monkeypatch.setattr(sc, "_fetch_index_from_kis", lambda _index_id: None)
+    monkeypatch.setattr(index_membership, "_DIR", tmp_path / "no-history")
 
     assert sc._load_universe(["KOSDAQ150"]) == []
+
+
+def test_failed_refresh_falls_back_to_the_last_known_kosdaq150_roster(tmp_path, monkeypatch):
+    """새 명부를 못 받으면 **마지막으로 아는 명부**를 쓴다(2026-09-21) — 그래도 시장 전체는 아니다.
+
+    만료된 캐시가 먼저이고, 그것도 없으면 시점별 명단 이력의 마지막 명단이다.
+    """
+    from engine import index_membership
+
+    monkeypatch.setattr(sc, "_fetch_index_from_kis", lambda _index_id: None)
+    monkeypatch.setattr(index_membership, "_DIR", tmp_path)
+    index_membership.save_history("kosdaq150", {
+        "index": "kosdaq150", "coverage_from": "2026-09-01", "updated_through": "2026-09-18",
+        "initial": ROSTER_SYMBOLS, "changes": [],
+    })
+
+    stale = tmp_path / "kosdaq150-cache.json"
+    stale.write_text(json.dumps({"fetched_at": 0, "symbols": ROSTER_SYMBOLS}), encoding="utf-8")
+    monkeypatch.setattr(sc, "_KOSDAQ150_CACHE_PATH", stale)
+    assert sc._load_universe(["KOSDAQ150"]) == ROSTER_SYMBOLS          # 만료된 캐시 우선
+
+    monkeypatch.setattr(sc, "_KOSDAQ150_CACHE_PATH", tmp_path / "missing.json")
+    assert sc._load_universe(["KOSDAQ150"]) == ROSTER_SYMBOLS          # 없으면 명단 이력
 
 
 def test_kosdaq150_combines_with_other_markets_without_swallowing_them(roster, tmp_path, monkeypatch):

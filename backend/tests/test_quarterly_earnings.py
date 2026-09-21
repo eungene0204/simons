@@ -46,6 +46,8 @@ def stub_dart(monkeypatch):
         def fake_fetch(path, params):
             if path == "company.json":
                 return {"status": "000", "acc_mt": fiscal_month}
+            if path == "list.json":
+                return table.get("filings", {"status": "013"})
             key = (params.get("reprt_code"), params.get("fs_div"))
             return table.get(key, {"status": "013"})
 
@@ -165,5 +167,55 @@ def test_dart_call_counter_tracks_budget(stub_dart):
 
     qe.fetch_quarterly_earnings("005930", start_year=2024, end_year=2024)
 
-    # 분기 3 + 연간 1 = 4회(기준이 첫 연도 연결에서 바로 잡혔다).
-    assert qe.dart_calls_used() == 4
+    # 분기 3 + 연간 1 + 원공시일 조회 1 = 5회(기준이 첫 연도 연결에서 바로 잡혔다).
+    assert qe.dart_calls_used() == 5
+
+
+# ── 발표일 = 원공시 접수일(2026-09-21) ───────────────────────────────────────────
+
+def _filings(*rows):
+    return {"status": "000", "total_count": len(rows),
+            "list": [{"report_nm": name, "rcept_dt": date} for name, date in rows]}
+
+
+def test_announce_date_is_clamped_to_original_filing_not_amendment(stub_dart):
+    """재무 조회의 rcept_no는 정정본을 가리킨다 — 셀트리온 2016~2019 4분기가 전부 2022-05-12
+    (일괄 정정 접수일)로 찍혀, 몇 년 전 분기가 정정일에 '새로 발표된' 시그널이 됐다."""
+    stub_dart({
+        **_SAMSUNG_2024,
+        ("11011", "CFS"): _eps_payload("4950", "", "20270512000850"),   # 정정본 접수번호
+        "filings": _filings(
+            ("[기재정정]사업보고서 (2024.12)", "20270512"),
+            ("사업보고서 (2024.12)", "20250311"),
+            ("분기보고서 (2024.09)", "20241114"),
+        ),
+    })
+
+    records = qe.fetch_quarterly_earnings("005930", start_year=2024, end_year=2024)
+
+    assert records[-1]["period_end"] == "2024-12-31"
+    assert records[-1]["announce_date"] == "2025-03-11"
+    assert records[2]["announce_date"] == "2024-11-14"                 # 원래 맞던 날짜는 그대로
+
+
+def test_clamp_never_pushes_a_date_later_and_is_idempotent():
+    records = [{"period_end": "2024-03-31", "announce_date": "2024-05-16"},
+               {"period_end": "2024-06-30", "announce_date": "2024-08-14"}]
+    originals = {"2024-03": "2024-05-20", "2024-06": "2024-08-01"}
+
+    assert qe.clamp_to_original_filing(records, originals) == 1
+    assert [r["announce_date"] for r in records] == ["2024-05-16", "2024-08-01"]
+    assert qe.clamp_to_original_filing(records, originals) == 0
+
+
+def test_filing_list_failure_keeps_collected_dates(stub_dart):
+    """공시검색이 실패해도 수집은 성립한다(클램프 생략). 한도 소진만 예외다."""
+    from engine.fundamental_fetcher import DartQuotaExhausted
+
+    stub_dart(_SAMSUNG_2024)
+    records = qe.fetch_quarterly_earnings("005930", start_year=2024, end_year=2024)
+    assert records[0]["announce_date"] == "2024-05-16"
+
+    stub_dart({**_SAMSUNG_2024, "filings": {"status": "020"}})
+    with pytest.raises(DartQuotaExhausted):
+        qe.fetch_quarterly_earnings("005930", start_year=2024, end_year=2024)

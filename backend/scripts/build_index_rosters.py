@@ -12,6 +12,9 @@ engine/strategy_converter._load_universe(백테스트)가 같은 파일을 읽�
 
 검증(종목 수·코드 형식·시장 소속)에 실패하면 해당 지수 파일을 쓰지 않는다.
 
+야간 동기화(scripts/sync_data.py)가 매일 부른다(2026-09-21) — 명부가 매일 새로워지고, 그날의
+명단이 시점별 명단 이력(data/index-membership)에 덧붙는다.
+
 Run:
     cd backend && python scripts/build_index_rosters.py
 
@@ -26,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from engine.index_membership import record_observed_roster
 from engine.kis_master import INDEX_SPECS, MasterLayoutError, fetch_index_members
 
 _DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
@@ -49,6 +53,11 @@ def main() -> None:
             json.dumps({"fetched_at": time.time(), "symbols": symbols}, ensure_ascii=False),
             encoding="utf-8",
         )
+        # 시점별 명단 이력에 오늘의 관측을 덧붙인다 — 직전 명단과 다르면 오늘 날짜의 편입·편출이 된다
+        # (과거분은 KRX 수집기, 그 뒤는 이 일일 관측 — engine/index_membership.py).
+        change = record_observed_roster(index_id, symbols, time.strftime("%Y-%m-%d"))
+        if change:
+            print(f"[{index_id}] 구성 변경 기록 — 편입 {change['added']} · 편출 {change['removed']}")
         preview = ", ".join(f"{symbol}({name})" for symbol, name in members[:4])
         print(f"[{index_id}] {len(symbols)}종목 저장 → {out_path}")
         print(f"[{index_id}] 샘플: {preview} ...")

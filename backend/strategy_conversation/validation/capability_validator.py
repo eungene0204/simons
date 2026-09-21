@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     logger as ontology_logger,
 )
 from strategy_conversation.registry.indicator_registry import (
-    REGISTRY, factor_ids_named_in, resolve, with_same_name_variants,
+    RANKING_INGREDIENTS, REGISTRY, factor_ids_named_in, resolve, with_same_name_variants,
 )
 
 # 스키마 필드 경로 꼴의 factor(concept.time_based_exit·technical.beta …)는 LLM이 지어낸
@@ -116,6 +116,8 @@ def ranking_mirrored_by(cond, ranking):
     입력은 둘 다 LLM 구조화 출력이다(사용자 원문을 읽지 않는다). 거울 조건: 비교 값이 없고,
     ① 같은 지표가 랭킹에 있으며 방향이 어긋나지 않거나(연산자 없음·랭킹 방향 미지정은 어긋남
     없음) ② 계열(class.*) 껍데기인데 인용이 이름으로 부른 지원 지표가 전부 랭킹에 있는 경우.
+    합성 시그널 랭킹은 재료 지표(RANKING_INGREDIENTS)도 랭킹에 있는 것으로 본다 — 시그널의
+    계산 과정을 풀어 말한 구절('EPS 데이터가 있는'·'초과수익률 시그널')은 그 랭킹의 거울이다.
     """
     if cond.value is not None:
         return None
@@ -135,6 +137,8 @@ def ranking_mirrored_by(cond, ranking):
     # 표현의 거울이다(120B 실측: '…종합한 품질 점수'가 품질 묶음 랭킹과 '어떤 퀄리티
     # 지표를 쓸까요?' 계열 질문 양쪽으로 나갔다). 인용↔레지스트리 대조, 원문 미사용.
     ranked = set(by_metric)
+    for metric in by_metric:
+        ranked |= RANKING_INGREDIENTS.get(metric, frozenset())
     named = {n for n in factor_ids_named_in(cond.source_text or "")
              if REGISTRY.get(n) is not None and REGISTRY[n].supported != "UNSUPPORTED"}
     # 부분 문자열 별칭('영업이익률' 안의 '영업이익')이 섞이므로 전부 포함 대신

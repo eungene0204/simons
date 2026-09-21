@@ -20,8 +20,10 @@
 저장하고 종료코드 3으로 중단 — 리셋 후 재실행하면 남은 종목부터 재개된다.
 
 **정본=프로덕션**(project_data_mirror): 로컬 parquet은 야간 pull이 되돌린다. 캐시(JSON)가
-정본 재료이고, pull 이후엔 `--remerge-only`(DART 0회)로 parquet에 다시 내린다. 프로덕션 반영은
-별도 결정이다 — 이 스크립트는 로컬만 쓴다.
+정본 재료이고, pull 이후엔 `--remerge-only`(DART 0회)로 parquet에 다시 내린다. **parquet의 방향은
+프로덕션 → 로컬 하나뿐이다**(CLAUDE.md, 2026-09-21) — 프로덕션 parquet은 프로덕션에서 이 스크립트를
+돌려 쓰고, 로컬 parquet은 올리지 않는다. parquet 쓰기는 **빈 칸만 채우는 병합**이다
+(_rebuild_parquet 주석 — 캐시가 이기는 재구축은 기존 값을 지운다).
 
 Usage:
   python scripts/backfill_roic_fcf_margin.py --dry-run --limit 5
@@ -52,7 +54,7 @@ _PROGRESS_PATH = _REPO_ROOT / "data" / "roic-fcf-margin-backfill.progress.json"
 sys.path.insert(0, str(_REPO_ROOT / "backend"))
 
 import engine.fundamental_fetcher as ff  # noqa: E402
-from engine.fundamental_backfill import rebuild_fundamental_columns  # noqa: E402
+from engine.fundamental_backfill import merge_fundamentals  # noqa: E402
 
 
 class QuotaExhausted(Exception):
@@ -129,9 +131,13 @@ def _rebuild_parquet(symbol: str, records: list[dict], dry_run: bool) -> list[st
     if not parquet_path.exists():
         return []
     pdf = pl.read_parquet(parquet_path).to_pandas()
-    # 새 컬럼(roic·fcf_margin·revenue)은 교체가 아니라 추가지만, 파생 재계산이 같은 레코드의
-    # 다른 값을 바꿀 수 있으므로 캐시가 이기는 rebuild를 쓴다(지배주주순이익 백필과 같은 이유).
-    rebuilt = rebuild_fundamental_columns(pdf, records)
+    # **빈 칸만 채운다**(merge_fundamentals — 기존 값 우선). 종전에는 캐시가 이기는 rebuild를
+    # 썼는데, 그 재구축은 캐시 지배 구간을 NaN까지 포함해 통째로 덮어 **캐시 밖에서 채워진 값**을
+    # 지운다(2026-09-21 실측: 운영과 전수 대조하니 백필을 거친 199종목에서 EPS·BPS·부채비율·
+    # ROE·PBR이 2016년부터 통째로 비어 있었다 — 001140). 이 백필이 더하는 것은 새 컬럼
+    # (roic·fcf_margin·revenue)뿐이고, 캐시의 다른 키는 백필 전후가 같다(운영 캐시와 3,220종목
+    # 전수 대조: 새 키 밖 차이 0) — 덮어쓸 이유가 없다. 운영 야간 동기화와 같은 병합이다.
+    rebuilt = merge_fundamentals(pdf, records)
     if rebuilt.equals(pdf):
         return []
     if not dry_run:

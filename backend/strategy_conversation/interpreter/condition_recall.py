@@ -23,12 +23,15 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Callable, List, Optional
 
 from strategy_conversation.registry.indicator_registry import (
+    RANKING_INGREDIENTS,
     REGISTRY,
     factor_ids_named_in,
     resolve,
+    with_same_name_variants,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,6 +42,17 @@ _RANKING_CONDITION_TWINS = {
     "ranking.return": frozenset({"technical.roc"}),
     "ranking.relative_return": frozenset({"technical.relative_return"}),
 }
+
+# 유니버스 사전 필터 칸(v16.19) → 같은 개념을 이름으로 부르는 조건 지표. 1차가 구절을 이 칸에
+# 반영했으면 빠진 것이 아니다(2026-09-21 실측 9B: '시가총액 상위 500종목'·'최근 20일 평균
+# 거래대금 하위 20%'가 유니버스 칸에 정확히 실렸는데 값 없는 시가총액·거래대금 **조건**으로
+# 되살아나 "시가총액 기준값을 얼마로 할까요?"가 물어졌다). 이 칸은 인용을 갖지 않으므로
+# 구절이 그 지표를 이름으로 부르고 **칸의 값을 숫자로 담고 있을 때** 같은 구절로 본다.
+_UNIVERSE_FIELD_TWINS = (
+    ("market_cap_top_n", "fundamental.market_cap"),
+    ("liquidity_exclude_bottom_percent", "fundamental.trading_value"),
+)
+_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 
 # 한 턴에 되살리는 조건 수 상한 — 대조 패스가 폭주해 전략을 새로 쓰는 것을 막는다.
 _MAX_RECOVERED = 3
@@ -66,6 +80,20 @@ def _draft_summary(conditions: List[Any]) -> str:
         quote = (getattr(cond, "source_text", None) or "").strip()
         rows.append(f'- {cond.factor} (근거: "{quote}")' if quote else f"- {cond.factor}")
     return "\n".join(rows) if rows else "- (없음)"
+
+
+def _placed_in_universe(phrase: str, named: set, universe: Any) -> bool:
+    """LLM이 나열한 구절이 1차가 이미 채운 유니버스 사전 필터 칸과 같은 말인가(이름+수치 대조)."""
+    if universe is None:
+        return False
+    numbers = {float(n) for n in _NUMBER_RE.findall(phrase)}
+    variants = with_same_name_variants(named)
+    return any(
+        getattr(universe, field, None) is not None
+        and factor in variants
+        and float(getattr(universe, field)) in numbers
+        for field, factor in _UNIVERSE_FIELD_TWINS
+    )
 
 
 def extract_condition_phrases(
@@ -126,6 +154,9 @@ def recover_missing_conditions(
             continue
         known.add(spec.id)
         known |= _RANKING_CONDITION_TWINS.get(spec.id, frozenset())
+        # 합성 시그널 랭킹의 재료 지표도 같다 — '직전 8개 분기 이상의 EPS 데이터'는 실적
+        # 서프라이즈 시그널의 재료이지 EPS 기준값을 물을 조건이 아니다.
+        known |= RANKING_INGREDIENTS.get(spec.id, frozenset())
     # 이미 어떤 조건의 **근거로 쓰인 구절**은 빠진 것이 아니다. factor만 대조하면,
     # 결정론 보정이 지표를 바꾼 조건('거래대금이 30일 평균보다 높은'→거래량 급증)을
     # 원래 지표로 되살려 같은 문구가 두 조건이 된다(2026-08-18 실측).
@@ -164,6 +195,9 @@ def recover_missing_conditions(
         #    (2026-08-18 실측: 대조를 LLM에 맡겼더니 '추세가 확실히 잡힌'→technical.roc,
         #    문장에 없는 AI 예측 조건까지 만들어 없던 되묻기가 생겼다).
         named = factor_ids_named_in(phrase)
+        # ③-1 1차가 유니버스 사전 필터 칸에 이미 반영한 구절은 빠진 것이 아니다.
+        if _placed_in_universe(phrase, named, getattr(strategy, "universe", None)):
+            continue
         # 구절이 **미지원 개념만** 부르면 조건으로 되살릴 수는 없지만 조용히 사라지게 둘 수도
         # 없다 — 1차가 자리를 정하지 않은 구절이므로 미지원 보고로 올린다(2026-09-19 실측 120B
         # 2/3: '최근 3개월 실적 추정치 상향 여부'가 어디에도 없이 소실). 지식 조회는 LLM이

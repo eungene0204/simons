@@ -23,9 +23,12 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import zipfile
 from pathlib import Path
 from typing import Callable, NamedTuple
+
+logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _STOCKS_PATH = _PROJECT_ROOT / "data" / "korea-stocks.json"
@@ -104,13 +107,28 @@ def _validate(members: list[tuple[str, str]], spec: IndexSpec) -> None:
         raise MasterLayoutError(f"종목코드 형식 이상: {malformed[:10]}")
 
     stocks = json.loads(_STOCKS_PATH.read_text(encoding="utf-8"))
-    listed = {item["symbol"] for item in stocks if item.get("market") == spec.market}
-    outside = [symbol for symbol, _ in members if symbol not in listed]
+    market_of = {item["symbol"]: item.get("market") for item in stocks}
+    # 다른 시장 종목이 섞였으면 플래그 위치를 잘못 읽은 것이다(한 건이라도).
+    outside = [symbol for symbol, _ in members
+               if symbol in market_of and market_of[symbol] != spec.market]
     if outside:
         raise MasterLayoutError(
             f"{spec.market} 소속이 아닌 종목 {len(outside)}건: {outside[:10]} — "
             "플래그 위치를 잘못 읽었을 가능성이 높다."
         )
+    # 우리 종목 명부에 **아예 없는** 종목은 다르다 — 새로 받은 지수 명부가 정본이고, 낡은 쪽은
+    # 우리 명부다(2026-09-21 실측: 08-25 상장·08-30 편입된 0220W0 한 종목이 배포로 되돌아간
+    # 명부에 없다는 이유로 정상 명부가 통째로 버려져 KOSPI200이 KOSPI 전체 836종목이 됐다).
+    # 칸을 잘못 읽었다면 몇 건이 아니라 수십 건이 어긋난다 — 정기변경 허용 오차까지만 통과시킨다.
+    unknown = [symbol for symbol, _ in members if symbol not in market_of]
+    if len(unknown) > spec.tolerance:
+        raise MasterLayoutError(
+            f"종목 명부에 없는 종목 {len(unknown)}건: {unknown[:10]} — "
+            "플래그 위치를 잘못 읽었을 가능성이 높다."
+        )
+    if unknown:
+        logger.warning("[%s] 종목 명부에 없는 편입 종목 %d건(신규 상장 추정, 명부 갱신 필요): %s",
+                       spec.master, len(unknown), unknown)
 
 
 def fetch_index_members(index_id: str) -> list[tuple[str, str]]:

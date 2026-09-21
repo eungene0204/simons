@@ -550,6 +550,19 @@ def main(argv=None):
         print(f"[WARNING] 시장지수 갱신 실패 (exit {idx_result.returncode}): "
               f"{(idx_result.stderr or '').strip()[-300:]}")
 
+    # 6-1. 지수 구성종목 명부(KOSPI200·KOSDAQ150) 갱신 + 시점별 명단 이력에 오늘의 관측 덧붙이기.
+    #      KIS 종목마스터(인증 없음)라 KRX처럼 막히지 않는다. 실패해도 기존 명부·이력은 그대로다.
+    print("\nUpdating index rosters and membership history (data/index-membership)...")
+    roster_result = subprocess.run(
+        [sys.executable, "backend/scripts/build_index_rosters.py"],
+        capture_output=True, text=True,
+    )
+    for line in (roster_result.stdout or "").strip().splitlines()[-4:]:
+        print(f"  {line}")
+    if roster_result.returncode != 0:
+        print(f"[WARNING] 지수 명부 갱신 실패 (exit {roster_result.returncode}): "
+              f"{(roster_result.stderr or roster_result.stdout or '').strip()[-300:]}")
+
     # 7. 잔차 반전 시그널 사전계산 캐시(data/factor_cache) — 가격·지수가 확정된 뒤에 만든다.
     #    캐시는 데이터 지문이 맞을 때만 쓰이므로 실패해도 백테스트 결과는 같다(그 자리 계산으로 느려질 뿐).
     print("\nBuilding residual factor cache (data/factor_cache)...")

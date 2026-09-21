@@ -372,6 +372,16 @@ uv run python scripts/qa_backtest_equivalence.py --wfa      # 세션 캐시·Pha
 - 성능 경로는 "답을 바꾸지 않는다"가 계약이다 — 캐시·병렬 유무로 거래·자산곡선·지표가 1비트라도 다르면 최적화가 아니라 버그다
 - 새 지표가 새 이름의 파라미터를 읽으면 `engine/prep_cache.py`의 `STRUCTURAL_PARAM_KEYS`에 추가한다(`tests/test_prep_cache.py` 소스 스캔이 강제)
 
+### parquet 데이터의 방향은 프로덕션 → 로컬 하나뿐이다 (정본=프로덕션)
+`data/ohlcv`·`data/ohlcv-us`·`data/index`의 parquet은 **프로덕션이 정본**이다(2026-09-21 사용자 지시).
+- parquet을 바꾸는 백필·수리·재병합은 **프로덕션에서 실행**하고, 로컬은 그 결과를 pull 한다(`uv run python scripts/mirror_data.py` — pull 전용, `--push`는 폐지).
+- **로컬 parquet을 프로덕션에 올리지 않는다** — `mirror_data.py`든 rsync·scp 직접 실행이든 같다. 로컬에서 돌린 백필은 검증용이고, 그 parquet은 다음 pull이 덮어쓴다.
+- 새 컬럼을 더하는 백필은 **빈 칸만 채우는 병합**(`fundamental_backfill.merge_fundamentals`)만 쓴다. 캐시가 이기는 재구축(`rebuild_fundamental_columns`)은 캐시 밖에서 채워진 기존 값을 지운다 — 오염 수리처럼 캐시가 그 컬럼들의 정본일 때만 쓴다.
+- 프로덕션 데이터를 쓰기 전에는 **프로덕션 사본을 임시 폴더로 받아 로컬과 전수 대조**한다(읽기 전용) — 방향별로 센다: 로컬=빈값·운영=값 / 로컬=값·운영=빈값 / 양쪽 값이 다름.
+- 2026-09-21 사고: ROIC·FCF 마진 백필을 로컬에서 돌린 뒤 올리려다 대조에서 멈췄다 — 로컬은 운영보다 하루 뒤였고, 운영에만 있는 컬럼 2개가 없었고, 백필을 거친 199종목의 EPS·BPS·부채비율·ROE·PBR이 비어 있었다(캐시 우선 재구축이 지움). 그대로 올렸다면 운영 데이터가 그만큼 손상됐다.
+- 같은 방향을 따르는 parquet 아닌 데이터: 지수 구성종목 시점별 명단(`data/index-membership/` — 박스의 야간 동기화가 매일 덧붙인다, git 미추적, 로컬은 `mirror_data.py --membership`).
+- git으로 추적하는 작은 JSON(`data/quarterly-earnings/` 등 — 박스가 스스로 갱신하지 않는 것)은 이 규칙의 대상이 아니다 — 그쪽은 로컬에서 수집해 커밋으로 내려보낸다(배포가 `git reset --hard`라 박스에서 고친 추적 파일은 되돌아간다).
+
 ### Agent 구조 변경 시 시각화 동기화 필수
 agent 파이프라인(전략 해석·플래너·분류기·빌더·수정·검증·AI 리포트·테마 학습·종목 대응)의 **처리 흐름 구조**가 바뀌면 — 단계 추가/삭제, 실행 순서, 분기, 되묻기 조건, 안전장치(가드) 추가/제거 — 같은 작업에서 운영 콘솔 시각화(`components/admin/AgentsTab.tsx`)의 해당 agent 흐름도 데이터를 함께 갱신한다.
 - 해당 경로를 수정하면 PostToolUse 훅(`.claude/settings.json`)이 자동으로 리마인드한다

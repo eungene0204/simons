@@ -133,6 +133,11 @@ top200.txt
 # 주의: 배포는 `git reset --hard origin/main`이라 **박스에서 갱신한 내용은 되돌아간다**
 # (종목명 명부와 같은 함정) — 수집은 로컬에서 하고 커밋해 내려보낸다.
 # 진행·순서 파일은 그 작업의 로컬 상태라 계속 무시한다(로컬·박스가 서로 다른 진행을 갖는다).
+# 지수 구성종목 시점별 명단(engine/index_membership.py)은 **추적하지 않는다** — 분기 실적과 반대다:
+# 박스의 야간 동기화가 매일 덧붙이므로, 추적하면 배포의 `git reset --hard`가 박스에서 쌓은 이력을
+# 되돌린다. 정본은 프로덕션이고 로컬은 `scripts/mirror_data.py --membership`으로 받는다.
+/data/index-membership/
+/data/roic-fcf-margin-backfill.progress.json
 /data/quarterly-earnings-backfill.progress.json
 /data/quarterly-earnings-backfill.order.json
 /data/owner-net-income-backfill.progress.v2.json

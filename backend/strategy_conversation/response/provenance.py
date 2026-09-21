@@ -59,6 +59,10 @@ def explicit_fields_from_spec(strategy: Any) -> List[str]:
         getattr(universe, "symbols", None),
         getattr(universe, "etf_theme", None),
         getattr(universe, "new_listing_only", None),
+        # '시가총액 상위 N종목'은 그 자체로 모집단을 말한 것이다(v16.19) — 빠지면 유니버스를
+        # 말한 사용자에게 "어떤 시장·종목을 대상으로 할까요?"를 다시 묻는다(2026-09-21 실측).
+        # 거래대금 하위 % 제외는 모집단이 아니라 거르는 조건이라 단독으로는 명시가 아니다.
+        getattr(universe, "market_cap_top_n", None),
     )):
         fields.append(UNIVERSE)
     if portfolio is not None and getattr(portfolio, "selection_count", None) is not None:

@@ -63,6 +63,7 @@ def run_update():
     if _is_mirror():
         _run("프로덕션 데이터 pull", [sys.executable, "scripts/mirror_data.py"])
         _run("프로덕션 지수 pull", [sys.executable, "scripts/mirror_data.py", "--index"])
+        _run("프로덕션 지수 명단 이력 pull", [sys.executable, "scripts/mirror_data.py", "--membership"])
     else:
         _run("데이터 동기화", [sys.executable, "scripts/sync_data.py"])
 

@@ -618,6 +618,11 @@ def _approximation_notices(strategy: Any) -> List[str]:
              for cond in list(strategy.entry_conditions) + list(strategy.exit_conditions)]
     items += [(metric, source_text, None) for metric, source_text in approximated_rankings]
     for factor, source_text, cond in items:
+        # 계열(class.*) 껍데기는 어떤 지표로도 반영되지 않은 자리다 — 지표 선택 되묻기가 맡는다.
+        # 근사 신고가 붙어 있어도 "가깝게 반영했어요"는 거짓이고, 라벨이 없어 내부 식별자
+        # (class.fundamental)가 그대로 화면에 나간다(2026-09-21 실측 9B).
+        if str(factor).startswith("class."):
+            continue
         spec = indicator_registry.resolve(factor)
         if cond is not None and not (
             getattr(cond, "approximated", False)
@@ -2400,6 +2405,14 @@ def run_primary_parse(
         # 제외한다 — 결정론 게이트가 하던 '의도적 제외'의 이관분이다(판정 입력은 컴파일
         # 결과이고, 개념 대조는 LLM이 보고한 라벨 문자열에 건다).
         expressed = concepts_expressed_in_strategy(parsed, user_input)
+        # 전략에 남은 랭킹이 계산 안에 이미 품은 것(재료 지표·내장 처리)의 이중 보고
+        # (2026-09-21 실측 9B: pead 랭킹이 반영된 턴에 '윈저라이즈 처리'·'실적 발표일 전후
+        # 초과수익률 계산'이 미지원으로 나갔다). 보고 조각 ↔ 레지스트리 대조(§ 3-2).
+        from strategy_conversation.registry.indicator_registry import ranking_covers
+
+        ranking_ids = [
+            rank.metric for rank in (validated.strategy.ranking if validated.strategy else [])
+        ]
         leftover_features = [
             f for f in _humanize_features(report.unsupported_features)
             if f and f not in covered_text
@@ -2412,6 +2425,7 @@ def run_primary_parse(
             # 근사 반영된 조건의 인용문 **안에 든** 조각도 이중 기입이다(2026-09-13,
             # _covered_by_approximated_texts) — 근사 안내가 이미 그 문장을 다뤘다.
             and not _covered_by_approximated_texts(f, reflected_conditions)
+            and not ranking_covers(f, ranking_ids)
             and not field_path_rx.search(f)
             and not field_name_rx.search(f)
         ]

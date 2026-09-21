@@ -78,3 +78,41 @@ def test_rejects_members_outside_the_index_market(stub_stocks):
 
     with pytest.raises(kis_master.MasterLayoutError, match="KOSDAQ 소속이 아닌"):
         kis_master.parse_members("\n".join(rows), spec)
+
+
+def test_new_listing_missing_from_our_stock_master_does_not_void_the_roster(stub_stocks):
+    """새로 받은 지수 명부가 정본이다 — 낡은 쪽은 우리 종목 명부다(2026-09-21 0220W0 사고:
+    신규 상장 한 종목 때문에 정상 명부가 버려지고 KOSPI200이 KOSPI 전체 836종목이 됐다)."""
+    spec = kis_master.INDEX_SPECS["kosdaq150"]
+    rows = [_record(f"{i:06d}", f"종목{i}", _kosdaq_tail(True)) for i in range(149)]
+    rows.append(_record("0220W0", "신규상장", _kosdaq_tail(True)))
+
+    members = kis_master.parse_members("\n".join(rows), spec)
+
+    assert len(members) == 150 and ("0220W0", "신규상장") in members
+
+
+def test_many_unknown_members_still_mean_a_misread_layout(stub_stocks):
+    spec = kis_master.INDEX_SPECS["kosdaq150"]
+    rows = [_record(f"{i:06d}", f"종목{i}", _kosdaq_tail(True)) for i in range(120)]
+    rows += [_record(f"7{i:05d}", f"미상{i}", _kosdaq_tail(True)) for i in range(30)]
+
+    with pytest.raises(kis_master.MasterLayoutError, match="종목 명부에 없는 종목 30건"):
+        kis_master.parse_members("\n".join(rows), spec)
+
+
+def test_failed_refresh_reuses_the_expired_roster_instead_of_the_whole_market(monkeypatch, tmp_path):
+    """새 명부를 못 받으면 마지막으로 아는 명부를 쓴다 — KOSPI 전체(836종목)로 넓히지 않는다."""
+    from engine import strategy_converter as sc
+
+    cache = tmp_path / "kospi200-cache.json"
+    cache.write_text(json.dumps({"fetched_at": 0, "symbols": [f"{i:06d}" for i in range(200)]}),
+                     encoding="utf-8")
+    monkeypatch.setattr(sc, "_KOSPI200_CACHE_PATH", cache)
+    monkeypatch.setattr(sc, "_fetch_index_from_kis", lambda index_id: None)
+    monkeypatch.setattr(sc, "_fetch_kospi200_from_naver", lambda: None)
+
+    symbols = sc._load_kospi200()
+
+    assert 200 <= len(symbols) <= 210          # 보정 종목 몇 개가 더해질 뿐이다
+    assert "000000" in symbols

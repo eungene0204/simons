@@ -129,6 +129,29 @@ describe("buildBuilderTurnPresentation 지정 종목 배분 표시", () => {
     expect(build(null)).toBeUndefined();
   });
 
+  it("유니버스 사전 필터와 섹터별 비중 상한을 요약에 싣는다 (v16.19 — 2026-09-21 미배선 실측)", () => {
+    const items = buildBuilderTurnPresentation({
+      state: {},
+      reply: "질문",
+      parsed: {
+        ...themeParsed,
+        description: "시가총액 상위 500종목 중 거래대금 하위 20% 제외",
+        target_symbols: [],
+        universe: ["KOSPI", "KOSDAQ"],
+        max_positions: 50,
+        universe_market_cap_top_n: 500,
+        universe_liquidity_exclude_bottom_pct: 20,
+        universe_liquidity_lookback_days: 20,
+        max_sector_weight_pct: 25,
+      } as ParsedSummary,
+      explicitFields: ["universe", "max_positions"],
+    }).summaryItems;
+    const universe = items.find((item) => item.label === "유니버스");
+    expect(universe?.value).toContain("시가총액 상위 500종목");
+    expect(universe?.value).toContain("20일 평균 거래대금 하위 20% 제외");
+    expect(items.find((item) => item.label === "섹터별 비중 상한")).toMatchObject({ value: "25%" });
+  });
+
   it("유니버스 전략은 기존대로 명시된 최대 보유 종목 수를 표시한다", () => {
     const universe = buildBuilderTurnPresentation({
       state: {},

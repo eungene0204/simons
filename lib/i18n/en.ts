@@ -2414,6 +2414,7 @@ export const en: Record<string, string> = {
   "변동성 역비중(산정 기간 미정)": "Inverse-volatility weights (lookback not set)",
   "종목당 비중 상한 {0}%": "Max {0}% per position",
   "섹터별 비중 상한 {0}%": "Max {0}% per sector",
+  "섹터별 비중 상한": "Max weight per sector",
   "실적 서프라이즈 시그널(발표 {0}일 후 편입·{1}일 경과 제외) {2} {3}%{4}": "Earnings surprise signal (added {0} days after the release, dropped after {1} days) {2} {3}%{4}",
   "실적 서프라이즈 시그널": "Earnings surprise signal",
   "유니버스는 매 거래일 실측 시가총액 상위 {0}종목입니다 — 특정 지수의 구성종목이 아니라 그 시점 시가총액 순위로 정합니다.": "The universe is the top {0} stocks by measured market cap on each trading day — ranked by market cap at that time, not the constituents of any particular index.",
