@@ -151,3 +151,70 @@ def test_refresh_keeps_existing_delistings_when_the_source_is_down():
     delisted = [s for s in payload["stocks"] if s.get("delistingDate")]
     assert [s["symbol"] for s in delisted] == [master["stocks"][1]["symbol"]]
     assert payload["counts"]["delisted"] == 1
+
+
+# ── 상폐 추론: 현행 목록 이탈 + 가격 중단 (2026-09-22, 상류 명부 대체) ──────────────
+
+def _absence_master() -> dict:
+    return {"stocks": [
+        {"symbol": "111110", "name": "폐지된회사", "market": "KOSPI", "delistingDate": None},
+        {"symbol": "222220", "name": "목록누락후거래중", "market": "KOSPI", "delistingDate": None},
+        {"symbol": "333330", "name": "상장중", "market": "KOSPI", "delistingDate": None},
+        {"symbol": "444440", "name": "이미상폐", "market": "KOSPI", "delistingDate": "2020-01-02"},
+    ]}
+
+
+_COVERAGE = {
+    "111110": ("2015-01-02", "2026-09-04"),   # 2주 전 멈춤
+    "222220": ("2015-01-02", "2026-09-18"),   # 가격은 계속 붙는다
+    "333330": ("2015-01-02", "2026-09-18"),
+    "444440": ("2015-01-02", "2019-12-30"),
+}
+
+
+def test_absence_plus_stalled_prices_infers_a_delisting():
+    from scripts.build_stock_master import infer_delistings_from_absence
+
+    found, hold = infer_delistings_from_absence(
+        _absence_master(), _COVERAGE, {"333330": {}})   # 현행 목록엔 333330만 있다
+
+    assert hold is None
+    assert set(found) == {"111110"}                      # 222220은 가격이 살아 있어 제외
+    assert found["111110"]["delistingDate"] == "2026-09-04"   # 상폐일 = 마지막 거래일
+    assert "추론" in found["111110"]["reason"]
+
+
+def test_mass_absence_is_treated_as_a_listing_fetch_failure():
+    """목록이 통째로 덜 왔을 때 수백 종목을 상폐로 찍으면 유니버스가 무너진다 — 전부 보류."""
+    from scripts.build_stock_master import infer_delistings_from_absence
+
+    master = {"stocks": [
+        {"symbol": f"{i:06d}", "name": f"종목{i}", "market": "KOSPI", "delistingDate": None}
+        for i in range(100)
+    ]}
+    coverage = {f"{i:06d}": ("2015-01-02", "2026-08-01") for i in range(100)}
+    coverage["999990"] = ("2015-01-02", "2026-09-18")      # 시장 최신 거래일을 세우는 종목
+
+    found, hold = infer_delistings_from_absence(master, coverage, {"999990": {}})
+
+    assert found == {} and hold and "상한" in hold
+
+
+def test_upstream_delisting_row_wins_over_inference():
+    """상류가 살아 있으면 그쪽 값(사유·이전 종목코드)을 쓴다 — 추론은 빈 칸만 메운다."""
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
+    from scripts.build_stock_master import infer_delistings_from_absence
+
+    delisted = {"111110": {"symbol": "111110", "name": "폐지된회사", "market": "KOSPI",
+                           "delistingDate": "2026-09-05", "reason": "상장폐지(합병)",
+                           "toSymbol": "005930"}}
+    inferred, _ = infer_delistings_from_absence(_absence_master(), _COVERAGE, {"333330": {}})
+    for symbol, row in inferred.items():
+        if symbol not in delisted:
+            delisted[symbol] = row
+
+    assert delisted["111110"]["reason"] == "상장폐지(합병)"
+    assert delisted["111110"]["toSymbol"] == "005930"

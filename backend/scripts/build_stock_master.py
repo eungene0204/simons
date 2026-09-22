@@ -148,6 +148,53 @@ def _load_active(fdr) -> dict[str, dict]:
     return out
 
 
+# 상장폐지 추론 — 현행 상장 목록에서 사라지고 **가격까지 멈춘** 종목(2026-09-22).
+# 상류 상폐 명부(FDR KRX-DELISTING)가 죽어도 새 상폐분이 마스터에 들어오게 하는 보조 경로다.
+# 대기 거래일을 두는 이유: 목록 조회가 한 번 덜 받아온 날(그 종목은 가격이 계속 붙는다)과
+# 실제 폐지(가격이 끊긴다)를 가르는 유일한 신호가 '가격이 멈췄는가'이기 때문이다.
+_ABSENCE_MIN_GAP_DAYS = 5      # 시장 최신 거래일과 그 종목 마지막 거래일의 차(달력일)
+_ABSENCE_MAX_PER_RUN = 20      # 한 번에 이보다 많으면 목록 조회 사고로 본다(전부 보류)
+
+
+def infer_delistings_from_absence(
+    master: dict, coverage: dict, active: dict,
+    *, min_gap_days: int = _ABSENCE_MIN_GAP_DAYS, cap: int = _ABSENCE_MAX_PER_RUN,
+) -> tuple[dict[str, dict], str | None]:
+    """현행 목록에서 빠지고 가격이 멈춘 '상장 중' 종목 → {symbol: 상폐 필드}. (결과, 보류 사유).
+
+    상폐일은 **마지막 거래일**(dataEnd)로 둔다 — KRX 상폐일은 정리매매 종료 다음 날이지만,
+    우리가 아는 사실은 '이 날까지 거래됐다'뿐이고 백테스트는 이 날짜를 넘겨 보유하지 않는다.
+    """
+    from datetime import date
+
+    ends = [end for _, end in coverage.values() if end]
+    if not ends:
+        return {}, "가격 커버리지가 비어 판정할 수 없다"
+    market_end = max(ends)
+    found: dict[str, dict] = {}
+    for row in master.get("stocks", []):
+        symbol = row.get("symbol")
+        if row.get("delistingDate") or symbol in active:
+            continue
+        cov = coverage.get(symbol)
+        if not cov or not cov[1]:
+            continue
+        gap = (date.fromisoformat(market_end) - date.fromisoformat(cov[1])).days
+        if gap < min_gap_days:
+            continue
+        found[symbol] = {
+            "symbol": symbol,
+            "name": row.get("name", ""),
+            "market": row.get("market"),
+            "delistingDate": cov[1],
+            "reason": "현행 상장 목록 이탈 + 가격 중단(추론)",
+            "toSymbol": None,
+        }
+    if len(found) > cap:
+        return {}, f"상폐 추론 {len(found)}건 — 상한({cap}) 초과라 전부 보류(목록 조회 사고 의심)"
+    return found, None
+
+
 class DelistingSourceUnavailable(RuntimeError):
     """상장폐지 명부를 받지 못했다 — '상폐 0건'과 구분해야 한다(생존편향이 조용히 되살아난다)."""
 

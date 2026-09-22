@@ -38,6 +38,7 @@ from scripts.build_stock_master import (  # noqa: E402
     _load_active,
     _load_delisted,
     _scan_local_ohlcv_coverage,
+    infer_delistings_from_absence,
 )
 
 # 기존 행에서 절대 덮어쓰지 않는 필드 — 재빌드로는 복원되지 않는 후처리 결과다.
@@ -134,6 +135,17 @@ def main(argv: list[str] | None = None) -> int:
         delisted = {}
         print(f"[stock-master] [WARNING] 상장폐지 명부를 받지 못했다 — 새 상폐분이 "
               f"마스터에 반영되지 않는다(기존 상폐 행은 보존): {error}")
+
+    # 상류 명부가 놓친(또는 죽어서 못 받은) 상폐는 **현행 목록 이탈 + 가격 중단**으로 메운다.
+    # 상류가 살아 있을 때도 돌린다 — 그쪽이 늦게 반영하는 종목이 있고, 같은 종목이면 아래
+    # 병합에서 상류 값이 이긴다(사유·이전 종목코드까지 아는 쪽이 낫다).
+    inferred, hold = infer_delistings_from_absence(master, coverage, active)
+    if hold:
+        print(f"[stock-master] [WARNING] 상폐 추론 보류: {hold}")
+    for symbol, row in inferred.items():
+        if symbol not in delisted:
+            delisted[symbol] = row
+            print(f"  → 상폐 추론: {row['name']}({symbol}) 마지막 거래일 {row['delistingDate']}")
 
     before = master.get("counts", {})
     payload = refresh(master, coverage, active, delisted)
