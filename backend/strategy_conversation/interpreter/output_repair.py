@@ -244,6 +244,45 @@ def whole_input_quote_error(fields: list) -> str:
     )
 
 
+_AMOUNT_SINK_FACTOR = "fundamental.trading_value"
+
+
+def misfiled_trading_value_fields(intent) -> list:
+    """인용이 **다른 지표를 이름으로 부르는** 거래대금 조건의 (필드 경로, 부른 지표들) 목록(형식 위반).
+
+    120B는 옮길 칸이 없는 금액 표현을 거래대금 조건으로 지어낸다(2026-09-21 실측 3종: "매월
+    100만 원씩 매수"·"보유 현금의 10% 이내", 그리고 "종가가 200일 이동평균선 아래에 있으면 200만
+    원을 매수합니다"를 거래대금 200억으로 — 이동평균 조건이 통째로 사라진다). 판정은 LLM 출력
+    끼리의 대조다: 인용이 registry의 다른 지표를 이름으로 부르는데 거래대금은 부르지 않는다
+    (primary._substituted_factor와 같은 술어). 거래대금 조건으로 좁힌 이유 — 지표 대체 전반의
+    재생성은 측정한 적이 없고, 수치 재생성은 2026-08-07 전수 실측에서 훼손이 구제와 같아 폐지됐다.
+    """
+    from strategy_conversation.registry import indicator_registry
+
+    strategy = getattr(intent, "strategy", None)
+    if strategy is None:
+        return []
+    fields = []
+    for role in ("entry_conditions", "exit_conditions"):
+        for index, cond in enumerate(getattr(strategy, role)):
+            if cond.factor != _AMOUNT_SINK_FACTOR:
+                continue
+            named = indicator_registry.factor_ids_named_in(cond.source_text or "")
+            if named and cond.factor not in indicator_registry.with_same_name_variants(named):
+                fields.append((f"strategy.{role}[{index}]", sorted(named)))
+    return fields
+
+
+def misfiled_trading_value_error(fields: list) -> str:
+    """지표가 어긋난 거래대금 조건을 LLM에 되돌려줄 검증 오류 문구."""
+    return "\n".join(
+        f"{path}: factor는 {_AMOUNT_SINK_FACTOR}인데 source_text는 그 지표가 아니라 다른 지표"
+        f"({', '.join(named)})를 이름으로 부릅니다. 조건의 factor는 source_text가 말한 지표여야 "
+        "합니다. 그 지표로 다시 옮기고, 옮길 칸이 없는 표현은 조건으로 만들지 마세요."
+        for path, named in fields
+    )
+
+
 def is_bare_unsupported_request(intent) -> bool:
     """무엇이 지원되지 않는지 적지 않은 UNSUPPORTED_REQUEST인가(형식 위반).
 

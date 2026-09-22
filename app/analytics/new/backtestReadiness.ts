@@ -8,7 +8,7 @@ import { getLanguage } from "@/lib/i18n";
 import type { ParsedSummary } from "@/lib/strategy-summary";
 
 import slotPrompts from "./__fixtures__/slot-prompts.json";
-import { isUsParsedUniverse } from "@/lib/strategy-summary";
+import { hasContributionPlan, isUsParsedUniverse } from "@/lib/strategy-summary";
 
 export type MissingBacktestCondition = {
   field:
@@ -80,19 +80,12 @@ export function isExplicit(
 }
 
 const CONTRIBUTION_NOT_APPLICABLE: readonly MissingBacktestCondition["field"][] = [
-  "entry", "exit", "stop_loss", "take_profit", "rebalancing", "rebalance_method",
+  "entry", "exit", "stop_loss", "take_profit", "rebalancing", "rebalance_method", "max_positions",
 ];
 
-/** 납입액과 주기가 둘 다 있는 지정 종목 전략인가 — 반쪽 요청은 적립식이 아니다
- *  (백엔드 strategy_slots.has_contribution_plan과 동형). */
-export function hasContributionPlan(parsed: ParsedSummary | null | undefined): boolean {
-  return Boolean(
-    parsed &&
-      (parsed.contribution_amount ?? 0) > 0 &&
-      parsed.contribution_period &&
-      (parsed.target_symbols?.length ?? 0) > 0,
-  );
-}
+// 정액 적립식 술어의 정본은 lib/strategy-summary.ts 하나다(실행 게이트 hasBuyCriteria와 공유) —
+// 여기 사본을 두면 게이트끼리 갈라진다(2026-09-22: 실행 버튼은 열렸는데 실행 핸들러가 빌더로 되돌림).
+export { hasContributionPlan } from "@/lib/strategy-summary";
 
 /** 슬롯 하나가 채워졌는가 — 프론트의 **유일한** 빈 슬롯 술어.
  *

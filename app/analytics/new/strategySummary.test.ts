@@ -240,6 +240,15 @@ describe("hasBuyCriteria", () => {
     ).toBe(true);
   });
 
+  it("정액 적립식은 납입 일정이 곧 매수 규칙이다 — 지정 종목이든 ETF 상품 유니버스든 true, 대상 없는 반쪽 계획은 false", () => {
+    // 2026-09-22: 실행 버튼은 열렸는데 실행 핸들러의 이 판정이 false라 빌더를 처음부터 다시 시작해
+    // 유니버스를 되물었다(되묻기 게이트와 실행 게이트가 다른 술어를 보던 사고).
+    const plan = { ...baseParsed, universe: ["ETF"], contribution_amount: 1_000_000, contribution_period: "monthly" };
+    expect(hasBuyCriteria({ ...plan, etf_theme: "S&P500" })).toBe(true);
+    expect(hasBuyCriteria({ ...plan, target_symbols: ["360750"] })).toBe(true);
+    expect(hasBuyCriteria(plan)).toBe(false);
+  });
+
   it("랭킹(상대강도) 선정이 있으면 true", () => {
     expect(
       hasBuyCriteria({ ...baseParsed, ranking_metric: "return" })

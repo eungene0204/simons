@@ -871,8 +871,52 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
             bt.contribution_period = period
     # 적립식은 지정 종목을 조건 없이 사 모으는 방식만 계산한다(engine/contributions.py) — 조건·랭킹·
     # 손절과 섞이면 엔진이 거절하므로, 적립 설정을 빼고 무엇이 빠졌는지 알린다(조용한 제거 금지).
-    if (bt.contribution_amount is not None or bt.contribution_period is not None) and (
-        strategy.entry_conditions or strategy.exit_conditions or strategy.ranking
+    # 조건부 납입액(v16.21): 매수 금액이 붙은 진입 조건(buy_amount)은 매매 조건이 아니라 **그 회차
+    # 납입액을 정하는 규칙**이라 적립식과 함께 쓸 수 있다 — 금액이 없는 진입 조건만 '섞인 요청'이다.
+    _has_plan = bt.contribution_amount is not None or bt.contribution_period is not None
+    if _has_plan:
+        # 금액이 붙었는데 납입액 규칙이 될 수 없는 조건(기술적 조건이 아님)은 걷는다 — 120B는
+        # "매월 100만 원씩 매수"(기본 납입 그 자체)나 "보유 현금의 10% 이내"를 거래대금 조건으로
+        # 지어내 금액을 붙인다(2026-09-21 실측 2/3). 기본 납입액을 되풀이한 것(같은 금액·set)은
+        # 이미 일정으로 반영됐으니 조용히, 그 밖은 사용자 표현으로 알린다.
+        _kept_entries = []
+        for _cond in strategy.entry_conditions:
+            _spec = resolve(_cond.factor) if _cond.buy_amount is not None else None
+            _is_rule = (_spec is not None and _spec.engine_binding is not None
+                        and _spec.engine_binding[0] == "technical_signal")
+            # 납입액 규칙은 **납입일 하루의 상태**를 본다 — 교차 '사건'(crosses_above/below)은 한 달에
+            # 하루 보는 자리에서 뜻이 없고, 120B는 "200일선 아래에 있으면"을 상향 돌파로 옮기기도 한다
+            # (2026-09-21 실측 1/4). 조용히 틀린 규칙으로 돌리지 않고 빼고 알린다.
+            if _is_rule and _cond.operator in ("crosses_above", "crosses_below"):
+                _is_rule = False
+            if _cond.buy_amount is None or _is_rule:
+                _kept_entries.append(_cond)
+                continue
+            if not (_cond.buy_amount == bt.contribution_amount
+                    and (_cond.buy_amount_mode or "set") == "set"):
+                unsupported.append((_cond.source_text or "").strip() or ui_language.msg(
+                    "조건별 매수 금액", "a conditional buy amount"))
+        strategy.entry_conditions = _kept_entries
+    _rule_entries = [c for c in strategy.entry_conditions if c.buy_amount is not None]
+    _plain_entries = [c for c in strategy.entry_conditions if c.buy_amount is None]
+    if _has_plan and _rule_entries and _plain_entries:
+        # 납입액 규칙이 있는 적립식에서 금액 없는 진입 조건은 계산할 자리가 없다(적립식은 매매 조건을
+        # 받지 않는다) — 적립 계획을 버리지 않고 그 조건을 빼고 알린다.
+        for _cond in _plain_entries:
+            unsupported.append((_cond.source_text or "").strip() or ui_language.msg(
+                "적립식의 매수 조건", "an entry condition in a contribution plan"))
+        strategy.entry_conditions = _rule_entries
+        _plain_entries = []
+    if not _has_plan and len(_plain_entries) != len(strategy.entry_conditions):
+        # 적립 일정 없이 조건별 매수 금액만 말한 요청 — 엔진은 조건 충족 시 '정해진 금액' 매수를
+        # 계산하지 못한다(비중 기반). 금액 표기를 떼고 알린다(조용한 제거 금지).
+        unsupported.append(ui_language.msg(
+            "조건별 매수 금액 지정", "fixed buy amounts per condition"))
+        for _cond in strategy.entry_conditions:
+            _cond.buy_amount = None
+            _cond.buy_amount_mode = None
+    if _has_plan and (
+        _plain_entries or strategy.exit_conditions or strategy.ranking
         or any(v is not None for v in (
             strategy.risk_management.stop_loss, strategy.risk_management.take_profit,
             strategy.risk_management.trailing_stop, strategy.portfolio.hold_period_days))
@@ -888,6 +932,15 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
         ))
         bt.contribution_amount = None
         bt.contribution_period = None
+        for _cond in strategy.entry_conditions:
+            _cond.buy_amount = None
+            _cond.buy_amount_mode = None
+    # 현금 풀(v16.22)은 적립 계획 위에서만 뜻이 있다 — 계획이 없으면(처음부터 없었거나 위에서 빠졌으면)
+    # 설정을 빼고 사용자 표현으로 알린다(조용한 제거 금지).
+    if bt.cash_pool is not None and bt.contribution_amount is None and bt.contribution_period is None:
+        unsupported.extend(bt.cash_pool.source_texts or [ui_language.msg(
+            "보유 현금 기준 매수 제한", "cash-based buy limits")])
+        bt.cash_pool = None
 
     if strategy.backtest.period is not None \
             and strategy.backtest.period not in caps.SUPPORTED_BACKTEST_PERIODS:

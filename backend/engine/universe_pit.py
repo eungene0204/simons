@@ -153,6 +153,37 @@ def filter_etf_by_theme(symbols: list[str], theme: str) -> list[str]:
     return sorted(s for s, n in names.items() if key in _etf_key(n))
 
 
+# 상품 표현 끝의 자산 표지 — 상품명 키워드에는 들어 있지 않다("KODEX 미국S&P500"에 'ETF' 없음).
+_ETF_EXPRESSION_MARKERS = ("상장지수펀드", "상장지수증권", "상장지수", "etf", "etn")
+
+
+def etf_theme_keyword(term: Optional[str]) -> Optional[str]:
+    """ETF 상품 표현("S&P500 ETF"·"나스닥 ETF")에서 자산 표지를 뗀 상품명 키워드.
+
+    국내 ETF 마스터의 상품명에 그 키워드가 하나라도 걸릴 때만 돌려준다(없으면 None —
+    호출부가 키워드를 지어내지 않는다). 입력은 LLM이 뽑은 짧은 표현이고, 여기서 하는
+    일은 표기 정리와 정본 명부 대조뿐이다. 표지를 떼야 하는 이유: 표현을 그대로 쓰면
+    "S&P500 ETF"는 0건, "S&P500"은 52건이다(2026-09-21 실측).
+    """
+    text = (term or "").strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    for marker in _ETF_EXPRESSION_MARKERS:
+        index = lowered.find(marker)
+        while index >= 0:
+            text = (text[:index] + " " + text[index + len(marker):])
+            lowered = text.lower()
+            index = lowered.find(marker)
+    keyword = " ".join(text.split())
+    if not keyword:
+        return None
+    key = _etf_key(keyword)
+    if any(key in _etf_key(name) for name in etf_name_map().values()):
+        return keyword
+    return None
+
+
 def resolve_single_etf_product(etf_theme: Optional[str]) -> Optional[dict]:
     """etf_theme이 특정 ETF 상품명과 정확히 일치하면 그 마스터 항목을 반환한다.
 

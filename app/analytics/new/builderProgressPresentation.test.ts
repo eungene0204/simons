@@ -860,3 +860,35 @@ describe("리밸런싱 주기 라벨 — 백엔드 enum 전부 한국어 정본�
     }
   });
 });
+
+describe("정액 적립식 조건부 납입액 규칙(엔진 v16.21) — 요약 카드", () => {
+  const dcaParsed = {
+    ...themeParsed,
+    universe: ["ETF"],
+    target_symbols: ["360750"],
+    entry_signals: [],
+    contribution_amount: 1_000_000,
+    contribution_period: "monthly",
+    contribution_rules: [
+      { signal: { indicator: "ma_crossover", signal_type: "buy", mode: "below", short_period: 1, long_period: 200 }, amount: 2_000_000, mode: "set" },
+      { signal: { indicator: "rsi", signal_type: "buy", period: 14, operator: "<", value: 30 }, amount: 1_000_000, mode: "add" },
+    ],
+  } as unknown as ParsedSummary;
+
+  it("규칙마다 '조건 → 금액' 한 줄로 보이고, 더 사는 규칙은 '추가'가 붙는다", () => {
+    const presentation = buildBuilderTurnPresentation({ state: {}, reply: "질문", parsed: dcaParsed, explicitFields: [] });
+    const row = presentation.summaryItems.find((i) => i.label === "납입액 규칙");
+    expect(row).toBeDefined();
+    expect(row!.values).toHaveLength(2);
+    expect(row!.values![0]).toBe("종가가 200일선 아래 유지 → 2,000,000원");
+    expect(row!.values![1]).toMatch(/^RSI.*→ 1,000,000원 추가$/);
+  });
+
+  it("적립 계획이 아니면(지정 종목 없음) 규칙 행을 내지 않는다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {}, reply: "질문", explicitFields: [],
+      parsed: { ...dcaParsed, target_symbols: [] } as unknown as ParsedSummary,
+    });
+    expect(presentation.summaryItems.find((i) => i.label === "납입액 규칙")).toBeUndefined();
+  });
+});

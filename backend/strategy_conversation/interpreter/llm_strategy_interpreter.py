@@ -36,6 +36,8 @@ from strategy_conversation.interpreter.output_repair import (
     bare_unsupported_request_error,
     build_repair_prompt,
     is_bare_unsupported_request,
+    misfiled_trading_value_error,
+    misfiled_trading_value_fields,
     salvage_unsupported_features,
     extract_json_object,
     salvage_clarification_questions,
@@ -443,6 +445,23 @@ class StrategyInterpreter:
                         build_repair_prompt(user_input, current_raw, error_message, draft),
                     )
                     _log_llm(f"◀ 빈 라벨 재생성 응답({attempts}회차)", current_raw.strip())
+                    continue
+                # 출력 형식 위반 — 인용이 다른 지표를 부르는 거래대금 조건(금액 표현을 거래대금으로
+                # 지어낸 흔적, misfiled_trading_value_fields docstring). 같은 레인으로 1회 재생성한다
+                # (2026-09-21 실측: 재생성본은 이동평균 1/200 조건으로 옮겼다 2/2). 재생성 뒤에도
+                # 남으면 그대로 진행한다(근사 안내·적립 검증 가드가 맡는다). 생성 턴만 본다.
+                misfiled = misfiled_trading_value_fields(intent) if draft is None else []
+                if (misfiled and format_fallback_raw is None
+                        and attempts < config.MAX_REPAIR_ATTEMPTS):
+                    format_fallback_raw = current_raw
+                    attempts += 1
+                    error_message = misfiled_trading_value_error(misfiled)
+                    _log_llm(f"⟳ 지표 어긋남 재생성 요청({attempts}회차)", error_message)
+                    current_raw = self._chat(
+                        self._system_prompt,
+                        build_repair_prompt(user_input, current_raw, error_message, draft),
+                    )
+                    _log_llm(f"◀ 지표 어긋남 재생성 응답({attempts}회차)", current_raw.strip())
                     continue
                 if format_violations:
                     _log_llm("△ 입력 전체 인용 잔존",

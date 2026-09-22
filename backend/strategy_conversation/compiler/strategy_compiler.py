@@ -15,7 +15,14 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import ui_language
-from engine.nl_parser import FundamentalFilter, MarketRegime, ParsedStrategy, TechnicalSignal
+from engine.nl_parser import (
+    CashPool,
+    ContributionRule,
+    FundamentalFilter,
+    MarketRegime,
+    ParsedStrategy,
+    TechnicalSignal,
+)
 from strategy_conversation.interpreter.models import (
     StrategyCondition,
     StrategyIntent,
@@ -157,6 +164,16 @@ def _compile_condition(cond: StrategyCondition, role: str):
     if spec is None or spec.engine_binding is None:
         raise StrategyCompileError(f"엔진 연결 정보가 없는 지표입니다: {cond.factor}")
     kind, engine_key = spec.engine_binding
+    if role == "entry" and cond.buy_amount is not None:
+        # 조건부 납입액(v16.21) — 매매 신호가 아니라 그 회차 납입액을 정하는 규칙이다. 적립 일정이
+        # 없는 요청의 금액 표기는 capability_validator가 이미 뗐다. 납입일 하루의 상태를 보는
+        # 자리라 기술적 조건만 받는다(재무 필터는 엔진의 규칙 평가기가 읽지 않는다).
+        if kind != "technical_signal":
+            raise StrategyCompileError(
+                f"'{cond.factor}'은(는) 납입액 규칙의 조건으로 쓸 수 없습니다 (기술적 조건만 가능)")
+        return "contribution_rules", ContributionRule(
+            signal=_compile_technical(cond, engine_key, "buy"),
+            amount=cond.buy_amount, mode=cond.buy_amount_mode or "set")
     if role == "entry":
         if kind == "fundamental_filter":
             return "fundamental_filters", _compile_fundamental(cond, engine_key)
@@ -198,6 +215,7 @@ def compile_strategy(
         "fundamental_filters": fundamental_filters,
         "entry_signals": entry_signals,
         "exit_signals": exit_signals,
+        "contribution_rules": [],
     }
 
     for cond in strategy.entry_conditions:
@@ -292,7 +310,8 @@ def compile_partial(
         if m and not _param_has_registry_default(field, strategy):
             pending.add((m.group(1), int(m.group(2))))
 
-    buckets = {"fundamental_filters": [], "entry_signals": [], "exit_signals": []}
+    buckets = {"fundamental_filters": [], "entry_signals": [], "exit_signals": [],
+               "contribution_rules": []}
     dropped: List[str] = []
     pending_conditions: List[Dict[str, Optional[str]]] = []
     for path, role, conditions in (
@@ -324,11 +343,20 @@ def compile_partial(
             {"role": "entry", "label": MARKET_REGIME_LABEL, "source_text": mf.source_text}
         )
 
+    # 현금 하한(v16.22)도 같은 계약 — 수준이 정해지기 전에는 엔진에 싣지 않고 값 대기로 올린다.
+    pool = strategy.backtest.cash_pool
+    if pool is not None and not pool.is_complete():
+        dropped.append(CASH_RESERVE_LABEL)
+        pending_conditions.append({
+            "role": "entry", "label": CASH_RESERVE_LABEL,
+            "source_text": next(iter(pool.source_texts), None)})
+
     return _build_parsed(strategy, buckets, user_input), dropped, pending_conditions
 
 
 # 값 대기 채널·안내에 쓰는 시장 국면 필터 표기(프론트 en.ts가 번역한다).
 MARKET_REGIME_LABEL = "시장 국면 필터"
+CASH_RESERVE_LABEL = "현금 하한"
 
 
 def _market_regime_from_spec(mf) -> MarketRegime:
@@ -546,6 +574,17 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
             else ["KOSPI200"]
         )
     etf_theme = strategy.universe.etf_theme if markets == ["ETF"] else None
+    # 적립식은 지정 종목 전용인데, 국내 ETF 상품명은 종목 registry가 아니라 상품 키워드(etf_theme)
+    # 로 착지한다("TIGER 미국S&P500"). 키워드가 상품 하나와 **정확히** 일치하면 그 상품이 곧 사 모을
+    # 종목이다 — 승격하지 않으면 적립 계획이 성립하지 않아 매수 조건을 되묻는다(2026-09-21 실측).
+    # 적립식에만 한정한다: 일반 전략의 단일 상품 유니버스 동작은 건드리지 않는다.
+    if (etf_theme and not target_symbols
+            and strategy.backtest.contribution_amount and strategy.backtest.contribution_period):
+        from engine.universe_pit import resolve_single_etf_product
+
+        _product = resolve_single_etf_product(etf_theme)
+        if _product is not None:
+            target_symbols = [_product["symbol"]]
 
     portfolio = strategy.portfolio
     risk = strategy.risk_management
@@ -639,4 +678,9 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         # 정액 적립식(v16.20) — 기본값을 물질화하지 않는다(둘 다 말해야 적립식이다).
         contribution_amount=bt.contribution_amount,
         contribution_period=bt.contribution_period,
+        contribution_rules=list(buckets.get("contribution_rules") or []),
+        cash_pool=CashPool(
+            reserve_pct=bt.cash_pool.reserve_pct, reserve_amount=bt.cash_pool.reserve_amount,
+            reserve_stated=bt.cash_pool.reserve_stated, max_buy_pct=bt.cash_pool.max_buy_pct,
+        ) if bt.cash_pool is not None else None,
     )

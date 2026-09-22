@@ -139,9 +139,31 @@ class StrategyCondition(BaseModel):
         ),
     )
 
+    # 조건부 납입액(정액 적립식, 엔진 v16.21) — "200일선 아래면 200만 원을 매수"·"RSI 30 미만이면
+    # 100만 원을 더 매수"처럼 **이 조건이 성립한 납입일의 금액**을 말한 경우만 채운다. 금액은
+    # initial_capital과 같은 옮겨 적기 계약(말한 표기 그대로, 환산은 _normalize_amount).
+    # set=그 회차 납입액을 이 금액으로, add=기본 납입액에 이 금액을 더한다.
+    buy_amount: Optional[float] = Field(
+        default=None,
+        description="이 조건이 성립한 납입일의 매수 금액. 말한 표기 그대로('200만원'). 말하지 않았으면 null")
+    buy_amount_mode: Optional[Literal["set", "add"]] = Field(
+        default=None, description="set=그 금액으로 매수, add=기본 납입액에 추가로 더 매수")
+
     _coerce_value = field_validator("value", "recommended_value", mode="before")(_coerce_number)
 
     _coerce_approximated = field_validator("approximated", mode="before")(_coerce_flag)
+
+    @field_validator("buy_amount", mode="before")
+    @classmethod
+    def _coerce_buy_amount(cls, v):
+        return _normalize_amount(v)
+
+    @field_validator("buy_amount_mode", mode="before")
+    @classmethod
+    def _normalize_buy_amount_mode(cls, v):
+        # enum 표기 정규화(LLM 출력) — 목록 밖 표기는 null로 두어 컴파일러가 set으로 읽는다.
+        key = str(v).strip().lower() if v is not None else ""
+        return key if key in ("set", "add") else None
 
     @field_validator("operator", mode="before")
     @classmethod
@@ -705,6 +727,19 @@ def _normalize_period(value: Any) -> Any:
     return value
 
 
+class CashPoolSpec(BaseModel):
+    """현금 풀 설정(엔진 v16.22) — ParsedStrategy.CashPool의 해석 쪽 거울. source_texts는 이 설정을
+    말한 사용자 표현(LLM 인용)으로, 같은 표현의 미지원 보고·지어낸 조건을 걷는 대조에 쓴다."""
+    reserve_pct: Optional[float] = None
+    reserve_amount: Optional[float] = None
+    reserve_stated: bool = False
+    max_buy_pct: Optional[float] = None
+    source_texts: List[str] = Field(default_factory=list)
+
+    def is_complete(self) -> bool:
+        return (not self.reserve_stated) or self.reserve_pct is not None or self.reserve_amount is not None
+
+
 class BacktestSpec(BaseModel):
     period: Optional[Literal["1y", "3y", "5y", "full"]] = Field(default=None)
 
@@ -766,6 +801,9 @@ class BacktestSpec(BaseModel):
     contribution_amount: Optional[float] = Field(
         default=None, description="정기 납입액. 사용자가 말한 표기를 그대로 적는다('50만원'·'$500')")
     contribution_period: Optional[str] = Field(default=None, description="납입 주기")
+    # 현금 풀(엔진 v16.22) — 전용 보조 판정(cash_pool_check)이 채운다. 메인 프롬프트에는 자리를
+    # 만들지 않는다(조건부 납입액과 같은 이유 — 프롬프트 분량 회귀, contribution_amount_check 참조).
+    cash_pool: Optional["CashPoolSpec"] = Field(default=None, description="보유 현금에서 꺼내 사는 적립 설정")
 
     _coerce = field_validator("fee_rate", "slippage_rate", "sell_tax_rate", mode="before")(_coerce_number)
     # 금액은 앞자리 숫자만 떼는 _coerce_number로 읽을 수 없다("2억5000만원"→2) — 자리마다

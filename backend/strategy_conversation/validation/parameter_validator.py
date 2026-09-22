@@ -189,6 +189,19 @@ def validate_parameters(intent: StrategyIntent) -> List[str]:
         errors.append("초기 자본금은 0보다 커야 합니다")
     if bt.contribution_amount is not None and bt.contribution_amount <= 0:
         errors.append("정기 납입액은 0보다 커야 합니다")
+    pool = bt.cash_pool
+    if pool is not None:
+        # 범위 밖 값은 조용히 깎지 않고 비운다 — 하한은 다시 묻고(reserve_stated 유지), 상한은 오류로 알린다.
+        if pool.reserve_pct is not None and not (0 <= pool.reserve_pct < 100):
+            errors.append(f"현금 하한 {pool.reserve_pct}%은(는) 0% 이상 100% 미만이어야 합니다")
+            pool.reserve_pct, pool.reserve_stated = None, True
+        if (pool.reserve_amount is not None and bt.initial_capital is not None
+                and pool.reserve_amount >= bt.initial_capital):
+            errors.append("현금 하한은 초기 자본보다 작아야 합니다")
+            pool.reserve_amount, pool.reserve_stated = None, True
+        if pool.max_buy_pct is not None and not (0 < pool.max_buy_pct <= 100):
+            errors.append(f"단일 매수 상한 {pool.max_buy_pct}%은(는) 0% 초과 100% 이하여야 합니다")
+            pool.max_buy_pct = None
     for label, value in (
         ("수수료율", bt.fee_rate), ("슬리피지율", bt.slippage_rate), ("거래세율", bt.sell_tax_rate),
     ):

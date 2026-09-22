@@ -135,7 +135,7 @@ simons/
 │   │   ├── strategy_converter.py    # ParsedStrategy → BacktestRequest
 │   │   ├── residual_factor.py       # 잔차 반전 시그널 랭킹(residual_reversal, v16.17) — 시장·섹터 회귀 잔차 원점수 + 횡단면 윈저라이즈·z-score·부호 반전, data/factor_cache 사전계산(지문 일치 시만 사용)
 │   │   ├── earnings_factor.py       # 실적 서프라이즈 시그널 랭킹(pead, v16.19) — SUE + 발표일 초과수익률의 횡단면 z-score 평균, 발표 자격 창(편입 지연·제외)으로 후보 한정
-│   │   ├── contributions.py         # 정액 적립식(DCA, v16.20) 장부 — 지정 종목을 납입 일정대로 조건 없이 매수(일반 체결 경로 미경유). 납입 일정(리밸런싱 달력 재사용)·정수 주 장부·시간가중 수익률·금액가중 수익률(XIRR)·같은 납입을 받은 벤치마크 곡선. 결과 조립은 result_handler.format_contribution_results
+│   │   ├── contributions.py         # 정액 적립식(DCA, v16.20) 장부 — 대상 종목(지정 종목 또는 ETF 상품 유니버스 전체 균등 분할, 2026-09-22)을 납입 일정대로 조건 없이 매수(일반 체결 경로 미경유). 납입 일정(리밸런싱 달력 재사용)·정수 주 장부·시간가중 수익률·금액가중 수익률(XIRR)·같은 납입을 받은 벤치마크 곡선. 결과 조립은 result_handler.format_contribution_results **조건부 납입액(v16.21)**: `risk.contribution_rules`=[{condition, amount, mode}] — 납입일마다 기본액→set(최대)→add로 회차 납입액을 정하고(`rule_symbol_flows`, 종목별 몫) 장부는 종목별 납입 행렬을 받는다. 조건 평가는 `backtest_engine._contribution_rule_hits`가 SignalEngine으로 직접 계산(Phase1 미경유), next_open은 신호를 지연 봉만큼 민다(미래 참조 금지). 해석 쪽은 **적립식 통합 판정** `interpreter/contribution_plan_check.py`(2026-09-22 — 계획·조건별 금액 꼬리표 `buy_amount`·`buy_amount_mode`·상태 연산자·현금 관리를 한 호출로, 인용 문자열 대조, 파라미터 보정보다 먼저; 메인 프롬프트 무수정)가 채우고 → `ParsedStrategy.contribution_rules` **현금 풀(v16.22)**: `risk.contribution_funding='cash_pool'` — 초기 자본을 현금으로 들고 회차 매수액을 풀에서 꺼낸다(`simulate_cash_pool`): min(정한 금액, 보유 현금×max_buy_cash_pct, 보유 현금−하한), 납입 흐름=초기 자본 하나. 해석은 같은 통합 판정 + 되묻기 답 전용 옮겨 적기(`cash_pool_check.check_reserve_answer`·`contribution_amount_check.check_symbol_answer`), 수정 턴 초안에서는 현금 풀을 가린다(`primary._draft_for_interpreter`) **계획 소실 그물(FR-BT-079)**: 1차 해석이 적립 계획을 빠뜨린 턴은 `condition_recall.recover_contribution_plan`(흔적이 남은 턴만, 엄격 출처 대조)이 되살리고, 인용이 다른 지표를 부르는 거래대금 조건은 인터프리터가 형식 위반으로 1회 재생성(`output_repair.misfiled_trading_value_fields`), 교차 사건으로 온 연산자는 조건부 납입액 판정의 `state` 칸(LLM)으로 비교 연산자를 채운다
 │   │   ├── virtual_contributions.py # 가상계좌 정기 납입 — 새 납입 주기 판정(_period_key 재사용)과 하루 한 번 입금 기록(VirtualCashEvent (accountId,date) 유니크, 입금·잔액 증가 한 트랜잭션), 플랜 한도(contributionCap) 집행. 소비자 virtual_trader._run_contribution
 │   │   ├── quarterly_earnings.py    # 분기 EPS·실적 발표일 수집(DART 분기보고서, 2016~) — pead의 원재료, 연결/별도는 종목 단위 고정
 │   │   ├── market_index.py          # 시장지수 저장소 로더(data/index) + 종목→지수 종가 날짜 조인(attach_index_close) — relative_return 지표
@@ -705,6 +705,24 @@ StrategyIntent (interpreter/models.py, schema_version 1.0)
     ├── Conflict: AND 구간 공집합(PER≤10 ∧ PER≥20), 단기≥장기, 보유기간<리밸런싱 등
     └── Completeness: 누락 필수값 → 되묻기 질문 생성(Registry 추천값 제시, 최대 3개/턴).
         사용자가 말하지 않은 값을 조용히 확정하지 않는다.
+    ▼
+국내 ETF 상품 복구 (primary._recover_kr_etf_product — KR 레인, 검증 전)
+    └── "S&P500 ETF"·"나스닥 ETF"는 국내 상장 상품이다(명부 52·33개). 120B가 상품 키워드 칸을
+        비우거나(symbols로 보냄·소실) 시장을 US_ETF로 내는 흔들림을, planner-first가 뽑은 ETF
+        표현에서 자산 표지를 뗀 키워드(universe_pit.etf_theme_keyword — 국내 ETF 명부에 걸릴
+        때만)로 채우고 markets=["ETF"]로 맞춘다. 인터프리터 etf_theme 우선·표현 둘 이상은 불개입
+    ▼
+지역 격리 가드 (primary._kr_region_us_market_refusal / _us_region_kr_market_refusal — 컴파일 전)
+    ├── KR 레인(ko): 미국 시장 대상이면 전략을 만들지 않고 거절 되묻기("죄송합니다. 현재 저는
+    │   한국 주식시장만 지원하고 있습니다" + 국내 전환 제안). 근거 셋 = ① markets ∩ US_MARKETS
+    │   ② registry가 미국 티커로 푼 지정 종목 ③ 못 푼 표현의 상장 시장 LLM 판정
+    │   (interpreter/market_region_check.py — 입력은 LLM이 뽑은 짧은 문자열, KR/US/OTHER/UNKNOWN
+    │   enum, 실패·모름=거절 없음). ③이 필요한 이유: "S&P500 ETF"가 markets=["ETF"](한국 ETF)
+    │   + symbols 미해석으로 조립돼 미국 요청이 국내 전략으로 새던 2026-09-21 실측
+    │   planner-first 관찰값(미국 시장 코드·미국 티커)도 ①②의 근거. ETF 상품 표현은 ③에
+    │   올리지 않는다 — 국내 상장 상품이다(아래 복구)
+    └── /us 레인(en): 한국 시장 명시면 같은 자리에서 거울 거절(2026-08-26)
+        두 가드는 표시 언어로 배타적이며, 수정 레인도 패치 적용 전 같은 판정을 거친다
     ▼
 Strategy Compiler (compiler/strategy_compiler.py) — 검증 READY만 컴파일(Fail Fast)
     └── StrategyIntent → ParsedStrategy(기존 내부 DSL, 결정론 매핑만) → 기존 파이프라인 합류
@@ -1719,7 +1737,7 @@ run_backtest → 1단계(데이터·지표·신호·랭킹) → 메인 시뮬레
 | `test_simulator_ranking.py` | Simulator: 모멘텀 랭킹(상위 K 선정) + 달력 기준 리밸런싱 회전 — 순수 리밸런싱(`from_orders`)/리스크 혼재(`from_signals`) 두 라우팅 경로 검증 |
 | `test_rebalance_dates.py` | `compute_rebalance_dates()`: 일/주/월/격월/분기/반기/년 주기별 리밸런싱일 계산 (vbt 비의존, pandas만) |
 | `test_rebalance_comparison.py` | 리밸런싱 기간별 비교(FR-BT-064): 6주기 순회·행 단위 실패 격리·보유 상한 플래그 + 엔진 통합(결과에 rebalanceComparison 동봉, 메인 주기 행=메인 지표) |
-| `test_contributions.py` | 정액 적립식(FR-BT-076): 납입 일정·정수 주 장부·잔돈 이월·거래 불가 이월·TWR(가격 제자리=0%)·XIRR·적립 벤치마크 + 엔진 통합(contributions 동봉, 조건 혼합·유니버스 요청 거절) + 스키마 관통 + 대화 레인(옮겨 적기·형태 키·반쪽 요청 되묻기·슬롯 '해당 없음') |
+| `test_contributions.py` | 정액 적립식(FR-BT-076): 납입 일정·정수 주 장부·잔돈 이월·거래 불가 이월·TWR(가격 제자리=0%)·XIRR·적립 벤치마크 + 엔진 통합(contributions 동봉, 조건 혼합·유니버스 요청 거절) + 스키마 관통 + 대화 레인(옮겨 적기·형태 키·반쪽 요청 되묻기·슬롯 '해당 없음') + 조건부 납입액(FR-BT-077): 규칙 산식·종목별 몫·엔진 통합·미래 참조 금지(하루 급락 픽스처)·메인 프롬프트 무수정 고정·전용 패스·검증 가드 4종·역컴파일 왕복·엔진 요청 변환 |
 | `test_engine_loader.py` | DataLoader: Parquet 로드, 캐싱 |
 | `test_simulator_validation.py` | 검증 회귀: 핸드칼크·비용 양방향·결정론·next_open 체결·현금 음수 없음·중복 포지션 없음 |
 | `test_reference_engine_crosscheck.py` | 레퍼런스 엔진 교차검증(#13): Simulator vs **backtrader** 진입/청산일·체결가·수량·최종자산 일치(무비용/비용) |

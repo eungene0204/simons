@@ -309,6 +309,9 @@ def _clarification_items(
             chips.extend(strategy_slots.MARKET_REGIME_VOL_MULTIPLE_CHIP_VALUES)
         elif q.field == "strategy.portfolio.weighting_lookback_days":
             chips.extend(strategy_slots.ALLOCATION_LOOKBACK_CHIP_VALUES)
+        elif q.field == "strategy.backtest.cash_pool.reserve_pct":
+            # 현금 하한(v16.22) — 정본 표의 칩(초기 자본의 10·20·30%).
+            chips.extend(strategy_slots.CASH_RESERVE_CHIP_VALUES)
         slot_item = False
         if q.field in _SLOT_CHIP_BUILDERS:
             # 조건이 아닌 슬롯(포트폴리오·리스크·청산) 질문의 칩과 topic.
@@ -588,6 +591,60 @@ def _preparing_notice(report: Any) -> List[str]:
         "It will be available once the data is ready.",
         items=", ".join(features),
     )]
+
+
+def _queued_ask_text(pending_ask: Optional[Dict[str, Any]]) -> str:
+    """이월 큐에 실린 질문·칩 문구 — 우리가 낸 글이라 '이미 다룬 조건' 대조의 재료다.
+
+    칩도 포함한다: 현금 하한 질문("현금을 얼마나 남겨 둘까요?")은 라벨을 문장에 담지 않고
+    칩("현금 하한 초기 자본의 10%")에만 담아, 질문만 대조하면 큐에 실린 항목이 미반영으로
+    안내됐다(2026-09-22 사용자 보고)."""
+    return " ".join(
+        " ".join([str(q.get("question") or "")] + [str(c) for c in (q.get("chips") or [])])
+        for q in ((pending_ask or {}).get("queue") or [])
+    )
+
+
+def pending_value_notices(
+    dropped: List[str], pending_conditions: Optional[List[Dict[str, Any]]], *,
+    clarification_question: Optional[str], pending_ask: Optional[Dict[str, Any]],
+    notices: List[str], clarification_suggestions: Optional[List[str]] = None,
+) -> List[str]:
+    """제외됐지만 질문·큐·기존 안내가 다루지 않는 조건의 안내 문구(값 미정 / 컴파일 불가로 나눔).
+
+    이월 큐(queue)에 실린 질문은 "다음 턴에 물을 예정"이므로 다룬 것으로 친다 — 안 그러면 한 턴에
+    한 질문 분할이 뒤 질문의 조건마다 미반영 안내를 만든다. 지금 질문의 칩도 우리가 낸 글이다
+    (현금 하한 질문은 라벨을 칩에만 담는다).
+    """
+    out: List[str] = []
+    unexplained_drops = [d for d in dropped if d not in " ".join(
+        [clarification_question or "", _queued_ask_text(pending_ask)]
+        + [str(c) for c in (clarification_suggestions or [])] + notices
+    )]
+    # dropped는 원인이 둘 섞여 있다 — ① 값 미정(pending_conditions에도 실린다) ②
+    # 컴파일 불가(미지원 지표·역할 불가). 한 문구로 묶으면 ②에까지 "값 확인 전까지"가
+    # 붙어 **값을 주면 해결될 것처럼** 읽힌다(2026-08-04 실측: 지원되지 않는 '베타'에
+    # "값 확인 전까지 반영되지 않았어요"가 붙었다). 원인별로 나눠 정직하게 쓴다.
+    # 값 대기 안내는 **사용자가 한 말**(source_text)로 인용한다 — 라벨은 내부 표기라 사용자
+    # 문장에 없는 말('현금 하한'·'시장 국면 필터')이 "말씀하신 조건"처럼 나간다(2026-09-22
+    # 사용자 보고). 인용이 없는 항목만 라벨로 알린다.
+    pending_quotes = {
+        (p or {}).get("label"): (p or {}).get("source_text")
+        for p in reversed(pending_conditions or [])
+    }
+    value_pending_drops = [d for d in unexplained_drops if d in pending_quotes]
+    uncompilable_drops = [d for d in unexplained_drops if d not in pending_quotes]
+    if value_pending_drops:
+        quoted = ", ".join(
+            (pending_quotes.get(d) or "").strip() or d for d in value_pending_drops)
+        out.append(f"'{quoted}' 조건은 값 확인 전까지 전략에 반영되지 않았어요.")
+    if uncompilable_drops:
+        # 왜 반영 못했는지(미지원 지표 등)는 결정론 게이트의 미지원 개념 안내가 담당한다 —
+        # 여기서는 '어느 표현이 빠졌는지'만 알린다(조용한 누락 방지).
+        out.append(
+            f"'{', '.join(uncompilable_drops)}' 조건은 전략에 반영하지 못했어요."
+        )
+    return out
 
 
 def _approximation_notices(strategy: Any) -> List[str]:
@@ -1333,7 +1390,12 @@ def _fill_deterministic_condition_params(
         return (c.factor in _SELL_DECLARED_CONCEPTS
                 or (c.factor in _SELL_DECLARED_LEAVES and c.operator == "crosses_below"))
 
-    if not strategy.exit_conditions:
+    # 적립식(납입 계획이 있는 턴)엔 매도가 없다 — "200일선 아래에 있으면"을 crosses_below로 낸 출력을
+    # 매도 선언으로 보고 청산 칸에 옮기면 그 순간 '매수·매도 조건이 있는 적립식'이 되어 계획이 통째로
+    # 빠진다(2026-09-22 실측). 적립식 판정이 이 보정보다 먼저 돌아 계획 칸이 채워져 있다.
+    _bt = strategy.backtest
+    _contribution_turn = _bt.contribution_amount is not None or _bt.contribution_period is not None
+    if not strategy.exit_conditions and not _contribution_turn:
         relocated = []
         for cond in list(strategy.entry_conditions):
             quote = (cond.source_text or "").lower()
@@ -1855,6 +1917,35 @@ def _resolve_trading_value_comparisons(
     ) + (f" → 거래대금 배수 {len(moved)}개" if moved else ""))
 
 
+def _resolve_contribution_plan(
+    intent: Any, user_input: str, chat: Any, only: Optional[List[Any]] = None,
+) -> None:
+    """적립식 전용 판정(통합) — 계획·조건별 매수 금액·현금 관리 규칙을 한 호출로 묻고 전략에 옮긴다
+    (interpreter/contribution_plan_check.py, 엔진 v16.20~22).
+
+    종전에는 계획 회수·현금 풀·조건부 금액이 별도 판정이었고 발동 조건(계획 존재)·항목 순서 대조·
+    일반 전략용 보정(crosses_below→청산 재배치)에 얽혀 하나가 흔들리면 "매수·매도 조건이 있는
+    적립식은 미지원"으로 무너졌다(2026-09-22, 모듈 docstring). 이 함수는 조건 파라미터 보정보다
+    **먼저** 돈다 — 계획을 채우고 상태 연산자를 옮긴 뒤에야 그 보정이 적립 턴을 알아볼 수 있다.
+    적립이 아닌 턴은 호출이 없고, 실패는 판정 없음(종전 동작). chat이 없는 주입 스텁은 건너뛴다."""
+    from strategy_conversation.interpreter import contribution_plan_check
+
+    strategy = getattr(intent, "strategy", None)
+    if strategy is None or not callable(chat) or not contribution_plan_check.applies_to(intent):
+        return
+    targets = [c for c in strategy.entry_conditions if c.buy_amount is None and c.source_text
+               and (only is None or any(c is o for o in only))]
+    if only is not None and not targets:
+        return
+    verdict = contribution_plan_check.check_contribution_plan(user_input, targets, chat)
+    if verdict is None:
+        _log_llm("△ 적립식 판정 실패", "판정 없음으로 진행")
+        return
+    notes = contribution_plan_check.apply_verdict(intent, verdict, only=only)
+    if notes:
+        _log_llm("✓ 적립식 판정", "; ".join(notes))
+
+
 def run_primary_parse(
     user_input: str, on_stage=None,
     previous_explicit_fields: Optional[List[str]] = None,
@@ -1933,8 +2024,12 @@ def run_primary_parse(
     # (교정·제거 안 함, quote_check 모듈 docstring).
     quote_verdicts = _check_condition_quotes(result.intent, user_input, recall_chat)
     _resolve_trading_value_comparisons(result.intent, user_input, recall_chat)
+    # 적립식 판정(통합) — 파라미터 보정보다 먼저: 계획을 채우고 조건에 금액·상태 연산자를 달아야
+    # 아래 보정(매도 선언 재배치 등)이 이 턴을 적립식으로 알아본다(2026-09-22).
+    _resolve_contribution_plan(result.intent, user_input, recall_chat)
     if planner_future is not None:
         planner_first = planner_future.result()
+    _recover_kr_etf_product(result.intent, planner_first)
 
     repair_notices = _fill_deterministic_condition_params(result.intent, quote_verdicts)
     _normalize_size_class_labels(result.intent)
@@ -1955,6 +2050,10 @@ def run_primary_parse(
         )
         if recovered:
             _log_llm("✓ 누락 조건 회수", ", ".join(recovered))
+            # 되살린 조건도 적립 턴이면 같은 금액 판정을 받는다(그 조건에 한해 한 번 더).
+            _recovered_conditions = [
+                c for c in result.intent.strategy.entry_conditions if c.factor in recovered]
+            _resolve_contribution_plan(result.intent, user_input, recall_chat, only=_recovered_conditions)
         # 설정 슬롯도 같은 결함을 겪는다 — "최근 1년"을 말했는데 기간만 빠져 이미 답한
         # 값을 다시 묻던 사고(2026-09-16). 기간이 빈 턴에서만 부른다(대부분은 호출 없음).
         from strategy_conversation.interpreter.condition_recall import (
@@ -2023,7 +2122,11 @@ def run_primary_parse(
     # create 레인에서 표면화 경로가 없고(오류→질문 변환은 수정 레인 전용), 컴파일을
     # 지나면 한국 유니버스 전략 카드가 /us에 물질화된다(2026-08-26 실측: KOSPI200 지정이
     # PER 되묻기로 진행). 전략은 만들지 않고 거절 안내를 되묻기 채널로 낸다.
-    _region_refusal = _us_region_kr_market_refusal(validated)
+    # 거울 방향(2026-09-21 지시): KR 요청의 미국 시장 지정도 같은 자리에서 거절한다 —
+    # 지나가면 미국 요청이 국내 유니버스 전략으로 조용히 바뀐다.
+    _region_refusal = (_us_region_kr_market_refusal(validated)
+                       or _kr_region_us_market_refusal(
+                           validated, recall_chat, planner_result=planner_first))
     if _region_refusal is not None:
         from engine.nl_parser import ParsedStrategy
 
@@ -2330,30 +2433,13 @@ def run_primary_parse(
     # 제외됐지만 질문이 다루지 않는 조건이 있으면 정직하게 알린다.
     # 이월 큐(queue)에 실린 질문은 "다음 턴에 물을 예정"이므로 다룬 것으로 친다 —
     # 안 그러면 한 턴에 한 질문 분할이 뒤 질문의 조건마다 미반영 안내를 만든다.
-    queued_question_text = " ".join(
-        str(q.get("question") or "")
-        for q in ((pending_ask or {}).get("queue") or [])
-    )
-    unexplained_drops = [d for d in dropped if d not in " ".join(
-        [clarification_question or "", queued_question_text] + notices
-    )]
-    # dropped는 원인이 둘 섞여 있다 — ① 값 미정(pending_conditions에도 실린다) ②
-    # 컴파일 불가(미지원 지표·역할 불가). 한 문구로 묶으면 ②에까지 "값 확인 전까지"가
-    # 붙어 **값을 주면 해결될 것처럼** 읽힌다(2026-08-04 실측: 지원되지 않는 '베타'에
-    # "값 확인 전까지 반영되지 않았어요"가 붙었다). 원인별로 나눠 정직하게 쓴다.
+    notices.extend(pending_value_notices(
+        dropped, pending_conditions, clarification_question=clarification_question,
+        clarification_suggestions=clarification_suggestions, pending_ask=pending_ask, notices=notices,
+    ))
+    # 아래 잔여 미지원 안내가 '이미 다룬 글'을 대조할 때 같은 재료를 쓴다.
+    queued_question_text = _queued_ask_text(pending_ask)
     pending_labels = {(p or {}).get("label") for p in (pending_conditions or [])}
-    value_pending_drops = [d for d in unexplained_drops if d in pending_labels]
-    uncompilable_drops = [d for d in unexplained_drops if d not in pending_labels]
-    if value_pending_drops:
-        notices.append(
-            f"'{', '.join(value_pending_drops)}' 조건은 값 확인 전까지 전략에 반영되지 않았어요."
-        )
-    if uncompilable_drops:
-        # 왜 반영 못했는지(미지원 지표 등)는 결정론 게이트의 미지원 개념 안내가 담당한다 —
-        # 여기서는 '어느 표현이 빠졌는지'만 알린다(조용한 누락 방지).
-        notices.append(
-            f"'{', '.join(uncompilable_drops)}' 조건은 전략에 반영하지 못했어요."
-        )
     # ── 근사 반영 안내(LLM 신고 채널, 2026-09-10 신설) ──
     # 정확히 같은 지표가 없어 가까운 지표로 대신 반영한 조건을 사용자에게 알린다.
     # 종전에는 이 알림을 **원문 정규식**(build_unsupported_concept_notice)이 냈다 —
@@ -2430,24 +2516,19 @@ def run_primary_parse(
             and not field_name_rx.search(f)
         ]
         leftover_features = _drop_fragments_wrapping_others(leftover_features)
-        # 긴 발화 조각(정성 표현 등)은 지목 인용하지 않는다(2026-08-12 사용자 결정) —
-        # "'퇴직금 굴려야 하는데 절대 잃으면 안 되는 돈이라…' 조건은"처럼 자기 말
-        # 반 토막을 되돌려받는 안내가 되므로, 상한 초과 조각은 일반 문구로 뭉뚱그린다.
-        # 판정은 문자열 길이뿐이다(표기만 보면 결정 가능 — 원문 의미를 읽지 않는다).
+        # 무엇을 지원하지 않는지는 **항상 이름으로** 알린다(2026-09-21 사용자 지시). 종전에는
+        # 25자를 넘는 조각을 "말씀하신 조건 중 일부는 지원하지 않아…"로 뭉뚱그렸는데(2026-08-12
+        # 결정 — 자기 말 반 토막을 되돌려받는 안내 방지), 그러면 사용자는 **무엇이** 빠졌는지 알
+        # 길이 없다(실측: "단일 매수 금액은 보유 현금의 10%를 넘지 않으며"가 27자라 일반 문구만
+        # 나갔다). 짧은 이름은 종전대로 한 줄에 모으고, 긴 조각은 한 줄에 하나씩 그대로 인용한다.
+        # 발화 전체를 담은 오라벨은 위 _reported_features_echo_input이 이미 걸렀다.
         named = [f for f in leftover_features if len(f) <= _QUOTED_FEATURE_MAX_LEN]
         long_fragments = [f for f in leftover_features if len(f) > _QUOTED_FEATURE_MAX_LEN]
-        if named:
+        for names in ([", ".join(named)] if named else []) + long_fragments:
             notices.append(ui_language.msg(
                 "'{names}' 조건은 지원하지 않아 전략에 반영하지 못했어요.",
                 "The condition '{names}' is not supported, so it was not reflected in the strategy.",
-                names=", ".join(named),
-            ))
-        if long_fragments:
-            notices.append(ui_language.msg(
-                "말씀하신 조건 중 일부는 지원하지 않아 전략에 반영하지 못했어요. "
-                "전략 요약을 확인해 주세요.",
-                "Some of the conditions you mentioned are not supported and were not reflected "
-                "in the strategy. Please check the strategy summary.",
+                names=names,
             ))
         if leftover_features:
             _log_llm("△ 잔여 미지원 안내", (
@@ -3037,6 +3118,162 @@ def _us_region_kr_market_refusal(validated: Any) -> Optional[str]:
         "universe: S&P 500, Nasdaq-100, Nasdaq, Dow 30, the entire US market, "
         "or US ETFs.",
     )
+
+
+def _is_etf_expression(term: str) -> bool:
+    """LLM이 뽑은 표현이 ETF 상품 표현인가 — classify_universe와 같은 표기 표지를 쓴다."""
+    from strategy_conversation.tools.catalog import _ETF_MARKERS
+
+    key = (term or "").replace(" ", "").lower()
+    return any(marker in key for marker in _ETF_MARKERS)
+
+
+def _recover_kr_etf_product(intent: Any, planner_result: Any) -> Optional[str]:
+    """KR 요청의 ETF 상품 표현을 국내 ETF 상품 키워드(etf_theme)로 옮긴다. 옮겼으면 키워드.
+
+    2026-09-21 실측(120B): "매월 첫 거래일마다 S&P500 ETF를 100만 원씩…"에 인터프리터는
+    실행마다 세 형태를 냈다 — markets=["ETF"]+symbols=["S&P500 ETF"](미해석 안내) /
+    markets=["ETF"]뿐(표현 소실) / markets=["US_ETF"]. 어느 쪽도 etf_theme을 채우지 않아
+    국내 ETF 1,384개 전체가 대상이 되거나 미국 요청으로 거절됐다. 국내에는 그 상품이
+    상장돼 있다(상품명에 'S&P500' 52개·'나스닥' 33개). planner-first는 같은 턴에 3회 모두
+    "S&P500 ETF"를 뽑아 ETF로 분류했다 — 그 관찰값으로 빈 칸을 채운다(/us 티커 소실을
+    _apply_designated_symbol로 복구한 것과 같은 계약: 프롬프트는 이 층에서 수렴하지 않는다).
+
+    계약: 입력은 planner LLM이 뽑은 표현과 그 분류 관찰값, 확정은 국내 ETF 마스터 대조
+    (universe_pit.etf_theme_keyword — 명부에 걸리지 않으면 아무것도 하지 않는다). 원문은
+    읽지 않는다. 인터프리터가 etf_theme을 이미 채웠으면 그 값이 이기고(planner 표현은 보지
+    않는다) 시장 토큰만 맞춘다. 표현이 둘 이상이면 고르지 않는다. 한국 주식 시장(코스피
+    등)이 함께 지정된 턴은 건드리지 않는다.
+
+    markets의 미국 토큰을 'ETF'로 옮기는 근거: KR 레인의 ETF 칸은 국내 상장 상품이다
+    (UniverseSpec.etf_theme 설명이 '미국 ETF'→키워드 '미국'을 명시) — 미국 티커(SPY)나
+    "미국 주식"은 ETF 상품 표현이 아니어서 여기 오지 않고 지역 가드가 거절한다."""
+    if ui_language.get_ui_language() == "en":
+        return None
+    strategy = getattr(intent, "strategy", None)
+    if strategy is None:
+        return None
+    from engine.universe_pit import etf_theme_keyword
+    from strategy_conversation.registry.capability_registry import US_MARKETS
+
+    if set(strategy.universe.markets) - set(US_MARKETS) - {"ETF"}:
+        return None
+    if strategy.universe.etf_theme:
+        # 인터프리터가 키워드를 직접 적은 턴 — 그 값이 이긴다(네 번째 실측 형태:
+        # markets=["US_ETF"] + etf_theme="S&P500"). 표지가 붙어 있으면("S&P500 ETF") 떼고,
+        # 국내 명부에 걸릴 때만 시장 토큰을 국내 ETF로 맞춘다.
+        terms = [strategy.universe.etf_theme]
+        keyword = etf_theme_keyword(strategy.universe.etf_theme)
+        if keyword is None:
+            return None
+    else:
+        terms = [
+            term.strip()
+            for term, obs in (_planner_observations(planner_result)
+                              if planner_result is not None else [])
+            if obs.get("universe_type") == "ETF" and not obs.get("canonical") and term.strip()
+        ]
+        keywords = {kw for kw in (etf_theme_keyword(t) for t in terms) if kw}
+        if len(keywords) != 1:
+            return None
+        keyword = keywords.pop()
+    if strategy.universe.markets == ["ETF"] and strategy.universe.etf_theme == keyword:
+        return None  # 이미 제자리
+    before = list(strategy.universe.markets)
+    strategy.universe.markets = ["ETF"]
+    strategy.universe.etf_theme = keyword
+    # 인터프리터가 같은 표현을 지정 종목 칸에도 적었으면 걷는다 — 남기면 상품 키워드로
+    # 반영해 놓고 "종목으로 인식되지 않아" 안내가 함께 나간다.
+    strategy.universe.symbols = [
+        s for s in (strategy.universe.symbols or [])
+        if not (isinstance(s, str) and _is_etf_expression(s) and etf_theme_keyword(s) == keyword)
+    ]
+    _log_llm("✓ 국내 ETF 상품 복구", (
+        f"표현 {terms} → etf_theme='{keyword}' (markets {before}→['ETF'])"
+    ))
+    return keyword
+
+
+KR_ONLY_MARKET_REFUSAL = (
+    "죄송합니다. 현재 저는 한국 주식시장만 지원하고 있습니다.\n\n"
+    "코스피·코스닥에 상장된 종목으로 같은 규칙의 전략을 만들어 드릴까요?"
+)
+
+
+def _kr_region_us_market_refusal(
+    validated: Any, chat: Any = None, only_terms: Optional[List[str]] = None,
+    planner_result: Any = None,
+) -> Optional[str]:
+    """KR 요청(표시 언어 ko)이 미국 시장을 대상으로 했으면 거절 안내 문구, 아니면 None.
+
+    /us의 거울이다(_us_region_kr_market_refusal) — 지역 서비스 분리 원칙상 KR 레인은
+    한국 시장 전용이고, 미국 요청을 조용히 국내 유니버스로 바꿔 진행하지 않는다.
+    2026-09-21 실측: "매월 첫 거래일마다 S&P500 ETF를 100만 원씩"이 markets=["ETF"]
+    (한국 ETF)로 조립돼 국내 ETF 전략이 나갔다.
+
+    판정 근거 셋 — 앞의 둘은 결정론, 마지막 하나만 LLM이다(원문은 읽지 않는다):
+      ① LLM이 고른 시장 enum ∩ US_MARKETS
+      ② LLM이 종목으로 뽑은 표현을 registry가 **미국 티커로 푼** 경우('애플'·'SPY')
+      ③ registry가 못 푼 표현의 시장을 LLM에게 물어(market_region_check) 미국이라는 답
+    ③의 입력은 LLM이 뽑은 짧은 문자열이며, 실패·모름은 판정 없음(거절하지 않는다).
+
+    planner_result: planner-first의 분류 관찰값도 ①②의 근거로 본다(생성 레인) — 관찰값이
+    미국 시장 코드면 ①, 미국 티커면 ②다.
+
+    **ETF 상품 표현은 거절 대상이 아니다**(2026-09-21 사용자 정정): "S&P500 ETF"·"나스닥
+    ETF"는 국내에 상장된 상품을 말한다(명부 실측 52개·33개). 첫 구현은 이 표현을 ③에 올려
+    미국 상품으로 거절했는데 전제가 틀렸다 — 그 표현은 이 가드보다 앞에서
+    _recover_kr_etf_product가 국내 ETF 상품 키워드로 옮긴다.
+
+    only_terms: ③의 대상을 이번 턴에 새로 들어온 표현으로 좁힌다(수정 레인 — 이월된
+    표현은 자기 턴에서 이미 판정됐다). None이면 미해석 표현 전부가 대상이다."""
+    if ui_language.get_ui_language() == "en":
+        return None
+    strategy = getattr(validated, "strategy", None)
+    if strategy is None:
+        return None
+    from strategy_conversation.registry.capability_registry import US_MARKETS
+
+    from engine.universe_pit import is_us_symbol
+
+    us_named = set(strategy.universe.markets) & set(US_MARKETS)
+    us_codes: List[str] = []
+    for term, obs in (_planner_observations(planner_result) if planner_result is not None else []):
+        kind, canonical = obs.get("universe_type"), obs.get("canonical")
+        if kind == "MARKET" and canonical in US_MARKETS:
+            us_named.add(canonical)
+        elif kind == "SINGLE_STOCK" and canonical and is_us_symbol(str(canonical)):
+            us_codes.append(str(canonical))
+    if us_named:
+        _log_llm("⛔ 지역 격리", f"미국 시장 지정 거절: {sorted(us_named)}")
+        return KR_ONLY_MARKET_REFUSAL
+    refs = [s for s in (strategy.universe.symbols or []) if isinstance(s, str) and s.strip()]
+    unresolved: List[str] = []
+    if refs:
+        from strategy_conversation.registry.universe_resolver import resolve_symbols
+
+        codes, unresolved = resolve_symbols(refs)
+        us_codes += [c for c in codes if is_us_symbol(c)]
+    if us_codes:
+        _log_llm("⛔ 지역 격리", f"미국 종목 지정 거절: {sorted(set(us_codes))}")
+        return KR_ONLY_MARKET_REFUSAL
+    # ETF 상품 표현은 ③의 대상이 아니다 — KR 레인의 ETF는 국내 상장 상품이다("S&P500 ETF"·
+    # "나스닥 ETF"는 국내에 상장돼 있다, _recover_kr_etf_product).
+    terms = [t for t in unresolved
+             if (only_terms is None or t in only_terms) and not _is_etf_expression(t)]
+    if not terms or not callable(chat):
+        return None
+    from strategy_conversation.interpreter import market_region_check
+
+    verdicts = market_region_check.check_markets(terms, chat)
+    if verdicts is None:
+        _log_llm("△ 종목 시장 판정 실패", f"{terms} — 판정 없음으로 진행(거절하지 않음)")
+        return None
+    us_terms = sorted(t for t, market in verdicts.items() if market == "US")
+    if us_terms:
+        _log_llm("⛔ 지역 격리", f"미국 상품 표현 거절: {us_terms}")
+        return KR_ONLY_MARKET_REFUSAL
+    return None
 
 
 def _us_market_context(parsed: Any) -> bool:
@@ -4265,6 +4502,85 @@ def _resolve_theme_change(
     return None
 
 
+def _draft_for_interpreter(draft_spec: Any) -> dict:
+    """수정 인터프리터에 보여 줄 초안 — 현금 풀(v16.22)은 가린다.
+
+    현금 풀은 메인 프롬프트가 모르는 칸이고(전용 판정·칩이 채운다), 초안에 실리면 수정 LLM의
+    귀속이 흔들린다 — 2026-09-21 실측: "어떤 종목을 적립식으로 사 모을까요?"에 "TIGER 미국S&P500"을
+    답하자 3/4가 `/backtest/contribution_amount`에 종목명을 넣어 해석 실패로 끝났다(현금 풀이
+    초안에 없던 때는 3/3 etf_theme·symbols로 정상). 패치는 draft_spec 원본에 적용되므로 가린
+    칸은 손실 없이 이월된다."""
+    draft = draft_spec.model_dump()
+    (draft.get("backtest") or {}).pop("cash_pool", None)
+    return draft
+
+
+def _cash_reserve_answer_result(draft_spec: Any, user_input: str, pending_question: Optional[str]) -> Any:
+    """현금 하한을 되묻는 중이고 지금 입력이 그 질문의 답이면, 전용 판정으로 값을 옮겨 패치 하나짜리
+    해석 결과를 만든다(아니면 None → 일반 수정 인터프리터).
+
+    초안에서 현금 풀을 가렸으므로(_draft_for_interpreter) 수정 LLM은 이 답을 옮길 자리를 모른다.
+    "이 질문의 답인가"는 **우리가 낸 질문 문장의 동일성**으로 판정한다(사용자 입력을 읽지 않는다).
+    값 옮겨 적기는 LLM(cash_pool_check.check_reserve_answer), 값이 없거나 실패면 None."""
+    from strategy_conversation.interpreter import cash_pool_check
+    from strategy_conversation.interpreter.llm_strategy_interpreter import (
+        InterpreterResult,
+        StrategyInterpreter,
+    )
+    from strategy_conversation.interpreter.models import PatchOp, StrategyIntent
+    from strategy_conversation.validation.completeness_validator import CASH_RESERVE_QUESTION
+
+    pool = draft_spec.backtest.cash_pool
+    if pool is None or pool.is_complete() or (pending_question or "").strip() not in CASH_RESERVE_QUESTION:
+        return None
+    interpreter = _get_interpreter(StrategyInterpreter)
+    chat = getattr(interpreter, "_chat", None)
+    if not callable(chat):
+        return None
+    verdict = cash_pool_check.check_reserve_answer(user_input, chat)
+    if not verdict:
+        return None
+    (field, value), = verdict.items()
+    _log_llm("✓ 현금 하한 답변", f"{field}={value}")
+    intent = StrategyIntent(intent="MODIFY_STRATEGY", patches=[PatchOp(
+        op="replace", path=f"/backtest/cash_pool/{field}", value=value, source_text=user_input.strip())])
+    return InterpreterResult(intent=intent, raw_output="", repair_attempts=0, latency_ms=0.0,
+                             model_name=getattr(interpreter, "model_name", "") or "")
+
+
+def _contribution_symbol_answer_result(draft_spec: Any, user_input: str, pending_question: Optional[str]) -> Any:
+    """적립식의 '어떤 종목을 사 모을까요?'를 되묻는 중이면, 전용 판정이 옮겨 적은 종목 표현으로
+    패치 하나짜리 해석 결과를 만든다(아니면 None → 일반 수정 인터프리터).
+
+    "이 질문의 답인가"는 우리가 낸 질문 문장의 동일성으로 판정하고, 표현 추출은 LLM, 코드 해석은
+    정본 registry다(패치 출처 가드가 registry로 검증한다 — 못 푸는 이름은 거부·안내)."""
+    from strategy_conversation.interpreter import contribution_amount_check
+    from strategy_conversation.interpreter.llm_strategy_interpreter import (
+        InterpreterResult,
+        StrategyInterpreter,
+    )
+    from strategy_conversation.interpreter.models import PatchOp, StrategyIntent
+    from strategy_conversation.validation.completeness_validator import CONTRIBUTION_SYMBOL_QUESTION
+
+    bt = draft_spec.backtest
+    if ((bt.contribution_amount is None and bt.contribution_period is None)
+            or draft_spec.universe.symbols
+            or (pending_question or "").strip() not in CONTRIBUTION_SYMBOL_QUESTION):
+        return None
+    interpreter = _get_interpreter(StrategyInterpreter)
+    chat = getattr(interpreter, "_chat", None)
+    if not callable(chat):
+        return None
+    symbols = contribution_amount_check.check_symbol_answer(user_input, chat)
+    if not symbols:
+        return None
+    _log_llm("✓ 적립 종목 답변", f"{symbols}")
+    intent = StrategyIntent(intent="MODIFY_STRATEGY", patches=[PatchOp(
+        op="replace", path="/universe/symbols", value=symbols, source_text=user_input.strip())])
+    return InterpreterResult(intent=intent, raw_output="", repair_attempts=0, latency_ms=0.0,
+                             model_name=getattr(interpreter, "model_name", "") or "")
+
+
 def run_primary_modification(
     user_input: str, previous_parsed: dict, on_stage=None,
     previous_explicit_fields: Optional[List[str]] = None,
@@ -4356,9 +4672,11 @@ def run_primary_modification(
     if on_stage is not None:
         on_stage("thinking")
     try:
-        result = _get_interpreter(StrategyInterpreter).interpret(
-            user_input, draft=draft_spec.model_dump(), pending_question=pending_question,
-        )
+        result = _cash_reserve_answer_result(draft_spec, user_input, pending_question) \
+            or _contribution_symbol_answer_result(draft_spec, user_input, pending_question) \
+            or _get_interpreter(StrategyInterpreter).interpret(
+                user_input, draft=_draft_for_interpreter(draft_spec), pending_question=pending_question,
+            )
     except InterpreterError as exc:
         logger.warning("modify primary interpreter failed, falling back | err=%s", str(exc)[:200])
         return None
@@ -4683,10 +5001,41 @@ def run_primary_modification(
         if not any(cond == prior for prior in draft_conditions)
     ]
     modify_chat = getattr(_get_interpreter(StrategyInterpreter), "_chat", None)
+    # [지역 격리] 수정 턴도 미국 시장으로 넘어갈 수 없다(생성 레인과 같은 계약, 2026-09-21
+    # 지시) — 수정은 적용하지 않고 거절 안내를 되묻기 채널로 낸다. 미해석 표현의 시장을
+    # LLM에 묻는 ③은 **이번 턴에 새로 들어온 표현**만 대상으로 한다(이월분은 자기 턴에서
+    # 판정됐다).
+    _added_symbols = [
+        s for s in (patched_spec.universe.symbols or [])
+        if isinstance(s, str) and s not in (draft_spec.universe.symbols or [])
+    ]
+    _region_refusal = _kr_region_us_market_refusal(
+        modify_intent, modify_chat, only_terms=_added_symbols,
+    )
+    if _region_refusal is not None:
+        return finalize_user_response({
+            "parsed": prev,
+            "clarification_question": _region_refusal,
+            "clarification_suggestions": None,
+            "clarification_priority": "region_market_unsupported",
+            "notices": [],
+            "interpreter": {
+                "mode": "primary_modify_region_market_refusal",
+                "model_name": result.model_name,
+                "prompt_version": result.prompt_version,
+                "repair_attempts": result.repair_attempts,
+                "llm_latency_ms": result.latency_ms,
+                "patch_count": 0,
+                "confidence": intent.confidence,
+            },
+        })
     quote_verdicts = _check_condition_quotes(
         modify_intent, user_input, modify_chat, only=added_conditions,
     )
     _resolve_trading_value_comparisons(
+        modify_intent, user_input, modify_chat, only=added_conditions,
+    )
+    _resolve_contribution_plan(
         modify_intent, user_input, modify_chat, only=added_conditions,
     )
     repair_notices = _fill_deterministic_condition_params(modify_intent, quote_verdicts)

@@ -74,6 +74,9 @@ class StrategyValidationAgent:
         issues: list[dict[str, str]] = []
         issues.extend(self._validate_required_fields(payload))
         declined = {str(field) for field in (declined_fields or ())}
+        # 정액 적립식은 매도가 없다 — 손절·익절은 물을 대상이 아니다(슬롯 정본 CONTRIBUTION_NOT_APPLICABLE).
+        if self._has_contribution_plan(payload):
+            declined |= {"stop_loss", "take_profit"}
         if "stop_loss" not in declined:
             issues.extend(self._validate_stop_loss(payload))
         if "take_profit" not in declined:
@@ -99,10 +102,24 @@ class StrategyValidationAgent:
             return dumped if isinstance(dumped, Mapping) else None
         return None
 
+    @staticmethod
+    def _has_contribution_plan(strategy: Mapping[str, Any]) -> bool:
+        """정액 적립식(엔진 v16.20)인가 — 납입액·주기가 있고 대상(지정 종목 또는 ETF 상품 유니버스)이 있다.
+        engine/strategy_slots.has_contribution_plan과 같은 술어. 납입 일정이 곧 매수 규칙이고 매도가 없다 —
+        빠뜨리면 "진입 조건을 입력해 주세요"가 뜬다(2026-09-22 사용자 보고)."""
+        amount = strategy.get("contribution_amount")
+        return (
+            isinstance(amount, (int, float)) and not isinstance(amount, bool) and amount > 0
+            and bool(strategy.get("contribution_period"))
+            and bool(strategy.get("target_symbols") or strategy.get("etf_theme"))
+        )
+
     def _validate_required_fields(self, strategy: Mapping[str, Any]) -> list[dict[str, str]]:
+        contribution = self._has_contribution_plan(strategy)
         fields = {
             "universe": self._first(strategy, ("universe",), ("symbols",)),
-            "entry_rule": self._first(strategy, ("entry_rule",), ("entry",), ("entry_signals",)),
+            "entry_rule": (True if contribution
+                           else self._first(strategy, ("entry_rule",), ("entry",), ("entry_signals",))),
             "rebalance_rule": self._first(
                 strategy, ("rebalance_rule",), ("rebalancing_period",), ("risk", "rebalancing_period")
             ),
@@ -141,7 +158,8 @@ class StrategyValidationAgent:
             strategy, ("rebalancing_period",), ("risk", "rebalancing_period")
         )
         has_rebalancing = not self._is_empty(rebalancing) and str(rebalancing).lower() != "none"
-        if self._is_empty(exit_rule) and self._is_empty(holding_period) and not has_rebalancing:
+        if (self._is_empty(exit_rule) and self._is_empty(holding_period) and not has_rebalancing
+                and not contribution):
             issues.append(self._issue(
                 "MISSING_EXIT_RULE", "error", "missing_field", "exit_rule",
                 "청산 조건이 정의되어 있지 않습니다.",

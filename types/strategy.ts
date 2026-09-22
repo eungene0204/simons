@@ -70,6 +70,13 @@ export interface RiskManagement {
    *  (첫 거래일은 초기 자본, 이후 각 주기의 첫 거래일마다 납입). */
   contribution_amount?: number | null;
   contribution_period?: ContributionPeriod | null;
+  /** 조건부 납입액 규칙(엔진 v16.21) — 납입일에 condition이 성립하면 그 회차 납입액을 amount로(set)/amount만큼 더(add). */
+  contribution_rules?: Array<{ condition: Record<string, unknown>; amount: number; mode: "set" | "add" }> | null;
+  /** 현금 풀(엔진 v16.22) — 'cash_pool'이면 초기 자본(보유 현금)에서 회차 매수액을 꺼낸다. 하한은 %·금액 중 하나. */
+  contribution_funding?: "cash_pool" | null;
+  cash_reserve_pct?: number | null;
+  cash_reserve_amount?: number | null;
+  max_buy_cash_pct?: number | null;
   allocation_type?: "equal" | "fixed_pct";
   rebalancing_period?: string;
   /** 리밸런싱 방식(FR-BT-067) — 'reconstitute'=리밸런싱일마다 목표 종목 재선정,
@@ -202,6 +209,15 @@ export interface BacktestContributions {
   simpleReturn: number;
   /** 금액가중 수익률(연 %, XIRR). 해가 없으면 null. */
   moneyWeightedReturn: number | null;
+  /** 현금 풀(v16.22) — 'cash_pool'이면 밖에서 돈이 들어오지 않고 보유 현금(초기 자본)에서 꺼내 샀다. 아래 키는 그때만 있다. */
+  funding?: "cash_pool";
+  investedTotal?: number;
+  finalCash?: number;
+  cashReserve?: number;
+  maxBuyCashPct?: number | null;
+  limitedRounds?: number;
+  /** 조건부 납입액 규칙별 적용 결과(v16.21) — 규칙이 없으면 키가 없다. */
+  rules?: Array<{ amount: number; mode: "set" | "add"; applied: number; condition: string }>;
   /** 거래일별 누적 납입액 — dates·equity와 같은 길이. */
   cumulative: number[];
 }

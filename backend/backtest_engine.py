@@ -608,15 +608,59 @@ class BacktestEngine:
             print(f"[BT-ENGINE] 벤치마크 로드 실패 ({_benchmark_sym}): {_be}", flush=True)
         return benchmark_prices, _benchmark_name
 
+    def _contribution_rule_hits(self, rules, price_df, exec_type, signal_delay):
+        """조건부 납입액 규칙별 성립 여부(거래일 × 종목) — 체결 시점 규약까지 반영한 값.
+
+        지정 종목 몇 개만 다루므로 Phase1(캐시·풀)을 거치지 않고 여기서 직접 계산한다: 전체 이력에
+        지표를 계산해(창 첫 봉도 200일선이 있다) 일반 매수 신호와 같은 평가기로 조건을 본다.
+        시가 체결이면 신호를 signal_delay봉 뒤로 민다 — 납입일 시가에 사는 금액을 그날 종가로
+        정하면 미래 참조다. 데이터가 없는 봉은 성립하지 않은 것으로 둔다(기본액 납입).
+        """
+        import numpy as np
+
+        hits = []
+        for rule in rules:
+            cond = dict(rule["condition"])
+            cols = {}
+            for sym in price_df.columns:
+                df_pl = self.loader.load_symbol_data(sym)
+                if df_pl is None or len(df_pl) == 0:
+                    cols[sym] = pd.Series(False, index=price_df.index)
+                    continue
+                df_pl = self.indicator_engine.calculate(df_pl, [cond])
+                signal, _reasons = self.signal_engine.generate_signals(
+                    df_pl, {"logic": "AND", "conditions": [cond]})
+                series = pd.Series(
+                    np.asarray(signal, dtype=bool),
+                    index=pd.DatetimeIndex(pd.to_datetime(df_pl["date"].to_pandas())))
+                series = series[~series.index.duplicated(keep="last")]
+                if exec_type == 'next_open':
+                    series = series.shift(int(signal_delay), fill_value=False)
+                cols[sym] = series.reindex(pd.DatetimeIndex(price_df.index), fill_value=False)
+            hits.append(pd.DataFrame(cols, index=pd.DatetimeIndex(price_df.index))
+                        .to_numpy(dtype=bool))
+        return hits
+
     def _run_contribution_backtest(self, req, risk_params, options, contribution, init_cash,
                                    price_df, exec_px_df, available_df, common_index,
-                                   processed_symbols, apply_dividends):
-        """정액 적립식 레인(v16.20) — 지정 종목을 납입 일정대로 조건 없이 사 모은다.
+                                   processed_symbols, apply_dividends,
+                                   exec_type='next_open', signal_delay=1):
+        """정액 적립식 레인(v16.20) — 대상 종목을 납입 일정대로 조건 없이 사 모은다.
 
         일반 체결 경로(시뮬레이터·vectorbt)를 거치지 않는 별도 장부다(engine/contributions.py).
         조건·랭킹·손절과 섞인 요청은 조용히 무시하지 않고 거절한다.
+        대상은 지정 종목(single_asset)뿐 아니라 **유니버스**도 된다(2026-09-22 사용자 결정 —
+        "S&P500 ETF"는 국내 S&P500 ETF 전체가 유니버스다): 유니버스 해석이 끝난 종목 전체에
+        회차 납입액을 균등 분할한다(지정 종목 여럿과 같은 장부, 상장 전 종목의 몫은 상장 뒤 매수).
         """
-        from engine.contributions import contribution_flows, simulate_contributions
+        from engine.contributions import (
+            cash_pool_settings,
+            contribution_flows,
+            contribution_rules,
+            rule_symbol_flows,
+            simulate_cash_pool,
+            simulate_contributions,
+        )
 
         _mixed = (
             (req.get('entry') or {}).get('conditions') or (req.get('exit') or {}).get('conditions')
@@ -624,16 +668,41 @@ class BacktestEngine:
             or any(float(risk_params.get(k) or 0) > 0 for k in (
                 'stop_loss_pct', 'take_profit_pct', 'trailing_stop_pct', 'max_holding_days'))
         )
-        if req.get('backtest_mode') != 'single_asset' or _mixed:
+        if _mixed:
             raise ValueError(
-                "정액 적립식은 지정 종목을 조건 없이 매수하는 방식만 지원합니다 — "
+                "정액 적립식은 대상 종목을 조건 없이 매수하는 방식만 지원합니다 — "
                 "매수·매도 조건, 랭킹, 손절·익절과는 함께 쓸 수 없습니다.")
 
         amount, period = contribution
         flows = contribution_flows(common_index, init_cash, amount, period)
         buy_fee, _sell_fee, _sell_tax = resolve_cost_rates(options, common_index)
-        ledger = simulate_contributions(
-            price_df, exec_px_df, available_df, flows, buy_fee, resolve_slippage_rate(options))
+        # 조건부 납입액(v16.21) — 규칙이 없으면 종전 경로 그대로다(symbol_flows=None).
+        rules = contribution_rules(risk_params)
+        symbol_flows, rule_counts = None, []
+        if rules:
+            symbol_flows, rule_counts = rule_symbol_flows(
+                flows, amount, rules,
+                self._contribution_rule_hits(rules, price_df, exec_type, signal_delay))
+        # 현금 풀(v16.22) — 밖에서 돈이 들어오지 않고 초기 자본(보유 현금)에서 꺼내 산다. 회차 일정·
+        # 회차 매수액(기본액·조건부 규칙)은 위와 같은 산식이고, 첫 봉도 한 회차다.
+        pool = cash_pool_settings(risk_params, init_cash)
+        limited_rounds = 0
+        if pool is not None:
+            import numpy as np
+
+            round_mask = np.asarray(flows) > 0
+            n_sym = price_df.shape[1]
+            targets = (np.array(symbol_flows, dtype=float) if symbol_flows is not None
+                       else np.repeat((np.asarray(flows, dtype=float) / n_sym)[:, None], n_sym, axis=1))
+            # 첫 봉의 납입 흐름은 초기 자본이다 — 풀 방식에서는 첫 봉도 보통 회차(기본액)로 산다.
+            targets[0] = float(amount) / n_sym
+            ledger, limited_rounds = simulate_cash_pool(
+                price_df, exec_px_df, available_df, round_mask, targets, init_cash,
+                pool[0], pool[1], buy_fee, resolve_slippage_rate(options))
+        else:
+            ledger = simulate_contributions(
+                price_df, exec_px_df, available_df, flows, buy_fee, resolve_slippage_rate(options),
+                symbol_flows=symbol_flows)
 
         benchmark_prices, _benchmark_name = self._load_benchmark_prices(
             req, processed_symbols, common_index, apply_dividends)
@@ -645,13 +714,41 @@ class BacktestEngine:
         final["universe_id"] = req.get('universe_id') or ''
         final["tradingCosts"] = applied_trading_costs(options, common_index)
         final["rebalanceComparison"] = None
+        if rules:
+            final["contributions"]["rules"] = [
+                {"amount": float(r["amount"]), "mode": r["mode"], "applied": int(c),
+                 "condition": self.signal_engine.get_condition_description(r["condition"])}
+                for r, c in zip(rules, rule_counts)
+            ]
+            self.warnings.add(rw.warning(
+                rw.CONTRIBUTION_RULES_APPLIED, len(rules), int(sum(rule_counts))))
 
-        self.warnings.add(rw.warning(
-            rw.CONTRIBUTION_APPLIED,
-            tr.part(_CONTRIBUTION_PERIOD_TEMPLATES[period]), final["contributions"]["count"]))
+        if pool is not None:
+            _invested = float(sum(o["price"] * o["quantity"] + o["fee"] for o in ledger.orders))
+            final["contributions"].update({
+                "funding": "cash_pool",
+                "count": int(len({o["round"] for o in ledger.orders})),
+                "investedTotal": _invested,
+                "finalCash": float(ledger.cash[-1]) if len(ledger.cash) else 0.0,
+                "cashReserve": float(pool[0]),
+                "maxBuyCashPct": None if pool[1] is None else float(pool[1] * 100.0),
+                "limitedRounds": int(limited_rounds),
+            })
+            self.warnings.add(rw.warning(
+                rw.CASH_POOL_APPLIED,
+                tr.part(_CONTRIBUTION_PERIOD_TEMPLATES[period]), final["contributions"]["count"]))
+            if limited_rounds:
+                self.warnings.add(rw.warning(rw.CASH_POOL_LIMITED_ROUNDS, int(limited_rounds)))
+        else:
+            self.warnings.add(rw.warning(
+                rw.CONTRIBUTION_APPLIED,
+                tr.part(_CONTRIBUTION_PERIOD_TEMPLATES[period]), final["contributions"]["count"]))
         self.warnings.add(rw.warning(rw.CONTRIBUTION_NO_SELLS))
         if ledger.missed_rounds:
-            self.warnings.add(rw.warning(rw.CONTRIBUTION_MISSED_ROUNDS, ledger.missed_rounds))
+            # 현금 풀은 미집행분을 다음 회차에 합치지 않는다(돈은 풀에 남는다) — 문구가 다르다.
+            self.warnings.add(rw.warning(
+                rw.CASH_POOL_MISSED_ROUNDS if pool is not None else rw.CONTRIBUTION_MISSED_ROUNDS,
+                ledger.missed_rounds))
         if not ledger.orders:
             self.warnings.add(rw.warning(rw.NO_TRADES))
         _bt_years, _ = ResultHandler.time_base(common_index)
@@ -1804,7 +1901,8 @@ class BacktestEngine:
                 final = self._run_contribution_backtest(
                     req, risk_params, options, _contribution, init_cash,
                     price_df, exec_px_df, available_df, common_index,
-                    processed_symbols, apply_dividends)
+                    processed_symbols, apply_dividends,
+                    exec_type=exec_type, signal_delay=signal_delay)
                 final["resolution_logs"] = all_resolution_logs
                 return final
 

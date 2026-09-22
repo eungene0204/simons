@@ -395,7 +395,9 @@ _QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
     BACKTEST_PERIOD: (
         "어느 기간의 과거 데이터로 백테스트할까요?",
-        ("최근 1년 데이터", "최근 3년 데이터", "최근 5년 데이터", "사용 가능한 전체 데이터"),
+        # '사용 가능한 전체 데이터' 칩은 뺐다(2026-09-22 사용자 지시) — 전 구간 백테스트는 운영 메모리가
+        # 감당하지 못한다. 자유 입력의 "전체 기간"은 종전대로 해석된다(칩만 없다).
+        ("최근 1년 데이터", "최근 3년 데이터", "최근 5년 데이터"),
     ),
     INITIAL_CAPITAL: (
         "초기 투자 자금을 얼마로 설정할까요?",
@@ -450,8 +452,17 @@ ALLOCATION_LOOKBACK_CHIP_VALUES: dict[str, int] = {
 }
 
 
+# 현금 풀(엔진 v16.22)의 현금 하한 칩 → cash_pool.reserve_pct(초기 자본 대비 %, 2026-09-21 사용자
+# 결정: 되묻기 + 10·20·30% 칩). 발행·클릭 양쪽이 이 표만 본다(칩=값 결속 계약).
+CASH_RESERVE_CHIP_VALUES: dict[str, float] = {
+    "현금 하한 초기 자본의 10%": 10.0,
+    "현금 하한 초기 자본의 20%": 20.0,
+    "현금 하한 초기 자본의 30%": 30.0,
+}
+
+
 def portfolio_chip_patch(chip: str, parsed_dump: dict) -> Optional[dict]:
-    """위 네 표의 칩이면 ParsedStrategy 패치(최상위 필드), 아니면 None.
+    """위 표들의 칩이면 ParsedStrategy 패치(최상위 필드), 아니면 None.
 
     국면 칩은 되묻는 중인 market_regime(개념은 이미 있음)의 빈 칸을 채운다 — 개념이 없으면
     답할 대상이 없으므로 결속하지 않는다(None)."""
@@ -474,6 +485,13 @@ def portfolio_chip_patch(chip: str, parsed_dump: dict) -> Optional[dict]:
         if parsed_dump.get("allocation_type") != "inverse_volatility":
             return None
         return {"allocation_lookback_days": ALLOCATION_LOOKBACK_CHIP_VALUES[text]}
+    if text in CASH_RESERVE_CHIP_VALUES:
+        # 되묻는 중인 현금 풀(개념은 이미 있음)의 하한 칸을 채운다 — 개념이 없으면 답할 대상이 없다.
+        pool = parsed_dump.get("cash_pool")
+        if not isinstance(pool, dict):
+            return None
+        return {"cash_pool": {**pool, "reserve_pct": CASH_RESERVE_CHIP_VALUES[text],
+                              "reserve_amount": None}}
     return None
 
 
@@ -732,15 +750,20 @@ def _has_value(parsed: Any, field: str) -> bool:
 
 
 # 정액 적립식 전략에서 물을 대상이 아닌 슬롯(프론트 backtestReadiness.ts와 동형).
-CONTRIBUTION_NOT_APPLICABLE = frozenset({ENTRY, EXIT, STOP_LOSS, TAKE_PROFIT, REBALANCING, REBALANCE_METHOD})
+# 최대 보유도 적립식에는 뜻이 없다 — 적립 레인은 대상 종목 전체(지정 종목 또는 ETF 상품 유니버스)에 균등
+# 분할하고 max_positions를 읽지 않는다(2026-09-22, 유니버스 적립 허용과 함께).
+CONTRIBUTION_NOT_APPLICABLE = frozenset({
+    ENTRY, EXIT, STOP_LOSS, TAKE_PROFIT, REBALANCING, REBALANCE_METHOD, MAX_POSITIONS})
 
 
 def has_contribution_plan(parsed: Any) -> bool:
-    """납입액과 주기가 둘 다 있는 지정 종목 전략인가 — 반쪽 요청은 적립식이 아니다."""
+    """납입액과 주기가 둘 다 있고 사 모을 대상(지정 종목 또는 ETF 상품 유니버스)이 있는 전략인가 —
+    반쪽 요청은 적립식이 아니다. "S&P500 ETF"는 국내 S&P500 ETF 전체가 대상이다(2026-09-22)."""
     return (
         _positive(getattr(parsed, "contribution_amount", None))
         and _nonempty(getattr(parsed, "contribution_period", None))
-        and _nonempty(getattr(parsed, "target_symbols", None))
+        and (_nonempty(getattr(parsed, "target_symbols", None))
+             or _nonempty(getattr(parsed, "etf_theme", None)))
     )
 
 

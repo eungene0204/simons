@@ -55,7 +55,6 @@ const PERIOD_BY_CHOICE: Record<string, string> = {
   "최근 1년 데이터": "1y",
   "최근 3년 데이터": "3y",
   "최근 5년 데이터": "5y",
-  "사용 가능한 전체 데이터": "full",
 };
 
 const ENTRY_SIGNAL_BY_CHOICE: Record<

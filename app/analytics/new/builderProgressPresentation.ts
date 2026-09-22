@@ -526,7 +526,7 @@ export function buildBuilderTurnPresentation({
     // '최대 보유 10종목'을 실행값처럼 보여주지 않고(2026-07-28 '모바일솔루션 관련주'
     // 카드-실행 불일치) 실제 배분 표기(FR-STR-068 ⑧)를 쓴다 — 파싱 카드와 동일.
     summaryItems.push({ label: t("포트폴리오"), value: getPositionLabel(parsed) });
-  } else if (holdingCount && holdingCountExplicit) {
+  } else if (holdingCount && holdingCountExplicit && !hasContributionPlan(parsed)) {
     summaryItems.push({
       label: t("최대 보유"),
       value: t("{0}종목", holdingCount),
@@ -601,6 +601,38 @@ export function buildBuilderTurnPresentation({
         }),
       ),
     });
+  }
+  // 조건부 납입액 규칙(엔진 v16.21) — 납입일에 조건이 성립하면 그 회차 납입액이 달라진다.
+  const contributionRules = hasContributionPlan(parsed) ? (parsed?.contribution_rules ?? []) : [];
+  if (contributionRules.length > 0) {
+    const ruleParts = contributionRules.map((rule) =>
+      t(
+        rule.mode === "add" ? "{0} → {1} 추가" : "{0} → {1}",
+        getSignalLabel(rule.signal, "entry"),
+        formatInitialCapital(rule.amount, { usd: isUsParsedUniverse(parsed?.universe ?? null) }),
+      ),
+    );
+    summaryItems.push(
+      ruleParts.length > 1
+        ? { label: t("납입액 규칙"), value: ruleParts[0], values: ruleParts }
+        : { label: t("납입액 규칙"), value: ruleParts[0] },
+    );
+  }
+  // 현금 풀(엔진 v16.22) — 보유 현금에서 꺼내 사는 적립의 하한·상한. 하한 수준을 되묻는 중이면
+  // 그 칸은 값 대기 채널이 보인다(여기서는 정해진 값만).
+  const cashPool = hasContributionPlan(parsed) ? parsed?.cash_pool ?? null : null;
+  if (cashPool) {
+    const usd = isUsParsedUniverse(parsed?.universe ?? null);
+    const poolParts = [
+      cashPool.reserve_pct != null
+        ? t("현금 하한 초기 자본의 {0}%", cashPool.reserve_pct)
+        : cashPool.reserve_amount != null
+          ? t("현금 하한 {0}", formatInitialCapital(cashPool.reserve_amount, { usd }))
+          : null,
+      cashPool.max_buy_pct != null ? t("단일 매수 상한 보유 현금의 {0}%", cashPool.max_buy_pct) : null,
+    ].filter((part): part is string => part !== null);
+    const values = [t("보유 현금에서 매수"), ...poolParts];
+    summaryItems.push({ label: t("현금 관리"), value: values[0], values });
   }
   if (riskLabel) summaryItems.push({ label: t("리스크 관리"), value: riskLabel });
   // 사용자가 문장에서 특정 값으로 말한 거래 비용만 보여준다(2026-09-14 지시). 수수료·슬리피지는

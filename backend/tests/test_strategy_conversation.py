@@ -2040,14 +2040,15 @@ def test_primary_unsupported_request_without_strategy_demoted_to_empty_skeleton(
         result["notices"]
 
 
-def test_primary_unsupported_long_fragment_not_quoted(monkeypatch):
-    """[2026-08-12 사용자 결정] 길이 상한 초과 발화 조각은 지목 인용하지 않는다.
+def test_primary_unsupported_long_fragment_is_named(monkeypatch):
+    """[2026-09-21 사용자 지시] 무엇을 지원하지 않는지는 항상 이름으로 알린다 — 긴 조각도.
 
-    레드팀 실측 3-4: "'퇴직금 굴려야 하는데 절대 잃으면 안 되는 돈이라 최대한
-    보수적으로' 조건은…"처럼 자기 말 반 토막을 되돌려받는 안내가 됐다 — 긴 조각은
-    일반 문구("말씀하신 조건 중 일부는…")로 뭉뚱그리고, 짧은 이름만 지목한다.
+    종전(2026-08-12 결정)에는 25자를 넘는 조각을 "말씀하신 조건 중 일부는 지원하지 않아…"로
+    뭉뚱그렸다(자기 말 반 토막을 되돌려받는 안내 방지). 그러면 사용자는 무엇이 빠졌는지 알 길이
+    없다 — 실측: 적립식 문장의 "단일 매수 금액은 보유 현금의 10%를 넘지 않으며"(27자)가 일반
+    문구 한 줄로만 나갔다. 긴 조각은 한 줄에 하나씩 그대로 인용하고, 짧은 이름은 한 줄에 모은다.
     """
-    long_fragment = "퇴직금 굴려야 하는데 절대 잃으면 안 되는 돈이라 최대한 보수적으로"
+    long_fragment = "단일 매수 금액은 보유 현금의 10%를 넘지 않으며"
     data = _full_intent_dict()
     data["unsupported_features"] = [long_fragment, "소르티노 지수"]
     result = _run_primary_with(
@@ -2055,10 +2056,9 @@ def test_primary_unsupported_long_fragment_not_quoted(monkeypatch):
     )
     assert result is not None
     notices = result["notices"]
-    assert not any(long_fragment in n for n in notices), notices
-    assert any("말씀하신 조건 중 일부는 지원하지 않아" in n for n in notices), notices
-    # 짧은 이름은 여전히 지목한다
-    assert any("소르티노 지수" in n and "지원하지 않아" in n for n in notices), notices
+    assert f"'{long_fragment}' 조건은 지원하지 않아 전략에 반영하지 못했어요." in notices, notices
+    assert not any("말씀하신 조건 중 일부는 지원하지 않아" in n for n in notices), notices
+    assert "'소르티노 지수' 조건은 지원하지 않아 전략에 반영하지 못했어요." in notices, notices
 
 
 def test_primary_unsupported_concept_id_token_excluded(monkeypatch):
@@ -3591,6 +3591,19 @@ _SHAPE_OMISSIONS: dict[str, dict[str, str]] = {
         # 전달하고 추천값은 Registry(completeness_validator)가 독립적으로 공급한다.
         "recommended_value": "Registry가 독립 공급 — 누락돼도 정보 손실 없음",
         "requires_confirmation": "Registry가 독립 공급 — 누락돼도 정보 손실 없음",
+        # 조건부 납입액(엔진 v16.21) — 전용 보조 판정(contribution_amount_check)이 채운다.
+        # 형태에 싣는 안은 측정으로 기각(2026-09-21, 120B): 두 예시 조건 모두에 키+규칙 4줄이면
+        # 적립 문장은 4/4 해석되지만 되묻기 하니스 fill이 회귀했고('2020년 1월부터 2024년
+        # 12월까지'→end_date "2024-12-12-31", 프롬프트만 되돌린 A/B로 확인), 규칙을 줄이면
+        # 해석이 1/4로 떨어졌다. 적립+매수 조건이 함께 나온 턴에만 필요한 칸이다.
+        "buy_amount": "전용 보조 판정이 채움 — 형태에 실으면 되묻기 하니스 회귀(A/B 실측)",
+        "buy_amount_mode": "전용 보조 판정이 채움 — buy_amount와 같은 이유",
+    },
+    "backtest": {
+        # 현금 풀(엔진 v16.22) — 전용 보조 판정(cash_pool_check)과 칩이 채운다. 형태에 싣지 않는
+        # 이유는 buy_amount와 같다(프롬프트 분량 회귀). 수정 턴 초안에서도 가린다 — 초안에 실리자
+        # 되묻기 답의 귀속이 흔들렸다(primary._draft_for_interpreter).
+        "cash_pool": "전용 보조 판정·칩이 채움 — 형태·초안 모두에서 가린다",
     },
     "clarification_questions[]": {
         "recommendation_reason": "선택적 서술 — 소비처가 존재할 때만 사용",
@@ -4640,6 +4653,54 @@ def test_whole_input_quote_regeneration_schema_failure_keeps_original_output():
     assert len(result.intent.strategy.entry_conditions) == 1  # 제거는 primary 가드 소관
 
 
+def _misfiled_raw(condition: dict) -> str:
+    return json.dumps({"schema_version": "1.0", "intent": "CREATE_STRATEGY",
+                       "strategy": {"entry_conditions": [condition]}}, ensure_ascii=False)
+
+
+_MISFILED_SENTENCE = "매월 100만 원씩 매수합니다. 종가가 200일 이동평균선 아래에 있으면 200만 원을 매수합니다."
+_MISFILED_QUOTE = "종가가 200일 이동평균선 아래에 있으면 200만 원을 매수합니다"
+
+
+def test_misfiled_trading_value_condition_regenerates_once():
+    """2026-09-21 실측 120B: "종가가 200일 이동평균선 아래에 있으면 200만 원을 매수합니다"를 거래대금
+    200억 조건으로 냈다 — 이동평균 조건이 통째로 사라지고 거짓 미지원 안내가 나갔다. 인용이 다른 지표를
+    이름으로 부르는 거래대금 조건은 형식 위반으로 1회 재생성한다(오류 문구가 필드와 부른 지표를 짚는다)."""
+    calls: list = []
+    fixed = _misfiled_raw({"factor": "technical.ma_crossover", "operator": "<",
+                           "parameters": {"short_period": 1, "long_period": 200},
+                           "source_text": _MISFILED_QUOTE})
+
+    def chat(_system, user, **_kw):
+        calls.append(user)
+        return _misfiled_raw({"factor": "fundamental.trading_value", "operator": ">=", "value": 200,
+                              "unit": "억원", "source_text": _MISFILED_QUOTE}) if len(calls) == 1 else fixed
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(_MISFILED_SENTENCE)
+
+    assert len(calls) == 2 and result.repair_attempts == 1
+    assert "strategy.entry_conditions[0]" in calls[1] and "technical.ma_crossover" in calls[1]
+    cond = result.intent.strategy.entry_conditions[0]
+    assert (cond.factor, cond.parameters["long_period"]) == ("technical.ma_crossover", 200)
+
+
+@pytest.mark.parametrize("quote", [
+    "거래대금이 50억 원 이상인",                 # 거래대금을 이름으로 부른다 — 어긋나지 않았다
+    "S&P500 ETF를 100만 원씩 매수합니다",          # 어떤 지표도 부르지 않는다 — 대조할 근거가 없다
+])
+def test_trading_value_condition_without_a_rival_indicator_is_not_regenerated(quote):
+    calls: list = []
+
+    def chat(_system, user, **_kw):
+        calls.append(user)
+        return _misfiled_raw({"factor": "fundamental.trading_value", "operator": ">=", "value": 50,
+                              "unit": "억원", "source_text": quote})
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(f"{quote} 종목")
+
+    assert len(calls) == 1 and result.repair_attempts == 0
+
+
 def test_whole_input_quote_shares_the_single_repair_budget():
     """스키마 수리로 예산(1회)을 이미 썼으면 형식 위반 재생성을 추가로 요청하지 않는다."""
     calls: list = []
@@ -4685,7 +4746,7 @@ def _bare_label_regenerated() -> str:
 
 
 def _bare_label_chat(first: str, regenerated: str):
-    from strategy_conversation.interpreter import condition_recall
+    from strategy_conversation.interpreter import condition_recall, contribution_plan_check
 
     calls: list = []
 
@@ -4694,6 +4755,9 @@ def _bare_label_chat(first: str, regenerated: str):
             return '{"phrases": []}'
         if system == condition_recall.build_period_system_prompt():
             return '{"quote": null, "period": null}'
+        # 미지원 보고가 남은 턴은 적립식 판정도 부른다(2026-09-21) — 이 문장에는 계획이 없다.
+        if system == contribution_plan_check.build_system_prompt():
+            return '{"plan": null, "rules": [], "cash_reserve": {"stated": false}, "max_buy": {"percent": null}}'
         calls.append(user)
         return first if len(calls) == 1 else regenerated
 

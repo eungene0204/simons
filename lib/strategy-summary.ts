@@ -116,6 +116,10 @@ export interface ParsedSummary {
   // 정액 적립식(엔진 v16.20) — 둘 다 있고 지정 종목이 있어야 적립식이다.
   contribution_amount?: number | null;
   contribution_period?: string | null;
+  // 조건부 납입액 규칙(엔진 v16.21) — 납입일에 signal이 성립하면 그 회차 납입액을 amount로(set) / amount만큼 더(add).
+  contribution_rules?: Array<{ signal: ParsedSummary["entry_signals"][number]; amount: number; mode: "set" | "add" }> | null;
+  // 현금 풀(엔진 v16.22) — 보유 현금에서 꺼내 사는 적립. reserve_stated만 참이면 하한 수준을 되묻는 중이다.
+  cash_pool?: { reserve_pct?: number | null; reserve_amount?: number | null; reserve_stated?: boolean; max_buy_pct?: number | null } | null;
 }
 
 interface BacktestRequestLike {
@@ -711,10 +715,25 @@ export function getDisplayUniverseLabels(
 // 살 종목을 고를 수 없으므로 매수 기준 판정에서 제외한다.
 export function hasBuyCriteria(parsed: ParsedSummary | null | undefined): boolean {
   if (!parsed) return false;
+  // 정액 적립식은 납입 일정이 곧 매수 규칙이다 — 여기서 빠지면 실행 버튼은 열렸는데 실행 핸들러가
+  // "매수 기준 없음"으로 빌더를 처음부터 다시 시작해 유니버스를 되묻는다(2026-09-22 사용자 보고).
+  if (hasContributionPlan(parsed)) return true;
   return (
     (parsed.entry_signals?.length ?? 0) > 0 ||
     (parsed.fundamental_filters?.length ?? 0) > 0 ||
     parsed.ranking_metric != null
+  );
+}
+
+/** 납입액과 주기가 둘 다 있고 사 모을 대상(지정 종목 또는 ETF 상품 유니버스)이 있는 전략인가 —
+ *  반쪽 요청은 적립식이 아니다(백엔드 strategy_slots.has_contribution_plan과 동형). 프론트의 유일한
+ *  사본 — 되묻기 게이트(backtestReadiness)와 실행 게이트(hasBuyCriteria)가 둘 다 이 함수를 본다. */
+export function hasContributionPlan(parsed: ParsedSummary | null | undefined): boolean {
+  return Boolean(
+    parsed &&
+      (parsed.contribution_amount ?? 0) > 0 &&
+      parsed.contribution_period &&
+      ((parsed.target_symbols?.length ?? 0) > 0 || parsed.etf_theme),
   );
 }
 
@@ -749,6 +768,11 @@ export function getSelectionScope(parsed: ParsedSummary): SelectionScope {
 export function getPositionLabel(parsed: ParsedSummary): string {
   const scope = getSelectionScope(parsed);
   const targetCount = parsed.target_symbols?.length ?? 0;
+  // 유니버스 적립식(2026-09-22)은 대상 ETF 전체에 균등 분할한다 — 물질화 기본값 '최대 10종목'은 실행과
+  // 어긋난다(엔진 적립 레인은 max_positions를 읽지 않는다).
+  if (hasContributionPlan(parsed) && targetCount === 0) {
+    return t("대상 ETF 전체 균등 적립");
+  }
   if (scope === "EXPLICIT") {
     return targetCount === 1 ? t("단일 종목 집중 투자") : t("지정 종목 {0}개 균등 투자", targetCount);
   }

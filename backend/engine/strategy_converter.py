@@ -564,6 +564,16 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         # 정액 적립식(v16.20) — 엔진이 지정 종목을 납입 일정대로 사 모으는 별도 장부로 계산한다.
         "contribution_amount": strategy.contribution_amount,
         "contribution_period": strategy.contribution_period,
+        # 조건부 납입액 규칙(v16.21) — 적립 일정이 있을 때만 싣는다(일정 없는 규칙은 뜻이 없다).
+        "contribution_rules": [
+            {"condition": _tech_signal_to_condition(rule.signal),
+             "amount": rule.amount, "mode": rule.mode}
+            for rule in strategy.contribution_rules
+        ] if strategy.contribution_amount and strategy.contribution_period else None,
+        # 현금 풀(v16.22) — 적립 일정이 있고 하한 수준까지 정해졌을 때만 싣는다(되묻는 중이면 미전송).
+        **(strategy.cash_pool.to_request()
+           if (strategy.cash_pool is not None and strategy.cash_pool.is_complete()
+               and strategy.contribution_amount and strategy.contribution_period) else {}),
         "ranking_enabled": not explicit_symbols,
         "ranking_weight_value": 0.5,
         "ranking_weight_quality": 0.5,

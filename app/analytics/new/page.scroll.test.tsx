@@ -1973,7 +1973,7 @@ describe("deterministic condition selection", () => {
     const rebalancing = choose("rebalancing", "안 함");
     choose("stop_loss", "손절 -15%");   // 부호는 표기 — 적용 값은 크기(15)
     choose("take_profit", "익절 30%");
-    choose("backtest_period", "사용 가능한 전체 데이터");
+    choose("backtest_period", "최근 5년 데이터");
     choose("initial_capital", "5,000만원");
 
     expect(current).toMatchObject({
@@ -1982,7 +1982,7 @@ describe("deterministic condition selection", () => {
       rebalancing_period: "none",
       stop_loss_pct: 15,
       take_profit_pct: 30,
-      backtest_period: "full",
+      backtest_period: "5y",
       initial_capital: 50_000_000,
     });
     expect(current.entry_signals).toEqual([{

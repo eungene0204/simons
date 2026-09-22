@@ -1201,7 +1201,47 @@ export default function BacktestDashboard({
       description: BASE_METRIC_DESCRIPTIONS.buyHold(benchmarkLabel),
     },
     // 적립식은 매도가 없어 승률·손익비가 정의되지 않는다 — 그 자리에 납입 지표를 보인다.
-    ...(contributions
+    // 현금 풀(엔진 v16.22)은 밖에서 들어온 돈이 없어 납입 지표가 뜻이 없다(총 납입액=초기 자본,
+    // 단순·금액가중 수익률=총수익률·CAGR과 같은 값) — 보유 현금이 어떻게 쓰였는지를 보인다.
+    ...(contributions?.funding === "cash_pool"
+      ? [
+          {
+            label: t("투자한 금액"),
+            englishLabel: englishSubLabel("Invested"),
+            value: formatKRW(contributions.investedTotal ?? 0),
+            valueClass: "text-white",
+            description: metricTooltip(
+              t("투자한 금액은 보유 현금에서 꺼내 실제로 매수한 금액의 합계입니다(수수료 포함)."),
+              t("투자한 금액 = 회차별 매수 금액의 합"),
+              t("{0}회 매수", contributions.count),
+            ),
+          },
+          {
+            label: t("남은 현금"),
+            englishLabel: englishSubLabel("Cash Left"),
+            value: formatKRW(contributions.finalCash ?? 0),
+            valueClass: "text-white",
+            description: metricTooltip(
+              t("남은 현금은 기간이 끝났을 때 매수하지 않고 보유한 현금입니다. 자산에 포함됩니다."),
+              t("남은 현금 = 초기 자본 - 투자한 금액"),
+              t("현금 하한 {0}", formatKRW(contributions.cashReserve ?? 0)),
+            ),
+          },
+          {
+            label: t("한도 적용 회차"),
+            englishLabel: englishSubLabel("Limited Rounds"),
+            value: t("{0}회", contributions.limitedRounds ?? 0),
+            valueClass: "text-white",
+            description: metricTooltip(
+              t("현금 하한이나 단일 매수 상한 때문에 정한 금액보다 적게 매수한 회차 수입니다."),
+              t("회차 매수액 = min(정한 금액, 보유 현금 × 상한 비율, 보유 현금 - 현금 하한)"),
+              contributions.maxBuyCashPct == null
+                ? t("단일 매수 상한 없음")
+                : t("단일 매수 상한 보유 현금의 {0}%", contributions.maxBuyCashPct),
+            ),
+          },
+        ]
+      : contributions
       ? [
           {
             label: t("총 납입액"),

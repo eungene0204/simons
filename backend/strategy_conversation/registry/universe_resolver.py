@@ -107,6 +107,19 @@ def resolve_symbols(refs: Sequence[str]) -> Tuple[List[str], List[str]]:
             if resolved.symbol not in codes:
                 codes.append(resolved.symbol)
             continue
+        # 국내 ETF — 종목 마스터에는 ETF가 없다. 상품명 **정확 일치**("TIGER 미국S&P500")나 ETF
+        # 코드만 ETF 마스터로 푼다(2026-09-21: 적립식의 지정 종목이 ETF면 영영 미해석이었고, 컴파일
+        # 결과의 ETF 코드가 수정 턴 왕복에서 "종목으로 인식되지 않아"로 돌아왔다). 부분 일치는
+        # 하지 않는다 — "반도체"는 상품 하나가 아니라 테마 키워드(etf_theme)다. /us는 제외(지역 격리).
+        if ui_language.get_ui_language() != "en":
+            from engine.universe_pit import is_etf_symbol, resolve_single_etf_product
+
+            product = resolve_single_etf_product(ref)
+            etf_code = product["symbol"] if product else (ref if is_etf_symbol(ref) else None)
+            if etf_code is not None:
+                if etf_code not in codes:
+                    codes.append(etf_code)
+                continue
         # 국내 해석 실패 → 미국 registry 조회(티커·영문명·한글명 정확 일치).
         # find_in_text의 해외 별칭 판정(애플→AAPL)도 데이터 보유 확인 후 인정한다.
         us_ticker = resolve_us_ref(ref)

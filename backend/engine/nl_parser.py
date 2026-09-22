@@ -737,6 +737,37 @@ def _clamp_max_positions(value):
     return max(1, min(100, int(value)))
 
 
+class CashPool(BaseModel):
+    """현금 풀(정액 적립식, 엔진 v16.22) — 밖에서 돈을 넣지 않고 **보유 현금(초기 자본)에서 꺼내** 산다.
+
+    "항상 일정 수준의 현금을 유지한다"(현금 하한)·"단일 매수 금액은 보유 현금의 10% 이내"(매수 상한)를
+    말한 적립식이 이 방식이다. 하한을 말했는데 수준을 말하지 않았으면(reserve_stated만 참) 되묻는
+    중이며 엔진 요청에 싣지 않는다 — 개념은 남겨 칩 답이 그 자리를 채운다(시장 국면 필터와 같은 계약)."""
+    reserve_pct: Optional[float] = Field(default=None, ge=0, lt=100, description="현금 하한 — 초기 자본 대비 %")
+    reserve_amount: Optional[float] = Field(default=None, gt=0, description="현금 하한 — 금액")
+    reserve_stated: bool = False
+    max_buy_pct: Optional[float] = Field(default=None, gt=0, le=100, description="회차 매수액 상한 — 그 시점 보유 현금 대비 %")
+
+    def is_complete(self) -> bool:
+        return (not self.reserve_stated) or self.reserve_pct is not None or self.reserve_amount is not None
+
+    def to_request(self) -> dict:
+        return {
+            "contribution_funding": "cash_pool",
+            "cash_reserve_pct": self.reserve_pct if self.reserve_amount is None else None,
+            "cash_reserve_amount": self.reserve_amount,
+            "max_buy_cash_pct": self.max_buy_pct,
+        }
+
+
+class ContributionRule(BaseModel):
+    """조건부 납입액 규칙(정액 적립식, 엔진 v16.21) — 납입일에 signal이 성립하면 그 회차 납입액을
+    amount로 바꾸거나(set) amount만큼 더한다(add)."""
+    signal: TechnicalSignal
+    amount: float = Field(gt=0)
+    mode: Literal["set", "add"] = "set"
+
+
 class ParsedStrategy(BaseModel):
     """자연어 전략 → 구조화된 전략 스키마"""
 
@@ -1197,6 +1228,14 @@ class ParsedStrategy(BaseModel):
     contribution_period: Optional[Literal["daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly"]] = Field(
         default=None,
         description="납입 주기. '매달'=monthly, '매주'=weekly, '분기마다'=quarterly. 언급 없으면 None"
+    )
+    contribution_rules: List[ContributionRule] = Field(
+        default_factory=list,
+        description="조건부 납입액 규칙 — '200일선 아래면 200만 원'(set), 'RSI 30 미만이면 100만 원 더'(add)"
+    )
+    cash_pool: Optional[CashPool] = Field(
+        default=None,
+        description="현금 풀 — 보유 현금에서 꺼내 사는 적립(현금 하한·단일 매수 상한). 언급 없으면 None"
     )
 
 

@@ -160,6 +160,13 @@ function buildBacktestCacheConfig(body: any) {
     // 정액 적립식(엔진 v16.20) — 설정 패널이 납입 계획을 바꾸면 다른 결과다.
     contribution_amount: risk.contribution_amount ?? null,
     contribution_period: risk.contribution_period ?? null,
+    // 조건부 납입액 규칙(v16.21) — 규칙이 다르면 납입액이 달라져 결과가 다르다.
+    contribution_rules: risk.contribution_rules ?? null,
+    // 현금 풀(v16.22) — 자금 조달 방식·하한·상한이 다르면 결과가 다르다.
+    contribution_funding: risk.contribution_funding ?? null,
+    cash_reserve_pct: risk.cash_reserve_pct ?? null,
+    cash_reserve_amount: risk.cash_reserve_amount ?? null,
+    max_buy_cash_pct: risk.max_buy_cash_pct ?? null,
     liquidity_limit_pct: risk.liquidity_limit_pct ?? null,
     liquidity_policy: body?.liquidity_policy ?? body?.liquidityPolicy ?? null,
     engine_version: body?.engine_version ?? body?.engineVersion ?? null,

@@ -39,6 +39,20 @@ _PARAM_LABELS = {
 }
 
 
+# 적립 종목·현금 하한 되묻기 문구(ko, en) — primary가 "지금 답을 기다리는 질문이 이것인가"를 같은 문자열로
+# 판정한다(우리가 낸 문장의 동일성 대조 — 사용자 원문 해석이 아니다).
+CONTRIBUTION_SYMBOL_QUESTION = (
+    "어떤 종목(또는 ETF)을 적립식으로 사 모을까요?",
+    "Which stock(s) or ETF(s) should be accumulated?",
+)
+CASH_RESERVE_QUESTION = (
+    "현금을 얼마나 남겨 둘까요? 초기 자본 대비 비율(%)이나 금액으로 정할 수 있어요.\n\n"
+    "남겨 둔 현금 아래로는 매수하지 않습니다.",
+    "How much cash should always be kept? You can give a share of the initial capital (%) "
+    "or an amount.\n\nNothing is bought once cash would fall below that level.",
+)
+
+
 def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[ClarificationQuestion]]:
     """(missing_fields, clarification_questions)를 반환한다.
 
@@ -95,13 +109,25 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                              "How often should contributions be made? (weekly, monthly, every two months, "
                              "quarterly, yearly)"),
             ))
-        if not strategy.universe.symbols:
+        # 사 모을 대상은 지정 종목이거나 **말한 유니버스**다 — "S&P500 ETF"는 국내 S&P500 ETF 전체가
+        # 유니버스이고(2026-09-22 사용자 결정, 엔진이 유니버스 전체에 균등 분할), 상품 하나와 정확히
+        # 일치하는 이름은 컴파일러가 지정 종목으로 승격한다. 시장만 말했으면(코스피·ETF 전체) 묻는다.
+        if not strategy.universe.symbols and not strategy.universe.etf_theme:
             missing.append("strategy.universe.symbols")
             questions.append(ClarificationQuestion(
                 field="strategy.universe.symbols",
-                question=msg("어떤 종목(또는 ETF)을 적립식으로 사 모을까요?",
-                             "Which stock(s) or ETF(s) should be accumulated?"),
+                question=msg(*CONTRIBUTION_SYMBOL_QUESTION),
             ))
+
+    # ①-3 현금 풀(엔진 v16.22) — 현금을 남겨 두라고 했는데 수준을 말하지 않았으면("일정 수준")
+    # 기본값으로 채우지 않고 묻는다(칩: 초기 자본의 10%·20%·30%, 2026-09-21 사용자 결정).
+    if contribution and bt.cash_pool is not None and not bt.cash_pool.is_complete():
+        missing.append("strategy.backtest.cash_pool.reserve_pct")
+        questions.append(ClarificationQuestion(
+            field="strategy.backtest.cash_pool.reserve_pct",
+            question=msg(*CASH_RESERVE_QUESTION),
+            recommended_value=None,
+        ))
 
     # ② 진입 메커니즘 존재 여부 (조건 또는 랭킹) — 적립식은 납입 일정이 곧 매수 규칙이다.
     if intent.intent == "CREATE_STRATEGY" and not contribution \
@@ -411,7 +437,9 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
         or strategy.ranking
         or risk.stop_loss or risk.take_profit or risk.trailing_stop or risk.max_mdd_limit
     )
-    if strategy.entry_conditions and not has_exit_rule:
+    # 적립식의 진입 조건은 전부 납입액 규칙이다(capability_validator가 섞인 요청을 이미 걸렀다) —
+    # 매도가 없는 방식이라 청산 규칙을 묻지 않는다.
+    if strategy.entry_conditions and not has_exit_rule and not contribution:
         # 재무 스크리닝만 있는 전략은 정기 리밸런싱 회전이 자연스러운 완성형이다 —
         # 오류가 아니라 질문으로 청산 방식을 확정받는다
         missing.append("strategy.exit_conditions")

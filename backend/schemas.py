@@ -99,6 +99,16 @@ class RiskManagement(BaseModel):
     # init_cash, 이후 각 주기의 첫 거래일마다 납입한다. 미선언 시 model_dump가 조용히 버린다.
     contribution_amount: Optional[float] = None
     contribution_period: Optional[str] = None
+    # 조건부 납입액 규칙(v16.21): [{condition: 엔진 조건 dict, amount: 금액, mode: 'set'|'add'}] —
+    # 납입일에 조건이 성립하면 그 회차 납입액을 바꾸거나(set) 더한다(add).
+    contribution_rules: Optional[List[Dict[str, Any]]] = None
+    # 현금 풀(v16.22): 'cash_pool'이면 밖에서 돈이 들어오지 않고 초기 자본(보유 현금)에서 회차 매수액을
+    # 꺼낸다. 현금 하한은 초기 자본 대비 %(cash_reserve_pct) 또는 금액(cash_reserve_amount) 중 하나,
+    # max_buy_cash_pct=회차 매수액의 상한(그 시점 보유 현금 대비 %).
+    contribution_funding: Optional[str] = None
+    cash_reserve_pct: Optional[float] = None
+    cash_reserve_amount: Optional[float] = None
+    max_buy_cash_pct: Optional[float] = None
 
 class BacktestRequest(BaseModel):
     symbols: List[str]

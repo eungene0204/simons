@@ -17,6 +17,7 @@ from typing import Optional
 from engine.nl_parser import ParsedStrategy, TechnicalSignal
 from strategy_conversation.interpreter.models import (
     BacktestSpec,
+    CashPoolSpec,
     MarketFilterSpec,
     PortfolioSpec,
     RankingSpec,
@@ -104,6 +105,12 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
         )
         for f in parsed.fundamental_filters
     ] + [_decompile_technical(sig) for sig in parsed.entry_signals]
+    # 조건부 납입액 규칙(v16.21)은 금액 꼬리표가 붙은 진입 조건으로 되돌린다(컴파일러의 역방향) —
+    # 빠지면 수정 턴마다 규칙이 사라진다.
+    for rule in parsed.contribution_rules:
+        cond = _decompile_technical(rule.signal)
+        cond.buy_amount, cond.buy_amount_mode = rule.amount, rule.mode
+        entry_conditions.append(cond)
     exit_conditions = [_decompile_technical(sig) for sig in parsed.exit_signals]
 
     ranking = []
@@ -223,5 +230,9 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             sell_tax_rate=parsed.sell_tax_rate,
             contribution_amount=parsed.contribution_amount,
             contribution_period=parsed.contribution_period,
+            cash_pool=CashPoolSpec(
+                reserve_pct=parsed.cash_pool.reserve_pct, reserve_amount=parsed.cash_pool.reserve_amount,
+                reserve_stated=parsed.cash_pool.reserve_stated, max_buy_pct=parsed.cash_pool.max_buy_pct,
+            ) if parsed.cash_pool is not None else None,
         ),
     )
