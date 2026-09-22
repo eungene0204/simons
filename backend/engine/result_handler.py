@@ -293,15 +293,11 @@ class ResultHandler:
             arr_column  = vbt_trades['Column'].values    if 'Column'     in cols else None
             arr_col_idx = vbt_trades['Column Idx'].values if 'Column Idx' in cols else None
 
-            e_ts_key    = next((c for c in ['Entry Timestamp', 'Entry Index', 'Entry Idx'] if c in cols), None)
             x_ts_key    = next((c for c in ['Exit Timestamp',  'Exit Index',  'Exit Idx']  if c in cols), None)
-            e_price_key = next((c for c in ['Avg Entry Price', 'Entry Price'] if c in cols), None)
             x_price_key = next((c for c in ['Avg Exit Price',  'Exit Price']  if c in cols), None)
 
             n_trades = len(vbt_trades)
-            arr_e_ts    = vbt_trades[e_ts_key].values    if e_ts_key    else [None] * n_trades
             arr_x_ts    = vbt_trades[x_ts_key].values    if x_ts_key    else [None] * n_trades
-            arr_e_price = vbt_trades[e_price_key].values if e_price_key else np.zeros(n_trades)
             arr_x_price = vbt_trades[x_price_key].values if x_price_key else np.zeros(n_trades)
             arr_size    = vbt_trades['Size'].values       if 'Size'   in cols else np.zeros(n_trades)
             arr_pnl     = vbt_trades['PnL'].values        if 'PnL'    in cols else np.zeros(n_trades)
@@ -322,40 +318,45 @@ class ResultHandler:
             def px(value, symbol):
                 return round(float(value), 4) if symbol in us_symbol_set else float(round(value))
 
-            # ── Main loop: index-based (no iterrows/itertuples overhead) ──────
-            for i in range(n_trades):
-                # 1. Symbol Identification
-                sym_raw = arr_column[i] if arr_column is not None else None
+            def resolve_symbol(sym_raw, col_idx_val):
                 if isinstance(sym_raw, tuple) and len(sym_raw) > 0: sym_raw = sym_raw[0]
                 sym = str(sym_raw) if sym_raw is not None else None
-
-                col_idx_val = int(arr_col_idx[i]) if arr_col_idx is not None else None
                 if sym is None or sym not in processed_symbols:
                     if col_idx_val is not None and 0 <= col_idx_val < len(processed_symbols):
                         sym = processed_symbols[col_idx_val]
-
                 if sym is None or sym not in processed_symbols:
                     sym = processed_symbols[0] if len(processed_symbols) == 1 else "unknown"
+                return sym
 
-                # 2. Trade Data
-                e_idx   = arr_e_ts[i]
-                x_idx   = arr_x_ts[i]
-                e_price = cls.safe(arr_e_price[i])
-                x_price = cls.safe(arr_x_price[i])
-                size    = cls.safe(arr_size[i])
-                pnl     = cls.safe(arr_pnl[i])
-                ret_val = cls.safe(arr_ret[i]) * 100
+            # ── 매수 행: 실체결 장부(pf.orders)에서 매수 주문 1건당 1행 ─────────
+            # 과거에는 아래 청산 단위 기록(pf.trades, exit trades)을 돌며 기록 1건당
+            # 매수 행도 1개씩 지어냈다. vectorbt의 청산 기록은 부분 매도가 일어날
+            # 때마다 1건이고, 그 진입일은 포지션이 처음 열린 날로 고정·진입가는
+            # 평균 매입가·수량은 그 부분 매도 수량이라, 리밸런싱으로 여러 번 잘라
+            # 판 한 포지션이 "첫날에 여러 번 산 것"처럼 보였다(2026-09-22 실측:
+            # JB금융지주 매수 13행이 전부 2023-09-22, 가격은 10,165→19,738로 표류).
+            # 매수 행의 날짜·가격·수량은 주문 장부만이 정본이다.
+            order_index = getattr(getattr(pf, 'wrapper', None), 'index', None)
+            if order_index is None or len(order_index) == 0:
+                order_index = common_index
+            order_rec = pf.orders.records_arr
+            buy_orders = order_rec[order_rec['side'] == 0]  # OrderSide.Buy
+            for o in buy_orders:
+                col_idx_val = int(o['col'])
+                sym = resolve_symbol(None, col_idx_val)
+                bar = int(o['idx'])
+                e_idx = order_index[bar] if 0 <= bar < len(order_index) else None
+                e_price = cls.safe(o['price'])
+                size = cls.safe(o['size'])
                 per_symbol_cost[sym] = per_symbol_cost.get(sym, 0.0) + e_price * size
-                exit_type = int(arr_exit_type[i])
-                duration  = int(arr_exit_idx[i] - arr_entry_idx[i])
 
-                # 3. Entry Reason (O(log n) searchsorted)
+                # Entry Reason (O(log n) searchsorted)
                 e_reason = tr.encode([tr.part(tr.ENTRY_SIGNAL_FALLBACK)])
                 try:
                     sym_arr_e = get_reason_arr(sym, fast_entries, col_idx_val)
                     if sym_arr_e is not None:
                         lookup_dt = norm_dt(e_idx)
-                        if exec_type == 'next_open' and sym_arr_e is not None:
+                        if exec_type == 'next_open':
                             lookup_ts_ns = np.int64(pd.Timestamp(lookup_dt).value)
                             idx2 = int(np.searchsorted(sym_arr_e['timestamps'], lookup_ts_ns, side='left')) - 1
                             if idx2 >= 0:
@@ -381,6 +382,23 @@ class ResultHandler:
                         "conditionParts": tr.segments_of(e_reason),
                     })
 
+            # ── 매도 행: 청산 단위 기록(pf.trades) 1건당 1행 — 손익·청산 사유 보유 ──
+            for i in range(n_trades):
+                # 1. Symbol Identification
+                col_idx_val = int(arr_col_idx[i]) if arr_col_idx is not None else None
+                sym = resolve_symbol(arr_column[i] if arr_column is not None else None, col_idx_val)
+
+                # 2. Trade Data
+                x_idx   = arr_x_ts[i]
+                x_price = cls.safe(arr_x_price[i])
+                size    = cls.safe(arr_size[i])
+                pnl     = cls.safe(arr_pnl[i])
+                ret_val = cls.safe(arr_ret[i]) * 100
+                exit_type = int(arr_exit_type[i])
+                duration  = int(arr_exit_idx[i] - arr_entry_idx[i])
+
+                final_qty = int(np.floor(size))
+                if final_qty >= 1:
                     # 4. Exit Reason (O(log n) searchsorted)
                     reason_kr = tr.encode([tr.part(tr.EXIT_STRATEGY_SIGNAL)])
                     try:

@@ -79,9 +79,26 @@ class _Trades:
         return pd.Series([0.5])
 
 
+class _Orders:
+    """vbt `pf.orders` 흉내 — 청산 기록 1건당 매수 주문 1건(진입 봉·평균 진입가·수량)."""
+
+    def __init__(self, trades):
+        readable = trades.records_readable
+        n = len(readable)
+        col = readable["Column Idx"].values if "Column Idx" in readable else np.zeros(n, dtype=int)
+        self.records_arr = np.array(
+            list(zip(range(n), col, trades.records["entry_idx"].values,
+                     readable["Size"].values, readable["Avg Entry Price"].values,
+                     np.zeros(n), np.zeros(n, dtype=int))),
+            dtype=[("id", "<i8"), ("col", "<i8"), ("idx", "<i8"), ("size", "<f8"),
+                   ("price", "<f8"), ("fees", "<f8"), ("side", "<i8")],
+        )
+
+
 class _Portfolio:
     def __init__(self, trades=None):
         self.trades = trades or _Trades()
+        self.orders = _Orders(self.trades)
 
     def benchmark_returns(self):
         return pd.Series([0.0, 0.01, -0.01])
@@ -737,3 +754,52 @@ def test_us_fill_prices_keep_decimals_and_kr_stay_integer():
     )
     kr_buy = next(s for s in kr_result["signals"] if s["type"] == "buy")
     assert kr_buy["price"] == float(int(kr_buy["price"]))
+
+
+def test_buy_rows_come_from_the_order_ledger_not_exit_trades():
+    """매수 행은 실체결 장부(pf.orders)의 매수 주문 1건당 1행이다.
+
+    2026-09-22 실측: 3년 내내 조건을 만족해 한 번도 완전히 팔리지 않은 JB금융지주가
+    리밸런싱마다 몇 주씩 잘리자, 매매 기록에 매수 13행이 전부 첫날(2023-09-22)로 찍히고
+    가격은 10,165→19,738로 표류했다. 종전 코드가 vectorbt 청산 단위 기록(exit trades)
+    1건마다 매수 행을 지어냈기 때문이다 — 그 기록의 진입일은 포지션이 처음 열린 날로
+    고정되고 진입가는 평균 매입가, 수량은 그 부분 매도 수량이다.
+    """
+    from engine.simulator import Simulator
+
+    idx = pd.bdate_range("2024-01-01", periods=130)
+    n = len(idx)
+    # A는 꾸준히 오르고 B는 제자리 → 월간 동일가중 리밸런싱마다 A를 잘라 B를 더 산다.
+    close = pd.DataFrame({"A": np.linspace(100.0, 300.0, n), "B": np.full(n, 100.0)}, index=idx)
+    entries = pd.DataFrame(True, index=idx, columns=["A", "B"])
+    exits = pd.DataFrame(False, index=idx, columns=["A", "B"])
+    risk = {"init_cash": 10_000_000.0, "position_size_pct": 50.0, "max_positions": 2,
+            "rebalancing_period": "monthly", "skip_risk_management": True}
+    options = {"fee_rate": 0.0, "slippage_rate": 0.0, "sell_tax_rate": 0.0,
+               "execution_type": "same_close"}
+    pf = Simulator().run(close, close, entries, exits, risk, options)
+
+    orders = pf.orders.records_arr
+    buy_orders = orders[orders["side"] == 0]
+    assert len(buy_orders) > 2, "리밸런싱 추가 매수가 있어야 재현이 된다"
+
+    empty = {s: pd.Series([None] * n, index=idx) for s in ["A", "B"]}
+    result = ResultHandler.format_results(
+        pf, ["A", "B"], {}, {}, empty, empty, idx, risk, "same_close", 10_000_000.0,
+    )
+    buys = [s for s in result["signals"] if s["type"] == "buy"]
+
+    expected = sorted(
+        (idx[int(o["idx"])].strftime("%Y-%m-%d"), ["A", "B"][int(o["col"])],
+         float(round(o["price"])), int(np.floor(o["size"])))
+        for o in buy_orders if int(np.floor(o["size"])) >= 1
+    )
+    actual = sorted((b["date"], b["symbol"], b["price"], b["quantity"]) for b in buys)
+    assert actual == expected
+
+    first_day = idx[0].strftime("%Y-%m-%d")
+    assert any(b["date"] != first_day for b in buys), "추가 매수는 첫날이 아닌 리밸런싱일에 찍혀야 한다"
+    # 매도 행은 종전대로 청산 단위 기록에서 나온다(손익·사유 보유).
+    sells = [s for s in result["signals"] if s["type"] == "sell"]
+    assert len(sells) == len(pf.trades.records)
+    assert all("pnl" in s for s in sells)
