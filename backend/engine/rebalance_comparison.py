@@ -188,6 +188,9 @@ def simulate_rows_from_frames(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
             rank_df=frames.get("rank_df"), high_df=frames.get("high_df"), low_df=frames.get("low_df"),
             available_df=frames.get("available_df"),
             vol_df=frames.get("vol_df"), exposure=frames.get("exposure"),
+            exposure_reasons=frames.get("exposure_reasons"),
+            alloc_ctx=frames.get("alloc_ctx"), cash_asset_idx=frames.get("cash_asset_idx"),
+            size_df=frames.get("size_df"), adv_df=frames.get("adv_df"),
         )
 
     return simulate_period_rows(_run, payload["risk_params"], float(payload["init_cash"]), tuple(payload["periods"]))

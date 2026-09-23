@@ -176,8 +176,39 @@ def _eps_row(rows: list) -> Optional[dict]:
     return None
 
 
+# 분기 손익 3항목(v16.27, 2026-09-23) — 손익계산서(IS/CIS)의 매출·영업이익·당기순이익(원, 3개월).
+# EPS와 같은 응답이라 추가 호출 0. 영업이익은 DART 고유 계정(dart_OperatingIncomeLoss).
+INCOME_ITEMS: Dict[str, frozenset] = {
+    "revenue": frozenset({"ifrs-full_Revenue", "ifrs_Revenue"}),
+    "operating_income": frozenset({"dart_OperatingIncomeLoss"}),
+    "net_income": frozenset({"ifrs-full_ProfitLoss", "ifrs_ProfitLoss"}),
+}
+_INCOME_SECTIONS = ("IS", "CIS")
+
+
+def _income_rows(rows: list) -> Dict[str, dict]:
+    """{항목: 행} — 손익계산서 섹션에서 계정ID 정확 일치·소계(account_detail 없음) 행만 첫 번째로."""
+    found: Dict[str, dict] = {}
+    for row in rows or []:
+        if not isinstance(row, dict) or row.get("sj_div") not in _INCOME_SECTIONS:
+            continue
+        if str(row.get("account_detail", "-")).strip() not in ("", "-"):
+            continue
+        account_id = (row.get("account_id") or "").strip()
+        for item, ids in INCOME_ITEMS.items():
+            if item not in found and account_id in ids:
+                found[item] = row
+    return found
+
+
 def _fetch_report(corp_code: str, year: int, reprt_code: str, fs_div: str) -> Optional[dict]:
     """한 보고서의 기본주당이익 행. 한도 소진은 '없음'이 아니라 예외로 올린다."""
+    rows = _fetch_report_rows(corp_code, year, reprt_code, fs_div)
+    return _eps_row(rows) if rows is not None else None
+
+
+def _fetch_report_rows(corp_code: str, year: int, reprt_code: str, fs_div: str) -> Optional[list]:
+    """한 보고서의 전체 계정 행(EPS·손익 3항목이 같은 응답에서 나온다). 한도 소진은 예외."""
     global _dart_calls
     _dart_calls += 1
     payload = _fetch_dart_json(
@@ -193,37 +224,52 @@ def _fetch_report(corp_code: str, year: int, reprt_code: str, fs_div: str) -> Op
         raise DartQuotaExhausted(corp_code)
     if payload.get("status") != "000":
         return None
-    return _eps_row(payload.get("list") or [])
+    return payload.get("list") or []
 
 
 def _collect_year(corp_code: str, year: int, fs_div: str) -> Dict[int, dict]:
-    """한 사업연도의 분기별 {분기: {eps, announce_date, cumulative}} (고른 기준으로만)."""
+    """한 사업연도의 분기별 {분기: {eps, announce_date, cumulative, income, income_cumulative}}
+    (고른 기준으로만). income은 {revenue, operating_income, net_income}(원, 3개월) 중 응답에 있는 것."""
     collected: Dict[int, dict] = {}
     for quarter, reprt_code in _QUARTER_REPORT_CODES.items():
-        row = _fetch_report(corp_code, year, reprt_code, fs_div)
+        rows = _fetch_report_rows(corp_code, year, reprt_code, fs_div)
+        row = _eps_row(rows) if rows is not None else None
         if row is None:
             continue
         eps = _to_amount(row.get("thstrm_amount"))
         announced = _announce_date(row.get("rcept_no"))
         if eps is None or not announced:
             continue
+        income_rows = _income_rows(rows)
         collected[quarter] = {
             "eps": eps,
             "announce_date": announced,
             # 4분기 역산에 쓰는 누적치 — 3분기 누적이 없으면 그 해 4분기는 비운다.
             "cumulative": _to_amount(row.get("thstrm_add_amount")),
+            "income": {k: _to_amount(r.get("thstrm_amount")) for k, r in income_rows.items()
+                       if _to_amount(r.get("thstrm_amount")) is not None},
+            "income_cumulative": {k: _to_amount(r.get("thstrm_add_amount")) for k, r in income_rows.items()
+                                  if _to_amount(r.get("thstrm_add_amount")) is not None},
         }
 
-    annual_row = _fetch_report(corp_code, year, _ANNUAL_REPORT_CODE, fs_div)
+    annual_rows = _fetch_report_rows(corp_code, year, _ANNUAL_REPORT_CODE, fs_div)
+    annual_row = _eps_row(annual_rows) if annual_rows is not None else None
     if annual_row is not None:
         annual_eps = _to_amount(annual_row.get("thstrm_amount"))
         announced = _announce_date(annual_row.get("rcept_no"))
-        third_cumulative = (collected.get(3) or {}).get("cumulative")
+        third = collected.get(3) or {}
+        third_cumulative = third.get("cumulative")
         if annual_eps is not None and announced and third_cumulative is not None:
+            annual_income = {k: _to_amount(r.get("thstrm_amount")) for k, r in _income_rows(annual_rows).items()}
+            third_income_cum = third.get("income_cumulative") or {}
             collected[4] = {
                 "eps": annual_eps - third_cumulative,
                 "announce_date": announced,
                 "cumulative": annual_eps,
+                # 4분기 손익 = 연간 − 3분기 누적(둘 다 있는 항목만).
+                "income": {k: v - third_income_cum[k] for k, v in annual_income.items()
+                           if v is not None and k in third_income_cum},
+                "income_cumulative": {},
             }
     return collected
 
@@ -264,16 +310,67 @@ def fetch_quarterly_earnings(
             collected = _collect_year(corp_code, year, fs_div)
 
         for quarter, data in sorted(collected.items()):
-            records.append({
+            record = {
                 "period_end": _quarter_end(dart_year_end(year, fiscal_month), quarter),
                 "eps": data["eps"],
                 "announce_date": data["announce_date"],
                 "fs_div": fs_div,
-            })
+            }
+            record.update({k: v for k, v in (data.get("income") or {}).items()})   # 분기 손익 3항목(v16.27)
+            records.append(record)
     records.sort(key=lambda record: record["period_end"])
     if records:
         clamp_to_original_filing(records, fetch_original_filing_dates(corp_code))
     return records or None
+
+
+def has_income_items(records: Optional[List[dict]]) -> bool:
+    """수집분에 분기 손익 3항목이 하나라도 있는가(09-23 이전 EPS 전용 수집분 판별)."""
+    return any(any(k in r for k in INCOME_ITEMS) for r in records or [])
+
+
+# 분기 성장률 지표(v16.27) — 항목 × 기준(QoQ=직전 분기, YoY=전년 동기). data_resolver가 런타임 계산.
+QUARTERLY_GROWTH_METRICS: Dict[str, tuple] = {
+    f"{item}_growth_{mode}": (item, mode)
+    for item in INCOME_ITEMS for mode in ("qoq", "yoy")
+}
+
+
+def quarterly_growth_events(records: List[dict], item: str, mode: str) -> List[tuple]:
+    """분기 성장률 사건 목록 [(announce_date, 성장률 %)] — 결산일 오름차순.
+
+    QoQ는 직전 분기(결산일 간격 2~4개월), YoY는 전년 동기(11~13개월)를 **날짜로** 찾는다(목록 위치가
+    아니다 — 빠진 분기가 있으면 어긋난다). 기준 값이 0 이하(적자·매출 없음)면 성장률의 뜻이 없어 뺀다."""
+    rows = []
+    for r in records or []:
+        v, pe, ad = r.get(item), r.get("period_end"), r.get("announce_date")
+        if v is None or not pe or not ad:
+            continue
+        rows.append((pd.Timestamp(pe), pd.Timestamp(ad), float(v)))
+    rows.sort()
+    lo, hi = ((2, 4) if mode == "qoq" else (11, 13))
+    out = []
+    for pe, ad, v in rows:
+        base = None
+        for cpe, _cad, cv in rows:
+            gap = (pe.year - cpe.year) * 12 + (pe.month - cpe.month)
+            if lo <= gap <= hi:
+                base = cv
+        if base is None or base <= 0:
+            continue
+        out.append((ad, (v / base - 1.0) * 100.0))
+    return out
+
+
+def quarterly_growth_series(records: List[dict], item: str, mode: str, dates) -> "pd.Series":
+    """거래일 배열에 맞춘 as-of 성장률 시리즈(발표일부터 다음 발표 전까지 이어짐, 없으면 NaN)."""
+    events = quarterly_growth_events(records, item, mode)
+    idx = pd.DatetimeIndex(pd.to_datetime(dates))
+    if not events:
+        return pd.Series(float("nan"), index=idx)
+    ev = pd.Series([v for _, v in events], index=pd.DatetimeIndex([d for d, _ in events]))
+    ev = ev[~ev.index.duplicated(keep="last")].sort_index()
+    return ev.reindex(idx, method="ffill")
 
 
 def load_quarterly_earnings(symbol: str) -> Optional[List[dict]]:

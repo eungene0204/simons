@@ -224,3 +224,43 @@ def test_engine_composite_missing_component_warns_not_silent():
         "options": {"execution_type": "same_close"},
     })
     assert any("복합 순위 구성 지표" in w for w in result.get("warnings", [])), result.get("warnings")
+
+
+# ─── 지표별 가중치(엔진 v16.24) ────────────────────────────────────────────────
+
+def test_composite_panel_weights_tilt_the_average():
+    """PER 가중 3·ROE 가중 1: PER 순위가 좋은 종목이 위로 온다(동일 가중이면 동점이던 조합)."""
+    idx = pd.date_range("2024-01-01", periods=2, freq="D")
+    syms = ["A", "B"]
+    # ROE: A 좋음 / PER: B 좋음 → 동일 가중이면 A=B 동점, PER 가중 3이면 B > A.
+    values = _fund_values(idx, syms, {
+        "roe_or_gpa": {"A": 20, "B": 5},
+        "per": {"A": 30, "B": 5},
+    })
+    price = pd.DataFrame(100.0, index=idx, columns=syms)
+    equal = [{"metric": "roe_or_gpa", "direction": "top"}, {"metric": "per", "direction": "bottom"}]
+    tilted = [{"metric": "roe_or_gpa", "direction": "top", "weight": 1},
+              {"metric": "per", "direction": "bottom", "weight": 3}]
+    eq_df, _, _ = BacktestEngine._composite_rank_panel(equal, price, values, idx, syms, "same_close")
+    tl_df, _, _ = BacktestEngine._composite_rank_panel(tilted, price, values, idx, syms, "same_close")
+    assert eq_df.iloc[-1]["A"] == pytest.approx(eq_df.iloc[-1]["B"])
+    assert tl_df.iloc[-1]["B"] > tl_df.iloc[-1]["A"]
+    # 가중 평균 검산(2종목 백분위: 좋은 쪽 1.0·나쁜 쪽 0.5, 낮을수록 좋은 지표는 1−pct):
+    # A = (1.0×1 + 0.0×3)/4 = 0.25, B = (0.5×1 + 0.5×3)/4 = 0.5
+    assert tl_df.iloc[-1]["A"] == pytest.approx(0.25)
+    assert tl_df.iloc[-1]["B"] == pytest.approx(0.5)
+
+
+def test_composite_panel_weight_one_or_absent_is_bit_identical():
+    idx = pd.date_range("2024-01-01", periods=2, freq="D")
+    syms = ["A", "B", "C"]
+    values = _fund_values(idx, syms, {
+        "roe_or_gpa": {"A": 20, "B": 15, "C": 10},
+        "per": {"A": 30, "B": 5, "C": 10},
+    })
+    price = pd.DataFrame(100.0, index=idx, columns=syms)
+    base = [{"metric": "roe_or_gpa", "direction": "top"}, {"metric": "per", "direction": "bottom"}]
+    ones = [dict(c, weight=1.0) for c in base]
+    a, _, _ = BacktestEngine._composite_rank_panel(base, price, values, idx, syms, "same_close")
+    b, _, _ = BacktestEngine._composite_rank_panel(ones, price, values, idx, syms, "same_close")
+    assert np.array_equal(a.values, b.values)

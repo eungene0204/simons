@@ -135,6 +135,27 @@ export default function BacktestStatsSummary({ result }: Props) {
           value: num(result.sortino),
           color: "text-gray-200",
         },
+        // 벤치마크 대비 통계(엔진 v16.25) — 정의 불가(null)는 —.
+        {
+          label: t("베타 (β)"),
+          value: result.beta == null ? "—" : num(result.beta),
+          color: "text-gray-200",
+        },
+        {
+          label: t("젠센 알파 (연환산)"),
+          value: result.alpha == null ? "—" : pct(result.alpha),
+          color: returnColor(result.alpha ?? undefined),
+        },
+        {
+          label: t("정보 비율"),
+          value: result.informationRatio == null ? "—" : num(result.informationRatio),
+          color: "text-gray-200",
+        },
+        {
+          label: t("추적 오차"),
+          value: result.trackingError == null ? "—" : `${result.trackingError.toFixed(2)}%`,
+          color: "text-gray-200",
+        },
         {
           label: t("켈리 기준"),
           value: result.kelly == null ? "—" : pct(result.kelly),
@@ -181,6 +202,26 @@ export default function BacktestStatsSummary({ result }: Props) {
       ],
     },
   ];
+
+  // 팩터 예측력(엔진 v16.26) — 랭킹+정기 리밸런싱 전략에만 값이 온다. 과거 데이터의 통계이지 예측이 아니다.
+  const ic = result.factorIc;
+  if (ic) {
+    groups.push({
+      title: t("팩터 예측력 (과거 통계)"),
+      items: [
+        { label: t("평균 IC"), value: ic.meanIc.toFixed(3), color: returnColor(ic.meanIc) },
+        { label: t("IC 표준편차"), value: ic.icStd.toFixed(3), color: "text-gray-200" },
+        { label: t("ICIR"), value: ic.icir == null ? "—" : ic.icir.toFixed(2), color: "text-gray-200" },
+        { label: t("IC 양수 비율"), value: `${(ic.positiveRate * 100).toFixed(0)}%`, color: "text-gray-200" },
+        {
+          label: t("상위·하위 {0}분위 수익률 차", ic.quantiles),
+          value: pct(ic.topBottomSpread),
+          color: returnColor(ic.topBottomSpread),
+        },
+        { label: t("측정 기간 수"), value: t("{0}회", ic.periods), color: "text-gray-300" },
+      ],
+    });
+  }
 
   return (
     <div

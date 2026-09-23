@@ -15,7 +15,7 @@ import os
 import re
 import time
 from datetime import date
-from typing import Annotated, List, Literal, Optional, Sequence, Union
+from typing import Annotated, List, Literal, Optional, Sequence, Union, Dict
 from pydantic import (
     BaseModel,
     BeforeValidator,
@@ -38,6 +38,7 @@ from llm_backend import (
 from engine import strategy_slots
 from engine.universe_pit import (
     CANONICAL_SECTORS,
+    expand_legacy_sector,
     normalize_sector,
     normalize_sector_value,
     sector_value_as_list,
@@ -492,6 +493,16 @@ _FUNDAMENTAL_METRIC_ALIASES: dict[str, str] = {
     "free_cash_flow_yield": "fcf_yield",
     "dividend_streak": "dividend_streak_years",
     "consecutive_dividend_years": "dividend_streak_years",
+    "asset_growth_rate": "asset_growth", "total_asset_growth": "asset_growth",
+    "total_assets_growth": "asset_growth", "assetgrowth": "asset_growth",
+    "accruals": "accruals_ratio", "accrual_ratio": "accruals_ratio", "accrual": "accruals_ratio",
+    "accruals_to_assets": "accruals_ratio",
+    "fscore": "f_score", "piotroski": "f_score", "piotroski_f_score": "f_score",
+    "ncav": "ncav_ratio", "market_cap_to_ncav": "ncav_ratio", "ncav_to_market_cap": "ncav_ratio",
+    "revenue_qoq": "revenue_growth_qoq", "revenue_yoy": "revenue_growth_yoy",
+    "operating_income_qoq": "operating_income_growth_qoq", "operating_income_yoy": "operating_income_growth_yoy",
+    "net_income_qoq": "net_income_growth_qoq", "net_income_yoy": "net_income_growth_yoy",
+    "quarterly_revenue_growth": "revenue_growth_yoy", "quarterly_net_income_growth": "net_income_growth_yoy",
     "netincome": "net_income",
     "net_profit": "net_income",
 }
@@ -511,12 +522,14 @@ RankingComponentMetricLiteral = Literal[
     "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
     "roic", "fcf_margin",
     "fcf_yield", "dividend_streak_years",
+    "asset_growth", "accruals_ratio", "f_score", "ncav_ratio",
+    "revenue_growth_qoq", "revenue_growth_yoy", "operating_income_growth_qoq", "operating_income_growth_yoy", "net_income_growth_qoq", "net_income_growth_yoy",
 ]
 # 'composite'=복합 순위 합산(FR-BT-063) — 구성 지표는 ranking_components에 담긴다.
 # 단일 지표 랭킹 어휘(RankingComponentMetricLiteral)에 합산 모드 하나를 더한 것.
 # 'residual_reversal'=시장·섹터 회귀 잔차 반전 시그널(v16.17) — 단독 랭킹 전용(복합 구성 불가).
 # 'pead'=실적 발표 서프라이즈 시그널(v16.19) — 단독 랭킹 전용(복합 구성 불가).
-RankingMetricLiteral = Literal[RankingComponentMetricLiteral, "composite", "residual_reversal", "pead"]
+RankingMetricLiteral = Literal[RankingComponentMetricLiteral, "composite", "residual_reversal", "pead", "taa"]
 
 
 def _normalize_metric_alias(value):
@@ -543,6 +556,9 @@ class RankingComponent(BaseModel):
     # 묶음 점수(엔진 v16.14) — 같은 이름끼리 먼저 평균해 한 점수(예: 'quality')로 만든 뒤 다른
     # 묶음·단독 지표와 동일 가중 평균한다. 없으면 단독 지표.
     group: Optional[str] = Field(default=None, max_length=40)
+    # 구성 지표 가중치(엔진 v16.24) — 백분위 가중 평균의 가중. 없으면 1(동일 가중). 사용자가
+    # 말했을 때만 채워진다('PER 2, ROE 1 가중' · 'PER 60%, ROE 40%').
+    weight: Optional[float] = Field(default=None, gt=0)
 
 
 class MarketRegime(BaseModel):
@@ -585,6 +601,46 @@ class MarketRegime(BaseModel):
         return out
 
 
+class MacroFilter(BaseModel):
+    """매크로 조건 필터(엔진 v16.31) — 금리·환율·VIX 등 시계열이 조건을 충족하는 날 목표 노출을 줄인다.
+
+    series는 정본 id(engine/macro_data.MACRO_SERIES). 애매한 표현('금리')은 series=None으로 남아 되묻는
+    중이며(값 대기), 기준값·비율도 사용자가 말했을 때만 채워진다 — 완결되기 전에는 엔진 요청에 싣지 않는다.
+    mode: level=수준 비교, change=period일 변화율(%) 비교, ma=period일 이동평균 대비 위(>)/아래(<)."""
+    series: Optional[str] = Field(default=None, description="정본 시리즈 id(vix·usdkrw·us10y·…)")
+    mode: Literal["level", "change", "ma"] = "level"
+    operator: Optional[Literal["<", "<=", ">", ">="]] = None
+    value: Optional[float] = Field(default=None, description="수준 임계값 또는 변화율(%)")
+    period: Optional[int] = Field(default=None, ge=2, le=500, description="변화율 기간 또는 이동평균 일수")
+    exposure_pct: Optional[float] = Field(default=None, ge=0, lt=100, description="조건 충족일 목표 노출(%)")
+
+    def is_complete(self) -> bool:
+        if self.series is None or self.operator is None or self.exposure_pct is None:
+            return False
+        if self.mode == "ma":
+            return self.period is not None
+        if self.mode == "change":
+            return self.period is not None and self.value is not None
+        return self.value is not None
+
+    def to_request(self) -> dict:
+        return self.model_dump(exclude_none=True)
+
+
+class VolatilityTarget(BaseModel):
+    """목표 변동성(엔진 v16.25) — 자산곡선의 최근 20거래일 변동성(연환산)이 목표를 넘는 날 노출을 낮춘다.
+
+    목표 값을 말하지 않았으면(target_pct=None) 되묻는 중이며 엔진 요청에 싣지 않는다 — 개념은 남겨
+    답이 그 자리를 채운다(시장 국면 필터와 같은 계약)."""
+    target_pct: Optional[float] = Field(default=None, gt=0, lt=100, description="목표 연변동성(%)")
+
+    def is_complete(self) -> bool:
+        return self.target_pct is not None
+
+    def to_request(self) -> dict:
+        return {"target_volatility_pct": self.target_pct}
+
+
 class FundamentalFilter(BaseModel):
     """재무 지표 필터 조건"""
     metric: Annotated[Literal[
@@ -598,6 +654,8 @@ class FundamentalFilter(BaseModel):
         "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
         "roic", "fcf_margin",
         "fcf_yield", "dividend_streak_years",
+    "asset_growth", "accruals_ratio", "f_score", "ncav_ratio",
+    "revenue_growth_qoq", "revenue_growth_yoy", "operating_income_growth_qoq", "operating_income_growth_yoy", "net_income_growth_qoq", "net_income_growth_yoy",
     ], BeforeValidator(_normalize_metric_alias)] = Field(
         description=(
             "재무 지표 종류. "
@@ -626,7 +684,14 @@ class FundamentalFilter(BaseModel):
             "roic=투하자본이익률(%, 영업이익×(1−유효세율)÷(자본총계+이자부부채−현금)), "
             "fcf_margin=FCF 마진(%, 잉여현금흐름÷매출액), "
             "fcf_yield=FCF 수익률(%, 잉여현금흐름÷시가총액 — 높을수록 저평가), "
-            "dividend_streak_years=연속 배당 연수(년, 직전 연도부터 끊기지 않고 현금배당을 지급한 연도 수). "
+            "dividend_streak_years=연속 배당 연수(년, 직전 연도부터 끊기지 않고 현금배당을 지급한 연도 수), "
+            "asset_growth=자산성장률(%, 총자산의 전년 대비 증가율 — 낮을수록 선호하는 퀄리티 팩터), "
+            "accruals_ratio=발생액 비율(%, (당기순이익−영업활동현금흐름)÷총자산 — 낮을수록 이익의 질이 높음), "
+            "f_score=피오트로스키 F-score(점, 0~9 — 'F-score 7점 이상'=f_score>=7), "
+            "ncav_ratio=시가총액/NCAV 비율(%, 시가총액÷(유동자산−부채총계) — '시총이 NCAV의 2/3 이하'=ncav_ratio<=67, 낮을수록 저평가), "
+            "revenue_growth_qoq/operating_income_growth_qoq/net_income_growth_qoq=분기 매출/영업이익/순이익의 직전 분기 대비 증가율(%), "
+            "revenue_growth_yoy/operating_income_growth_yoy/net_income_growth_yoy=분기 매출/영업이익/순이익의 전년 동기 대비 증가율(%) — "
+            "연간 증가율(revenue_growth 등)과 다른 지표('분기'·'QoQ'·'전분기'·'전년 동기 분기'를 말했을 때만). "
             "eps_growth/ebitda_growth/net_income_growth/operating_income_growth/ocf_growth/fcf_growth는 "
             "적자↔흑자 전환기에는 값 대신 상태코드(TURNAROUND/LOSS_TRANSITION 등)로 표현될 수 있다."
         )
@@ -693,8 +758,9 @@ class TechnicalSignal(BaseModel):
         "ma_crossover", "rsi", "ema", "macd",
         "bollinger_bands", "breakout", "volume_spike", "volume_ratio", "trading_value_ratio",
         "stochastic", "cci", "adx", "williams_r", "mfi", "roc", "volatility",
-        "relative_return", "trading_value", "ai_model", "ai_drop_model"
-    ] = Field(description="지표 종류. williams_r=Williams %R(-100~0), mfi=자금흐름지표(0~100), roc=변화율/모멘텀(%), volatility=연환산 변동성(%, 일수익률 롤링 표준편차×√246), relative_return=시장 대비 초과수익률(%p, 종목 N일 수익률−상장 시장 지수 N일 수익률), volume_ratio=거래량 배수(당일 거래량 ÷ 직전 N일 평균 거래량, value=배수), trading_value_ratio=거래대금 배수(당일 거래대금 ÷ 직전 N일 평균 거래대금, value=배수), ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도")
+        "relative_return", "trading_value", "ai_model", "ai_drop_model",
+        "candle_hammer", "candle_hanging_man", "candle_inverted_hammer", "candle_shooting_star", "candle_doji", "candle_bullish_engulfing", "candle_bearish_engulfing", "candle_piercing_line", "candle_dark_cloud_cover", "candle_morning_star", "candle_evening_star", "candle_three_white_soldiers", "candle_three_black_crows"
+    ] = Field(description="지표 종류. candle_*=캔들 패턴(완성 봉에 신호). williams_r=Williams %R(-100~0), mfi=자금흐름지표(0~100), roc=변화율/모멘텀(%), volatility=연환산 변동성(%, 일수익률 롤링 표준편차×√246), relative_return=시장 대비 초과수익률(%p, 종목 N일 수익률−상장 시장 지수 N일 수익률), volume_ratio=거래량 배수(당일 거래량 ÷ 직전 N일 평균 거래량, value=배수), trading_value_ratio=거래대금 배수(당일 거래대금 ÷ 직전 N일 평균 거래대금, value=배수), ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도")
     signal_type: Literal["buy", "sell"] = Field(default="buy", description="매수=buy, 매도=sell")
 
     # MA / EMA 크로스오버
@@ -715,6 +781,8 @@ class TechnicalSignal(BaseModel):
 
     # AI 모델
     threshold: Optional[float] = Field(default=None, description="AI 모델 신뢰도 임계값 (ai_model, ai_drop_model). 예: 70 = 70% 이상 확률")
+    # 다중 타임프레임(엔진 v16.29): 주봉·월봉 기준으로 지표를 계산한다(일봉=None).
+    timeframe: Optional[Literal["weekly", "monthly"]] = Field(default=None, description="지표 계산 봉: weekly=주봉, monthly=월봉. 없으면 일봉")
 
 
 # 리스크 비율 필드는 방향이 필드 의미에 내장돼 있어("손절 -8%"=8% 하락 시 매도) 부호 없는
@@ -735,6 +803,73 @@ def _clamp_max_positions(value):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return value
     return max(1, min(100, int(value)))
+
+
+class EntryTranches(BaseModel):
+    """분할 매수(엔진 v16.28) — 첫 회차는 신호 체결가, 이후 회차는 기준가 대비 step_pct씩 낮은 사다리.
+    회차 수·간격 중 하나라도 비면 되묻는 중이며 엔진 요청에 싣지 않는다."""
+    count: Optional[int] = Field(default=None, ge=2, le=20, description="회차 수")
+    step_pct: Optional[float] = Field(default=None, gt=0, lt=50, description="회차 간격(%)")
+
+    def is_complete(self) -> bool:
+        return self.count is not None and self.step_pct is not None
+
+    def to_request(self) -> dict:
+        return {"count": self.count, "step_pct": self.step_pct}
+
+
+class PartialTakeProfit(BaseModel):
+    """분할 익절 단계(엔진 v16.28) — 매수가 대비 profit_pct에 닿으면 보유 비중의 sell_pct%를 판다."""
+    profit_pct: Optional[float] = Field(default=None, gt=0, description="수익률 단계(%)")
+    sell_pct: Optional[float] = Field(default=None, gt=0, lt=100, description="매도 비율(%)")
+
+    def is_complete(self) -> bool:
+        return self.profit_pct is not None and self.sell_pct is not None
+
+    def to_request(self) -> dict:
+        return {"profit_pct": self.profit_pct, "sell_pct": self.sell_pct}
+
+
+class PositionSizing(BaseModel):
+    """포지션 사이징(엔진 v16.28) — atr_risk: 비중 = 거래당 위험 % ÷ (배수 × ATR ÷ 주가), kelly: 켈리 × 배수."""
+    method: Literal["atr_risk", "kelly"]
+    risk_per_trade_pct: Optional[float] = Field(default=None, gt=0, le=100)
+    atr_period: Optional[int] = Field(default=None, ge=2, le=250)
+    atr_multiple: Optional[float] = Field(default=None, gt=0, le=20)
+    kelly_fraction: Optional[float] = Field(default=None, gt=0, le=1)
+
+    def is_complete(self) -> bool:
+        if self.method == "atr_risk":
+            return self.risk_per_trade_pct is not None
+        return self.kelly_fraction is not None
+
+    def to_request(self) -> dict:
+        return self.model_dump(exclude_none=True)
+
+
+class TaaSpec(BaseModel):
+    """전술 자산배분 템플릿(엔진 v16.29) — VAA·DAA·PAA. 자산 목록은 정본 종목코드다.
+    공격·방어가 비어 있으면 되묻는 중이며 엔진 요청에 싣지 않는다."""
+    model: Literal["vaa", "daa", "paa"]
+    offensive: List[str] = Field(default_factory=list)
+    defensive: List[str] = Field(default_factory=list)
+    canary: List[str] = Field(default_factory=list)
+    top_n: Optional[int] = Field(default=None, ge=1, le=20)
+    breadth: Optional[int] = Field(default=None, ge=1)
+    protection: Optional[int] = Field(default=None, ge=0, le=5)
+
+    def is_complete(self) -> bool:
+        return bool(self.offensive) and bool(self.defensive) and (self.model != "daa" or bool(self.canary))
+
+    def symbols(self) -> List[str]:
+        out: List[str] = []
+        for s in self.offensive + self.defensive + self.canary:
+            if s not in out:
+                out.append(s)
+        return out
+
+    def to_request(self) -> dict:
+        return self.model_dump(exclude_none=True)
 
 
 class CashPool(BaseModel):
@@ -811,6 +946,27 @@ class ParsedStrategy(BaseModel):
         default=None,
         description="미국 유니버스의 업종/산업 필터(GICS 정본 라벨, 시스템이 채움). LLM은 채우지 말 것",
     )
+    # 업종 제외 필터(v16.24) — '금융주 제외'·'지주사 제외'. 정본 섹터명 목록(묶음 통칭 '금융'은
+    # 은행·증권·보험·금융지주로 펴진다). 없음=None. sector(포함)와 독립이다.
+    exclude_sectors: Optional[List[str]] = Field(
+        default=None,
+        description="대상에서 뺄 업종의 정본 섹터명 목록. 없으면 null",
+    )
+
+    @field_validator("exclude_sectors")
+    @classmethod
+    def _normalize_exclude_sectors(cls, v):
+        # 정본화·묶음 펴기·중복 제거. 정규화 불가 항목은 버린다(안내는 검증기 소관). 빈 목록=None.
+        if not v:
+            return None
+        out: List[str] = []
+        for item in v:
+            if not isinstance(item, str):
+                continue
+            for canonical in expand_legacy_sector(item):
+                if canonical not in out:
+                    out.append(canonical)
+        return out or None
 
     @field_validator("sector")
     @classmethod
@@ -1108,6 +1264,14 @@ class ParsedStrategy(BaseModel):
         default=None, ge=1,
         description="그 평균 거래대금의 기간(거래일). 없으면 null(기본 20)",
     )
+    universe_market_cap_exclude_bottom_pct: Optional[float] = Field(
+        default=None, gt=0, lt=100,
+        description="시가총액 하위 X%를 유니버스에서 제외(소형주 제외). 없으면 null",
+    )
+    universe_exclude_loss_making: Optional[str] = Field(
+        default=None, pattern="^(net|operating|both)$",
+        description="적자기업 제외 기준 — net(당기순손실)·operating(영업손실)·both. 없으면 null",
+    )
     max_sector_weight_pct: Optional[float] = Field(
         default=None, gt=0, le=100,
         description=(
@@ -1116,18 +1280,86 @@ class ParsedStrategy(BaseModel):
         ),
     )
     # ── 비중·시장 국면(엔진 v16.14)
-    allocation_type: Literal["equal", "inverse_volatility"] = Field(
+    allocation_type: Literal["equal", "inverse_volatility", "market_cap", "min_variance", "risk_parity",
+                             "max_sharpe", "min_cvar", "fixed", "schedule"] = Field(
         default="equal",
-        description="비중 방식. equal=동일 비중, inverse_volatility=변동성 역비중(1/σ에 비례, 정기 리밸런싱 필요)",
+        description=(
+            "비중 방식. equal=동일 비중, inverse_volatility=변동성 역비중(1/σ), market_cap=시가총액 비중, "
+            "min_variance=최소 분산, risk_parity=위험 기여 균등(ERC), max_sharpe=최대 샤프(평균-분산), "
+            "min_cvar=최소 CVaR, fixed=종목별 고정 비중(target_weights). equal·fixed 외는 정기 리밸런싱 필요"
+        ),
     )
     allocation_lookback_days: Optional[int] = Field(
         default=None, ge=5, le=500,
-        description="변동성 역비중의 변동성 산정 기간(거래일). allocation_type='inverse_volatility'일 때만",
+        description="변동성 역비중·최적화 비중의 산정 기간(거래일). equal·market_cap·fixed에서는 None",
     )
+    # ── 경쟁 격차 1차(엔진 v16.28) ──
+    target_weights: Optional[Dict[str, float]] = Field(
+        default=None, description="고정 배분 {종목코드: 비중 %}. allocation_type='fixed'일 때만",
+    )
+    rebalance_threshold_pct: Optional[float] = Field(
+        default=None, gt=0, lt=100, description="밴드 리밸런싱 임계(%p) — 보유 비중이 목표에서 이만큼 벗어나면 되돌림",
+    )
+    min_holding_days: Optional[int] = Field(
+        default=None, ge=1, description="최소 보유 기간(거래일) — 그 안에는 매도 조건·손절·익절·편출 미적용",
+    )
+    stop_cooldown_days: Optional[int] = Field(
+        default=None, ge=1, description="손절·익절·트레일링 청산 뒤 재진입 금지 기간(거래일)",
+    )
+    trailing_stop_activation_pct: Optional[float] = Field(
+        default=None, gt=0, description="트레일링 스탑 활성화 임계(%) — 매수가 대비 이만큼 올라야 작동",
+    )
+    entry_limit_pct: Optional[float] = Field(
+        default=None, gt=0, lt=50, description="매수 지정가 — 전일 종가 대비 -x%",
+    )
+    exit_limit_pct: Optional[float] = Field(
+        default=None, gt=0, lt=50, description="매도(조건 청산) 지정가 — 전일 종가 대비 +y%",
+    )
+    entry_tranches: Optional[EntryTranches] = Field(default=None, description="분할 매수 설정")
+    partial_take_profits: List[PartialTakeProfit] = Field(default_factory=list, description="분할 익절 단계")
+    position_sizing: Optional[PositionSizing] = Field(default=None, description="포지션 사이징(ATR 위험·켈리)")
+    cash_asset: Optional[str] = Field(
+        default=None, description="현금 대체 자산 종목코드 — 미투자 현금을 이 자산으로 보유(듀얼 모멘텀 안전자산)",
+    )
+    absolute_momentum_threshold_pct: Optional[float] = Field(
+        default=None, description="절대 모멘텀 임계(%) — 수익률 랭킹에서 최근 수익률이 이 값 이하면 편입하지 않음",
+    )
+    slippage_model: Optional[Literal["volume_impact"]] = Field(
+        default=None, description="슬리피지 모델 — volume_impact=주문금액÷평균 거래대금 제곱근에 비례. None=고정",
+    )
+    slippage_impact_coeff: Optional[float] = Field(default=None, gt=0, le=5, description="거래량 비례 슬리피지 계수")
+    # 전술 자산배분 템플릿(엔진 v16.29) — 있으면 ranking_metric='taa'·allocation_type='schedule'·월간 리밸런싱.
+    taa: Optional[TaaSpec] = Field(default=None, description="VAA/DAA/PAA 설정")
+    # 매크로 조건 필터(엔진 v16.31) — 여러 개면 OR(하나라도 충족하면 그중 가장 낮은 노출).
+    macro_filters: List[MacroFilter] = Field(default_factory=list, description="금리·환율·VIX 조건 필터")
     market_regime: Optional[MarketRegime] = Field(
         default=None,
         description="시장 국면 필터 — 지수가 N일 이동평균 아래면 목표 노출을 exposure_pct%로 줄인다. 없으면 null",
     )
+    # 계절 필터(엔진 v16.25) — 투자하는 달(1~12) 목록. '11월부터 4월까지만 투자'=[11,12,1,2,3,4].
+    # 그 밖의 달은 전량 현금. 12달 전부면 필터가 아니므로 None.
+    seasonal_months: Optional[List[int]] = Field(
+        default=None, description="투자하는 달(1~12) 목록. 없으면 null",
+    )
+    # 목표 변동성(엔진 v16.25) — 값이 비어 있으면 되묻는 중(값 대기).
+    volatility_target: Optional[VolatilityTarget] = Field(
+        default=None, description="목표 연변동성 설정. 없으면 null",
+    )
+
+    @field_validator("seasonal_months", mode="before")
+    @classmethod
+    def _normalize_seasonal_months(cls, v):
+        if not v:
+            return None
+        out: List[int] = []
+        for item in v:
+            try:
+                m = int(item)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= m <= 12 and m not in out:
+                out.append(m)
+        return out if out and len(out) < 12 else None
 
     # ── 포트폴리오
     max_positions: int = Field(
@@ -1154,9 +1386,9 @@ class ParsedStrategy(BaseModel):
         default=None,
         description="최대 보유 기간(거래일). 1년=252, 6개월=126, 3개월=63, 1개월=21. 없으면 null"
     )
-    rebalancing_period: Literal["none", "daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly"] = Field(
+    rebalancing_period: Literal["none", "daily", "weekly", "monthly", "bimonthly", "quarterly", "semiannual", "yearly"] = Field(
         default="none",
-        description="정기 리밸런싱 주기. '매일'=daily, '매주/주간'=weekly, '매월'=monthly, '격월/두 달에 한 번'=bimonthly, '분기'=quarterly, '매년/1년마다'=yearly, 언급없음=none"
+        description="정기 리밸런싱 주기. '매일'=daily, '매주/주간'=weekly, '매월'=monthly, '격월/두 달에 한 번'=bimonthly, '분기'=quarterly, '반기/6개월마다'=semiannual, '매년/1년마다'=yearly, 언급없음=none"
     )
     rebalance_method: Literal["reconstitute", "weights_only"] = Field(
         default="reconstitute",
@@ -1204,9 +1436,9 @@ class ParsedStrategy(BaseModel):
         default=10_000_000.0,
         description="초기 자본금(원). 언급 없으면 10000000 (1천만원)"
     )
-    execution_timing: Literal["next_open", "current_close"] = Field(
+    execution_timing: Literal["next_open", "current_close", "next_avg"] = Field(
         default="next_open",
-        description="체결 시점. '다음날 시가'=next_open, '당일 종가'=current_close. 언급 없으면 next_open"
+        description="체결 시점. '다음날 시가'=next_open, '당일 종가'=current_close, '다음날 평균가'=next_avg. 언급 없으면 next_open"
     )
     fee_rate: float = Field(
         default=0.015,
@@ -1225,7 +1457,7 @@ class ParsedStrategy(BaseModel):
         default=None, gt=0,
         description="정기 납입액(원). '매달 50만원씩 적립'=500000. 언급 없으면 None"
     )
-    contribution_period: Optional[Literal["daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly"]] = Field(
+    contribution_period: Optional[Literal["daily", "weekly", "monthly", "bimonthly", "quarterly", "semiannual", "yearly"]] = Field(
         default=None,
         description="납입 주기. '매달'=monthly, '매주'=weekly, '분기마다'=quarterly. 언급 없으면 None"
     )
@@ -1297,7 +1529,7 @@ class ParsedStrategyDiff(BaseModel):
     max_positions: Optional[int] = Field(default=None, ge=1, le=100)
     max_positions_pct: Optional[float] = Field(default=None, gt=0, le=100)
     hold_period_days: Optional[int] = None
-    rebalancing_period: Optional[Literal["none", "daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly"]] = None
+    rebalancing_period: Optional[Literal["none", "daily", "weekly", "monthly", "bimonthly", "quarterly", "semiannual", "yearly"]] = None
     rebalance_method: Optional[Literal["reconstitute", "weights_only"]] = None
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
@@ -1307,11 +1539,11 @@ class ParsedStrategyDiff(BaseModel):
     backtest_start_date: Optional[str] = None
     backtest_end_date: Optional[str] = None
     initial_capital: Optional[float] = None
-    execution_timing: Optional[Literal["next_open", "current_close"]] = None
+    execution_timing: Optional[Literal["next_open", "current_close", "next_avg"]] = None
     fee_rate: Optional[float] = None
     slippage_rate: Optional[float] = None
     contribution_amount: Optional[float] = None
-    contribution_period: Optional[Literal["daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly"]] = None
+    contribution_period: Optional[Literal["daily", "weekly", "monthly", "bimonthly", "quarterly", "semiannual", "yearly"]] = None
 
 
 _MODEL_TRAILING_TOKENS = (
@@ -1591,7 +1823,7 @@ COMPACT_SYSTEM_PROMPT = """한국 주식 전략 자연어를 ParsedStrategy JSON
 - MACD, 볼린저밴드, 신고가 돌파, 거래량 급증, AI 상승/하락 예측을 해당 indicator로 변환
 - 박스권/N일 고점 위로 돌파 → breakout buy (기간 없으면 lookback 20), 다시 박스 안/저점 아래로 이탈 시 매도 → breakout sell
 - 1년/6개월/3개월/1개월 보유 → 252/126/63/21 거래일
-- 매주/매월/격월/분기/매년 리밸런싱 → weekly/monthly/bimonthly/quarterly/yearly
+- 매주/매월/격월/분기/반기/매년 리밸런싱 → weekly/monthly/bimonthly/quarterly/semiannual/yearly
 - 손절/익절/트레일링 스탑/MDD 한도를 % 숫자로 변환
 - 1억/5천만원/1000만원 등 자본금은 원 단위 숫자로 변환
 
@@ -6234,6 +6466,8 @@ _FUNDAMENTAL_METRIC_LABELS: dict[str, str] = {
     "net_income_growth": "순이익증가율", "market_cap": "시가총액",
     "dividend_yield": "배당수익률", "payout_rate": "배당성향", "dividend_growth": "배당성장률",
     "fcf_yield": "FCF 수익률", "dividend_streak_years": "연속 배당 연수",
+    "asset_growth": "자산성장률", "accruals_ratio": "발생액 비율", "f_score": "F-score",
+    "ncav_ratio": "시가총액/NCAV 비율", "revenue_growth_qoq": "매출 분기성장률(QoQ)", "revenue_growth_yoy": "매출 분기성장률(YoY)", "operating_income_growth_qoq": "영업이익 분기성장률(QoQ)", "operating_income_growth_yoy": "영업이익 분기성장률(YoY)", "net_income_growth_qoq": "순이익 분기성장률(QoQ)", "net_income_growth_yoy": "순이익 분기성장률(YoY)",
     "operating_cf_amount": "영업활동현금흐름", "investing_cf_amount": "투자활동현금흐름",
     "financing_cf_amount": "재무활동현금흐름",
     "owner_net_income": "지배주주순이익",

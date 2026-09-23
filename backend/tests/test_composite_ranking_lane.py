@@ -171,3 +171,42 @@ def test_parsed_strategy_composite_requires_two_components():
         ],
     )
     assert p.ranking_components is None
+
+
+# ─── 지표별 가중치(엔진 v16.24) ────────────────────────────────────────────────
+
+def test_weights_compile_round_trip_and_skip_when_one():
+    """말한 가중치는 구성 지표에 실리고 왕복하며, 1은 동일 가중이라 싣지 않는다."""
+    intent = _intent([
+        {"metric": "fundamental.per", "direction": "bottom", "weight": 2, "source_text": "PER 가중 2"},
+        {"metric": "fundamental.roe_or_gpa", "direction": "top", "weight": 1, "source_text": "ROE 가중 1"},
+    ])
+    validated, report = run_validation(intent)
+    parsed = compile_strategy(validated, report, "PER 가중 2, ROE 가중 1로 순위 합산")
+    by_metric = {c.metric: c for c in parsed.ranking_components}
+    assert by_metric["per"].weight == 2.0
+    assert by_metric["roe_or_gpa"].weight is None
+    spec = decompile_strategy(parsed)
+    assert {r.metric: r.weight for r in spec.ranking} == {"fundamental.per": 2.0, "fundamental.roe_or_gpa": None}
+    req = to_backtest_request(parsed, resolve_symbols=False)
+    assert [c.get("weight") for c in req["risk"]["ranking_components"]] == [2.0, None]
+
+
+def test_weight_string_and_non_positive_are_normalized():
+    """'60%' 같은 표기는 숫자로, 0·음수는 '말하지 않음'(null)으로 — 전체 해석을 깨지 않는다."""
+    intent = _intent([
+        {"metric": "fundamental.per", "direction": "bottom", "weight": "60%"},
+        {"metric": "fundamental.roe_or_gpa", "direction": "top", "weight": -1},
+    ])
+    assert [r.weight for r in intent.strategy.ranking] == [60.0, None]
+
+
+def test_unweighted_composite_hash_unchanged_by_weight_field():
+    """weight 칸이 생겨도 가중치 없는 기존 복합 전략의 strategy_id는 그대로다."""
+    from engine.strategy_converter import compute_strategy_id
+    validated, report = run_validation(_intent(_FOUR))
+    parsed = compile_strategy(validated, report, "x")
+    sid = compute_strategy_id(parsed)
+    dumped = to_canonical_strategy_dsl(parsed)
+    assert all("weight" not in c for c in dumped["ranking_components"])
+    assert sid == compute_strategy_id(ParsedStrategy.model_validate(parsed.model_dump()))

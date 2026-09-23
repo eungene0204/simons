@@ -31,5 +31,15 @@
   { "key": "dividend_growth", "label": "배당성장률", "unit": "%", "direction": ">=", "recommend": [5, 10, 15] },
   { "key": "dividend_yield", "label": "배당수익률", "unit": "%", "direction": ">=", "recommend": [2, 3, 5, 7] },
   { "key": "dividend_streak_years", "label": "연속 배당 연수", "unit": "년", "direction": ">=", "recommend": [3, 5, 10] },
-  { "key": "fcf_yield", "label": "FCF 수익률", "unit": "%", "direction": ">=", "recommend": [3, 5, 8] }
+  { "key": "fcf_yield", "label": "FCF 수익률", "unit": "%", "direction": ">=", "recommend": [3, 5, 8] },
+  { "key": "asset_growth", "label": "자산성장률", "unit": "%", "direction": "<=", "recommend": [10, 20, 30] },
+  { "key": "accruals_ratio", "label": "발생액 비율", "unit": "%", "direction": "<=", "recommend": [0, 5, 10] },
+  { "key": "f_score", "label": "F-score", "unit": "점", "direction": ">=", "recommend": [6, 7, 8] },
+  { "key": "ncav_ratio", "label": "시가총액/NCAV 비율", "unit": "%", "direction": "<=", "recommend": [50, 67, 100] },
+  { "key": "revenue_growth_qoq", "label": "매출 분기성장률(QoQ)", "unit": "%", "direction": ">=", "recommend": [5, 10, 20] },
+  { "key": "revenue_growth_yoy", "label": "매출 분기성장률(YoY)", "unit": "%", "direction": ">=", "recommend": [5, 10, 20] },
+  { "key": "operating_income_growth_qoq", "label": "영업이익 분기성장률(QoQ)", "unit": "%", "direction": ">=", "recommend": [5, 10, 20] },
+  { "key": "operating_income_growth_yoy", "label": "영업이익 분기성장률(YoY)", "unit": "%", "direction": ">=", "recommend": [5, 10, 20] },
+  { "key": "net_income_growth_qoq", "label": "순이익 분기성장률(QoQ)", "unit": "%", "direction": ">=", "recommend": [5, 10, 20] },
+  { "key": "net_income_growth_yoy", "label": "순이익 분기성장률(YoY)", "unit": "%", "direction": ">=", "recommend": [5, 10, 20] }
 ]

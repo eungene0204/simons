@@ -57,7 +57,8 @@ _ROLE_CROSS_DIRECTION = {"진입": "crosses_above", "청산": "crosses_below"}
 def _condition_identity(cond) -> tuple:
     """정규화가 끝난 조건의 **구조 동일성** 키 — 값이 None인 파라미터는 없는 것으로 본다."""
     params = tuple(sorted(
-        (name, float(value)) for name, value in cond.parameters.items() if value is not None
+        (name, float(value) if isinstance(value, (int, float)) else str(value))
+        for name, value in cond.parameters.items() if value is not None
     ))
     return (cond.factor, cond.operator, cond.value, cond.unit, params)
 
@@ -227,6 +228,7 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 # (9B가 고정 기본값을 습관적으로 echo하는 드리프트 — 2.7부터 실측).
                 target_spec = REGISTRY.get(exp["factor"])
                 allowed_params = set(target_spec.parameters) if target_spec else set()
+                allowed_params.update(caps.STRING_CONDITION_PARAMS)   # timeframe 등 문자열 파라미터(v16.29)
                 fixed = concept.fixed_parameters or {}
                 custom_dropped = False
                 for pname in [p for p in cond.parameters if p not in allowed_params]:
@@ -274,6 +276,16 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 kept.append(cond)
                 continue
             cond.factor = spec.id
+            # 다중 타임프레임(v16.29) — 표기 변형을 정본(weekly/monthly)으로, 일봉은 파라미터 제거.
+            if "timeframe" in cond.parameters:
+                _tf_raw = cond.parameters.get("timeframe")
+                _tf = caps.normalize_timeframe(_tf_raw)
+                if _tf in ("weekly", "monthly") and spec.category == "technical":
+                    cond.parameters["timeframe"] = _tf
+                else:
+                    cond.parameters.pop("timeframe", None)
+                    if _tf is None and _tf_raw not in (None, ""):
+                        unsupported.append(f"타임프레임 '{_tf_raw}'")
             if spec.id in ("fundamental.trading_value", "technical.trading_value") \
                     and cond.value is None and cond.parameters.get("period") is not None:
                 # 금액 없이 평균 기간만 실린 거래대금 조건은 '자기 N일 평균과 비교'의 옛 자리다
@@ -763,6 +775,40 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
             normalized_sectors.extend(c for c in canonical if c not in normalized_sectors)
         strategy.universe.sectors = normalized_sectors
 
+    # 업종 제외(v16.24) — 같은 정본 화이트리스트. 못 푼 표현은 조용히 버리지 않고 미지원으로
+    # 알린다(오류는 아니다 — 제외 하나가 안 풀려도 나머지 전략은 유효하다). ETF·미국 유니버스에는
+    # 한국 업종 분류가 없어 전부 미지원.
+    if strategy.universe.exclude_sectors:
+        from engine.universe_pit import expand_legacy_sector
+
+        _kr_context = not (_us_markets or (_en_region and not strategy.universe.markets)
+                           or "ETF" in strategy.universe.markets)
+        normalized_exclusions: List[str] = []
+        for term in strategy.universe.exclude_sectors:
+            canonical = expand_legacy_sector(term) if _kr_context else ()
+            if not canonical:
+                unsupported.append(f"'{term}' 업종 제외")
+                continue
+            normalized_exclusions.extend(c for c in canonical if c not in normalized_exclusions)
+        strategy.universe.exclude_sectors = normalized_exclusions
+
+    # 적자기업 제외(v16.32) — 손익계산서가 있는 주식 유니버스에서만 성립한다. ETF에는 없다.
+    # 값은 세 가지 기준 중 하나여야 한다 — 모델이 다른 말을 내면 임의로 고쳐 확정하지 않고
+    # 미지원으로 알린다(말하지 않은 기준을 시스템이 정하지 않는다).
+    if strategy.universe.exclude_loss_making is not None:
+        mode = str(strategy.universe.exclude_loss_making).strip().lower()
+        etf_only = bool(strategy.universe.markets) and all(
+            m in ("ETF", "US_ETF") for m in strategy.universe.markets
+        )
+        if mode not in ("net", "operating", "both"):
+            unsupported.append(f"적자기업 제외 기준 '{strategy.universe.exclude_loss_making}'")
+            strategy.universe.exclude_loss_making = None
+        elif etf_only:
+            unsupported.append("ETF 유니버스의 적자기업 제외")
+            strategy.universe.exclude_loss_making = None
+        else:
+            strategy.universe.exclude_loss_making = mode
+
     # 포트폴리오 기능
     if strategy.portfolio.weighting is not None:
         raw_weighting = strategy.portfolio.weighting
@@ -771,23 +817,50 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
             unsupported.append(f"비중 방식 '{raw_weighting}'")
             errors.append(
                 f"비중 방식 '{raw_weighting}'은(는) 지원되지 않습니다 "
-                "(지원: 동일 비중, 변동성 역비중)"
+                "(지원: 동일 비중, 변동성 역비중, 시가총액 비중, 최소 분산, 리스크 패리티, 최대 샤프, 최소 CVaR, 고정 비중)"
             )
             strategy.portfolio.weighting = None
         else:
             strategy.portfolio.weighting = weighting
-            if raw_weighting.strip().lower().replace(" ", "_") in caps.RISK_PARITY_WEIGHTING_ALIASES:
-                # 판정 입력은 LLM이 낸 비중 방식 라벨(표기 대조) — 원문을 읽지 않는다.
-                warnings.append(ui_language.msg(
-                    "리스크 패리티는 변동성 역비중(최근 변동성이 낮을수록 큰 비중, 종목 간 상관관계 "
-                    "미반영)으로 가깝게 반영했어요.",
-                    "Risk parity was approximated with inverse-volatility weighting (lower recent "
-                    "volatility gets a larger weight; correlations between stocks are not used).",
-                ))
-        if strategy.portfolio.weighting != "inverse_volatility":
+        if strategy.portfolio.weighting not in ("inverse_volatility",) + caps.OPTIMIZER_WEIGHTINGS:
             strategy.portfolio.weighting_lookback_days = None
+        if strategy.portfolio.weighting != "fixed" and strategy.portfolio.target_weights:
+            # 비중을 종목별로 말했으면 방식은 고정 배분이다(표기 정규화 — 값이 방식을 정한다).
+            strategy.portfolio.weighting = "fixed"
     else:
         strategy.portfolio.weighting_lookback_days = None
+        if strategy.portfolio.target_weights:
+            strategy.portfolio.weighting = "fixed"
+
+    # 전술 자산배분(v16.29) — 모델 표기 정본화, 모르는 모델은 미지원으로 알리고 뺀다.
+    _taa = strategy.taa
+    if _taa is not None:
+        _m = str(_taa.model or "").strip().lower().replace("-", "")
+        _m = {"vaa": "vaa", "daa": "daa", "paa": "paa", "vigilant": "vaa", "defensive": "daa", "protective": "paa"}.get(_m)
+        if _m is None:
+            unsupported.append(_taa.source_text or f"전술 자산배분 모델 '{_taa.model}'")
+            strategy.taa = None
+        else:
+            _taa.model = _m
+
+    # 지정가·분할 매수(v16.28)는 다음 날 체결에서만 뜻이 있다 — 당일 종가 체결과 함께 오면 알리고 뺀다.
+    _bt = strategy.backtest
+    if _bt.execution_timing == "current_close" and (
+            _bt.entry_limit_percent is not None or _bt.exit_limit_percent is not None
+            or _bt.entry_tranches is not None):
+        errors.append(ui_language.msg(
+            "지정가·분할 매수는 '다음 날 체결'에서만 지원됩니다 — 당일 종가 체결과 함께 쓸 수 없습니다",
+            "Limit orders and tranche entries are only supported with next-day execution",
+        ))
+        _bt.entry_limit_percent = _bt.exit_limit_percent = None
+        _bt.entry_tranches = None
+    if _bt.slippage_model is not None and str(_bt.slippage_model).strip().lower() not in (
+            "volume_impact", "volume-impact", "volumeimpact", "impact"):
+        unsupported.append(f"슬리피지 모델 '{_bt.slippage_model}'")
+        _bt.slippage_model = None
+        _bt.slippage_impact_coeff = None
+    elif _bt.slippage_model is not None:
+        _bt.slippage_model = "volume_impact"
 
     # 잔차 반전 시그널(v16.17)은 단독 랭킹 전용이다 — 엔진의 복합 순위 합산 구성 지표가 아니다.
     # 다른 순위 기준과 함께 오면 시그널 쪽을 빼고 알린다(조용한 합산·조용한 소실 둘 다 금지).
@@ -829,6 +902,40 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
         elif mf.exposure_pct is not None and mf.exposure_pct >= 100:
             # 100%는 '줄이지 않음'이라 필터가 아니다 — 값을 비워 되묻는다.
             mf.exposure_pct = None
+
+    # 매크로 조건 필터(v16.31) — 시리즈 표기를 정본 id로, 연산자 표기를 부등호로 정규화한다. 모르는 시리즈는
+    # 미지원으로 알리고 뺀다. 애매한 '금리' 계열 표기는 시리즈를 비워 두어 완결성 검증이 되묻는다.
+    from engine.macro_data import normalize_series as _norm_series
+    _kept_macro = []
+    for _m in strategy.macro_filters:
+        raw = str(_m.series or "").strip()
+        sid = _norm_series(raw)
+        generic_rate = raw.replace(" ", "").lower() in (
+            "금리", "기준금리", "국채금리", "채권금리", "interestrate", "rate", "rates", "interestrates", "bondyield", "yield")
+        if sid is None and raw and not generic_rate:
+            unsupported.append(_m.source_text or ui_language.msg(f"매크로 지표 '{raw}'", f"macro series '{raw}'"))
+            continue
+        _m.series = sid
+        _m.operator = {"crosses_above": ">", "crosses_below": "<", "above": ">", "below": "<",
+                       "over": ">", "under": "<"}.get(str(_m.operator or "").strip(), _m.operator)
+        if _m.operator not in (None, "<", "<=", ">", ">="):
+            _m.operator = None
+        if _m.mode not in ("level", "change", "ma"):
+            _m.mode = "level"
+        if _m.exposure_pct is not None and _m.exposure_pct >= 100:
+            _m.exposure_pct = None       # 100%는 '줄이지 않음'이라 필터가 아니다 — 되묻는다
+        _kept_macro.append(_m)
+    strategy.macro_filters = _kept_macro
+
+    # 계절 필터(v16.25) — 달이 하나도 안 남았거나 12달 전부면 필터가 아니다(조용히 버리지 않고 알린다).
+    season = strategy.seasonality
+    if season is not None and (not season.invest_months or len(season.invest_months) >= 12):
+        unsupported.append(season.source_text or ui_language.msg("계절 필터", "a seasonal filter"))
+        strategy.seasonality = None
+    # 목표 변동성(v16.25) — 0 이하·100% 이상은 뜻이 없어 값을 비워 되묻는다.
+    vt = strategy.volatility_target
+    if vt is not None and vt.target_percent is not None and not (0 < vt.target_percent < 100):
+        vt.target_percent = None
 
     if strategy.portfolio.rebalance_frequency is not None:
         freq = caps.normalize_rebalance_frequency(strategy.portfolio.rebalance_frequency)

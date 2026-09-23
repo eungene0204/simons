@@ -58,3 +58,11 @@ describe("리밸런싱 배지 — 요약 빌더", () => {
     expect(summary?.rebalancingText).toBe("분기 리밸런싱");
   });
 });
+
+describe("반기 리밸런싱 라벨(엔진 v16.25)", () => {
+  it("semiannual은 '반기'로 표기된다(내부명 노출 금지)", () => {
+    const summary = buildStrategySummary({ ...baseParsed, rebalancing_period: "semiannual" } as ParsedSummary);
+    expect(summary?.rebalancingText).toContain("반기");
+    expect(summary?.rebalancingText).not.toContain("semiannual");
+  });
+});

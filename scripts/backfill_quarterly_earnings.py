@@ -177,6 +177,8 @@ def main() -> int:
     parser.add_argument("--report", action="store_true", help="수집 없이 현황만")
     parser.add_argument("--repair-dates", action="store_true",
                         help="수집된 종목의 발표일을 원공시 접수일로 교정(EPS 재수집 없음)")
+    parser.add_argument("--refetch-income", action="store_true",
+                        help="분기 손익 3항목(v16.27)이 없는 기수집 종목을 먼저 다시 받는다(시총 순)")
     args = parser.parse_args()
 
     if args.repair_dates:
@@ -192,8 +194,12 @@ def main() -> int:
     if args.symbol:
         targets = [args.symbol]
     else:
-        targets = [s for s in symbols_by_market_cap(args.refresh_order)
-                   if s not in done and s not in empty]
+        ordered = symbols_by_market_cap(args.refresh_order)
+        targets = [s for s in ordered if s not in done and s not in empty]
+        if args.refetch_income:
+            # 09-23 이전 EPS 전용 수집분은 매출·영업이익·순이익이 없다 — 시총 큰 순으로 먼저 다시 받는다.
+            stale = [s for s in ordered if s in done and not qe.has_income_items(qe.load_quarterly_earnings(s))]
+            targets = stale + targets
         if args.limit:
             targets = targets[:args.limit]
 

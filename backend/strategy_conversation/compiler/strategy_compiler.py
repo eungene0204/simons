@@ -16,11 +16,17 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import ui_language
 from engine.nl_parser import (
+    VolatilityTarget,
     CashPool,
     ContributionRule,
+    EntryTranches,
     FundamentalFilter,
+    MacroFilter,
     MarketRegime,
     ParsedStrategy,
+    PartialTakeProfit,
+    PositionSizing,
+    TaaSpec,
     TechnicalSignal,
 )
 from strategy_conversation.interpreter.models import (
@@ -32,6 +38,7 @@ from strategy_conversation.registry.concept_ontology import (
     logger as ontology_logger,
     natural_ranking_direction,
 )
+from strategy_conversation.registry import capability_registry as caps
 from strategy_conversation.registry.indicator_registry import REGISTRY
 from strategy_conversation.registry.universe_resolver import resolve_sectors, resolve_symbols
 
@@ -73,6 +80,10 @@ def _compile_technical(
         return int(value) if value is not None else None
 
     kwargs: dict = {"indicator": indicator, "signal_type": signal_type}
+    if params.get("timeframe") in ("weekly", "monthly"):
+        kwargs["timeframe"] = params["timeframe"]          # 다중 타임프레임(v16.29)
+    if indicator.startswith("candle_"):
+        return TechnicalSignal(**kwargs)                   # 캔들 패턴(v16.29): 파라미터 없음
 
     if indicator in ("ma_crossover", "ema", "macd") \
             and cond.operator in ("crosses_above", "crosses_below"):
@@ -343,6 +354,22 @@ def compile_partial(
             {"role": "entry", "label": MARKET_REGIME_LABEL, "source_text": mf.source_text}
         )
 
+    # 매크로 조건 필터(v16.31)도 같은 계약 — 시리즈·값·비율이 정해지기 전에는 값 대기로 올린다.
+    for _mf in strategy.macro_filters:
+        if not _macro_filter_from_spec(_mf).is_complete():
+            dropped.append(MACRO_FILTER_LABEL)
+            pending_conditions.append(
+                {"role": "entry", "label": MACRO_FILTER_LABEL, "source_text": _mf.source_text}
+            )
+
+    # 목표 변동성(v16.25)도 같은 계약 — 목표 값이 정해지기 전에는 값 대기로 올린다.
+    vt = strategy.volatility_target
+    if vt is not None and vt.target_percent is None:
+        dropped.append(VOL_TARGET_LABEL)
+        pending_conditions.append(
+            {"role": "entry", "label": VOL_TARGET_LABEL, "source_text": vt.source_text}
+        )
+
     # 현금 하한(v16.22)도 같은 계약 — 수준이 정해지기 전에는 엔진에 싣지 않고 값 대기로 올린다.
     pool = strategy.backtest.cash_pool
     if pool is not None and not pool.is_complete():
@@ -356,6 +383,20 @@ def compile_partial(
 
 # 값 대기 채널·안내에 쓰는 시장 국면 필터 표기(프론트 en.ts가 번역한다).
 MARKET_REGIME_LABEL = "시장 국면 필터"
+MACRO_FILTER_LABEL = "매크로 조건 필터"
+
+
+def _macro_filter_from_spec(spec) -> MacroFilter:
+    """MacroFilterSpec → 엔진 MacroFilter. 시리즈 id·연산자는 capability_validator가 정본화한 뒤다."""
+    from engine.macro_data import MACRO_SERIES
+    series = spec.series if spec.series in MACRO_SERIES else None
+    mode = spec.mode if spec.mode in ("level", "change", "ma") else "level"
+    op = spec.operator if spec.operator in ("<", "<=", ">", ">=") else None
+    period = int(spec.period) if spec.period is not None and 2 <= int(spec.period) <= 500 else None
+    exposure = spec.exposure_pct if spec.exposure_pct is not None and 0 <= spec.exposure_pct < 100 else None
+    return MacroFilter(series=series, mode=mode, operator=op, value=spec.value, period=period,
+                       exposure_pct=exposure)
+VOL_TARGET_LABEL = "목표 변동성"
 CASH_RESERVE_LABEL = "현금 하한"
 
 
@@ -388,6 +429,9 @@ def _rank_component_from_spec(rank) -> Optional[dict]:
         comp["skip_days"] = int(rank.skip_days)
     if rank.group:
         comp["group"] = rank.group
+    # 지표별 가중치(v16.24) — 말한 값만, 1은 동일 가중과 같으므로 싣지 않는다(해시 불변).
+    if rank.weight is not None and rank.weight > 0 and rank.weight != 1:
+        comp["weight"] = float(rank.weight)
     return comp
 
 
@@ -510,6 +554,45 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
     # 해석한다 — 사용자 원문을 다시 읽지 않는다(nl_interpretation_contract § 3).
     sector_value, unresolved_sectors = resolve_sectors(strategy.universe.sectors)
     target_symbols, unresolved_symbols = resolve_symbols(strategy.universe.symbols)
+    # 고정 배분(v16.28) — 종목 표기를 정본 코드로 옮기고, 지정 종목 목록에도 더한다(배분 대상이 곧 종목).
+    target_weights = None
+    if strategy.portfolio.target_weights:
+        target_weights = {}
+        for ref, pct in strategy.portfolio.target_weights.items():
+            codes, missing = resolve_symbols([ref])
+            if codes:
+                target_weights[codes[0]] = float(pct)
+                if codes[0] not in target_symbols:
+                    target_symbols = list(target_symbols) + [codes[0]]
+            else:
+                unresolved_symbols = list(unresolved_symbols) + list(missing)
+        target_weights = target_weights or None
+    cash_asset_code = None
+    if strategy.portfolio.cash_asset:
+        codes, missing = resolve_symbols([strategy.portfolio.cash_asset])
+        if codes:
+            cash_asset_code = codes[0]
+        else:
+            unresolved_symbols = list(unresolved_symbols) + list(missing)
+    # 전술 자산배분(v16.29) — 자산 표기를 코드로 옮기고 지정 종목에 합류, 선정=스케줄 랭킹.
+    taa_spec = None
+    if strategy.taa is not None:
+        _lists = {}
+        for _key in ("offensive", "defensive", "canary"):
+            _codes = []
+            for ref in getattr(strategy.taa, _key) or []:
+                codes, missing = resolve_symbols([ref])
+                if codes:
+                    if codes[0] not in _codes:
+                        _codes.append(codes[0])
+                else:
+                    unresolved_symbols = list(unresolved_symbols) + list(missing)
+            _lists[_key] = _codes
+        taa_spec = TaaSpec(model=strategy.taa.model, top_n=strategy.taa.top_n, **_lists)
+        for code in taa_spec.symbols():
+            if code not in target_symbols:
+                target_symbols = list(target_symbols) + [code]
+        ranking_metric = "taa"
     if unresolved_sectors or unresolved_symbols:
         # 조용한 소실 방지 — 되묻기/미지원 안내 채널은 상위(primary)가 소유한다.
         logger.info(
@@ -611,8 +694,13 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         new_listing_only=new_listing_only,
         # 유니버스 사전 필터(v16.19) — 말한 값만 싣는다(기본값 확정 없음).
         universe_market_cap_top_n=strategy.universe.market_cap_top_n,
+        # 업종 제외 필터(v16.24) — 검증기가 정본화한 목록(ParsedStrategy 검증기가 한 번 더 정본화).
+        exclude_sectors=list(strategy.universe.exclude_sectors) or None,
         universe_liquidity_exclude_bottom_pct=strategy.universe.liquidity_exclude_bottom_percent,
         universe_liquidity_lookback_days=strategy.universe.liquidity_lookback_days,
+        # 유니버스 사전 필터 확장(v16.32) — 시총 하위 분위 제외·적자기업 제외.
+        universe_market_cap_exclude_bottom_pct=strategy.universe.market_cap_exclude_bottom_percent,
+        universe_exclude_loss_making=strategy.universe.exclude_loss_making,
         listing_from=listing_from,
         listing_to=listing_to,
         fundamental_filters=buckets["fundamental_filters"],
@@ -628,16 +716,49 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         ranking_accumulation_days=ranking_accumulation_days,
         ranking_entry_delay_days=ranking_entry_delay_days,
         ranking_expiry_days=ranking_expiry_days,
-        # 비중 방식(v16.14) — 검증기가 정본(equal/inverse_volatility)으로 정규화한 뒤다.
+        # 비중 방식(v16.14·v16.28) — 검증기가 정본 값으로 정규화한 뒤다(모르는 값은 검증기가 비웠다).
         allocation_type=(
-            "inverse_volatility" if portfolio.weighting == "inverse_volatility" else "equal"
+            "schedule" if taa_spec is not None
+            else portfolio.weighting if portfolio.weighting in caps.SUPPORTED_WEIGHTINGS else "equal"
         ),
+        taa=taa_spec,
         allocation_lookback_days=(
-            portfolio.weighting_lookback_days if portfolio.weighting == "inverse_volatility" else None
+            portfolio.weighting_lookback_days
+            if portfolio.weighting in ("inverse_volatility",) + caps.OPTIMIZER_WEIGHTINGS else None
         ),
+        target_weights=target_weights if portfolio.weighting == "fixed" else None,
+        rebalance_threshold_pct=portfolio.rebalance_band_percent,
+        min_holding_days=portfolio.min_hold_period_days,
+        cash_asset=cash_asset_code,
+        absolute_momentum_threshold_pct=portfolio.absolute_momentum_threshold_percent,
+        stop_cooldown_days=risk.stop_cooldown_days,
+        trailing_stop_activation_pct=risk.trailing_stop_activation,
+        partial_take_profits=[
+            PartialTakeProfit(profit_pct=p.profit_percent, sell_pct=p.sell_percent)
+            for p in risk.partial_take_profits
+        ],
+        position_sizing=(PositionSizing(
+            method=risk.position_sizing.method,
+            risk_per_trade_pct=risk.position_sizing.risk_per_trade_percent,
+            atr_period=risk.position_sizing.atr_period,
+            atr_multiple=risk.position_sizing.atr_multiple,
+            kelly_fraction=risk.position_sizing.kelly_fraction,
+        ) if risk.position_sizing is not None else None),
+        entry_limit_pct=bt.entry_limit_percent,
+        exit_limit_pct=bt.exit_limit_percent,
+        entry_tranches=(EntryTranches(count=bt.entry_tranches.count, step_pct=bt.entry_tranches.step_percent)
+                        if bt.entry_tranches is not None else None),
+        slippage_model=("volume_impact" if bt.slippage_model == "volume_impact" else None),
+        slippage_impact_coeff=bt.slippage_impact_coeff if bt.slippage_model == "volume_impact" else None,
         max_position_weight_pct=portfolio.max_weight_percent,
         max_sector_weight_pct=portfolio.max_sector_weight_percent,
         market_regime=_market_regime_from_spec(mf) if mf is not None else None,
+        macro_filters=[_macro_filter_from_spec(m) for m in strategy.macro_filters],
+        # 계절 필터·목표 변동성(v16.25) — 값 대기 판정은 ParsedStrategy 모델(is_complete)이 정본.
+        seasonal_months=(list(strategy.seasonality.invest_months)
+                         if strategy.seasonality is not None else None),
+        volatility_target=(VolatilityTarget(target_pct=strategy.volatility_target.target_percent)
+                           if strategy.volatility_target is not None else None),
         max_positions=portfolio.selection_count if portfolio.selection_count is not None else 10,
         # 위 줄이 기본값 10을 물질화하면서 출처가 지워진다 — 그 사실만 따로 남긴다.
         # 선정 범위 판정(engine/selection_scope.py)이 "사용자가 종목 수를 말했는가"를
@@ -652,7 +773,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         # 비율 선정 — 있으면 엔진이 max_positions(개수) 대신 후보 수 기준 비율로 선정한다.
         max_positions_pct=portfolio.selection_percent,
         hold_period_days=portfolio.hold_period_days,
-        rebalancing_period=portfolio.rebalance_frequency or "none",
+        rebalancing_period=portfolio.rebalance_frequency or ("monthly" if taa_spec is not None else "none"),
         # 방식 미언급은 종전 동작(종목 교체)이다 — 되묻기 게이트가 provenance로 물으며,
         # 여기서 조용히 다른 값으로 확정하지 않는다(FR-BT-067).
         rebalance_method=portfolio.rebalance_method or "reconstitute",

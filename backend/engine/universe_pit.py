@@ -430,7 +430,7 @@ _SECTOR_SYNONYM_OVERRIDES: dict[str, str] = {
     "유통": "유통/상사",
     "제지": "종이",
     "완성차": "자동차",
-    "지주": "지주회사",
+    "지주": "지주회사", "지주사": "지주회사", "홀딩스": "지주회사",
     "헬스케어": "의료기기",
     # 'AI/인공지능'은 업종이 아니라 테마다(네이버 테마 '지능형로봇/인공지능(AI)') — NL
     # 오버라이드로 소프트웨어/플랫폼에 근사하면 결정적 섹터 확정이 테마 그라운딩 체인
@@ -644,19 +644,49 @@ def normalize_sector_value(raw) -> Optional[str | list[str]]:
 _LEGACY_BY_KEY = {_sector_key(k): v for k, v in LEGACY_COMBINED_SECTORS.items()}
 
 
+# 사용자 통칭이 정본 섹터 **여러 개**를 뜻하는 묶음(v16.24) — '금융주 제외'·'금융 업종만'의
+# '금융'은 은행·증권·보험·금융지주 넷이다(퀀트 플랫폼 관행의 '금융주' 필터). 정본명 하나로
+# 좁힐 수 없어 동의어 표(단일 매핑)가 아니라 여기 둔다. 키는 _sector_key 형태.
+SECTOR_GROUP_ALIASES: dict[str, tuple[str, ...]] = {
+    "금융": ("은행", "증권", "보험", "금융지주"),
+    "금융주": ("은행", "증권", "보험", "금융지주"),
+    "금융업": ("은행", "증권", "보험", "금융지주"),
+    "금융회사": ("은행", "증권", "보험", "금융지주"),
+    "금융섹터": ("은행", "증권", "보험", "금융지주"),
+}
+_GROUP_BY_KEY = {_sector_key(k): v for k, v in SECTOR_GROUP_ALIASES.items()}
+
+
 def expand_legacy_sector(raw: Optional[str]) -> tuple[str, ...]:
     """섹터 표현 하나를 정본 섹터 튜플로 편다.
 
     분할 전 구 묶음명('증권/보험')은 신규 두 섹터의 합집합으로 편다 — 저장된 전략·백테스트
     이력·PIT 스냅샷이 구 이름을 들고 있어도 같은 종목 집합이 나오게 하기 위함이다.
+    묶음 통칭('금융')은 SECTOR_GROUP_ALIASES의 정본 여러 개로 편다(v16.24).
     그 외에는 normalize_sector 결과 0개 또는 1개."""
     if not raw:
         return ()
     legacy = _LEGACY_BY_KEY.get(_sector_key(raw))
     if legacy:
         return legacy
+    group = _GROUP_BY_KEY.get(_sector_key(raw))
+    if group:
+        return group
     canonical = normalize_sector(raw)
     return (canonical,) if canonical else ()
+
+
+def exclude_by_sector(symbols: list[str], sectors: list[str]) -> tuple[list[str], int]:
+    """정본 섹터명 목록에 속하는 종목을 심볼 목록에서 뺀다(v16.24 업종 제외 필터).
+
+    반환 (남은 심볼, 제외된 수). 섹터 미상 종목은 어느 제외 섹터에도 속하지 않으므로 남긴다
+    — 모르는 것은 제외하지 않는다(섹터 비중 상한과 같은 '제약 대상 아님' 규칙)."""
+    canonicals = {c for s in sectors or [] for c in expand_legacy_sector(s)}
+    if not canonicals:
+        return list(symbols), 0
+    smap = _load_sector_map()
+    kept = [s for s in symbols if smap.get(s) not in canonicals]
+    return kept, len(symbols) - len(kept)
 
 
 def sector_value_as_list(value) -> list[str]:

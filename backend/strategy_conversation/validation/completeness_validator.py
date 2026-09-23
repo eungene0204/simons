@@ -22,6 +22,7 @@ from strategy_conversation.registry.concept_ontology import (
 )
 from strategy_conversation.registry.indicator_registry import REGISTRY
 from strategy_conversation.registry.display_labels import display_label, param_label, unit_label
+import ui_language
 from ui_language import msg
 
 MAX_QUESTIONS_PER_TURN = 3
@@ -344,14 +345,18 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
     # ④-1 변동성 역비중(v16.14) — 변동성 산정 기간을 말하지 않았으면 묻는다(60을 조용히
     # 확정하지 않는다). 역비중은 리밸런싱일마다 비중을 다시 매기므로 주기가 필요하다 —
     # 랭킹 전략은 위 ④가 이미 묻고, 조건형 전략은 여기서 묻는다.
-    if strategy.portfolio.weighting == "inverse_volatility":
+    _optimizer = strategy.portfolio.weighting in ("min_variance", "risk_parity", "max_sharpe", "min_cvar")
+    if strategy.portfolio.weighting == "inverse_volatility" or _optimizer:
         if strategy.portfolio.weighting_lookback_days is None:
             missing.append("strategy.portfolio.weighting_lookback_days")
             questions.append(ClarificationQuestion(
                 field="strategy.portfolio.weighting_lookback_days",
-                question=msg("변동성 역비중에 쓸 변동성은 최근 며칠(거래일)로 계산할까요?",
-                             "Over how many trading days should volatility be measured for "
-                             "inverse-volatility weighting?"),
+                question=(msg("비중 최적화에 쓸 수익률은 최근 며칠(거래일)로 계산할까요?",
+                              "Over how many trading days should returns be measured for the "
+                              "weight optimization?") if _optimizer else
+                          msg("변동성 역비중에 쓸 변동성은 최근 며칠(거래일)로 계산할까요?",
+                              "Over how many trading days should volatility be measured for "
+                              "inverse-volatility weighting?")),
                 recommended_value=60,
                 recommendation_reason=msg("일반적으로 60거래일(약 3개월)을 사용합니다",
                                           "60 trading days (about 3 months) is commonly used"),
@@ -427,6 +432,151 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                 question=exposure_question,
                 recommended_value=None,
             ))
+
+    # ── 경쟁 격차 1차(v16.28) — 개념은 있는데 값이 없으면 묻는다(같은 계약). ──
+    _pf = strategy.portfolio
+    if _pf.weighting == "fixed" and not _pf.target_weights:
+        missing.append("strategy.portfolio.target_weights")
+        questions.append(ClarificationQuestion(
+            field="strategy.portfolio.target_weights",
+            question=msg("종목(자산)별 고정 비중을 몇 %씩 둘까요? (예: 코스피200 ETF 60%, 국채 ETF 40%)",
+                         "What fixed weight should each asset get? (e.g. KOSPI200 ETF 60%, bond ETF 40%)"),
+            recommended_value=None))
+    _rm = strategy.risk_management
+    if _rm.position_sizing is not None:
+        _ps = _rm.position_sizing
+        if _ps.method == "atr_risk" and _ps.risk_per_trade_percent is None:
+            missing.append("strategy.risk_management.position_sizing.risk_per_trade_percent")
+            questions.append(ClarificationQuestion(
+                field="strategy.risk_management.position_sizing.risk_per_trade_percent",
+                question=msg("거래당 위험을 자산의 몇 %로 둘까요? (ATR 기준 포지션 사이징)",
+                             "What share of equity should each trade risk? (ATR-based sizing)"),
+                recommended_value=1,
+                recommendation_reason=msg("거래당 1% 위험을 시작값으로 흔히 씁니다",
+                                          "1% risk per trade is a common starting point")))
+        if _ps.method == "kelly" and _ps.kelly_fraction is None:
+            missing.append("strategy.risk_management.position_sizing.kelly_fraction")
+            questions.append(ClarificationQuestion(
+                field="strategy.risk_management.position_sizing.kelly_fraction",
+                question=msg("켈리 비중의 몇 배를 쓸까요? (하프 켈리=0.5, 풀 켈리=1)",
+                             "What fraction of the Kelly weight should be used? (half Kelly=0.5, full=1)"),
+                recommended_value=0.5,
+                recommendation_reason=msg("하프 켈리(0.5)가 변동을 줄이는 일반적 선택입니다",
+                                          "Half Kelly (0.5) is the usual choice to dampen swings")))
+    for _k, _p in enumerate(_rm.partial_take_profits):
+        if _p.profit_percent is None or _p.sell_percent is None:
+            _field = f"strategy.risk_management.partial_take_profits.{_k}"
+            missing.append(_field)
+            questions.append(ClarificationQuestion(
+                field=_field,
+                question=msg("분할 익절은 수익률 몇 %에서 보유 비중의 몇 %를 매도할까요?",
+                             "At what profit and what share of the position should the partial take-profit sell?"),
+                recommended_value=None))
+            break
+    _bt = strategy.backtest
+    if _bt.entry_tranches is not None and (_bt.entry_tranches.count is None or _bt.entry_tranches.step_percent is None):
+        missing.append("strategy.backtest.entry_tranches")
+        questions.append(ClarificationQuestion(
+            field="strategy.backtest.entry_tranches",
+            question=msg("분할 매수는 몇 회차로, 회차마다 몇 % 낮은 가격에서 살까요?",
+                         "How many tranches, and how far below the last fill should each tranche be?"),
+            recommended_value=None))
+
+    # 매크로 조건 필터(v16.31) — 시리즈·기준값·기간·비율 중 비어 있는 것을 순서대로 하나씩 묻는다.
+    # 칩은 붙이지 않는다(primary의 필드별 칩 표에 없음): 필터가 여러 개면 칩 정본 표기가 어느 필터의
+    # 값인지 결속되지 않는다. 무칩 ask는 유효하며 자유 답변은 수정 레인이 패치로 처리한다.
+    from engine.macro_data import RATE_SERIES, series_label as _series_label
+    for _k, _m in enumerate(strategy.macro_filters):
+        _base = f"strategy.macro_filters.{_k}"
+        _en = ui_language.get_ui_language() == "en"
+        if _m.series is None:
+            missing.append(f"{_base}.series")
+            _choices = ", ".join(_series_label(s, _en) for s in RATE_SERIES)
+            questions.append(ClarificationQuestion(
+                field=f"{_base}.series",
+                question=msg("어느 금리를 기준으로 할까요? ({choices})",
+                             "Which interest rate should the filter use? ({choices})", choices=_choices),
+                recommended_value=None))
+            break
+        _label = _series_label(_m.series, _en)
+        if _m.mode == "change" and _m.period is None:
+            missing.append(f"{_base}.period")
+            questions.append(ClarificationQuestion(
+                field=f"{_base}.period",
+                question=msg("{label}의 변화율은 며칠(거래일) 기준으로 잴까요?",
+                             "Over how many trading days should the change in {label} be measured?", label=_label),
+                recommended_value=20))
+            break
+        if _m.mode == "ma" and _m.period is None:
+            missing.append(f"{_base}.period")
+            questions.append(ClarificationQuestion(
+                field=f"{_base}.period",
+                question=msg("{label}의 몇 일 이동평균을 기준으로 할까요?",
+                             "Which moving average of {label} should be the threshold?", label=_label),
+                recommended_value=200))
+            break
+        if _m.mode != "ma" and _m.value is None:
+            missing.append(f"{_base}.value")
+            questions.append(ClarificationQuestion(
+                field=f"{_base}.value",
+                question=(msg("{label}의 변화율 기준을 몇 %로 할까요?",
+                              "What percentage change in {label} should trigger the filter?", label=_label)
+                          if _m.mode == "change" else
+                          msg("{label} 기준값을 얼마로 할까요?",
+                              "What level of {label} should trigger the filter?", label=_label)),
+                recommended_value=None))
+            break
+        if _m.operator is None:
+            missing.append(f"{_base}.operator")
+            questions.append(ClarificationQuestion(
+                field=f"{_base}.operator",
+                question=msg("{label}이(가) 기준값보다 높을 때와 낮을 때 중 어느 쪽에서 비중을 줄일까요?",
+                             "Should the filter trigger when {label} is above or below the threshold?", label=_label),
+                recommended_value=None))
+            break
+        if _m.exposure_pct is None:
+            missing.append(f"{_base}.exposure_pct")
+            questions.append(ClarificationQuestion(
+                field=f"{_base}.exposure_pct",
+                question=msg("{label} 조건이 충족될 때 투자 비중을 몇 %로 줄일까요? (나머지는 현금으로 보유합니다)",
+                             "When the {label} condition holds, what share of the portfolio should stay invested? "
+                             "(the rest is held in cash)", label=_label),
+                recommended_value=None))
+            break
+
+    # 전술 자산배분(v16.29) — 자산 목록이 비면 묻는다(상품을 대신 고르지 않는다).
+    _taa = strategy.taa
+    if _taa is not None:
+        _model = str(_taa.model).upper()
+        if not _taa.offensive or not _taa.defensive:
+            missing.append("strategy.taa.offensive")
+            questions.append(ClarificationQuestion(
+                field="strategy.taa.offensive",
+                question=msg("{model} 전술 자산배분의 공격 자산과 방어 자산으로 어떤 ETF·종목을 쓸까요? "
+                             "(예: 공격 KODEX 200·TIGER 미국S&P500, 방어 KODEX 국고채10년)",
+                             "Which ETFs or stocks should be the offensive and defensive assets for the "
+                             "{model} allocation? (e.g. offensive: KODEX 200, TIGER S&P500; defensive: KODEX KTB 10Y)",
+                             model=_model),
+                recommended_value=None))
+        elif _taa.model == "daa" and not _taa.canary:
+            missing.append("strategy.taa.canary")
+            questions.append(ClarificationQuestion(
+                field="strategy.taa.canary",
+                question=msg("DAA의 카나리아(위험 신호) 자산으로 어떤 ETF·종목을 쓸까요?",
+                             "Which ETFs or stocks should serve as DAA's canary assets?"),
+                recommended_value=None))
+
+    # 목표 변동성(v16.25) — 개념은 있는데 값이 없으면 묻는다(시장 국면 필터의 비율과 같은 계약).
+    vt = strategy.volatility_target
+    if vt is not None and vt.target_percent is None:
+        missing.append("strategy.volatility_target.target_percent")
+        questions.append(ClarificationQuestion(
+            field="strategy.volatility_target.target_percent",
+            question=msg("목표 연변동성을 몇 %로 할까요? (자산곡선 변동성이 이를 넘는 날 노출을 낮춥니다)",
+                         "What annual volatility should the strategy target? (exposure is cut on days "
+                         "the equity curve's volatility exceeds it)"),
+            recommended_value=None,
+        ))
 
     # ⑤ 청산 규칙 부재 — 진입 조건형 전략인데 청산·보유기간·리밸런싱·리스크가 모두 없으면
     risk = strategy.risk_management

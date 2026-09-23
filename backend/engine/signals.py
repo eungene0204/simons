@@ -9,6 +9,7 @@ from engine.indicator_columns import (
     bollinger_columns, macd_columns, stochastic_columns, trading_value_sma_col,
 )
 from engine import trade_reason as tr
+from engine.indicators import timeframe_of, timeframe_column
 
 
 # Fundamental filter metrics. The condition id equals the parquet column name, so the
@@ -33,6 +34,14 @@ FUNDAMENTAL_LABELS = {
     # 연수(dividends 달력 연도 연속, dividends.dividend_streak_years). parquet에 없으면
     # data_resolver가 런타임에 계산한다. 라벨은 프론트 요약 표(lib/strategy-summary.ts)와 동일.
     "fcf_yield": "FCF 수익률", "dividend_streak_years": "연속 배당 연수",
+    # v16.25 — 자산성장률(총자산 as-of 시계열의 1년 전 대비 %)·발생액 비율((순이익−영업현금흐름)÷총자산 %).
+    # 총자산 = 자본총계 × (1 + 부채비율/100). parquet에 없으면 data_resolver가 런타임에 계산한다.
+    "asset_growth": "자산성장률", "accruals_ratio": "발생액 비율",
+    # v16.26 — 피오트로스키 F-score(0~9, fundamental_fetcher.recompute_f_score, 런타임 계산).
+    "f_score": "F-score",
+    # v16.27 — 시가총액/NCAV 비율(ncav parquet 컬럼 ÷, 런타임)·분기 성장률 6종(data/quarterly-earnings, 런타임).
+    "ncav_ratio": "시가총액/NCAV 비율",
+    "revenue_growth_qoq": "매출 분기성장률(QoQ)", "revenue_growth_yoy": "매출 분기성장률(YoY)", "operating_income_growth_qoq": "영업이익 분기성장률(QoQ)", "operating_income_growth_yoy": "영업이익 분기성장률(YoY)", "net_income_growth_qoq": "순이익 분기성장률(QoQ)", "net_income_growth_yoy": "순이익 분기성장률(YoY)",
     # eps(원)·ebit(억원) 부호 필터로 '흑자/적자'·'영업이익 흑자/적자' 키워드 조건을
     # 표현한다(nl_parser 참고).
     "eps": "EPS",
@@ -174,10 +183,12 @@ class SignalEngine:
         cid, p = cond['id'], cond['params']
         data_len = len(df)
         result = np.zeros(data_len, dtype=bool)
+        _tf = timeframe_of(p)
 
         def get_col(col: str) -> Optional[np.ndarray]:
+            # 다중 타임프레임(v16.29): 주봉·월봉 조건은 `<열>__weekly` 같은 열을 읽는다(일봉에 ffill된 값).
             try:
-                return df[col].to_numpy().astype(float)
+                return df[timeframe_column(col, _tf)].to_numpy().astype(float)
             except Exception:
                 return None
 
@@ -204,6 +215,11 @@ class SignalEngine:
                 else:
                     res[1:] = (fast[:-1] >= slow[:-1]) & (fast[1:] < slow[1:])
             return res
+
+        if cid == 'candle_pattern':
+            # 캔들 패턴(v16.29): 지표 열이 완성 봉을 1로 표시한다. 열이 없으면 fail-closed.
+            arr = get_col(f"candle_{p.get('pattern')}")
+            return np.zeros(data_len, dtype=bool) if arr is None else (arr > 0.5)
 
         if cid == 'ma_crossover':
             short = p.get('shortMA', p.get('short_period', p.get('short', 5)))
@@ -570,13 +586,18 @@ class SignalEngine:
 
     def evaluate_condition(self, cond: Dict[str, Any], idx: int, df: pl.DataFrame) -> bool:
         cid, p = cond['id'], cond['params']
+        _tf = timeframe_of(p)
 
         def safe_get(col, i):
             try:
-                val = df[col][i]
+                val = df[timeframe_column(col, _tf)][i]
                 return float(val) if val is not None else None
             except Exception:
                 return None
+
+        if cid == 'candle_pattern':
+            val = safe_get(f"candle_{p.get('pattern')}", idx)
+            return bool(val is not None and val > 0.5)
 
         def compare(val1, op, val2):
             if val1 is None or val2 is None:
@@ -896,6 +917,16 @@ class SignalEngine:
     def get_condition_segments(
         self, cond: Dict[str, Any], measured: Optional[float] = None
     ) -> List[Dict[str, Any]]:
+        """조건 서술 + 타임프레임 꼬리(v16.29, '(주봉 기준)') — 본문은 _base_condition_segments."""
+        segs = self._base_condition_segments(cond, measured)
+        tf = timeframe_of(cond.get('params') or {})
+        if segs and tf:
+            segs = list(segs) + [tr.part(tr.TIMEFRAME_WEEKLY if tf == 'weekly' else tr.TIMEFRAME_MONTHLY)]
+        return segs
+
+    def _base_condition_segments(
+        self, cond: Dict[str, Any], measured: Optional[float] = None
+    ) -> List[Dict[str, Any]]:
         """조건 서술의 구조화 표현(한국어 정본 템플릿 + 인자).
 
         표시 번역은 프론트 t() 소관이라 완성 문장 대신 템플릿과 인자를 싣는다
@@ -910,6 +941,9 @@ class SignalEngine:
             "==": tr.part(tr.OP_EQ),
         }.get(op, tr.literal(op))
 
+        if cid == 'candle_pattern':
+            label = tr.CANDLE_PATTERN_LABELS.get(str(p.get('pattern')), str(p.get('pattern')))
+            return [tr.part(tr.CANDLE_PATTERN, tr.part(label))]
         if cid == 'ma_crossover':
             short = p.get('shortMA', p.get('short_period', p.get('short', 5)))
             long_ = p.get('longMA', p.get('long_period', p.get('long', 20)))

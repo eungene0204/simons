@@ -37,6 +37,8 @@ STRUCTURAL_PARAM_KEYS = frozenset({
     "fastPeriod", "slowPeriod", "signalPeriod",
     "stdDev",
     "lookbackPeriod",
+    # 캔들 패턴·다중 타임프레임(v16.29) — 어느 패턴·어느 봉으로 계산했는지가 지표 열을 바꾼다.
+    "pattern", "timeframe",
 })
 
 _DEFAULT_BUDGET_MB = 2048

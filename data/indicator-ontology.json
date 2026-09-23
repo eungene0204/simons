@@ -147,10 +147,10 @@
       "description": "지표 순 정렬로 상위/하위 N을 선정하는 종목 선정 축(조건이 아니라 랭킹)"
     },
     {
-      "id": "class.execution",
-      "name": "주문 실행",
-      "parent": "class.indicator",
-      "description": "분할 매도 등 체결 방식 계열(미지원 라우팅용)"
+      "id": "class.candle_pattern",
+      "name": "캔들 패턴",
+      "parent": "class.technical",
+      "description": "봉 모양으로 판정하는 반전·지속 패턴(망치형·장악형·도지·샛별형 등, 엔진 v16.29) — 완성 봉에 신호"
     }
   ],
   "members": {
@@ -213,6 +213,16 @@
     "fundamental.payout_rate": "class.dividend",
     "fundamental.dividend_growth": "class.dividend",
     "fundamental.dividend_streak_years": "class.dividend",
+    "fundamental.asset_growth": "class.growth",
+    "fundamental.accruals_ratio": "class.quality",
+    "fundamental.f_score": "class.quality",
+    "fundamental.ncav_ratio": "class.valuation",
+    "fundamental.revenue_growth_qoq": "class.growth",
+    "fundamental.revenue_growth_yoy": "class.growth",
+    "fundamental.operating_income_growth_qoq": "class.growth",
+    "fundamental.operating_income_growth_yoy": "class.growth",
+    "fundamental.net_income_growth_qoq": "class.growth",
+    "fundamental.net_income_growth_yoy": "class.growth",
     "fundamental.operating_cf_amount": "class.cashflow",
     "fundamental.investing_cf_amount": "class.cashflow",
     "fundamental.financing_cf_amount": "class.cashflow",
@@ -229,8 +239,20 @@
     "ranking.relative_return": "class.ranking",
     "ranking.volatility": "class.ranking",
     "ranking.residual_reversal": "class.ranking",
-    "unsupported.partial_exit": "class.execution",
-    "ranking.pead": "class.ranking"
+    "ranking.pead": "class.ranking",
+    "technical.candle_hammer": "class.candle_pattern",
+    "technical.candle_hanging_man": "class.candle_pattern",
+    "technical.candle_inverted_hammer": "class.candle_pattern",
+    "technical.candle_shooting_star": "class.candle_pattern",
+    "technical.candle_doji": "class.candle_pattern",
+    "technical.candle_bullish_engulfing": "class.candle_pattern",
+    "technical.candle_bearish_engulfing": "class.candle_pattern",
+    "technical.candle_piercing_line": "class.candle_pattern",
+    "technical.candle_dark_cloud_cover": "class.candle_pattern",
+    "technical.candle_morning_star": "class.candle_pattern",
+    "technical.candle_evening_star": "class.candle_pattern",
+    "technical.candle_three_white_soldiers": "class.candle_pattern",
+    "technical.candle_three_black_crows": "class.candle_pattern"
   },
   "polarity": {
     "_doc": "지표값의 자연 방향(우열이 아니라 '관례적으로 어느 쪽을 선호하는가'). lower_better=낮을수록 선호(저평가·저부채), higher_better=높을수록 선호(수익성·성장), none=보편적 선호 방향 없음. 소비자는 ① 랭킹 방향 미지정 시 기본 방향(compiler) ② 프롬프트 어휘 병기다. **none을 억지로 방향으로 채우지 말 것** — 틀린 방향은 방향 없음보다 나쁘다(전략이 뒤집힌다). 지원 잎은 전부 명시해야 하며(무결성 검증), 침묵은 허용하지 않는다.",
@@ -263,6 +285,16 @@
     "fundamental.roic": "higher_better",
     "fundamental.fcf_margin": "higher_better",
     "fundamental.fcf_yield": "higher_better",
+    "fundamental.asset_growth": "lower_better",
+    "fundamental.accruals_ratio": "lower_better",
+    "fundamental.f_score": "higher_better",
+    "fundamental.ncav_ratio": "lower_better",
+    "fundamental.revenue_growth_qoq": "higher_better",
+    "fundamental.revenue_growth_yoy": "higher_better",
+    "fundamental.operating_income_growth_qoq": "higher_better",
+    "fundamental.operating_income_growth_yoy": "higher_better",
+    "fundamental.net_income_growth_qoq": "higher_better",
+    "fundamental.net_income_growth_yoy": "higher_better",
     "fundamental.market_cap": "none",
     "fundamental.trading_value": "higher_better",
     "fundamental.dividend_yield": "higher_better",
@@ -296,7 +328,20 @@
     "technical.volatility": "none",
     "technical.ai_model": "higher_better",
     "technical.ai_drop_model": "lower_better",
-    "ranking.pead": "higher_better"
+    "ranking.pead": "higher_better",
+    "technical.candle_hammer": "none",
+    "technical.candle_hanging_man": "none",
+    "technical.candle_inverted_hammer": "none",
+    "technical.candle_shooting_star": "none",
+    "technical.candle_doji": "none",
+    "technical.candle_bullish_engulfing": "none",
+    "technical.candle_bearish_engulfing": "none",
+    "technical.candle_piercing_line": "none",
+    "technical.candle_dark_cloud_cover": "none",
+    "technical.candle_morning_star": "none",
+    "technical.candle_evening_star": "none",
+    "technical.candle_three_white_soldiers": "none",
+    "technical.candle_three_black_crows": "none"
   },
   "concepts": [
     {

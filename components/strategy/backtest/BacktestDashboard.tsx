@@ -34,6 +34,8 @@ import { WalkForwardSettings, type WalkForwardOptimizationTarget } from "./WalkF
 import OptimizationPage from "./OptimizationPage";
 import BacktestSummaryCard from "./BacktestSummaryCard";
 import QuantileGroupsSection from "./QuantileGroupsSection";
+import AdvancedAnalyticsSection from "./AdvancedAnalyticsSection";
+import type { TearsheetPayload } from "@/lib/tearsheet";
 import RebalanceComparisonSection from "./RebalanceComparisonSection";
 import { buildAiReportMetrics, hasAiReportArtifact } from "./aiReportMetrics";
 import { formatProfitFactor, profitFactorForRanking } from "@/lib/format-profit-factor";
@@ -1103,11 +1105,84 @@ export default function BacktestDashboard({
     void handleDownload(format, section);
   };
 
+  // 티어시트(HTML) 재료 — 결과 화면의 핵심 지표·전략 요약·자산곡선·월별 수익률·심화 분석 표를 한 장에 담는다.
+  const buildTearsheetPayload = (): TearsheetPayload => {
+    const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const monthly: Record<string, number> = {};
+    Object.entries(monthlyReturns).forEach(([year, months]) => {
+      Object.entries(months as Record<string, number>).forEach(([m, v]) => {
+        monthly[`${year}-${String(m).padStart(2, "0")}`] = v;
+      });
+    });
+    const f = (v: number | null | undefined, d = 2) => (v == null || !Number.isFinite(v) ? "—" : v.toFixed(d));
+    const sections: TearsheetPayload["sections"] = [];
+    const a = result.analytics;
+    if (a) {
+      sections.push({
+        title: t("회전율·꼬리 위험"),
+        rows: [
+          [t("연환산 회전율"), `${f(a.turnover.annual, 0)}%`], ["VaR 95%", `${f(a.riskStats.var95)}%`],
+          ["CVaR 95%", `${f(a.riskStats.cvar95)}%`], ["VaR 99%", `${f(a.riskStats.var99)}%`], ["CVaR 99%", `${f(a.riskStats.cvar99)}%`],
+        ],
+      });
+      if (a.attribution.symbols.length) {
+        sections.push({
+          title: t("성과 귀인 (초기 자본 대비 기여도)"), header: [t("종목"), t("섹터"), t("기여도")],
+          rows: a.attribution.symbols.map((r) => [`${r.name} (${r.symbol})`, r.sector, `${f(r.contributionPct)}%`]),
+        });
+      }
+      if (a.factorExposure.available && a.factorExposure.loadings) {
+        sections.push({
+          title: t("팩터 노출 (유니버스 내 팩터 회귀)"), header: [t("팩터"), t("베타"), "t"],
+          rows: [...a.factorExposure.loadings.map((l) => [l.factor, f(l.beta), f(l.tStat, 1)]),
+                 [t("알파(연환산)"), `${f(a.factorExposure.alphaAnnualPct)}%`, f(a.factorExposure.alphaTStat, 1)], ["R²", f(a.factorExposure.r2), ""]],
+        });
+      }
+      if (a.benchmarks.length) {
+        sections.push({
+          title: t("다중 벤치마크 비교"), header: [t("벤치마크"), t("총수익률"), "CAGR", "MDD", "β", "α", "IR"],
+          rows: a.benchmarks.map((b) => [b.name, `${f(b.totalReturn)}%`, `${f(b.cagr)}%`, `${f(b.maxDrawdown)}%`, f(b.beta), `${f(b.alpha)}%`, f(b.informationRatio)]),
+        });
+      }
+    }
+    return {
+      strategyName: downloadStrategyName,
+      generatedAt: `${kst.toISOString().slice(0, 19)}+09:00`,
+      period: { from: result.dates[0] ?? "", to: result.dates[result.dates.length - 1] ?? "" },
+      universe: (strategySummary && resolveUniverseDisplayName(strategySummary.universeName, promptText)) || result.universeId?.toUpperCase() || "-",
+      currency: isUsResult ? "USD" : "KRW",
+      initialCapital: resolvedInitialCapital,
+      finalEquity: resolvedFinalEquity,
+      metrics: [
+        { label: "CAGR", value: `${f(result.cagr)}%` }, { label: "MDD", value: `${f(result.maxDrawdown)}%` },
+        { label: t("샤프"), value: f(result.sharpe) }, { label: t("소르티노"), value: f(result.sortino) },
+        { label: t("승률"), value: `${f(result.winRate, 1)}%` }, { label: "Profit Factor", value: result.profitFactor == null ? "∞" : f(result.profitFactor) },
+        { label: t("거래 수"), value: String(result.trades) }, { label: t("변동성"), value: `${f(result.volatility)}%` },
+        { label: t("벤치마크 수익률"), value: `${f(result.buyAndHoldReturn)}%` },
+      ],
+      summaryLines: [
+        ...(strategySummary?.entryBlocks ?? []).map((s) => `${t("진입")}: ${s}`),
+        ...(strategySummary?.exitBlocks ?? []).map((s) => `${t("청산")}: ${s}`),
+        ...(strategySummary?.positionText ? [`${t("포지션")}: ${strategySummary.positionText}`] : []),
+        ...(strategySummary?.rebalancingText ? [`${t("리밸런싱")}: ${strategySummary.rebalancingText}`] : []),
+        ...(strategySummary?.riskText ? [`${t("리스크")}: ${strategySummary.riskText}`] : []),
+      ],
+      dates: result.dates,
+      equity: result.equity,
+      benchmarkEquity: result.benchmarkEquity,
+      monthlyReturns: monthly,
+      sections,
+      warnings: result.warnings ?? [],
+    };
+  };
+
   const handleDownload = async (format: ExportFormat, section: "assets" | "log") => {
     setDownloadingFormat(format);
     setToast({ type: "info", message: t("다운로드를 준비하고 있어요.") });
     try {
-      const payload = buildExportPayload(section);
+      const payload = format === "html"
+        ? { ...buildExportPayload(section), tearsheet: buildTearsheetPayload() }
+        : buildExportPayload(section);
       const res = await fetch("/api/backtest/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1869,6 +1944,14 @@ export default function BacktestDashboard({
                   <QuantileGroupsSection data={result.quantileGroups} />
                 )}
 
+                {result.analytics && (
+                  <AdvancedAnalyticsSection
+                    analytics={result.analytics}
+                    dates={result.dates}
+                    currency={isUsResult ? "usd" : "krw"}
+                  />
+                )}
+
                 {result.vbtResult && (
                   <div className="border-t border-white/[0.08] p-4">
                     <div className="flex items-center gap-2 mb-3">
@@ -2223,6 +2306,7 @@ export default function BacktestDashboard({
                     {([
                       { format: "csv" as const, label: t("CSV 내보내기") },
                       { format: "json" as const, label: t("JSON 내보내기") },
+                      { format: "html" as const, label: t("티어시트(HTML)") },
                     ]).map(({ format, label }) => (
                       <button
                         key={format}
@@ -2336,6 +2420,7 @@ export default function BacktestDashboard({
                     {([
                       { format: "csv" as const, label: t("CSV 내보내기") },
                       { format: "json" as const, label: t("JSON 내보내기") },
+                      { format: "html" as const, label: t("티어시트(HTML)") },
                     ]).map(({ format, label }) => (
                       <button
                         key={format}

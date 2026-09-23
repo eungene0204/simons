@@ -18,13 +18,20 @@ from engine.nl_parser import ParsedStrategy, TechnicalSignal
 from strategy_conversation.interpreter.models import (
     BacktestSpec,
     CashPoolSpec,
+    EntryTranchesSpec,
+    MacroFilterSpec,
     MarketFilterSpec,
+    PartialTakeProfitSpec,
+    PositionSizingSpec,
     PortfolioSpec,
     RankingSpec,
     RiskSpec,
+    SeasonalitySpec,
     StrategyCondition,
     StrategySpec,
+    TaaModelSpec,
     UniverseSpec,
+    VolatilityTargetSpec,
 )
 
 
@@ -75,6 +82,8 @@ def _decompile_technical(sig: TechnicalSignal) -> StrategyCondition:
         if sig.period is not None:
             parameters["period"] = float(sig.period)
 
+    if sig.timeframe in ("weekly", "monthly"):
+        parameters["timeframe"] = sig.timeframe          # 다중 타임프레임(v16.29) 왕복
     return StrategyCondition(
         factor=factor, operator=operator, value=value, parameters=parameters,
         value_source="USER_CONFIRMED",
@@ -130,6 +139,7 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
                 # 12-1 모멘텀·묶음 점수(v16.14)도 왕복한다.
                 skip_days=comp.skip_days,
                 group=comp.group,
+                weight=comp.weight,
             ))
     elif parsed.ranking_metric is not None:
         # 'return'/'volatility'=가격 산출 랭킹(ranking.*), 그 외=재무 팩터 랭킹(fundamental.*)
@@ -165,8 +175,13 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             # 기준 일수를 되묻는 중이면 그 개념 자체가 다음 턴에 증발한다.
             new_listing_only=parsed.new_listing_only,
             market_cap_top_n=parsed.universe_market_cap_top_n,
+            # 업종 제외도 왕복한다 — 누락되면 수정 턴마다 제외가 풀린다.
+            exclude_sectors=list(parsed.exclude_sectors or []),
             liquidity_exclude_bottom_percent=parsed.universe_liquidity_exclude_bottom_pct,
             liquidity_lookback_days=parsed.universe_liquidity_lookback_days,
+            # 사전 필터 확장(v16.32)도 왕복한다 — 누락되면 수정 턴마다 필터가 풀린다.
+            market_cap_exclude_bottom_percent=parsed.universe_market_cap_exclude_bottom_pct,
+            exclude_loss_making=parsed.universe_exclude_loss_making,
             listing_from=parsed.listing_from,
             listing_to=parsed.listing_to,
         ),
@@ -201,6 +216,12 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             weighting_lookback_days=parsed.allocation_lookback_days,
             max_weight_percent=parsed.max_position_weight_pct,
             max_sector_weight_percent=parsed.max_sector_weight_pct,
+            # 경쟁 격차 1차(v16.28)도 왕복한다 — 누락되면 수정 턴마다 설정이 풀린다.
+            target_weights=dict(parsed.target_weights) if parsed.target_weights else None,
+            rebalance_band_percent=parsed.rebalance_threshold_pct,
+            min_hold_period_days=parsed.min_holding_days,
+            cash_asset=parsed.cash_asset,
+            absolute_momentum_threshold_percent=parsed.absolute_momentum_threshold_pct,
         ),
         market_filter=(
             MarketFilterSpec(
@@ -213,11 +234,38 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             )
             if parsed.market_regime is not None else None
         ),
+        # 계절 필터·목표 변동성(v16.25)도 왕복한다 — 누락되면 수정 턴마다 설정이 풀린다.
+        seasonality=(SeasonalitySpec(invest_months=list(parsed.seasonal_months))
+                     if parsed.seasonal_months else None),
+        volatility_target=(VolatilityTargetSpec(target_percent=parsed.volatility_target.target_pct)
+                           if parsed.volatility_target is not None else None),
+        macro_filters=[
+            MacroFilterSpec(series=m.series, mode=m.mode, operator=m.operator, value=m.value,
+                            period=m.period, exposure_pct=m.exposure_pct)
+            for m in parsed.macro_filters
+        ],
+        taa=(TaaModelSpec(model=parsed.taa.model, offensive=list(parsed.taa.offensive),
+                          defensive=list(parsed.taa.defensive), canary=list(parsed.taa.canary),
+                          top_n=parsed.taa.top_n)
+             if parsed.taa is not None else None),
         risk_management=RiskSpec(
             stop_loss=parsed.stop_loss_pct,
             take_profit=parsed.take_profit_pct,
             trailing_stop=parsed.trailing_stop_pct,
             max_mdd_limit=parsed.max_mdd_limit_pct,
+            stop_cooldown_days=parsed.stop_cooldown_days,
+            trailing_stop_activation=parsed.trailing_stop_activation_pct,
+            partial_take_profits=[
+                PartialTakeProfitSpec(profit_percent=p.profit_pct, sell_percent=p.sell_pct)
+                for p in parsed.partial_take_profits
+            ],
+            position_sizing=(PositionSizingSpec(
+                method=parsed.position_sizing.method,
+                risk_per_trade_percent=parsed.position_sizing.risk_per_trade_pct,
+                atr_period=parsed.position_sizing.atr_period,
+                atr_multiple=parsed.position_sizing.atr_multiple,
+                kelly_fraction=parsed.position_sizing.kelly_fraction,
+            ) if parsed.position_sizing is not None else None),
         ),
         backtest=BacktestSpec(
             period=parsed.backtest_period,
@@ -230,6 +278,13 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             sell_tax_rate=parsed.sell_tax_rate,
             contribution_amount=parsed.contribution_amount,
             contribution_period=parsed.contribution_period,
+            entry_limit_percent=parsed.entry_limit_pct,
+            exit_limit_percent=parsed.exit_limit_pct,
+            entry_tranches=(EntryTranchesSpec(count=parsed.entry_tranches.count,
+                                              step_percent=parsed.entry_tranches.step_pct)
+                            if parsed.entry_tranches is not None else None),
+            slippage_model=parsed.slippage_model,
+            slippage_impact_coeff=parsed.slippage_impact_coeff,
             cash_pool=CashPoolSpec(
                 reserve_pct=parsed.cash_pool.reserve_pct, reserve_amount=parsed.cash_pool.reserve_amount,
                 reserve_stated=parsed.cash_pool.reserve_stated, max_buy_pct=parsed.cash_pool.max_buy_pct,

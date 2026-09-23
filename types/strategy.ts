@@ -61,8 +61,8 @@ export interface RiskManagement {
   /** 분위 그룹 비교(FR-BT-060) — 랭킹 후보를 종목 수 동일 G개 그룹으로 나눠 그룹별 백테스트. */
   ranking_quantile_groups?: number;
   /** 복합 순위 합산(FR-BT-063) — ranking_metric='composite'일 때 구성 지표(백분위 순위 동일 가중 평균). */
-  ranking_components?: Array<{ metric: string; direction: "top" | "bottom"; lookback_days?: number | null }>;
-  execution_timing?: "next_open" | "current_close";
+  ranking_components?: Array<{ metric: string; direction: "top" | "bottom"; lookback_days?: number | null; weight?: number | null }>;
+  execution_timing?: "next_open" | "current_close" | "next_avg";
   /** 신호 후 N거래일 지연 체결 — next_open의 체결 봉 간격(1=다음 거래일 시가, N=N번째 거래일 시가).
    *  없으면 엔진 기본값 1. current_close에서는 1 초과 값을 엔진이 거절한다. */
   execution_delay_days?: number;
@@ -77,7 +77,36 @@ export interface RiskManagement {
   cash_reserve_pct?: number | null;
   cash_reserve_amount?: number | null;
   max_buy_cash_pct?: number | null;
-  allocation_type?: "equal" | "fixed_pct";
+  /** 비중 방식 — 엔진 v16.28: 시총가중·최소분산·리스크패리티(ERC)·최대샤프·최소CVaR·고정 배분 추가. */
+  allocation_type?: "equal" | "fixed_pct" | "inverse_volatility" | "market_cap" | "min_variance" | "risk_parity" | "max_sharpe" | "min_cvar" | "fixed";
+  allocation_lookback_days?: number | null;
+  /** 고정 배분(정적 자산배분, 엔진 v16.28) — {종목코드: 비중 %}. allocation_type='fixed'일 때. */
+  target_weights?: Record<string, number> | null;
+  /** 밴드 리밸런싱(%p, 엔진 v16.28) — 보유 비중이 목표에서 이만큼 벗어나면 되돌린다. */
+  rebalance_threshold_pct?: number | null;
+  /** 최소 보유 기간(거래일, 엔진 v16.28) — 그 안에는 매도 조건·손절·익절·편출 미적용. */
+  min_holding_days?: number | null;
+  /** 손절·익절·트레일링 뒤 재진입 금지 기간(거래일, 엔진 v16.28). */
+  stop_cooldown_days?: number | null;
+  /** 트레일링 스탑 활성화 수익률(%, 엔진 v16.28). */
+  trailing_stop_activation_pct?: number | null;
+  /** 지정가(%, 엔진 v16.28) — 매수는 전일 종가 대비 -x%, 매도(조건 청산)는 +y%. */
+  entry_limit_pct?: number | null;
+  exit_limit_pct?: number | null;
+  /** 분할 매수(엔진 v16.28) — count회차, 회차마다 step_pct% 낮은 가격. */
+  entry_tranches?: { count: number; step_pct: number } | null;
+  /** 분할 익절(엔진 v16.28) — profit_pct 도달 시 보유 비중의 sell_pct% 매도. */
+  partial_take_profits?: Array<{ profit_pct: number; sell_pct: number }> | null;
+  /** 포지션 사이징(엔진 v16.28) — ATR 위험 예산 또는 켈리. */
+  position_sizing?: { method: "atr_risk" | "kelly"; risk_per_trade_pct?: number; atr_period?: number; atr_multiple?: number; kelly_fraction?: number } | null;
+  /** 현금 대체 자산(종목코드, 엔진 v16.28) — 미투자 현금을 이 자산으로 보유. */
+  cash_asset?: string | null;
+  /** 절대 모멘텀 임계(%, 엔진 v16.28) — 수익률 랭킹에서 최근 수익률이 이 값 이하면 편입하지 않음. */
+  absolute_momentum_threshold_pct?: number | null;
+  /** 매크로 조건 필터(엔진 v16.31) — 금리·환율·VIX 시계열 조건 충족일의 목표 노출(OR, 가장 낮은 노출). */
+  macro_filters?: Array<{ series: string; mode?: "level" | "change" | "ma"; operator: "<" | "<=" | ">" | ">="; value?: number | null; period?: number | null; exposure_pct: number }> | null;
+  /** 전술 자산배분 템플릿(엔진 v16.29) — VAA/DAA/PAA. ranking_metric='taa'·allocation_type='schedule'. */
+  taa?: { model: "vaa" | "daa" | "paa"; offensive: string[]; defensive: string[]; canary?: string[]; top_n?: number | null } | null;
   rebalancing_period?: string;
   /** 리밸런싱 방식(FR-BT-067) — 'reconstitute'=리밸런싱일마다 목표 종목 재선정,
    *  'weights_only'=종목 교체 없이 비중만 균등 리셋. 없으면 엔진 기본값(종목 교체). */
@@ -174,6 +203,58 @@ export interface QuantileGroupSummary {
 }
 
 /** 분위 그룹 비교 결과(FR-BT-060) — 랭킹 후보를 종목 수 동일 G개 그룹으로 나눠 각각 백테스트. */
+/** 팩터 예측력 통계(엔진 v16.26) — 리밸런싱일 점수 순위와 다음 리밸런싱일까지 수익률 순위의 스피어만 IC. */
+/** 결과 심화 분석(엔진 v16.30) — 귀인·팩터 노출·거래 분포·위험·턴오버·유동성·다중 벤치마크. 과거 통계이며 예측·추천이 아니다. */
+export interface AnalyticsStat { mean: number | null; median: number | null; worst: number | null; best: number | null; count: number }
+export interface AnalyticsHistogramBin { from: number | null; to: number | null; count: number; unit: string }
+export interface AnalyticsResult {
+  attribution: {
+    symbols: Array<{ symbol: string; name: string; sector: string; pnl: number | null; contributionPct: number | null; trades: number }>;
+    sectors: Array<{ sector: string; pnl: number | null; contributionPct: number | null; symbols: number; trades: number }>;
+    total: number | null; totalContributionPct?: number | null; symbolCount?: number;
+  };
+  factorExposure: {
+    available: boolean; reason?: string; symbols?: number; observations?: number; minSymbols?: number;
+    alphaAnnualPct?: number | null; alphaTStat?: number | null; r2?: number | null;
+    loadings?: Array<{ factor: string; beta: number | null; tStat: number | null }>; note?: string;
+  };
+  tradeDistribution: {
+    trades: number;
+    returnHistogram: AnalyticsHistogramBin[];
+    holdingHistogram: AnalyticsHistogramBin[];
+    holdingDays?: { mean: number | null; median: number | null; max: number };
+    mae: { all: AnalyticsStat | null; winners: AnalyticsStat | null; losers: AnalyticsStat | null } | null;
+    mfe: { all: AnalyticsStat | null; winners: AnalyticsStat | null; losers: AnalyticsStat | null } | null;
+    points: Array<[number | null, number | null, number | null]>;
+  };
+  riskStats: {
+    var95: number | null; cvar95: number | null; var99: number | null; cvar99: number | null;
+    rollingSharpe: Array<number | null>; rollingBeta: Array<number | null>; window: number;
+  };
+  turnover: { total: number | null; annual: number | null };
+  liquidity: {
+    orders: number; maxParticipation: number | null; meanParticipation: number | null; p95Participation: number | null;
+    shareAboveCap: number | null; capitalAtCap: number | null; cap: number; reason?: string;
+  };
+  benchmarks: Array<{
+    symbol: string; name: string; totalReturn: number | null; cagr: number | null; maxDrawdown: number | null; partial: boolean;
+    beta: number | null; alpha: number | null; trackingError: number | null; informationRatio: number | null;
+  }>;
+}
+
+export interface FactorIcResult {
+  meanIc: number;
+  icStd: number;
+  /** meanIc ÷ icStd. IC 표준편차 0이면 null */
+  icir: number | null;
+  /** IC가 양수였던 기간 비율(0~1) */
+  positiveRate: number;
+  periods: number;
+  quantiles: number;
+  /** 점수 상위 1/quantiles 그룹 평균 수익률 − 하위 그룹(%p, 기간 평균) */
+  topBottomSpread: number;
+}
+
 export interface QuantileGroupsResult {
   groups: QuantileGroupSummary[];
   /** 랭킹 지표 표시명(예: "PER(주가수익비율)") */
@@ -248,6 +329,12 @@ export interface BacktestResult {
   kelly?: number | null;
   volatility?: number;
   calmar?: number;
+  /** 벤치마크 대비 통계(엔진 v16.25). null = 벤치마크 없음·표본 부족으로 정의 불가 */
+  beta?: number | null;
+  /** 젠센 알파(연환산 %) — 결과 카드의 '초과 수익(α)'(총수익률 차)과 다른 값 */
+  alpha?: number | null;
+  trackingError?: number | null;
+  informationRatio?: number | null;
   avgHoldingDays?: number;
   /** 포지션 보유일 비율 (%) — 2026-07 엔진 감사에서 추가된 통계 */
   exposure?: number;
@@ -315,6 +402,12 @@ export interface BacktestResult {
   warningParts?: BacktestWarningSegment[][];
   /** 분위 그룹 비교 결과(FR-BT-060). 분위 그룹 전략일 때만 존재. */
   quantileGroups?: QuantileGroupsResult;
+  /** 팩터 예측력 통계(엔진 v16.26). 랭킹+정기 리밸런싱 전략일 때만 존재. */
+  factorIc?: FactorIcResult | null;
+  /** 결과 심화 분석(엔진 v16.30). 최적화 세션·구버전 결과에는 없음. */
+  analytics?: AnalyticsResult | null;
+  /** 연환산 회전율(%, 엔진 v16.30). */
+  turnover?: number | null;
   /** 리밸런싱 기간별 결과 비교(FR-BT-064) — 같은 전략을 6주기로 재시뮬레이션한 지표.
    *  엔진이 백테스트마다 동봉한다(구버전 저장 결과에는 없음). */
   rebalanceComparison?: {

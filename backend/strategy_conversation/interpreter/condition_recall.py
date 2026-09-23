@@ -51,6 +51,9 @@ _RANKING_CONDITION_TWINS = {
 _UNIVERSE_FIELD_TWINS = (
     ("market_cap_top_n", "fundamental.market_cap"),
     ("liquidity_exclude_bottom_percent", "fundamental.trading_value"),
+    # v16.32 — 시총 하위 분위 제외도 같은 계약(숫자를 담는 칸만 여기에 둔다).
+    # exclude_loss_making은 값이 enum이라 수치 대조가 성립하지 않으므로 넣지 않는다.
+    ("market_cap_exclude_bottom_percent", "fundamental.market_cap"),
 )
 _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 

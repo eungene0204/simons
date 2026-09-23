@@ -138,6 +138,41 @@ MARKET_REGIME_REDUCE = "시장 국면 비중 축소 ({0} {1}일 이동평균 아
 # 이동평균과 OR 결합: {0}=지수, {1}=이동평균 기간, {2}=변동성 산정 기간, {3}=배수, {4}=목표 노출.
 MARKET_REGIME_REDUCE_VOL = "시장 국면 비중 축소 ({0} {1}일 변동성이 1년 평균의 {2}배 이상, 목표 노출 {3}%)"
 MARKET_REGIME_REDUCE_ANY = "시장 국면 비중 축소 ({0} {1}일 이동평균 아래 또는 {2}일 변동성이 1년 평균의 {3}배 이상, 목표 노출 {4}%)"
+# 포트폴리오 최대 낙폭 한도(v16.24) — 자산이 고점 대비 한도만큼 내려간 뒤 전량 현금화한 매도.
+# {0}=한도(%).
+MDD_LIMIT_LIQUIDATION = "포트폴리오 최대 낙폭 한도 도달 (고점 대비 -{0}%, 전량 현금화)"
+# 계절 필터(v16.25) — 투자하지 않는 달의 첫 거래일에 전량 현금화한 매도. {0}=투자 월 목록('11·12·1·2·3·4').
+SEASONAL_EXIT = "계절 필터 청산 ({0}월에만 투자)"
+# 목표 변동성(v16.25) — 자산곡선 변동성이 목표를 넘어 노출을 줄인 매도. {0}=목표 연변동성(%).
+VOL_TARGET_REDUCE = "목표 변동성 비중 조정 (목표 연변동성 {0}%)"
+# 경쟁 격차 1차(v16.28) — 밴드 리밸런싱·분할 익절·분할 매수·현금 대체 자산.
+BAND_REBALANCE = "밴드 리밸런싱 (목표 비중에서 {0}%p 넘게 이탈, 비중 재조정)"
+PARTIAL_TAKE_PROFIT = "분할 익절 (+{0}% 도달, 보유 비중의 {1}% 매도)"
+TRANCHE_BUY = "분할 매수 {0}/{1}회차 (기준가 대비 -{2}%)"
+CASH_ASSET_PARK = "현금 대체 자산 매수 (미투자 현금 보유)"
+CASH_ASSET_RELEASE = "현금 대체 자산 매도 (투자 자금 충당)"
+# 캔들 패턴·다중 타임프레임(v16.29).
+CANDLE_PATTERN = "{0} 캔들 패턴"
+TIMEFRAME_WEEKLY = " (주봉 기준)"
+TIMEFRAME_MONTHLY = " (월봉 기준)"
+CANDLE_PATTERN_LABELS = {
+    "hammer": "망치형", "hanging_man": "교수형", "inverted_hammer": "역망치형", "shooting_star": "유성형",
+    "doji": "도지", "bullish_engulfing": "상승 장악형", "bearish_engulfing": "하락 장악형",
+    "piercing_line": "관통형", "dark_cloud_cover": "먹구름형", "morning_star": "샛별형",
+    "evening_star": "저녁별형", "three_white_soldiers": "적삼병", "three_black_crows": "흑삼병",
+}
+# 매크로 조건 필터(v16.31). {0}=시리즈 라벨(세그먼트), {1}=조건 서술(세그먼트), {2}=목표 노출 %.
+MACRO_REDUCE = "매크로 조건 비중 축소 ({0} {1}, 목표 노출 {2}%)"
+# {0}=연산자 세그먼트, {1}=값+단위 → 25pt 초과 (값이 앞, 연산자가 뒤 — 한국어 어순)
+MACRO_COND_LEVEL = "{1} {0}"
+# {0}=기간, {1}=연산자 세그먼트, {2}=변화율 → 20일 변화율 3% 초과
+MACRO_COND_CHANGE = "{0}일 변화율 {2}% {1}"
+MACRO_COND_MA_ABOVE = "{0}일 이동평균 위"
+MACRO_COND_MA_BELOW = "{0}일 이동평균 아래"
+# 이격도를 말한 경우 — {0}=기간, {1}=연산자 세그먼트, {2}=이격 %
+MACRO_COND_MA_GAP = "{0}일 이동평균 대비 {2}% {1}"
+# 전술 자산배분(v16.29) 매수 사유 — {0}=모델(VAA/DAA/PAA), {1}=목표 비중 %.
+TAA_ENTRY = "전술 자산배분 {0} 편입 (목표 비중 {1}%)"
 PNL_DETAIL_PROFIT = " [수익률: {0}%, 수익: {1}]"
 PNL_DETAIL_LOSS = " [수익률: {0}%, 손실: {1}]"
 

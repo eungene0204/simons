@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "6.7"
+PROMPT_VERSION = "7.3"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -34,10 +34,11 @@ _OUTPUT_SHAPE = {
         # etf_theme을 빠뜨리면 모델이 이 형태를 그대로 베껴 ETF 테마를 통째로 잃는다 —
         # 실측(2026-07-27): "반도체 ETF만 대상으로"가 markets=["ETF"]·etf_theme=None으로
         # 나와 전체 ETF 1,384종목 전략이 됐다(규칙 6-1을 적어도 형태에 키가 없으면 안 채운다).
-        "universe": {"markets": ["KOSPI", "KOSDAQ"], "sectors": [], "symbols": [],
-                     "etf_theme": None, "new_listing_only": False,
+        "universe": {"markets": ["KOSPI", "KOSDAQ"], "sectors": [], "exclude_sectors": [],
+                     "symbols": [], "etf_theme": None, "new_listing_only": False,
                      "market_cap_top_n": None, "liquidity_exclude_bottom_percent": None,
                      "liquidity_lookback_days": None,
+                     "market_cap_exclude_bottom_percent": None, "exclude_loss_making": None,
                      "listing_from": None, "listing_to": None},
         "entry_conditions": [
             {
@@ -76,10 +77,15 @@ _OUTPUT_SHAPE = {
             "rebalance_frequency": None,
             "rebalance_method": None,
             "hold_period_days": None,
+            # 경쟁 격차 1차(v7.0) — 형태에 키가 없으면 자리를 채우지 않는다(etf_theme 실측).
+            "target_weights": None, "rebalance_band_percent": None, "min_hold_period_days": None,
+            "cash_asset": None, "absolute_momentum_threshold_percent": None,
         },
         "risk_management": {
             "stop_loss": None, "take_profit": None,
             "trailing_stop": None, "max_mdd_limit": None,
+            "stop_cooldown_days": None, "trailing_stop_activation": None,
+            "partial_take_profits": [], "position_sizing": None,
         },
         "backtest": {
             "period": None, "start_date": None, "end_date": None,
@@ -88,10 +94,19 @@ _OUTPUT_SHAPE = {
             "sell_tax_rate": None,
             # 정액 적립식(엔진 v16.20) — 형태에 키가 없으면 자리를 채우지 않는다(etf_theme 실측).
             "contribution_amount": None, "contribution_period": None,
+            "entry_limit_percent": None, "exit_limit_percent": None, "entry_tranches": None,
+            "slippage_model": None, "slippage_impact_coeff": None,
         },
         # 시장 국면 필터·'안 함' 설정(v6.2) — 형태에 키가 없으면 9B/120B가 자리를 채우지 않는다
         # (etf_theme·selection_percent와 같은 실패 방식).
         "market_filter": None,
+        # 계절 필터·목표 변동성(v6.9) — 같은 이유로 형태에 키를 둔다.
+        "seasonality": None,
+        "volatility_target": None,
+        # 전술 자산배분 템플릿(v7.1) — 같은 이유로 형태에 키를 둔다.
+        "taa": None,
+        # 매크로 조건 필터(v7.2) — 형태에 키가 없으면 자리를 채우지 않는다.
+        "macro_filters": [],
         "declined": [],
     },
     "patches": [],
@@ -157,8 +172,8 @@ NON_STRATEGY_REQUEST(전략과 무관)
   the last 60 trading days" → ranking {{"metric":"return","lookback_days":60,
   "direction":"bottom"}} + portfolio.selection_count=5 — 종목 수(5)를 버리지 마세요
   (실측: selection_count가 소실돼 기본값 10으로 나갔습니다).
-- rebalance_frequency는 **daily/weekly/monthly/bimonthly/quarterly/yearly만** 허용됩니다.
-  '두 달에 한 번'·"every two months"는 bimonthly(지원)입니다 — 미지원으로 보고하지 마세요.
+- rebalance_frequency는 **daily/weekly/monthly/bimonthly/quarterly/semiannual/yearly만** 허용됩니다.
+  '두 달에 한 번'·"every two months"는 bimonthly, '반기마다'·'6개월마다'·"every six months"는 semiannual(둘 다 지원)입니다 — 미지원으로 보고하지 마세요.
   '2주마다'·'격주'·"every 2 weeks"(biweekly)는 이 목록에 없습니다 — 비슷한 값으로
   바꿔 넣지 말고(2주≠2개월) rebalance_frequency는 비워 두고 unsupported_features에
   원문 표현을 넣으세요(시스템이 미지원 안내 후 지원 주기를 되묻습니다).
@@ -188,7 +203,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
 - **direction은 사용자가 정렬 방향을 말했을 때만 출력하세요**('낮은 순'·'높은 순'·'가장 싼'·'상위'가 어느 쪽인지 분명할 때). 방향 언급이 없으면(예: 'PER 기준으로 20종목') direction을 **비워 두세요(null)** — 지표마다 선호 방향이 정해져 있어 시스템이 위 어휘의 [낮을수록 선호]/[높을수록 선호] 표시대로 채웁니다. 임의로 "top"을 채우면 저평가 지표에서 가장 비싼 종목을 고르는 정반대 전략이 됩니다.
 - 종목 수가 아니라 비율로 말하면('상위 10% 종목만 편입') portfolio.selection_percent=10 (selection_count는 null).
 - 지표 순으로 정렬해 종목 수가 동일한 N개 그룹으로 나눠 그룹별로 비교/편입하는 요청('10개 그룹으로 나눠 1그룹에는 PER 가장 낮은 10%…', 'PER 십분위 분석')은 ranking의 quantile_groups=N입니다 → {{"metric":"fundamental.per","direction":"bottom","quantile_groups":10}}. 이때 selection_count/selection_percent는 null(그룹이 편입 규모를 정의합니다). '상위 10%'처럼 **편입 비율만** 말한 것은 그룹 비교가 아닙니다 — quantile_groups를 채우지 마세요.
-- **복합 순위 합산(멀티팩터 랭킹)**: 여러 지표로 각각 정렬해 순위를 매기고 그 순위를 합산(또는 평균)해 합산 순위 상위/합산값 최소를 편입하는 요청('ROE 내림차순, PER 오름차순으로 순위를 구해 합산해 합산값이 가장 낮은 상위 10%', 'PBR·PER 순위 합계 상위 20종목')은 **strategy.ranking에 지표 하나당 항목 하나**를 넣습니다 → [{{"metric":"fundamental.roe_or_gpa","direction":"top"}},{{"metric":"fundamental.per","direction":"bottom"}}]. 랭킹 항목이 2개 이상이면 시스템이 순위 합산으로 실행합니다. 이때 ① 그 지표들을 entry_conditions(임계값 조건)로 만들지 마세요 — '내림차순/오름차순'은 정렬 방향이지 임계값이 아닙니다(value를 물을 것이 없습니다). ② 'composite'·'score' 같은 **합산 지표 이름을 지어내지 마세요** — 합산은 항목 수로 표현됩니다. ③ '내림차순/높은 순'=direction:"top", '오름차순/낮은 순'=direction:"bottom". ④ 지표별 가중치를 되묻지 마세요(동일 가중이 정의입니다).
+- **복합 순위 합산(멀티팩터 랭킹)**: 여러 지표로 각각 정렬해 순위를 매기고 그 순위를 합산(또는 평균)해 합산 순위 상위/합산값 최소를 편입하는 요청('ROE 내림차순, PER 오름차순으로 순위를 구해 합산해 합산값이 가장 낮은 상위 10%', 'PBR·PER 순위 합계 상위 20종목')은 **strategy.ranking에 지표 하나당 항목 하나**를 넣습니다 → [{{"metric":"fundamental.roe_or_gpa","direction":"top"}},{{"metric":"fundamental.per","direction":"bottom"}}]. 랭킹 항목이 2개 이상이면 시스템이 순위 합산으로 실행합니다. 이때 ① 그 지표들을 entry_conditions(임계값 조건)로 만들지 마세요 — '내림차순/오름차순'은 정렬 방향이지 임계값이 아닙니다(value를 물을 것이 없습니다). ② 'composite'·'score' 같은 **합산 지표 이름을 지어내지 마세요** — 합산은 항목 수로 표현됩니다. ③ '내림차순/높은 순'=direction:"top", '오름차순/낮은 순'=direction:"bottom". ④ 지표별 가중치는 사용자가 **말했을 때만** 각 항목의 "weight"에 그 숫자를 옮겨 적으세요('PER 2, ROE 1 가중'→{{"metric":"fundamental.per","direction":"bottom","weight":2}},{{"metric":"fundamental.roe_or_gpa","direction":"top","weight":1}} / 'PER 60%·ROE 40%'→60과 40). 말하지 않았으면 weight를 비우고(null) 되묻지 마세요 — 동일 가중이 기본입니다.
 
 ## 핵심 규칙
 0. 전략 조건을 서술하면서 '백테스트'·'테스트'·'검증'을 말한 입력은 CREATE_STRATEGY입니다
@@ -219,10 +234,10 @@ NON_STRATEGY_REQUEST(전략과 무관)
 3. 위 목록에 없는 개념은 조건으로 만들지 말고 unsupported_features에 원문 표현을
    넣으세요. 비슷한 지원 지표로 **조용히 바꿔치지 마세요**(사용자가 알아챌 수 없는
    왜곡): 이자보상배율→부채비율(금지), 흑자전환·연속 흑자→eps 부호(금지), '시장 대비/보다'→수익률
-   랭킹(금지), 현금흐름 흑자→증가율(금지), 우선주→보통주(금지), 일부·절반 익절→전량
-   take_profit(금지) — 전부 unsupported_features에 원문 조각으로.
-   **자주 놓치는 미지원 개념**(보이면 반드시 unsupported_features에): 최소 보유 기간,
-   분할 매도, 흑자전환·연속 흑자, 장중·분봉 매매, 우선주, VWAP, 고정 현금 비중, 신저가,
+   랭킹(금지), 현금흐름 흑자→증가율(금지), 우선주→보통주(금지) — 전부 unsupported_features에 원문 조각으로.
+   (일부·절반 익절은 미지원이 아니라 risk_management.partial_take_profits입니다 — 규칙 7-1-2.)
+   **자주 놓치는 미지원 개념**(보이면 반드시 unsupported_features에):
+   흑자전환·연속 흑자, 장중·분봉 매매, 우선주, VWAP, 고정 현금 비중, 신저가,
    베타, 뉴스·수급, 실적 추정치·컨센서스(상향·하향 — 수익률·시장 대비 수익률로 바꾸지 말 것), **공매도·숏(short/short-selling)**(엔진은 매수 후 매도만 지원합니다 —
    "Short overvalued stocks"의 'Short'를 버리고 매수 전략으로 바꾸지 마세요).
    미국 **시장·지수**(S&P500·나스닥·다우·미국 ETF)는 지원합니다 — 규칙 6의 매핑을 쓰세요.
@@ -389,6 +404,8 @@ NON_STRATEGY_REQUEST(전략과 무관)
    "반도체와 로봇 관련 종목" → sectors=["반도체","로봇"]. unsupported_features에 넣지 말고,
    업종 선택에 대한 clarification_questions도 만들지 마세요 — 다른 조건 없이 업종만 말해도
    업종 제한 자체가 유효한 전략 조건입니다(누락 조건 질문은 규칙 1의 다른 필드가 담당).
+   대상에서 **빼는** 업종("금융주 제외", "지주사는 빼고", "은행·보험은 제외")은 sectors가 아니라
+   universe.exclude_sectors에 그 표현 그대로 넣으세요 → exclude_sectors=["금융주","지주사"].
 6-0-1. 사용자가 특정 종목을 지목하면("삼성전자에 골든크로스", "SK하이닉스랑 현대차를")
    그 종목 표현을 universe.symbols 배열에 원문 그대로 넣으세요("삼성전자", "SK하이닉스").
    **미국 종목·ETF 지정도 똑같습니다** — "애플에 골든크로스"→symbols=["애플"],
@@ -449,10 +466,32 @@ NON_STRATEGY_REQUEST(전략과 무관)
    '시가총액 상위 N종목 중'→universe.market_cap_top_n=N, '최근 N일 평균 거래대금 하위 X%를 제외'→
    universe.liquidity_exclude_bottom_percent=X·universe.liquidity_lookback_days=N.
    (코스피200·코스닥150처럼 **지수 이름**을 말한 것은 markets입니다. unsupported_features에 넣지 않습니다.)
+6-6. '시가총액 하위 X% 제외'·'소형주 하위 X%는 빼고'→universe.market_cap_exclude_bottom_percent=X,
+   '적자기업 제외'→universe.exclude_loss_making="net"('영업적자'는 "operating", 둘 다면 "both").
 7. rebalance_frequency는 {"/".join(SUPPORTED_REBALANCE_FREQUENCIES)} 중 하나 또는 null.
    rebalance_method는 "종목 교체"=reconstitute / "비중만 조정"=weights_only 또는 null(미언급).
-7-1. '변동성 역비중'·'리스크 패리티(Risk Parity)'·'변동성이 낮을수록 더 많이' → portfolio.weighting="inverse_volatility"
-   (그 변동성의 기간을 말했을 때만 weighting_lookback_days). '동일 비중'="equal".
+7-1. portfolio.weighting: '동일 비중'="equal" / '변동성 역비중'·'변동성이 낮을수록 더 많이'="inverse_volatility" /
+   '리스크 패리티(위험 기여 균등)'="risk_parity" / '시가총액 비중(가치 가중)'="market_cap" / '최소 분산(최소 변동성)'="min_variance" /
+   '최대 샤프·평균-분산 최적화(MVO)'="max_sharpe" / '최소 CVaR'="min_cvar" / '종목별 비중을 직접 정한 정적 배분(60/40 등)'="fixed"
+   + portfolio.target_weights={{"종목 표기":비중%}}(표기는 말한 그대로, 코드 변환은 시스템). 산정 기간을 말했을 때만 weighting_lookback_days.
+7-1-1. '비중이 N%p 벗어나면 되돌림(밴드 리밸런싱)'→portfolio.rebalance_band_percent=N. '최소 N일은 보유'→portfolio.min_hold_period_days=N.
+   '나머지(현금)는 X로 보유'·'안전자산 X'→portfolio.cash_asset="X"(표기 그대로). '수익률이 N% 이하면 편입하지 않음(절대 모멘텀)'→
+   portfolio.absolute_momentum_threshold_percent=N. 값을 말하지 않았으면 null(되묻기는 시스템).
+7-1-2. risk_management: '손절 후 N일 재매수 금지'→stop_cooldown_days=N. '+N% 오른 뒤부터 트레일링'→trailing_stop_activation=N.
+   '+A%에 B% 매도(분할 익절)'→partial_take_profits=[{{"profit_percent":A,"sell_percent":B,"source_text":"…"}}] (단계마다 하나, 값 없으면 null).
+   'ATR 기준 포지션 사이징·거래당 위험 N%'→position_sizing={{"method":"atr_risk","risk_per_trade_percent":N,"atr_multiple":배수(말했을 때만),
+   "atr_period":기간(말했을 때만),"source_text":"…"}}. '켈리(하프 켈리)'→{{"method":"kelly","kelly_fraction":0.5(하프)/1(풀)/말하지 않았으면 null}}.
+7-1-4. **전술 자산배분 템플릿**: 'VAA'·'DAA'·'PAA'·'켈러 자산배분'을 말하면 strategy.taa={{"model":"vaa"|"daa"|"paa",
+   "offensive":[공격 자산 표기…],"defensive":[방어 자산 표기…],"canary":[카나리아 자산 표기…(DAA만)],"top_n":말한 수 또는 null,
+   "source_text":"…"}}. 자산 표기는 말한 그대로(코드 변환은 시스템), 말하지 않은 목록은 빈 배열(시스템이 되묻습니다 —
+   상품을 대신 고르지 마세요). 미지원이 아니므로 unsupported_features에 넣지 마세요.
+7-1-5. **주봉·월봉 지표**: '주봉 20일선'·'월봉 RSI'·'weekly MACD'처럼 봉 단위를 말하면 그 조건의 parameters에
+   "timeframe":"weekly"|"monthly"를 넣습니다(일봉은 생략). 캔들 패턴(망치형·장악형·도지·샛별형 등)은 지표 목록의
+   technical.candle_* 잎으로 출력합니다(연산자·값 없음).
+7-1-3. backtest: '전일 종가보다 N% 낮은 지정가 매수'→entry_limit_percent=N, '매도는 N% 높은 지정가'→exit_limit_percent=N.
+   'N번 분할 매수, M%씩 떨어질 때마다'→entry_tranches={{"count":N,"step_percent":M,"source_text":"…"}}. '다음 날 평균가 체결'→execution_timing="next_avg".
+   '거래량(거래대금)에 비례하는 슬리피지'·'시장 충격 반영'→slippage_model="volume_impact". 이 규칙(7-1~7-1-3)의 설정은 미지원이 아니므로
+   unsupported_features에 넣지 마세요.
    '종목당 비중은 N%를 상한으로'·'한 종목에 최대 N%까지만' → portfolio.max_weight_percent=N (unsupported_features에 넣지 않음).
    '섹터별(업종별) 비중은 N%를 상한으로'·'한 업종에 최대 N%까지만' → portfolio.max_sector_weight_percent=N (종목당 상한과 다른 칸입니다 — 섹터·업종을 말했으면 이쪽입니다).
 7-2. **시장 국면 필터**: '코스피(코스닥)가 N일 이동평균선 아래면'·'시장 변동성이 급등(급격히 확대)하면' 비중을 줄여 현금 보유 → strategy.market_filter=
@@ -461,10 +500,23 @@ NON_STRATEGY_REQUEST(전략과 무관)
    "exposure_pct":말한 비율(전량 현금=0, 비율을 말하지 않았으면 null),"source_text":"…"}}.
    '…이거나(또는)'로 둘을 말했으면 triggers에 둘 다 넣고, '둘 다 충족할 때만(그리고)'은 지원하지 않으니 unsupported_features에 넣으세요.
    지수의 이동평균·변동성이지 종목 조건이 아닙니다 — entry_conditions에 ma_crossover나 변동성 조건·랭킹을 만들지 마세요.
+7-2-1. **매크로 조건**(VIX·환율·금리·달러 인덱스·유가·금): 'VIX가 30을 넘으면 현금'·'원달러 환율이 1400원 이상이면 비중 절반'·
+   '미국 10년물 금리가 4% 이상이면 투자 중단'·'환율이 20일 새 5% 넘게 오르면'·'VIX가 200일 이동평균 위면' → strategy.macro_filters에
+   {{"series":말한 지표 표기 그대로("VIX"·"환율"·"미국 10년물 금리"·"달러 인덱스"·"유가"·"금리"…),"mode":"level"(수준)|"change"(N일 변화율)|"ma"(이동평균 대비),
+   "operator":">"|">="|"<"|"<=","value":임계(수준 또는 변화율 %, 말하지 않았으면 null),"period":변화율 기간 또는 이동평균 일수(말했을 때만),
+   "exposure_pct":줄일 비율(전량 현금=0, 말하지 않았으면 null),"source_text":"…"}}를 조건마다 하나씩. 어느 금리인지 불분명하면
+   series에 "금리"라고만 적으세요(시스템이 되묻습니다). 종목 조건·랭킹으로 만들지 말고 unsupported_features에도 넣지 마세요.
 7-3. '손절매는 적용하지 않는다'·'익절 없음'·'리밸런싱 안 함'처럼 **쓰지 않겠다고 말한 설정**은 strategy.declined에
    {{"field":"stop_loss"|"take_profit"|"rebalancing","source_text":"그 설정을 안 쓴다고 말한 원문 조각"}}으로 넣으세요 —
    항목마다 그 설정 이름이 나오는 원문을 옮겨 적습니다(원문에 없는 설정은 넣지 않음). 미지원이 아니므로
    unsupported_features에 넣지 마세요.
+7-4. **계절 필터**: '11월부터 4월까지만 투자하고 5~10월은 현금'·'할로윈 전략'·'여름엔 쉰다'처럼 **달력의 달로**
+   투자 여부를 정하면 strategy.seasonality={{"invest_months":[투자하는 달 숫자들 — '11월~4월'=[11,12,1,2,3,4]],"source_text":"…"}}.
+   투자하지 않는 달을 말했으면 나머지 달을 넣습니다. 미지원이 아니므로 unsupported_features에 넣지 마세요.
+7-5. **목표 변동성(변동성 타깃)**: '목표 연변동성 10%에 맞춰 노출(비중·레버리지)을 조정'·'변동성 타깃 8%'·
+   '볼 타게팅' → strategy.volatility_target={{"target_percent":말한 %(말하지 않았으면 null),"source_text":"…"}}.
+   레버리지(100% 초과)는 시스템이 쓰지 않고 노출을 낮추는 쪽만 반영합니다 — 그래도 unsupported_features에 넣지 마세요.
+   종목별 '변동성 역비중'(7-1)·시장 지수 변동성 급등(7-2)과 다른 칸입니다.
 8. confidence: 해석 확신도 0~1. 표현이 모호하면 낮게.
 10. MODIFY_STRATEGY는 '현재 전략 초안'이 주어진 경우에만 선택하고, patches에 JSON Patch를
     출력하세요(예: {{"op":"replace","path":"/portfolio/rebalance_frequency","value":"monthly",

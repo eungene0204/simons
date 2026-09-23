@@ -264,6 +264,8 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         # 미국 업종 필터(FR-STR-074 ⑩) — 결과(종목 집합)를 바꾸는 값이라 해시에 포함한다.
         # None이면 _drop_none이 제거 → 기존 전략 해시 불변.
         "us_industry": strategy.us_industry,
+        # 업종 제외 필터(v16.24) — 종목 집합을 바꾸는 값이라 해시에 포함. None이면 기존 해시 불변.
+        "exclude_sectors": sorted(strategy.exclude_sectors) if strategy.exclude_sectors else None,
         # 신규 상장 유니버스(FR-STR-073). None이면 _drop_none이 제거 → 기존 해시 불변.
         "listing_from": strategy.listing_from,
         "listing_to": strategy.listing_to,
@@ -330,9 +332,38 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         "universe_market_cap_top_n": strategy.universe_market_cap_top_n,
         "universe_liquidity_exclude_bottom_pct": strategy.universe_liquidity_exclude_bottom_pct,
         "universe_liquidity_lookback_days": strategy.universe_liquidity_lookback_days,
+        # 사전 필터 확장(v16.32) — None이면 _drop_none이 제거해 기존 전략 해시가 변하지 않는다.
+        "universe_market_cap_exclude_bottom_pct": strategy.universe_market_cap_exclude_bottom_pct,
+        "universe_exclude_loss_making": strategy.universe_exclude_loss_making,
         "allocation_type": None if strategy.allocation_type == "equal" else strategy.allocation_type,
         "allocation_lookback_days": strategy.allocation_lookback_days,
+        # 경쟁 격차 1차(v16.28) — 전부 None/빈 값이면 _drop_none이 제거해 기존 전략 해시가 변하지 않는다.
+        "target_weights": (dict(sorted(strategy.target_weights.items()))
+                           if strategy.target_weights else None),
+        "rebalance_threshold_pct": strategy.rebalance_threshold_pct,
+        "min_holding_days": strategy.min_holding_days,
+        "stop_cooldown_days": strategy.stop_cooldown_days,
+        "trailing_stop_activation_pct": strategy.trailing_stop_activation_pct,
+        "entry_limit_pct": strategy.entry_limit_pct,
+        "exit_limit_pct": strategy.exit_limit_pct,
+        "entry_tranches": (strategy.entry_tranches.model_dump(exclude_none=True)
+                           if strategy.entry_tranches else None),
+        "partial_take_profits": ([p.model_dump(exclude_none=True) for p in strategy.partial_take_profits]
+                                 if strategy.partial_take_profits else None),
+        "position_sizing": (strategy.position_sizing.model_dump(exclude_none=True)
+                            if strategy.position_sizing else None),
+        "cash_asset": strategy.cash_asset,
+        "absolute_momentum_threshold_pct": strategy.absolute_momentum_threshold_pct,
+        "slippage_model": strategy.slippage_model,
+        "slippage_impact_coeff": strategy.slippage_impact_coeff,
+        "taa": strategy.taa.to_request() if strategy.taa else None,
+        "macro_filters": ([m.model_dump(exclude_none=True) for m in strategy.macro_filters]
+                          if strategy.macro_filters else None),
         "market_regime": strategy.market_regime.to_request() if strategy.market_regime else None,
+        # 계절 필터·목표 변동성(v16.25) — None이면 _drop_none이 제거(기존 전략 해시 불변).
+        "seasonal_months": sorted(strategy.seasonal_months) if strategy.seasonal_months else None,
+        "volatility_target": (strategy.volatility_target.model_dump(exclude_none=True)
+                              if strategy.volatility_target else None),
         "max_positions_pct": strategy.max_positions_pct,
         "max_positions": strategy.max_positions,
         "hold_period_days": strategy.hold_period_days,
@@ -453,9 +484,17 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
         if sig.indicator == "ai_drop_model":
             params["targetType"] = "down"
 
+    cond_id = sig.indicator
+    if sig.indicator.startswith("candle_"):
+        # 캔들 패턴(v16.29): 엔진 조건 id는 하나(candle_pattern), 패턴은 파라미터.
+        cond_id = "candle_pattern"
+        params["pattern"] = sig.indicator[len("candle_"):]
+    if sig.timeframe in ("weekly", "monthly"):
+        params["timeframe"] = sig.timeframe     # 다중 타임프레임(v16.29)
+
     return {
         "type": "indicator",
-        "id": sig.indicator,
+        "id": cond_id,
         "params": params,
         "weight": 1.0,
     }
@@ -601,15 +640,46 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "universe_market_cap_top_n": strategy.universe_market_cap_top_n,
         "universe_liquidity_exclude_bottom_pct": strategy.universe_liquidity_exclude_bottom_pct,
         "universe_liquidity_lookback_days": strategy.universe_liquidity_lookback_days,
+        "universe_market_cap_exclude_bottom_pct": strategy.universe_market_cap_exclude_bottom_pct,
+        "universe_exclude_loss_making": strategy.universe_exclude_loss_making,
         "allocation_type": strategy.allocation_type,
         "allocation_lookback_days": strategy.allocation_lookback_days,
+        # 경쟁 격차 1차(v16.28) — 값 대기(회차·비율 미정)인 설정은 싣지 않는다(되묻기가 채운 뒤에 실린다).
+        "target_weights": strategy.target_weights if strategy.allocation_type == "fixed" else None,
+        "rebalance_threshold_pct": strategy.rebalance_threshold_pct,
+        "min_holding_days": strategy.min_holding_days,
+        "stop_cooldown_days": strategy.stop_cooldown_days,
+        "trailing_stop_activation_pct": strategy.trailing_stop_activation_pct,
+        "entry_limit_pct": strategy.entry_limit_pct,
+        "exit_limit_pct": strategy.exit_limit_pct,
+        "entry_tranches": (strategy.entry_tranches.to_request()
+                           if strategy.entry_tranches and strategy.entry_tranches.is_complete() else None),
+        "partial_take_profits": ([p.to_request() for p in strategy.partial_take_profits if p.is_complete()]
+                                 or None),
+        "position_sizing": (strategy.position_sizing.to_request()
+                            if strategy.position_sizing and strategy.position_sizing.is_complete() else None),
+        "cash_asset": strategy.cash_asset,
+        "absolute_momentum_threshold_pct": strategy.absolute_momentum_threshold_pct,
+        # 전술 자산배분(v16.29) — 자산 목록이 다 있을 때만 싣고, 보유 수는 자산 수 전체다.
+        "taa": (strategy.taa.to_request() if strategy.taa and strategy.taa.is_complete() else None),
+        # 매크로 조건 필터(v16.31) — 완결된 조건만 싣는다(값 대기는 되묻기가 채운 뒤에 실린다).
+        "macro_filters": ([m.to_request() for m in strategy.macro_filters if m.is_complete()] or None),
         # 값 대기(기간·비율 미정)인 국면 필터는 싣지 않는다 — 되묻기가 채운 뒤에 실린다.
         "market_regime": (
             strategy.market_regime.to_request()
             if strategy.market_regime and strategy.market_regime.is_complete() else None
         ),
+        # 계절 필터·목표 변동성(v16.25) — 목표 값이 정해지기 전(값 대기)에는 싣지 않는다.
+        "seasonal_months": strategy.seasonal_months,
+        "target_volatility_pct": (
+            strategy.volatility_target.target_pct
+            if strategy.volatility_target and strategy.volatility_target.is_complete() else None
+        ),
     }
 
+    if strategy.taa is not None and strategy.taa.is_complete():
+        risk["max_positions"] = len(strategy.taa.symbols())
+        risk["ranking_enabled"] = True
     # universe 리스트 → universe_id 문자열 변환
     # ["KOSDAQ"] → "kosdaq", ["KOSPI", "KOSDAQ"] → "kospi_kosdaq", ["KOSPI200"] → "kospi200"
     universe_id = "_".join(m.lower() for m in sorted(strategy.universe)) if strategy.universe else "kospi200"
@@ -642,6 +712,8 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         # 미국 업종 필터 — 지정 종목 모드에서는 유니버스 자체가 없으므로 싣지 않는다
         # (etf_theme와 동일 규칙).
         "us_industry": None if target_symbols else strategy.us_industry,
+        # 업종 제외 필터(v16.24) — 지정 종목 모드에서는 유니버스가 없으므로 싣지 않는다.
+        "exclude_sectors": None if target_symbols else strategy.exclude_sectors,
         # 신규 상장 제한 — 엔진이 상장일이 이 구간에 속하는 종목만 남긴다.
         # 지정 종목 모드는 사용자가 종목을 직접 고른 것이므로 적용하지 않는다.
         "listing_from": None if target_symbols else strategy.listing_from,
@@ -664,6 +736,12 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
             **(
                 {"sell_tax_rate": _percent_to_rate(strategy.sell_tax_rate)}
                 if strategy.sell_tax_rate is not None else {}
+            ),
+            # 거래량 비례 슬리피지(v16.28) — 말한 때만 싣는다(없으면 고정 슬리피지).
+            **(
+                {"slippage_model": strategy.slippage_model,
+                 "slippage_impact_coeff": strategy.slippage_impact_coeff}
+                if strategy.slippage_model else {}
             ),
         },
     }

@@ -6,17 +6,20 @@
 // - 향후 Excel/PDF 등 포맷 추가가 쉽도록 buildExportFile 의 포맷 분기만 확장하면 되게 한다.
 
 import { t } from "@/lib/i18n";
+import { buildTearsheetHtml, type TearsheetPayload } from "@/lib/tearsheet";
 
-export type ExportFormat = "csv" | "json";
+export type ExportFormat = "csv" | "json" | "html";
 
 /** 현재 지원하는 다운로드 포맷 목록 (모달 버튼 렌더링·검증에 공용) */
 export const EXPORT_FORMATS: ReadonlyArray<{ format: ExportFormat; label: string; mimeType: string }> = [
   { format: "csv", label: "CSV 다운로드", mimeType: "text/csv;charset=utf-8" },
   { format: "json", label: "JSON 다운로드", mimeType: "application/json;charset=utf-8" },
+  // 티어시트(2026-09-23): 한 장짜리 독립 HTML — 브라우저 인쇄로 PDF 저장.
+  { format: "html", label: "티어시트(HTML) 다운로드", mimeType: "text/html;charset=utf-8" },
 ];
 
 export function isExportFormat(value: unknown): value is ExportFormat {
-  return value === "csv" || value === "json";
+  return value === "csv" || value === "json" || value === "html";
 }
 
 export type ExportCurrency = "KRW" | "USD";
@@ -79,6 +82,8 @@ export interface BacktestExportPayload {
   /** 탭별 다운로드 — 종목 분석 탭에서 받으면 이 필드만, 매매 기록 탭에서 받으면 tradeHistory만 채워진다 */
   stockAnalysis?: StockAnalysisRow[];
   tradeHistory?: TradeHistoryRow[];
+  /** 티어시트(HTML) — format='html'일 때 문서 본문 재료 */
+  tearsheet?: TearsheetPayload;
 }
 
 export interface ExportFile {
@@ -109,7 +114,8 @@ export function exportFileName(payload: BacktestExportPayload, format: ExportFor
   const stamp = yyyymmdd(payload.metadata.exportedAt);
   const hasStock = payload.stockAnalysis !== undefined;
   const hasTrades = payload.tradeHistory !== undefined;
-  const suffix = hasStock && !hasTrades ? "_stock_analysis" : !hasStock && hasTrades ? "_trade_history" : "";
+  const suffix = format === "html" ? "_tearsheet"
+    : hasStock && !hasTrades ? "_stock_analysis" : !hasStock && hasTrades ? "_trade_history" : "";
   return `${slug}_backtest_result${suffix}_${stamp}.${format}`;
 }
 
@@ -229,6 +235,10 @@ function buildCsv(payload: BacktestExportPayload): string {
 
 export function buildExportFile(payload: BacktestExportPayload, format: ExportFormat): ExportFile {
   const fileName = exportFileName(payload, format);
+  if (format === "html") {
+    if (!payload.tearsheet) throw new Error("tearsheet payload missing");
+    return { fileName, mimeType: "text/html;charset=utf-8", content: buildTearsheetHtml(payload.tearsheet) };
+  }
   if (format === "json") {
     return {
       fileName,

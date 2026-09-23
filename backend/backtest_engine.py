@@ -2,6 +2,7 @@ import contextlib
 import os
 import polars as pl
 import pandas as pd
+import numpy as np
 from typing import Dict, List, Any, Optional
 
 # Import refactored modules
@@ -19,6 +20,7 @@ from engine.phase1 import date_key
 from engine import phase1 as _phase1
 from engine import phase1_pool as _phase1_pool
 from engine import trade_reason as tr
+from engine import universe_prefilters as _prefilters
 from engine import result_warnings as rw
 from engine import universe_pit
 from engine import data_coverage
@@ -186,6 +188,7 @@ _TIEBREAK_LOOKBACK_DAYS = 60
 
 
 INVERSE_VOLATILITY_ALLOCATION = 'inverse_volatility'
+from engine import portfolio_weights as _pw
 
 
 def _inverse_volatility_allocation(risk_params: Dict[str, Any]) -> bool:
@@ -209,6 +212,11 @@ def _ranking_lookback_max(risk_params: Dict[str, Any]) -> int:
     if _inverse_volatility_allocation(risk_params):
         # 변동성 역비중(v16.14)의 변동성 패널도 같은 워밍업 종가로 계산한다.
         cands.append(risk_params.get('allocation_lookback_days'))
+    if risk_params.get('allocation_type') in _pw.OPTIMIZER_METHODS:
+        cands.append(risk_params.get('allocation_lookback_days') or 60)
+    if risk_params.get('ranking_metric') == 'taa':
+        from engine.taa import LOOKBACK_DAYS as _taa_lb
+        cands.append(_taa_lb)
     out = 0
     for v in cands:
         try:
@@ -402,6 +410,245 @@ class BacktestEngine:
         return out
 
     @staticmethod
+    def _factor_ic_stats(rank_df, price_df, rebalance_dates, quantiles: int = 5):
+        """랭킹 점수의 예측력 통계(엔진 v16.26, Alphalens식) — 리밸런싱일마다 점수 순위와
+        다음 리밸런싱일까지의 종가 수익률 순위의 스피어만 상관(IC)을 구한다.
+
+        반환 {meanIc, icStd, icir, positiveRate, periods, quantiles, topBottomSpread}|None.
+        topBottomSpread = 점수 상위 1/quantiles 그룹 평균 수익률 − 하위 그룹(%p, 기간 평균).
+        후보가 quantiles×2 미만인 기간·마지막 리밸런싱 기간(다음 리밸런싱일 없음)은 제외하고,
+        유효 기간이 2개 미만이면 None(통계를 지어내지 않는다). 과거 데이터의 통계이지 예측이 아니다."""
+        if rank_df is None or price_df is None:
+            return None
+        rows = np.where(np.asarray(rebalance_dates, dtype=bool))[0]
+        if len(rows) < 2:
+            return None
+        scores = rank_df.reindex(columns=price_df.columns).to_numpy(dtype=float)
+        closes = price_df.to_numpy(dtype=float)
+        ics: list = []
+        spreads: list = []
+        for start, end in zip(rows[:-1], rows[1:]):
+            s = scores[start]
+            p0, p1 = closes[start], closes[end]
+            ok = np.isfinite(s) & np.isfinite(p0) & np.isfinite(p1) & (p0 > 0)
+            if int(ok.sum()) < quantiles * 2:
+                continue
+            fwd = p1[ok] / p0[ok] - 1.0
+            sc = s[ok]
+            rs = pd.Series(sc).rank().to_numpy()
+            rf = pd.Series(fwd).rank().to_numpy()
+            if rs.std() == 0 or rf.std() == 0:
+                continue
+            ics.append(float(np.corrcoef(rs, rf)[0, 1]))
+            order = np.argsort(-sc)
+            k = max(1, len(order) // quantiles)
+            spreads.append(float(fwd[order[:k]].mean() - fwd[order[-k:]].mean()) * 100.0)
+        if len(ics) < 2:
+            return None
+        arr = np.asarray(ics)
+        std = float(arr.std(ddof=1))
+        return {
+            "meanIc": float(arr.mean()),
+            "icStd": std,
+            "icir": (float(arr.mean()) / std) if std > 0 else None,
+            "positiveRate": float((arr > 0).mean()),
+            "periods": int(len(arr)),
+            "quantiles": int(quantiles),
+            "topBottomSpread": float(np.mean(spreads)),
+        }
+
+    @staticmethod
+    def _allocation_context(method, risk_params, processed_symbols, rank_price_df, common_index,
+                            exec_type, signal_delay, all_market_caps, price_df, _pre_panel, _extend,
+                            _delay_to_window, _to_window, schedule_basis=None):
+        """비중 방식(v16.28)의 재료 묶음 — 시총 기준 패널·수익률 패널·고정 비중. 신호와 같은 지연."""
+        ctx = _pw.AllocationContext(method=method,
+                                    lookback=int(risk_params.get('allocation_lookback_days') or 60))
+        if method == 'schedule':
+            # 전술 자산배분(v16.29) — 랭킹 분기가 만든 비중 패널(이미 창 정렬·지연 적용)에 비례.
+            if schedule_basis is None:
+                return None
+            ctx.basis = np.asarray(schedule_basis.values, dtype=float)
+            return ctx
+        if method == 'market_cap':
+            if all_market_caps:
+                mcap = pd.DataFrame(all_market_caps, index=common_index,
+                                    columns=processed_symbols).astype(float)
+                mcap = mcap.where(mcap > 0)
+            else:
+                shares_map = universe_pit.get_shares(processed_symbols)
+                shares_vec = pd.Series({s: shares_map.get(s, np.nan) for s in processed_symbols}, dtype=float)
+                mcap = price_df.mul(shares_vec, axis=1) / 1e8
+            if exec_type == 'next_open':
+                mcap = _delay_to_window(_extend(mcap, _pre_panel("market_cap").astype(float)))
+            ctx.basis = _to_window(mcap).values.astype(float)
+            return ctx
+        if method == 'fixed':
+            weights = risk_params.get('target_weights') or {}
+            vec = np.array([float(weights.get(s, 0.0) or 0.0) for s in processed_symbols], dtype=float)
+            if not (vec > 0).any():
+                return None
+            ctx.fixed = vec / 100.0 if vec.sum() > 1.5 else vec
+            return ctx
+        ret = rank_price_df.reindex(columns=processed_symbols).ffill().pct_change()
+        if exec_type == 'next_open':
+            ret = ret.shift(signal_delay)
+        try:
+            offset = int(ret.index.get_loc(common_index[0]))
+        except KeyError:
+            offset = 0
+        ctx.returns = ret.values.astype(float)
+        ctx.offset = offset
+        return ctx
+
+    def _add_v1628_warnings(self, risk_params, options, alloc_ctx, cash_asset, cash_idx) -> None:
+        """경쟁 격차 1차(v16.28) 설정의 적용 고지 — 시뮬레이터 통계로 무엇을 어떻게 적용했는지 남긴다."""
+        sim = self.simulator
+        if alloc_ctx is not None:
+            label = tr.part(rw.ALLOCATION_LABELS.get(alloc_ctx.method, alloc_ctx.method))
+            if alloc_ctx.method == 'schedule':
+                pass    # 전술 자산배분 고지는 랭킹 분기(TAA_APPLIED)가 맡는다
+            elif alloc_ctx.method == 'market_cap':
+                self.warnings.add(rw.warning(rw.ALLOCATION_MARKET_CAP_APPLIED, alloc_ctx.applied_days))
+            elif alloc_ctx.method == 'fixed':
+                self.warnings.add(rw.warning(rw.ALLOCATION_FIXED_APPLIED, alloc_ctx.applied_days))
+            else:
+                self.warnings.add(rw.warning(rw.ALLOCATION_OPTIMIZER_APPLIED, label,
+                                             alloc_ctx.applied_days, alloc_ctx.lookback))
+            if alloc_ctx.fallback_days:
+                self.warnings.add(rw.warning(rw.ALLOCATION_FALLBACK_DAYS, label, alloc_ctx.fallback_days))
+        band = risk_params.get('rebalance_threshold_pct')
+        if band:
+            self.warnings.add(rw.warning(rw.REBALANCE_BAND_APPLIED, f"{float(band):g}",
+                                         int(getattr(sim, 'band_events', 0) or 0)))
+        if risk_params.get('min_holding_days'):
+            self.warnings.add(rw.warning(rw.MIN_HOLD_APPLIED, int(risk_params['min_holding_days'])))
+        if risk_params.get('stop_cooldown_days'):
+            self.warnings.add(rw.warning(rw.STOP_COOLDOWN_APPLIED, int(risk_params['stop_cooldown_days'])))
+        if risk_params.get('trailing_stop_activation_pct') and risk_params.get('trailing_stop_pct'):
+            self.warnings.add(rw.warning(rw.TRAILING_ACTIVATION_APPLIED,
+                                         f"{float(risk_params['trailing_stop_activation_pct']):g}"))
+        if risk_params.get('entry_limit_pct'):
+            self.warnings.add(rw.warning(rw.LIMIT_ENTRY_APPLIED, f"{float(risk_params['entry_limit_pct']):g}"))
+        if risk_params.get('exit_limit_pct'):
+            self.warnings.add(rw.warning(rw.LIMIT_EXIT_APPLIED, f"{float(risk_params['exit_limit_pct']):g}"))
+        tranches = risk_params.get('entry_tranches') or {}
+        if tranches.get('count'):
+            self.warnings.add(rw.warning(rw.TRANCHE_APPLIED, int(tranches['count']),
+                                         f"{float(tranches.get('step_pct') or 0):g}",
+                                         int(getattr(sim, 'tranche_fills', 0) or 0)))
+        ptp = risk_params.get('partial_take_profits') or []
+        if ptp:
+            self.warnings.add(rw.warning(rw.PARTIAL_TP_APPLIED, len(ptp),
+                                         int(getattr(sim, 'partial_tp_events', 0) or 0)))
+        sizing = risk_params.get('position_sizing') or {}
+        if sizing.get('method') == 'atr_risk':
+            self.warnings.add(rw.warning(
+                rw.ATR_SIZING_APPLIED, f"{float(sizing.get('risk_per_trade_pct') or 1.0):g}",
+                f"{float(sizing.get('atr_multiple') or 2.0):g}", int(sizing.get('atr_period') or 14),
+                int(getattr(sim, 'sizing_fallbacks', 0) or 0)))
+        elif sizing.get('method') == 'kelly':
+            self.warnings.add(rw.warning(rw.KELLY_SIZING_APPLIED,
+                                         f"{float(sizing.get('kelly_fraction') or 0.5):g}"))
+        if cash_asset and cash_idx is not None:
+            self.warnings.add(rw.warning(rw.CASH_ASSET_APPLIED, cash_asset))
+        impact = getattr(sim, 'impact_slippage', None)
+        if impact:
+            self.warnings.add(rw.warning(
+                rw.VOLUME_IMPACT_SLIPPAGE_APPLIED, f"{impact['base'] * 100:g}", f"{impact['coeff']:g}",
+                f"{impact['max'] * 100:.3g}", f"{impact['mean'] * 100:.3g}"))
+
+    def _macro_exposure(self, filters, ext_index, n_pre, delay):
+        """매크로 조건 필터(v16.31)의 거래일별 목표 노출 배열과 사유 배열 — 창 구간 길이.
+
+        각 필터는 level(수준 비교)·change(period 거래일 변화율 %)·ma(period 거래일 이동평균 대비 이격 %)로
+        판정한다. 기간이 붙는 두 모드는 시리즈를 **영업일 축에 ffill한 뒤** 계산한다 — 그래야 period가
+        시리즈 빈도와 무관하게 늘 '거래일'을 뜻하고(월간 시계열의 20이 20개월이 되지 않는다), 창 시작
+        구간도 창 이전 이력으로 채워진다. 값은 종목 거래일에 직전 관측값을 쓰고(ffill), next_open이면
+        delay만큼 밀어 체결일에 전일 판정을 쓴다(국면 필터와 같은 규칙). 여러 필터는 OR이며 충족한
+        필터들 중 가장 낮은 노출을 쓴다. 자료가 없는 시리즈는 경고하고 건너뛴다.
+        반환 (노출 배열|None, 사유 배열|None, 적용 통계 목록)."""
+        from engine.macro_data import load_macro_series, series_label, MACRO_SERIES
+
+        idx = pd.DatetimeIndex(ext_index)
+        exposure = None
+        reasons = np.full(len(idx), None, dtype=object)
+        stats = []
+        for f in filters or []:
+            sid = str(f.get('series') or '')
+            series = load_macro_series(sid, self.loader.data_dir) if sid in MACRO_SERIES else None
+            if series is None:
+                self.warnings.add(rw.warning(
+                    rw.MACRO_SERIES_MISSING,
+                    tr.part(series_label(sid)) if sid in MACRO_SERIES else (sid or '?')))
+                continue
+            op = str(f.get('operator') or '>')
+            mode = str(f.get('mode') or 'level')
+            period = int(f.get('period') or 0)
+            value = f.get('value')
+            unit = MACRO_SERIES[sid]['unit']
+            op_seg = {"<": tr.part(tr.OP_LT), ">": tr.part(tr.OP_GT), "<=": tr.part(tr.OP_LTE),
+                      ">=": tr.part(tr.OP_GTE)}[op]
+            if mode in ('change', 'ma') and period > 0:
+                # 기간 해석의 정본 축 — 시리즈 첫 관측일부터 창 끝까지의 영업일에 ffill.
+                bdays = pd.bdate_range(min(series.index[0], idx[0]), max(series.index[-1], idx[-1]))
+                aligned = series.reindex(bdays.union(series.index)).ffill().reindex(bdays)
+            if mode == 'change' and period > 0 and value is not None:
+                measured = aligned.pct_change(period) * 100.0
+                threshold = float(value)
+                cond_seg = tr.part(tr.MACRO_COND_CHANGE, period, op_seg, f"{threshold:g}")
+            elif mode == 'ma' and period > 0:
+                # 이동평균 대비 이격도(%) — 사용자가 이격 폭을 말했으면 그 값이 임계다("200일선보다 10% 위").
+                # 종전에는 값을 버리고 단순 위/아래로만 봐 말한 폭이 조용히 사라졌다(2026-09-23 수리).
+                ma = aligned.rolling(period).mean()
+                measured = (aligned / ma.where(ma != 0) - 1.0) * 100.0
+                threshold = float(value) if value is not None else 0.0
+                cond_seg = (tr.part(tr.MACRO_COND_MA_GAP, period, op_seg, f"{threshold:g}")
+                            if threshold else
+                            tr.part(tr.MACRO_COND_MA_ABOVE if op in ('>', '>=') else tr.MACRO_COND_MA_BELOW,
+                                    period))
+            elif value is not None:
+                measured = series
+                threshold = float(value)
+                cond_seg = tr.part(tr.MACRO_COND_LEVEL, op_seg, f"{threshold:g}{unit}")
+            else:
+                continue
+            with np.errstate(invalid='ignore'):
+                hit = {"<": measured < threshold, "<=": measured <= threshold,
+                       ">": measured > threshold, ">=": measured >= threshold}[op]
+            hit = hit.fillna(False).astype(bool)
+            ratio = float(f.get('exposure_pct') or 0.0) / 100.0
+            # 판정 축은 모드가 정한다 — level은 시리즈 원본 날짜, change·ma는 영업일 축(aligned).
+            exp_ser = pd.Series(np.where(hit, ratio, 1.0), index=measured.index)
+            # 종목 거래일로 옮길 때는 **판정에 쓴 축**과 합친다 — 원본 시리즈 축으로 합치면
+            # 영업일 축에서 판정한 change·ma 값이 어긋난다.
+            exp_ser = exp_ser.reindex(idx.union(exp_ser.index)).ffill().reindex(idx)
+            if delay:
+                exp_ser = exp_ser.shift(delay)
+            arr = exp_ser.fillna(1.0).to_numpy(dtype=float)
+            label_seg = tr.part(series_label(sid))
+            reason = tr.encode([tr.part(tr.MACRO_REDUCE, label_seg, cond_seg, f"{ratio * 100:g}")])
+            triggered = arr < 1.0
+            if exposure is None:
+                exposure = arr.copy()
+                reasons[triggered] = reason
+            else:
+                better = triggered & (arr < exposure)
+                reasons[better] = reason
+                exposure = np.minimum(exposure, arr)
+            stats.append((label_seg, cond_seg, int(triggered[n_pre:].sum()), f"{ratio * 100:g}"))
+        if exposure is None:
+            return None, None, stats
+        return exposure[n_pre:], reasons[n_pre:], stats
+
+    @staticmethod
+    def _seasonal_exposure(months, index) -> np.ndarray:
+        """계절 필터(v16.25)의 거래일별 노출 — 행 날짜의 달이 months에 있으면 1.0, 아니면 0.0."""
+        allowed = {int(m) for m in months}
+        month_of = pd.DatetimeIndex(index).month
+        return np.array([1.0 if int(m) in allowed else 0.0 for m in month_of], dtype=float)
+
+    @staticmethod
     def _ranking_selection_pool(available_df, valid, large_cap_mask, liq_pool):
         """랭킹 단독 전략(선정=진입)의 후보 풀 — 값이 정의된 종목에 대형주 마스크·유동성
         게이트를 다시 결합한다(모멘텀 분기 C4 계약과 동일). 마스크는 호출부가 next_open
@@ -462,28 +709,37 @@ class BacktestEngine:
                     panel = pd.concat([pre.astype(float), panel])
                 panel = panel.ffill()
             panel = panel.reindex(index=idx, columns=processed_symbols)
-            panels.append((panel, c.get('direction') == 'bottom', c.get('group')))
+            # 가중치(v16.24) — 없으면 1(동일 가중). 백분위 가중 평균은 가중 순위 합산과 같은 정렬이다.
+            panels.append((panel, c.get('direction') == 'bottom', c.get('group'),
+                           float(c.get('weight') or 1.0)))
         if missing:
             return None, None, missing
         valid = None
-        for panel, _, _ in panels:
+        for panel, _, _, _ in panels:
             valid = panel.notna() if valid is None else (valid & panel.notna())
         scores = []
-        for panel, lower_better, _ in panels:
+        for panel, lower_better, _, _ in panels:
             pct = panel.where(valid).rank(axis=1, pct=True)
             scores.append((1.0 - pct) if lower_better else pct)
-        if any(g for _, _, g in panels):
+        weights = [w for _, _, _, w in panels]
+
+        def _wmean(parts, ws):
+            return sum(sc * w for sc, w in zip(parts, ws)) / float(sum(ws))
+
+        if any(g for _, _, g, _ in panels):
             # 묶음 점수(v16.14): 같은 group 이름의 구성 지표는 먼저 백분위를 평균해 한 점수
             # (예: 품질 점수 = ROE·영업이익률·부채비율 평균)로 만들고, 그 묶음 점수들과 묶음
             # 없는 지표를 다시 동일 가중 평균한다 — '품질 점수 + 모멘텀'에서 품질 지표 수가
             # 많다고 품질이 더 큰 가중을 받지 않게 한다. group이 하나도 없으면 아래 종전 식.
+            # 가중치(v16.24)는 묶음 **안**의 평균에만 적용한다(묶음끼리는 동일 가중 — 묶음
+            # 가중치는 미지원).
             buckets: Dict[str, list] = {}
-            for (_, _, g), sc in zip(panels, scores):
-                buckets.setdefault(str(g) if g else f"__solo_{len(buckets)}", []).append(sc)
-            group_scores = [sum(b) / float(len(b)) for b in buckets.values()]
+            for (_, _, g, w), sc in zip(panels, scores):
+                buckets.setdefault(str(g) if g else f"__solo_{len(buckets)}", []).append((sc, w))
+            group_scores = [_wmean([sc for sc, _ in b], [w for _, w in b]) for b in buckets.values()]
             rank_df = sum(group_scores) / float(len(group_scores))
         else:
-            rank_df = sum(scores) / float(len(scores))
+            rank_df = _wmean(scores, weights)
         if exec_type == 'next_open':
             # 진입 신호는 이미 1일 shift됨 — 랭킹도 전일 값 기준(look-ahead 방지).
             rank_df = rank_df.shift(signal_delay)
@@ -770,6 +1026,8 @@ class BacktestEngine:
                 
             # Risk & Options
             risk_params = req.get('risk_params') or req.get('risk') or {}
+            # 현금 대체 자산(v16.28) — 유니버스 밖 종목이면 데이터를 같이 싣는다(후보에서는 뺀다).
+            _cash_asset = str(risk_params.get('cash_asset') or '').strip() or None
             
             # Fix 9: or 연산자는 0.0을 falsy로 취급하므로 명시적 None 체크로 교체
             init_cash_raw = risk_params.get('init_cash')
@@ -794,6 +1052,14 @@ class BacktestEngine:
             if exec_type == 'current_close':
                 exec_type = 'same_close'
                 options['execution_type'] = exec_type
+            # 익일 평균가 체결(v16.28): 지연·shift 규칙은 next_open과 같고 체결가 열만 다르다.
+            _exec_price_basis = 'open'
+            if exec_type in ('next_avg', 'next_average'):
+                exec_type = 'next_open'
+                options['execution_type'] = exec_type
+                _exec_price_basis = 'avg'
+                options['exec_price_basis'] = 'avg'
+                self.warnings.add(rw.warning(rw.EXEC_AVG_PRICE))
             # 신호 후 N거래일 지연 체결 — next_open 분기들이 신호·랭킹·마스크를 미는 shift 폭.
             # 1(기본)=다음 거래일 시가, N=N번째 거래일 시가. same_close는 지연 개념이 없다.
             signal_delay = self._resolve_signal_delay(options, risk_params, exec_type)
@@ -879,6 +1145,9 @@ class BacktestEngine:
             all_liquidity = {}                     # 유동성 마스크 패널 (C4/H5)
             all_trading_values = {}                # 전일 거래대금 — 체결 규모 사후 검증 (H5)
             all_market_caps = {}                   # 일별 실측 시가총액(억원) — 지수 상위 N 판정
+            all_pbr = {}                           # 일별 PBR — 결과 심화 분석의 가치 팩터(v16.30)
+            all_net_income = {}                    # 일별 당기순이익(억원) — 적자기업 제외 필터(v16.32)
+            all_ebit = {}                          # 일별 영업이익(억원) — 적자기업 제외 필터(v16.32)
             all_drop_scores: dict = {}  # sym → ai_drop_score 시계열 (횡단면 랭킹 청산용)
             # 재무 팩터 랭킹(예: 영업이익률 상위 20종목) — 랭킹 지표의 as-of 컬럼을
             # 심볼별로 수집한다(pbr/roe 블렌드와 같은 경로, 지표만 요청값).
@@ -1104,6 +1373,18 @@ class BacktestEngine:
                 print(f"[BT-ENGINE] 섹터 필터({_sector_label}): {len(symbols)}종목 "
                       f"(업종 미상 상폐 {len(_sector_unknown)})", flush=True)
 
+            # ── 업종 제외 필터(v16.24) — '금융주 제외'·'지주사 제외'. 섹터 제한과 같은 자리·
+            # 같은 분류 정본(지식그래프)이며 ETF 유니버스엔 적용하지 않는다(위 sector와 동일).
+            _exclude = None if _is_etf_universe else req.get('exclude_sectors')
+            if _exclude:
+                symbols, _excluded_n = universe_pit.exclude_by_sector(symbols, list(_exclude))
+                _exclude_label = "·".join(universe_pit.sector_value_as_list(list(_exclude)))
+                if not symbols:
+                    raise ValueError(f"'{_exclude_label}' 업종을 제외하면 남는 종목이 없습니다.")
+                self.warnings.add(rw.warning(rw.SECTORS_EXCLUDED, _exclude_label, _excluded_n))
+                print(f"[BT-ENGINE] 업종 제외({_exclude_label}): {_excluded_n}종목 제외 → {len(symbols)}종목",
+                      flush=True)
+
             # ── 신규 상장 유니버스 (FR-STR-073) ──
             # "2026년 신규 상장 종목"은 상장일이 그 구간에 속하는 종목 집합이다 — 종목의
             # 상장일 하나로 결정되므로 섹터 필터와 같은 자리에서 같은 방식으로 거른다.
@@ -1124,6 +1405,9 @@ class BacktestEngine:
                     self.warnings.add(rw.warning(rw.LISTING_DATE_UNKNOWN_EXCLUDED, len(_listing_unknown)))
                 print(f"[BT-ENGINE] 신규 상장 필터(상장일 {_listing_label}): "
                       f"{len(symbols)}종목 (상장일 미상 {len(_listing_unknown)})", flush=True)
+
+            if _cash_asset and _cash_asset not in symbols:
+                symbols = list(symbols) + [_cash_asset]
 
             def _filter_to_backtest_window(df_pl: pl.DataFrame) -> pl.DataFrame:
                 if not _has_period_filter:
@@ -1152,7 +1436,7 @@ class BacktestEngine:
                 exec_type=exec_type, signal_delay=signal_delay,
                 delisted_symbols=set(_delisted_dates or {}),
                 rank_metric_cols=_rank_metric_cols, tracked_metrics=_tracked_metrics,
-                ai_needed=ai_needed,
+                ai_needed=ai_needed, exec_price_basis=_exec_price_basis,
             )
             # 최적화 세션 캐시 — AI 백테스트(Phase2 일괄 추론 경로)는 대상 밖.
             _prep = self._prep_cache if not ai_needed else None
@@ -1209,6 +1493,9 @@ class BacktestEngine:
                     if "liquidity" in data: all_liquidity[sym] = data["liquidity"]
                     if "trading_value" in data: all_trading_values[sym] = data["trading_value"]
                     if "market_cap" in data: all_market_caps[sym] = data["market_cap"]
+                    if "pbr" in data: all_pbr[sym] = data["pbr"]
+                    if "net_income" in data: all_net_income[sym] = data["net_income"]
+                    if "ebit" in data: all_ebit[sym] = data["ebit"]
                     if data.get("warm_close") is not None: all_warm_closes[sym] = data["warm_close"]
                     if data.get("pre") is not None: all_pre[sym] = data["pre"]
                     for _col, _ser in (data.get("fund_rank_values") or {}).items():
@@ -1302,7 +1589,7 @@ class BacktestEngine:
                         res = {
                             "symbol": sym,
                             "price": pdf['close'],
-                            "exec_price": pdf['close'] if exec_type == 'same_close' else pdf['open'],
+                            "exec_price": _phase1.exec_price_series(pdf, exec_type, _exec_price_basis),
                             "high": pdf['high'] if 'high' in pdf.columns else pdf['close'],
                             "low": pdf['low'] if 'low' in pdf.columns else pdf['close'],
                             "entries": pd.Series(entry_signals, index=pdf.index),
@@ -1471,6 +1758,15 @@ class BacktestEngine:
                     _forced_exit.at[_last, _s] = True
             exts_df |= _forced_exit
 
+            # 현금 대체 자산(v16.28)은 후보·매도 신호에서 뺀다 — 시뮬레이터가 미투자 몫으로만 사고판다.
+            _cash_idx = None
+            if _cash_asset and _cash_asset in processed_symbols:
+                _cash_idx = processed_symbols.index(_cash_asset)
+                ents_df[_cash_asset] = False
+                exts_df[_cash_asset] = False
+            elif _cash_asset:
+                self.warnings.add(rw.warning(rw.SYMBOL_NO_DATA, _cash_asset))
+
             # ── 지수 유니버스(KOSPI200·KOSDAQ150) = point-in-time top-N by market cap ──
             # Static current index membership is itself survivorship-biased, so we define the
             # index universe as the daily top-N alive names of that market by market cap.
@@ -1483,7 +1779,10 @@ class BacktestEngine:
             # universe_id에서 N이 나오고(KOSPI200=200), 이쪽은 요청이 직접 N을 준다.
             _user_top_n = risk_params.get('universe_market_cap_top_n')
             _cap_top_n = _index_top_n or (int(_user_top_n) if _user_top_n else None)
-            if _cap_top_n:
+            # 시가총액 하위 분위 제외(v16.32, '소형주 제외')는 상위 N과 같은 시총 패널로 판정하므로
+            # 한 블록에서 만든다 — 하위 % 필터만 켜져도 패널이 필요하다.
+            _cap_bottom_pct = risk_params.get('universe_market_cap_exclude_bottom_pct')
+            if _cap_top_n or _cap_bottom_pct:
                 shares_map = universe_pit.get_shares(processed_symbols)
                 shares_vec = pd.Series(
                     {s: shares_map.get(s, np.nan) for s in processed_symbols},
@@ -1512,25 +1811,37 @@ class BacktestEngine:
                 else:
                     mcap = mcap_static
                 mcap = mcap.where(_avail_ext)
-                mcap_rank = mcap.rank(axis=1, ascending=False, method="first")
-                large_cap_mask = (mcap_rank <= _cap_top_n).fillna(False)
-                if exec_type == 'next_open':
-                    # 진입 신호는 이미 1일 shift됨 — 시총 순위도 전일 종가 기준으로
-                    # 맞춰야 당일 종가를 미리 아는 look-ahead가 없다.
-                    large_cap_mask = _delay_to_window(large_cap_mask, fill_value=False)
-                ents_df &= large_cap_mask
-                if not _index_top_n:
-                    # 사용자가 말한 시총 상위 N — 지수 편입 규칙이 아님을 밝힌다.
-                    self.warnings.add(rw.warning(rw.MARKET_CAP_TOP_N, _cap_top_n))
-                elif _pit_ratio >= 0.99:
-                    _index_label = "KOSDAQ150" if _index_top_n == 150 else "KOSPI200"
-                    self.warnings.add(rw.warning(rw.INDEX_TOP_N_MEASURED, _index_top_n, _index_label))
-                else:
-                    _index_label = "KOSDAQ150" if _index_top_n == 150 else "KOSPI200"
+                if _cap_top_n:
+                    mcap_rank = mcap.rank(axis=1, ascending=False, method="first")
+                    large_cap_mask = (mcap_rank <= _cap_top_n).fillna(False)
+                    if exec_type == 'next_open':
+                        # 진입 신호는 이미 1일 shift됨 — 시총 순위도 전일 종가 기준으로
+                        # 맞춰야 당일 종가를 미리 아는 look-ahead가 없다.
+                        large_cap_mask = _delay_to_window(large_cap_mask, fill_value=False)
+                    ents_df &= large_cap_mask
+                    if not _index_top_n:
+                        # 사용자가 말한 시총 상위 N — 지수 편입 규칙이 아님을 밝힌다.
+                        self.warnings.add(rw.warning(rw.MARKET_CAP_TOP_N, _cap_top_n))
+                    elif _pit_ratio >= 0.99:
+                        _index_label = "KOSDAQ150" if _index_top_n == 150 else "KOSPI200"
+                        self.warnings.add(rw.warning(rw.INDEX_TOP_N_MEASURED, _index_top_n, _index_label))
+                    else:
+                        _index_label = "KOSDAQ150" if _index_top_n == 150 else "KOSPI200"
+                        self.warnings.add(rw.warning(
+                            rw.INDEX_TOP_N_APPROXIMATED,
+                            _index_top_n, f"{(1 - _pit_ratio) * 100:.0f}", _index_label,
+                        ))
+                if _cap_bottom_pct:
+                    # 그날 횡단면 시총 백분위 하위 X% 제외 — 거래대금 하위 분위 제외와 같은 방식이다.
+                    # 시총을 모르는 종목(NaN)은 판정에서 빠져 후보에서 제외된다(fail-closed) — 시총은
+                    # 실측·근사 두 경로가 있어 사실상 모든 상장 종목에 값이 있다.
+                    _cap_mask = _prefilters.bottom_percentile_mask(mcap, _cap_bottom_pct)
+                    if exec_type == 'next_open':
+                        _cap_mask = _delay_to_window(_cap_mask, fill_value=False)
+                    ents_df &= _cap_mask
+                    large_cap_mask = _cap_mask if large_cap_mask is None else (large_cap_mask & _cap_mask)
                     self.warnings.add(rw.warning(
-                        rw.INDEX_TOP_N_APPROXIMATED,
-                        _index_top_n, f"{(1 - _pit_ratio) * 100:.0f}", _index_label,
-                    ))
+                        rw.MARKET_CAP_PERCENTILE_EXCLUDED, f"{float(_cap_bottom_pct):g}"))
 
             # 거래대금 하위 분위 제외(v16.19) — 최근 N거래일 평균 거래대금의 **그날 횡단면**
             # 백분위로 하위 X%를 뺀다. 거래대금을 모르는 종목·관측 미달 구간은 NaN이라
@@ -1543,7 +1854,7 @@ class BacktestEngine:
                 ).astype(float)
                 _tv = _extend(_tv, _pre_panel("trading_value").astype(float))
                 _tv_avg = _tv.rolling(_liq_lookback, min_periods=_liq_lookback).mean()
-                _tv_avg = _tv_avg.where(_avail_ext if _cap_top_n else _tv.notna())
+                _tv_avg = _tv_avg.where(_avail_ext if (_cap_top_n or _cap_bottom_pct) else _tv.notna())
                 _tv_pct = _tv_avg.rank(axis=1, pct=True)
                 _liq_mask = (_tv_pct > float(_liq_cut) / 100.0).fillna(False)
                 if exec_type == 'next_open':
@@ -1552,6 +1863,50 @@ class BacktestEngine:
                 large_cap_mask = _liq_mask if large_cap_mask is None else (large_cap_mask & _liq_mask)
                 self.warnings.add(rw.warning(
                     rw.LIQUIDITY_PERCENTILE_EXCLUDED, _liq_lookback, f"{float(_liq_cut):g}"))
+
+            # ── 적자기업 제외(v16.32) — 그 시점에 알려진 최신 재무가 적자인 종목을 뺀다.
+            # 재무를 모르는 종목은 빼지 않는다(fail-open): 상장폐지 종목은 재무 커버리지가 1% 수준이라
+            # 모르면 제외로 처리하면 상폐 종목이 통째로 사라져 생존 편향이 들어온다. 대신 판정하지
+            # 못한 종목 수를 결과 경고로 알린다(조용한 드롭 금지).
+            _loss_mode = risk_params.get('universe_exclude_loss_making')
+            if _loss_mode:
+                _profit_panels = []
+                if _loss_mode in ('net', 'both') and all_net_income:
+                    _profit_panels.append(('net_income', all_net_income))
+                if _loss_mode in ('operating', 'both') and all_ebit:
+                    _profit_panels.append(('ebit', all_ebit))
+                _loss_label = rw.loss_making_label(_loss_mode)
+                _loss_text = rw.LOSS_MAKING_LABELS.get(_loss_mode, _loss_mode)   # 콘솔 로그용 평문
+                if not _profit_panels:
+                    self.warnings.add(rw.warning(rw.LOSS_MAKING_DATA_MISSING, _loss_label))
+                else:
+                    _profit_frames = [
+                        _extend(
+                            pd.DataFrame(_panel, index=common_index,
+                                         columns=processed_symbols).astype(float),
+                            _pre_panel(_col).astype(float),
+                        )
+                        for _col, _panel in _profit_panels
+                    ]
+                    _profit_mask, _known_any = _prefilters.profitability_mask(_profit_frames)
+                    if exec_type == 'next_open':
+                        _profit_mask = _delay_to_window(_profit_mask, fill_value=True)
+                        _known_any = _delay_to_window(_known_any, fill_value=False)
+                    else:
+                        _profit_mask = _profit_mask.iloc[_n_pre:] if _n_pre else _profit_mask
+                        _known_any = _known_any.iloc[_n_pre:] if _n_pre else _known_any
+                        _profit_mask.index = common_index
+                        _known_any.index = common_index
+                    _blocked_n = int(sum(1 for _s in processed_symbols if not _profit_mask[_s].all()))
+                    _unknown_n = int(sum(1 for _s in processed_symbols if not _known_any[_s].any()))
+                    ents_df &= _profit_mask
+                    large_cap_mask = (_profit_mask if large_cap_mask is None
+                                      else (large_cap_mask & _profit_mask))
+                    self.warnings.add(rw.warning(rw.LOSS_MAKING_EXCLUDED, _loss_label, _blocked_n))
+                    if _unknown_n:
+                        self.warnings.add(rw.warning(rw.LOSS_MAKING_UNKNOWN, _unknown_n))
+                    print(f"[BT-ENGINE] 적자기업 제외({_loss_text}): {_blocked_n}종목 제외 구간 발생, "
+                          f"재무 미상 {_unknown_n}종목은 유지", flush=True)
 
             # 랭킹 단독 전략 후보 풀의 유동성 게이트(C4) — next_open이면 창 직전 원천과 함께 민다.
             _liq_pool = None
@@ -1567,6 +1922,7 @@ class BacktestEngine:
             _tiebreak_rank_used = False
             skip_pos = risk_params.get('skip_position_setting', False)
             ranking_metric = risk_params.get('ranking_metric')
+            _taa_basis = None      # 전술 자산배분(v16.29) 비중 패널 — 'schedule' 비중 방식의 기준값
             # 분위(퀀타일) 그룹 비교(FR-BT-060): 랭킹 후보를 종목 수 동일한 G개 그룹으로
             # 나눠 그룹별로 각각 백테스트한다. 메인 결과는 1그룹(랭킹 최상위 구간)이다.
             _qg_n = int(risk_params.get('ranking_quantile_groups') or 0)
@@ -1634,6 +1990,14 @@ class BacktestEngine:
                     # 수익률이 정의되지 않은 초기 lookback 구간(NaN)에는 종목을 후보에서 제외한다.
                     # 그러지 않으면 순위가 0으로 동률이 되어 임의 종목을 사서 들고 있게 된다.
                     valid = momentum.notna()
+                    _abs_thr = risk_params.get('absolute_momentum_threshold_pct')
+                    if _abs_thr is not None and ranking_metric == 'return':
+                        # 절대 모멘텀(v16.28, 듀얼 모멘텀의 절반): 최근 수익률이 임계 이하면 순위와 무관하게 후보 밖.
+                        _abs_mask = momentum > (float(_abs_thr) / 100.0)
+                        _abs_excluded_days = int(((~_abs_mask) & valid).any(axis=1).sum())
+                        valid = valid & _abs_mask
+                        self.warnings.add(rw.warning(
+                            rw.ABS_MOMENTUM_APPLIED, f"{float(_abs_thr):g}", _abs_excluded_days))
                     if exec_type == 'next_open':
                         rank_df = _delay_to_window(rank_df)
                         valid = _delay_to_window(valid, fill_value=False)
@@ -1703,6 +2067,45 @@ class BacktestEngine:
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).warning(f"[BacktestEngine] 수익률 랭킹 계산 실패: {e}")
+                    rank_df = None
+            elif ranking_metric == 'taa':
+                # 전술 자산배분 템플릿(v16.29): 모델이 정한 목표 비중 패널을 랭킹 점수·후보·비중 기준으로 쓴다.
+                try:
+                    from engine import taa as _taa_mod
+                    _taa = risk_params.get('taa') or {}
+                    _panel = _taa_mod.taa_weight_panel(
+                        rank_price_df.reindex(columns=processed_symbols), str(_taa.get('model')),
+                        list(_taa.get('offensive') or []), list(_taa.get('defensive') or []),
+                        list(_taa.get('canary') or []), _taa.get('top_n'), _taa.get('breadth'),
+                        int(_taa.get('protection') or 1))
+                    _panel = _to_ext(_panel)
+                    valid = _panel.notna() & (_panel > 0)
+                    rank_df = _panel
+                    if exec_type == 'next_open':
+                        rank_df = _delay_to_window(rank_df)
+                        valid = _delay_to_window(valid, fill_value=False)
+                    rank_df = _to_window(rank_df).fillna(0.0)
+                    valid = _to_window(valid).fillna(False).astype(bool)
+                    _taa_basis = rank_df
+                    ents_df = self._ranking_selection_pool(available_df, valid, large_cap_mask, _liq_pool)
+                    _model_label = str(_taa.get('model') or '').upper()
+                    for _sym in processed_symbols:
+                        _mask = ents_df[_sym]
+                        if not _mask.any():
+                            continue
+                        _w = rank_df.loc[_mask, _sym] * 100.0
+                        _reason_ser = pd.Series(np.nan, index=common_index, dtype=object)
+                        _reason_ser.loc[_mask] = _w.apply(
+                            lambda w: tr.encode([tr.part(tr.TAA_ENTRY, _model_label, f"{w:.0f}")]))
+                        all_entry_reasons[_sym] = _reason_ser
+                    self.warnings.add(rw.warning(
+                        rw.TAA_APPLIED, _model_label, len(_taa.get('offensive') or []),
+                        len(_taa.get('defensive') or []), len(_taa.get('canary') or []),
+                        int(_taa.get('top_n') or _taa_mod.DEFAULT_TOP_N.get(str(_taa.get('model')), 1))))
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"[BacktestEngine] 전술 자산배분 계산 실패: {e}")
+                    self.warnings.add(rw.warning(rw.RANK_METRIC_DATA_MISSING, "전술 자산배분"))
                     rank_df = None
             elif ranking_metric == 'volatility':
                 # 변동성 랭킹: N일 일수익률 롤링 표준편차(연환산 %) 순위로 종목 선정.
@@ -1958,6 +2361,36 @@ class BacktestEngine:
                     vol_df = (_delay_to_window(_vol_ext) if exec_type == 'next_open'
                               else _to_window(_vol_ext))
                     ents_df = ents_df & vol_df.notna()
+            # ── 비중 방식 확장(v16.28): 시총·최적화(최소분산·리스크 패리티·최대 샤프·최소 CVaR)·고정 배분 ──
+            alloc_ctx = None
+            _alloc_method = str(risk_params.get('allocation_type') or 'equal')
+            if _alloc_method in _pw.BASIS_METHODS + _pw.OPTIMIZER_METHODS + ('fixed',):
+                _alloc_label = tr.part(rw.ALLOCATION_LABELS.get(_alloc_method, _alloc_method))
+                _needs_rebal = str(risk_params.get('rebalancing_period') or 'none') == 'none'                     and _alloc_method != 'fixed'
+                if _needs_rebal:
+                    self.warnings.add(rw.warning(rw.ALLOCATION_NEEDS_REBALANCE, _alloc_label))
+                else:
+                    alloc_ctx = self._allocation_context(
+                        _alloc_method, risk_params, processed_symbols, rank_price_df, common_index,
+                        exec_type, signal_delay, all_market_caps, price_df, _pre_panel, _extend,
+                        _delay_to_window, _to_window, schedule_basis=_taa_basis)
+                    if alloc_ctx is None:
+                        self.warnings.add(rw.warning(rw.ALLOCATION_FALLBACK_DAYS, _alloc_label, 0))
+            # ATR 포지션 사이징(v16.28)의 ATR÷주가 패널 — 신호와 같은 지연.
+            size_df = None
+            _sizing = risk_params.get('position_sizing') or {}
+            if _sizing.get('method') == 'atr_risk':
+                from engine.indicators import atr_pct_panel
+                _atr_p = int(_sizing.get('atr_period') or 14)
+                _atr = atr_pct_panel(high_df, low_df, price_df, _atr_p)
+                size_df = _atr.shift(signal_delay) if exec_type == 'next_open' else _atr
+            # 거래량 비례 슬리피지(v16.28)의 평균 거래대금 패널 — 신호와 같은 지연.
+            adv_df = None
+            if options.get('slippage_model') == 'volume_impact' and all_trading_values:
+                from engine.simulator import ADV_LOOKBACK_DAYS
+                _tv = pd.DataFrame(all_trading_values, index=common_index, columns=processed_symbols).astype(float)
+                _adv = _tv.rolling(ADV_LOOKBACK_DAYS, min_periods=1).mean()
+                adv_df = _adv.shift(signal_delay) if exec_type == 'next_open' else _adv
             exposure = None
             _regime = risk_params.get('market_regime')
             if _regime:
@@ -1977,13 +2410,69 @@ class BacktestEngine:
                         str(int(_pct)) if _pct == int(_pct) else f"{_pct:g}",
                     ))
 
+            # 매크로 조건 필터(v16.31) — 금리·환율·VIX 조건 충족일의 목표 노출. 시장 국면 노출과는
+            # 더 낮은 쪽(min)으로 겹치고, 사유는 조건별로 남긴다.
+            exposure_reasons = None
+            _macro = risk_params.get('macro_filters')
+            if _macro:
+                _m_exp, _m_reasons, _m_stats = self._macro_exposure(
+                    _macro, ext_index, _n_pre, signal_delay if exec_type == 'next_open' else 0)
+                if _m_exp is not None:
+                    exposure = _m_exp if exposure is None else np.minimum(exposure, _m_exp)
+                    exposure_reasons = _m_reasons
+                    for _label, _cond, _days, _pct in _m_stats:
+                        self.warnings.add(rw.warning(rw.MACRO_FILTER_APPLIED, _label, _cond, _days, _pct))
+
+            # 계절 필터(v16.25) — 투자하는 달만 노출 1, 그 밖은 0. 체결일(행 날짜)의 달로 판정하므로
+            # 지연을 따로 밀지 않는다(첫 거래일 시가에 정리·편입). 시장 국면 노출과 곱으로 중첩.
+            _season = risk_params.get('seasonal_months')
+            if _season:
+                _season_exp = self._seasonal_exposure(_season, common_index)
+                exposure = _season_exp if exposure is None else exposure * _season_exp
+                _months_label = "·".join(str(int(m)) for m in _season)
+                _season_reason = tr.encode([tr.part(tr.SEASONAL_EXIT, _months_label)])
+                _season_reasons = np.array(
+                    [_season_reason if e <= 0.0 else None for e in _season_exp], dtype=object)
+                if exposure_reasons is None:
+                    exposure_reasons = _season_reasons
+                else:
+                    exposure_reasons = np.where(_season_exp <= 0.0, _season_reasons, exposure_reasons)
+                self.warnings.add(rw.warning(
+                    rw.SEASONAL_FILTER_APPLIED, _months_label, int((_season_exp <= 0.0).sum())))
+
+            def _fresh_alloc_ctx():
+                """부가 실행(분위 그룹·리밸런싱 비교)용 비중 방식 사본 — 패널은 공유(읽기 전용)하고
+                적용/폴백 횟수만 0에서 다시 센다. 같은 객체를 넘기면 본 결과 고지 숫자가 부풀어 오른다."""
+                import dataclasses as _dc
+                return None if alloc_ctx is None else _dc.replace(alloc_ctx, applied_days=0, fallback_days=0)
+
             pf = self.simulator.run(
                 price_df, exec_px_df, ents_df, exts_df, risk_params, simulator_options,
                 rank_df=rank_df, high_df=high_df, low_df=low_df, available_df=available_df,
-                vol_df=vol_df, exposure=exposure,
+                vol_df=vol_df, exposure=exposure, exposure_reasons=exposure_reasons,
+                alloc_ctx=alloc_ctx, cash_asset_idx=_cash_idx, size_df=size_df, adv_df=adv_df,
             )
             _t3 = _time.time()
             print(f"[BT-ENGINE] Simulator 완료: {_t3-_t2:.2f}s", flush=True)
+            self._add_v1628_warnings(risk_params, options, alloc_ctx, _cash_asset, _cash_idx)
+            # 포트폴리오 최대 낙폭 한도(v16.24) — 한도가 있으면 닿았든 아니든 결과에 고지한다
+            # (한도가 죽은 코드로 표시만 되던 2026-09-23 이전 상태와 구분).
+            _mdd_events = getattr(self.simulator, 'mdd_events', None)
+            if _mdd_events is not None:
+                _mdd_limit = float(risk_params.get('max_mdd_limit_pct') or 0.0)
+                _mdd_limit_s = str(int(_mdd_limit)) if _mdd_limit == int(_mdd_limit) else f"{_mdd_limit:g}"
+                if _mdd_events:
+                    self.warnings.add(rw.warning(rw.MDD_LIMIT_APPLIED, _mdd_limit_s, len(_mdd_events)))
+                else:
+                    self.warnings.add(rw.warning(rw.MDD_LIMIT_NOT_TRIGGERED, _mdd_limit_s))
+            # 목표 변동성(v16.25) — 노출을 낮춘 날 수를 고지한다.
+            _vt_days = getattr(self.simulator, 'vol_target_days', None)
+            if _vt_days is not None:
+                from engine.simulator import VOL_TARGET_WINDOW
+                _vt = float(risk_params.get('target_volatility_pct') or 0.0)
+                self.warnings.add(rw.warning(
+                    rw.VOL_TARGET_APPLIED, str(int(_vt)) if _vt == int(_vt) else f"{_vt:g}",
+                    VOL_TARGET_WINDOW, int(_vt_days)))
 
             # ── 리밸런싱 기간별 비교(FR-BT-064)를 Phase1 풀 워커에 미리 제출 ──
             # 결과 화면 전용 재시뮬레이션(6주기)이라 메인 결과 정리(Format)와 겹쳐 돌린다 —
@@ -2004,6 +2493,9 @@ class BacktestEngine:
                                     "exts_df": exts_df, "rank_df": rank_df, "high_df": high_df,
                                     "low_df": low_df, "available_df": available_df,
                                     "vol_df": vol_df, "exposure": exposure,
+                                    "exposure_reasons": exposure_reasons,
+                                    "alloc_ctx": alloc_ctx, "cash_asset_idx": _cash_idx,
+                                    "size_df": size_df, "adv_df": adv_df,
                                 },
                                 "simulator_options": simulator_options,
                                 "risk_params": risk_params,
@@ -2057,6 +2549,45 @@ class BacktestEngine:
                 "symbols": len(processed_symbols),
             }
 
+            # 팩터 예측력 통계(v16.26) — 랭킹 점수가 있고 정기 리밸런싱이 있는 전략만(과거 통계).
+            # 결과 심화 분석(v16.30) — 귀인·팩터 노출·거래 분포·VaR·롤링·턴오버·유동성·다중 벤치마크.
+            # 부가 통계라 실패해도 결과를 막지 않고, 최적화 세션(시도마다 버려지는 결과)에서는 만들지 않는다.
+            final["analytics"] = None
+            final["turnover"] = None
+            if not self.in_optimization_session:
+                try:
+                    from engine import result_analytics as _ra
+                    from engine.indicators import lookback_return_panel as _lrp
+                    _region = 'us' if (universe_pit.us_universe_kind(req.get('universe_id') or '')
+                                       or (processed_symbols and universe_pit.is_us_symbol(processed_symbols[0]))) else 'kr'
+                    _mom = _to_window(_lrp(rank_price_df, 252, 21)) if len(rank_price_df) > 252 else None
+                    _tv_panel = (pd.DataFrame(all_trading_values, index=common_index, columns=processed_symbols)
+                                 if all_trading_values else None)
+                    _mcap_panel = (pd.DataFrame(all_market_caps, index=common_index, columns=processed_symbols)
+                                   if all_market_caps else None)
+                    _pbr_panel = (pd.DataFrame(all_pbr, index=common_index, columns=processed_symbols)
+                                  if all_pbr else None)
+                    final["analytics"] = _ra.build_analytics(
+                        pf=pf, symbols=processed_symbols, common_index=common_index, init_cash=init_cash,
+                        high_values=high_df.values, low_values=low_df.values,
+                        trading_values=_tv_panel, market_caps=_mcap_panel, pbr=_pbr_panel,
+                        prices=_to_window(rank_price_df.reindex(columns=processed_symbols)),
+                        momentum=_mom, benchmark_prices=benchmark_prices, loader=self.loader,
+                        region=_region, apply_dividends=apply_dividends,
+                        risk_free_rate=float(options.get('risk_free_rate') or 0.0))
+                    final["turnover"] = (final["analytics"].get("turnover") or {}).get("annual")
+                except Exception as _ae:  # noqa: BLE001 — 부가 통계가 결과를 막으면 안 된다
+                    import logging
+                    logging.getLogger(__name__).warning(f"[BacktestEngine] 심화 분석 계산 실패: {_ae}")
+            final["factorIc"] = None
+            if rank_df is not None and str(risk_params.get('rebalancing_period') or 'none') != 'none':
+                try:
+                    from engine.rebalance import compute_rebalance_dates as _crd
+                    final["factorIc"] = self._factor_ic_stats(
+                        rank_df, price_df, _crd(common_index, str(risk_params.get('rebalancing_period'))))
+                except Exception as _ice:  # noqa: BLE001 — 부가 통계가 결과를 막으면 안 된다
+                    import logging
+                    logging.getLogger(__name__).warning(f"[BacktestEngine] 팩터 IC 계산 실패: {_ice}")
             # ── 분위 그룹 비교 실행 (FR-BT-060) ──
             # rank_df·신호는 이미 계산돼 있으므로 그룹별로는 시뮬레이션만 반복한다.
             # 그룹 비교는 순수 리밸런싱 기준(개별 손절/익절/트레일링/보유기간 미적용) —
@@ -2092,6 +2623,11 @@ class BacktestEngine:
                             price_df, exec_px_df, ents_df, exts_df, _rp, simulator_options,
                             rank_df=rank_df, high_df=high_df, low_df=low_df,
                             available_df=available_df, vol_df=vol_df, exposure=exposure,
+                            exposure_reasons=exposure_reasons,
+                            # 비중 방식·현금 대체 자산·사이징도 본 결과와 같은 기준이어야 그룹 비교가 성립한다
+                            # (v16.28 배선 누락 수리). 적용 횟수 카운터는 그룹마다 새로 센다(본 결과 고지 오염 방지).
+                            alloc_ctx=_fresh_alloc_ctx(), cash_asset_idx=_cash_idx,
+                            size_df=size_df, adv_df=adv_df,
                         )
                         _summary = self._quantile_group_summary(_pf_g, _init_cash_val)
                     except Exception as _ge:
@@ -2152,7 +2688,9 @@ class BacktestEngine:
                             lambda _rp: Simulator().run(
                                 price_df, exec_px_df, ents_df, exts_df, _rp, simulator_options,
                                 rank_df=rank_df, high_df=high_df, low_df=low_df, available_df=available_df,
-                                vol_df=vol_df, exposure=exposure,
+                                vol_df=vol_df, exposure=exposure, exposure_reasons=exposure_reasons,
+                                alloc_ctx=_fresh_alloc_ctx(), cash_asset_idx=_cash_idx,
+                                size_df=size_df, adv_df=adv_df,
                             ),
                             risk_params,
                             float(risk_params.get('init_cash') or 10000000.0),

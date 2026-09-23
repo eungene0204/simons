@@ -38,6 +38,19 @@ describe("getRankingLabel — 복합 순위 합산", () => {
     expect(label).not.toContain("composite");
   });
 
+  it("가중치가 1이 아닌 구성 지표만 '(가중치 N)'을 붙인다(엔진 v16.24)", () => {
+    const label = getRankingLabel({
+      ...base,
+      ranking_metric: "composite",
+      ranking_components: [
+        { metric: "per", direction: "bottom", weight: 2 },
+        { metric: "roe_or_gpa", direction: "top", weight: 1 },
+        { metric: "pbr", direction: "bottom" },
+      ],
+    });
+    expect(label).toBe("복합 순위 상위 (PER 낮은 순 (가중치 2) + ROE 높은 순 + PBR 낮은 순 순위 합산)");
+  });
+
   it("가격 지표 구성은 산정 기간(전략 공통값 상속)을 붙이고, 미정이면 미정으로 표시", () => {
     const comps = [
       { metric: "per", direction: "bottom" as const },

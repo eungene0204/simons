@@ -54,6 +54,33 @@ describe("BacktestStatsSummary 지표 표기", () => {
     expect(valueFor("손익비")).toBe("∞");
   });
 
+  it("벤치마크 대비 통계(엔진 v16.25)는 값이 있으면 표시하고 없으면 —", () => {
+    render(<BacktestStatsSummary result={{ ...base, beta: 1.23, alpha: 4.5, informationRatio: 0.8, trackingError: 12.34 }} />);
+    expect(valueFor("베타 (β)")).toBe("1.23");
+    expect(valueFor("젠센 알파 (연환산)")).toBe("+4.50%");
+    expect(valueFor("정보 비율")).toBe("0.80");
+    expect(valueFor("추적 오차")).toBe("12.34%");
+  });
+
+  it("벤치마크 대비 통계가 없으면(null·구버전 결과) —로 표시한다", () => {
+    render(<BacktestStatsSummary result={{ ...base, beta: null }} />);
+    expect(valueFor("베타 (β)")).toBe("—");
+    expect(valueFor("정보 비율")).toBe("—");
+  });
+
+  it("팩터 예측력(엔진 v16.26)은 factorIc가 있을 때만 묶음을 추가한다", () => {
+    render(<BacktestStatsSummary result={{ ...base, factorIc: { meanIc: 0.123, icStd: 0.2, icir: 0.6, positiveRate: 0.7, periods: 10, quantiles: 5, topBottomSpread: 1.5 } }} />);
+    expect(valueFor("평균 IC")).toBe("0.123");
+    expect(valueFor("ICIR")).toBe("0.60");
+    expect(valueFor("IC 양수 비율")).toBe("70%");
+    expect(valueFor("상위·하위 5분위 수익률 차")).toBe("+1.50%");
+  });
+
+  it("factorIc가 없으면 팩터 예측력 묶음이 없다", () => {
+    render(<BacktestStatsSummary result={base} />);
+    expect(screen.queryByText("평균 IC")).not.toBeInTheDocument();
+  });
+
   it("켈리를 못 구하면 +0.00%가 아니라 —로 표시한다", () => {
     render(<BacktestStatsSummary result={{ ...base, kelly: null }} />);
     expect(valueFor("켈리 기준")).toBe("—");

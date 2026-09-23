@@ -10,6 +10,8 @@ export interface ParsedSummary {
   // 미국 유니버스의 업종 필터(GICS 정본 라벨) — 한국 sector와 분류 체계가 달라 필드가
   // 따로다(FR-STR-074 ⑩). 배지에 드러내지 않으면 유니버스가 조용히 좁혀진 것처럼 보인다.
   us_industry?: string | null;
+  // 업종 제외 필터(엔진 v16.24, 정본 섹터명) — 배지에 드러내지 않으면 제외가 조용히 사라진 것처럼 보인다.
+  exclude_sectors?: string[] | null;
   // ETF 유니버스 전용 테마/상품명 필터("반도체", "KODEX 200"). 없으면 null/생략.
   etf_theme?: string | null;
   // 신규 상장(IPO) 유니버스(FR-STR-073) — 상장일이 이 구간에 속하는 종목만 대상.
@@ -22,6 +24,7 @@ export interface ParsedSummary {
     indicator: string;
     signal_type?: string | null;
     mode?: string | null;
+    timeframe?: string | null;
     operator?: string | null;
     value?: number | null;
     lookback_period?: number | null;
@@ -66,24 +69,52 @@ export interface ParsedSummary {
     // 최근 N거래일 제외(엔진 v16.14, 12-1 모멘텀)·묶음 점수 이름.
     skip_days?: number | null;
     group?: string | null;
+    // 지표별 가중치(엔진 v16.24) — 없거나 1이면 동일 가중.
+    weight?: number | null;
   }> | null;
   // 단일 수익률 랭킹의 최근 제외 기간(엔진 v16.14).
   ranking_skip_days?: number | null;
   // 잔차 반전 시그널(엔진 v16.17)의 잔차 누적 기간 — 회귀 기간은 ranking_lookback_days.
   ranking_accumulation_days?: number | null;
-  // 비중 방식(엔진 v16.14) — equal=동일 비중, inverse_volatility=변동성 역비중.
-  allocation_type?: "equal" | "inverse_volatility" | null;
+  // 비중 방식(엔진 v16.14·v16.28) — equal=동일 비중, inverse_volatility=변동성 역비중, market_cap=시가총액,
+  // min_variance=최소 분산, risk_parity=위험 기여 균등, max_sharpe=최대 샤프, min_cvar=최소 CVaR, fixed=고정 배분.
+  allocation_type?: "equal" | "inverse_volatility" | "market_cap" | "min_variance" | "risk_parity" | "max_sharpe" | "min_cvar" | "fixed" | null;
   allocation_lookback_days?: number | null;
+  // 경쟁 격차 1차(엔진 v16.28) — 비어 있는 값은 되묻는 중(값 미정).
+  target_weights?: Record<string, number> | null;
+  rebalance_threshold_pct?: number | null;
+  min_holding_days?: number | null;
+  stop_cooldown_days?: number | null;
+  trailing_stop_activation_pct?: number | null;
+  entry_limit_pct?: number | null;
+  exit_limit_pct?: number | null;
+  entry_tranches?: { count?: number | null; step_pct?: number | null } | null;
+  partial_take_profits?: Array<{ profit_pct?: number | null; sell_pct?: number | null }> | null;
+  position_sizing?: { method: "atr_risk" | "kelly"; risk_per_trade_pct?: number | null; atr_period?: number | null; atr_multiple?: number | null; kelly_fraction?: number | null } | null;
+  cash_asset?: string | null;
+  absolute_momentum_threshold_pct?: number | null;
+  execution_timing?: string | null;
+  slippage_model?: string | null;
+  // 매크로 조건 필터(엔진 v16.31) — 시리즈·값·비율이 비면 되묻는 중(값 미정).
+  macro_filters?: MacroFilterSummary[] | null;
+  // 전술 자산배분 템플릿(엔진 v16.29) — 자산 목록이 비면 되묻는 중.
+  taa?: { model: string; offensive?: string[]; defensive?: string[]; canary?: string[]; top_n?: number | null } | null;
   // 종목당 비중 상한(%, 엔진 v16.18) — 편입·리밸런싱 시점 목표 비중의 상한.
   max_position_weight_pct?: number | null;
   max_sector_weight_pct?: number | null;
   universe_market_cap_top_n?: number | null;
   universe_liquidity_exclude_bottom_pct?: number | null;
+  universe_market_cap_exclude_bottom_pct?: number | null;
+  universe_exclude_loss_making?: string | null;
   universe_liquidity_lookback_days?: number | null;
   ranking_entry_delay_days?: number | null;
   ranking_expiry_days?: number | null;
   // 시장 국면 필터(엔진 v16.14) — 기간·비율이 비어 있으면 되묻는 중(값 미정).
   market_regime?: MarketRegimeSummary | null;
+  // 계절 필터(엔진 v16.25) — 투자하는 달(1~12). 그 밖의 달은 전량 현금.
+  seasonal_months?: number[] | null;
+  // 목표 변동성(엔진 v16.25) — target_pct가 비어 있으면 되묻는 중(값 미정).
+  volatility_target?: { target_pct?: number | null } | null;
   // 비율 선정(FR-BT-060) — 상위 X% 편입(개수 대신 비율). 있으면 max_positions보다 우선.
   max_positions_pct?: number | null;
   // 지정 종목(단일 종목) 백테스트 대상 종목코드(FR-STR-068). 비어 있으면 유니버스 전략.
@@ -191,6 +222,16 @@ export const METRIC_LABELS: Record<string, string> = {
   roic: "ROIC",
   fcf_margin: "FCF 마진",
   fcf_yield: "FCF 수익률",
+  asset_growth: "자산성장률",
+  accruals_ratio: "발생액 비율",
+  f_score: "F-score",
+  ncav_ratio: "시가총액/NCAV 비율",
+  revenue_growth_qoq: "매출 분기성장률(QoQ)",
+  revenue_growth_yoy: "매출 분기성장률(YoY)",
+  operating_income_growth_qoq: "영업이익 분기성장률(QoQ)",
+  operating_income_growth_yoy: "영업이익 분기성장률(YoY)",
+  net_income_growth_qoq: "순이익 분기성장률(QoQ)",
+  net_income_growth_yoy: "순이익 분기성장률(YoY)",
   market_cap: "시총",
   trading_value: "거래대금",
   dividend_yield: "배당수익률",
@@ -401,6 +442,7 @@ export const REBAL_LABELS: Record<string, string> = {
   monthly: "매월",
   bimonthly: "격월",
   quarterly: "분기",
+  semiannual: "반기",
   yearly: "매년",
 };
 
@@ -453,6 +495,20 @@ export const INDICATOR_LABELS: Record<string, string> = {
   trading_value: "거래대금",
   ai_model: "AI 매수 예측",
   ai_drop_model: "AI 하락 예측",
+  // 캔들 패턴(엔진 v16.29)
+  candle_hammer: "망치형 캔들 패턴",
+  candle_hanging_man: "교수형 캔들 패턴",
+  candle_inverted_hammer: "역망치형 캔들 패턴",
+  candle_shooting_star: "유성형 캔들 패턴",
+  candle_doji: "도지 캔들 패턴",
+  candle_bullish_engulfing: "상승 장악형 캔들 패턴",
+  candle_bearish_engulfing: "하락 장악형 캔들 패턴",
+  candle_piercing_line: "관통형 캔들 패턴",
+  candle_dark_cloud_cover: "먹구름형 캔들 패턴",
+  candle_morning_star: "샛별형 캔들 패턴",
+  candle_evening_star: "저녁별형 캔들 패턴",
+  candle_three_white_soldiers: "적삼병 캔들 패턴",
+  candle_three_black_crows: "흑삼병 캔들 패턴",
 };
 
 const OPERATOR_KO_LABELS: Record<string, string> = {
@@ -516,7 +572,19 @@ export function getSignalLabel(
     short_period?: number | null;
     long_period?: number | null;
     period?: number | null;
+    timeframe?: string | null;
   },
+  context: "entry" | "exit"
+): string {
+  const base = getSignalLabelBase(signal, context);
+  // 다중 타임프레임(엔진 v16.29) — 주봉·월봉 기준이면 꼬리를 붙인다(매매사유와 같은 문구).
+  if (signal.timeframe === "weekly") return `${base}${t(" (주봉 기준)")}`;
+  if (signal.timeframe === "monthly") return `${base}${t(" (월봉 기준)")}`;
+  return base;
+}
+
+function getSignalLabelBase(
+  signal: Parameters<typeof getSignalLabel>[0],
   context: "entry" | "exit"
 ): string {
   if (signal.indicator === "ai_drop_model") {
@@ -688,6 +756,8 @@ export function getDisplayUniverseLabels(
 
   // 미국 업종 필터 배지 — 라벨이 영문 정본이라 "{0} 업종"으로 감싼다("Airlines 업종").
   if (parsed.us_industry) sectorLabel.push(t("{0} 업종", parsed.us_industry));
+  // 업종 제외 배지(엔진 v16.24) — "금융지주 업종 제외".
+  for (const excluded of parsed.exclude_sectors ?? []) sectorLabel.push(t("{0} 업종 제외", excluded));
 
   const newListingLabel = formatNewListingLabel(parsed);
   if (newListingLabel) sectorLabel.push(newListingLabel);
@@ -789,6 +859,41 @@ export function getPositionLabel(parsed: ParsedSummary): string {
   return t("최대 {0}종목", parsed.max_positions);
 }
 
+export type MacroFilterSummary = {
+  series?: string | null;
+  mode?: string | null;
+  operator?: string | null;
+  value?: number | null;
+  period?: number | null;
+  exposure_pct?: number | null;
+};
+
+// 매크로 시리즈 라벨(backend/engine/macro_data.py MACRO_SERIES와 1:1 — 한국어 정본, 영어는 t()).
+export const MACRO_SERIES_LABELS: Record<string, string> = {
+  vix: "VIX(변동성 지수)", usdkrw: "원/달러 환율", usdjpy: "엔/달러 환율", dxy: "달러 인덱스",
+  us10y: "미국 10년물 국채 금리", us2y: "미국 2년물 국채 금리", us3m: "미국 3개월물 국채 금리",
+  us_spread: "미국 장단기 금리차(10년−2년)", fed_funds: "미국 기준금리(연준)",
+  kr10y: "한국 국고채 10년 금리(월간)", kr3m: "한국 CD 3개월 금리(월간)", gold: "금 선물", wti: "WTI 원유 선물",
+};
+
+/** 매크로 조건 필터 표기(엔진 v16.31). 값이 비면 값 미정으로 적는다(조용한 확정 금지). */
+export function formatMacroFilterLabels(filters: MacroFilterSummary[] | null | undefined): string[] {
+  if (!filters?.length) return [];
+  return filters.map((f) => {
+    const label = f.series ? t(MACRO_SERIES_LABELS[f.series] ?? f.series) : t("금리(종류 미정)");
+    const op = f.operator ? ({ ">": t("초과"), ">=": t("이상"), "<": t("미만"), "<=": t("이하") } as Record<string, string>)[f.operator] : null;
+    const pending = !f.series || f.exposure_pct == null || !op
+      || (f.mode === "ma" ? f.period == null : f.value == null || (f.mode === "change" && f.period == null));
+    if (pending) return t("{0} 매크로 조건(값 미정)", label);
+    const cond = f.mode === "ma"
+      ? t("{0}일 이동평균 {1}", f.period, f.operator === ">" || f.operator === ">=" ? t("위") : t("아래"))
+      : f.mode === "change"
+        ? t("{0}일 변화율 {1}% {2}", f.period, f.value, op)
+        : `${f.value} ${op}`;
+    return t("{0} {1}이면 투자 비중 {2}%", label, cond, f.exposure_pct);
+  });
+}
+
 export type MarketRegimeSummary = {
   index?: string | null;
   // 약세 판정 종류(엔진 v16.16) — 없으면 이동평균(below_ma) 단독.
@@ -808,10 +913,83 @@ export function formatAllocationLabel(
   type: string | null | undefined,
   lookbackDays: number | null | undefined,
 ): string | null {
-  if (type !== "inverse_volatility") return null;
-  return lookbackDays != null
-    ? t("변동성 역비중({0}일 변동성)", lookbackDays)
-    : t("변동성 역비중(산정 기간 미정)");
+  if (type === "inverse_volatility") {
+    return lookbackDays != null
+      ? t("변동성 역비중({0}일 변동성)", lookbackDays)
+      : t("변동성 역비중(산정 기간 미정)");
+  }
+  // 경쟁 격차 1차(엔진 v16.28) — 수익률 기반 최적화는 산정 기간을 함께 적는다.
+  const optimizer: Record<string, string> = {
+    min_variance: "최소 분산 비중", risk_parity: "리스크 패리티 비중",
+    max_sharpe: "최대 샤프 비중", min_cvar: "최소 CVaR 비중",
+  };
+  if (type && optimizer[type]) {
+    return lookbackDays != null
+      ? t("{0}({1}일 수익률)", t(optimizer[type]), lookbackDays)
+      : t("{0}(산정 기간 미정)", t(optimizer[type]));
+  }
+  if (type === "market_cap") return t("시가총액 비중");
+  if (type === "fixed") return t("고정 비중(정적 배분)");
+  return null;
+}
+
+/** 경쟁 격차 1차(엔진 v16.28) 설정 라벨 — 값이 비면 값 미정으로 적는다(조용한 확정 금지). */
+export function formatExecutionTuningLabels(parsed: {
+  target_weights?: Record<string, number> | null;
+  rebalance_threshold_pct?: number | null;
+  min_holding_days?: number | null;
+  stop_cooldown_days?: number | null;
+  trailing_stop_activation_pct?: number | null;
+  entry_limit_pct?: number | null;
+  exit_limit_pct?: number | null;
+  entry_tranches?: { count?: number | null; step_pct?: number | null } | null;
+  partial_take_profits?: Array<{ profit_pct?: number | null; sell_pct?: number | null }> | null;
+  position_sizing?: { method: string; risk_per_trade_pct?: number | null; atr_multiple?: number | null; kelly_fraction?: number | null } | null;
+  cash_asset?: string | null;
+  absolute_momentum_threshold_pct?: number | null;
+  execution_timing?: string | null;
+  slippage_model?: string | null;
+}): string[] {
+  const labels: string[] = [];
+  if (parsed.target_weights && Object.keys(parsed.target_weights).length > 0) {
+    labels.push(Object.entries(parsed.target_weights).map(([k, v]) => `${k} ${v}%`).join(" / "));
+  }
+  if (parsed.rebalance_threshold_pct != null) labels.push(t("밴드 리밸런싱 {0}%p", parsed.rebalance_threshold_pct));
+  if (parsed.min_holding_days != null) labels.push(t("최소 {0}일 보유", parsed.min_holding_days));
+  if (parsed.stop_cooldown_days != null) labels.push(t("청산 후 {0}일 재진입 금지", parsed.stop_cooldown_days));
+  if (parsed.trailing_stop_activation_pct != null) labels.push(t("트레일링 +{0}%부터 작동", parsed.trailing_stop_activation_pct));
+  if (parsed.entry_limit_pct != null) labels.push(t("매수 지정가 전일 종가 -{0}%", parsed.entry_limit_pct));
+  if (parsed.exit_limit_pct != null) labels.push(t("매도 지정가 전일 종가 +{0}%", parsed.exit_limit_pct));
+  if (parsed.entry_tranches) {
+    const { count, step_pct } = parsed.entry_tranches;
+    labels.push(count != null && step_pct != null
+      ? t("분할 매수 {0}회({1}% 간격)", count, step_pct)
+      : t("분할 매수(회차·간격 미정)"));
+  }
+  for (const p of parsed.partial_take_profits ?? []) {
+    labels.push(p.profit_pct != null && p.sell_pct != null
+      ? t("분할 익절 +{0}%에 {1}% 매도", p.profit_pct, p.sell_pct)
+      : t("분할 익절(단계 미정)"));
+  }
+  if (parsed.position_sizing) {
+    const ps = parsed.position_sizing;
+    if (ps.method === "atr_risk") {
+      labels.push(ps.risk_per_trade_pct != null
+        ? t("ATR 사이징(거래당 위험 {0}%)", ps.risk_per_trade_pct)
+        : t("ATR 사이징(위험 % 미정)"));
+    } else {
+      labels.push(ps.kelly_fraction != null
+        ? t("켈리 사이징({0}배)", ps.kelly_fraction)
+        : t("켈리 사이징(배수 미정)"));
+    }
+  }
+  if (parsed.cash_asset) labels.push(t("현금 대체 자산 {0}", parsed.cash_asset));
+  if (parsed.absolute_momentum_threshold_pct != null) {
+    labels.push(t("절대 모멘텀 {0}% 이하 편입 제외", parsed.absolute_momentum_threshold_pct));
+  }
+  if (parsed.execution_timing === "next_avg") labels.push(t("다음 날 평균가 체결"));
+  if (parsed.slippage_model === "volume_impact") labels.push(t("거래량 비례 슬리피지"));
+  return labels;
 }
 
 /** 종목당 비중 상한 표기(엔진 v16.18). */
@@ -824,20 +1002,30 @@ export function formatSectorWeightCapLabel(capPct: number | null | undefined): s
   return capPct != null ? t("섹터별 비중 상한 {0}%", capPct) : null;
 }
 
-/** 유니버스 사전 필터 표기(엔진 v16.19) — 시총 상위 N·거래대금 하위 % 제외. */
+/** 유니버스 사전 필터 표기(엔진 v16.19, v16.32 확장) — 시총 상위 N·하위 % 제외·거래대금 하위 % 제외·적자기업 제외. */
 export function formatUniverseFilterLabels(parsed: {
   universe_market_cap_top_n?: number | null;
   universe_liquidity_exclude_bottom_pct?: number | null;
   universe_liquidity_lookback_days?: number | null;
+  universe_market_cap_exclude_bottom_pct?: number | null;
+  universe_exclude_loss_making?: string | null;
 }): string[] {
   const labels: string[] = [];
   if (parsed.universe_market_cap_top_n != null) {
     labels.push(t("시가총액 상위 {0}종목", parsed.universe_market_cap_top_n));
   }
+  if (parsed.universe_market_cap_exclude_bottom_pct != null) {
+    labels.push(t("시가총액 하위 {0}% 제외", parsed.universe_market_cap_exclude_bottom_pct));
+  }
   if (parsed.universe_liquidity_exclude_bottom_pct != null) {
     const days = parsed.universe_liquidity_lookback_days ?? 20;
     labels.push(t("{0}일 평균 거래대금 하위 {1}% 제외", days, parsed.universe_liquidity_exclude_bottom_pct));
   }
+  // 원문을 그대로 t() 인자로 쓴다 — 모듈 상수에 담아 넘기면 번역 커버리지 게이트가 키를 못 본다.
+  const lossMode = parsed.universe_exclude_loss_making;
+  if (lossMode === "net") labels.push(t("당기순손실 기업 제외"));
+  else if (lossMode === "operating") labels.push(t("영업손실 기업 제외"));
+  else if (lossMode === "both") labels.push(t("당기순손실·영업손실 기업 제외"));
   return labels;
 }
 
@@ -873,8 +1061,35 @@ export function formatMarketRegimeLabel(regime: MarketRegimeSummary | null | und
   );
 }
 
+/** 계절 필터 표기(엔진 v16.25) — "11·12·1·2·3·4월에만 투자". */
+export function formatSeasonalLabel(months: number[] | null | undefined): string | null {
+  if (!months || months.length === 0) return null;
+  return t("{0}월에만 투자", months.join("·"));
+}
+
+/** 목표 변동성 표기(엔진 v16.25) — 값이 비면 값 미정으로 적는다(조용한 확정 금지). */
+export function formatVolTargetLabel(
+  target: { target_pct?: number | null } | number | null | undefined,
+): string | null {
+  if (target == null) return null;
+  const pct = typeof target === "number" ? target : target.target_pct;
+  return pct == null ? t("목표 변동성(값 미정)") : t("목표 연변동성 {0}%", pct);
+}
+
 /** 복합 순위 합산(FR-BT-063)의 구성 지표 하나 — "ROE 높은 순"·"PER 낮은 순"·"20일 수익률 높은 순". */
 function componentLabel(
+  c: {
+    metric: string; direction: "top" | "bottom"; lookback_days?: number | null;
+    skip_days?: number | null; weight?: number | null;
+  },
+  defaultLookback: number | null | undefined,
+): string {
+  const base = componentBaseLabel(c, defaultLookback);
+  // 가중치(엔진 v16.24) — 1이 아닌 값만 드러낸다(동일 가중은 표기하지 않는다).
+  return c.weight != null && c.weight !== 1 ? t("{0} (가중치 {1})", base, c.weight) : base;
+}
+
+function componentBaseLabel(
   c: {
     metric: string; direction: "top" | "bottom"; lookback_days?: number | null;
     skip_days?: number | null;
@@ -920,7 +1135,22 @@ function groupedComponentLabels(
   );
 }
 
+/** 전술 자산배분 표기(엔진 v16.29). 자산이 비면 값 미정으로 적는다(상품을 대신 고르지 않는다). */
+export function formatTaaLabel(
+  taa: ParsedSummary["taa"] | null | undefined,
+): string | null {
+  if (!taa) return null;
+  const model = String(taa.model || "").toUpperCase();
+  const offensive = taa.offensive?.length ?? 0;
+  const defensive = taa.defensive?.length ?? 0;
+  if (!offensive || !defensive) return t("전술 자산배분 {0}(자산 미정)", model);
+  return t("전술 자산배분 {0} (공격 {1}·방어 {2})", model, offensive, defensive);
+}
+
 export function getRankingLabel(parsed: ParsedSummary): string | null {
+  if (parsed.ranking_metric === "taa") {
+    return formatTaaLabel(parsed.taa) ?? t("전술 자산배분");
+  }
   // 산정 기간 미정(되묻기 진행 중)에 60일을 표시하면 조용한 확정으로 읽힌다(2026-08-10
   // 사용자 지시 "60일 강제 금지") — 기간이 정해진 뒤에만 일수를 붙인다.
   if (parsed.ranking_metric === "composite" && parsed.ranking_components?.length) {
@@ -1072,12 +1302,16 @@ export function buildStrategySummary(
       formatAllocationLabel(parsed.allocation_type, parsed.allocation_lookback_days),
       formatWeightCapLabel(parsed.max_position_weight_pct),
       formatSectorWeightCapLabel(parsed.max_sector_weight_pct),
+      ...formatExecutionTuningLabels(parsed),
     ].filter(Boolean).join(" · "),
     riskText: [
       stopLossPct ? t("손절 {0}%", stopLossPct) : "",
       takeProfitPct ? t("익절 {0}%", takeProfitPct) : "",
       trailingStopPct ? t("트레일링 스탑 {0}%", trailingStopPct) : "",
       formatMarketRegimeLabel(parsed.market_regime) ?? "",
+      formatSeasonalLabel(parsed.seasonal_months) ?? "",
+      formatVolTargetLabel(parsed.volatility_target) ?? "",
+      ...formatMacroFilterLabels(parsed.macro_filters),
     ].filter(Boolean).join(", ") || undefined,
     rebalancingText: formatRebalancingText(
       parsed.rebalancing_period, parsed.rebalance_method, t,
@@ -1177,6 +1411,7 @@ interface ExecutedBacktestRequest {
   // 지정 종목(단일 종목) 백테스트 메타데이터(FR-STR-068). universe_id=null 대신 이걸 표시.
   target_stocks?: Array<{ symbol: string; name?: string }> | null;
   sector?: string | string[] | null;
+  exclude_sectors?: string[] | null;
   listing_from?: string | null;
   listing_to?: string | null;
   entry?: { conditions?: Array<{ id?: string; type?: string; params?: Record<string, unknown> }> } | null;
@@ -1233,8 +1468,22 @@ export function buildStrategySummaryFromRequest(
       ? (risk.market_regime as MarketRegimeSummary)
       : null,
   );
+  const seasonalLabel = formatSeasonalLabel(
+    Array.isArray(risk.seasonal_months) ? (risk.seasonal_months as number[]) : null,
+  );
+  const volTargetLabel = formatVolTargetLabel(num(risk.target_volatility_pct));
+  const macroLabels = formatMacroFilterLabels(
+    Array.isArray(risk.macro_filters) ? (risk.macro_filters as MacroFilterSummary[]) : null,
+  );
+  const tuningLabels = formatExecutionTuningLabels({
+    ...(risk as Record<string, unknown>),
+    execution_timing: (req.options as Record<string, unknown> | undefined)?.exec_price_basis === "avg"
+      ? "next_avg" : null,
+    slippage_model: ((req.options as Record<string, unknown> | undefined)?.slippage_model as string | null) ?? null,
+  } as Parameters<typeof formatExecutionTuningLabels>[0]);
   const rankingLabel = getRankingLabel({
     ranking_metric: (risk.ranking_metric as string | null) ?? null,
+    taa: (risk.taa as ParsedSummary["taa"]) ?? null,
     ranking_lookback_days: num(risk.ranking_lookback_days),
     ranking_skip_days: num(risk.ranking_skip_days),
     ranking_accumulation_days: num(risk.ranking_accumulation_days),
@@ -1286,6 +1535,7 @@ export function buildStrategySummaryFromRequest(
           ...(Array.isArray(req.sector) ? req.sector : req.sector ? [req.sector] : []).map(
             (sector) => t("{0} 업종", sector)
           ),
+          ...(req.exclude_sectors ?? []).map((sector) => t("{0} 업종 제외", sector)),
           // 실행된 요청에는 확정된 상장 구간만 실린다(되묻는 중인 개념은 실행되지 않음).
           formatNewListingLabel({
             listing_from: req.listing_from ?? null,
@@ -1305,6 +1555,7 @@ export function buildStrategySummaryFromRequest(
             allocationLabel,
             formatWeightCapLabel(num(risk.max_position_weight_pct)),
             formatSectorWeightCapLabel(num(risk.max_sector_weight_pct)),
+            ...tuningLabels,
           ].filter(Boolean).join(" · ")
         : undefined,
     riskText:
@@ -1313,6 +1564,9 @@ export function buildStrategySummaryFromRequest(
         takeProfitPct ? t("익절 {0}%", takeProfitPct) : "",
         trailingStopPct ? t("트레일링 스탑 {0}%", trailingStopPct) : "",
         regimeLabel ?? "",
+        seasonalLabel ?? "",
+        volTargetLabel ?? "",
+        ...macroLabels,
       ]
         .filter(Boolean)
         .join(", ") || undefined,

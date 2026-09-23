@@ -60,10 +60,24 @@ def _collect_all_conditions(group: Optional[Dict]) -> List[Dict]:
 
 
 def _get_required_columns(cond: Dict) -> List[str]:
-    """조건 하나가 signal evaluation에서 참조하는 컬럼 이름 목록."""
+    """조건 하나가 signal evaluation에서 참조하는 컬럼 이름 목록.
+
+    다중 타임프레임(v16.29): 주봉·월봉 조건은 지표 엔진이 `<열>__weekly` 같은 이름으로 싣는다 —
+    일봉 이름으로 찾으면 늘 '미해결'로 찍힌다(2026-09-23 스모크 실측). 캔들 패턴 열도 지표 엔진 산출이다.
+    """
+    from engine.indicators import timeframe_column, timeframe_of
+
+    tf = timeframe_of(cond.get('params') or {})
+    cols = _get_required_columns_base(cond)
+    return [timeframe_column(c, tf) for c in cols] if tf else cols
+
+
+def _get_required_columns_base(cond: Dict) -> List[str]:
     cid = cond.get('id', '')
     p = cond.get('params', {})
 
+    if cid == 'candle_pattern':
+        return [f"candle_{p.get('pattern')}"]
     if cid == 'ma_crossover':
         short = p.get('shortMA', p.get('short_period', p.get('short', 5)))
         long_ = p.get('longMA', p.get('long_period', p.get('long', 20)))
@@ -353,6 +367,68 @@ class DataResolver:
                 self._log("SUCCESS", f"[{symbol}] FCF 수익률 직접 계산 완료 (FCF ÷ 시가총액) ✓")
             except Exception as e:
                 self._log("ERROR", f"[{symbol}] FCF 수익률 직접 계산 실패: {e}")
+
+        # 자산성장률·발생액 비율(v16.25) — 총자산(자본총계×(1+부채비율/100))·순이익·영업현금흐름이 있으면
+        # 그 자리에서 계산한다(정의 함수는 fundamental_fetcher — FCF 수익률과 같은 자리).
+        if 'asset_growth' in missing and {'total_equity', 'debt_ratio', 'date'} <= cols:
+            try:
+                from .fundamental_fetcher import recompute_asset_growth
+                pdf = recompute_asset_growth(df_pl.select(['date', 'total_equity', 'debt_ratio']).to_pandas())
+                df_pl = df_pl.with_columns(pl.Series("asset_growth", pdf["asset_growth"].to_numpy()))
+                missing.discard('asset_growth')
+                self._log("SUCCESS", f"[{symbol}] 자산성장률 직접 계산 완료 (총자산 1년 전 대비) ✓")
+            except Exception as e:
+                self._log("ERROR", f"[{symbol}] 자산성장률 직접 계산 실패: {e}")
+
+        if 'accruals_ratio' in missing and {'total_equity', 'debt_ratio', 'net_income',
+                                           'operating_cf_amount'} <= cols:
+            try:
+                from .fundamental_fetcher import recompute_accruals_ratio
+                pdf = recompute_accruals_ratio(df_pl.select(
+                    ['total_equity', 'debt_ratio', 'net_income', 'operating_cf_amount']).to_pandas())
+                df_pl = df_pl.with_columns(pl.Series("accruals_ratio", pdf["accruals_ratio"].to_numpy()))
+                missing.discard('accruals_ratio')
+                self._log("SUCCESS", f"[{symbol}] 발생액 비율 직접 계산 완료 ((순이익−영업현금흐름)÷총자산) ✓")
+            except Exception as e:
+                self._log("ERROR", f"[{symbol}] 발생액 비율 직접 계산 실패: {e}")
+
+        # 시가총액/NCAV 비율(v16.27) — parquet의 ncav(원, DART 백필)와 일별 시가총액으로 계산.
+        if 'ncav_ratio' in missing and {'market_cap', 'ncav'} <= cols:
+            try:
+                from .fundamental_fetcher import recompute_ncav_ratio
+                pdf = recompute_ncav_ratio(df_pl.select(['market_cap', 'ncav']).to_pandas())
+                df_pl = df_pl.with_columns(pl.Series("ncav_ratio", pdf["ncav_ratio"].to_numpy()))
+                missing.discard('ncav_ratio')
+                self._log("SUCCESS", f"[{symbol}] 시가총액/NCAV 비율 직접 계산 완료 ✓")
+            except Exception as e:
+                self._log("ERROR", f"[{symbol}] 시가총액/NCAV 비율 직접 계산 실패: {e}")
+
+        # 분기 성장률 6종(v16.27) — 분기 손익 수집분(data/quarterly-earnings)에서 발표일 as-of로 계산.
+        from .quarterly_earnings import QUARTERLY_GROWTH_METRICS, load_quarterly_earnings, quarterly_growth_series
+        wanted = [m for m in QUARTERLY_GROWTH_METRICS if m in missing]
+        if wanted and 'date' in cols:
+            quarters = load_quarterly_earnings(symbol)
+            if quarters:
+                dates = df_pl['date'].to_pandas()
+                for metric in wanted:
+                    item, mode = QUARTERLY_GROWTH_METRICS[metric]
+                    ser = quarterly_growth_series(quarters, item, mode, dates)
+                    if ser.notna().any():
+                        df_pl = df_pl.with_columns(pl.Series(metric, ser.to_numpy()))
+                        missing.discard(metric)
+                        self._log("SUCCESS", f"[{symbol}] {metric} 직접 계산 완료 (분기 손익 {mode.upper()}) ✓")
+
+        # F-score(v16.26) — 9항목 재료가 전부 있을 때만 계산(부분 점수 금지).
+        if 'f_score' in missing:
+            from .fundamental_fetcher import F_SCORE_COLUMNS, recompute_f_score
+            if set(F_SCORE_COLUMNS) <= cols:
+                try:
+                    pdf = recompute_f_score(df_pl.select(list(F_SCORE_COLUMNS)).to_pandas())
+                    df_pl = df_pl.with_columns(pl.Series("f_score", pdf["f_score"].to_numpy()))
+                    missing.discard('f_score')
+                    self._log("SUCCESS", f"[{symbol}] F-score 직접 계산 완료 (9항목, 전년 대비) ✓")
+                except Exception as e:
+                    self._log("ERROR", f"[{symbol}] F-score 직접 계산 실패: {e}")
 
         return df_pl
 

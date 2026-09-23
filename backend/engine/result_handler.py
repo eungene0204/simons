@@ -161,6 +161,38 @@ class ResultHandler:
         return _sharpe, _sortino, float(_std * _ann) * 100
 
     @staticmethod
+    def benchmark_relative_stats(strat_rets, bench_rets, bench_valid, risk_free_rate: float,
+                                 periods_per_year: float) -> dict:
+        """벤치마크 대비 통계(엔진 v16.25) — beta, alpha(젠센, 연환산 %), trackingError(연환산 %),
+        informationRatio. 날짜로 정렬해 벤치마크 커버리지 구간의 유한값만 쓴다.
+
+        beta = Cov(초과수익률)/Var(벤치 초과수익률), alpha = (평균 초과 − beta×벤치 평균 초과)×연 거래일
+        ×100, 추적오차 = 활성 수익률(전략−벤치) 표본표준편차×√연 거래일×100, 정보비율 = 활성 수익률
+        연환산 평균 ÷ 추적오차. 표본 2개 미만·벤치 분산 0·추적오차 0이면 그 값은 None(0으로 위장하지 않는다)."""
+        empty = {"beta": None, "alpha": None, "trackingError": None, "informationRatio": None}
+        if strat_rets is None or bench_rets is None:
+            return empty
+        s = strat_rets.mean(axis=1) if isinstance(strat_rets, pd.DataFrame) else pd.Series(strat_rets)
+        b = bench_rets.mean(axis=1) if isinstance(bench_rets, pd.DataFrame) else pd.Series(bench_rets)
+        df = pd.concat([s.rename("s").astype(float), b.rename("b").astype(float)], axis=1, join="inner")
+        if bench_valid is not None:
+            df = df[bench_valid.reindex(df.index).fillna(False).astype(bool)]
+        df = df.replace([np.inf, -np.inf], np.nan).dropna()
+        if len(df) < 2:
+            return empty
+        rf_daily = ((1.0 + float(risk_free_rate)) ** (1.0 / periods_per_year) - 1.0
+                    if risk_free_rate else 0.0)
+        es, eb = df["s"] - rf_daily, df["b"] - rf_daily
+        var_b = float(eb.var(ddof=1))
+        beta = float(es.cov(eb)) / var_b if var_b > 0 else None
+        alpha = ((float(es.mean()) - beta * float(eb.mean())) * periods_per_year * 100.0
+                 if beta is not None else None)
+        active = df["s"] - df["b"]
+        te = float(active.std(ddof=1)) * np.sqrt(periods_per_year) * 100.0
+        ir = (float(active.mean()) * periods_per_year * 100.0) / te if te > 0 else None
+        return {"beta": beta, "alpha": alpha, "trackingError": te, "informationRatio": ir}
+
+    @staticmethod
     def max_drawdown_duration(equity_arr: np.ndarray) -> int:
         """고점 아래에 머문 최장 연속 봉 수."""
         if len(equity_arr) <= 1:
@@ -645,6 +677,9 @@ class ResultHandler:
         _daily_rets = _daily_rets[np.isfinite(_daily_rets)]
 
         _sharpe, _sortino, _vol = cls.risk_ratios(_daily_rets, risk_free_rate, periods_per_year)
+        # 벤치마크 대비 통계(v16.25) — 같은 일간 수익률과 벤치마크 수익률을 날짜로 맞춰 계산한다.
+        _rel = cls.benchmark_relative_stats(
+            _daily_rets_raw, bench_mean_rets, bench_valid, risk_free_rate, periods_per_year)
 
         # ── 켈리 기준(%) — f* = W − (1−W)/R,  R = 평균수익률 ÷ 평균손실률 ──────
         # 과거에는 백엔드가 이 값을 아예 계산하지 않아 프론트가 0으로 채웠고,
@@ -714,6 +749,11 @@ class ResultHandler:
             "sharpe":               _sf(_sharpe),
             "sortino":              _sf(_sortino),
             "calmar":               _sf(_calmar),
+            # 벤치마크 대비 통계(v16.25) — 정의 불가는 null(0으로 위장하지 않는다).
+            "beta":                 None if _rel["beta"] is None else _sf(_rel["beta"]),
+            "alpha":                None if _rel["alpha"] is None else _sf(_rel["alpha"]),
+            "trackingError":        None if _rel["trackingError"] is None else _sf(_rel["trackingError"]),
+            "informationRatio":     None if _rel["informationRatio"] is None else _sf(_rel["informationRatio"]),
             "avgHoldingDays":       _sf(avg_holding_days),
             "volatility":           _sf(_vol),
             "exposure":             _sf(_exposure),

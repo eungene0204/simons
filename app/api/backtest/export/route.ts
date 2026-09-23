@@ -20,7 +20,9 @@ function isValidPayload(value: unknown): value is BacktestExportPayload {
   // 종목 분석 탭 다운로드는 stockAnalysis만, 매매 기록 탭 다운로드는 tradeHistory만 보낸다 — 최소 하나는 있어야 한다.
   if (p.stockAnalysis !== undefined && !Array.isArray(p.stockAnalysis)) return false;
   if (p.tradeHistory !== undefined && !Array.isArray(p.tradeHistory)) return false;
-  return p.stockAnalysis !== undefined || p.tradeHistory !== undefined;
+  // 티어시트(HTML)는 tearsheet 재료만 보낸다.
+  if (p.tearsheet !== undefined && (!p.tearsheet || typeof p.tearsheet !== "object")) return false;
+  return p.stockAnalysis !== undefined || p.tradeHistory !== undefined || p.tearsheet !== undefined;
 }
 
 export async function POST(request: Request) {

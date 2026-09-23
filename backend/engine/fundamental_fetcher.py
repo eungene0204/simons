@@ -12,6 +12,7 @@ import time
 import logging
 from pathlib import Path
 import pandas as pd
+import numpy as np
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -171,6 +172,9 @@ _DART_NCI_EQUITY_ACCOUNT_IDS = {
     "ifrs_NoncontrollingInterests",
 }
 _DART_EQUITY_ACCOUNT_IDS = {"ifrs-full_Equity", "ifrs_Equity"}
+# NCAV 원재료(v16.27, 2026-09-23) — 재무상태표 유동자산·부채총계(원). 같은 fnlttSinglAcntAll 응답.
+_DART_CURRENT_ASSETS_ACCOUNT_IDS = {"ifrs-full_CurrentAssets", "ifrs_CurrentAssets"}
+_DART_TOTAL_LIABILITIES_ACCOUNT_IDS = {"ifrs-full_Liabilities", "ifrs_Liabilities"}
 # 계정ID가 비어 있는 제출본의 표기(DART가 이 문자열을 그대로 실어 보낸다).
 _DART_NO_ACCOUNT_ID = "-표준계정코드 미사용-"
 _DART_CORP_CODES: Optional[Dict[str, str]] = None
@@ -366,6 +370,9 @@ ANNUAL_FUNDAMENTAL_KEYS = [
     # FCF 마진(%)·ROIC(%) — v16.14. 원재료(cash_and_equivalents·interest_bearing_debt·
     # pretax_income·income_tax_expense, 원 단위)는 캐시 레코드에만 두고 parquet엔 싣지 않는다.
     "fcf_margin", "roic",
+    # NCAV(원, 유동자산 − 부채총계) — v16.27. 원재료(current_assets·total_liabilities)는 캐시 레코드에만
+    # 두고 parquet엔 NCAV만 싣는다. 시가총액÷NCAV 비율은 data_resolver가 런타임 계산(recompute_ncav_ratio).
+    "ncav",
 ]
 # 연간 레코드 하나가 공개일부터 이어지는 최대 개월 수 = 결산 주기 12개월 + 사업보고서 제출 지연
 # 약 3개월. 정상적으로 매년 보고하는 회사는 이 안에 다음 레코드가 와서 끊김이 없고, 넘기면
@@ -640,6 +647,40 @@ def parse_dart_roic_inputs(rows: list) -> Dict[str, float]:
     if revenue is not None:
         out["_revenue_raw"] = revenue
     return out
+
+
+def parse_dart_ncav_inputs(rows: list) -> Dict[str, float]:
+    """NCAV 원재료(v16.27) — 재무상태표의 유동자산·부채총계(원). 같은 응답이라 추가 호출 0."""
+    out: Dict[str, float] = {}
+    current_assets = _dart_amount_by_ids(rows, ("BS",), _DART_CURRENT_ASSETS_ACCOUNT_IDS)
+    if current_assets is not None:
+        out["current_assets"] = current_assets
+    liabilities = _dart_amount_by_ids(rows, ("BS",), _DART_TOTAL_LIABILITIES_ACCOUNT_IDS)
+    if liabilities is not None:
+        out["total_liabilities"] = liabilities
+    return out
+
+
+def compute_ncav(current_assets, total_liabilities) -> Optional[float]:
+    """순유동자산(원) = 유동자산 − 부채총계(그레이엄 NCAV). 둘 중 하나라도 없으면 None(음수는 그대로)."""
+    if current_assets is None or total_liabilities is None:
+        return None
+    return float(current_assets) - float(total_liabilities)
+
+
+def recompute_ncav_ratio(df: pd.DataFrame) -> pd.DataFrame:
+    """시가총액/NCAV 비율(%) = 시가총액(억원×1e8) ÷ NCAV(원) × 100 — 엔진 v16.27.
+
+    그레이엄의 '시총이 NCAV의 2/3 이하'가 ncav_ratio <= 67이다. NCAV가 0 이하(부채가 유동자산보다
+    큰 회사)는 비율의 뜻이 없어 NaN이다(조건 fail-closed). 두 컬럼 중 하나라도 없으면 no-op."""
+    if "market_cap" not in df.columns or "ncav" not in df.columns:
+        return df
+    mcap = pd.to_numeric(df["market_cap"], errors="coerce").astype(float)
+    ncav = pd.to_numeric(df["ncav"], errors="coerce").astype(float)
+    df = df.copy()
+    df["ncav_ratio"] = (mcap * 1e8 / ncav * 100.0).where(
+        (mcap > 0) & (ncav > 0)).replace([np.inf, -np.inf], np.nan)
+    return df
 
 
 # ROIC 세율 상한 — 유효세율(법인세비용 ÷ 세전이익)이 이 밖이면 일회성 세무 효과로 보고 자른다.
@@ -1005,6 +1046,7 @@ def _fetch_cash_flow_from_dart(
         # 매출액(raw 원, PSR 폴백·FCF 마진 분모)과 ROIC 원재료(현금·이자부부채·세전이익·
         # 법인세) — 같은 응답이라 추가 호출 0(v16.14).
         record.update(parse_dart_roic_inputs(rows))
+        record.update(parse_dart_ncav_inputs(rows))   # NCAV 원재료(v16.27) — 같은 응답
         results.append(record)
 
     # available_from을 원공시 접수일로 클램프(min) — 정정공시 접수일로 밀린 값 교정.
@@ -1245,6 +1287,10 @@ def _compute_derived_annual_metrics(records: List[Dict]) -> List[Dict]:
         )
         if roic is not None:
             rec["roic"] = roic
+        # NCAV(v16.27) — 원재료가 있는 연도만.
+        ncav = compute_ncav(rec.get("current_assets"), rec.get("total_liabilities"))
+        if ncav is not None:
+            rec["ncav"] = ncav
 
         ebitda = rec.get("ebitda")
         ev_ebitda_ratio = rec.get("ev_ebitda")
@@ -1646,6 +1692,113 @@ def recompute_fcf_yield(df: pd.DataFrame) -> pd.DataFrame:
     df["fcf_yield"] = (
         df["fcf"].astype(float) / (df["market_cap"].astype(float) * 1e8) * 100.0
     ).where(valid).replace([_np.inf, -_np.inf], _np.nan)
+    return df
+
+
+def compute_total_assets(df: pd.DataFrame) -> pd.Series:
+    """총자산(원) = 자본총계(total_equity, 원) × (1 + 부채비율(debt_ratio, %)/100).
+
+    엔진 v16.25. 자산성장률·발생액 비율의 공통 분모. 두 컬럼 중 하나라도 없거나 비양수면 NaN."""
+    if "total_equity" not in df.columns or "debt_ratio" not in df.columns:
+        return pd.Series(np.nan, index=df.index, dtype=float)
+    equity = pd.to_numeric(df["total_equity"], errors="coerce").astype(float)
+    debt = pd.to_numeric(df["debt_ratio"], errors="coerce").astype(float)
+    total = equity * (1.0 + debt / 100.0)
+    return total.where((equity > 0) & (debt >= 0) & np.isfinite(total))
+
+
+def recompute_asset_growth(df: pd.DataFrame) -> pd.DataFrame:
+    """자산성장률(%) = 총자산(as-of 시계열) ÷ **1년 전(365일 전) 같은 시계열 값** − 1.
+
+    엔진 v16.25. 연간 결산값은 공시 시점부터 as-of로 이어지므로 1년 전 값이 곧 직전 결산의 총자산이다
+    (공시 시점이 해마다 며칠 어긋나는 구간만 두 결산 전 값을 볼 수 있다 — 근사). date 컬럼이 없으면 no-op."""
+    if "date" not in df.columns:
+        return df
+    total = compute_total_assets(df)
+    dates = pd.to_datetime(df["date"], errors="coerce")
+    ser = pd.Series(total.to_numpy(), index=pd.DatetimeIndex(dates))
+    ok = ser.index.notna()
+    ser = ser[ok].sort_index()
+    ser = ser[~ser.index.duplicated(keep="last")]
+    prev = ser.reindex(ser.index - pd.DateOffset(days=365), method="ffill")
+    prev.index = ser.index
+    growth = (ser / prev - 1.0) * 100.0
+    growth = growth.where((prev > 0) & ser.notna()).replace([np.inf, -np.inf], np.nan)
+    df = df.copy()
+    df["asset_growth"] = growth.reindex(pd.DatetimeIndex(dates)).to_numpy()
+    return df
+
+
+def recompute_accruals_ratio(df: pd.DataFrame) -> pd.DataFrame:
+    """발생액 비율(%) = (당기순이익 − 영업활동현금흐름)(억원×1e8) ÷ 총자산(원) × 100.
+
+    엔진 v16.25(슬론 발생액). 낮을수록 이익이 현금흐름으로 뒷받침된다. 재료가 없으면 no-op."""
+    if "net_income" not in df.columns or "operating_cf_amount" not in df.columns:
+        return df
+    total = compute_total_assets(df)
+    ni = pd.to_numeric(df["net_income"], errors="coerce").astype(float)
+    ocf = pd.to_numeric(df["operating_cf_amount"], errors="coerce").astype(float)
+    df = df.copy()
+    df["accruals_ratio"] = (((ni - ocf) * 1e8) / total * 100.0).where(
+        total.notna() & (total > 0) & ni.notna() & ocf.notna()
+    ).replace([np.inf, -np.inf], np.nan)
+    return df
+
+
+F_SCORE_COLUMNS = ("date", "roa", "operating_cf_amount", "net_income", "debt_ratio", "current_ratio",
+                   "gross_margin", "revenue", "total_equity", "market_cap", "close")
+
+
+def _asof_one_year_before(ser: pd.Series) -> pd.Series:
+    """as-of 시계열의 365일 전 값(같은 인덱스로 정렬) — 자산성장률·F-score의 전년 대비 공통 도구."""
+    prev = ser.reindex(ser.index - pd.DateOffset(days=365), method="ffill")
+    prev.index = ser.index
+    return prev
+
+
+def recompute_f_score(df: pd.DataFrame) -> pd.DataFrame:
+    """피오트로스키 F-score(0~9점, 엔진 v16.26) — 연간 as-of 재무 시계열과 그 365일 전 값으로 9항목을 센다.
+
+    수익성 ① ROA>0 ② 영업현금흐름>0 ③ ΔROA>0 ④ 영업현금흐름>당기순이익(발생액 음수) /
+    안정성 ⑤ Δ부채비율<0(원 정의는 장기부채÷총자산 — 부채비율로 근사) ⑥ Δ유동비율>0
+    ⑦ 신주 발행 없음(주식수≈시가총액÷종가의 전년 대비 1% 초과 증가가 없음 — 근사) /
+    효율성 ⑧ Δ매출총이익률>0 ⑨ Δ자산회전율(매출÷총자산)>0.
+    전년 값이 없는 구간(첫해)·재료 결측은 NaN(부분 점수로 위장하지 않는다)."""
+    if not set(F_SCORE_COLUMNS) <= set(df.columns):
+        return df
+    dates = pd.to_datetime(df["date"], errors="coerce")
+    idx = pd.DatetimeIndex(dates)
+    keep = idx.notna() & ~idx.duplicated(keep="last")
+
+    def _ser(col):
+        s = pd.Series(pd.to_numeric(df[col], errors="coerce").astype(float).to_numpy(), index=idx)
+        return s[keep].sort_index()
+
+    roa, ocf, ni = _ser("roa"), _ser("operating_cf_amount"), _ser("net_income")
+    debt, cur, gm, rev = _ser("debt_ratio"), _ser("current_ratio"), _ser("gross_margin"), _ser("revenue")
+    total_assets = pd.Series(compute_total_assets(df).to_numpy(), index=idx)[keep].sort_index()
+    turnover = (rev / total_assets).where(total_assets > 0)
+    mcap, close = _ser("market_cap"), _ser("close")
+    shares = (mcap * 1e8 / close).where((close > 0) & (mcap > 0))
+    prev = {name: _asof_one_year_before(s) for name, s in
+            (("roa", roa), ("debt", debt), ("cur", cur), ("gm", gm), ("turnover", turnover), ("shares", shares))}
+    tests = [
+        roa > 0,
+        ocf > 0,
+        roa > prev["roa"],
+        ocf > ni,
+        debt < prev["debt"],
+        cur > prev["cur"],
+        shares <= prev["shares"] * 1.01,
+        gm > prev["gm"],
+        turnover > prev["turnover"],
+    ]
+    inputs = [roa, ocf, roa, prev["roa"], ni, debt, prev["debt"], cur, prev["cur"], shares, prev["shares"],
+              gm, prev["gm"], turnover, prev["turnover"]]
+    valid = pd.concat(inputs, axis=1).notna().all(axis=1)
+    score = sum(t.astype(float) for t in tests).where(valid)
+    df = df.copy()
+    df["f_score"] = score.reindex(idx).to_numpy()
     return df
 
 

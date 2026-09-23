@@ -10,8 +10,9 @@
 
 비교 규칙
 - timing 제거. warnings·resolution_logs는 원래부터 스레드 완료 순서에 따라 순서만 바뀌므로 정렬 후 비교.
-- rebalanceComparison은 세션 안에서는 의도적으로 만들지 않으므로(결과 화면 전용) A↔C에서만 비교하고
-  B/D에서는 제외한다.
+- rebalanceComparison·analytics·turnover는 세션 안에서는 의도적으로 만들지 않으므로(결과 화면 전용)
+  A↔C에서만 비교하고 B/D에서는 제외한다. 새 결과 화면 전용 산출물을 더하면 이 목록에도 넣는다 —
+  넣지 않으면 값이 1비트도 다르지 않은데도 게이트가 전량 불일치로 뜬다(2026-09-23 analytics 실측).
 - 거래 0건 전략은 '거래 없음'으로 따로 표시한다(같아도 검증력이 약하다).
 
 실행:  python scripts/qa_backtest_equivalence.py [--workers 4] [--wfa] [--only rsi,ma] [--symbols 120]
@@ -182,11 +183,16 @@ def build_strategies(symbols: List[str], kospi200_ids: List[str]) -> Dict[str, D
 
 # ── 비교 ────────────────────────────────────────────────────────────
 
+# 세션(최적화 캐시) 안에서는 만들지 않는 결과 화면 전용 산출물 — 세션 비교에서 제외한다.
+SESSION_SKIPPED_KEYS = ("rebalanceComparison", "analytics", "turnover")
+
+
 def comparable(res: Dict[str, Any], *, drop_rebalance: bool) -> str:
     r = dict(res)
     r.pop("timing", None)
     if drop_rebalance:
-        r.pop("rebalanceComparison", None)
+        for _k in SESSION_SKIPPED_KEYS:
+            r.pop(_k, None)
     r["warnings"] = sorted(r.get("warnings") or [])
     r["resolution_logs"] = sorted(json.dumps(x, sort_keys=True, ensure_ascii=False) for x in (r.get("resolution_logs") or []))
     return json.dumps(r, sort_keys=True, default=str, ensure_ascii=False)

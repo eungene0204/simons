@@ -121,18 +121,20 @@ def test_skip_days_on_non_return_ranking_is_rejected_not_applied():
     assert any("최근 기간 제외" in e for e in report.errors)
 
 
-def test_risk_parity_becomes_inverse_volatility_with_notice():
+def test_risk_parity_is_native_erc_weighting():
+    """v16.28: 리스크 패리티는 공분산 기반 위험 기여 균등(ERC)을 엔진이 직접 푼다 — 종전(09-19)의
+    역변동성 근사·근사 안내는 폐지."""
     _, report, parsed, _, _ = _compile(_intent(
         ranking=[{"metric": "ranking.volatility", "lookback_days": 60}],
         portfolio={"selection_count": 30, "rebalance_frequency": "monthly",
                    "weighting": "risk_parity", "weighting_lookback_days": 60},
     ))
-    assert parsed.allocation_type == "inverse_volatility"
+    assert parsed.allocation_type == "risk_parity"
     assert parsed.allocation_lookback_days == 60
-    assert any("변동성 역비중" in w for w in report.warnings)
+    assert not any("변동성 역비중" in w for w in report.warnings)
     assert not any("risk_parity" in u for u in report.unsupported_features)
     risk = to_backtest_request(parsed, resolve_symbols=False)["risk"]
-    assert risk["allocation_type"] == "inverse_volatility"
+    assert risk["allocation_type"] == "risk_parity"
     assert risk["allocation_lookback_days"] == 60
 
 

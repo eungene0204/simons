@@ -115,9 +115,9 @@ class StrategyCondition(BaseModel):
     )
     value: Optional[float] = Field(default=None, description="임계값. 사용자가 말하지 않았으면 null")
     unit: Optional[str] = Field(default=None, description="값 단위: percent, ratio, 억원, point")
-    parameters: Dict[str, Optional[float]] = Field(
+    parameters: Dict[str, Any] = Field(
         default_factory=dict,
-        description="지표 파라미터 (예: period, short_period, long_period, lookback_period, threshold)",
+        description="지표 파라미터 (예: period, short_period, long_period, lookback_period, threshold, timeframe=weekly|monthly)",
     )
     recommended_value: Optional[float] = Field(
         default=None, description="시스템 추천값(확정 아님). 사용자 확인 필요"
@@ -247,12 +247,24 @@ class RankingSpec(BaseModel):
         default=None,
         description="여러 지표를 한 점수로 묶었을 때의 묶음 이름(예: 'quality'). 묶음이 아니면 null",
     )
+    # 지표별 가중치(엔진 v16.24) — 사용자가 말한 숫자만 옮겨 적는다('PER 2, ROE 1' → 2와 1,
+    # 'PER 60%, ROE 40%' → 60과 40). 말하지 않으면 null(시스템이 동일 가중으로 실행).
+    weight: Optional[float] = Field(
+        default=None,
+        description="이 지표의 순위 합산 가중치 — 사용자가 말한 숫자 그대로. 언급 없으면 null",
+    )
     source_text: Optional[str] = None
 
     _coerce_approximated = field_validator("approximated", mode="before")(_coerce_flag)
     _coerce_skip = field_validator(
-        "skip_days", "accumulation_days", "entry_delay_days", "expiry_days", mode="before"
+        "skip_days", "accumulation_days", "entry_delay_days", "expiry_days", "weight", mode="before"
     )(_coerce_number)
+
+    @field_validator("weight")
+    @classmethod
+    def _positive_weight(cls, v):
+        # 0·음수 가중은 뜻이 없다 — 지어내지 않고 '말하지 않음'으로 되돌린다(전체 해석을 깨지 않는다).
+        return v if (v is not None and v > 0) else None
 
     @field_validator("group", mode="before")
     @classmethod
@@ -262,6 +274,114 @@ class RankingSpec(BaseModel):
             v = v.strip()
             return v or None
         return v
+
+
+class MacroFilterSpec(BaseModel):
+    """매크로 조건 필터(엔진 v16.31) — 'VIX가 30을 넘으면 현금', '환율이 1400원 이상이면 비중 절반'.
+
+    series는 사용자가 말한 지표 표기 그대로(정본 id 변환은 시스템). 어느 금리인지 불분명하면 '금리'라고만
+    적는다(시스템이 되묻는다). 값·비율을 말하지 않았으면 null(되묻기)."""
+    series: Optional[str] = Field(default=None, description="지표 표기 — 'VIX'·'환율'·'미국 10년물 금리'·'금리'")
+    mode: Optional[str] = Field(default="level", description="level=수준 비교 / change=N일 변화율(%) / ma=이동평균 대비")
+    operator: Optional[str] = Field(default=None, description=">, >=, <, <=")
+    value: Optional[float] = Field(default=None, description="수준 임계값 또는 변화율(%) — 말했을 때만")
+    period: Optional[int] = Field(default=None, description="변화율 기간 또는 이동평균 일수 — 말했을 때만")
+    exposure_pct: Optional[float] = Field(default=None, description="조건 충족일 투자 비중(%) — 전량 현금=0, 말하지 않았으면 null")
+    source_text: Optional[str] = None
+
+    _coerce = field_validator("value", "period", "exposure_pct", mode="before")(_coerce_number)
+
+
+class SeasonalitySpec(BaseModel):
+    """계절 필터(엔진 v16.25) — '11월부터 4월까지만 투자하고 5~10월은 현금'(할로윈 전략).
+
+    투자하는 달을 그대로 옮겨 적는다(달력 숫자 1~12). 그 밖의 달은 시스템이 전량 현금으로 둔다."""
+    invest_months: List[int] = Field(
+        default_factory=list,
+        description="투자하는 달(1~12) — '11월부터 4월까지'=[11,12,1,2,3,4]. 말한 달만",
+    )
+    source_text: Optional[str] = None
+
+    @field_validator("invest_months", mode="before")
+    @classmethod
+    def _coerce_months(cls, v):
+        # 형식 정규화 — 숫자 문자열·실수를 정수로, 범위 밖·중복은 버린다(의미 추측 없음).
+        if not isinstance(v, (list, tuple)):
+            return []
+        out: List[int] = []
+        for item in v:
+            try:
+                m = int(float(str(item).strip().rstrip("월")))
+            except (TypeError, ValueError):
+                continue
+            if 1 <= m <= 12 and m not in out:
+                out.append(m)
+        return out
+
+
+class VolatilityTargetSpec(BaseModel):
+    """목표 변동성(엔진 v16.25) — '목표 연변동성 10%에 맞춰 노출(비중)을 조정'.
+
+    개념(변동성 타깃을 쓴다)과 값(목표 %)을 분리한다 — 값을 말하지 않았으면 null로 두고 시스템이
+    되묻는다(시장 국면 필터의 exposure_pct와 같은 계약)."""
+    target_percent: Optional[float] = Field(
+        default=None, description="목표 연변동성(%) — '연 10%'=10. 말하지 않았으면 null",
+    )
+    source_text: Optional[str] = None
+
+    _coerce = field_validator("target_percent", mode="before")(_coerce_number)
+
+
+class PartialTakeProfitSpec(BaseModel):
+    """분할 익절 단계(엔진 v16.28) — '+10%에 절반 매도'. 값을 말하지 않은 칸은 null(시스템이 되묻는다)."""
+    profit_percent: Optional[float] = Field(default=None, description="수익률 단계(%) — '+10%'=10")
+    sell_percent: Optional[float] = Field(default=None, description="매도 비율(%) — '절반'=50")
+    source_text: Optional[str] = None
+
+    _coerce = field_validator("profit_percent", "sell_percent", mode="before")(_coerce_number)
+
+
+class PositionSizingSpec(BaseModel):
+    """포지션 사이징(엔진 v16.28) — atr_risk(거래당 위험 % ÷ ATR 배수) / kelly(켈리 × 배수)."""
+    method: Literal["atr_risk", "kelly"]
+    risk_per_trade_percent: Optional[float] = Field(default=None, description="거래당 위험(%) — '1% 리스크'=1")
+    atr_period: Optional[int] = Field(default=None, description="ATR 기간(거래일) — 말했을 때만")
+    atr_multiple: Optional[float] = Field(default=None, description="ATR 배수 — '2ATR'=2, 말했을 때만")
+    kelly_fraction: Optional[float] = Field(default=None, description="켈리 배수 — '하프 켈리'=0.5")
+    source_text: Optional[str] = None
+
+    _coerce = field_validator("risk_per_trade_percent", "atr_period", "atr_multiple", "kelly_fraction",
+                              mode="before")(_coerce_number)
+
+
+class EntryTranchesSpec(BaseModel):
+    """분할 매수(엔진 v16.28) — '3번에 나눠 5%씩 떨어질 때마다'. 말하지 않은 칸은 null."""
+    count: Optional[int] = Field(default=None, description="회차 수")
+    step_percent: Optional[float] = Field(default=None, description="회차 간격(%) — 기준가 대비 하락 폭")
+    source_text: Optional[str] = None
+
+    _coerce = field_validator("count", "step_percent", mode="before")(_coerce_number)
+
+
+class TaaModelSpec(BaseModel):
+    """전술 자산배분 템플릿(엔진 v16.29) — VAA/DAA/PAA. 자산은 사용자가 말한 표기 그대로(코드 변환은 시스템)."""
+    model: str = Field(description="vaa | daa | paa")
+    offensive: List[str] = Field(default_factory=list, description="공격 자산 표기 목록")
+    defensive: List[str] = Field(default_factory=list, description="방어 자산 표기 목록")
+    canary: List[str] = Field(default_factory=list, description="카나리아 자산 표기 목록(DAA)")
+    top_n: Optional[int] = Field(default=None, description="공격 자산 중 편입할 상위 개수 — 말했을 때만")
+    source_text: Optional[str] = None
+
+    _coerce_n = field_validator("top_n", mode="before")(_coerce_number)
+
+    @field_validator("offensive", "defensive", "canary", mode="before")
+    @classmethod
+    def _coerce_list(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [v]
+        return [str(x).strip() for x in v if str(x).strip()] if isinstance(v, list) else []
 
 
 class UniverseSpec(BaseModel):
@@ -279,6 +399,11 @@ class UniverseSpec(BaseModel):
     )
     sectors: List[str] = Field(
         default_factory=list, description="업종/섹터 제한. 언급 없으면 빈 배열"
+    )
+    # 업종 제외(엔진 v16.24) — '금융주 제외'·'지주사는 뺀다'. 표현 그대로(정본화는 시스템).
+    exclude_sectors: List[str] = Field(
+        default_factory=list,
+        description="대상에서 뺄 업종 표현 — '금융주 제외'=['금융주'], '지주사는 빼고'=['지주사']. 언급 없으면 빈 배열",
     )
     symbols: List[str] = Field(
         default_factory=list,
@@ -305,6 +430,21 @@ class UniverseSpec(BaseModel):
     liquidity_lookback_days: Optional[int] = Field(
         default=None,
         description="그 평균 거래대금의 기간(거래일) — '최근 20일 평균 거래대금'=20. 언급 없으면 null",
+    )
+    # 유니버스 사전 필터 확장(엔진 v16.32).
+    market_cap_exclude_bottom_percent: Optional[float] = Field(
+        default=None,
+        description=(
+            "시가총액 하위 몇 %를 대상에서 뺄지 — '시가총액 하위 20% 제외'·'소형주 하위 20%는 빼고'=20. "
+            "상위 N종목만 남기라는 말은 market_cap_top_n입니다. 언급 없으면 null"
+        ),
+    )
+    exclude_loss_making: Optional[str] = Field(
+        default=None,
+        description=(
+            "적자기업을 뺄 때의 기준 — '적자기업 제외'='net', '영업적자 기업 제외'='operating', "
+            "'영업적자나 당기순손실 기업 제외'='both'. 언급 없으면 null"
+        ),
     )
     etf_theme: Optional[str] = Field(
         default=None,
@@ -473,7 +613,7 @@ class PortfolioSpec(BaseModel):
     )
     rebalance_frequency: Optional[str] = Field(
         default=None,
-        description="리밸런싱 주기: daily/weekly/monthly/bimonthly/quarterly/yearly. 언급 없으면 null",
+        description="리밸런싱 주기: daily/weekly/monthly/bimonthly/quarterly/semiannual/yearly. 언급 없으면 null",
     )
     rebalance_method: Optional[str] = Field(
         default=None,
@@ -485,12 +625,42 @@ class PortfolioSpec(BaseModel):
         ),
     )
     hold_period_days: Optional[int] = Field(default=None, description="최대 보유 기간(거래일)")
+    # ── 경쟁 격차 1차(엔진 v16.28) ──
+    target_weights: Optional[Dict[str, float]] = Field(
+        default=None,
+        description="고정 배분 {종목 표기: 비중 %} — '코스피200 ETF 60%, 국채 ETF 40%'. weighting='fixed'일 때만",
+    )
+    rebalance_band_percent: Optional[float] = Field(
+        default=None, description="밴드 리밸런싱 임계(%p) — '비중이 5%p 벗어나면 되돌림'=5. 말하지 않았으면 null",
+    )
+    min_hold_period_days: Optional[int] = Field(default=None, description="최소 보유 기간(거래일)")
+    cash_asset: Optional[str] = Field(
+        default=None, description="현금 대체 자산(안전자산) 종목 표기 — '나머지는 국채 ETF로'. 없으면 null",
+    )
+    absolute_momentum_threshold_percent: Optional[float] = Field(
+        default=None, description="절대 모멘텀 임계(%) — '수익률이 0 이하면 편입 안 함'=0. 없으면 null",
+    )
 
     _coerce_count = field_validator(
-        "selection_count", "hold_period_days", "weighting_lookback_days", mode="before")(_coerce_number)
+        "selection_count", "hold_period_days", "weighting_lookback_days", "min_hold_period_days",
+        mode="before")(_coerce_number)
     _coerce_pct = field_validator(
-        "selection_percent", "max_weight_percent", "max_sector_weight_percent", mode="before"
+        "selection_percent", "max_weight_percent", "max_sector_weight_percent", "rebalance_band_percent",
+        "absolute_momentum_threshold_percent", mode="before"
     )(_coerce_number)
+
+    @field_validator("target_weights", mode="before")
+    @classmethod
+    def _coerce_weights(cls, v):
+        # 형식 정규화 — 값의 "60%" 표기를 숫자로. 빈 dict·비dict는 None.
+        if not isinstance(v, dict) or not v:
+            return None
+        out = {}
+        for key, val in v.items():
+            num = _coerce_number(val)
+            if isinstance(num, (int, float)) and str(key).strip():
+                out[str(key).strip()] = float(num)
+        return out or None
 
 
 class MarketFilterSpec(BaseModel):
@@ -568,11 +738,27 @@ class RiskSpec(BaseModel):
     trailing_stop: Optional[float] = Field(default=None, description="트레일링 스탑 비율(%)")
     max_mdd_limit: Optional[float] = Field(default=None, description="포트폴리오 MDD 한도(%)")
     max_position_weight: Optional[float] = Field(default=None, description="종목당 최대 비중(%)")
+    # ── 경쟁 격차 1차(엔진 v16.28) ──
+    stop_cooldown_days: Optional[int] = Field(
+        default=None, description="손절·익절 뒤 재진입 금지 기간(거래일) — '손절 후 10일간 재매수 금지'=10")
+    trailing_stop_activation: Optional[float] = Field(
+        default=None, description="트레일링 스탑 활성화 수익률(%) — '10% 오른 뒤부터 트레일링'=10")
+    partial_take_profits: List[PartialTakeProfitSpec] = Field(default_factory=list, description="분할 익절 단계")
+    position_sizing: Optional[PositionSizingSpec] = Field(default=None, description="포지션 사이징")
 
     _coerce = field_validator(
         "stop_loss", "take_profit", "trailing_stop", "max_mdd_limit", "max_position_weight",
+        "stop_cooldown_days", "trailing_stop_activation",
         mode="before",
     )(_coerce_number)
+
+    @field_validator("partial_take_profits", mode="before")
+    @classmethod
+    def _coerce_partials(cls, v):
+        if v is None:
+            return []
+        return ([item for item in v if isinstance(item, (dict, PartialTakeProfitSpec))]
+                if isinstance(v, list) else [])
 
     @field_validator("stop_loss", "take_profit", "trailing_stop", "max_mdd_limit")
     @classmethod
@@ -781,13 +967,22 @@ class BacktestSpec(BaseModel):
         return v if isinstance(normalized, tuple) else normalized
     start_date: Optional[str] = Field(default=None, description="YYYY-MM-DD")
     end_date: Optional[str] = Field(default=None, description="YYYY-MM-DD")
-    execution_timing: Optional[Literal["next_open", "current_close"]] = Field(
+    execution_timing: Optional[Literal["next_open", "current_close", "next_avg"]] = Field(
         default=None,
         description=(
             "체결 시점. '당일 종가에 매수/체결'처럼 종가 체결을 명시하면 'current_close', "
-            "언급이 없으면 null(시스템 기본 next_open=다음 날 시가)"
+            "'다음 날 평균가'는 'next_avg', 언급이 없으면 null(시스템 기본 next_open=다음 날 시가)"
         ),
     )
+    # ── 경쟁 격차 1차(엔진 v16.28) ──
+    entry_limit_percent: Optional[float] = Field(
+        default=None, description="매수 지정가 — 전일 종가 대비 -x% ('전일 종가보다 2% 낮게 지정가 매수'=2)")
+    exit_limit_percent: Optional[float] = Field(
+        default=None, description="매도 지정가 — 전일 종가 대비 +y%")
+    entry_tranches: Optional[EntryTranchesSpec] = Field(default=None, description="분할 매수 설정")
+    slippage_model: Optional[str] = Field(
+        default=None, description="슬리피지 모델 — '거래량에 비례하는 슬리피지'·'시장 충격 반영'=volume_impact")
+    slippage_impact_coeff: Optional[float] = Field(default=None, description="거래량 비례 슬리피지 계수(말했을 때만)")
     initial_capital: Optional[float] = Field(
         default=None,
         description="초기 자본금. 사용자가 말한 표기를 그대로 적는다('2억5000만원'·'$10,000')",
@@ -805,7 +1000,8 @@ class BacktestSpec(BaseModel):
     # 만들지 않는다(조건부 납입액과 같은 이유 — 프롬프트 분량 회귀, contribution_amount_check 참조).
     cash_pool: Optional["CashPoolSpec"] = Field(default=None, description="보유 현금에서 꺼내 사는 적립 설정")
 
-    _coerce = field_validator("fee_rate", "slippage_rate", "sell_tax_rate", mode="before")(_coerce_number)
+    _coerce = field_validator("fee_rate", "slippage_rate", "sell_tax_rate", "entry_limit_percent",
+                              "exit_limit_percent", "slippage_impact_coeff", mode="before")(_coerce_number)
     # 금액은 앞자리 숫자만 떼는 _coerce_number로 읽을 수 없다("2억5000만원"→2) — 자리마다
     # 더하는 금액 환산기를 쓴다(위 _normalize_amount, 옮겨 적기 계약).
     _coerce_capital = field_validator("initial_capital", "contribution_amount", mode="before")(_normalize_amount)
@@ -885,6 +1081,22 @@ class StrategySpec(BaseModel):
     risk_management: RiskSpec = Field(default_factory=RiskSpec)
     backtest: BacktestSpec = Field(default_factory=BacktestSpec)
     market_filter: Optional[MarketFilterSpec] = None
+    # 계절 필터·목표 변동성(엔진 v16.25) — 시장 국면 필터와 같은 자리(전략 수준 설정).
+    seasonality: Optional[SeasonalitySpec] = None
+    volatility_target: Optional[VolatilityTargetSpec] = None
+    # 전술 자산배분 템플릿(엔진 v16.29).
+    taa: Optional[TaaModelSpec] = None
+    # 매크로 조건 필터(엔진 v16.31) — 여러 개 가능(OR).
+    macro_filters: List[MacroFilterSpec] = Field(default_factory=list)
+
+    @field_validator("macro_filters", mode="before")
+    @classmethod
+    def _coerce_macro(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, dict):
+            v = [v]
+        return [x for x in v if isinstance(x, (dict, MacroFilterSpec))] if isinstance(v, list) else []
     declined: List[DeclinableField] = Field(
         default_factory=list,
         description="사용자가 명시적으로 쓰지 않겠다고 한 설정(stop_loss/take_profit/rebalancing)",

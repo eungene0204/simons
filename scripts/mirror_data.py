@@ -93,6 +93,7 @@ def main(argv=None) -> int:
     parser.add_argument("--check", action="store_true", help="차이만 출력하고 전송하지 않음(dry-run)")
     parser.add_argument("--us", action="store_true", help="미국 파케이(data/ohlcv-us) 대상 (기본은 한국 data/ohlcv)")
     parser.add_argument("--index", action="store_true", help="시장지수 파케이(data/index) 대상")
+    parser.add_argument("--macro", action="store_true", help="매크로 시계열 파케이(data/macro) 대상")
     parser.add_argument("--membership", action="store_true",
                         help="지수 구성종목 시점별 명단(data/index-membership) 대상")
     args = parser.parse_args(argv)
@@ -105,7 +106,9 @@ def main(argv=None) -> int:
         print("[mirror] DATA_MIRROR_REMOTE 미설정 — 미러를 건너뜁니다(로컬 .env에 설정 필요).")
         return 2
 
-    if args.membership:
+    if args.macro:
+        local_dir, remote_subpath = _REPO_ROOT / "data" / "macro", "data/macro"
+    elif args.membership:
         local_dir, remote_subpath = _REPO_ROOT / "data" / "index-membership", "data/index-membership"
     elif args.index:
         local_dir, remote_subpath = _LOCAL_INDEX, _REMOTE_SUBPATH_INDEX

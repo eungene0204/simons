@@ -129,6 +129,9 @@ def _comparable(res):
     r.pop("timing", None)
     # 결과 화면 전용 부가 산출물 — 세션 안에서는 의도적으로 만들지 않는다(별도 테스트)
     r.pop("rebalanceComparison", None)
+    # 결과 심화 분석(v16.30)도 결과 화면 전용 부가 통계라 세션 안에서는 만들지 않는다.
+    r.pop("analytics", None)
+    r.pop("turnover", None)
     r["warnings"] = sorted(r.get("warnings") or [])
     # 종목별 스레드 완료 순서에 따라 원래부터 순서가 바뀌는 항목 — 집합으로 비교
     r["resolution_logs"] = sorted(json.dumps(x, sort_keys=True) for x in (r.get("resolution_logs") or []))
@@ -194,3 +197,35 @@ def test_optimization_session_helper_is_noop_for_engines_without_it():
         pass
     with optimization_session(Stub()):
         pass
+
+
+def test_session_skipped_result_keys_are_excluded_from_every_equivalence_comparison():
+    """결과 화면 전용 산출물(세션에서 만들지 않는 키)은 세 비교 지점 모두에서 빠져야 한다.
+
+    2026-09-23 실측: v16.30의 `analytics`·`turnover`를 게이트 비교기에 넣지 않아, 값이 1비트도 다르지
+    않은데 결과 동일성 게이트가 37/40 불일치로 떴다(성능 경로 회귀로 오진하기 쉽다). 엔진이 세션 밖에서만
+    채우는 키를 소스에서 읽어 세 목록(게이트·prep_cache·phase1_pool 비교기)과 대조한다.
+    """
+    root = Path(__file__).resolve().parents[2]
+    engine_src = (root / "backend" / "backtest_engine.py").read_text(encoding="utf-8")
+
+    # `final["X"] = None` 뒤에 `if not self.in_optimization_session:`이 오는 블록의 키 = 세션 전용 산출물.
+    block = re.search(
+        r"((?:\s*final\[\"[A-Za-z_]+\"\] = None\n)+)\s*if not self\.in_optimization_session:",
+        engine_src,
+    )
+    assert block, "세션 전용 산출물 블록을 찾지 못했다 — 패턴이 바뀌었으면 이 테스트를 함께 고칠 것"
+    session_only = set(re.findall(r"final\[\"([A-Za-z_]+)\"\]", block.group(1)))
+    assert session_only, "세션 전용 키를 하나도 읽지 못했다"
+
+    gate_src = (root / "scripts" / "qa_backtest_equivalence.py").read_text(encoding="utf-8")
+    gate_keys = set(re.findall(r'"([A-Za-z_]+)"', re.search(
+        r"SESSION_SKIPPED_KEYS = \(([^)]*)\)", gate_src).group(1)))
+    assert not (session_only - gate_keys), (
+        f"qa_backtest_equivalence.SESSION_SKIPPED_KEYS에 없는 세션 전용 키: {sorted(session_only - gate_keys)}")
+
+    for fname in ("test_prep_cache.py", "test_phase1_pool.py"):
+        src = (Path(__file__).parent / fname).read_text(encoding="utf-8")
+        popped = set(re.findall(r'r\.pop\("([A-Za-z_]+)", None\)', src))
+        assert not (session_only - popped), (
+            f"{fname}의 _comparable에서 빼지 않은 세션 전용 키: {sorted(session_only - popped)}")

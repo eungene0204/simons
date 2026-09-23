@@ -35,6 +35,9 @@ def _comparable(res):
     r = dict(res)
     r.pop("timing", None)
     r.pop("rebalanceComparison", None)
+    # 결과 심화 분석(v16.30)도 결과 화면 전용 부가 통계라 세션 안에서는 만들지 않는다.
+    r.pop("analytics", None)
+    r.pop("turnover", None)
     r["warnings"] = sorted(r.get("warnings") or [])
     r["resolution_logs"] = sorted(json.dumps(x, sort_keys=True) for x in (r.get("resolution_logs") or []))
     return json.dumps(r, sort_keys=True, default=str)

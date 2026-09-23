@@ -19,6 +19,7 @@ from schemas import (
     BacktestRequest, BacktestResponse,
     OptimizationRequest, OptimizationResponse,
     WalkForwardRequest, WalkForwardResponse,
+    RollingStartRequest, CostSweepRequest,
 )
 from backtest_engine import BacktestEngine
 from engine.market_data import market_data_provider, delisted_store
@@ -301,6 +302,43 @@ def optimize_strategy(request: OptimizationRequest):
         err_msg = traceback.format_exc()
         print(f"[DEBUG] OPTIMIZE ERROR:\n{err_msg}")
         raise HTTPException(status_code=500, detail=f"Optimization error: {repr(e)}")
+
+@app.post("/rolling-start")
+def rolling_start_analysis(request: RollingStartRequest):
+    """롤링 시작일 백테스트(v16.30) — 창 길이를 고정하고 시작일을 옮겨 가며 결과 분포를 본다."""
+    from engine.robustness import rolling_start
+    try:
+        result = rolling_start(engine, request.base_strategy.model_dump(),
+                               window_months=request.window_months, step_months=request.step_months,
+                               runs=request.runs)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"[DEBUG] ROLLING-START ERROR:\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Rolling-start error: {repr(e)}")
+
+
+@app.post("/cost-sweep")
+def cost_sweep_analysis(request: CostSweepRequest):
+    """거래비용 민감도 스윕(v16.30) — 수수료 × 슬리피지 격자로 같은 전략을 반복 실행한다."""
+    from engine.robustness import cost_sweep
+    try:
+        result = cost_sweep(engine, request.base_strategy.model_dump(),
+                            fee_rates_pct=request.fee_rates_pct, slippage_rates_pct=request.slippage_rates_pct)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"[DEBUG] COST-SWEEP ERROR:\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Cost-sweep error: {repr(e)}")
+
 
 @app.post("/walk-forward", response_model=WalkForwardResponse)
 def walk_forward_analysis(request: WalkForwardRequest):

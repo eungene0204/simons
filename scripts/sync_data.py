@@ -550,6 +550,18 @@ def main(argv=None):
         print(f"[WARNING] 시장지수 갱신 실패 (exit {idx_result.returncode}): "
               f"{(idx_result.stderr or '').strip()[-300:]}")
 
+    # 6-0. 매크로 시계열(VIX·환율·금리 등, data/macro) 갱신 — 야후·FRED 전체 이력 교체(v16.31).
+    print("\nUpdating macro series (data/macro)...")
+    macro_result = subprocess.run(
+        [sys.executable, "backend/scripts/sync_macro_series.py"],
+        capture_output=True, text=True,
+    )
+    for line in (macro_result.stdout or "").strip().splitlines()[-4:]:
+        print(f"  {line}")
+    if macro_result.returncode != 0:
+        print(f"[WARNING] 매크로 시계열 갱신 실패 (exit {macro_result.returncode}): "
+              f"{(macro_result.stderr or '').strip()[-300:]}")
+
     # 6-1. 지수 구성종목 명부(KOSPI200·KOSDAQ150) 갱신 + 시점별 명단 이력에 오늘의 관측 덧붙이기.
     #      KIS 종목마스터(인증 없음)라 KRX처럼 막히지 않는다. 실패해도 기존 명부·이력은 그대로다.
     print("\nUpdating index rosters and membership history (data/index-membership)...")

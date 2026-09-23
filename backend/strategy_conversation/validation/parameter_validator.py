@@ -9,6 +9,7 @@ from typing import List
 
 from strategy_conversation.interpreter.models import StrategyIntent
 from strategy_conversation.registry.capability_registry import MAX_POSITIONS_RANGE
+from strategy_conversation.registry import capability_registry as caps
 from strategy_conversation.registry.indicator_registry import REGISTRY
 
 
@@ -94,11 +95,13 @@ def validate_parameters(intent: StrategyIntent) -> List[str]:
                         f"유효 범위({lo}~{hi})를 벗어났습니다"
                     )
             for name, value in cond.parameters.items():
+                if name in caps.STRING_CONDITION_PARAMS:
+                    continue      # timeframe 등 문자열 파라미터(v16.29) — capability 단계가 정본화했다
                 pspec = spec.parameters.get(name)
                 if pspec is None:
                     errors.append(f"'{spec.display_name}'에 알 수 없는 파라미터 '{name}'")
                     continue
-                if value is None:
+                if value is None or not isinstance(value, (int, float)):
                     continue
                 if pspec.minimum is not None and value < pspec.minimum:
                     errors.append(

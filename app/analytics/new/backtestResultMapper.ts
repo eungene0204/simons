@@ -30,6 +30,11 @@ export function mapRawBacktestResult(
     sortino: raw.sortino ?? 0,
     kelly: raw.kelly ?? null,
     volatility: raw.volatility ?? 0,
+    // 벤치마크 대비 통계(v16.25) — 정의 불가(null)를 0으로 바꾸지 않는다.
+    beta: raw.beta ?? null,
+    alpha: raw.alpha ?? null,
+    trackingError: raw.trackingError ?? null,
+    informationRatio: raw.informationRatio ?? null,
     avgHoldingDays: raw.avgHoldingDays ?? 0,
     exposure: raw.exposure ?? 0,
     maxDrawdownDuration: raw.maxDrawdownDuration ?? 0,
@@ -81,6 +86,9 @@ export function mapRawBacktestResult(
     vbtResult: raw.vbtResult ?? undefined,
     // 분위 그룹 비교(FR-BT-060) — 누락하면 그룹 비교 섹션이 조용히 사라진다.
     quantileGroups: raw.quantileGroups ?? undefined,
+    factorIc: raw.factorIc ?? undefined,
+    analytics: raw.analytics ?? undefined,
+    turnover: raw.turnover ?? undefined,
     rebalanceComparison: raw.rebalanceComparison ?? undefined,
   };
 }

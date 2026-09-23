@@ -18,6 +18,8 @@ import ResultPlainSummary, { buildMonteCarloPlainSummary } from "./ResultPlainSu
 import RunProgressModal from "./RunProgressModal";
 import SaveValidationButton from "./SaveValidationButton";
 import SavedValidationsModal from "./SavedValidationsModal";
+import StrategyCombinePanel from "./StrategyCombinePanel";
+import { CostSweepPanel, ParameterHeatmapPanel, RollingStartPanel } from "./RobustnessPanels";
 import type { StrategyBacktestRequest } from "@/app/analytics/new/parsedStrategyMerge";
 import {
   saveValidation,
@@ -28,7 +30,7 @@ import {
 import { t } from "@/lib/i18n";
 import { useRegionHref } from "@/lib/geo/useRegion";
 
-type OptimizationModel = "walkForward" | "monteCarlo";
+type OptimizationModel = "walkForward" | "monteCarlo" | "combine" | "rollingStart" | "costSweep" | "paramHeatmap";
 
 const OPTIMIZATION_MODELS: Array<{
   id: OptimizationModel;
@@ -47,6 +49,30 @@ const OPTIMIZATION_MODELS: Array<{
     label: "몬테카를로",
     description: "기존 수익률 구간을 재조합해 가능한 성과 분포와 낙폭 범위를 추정합니다.",
     example: "예: 일별 수익률 블록을 1,000번 재배열해 CAGR 중앙값, 5% 하위 시나리오, MDD가 30%를 넘는 비율을 계산합니다.",
+  },
+  {
+    id: "rollingStart",
+    label: "롤링 시작일",
+    description: "창 길이를 고정하고 시작일을 옮겨 가며 반복 실행해 결과가 시작 시점에 얼마나 좌우되는지 봅니다.",
+    example: "예: 36개월 창을 3개월씩 8번 옮겨 실행해 CAGR·MDD의 중앙값과 최악·최선을 봅니다.",
+  },
+  {
+    id: "costSweep",
+    label: "거래비용 민감도",
+    description: "수수료·슬리피지 단계를 격자로 바꿔 반복 실행해 비용이 커질수록 결과가 얼마나 무너지는지 봅니다.",
+    example: "예: 수수료 0~0.2%, 슬리피지 0~0.5%의 25개 조합에서 CAGR을 표로 봅니다.",
+  },
+  {
+    id: "paramHeatmap",
+    label: "파라미터 민감도",
+    description: "전략 파라미터 두 개를 격자로 바꿔 실행하고 결과를 히트맵으로 봅니다.",
+    example: "예: 손절 5~15% × 보유종목 5~20의 25개 조합에서 CAGR이 고르게 좋은지 봅니다.",
+  },
+  {
+    id: "combine",
+    label: "전략 결합",
+    description: "저장된 백테스트 결과 여러 개를 비중대로 섞어 결합 포트폴리오의 과거 성과와 전략 간 상관을 계산합니다.",
+    example: "예: 현재 결과 60% + 저장한 배당 전략 40%를 매월 리밸런싱으로 결합해 CAGR·MDD·샤프와 두 전략의 일수익률 상관을 봅니다.",
   },
 ];
 
@@ -1173,6 +1199,19 @@ export default function OptimizationPage({
               }
             />
           </div>
+        )}
+
+        {selectedModel === "combine" && !isPlanLoading && isPremiumValidationEnabled && (
+          <StrategyCombinePanel result={result} strategyName={strategyName} />
+        )}
+        {selectedModel === "rollingStart" && (
+          <RollingStartPanel baseStrategy={baseStrategy} canRun={!isPlanLoading && isPremiumValidationEnabled} disabledReason={isPlanLoading ? t("플랜 권한을 확인하는 중입니다.") : t("이 도구는 PREMIUM 플랜에서만 실행할 수 있습니다.")} />
+        )}
+        {selectedModel === "costSweep" && (
+          <CostSweepPanel baseStrategy={baseStrategy} canRun={!isPlanLoading && isPremiumValidationEnabled} disabledReason={isPlanLoading ? t("플랜 권한을 확인하는 중입니다.") : t("이 도구는 PREMIUM 플랜에서만 실행할 수 있습니다.")} />
+        )}
+        {selectedModel === "paramHeatmap" && (
+          <ParameterHeatmapPanel baseStrategy={baseStrategy} canRun={!isPlanLoading && isPremiumValidationEnabled} disabledReason={isPlanLoading ? t("플랜 권한을 확인하는 중입니다.") : t("이 도구는 PREMIUM 플랜에서만 실행할 수 있습니다.")} />
         )}
 
         {selectedModel === "monteCarlo" && (

@@ -78,7 +78,17 @@ class RiskManagement(BaseModel):
     universe_market_cap_top_n: Optional[int] = None
     universe_liquidity_exclude_bottom_pct: Optional[float] = None
     universe_liquidity_lookback_days: Optional[int] = None
+    # 유니버스 사전 필터 확장(v16.32) — 위 두 필터와 같은 자리·같은 방식(일별 마스크)이다.
+    # exclude_loss_making: 'net'(당기순손실) | 'operating'(영업손실) | 'both' — 그 시점에 알려진
+    #   최신 재무가 적자인 종목을 매 거래일 유니버스에서 뺀다. **재무를 모르는 종목은 빼지 않는다**
+    #   (fail-open): 상장폐지 종목의 재무 커버리지가 1% 수준이라(2026-09-23 실측) 모르면 제외로
+    #   만들면 상폐 종목이 통째로 사라져 생존 편향이 들어온다 — 대신 판정하지 못한 종목 수를 고지한다.
+    # market_cap_exclude_bottom_pct: 그날 횡단면 시가총액 하위 X% 제외(소형주 제외). 거래대금
+    #   하위 분위 제외와 같은 방식이며 기준만 시가총액이다.
+    universe_exclude_loss_making: Optional[str] = None
+    universe_market_cap_exclude_bottom_pct: Optional[float] = None
     # 비중 방식: 'equal'(동일 비중) | 'inverse_volatility'(변동성 역비중, v16.14 — 1/σ(N일)에 비례).
+    # v16.28: market_cap(시총가중) | min_variance | risk_parity(ERC) | max_sharpe | min_cvar | fixed(고정 배분).
     allocation_type: Optional[str] = "equal"
     allocation_lookback_days: Optional[int] = None
     # 시장 국면 필터(v16.14): {"index": "KOSPI", "ma_period": 200, "exposure_pct": 30} — 지수가
@@ -86,6 +96,38 @@ class RiskManagement(BaseModel):
     # v16.16: "triggers"(["below_ma","volatility_spike"], 없으면 below_ma)·"volatility_multiple"·
     # "volatility_period" — 지수 N일 변동성이 직전 1년 평균의 K배 이상인 날도(OR) 약세일로 본다.
     market_regime: Optional[Dict[str, Any]] = None
+    # 계절 필터(v16.25) — 투자하는 달(1~12) 목록. 그 밖의 달은 전량 현금. 없으면 None.
+    seasonal_months: Optional[List[int]] = None
+    # 목표 연변동성(v16.25, %) — 자산곡선 변동성이 넘는 날 노출을 낮춘다(레버리지 없음). 없으면 None.
+    target_volatility_pct: Optional[float] = None
+    # ── 경쟁 격차 1차(엔진 v16.28) — 스키마 미선언 시 model_dump가 조용히 버린다(같은 함정).
+    # 비중 방식 확장: allocation_type에 market_cap|min_variance|risk_parity|max_sharpe|min_cvar|fixed 추가.
+    # fixed는 target_weights({종목: 비중 %})가 정한다(정적 자산배분).
+    target_weights: Optional[Dict[str, float]] = None
+    # 밴드 리밸런싱(%p): 보유 비중이 목표에서 이만큼 벗어나면 되돌린다(달력 주기와 병행 가능).
+    rebalance_threshold_pct: Optional[float] = None
+    # 최소 보유 기간(거래일): 그 안에는 매도 조건·손절·익절·트레일링·편출을 적용하지 않는다.
+    min_holding_days: Optional[int] = None
+    # 손절·익절·트레일링 청산 뒤 재진입 금지 기간(거래일).
+    stop_cooldown_days: Optional[int] = None
+    # 트레일링 스탑 활성화 임계(%): 매수가 대비 이만큼 올라야 트레일링이 작동한다.
+    trailing_stop_activation_pct: Optional[float] = None
+    # 지정가(%): 매수는 전일 종가 대비 -x%, 매도(조건 청산)는 +y%. next_open에서만 뜻이 있다.
+    entry_limit_pct: Optional[float] = None
+    exit_limit_pct: Optional[float] = None
+    # 분할 매수 {count, step_pct} / 분할 익절 [{profit_pct, sell_pct}].
+    entry_tranches: Optional[Dict[str, Any]] = None
+    partial_take_profits: Optional[List[Dict[str, Any]]] = None
+    # 포지션 사이징 {method: atr_risk|kelly, risk_per_trade_pct, atr_period, atr_multiple, kelly_fraction}.
+    position_sizing: Optional[Dict[str, Any]] = None
+    # 현금 대체 자산(종목코드): 미투자 현금을 이 자산으로 보유한다(듀얼 모멘텀의 안전자산).
+    cash_asset: Optional[str] = None
+    # 절대 모멘텀 임계(%): 수익률 랭킹에서 최근 수익률이 이 값 이하인 종목은 편입하지 않는다.
+    absolute_momentum_threshold_pct: Optional[float] = None
+    # 전술 자산배분(v16.29) {model, offensive, defensive, canary, top_n} — 미선언 시 model_dump가 버린다.
+    taa: Optional[Dict[str, Any]] = None
+    # 매크로 조건 필터(v16.31) [{series, mode, operator, value, period, exposure_pct}] — OR, 가장 낮은 노출.
+    macro_filters: Optional[List[Dict[str, Any]]] = None
     rebalancing_period: Optional[str] = "none"
     # 리밸런싱 방식(FR-BT-067): 'reconstitute'=리밸런싱일마다 목표 종목 재선정,
     # 'weights_only'=보유 종목 유지하고 비중만 균등 리셋. 스키마에 없으면 model_dump가
@@ -129,6 +171,9 @@ class BacktestRequest(BaseModel):
     # 미국 유니버스 전용 업종 필터(GICS 정본 라벨 — "Airlines", "Health Care").
     # 한국 sector와 분류 체계가 달라 필드를 분리했다. 위와 동일한 이유로 반드시 선언한다.
     us_industry: Optional[str] = None
+    # 업종 제외 필터(v16.24) — 정본 섹터명 목록. 엔진이 섹터 제한 뒤 이 업종 종목을 뺀다.
+    # 스키마 미선언 시 model_dump가 조용히 버린다(sector와 같은 함정).
+    exclude_sectors: Optional[List[str]] = None
     # 신규 상장 유니버스(FR-STR-073) — 상장일이 이 구간에 속하는 종목만 대상으로 한다.
     # 위 두 필드와 동일한 이유로 반드시 선언한다(미선언 시 model_dump가 조용히 버림).
     listing_from: Optional[str] = None
@@ -217,6 +262,12 @@ class BacktestResponse(BaseModel):
     sharpe: float
     sortino: float
     calmar: Optional[float] = 0.0
+    # 벤치마크 대비 통계(v16.25) — 베타·젠센 알파(연환산 %)·추적오차(연환산 %)·정보비율. 정의 불가는 null.
+    # 미선언 시 response_model이 걸러내 프론트가 못 받는다 — 반드시 선언한다.
+    beta: Optional[float] = None
+    alpha: Optional[float] = None
+    trackingError: Optional[float] = None
+    informationRatio: Optional[float] = None
     avgHoldingDays: Optional[float] = 0.0
     volatility: float
     trades: int
@@ -251,6 +302,14 @@ class BacktestResponse(BaseModel):
     # metricLabel, orderLabel, groupCount, mainGroup}. 없으면 null. 미선언 시 response_model이
     # 필드를 걸러내 프론트가 그룹 비교를 못 받는다 — 반드시 선언한다.
     quantileGroups: Optional[Dict[str, Any]] = None
+    # 팩터 예측력 통계(v16.26) — {meanIc, icStd, icir, positiveRate, periods, quantiles, topBottomSpread}.
+    # 랭킹+정기 리밸런싱 전략만 값, 그 밖은 null. 미선언 시 response_model이 걸러낸다.
+    factorIc: Optional[Dict[str, Any]] = None
+    # 결과 심화 분석(v16.30) — {attribution, factorExposure, tradeDistribution, riskStats, turnover, liquidity,
+    # benchmarks}. 최적화 세션·계산 실패는 null. 미선언 시 response_model이 걸러낸다.
+    analytics: Optional[Dict[str, Any]] = None
+    # 연환산 회전율(%, v16.30) — analytics.turnover.annual과 같은 값(메인 지표 카드용).
+    turnover: Optional[float] = None
     # 리밸런싱 기간별 결과 비교(FR-BT-064) — {periods: [{period, cagr, mdd, sharpe, profitFactor,
     # trades, turnover, ...}], currentPeriod, positionCapAbsent}. 백테스트마다 6주기 재시뮬레이션으로
     # 동봉한다. 미선언 시 response_model이 걸러내 프론트가 못 받는다 — 반드시 선언한다.
@@ -270,6 +329,21 @@ class OptimizationRequest(BaseModel):
     # 시행 횟수 상한 — 같은 구간에서 조합을 많이 볼수록 우연히 좋은 조합이 뽑힌다(다중 비교).
     n_trials: Optional[int] = Field(default=50, ge=1, le=200)
     ranges: Dict[str, Any]  # {path: [values]} or {path: {type, min, max, step}}
+
+
+# ─── 견고성 도구(v16.30): 롤링 시작일·거래비용 스윕 ──────────────────────────
+
+class RollingStartRequest(BaseModel):
+    base_strategy: BacktestRequest
+    window_months: int = Field(default=36, ge=6, le=240)
+    step_months: int = Field(default=3, ge=1, le=24)
+    runs: int = Field(default=8, ge=1, le=24)
+
+
+class CostSweepRequest(BaseModel):
+    base_strategy: BacktestRequest
+    fee_rates_pct: List[float] = Field(default_factory=lambda: [0.0, 0.015, 0.05, 0.1, 0.2])
+    slippage_rates_pct: List[float] = Field(default_factory=lambda: [0.0, 0.05, 0.1, 0.3, 0.5])
 
 
 # ─── Walk-Forward Analysis ────────────────────────────────────────────────────

@@ -66,9 +66,12 @@ def build_context(
     tracked_metrics: Any,
     ai_needed: bool,
     signal_delay: int = 1,
+    exec_price_basis: str = "open",
 ) -> Dict[str, Any]:
     """종목별 파이프라인이 읽는 요청-수준 상수 묶음(피클 가능)."""
     return {
+        # 익일 체결가 열(v16.28): 'open'=시가(종전), 'avg'=시가·고가·저가·종가 평균.
+        "exec_price_basis": exec_price_basis,
         "entry": entry,
         "exit": exit_,
         "warmup_start_str": warmup_start_str,
@@ -91,6 +94,15 @@ def build_context(
         # 최적화 세션 캐시 키 재료 — 세션 밖이면 None(캐시 미사용)
         "prep_sig": structural_signature(entry, exit_),
     }
+
+
+def exec_price_series(pdf: pd.DataFrame, exec_type: str, basis: str = "open") -> pd.Series:
+    """체결가 열 — same_close=종가, next_open=시가(기본) 또는 익일 평균가(basis='avg', v16.28)."""
+    if exec_type == "same_close":
+        return pdf["close"]
+    if basis == "avg" and all(c in pdf.columns for c in ("open", "high", "low", "close")):
+        return (pdf["open"] + pdf["high"] + pdf["low"] + pdf["close"]) / 4.0
+    return pdf["open"]
 
 
 def _collect_leaf_conditions(group: Optional[Dict[str, Any]], out: List[Dict[str, Any]]) -> None:
@@ -217,6 +229,12 @@ def symbol_signals(df_pl: pl.DataFrame, pdf: pd.DataFrame, bprep: Optional[Dict[
         tail = pre_df_pl.tail(k)
         if "market_cap" in tail.columns:
             pre["market_cap"] = pd.Series(tail["market_cap"].cast(pl.Float64).to_numpy(), index=idx)
+        for _fin_col in ("net_income", "ebit"):
+            # 적자기업 제외 필터(v16.32)도 신호와 같은 지연으로 판정한다 — 창 직전 원천이 없으면
+            # 창 첫날이 판정 불가가 된다(fail-open이라 통과하지만 필터가 하루 늦게 걸린다).
+            if _fin_col in tail.columns:
+                pre[_fin_col] = pd.Series(
+                    tail[_fin_col].cast(pl.Float64, strict=False).to_numpy(), index=idx)
         pre["fund_rank_values"] = {
             col: pd.Series(tail[col].cast(pl.Float64, strict=False).to_numpy(), index=idx)
             for col in ctx["rank_metric_cols"] if col in tail.columns
@@ -274,6 +292,17 @@ def prepare_symbol(sym: str, ctx: Dict[str, Any], loader, indicator_engine) -> D
 
     resolver = DataResolver()
     df_pl, res_logs = resolver.resolve(sym, df_pl, ctx["entry"], ctx["exit"])
+    # 랭킹 지표가 parquet 컬럼에 없으면(런타임 계산 지표 — FCF 수익률·자산성장률·발생액 비율, v16.25)
+    # 조건과 같은 경로로 해결한다. 종전엔 조건에 쓰인 지표만 해결돼 랭킹 전용 지표는 '데이터 없음'으로
+    # 랭킹이 빠졌다. 컬럼이 이미 있으면 호출이 없어 결과 불변.
+    _rank_missing = [c for c in (ctx.get("rank_metric_cols") or []) if c not in df_pl.columns]
+    if _rank_missing:
+        df_pl, _more = resolver.resolve(
+            sym, df_pl,
+            {"conditions": [{"type": "fundamental", "id": c, "params": {}} for c in _rank_missing]},
+            None,
+        )
+        res_logs = list(res_logs) + list(_more)
 
     if ctx["ai_needed"]:
         return {"outcome": "ai", "df_pl": df_pl, "res_logs": res_logs}
@@ -343,7 +372,7 @@ def process_symbol(
         res: Dict[str, Any] = {
             "symbol": sym,
             "price": pdf["close"],
-            "exec_price": pdf["close"] if exec_type == "same_close" else pdf["open"],
+            "exec_price": exec_price_series(pdf, exec_type, ctx.get("exec_price_basis", "open")),
             "high": pdf["high"] if "high" in pdf.columns else pdf["close"],
             "low": pdf["low"] if "low" in pdf.columns else pdf["close"],
             "entries": pd.Series(entry_signals, index=pdf.index),
@@ -365,6 +394,13 @@ def process_symbol(
             res["market_cap"] = pdf["market_cap"]
         if "pbr" in pdf.columns:
             res["pbr"] = pdf["pbr"]
+        # 적자기업 제외 필터(v16.32)의 판정 재료 — 그 시점에 알려진 최신 연간 재무가
+        # 일자별로 전진충전돼 있다. 필터를 켰는지와 무관하게 싣는다(캐시된 Phase1 결과가
+        # 필터 설정에 따라 달라지면 재사용이 깨진다 — market_cap·pbr와 같은 계약).
+        if "net_income" in pdf.columns:
+            res["net_income"] = pdf["net_income"]
+        if "ebit" in pdf.columns:
+            res["ebit"] = pdf["ebit"]
         if "roe_or_gpa" in pdf.columns:
             res["roe"] = pdf["roe_or_gpa"]
         if ctx["rank_metric_cols"]:

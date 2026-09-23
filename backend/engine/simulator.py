@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional
 from engine.rebalance import compute_rebalance_dates
 from engine import trade_reason as tr
 from engine.transaction_tax import CURRENT_KR_SELL_TAX_RATE, kr_sell_tax_rates
+from engine.portfolio_weights import AllocationContext
 
 # ── 거래 비용 기본값 ──────────────────────────────────────────────────────────
 # 매수/매도 수수료는 legacy 'fee_rate'(대칭)를 상속하고, 증권거래세는 매도측에만
@@ -77,6 +78,26 @@ REBALANCE_EXIT_REASON = tr.encode([tr.part(tr.REBALANCE_DROPOUT)])
 # 라벨이 없으면 result_handler의 일반 추론이 '전략 매도 조건 충족'으로 적어 **매도 조건을
 # 하나도 말하지 않은 전략**의 거래 내역에 존재하지 않는 매도 조건이 사유로 찍힌다.
 REBALANCE_TRIM_REASON = tr.encode([tr.part(tr.REBALANCE_TRIM)])
+
+# 포트폴리오 최대 낙폭 한도(v16.24) 재실행 상한 — 매 회차가 뒤쪽 한 구간을 확정하므로 실제로는
+# 한도에 닿은 횟수+1회에서 끝난다. 상한은 무한 루프 방어일 뿐이다.
+MDD_LIMIT_MAX_ROUNDS = 64
+
+# 목표 변동성(v16.25) — 자산곡선 최근 N거래일 변동성(연환산)으로 노출을 정한다. 산정 기간은 시장 국면
+# 변동성 판정과 같은 20일 고정(2026-09-20 사용자 결정의 준용), 노출은 5%p 단위 내림(매일 미세 조정
+# 매매를 막는다). 연환산 거래일은 결과 지표와 같은 246.
+VOL_TARGET_WINDOW = 20
+VOL_TARGET_STEP = 0.05
+VOL_TARGET_TRADING_DAYS = 246.0
+
+
+def _mdd_limit_reason(risk_params: Dict[str, Any]) -> Optional[str]:
+    """최대 낙폭 한도 현금화의 매도 사유(인코딩) — 한도가 없으면 None."""
+    raw = risk_params.get('max_mdd_limit_pct')
+    limit = float(raw or 0.0)
+    if limit <= 0.0:
+        return None
+    return tr.encode([tr.part(tr.MDD_LIMIT_LIQUIDATION, _fmt_g(limit))])
 
 
 def stop_loss_refill_reserve(cand_sorted, sel_band):
@@ -227,15 +248,116 @@ def _weight_cap(risk_params: Dict[str, Any]) -> Optional[float]:
 
 def _entry_base_size(cur_size: float, inv_vals: Optional[np.ndarray],
                      inv_norm: Optional[float], i: int, s_idx: int,
-                     cap: Optional[float] = None) -> float:
+                     cap: Optional[float] = None,
+                     alloc_row: Optional[np.ndarray] = None,
+                     sizing_w: Optional[float] = None) -> float:
     """노출 100% 기준 종목 비중 — 동일가중 × (1/σ_i ÷ 기간 정규화 기준). 역비중이 아니거나
-    σ·기준이 없으면 동일가중 그대로. ``cap``(종목당 비중 상한)이 있으면 그 값으로 자른다."""
+    σ·기준이 없으면 동일가중 그대로. ``cap``(종목당 비중 상한)이 있으면 그 값으로 자른다.
+
+    v16.28: ``alloc_row``(리밸런싱일에 비중 방식이 정한 종목별 비중, 목표 밖은 NaN)가 있으면
+    그 값을, ``sizing_w``(ATR·켈리 사이징이 정한 비중)가 있으면 그 값을 기준 비중으로 쓴다
+    (사이징 > 비중 방식 > 역변동성 > 동일가중). 상한은 마지막에 한 번만 건다."""
     size = cur_size
     if inv_vals is not None and inv_norm:
         iv = inv_vals[i, s_idx]
         if np.isfinite(iv):
             size = cur_size * float(iv) / inv_norm
+    if alloc_row is not None and np.isfinite(alloc_row[s_idx]):
+        size = float(alloc_row[s_idx])
+    if sizing_w is not None and np.isfinite(sizing_w):
+        size = float(sizing_w)
     return min(size, cap) if cap is not None else size
+
+
+# ── 경쟁 격차 1차(v16.28) 설정 해석 ──────────────────────────────────────────
+KELLY_MIN_TRADES = 20          # 켈리 비중을 쓰기 시작하는 완결 거래 수
+ADV_LOOKBACK_DAYS = 20         # 거래량 비례 슬리피지의 평균 거래대금 기간
+
+
+def _rebalance_band(risk_params: Dict[str, Any]) -> Optional[float]:
+    """밴드 리밸런싱 임계값(``rebalance_threshold_pct``, %p) → 비율. 없거나 0 이하면 None."""
+    raw = risk_params.get('rebalance_threshold_pct')
+    if raw is None:
+        return None
+    band = float(raw) / 100.0
+    return band if band > 0.0 else None
+
+
+def _tranche_plan(risk_params: Dict[str, Any]) -> Optional[tuple]:
+    """분할 매수(``entry_tranches`` = {count, step_pct}) → (회차 수, 회차 간격 %). 2회 미만이면 None."""
+    raw = risk_params.get('entry_tranches')
+    if not raw:
+        return None
+    count = int(raw.get('count') or 0)
+    step = float(raw.get('step_pct') or 0.0)
+    return (count, step) if count >= 2 and step > 0.0 else None
+
+
+def _partial_take_profits(risk_params: Dict[str, Any]) -> List[tuple]:
+    """분할 익절(``partial_take_profits`` = [{profit_pct, sell_pct}]) → [(수익률 %, 매도 비율)] 오름차순."""
+    raw = risk_params.get('partial_take_profits') or []
+    out = []
+    for item in raw:
+        try:
+            profit = float(item.get('profit_pct'))
+            sell = float(item.get('sell_pct')) / 100.0
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if profit > 0.0 and 0.0 < sell < 1.0:
+            out.append((profit, sell))
+    return sorted(out)
+
+
+def _position_sizing(risk_params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """포지션 사이징(``position_sizing`` = {method: atr_risk|kelly, ...}) — 방식이 없으면 None."""
+    raw = risk_params.get('position_sizing')
+    if not raw or raw.get('method') not in ('atr_risk', 'kelly'):
+        return None
+    out = {'method': raw['method']}
+    if raw['method'] == 'atr_risk':
+        out['risk_pct'] = float(raw.get('risk_per_trade_pct') or 1.0)
+        out['atr_multiple'] = float(raw.get('atr_multiple') or 2.0)
+        out['atr_period'] = int(raw.get('atr_period') or 14)
+    else:
+        out['fraction'] = float(raw.get('kelly_fraction') or 0.5)
+    return out
+
+
+def _kelly_weight(wins: List[float], losses: List[float], fraction: float) -> Optional[float]:
+    """지금까지의 완결 거래로 켈리 비중(승률 − (1−승률)/손익비) × 배수. 20건 미만·0 이하면 None."""
+    n = len(wins) + len(losses)
+    if n < KELLY_MIN_TRADES or not losses or not wins:
+        return None
+    win_rate = len(wins) / n
+    avg_win = float(np.mean(wins))
+    avg_loss = float(np.mean(np.abs(losses)))
+    if avg_loss <= 0.0 or avg_win <= 0.0:
+        return None
+    kelly = win_rate - (1.0 - win_rate) / (avg_win / avg_loss)
+    if kelly <= 0.0:
+        return None
+    return min(1.0, kelly * fraction)
+
+
+def impact_slippage_matrix(pf: vbt.Portfolio, adv_values: np.ndarray, base_rate: float,
+                           coeff: float, shape: tuple) -> np.ndarray:
+    """거래량 비례 슬리피지(v16.28) — 1차 체결의 주문 기록으로 셀별 슬리피지를 만든다.
+
+    셀 슬리피지 = 기본 + coeff × √(주문금액 ÷ 최근 평균 거래대금). 평균 거래대금이 없거나 0인
+    셀은 기본값 그대로다(모르는 것은 벌하지 않는다). 주문이 없는 셀도 기본값.
+    """
+    matrix = np.full(shape, float(base_rate))
+    rec = pf.orders.records_arr
+    if len(rec) == 0:
+        return matrix
+    idx, col = rec['idx'], rec['col']
+    value = np.abs(rec['size'] * rec['price'])
+    adv = adv_values[idx, col].astype(float)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        ratio = np.where(adv > 0, value / adv, np.nan)
+    extra = np.where(np.isfinite(ratio), coeff * np.sqrt(ratio), 0.0)
+    matrix[idx, col] = float(base_rate) + extra
+    return matrix
 
 
 class Simulator:
@@ -266,11 +388,178 @@ class Simulator:
             low_df: Optional[pd.DataFrame] = None,
             available_df: Optional[pd.DataFrame] = None,
             vol_df: Optional[pd.DataFrame] = None,
-            exposure: Optional[np.ndarray] = None) -> vbt.Portfolio:
+            exposure: Optional[np.ndarray] = None,
+            exposure_reasons: Optional[np.ndarray] = None,
+            alloc_ctx: Optional[AllocationContext] = None,
+            cash_asset_idx: Optional[int] = None,
+            size_df: Optional[pd.DataFrame] = None,
+            adv_df: Optional[pd.DataFrame] = None) -> vbt.Portfolio:
         """vol_df(v16.14): 변동성 역비중용 연환산 변동성 패널(엔진이 신호와 같은 지연으로 맞춰
         넘긴다) — 있으면 목표 종목 비중을 1/σ에 비례시킨다. exposure(v16.14): 거래일별 목표
-        노출 비율(0~1, 시장 국면 필터) — 있으면 목표 비중에 곱하고, 국면이 바뀐 날 보유 비중을
-        다시 맞춘다. 둘 다 None이면 종전 동작 그대로다."""
+        노출 비율(0~1, 시장 국면 필터·계절 필터) — 있으면 목표 비중에 곱하고, 노출이 바뀐 날
+        보유 비중을 다시 맞춘다. exposure_reasons(v16.25): 노출을 줄인 날의 매도 사유(인코딩,
+        없는 날은 None) — 시장 국면 사유 대신 쓴다(계절 필터 등). 전부 None이면 종전 동작 그대로다.
+
+        포트폴리오 단위 제어 둘은 자산곡선이 필요해 여기서 감싼다: 목표 변동성(``target_volatility_pct``,
+        v16.25)은 1회 실행의 자산곡선 변동성으로 노출을 정한 뒤 재실행, 최대 낙폭 한도
+        (``max_mdd_limit_pct``, v16.24)는 한도에 닿은 구간의 노출을 0으로 덮고 재실행한다(둘 다
+        없으면 1회 실행·결과 비트 동일). ``self.mdd_events``·``self.vol_target_days``는 각 제어가
+        있을 때만 값이고 없으면 None이다."""
+        self.mdd_events: Optional[List[tuple]] = None
+        self.vol_target_days: Optional[int] = None
+        # 거래량 비례 슬리피지(v16.28) 적용 통계 — 모델이 켜졌을 때만 값.
+        self.impact_slippage: Optional[Dict[str, float]] = None
+        frames = dict(rank_df=rank_df, high_df=high_df, low_df=low_df,
+                      available_df=available_df, vol_df=vol_df,
+                      alloc_ctx=alloc_ctx, cash_asset_idx=cash_asset_idx, size_df=size_df)
+        base = None if exposure is None else np.asarray(exposure, dtype=float)
+        day_reasons = (np.asarray(exposure_reasons, dtype=object)
+                       if exposure_reasons is not None else None)
+        pf = self._run_controlled(price_df, exec_price_df, entries_df, exits_df, risk_params,
+                                  options, base, day_reasons, frames)
+        if options.get('slippage_model') == 'volume_impact' and adv_df is not None:
+            # 1차 체결의 주문 규모로 셀별 슬리피지를 정한 뒤 한 번 더 돌린다(2패스 근사).
+            base_rate = resolve_slippage_rate(options)
+            coeff = float(options.get('slippage_impact_coeff') or 0.1)
+            matrix = impact_slippage_matrix(pf, adv_df.values, base_rate, coeff, entries_df.shape)
+            options = dict(options)
+            options['_slippage_matrix'] = matrix
+            pf = self._run_controlled(price_df, exec_price_df, entries_df, exits_df, risk_params,
+                                      options, base, day_reasons, frames)
+            rec = pf.orders.records_arr
+            applied = matrix[rec['idx'], rec['col']] if len(rec) else np.array([base_rate])
+            self.impact_slippage = {'max': float(applied.max()), 'mean': float(applied.mean()),
+                                    'base': base_rate, 'coeff': coeff}
+        return pf
+
+    def _run_controlled(self, price_df, exec_price_df, entries_df, exits_df, risk_params,
+                        options, base, day_reasons, frames) -> vbt.Portfolio:
+        """목표 변동성·최대 낙폭 한도 제어를 감싼 1회 실행(슬리피지 2패스가 두 번 부른다)."""
+        target = float(risk_params.get('target_volatility_pct') or 0.0)
+        if target > 0.0:
+            base, day_reasons = self._apply_volatility_target(
+                target, base, day_reasons, price_df, exec_price_df, entries_df, exits_df,
+                risk_params, options, **frames)
+        limit = float(risk_params.get('max_mdd_limit_pct') or 0.0)
+        if limit <= 0.0:
+            return self._run_once(price_df, exec_price_df, entries_df, exits_df,
+                                  risk_params, options, exposure=base, day_reasons=day_reasons,
+                                  **frames)
+        return self._run_with_mdd_limit(
+            limit, price_df, exec_price_df, entries_df, exits_df, risk_params, options,
+            exposure=base, day_reasons=day_reasons, **frames)
+
+    def _apply_volatility_target(self, target: float, base, day_reasons, price_df, exec_price_df,
+                                 entries_df, exits_df, risk_params, options, **frames):
+        """목표 변동성(v16.25) — 1회 실행한 자산곡선의 최근 VOL_TARGET_WINDOW거래일 변동성(연환산 %)이
+        목표를 넘는 날은 노출을 목표÷실현 변동성 비율로 낮춘다(레버리지 없음: 최대 1, 5%p 단위 내림).
+
+        판정은 종가 자산곡선이므로 t일 값은 t+지연(익일 시가 체결=1, 당일 종가=0)부터 적용한다.
+        기준 노출(시장 국면·계절)에 곱하므로 이미 줄어든 노출을 더 늘리지는 않는다. 반환
+        (노출 배열, 사유 배열) — 노출이 전날보다 줄어든 날 중 사유가 비어 있는 날에 목표 변동성
+        사유를 적는다(계절·국면 사유가 있으면 그것을 남긴다)."""
+        n = len(entries_df)
+        pf0 = self._run_once(price_df, exec_price_df, entries_df, exits_df, risk_params, options,
+                             exposure=base, day_reasons=day_reasons, **frames)
+        nav = pd.Series(np.asarray(pf0.value(), dtype=float))
+        realized = nav.pct_change().rolling(VOL_TARGET_WINDOW).std(ddof=1) * np.sqrt(
+            VOL_TARGET_TRADING_DAYS) * 100.0
+        with np.errstate(divide='ignore', invalid='ignore'):
+            ratio = np.where(realized.to_numpy() > 0, target / realized.to_numpy(), np.nan)
+        ratio = np.floor(np.minimum(ratio, 1.0) / VOL_TARGET_STEP) * VOL_TARGET_STEP
+        delay = 1 if options.get('execution_type', 'same_close') == 'next_open' else 0
+        vt = pd.Series(ratio).shift(delay).fillna(1.0).to_numpy(dtype=float)   # 워밍업·지연 구간=100%
+        vt = np.clip(vt, 0.0, 1.0)
+        self.vol_target_days = int((vt < 1.0).sum())
+        reduced = np.r_[False, vt[1:] < vt[:-1]]
+        reasons = (day_reasons.copy() if day_reasons is not None
+                   else np.full(n, None, dtype=object))
+        vt_reason = tr.encode([tr.part(tr.VOL_TARGET_REDUCE, _fmt_g(target))])
+        for i in np.where(reduced)[0]:
+            if not reasons[i]:
+                reasons[i] = vt_reason
+        eff = vt if base is None else base * vt
+        return eff, reasons
+
+    def _run_with_mdd_limit(self, limit: float, price_df, exec_price_df, entries_df, exits_df,
+                            risk_params, options, exposure=None, day_reasons=None,
+                            **frames) -> vbt.Portfolio:
+        """포트폴리오 최대 낙폭 한도(v16.24) — 자산곡선 감시 → 노출 0 덮어쓰기 → 재실행.
+
+        시뮬레이터는 목표 비중을 먼저 다 정한 뒤 vectorbt로 체결하므로 루프 안에서 자산을
+        모른다. 그래서 (1) 한 번 돌려 자산곡선을 얻고 (2) 마지막으로 처리한 재편입일부터의
+        고점 대비 낙폭이 한도에 닿은 첫날 t를 찾아 (3) t+지연(익일 시가 체결=1, 당일 종가=0)부터
+        재편입일 전날까지 노출을 0으로 덮고(보유 전량 현금화·신규 편입 없음) (4) 다시 돌린다.
+        t 이전 경로는 인과적으로 동일하므로 앞서 확정한 구간은 흔들리지 않고, 매 회차가 그보다
+        뒤의 한 구간을 확정하므로 유한하다. 재편입일 = 현금화일 뒤 첫 리밸런싱일(정기
+        리밸런싱이 없으면 다음 거래일 — 그때부터 전략의 진입 규칙이 다시 결정한다), 그 뒤
+        리밸런싱일이 없으면 기간 끝까지 현금. 고점은 재편입일 자산에서 다시 잡는다(재편입 후
+        옛 고점 기준이면 낙폭이 영원히 한도 밖이라 두 번 다시 들어가지 못한다)."""
+        n = len(entries_df)
+        delay = 1 if options.get('execution_type', 'same_close') == 'next_open' else 0
+        rebalance_dates = compute_rebalance_dates(
+            entries_df.index, str(risk_params.get('rebalancing_period') or 'none'))
+        rebalance_rows = np.where(rebalance_dates)[0]
+        base = None if exposure is None else np.asarray(exposure, dtype=float)
+        mdd_days = np.zeros(n, dtype=bool)
+        mdd_reason = _mdd_limit_reason(risk_params)
+        events: List[tuple] = []
+        date_strs = [pd.Timestamp(d).strftime('%Y-%m-%d') for d in entries_df.index]
+        threshold = -limit / 100.0 + 1e-12
+        segment_start = 0
+        eff = base
+        reasons = day_reasons
+        pf = None
+        for _ in range(MDD_LIMIT_MAX_ROUNDS):
+            pf = self._run_once(price_df, exec_price_df, entries_df, exits_df, risk_params,
+                                options, exposure=eff, day_reasons=reasons, **frames)
+            if segment_start >= n:
+                break
+            nav = np.asarray(pf.value(), dtype=float)[segment_start:]
+            drawdown = nav / np.maximum.accumulate(nav) - 1.0
+            hit = np.where(drawdown <= threshold)[0]
+            if len(hit) == 0:
+                break
+            liquidation = segment_start + int(hit[0]) + delay
+            if liquidation >= n:
+                break
+            later = rebalance_rows[rebalance_rows > liquidation]
+            if len(later):
+                reentry = int(later[0])
+            elif not rebalance_dates.any():
+                reentry = liquidation + 1
+            else:
+                reentry = n
+            mdd_days[liquidation:reentry] = True
+            eff = np.ones(n, dtype=float) if base is None else base.copy()
+            eff[mdd_days] = 0.0
+            reasons = (day_reasons.copy() if day_reasons is not None
+                       else np.full(n, None, dtype=object))
+            reasons[mdd_days] = mdd_reason
+            events.append((date_strs[liquidation], date_strs[reentry] if reentry < n else None))
+            segment_start = reentry
+        self.mdd_events = events
+        return pf
+
+    def _run_once(self,
+                  price_df: pd.DataFrame,
+                  exec_price_df: pd.DataFrame,
+                  entries_df: pd.DataFrame,
+                  exits_df: pd.DataFrame,
+                  risk_params: Dict[str, Any],
+                  options: Dict[str, Any],
+                  rank_df: Optional[pd.DataFrame] = None,
+                  high_df: Optional[pd.DataFrame] = None,
+                  low_df: Optional[pd.DataFrame] = None,
+                  available_df: Optional[pd.DataFrame] = None,
+                  vol_df: Optional[pd.DataFrame] = None,
+                  exposure: Optional[np.ndarray] = None,
+                  day_reasons: Optional[np.ndarray] = None,
+                  alloc_ctx: Optional[AllocationContext] = None,
+                  cash_asset_idx: Optional[int] = None,
+                  size_df: Optional[pd.DataFrame] = None) -> vbt.Portfolio:
+        """1회 시뮬레이션(종전 run 본문). day_reasons(v16.24/25): 노출을 줄인 날의 매도 사유
+        (인코딩, 없는 날은 None) — 최대 낙폭 한도·계절 필터·목표 변동성이 시장 국면 사유 대신 남긴다."""
 
         # {symbol: {날짜문자열: 정밀 청산 사유}} — 신호/리스크로 설명되지 않는 청산
         # (리밸런싱 편출 등)의 사유를 체결일 기준으로 남겨 result_handler가 우선 적용한다.
@@ -300,9 +589,29 @@ class Simulator:
         tp_pct = float(risk_params.get('take_profit_pct') or 0)
         ts_pct = float(risk_params.get('trailing_stop_pct') or 0)  # Fix 1
         max_hold = int(risk_params.get('max_holding_days') or 0)
+        # ── 경쟁 격차 1차(v16.28) ──
+        min_hold = int(risk_params.get('min_holding_days') or 0)
+        cooldown = int(risk_params.get('stop_cooldown_days') or 0)
+        ts_act = float(risk_params.get('trailing_stop_activation_pct') or 0)
+        entry_limit = float(risk_params.get('entry_limit_pct') or 0)
+        exit_limit = float(risk_params.get('exit_limit_pct') or 0)
+        tranches = _tranche_plan(risk_params)
+        partial_tps = _partial_take_profits(risk_params)
+        sizing = _position_sizing(risk_params)
+        band = _rebalance_band(risk_params)
+        # 적용 통계(엔진이 결과 경고로 고지) — 기능이 없으면 0.
+        self.band_events = 0
+        self.tranche_fills = 0
+        self.partial_tp_events = 0
+        self.sizing_fallbacks = 0
+        if alloc_ctx is not None:
+            alloc_ctx.fallback_days = 0
+            alloc_ctx.applied_days = 0
 
         buy_fee, sell_fee = self._resolve_fee_rates(options, entries_df.index)
-        slippage_val = resolve_slippage_rate(options)
+        slippage_val = options.get('_slippage_matrix')
+        if slippage_val is None:
+            slippage_val = resolve_slippage_rate(options)
         exec_type = options.get('execution_type', 'same_close')
 
         skip_pos = risk_params.get('skip_position_setting', False)
@@ -337,6 +646,10 @@ class Simulator:
         rebalance_dates = compute_rebalance_dates(
             entries_df.index, str(risk_params.get('rebalancing_period') or 'none')
         )
+        if band is not None and not rebalance_dates.any() and len(rebalance_dates):
+            # 밴드만 말한 전략(달력 주기 없음) — 첫 거래일에 편입하고 그 뒤는 밴드가 되돌린다.
+            rebalance_dates = rebalance_dates.copy()
+            rebalance_dates[0] = True
         regime_label = _regime_label(risk_params.get('market_regime'))
         # 리밸런싱 방식(FR-BT-067) — 사용자가 고른다. 'weights_only'는 종목을 교체하지
         # 않고 비중만 균등으로 되돌린다(오른 종목 일부 매도 → 내린 종목 추가 매수).
@@ -344,9 +657,12 @@ class Simulator:
         weights_only = str(risk_params.get('rebalance_method') or 'reconstitute') == 'weights_only'
         rebalance_mode = (not skip_pos) and bool(max_pos or sel_pct or sel_band) and bool(rebalance_dates.any())
         has_position_risk = use_risk_mgmt and (sl_pct > 0 or tp_pct > 0 or ts_pct > 0 or max_hold > 0)
+        # 조건 루프에서만 표현되는 설정(v16.28) — 최소 보유일·재진입 금지·지정가·분할·사이징.
+        loop_only = bool(min_hold > 0 or cooldown > 0 or entry_limit > 0 or exit_limit > 0
+                         or tranches or partial_tps or sizing)
         # 매수 조건이 있는 전략은 순수 경로로 보내지 않는다(v16.3) — 그 경로는 매도 신호를
         # 읽지 않고 리밸런싱일이 아닌 날의 매수 신호도 버린다(순수 랭킹 회전 전용).
-        if rebalance_mode and not has_position_risk and not entry_signal_driven:
+        if rebalance_mode and not has_position_risk and not entry_signal_driven and not loop_only:
             return self._run_target_rebalance(
                 price_df, exec_price_df, entries_df, rank_df, rebalance_dates,
                 eff_max_pos, init_cash, buy_fee, sell_fee, slippage_val,
@@ -354,6 +670,8 @@ class Simulator:
                 weights_only=weights_only, vol_df=vol_df, exposure=exposure,
                 regime_label=regime_label, weight_cap=weight_cap,
                 sector_cap=sector_cap, sector_groups=sector_groups,
+                day_reasons=day_reasons, alloc_ctx=alloc_ctx, band=band,
+                cash_asset_idx=cash_asset_idx,
             )
 
         symbols = entries_df.columns.tolist()
@@ -361,7 +679,9 @@ class Simulator:
         n_rows = len(entries_df)
 
         price_values = price_df.values
-        exec_price_values = exec_price_df.values
+        # 지정가·분할 매수는 셀 체결가를 바꾼다 — 그때만 복사해 vbt에 넘긴다(없으면 원본 그대로).
+        price_override = bool(entry_limit > 0 or exit_limit > 0 or tranches)
+        exec_price_values = exec_price_df.values.copy() if price_override else exec_price_df.values
         entries_values = entries_df.values
         exits_values = exits_df.values.copy()
         # 장중 감지용 저가/고가. 미제공 시(레거시 호출·테스트) 종가로 폴백해
@@ -382,6 +702,24 @@ class Simulator:
         pending_exit = np.zeros(num_symbols, dtype=bool)       # 거래정지 등으로 이월된 청산
         active_count = 0
         EPS = 1e-6
+        # ── v16.28 상태 ──
+        cooldown_until = np.full(num_symbols, -1, dtype=np.int64)     # 리스크 청산 뒤 재진입 금지 만료 행
+        tranche_next = np.zeros(num_symbols, dtype=np.int64)          # 다음 채울 분할 매수 회차(0=없음)
+        tranche_ref = np.zeros(num_symbols, dtype=np.float64)         # 분할 매수 기준가(첫 회차 체결가)
+        tranche_full = np.zeros(num_symbols, dtype=np.float64)        # 분할 매수 완성 목표 비중
+        ptp_stage = np.zeros(num_symbols, dtype=np.int64)             # 다음 분할 익절 단계
+        partial_pending = np.full(num_symbols, np.nan)                # 익일 체결 대기 분할 익절 목표 비중
+        partial_reason = np.empty(num_symbols, dtype=object)
+        last_reset_price = np.zeros(num_symbols, dtype=np.float64)    # 밴드 드리프트 기준가(비중 확정 시 체결가)
+        kelly_wins: List[float] = []
+        kelly_losses: List[float] = []
+        size_vals = size_df.values if size_df is not None else None
+        cash_idx = cash_asset_idx
+        cash_asset_w = 0.0                                           # 현금 대체 자산의 현재 목표 비중
+        alloc_row: Optional[np.ndarray] = None
+        if alloc_ctx is not None and alloc_ctx.method == 'fixed' and alloc_ctx.fixed is not None:
+            _fx = alloc_ctx.fixed.astype(float)
+            alloc_row = np.where(_fx > 0, _fx / _fx.sum(), np.nan) if _fx.sum() > 0 else None
 
         # 체결일 라벨링용 날짜 문자열 + 예약된 정밀 청산 사유(리밸런싱 편출 등).
         # 사유는 청산이 '결정'된 시점에 예약하고, 실제 '체결'(_book_exit)될 때 그 날짜로
@@ -436,11 +774,18 @@ class Simulator:
             same_close 청산이 한 박자 늦게 반영되던 이중 부기 버그의 수정).
             """
             nonlocal active_count
+            if sizing is not None and sizing['method'] == 'kelly':
+                for s_idx in np.where(mask & (entry_price > 0))[0]:
+                    r = float(exec_price_values[i, s_idx]) / float(entry_price[s_idx]) - 1.0
+                    (kelly_wins if r > 0 else kelly_losses).append(r)
             target_values[i, mask] = 0.0
             live_target[mask] = 0.0
             fees_values[i, mask] = sell_fee[i]
             active_mask[mask] = False
             peak_price[mask] = 0.0
+            tranche_next[mask] = 0
+            ptp_stage[mask] = 0
+            partial_pending[mask] = np.nan
             active_count -= int(mask.sum())
             # 예약된 정밀 청산 사유가 있으면 체결일(i)에 기록하고 예약을 비운다.
             for s_idx in np.where(mask)[0]:
@@ -485,16 +830,53 @@ class Simulator:
         regime_reason = (tr.encode([tr.part(*regime_label)])
                          if regime_label else REBALANCE_TRIM_REASON)
 
+        def _day_reason(i: int) -> Optional[str]:
+            return day_reasons[i] if (day_reasons is not None and day_reasons[i]) else None
+
         for i in range(n_rows):
             # Step 0: 이월된 청산을 거래 가능일에 방출
+            released = np.zeros(num_symbols, dtype=bool)
             if pending_exit.any():
                 releasable = pending_exit & avail_values[i]
                 if releasable.any():
                     exits_values[i] |= releasable
                     pending_exit &= ~releasable
+                    released = releasable
+            # 분할 익절(v16.28) 익일 체결 — 어제 단계에 닿은 종목의 비중을 오늘 줄인다.
+            if partial_tps and np.isfinite(partial_pending).any():
+                ready = np.isfinite(partial_pending) & active_mask & avail_values[i] & ~pending_exit
+                for s_idx in np.where(ready)[0]:
+                    target_values[i, s_idx] = partial_pending[s_idx]
+                    live_target[s_idx] = partial_pending[s_idx]
+                    fees_values[i, s_idx] = sell_fee[i]
+                    self.exit_reason_overrides.setdefault(
+                        symbols[s_idx], {})[date_strs[i]] = partial_reason[s_idx]
+                    partial_pending[s_idx] = np.nan
+                    self.partial_tp_events += 1
 
             # Step 1: 오늘 예정된 청산 처리 (신호 청산 + 방출된 이월 청산)
             exited = active_mask & exits_values[i].astype(bool)
+            held_short = (active_mask & ((i - entry_day) < min_hold)) if min_hold > 0 else None
+            if held_short is not None and exited.any():
+                # 최소 보유 기간(v16.28) — 그 안의 매도 신호는 무시한다(이월 방출된 청산은 예외).
+                too_early = exited & held_short & ~released
+                if too_early.any():
+                    exits_values[i] &= ~too_early
+                    exited &= ~too_early
+            if exit_limit > 0 and exec_type == 'next_open' and i > 0 and exited.any():
+                # 매도 지정가(v16.28): 전일 종가 × (1 + x%)에 고가가 닿아야 체결(체결가는 지정가와
+                # 시가 중 높은 값). 못 닿으면 다음 거래일 시장가로 이월. 리스크 청산(방출분)은 시장가.
+                signal_exit = exited & ~released
+                if signal_exit.any():
+                    lim = price_values[i - 1] * (1.0 + exit_limit / 100.0)
+                    fillable = signal_exit & (high_values[i] >= lim)
+                    unfilled = signal_exit & ~fillable
+                    for s_idx in np.where(fillable)[0]:
+                        exec_price_values[i, s_idx] = max(exec_price_values[i, s_idx], lim[s_idx])
+                    if unfilled.any():
+                        pending_exit |= unfilled
+                        exits_values[i] &= ~unfilled
+                        exited &= ~unfilled
             if exited.any():
                 _book_exit(i, exited)
 
@@ -514,6 +896,35 @@ class Simulator:
                 stop_loss_hit = np.zeros(num_symbols, dtype=bool)
                 # 이미 청산 예약된 종목은 재평가/사유 덮어쓰기에서 제외한다.
                 base = active_mask & ~pending_exit
+                if held_short is not None:
+                    base &= ~held_short      # 최소 보유 기간 안에는 리스크 청산도 없다(v16.28)
+                safe_entry = np.where(entry_price > 0, entry_price, 1.0)
+                # 분할 익절(v16.28): 매수가 대비 고가 수익률이 단계에 닿으면 보유 비중 일부를 판다.
+                if partial_tps:
+                    high_ret_all = (highs - safe_entry) / safe_entry * 100
+                    for s_idx in np.where(base)[0]:
+                        stage = int(ptp_stage[s_idx])
+                        factor, last = 1.0, None
+                        while stage < len(partial_tps) and high_ret_all[s_idx] >= partial_tps[stage][0] - EPS:
+                            factor *= (1.0 - partial_tps[stage][1])
+                            last = partial_tps[stage]
+                            stage += 1
+                        if last is None:
+                            continue
+                        ptp_stage[s_idx] = stage
+                        new_target = live_target[s_idx] * factor
+                        reason = tr.encode([tr.part(tr.PARTIAL_TAKE_PROFIT, _fmt_g(last[0]),
+                                                    _fmt_g(last[1] * 100.0))])
+                        if exec_type == 'next_open' and i + 1 < n_rows:
+                            partial_pending[s_idx] = new_target
+                            partial_reason[s_idx] = reason
+                        elif avail_values[i, s_idx]:
+                            target_values[i, s_idx] = new_target
+                            live_target[s_idx] = new_target
+                            fees_values[i, s_idx] = sell_fee[i]
+                            self.exit_reason_overrides.setdefault(
+                                symbols[s_idx], {})[date_strs[i]] = reason
+                            self.partial_tp_events += 1
 
                 # Max holding days (vectorized) — 우선순위 최상위(보유기간 만료).
                 # 사유 라벨은 result_handler가 실제 보유일수(exit_idx-entry_idx)로 정확히
@@ -523,9 +934,8 @@ class Simulator:
                     should_exit |= base & ~should_exit & ((i - entry_day) >= max_hold)
 
                 # SL / TP / Trailing stop (vectorized, no re-exit if already flagged)
+                risk_hit = np.zeros(num_symbols, dtype=bool)
                 if use_risk_mgmt and (sl_pct > 0 or tp_pct > 0 or ts_pct > 0):
-                    safe_entry = np.where(entry_price > 0, entry_price, 1.0)
-
                     if sl_pct > 0:
                         low_ret = (lows - safe_entry) / safe_entry * 100
                         hit = base & ~should_exit & (low_ret <= (-sl_pct + EPS))
@@ -543,8 +953,15 @@ class Simulator:
                         safe_peak = np.where(peak_price > 0, peak_price, 1.0)
                         drawdown = (lows - safe_peak) / safe_peak * 100
                         hit = base & ~should_exit & (drawdown <= (-ts_pct + EPS))
+                        if ts_act > 0:
+                            # 활성화 임계(v16.28): 고점이 매수가 대비 +ts_act% 이상일 때만 작동.
+                            hit &= ((safe_peak - safe_entry) / safe_entry * 100) >= (ts_act - EPS)
                         exit_reason_pending[hit] = ts_reason
                         should_exit |= hit
+                    risk_hit = (should_exit & ~((i - entry_day) >= max_hold) if max_hold > 0
+                                else should_exit.copy())
+                if cooldown > 0 and risk_hit.any():
+                    cooldown_until[risk_hit] = i + cooldown      # 재진입 금지(v16.28)
                 if should_exit.any():
                     if exec_type == 'next_open' and i + 1 < n_rows:
                         # 익일 시가 체결 — 거래 가능일 도달 시 Step 0에서 방출
@@ -594,6 +1011,13 @@ class Simulator:
                     _iv = _iv[np.isfinite(_iv)]
                     if len(_iv):
                         inv_norm = float(_iv.mean())
+                if alloc_ctx is not None and alloc_ctx.method != 'fixed':
+                    # 비중 방식(v16.28) — 이번 기간 목표 종목의 비중. 못 구하면 NaN(동일가중 폴백).
+                    _sel_arr = np.where(current_target_mask)[0]
+                    _w = alloc_ctx.weights(i, _sel_arr)
+                    alloc_row = np.full(num_symbols, np.nan)
+                    if _w is not None:
+                        alloc_row[_sel_arr] = _w
 
                 if weights_only:
                     # 비중 리셋 — 보유 종목에 동일가중 목표비중을 다시 준다(오른 종목은
@@ -602,17 +1026,19 @@ class Simulator:
                     # 트림(소량 매도)의 매도 비용은 _run_orders가 실현 주문을 보고 적용한다.
                     reset = active_mask & ~pending_exit & avail_values[i]
                     if reset.any():
-                        if inv_vals is None and exp_vals is None:
+                        if inv_vals is None and exp_vals is None and alloc_row is None:
                             target_values[i, reset] = (
                                 cur_size if weight_cap is None else min(cur_size, weight_cap))
                             live_target[reset] = target_values[i, reset]
                         else:
                             for s_idx in np.where(reset)[0]:
                                 pos_base[s_idx] = _entry_base_size(
-                                    cur_size, inv_vals, inv_norm, i, s_idx, weight_cap)
+                                    cur_size, inv_vals, inv_norm, i, s_idx, weight_cap,
+                                    alloc_row=alloc_row)
                             target_values[i, reset] = pos_base[reset] * (
                                 exp_vals[i] if exp_vals is not None else 1.0)
                             live_target[reset] = target_values[i, reset]
+                        last_reset_price[reset] = exec_price_values[i, reset]
                         # 트림(목표 비중 초과분 매도) 사유 — 오늘 청산이 확정된 종목은
                         # 위 Step 1·2에서 active_mask가 이미 꺼져 여기 들어오지 않는다
                         # (리스크 청산 사유를 덮어쓰지 않는다).
@@ -623,6 +1049,8 @@ class Simulator:
                     dropouts = np.zeros(num_symbols, dtype=bool)
                 else:
                     dropouts = active_mask & ~current_target_mask & ~pending_exit
+                    if held_short is not None:
+                        dropouts &= ~held_short    # 최소 보유 기간 안의 편출은 다음 리밸런싱으로
                 if dropouts.any():
                     # 정밀 사유 예약 — 즉시/이월 어느 경로로 체결되든 _book_exit이 남긴다.
                     exit_reason_pending[dropouts] = REBALANCE_EXIT_REASON
@@ -662,7 +1090,7 @@ class Simulator:
                 movable = active_mask & ~pending_exit & avail_values[i] & ~exits_values[i].astype(bool)
                 if cur_exp <= 0.0:
                     stuck = active_mask & ~pending_exit & ~movable
-                    exit_reason_pending[movable | stuck] = regime_reason
+                    exit_reason_pending[movable | stuck] = _day_reason(i) or regime_reason
                     pending_exit |= stuck & ~avail_values[i]
                     if movable.any():
                         exits_values[i] |= movable
@@ -670,17 +1098,68 @@ class Simulator:
                 elif movable.any():
                     target_values[i, movable] = pos_base[movable] * cur_exp
                     live_target[movable] = target_values[i, movable]
-                    label = regime_reason if cur_exp < prev_exp else REBALANCE_TRIM_REASON
+                    last_reset_price[movable] = exec_price_values[i, movable]
+                    if cur_exp < prev_exp:
+                        label = _day_reason(i) or regime_reason
+                    else:
+                        label = REBALANCE_TRIM_REASON
                     for s_idx in np.where(movable)[0]:
                         self.exit_reason_overrides.setdefault(
                             symbols[s_idx], {})[date_strs[i]] = label
                 prev_exp = cur_exp
+
+            # 밴드 리밸런싱(v16.28): 보유 비중이 전일 종가 기준으로 목표에서 band 넘게 벗어났으면
+            # 오늘 비중을 목표로 되돌린다(종목 교체 없음). 오늘 주문이 이미 있는 종목은 건드리지 않는다.
+            if band is not None and i > 0 and active_mask.any():
+                held = active_mask & ~pending_exit
+                w0 = live_target[held]
+                p0 = last_reset_price[held]
+                if len(w0) and (p0 > 0).all() and w0.sum() > 0:
+                    v = w0 * price_values[i - 1, held] / p0
+                    total = (1.0 - w0.sum()) + v.sum()
+                    if total > 0 and float(np.abs(v / total - w0).max()) > band:
+                        movable = held & avail_values[i] & np.isnan(target_values[i])
+                        if movable.any():
+                            target_values[i, movable] = live_target[movable]
+                            last_reset_price[movable] = exec_price_values[i, movable]
+                            _band_reason = tr.encode([tr.part(tr.BAND_REBALANCE, _fmt_g(band * 100.0))])
+                            for s_idx in np.where(movable)[0]:
+                                self.exit_reason_overrides.setdefault(
+                                    symbols[s_idx], {})[date_strs[i]] = _band_reason
+                            self.band_events += 1
+
+            # 분할 매수(v16.28) 추가 회차: 기준가 × (1 − k·step)에 저가가 닿은 날 목표 비중의 1/count씩 더 산다.
+            if tranches is not None:
+                _cnt, _step = tranches
+                pend = (active_mask & ~pending_exit & (tranche_next > 0) & (tranche_next < _cnt)
+                        & avail_values[i] & ~exits_values[i].astype(bool) & np.isnan(target_values[i]))
+                for s_idx in np.where(pend)[0]:
+                    k = int(tranche_next[s_idx])
+                    lim = tranche_ref[s_idx] * (1.0 - k * _step / 100.0)
+                    if low_values[i, s_idx] > lim:
+                        continue
+                    fill = min(float(exec_price_values[i, s_idx]), lim)
+                    exec_price_values[i, s_idx] = fill
+                    add = tranche_full[s_idx] / _cnt
+                    prev_w = live_target[s_idx]
+                    entry_price[s_idx] = (entry_price[s_idx] * prev_w + fill * add) / (prev_w + add)
+                    live_target[s_idx] = prev_w + add
+                    target_values[i, s_idx] = live_target[s_idx]
+                    fees_values[i, s_idx] = buy_fee
+                    self.entry_reason_overrides.setdefault(symbols[s_idx], {})[date_strs[i]] = tr.encode(
+                        [tr.part(tr.TRANCHE_BUY, k + 1, _cnt, _fmt_g(k * _step))])
+                    tranche_next[s_idx] = k + 1
+                    self.tranche_fills += 1
 
             # Step 3: Process new entries after exits freed slots.
             # 리밸런싱 모드에서는 '현재 목표 집합'만 진입 후보로 본다(목표가 채워질
             # 때까지 후속 거래일에도 빈 슬롯을 메운다). 같은 날 청산이 예정/실행된
             # 종목은 재진입 금지(동일 셀에 매수·매도 주문이 겹칠 수 없음).
             blocked = active_mask | exits_values[i].astype(bool) | pending_exit | ~avail_values[i]
+            if cooldown > 0:
+                blocked |= cooldown_until > i     # 리스크 청산 뒤 재진입 금지(v16.28)
+            if cash_idx is not None:
+                blocked[cash_idx] = True
             if rebalance_mode and not entry_signal_driven:
                 # 순수 랭킹 회전: 목표 집합만 채운다(리밸런싱일 사이엔 신규 진입 없음).
                 entry_pool = current_target_mask & ~blocked
@@ -709,21 +1188,49 @@ class Simulator:
                 for s_idx in candidate_indices:
                     if active_count < cur_cap:
                         ep = exec_price_values[i, s_idx]
+                        if entry_limit > 0 and exec_type == 'next_open' and i > 0:
+                            # 매수 지정가(v16.28): 전일 종가 × (1 − x%)에 저가가 닿아야 체결.
+                            lim = price_values[i - 1, s_idx] * (1.0 - entry_limit / 100.0)
+                            if low_values[i, s_idx] > lim:
+                                continue          # 미체결 — 후보가 남아 있으면 다음 날 다시
+                            ep = min(float(ep), lim)
+                            exec_price_values[i, s_idx] = ep
+                        sizing_w = None
+                        if sizing is not None:
+                            if sizing['method'] == 'atr_risk':
+                                atr_pct = (float(size_vals[i, s_idx]) if size_vals is not None
+                                           else np.nan)
+                                if np.isfinite(atr_pct) and atr_pct > 0:
+                                    sizing_w = min(1.0, (sizing['risk_pct'] / 100.0)
+                                                   / (sizing['atr_multiple'] * atr_pct))
+                                else:
+                                    self.sizing_fallbacks += 1
+                            else:
+                                sizing_w = _kelly_weight(kelly_wins, kelly_losses, sizing['fraction'])
                         active_mask[s_idx] = True
                         active_count += 1
                         entry_day[s_idx] = i
                         entry_price[s_idx] = ep
                         peak_price[s_idx] = ep   # Fix 1: init peak at entry price
-                        if inv_vals is None and exp_vals is None:
+                        if (inv_vals is None and exp_vals is None and alloc_row is None
+                                and sizing_w is None):
                             # 상한은 최종 비중에만 건다 — 기준 비중(cur_size)을 자르면 역변동성에서
                             # 상한에 걸리지 않은 종목까지 같이 줄어든다.
                             target_values[i, s_idx] = (
                                 cur_size if weight_cap is None else min(cur_size, weight_cap))
                         else:
                             pos_base[s_idx] = _entry_base_size(
-                                cur_size, inv_vals, inv_norm, i, s_idx, weight_cap)
+                                cur_size, inv_vals, inv_norm, i, s_idx, weight_cap,
+                                alloc_row=alloc_row, sizing_w=sizing_w)
                             target_values[i, s_idx] = pos_base[s_idx] * cur_exp
+                        if tranches is not None:
+                            # 첫 회차만 오늘 사고 나머지는 기준가 아래 사다리에서 채운다.
+                            tranche_full[s_idx] = target_values[i, s_idx]
+                            target_values[i, s_idx] = tranche_full[s_idx] / tranches[0]
+                            tranche_ref[s_idx] = ep
+                            tranche_next[s_idx] = 1
                         live_target[s_idx] = target_values[i, s_idx]
+                        last_reset_price[s_idx] = ep
                         fees_values[i, s_idx] = buy_fee
                         if refill_rank[s_idx] > 0:
                             self.entry_reason_overrides.setdefault(symbols[s_idx], {})[date_strs[i]] = (
@@ -733,13 +1240,31 @@ class Simulator:
 
             _enforce_sector_cap(i)
 
+            # 현금 대체 자산(v16.28): 투자하지 않은 몫(1 − 보유 목표 합)을 그 자산으로 든다.
+            if cash_idx is not None and avail_values[i, cash_idx] and np.isnan(target_values[i, cash_idx]):
+                invested = float(live_target.sum())
+                desired = max(0.0, 1.0 - invested)
+                if abs(desired - cash_asset_w) > 1e-9:
+                    target_values[i, cash_idx] = desired
+                    if desired < cash_asset_w:
+                        fees_values[i, cash_idx] = sell_fee[i]
+                        self.exit_reason_overrides.setdefault(symbols[cash_idx], {})[date_strs[i]] = (
+                            tr.encode([tr.part(tr.CASH_ASSET_RELEASE)]))
+                    else:
+                        fees_values[i, cash_idx] = buy_fee
+                        self.entry_reason_overrides.setdefault(symbols[cash_idx], {})[date_strs[i]] = (
+                            tr.encode([tr.part(tr.CASH_ASSET_PARK)]))
+                    cash_asset_w = desired
+
         target_df = pd.DataFrame(target_values, index=entries_df.index, columns=entries_df.columns)
+        exec_df = (pd.DataFrame(exec_price_values, index=exec_price_df.index, columns=exec_price_df.columns)
+                   if price_override else exec_price_df)
 
         # NOTE: sl_stop/tp_stop/sl_trail은 의도적으로 vbt에 넘기지 않는다. 위 루프가
         # 감지한 청산을 목표비중 0 주문으로 주입하며, 체결은 exec_price(시장가)로
         # 이뤄진다. vbt 내장 스탑은 '정확히 스탑 가격 체결'(갭 무시)을 가정해
         # 리스크 관리를 인위적으로 완벽하게 만들기 때문.
-        return self._run_orders(price_df, exec_price_df, target_df, fees_values,
+        return self._run_orders(price_df, exec_df, target_df, fees_values,
                                 buy_fee, sell_fee, slippage_val, init_cash)
 
     @staticmethod
@@ -755,7 +1280,7 @@ class Simulator:
                     fees_values: np.ndarray,
                     buy_fee: float,
                     sell_fee: np.ndarray,
-                    slippage_val: float,
+                    slippage_val,
                     init_cash: float) -> vbt.Portfolio:
         """목표비중 주문을 체결하고, 양수 목표 셀에서 **실현된 매도**(비중 리셋 트림)에
         매도 비용(수수료+거래세)을 물려 다시 체결한다.
@@ -819,6 +1344,10 @@ class Simulator:
                               weight_cap: Optional[float] = None,
                               sector_cap: Optional[float] = None,
                               sector_groups: Optional[Dict[str, np.ndarray]] = None,
+                              day_reasons: Optional[np.ndarray] = None,
+                              alloc_ctx: Optional[AllocationContext] = None,
+                              band: Optional[float] = None,
+                              cash_asset_idx: Optional[int] = None,
                               ) -> vbt.Portfolio:
         """순수 리밸런싱 경로 — vbt 네이티브 from_orders(목표비중)로 비중 리셋까지 수행.
 
@@ -854,17 +1383,74 @@ class Simulator:
         prev_exp = 1.0
         regime_reason = (tr.encode([tr.part(*regime_label)])
                          if regime_label else REBALANCE_TRIM_REASON)
-        for i in rows:
+        # v16.28 — 밴드 리밸런싱·현금 대체 자산 상태
+        exec_values = exec_price_df.values
+        price_values = price_df.values
+        rows_set = set(int(r) for r in rows)
+        current_row = np.zeros(num_syms)        # 마지막으로 확정한 목표 비중(노출 반영)
+        reset_price = np.zeros(num_syms)        # 밴드 드리프트 기준가(확정일 체결가)
+        cash_idx = cash_asset_idx
+        cash_prev = 0.0
+        not_cash = np.ones(num_syms, dtype=bool)
+        if cash_idx is not None:
+            not_cash[cash_idx] = False
+
+        def _park_cash(i: int, row: np.ndarray) -> np.ndarray:
+            """미투자 몫을 현금 대체 자산에 싣고 그 매매 사유를 남긴다."""
+            nonlocal cash_prev
+            if cash_idx is None:
+                return row
+            row[cash_idx] = 0.0
+            desired = max(0.0, 1.0 - float(row.sum()))
+            row[cash_idx] = desired
+            if desired < cash_prev - 1e-9:
+                self.exit_reason_overrides.setdefault(symbols[cash_idx], {})[date_strs[i]] = (
+                    tr.encode([tr.part(tr.CASH_ASSET_RELEASE)]))
+            elif desired > cash_prev + 1e-9:
+                self.entry_reason_overrides.setdefault(symbols[cash_idx], {})[date_strs[i]] = (
+                    tr.encode([tr.part(tr.CASH_ASSET_PARK)]))
+            cash_prev = desired
+            return row
+
+        for i in (range(num_rows) if band is not None else rows):
+            if band is not None and i not in rows_set:
+                # 밴드 리밸런싱(v16.28): 전일 종가 기준 드리프트가 밴드를 넘으면 비중을 되돌린다.
+                if i == 0 or not (held & not_cash).any():
+                    continue
+                hidx = np.where(held & not_cash)[0]
+                w0, p0 = current_row[hidx], reset_price[hidx]
+                if not (p0 > 0).all() or w0.sum() <= 0:
+                    continue
+                v = w0 * price_values[i - 1, hidx] / p0
+                total = (1.0 - w0.sum()) + v.sum()
+                if total <= 0 or float(np.abs(v / total - w0).max()) <= band:
+                    continue
+                row = current_row.copy()
+                _band_reason = tr.encode([tr.part(tr.BAND_REBALANCE, _fmt_g(band * 100.0))])
+                for s_idx in hidx:
+                    self.exit_reason_overrides.setdefault(symbols[s_idx], {})[date_strs[i]] = _band_reason
+                reset_price[hidx] = exec_values[i, hidx]
+                target[i, :] = row
+                self.band_events += 1
+                continue
             if not rebalance_dates[i]:
                 # 시장 국면 전환일(v16.14) — 종목은 그대로, 비중만 기준 비중 × 새 노출로 맞춘다.
                 cur_exp = float(exp_vals[i])
                 row = base * cur_exp
-                label = regime_reason if cur_exp < prev_exp else REBALANCE_TRIM_REASON
+                if cur_exp < prev_exp:
+                    # 노출 축소일의 사유 — 낙폭 한도·계절·목표 변동성(day_reasons)이 있으면 그것.
+                    label = (day_reasons[i] if (day_reasons is not None and day_reasons[i])
+                             else regime_reason)
+                else:
+                    label = REBALANCE_TRIM_REASON
                 for s_idx in np.where(held)[0]:
                     self.exit_reason_overrides.setdefault(
                         symbols[s_idx], {})[date_strs[i]] = label
                 prev_exp = cur_exp
+                row = _park_cash(i, row)
                 held = row > 0.0
+                current_row = row.copy()
+                reset_price[held] = exec_values[i, held]
                 target[i, :] = row
                 continue
             cand = np.where(entries_values[i])[0]
@@ -882,6 +1468,11 @@ class Simulator:
             row = np.zeros(num_syms)            # 0 = 목표에서 빠진 보유는 전량 청산
             if len(sel) > 0:
                 row[sel] = 1.0 / len(sel)        # 동일가중 목표비중 (비중 리셋)
+                if alloc_ctx is not None:
+                    # 비중 방식(v16.28) — 시총·최적화·고정 비중. 못 구하면 동일가중 그대로(폴백 집계).
+                    _w = alloc_ctx.weights(i, np.asarray(sel, dtype=int))
+                    if _w is not None:
+                        row[np.asarray(sel, dtype=int)] = _w
                 if weight_cap is not None:
                     row = np.minimum(row, weight_cap)   # 종목당 비중 상한(v16.18) — 잘린 몫은 현금
                 row = _apply_sector_cap(row, sector_groups or {}, sector_cap)
@@ -900,23 +1491,32 @@ class Simulator:
                 if exp_vals is not None:
                     prev_exp = float(exp_vals[i])
                     row = base * prev_exp
-            # 보유 중이던 종목이 목표에서 빠지면(비중 0) 리밸런싱 편출로 매도된다.
-            dropouts = np.where(held & (row == 0.0))[0]
+            # 보유 중이던 종목이 목표에서 빠지면(비중 0) 리밸런싱 편출로 매도된다. 단 그날 노출이
+            # 0(계절 필터·낙폭 한도·국면 전량 현금)이면 편출이 아니라 그 제어의 현금화다(v16.25).
+            dropouts = np.where(held & (row == 0.0) & not_cash)[0]
+            if exp_vals is not None and float(exp_vals[i]) <= 0.0:
+                dropout_label = (day_reasons[i] if (day_reasons is not None and day_reasons[i])
+                                 else regime_reason)
+            else:
+                dropout_label = REBALANCE_EXIT_REASON
             for s_idx in dropouts:
                 self.exit_reason_overrides.setdefault(
                     symbols[s_idx], {}
-                )[date_strs[i]] = REBALANCE_EXIT_REASON
+                )[date_strs[i]] = dropout_label
             # 목표에 남은 보유의 부분 매도(트림) 사유 — **두 방식 모두**에 붙인다. 이
             # 경로는 종목 교체에서도 리밸런싱일마다 동일가중으로 비중을 리셋하므로(위 row)
             # 오른 종목이 목표 비중까지 잘린다. 라벨이 없으면 result_handler의 일반 추론이
             # '전략 매도 조건 충족'으로 적어, 매도 조건을 하나도 말하지 않은 전략의 거래
             # 내역에 존재하지 않는 매도 조건이 사유로 찍힌다(2026-08-26 실측·사용자 지시로 정리).
             # 매수로 끝난 종목엔 그날 매도 기록이 없어 이 예약은 쓰이지 않는다(사유는 매도에만 붙는다).
-            for s_idx in np.where(held & (row > 0.0))[0]:
+            for s_idx in np.where(held & (row > 0.0) & not_cash)[0]:
                 self.exit_reason_overrides.setdefault(
                     symbols[s_idx], {}
                 )[date_strs[i]] = REBALANCE_TRIM_REASON
+            row = _park_cash(i, row)
             held = row > 0.0
+            current_row = row.copy()
+            reset_price[held] = exec_values[i, held]
             target[i, :] = row
 
         # 여기서 next_open을 다시 shift하지 않는다 — 엔진(backtest_engine)이 next_open일 때
