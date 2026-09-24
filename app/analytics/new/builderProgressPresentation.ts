@@ -17,6 +17,7 @@ import {
 import {
   isExplicit,
   hasContributionPlan,
+  hasWithdrawalPlan,
   isSlotFilled,
   SLOT_LABELS,
   type MissingBacktestCondition,
@@ -601,6 +602,40 @@ export function buildBuilderTurnPresentation({
         }),
       ),
     });
+  }
+  // 정기 인출(엔진 v16.33) — 납입과 같이 값의 존재가 곧 사용자 발화다.
+  if (hasWithdrawalPlan(parsed) && parsed?.withdrawal_amount && parsed.withdrawal_period) {
+    summaryItems.push({
+      label: t("정기 인출"),
+      value: t(
+        "{0}마다 {1}",
+        t(REBALANCE_LABELS[parsed.withdrawal_period] ?? parsed.withdrawal_period),
+        formatInitialCapital(parsed.withdrawal_amount, {
+          usd: isUsParsedUniverse(parsed.universe ?? null),
+        }),
+      ),
+    });
+  }
+  // 비교 지수(엔진 v16.33) — 말했을 때만 보인다(없으면 유니버스 기본 지수로 계산된다).
+  if (parsed?.benchmark) {
+    // 라벨은 분기마다 리터럴로 — 모듈 상수를 t(변수)로 넘기면 번역 커버리지 게이트가 키를 못 본다.
+    const benchmarkLabel =
+      parsed.benchmark === "kospi"
+        ? t("코스피 지수")
+        : parsed.benchmark === "kospi200"
+          ? t("코스피200 지수")
+          : parsed.benchmark === "kosdaq"
+            ? t("코스닥 지수")
+            : parsed.benchmark === "sp500"
+              ? t("S&P500 지수")
+              : parsed.benchmark === "nasdaq100"
+                ? t("나스닥100 지수")
+                : parsed.benchmark === "dow"
+                  ? t("다우존스 지수")
+                  : parsed.benchmark === "russell2000"
+                    ? t("러셀2000 지수")
+                    : parsed.benchmark;
+    summaryItems.push({ label: t("비교 지수"), value: benchmarkLabel });
   }
   // 조건부 납입액 규칙(엔진 v16.21) — 납입일에 조건이 성립하면 그 회차 납입액이 달라진다.
   const contributionRules = hasContributionPlan(parsed) ? (parsed?.contribution_rules ?? []) : [];

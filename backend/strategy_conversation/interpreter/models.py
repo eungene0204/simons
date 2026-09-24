@@ -996,6 +996,13 @@ class BacktestSpec(BaseModel):
     contribution_amount: Optional[float] = Field(
         default=None, description="정기 납입액. 사용자가 말한 표기를 그대로 적는다('50만원'·'$500')")
     contribution_period: Optional[str] = Field(default=None, description="납입 주기")
+    # 정기 인출(엔진 v16.33) — 납입과 같은 옮겨 적기 계약. 주기 표기 정규화도 납입과 같은 표를 쓴다.
+    withdrawal_amount: Optional[float] = Field(
+        default=None, description="정기 인출액. 사용자가 말한 표기를 그대로 적는다('200만원'·'$2000')")
+    withdrawal_period: Optional[str] = Field(default=None, description="인출 주기")
+    # 비교 지수(엔진 v16.33) — 사용자가 성과를 견줄 지수를 직접 말한 경우의 정본 id.
+    benchmark: Optional[str] = Field(
+        default=None, description="비교 지수 id(kospi·kospi200·kosdaq·sp500·nasdaq100·dow·russell2000)")
     # 현금 풀(엔진 v16.22) — 전용 보조 판정(cash_pool_check)이 채운다. 메인 프롬프트에는 자리를
     # 만들지 않는다(조건부 납입액과 같은 이유 — 프롬프트 분량 회귀, contribution_amount_check 참조).
     cash_pool: Optional["CashPoolSpec"] = Field(default=None, description="보유 현금에서 꺼내 사는 적립 설정")
@@ -1004,7 +1011,8 @@ class BacktestSpec(BaseModel):
                               "exit_limit_percent", "slippage_impact_coeff", mode="before")(_coerce_number)
     # 금액은 앞자리 숫자만 떼는 _coerce_number로 읽을 수 없다("2억5000만원"→2) — 자리마다
     # 더하는 금액 환산기를 쓴다(위 _normalize_amount, 옮겨 적기 계약).
-    _coerce_capital = field_validator("initial_capital", "contribution_amount", mode="before")(_normalize_amount)
+    _coerce_capital = field_validator(
+        "initial_capital", "contribution_amount", "withdrawal_amount", mode="before")(_normalize_amount)
 
 
 # 조건 목록에 미러된 스칼라 설정 슬롯의 정본 자리. 트레이스 전수 조사(2026-08-06,

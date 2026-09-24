@@ -120,6 +120,31 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                 question=msg(*CONTRIBUTION_SYMBOL_QUESTION),
             ))
 
+    # ①-2b 정기 인출(엔진 v16.33) — 인출액·주기도 둘 다 있어야 하고, 대상이 지정돼야 한다.
+    withdrawal = bt.withdrawal_amount is not None or bt.withdrawal_period is not None
+    if withdrawal:
+        if bt.withdrawal_amount is None:
+            missing.append("strategy.backtest.withdrawal_amount")
+            questions.append(ClarificationQuestion(
+                field="strategy.backtest.withdrawal_amount",
+                question=msg("정기 인출로 한 번에 얼마씩 인출할까요?",
+                             "How much should each periodic withdrawal be?"),
+            ))
+        if bt.withdrawal_period is None:
+            missing.append("strategy.backtest.withdrawal_period")
+            questions.append(ClarificationQuestion(
+                field="strategy.backtest.withdrawal_period",
+                question=msg("얼마나 자주 인출할까요? (매주·매월·격월·분기·매년)",
+                             "How often should withdrawals be made? (weekly, monthly, every two months, "
+                             "quarterly, yearly)"),
+            ))
+        if not strategy.universe.symbols and not strategy.universe.etf_theme:
+            missing.append("strategy.universe.symbols")
+            questions.append(ClarificationQuestion(
+                field="strategy.universe.symbols",
+                question=msg(*CONTRIBUTION_SYMBOL_QUESTION),
+            ))
+
     # ①-3 현금 풀(엔진 v16.22) — 현금을 남겨 두라고 했는데 수준을 말하지 않았으면("일정 수준")
     # 기본값으로 채우지 않고 묻는다(칩: 초기 자본의 10%·20%·30%, 2026-09-21 사용자 결정).
     if contribution and bt.cash_pool is not None and not bt.cash_pool.is_complete():
@@ -131,7 +156,7 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
         ))
 
     # ② 진입 메커니즘 존재 여부 (조건 또는 랭킹) — 적립식은 납입 일정이 곧 매수 규칙이다.
-    if intent.intent == "CREATE_STRATEGY" and not contribution \
+    if intent.intent == "CREATE_STRATEGY" and not contribution and not withdrawal \
             and not strategy.entry_conditions and not strategy.ranking:
         missing.append("strategy.entry_conditions")
         questions.append(ClarificationQuestion(
@@ -589,7 +614,7 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
     )
     # 적립식의 진입 조건은 전부 납입액 규칙이다(capability_validator가 섞인 요청을 이미 걸렀다) —
     # 매도가 없는 방식이라 청산 규칙을 묻지 않는다.
-    if strategy.entry_conditions and not has_exit_rule and not contribution:
+    if strategy.entry_conditions and not has_exit_rule and not contribution and not withdrawal:
         # 재무 스크리닝만 있는 전략은 정기 리밸런싱 회전이 자연스러운 완성형이다 —
         # 오류가 아니라 질문으로 청산 방식을 확정받는다
         missing.append("strategy.exit_conditions")

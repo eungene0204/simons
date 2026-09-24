@@ -147,6 +147,11 @@ export interface ParsedSummary {
   // 정액 적립식(엔진 v16.20) — 둘 다 있고 지정 종목이 있어야 적립식이다.
   contribution_amount?: number | null;
   contribution_period?: string | null;
+  // 정기 인출(엔진 v16.33) — 적립과 같은 계약(둘 다 있고 대상이 있어야 인출이다).
+  withdrawal_amount?: number | null;
+  withdrawal_period?: string | null;
+  // 비교 지수(엔진 v16.33) — 사용자가 고른 정본 id. 없으면 유니버스 기본 지수.
+  benchmark?: string | null;
   // 조건부 납입액 규칙(엔진 v16.21) — 납입일에 signal이 성립하면 그 회차 납입액을 amount로(set) / amount만큼 더(add).
   contribution_rules?: Array<{ signal: ParsedSummary["entry_signals"][number]; amount: number; mode: "set" | "add" }> | null;
   // 현금 풀(엔진 v16.22) — 보유 현금에서 꺼내 사는 적립. reserve_stated만 참이면 하한 수준을 되묻는 중이다.
@@ -788,6 +793,8 @@ export function hasBuyCriteria(parsed: ParsedSummary | null | undefined): boolea
   // 정액 적립식은 납입 일정이 곧 매수 규칙이다 — 여기서 빠지면 실행 버튼은 열렸는데 실행 핸들러가
   // "매수 기준 없음"으로 빌더를 처음부터 다시 시작해 유니버스를 되묻는다(2026-09-22 사용자 보고).
   if (hasContributionPlan(parsed)) return true;
+  // 정기 인출만 말한 전략도 '지정 종목을 사서 들고 있다'가 매수 규칙이다(엔진 v16.33 현금흐름 레인).
+  if (hasWithdrawalPlan(parsed)) return true;
   return (
     (parsed.entry_signals?.length ?? 0) > 0 ||
     (parsed.fundamental_filters?.length ?? 0) > 0 ||
@@ -803,6 +810,16 @@ export function hasContributionPlan(parsed: ParsedSummary | null | undefined): b
     parsed &&
       (parsed.contribution_amount ?? 0) > 0 &&
       parsed.contribution_period &&
+      ((parsed.target_symbols?.length ?? 0) > 0 || parsed.etf_theme),
+  );
+}
+
+/** 인출액과 주기가 둘 다 있고 대상이 있는 전략인가 — 백엔드 strategy_slots.has_withdrawal_plan과 동형. */
+export function hasWithdrawalPlan(parsed: ParsedSummary | null | undefined): boolean {
+  return Boolean(
+    parsed &&
+      (parsed.withdrawal_amount ?? 0) > 0 &&
+      parsed.withdrawal_period &&
       ((parsed.target_symbols?.length ?? 0) > 0 || parsed.etf_theme),
   );
 }

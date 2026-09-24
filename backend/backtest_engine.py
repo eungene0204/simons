@@ -12,7 +12,7 @@ from engine.signals import SignalEngine, FUNDAMENTAL_LABELS
 from engine.simulator import (
     Simulator, applied_trading_costs, regime_condition_args, resolve_cost_rates, resolve_slippage_rate,
 )
-from engine.contributions import contribution_settings
+from engine.contributions import contribution_settings, withdrawal_settings
 from engine.result_handler import ResultHandler
 from engine.data_resolver import DataResolver
 from engine.prep_cache import SymbolPrepCache
@@ -23,6 +23,7 @@ from engine import trade_reason as tr
 from engine import universe_prefilters as _prefilters
 from engine import result_warnings as rw
 from engine import universe_pit
+from engine import macro_data as _macro
 from engine import data_coverage
 
 
@@ -796,6 +797,38 @@ class BacktestEngine:
             "dates": [pd.Timestamp(val.index[j]).strftime('%Y-%m-%d') for j in idx],
         }
 
+    # ── 비교 지수(벤치마크) 정본 목록 (v16.33) ────────────────────────────────
+    # 사용자가 비교 대상을 직접 고른 경우에 쓰는 id → (심볼, 표시명) 표다. 입력은 인터프리터가
+    # 고른 **정본 id**이거나 종목코드/티커이며 사용자 원문이 아니다(표기 정규화일 뿐 해석이 아니다).
+    BENCHMARK_CHOICES: Dict[str, tuple] = {
+        "kospi": ("226490", "KODEX 코스피 (226490)"),
+        "kospi200": ("069500", "KODEX 200 (069500)"),
+        "kosdaq": ("229200", "KODEX KOSDAQ 150 (229200)"),
+        "kosdaq150": ("229200", "KODEX KOSDAQ 150 (229200)"),
+        "sp500": ("SPY", "SPY"),
+        "nasdaq100": ("QQQ", "QQQ"),
+        "dow": ("DIA", "DIA"),
+        "russell2000": ("IWM", "IWM"),
+    }
+
+    @classmethod
+    def resolve_benchmark_choice(cls, value) -> "Optional[tuple]":
+        """명시된 비교 지수 → (심볼, 표시명). 알 수 없으면 None(유니버스 기본값으로 둔다)."""
+        if value is None:
+            return None
+        key = str(value).strip()
+        if not key:
+            return None
+        folded = key.lower().replace(" ", "").replace("_", "").replace("-", "")
+        if folded in cls.BENCHMARK_CHOICES:
+            return cls.BENCHMARK_CHOICES[folded]
+        # 종목코드(6자리)·미국 티커를 직접 지정한 경우 — 표시명은 코드 그대로 둔다.
+        if key.isdigit() and len(key) == 6:
+            return key, key
+        if key.replace(".", "").isalpha() and len(key) <= 6:
+            return key.upper(), key.upper()
+        return None
+
     @staticmethod
     def benchmark_for_universe(universe_id: str, symbols: "list[str] | None" = None) -> tuple[str, str]:
         """비교 대상 지수 ETF (심볼, 표시명).
@@ -835,11 +868,104 @@ class BacktestEngine:
             return "226490", "KODEX 코스피 (226490)"
         return "069500", "KODEX 200 (069500)"
 
-    def _load_benchmark_prices(self, req, processed_symbols, common_index, apply_dividends):
-        """유니버스에 맞는 벤치마크 ETF 종가와 이름 — 기간·분배금 비대칭은 경고로 공시한다."""
-        _benchmark_sym, _benchmark_name = self.benchmark_for_universe(
-            req.get('universe_id') or '', processed_symbols
-        )
+    # 배당소득 원천징수세율 기본값 — 세전 배당을 전액 재투자하면 장기 결과가 실제보다 유리해진다.
+    # 한국 15.4%(소득세 14% + 지방소득세 1.4%), 미국 15%(적격배당 표준 세율). 요청이 값을 주면
+    # 그것이 이긴다(0을 주면 종전처럼 세전 재투자).
+    DEFAULT_DIVIDEND_TAX_RATE = {"kr": 0.154, "us": 0.15}
+
+    @classmethod
+    def resolve_dividend_tax_rate(cls, options: Dict[str, Any], region: str, apply_dividends: bool) -> float:
+        if not apply_dividends:
+            return 0.0
+        raw = (options or {}).get('dividend_tax_rate')
+        if raw is not None:
+            try:
+                return float(min(max(float(raw), 0.0), 1.0))
+            except (TypeError, ValueError):
+                pass
+        return cls.DEFAULT_DIVIDEND_TAX_RATE.get(str(region or 'kr').lower(), 0.0)
+
+    def region_of(self, req, processed_symbols) -> str:
+        """결과 기준값(무위험수익률·물가·벤치마크 묶음)이 볼 시장 — 'kr' | 'us'."""
+        if universe_pit.us_universe_kind(req.get('universe_id') or ''):
+            return 'us'
+        if processed_symbols and universe_pit.is_us_symbol(processed_symbols[0]):
+            return 'us'
+        return 'kr'
+
+    def reference_rates(self, region: str, options: Dict[str, Any], common_index):
+        """(무위험수익률 소수, 공시 dict, 물가 dict|None).
+
+        샤프·소르티노의 무위험수익률을 0으로 두면 금리가 높던 구간의 위험조정 성과가 실제보다
+        좋게 나온다 — 창 기간 단기금리(한국 CD 3개월·미국 3개월물) 평균을 기본값으로 쓰고,
+        요청이 값을 명시하면 그것이 이긴다. 자료가 없으면 0으로 두되 그 사실을 결과에 남긴다.
+        """
+        explicit = (options or {}).get('risk_free_rate')
+        auto = None
+        if explicit is None:
+            try:
+                auto = _macro.average_short_rate(region, common_index, self.loader.data_dir)
+            except Exception as exc:  # noqa: BLE001 — 기준값 산정 실패가 백테스트를 막지 않는다
+                print(f"[BT-ENGINE] 무위험수익률 산정 실패: {exc}", flush=True)
+        if explicit is not None:
+            rate = float(explicit)
+            disclosure = {"annualPct": rate * 100.0, "source": "explicit",
+                          "series": None, "label": None, "labelEn": None}
+        elif auto is None:
+            disclosure = {"annualPct": 0.0, "source": "unavailable",
+                          "series": None, "label": None, "labelEn": None}
+            rate = 0.0
+        else:
+            rate = float(auto["rate"])
+            disclosure = {"annualPct": rate * 100.0, "source": "market",
+                          "series": auto["series"], "label": auto["label"],
+                          "labelEn": auto["label_en"], "coverage": auto["coverage"]}
+        inflation = None
+        try:
+            inflation = _macro.inflation_over_window(region, common_index, self.loader.data_dir)
+        except Exception as exc:  # noqa: BLE001 — 위와 같은 이유
+            print(f"[BT-ENGINE] 물가 산정 실패: {exc}", flush=True)
+        return rate, disclosure, inflation
+
+    @staticmethod
+    def real_returns(final: Dict[str, Any], inflation: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """명목 수익률을 물가로 나눈 실질 수익률 — 물가 자료가 없으면 None.
+
+        총수익은 물가 자료가 닿은 구간(inflation['from']~['to'])의 누적 물가로 환산한다.
+        창 끝까지 닿지 못한 경우(covered=False)는 그 사실을 그대로 실어 보낸다.
+        """
+        if not inflation:
+            return None
+        out = dict(inflation)
+        annual = inflation.get("annual")
+        cagr = final.get("cagr")
+        if annual is not None and cagr is not None:
+            out["realCagrPct"] = ((1.0 + float(cagr) / 100.0) / (1.0 + float(annual)) - 1.0) * 100.0
+        total = final.get("totalReturn")
+        if inflation.get("total") is not None and total is not None:
+            out["realTotalReturnPct"] = (
+                (1.0 + float(total) / 100.0) / (1.0 + float(inflation["total"])) - 1.0) * 100.0
+        out["totalPct"] = None if inflation.get("total") is None else float(inflation["total"]) * 100.0
+        out["annualPct"] = None if annual is None else float(annual) * 100.0
+        return out
+
+    def _load_benchmark_prices(self, req, processed_symbols, common_index, apply_dividends,
+                               dividend_tax_rate: float = 0.0):
+        """벤치마크 ETF 종가와 이름 — 사용자가 고른 비교 지수가 있으면 그것을, 없으면 유니버스 기본값을 쓴다.
+
+        기간·분배금 비대칭은 경고로 공시한다. 지정한 비교 지수를 못 읽으면 조용히 기본값으로
+        떨어지지 않고(무엇과 비교했는지가 결과의 의미를 바꾼다) 경고로 알린 뒤 기본값을 쓴다.
+        """
+        _chosen = self.resolve_benchmark_choice((req.get('options') or {}).get('benchmark'))
+        if _chosen is not None and self.loader.load_symbol_data(_chosen[0]) is None:
+            self.warnings.add(rw.warning(rw.BENCHMARK_CHOICE_UNAVAILABLE, _chosen[1]))
+            _chosen = None
+        if _chosen is not None:
+            _benchmark_sym, _benchmark_name = _chosen
+        else:
+            _benchmark_sym, _benchmark_name = self.benchmark_for_universe(
+                req.get('universe_id') or '', processed_symbols
+            )
         benchmark_prices = None
         try:
             _bench_df = self.loader.load_symbol_data(_benchmark_sym)
@@ -847,6 +973,7 @@ class BacktestEngine:
                 _bench_pd = self.loader.preprocess_data(
                     _bench_df, apply_dividends=apply_dividends,
                     sanitize_corporate_actions=not universe_pit.is_us_symbol(_benchmark_sym),
+                    dividend_tax_rate=dividend_tax_rate,
                 )
                 benchmark_prices = _bench_pd['close'].sort_index()
                 # H1: 벤치마크가 자기 존재 구간만, 전략은 전체 구간을 복리로 쌓으므로
@@ -900,7 +1027,7 @@ class BacktestEngine:
     def _run_contribution_backtest(self, req, risk_params, options, contribution, init_cash,
                                    price_df, exec_px_df, available_df, common_index,
                                    processed_symbols, apply_dividends,
-                                   exec_type='next_open', signal_delay=1):
+                                   exec_type='next_open', signal_delay=1, withdrawal=None):
         """정액 적립식 레인(v16.20) — 대상 종목을 납입 일정대로 조건 없이 사 모은다.
 
         일반 체결 경로(시뮬레이터·vectorbt)를 거치지 않는 별도 장부다(engine/contributions.py).
@@ -916,6 +1043,7 @@ class BacktestEngine:
             rule_symbol_flows,
             simulate_cash_pool,
             simulate_contributions,
+            withdrawal_flows,
         )
 
         _mixed = (
@@ -925,12 +1053,25 @@ class BacktestEngine:
                 'stop_loss_pct', 'take_profit_pct', 'trailing_stop_pct', 'max_holding_days'))
         )
         if _mixed:
+            _lane = "정액 적립식" if contribution is not None else "정기 인출"
             raise ValueError(
-                "정액 적립식은 대상 종목을 조건 없이 매수하는 방식만 지원합니다 — "
+                f"{_lane}은 대상 종목을 조건 없이 매수·보유하는 방식만 지원합니다 — "
                 "매수·매도 조건, 랭킹, 손절·익절과는 함께 쓸 수 없습니다.")
 
-        amount, period = contribution
-        flows = contribution_flows(common_index, init_cash, amount, period)
+        import numpy as _np
+
+        # 납입 없이 인출만 하는 요청(은퇴 인출 시뮬레이션)은 첫 봉의 초기 자본이 유일한 유입이다.
+        if contribution is None:
+            amount, period = 0.0, None
+            flows = _np.zeros(len(common_index))
+            if len(flows):
+                flows[0] = float(init_cash)
+        else:
+            amount, period = contribution
+            flows = contribution_flows(common_index, init_cash, amount, period)
+        w_amount, w_period = (withdrawal if withdrawal is not None else (0.0, None))
+        withdrawals = (withdrawal_flows(common_index, w_amount, w_period)
+                       if withdrawal is not None else None)
         buy_fee, _sell_fee, _sell_tax = resolve_cost_rates(options, common_index)
         # 조건부 납입액(v16.21) — 규칙이 없으면 종전 경로 그대로다(symbol_flows=None).
         rules = contribution_rules(risk_params)
@@ -942,6 +1083,10 @@ class BacktestEngine:
         # 현금 풀(v16.22) — 밖에서 돈이 들어오지 않고 초기 자본(보유 현금)에서 꺼내 산다. 회차 일정·
         # 회차 매수액(기본액·조건부 규칙)은 위와 같은 산식이고, 첫 봉도 한 회차다.
         pool = cash_pool_settings(risk_params, init_cash)
+        if pool is not None and withdrawal is not None:
+            raise ValueError(
+                "정기 인출은 '보유 현금에서 매수하는 방식'(현금 풀)과 함께 쓸 수 없습니다 — "
+                "인출은 납입·초기 자본으로 모은 자산에서 꺼냅니다.")
         limited_rounds = 0
         if pool is not None:
             import numpy as np
@@ -958,17 +1103,26 @@ class BacktestEngine:
         else:
             ledger = simulate_contributions(
                 price_df, exec_px_df, available_df, flows, buy_fee, resolve_slippage_rate(options),
-                symbol_flows=symbol_flows)
+                symbol_flows=symbol_flows, withdrawals=withdrawals,
+                sell_fee_rate=_sell_fee, sell_tax=_sell_tax)
 
+        _div_tax = self.resolve_dividend_tax_rate(
+            options, self.region_of(req, processed_symbols), apply_dividends)
         benchmark_prices, _benchmark_name = self._load_benchmark_prices(
-            req, processed_symbols, common_index, apply_dividends)
+            req, processed_symbols, common_index, apply_dividends, _div_tax)
+        _region = self.region_of(req, processed_symbols)
+        _rf_rate, _rf_disclosure, _inflation = self.reference_rates(_region, options, common_index)
         final = self.handler.format_contribution_results(
             ledger, common_index, init_cash, amount, period,
             benchmark_prices=benchmark_prices, benchmark_label=_benchmark_name,
-            risk_free_rate=float(options.get('risk_free_rate') or 0.0),
+            risk_free_rate=_rf_rate,
+            withdrawal_amount=w_amount, withdrawal_period=w_period,
         )
         final["universe_id"] = req.get('universe_id') or ''
+        final["riskFreeRate"] = _rf_disclosure
+        final["inflation"] = self.real_returns(final, _inflation)
         final["tradingCosts"] = applied_trading_costs(options, common_index)
+        final["tradingCosts"]["dividendTaxRate"] = _div_tax if apply_dividends else None
         final["rebalanceComparison"] = None
         if rules:
             final["contributions"]["rules"] = [
@@ -995,11 +1149,20 @@ class BacktestEngine:
                 tr.part(_CONTRIBUTION_PERIOD_TEMPLATES[period]), final["contributions"]["count"]))
             if limited_rounds:
                 self.warnings.add(rw.warning(rw.CASH_POOL_LIMITED_ROUNDS, int(limited_rounds)))
-        else:
+        elif contribution is not None:
             self.warnings.add(rw.warning(
                 rw.CONTRIBUTION_APPLIED,
                 tr.part(_CONTRIBUTION_PERIOD_TEMPLATES[period]), final["contributions"]["count"]))
-        self.warnings.add(rw.warning(rw.CONTRIBUTION_NO_SELLS))
+        if withdrawal is not None:
+            _w = final["withdrawals"]
+            self.warnings.add(rw.warning(
+                rw.WITHDRAWAL_APPLIED,
+                tr.part(_CONTRIBUTION_PERIOD_TEMPLATES[w_period]), _w["count"],
+                int(round(_w["totalWithdrawn"]))))
+            if _w["shortfallRounds"]:
+                self.warnings.add(rw.warning(rw.WITHDRAWAL_SHORTFALL, _w["shortfallRounds"]))
+        else:
+            self.warnings.add(rw.warning(rw.CONTRIBUTION_NO_SELLS))
         if ledger.missed_rounds:
             # 현금 풀은 미집행분을 다음 회차에 합치지 않는다(돈은 풀에 남는다) — 문구가 다르다.
             self.warnings.add(rw.warning(
@@ -1079,6 +1242,9 @@ class BacktestEngine:
             # 벤치마크 양쪽에 동일 적용해 비교 일관성을 유지한다. total_return=False로
             # 명시하면 과거 호환(가격리턴)으로 되돌릴 수 있다.
             apply_dividends = bool(options.get('total_return', True))
+            # 배당 재투자에 붙는 원천징수세(v16.33) — 가격 패널을 바꾸므로 Phase1 캐시 키 재료다.
+            _div_tax = self.resolve_dividend_tax_rate(
+                options, self.region_of(req, req.get('symbols')), apply_dividends)
 
             # same_close fills a signal derived from bar i's close at that same
             # close — not realistically tradable (the close is only known once the
@@ -1429,7 +1595,7 @@ class BacktestEngine:
                 entry=req.get('entry'), exit_=req.get('exit'),
                 warmup_start_str=_warmup_start_str, has_period_filter=_has_period_filter,
                 period_start_str=_period_start_str, end_str=_end_str,
-                apply_dividends=apply_dividends,
+                apply_dividends=apply_dividends, dividend_tax_rate=_div_tax,
                 skip_risk=bool(risk_params.get('skip_risk_management', False)),
                 skip_pos=bool(risk_params.get('skip_position_setting', False)),
                 init_cash=init_cash, pos_size_pct=pos_size_pct, liquid_limit=liquid_limit,
@@ -2298,14 +2464,16 @@ class BacktestEngine:
             _t2 = _time.time()
             print(f"[BT-ENGINE] Phase1 완료: {_t2-_t1:.2f}s ({len(processed_symbols)}종목 처리)", flush=True)
 
-            # ── 정액 적립식(v16.20) ── 납입 일정이 있는 요청은 별도 장부로 계산한다.
+            # ── 정액 적립식(v16.20)·정기 인출(v16.33) ── 현금흐름이 있는 요청은 별도 장부로 계산한다.
             _contribution = contribution_settings(risk_params)
-            if _contribution is not None:
+            _withdrawal = withdrawal_settings(risk_params)
+            if _contribution is not None or _withdrawal is not None:
                 final = self._run_contribution_backtest(
                     req, risk_params, options, _contribution, init_cash,
                     price_df, exec_px_df, available_df, common_index,
                     processed_symbols, apply_dividends,
-                    exec_type=exec_type, signal_delay=signal_delay)
+                    exec_type=exec_type, signal_delay=signal_delay,
+                    withdrawal=_withdrawal)
                 final["resolution_logs"] = all_resolution_logs
                 return final
 
@@ -2518,23 +2686,31 @@ class BacktestEngine:
 
             # 5. Benchmark ETF 로드
             benchmark_prices, _benchmark_name = self._load_benchmark_prices(
-                req, processed_symbols, common_index, apply_dividends)
+                req, processed_symbols, common_index, apply_dividends, _div_tax)
 
             # 5. Format
+            _region = self.region_of(req, processed_symbols)
+            _rf_rate, _rf_disclosure, _inflation = self.reference_rates(_region, options, common_index)
             final = self.handler.format_results(
                 pf, processed_symbols, all_entries, all_exits,
                 all_entry_reasons, all_exit_reasons, common_index,
                 risk_params, exec_type, init_cash,
                 benchmark_prices=benchmark_prices,
                 benchmark_label=_benchmark_name,
-                risk_free_rate=float(options.get('risk_free_rate') or 0.0),
+                risk_free_rate=_rf_rate,
                 exit_reason_overrides=getattr(self.simulator, 'exit_reason_overrides', None),
                 entry_reason_overrides=getattr(self.simulator, 'entry_reason_overrides', None),
             )
             final["universe_id"] = req.get('universe_id') or ''
+            # 위험조정 지표의 기준 금리와 실질(물가 조정) 수익률 — 무엇을 기준으로 계산했는지 공시한다.
+            final["riskFreeRate"] = _rf_disclosure
+            final["inflation"] = self.real_returns(final, _inflation)
             # 이 결과가 실제로 적용한 거래 비용 — 설정 화면 값이 아니라 엔진이 해석한 값을 결과
             # 로그에 남긴다(기록에서 다시 연 결과도 어떤 비용으로 계산됐는지 알 수 있게).
             final["tradingCosts"] = applied_trading_costs(options, common_index)
+            final["tradingCosts"]["dividendTaxRate"] = _div_tax if apply_dividends else None
+            if apply_dividends and _div_tax > 0:
+                self.warnings.add(rw.warning(rw.DIVIDEND_TAX_APPLIED, round(_div_tax * 100, 2)))
             _t4 = _time.time()
             print(f"[BT-ENGINE] Format 완료: {_t4-_t3:.2f}s", flush=True)
             print(f"[BT-ENGINE] 총 소요: {_t4-_t0:.2f}s", flush=True)
@@ -2558,8 +2734,6 @@ class BacktestEngine:
                 try:
                     from engine import result_analytics as _ra
                     from engine.indicators import lookback_return_panel as _lrp
-                    _region = 'us' if (universe_pit.us_universe_kind(req.get('universe_id') or '')
-                                       or (processed_symbols and universe_pit.is_us_symbol(processed_symbols[0]))) else 'kr'
                     _mom = _to_window(_lrp(rank_price_df, 252, 21)) if len(rank_price_df) > 252 else None
                     _tv_panel = (pd.DataFrame(all_trading_values, index=common_index, columns=processed_symbols)
                                  if all_trading_values else None)
@@ -2574,7 +2748,9 @@ class BacktestEngine:
                         prices=_to_window(rank_price_df.reindex(columns=processed_symbols)),
                         momentum=_mom, benchmark_prices=benchmark_prices, loader=self.loader,
                         region=_region, apply_dividends=apply_dividends,
-                        risk_free_rate=float(options.get('risk_free_rate') or 0.0))
+                        dividend_tax_rate=_div_tax,
+                        risk_free_rate=_rf_rate, extra_benchmark=(
+                            self.resolve_benchmark_choice((req.get('options') or {}).get('benchmark'))))
                     final["turnover"] = (final["analytics"].get("turnover") or {}).get("annual")
                 except Exception as _ae:  # noqa: BLE001 — 부가 통계가 결과를 막으면 안 된다
                     import logging

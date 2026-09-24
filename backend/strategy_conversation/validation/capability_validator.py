@@ -976,6 +976,30 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
             bt.contribution_period = None
         else:
             bt.contribution_period = period
+    # 정기 인출(v16.33) — 주기 표기는 납입과 같은 표로 정규화한다.
+    if bt.withdrawal_period is not None:
+        period = caps.normalize_rebalance_frequency(bt.withdrawal_period)
+        if period is None or period == "none":
+            errors.append(
+                f"인출 주기 '{bt.withdrawal_period}'을(를) 해석할 수 없습니다 "
+                f"(지원: {', '.join(f for f in caps.SUPPORTED_REBALANCE_FREQUENCIES if f != 'none')})"
+            )
+            bt.withdrawal_period = None
+        else:
+            bt.withdrawal_period = period
+    # 비교 지수(v16.33) — 정본 id 표에 없는 표기는 값을 버리고 알린다(기본 지수로 계산된다).
+    if bt.benchmark is not None:
+        from backtest_engine import BacktestEngine as _BE
+        _choice = _BE.resolve_benchmark_choice(bt.benchmark)
+        _canon = str(bt.benchmark).strip().lower().replace(" ", "").replace("_", "").replace("-", "")
+        if _choice is None or _canon not in _BE.BENCHMARK_CHOICES:
+            errors.append(
+                f"비교 지수 '{bt.benchmark}'을(를) 해석할 수 없습니다 "
+                f"(지원: {', '.join(_BE.BENCHMARK_CHOICES)})"
+            )
+            bt.benchmark = None
+        else:
+            bt.benchmark = _canon
     # 적립식은 지정 종목을 조건 없이 사 모으는 방식만 계산한다(engine/contributions.py) — 조건·랭킹·
     # 손절과 섞이면 엔진이 거절하므로, 적립 설정을 빼고 무엇이 빠졌는지 알린다(조용한 제거 금지).
     # 조건부 납입액(v16.21): 매수 금액이 붙은 진입 조건(buy_amount)은 매매 조건이 아니라 **그 회차
@@ -1048,6 +1072,36 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
         unsupported.extend(bt.cash_pool.source_texts or [ui_language.msg(
             "보유 현금 기준 매수 제한", "cash-based buy limits")])
         bt.cash_pool = None
+
+    # 정기 인출(v16.33)도 같은 현금흐름 장부라 매매 조건과 섞일 수 없다 — 적립과 같은 계약으로
+    # 인출 설정을 빼고 알린다(조용한 제거 금지). 현금 풀과도 함께 쓸 수 없다.
+    _has_withdrawal = bt.withdrawal_amount is not None or bt.withdrawal_period is not None
+    if _has_withdrawal and (
+        strategy.entry_conditions or strategy.exit_conditions or strategy.ranking
+        or any(v is not None for v in (
+            strategy.risk_management.stop_loss, strategy.risk_management.take_profit,
+            strategy.risk_management.trailing_stop, strategy.portfolio.hold_period_days))
+    ):
+        unsupported.append(ui_language.msg(
+            "매수·매도 조건이 있는 전략의 정기 인출", "periodic withdrawals combined with trading conditions"))
+        errors.append(ui_language.msg(
+            "정기 인출은 지정한 종목을 조건 없이 보유하는 방식에서만 계산합니다 — 매수·매도 조건, 랭킹, "
+            "손절·익절·보유 기간과는 함께 쓸 수 없어 인출 설정을 제외했습니다",
+            "Periodic withdrawals are only simulated for unconditionally held designated symbols — they can't be "
+            "combined with entry/exit conditions, ranking, stop-loss/take-profit or a holding period, so the "
+            "withdrawal settings were left out",
+        ))
+        bt.withdrawal_amount = None
+        bt.withdrawal_period = None
+    elif _has_withdrawal and bt.cash_pool is not None:
+        unsupported.append(ui_language.msg(
+            "보유 현금 매수 방식과 함께 쓰는 정기 인출", "withdrawals combined with cash-pool buying"))
+        errors.append(ui_language.msg(
+            "정기 인출은 보유 현금에서 꺼내 사는 방식(현금 풀)과 함께 쓸 수 없어 인출 설정을 제외했습니다",
+            "Periodic withdrawals can't be combined with cash-pool buying, so the withdrawal settings were left out",
+        ))
+        bt.withdrawal_amount = None
+        bt.withdrawal_period = None
 
     if strategy.backtest.period is not None \
             and strategy.backtest.period not in caps.SUPPORTED_BACKTEST_PERIODS:

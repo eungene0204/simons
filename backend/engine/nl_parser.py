@@ -1461,6 +1461,20 @@ class ParsedStrategy(BaseModel):
         default=None,
         description="납입 주기. '매달'=monthly, '매주'=weekly, '분기마다'=quarterly. 언급 없으면 None"
     )
+    # 정기 인출(엔진 v16.33) — 둘 다 있어야 인출이다. 납입과 함께 쓰거나 인출만 쓸 수 있다.
+    withdrawal_amount: Optional[float] = Field(
+        default=None, gt=0,
+        description="정기 인출액(원). '매달 200만원씩 인출'=2000000. 언급 없으면 None"
+    )
+    withdrawal_period: Optional[Literal["daily", "weekly", "monthly", "bimonthly", "quarterly", "semiannual", "yearly"]] = Field(
+        default=None,
+        description="인출 주기. '매달'=monthly, '분기마다'=quarterly. 언급 없으면 None"
+    )
+    # 비교 지수(엔진 v16.33) — 말하지 않으면 None(유니버스에 맞는 기본 지수).
+    benchmark: Optional[Literal["kospi", "kospi200", "kosdaq", "sp500", "nasdaq100", "dow", "russell2000"]] = Field(
+        default=None,
+        description="성과를 견줄 비교 지수. '코스닥 지수와 비교'=kosdaq. 언급 없으면 None"
+    )
     contribution_rules: List[ContributionRule] = Field(
         default_factory=list,
         description="조건부 납입액 규칙 — '200일선 아래면 200만 원'(set), 'RSI 30 미만이면 100만 원 더'(add)"
@@ -1544,6 +1558,9 @@ class ParsedStrategyDiff(BaseModel):
     slippage_rate: Optional[float] = None
     contribution_amount: Optional[float] = None
     contribution_period: Optional[Literal["daily", "weekly", "monthly", "bimonthly", "quarterly", "semiannual", "yearly"]] = None
+    withdrawal_amount: Optional[float] = None
+    withdrawal_period: Optional[Literal["daily", "weekly", "monthly", "bimonthly", "quarterly", "semiannual", "yearly"]] = None
+    benchmark: Optional[Literal["kospi", "kospi200", "kosdaq", "sp500", "nasdaq100", "dow", "russell2000"]] = None
 
 
 _MODEL_TRAILING_TOKENS = (

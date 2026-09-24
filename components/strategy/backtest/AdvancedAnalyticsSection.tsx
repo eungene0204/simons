@@ -40,6 +40,42 @@ function colorClass(v: number | null | undefined): string {
   return v > 0 ? "text-main-red" : v < 0 ? "text-main-blue" : "text-gray-400";
 }
 
+/** 상관계수 셀 배경 — 높을수록 붉게(같이 움직임), 낮을수록 푸르게(분산 효과). */
+function corrStyle(v: number | null): { background: string } {
+  if (v == null || !Number.isFinite(v)) return { background: "transparent" };
+  const a = Math.min(Math.abs(v), 1) * 0.45;
+  return { background: v >= 0 ? `rgba(239,68,68,${a})` : `rgba(55,122,244,${a})` };
+}
+
+/** 효율적 프론티어 — 가로 변동성(%), 세로 수익률(%). 전략의 실제 위치를 함께 찍는다. */
+function FrontierChart({ points, strategy }: {
+  points: Array<{ volatilityPct: number | null; returnPct: number | null }>;
+  strategy?: { volatilityPct: number | null; returnPct: number | null };
+}) {
+  const all = [...points, ...(strategy ? [strategy] : [])].filter(
+    (p): p is { volatilityPct: number; returnPct: number } =>
+      p.volatilityPct != null && p.returnPct != null && Number.isFinite(p.volatilityPct) && Number.isFinite(p.returnPct),
+  );
+  if (all.length < 2) return null;
+  const xs = all.map((p) => p.volatilityPct);
+  const ys = all.map((p) => p.returnPct);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const sx = (v: number) => (x1 === x0 ? 50 : 6 + ((v - x0) / (x1 - x0)) * 88);
+  const sy = (v: number) => (y1 === y0 ? 20 : 36 - ((v - y0) / (y1 - y0)) * 32);
+  const line = points
+    .filter((p) => p.volatilityPct != null && p.returnPct != null)
+    .map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.volatilityPct as number).toFixed(2)},${sy(p.returnPct as number).toFixed(2)}`)
+    .join(" ");
+  return (
+    <svg viewBox="0 0 100 40" className="mt-2 h-32 w-full" role="img" aria-label={t("효율적 프론티어")} preserveAspectRatio="none">
+      <path d={line} fill="none" stroke="#9ca3af" strokeWidth={0.6} />
+      {strategy && strategy.volatilityPct != null && strategy.returnPct != null ? (
+        <circle cx={sx(strategy.volatilityPct)} cy={sy(strategy.returnPct)} r={1.6} fill={POSITIVE} />
+      ) : null}
+    </svg>
+  );
+}
+
 function binLabel(bin: AnalyticsHistogramBin): string {
   const unit = bin.unit === "days" ? t("일") : "%";
   if (bin.from == null) return `< ${bin.to}${unit}`;
@@ -302,6 +338,58 @@ export default function AdvancedAnalyticsSection({ analytics, dates, currency = 
             )}
             <p className="mt-1 text-[10px] text-gray-600">{t("β·α·정보비율은 전략 일간 수익률을 각 벤치마크에 회귀한 값입니다.")}</p>
           </div>
+
+          {/* 자산 상관·효율적 프론티어(엔진 v16.33) — 과거 통계이며 추천이 아니다. */}
+          {a.portfolioMix ? (
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4" data-testid="analytics-portfolio-mix">
+              <div className="text-[11px] font-black uppercase tracking-widest text-gray-500">{t("자산 상관·효율적 프론티어")}</div>
+              {!a.portfolioMix.available || !a.portfolioMix.symbols?.length ? (
+                <p className="mt-2 text-xs font-bold text-gray-500">{t("표본이 부족해 상관·프론티어를 계산하지 못했습니다.")}</p>
+              ) : (
+                <>
+                  <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs font-bold text-gray-200">
+                    <dt className="text-gray-500">{t("대상 종목")}</dt><dd>{a.portfolioMix.symbols.length}</dd>
+                    <dt className="text-gray-500">{t("평균 상관계수")}</dt><dd>{num(a.portfolioMix.avgCorrelation)}</dd>
+                    <dt className="text-gray-500">{t("최대 상관계수")}</dt><dd>{num(a.portfolioMix.maxCorrelation)}</dd>
+                    <dt className="text-gray-500">{t("최소 상관계수")}</dt><dd>{num(a.portfolioMix.minCorrelation)}</dd>
+                  </dl>
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="w-full text-[10px] font-bold text-gray-300">
+                      <thead className="text-gray-500">
+                        <tr>
+                          <th className="px-1 py-0.5 text-left" />
+                          {a.portfolioMix.symbols.map((sym) => (
+                            <th key={sym} className="px-1 py-0.5 text-right">{sym}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(a.portfolioMix.correlation ?? []).map((row, i) => (
+                          <tr key={a.portfolioMix?.symbols?.[i] ?? i}>
+                            <th className="px-1 py-0.5 text-left text-gray-500">{a.portfolioMix?.symbols?.[i]}</th>
+                            {row.map((v, j) => (
+                              <td key={j} className="px-1 py-0.5 text-right" style={corrStyle(v)}>{num(v, 2)}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {a.portfolioMix.frontier?.length ? (
+                    <>
+                      <FrontierChart points={a.portfolioMix.frontier} strategy={a.portfolioMix.strategy} />
+                      <p className="mt-1 text-[10px] text-gray-600">
+                        {t("가로축 연변동성 · 세로축 연수익률. 붉은 점은 이 전략이 실제로 기록한 위치입니다.")}
+                      </p>
+                    </>
+                  ) : null}
+                  <p className="mt-1 text-[10px] text-gray-600">
+                    {t("보유했던 종목의 과거 일간 수익률로 계산한 통계입니다(공매도·레버리지 제외). 과거 기록이며 특정 조합을 권하는 것이 아닙니다.")}
+                  </p>
+                </>
+              )}
+            </div>
+          ) : null}
         </div>
       )}
     </section>

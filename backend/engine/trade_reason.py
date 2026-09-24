@@ -204,6 +204,7 @@ REBAL_PERIOD_SEMIANNUAL = "반기"
 REBAL_PERIOD_YEARLY = "연간"
 # 정액 적립식(v16.20) — 조건 없이 납입 일정대로 사는 매수. {0}=납입 회차.
 CONTRIBUTION_BUY = "정기 적립 매수 ({0}회차)"
+WITHDRAWAL_SELL = "정기 인출 매도 ({0}회차)"
 # 가상계좌 정기 납입 매수(engine/virtual_contributions.py) — 회차 종류별 사유.
 CONTRIBUTION_START_BUY = "정기 적립 시작 — 초기 자본으로 매수"
 CONTRIBUTION_DEPOSIT_BUY = "정기 납입 후 매수"

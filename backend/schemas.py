@@ -151,6 +151,11 @@ class RiskManagement(BaseModel):
     cash_reserve_pct: Optional[float] = None
     cash_reserve_amount: Optional[float] = None
     max_buy_cash_pct: Optional[float] = None
+    # 정기 인출(v16.33, engine/contributions.py): 회차 인출액과 주기(납입과 같은 표기). 각 주기의
+    # 첫 거래일마다 현금 → 보유 평가액 비례 매도 순으로 마련해 내보낸다(첫 봉 제외). 납입과 함께
+    # 쓸 수 있고 인출만 요청하면 초기 자본으로 산 자산에서 꺼낸다. 미선언 시 model_dump가 조용히 버린다.
+    withdrawal_amount: Optional[float] = None
+    withdrawal_period: Optional[str] = None
 
 class BacktestRequest(BaseModel):
     symbols: List[str]
@@ -318,6 +323,15 @@ class BacktestResponse(BaseModel):
     # simpleReturn, moneyWeightedReturn|null, cumulative[]}. 이 키가 있으면 totalReturn·cagr·
     # maxDrawdown·sharpe는 시간가중 수익률 기준이다. 미선언 시 response_model이 걸러낸다.
     contributions: Optional[Dict[str, Any]] = None
+    # 정기 인출 결과(v16.33) — {period, amount, count, totalWithdrawn, shortfallRounds}. 인출 요청이
+    # 없으면 null. 미선언 시 response_model이 걸러낸다(tradingCosts·contributions와 같은 함정).
+    withdrawals: Optional[Dict[str, Any]] = None
+    # 위험조정 지표의 기준 금리(v16.33) — {annualPct, source(market|explicit|unavailable), series, label,
+    # labelEn, coverage}. 미선언 시 response_model이 걸러내 결과 화면의 '기준값' 행이 사라진다.
+    riskFreeRate: Optional[Dict[str, Any]] = None
+    # 물가 조정 실질 수익률(v16.33) — {totalPct, annualPct, realCagrPct, realTotalReturnPct, series,
+    # label, from, to, windowTo, covered}. 물가 자료가 없으면 null. 위와 같은 이유로 선언한다.
+    inflation: Optional[Dict[str, Any]] = None
     version: Optional[str] = ENGINE_VERSION
     executionTime: Optional[float] = 0.0
     vbtResult: Optional[VBTNativeResult] = None

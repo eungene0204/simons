@@ -603,6 +603,9 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         # 정액 적립식(v16.20) — 엔진이 지정 종목을 납입 일정대로 사 모으는 별도 장부로 계산한다.
         "contribution_amount": strategy.contribution_amount,
         "contribution_period": strategy.contribution_period,
+        # 정기 인출(v16.33) — 엔진이 같은 현금흐름 장부에서 매도로 마련해 내보낸다.
+        "withdrawal_amount": strategy.withdrawal_amount,
+        "withdrawal_period": strategy.withdrawal_period,
         # 조건부 납입액 규칙(v16.21) — 적립 일정이 있을 때만 싣는다(일정 없는 규칙은 뜻이 없다).
         "contribution_rules": [
             {"condition": _tech_signal_to_condition(rule.signal),
@@ -743,5 +746,7 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
                  "slippage_impact_coeff": strategy.slippage_impact_coeff}
                 if strategy.slippage_model else {}
             ),
+            # 비교 지수(v16.33) — 말한 때만 싣는다(없으면 유니버스에 맞는 기본 지수).
+            **({"benchmark": strategy.benchmark} if strategy.benchmark else {}),
         },
     }

@@ -93,6 +93,10 @@ function mapBacktestResponse(raw: any): BacktestResult {
     warningParts: raw.warningParts,
     tradingCosts: raw.tradingCosts ?? undefined,
     contributions: raw.contributions ?? undefined,
+    // 결과 기준값(엔진 v16.33) — 누락하면 무위험수익률·실질 수익률·정기 인출 행이 조용히 사라진다.
+    riskFreeRate: raw.riskFreeRate ?? undefined,
+    inflation: raw.inflation ?? undefined,
+    withdrawals: raw.withdrawals ?? undefined,
     executionTime: raw.executionTime,
     fromCache: raw.fromCache ?? false,
     cachedAt: raw.cachedAt,

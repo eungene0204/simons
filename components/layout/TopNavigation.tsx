@@ -27,6 +27,7 @@ import {
   SignOut,
   X,
   Receipt,
+  Funnel,
 } from "phosphor-react";
 import {
   formatBacktestResetIn,
@@ -73,6 +74,13 @@ const menuItems: MenuItem[] = [
     href: "/virtual-account",
     id: "virtual-account",
     Icon: ChartLineUp,
+    prefetch: true,
+  },
+  {
+    label: "스크리너",
+    href: "/screener",
+    id: "screener",
+    Icon: Funnel,
     prefetch: true,
   },
   {

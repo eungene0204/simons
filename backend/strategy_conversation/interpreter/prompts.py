@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "7.3"
+PROMPT_VERSION = "7.4"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -94,6 +94,8 @@ _OUTPUT_SHAPE = {
             "sell_tax_rate": None,
             # 정액 적립식(엔진 v16.20) — 형태에 키가 없으면 자리를 채우지 않는다(etf_theme 실측).
             "contribution_amount": None, "contribution_period": None,
+            # 정기 인출·비교 지수(엔진 v16.33) — 위와 같은 이유로 형태에 자리를 둔다.
+            "withdrawal_amount": None, "withdrawal_period": None, "benchmark": None,
             "entry_limit_percent": None, "exit_limit_percent": None, "entry_tranches": None,
             "slippage_model": None, "slippage_impact_coeff": None,
         },
@@ -594,6 +596,12 @@ NON_STRATEGY_REQUEST(전략과 무관)
     backtest.contribution_amount에 회차 납입액을 규칙 11-2처럼 말한 표기 그대로("50만원"·"$500"),
     backtest.contribution_period에 주기(weekly|monthly|bimonthly|quarterly|yearly)를 적습니다. 처음에
     넣는 목돈은 initial_capital입니다. 말하지 않은 쪽은 null로 둡니다(지어내지 마세요).
+11-2-4. '매달 200만원씩 인출'·'분기마다 찾아 쓴다'처럼 **정기적으로 돈을 빼는** 요청은
+    backtest.withdrawal_amount에 회차 인출액을 말한 표기 그대로, backtest.withdrawal_period에
+    주기를 적습니다(적립과 같은 표기). 말하지 않은 쪽은 null로 둡니다.
+11-2-5. 성과를 견줄 지수를 말하면 backtest.benchmark에 id 하나를 적습니다 —
+    코스피=kospi, 코스피200·대형주 지수=kospi200, 코스닥=kosdaq, S&P500=sp500,
+    나스닥100=nasdaq100, 다우=dow, 러셀2000=russell2000. 말하지 않으면 null입니다.
 12. 백테스트 기간이 날짜로 명시되면 backtest.start_date/end_date를 YYYY-MM-DD로 출력하세요.
     "2020년 1월부터 2025년 12월까지" → start_date="2020-01-01", end_date="2025-12-31"
     (종료 월은 말일까지). 과거/미래 판단은 입력에 함께 주어지는 '오늘 날짜'만 기준으로

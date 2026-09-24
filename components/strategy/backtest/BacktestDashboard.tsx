@@ -52,7 +52,7 @@ import { inferStrategyType } from "@/lib/strategy-type";
 import { trackEvent } from "@/lib/analytics";
 import CreateAccountModal from "@/components/ui/CreateAccountModal";
 import { createAccount } from "@/lib/portfolio";
-import { buildPromptSummaryRows, buildTradingCostRow } from "./promptSummaryRows";
+import { buildPromptSummaryRows, buildReferenceRateRow, buildTradingCostRow } from "./promptSummaryRows";
 import { buildMonthlyReturnSeries, buildMonthlyReturnTableData } from "./monthlyReturns";
 import { buildRollingReturnSeries, buildRollingWindowStatsTable, isAnnualizedWindow } from "./rollingReturns";
 import RollingReturnTable from "./RollingReturnTable";
@@ -1001,7 +1001,11 @@ export default function BacktestDashboard({
   // 적용 거래 비용(수수료·슬리피지·거래세)은 전략이 아니라 이 실행의 설정이므로 팝오버에만 덧붙이고
   // 가상계좌 프리셋 요약(summaryRows)에는 싣지 않는다.
   const tradingCostRow = buildTradingCostRow(result.tradingCosts);
-  const promptPopoverRows = tradingCostRow ? [...promptSummaryRows, tradingCostRow] : promptSummaryRows;
+  // 위험조정 지표의 기준 금리와 실질(물가 조정) 수익률 — 같은 팝오버에 한 행으로 덧붙인다(v16.33).
+  const referenceRateRow = buildReferenceRateRow(result.riskFreeRate, result.inflation);
+  const promptPopoverRows = [...promptSummaryRows, tradingCostRow, referenceRateRow].filter(
+    (row): row is NonNullable<typeof row> => row != null,
+  );
 
   const downloadStrategyName =
     strategySummary?.strategyName?.trim() || promptText?.trim() || t("백테스트 전략");
@@ -1318,6 +1322,24 @@ export default function BacktestDashboard({
         ]
       : contributions
       ? [
+          // 정기 인출(엔진 v16.33) — 인출이 있으면 총 인출액을 먼저 보인다(빠진 돈이 얼마인지가 먼저다).
+          ...(result.withdrawals
+            ? [
+                {
+                  label: t("총 인출액"),
+                  englishLabel: englishSubLabel("Total Withdrawn"),
+                  value: formatKRW(result.withdrawals.totalWithdrawn),
+                  valueClass: "text-white",
+                  description: metricTooltip(
+                    t("총 인출액은 기간 중 실제로 빼낸 금액의 합계입니다. 보유 자산을 팔아 마련하며 매도 비용이 차감됩니다."),
+                    t("총 인출액 = 회차별 실제 인출 금액의 합"),
+                    result.withdrawals.shortfallRounds > 0
+                      ? t("보유를 모두 처분해도 모자란 회차 {0}회 — 그 회차는 마련할 수 있는 만큼만 인출했습니다.", result.withdrawals.shortfallRounds)
+                      : t("{0}회 인출", result.withdrawals.count),
+                  ),
+                },
+              ]
+            : []),
           {
             label: t("총 납입액"),
             englishLabel: englishSubLabel("Total Contributed"),
@@ -2598,6 +2620,17 @@ function BacktestTerminalLog({
   const tradingCostRow = buildTradingCostRow(result.tradingCosts);
   if (tradingCostRow) {
     logs.push({ level: "INFO", message: t("거래 비용: {0}", tradingCostRow.values.join(" / ")) });
+  }
+  const referenceRateRow = buildReferenceRateRow(result.riskFreeRate, result.inflation);
+  if (referenceRateRow) {
+    logs.push({ level: "INFO", message: t("기준값: {0}", referenceRateRow.values.join(" / ")) });
+  }
+  // 정기 인출(v16.33) — 인출 회차·총액과 마련하지 못한 회차를 로그에 남긴다.
+  if (result.withdrawals) {
+    logs.push({
+      level: "INFO",
+      message: t("정기 인출: 총 {0}회 / {1}", result.withdrawals.count, logMoney(result.withdrawals.totalWithdrawn)),
+    });
   }
 
   // 매수 신호 통계

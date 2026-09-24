@@ -781,7 +781,9 @@ class ResultHandler:
                                     amount: float, period: str,
                                     benchmark_prices: "pd.Series | None" = None,
                                     benchmark_label: str = "매수 후 보유",
-                                    risk_free_rate: float = 0.0) -> Dict[str, Any]:
+                                    risk_free_rate: float = 0.0,
+                                    withdrawal_amount: float = 0.0,
+                                    withdrawal_period: "str | None" = None) -> Dict[str, Any]:
         """정액 적립식 장부(engine/contributions.py) → 결과 DTO.
 
         자산곡선은 납입으로도 올라가므로 수익률·낙폭·샤프는 **시간가중 수익률**(납입 효과 제거)로
@@ -807,7 +809,8 @@ class ResultHandler:
 
         total_contributed = ledger.total_contributed
         final_value = ledger.final_value
-        total_profit = final_value - total_contributed
+        # 인출한 돈도 투자자가 가져간 성과다 — 기말 평가액만 보면 인출한 만큼 손실로 보인다.
+        total_profit = final_value + float(getattr(ledger, "withdrawn_total", 0.0)) - total_contributed
         mwr = money_weighted_return(common_index, ledger.flows, final_value)
 
         # ── 벤치마크: 같은 날 같은 금액을 넣은 곡선(목돈 1회 곡선과는 비교가 성립하지 않는다) ──
@@ -828,17 +831,23 @@ class ResultHandler:
 
         signals_list = []
         cost_by_symbol: Dict[str, float] = {}
+        proceeds_by_symbol: Dict[str, float] = {}
         buys_by_symbol: Dict[str, int] = {}
         for order in ledger.orders:
             sym = order["symbol"]
-            reason = [tr.part(tr.CONTRIBUTION_BUY, int(order["round"]))]
+            is_sell = order.get("side") == "sell"
+            reason = [tr.part(tr.WITHDRAWAL_SELL if is_sell else tr.CONTRIBUTION_BUY, int(order["round"]))]
             price = px(order["price"], sym)
             signals_list.append({
-                "date": order["date"], "symbol": sym, "type": "buy",
+                "date": order["date"], "symbol": sym, "type": "sell" if is_sell else "buy",
                 "price": price, "quantity": int(order["quantity"]),
                 "amount": float(round(price * order["quantity"], 2)),
                 "condition": tr.render_kr(reason), "conditionParts": reason,
             })
+            if is_sell:
+                proceeds_by_symbol[sym] = (proceeds_by_symbol.get(sym, 0.0)
+                                           + order["price"] * order["quantity"] - order["fee"])
+                continue
             cost_by_symbol[sym] = cost_by_symbol.get(sym, 0.0) + order["price"] * order["quantity"] + order["fee"]
             buys_by_symbol[sym] = buys_by_symbol.get(sym, 0) + 1
 
@@ -846,6 +855,8 @@ class ResultHandler:
         for j, sym in enumerate(ledger.symbols):
             cost_j = cost_by_symbol.get(sym, 0.0)
             value_j = float(ledger.shares[-1, j] * ledger.close[-1, j]) if len(ledger.shares) else 0.0
+            # 인출로 판 몫(수수료·세금 차감)도 성과에 포함한다 — 보유분만 세면 판 만큼 손실로 보인다.
+            value_j += proceeds_by_symbol.get(sym, 0.0)
             profit_j = value_j - cost_j if cost_j > 0 else 0.0
             total_return_j = (profit_j / cost_j * 100.0) if cost_j > 0 else 0.0
             per_asset_stats[sym] = {
@@ -907,6 +918,14 @@ class ResultHandler:
                 # 단순 수익률 = 평가 손익 ÷ 총 납입액(납입 시점 무시), 금액가중 = XIRR(연, 해가 없으면 None).
                 "simpleReturn":        _sf(total_profit / total_contributed * 100) if total_contributed > 0 else 0.0,
                 "moneyWeightedReturn": None if mwr is None else _sf(mwr * 100),
-                "cumulative":          [float(v) for v in np.cumsum(ledger.flows)],
+                "cumulative":          [float(v) for v in np.cumsum(np.maximum(ledger.flows, 0.0))],
             },
+            # 정기 인출(v16.33) — 인출 요청이 없으면 None(표시 쪽이 블록을 건너뛴다).
+            "withdrawals": ({
+                "period":        withdrawal_period,
+                "amount":        float(withdrawal_amount or 0.0),
+                "count":         int((ledger.flows < 0).sum()),
+                "totalWithdrawn": _sf(float(getattr(ledger, "withdrawn_total", 0.0))),
+                "shortfallRounds": int(getattr(ledger, "shortfall_rounds", 0)),
+            } if withdrawal_period else None),
         }

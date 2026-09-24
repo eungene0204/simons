@@ -799,6 +799,10 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         # 정액 적립식(v16.20) — 기본값을 물질화하지 않는다(둘 다 말해야 적립식이다).
         contribution_amount=bt.contribution_amount,
         contribution_period=bt.contribution_period,
+        # 정기 인출(v16.33) — 적립과 같은 계약(둘 다 말해야 인출이다). 비교 지수도 말했을 때만.
+        withdrawal_amount=bt.withdrawal_amount,
+        withdrawal_period=bt.withdrawal_period,
+        benchmark=bt.benchmark,
         contribution_rules=list(buckets.get("contribution_rules") or []),
         cash_pool=CashPool(
             reserve_pct=bt.cash_pool.reserve_pct, reserve_amount=bt.cash_pool.reserve_amount,

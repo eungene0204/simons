@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 
@@ -59,6 +59,23 @@ MACRO_ALIASES: Dict[str, str] = {
     "gold": "gold", "금": "gold", "금값": "gold", "금선물": "gold",
     "wti": "wti", "원유": "wti", "유가": "wti", "국제유가": "wti", "wti원유": "wti",
 }
+
+# 참조 시계열(사용자 조건으로 노출하지 않는 것) — 결과 지표의 기준값으로만 쓴다.
+# CPI는 해당 월이 끝나고 2주쯤 뒤에 공표되므로 **매매 조건(매크로 필터)으로 쓰면 미래 참조**다.
+# 실질 수익률 환산은 사후 표시라 그 문제가 없어 MACRO_SERIES와 분리해 둔다.
+REFERENCE_SERIES: Dict[str, Dict[str, str]] = {
+    # 한국 CPI: FRED의 OECD 계열(KORCPIALLMINMEI 등)은 2023-11에 중단됐다(2026-09-23 실측).
+    # 월별이 끊긴 자료로 최근 구간을 메우면 실질 수익률이 조용히 과대평가된다 — 대신 연간이지만
+    # 계속 갱신되는 세계은행 지수를 쓰고, 덮지 못한 구간은 결과에 그대로 고지한다.
+    "kr_cpi": {"label": "한국 소비자물가지수", "source": "worldbank", "code": "KR/FP.CPI.TOTL",
+               "unit": "pt", "freq": "annual", "label_en": "Korea CPI"},
+    "us_cpi": {"label": "미국 소비자물가지수", "source": "fred", "code": "CPIAUCSL",
+               "unit": "pt", "freq": "monthly", "label_en": "US CPI"},
+}
+
+# 파일로 존재할 수 있는 모든 시리즈(필터용 + 참조용) — 동기화 스크립트·라벨 조회가 본다.
+ALL_SERIES: Dict[str, Dict[str, str]] = {**MACRO_SERIES, **REFERENCE_SERIES}
+
 
 # 되묻기 선택지 — 애매한 표현('금리')에 시스템이 고르라고 보여 주는 정본 id 묶음.
 RATE_SERIES = ("us10y", "us2y", "fed_funds", "kr10y", "kr3m", "us_spread")
@@ -105,7 +122,96 @@ def load_macro_series(series: str, data_dir: str | os.PathLike) -> Optional[pd.S
 
 
 def series_label(series: str, english: bool = False) -> str:
-    spec = MACRO_SERIES.get(series)
+    spec = ALL_SERIES.get(series)
     if spec is None:
         return series
     return spec["label_en"] if english else spec["label"]
+
+
+# ── 무위험수익률·물가 (결과 지표의 기준값) ────────────────────────────────────
+# 지역별 단기 금리 시리즈. 샤프·소르티노의 무위험수익률을 0으로 두면 금리가 높았던
+# 구간(2000년대 초 CD 4~5%)의 위험조정 성과가 실제보다 좋게 나온다 — 백테스트 창의
+# 실제 단기금리 평균을 쓴다(v16.33).
+SHORT_RATE_SERIES: Dict[str, str] = {"kr": "kr3m", "us": "us3m"}
+
+# 지역별 소비자물가지수 — 실질(인플레이션 조정) 수익률의 기준.
+CPI_SERIES: Dict[str, str] = {"kr": "kr_cpi", "us": "us_cpi"}
+
+
+def _align_to_window(series: pd.Series, index) -> pd.Series:
+    """월간·일간이 섞인 시리즈를 백테스트 창의 거래일 축에 ffill 정렬한다(창 밖 값은 버린다)."""
+    idx = pd.DatetimeIndex(pd.to_datetime(index)).normalize()
+    if series is None or series.empty or len(idx) == 0:
+        return pd.Series(dtype=float)
+    merged = series.reindex(series.index.union(idx)).ffill()
+    return merged.reindex(idx).dropna()
+
+
+def average_short_rate(region: str, index, data_dir: str | os.PathLike) -> Optional[Dict[str, Any]]:
+    """백테스트 창의 연 무위험수익률(소수)과 근거.
+
+    반환 {'rate': 0.0325, 'series': 'kr3m', 'label': '한국 CD 3개월 금리(월간)', 'coverage': 0.98}.
+    자료가 없으면 None — 호출 측은 0으로 떨어뜨린다(계산을 막지 않는다).
+    """
+    sid = SHORT_RATE_SERIES.get(str(region or "kr").lower())
+    if sid is None:
+        return None
+    series = load_macro_series(sid, data_dir)
+    if series is None:
+        return None
+    aligned = _align_to_window(series, index)
+    if aligned.empty:
+        return None
+    return {
+        "rate": float(aligned.mean()) / 100.0,
+        "series": sid,
+        "label": series_label(sid),
+        "label_en": series_label(sid, english=True),
+        "coverage": float(len(aligned)) / float(len(pd.Index(index))),
+    }
+
+
+def inflation_over_window(region: str, index, data_dir: str | os.PathLike) -> Optional[Dict[str, Any]]:
+    """백테스트 창의 누적 물가상승률(소수)과 연율 — 실질(인플레이션 조정) 수익률의 기준.
+
+    반환 {'total': 0.21, 'annual': 0.024, 'series': 'kr_cpi', 'from': .., 'to': ..,
+          'windowTo': .., 'covered': False}.
+    **ffill한 꼬리로 기간을 늘리지 않는다**: 물가 자료가 창 끝보다 이르면 마지막 실측 관측일까지만
+    환산하고 그 사실을 함께 싣는다(한국 CPI는 연간이라 늘 몇 달이 남는다). 자료가 없으면 None.
+    """
+    sid = CPI_SERIES.get(str(region or "kr").lower())
+    if sid is None:
+        return None
+    series = load_macro_series(sid, data_dir)
+    if series is None or series.empty:
+        return None
+    idx = pd.DatetimeIndex(pd.to_datetime(index)).normalize()
+    if len(idx) == 0:
+        return None
+    w_start, w_end = idx[0], idx[-1]
+    at_or_before_start = series[series.index <= w_start]
+    base_date = at_or_before_start.index[-1] if len(at_or_before_start) else None
+    if base_date is None:
+        after = series[series.index >= w_start]
+        base_date = after.index[0] if len(after) else None
+    at_or_before_end = series[series.index <= w_end]
+    last_date = at_or_before_end.index[-1] if len(at_or_before_end) else None
+    if base_date is None or last_date is None or last_date <= base_date:
+        return None
+    base, last = float(series.loc[base_date]), float(series.loc[last_date])
+    days = (last_date - base_date).days
+    if base <= 0 or days <= 0:
+        return None
+    years = days / 365.25
+    return {
+        "total": last / base - 1.0,
+        "annual": (last / base) ** (1.0 / years) - 1.0 if years > 0 else None,
+        "series": sid,
+        "label": series_label(sid),
+        "label_en": series_label(sid, english=True),
+        "from": base_date.strftime("%Y-%m-%d"),
+        "to": last_date.strftime("%Y-%m-%d"),
+        "windowTo": w_end.strftime("%Y-%m-%d"),
+        # 창 끝까지 물가 자료가 닿았는지(연간 자료는 대개 False) — 실질 수익률 표기의 단서다.
+        "covered": bool((w_end - last_date).days <= 45),
+    }

@@ -13,6 +13,7 @@ import {
   PLAN_LIMIT_STRATEGIES,
   PLAN_LIMIT_MESSAGES,
 } from '@/lib/server/planLimits';
+import { recordStrategyVersion } from '@/lib/server/strategyVersions';
 
 function buildOwnedStrategyId(userId: number | null, data: StrategyDSL) {
   const baseId = computeStrategyIdFromDsl(data);
@@ -66,6 +67,15 @@ export async function POST(request: Request) {
         isSaved: true,
         deletedAt: null,
       },
+    });
+
+    // 버전 이력(2026-09-23) — 같은 이름으로 저장할 때마다 그 시점의 설정을 남긴다(직전과 같으면 생략).
+    await recordStrategyVersion({
+      userId,
+      strategyId,
+      name: data.name,
+      description: data.description || null,
+      settings: JSON.stringify(strategyToSave),
     });
 
     return NextResponse.json(strategy);

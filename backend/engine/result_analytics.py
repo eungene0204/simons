@@ -10,7 +10,8 @@
   riskStats       역사적 VaR/CVaR(95·99%, 일간 %), 63거래일 롤링 샤프·롤링 베타 시계열.
   turnover        기간 회전율(총 체결금액÷2÷평균 자산)과 연환산.
   liquidity       주문금액 ÷ 최근 20거래일 평균 거래대금(참여율) 분포와 참여율 10% 기준 운용 가능 자본 추정.
-  benchmarks      지역 표준 벤치마크 3종 대비 수익률·베타·알파·정보비율.
+  benchmarks      지역 표준 벤치마크 3종(+사용자가 고른 비교 지수) 대비 수익률·베타·알파·정보비율.
+  portfolioMix    실제 보유 종목 간 상관행렬과 효율적 프론티어(롱온리·과거 통계).
 """
 
 from __future__ import annotations
@@ -305,20 +306,158 @@ def factor_exposure(strat_rets: pd.Series, bench_rets: Optional[pd.Series], pric
     }
 
 
+# ── 자산 상관·효율적 프론티어 ────────────────────────────────────────────────
+
+MIX_MAX_ASSETS = 12
+MIX_MIN_OBS = 60
+MIX_MIN_ANNUAL_VOL = 0.01
+FRONTIER_POINTS = 15
+
+
+def _annual_stats(rets: np.ndarray, periods_per_year: float):
+    """(연환산 기대수익 벡터, 연환산 공분산행렬) — 일수익률 표본의 단순 연환산."""
+    from engine.portfolio_weights import _covariance
+
+    mean = np.nanmean(rets, axis=0) * periods_per_year
+    cov = _covariance(rets) * periods_per_year
+    return mean, cov
+
+
+def _frontier_point(mean, cov, target: Optional[float]):
+    """목표 수익률에서 분산이 가장 작은 롱온리 비중(공매도·레버리지 없음). 실패하면 None."""
+    from scipy.optimize import minimize
+
+    n = len(mean)
+    cons = [{"type": "eq", "fun": lambda w: w.sum() - 1.0}]
+    if target is not None:
+        cons.append({"type": "eq", "fun": lambda w, t=target: float(w @ mean) - t})
+    res = minimize(lambda w: float(w @ cov @ w), np.full(n, 1.0 / n),
+                   jac=lambda w: 2.0 * cov @ w, method="SLSQP",
+                   bounds=[(0.0, 1.0)] * n, constraints=cons,
+                   options={"maxiter": 500, "ftol": 1e-12})
+    if not res.success:
+        return None
+    w = np.clip(res.x, 0.0, None)
+    if not w.sum() > 0:
+        return None
+    w = w / w.sum()
+    return w
+
+
+def _mix_point(w, mean, cov, symbols, risk_free_rate: float) -> Dict[str, Any]:
+    ret = float(w @ mean)
+    vol = float(np.sqrt(max(w @ cov @ w, 0.0)))
+    return {
+        "returnPct": _f(ret * 100.0),
+        "volatilityPct": _f(vol * 100.0),
+        "sharpe": _f((ret - risk_free_rate) / vol) if vol > 0 else None,
+        "weights": [{"symbol": symbols[i], "weightPct": _f(float(w[i]) * 100.0)}
+                    for i in range(len(symbols)) if w[i] > 1e-4],
+    }
+
+
+def portfolio_mix(pf, symbols: List[str], prices: Optional[pd.DataFrame], init_cash: float,
+                  strat_rets: pd.Series, periods_per_year: float,
+                  risk_free_rate: float = 0.0) -> Dict[str, Any]:
+    """실제로 보유했던 종목들의 상관행렬과 효율적 프론티어(과거 통계).
+
+    무엇을 사라는 제안이 아니라 **이 전략이 담았던 자산들이 과거에 어떻게 함께 움직였는지**의
+    기술 통계다. 프론티어는 롱온리·레버리지 없음(플랫폼 원칙)이고, 표본이 모자라면 계산하지
+    않고 사유를 남긴다(0으로 위장하지 않는다).
+    """
+    if prices is None or len(prices) < MIX_MIN_OBS:
+        return {"available": False, "reason": "insufficient_history"}
+    rec = pf.trades.records
+    if len(rec) == 0:
+        return {"available": False, "reason": "no_trades"}
+    pnl_by_col: Dict[int, float] = {}
+    for k in range(len(rec)):
+        col = int(rec["col"][k])
+        pnl_by_col[col] = pnl_by_col.get(col, 0.0) + float(rec["pnl"][k])
+    held = [symbols[c] for c in sorted(pnl_by_col, key=lambda c: -abs(pnl_by_col[c]))
+            if c < len(symbols)]
+    cols = [c for c in held if c in prices.columns][:MIX_MAX_ASSETS]
+    if len(cols) < 2:
+        return {"available": False, "reason": "single_asset"}
+    rets = prices[cols].pct_change().replace([np.inf, -np.inf], np.nan)
+    rets = rets.dropna(how="any")
+    if len(rets) < MIX_MIN_OBS:
+        return {"available": False, "reason": "insufficient_overlap"}
+    # 거래가 거의 없어 가격이 굳은 종목(연 변동성 1% 미만)은 최소분산 해를 통째로 가져간다 —
+    # "위험이 없는 자산"이 아니라 **값이 갱신되지 않은 자산**이므로 프론티어에서 뺀다.
+    annual_vol = rets.std(ddof=1) * np.sqrt(periods_per_year)
+    cols = [c for c in cols if float(annual_vol.get(c, 0.0)) >= MIX_MIN_ANNUAL_VOL]
+    if len(cols) < 2:
+        return {"available": False, "reason": "stale_prices"}
+    rets = rets[cols]
+    corr = rets.corr()
+    arr = rets.to_numpy(dtype=float)
+    mean, cov = _annual_stats(arr, periods_per_year)
+
+    off = corr.to_numpy(dtype=float)[np.triu_indices(len(cols), k=1)]
+    out: Dict[str, Any] = {
+        "available": True,
+        "symbols": list(cols),
+        "observations": int(len(rets)),
+        "correlation": [[_f(float(v)) for v in row] for row in corr.to_numpy(dtype=float)],
+        "avgCorrelation": _f(float(np.nanmean(off))) if len(off) else None,
+        "maxCorrelation": _f(float(np.nanmax(off))) if len(off) else None,
+        "minCorrelation": _f(float(np.nanmin(off))) if len(off) else None,
+    }
+
+    # 전략이 실제로 낸 위험·수익(자산곡선 기준) — 프론티어 위에 찍어 비교한다.
+    r = np.asarray(strat_rets.dropna().values, dtype=float)
+    if len(r) > 1:
+        vol = float(np.std(r, ddof=1) * np.sqrt(periods_per_year))
+        ret = float(np.mean(r) * periods_per_year)
+        out["strategy"] = {"returnPct": _f(ret * 100.0), "volatilityPct": _f(vol * 100.0),
+                           "sharpe": _f((ret - risk_free_rate) / vol) if vol > 0 else None}
+
+    try:
+        w_min = _frontier_point(mean, cov, None)
+        if w_min is None:
+            out["frontier"] = []
+            return out
+        lo = float(w_min @ mean)
+        hi = float(np.max(mean))
+        points = []
+        for t in np.linspace(lo, hi, FRONTIER_POINTS):
+            w = _frontier_point(mean, cov, float(t))
+            if w is not None:
+                points.append(_mix_point(w, mean, cov, cols, risk_free_rate))
+        # 같은 변동성이 중복으로 찍히면 곡선이 계단처럼 보인다 — 변동성 오름차순으로 정리한다.
+        points.sort(key=lambda pt: (pt["volatilityPct"] if pt["volatilityPct"] is not None else 0.0))
+        out["frontier"] = points
+        out["minVariance"] = _mix_point(w_min, mean, cov, cols, risk_free_rate)
+        best = max((pt for pt in points if pt.get("sharpe") is not None),
+                   key=lambda pt: pt["sharpe"], default=None)
+        out["maxSharpe"] = best
+    except Exception as exc:  # noqa: BLE001 — 프론티어 실패가 상관행렬까지 버리지 않는다
+        out["frontier"] = []
+        out["frontierReason"] = type(exc).__name__
+    return out
+
+
 # ── 다중 벤치마크 ────────────────────────────────────────────────────────────
 
 def benchmark_comparisons(loader, region: str, common_index: pd.Index, strat_rets_raw, init_cash: float,
                           apply_dividends: bool, risk_free_rate: float, periods_per_year: float,
-                          n_years: float) -> List[Dict[str, Any]]:
+                          n_years: float, extra: Optional[tuple] = None,
+                          dividend_tax_rate: float = 0.0) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     from engine import universe_pit
-    for sym, name in BENCHMARK_SETS.get(region, []):
+    targets = list(BENCHMARK_SETS.get(region, []))
+    # 사용자가 고른 비교 지수는 지역 표준 목록에 없을 수 있다 — 맨 앞에 붙여 같은 표에서 비교한다.
+    if extra is not None and not any(extra[0] == sym for sym, _ in targets):
+        targets.insert(0, (extra[0], extra[1]))
+    for sym, name in targets:
         try:
             df = loader.load_symbol_data(sym)
             if df is None or len(df) == 0:
                 continue
             pdf = loader.preprocess_data(df, apply_dividends=apply_dividends,
-                                         sanitize_corporate_actions=not universe_pit.is_us_symbol(sym))
+                                         sanitize_corporate_actions=not universe_pit.is_us_symbol(sym),
+                                         dividend_tax_rate=dividend_tax_rate)
             prices = pdf["close"].sort_index()
         except Exception:  # noqa: BLE001
             continue
@@ -353,7 +492,9 @@ def build_analytics(*, pf, symbols: List[str], common_index: pd.Index, init_cash
                     trading_values: Optional[pd.DataFrame], market_caps: Optional[pd.DataFrame],
                     pbr: Optional[pd.DataFrame], prices: Optional[pd.DataFrame],
                     momentum: Optional[pd.DataFrame], benchmark_prices: Optional[pd.Series],
-                    loader, region: str, apply_dividends: bool, risk_free_rate: float = 0.0) -> Dict[str, Any]:
+                    loader, region: str, apply_dividends: bool, risk_free_rate: float = 0.0,
+                    extra_benchmark: Optional[tuple] = None,
+                    dividend_tax_rate: float = 0.0) -> Dict[str, Any]:
     n_years, periods_per_year = ResultHandler.time_base(common_index)
     val = pf.value()
     if isinstance(val, pd.DataFrame):
@@ -379,5 +520,8 @@ def build_analytics(*, pf, symbols: List[str], common_index: pd.Index, init_cash
         "turnover": turnover_stats(pf, val, n_years),
         "liquidity": liquidity_stats(pf, trading_values, init_cash),
         "benchmarks": benchmark_comparisons(loader, region, common_index, strat_rets_raw, init_cash,
-                                            apply_dividends, risk_free_rate, periods_per_year, n_years),
+                                            apply_dividends, risk_free_rate, periods_per_year, n_years,
+                                            extra=extra_benchmark, dividend_tax_rate=dividend_tax_rate),
+        "portfolioMix": portfolio_mix(pf, symbols, prices, init_cash, strat_series,
+                                      periods_per_year, risk_free_rate),
     }

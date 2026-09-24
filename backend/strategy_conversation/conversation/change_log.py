@@ -92,6 +92,9 @@ _FIELD_LABELS: Dict[str, str] = {
     "sell_tax_rate": "거래세율",
     "contribution_amount": "정기 납입액",
     "contribution_period": "납입 주기",
+    "withdrawal_amount": "정기 인출액",
+    "withdrawal_period": "인출 주기",
+    "benchmark": "비교 지수",
 }
 
 

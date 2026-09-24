@@ -2472,6 +2472,26 @@ async def market_indices():
         _indices_cache["loading"] = False
 
 
+@app.post("/screener/run")
+def screener_run(body: dict):
+    """독립 스크리너 — 전략의 조건을 오늘 데이터에 적용해 충족 종목을 돌려준다(엔진 v16.33).
+
+    body: {strategy: <전략 DSL(저장된 settings와 같은 모양)>, limit: 100}
+    계산 정본은 engine/screener.run_screen이며, 자동매매와 같은 평가기를 쓴다. 이 결과는
+    사용자가 정의한 조건의 계산 결과이고 추천이 아니다(표시 문구는 프론트가 함께 싣는다).
+    """
+    from engine.screener import run_screen
+
+    dsl = body.get("strategy")
+    if not isinstance(dsl, dict):
+        raise HTTPException(status_code=400, detail="strategy 필드가 필요합니다")
+    try:
+        return run_screen(engine.loader, dsl, limit=int(body.get("limit") or 100),
+                          ai_engine=engine.ai_engine)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"스크리너 실행 실패: {exc}") from exc
+
+
 @app.post("/market/signals")
 def market_signals(body: dict):
     """

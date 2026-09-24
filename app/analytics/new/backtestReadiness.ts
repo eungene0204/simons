@@ -8,7 +8,7 @@ import { getLanguage } from "@/lib/i18n";
 import type { ParsedSummary } from "@/lib/strategy-summary";
 
 import slotPrompts from "./__fixtures__/slot-prompts.json";
-import { hasContributionPlan, isUsParsedUniverse } from "@/lib/strategy-summary";
+import { hasContributionPlan, hasWithdrawalPlan, isUsParsedUniverse } from "@/lib/strategy-summary";
 
 export type MissingBacktestCondition = {
   field:
@@ -85,7 +85,7 @@ const CONTRIBUTION_NOT_APPLICABLE: readonly MissingBacktestCondition["field"][] 
 
 // 정액 적립식 술어의 정본은 lib/strategy-summary.ts 하나다(실행 게이트 hasBuyCriteria와 공유) —
 // 여기 사본을 두면 게이트끼리 갈라진다(2026-09-22: 실행 버튼은 열렸는데 실행 핸들러가 빌더로 되돌림).
-export { hasContributionPlan } from "@/lib/strategy-summary";
+export { hasContributionPlan, hasWithdrawalPlan } from "@/lib/strategy-summary";
 
 /** 슬롯 하나가 채워졌는가 — 프론트의 **유일한** 빈 슬롯 술어.
  *
@@ -113,7 +113,8 @@ export function isSlotFilled(
   // ① 질문이 이미 끝난 필드 — 값 유무·provenance와 무관하다(백엔드 _decided).
   // 정액 적립식(엔진 v16.20)은 납입 일정이 곧 매수 규칙이고 매도가 없다 — 매수·매도 조건,
   // 손절·익절, 리밸런싱은 물을 대상이 아니다(백엔드 CONTRIBUTION_NOT_APPLICABLE과 동형).
-  if (CONTRIBUTION_NOT_APPLICABLE.includes(field) && hasContributionPlan(parsed)) return true;
+  if (CONTRIBUTION_NOT_APPLICABLE.includes(field) && (hasContributionPlan(parsed) || hasWithdrawalPlan(parsed)))
+    return true;
   if (field === "rebalancing" && (targetSymbolCount === 1 || options.allowNoRebalancing === true)) {
     return true;
   }

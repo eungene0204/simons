@@ -82,6 +82,10 @@ export function mapRawBacktestResult(
     // 백테스트 로그의 `거래 비용:` 줄이 조용히 사라진다(2026-09-14 채팅 레인 누락 사고).
     tradingCosts: raw.tradingCosts ?? undefined,
     contributions: raw.contributions ?? undefined,
+    // 결과 기준값(엔진 v16.33) — 누락하면 무위험수익률·실질 수익률·정기 인출 행이 조용히 사라진다.
+    riskFreeRate: raw.riskFreeRate ?? undefined,
+    inflation: raw.inflation ?? undefined,
+    withdrawals: raw.withdrawals ?? undefined,
     executionTime: raw.executionTime,
     vbtResult: raw.vbtResult ?? undefined,
     // 분위 그룹 비교(FR-BT-060) — 누락하면 그룹 비교 섹션이 조용히 사라진다.

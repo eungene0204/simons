@@ -67,6 +67,8 @@ def build_context(
     ai_needed: bool,
     signal_delay: int = 1,
     exec_price_basis: str = "open",
+    # 배당 원천징수세율(0~1, v16.33) — 기본 0은 종전 동작(세전 배당 재투자)이다.
+    dividend_tax_rate: float = 0.0,
 ) -> Dict[str, Any]:
     """종목별 파이프라인이 읽는 요청-수준 상수 묶음(피클 가능)."""
     return {
@@ -79,6 +81,8 @@ def build_context(
         "period_start_str": period_start_str,
         "end_str": end_str,
         "apply_dividends": bool(apply_dividends),
+        # 배당 원천징수세율(0~1) — 세후 배당만 재투자한다(v16.33). 가격 패널을 바꾸므로 캐시 키 재료다.
+        "dividend_tax_rate": float(dividend_tax_rate or 0.0),
         "skip_risk": bool(skip_risk),
         "skip_pos": bool(skip_pos),
         "init_cash": float(init_cash),
@@ -151,6 +155,7 @@ def window_boundary_prep(df_pl: pl.DataFrame, sym: str, ctx: Dict[str, Any], loa
     warm = loader.preprocess_data(
         frame.select(cols), apply_dividends=ctx["apply_dividends"],
         sanitize_corporate_actions=not universe_pit.is_us_symbol(sym),
+        dividend_tax_rate=ctx.get("dividend_tax_rate", 0.0),
     )
     out["warm_close"] = warm["close"]
     pre = frame.filter(date_key() < ctx["period_start_str"])
@@ -315,6 +320,7 @@ def prepare_symbol(sym: str, ctx: Dict[str, Any], loader, indicator_engine) -> D
     pdf = loader.preprocess_data(
         df_pl, apply_dividends=ctx["apply_dividends"],
         sanitize_corporate_actions=not universe_pit.is_us_symbol(sym),
+        dividend_tax_rate=ctx.get("dividend_tax_rate", 0.0),
     )
     return {"outcome": "ok", "df_pl": df_pl, "pdf": pdf, "res_logs": res_logs, **bprep}
 
@@ -322,7 +328,8 @@ def prepare_symbol(sym: str, ctx: Dict[str, Any], loader, indicator_engine) -> D
 def prep_cache_key(sym: str, ctx: Dict[str, Any]) -> Tuple:
     # signal_delay: 창 직전 원천 봉 수(delay+1)가 산출물에 들어간다(window_boundary_prep).
     return (sym, ctx["warmup_start_str"], ctx["has_period_filter"], ctx["period_start_str"],
-            ctx["end_str"], ctx["apply_dividends"], ctx["prep_sig"], int(ctx.get("signal_delay", 1)))
+            ctx["end_str"], ctx["apply_dividends"], float(ctx.get("dividend_tax_rate", 0.0)),
+            ctx["prep_sig"], int(ctx.get("signal_delay", 1)))
 
 
 def process_symbol(

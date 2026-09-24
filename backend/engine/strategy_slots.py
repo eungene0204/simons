@@ -756,6 +756,16 @@ CONTRIBUTION_NOT_APPLICABLE = frozenset({
     ENTRY, EXIT, STOP_LOSS, TAKE_PROFIT, REBALANCING, REBALANCE_METHOD, MAX_POSITIONS})
 
 
+def has_withdrawal_plan(parsed: Any) -> bool:
+    """인출액과 주기가 둘 다 있고 대상이 있는 전략인가 — 적립 계획과 같은 계약(v16.33)."""
+    return (
+        _positive(getattr(parsed, "withdrawal_amount", None))
+        and _nonempty(getattr(parsed, "withdrawal_period", None))
+        and (_nonempty(getattr(parsed, "target_symbols", None))
+             or _nonempty(getattr(parsed, "etf_theme", None)))
+    )
+
+
 def has_contribution_plan(parsed: Any) -> bool:
     """납입액과 주기가 둘 다 있고 사 모을 대상(지정 종목 또는 ETF 상품 유니버스)이 있는 전략인가 —
     반쪽 요청은 적립식이 아니다. "S&P500 ETF"는 국내 S&P500 ETF 전체가 대상이다(2026-09-22)."""
@@ -800,7 +810,8 @@ def _decided(parsed: Any, field: str, declined: frozenset[str]) -> Optional[_Dec
     symbols = getattr(parsed, "target_symbols", None) or []
     # ① 정액 적립식(엔진 v16.20)은 납입 일정이 곧 매수 규칙이고 매도가 없다 — 매수·매도 조건,
     # 손절·익절, 리밸런싱은 물을 대상이 아니다(엔진은 이들과 섞인 적립 요청을 거절한다).
-    if field in CONTRIBUTION_NOT_APPLICABLE and has_contribution_plan(parsed):
+    if field in CONTRIBUTION_NOT_APPLICABLE and (
+            has_contribution_plan(parsed) or has_withdrawal_plan(parsed)):
         return _Decided(not_applicable=True)
     if field == REBALANCING:
         # 단독 종목(지정 1개)은 교체가 없다. 지정 종목이라도 여럿이면 포트폴리오이므로

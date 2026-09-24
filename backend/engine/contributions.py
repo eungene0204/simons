@@ -116,6 +116,31 @@ def rule_symbol_flows(
     return per_symbol, counts
 
 
+def withdrawal_settings(risk_params: Dict[str, Any]) -> "Optional[tuple[float, str]]":
+    """요청의 (회차 인출액, 주기). 인출 요청이 아니면 None. 반쪽 요청·표기 오류는 Fail Fast."""
+    amount_raw = risk_params.get("withdrawal_amount")
+    period_raw = risk_params.get("withdrawal_period")
+    if amount_raw is None and not period_raw:
+        return None
+    if amount_raw is None or not period_raw:
+        raise ValueError("정기 인출은 인출액(withdrawal_amount)과 주기(withdrawal_period)가 모두 필요합니다.")
+    amount = float(amount_raw)
+    period = str(period_raw)
+    if not np.isfinite(amount) or amount <= 0:
+        raise ValueError(f"인출액이 올바르지 않습니다: {amount_raw}")
+    if period not in CONTRIBUTION_PERIODS:
+        raise ValueError(f"지원하지 않는 인출 주기입니다: {period_raw}")
+    return amount, period
+
+
+def withdrawal_flows(index: pd.Index, amount: float, period: str) -> np.ndarray:
+    """거래일별 인출액 — 각 주기의 첫 거래일. **첫 봉은 제외**한다(넣자마자 빼지 않는다)."""
+    flows = np.where(compute_rebalance_dates(index, period), float(amount), 0.0)
+    if len(flows):
+        flows[0] = 0.0
+    return flows
+
+
 def contribution_flows(index: pd.Index, init_cash: float, amount: float, period: str) -> np.ndarray:
     """거래일별 납입액 — 첫 봉은 초기 자본, 이후 각 주기의 첫 거래일은 회차 납입액."""
     flows = np.where(compute_rebalance_dates(index, period), float(amount), 0.0)
@@ -134,12 +159,15 @@ class ContributionLedger:
     cash: np.ndarray                  # 거래일 말 현금
     shares: np.ndarray                # (거래일 × 종목) 보유 주식 수
     close: np.ndarray                 # (거래일 × 종목) 평가 종가
-    orders: List[Dict[str, Any]] = field(default_factory=list)   # 체결된 매수
+    orders: List[Dict[str, Any]] = field(default_factory=list)   # 체결된 매수·매도(side)
     missed_rounds: int = 0            # 1주 값이 예산보다 비싸 한 주도 못 산 (회차, 종목) 수
+    withdrawn_total: float = 0.0      # 실제로 인출한 금액 합
+    shortfall_rounds: int = 0         # 보유를 다 팔아도 인출액에 못 미친 회차 수
 
     @property
     def total_contributed(self) -> float:
-        return float(self.flows.sum())
+        """실제로 넣은 돈만 센다 — 인출(음수 흐름)을 빼면 '원금'이 아니라 순현금흐름이 된다."""
+        return float(self.flows[self.flows > 0].sum())
 
     @property
     def final_value(self) -> float:
@@ -165,6 +193,9 @@ def simulate_contributions(
     buy_fee_rate: float,
     slippage_rate: float,
     symbol_flows: Optional[np.ndarray] = None,
+    withdrawals: Optional[np.ndarray] = None,
+    sell_fee_rate: float = 0.0,
+    sell_tax: Optional[np.ndarray] = None,
 ) -> ContributionLedger:
     """납입 일정대로 지정 종목을 균등하게 사 모은다.
 
@@ -172,6 +203,10 @@ def simulate_contributions(
     체결 단가 = 체결가 × (1+슬리피지), 수수료 = 체결 금액 × 수수료율 — vectorbt 주문과 같은 식.
     symbol_flows(거래일 × 종목)가 있으면 종목별 납입액을 그대로 쓴다(조건부 납입액, rule_symbol_flows) —
     없으면 flows를 종목 수로 균등 분할한다(종전 동작).
+
+    withdrawals(거래일별 인출액, v16.33)가 있으면 그 봉에서 **미집행 현금 → 보유 평가액 비례 매도**
+    순으로 돈을 만들어 내보낸다(매도 수수료·거래세 차감). 보유를 다 팔아도 모자라면 만들 수 있는
+    만큼만 내보내고 그 회차를 shortfall로 센다 — 조용히 빚을 내지 않는다.
     """
     symbols = list(price_df.columns)
     n_days, n_sym = price_df.shape
@@ -192,11 +227,75 @@ def simulate_contributions(
     orders: List[Dict[str, Any]] = []
     missed = 0
 
+    withdraw = (np.zeros(n_days) if withdrawals is None
+                else np.asarray(withdrawals, dtype=float))
+    tax_vec = (np.zeros(n_days) if sell_tax is None else np.asarray(sell_tax, dtype=float))
+    withdrawn_total = 0.0
+    shortfall_rounds = 0
+    withdraw_round = 0
+
     for t in range(n_days):
         if flows[t] > 0:
             round_no += 1
             budget += symbol_flows[t] if symbol_flows is not None else flows[t] / n_sym
             pending[:] = True
+        if withdraw[t] > 0:
+            withdraw_round += 1
+            raised, want = 0.0, float(withdraw[t])
+            # ① 미집행 현금부터 — 종목별 예산에서 비례로 뺀다.
+            pool = float(budget.sum())
+            if pool > 0:
+                take = min(want, pool)
+                budget -= budget * (take / pool)
+                raised += take
+            # ② 모자라면 보유를 평가액 비례로 판다(그 봉에 거래 가능한 종목만).
+            if want - raised > 1e-9:
+                sellable = np.flatnonzero((held > 0) & avail[t] & np.isfinite(exec_px[t]) & (exec_px[t] > 0))
+                values = held[sellable] * exec_px[t, sellable] * (1.0 - slippage_rate)
+                total_value = float(values.sum())
+
+                def _sell(j: int, target: float) -> float:
+                    """종목 j에서 target원어치를 판다(1주 단위, 남은 보유 한도). 실제 순수령액 반환."""
+                    unit = exec_px[t, j] * (1.0 - slippage_rate)
+                    net_unit = unit * (1.0 - sell_fee_rate - float(tax_vec[t]))
+                    if net_unit <= 0 or target <= 1e-9:
+                        return 0.0
+                    qty = int(min(held[j], np.ceil(target / net_unit - 1e-9)))
+                    if qty < 1:
+                        return 0.0
+                    gross = qty * unit
+                    fee = gross * sell_fee_rate
+                    tax = gross * float(tax_vec[t])
+                    held[j] -= qty
+                    orders.append({
+                        "date": dates[t], "symbol": symbols[j], "round": withdraw_round,
+                        "price": float(unit), "quantity": qty, "fee": float(fee + tax), "side": "sell",
+                    })
+                    return gross - fee - tax
+
+                if total_value > 0:
+                    # 1차: 보유 평가액 비례로 나눠 판다(한 종목만 털지 않는다).
+                    for k, j in enumerate(sellable):
+                        need = want - raised
+                        if need <= 1e-9:
+                            break
+                        share = need if len(sellable) == 1 else want * float(values[k]) / total_value
+                        raised += _sell(int(j), min(share, need))
+                    # 2차: 비례 몫이 보유 한도에 걸려 모자랐으면 남은 보유에서 마저 채운다 —
+                    # 팔 것이 남았는데 '부족한 회차'로 세면 거짓 고지가 된다.
+                    for j in sellable:
+                        need = want - raised
+                        if need <= 1e-9:
+                            break
+                        if held[j] > 0:
+                            raised += _sell(int(j), need)
+                # 인출액을 넘겨 만든 돈은 그대로 현금(예산)으로 남긴다.
+                if raised > want:
+                    budget[0] += raised - want
+                    raised = want
+            withdrawn_total += raised
+            if raised < want - 1e-6:
+                shortfall_rounds += 1
         for j in np.flatnonzero(pending & avail[t]):
             pending[j] = False
             unit = exec_px[t, j] * (1.0 + slippage_rate)
@@ -211,15 +310,18 @@ def simulate_contributions(
             held[j] += qty
             orders.append({
                 "date": dates[t], "symbol": symbols[j], "round": round_no,
-                "price": float(unit), "quantity": qty, "fee": float(fee),
+                "price": float(unit), "quantity": qty, "fee": float(fee), "side": "buy",
             })
         shares[t] = held
         cash[t] = budget.sum()
 
     equity = cash + (shares * close).sum(axis=1)
+    # 인출은 밖으로 나간 돈이라 납입의 반대 부호로 흐름에 싣는다(TWR·XIRR이 같은 배열을 본다).
+    net_flows = np.asarray(flows, dtype=float) - withdraw
     return ContributionLedger(
-        index=price_df.index, symbols=symbols, flows=np.asarray(flows, dtype=float),
+        index=price_df.index, symbols=symbols, flows=net_flows,
         equity=equity, cash=cash, shares=shares, close=close, orders=orders, missed_rounds=missed,
+        withdrawn_total=float(withdrawn_total), shortfall_rounds=int(shortfall_rounds),
     )
 
 
@@ -317,7 +419,7 @@ def simulate_cash_pool(
             held[j] += qty
             orders.append({
                 "date": dates[t], "symbol": symbols[j], "round": round_no,
-                "price": float(unit), "quantity": qty, "fee": float(fee),
+                "price": float(unit), "quantity": qty, "fee": float(fee), "side": "buy",
             })
         shares[t] = held
         cash[t] = pool
@@ -344,13 +446,14 @@ def time_weighted_returns(equity: Sequence[float], flows: Sequence[float]) -> np
 
 
 def money_weighted_return(index: pd.Index, flows: Sequence[float], final_value: float) -> Optional[float]:
-    """금액가중 연 수익률(XIRR, 소수). 납입=유출, 기말 평가액=유입. 해가 없으면 None.
+    """금액가중 연 수익률(XIRR, 소수). 납입=유출, 인출·기말 평가액=유입. 해가 없으면 None.
 
     연 단위는 실제 경과일 ÷ 365.25(지표의 달력 기준 연수와 같은 규약). 이분법으로 푼다 —
-    납입이 전부 같은 부호라 '납입금을 기말까지 굴린 값 − 기말 평가액'은 수익률에 대해 단조 증가한다.
+    부호가 섞이면(정기 인출) 단조성이 보장되지 않으므로 구간에 해가 없으면 None을 돌려준다.
     """
     fl = np.asarray(flows, dtype=float)
-    if len(fl) == 0 or final_value <= 0 or fl.sum() <= 0:
+    # 인출로 자산이 소진되면 기말 평가액이 0일 수 있다 — 그래도 인출 흐름으로 해가 정의된다.
+    if len(fl) == 0 or final_value < 0 or fl[fl > 0].sum() <= 0:
         return None
     days = (pd.DatetimeIndex(index) - pd.Timestamp(index[0])).days.to_numpy(dtype=float)
     years = days / 365.25
@@ -359,9 +462,13 @@ def money_weighted_return(index: pd.Index, flows: Sequence[float], final_value: 
         return None
     paid = fl > 0
     amounts, offsets = fl[paid], end - years[paid]
+    taken = fl < 0
+    out_amounts, out_offsets = -fl[taken], end - years[taken]
 
     def _npv(rate: float) -> float:
-        return float((amounts * (1.0 + rate) ** offsets).sum() - final_value)
+        grown = (amounts * (1.0 + rate) ** offsets).sum()
+        returned = (out_amounts * (1.0 + rate) ** out_offsets).sum() if len(out_amounts) else 0.0
+        return float(grown - returned - final_value)
 
     lo, hi = -0.9999, 1.0
     while _npv(hi) < 0 and hi < 1e6:

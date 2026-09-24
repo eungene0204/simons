@@ -132,6 +132,10 @@ export class BacktestService {
         warningParts: pythonResult.warningParts,
         tradingCosts: pythonResult.tradingCosts ?? undefined,
         contributions: pythonResult.contributions ?? undefined,
+        // 결과 기준값(엔진 v16.33) — 매퍼 세 지점이 같은 필드를 옮겨야 화면·기록·저장 결과가 일치한다.
+        riskFreeRate: pythonResult.riskFreeRate ?? undefined,
+        inflation: pythonResult.inflation ?? undefined,
+        withdrawals: pythonResult.withdrawals ?? undefined,
         avgProfit: pythonResult.avgProfit,
         avgLoss: pythonResult.avgLoss,
         maxConsecutiveWins: pythonResult.maxConsecutiveWins,

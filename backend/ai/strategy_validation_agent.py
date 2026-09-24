@@ -75,7 +75,7 @@ class StrategyValidationAgent:
         issues.extend(self._validate_required_fields(payload))
         declined = {str(field) for field in (declined_fields or ())}
         # 정액 적립식은 매도가 없다 — 손절·익절은 물을 대상이 아니다(슬롯 정본 CONTRIBUTION_NOT_APPLICABLE).
-        if self._has_contribution_plan(payload):
+        if self._has_contribution_plan(payload) or self._has_withdrawal_plan(payload):
             declined |= {"stop_loss", "take_profit"}
         if "stop_loss" not in declined:
             issues.extend(self._validate_stop_loss(payload))
@@ -114,8 +114,19 @@ class StrategyValidationAgent:
             and bool(strategy.get("target_symbols") or strategy.get("etf_theme"))
         )
 
+    @staticmethod
+    def _has_withdrawal_plan(strategy: Mapping[str, Any]) -> bool:
+        """정기 인출(엔진 v16.33)인가 — 인출액·주기가 있고 대상이 있다. 적립과 같은 술어이며
+        인출도 '지정 종목을 조건 없이 보유'가 곧 매수 규칙이라 진입 조건을 요구하지 않는다."""
+        amount = strategy.get("withdrawal_amount")
+        return (
+            isinstance(amount, (int, float)) and not isinstance(amount, bool) and amount > 0
+            and bool(strategy.get("withdrawal_period"))
+            and bool(strategy.get("target_symbols") or strategy.get("etf_theme"))
+        )
+
     def _validate_required_fields(self, strategy: Mapping[str, Any]) -> list[dict[str, str]]:
-        contribution = self._has_contribution_plan(strategy)
+        contribution = self._has_contribution_plan(strategy) or self._has_withdrawal_plan(strategy)
         fields = {
             "universe": self._first(strategy, ("universe",), ("symbols",)),
             "entry_rule": (True if contribution

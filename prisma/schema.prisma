@@ -146,6 +146,24 @@ model Strategy {
   @@index([userId, createdAt])
 }
 
+/// 내 전략 버전 이력(2026-09-23) — 저장할 때마다 그 시점의 설정을 남긴다.
+/// Strategy.id는 DSL 해시라 내용을 고치면 다른 행이 된다 — 이력은 사용자+이름(lineageKey)으로 묶는다.
+model StrategyVersion {
+  id          String   @id @default(cuid())
+  userId      Int?
+  lineageKey  String
+  strategyId  String
+  version     Int
+  name        String
+  description String?
+  settings    String
+  createdAt   DateTime @default(now())
+  User        User?    @relation(fields: [userId], references: [id])
+
+  @@index([lineageKey, version])
+  @@index([userId, createdAt])
+}
+
 model BacktestRun {
   id                   String   @id @default(cuid())
   strategyId           String
@@ -356,6 +374,7 @@ model User {
   UserBacktestHistory UserBacktestHistory[]
   SavedValidation SavedValidation[]
   StrategyChatLog StrategyChatLog[]
+  StrategyVersion StrategyVersion[]
   PaymentOrder   PaymentOrder[]
 }
 

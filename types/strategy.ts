@@ -70,6 +70,9 @@ export interface RiskManagement {
    *  (첫 거래일은 초기 자본, 이후 각 주기의 첫 거래일마다 납입). */
   contribution_amount?: number | null;
   contribution_period?: ContributionPeriod | null;
+  /** 정기 인출(엔진 v16.33) — 회차 인출액과 주기. 각 주기 첫 거래일마다 현금·보유 매도로 마련해 내보낸다. */
+  withdrawal_amount?: number | null;
+  withdrawal_period?: ContributionPeriod | null;
   /** 조건부 납입액 규칙(엔진 v16.21) — 납입일에 condition이 성립하면 그 회차 납입액을 amount로(set)/amount만큼 더(add). */
   contribution_rules?: Array<{ condition: Record<string, unknown>; amount: number; mode: "set" | "add" }> | null;
   /** 현금 풀(엔진 v16.22) — 'cash_pool'이면 초기 자본(보유 현금)에서 회차 매수액을 꺼낸다. 하한은 %·금액 중 하나. */
@@ -240,6 +243,32 @@ export interface AnalyticsResult {
     symbol: string; name: string; totalReturn: number | null; cagr: number | null; maxDrawdown: number | null; partial: boolean;
     beta: number | null; alpha: number | null; trackingError: number | null; informationRatio: number | null;
   }>;
+  /** 실제 보유했던 종목 간 상관행렬과 롱온리 효율적 프론티어(엔진 v16.33, 과거 통계). */
+  portfolioMix?: PortfolioMixResult | null;
+}
+
+/** 자산 상관·효율적 프론티어(엔진 v16.33) — 과거 데이터의 기술 통계이며 추천이 아니다. */
+export interface PortfolioMixResult {
+  available: boolean;
+  reason?: string;
+  symbols?: string[];
+  observations?: number;
+  correlation?: Array<Array<number | null>>;
+  avgCorrelation?: number | null;
+  maxCorrelation?: number | null;
+  minCorrelation?: number | null;
+  strategy?: { returnPct: number | null; volatilityPct: number | null; sharpe: number | null };
+  frontier?: PortfolioMixPoint[];
+  minVariance?: PortfolioMixPoint | null;
+  maxSharpe?: PortfolioMixPoint | null;
+  frontierReason?: string;
+}
+
+export interface PortfolioMixPoint {
+  returnPct: number | null;
+  volatilityPct: number | null;
+  sharpe: number | null;
+  weights: Array<{ symbol: string; weightPct: number | null }>;
 }
 
 export interface FactorIcResult {
@@ -309,6 +338,42 @@ export interface BacktestTradingCosts {
   slippageRate: number;
   sellTaxRate: number | null;
   sellTaxRateRange?: [number, number] | null;
+  /** 배당 재투자에 적용한 배당소득세율(소수, 엔진 v16.33). 배당 미반영이면 null. */
+  dividendTaxRate?: number | null;
+}
+
+/** 위험조정 지표의 기준 금리(엔진 v16.33) — source: market=시장 단기금리 평균, explicit=요청값, unavailable=자료 없음. */
+export interface BacktestRiskFreeRate {
+  annualPct: number;
+  source: "market" | "explicit" | "unavailable";
+  series?: string | null;
+  label?: string | null;
+  labelEn?: string | null;
+  coverage?: number;
+}
+
+/** 물가(CPI) 기준 실질 수익률(엔진 v16.33). covered=false면 물가 자료가 창 끝까지 닿지 않았다. */
+export interface BacktestInflation {
+  totalPct: number | null;
+  annualPct: number | null;
+  realCagrPct?: number | null;
+  realTotalReturnPct?: number | null;
+  series: string;
+  label: string;
+  label_en?: string;
+  from: string;
+  to: string;
+  windowTo: string;
+  covered: boolean;
+}
+
+/** 정기 인출 집계(엔진 v16.33). */
+export interface BacktestWithdrawals {
+  period: string;
+  amount: number;
+  count: number;
+  totalWithdrawn: number;
+  shortfallRounds: number;
 }
 
 export interface BacktestResult {
@@ -446,6 +511,12 @@ export interface BacktestResult {
    *  sellTaxRate는 고정 세율일 때만 값이고, 시행일 기준 법정 세율 스케줄이면 null + sellTaxRateRange.
    *  구버전 저장 결과에는 없다. */
   tradingCosts?: BacktestTradingCosts | null;
+  /** 샤프·소르티노·정보비율의 기준 금리와 그 근거(엔진 v16.33). */
+  riskFreeRate?: BacktestRiskFreeRate | null;
+  /** 물가 조정 실질 수익률(엔진 v16.33). 물가 자료가 없으면 null. */
+  inflation?: BacktestInflation | null;
+  /** 정기 인출 결과(엔진 v16.33). 인출 요청이 없으면 null. */
+  withdrawals?: BacktestWithdrawals | null;
   /** 정액 적립식 결과(엔진 v16.20). 이 값이 있으면 totalReturn·cagr·maxDrawdown·sharpe는 납입 효과를
    *  걷어낸 시간가중 수익률 기준이고, equity는 납입으로도 오른다 — '최종÷초기−1' 계산을 쓰지 않는다. */
   contributions?: BacktestContributions | null;

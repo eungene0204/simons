@@ -1,6 +1,6 @@
 import { resolveUniverseDisplayName } from "@/lib/strategy-summary";
 import { t } from "@/lib/i18n";
-import type { BacktestTradingCosts } from "@/types/strategy";
+import type { BacktestInflation, BacktestRiskFreeRate, BacktestTradingCosts } from "@/types/strategy";
 
 export interface PromptSummarySource {
   universeName: string;
@@ -91,5 +91,38 @@ export function buildTradingCostRow(costs: BacktestTradingCosts | null | undefin
         : `${t("거래세")} ${formatRate(hi)} → ${formatRate(lo)} (${t("시행일 기준")})`
     );
   }
+  // 배당소득세(엔진 v16.33) — 배당 재투자를 세후로 굴렸는지. 배당 미반영이면 null이라 행에 없다.
+  if (costs.dividendTaxRate != null) {
+    values.push(`${t("배당소득세")} ${formatRate(costs.dividendTaxRate)}`);
+  }
   return { label: t("거래 비용"), values };
+}
+
+/**
+ * '기준값' 행 — 샤프·소르티노가 어떤 무위험수익률로 계산됐는지와, 물가를 뺀 실질 수익률(엔진 v16.33).
+ * 둘 다 없으면 행을 만들지 않는다(구버전 저장 결과).
+ */
+export function buildReferenceRateRow(
+  riskFree: BacktestRiskFreeRate | null | undefined,
+  inflation: BacktestInflation | null | undefined,
+): PromptSummaryRow | null {
+  const values: string[] = [];
+  if (riskFree && riskFree.source !== "unavailable") {
+    values.push(
+      riskFree.source === "explicit"
+        ? `${t("무위험수익률")} ${riskFree.annualPct.toFixed(2)}%`
+        : `${t("무위험수익률")} ${riskFree.annualPct.toFixed(2)}% (${t("기간 평균")})`,
+    );
+  }
+  if (inflation?.annualPct != null) {
+    values.push(`${t("물가상승률")} ${t("연")} ${inflation.annualPct.toFixed(2)}%`);
+    if (inflation.realCagrPct != null) {
+      values.push(`${t("실질 CAGR")} ${inflation.realCagrPct.toFixed(2)}%`);
+    }
+    if (!inflation.covered) {
+      values.push(t("물가 자료 {0}까지", inflation.to));
+    }
+  }
+  if (values.length === 0) return null;
+  return { label: t("기준값"), values };
 }

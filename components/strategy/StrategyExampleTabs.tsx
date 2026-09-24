@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Sparkle, Spinner, X } from "phosphor-react";
 import { getLocale, t } from "@/lib/i18n";
+import StrategyVersionHistory from "./StrategyVersionHistory";
 import { useRegion, useRegionHref } from "@/lib/geo/useRegion";
 import { US_EXAMPLES } from "./usExamples";
 
@@ -703,6 +704,8 @@ export function StrategyExampleTabs({
   const [hasLoadedStrategies, setHasLoadedStrategies] = useState(false);
   const [strategiesError, setStrategiesError] = useState<string | null>(null);
   const [deletingStrategyIds, setDeletingStrategyIds] = useState<Set<string>>(() => new Set());
+  // 버전 이력(2026-09-23) — 카드 하나만 펼친다(목록이 길어 여러 개가 열리면 읽기 어렵다).
+  const [openVersionStrategyId, setOpenVersionStrategyId] = useState<string | null>(null);
   const [selectedExample, setSelectedExample] = useState<Example | null>(null);
   const [exampleContentHeight, setExampleContentHeight] = useState<number | null>(null);
   const [orderedExamples, setOrderedExamples] = useState<Example[]>(baseExamples);
@@ -961,6 +964,21 @@ export function StrategyExampleTabs({
                         >
                           <X size={14} />
                         </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenVersionStrategyId((prev) => (prev === strategy.id ? null : strategy.id))
+                          }
+                          aria-expanded={openVersionStrategyId === strategy.id}
+                          className="absolute bottom-3 right-3 rounded-md bg-white/[0.06] px-2 py-1 text-[10px] font-black uppercase tracking-widest text-gray-500 transition-colors hover:bg-white/[0.10] hover:text-gray-200"
+                        >
+                          {t("버전 이력")}
+                        </button>
+                        {openVersionStrategyId === strategy.id ? (
+                          <div className="mt-2 rounded-2xl border border-white/[0.05] bg-[#101010]">
+                            <StrategyVersionHistory strategyId={strategy.id} />
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}

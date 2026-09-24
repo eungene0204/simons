@@ -144,6 +144,8 @@ function mapRawBacktestResult(raw: any): BacktestResult {
     warnings: raw.warnings,
     warningParts: raw.warningParts,
     tradingCosts: raw.tradingCosts ?? undefined,
+    riskFreeRate: raw.riskFreeRate ?? undefined,
+    inflation: raw.inflation ?? undefined,
     contributions: raw.contributions ?? undefined,
     executionTime: raw.executionTime,
     fromCache: raw.fromCache,
