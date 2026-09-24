@@ -88,6 +88,7 @@ class _Harness:
 
 @pytest.fixture
 def parse_env(monkeypatch):
+    monkeypatch.setenv("STRATEGY_CALL_REDUCTION", "off")
     monkeypatch.setenv("STRATEGY_DAG_PLANNER_MODE", "primary")
     monkeypatch.setenv("STRATEGY_CONDITION_RECALL", "on")
 

@@ -61,6 +61,7 @@ from datetime import datetime, timezone
 import uvicorn
 import time
 import asyncio
+import copy
 import threading
 import numpy as np
 import requests
@@ -2989,7 +2990,10 @@ def reset_ai_runtime_metrics():
 
 
 _nl_parse_cache: dict = {}   # cache_key → NLParseResponse dict
+_nl_parse_cache_lock = threading.RLock()
 _NL_PARSE_CACHE_MAX = 200    # 최대 200개 항목 유지
+from strategy_conversation.runtime.singleflight import SingleFlight
+_nl_parse_flights = SingleFlight()
 
 
 _virtual_trader = VirtualTrader(market_data_provider, engine.loader, engine.ai_engine)
@@ -3679,10 +3683,11 @@ def _store_nl_parse_cache(cache_key, result: dict) -> None:
     """
     if cancellation.is_cancelled():
         return
-    if len(_nl_parse_cache) >= _NL_PARSE_CACHE_MAX:
-        oldest_key = next(iter(_nl_parse_cache))
-        del _nl_parse_cache[oldest_key]
-    _nl_parse_cache[cache_key] = result
+    with _nl_parse_cache_lock:
+        if len(_nl_parse_cache) >= _NL_PARSE_CACHE_MAX:
+            oldest_key = next(iter(_nl_parse_cache))
+            del _nl_parse_cache[oldest_key]
+        _nl_parse_cache[cache_key] = copy.deepcopy(result)
 
 
 def _complete_deferred_validation(defer_ctx: dict):
@@ -3871,7 +3876,29 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
         return result
 
 
-def _run_nl_parse_traced(request: NLParseRequest, on_stage=None,
+def _parse_request_key(request: NLParseRequest, backend: str) -> str:
+    return nl_cache_key(
+        request.prompt, backend, request.model, request.previous_parsed,
+        request.pending_ask, request.pending_question,
+        request_context=request.model_dump(mode="json"),
+    )
+
+
+def _run_nl_parse_traced(request: NLParseRequest, on_stage=None, defer_holder=None):
+    from strategy_conversation.config import interpreter_mode
+    from llm_backend import resolve_llm_backend
+
+    # Legacy deferred validation owns mutable per-subscriber state; do not share it.
+    if interpreter_mode() != "primary":
+        return _run_nl_parse_impl(request, on_stage, defer_holder)
+    backend = _downgrade_unloaded_mlx(resolve_llm_backend(request.backend))
+    return _nl_parse_flights.run(
+        _parse_request_key(request, backend),
+        lambda stage: _run_nl_parse_impl(request, stage), on_stage,
+    )
+
+
+def _run_nl_parse_impl(request: NLParseRequest, on_stage=None,
                          defer_holder: dict | None = None):
     """파싱 코어 로직. on_stage: LLM 폴백 직전 호출되는 콜백(진행 스트리밍용).
 
@@ -3889,12 +3916,11 @@ def _run_nl_parse_traced(request: NLParseRequest, on_stage=None,
     print(f"\n[NL-PARSE] prompt='{request.prompt}', backend={resolved_backend}", flush=True)
 
     # 캐시 조회 — 동일 프롬프트면 LLM 재호출 없이 즉시 반환
-    cache_key = nl_cache_key(request.prompt, resolved_backend, request.model,
-                             request.previous_parsed, request.pending_ask,
-                             request.pending_question)
-    if cache_key in _nl_parse_cache:
+    cache_key = _parse_request_key(request, resolved_backend)
+    with _nl_parse_cache_lock:
+        cached = copy.deepcopy(_nl_parse_cache.get(cache_key))
+    if cached is not None:
         print(f"[NL-PARSE] 캐시 히트 → 즉시 반환", flush=True)
-        cached = dict(_nl_parse_cache[cache_key])
         runtime = {
             "cache_hit": True,
             "backend": resolved_backend,

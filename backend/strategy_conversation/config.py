@@ -131,3 +131,8 @@ def dag_planner_shadow_log_path() -> str:
         os.path.join(os.path.dirname(__file__), "..", "logs",
                      "strategy_dag_planner_shadow.jsonl"),
     )
+
+
+def call_reduction_enabled() -> bool:
+    """Rollback switch for auxiliary batching and conditional planner scheduling."""
+    return os.environ.get("STRATEGY_CALL_REDUCTION", "on").strip().lower() != "off"

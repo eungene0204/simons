@@ -145,6 +145,27 @@ def conditions_to_check(
     return targets
 
 
+def targets_for_intent(intent, user_input, only=None):
+    from .output_repair import whole_input_quote_fields
+
+    strategy = getattr(intent, "strategy", None)
+    if strategy is None:
+        return []
+    violating = set(whole_input_quote_fields(intent, user_input)) if only is None else set()
+    excluded = [c for role in ("entry_conditions", "exit_conditions")
+                for index, c in enumerate(getattr(strategy, role))
+                if f"strategy.{role}[{index}].source_text" in violating]
+    return conditions_to_check(strategy, only=only, skip=lambda c: any(c is x for x in excluded))
+
+
+def build_request(user_input, targets):
+    rows = "\n".join(
+        f'{i}. 조건: {render_condition(cond, role)}\n   인용: "{cond.source_text}"'
+        for i, (cond, role) in enumerate(targets, 1)
+    )
+    return _SYSTEM, f"[전략 문장]\n{user_input}\n\n[조건]\n{rows}", 64 + 32 * len(targets)
+
+
 def check_quotes(
     user_input: str, targets: List[Tuple[Any, str]], chat: Callable[..., str],
 ) -> Optional[QuoteVerdicts]:
@@ -154,16 +175,12 @@ def check_quotes(
 
     if not targets:
         return QuoteVerdicts([])
-    rows = "\n".join(
-        f'{i}. 조건: {render_condition(cond, role)}\n   인용: "{cond.source_text}"'
-        for i, (cond, role) in enumerate(targets, 1)
-    )
+    system, user, max_tokens = build_request(user_input, targets)
     with span("Quote Check · 조건 인용 대조", "chain",
               inputs={"conditions": [render_condition(c, r) for c, r in targets],
                       "quotes": [c.source_text for c, _ in targets]}) as trace:
         try:
-            raw = chat(_SYSTEM, f"[전략 문장]\n{user_input}\n\n[조건]\n{rows}",
-                       max_tokens=64 + 32 * len(targets))
+            raw = chat(system, user, max_tokens=max_tokens)
             payload = json.loads(extract_json_object(raw))
             items = payload.get("items") if isinstance(payload, dict) else None
             if not isinstance(items, list) or len(items) != len(targets):

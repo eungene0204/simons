@@ -102,6 +102,12 @@ def _positive_amount(value: Any) -> Optional[float]:
             else None)
 
 
+def build_request(user_input, conditions):
+    quotes = [c.source_text for c in conditions if c.source_text]
+    rows = "\n".join(f'- "{q}"' for q in quotes) or "- (없음)"
+    return _SYSTEM, f"[전략 문장]\n{user_input}\n\n[조건]\n{rows}", 256 + 64 * len(quotes)
+
+
 def check_contribution_plan(
     user_input: str, conditions: List[Any], chat: Callable[..., str],
 ) -> Optional[PlanVerdict]:
@@ -112,8 +118,7 @@ def check_contribution_plan(
     from strategy_conversation.interpreter.output_repair import extract_json_object
 
     quotes = [c.source_text for c in conditions if c.source_text]
-    rows = "\n".join(f'- "{q}"' for q in quotes) or "- (없음)"
-    user = f"[전략 문장]\n{user_input}\n\n[조건]\n{rows}"
+    system, user, max_tokens = build_request(user_input, conditions)
     compact_input = _compact(user_input)
     with span("Contribution Plan Check · 적립식 판정", "chain",
               inputs={"user_input": user_input, "quotes": quotes}) as trace:
@@ -121,7 +126,7 @@ def check_contribution_plan(
         last_error = ""
         for attempt in range(2):
             try:
-                payload = json.loads(extract_json_object(chat(_SYSTEM, user, max_tokens=256 + 64 * len(quotes))))
+                payload = json.loads(extract_json_object(chat(system, user, max_tokens=max_tokens)))
                 if not isinstance(payload, dict):
                     raise ValueError("객체가 아님")
                 break

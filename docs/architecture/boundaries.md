@@ -150,6 +150,12 @@ Runtime coordination for local LLM inference, model preloading, and latency-sens
 ### Files
 - backend/main.py
 - backend/api/coach_routes.py
+- backend/nl_cache.py
+- backend/strategy_conversation/primary.py
+- backend/strategy_conversation/config.py
+- backend/strategy_conversation/interpreter/**
+- backend/strategy_conversation/runtime/**
+- docs/development/strategy-call-reduction.md
 - app/api/ai/runtime/**
 - backend/tests/**
 - app/api/**/route.test.ts
@@ -160,11 +166,16 @@ Runtime coordination for local LLM inference, model preloading, and latency-sens
 - model preload wiring
 - latency instrumentation for AI runtime paths
 - Next.js proxy routes for AI runtime metrics
+- Strategy parse request coalescing, context-safe caching, and batching auxiliary LLM extraction/checks
+- Conditional planner scheduling based on independently extracted, validated universe evidence
 
 ### Strict Rules
 - Do not change model identifiers or model architecture
 - Preserve public API response contracts
 - Keep changes limited to AI runtime coordination
+- Preserve independent omission detection, existing validation/apply rules, and fallback for ambiguous or invalid evidence
+- Do not replace natural-language interpretation with regular expressions or change compiler/engine semantics
+- Split call-reduction work into request sharing, extraction, check batching, and planner scheduling steps; validate each before proceeding
 
 ### Forbidden
 - stock detail response schema changes

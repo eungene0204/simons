@@ -1855,24 +1855,9 @@ def _check_condition_quotes(
     입력 전체를 인용한 형식 위반 조건은 어차피 빠지므로 묻지 않는다. chat이 없는 주입
     스텁(테스트·QA 하니스)은 판정 없음으로 진행한다.
     """
-    from strategy_conversation.interpreter.output_repair import whole_input_quote_fields
-
-    strategy = getattr(intent, "strategy", None)
-    if strategy is None or not callable(chat):
+    if not callable(chat):
         return None
-    # 입력 전체 인용 형식 위반은 생성 턴 계약이다(수정 턴의 전략에는 이월된 칸이 있어 술어가
-    # 성립하지 않는다).
-    violating = set(whole_input_quote_fields(intent, user_input)) if only is None else set()
-
-    def _is_violation(cond: Any) -> bool:
-        return bool(violating) and any(
-            cond is c
-            for role in ("entry_conditions", "exit_conditions")
-            for index, c in enumerate(getattr(strategy, role))
-            if f"strategy.{role}[{index}].source_text" in violating
-        )
-
-    targets = quote_check.conditions_to_check(strategy, only=only, skip=_is_violation)
+    targets = quote_check.targets_for_intent(intent, user_input, only)
     if not targets:
         return None
     verdicts = quote_check.check_quotes(user_input, targets, chat)
@@ -1982,7 +1967,8 @@ def run_primary_parse(
     # 실패(None)·비활성(off/shadow)은 현행 고정 파이프라인 그대로 — 폴백 레인 보존.
     planner_first: Optional[Any] = None
     planner_future: Optional[concurrent.futures.Future] = None
-    if config.dag_planner_mode() == "primary":
+    defer_planner = config.call_reduction_enabled() and config.condition_recall_enabled()
+    if config.dag_planner_mode() == "primary" and not defer_planner:
         # planner-first는 유니버스 표현의 추출·해석 단계다 — 진행 표시도 그대로 알린다.
         if on_stage is not None:
             on_stage("universe")
@@ -1998,13 +1984,29 @@ def run_primary_parse(
         maybe_shadow_plan_dag(user_input)
     except Exception:  # noqa: BLE001 — 관측 실행 실패가 파스를 깨면 안 된다
         logger.debug("dag planner shadow launch failed", exc_info=True)
+    from strategy_conversation.interpreter.parse_evidence import ParseEvidence, extract_evidence
+
+    evidence = ParseEvidence()
+    evidence_future = None
+    scheduled_plan = None
     phrases_future: Optional[concurrent.futures.Future] = None
     try:
         interpreter = _get_interpreter(StrategyInterpreter)
         # 주입 스텁(테스트·QA 하니스)은 chat 핸들을 갖지 않는다 — 그때는 대조 패스를 건너뛴다
         # (보조 그물이 없다고 턴의 계약이 달라지지 않는다).
         recall_chat = getattr(interpreter, "_chat", None)
-        if parallel and config.condition_recall_enabled() and callable(recall_chat):
+        if (config.call_reduction_enabled() and config.condition_recall_enabled()
+                and callable(recall_chat)):
+            if parallel:
+                evidence_future = _start_parallel(extract_evidence, user_input, recall_chat)
+                if config.dag_planner_mode() == "primary" and defer_planner:
+                    from strategy_conversation.runtime.planner_gate import plan_after_evidence
+
+                    scheduled_plan = _start_parallel(
+                        plan_after_evidence, evidence_future, user_input, _plan_first)
+            else:
+                evidence = extract_evidence(user_input, recall_chat)
+        elif parallel and config.condition_recall_enabled() and callable(recall_chat):
             from strategy_conversation.interpreter.condition_recall import (
                 extract_condition_phrases,
             )
@@ -2022,13 +2024,38 @@ def run_primary_parse(
     # 못 하지만, planner-first가 아직 도는 동안 **메인 스레드에서** 보내 대기 시간과 겹친다
     # (병렬 풀 워커를 더 쓰지 않는다). 해당 조건이 없는 턴은 호출이 없고, 실패는 판정 없음
     # (교정·제거 안 함, quote_check 모듈 docstring).
-    quote_verdicts = _check_condition_quotes(result.intent, user_input, recall_chat)
-    _resolve_trading_value_comparisons(result.intent, user_input, recall_chat)
+    if evidence_future is not None:
+        evidence = evidence_future.result()
+    if config.dag_planner_mode() == "primary" and defer_planner and scheduled_plan is None:
+        from strategy_conversation.runtime.planner_gate import settle_plain_markets
+
+        planner_first = settle_plain_markets(result.intent, evidence)
+        if planner_first is None:
+            if on_stage is not None:
+                on_stage("universe")
+            if parallel:
+                planner_future = _start_parallel(_plan_first, user_input)
+            else:
+                planner_first = _plan_first(user_input)
+    from strategy_conversation.interpreter.check_batch import prepare_chat
+
+    check_chat = (prepare_chat(result.intent, user_input, recall_chat)
+                  if config.call_reduction_enabled() else recall_chat)
+    quote_verdicts = _check_condition_quotes(result.intent, user_input, check_chat)
+    _resolve_trading_value_comparisons(result.intent, user_input, check_chat)
     # 적립식 판정(통합) — 파라미터 보정보다 먼저: 계획을 채우고 조건에 금액·상태 연산자를 달아야
     # 아래 보정(매도 선언 재배치 등)이 이 턴을 적립식으로 알아본다(2026-09-22).
-    _resolve_contribution_plan(result.intent, user_input, recall_chat)
+    _resolve_contribution_plan(result.intent, user_input, check_chat)
     if planner_future is not None:
         planner_first = planner_future.result()
+    if scheduled_plan is not None:
+        from strategy_conversation.runtime.planner_gate import settle_plain_markets
+
+        planner_first, candidate_only = scheduled_plan.result()
+        if candidate_only:
+            planner_first = settle_plain_markets(result.intent, evidence)
+            if planner_first is None:
+                planner_first = _plan_first(user_input)
     _recover_kr_etf_product(result.intent, planner_first)
 
     repair_notices = _fill_deterministic_condition_params(result.intent, quote_verdicts)
@@ -2046,7 +2073,7 @@ def run_primary_parse(
 
         recovered = recover_missing_conditions(
             result.intent, user_input, recall_chat,
-            phrases=phrases_future.result() if phrases_future is not None else None,
+            phrases=phrases_future.result() if phrases_future is not None else evidence.phrases,
         )
         if recovered:
             _log_llm("✓ 누락 조건 회수", ", ".join(recovered))
@@ -2060,7 +2087,7 @@ def run_primary_parse(
             recover_backtest_period,
         )
 
-        filled_period = recover_backtest_period(result.intent, user_input, recall_chat)
+        filled_period = recover_backtest_period(result.intent, user_input, evidence.period_chat(recall_chat))
         if filled_period:
             _log_llm("✓ 백테스트 기간 회수", filled_period)
     # 출처 인용 대조(환각 조건 가드) — 파라미터 보정 뒤, 검증 전에 뺀다(환각 조건이
@@ -5029,14 +5056,18 @@ def run_primary_modification(
                 "confidence": intent.confidence,
             },
         })
+    from strategy_conversation.interpreter.check_batch import prepare_chat
+
+    check_chat = (prepare_chat(modify_intent, user_input, modify_chat, only=added_conditions)
+                  if config.call_reduction_enabled() else modify_chat)
     quote_verdicts = _check_condition_quotes(
-        modify_intent, user_input, modify_chat, only=added_conditions,
+        modify_intent, user_input, check_chat, only=added_conditions,
     )
     _resolve_trading_value_comparisons(
-        modify_intent, user_input, modify_chat, only=added_conditions,
+        modify_intent, user_input, check_chat, only=added_conditions,
     )
     _resolve_contribution_plan(
-        modify_intent, user_input, modify_chat, only=added_conditions,
+        modify_intent, user_input, check_chat, only=added_conditions,
     )
     repair_notices = _fill_deterministic_condition_params(modify_intent, quote_verdicts)
     _normalize_size_class_labels(modify_intent)

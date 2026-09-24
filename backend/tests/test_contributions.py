@@ -894,6 +894,19 @@ def test_dropped_plan_turn_is_fully_interpreted(monkeypatch):
             '"quote": "종가가 200일 이동평균선 아래에 있으면"', f'"quote": "{_MA_QUOTE}"').replace(
             '"quote": "RSI(14)가 30 미만이면"', f'"quote": "{_RSI_QUOTE}"'),
     }
+    import json
+    from strategy_conversation.interpreter import parse_evidence, check_batch
+    replies[parse_evidence.build_system_prompt()] = json.dumps({
+        "conditions": json.loads(replies[condition_recall.build_system_prompt()]),
+        "backtest": {"quote": None, "period": None},
+        "universe": {"terms": ["S&P500 ETF"]},
+    })
+    quote_reply = json.loads(replies[quote_check.build_system_prompt()])
+    quote_reply["items"][0]["id"] = "quote:1"
+    replies[check_batch._SYSTEM] = json.dumps({"checks": {
+        "quote": quote_reply,
+        "contribution": json.loads(replies[contribution_plan_check.build_system_prompt()]),
+    }})
     main_calls: list = []
 
     def chat(system, user, **_kw):

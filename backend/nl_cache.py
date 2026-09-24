@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import date
 from pathlib import Path
 
@@ -17,10 +18,14 @@ _BASE_DIR = Path(__file__).resolve().parent.parent
 # v9: 입력 전체를 인용한 조건 = 형식 위반(1회 재생성 → 잔존 시 안내 없이 제거) — 문장 전체를
 #     "'…'는 이동평균 조건이 아니어서"로 되돌려주던 안내가 담긴 결과 무효화(2026-09-17)
 #     + 조건 인용 판정(다른 설정 문구·신고가 오분류)을 어휘 정규식에서 LLM 조건 인용 대조로 이관
-NL_PARSER_CACHE_VERSION = "9"
+NL_PARSER_CACHE_VERSION = "10"
 _UNIVERSE_FILES = (
     _BASE_DIR / "data" / "korea-stocks.json",
     _BASE_DIR / "data" / "kospi200-cache.json",
+    *(_BASE_DIR / "data" / name for name in (
+        "term_lexicon.json", "knowledge-graph.json", "kg-theme-catalog.json",
+        "kg-naver-theme-catalog.json", "kg-sector-membership.json", "indicator-ontology.json",
+        "us-stocks.json", "us-knowledge-graph.json", "us-theme-catalog.json")),
 )
 
 
@@ -58,8 +63,14 @@ def _interpreter_prompt_version() -> str:
 def nl_cache_key(
     prompt: str, backend: str, model: str | None, previous_parsed: dict | None,
     pending_ask: dict | None = None, pending_question: str | None = None,
+    *, request_context: dict | None = None,
 ) -> str:
+    from llm_backend import active_chat_model, is_openrouter
+
     payload = {
+        "effective_model": active_chat_model(os.environ.get("STRATEGY_INTERPRETER_MODEL")
+                                              or os.environ.get("NL_OLLAMA_MODEL", "")),
+        "effective_provider": "openrouter" if is_openrouter() else "ollama",
         "prompt": prompt.strip(),
         "backend": backend,
         "model": model or "",
@@ -84,5 +95,11 @@ def nl_cache_key(
         # 저장되므로, 장수 프로세스에서 자정을 넘겨도 스테일 날짜가 반환되지 않게 키를 일 단위로 돌린다.
         "date_stamp": date.today().isoformat(),
         "parser_version": NL_PARSER_CACHE_VERSION,
+        "request_context": request_context or {},
+        # Include runtime switches and model identities, never credentials.
+        "runtime": {k: v for k, v in os.environ.items()
+                    if k.startswith("STRATEGY_") or k in (
+                        "LLM_PROVIDER", "LLM_BACKEND", "OPENROUTER_MODEL",
+                        "NL_OLLAMA_MODEL", "OLLAMA_HOST")},
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()

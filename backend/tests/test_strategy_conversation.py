@@ -4584,6 +4584,9 @@ def _whole_input_chat(regenerated: str):
     calls: list = []
 
     def chat(system, user, **_kw):
+        from strategy_conversation.interpreter import parse_evidence
+        if system == parse_evidence.build_system_prompt():
+            return '{"conditions":{"phrases":[]},"backtest":{"quote":null,"period":null}}'
         if system == condition_recall.build_system_prompt():
             return '{"phrases": []}'
         if system == condition_recall.build_period_system_prompt():
@@ -4751,6 +4754,9 @@ def _bare_label_chat(first: str, regenerated: str):
     calls: list = []
 
     def chat(system, user, **_kw):
+        from strategy_conversation.interpreter import parse_evidence
+        if system == parse_evidence.build_system_prompt():
+            return '{"conditions":{"phrases":[]},"backtest":{"quote":null,"period":null}}'
         if system == condition_recall.build_system_prompt():
             return '{"phrases": []}'
         if system == condition_recall.build_period_system_prompt():
@@ -5151,6 +5157,9 @@ def test_primary_parse_drops_stop_loss_quoted_ma_exit_via_quote_check(monkeypatc
         if system == quote_check.build_system_prompt():
             check_calls.append(user)
             return _items(("yes", "moving_average"), ("yes", "moving_average"), ("no", "other"))
+        from strategy_conversation.interpreter import parse_evidence
+        if system == parse_evidence.build_system_prompt():
+            return '{"conditions":{"phrases":[]},"backtest":{"quote":null,"period":null}}'
         if system == condition_recall.build_system_prompt():
             return '{"phrases": []}'
         return raw

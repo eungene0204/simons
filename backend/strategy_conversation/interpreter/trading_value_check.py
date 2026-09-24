@@ -94,6 +94,11 @@ def _float_in(value: Any, low: float, high: float) -> Optional[float]:
     return number if low <= number <= high else None
 
 
+def build_request(user_input, targets):
+    rows = "\n".join(f'{i}. 인용: "{cond.source_text}"' for i, cond in enumerate(targets, 1))
+    return _SYSTEM, f"[전략 문장]\n{user_input}\n\n[거래대금 조건]\n{rows}", 64 + 48 * len(targets)
+
+
 def check_trading_value_quotes(
     user_input: str, targets: List[Any], chat: Callable[..., str],
 ) -> Optional[List[Tuple[Any, Verdict]]]:
@@ -107,12 +112,11 @@ def check_trading_value_quotes(
     ratio = REGISTRY[RATIO_FACTOR]
     period_spec = ratio.parameters["period"]
     low_multiple, high_multiple = ratio.value_range
-    rows = "\n".join(f'{i}. 인용: "{cond.source_text}"' for i, cond in enumerate(targets, 1))
+    system, user, max_tokens = build_request(user_input, targets)
     with span("Trading Value Check · 거래대금 비교 대상 대조", "chain",
               inputs={"quotes": [c.source_text for c in targets]}) as trace:
         try:
-            raw = chat(_SYSTEM, f"[전략 문장]\n{user_input}\n\n[거래대금 조건]\n{rows}",
-                       max_tokens=64 + 48 * len(targets))
+            raw = chat(system, user, max_tokens=max_tokens)
             payload = json.loads(extract_json_object(raw))
             items = payload.get("items") if isinstance(payload, dict) else None
             if not isinstance(items, list) or len(items) != len(targets):
