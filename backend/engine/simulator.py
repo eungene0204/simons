@@ -915,7 +915,8 @@ class Simulator:
                         new_target = live_target[s_idx] * factor
                         reason = tr.encode([tr.part(tr.PARTIAL_TAKE_PROFIT, _fmt_g(last[0]),
                                                     _fmt_g(last[1] * 100.0))])
-                        if exec_type == 'next_open' and i + 1 < n_rows:
+                        if exec_type == 'next_open':
+                            # A final-bar trigger stays pending; today's open has elapsed.
                             partial_pending[s_idx] = new_target
                             partial_reason[s_idx] = reason
                         elif avail_values[i, s_idx]:
@@ -963,11 +964,11 @@ class Simulator:
                 if cooldown > 0 and risk_hit.any():
                     cooldown_until[risk_hit] = i + cooldown      # 재진입 금지(v16.28)
                 if should_exit.any():
-                    if exec_type == 'next_open' and i + 1 < n_rows:
-                        # 익일 시가 체결 — 거래 가능일 도달 시 Step 0에서 방출
+                    if exec_type == 'next_open':
+                        # Release on a later tradable bar, even at the window boundary.
                         pending_exit |= should_exit
                     else:
-                        # same_close(또는 마지막 봉): 당일 체결, 불가하면 이월
+                        # same_close fills today when tradable; otherwise defer.
                         exec_now = should_exit & avail_values[i] & active_mask
                         pending_exit |= should_exit & ~avail_values[i]
                         if exec_now.any():

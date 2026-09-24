@@ -146,6 +146,7 @@ def test_liquidity_filter(engine):
     assert "2024-01-03" in entry_dates
 
 
+# Korean common-stock fixtures use six-digit codes ending in zero.
 def _write_test_ohlcv(path, start_date: str, periods: int):
     rows = []
     for index, date in enumerate(pd.date_range(start=start_date, periods=periods, freq="D")):
@@ -190,12 +191,12 @@ def test_symbol_is_included_when_backtest_period_overlaps_available_data(tmp_pat
 def test_symbol_without_period_overlap_is_not_processed_without_delisting_warning(tmp_path):
     data_dir = tmp_path / "ohlcv"
     data_dir.mkdir()
-    _write_test_ohlcv(data_dir / "OLD_HISTORY.parquet", "2023-01-01", 5)
-    _write_test_ohlcv(data_dir / "ACTIVE.parquet", "2024-01-01", 5)
+    _write_test_ohlcv(data_dir / "900020.parquet", "2023-01-01", 5)
+    _write_test_ohlcv(data_dir / "900010.parquet", "2024-01-01", 5)
 
     engine = BacktestEngine(data_dir=str(data_dir))
     result = engine.run_backtest({
-        "symbols": ["OLD_HISTORY", "ACTIVE"],
+        "symbols": ["900020", "900010"],
         "entry": {
             "logic": "AND",
             "conditions": [{"id": "price", "params": {"value": 50, "operator": ">"}}],
@@ -207,10 +208,10 @@ def test_symbol_without_period_overlap_is_not_processed_without_delisting_warnin
         "endDate": "2024-01-04",
     })
 
-    assert any(signal["symbol"] == "ACTIVE" for signal in result["signals"])
-    assert not any(signal["symbol"] == "OLD_HISTORY" for signal in result["signals"])
+    assert any(signal["symbol"] == "900010" for signal in result["signals"])
+    assert not any(signal["symbol"] == "900020" for signal in result["signals"])
     assert not any(
-        warning.startswith("OLD_HISTORY: 상장폐지 종목")
+        warning.startswith("900020: 상장폐지 종목")
         for warning in result["warnings"]
     )
 
@@ -218,12 +219,12 @@ def test_symbol_without_period_overlap_is_not_processed_without_delisting_warnin
 def test_symbol_with_partial_period_data_is_included_until_data_ends(tmp_path):
     data_dir = tmp_path / "ohlcv"
     data_dir.mkdir()
-    _write_test_ohlcv(data_dir / "PARTIAL_PERIOD.parquet", "2024-01-01", 3)
-    _write_test_ohlcv(data_dir / "ACTIVE.parquet", "2024-01-01", 12)
+    _write_test_ohlcv(data_dir / "900030.parquet", "2024-01-01", 3)
+    _write_test_ohlcv(data_dir / "900010.parquet", "2024-01-01", 12)
 
     engine = BacktestEngine(data_dir=str(data_dir))
     result = engine.run_backtest({
-        "symbols": ["PARTIAL_PERIOD", "ACTIVE"],
+        "symbols": ["900030", "900010"],
         "entry": {
             "logic": "AND",
             "conditions": [{"id": "price", "params": {"value": 50, "operator": ">"}}],
@@ -235,15 +236,15 @@ def test_symbol_with_partial_period_data_is_included_until_data_ends(tmp_path):
         "endDate": "2024-01-20",
     })
 
-    assert any(signal["symbol"] == "ACTIVE" for signal in result["signals"])
+    assert any(signal["symbol"] == "900010" for signal in result["signals"])
     partial_signals = [
         signal for signal in result["signals"]
-        if signal["symbol"] == "PARTIAL_PERIOD"
+        if signal["symbol"] == "900030"
     ]
     assert partial_signals
     assert max(signal["date"] for signal in partial_signals) <= "2024-01-03"
     assert not any(
-        warning.startswith("PARTIAL_PERIOD: 상장폐지 종목")
+        warning.startswith("900030: 상장폐지 종목")
         for warning in result["warnings"]
     )
 
@@ -271,14 +272,14 @@ def test_delisted_stock_held_position_is_force_closed_at_last_price(tmp_path, mo
     from engine import universe_pit
     data_dir = tmp_path / "ohlcv"
     data_dir.mkdir()
-    _write_priced_ohlcv(data_dir / "ACTIVE.parquet", "2024-01-01", 20, 100.0)
-    _write_priced_ohlcv(data_dir / "DEADCO.parquet", "2024-01-01", 8, 100.0)  # stops 2024-01-08
+    _write_priced_ohlcv(data_dir / "900010.parquet", "2024-01-01", 20, 100.0)
+    _write_priced_ohlcv(data_dir / "900040.parquet", "2024-01-01", 8, 100.0)  # stops 2024-01-08
 
     master_path = tmp_path / "stock-master.json"
     _write_master(master_path, [
-        {"symbol": "ACTIVE", "market": "KOSPI", "delistingDate": None,
+        {"symbol": "900010", "market": "KOSPI", "delistingDate": None,
          "shares": 1000, "dataStart": "2024-01-01", "dataEnd": "2024-01-20", "hasOhlcv": True},
-        {"symbol": "DEADCO", "market": "KOSPI", "delistingDate": "2024-01-08",
+        {"symbol": "900040", "market": "KOSPI", "delistingDate": "2024-01-08",
          "shares": 1000, "dataStart": "2024-01-01", "dataEnd": "2024-01-08", "hasOhlcv": True},
     ])
     monkeypatch.setattr(universe_pit, "_MASTER_PATH", master_path)
@@ -286,7 +287,7 @@ def test_delisted_stock_held_position_is_force_closed_at_last_price(tmp_path, mo
 
     engine = BacktestEngine(data_dir=str(data_dir))
     result = engine.run_backtest({
-        "symbols": ["IGNORED"],
+        "symbols": ["900990"],
         "universe_id": "kospi",
         "entry": {"logic": "AND", "conditions": [{"id": "price", "params": {"value": 1, "operator": ">"}}]},
         "exit": {"logic": "AND", "conditions": []},
@@ -296,7 +297,7 @@ def test_delisted_stock_held_position_is_force_closed_at_last_price(tmp_path, mo
     })
     universe_pit.reload_master()
 
-    dead = [s for s in result["signals"] if s["symbol"] == "DEADCO"]
+    dead = [s for s in result["signals"] if s["symbol"] == "900040"]
     assert any(s["type"] == "buy" for s in dead), "delisted name must be tradeable while alive"
     sells = [s for s in dead if s["type"] == "sell"]
     assert sells, "held position in a delisted name must be force-closed"
@@ -310,24 +311,24 @@ def test_large_cap_universe_keeps_only_top_n_by_market_cap(tmp_path, monkeypatch
     from engine import universe_pit
     data_dir = tmp_path / "ohlcv"
     data_dir.mkdir()
-    # equal shares → market cap ordering follows price: BIG1 > BIG2 > SMALL
-    _write_priced_ohlcv(data_dir / "BIG1.parquet", "2024-01-01", 20, 400.0)
-    _write_priced_ohlcv(data_dir / "BIG2.parquet", "2024-01-01", 20, 300.0)
-    _write_priced_ohlcv(data_dir / "SMALL.parquet", "2024-01-01", 20, 100.0)
+    # Equal shares: market cap ordering follows price (900050 > 900060 > 900070).
+    _write_priced_ohlcv(data_dir / "900050.parquet", "2024-01-01", 20, 400.0)
+    _write_priced_ohlcv(data_dir / "900060.parquet", "2024-01-01", 20, 300.0)
+    _write_priced_ohlcv(data_dir / "900070.parquet", "2024-01-01", 20, 100.0)
 
     master_path = tmp_path / "stock-master.json"
     _write_master(master_path, [
         {"symbol": s, "market": "KOSPI", "delistingDate": None, "shares": 1000,
          "dataStart": "2024-01-01", "dataEnd": "2024-01-20", "hasOhlcv": True}
-        for s in ("BIG1", "BIG2", "SMALL")
+        for s in ("900050", "900060", "900070")
     ])
     monkeypatch.setattr(universe_pit, "_MASTER_PATH", master_path)
-    monkeypatch.setattr(universe_pit, "LARGE_CAP_TOP_N", 2)
+    monkeypatch.setitem(universe_pit._INDEX_UNIVERSES, "kospi200", ("KOSPI", 2))
     universe_pit.reload_master()
 
     engine = BacktestEngine(data_dir=str(data_dir))
     result = engine.run_backtest({
-        "symbols": ["IGNORED"],
+        "symbols": ["900990"],
         "universe_id": "kospi200",
         "entry": {"logic": "AND", "conditions": [{"id": "price", "params": {"value": 1, "operator": ">"}}]},
         "exit": {"logic": "AND", "conditions": []},
@@ -338,8 +339,8 @@ def test_large_cap_universe_keeps_only_top_n_by_market_cap(tmp_path, monkeypatch
     universe_pit.reload_master()
 
     traded = {s["symbol"] for s in result["signals"]}
-    assert "BIG1" in traded and "BIG2" in traded
-    assert "SMALL" not in traded, "below the top-N market-cap cutoff must be excluded"
+    assert "900050" in traded and "900060" in traded
+    assert "900070" not in traded, "below the top-N market-cap cutoff must be excluded"
 
 
 def _write_fundamental_ohlcv(path, start_date: str, periods: int, base: float, pbr: float):
@@ -361,14 +362,14 @@ def test_delisted_value_stock_passes_pbr_filter_and_is_captured(tmp_path, monkey
     from engine import universe_pit
     data_dir = tmp_path / "ohlcv"
     data_dir.mkdir()
-    _write_fundamental_ohlcv(data_dir / "DEADVALUE.parquet", "2024-01-01", 8, 100.0, pbr=0.8)
-    _write_fundamental_ohlcv(data_dir / "PRICEY.parquet", "2024-01-01", 20, 100.0, pbr=2.5)
+    _write_fundamental_ohlcv(data_dir / "900080.parquet", "2024-01-01", 8, 100.0, pbr=0.8)
+    _write_fundamental_ohlcv(data_dir / "900090.parquet", "2024-01-01", 20, 100.0, pbr=2.5)
 
     master_path = tmp_path / "stock-master.json"
     _write_master(master_path, [
-        {"symbol": "DEADVALUE", "market": "KOSPI", "delistingDate": "2024-01-08",
+        {"symbol": "900080", "market": "KOSPI", "delistingDate": "2024-01-08",
          "shares": 1000, "dataStart": "2024-01-01", "dataEnd": "2024-01-08", "hasOhlcv": True},
-        {"symbol": "PRICEY", "market": "KOSPI", "delistingDate": None,
+        {"symbol": "900090", "market": "KOSPI", "delistingDate": None,
          "shares": 1000, "dataStart": "2024-01-01", "dataEnd": "2024-01-20", "hasOhlcv": True},
     ])
     monkeypatch.setattr(universe_pit, "_MASTER_PATH", master_path)
@@ -376,7 +377,7 @@ def test_delisted_value_stock_passes_pbr_filter_and_is_captured(tmp_path, monkey
 
     engine = BacktestEngine(data_dir=str(data_dir))
     result = engine.run_backtest({
-        "symbols": ["IGNORED"],
+        "symbols": ["900990"],
         "universe_id": "kospi",
         "entry": {"logic": "AND", "conditions": [{"id": "pbr", "params": {"operator": "<=", "value": 1.0}}]},
         "exit": {"logic": "AND", "conditions": []},
@@ -387,10 +388,10 @@ def test_delisted_value_stock_passes_pbr_filter_and_is_captured(tmp_path, monkey
     universe_pit.reload_master()
 
     traded = {s["symbol"] for s in result["signals"]}
-    assert "DEADVALUE" in traded, "delisted value stock must be selectable by the PBR screen"
-    assert "PRICEY" not in traded, "PBR>1 name must be filtered out"
+    assert "900080" in traded, "delisted value stock must be selectable by the PBR screen"
+    assert "900090" not in traded, "PBR>1 name must be filtered out"
     # and the delisted holding is liquidated at its delisting day
-    sells = [s for s in result["signals"] if s["symbol"] == "DEADVALUE" and s["type"] == "sell"]
+    sells = [s for s in result["signals"] if s["symbol"] == "900080" and s["type"] == "sell"]
     assert sells and any(s.get("condition", "").startswith("상장폐지") for s in sells)
 
 
@@ -409,11 +410,11 @@ def test_unadjusted_split_does_not_trigger_fake_stop_loss(tmp_path):
             "date": date.strftime("%Y-%m-%d"),
             "open": raw, "high": raw, "low": raw, "close": float(raw), "volume": 1000000.0,
         })
-    pl.from_dicts(rows).write_parquet(str(data_dir / "SPLITCO.parquet"))
+    pl.from_dicts(rows).write_parquet(str(data_dir / "900100.parquet"))
 
     engine = BacktestEngine(data_dir=str(data_dir))
     result = engine.run_backtest({
-        "symbols": ["SPLITCO"],
+        "symbols": ["900100"],
         "entry": {"logic": "AND", "conditions": [{"id": "price", "params": {"value": 1, "operator": ">"}}]},
         "exit": {"logic": "AND", "conditions": []},
         "risk": {"position_size_pct": 100, "liquidity_multiplier": 0, "stop_loss_pct": 12},
@@ -421,7 +422,7 @@ def test_unadjusted_split_does_not_trigger_fake_stop_loss(tmp_path):
         "period": "FULL", "startDate": "2024-01-02", "endDate": "2024-02-09",
     })
 
-    sells = [s for s in result["signals"] if s["symbol"] == "SPLITCO" and s["type"] == "sell"]
+    sells = [s for s in result["signals"] if s["symbol"] == "900100" and s["type"] == "sell"]
     # 분할(미조정 -90%)이 손절을 발동시키면 안 된다
     assert not any("손절" in (s.get("condition") or "") for s in sells), \
         "back-adjustment should prevent the unadjusted split from faking a stop-loss"

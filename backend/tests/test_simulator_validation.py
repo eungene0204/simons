@@ -17,6 +17,57 @@ import pytest
 from engine.simulator import Simulator
 
 
+@pytest.mark.parametrize("risk_rule,last_close,last_high,last_low", [
+    ({"stop_loss_pct": 10}, 80, 100, 80),
+    ({"take_profit_pct": 10}, 120, 120, 100),
+    ({"trailing_stop_pct": 10}, 95, 120, 95),
+    ({"max_holding_days": 2}, 100, 100, 100),
+    ({"partial_take_profits": [{"profit_pct": 10, "sell_pct": 50}]}, 120, 120, 100),
+])
+@pytest.mark.parametrize("execution_type", ["next_open", "same_close"])
+def test_final_bar_risk_execution_is_independent_of_window_end(
+    risk_rule, last_close, last_high, last_low, execution_type,
+):
+    """An intraday risk trigger cannot fill at an already elapsed open."""
+    close, opens, entries, exits = _single_symbol(
+        [100, 100, last_close, last_close], [100, 100, 100, 105],
+    )
+    entries.iloc[0, 0] = True
+    high, low = close.copy(), close.copy()
+    high.iloc[2, 0], low.iloc[2, 0] = last_high, last_low
+    risk = {"init_cash": 10000.0, **risk_rule}
+    opts = dict(execution_type=execution_type, fee_rate=0.0,
+                sell_tax_rate=0.0, slippage_rate=0.0)
+    execution_prices = opens if execution_type == "next_open" else close
+
+    portfolios, simulators = [], []
+    for length in (3, 4):
+        simulator = Simulator()
+        portfolios.append(simulator.run(
+            close.iloc[:length], execution_prices.iloc[:length],
+            entries.iloc[:length], exits.iloc[:length], risk, opts,
+            high_df=high.iloc[:length], low_df=low.iloc[:length],
+        ))
+        simulators.append(simulator)
+
+    short, extended = portfolios
+    short_orders = short.orders.records_arr
+    extended_orders = extended.orders.records_arr
+    np.testing.assert_array_equal(short_orders, extended_orders[extended_orders["idx"] < 3])
+    np.testing.assert_allclose(short.value(), extended.value().iloc[:3])
+    sells = extended_orders[extended_orders["side"] == 1]
+    assert len(sells) == 1
+    fill_day = 3 if execution_type == "next_open" else 2
+    assert sells[0]["idx"] == fill_day
+    assert sells[0]["price"] == pytest.approx(execution_prices.iloc[fill_day, 0])
+    if execution_type == "next_open":
+        assert len(short_orders) == 1
+        assert short.trades.records_readable.iloc[0]["Status"] == "Open"
+        assert float(short.final_value()) == pytest.approx(100 * last_close)
+        assert simulators[0].exit_reason_overrides == {}
+        assert simulators[0].partial_tp_events == 0
+
+
 @pytest.fixture
 def simulator():
     return Simulator()
