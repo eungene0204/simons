@@ -4858,10 +4858,17 @@ def test_fabrication_guard_drops_whole_input_quote_silently():
 
 def _stub_quote_verdicts(user_input, intent, reply):
     """조건 인용 대조를 스텁 LLM 응답으로 돌린다 — 대상 선정·파싱·검증까지 실제 코드를 탄다."""
-    from strategy_conversation.interpreter.quote_check import check_quotes, conditions_to_check
+    from strategy_conversation.interpreter.quote_check import (
+        _CONFIRM_SYSTEM, check_quotes, conditions_to_check,
+    )
 
     targets = conditions_to_check(intent.strategy)
-    return check_quotes(user_input, targets, lambda _s, _u, **_k: reply)
+    def chat(system, _user, **_kwargs):
+        if system == _CONFIRM_SYSTEM:
+            return json.dumps({"items": [item for item in json.loads(reply)["items"]
+                                         if item == {"expresses": "no", "describes": "other"}]})
+        return reply
+    return check_quotes(user_input, targets, chat)
 
 
 def _items(*pairs):
@@ -4890,8 +4897,67 @@ def test_ma_condition_quoting_another_slot_is_dropped_with_notice():
     notices = _drop_fabricated_conditions(intent, user_input, verdicts)
 
     assert intent.strategy.exit_conditions == []
-    assert any("이동평균 조건이 아니어서" in n for n in notices)
+    assert any("매도 신호의 근거로 확인되지 않아" in n for n in notices)
     assert len(intent.strategy.entry_conditions) == 1
+
+
+def test_entry_ma_quote_repeated_as_exit_is_removed_without_false_notice():
+    """Example 49: a valid MA entry quote in a fabricated exit is already reflected."""
+    from strategy_conversation.primary import _drop_fabricated_conditions
+
+    user_input = ("MACD 골든크로스가 발생하면서 종가가 20일 이동평균선 위에 있을 때만 "
+                  "매수하고, MACD 데드크로스가 나오면 매도해 주세요.")
+    intent = _ma_intent(
+        [{"factor": "technical.ma_crossover", "operator": "crosses_above",
+          "parameters": {"short_period": 1, "long_period": 20},
+          "source_text": "종가가 20일 이동평균선 위에 있을 때"}],
+        [{"factor": "technical.ma_crossover", "operator": "crosses_below",
+          "parameters": {"short_period": 1, "long_period": 20},
+          "source_text": "20일 이동평균선 위에 있을 때"}],
+    )
+    verdicts = _stub_quote_verdicts(
+        user_input, intent, _items(("yes", "moving_average"), ("no", "other")))
+
+    notices = _drop_fabricated_conditions(intent, user_input, verdicts)
+
+    assert len(intent.strategy.entry_conditions) == 1
+    assert intent.strategy.exit_conditions == []
+    assert notices == []
+
+
+def test_invented_ma_exit_is_removed_when_batch_quote_check_fails():
+    """Example 49: two source-only checks reject an exit invented from an MA entry."""
+    from strategy_conversation.interpreter import quote_check
+    from strategy_conversation.primary import _drop_fabricated_conditions
+
+    user_input = ("MACD 골든크로스와 종가가 20일 이동평균선 위일 때만 매수하고, "
+                  "MACD 데드크로스면 매도해 주세요.")
+    intent = _ma_intent(
+        [{"factor": "technical.ma_crossover", "operator": ">",
+          "parameters": {"short_period": 1, "long_period": 20},
+          "source_text": "종가가 20일 이동평균선 위일 때"}],
+        [{"factor": "technical.ma_crossover", "operator": "crosses_below",
+          "parameters": {"short_period": 1, "long_period": 20},
+          "source_text": "20일 이동평균선 이탈 시"}],
+    )
+    systems = []
+
+    def chat(system, _user, **_kwargs):
+        systems.append(system)
+        if system in (quote_check._ROLE_SYSTEM, quote_check._ROLE_CONFIRM_SYSTEM):
+            assert "20일 이동평균선 이탈 시" not in _user
+            return _items(("no", "other"))
+        return '{"items":[]}'  # the original two-item batch failed
+
+    verdicts = quote_check.check_quotes(
+        user_input, quote_check.conditions_to_check(intent.strategy), chat)
+    notices = _drop_fabricated_conditions(intent, user_input, verdicts)
+
+    assert systems.count(quote_check._ROLE_SYSTEM) == 1
+    assert systems.count(quote_check._ROLE_CONFIRM_SYSTEM) == 1
+    assert len(intent.strategy.entry_conditions) == 1
+    assert intent.strategy.exit_conditions == []
+    assert notices == []
 
 
 def test_stop_loss_quote_with_leading_value_is_dropped_from_exit_conditions():
@@ -4923,7 +4989,7 @@ def test_stop_loss_quote_with_leading_value_is_dropped_from_exit_conditions():
 
     # 데드크로스 청산은 살고, 손절 구절을 인용한 이중 생성분만 빠진다.
     assert [c.source_text for c in intent.strategy.exit_conditions] == ["데드크로스가 나오거나"]
-    assert any("'-8% 손절 시 매도'는 이동평균 조건이 아니어서" in n for n in notices)
+    assert any("'-8% 손절 시 매도'는 매도 신호의 근거로 확인되지 않아" in n for n in notices)
 
 
 def test_ma_exit_quoting_a_stop_loss_alongside_the_moving_average_survives():
@@ -5050,7 +5116,7 @@ def test_fabricated_ma_conditions_quoting_holdings_and_stop_loss_are_dropped():
     assert intent.strategy.entry_conditions == [] and intent.strategy.exit_conditions == []
     assert any("'5종목'" in n for n in notices)
     assert not any(long_quote in n for n in notices)
-    assert any("일부 표현은 이동평균 조건이 아니어서" in n for n in notices)
+    assert any("일부 표현은 매도 신호의 근거로 확인되지 않아" in n for n in notices)
 
 
 def test_quote_check_failure_or_unclear_is_fail_open():
@@ -5130,8 +5196,7 @@ def test_quote_check_is_requested_only_for_moving_average_and_bollinger_conditio
 
 
 def test_primary_parse_drops_stop_loss_quoted_ma_exit_via_quote_check(monkeypatch):
-    """배선: 생성 턴에서 조건 인용 대조가 실제로 한 번 불리고, 그 판정으로 다른 설정 문구 가드가
-    동작한다(2026-09-16 "-8% 손절 시 매도" 이중 생성 사고의 LLM 레인 판)."""
+    """A fabricated exit is removed after the quote check and its confirmation agree."""
     import llm_backend
     from strategy_conversation import primary
     from strategy_conversation.interpreter import condition_recall, quote_check
@@ -5157,6 +5222,10 @@ def test_primary_parse_drops_stop_loss_quoted_ma_exit_via_quote_check(monkeypatc
         if system == quote_check.build_system_prompt():
             check_calls.append(user)
             return _items(("yes", "moving_average"), ("yes", "moving_average"), ("no", "other"))
+        if system == quote_check._CONFIRM_SYSTEM:
+            check_calls.append(user)
+            assert "1. 조건:" in user and "2. 조건:" not in user
+            return _items(("no", "other"))
         from strategy_conversation.interpreter import parse_evidence
         if system == parse_evidence.build_system_prompt():
             return '{"conditions":{"phrases":[]},"backtest":{"quote":null,"period":null}}'
@@ -5168,7 +5237,7 @@ def test_primary_parse_drops_stop_loss_quoted_ma_exit_via_quote_check(monkeypatc
                         StrategyInterpreter(chat_fn=chat, model="stub"))
     result = primary.run_primary_parse(user_input)
 
-    assert len(check_calls) == 1
+    assert len(check_calls) == 2
     assert len(result["parsed"].exit_signals) == 1
     assert any("-8% 손절 시 매도" in n for n in result["notices"])
     assert result["parsed"].stop_loss_pct == 8.0
@@ -5648,6 +5717,112 @@ def test_breakout_quote_reclassifies_ma_condition_without_ma_vocab():
     conds = intent.strategy.entry_conditions
     assert conds[0].factor == "technical.breakout"
     assert conds[1].factor == "technical.ma_crossover"
+
+
+def test_20_day_low_exit_is_breakout_not_moving_average():
+    """Example 6: a 20-day low is a price channel, never a 20-day MA."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    user_input = ("KOSPI 종목 중 20일 고점을 넘기는 날 매수하고 "
+                  "20일 저가 아래로 내려오면 매도해 주세요.")
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.breakout", "operator": "crosses_above",
+             "parameters": {"lookback_period": 20},
+             "source_text": "20일 고점을 넘기는 날 매수"}],
+        exit_conditions=[
+            {"factor": "technical.ma_crossover", "operator": "crosses_below",
+             "parameters": {"short_period": 1, "long_period": 20},
+             "source_text": "20일 저가 아래로 내려오면 매도"}],
+    ))
+    verdicts = _stub_quote_verdicts(
+        user_input, intent, _items(("no", "new_high_breakout")))
+    _fill_deterministic_condition_params(intent, verdicts)
+    validated, report = run_validation(intent)
+    parsed, dropped, _pending = compile_partial(validated, report, user_input)
+
+    assert not dropped
+    assert [(signal.indicator, signal.signal_type, signal.lookback_period)
+            for signal in parsed.exit_signals] == [("breakout", "sell", 20)]
+
+
+def test_unsupported_consecutive_rise_does_not_become_approximate_ma():
+    """Example 12: the interpreter's unsupported report wins over its substitute."""
+    from strategy_conversation.primary import _fill_deterministic_condition_params
+
+    data = _full_intent_dict(entry_conditions=[
+        {"factor": "technical.trading_value_ratio", "operator": ">", "value": 1,
+         "source_text": "최근 거래대금이 증가하고"},
+        {"factor": "technical.ma_crossover", "operator": ">",
+         "parameters": {"short_period": 1, "long_period": 5},
+         "source_text": "주가가 5거래일 연속 상승한", "approximated": True},
+    ])
+    data["unsupported_features"] = ["주가가 5거래일 연속 상승한"]
+    intent = StrategyIntent.model_validate(data)
+
+    _fill_deterministic_condition_params(intent)
+
+    assert [c.factor for c in intent.strategy.entry_conditions] == [
+        "technical.trading_value_ratio"]
+    assert intent.unsupported_features == ["주가가 5거래일 연속 상승한"]
+
+
+def test_consecutive_rise_validates_and_compiles_as_own_signal():
+    """Example 12: a five-day rise must reach the backtest as five close changes."""
+    from engine.strategy_converter import to_backtest_request
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.consecutive_up", "operator": None, "value": None,
+             "parameters": {"period": 5}, "source_text": "주가가 5거래일 연속 상승한"},
+        ],
+    ))
+    validated, report = run_validation(intent)
+    parsed, dropped, pending = compile_partial(validated, report, "주가가 5거래일 연속 상승한 종목 매수")
+
+    assert not dropped and not pending
+    assert [(s.indicator, s.period) for s in parsed.entry_signals] == [("consecutive_up", 5)]
+    request = to_backtest_request(parsed, resolve_symbols=False)
+    assert any(c["id"] == "consecutive_up" and c["params"]["period"] == 5
+               for c in request["entry"]["conditions"])
+
+
+def test_consecutive_rise_without_day_count_needs_clarification():
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.consecutive_up", "operator": None, "value": None,
+             "source_text": "주가가 연속 상승한"},
+        ],
+    ))
+    _validated, report = run_validation(intent)
+
+    assert any("parameters.period" in field for field in report.missing_fields)
+
+
+def test_monthly_rebalance_cannot_recover_unstated_contribution_plan(monkeypatch):
+    """Example 18: monthly rebalancing is not a monthly cash contribution."""
+    from strategy_conversation import primary
+    from strategy_conversation.interpreter import contribution_plan_check
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.trading_value", "operator": ">=", "value": 30,
+             "unit": "억원", "parameters": {"period": 20},
+             "source_text": "최근 20일 평균 거래대금이 30억 원 이상인"}],
+    ))
+    monkeypatch.setattr(
+        contribution_plan_check, "check_contribution_plan",
+        lambda *_args, **_kwargs: contribution_plan_check.PlanVerdict(
+            plan_quote="월간 리밸런싱", plan_period="monthly"),
+    )
+
+    primary._resolve_contribution_plan(
+        intent, "최근 20일 평균 거래대금 30억 원 이상, 월간 리밸런싱", lambda *_a, **_k: "")
+    _validated, report = run_validation(intent)
+
+    assert intent.strategy.backtest.contribution_amount is None
+    assert intent.strategy.backtest.contribution_period is None
+    assert not any("정액 적립식" in feature for feature in report.unsupported_features)
 
 
 def test_modify_primary_reports_unknown_symbol_name_instead_of_uninterpreted(monkeypatch):

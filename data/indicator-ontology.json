@@ -42,7 +42,7 @@
       "id": "class.price_action",
       "name": "가격 돌파",
       "parent": "class.technical",
-      "description": "기준 기간 고점·저점 돌파 신호"
+      "description": "종가의 연속 움직임과 기준 기간 고점·저점 돌파 신호"
     },
     {
       "id": "class.volume",
@@ -168,6 +168,7 @@
     "technical.adx": "class.trend",
     "technical.bollinger_bands": "class.volatility_band",
     "technical.breakout": "class.price_action",
+    "technical.consecutive_up": "class.price_action",
     "unsupported.new_low": "class.price_action",
     "technical.volume_spike": "class.volume",
     "technical.trading_value": "class.volume",
@@ -313,6 +314,7 @@
     "technical.macd": "none",
     "technical.bollinger_bands": "none",
     "technical.breakout": "none",
+    "technical.consecutive_up": "none",
     "technical.volume_spike": "none",
     "technical.volume_ratio": "none",
     "technical.trading_value_ratio": "none",

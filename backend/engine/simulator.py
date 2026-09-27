@@ -116,7 +116,8 @@ def stop_loss_refill_reserve(cand_sorted, sel_band):
     return cand_sorted, 0
 
 
-def select_ranked_targets(cand_sorted, eff_max_pos, sel_pct, sel_band, band_cap=None):
+def select_ranked_targets(cand_sorted, eff_max_pos, sel_pct, sel_band, band_cap=None,
+                          count_cap_explicit=False):
     """랭킹 내림차순 후보 배열에서 목표 종목을 고른다 (FR-BT-060).
 
     - sel_band=[g, G]: 후보를 종목 수 기준 G등분했을 때 g번째 구간(1=랭킹 최상위 구간).
@@ -125,6 +126,7 @@ def select_ranked_targets(cand_sorted, eff_max_pos, sel_pct, sel_band, band_cap=
     - band_cap: 그룹당 보유 상한(FR-BT-060b) — 밴드 구간에서 랭킹 상위 N종목만.
       모든 그룹에 동일 적용되어 그룹 간 비교 규칙이 같다. 없으면 구간 전체.
     - sel_pct: 상위 비율(%) 선정 — '상위 10% 편입'. count = max(1, round(n*pct/100)).
+      count_cap_explicit이면 그 결과를 eff_max_pos 이하로 제한한다.
     - 둘 다 없으면 기존 상위 K(eff_max_pos) 선정.
     """
     n = len(cand_sorted)
@@ -139,7 +141,10 @@ def select_ranked_targets(cand_sorted, eff_max_pos, sel_pct, sel_band, band_cap=
             band = band[: int(band_cap)]
         return band
     if sel_pct:
-        return cand_sorted[: max(1, round(n * float(sel_pct) / 100.0))]
+        count = max(1, round(n * float(sel_pct) / 100.0))
+        if count_cap_explicit:
+            count = min(count, eff_max_pos)
+        return cand_sorted[:count]
     return cand_sorted[:eff_max_pos]
 
 
@@ -579,9 +584,10 @@ class Simulator:
         init_cash = float(init_cash_raw) if init_cash_raw is not None else 10000000.0
         pos_size_pct = float(pos_size_raw) if pos_size_raw is not None else 100.0
         max_pos = risk_params.get('max_positions')
-        # 비율/분위 선정(FR-BT-060) — 있으면 상위 K(max_positions) 대신 후보 수 기준으로
-        # 리밸런싱일마다 목표 종목 수를 동적으로 정한다.
+        # 비율/분위 선정(FR-BT-060) — 후보 수 기준으로 목표 수를 동적으로 정한다.
+        # 사용자가 개수 상한까지 명시한 비율 선정에만 max_positions를 함께 적용한다.
         sel_pct = risk_params.get('max_positions_pct')
+        count_cap_explicit = bool(risk_params.get('max_positions_explicit'))
         sel_band = risk_params.get('ranking_band')
         band_cap = risk_params.get('ranking_group_cap')
 
@@ -667,6 +673,7 @@ class Simulator:
                 price_df, exec_price_df, entries_df, rank_df, rebalance_dates,
                 eff_max_pos, init_cash, buy_fee, sell_fee, slippage_val,
                 sel_pct=sel_pct, sel_band=sel_band, band_cap=band_cap,
+                count_cap_explicit=count_cap_explicit,
                 weights_only=weights_only, vol_df=vol_df, exposure=exposure,
                 regime_label=regime_label, weight_cap=weight_cap,
                 sector_cap=sector_cap, sector_groups=sector_groups,
@@ -981,7 +988,10 @@ class Simulator:
                 cand = np.where(entries_values[i])[0]
                 if rank_values_all is not None and len(cand) > 0:
                     cand = cand[np.argsort(-rank_values_all[i][cand])]
-                sel = select_ranked_targets(cand, eff_max_pos, sel_pct, sel_band, band_cap)
+                sel = select_ranked_targets(
+                    cand, eff_max_pos, sel_pct, sel_band, band_cap,
+                    count_cap_explicit=count_cap_explicit,
+                )
                 if len(sel) < len(cand):
                     self.overflow_days += 1
                 current_target_mask = np.zeros(num_symbols, dtype=bool)
@@ -1336,6 +1346,7 @@ class Simulator:
                               sell_fee: np.ndarray,
                               slippage_val: float,
                               sel_pct: Optional[float] = None,
+                              count_cap_explicit: bool = False,
                               sel_band: Optional[list] = None,
                               band_cap: Optional[int] = None,
                               weights_only: bool = False,
@@ -1457,7 +1468,10 @@ class Simulator:
             cand = np.where(entries_values[i])[0]
             if rank_values is not None and len(cand) > 0:
                 cand = cand[np.argsort(-rank_values[i][cand])]
-            sel = select_ranked_targets(cand, eff_max_pos, sel_pct, sel_band, band_cap)
+            sel = select_ranked_targets(
+                cand, eff_max_pos, sel_pct, sel_band, band_cap,
+                count_cap_explicit=count_cap_explicit,
+            )
             if len(sel) < len(cand):
                 self.overflow_days += 1
             if weights_only:

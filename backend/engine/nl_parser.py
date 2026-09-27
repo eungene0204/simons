@@ -756,7 +756,7 @@ class TechnicalSignal(BaseModel):
     """기술적 지표 진입/청산 신호"""
     indicator: Literal[
         "ma_crossover", "rsi", "ema", "macd",
-        "bollinger_bands", "breakout", "volume_spike", "volume_ratio", "trading_value_ratio",
+        "bollinger_bands", "breakout", "consecutive_up", "volume_spike", "volume_ratio", "trading_value_ratio",
         "stochastic", "cci", "adx", "williams_r", "mfi", "roc", "volatility",
         "relative_return", "trading_value", "ai_model", "ai_drop_model",
         "candle_hammer", "candle_hanging_man", "candle_inverted_hammer", "candle_shooting_star", "candle_doji", "candle_bullish_engulfing", "candle_bearish_engulfing", "candle_piercing_line", "candle_dark_cloud_cover", "candle_morning_star", "candle_evening_star", "candle_three_white_soldiers", "candle_three_black_crows"
@@ -768,7 +768,7 @@ class TechnicalSignal(BaseModel):
     long_period: Optional[int] = Field(default=None, description="장기 이동평균 기간 (ma_crossover, ema)")
 
     # RSI / CCI / ADX
-    period: Optional[int] = Field(default=None, description="지표 계산 기간 (rsi, cci, adx, volume_spike)")
+    period: Optional[int] = Field(default=None, description="지표 계산 기간 또는 연속 상승 거래일 수 (rsi, cci, adx, volume_spike, consecutive_up)")
     operator: Optional[Literal["<", ">", "<=", ">="]] = Field(default=None, description="비교 연산자 (rsi, cci, adx)")
     value: Optional[float] = Field(default=None, description="비교 기준값 (rsi, cci, adx)")
 

@@ -366,6 +366,13 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
                               if strategy.volatility_target else None),
         "max_positions_pct": strategy.max_positions_pct,
         "max_positions": strategy.max_positions,
+        # A materialized default count is ignored by percentage selection, but
+        # an explicitly requested count caps it. Distinct execution needs a
+        # distinct strategy id even when both counts happen to be equal.
+        "max_positions_explicit": (
+            True if strategy.max_positions_pct is not None
+            and strategy.max_positions_explicit else None
+        ),
         "hold_period_days": strategy.hold_period_days,
         "rebalancing_period": strategy.rebalancing_period,
         # 리밸런싱 방식(FR-BT-067) — 기본값(reconstitute)은 None으로 내려 _drop_none이
@@ -452,6 +459,9 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
 
     elif sig.indicator == "volume_spike":
         params["period"] = sig.period or 20
+
+    elif sig.indicator == "consecutive_up":
+        params["period"] = sig.period
 
     elif sig.indicator in ("volume_ratio", "trading_value_ratio"):
         params["period"] = sig.period or 20
@@ -590,6 +600,9 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
     risk = {
         "position_size_pct": position_size_pct,
         "max_positions": len(target_symbols) if explicit_symbols else strategy.max_positions,
+        **({"max_positions_explicit": True}
+           if strategy.max_positions_pct is not None and strategy.max_positions_explicit
+           else {}),
         "stop_loss_pct": strategy.stop_loss_pct,
         "take_profit_pct": strategy.take_profit_pct,
         "trailing_stop_pct": strategy.trailing_stop_pct,

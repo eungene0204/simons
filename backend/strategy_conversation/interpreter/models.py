@@ -586,7 +586,7 @@ class PortfolioSpec(BaseModel):
     selection_count: Optional[int] = Field(default=None, description="선택 종목 수. 언급 없으면 null")
     selection_percent: Optional[float] = Field(
         default=None,
-        description="선택 비율(%) — '상위 10% 종목 편입'=10. 개수가 아니라 비율로 말했을 때만. 언급 없으면 null",
+        description="선택 비율(%) — '상위 10% 종목 편입'=10. 최대 종목 수도 함께 말했으면 selection_count와 이 값을 모두 채움. 언급 없으면 null",
     )
     weighting: Optional[str] = Field(
         default=None,

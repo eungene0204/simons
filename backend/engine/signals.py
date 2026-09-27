@@ -221,6 +221,20 @@ class SignalEngine:
             arr = get_col(f"candle_{p.get('pattern')}")
             return np.zeros(data_len, dtype=bool) if arr is None else (arr > 0.5)
 
+        if cid == 'consecutive_up':
+            # N거래일 연속 상승 = 마지막 N개의 종가 변화가 모두 양수. 현재 봉까지의
+            # 종가만 사용하고, 동일 종가·결측은 연속 횟수를 끊는다.
+            period = int(p.get('period') or 0)
+            close = get_col('close')
+            if close is None or period < 1 or data_len <= period:
+                return result
+            rising = np.zeros(data_len, dtype=bool)
+            rising[1:] = (np.isfinite(close[1:]) & np.isfinite(close[:-1])
+                          & (close[1:] > close[:-1]))
+            cumulative = np.cumsum(rising, dtype=np.int64)
+            result[period:] = cumulative[period:] - cumulative[:-period] == period
+            return result
+
         if cid == 'ma_crossover':
             short = p.get('shortMA', p.get('short_period', p.get('short', 5)))
             long_ = p.get('longMA', p.get('long_period', p.get('long', 20)))
@@ -599,6 +613,18 @@ class SignalEngine:
             val = safe_get(f"candle_{p.get('pattern')}", idx)
             return bool(val is not None and val > 0.5)
 
+        if cid == 'consecutive_up':
+            period = int(p.get('period') or 0)
+            if period < 1 or idx < period:
+                return False
+            return all(
+                (current := safe_get('close', day)) is not None
+                and (previous := safe_get('close', day - 1)) is not None
+                and np.isfinite(current) and np.isfinite(previous)
+                and current > previous
+                for day in range(idx - period + 1, idx + 1)
+            )
+
         def compare(val1, op, val2):
             if val1 is None or val2 is None:
                 return False
@@ -944,6 +970,8 @@ class SignalEngine:
         if cid == 'candle_pattern':
             label = tr.CANDLE_PATTERN_LABELS.get(str(p.get('pattern')), str(p.get('pattern')))
             return [tr.part(tr.CANDLE_PATTERN, tr.part(label))]
+        if cid == 'consecutive_up':
+            return [tr.part(tr.CONSECUTIVE_UP, p.get('period'))]
         if cid == 'ma_crossover':
             short = p.get('shortMA', p.get('short_period', p.get('short', 5)))
             long_ = p.get('longMA', p.get('long_period', p.get('long', 20)))

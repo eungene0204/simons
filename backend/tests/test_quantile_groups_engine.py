@@ -50,6 +50,17 @@ def test_pct_selection_counts():
     assert len(select_ranked_targets(cand, 10, None, None)) == 10
 
 
+def test_pct_selection_respects_only_an_explicit_count_cap():
+    candidates = np.arange(100)
+    assert len(select_ranked_targets(candidates, 12, 15.0, None)) == 15
+    assert len(select_ranked_targets(
+        candidates, 12, 15.0, None, count_cap_explicit=True,
+    )) == 12
+    assert len(select_ranked_targets(
+        np.arange(40), 12, 15.0, None, count_cap_explicit=True,
+    )) == 6
+
+
 # ─── 엔진 통합: 분위 그룹 실행 ────────────────────────────────────────────────
 
 def _write_series(data_dir: str, symbol: str, prices: list[float], dates) -> None:
@@ -182,6 +193,34 @@ def test_pct_selection_holds_half_universe():
     assert buy_symbols == {"PS_WIN_A", "PS_WIN_B"}, (
         f"상위 50% 선정이 개수 상한/하위 종목과 어긋남: {buy_symbols}"
     )
+
+
+@pytest.mark.parametrize("stop_loss_pct", [0, 8])
+def test_pct_selection_then_explicit_count_cap_in_both_simulator_paths(tmp_path, stop_loss_pct):
+    dates = pd.date_range(start="2024-01-01", periods=100, freq="D")
+    symbols = _quantile_universe(str(tmp_path), dates)
+    request = {
+        "symbols": symbols,
+        "entry": {"conditions": []},
+        "exit": {"conditions": []},
+        "risk": {
+            "position_size_pct": 100,
+            "max_positions": 1,
+            "max_positions_explicit": True,
+            "max_positions_pct": 50.0,
+            "ranking_metric": "return",
+            "ranking_lookback_days": 5,
+            "rebalancing_period": "monthly",
+            "stop_loss_pct": stop_loss_pct,
+            "liquidity_multiplier": 0,
+        },
+        "options": {"execution_type": "same_close"},
+    }
+
+    result = BacktestEngine(data_dir=str(tmp_path)).run_backtest(request)
+    buy_symbols = {signal["symbol"] for signal in result["signals"]
+                   if signal["type"] == "buy"}
+    assert buy_symbols == {"QG_WIN_A"}
 
 
 # ─── 그룹당 보유 상한 (FR-BT-060b) ───────────────────────────────────────────

@@ -482,6 +482,7 @@ export const INDICATOR_LABELS: Record<string, string> = {
   macd: "MACD",
   bollinger_bands: "볼린저밴드",
   breakout: "브레이크아웃",
+  consecutive_up: "종가 연속 상승",
   volume_spike: "거래량 급증",
   volume_ratio: "거래량 배수",
   trading_value_ratio: "거래대금 배수",
@@ -594,6 +595,12 @@ function getSignalLabelBase(
 ): string {
   if (signal.indicator === "ai_drop_model") {
     return t(INDICATOR_LABELS.ai_drop_model);
+  }
+
+  if (signal.indicator === "consecutive_up") {
+    return signal.period != null
+      ? t("종가 {0}거래일 연속 상승", signal.period)
+      : t(INDICATOR_LABELS.consecutive_up);
   }
 
   // 브레이크아웃은 기준 기간(lookback_period)에 따라 의미가 달라진다 — 252일(≈52주)은 "52주 신고가",
@@ -871,7 +878,10 @@ export function getPositionLabel(parsed: ParsedSummary): string {
       : t("{0}분위 그룹 비교 (메인: 1그룹)", parsed.ranking_quantile_groups);
   }
   if (parsed.max_positions_pct != null) {
-    return t("상위 {0}% 편입", parsed.max_positions_pct);
+    const percentLabel = t("상위 {0}% 편입", parsed.max_positions_pct);
+    return parsed.max_positions_explicit
+      ? `${percentLabel} · ${t("최대 {0}종목", parsed.max_positions)}`
+      : percentLabel;
   }
   return t("최대 {0}종목", parsed.max_positions);
 }

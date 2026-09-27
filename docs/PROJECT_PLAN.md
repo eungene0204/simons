@@ -380,7 +380,7 @@ simons/
 
 > 전략 설계는 UI 블록 조합 없이 자연어 채팅으로만 이뤄진다(블록 조합 5단계 위자드 빌더는 제거됨). 아래 조건들은 NL 파서가 출력하고 엔진·DSL이 평가하는 시그널/필터로, `ParsedStrategy`의 진입/청산/필터 항목에 그대로 매핑된다.
 
-**기술적 지표 (15개)**
+**기술적 지표**
 | 조건 ID | 이름 | 파라미터 | 상태 |
 |---------|------|----------|------|
 | `ma_crossover` | 이동평균 골든/데드크로스 | shortMA, longMA, crossType | ✅ |
@@ -389,6 +389,7 @@ simons/
 | `bollinger_bands` | 볼린저밴드 이탈/반등 | period, stdDev, signalType | ✅ |
 | `volume_spike` | OBV 기반 거래량 급증 | period, signalType | ✅ |
 | `breakout` | 52주 신고가/신저가 돌파 (NL: "박스권 돌파", "N일 고점 돌파" 등 서술형 표현도 인식) | lookbackPeriod, signalType | ✅ |
+| `consecutive_up` | 종가 N거래일 연속 상승 | period (거래일 수) | ✅ (2026-09-26, OHLCV 파케이 종가) |
 | `ema` | 지수이동평균 | period | ✅ |
 | `stochastic` | 스토캐스틱 | kPeriod, dPeriod | ✅ |
 | `cci` | 상품채널지수 | period | ✅ |

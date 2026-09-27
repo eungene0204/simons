@@ -101,6 +101,21 @@ describe("getSelectionScope — 백엔드 판정 미러", () => {
 });
 
 describe("getPositionLabel — 배지가 실제 실행과 일치해야 한다", () => {
+  it("비율 편입과 명시적 최대 종목 수를 모두 표시한다", () => {
+    expect(getPositionLabel({
+      ...base,
+      max_positions_pct: 15,
+      max_positions: 12,
+      max_positions_explicit: true,
+    })).toBe("상위 15% 편입 · 최대 12종목");
+    expect(getPositionLabel({
+      ...base,
+      max_positions_pct: 15,
+      max_positions: 10,
+      max_positions_explicit: false,
+    })).toBe("상위 15% 편입");
+  });
+
   it("[회귀] 테마 후보군에서 선정하는 전략을 '지정 36개 균등'으로 표시하지 않는다", () => {
     // 엔진은 랭킹으로 10개만 산다 — 배지가 36개 균등이라고 하면 화면이 거짓말을 한다.
     expect(

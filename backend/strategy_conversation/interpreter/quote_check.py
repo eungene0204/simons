@@ -22,8 +22,8 @@ no를 답했다. 인용이 이동평균도 볼린저도 신고가도 아닌 **�
 결정론 코드의 몫: ① 조건을 문장으로 옮겨 적기(LLM 출력 필드의 표기 변환) ② 응답이 정해진
 enum인지 확인 ③ enum 값에 따른 분기. 인용 문자열은 읽지 않는다.
 
-호출 범위: 결과를 바꿀 수 있는 조건(이동평균 계열·볼린저)만, 한 턴 한 번. 그런 조건이 없으면
-호출이 없다.
+호출 범위: 결과를 바꿀 수 있는 조건(이동평균 계열·볼린저)만. 제거 판정은 별도 호출로 한 번
+재확인하며 두 판정이 일치할 때만 제거한다. 그런 조건이 없으면 호출이 없다.
 
 실패 동작: 호출 오류·JSON 불성립·항목 수 불일치는 **판정 없음(None)** — 교정도 제거도 하지 않는다
 (fail-open, 조건 회수 패스와 같은 원칙). 개별 항목이 enum 밖이거나 "unclear"여도 그 조건은 남긴다.
@@ -50,11 +50,43 @@ DESCRIBES = frozenset({"moving_average", "bollinger", "new_high_breakout", "othe
 _SYSTEM = """당신은 **대조기**입니다. 전략 문장에서 뽑은 조건마다, 함께 적힌 인용 조각이 그 조건을 말하는지 답하세요.
 
 항목마다 두 값을 채웁니다.
-expresses — 인용 조각이 그 조건을 말하면 "yes", 그 조건이 아닌 다른 설정(종목 수·손절·기간 등)을 말하면 "no", 판단이 어려우면 "unclear".
-describes — 인용 조각이 말하는 신호: 이동평균선·골든크로스·데드크로스면 "moving_average", 볼린저 밴드면 "bollinger", 신고가·고점·박스권 돌파면 "new_high_breakout", 그 밖이면 "other".
+expresses — [전략 문장]이 실제로 그 조건을 요청하고 인용 조각도 같은 조건을 말하면 "yes".
+인용이 다른 설정(종목 수·손절·기간 등)이거나 [전략 문장]에 없는 조건을 지어낸 것이면 "no",
+판단이 어려우면 "unclear". 인용만 따로 읽어 원문에 없는 매도 규칙을 추론하지 마세요.
+describes — 실제 요청과 인용이 함께 가리키는 신호: 이동평균선·골든크로스·데드크로스면 "moving_average", 볼린저 밴드면 "bollinger", 신고가·N일 고점 돌파·N일 저가 이탈·박스권 돌파면 "new_high_breakout", 그 밖이거나 원문에 없는 조작 인용이면 "other".
+
+N일선은 N일 이동평균선의 줄임말입니다. '20일선 이탈 시 청산'은 종가가 20일 이동평균선을
+하향 교차할 때 매도하는 조건이므로 yes/moving_average입니다. '20일선 이탈 시 손절'도 같습니다.
+'손절 -8%' 같은 고정 손실률이나 '최대 20일 보유' 같은 보유 기간만 인용한 이동평균 조건은
+no/other입니다. 원문에 손절 설정이 함께 있어도 이동평균 청산 인용을 손절 설정으로 분류하지 마세요.
+반대로 '20일 저가 아래로 내려오면 매도'는 이동평균선이 아니라 최근 20일 가격 저점 이탈이므로
+no/new_high_breakout입니다. '20일선 이탈 시 청산'과 구별하세요.
+
+[전략 문장]이 'MACD 골든크로스와 종가가 20일 이동평균선 위일 때 매수, MACD 데드크로스면
+매도'라고만 했다면 이동평균 매수는 yes/moving_average입니다. 여기에 별도로 뽑힌
+'20일 이동평균선 이탈 시 매도'는 원문에 **없는** 청산 규칙이므로 no/other입니다.
+위에 있을 때만 매수한다는 말에서 이탈 시 매도를 만들어내지 마세요.
 
 출력 형식(JSON만, 항목 순서대로):
 {"items": [{"expresses": "yes", "describes": "moving_average"}]}"""
+
+_CONFIRM_SYSTEM = _SYSTEM + """
+이 검사는 조건을 제거하기 전의 독립 재확인입니다. 각 인용이 가리키는 지표와 조건을 다시 대조하세요.
+매도·청산·손절이라는 동사 자체는 신호 종류가 아닙니다. 청산을 유발하는 기준으로 판단하세요.
+이동평균 신호의 기간이나 연산자만 다르면 describes는 moving_average이며 other가 아닙니다.
+인용이 이동평균과 무관한 다른 설정이거나 원문에 없는 조작 인용임이 명확할 때만
+no/other로 답하세요. 매수 조건의 역방향 청산을 원문에 없는데 만들어낸 것은 조작 인용입니다."""
+
+_ROLE_SYSTEM = """당신은 전략 원문에 없는 청산 규칙을 찾는 대조기입니다.
+[전략 문장]만 보고 [후보 청산]을 사용자가 실제로 요청했는지 답하세요.
+매수 조건이 이동평균선 위라는 사실로 그 선 아래에서 자동 청산한다고 추론하지 마세요.
+매도 문장에 MACD만 있으면 이동평균 매도 조건은 요청되지 않았습니다.
+후보가 원문에 없으면 {"items":[{"expresses":"no","describes":"other"}]},
+있으면 {"items":[{"expresses":"yes","describes":"moving_average"}]}처럼 JSON만 출력하세요."""
+
+_ROLE_CONFIRM_SYSTEM = _ROLE_SYSTEM + """
+조건을 제거하기 전의 독립 재확인입니다. 후보 청산을 매수 조건에서 역으로 추론하지 말고,
+원문이 명시적으로 그 청산을 요청했는지만 다시 판정하세요."""
 
 
 def build_system_prompt() -> str:
@@ -169,14 +201,65 @@ def build_request(user_input, targets):
 def check_quotes(
     user_input: str, targets: List[Tuple[Any, str]], chat: Callable[..., str],
 ) -> Optional[QuoteVerdicts]:
+    """Confirm destructive verdicts once; disagreement or failure preserves the condition."""
+    from engine.nl_parser import _compact
+
+    verdicts = _request_verdicts(user_input, targets, chat)
+    rejected = [(c, role) for c, role in targets if quote_does_not_express(verdicts, c)]
+    confirmed = (_request_verdicts(user_input, rejected, chat, system=_CONFIRM_SYSTEM)
+                 if rejected else None)
+    resolved = [
+        (cond, Verdict(None, None) if quote_does_not_express(verdicts, cond)
+         and not quote_does_not_express(confirmed, cond)
+         else verdicts.get(cond) if verdicts is not None else Verdict(None, None))
+        for cond, _ in targets
+    ]
+
+    compact_input = _compact(user_input)
+    entries = [c for c, role in targets if role == "entry_conditions"]
+    suspect_exits = [
+        (c, role) for c, role in targets
+        if role == "exit_conditions" and _compact(c.source_text or "") not in compact_input
+        and any(_canonical_factor(c.factor) == _canonical_factor(entry.factor)
+                for entry in entries)
+    ]
+    if verdicts is None and not suspect_exits:
+        return None
+    # The quote can itself invent a plausible exit. Ask about the original
+    # sentence without that quote; two independent no verdicts are required.
+    if suspect_exits:
+        first = _request_verdicts(user_input, suspect_exits, chat, system=_ROLE_SYSTEM)
+        second = _request_verdicts(user_input, suspect_exits, chat, system=_ROLE_CONFIRM_SYSTEM)
+        for index, (cond, _role) in enumerate(targets):
+            if any(cond is candidate for candidate, _ in suspect_exits):
+                a = first.get(cond) if first else None
+                b = second.get(cond) if second else None
+                if a and b and a.expresses == b.expresses == "no":
+                    resolved[index] = (cond, Verdict("no", "other"))
+    return QuoteVerdicts(resolved) if targets else verdicts
+
+
+def _request_verdicts(
+    user_input: str, targets: List[Tuple[Any, str]], chat: Callable[..., str],
+    system: Optional[str] = None,
+) -> Optional[QuoteVerdicts]:
     """조건마다 인용 대조 판정을 받는다. 실패는 None(fail-open)."""
     from observability import span
     from strategy_conversation.interpreter.output_repair import extract_json_object
 
     if not targets:
         return QuoteVerdicts([])
-    system, user, max_tokens = build_request(user_input, targets)
-    with span("Quote Check · 조건 인용 대조", "chain",
+    default_system, user, max_tokens = build_request(user_input, targets)
+    system = system or default_system
+    if system in (_ROLE_SYSTEM, _ROLE_CONFIRM_SYSTEM):
+        rows = "\n".join(f"{i}. {render_condition(cond, role)}"
+                         for i, (cond, role) in enumerate(targets, 1))
+        user = f"[전략 문장]\n{user_input}\n\n[후보 청산]\n{rows}"
+    trace_name = ("Quote Check · 원문 청산 재확인" if system == _ROLE_CONFIRM_SYSTEM
+                  else "Quote Check · 원문 청산 대조" if system == _ROLE_SYSTEM
+                  else "Quote Check · 제거 재확인" if system == _CONFIRM_SYSTEM
+                  else "Quote Check · 조건 인용 대조")
+    with span(trace_name, "chain",
               inputs={"conditions": [render_condition(c, r) for c, r in targets],
                       "quotes": [c.source_text for c, _ in targets]}) as trace:
         try:

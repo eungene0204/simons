@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "7.4"
+PROMPT_VERSION = "8.2"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -204,6 +204,11 @@ NON_STRATEGY_REQUEST(전략과 무관)
 - **실적 서프라이즈 시그널**('분기 EPS에서 전년 동기 EPS를 뺀 값을 직전 8개 분기 표준편차로 나눈 SUE'·'실적 발표일 전후 초과수익률'을 z-score로 표준화해 평균한 시그널 상위 N종목 = PEAD)은 ranking 하나입니다 → {{"metric":"pead","entry_delay_days":2,"expiry_days":60}} (entry_delay_days=발표 후 편입까지 기다리는 영업일, expiry_days=발표 후 제외까지의 영업일 — 말한 숫자를 그대로 옮기고 말하지 않았으면 null). SUE 계산·초과수익률·z-score·윈저라이즈·평균은 이 지표에 포함돼 있어 unsupported_features에 넣지 않습니다.
 - **direction은 사용자가 정렬 방향을 말했을 때만 출력하세요**('낮은 순'·'높은 순'·'가장 싼'·'상위'가 어느 쪽인지 분명할 때). 방향 언급이 없으면(예: 'PER 기준으로 20종목') direction을 **비워 두세요(null)** — 지표마다 선호 방향이 정해져 있어 시스템이 위 어휘의 [낮을수록 선호]/[높을수록 선호] 표시대로 채웁니다. 임의로 "top"을 채우면 저평가 지표에서 가장 비싼 종목을 고르는 정반대 전략이 됩니다.
 - 종목 수가 아니라 비율로 말하면('상위 10% 종목만 편입') portfolio.selection_percent=10 (selection_count는 null).
+- **상위 비율로 먼저 추린 뒤 최대 종목 수도 제한**하면 두 값을 모두 남기세요:
+  '120거래일 상대강도 상위 15% 중 최대 12종목' → ranking.return(lookback_days=120),
+  portfolio.selection_percent=15 **그리고** selection_count=12입니다. '60거래일 상대강도
+  상위 30%에서 상위 12종목'도 두 값이 각각 30과 12입니다. selection_count가 있다고
+  selection_percent를 버리지 마세요. 엔진은 상위 비율 선정 후 명시된 개수로 제한합니다.
 - 지표 순으로 정렬해 종목 수가 동일한 N개 그룹으로 나눠 그룹별로 비교/편입하는 요청('10개 그룹으로 나눠 1그룹에는 PER 가장 낮은 10%…', 'PER 십분위 분석')은 ranking의 quantile_groups=N입니다 → {{"metric":"fundamental.per","direction":"bottom","quantile_groups":10}}. 이때 selection_count/selection_percent는 null(그룹이 편입 규모를 정의합니다). '상위 10%'처럼 **편입 비율만** 말한 것은 그룹 비교가 아닙니다 — quantile_groups를 채우지 마세요.
 - **복합 순위 합산(멀티팩터 랭킹)**: 여러 지표로 각각 정렬해 순위를 매기고 그 순위를 합산(또는 평균)해 합산 순위 상위/합산값 최소를 편입하는 요청('ROE 내림차순, PER 오름차순으로 순위를 구해 합산해 합산값이 가장 낮은 상위 10%', 'PBR·PER 순위 합계 상위 20종목')은 **strategy.ranking에 지표 하나당 항목 하나**를 넣습니다 → [{{"metric":"fundamental.roe_or_gpa","direction":"top"}},{{"metric":"fundamental.per","direction":"bottom"}}]. 랭킹 항목이 2개 이상이면 시스템이 순위 합산으로 실행합니다. 이때 ① 그 지표들을 entry_conditions(임계값 조건)로 만들지 마세요 — '내림차순/오름차순'은 정렬 방향이지 임계값이 아닙니다(value를 물을 것이 없습니다). ② 'composite'·'score' 같은 **합산 지표 이름을 지어내지 마세요** — 합산은 항목 수로 표현됩니다. ③ '내림차순/높은 순'=direction:"top", '오름차순/낮은 순'=direction:"bottom". ④ 지표별 가중치는 사용자가 **말했을 때만** 각 항목의 "weight"에 그 숫자를 옮겨 적으세요('PER 2, ROE 1 가중'→{{"metric":"fundamental.per","direction":"bottom","weight":2}},{{"metric":"fundamental.roe_or_gpa","direction":"top","weight":1}} / 'PER 60%·ROE 40%'→60과 40). 말하지 않았으면 weight를 비우고(null) 되묻지 마세요 — 동일 가중이 기본입니다.
 
@@ -233,13 +238,16 @@ NON_STRATEGY_REQUEST(전략과 무관)
    각 1개(source_text "중형주"). 시총 범위를 이미 말했으면("3000억 이상 2조 이하 중형주")
    그 값들이 곧 조건이고 null 조건을 더 내지 마세요. 규모 표현(소형·중형·대형)은
    섹터가 아니므로 universe.sectors에 넣지 마세요.
+   예: "시가총액 3000억 원 이상 3조 원 이하 중형주"는 entry_conditions에
+   fundamental.market_cap >= 3000(억원)과 <= 30000(억원) **두 조건**입니다.
+   3조 원은 30000억 원이며 이미 말한 두 경계값을 다시 묻지 마세요.
 3. 위 목록에 없는 개념은 조건으로 만들지 말고 unsupported_features에 원문 표현을
    넣으세요. 비슷한 지원 지표로 **조용히 바꿔치지 마세요**(사용자가 알아챌 수 없는
    왜곡): 이자보상배율→부채비율(금지), 흑자전환·연속 흑자→eps 부호(금지), '시장 대비/보다'→수익률
    랭킹(금지), 현금흐름 흑자→증가율(금지), 우선주→보통주(금지) — 전부 unsupported_features에 원문 조각으로.
    (일부·절반 익절은 미지원이 아니라 risk_management.partial_take_profits입니다 — 규칙 7-1-2.)
    **자주 놓치는 미지원 개념**(보이면 반드시 unsupported_features에):
-   흑자전환·연속 흑자, 장중·분봉 매매, 우선주, VWAP, 고정 현금 비중, 신저가,
+   흑자전환·연속 흑자, 주가의 N거래일 연속 하락, 장중·분봉 매매, 우선주, VWAP, 고정 현금 비중, 신저가,
    베타, 뉴스·수급, 실적 추정치·컨센서스(상향·하향 — 수익률·시장 대비 수익률로 바꾸지 말 것), **공매도·숏(short/short-selling)**(엔진은 매수 후 매도만 지원합니다 —
    "Short overvalued stocks"의 'Short'를 버리고 매수 전략으로 바꾸지 마세요).
    미국 **시장·지수**(S&P500·나스닥·다우·미국 ETF)는 지원합니다 — 규칙 6의 매핑을 쓰세요.
@@ -255,6 +263,9 @@ NON_STRATEGY_REQUEST(전략과 무관)
    만들고 미지원 표현만 unsupported_features에. UNSUPPORTED_REQUEST로 바꾸지 마세요
    (전략이 통째로 버려집니다).
 4. 각 조건의 source_text에 해당 사용자 원문 조각을 넣으세요.
+   "최근 4개 분기 영업활동현금흐름 증가율이 10% 이상"은 지원 지표
+   fundamental.ocf_growth >= 10입니다. 분기 수를 factor 이름에 덧붙여
+   operating_cf_growth_qoq 같은 미등록 지표를 만들지 마세요.
 4-1. 입력에 언급된 조건을 **하나도 빠뜨리지 마세요**. 재무 조건과 기술적 신호가 한 문장에
    섞여 있으면 둘 다 출력해야 합니다("부채비율 80% 이하이고 시가총액 5000억 이상인 종목 중
    RSI 35 이하에서 매수" → 조건 3개). 출력을 마치기 전에 입력의 각 수치·지표 언급이
@@ -273,6 +284,8 @@ NON_STRATEGY_REQUEST(전략과 무관)
    손절/익절/트레일링은 조건이 아니라 risk_management 필드입니다(% 크기만).
    '최고가 대비/최고가에서 N% 하락(밀리면) 청산'은 stop_loss가 아니라 trailing_stop입니다.
    보유 기간(hold_period_days)은 거래일 단위: 1개월=21, 3개월=63, 6개월=126, 1년=252.
+   예: "한 번 사면 3개월은 들고 가고" → portfolio.hold_period_days=63입니다.
+   '3개월'의 3을 버리고 한 달 값인 21로 채우지 마세요.
    'N거래일 경과 시 청산'·'최대/상한 보유 기간 N거래일'·'N일 보유 후 매도/청산'도
    exit_conditions가 아니라 portfolio.hold_period_days=N입니다 — 'N일 보유'의 N은 이동평균
    기간이 아니므로 ma_crossover로 옮기지 말고, time.days_held 같은 factor도 지어내지 마세요.
@@ -299,11 +312,25 @@ NON_STRATEGY_REQUEST(전략과 무관)
    parameters에 넣으세요("20일선"→short_period=20, "RSI 14일"→period=14). 기간을 말하지 않았으면
    비워 두세요 — 시스템이 표준 기간을 적용합니다. 임의의 숫자를 지어내지 마세요("RSI 30 이하"에는
    기간 언급이 없으므로 parameters는 비웁니다).
-5-1. 신고가/고점 돌파(technical.breakout)의 기준 기간은 parameters.lookback_period(거래일):
+   같은 요청 안에서 "5일 EMA가 20일 EMA를 상향 돌파하면 매수, EMA 데드크로스면 청산"처럼
+   두 번째 신호가 앞의 EMA 쌍을 다시 가리키면 청산도 short_period=5, long_period=20입니다.
+   EMA 데드크로스를 종가와 20일 EMA의 교차(short_period=1)로 바꾸지 마세요.
+   "ADX 20 하향 이탈 시 청산"의 20은 **ADX 지표값 임계치**입니다:
+   factor=technical.adx, operator=crosses_below, value=20, parameters에
+   lookback_period=20을 넣지 마세요. 지표 기간을 별도로 말한 경우에만 period를 넣습니다.
+   "주가가 5거래일 연속 상승"은 technical.consecutive_up,
+   parameters={{"period":5}}, operator=null, value=null입니다. 현재 거래일까지
+   5번 연속으로 종가가 전일 종가보다 높아야 합니다(동일 종가·결측은 연속 상승 아님).
+   이는 5일선 돌파나 5일 수익률 상승과 다릅니다. 이동평균 조건으로 근사하거나
+   unsupported_features에 넣지 마세요.
+5-1. 신고가/고점 돌파·저점 이탈(technical.breakout)의 기준 기간은 parameters.lookback_period(거래일):
    '52주 신고가'=252, 'N주'=N×5, 'N일 고점/신고가'=N. 기간 언급이 없으면 lookback_period는
    비워 두세요(되묻기). 사용자가 '52주'처럼 기간을 말했으면 반드시 lookback_period에 넣으세요.
    '신고가 경신/갱신 종목만 편입'도 같은 진입 조건입니다(→ technical.breakout) —
    지원되는 개념이므로 unsupported_features·청산 조건으로 바꿔치지 마세요.
+   "20일 고점을 넘기면 매수하고 20일 저가 아래로 내려오면 매도"는 진입과 청산 모두
+   technical.breakout, lookback_period=20입니다. 청산은 crosses_below입니다.
+   '20일 저가'는 가격 저점이며 '20일선'(이동평균선)이 아닙니다.
    영어 표기도 같습니다: "breaks (above) the 60-day high"→lookback_period=60,
    "52-week high"→252. lookback_period 외의 파라미터(short_period 등)를 지어 넣지
    마세요(실측 2026-08-26: 미지원 파라미터로 검증에 걸려 조건이 값-대기로 빠졌습니다).
@@ -327,6 +354,10 @@ NON_STRATEGY_REQUEST(전략과 무관)
      crosses_below, 같은 parameters
    - '종가가 20일 이동평균선 위'·'20일선 위에 있는 동안' → 같은 factor, `>`, 같은
      parameters (아래에 머무는 상태면 `<`)
+   - 수식어 없는 '이동평균선'·'20일선'은 단순이동평균(SMA)입니다. 같은 문장에 MACD가
+     있어도 EMA로 바꾸지 마세요. 예: 'MACD 골든크로스와 20일선 위에서 매수, MACD
+     데드크로스 또는 20일선 이탈 시 청산'의 이동평균 진입·청산은 둘 다
+     technical.ma_crossover(1/20)이고 approximated=false입니다.
    - **EMA를 말했으면 factor는 언제나 technical.ema입니다** — ma_crossover·
      concept.golden_cross는 단순이동평균(SMA)이라 지표가 바뀝니다. '종가가 20일 EMA를
      회복/이탈'처럼 **종가와 EMA 한 선**이면 ma_crossover와 같은 표기로 short_period=1
@@ -467,6 +498,11 @@ NON_STRATEGY_REQUEST(전략과 무관)
 6-5. **대상을 규모·유동성으로 좁히는 말**은 조건이 아니라 유니버스 칸입니다 —
    '시가총액 상위 N종목 중'→universe.market_cap_top_n=N, '최근 N일 평균 거래대금 하위 X%를 제외'→
    universe.liquidity_exclude_bottom_percent=X·universe.liquidity_lookback_days=N.
+   반면 '거래가 너무 없는 종목 제외'처럼 **제외 기준의 숫자가 없는** 말은 수치를
+   지어내거나 clarification_questions에만 쓰지 마세요. entry_conditions에
+   fundamental.trading_value, operator=">=", value=null, source_text=해당 원문 조각을
+   남기세요. 검증기가 거래대금 기준값을 사용자에게 묻습니다. X%를 명시했을 때만 위
+   유니버스 하위 비율 칸을 사용합니다.
    (코스피200·코스닥150처럼 **지수 이름**을 말한 것은 markets입니다. unsupported_features에 넣지 않습니다.)
 6-6. '시가총액 하위 X% 제외'·'소형주 하위 X%는 빼고'→universe.market_cap_exclude_bottom_percent=X,
    '적자기업 제외'→universe.exclude_loss_making="net"('영업적자'는 "operating", 둘 다면 "both").

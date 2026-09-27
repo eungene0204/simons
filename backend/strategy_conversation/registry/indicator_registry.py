@@ -298,6 +298,10 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                {"period": ParamSpec(default=20, minimum=5, maximum=250)}),
     _technical("breakout", "신고가 돌파", "event", ("crosses_above",),
                {"lookback_period": ParamSpec(default=60, minimum=5, maximum=500, required=True)}),
+    _technical("consecutive_up", "종가 연속 상승", "event", (),
+               {"period": ParamSpec(minimum=1, maximum=250, required=True)},
+               notes="최근 N거래일 각각의 종가가 직전 거래일 종가보다 높음. "
+                     "parameters.period=N, operator/value 없음. 동일 종가·결측은 연속 상승이 아님"),
     # 캔들 패턴(엔진 v16.29) — 잎마다 패턴 하나. 엔진 조건 id는 candle_pattern+pattern 파라미터(컨버터가 옮긴다).
     _technical("candle_hammer", "망치형 캔들 패턴", "event", (), {},
                notes="캔들 패턴 — 완성 봉에 신호(연산자·값 없음). 주봉·월봉은 parameters.timeframe"),
@@ -534,6 +538,7 @@ _ALIASES: Dict[str, str] = {
     "볼린저밴드": "technical.bollinger_bands", "bollinger": "technical.bollinger_bands",
     "bollinger_bands": "technical.bollinger_bands", "볼린저": "technical.bollinger_bands",
     "breakout": "technical.breakout", "신고가돌파": "technical.breakout", "신고가": "technical.breakout",
+    "consecutive_up": "technical.consecutive_up", "연속상승": "technical.consecutive_up",
     "volume_spike": "technical.volume_spike", "거래량급증": "technical.volume_spike",
     "volume_ratio": "technical.volume_ratio", "거래량배수": "technical.volume_ratio",
     "volume_multiple": "technical.volume_ratio",

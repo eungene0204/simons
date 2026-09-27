@@ -1085,7 +1085,7 @@ def _patch_group_key(path: str) -> Optional[str]:
 
 
 def _explicit_breakout_lookback(text: Optional[str]) -> Optional[int]:
-    """신고가/고점 돌파 조건의 source_text(LLM이 인용한 조각)에서 명시적 기준 기간(거래일)을
+    """고점 돌파/저가 이탈 조건의 source_text(LLM이 인용한 조각)에서 기준 기간(거래일)을
     추출한다. 없으면 None.
 
     입력은 LLM 출력(source_text)이지 사용자 원문이 아니다 — 범위가 LLM이 이미 '이 조건의
@@ -1098,7 +1098,7 @@ def _explicit_breakout_lookback(text: Optional[str]) -> Optional[int]:
         return None
     from engine.nl_parser import _compact
 
-    match = re.search(r"(\d+)\s*(주|일)?\s*(?:신고가|최고가|고점|저점)", _compact(text))
+    match = re.search(r"(\d+)\s*(주|일)?\s*(?:신고가|최고가|고점|저점|저가)", _compact(text))
     if match is None:
         # 영어 인용(2026-08-26, /us 영어 레인): "20-day high"·"52-week high".
         match = re.search(r"(\d+)[- ]?(week|day)s?\s+(?:high|low)", text, re.IGNORECASE)
@@ -1378,6 +1378,20 @@ def _fill_deterministic_condition_params(
     strategy = intent.strategy
     if strategy is None:
         return notices
+    # The interpreter can both report a phrase as unsupported and attach an
+    # approximation for that same phrase (example 12: five consecutive rises
+    # became a five-day MA state).  Those outputs conflict; retain the explicit
+    # unsupported report and discard only the approximation.
+    unsupported_quotes = [_compact(str(f)) for f in intent.unsupported_features if f]
+    for role in ("entry_conditions", "exit_conditions"):
+        setattr(strategy, role, [
+            cond for cond in getattr(strategy, role)
+            if not (cond.approximated
+                    and cond.factor in ("technical.ma_crossover", "technical.ema")
+                    and (quote := _compact(cond.source_text or ""))
+                    and any(quote in feature or feature in quote
+                            for feature in unsupported_quotes))
+        ])
     _SELL_DECLARED_CONCEPTS = {"concept.dead_cross", "concept.macd_dead_cross"}
     # 잎 팩터의 매도 방향 선언 — registry notes "crosses_below=데드크로스"(ma_crossover)이고
     # 엔진(signals.py)은 두 지표의 교차 방향을 signal_type으로만 정한다.
@@ -1657,14 +1671,34 @@ def _drop_fabricated_conditions(
             # 조건 중심 질문으로 교정). unclear·판정 없음은 남긴다.
             if quote_check.quote_does_not_express(quote_verdicts, cond):
                 source = (cond.source_text or "").strip()
+                # A rejected quote absent from the request is model-authored
+                # wording, not the user's phrase; do not echo it as a notice.
+                if quote not in compact_input:
+                    continue
+                # An extra sell condition can quote part of a valid buy condition
+                # (example 49: "20일 이동평균선 위에 있을 때").  The source was
+                # already represented, so removing the fabricated role needs no
+                # misleading "not a moving average" notice.
+                represented_elsewhere = any(
+                    other is not cond and other.factor == cond.factor
+                    and not quote_check.quote_does_not_express(quote_verdicts, other)
+                    and _compact(other.source_text or "")
+                    and (quote in _compact(other.source_text or "")
+                         or _compact(other.source_text or "") in quote)
+                    for other in (list(strategy.entry_conditions)
+                                  + list(strategy.exit_conditions))
+                )
+                if represented_elsewhere:
+                    continue
+                action = "매수" if role == "entry_conditions" else "매도"
                 if len(source) <= _QUOTED_FEATURE_MAX_LEN:
                     notices.append(
-                        f"'{source}'는 이동평균 조건이 아니어서 매매 신호로 반영하지 않았어요."
+                        f"'{source}'는 {action} 신호의 근거로 확인되지 않아 그 신호를 반영하지 않았어요."
                     )
                 else:
                     notices.append(
-                        "요청 문장의 일부 표현은 이동평균 조건이 아니어서 매매 신호로 반영하지"
-                        " 않았어요."
+                        f"요청 문장의 일부 표현은 {action} 신호의 근거로 확인되지 않아 그 신호를"
+                        " 반영하지 않았어요."
                     )
                 continue
             kept.append(cond)
@@ -1926,6 +1960,13 @@ def _resolve_contribution_plan(
     if verdict is None:
         _log_llm("△ 적립식 판정 실패", "판정 없음으로 진행")
         return
+    # A frequency alone is ambiguous: the checker can copy "월간 리밸런싱" as a
+    # monthly plan even though the user never asked to contribute cash.  Only a
+    # quoted contribution amount can recover a plan absent from the first pass.
+    if (strategy.backtest.contribution_amount is None
+            and strategy.backtest.contribution_period is None
+            and verdict.plan_amount is None):
+        verdict.plan_period = None
     notes = contribution_plan_check.apply_verdict(intent, verdict, only=only)
     if notes:
         _log_llm("✓ 적립식 판정", "; ".join(notes))
@@ -2081,6 +2122,19 @@ def run_primary_parse(
             _recovered_conditions = [
                 c for c in result.intent.strategy.entry_conditions if c.factor in recovered]
             _resolve_contribution_plan(result.intent, user_input, recall_chat, only=_recovered_conditions)
+        from strategy_conversation.interpreter.condition_recall import recover_market_cap_bounds
+
+        cap_bounds = recover_market_cap_bounds(result.intent, user_input, recall_chat)
+        if cap_bounds:
+            _log_llm("✓ 시가총액 범위 회수", ", ".join(cap_bounds))
+        from strategy_conversation.interpreter.condition_recall import (
+            recover_ranking_selection_percent,
+        )
+
+        selection_percent = recover_ranking_selection_percent(
+            result.intent, user_input, recall_chat, result.unreflected_numbers)
+        if selection_percent is not None:
+            _log_llm("✓ 랭킹 상위 비율 회수", f"{selection_percent:g}%")
         # 설정 슬롯도 같은 결함을 겪는다 — "최근 1년"을 말했는데 기간만 빠져 이미 답한
         # 값을 다시 묻던 사고(2026-09-16). 기간이 빈 턴에서만 부른다(대부분은 호출 없음).
         from strategy_conversation.interpreter.condition_recall import (

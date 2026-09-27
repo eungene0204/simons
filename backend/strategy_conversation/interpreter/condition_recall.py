@@ -236,6 +236,114 @@ def recover_missing_conditions(
     return recovered
 
 
+_MARKET_CAP_BOUNDS_SYSTEM = """전략 문장에서 사용자가 숫자로 명시한 시가총액 하한과 상한만 추출하세요.
+'중형주' 같은 규모 이름만으로 금액을 추측하지 마세요. 각 근거는 원문 그대로,
+금액과 비교 방향('이상' 또는 '이하')을 함께 포함해야 합니다. 두 경계가 있으면 둘 다 내세요.
+JSON만 출력하세요: {"lower":"시가총액 3000억 원 이상","upper":"3조 원 이하"}.
+한쪽 경계가 없으면 해당 칸은 null입니다. 둘 다 없으면 {"lower":null,"upper":null}입니다."""
+
+
+def recover_market_cap_bounds(intent: Any, user_input: str, chat: Callable[..., str]) -> List[str]:
+    """Fill a quoted pending market-cap bound and its omitted paired bound.
+
+    This second LLM extraction is only used when the first pass already named
+    market cap and quoted a numeric bound but left its value pending. Amount
+    conversion reads the LLM-selected quote, never an unassigned input span.
+    """
+    from strategy_conversation.interpreter.models import StrategyCondition
+    from strategy_conversation.interpreter.output_repair import extract_json_object
+    from strategy_conversation.primary import _explicit_amount_eok
+    from engine.nl_parser import _compact
+
+    strategy = getattr(intent, "strategy", None)
+    if strategy is None:
+        return []
+    existing = [c for c in strategy.entry_conditions if c.factor == "fundamental.market_cap"]
+    if not any(c.value is None and _explicit_amount_eok(c.source_text) is not None
+               for c in existing):
+        return []
+    try:
+        raw = chat(_MARKET_CAP_BOUNDS_SYSTEM, f"[전략 문장]\n{user_input}", max_tokens=256)
+        payload = json.loads(extract_json_object(raw))
+    except Exception:  # noqa: BLE001 — optional recall cannot break parsing
+        logger.debug("market-cap bound recall failed", exc_info=True)
+        return []
+    if not isinstance(payload, dict):
+        return []
+    recovered: List[str] = []
+    compact_input = _compact(user_input)
+    for operator, quote in ((">=", payload.get("lower")), ("<=", payload.get("upper"))):
+        if not isinstance(quote, str):
+            continue
+        if (operator == ">=" and "이하" in quote) or (operator == "<=" and "이상" in quote):
+            continue
+        if not _compact(quote) or _compact(quote) not in compact_input:
+            continue
+        value = _explicit_amount_eok(quote)
+        if value is None or value <= 0:
+            continue
+        if any(c.operator == operator and c.value is not None for c in existing):
+            continue
+        pending = next((c for c in existing if c.operator == operator and c.value is None), None)
+        if pending is None:
+            pending = next((c for c in existing if c.operator is None and c.value is None), None)
+        if pending is None:
+            pending = StrategyCondition(factor="fundamental.market_cap", operator=operator,
+                                        value=value, source_text=quote)
+            strategy.entry_conditions.append(pending)
+            existing.append(pending)
+        else:
+            pending.operator, pending.value, pending.source_text = operator, value, quote
+            pending.value_source = "USER_PROVIDED"
+        recovered.append(f"{operator}{value:g}")
+    return recovered
+
+
+_RANKING_PERCENT_SYSTEM = """전략 문장에서 랭킹/순위로 고른 종목의 편입 비율을 명시했는지 확인하세요.
+'상대강도 상위 15%'처럼 랭킹 결과의 상위/하위 비율만 찾습니다. ROE·수익률 임계값,
+손절·익절·종목당 비중은 편입 비율이 아닙니다. 종목 수(예: 최대 12종목)도 아닙니다.
+해당하면 비율이 있는 원문 구절을 그대로 인용하고 숫자를 적으세요.
+JSON만 출력하세요: {"percent":15,"quote":"상대강도가 높은 상위 15%"}.
+없으면 {"percent":null,"quote":null}입니다."""
+
+
+def recover_ranking_selection_percent(
+    intent: Any, user_input: str, chat: Callable[..., str], residual_numbers: List[str],
+) -> Optional[float]:
+    """Recover an omitted rank percentile only when numeric recall reported a gap."""
+    from strategy_conversation.interpreter.output_repair import extract_json_object
+    from engine.nl_parser import _compact
+
+    strategy = getattr(intent, "strategy", None)
+    if (strategy is None or not strategy.ranking
+            or any(rank.quantile_groups for rank in strategy.ranking)
+            or strategy.portfolio.selection_percent is not None
+            or strategy.portfolio.selection_count is None
+            or not any("%" in str(number) for number in residual_numbers)):
+        return None
+    try:
+        raw = chat(_RANKING_PERCENT_SYSTEM, f"[전략 문장]\n{user_input}", max_tokens=128)
+        payload = json.loads(extract_json_object(raw))
+    except Exception:  # noqa: BLE001 — optional recall cannot break parsing
+        logger.debug("ranking percent recall failed", exc_info=True)
+        return None
+    if not isinstance(payload, dict):
+        return None
+    quote, percent = payload.get("quote"), payload.get("percent")
+    if not isinstance(quote, str) or not _compact(quote) or _compact(quote) not in _compact(user_input):
+        return None
+    if isinstance(percent, bool) or not isinstance(percent, (int, float)) or not (0 < percent <= 100):
+        return None
+    quoted_percents = [float(value) for value in re.findall(r"(\d+(?:\.\d+)?)\s*%", quote)]
+    if float(percent) not in quoted_percents:
+        return None
+    if not any(float(percent) == float(value) for number in residual_numbers
+               for value in re.findall(r"(\d+(?:\.\d+)?)\s*%", str(number))):
+        return None
+    strategy.portfolio.selection_percent = float(percent)
+    return float(percent)
+
+
 # ── 백테스트 기간 회수 패스 ────────────────────────────────────────────────────
 # 조건과 같은 결함이 설정 슬롯에서도 난다(2026-09-16 실측): "…손절은 -8%, 최대 5종목,
 # 최근 1년, 초기 자본 1000만원으로 백테스트해 주세요"에서 1차 해석이 **기간만** 빠뜨렸고

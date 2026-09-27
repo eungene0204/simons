@@ -3093,6 +3093,8 @@ export const en: Record<string, string> = {
   "{0}일선이 {1}일선 아래 유지": "{0}D MA stays below {1}D MA",
   "종가가 {0}일선 위 유지": "Close stays above the {0}D MA",
   "종가가 {0}일선 아래 유지": "Close stays below the {0}D MA",
+  "종가 {0}거래일 연속 상승": "Close rises for {0} consecutive trading days",
+  "종가 연속 상승": "Consecutive close increases",
   "RSI {0} 상향 돌파(과매도 반등)": "RSI crosses above {0} (oversold rebound)",
   "RSI {0} 하향 돌파": "RSI crosses below {0}",
   "EMA{0}이 EMA{1} 위 유지": "EMA{0} stays above EMA{1}",
