@@ -721,7 +721,12 @@ def _has_value(parsed: Any, field: str) -> bool:
         return (_nonempty(g("entry_signals")) or _nonempty(g("fundamental_filters"))
                 or _nonempty(g("ranking_metric")))
     if field == EXIT:
-        return _nonempty(g("exit_signals")) or _positive(g("hold_period_days")) or has_rebalancing
+        # 익절류(익절·분할 익절·트레일링 스탑)도 매도 규칙이다 — 2026-09-28 사용자 결정으로 07-22
+        # '청산은 손절·익절과 별개' 규칙을 개정했다(분할 익절 +100% 전량 매도까지 말한 전략에 매도
+        # 조건을 다시 묻던 사고). 손절만으로는 수익 쪽 청산이 없어 계속 묻는다.
+        return (_nonempty(g("exit_signals")) or _positive(g("hold_period_days")) or has_rebalancing
+                or _positive(g("take_profit_pct")) or _positive(g("trailing_stop_pct"))
+                or _nonempty(g("partial_take_profits")))
     if field == MAX_POSITIONS:
         # 분위 그룹 전략(FR-BT-060b)의 이 자리는 '그룹당 보유 상한'이다 — cap은 물질화
         # 기본값이 없어 값의 존재가 곧 사용자 답변이다(max_positions=10 물질화와 무관).
@@ -754,6 +759,29 @@ def _has_value(parsed: Any, field: str) -> bool:
 # 분할하고 max_positions를 읽지 않는다(2026-09-22, 유니버스 적립 허용과 함께).
 CONTRIBUTION_NOT_APPLICABLE = frozenset({
     ENTRY, EXIT, STOP_LOSS, TAKE_PROFIT, REBALANCING, REBALANCE_METHOD, MAX_POSITIONS})
+
+
+# ── 분할 매수 첫 매수 비중(엔진 v16.36 사다리) — 진행 골격 칸은 아니지만 같은 게이트가 묻는다 ──
+# 사용자가 하락 단계별 추가 매수만 말하고 첫 매수 비중을 말하지 않으면 추가 회차 합에서 역산하지 않고
+# 묻는다(2026-09-28 사용자 결정 — '첫 회차 65%'를 지어내 지적받음). 칩 없음(추천값 없이).
+# 문구는 규제 출력 가드(_FORBIDDEN '분할\s*매수')에 걸리지 않게 쓴다 — 걸리면 질문이 문장째 지워진다.
+# 되묻기 답은 이 문장의 동일성으로 전용 판정(primary._first_buy_answer_result)이 받는다 —
+# 프론트 게이트도 픽스처(slot-prompts.json)로 같은 문장을 쓴다.
+FIRST_BUY_QUESTION: tuple[str, str] = (
+    "매수 신호가 난 날 처음에 최대 투자금의 몇 %를 살까요? 나머지는 말씀하신 하락 단계에서 추가로 삽니다.",
+    "On the signal day, what share of the full position should the first buy be? "
+    "The rest is bought at the drop steps you described.",
+)
+
+
+def awaiting_first_buy(parsed: Any) -> bool:
+    """하락 단계별 추가 매수(사다리)가 있는데 첫 매수 비중이 비었는가(되묻는 중)."""
+    tranches = getattr(parsed, "entry_tranches", None)
+    if tranches is None:
+        return False
+    if isinstance(tranches, dict):
+        return bool(tranches.get("levels")) and tranches.get("first_pct") is None
+    return bool(getattr(tranches, "levels", None)) and getattr(tranches, "first_pct", None) is None
 
 
 def has_withdrawal_plan(parsed: Any) -> bool:

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { __resetLanguageForTests, setLanguage, t } from "@/lib/i18n";
-import { buildCoachSessionBody, normalizeCoachMessage } from "./coachMessage";
+import { buildCoachSessionBody, normalizeCoachMessage, validationIssueMessage } from "./coachMessage";
 
 afterEach(() => {
   __resetLanguageForTests();
@@ -145,5 +145,32 @@ describe("buildCoachSessionBody", () => {
       userText: "q", parsed: {}, conversation: [{ role: "user", content: "앞 질문" }], declinedFields: [],
     });
     expect(withContext.conversation_context).toEqual([{ role: "user", content: "앞 질문" }]);
+  });
+});
+
+describe("validationIssueMessage", () => {
+  // [2026-09-28 지시] 확정 직후 '전략 정의가 완료되었습니다' 한 줄 카드는 그리지 않는다 —
+  // 알릴 문제가 있을 때만 검증 카드를 띄운다.
+  it("문제 없는 검증 결과는 표시하지 않는다", () => {
+    expect(validationIssueMessage(JSON.stringify({ is_valid: true, issues: [] }))).toBeNull();
+    expect(validationIssueMessage("```json\n{\"is_valid\": true, \"issues\": []}\n```")).toBeNull();
+  });
+
+  it("충돌·누락 같은 문제가 있으면 문구를 돌려준다", () => {
+    const conflict = JSON.stringify({
+      is_valid: false,
+      issues: [{ code: "CONFLICT", severity: "error", category: "logical_conflict", field: "entry_rule", message: "매수 조건이 서로 충돌합니다." }],
+    });
+    expect(validationIssueMessage(conflict)).toBe("매수 조건이 서로 충돌합니다.");
+    const missing = JSON.stringify({
+      is_valid: false,
+      issues: [{ code: "MISSING", severity: "error", category: "missing_field", field: "take_profit_pct", message: "" }],
+    });
+    expect(validationIssueMessage(missing)).toBe("익절 조건을 입력해 주세요.");
+  });
+
+  it("검증 결과 형식이 아니면 표시하지 않는다", () => {
+    expect(validationIssueMessage("전략 검증 완료")).toBeNull();
+    expect(validationIssueMessage(undefined)).toBeNull();
   });
 });

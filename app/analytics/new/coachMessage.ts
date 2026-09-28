@@ -60,6 +60,29 @@ function buildValidationMessage(issues: unknown[]): string {
   return parts.join("\n\n");
 }
 
+interface ValidationResult {
+  is_valid: boolean;
+  issues: unknown[];
+}
+
+function parseCoachJson(text: string): unknown {
+  const codeBlockMatch = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  const candidate = codeBlockMatch ? codeBlockMatch[1].trim() : text;
+  if (!candidate.startsWith("{") || !candidate.endsWith("}")) return undefined;
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    return undefined;
+  }
+}
+
+function asValidationResult(value: unknown): ValidationResult | null {
+  const candidate = value as Partial<ValidationResult> | null | undefined;
+  return typeof candidate?.is_valid === "boolean" && Array.isArray(candidate?.issues)
+    ? (candidate as ValidationResult)
+    : null;
+}
+
 export function normalizeCoachMessage(value: unknown, fallback: string): string {
   if (typeof value !== "string") {
     return fallback;
@@ -70,31 +93,35 @@ export function normalizeCoachMessage(value: unknown, fallback: string): string 
     return fallback;
   }
 
-  const codeBlockMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
-  const candidate = codeBlockMatch ? codeBlockMatch[1].trim() : trimmed;
-
-  if (candidate.startsWith("{") && candidate.endsWith("}")) {
-    try {
-      const parsed = JSON.parse(candidate);
-      if (typeof parsed?.is_valid === "boolean" && Array.isArray(parsed?.issues)) {
-        const built = buildValidationMessage(parsed.issues);
-        if (built) {
-          return built;
-        }
-
-        return parsed.is_valid
-          ? t("전략 정의가 완료되었습니다. 백테스트를 실행할 수 있습니다.")
-          : fallback;
-      }
-      if (typeof parsed?.message === "string" && parsed.message.trim()) {
-        return parsed.message.trim();
-      }
-    } catch {
-      return trimmed;
+  const parsed = parseCoachJson(trimmed) as { message?: unknown } | undefined;
+  const validation = asValidationResult(parsed);
+  if (validation) {
+    const built = buildValidationMessage(validation.issues);
+    if (built) {
+      return built;
     }
+
+    return validation.is_valid
+      ? t("전략 정의가 완료되었습니다. 백테스트를 실행할 수 있습니다.")
+      : fallback;
+  }
+  if (typeof parsed?.message === "string" && parsed.message.trim()) {
+    return parsed.message.trim();
   }
 
   return trimmed;
+}
+
+/**
+ * 전략 확정 직후 자동 검증의 표시 문구 — 알릴 문제(누락·충돌·불가능 조건 등)가 있을 때만
+ * 문구를, 없으면 null. '전략 정의가 완료되었습니다' 한 줄 카드는 버튼과 같은 말을 되풀이할
+ * 뿐이라 그리지 않는다(2026-09-28 지시 — 확정 즉시 백테스트 버튼).
+ */
+export function validationIssueMessage(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const validation = asValidationResult(parseCoachJson(value.trim()));
+  if (!validation) return null;
+  return buildValidationMessage(validation.issues) || null;
 }
 
 /**

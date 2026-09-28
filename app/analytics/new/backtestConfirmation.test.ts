@@ -23,7 +23,7 @@ describe("isBacktestPrompt", () => {
   it("detects the coach-failed fallback that still offers a backtest", () => {
     expect(
       isBacktestPrompt(
-        "전략 검증 결과를 가져오지 못했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
+        "전략 검증 결과를 가져오지 못했습니다. 백테스트는 계속 실행할 수 있습니다.",
       ),
     ).toBe(true);
   });

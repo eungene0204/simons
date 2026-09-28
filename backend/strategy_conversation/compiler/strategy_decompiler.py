@@ -19,6 +19,7 @@ from strategy_conversation.interpreter.models import (
     BacktestSpec,
     CashPoolSpec,
     EntryTranchesSpec,
+    TrancheLevelSpec,
     MacroFilterSpec,
     MarketFilterSpec,
     PartialTakeProfitSpec,
@@ -283,9 +284,12 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             benchmark=parsed.benchmark,
             entry_limit_percent=parsed.entry_limit_pct,
             exit_limit_percent=parsed.exit_limit_pct,
-            entry_tranches=(EntryTranchesSpec(count=parsed.entry_tranches.count,
-                                              step_percent=parsed.entry_tranches.step_pct)
-                            if parsed.entry_tranches is not None else None),
+            entry_tranches=(EntryTranchesSpec(
+                count=parsed.entry_tranches.count, step_percent=parsed.entry_tranches.step_pct,
+                levels=[TrancheLevelSpec(drop_percent=lv.drop_pct, buy_percent=lv.size_pct)
+                        for lv in parsed.entry_tranches.levels],
+                first_percent=parsed.entry_tranches.first_pct,
+            ) if parsed.entry_tranches is not None else None),
             slippage_model=parsed.slippage_model,
             slippage_impact_coeff=parsed.slippage_impact_coeff,
             cash_pool=CashPoolSpec(

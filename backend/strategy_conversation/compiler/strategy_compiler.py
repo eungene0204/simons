@@ -20,6 +20,7 @@ from engine.nl_parser import (
     CashPool,
     ContributionRule,
     EntryTranches,
+    TrancheLevel,
     FundamentalFilter,
     MacroFilter,
     MarketRegime,
@@ -746,8 +747,12 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         ) if risk.position_sizing is not None else None),
         entry_limit_pct=bt.entry_limit_percent,
         exit_limit_pct=bt.exit_limit_percent,
-        entry_tranches=(EntryTranches(count=bt.entry_tranches.count, step_pct=bt.entry_tranches.step_percent)
-                        if bt.entry_tranches is not None else None),
+        entry_tranches=(EntryTranches(
+            count=bt.entry_tranches.count, step_pct=bt.entry_tranches.step_percent,
+            levels=[TrancheLevel(drop_pct=lv.drop_percent, size_pct=lv.buy_percent)
+                    for lv in bt.entry_tranches.levels],
+            first_pct=bt.entry_tranches.first_percent,
+        ) if bt.entry_tranches is not None else None),
         slippage_model=("volume_impact" if bt.slippage_model == "volume_impact" else None),
         slippage_impact_coeff=bt.slippage_impact_coeff if bt.slippage_model == "volume_impact" else None,
         max_position_weight_pct=portfolio.max_weight_percent,

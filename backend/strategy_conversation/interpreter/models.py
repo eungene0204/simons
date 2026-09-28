@@ -354,13 +354,55 @@ class PositionSizingSpec(BaseModel):
                               mode="before")(_coerce_number)
 
 
-class EntryTranchesSpec(BaseModel):
-    """분할 매수(엔진 v16.28) — '3번에 나눠 5%씩 떨어질 때마다'. 말하지 않은 칸은 null."""
-    count: Optional[int] = Field(default=None, description="회차 수")
-    step_percent: Optional[float] = Field(default=None, description="회차 간격(%) — 기준가 대비 하락 폭")
+class TrancheLevelSpec(BaseModel):
+    """분할 매수 사다리 한 칸(엔진 v16.36) — '-15% 하락하면 최대 투자금의 10% 추가 매수'."""
+    drop_percent: Optional[float] = Field(default=None, description="첫 매수가 대비 하락 폭(%) — '-15%'=15")
+    buy_percent: Optional[float] = Field(default=None, description="추가 매수 비중(최대 투자금 대비 %) — '10%'=10")
     source_text: Optional[str] = None
 
-    _coerce = field_validator("count", "step_percent", mode="before")(_coerce_number)
+    _coerce = field_validator("drop_percent", "buy_percent", mode="before")(_coerce_number)
+
+    @field_validator("drop_percent")
+    @classmethod
+    def _abs_drop(cls, v):
+        # 방향(하락)이 필드 의미에 내장돼 있어 크기만 유효 ("-15%" → 15.0)
+        return abs(v) if v is not None else None
+
+
+def _coerce_tranche_levels(v: Any) -> list:
+    """사다리 단계 목록 형식 정규화 — 추가 매수 0%('-5%면 그대로 보유')는 아무 주문도 아니므로 뺀다
+    (값만 보고 결정)."""
+    if not isinstance(v, list):
+        return []
+    out = []
+    for item in v:
+        if isinstance(item, TrancheLevelSpec):
+            item = item.model_dump()
+        if not isinstance(item, dict):
+            continue
+        if _coerce_number(item.get("buy_percent")) in (0, 0.0):
+            continue
+        out.append(item)
+    return out
+
+
+class EntryTranchesSpec(BaseModel):
+    """분할 매수(엔진 v16.28) — '3번에 나눠 5%씩 떨어질 때마다'. 말하지 않은 칸은 null.
+
+    v16.36: 단계마다 폭·비중이 다르면 ``levels``(있으면 count/step_percent 대신 쓴다). 첫 매수 비중을
+    말했을 때만 ``first_percent`` — 없으면 시스템이 되묻는다(추가 회차 합에서 역산하지 않는다)."""
+    count: Optional[int] = Field(default=None, description="회차 수")
+    step_percent: Optional[float] = Field(default=None, description="회차 간격(%) — 기준가 대비 하락 폭")
+    levels: List[TrancheLevelSpec] = Field(default_factory=list, description="단계별 사다리")
+    first_percent: Optional[float] = Field(default=None, description="첫 매수 비중(%) — 말했을 때만")
+    source_text: Optional[str] = None
+
+    _coerce = field_validator("count", "step_percent", "first_percent", mode="before")(_coerce_number)
+
+    @field_validator("levels", mode="before")
+    @classmethod
+    def _coerce_levels(cls, v):
+        return _coerce_tranche_levels(v)
 
 
 class TaaModelSpec(BaseModel):
@@ -744,6 +786,11 @@ class RiskSpec(BaseModel):
     trailing_stop_activation: Optional[float] = Field(
         default=None, description="트레일링 스탑 활성화 수익률(%) — '10% 오른 뒤부터 트레일링'=10")
     partial_take_profits: List[PartialTakeProfitSpec] = Field(default_factory=list, description="분할 익절 단계")
+    # 하락 단계별 추가 매수(엔진 v16.36 사다리) — 분할 익절의 대칭 자리. 인터프리터 출력 형태일 뿐이고
+    # StrategySpec 검증기가 backtest.entry_tranches.levels로 옮긴다(엔진 계약의 자리는 그쪽 하나).
+    # 백테스트 설정 칸에 두었더니 120B가 '최대 투자금의 10% 추가 매수'를 바로 옆 position_sizing(ATR)에
+    # 적어 분할 매수가 사라지고 ATR 위험 %를 되물었다(2026-09-28 실측) — 규칙 문구 대신 자리를 옮겼다.
+    scale_in_buys: List[TrancheLevelSpec] = Field(default_factory=list, description="하락 단계별 추가 매수")
     position_sizing: Optional[PositionSizingSpec] = Field(default=None, description="포지션 사이징")
 
     _coerce = field_validator(
@@ -751,6 +798,11 @@ class RiskSpec(BaseModel):
         "stop_cooldown_days", "trailing_stop_activation",
         mode="before",
     )(_coerce_number)
+
+    @field_validator("scale_in_buys", mode="before")
+    @classmethod
+    def _coerce_scale_in(cls, v):
+        return _coerce_tranche_levels(v)
 
     @field_validator("partial_take_profits", mode="before")
     @classmethod
@@ -765,6 +817,30 @@ class RiskSpec(BaseModel):
     def _abs_ratio(cls, v):
         # 방향이 필드 의미에 내장돼 있어 크기만 유효 ("-8% 손절" → 8.0)
         return abs(v) if v is not None else None
+
+    @model_validator(mode="after")
+    def _normalize_partial_stages(self):
+        """분할 익절 단계의 끝값 정규화(LLM 출력 값만 보고 결정).
+
+        매도 0%('+5%에서는 계속 보유')는 아무 주문도 아니므로 뺀다. 매도 100%('+100%면 남은 수량 전량
+        매도')는 분할이 아니라 익절 청산이다 — 익절 칸으로 옮긴다(이미 익절이 있으면 먼저 닿는 쪽).
+        수익률 단계를 말하지 않은 전량 매도는 옮길 값이 없어 단계로 남기고 매도 비율만 비운다(되묻기).
+        옮기지 않으면 분할 익절(매도 < 100%) 스키마에서 조립이 실패해 요청 전체가 '해석 실패'로
+        끝났다(2026-09-28 실측)."""
+        kept = []
+        for p in self.partial_take_profits:
+            if p.sell_percent is not None and p.sell_percent <= 0:
+                continue
+            if p.sell_percent is not None and p.sell_percent >= 100:
+                if p.profit_percent is None:
+                    kept.append(p.model_copy(update={"sell_percent": None}))
+                    continue
+                profit = abs(p.profit_percent)
+                self.take_profit = profit if self.take_profit is None else min(self.take_profit, profit)
+                continue
+            kept.append(p)
+        self.partial_take_profits = kept
+        return self
 
 
 # ── backtest.period 정규화 — LLM은 "말한 그대로", 변환은 여기서 ─────────────────────
@@ -980,6 +1056,16 @@ class BacktestSpec(BaseModel):
     exit_limit_percent: Optional[float] = Field(
         default=None, description="매도 지정가 — 전일 종가 대비 +y%")
     entry_tranches: Optional[EntryTranchesSpec] = Field(default=None, description="분할 매수 설정")
+
+    @field_validator("entry_tranches", mode="before")
+    @classmethod
+    def _coerce_tranche_list(cls, v):
+        # 형식 정규화 — 단계 목록을 객체로 감싸지 않고 그대로 낸 출력은 사다리 단계 목록이다
+        # (120B 실측 2026-09-28: 두 번 연속 [{drop_percent, buy_percent}, …]를 바로 냈다).
+        if isinstance(v, list):
+            return {"levels": v} if v else None
+        return v
+
     slippage_model: Optional[str] = Field(
         default=None, description="슬리피지 모델 — '거래량에 비례하는 슬리피지'·'시장 충격 반영'=volume_impact")
     slippage_impact_coeff: Optional[float] = Field(default=None, description="거래량 비례 슬리피지 계수(말했을 때만)")
@@ -1059,6 +1145,22 @@ def _scalar_slot_target(factor: Any) -> Optional[tuple]:
     return None
 
 
+def scale_in_view(doc: dict) -> dict:
+    """수정 턴 초안(dict)의 사다리 단계를 인터프리터 출력 형태(risk_management.scale_in_buys)로 옮긴다(제자리).
+
+    메인 프롬프트는 추가 매수를 scale_in_buys로 가르치는데 초안에는 엔진 자리(backtest.entry_tranches.levels)로
+    보이면, 수정 LLM이 답('첫 매수는 50%')을 옮길 자리를 못 찾고 칸을 지어냈다(2026-09-28 실측:
+    `/position_sizing` `fixed_first_tranche`). 보여 주는 초안과 패치를 적용하는 사본이 같은 모양이어야
+    경로가 맞는다 — StrategySpec 검증기(_relocate_scale_in_buys)가 적용 뒤 엔진 자리로 되돌린다.
+    첫 매수 비중(first_percent)은 제자리에 둔다."""
+    tr = (doc.get("backtest") or {}).get("entry_tranches")
+    if isinstance(tr, dict) and tr.get("levels"):
+        risk = doc.setdefault("risk_management", {})
+        risk["scale_in_buys"] = list(risk.get("scale_in_buys") or []) + list(tr["levels"])
+        tr["levels"] = []
+    return doc
+
+
 class StrategySpec(BaseModel):
     """전략 초안 본체. 값이 null인 필드는 '사용자가 말하지 않음'을 뜻하며,
     compiler가 기본값을 적용하기 전까지 확정값이 아니다."""
@@ -1134,6 +1236,25 @@ class StrategySpec(BaseModel):
                     out.append(name)
             return out
         return v
+
+    @model_validator(mode="after")
+    def _relocate_scale_in_buys(self):
+        # 출력 형태(risk_management.scale_in_buys) → 엔진 계약 자리(backtest.entry_tranches.levels).
+        # 자리만 옮기는 형식 정규화다 — 첫 매수 비중(first_percent)·기존 단계는 보존한다.
+        # 하락 폭 0% 단계('처음에는 30%만 매수')는 첫 매수 비중이다.
+        buys = self.risk_management.scale_in_buys
+        if buys:
+            tr = self.backtest.entry_tranches or EntryTranchesSpec()
+            first = tr.first_percent
+            levels = list(tr.levels)
+            for lv in buys:
+                if lv.drop_percent == 0:
+                    first = lv.buy_percent if first is None else first
+                else:
+                    levels.append(lv)
+            self.backtest.entry_tranches = tr.model_copy(update={"levels": levels, "first_percent": first})
+            self.risk_management.scale_in_buys = []
+        return self
 
     @model_validator(mode="after")
     def _drop_mirrored_valueless_exits(self):

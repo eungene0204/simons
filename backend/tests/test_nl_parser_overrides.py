@@ -1361,27 +1361,22 @@ def test_extract_risk_field_overrides_is_single_source_of_truth():
     assert extract_risk_field_overrides("보유 기간 20일로 바꿔줘") == {}
 
 
-def test_synthesize_risk_overrides_supplements_parser_when_regex_misses():
-    # "10% 이익 나면 팔아줘"는 결정적 추출이 놓치지만(구어체 "이익"), 파서(LLM)가
-    # take_profit_pct=10으로 해석했다면 그 결과를 override로 surface 해야 한다.
-    # 그렇지 않으면 프론트의 결정적 게이트에 막혀 익절이 화면에서 사라진다.
+def test_synthesize_risk_overrides_follows_parser_only():
+    # 해석 결과가 바꾼 리스크 필드만 싣는다 — 구어체("10% 이익 나면 팔아줘")도 파서가 해석했으면 실린다.
     previous = {"stop_loss_pct": 10.0, "take_profit_pct": None, "trailing_stop_pct": None}
     parsed = ParsedStrategy(description="x", stop_loss_pct=10.0, take_profit_pct=10.0)
-    assert extract_risk_field_overrides("10% 이익 나면 팔아줘") == {}  # 결정적은 못 잡음
-    assert synthesize_risk_overrides("10% 이익 나면 팔아줘", parsed, previous) == {
-        "take_profit_pct": 10.0
-    }
-
-
-def test_synthesize_risk_overrides_keeps_deterministic_and_ignores_unchanged():
-    # 결정적 추출이 잡은 값은 그대로 우선, 안 바뀐 필드는 override에 넣지 않는다.
-    previous = {"stop_loss_pct": 10.0, "take_profit_pct": None, "trailing_stop_pct": None}
+    assert synthesize_risk_overrides(parsed, previous) == {"take_profit_pct": 10.0}
     # 비-리스크 수정: 파서가 previous risk를 보존 → override 없음
-    parsed_no_change = ParsedStrategy(description="x", stop_loss_pct=10.0)
-    assert synthesize_risk_overrides("종목 5개로 바꿔줘", parsed_no_change, previous) is None
-    # 결정적으로 잡히는 명시 표현은 그대로
-    parsed_tp = ParsedStrategy(description="x", stop_loss_pct=10.0, take_profit_pct=30.0)
-    assert synthesize_risk_overrides("익절 30%", parsed_tp, previous) == {"take_profit_pct": 30.0}
+    assert synthesize_risk_overrides(ParsedStrategy(description="x", stop_loss_pct=10.0), previous) is None
+    # 삭제: 파서가 비운 필드는 None으로 실린다
+    assert synthesize_risk_overrides(ParsedStrategy(description="x"), previous) == {"stop_loss_pct": None}
+
+
+def test_synthesize_risk_overrides_never_rereads_user_text():
+    """[회귀 2026-09-28] 원문 정규식이 "-5% 하락하면 그대로 보유"를 손절 5%로 지어내 LLM이 비워 둔
+    손절을 프론트에서 덮어썼다(요약 카드 '손절 -5%'). 파서가 손절을 두지 않았으면 override도 없다."""
+    parsed = ParsedStrategy(description="x", take_profit_pct=100.0)
+    assert synthesize_risk_overrides(parsed, None) == {"take_profit_pct": 100.0}
 
 
 def test_match_risk_pct_keyword_and_number_not_adjacent():

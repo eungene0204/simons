@@ -944,15 +944,14 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(await screen.findByText(filterQuestion)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "없음" }));
 
-    expect(await screen.findByText("전략 검증 완료", {}, { timeout: 5_000 })).toBeInTheDocument();
+    // 확정 즉시 실행 버튼 — 요약 카드·'완료' 검증 카드 없이(2026-09-28 지시).
+    const runButton = await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5_000 });
     // 되묻기 카드는 **지금 답할 질문 하나만** 보여준다(빌더 질문도 같은 카드로 나가면서
-    // 이 규칙을 함께 따른다, 2026-08-16) — 답이 끝난 질문은 카드째 사라지고, 정해진
-    // 내용은 요약 카드가 이어서 보여준다. 같은 질문이 두 번 남는 일도 그래서 없다.
+    // 이 규칙을 함께 따른다, 2026-08-16) — 답이 끝난 질문은 카드째 사라진다.
+    // 같은 질문이 두 번 남는 일도 그래서 없다.
     expect(screen.queryAllByText(filterQuestion)).toHaveLength(0);
-    expect(screen.getByText("삼성전자 (005930)")).toBeInTheDocument();
-    const runButton = screen.getByRole("button", { name: "백테스트 시작하기" });
     expect(screen.getAllByRole("button", { name: "백테스트 시작하기" })).toHaveLength(1);
-    expect(screen.getByTestId("strategy-coach-bubble")).not.toContainElement(runButton);
+    expect(screen.queryByTestId("strategy-coach-bubble")).not.toBeInTheDocument();
     expect(screen.getByTestId("backtest-action")).toContainElement(runButton);
     expect(parseCallCount).toBe(1);
     expect(builderCallCount).toBe(4);
@@ -1180,9 +1179,7 @@ describe("StrategyLabPage scroll behavior", () => {
     fireEvent.click(await screen.findByRole("button", { name: "EMA200 위에서만" }));
     fireEvent.click(await screen.findByRole("button", { name: "10% 손절·20% 익절" }));
 
-    expect(
-      await screen.findByText("전략 정의가 완료되었습니다.", {}, { timeout: 5_000 })
-    ).toBeInTheDocument();
+    await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5_000 });
     expect(screen.queryByText("어떤 이동평균을 쓸까요?")).not.toBeInTheDocument();
     expect(
       screen.getAllByRole("button", { name: "백테스트 시작하기" })
@@ -1285,11 +1282,8 @@ describe("StrategyLabPage scroll behavior", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "10% 손절·20% 익절" }));
 
-    expect(
-      await screen.findByText("전략 정의가 완료되었습니다.", {}, { timeout: 5_000 })
-    ).toBeInTheDocument();
+    await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5_000 });
     expect(screen.queryByText("어떤 이동평균을 쓸까요?")).not.toBeInTheDocument();
-    expect(screen.getByText("삼성전자 (005930)")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "백테스트 시작하기" })).toHaveLength(1);
     expect(builderCalls).toHaveLength(2);
   });
@@ -1513,10 +1507,7 @@ describe("StrategyLabPage scroll behavior", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
-    // 전략 검증은 의도된 최소 지연(~2.4s) 후 응답을 노출하므로 타임아웃을 넉넉히 둔다.
-    expect(
-      await screen.findByText("첫 번째 코치 응답입니다.", undefined, { timeout: 5000 })
-    ).toBeInTheDocument();
+    await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5000 });
     expect(
       screen.getAllByRole("button", { name: "백테스트 시작하기" })
     ).toHaveLength(1);
@@ -1594,10 +1585,7 @@ describe("StrategyLabPage scroll behavior", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
-    expect(
-      await screen.findByText("첫 번째 코치 응답입니다.", undefined, { timeout: 5000 })
-    ).toBeInTheDocument();
-    const summaryCountBeforeFollowUp = screen.getAllByText("전략 요약").length;
+    await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5000 });
 
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "익절을 추가해 볼까?" } });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
@@ -1616,7 +1604,6 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(screen.getByRole("button", { name: "익절 5%" }).textContent).toBe("1익절 5%");
     expect(screen.getByRole("button", { name: "익절 15%" }).textContent).toBe("3익절 15%");
     expect(screen.getByRole("button", { name: "직접 입력" }).textContent).toBe("4직접 입력");
-    expect(screen.getAllByText("전략 요약")).toHaveLength(summaryCountBeforeFollowUp);
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/strategy/parse/stream")).toHaveLength(1);
   });
 
@@ -1664,9 +1651,7 @@ describe("StrategyLabPage scroll behavior", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
-    expect(
-      await screen.findByText("코치 응답입니다.", undefined, { timeout: 5000 })
-    ).toBeInTheDocument();
+    await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5000 });
     const parseCallsBeforeFollowUp = fetchMock.mock.calls.filter(
       ([input]) => String(input) === "/api/strategy/parse/stream",
     ).length;

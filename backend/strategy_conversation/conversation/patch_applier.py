@@ -9,7 +9,7 @@ from __future__ import annotations
 import copy
 from typing import Any, List
 
-from strategy_conversation.interpreter.models import ALLOWED_PATCH_OPS, PatchOp, StrategySpec
+from strategy_conversation.interpreter.models import ALLOWED_PATCH_OPS, PatchOp, StrategySpec, scale_in_view
 
 
 class PatchError(ValueError):
@@ -150,7 +150,8 @@ def _promote_patches_on_absent_condition(doc: Any, patches: List[PatchOp]) -> Li
 def apply_patches(strategy: StrategySpec, patches: List[PatchOp]) -> StrategySpec:
     """패치를 적용한 새 StrategySpec을 반환한다(원본 불변). 실패 시 PatchError."""
     _reject_state_ops(patches)
-    doc = copy.deepcopy(strategy.model_dump())
+    # 사다리 단계는 수정 LLM이 보는 초안과 같은 모양(scale_in_buys)으로 둔다 — 경로가 맞아야 한다.
+    doc = scale_in_view(copy.deepcopy(strategy.model_dump()))
     patches = _promote_patches_on_absent_condition(doc, patches)
     before = copy.deepcopy(doc)
     for patch in patches:

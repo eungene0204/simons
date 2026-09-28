@@ -289,13 +289,27 @@ def _rebalance_band(risk_params: Dict[str, Any]) -> Optional[float]:
 
 
 def _tranche_plan(risk_params: Dict[str, Any]) -> Optional[tuple]:
-    """분할 매수(``entry_tranches`` = {count, step_pct}) → (회차 수, 회차 간격 %). 2회 미만이면 None."""
+    """분할 매수 → (회차 수, 회차별 하락 폭 % 목록, 회차별 비중 % 목록 | None). 2회 미만이면 None.
+
+    균등(``{count, step_pct}``): k회차 하락 폭 k·step, 비중 None(=목표 비중 ÷ 회차 수 — 종전 식 그대로라
+    결과가 비트 단위로 같다). 사다리(``{first_pct, levels:[{drop_pct, size_pct}]}``, v16.36): 첫 회차
+    first_pct, 이후 회차는 하락 폭 오름차순으로 제 비중(목표 비중 대비 %)."""
     raw = risk_params.get('entry_tranches')
     if not raw:
         return None
+    levels = raw.get('levels')
+    if levels:
+        try:
+            first = float(raw.get('first_pct') or 0.0)
+            steps = sorted((float(lv['drop_pct']), float(lv['size_pct'])) for lv in levels)
+        except (TypeError, ValueError, KeyError):
+            return None
+        if first <= 0.0 or any(d <= 0.0 or w <= 0.0 for d, w in steps):
+            return None
+        return (len(steps) + 1, [0.0] + [d for d, _ in steps], [first] + [w for _, w in steps])
     count = int(raw.get('count') or 0)
     step = float(raw.get('step_pct') or 0.0)
-    return (count, step) if count >= 2 and step > 0.0 else None
+    return (count, [k * step for k in range(count)], None) if count >= 2 and step > 0.0 else None
 
 
 def _partial_take_profits(risk_params: Dict[str, Any]) -> List[tuple]:
@@ -1139,26 +1153,28 @@ class Simulator:
                                     symbols[s_idx], {})[date_strs[i]] = _band_reason
                             self.band_events += 1
 
-            # 분할 매수(v16.28) 추가 회차: 기준가 × (1 − k·step)에 저가가 닿은 날 목표 비중의 1/count씩 더 산다.
+            # 분할 매수(v16.28) 추가 회차: 기준가 × (1 − k회차 하락 폭)에 저가가 닿은 날 그 회차 비중을 더 산다
+            # (균등은 목표 비중의 1/count, 사다리(v16.36)는 회차별 %).
             if tranches is not None:
-                _cnt, _step = tranches
+                _cnt, _drops, _shares = tranches
                 pend = (active_mask & ~pending_exit & (tranche_next > 0) & (tranche_next < _cnt)
                         & avail_values[i] & ~exits_values[i].astype(bool) & np.isnan(target_values[i]))
                 for s_idx in np.where(pend)[0]:
                     k = int(tranche_next[s_idx])
-                    lim = tranche_ref[s_idx] * (1.0 - k * _step / 100.0)
+                    lim = tranche_ref[s_idx] * (1.0 - _drops[k] / 100.0)
                     if low_values[i, s_idx] > lim:
                         continue
                     fill = min(float(exec_price_values[i, s_idx]), lim)
                     exec_price_values[i, s_idx] = fill
-                    add = tranche_full[s_idx] / _cnt
+                    add = (tranche_full[s_idx] / _cnt if _shares is None
+                           else tranche_full[s_idx] * _shares[k] / 100.0)
                     prev_w = live_target[s_idx]
                     entry_price[s_idx] = (entry_price[s_idx] * prev_w + fill * add) / (prev_w + add)
                     live_target[s_idx] = prev_w + add
                     target_values[i, s_idx] = live_target[s_idx]
                     fees_values[i, s_idx] = buy_fee
                     self.entry_reason_overrides.setdefault(symbols[s_idx], {})[date_strs[i]] = tr.encode(
-                        [tr.part(tr.TRANCHE_BUY, k + 1, _cnt, _fmt_g(k * _step))])
+                        [tr.part(tr.TRANCHE_BUY, k + 1, _cnt, _fmt_g(_drops[k]))])
                     tranche_next[s_idx] = k + 1
                     self.tranche_fills += 1
 
@@ -1237,7 +1253,9 @@ class Simulator:
                         if tranches is not None:
                             # 첫 회차만 오늘 사고 나머지는 기준가 아래 사다리에서 채운다.
                             tranche_full[s_idx] = target_values[i, s_idx]
-                            target_values[i, s_idx] = tranche_full[s_idx] / tranches[0]
+                            target_values[i, s_idx] = (
+                                tranche_full[s_idx] / tranches[0] if tranches[2] is None
+                                else tranche_full[s_idx] * tranches[2][0] / 100.0)
                             tranche_ref[s_idx] = ep
                             tranche_next[s_idx] = 1
                         live_target[s_idx] = target_values[i, s_idx]

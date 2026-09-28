@@ -395,6 +395,22 @@ class GeneralQueryResponse(BaseModel):
     disclaimer: str = DISCLAIMER
 
 
+_US_MARKET_SUPPORT_ANSWER = (
+    "네, 미국 주식도 지원합니다. "
+    "다만 일부 상장폐지 종목은 데이터가 충분하지 않아 지원하지 않습니다. "
+    "추후 데이터를 추가해 지원할 예정입니다. "
+    "미국 주요 거래소에 상장된 종목(예: AAPL, MSFT, TSLA 등)에 대한 전략을 작성하고 "
+    "과거 데이터로 백테스트를 수행할 수 있습니다. "
+    "전략 조건을 채팅에 입력해 주시면 해당 조건으로 백테스트를 진행해 드립니다."
+)
+
+# Match only common standalone support questions; other wording stays with the LLM.
+_US_MARKET_SUPPORT_QUESTIONS = frozenset({
+    "미국주식도지원해", "미국주식지원해", "미국주식도지원하나요", "미국주식지원하나요",
+    "미국주식도지원돼", "미국주식도지원되나요", "미국주식도가능해", "미국주식도가능한가요",
+})
+
+
 _GENERAL_SYSTEM_PROMPT = (
     "당신은 투자 용어와 일반 투자 지식을 쉽게 설명하는 도우미입니다. "
     "사용자의 질문에 2~4문장으로 간결하고 정확하게 답하십시오. "
@@ -409,7 +425,15 @@ _GENERAL_SYSTEM_PROMPT = (
     "'I cannot perform live backtesting'이라는 오안내가 나갔습니다). 전략을 만들어 달라는 "
     "요청이 잘못 넘어온 것으로 보이면, 원하는 조건을 채팅에 그대로 말하면 전략으로 만들어 "
     "과거 데이터로 백테스트할 수 있다고 안내하십시오. "
-    "한국어로만 답하고, JSON 없이 평문으로만 답하십시오."
+    "한국어로만 답하고, JSON 없이 평문으로만 답하십시오.\n\n"
+    "[미국 주식 지원 질문의 사용자 안내문]\n"
+    "미국 주식 지원 여부를 물으면 아래 user_facing_answer 안의 안내문으로 답하십시오. "
+    "상장폐지 종목의 데이터 부족과 추후 데이터 추가 계획을 포함하며, "
+    "이전 대화의 안내와 충돌하면 이 안내문을 기준으로 답하십시오. "
+    "추가 일정이나 확인되지 않은 개별 종목 지원 여부는 지어내지 마십시오. "
+    "사용자에게는 안내문만 전달하고 태그·제목·작성 지시를 답변에 넣지 마십시오. "
+    "영어 UI에서는 같은 안내문을 영어로 전달하십시오.\n"
+    f"<user_facing_answer>\n{_US_MARKET_SUPPORT_ANSWER}\n</user_facing_answer>"
 )
 
 
@@ -510,6 +534,11 @@ def generate_general_answer(
         # 호출부가 사실을 들고 왔으면(결과 수치 질문) 설정 기본값 결정론 답변으로 새지
         # 않는다 — 묻는 대상이 플랫폼 설정이 아니라 사용자의 결과다.
         if not caller_facts:
+            support_question = "".join(query.split()).rstrip("?？.!。")
+            if (ui_language.get_ui_language() == "ko"
+                    and support_question in _US_MARKET_SUPPORT_QUESTIONS):
+                trace.output(source="us_market_support", answered=True)
+                return _US_MARKET_SUPPORT_ANSWER
             deterministic = platform_defaults.reply(query)
             if deterministic:
                 trace.output(source="platform_defaults", answered=True)

@@ -687,6 +687,20 @@ def test_chip_answer_turn_still_replans(monkeypatch):
     assert result["clarification_question"] == "언제 팔까요?"
 
 
+def test_replan_rejects_topic_outside_the_skeleton(monkeypatch):
+    """[회귀 2026-09-28] 재계획은 골격 공백을 묻는 자리다 — planner가 방금 답한 내용을 골격 밖 주제
+    ('초기 진입 비중')로 다시 묻는 질문을 지어내면 채택하지 않고 결정론 게이트에 맡긴다."""
+    monkeypatch.setenv("STRATEGY_DAG_PLANNER_MODE", "primary")
+    monkeypatch.setattr(
+        primary_mod, "_dag_planner_clarification",
+        lambda user_input, parsed, explicit_fields=None, declined_fields=None: (
+            "처음에 전체 자본의 몇 퍼센트를 투자할까요?", None, "초기 진입 비중",
+        ),
+    )
+    prev = ParsedStrategy(universe=["KOSPI200"])
+    assert primary_mod._replan_next_question("처음에 30%만 살게", prev) == (None, None, None, None)
+
+
 # ─── 미국 시장 문맥의 term-in 체인 (US 레인 EN 경로, 2026-08-26) ─────────────────
 
 def test_us_context_blocks_kr_theme_and_sector_merge():

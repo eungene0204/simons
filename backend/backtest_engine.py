@@ -534,7 +534,13 @@ class BacktestEngine:
         if risk_params.get('exit_limit_pct'):
             self.warnings.add(rw.warning(rw.LIMIT_EXIT_APPLIED, f"{float(risk_params['exit_limit_pct']):g}"))
         tranches = risk_params.get('entry_tranches') or {}
-        if tranches.get('count'):
+        if tranches.get('levels'):
+            ladder = ", ".join(f"-{float(lv['drop_pct']):g}% {float(lv['size_pct']):g}%"
+                               for lv in sorted(tranches['levels'], key=lambda lv: float(lv['drop_pct'])))
+            self.warnings.add(rw.warning(rw.TRANCHE_LADDER_APPLIED,
+                                         f"{float(tranches.get('first_pct') or 0):g}", ladder,
+                                         int(getattr(sim, 'tranche_fills', 0) or 0)))
+        elif tranches.get('count'):
             self.warnings.add(rw.warning(rw.TRANCHE_APPLIED, int(tranches['count']),
                                          f"{float(tranches.get('step_pct') or 0):g}",
                                          int(getattr(sim, 'tranche_fills', 0) or 0)))

@@ -99,4 +99,18 @@ describe("BacktestSummaryCard 전략 검증 전문가 리포트", () => {
     render(<BacktestSummaryCard result={baseResult} initialReport={fullReport} />);
     expect(screen.getAllByRole("button", { name: /점수 설명/ })).toHaveLength(3);
   });
+
+  it("리포트 점수와 기존 계산된 세부 점수를 접근 가능한 지표로 표시한다", () => {
+    render(<BacktestSummaryCard result={baseResult} initialReport={{ ...fullReport, score: 70 }} />);
+
+    for (const [label, value] of [["점수", 70], ["성장성", 70], ["안정성", 70], ["일관성", 22]] as const) {
+      const meter = screen.getByRole("meter", { name: label });
+      expect(meter).toHaveAttribute("aria-valuenow", String(value));
+      expect(meter).toHaveAttribute("aria-valuemin", "0");
+      expect(meter).toHaveAttribute("aria-valuemax", "100");
+      expect(meter).toHaveTextContent(String(value));
+    }
+    expect(screen.getByText("LEVEL 2")).toBeInTheDocument();
+    expect(screen.getAllByText("보통").length).toBeGreaterThan(0);
+  });
 });

@@ -1,4 +1,4 @@
-import { getLanguage } from "@/lib/i18n";
+import { getLanguage, t } from "@/lib/i18n";
 // 백테스트 최소 조건 게이트(프론트) — 유니버스·진입·청산·손절·익절이 모두 갖춰졌는지 판정한다.
 // [정책 2026-07-22] 조건이 비면 "현재 상태로도 실행 가능"으로 넘기지 않고 채우도록 가이드하며,
 // 다 채우기 전엔 '백테스트 실행' 버튼을 숨긴다. 백엔드 detect_incomplete_backtest_conditions와
@@ -21,7 +21,9 @@ export type MissingBacktestCondition = {
     | "stop_loss"
     | "take_profit"
     | "backtest_period"
-    | "initial_capital";
+    | "initial_capital"
+    // 골격 칸이 아닌 값 대기 — 하락 단계별 추가 매수(v16.36)의 첫 매수 비중. 진행률 칸은 없다.
+    | "first_buy";
   question: string;
   suggestions: string[];
 };
@@ -161,12 +163,15 @@ export function isSlotFilled(
         Boolean(parsed.ranking_metric);
       break;
     case "exit":
-      // 손절·익절은 '리스크 관리' 슬롯이지 매도 조건이 아니다 — 배지엔 함께 나오지만
-      // 판정은 정본을 따른다(그러지 않으면 체크는 켜지고 시스템은 청산을 되묻는다).
+      // 익절류(익절·분할 익절·트레일링)도 매도 규칙이다 — 2026-09-28 사용자 결정(07-22 규칙 개정).
+      // 손절만으로는 수익 쪽 청산이 없어 계속 묻는다. 판정은 백엔드 정본(strategy_slots._has_value)과 동형.
       hasValue =
         nonEmpty(parsed.exit_signals) ||
         (parsed.hold_period_days ?? 0) > 0 ||
-        hasRebalancing;
+        hasRebalancing ||
+        (parsed.take_profit_pct ?? 0) > 0 ||
+        (parsed.trailing_stop_pct ?? 0) > 0 ||
+        nonEmpty(parsed.partial_take_profits);
       break;
     case "max_positions":
       // 분위 그룹 전략(FR-BT-060b)의 이 자리는 '그룹당 보유 상한'이다 — cap은 물질화
@@ -197,6 +202,10 @@ export function isSlotFilled(
     case "initial_capital":
       hasValue = (parsed.initial_capital ?? 0) > 0;
       break;
+    case "first_buy":
+      // 골격 칸이 아닌 값 대기(v16.36) — SLOT_FIELD_ORDER에 없어 진행률 칸은 늘지 않는다.
+      hasValue = !awaitingFirstBuy(parsed);
+      break;
   }
   if (!hasValue) return false;
 
@@ -224,6 +233,8 @@ export function isSlotFilled(
 
 /** 진행 골격 9칸 중 채워진 슬롯 라벨(백엔드 filled_slots와 동형 — 리스크 관리는 손절·익절 둘 다). */
 export const SLOT_LABELS: Record<MissingBacktestCondition["field"], string> = {
+  // 골격 칸이 아니다(진행률 목록 SLOT_FIELD_ORDER에 없음) — 되묻기 카드 라벨용.
+  first_buy: "첫 매수 비중",
   universe: "유니버스",
   entry: "매수 조건",
   exit: "매도 조건",
@@ -322,6 +333,32 @@ export function promptForSlot(
   return { field, ...promptFor(field, parsed) };
 }
 
+/** 하락 단계별 추가 매수(사다리)가 있는데 첫 매수 비중이 비었는가 — 백엔드
+ *  strategy_slots.awaiting_first_buy와 동형. 역산하지 않고 묻는다(2026-09-28 사용자 결정). */
+export function awaitingFirstBuy(parsed: ParsedSummary | undefined | null): boolean {
+  const tranches = parsed?.entry_tranches;
+  return Boolean(tranches?.levels?.length) && tranches?.first_pct == null;
+}
+
+/** 첫 매수 비중 선택지 — 칩 라벨과 값의 결속 표(칩=값 결속 계약). 값은 사용자가 고른다(미리
+ *  확정하지 않는다): 100%, 추가 매수까지 합쳐 최대 투자금을 채우는 나머지(있을 때), 50%.
+ *  2026-09-28 사용자 지시 — "다른 질문처럼 옵션을 보여주면서 물어봐". */
+export function firstBuyOptions(
+  parsed: ParsedSummary | undefined | null,
+): Array<{ label: string; value: number }> {
+  const adds = (parsed?.entry_tranches?.levels ?? [])
+    .reduce((acc, lv) => acc + (lv.size_pct ?? 0), 0);
+  const rest = Math.round((100 - adds) * 100) / 100;
+  const options: Array<{ label: string; value: number }> = [
+    { label: t("처음에 {0}% 매수", 100), value: 100 },
+  ];
+  if (rest > 0 && rest < 100) {
+    options.push({ label: t("처음에 {0}% 매수 (추가 매수까지 합쳐 100%)", rest), value: rest });
+  }
+  if (rest !== 50) options.push({ label: t("처음에 {0}% 매수", 50), value: 50 });
+  return options;
+}
+
 export function getNextMissingBacktestCondition(
   parsed: ParsedSummary | undefined | null,
   options: BacktestReadinessOptions = {},
@@ -330,6 +367,17 @@ export function getNextMissingBacktestCondition(
     return { field: "universe", ...universePrompt() };
   }
   const field = SLOT_FIELD_ORDER.find((f) => !isSlotFilled(f, parsed, options));
+  // 첫 매수 비중은 매수 규칙의 일부라 유니버스·매수 조건 다음, 나머지 골격보다 먼저 묻는다
+  // (백엔드 main 게이트와 같은 순서). 문구는 정본 픽스처 그대로 — 자유 답이 이 문장으로
+  // 백엔드 전용 판정에 귀속된다. 칩 없음(추천값 없이).
+  if (awaitingFirstBuy(parsed) && field !== "universe" && field !== "entry") {
+    const prompt = slotPrompts.first_buy;
+    return {
+      field: "first_buy",
+      question: getLanguage() === "en" ? prompt.en : prompt.ko,
+      suggestions: firstBuyOptions(parsed).map((option) => option.label),
+    };
+  }
   return field ? { field, ...promptFor(field, parsed) } : null;
 }
 

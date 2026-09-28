@@ -854,6 +854,25 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
         ))
         _bt.entry_limit_percent = _bt.exit_limit_percent = None
         _bt.entry_tranches = None
+    # 분할 매수 사다리(v16.36) 범위 — 값이 다 있을 때만 본다(빈 값은 완결성 검증기가 되묻는다).
+    # 하락 폭 0~100% 미만, 각 비중 0% 초과 100% 이하. 첫 매수 + 추가 매수 합이 100%를 넘는 것은
+    # 허용한다 — '처음에 100% 사고 -15%에 10% 더'는 사용자가 정한 규칙이고, 엔진은 추가 매수를
+    # 남은 현금 안에서만 체결한다(longonly·현금 공유, 빚 없음). 종전 합 ≤ 100% 규칙이 사용자의
+    # '100% 사자' 답을 거부해 같은 질문이 되풀이됐다(2026-09-28).
+    # 안내 문구에 '분할 매수'를 쓰지 않는다 — 규제 출력 가드가 문장째 지운다.
+    _tr = _bt.entry_tranches
+    if _tr is not None and _tr.levels and all(
+            lv.drop_percent is not None and lv.buy_percent is not None for lv in _tr.levels):
+        _first = _tr.first_percent
+        if (any(not (0 < lv.drop_percent < 100) or not (0 < lv.buy_percent <= 100) for lv in _tr.levels)
+                or (_first is not None and not (0 < _first <= 100))):
+            errors.append(ui_language.msg(
+                "하락 시 추가 매수는 하락 폭이 0~100% 사이, 매수 비중이 0% 초과 100% 이하여야 합니다 — "
+                "이 추가 매수 설정은 적용하지 않았어요",
+                "Add-on buys need a drop between 0% and 100% and a share above 0% and up to 100% — "
+                "this add-on plan was not applied",
+            ))
+            _bt.entry_tranches = None
     if _bt.slippage_model is not None and str(_bt.slippage_model).strip().lower() not in (
             "volume_impact", "volume-impact", "volumeimpact", "impact"):
         unsupported.append(f"슬리피지 모델 '{_bt.slippage_model}'")

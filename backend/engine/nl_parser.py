@@ -805,16 +805,36 @@ def _clamp_max_positions(value):
     return max(1, min(100, int(value)))
 
 
+class TrancheLevel(BaseModel):
+    """분할 매수 사다리 한 칸(엔진 v16.36) — 첫 매수가 대비 drop_pct% 하락에 목표 비중의 size_pct%를 더 산다."""
+    drop_pct: Optional[float] = Field(default=None, gt=0, lt=100, description="첫 매수가 대비 하락 폭(%)")
+    size_pct: Optional[float] = Field(default=None, gt=0, le=100, description="추가 매수 비중(목표 비중 대비 %)")
+
+
 class EntryTranches(BaseModel):
     """분할 매수(엔진 v16.28) — 첫 회차는 신호 체결가, 이후 회차는 기준가 대비 step_pct씩 낮은 사다리.
-    회차 수·간격 중 하나라도 비면 되묻는 중이며 엔진 요청에 싣지 않는다."""
+    회차 수·간격 중 하나라도 비면 되묻는 중이며 엔진 요청에 싣지 않는다.
+
+    v16.36: 단계마다 하락 폭·비중이 다른 사다리('-15%에 10%, -25%에 25% 추가')는 ``levels``로 받는다 —
+    있으면 count/step_pct 대신 쓴다. 첫 회차 비중(``first_pct``)은 사용자가 말한 값만 쓴다 — 비어 있으면
+    되묻는 중이다(추가 회차 합에서 역산하지 않는다: 2026-09-28 '첫 회차 65%'를 지어내 사용자가 지적,
+    '매번 물어봐 줘' 결정)."""
     count: Optional[int] = Field(default=None, ge=2, le=20, description="회차 수")
     step_pct: Optional[float] = Field(default=None, gt=0, lt=50, description="회차 간격(%)")
+    levels: List[TrancheLevel] = Field(default_factory=list, description="단계별 사다리(v16.36)")
+    first_pct: Optional[float] = Field(default=None, gt=0, le=100, description="첫 회차 비중(%) — 말했을 때만")
 
     def is_complete(self) -> bool:
+        if self.levels:
+            return self.first_pct is not None and all(
+                lv.drop_pct is not None and lv.size_pct is not None for lv in self.levels)
         return self.count is not None and self.step_pct is not None
 
     def to_request(self) -> dict:
+        if self.levels:
+            return {"first_pct": self.first_pct,
+                    "levels": [{"drop_pct": lv.drop_pct, "size_pct": lv.size_pct}
+                               for lv in sorted(self.levels, key=lambda lv: lv.drop_pct or 0.0)]}
         return {"count": self.count, "step_pct": self.step_pct}
 
 
@@ -5870,22 +5890,19 @@ _RISK_OVERRIDE_FIELDS = ("stop_loss_pct", "take_profit_pct", "trailing_stop_pct"
 
 
 def synthesize_risk_overrides(
-    user_input: str,
     parsed: "ParsedStrategy",
     previous_parsed: Optional[dict] = None,
 ) -> Optional[dict[str, Optional[float]]]:
-    """프론트가 신뢰할 '바뀐 리스크 필드' 단일 진실 소스를 합성한다.
+    """프론트가 신뢰할 '바뀐 리스크 필드' 목록 — 해석 결과가 이전 전략 대비 실제로 바꾼 값만.
 
-    1차로 결정적 추출(extract_risk_field_overrides)을 쓰고, 그것이 놓친 구어체
-    ("10% 이익 나면 팔아줘")는 파서(LLM 포함)가 previous 대비 실제로 바꾼 값으로
-    보완한다. 그렇지 않으면 LLM이 올바로 해석한 risk 값이 프론트의 결정적 게이트에
-    막혀 사라진다. 결정적 추출이 이미 처리한 필드(삭제 None 포함)는 그대로 둔다.
+    종전엔 원문을 정규식(extract_risk_field_overrides)으로 다시 읽어 그 값을 우선했다 — 입력이
+    사용자 원문인 의미 판정이라 대원칙 1 위반이었고, "-5% 하락하면 그대로 보유"를 손절 5%로
+    지어내 LLM이 비워 둔 손절을 프론트에서 덮어썼다(2026-09-28 실측, 사용자 결정으로 제거).
+    레거시 레인의 원문 추출은 이미 parsed에 반영돼 오므로 차이 대조가 그것도 싣는다.
     """
-    overrides = extract_risk_field_overrides(user_input)
     baseline = previous_parsed or {}
+    overrides: dict[str, Optional[float]] = {}
     for field in _RISK_OVERRIDE_FIELDS:
-        if field in overrides:
-            continue
         new_val = getattr(parsed, field, baseline.get(field))
         if new_val != baseline.get(field):
             overrides[field] = new_val

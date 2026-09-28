@@ -219,8 +219,7 @@ describe("결과 닫기 후 재실행 화면", () => {
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
     // 1차 실행 → 결과 화면 진입
-    expect(await screen.findByText("전략 검증 완료", {}, { timeout: 5_000 })).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: "백테스트 시작하기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5_000 }));
     expect(await screen.findByText("백테스트 진행 중")).toBeInTheDocument();
     firstRun.finish();
     expect(await screen.findByTestId("backtest-dashboard")).toBeInTheDocument();

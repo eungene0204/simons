@@ -3,6 +3,12 @@
 > 한국/글로벌 주식 퀀트 투자 플랫폼 — Simons
 > **최종 갱신일:** 2026-06-12
 
+### 개발 도구 업데이트 — 2026-09-28
+
+- 전략 해석 유지보수 skill: `.agents/skills/strategy-interpretation/SKILL.md`. Codex 작업에서 원문 → LLM 출력 → StrategyIntent → 검증/병합 → 컴파일 → 실행 요청 → 표시 중 최초 손실을 추적한다.
+- skill은 개발 지침이며 backend가 로드하는 프롬프트나 새 실행 계층이 아니다. 기존 자연어 해석 계약과 API를 유지한다.
+- skill 문서의 소유 boundary는 G다. 실제 버그 수정은 별도로 선택한 단일 boundary에서 수행하며, 조사 대상 경로가 곧 수정 허용 경로가 되지는 않는다.
+
 ---
 
 ## 목차
@@ -380,6 +386,18 @@ StrategyLabPage (app/analytics/new/page.tsx)
 입력해 주세요"만 돌려주므로, 질문만 그 문구로 채우면 **질문(익절)과 선택지(리밸런싱)가
 어긋나고** 매번 같은 항목만 묻게 된다(2026-07-31 실측). 정할 것이 남지 않은 턴(전략 완성)은
 그때의 진단이 곧 답이므로 기존 '전략 검증' 말풍선 경로 그대로다.
+
+**전략 확정 즉시 백테스트 버튼(2026-09-28, FR-SA-025)**: 확정 턴은 '전략 요약' 배지 카드
+(`ParsedSummaryBubble`, 삭제)도, 검증 로딩·'전략 정의가 완료되었습니다' 카드도 그리지 않는다.
+되묻기 턴의 요약 카드(`BuilderStrategyOverview`)를 같은 판정(`buildBuilderTurnPresentation`)으로
+만든 `confirmedSummaryItems`로 그대로 그리고 그 아래에 실행 버튼을 둔다 — 진행률 패널이 확정
+뒤에 되살아나지 않도록 `builderPresentation`과 칸을 나눴고, 카드는 되묻기·확정을 통틀어 가장
+새 것 한 장만 그린다. `page.tsx`의 `generateCoachResponse`는 확정 직후 검증 agent를
+로딩 메시지 없이 뒤에서 부르고, `validationIssueMessage`가 알릴 문제를 돌려줄 때만 검증을
+시작한 확정 메시지(인덱스 고정)에 `coachText`를 붙인다 — 그때 `runButtonPlacement`가 버튼을
+검증 카드 아래로 옮긴다. 호출 실패는 표시하지 않는다(버튼 게이트는 `isBacktestReady`).
+검증 결과 자체는 `coachConversationRef`에 계속 남아 후속 질문·진행 확인 판정의 맥락이 된다.
+후속 질문(`answer_follow_up`)의 검증 말풍선 경로는 바뀌지 않았다.
 
 ### 3.3 상태 관리
 
@@ -1337,6 +1355,8 @@ ChatQaLog       — 전략연구소 대화 기록 (질문·답변 한 턴 = 1행
 
 ---
 
+상장폐지 가격 데이터의 로컬 점검(2026-09-28): 국내 주식 498개·ETF 244개는 모두 상장 기간 내 유효 가격이 있다. 미국 명단 9,451개 중 9,119개는 파일이 없고, 같은 티커의 파일이 있는 332개 중 160개는 상장 기간 내 가격이 없다. 나머지 172개도 티커 재사용 분류에 해당하여 동일 상장 이력의 가격인지 미확정이다. 집계 범위·재현 방법은 [상장폐지 데이터 점검](development/delisted-data-audit.md)에 기록한다.
+
 ## 6. API 통신 구조
 
 ### 6.1 요청 흐름
@@ -1715,7 +1735,7 @@ SHAP 기반 — 각 예측에 영향을 준 피처와 기여도 반환, 프론�
 - **캔들 패턴·다중 타임프레임(v16.29)**: `IndicatorEngine.calculate`가 조건마다 `_add_condition_columns`(일봉·타임프레임 프레임 공용)를 부르고, `timeframe=weekly|monthly` 조건은 `resample_ohlcv`(W-FRI/ME 라벨) 프레임에서 계산해 봉 종료일부터 일봉에 ffill한 `<열>__weekly` 열로 돌려준다(미완성 봉 미노출). `SignalEngine`의 `get_col`/`safe_get`이 타임프레임 열을 읽고 사유에 '(주봉 기준)' 꼬리를 붙인다. 캔들 패턴은 `candle_pattern_mask`(13종)가 `candle_<pattern>` 0/1 열을 만든다.
 - **전술 자산배분(v16.29)**: `engine/taa.py`가 13612W 점수로 매일 목표 비중 패널(VAA/DAA/PAA)을 만들고, 엔진 랭킹 분기 `ranking_metric='taa'`가 그것을 rank_df·후보(비중>0)·`_taa_basis`로 삼아 비중 방식 'schedule'(`AllocationContext` basis 비례)로 순수 리밸런싱 경로에 태운다.
 - **비중 방식 확장(v16.28)**: `engine/portfolio_weights.py` — market_cap(시총 패널 비례), min_variance/risk_parity(ERC, Spinu)/max_sharpe(SLSQP 롱온리)/min_cvar(Rockafellar–Uryasev linprog)는 `rank_price_df` 수익률(신호 지연 적용, `offset`으로 창 행↔확장 행 대응)의 최근 `allocation_lookback_days`(기본 60)로 풀고, fixed는 `target_weights`(코드→비율). 정기 리밸런싱이 없으면(fixed 제외) 동일 비중 + `ALLOCATION_NEEDS_REBALANCE` 경고.
-- **체결·분할·사이징(v16.28)**: 익일 평균가(`exec_price_basis='avg'`, phase1 `exec_price_series`), 지정가(전일 종가 기준, 셀 체결가 덮어쓰기 — `price_override`일 때만 복사), 분할 매수 사다리(`tranche_*` 상태), 분할 익절(`partial_pending` 익일 체결), ATR 사이징(`atr_pct_panel` 패널), 켈리(`_book_exit`가 완결 수익률 누적), 재진입 금지(`cooldown_until`), 최소 보유(`held_short` 마스크가 Step 1·2·편출을 막음), 거래량 비례 슬리피지(`impact_slippage_matrix`, ADV20 패널).
+- **체결·분할·사이징(v16.28)**: 익일 평균가(`exec_price_basis='avg'`, phase1 `exec_price_series`), 지정가(전일 종가 기준, 셀 체결가 덮어쓰기 — `price_override`일 때만 복사), 분할 매수 사다리(`tranche_*` 상태)(v16.36: `_tranche_plan`이 (회차 수, 회차별 하락 폭, 회차별 비중|None)을 돌려준다 — 균등은 비중 None=종전 `목표 ÷ 회차 수` 식 그대로, 사다리는 `first_pct`·`levels` 회차별 %), 분할 익절(`partial_pending` 익일 체결), ATR 사이징(`atr_pct_panel` 패널), 켈리(`_book_exit`가 완결 수익률 누적), 재진입 금지(`cooldown_until`), 최소 보유(`held_short` 마스크가 Step 1·2·편출을 막음), 거래량 비례 슬리피지(`impact_slippage_matrix`, ADV20 패널).
 - **시장 국면**: `BacktestEngine._market_regime_exposure`가 `data/index/<지수>.parquet` 종가와 N일 SMA로 거래일별 노출(0~1) 배열을 만들고(`ext_index`로 창 직전까지 붙여 지연), `Simulator.run(exposure=…)`가 국면 전환일에 보유 비중을 기준 비중 × 노출로 다시 맞춘다(0%는 청산 부기). 두 입력은 본 실행·분위 그룹·리밸런싱 주기 비교(워커 프레임 포함) 네 호출 지점에 모두 전달된다.
 - **시장 국면 — 변동성 급등 판정(v16.16, FR-BT-072·FR-STR-080)**: 같은 함수가 `market_regime.triggers`를 읽어 약세일을 OR로 합친다 — `below_ma`(종가 < N일 SMA), `volatility_spike`(지수 일간 수익률 N일 표준편차 ≥ 그 값의 직전 252거래일 평균 × `volatility_multiple`, N은 `engine/market_index.REGIME_VOL_DEFAULT_PERIOD`=20이 기본). 시뮬레이터는 노출 배열만 받으므로 바뀌지 않고, 사유·경고 인자 순서는 `simulator.regime_condition_args` 한 곳이 정한다. 값 대기 판정의 정본은 `MarketRegime.is_complete()`(판정 종류별 필수 값), 엔진 요청·해시는 `to_request()`(쓰지 않는 자리 생략 — 이동평균 단독 전략의 해시 불변). 배수 칩은 `strategy_slots.MARKET_REGIME_VOL_MULTIPLE_CHIP_VALUES`.
 - **해석기**: `StrategySpec.market_filter`·`declined`, `RankingSpec.skip_days`·`group`, `PortfolioSpec.weighting_lookback_days`. 값 미정 국면 필터는 `ParsedStrategy.market_regime`(기간·비율 None)으로 남고 converter가 엔진 요청에서 뺀다 — 칩(`strategy_slots.MARKET_REGIME_*_CHIP_VALUES`·`ALLOCATION_LOOKBACK_CHIP_VALUES`)이 발행 시점에 그 빈 칸으로 결속된다.

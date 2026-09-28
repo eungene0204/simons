@@ -2501,6 +2501,9 @@ def run_primary_parse(
     )
     if clarification_priority is None and clarification_question and (
         pending_conditions or _RANKING_LOOKBACK_FIELD_RE.fullmatch(first_question_field or "")
+        # 첫 매수 비중(v16.36) — 우선순위 마커가 없으면 프론트 게이트의 골격 질문이 삼켜
+        # 끝내 묻지 않았다(2026-09-28 실측: 카드에 '첫 회차 비중 미정'만 남음).
+        or first_question_field == "strategy.backtest.entry_tranches.first_percent"
     ):
         clarification_priority = "pending_values"
 
@@ -3960,6 +3963,13 @@ def _replan_next_question(
     from observability.agent_trace import ask_binding_gate
 
     question, chips, topic = dag_clarification
+    # 재계획은 골격 공백(위 게이트가 인정한 칸)을 묻는 자리다 — planner topic이 골격 칸이 아니면
+    # 채택하지 않고 결정론 게이트 질문에 맡긴다. 2026-09-28 실측: 첫 매수 비중 답("처음에 30%만
+    # 살게")을 반영한 턴에 planner가 방금 답한 내용을 '초기 진입 비중'이라는 새 질문으로 지어냈다.
+    # (topic↔칸 라벨 대조뿐 — 의미 판단 없음.)
+    if strategy_slots.slot_for_topic(topic) is None:
+        _log_llm("↩ 재계획 질문 불채택", f"골격 칸이 아닌 topic={topic!r}")
+        return None, None, None, None
     next_ask, chips = _bound_ask_with_slot_fallback(
         question, chips, topic, parsed, declined_fields=declined_fields)
     # 결속된 칩만 보인다(_bind_chips) — 재계획 질문의 칩도 같은 계약을 따른다.
@@ -4591,9 +4601,12 @@ def _draft_for_interpreter(draft_spec: Any) -> dict:
     답하자 3/4가 `/backtest/contribution_amount`에 종목명을 넣어 해석 실패로 끝났다(현금 풀이
     초안에 없던 때는 3/3 etf_theme·symbols로 정상). 패치는 draft_spec 원본에 적용되므로 가린
     칸은 손실 없이 이월된다."""
+    from strategy_conversation.interpreter.models import scale_in_view
+
     draft = draft_spec.model_dump()
     (draft.get("backtest") or {}).pop("cash_pool", None)
-    return draft
+    # 사다리 단계는 메인 프롬프트가 가르치는 자리(risk_management.scale_in_buys)로 보인다.
+    return scale_in_view(draft)
 
 
 def _cash_reserve_answer_result(draft_spec: Any, user_input: str, pending_question: Optional[str]) -> Any:
@@ -4625,6 +4638,40 @@ def _cash_reserve_answer_result(draft_spec: Any, user_input: str, pending_questi
     _log_llm("✓ 현금 하한 답변", f"{field}={value}")
     intent = StrategyIntent(intent="MODIFY_STRATEGY", patches=[PatchOp(
         op="replace", path=f"/backtest/cash_pool/{field}", value=value, source_text=user_input.strip())])
+    return InterpreterResult(intent=intent, raw_output="", repair_attempts=0, latency_ms=0.0,
+                             model_name=getattr(interpreter, "model_name", "") or "")
+
+
+def _first_buy_answer_result(draft_spec: Any, user_input: str, pending_question: Optional[str]) -> Any:
+    """첫 매수 비중을 되묻는 중이고 지금 입력이 그 질문의 답이면, 전용 판정으로 값을 옮겨 패치 하나짜리
+    해석 결과를 만든다(아니면 None → 일반 수정 인터프리터).
+
+    일반 수정 LLM은 이 답의 자리를 못 찾고 칸을 지어냈다(2026-09-28 실측 2/2). "이 질문의 답인가"는
+    **우리가 낸 질문 문장의 동일성**으로 판정하고(사용자 입력을 읽지 않는다), 값 옮겨 적기는 LLM
+    (tranche_check.check_first_buy_answer) — 현금 하한 답변과 같은 계약."""
+    from strategy_conversation.interpreter import tranche_check
+    from strategy_conversation.interpreter.llm_strategy_interpreter import (
+        InterpreterResult,
+        StrategyInterpreter,
+    )
+    from strategy_conversation.interpreter.models import PatchOp, StrategyIntent
+    from strategy_conversation.validation.completeness_validator import FIRST_BUY_QUESTION
+
+    tr = draft_spec.backtest.entry_tranches
+    if (tr is None or not tr.levels or tr.first_percent is not None
+            or (pending_question or "").strip() not in FIRST_BUY_QUESTION):
+        return None
+    interpreter = _get_interpreter(StrategyInterpreter)
+    chat = getattr(interpreter, "_chat", None)
+    if not callable(chat):
+        return None
+    verdict = tranche_check.check_first_buy_answer(user_input, chat)
+    if not verdict:
+        return None
+    _log_llm("✓ 첫 매수 비중 답변", f"first_percent={verdict['first_percent']}")
+    intent = StrategyIntent(intent="MODIFY_STRATEGY", patches=[PatchOp(
+        op="replace", path="/backtest/entry_tranches/first_percent", value=verdict["first_percent"],
+        source_text=user_input.strip())])
     return InterpreterResult(intent=intent, raw_output="", repair_attempts=0, latency_ms=0.0,
                              model_name=getattr(interpreter, "model_name", "") or "")
 
@@ -4755,6 +4802,7 @@ def run_primary_modification(
     try:
         result = _cash_reserve_answer_result(draft_spec, user_input, pending_question) \
             or _contribution_symbol_answer_result(draft_spec, user_input, pending_question) \
+            or _first_buy_answer_result(draft_spec, user_input, pending_question) \
             or _get_interpreter(StrategyInterpreter).interpret(
                 user_input, draft=_draft_for_interpreter(draft_spec), pending_question=pending_question,
             )

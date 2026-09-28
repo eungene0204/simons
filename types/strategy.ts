@@ -97,8 +97,12 @@ export interface RiskManagement {
   /** 지정가(%, 엔진 v16.28) — 매수는 전일 종가 대비 -x%, 매도(조건 청산)는 +y%. */
   entry_limit_pct?: number | null;
   exit_limit_pct?: number | null;
-  /** 분할 매수(엔진 v16.28) — count회차, 회차마다 step_pct% 낮은 가격. */
-  entry_tranches?: { count: number; step_pct: number } | null;
+  /** 분할 매수(엔진 v16.28) — count회차, 회차마다 step_pct% 낮은 가격.
+   *  v16.36 사다리: first_pct(첫 회차 비중 %) + levels(첫 매수가 대비 drop_pct% 하락에 목표 비중의 size_pct%). */
+  entry_tranches?: {
+    count?: number; step_pct?: number;
+    first_pct?: number; levels?: Array<{ drop_pct: number; size_pct: number }>;
+  } | null;
   /** 분할 익절(엔진 v16.28) — profit_pct 도달 시 보유 비중의 sell_pct% 매도. */
   partial_take_profits?: Array<{ profit_pct: number; sell_pct: number }> | null;
   /** 포지션 사이징(엔진 v16.28) — ATR 위험 예산 또는 켈리. */

@@ -90,6 +90,20 @@ def build_cases() -> list[dict]:
               explicit=[f for f in ALL_EXPLICIT if f != "rebalancing"]),
         _case("매도=보유기간", patch={"exit_signals": [], "hold_period_days": 20}),
         _case("매도=정기 리밸런싱", patch={"exit_signals": []}),
+        # 익절류도 매도 규칙(2026-09-28 사용자 결정) — 리밸런싱·보유 기간 없이 익절 쪽 규칙만 있는 전략.
+        _case("매도=익절만", patch={"exit_signals": [], "rebalancing_period": "none"},
+              explicit=[f for f in ALL_EXPLICIT if f != "rebalancing"]),
+        _case("매도=분할 익절", patch={
+            "exit_signals": [], "rebalancing_period": "none", "take_profit_pct": None,
+            "partial_take_profits": [{"profit_pct": 25.0, "sell_pct": 10.0}],
+        }, explicit=[f for f in ALL_EXPLICIT if f != "rebalancing"]),
+        _case("매도=트레일링", patch={
+            "exit_signals": [], "rebalancing_period": "none", "take_profit_pct": None,
+            "trailing_stop_pct": 10.0,
+        }, explicit=[f for f in ALL_EXPLICIT if f != "rebalancing"]),
+        _case("손절만으로는 매도 조건 아님", patch={
+            "exit_signals": [], "rebalancing_period": "none", "take_profit_pct": None,
+        }, explicit=[f for f in ALL_EXPLICIT if f != "rebalancing"]),
         _case("최대 보유 미언급", explicit=[f for f in ALL_EXPLICIT if f != "max_positions"]),
         # 0은 모델이 하한(1)으로 보정한다 — 프론트가 받는 값도 보정 후 값이다.
         _case("최대 보유 0은 모델이 하한으로 보정", patch={"max_positions": 0}),

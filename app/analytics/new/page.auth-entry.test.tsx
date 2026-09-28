@@ -6,11 +6,12 @@ import StrategyLabPage from "./page";
 const push = vi.fn();
 const signInWithOAuth = vi.fn();
 const fetchMock = vi.fn();
+let chatQuery = "";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
   usePathname: () => "/analytics",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(chatQuery),
 }));
 
 vi.mock("@/components/layout/DashboardLayout", () => ({
@@ -79,6 +80,7 @@ describe("StrategyLab auth entry", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
     signInWithOAuth.mockResolvedValue({ error: null });
+    chatQuery = "";
     window.sessionStorage.clear();
   });
 
@@ -143,13 +145,13 @@ describe("StrategyLab auth entry", () => {
 
     const textarea = await screen.findByRole("textbox");
     fireEvent.change(textarea, { target: { value: "PER 10 이하 종목 전략 만들어줘" } });
-    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+    fireEvent.keyDown(textarea, { key: "Enter" });
 
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("아이디어를 전략으로 만들어 드립니다")).toBeInTheDocument();
     expect(screen.getByText("Google 또는 이메일로 시작하세요")).toBeInTheDocument();
     expect(screen.getByText("카드 등록 불필요")).toBeInTheDocument();
-    expect(screen.queryByText("PER 10 이하 종목 전략 만들어줘")).not.toBeInTheDocument();
+    expect(textarea).toHaveValue("PER 10 이하 종목 전략 만들어줘");
 
     const ctaButton = screen.getByRole("button", { name: "Google로 시작하기" });
     fireEvent.click(ctaButton);
@@ -170,6 +172,33 @@ describe("StrategyLab auth entry", () => {
     expect(window.sessionStorage.getItem("simons.pendingStrategyPrompt")).toBe(
       "PER 10 이하 종목 전략 만들어줘"
     );
+  });
+
+  it("continues the saved strategy after login returns to the intro page", async () => {
+    window.sessionStorage.setItem("simons.pendingStrategyPrompt", "PER 10 이하 종목 전략 만들어줘");
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/user") {
+        return Promise.resolve({ ok: true, json: async () => ({ user: { id: 1 } }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ status: "ready", error: null }) });
+    });
+
+    const view = render(<StrategyLabPage />);
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/analytics?chat=1"));
+    expect(window.sessionStorage.getItem("simons.pendingStrategyPrompt")).toBe(
+      "PER 10 이하 종목 전략 만들어줘"
+    );
+
+    chatQuery = "chat=1";
+    view.rerender(<StrategyLabPage />);
+
+    await waitFor(() => {
+      expect(window.sessionStorage.getItem("simons.pendingStrategyPrompt")).toBeNull();
+      expect(screen.getByText("PER 10 이하 종목 전략 만들어줘")).toBeInTheDocument();
+    });
+    expect(push).toHaveBeenCalledTimes(1);
   });
 
   // 리로드 직후 /api/user 왕복이 끝나기 전(authState=loading)에 전략 프롬프트를 보내면

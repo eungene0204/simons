@@ -88,7 +88,10 @@ export interface ParsedSummary {
   trailing_stop_activation_pct?: number | null;
   entry_limit_pct?: number | null;
   exit_limit_pct?: number | null;
-  entry_tranches?: { count?: number | null; step_pct?: number | null } | null;
+  entry_tranches?: {
+    count?: number | null; step_pct?: number | null;
+    levels?: Array<{ drop_pct?: number | null; size_pct?: number | null }> | null; first_pct?: number | null;
+  } | null;
   partial_take_profits?: Array<{ profit_pct?: number | null; sell_pct?: number | null }> | null;
   position_sizing?: { method: "atr_risk" | "kelly"; risk_per_trade_pct?: number | null; atr_period?: number | null; atr_multiple?: number | null; kelly_fraction?: number | null } | null;
   cash_asset?: string | null;
@@ -969,7 +972,10 @@ export function formatExecutionTuningLabels(parsed: {
   trailing_stop_activation_pct?: number | null;
   entry_limit_pct?: number | null;
   exit_limit_pct?: number | null;
-  entry_tranches?: { count?: number | null; step_pct?: number | null } | null;
+  entry_tranches?: {
+    count?: number | null; step_pct?: number | null;
+    levels?: Array<{ drop_pct?: number | null; size_pct?: number | null }> | null; first_pct?: number | null;
+  } | null;
   partial_take_profits?: Array<{ profit_pct?: number | null; sell_pct?: number | null }> | null;
   position_sizing?: { method: string; risk_per_trade_pct?: number | null; atr_multiple?: number | null; kelly_fraction?: number | null } | null;
   cash_asset?: string | null;
@@ -987,7 +993,21 @@ export function formatExecutionTuningLabels(parsed: {
   if (parsed.trailing_stop_activation_pct != null) labels.push(t("트레일링 +{0}%부터 작동", parsed.trailing_stop_activation_pct));
   if (parsed.entry_limit_pct != null) labels.push(t("매수 지정가 전일 종가 -{0}%", parsed.entry_limit_pct));
   if (parsed.exit_limit_pct != null) labels.push(t("매도 지정가 전일 종가 +{0}%", parsed.exit_limit_pct));
-  if (parsed.entry_tranches) {
+  if (parsed.entry_tranches?.levels?.length) {
+    // 단계별 사다리(v16.36) — 첫 회차는 사용자가 말한 비중만 적는다(추가 회차 합에서 역산해 지어내지
+    // 않는다 — 2026-09-28 '첫 회차 65%' 지적). 되묻는 중이면 말한 추가 매수 단계만 적는다('미정'이라
+    // 적어 두지 말고 물어보라는 지시 — 질문은 게이트(awaitingFirstBuy)가 낸다).
+    const { levels, first_pct } = parsed.entry_tranches;
+    if (levels.every((lv) => lv.drop_pct != null && lv.size_pct != null)) {
+      const steps = [...levels].sort((a, b) => (a.drop_pct ?? 0) - (b.drop_pct ?? 0))
+        .map((lv) => t("-{0}%에 {1}%", lv.drop_pct, lv.size_pct)).join(", ");
+      labels.push(first_pct != null
+        ? t("분할 매수 첫 회차 {0}% · 추가 {1}", first_pct, steps)
+        : t("하락 시 추가 매수 {0}", steps));
+    } else {
+      labels.push(t("분할 매수 사다리(단계 미정)"));
+    }
+  } else if (parsed.entry_tranches) {
     const { count, step_pct } = parsed.entry_tranches;
     labels.push(count != null && step_pct != null
       ? t("분할 매수 {0}회({1}% 간격)", count, step_pct)

@@ -163,5 +163,9 @@
         ]
       }
     }
+  },
+  "first_buy": {
+    "ko": "매수 신호가 난 날 처음에 최대 투자금의 몇 %를 살까요? 나머지는 말씀하신 하락 단계에서 추가로 삽니다.",
+    "en": "On the signal day, what share of the full position should the first buy be? The rest is bought at the drop steps you described."
   }
 }

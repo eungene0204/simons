@@ -892,3 +892,40 @@ describe("정액 적립식 조건부 납입액 규칙(엔진 v16.21) — 요약 
     expect(presentation.summaryItems.find((i) => i.label === "납입액 규칙")).toBeUndefined();
   });
 });
+
+describe("buildBuilderTurnPresentation 익절류 매도 규칙 (2026-09-28)", () => {
+  // 사용자 전략: 골든크로스 매수 + 하락 단계별 추가 매수 + 분할 익절 + '+100% 전량 매도'(= 익절 100%).
+  const ladderParsed = {
+    ...themeParsed,
+    universe: ["KOSPI"],
+    target_symbols: [],
+    take_profit_pct: 100,
+    partial_take_profits: [
+      { profit_pct: 25, sell_pct: 10 }, { profit_pct: 35, sell_pct: 20 },
+      { profit_pct: 45, sell_pct: 30 }, { profit_pct: 60, sell_pct: 40 },
+    ],
+    entry_tranches: { first_pct: null, levels: [{ drop_pct: 15, size_pct: 10 }, { drop_pct: 25, size_pct: 25 }] },
+  } as unknown as ParsedSummary;
+
+  it("분할 익절·익절로 매도 조건이 채워지고, 카드에 분할 매수·분할 익절이 보인다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {}, reply: "질문", parsed: ladderParsed, explicitFields: ["universe"],
+    });
+    expect(presentation.progressItems.find((i) => i.label === "매도 조건")?.complete).toBe(true);
+    const tuning = presentation.summaryItems.find((i) => i.label === "매매 설정");
+    expect(tuning?.values).toEqual([
+      "하락 시 추가 매수 -15%에 10%, -25%에 25%",
+      "분할 익절 +25%에 10% 매도", "분할 익절 +35%에 20% 매도",
+      "분할 익절 +45%에 30% 매도", "분할 익절 +60%에 40% 매도",
+    ]);
+  });
+
+  it("손절만 있으면 매도 조건은 채워지지 않는다", () => {
+    const presentation = buildBuilderTurnPresentation({
+      state: {}, reply: "질문",
+      parsed: { ...themeParsed, universe: ["KOSPI"], target_symbols: [], stop_loss_pct: 10 } as unknown as ParsedSummary,
+      explicitFields: ["universe"],
+    });
+    expect(presentation.progressItems.find((i) => i.label === "매도 조건")?.complete).toBe(false);
+  });
+});

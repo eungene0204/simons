@@ -62,21 +62,7 @@ import {
 } from "phosphor-react";
 import {
   buildStrategySummaryFromRequest,
-  explicitWindowSpanLabel,
-  FUNDAMENTAL_FILTER_SECTION_LABEL,
-  formatFundamentalFilter,
-  formatInitialCapital,
-  isUsParsedUniverse,
-  formatDownsidePercent,
-  getDisplayUniverseLabels,
-  getPositionLabel,
-  getRankingLabel,
-  getSignalExitLabels,
-  getSignalLabel,
   hasBuyCriteria,
-  PERIOD_LABELS,
-  REBAL_LABELS,
-  REBAL_METHOD_LABELS,
   type ParsedSummary,
 } from "./strategySummary";
 import {
@@ -135,7 +121,7 @@ import {
 } from "./clarificationPresentation";
 import { choiceOptionHelp, helpBubbleWidth, placeHelpBubble } from "./choiceOptionHelp";
 import { groupChoiceOptions } from "./choiceOptionGroups";
-import { buildCoachSessionBody, normalizeCoachMessage } from "./coachMessage";
+import { buildCoachSessionBody, normalizeCoachMessage, validationIssueMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
 import { runButtonPlacement } from "./runButtonPlacement";
 import { parseSseBlocks } from "./sseEvents";
@@ -240,6 +226,10 @@ interface ChatMessage {
     // (2026-09-20 사용자 지시). 진행률 항목은 그대로 둔다.
     interpretationFailed?: boolean;
   };
+  // 확정된 전략의 요약 항목 — 되묻기 중 보던 '현재까지 이해한 전략입니다' 카드와 같은 항목을
+  // 확정 턴에도 그대로 보여주고 그 아래에 실행 버튼을 둔다(2026-09-28 사용자 지시). 진행률
+  // 패널은 되묻기 동안만 뜨도록 builderPresentation과 칸을 나눈다.
+  confirmedSummaryItems?: BuilderSummaryItem[];
   strategyConfirmation?: boolean;
   // 빌더에 되돌아갈 이전 단계가 있는가 — 되묻기 카드의 '돌아가기' 버튼을 그린다.
   // (게이트 레인의 previousStepState와 같은 자리·같은 버튼, 되돌리는 방법만 다르다.)
@@ -290,6 +280,8 @@ type SingleAssetBuilderContext = {
   label: string;
   builderUniverse: "KOSPI" | "KOSDAQ" | "KOSPI200" | "KOSPI_KOSDAQ" | "ETF";
 };
+
+type BuilderTurnArgs = Parameters<typeof buildBuilderTurnPresentation>[0];
 
 type BuilderConfirmedData = {
   parsed: ParsedSummary;
@@ -1313,35 +1305,6 @@ function getSupabaseBrowserClient() {
   return analyticsSupabaseClient;
 }
 
-function FilterBadge({ label }: { label: string }) {
-  return (
-    <span className="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.05] px-2.5 py-0.5 text-xs font-bold text-gray-200">
-      {label}
-    </span>
-  );
-}
-
-// 백테스트 기간 배지 **값**. 라벨('백테스트 기간')은 행이 달고 있으므로 값에 다시 쓰지 않는다.
-// 명시적 연도 범위가 있으면 '2002~2005', 없으면 상대 기간('5년')으로 표시하고, 창의 길이가
-// 딱 떨어지면 그 길이를 앞세운다('10년 (2016~2026)') — '최근 10년간' 요청은 명시 날짜로
-// 변환돼 저장되므로, 창만 보여주면 말한 기간이 반영됐는지 알 수 없다(2026-08-02 지적).
-function backtestPeriodLabel(parsed: ParsedSummary): string {
-  const startYear = parsed.backtest_start_date?.slice(0, 4);
-  const endYear = parsed.backtest_end_date?.slice(0, 4);
-  const span = explicitWindowSpanLabel(parsed.backtest_start_date, parsed.backtest_end_date);
-  if (span) return `${span} (${startYear}~${endYear})`;
-  if (startYear || endYear) {
-    return startYear && endYear
-      ? startYear === endYear
-        ? startYear
-        : `${startYear}~${endYear}`
-      : startYear
-        ? `${startYear}~`
-        : `~${endYear}`;
-  }
-  return t(PERIOD_LABELS[parsed.backtest_period]);
-}
-
 // 글자별 진입 연출. 순서는 CSS animation-delay 캐스케이드가 만든다 —
 // 이전 구현은 38ms마다 React 상태를 갱신해 글자 수만큼 전체 리렌더를 냈고,
 // prefers-reduced-motion도 존중할 수 없었다(인라인 style 연출).
@@ -1398,6 +1361,7 @@ type ChatInputBoxProps = {
   /** 생성 중 정지 — 이번 턴의 요청만 끊는다. 없으면 정지 버튼은 비활성. */
   onStop?: () => void;
   isStrategyInput: boolean;
+  preserveOnSend: boolean;
   onSend: (text: string) => void;
   onReset?: () => void;
 };
@@ -1406,7 +1370,7 @@ type ChatInputBoxProps = {
 // 리렌더링되지 않도록 입력 상태를 내부에서만 관리한다(모바일 입력 버벅임의 핵심 원인).
 const ChatInputBox = memo(
   forwardRef<ChatInputHandle, ChatInputBoxProps>(function ChatInputBox(
-    { variant, containerClassName = "", running, canSend, isLlmWorking, isStrategyInput, onSend, onReset, onStop },
+    { variant, containerClassName = "", running, canSend, isLlmWorking, isStrategyInput, preserveOnSend, onSend, onReset, onStop },
     ref,
   ) {
     const [value, setValue] = useState("");
@@ -1432,7 +1396,7 @@ const ChatInputBox = memo(
     const trySend = () => {
       const text = value.trim();
       if (!text || !canSend) return;
-      setValue("");
+      if (!preserveOnSend) setValue("");
       onSend(text);
     };
 
@@ -1686,110 +1650,6 @@ function BacktestRunningStatus({ message }: { message: string }) {
   );
 }
 
-function ParsedSummaryBubble({
-  parsed,
-  backtestRequest,
-}: {
-  parsed: ParsedSummary;
-  backtestRequest?: {
-    symbols?: string[];
-    target_stocks?: Array<{ symbol: string; name?: string }> | null;
-  } | null;
-}) {
-  const universeLabels = getDisplayUniverseLabels(parsed, backtestRequest);
-  const isSingleAsset = (parsed.target_symbols?.length ?? 0) > 0;
-  // 청산 '신호'는 지표가 만드는 매도 조건만 싣는다. 손절·익절·트레일링은 아래 '리스크'
-  // 행이, 보유 기간 만료는 '포트폴리오' 행이 이미 같은 값을 보여주므로 여기 함께 넣으면
-  // 한 카드에서 같은 설정이 두 번 읽힌다(2026-08-02 지시). 결과 화면 배지는 진입/청산
-  // 두 칸뿐이라 위험 청산까지 실어야 하므로(getDisplayExitLabels) 그쪽 계약은 그대로 둔다.
-  const exitLabels = getSignalExitLabels(parsed);
-  const rankingLabel = getRankingLabel(parsed);
-  // 종목 선정(모멘텀 랭킹)도 진입(종목 선정) 기준이므로 '진입 신호'로 통일해 함께 표시한다.
-  const entryLabels = [
-    ...parsed.fundamental_filters.map(formatFundamentalFilter),
-    ...parsed.entry_signals.map((s) => getSignalLabel(s, "entry")),
-    ...(rankingLabel ? [rankingLabel] : []),
-  ];
-
-  return (
-    <div className={`space-y-3 p-4 ${ARTIFACT_CARD_CLASS} ${MESSAGE_ENTER_CLASS}`}>
-      <div className="flex items-center gap-1.5 border-b border-[var(--chat-hairline)] pb-2">
-        <CheckCircle size={13} className="text-[var(--text-label)]" weight="fill" />
-        <span className="text-xs font-black text-white">{t("전략 요약")}</span>
-      </div>
-      <div className="space-y-2">
-        {(parsed.universe.length > 0 || isSingleAsset) && (
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{isSingleAsset ? t("대상 종목") : t("유니버스")}</span>
-            <div className="flex flex-wrap gap-1">
-              {universeLabels.map((label, i) => (
-                <FilterBadge key={i} label={label} />
-              ))}
-            </div>
-          </div>
-        )}
-        {entryLabels.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{t(FUNDAMENTAL_FILTER_SECTION_LABEL)}</span>
-            <div className="flex flex-wrap gap-1">
-              {entryLabels.map((label, i) => (
-                <FilterBadge key={i} label={label} />
-              ))}
-            </div>
-          </div>
-        )}
-        {exitLabels.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{t("청산 신호")}</span>
-            <div className="flex flex-wrap gap-1">
-              {exitLabels.map((label, i) => (
-                <FilterBadge key={i} label={label} />
-              ))}
-            </div>
-          </div>
-        )}
-        <div className="flex flex-wrap gap-1.5 items-center">
-          <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{t("포트폴리오")}</span>
-          <div className="flex flex-wrap gap-1">
-            <FilterBadge label={getPositionLabel(parsed)} />
-            {parsed.hold_period_days && <FilterBadge label={t("{0}일 보유", parsed.hold_period_days)} />}
-            {parsed.rebalancing_period !== "none" && <FilterBadge label={t("{0} 리밸런싱", t(REBAL_LABELS[parsed.rebalancing_period]))} />}
-            {parsed.rebalancing_period !== "none" && parsed.rebalance_method && (
-              <FilterBadge label={t(REBAL_METHOD_LABELS[parsed.rebalance_method] ?? parsed.rebalance_method)} />
-            )}
-          </div>
-        </div>
-        {/* 백테스트 기간·초기 자본은 포트폴리오 구성(종목 수·보유·리밸런싱)이 아니라 실행
-            조건이다 — 진행 골격의 슬롯 라벨(SLOT_LABELS)과 같은 이름으로 각자 행을 갖는다.
-            포트폴리오 행에 칩으로 섞여 있으면 무엇이 설정됐는지 한눈에 안 보인다
-            (2026-08-02 지시 — 기간만 옮기고 자본을 남겨 같은 지적이 반복됐다). */}
-        <div className="flex flex-wrap gap-1.5 items-center">
-          <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{t("백테스트 기간")}</span>
-          <div className="flex flex-wrap gap-1">
-            <FilterBadge label={backtestPeriodLabel(parsed)} />
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-1.5 items-center">
-          <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{t("초기 자본")}</span>
-          <div className="flex flex-wrap gap-1">
-            <FilterBadge label={formatInitialCapital(parsed.initial_capital ?? 10000000, { usd: isUsParsedUniverse(parsed.universe) })} />
-          </div>
-        </div>
-        {(parsed.stop_loss_pct || parsed.take_profit_pct || parsed.trailing_stop_pct) && (
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="w-20 flex-shrink-0 whitespace-nowrap text-[11px] font-bold text-[var(--text-label)]">{t("리스크")}</span>
-            <div className="flex flex-wrap gap-1">
-              {parsed.stop_loss_pct && <FilterBadge label={t("손절 {0}%", formatDownsidePercent(parsed.stop_loss_pct))} />}
-              {parsed.take_profit_pct && <FilterBadge label={t("익절 {0}%", parsed.take_profit_pct)} />}
-              {parsed.trailing_stop_pct && <FilterBadge label={t("트레일링 스탑 {0}%", formatDownsidePercent(parsed.trailing_stop_pct))} />}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /** 접어 둔 상세가 있는 요약 행 — 테마에서 전개된 종목 목록은 수십 개라 펼침 버튼
  *  뒤에 둔다(2026-09-08 지시). 종목 이름은 데이터이므로 t()에 넣지 않는다. */
 function CollapsibleSummaryValue({
@@ -1833,9 +1693,9 @@ function CollapsibleSummaryValue({
 }
 
 function BuilderStrategyOverview({
-  presentation,
+  summaryItems,
 }: {
-  presentation: NonNullable<ChatMessage["builderPresentation"]>;
+  summaryItems: BuilderSummaryItem[];
 }) {
   return (
     <div data-testid="builder-strategy-summary">
@@ -1843,12 +1703,12 @@ function BuilderStrategyOverview({
         <p className="text-sm font-black tracking-wide text-gray-400">
           {t("현재까지 이해한 전략입니다")}
         </p>
-        {presentation.summaryItems.length > 0 ? (
+        {summaryItems.length > 0 ? (
           /* 항목이 늘어나면 라벨 폭이 제각각이라 값이 계단처럼 흩어진다 — 라벨 열을
              고정한 그리드로 세로줄을 맞춘다(UI_GUIDELINES 그리드 기반 테이블).
              행 구분은 보더 없이 여백만으로 둔다(2026-08-06 지시). */
           <dl className="mt-2">
-            {presentation.summaryItems.map((item) => (
+            {summaryItems.map((item) => (
               <div
                 key={`${item.label}-${item.value}`}
                 className="grid grid-cols-[76px_minmax(0,1fr)] gap-3 py-1.5 text-xs leading-relaxed"
@@ -2047,6 +1907,7 @@ function StrategyLabContent() {
   const coachSessionIdRef = useRef<string | null>(null);
   const coachConversationRef = useRef<CoachConversationMessage[]>([]);
   const pendingPromptConsumedRef = useRef(false);
+  const pendingPromptNavigationRef = useRef(false);
   // 인증 하이드레이션(loading) 중에 보낸 전략 프롬프트 — 완료 후 자동 재전송/모달 분기.
   const pendingAuthGatePromptRef = useRef<string | null>(null);
   // 진행 중이던 채팅을 한 번만 복원하기 위한 가드.
@@ -3506,9 +3367,9 @@ function StrategyLabContent() {
     let parseClarification: string | null = null;
     let shouldRouteSingleAssetToBuilder = false;
 
-    // 요약 카드 메시지를 인덱스로 고정한다. 후행 검증 교정(parsed_updated)이 도착할 때는
-    // 이미 코치 버블이 뒤에 추가돼 있으므로, updateLastAssistant로는 코치 버블을 덮어쓴다.
-    // 캡처한 인덱스로 갱신해 요약 카드만 조용히 갱신되도록 한다.
+    // 파싱 결과를 싣는 메시지를 인덱스로 고정한다. 후행 검증 교정(parsed_updated)은 그 뒤에
+    // 다른 메시지가 붙은 뒤에도 도착할 수 있어, updateLastAssistant로는 엉뚱한 메시지를
+    // 덮어쓴다. 캡처한 인덱스로 갱신해 파싱 결과만 조용히 갱신되도록 한다.
     let summaryMessageIndex: number | null = null;
     const applySummaryPatch = (patch: Partial<ChatMessage>) => {
       setMessages(prev => {
@@ -3521,9 +3382,8 @@ function StrategyLabContent() {
       });
     };
 
-    // 파싱 결과가 확정되면(요약 카드 표시 직후) 코치 검증을 곧바로 착수한다. 후행 LLM
-    // 검증이 스트림을 붙잡고 있어도 '전략 검증'이 몇 초씩 늦게 뜨지 않도록, 스트림 종료
-    // ([DONE])를 기다리지 않는다.
+    // 파싱 결과가 확정되면 코치 검증을 곧바로 착수한다. 후행 LLM 검증이 스트림을 붙잡고
+    // 있어도 경고가 몇 초씩 늦게 뜨지 않도록, 스트림 종료([DONE])를 기다리지 않는다.
     let coachStarted = false;
     const maybeStartCoachValidation = () => {
       if (
@@ -3534,8 +3394,7 @@ function StrategyLabContent() {
         researchMetricRef.current
       ) return;
       coachStarted = true;
-      setMessages(prev => [...prev, { role: "assistant", coachLoading: true, coachText: "" }]);
-      generateCoachResponse({ userText: promptText, parsed: finalizedParsed });
+      void generateCoachResponse({ userText: promptText, parsed: finalizedParsed });
     };
 
     const finalizeParse = (backtestRequest: any, symbolCount?: number | null) => {
@@ -3606,20 +3465,25 @@ function StrategyLabContent() {
       // 해석 실패 턴 — 백엔드가 붙인 우선순위 마커가 정본이다(원문을 다시 읽지 않는다).
       const interpretationFailed =
         parsedPayload.clarification_priority === "interpretation_failed";
+      // 백엔드가 되붙인 질문이 게이트가 물은 바로 그 질문인가(문장 동일성).
+      const priorityMatchesGate = Boolean(
+        explicitMissingCondition &&
+        explicitMissingCondition.question === parsedPayload.clarification_question,
+      );
       const priorityClarification =
         parsedPayload.clarification_priority &&
         parsedPayload.clarification_question
           ? {
               question: parsedPayload.clarification_question as string,
-              suggestions: (parsedPayload.clarification_suggestions ?? []) as string[],
+              // 백엔드가 칩 없이 낸 게이트 질문(첫 매수 비중 등)은 게이트 선택지를 붙인다 —
+              // "다른 질문처럼 옵션을 보여주면서 물어봐"(2026-09-28). 칩은 게이트 로컬 레인이 받는다.
+              suggestions: ((parsedPayload.clarification_suggestions?.length
+                ? parsedPayload.clarification_suggestions
+                : priorityMatchesGate ? explicitMissingCondition?.suggestions : null) ?? []) as string[],
               // 백엔드가 되붙인 질문이 게이트가 물은 바로 그 질문이면 슬롯도 함께
               // 물려준다(_reattach_open_question). 필드가 비면 닫힌 선택지인 시장
               // 질문에도 '직접 입력'이 붙는다(isClosedChoiceSlot 판정 입력).
-              missingCondition:
-                explicitMissingCondition &&
-                explicitMissingCondition.question === parsedPayload.clarification_question
-                  ? explicitMissingCondition
-                  : null,
+              missingCondition: priorityMatchesGate ? explicitMissingCondition : null,
             }
           : null;
       let presentedClarification = priorityClarification ?? (explicitMissingCondition
@@ -3703,6 +3567,13 @@ function StrategyLabContent() {
               interpretationFailed,
             }
           : undefined,
+        confirmedSummaryItems: clarificationTurn
+          ? undefined
+          : confirmedStrategySummaryItems(
+              nextParsed,
+              nextBacktestReq,
+              parsedPayload.pending_conditions ?? null,
+            ),
         notices: parsedPayload.notices?.length ? parsedPayload.notices : undefined,
         previousStepState: clarificationText ? stepStateBeforeParse : undefined,
       };
@@ -3737,7 +3608,7 @@ function StrategyLabContent() {
           parsedPayload = evt;
         } else if (evt.type === "dsl_ready") {
           finalizeParse(evt.backtest_request, evt.symbol_count);
-          // 요약 카드 표시 직후 코치 검증 착수 — 후행 검증이 스트림을 붙잡아도 지연 없이.
+          // 파싱 확정 직후 코치 검증 착수 — 후행 검증이 스트림을 붙잡아도 지연 없이.
           maybeStartCoachValidation();
         } else if (evt.type === "parsed_updated") {
           // 후행 LLM 검증 교정본 — 룰 파스 결과를 이미 표시한 뒤 도착한다. 사용자가 이미
@@ -3884,6 +3755,25 @@ function StrategyLabContent() {
   // [전략별 특화 빌더] 빌더가 DSL을 직접 구성해 내려준 완성 전략을 한국어 재파싱 왕복 없이
   // 그대로 적용한다(파라미터 유실 방지). parsed는 ParsedStrategy dump = ParsedSummary와 동형,
   // backtest_request는 엔진 요청. runStrategyParseFlow.finalizeParse의 적용부와 동일한 효과.
+  // 확정 턴의 전략 카드 항목 — 되묻기 턴의 요약 카드와 같은 판정(buildBuilderTurnPresentation)을
+  // 같은 인자로 부른다. 카드를 따로 만들면 되묻기 중에 보이던 항목(분할 매수·거래 비용 등)이
+  // 확정 순간 사라지거나 다르게 읽힌다.
+  const confirmedStrategySummaryItems = (
+    parsed: ParsedSummary,
+    backtestRequest: BuilderTurnArgs["backtestRequest"],
+    pendingConditions?: BuilderTurnArgs["pendingConditions"],
+  ) =>
+    buildBuilderTurnPresentation({
+      state: {},
+      reply: "",
+      parsed,
+      explicitFields: explicitFieldsRef.current,
+      declinedFields: declinedFieldsRef.current,
+      backtestRequest,
+      allowNoRebalancing: explicitNoRebalancingRef.current,
+      pendingConditions,
+    }).summaryItems;
+
   const applyBuilderConfirmedStrategy = (
     data: BuilderConfirmedData,
     currentPrompt = "",
@@ -3952,11 +3842,11 @@ function StrategyLabContent() {
         ? metricOptimizationSuggestions(optimizationDraft)
         : undefined,
       parsed: data.parsed,
+      confirmedSummaryItems: confirmedStrategySummaryItems(data.parsed, data.backtest_request),
       notices: data.notices?.length ? data.notices : undefined,
     });
     if (researchMetricRef.current) return;
-    setMessages(prev => [...prev, { role: "assistant", coachLoading: true, coachText: "" }]);
-    generateCoachResponse({ userText: data.prompt ?? data.parsed.description, parsed: data.parsed });
+    void generateCoachResponse({ userText: data.prompt ?? data.parsed.description, parsed: data.parsed });
   };
   applyBuilderConfirmedStrategyRef.current = applyBuilderConfirmedStrategy;
 
@@ -4583,7 +4473,6 @@ function StrategyLabContent() {
 
   useEffect(() => {
     if (
-      !isChatPage ||
       authState !== "authenticated" ||
       pendingPromptConsumedRef.current ||
       messages.length > 0 ||
@@ -4595,12 +4484,24 @@ function StrategyLabContent() {
     const pendingPrompt = sessionStorage.getItem(PENDING_STRATEGY_PROMPT_KEY);
     if (!pendingPrompt) return;
 
+    if (!isChatPage) {
+      if (!pendingPromptNavigationRef.current) {
+        pendingPromptNavigationRef.current = true;
+        router.push(regionHref("/analytics?chat=1"));
+      }
+      return;
+    }
+
     pendingPromptConsumedRef.current = true;
     sessionStorage.removeItem(PENDING_STRATEGY_PROMPT_KEY);
     chatInputRef.current?.clear();
     void handleSendRef.current?.(pendingPrompt);
-  }, [authState, isChatPage, messages.length, isSending]);
+  }, [authState, isChatPage, messages.length, isSending, router, regionHref]);
 
+  // 전략 확정 직후 자동 검증 — 로딩 카드 없이 뒤에서 돌리고, 알릴 문제가 있을 때만 확정
+  // 메시지에 '전략 검증' 카드를 붙인다. 백테스트 버튼은 이 응답을 기다리지 않는다
+  // (2026-09-28 지시 — 요약 카드·'완료' 한 줄 카드 삭제, 확정 즉시 버튼). 검증 호출이
+  // 실패해도 알리지 않는다 — 실행 가능 여부는 버튼 게이트(isBacktestReady)가 따로 판정한다.
   const generateCoachResponse = async ({
     userText,
     parsed,
@@ -4608,15 +4509,14 @@ function StrategyLabContent() {
     userText: string;
     parsed: ParsedSummary;
   }) => {
-    const updateLastAssistant = (patch: Partial<ChatMessage>) => {
-      setMessages(prev => {
-        const lastIdx = prev.map((m, i) => m.role === "assistant" ? i : -1).filter(i => i >= 0).at(-1);
-        if (lastIdx === undefined) return prev;
-        return prev.map((m, i) => i === lastIdx ? { ...m, ...patch } : m);
-      });
-    };
-
-    const startedAt = Date.now();
+    // 검증을 시작한 확정 메시지를 인덱스로 고정한다 — 응답 전에 사용자가 다음 턴으로
+    // 넘어가도 지난 전략의 경고가 새 턴에 붙지 않고, 후행 교정(parsed_updated)이 같은
+    // 메시지의 parsed를 바꿔도 경고를 잃지 않는다.
+    let targetIndex: number | null = null;
+    setMessages(prev => {
+      targetIndex = prev.map((m, i) => m.role === "assistant" ? i : -1).filter(i => i >= 0).at(-1) ?? null;
+      return prev;
+    });
     try {
       const coachRes = await fetch("/api/strategy/coach", {
         method: "POST",
@@ -4629,36 +4529,21 @@ function StrategyLabContent() {
           declinedFields: declinedFieldsRef.current,
         })),
       });
-
-      await enforceMinValidationDelay(startedAt);
-
-      if (!coachRes.ok) {
-        updateLastAssistant({
-          coachLoading: false,
-          coachText: "전략 검증 결과를 가져오지 못했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
-        });
-        return;
-      }
+      if (!coachRes.ok) return;
 
       coachSessionIdRef.current = coachRes.headers.get("X-Coach-Session-Id");
       const result: { message?: string } = await coachRes.json();
-      const message = normalizeCoachMessage(
-        result.message,
-        "현재 전략을 검증하지 못했습니다."
+      rememberCoachExchange(
+        userText,
+        normalizeCoachMessage(result.message, "현재 전략을 검증하지 못했습니다."),
       );
-      rememberCoachExchange(userText, message);
-      updateLastAssistant({
-        coachLoading: false,
-        coachText: message,
-      });
-    } catch (e) {
-      // '대화 종료'로 끊긴 검증은 조용히 끝낸다(fire-and-forget 호출이라 던지지 않는다).
-      if (isChatAbort(e)) return;
-      await enforceMinValidationDelay(startedAt);
-      updateLastAssistant({
-        coachLoading: false,
-        coachText: "전략 검증 중 오류가 발생했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
-      });
+      const issueMessage = validationIssueMessage(result.message);
+      if (!issueMessage) return;
+      setMessages(prev => prev.map((m, i) =>
+        i === targetIndex && m.role === "assistant" ? { ...m, coachText: issueMessage } : m
+      ));
+    } catch {
+      // '대화 종료'로 끊긴 검증·네트워크 오류 모두 조용히 끝낸다(fire-and-forget 호출이라 던지지 않는다).
     }
   };
 
@@ -4703,7 +4588,7 @@ function StrategyLabContent() {
       if (!coachRes.ok) {
         updateLastAssistant({
           coachLoading: false,
-          coachText: "전략 검증 결과를 가져오지 못했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
+          coachText: "전략 검증 결과를 가져오지 못했습니다. 백테스트는 계속 실행할 수 있습니다.",
         });
         return;
       }
@@ -4727,7 +4612,7 @@ function StrategyLabContent() {
       await enforceMinValidationDelay(startedAt);
       updateLastAssistant({
         coachLoading: false,
-        coachText: "전략 검증 중 오류가 발생했습니다. 전략 요약은 준비되어 있으니 백테스트는 계속 실행할 수 있습니다.",
+        coachText: "전략 검증 중 오류가 발생했습니다. 백테스트는 계속 실행할 수 있습니다.",
       });
     }
   };
@@ -5058,6 +4943,10 @@ function StrategyLabContent() {
     (last, message, index) => (message.builderPresentation ? index : last),
     -1,
   );
+  const latestConfirmedSummaryIndex = messages.reduce(
+    (last, message, index) => (message.confirmedSummaryItems ? index : last),
+    -1,
+  );
   const latestBuilderPresentation =
     latestBuilderPresentationIndex >= 0
       ? messages[latestBuilderPresentationIndex].builderPresentation
@@ -5261,7 +5150,7 @@ function StrategyLabContent() {
                               <div
                                 className={`max-w-[88%] py-0.5 ${MESSAGE_ENTER_CLASS}`}
                               >
-                                <BuilderStrategyOverview presentation={msg.builderPresentation} />
+                                <BuilderStrategyOverview summaryItems={msg.builderPresentation.summaryItems} />
                               </div>
                             )}
                             <div
@@ -5304,10 +5193,19 @@ function StrategyLabContent() {
                         )}
                         {msg.parsed && (
                           <>
-                            {/* 백테스트 최소 조건을 채우는 중(clarification 대기)에는 전략 요약을
-                                미리 보여주지 않는다 — 모든 조건에 답한 뒤 한 번에 요약을 만든다. */}
-                            {!msg.clarification && (
-                              <ParsedSummaryBubble parsed={msg.parsed} backtestRequest={backtestReq} />
+                            {/* 확정된 전략 — 되묻기 중 보던 카드를 그대로 잇고 그 아래에 실행
+                                버튼이 온다(2026-09-28 지시). 요약 카드는 대화에 한 장만 —
+                                뒤에 더 새 카드(되묻기·확정)가 있으면 그리지 않는다. */}
+                            {!msg.clarification &&
+                              i === latestConfirmedSummaryIndex &&
+                              latestConfirmedSummaryIndex > latestBuilderPresentationIndex &&
+                              (msg.confirmedSummaryItems?.length ?? 0) > 0 && (
+                              <div
+                                className={`max-w-[88%] py-0.5 ${MESSAGE_ENTER_CLASS}`}
+                                data-testid="confirmed-strategy-summary"
+                              >
+                                <BuilderStrategyOverview summaryItems={msg.confirmedSummaryItems!} />
+                              </div>
                             )}
                             {/* 보정·미반영 안내는 되묻기와 **함께** 보여준다. 예전에는 요약 옆에만
                                 붙어 있어, 같은 턴에 되묻기가 뜨면 "왜 반영되지 않았는지"가 조용히
@@ -5327,12 +5225,6 @@ function StrategyLabContent() {
                                 ))}
                               </div>
                             )}
-                            {isLastAssistant(i) && stage === "running" && (
-                              <div className="flex items-center gap-2 px-1">
-                                <ArrowsClockwise size={13} className="flex-shrink-0 animate-spin text-[var(--chat-accent)] motion-reduce:animate-none" />
-                                <span className="text-xs font-bold text-[var(--text-label)] transition-colors duration-300">{statusMessage}</span>
-                              </div>
-                            )}
                           </>
                         )}
                         {/* 되묻기 카드는 전략 요약(msg.parsed)의 유무와 무관하게 그린다 —
@@ -5350,7 +5242,7 @@ function StrategyLabContent() {
                               <div
                                 className={`flex flex-col gap-2.5 py-0.5 ${MESSAGE_ENTER_CLASS}`}
                               >
-                                <BuilderStrategyOverview presentation={msg.builderPresentation} />
+                                <BuilderStrategyOverview summaryItems={msg.builderPresentation.summaryItems} />
                               </div>
                             )}
                             {/* 칩으로 답하는 동안에는 카드를 흐름에서 빼 화면 하단에 고정한다.
@@ -5471,6 +5363,7 @@ function StrategyLabContent() {
                 canSend={canSendInput}
                 isLlmWorking={isLlmWorking}
                 isStrategyInput={isStrategyInput}
+                preserveOnSend={isStrategyInput && authState !== "authenticated"}
                 onSend={handleSendFromInput}
               />
             )}
@@ -5498,6 +5391,7 @@ function StrategyLabContent() {
             canSend={canSendInput}
             isLlmWorking={isLlmWorking}
             isStrategyInput={isStrategyInput}
+            preserveOnSend={isStrategyInput && authState !== "authenticated"}
             onSend={handleSendFromInput}
             onReset={handleResetFromInput}
             onStop={handleStopTurn}

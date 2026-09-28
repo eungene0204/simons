@@ -36,20 +36,6 @@ interface BacktestSummaryCardProps {
   onSummaryReady?: (report: AiReportData) => void;
 }
 
-function scoreColor(score: number): string {
-  if (score >= 80) return "text-emerald-400";
-  if (score >= 60) return "text-yellow-400";
-  if (score >= 40) return "text-orange-400";
-  return "text-red-400";
-}
-
-function scoreBorder(score: number): string {
-  if (score >= 80) return "border-emerald-400/40";
-  if (score >= 60) return "border-yellow-400/40";
-  if (score >= 40) return "border-orange-400/40";
-  return "border-red-400/40";
-}
-
 function scoreLabel(score: number): string {
   if (score >= 80) return t("우수");
   if (score >= 60) return t("보통");
@@ -59,9 +45,9 @@ function scoreLabel(score: number): string {
 
 function scoreGaugeColor(score: number): string {
   if (score >= 80) return "#34d399";
-  if (score >= 60) return "#facc15";
-  if (score >= 40) return "#fb923c";
-  return "#ff2d3d";
+  if (score >= 60) return "#60a5fa";
+  if (score >= 40) return "#fbbf24";
+  return "#f87171";
 }
 
 function scoreLevel(score: number): string {
@@ -73,6 +59,36 @@ function scoreLevel(score: number): string {
 
 function clampScore(score: number): number {
   return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function ScoreRing({ score, label, compact = false }: { score: number; label: string; compact?: boolean }) {
+  const value = Math.max(0, Math.min(score, 100));
+  return (
+    <div
+      role="meter"
+      aria-label={label}
+      aria-valuenow={value}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      className={`relative shrink-0 ${compact ? "h-14 w-14" : "h-44 w-44 sm:h-48 sm:w-48"}`}
+    >
+      <svg viewBox="0 0 100 100" aria-hidden="true" className="h-full w-full -rotate-90">
+        <circle cx="50" cy="50" r="44" fill="none" stroke="var(--glass-border)" strokeWidth="3" />
+        <circle
+          cx="50" cy="50" r="44" fill="none"
+          stroke={scoreGaugeColor(score)} strokeWidth="3" strokeLinecap="round"
+          pathLength="100" strokeDasharray={`${value} 100`}
+          opacity={value === 0 ? 0 : 1}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className={`font-semibold tabular-nums leading-none tracking-tight text-white ${compact ? "text-lg" : "text-6xl"}`}>
+          {score}
+        </span>
+        {!compact && <span className="mt-2 text-xs font-medium tabular-nums text-[var(--text-label)]">/ 100</span>}
+      </div>
+    </div>
+  );
 }
 
 // 리스크 점수: 높을수록 위험하므로 색을 반전한다.
@@ -216,8 +232,6 @@ export default function BacktestSummaryCard({
   promptText,
   onSummaryReady,
 }: BacktestSummaryCardProps) {
-  const gaugeLength = 251.2;
-  const miniGaugeLength = 219.8;
   const [report, setReport] = useState<AiReportData | null>(initialReport ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -428,96 +442,41 @@ export default function BacktestSummaryCard({
             className="flex flex-col gap-4"
           >
             {score !== null && (
-              <div className="mx-auto w-full max-w-[760px] overflow-visible rounded-[28px] border border-white/10 px-5 py-6 sm:px-8 sm:py-8">
-                <div className="relative flex flex-col items-center gap-5">
-                  <div className="relative w-full max-w-[380px]">
-                    <svg viewBox="0 0 240 160" className="w-full h-auto">
-                      <path
-                        d="M 40 120 A 80 80 0 0 1 200 120"
-                        fill="none"
-                        stroke="#5c4038"
-                        strokeWidth="18"
-                        strokeLinecap="round"
-                      />
-                      <path
-                        d="M 40 120 A 80 80 0 0 1 200 120"
-                        fill="none"
-                        stroke={scoreGaugeColor(score)}
-                        strokeWidth="18"
-                        strokeLinecap="round"
-                        strokeDasharray={`${(Math.max(0, Math.min(score, 100)) / 100) * gaugeLength} ${gaugeLength}`}
-                      />
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center pt-10">
-                      <span className="mb-2 text-[11px] font-black tracking-[0.3em] text-white/40">
-                        SCORE
-                      </span>
-                      <span className={`flex items-end gap-1 text-6xl sm:text-7xl font-black tabular-nums leading-none ${scoreColor(score)}`}>
-                        <span>{score}</span>
-                        <span className="pb-2 text-lg sm:text-2xl">{t("점")}</span>
-                      </span>
-                    </div>
-                  </div>
-                  <span className="rounded-full bg-[#566178] px-6 py-2 text-sm font-black uppercase tracking-[0.2em] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-                    {scoreLevel(score)}
-                  </span>
-                  <div className="flex flex-col items-center gap-1">
-                    <span className={`text-sm font-bold tracking-[0.22em] ${scoreColor(score)}`}>
-                      {scoreLabel(score)}
+              <div className="mx-auto w-full max-w-[760px] rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] px-5 py-6 sm:px-8 sm:py-8">
+                <div className="flex flex-col items-center gap-5 sm:flex-row sm:justify-center sm:gap-10">
+                  <ScoreRing score={score} label={t("점수")} />
+                  <div className="flex flex-col items-center gap-3 sm:items-start">
+                    <span className="text-sm font-medium text-[var(--text-label)]">{t("점수")}</span>
+                    <span className="text-2xl font-semibold tracking-tight text-white">{scoreLabel(score)}</span>
+                    <span className="rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-semibold tracking-wide text-[var(--text-label)]">
+                      {scoreLevel(score)}
                     </span>
                   </div>
                 </div>
 
-                <div className="mt-8 border-t border-[#8d5d3a]" />
-
-                <div className="mt-8 grid grid-cols-1 gap-8 sm:grid-cols-3 sm:gap-6">
+                <div className="mt-6 grid grid-cols-1 divide-y divide-white/[0.08] border-t border-white/[0.08] sm:mt-8 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
                   {scoreBreakdown.map((item) => (
-                    <div key={item.label} className="flex flex-col items-center text-center">
-                      <div className="relative h-[148px] w-[148px]">
-                        <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
-                          <circle
-                            cx="60"
-                            cy="60"
-                            r="35"
-                            fill="none"
-                            stroke="#351613"
-                            strokeWidth="10"
-                          />
-                          <circle
-                            cx="60"
-                            cy="60"
-                            r="35"
-                            fill="none"
-                            stroke={scoreGaugeColor(item.value)}
-                            strokeWidth="10"
-                            strokeLinecap="round"
-                            strokeDasharray={`${(item.value / 100) * miniGaugeLength} ${miniGaugeLength}`}
-                          />
-                        </svg>
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <span className={`text-[38px] font-black tabular-nums leading-none ${scoreColor(item.value)}`}>
-                            {item.value}
-                          </span>
-                        </div>
-                      </div>
-                      <span className="mt-1 text-lg font-black tracking-tight text-white">
-                        {item.label}
-                      </span>
-                      <div className="relative mt-1 flex items-center gap-1.5 text-sm font-medium text-[#c9a98b]">
-                        <span>{item.detail}</span>
+                    <div key={item.label} className="flex min-w-0 items-center gap-3 py-4 sm:flex-col sm:gap-3 sm:px-3 sm:pb-0 sm:pt-6">
+                      <ScoreRing score={item.value} label={item.label} compact />
+                      <div className="min-w-0 sm:text-center">
+                        <span className="text-sm font-semibold tracking-tight text-white">
+                          {item.label}
+                        </span>
+                        <div className="relative mt-1 flex items-center gap-1 text-xs font-medium text-[var(--text-label)] sm:justify-center">
+                          <span>{item.detail}</span>
                         <div className="group relative">
                           <button
                             type="button"
                             aria-label={t("{0} 점수 설명", item.label)}
-                            className="flex h-4 w-4 translate-y-[1px] cursor-help items-center justify-center rounded-full text-white/45 transition-colors hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+                            className="flex h-8 w-8 cursor-help items-center justify-center rounded-full text-[var(--text-label)] transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--text-label)]"
                           >
                             <Question className="h-3 w-3" weight="bold" />
                           </button>
                           <div
                             role="tooltip"
-                            className="pointer-events-none fixed inset-x-4 bottom-4 z-50 max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl border border-white/10 bg-[#171717] px-4 py-4 text-left opacity-0 shadow-[0_24px_48px_rgba(0,0,0,0.45)] transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 lg:absolute lg:bottom-full lg:left-1/2 lg:right-auto lg:z-10 lg:mb-3 lg:w-[320px] lg:max-h-none lg:-translate-x-1/2 lg:overflow-visible lg:rounded-[30px] lg:px-6 lg:py-6"
+                            className="pointer-events-none fixed inset-x-4 bottom-4 z-50 max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl border border-white/10 bg-[var(--card-bg)] px-4 py-4 text-left opacity-0 shadow-[0_24px_48px_rgba(0,0,0,0.45)] transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 lg:absolute lg:bottom-full lg:left-1/2 lg:right-auto lg:z-10 lg:mb-3 lg:w-[320px] lg:max-h-none lg:-translate-x-1/2 lg:overflow-visible lg:rounded-2xl lg:px-6 lg:py-6"
                           >
-                            <div className="text-[15px] font-bold text-[#3b82f6]">
+                            <div className="text-[15px] font-semibold text-white">
                               {item.tooltipTitle}
                             </div>
                             <p className="mt-5 text-[13px] font-medium leading-7 text-[#b3b3b3]">
@@ -544,6 +503,7 @@ export default function BacktestSummaryCard({
                             </div>
                           </div>
                         </div>
+                      </div>
                       </div>
                     </div>
                   ))}

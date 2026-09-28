@@ -23,6 +23,7 @@ import {
   type MissingBacktestCondition,
 } from "./backtestReadiness";
 import { t } from "@/lib/i18n";
+import { formatExecutionTuningLabels } from "@/lib/strategy-summary";
 
 export type BuilderSummaryItem = {
   label: string;
@@ -670,6 +671,16 @@ export function buildBuilderTurnPresentation({
     summaryItems.push({ label: t("현금 관리"), value: values[0], values });
   }
   if (riskLabel) summaryItems.push({ label: t("리스크 관리"), value: riskLabel });
+  // 분할 매수·분할 익절·지정가 등 매매 설정(엔진 v16.28~) — 파싱 요약 카드와 같은 라벨. 없으면 해석된
+  // 설정이 진행 카드에서 보이지 않고, 분할 익절로 채운 '매도 조건' 체크의 근거 행도 없다(2026-09-28).
+  const tuningParts = parsed ? formatExecutionTuningLabels(parsed) : [];
+  if (tuningParts.length > 0) {
+    summaryItems.push(
+      tuningParts.length > 1
+        ? { label: t("매매 설정"), value: tuningParts[0], values: tuningParts }
+        : { label: t("매매 설정"), value: tuningParts[0] },
+    );
+  }
   // 사용자가 문장에서 특정 값으로 말한 거래 비용만 보여준다(2026-09-14 지시). 수수료·슬리피지는
   // 백엔드가 기본값을 물질화하므로 값의 존재로는 말했는지 알 수 없고 provenance가 가른다 —
   // 기본값을 사용자가 정한 것처럼 보이지 않는다. 거래세는 말하지 않으면 시행일 기준 법정
@@ -690,8 +701,8 @@ export function buildBuilderTurnPresentation({
   // 사용자가 답을 끝낸 것이므로 그것도 완료 근거다.
   const riskComplete =
     state.risk_done === true || (slotFilled("stop_loss") && slotFilled("take_profit"));
-  // 매도 조건은 청산 신호·보유기간·정기 리밸런싱이다 — 손절·익절은 '리스크 관리' 슬롯이라
-  // 여기서 인정하지 않는다(체크는 켜지고 시스템은 청산을 되묻던 어긋남).
+  // 매도 조건은 청산 신호·보유기간·정기 리밸런싱·익절류(익절·분할 익절·트레일링, 2026-09-28 결정)다 —
+  // 손절만으로는 인정하지 않는다. 판정은 게이트와 같은 술어(slotFilled)를 쓴다.
   const exitComplete =
     slotFilled("exit") || (entryComplete && PAIRED_EXIT_STRATEGIES.has(state.strategy_type));
 

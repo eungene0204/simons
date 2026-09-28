@@ -320,6 +320,7 @@ Codex 작업 규칙, boundary 정의, 운영 정책 문서 유지보수.
 ### Files
 - AGENTS.md
 - CLAUDE.md
+- .agents/skills/strategy-interpretation/SKILL.md
 - docs/architecture/**
 - docs/development/**
 - docs/PROJECT_PLAN.md
@@ -329,6 +330,7 @@ Codex 작업 규칙, boundary 정의, 운영 정책 문서 유지보수.
 ### Allowed Tasks
 - boundary 정의 추가 및 수정
 - Codex 작업 규칙 보완
+- 전략 해석 실패 대응용 개발 skill 문서 유지보수 (애플리케이션 런타임 변경 제외)
 - 정책 문서 간 정합성 수정
 - 제품 범위/요구사항/아키텍처 문서 업데이트
 

@@ -372,3 +372,67 @@ describe("초기 자본 칩의 통화", () => {
     }
   });
 });
+
+describe("첫 매수 비중(v16.36 사다리) — 말하지 않았으면 역산하지 않고 묻는다 (2026-09-28)", () => {
+  const ALL_EXPLICIT = ["universe", "max_positions", "rebalancing", "rebalance_method", "backtest_period", "initial_capital"];
+  const complete = {
+    ...base,
+    entry_signals: [{ indicator: "ma_crossover", signal_type: "buy", short_period: 5, long_period: 20 }],
+    stop_loss_pct: 10,
+    take_profit_pct: 100,
+    rebalancing_period: "monthly",
+  } as unknown as ParsedSummary;
+  const ladder = { levels: [{ drop_pct: 15, size_pct: 10 }, { drop_pct: 25, size_pct: 25 }], first_pct: null };
+
+  it("골격이 다 차도 첫 매수 비중이 비면 실행 준비가 아니고, 그 질문을 낸다", () => {
+    const parsed = { ...complete, entry_tranches: ladder } as unknown as ParsedSummary;
+    const next = getNextMissingBacktestCondition(parsed, { explicitFields: ALL_EXPLICIT, requireExplicitConfiguration: true });
+    expect(next?.field).toBe("first_buy");
+    expect(next?.question).toContain("처음에 최대 투자금의 몇 %를 살까요?");
+    // 다른 질문처럼 선택지를 보인다(2026-09-28) — 값은 사용자가 고른다.
+    expect(next?.suggestions).toEqual([
+      "처음에 100% 매수", "처음에 65% 매수 (추가 매수까지 합쳐 100%)", "처음에 50% 매수",
+    ]);
+    expect(isBacktestReady(parsed, { explicitFields: ALL_EXPLICIT, requireExplicitConfiguration: true })).toBe(false);
+  });
+
+  it("매수 조건 다음, 나머지 골격보다 먼저 묻는다", () => {
+    const parsed = { ...base, entry_signals: complete.entry_signals, entry_tranches: ladder } as unknown as ParsedSummary;
+    expect(getNextMissingBacktestCondition(parsed, { explicitFields: ["universe"], requireExplicitConfiguration: true })?.field)
+      .toBe("first_buy");
+    // 매수 조건이 비었으면 그것부터
+    const noEntry = { ...base, entry_tranches: ladder } as unknown as ParsedSummary;
+    expect(getNextMissingBacktestCondition(noEntry, { explicitFields: ["universe"], requireExplicitConfiguration: true })?.field)
+      .toBe("entry");
+  });
+
+  it("첫 매수 비중을 답했으면 묻지 않는다", () => {
+    const parsed = { ...complete, entry_tranches: { ...ladder, first_pct: 50 } } as unknown as ParsedSummary;
+    expect(isBacktestReady(parsed, { explicitFields: ALL_EXPLICIT, requireExplicitConfiguration: true })).toBe(true);
+  });
+});
+
+describe("첫 매수 비중 칩 — 게이트 로컬 레인이 값 표로 적용한다 (2026-09-28)", () => {
+  it("칩을 누르면 첫 매수 비중이 채워지고 같은 질문을 다시 내지 않는다", async () => {
+    const { applyDeterministicConditionChoice } = await import("./deterministicConditionFlow");
+    const parsed = {
+      ...base,
+      entry_signals: [{ indicator: "ma_crossover", signal_type: "buy", short_period: 5, long_period: 20 }],
+      entry_tranches: { levels: [{ drop_pct: 15, size_pct: 10 }, { drop_pct: 25, size_pct: 25 }], first_pct: null },
+    } as unknown as ParsedSummary;
+    const condition = getNextMissingBacktestCondition(parsed, { explicitFields: ["universe"], requireExplicitConfiguration: true });
+    expect(condition?.field).toBe("first_buy");
+    const choice = applyDeterministicConditionChoice({ parsed, condition: condition!, choice: "처음에 100% 매수" });
+    expect(choice?.parsed.entry_tranches?.first_pct).toBe(100);
+    const after = getNextMissingBacktestCondition(choice!.parsed, { explicitFields: ["universe"], requireExplicitConfiguration: true });
+    expect(after?.field).not.toBe("first_buy");
+    // 목록에 없는 문구는 로컬 레인이 받지 않는다(백엔드 전용 판정으로)
+    expect(applyDeterministicConditionChoice({ parsed, condition: condition!, choice: "100% 사자" })).toBeNull();
+  });
+
+  it("추가 매수 합이 50%면 나머지 칩이 50%와 겹치지 않는다", async () => {
+    const { firstBuyOptions } = await import("./backtestReadiness");
+    const parsed = { ...base, entry_tranches: { levels: [{ drop_pct: 10, size_pct: 50 }] } } as unknown as ParsedSummary;
+    expect(firstBuyOptions(parsed).map((o) => o.value)).toEqual([100, 50]);
+  });
+});

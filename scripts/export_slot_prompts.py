@@ -53,6 +53,9 @@ def build_fixture() -> dict:
                 "etf": {"suggestions": slots.entry_chips(["ETF"])},
             },
         },
+        # 골격 칸은 아니지만 같은 게이트가 묻는 값 대기(v16.36 첫 매수 비중) — 되묻기 답은 이 문장의
+        # 동일성으로 백엔드 전용 판정이 받으므로 프론트도 정본 문장을 그대로 써야 한다. 칩 없음.
+        "first_buy": {"ko": slots.FIRST_BUY_QUESTION[0], "en": slots.FIRST_BUY_QUESTION[1]},
     }
 
 

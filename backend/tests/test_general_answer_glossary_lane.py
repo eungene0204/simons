@@ -8,8 +8,11 @@
 
 import json
 
+import pytest
+
 from api import intent_routes
 from intent import glossary_facts
+from intent.schemas import ChatTurn
 
 
 def test_extract_terms_reads_llm_json_and_registry_maps_aliases():
@@ -81,3 +84,61 @@ def test_foreign_script_answer_is_regenerated_not_patched(monkeypatch):
 def test_foreign_script_twice_returns_none(monkeypatch):
     _wire(monkeypatch, ["一株당 순이익", "株価 기준"])
     assert intent_routes.generate_general_answer("PER이 뭐야?") is None
+
+
+@pytest.mark.parametrize("query,history", [
+    ("미국 시장도 백테스트가 가능한지 알려줘", []),
+    ("상장폐지된 미국 종목도 백테스트할 수 있어?", []),
+    ("Do you support US stocks?", []),
+    ("상장폐지된 종목도 모두 가능한 거야?", [
+        ChatTurn(role="user", text="미국 주식도 지원해?"),
+        ChatTurn(role="assistant", text="네, 미국 주식은 모두 지원합니다."),
+    ]),
+])
+def test_us_support_answer_receives_current_data_limits(monkeypatch, query, history):
+    _wire(monkeypatch, [], extracted=())
+    expected = (
+        "네, 미국 주식도 지원합니다. "
+        "다만 일부 상장폐지 종목은 데이터가 충분하지 않아 지원하지 않습니다. "
+        "추후 데이터를 추가해 지원할 예정입니다. "
+        "미국 주요 거래소에 상장된 종목(예: AAPL, MSFT, TSLA 등)에 대한 전략을 작성하고 "
+        "과거 데이터로 백테스트를 수행할 수 있습니다. "
+        "전략 조건을 채팅에 입력해 주시면 해당 조건으로 백테스트를 진행해 드립니다."
+    )
+    calls = []
+
+    def prose(system, user, **kwargs):
+        calls.append((system, user))
+        assert f"<user_facing_answer>\n{expected}\n</user_facing_answer>" in system
+        assert "태그·제목·작성 지시를 답변에 넣지 마십시오" in system
+        assert "미국 주식 전체를 지원하거나 전체가 미지원인 것처럼" not in system
+        return expected
+
+    monkeypatch.setattr(intent_routes, "_mlx_llm_prose", prose)
+
+    assert intent_routes.generate_general_answer(query, history) == expected
+    assert len(calls) == 1
+    assert query in calls[0][1]
+    if history:
+        assert history[-1].text in calls[0][1]
+
+
+@pytest.mark.parametrize("query", [
+    "미국 주식도 지원해?", "미국 주식도 지원하나요?", " 미국  주식도 지원해？ ",
+])
+def test_direct_us_support_question_returns_only_approved_copy(monkeypatch, query):
+    def unexpected_llm(*args, **kwargs):
+        pytest.fail("A direct support question must use the approved reply without LLM generation")
+
+    monkeypatch.setattr(intent_routes, "_mlx_llm_prose", unexpected_llm)
+    monkeypatch.setattr(intent_routes, "_mlx_llm_structured", unexpected_llm)
+    monkeypatch.setattr(intent_routes, "_llm_available", lambda: False)
+    history = [ChatTurn(role="assistant", text="미국 주식 전체를 지원하거나 전체가 미지원인 것처럼 안내하지 마십시오.")]
+    answer = intent_routes.generate_general_answer(query, history)
+    assert answer == intent_routes._US_MARKET_SUPPORT_ANSWER
+    assert answer.startswith("네, 미국 주식도 지원합니다.")
+    assert "추후 데이터를 추가해 지원할 예정입니다." in answer
+    assert "AAPL, MSFT, TSLA" in answer
+    assert "마십시오" not in answer
+    assert "user_facing_answer" not in answer
+    assert "[" not in answer

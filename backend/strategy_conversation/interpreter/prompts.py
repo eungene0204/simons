@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "8.2"
+PROMPT_VERSION = "8.4"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -85,7 +85,7 @@ _OUTPUT_SHAPE = {
             "stop_loss": None, "take_profit": None,
             "trailing_stop": None, "max_mdd_limit": None,
             "stop_cooldown_days": None, "trailing_stop_activation": None,
-            "partial_take_profits": [], "position_sizing": None,
+            "partial_take_profits": [], "scale_in_buys": [], "position_sizing": None,
         },
         "backtest": {
             "period": None, "start_date": None, "end_date": None,
@@ -245,7 +245,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
    넣으세요. 비슷한 지원 지표로 **조용히 바꿔치지 마세요**(사용자가 알아챌 수 없는
    왜곡): 이자보상배율→부채비율(금지), 흑자전환·연속 흑자→eps 부호(금지), '시장 대비/보다'→수익률
    랭킹(금지), 현금흐름 흑자→증가율(금지), 우선주→보통주(금지) — 전부 unsupported_features에 원문 조각으로.
-   (일부·절반 익절은 미지원이 아니라 risk_management.partial_take_profits입니다 — 규칙 7-1-2.)
+   (일부·절반 익절은 미지원이 아니라 risk_management.partial_take_profits, 하락 단계별 추가 매수는 risk_management.scale_in_buys입니다 — 규칙 7-1-2.)
    **자주 놓치는 미지원 개념**(보이면 반드시 unsupported_features에):
    흑자전환·연속 흑자, 주가의 N거래일 연속 하락, 장중·분봉 매매, 우선주, VWAP, 고정 현금 비중, 신저가,
    베타, 뉴스·수급, 실적 추정치·컨센서스(상향·하향 — 수익률·시장 대비 수익률로 바꾸지 말 것), **공매도·숏(short/short-selling)**(엔진은 매수 후 매도만 지원합니다 —
@@ -520,6 +520,8 @@ NON_STRATEGY_REQUEST(전략과 무관)
    portfolio.absolute_momentum_threshold_percent=N. 값을 말하지 않았으면 null(되묻기는 시스템).
 7-1-2. risk_management: '손절 후 N일 재매수 금지'→stop_cooldown_days=N. '+N% 오른 뒤부터 트레일링'→trailing_stop_activation=N.
    '+A%에 B% 매도(분할 익절)'→partial_take_profits=[{{"profit_percent":A,"sell_percent":B,"source_text":"…"}}] (단계마다 하나, 값 없으면 null).
+   '+A%에서는 계속 보유'처럼 팔지 않는다고 말한 단계는 sell_percent=0, '남은 수량 전량 매도'는 sell_percent=100으로 옮겨 적습니다.
+   '-A% 하락하면 (최대 투자금의) B% 추가 매수'→scale_in_buys=[{{"drop_percent":A,"buy_percent":B,"source_text":"…"}}] (단계마다 하나, '그대로 보유'처럼 사지 않는 단계는 buy_percent=0, 첫 매수 비중을 말했으면 drop_percent=0 단계로).
    'ATR 기준 포지션 사이징·거래당 위험 N%'→position_sizing={{"method":"atr_risk","risk_per_trade_percent":N,"atr_multiple":배수(말했을 때만),
    "atr_period":기간(말했을 때만),"source_text":"…"}}. '켈리(하프 켈리)'→{{"method":"kelly","kelly_fraction":0.5(하프)/1(풀)/말하지 않았으면 null}}.
 7-1-4. **전술 자산배분 템플릿**: 'VAA'·'DAA'·'PAA'·'켈러 자산배분'을 말하면 strategy.taa={{"model":"vaa"|"daa"|"paa",

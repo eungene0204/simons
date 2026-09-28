@@ -46,6 +46,9 @@ CONTRIBUTION_SYMBOL_QUESTION = (
     "어떤 종목(또는 ETF)을 적립식으로 사 모을까요?",
     "Which stock(s) or ETF(s) should be accumulated?",
 )
+# 첫 매수 비중 되묻기 — 정본 문구는 진행 게이트(engine.strategy_slots)에 있다(프론트 게이트와 공유).
+from engine.strategy_slots import FIRST_BUY_QUESTION  # noqa: E402
+
 CASH_RESERVE_QUESTION = (
     "현금을 얼마나 남겨 둘까요? 초기 자본 대비 비율(%)이나 금액으로 정할 수 있어요.\n\n"
     "남겨 둔 현금 아래로는 매수하지 않습니다.",
@@ -499,11 +502,31 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                 recommended_value=None))
             break
     _bt = strategy.backtest
-    if _bt.entry_tranches is not None and (_bt.entry_tranches.count is None or _bt.entry_tranches.step_percent is None):
+    # 질문 문구에 '분할 매수'를 쓰지 않는다 — 규제 출력 가드(stock_analysis.guardrails._FORBIDDEN)가
+    # 그 말을 매매 권유로 보고 문장째 지워, 질문이 사라지고 값이 조용히 빠졌다(2026-09-28 실측).
+    if _bt.entry_tranches is not None and _bt.entry_tranches.levels:
+        # 단계별 사다리(v16.36) — 하락 폭·추가 비중 중 빈 칸이 있으면 묻는다.
+        if any(lv.drop_percent is None or lv.buy_percent is None for lv in _bt.entry_tranches.levels):
+            missing.append("strategy.backtest.entry_tranches")
+            questions.append(ClarificationQuestion(
+                field="strategy.backtest.entry_tranches",
+                question=msg("하락 시 추가 매수는 첫 매수가 대비 몇 % 하락에서, 최대 투자금의 몇 %를 더 살까요?",
+                             "At what drop below the first fill, and what share of the full position, "
+                             "should each added tranche buy?"),
+                recommended_value=None))
+        elif _bt.entry_tranches.first_percent is None:
+            # 첫 매수 비중은 말한 값만 쓴다 — 추가 회차 합에서 역산하지 않고 추천값 없이 묻는다
+            # (2026-09-28 사용자 결정 '매번 물어봐 줘').
+            missing.append("strategy.backtest.entry_tranches.first_percent")
+            questions.append(ClarificationQuestion(
+                field="strategy.backtest.entry_tranches.first_percent",
+                question=msg(*FIRST_BUY_QUESTION),
+                recommended_value=None))
+    elif _bt.entry_tranches is not None and (_bt.entry_tranches.count is None or _bt.entry_tranches.step_percent is None):
         missing.append("strategy.backtest.entry_tranches")
         questions.append(ClarificationQuestion(
             field="strategy.backtest.entry_tranches",
-            question=msg("분할 매수는 몇 회차로, 회차마다 몇 % 낮은 가격에서 살까요?",
+            question=msg("나눠 사는 횟수는 몇 번으로, 매번 몇 % 낮은 가격에서 살까요?",
                          "How many tranches, and how far below the last fill should each tranche be?"),
             recommended_value=None))
 

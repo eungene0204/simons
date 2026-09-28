@@ -3575,11 +3575,8 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         "convert_ms": convert_ms,
         "total_ms": round((time.perf_counter() - request_started) * 1000, 2),
     }
-    # 이번 프롬프트에서 바뀐 리스크 필드(단일 진실 소스). 프론트가 그대로 신뢰한다.
-    # 결정적 추출이 놓친 구어체("10% 이익 나면 팔아줘")는 파서(LLM 포함) 결과로 보완한다.
-    risk_overrides = synthesize_risk_overrides(
-        request.prompt, parsed, request.previous_parsed
-    )
+    # 이번 프롬프트에서 바뀐 리스크 필드 — 해석 결과(parsed)가 이전 대비 바꾼 값만(원문 재판정 없음).
+    risk_overrides = synthesize_risk_overrides(parsed, request.previous_parsed)
     # 미해결 업종 되묻기를 최우선으로 둔다 — 종목 범위(유니버스/섹터)가 진입 조건보다 먼저
     # 정해져야 하고, 조용한 전체 시장 강등을 막는다.
     clarification_question, clarification_suggestions = sector_reask_q, sector_reask_s
@@ -3621,12 +3618,23 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 이 게이트와 모순이라 함께 제거한다.
     gate_pending_ask = None
     if clarification_question is None:
+        from engine import strategy_slots as _slots
         from engine.nl_parser import next_incomplete_backtest_slots
         from strategy_conversation.primary import _pending_ask_payload
 
         gate_slots = next_incomplete_backtest_slots(
             parsed, request.prompt,
             declined_fields if declined_fields is not None else request.previous_declined_fields)
+        # 첫 매수 비중(v16.36 사다리)은 매수 규칙의 일부라 유니버스·매수 조건 다음, 나머지 골격보다
+        # 먼저 묻는다 — 프론트 게이트(backtestReadiness)와 같은 순서. 칩 없음(추천값 없이).
+        if _slots.awaiting_first_buy(parsed) and not (
+                gate_slots and gate_slots[0].field in (_slots.UNIVERSE, _slots.ENTRY)):
+            from ui_language import msg as _msg
+
+            clarification_question = _msg(*_slots.FIRST_BUY_QUESTION)
+            clarification_suggestions = None
+            clarification_priority = "pending_values"
+            gate_slots = []
         if gate_slots:
             slot = gate_slots[0]
             clarification_question = slot.question

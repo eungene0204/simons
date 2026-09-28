@@ -145,7 +145,7 @@ describe("유지/변경 체크박스 선택", () => {
       target: { value: "KOSPI에서 ROE 10% 이상 골든크로스 매수" },
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
-    await screen.findByText("전략 요약", undefined, { timeout: 5000 });
+    await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5000 });
 
     fireEvent.change(await screen.findByRole("textbox"), {
       target: { value: "조건을 바꾸고 싶어" },

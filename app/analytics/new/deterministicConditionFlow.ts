@@ -1,5 +1,5 @@
 import type { ParsedSummary } from "./strategySummary";
-import type { MissingBacktestCondition } from "./backtestReadiness";
+import { firstBuyOptions, type MissingBacktestCondition } from "./backtestReadiness";
 
 export type DeterministicConditionChoice = {
   parsed: ParsedSummary;
@@ -278,6 +278,13 @@ export function applyDeterministicConditionChoice({
     return backtestPeriod
       ? { parsed: { ...parsed, backtest_period: backtestPeriod } }
       : null;
+  }
+
+  if (condition.field === "first_buy") {
+    // 칩 라벨 → 값은 선택지 표(firstBuyOptions)에서 찾는다 — 라벨을 숫자로 파싱하지 않는다.
+    const option = firstBuyOptions(parsed).find((o) => o.label === choice);
+    if (!option || !parsed.entry_tranches) return null;
+    return { parsed: { ...parsed, entry_tranches: { ...parsed.entry_tranches, first_pct: option.value } } };
   }
 
   if (condition.field === "initial_capital") {
