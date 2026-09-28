@@ -163,6 +163,12 @@ Whenever a task is completed, update the work details in the relevant documentat
 - ❌ “추천 전략입니다.”
 - ❌ “사용을 권장합니다.”
 
+### Hover 설명 작성 원칙
+
+- Hover/tooltip 설명은 지표의 뜻과 값을 읽는 방법을 간결하게 설명한다.
+- “과거 백테스트 추정치이며 미래 움직임을 뜻하지 않습니다”처럼 반복되는 일반 면책 문구를 각 hover 설명에 덧붙이지 않는다.
+- 과거 데이터나 미래 성과에 관한 맥락이 꼭 필요하면 해당 섹션의 공통 안내에 한 번만 표시한다.
+
 ### UI 및 마케팅에서 금지되는 표현
 
 절대 사용하지 않는다.
