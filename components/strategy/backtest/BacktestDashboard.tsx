@@ -722,7 +722,7 @@ export default function BacktestDashboard({
     [monthlyReturnRows]
   );
 
-  const [returnsView, setReturnsView] = useState<"monthly" | "rolling" | "rebalance">("monthly");
+  const [returnsView, setReturnsView] = useState<"monthly" | "rolling" | "rebalance" | "advanced">("monthly");
   // 롤링 수익률 표 — 탭이 열렸을 때만 계산한다(투자 기간 7개 × 매 거래일 창 MDD).
   const rollingWindowRows = useMemo(
     () =>
@@ -1966,14 +1966,6 @@ export default function BacktestDashboard({
                   <QuantileGroupsSection data={result.quantileGroups} />
                 )}
 
-                {result.analytics && (
-                  <AdvancedAnalyticsSection
-                    analytics={result.analytics}
-                    dates={result.dates}
-                    currency={isUsResult ? "usd" : "krw"}
-                  />
-                )}
-
                 {result.vbtResult && (
                   <div className="border-t border-white/[0.08] p-4">
                     <div className="flex items-center gap-2 mb-3">
@@ -2053,6 +2045,7 @@ export default function BacktestDashboard({
                           { id: "monthly", label: t("월별 수익률") },
                           { id: "rolling", label: t("롤링 수익률") },
                           { id: "rebalance", label: t("리밸런싱 기간별 결과") },
+                          ...(result.analytics ? ([{ id: "advanced", label: t("심화 분석 (과거 통계)").replace(/\s*\([^)]*\)$/, "") }] as const) : []),
                         ] as const).map((tab) => (
                           <button
                             key={tab.id}
@@ -2125,6 +2118,14 @@ export default function BacktestDashboard({
                         trades: result.trades,
                         turnoverRate,
                       }}
+                    />
+                  )}
+                  {returnsView === "advanced" && result.analytics && (
+                    <AdvancedAnalyticsSection
+                      analytics={result.analytics}
+                      dates={result.dates}
+                      currency={isUsResult ? "usd" : "krw"}
+                      stockMetadata={stockMetadata}
                     />
                   )}
                   {returnsView === "monthly" && monthlyReturnSeries.length > 0 && (
