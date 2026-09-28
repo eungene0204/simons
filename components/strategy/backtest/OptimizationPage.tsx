@@ -32,6 +32,13 @@ import { useRegionHref } from "@/lib/geo/useRegion";
 
 type OptimizationModel = "walkForward" | "monteCarlo" | "combine" | "rollingStart" | "costSweep" | "paramHeatmap";
 
+const DISABLED_OPTIMIZATION_MODELS = new Set<OptimizationModel>([
+  "rollingStart",
+  "costSweep",
+  "paramHeatmap",
+  "combine",
+]);
+
 const OPTIMIZATION_MODELS: Array<{
   id: OptimizationModel;
   label: string;
@@ -1143,7 +1150,7 @@ export default function OptimizationPage({
           </p>
         )}
         <div className="space-y-2">
-          {OPTIMIZATION_MODELS.map((model) => (
+          {OPTIMIZATION_MODELS.filter((model) => !DISABLED_OPTIMIZATION_MODELS.has(model.id)).map((model) => (
             <div
               key={model.id}
               role="button"
@@ -1201,16 +1208,16 @@ export default function OptimizationPage({
           </div>
         )}
 
-        {selectedModel === "combine" && !isPlanLoading && isPremiumValidationEnabled && (
+        {!DISABLED_OPTIMIZATION_MODELS.has("combine") && selectedModel === "combine" && !isPlanLoading && isPremiumValidationEnabled && (
           <StrategyCombinePanel result={result} strategyName={strategyName} />
         )}
-        {selectedModel === "rollingStart" && (
+        {!DISABLED_OPTIMIZATION_MODELS.has("rollingStart") && selectedModel === "rollingStart" && (
           <RollingStartPanel baseStrategy={baseStrategy} canRun={!isPlanLoading && isPremiumValidationEnabled} disabledReason={isPlanLoading ? t("플랜 권한을 확인하는 중입니다.") : t("이 도구는 PREMIUM 플랜에서만 실행할 수 있습니다.")} />
         )}
-        {selectedModel === "costSweep" && (
+        {!DISABLED_OPTIMIZATION_MODELS.has("costSweep") && selectedModel === "costSweep" && (
           <CostSweepPanel baseStrategy={baseStrategy} canRun={!isPlanLoading && isPremiumValidationEnabled} disabledReason={isPlanLoading ? t("플랜 권한을 확인하는 중입니다.") : t("이 도구는 PREMIUM 플랜에서만 실행할 수 있습니다.")} />
         )}
-        {selectedModel === "paramHeatmap" && (
+        {!DISABLED_OPTIMIZATION_MODELS.has("paramHeatmap") && selectedModel === "paramHeatmap" && (
           <ParameterHeatmapPanel baseStrategy={baseStrategy} canRun={!isPlanLoading && isPremiumValidationEnabled} disabledReason={isPlanLoading ? t("플랜 권한을 확인하는 중입니다.") : t("이 도구는 PREMIUM 플랜에서만 실행할 수 있습니다.")} />
         )}
 
