@@ -3,21 +3,21 @@ import type { AnalyticsResult } from "@/types/strategy";
 type Exposure = AnalyticsResult["factorExposure"];
 type Loading = NonNullable<Exposure["loadings"]>[number];
 
-const FACTOR_STYLES: Record<string, { positive: [string, string]; negative: [string, string] }> = {
-  MKT: { positive: ["시장과 같은 방향", "the same direction as the market"], negative: ["시장과 반대 방향", "the opposite direction from the market"] },
-  SMB: { positive: ["소형주", "smaller companies"], negative: ["대형주", "larger companies"] },
-  HML: { positive: ["PBR이 낮은 종목", "lower-PBR stocks"], negative: ["PBR이 높은 종목", "higher-PBR stocks"] },
-  MOM: { positive: ["최근 상대적으로 오른 종목", "recent outperformers"], negative: ["최근 상대적으로 덜 오른 종목", "recent underperformers"] },
+const FACTOR_RETURNS: Record<string, [string, string]> = {
+  MKT: ["시장 수익률", "market return"],
+  SMB: ["소형주−대형주 수익률 차이", "small-minus-large return spread"],
+  HML: ["저PBR−고PBR 수익률 차이", "low-minus-high PBR return spread"],
+  MOM: ["모멘텀 상위−하위 수익률 차이", "high-minus-low momentum return spread"],
 };
 
 const isFiniteNumber = (value: number | null | undefined): value is number =>
   value != null && Number.isFinite(value);
 
-function style(loading: Loading, english: boolean): string | null {
+function factorReturn(loading: Loading, english: boolean): string | null {
   if (!isFiniteNumber(loading.beta) || loading.beta === 0) return null;
-  const descriptions = FACTOR_STYLES[loading.factor];
+  const descriptions = FACTOR_RETURNS[loading.factor];
   if (!descriptions) return null;
-  return (loading.beta > 0 ? descriptions.positive : descriptions.negative)[english ? 1 : 0];
+  return descriptions[english ? 1 : 0];
 }
 
 function isClear(loading: Loading): boolean {
@@ -29,63 +29,40 @@ function signed(value: number, digits: number): string {
 }
 
 export function interpretFactor(loading: Loading, english: boolean): string {
-  const description = style(loading, english);
-  if (!description || !isFiniteNumber(loading.tStat)) {
+  const measure = factorReturn(loading, english);
+  if (!measure || !isFiniteNumber(loading.beta) || !isFiniteNumber(loading.tStat)) {
     return english ? "Insufficient data to interpret this exposure." : "노출을 해석할 자료가 부족합니다.";
   }
-  const movement = loading.factor === "MKT"
-    ? (english ? `The strategy tended to move in ${description}.` : `${description}으로 움직이는 편이었습니다.`)
-    : (english ? `The strategy tended to move with ${description}.` : `${description}의 움직임을 따라간 편입니다.`);
+  const amount = Math.abs(loading.beta).toFixed(2);
+  const movement = english
+    ? `After accounting for the other factors, when the ${measure} was 1 percentage point higher, the strategy's daily return was estimated to be ${amount} percentage points ${loading.beta > 0 ? "higher" : "lower"} on average.`
+    : `다른 팩터의 영향을 통제한 결과, ${measure}${loading.factor === "MKT" ? "이" : "가"} 1%p 높을 때 전략의 하루 수익률은 평균 ${amount}%p ${loading.beta > 0 ? "높게" : "낮게"} 추정됐습니다.`;
   return english
-    ? `${movement} ${isClear(loading) ? "This pattern is clear in the historical data." : "The data is too uncertain to call this a clear pattern."}`
-    : `${movement} ${isClear(loading) ? "과거 자료에서 이 관계가 뚜렷합니다." : "다만 이번 자료만으로는 분명하다고 보기 어렵습니다."}`;
+    ? `${movement} ${isClear(loading) ? "This estimate meets the t-value threshold." : "The data is too uncertain to call this a clear relationship."}`
+    : `${movement} ${isClear(loading) ? "이 추정치는 t값 기준을 충족합니다." : "다만 이번 자료만으로는 분명하다고 보기 어렵습니다."}`;
 }
 
 export function explainFactorEstimate(exposure: Exposure, english: boolean): string {
   const example = exposure.loadings?.find((loading) => loading.factor === "MKT" && isFiniteNumber(loading.beta) && loading.beta !== 0)
-    ?? exposure.loadings?.find((loading) => FACTOR_STYLES[loading.factor] && isFiniteNumber(loading.beta) && loading.beta !== 0);
+    ?? exposure.loadings?.find((loading) => factorReturn(loading, english));
   const introduction = english
     ? "Beta (β) shows how strongly the strategy moved with a factor after accounting for the others. The t-value shows how clear that pattern is in this historical data."
     : "베타(β)는 다른 팩터의 영향을 빼고 얼마나 함께 움직였는지 보여줍니다. t값은 그 관계가 이번 과거 자료에서 얼마나 뚜렷한지 보여줍니다.";
   if (!example || !isFiniteNumber(example.beta)) return introduction;
-  const labels: Record<string, [string, string]> = { MKT: ["시장", "market"], SMB: ["규모", "size"], HML: ["가치", "value"], MOM: ["모멘텀", "momentum"] };
-  const label = labels[example.factor];
+  const label = factorReturn(example, english);
   if (!label) return introduction;
   const direction = example.beta >= 0 ? (english ? "higher" : "높게") : (english ? "lower" : "낮게");
   const illustration = english
-    ? `For example, ${label[1]} β ${signed(example.beta, 2)} means that when the ${label[1]} factor return was 1 percentage point higher, the strategy's daily return was about ${Math.abs(example.beta).toFixed(2)} percentage points ${direction} on average, after accounting for the other factors.`
-    : `예를 들어 ${label[0]} β ${signed(example.beta, 2)}는 다른 팩터의 영향을 빼고 ${label[0]} 수익률이 1%p 높을 때 전략의 하루 수익률이 평균 ${Math.abs(example.beta).toFixed(2)}%p ${direction} 추정됐다는 뜻입니다.`;
+    ? `For example, ${label} β ${signed(example.beta, 2)} means that when the ${label} was 1 percentage point higher, the strategy's daily return was about ${Math.abs(example.beta).toFixed(2)} percentage points ${direction} on average, after accounting for the other factors.`
+    : `예를 들어 ${label} β ${signed(example.beta, 2)}는 다른 팩터의 영향을 빼고 ${label}${example.factor === "MKT" ? "이" : "가"} 1%p 높을 때 전략의 하루 수익률이 평균 ${Math.abs(example.beta).toFixed(2)}%p ${direction} 추정됐다는 뜻입니다.`;
   return `${introduction} ${illustration}`;
 }
 
 export function summarizeFactorPattern(exposure: Exposure, english: boolean): string {
-  const loadings = exposure.loadings ?? [];
-  const parts: string[] = [];
-  const clearStyles = loadings.filter((loading) => loading.factor !== "MKT" && isClear(loading))
-    .map((loading) => style(loading, english)).filter((value): value is string => value != null);
-  if (clearStyles.length) {
-    parts.push(english
-      ? `In the historical data, the strategy clearly moved with ${clearStyles.join(" and ")}.`
-      : `과거에는 ${clearStyles.map((description) => `${description}의 움직임`).join("과 ")}을 따라가는 경향이 뚜렷했습니다.`);
-  }
-  const market = loadings.find((loading) => loading.factor === "MKT");
-  if (market && isClear(market) && style(market, english)) {
-    parts.push(english
-      ? `It also clearly moved in ${style(market, english)}.`
-      : `${style(market, english)}으로 움직이는 경향도 뚜렷했습니다.`);
-  } else if (market && isFiniteNumber(market.tStat) && style(market, english)) {
-    parts.push(english
-      ? `The market pattern appears in the numbers, but is not clear enough to rely on.`
-      : `시장과의 관계도 수치상 보이지만, 이번 자료만으로는 분명하다고 보기 어렵습니다.`);
-  }
-  const unclear = loadings.filter((loading) => loading.factor !== "MKT" && isFiniteNumber(loading.tStat) && !isClear(loading) && style(loading, english));
-  for (const loading of unclear) {
-    const description = style(loading, english);
-    parts.push(english
-      ? `A link with ${description} appears in the numbers, but the data is too uncertain to call it a clear pattern.`
-      : `${description} 쪽 성향도 수치상 보이지만, 이번 자료만으로는 분명하다고 보기 어렵습니다.`);
-  }
-  return parts.join(" ") || (english ? "There is not enough data to describe the factor patterns." : "어떤 종목의 움직임을 따라갔는지 판단할 자료가 부족합니다.");
+  const loadings = (exposure.loadings ?? [])
+    .filter((loading) => factorReturn(loading, english) && isFiniteNumber(loading.tStat));
+  return loadings.map((loading) => interpretFactor(loading, english)).join(" ")
+    || (english ? "There is not enough data to describe the factor relationships." : "팩터 수익률과의 관계를 해석할 자료가 부족합니다.");
 }
 
 export function summarizeFactorStatistics(exposure: Exposure, english: boolean): string {

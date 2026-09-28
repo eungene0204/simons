@@ -415,11 +415,11 @@ export default function AdvancedAnalyticsSection({ analytics, dates, currency = 
 
           {/* 팩터 노출 */}
           <div className={ANALYTICS_CARD} data-testid="analytics-factor">
-            <div className="mb-1 text-sm font-black text-white">{t(isEnglish ? "Factor exposure: what did the strategy move with?" : "팩터 노출: 전략은 무엇과 함께 움직였나요?")}</div>
+            <div className="mb-1 text-sm font-black text-white">{t(isEnglish ? "Factor regression: return relationships" : "팩터 회귀: 수익률 사이의 관계")}</div>
             <p className="text-xs leading-relaxed text-[var(--text-label)] sm:text-sm">
               {t(isEnglish
-                ? "This compares the strategy's past returns with the market, company size, PBR, and recent price trends."
-                : "과거 수익률을 시장, 기업 규모, PBR, 최근 주가 흐름과 비교한 결과입니다.")}
+                ? "This estimates relationships between strategy and factor returns after accounting for the other factors. See the attribution section for the stocks actually held."
+                : "다른 팩터의 영향을 통제한 전략 수익률과 팩터 수익률의 관계입니다. 실제 보유 종목 구성은 성과 귀인의 종목별 내역에서 확인할 수 있습니다.")}
             </p>
             {!fe.available ? (
               <p className="mt-2 text-xs font-bold text-[var(--text-label)]">
@@ -461,13 +461,13 @@ export default function AdvancedAnalyticsSection({ analytics, dates, currency = 
                   <p className="mt-3 text-sm leading-relaxed text-gray-300 sm:text-base">{t(explainFactorEstimate(fe, isEnglish))}</p>
                   <p className="mt-3 text-xs leading-relaxed text-[var(--text-label)] sm:text-sm">
                     {t(isEnglish
-                      ? "The market comparison uses the benchmark. The other three compare returns of the top and bottom 30% of stocks in this backtest each month; they are not official Fama-French factors."
-                      : "시장 비교에는 벤치마크를 썼습니다. 나머지 세 기준은 백테스트 종목을 매달 상·하위 30%로 나눠 수익률 차이를 낸 것으로, 공식 Fama-French 지표는 아닙니다.")}
+                      ? "The market factor uses the benchmark. The other factors use the full calculation universe shown above, which may include stocks never held. Each month they subtract returns of the top 30% from the bottom 30% by market cap or PBR, and the bottom 30% from the top 30% by momentum. These are not official Fama-French factors."
+                      : "시장 팩터에는 벤치마크를 썼습니다. 나머지는 위에 표시된 전체 계산 유니버스를 사용하며, 매수하지 않은 종목도 포함될 수 있습니다. 매달 시총·PBR은 하위 30%−상위 30%, 모멘텀은 상위 30%−하위 30%의 수익률 차이입니다. 공식 Fama-French 지표는 아닙니다.")}
                   </p>
                   <p className="mt-2 text-xs leading-relaxed text-[var(--text-label)] sm:text-sm">
                     {t(isEnglish
-                      ? "An absolute t-value of about 1.96 or more is used as a rough guide for a clear pattern. A high PBR alone does not prove a company is a growth stock."
-                      : "t값의 절댓값 1.96 이상을 대략적인 '뚜렷함' 기준으로 삼았습니다. PBR이 높다고 성장주라고 단정할 수 없습니다.")}
+                      ? "An absolute t-value of 1.96 or more is the approximate threshold used here. A positive size coefficient can occur even when only large-cap stocks are held; it does not classify holdings as small-cap."
+                      : "t값의 절댓값 1.96 이상을 대략적인 기준으로 삼았습니다. 대형주만 보유해도 규모 계수는 양수일 수 있으며, 양의 계수가 소형주 보유를 뜻하지는 않습니다.")}
                   </p>
                 </div>
               </>
