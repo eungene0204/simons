@@ -19,7 +19,8 @@ _BASE_DIR = Path(__file__).resolve().parent.parent
 #     "'…'는 이동평균 조건이 아니어서"로 되돌려주던 안내가 담긴 결과 무효화(2026-09-17)
 #     + 조건 인용 판정(다른 설정 문구·신고가 오분류)을 어휘 정규식에서 LLM 조건 인용 대조로 이관
 # v11: Recheck destructive quote verdicts; expire falsely removed MA exit signals.
-NL_PARSER_CACHE_VERSION = "11"
+# v12: Expire initial allocations misclassified as recurring contributions.
+NL_PARSER_CACHE_VERSION = "12"
 _UNIVERSE_FILES = (
     _BASE_DIR / "data" / "korea-stocks.json",
     _BASE_DIR / "data" / "kospi200-cache.json",

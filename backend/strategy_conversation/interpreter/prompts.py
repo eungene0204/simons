@@ -495,7 +495,10 @@ NON_STRATEGY_REQUEST(전략과 무관)
    unsupported_features나 sectors·조건으로는 넣지 마세요(엔진이 ETF 상품명과 매칭).
    테마 키워드만으로 충분합니다 — 정확한 상품명(KODEX·TIGER 등)은 필요 없으므로, 사용자가
    이미 테마를 말했으면 상품명을 되묻지 마세요(이미 말한 값 되묻기 금지).
-6-5. **대상을 규모·유동성으로 좁히는 말**은 조건이 아니라 유니버스 칸입니다 —
+6-5. 시총 '1위부터 10위까지 모두 보유/투자'는 universe.market_cap_top_n=10과
+   portfolio.selection_count=10을 함께 적습니다. '상위 100종목 중 10종목 보유'는 각각 100과 10입니다.
+   후보 범위만 말했을 때 보유 수를 추측하지 마세요.
+   **대상을 규모·유동성으로 좁히는 말**은 조건이 아니라 유니버스 칸입니다 —
    '시가총액 상위 N종목 중'→universe.market_cap_top_n=N, '최근 N일 평균 거래대금 하위 X%를 제외'→
    universe.liquidity_exclude_bottom_percent=X·universe.liquidity_lookback_days=N.
    반면 '거래가 너무 없는 종목 제외'처럼 **제외 기준의 숫자가 없는** 말은 수치를
@@ -632,6 +635,9 @@ NON_STRATEGY_REQUEST(전략과 무관)
     backtest.contribution_amount에 회차 납입액을 규칙 11-2처럼 말한 표기 그대로("50만원"·"$500"),
     backtest.contribution_period에 주기(weekly|monthly|bimonthly|quarterly|yearly)를 적습니다. 처음에
     넣는 목돈은 initial_capital입니다. 말하지 않은 쪽은 null로 둡니다(지어내지 마세요).
+    '100만원으로 시총 1위부터 10위에 10만원씩 투자, 매년 편출입 종목 교체'의 10만원은
+    초기 자본의 종목별 배분이며 적립금이 아닙니다. contribution_amount/period는 null입니다.
+    리밸런싱 주기를 납입 주기로 옮기지 마세요.
 11-2-4. '매달 200만원씩 인출'·'분기마다 찾아 쓴다'처럼 **정기적으로 돈을 빼는** 요청은
     backtest.withdrawal_amount에 회차 인출액을 말한 표기 그대로, backtest.withdrawal_period에
     주기를 적습니다(적립과 같은 표기). 말하지 않은 쪽은 null로 둡니다.

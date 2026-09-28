@@ -36,8 +36,9 @@ STATE_OPERATORS = {"below": "<", "above": ">"}
 EVENT_OPERATORS = frozenset({"crosses_above", "crosses_below"})
 _TRADING_VALUE_FACTOR = "fundamental.trading_value"
 
-_SYSTEM = """당신은 **대조기**입니다. 사용자는 정기적으로 종목을 사 모으는 적립식 전략을 말했습니다. 전략 문장을 읽고 아래 네 가지를 **옮겨 적기만** 하세요(판단·계산·지어내기 금지).
+_SYSTEM = """당신은 **대조기**입니다. 사용자가 적립식을 요청했다고 가정하지 마세요. 초기 투자금의 종목별 배분과 정기 납입을 구별하세요. 전략 문장을 읽고 아래 항목을 **옮겨 적기만** 하세요(판단·계산·지어내기 금지).
 
+allocation — kind: 초기 자본을 종목별로 나누는 금액만 있고 정기 납입 요청은 없으면 "initial_allocation", 정기 납입이면 "recurring", 불명확하면 "unknown". quote: 판단 근거를 원문 그대로 인용. "100만원으로 1위부터 10위에 10만원씩, 매년 편출 종목 교체"는 초기 배분이며 매년은 리밸런싱 주기입니다. 초기 배분이면 plan의 세 값은 모두 null. 실제 정기 납입과 초기 배분이 함께 있으면 recurring입니다.
 plan — 일정한 주기마다 정해진 금액만큼 사는 기본 계획.
   quote: 그 말을 한 부분을 문장에서 그대로 옮긴 조각. amount: 회차 납입액을 말한 표기 그대로("100만 원"). period: weekly|monthly|bimonthly|quarterly|yearly. 없으면 셋 다 null.
 rules — [조건] 목록의 조건마다 하나씩, 그 조건이 성립할 때 **얼마를 살지** 사용자가 말했는지.
@@ -46,7 +47,8 @@ cash_reserve — 현금을 일정 수준 이상 **남겨 두라**는 규칙. sta
 max_buy — **한 번에 사는 금액**을 보유 현금의 몇 % 이내로 제한하는 규칙. percent: 숫자 또는 null. quote: 그 조각 또는 null.
 
 출력 형식(JSON만):
-{"plan": {"quote": "매월 첫 거래일마다 100만 원씩 매수", "amount": "100만 원", "period": "monthly"},
+{"allocation": {"kind": "recurring", "quote": "매월 첫 거래일마다 100만 원씩 매수"},
+ "plan": {"quote": "매월 첫 거래일마다 100만 원씩 매수", "amount": "100만 원", "period": "monthly"},
  "rules": [{"quote": "종가가 200일 이동평균선 아래에 있으면", "amount": "200만원", "mode": "set", "state": "below"}],
  "cash_reserve": {"stated": true, "percent": null, "amount": null, "quote": "항상 일정 수준의 현금을 유지"},
  "max_buy": {"percent": 10, "quote": "단일 매수 금액은 보유 현금의 10%를 넘지 않으며"}}"""
@@ -65,6 +67,7 @@ class RuleVerdict:
 
 @dataclass
 class PlanVerdict:
+    initial_allocation_quote: Optional[str] = None
     plan_quote: Optional[str] = None
     plan_amount: Optional[str] = None       # 말한 표기 그대로(환산은 BacktestSpec의 validator)
     plan_period: Optional[str] = None
@@ -105,7 +108,7 @@ def _positive_amount(value: Any) -> Optional[float]:
 def build_request(user_input, conditions):
     quotes = [c.source_text for c in conditions if c.source_text]
     rows = "\n".join(f'- "{q}"' for q in quotes) or "- (없음)"
-    return _SYSTEM, f"[전략 문장]\n{user_input}\n\n[조건]\n{rows}", 256 + 64 * len(quotes)
+    return _SYSTEM, f"[전략 문장]\n{user_input}\n\n[조건]\n{rows}", 384 + 64 * len(quotes)
 
 
 def check_contribution_plan(
@@ -151,6 +154,15 @@ def check_contribution_plan(
             period = period.strip().lower() if isinstance(period, str) else None
             verdict.plan_period = period if period in PERIODS else None
 
+        # Only explicit, source-grounded negative evidence may cancel a first-pass plan.
+        allocation = payload.get("allocation")
+        if isinstance(allocation, dict) and allocation.get("kind") == "initial_allocation":
+            allocation_quote = allocation.get("quote")
+            if (isinstance(allocation_quote, str) and _compact(allocation_quote)
+                    and _compact(allocation_quote) in compact_input
+                    and all(key in plan and plan[key] is None for key in ("quote", "amount", "period"))):
+                verdict.initial_allocation_quote = allocation_quote
+
         # ② 규칙 — 인용으로 대조한다(순서·항목 수에 기대지 않는다). [조건]에 없는 인용은 무시.
         known = {_compact(q): q for q in quotes}
         for item in payload.get("rules") if isinstance(payload.get("rules"), list) else []:
@@ -195,7 +207,7 @@ def check_contribution_plan(
 def apply_verdict(intent: Any, verdict: PlanVerdict, *, only: Optional[List[Any]] = None) -> List[str]:
     """판정을 전략에 옮긴다. 반환값은 로그용 요약 조각 목록.
 
-    - 계획: 비어 있을 때만 채운다(1차 해석을 덮어쓰지 않는다). 채우면 같은 구절을 쥔 거래대금 조건을 걷는다.
+    - 계획: 원문 근거가 있는 초기 배분 판정은 생성 턴의 잘못된 적립 설정을 제거한다. 그 외에는 비어 있을 때만 채운다. 채우면 같은 구절을 쥔 거래대금 조건을 걷는다.
     - 규칙: 인용이 대조된 조건에 금액·방식 꼬리표, 비교 연산자가 없는 자리(교차 사건·빈 칸)에만 상태 연산자.
     - 현금 풀: 비어 있을 때만 채우고, 같은 인용을 담은 미지원 보고·지어낸 거래대금 조건을 걷는다.
     """
@@ -205,6 +217,11 @@ def apply_verdict(intent: Any, verdict: PlanVerdict, *, only: Optional[List[Any]
     strategy = intent.strategy
     bt = strategy.backtest
     notes: List[str] = []
+
+    if verdict.initial_allocation_quote and only is None:
+        bt.contribution_amount = None
+        bt.contribution_period = None
+        notes.append("Initial allocation: removed unrequested recurring contribution plan")
 
     if (bt.contribution_amount is None and bt.contribution_period is None
             and (verdict.plan_amount or verdict.plan_period)):
