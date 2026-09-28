@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { AnalyticsHistogramBin, AnalyticsResult, AnalyticsStat } from "@/types/strategy";
 import { formatCompactNumberEn, getLanguage, t } from "@/lib/i18n";
 import { Question } from "phosphor-react";
@@ -124,7 +125,7 @@ function DefinitionHelp({ id, label, ko, en, align = "left" }: { id: string; lab
       <div
         id={id}
         role="tooltip"
-        className={`pointer-events-none absolute ${align === "right" ? "right-0" : "left-0"} top-full z-30 mt-2 w-[360px] max-w-[calc(100vw-2rem)] rounded-md border border-white/[0.10] bg-[var(--card-bg)] p-3 text-xs font-medium leading-relaxed text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100`}
+        className={`pointer-events-none absolute ${align === "right" ? "right-0" : "left-0"} top-full z-30 mt-2 w-[360px] max-w-[calc(100vw-2rem)] whitespace-normal break-words rounded-md border border-white/[0.10] bg-[var(--card-bg)] p-3 text-left text-xs font-medium leading-relaxed text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100`}
       >
         {t(isEnglish ? en : ko)}
       </div>
@@ -138,6 +139,39 @@ function LiquidityMetricLabel({ id, label, ko, en, align }: { id: string; label:
       <span>{label}</span>
       <DefinitionHelp id={id} label={label} ko={ko} en={en} align={align} />
     </dt>
+  );
+}
+
+function BenchmarkMetricHelp({ id, label, ko, en }: { id: string; label: string; ko: string; en: string }) {
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  const isEnglish = getLanguage() === "en";
+  const show = (target: HTMLButtonElement) => {
+    const rect = target.getBoundingClientRect();
+    const left = Math.max(16, Math.min(rect.left, window.innerWidth - 336));
+    const below = rect.bottom + 8;
+    setPosition({ left, top: below + 110 <= window.innerHeight ? below : Math.max(16, rect.top - 118) });
+  };
+
+  return (
+    <span className="inline-flex align-middle">
+      <button
+        type="button"
+        aria-label={t(isEnglish ? `${label} help` : `${label} 도움말`)}
+        aria-describedby={position ? id : undefined}
+        onMouseEnter={(event) => show(event.currentTarget)}
+        onMouseLeave={() => setPosition(null)}
+        onFocus={(event) => show(event.currentTarget)}
+        onBlur={() => setPosition(null)}
+        className="flex h-4 w-4 cursor-help items-center justify-center rounded-full text-gray-400 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+      >
+        <Question className="h-3 w-3" weight="bold" />
+      </button>
+      {position && (
+        <span id={id} role="tooltip" style={position} className="pointer-events-none fixed z-[60] w-80 max-w-[calc(100vw-2rem)] whitespace-normal break-words rounded-md border border-white/[0.10] bg-[var(--card-bg)] p-3 text-left text-xs font-medium normal-case leading-relaxed tracking-normal text-white shadow-lg">
+          {t(isEnglish ? en : ko)}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -249,12 +283,12 @@ function binLabel(bin: AnalyticsHistogramBin): string {
   return `${bin.from}~${bin.to}${unit}`;
 }
 
-function Histogram({ bins, color, ariaLabel }: { bins: AnalyticsHistogramBin[]; color: (bin: AnalyticsHistogramBin) => string; ariaLabel: string }) {
+function Histogram({ bins, color, ariaLabel, heightClassName = "h-28" }: { bins: AnalyticsHistogramBin[]; color: (bin: AnalyticsHistogramBin) => string; ariaLabel: string; heightClassName?: string }) {
   const max = Math.max(1, ...bins.map((b) => b.count));
   const width = 100 / Math.max(1, bins.length);
   return (
     <div>
-      <svg viewBox="0 0 100 40" className="h-28 w-full" role="img" aria-label={ariaLabel} preserveAspectRatio="none">
+      <svg viewBox="0 0 100 40" className={`${heightClassName} w-full`} role="img" aria-label={ariaLabel} preserveAspectRatio="none">
         {bins.map((b, i) => {
           const h = (b.count / max) * 34;
           return <rect key={i} x={i * width + width * 0.1} y={38 - h} width={width * 0.8} height={h} fill={color(b)} opacity={0.85} />;
@@ -306,16 +340,21 @@ function LineSeries({ values, dates, ariaLabel, zero }: { values: Array<number |
   );
 }
 
-function StatRow({ label, stat }: { label: string; stat: AnalyticsStat | null }) {
+function StatRow({ label, stat, ko, en }: { label: string; stat: AnalyticsStat | null; ko: string; en: string }) {
   if (!stat) return null;
   return (
     <tr className="transition-colors duration-150 hover:bg-white/[0.02]">
-      <td className="whitespace-nowrap py-3 pl-2 pr-4 text-left text-sm font-black text-white">{label}</td>
-      <td className="px-3 py-3 text-right text-sm font-black tabular-nums font-outfit">{pct(stat.mean)}</td>
-      <td className="px-3 py-3 text-right text-sm font-black tabular-nums font-outfit">{pct(stat.median)}</td>
-      <td className="px-3 py-3 text-right text-sm font-black tabular-nums font-outfit">{pct(stat.worst)}</td>
-      <td className="px-3 py-3 text-right text-sm font-black tabular-nums font-outfit">{pct(stat.best)}</td>
-      <td className="px-3 py-3 text-right text-sm font-black tabular-nums font-outfit text-[var(--text-label)]">{stat.count}</td>
+      <td className="whitespace-nowrap py-4 pl-2 pr-1 text-left text-sm font-black text-white">
+        <span className="inline-flex items-center gap-1">
+          {label}
+          <DefinitionHelp id={`help-${label.replace(/\s/g, "-")}`} label={label} ko={ko} en={en} />
+        </span>
+      </td>
+      <td className="px-1.5 py-4 text-right text-sm font-black tabular-nums font-outfit">{pct(stat.mean)}</td>
+      <td className="px-1.5 py-4 text-right text-sm font-black tabular-nums font-outfit">{pct(stat.median)}</td>
+      <td className="px-1.5 py-4 text-right text-sm font-black tabular-nums font-outfit">{pct(stat.worst)}</td>
+      <td className="px-1.5 py-4 text-right text-sm font-black tabular-nums font-outfit">{pct(stat.best)}</td>
+      <td className="w-12 whitespace-nowrap px-1.5 py-4 text-right text-sm font-black tabular-nums font-outfit text-[var(--text-label)]">{stat.count}</td>
     </tr>
   );
 }
@@ -323,6 +362,8 @@ function StatRow({ label, stat }: { label: string; stat: AnalyticsStat | null })
 const FACTOR_LABELS: Record<string, string> = { MKT: "시장", SMB: "규모(소형−대형)", HML: "가치(저PBR−고PBR)", MOM: "모멘텀(12-1)" };
 const TH = "px-3 py-2 text-xs font-bold uppercase tracking-widest text-[var(--text-label)] whitespace-nowrap";
 const TD = "px-3 py-3 text-sm font-black tabular-nums font-outfit";
+const ANALYTICS_CARD = "min-w-0 rounded-xl border border-white/[0.12] bg-white/[0.025] p-4 sm:p-5";
+const ANALYTICS_PANEL = "min-w-0 rounded-lg border border-white/[0.08] bg-black/10 p-3 sm:p-4";
 
 export default function AdvancedAnalyticsSection({ analytics, dates, currency = "krw", stockMetadata = {} }: Props) {
   const a = analytics;
@@ -332,22 +373,22 @@ export default function AdvancedAnalyticsSection({ analytics, dates, currency = 
 
   return (
     <section data-testid="backtest-advanced-analytics" className="flex flex-col gap-4">
-        <div className="grid gap-x-8 gap-y-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2">
           {/* 귀인 */}
-          <div className="border-t border-white/[0.08] py-4 lg:col-span-2" data-testid="analytics-attribution">
+          <div className={`${ANALYTICS_CARD} lg:col-span-2`} data-testid="analytics-attribution">
             <div className="mb-2 text-sm font-black text-white">{t("성과 귀인 (초기 자본 대비 기여도)")}</div>
             {a.attribution.symbols.length === 0 ? (
               <p className="mt-2 text-xs font-bold text-[var(--text-label)]">{t("완결된 거래가 없어 기여도를 계산하지 못했습니다.")}</p>
             ) : (
-              <div className="mt-2 grid gap-4 lg:grid-cols-2">
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-[var(--text-label)]">{t(getLanguage() === "en" ? "By symbol" : "종목별 기여도")}</div>
+              <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                <div className={ANALYTICS_PANEL}>
+                  <div className="mb-2 text-xs font-bold text-[var(--text-label)]">{t(getLanguage() === "en" ? "By symbol" : "종목별 기여도")}</div>
                   <div className="mt-2 overflow-x-auto">
                     <table className="w-full min-w-[560px] border-collapse">
                       <thead>
                         <tr><th className={`${TH} text-left`}>{t("종목")}</th><th className={`${TH} text-left`}>{t("섹터")}</th><th className={`${TH} text-right`}>{t("손익")}</th><th className={`${TH} text-right`}>{t("기여도")}</th></tr>
                       </thead>
-                      <tbody className="divide-y divide-white/[0.04]">
+                      <tbody>
                         {a.attribution.symbols.map((r) => (
                           <tr key={r.symbol} className="transition-colors duration-150 hover:bg-white/[0.02]">
                             <td className="whitespace-nowrap py-3 pl-2 pr-4 text-sm font-black text-white">{r.name} <span className="text-[var(--text-label)]">{r.symbol}</span></td>
@@ -360,11 +401,11 @@ export default function AdvancedAnalyticsSection({ analytics, dates, currency = 
                     </table>
                   </div>
                 </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-[var(--text-label)]">{t("섹터별 기여도")}</div>
-                  <div className="mt-2 divide-y divide-white/[0.04] border-t border-white/[0.05]">
+                <div className={`${ANALYTICS_PANEL} flex flex-col`}>
+                  <div className="mb-2 text-xs font-bold text-[var(--text-label)]">{t("섹터별 기여도")}</div>
+                  <div className="mt-2 flex flex-1 flex-col">
                     {a.attribution.sectors.slice(0, 8).map((s) => (
-                      <div key={s.sector} className="flex justify-between py-2 text-sm font-bold transition-colors duration-150 hover:bg-white/[0.02]"><span className="text-white">{s.sector} <span className="text-[var(--text-label)]">({s.symbols})</span></span><span className={colorClass(s.contributionPct)}>{pct(s.contributionPct)}</span></div>
+                      <div key={s.sector} className="flex flex-1 items-center justify-between py-2 text-sm font-bold transition-colors duration-150 hover:bg-white/[0.02]"><span className="text-white">{s.sector} <span className="text-[var(--text-label)]">({s.symbols})</span></span><span className={colorClass(s.contributionPct)}>{pct(s.contributionPct)}</span></div>
                     ))}
                   </div>
                 </div>
@@ -373,7 +414,7 @@ export default function AdvancedAnalyticsSection({ analytics, dates, currency = 
           </div>
 
           {/* 팩터 노출 */}
-          <div className="border-t border-white/[0.08] py-4" data-testid="analytics-factor">
+          <div className={ANALYTICS_CARD} data-testid="analytics-factor">
             <div className="mb-1 text-sm font-black text-white">{t(isEnglish ? "Factor exposure: what did the strategy move with?" : "팩터 노출: 전략은 무엇과 함께 움직였나요?")}</div>
             <p className="text-xs leading-relaxed text-[var(--text-label)] sm:text-sm">
               {t(isEnglish
@@ -410,7 +451,7 @@ export default function AdvancedAnalyticsSection({ analytics, dates, currency = 
                 <p className="mt-2 text-xs font-bold text-gray-400 sm:text-sm">
                   {t("알파(연환산) {0} (t={1}) · R² {2} · 관측 {3}일 · 유니버스 {4}종목", pct(fe.alphaAnnualPct), num(fe.alphaTStat, 1), num(fe.r2), fe.observations ?? 0, fe.symbols ?? 0)}
                 </p>
-                <div className="mt-3 rounded-lg bg-white/[0.03] p-3" data-testid="factor-interpretation-summary">
+                <div className="mt-3 rounded-lg border border-white/[0.08] bg-white/[0.035] p-3 sm:p-4" data-testid="factor-interpretation-summary">
                   <div className="mb-2 text-sm font-black text-white sm:text-base">{t(isEnglish ? "In plain language" : "한눈에 보는 해석")}</div>
                   <p className="text-sm leading-relaxed text-gray-300 sm:text-base">{t(summarizeFactorPattern(fe, isEnglish))}</p>
                   <div className="mt-4 border-t border-white/[0.08] pt-3">
@@ -434,29 +475,29 @@ export default function AdvancedAnalyticsSection({ analytics, dates, currency = 
           </div>
 
           {/* 거래 분포 */}
-          <div className="border-t border-white/[0.08] py-4" data-testid="analytics-trades">
+          <div className={ANALYTICS_CARD} data-testid="analytics-trades">
             <div className="mb-2 text-sm font-black text-white">{t("거래 분포 ({0}건)", td.trades)}</div>
             {td.trades === 0 ? (
               <p className="mt-2 text-xs font-bold text-[var(--text-label)]">{t("완결된 거래가 없습니다.")}</p>
             ) : (
               <>
                 <div className="mt-2 text-xs font-bold text-[var(--text-label)]">{t("거래 수익률 분포")}</div>
-                <Histogram bins={td.returnHistogram} ariaLabel={t("거래 수익률 분포")} color={(b) => ((b.from ?? -1) >= 0 ? POSITIVE : NEGATIVE)} />
+                <Histogram bins={td.returnHistogram} ariaLabel={t("거래 수익률 분포")} color={(b) => ((b.from ?? -1) >= 0 ? POSITIVE : NEGATIVE)} heightClassName="h-52" />
                 <div className="mt-3 text-xs font-bold text-[var(--text-label)]">
                   {t("보유 기간 분포")}{td.holdingDays ? ` · ${t("평균 {0}일 · 중앙값 {1}일 · 최장 {2}일", num(td.holdingDays.mean, 0), num(td.holdingDays.median, 0), td.holdingDays.max)}` : ""}
                 </div>
-                <Histogram bins={td.holdingHistogram} ariaLabel={t("보유 기간 분포")} color={() => "#a3a3a3"} />
-                <table className="mt-3 w-full min-w-[640px] border-collapse">
+                <Histogram bins={td.holdingHistogram} ariaLabel={t("보유 기간 분포")} color={() => "#a3a3a3"} heightClassName="h-52" />
+                <table className="mt-3 w-full table-fixed border-collapse">
                   <thead>
-                    <tr><th className={`${TH} text-left`}>MAE/MFE</th><th className={`${TH} text-right`}>{t("평균")}</th><th className={`${TH} text-right`}>{t("중앙값")}</th><th className={`${TH} text-right`}>{t("최악")}</th><th className={`${TH} text-right`}>{t("최선")}</th><th className={`${TH} text-right`}>n</th></tr>
+                    <tr><th className={`${TH} w-[23%] pl-2 pr-1 text-left`}>MAE/MFE</th><th className="w-[15%] whitespace-nowrap px-1 py-2 text-right text-xs font-bold text-[var(--text-label)]">{t("평균")}</th><th className="w-[16%] whitespace-nowrap px-1 py-2 text-right text-xs font-bold text-[var(--text-label)]">{t("중앙값")}</th><th className="w-[14%] whitespace-nowrap px-1 py-2 text-right text-xs font-bold text-[var(--text-label)]">{t("최악")}</th><th className="w-[14%] whitespace-nowrap px-1 py-2 text-right text-xs font-bold text-[var(--text-label)]">{t("최선")}</th><th className="w-[18%] whitespace-nowrap px-1 py-2 text-right text-xs font-bold text-[var(--text-label)]">{t("거래 수")}</th></tr>
                   </thead>
                   <tbody className="divide-y divide-white/[0.04]">
-                    <StatRow label={t("MAE 전체")} stat={td.mae?.all ?? null} />
-                    <StatRow label={t("MAE 승리")} stat={td.mae?.winners ?? null} />
-                    <StatRow label={t("MAE 패배")} stat={td.mae?.losers ?? null} />
-                    <StatRow label={t("MFE 전체")} stat={td.mfe?.all ?? null} />
-                    <StatRow label={t("MFE 승리")} stat={td.mfe?.winners ?? null} />
-                    <StatRow label={t("MFE 패배")} stat={td.mfe?.losers ?? null} />
+                    <StatRow label={t("MAE 전체")} stat={td.mae?.all ?? null} ko="완결된 모든 거래에서 보유 중 진입가 대비 최저 도달률(MAE)을 집계합니다." en="The worst adverse excursion (MAE) from entry across all completed trades." />
+                    <StatRow label={t("MAE 승리")} stat={td.mae?.winners ?? null} ko="최종 수익이 양수인 거래만 대상으로, 보유 중 진입가 대비 최저 도달률(MAE)을 집계합니다." en="The worst adverse excursion (MAE) from entry for completed trades with a positive final return." />
+                    <StatRow label={t("MAE 패배")} stat={td.mae?.losers ?? null} ko="최종 수익이 음수인 거래만 대상으로, 보유 중 진입가 대비 최저 도달률(MAE)을 집계합니다." en="The worst adverse excursion (MAE) from entry for completed trades with a negative final return." />
+                    <StatRow label={t("MFE 전체")} stat={td.mfe?.all ?? null} ko="완결된 모든 거래에서 보유 중 진입가 대비 최고 도달률(MFE)을 집계합니다." en="The best favorable excursion (MFE) from entry across all completed trades." />
+                    <StatRow label={t("MFE 승리")} stat={td.mfe?.winners ?? null} ko="최종 수익이 양수인 거래만 대상으로, 보유 중 진입가 대비 최고 도달률(MFE)을 집계합니다." en="The best favorable excursion (MFE) from entry for completed trades with a positive final return." />
+                    <StatRow label={t("MFE 패배")} stat={td.mfe?.losers ?? null} ko="최종 수익이 음수인 거래만 대상으로, 보유 중 진입가 대비 최고 도달률(MFE)을 집계합니다." en="The best favorable excursion (MFE) from entry for completed trades with a negative final return." />
                   </tbody>
                 </table>
                 <p className="mt-1 text-[10px] text-[var(--text-label)]">{t("MAE=보유 중 진입가 대비 최저 도달률, MFE=최고 도달률. 손절·익절 폭을 과거 거래와 견줄 때 씁니다.")}</p>
@@ -465,7 +506,7 @@ export default function AdvancedAnalyticsSection({ analytics, dates, currency = 
           </div>
 
           {/* 유동성 */}
-          <div className="border-t border-white/[0.08] py-4" data-testid="analytics-liquidity">
+          <div className={ANALYTICS_CARD} data-testid="analytics-liquidity">
             <div className="mb-2 text-sm font-black text-white">{t("유동성 (주문금액 ÷ 20일 평균 거래대금)")}</div>
             {a.liquidity.orders === 0 || a.liquidity.maxParticipation == null ? (
               <p className="mt-2 text-xs font-bold text-[var(--text-label)]">{t("거래대금 자료가 없어 참여율을 계산하지 못했습니다.")}</p>
@@ -498,7 +539,7 @@ export default function AdvancedAnalyticsSection({ analytics, dates, currency = 
               </dl>
             )}
             {a.liquidity.orders > 0 && a.liquidity.maxParticipation != null && (
-              <div className="mt-4 rounded-lg bg-white/[0.03] p-3" data-testid="analytics-liquidity-interpretation">
+              <div className="mt-4 rounded-lg border border-white/[0.08] bg-white/[0.035] p-3 sm:p-4" data-testid="analytics-liquidity-interpretation">
                 <div className="mb-1 text-xs font-black text-white">{t(isEnglish ? "Overall interpretation" : "전체 해석")}</div>
                 <p className="text-xs leading-relaxed text-gray-300 sm:text-sm">
                   {liquidityInterpretation(a.liquidity, money(a.liquidity.capitalAtCap, currency), isEnglish)}
@@ -508,19 +549,57 @@ export default function AdvancedAnalyticsSection({ analytics, dates, currency = 
           </div>
 
           {/* 벤치마크 비교 */}
-          <div className="border-t border-white/[0.08] py-4" data-testid="analytics-benchmarks">
+          <div className={`${ANALYTICS_CARD} flex flex-col`} data-testid="analytics-benchmarks">
             <div className="mb-2 text-sm font-black text-white">{t("다중 벤치마크 비교")}</div>
             {a.benchmarks.length === 0 ? (
               <p className="mt-2 text-xs font-bold text-[var(--text-label)]">{t("벤치마크 자료가 없습니다.")}</p>
             ) : (
-                <div className="mt-2 overflow-x-auto">
-                <table className="w-full min-w-[720px] border-collapse">
+                <div className="mt-2 flex flex-1 overflow-x-auto">
+                <table className="h-full w-full min-w-[720px] border-collapse">
                 <thead>
-                  <tr><th className={`${TH} text-left`}>{t("벤치마크")}</th><th className={`${TH} text-right`}>{t("총수익률")}</th><th className={`${TH} text-right`}>CAGR</th><th className={`${TH} text-right`}>MDD</th><th className={`${TH} text-right`}>β</th><th className={`${TH} text-right`}>α</th><th className={`${TH} text-right`}>IR</th></tr>
+                  <tr style={{ height: `${100 / (a.benchmarks.length + 1)}%` }}>
+                    <th className={`${TH} text-left`}>{t("벤치마크")}</th>
+                    <th className={`${TH} text-right`}>{t("총수익률")}</th>
+                    <th className={`${TH} text-right`}>CAGR</th>
+                    <th className={`${TH} text-right`}>MDD</th>
+                    <th className={`${TH} text-right`}>
+                      <span className="inline-flex items-center gap-1">
+                        {t(isEnglish ? "Beta (β)" : "베타 (β)")}
+                        <BenchmarkMetricHelp
+                          id="help-benchmark-beta"
+                          label={t(isEnglish ? "Beta" : "베타")}
+                          ko="벤치마크 수익률이 움직일 때 전략 수익률이 얼마나 함께 움직였는지를 나타냅니다. 1이면 비슷한 폭으로, 1보다 크면 더 크게, 0에 가까우면 덜 움직인 경향입니다."
+                          en="Shows how much the strategy's returns moved with the benchmark. A value of 1 means a similar move, above 1 a larger move, and near 0 a smaller move."
+                        />
+                      </span>
+                    </th>
+                    <th className={`${TH} text-right`}>
+                      <span className="inline-flex items-center gap-1">
+                        {t(isEnglish ? "Alpha (α)" : "알파 (α)")}
+                        <BenchmarkMetricHelp
+                          id="help-benchmark-alpha"
+                          label={t(isEnglish ? "Alpha" : "알파")}
+                          ko="벤치마크 움직임과 무위험 수익률을 고려한 뒤 남는 전략 수익률의 연환산 추정치입니다."
+                          en="The annualized estimate of strategy return left after accounting for benchmark moves and the risk-free rate."
+                        />
+                      </span>
+                    </th>
+                    <th className={`${TH} text-right`}>
+                      <span className="inline-flex items-center gap-1">
+                        {t(isEnglish ? "Information Ratio (IR)" : "정보비율 (IR)")}
+                        <BenchmarkMetricHelp
+                          id="help-benchmark-ir"
+                          label={t(isEnglish ? "Information Ratio" : "정보비율")}
+                          ko="전략 수익률과 벤치마크 수익률의 차이를 그 차이의 변동 폭으로 나눈 값입니다. 양수면 해당 기간에 전략 수익률이 평균적으로 벤치마크보다 높았고, 음수면 낮았습니다."
+                          en="The difference between strategy and benchmark returns divided by how much that difference varied. A positive value means the strategy's average return was higher over the measured period; a negative value means it was lower."
+                        />
+                      </span>
+                    </th>
+                  </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.04]">
                   {a.benchmarks.map((b) => (
-                    <tr key={b.symbol} className="transition-colors duration-150 hover:bg-white/[0.02]">
+                    <tr key={b.symbol} style={{ height: `${100 / (a.benchmarks.length + 1)}%` }} className="transition-colors duration-150 hover:bg-white/[0.02]">
                       <td className="whitespace-nowrap py-3 pl-2 pr-4 text-sm font-black text-white">{b.name}{b.partial ? <span className="ml-1 text-[9px] text-amber-300">{t("일부 기간")}</span> : null}</td>
                       <td className={`${TD} text-right ${colorClass(b.totalReturn)}`}>{pct(b.totalReturn)}</td>
                       <td className={`${TD} text-right ${colorClass(b.cagr)}`}>{pct(b.cagr)}</td>
@@ -537,10 +616,10 @@ export default function AdvancedAnalyticsSection({ analytics, dates, currency = 
             <p className="mt-1 text-[10px] text-[var(--text-label)]">{t("β·α·정보비율은 전략 일간 수익률을 각 벤치마크에 회귀한 값입니다.")}</p>
           </div>
 
-          <div className="grid gap-x-8 gap-y-4 lg:col-span-2 lg:grid-cols-2 lg:items-start">
+          <div className="grid gap-4 lg:col-span-2 lg:grid-cols-2">
           {/* 자산 상관관계(엔진 v16.33) — 과거 통계이며 추천이 아니다. */}
           {a.portfolioMix ? (
-            <div className="border-t border-white/[0.08] py-4" data-testid="analytics-portfolio-mix">
+            <div className={ANALYTICS_CARD} data-testid="analytics-portfolio-mix">
               <div className="mb-2 text-sm font-black text-white">{t(isEnglish ? "Asset correlations" : "자산 상관관계")}</div>
               {!a.portfolioMix.available || !a.portfolioMix.symbols?.length ? (
                 <p className="mt-2 text-xs font-bold text-[var(--text-label)]">{t(isEnglish ? "Not enough data to calculate asset correlations." : "표본이 부족해 자산 상관관계를 계산하지 못했습니다.")}</p>
@@ -595,17 +674,17 @@ export default function AdvancedAnalyticsSection({ analytics, dates, currency = 
           ) : null}
 
           {/* 회전율·위험 */}
-          <div className="border-t border-white/[0.08] py-4" data-testid="analytics-risk">
+          <div className={ANALYTICS_CARD} data-testid="analytics-risk">
             <div className="mb-3 text-sm font-black text-white">{t(isEnglish ? "Trading turnover and downside risk" : "매매 회전율·손실 위험")}</div>
-            <div className="grid gap-5 sm:grid-cols-2">
-              <section data-testid="analytics-turnover-summary">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <section className={ANALYTICS_PANEL} data-testid="analytics-turnover-summary">
                 <h3 className="mb-2 text-xs font-black text-[var(--text-label)]">{t(isEnglish ? "Trading turnover" : "매매 회전율")}</h3>
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs font-bold text-gray-200">
                   <div><dt className="flex items-center gap-1 text-[var(--text-label)]">{t("연환산 회전율")}<MetricHelp id="help-turnover-annual" label={t("연환산 회전율")} ko="기간 회전율을 백테스트 기간(연수)으로 나눈 연환산 값입니다." en="Period turnover divided by the backtest duration in years." guidelineKey="annualTurnover" /></dt><dd className="mt-1 text-sm font-black tabular-nums font-outfit text-white">{pct(a.turnover.annual, 0, false)}</dd></div>
                   <div><dt className="flex items-center gap-1 text-[var(--text-label)]">{t("기간 회전율")}<MetricHelp id="help-turnover-total" label={t("기간 회전율")} ko="총 매수·매도 체결 금액의 절반을 기간 평균 자산으로 나눈 비율입니다." en="Half of total buy and sell execution value, divided by average portfolio value over the period." guidelineKey="periodTurnover" align="right" /></dt><dd className="mt-1 text-sm font-black tabular-nums font-outfit text-white">{pct(a.turnover.total, 0, false)}</dd></div>
                 </dl>
               </section>
-              <section data-testid="analytics-downside-summary">
+              <section className={ANALYTICS_PANEL} data-testid="analytics-downside-summary">
                 <h3 className="mb-2 text-xs font-black text-[var(--text-label)]">{t(isEnglish ? "Downside risk" : "하방 위험")}</h3>
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs font-bold text-gray-200">
                   <div><dt className="flex items-center gap-1 text-[var(--text-label)]">VaR 95%<MetricHelp id="help-var-95" label="VaR 95%" ko="일간 수익률 분포에서 하위 5% 경계에 해당하는 손실률입니다." en="The loss threshold at the bottom 5% of the historical daily-return distribution." guidelineKey="var95" /></dt><dd className="mt-1 text-sm font-black tabular-nums font-outfit text-white">{pct(a.riskStats.var95, 2, false)}</dd></div>
@@ -624,7 +703,7 @@ export default function AdvancedAnalyticsSection({ analytics, dates, currency = 
                 <LineSeries values={a.riskStats.rollingBeta} dates={dates} ariaLabel={t("롤링 베타")} zero />
               </>
             )}
-            <div className="mt-3 rounded-lg bg-white/[0.03] p-3" data-testid="rolling-risk-interpretation">
+            <div className="mt-3 rounded-lg border border-white/[0.08] bg-white/[0.035] p-3 sm:p-4" data-testid="rolling-risk-interpretation">
               <div className="mb-2 text-sm font-black text-white sm:text-base">{t(isEnglish ? "In plain language" : "한눈에 보는 해석")}</div>
               <p className="text-sm leading-relaxed text-gray-300 sm:text-base">
                 {summarizeRollingRisk(a.riskStats.rollingSharpe, a.riskStats.rollingBeta, a.riskStats.window, isEnglish)}
