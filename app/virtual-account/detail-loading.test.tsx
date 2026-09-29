@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import VirtualAccountDetailPage from "@/app/virtual-account/[id]/page";
@@ -247,6 +247,36 @@ describe("VirtualAccountDetailPage loading", () => {
     expect(await screen.findByText("삼성전자")).toBeInTheDocument();
     expect(screen.queryByText("추적 중인 종목이 없습니다")).not.toBeInTheDocument();
     expect(screen.queryByTestId("tracked-symbols-skeleton-scroll")).not.toBeInTheDocument();
+  });
+
+  it.each(["names-first", "market-first"])("keeps delisted names when responses arrive %s", async (order) => {
+    getAccountMock.mockResolvedValue({
+      id: "account-123", name: "테스트 계좌", tradingMode: "manual",
+      initialAmount: 10_000_000, currentBalance: 10_000_000, totalValue: 10_000_000,
+      createdAt: "2026-06-01T00:00:00.000Z", updatedAt: "2026-06-01T00:00:00.000Z",
+    });
+    let resolveNames!: (response: Response) => void;
+    let resolveMarket!: (response: Response) => void;
+    const namesPromise = new Promise<Response>((resolve) => { resolveNames = resolve; });
+    const marketPromise = new Promise<Response>((resolve) => { resolveMarket = resolve; });
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (String(input) === "/api/stocks/names") return namesPromise;
+      if (String(input) === "/api/virtual-market/account-123") return marketPromise;
+      return new Promise<Response>(() => undefined);
+    });
+    render(<VirtualAccountDetailPage />);
+    await screen.findByRole("heading", { name: "테스트 계좌" });
+    const responses = {
+      names: () => resolveNames({ ok: true, json: async () => ({ "005390": { name: "신성통상" } }) } as Response),
+      market: () => resolveMarket({ ok: true, json: async () => ({ symbols: ["005390"], symbolNames: { "005390": "005390" } }) } as Response),
+    };
+    for (const respond of order === "names-first"
+      ? [responses.names, responses.market] : [responses.market, responses.names]) {
+      await act(async () => { respond(); });
+    }
+    expect(screen.getByText("신성통상")).toBeInTheDocument();
+    expect(screen.getByText("005390")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "신성통상 추적 제거" })).toBeInTheDocument();
   });
 
   it("renders the account detail from a cached overview snapshot while live data is loading", async () => {

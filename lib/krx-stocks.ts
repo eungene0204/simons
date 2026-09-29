@@ -51,25 +51,30 @@ export async function loadStockList(): Promise<StockListItem[]> {
 declare global {
   // eslint-disable-next-line no-var
   var __stockNameMapCache:
-    | { mtimeMs: number; map: Promise<Record<string, string>> }
+    | { version: string; map: Promise<Record<string, string>> }
     | undefined;
 }
 
 export async function getStockNameMap(): Promise<Record<string, string>> {
   const fs = await import('fs/promises');
   const path = await import('path');
-  let mtimeMs = -1;
-  try {
-    mtimeMs = (await fs.stat(path.join(process.cwd(), 'data', 'korea-stocks.json'))).mtimeMs;
-  } catch {
-    // 파일이 없으면 loadStockList가 실패를 기록하고 빈 목록을 돌려준다
-  }
-  const cached = global.__stockNameMapCache;
-  if (cached && cached.mtimeMs === mtimeMs) return cached.map;
-  const map = loadStockList().then((stocks) =>
-    Object.fromEntries(stocks.map((s) => [s.symbol, s.name]))
+  const versions = await Promise.all(
+    ["korea-stocks.json", "stock-master.json", "delisted-stocks.json"].map(async (file) => {
+      try {
+        const stat = await fs.stat(path.join(process.cwd(), "data", file));
+        return `${stat.mtimeMs}:${stat.size}`;
+      } catch {
+        return "missing";
+      }
+    })
   );
-  global.__stockNameMapCache = { mtimeMs, map };
+  const version = versions.join("|");
+  const cached = global.__stockNameMapCache;
+  if (cached && cached.version === version) return cached.map;
+  const map = Promise.all([loadStockMasterNameMap(), loadStockList()]).then(([names, stocks]) =>
+    ({ ...names, ...Object.fromEntries(stocks.map((s) => [s.symbol, s.name])) })
+  );
+  global.__stockNameMapCache = { version, map };
   return map;
 }
 
@@ -79,22 +84,33 @@ export async function getStockNameMap(): Promise<Record<string, string>> {
  * (생존편향 제거로 백테스트에 상폐 종목이 편입되므로 거래내역에 이름이 필요함.)
  */
 export async function loadStockMasterNameMap(): Promise<Record<string, string>> {
+  const map: Record<string, string> = {};
+  const fs = await import("fs/promises");
+  const path = await import("path");
   try {
-    const fs = await import('fs/promises');
-    const path = await import('path');
-
     const filePath = path.join(process.cwd(), 'data', 'stock-master.json');
     const data = await fs.readFile(filePath, 'utf-8');
     const parsed = JSON.parse(data) as { stocks?: Array<{ symbol: string; name: string }> };
-    const map: Record<string, string> = {};
     (parsed.stocks ?? []).forEach((s) => {
       if (s.symbol && s.name) map[s.symbol] = s.name;
     });
-    return map;
   } catch {
-    // 파일이 아직 없으면(스크립트 미실행) 빈 맵 — 현재 상장분 이름은 그대로 동작
-    return {};
+    // Missing historical data must not hide names preserved in the ledger.
   }
+  try {
+    const payload = JSON.parse(await fs.readFile(
+      path.join(process.cwd(), "data", "delisted-stocks.json"), "utf-8"
+    )) as { symbols?: string[]; names?: Record<string, string> };
+    for (const symbol of payload.symbols ?? []) {
+      const name = payload.names?.[symbol];
+      if (typeof name === "string" && name.trim() && name.trim() !== symbol) {
+        map[symbol] = name.trim();
+      }
+    }
+  } catch {
+    // Older installations can still have a code-only or absent ledger.
+  }
+  return map;
 }
 
 /**
@@ -146,4 +162,3 @@ export async function saveStockList(stocks: StockListItem[]): Promise<void> {
     throw error;
   }
 }
-

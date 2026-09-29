@@ -1,5 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
+const { listingFiles } = vi.hoisted(() => ({ listingFiles: {} as Record<string, unknown> }));
+vi.mock("fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("fs/promises")>();
+  return {
+    ...actual,
+    readFile: vi.fn(async (file: any, ...args: any[]) => {
+      const key = String(file).split("/").at(-1)!;
+      if (key in listingFiles) {
+        if (listingFiles[key] instanceof Error) throw listingFiles[key];
+        return JSON.stringify(listingFiles[key]);
+      }
+      return (actual.readFile as any)(file, ...args);
+    }),
+  };
+});
 import {
   filterMonitorableSymbols,
   filterSymbolsForCurrency,
@@ -36,9 +51,43 @@ const mockBacktestHistoryFindFirst = vi.mocked(prisma.backtestHistory.findFirst)
 describe("tracked symbol filtering", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    listingFiles["stock-master.json"] = { stocks: [{ symbol: "005390", delistingDate: "2025-09-30" }] };
+    listingFiles["delisted-stocks.json"] = { symbols: ["001570"] };
+    listingFiles["etf-master.json"] = { etfs: [] };
     mockStockFindMany.mockResolvedValue([]);
     mockBacktestResultFindFirst.mockResolvedValue(null);
     mockBacktestHistoryFindFirst.mockResolvedValue(null);
+  });
+
+  it("excludes 005390 from the historical master even without a DB status row", async () => {
+    await expect(filterMonitorableSymbols(["005930", "005390", "000660"]))
+      .resolves.toEqual(["005930", "000660"]);
+  });
+
+  it("reads changes to the ledger and normalizes Korean market suffixes", async () => {
+    await expect(filterMonitorableSymbols(["005930", "654321.KS"])).resolves.toEqual(["005930", "654321"]);
+    listingFiles["delisted-stocks.json"] = { symbols: ["001570", "654321.KQ"] };
+    await expect(filterMonitorableSymbols(["005930", "654321.KS"])).resolves.toEqual(["005930"]);
+  });
+
+  it("does not treat a future delisting date as a completed delisting", async () => {
+    listingFiles["stock-master.json"] = { stocks: [{ symbol: "654321", delistingDate: "2099-01-01" }] };
+    await expect(filterMonitorableSymbols(["654321"])).resolves.toEqual(["654321"]);
+  });
+
+  it("also excludes ETFs with completed delisting dates", async () => {
+    listingFiles["etf-master.json"] = { etfs: [{ symbol: "654321", delistingDate: "2020-01-01" }] };
+    await expect(filterMonitorableSymbols(["005930", "654321"])).resolves.toEqual(["005930"]);
+  });
+
+  it("does not pass candidates when DB status lookup fails", async () => {
+    mockStockFindMany.mockRejectedValueOnce(new Error("status unavailable"));
+    await expect(filterMonitorableSymbols(["005930"])).rejects.toThrow("status unavailable");
+  });
+
+  it.each(["stock-master.json", "delisted-stocks.json", "etf-master.json"])("does not pass candidates when %s is unavailable", async (file) => {
+    listingFiles[file] = new Error("listing data unavailable");
+    await expect(filterMonitorableSymbols(["005930"])).rejects.toThrow("listing data unavailable");
   });
 
   it("로컬 상장폐지 목록과 DB DELISTED 종목을 모니터링 종목에서 제외한다", async () => {

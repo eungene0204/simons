@@ -12,6 +12,7 @@ vi.mock("@/lib/prisma", () => ({
       update: vi.fn(),
     },
     virtualAccount: { findMany: vi.fn() },
+    stock: { findMany: vi.fn() },
   },
 }));
 vi.mock("@/lib/server/stock-prices", () => ({
@@ -49,6 +50,7 @@ describe("runSchedulerAction — market-refresh 일원화", () => {
 describe("runSchedulerAction — 생명주기 통화 분리 (KRW/USD)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(prisma.stock.findMany).mockResolvedValue([]);
     vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
@@ -68,10 +70,11 @@ describe("runSchedulerAction — 생명주기 통화 분리 (KRW/USD)", () => {
 
   it("us-market-open 은 USD 계좌만 조회해 paused 를 running 으로 되돌린다", async () => {
     vi.mocked(prisma.virtualAccount.findMany).mockResolvedValue([
-      { id: "acc-usd", userId: "user-1" } as never,
+      { id: "acc-usd", userId: "user-1", currency: "USD" } as never,
     ]);
     vi.mocked(prisma.virtualMarketState.findUnique).mockResolvedValue({
       status: "paused",
+      symbols: '["AAPL"]',
     } as never);
     vi.mocked(prisma.virtualMarketState.update).mockResolvedValue({} as never);
 
@@ -85,10 +88,40 @@ describe("runSchedulerAction — 생명주기 통화 분리 (KRW/USD)", () => {
       },
     });
     expect(prisma.virtualMarketState.update).toHaveBeenCalledWith({
-      where: { accountId: "acc-usd" },
+      where: { accountId: "acc-usd", status: "paused", symbols: '["AAPL"]' },
       data: expect.objectContaining({ status: "running" }),
     });
     expect(result.results).toEqual([{ accountId: "acc-usd", result: "resumed" }]);
+  });
+
+  it.each(["paused", "running"])("rechecks an existing %s list at market open", async (status) => {
+    vi.mocked(prisma.virtualAccount.findMany).mockResolvedValue([{ id: "acc-krw", userId: 1, currency: "KRW" }] as any);
+    const original = '["005930","005390","000660"]';
+    vi.mocked(prisma.virtualMarketState.findUnique).mockResolvedValue({ status, symbols: original } as any);
+    vi.mocked(prisma.stock.findMany).mockResolvedValue([{ symbol: "000660" }] as any);
+    await runSchedulerAction("market-open");
+    expect(prisma.virtualMarketState.update).toHaveBeenCalledWith({
+      where: { accountId: "acc-krw", status, symbols: original },
+      data: { status: "running", symbols: '["005930"]', updatedAt: expect.any(Date) },
+    });
+  });
+
+  it("does not resume an account whose entire monitoring list is blocked", async () => {
+    vi.mocked(prisma.virtualAccount.findMany).mockResolvedValue([{ id: "acc-krw", userId: 1, currency: "KRW" }] as any);
+    vi.mocked(prisma.virtualMarketState.findUnique).mockResolvedValue({ status: "paused", symbols: '["005390"]' } as any);
+    const result = await runSchedulerAction("market-open");
+    expect(prisma.virtualMarketState.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "paused", symbols: "[]" }),
+    }));
+    expect(result.results).toEqual([{ accountId: "acc-krw", result: "no_monitorable_symbols" }]);
+  });
+
+  it("does not change state when status lookup fails at market open", async () => {
+    vi.mocked(prisma.virtualAccount.findMany).mockResolvedValue([{ id: "acc-krw", userId: 1 }] as any);
+    vi.mocked(prisma.virtualMarketState.findUnique).mockResolvedValue({ status: "paused", symbols: '["005930"]' } as any);
+    vi.mocked(prisma.stock.findMany).mockRejectedValueOnce(new Error("status unavailable"));
+    await expect(runSchedulerAction("market-open")).rejects.toThrow("status unavailable");
+    expect(prisma.virtualMarketState.update).not.toHaveBeenCalled();
   });
 
   it("market-close 는 USD 계좌를 제외하고 일시정지한다", async () => {

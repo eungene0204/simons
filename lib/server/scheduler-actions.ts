@@ -26,12 +26,13 @@
 import { prisma } from "@/lib/prisma";
 import { fetchStockPriceSnapshots } from "@/lib/server/stock-prices";
 import { startAccountStrategy } from "@/lib/server/strategy-start";
+import { filterMonitorableSymbols, filterSymbolsForCurrency } from "@/lib/strategy-tracked-symbols";
 
 export type SchedulerActionResult = Record<string, unknown>;
 
 /** auto 계좌 목록을 running 으로 전환한다 (market-open/us-market-open 공용 루프). */
 async function startAutoAccounts(
-  accounts: { id: string; userId: number | null }[]
+  accounts: { id: string; userId: number | null; currency?: string | null }[]
 ): Promise<{ accountId: string; result: string; detail?: unknown }[]> {
   const results: { accountId: string; result: string; detail?: unknown }[] = [];
   for (const account of accounts) {
@@ -39,19 +40,25 @@ async function startAutoAccounts(
       where: { accountId: account.id },
     });
 
-    // 이미 실행 중이면 건너뜀
-    if (state?.status === "running") {
-      results.push({ accountId: account.id, result: "already_running" });
-      continue;
-    }
-
-    // paused 상태면 resume (symbols 유지, startDate 갱신 없이)
-    if (state?.status === "paused") {
+    // Revalidate retained lists before keeping or resuming a running account.
+    if (state?.status === "running" || state?.status === "paused") {
+      const symbols = await filterMonitorableSymbols(
+        filterSymbolsForCurrency(JSON.parse(state.symbols), account.currency)
+      );
+      if (state.status === "running" && symbols.length > 0 && JSON.stringify(symbols) === state.symbols) {
+        results.push({ accountId: account.id, result: "already_running" });
+        continue;
+      }
       await prisma.virtualMarketState.update({
-        where: { accountId: account.id },
-        data: { status: "running", updatedAt: new Date() },
+        where: { accountId: account.id, status: state.status, symbols: state.symbols },
+        data: {
+          status: symbols.length > 0 ? "running" : "paused",
+          symbols: JSON.stringify(symbols),
+          updatedAt: new Date(),
+        },
       });
-      results.push({ accountId: account.id, result: "resumed" });
+      results.push({ accountId: account.id, result: symbols.length === 0
+        ? "no_monitorable_symbols" : state.status === "running" ? "already_running" : "resumed" });
       continue;
     }
 

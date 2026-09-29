@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { loadStockList } from "@/lib/krx-stocks";
 import { getTopSymbolsFromSummary } from "@/lib/backtest-top-symbols";
 import { isUsSymbol } from "@/lib/stock-prices";
+import path from "path";
 
 const KOSPI200_TOP = [
   "005930", "000660", "373220", "207940", "005380",
@@ -13,29 +14,13 @@ const KOSPI200_TOP = [
 const MAX_SYMBOLS = 20;
 const BACKTEST_TOP_SYMBOLS = 10;
 const MIN_BACKTEST_SYMBOLS = 3;
-const LOCAL_DELISTED_SYMBOLS = new Set([
-  "001570", "001840", "002420", "016600", "016790",
-  "018620", "023790", "027040", "032680", "032790",
-  "032980", "041590", "042040", "043220", "043590",
-  "046390", "052420", "061040", "064090", "065150",
-  "065570", "065770", "068940", "072770", "078590",
-  "079970", "080720", "088290", "091970", "101390",
-  "106520", "109960", "115530", "131760", "137940",
-  "140430", "140910", "148780", "152550", "193250",
-  "198940", "203690", "204210", "222160", "225590",
-  "226340", "227100", "227610", "227950", "230980",
-  "234100", "258790", "258830", "266350", "288330",
-  "309930", "322780", "352770", "368970", "373200",
-  "380540", "419540", "464680", "477760", "900100",
-  "900250", "900300",
-]);
 
 export type TrackedSymbolSource = "backtest" | "universe";
 
 function normalizeUniqueSymbols(symbols: string[]): string[] {
   const seen = new Set<string>();
   return symbols
-    .map((symbol) => String(symbol).trim())
+    .map((symbol) => String(symbol).trim().replace(/\.(KS|KQ)$/i, ""))
     .filter((symbol) => {
       if (!symbol || seen.has(symbol)) return false;
       seen.add(symbol);
@@ -47,23 +32,32 @@ export async function filterMonitorableSymbols(symbols: string[]): Promise<strin
   const normalized = normalizeUniqueSymbols(symbols);
   if (normalized.length === 0) return [];
 
-  const blocked = new Set<string>();
-  normalized.forEach((symbol) => {
-    if (LOCAL_DELISTED_SYMBOLS.has(symbol)) blocked.add(symbol);
-  });
-
-  try {
-    const dbBlocked = await prisma.stock.findMany({
+  const { readFile } = await import("fs/promises");
+  // Do not cache listing evidence or treat lookup failures as normal trading.
+  const [ledgerRaw, masterRaw, etfRaw, dbBlocked] = await Promise.all([
+    readFile(path.join(process.cwd(), "data", "delisted-stocks.json"), "utf-8"),
+    readFile(path.join(process.cwd(), "data", "stock-master.json"), "utf-8"),
+    readFile(path.join(process.cwd(), "data", "etf-master.json"), "utf-8"),
+    prisma.stock.findMany({
       where: {
         symbol: { in: normalized },
         listingStatus: { in: ["DELISTED", "TRADING_SUSPENDED"] },
       },
       select: { symbol: true },
-    });
-    dbBlocked.forEach((stock) => blocked.add(stock.symbol));
-  } catch (error) {
-    console.warn("Failed to filter DB blocked symbols:", error);
+    }),
+  ]);
+  const ledger = JSON.parse(ledgerRaw);
+  const master = JSON.parse(masterRaw);
+  const etfs = JSON.parse(etfRaw);
+  if (!Array.isArray(ledger.symbols) || !Array.isArray(master.stocks) || !Array.isArray(etfs.etfs)) {
+    throw new Error("Invalid listing data");
   }
+  const blocked = new Set(normalizeUniqueSymbols(ledger.symbols));
+  const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
+  for (const stock of [...master.stocks, ...etfs.etfs]) {
+    if (stock.delistingDate && stock.delistingDate <= today) blocked.add(stock.symbol);
+  }
+  dbBlocked.forEach((stock) => blocked.add(stock.symbol));
 
   return normalized.filter((symbol) => !blocked.has(symbol));
 }

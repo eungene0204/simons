@@ -19,6 +19,7 @@ import { prisma } from "@/lib/prisma";
 import { getStockNameMap } from "@/lib/krx-stocks";
 import { fetchStockPriceSnapshots } from "@/lib/server/stock-prices";
 import { moneyToNumber, toMoney } from "@/lib/server/assetService";
+import { filterMonitorableSymbols, filterSymbolsForCurrency } from "@/lib/strategy-tracked-symbols";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
@@ -54,7 +55,16 @@ export async function refreshVirtualMarket(
     return { refreshed: false, reason: "account not found" };
   }
 
-  const symbols: string[] = JSON.parse(state.symbols);
+  const symbols = await filterMonitorableSymbols(
+    filterSymbolsForCurrency(JSON.parse(state.symbols), account.currency)
+  );
+  if (JSON.stringify(symbols) !== state.symbols) {
+    await prisma.virtualMarketState.updateMany({
+      where: { accountId, symbols: state.symbols },
+      data: { symbols: JSON.stringify(symbols), updatedAt: new Date() },
+    });
+  }
+  if (symbols.length === 0) return { refreshed: false, reason: "no monitorable symbols" };
 
   // 2. KIS WebSocket 구독 보장 (서버 재시작 후 구독 초기화 대비)
   fetch(`${BACKEND_URL}/market/subscribe`, {

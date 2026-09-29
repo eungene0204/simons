@@ -142,6 +142,7 @@ export default function VirtualAccountDetailPage() {
   const [dbStrategyHistorySummary, setDbStrategyHistorySummary] = useState<any>(null);
   const [trackedSymbols, setTrackedSymbols] = useState<{ symbol: string; name: string }[]>([]);
   const [stockMetadata, setStockMetadata] = useState<StockMetadataMap>({});
+  const stockMetadataRef = useRef<StockMetadataMap>({});
   const [trackedPrices, setTrackedPrices] = useState<Record<string, BatchQuoteItem>>({});
   const [isTrackedSymbolsLoading, setIsTrackedSymbolsLoading] = useState(true);
   const [isStrategyDetailLoading, setIsStrategyDetailLoading] = useState(true);
@@ -259,10 +260,12 @@ export default function VirtualAccountDetailPage() {
       .then((res) => (res.ok ? res.json() : {}))
       .then((metadata: StockMetadataMap) => {
         if (!isMounted) return;
+        stockMetadataRef.current = metadata;
         setStockMetadata(metadata);
       })
       .catch(() => {
         if (!isMounted) return;
+        stockMetadataRef.current = {};
         setStockMetadata({});
       });
 
@@ -410,7 +413,7 @@ export default function VirtualAccountDetailPage() {
       return;
     }
     setAccount(acc);
-    const nextHoldings = resolveHoldingDisplayNames((acc as any).holdings ?? [], stockMetadata);
+    const nextHoldings = resolveHoldingDisplayNames((acc as any).holdings ?? [], stockMetadataRef.current);
     const nextTransactions = tv.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     setHoldings(nextHoldings);
     setTransactions(nextTransactions);
@@ -419,7 +422,7 @@ export default function VirtualAccountDetailPage() {
     const nextTrackedSymbols = marketState?.symbols?.length
       ? marketState.symbols.map((sym: string) => ({
           symbol: sym,
-          name: resolveStockDisplayName(sym, marketState.symbolNames?.[sym], stockMetadata),
+          name: resolveStockDisplayName(sym, marketState.symbolNames?.[sym], stockMetadataRef.current),
         }))
       : [];
     setTrackedSymbols(nextTrackedSymbols);

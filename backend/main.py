@@ -715,9 +715,12 @@ async def market_prices(body: dict):
 
 
 @app.post("/market/delist/{symbol}")
-async def mark_delisted(symbol: str):
+async def mark_delisted(symbol: str, body: Optional[dict] = None):
     """상장폐지 종목 등록 — 이후 모든 시세 조회에서 즉시 건너뜀"""
-    added = delisted_store.mark(symbol)
+    try:
+        added = delisted_store.mark(symbol, (body or {}).get("name"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     market_data_provider.cache.invalidate(symbol)
     return {"symbol": symbol, "added": added, "delisted": delisted_store.all()}
 

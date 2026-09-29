@@ -59,14 +59,14 @@ def _now_kst() -> datetime:
 MAX_AUTO_DELIST_PER_SYNC = 20
 
 
-def _mark_delisted(symbol: str) -> bool:
+def _mark_delisted(symbol: str, name: str) -> bool:
     """상장폐지 원장에 등록한다(백엔드 경유 — 원장 쓰기 경로를 한 곳으로 유지).
 
     반환: 새로 등록됐으면 True(이미 있거나 실패면 False)."""
     try:
         import requests as req_lib
         backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
-        r = req_lib.post(f"{backend_url}/market/delist/{symbol}", timeout=5)
+        r = req_lib.post(f"{backend_url}/market/delist/{symbol}", json={"name": name}, timeout=5)
         return r.status_code == 200 and bool(r.json().get("added"))
     except Exception as e:
         print(f"  [WARNING] 상장폐지 원장 등록 실패({symbol}): {e}")
@@ -453,7 +453,7 @@ def main(argv=None):
         else:
             registered = []
             for ds in delisted_symbols:
-                if _mark_delisted(ds["symbol"]):
+                if _mark_delisted(ds["symbol"], ds.get("name", "")):
                     registered.append({"symbol": ds["symbol"], "name": ds.get("name", "")})
                     print(f"  → 상장폐지 원장 등록: {ds.get('name', '')} ({ds['symbol']})")
             if registered:

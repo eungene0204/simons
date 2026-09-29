@@ -4,7 +4,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 // 이 함수는 가격/포지션 표시만 갱신하고 매매(주문 생성/현금 변동/지정가 체결)는 하지 않는다.
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    virtualMarketState: { findUnique: vi.fn(), update: vi.fn() },
+    virtualMarketState: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    stock: { findMany: vi.fn() },
     virtualAccount: { findUnique: vi.fn() },
     virtualPosition: { update: vi.fn() },
     virtualOrder: { create: vi.fn(), update: vi.fn(), findMany: vi.fn() },
@@ -27,6 +28,8 @@ const mockSnapshots = vi.mocked(fetchStockPriceSnapshots);
 describe("refreshVirtualMarket — 표시 전용", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(prisma.stock.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.virtualMarketState.updateMany).mockResolvedValue({ count: 1 });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
@@ -70,5 +73,40 @@ describe("refreshVirtualMarket — 표시 전용", () => {
       String(url).includes("/market/signals")
     );
     expect(signalCalls).toHaveLength(0);
+  });
+
+  it("prunes delisted and suspended symbols before price lookup and subscription", async () => {
+    const original = '["005930","005390","000660"]';
+    mockStateFind.mockResolvedValue({ status: "running", symbols: original } as any);
+    mockAccountFind.mockResolvedValue({ id: "acc-1", currency: "KRW", VirtualPosition: [] } as any);
+    vi.mocked(prisma.stock.findMany).mockResolvedValue([{ symbol: "000660" }] as any);
+    mockSnapshots.mockResolvedValue({} as any);
+    await refreshVirtualMarket("acc-1");
+    expect(prisma.virtualMarketState.updateMany).toHaveBeenCalledWith({
+      where: { accountId: "acc-1", symbols: original },
+      data: { symbols: '["005930"]', updatedAt: expect.any(Date) },
+    });
+    expect(mockSnapshots).toHaveBeenCalledWith(["005930"], expect.any(Object));
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/market/subscribe"),
+      expect.objectContaining({ body: JSON.stringify({ symbols: ["005930"] }) }));
+  });
+
+  it("does not subscribe when all monitored symbols are now blocked", async () => {
+    mockStateFind.mockResolvedValue({ status: "running", symbols: '["005390"]' } as any);
+    mockAccountFind.mockResolvedValue({ id: "acc-1", VirtualPosition: [] } as any);
+    expect(await refreshVirtualMarket("acc-1")).toMatchObject({ refreshed: false });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockSnapshots).not.toHaveBeenCalled();
+  });
+
+  it("does not update or subscribe when listing lookup fails", async () => {
+    mockStateFind.mockResolvedValue({ status: "running", symbols: '["005930"]' } as any);
+    mockAccountFind.mockResolvedValue({ id: "acc-1", VirtualPosition: [] } as any);
+    vi.mocked(prisma.stock.findMany).mockRejectedValueOnce(new Error("status unavailable"));
+    await expect(refreshVirtualMarket("acc-1")).rejects.toThrow("status unavailable");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockSnapshots).not.toHaveBeenCalled();
+    expect(prisma.virtualMarketState.update).not.toHaveBeenCalled();
+    expect(prisma.virtualMarketState.updateMany).not.toHaveBeenCalled();
   });
 });

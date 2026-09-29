@@ -8,6 +8,27 @@
 
 ## 1. 프로젝트 개요
 
+### 개발 작업 — 2026-09-29 가상계좌 모니터링 상장 상태 필터
+
+- 요청: 상장폐지/거래정지 종목은 신규 등록뿐 아니라 기존 모니터링 목록에도 남을 수 없다.
+- 원인: 고정 상폐 코드 목록에 `005390` 누락, 원장 밖 과거 상폐 마스터 미조회, 저장 상태 GET/상태만 PATCH/표시 새로고침의 재검증 누락, DB 조회 실패 시 통과.
+- 구현 완료: Boundary S의 공통 후보 필터가 상폐 원장, 주식·ETF 마스터의 완료된 상폐 날짜, DB 상폐/거래정지 상태를 확인한다. 가상시장 GET/POST/PATCH, 표시 새로고침, 장 시작 자동 재개에서 같은 필터를 적용한다. 기존 목록 정리는 읽었던 목록과 비교해 동시 수정을 덮어쓰지 않는다. 조회 실패 시 편입·재개·구독을 진행하지 않는다.
+- 변경 파일: `lib/strategy-tracked-symbols.ts`, `app/api/virtual-market/[accountId]/route.ts`, `lib/server/virtual-market-refresh.ts`, `lib/server/scheduler-actions.ts`와 각 회귀 테스트. 공통 필터를 사용하는 기존 계좌 생성·전략 시작·전략 변경 경로에도 적용된다. Boundary G에서 작업 문서를 관리한다.
+- 검증: `005390`, 거래정지, ETF 상폐, 미래 상폐 예정 날짜, 접미사 정규화, 신규 편입·기존 목록 정리·수동/자동 재개, 조회 실패 시 쓰기/구독 차단, 동시 갱신 보존을 검증했다. 관련 4개 파일의 테스트 47개 통과. `npm run test:frontend` — 2,316 통과·1 건너뜀(310개 파일 통과).
+- 정적 검사: `npm run lint -- --file lib/strategy-tracked-symbols.ts --file 'app/api/virtual-market/[accountId]/route.ts' --file lib/server/virtual-market-refresh.ts --file lib/server/scheduler-actions.ts` — 경고/오류 없음. ETF 보완 후 공통 필터 정적 검사와 프론트 전체 테스트를 다시 통과했다.
+- 범위/한계: 이번 요청은 Python 변경이 없으며 기존 이름 보존, 보유 포지션·주문·거래 이력을 유지한다. 기존 모니터링 목록은 조회·새로고침·재개 시 정리된다. 실제 상장 상태 자료와 DB의 최신성에 의존하며, 필요한 자료가 없거나 조회가 실패하면 오류로 차단한다. 전체 계좌 DB 일괄 정리는 수행하지 않았다.
+- 후속 커밋·배포 요청: 종목명 보존과 모니터링 제외 변경을 함께 반영한다. `npm run build` 성공, `npm run lint` 성공(기존 경고 있음), 원격 main과 로컬 HEAD 일치, 운영 서버의 필수 JSON 3종 파싱을 확인했다. 배포는 main push → GitHub Actions 검사 → 운영 서버 Docker Compose 재기동 절차를 사용하며, 완료 판정은 해당 커밋의 배포 작업 결과와 운영 서버 응답으로 확인한다.
+
+### 개발 작업 — 2026-09-29 상장폐지 종목명 보존
+
+- 요청: 가상계좌 모니터링에서 `005390`을 `신성통상`으로 표시하고 상장폐지 목록에 이름을 반드시 보존한다.
+- 작업 분리: Boundary A에서 이름/계좌 응답 순서에 따른 표시 오류, Boundary T에서 원장 저장·이름 조회·기존 데이터 보정, Boundary G에서 작업 문서를 관리한다.
+- 구현 완료: 이름 메타데이터 최신 참조로 응답 순서 오류를 수정했다. 원장은 `symbols`를 유지하면서 `names`를 필수 저장하고, 동기화에서 제거 전 이름을 전달한다. 기존 78개 원장 항목 모두 이름을 보완했다.
+- 변경 파일: `app/virtual-account/[id]/page.tsx`, `backend/engine/market_data.py`의 `DelistedSymbolStore`, `backend/main.py`의 등록 API, `scripts/sync_data.py`의 등록 호출, `lib/krx-stocks.ts`, `data/delisted-stocks.json` 및 관련 회귀 테스트. 작업 범위는 `docs/architecture/boundaries.md`와 `docs/development/codex-rules.md`에 반영했다.
+- 검증: `npm run test:frontend` — 2,294 통과·1 건너뜀. `npm run lint -- --file 'app/virtual-account/[id]/page.tsx' --file lib/krx-stocks.ts` — 경고/오류 없음.
+- 백엔드 전체: `KRX_ID= KRX_PW= HF_HUB_OFFLINE=1 TOKENIZERS_PARALLELISM=false OMP_NUM_THREADS=1 UV_CACHE_DIR=/private/tmp/simons-uv-cache uv run --no-sync pytest backend/tests` — 5,446 통과·5 건너뜀·기존 실패 1. 변경 관련 저장/동기화 테스트 17개 모두 통과. 로컬 테스트 DB 접근 제한을 해제해 실행했으며 KRX 로그인·모델 다운로드는 비활성화했다.
+- 잔여: `test_backfill_us_stocks.py::test_columns_match_korean_schema`는 한국 표본 parquet에 `fcf_margin` 등 5개 컬럼이 더 있어 실패한다. 해당 미국 수집 코드·테스트는 변경하지 않았고 단독 실행에서도 같은 실패를 확인했다. 초기 제한 환경의 전체 검사 중단/DB 접근 오류와 최종 실행 결과를 구분한다.
+
 ### 개발 작업 업데이트 — 2026-09-28 전략 해석 skill
 
 - 반복되는 전략 해석 실패 대응을 `.agents/skills/strategy-interpretation/SKILL.md`에 정리했다. `$strategy-interpretation`과 실패 원문·증상을 함께 전달해 사용한다.

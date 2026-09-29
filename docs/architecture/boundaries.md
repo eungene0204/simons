@@ -634,12 +634,19 @@ Public landing page, sign-in entry flow, and session bootstrap into the existing
 - app/api/virtual-account/[id]/strategy/start/route.ts
 - app/api/virtual-account/tracked-symbol-filter.test.ts
 - app/api/virtual-account/strategy-start.test.ts
+- app/api/virtual-market/[accountId]/route.ts
+- app/api/virtual-market/[accountId]/route.test.ts
+- lib/server/virtual-market-refresh.ts
+- lib/server/virtual-market-refresh.test.ts
+- lib/server/scheduler-actions.ts (startAutoAccounts only)
+- tests/scheduler-actions.test.ts
 
 ### Allowed Tasks
 - 저장된 전략 DSL의 진입·청산 조건을 자동 트레이더 평가 입력으로 변환
 - 기술·재무·AI 신호용 live dataframe 준비 로직 정합성 보완
 - 수익률 횡단면 랭킹, 최대 보유 종목 수, 리밸런싱 편입·편출 처리
 - 전략 유니버스와 필터를 기준으로 자동매매 후보 종목 구성
+- 모니터링 후보의 상장폐지/거래정지 제외와 저장 목록 조회·재개·표시 갱신·장 시작 자동 재개 시 재검증
 - 손절·익절·트레일링스톱·최대보유기간·체결시점 의미 정합성 보완
 - 자동매매 신호 평가와 주문 실행 회귀 테스트 추가 및 수정
 
@@ -648,6 +655,7 @@ Public landing page, sign-in entry flow, and session bootstrap into the existing
 - 백테스트의 `SignalEngine`과 전략 요청 의미를 재사용하며 지표 공식을 별도로 재구현하지 않는다.
 - 횡단면 랭킹과 체결 판단은 해당 시점까지 확인 가능한 데이터만 사용하고 미래 데이터를 참조하지 않는다.
 - 공개 API 응답, Strategy DSL, 주문·포지션 저장 계약을 보존한다.
+- 모니터링 필터는 실제 상장폐지 원장·종목 마스터와 DB 상장 상태를 사용하고 조회 실패를 정상으로 간주하지 않는다. 기존 목록 정리는 비교 후 갱신해 동시 사용자 변경을 덮어쓰지 않는다.
 - 신호 계열별 회귀 테스트와 look-ahead 방지 테스트를 추가한다.
 - 한 작업이 5개 파일 또는 200줄을 넘으면 신호 평가, 랭킹, 리밸런싱·체결 정합화를 별도 작업으로 분리한다.
 
@@ -658,6 +666,41 @@ Public landing page, sign-in entry flow, and session bootstrap into the existing
 - 데이터베이스 스키마 또는 Prisma 변경
 - 인증·사용자 소유권 로직 변경
 - 범용 스크립트(`scripts/**`, `backend/scripts/**`) 변경
+
+---
+
+## Boundary T: Delisted Stock Names
+
+### Purpose
+상장폐지 원장에 종목명을 보존하고 가상계좌가 사용하는 종목명 조회에 전달한다.
+
+### Files
+- backend/engine/market_data.py (DelistedSymbolStore only)
+- backend/main.py (mark_delisted only)
+- scripts/sync_data.py (_mark_delisted and its call site only, explicitly requested delisting persistence)
+- data/delisted-stocks.json
+- lib/krx-stocks.ts
+- app/api/stocks/names/route.ts
+- backend/tests/test_delisted_stock_names.py
+- backend/tests/test_sync_data_status.py
+- components/__tests__/stockNamesRoute.test.ts
+- lib/krx-stocks.test.ts
+
+### Allowed Tasks
+- 상장폐지 코드와 이름을 함께 저장하고 기존 코드 목록을 호환해서 읽기
+- 현재/과거 종목 마스터로 이름 복원, 이름 누락 등록 거부
+- 이름 맵에 원장/마스터 이름 병합과 파일 변경 시 캐시 갱신
+- 저장·조회 경로 회귀 테스트
+
+### Strict Rules
+- 기존 symbols 배열과 상장폐지 판정·시세 차단 의미를 보존한다.
+- scripts/sync_data.py 수정은 사용자가 상장폐지 목록 저장을 명시적으로 요청한 경우에만 허용한다.
+- 5개 파일 또는 200줄을 넘으면 원장 저장, 이름 조회, 기존 데이터 보정을 별도 작업으로 나눈다.
+
+### Forbidden
+- provider 구현, 백테스트 알고리즘, 주문·청산·소유권 로직 변경
+- Prisma schema 변경, 다른 수집 스크립트 변경
+- 가상계좌 UI 변경(별도 Boundary A 작업)
 
 ---
 

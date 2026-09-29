@@ -26,6 +26,7 @@ Allowed:
 - AI Runtime Orchestration
 - Optimization Runtime
 - Virtual Trading Runtime
+- Delisted Stock Names
 - Dashboard (read-only UI)
 - Landing / Auth Entry Experience
 - Strategy Persistence / BatchRun Storage

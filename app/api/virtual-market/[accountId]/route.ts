@@ -51,7 +51,14 @@ export async function GET(
     });
     if (!state) return NextResponse.json(null);
 
-    const symbols: string[] = JSON.parse(state.symbols);
+    const symbols = await monitorableForAccount(params.accountId, JSON.parse(state.symbols));
+    if (JSON.stringify(symbols) !== state.symbols) {
+      // Do not overwrite a list changed after this snapshot was read.
+      await prisma.virtualMarketState.updateMany({
+        where: { accountId: params.accountId, symbols: state.symbols },
+        data: { symbols: JSON.stringify(symbols), updatedAt: new Date() },
+      });
+    }
     const symbolNames = await resolveSymbolNames(symbols);
     return NextResponse.json({ ...state, symbols, symbolNames });
   } catch (error) {
@@ -137,12 +144,14 @@ export async function PATCH(
     const data: Record<string, unknown> = { updatedAt: new Date() };
 
     if (body.status !== undefined) data.status = body.status;
-    if (body.symbols !== undefined) {
-      data.symbols = JSON.stringify(await monitorableForAccount(params.accountId, body.symbols));
-    }
+    const existing = body.symbols === undefined
+      ? await prisma.virtualMarketState.findUnique({ where: { accountId: params.accountId } })
+      : null;
+    const symbols = body.symbols ?? JSON.parse(existing?.symbols ?? "[]");
+    data.symbols = JSON.stringify(await monitorableForAccount(params.accountId, symbols));
 
     const state = await prisma.virtualMarketState.update({
-      where: { accountId: params.accountId },
+      where: { accountId: params.accountId, ...(existing ? { symbols: existing.symbols } : {}) },
       data,
     });
 

@@ -39,6 +39,7 @@ class DelistedSymbolStore:
 
     def __init__(self) -> None:
         self._symbols: set[str] = set()
+        self._names: dict[str, str] = {}
         self._load()
 
     @staticmethod
@@ -54,21 +55,78 @@ class DelistedSymbolStore:
             try:
                 data = json.loads(_DELISTED_FILE.read_text())
                 self._symbols = {self._normalize(s) for s in data.get("symbols", [])}
+                stored_names = data.get("names", {})
+                if not isinstance(stored_names, dict):
+                    stored_names = {}
+                self._names = {
+                    self._normalize(s): name.strip()
+                    for s, name in stored_names.items()
+                    if self._normalize(s) in self._symbols and self._valid_name(s, name)
+                }
             except Exception:
                 self._symbols = set()
+                self._names = {}
+
+    @classmethod
+    def _valid_name(cls, symbol: str, name: Optional[str]) -> bool:
+        return isinstance(name, str) and bool(name.strip()) and name.strip() not in (symbol, cls._normalize(symbol))
+
+    @staticmethod
+    def _source_names() -> dict[str, str]:
+        names = {}
+        sources = (
+            ("universe-history.json", "entries"),
+            ("stock-master.json", "stocks"),
+            ("etf-master.json", "etfs"),
+            ("korea-stocks.json", None),
+        )
+        for filename, field in sources:
+            try:
+                payload = json.loads((_DELISTED_FILE.parent / filename).read_text(encoding="utf-8"))
+                rows = payload[field] if field else payload
+                if field == "entries":
+                    rows = [s for entry in reversed(rows) for s in entry.get("delisted", [])]
+                for row in rows:
+                    symbol, name = row.get("symbol"), row.get("name")
+                    if symbol and DelistedSymbolStore._valid_name(symbol, name):
+                        names[DelistedSymbolStore._normalize(symbol)] = name.strip()
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                continue
+        return names
 
     def _save(self) -> None:
+        missing = self._symbols - self._names.keys()
+        if missing:
+            source_names = self._source_names()
+            for symbol in missing:
+                if symbol in source_names:
+                    self._names[symbol] = source_names[symbol]
+            unresolved = self._symbols - self._names.keys()
+            if unresolved:
+                raise ValueError(f"종목명을 확인할 수 없습니다: {', '.join(sorted(unresolved))}")
         _DELISTED_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _DELISTED_FILE.write_text(json.dumps({"symbols": sorted(self._symbols)}, ensure_ascii=False, indent=2))
+        payload = {"symbols": sorted(self._symbols),
+                   "names": {s: self._names[s] for s in sorted(self._symbols)}}
+        _DELISTED_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    def mark(self, symbol: str) -> bool:
+    def mark(self, symbol: str, name: Optional[str] = None) -> bool:
         """상장폐지로 등록. 이미 등록된 경우 False 반환."""
         key = self._normalize(symbol)
-        if key in self._symbols:
-            return False
-        self._symbols.add(key)
-        self._save()
-        return True
+        resolved = name.strip() if self._valid_name(key, name) else self._names.get(key)
+        resolved = resolved or self._source_names().get(key)
+        if not resolved:
+            raise ValueError(f"종목명을 확인할 수 없습니다: {key}")
+        previous_symbols, previous_names = self._symbols.copy(), self._names.copy()
+        added = key not in self._symbols
+        if added or self._names.get(key) != resolved:
+            self._symbols.add(key)
+            self._names[key] = resolved
+            try:
+                self._save()
+            except Exception:
+                self._symbols, self._names = previous_symbols, previous_names
+                raise
+        return added
 
     def unmark(self, symbol: str) -> bool:
         """상장폐지 해제. 미등록 종목이면 False 반환."""
@@ -76,6 +134,7 @@ class DelistedSymbolStore:
         if key not in self._symbols:
             return False
         self._symbols.discard(key)
+        self._names.pop(key, None)
         self._save()
         return True
 

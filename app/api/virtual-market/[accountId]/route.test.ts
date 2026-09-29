@@ -24,6 +24,7 @@ vi.mock("@/lib/prisma", () => ({
       update: vi.fn(),
       findUnique: vi.fn(),
       deleteMany: vi.fn(),
+      updateMany: vi.fn(),
     },
     backtestResult: {
       findFirst: vi.fn(),
@@ -67,6 +68,7 @@ describe("/api/virtual-market/[accountId]", () => {
     vi.clearAllMocks();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
     mockStockFindMany.mockResolvedValue([]);
+    vi.mocked(prisma.virtualMarketState.updateMany).mockResolvedValue({ count: 1 });
     mockFindOwnedAccountId.mockResolvedValue("account-1");
     mockMarketStateUpsert.mockResolvedValue({
       id: "state-1",
@@ -157,6 +159,50 @@ describe("/api/virtual-market/[accountId]", () => {
         }),
       })
     );
+  });
+
+  it.each([POST, PATCH])("filters historical delistings and suspended stocks before writing", async (handler) => {
+    mockStockFindMany.mockResolvedValue([{ symbol: "000660" }] as any);
+    const response = await handler(makeRequest({ symbols: ["005930", "005390", "000660"] }),
+      { params: { accountId: "account-1" } });
+    expect(response.status).toBe(200);
+    const call = handler === POST ? mockMarketStateUpsert.mock.calls[0][0] : mockMarketStateUpdate.mock.calls[0][0];
+    expect(handler === POST ? (call as any).create.symbols : (call as any).data.symbols).toBe('["005930"]');
+  });
+
+  it("GET cleans an existing list and guards against concurrent replacement", async () => {
+    const original = JSON.stringify(["005930", "005390", "000660"]);
+    mockMarketStateFindUnique.mockResolvedValue({ accountId: "account-1", symbols: original } as any);
+    mockStockFindMany.mockResolvedValue([{ symbol: "000660" }] as any);
+    vi.mocked(prisma.virtualMarketState.updateMany).mockResolvedValue({ count: 0 });
+    const response = await GET(makeRequest({}), { params: { accountId: "account-1" } });
+    expect(response.status).toBe(200);
+    expect((await response.json()).symbols).toEqual(["005930"]);
+    expect(prisma.virtualMarketState.updateMany).toHaveBeenCalledWith({
+      where: { accountId: "account-1", symbols: original },
+      data: { symbols: '["005930"]', updatedAt: expect.any(Date) },
+    });
+  });
+
+  it("rechecks existing symbols when PATCH only resumes a paused account", async () => {
+    mockMarketStateFindUnique.mockResolvedValue({ symbols: '["005930","005390","000660"]' } as any);
+    mockStockFindMany.mockResolvedValue([{ symbol: "000660" }] as any);
+    const response = await PATCH(makeRequest({ status: "running" }), { params: { accountId: "account-1" } });
+    expect(response.status).toBe(200);
+    expect(mockMarketStateUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "running", symbols: '["005930"]' }),
+    }));
+  });
+
+  it.each([POST, PATCH, GET])("does not write or subscribe when status lookup fails", async (handler) => {
+    mockMarketStateFindUnique.mockResolvedValue({ symbols: '["005930"]' } as any);
+    mockStockFindMany.mockRejectedValueOnce(new Error("status unavailable"));
+    const response = await handler(makeRequest({ symbols: ["005930"] }), { params: { accountId: "account-1" } });
+    expect(response.status).toBe(500);
+    expect(mockMarketStateUpsert).not.toHaveBeenCalled();
+    expect(mockMarketStateUpdate).not.toHaveBeenCalled();
+    expect(prisma.virtualMarketState.updateMany).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

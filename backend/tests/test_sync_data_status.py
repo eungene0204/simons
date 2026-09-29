@@ -79,7 +79,7 @@ def _scaffold(monkeypatch, tmp_path, stocks, delisted, marked):
     )
     # DART 경로는 상장 상태(listingStatus)만 갱신한다 — 원장 등록은 여기서 하지 않는다.
     monkeypatch.setattr(sync_data, "_sync_listing_status_from_dart", lambda *a, **k: None)
-    monkeypatch.setattr(sync_data, "_mark_delisted", lambda sym: marked.append(sym) or True)
+    monkeypatch.setattr(sync_data, "_mark_delisted", lambda sym, name: marked.append((sym, name)) or True)
 
 
 def test_krx_exit_registers_delisting_ledger(tmp_path, monkeypatch):
@@ -88,7 +88,7 @@ def test_krx_exit_registers_delisting_ledger(tmp_path, monkeypatch):
     공시가 말하는 '상장폐지 결정'·'정리매매'는 아직 상장 상태라 원장에 올리면 안 된다 —
     원장은 시세 조회를 통째로 끊고 가상계좌 평가를 0원으로 만드는 표식이다(FR-VM-068b).
     """
-    marked: list[str] = []
+    marked: list[tuple[str, str]] = []
     _scaffold(
         monkeypatch, tmp_path,
         stocks=[{"symbol": "005930", "name": "삼성전자", "market": "KOSPI"}],
@@ -97,7 +97,7 @@ def test_krx_exit_registers_delisting_ledger(tmp_path, monkeypatch):
     )
 
     assert sync_data.main(["--symbols-only"]) == 0
-    assert marked == ["900110"]
+    assert marked == [("900110", "이스트아시아홀딩스")]
 
 
 def test_mass_disappearance_skips_ledger_registration(tmp_path, monkeypatch):
