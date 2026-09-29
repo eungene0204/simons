@@ -76,13 +76,14 @@ const menuItems: MenuItem[] = [
     Icon: ChartLineUp,
     prefetch: true,
   },
-  {
-    label: "스크리너",
-    href: "/screener",
-    id: "screener",
-    Icon: Funnel,
-    prefetch: true,
-  },
+  // 스크리너 메뉴는 일시 숨김(페이지·API 코드는 유지). 다시 켜려면 아래 항목을 복원한다.
+  // {
+  //   label: "스크리너",
+  //   href: "/screener",
+  //   id: "screener",
+  //   Icon: Funnel,
+  //   prefetch: true,
+  // },
   {
     label: "백테스트 기록",
     href: "/backtest",
