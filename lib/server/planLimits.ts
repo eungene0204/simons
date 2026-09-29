@@ -101,6 +101,34 @@ export function currentUsagePeriodKey(
   return currentPlanCycle(cycleAnchor, now).start.toISOString();
 }
 
+export interface BacktestCounterSource {
+  planStartDate?: Date | null;
+  createdAt?: Date | null;
+  backtestUsageMonth?: string | null;
+  backtestCountThisMonth?: number | null;
+}
+
+/**
+ * 저장된 백테스트 카운터를 현재 사용량 주기 기준으로 읽는다.
+ * 한도 소비·사용자 화면·관리자 콘솔이 모두 이 함수로 읽어야 같은 숫자를 본다 —
+ * 콘솔이 KST 달력 월 키("YYYY-MM")로 따로 비교해 롤링 주기 키로 적힌 카운터를
+ * 전부 0으로 읽던 사고(2026-09-29)의 재발 방지.
+ * raw: 이번 주기 카운터 원값(음수 = 업그레이드 때 이월된 잔여 횟수)
+ * used: 표시용 사용 횟수, carry: 한도에 얹을 이월 횟수
+ */
+export function backtestUsageInCurrentPeriod(
+  user: BacktestCounterSource | null | undefined,
+  now: Date = new Date()
+): { periodKey: string; raw: number; used: number; carry: number } {
+  const periodKey = currentUsagePeriodKey(
+    user?.planStartDate ?? user?.createdAt ?? null,
+    now
+  );
+  const raw =
+    user?.backtestUsageMonth === periodKey ? (user.backtestCountThisMonth ?? 0) : 0;
+  return { periodKey, raw, used: Math.max(0, raw), carry: Math.max(0, -raw) };
+}
+
 /**
  * 플랜 기본값(lib/plans.ts)에 관리자 콘솔의 PlanConfig 오버라이드를 병합한다.
  * 오버라이드 필드가 null이면 기본값 유지, maxStrategies가 -1이면 무제한.
@@ -224,12 +252,7 @@ export async function consumeBacktestQuota(
   if (!user) throw new Error("USER_NOT_FOUND");
 
   const plan = await getEffectivePlan(client, user.planTier);
-  const periodKey = currentUsagePeriodKey(
-    user.planStartDate ?? user.createdAt,
-    now
-  );
-  const usedThisPeriod =
-    user.backtestUsageMonth === periodKey ? user.backtestCountThisMonth : 0;
+  const { periodKey, raw: usedThisPeriod } = backtestUsageInCurrentPeriod(user, now);
 
   if (usedThisPeriod >= plan.monthlyBacktestLimit) {
     throw new Error(PLAN_LIMIT_BACKTESTS);
@@ -303,14 +326,10 @@ export async function getUserUsage(
   // 사용량 주기 앵커: 유료 플랜은 구독 시작일, FREE는 가입일
   const cycleAnchor: Date | null = user?.planStartDate ?? user?.createdAt ?? null;
   const cycle = cycleAnchor ? currentPlanCycle(cycleAnchor, now) : null;
-  const periodKey = currentUsagePeriodKey(cycleAnchor, now);
   // 표시용 시작일: 유료 플랜은 구독 시작일 그대로(기존 동작), FREE는 현재 주기 시작일
   const planStartDate: Date | null = user?.planStartDate ?? cycle?.start ?? null;
-  const backtestsRaw =
-    user?.backtestUsageMonth === periodKey ? user.backtestCountThisMonth : 0;
   // 음수 카운터 = 플랜 업그레이드 때 이월된 잔여 횟수(병합분) — 표시로는 한도에 얹는다
-  const backtestsUsed = Math.max(0, backtestsRaw);
-  const backtestCarry = Math.max(0, -backtestsRaw);
+  const { used: backtestsUsed, carry: backtestCarry } = backtestUsageInCurrentPeriod(user, now);
 
   return {
     plan,

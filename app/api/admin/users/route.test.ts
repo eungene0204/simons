@@ -187,3 +187,35 @@ describe("/api/admin/users GET 게스트(테스터) 계정 필터", () => {
     expect(data.users[0].isGuest).toBe(false);
   });
 });
+
+describe("/api/admin/users GET 백테스트 사용량 = 사용자 주기 키", () => {
+  // 2026-09-29 사고: 한도 소비는 카운터를 롤링 주기 키(주기 시작일 ISO)로 적는데 콘솔은
+  // 달력 월 키("YYYY-MM")와 비교해 모든 사용자의 사용량을 0으로 보였다.
+  it("구독 시작일 기준 주기 키로 적힌 카운터를 그대로 보인다", async () => {
+    requireAdmin.mockResolvedValue(admin);
+    userCount.mockResolvedValue(1);
+    const planStartDate = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    userFindMany.mockResolvedValue([
+      {
+        id: 2,
+        email: "me@example.com",
+        name: "Me",
+        planTier: "PREMIUM",
+        role: "ADMIN",
+        status: "ACTIVE",
+        createdAt: new Date("2026-07-11T12:32:35Z"),
+        lastLoginAt: null,
+        planStartDate,
+        backtestUsageMonth: planStartDate.toISOString(),
+        backtestCountThisMonth: 26,
+        _count: { Strategy: 13, VirtualAccount: 8 },
+      },
+    ]);
+
+    const data = await (await GET(getReq())).json();
+
+    expect(data.users[0].backtestsUsed).toBe(26);
+    expect(data.users[0].strategyCount).toBe(13);
+    expect(data.users[0].accountCount).toBe(8);
+  });
+});

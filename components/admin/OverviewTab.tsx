@@ -47,7 +47,7 @@ export default function OverviewTab() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
         <StatCard label="전체 사용자" value={data.totalUsers.toLocaleString()} />
         <StatCard label="오늘 가입" value={data.todaySignups.toLocaleString()} />
-        <StatCard label="이번 달 백테스트" value={data.backtestsThisMonth.toLocaleString()} />
+        <StatCard label="현재 주기 백테스트" value={data.backtestsThisMonth.toLocaleString()} />
         <StatCard label="활성 가상계좌" value={data.activeVirtualAccounts.toLocaleString()} />
         <StatCard label="전략 총 개수" value={data.totalStrategies.toLocaleString()} />
         <StatCard label="Free" value={(data.usersByPlan.FREE ?? 0).toLocaleString()} />

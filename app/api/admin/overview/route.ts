@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/server/adminAuth'
-import { currentUsageMonth } from '@/lib/server/planLimits'
+import { backtestUsageInCurrentPeriod } from '@/lib/server/planLimits'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,8 +9,6 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   const admin = await requireAdmin()
   if (!admin) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
-
-  const month = currentUsageMonth()
 
   // 오늘 0시 (KST) 기준
   const kst = new Date(Date.now() + 9 * 60 * 60 * 1000)
@@ -24,7 +22,7 @@ export async function GET() {
       totalUsers,
       todaySignups,
       planCounts,
-      backtestAgg,
+      backtestCounters,
       activeAccounts,
       totalStrategies,
       recentAudit,
@@ -38,9 +36,15 @@ export async function GET() {
         where: { status: { not: 'DELETED' } },
         _count: { _all: true },
       }),
-      prisma.user.aggregate({
-        where: { backtestUsageMonth: month },
-        _sum: { backtestCountThisMonth: true },
+      // 사용량 주기는 사용자마다 다르다(구독 시작일·가입일 기준) — 달력 월 키로 합산할 수 없다
+      prisma.user.findMany({
+        where: { status: { not: 'DELETED' } },
+        select: {
+          planStartDate: true,
+          createdAt: true,
+          backtestUsageMonth: true,
+          backtestCountThisMonth: true,
+        },
       }),
       prisma.virtualAccount.count({ where: { status: 'ACTIVE' } }),
       prisma.strategy.count({ where: { isSaved: true, deletedAt: null } }),
@@ -67,7 +71,10 @@ export async function GET() {
       totalUsers,
       todaySignups,
       usersByPlan,
-      backtestsThisMonth: backtestAgg._sum.backtestCountThisMonth ?? 0,
+      backtestsThisMonth: backtestCounters.reduce(
+        (sum, u) => sum + backtestUsageInCurrentPeriod(u).used,
+        0
+      ),
       activeVirtualAccounts: activeAccounts,
       totalStrategies,
       recentAdminActions: recentAudit,

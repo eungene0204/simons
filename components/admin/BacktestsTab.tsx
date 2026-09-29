@@ -27,7 +27,6 @@ interface UsageResponse {
   total: number
   page: number
   pageSize: number
-  month: string
   users: UsageRow[]
 }
 
@@ -97,9 +96,9 @@ export default function BacktestsTab() {
   return (
     <div className="space-y-4">
       {error && <ErrorNotice message={error} />}
-      {data && (
-        <p className="text-xs font-bold text-gray-500">기준 월: {data.month}</p>
-      )}
+      <p className="text-xs font-bold text-gray-500">
+        사용량 기준: 사용자별 결제 주기(구독 시작일, 미구독은 가입일 기준 1개월)
+      </p>
 
       <div className="flat-card overflow-x-auto rounded-xl">
         <table className="w-full">
@@ -107,7 +106,7 @@ export default function BacktestsTab() {
             <tr>
               <th className={thClass}>이메일</th>
               <th className={thClass}>플랜</th>
-              <th className={thClass}>이번 달 사용량</th>
+              <th className={thClass}>현재 주기 사용량</th>
               <th className={thClass}>남은 횟수</th>
               <th className={thClass}>사용량 조정</th>
               <th className={thClass}>최근 실행</th>

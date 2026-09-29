@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin, writeAuditLog } from '@/lib/server/adminAuth'
-import { currentUsageMonth, getEffectivePlan } from '@/lib/server/planLimits'
+import { backtestUsageInCurrentPeriod, getEffectivePlan } from '@/lib/server/planLimits'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,7 +16,6 @@ export async function GET(request: NextRequest) {
     const params = request.nextUrl.searchParams
     const detailUserId = Number(params.get('userId')) || null
     const page = Math.max(1, Number(params.get('page')) || 1)
-    const month = currentUsageMonth()
 
     if (detailUserId) {
       const recent = await prisma.userBacktestHistory.findMany({
@@ -39,23 +38,26 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const where = { status: { not: 'DELETED' } }
-    const [total, users] = await Promise.all([
-      prisma.user.count({ where }),
-      prisma.user.findMany({
-        where,
-        orderBy: [{ backtestCountThisMonth: 'desc' }, { id: 'asc' }],
-        skip: (page - 1) * PAGE_SIZE,
-        take: PAGE_SIZE,
-        select: {
-          id: true,
-          email: true,
-          planTier: true,
-          backtestUsageMonth: true,
-          backtestCountThisMonth: true,
-        },
-      }),
-    ])
+    // 사용량 주기는 사용자마다 다르다(구독 시작일·가입일 기준 롤링 1개월). 저장된 카운터가
+    // 지난 주기 값일 수 있어 DB 정렬로는 순서를 정할 수 없으므로 전원을 읽어 현재 주기
+    // 사용량으로 정렬한 뒤 자른다.
+    const allUsers = await prisma.user.findMany({
+      where: { status: { not: 'DELETED' } },
+      select: {
+        id: true,
+        email: true,
+        planTier: true,
+        planStartDate: true,
+        createdAt: true,
+        backtestUsageMonth: true,
+        backtestCountThisMonth: true,
+      },
+    })
+    const ranked = allUsers
+      .map((u) => ({ ...u, usage: backtestUsageInCurrentPeriod(u) }))
+      .sort((a, b) => b.usage.used - a.usage.used || a.id - b.id)
+    const total = ranked.length
+    const users = ranked.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
     const tiers = Array.from(new Set(users.map((u) => u.planTier)))
     const limits: Record<string, number> = {}
@@ -67,10 +69,9 @@ export async function GET(request: NextRequest) {
       total,
       page,
       pageSize: PAGE_SIZE,
-      month,
       users: users.map((u) => {
-        const used = u.backtestUsageMonth === month ? u.backtestCountThisMonth : 0
-        const limit = limits[u.planTier]
+        const used = u.usage.used
+        const limit = limits[u.planTier] + u.usage.carry
         return {
           id: u.id,
           email: u.email,
@@ -104,24 +105,32 @@ export async function PATCH(request: NextRequest) {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { backtestUsageMonth: true, backtestCountThisMonth: true },
+      select: {
+        planStartDate: true,
+        createdAt: true,
+        backtestUsageMonth: true,
+        backtestCountThisMonth: true,
+      },
     })
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    const month = currentUsageMonth()
-    const used = user.backtestUsageMonth === month ? user.backtestCountThisMonth : 0
+    // 한도 소비(consumeBacktestQuota)가 읽는 현재 주기 키로 적어야 조정이 실제 한도에 반영된다.
+    // 음수 카운터(업그레이드 이월분)는 보존한다 — 초기화·감소는 이월분 아래로 내리지 않는다.
+    const { periodKey, raw, used } = backtestUsageInCurrentPeriod(user)
+    const floor = Math.min(0, raw)
 
-    let next: number
-    if (action === 'reset') next = 0
-    else if (action === 'increase') next = used + amount
-    else if (action === 'decrease') next = Math.max(0, used - amount)
+    let nextRaw: number
+    if (action === 'reset') nextRaw = floor
+    else if (action === 'increase') nextRaw = raw + amount
+    else if (action === 'decrease') nextRaw = Math.max(floor, raw - amount)
     else return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+    const next = Math.max(0, nextRaw)
 
     await prisma.user.update({
       where: { id: userId },
-      data: { backtestUsageMonth: month, backtestCountThisMonth: next },
+      data: { backtestUsageMonth: periodKey, backtestCountThisMonth: nextRaw },
     })
     await writeAuditLog(admin, {
       action: `BACKTEST_USAGE_${action.toUpperCase()}`,

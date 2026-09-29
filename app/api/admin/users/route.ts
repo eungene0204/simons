@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin, writeAuditLog } from '@/lib/server/adminAuth'
-import { currentUsageMonth, getEffectivePlan } from '@/lib/server/planLimits'
+import { backtestUsageInCurrentPeriod, getEffectivePlan } from '@/lib/server/planLimits'
 import { isValidPlanId } from '@/lib/plans'
 import { GUEST_EMAIL_DOMAIN, isGuestEmail } from '@/lib/server/guestAccounts'
 
@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
           status: true,
           createdAt: true,
           lastLoginAt: true,
+          planStartDate: true,
           backtestUsageMonth: true,
           backtestCountThisMonth: true,
           _count: {
@@ -69,7 +70,6 @@ export async function GET(request: NextRequest) {
       }),
     ])
 
-    const month = currentUsageMonth()
     // 플랜 티어별 유효 한도(PlanConfig 오버라이드 반영) — 티어는 3개뿐이라 미리 계산
     const tiers = Array.from(new Set(users.map((u) => u.planTier)))
     const limits: Record<string, number> = {}
@@ -81,22 +81,24 @@ export async function GET(request: NextRequest) {
       total,
       page,
       pageSize: PAGE_SIZE,
-      users: users.map((u) => ({
-        id: u.id,
-        email: u.email,
-        name: u.name,
-        isGuest: isGuestEmail(u.email),
-        planTier: u.planTier,
-        role: u.role,
-        status: u.status,
-        createdAt: u.createdAt,
-        lastLoginAt: u.lastLoginAt,
-        strategyCount: u._count.Strategy,
-        accountCount: u._count.VirtualAccount,
-        backtestsUsed:
-          u.backtestUsageMonth === month ? u.backtestCountThisMonth : 0,
-        backtestLimit: limits[u.planTier],
-      })),
+      users: users.map((u) => {
+        const usage = backtestUsageInCurrentPeriod(u)
+        return {
+          id: u.id,
+          email: u.email,
+          name: u.name,
+          isGuest: isGuestEmail(u.email),
+          planTier: u.planTier,
+          role: u.role,
+          status: u.status,
+          createdAt: u.createdAt,
+          lastLoginAt: u.lastLoginAt,
+          strategyCount: u._count.Strategy,
+          accountCount: u._count.VirtualAccount,
+          backtestsUsed: usage.used,
+          backtestLimit: limits[u.planTier] + usage.carry,
+        }
+      }),
     })
   } catch (error) {
     console.error('Admin users list error:', error)
