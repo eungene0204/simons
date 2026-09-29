@@ -241,7 +241,7 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
         volatility_target=(VolatilityTargetSpec(target_percent=parsed.volatility_target.target_pct)
                            if parsed.volatility_target is not None else None),
         macro_filters=[
-            MacroFilterSpec(series=m.series, mode=m.mode, operator=m.operator, value=m.value,
+            MacroFilterSpec(role=m.role, series=m.series, mode=m.mode, operator=m.operator, value=m.value,
                             period=m.period, exposure_pct=m.exposure_pct)
             for m in parsed.macro_filters
         ],

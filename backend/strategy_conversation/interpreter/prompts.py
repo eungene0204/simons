@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "8.4"
+PROMPT_VERSION = "8.5"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -549,6 +549,18 @@ NON_STRATEGY_REQUEST(전략과 무관)
    "operator":">"|">="|"<"|"<=","value":임계(수준 또는 변화율 %, 말하지 않았으면 null),"period":변화율 기간 또는 이동평균 일수(말했을 때만),
    "exposure_pct":줄일 비율(전량 현금=0, 말하지 않았으면 null),"source_text":"…"}}를 조건마다 하나씩. 어느 금리인지 불분명하면
    series에 "금리"라고만 적으세요(시스템이 되묻습니다). 종목 조건·랭킹으로 만들지 말고 unsupported_features에도 넣지 마세요.
+   **진입·청산을 정한 매크로 국면**도 같은 macro_filters에 넣되 각 조건에 role="entry" 또는 "exit"를 붙입니다.
+   entry 조건은 모두 충족(AND)할 때 국면 진입, exit 조건은 하나라도 충족(OR)할 때 전량 청산·신규 매수 중단입니다.
+   진입 후 청산까지 국면을 유지하고, 청산 후에는 진입 조건이 다시 충족되어야 합니다. 이 역할에는 exposure_pct=null입니다.
+   '상향 돌파'는 operator="crosses_above", '음수로 전환'은 value=0, operator="crosses_below"입니다.
+   단순 '위에 있음'(>)·'음수임'(<)과 교차 이벤트를 바꾸지 마세요. 양수·음수의 기준값 0은 명시된 값입니다.
+   예: '환율이 60일선을 상향 돌파하고 20일 수익률이 양수일 때만 투자, 60일선 아래거나 20일 수익률이 음수로 전환되면 청산' →
+   [{{"series":"환율","role":"entry","mode":"ma","operator":"crosses_above","period":60,"source_text":"환율이 60일선을 상향 돌파하고"}},
+    {{"series":"환율","role":"entry","mode":"change","operator":">","period":20,"value":0,"source_text":"20일 수익률이 양수일 때만 투자"}},
+    {{"series":"환율","role":"exit","mode":"ma","operator":"<","period":60,"source_text":"60일선 아래거나"}},
+    {{"series":"환율","role":"exit","mode":"change","operator":"crosses_below","period":20,"value":0,"source_text":"20일 수익률이 음수로 전환되면 청산"}}].
+   단순 비중 축소는 기존대로 role=null입니다. 진입 OR·청산 AND·복수의 독립 국면은 아직 지원하지 않으므로 그 결합을 미지원으로 알리세요.
+   진입 또는 청산만 말했으면 없는 쪽을 만들어내지 않습니다(시스템이 되묻습니다). 수정도 /macro_filters 패치로 역할·연산자를 보존합니다.
 7-3. '손절매는 적용하지 않는다'·'익절 없음'·'리밸런싱 안 함'처럼 **쓰지 않겠다고 말한 설정**은 strategy.declined에
    {{"field":"stop_loss"|"take_profit"|"rebalancing","source_text":"그 설정을 안 쓴다고 말한 원문 조각"}}으로 넣으세요 —
    항목마다 그 설정 이름이 나오는 원문을 옮겨 적습니다(원문에 없는 설정은 넣지 않음). 미지원이 아니므로

@@ -534,6 +534,17 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
     # 칩은 붙이지 않는다(primary의 필드별 칩 표에 없음): 필터가 여러 개면 칩 정본 표기가 어느 필터의
     # 값인지 결속되지 않는다. 무칩 ask는 유효하며 자유 답변은 수정 레인이 패치로 처리한다.
     from engine.macro_data import RATE_SERIES, series_label as _series_label
+    _roles = {m.role for m in strategy.macro_filters if m.role is not None}
+    if _roles and _roles != {"entry", "exit"}:
+        missing.append("strategy.macro_filters")
+        questions.append(ClarificationQuestion(
+            field="strategy.macro_filters",
+            question=(msg("매크로 국면을 종료하고 보유 종목을 정리할 조건은 무엇인가요?",
+                          "Which macro conditions should end the regime and liquidate holdings?")
+                      if "entry" in _roles else
+                      msg("매크로 국면에 진입해 투자를 재개할 조건은 무엇인가요?",
+                          "Which macro conditions should enter the regime and resume investing?")),
+            recommended_value=None))
     for _k, _m in enumerate(strategy.macro_filters):
         _base = f"strategy.macro_filters.{_k}"
         _en = ui_language.get_ui_language() == "en"
@@ -582,7 +593,7 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                              "Should the filter trigger when {label} is above or below the threshold?", label=_label),
                 recommended_value=None))
             break
-        if _m.exposure_pct is None:
+        if _m.role is None and _m.exposure_pct is None:
             missing.append(f"{_base}.exposure_pct")
             questions.append(ClarificationQuestion(
                 field=f"{_base}.exposure_pct",

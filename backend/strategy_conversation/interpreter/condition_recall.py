@@ -169,6 +169,7 @@ def recover_missing_conditions(
     # "이동평균 조건이 아니어서…" 안내와 로컬의 20/60 골든크로스 둔갑이 이 경로였다).
     quotes = [cond.source_text for cond in existing]
     quotes += [getattr(r, "source_text", None) for r in getattr(strategy, "ranking", None) or []]
+    quotes += [m.source_text for m in getattr(strategy, "macro_filters", None) or []]
     market_filter = getattr(strategy, "market_filter", None)
     if market_filter is not None:
         quotes.append(market_filter.source_text)

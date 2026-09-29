@@ -574,19 +574,28 @@ class BacktestEngine:
         구간도 창 이전 이력으로 채워진다. 값은 종목 거래일에 직전 관측값을 쓰고(ffill), next_open이면
         delay만큼 밀어 체결일에 전일 판정을 쓴다(국면 필터와 같은 규칙). 여러 필터는 OR이며 충족한
         필터들 중 가장 낮은 노출을 쓴다. 자료가 없는 시리즈는 경고하고 건너뛴다.
+        Entry/exit roles form one persistent regime: all entries activate it, any exit ends it.
+        Missing regime data keeps cash; legacy reduction filters still skip missing series.
         반환 (노출 배열|None, 사유 배열|None, 적용 통계 목록)."""
         from engine.macro_data import load_macro_series, series_label, MACRO_SERIES
 
+        self.macro_entry_context = {}
         idx = pd.DatetimeIndex(ext_index)
         exposure = None
         reasons = np.full(len(idx), None, dtype=object)
         stats = []
+        regime = []
+        roles = {f.get('role') for f in filters or [] if f.get('role') in ('entry', 'exit')}
+        regime_missing = roles != {'entry', 'exit'}
         for f in filters or []:
+            role = f.get('role')
             sid = str(f.get('series') or '')
             series = load_macro_series(sid, self.loader.data_dir) if sid in MACRO_SERIES else None
             if series is None:
+                if role in ('entry', 'exit'):
+                    regime_missing = True
                 self.warnings.add(rw.warning(
-                    rw.MACRO_SERIES_MISSING,
+                    rw.MACRO_REGIME_SERIES_MISSING if role in ('entry', 'exit') else rw.MACRO_SERIES_MISSING,
                     tr.part(series_label(sid)) if sid in MACRO_SERIES else (sid or '?')))
                 continue
             op = str(f.get('operator') or '>')
@@ -594,9 +603,10 @@ class BacktestEngine:
             period = int(f.get('period') or 0)
             value = f.get('value')
             unit = MACRO_SERIES[sid]['unit']
+            comparison_op = {'crosses_above': '>', 'crosses_below': '<'}.get(op, op)
             op_seg = {"<": tr.part(tr.OP_LT), ">": tr.part(tr.OP_GT), "<=": tr.part(tr.OP_LTE),
-                      ">=": tr.part(tr.OP_GTE)}[op]
-            if mode in ('change', 'ma') and period > 0:
+                      ">=": tr.part(tr.OP_GTE)}[comparison_op]
+            if (mode in ('change', 'ma') and period > 0) or role in ('entry', 'exit'):
                 # 기간 해석의 정본 축 — 시리즈 첫 관측일부터 창 끝까지의 영업일에 ffill.
                 bdays = pd.bdate_range(min(series.index[0], idx[0]), max(series.index[-1], idx[-1]))
                 aligned = series.reindex(bdays.union(series.index)).ffill().reindex(bdays)
@@ -612,18 +622,38 @@ class BacktestEngine:
                 threshold = float(value) if value is not None else 0.0
                 cond_seg = (tr.part(tr.MACRO_COND_MA_GAP, period, op_seg, f"{threshold:g}")
                             if threshold else
-                            tr.part(tr.MACRO_COND_MA_ABOVE if op in ('>', '>=') else tr.MACRO_COND_MA_BELOW,
+                            tr.part(tr.MACRO_COND_MA_ABOVE if comparison_op in ('>', '>=') else tr.MACRO_COND_MA_BELOW,
                                     period))
             elif value is not None:
-                measured = series
+                # Regime predicates share a daily clock, including sparse level series.
+                measured = aligned if role in ('entry', 'exit') else series
                 threshold = float(value)
                 cond_seg = tr.part(tr.MACRO_COND_LEVEL, op_seg, f"{threshold:g}{unit}")
             else:
+                if role in ('entry', 'exit'):
+                    regime_missing = True
                 continue
             with np.errstate(invalid='ignore'):
                 hit = {"<": measured < threshold, "<=": measured <= threshold,
-                       ">": measured > threshold, ">=": measured >= threshold}[op]
+                       ">": measured > threshold, ">=": measured >= threshold}[comparison_op]
+            known = measured.notna()
+            if op in ('crosses_above', 'crosses_below'):
+                previous = measured.shift(1)
+                hit &= previous <= threshold if op == 'crosses_above' else previous >= threshold
+                known &= previous.notna()
             hit = hit.fillna(False).astype(bool)
+            if role in ('entry', 'exit'):
+                if op in ('crosses_above', 'crosses_below'):
+                    direction = tr.part(tr.MACRO_CROSS_UP if op == 'crosses_above' else tr.MACRO_CROSS_DOWN)
+                    if mode == 'ma' and threshold == 0:
+                        cond_seg = tr.part(tr.MACRO_MA_CROSS, period, direction)
+                    elif mode == 'change':
+                        cond_seg = tr.part(tr.MACRO_CHANGE_CROSS, period, f"{threshold:g}", direction)
+                    else:
+                        cond_seg = tr.part(tr.MACRO_CROSS, cond_seg, direction)
+                predicate = tr.part(tr.MACRO_PREDICATE, tr.part(series_label(sid)), cond_seg)
+                regime.append((role, hit, known, predicate))
+                continue
             ratio = float(f.get('exposure_pct') or 0.0) / 100.0
             # 판정 축은 모드가 정한다 — level은 시리즈 원본 날짜, change·ma는 영업일 축(aligned).
             exp_ser = pd.Series(np.where(hit, ratio, 1.0), index=measured.index)
@@ -644,6 +674,68 @@ class BacktestEngine:
                 reasons[better] = reason
                 exposure = np.minimum(exposure, arr)
             stats.append((label_seg, cond_seg, int(triggered[n_pre:].sum()), f"{ratio * 100:g}"))
+        if roles:
+            # Evaluate the full available history before slicing the backtest window.
+            # Entry predicates are AND; exits are OR and win on simultaneous signals.
+            # Missing predicates/history never allow investment by accident.
+            calendar = idx
+            for _, hit, _, _ in regime:
+                calendar = calendar.union(hit.index[hit.index <= idx[-1]])
+            enter = np.ones(len(calendar), dtype=bool)
+            leave = np.zeros(len(calendar), dtype=bool)
+            known = np.full(len(calendar), not regime_missing, dtype=bool)
+            for role, hit, valid, _ in regime:
+                # Events must not be forward-filled into a later entry opportunity.
+                values = hit.reindex(calendar, fill_value=False).to_numpy(dtype=bool)
+                known &= valid.reindex(calendar, fill_value=False).to_numpy(dtype=bool)
+                if role == 'entry':
+                    enter &= values
+                else:
+                    leave |= values
+            active = False
+            states = np.zeros(len(calendar), dtype=float)
+            entry_context = np.full(len(calendar), None, dtype=object)
+            exit_context = np.full(len(calendar), None, dtype=object)
+            entry_parts = [predicate for role, _, _, predicate in regime if role == 'entry']
+            entry_description = tr.join([[part] for part in entry_parts], [tr.SEP_AND])
+            activation = None
+            for i, day in enumerate(calendar):
+                if not known[i] or leave[i]:
+                    active = False
+                    activation = None
+                    triggered = [predicate for role, hit, _, predicate in regime
+                                 if role == 'exit' and bool(hit.get(day, False))]
+                    if triggered:
+                        exit_context[i] = tr.encode([tr.part(tr.MACRO_EXIT, tr.join([[part] for part in triggered], [tr.SEP_AND]))])
+                elif enter[i] and not active:
+                    active = True
+                    activation = tr.encode(entry_description)
+                states[i] = float(active)
+                if active:
+                    entry_context[i] = activation
+            regime_series = pd.Series(states, index=calendar).reindex(idx)
+            entry_series = pd.Series(entry_context, index=calendar).reindex(idx)
+            exit_series = pd.Series(exit_context, index=calendar).reindex(idx)
+            if delay:
+                regime_series = regime_series.shift(delay)
+                entry_series = entry_series.shift(delay)
+                exit_series = exit_series.shift(delay)
+            arr = regime_series.fillna(0.0).to_numpy(dtype=float)
+            self.macro_entry_context = {
+                day.strftime('%Y-%m-%d'): context
+                for day, context in entry_series.iloc[n_pre:].items()
+                if isinstance(context, str) and context
+            }
+            label_seg = tr.part(' · '.join(dict.fromkeys(
+                series_label(str(f.get('series'))) for f in filters if f.get('role') in ('entry', 'exit'))))
+            cond_seg = tr.part('진입 대기 또는 청산 조건 충족')
+            reason = tr.encode([tr.part(tr.MACRO_REDUCE, label_seg, cond_seg, '0')])
+            reasons[arr == 0] = reason
+            for i, context in enumerate(exit_series):
+                if arr[i] == 0 and isinstance(context, str):
+                    reasons[i] = context
+            exposure = arr if exposure is None else np.minimum(exposure, arr)
+            stats.append((label_seg, cond_seg, int((arr[n_pre:] == 0).sum()), '0'))
         if exposure is None:
             return None, None, stats
         return exposure[n_pre:], reasons[n_pre:], stats
@@ -2706,6 +2798,7 @@ class BacktestEngine:
                 risk_free_rate=_rf_rate,
                 exit_reason_overrides=getattr(self.simulator, 'exit_reason_overrides', None),
                 entry_reason_overrides=getattr(self.simulator, 'entry_reason_overrides', None),
+                entry_context=getattr(self, 'macro_entry_context', None) if _macro else None,
             )
             final["universe_id"] = req.get('universe_id') or ''
             # 위험조정 지표의 기준 금리와 실질(물가 조정) 수익률 — 무엇을 기준으로 계산했는지 공시한다.

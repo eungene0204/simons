@@ -281,9 +281,11 @@ class MacroFilterSpec(BaseModel):
 
     series는 사용자가 말한 지표 표기 그대로(정본 id 변환은 시스템). 어느 금리인지 불분명하면 '금리'라고만
     적는다(시스템이 되묻는다). 값·비율을 말하지 않았으면 null(되묻기)."""
+    role: Optional[Literal["entry", "exit"]] = Field(
+        default=None, description="entry=국면 진입(모두 충족), exit=국면 종료(하나라도 충족), null=기존 비중 축소")
     series: Optional[str] = Field(default=None, description="지표 표기 — 'VIX'·'환율'·'미국 10년물 금리'·'금리'")
     mode: Optional[str] = Field(default="level", description="level=수준 비교 / change=N일 변화율(%) / ma=이동평균 대비")
-    operator: Optional[str] = Field(default=None, description=">, >=, <, <=")
+    operator: Optional[str] = Field(default=None, description=">, >=, <, <=, crosses_above, crosses_below")
     value: Optional[float] = Field(default=None, description="수준 임계값 또는 변화율(%) — 말했을 때만")
     period: Optional[int] = Field(default=None, description="변화율 기간 또는 이동평균 일수 — 말했을 때만")
     exposure_pct: Optional[float] = Field(default=None, description="조건 충족일 투자 비중(%) — 전량 현금=0, 말하지 않았으면 null")

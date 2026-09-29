@@ -234,7 +234,8 @@ class ResultHandler:
                        benchmark_label: str = "매수 후 보유",
                        risk_free_rate: float = 0.0,
                        exit_reason_overrides: "Dict[str, Dict[str, str]] | None" = None,
-                       entry_reason_overrides: "Dict[str, Dict[str, str]] | None" = None) -> Dict[str, Any]:
+                       entry_reason_overrides: "Dict[str, Dict[str, str]] | None" = None,
+                       entry_context: "Dict[str, str] | None" = None) -> Dict[str, Any]:
 
         signals_list = []
         sl_pct = float(risk_params.get('stop_loss_pct') or 0)
@@ -401,6 +402,11 @@ class ResultHandler:
                     ov_e = (entry_reason_overrides.get(sym) or {}).get(get_dt_str(e_idx))
                     if ov_e:
                         e_reason = ov_e
+
+                context = (entry_context or {}).get(get_dt_str(e_idx))
+                if context:
+                    e_reason = tr.encode(tr.segments_of(context) + [tr.literal(" + ")]
+                                         + tr.segments_of(e_reason))
 
                 final_qty = int(np.floor(size))
                 if final_qty >= 1:

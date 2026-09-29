@@ -163,6 +163,13 @@ CANDLE_PATTERN_LABELS = {
     "evening_star": "저녁별형", "three_white_soldiers": "적삼병", "three_black_crows": "흑삼병",
 }
 # 매크로 조건 필터(v16.31). {0}=시리즈 라벨(세그먼트), {1}=조건 서술(세그먼트), {2}=목표 노출 %.
+MACRO_EXIT = "매크로 조건 청산 ({0})"
+MACRO_PREDICATE = "{0} {1}"
+MACRO_MA_CROSS = "{0}일 이동평균선 {1}"
+MACRO_CHANGE_CROSS = "{0}일 변화율 {1}% {2}"
+MACRO_CROSS = "{0} {1}"
+MACRO_CROSS_UP = "상향 돌파"
+MACRO_CROSS_DOWN = "하향 돌파"
 MACRO_REDUCE = "매크로 조건 비중 축소 ({0} {1}, 목표 노출 {2}%)"
 # {0}=연산자 세그먼트, {1}=값+단위 → 25pt 초과 (값이 앞, 연산자가 뒤 — 한국어 어순)
 MACRO_COND_LEVEL = "{1} {0}"

@@ -356,8 +356,10 @@ def compile_partial(
         )
 
     # 매크로 조건 필터(v16.31)도 같은 계약 — 시리즈·값·비율이 정해지기 전에는 값 대기로 올린다.
-    for _mf in strategy.macro_filters:
-        if not _macro_filter_from_spec(_mf).is_complete():
+    _macro_models = [_macro_filter_from_spec(m) for m in strategy.macro_filters]
+    _executable_macro = MacroFilter.executable(_macro_models)
+    for _mf, _model in zip(strategy.macro_filters, _macro_models):
+        if _model not in _executable_macro:
             dropped.append(MACRO_FILTER_LABEL)
             pending_conditions.append(
                 {"role": "entry", "label": MACRO_FILTER_LABEL, "source_text": _mf.source_text}
@@ -392,10 +394,10 @@ def _macro_filter_from_spec(spec) -> MacroFilter:
     from engine.macro_data import MACRO_SERIES
     series = spec.series if spec.series in MACRO_SERIES else None
     mode = spec.mode if spec.mode in ("level", "change", "ma") else "level"
-    op = spec.operator if spec.operator in ("<", "<=", ">", ">=") else None
+    op = spec.operator if spec.operator in ("<", "<=", ">", ">=", "crosses_above", "crosses_below") else None
     period = int(spec.period) if spec.period is not None and 2 <= int(spec.period) <= 500 else None
     exposure = spec.exposure_pct if spec.exposure_pct is not None and 0 <= spec.exposure_pct < 100 else None
-    return MacroFilter(series=series, mode=mode, operator=op, value=spec.value, period=period,
+    return MacroFilter(role=spec.role, series=series, mode=mode, operator=op, value=spec.value, period=period,
                        exposure_pct=exposure)
 VOL_TARGET_LABEL = "목표 변동성"
 CASH_RESERVE_LABEL = "현금 하한"

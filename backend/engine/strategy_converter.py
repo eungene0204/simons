@@ -15,7 +15,7 @@ import re
 from pathlib import Path
 from typing import Any, List, Optional
 
-from engine.nl_parser import ParsedStrategy, TechnicalSignal
+from engine.nl_parser import MacroFilter, ParsedStrategy, TechnicalSignal
 from engine.selection_scope import SelectionScope, selection_scope
 
 logger = logging.getLogger(__name__)
@@ -681,7 +681,7 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         # 전술 자산배분(v16.29) — 자산 목록이 다 있을 때만 싣고, 보유 수는 자산 수 전체다.
         "taa": (strategy.taa.to_request() if strategy.taa and strategy.taa.is_complete() else None),
         # 매크로 조건 필터(v16.31) — 완결된 조건만 싣는다(값 대기는 되묻기가 채운 뒤에 실린다).
-        "macro_filters": ([m.to_request() for m in strategy.macro_filters if m.is_complete()] or None),
+        "macro_filters": ([m.to_request() for m in MacroFilter.executable(strategy.macro_filters)] or None),
         # 값 대기(기간·비율 미정)인 국면 필터는 싣지 않는다 — 되묻기가 채운 뒤에 실린다.
         "market_regime": (
             strategy.market_regime.to_request()

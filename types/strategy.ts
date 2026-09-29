@@ -112,7 +112,7 @@ export interface RiskManagement {
   /** 절대 모멘텀 임계(%, 엔진 v16.28) — 수익률 랭킹에서 최근 수익률이 이 값 이하면 편입하지 않음. */
   absolute_momentum_threshold_pct?: number | null;
   /** 매크로 조건 필터(엔진 v16.31) — 금리·환율·VIX 시계열 조건 충족일의 목표 노출(OR, 가장 낮은 노출). */
-  macro_filters?: Array<{ series: string; mode?: "level" | "change" | "ma"; operator: "<" | "<=" | ">" | ">="; value?: number | null; period?: number | null; exposure_pct: number }> | null;
+  macro_filters?: Array<{ series: string; role?: "entry" | "exit" | null; mode?: "level" | "change" | "ma"; operator: "<" | "<=" | ">" | ">=" | "crosses_above" | "crosses_below"; value?: number | null; period?: number | null; exposure_pct?: number | null }> | null;
   /** 전술 자산배분 템플릿(엔진 v16.29) — VAA/DAA/PAA. ranking_metric='taa'·allocation_type='schedule'. */
   taa?: { model: "vaa" | "daa" | "paa"; offensive: string[]; defensive: string[]; canary?: string[]; top_n?: number | null } | null;
   rebalancing_period?: string;

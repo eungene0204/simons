@@ -607,15 +607,16 @@ class MacroFilter(BaseModel):
     series는 정본 id(engine/macro_data.MACRO_SERIES). 애매한 표현('금리')은 series=None으로 남아 되묻는
     중이며(값 대기), 기준값·비율도 사용자가 말했을 때만 채워진다 — 완결되기 전에는 엔진 요청에 싣지 않는다.
     mode: level=수준 비교, change=period일 변화율(%) 비교, ma=period일 이동평균 대비 위(>)/아래(<)."""
+    role: Optional[Literal["entry", "exit"]] = None
     series: Optional[str] = Field(default=None, description="정본 시리즈 id(vix·usdkrw·us10y·…)")
     mode: Literal["level", "change", "ma"] = "level"
-    operator: Optional[Literal["<", "<=", ">", ">="]] = None
+    operator: Optional[Literal["<", "<=", ">", ">=", "crosses_above", "crosses_below"]] = None
     value: Optional[float] = Field(default=None, description="수준 임계값 또는 변화율(%)")
     period: Optional[int] = Field(default=None, ge=2, le=500, description="변화율 기간 또는 이동평균 일수")
     exposure_pct: Optional[float] = Field(default=None, ge=0, lt=100, description="조건 충족일 목표 노출(%)")
 
     def is_complete(self) -> bool:
-        if self.series is None or self.operator is None or self.exposure_pct is None:
+        if self.series is None or self.operator is None or (self.role is None and self.exposure_pct is None):
             return False
         if self.mode == "ma":
             return self.period is not None
@@ -625,6 +626,13 @@ class MacroFilter(BaseModel):
 
     def to_request(self) -> dict:
         return self.model_dump(exclude_none=True)
+
+    @staticmethod
+    def executable(filters: List["MacroFilter"]) -> List["MacroFilter"]:
+        """A regime is atomic: never execute only its complete predicates."""
+        regime = [f for f in filters if f.role is not None]
+        ready = {f.role for f in regime} == {"entry", "exit"} and all(f.is_complete() for f in regime)
+        return [f for f in filters if f.is_complete() and (f.role is None or ready)]
 
 
 class VolatilityTarget(BaseModel):

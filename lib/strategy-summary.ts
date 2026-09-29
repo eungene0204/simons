@@ -890,6 +890,7 @@ export function getPositionLabel(parsed: ParsedSummary): string {
 }
 
 export type MacroFilterSummary = {
+  role?: "entry" | "exit" | null;
   series?: string | null;
   mode?: string | null;
   operator?: string | null;
@@ -909,19 +910,28 @@ export const MACRO_SERIES_LABELS: Record<string, string> = {
 /** 매크로 조건 필터 표기(엔진 v16.31). 값이 비면 값 미정으로 적는다(조용한 확정 금지). */
 export function formatMacroFilterLabels(filters: MacroFilterSummary[] | null | undefined): string[] {
   if (!filters?.length) return [];
-  return filters.map((f) => {
+  const conditions = (f: MacroFilterSummary): string => {
     const label = f.series ? t(MACRO_SERIES_LABELS[f.series] ?? f.series) : t("금리(종류 미정)");
-    const op = f.operator ? ({ ">": t("초과"), ">=": t("이상"), "<": t("미만"), "<=": t("이하") } as Record<string, string>)[f.operator] : null;
-    const pending = !f.series || f.exposure_pct == null || !op
+    const op = f.operator ? ({ ">": t("초과"), ">=": t("이상"), "<": t("미만"), "<=": t("이하"),
+      crosses_above: t("상향 돌파"), crosses_below: t("하향 돌파") } as Record<string, string>)[f.operator] : null;
+    const pending = !f.series || (!f.role && f.exposure_pct == null) || !op
       || (f.mode === "ma" ? f.period == null : f.value == null || (f.mode === "change" && f.period == null));
     if (pending) return t("{0} 매크로 조건(값 미정)", label);
     const cond = f.mode === "ma"
-      ? t("{0}일 이동평균 {1}", f.period, f.operator === ">" || f.operator === ">=" ? t("위") : t("아래"))
+      ? t("{0}일 이동평균 {1}", f.period, f.operator?.startsWith("crosses_") ? op
+        : f.operator === ">" || f.operator === ">=" ? t("위") : t("아래"))
       : f.mode === "change"
         ? t("{0}일 변화율 {1}% {2}", f.period, f.value, op)
         : `${f.value} ${op}`;
-    return t("{0} {1}이면 투자 비중 {2}%", label, cond, f.exposure_pct);
-  });
+    return f.role ? `${label} ${cond}` : t("{0} {1}이면 투자 비중 {2}%", label, cond, f.exposure_pct);
+  };
+  const labels = filters.filter((f) => !f.role).map(conditions);
+  const entries = filters.filter((f) => f.role === "entry");
+  const exits = filters.filter((f) => f.role === "exit");
+  if (entries.length) labels.push(t("매크로 국면 진입: {0} (모두 충족)", entries.map(conditions).join(t(" 그리고 "))));
+  if (exits.length) labels.push(t("매크로 국면 종료: {0} (하나라도 충족 시 신규 매수 중단·전량 청산)", exits.map(conditions).join(t(" 또는 "))));
+  if (entries.length || exits.length) labels.push(t("진입 후 청산까지 국면 유지, 청산 후 진입 조건 재충족 시 재개"));
+  return labels;
 }
 
 export type MarketRegimeSummary = {

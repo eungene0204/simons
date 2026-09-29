@@ -2571,6 +2571,14 @@ def run_primary_parse(
             + list(validated.strategy.exit_conditions)
         ) if validated.strategy is not None else []
         reflected_texts = [cond.source_text or "" for cond in reflected_conditions]
+        if validated.strategy is not None:
+            from engine.nl_parser import MacroFilter
+            executable_macro = MacroFilter.executable(parsed.macro_filters)
+            reflected_texts += [
+                spec.source_text or ""
+                for spec, compiled in zip(validated.strategy.macro_filters, parsed.macro_filters)
+                if compiled in executable_macro
+            ]
         # 전략이 실제로 표현한 개념(랭킹으로 반영된 현금흐름·이동평균 정배열 등)은
         # 제외한다 — 결정론 게이트가 하던 '의도적 제외'의 이관분이다(판정 입력은 컴파일
         # 결과이고, 개념 대조는 LLM이 보고한 라벨 문자열에 건다).

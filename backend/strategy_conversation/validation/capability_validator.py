@@ -933,12 +933,18 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
             "금리", "기준금리", "국채금리", "채권금리", "interestrate", "rate", "rates", "interestrates", "bondyield", "yield")
         if sid is None and raw and not generic_rate:
             unsupported.append(_m.source_text or ui_language.msg(f"매크로 지표 '{raw}'", f"macro series '{raw}'"))
-            continue
+            if _m.role is None:
+                continue
         _m.series = sid
-        _m.operator = {"crosses_above": ">", "crosses_below": "<", "above": ">", "below": "<",
+        _m.operator = {"above": ">", "below": "<",
                        "over": ">", "under": "<"}.get(str(_m.operator or "").strip(), _m.operator)
-        if _m.operator not in (None, "<", "<=", ">", ">="):
+        # Existing reduction filters retain their level semantics; regime events do not.
+        if _m.role is None:
+            _m.operator = {"crosses_above": ">", "crosses_below": "<"}.get(_m.operator, _m.operator)
+        if _m.operator not in (None, "<", "<=", ">", ">=", "crosses_above", "crosses_below"):
             _m.operator = None
+        if _m.role is not None:
+            _m.exposure_pct = None
         if _m.mode not in ("level", "change", "ma"):
             _m.mode = "level"
         if _m.exposure_pct is not None and _m.exposure_pct >= 100:
