@@ -2270,27 +2270,27 @@ export default function BacktestDashboard({
 
            {/* Report View */}
            {activeTab === "report" && (
-             <div className="flex flex-1 flex-col py-4">
+             <div className="flex flex-1 flex-col px-1 py-6 sm:px-4 sm:py-8">
                {isPlanLoading ? (
-                 <div className="flex min-h-[320px] items-center justify-center text-sm font-bold text-gray-500">
+                 <div className="mx-auto flex min-h-[320px] w-full max-w-[840px] items-center justify-center rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] px-5 text-sm text-[var(--text-label)]">
                    <Spinner className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />
                    {t("플랜 정보를 확인하는 중...")}
                  </div>
                ) : !isAiReportEnabled ? (
                  <div className="flex min-h-[320px] items-center justify-center px-6 py-10">
-                   <div className="w-full max-w-2xl p-8 text-center">
-                     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-amber-400/30 bg-amber-500/10">
-                       <Crown className="h-6 w-6 text-amber-300" weight="fill" />
+                   <div className="w-full max-w-2xl rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] px-6 py-12 text-center sm:px-10">
+                     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.06]">
+                       <Crown className="h-6 w-6 text-[var(--text-label)]" weight="fill" />
                      </div>
-                     <h3 className="mt-4 text-lg font-black text-white">
+                     <h3 className="mt-6 text-xl font-semibold tracking-tight text-white">
                        {t("AI 리포트는 프로/프리미엄 플랜 전용 기능입니다")}
                      </h3>
-                     <p className="mt-2 text-sm font-bold leading-6 text-gray-400">
+                     <p className="mt-3 text-sm leading-7 text-[var(--text-label)]">
                        {t("프로 또는 프리미엄 플랜을 이용하시면 백테스트 결과에 대한 AI 분석 리포트를 확인할 수 있습니다.")}
                      </p>
                      <a
                        href={regionHref("/pricing")}
-                       className="mt-6 inline-flex items-center justify-center rounded-lg border border-gray-500 px-5 py-2.5 text-sm font-black text-gray-300 transition-colors hover:bg-white/[0.05]"
+                       className="mt-7 inline-flex items-center justify-center rounded-xl bg-[var(--chat-accent)] px-5 py-2.5 text-sm font-semibold text-[var(--chat-accent-ink)] transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--text-label)]"
                      >
                        {t("플랜 변경")}
                      </a>

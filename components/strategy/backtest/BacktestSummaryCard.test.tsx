@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import BacktestSummaryCard from "./BacktestSummaryCard";
 import type { AiReportData } from "./aiReport";
@@ -98,6 +98,39 @@ describe("BacktestSummaryCard 전략 검증 전문가 리포트", () => {
   it("점수 설명 툴팁을 유지한다", () => {
     render(<BacktestSummaryCard result={baseResult} initialReport={fullReport} />);
     expect(screen.getAllByRole("button", { name: /점수 설명/ })).toHaveLength(3);
+  });
+
+  it("상세 분석을 키보드로 열고 닫으며 연결된 영역을 표시한다", async () => {
+    const user = userEvent.setup();
+    render(<BacktestSummaryCard result={baseResult} initialReport={fullReport} />);
+    const button = screen.getByRole("button", { name: "검증 로드맵" });
+    button.focus();
+    await user.keyboard("{Enter}");
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("region", { name: "검증 로드맵" }).id).toBe(button.getAttribute("aria-controls"));
+    expect(screen.getByText("몬테카를로 시뮬레이션")).toBeInTheDocument();
+    await user.keyboard(" ");
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("region", { name: "검증 로드맵" })).toBeNull();
+  });
+
+  it("재생성 중에는 진행 상태를 표시하고 실패하면 오류를 안내한다", async () => {
+    let finishRequest!: (value: unknown) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((resolve) => { finishRequest = resolve; })));
+    try {
+      const user = userEvent.setup();
+      render(<BacktestSummaryCard result={baseResult} initialReport={fullReport} />);
+      await user.click(screen.getByRole("button", { name: "다시 생성" }));
+      expect(screen.getByRole("status")).toHaveTextContent("분석 중...");
+      expect(screen.getByRole("button", { name: "다시 생성" })).toBeDisabled();
+      await act(async () => {
+        finishRequest({ ok: false, json: async () => ({ error: "요약 생성에 실패했습니다." }) });
+      });
+      expect(screen.getByRole("alert")).toHaveTextContent("요약 생성에 실패했습니다.");
+      expect(screen.getByRole("button", { name: "다시 생성" })).toBeEnabled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("리포트 점수와 기존 계산된 세부 점수를 접근 가능한 지표로 표시한다", () => {

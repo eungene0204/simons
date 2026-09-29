@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { BacktestResult } from "@/types/strategy";
 import {
   Sparkle,
@@ -16,7 +16,6 @@ import {
   Scales,
   Flask,
 } from "phosphor-react";
-import { motion, AnimatePresence } from "framer-motion";
 import { buildAiReportMetrics } from "./aiReportMetrics";
 import { profitFactorForRanking } from "@/lib/format-profit-factor";
 import { type AiReportData, reportFromSummaryResponse } from "./aiReport";
@@ -187,37 +186,39 @@ function CollapsibleSection({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const contentId = useId();
   return (
-    <div className="mx-auto w-full max-w-[760px] rounded-[28px] border border-white/10 px-5 py-4 sm:px-7 sm:py-5">
+    <div className="px-5 py-5 sm:px-8">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2"
+        aria-controls={contentId}
+        className="flex w-full items-center justify-between gap-4 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--text-label)]"
       >
         <div className="flex items-center gap-2">
-          {icon}
-          <span className="text-lg font-black tracking-tight text-white">{title}</span>
+          <span aria-hidden="true" className="text-[var(--text-label)] [&>svg]:text-inherit">{icon}</span>
+          <span className="text-base font-semibold tracking-tight text-white">{title}</span>
         </div>
         <CaretDown
-          className={`h-4 w-4 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 shrink-0 text-[var(--text-label)] transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
           weight="bold"
         />
       </button>
-      {open && <div className="mt-4">{children}</div>}
+      {open && <div id={contentId} role="region" aria-label={title} className="mt-5">{children}</div>}
     </div>
   );
 }
 
 // 근거 기반 항목 목록(장점/약점/숨은 위험/개선 우선순위 공통).
-function BulletList({ items, dotClass }: { items: string[]; dotClass: string }) {
-  if (!items.length) return <p className="text-sm text-gray-500">{t("없음")}</p>;
+function BulletList({ items }: { items: string[] }) {
+  if (!items.length) return <p className="text-sm text-[var(--text-label)]">{t("없음")}</p>;
   return (
-    <ul className="space-y-3">
+    <ul className="space-y-4">
       {items.map((s, i) => (
         <li key={i} className="flex items-start gap-3">
-          <span className={`mt-1.5 h-1.5 w-1.5 flex-none rounded-full ${dotClass}`} />
-          <span className="text-sm leading-6 text-gray-300 sm:text-[15px]">{s}</span>
+          <span aria-hidden="true" className="mt-2.5 h-1 w-1 flex-none rounded-full bg-[var(--text-label)]" />
+          <span className="min-w-0 break-words text-sm leading-7 text-gray-300 sm:text-[15px]">{s}</span>
         </li>
       ))}
     </ul>
@@ -357,22 +358,24 @@ export default function BacktestSummaryCard({
   ];
 
   const reportCardClass =
-    "mx-auto w-full max-w-[760px] rounded-[28px] border border-white/10 px-5 py-5 sm:px-7 sm:py-6";
-  const reportCardTitleClass = "text-lg font-black tracking-tight text-white";
+    "w-full rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] px-5 py-6 sm:px-8 sm:py-7";
+  const reportCardTitleClass = "text-base font-semibold tracking-tight text-[var(--text-label)]";
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="mx-auto flex w-full max-w-[840px] flex-col gap-6">
       {/* Header */}
-      <div className="flex items-center justify-between px-1">
-        <div className="flex items-center gap-2 text-base font-black uppercase tracking-widest text-white">
-          <Sparkle className="w-4 h-4 text-white/30" weight="fill" />
-          {t("AI 백테스트 리포트")}
+      <div className="flex items-start justify-between gap-4 px-1">
+        <div className="min-w-0">
+          <h2 className="text-2xl font-semibold tracking-tight text-white">{t("AI 백테스트 리포트")}</h2>
+          {strategySummary?.strategyName && <p className="mt-2 break-words text-sm text-[var(--text-label)]">{strategySummary.strategyName}</p>}
         </div>
         <button
+          type="button"
           onClick={() => fetchSummary(true)}
           disabled={loading}
-          className="text-gray-600 hover:text-gray-400 transition-colors disabled:opacity-30"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-[var(--text-label)] transition-colors hover:bg-white/[0.12] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--text-label)] disabled:opacity-40"
           title={t("다시 생성")}
+          aria-label={t("다시 생성")}
         >
           <ArrowsClockwise
             className={`w-3.5 h-3.5 ${loading ? "animate-spin motion-reduce:animate-none" : ""}`}
@@ -380,14 +383,12 @@ export default function BacktestSummaryCard({
         </button>
       </div>
 
-      <AnimatePresence mode="wait">
+      <>
         {loading && (
-          <motion.div
+          <div
             key="loading"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="flat-card px-5 py-8 flex items-center justify-center gap-2 text-sm text-gray-600"
+            role="status"
+            className={`${reportCardClass} flex min-h-[240px] items-center justify-center gap-3 text-sm text-[var(--text-label)]`}
           >
             <span className="inline-flex gap-1">
               {[0, 1, 2].map((i) => (
@@ -399,50 +400,42 @@ export default function BacktestSummaryCard({
               ))}
             </span>
             <span>{t("분석 중...")}</span>
-          </motion.div>
+          </div>
         )}
 
         {!loading && error && (
-          <motion.p
+          <p
             key="error"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="text-xs text-red-400/70 px-1"
+            role="alert"
+            className={`${reportCardClass} text-sm leading-6 text-red-400`}
           >
             {error}
-          </motion.p>
+          </p>
         )}
 
         {!loading && !error && !hasContent && (
-          <motion.div
+          <div
             key="idle"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="flat-card px-5 py-8 flex flex-col items-center justify-center gap-3"
+            className={`${reportCardClass} flex min-h-[280px] flex-col items-center justify-center gap-5 text-center`}
           >
-            <p className="text-xs text-gray-600">{t("AI 리포트가 아직 생성되지 않았습니다.")}</p>
+            <p className="text-sm leading-6 text-[var(--text-label)]">{t("AI 리포트가 아직 생성되지 않았습니다.")}</p>
             <button
+              type="button"
               onClick={() => fetchSummary()}
-              className="px-4 py-1.5 text-xs font-bold text-white bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 rounded-lg transition-colors"
+              className="rounded-xl bg-[var(--chat-accent)] px-5 py-2.5 text-sm font-semibold text-[var(--chat-accent-ink)] transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--text-label)]"
             >
               {t("리포트 생성")}
             </button>
-          </motion.div>
+          </div>
         )}
 
         {hasContent && (
-          <motion.div
+          <div
             key="result"
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.4 }}
-            className="flex flex-col gap-4"
+            className="flex flex-col gap-4 sm:gap-5"
           >
             {score !== null && (
-              <div className="mx-auto w-full max-w-[760px] rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] px-5 py-6 sm:px-8 sm:py-8">
+              <div className="w-full rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] px-5 py-6 sm:px-8 sm:py-8">
                 <div className="flex flex-col items-center gap-5 sm:flex-row sm:justify-center sm:gap-10">
                   <ScoreRing score={score} label={t("점수")} />
                   <div className="flex flex-col items-center gap-3 sm:items-start">
@@ -516,39 +509,39 @@ export default function BacktestSummaryCard({
               <div className={reportCardClass}>
                 <div className="flex flex-col gap-4">
                   <div className="flex items-center gap-2">
-                    <Warning className="w-4 h-4 text-[#62A8CB]" weight="bold" />
+                    <Warning className="w-4 h-4 text-[var(--text-label)]" weight="bold" />
                     <p className={reportCardTitleClass}>{t("전략 리스크 진단")}</p>
                   </div>
-                  <div className="h-px w-full bg-white/10" />
-                  <div className="grid grid-cols-2 gap-4 sm:gap-6">
+                  <div className="h-px w-full bg-white/[0.06]" />
+                  <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 sm:gap-8">
                     {riskScore != null && (
-                      <div className="flex flex-col items-center justify-between text-center">
-                        <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
+                      <div className="flex flex-col items-start gap-3">
+                        <span className="text-sm font-medium text-[var(--text-label)]">
                           {t("리스크 점수")}
                         </span>
-                        <div className="flex flex-col items-center gap-1">
-                          <span className={`text-3xl font-black tabular-nums leading-none ${riskScoreColor(riskScore)}`}>
+                        <div className="flex flex-col items-start gap-1">
+                          <span className="text-4xl font-semibold tabular-nums tracking-tight leading-none text-white">
                             {clampScore(riskScore)}
                           </span>
-                          <span className={`text-xs font-bold h-5 flex items-center ${riskScoreColor(riskScore)}`}>
+                          <span className={`text-xs font-medium h-5 flex items-center ${riskScoreColor(riskScore)}`}>
                             {riskScoreLabel(riskScore)}
                           </span>
                         </div>
-                        <span className="text-[10px] text-gray-600">{t("높을수록 위험")}</span>
+                        <span className="text-xs leading-5 text-[var(--text-label)]">{t("높을수록 위험")}</span>
                       </div>
                     )}
                     {overfitRisk != null && (
-                      <div className="flex flex-col items-center justify-between text-center">
-                        <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
+                      <div className="flex flex-col items-start gap-3">
+                        <span className="text-sm font-medium text-[var(--text-label)]">
                           {t("과적합 위험")}
                         </span>
-                        <div className="flex flex-col items-center gap-1">
-                          <span className={`text-3xl font-black leading-none ${overfitMeta(overfitRisk).color}`}>
+                        <div className="flex flex-col items-start gap-1">
+                          <span className="text-4xl font-semibold tracking-tight leading-none text-white">
                             {overfitMeta(overfitRisk).label}
                           </span>
                           <span className="h-5" />
                         </div>
-                        <span className="text-[10px] text-gray-600">{t("과거에만 맞춘 전략일 위험")}</span>
+                        <span className="text-xs leading-5 text-[var(--text-label)]">{t("과거에만 맞춘 전략일 위험")}</span>
                       </div>
                     )}
                   </div>
@@ -560,23 +553,25 @@ export default function BacktestSummaryCard({
             <div className={reportCardClass}>
               <div className="flex flex-col gap-4">
                 <div className="flex items-center gap-2.5">
-                  <Sparkle className="h-4 w-4 text-[#62A8CB]" weight="fill" />
+                  <Sparkle className="h-4 w-4 text-[var(--text-label)]" weight="fill" />
                   <p className={reportCardTitleClass}>{t("핵심 요약")}</p>
                 </div>
-                <p className="text-sm leading-7 text-gray-200 whitespace-pre-wrap sm:text-[15px]">{summary}</p>
+                <p className="text-base leading-8 text-gray-200 whitespace-pre-wrap break-words">{summary}</p>
               </div>
             </div>
 
+            {(topInsights.length > 0 || hiddenRisks.length > 0) && (
+            <div className="flex flex-col gap-4 sm:gap-5">
             {/* 2. 핵심 통찰 (Top Insights) — 항상 펼침 */}
             {topInsights.length > 0 && (
               <div className={reportCardClass}>
                 <div className="flex flex-col gap-4">
                   <div className="flex items-center gap-2">
-                    <Lightbulb className="h-4 w-4 text-amber-300" weight="bold" />
+                    <Lightbulb className="h-4 w-4 text-[var(--text-label)]" weight="bold" />
                     <p className={reportCardTitleClass}>{t("핵심 통찰")}</p>
                   </div>
-                  <div className="h-px w-full bg-white/10" />
-                  <BulletList items={topInsights} dotClass="bg-amber-300" />
+                  <div className="h-px w-full bg-white/[0.06]" />
+                  <BulletList items={topInsights} />
                 </div>
               </div>
             )}
@@ -586,29 +581,33 @@ export default function BacktestSummaryCard({
               <div className={reportCardClass}>
                 <div className="flex flex-col gap-4">
                   <div className="flex items-center gap-2">
-                    <ShieldWarning className="h-4 w-4 text-red-400" weight="bold" />
+                    <ShieldWarning className="h-4 w-4 text-[var(--text-label)]" weight="bold" />
                     <p className={reportCardTitleClass}>{t("숨은 위험")}</p>
                   </div>
-                  <div className="h-px w-full bg-white/10" />
-                  <BulletList items={hiddenRisks} dotClass="bg-red-400" />
+                  <div className="h-px w-full bg-white/[0.06]" />
+                  <BulletList items={hiddenRisks} />
                 </div>
               </div>
             )}
 
+            </div>
+            )}
+
+            <div className="divide-y divide-white/[0.08] rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)]">
             {/* 3. 강점 (Strengths) — 접힘 */}
-            <CollapsibleSection title={t("강점")} icon={<TrendUp className="h-4 w-4 text-emerald-400" weight="bold" />}>
-              <BulletList items={strengths} dotClass="bg-emerald-400" />
+            <CollapsibleSection title={t("강점")} icon={<TrendUp className="h-4 w-4 text-[var(--text-label)]" weight="bold" />}>
+              <BulletList items={strengths} />
             </CollapsibleSection>
 
             {/* 4. 약점 (Weaknesses) — 접힘 */}
-            <CollapsibleSection title={t("약점")} icon={<Warning className="h-4 w-4 text-orange-400" weight="bold" />}>
-              <BulletList items={weaknesses} dotClass="bg-orange-400" />
+            <CollapsibleSection title={t("약점")} icon={<Warning className="h-4 w-4 text-[var(--text-label)]" weight="bold" />}>
+              <BulletList items={weaknesses} />
             </CollapsibleSection>
 
             {/* 6. 과최적화 분석 (Overfitting Analysis) — 접힘 */}
             {overfittingAnalysis && (
-              <CollapsibleSection title={t("과최적화 분석")} icon={<Warning className="h-4 w-4 text-red-400" weight="bold" />}>
-                <p className="text-sm leading-7 text-gray-300 whitespace-pre-wrap sm:text-[15px]">
+              <CollapsibleSection title={t("과최적화 분석")} icon={<Warning className="h-4 w-4 text-[var(--text-label)]" weight="bold" />}>
+                <p className="text-sm leading-7 text-gray-300 whitespace-pre-wrap break-words sm:text-[15px]">
                   {overfittingAnalysis}
                 </p>
               </CollapsibleSection>
@@ -616,14 +615,14 @@ export default function BacktestSummaryCard({
 
             {/* 7. 전략 성향 (Strategy Profile) — 접힘 */}
             {(strategyProfile.length > 0 || strategyProfileNote) && (
-              <CollapsibleSection title={t("전략 성향")} icon={<Compass className="h-4 w-4 text-[#62A8CB]" weight="bold" />}>
+              <CollapsibleSection title={t("전략 성향")} icon={<Compass className="h-4 w-4 text-[var(--text-label)]" weight="bold" />}>
                 <div className="flex flex-col gap-4">
                   {strategyProfile.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       {strategyProfile.map((tag) => (
                         <span
                           key={tag}
-                          className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs font-bold text-gray-200"
+                          className="rounded-md bg-white/[0.06] px-3 py-1.5 text-xs font-medium text-gray-300"
                         >
                           {tag}
                         </span>
@@ -631,7 +630,7 @@ export default function BacktestSummaryCard({
                     </div>
                   )}
                   {strategyProfileNote && (
-                    <p className="text-sm leading-7 text-gray-300 whitespace-pre-wrap sm:text-[15px]">
+                    <p className="text-sm leading-7 text-gray-300 whitespace-pre-wrap break-words sm:text-[15px]">
                       {strategyProfileNote}
                     </p>
                   )}
@@ -641,17 +640,17 @@ export default function BacktestSummaryCard({
 
             {/* 8. 검증 로드맵 (Validation Roadmap) — 접힘 */}
             {validationRoadmap.length > 0 && (
-              <CollapsibleSection title={t("검증 로드맵")} icon={<Flask className="h-4 w-4 text-[#73B682]" weight="bold" />}>
+              <CollapsibleSection title={t("검증 로드맵")} icon={<Flask className="h-4 w-4 text-[var(--text-label)]" weight="bold" />}>
                 <ol className="space-y-4">
                   {validationRoadmap.map((item, i) => (
                     <li key={i} className="flex items-start gap-3">
-                      <span className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-[#73B682]/20 text-[11px] font-black text-[#73B682]">
+                      <span className="mt-0.5 flex h-7 w-7 flex-none items-center justify-center rounded-md bg-white/[0.06] text-xs font-semibold tabular-nums text-[var(--text-label)]">
                         {i + 1}
                       </span>
-                      <div className="flex flex-col gap-1">
-                        <span className="text-sm font-bold text-white sm:text-[15px]">{item.title}</span>
+                      <div className="flex min-w-0 flex-col gap-1 break-words">
+                        <span className="text-sm font-semibold text-white sm:text-[15px]">{item.title}</span>
                         {item.reason && (
-                          <span className="text-sm leading-6 text-gray-400 sm:text-[14px]">{item.reason}</span>
+                          <span className="text-sm leading-6 text-[var(--text-label)]">{item.reason}</span>
                         )}
                       </div>
                     </li>
@@ -661,26 +660,28 @@ export default function BacktestSummaryCard({
             )}
 
             {/* 9. 개선 우선순위 (Improvement Priorities) — 접힘 */}
-            <CollapsibleSection title={t("개선 우선순위")} icon={<ListChecks className="h-4 w-4 text-amber-400" weight="bold" />}>
-              <BulletList items={improvements} dotClass="bg-amber-400" />
+            <CollapsibleSection title={t("개선 우선순위")} icon={<ListChecks className="h-4 w-4 text-[var(--text-label)]" weight="bold" />}>
+              <BulletList items={improvements} />
             </CollapsibleSection>
+
+            </div>
 
             {/* 10. 최종 평가 (Final Verdict) — 항상 펼침 */}
             {finalVerdict && (
               <div className={reportCardClass}>
                 <div className="flex flex-col gap-4">
                   <div className="flex items-center gap-2">
-                    <Scales className="h-4 w-4 text-[#62A8CB]" weight="bold" />
+                    <Scales className="h-4 w-4 text-[var(--text-label)]" weight="bold" />
                     <p className={reportCardTitleClass}>{t("최종 평가")}</p>
                   </div>
-                  <div className="h-px w-full bg-white/10" />
-                  <p className="text-sm leading-7 text-gray-200 whitespace-pre-wrap sm:text-[15px]">{finalVerdict}</p>
+                  <div className="h-px w-full bg-white/[0.06]" />
+                  <p className="text-base leading-8 text-gray-200 whitespace-pre-wrap break-words">{finalVerdict}</p>
                 </div>
               </div>
             )}
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
+      </>
     </div>
   );
 }
