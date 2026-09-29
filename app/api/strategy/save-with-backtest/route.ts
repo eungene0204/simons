@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { inferStrategyType } from "@/lib/strategy-type";
@@ -47,31 +48,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "전략 설정 정보가 없습니다." }, { status: 400 });
     }
 
-    const strategyId = buildOwnedStrategyId(userId, dsl);
+    let strategyId = buildOwnedStrategyId(userId, dsl);
 
-    // 중복 저장 차단: strategyId 는 DSL(이름/설명/타임스탬프 제외)을 정규화해 해시한 값이므로
-    // DSL 이 완전히 같으면 이름이 달라도 동일한 strategyId 가 된다. 이미 다른 이름으로 저장된
-    // 전략이 있으면 새 이름으로 덮어쓰지 않고 저장을 막는다(같은 이름 재저장은 갱신으로 허용).
+    // strategyId 는 DSL(이름/설명/타임스탬프 제외)을 정규화해 해시한 값이다. 해시가 같은 전략이
+    // 이미 다른 이름으로 저장돼 있어도 저장을 막지 않는다 — DSL 이 빈 채로 넘어온 서로 다른 전략이
+    // 같은 해시가 되어 "같은 전략"으로 거부되던 사고(2026-09-29). 대신 별도 id 로 새 행을 만들어
+    // 기존 전략을 덮어쓰지 않는다. 같은 이름 재저장만 기존 행의 갱신이다.
     const existing =
       typeof prisma.strategy?.findUnique === "function"
         ? await prisma.strategy.findUnique({ where: { id: strategyId } })
         : null;
     const isAlreadySaved = existing != null && existing.isSaved && existing.deletedAt == null;
-    if (isAlreadySaved && existing.name.trim() !== name.trim()) {
-      return NextResponse.json(
-        {
-          error: `이미 저장된 '${existing.name}' 전략과 같은 전략이라 저장하지 못했습니다.`,
-          duplicate: true,
-          existingStrategyId: existing.id,
-          existingStrategyName: existing.name,
-        },
-        { status: 409 }
-      );
+    const isUpdate = isAlreadySaved && existing.name.trim() === name.trim();
+    if (isAlreadySaved && !isUpdate) {
+      strategyId = `${strategyId}:${randomUUID().slice(0, 8)}`;
     }
 
     // 신규 저장(이미 저장된 전략의 갱신이 아닌 경우)만 플랜의 저장 전략 수 한도를 검사한다.
     // 결과 화면의 "저장" 버튼이 이 라우트를 쓰므로, 여기서 빠지면 한도가 사실상 없는 것과 같다.
-    if (userId != null && !isAlreadySaved) {
+    if (userId != null && !isUpdate) {
       await assertCanSaveStrategy(prisma, userId);
     }
 

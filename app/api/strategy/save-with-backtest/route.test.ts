@@ -98,6 +98,22 @@ describe("POST /api/strategy/save-with-backtest 플랜 한도", () => {
     expect(assertCanSaveStrategy).not.toHaveBeenCalled();
   });
 
+  it("해시가 같은 전략을 다른 이름으로 저장하면 신규 저장이므로 한도를 검사한다", async () => {
+    assertCanSaveStrategy.mockResolvedValue(undefined);
+    strategyFindUnique.mockResolvedValue({
+      id: "7:dslhash",
+      name: "당기순이익 흑자 전략",
+      isSaved: true,
+      deletedAt: null,
+    });
+
+    const res = await POST(makeRequest({ name: "골든크로스 전략", dsl: DSL }));
+
+    expect(res.status).toBe(200);
+    expect(assertCanSaveStrategy).toHaveBeenCalledTimes(1);
+    expect(strategyUpsert.mock.calls[0][0].where.id).not.toBe("7:dslhash");
+  });
+
   it("소프트 삭제된 전략을 다시 저장하면 신규로 보고 한도를 검사한다", async () => {
     strategyFindUnique.mockResolvedValue({
       id: "7:dslhash",

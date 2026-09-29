@@ -289,26 +289,28 @@ describe("POST /api/strategy/save-with-backtest", () => {
     expect(summary.topAssetStats[0]).toMatchObject({ symbol: "J", totalReturn: 10, trades: 6 });
   });
 
-  // ── 중복 저장 차단(같은 DSL·다른 이름) ─────────────────────────────────────
+  // ── 같은 DSL 해시·다른 이름 ─────────────────────────────────────────────────
 
-  it("DSL이 같은 전략이 다른 이름으로 이미 저장돼 있으면 409로 차단하고 기존 이름을 알린다", async () => {
-    mockStrategyFindUnique.mockResolvedValue({
-      id: "hash",
+  it("DSL 해시가 같은 전략이 다른 이름으로 저장돼 있어도 막지 않고 별도 id로 새로 저장한다", async () => {
+    // 2026-09-29 사고: DSL이 빈 채로 넘어온 서로 다른 전략이 같은 해시가 되어
+    // "이미 저장된 '당기순이익…' 전략과 같은 전략이라 저장하지 못했습니다"로 거부됐다.
+    mockStrategyFindUnique.mockImplementation(async ({ where }) => ({
+      id: where.id,
       name: "저PBR 가치전략",
       isSaved: true,
       deletedAt: null,
-    });
+    }));
 
     const res = await POST(makeRequest({ name: "새 이름 전략", dsl: VALID_DSL }));
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(200);
+    expect(mockTransaction).toHaveBeenCalledOnce();
 
-    const body = await res.json();
-    expect(body.duplicate).toBe(true);
-    expect(body.error).toContain("저PBR 가치전략");
-    expect(body.error).toMatch(/저장하지 못했습니다/);
-
-    // 저장 트랜잭션은 실행되지 않아야 함
-    expect(mockTransaction).not.toHaveBeenCalled();
+    // 기존 행(해시 id)을 덮어쓰지 않도록 다른 id로 만든다.
+    const existingId = mockStrategyFindUnique.mock.calls[0][0].where.id;
+    const createArg = mockStrategyCreate.mock.calls[0][0];
+    expect(createArg.data.id).not.toBe(existingId);
+    expect(createArg.data.id.startsWith(`${existingId}:`)).toBe(true);
+    expect(createArg.data.name).toBe("새 이름 전략");
   });
 
   it("같은 DSL·같은 이름 재저장은 갱신으로 허용한다", async () => {
