@@ -7,8 +7,10 @@ import {
   ISeriesApi,
   ColorType,
   UTCTimestamp,
-  LineSeries,
+  BaselineSeries,
+  LineType,
 } from "lightweight-charts";
+import { t } from "@/lib/i18n";
 
 export interface PerformancePoint {
   time: string;
@@ -23,8 +25,7 @@ interface Props {
 export default function PortfolioPerformanceChart({ data }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const positiveRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const negativeRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Baseline"> | null>(null);
   const roRef = useRef<ResizeObserver | null>(null);
 
   useEffect(() => {
@@ -52,8 +53,8 @@ export default function PortfolioPerformanceChart({ data }: Props) {
           borderColor: "#2a2a2a",
           tickMarkFormatter: (time: UTCTimestamp) => {
             const d = new Date(time * 1000);
-            const m = String(d.getMonth() + 1).padStart(2, "0");
-            const day = String(d.getDate()).padStart(2, "0");
+            const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+            const day = String(d.getUTCDate()).padStart(2, "0");
             return `${m}-${day}`;
           },
         },
@@ -71,23 +72,21 @@ export default function PortfolioPerformanceChart({ data }: Props) {
 
       chartRef.current = chart;
 
-      const positive = chart.addSeries(LineSeries, {
-        color: "#ef4444",
+      const series = chart.addSeries(BaselineSeries, {
+        baseValue: { type: "price", price: 100 },
+        topLineColor: "#ef4444",
+        bottomLineColor: "#3b82f6",
+        topFillColor1: "transparent",
+        topFillColor2: "transparent",
+        bottomFillColor1: "transparent",
+        bottomFillColor2: "transparent",
         lineWidth: 2,
+        lineType: LineType.Curved,
         lastValueVisible: true,
         priceLineVisible: false,
         priceFormat: { type: "custom", formatter: (v: number) => `${(v - 100).toFixed(1)}%` },
       });
-      positiveRef.current = positive;
-
-      const negative = chart.addSeries(LineSeries, {
-        color: "#3b82f6",
-        lineWidth: 2,
-        lastValueVisible: true,
-        priceLineVisible: false,
-        priceFormat: { type: "custom", formatter: (v: number) => `${(v - 100).toFixed(1)}%` },
-      });
-      negativeRef.current = negative;
+      seriesRef.current = series;
 
       roRef.current = new ResizeObserver((entries) => {
         for (const e of entries) {
@@ -105,34 +104,41 @@ export default function PortfolioPerformanceChart({ data }: Props) {
     return () => {
       roRef.current?.disconnect();
       if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
-      positiveRef.current = null;
-      negativeRef.current = null;
+      seriesRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    if (!positiveRef.current || !negativeRef.current || data.length === 0) return;
+    if (!seriesRef.current) return;
 
     const toTs = (s: string): UTCTimestamp =>
       (new Date(s + "T00:00:00Z").getTime() / 1000) as UTCTimestamp;
 
     const sorted = [...data].sort((a, b) => a.time.localeCompare(b.time));
 
-    const positiveData = sorted.map((d) => ({
+    const seriesData = sorted.map((d) => ({
       time: toTs(d.time),
-      value: d.portfolio >= 100 ? d.portfolio : undefined,
-    })).filter((d) => d.value !== undefined);
+      value: d.portfolio,
+    }));
 
-    const negativeData = sorted.map((d) => ({
-      time: toTs(d.time),
-      value: d.portfolio < 100 ? d.portfolio : undefined,
-    })).filter((d) => d.value !== undefined);
-
-    positiveRef.current.setData(positiveData as any);
-    negativeRef.current.setData(negativeData as any);
+    seriesRef.current.setData(seriesData);
 
     chartRef.current?.timeScale().fitContent();
   }, [data]);
 
-  return <div ref={containerRef} className="w-full h-full" />;
+  return (
+    <div className="flex h-full w-full flex-col">
+      <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-gray-400">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-0.5 w-4 bg-[#ef4444]" aria-hidden="true" />
+          {t("수익률")} ≥ 0%
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-0.5 w-4 bg-[#3b82f6]" aria-hidden="true" />
+          {t("수익률")} &lt; 0%
+        </span>
+      </div>
+      <div ref={containerRef} className="min-h-0 w-full flex-1" role="img" aria-label={t("실현손익 추이")} />
+    </div>
+  );
 }

@@ -16,6 +16,10 @@ import {
   Cell,
 } from "recharts";
 import type { DashboardStats } from "@/app/api/virtual-account/[id]/dashboard/route";
+import {
+  resolveStockDisplayName,
+  type StockMetadataMap,
+} from "@/components/virtual-account/stockDisplayNames";
 import { t } from "@/lib/i18n";
 
 interface Props {
@@ -189,6 +193,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 export default function VirtualTradingDashboard({ accountId, initialAmount, totalContributed, currency }: Props) {
   const usd = currency === "USD";
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [stockMetadata, setStockMetadata] = useState<StockMetadataMap>({});
   const [loading, setLoading] = useState(true);
   const [dailyRange, setDailyRange] = useState<30 | 60 | 90>(30);
 
@@ -201,6 +206,22 @@ export default function VirtualTradingDashboard({ accountId, initialAmount, tota
       })
       .catch(() => setLoading(false));
   }, [accountId]);
+
+  useEffect(() => {
+    if (!stats?.bySymbol.some((item) => item.name === item.symbol)) return;
+
+    let isMounted = true;
+    fetch("/api/stocks/names")
+      .then((response) => (response.ok ? response.json() : {}))
+      .then((metadata: StockMetadataMap) => {
+        if (isMounted) setStockMetadata(metadata);
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [stats]);
 
   if (loading) {
     return (
@@ -224,8 +245,12 @@ export default function VirtualTradingDashboard({ accountId, initialAmount, tota
     ...m,
     label: m.month.replace(/^(\d{4})-(\d{2})$/, (_, y, mo) => `${y.slice(2)}.${mo}`),
   }));
-  const topSymbols = stats.bySymbol.slice(0, 5);
-  const bottomSymbols = [...stats.bySymbol].reverse().slice(0, 5).filter((s) => s.pnl < 0);
+  const displaySymbols = stats.bySymbol.map((item) => ({
+    ...item,
+    name: resolveStockDisplayName(item.symbol, item.name, stockMetadata),
+  }));
+  const topSymbols = displaySymbols.slice(0, 5);
+  const bottomSymbols = displaySymbols.reverse().slice(0, 5).filter((s) => s.pnl < 0);
   const totalFees = -Math.abs(stats.totalFees);
   const totalTax = -Math.abs(stats.totalTax);
   const metricRows = [

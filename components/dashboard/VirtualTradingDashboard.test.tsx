@@ -125,4 +125,31 @@ describe("VirtualTradingDashboard metric formatting", () => {
       "lg:min-w-0"
     );
   });
+
+  it("resolves stock names for realized P&L rows stored with symbol-only names", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/api/stocks/names"
+            ? { "005930": { name: "삼성전자" }, "000660": { name: "SK하이닉스" } }
+            : {
+                ...zeroStats,
+                totalTrades: 2,
+                bySymbol: [
+                  { symbol: "005930", name: "005930", trades: 1, winRate: 100, pnl: 100_000 },
+                  { symbol: "000660", name: "000660", trades: 1, winRate: 0, pnl: -50_000 },
+                ],
+              },
+      })
+    );
+
+    render(<VirtualTradingDashboard accountId="account-123" initialAmount={9_000_000} />);
+
+    expect(await screen.findByText("삼성전자")).toBeInTheDocument();
+    expect(screen.getAllByText("SK하이닉스")).toHaveLength(2);
+    expect(screen.getByText("005930")).toBeInTheDocument();
+    expect(screen.getAllByText("000660")).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledWith("/api/stocks/names");
+  });
 });
