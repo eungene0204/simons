@@ -1,11 +1,8 @@
 // @ts-nocheck
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
-import path from "path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // 지식그래프 학습 검토 API(FR-STR-070b) — 권한 게이트(404 은닉)·엣지 승인/반려·
-// 용어 삭제가 어휘집 파일(SOT)에 원자적으로 반영되고 감사 로그를 남기는지 검증한다.
+// 용어 삭제가 어휘집(공유 DB TermLexiconEntry, 2026-09-30)에 반영되고 감사 로그를 남기는지 검증한다.
 
 const requireAdmin = vi.fn();
 const writeAuditLog = vi.fn();
@@ -15,10 +12,27 @@ vi.mock("@/lib/server/adminAuth", () => ({
   writeAuditLog: (...a) => writeAuditLog(...a),
 }));
 
-let GET;
-let PATCH;
-let dir;
-let lexPath;
+// 메모리 속 TermLexiconEntry 테이블
+let table = new Map();
+
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    termLexiconEntry: {
+      findMany: async () => [...table.entries()].map(([key, entry]) => ({ key, entry })),
+      findUnique: async ({ where }) => (table.has(where.key) ? { key: where.key, entry: table.get(where.key) } : null),
+      update: async ({ where, data }) => {
+        table.set(where.key, JSON.parse(JSON.stringify(data.entry)));
+        return { key: where.key, entry: data.entry };
+      },
+      delete: async ({ where }) => {
+        table.delete(where.key);
+        return { key: where.key };
+      },
+    },
+  },
+}));
+
+import { GET, PATCH } from "./route";
 
 const LEXICON = {
   cowos: {
@@ -34,18 +48,9 @@ const LEXICON = {
   },
 };
 
-beforeEach(async () => {
+beforeEach(() => {
   vi.clearAllMocks();
-  dir = mkdtempSync(path.join(tmpdir(), "lex-"));
-  lexPath = path.join(dir, "term_lexicon.json");
-  writeFileSync(lexPath, JSON.stringify(LEXICON), "utf-8");
-  process.env.TERM_LEXICON_PATH = lexPath;
-  ({ GET, PATCH } = await import("./route"));
-});
-
-afterEach(() => {
-  delete process.env.TERM_LEXICON_PATH;
-  rmSync(dir, { recursive: true, force: true });
+  table = new Map(Object.entries(JSON.parse(JSON.stringify(LEXICON))));
 });
 
 const admin = { id: 1, email: "admin@example.com", name: "Admin" };
@@ -55,7 +60,7 @@ function patchReq(body) {
 }
 
 function readLexicon() {
-  return JSON.parse(readFileSync(lexPath, "utf-8"));
+  return Object.fromEntries(table);
 }
 
 describe("/api/admin/knowledge", () => {

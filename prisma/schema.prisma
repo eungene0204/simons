@@ -148,6 +148,16 @@ model Strategy {
 
 /// 내 전략 버전 이력(2026-09-23) — 저장할 때마다 그 시점의 설정을 남긴다.
 /// Strategy.id는 DSL 해시라 내용을 고치면 다른 행이 된다 — 이력은 사용자+이름(lineageKey)으로 묶는다.
+// 검색 그라운딩 학습 어휘집(FR-STR-069/070b) — 로컬·운영이 같은 DB를 읽고 써서 환경 간 해석이
+// 갈리지 않게 한다(2026-09-30 'bts 관련주' 사고: git 밖 data/term_lexicon.json이 환경마다
+// 따로 자라 로컬=테마 13종목, 운영=업종 근사). entry = 종전 파일 항목 그대로(JSON).
+model TermLexiconEntry {
+  key       String   @id
+  entry     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model StrategyVersion {
   id          String   @id @default(cuid())
   userId      Int?

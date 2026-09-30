@@ -19,7 +19,6 @@ import json
 import logging
 import os
 import re
-import threading
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -31,8 +30,7 @@ from engine.console_logging import console_logger
 logger = console_logger("term_grounding", "KG-GROUND")
 
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent  # 레포 루트(data/의 부모)
-_LEXICON_PATH = _BASE_DIR / "data" / "term_lexicon.json"
-_LEXICON_LOCK = threading.Lock()
+_LEXICON_PATH = _BASE_DIR / "data" / "term_lexicon.json"  # 기본 경로 = 공유 DB(lexicon_store)
 
 # 네이버 API 허브(네이버클라우드) 게이트웨이 — 구 developers.naver.com 오픈API와
 # 도메인·인증 헤더가 다르다(X-NCP-APIGW-API-KEY-ID/KEY). .env의 NAVER_CLIENT_ID/
@@ -158,24 +156,17 @@ def _term_key(term: str) -> str:
 
 
 def _load_lexicon(path: Path) -> dict:
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    """수정 가능한 어휘집 사본 — 기본 경로는 공유 DB, 그 밖의 경로는 파일(engine/lexicon_store)."""
+    from engine import lexicon_store
+
+    return lexicon_store.load(path)
 
 
 def _save_entry(path: Path, key: str, entry: dict) -> None:
-    """단일 항목 저장 — 락 안에서 재로드 후 원자적 교체(동시 요청 유실 방지)."""
-    with _LEXICON_LOCK:
-        lexicon = _load_lexicon(path)
-        lexicon[key] = entry
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".json.tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(lexicon, f, ensure_ascii=False, indent=1)
-        tmp.replace(path)
+    """단일 항목 저장 — 키 단위 upsert(동시 요청 유실 방지, engine/lexicon_store)."""
+    from engine import lexicon_store
+
+    lexicon_store.save_entry(path, key, entry)
 
 
 # 학습 항목 재검토 TTL(일, FR-STR-069 ⑦) — 이 기간이 지난 항목은 사용자 재언급 시
@@ -465,23 +456,12 @@ def learn_sector_term(
     )
 
 
-# lexicon_entry는 파싱 핫패스(nl_parser._extract_sector 폴백)에서 불리므로 mtime 캐시로
-# 파일 재파싱을 막는다(지식그래프 get_graph와 같은 관례).
-_LEXICON_READ_CACHE: dict[str, tuple[float, dict]] = {}
-
-
+# lexicon_entry는 파싱 핫패스(nl_parser._extract_sector 폴백)에서 불리므로 공유 스냅샷을
+# 읽는다(파일=mtime 캐시, DB=TTL 캐시 — engine/lexicon_store).
 def _load_lexicon_cached(path: Path) -> dict:
-    try:
-        mtime = os.path.getmtime(path)
-    except OSError:
-        return {}
-    key = str(path)
-    cached = _LEXICON_READ_CACHE.get(key)
-    if cached is not None and cached[0] == mtime:
-        return cached[1]
-    lexicon = _load_lexicon(path)
-    _LEXICON_READ_CACHE[key] = (mtime, lexicon)
-    return lexicon
+    from engine import lexicon_store
+
+    return lexicon_store.snapshot(path)
 
 
 def lexicon_entry(text: str, lexicon_path: Optional[Path] = None) -> Optional[dict]:

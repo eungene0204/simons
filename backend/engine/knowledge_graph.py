@@ -273,6 +273,13 @@ def _load_json(path: Path, default: Any) -> Any:
         return default
 
 
+def _learned_lexicon() -> dict:
+    """학습 오버레이 원천 — 기본 경로는 공유 DB, 그 밖의 경로는 파일(engine/lexicon_store)."""
+    from engine import lexicon_store
+
+    return lexicon_store.snapshot(_LEXICON_PATH)
+
+
 class KnowledgeGraph:
     """읽기 전용 그래프 뷰. 로드 시점에 시드+정본+학습 오버레이를 합성한다."""
 
@@ -576,7 +583,10 @@ def _mtimes() -> tuple:
             return os.path.getmtime(p)
         except OSError:
             return 0.0
-    return (mt(_SEED_PATH), mt(_LEXICON_PATH)) + tuple(mt(p) for p in _catalog_paths())
+    from engine import lexicon_store
+
+    return ((mt(_SEED_PATH), lexicon_store.version(_LEXICON_PATH))
+            + tuple(mt(p) for p in _catalog_paths()))
 
 
 def _stock_names() -> dict[str, str]:
@@ -697,7 +707,7 @@ def _build() -> KnowledgeGraph:
     # 학습 오버레이 — term_grounding이 검색으로 학습한 용어를 그래프 노드로 편입.
     # 섹터가 매핑됐거나 verified 학습 엣지가 하나라도 있으면 노드가 된다(FR-STR-070b —
     # 섹터 매핑엔 실패했지만 시드 개념과의 관계는 검증된 용어를 버리지 않는다).
-    for key, entry in _load_json(_LEXICON_PATH, {}).items():
+    for key, entry in _learned_lexicon().items():
         if not isinstance(entry, dict):
             continue
         has_verified_edge = any(
@@ -838,7 +848,7 @@ def _build() -> KnowledgeGraph:
     # 만들었으므로 resolve_endpoint를 다시 태우지 않는다(3천여 건 불필요한 검증 회피).
     edges.extend(membership_edges)
 
-    for key, entry in _load_json(_LEXICON_PATH, {}).items():
+    for key, entry in _learned_lexicon().items():
         node_id = f"learned:{key}"
         if node_id not in nodes or not isinstance(entry, dict):
             continue

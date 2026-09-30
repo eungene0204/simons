@@ -1,34 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { promises as fs } from 'fs'
-import path from 'path'
+import { prisma } from '@/lib/prisma'
 import { requireAdmin, writeAuditLog } from '@/lib/server/adminAuth'
 
 export const dynamic = 'force-dynamic'
 
 // 지식그래프 학습 검토(FR-STR-070b) — term_grounding이 인터넷 검색으로 학습한
 // 용어(어휘집)와 관계 엣지를 조회하고, 자동 승격(출처 교차지지 ≥2)된 엣지를
-// 사후 반려하거나 pending 엣지를 수동 승인한다. 어휘집 파일이 SOT이며 백엔드
-// KG 로더는 파일 mtime으로 자동 재로드한다(별도 동기화 불필요).
+// 사후 반려하거나 pending 엣지를 수동 승인한다. 어휘집의 정본은 공유 DB
+// (TermLexiconEntry, 2026-09-30)이며 백엔드는 짧은 캐시(TERM_LEXICON_DB_TTL_S) 뒤에
+// 다시 읽는다 — 로컬·운영이 같은 DB를 읽으므로 환경 간 동기화가 따로 필요 없다.
 
-function lexiconPath(): string {
-  return process.env.TERM_LEXICON_PATH ?? path.join(process.cwd(), 'data', 'term_lexicon.json')
+async function readEntry(key: string): Promise<Record<string, any> | null> {
+  const row = await prisma.termLexiconEntry.findUnique({ where: { key } })
+  const entry = row?.entry as Record<string, any> | undefined
+  return entry && typeof entry === 'object' ? entry : null
 }
 
-async function readLexicon(): Promise<Record<string, any>> {
-  try {
-    const raw = await fs.readFile(lexiconPath(), 'utf-8')
-    const data = JSON.parse(raw)
-    return data && typeof data === 'object' ? data : {}
-  } catch {
-    return {}
-  }
-}
-
-async function writeLexicon(lexicon: Record<string, any>): Promise<void> {
-  const target = lexiconPath()
-  const tmp = `${target}.tmp`
-  await fs.writeFile(tmp, JSON.stringify(lexicon, null, 1), 'utf-8')
-  await fs.rename(tmp, target)
+async function writeEntry(key: string, entry: Record<string, any>): Promise<void> {
+  await prisma.termLexiconEntry.update({ where: { key }, data: { entry } })
 }
 
 // GET: 학습 용어·엣지 전체 목록
@@ -36,8 +25,10 @@ export async function GET() {
   const admin = await requireAdmin()
   if (!admin) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
 
-  const lexicon = await readLexicon()
-  const terms = Object.entries(lexicon).map(([key, entry]: [string, any]) => ({
+  const rows = await prisma.termLexiconEntry.findMany({
+    orderBy: [{ createdAt: 'asc' }, { key: 'asc' }],
+  })
+  const terms = rows.map(({ key, entry }: { key: string; entry: any }) => ({
     key,
     term: entry?.term ?? key,
     definition: entry?.definition ?? null,
@@ -74,14 +65,12 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'key is required' }, { status: 400 })
   }
 
-  const lexicon = await readLexicon()
-  const entry = lexicon[key]
+  const entry = await readEntry(key)
   if (!entry) return NextResponse.json({ error: 'Term not found' }, { status: 404 })
 
   if (action === 'deleteTerm') {
     // 잘못 학습된 용어 제거 — 어휘집에서 지우면 다음 언급 시 재검색으로 다시 학습된다.
-    delete lexicon[key]
-    await writeLexicon(lexicon)
+    await prisma.termLexiconEntry.delete({ where: { key } })
     await writeAuditLog(admin, {
       action: 'knowledge.deleteTerm',
       targetType: 'term',
@@ -116,7 +105,7 @@ export async function PATCH(request: NextRequest) {
     }
     if (typeof note === 'string' && note.trim()) edge.note = note.trim()
     entry.edges = [...edges, edge]
-    await writeLexicon(lexicon)
+    await writeEntry(key, entry)
     await writeAuditLog(admin, {
       action: 'knowledge.addEdge',
       targetType: 'edge',
@@ -133,7 +122,7 @@ export async function PATCH(request: NextRequest) {
     if (!edge) return NextResponse.json({ error: 'Edge not found' }, { status: 404 })
     const before = { ...edge }
     edge.status = action === 'approveEdge' ? 'verified' : 'rejected'
-    await writeLexicon(lexicon)
+    await writeEntry(key, entry)
     await writeAuditLog(admin, {
       action: `knowledge.${action}`,
       targetType: 'edge',

@@ -2156,3 +2156,11 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 
 2026-09-29 표시 문구 수정: 사용자 요청에 따라 매수 사유의 `매크로 진입 허용 (판정일 …)` 접두부와 괄호를 제거하고 원/달러 환율 조건부터 표시한다. 환율 필터 판정·지연·체결·성과는 유지한다.
 접두부 제거 검증: 저장 매수 사유 392건 갱신 후 화면에서 환율 조건부터 표시되는 것을 확인. 관련 백엔드 59건·프론트 2,318건 통과(1건 skip), 전체 백엔드는 기존 KRX 접속 수집 오류 2건으로 중단.
+
+### ✅ 완료 — 학습 어휘집 공유 DB 이관: 'bts 관련주' 환경별 해석 불일치 (2026-09-30)
+
+- 사고: 같은 문장이 로컬에선 테마 상장사 13곳(하이브·JYP·에스엠…), 프로덕션에선 업종 '미디어/엔터'(201종목)로 풀렸다. 인터프리터 출력은 양쪽 모두 `universe.sectors=["bts"]`(120B)로 같았다.
+- 원인: 지식그래프의 학습층(`data/term_lexicon.json`)이 git 밖이라 환경마다 따로 자랐다. 로컬은 07-25 학습분(BTS→K-팝 기획사 출처 4건, verified), 프로덕션은 09-16까지 검색 자격증명 누락으로 비어 있다가 09-30 첫 검색에서 출처 1건 → pending(자동 verified 기준 2건) → 테마 0곳 → 업종 근사로 떨어진 뒤 캐시로 굳었다.
+- 수리(사용자 선택: 공유 DB): Supabase `TermLexiconEntry` 테이블(Prisma 마이그레이션 `20260930000000_add_term_lexicon_entry`)이 정본. 백엔드 `engine/lexicon_store.py`(기본 경로=DB, 30초 TTL 캐시, 키 단위 upsert, 장애 시 직전 스냅샷), 지식그래프·`ground_term`·`lexicon_entry`·`general_facts_block`·파스 캐시 키 배선, 관리자 콘솔 `/api/admin/knowledge`를 Prisma로 이관. 가져오기 `backend/scripts/import_term_lexicon.py`.
+- 데이터 이관(사용자 승인, 09-30 완료): 공유 DB에 마이그레이션 적용 → 운영 파일 6개 전체 + 로컬 검수 16개(K-팝 2·바이오 4·산업 10) 가져오기 = 20항목. DB만으로 'bts' → 테마 상장사 13곳 확인. 로컬 나머지(미국 레인 영어 문구 46개·인물·회사명·지수 문구)는 넣지 않는다.
+- 검증: 회귀 `backend/tests/test_lexicon_store.py`(로컬 simons_test DB), 콘솔 `app/api/admin/knowledge/route.test.ts`.

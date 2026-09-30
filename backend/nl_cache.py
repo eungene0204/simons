@@ -25,7 +25,7 @@ _UNIVERSE_FILES = (
     _BASE_DIR / "data" / "korea-stocks.json",
     _BASE_DIR / "data" / "kospi200-cache.json",
     *(_BASE_DIR / "data" / name for name in (
-        "term_lexicon.json", "knowledge-graph.json", "kg-theme-catalog.json",
+        "knowledge-graph.json", "kg-theme-catalog.json",
         "kg-naver-theme-catalog.json", "kg-sector-membership.json", "indicator-ontology.json",
         "us-stocks.json", "us-knowledge-graph.json", "us-theme-catalog.json")),
 )
@@ -39,6 +39,13 @@ def universe_cache_stamp() -> str:
             parts.append(f"{path.name}:{stat.st_mtime_ns}:{stat.st_size}")
         else:
             parts.append(f"{path.name}:missing")
+    try:
+        from engine import lexicon_store
+
+        # 학습 어휘집은 공유 DB가 정본 — 파일 mtime 대신 저장소 변경 토큰
+        parts.append(f"term_lexicon:{lexicon_store.version()}")
+    except Exception:  # noqa: BLE001 — 캐시 키 계산이 요청을 깨면 안 된다
+        parts.append("term_lexicon:unknown")
     return "|".join(parts)
 
 

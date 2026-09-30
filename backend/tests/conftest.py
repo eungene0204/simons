@@ -34,6 +34,11 @@ _ensure_test_runtime_cache_dirs()
 # 검증하는 테스트는 monkeypatch.setenv("AGENT_TRACE_LOCAL", "1")로 개별 활성화한다.
 os.environ.setdefault("AGENT_TRACE_LOCAL", "0")
 
+# 학습 어휘집 기본 경로는 공유 DB(운영과 같은 Supabase)가 정본이다 — 테스트가 그 DB를
+# 읽거나 쓰지 않도록 파일 저장소로 고정한다. DB 저장소 자체를 검증하는 테스트는
+# monkeypatch.setenv("TERM_LEXICON_STORE", "db") + app_db 픽스처(로컬 simons_test)로 켠다.
+os.environ["TERM_LEXICON_STORE"] = "file"
+
 
 # ────────────────────────────────────────────────────────────────────
 # 앱 DB(Postgres) 테스트 픽스처

@@ -162,6 +162,7 @@ simons/
 │   │   ├── universe_pit.py          # PIT(생존편향 제거) 유니버스 + 섹터 유니버스(CANONICAL_SECTORS·normalize_sector·filter_by_sector) + ETF 유니버스(resolve_etf_symbols·filter_etf_by_theme·extract_etf_theme)
 │   │   ├── universe_capabilities.py # 유니버스별 지원 팩터 레지스트리(ETF=기업 재무지표 불가, FR-STR-067)
 │   │   ├── term_grounding.py        # 용어 그라운딩 — 어휘집→지식그래프→LLM→검색 체인으로 테마 용어를 정본 섹터에 매핑(FR-STR-069)
+│   │   ├── lexicon_store.py         # 학습 어휘집 저장소 — 정본=공유 DB(TermLexiconEntry), 로컬·운영이 같은 어휘집을 읽고 씀(TTL 캐시·키 단위 upsert, FR-STR-069, 2026-09-30)
 │   │   ├── knowledge_graph.py       # Investment Knowledge Graph — 개념·공급망·기업·ETF 노드/엣지 합성·탐색(FR-STR-070, docs/knowledge_graph.md)
 │   │   ├── us_knowledge_graph.py    # 미국 지식그래프 — 시드+테마 카탈로그+공시 학습 오버레이 합성, 테마어→구성 티커 해석(US 레인, docs/knowledge_graph.md 미국 섹션)
 │   │   ├── us_industry_registry.py   # 미국 업종 분류 registry — GICS 섹터·산업 정본 → 종목 명부(테마와 다른 축, 표기 변종 병합, FR-STR-074 ⑦)
