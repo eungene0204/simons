@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildRealizedPerformanceSeries } from "@/app/virtual-account/performanceSeries";
+import { buildRealizedPerformanceSeries, marketDateKey } from "@/app/virtual-account/performanceSeries";
 import type { Transaction } from "@/types/portfolio";
 
 const sell = (filledAt: string, realizedPnl: number, over: Partial<Transaction> = {}): Transaction => ({
@@ -96,5 +96,59 @@ describe("buildRealizedPerformanceSeries", () => {
       { time: "2026-01-05", portfolio: 102 },
       { time: "2026-01-06", portfolio: 102 },
     ]);
+  });
+
+  it("추가 납입 전후의 실현손익을 각 날짜까지 납입한 자본으로 나눈다", () => {
+    const series = buildRealizedPerformanceSeries(
+      createdAt,
+      [sell("2026-01-20T01:00:00.000Z", 100_000), sell("2026-02-10T01:00:00.000Z", 100_000)],
+      10_000_000,
+      "2026-03-01",
+      [
+        { date: "2026-02-01", type: "CONTRIBUTION", amount: 10_000_000 },
+        { date: "2026-02-15", type: "CONTRIBUTION_CAPPED", amount: 0 },
+      ]
+    );
+
+    expect(series).toEqual([
+      { time: "2026-01-05", portfolio: 100 },
+      { time: "2026-01-20", portfolio: 101 },
+      { time: "2026-02-01", portfolio: 100.5 },
+      { time: "2026-02-10", portfolio: 101 },
+      { time: "2026-03-01", portfolio: 101 },
+    ]);
+  });
+
+  it("납입일과 매도일이 같으면 납입을 포함한 분모로 하루 한 점만 만든다", () => {
+    const series = buildRealizedPerformanceSeries(
+      createdAt,
+      [sell("2026-02-01T01:00:00.000Z", 200_000)],
+      10_000_000,
+      "2026-02-01",
+      [
+        { date: "2026-02-01", type: "CONTRIBUTION", amount: 10_000_000 },
+        { date: "2026-02-02", type: "CONTRIBUTION", amount: 10_000_000 },
+      ]
+    );
+
+    expect(series).toEqual([
+      { time: "2026-01-05", portfolio: 100 },
+      { time: "2026-02-01", portfolio: 101 },
+    ]);
+  });
+
+  it("한국과 미국 계좌는 UTC 자정 근처 체결을 각 시장 날짜에 배치한다", () => {
+    expect(marketDateKey("2026-02-01T16:00:00.000Z", "Asia/Seoul")).toBe("2026-02-02");
+    expect(marketDateKey("2026-02-02T01:00:00.000Z", "America/New_York")).toBe("2026-02-01");
+
+    const series = buildRealizedPerformanceSeries(
+      createdAt,
+      [sell("2026-02-01T16:00:00.000Z", 100_000)],
+      10_000_000,
+      "2026-02-02",
+      [{ date: "2026-02-02", type: "CONTRIBUTION", amount: 10_000_000 }],
+      "Asia/Seoul"
+    );
+    expect(series.at(-1)).toEqual({ time: "2026-02-02", portfolio: 100.5 });
   });
 });

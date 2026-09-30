@@ -51,7 +51,7 @@ import {
   buildStrategySummaryFromDsl,
 } from "@/lib/strategy-summary";
 import { colorTokens } from "@/components/strategy/colorTokens";
-import { buildRealizedPerformanceSeries } from "@/app/virtual-account/performanceSeries";
+import { buildRealizedPerformanceSeries, marketDateKey, type CashEvent } from "@/app/virtual-account/performanceSeries";
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
 import type { StrategyDSL } from "@/types/strategy";
 import { getLocale, t } from "@/lib/i18n";
@@ -59,7 +59,7 @@ import { formatAccountMoney, isUsdAccount } from "@/lib/account-money";
 import { useRegionHref } from "@/lib/geo/useRegion";
 
 type AccountDetailCache = {
-  account: VirtualAccount;
+  account: VirtualAccount & { cashEvents?: CashEvent[] };
   holdings: PortfolioHolding[];
   transactions: Transaction[];
   trackedSymbols: { symbol: string; name: string }[];
@@ -120,7 +120,7 @@ export default function VirtualAccountDetailPage() {
   const params = useParams();
   const accountId = params.id as string;
 
-  const [account, setAccount] = useState<VirtualAccount | null>(null);
+  const [account, setAccount] = useState<(VirtualAccount & { cashEvents?: CashEvent[] }) | null>(null);
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState("");
@@ -412,7 +412,7 @@ export default function VirtualAccountDetailPage() {
       setIsTrackedSymbolsLoading(false);
       return;
     }
-    setAccount(acc);
+    setAccount(acc as VirtualAccount & { cashEvents?: CashEvent[] });
     const nextHoldings = resolveHoldingDisplayNames((acc as any).holdings ?? [], stockMetadataRef.current);
     const nextTransactions = tv.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     setHoldings(nextHoldings);
@@ -618,6 +618,7 @@ export default function VirtualAccountDetailPage() {
     todayPnl,
     todayPnlPct,
     performanceData,
+    hasCompletePerformanceHistory,
     activeDays,
     investedValue,
     cashRatio,
@@ -626,30 +627,38 @@ export default function VirtualAccountDetailPage() {
     if (!account) {
       return {
         profit: 0, profitPercent: 0, todayPnl: 0, todayPnlPct: 0,
-        performanceData: [], activeDays: 0, investedValue: 0, cashRatio: 0, filledTradeCount: 0,
+        performanceData: [], hasCompletePerformanceHistory: true, activeDays: 0, investedValue: 0, cashRatio: 0, filledTradeCount: 0,
       };
     }
     // 수익률의 분모는 총 납입액이다(정액 적립식 — 납입이 없는 계좌는 초기 자본과 같다).
     const basis = account.totalContributed ?? account.initialAmount;
     const p = account.totalValue - basis;
     const pp = (p / basis) * 100;
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const timeZone = isUsdAccount(account.currency) ? "America/New_York" : "Asia/Seoul";
+    const todayStr = marketDateKey(new Date().toISOString(), timeZone);
     const todayPnl = transactions
-      .filter((tv) => tv.type === "sell" && tv.status === "FILLED" && tv.filledAt?.startsWith(todayStr))
+      .filter((tv) => tv.type === "sell" && tv.status === "FILLED" && tv.filledAt && marketDateKey(tv.filledAt, timeZone) === todayStr)
       .reduce((sum, tv) => sum + (tv.realizedPnl ?? 0), 0);
     const todayPnlPct = basis > 0 ? (todayPnl / basis) * 100 : 0;
     const startDate = new Date(account.createdAt);
     const days = Math.max(1, Math.round((Date.now() - startDate.getTime()) / 86400000));
-    const performanceData = buildRealizedPerformanceSeries(
+    const cashEvents = account.cashEvents ?? [];
+    const recordedContributions = cashEvents
+      .filter((event) => event.type === "CONTRIBUTION")
+      .reduce((sum, event) => sum + event.amount, 0);
+    const hasCompletePerformanceHistory = Math.abs(recordedContributions - (basis - account.initialAmount)) < 0.01;
+    const performanceData = hasCompletePerformanceHistory ? buildRealizedPerformanceSeries(
       account.createdAt,
       transactions,
-      basis,
-      todayStr
-    );
+      account.initialAmount,
+      todayStr,
+      cashEvents,
+      timeZone
+    ) : [];
     const investedValue = Math.max(0, account.totalValue - account.currentBalance);
     const cashRatio = account.totalValue > 0 ? (account.currentBalance / account.totalValue) * 100 : 0;
     const filledTradeCount = transactions.filter((tv) => tv.status === "FILLED").length;
-    return { profit: p, profitPercent: pp, todayPnl, todayPnlPct, performanceData, activeDays: days, investedValue, cashRatio, filledTradeCount };
+    return { profit: p, profitPercent: pp, todayPnl, todayPnlPct, performanceData, hasCompletePerformanceHistory, activeDays: days, investedValue, cashRatio, filledTradeCount };
   }, [account, transactions]);
 
   if (!account) {
@@ -666,6 +675,10 @@ export default function VirtualAccountDetailPage() {
     );
   }
 
+  const hasContributions = (account.totalContributed ?? account.initialAmount) > account.initialAmount;
+  const basisLabel = hasContributions
+    ? t("총 납입액 {0} 기준", formatAccountMoney(account.totalContributed ?? account.initialAmount, account.currency))
+    : t("초기 자본 대비");
   const shouldShowOrderPage = showOrderPage || selectedSymbol;
   const strategySettingsSummary = buildStrategySummaryFromDsl(dbStrategySettings);
   const strategySettingsGroups = buildStrategySummaryGroups(strategySettingsSummary);
@@ -971,7 +984,7 @@ export default function VirtualAccountDetailPage() {
                     className={`mt-1 text-[10px] font-bold tabular-nums ${todayPnl === 0 ? "text-gray-500" : todayPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}
                   >
                     {formatSignedPercent(todayPnlPct)}
-                    <span className="ml-1 font-bold text-gray-500">{t("초기 자본 대비")}</span>
+                    <span className="ml-1 font-bold text-gray-500">{basisLabel}</span>
                   </p>
                 </div>
                 <div className="border-r border-b border-white/[0.08] px-5 py-4">
@@ -982,7 +995,7 @@ export default function VirtualAccountDetailPage() {
                   >
                     {formatSignedPercent(profitPercent)}
                   </p>
-                  <p className="mt-1 text-[10px] font-bold text-gray-500">{t("초기 자본 대비")}</p>
+                  <p className="mt-1 text-[10px] font-bold text-gray-500">{basisLabel}</p>
                 </div>
               </div>
 
@@ -1383,14 +1396,14 @@ export default function VirtualAccountDetailPage() {
                           <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${profit === 0 ? "text-white" : profit > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                             {formatSignedPrice(profit)}
                           </p>
-                          <p className="mt-1 text-[10px] font-bold text-gray-500">{t("초기 자본 대비")}</p>
+                          <p className="mt-1 text-[10px] font-bold text-gray-500">{basisLabel}</p>
                         </div>
                         <div className="border-r border-b border-white/[0.08] p-5">
                           <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{t("누적 수익률")}</p>
                           <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${profitPercent === 0 ? "text-white" : profitPercent > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                             {formatSignedPercent(profitPercent)}
                           </p>
-                          <p className="mt-1 text-[10px] font-bold text-gray-500">{t("초기 자본 대비")}</p>
+                          <p className="mt-1 text-[10px] font-bold text-gray-500">{basisLabel}</p>
                         </div>
                         <div className="border-r border-b border-white/[0.08] p-5">
                           <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{t("당일 실현손익")}</p>
@@ -1399,7 +1412,7 @@ export default function VirtualAccountDetailPage() {
                           </p>
                           <p className={`mt-1 text-[10px] font-bold tabular-nums ${todayPnl === 0 ? "text-gray-500" : todayPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                             {formatSignedPercent(todayPnlPct)}
-                            <span className="ml-1 font-bold text-gray-500">{t("초기 자본 대비")}</span>
+                            <span className="ml-1 font-bold text-gray-500">{basisLabel}</span>
                           </p>
                         </div>
                         <div className="border-r border-b border-white/[0.08] p-5">
@@ -1431,11 +1444,17 @@ export default function VirtualAccountDetailPage() {
                         <div className="flex items-start justify-between gap-4 mb-5">
                           <div>
                             <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">{t("실현손익 추이")}</h2>
-                            <p className="mt-0.5 text-xs font-bold text-gray-500">{t("계좌 개설 이후 누적 실현손익 (초기 자본 대비)")}</p>
+                            <p className="mt-0.5 text-xs font-bold text-gray-500">
+                              {hasContributions
+                                ? t("계좌 개설 이후 누적 실현손익 (초기 자본 대비)").replace(t("초기 자본 대비"), t("총 납입액"))
+                                : t("계좌 개설 이후 누적 실현손익 (초기 자본 대비)")}
+                            </p>
                           </div>
                         </div>
                         <div className="h-72">
-                          <PortfolioPerformanceChart data={performanceData} />
+                          {hasCompletePerformanceHistory
+                            ? <PortfolioPerformanceChart data={performanceData} />
+                            : <p className="text-sm text-[var(--text-label)]">{t("표시할 수익률 데이터가 없습니다.")}</p>}
                         </div>
                       </div>
                       <div className="lg:col-span-3 p-5">

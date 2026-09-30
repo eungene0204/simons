@@ -142,7 +142,7 @@ export async function GET(
   try {
     const { userId } = await getOwnershipContext();
     const account = await findOwnedAccountById(params.id, userId, {
-      include: { VirtualPosition: true },
+      include: { VirtualPosition: true, VirtualCashEvent: { orderBy: { date: 'asc' } } },
     });
     if (!account) {
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
@@ -151,7 +151,14 @@ export async function GET(
     const symbols = (account as any).VirtualPosition.map((p: any) => p.symbol);
     const nameMap = await buildNameMap(symbols);
     const settlementValues = await getAccountSettlementValues(prisma, [account.id]);
-    return NextResponse.json(mapAccount(account, {}, nameMap, settlementValues[account.id]));
+    return NextResponse.json({
+      ...mapAccount(account, {}, nameMap, settlementValues[account.id]),
+      cashEvents: (account as any).VirtualCashEvent?.map((event: any) => ({
+        date: event.date,
+        type: event.type,
+        amount: moneyToNumber(event.amount),
+      })) ?? [],
+    });
   } catch (error) {
     if (isUnauthorizedAccessError(error)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
