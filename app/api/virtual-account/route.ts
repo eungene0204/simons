@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolveTrackedSymbolsForStrategy } from '@/lib/strategy-tracked-symbols';
 import { createFundedAccount, moneyToNumber, toMoney } from '@/lib/server/assetService';
+import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices';
+import type { StockPriceSnapshot } from '@/lib/stock-prices';
 import { getPlan } from '@/lib/plans';
 import { getRequestRegion } from '@/lib/geo/server';
 import { US_PRICING } from '@/lib/pricing/us';
@@ -53,7 +55,19 @@ export async function GET() {
       orderBy: { createdAt: 'desc' },
     });
 
-    return NextResponse.json(accounts.map((a) => mapAccount(a, {})));
+    const symbols = [...new Set(accounts.flatMap((account) =>
+      account.VirtualPosition.map((position) => position.symbol)
+    ))];
+    const snapshots: Record<string, StockPriceSnapshot> = symbols.length > 0
+      ? await fetchStockPriceSnapshots(symbols, { mode: "realtime", subscribe: false }).catch(() => ({}))
+      : {};
+    const priceMap = Object.fromEntries(
+      Object.entries(snapshots)
+        .filter(([, snapshot]) => snapshot.price > 0)
+        .map(([symbol, snapshot]) => [symbol, snapshot.price])
+    );
+
+    return NextResponse.json(accounts.map((account) => mapAccount(account, priceMap)));
   } catch (error) {
     if (isUnauthorizedAccessError(error)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
