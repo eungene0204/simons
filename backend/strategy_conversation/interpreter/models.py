@@ -77,6 +77,13 @@ def _opposes_entry_direction(exit_operator: Optional[str], entry_operators: set)
     entry_directions.discard(None)
     return bool(entry_directions) and direction not in entry_directions
 
+def _is_distinct_bollinger_exit(exit_cond: Any, entry_quotes: set) -> bool:
+    """볼린저 청산이 진입과 다른 인용을 단 별개의 신호인가(역할이 밴드를 정한다 — 상단 매도)."""
+    quote = (exit_cond.source_text or "").strip()
+    return (exit_cond.factor == "technical.bollinger_bands"
+            and bool(quote) and quote not in entry_quotes)
+
+
 _NUMBER_RE = re.compile(r"^-?\d+(?:[.,]\d+)?")
 
 
@@ -1274,16 +1281,26 @@ class StrategySpec(BaseModel):
         # 있으면 매수, 아래로 내려오면 매도"의 청산은 `<`다. 예외를 교차 연산자에만 열어
         # 두면 이 부등호 짝이 미러로 오인돼 사용자가 명시한 청산이 조용히 사라진다
         # (2026-08-05 전수 QA 치명 2건). 연산자를 방향(up/down)으로 환산해 판정한다.
+        #
+        # 볼린저는 방향이 아니라 **역할**이 밴드를 정한다(엔진: 매수=하단, 매도=상단, compiler는
+        # 연산자를 읽지 않는다). "하단 이탈 뒤 밴드 안으로 재진입하면 매수, 상단 상향 돌파하면
+        # 매도"는 두 조건 모두 crosses_above가 정당한 표기라 방향 판정이 청산을 미러로 오인해
+        # 삼켰고, 명시한 매도 규칙을 다시 묻는 되묻기가 났다(2026-09-30 실측, 120B). 볼린저
+        # 청산은 진입과 다른 인용을 달고 있으면 새 정보로 남긴다 — 조작 인용은 하류의 출처
+        # 대조·조건 인용 대조가 거른다. 인용이 없거나 진입 인용을 그대로 복제한 것만 미러다.
         if self.exit_conditions and self.entry_conditions:
             entry_ops: Dict[str, set] = {}
+            entry_quotes: Dict[str, set] = {}
             for c in self.entry_conditions:
                 entry_ops.setdefault(c.factor, set()).add(c.operator)
+                entry_quotes.setdefault(c.factor, set()).add((c.source_text or "").strip())
             self.exit_conditions = [
                 c for c in self.exit_conditions
                 if not (
                     c.value is None
                     and c.factor in entry_ops
                     and not _opposes_entry_direction(c.operator, entry_ops[c.factor])
+                    and not _is_distinct_bollinger_exit(c, entry_quotes[c.factor])
                 )
             ]
         return self

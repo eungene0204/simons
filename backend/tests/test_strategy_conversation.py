@@ -185,6 +185,49 @@ def test_opposite_comparison_exit_survives_mirror_guard():
     assert [c.operator for c in intent.strategy.exit_conditions] == ["<"]
 
 
+def test_bollinger_upper_exit_with_same_operator_survives_mirror_guard():
+    """볼린저는 역할이 밴드를 정한다(매수=하단, 매도=상단) — "하단 이탈 뒤 밴드 안으로 재진입하면
+    매수, 상단을 상향 돌파하면 매도"는 둘 다 crosses_above가 정당한 표기다. 방향 판정이 이 청산을
+    미러로 삼켜 명시한 매도 규칙을 다시 묻던 사고(2026-09-30, 120B 원출력 그대로)."""
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.bollinger_bands", "operator": "crosses_above", "value": None,
+             "parameters": {"period": 20, "deviations": 2},
+             "source_text": "주가가 볼린저밴드(20일, 2σ) 하단선을 아래로 이탈한 뒤 다시 밴드 안으로 진입하면 매수"},
+        ],
+        exit_conditions=[
+            {"factor": "technical.bollinger_bands", "operator": "crosses_above", "value": None,
+             "parameters": {"period": 20, "deviations": 2},
+             "source_text": "주가가 상단선에 도달하거나 상향 돌파하면 매도"},
+        ],
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert [c.source_text for c in intent.strategy.exit_conditions] == [
+        "주가가 상단선에 도달하거나 상향 돌파하면 매도"
+    ]
+    _, report = run_validation(intent)
+    assert "strategy.exit_conditions" not in report.missing_fields
+
+
+def test_bollinger_exit_copying_entry_quote_still_dropped_as_mirror():
+    """인용이 없거나 진입 인용을 그대로 복제한 볼린저 청산은 여전히 미러 드리프트다."""
+    quote = "볼린저밴드 하단 터치 시 매수"
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.bollinger_bands", "operator": "crosses_below", "value": None,
+             "parameters": {"period": 20}, "source_text": quote},
+        ],
+        exit_conditions=[
+            {"factor": "technical.bollinger_bands", "operator": "crosses_below", "value": None,
+             "parameters": {"period": 20}, "source_text": quote},
+            {"factor": "technical.bollinger_bands", "operator": "crosses_below", "value": None,
+             "parameters": {"period": 20}},
+        ],
+    )
+    intent = StrategyIntent.model_validate(data)
+    assert intent.strategy.exit_conditions == []
+
+
 def test_own_line_comparison_needs_no_threshold_value():
     """자기 선을 둘 가진 지표(EMA·이동평균)의 부등호는 두 선의 관계다 — 숫자 임계값을
     요구하면 조건이 값 미정으로 제외돼 명시한 진입·청산이 통째로 사라진다."""
