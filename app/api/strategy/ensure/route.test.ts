@@ -180,4 +180,25 @@ describe("POST /api/strategy/ensure", () => {
     expect(data.message).toBe("전략 저장 한도에 도달했습니다.");
     expect(strategyUpsert).not.toHaveBeenCalled();
   });
+
+  it("다른 계정으로 받은 결과면 409이고 전략·결과를 만들지 않는다 (2026-09-22 게스트 사고)", async () => {
+    const res = await POST(
+      makeRequest({ name: "전략", dsl: DSL, backtestResult: { totalReturn: 1, ownerUserId: 2 } })
+    );
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({ code: "RESULT_OWNER_MISMATCH" });
+    expect(strategyUpsert).not.toHaveBeenCalled();
+    expect(backtestResultCreate).not.toHaveBeenCalled();
+  });
+
+  it("자기 계정으로 받은 결과는 그대로 저장한다", async () => {
+    assertCanSaveStrategy.mockResolvedValue(undefined);
+    const res = await POST(
+      makeRequest({ name: "전략", dsl: DSL, backtestResult: { totalReturn: 1, ownerUserId: 7 } })
+    );
+
+    expect(res.status).toBe(200);
+    expect(strategyUpsert).toHaveBeenCalled();
+  });
 });

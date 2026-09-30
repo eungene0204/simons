@@ -208,6 +208,8 @@ describe("/api/admin/users GET 백테스트 사용량 = 사용자 주기 키", (
         planStartDate,
         backtestUsageMonth: planStartDate.toISOString(),
         backtestCountThisMonth: 26,
+        backtestRunTotal: 120,
+        lastBacktestAt: new Date("2026-09-30T01:00:00Z"),
         _count: { Strategy: 13, VirtualAccount: 8 },
       },
     ]);
@@ -217,5 +219,8 @@ describe("/api/admin/users GET 백테스트 사용량 = 사용자 주기 키", (
     expect(data.users[0].backtestsUsed).toBe(26);
     expect(data.users[0].strategyCount).toBe(13);
     expect(data.users[0].accountCount).toBe(8);
+    // 활동 지표: 주기 리셋 없는 누적 실행 횟수와 최근 실행 시각(2026-09-30)
+    expect(data.users[0].backtestRunTotal).toBe(120);
+    expect(data.users[0].lastBacktestAt).toBe("2026-09-30T01:00:00.000Z");
   });
 });

@@ -64,5 +64,6 @@ export async function POST(req: NextRequest) {
   // BacktestHistory에 isVisible=false 로 저장 (중복 실행 방지용, 목록 비노출)
   await saveCachedResult(cacheKey, body, result);
 
-  return NextResponse.json({ ...result, fromCache: false, cacheKey });
+  // ownerUserId: 이 결과를 실행한 계정 — 결과 화면의 저장·계좌 만들기가 지금 로그인 계정과 대조한다.
+  return NextResponse.json({ ...result, fromCache: false, cacheKey, ownerUserId: user.id });
 }

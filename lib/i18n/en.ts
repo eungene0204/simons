@@ -2203,6 +2203,7 @@ export const en: Record<string, string> = {
   "현재 플랜의 가상계좌 수 한도에 도달했습니다. 요금제를 업그레이드하면 더 많은 계좌를 만들 수 있습니다.": "You've reached the virtual-account limit of your current plan. Upgrade your plan to create more accounts.",
   // ── lib/server/planLimits.ts (서버 한도 안내 — 클라이언트가 t()로 표시)
   "현재 플랜의 저장 가능 전략 수 한도에 도달했습니다. 요금제를 업그레이드하면 더 많은 전략을 저장할 수 있습니다.": "You've reached the saved-strategy limit of your current plan. Upgrade your plan to save more strategies.",
+  "로그인 계정이 바뀌었습니다. 이 결과는 이전 계정으로 실행한 것이라 지금 계정에 저장할 수 없어요. 페이지를 새로 고친 뒤 다시 실행해 주세요.": "You're now signed in to a different account. This result was run under your previous account, so it can't be saved to this one. Refresh the page and run it again.",
   "현재 플랜의 가상계좌 수 한도에 도달했습니다. 요금제를 업그레이드하면 더 많은 가상계좌를 만들 수 있습니다.": "You've reached the virtual-account limit of your current plan. Upgrade your plan to create more virtual accounts.",
   "이번 달 백테스트 한도를 모두 사용했습니다. 요금제를 업그레이드하면 더 많은 백테스트를 실행할 수 있습니다.": "You've used all backtests for this month. Upgrade your plan to run more backtests.",
   "결과 다운로드는 Pro 이상 플랜에서 사용할 수 있습니다.": "Result download is available on the Pro plan and above.",

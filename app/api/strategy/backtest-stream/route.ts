@@ -8,6 +8,7 @@ import {
   PLAN_LIMIT_BACKTESTS,
   PLAN_LIMIT_MESSAGES,
 } from "@/lib/server/planLimits";
+import { RESULT_OWNER_HEADER } from "@/lib/resultOwner";
 
 function makeTraceId(): string {
   return `bt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -202,6 +203,8 @@ export async function POST(req: NextRequest) {
         "Content-Type": res.headers.get("Content-Type") || "text/event-stream",
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
+        // 이 결과를 실행한 계정 — 결과 화면의 저장·계좌 만들기가 지금 로그인 계정과 대조한다.
+        [RESULT_OWNER_HEADER]: String(user.id),
       },
     });
   } catch (e: any) {

@@ -6,6 +6,7 @@ import {
   isUnauthorizedAccessError,
 } from "@/lib/get-user";
 import { isPlaceholderStrategyName } from "@/lib/server/backtestCache";
+import { isResultOwnerMismatch, RESULT_OWNER_MISMATCH_BODY, stripResultOwner } from "@/lib/resultOwner";
 import {
   BACKTEST_LIST_SELECT,
   fetchUserBacktestHistory,
@@ -63,7 +64,12 @@ export async function POST(request: Request) {
   try {
     const { userId } = await getOwnershipContext();
     const body = await request.json();
-    const { strategyName, prompt, universe, conditions, metrics, result, cacheKey, isAutoSave } = body;
+    const { strategyName, prompt, universe, conditions, metrics, cacheKey, isAutoSave } = body;
+    // 다른 계정으로 받은 결과를 지금 계정의 "내 목록"에 담지 않는다.
+    if (isResultOwnerMismatch(body.result?.ownerUserId, userId)) {
+      return NextResponse.json(RESULT_OWNER_MISMATCH_BODY, { status: 409 });
+    }
+    const result = stripResultOwner(body.result);
 
     let saved: any = null;
 

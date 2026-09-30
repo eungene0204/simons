@@ -173,6 +173,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         ...summary,
         executionId: record.id,
         strategyId: strategy.id,
+        // 결과 주인 = 이 전략을 연 계정(소유 확인을 거쳤다) — 결과 화면의 쓰기 요청이 대조한다.
+        ...(userId != null && { ownerUserId: userId }),
         tradesList,
         monthlyReturns: summary.monthlyReturns ?? {},
         yearlyReturns: summary.yearlyReturns ?? {},

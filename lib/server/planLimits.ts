@@ -263,6 +263,9 @@ export async function consumeBacktestQuota(
     data: {
       backtestUsageMonth: periodKey,
       backtestCountThisMonth: usedThisPeriod + 1,
+      // 활동 지표(관리자 콘솔) — 한도 카운터와 달리 주기마다 리셋되지 않는다.
+      backtestRunTotal: { increment: 1 },
+      lastBacktestAt: now,
     },
   });
 }

@@ -95,6 +95,8 @@ export async function GET(
       conditions: JSON.parse(item.conditions),
       metrics: JSON.parse(item.metrics),
       result: item.result ? JSON.parse(item.result) : undefined,
+      // 결과 주인 = 이 기록을 연 계정(자기 목록에 담은 사람만 연다) — 결과 화면의 쓰기 요청이 대조한다.
+      ownerUserId: userId,
     });
   } catch (error) {
     if (isUnauthorizedAccessError(error)) {

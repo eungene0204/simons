@@ -372,6 +372,8 @@ model User {
   lastLoginAt    DateTime?
   backtestUsageMonth     String?
   backtestCountThisMonth Int       @default(0)
+  backtestRunTotal       Int       @default(0) // 누적 백테스트 실행 횟수(주기 리셋 없음) — 관리자 콘솔 활동 지표. 2026-09-30부터 집계
+  lastBacktestAt         DateTime? // 마지막 백테스트 실행 시각 — 관리자 콘솔 활동 지표
   createdAt      DateTime         @default(now())
   updatedAt      DateTime
   ResearchRun    ResearchRun[]
@@ -459,6 +461,7 @@ model ChatQaLog {
   answerKind String // error | clarification | strategy | coach | info | text
   chipAnswer Boolean  @default(false) // 칩을 눌러 답한 턴
   latencyMs  Int? // 질문이 뜬 시각 → 마지막 답변이 갱신된 시각
+  strategySnapshot String? // 그 턴에 보여 준 전략 카드 JSON {summaryItems, parsed} — 콘솔에서 해석 내용 확인용(2026-09-30~)
   createdAt  DateTime @default(now())
 
   @@index([createdAt])

@@ -95,6 +95,7 @@ describe("planLimits — 월 백테스트 한도", () => {
   const now = new Date("2026-06-15T03:00:00Z");
   const thisMonth = currentUsageMonth(now);
 
+  // 누적 실행 횟수·최근 실행 시각(관리자 콘솔 활동 지표, 2026-09-30)도 함께 올린다 — 주기 리셋 없음.
   it("한도 미만이면 카운트를 1 증가시킨다", async () => {
     const client = createClient({
       planTier: "FREE",
@@ -104,7 +105,11 @@ describe("planLimits — 월 백테스트 한도", () => {
     await consumeBacktestQuota(client as any, 1, now);
     expect(client.user.update).toHaveBeenCalledWith({
       where: { id: 1 },
-      data: { backtestUsageMonth: thisMonth, backtestCountThisMonth: 6 },
+      data: {
+        backtestUsageMonth: thisMonth, backtestCountThisMonth: 6,
+        backtestRunTotal: { increment: 1 },
+        lastBacktestAt: now,
+      },
     });
   });
 
@@ -127,7 +132,11 @@ describe("planLimits — 월 백테스트 한도", () => {
     await consumeBacktestQuota(client as any, 1, now);
     expect(client.user.update).toHaveBeenCalledWith({
       where: { id: 1 },
-      data: { backtestUsageMonth: thisMonth, backtestCountThisMonth: 1 },
+      data: {
+        backtestUsageMonth: thisMonth, backtestCountThisMonth: 1,
+        backtestRunTotal: { increment: 1 },
+        lastBacktestAt: now,
+      },
     });
   });
 });
@@ -352,6 +361,8 @@ describe("planLimits — 구독 시작일 기준 롤링 결제 주기", () => {
       data: {
         backtestUsageMonth: "2026-06-20T00:00:00.000Z",
         backtestCountThisMonth: 1,
+        backtestRunTotal: { increment: 1 },
+        lastBacktestAt: now,
       },
     });
   });
@@ -415,6 +426,8 @@ describe("planLimits — FREE 플랜 가입일 기준 사용량 주기", () => {
       data: {
         backtestUsageMonth: "2026-06-20T00:00:00.000Z",
         backtestCountThisMonth: 1,
+        backtestRunTotal: { increment: 1 },
+        lastBacktestAt: now,
       },
     });
   });

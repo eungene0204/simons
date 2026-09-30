@@ -384,6 +384,9 @@ export interface BacktestWithdrawals {
 export interface BacktestResult {
   executionId: string;
   strategyId: string;
+  // 이 결과를 실행(또는 열람)한 로그인 계정 — 결과 화면의 저장·계좌 만들기가 지금 계정과
+  // 대조한다(lib/resultOwner.ts). 이 필드 이전에 받은 결과는 없다.
+  ownerUserId?: number;
   symbol?: string; // Kept for backward compatibility
   symbols?: string[]; 
   totalReturn: number;
@@ -573,6 +576,8 @@ export interface BacktestHistoryItem {
   prompt?: string;
   // 원천 Strategy의 DSL(entry/exit/risk 등). 워크포워드 실행에 필요(상세 조회 API에서만 채워짐)
   settings?: Record<string, unknown> | null;
+  // 이 기록을 연 계정(상세 조회 API에서만 채워짐) — 결과 화면의 쓰기 요청이 대조한다.
+  ownerUserId?: number;
   universe: string;
   conditions: string[] | {
     names?: string[];

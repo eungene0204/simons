@@ -95,4 +95,18 @@ describe("/api/chat-log POST", () => {
 
     expect(res.status).toBe(500);
   });
+
+  // 2026-09-30: 콘솔에서 사용자가 입력한 전략을 우리가 어떻게 해석했는지 보기 위해 카드를 저장한다.
+  it("그 턴의 전략 카드를 JSON으로 함께 기록한다", async () => {
+    const strategy = { summaryItems: [{ label: "매수", value: "RSI 30 이하" }], parsed: { rsi: 30 } };
+    await post({ ...validBody, answerKind: "strategy", strategy });
+
+    const saved = chatQaLogCreate.mock.calls[0][0].data.strategySnapshot;
+    expect(JSON.parse(saved)).toEqual(strategy);
+  });
+
+  it("카드가 없는 턴은 비워 둔다", async () => {
+    await post(validBody);
+    expect(chatQaLogCreate.mock.calls[0][0].data.strategySnapshot).toBeNull();
+  });
 });

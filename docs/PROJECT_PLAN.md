@@ -2164,3 +2164,19 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 - 수리(사용자 선택: 공유 DB): Supabase `TermLexiconEntry` 테이블(Prisma 마이그레이션 `20260930000000_add_term_lexicon_entry`)이 정본. 백엔드 `engine/lexicon_store.py`(기본 경로=DB, 30초 TTL 캐시, 키 단위 upsert, 장애 시 직전 스냅샷), 지식그래프·`ground_term`·`lexicon_entry`·`general_facts_block`·파스 캐시 키 배선, 관리자 콘솔 `/api/admin/knowledge`를 Prisma로 이관. 가져오기 `backend/scripts/import_term_lexicon.py`.
 - 데이터 이관(사용자 승인, 09-30 완료): 공유 DB에 마이그레이션 적용 → 운영 파일 6개 전체 + 로컬 검수 16개(K-팝 2·바이오 4·산업 10) 가져오기 = 20항목. DB만으로 'bts' → 테마 상장사 13곳 확인. 로컬 나머지(미국 레인 영어 문구 46개·인물·회사명·지수 문구)는 넣지 않는다.
 - 검증: 회귀 `backend/tests/test_lexicon_store.py`(로컬 simons_test DB), 콘솔 `app/api/admin/knowledge/route.test.ts`.
+
+### ✅ 완료 — 콘솔 활동 집계 정비: 결과 주인 대조 + 누적 실행 지표 (2026-09-30)
+
+- 사고: 콘솔에서 guest_1656이 백테스트 0회인데 전략 1·계좌 1. DB 추적 결과 이 계정은 카운터가 한 번도 기록된 적 없고, 09-22 04:25 전략·계좌는 3시간 25분 전(01:00:22) 다른 로그인 계정이 실행한 결과로 만들어졌다(그 사이 같은 전략 재실행 없음). 로그인 쿠키는 브라우저 전체 공유라, 옛 계정의 결과 화면에서 누른 저장·계좌 만들기가 새 계정으로 들어간다. 집계 자체는 정확했다.
+- A 결과 주인 대조(`lib/resultOwner.ts`): 서버가 결과에 주인을 붙이고(스트림=`X-Result-Owner` 헤더, run·기록 상세·전략 상세=`ownerUserId`), `ensure`·`save-with-backtest`·`POST /api/backtest/history`가 지금 세션과 다르면 409. 주인 없는 옛 결과는 통과.
+- B 활동 지표: `User.backtestRunTotal`·`lastBacktestAt`(마이그레이션 `20260930120000_add_user_backtest_activity`, **09-30 운영 DB 적용 완료** — 사용자 승인). `consumeBacktestQuota`가 올린다. Users 탭 누적 실행·최근 실행 칸·최근 실행순 정렬, Backtests 탭 누적 실행 칸. 과거 횟수는 복원 불가(오늘부터 집계).
+- 검증: 회귀 `lib/resultOwner.test.ts`, `app/api/backtest/history/route.test.ts`, ensure·save-with-backtest·run·backtest-stream·admin users/backtests·planLimits 테스트. 프론트 전체 2,336건 통과.
+
+### ✅ 완료 — 콘솔에서 사용자가 입력한 전략·우리의 해석 보기 (2026-09-30)
+
+- 문제: 대화 기록(`ChatQaLog`)에 전략 답변이 `[전략 요약 카드]` 자리표시자로만 남아(전략 턴 92건 전부), 사용자가 입력한 전략을 우리가 어떻게 이해했는지 콘솔에서 볼 수 없었다.
+- 수리: 턴마다 마지막으로 보여 준 카드(화면 항목 그대로 + 해석 원본)를 `ChatQaLog.strategySnapshot`에 기록(마이그레이션 `20260930130000_add_chat_qa_log_strategy_snapshot`, **09-30 운영 DB 적용 완료** — 사용자 승인). 콘솔 `GET /api/admin/qa-logs`에 `userId`·`strategyOnly` 필터, 칸 도입 전 턴은 같은 세션의 `StrategyChatLog` 스냅샷에서 복원(읽기만). Users 탭 사용자 선택 → `UserConversationPanel`(입력 원문·응답·"우리가 이해한 전략" 카드·해석 원본 JSON), Q&A Logs 탭 행 펼침에도 카드 표시.
+- 과거분 복원 실측: 카드 턴 881건 중 224건(관리자 제외 실사용자 113건 중 110건).
+- 검증: 회귀 `qaLog.test.ts`·`chat-log/route.test.ts`·`lib/server/qaLogStrategy.test.ts`·`admin/qa-logs/route.test.ts`·`UserConversationPanel.test.tsx`. 프론트 전체 2,349건 통과.
+- 남은 한계: 기록은 여전히 브라우저가 보낸다(탭 닫힘·통신 실패 시 누락) — 서버 직접 기록은 미착수(제안 2번).
+

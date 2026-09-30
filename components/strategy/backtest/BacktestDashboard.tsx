@@ -852,7 +852,8 @@ export default function BacktestDashboard({
     const ensuredData = await ensured.json().catch(() => null);
     if (!ensured.ok || !ensuredData?.id) {
       throw new Error(
-        ensuredData?.message || ensuredData?.error || t("전략을 저장하지 못해 계좌를 만들지 못했습니다.")
+        (ensuredData?.message ? t(ensuredData.message) : ensuredData?.error) ||
+          t("전략을 저장하지 못해 계좌를 만들지 못했습니다.")
       );
     }
 

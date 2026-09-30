@@ -21,6 +21,7 @@ interface UsageRow {
   used: number
   limit: number
   remaining: number
+  runTotal: number
 }
 
 interface UsageResponse {
@@ -108,15 +109,16 @@ export default function BacktestsTab() {
               <th className={thClass}>플랜</th>
               <th className={thClass}>현재 주기 사용량</th>
               <th className={thClass}>남은 횟수</th>
+              <th className={thClass}>누적 실행</th>
               <th className={thClass}>사용량 조정</th>
               <th className={thClass}>최근 실행</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <LoadingRow colSpan={6} />
+              <LoadingRow colSpan={7} />
             ) : !data || data.users.length === 0 ? (
-              <EmptyRow colSpan={6} />
+              <EmptyRow colSpan={7} />
             ) : (
               data.users.map((u) => (
                 <Fragment key={u.id}>
@@ -129,6 +131,7 @@ export default function BacktestsTab() {
                       {u.used}/{u.limit}
                     </td>
                     <td className={tdClass}>{u.remaining}</td>
+                    <td className={tdClass}>{u.runTotal}</td>
                     <td className={tdClass}>
                       <div className="flex gap-1.5">
                         <button
@@ -162,7 +165,7 @@ export default function BacktestsTab() {
                   </tr>
                   {expandedUserId === u.id && (
                     <tr className="border-b border-white/5">
-                      <td colSpan={6} className="bg-white/[0.02] px-6 py-3">
+                      <td colSpan={7} className="bg-white/[0.02] px-6 py-3">
                         {recentRuns.length === 0 ? (
                           <p className="text-xs font-bold text-gray-600">최근 기록이 없습니다</p>
                         ) : (

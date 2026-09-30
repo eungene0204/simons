@@ -5,10 +5,15 @@
 // 사용자 원문의 의미를 판정하지 않는다(대원칙 1) — 질문은 원문 그대로 싣고, 답변의 종류
 // (answerKind)는 우리가 채운 필드가 무엇인지만 보고 정한다.
 
+import type { BuilderSummaryItem } from "./builderProgressPresentation";
+
 export type QaChatMessage = {
   role: string;
   content?: string;
   parsed?: unknown;
+  // 전략 요약 카드에 실제로 그려진 항목 — 되묻기 중 카드(builderPresentation)와 확정 카드.
+  builderPresentation?: { summaryItems?: BuilderSummaryItem[] } | null;
+  confirmedSummaryItems?: BuilderSummaryItem[];
   coachText?: string;
   infoText?: string;
   clarification?: string;
@@ -21,6 +26,18 @@ export type QaChatMessage = {
   chipAnswer?: boolean;
 };
 
+/**
+ * 한 턴에 우리가 보여 준 전략 — 콘솔에서 "사용자가 무엇을 입력했고 우리가 어떻게 이해했는지"를
+ * 되짚기 위한 기록(2026-09-30). 텍스트 답변에는 카드가 `[전략 요약 카드]` 자리표시자로만 남아
+ * 해석 내용이 사라졌다.
+ * - summaryItems: 카드에 그려진 항목 그대로(대화 상태에 따라 달라지므로 화면에서 옮겨 적는다)
+ * - parsed: 해석 결과 원본(ParsedStrategy) — 카드가 보여 주지 않는 칸까지 확인용
+ */
+export type QaStrategySnapshot = {
+  summaryItems: BuilderSummaryItem[] | null;
+  parsed: unknown;
+};
+
 export type QaTurn = {
   /** 이 대화 세션 안에서 몇 번째 질문인가(0부터). 기록의 순서이자 중복 판정 기준. */
   turnIndex: number;
@@ -29,6 +46,8 @@ export type QaTurn = {
   chipAnswer: boolean;
   answer: string;
   answerKind: QaAnswerKind;
+  /** 이 턴에 마지막으로 보여 준 전략 카드. 카드가 없던 턴은 null. */
+  strategy: QaStrategySnapshot | null;
   /** 아직 응답이 진행 중(로딩 자리표시자가 남아 있음). 기록하지 않는다. */
   pending: boolean;
 };
@@ -76,6 +95,17 @@ export function answerTextOf(message: QaChatMessage): string {
   return parts.join("\n");
 }
 
+/** 어시스턴트 메시지가 띄운 전략 카드. 확정 카드가 있으면 그것, 없으면 되묻기 중 카드. */
+export function strategySnapshotOf(message: QaChatMessage): QaStrategySnapshot | null {
+  if (!message.parsed) return null;
+  const confirmed = message.confirmedSummaryItems;
+  const summaryItems =
+    confirmed && confirmed.length > 0
+      ? confirmed
+      : message.builderPresentation?.summaryItems ?? null;
+  return { summaryItems, parsed: message.parsed };
+}
+
 /** 어시스턴트 메시지 하나의 종류. 채워진 필드만 보고 정한다. */
 export function answerKindOf(message: QaChatMessage): QaAnswerKind {
   if (message.error?.trim()) return "error";
@@ -99,6 +129,7 @@ export function collectQaTurns(messages: QaChatMessage[]): QaTurn[] {
   let chipAnswer = false;
   let parts: string[] = [];
   let kinds: QaAnswerKind[] = [];
+  let strategy: QaStrategySnapshot | null = null;
   let pending = false;
 
   const close = () => {
@@ -109,6 +140,7 @@ export function collectQaTurns(messages: QaChatMessage[]): QaTurn[] {
       chipAnswer,
       answer: parts.join("\n\n"),
       answerKind: KIND_PRIORITY.find((k) => kinds.includes(k)) ?? "none",
+      strategy,
       pending,
     });
   };
@@ -120,6 +152,7 @@ export function collectQaTurns(messages: QaChatMessage[]): QaTurn[] {
       chipAnswer = Boolean(message.chipAnswer);
       parts = [];
       kinds = [];
+      strategy = null;
       pending = false;
       continue;
     }
@@ -132,6 +165,7 @@ export function collectQaTurns(messages: QaChatMessage[]): QaTurn[] {
     if (text) parts.push(text);
     const kind = answerKindOf(message);
     if (kind !== "none") kinds.push(kind);
+    strategy = strategySnapshotOf(message) ?? strategy;
   }
   close();
 
@@ -166,6 +200,7 @@ export type QaLogPayload = {
   answerKind: QaAnswerKind;
   chipAnswer: boolean;
   latencyMs: number | null;
+  strategy: QaStrategySnapshot | null;
 };
 
 /** 기록 전송은 대화를 막지 않는다 — 실패해도 조용히 버린다. */

@@ -13,6 +13,7 @@ import {
   PLAN_LIMIT_MESSAGES,
   PLAN_LIMIT_STRATEGIES,
 } from "@/lib/server/planLimits";
+import { isResultOwnerMismatch, RESULT_OWNER_MISMATCH_BODY, stripResultOwner } from "@/lib/resultOwner";
 
 function buildOwnedStrategyId(userId: number | null, dsl: any) {
   const baseId = computeStrategyIdFromDsl(dsl);
@@ -46,6 +47,10 @@ export async function POST(request: Request) {
     }
     if (!dsl) {
       return NextResponse.json({ error: "전략 설정 정보가 없습니다." }, { status: 400 });
+    }
+    // 다른 계정으로 받은 결과 화면에서 저장하려는 요청 — 지금 계정에 저장하지 않는다.
+    if (isResultOwnerMismatch(backtestResult?.ownerUserId, userId)) {
+      return NextResponse.json(RESULT_OWNER_MISMATCH_BODY, { status: 409 });
     }
 
     let strategyId = buildOwnedStrategyId(userId, dsl);
@@ -210,7 +215,7 @@ export async function POST(request: Request) {
             conditions: JSON.stringify({ entry: dslToSave.entry ?? null, exit: dslToSave.exit ?? null }),
             metrics: JSON.stringify(metrics),
             result: JSON.stringify({
-              ...backtestResult,
+              ...stripResultOwner(backtestResult),
               strategyId: strategy.id,
             }),
             cacheKey: backtestResult.cacheKey ?? strategy.id,

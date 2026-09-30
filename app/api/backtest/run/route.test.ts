@@ -64,4 +64,14 @@ describe("POST /api/backtest/run", () => {
     expect(res.status).toBe(429);
     expect(engineFetch).not.toHaveBeenCalled();
   });
+
+  it("결과에 실행한 계정을 붙인다", async () => {
+    getCurrentUser.mockResolvedValue({ id: 3 });
+    consumeBacktestQuota.mockResolvedValue(undefined);
+    engineFetch.mockResolvedValue({ ok: true, json: async () => ({ totalReturn: 1 }) });
+
+    const res = await POST(makeRequest({ symbols: ["005930"] }));
+
+    await expect(res.json()).resolves.toMatchObject({ ownerUserId: 3 });
+  });
 });

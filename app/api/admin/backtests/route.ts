@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
         createdAt: true,
         backtestUsageMonth: true,
         backtestCountThisMonth: true,
+        backtestRunTotal: true,
       },
     })
     const ranked = allUsers
@@ -79,6 +80,8 @@ export async function GET(request: NextRequest) {
           used,
           limit,
           remaining: Math.max(0, limit - used),
+          // 주기 리셋 없는 누적 실행 횟수(2026-09-30부터 집계)
+          runTotal: u.backtestRunTotal,
         }
       }),
     })

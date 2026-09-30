@@ -158,6 +158,7 @@ import {
   chipAnswersGateSlot,
 } from "./deterministicConditionFlow";
 import { t } from "@/lib/i18n";
+import { parseResultOwner, RESULT_OWNER_HEADER } from "@/lib/resultOwner";
 
 // 되묻기 게이트가 provenance(사용자가 실제로 말했나)를 요구하는 설정 필드.
 // backtestReadiness.ExplicitField와 같은 목록이며, 칩 답변을 그 채널에 기록할 때 쓴다.
@@ -2310,6 +2311,7 @@ function StrategyLabContent() {
           answerKind: turn.answerKind,
           chipAnswer: turn.chipAnswer,
           latencyMs: startedAt ? qaLastChangeAtRef.current - startedAt : null,
+          strategy: turn.strategy,
         });
         qaLoggedTurnsRef.current = turn.turnIndex + 1;
       }
@@ -4681,6 +4683,7 @@ function StrategyLabContent() {
         throw new Error(typeof err.detail === "string" ? t(err.detail) : t("백테스트 실패"));
       }
 
+      const resultOwner = parseResultOwner(res.headers.get(RESULT_OWNER_HEADER));
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -4703,7 +4706,10 @@ function StrategyLabContent() {
         } else if (event.type === "meta") {
           nlCacheKey = event.cacheKey ?? undefined;
         } else if (event.type === "result") {
-          setResult(mapRawBacktestResult(event.data, `nl_${Date.now()}`, nlCacheKey));
+          setResult({
+            ...mapRawBacktestResult(event.data, `nl_${Date.now()}`, nlCacheKey),
+            ownerUserId: resultOwner,
+          });
           setExecutedReq(effectiveReq);
           setStage("done");
           // Activation 핵심 지표 — 버튼 클릭이 아니라 결과 생성이 확정된 이 지점에서만 보낸다.

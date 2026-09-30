@@ -10,6 +10,7 @@ import {
   PLAN_LIMIT_MESSAGES,
 } from '@/lib/server/planLimits';
 import { buildBacktestResultSummary } from '@/lib/server/backtestResultSummary';
+import { isResultOwnerMismatch, RESULT_OWNER_MISMATCH_BODY } from '@/lib/resultOwner';
 
 /**
  * 이 경로로 저장된 전략도 저장 전략 목록에 그대로 뜨므로, 실행한 백테스트 결과를 함께
@@ -52,6 +53,11 @@ export async function POST(request: Request) {
       dsl?: StrategyDSL;
       backtestResult?: any;
     };
+
+    // 다른 계정으로 받은 결과 화면에서 계좌를 만들려는 요청 — 지금 계정에 전략·계좌를 만들지 않는다.
+    if (isResultOwnerMismatch(backtestResult?.ownerUserId, userId)) {
+      return NextResponse.json(RESULT_OWNER_MISMATCH_BODY, { status: 409 });
+    }
 
     if (!name?.trim()) {
       return NextResponse.json({ error: '전략 이름이 필요합니다.' }, { status: 400 });

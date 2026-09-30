@@ -235,6 +235,8 @@ describe("TopNavigation quick search", () => {
     // 모바일·데스크톱 내비가 각자 마크를 그린다(둘 다 배경 제거 필터, id만 다름)
     const logoMarks = screen.getAllByTestId("nullstock-logo-mark");
     expect(logoMarks).toHaveLength(2);
+    expect(logoMarks[0].closest("a")).toHaveAttribute("href", "/intro");
+    expect(logoMarks[1].closest("a")).toHaveAttribute("href", "/intro");
     expect(logoMarks[0].querySelector("image")).toHaveAttribute(
       "filter",
       "url(#nullstock-logo-mobile)"

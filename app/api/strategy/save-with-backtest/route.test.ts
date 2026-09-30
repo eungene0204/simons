@@ -127,4 +127,14 @@ describe("POST /api/strategy/save-with-backtest 플랜 한도", () => {
 
     expect(assertCanSaveStrategy).toHaveBeenCalledTimes(1);
   });
+
+  it("다른 계정으로 받은 결과면 409이고 저장하지 않는다 (2026-09-22 게스트 사고)", async () => {
+    const res = await POST(
+      makeRequest({ name: "전략", dsl: DSL, backtestResult: { totalReturn: 1, ownerUserId: 2 } })
+    );
+
+    expect(res.status).toBe(409);
+    expect(assertCanSaveStrategy).not.toHaveBeenCalled();
+    expect(strategyUpsert).not.toHaveBeenCalled();
+  });
 });

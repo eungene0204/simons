@@ -237,4 +237,13 @@ describe("strategy backtest stream route", () => {
     expect(consumeBacktestQuota).not.toHaveBeenCalled();
     expect(fetchBackend).not.toHaveBeenCalled();
   });
+
+  it("응답 헤더로 결과를 실행한 계정을 알린다 (결과 화면의 쓰기 요청이 대조)", async () => {
+    fetchBackend.mockResolvedValueOnce(makeSseResponse("data: [DONE]\n\n"));
+
+    const response = await route.POST(makeRequest({ symbols: ["005930"] }));
+
+    expect(response.headers.get("X-Result-Owner")).toBe("42");
+    await response.text();
+  });
 });

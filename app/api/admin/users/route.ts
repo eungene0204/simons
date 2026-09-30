@@ -37,9 +37,11 @@ export async function GET(request: NextRequest) {
     const orderBy =
       sort === 'lastLoginAt'
         ? { lastLoginAt: 'desc' as const }
-        : sort === 'email'
-          ? { email: 'asc' as const }
-          : { createdAt: 'desc' as const }
+        : sort === 'lastBacktestAt'
+          ? { lastBacktestAt: { sort: 'desc' as const, nulls: 'last' as const } }
+          : sort === 'email'
+            ? { email: 'asc' as const }
+            : { createdAt: 'desc' as const }
 
     const [total, users] = await Promise.all([
       prisma.user.count({ where }),
@@ -60,6 +62,8 @@ export async function GET(request: NextRequest) {
           planStartDate: true,
           backtestUsageMonth: true,
           backtestCountThisMonth: true,
+          backtestRunTotal: true,
+          lastBacktestAt: true,
           _count: {
             select: {
               Strategy: { where: { isSaved: true, deletedAt: null } },
@@ -97,6 +101,9 @@ export async function GET(request: NextRequest) {
           accountCount: u._count.VirtualAccount,
           backtestsUsed: usage.used,
           backtestLimit: limits[u.planTier] + usage.carry,
+          // 활동 지표 — 주기 리셋 없는 누적 실행 횟수(2026-09-30부터 집계)와 마지막 실행 시각
+          backtestRunTotal: u.backtestRunTotal,
+          lastBacktestAt: u.lastBacktestAt,
         }
       }),
     })

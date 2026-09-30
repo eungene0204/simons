@@ -67,6 +67,7 @@ describe("/api/admin/backtests GET", () => {
         createdAt: new Date("2026-07-11T00:00:00Z"),
         backtestUsageMonth: periodKey,
         backtestCountThisMonth: 26,
+        backtestRunTotal: 120,
       },
     ]);
 
@@ -77,6 +78,7 @@ describe("/api/admin/backtests GET", () => {
       [3, 0],
     ]);
     expect(data.total).toBe(2);
+    expect(data.users[0].runTotal).toBe(120);
   });
 });
 

@@ -237,7 +237,7 @@ function StrategyResultContent() {
           formatApiErrorDetail(rerunData.detail) ?? formatApiErrorDetail(rerunData.error) ?? t("재실행 실패")
         );
       }
-      setResult(mapBacktestResponse(rerunData));
+      setResult({ ...mapBacktestResponse(rerunData), ownerUserId: rerunData.ownerUserId });
       setLegacyNotice(null);
       setError(null);
     } catch (e: any) {

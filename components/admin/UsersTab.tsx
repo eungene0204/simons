@@ -18,6 +18,7 @@ import {
   inputClass,
 } from './shared'
 import { PRORATED_REFUND_ENABLED } from '@/lib/plans'
+import UserConversationPanel from './UserConversationPanel'
 
 interface AdminUser {
   id: number
@@ -33,6 +34,9 @@ interface AdminUser {
   accountCount: number
   backtestsUsed: number
   backtestLimit: number
+  // 주기 리셋 없는 누적 실행 횟수(2026-09-30부터 집계)와 마지막 실행 시각
+  backtestRunTotal: number
+  lastBacktestAt: string | null
 }
 
 // 중도 해지 정산(부분 환불) 미리보기 — 약관 제12조 제9항
@@ -240,6 +244,7 @@ export default function UsersTab() {
         <select value={sort} onChange={(e) => setSort(e.target.value)} className={inputClass}>
           <option value="createdAt">가입일순</option>
           <option value="lastLoginAt">최근 로그인순</option>
+          <option value="lastBacktestAt">최근 실행순</option>
           <option value="email">이메일순</option>
         </select>
       </div>
@@ -255,16 +260,18 @@ export default function UsersTab() {
                 <th className={thClass}>상태</th>
                 <th className={thClass}>전략</th>
                 <th className={thClass}>계좌</th>
-                <th className={thClass}>백테스트</th>
+                <th className={thClass}>주기 사용량</th>
+                <th className={thClass}>누적 실행</th>
+                <th className={thClass}>최근 실행</th>
                 <th className={thClass}>가입일</th>
                 <th className={thClass}>최근 로그인</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <LoadingRow colSpan={8} />
+                <LoadingRow colSpan={10} />
               ) : !data || data.users.length === 0 ? (
-                <EmptyRow colSpan={8} />
+                <EmptyRow colSpan={10} />
               ) : (
                 data.users.map((u) => (
                   <tr
@@ -289,6 +296,8 @@ export default function UsersTab() {
                     <td className={tdClass}>
                       {u.backtestsUsed}/{u.backtestLimit}
                     </td>
+                    <td className={tdClass}>{u.backtestRunTotal}</td>
+                    <td className={tdClass}>{formatDateTime(u.lastBacktestAt)}</td>
                     <td className={tdClass}>{formatDate(u.createdAt)}</td>
                     <td className={tdClass}>{formatDateTime(u.lastLoginAt)}</td>
                   </tr>
@@ -342,10 +351,18 @@ export default function UsersTab() {
                 </dd>
               </div>
               <div className="flex justify-between">
-                <dt className="font-bold text-gray-500">백테스트 사용량</dt>
+                <dt className="font-bold text-gray-500">현재 주기 사용량</dt>
                 <dd className="font-bold text-gray-200">
                   {selected.backtestsUsed}/{selected.backtestLimit}
                 </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="font-bold text-gray-500">누적 실행</dt>
+                <dd className="font-bold text-gray-200">{selected.backtestRunTotal}회</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="font-bold text-gray-500">최근 실행</dt>
+                <dd className="font-bold text-gray-200">{formatDateTime(selected.lastBacktestAt)}</dd>
               </div>
               <div className="flex justify-between">
                 <dt className="font-bold text-gray-500">가입일</dt>
@@ -497,6 +514,11 @@ export default function UsersTab() {
           </div>
         )}
       </div>
+
+      {/* 고른 사용자가 입력한 전략과 우리의 응답 — 사용자를 바꾸면 처음부터 다시 읽는다 */}
+      {selected && (
+        <UserConversationPanel key={selected.id} userId={selected.id} email={selected.email} />
+      )}
     </div>
   )
 }

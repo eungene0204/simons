@@ -114,6 +114,7 @@ export default function BacktestDetailPage() {
   // 여기서는 별도 매핑을 거치지 않았음). signals에서 재구성해 보완한다.
   const result = {
     ...item.result,
+    ownerUserId: item.ownerUserId,
     tradesList: item.result.tradesList?.length
       ? item.result.tradesList
       : (item.result.signals ?? []).map((signal: any) => ({

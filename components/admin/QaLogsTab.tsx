@@ -13,6 +13,7 @@ import {
   inputClass,
   actionBtnClass,
 } from './shared'
+import StrategySnapshotView, { type StrategySnapshot, type StrategySource } from './StrategySnapshotView'
 
 interface QaLog {
   id: string
@@ -26,6 +27,8 @@ interface QaLog {
   chipAnswer: boolean
   latencyMs: number | null
   createdAt: string
+  strategy: StrategySnapshot | null
+  strategySource: StrategySource | null
 }
 
 interface QaLogResponse {
@@ -199,6 +202,11 @@ export default function QaLogsTab() {
                     </td>
                     <td className={`${tdClass} max-w-[32rem] whitespace-pre-wrap text-gray-400`}>
                       <span className={expanded ? '' : 'line-clamp-2'}>{log.answer}</span>
+                      {expanded && log.strategy && (
+                        <div className="mt-2 whitespace-normal" onClick={(e) => e.stopPropagation()}>
+                          <StrategySnapshotView strategy={log.strategy} source={log.strategySource} />
+                        </div>
+                      )}
                     </td>
                     <td className={tdClass}>{formatLatency(log.latencyMs)}</td>
                     <td className={tdClass}>

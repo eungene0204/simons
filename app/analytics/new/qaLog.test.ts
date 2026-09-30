@@ -83,6 +83,31 @@ describe("collectQaTurns", () => {
     });
   });
 
+  // 2026-09-30: 텍스트에는 카드가 자리표시자로만 남아 해석 내용이 사라졌다 — 카드를 따로 싣는다.
+  it("턴마다 마지막으로 보여 준 전략 카드(화면 항목 + 해석 원본)를 싣는다", () => {
+    const shown = [{ label: "종목군", value: "KOSPI200" }];
+    const confirmed = [{ label: "매수", value: "RSI 30 이하" }];
+    const turns = collectQaTurns([
+      user("RSI 전략"),
+      {
+        role: "assistant",
+        parsed: { universe: ["KOSPI200"] },
+        builderPresentation: { summaryItems: shown },
+        clarification: "몇 종목을 담을까요?",
+      },
+      user("이 전략으로 확정", true),
+      { role: "assistant", parsed: { universe: ["KOSPI200"], v: 2 }, confirmedSummaryItems: confirmed },
+      user("고마워"),
+      { role: "assistant", coachText: "천만에요" },
+    ]);
+
+    expect(turns[0].strategy).toEqual({ summaryItems: shown, parsed: { universe: ["KOSPI200"] } });
+    // 확정 카드가 있으면 그것이 사용자가 본 카드다
+    expect(turns[1].strategy).toEqual({ summaryItems: confirmed, parsed: { universe: ["KOSPI200"], v: 2 } });
+    // 카드가 없는 턴은 앞 턴의 카드를 물려받지 않는다
+    expect(turns[2].strategy).toBeNull();
+  });
+
   it("로딩 자리표시자가 남아 있는 턴은 pending이다", () => {
     const turns = collectQaTurns([
       user("코스피 대형주 모멘텀"),

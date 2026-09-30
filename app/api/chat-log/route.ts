@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/get-user'
+import { strategySnapshotJson } from '@/lib/server/qaLogStrategy'
 
 export const dynamic = 'force-dynamic'
 
@@ -66,6 +67,7 @@ export async function POST(request: NextRequest) {
         answerKind,
         chipAnswer: body.chipAnswer === true,
         latencyMs,
+        strategySnapshot: strategySnapshotJson(body.strategy),
       },
     })
     return new NextResponse(null, { status: 204 })
