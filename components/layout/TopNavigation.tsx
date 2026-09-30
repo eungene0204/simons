@@ -563,7 +563,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       >
         <div className="flex min-w-0 items-center gap-2">
           <Link
-            href={regionHref("/intro")}
+            href={regionHref("/")}
             onClick={() => setIsMobileMenuOpen(false)}
             className="group flex min-w-0 items-center gap-2"
           >
@@ -603,7 +603,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       <nav className="relative hidden items-center gap-1 overflow-x-auto bg-black/40 px-4 py-3 backdrop-blur-xl scrollbar-hide lg:flex 2xl:px-6">
         {/* Logo */}
         <div className="mr-4 flex flex-shrink-0 items-center gap-3 xl:mr-6 2xl:mr-8">
-          <Link href={regionHref("/intro")} className="group flex items-center gap-3">
+          <Link href={regionHref("/")} className="group flex items-center gap-3">
             <NullstockLogoMark className="h-[1.125rem] w-[1.375rem] transition-transform duration-300 group-hover:scale-105" />
             <span className="text-[15px] font-black tracking-tight text-white">{t("널스탁")}</span>
           </Link>

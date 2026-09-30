@@ -235,8 +235,8 @@ describe("TopNavigation quick search", () => {
     // 모바일·데스크톱 내비가 각자 마크를 그린다(둘 다 배경 제거 필터, id만 다름)
     const logoMarks = screen.getAllByTestId("nullstock-logo-mark");
     expect(logoMarks).toHaveLength(2);
-    expect(logoMarks[0].closest("a")).toHaveAttribute("href", "/intro");
-    expect(logoMarks[1].closest("a")).toHaveAttribute("href", "/intro");
+    expect(logoMarks[0].closest("a")).toHaveAttribute("href", "/");
+    expect(logoMarks[1].closest("a")).toHaveAttribute("href", "/");
     expect(logoMarks[0].querySelector("image")).toHaveAttribute(
       "filter",
       "url(#nullstock-logo-mobile)"
@@ -255,6 +255,16 @@ describe("TopNavigation quick search", () => {
       "url(#nullstock-transparent-background)"
     );
     expect(screen.queryByAltText("NullStock Logo")).not.toBeInTheDocument();
+  });
+
+  it("미국 경로에서도 로고가 해당 지역의 전략 입력 홈으로 이동한다", async () => {
+    pathnameMock.current = "/us/dashboard";
+
+    renderWithQueryClient(<TopNavigation />);
+
+    const logoMarks = screen.getAllByTestId("nullstock-logo-mark");
+    expect(logoMarks[0].closest("a")).toHaveAttribute("href", "/us");
+    expect(logoMarks[1].closest("a")).toHaveAttribute("href", "/us");
   });
 
   it("탑메뉴 묶음을 흐름 안에서 가운데 두어 좁은 데스크톱에서도 가려지지 않게 한다", async () => {
