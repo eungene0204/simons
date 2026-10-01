@@ -42,15 +42,10 @@ from ingest_judal_themes import (  # noqa: E402 — 제외 목록·동의어 규
 )
 
 from engine.knowledge_graph import TEST_RESERVED_TERMS  # noqa: E402
-from engine.naver_theme_live import (  # noqa: E402 — 라이브 편입과 파서 공유
-    DETAIL_URL,
+from engine.naver_theme_live import (  # noqa: E402 — 라이브 편입과 수집기 공유
     FETCH_DELAY_S,
-    THEME_LIST_URL,
-    UPJONG_LIST_URL,
-    _fetch,
-    parse_group_list,
-    parse_group_stocks,
-    parse_theme_page_count,
+    fetch_group_index,
+    fetch_group_pairs,
 )
 from engine.universe_pit import normalize_sector  # noqa: E402
 
@@ -72,19 +67,7 @@ def main() -> None:
             if key:
                 seed_terms.add(key)
 
-    first_page = _fetch(THEME_LIST_URL.format(page=1))
-    groups: list[dict] = [{**g, "kind": "theme"} for g in parse_group_list(first_page, "theme")]
-    for page in range(2, parse_theme_page_count(first_page) + 1):
-        time.sleep(FETCH_DELAY_S)
-        groups += [
-            {**g, "kind": "theme"}
-            for g in parse_group_list(_fetch(THEME_LIST_URL.format(page=page)), "theme")
-        ]
-    time.sleep(FETCH_DELAY_S)
-    groups += [
-        {**g, "kind": "upjong"}
-        for g in parse_group_list(_fetch(UPJONG_LIST_URL), "upjong")
-    ]
+    groups = fetch_group_index()
     print(f"네이버 테마 {sum(g['kind'] == 'theme' for g in groups)}개 · "
           f"업종 {sum(g['kind'] == 'upjong' for g in groups)}개 발견")
 
@@ -112,7 +95,7 @@ def main() -> None:
             continue
 
         time.sleep(FETCH_DELAY_S)
-        pairs = parse_group_stocks(_fetch(DETAIL_URL.format(kind=kind, no=group["no"])))
+        pairs = fetch_group_pairs(group)
         kept = [{"symbol": c, "name": n} for c, n in pairs if c in master_symbols]
         report["dropped_symbols"] += len(pairs) - len(kept)
         if not kept:

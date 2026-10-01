@@ -29,19 +29,20 @@ def _fake_fetch(pages: dict[str, str]):
     return fetch
 
 
-def _pages(theme_name: str, no: int = 901, detail_html: str | None = None) -> dict[str, str]:
-    list_html = (
-        f'<a href="/sise/sise_group_detail.naver?type=theme&no={no}">{theme_name}</a>'
-    )
-    detail = detail_html if detail_html is not None else (
-        '<a href="/item/main.naver?code=005930">삼성전자</a>'
-        '<a href="/item/main.naver?code=000660">SK하이닉스</a>'
-        '<a href="/item/main.naver?code=999999">정본없는종목</a>'
-    )
+def _pages(theme_name: str, no: int = 901, stocks: list[dict] | None = None) -> dict[str, str]:
+    """네이버 금융 JSON API 응답(2026-10-01 개편 이후 형태)."""
+    stocks = stocks if stocks is not None else [
+        {"itemCode": "005930", "stockName": "삼성전자"},
+        {"itemCode": "000660", "stockName": "SK하이닉스"},
+        {"itemCode": "999999", "stockName": "정본없는종목"},
+    ]
     return {
-        ntl.THEME_LIST_URL.format(page=1): list_html,
-        ntl.UPJONG_LIST_URL: "",
-        ntl.DETAIL_URL.format(kind="theme", no=no): detail,
+        ntl.LIST_URL.format(api_kind="theme", page=1): json.dumps(
+            {"groups": [{"no": no, "name": theme_name}], "totalCount": 1}, ensure_ascii=False),
+        ntl.LIST_URL.format(api_kind="industry", page=1): json.dumps(
+            {"groups": [], "totalCount": 0}),
+        ntl.GROUP_API_URL.format(api_kind="theme", no=no, page=1): json.dumps(
+            {"stocks": stocks, "totalCount": len(stocks)}, ensure_ascii=False),
     }
 
 
@@ -81,7 +82,7 @@ def test_lookup_rejects_partial_match(tmp_path):
     # 접두·부분 일치 금지 — 복합 테마구 오확정 가드와 동일 원칙
     fetch = _fake_fetch(_pages("가상수집테마"))
     assert ntl.lookup_and_ingest("가상수집", catalog_path=tmp_path / "c.json", fetch=fetch) is False
-    assert not any("sise_group_detail" in u for u in fetch.calls)  # 상세 페이지 미접근
+    assert not any("/theme/" in u for u in fetch.calls)  # 상세 미접근
     # 이름 키워드 스코프 가드는 폐지됐다(2026-08-29) — 종전에 '인맥' 표기만으로 반려되던
     # 분류도 이제 표기가 정합하면 그대로 수록된다. 되살리지 말 것.
     fetch2 = _fake_fetch(_pages("가상정치인맥"))

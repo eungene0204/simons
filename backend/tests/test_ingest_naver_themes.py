@@ -1,8 +1,9 @@
 """네이버 금융 업종·테마 카탈로그 수집(scripts/ingest_naver_themes) — 파서·가드 검증.
 
 핵심 계약:
-  - 목록 파서는 상세 링크(no)와 이름만 취하고 중복 no는 1회만.
-  - 종목 파서는 텍스트 있는 종목 링크만(차트 링크 자연 제외), 중복 코드 1회만.
+  - 수집은 네이버 금융 JSON API(2026-10-01 개편 이후) — 목록·상세 모두 페이지를 넘겨 전부 모은다.
+  - 목록 파서는 no·이름만 취하고 중복 no는 1회만. 종목 파서는 6자리 코드만, 중복 1회만.
+  - 목록 0개는 수집 고장으로 예외(조용한 0개 = 라이브 편입 전체가 죽은 채 잠복).
   - 스코프 제외는 명시 목록(EXCLUDE_PERSON·EXCLUDE_EVENT·EXCLUDE_MARKET)만 쓴다 —
     이름 키워드 가드(인물·정치·재해·질병)는 2026-08-29 폐지.
 """
@@ -17,33 +18,66 @@ spec = importlib.util.spec_from_file_location("ingest_naver_themes", _SCRIPT)
 ing = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ing)
 
-_THEME_LIST_HTML = """
-<td class="col_type1"><a href="/sise/sise_group_detail.naver?type=theme&no=442">2차전지</a></td>
-<td class="col_type1"><a href="/sise/sise_group_detail.naver?type=theme&no=589">LCD 부품/소재</a></td>
-<td class="col_type1"><a href="/sise/sise_group_detail.naver?type=theme&no=442">2차전지</a></td>
-<a href="/sise/theme.naver?&amp;page=6">6</a>
-<a href="/sise/theme.naver?&amp;page=7">7</a>
-"""
+import json
 
-_DETAIL_HTML = """
-<td class="name"><div class="name_area"><a href="/item/main.naver?code=035420">NAVER</a></div></td>
-<td><a href="/item/main.naver?code=035420"><img src="chart.png"></a></td>
-<td class="name"><div class="name_area"><a href="/item/main.naver?code=035720">카카오</a></div></td>
-"""
+import pytest
+
+import engine.naver_theme_live as live
 
 
-def test_parse_group_list_dedupes_and_extracts():
-    groups = ing.parse_group_list(_THEME_LIST_HTML, "theme")
-    assert {(g["no"], g["name"]) for g in groups} == {(442, "2차전지"), (589, "LCD 부품/소재")}
+def _api(pages: dict[str, dict]):
+    def fetch(url: str) -> str:
+        return json.dumps(pages[url], ensure_ascii=False)
+    return fetch
 
 
-def test_parse_theme_page_count():
-    assert ing.parse_theme_page_count(_THEME_LIST_HTML) == 7
-    assert ing.parse_theme_page_count("<html></html>") == 1
+def _list_url(api_kind: str, page: int) -> str:
+    return live.LIST_URL.format(api_kind=api_kind, page=page)
 
 
-def test_parse_group_stocks_skips_chart_links():
-    assert ing.parse_group_stocks(_DETAIL_HTML) == [("035420", "NAVER"), ("035720", "카카오")]
+def test_fetch_group_index_pages_through_api(monkeypatch):
+    monkeypatch.setattr(live, "FETCH_DELAY_S", 0)
+    fetch = _api({
+        _list_url("theme", 1): {"groups": [{"no": 121, "name": "남북경협"},
+                                          {"no": 442, "name": "2차전지"}], "totalCount": 3},
+        _list_url("theme", 2): {"groups": [{"no": 442, "name": "2차전지"},
+                                          {"no": 589, "name": "LCD 부품/소재"}], "totalCount": 3},
+        _list_url("industry", 1): {"groups": [{"no": 261, "name": "제약"}], "totalCount": 1},
+    })
+    groups = live.fetch_group_index(fetch)
+    assert {(g["no"], g["name"], g["kind"]) for g in groups} == {
+        (121, "남북경협", "theme"), (442, "2차전지", "theme"),
+        (589, "LCD 부품/소재", "theme"), (261, "제약", "upjong"),
+    }
+
+
+def test_fetch_group_index_empty_is_failure(monkeypatch):
+    """개편 사고(2026-10-01) 회귀 — 옛 HTML 파서가 0개를 돌려줘도 '정합 없음'으로 지나갔다."""
+    monkeypatch.setattr(live, "FETCH_DELAY_S", 0)
+    fetch = _api({_list_url(k, 1): {"groups": [], "totalCount": 0} for k in ("theme", "industry")})
+    with pytest.raises(RuntimeError):
+        live.fetch_group_index(fetch)
+
+
+def test_fetch_group_pairs_pages_and_dedupes(monkeypatch):
+    monkeypatch.setattr(live, "FETCH_DELAY_S", 0)
+    url = live.GROUP_API_URL
+    fetch = _api({
+        url.format(api_kind="industry", no=261, page=1): {"stocks": [
+            {"itemCode": "035420", "stockName": "NAVER"},
+            {"itemCode": "035420", "stockName": "NAVER"},
+        ], "totalCount": 3},
+        url.format(api_kind="industry", no=261, page=2): {"stocks": [
+            {"itemCode": "035720", "stockName": "카카오"},
+        ], "totalCount": 3},
+    })
+    pairs = live.fetch_group_pairs({"no": 261, "name": "제약", "kind": "upjong"}, fetch)
+    assert pairs == [("035420", "NAVER"), ("035720", "카카오")]
+
+
+def test_inter_korean_themes_not_excluded():
+    """'남북경협'·'대북주'·'개성공단' 제외 해제(2026-10-01 사용자 결정) — 재추가 금지."""
+    assert not {"남북경협", "대북주", "개성공단"} & set(ing.EXCLUDE_EVENT)
 
 
 def test_scope_keyword_guard_is_abolished():

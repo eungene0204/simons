@@ -27,8 +27,15 @@ logger = console_logger(__name__, "KG-NAVER")
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent
 CATALOG_PATH = _BASE_DIR / "data" / "kg-naver-theme-catalog.json"
 
-THEME_LIST_URL = "https://finance.naver.com/sise/theme.naver?&page={page}"
-UPJONG_LIST_URL = "https://finance.naver.com/sise/sise_group.naver?type=upjong"
+# 2026-10-01 네이버 금융 개편(stock.naver.com, 화면을 브라우저가 그리는 방식)으로 옛 목록·상세
+# HTML에서 분류가 사라져 파서가 늘 0개를 돌려주던 사고 — 수집은 같은 사이트가 쓰는 JSON API로
+# 한다. 분류 번호(no)는 개편 전후 동일하다(카탈로그 id naver-theme-536 = API no 536).
+_API_BASE = "https://m.stock.naver.com/api/stocks"
+_API_KIND = {"theme": "theme", "upjong": "industry"}  # 카탈로그 id의 kind 표기는 종전 유지
+_PAGE_SIZE = 100  # API 상한 — 더 크게 주면 빈 응답
+LIST_URL = _API_BASE + "/{api_kind}?page={page}&pageSize=" + str(_PAGE_SIZE)
+GROUP_API_URL = _API_BASE + "/{api_kind}/{no}?page={page}&pageSize=" + str(_PAGE_SIZE)
+# 사람이 여는 분류 페이지 — 학습 엣지의 근거 링크(구 주소, 새 사이트로 리다이렉트된다)
 DETAIL_URL = "https://finance.naver.com/sise/sise_group_detail.naver?type={kind}&no={no}"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
 FETCH_DELAY_S = 0.2
@@ -42,33 +49,41 @@ FETCH_DELAY_S = 0.2
 def _fetch(url: str) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.read().decode("euc-kr", errors="ignore")  # 네이버 금융은 EUC-KR
+        return resp.read().decode("utf-8", errors="ignore")
 
 
-def parse_group_list(html: str, kind: str) -> list[dict]:
-    """목록 페이지에서 (no, 이름) 추출 — kind는 'theme'|'upjong'."""
-    pat = re.compile(
-        rf'href="/sise/sise_group_detail\.naver\?type={kind}&no=(\d+)"[^>]*>([^<]+)</a>'
-    )
-    seen: dict[str, dict] = {}
-    for no, name in pat.findall(html):
-        seen.setdefault(no, {"no": int(no), "name": name.strip()})
+def _fetch_all(url_template: str, key: str, fetch, **fmt) -> list[dict]:
+    """페이지를 넘기며 응답의 key 목록을 모은다 — totalCount에 닿거나 빈 페이지면 끝."""
+    items: list[dict] = []
+    page = 1
+    while True:
+        data = json.loads(fetch(url_template.format(page=page, **fmt)))
+        batch = data.get(key) or []
+        items += batch
+        if not batch or len(items) >= int(data.get("totalCount") or 0):
+            return items
+        page += 1
+        time.sleep(FETCH_DELAY_S)
+
+
+def parse_group_list(items: list[dict], kind: str) -> list[dict]:
+    """목록 API 항목에서 [{no, name, kind}] — 중복 no는 1회만."""
+    seen: dict[int, dict] = {}
+    for item in items:
+        no, name = item.get("no"), (item.get("name") or "").strip()
+        if isinstance(no, int) and name:
+            seen.setdefault(no, {"no": no, "name": name, "kind": kind})
     return list(seen.values())
 
 
-def parse_theme_page_count(html: str) -> int:
-    pages = re.findall(r"theme\.naver\?[^\"]*page=(\d+)", html)
-    return max((int(p) for p in pages), default=1)
-
-
-def parse_group_stocks(html: str) -> list[tuple[str, str]]:
-    """상세 페이지의 종목 (코드, 이름) — 차트 링크(텍스트 없는 앵커)는 자연 제외."""
-    pat = re.compile(r'href="/item/main\.naver\?code=(\d{6})"[^>]*>([^<]+)</a>')
+def parse_group_stocks(items: list[dict]) -> list[tuple[str, str]]:
+    """상세 API 종목 항목에서 (코드, 이름) — 중복 코드는 1회만."""
     out, seen = [], set()
-    for code, name in pat.findall(html):
-        if code not in seen:
+    for item in items:
+        code, name = item.get("itemCode") or "", (item.get("stockName") or "").strip()
+        if re.fullmatch(r"\d{6}", code) and code not in seen:
             seen.add(code)
-            out.append((code, name.strip()))
+            out.append((code, name))
     return out
 
 
@@ -78,20 +93,23 @@ def strip_paren(name: str) -> str:
 
 def fetch_group_index(fetch=_fetch) -> list[dict]:
     """네이버 금융 테마(전 페이지)+업종 목록 — [{no, name, kind}]."""
-    first_page = fetch(THEME_LIST_URL.format(page=1))
-    groups = [{**g, "kind": "theme"} for g in parse_group_list(first_page, "theme")]
-    for page in range(2, parse_theme_page_count(first_page) + 1):
+    groups: list[dict] = []
+    for kind, api_kind in _API_KIND.items():
+        items = _fetch_all(LIST_URL, "groups", fetch, api_kind=api_kind)
+        groups += parse_group_list(items, kind)
         time.sleep(FETCH_DELAY_S)
-        groups += [
-            {**g, "kind": "theme"}
-            for g in parse_group_list(fetch(THEME_LIST_URL.format(page=page)), "theme")
-        ]
-    time.sleep(FETCH_DELAY_S)
-    groups += [
-        {**g, "kind": "upjong"}
-        for g in parse_group_list(fetch(UPJONG_LIST_URL), "upjong")
-    ]
+    if not groups:
+        # 0개는 '정합 없음'이 아니라 수집 고장이다 — 조용히 넘기면 라이브 편입 전체가
+        # 죽은 채 잠복한다(2026-10-01 개편 사고). 호출부가 실패로 로그를 남기게 올린다.
+        raise RuntimeError("네이버 분류 목록 0개 — 사이트·API 구조 변경 의심")
     return groups
+
+
+def fetch_group_pairs(group: dict, fetch=_fetch) -> list[tuple[str, str]]:
+    """분류 하나의 수록 종목 (코드, 이름) 전부 — 정본 필터 전. 수집 실패는 예외로 올린다."""
+    items = _fetch_all(GROUP_API_URL, "stocks", fetch,
+                       api_kind=_API_KIND[group["kind"]], no=group["no"])
+    return parse_group_stocks(items)
 
 
 def _group_match_keys(name: str) -> set[str]:
@@ -112,7 +130,7 @@ def fetch_group_stocks(group: dict, fetch=None) -> list[dict]:
     fetch = fetch or _fetch
     try:
         time.sleep(FETCH_DELAY_S)
-        pairs = parse_group_stocks(fetch(DETAIL_URL.format(kind=group["kind"], no=group["no"])))
+        pairs = fetch_group_pairs(group, fetch=fetch)
     except Exception:  # noqa: BLE001 — 상세 실패 분류만 건너뛴다
         logger.info("네이버 분류 상세 수집 실패: %s(no=%s)", group["name"], group["no"], exc_info=True)
         return []
