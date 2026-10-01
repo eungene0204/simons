@@ -5,9 +5,10 @@ import TopNavigation from "@/components/layout/TopNavigation";
 import { EmailLoginOptionProvider } from "@/components/providers/EmailLoginOptionProvider";
 import { mergePopularStocks } from "@/components/layout/QuickSearchModal";
 
-const { pathnameMock, searchParamsMock } = vi.hoisted(() => ({
+const { pathnameMock, searchParamsMock, navigateHomeMock } = vi.hoisted(() => ({
   pathnameMock: { current: "/" },
   searchParamsMock: { current: "" },
+  navigateHomeMock: vi.fn(),
 }));
 
 const pushMock = vi.fn();
@@ -47,6 +48,15 @@ vi.mock("next/navigation", () => ({
     refresh: vi.fn(),
   }),
 }));
+
+vi.mock("@/components/layout/leaveStrategyConversation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/layout/leaveStrategyConversation")>();
+  return {
+    ...actual,
+    leaveStrategyConversation: (href: string) =>
+      actual.leaveStrategyConversation(href, navigateHomeMock),
+  };
+});
 
 vi.mock("@/lib/firebase", () => ({
   getSupabaseBrowserClient: () => ({
@@ -99,6 +109,7 @@ function renderWithQueryClient(ui: React.ReactElement) {
 describe("TopNavigation quick search", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
     MockEventSource.instances = [];
     pathnameMock.current = "/";
     searchParamsMock.current = "";
@@ -310,7 +321,7 @@ describe("TopNavigation quick search", () => {
 
     fireEvent.click(within(drawer).getByRole("link", { name: /전략연구소/i }));
 
-    expect(pushMock).toHaveBeenCalledWith("/analytics");
+    expect(navigateHomeMock).toHaveBeenCalledWith("/");
     expect(screen.queryByRole("dialog", { name: "모바일 메뉴" })).not.toBeInTheDocument();
     expect(document.body.style.overflow).toBe("");
   });
@@ -436,7 +447,7 @@ describe("TopNavigation quick search", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("가상계좌 query가 남아 있어도 전략연구소의 정식 경로로 이동한다", async () => {
+  it("가상계좌 query가 남아 있어도 전략 입력 랜딩으로 이동한다", async () => {
     pathnameMock.current = "/analytics/chat";
     searchParamsMock.current = "virtualAccount=open";
 
@@ -444,35 +455,46 @@ describe("TopNavigation quick search", () => {
 
     fireEvent.click(await screen.findByRole("link", { name: /전략연구소/i }));
 
-    expect(pushMock).toHaveBeenCalledWith("/analytics");
-    expect(pushMock).not.toHaveBeenCalledWith("/analytics?virtualAccount=open");
+    expect(navigateHomeMock).toHaveBeenCalledWith("/");
+    expect(pushMock).not.toHaveBeenCalled();
   });
 
-  it("백테스트 결과 화면에서 전략연구소 메뉴를 누르면 대화는 유지한 채 대화 화면으로 내린다", async () => {
+  it("전략연구소 메뉴를 누르면 진행 중인 대화를 종료하고 랜딩으로 이동한다", async () => {
     pathnameMock.current = "/analytics/new";
     const messages = [{ role: "user", content: "PBR 1 이하" }];
     sessionStorage.setItem(
       "simons.strategyChatState",
       JSON.stringify({ messages, stage: "done", result: { cagr: 12.4 } })
     );
-    const chatViewRequests = vi.fn();
-    window.addEventListener("simons:strategy-lab-chat-view", chatViewRequests);
+    sessionStorage.setItem("simons.pendingStrategyPrompt", "PBR 1 이하");
 
     renderWithQueryClient(<TopNavigation />);
 
     fireEvent.click(await screen.findByRole("link", { name: /전략연구소/i }));
 
-    // 대화·결과 데이터는 보존하고, 결과 화면으로 복원되지 않도록 stage만 강등한다.
-    expect(JSON.parse(sessionStorage.getItem("simons.strategyChatState")!)).toEqual({
-      messages,
-      stage: "ready",
-      result: { cagr: 12.4 },
-    });
-    // 같은 라우트에 이미 떠 있는 결과 화면은 이벤트로 내린다(router.push만으로는 안 바뀜).
-    expect(chatViewRequests).toHaveBeenCalled();
-    expect(pushMock).toHaveBeenCalledWith("/analytics");
+    expect(sessionStorage.getItem("simons.strategyChatState")).toBeNull();
+    expect(sessionStorage.getItem("simons.pendingStrategyPrompt")).toBeNull();
+    expect(navigateHomeMock).toHaveBeenCalledWith("/");
+    expect(pushMock).not.toHaveBeenCalled();
+  });
 
-    window.removeEventListener("simons:strategy-lab-chat-view", chatViewRequests);
+  it("로고와 이름을 누르면 현재 경로가 랜딩이어도 대화를 종료하고 페이지를 교체한다", async () => {
+    pathnameMock.current = "/";
+    renderWithQueryClient(<TopNavigation />);
+
+    const logoLinks = screen.getAllByTestId("nullstock-logo-mark").map(
+      (mark) => mark.closest("a")!
+    );
+    for (const logoLink of logoLinks) {
+      sessionStorage.setItem("simons.strategyChatState", '{"stage":"ready"}');
+      sessionStorage.setItem("simons.pendingStrategyPrompt", "진행 중인 전략");
+      fireEvent.click(logoLink);
+
+      expect(sessionStorage.getItem("simons.strategyChatState")).toBeNull();
+      expect(sessionStorage.getItem("simons.pendingStrategyPrompt")).toBeNull();
+      expect(navigateHomeMock).toHaveBeenLastCalledWith("/");
+    }
+    expect(navigateHomeMock).toHaveBeenCalledTimes(2);
   });
 
   it("로그인된 상태에서는 사용자 프로필 버튼과 드롭다운 메뉴를 보여준다", async () => {

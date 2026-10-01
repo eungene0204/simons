@@ -9,9 +9,9 @@ import { useDialogBehavior } from "@/lib/hooks/useDialogBehavior";
 import { trackEvent } from "@/lib/analytics";
 import {
   PENDING_STRATEGY_PROMPT_KEY,
-  requestStrategyLabChatView,
 } from "@/components/strategy/strategyTemplateSession";
 import { clearStrategyChatStorage } from "@/components/strategy/strategyChatStorage";
+import { leaveStrategyConversation } from "./leaveStrategyConversation";
 import {
   SquaresFour,
   Bank,
@@ -507,11 +507,10 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       return;
     }
 
-    // 전략연구소 메뉴 재진입 시에는 이전 대화를 유지한다(복원은 page.tsx의 세션
-    // 스냅샷 복원 로직이 담당). 단, 백테스트 결과 화면이 떠 있으면 결과 화면이
-    // 그대로 남아 메뉴를 눌러도 이동이 안 된 것처럼 보이므로 대화 화면으로 내린다.
     if (item.id === "analytics") {
-      requestStrategyLabChatView();
+      e.preventDefault();
+      leaveStrategyConversation(regionHref("/"));
+      return;
     }
 
     e.preventDefault();
@@ -564,7 +563,11 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         <div className="flex min-w-0 items-center gap-2">
           <Link
             href={regionHref("/")}
-            onClick={() => setIsMobileMenuOpen(false)}
+            onClick={(event) => {
+              event.preventDefault();
+              setIsMobileMenuOpen(false);
+              leaveStrategyConversation(regionHref("/"));
+            }}
             className="group flex min-w-0 items-center gap-2"
           >
             <NullstockLogoMark
@@ -603,7 +606,14 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       <nav className="relative hidden items-center gap-1 overflow-x-auto bg-black/40 px-4 py-3 backdrop-blur-xl scrollbar-hide lg:flex 2xl:px-6">
         {/* Logo */}
         <div className="mr-4 flex flex-shrink-0 items-center gap-3 xl:mr-6 2xl:mr-8">
-          <Link href={regionHref("/")} className="group flex items-center gap-3">
+          <Link
+            href={regionHref("/")}
+            onClick={(event) => {
+              event.preventDefault();
+              leaveStrategyConversation(regionHref("/"));
+            }}
+            className="group flex items-center gap-3"
+          >
             <NullstockLogoMark className="h-[1.125rem] w-[1.375rem] transition-transform duration-300 group-hover:scale-105" />
             <span className="text-[15px] font-black tracking-tight text-white">{t("널스탁")}</span>
           </Link>
@@ -621,7 +631,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             return (
               <Link
                 key={item.id}
-                href={regionHref(item.href)}
+                href={regionHref(item.id === "analytics" ? "/" : item.href)}
                 prefetch={item.prefetch}
                 onClick={(e) => handleMenuClick(item, e)}
                 className={`relative flex items-center gap-1.5 px-2.5 py-2 rounded-xl transition-all duration-300 whitespace-nowrap group xl:gap-2 xl:px-3 2xl:px-4 ${
@@ -746,7 +756,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                   return (
                     <Link
                       key={item.id}
-                      href={regionHref(item.href)}
+                      href={regionHref(item.id === "analytics" ? "/" : item.href)}
                       prefetch={item.prefetch}
                       onClick={(event) => handleMenuClick(item, event)}
                       className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 transition-colors ${
