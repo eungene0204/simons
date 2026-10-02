@@ -95,12 +95,20 @@ def test_classify_universe_factor_backstop_keeps_real_universes():
     assert call("classify_universe", text="양자컴퓨터").universe_type == "CONCEPT"
 
 
-def test_classify_universe_prefers_kr_theme_over_us_ticker_on_kr_lane():
+def test_classify_universe_prefers_kr_theme_over_us_ticker_on_kr_lane(monkeypatch):
     """[회귀] 2026-10-02 — "mRNA 관련주를 대상으로 …"에서 planner가 '관련주'를 떼고
     text="mRNA"로 재분류하자, 미국 명부(대소문자 무시)가 모더나 티커 MRNA로 풀어 SINGLE_STOCK
     → 지역 격리 가드가 "한국 주식시장만 지원"으로 전략을 거절했다. KR 레인에서는 티커 철자만
-    같은 국내 테마 표기가 미국 티커보다 먼저다."""
+    같은 국내 테마 표기가 미국 티커보다 먼저다. (종목 조회는 고정 — CI에는 미국 parquet이 없다)"""
     import ui_language
+    from strategy_conversation.registry import universe_resolver
+
+    us_names = {"mrna": "MRNA", "ai": "AI", "hbm": "HBM", "애플": "AAPL"}
+    monkeypatch.setattr(
+        universe_resolver, "resolve_symbols",
+        lambda refs: ([us_names[r.lower()] for r in refs if r.lower() in us_names],
+                      [r for r in refs if r.lower() not in us_names]),
+    )
 
     for text in ("mRNA", "AI", "HBM"):
         assert call("classify_universe", text=text).universe_type == "CONCEPT", text
@@ -111,6 +119,7 @@ def test_classify_universe_prefers_kr_theme_over_us_ticker_on_kr_lane():
     with ui_language.bind("en"):
         out = call("classify_universe", text="mRNA")
     assert (out.universe_type, out.canonical) == ("SINGLE_STOCK", "MRNA")
+
 
 def test_lookup_capabilities_mirrors_registry():
     from strategy_conversation.registry.capability_registry import SUPPORTED_MARKETS
