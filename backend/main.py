@@ -4479,6 +4479,9 @@ def summarize_backtest(req: SummarizeRequest):
         parse_expert_report,
         normalize_report_items,
         summarize_ollama,
+        KOREAN_ONLY_DIRECTIVE,
+        find_non_korean_fragments,
+        build_korean_retry_prompt,
     )
     from ai.report_evidence import (
         build_evidence_pack,
@@ -4525,8 +4528,20 @@ def summarize_backtest(req: SummarizeRequest):
 
     try:
         # UI 언어가 영어면 리포트 서술을 영어로 쓰라는 지시를 붙인다(섹션 키·형식은 그대로).
-        raw = summarize_ollama(ui_language.append_directive(prompt), num_predict=2600)
-        parsed = parse_expert_report(raw)
+        # 한국어면 한국어 전용 지시를 붙이고, 그래도 다른 언어(일본어 어미·한자·영어 문장)가
+        # 섞이면 문자열을 고치지 않고 위반 조각을 알려 1회 재생성한다 — 잔존 시 degraded.
+        korean_only = ui_language.get_ui_language() == "ko"
+        prompt = f"{prompt}\n\n{KOREAN_ONLY_DIRECTIVE}" if korean_only else ui_language.append_directive(prompt)
+        parsed = parse_expert_report(summarize_ollama(prompt, num_predict=2600))
+        if korean_only and parsed is not None:
+            fragments = find_non_korean_fragments(parsed)
+            if fragments:
+                print(f"[summarize] non-Korean fragments, regenerating: {fragments}", flush=True)
+                parsed = parse_expert_report(
+                    summarize_ollama(build_korean_retry_prompt(prompt, fragments), num_predict=2600)
+                )
+                if parsed is not None and find_non_korean_fragments(parsed):
+                    parsed = None
         runtime = {
             "backend": "ollama",
             "total_ms": round((time.perf_counter() - request_started) * 1000, 2),

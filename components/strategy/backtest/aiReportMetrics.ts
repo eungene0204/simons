@@ -18,6 +18,25 @@ export function hasAiReportArtifact(summary: unknown): boolean {
   );
 }
 
+// 한글·ASCII 외 문자(가나·한자·키릴 등) — 어느 UI 언어에서도 리포트에 있으면 안 된다.
+const FOREIGN_LETTER = /(?!\p{Script=Hangul})[^\x00-\x7F\P{L}]/u;
+// 영어 '문장' — 소문자 낱말을 포함한 4단어 이상 연속(지표 약어·고유 명칭은 통과). 한국어 UI 전용.
+const ENGLISH_RUN = /[A-Za-z][A-Za-z'’-]*(?:\s+[A-Za-z][A-Za-z'’-]*){3,}/g;
+
+/**
+ * 저장된 AI 리포트 서술(LLM 출력)에 표시 언어가 아닌 텍스트가 섞였는지 검사한다.
+ * 백엔드 `find_non_korean_fragments`와 같은 기준 — 2026-10-02 이전에 저장된 '가능성があります'
+ * 같은 혼입 레코드는 표시하지 않고 재생성을 트리거한다.
+ */
+export function hasForeignLanguageReportText(fields: readonly unknown[], language: "ko" | "en"): boolean {
+  const texts = fields.flatMap((field) => (Array.isArray(field) ? field : [field]))
+    .filter((value): value is string => typeof value === "string");
+  return texts.some((text) =>
+    FOREIGN_LETTER.test(text) ||
+    (language === "ko" && [...text.matchAll(ENGLISH_RUN)].some((m) => /\b[a-z]{2,}\b/.test(m[0])))
+  );
+}
+
 /**
  * AI 리포트 생성에 쓰는 metrics 페이로드. 대시보드(백그라운드 생성)와
  * BacktestSummaryCard('다시 생성')가 반드시 같은 형태를 보내야

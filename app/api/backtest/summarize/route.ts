@@ -3,6 +3,9 @@ import { fetchBackend } from "@/lib/server/backend";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/get-user";
 import { getUserPlan } from "@/lib/server/planLimits";
+import { getRequestRegion } from "@/lib/geo/server";
+import { REGION_LANGUAGE } from "@/lib/geo/region";
+import { hasForeignLanguageReportText } from "@/components/strategy/backtest/aiReportMetrics";
 import {
   deleteSummaryInFlight,
   getSummaryInFlight,
@@ -163,7 +166,14 @@ export async function POST(req: Request) {
       if (
         existingMetrics?.aiSummary &&
         existingMetrics?.aiScore != null &&
-        !hasReportFormattingArtifact(existingMetrics.aiSummary)
+        !hasReportFormattingArtifact(existingMetrics.aiSummary) &&
+        // 표시 언어가 아닌 텍스트가 섞인 저장 리포트(2026-10-02 이전 일본어 어미 혼입 등)는 재생성한다.
+        !hasForeignLanguageReportText(
+          [existingMetrics.aiSummary, existingMetrics.aiStrengths, existingMetrics.aiWeaknesses,
+            existingMetrics.aiTopInsights, existingMetrics.aiHiddenRisks, existingMetrics.aiOverfittingAnalysis,
+            existingMetrics.aiStrategyProfileNote, existingMetrics.aiFinalVerdict],
+          REGION_LANGUAGE[getRequestRegion()],
+        )
       ) {
         return NextResponse.json({
           score: existingMetrics.aiScore,

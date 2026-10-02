@@ -458,3 +458,32 @@ def test_calculate_score_treats_null_pf_as_infinity_not_unknown():
 
     assert score_null_pf == score_high_pf  # null = ∞ → 상한 접기와 동일
     assert score_null_pf > score_missing   # 키 자체가 없으면 종전대로 중간(50점) 처리
+
+
+def test_find_non_korean_fragments_flags_kana_hanja_and_english_sentences():
+    from ai.summarize import find_non_korean_fragments
+
+    report = {
+        "executive_summary": "검증 기간이 짧아 국면을 포착하지 못했을 가능성があります.",
+        "strengths": ["거래 횟수가 많아 표본이 充分합니다."],
+        "weaknesses": ["This strategy depends on a single regime."],
+        "hidden_risks": ["Сигнал 과다"],
+    }
+    fragments = find_non_korean_fragments(report)
+
+    assert "가능성があります." in fragments
+    assert "充分합니다." in fragments
+    assert "This strategy depends on a single regime" in fragments
+    assert "Сигнал" in fragments
+
+
+def test_find_non_korean_fragments_allows_indicator_abbreviations():
+    from ai.summarize import find_non_korean_fragments
+
+    report = {
+        "executive_summary": "CAGR 대비 MDD가 깊고 Profit Factor가 1에 가까워 RSI·MACD 조건의 Walk-Forward 검증이 필요합니다.",
+        "top_insights": ["KOSPI 200 구간 수익이 2023년에 집중됐습니다 — 샤프 비율(Sharpe Ratio)도 같은 해에 몰립니다."],
+        "overfitting_analysis": "",
+        "final_verdict": "과거 시뮬레이션 결과입니다 (거래 53회, 승률 48%).",
+    }
+    assert find_non_korean_fragments(report) == []

@@ -175,3 +175,60 @@ def test_summarize_endpoint_survives_corpus_comparison_failure(monkeypatch):
 
     assert response["summary"] == "핵심 요약"
     assert "corpusComparison" not in response
+
+
+# 2026-10-02 사고: 리포트 서술에 일본어 어미가 섞여 나갔다
+# ('검증 기간이 짧아 다양한 시장 국면을 포착하지 못했을 가능성があります.').
+_MIXED_JSON = _EXPERT_JSON.replace(
+    '"약점"', '"검증 기간이 짧아 다양한 시장 국면을 포착하지 못했을 가능성があります."'
+)
+
+
+def test_summarize_endpoint_regenerates_when_report_mixes_non_korean(monkeypatch):
+    monkeypatch.setenv("LLM_BACKEND", "ollama")
+    prompts = []
+    outputs = iter([_MIXED_JSON, _EXPERT_JSON])
+
+    def fake(prompt, *args, **kwargs):
+        prompts.append(prompt)
+        return next(outputs)
+
+    monkeypatch.setattr("ai.summarize.summarize_ollama", fake)
+
+    response = main.summarize_backtest(main.SummarizeRequest(metrics={}))
+
+    assert len(prompts) == 2
+    assert "한국어 전용" in prompts[0]
+    assert "가능성があります." in prompts[1]  # 위반 조각을 되돌려 알린다
+    assert response["weaknesses"] == ["약점"]
+    assert "degraded" not in response
+
+
+def test_summarize_endpoint_degrades_when_non_korean_persists(monkeypatch):
+    monkeypatch.setenv("LLM_BACKEND", "ollama")
+    monkeypatch.setattr("ai.summarize.summarize_ollama", _fake_ollama(_MIXED_JSON))
+
+    response = main.summarize_backtest(main.SummarizeRequest(metrics={}))
+
+    assert response["degraded"] is True
+    assert "があります" not in str(response)
+
+
+def test_summarize_endpoint_english_ui_skips_korean_only_check(monkeypatch):
+    import ui_language
+
+    english_json = _EXPERT_JSON.replace('"약점"', '"The test window is too short to cover regimes."')
+    prompts = []
+
+    def fake(prompt, *args, **kwargs):
+        prompts.append(prompt)
+        return english_json
+
+    monkeypatch.setattr("ai.summarize.summarize_ollama", fake)
+
+    with ui_language.bind("en"):
+        response = main.summarize_backtest(main.SummarizeRequest(metrics={}))
+
+    assert len(prompts) == 1
+    assert "한국어 전용" not in prompts[0]
+    assert "degraded" not in response

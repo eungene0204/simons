@@ -70,6 +70,37 @@ describe("POST /api/backtest/summarize", () => {
     });
   });
 
+  it("저장된 리포트 서술에 일본어 어미가 섞여 있으면 서빙하지 않고 재생성해야 함 (2026-10-02 사고)", async () => {
+    const contaminated = {
+      cacheKey: "cache-ja",
+      metrics: JSON.stringify({
+        aiSummary: "기존 요약",
+        aiScore: 70,
+        aiStrengths: ["강점"],
+        aiWeaknesses: ["검증 기간이 짧아 다양한 시장 국면을 포착하지 못했을 가능성があります."],
+        aiImprovements: ["개선점"],
+      }),
+    };
+    mockFindUnique.mockResolvedValue(contaminated);
+    mockFetchBackend.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        score: 70,
+        summary: "새 요약",
+        strengths: ["강점"],
+        weaknesses: ["검증 기간이 짧습니다."],
+        improvements: ["개선점"],
+      }),
+    });
+
+    const response = await POST(makeRequest({ cacheKey: "cache-ja", metrics: { totalReturn: 8 } }));
+
+    expect(mockFetchBackend).toHaveBeenCalledOnce();
+    const body = await response.json();
+    expect(body.cached).toBe(false);
+    expect(body.weaknesses).toEqual(["검증 기간이 짧습니다."]);
+  });
+
   it("저장된 AI 리포트가 없으면 한 번 생성하고 cacheKey 기준으로 DB에 저장해야 함", async () => {
     mockFindUnique
       .mockResolvedValueOnce({

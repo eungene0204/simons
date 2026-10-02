@@ -13,6 +13,7 @@ import sys
 import json
 import re
 import ast
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from llm_backend import OLLAMA_MODEL_9B  # noqa: E402
@@ -554,6 +555,67 @@ def build_expert_report_prompt(
         '  "strategy_profile_note": "위 성향 태그를 근거로 이 전략이 어떤 국면에 강하고 약한지 2~3문장으로 서술",\n'
         '  "final_verdict": "전략 전체를 균형 있게 평가 — 현 신뢰도, 장점, 가장 큰 위험, 아직 확신할 수 없는 부분, 반드시 확인해야 할 것. 좋은 전략이라도 비판적으로."\n'
         "}"
+    )
+
+
+# 한국어 UI 전용 — 리포트 서술에 일본어 어미("~があります")·한자·영어 문장이 섞이던 사고
+# (2026-10-02) 대응. 프롬프트 끝(가장 강한 자리)에 붙인다. 영어 UI는 ui_language 지시가 맡는다.
+KOREAN_ONLY_DIRECTIVE = (
+    "[출력 언어: 한국어 전용] 모든 서술은 처음부터 끝까지 한국어로만 작성하세요. "
+    "일본어(히라가나·가타카나)·중국어 한자·영어 문장이나 어미를 한 단어도 섞지 마세요. "
+    "영문은 CAGR·MDD·RSI 같은 지표 약어 표기에만 허용합니다."
+)
+
+_EXPERT_NARRATIVE_KEYS = (
+    "executive_summary", "top_insights", "strengths", "weaknesses",
+    "hidden_risks", "overfitting_analysis", "strategy_profile_note", "final_verdict",
+)
+
+# 영어 '문장' 판정 — 지표 약어·고유 명칭(CAGR, Profit Factor, Walk-Forward)은 짧은 대문자
+# 시작 묶음이라 걸리지 않고, 소문자 낱말을 포함한 4단어 이상 연속만 문장으로 본다.
+_ENGLISH_RUN_RE = re.compile(r"[A-Za-z][A-Za-z'’-]*(?:\s+[A-Za-z][A-Za-z'’-]*){3,}")
+
+
+def _is_foreign_letter(ch: str) -> bool:
+    """한글·ASCII 라틴 문자 외의 '문자(letter)' — 가나·한자·키릴 등."""
+    if not unicodedata.category(ch).startswith("L"):
+        return False
+    if ch.isascii():
+        return False
+    name = unicodedata.name(ch, "")
+    return not name.startswith("HANGUL")
+
+
+def find_non_korean_fragments(report: dict) -> list[str]:
+    """LLM이 쓴 리포트 서술에서 한국어가 아닌 조각을 찾는다(LLM 출력의 표기 검사).
+
+    반환값은 위반 조각 목록(최대 5개) — 비어 있으면 통과. 위반 시 문자열을 고치지 않고
+    재생성을 요청한다(후처리 임의 보정 금지).
+    """
+    texts: list[str] = []
+    for key in _EXPERT_NARRATIVE_KEYS:
+        value = report.get(key)
+        if isinstance(value, list):
+            texts.extend(str(v) for v in value if v)
+        elif value:
+            texts.append(str(value))
+
+    fragments: list[str] = []
+    for text in texts:
+        fragments.extend(tok for tok in text.split() if any(_is_foreign_letter(c) for c in tok))
+        for match in _ENGLISH_RUN_RE.finditer(text):
+            if re.search(r"\b[a-z]{2,}\b", match.group(0)):
+                fragments.append(match.group(0))
+    return list(dict.fromkeys(fragments))[:5]
+
+
+def build_korean_retry_prompt(prompt: str, fragments: list[str]) -> str:
+    """한국어 외 조각이 섞인 출력을 되돌려 보내는 재생성 프롬프트."""
+    quoted = ", ".join(f"'{f}'" for f in fragments)
+    return (
+        f"{prompt}\n\n"
+        f"[재작성 요청] 직전 출력에 한국어가 아닌 표현({quoted})이 섞여 있었습니다. "
+        "같은 JSON 형식으로, 모든 서술을 자연스러운 한국어로만 다시 작성하세요."
     )
 
 

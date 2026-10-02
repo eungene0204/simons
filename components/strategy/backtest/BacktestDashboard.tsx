@@ -37,7 +37,7 @@ import QuantileGroupsSection from "./QuantileGroupsSection";
 import AdvancedAnalyticsSection from "./AdvancedAnalyticsSection";
 import type { TearsheetPayload } from "@/lib/tearsheet";
 import RebalanceComparisonSection from "./RebalanceComparisonSection";
-import { buildAiReportMetrics, hasAiReportArtifact } from "./aiReportMetrics";
+import { buildAiReportMetrics, hasAiReportArtifact, hasForeignLanguageReportText } from "./aiReportMetrics";
 import { formatProfitFactor, profitFactorForRanking } from "@/lib/format-profit-factor";
 import { renderTradeReasonSegments } from "@/lib/trade-reason";
 import {
@@ -440,12 +440,21 @@ export default function BacktestDashboard({
   const initialAiSummaryRaw = initialAiSummaryProp ?? result.aiSummary ?? undefined;
   const initialAiSummary = hasAiReportArtifact(initialAiSummaryRaw) ? undefined : initialAiSummaryRaw;
 
+  // 표시 언어가 아닌 텍스트(일본어 어미·한자·한국어 UI의 영어 문장)가 섞인 저장 리포트는
+  // 표시하지 않는다(→ 재생성 트리거). LLM 서술 섹션만 본다 — 개선안·로드맵은 결정론 문구다.
+  const usableStoredReport = (report: AiReportData): AiReportData | null =>
+    hasForeignLanguageReportText(
+      [report.summary, report.strengths, report.weaknesses, report.topInsights, report.hiddenRisks,
+        report.overfittingAnalysis, report.strategyProfileNote, report.finalVerdict],
+      getLanguage(),
+    ) ? null : report;
+
   // 저장/캐시된 리포트를 단일 객체로 하이드레이트한다. summary+score 둘 다 있어야 유효.
   const buildReportFromResult = (): AiReportData | null => {
     const summary = hasAiReportArtifact(result.aiSummary) ? undefined : result.aiSummary ?? undefined;
     const score = result.aiScore ?? undefined;
     if (!summary || score == null) return null;
-    return {
+    return usableStoredReport({
       summary,
       score,
       strengths: result.aiStrengths ?? [],
@@ -461,12 +470,12 @@ export default function BacktestDashboard({
       strategyProfileNote: result.aiStrategyProfileNote ?? undefined,
       validationRoadmap: result.aiValidationRoadmap ?? undefined,
       finalVerdict: result.aiFinalVerdict ?? undefined,
-    };
+    });
   };
 
   const initialReport: AiReportData | null =
     initialAiSummary && (initialAiScoreProp ?? result.aiScore) != null
-      ? {
+      ? usableStoredReport({
           summary: initialAiSummary,
           score: (initialAiScoreProp ?? result.aiScore) as number,
           strengths: initialAiStrengthsProp ?? result.aiStrengths ?? [],
@@ -482,7 +491,7 @@ export default function BacktestDashboard({
           strategyProfileNote: result.aiStrategyProfileNote ?? undefined,
           validationRoadmap: result.aiValidationRoadmap ?? undefined,
           finalVerdict: result.aiFinalVerdict ?? undefined,
-        }
+        })
       : null;
   const [cachedReport, setCachedReport] = useState<AiReportData | null>(initialReport);
 
@@ -634,8 +643,7 @@ export default function BacktestDashboard({
     // (플랜은 비동기로 로드되므로 확인이 끝나면 이 이펙트가 다시 실행되어 생성을 시작한다.)
     if (isPlanLoading || !isAiReportEnabled) return;
     if (isNewExecution) {
-      const usableSummary = result.aiSummary && !hasAiReportArtifact(result.aiSummary);
-      if (!(usableSummary && result.aiScore != null)) ensureAiReport();
+      if (!buildReportFromResult()) ensureAiReport();
       return;
     }
     if (cachedReport) return; // 이미 캐시된 경우 스킵
