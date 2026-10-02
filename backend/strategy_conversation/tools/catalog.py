@@ -111,9 +111,11 @@ class ClassifyUniverseOut(BaseModel):
 
 def _classify_universe(inp: ClassifyUniverseIn) -> ClassifyUniverseOut:
     from engine.knowledge_graph import catalog_theme_candidates
+    import ui_language
     from engine.universe_pit import (
         is_generic_stock_term,
         is_narrow_sector_approximation,
+        is_us_symbol,
         normalize_sector,
     )
     from strategy_conversation.registry.universe_resolver import resolve_symbols
@@ -142,6 +144,16 @@ def _classify_universe(inp: ClassifyUniverseIn) -> ClassifyUniverseOut:
 
     symbol_codes, unresolved = resolve_symbols([inp.text])
     if symbol_codes and not unresolved and not has_group_suffix(inp.text):
+        # KR 레인에서 표현이 미국 **티커 철자**와만 같고 국내 테마와 표기가 일치하면 테마다 —
+        # 미국 명부는 대소문자를 무시해 'mRNA'를 모더나(MRNA)로 풀고, 그 관찰값이 지역 격리
+        # 가드를 발동시켜 "mRNA 관련주" 전략이 "한국 주식시장만 지원"으로 거절됐다(2026-10-02
+        # 사고: planner가 '관련주'를 떼고 text="mRNA"로 재분류). 회사 이름 일치('애플'·'모더나')는
+        # 미국 종목 그대로 둔다(사용자 결정 — 미국 종목 요청을 국내 테마로 바꾸지 않는다).
+        # 판정은 표현의 표기 대조뿐이다.
+        if (is_us_symbol(symbol_codes[0]) and symbol_codes[0].lower() == key
+                and ui_language.get_ui_language() != "en"
+                and any(c.get("exact") for c in catalog_theme_candidates(inp.text))):
+            return ClassifyUniverseOut(universe_type="CONCEPT")
         return ClassifyUniverseOut(universe_type="SINGLE_STOCK", canonical=symbol_codes[0])
     # 미국 테마 카탈로그 — '미국' 표지가 있는 표현만("미국 빅테크") 미국 정본으로 분류한다.
     # 표지 없는 표현("빅테크")은 기존 KR 체인(KG 후보·검색 학습)을 보존한다 — 같은 어휘가
