@@ -704,6 +704,70 @@ Public landing page, sign-in entry flow, and session bootstrap into the existing
 
 ---
 
+## Boundary U: Strategy Interpretation Notices
+
+### Purpose
+Keep strategy interpretation notices accurate when a validated condition is represented by a supported factor.
+
+### Files
+- backend/strategy_conversation/primary.py (`_substituted_factor` and its notice path only)
+- backend/tests/test_strategy_conversation.py
+
+### Allowed Tasks
+- Correct false or missing approximation notices using the structured condition and registry evidence
+- Add regression coverage for the exact condition and a genuine substitution
+
+### Strict Rules
+- Do not infer new strategy semantics from the user's natural-language input
+- Preserve supported factor selection, validation, compilation, and API response contracts
+- Keep true substitutions visible to the user
+
+### Forbidden
+- Interpreter prompts or model changes
+- Registry, compiler, converter, and backtest engine changes
+- Frontend changes
+
+---
+
+## Boundary V: Quarterly Operating Income Comparison
+
+### Purpose
+Represent and execute a user's strict comparison of the latest reported quarter's operating income with the same quarter one year earlier, including loss reduction and turnaround.
+
+### Files
+- backend/engine/quarterly_earnings.py (comparison events/series only)
+- backend/engine/data_resolver.py (comparison metric resolution only)
+- backend/engine/version.py (comparison metric version entry only)
+- backend/engine/nl_parser.py (comparison metric schema/labels only)
+- backend/engine/signals.py (comparison metric label only)
+- backend/strategy_conversation/registry/indicator_registry.py (comparison metric only)
+- backend/strategy_conversation/registry/display_labels.py (comparison metric label only)
+- data/indicator-ontology.json (comparison metric membership and polarity only)
+- backend/strategy_conversation/interpreter/prompts.py (comparison metric instruction only)
+- backend/strategy_conversation/primary.py (comparison metric notice only)
+- backend/tests/test_ncav_and_quarterly_growth.py
+- backend/tests/test_strategy_conversation.py
+- lib/strategy-summary.ts (comparison metric label only)
+- lib/i18n/en.ts (comparison metric translation only)
+- lib/strategy-summary.labels.test.ts
+- app/analytics/new/parsedStrategyMerge.ts (comparison metric label only)
+
+### Allowed Tasks
+- Add a strict YoY quarter comparison distinct from percentage growth
+- Carry the comparison metric through interpretation, compilation, execution, and summary
+- Test negative, zero, positive, missing-quarter, and filing-date cases
+
+### Strict Rules
+- Preserve the existing YoY growth-rate metric and public strategy schema
+- Use only data available by each simulated date; fail closed on missing comparisons
+- Do not infer strategy meaning from natural-language regular expressions
+- Split engine, interpretation, and display changes into small reviewable tasks
+
+### Forbidden
+- Provider, database schema, authentication, and unrelated backtest changes
+
+---
+
 ## Global Forbidden Paths
 
 Codex must NEVER modify:
