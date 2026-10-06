@@ -86,7 +86,7 @@ def _compile_technical(
     if indicator.startswith("candle_"):
         return TechnicalSignal(**kwargs)                   # 캔들 패턴(v16.29): 파라미터 없음
 
-    if indicator in ("ma_crossover", "ema", "macd") \
+    if indicator in ("ma_crossover", "ema", "macd", "rsi") \
             and cond.operator in ("crosses_above", "crosses_below"):
         # 엔진은 이 지표들의 교차 방향을 signal_type으로만 정한다(buy=상향, sell=하향) —
         # 연산자를 읽지 않고 buy를 붙이면 매수 칸에 앉은 "20일선 이탈 시 청산"(crosses_below)이
@@ -150,10 +150,20 @@ def _compile_technical(
     else:
         # rsi/stochastic/cci/adx/williams_r/mfi/roc/volume_spike/bollinger_bands
         kwargs["period"] = _int_param("period")
-        if cond.operator in ("<", "<=", ">", ">="):
+        if indicator == "rsi" and cond.operator in ("crosses_above", "crosses_below"):
+            # 임계선 재돌파 반등(엔진 mode rebound — 매수=상향, 매도=하향, 방향은 위에서 대조).
+            # 엔진은 rebound에서 연산자를 읽지 않는다. 표기는 레거시 레인과 같은 '임계 이하/이상'.
+            if cond.value is None:
+                raise StrategyCompileError(
+                    f"'{cond.factor}' 반등 조건에 임계값이 없습니다 (검증 누락?)"
+                )
+            kwargs["mode"] = "rebound"
+            kwargs["operator"] = "<=" if signal_type == "buy" else ">="
+            kwargs["value"] = cond.value
+        elif cond.operator in ("<", "<=", ">", ">="):
             kwargs["operator"] = cond.operator
             kwargs["value"] = cond.value
-        elif spec is not None and spec.allowed_operators == ("<", "<=", ">", ">="):
+        elif spec is not None and {"<", "<=", ">", ">="} <= set(spec.allowed_operators):
             # 임계값 비교만 지원하는 지표에 부등호·값이 없으면 엔진이 기본값(ADX ≥ 25 등)으로
             # 조용히 대체한다 — 사용자가 말한 값이 다른 값으로 백테스트되는 침묵 왜곡이다
             # (2026-09-02 실측: "ADX 20 하향 이탈" 청산이 ADX ≥ 25 청산으로). 재무 조건과
@@ -162,7 +172,7 @@ def _compile_technical(
                 f"'{cond.factor}' 조건에 비교 연산자/임계값이 없습니다 (검증 누락?)"
             )
         if kwargs.get("operator") is not None and cond.value is None \
-                and spec is not None and spec.allowed_operators == ("<", "<=", ">", ">="):
+                and spec is not None and {"<", "<=", ">", ">="} <= set(spec.allowed_operators):
             raise StrategyCompileError(
                 f"'{cond.factor}' 조건에 임계값이 없습니다 (검증 누락?)"
             )

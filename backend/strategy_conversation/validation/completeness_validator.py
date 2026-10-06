@@ -226,7 +226,10 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
                 cond.operator in _COMPARISON_OPS
                 or (cond.operator is None and spec.category != "event"
                     and spec.value_type != "event" and not spec.parameters)
-                or (cond.operator is None and _COMPARISON_OPS == spec.allowed_operators)
+                or (cond.operator is None and set(_COMPARISON_OPS) <= set(spec.allowed_operators))
+                # 임계선 재돌파(RSI 반등, crosses_*)도 기준선이 값이다 — 값이 기간 칸으로 새면 묻는다
+                or (cond.operator in ("crosses_above", "crosses_below")
+                    and set(_COMPARISON_OPS) <= set(spec.allowed_operators))
             )
             if needs_value and cond.value is None:
                 missing.append(f"{field_base}.value")

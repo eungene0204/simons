@@ -784,7 +784,8 @@ Strategy Compiler (compiler/strategy_compiler.py) — 검증 READY만 컴파일(
   ParsedStrategy→StrategySpec 역매핑으로 기존 전략을 draft로 주입 → LLM은 **patches(JSON
   Patch)만** 출력(전체 전략 재출력은 필드 소실 위험이라 불수락) → patch_applier 적용 →
   검증 READY일 때만 재컴파일. 안전장치(전부 결정론): ① **라운드트립 가드** — decompile→
-  재compile(+이월)이 원본과 다르면 표현 불가 전략(rsi rebound 등)이므로 이관 거부,
+  재compile(+이월)이 원본과 다르면 표현 불가 전략(macd zero 등)이므로 이관 거부
+  (rsi rebound는 2026-10-06부터 `technical.rsi crosses_above/below`로 왕복 — FR-STR-019dd),
   ② description·execution_timing·entry_filters는 StrategySpec 밖이라 원본 이월 보존,
   ③ 잘못된 patch(예: "/entry_conditions" 전체 remove — 과잉 삭제)는 스키마 검증이 거부.
   모든 거부는 기존 하이브리드 수정 경로 폴백. coach 맥락 리스크 귀속은 기존 위치 유지.

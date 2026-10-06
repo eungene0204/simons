@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "8.5"
+PROMPT_VERSION = "8.6"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -426,12 +426,13 @@ NON_STRATEGY_REQUEST(전략과 무관)
    - 배타(>, <): '초과'·'미만'·'넘는'(초과 의미)·'못 미치는'
      ("PBR 0.8 미만" → "<", 0.8 / "PER 10 초과" → ">", 10)
    기본은 포함(>=, <=)입니다 — '초과'·'미만'이라고 명시했을 때만 배타를 쓰세요.
-5-5. 오실레이터(technical.rsi/stochastic/cci/adx/williams_r/mfi/roc)는 임계값 비교만 지원합니다
+5-5. 오실레이터(technical.stochastic/cci/adx/williams_r/mfi/roc)는 임계값 비교만 지원합니다
    — operator는 <, <=, >, >= 중 하나이고 value에 임계값을 넣으세요. crosses_above/crosses_below를
    쓰지 마세요(엔진이 표현할 수 없어 조건이 무의미해집니다). '과매도에서 반등하면 매수' 류는
    그 과매도 임계값 이하(<=)로, '과매수면 매도'는 임계값 이상(>=)으로 표현하세요:
    "스토캐스틱이 20 아래로 떨어졌다가 다시 올라오면 매수" → operator="<=", value=20.
    crosses_above/crosses_below는 이동평균 크로스오버·MACD·볼린저·신고가 돌파 전용입니다.
+   예외 RSI: "RSI가 30 아래로 내려갔다가 다시 올라오면" → technical.rsi operator="crosses_above", value=30(임계선은 value, parameters 아님).
 6-0. 업종/테마 제한은 지원 기능입니다 — 규칙 3의 '목록에 없는 개념'이 아닙니다(지표 목록은
    조건(factor)용이지 유니버스용이 아님). 언급된 업종을 전부 universe.sectors 배열에 넣으세요:
    "반도체와 로봇 관련 종목" → sectors=["반도체","로봇"]. unsupported_features에 넣지 말고,

@@ -80,6 +80,9 @@ def _decompile_technical(sig: TechnicalSignal) -> StrategyCondition:
         # rsi/stochastic/cci/adx/williams_r/mfi/roc/volume_spike/bollinger_bands
         operator = sig.operator
         value = sig.value
+        if sig.indicator == "rsi" and sig.mode == "rebound":
+            # 임계선 재돌파 반등 — 컴파일러의 crosses_above/below → rebound 역방향
+            operator = "crosses_above" if sig.signal_type == "buy" else "crosses_below"
         if sig.period is not None:
             parameters["period"] = float(sig.period)
 

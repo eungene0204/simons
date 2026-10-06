@@ -2594,7 +2594,25 @@ def test_modify_primary_preserves_entry_filters_via_carry_over(monkeypatch):
 
 
 def test_modify_primary_roundtrip_guard_falls_back(monkeypatch):
-    # StrategySpec이 표현 못 하는 신호(rsi rebound 모드)는 라운드트립 불일치로 이관 거부
+    # StrategySpec이 표현 못 하는 신호(macd zero 모드)는 라운드트립 불일치로 이관 거부
+    # (rsi rebound는 2026-10-06부터 crosses_above/below로 표현된다 — 아래 테스트)
+    from engine.nl_parser import ParsedStrategy
+    from strategy_conversation.primary import run_primary_modification
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.95,
+        "patches": [{"op": "replace", "path": "/portfolio/selection_count", "value": 5}],
+    })
+    prev_data = _rich_parsed().model_dump()
+    prev_data["exit_signals"] = [
+        {"indicator": "macd", "signal_type": "sell", "mode": "zero"}
+    ]
+    prev = ParsedStrategy.model_validate(prev_data)
+    assert run_primary_modification("종목 5개로", prev.model_dump()) is None
+
+
+def test_modify_primary_keeps_rsi_rebound_strategy(monkeypatch):
+    # RSI 반등 전략도 수정 요청이 인터프리터 레인으로 이관되고 반등 신호가 보존된다
     from engine.nl_parser import ParsedStrategy
     from strategy_conversation.primary import run_primary_modification
 
@@ -2608,7 +2626,10 @@ def test_modify_primary_roundtrip_guard_falls_back(monkeypatch):
          "operator": ">=", "value": 70, "mode": "rebound"}
     ]
     prev = ParsedStrategy.model_validate(prev_data)
-    assert run_primary_modification("종목 5개로", prev.model_dump()) is None
+    result = run_primary_modification("종목 5개로", prev.model_dump())
+    assert result is not None
+    rsi = next(s for s in result["parsed"].exit_signals if s.indicator == "rsi")
+    assert (rsi.mode, rsi.value) == ("rebound", 70.0)
 
 
 def test_modify_primary_survives_bollinger_entry_exit_pair(monkeypatch):
@@ -6037,6 +6058,84 @@ def test_compile_technical_refuses_valueless_oscillator_signal():
                           value=None), "bollinger_bands", "buy",
     )
     assert sig.indicator == "bollinger_bands"
+
+
+# ─── RSI 임계선 재돌파 반등 (2026-10-05 예시 "PER·RSI 반등 조건") ──
+# "RSI가 30 아래로 내려갔다가 다시 올라오는"을 120B가 5회 중 4회 crosses_above + value=null
+# (30은 parameters.period로 새거나 소실)로 냈다. 엔진에는 반등 모드(rsi mode rebound)가
+# 있는데 인터프리터 레인에 자리가 없어 교차가 '>'로 정규화되거나 기준값을 되물었다.
+
+
+def test_rsi_entry_cross_compiles_to_engine_rebound():
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.rsi", "operator": "crosses_above", "value": 30,
+             "source_text": "RSI가 30 아래로 내려갔다가 다시 올라오는"},
+        ],
+    ))
+    validated, report = run_validation(intent)
+    assert validated.strategy.entry_conditions[0].operator == "crosses_above"
+    assert not any("허용되지 않습니다" in e for e in report.errors)
+    parsed = compile_strategy(validated, report, "원문")
+    rsi = next(s for s in parsed.entry_signals if s.indicator == "rsi")
+    assert (rsi.mode, rsi.value, rsi.signal_type) == ("rebound", 30.0, "buy")
+
+
+def test_rsi_exit_rebound_and_opposite_direction_cross():
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        exit_conditions=[
+            {"factor": "technical.rsi", "operator": "crosses_below", "value": 70,
+             "source_text": "RSI가 70 위에 있다가 다시 내려오면 매도"},
+        ],
+    ))
+    validated, report = run_validation(intent)
+    parsed = compile_strategy(validated, report, "원문")
+    rsi = next(s for s in parsed.exit_signals if s.indicator == "rsi")
+    assert (rsi.mode, rsi.value) == ("rebound", 70.0)
+    # 매수 칸의 하향 교차는 반등으로 표현할 수 없다 — 같은 방향의 수준 비교(종전 정규화)
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.rsi", "operator": "crosses_below", "value": 30,
+             "source_text": "RSI 30 하향 돌파 시 매수"},
+        ],
+    ))
+    validated, _ = run_validation(intent)
+    assert validated.strategy.entry_conditions[0].operator == "<"
+
+
+def test_rsi_rebound_cross_without_value_asks():
+    # 사고 원출력 그대로: 값이 period로 새고 value는 null — 엔진 기본값 없이 기준값을 묻는다
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.rsi", "operator": "crosses_above", "value": None,
+             "parameters": {"period": 30},
+             "source_text": "RSI가 30 아래로 내려갔다가 다시 올라오는"},
+        ],
+    ))
+    validated, report = run_validation(intent)
+    assert not report.is_valid
+    assert any("RSI" in q.question for q in report.clarification_questions)
+    # 허용 연산자에 교차가 더해져도 '연산자·값 없는 RSI'는 종전대로 기준값을 묻는다
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[{"factor": "technical.rsi", "operator": None, "value": None,
+                           "source_text": "RSI가 낮은"}],
+    ))
+    _, report = run_validation(intent)
+    assert any("RSI" in q.question for q in report.clarification_questions)
+
+
+def test_rsi_rebound_decompile_roundtrip():
+    from engine.nl_parser import TechnicalSignal
+    from strategy_conversation.compiler.strategy_compiler import _compile_technical
+    from strategy_conversation.compiler.strategy_decompiler import _decompile_technical
+
+    for signal_type, op, value in (("buy", "crosses_above", 30.0), ("sell", "crosses_below", 70.0)):
+        sig = TechnicalSignal(indicator="rsi", signal_type=signal_type, period=14,
+                              operator="<=" if signal_type == "buy" else ">=", value=value,
+                              mode="rebound")
+        cond = _decompile_technical(sig)
+        assert (cond.operator, cond.value) == (op, value)
+        assert _compile_technical(cond, "rsi", signal_type) == sig
 
 
 # ─── 2026-09-08 예시 81: 청산절이 매수 칸에 앉아 상향 돌파 매수로 뒤집힌 사고 ────────────

@@ -285,9 +285,12 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                      "하나면 가격 vs EMA). short_period=1은 ma_crossover와 같은 "
                      "'가격(종가) 대비 N일 EMA' 정본 표기 — 최소값 2는 종가 표기를 "
                      "검증 오류로 만들어 조용한 부분 컴파일을 냈다(2026-08-18)"),
-    _technical("rsi", "RSI", "point", _COMPARISON_OPS,
+    _technical("rsi", "RSI", "point", _COMPARISON_OPS + ("crosses_above", "crosses_below"),
                {"period": ParamSpec(default=14, minimum=2, maximum=250)},
-               value_range=(0, 100), recommended=30),
+               value_range=(0, 100), recommended=30,
+               notes="부등호=그날 RSI 수준('RSI 30 이하'). crosses_above=임계선(value) 아래에 "
+                     "있다가 다시 위로 올라서는 날(과매도 반등 매수), crosses_below=위에 "
+                     "있다가 다시 내려오는 날(과매수 이탈 매도) — 엔진 rsi mode rebound"),
     _technical("macd", "MACD", "event",
                ("crosses_above", "crosses_below"),
                {},

@@ -397,6 +397,12 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
             if spec.category == "technical" and spec.allowed_operators == _COMPARISON_OPS \
                     and cond.operator in _CROSS_TO_COMPARISON:
                 cond.operator = _CROSS_TO_COMPARISON[cond.operator]
+            # RSI 교차는 역할과 같은 방향일 때만 임계선 재돌파 반등(엔진 mode rebound — 매수=
+            # 재상향, 매도=재하향)이다. 반대 방향('RSI 70 상향 돌파 시 매도')은 반등으로 표현할 수
+            # 없으므로 종전(09-02)대로 같은 방향의 수준 비교로 정규화한다 — 연산자 토큰과 역할만 본다.
+            if spec.id == "technical.rsi" and cond.operator in _CROSS_TO_COMPARISON \
+                    and cond.operator != _ROLE_CROSS_DIRECTION.get(role):
+                cond.operator = _CROSS_TO_COMPARISON[cond.operator]
             if cond.operator is not None and spec.allowed_operators \
                     and cond.operator not in spec.allowed_operators:
                 errors.append(
