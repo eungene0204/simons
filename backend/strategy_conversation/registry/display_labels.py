@@ -35,6 +35,7 @@ _EN_LABELS = {
     "fundamental.revenue_growth_yoy": "Quarterly revenue growth (YoY)",
     "fundamental.operating_income_growth_qoq": "Quarterly operating income growth (QoQ)",
     "fundamental.operating_income_growth_yoy": "Quarterly operating income growth (YoY)",
+    "fundamental.operating_income_yoy_direction": "Quarterly operating income YoY direction",
     "fundamental.net_income_growth_qoq": "Quarterly net income growth (QoQ)",
     "fundamental.net_income_growth_yoy": "Quarterly net income growth (YoY)",
     "fundamental.trading_value": "Average daily trading value",

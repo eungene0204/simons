@@ -2429,6 +2429,7 @@ export const en: Record<string, string> = {
   "매출 분기성장률(YoY)": "Quarterly revenue growth (YoY)",
   "영업이익 분기성장률(QoQ)": "Quarterly operating income growth (QoQ)",
   "영업이익 분기성장률(YoY)": "Quarterly operating income growth (YoY)",
+  "분기 영업이익 전년 동기 증감 방향": "Quarterly operating income YoY direction",
   "순이익 분기성장률(QoQ)": "Quarterly net income growth (QoQ)",
   "순이익 분기성장률(YoY)": "Quarterly net income growth (YoY)",
   "'{items}'은(는) 아직 준비 중인 기능이라 이번 전략에는 반영하지 못했어요. 데이터 준비가 끝나면 사용하실 수 있어요.": "'{items}' is still being prepared, so it was not applied to this strategy. It will be available once the data is ready.",

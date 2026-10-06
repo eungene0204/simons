@@ -238,6 +238,7 @@ export const METRIC_LABELS: Record<string, string> = {
   revenue_growth_yoy: "매출 분기성장률(YoY)",
   operating_income_growth_qoq: "영업이익 분기성장률(QoQ)",
   operating_income_growth_yoy: "영업이익 분기성장률(YoY)",
+  operating_income_yoy_direction: "분기 영업이익 전년 동기 증감 방향",
   net_income_growth_qoq: "순이익 분기성장률(QoQ)",
   net_income_growth_yoy: "순이익 분기성장률(YoY)",
   market_cap: "시총",

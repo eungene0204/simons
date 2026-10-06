@@ -13,6 +13,7 @@ const BACKEND_FUNDAMENTAL_METRICS = [
   "fcf_growth", "eps", "ebit", "net_income", "owner_net_income", "operating_cf_amount",
   "investing_cf_amount", "financing_cf_amount", "roic", "fcf_margin",
   "fcf_yield", "dividend_streak_years",
+  "operating_income_yoy_direction",
 ];
 const BACKEND_REBALANCING_PERIODS = ["none", "daily", "weekly", "monthly", "bimonthly", "quarterly", "yearly"];
 

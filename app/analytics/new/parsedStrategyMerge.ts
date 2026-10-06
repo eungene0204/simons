@@ -1062,6 +1062,7 @@ const FILTER_METRIC_LABELS: Record<string, string> = {
   operating_margin: "영업이익률",
   revenue_growth: "매출액증가율",
   operating_income_growth: "영업이익증가율",
+  operating_income_yoy_direction: "분기 영업이익 전년 동기 증감 방향",
   net_income_growth: "순이익증가율",
   market_cap: "시가총액",
   trading_value: "거래대금",
