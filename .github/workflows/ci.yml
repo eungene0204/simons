@@ -121,10 +121,10 @@ jobs:
       github.event_name != 'pull_request' &&
       github.ref == 'refs/heads/main'
     concurrency:
-      group: deploy-vultr           # 배포 중첩 방지
+      group: deploy                  # 배포 중첩 방지
       cancel-in-progress: false
     steps:
-      - name: Deploy to Vultr box over SSH
+      - name: Deploy to box over SSH
         uses: appleboy/ssh-action@v1
         env:
           # 검색 학습 레인 자격증명(FR-STR-069). 박스 .env는 수동 관리라 종전엔 이 두 개가
