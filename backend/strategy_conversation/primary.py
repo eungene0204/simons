@@ -572,6 +572,10 @@ def _substituted_factor(cond: Any, spec: Any, registry: Any) -> bool:
     if spec is None:
         return False
     named = registry.factor_ids_named_in(cond.source_text or "")
+    # The bare amount alias is a component of the exact comparison factor. A
+    # percentage-growth factor is not equivalent when the prior amount is <= 0.
+    if spec.id == "fundamental.operating_income_yoy_direction":
+        named.discard("fundamental.ebit")
     return bool(named) and spec.id not in registry.with_same_name_variants(named)
 
 

@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "8.6"
+PROMPT_VERSION = "8.7"
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -275,7 +275,14 @@ NON_STRATEGY_REQUEST(전략과 무관)
    빠집니다). 표현할 수 없는 것만 unsupported_features로 보냅니다. 반대로, 이미 필드·조건에
    값으로 반영한 표현은 지원된 것입니다 — 같은 표현을 unsupported_features에 다시 넣지 마세요
    (한 표현은 한 곳에만).
-4-1-1. 정확히 같은 지표가 없어 가장 가까운 지원 지표로 대신 반영한 조건에는 "approximated": true를 적으세요.
+4-1-1. "최근 분기 영업이익이 전년 동기 대비 증가"처럼 증가 **여부**만 말하면
+   fundamental.operating_income_yoy_direction, operator=">", value=0, approximated=false입니다.
+   이는 최근 발표 분기와 전년 같은 분기의 영업이익 금액을 직접 비교해 적자 축소·흑자 전환도
+   포함합니다. "영업이익 분기성장률 10% 이상"처럼 **백분율** 기준을 말했을 때만
+   fundamental.operating_income_growth_yoy를 사용하세요. 두 지표를 서로 바꾸지 마세요.
+   이 비교를 조건으로 반영했다면 같은 영업이익 표현을 fundamental.ebit 값 미정 조건으로
+   중복 출력하거나 영업이익 금액 기준값을 다시 묻지 마세요.
+4-1-2. 정확히 같은 지표가 없어 가장 가까운 지원 지표로 대신 반영한 조건에는 "approximated": true를 적으세요.
 4-2. entry_conditions가 여러 개일 때 결합 방식은 entry_logic입니다. 기본값은 "AND"이고
    ("~하면서"·"동시에"·"그리고"·쉼표 나열은 전부 AND — 모두 성립해야 매수), 사용자가
    "또는"·"이거나"·"둘 중 하나만 충족해도"처럼 대안 관계를 **명시했을 때만** "OR"로

@@ -1892,6 +1892,55 @@ def test_primary_exact_condition_carries_no_approximation_notice(monkeypatch):
         result["notices"])
 
 
+def test_quarterly_operating_income_increase_rejects_percentage_substitution(monkeypatch):
+    """Percentage growth loses loss reduction, so it must be disclosed as substitution."""
+    source = "최근 분기 영업이익이 전년 동기 대비 증가하고"
+    data = _full_intent_dict(entry_conditions=[
+        {"factor": "fundamental.operating_income_growth_yoy", "operator": ">", "value": 0,
+         "source_text": source, "approximated": False},
+    ])
+    result = _run_primary_with(monkeypatch, data, source + " 종목을 선별해줘")
+    assert result is not None
+    assert any("가깝게 반영" in notice for notice in result["notices"]), result["notices"]
+
+
+def test_quarterly_operating_income_yoy_explicit_approximation_is_reported(monkeypatch):
+    """An interpreter-declared approximation still reaches the user."""
+    source = "최근 분기 영업이익이 전년 동기 대비 증가하고"
+    data = _full_intent_dict(entry_conditions=[
+        {"factor": "fundamental.operating_income_growth_yoy", "operator": ">", "value": 0,
+         "source_text": source, "approximated": True},
+    ])
+    result = _run_primary_with(monkeypatch, data, source + " 종목을 선별해줘")
+    assert result is not None
+    assert any("가깝게 반영" in notice for notice in result["notices"]), result["notices"]
+
+
+def test_quarterly_operating_income_increase_compiles_as_direct_comparison(monkeypatch):
+    """A stated increase compares quarter amounts, including nonpositive bases."""
+    source = "최근 분기 영업이익이 전년 동기 대비 증가하고"
+    data = _full_intent_dict(entry_conditions=[
+        {"factor": "fundamental.operating_income_yoy_direction", "operator": ">", "value": 0,
+         "source_text": source, "approximated": False},
+    ])
+    result = _run_primary_with(monkeypatch, data, source + " 종목을 선별해줘")
+    assert result is not None
+    filters = result["parsed"].fundamental_filters
+    assert any(f.metric == "operating_income_yoy_direction" and f.operator == ">"
+               and f.value == 0 for f in filters)
+    assert not any("가깝게 반영" in notice for notice in result["notices"]), result["notices"]
+
+
+def test_quarterly_operating_income_comparison_is_exposed_to_the_interpreter():
+    """A registered factor must also appear in the model's ontology-backed prompt."""
+    from strategy_conversation.interpreter.prompts import build_system_prompt
+
+    prompt = build_system_prompt()
+    assert "fundamental.operating_income_yoy_direction" in prompt
+    assert "적자 축소·흑자 전환" in prompt
+    assert "영업이익 금액 기준값을 다시 묻지 마세요" in prompt
+
+
 def test_primary_notices_listed_unsupported_concept_reported_by_llm(monkeypatch):
     """[이관 2026-09-10] 목록 개념도 LLM 보고 채널이 안내한다(정본 한국어 라벨로).
 
