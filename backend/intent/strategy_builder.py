@@ -2105,8 +2105,7 @@ RESTART_PREFIX = "처음부터 새로 구성해볼게요.\n\n"
 def _theme_companies(text: Optional[str]) -> Optional[dict]:
     """문장 속 테마의 학습·검증된 관련 상장사 조회(없음·실패=None). knowledge_graph 위임.
 
-    학습 앵커는 Concept Universe(FR-STR-072) 확장 뷰(theme_backtest_companies)로 조회한다 —
-    직접 학습 엣지 몇 건이 컨셉을 대표하지 못하던 'bts 관련 종목' 사고 2차(2026-07-25)."""
+    백테스트 대상 목록(theme_backtest_companies — 카탈로그·시드·검색 학습의 직접 목록만)."""
     if not text:
         return None
     try:

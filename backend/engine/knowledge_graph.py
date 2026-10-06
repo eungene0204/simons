@@ -41,6 +41,7 @@ _SEED_PATH = _BASE_DIR / "data" / "knowledge-graph.json"
 _LEXICON_PATH = _BASE_DIR / "data" / "term_lexicon.json"
 _CATALOG_PATH = _BASE_DIR / "data" / "kg-theme-catalog.json"
 _NAVER_CATALOG_PATH = _BASE_DIR / "data" / "kg-naver-theme-catalog.json"
+_ALPHASQUARE_CATALOG_PATH = _BASE_DIR / "data" / "kg-alphasquare-theme-catalog.json"
 # 섹터 소속 정본(SOT) — scripts/build_sector_membership.py 생성.
 # 시드(손 큐레이션)와 분리된 오버레이다: 3천여 소속 엣지가 시드 파일을 덮지 않게 한다.
 _SECTOR_MEMBERSHIP_PATH = _BASE_DIR / "data" / "kg-sector-membership.json"
@@ -57,10 +58,10 @@ TEST_RESERVED_TERMS: frozenset[str] = frozenset({
 
 
 def _catalog_paths() -> tuple[Path, ...]:
-    """카탈로그 합성 순서 — 네이버 금융(업종·테마별 종목)이 사용자 지정 1순위 신뢰
-    소스(2026-07-27)라 주달보다 먼저 합성돼 같은 표기가 겹치면 네이버가 이긴다.
+    """카탈로그 합성 순서 — 네이버 금융 > 알파스퀘어 > 주달(사용자 지정, 네이버 1순위
+    2026-07-27·알파스퀘어 2순위 2026-10-06). 같은 표기가 겹치면 앞 출처가 이긴다.
     호출 시점에 전역을 읽는다(테스트가 경로를 monkeypatch할 수 있게)."""
-    return (_NAVER_CATALOG_PATH, _CATALOG_PATH)
+    return (_NAVER_CATALOG_PATH, _ALPHASQUARE_CATALOG_PATH, _CATALOG_PATH)
 
 # 지원 관계 어휘 — 시드에 미지의 타입이 들어오면 검증에서 잡는다(오타 fail-fast).
 EDGE_TYPES: frozenset[str] = frozenset({
@@ -305,40 +306,48 @@ class KnowledgeGraph:
         괄호 병기 이름(_paren_variants)·나열식 이름(_listing_variants)의 파생 키를 갭
         필러로 더한다(HBM 시드 6곳 vs 네이버 33곳 사고 2026-08-02, '전쟁 관련주'가 방산
         테마 66곳 대신 업종 근사로 빠진 사고 2026-09-16). 파생 키 등록 규칙:
-        ① 정확 표기 키가 항상 우선 — 파생 키가 다른 테마의 정확 표기("전기차")를
-           가로채지 않는다.
-        ② 카탈로그 간 충돌은 먼저 합성된 카탈로그(네이버)가 이긴다 — 스캔 인덱스의
+        ① 같은 출처 안에서는 정확 표기 키가 우선 — 파생 키가 다른 테마의 정확 표기
+           ("전기차")를 가로채지 않는다.
+        ② 카탈로그 간 충돌은 정확·파생을 가리지 않고 먼저 합성된 카탈로그(네이버)만
+           남는다 — 스캔 인덱스의
            _catalog_paths 순서 계약과 동일("hbm": 네이버 'HBM(고대역폭메모리)' vs
            주달 '반도체 제품(HBM/HBM3E)').
         ③ 같은 카탈로그 안에서 표기가 다른 테마끼리 겹치는 파생 키('보안주(정보)'/
            '보안주(물리)' → 보안주)는 등록하지 않는다 — 부분 매칭 자동 확정 금지
            가드(FR-STR-071b)와 동일 원칙, 되묻기 선택지(catalog_theme_candidates)로
            남긴다."""
-        index: dict[str, list[str]] = {}
-        derived: dict[str, list[tuple[str, str, str]]] = {}  # key → [(source, 표기, node_id)]
+        # 출처 순위가 표기 종류보다 먼저다 — 하위 출처의 정확 표기·별칭이 상위 출처 테마를
+        # 가로채거나 합쳐지지 않는다(2026-10-06 알파스퀘어 편입: '동물백신/방역'의 별칭
+        # '방역'이 네이버 백신 테마에 합쳐지고, 알파스퀘어 '쿠팡'이 네이버 '쿠팡(coupang)'을 이김).
+        rank: dict[str, int] = {}
+        exact: dict[str, list[tuple[int, str]]] = {}  # key → [(출처 순위, node_id)]
+        derived: dict[str, list[tuple[int, str, str]]] = {}  # key → [(출처 순위, 표기, node_id)]
         for node_id, node in self.nodes.items():
             if node.get("category") != "theme_catalog":
                 continue
+            r = rank.setdefault(str(node.get("source", "")), len(rank))  # 삽입 순서=합성 순서
             for term in [node.get("name", "")] + list(node.get("synonyms", [])):
                 key = _norm_key(term)
                 if len(key) < 2:
                     continue
-                bucket = index.setdefault(key, [])
-                if node_id not in bucket:
-                    bucket.append(node_id)
+                bucket = exact.setdefault(key, [])
+                if (r, node_id) not in bucket:
+                    bucket.append((r, node_id))
             name = node.get("name", "")
             for variant in _paren_variants(name) + _listing_variants(name):
-                derived.setdefault(_norm_key(variant), []).append(
-                    (str(node.get("source", "")), name, node_id)
-                )
-        for key, entries in derived.items():
-            if key in index:
-                continue  # ① 정확 표기 우선
-            first_source = entries[0][0]  # ② 삽입 순서 = 카탈로그 합성 순서(네이버 먼저)
-            top = [e for e in entries if e[0] == first_source]
-            if len({name for _, name, _ in top}) > 1:
+                derived.setdefault(_norm_key(variant), []).append((r, name, node_id))
+        index: dict[str, list[str]] = {}
+        for key in exact.keys() | derived.keys():
+            ex, de = exact.get(key, []), derived.get(key, [])
+            best = min(r for r, *_ in ex + de)  # ② 상위 출처만 남긴다
+            top_exact = [nid for r, nid in ex if r == best]
+            if top_exact:
+                index[key] = top_exact  # ① 같은 출처 안에서는 정확 표기 우선
+                continue
+            top = [(name, nid) for r, name, nid in de if r == best]
+            if len({name for name, _ in top}) > 1:
                 continue  # ③ 같은 카탈로그 안 다의 표기 — 자동 확정 금지
-            index[key] = [nid for _, _, nid in top]
+            index[key] = [nid for _, nid in top]
         return index
 
     def catalog_theme_nodes(self, term: str) -> list[dict]:
@@ -738,8 +747,8 @@ def _build() -> KnowledgeGraph:
     # 종목이 겹치면 먼저 합성된(1순위) 출처 노드 하나로 접는다. 두 노드로 남기면 정본
     # 매핑·planner 같은 LLM 단계가 둘 중 하나를 **고르게** 되고, 그 선택이 레인·표본마다
     # 갈려 같은 문장이 환경마다 다른 유니버스로 풀린다(2026-09-16 프로덕션 실측: 로컬
-    # 네이버 13곳 / 프로덕션 주달 6곳). 공백 무시 키가 같은 완전 중복은 종전대로 두 노드를
-    # 유지한다(정합 인덱스가 같은 키로 묶는다 — 이 규칙의 대상이 아니다). 같은 출처 안의
+    # 네이버 13곳 / 프로덕션 주달 6곳). 공백 무시 키가 같은 완전 중복은 두 노드를
+    # 유지한다(정합 인덱스가 상위 출처 노드만 남긴다 — 이 규칙의 대상이 아니다). 같은 출처 안의
     # 이름 차이는 그 출처가 일부러 나눈 분류일 수 있으므로 접지 않는다.
     first_by_equivalence: dict[str, tuple[str, str, set]] = {}  # 키 → (출처, 노드, 종목)
     for path in _catalog_paths():
@@ -1029,147 +1038,23 @@ def theme_listed_companies(text: str) -> Optional[dict]:
     return {"term": anchor.get("name"), "companies": companies, "first_known_date": first}
 
 
-def _hop_companies_with_anchor_evidence(
-    graph: "KnowledgeGraph", anchor: dict, companies: list[dict],
-) -> list[dict]:
-    """개념 1홉 폴백으로 끌어온 종목 중 **앵커 자신을 뒷받침하는 근거가 있는 것만**.
-
-    '베트남' 사고(2026-08-29): 학습 앵커 '베트남'은 직접 상장사 엣지가 없어 1홉 폴백이
-    유일한 verified 이웃(데이터센터)의 종목 2곳을 그대로 유니버스로 확정했다. 그런데 그
-    종목들의 관계 근거는 전부 데이터센터 기준이라 베트남과의 연결을 한 글자도 뒷받침하지
-    못한다 — 뉴스 동시언급(related_to)을 소속 관계처럼 쓴 것이다.
-
-    그래프는 '소속'과 '같이 언급됨'을 구분해 저장하지 않으므로(둘 다 related_to) 간선
-    타입으로는 가를 수 없다 — 도입 사유였던 블랙핑크→K-팝 기획사도 같은 related_to다.
-    그래서 **앵커 기준 근거**를 요구한다. 둘 중 하나면 통과한다:
-
-      (A) 관계 원장(kg_research)에 (앵커, 종목) 관계가 적혀 있다 — 사람이 조사한 근거.
-      (B) 앵커의 정본 섹터가 해석되고, 경유한 이웃 개념 **중 하나라도** 정본 섹터가
-          그와 같다 —
-          '블랙핑크(미디어/엔터) → K-팝 기획사(미디어/엔터)'는 통과하고,
-          '베트남(미해석) → 데이터센터(미해석)'는 통과하지 못한다.
-
-    (B)는 저장된 두 필드(그라운딩이 남긴 앵커 섹터·큐레이션 소속 엣지)를 맞춰보는 구조
-    판정이다 — 원문을 다시 읽지 않는다(대원칙 1). 근거를 지어내지도 않는다: 원장에 없는
-    관계에 근거를 붙이지 않는 kg_research의 계약을 그대로 따른다."""
-    from engine import kg_research
-
-    anchor_id = anchor["id"]
-    anchor_sector = graph.resolve_sector(anchor_id)
-    kept: list[dict] = []
-    for c in companies:
-        if kg_research.lookup(anchor_id, c["symbol"]) is not None:
-            kept.append(c)
-            continue
-        if not anchor_sector:
-            continue
-        if any(graph.resolve_sector(v) == anchor_sector for v in c.get("via_concepts") or ()):
-            kept.append(c)
-    return kept
-
-
 def theme_backtest_companies(text: str) -> Optional[dict]:
-    """백테스트 대상 제안용 테마 상장사 — 되묻기(FR-STR-071)·빌더 전용 확장 뷰.
+    """백테스트 대상 테마 상장사 — 외부 카탈로그(네이버>알파스퀘어>주달)·시드·검색 학습의
+    **직접 목록만** 싣는다(2026-10-06 사용자 지시: "네이버·알파스퀘어가 정리한 집합 종목만").
 
-    theme_listed_companies(정밀 목록 — 직접 엣지 우선, 이웃 개념 희석 금지)를 기본으로
-    하되, 학습 앵커는 Concept Universe(FR-STR-072) 결정론 선정으로 확장한다 — 'bts 관련
-    종목' 사고 2차(2026-07-25): 직접 학습 엣지 2곳(신세계·하이브)만으로는 컨셉 유니버스를
-    대표하지 못했다(기획사 1홉·지분 관계 전부 누락). 기본 임계(0.5) 이상 선정만 싣는다 —
-    최소 크기 완화 편입(score<0.5)을 백테스트 대상 제안에 섞지 않는다. 시드·카탈로그
-    앵커는 큐레이션 직접 엣지가 유니버스 정의라 확장하지 않는다(지분 홉 노이즈 차단 —
-    HBM 되묻기에 지주·계열 편입 방지). first_known_date는 직접 학습 엣지의 뉴스 보도일을
-    심볼 매칭으로 이월해 시점 편향 경고를 유지한다.
-
-    개념 1홉 폴백으로만 채워진 목록은 앵커 기준 근거를 통과한 종목만 싣는다('베트남' 사고
-    2026-08-29, _hop_companies_with_anchor_evidence). 남는 종목이 없으면 미해석으로 돌려
-    THEME_NOT_FOUND 되묻기로 종결한다 — 근거 없는 추측을 백테스트 유니버스로 승격하느니
-    찾지 못했다고 말한다. 정밀 목록(theme_listed_companies)의 폴백은 조회 레인용으로
-    그대로 유지된다."""
+    개념 1홉·지분 홉·Concept Universe 확장은 하지 않는다. 사고: '여행/관광'이 면세점
+    경유 호텔신라의 주주(삼성전자 5.1%·삼성생명 7.3%)까지 편입했다. 직접 목록이 개념
+    1홉 폴백뿐이면 미해석으로 돌려 THEME_NOT_FOUND 되묻기로 종결한다 — 이웃 개념의
+    종목은 앵커를 뒷받침하지 않는다. 정밀 목록(theme_listed_companies)의 폴백은 조회
+    레인용으로 그대로 유지된다."""
     base = theme_listed_companies(text)
-    graph = get_graph()
-    concepts = graph.find_concepts(text)
-    anchor = concepts[0] if concepts else None
-    if base and anchor is not None and any(c.get("via_concepts") for c in base["companies"]):
-        kept = _hop_companies_with_anchor_evidence(graph, anchor, base["companies"])
-        if not kept:
-            logger.info(
-                "KG 백테스트 테마 확장: 앵커=%s[%s] → 개념 1홉 폴백 %d곳 전부 앵커 기준 "
-                "근거 없음(원장 미등재·섹터 불일치), 백테스트 유니버스 미해석 처리",
-                anchor.get("name"), anchor["id"], len(base["companies"]),
-            )
-            return None
+    if base and any(c.get("via_concepts") for c in base["companies"]):
         logger.info(
-            "KG 백테스트 테마 확장: 앵커=%s[%s] → 개념 1홉 폴백 %d곳 중 앵커 기준 근거 "
-            "%d곳 채택=%s, Concept Universe 확장 생략",
-            anchor.get("name"), anchor["id"], len(base["companies"]),
-            len(kept), _fmt_companies(kept),
+            "KG 백테스트 테마: 질의=%r → 직접 목록 없이 개념 1홉 폴백 %d곳뿐, 백테스트 유니버스 미해석 처리",
+            _log_preview(text), len(base["companies"]),
         )
-        # 확장은 '직접 엣지가 있는 앵커의 대표성 보강'이 목적이다(bts 사고 2차). 직접
-        # 상장사가 하나도 없어 1홉 폴백으로만 채워진 앵커를 확장하면 근거를 통과하지 못한
-        # 바로 그 이웃들을 점수 경로로 다시 끌어온다 — 게이트를 우회하므로 하지 않는다.
-        return {**base, "companies": kept}
-    if anchor is None or anchor.get("category") != "learned":
-        if anchor is not None:
-            logger.info(
-                "KG 백테스트 테마 확장: 앵커=%s[%s](%s) → 학습 앵커 아님, 직접 목록 유지",
-                anchor.get("name"), anchor["id"], anchor.get("category", "seed"),
-            )
-        return base
-    if graph.catalog_theme_nodes(anchor.get("name", "")):
-        # 카탈로그 표기 정합('LCD 부품' 사고 2026-07-27) — base가 이미 카탈로그 수록
-        # 종목이다. Concept Universe 확장은 뉴스 동시언급 학습 엣지·개념 홉을 다시
-        # 끌어와 무관 종목(PCB 경유 심텍 등)을 섞으므로 하지 않는다.
-        logger.info(
-            "KG 백테스트 테마 확장: 앵커=%s[%s] → 카탈로그 표기 정합, 카탈로그 목록 유지(확장 생략)",
-            anchor.get("name"), anchor["id"],
-        )
-        return base
-    try:
-        from engine.concept_universe import BASE_THRESHOLD, build_concept_universe
-
-        universe = build_concept_universe(text)
-    except Exception:  # noqa: BLE001 — 유니버스 빌더 실패가 테마 되묻기를 막으면 안 된다
-        logger.warning(
-            "KG 백테스트 테마 확장: 앵커=%s[%s] → Concept Universe 빌드 실패, 직접 목록 유지",
-            anchor.get("name"), anchor["id"], exc_info=True,
-        )
-        return base
-    if not universe:
-        logger.info(
-            "KG 백테스트 테마 확장: 앵커=%s[%s] → Concept Universe 없음, 직접 목록 유지",
-            anchor.get("name"), anchor["id"],
-        )
-        return base
-    picked = [s for s in universe["stocks"] if s["score"] >= BASE_THRESHOLD]
-    if not picked:
-        logger.info(
-            "KG 백테스트 테마 확장: 앵커=%s[%s] → 기본 임계(%.2f) 이상 선정 없음, 직접 목록 유지",
-            anchor.get("name"), anchor["id"], BASE_THRESHOLD,
-        )
-        return base
-    direct = {c["symbol"]: c for c in (base["companies"] if base else [])}
-    companies = [
-        {
-            "symbol": s["symbol"],
-            "name": s["name"],
-            "support": direct.get(s["symbol"], {}).get("support", 1),
-            "first_known_date": direct.get(s["symbol"], {}).get("first_known_date"),
-        }
-        for s in picked
-    ]
-    dates = sorted(c["first_known_date"] for c in companies if c["first_known_date"])
-    first = (
-        dates[0] if dates
-        else (base or {}).get("first_known_date")
-        or ((anchor.get("searched_at") or "")[:10] or None)
-    )
-    logger.info(
-        "KG 백테스트 테마 확장: 앵커=%s[%s] → 직접 %d곳을 Concept Universe로 확장, 상장사 %d곳=%s, 최초 보도일=%s",
-        anchor.get("name"), anchor["id"], len(direct), len(companies),
-        _fmt_companies(companies), first,
-    )
-    return {"term": anchor.get("name"), "companies": companies, "first_known_date": first}
-
+        return None
+    return base
 
 def catalog_theme_candidates(term: str, limit: int = 8) -> list[dict]:
     """CONCEPT 표현의 카탈로그 테마 후보 열거 — 되묻기 선택지(chips) 전용(FR-STR-073).

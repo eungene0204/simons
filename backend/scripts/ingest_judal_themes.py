@@ -27,6 +27,7 @@ import sys
 import time
 import urllib.request
 from datetime import date
+from html import unescape
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -93,20 +94,24 @@ def _fetch(url: str) -> str:
 
 
 def parse_theme_list(html: str) -> list[dict]:
-    pat = re.compile(r'themeIdx=(\d+)"[^>]*>\s*<span>([^<]+?)\((\d+)\)</span>', re.S)
+    """메인 페이지의 테마 링크 `>이름<span>(종목 수)</span>` — 0개면 마크업 변경이다(조용한 고장 방지)."""
+    pat = re.compile(r'themeIdx=(\d+)"[^>]*>\s*([^<]+?)\s*<span>\((\d+)\)</span>', re.S)
     seen: dict[str, dict] = {}
     for idx, name, count in pat.findall(html):
-        seen.setdefault(idx, {"idx": int(idx), "name": name.strip(), "count": int(count)})
+        seen.setdefault(idx, {"idx": int(idx), "name": unescape(name).strip(), "count": int(count)})
+    if not seen:
+        raise RuntimeError("주달 테마 목록이 비었습니다 — 사이트 마크업 변경 의심")
     return list(seen.values())
 
 
 def parse_theme_stocks(html: str) -> list[tuple[str, str]]:
-    pat = re.compile(r'code=(\d{6})"[^>]*>\s*<b[^>]*>([^<]+)</b>', re.S)
+    """테마 페이지의 종목 행 — 종목 링크가 네이버 증권 주소(…/domestic/stock/{코드}/price)다."""
+    pat = re.compile(r'/domestic/stock/(\w{6})/price"[^>]*>\s*<b[^>]*>([^<]+)</b>', re.S)
     out, seen = [], set()
     for code, name in pat.findall(html):
         if code not in seen:
             seen.add(code)
-            out.append((code, name.strip()))
+            out.append((code, unescape(name).strip()))
     return out
 
 

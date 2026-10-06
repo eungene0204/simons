@@ -84,12 +84,12 @@ def test_db_lexicon_drives_theme_companies(db_store):
     """사고 재현: pending만 있으면 테마 상장사가 없고(업종 근사로 빠짐), 같은 DB 항목이
     verified로 합쳐지면 모든 환경이 같은 테마 상장사를 본다."""
     lexicon_store.save_entry(DEFAULT_PATH, "bts", _PROD_BTS)
-    assert kg.theme_backtest_companies("bts") is None
+    assert kg.theme_listed_companies("bts") is None
 
     merged = merge_entry(lexicon_store.snapshot()["bts"], _LOCAL_BTS)
     lexicon_store.save_entry(DEFAULT_PATH, "bts", merged)
     kg._CACHED = None
-    theme = kg.theme_backtest_companies("bts")
+    theme = kg.theme_listed_companies("bts")
     assert theme is not None
     assert {"352820", "035900", "041510"} <= {c["symbol"] for c in theme["companies"]}
 

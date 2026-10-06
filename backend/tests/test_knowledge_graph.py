@@ -301,6 +301,8 @@ def test_concept_hop_fallback_skips_learned_neighbors(tmp_path, monkeypatch):
                  ]},
     }, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    # 실데이터 알파스퀘어 '블랙핑크' 카탈로그가 홉 폴백 검증을 가로채지 않게 격리
+    monkeypatch.setattr(kg, "_ALPHASQUARE_CATALOG_PATH", tmp_path / "no-alphasquare.json")
     monkeypatch.setattr(kg, "_CACHED", None)
 
     result = theme_listed_companies("블랙핑크 관련주")
@@ -312,11 +314,10 @@ def test_concept_hop_fallback_skips_learned_neighbors(tmp_path, monkeypatch):
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
 
 
-def test_theme_backtest_companies_expands_learned_anchor(tmp_path, monkeypatch):
-    """'bts 관련 종목' 사고 2차(2026-07-25) — 직접 verified 엣지가 몇 건 있어도 학습 앵커의
-    백테스트 제안 목록(theme_backtest_companies)은 Concept Universe(FR-STR-072, 기본 임계
-    이상)로 확장된다. 정밀 목록(theme_listed_companies)의 기존 계약(직접 엣지 우선·이웃
-    개념 희석 금지)은 그대로 유지되고, 직접 학습 엣지의 뉴스 보도일은 확장 뷰에 이월된다."""
+def test_theme_backtest_companies_does_not_expand_learned_anchor(tmp_path, monkeypatch):
+    """[회귀] 2026-10-06 — 학습 앵커의 백테스트 목록은 직접 목록 그대로다(Concept Universe
+    확장 폐지, 사용자 지시). 사고: '여행/관광'이 면세점 경유 호텔신라의 주주(삼성전자·
+    삼성생명)까지 편입했다. 이웃 개념(기획사) 종목도 지분 관계 종목도 섞지 않는다."""
     import engine.concept_universe as cu
     from engine.knowledge_graph import theme_backtest_companies, theme_listed_companies
 
@@ -340,12 +341,9 @@ def test_theme_backtest_companies_expands_learned_anchor(tmp_path, monkeypatch):
     # 정밀 목록: 직접 verified 엣지만(기존 계약 불변)
     listed = theme_listed_companies("빅히트뮤직 관련주")
     assert {c["symbol"] for c in listed["companies"]} == {"004170"}
-    # 백테스트 제안 목록: 직접 + verified 개념 1홉(기획사) 확장 — 컨셉 유니버스 대표성
     result = theme_backtest_companies("빅히트뮤직 관련주")
-    symbols = {c["symbol"] for c in result["companies"]}
-    assert {"004170", "352820", "041510"} <= symbols  # 신세계 + 하이브·에스엠(1홉)
-    # 직접 학습 엣지의 뉴스 보도일 이월 → 시점 편향 경고 유지
-    assert result["first_known_date"] == "2026-06-11"
+    assert result == listed  # 기획사 1홉(하이브·에스엠) 확장 없음
+    assert result["first_known_date"] == "2026-06-11"  # 시점 편향 경고 유지
 
     monkeypatch.setattr(kg, "_CACHED", None)
     monkeypatch.setattr(cu, "_EQUITY_CACHE", None)
@@ -739,6 +737,7 @@ def test_catalog_slash_name_reachable_via_alias(tmp_path, monkeypatch):
     lexicon.write_text("{}", encoding="utf-8")  # 학습 노드 선점 배제(격리)
     monkeypatch.setattr(kg, "_CATALOG_PATH", catalog)
     monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", tmp_path / "no-naver.json")
+    monkeypatch.setattr(kg, "_ALPHASQUARE_CATALOG_PATH", tmp_path / "no-alphasquare.json")
     monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
     monkeypatch.setattr(kg, "_CACHED", None)
 
@@ -781,6 +780,7 @@ def test_learned_anchor_prefers_catalog_exact_match(tmp_path, monkeypatch):
     }, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(kg, "_CATALOG_PATH", catalog)
     monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", tmp_path / "no-naver.json")
+    monkeypatch.setattr(kg, "_ALPHASQUARE_CATALOG_PATH", tmp_path / "no-alphasquare.json")
     monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
     monkeypatch.setattr(kg, "_CACHED", None)
 
@@ -829,6 +829,7 @@ def test_seed_anchor_prefers_catalog_exact_match(tmp_path, monkeypatch):
         ],
     }, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", catalog)
+    monkeypatch.setattr(kg, "_ALPHASQUARE_CATALOG_PATH", tmp_path / "no-alphasquare.json")
     monkeypatch.setattr(kg, "_CACHED", None)
 
     graph = get_graph()
@@ -901,6 +902,7 @@ def test_catalog_listing_derived_keys(tmp_path, monkeypatch):
         ],
     }, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", catalog)
+    monkeypatch.setattr(kg, "_ALPHASQUARE_CATALOG_PATH", tmp_path / "no-alphasquare.json")
     monkeypatch.setattr(kg, "_CATALOG_PATH", tmp_path / "no-judal.json")
     monkeypatch.setattr(kg, "_CACHED", None)
 
@@ -938,6 +940,7 @@ def test_catalog_exact_notation_resolves_without_an_anchor(tmp_path, monkeypatch
         ],
     }, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", catalog)
+    monkeypatch.setattr(kg, "_ALPHASQUARE_CATALOG_PATH", tmp_path / "no-alphasquare.json")
     monkeypatch.setattr(kg, "_CATALOG_PATH", tmp_path / "no-judal.json")
     # 학습 어휘집이 없는 상태(= 프로덕션 박스)를 재현한다.
     monkeypatch.setattr(kg, "_LEXICON_PATH", tmp_path / "no-lexicon.json")
@@ -1002,6 +1005,7 @@ def test_catalog_paren_derived_keys(tmp_path, monkeypatch):
     lexicon = tmp_path / "term_lexicon.json"
     lexicon.write_text("{}", encoding="utf-8")  # 학습 노드 선점 배제(격리)
     monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", naver)
+    monkeypatch.setattr(kg, "_ALPHASQUARE_CATALOG_PATH", tmp_path / "no-alphasquare.json")
     monkeypatch.setattr(kg, "_CATALOG_PATH", judal)
     monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
     monkeypatch.setattr(kg, "_CACHED", None)
@@ -1074,13 +1078,10 @@ def test_hop_fallback_without_anchor_evidence_is_not_a_backtest_universe(tmp_pat
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
 
 
-def test_hop_fallback_passes_when_anchor_sector_matches_neighbor(tmp_path, monkeypatch):
-    """섹터가 일치하는 카테고리 경유는 그대로 통과한다 — 이 폴백의 도입 사유(블랙핑크→
-    K-팝 기획사, 2026-07-25)를 '베트남' 게이트가 죽이면 안 된다.
-
-    간선 타입은 둘 다 related_to라 타입으로는 가를 수 없다. 앵커의 그라운딩 섹터
-    (미디어/엔터)와 이웃 개념의 정본 섹터가 같다는 구조 신호가 통과 근거다."""
-    from engine.knowledge_graph import theme_backtest_companies
+def test_hop_fallback_never_becomes_backtest_universe(tmp_path, monkeypatch):
+    """개념 1홉 폴백뿐인 학습 앵커는 섹터가 같아도 백테스트 유니버스가 되지 않는다(2026-10-06
+    확장 폐지). 조회 레인의 정밀 목록에는 1홉 종목이 그대로 남는다."""
+    from engine.knowledge_graph import theme_backtest_companies, theme_listed_companies
 
     lexicon = tmp_path / "term_lexicon.json"
     lexicon.write_text(json.dumps({
@@ -1092,45 +1093,12 @@ def test_hop_fallback_passes_when_anchor_sector_matches_neighbor(tmp_path, monke
                  ]},
     }, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
+    monkeypatch.setattr(kg, "_ALPHASQUARE_CATALOG_PATH", tmp_path / "no-alphasquare.json")
     monkeypatch.setattr(kg, "_CACHED", None)
 
-    result = theme_backtest_companies("블랙핑크 관련주")
-    assert result is not None
-    assert "352820" in {c["symbol"] for c in result["companies"]}  # 하이브
-
-    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
-
-
-def test_hop_fallback_passes_with_anchor_relation_ledger(tmp_path, monkeypatch):
-    """앵커 기준 관계 원장(kg_research)에 근거가 적혀 있으면 섹터가 미해석이어도 통과한다.
-
-    원장은 사람이 공식 자료를 조사해 남긴 근거다 — 근거가 있는데 섹터 표기 때문에 막으면
-    게이트가 데이터를 이긴다. 근거를 지어내지는 않는다: 원장에 없으면 통과하지 못한다."""
-    from engine import kg_research
-    from engine.knowledge_graph import theme_backtest_companies
-
-    lexicon = tmp_path / "term_lexicon.json"
-    lexicon.write_text(json.dumps({
-        "테스트지역어": {"term": "테스트지역어", "sector": None,
-                   "searched_at": "2026-08-28T18:13:21+00:00",
-                   "edges": [
-                       {"type": "related_to", "target": "data-center",
-                        "target_name": "데이터센터", "support": 2, "status": "verified"},
-                   ]},
-    }, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
-    monkeypatch.setattr(kg, "_CACHED", None)
-
-    monkeypatch.setattr(
-        kg_research, "lookup",
-        lambda concept_id, symbol: (
-            {"relation_type": "Producer", "direct": True, "relevance": "Strong"}
-            if concept_id == "learned:테스트지역어" and symbol == "018260" else None
-        ),
-    )
-    result = theme_backtest_companies("테스트지역어 관련주")
-    assert result is not None
-    assert {c["symbol"] for c in result["companies"]} == {"018260"}  # 근거 있는 1곳만
+    assert theme_backtest_companies("블랙핑크 관련주") is None
+    listed = theme_listed_companies("블랙핑크 관련주")
+    assert "352820" in {c["symbol"] for c in listed["companies"]}  # 조회 레인은 유지
 
     monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
 
@@ -1255,6 +1223,7 @@ def test_cross_source_conjunction_variant_folds_into_primary_source(tmp_path, mo
                     {"symbol": "018670", "name": "SK가스"}]},
     ])
     monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", naver)
+    monkeypatch.setattr(kg, "_ALPHASQUARE_CATALOG_PATH", tmp_path / "no-alphasquare.json")
     monkeypatch.setattr(kg, "_CATALOG_PATH", judal)
     monkeypatch.setattr(kg, "_CACHED", None)
 
@@ -1266,6 +1235,45 @@ def test_cross_source_conjunction_variant_folds_into_primary_source(tmp_path, mo
     result = kg.theme_backtest_companies("석유가스")
     assert result["term"] == "석유와가스"  # 어느 표기로 들어와도 같은 이름·같은 종목
     assert {c["symbol"] for c in result["companies"]} == {"010950", "024060", "034730"}
+
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+
+def test_catalog_index_source_rank_beats_notation_kind(tmp_path, monkeypatch):
+    """[회귀] 2026-10-06 — 하위 출처(알파스퀘어)의 정확 표기·별칭이 상위 출처(네이버)
+    테마를 가로채거나 합쳐지지 않는다. 사고: 알파스퀘어 '동물백신/방역'의 별칭 '방역'이
+    네이버 백신 테마에 합쳐져 42곳→54곳, 알파스퀘어 '쿠팡'(정확)이 네이버 '쿠팡(coupang)'
+    (괄호 파생 키)을 이겨 표기 동일성 자동 교체가 되묻기로 바뀌었다. 상위 출처에 없는
+    이름('여행/관광')은 하위 출처가 그대로 답한다."""
+    naver = tmp_path / "kg-naver-theme-catalog.json"
+    alpha = tmp_path / "kg-alphasquare-theme-catalog.json"
+    _write_catalog(naver, "finance.naver.com", [
+        {"id": "naver-vac", "name": "백신/방역", "synonyms": ["방역"],
+         "stocks": [{"symbol": "096530", "name": "씨젠"}]},
+        {"id": "naver-cp", "name": "쿠팡(coupang)", "synonyms": [],
+         "stocks": [{"symbol": "023530", "name": "롯데쇼핑"}]},
+        {"id": "naver-trv", "name": "여행", "synonyms": [],
+         "stocks": [{"symbol": "039130", "name": "하나투어"}]},
+    ])
+    _write_catalog(alpha, "alphasquare.co.kr", [
+        {"id": "as-ani", "name": "동물백신/방역", "synonyms": [],
+         "stocks": [{"symbol": "060590", "name": "씨티씨바이오"}]},
+        {"id": "as-cp", "name": "쿠팡", "synonyms": [],
+         "stocks": [{"symbol": "005930", "name": "삼성전자"}]},
+        {"id": "as-trv", "name": "여행/관광", "synonyms": [],
+         "stocks": [{"symbol": "039130", "name": "하나투어"},
+                    {"symbol": "003490", "name": "대한항공"}]},
+    ])
+    monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", naver)
+    monkeypatch.setattr(kg, "_ALPHASQUARE_CATALOG_PATH", alpha)
+    monkeypatch.setattr(kg, "_CATALOG_PATH", tmp_path / "no-judal.json")
+    monkeypatch.setattr(kg, "_CACHED", None)
+
+    graph = get_graph()
+    assert [n["id"] for n in graph.catalog_theme_nodes("방역")] == ["theme:naver-vac"]
+    assert [n["id"] for n in graph.catalog_theme_nodes("쿠팡")] == ["theme:naver-cp"]
+    assert [n["id"] for n in graph.catalog_theme_nodes("여행")] == ["theme:naver-trv"]
+    assert [n["id"] for n in graph.catalog_theme_nodes("여행/관광")] == ["theme:as-trv"]
 
     monkeypatch.setattr(kg, "_CACHED", None)
 
@@ -1287,6 +1295,7 @@ def test_cross_source_fold_requires_shared_company_and_different_source(tmp_path
          "stocks": [{"symbol": "018670", "name": "SK가스"}]},  # 겹침 없음
     ])
     monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", naver)
+    monkeypatch.setattr(kg, "_ALPHASQUARE_CATALOG_PATH", tmp_path / "no-alphasquare.json")
     monkeypatch.setattr(kg, "_CATALOG_PATH", judal)
     monkeypatch.setattr(kg, "_CACHED", None)
 

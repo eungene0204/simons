@@ -60,6 +60,7 @@ def test_lookup_exact_match_ingests_and_graph_serves(tmp_path, monkeypatch):
 
     # 편입 즉시 그래프가 합성해 테마→종목 조회가 결정적으로 동작한다
     monkeypatch.setattr(kg, "_NAVER_CATALOG_PATH", catalog)
+    monkeypatch.setattr(kg, "_ALPHASQUARE_CATALOG_PATH", tmp_path / "no-alphasquare.json")
     monkeypatch.setattr(kg, "_CACHED", None)
     result = kg.theme_listed_companies("가상수집테마 관련주")
     assert {c["symbol"] for c in result["companies"]} == {"005930", "000660"}

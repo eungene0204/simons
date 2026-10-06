@@ -4918,8 +4918,6 @@ def apply_theme_companies(parsed: ParsedStrategy, lookup_text: str) -> Optional[
     함께 비노출 — 문구 구성은 로그·회귀 검증용으로 유지)."""
     if getattr(parsed, "target_symbols", None):
         return None
-    # 학습 앵커는 Concept Universe(FR-STR-073) 확장 뷰로 조회한다 — 직접 학습 엣지 몇 건이
-    # 컨셉 유니버스를 대표하지 못하던 'bts 관련 종목' 사고 2차(2026-07-25) 배선.
     from engine.knowledge_graph import theme_backtest_companies
 
     try:
