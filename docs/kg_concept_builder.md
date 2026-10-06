@@ -119,7 +119,7 @@ Moderate). 둘 다 시드 미편입, 재조사 후보로만 기록.
 | 개념 | 신규 편입 | 근거 |
 | --- | --- | --- |
 | 자율주행 (`autonomous-driving`) | 현대모비스(Core 85, ADAS 부품 2천만 건+ 공급 경험)·HL만도(Core 82, 2021년 ADAS+MHE 통합해 자율주행 전문 조직 HL클레무브 출범), ETF 385520·394660·414270 | `data/kg-research/autonomous-driving.json` |
-| 사이버보안 (`cybersecurity`) | 안랩(Core 90, 국내 보안 상장사 매출 1위 2,330억원)·파수AI(Strong 70, 데이터보안 전문·삼성/포스코/CJ 고객사, 舊 파수) | `data/kg-research/cybersecurity.json`. 시큐아이는 정본 미등재로 편입 불가 |
+| 사이버보안 (`cybersecurity`) | 안랩(Core 90, 국내 보안 상장사 매출 1위 2,330억원)·파수AI(Strong 70, 데이터보안 전문·삼성/포스코/CJ 고객사, 舊 파수) | `data/kg-research/cybersecurity.json`. 시큐아이는 정본 미등재로 편입 불가. **2026-10-06 동의어 추가**: "해킹 관련주"가 미지원으로 처리되는 사고 — '해킹'이 어느 노드에도 없어 스캔이 못 찾았다. 가드 ②(`normalize_sector("해킹")`→None)·③(`term_lexicon.json`·`test_term_grounding.py` 무충돌) 확인 후 동의어에 '해킹' 추가(신규 기업 조사 아님). 네이버 '사이버 보안' 카탈로그 표기 정합으로 38곳 조회됨. 같은 작업에서 사용자 요청으로 '랜섬웨어'·'피싱'도 가드 ②③ 무충돌 확인 후 동의어 추가 |
 | 전기차 충전 (`ev-charging`) | 채비(Core 85, 舊 대영채비 — 충전이 사업 전부, 2026 1분기 매출 207억원) | `data/kg-research/ev-charging.json` |
 | 양자암호통신 (`quantum-cryptography`) | SK텔레콤(Investor/Strong 70, 스위스 IDQ 지분 50%+ 인수·700억원·1대 주주 — 기존 `quantum-computing`과는 related_to로만 연결, is_a는 부적절) | `data/kg-research/quantum-cryptography.json` |
 
