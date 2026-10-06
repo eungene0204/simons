@@ -1934,11 +1934,14 @@ def test_quarterly_operating_income_increase_compiles_as_direct_comparison(monke
 def test_quarterly_operating_income_comparison_is_exposed_to_the_interpreter():
     """A registered factor must also appear in the model's ontology-backed prompt."""
     from strategy_conversation.interpreter.prompts import build_system_prompt
+    from strategy_conversation.registry import indicator_registry
 
     prompt = build_system_prompt()
     assert "fundamental.operating_income_yoy_direction" in prompt
     assert "적자 축소·흑자 전환" in prompt
     assert "영업이익 금액 기준값을 다시 묻지 마세요" in prompt
+    assert indicator_registry.resolve(
+        "fundamental.operating_income_yoy_direction").recommended_value is None
 
 
 def test_primary_notices_listed_unsupported_concept_reported_by_llm(monkeypatch):

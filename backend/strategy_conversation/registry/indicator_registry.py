@@ -229,7 +229,7 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                  notes="분기 손익계산서 3개월 값의 전년 동기 대비 증가율. 연간 증가율(operating_income_growth)과 다른 지표 — "
                        "'분기'·'YoY·전년 동기 분기'를 말했을 때만. 기준 분기가 적자·0이면 값이 없다"),
     _fundamental("operating_income_yoy_direction", "분기 영업이익 전년 동기 증감 방향", "growth", "direction",
-                 recommended=0, value_range=(-1, 1),
+                 value_range=(-1, 1),
                  notes="최근 발표 분기 영업이익과 전년 같은 분기 영업이익의 직접 비교: 증가=1, 동일=0, 감소=-1. "
                        "'최근 분기 영업이익이 전년 동기 대비 증가'처럼 증가 여부만 말하면 > 0. "
                        "기준 분기가 적자·0이어도 비교하며, 전년 동기 분기가 없으면 값이 없다. "
