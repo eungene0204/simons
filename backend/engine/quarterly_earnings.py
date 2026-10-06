@@ -335,6 +335,10 @@ QUARTERLY_GROWTH_METRICS: Dict[str, tuple] = {
     for item in INCOME_ITEMS for mode in ("qoq", "yoy")
 }
 
+QUARTERLY_COMPARISON_METRICS: Dict[str, tuple] = {
+    "operating_income_yoy_direction": ("operating_income", "yoy"),
+}
+
 
 def quarterly_growth_events(records: List[dict], item: str, mode: str) -> List[tuple]:
     """분기 성장률 사건 목록 [(announce_date, 성장률 %)] — 결산일 오름차순.
@@ -371,6 +375,42 @@ def quarterly_growth_series(records: List[dict], item: str, mode: str, dates) ->
     ev = pd.Series([v for _, v in events], index=pd.DatetimeIndex([d for d, _ in events]))
     ev = ev[~ev.index.duplicated(keep="last")].sort_index()
     return ev.reindex(idx, method="ffill")
+
+
+def quarterly_comparison_series(records: List[dict], item: str, mode: str, dates) -> "pd.Series":
+    """Latest published quarter versus the same quarter a year earlier (-1, 0, 1).
+
+    A new filing without a comparable quarter clears the previous result. Missing
+    values remain NaN so a filter cannot treat an older comparison as current.
+    """
+    idx = pd.DatetimeIndex(pd.to_datetime(dates))
+    if mode != "yoy":
+        raise ValueError(f"Unsupported quarterly comparison: {mode}")
+    filings = sorted((
+        (pd.Timestamp(r["period_end"]), pd.Timestamp(r["announce_date"]), r.get(item))
+        for r in records or [] if r.get("period_end") and r.get("announce_date")
+    ), key=lambda row: (row[1], row[0]))
+    if not filings:
+        return pd.Series(float("nan"), index=idx)
+    events = []
+    known = {}
+    for period_end, announce_date, current in filings:
+        known[period_end] = current
+        latest_period = max(known)
+        latest_value = known[latest_period]
+        prior = None
+        for prior_end in sorted(known):
+            gap = (latest_period.year - prior_end.year) * 12 + latest_period.month - prior_end.month
+            if 11 <= gap <= 13:
+                prior = known[prior_end]
+        value = float("nan")
+        if latest_value is not None and prior is not None and pd.notna(latest_value) and pd.notna(prior):
+            value = float((latest_value > prior) - (latest_value < prior))
+        events.append((announce_date, value))
+    observed = pd.Series([value for _, value in events],
+                         index=pd.DatetimeIndex([date for date, _ in events]))
+    observed = observed[~observed.index.duplicated(keep="last")].sort_index()
+    return observed.reindex(idx, method="ffill")
 
 
 def load_quarterly_earnings(symbol: str) -> Optional[List[dict]]:

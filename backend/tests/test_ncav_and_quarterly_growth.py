@@ -78,6 +78,46 @@ def test_quarterly_growth_events_qoq_and_yoy_match_by_date_and_skip_nonpositive_
     assert np.isnan(ser.iloc[0]) and ser.iloc[-1] == pytest.approx(20.0)   # 발표일부터 as-of
 
 
+def test_operating_income_yoy_direction_includes_losses_and_clears_missing_comparison(monkeypatch):
+    records = [
+        {"period_end": "2023-03-31", "announce_date": "2023-05-15", "operating_income": -100.0},
+        {"period_end": "2023-06-30", "announce_date": "2023-08-14", "operating_income": 0.0},
+        {"period_end": "2023-09-30", "announce_date": "2023-11-14", "operating_income": 20.0},
+        {"period_end": "2023-12-31", "announce_date": "2025-04-01", "operating_income": 10.0},
+        {"period_end": "2024-03-31", "announce_date": "2024-05-15", "operating_income": -40.0},
+        {"period_end": "2024-06-30", "announce_date": "2024-08-14", "operating_income": 15.0},
+        {"period_end": "2024-09-30", "announce_date": "2024-11-14", "operating_income": 20.0},
+        {"period_end": "2024-12-31", "announce_date": "2025-03-20", "operating_income": 30.0},
+    ]
+    monkeypatch.setattr(qe, "load_quarterly_earnings", lambda symbol: records)
+    dates = pd.to_datetime(["2024-05-14", "2024-05-15", "2024-08-14", "2024-11-14", "2025-03-20", "2025-04-01"])
+    series = qe.quarterly_comparison_series(records, "operating_income", "yoy", dates)
+    assert np.isnan(series.iloc[0])
+    assert series.iloc[1:4].tolist() == [1.0, 1.0, 0.0]
+    assert np.isnan(series.iloc[4])  # The year-earlier filing is not yet available.
+    assert series.iloc[5] == 1.0  # The delayed filing enables the latest-quarter comparison.
+
+    frame = pl.DataFrame({"date": dates, "close": [100.0] * len(dates)})
+    out, _ = DataResolver().resolve("TEST", frame, {"conditions": [
+        {"type": "fundamental", "id": "operating_income_yoy_direction",
+         "params": {"operator": ">", "value": 0}}
+    ]}, None)
+    assert out["operating_income_yoy_direction"].to_list()[1:4] == [1.0, 1.0, 0.0]
+    assert np.isnan(out["operating_income_yoy_direction"].to_numpy()[-2])
+    assert out["operating_income_yoy_direction"].to_numpy()[-1] == 1.0
+
+
+def test_operating_income_yoy_direction_distinguishes_equal_and_decrease():
+    records = [
+        {"period_end": "2023-03-31", "announce_date": "2023-05-15", "operating_income": 0.0},
+        {"period_end": "2023-06-30", "announce_date": "2023-08-14", "operating_income": -10.0},
+        {"period_end": "2024-03-31", "announce_date": "2024-05-15", "operating_income": 0.0},
+        {"period_end": "2024-06-30", "announce_date": "2024-08-14", "operating_income": -20.0},
+    ]
+    dates = pd.to_datetime(["2024-05-15", "2024-08-14"])
+    assert qe.quarterly_comparison_series(records, "operating_income", "yoy", dates).tolist() == [0.0, -1.0]
+
+
 def test_resolver_computes_quarterly_growth_from_cache(monkeypatch):
     recs = [{"period_end": "2024-03-31", "announce_date": "2024-05-15", "net_income": 100.0},
             {"period_end": "2024-06-30", "announce_date": "2024-08-14", "net_income": 150.0}]

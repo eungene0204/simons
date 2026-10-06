@@ -404,9 +404,13 @@ class DataResolver:
                 self._log("ERROR", f"[{symbol}] 시가총액/NCAV 비율 직접 계산 실패: {e}")
 
         # 분기 성장률 6종(v16.27) — 분기 손익 수집분(data/quarterly-earnings)에서 발표일 as-of로 계산.
-        from .quarterly_earnings import QUARTERLY_GROWTH_METRICS, load_quarterly_earnings, quarterly_growth_series
+        from .quarterly_earnings import (
+            QUARTERLY_COMPARISON_METRICS, QUARTERLY_GROWTH_METRICS,
+            load_quarterly_earnings, quarterly_comparison_series, quarterly_growth_series,
+        )
         wanted = [m for m in QUARTERLY_GROWTH_METRICS if m in missing]
-        if wanted and 'date' in cols:
+        comparisons = [m for m in QUARTERLY_COMPARISON_METRICS if m in missing]
+        if (wanted or comparisons) and 'date' in cols:
             quarters = load_quarterly_earnings(symbol)
             if quarters:
                 dates = df_pl['date'].to_pandas()
@@ -417,6 +421,13 @@ class DataResolver:
                         df_pl = df_pl.with_columns(pl.Series(metric, ser.to_numpy()))
                         missing.discard(metric)
                         self._log("SUCCESS", f"[{symbol}] {metric} 직접 계산 완료 (분기 손익 {mode.upper()}) ✓")
+                for metric in comparisons:
+                    item, mode = QUARTERLY_COMPARISON_METRICS[metric]
+                    ser = quarterly_comparison_series(quarters, item, mode, dates)
+                    if ser.notna().any():
+                        df_pl = df_pl.with_columns(pl.Series(metric, ser.to_numpy()))
+                        missing.discard(metric)
+                        self._log("SUCCESS", f"[{symbol}] {metric} 직접 비교 완료 (분기 손익 {mode.upper()}) ✓")
 
         # F-score(v16.26) — 9항목 재료가 전부 있을 때만 계산(부분 점수 금지).
         if 'f_score' in missing:

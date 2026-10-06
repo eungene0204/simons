@@ -42,6 +42,7 @@ FUNDAMENTAL_LABELS = {
     # v16.27 — 시가총액/NCAV 비율(ncav parquet 컬럼 ÷, 런타임)·분기 성장률 6종(data/quarterly-earnings, 런타임).
     "ncav_ratio": "시가총액/NCAV 비율",
     "revenue_growth_qoq": "매출 분기성장률(QoQ)", "revenue_growth_yoy": "매출 분기성장률(YoY)", "operating_income_growth_qoq": "영업이익 분기성장률(QoQ)", "operating_income_growth_yoy": "영업이익 분기성장률(YoY)", "net_income_growth_qoq": "순이익 분기성장률(QoQ)", "net_income_growth_yoy": "순이익 분기성장률(YoY)",
+    "operating_income_yoy_direction": "분기 영업이익 전년 동기 증감 방향",
     # eps(원)·ebit(억원) 부호 필터로 '흑자/적자'·'영업이익 흑자/적자' 키워드 조건을
     # 표현한다(nl_parser 참고).
     "eps": "EPS",

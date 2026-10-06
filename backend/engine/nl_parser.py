@@ -664,6 +664,7 @@ class FundamentalFilter(BaseModel):
         "fcf_yield", "dividend_streak_years",
     "asset_growth", "accruals_ratio", "f_score", "ncav_ratio",
     "revenue_growth_qoq", "revenue_growth_yoy", "operating_income_growth_qoq", "operating_income_growth_yoy", "net_income_growth_qoq", "net_income_growth_yoy",
+    "operating_income_yoy_direction",
     ], BeforeValidator(_normalize_metric_alias)] = Field(
         description=(
             "재무 지표 종류. "
@@ -698,7 +699,8 @@ class FundamentalFilter(BaseModel):
             "f_score=피오트로스키 F-score(점, 0~9 — 'F-score 7점 이상'=f_score>=7), "
             "ncav_ratio=시가총액/NCAV 비율(%, 시가총액÷(유동자산−부채총계) — '시총이 NCAV의 2/3 이하'=ncav_ratio<=67, 낮을수록 저평가), "
             "revenue_growth_qoq/operating_income_growth_qoq/net_income_growth_qoq=분기 매출/영업이익/순이익의 직전 분기 대비 증가율(%), "
-            "revenue_growth_yoy/operating_income_growth_yoy/net_income_growth_yoy=분기 매출/영업이익/순이익의 전년 동기 대비 증가율(%) — "
+            "revenue_growth_yoy/operating_income_growth_yoy/net_income_growth_yoy=분기 매출/영업이익/순이익의 전년 동기 대비 증가율(%), "
+            "operating_income_yoy_direction=최근 발표 분기 영업이익과 전년 동기 분기의 직접 비교 방향(-1/0/1; 증가=>0, 적자 축소·흑자 전환 포함) — "
             "연간 증가율(revenue_growth 등)과 다른 지표('분기'·'QoQ'·'전분기'·'전년 동기 분기'를 말했을 때만). "
             "eps_growth/ebitda_growth/net_income_growth/operating_income_growth/ocf_growth/fcf_growth는 "
             "적자↔흑자 전환기에는 값 대신 상태코드(TURNAROUND/LOSS_TRANSITION 등)로 표현될 수 있다."
@@ -6510,6 +6512,7 @@ _FUNDAMENTAL_METRIC_LABELS: dict[str, str] = {
     "fcf_yield": "FCF 수익률", "dividend_streak_years": "연속 배당 연수",
     "asset_growth": "자산성장률", "accruals_ratio": "발생액 비율", "f_score": "F-score",
     "ncav_ratio": "시가총액/NCAV 비율", "revenue_growth_qoq": "매출 분기성장률(QoQ)", "revenue_growth_yoy": "매출 분기성장률(YoY)", "operating_income_growth_qoq": "영업이익 분기성장률(QoQ)", "operating_income_growth_yoy": "영업이익 분기성장률(YoY)", "net_income_growth_qoq": "순이익 분기성장률(QoQ)", "net_income_growth_yoy": "순이익 분기성장률(YoY)",
+    "operating_income_yoy_direction": "분기 영업이익 전년 동기 증감 방향",
     "operating_cf_amount": "영업활동현금흐름", "investing_cf_amount": "투자활동현금흐름",
     "financing_cf_amount": "재무활동현금흐름",
     "owner_net_income": "지배주주순이익",
