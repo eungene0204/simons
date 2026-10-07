@@ -1,5 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import VirtualAccountOverview from "@/components/virtual-account/VirtualAccountOverview";
 import {
   clearVirtualAccountOverviewCache,
@@ -30,6 +30,13 @@ const autoAccount: VirtualAccount = {
   tradingMode: "auto",
 };
 
+const valuedAccount = {
+  ...cachedAccount,
+  totalContributed: 10_000_000,
+  holdingsCost: 1_000_000,
+  holdingsProfit: -100_000,
+};
+
 beforeEach(() => {
   clearVirtualAccountOverviewCache();
 });
@@ -40,6 +47,26 @@ afterEach(() => {
 });
 
 describe("VirtualAccountOverview cache", () => {
+  it("shows held-position P&L and return instead of the change in total assets", () => {
+    setCachedVirtualAccounts([valuedAccount]);
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+
+    render(<VirtualAccountOverview />);
+
+    expect(screen.getByText("-100,000원 (-10.00%)")).toBeInTheDocument();
+    expect(screen.queryByText("+500,000원 (+5.00%)")).not.toBeInTheDocument();
+  });
+
+  it("shows zero holdings return when there are no open positions", () => {
+    const emptyAccount = { ...valuedAccount, holdingsCost: 0, holdingsProfit: 0 };
+    setCachedVirtualAccounts([emptyAccount]);
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+
+    render(<VirtualAccountOverview />);
+
+    expect(screen.getByText("0원 (0.00%)")).toBeInTheDocument();
+  });
+
   it("renders cached accounts immediately while refreshing in the background", () => {
     setCachedVirtualAccounts([cachedAccount]);
     const fetchMock = vi.fn(() => new Promise<Response>(() => undefined));

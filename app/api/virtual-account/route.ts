@@ -22,12 +22,16 @@ import {
 
 function mapAccount(a: any, priceMap: Record<string, number>) {
   const currentCash = moneyToNumber(a.currentCash);
-  const totalValue =
-    currentCash +
-    (a.VirtualPosition ?? []).reduce((sum: number, p: any) => {
-      const currentPrice = priceMap[p.symbol] ?? moneyToNumber(p.currentPrice ?? p.avgPrice);
-      return sum + p.quantity * currentPrice;
-    }, 0);
+  const positions = a.VirtualPosition ?? [];
+  const holdingsValue = positions.reduce((sum: number, p: any) => {
+    const currentPrice = priceMap[p.symbol] ?? moneyToNumber(p.currentPrice ?? p.avgPrice);
+    return sum + p.quantity * currentPrice;
+  }, 0);
+  const holdingsCost = positions.reduce(
+    (sum: number, p: any) => sum + p.quantity * moneyToNumber(p.avgPrice),
+    0
+  );
+  const totalValue = currentCash + holdingsValue;
   return {
     id: a.id,
     name: a.name,
@@ -36,6 +40,8 @@ function mapAccount(a: any, priceMap: Record<string, number>) {
     currency: (a.currency ?? "KRW") as "KRW" | "USD",
     currentBalance: currentCash,
     totalValue,
+    holdingsCost,
+    holdingsProfit: holdingsValue - holdingsCost,
     status: a.status ?? "ACTIVE",
     strategyId: a.strategyId ?? undefined,
     strategyName: a.strategyName ?? undefined,

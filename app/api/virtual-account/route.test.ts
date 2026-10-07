@@ -44,7 +44,7 @@ describe("GET /api/virtual-account", () => {
     findMany.mockResolvedValue([account] as any);
   });
 
-  it("values unsold holdings at the current quote, including contributions in the return basis", async () => {
+  it("returns the current holdings valuation and cost separately from contributed capital", async () => {
     fetchPrices.mockResolvedValue({ "005930": { price: 7_000 } } as any);
 
     const response = await GET();
@@ -58,6 +58,8 @@ describe("GET /api/virtual-account", () => {
       currentBalance: 50_000,
       totalContributed: 110_000,
       totalValue: 120_000,
+      holdingsCost: 50_000,
+      holdingsProfit: 20_000,
     });
   });
 
@@ -67,7 +69,7 @@ describe("GET /api/virtual-account", () => {
     const response = await GET();
     const [result] = await response.json();
 
-    expect(result.totalValue).toBe(100_000);
+    expect(result).toMatchObject({ totalValue: 100_000, holdingsCost: 50_000, holdingsProfit: 0 });
   });
 
   it("does not request quotes for an account with no positions", async () => {
@@ -77,6 +79,6 @@ describe("GET /api/virtual-account", () => {
     const [result] = await response.json();
 
     expect(fetchPrices).not.toHaveBeenCalled();
-    expect(result.totalValue).toBe(50_000);
+    expect(result).toMatchObject({ totalValue: 50_000, holdingsCost: 0, holdingsProfit: 0 });
   });
 });

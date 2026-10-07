@@ -307,6 +307,42 @@ describe("VirtualAccountDetailPage loading", () => {
     expect(screen.getByText("총 자산")).toBeInTheDocument();
   });
 
+  it("uses holdings cost for the return while keeping the valuation profit", async () => {
+    window.sessionStorage.setItem(
+      "virtual-account-detail:account-123",
+      JSON.stringify({
+        account: {
+          id: "account-123",
+          name: "테스트 계좌",
+          initialAmount: 1_000_000,
+          totalContributed: 1_200_000,
+          currentBalance: 1_100_000,
+          totalValue: 1_220_000,
+          tradingMode: "manual",
+          createdAt: "2026-06-01T00:00:00.000Z",
+          updatedAt: "2026-06-01T00:00:00.000Z",
+        },
+        holdings: [{
+          symbol: "005930", name: "삼성전자", quantity: 10,
+          averagePrice: 10_000, currentPrice: 12_000,
+          totalValue: 120_000, profit: 20_000, profitPercent: 20,
+        }],
+        transactions: [],
+        trackedSymbols: [],
+      })
+    );
+
+    render(<VirtualAccountDetailPage />);
+
+    const returnCard = (await screen.findByText("보유 종목 수익률")).closest("div");
+    expect(returnCard).toHaveTextContent("+20.00%");
+    const investedCard = screen.getByText("투자 금액").closest("div");
+    expect(investedCard).toHaveTextContent("100,000원");
+    expect(investedCard).not.toHaveTextContent("보유 종목");
+    expect(screen.queryByText("당일 실현손익")).not.toBeInTheDocument();
+    expect(screen.getByText("+20,000원")).toBeInTheDocument();
+  });
+
   it("keeps detail help tooltips inside the mobile viewport and focus-accessible", async () => {
     window.sessionStorage.setItem(
       "virtual-account-detail:account-123",

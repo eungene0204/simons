@@ -258,11 +258,16 @@ export default function VirtualAccountOverview() {
                 </span>
               </button>
               {accounts.map((account) => {
-                const basis = account.totalContributed ?? account.initialAmount;
-                const profit = account.totalValue - basis;
-                const profitPercent = basis > 0 ? (profit / basis) * 100 : 0;
-                const isPositive = profit > 0;
-                const isNegative = profit < 0;
+                const valuation = account as VirtualAccount & {
+                  holdingsCost?: number;
+                  holdingsProfit?: number;
+                };
+                const profit = valuation.holdingsProfit;
+                const profitPercent = profit != null && valuation.holdingsCost
+                  ? (profit / valuation.holdingsCost) * 100
+                  : 0;
+                const isPositive = (profit ?? 0) > 0;
+                const isNegative = (profit ?? 0) < 0;
 
                 const accountLinkClass =
                   openingAccountId === account.id ? "pointer-events-none opacity-70" : "";
@@ -332,7 +337,9 @@ export default function VirtualAccountOverview() {
                                 : "text-gray-500"
                           }`}
                         >
-                          {`${formatAccountSignedMoney(profit, account.currency)} (${formatSignedPercent(profitPercent)})`}
+                          {profit == null
+                            ? "—"
+                            : `${formatAccountSignedMoney(profit, account.currency)} (${formatSignedPercent(profitPercent)})`}
                         </p>
                       </div>
 

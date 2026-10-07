@@ -55,7 +55,7 @@ import { buildRealizedPerformanceSeries, marketDateKey, type CashEvent } from "@
 import type { StockPriceSnapshot as BatchQuoteItem } from "@/lib/stock-prices";
 import type { StrategyDSL } from "@/types/strategy";
 import { getLocale, t } from "@/lib/i18n";
-import { formatAccountMoney, isUsdAccount } from "@/lib/account-money";
+import { formatAccountMoney, formatAccountSignedMoney, isUsdAccount } from "@/lib/account-money";
 import { useRegionHref } from "@/lib/geo/useRegion";
 
 type AccountDetailCache = {
@@ -615,6 +615,7 @@ export default function VirtualAccountDetailPage() {
   const {
     profit,
     profitPercent,
+    holdingsCost,
     todayPnl,
     todayPnlPct,
     performanceData,
@@ -626,14 +627,14 @@ export default function VirtualAccountDetailPage() {
   } = useMemo(() => {
     if (!account) {
       return {
-        profit: 0, profitPercent: 0, todayPnl: 0, todayPnlPct: 0,
+        profit: 0, profitPercent: 0, holdingsCost: 0, todayPnl: 0, todayPnlPct: 0,
         performanceData: [], hasCompletePerformanceHistory: true, activeDays: 0, investedValue: 0, cashRatio: 0, filledTradeCount: 0,
       };
     }
-    // 수익률의 분모는 총 납입액이다(정액 적립식 — 납입이 없는 계좌는 초기 자본과 같다).
     const basis = account.totalContributed ?? account.initialAmount;
-    const p = account.totalValue - basis;
-    const pp = (p / basis) * 100;
+    const holdingsCost = holdings.reduce((sum, holding) => sum + holding.quantity * holding.averagePrice, 0);
+    const p = holdings.reduce((sum, holding) => sum + holding.profit, 0);
+    const pp = holdingsCost > 0 ? (p / holdingsCost) * 100 : 0;
     const timeZone = isUsdAccount(account.currency) ? "America/New_York" : "Asia/Seoul";
     const todayStr = marketDateKey(new Date().toISOString(), timeZone);
     const todayPnl = transactions
@@ -658,8 +659,8 @@ export default function VirtualAccountDetailPage() {
     const investedValue = Math.max(0, account.totalValue - account.currentBalance);
     const cashRatio = account.totalValue > 0 ? (account.currentBalance / account.totalValue) * 100 : 0;
     const filledTradeCount = transactions.filter((tv) => tv.status === "FILLED").length;
-    return { profit: p, profitPercent: pp, todayPnl, todayPnlPct, performanceData, hasCompletePerformanceHistory, activeDays: days, investedValue, cashRatio, filledTradeCount };
-  }, [account, transactions]);
+    return { profit: p, profitPercent: pp, holdingsCost, todayPnl, todayPnlPct, performanceData, hasCompletePerformanceHistory, activeDays: days, investedValue, cashRatio, filledTradeCount };
+  }, [account, holdings, transactions]);
 
   if (!account) {
     return (
@@ -950,8 +951,8 @@ export default function VirtualAccountDetailPage() {
                 </div>
               </div>
 
-              {/* KPI 4개 */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 border-t border-l border-white/[0.08]">
+              {/* KPI 5개 */}
+              <div className="grid grid-cols-2 lg:grid-cols-5 border-t border-l border-white/[0.08]">
                 <div className="border-r border-b border-white/[0.08] px-5 py-4">
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t("총 자산")}</span>
                   <p
@@ -972,30 +973,33 @@ export default function VirtualAccountDetailPage() {
                   </p>
                   <p className="mt-1 text-[10px] font-bold text-gray-500">{isUsdAccount(account?.currency) ? "USD" : t("원")}</p>
                 </div>
-                <div className="border-r border-b border-white/[0.08] px-5 py-4">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t("당일 실현손익")}</span>
+                <div className="col-span-2 border-r border-b border-white/[0.08] px-5 py-4 lg:col-span-1">
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t("투자한 금액").replace("한 ", " ")}</span>
                   <p
-                    className={`mt-2 text-2xl font-black tabular-nums font-outfit leading-none ${todayPnl === 0 ? "" : todayPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}
-                    style={todayPnl === 0 ? { color: colorTokens.main_white } : undefined}
+                    className="mt-2 text-2xl font-black tabular-nums font-outfit leading-none"
+                    style={{ color: colorTokens.main_white }}
                   >
-                    {formatSignedPrice(todayPnl)}
+                    {formatPrice(holdingsCost)}
                   </p>
-                  <p
-                    className={`mt-1 text-[10px] font-bold tabular-nums ${todayPnl === 0 ? "text-gray-500" : todayPnl > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}
-                  >
-                    {formatSignedPercent(todayPnlPct)}
-                    <span className="ml-1 font-bold text-gray-500">{basisLabel}</span>
-                  </p>
+                  <p className="mt-1 text-[10px] font-bold text-gray-500">{isUsdAccount(account.currency) ? "USD" : t("원")}</p>
                 </div>
                 <div className="border-r border-b border-white/[0.08] px-5 py-4">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t("누적 수익률")}</span>
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t("보유 종목")} {t("수익률")}</span>
                   <p
                     className={`mt-2 text-2xl font-black tabular-nums font-outfit leading-none ${profitPercent === 0 ? "" : profitPercent > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}
                     style={profitPercent === 0 ? { color: colorTokens.main_white } : undefined}
                   >
                     {formatSignedPercent(profitPercent)}
                   </p>
-                  <p className="mt-1 text-[10px] font-bold text-gray-500">{basisLabel}</p>
+                </div>
+                <div className="border-r border-b border-white/[0.08] px-5 py-4">
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t("보유 종목")} {t("평가 손익")}</span>
+                  <p
+                    className={`mt-2 text-2xl font-black tabular-nums font-outfit leading-none ${profit === 0 ? "" : profit > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}
+                    style={profit === 0 ? { color: colorTokens.main_white } : undefined}
+                  >
+                    {formatAccountSignedMoney(profit, account.currency)}
+                  </p>
                 </div>
               </div>
 
@@ -1392,18 +1396,18 @@ export default function VirtualAccountDetailPage() {
                       {/* 성과 KPI 6개 */}
                       <div className="grid grid-cols-2 xl:grid-cols-6 border-l border-t border-white/[0.08]">
                         <div className="border-r border-b border-white/[0.08] p-5">
-                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{t("누적 손익")}</p>
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{t("보유 종목")} {t("평가 손익")}</p>
                           <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${profit === 0 ? "text-white" : profit > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                             {formatSignedPrice(profit)}
                           </p>
-                          <p className="mt-1 text-[10px] font-bold text-gray-500">{basisLabel}</p>
+                          <p className="mt-1 text-[10px] font-bold text-gray-500">{t("보유 종목")}</p>
                         </div>
                         <div className="border-r border-b border-white/[0.08] p-5">
-                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{t("누적 수익률")}</p>
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{t("보유 종목")} {t("수익률")}</p>
                           <p className={`mt-2 text-2xl font-black font-outfit tabular-nums leading-none ${profitPercent === 0 ? "text-white" : profitPercent > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}>
                             {formatSignedPercent(profitPercent)}
                           </p>
-                          <p className="mt-1 text-[10px] font-bold text-gray-500">{basisLabel}</p>
+                          <p className="mt-1 text-[10px] font-bold text-gray-500">{t("보유 종목")}</p>
                         </div>
                         <div className="border-r border-b border-white/[0.08] p-5">
                           <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{t("당일 실현손익")}</p>
@@ -1486,11 +1490,6 @@ export default function VirtualAccountDetailPage() {
                             <p className="text-xs font-bold uppercase tracking-widest text-gray-600">{t("보유 종목 수")}</p>
                             <p className="mt-1 text-sm font-black font-outfit tabular-nums text-white">{t("{0}개", holdings.length)}</p>
                           </div>
-                        </div>
-                        <div className="mt-5 space-y-2">
-                          <p className="text-xs font-bold leading-5 text-gray-500">
-                            {t("추이 차트는 매도 체결로 확정된 실현손익만 누적합니다. 보유 중인 종목의 평가손익은 포함되지 않아 위의 누적 수익률과 다를 수 있습니다.")}
-                          </p>
                         </div>
                       </div>
                     </div>
