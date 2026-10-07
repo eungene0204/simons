@@ -3,8 +3,9 @@
 왜 필요한가(2026-09-18 실측, nemotron-120b): '최근 거래대금이 30일 평균보다 높은'을 인터프리터가 4회 중
 1회 평균 기간 없이 `fundamental.trading_value`(값 없음)로 냈다. 그 형태는 "금액 기준을 아직 말하지 않은
 거래대금 조건"과 구별되지 않아, 시스템이 "일평균거래대금 기준값을 몇 억으로 할까요?"라는 엉뚱한 질문을
-냈다. 형태로 가를 수 없는 것은 의미이므로 LLM이 판정한다(대원칙 1). 평균 기간이 실린 형태는 검증기가
-출력 형태만 보고 거래대금 배수로 옮기므로(capability_validator) 여기 대상이 아니다.
+냈다. 형태로 가를 수 없는 것은 의미이므로 LLM이 판정한다(대원칙 1). 평균 기간만 실린 형태(값 없음)도
+대상이다(2026-10-07 예시 35): 검증기가 그 형태를 거래대금 배수로 옮기기는 하지만 배수 값은 만들 수
+없어, 사용자가 이미 말한 '평균보다 높은'(1배 초과)을 "거래대금 배수 기준값을 얼마로?"로 되물었다.
 
 결정론 코드의 몫: ① 대상 조건 고르기(LLM 출력 필드의 형태) ② 응답이 정해진 enum·숫자 범위인지 확인
 ③ 판정에 따라 지표를 옮기고 LLM이 옮겨 적은 기간·배수·부등호를 싣기. 인용 문자열은 읽지 않는다.
@@ -61,15 +62,14 @@ def _canonical_factor(factor: Optional[str]) -> Optional[str]:
 
 
 def conditions_to_check(strategy: Any, only: Optional[List[Any]] = None) -> List[Any]:
-    """물어볼 조건 — 인용이 있고, 금액도 평균 기간도 없는 거래대금 조건만."""
+    """물어볼 조건 — 인용이 있고 금액(값)이 없는 거래대금 조건. 평균 기간 유무는 묻지 않는다."""
     targets: List[Any] = []
     for role in ("entry_conditions", "exit_conditions"):
         for cond in getattr(strategy, role):
             if only is not None and not any(cond is c for c in only):
                 continue
             if (_canonical_factor(cond.factor) in TRADING_VALUE_FACTORS and cond.source_text
-                    and cond.value is None
-                    and (cond.parameters or {}).get("period") is None):
+                    and cond.value is None):
                 targets.append(cond)
     return targets
 

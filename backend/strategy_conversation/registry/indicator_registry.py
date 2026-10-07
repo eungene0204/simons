@@ -547,6 +547,7 @@ _ALIASES: Dict[str, str] = {
     "볼린저밴드": "technical.bollinger_bands", "bollinger": "technical.bollinger_bands",
     "bollinger_bands": "technical.bollinger_bands", "볼린저": "technical.bollinger_bands",
     "breakout": "technical.breakout", "신고가돌파": "technical.breakout", "신고가": "technical.breakout",
+    "고가돌파": "technical.breakout",
     "consecutive_up": "technical.consecutive_up", "연속상승": "technical.consecutive_up",
     "volume_spike": "technical.volume_spike", "거래량급증": "technical.volume_spike",
     "volume_ratio": "technical.volume_ratio", "거래량배수": "technical.volume_ratio",

@@ -91,6 +91,37 @@ def _dedupe_identical_conditions(role: str, conditions: list) -> list:
     return kept
 
 
+def _drop_valueless_quote_twins(role: str, conditions: list) -> list:
+    """같은 인용·같은 지표의 **값 있는** 조건이 있는 값 없는 조건은 그 조건의 껍데기다.
+
+    120B 실측(2026-10-07 예시 46, 2/3): "RSI가 30 이하로 떨어졌다가 다시 반등하는"을
+    `rsi crosses_above 30`(반등)과 값 없는 `rsi >=` 두 조각으로 냈다 — 사용자가 30을
+    말했는데 "진입 조건의 RSI 기준값을 얼마로 할까요?"가 물어졌다. 값 없는 쪽은 같은 말을
+    한 번 더 옮긴 조각이라 되물을 값이 없다. 판정은 LLM 출력 두 조각의 지표·인용 표기
+    대조뿐이다(원문을 읽지 않는다). 인용이 한쪽에 포함돼도(조사·꼬리 차이) 같은 말로 본다.
+    """
+    def _quote(cond) -> str:
+        return _compact_text(cond.source_text or "")
+
+    # 4자 미만 인용은 우연 포함이 잦다(안내 레인 대조와 같은 하한).
+    valued = [(cond.factor, _quote(cond)) for cond in conditions
+              if cond.value is not None and len(_quote(cond)) >= 4]
+    kept = []
+    for cond in conditions:
+        quote = _quote(cond)
+        if cond.value is None and len(quote) >= 4 and any(
+            factor == cond.factor and (quote in other or other in quote)
+            for factor, other in valued
+        ):
+            ontology_logger.info(
+                "값 없는 인용 쌍둥이 제거 | %s 조건 factor=%s operator=%s 원문=%r",
+                role, cond.factor, cond.operator, cond.source_text,
+            )
+            continue
+        kept.append(cond)
+    return kept
+
+
 def _compact_text(text: str) -> str:
     return re.sub(r"\s+", "", str(text or "")).lower()
 
@@ -423,7 +454,8 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                     f"{role} 조건 '{spec.display_name}'의 교차 방향 '{cond.operator}'은(는) "
                     f"{role} 신호로 표현할 수 없습니다 ({role}은 {expected_cross}만 가능)"
                 )
-        setattr(strategy, attr, _dedupe_identical_conditions(role, kept))
+        setattr(strategy, attr, _drop_valueless_quote_twins(
+            role, _dedupe_identical_conditions(role, kept)))
 
     kept_ranking = []
     # 같은 표현을 랭킹과 unsupported_features 양쪽에 낸 모순 출력(LLM ↔ LLM 표기 대조) —

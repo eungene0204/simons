@@ -1102,7 +1102,7 @@ def _explicit_breakout_lookback(text: Optional[str]) -> Optional[int]:
         return None
     from engine.nl_parser import _compact
 
-    match = re.search(r"(\d+)\s*(주|일)?\s*(?:신고가|최고가|고점|저점|저가)", _compact(text))
+    match = re.search(r"(\d+)\s*(주|일)?\s*(?:신고가|최고가|고가|고점|저점|저가)", _compact(text))
     if match is None:
         # 영어 인용(2026-08-26, /us 영어 레인): "20-day high"·"52-week high".
         match = re.search(r"(\d+)[- ]?(week|day)s?\s+(?:high|low)", text, re.IGNORECASE)
@@ -1286,11 +1286,15 @@ def _dedupe_relative_return_against_ranking(intent: StrategyIntent) -> List[str]
     if not matched:
         return []
     lookbacks = {rank.lookback_days for rank, _spec in matched}
-    ranking_specs = [spec for _rank, spec in matched]
     # 안내 문구는 랭킹 정본별로 고정한다 — display_name을 그대로 꽂으면 영어 응답에 한국어
     # 라벨이 새고, '기간 수익률 랭킹'에 문구를 박아 두면 시장 대비 랭킹으로 반영하고도
     # 다른 지표로 반영했다고 알리게 된다(v16.10에서 랭킹 정본이 둘이 됐다).
-    _rank_id = ranking_specs[0].id if ranking_specs else None
+    # 랭킹 칸의 'relative_return'(접두어 없음)은 resolve가 조건 지표(technical.*)로 돌려준다 —
+    # 정본 랭킹 ID로 옮겨야 시장 대비 랭킹을 '기간 수익률 랭킹'으로 안내하지 않는다
+    # (2026-10-07 예시 34 실측). 검증기 랭킹 정규화와 같은 표를 쓴다.
+    from strategy_conversation.validation.capability_validator import _ranking_id
+
+    _rank_id = _ranking_id(matched[0][0].metric)
     notices: List[str] = []
 
     def _reflected_notice(quote: str) -> str:
@@ -1605,6 +1609,20 @@ def _quote_has_echo(quote: str, compact_input: str) -> bool:
     return any(quote[i:i + 4] in compact_input for i in range(len(quote) - 3))
 
 
+def _shape_example_quotes() -> frozenset:
+    """인터프리터 출력 형태 견본(_OUTPUT_SHAPE)에 실린 예시 조건 인용들(표기 정규화)."""
+    from engine.nl_parser import _compact
+    from strategy_conversation.interpreter.prompts import _OUTPUT_SHAPE
+
+    strategy = _OUTPUT_SHAPE["strategy"]
+    return frozenset(
+        _compact(cond["source_text"])
+        for role in ("entry_conditions", "exit_conditions")
+        for cond in strategy.get(role, [])
+        if cond.get("source_text")
+    )
+
+
 def _drop_fabricated_conditions(
     intent: StrategyIntent, user_input: str,
     quote_verdicts: Optional[Any] = None,
@@ -1640,6 +1658,7 @@ def _drop_fabricated_conditions(
     # 입력 전체 인용이 형식 위반이 되는 조건 — 인터프리터 재생성 판정과 같은 술어(결정 (a)).
     whole_input_is_violation = extracted_other_slots(strategy)
     whole_input_dropped: List[Dict[str, Any]] = []
+    shape_copies: List[Dict[str, Any]] = []
     for role in ("entry_conditions", "exit_conditions"):
         kept = []
         for cond in getattr(strategy, role):
@@ -1663,6 +1682,14 @@ def _drop_fabricated_conditions(
                 whole_input_dropped.append({"role": role, "factor": cond.factor})
                 continue
             if quote and not _quote_has_echo(quote, compact_input):
+                # 출력 형태 견본의 예시 조건을 베낀 것 — 사용자가 한 적 없는 문구를 안내로
+                # 되돌려주면 혼란만 준다(2026-10-07 예시 57·70, 120B 5/6: "'20일선을 상향
+                # 돌파하면' 조건은 요청 문장에서 확인되지 않아…"). 빼는 것은 같고 안내만 생략,
+                # 기록은 Trace에 남긴다. 판정은 LLM 인용 ↔ 우리 프롬프트 상수의 표기 대조다.
+                if quote in _shape_example_quotes():
+                    shape_copies.append({"role": role, "factor": cond.factor,
+                                         "quote": cond.source_text})
+                    continue
                 notices.append(
                     f"'{cond.source_text}' 조건은 요청 문장에서 확인되지 않아 반영하지"
                     " 않았어요."
@@ -1678,6 +1705,13 @@ def _drop_fabricated_conditions(
                 # A rejected quote absent from the request is model-authored
                 # wording, not the user's phrase; do not echo it as a notice.
                 if quote not in compact_input:
+                    continue
+                # 인용이 순위 선정 구절이고 전략에 랭킹이 있으면 그 구절은 랭킹으로 반영됐다 —
+                # "매수 신호의 근거로 확인되지 않아"는 반영된 구절에 붙는 거짓 딱지다(2026-10-07
+                # 예시 57·70, 120B 3/6). 판정은 LLM(describes=ranking), 반영 확인은 랭킹 칸 구조.
+                if strategy.ranking and quote_check.quote_describes_ranking(quote_verdicts, cond):
+                    shape_copies.append({"role": role, "factor": cond.factor,
+                                         "quote": cond.source_text, "ranking_phrase": True})
                     continue
                 # An extra sell condition can quote part of a valid buy condition
                 # (example 49: "20일 이동평균선 위에 있을 때").  The source was
@@ -1707,6 +1741,14 @@ def _drop_fabricated_conditions(
                 continue
             kept.append(cond)
         setattr(strategy, role, kept)
+    if shape_copies:
+        from observability import span
+
+        _log_llm("✂ 형태 견본 복사·랭킹 구절 이동평균 조건 제거", (
+            ", ".join(f"{d['role']}:{d['factor']}" for d in shape_copies) + " — 안내 없음"))
+        with span("Guard · 형태 견본 복사 조건 제거", "chain",
+                  inputs={"user_input": user_input}) as _trace:
+            _trace.output(dropped=shape_copies)
     if whole_input_dropped:
         from observability import span
 
@@ -1914,7 +1956,7 @@ def _resolve_trading_value_comparisons(
     intent: Any, user_input: str, chat: Any,
     only: Optional[List[Any]] = None,
 ) -> None:
-    """금액도 평균 기간도 없는 거래대금 조건이 금액 비교인지 자기 평균 비교인지 LLM에 묻고,
+    """금액(값)이 없는 거래대금 조건이 금액 비교인지 자기 평균 비교인지 LLM에 묻고,
     평균 비교면 거래대금 배수로 옮긴다(interpreter/trading_value_check.py).
 
     2026-09-18 실측: '최근 거래대금이 30일 평균보다 높은'을 120B가 4회 중 1회 기간 없이
@@ -1938,6 +1980,29 @@ def _resolve_trading_value_comparisons(
     _log_llm("✓ 거래대금 비교 대상 대조", "; ".join(
         f"{cond.source_text}={verdict.compares}" for cond, verdict in pairs
     ) + (f" → 거래대금 배수 {len(moved)}개" if moved else ""))
+
+
+def _resolve_liquidity_exclusions(intent: Any, user_input: str, chat: Any) -> None:
+    """미지원으로 보고된 구절이 '거래가 적은 종목 제외'(기준 숫자 없음)인지 LLM에 묻고, 그렇다면
+    보고를 걷어 값 없는 거래대금 조건으로 옮긴다 — 이미 유동성 기준이 있으면 보고만 걷는다
+    (interpreter/liquidity_exclusion_check.py). 2026-10-07 실측: 프롬프트 규칙 6-5가 있는데도
+    120B가 '거래가 너무 없는 종목은 제외'를 미지원으로 보고해 "지원하지 않아" 안내가 나갔다.
+    미지원 보고가 없으면 호출이 없고, 실패·unclear는 판정 없음(종전대로 안내). chat이 없는
+    주입 스텁은 건너뛴다."""
+    from strategy_conversation.interpreter import liquidity_exclusion_check
+
+    if getattr(intent, "strategy", None) is None or not callable(chat):
+        return
+    targets = liquidity_exclusion_check.features_to_check(intent, user_input)
+    if not targets:
+        return
+    pairs = liquidity_exclusion_check.check_features(user_input, targets, chat)
+    if pairs is None:
+        _log_llm("△ 유동성 제외 대조 실패", f"{len(targets)}개 보고 — 판정 없음으로 진행")
+        return
+    moved = liquidity_exclusion_check.apply_verdicts(intent, pairs)
+    _log_llm("✓ 유동성 제외 대조", "; ".join(f"{text}={kind}" for text, kind in pairs)
+             + (f" → 거래대금 기준으로 {len(moved)}개" if moved else ""))
 
 
 def _resolve_contribution_plan(
@@ -2088,6 +2153,7 @@ def run_primary_parse(
                   if config.call_reduction_enabled() else recall_chat)
     quote_verdicts = _check_condition_quotes(result.intent, user_input, check_chat)
     _resolve_trading_value_comparisons(result.intent, user_input, check_chat)
+    _resolve_liquidity_exclusions(result.intent, user_input, recall_chat)
     # 적립식 판정(통합) — 파라미터 보정보다 먼저: 계획을 채우고 조건에 금액·상태 연산자를 달아야
     # 아래 보정(매도 선언 재배치 등)이 이 턴을 적립식으로 알아본다(2026-09-22).
     _resolve_contribution_plan(result.intent, user_input, check_chat)
@@ -2125,6 +2191,13 @@ def run_primary_parse(
             # 되살린 조건도 적립 턴이면 같은 금액 판정을 받는다(그 조건에 한해 한 번 더).
             _recovered_conditions = [
                 c for c in result.intent.strategy.entry_conditions if c.factor in recovered]
+            # 인용 속 기간 채우기는 회수보다 먼저 돌았다 — 되살린 신고가 돌파에도 같은 규칙을
+            # 적용해 인용에 적힌 기간('10일 고가 돌파')을 되묻지 않는다(2026-10-07 예시 34).
+            for cond in _recovered_conditions:
+                if cond.factor == "technical.breakout":
+                    lookback = _explicit_breakout_lookback(cond.source_text)
+                    if lookback is not None:
+                        cond.parameters["lookback_period"] = float(lookback)
             _resolve_contribution_plan(result.intent, user_input, recall_chat, only=_recovered_conditions)
         from strategy_conversation.interpreter.condition_recall import recover_market_cap_bounds
 

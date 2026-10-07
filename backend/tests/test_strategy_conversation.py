@@ -1552,6 +1552,102 @@ def test_primary_relative_return_with_own_value_is_kept_beside_ranking(monkeypat
     assert [s.indicator for s in result["parsed"].entry_signals] == ["relative_return"]
 
 
+def test_primary_bare_relative_return_ranking_notice_names_market_relative_ranking(monkeypatch):
+    """[2026-10-07 예시 34] 랭킹 칸의 접두어 없는 'relative_return'이 조건 지표로 resolve돼
+    시장 대비 랭킹으로 반영하고도 "기간 수익률 랭킹으로 반영했어요"라고 안내했다."""
+    data = _full_intent_dict(
+        universe={"markets": ["KOSPI200"], "sectors": []},
+        entry_conditions=[
+            {"factor": "technical.relative_return", "operator": ">", "value": None,
+             "parameters": {"period": 60}, "source_text": "최근 60거래일 상대강도가 상위"},
+        ],
+        ranking=[{"metric": "relative_return", "lookback_days": 60, "direction": "top"}],
+        portfolio={"selection_percent": 20, "rebalance_frequency": "monthly"},
+    )
+    result = _run_primary_with(
+        monkeypatch, data, "KOSPI200 종목 중 최근 60거래일 상대강도가 상위 20%에 속한 종목만 매월 리밸런싱, 손절 8%")
+    assert result is not None
+    assert result["parsed"].ranking_metric == "relative_return"
+    assert not any("기간 수익률 랭킹" in n for n in result["notices"]), result["notices"]
+    assert any("시장 대비 초과수익률 랭킹으로 반영했어요" in n for n in result["notices"]), result["notices"]
+
+
+def test_primary_rsi_rebound_valueless_twin_does_not_ask_given_value(monkeypatch):
+    """[2026-10-07 예시 46, 120B 2/3] "RSI가 30 이하로 떨어졌다가 다시 반등하는"을 반등
+    조건(crosses_above 30)과 같은 인용의 값 없는 RSI 조건으로 쪼개 내면, 사용자가 말한 30을
+    "RSI 기준값을 얼마로 할까요?"로 다시 물었다. 값 없는 쪽은 같은 말의 껍데기다."""
+    quote = "RSI가 30 이하로 떨어졌다가 다시 반등하는"
+    data = _full_intent_dict(
+        universe={"markets": ["KOSDAQ"], "sectors": []},
+        entry_conditions=[
+            {"factor": "technical.rsi", "operator": "crosses_above", "value": 30,
+             "source_text": quote},
+            {"factor": "technical.rsi", "operator": ">=", "value": None,
+             "source_text": quote + " 종목을 매수하고"},
+        ],
+        exit_conditions=[{"factor": "technical.rsi", "operator": ">=", "value": 70,
+                          "source_text": "RSI가 70 이상으로 올라오면 매도"}],
+    )
+    result = _run_primary_with(
+        monkeypatch, data,
+        "KOSDAQ 종목 중 RSI가 30 이하로 떨어졌다가 다시 반등하는 종목을 매수하고, "
+        "RSI가 70 이상으로 올라오면 매도, 20종목 매월 리밸런싱, 손절 8%")
+    assert result is not None
+    entries = result["parsed"].entry_signals
+    assert [(s.indicator, s.mode, s.value) for s in entries] == [("rsi", "rebound", 30.0)], entries
+    assert "RSI" not in (result["clarification_question"] or "")
+    assert not result.get("pending_conditions")
+
+
+def test_primary_shape_example_copy_is_dropped_without_notice(monkeypatch):
+    """[2026-10-07 예시 57·70, 120B 5/6] 출력 형태 견본의 예시 조건('20일선을 상향 돌파하면')을
+    베낀 조건은 빼되, 사용자가 한 적 없는 그 문구를 안내로 되돌려주지 않는다. 견본과 무관한
+    조작 인용은 종전대로 안내한다."""
+    text = "KOSPI 종목 중 거래대금이 50억 원 이상인 종목만 남긴 뒤 PER 10 이하 20종목 매월 리밸런싱, 손절 8%"
+    for quote, noticed in (("20일선을 상향 돌파하면", False), ("60일선을 하향 이탈하면", True)):
+        data = _full_intent_dict(entry_conditions=[
+            {"factor": "fundamental.per", "operator": "<=", "value": 10, "source_text": "PER 10 이하"},
+            {"factor": "technical.ma_crossover", "operator": "crosses_above", "value": None,
+             "parameters": {"short_period": 1, "long_period": 20}, "source_text": quote},
+        ])
+        result = _run_primary_with(monkeypatch, data, text)
+        assert result is not None
+        assert [s.indicator for s in result["parsed"].entry_signals] == [], result["parsed"].entry_signals
+        assert any(quote in n for n in result["notices"]) is noticed, result["notices"]
+
+
+def test_ma_condition_quoting_reflected_ranking_phrase_is_dropped_without_notice():
+    """[2026-10-07 예시 57·70, 120B 3/6] 견본의 이동평균 조건을 베끼며 랭킹 구절('최근 60거래일
+    수익률 상위')을 인용으로 붙이면, 조건은 빼되 "매수 신호의 근거로 확인되지 않아" 안내를 내지
+    않는다 — 그 구절은 랭킹으로 반영됐다. 랭킹이 없으면 종전대로 안내한다."""
+    from strategy_conversation import primary
+    from strategy_conversation.interpreter.quote_check import QuoteVerdicts, Verdict
+
+    text = "KOSPI 종목 중 거래대금이 50억 원 이상인 종목만 남긴 뒤, 최근 60거래일 수익률 상위 10종목에 매수하고 싶습니다."
+    for ranking, noticed in (([{"metric": "return", "lookback_days": 60}], False), ([], True)):
+        intent = StrategyIntent.model_validate(_full_intent_dict(
+            entry_conditions=[{"factor": "technical.ma_crossover", "operator": "crosses_above",
+                               "parameters": {"short_period": 1, "long_period": 60},
+                               "source_text": "최근 60거래일 수익률 상위"}],
+            ranking=ranking,
+        ))
+        cond = intent.strategy.entry_conditions[0]
+        notices = primary._drop_fabricated_conditions(
+            intent, text, QuoteVerdicts([(cond, Verdict("no", "ranking"))]))
+        assert intent.strategy.entry_conditions == []
+        assert bool(notices) is noticed, notices
+
+
+def test_valueless_condition_with_different_quote_is_kept():
+    """같은 지표라도 인용이 다른 값 없는 조건은 별개의 말이다 — 껍데기로 보지 않는다."""
+    from strategy_conversation.validation.capability_validator import _drop_valueless_quote_twins
+    from types import SimpleNamespace as NS
+
+    conds = [NS(factor="fundamental.per", value=10, operator="<=", source_text="PER 10 이하"),
+             NS(factor="fundamental.per", value=None, operator="<=", source_text="이익 대비 싼")]
+    assert _drop_valueless_quote_twins("진입", conds) == conds
+
+
 def test_primary_unsupported_report_echoing_reflected_stop_loss_is_not_noticed(monkeypatch):
     """[2026-09-14] "20일선 이탈 또는 손절 -8% 도달 시 청산"을 청산 조건 + unsupported_features
     ('손절 -8% 도달 시 청산')로 쪼개 내면, 손절은 risk_management에 반영됐으므로 미지원
@@ -4865,7 +4961,9 @@ def _bare_label_regenerated() -> str:
 
 
 def _bare_label_chat(first: str, regenerated: str):
-    from strategy_conversation.interpreter import condition_recall, contribution_plan_check
+    from strategy_conversation.interpreter import (
+        condition_recall, contribution_plan_check, liquidity_exclusion_check,
+    )
 
     calls: list = []
 
@@ -4880,6 +4978,9 @@ def _bare_label_chat(first: str, regenerated: str):
         # 미지원 보고가 남은 턴은 적립식 판정도 부른다(2026-09-21) — 이 문장에는 계획이 없다.
         if system == contribution_plan_check.build_system_prompt():
             return '{"plan": null, "rules": [], "cash_reserve": {"stated": false}, "max_buy": {"percent": null}}'
+        # 미지원 보고가 남은 턴은 유동성 제외 대조도 부른다(2026-10-07) — 이 문장의 보고는 유동성이 아니다.
+        if system == liquidity_exclusion_check.build_system_prompt():
+            return json.dumps({"items": [{"kind": "other"}] * user.count(". 구절:")})
         calls.append(user)
         return first if len(calls) == 1 else regenerated
 
@@ -5490,6 +5591,33 @@ def _stub_chat(reply: str):
         return reply
 
     return chat
+
+
+def test_condition_recall_restores_entry_breakout_when_exit_uses_same_indicator():
+    """[2026-10-07 예시 34, 120B 3/8] 1차 해석이 매수 '10일 고가 돌파'를 통째로 빠뜨렸는데, 매도
+    '10일 저가 이탈'이 같은 신고가 돌파 지표라 회수 패스가 '이미 있음'으로 건너뛰었다(별칭에도
+    '고가 돌파'가 없었다). 매수 칸 기준으로 대조해 되살리고, 매도 구절은 매수로 되살리지 않는다.
+    인용 속 기간(10일)은 회수 뒤에도 같은 규칙으로 읽는다."""
+    from strategy_conversation.interpreter.condition_recall import recover_missing_conditions
+    from strategy_conversation.primary import _explicit_breakout_lookback
+
+    user_input = ("KOSPI200 종목 중 ADX가 23 이상인 종목만 거래하고 싶습니다. 진입은 10일 고가 돌파 "
+                  "시점으로 하고, 청산은 ADX 20 하향 이탈 또는 10일 저가 이탈 중 먼저 발생하는 조건으로 해주세요.")
+    intent = _recall_intent([{"factor": "technical.adx", "operator": ">=", "value": 23,
+                              "source_text": "ADX가 23 이상"}])
+    intent.strategy.exit_conditions = [
+        type(intent.strategy.entry_conditions[0])(
+            factor="technical.breakout", operator="crosses_below",
+            parameters={"lookback_period": 10}, source_text="10일 저가 이탈"),
+    ]
+    recovered = recover_missing_conditions(intent, user_input, _stub_chat(
+        '{"phrases":["ADX가 23 이상","진입은 10일 고가 돌파 시점으로",'
+        '"청산은 ADX 20 하향 이탈 또는 10일 저가 이탈 중 먼저 발생하는"]}'))
+    assert recovered == ["technical.breakout"]
+    restored = intent.strategy.entry_conditions[-1]
+    assert (restored.factor, restored.source_text) == ("technical.breakout", "진입은 10일 고가 돌파 시점으로")
+    assert _explicit_breakout_lookback(restored.source_text) == 10
+    assert len(intent.strategy.exit_conditions) == 1
 
 
 def test_condition_recall_pass_restores_dropped_conditions():

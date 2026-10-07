@@ -220,11 +220,25 @@ def test_out_of_range_transcriptions_are_dropped_not_clamped():
     assert cond.operator == ">="  # 대조기 부등호가 enum 밖이면 인터프리터 부등호를 쓴다
 
 
-def test_trading_value_check_asks_only_bare_trading_value_conditions():
-    # 금액이 있거나 평균 기간이 실린 조건(검증기 형태 이관 소관)은 묻지 않는다 — 호출 자체가 없다.
+def test_period_only_trading_value_gets_transcribed_multiple():
+    """[2026-10-07 예시 35] 120B가 '최근 거래대금이 30일 평균보다 높은'을 옛 자리(trading_value,
+    period=30, 값 없음)로 냈다 — 검증기가 배수 지표로 옮기기만 해 "거래대금 배수 기준값을 얼마로?"를
+    되물었다. 기간이 실린 형태도 대조해 사용자가 말한 '평균보다 높은'(1배 초과)을 옮겨 적는다."""
     from strategy_conversation.primary import _resolve_trading_value_comparisons
 
-    for overrides in ({"value": 50}, {"parameters": {"period": 30}}):
+    intent = _bare_trading_value_intent(parameters={"period": 30})
+    _resolve_trading_value_comparisons(intent, _USER, _chat(
+        '{"items":[{"compares":"own_average","average_days":30,"multiple":1,"operator":">"}]}'))
+    cond = intent.strategy.entry_conditions[0]
+    assert (cond.factor, cond.operator, cond.value, cond.parameters.get("period")) == (
+        "technical.trading_value_ratio", ">", 1.0, 30.0)
+
+
+def test_trading_value_check_asks_only_bare_trading_value_conditions():
+    # 금액이 실린 조건은 묻지 않는다 — 호출 자체가 없다.
+    from strategy_conversation.primary import _resolve_trading_value_comparisons
+
+    for overrides in ({"value": 50},):
         calls: list = []
         intent = _bare_trading_value_intent(**overrides)
         _resolve_trading_value_comparisons(intent, _USER, _chat('{"items":[]}', calls))

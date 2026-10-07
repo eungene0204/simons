@@ -59,6 +59,10 @@ SKILL.md 2단계 표의 기호별 상세. 각 절은 **식별 신호 → 실제 
   - 값 대기 라벨(내부 표기)이 안내에 그대로 나갔다. 안내는 사용자가 한 말(source_text)을 인용해야 한다.
 - **통한 수리**: 안내 레인의 결정론 대조 표를 넓힌다(`indicator_registry.RANKING_INGREDIENTS`·`_RANKING_BUILT_IN_PROCESSING`·
   `condition_recall._UNIVERSE_FIELD_TWINS`, 내부 식별자를 담은 보고는 버림). **새 합성 랭킹·새 유니버스 칸을 만들면 이 세 표에도 추가한다.**
+- **10-07 추가**: 랭킹 칸의 접두어 없는 `relative_return`은 `resolve`가 조건 지표(`technical.*`)로 돌려준다 —
+  안내 라벨 판정은 `capability_validator._ranking_id`(정본 랭킹 ID)로 한다. 출력 형태 예시 조건
+  (`_OUTPUT_SHAPE`의 '20일선을 상향 돌파하면' ma_crossover)을 120B가 기술 조건 없는 전략에 복사하면 출처 가드가
+  빼면서 사용자가 말하지 않은 문구로 "반영하지 않았어요" 안내가 나간다(예시 57·70, 5/6).
 - **기각**: `reflected_quotes` 채널로 출력 형태를 바꿔 고치려던 시도. 120B가 3/3 빈 배열을 냈고, 부작용으로
   '익일 시가'가 current_close로 뒤집혔다. (project_pead_earnings_surprise_v16_19.md, project_leftover_unsupported_notice_revived.md,
   project_dca_plan_loss_net_2026_09_21.md)
@@ -75,6 +79,8 @@ SKILL.md 2단계 표의 기호별 상세. 각 절은 **식별 신호 → 실제 
   4. **특정 턴 유형 전용** — 적립식 조건부 금액은 메인 프롬프트에 넣으면 4/4였지만 되묻기 하니스가 회귀했다
      ("2020년 1월부터 2024년 12월까지"→`2024-12-12-31`). 전용 판정(`contribution_amount_check`)으로 옮겼다.
   5. **값 흔들림** — 옮겨 적기 형태로 바꾼다("10년"→full 사고 이후 `<N>y` + `BacktestSpec._normalize_period`).
+- **같은 인용의 값 없는 쌍둥이**(10-07 예시 46): 한 구절을 값 있는 조건+값 없는 조건으로 쪼개 내면 말한 값을
+  되묻는다 → `capability_validator._drop_valueless_quote_twins`(지표·인용 표기 대조).
 - **재심 금지**: LLM이 고른 칸을 원문 어휘 정규식으로 다시 읽어 뒤집으면 안 된다(`_mentions_volume_surge` 삭제 사례).
   뒤집어야 하면 LLM 대조(quote_check 계열)로 한다. 그때 제거는 가장 좁은 판정(no+other)에서만 한다.
   (project_interpreter_output_shape_authority.md, project_trading_value_ratio_indicator.md,

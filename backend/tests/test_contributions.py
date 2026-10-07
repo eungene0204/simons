@@ -908,10 +908,14 @@ def test_dropped_plan_turn_is_fully_interpreted(monkeypatch):
         "contribution": json.loads(replies[contribution_plan_check.build_system_prompt()]),
     }})
     main_calls: list = []
+    from strategy_conversation.interpreter import liquidity_exclusion_check
 
     def chat(system, user, **_kw):
         if system in replies:
             return replies[system]
+        # 미지원 보고가 남은 턴은 유동성 제외 대조도 부른다(2026-10-07) — 이 문장의 보고는 유동성이 아니다.
+        if system == liquidity_exclusion_check.build_system_prompt():
+            return json.dumps({"items": [{"kind": "other"}] * user.count(". 구절:")})
         main_calls.append(user)
         if len(main_calls) == 1:
             return _screenshot_raw({"factor": "fundamental.trading_value", "operator": ">=", "value": 200,

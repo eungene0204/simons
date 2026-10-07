@@ -27,7 +27,7 @@ enum인지 확인 ③ enum 값에 따른 분기. 인용 문자열은 읽지 않�
 
 실패 동작: 호출 오류·JSON 불성립·항목 수 불일치는 **판정 없음(None)** — 교정도 제거도 하지 않는다
 (fail-open, 조건 회수 패스와 같은 원칙). 개별 항목이 enum 밖이거나 "unclear"여도 그 조건은 남긴다.
-제거는 분명한 "no"이면서 describes가 "other"일 때만이다.
+제거는 분명한 "no"이면서 describes가 "other"(또는 순위 선정 "ranking", 2026-10-07)일 때만이다.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ BOLLINGER_FACTOR = "technical.bollinger_bands"
 CHECKED_FACTORS = MA_FACTORS + (BOLLINGER_FACTOR,)
 
 EXPRESSES = frozenset({"yes", "no", "unclear"})
-DESCRIBES = frozenset({"moving_average", "bollinger", "new_high_breakout", "other"})
+DESCRIBES = frozenset({"moving_average", "bollinger", "new_high_breakout", "ranking", "other"})
 
 _SYSTEM = """당신은 **대조기**입니다. 전략 문장에서 뽑은 조건마다, 함께 적힌 인용 조각이 그 조건을 말하는지 답하세요.
 
@@ -53,10 +53,12 @@ _SYSTEM = """당신은 **대조기**입니다. 전략 문장에서 뽑은 조건
 expresses — [전략 문장]이 실제로 그 조건을 요청하고 인용 조각도 같은 조건을 말하면 "yes".
 인용이 다른 설정(종목 수·손절·기간 등)이거나 [전략 문장]에 없는 조건을 지어낸 것이면 "no",
 판단이 어려우면 "unclear". 인용만 따로 읽어 원문에 없는 매도 규칙을 추론하지 마세요.
-describes — 실제 요청과 인용이 함께 가리키는 신호: 이동평균선·골든크로스·데드크로스면 "moving_average", 볼린저 밴드면 "bollinger", 신고가·N일 고점 돌파·N일 저가 이탈·박스권 돌파면 "new_high_breakout", 그 밖이거나 원문에 없는 조작 인용이면 "other".
+describes — 실제 요청과 인용이 함께 가리키는 신호: 이동평균선·골든크로스·데드크로스면 "moving_average", 볼린저 밴드면 "bollinger", 신고가·N일 고점 돌파·N일 저가 이탈·박스권 돌파면 "new_high_breakout", 수익률·상대강도 순위로 상위 종목을 고르는 말이면 "ranking", 그 밖이거나 원문에 없는 조작 인용이면 "other".
+인용 자체가 '최근 60거래일 수익률 상위'처럼 수익률 순위로 종목을 고르는 말이면 조건과 맞지 않아도 describes는 "ranking"입니다(expresses는 "no").
 
 N일선은 N일 이동평균선의 줄임말입니다. '20일선 이탈 시 청산'은 종가가 20일 이동평균선을
 하향 교차할 때 매도하는 조건이므로 yes/moving_average입니다. '20일선 이탈 시 손절'도 같습니다.
+'20일 이동평균선 근처에 있는' 매수는 종가가 20일 이동평균선 위에 있는 조건으로 반영하므로 yes/moving_average입니다.
 '손절 -8%' 같은 고정 손실률이나 '최대 20일 보유' 같은 보유 기간만 인용한 이동평균 조건은
 no/other입니다. 원문에 손절 설정이 함께 있어도 이동평균 청산 인용을 손절 설정으로 분류하지 마세요.
 반대로 '20일 저가 아래로 내려오면 매도'는 이동평균선이 아니라 최근 20일 가격 저점 이탈이므로
@@ -96,7 +98,7 @@ def build_system_prompt() -> str:
 @dataclass(frozen=True)
 class Verdict:
     expresses: Optional[str]   # yes / no / unclear / None(enum 밖)
-    describes: Optional[str]   # moving_average / bollinger / new_high_breakout / other / None
+    describes: Optional[str]   # moving_average / bollinger / new_high_breakout / ranking / other / None
 
 
 class QuoteVerdicts:
@@ -307,8 +309,16 @@ def quote_does_not_express(verdicts: Optional[QuoteVerdicts], cond: Any) -> bool
     """
     verdict = _verdict(verdicts, cond)
     return (verdict is not None and verdict.expresses == "no"
-            and verdict.describes == "other"
+            and verdict.describes in ("other", "ranking")
             and _canonical_factor(cond.factor) in MA_FACTORS)
+
+
+def quote_describes_ranking(verdicts: Optional[QuoteVerdicts], cond: Any) -> bool:
+    """LLM이 인용을 수익률·상대강도 **순위 선정**을 말한다고 답했는가(2026-10-07 예시 57·70:
+    형태 견본의 이동평균 조건을 베끼며 랭킹 구절을 인용으로 붙였다). 그 구절이 랭킹으로
+    반영됐는지는 호출부가 전략의 랭킹 칸으로 확인한다."""
+    verdict = _verdict(verdicts, cond)
+    return verdict is not None and verdict.describes == "ranking"
 
 
 def quote_describes_breakout(verdicts: Optional[QuoteVerdicts], cond: Any) -> bool:
