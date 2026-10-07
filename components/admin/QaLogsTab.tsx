@@ -16,6 +16,7 @@ import {
 import StrategySnapshotView, { type StrategySnapshot, type StrategySource } from './StrategySnapshotView'
 
 interface QaLog {
+  recoveredFromSnapshot?: boolean
   id: string
   userId: number | null
   userEmail: string | null
@@ -187,7 +188,12 @@ export default function QaLogsTab() {
                     onClick={() => setExpandedId(expanded ? null : log.id)}
                     className="cursor-pointer border-b border-white/5 align-top last:border-0 hover:bg-white/[0.03]"
                   >
-                    <td className={tdClass}>{formatDateTime(log.createdAt)}</td>
+                    <td className={tdClass}>
+                      {formatDateTime(log.createdAt)}
+                      {log.recoveredFromSnapshot && (
+                        <p className="mt-1 text-xs text-gray-400">복구 기록 · 대화 저장 시각 기준</p>
+                      )}
+                    </td>
                     <td className={tdClass}>
                       {log.userEmail ?? <span className="text-gray-600">비로그인</span>}
                     </td>

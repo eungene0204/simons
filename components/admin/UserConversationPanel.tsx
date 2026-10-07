@@ -8,6 +8,7 @@ import StrategySnapshotView, { type StrategySnapshot, type StrategySource } from
 // 기본은 전략 카드가 뜬 턴만(입력한 전략과 해석) — 되묻기·안내까지 전부 보려면 토글을 끈다.
 
 interface ConversationLog {
+  recoveredFromSnapshot?: boolean
   id: string
   sessionId: string
   turnIndex: number
@@ -85,6 +86,7 @@ export default function UserConversationPanel({ userId, email }: { userId: numbe
               <p className="mb-1.5 text-[11px] font-bold text-gray-600">
                 {formatDateTime(log.createdAt)} · 대화 {log.sessionId.slice(0, 8)} #{log.turnIndex}
                 {log.chipAnswer && ' · 칩 선택'}
+                {log.recoveredFromSnapshot && ' · 복구 기록(대화 저장 시각 기준)'}
               </p>
               <p className="whitespace-pre-wrap text-sm font-bold text-gray-100">{log.question}</p>
               <details className="mt-1.5">

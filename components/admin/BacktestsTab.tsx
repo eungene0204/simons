@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import {
   adminFetch,
   formatDateTime,
@@ -45,8 +45,13 @@ export default function BacktestsTab() {
   const [busy, setBusy] = useState(false)
   const [expandedUserId, setExpandedUserId] = useState<number | null>(null)
   const [recentRuns, setRecentRuns] = useState<RecentRun[]>([])
+  const [recentLoading, setRecentLoading] = useState(false)
+  const recentRequest = useRef(0)
 
   const load = useCallback(async () => {
+    recentRequest.current += 1
+    setExpandedUserId(null)
+    setRecentRuns([])
     setLoading(true)
     setError('')
     try {
@@ -79,18 +84,24 @@ export default function BacktestsTab() {
   }
 
   const toggleRecent = async (userId: number) => {
+    const requestId = ++recentRequest.current
     if (expandedUserId === userId) {
       setExpandedUserId(null)
       return
     }
+    setExpandedUserId(userId)
+    setRecentRuns([])
+    setRecentLoading(true)
+    setError('')
     try {
       const res = await adminFetch<{ recentRuns: RecentRun[] }>(
         `/api/admin/backtests?userId=${userId}`
       )
-      setRecentRuns(res.recentRuns)
-      setExpandedUserId(userId)
+      if (requestId === recentRequest.current) setRecentRuns(res.recentRuns)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '조회 실패')
+      if (requestId === recentRequest.current) setError(e instanceof Error ? e.message : '조회 실패')
+    } finally {
+      if (requestId === recentRequest.current) setRecentLoading(false)
     }
   }
 
@@ -98,7 +109,8 @@ export default function BacktestsTab() {
     <div className="space-y-4">
       {error && <ErrorNotice message={error} />}
       <p className="text-xs font-bold text-gray-500">
-        사용량 기준: 사용자별 결제 주기(구독 시작일, 미구독은 가입일 기준 1개월)
+        사용량 기준: 사용자별 결제 주기(구독 시작일, 미구독은 가입일 기준 1개월).
+        누적 요청은 2026-09-30부터 집계하며 실패한 실행도 포함합니다. 저장 결과는 실행 이력과 다릅니다.
       </p>
 
       <div className="flat-card overflow-x-auto rounded-xl">
@@ -109,9 +121,9 @@ export default function BacktestsTab() {
               <th className={thClass}>플랜</th>
               <th className={thClass}>현재 주기 사용량</th>
               <th className={thClass}>남은 횟수</th>
-              <th className={thClass}>누적 실행</th>
+              <th className={thClass}>누적 요청</th>
               <th className={thClass}>사용량 조정</th>
-              <th className={thClass}>최근 실행</th>
+              <th className={thClass}>최근 저장 결과</th>
             </tr>
           </thead>
           <tbody>
@@ -166,8 +178,10 @@ export default function BacktestsTab() {
                   {expandedUserId === u.id && (
                     <tr className="border-b border-white/5">
                       <td colSpan={7} className="bg-white/[0.02] px-6 py-3">
-                        {recentRuns.length === 0 ? (
-                          <p className="text-xs font-bold text-gray-600">최근 기록이 없습니다</p>
+                        {recentLoading ? (
+                          <p className="text-xs font-bold text-gray-500">불러오는 중...</p>
+                        ) : recentRuns.length === 0 ? (
+                          <p className="text-xs font-bold text-gray-600">저장된 결과가 없습니다</p>
                         ) : (
                           <ul className="space-y-1">
                             {recentRuns.map((r) => (

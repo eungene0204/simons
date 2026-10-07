@@ -138,8 +138,8 @@ import {
   collectQaTurns,
   newQaSessionId,
   selectLoggableQaTurns,
-  sendQaLog,
 } from "./qaLog";
+import { createQaLogOutbox, qaTurnKey } from "./qaLogDelivery";
 import { applyParsedValueStrategySeed } from "./builderSeed";
 import {
   buildBuilderTurnPresentation,
@@ -1916,8 +1916,10 @@ function StrategyLabContent() {
   // ── 대화 기록(Q&A 로그) ──
   // 이 대화를 묶는 세션 id. 복원 시 스냅샷에서 이어받고, 새 대화(초기화)마다 새로 만든다.
   const qaSessionIdRef = useRef<string>(newQaSessionId());
-  // 이미 기록을 보낸 턴 수 — 같은 턴을 두 번 보내지 않기 위한 진행 카운터.
-  const qaLoggedTurnsRef = useRef(0);
+  // Enqueued revisions; delivery acknowledgement is managed by the outbox.
+  const qaLoggedTurnsRef = useRef(new Set<string>());
+  const qaOutboxRef = useRef<ReturnType<typeof createQaLogOutbox> | null>(null);
+  const qaFlushRef = useRef<(() => void) | null>(null);
   // 턴별 질문이 화면에 뜬 시각(응답 소요 시간 계산용).
   const qaTurnStartedAtRef = useRef<Map<number, number>>(new Map());
   // 메시지가 마지막으로 바뀐 시각 — 스트리밍이 멎은 시점이 곧 답변이 끝난 시점이다.
@@ -2096,12 +2098,13 @@ function StrategyLabContent() {
       firstPromptRef.current = snapshot.firstPrompt ?? "";
       coachConversationRef.current = snapshot.coachConversation ?? [];
       coachSessionIdRef.current = snapshot.coachSessionId ?? null;
-      // 복원한 대화는 이미 기록된 대화다 — 세션 id를 이어받고, 복원 시점까지의 턴은
-      // 기록 완료로 표시해 같은 질문·답변이 두 번 남지 않게 한다.
+      // Existing completed turns are not replayed; pending deliveries survive in the outbox.
+      qaFlushRef.current?.();
+      qaFlushRef.current = null;
       qaSessionIdRef.current = snapshot.qaSessionId ?? qaSessionIdRef.current;
-      qaLoggedTurnsRef.current = collectQaTurns(
-        snapshot.messages as ChatMessage[],
-      ).length;
+      qaLoggedTurnsRef.current = new Set(selectLoggableQaTurns(
+        snapshot.messages as ChatMessage[], 0,
+      ).map(qaTurnKey));
       lastAnalyzedSymbolRef.current = snapshot.lastAnalyzedSymbol ?? null;
       builderModeRef.current = snapshot.builderMode ?? false;
       builderStateRef.current = snapshot.builderState ?? {};
@@ -2284,27 +2287,44 @@ function StrategyLabContent() {
     region,
   ]);
 
-  // 대화 기록 — 답변이 끝난 턴을 한 건씩 서버에 남긴다(운영 콘솔 Q&A 탭에서 열람).
-  //
-  // 메시지가 바뀔 때마다 타이머를 다시 건다. 스트리밍은 답변을 여러 번 갱신하므로,
-  // 갱신이 QA_LOG_SETTLE_MS 동안 멎은 시점이 곧 그 턴이 끝난 시점이다. 호출부(20여 곳)를
-  // 건드리지 않고 화면 상태 한 곳만 보면 되므로 기록이 새는 경로가 생기지 않는다.
   useEffect(() => {
-    if (messages.length === 0) return;
+    if (chatOwner === null) return;
+    const outbox = createQaLogOutbox(chatOwner ? Number(chatOwner) : null, window.sessionStorage);
+    qaOutboxRef.current = outbox;
+    void outbox.flush();
+    const retry = () => { void outbox.flush(); };
+    const interval = window.setInterval(retry, 5000);
+    window.addEventListener("online", retry);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("online", retry);
+      qaFlushRef.current?.();
+      qaFlushRef.current = null;
+      outbox.stop();
+      qaOutboxRef.current = null;
+    };
+  }, [chatOwner]);
+
+  // Queue completed revisions, including edited turns, before advancing local state.
+  useEffect(() => {
+    if (chatOwner === null || messages.length === 0) return;
     const changedAt = Date.now();
     qaLastChangeAtRef.current = changedAt;
-    // 질문이 뜬 시각은 그 턴이 처음 보인 때다 — 응답 소요 시간의 시작점.
     for (const turn of collectQaTurns(messages)) {
       if (!qaTurnStartedAtRef.current.has(turn.turnIndex)) {
         qaTurnStartedAtRef.current.set(turn.turnIndex, changedAt);
       }
     }
-
-    const timer = window.setTimeout(() => {
-      for (const turn of selectLoggableQaTurns(messages, qaLoggedTurnsRef.current)) {
+    const sessionId = qaSessionIdRef.current;
+    const outbox = qaOutboxRef.current;
+    const enqueue = () => {
+      if (!outbox || sessionId !== qaSessionIdRef.current) return;
+      for (const turn of selectLoggableQaTurns(messages, 0)) {
+        const key = qaTurnKey(turn);
+        if (qaLoggedTurnsRef.current.has(key)) continue;
         const startedAt = qaTurnStartedAtRef.current.get(turn.turnIndex);
-        sendQaLog({
-          sessionId: qaSessionIdRef.current,
+        outbox.enqueue({
+          sessionId,
           turnIndex: turn.turnIndex,
           question: turn.question,
           answer: turn.answer,
@@ -2313,12 +2333,17 @@ function StrategyLabContent() {
           latencyMs: startedAt ? qaLastChangeAtRef.current - startedAt : null,
           strategy: turn.strategy,
         });
-        qaLoggedTurnsRef.current = turn.turnIndex + 1;
+        qaLoggedTurnsRef.current.add(key);
       }
-    }, QA_LOG_SETTLE_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [messages]);
+    };
+    qaFlushRef.current = enqueue;
+    const timer = window.setTimeout(enqueue, QA_LOG_SETTLE_MS);
+    window.addEventListener("pagehide", enqueue);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("pagehide", enqueue);
+    };
+  }, [messages, chatOwner]);
 
   // 복원 직후의 두 번째 끝 맞춤 타이머 — 화면이 내려간 뒤 늦게 발화하지 않게 언마운트 때 거둔다.
   const settleScrollTimerRef = useRef<number | null>(null);
@@ -4791,8 +4816,10 @@ function StrategyLabContent() {
     workflowStatusRef.current = "IDLE";
     pendingPromptConsumedRef.current = false;
     // 새 대화는 새 기록 세션이다 — 턴 번호가 0부터 다시 시작하므로 세션 id도 새로 만든다.
+    qaFlushRef.current?.();
+    qaFlushRef.current = null;
     qaSessionIdRef.current = newQaSessionId();
-    qaLoggedTurnsRef.current = 0;
+    qaLoggedTurnsRef.current = new Set();
     qaTurnStartedAtRef.current = new Map();
   };
 

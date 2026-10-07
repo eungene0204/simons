@@ -6,6 +6,7 @@ export type StoredStrategySnapshot = {
   summaryItems: unknown[] | null
   parsed: unknown
   parsedOmitted?: boolean
+  recovery?: { source: string; snapshotId: string; snapshotUpdatedAt: string; recoveredAt: string; snapshotHash: string }
 }
 
 /**

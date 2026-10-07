@@ -31,7 +31,7 @@ const validBody = {
 const post = (body) => POST({ json: async () => body });
 
 beforeEach(async () => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   ({ POST } = await import("./route"));
   getCurrentUser.mockResolvedValue({ id: 7, email: "a@b.com" });
   chatQaLogCreate.mockResolvedValue({});
@@ -108,5 +108,43 @@ describe("/api/chat-log POST", () => {
   it("카드가 없는 턴은 비워 둔다", async () => {
     await post(validBody);
     expect(chatQaLogCreate.mock.calls[0][0].data.strategySnapshot).toBeNull();
+  });
+});
+
+
+describe("acknowledged QA delivery", () => {
+  const delivery = { ...validBody, deliveryId: "delivery-1", ownerId: 7 };
+
+  it("retries use one row ID and a duplicate acknowledgement succeeds", async () => {
+    await post(delivery);
+    const id = chatQaLogCreate.mock.calls[0][0].data.id;
+    chatQaLogCreate.mockRejectedValue(Object.assign(new Error("duplicate"), { code: "P2002" }));
+    expect((await post(delivery)).status).toBe(204);
+    expect(chatQaLogCreate.mock.calls[1][0].data.id).toBe(id);
+  });
+
+  it("keeps guest identity and separates users even with the same delivery ID", async () => {
+    await post(delivery);
+    const memberId = chatQaLogCreate.mock.calls[0][0].data.id;
+    getCurrentUser.mockResolvedValue({ id: 8, email: "guest_1234@guest.nullstock.im" });
+    await post({ ...delivery, ownerId: 8 });
+    const saved = chatQaLogCreate.mock.calls[1][0].data;
+    expect(saved.id).not.toBe(memberId);
+    expect(saved).toMatchObject({ userId: 8, userEmail: "guest_1234@guest.nullstock.im" });
+  });
+
+  it.each([null, { id: 8 }])("rejects delivery after the session owner changes", async (user) => {
+    getCurrentUser.mockResolvedValue(user);
+    expect((await post(delivery)).status).toBe(409);
+    expect(chatQaLogCreate).not.toHaveBeenCalled();
+  });
+
+  it("preserves an unknown latency instead of reporting zero", async () => {
+    await post({ ...delivery, latencyMs: null });
+    expect(chatQaLogCreate.mock.calls[0][0].data.latencyMs).toBeNull();
+  });
+
+  it("rejects null JSON", async () => {
+    expect((await post(null)).status).toBe(400);
   });
 });

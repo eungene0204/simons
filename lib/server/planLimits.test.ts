@@ -104,7 +104,7 @@ describe("planLimits — 월 백테스트 한도", () => {
     });
     await consumeBacktestQuota(client as any, 1, now);
     expect(client.user.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: expect.objectContaining({ id: 1 }),
       data: {
         backtestUsageMonth: thisMonth, backtestCountThisMonth: 6,
         backtestRunTotal: { increment: 1 },
@@ -131,7 +131,7 @@ describe("planLimits — 월 백테스트 한도", () => {
     });
     await consumeBacktestQuota(client as any, 1, now);
     expect(client.user.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: expect.objectContaining({ id: 1 }),
       data: {
         backtestUsageMonth: thisMonth, backtestCountThisMonth: 1,
         backtestRunTotal: { increment: 1 },
@@ -357,7 +357,7 @@ describe("planLimits — 구독 시작일 기준 롤링 결제 주기", () => {
     });
     await consumeBacktestQuota(client as any, 1, now);
     expect(client.user.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: expect.objectContaining({ id: 1 }),
       data: {
         backtestUsageMonth: "2026-06-20T00:00:00.000Z",
         backtestCountThisMonth: 1,
@@ -422,7 +422,7 @@ describe("planLimits — FREE 플랜 가입일 기준 사용량 주기", () => {
     });
     await consumeBacktestQuota(client as any, 1, now);
     expect(client.user.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: expect.objectContaining({ id: 1 }),
       data: {
         backtestUsageMonth: "2026-06-20T00:00:00.000Z",
         backtestCountThisMonth: 1,
@@ -443,5 +443,56 @@ describe("planLimits — FREE 플랜 가입일 기준 사용량 주기", () => {
     });
     const usage = await getUserUsage(client as any, 1, now);
     expect(usage.backtests.used).toBe(12);
+  });
+});
+
+
+describe("concurrent backtest accounting", () => {
+  const now = new Date("2026-10-07T00:00:00Z");
+
+  it.each([
+    ["member", "FREE", "2026-10", 0, 2, 2],
+    ["guest", "PREMIUM", "2026-10", 0, 2, 2],
+    ["new period", "FREE", "2026-09", 40, 2, 2],
+    ["last quota", "FREE", "2026-10", 49, 1, 50],
+    ["carry", "PREMIUM", "2026-10", -2, 2, 0],
+  ])("%s preserves both concurrent requests and enforces the limit", async (
+    _case, planTier, period, initial, accepted, expected,
+  ) => {
+    const row = {
+      planTier, planStartDate: null, createdAt: null,
+      backtestUsageMonth: period, backtestCountThisMonth: initial,
+      backtestRunTotal: 0, lastBacktestAt: null,
+    };
+    const client = createClient();
+    client.user.findUnique.mockImplementation(async () => ({ ...row }));
+    client.user.update.mockImplementation(async ({ where, data }) => {
+      if (where.backtestUsageMonth !== row.backtestUsageMonth ||
+          where.backtestCountThisMonth !== row.backtestCountThisMonth) {
+        throw Object.assign(new Error("conflict"), { code: "P2025" });
+      }
+      row.backtestUsageMonth = data.backtestUsageMonth;
+      row.backtestCountThisMonth = data.backtestCountThisMonth;
+      row.backtestRunTotal += data.backtestRunTotal.increment;
+      return row;
+    });
+    const results = await Promise.allSettled([
+      consumeBacktestQuota(client, 7, now), consumeBacktestQuota(client, 7, now),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(accepted);
+    expect(row.backtestCountThisMonth).toBe(expected);
+    expect(row.backtestRunTotal).toBe(accepted);
+    if (accepted === 1) {
+      expect(results.find((r) => r.status === "rejected")).toMatchObject({
+        reason: new Error(PLAN_LIMIT_BACKTESTS),
+      });
+    }
+  });
+
+  it("does not retry database outages as counter conflicts", async () => {
+    const client = createClient();
+    client.user.update.mockRejectedValue(new Error("database unavailable"));
+    await expect(consumeBacktestQuota(client, 7, now)).rejects.toThrow("database unavailable");
+    expect(client.user.update).toHaveBeenCalledTimes(1);
   });
 });

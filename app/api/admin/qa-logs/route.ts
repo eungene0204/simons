@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/server/adminAuth'
 import { parseStrategySnapshot, type StoredStrategySnapshot } from '@/lib/server/qaLogStrategy'
 import { collectQaTurns, type QaChatMessage } from '@/app/analytics/new/qaLog'
+import { RECOVERED_QA_PREFIX } from '@/lib/server/consoleHistoryRecovery'
 
 export const dynamic = 'force-dynamic'
 
@@ -97,8 +98,10 @@ export async function GET(request: NextRequest) {
         const stored = parseStrategySnapshot(strategySnapshot)
         const fallback = stored ? null : recovered.get(`${log.userId}:${log.sessionId}:${log.turnIndex}`)
         const strategy = stored ?? fallback ?? null
-        const strategySource: StrategySource | null = stored ? 'log' : fallback ? 'chat_snapshot' : null
-        return { ...log, strategy, strategySource }
+        const strategySource: StrategySource | null = stored
+          ? stored.recovery?.source === 'StrategyChatLog' ? 'chat_snapshot' : 'log'
+          : fallback ? 'chat_snapshot' : null
+        return { ...log, strategy, strategySource, recoveredFromSnapshot: log.id.startsWith(RECOVERED_QA_PREFIX) }
       }),
     })
   } catch (error) {

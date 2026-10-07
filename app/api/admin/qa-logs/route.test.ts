@@ -101,4 +101,14 @@ describe("GET /api/admin/qa-logs", () => {
     const data = await (await GET(req("?userId=31"))).json();
     expect(data.logs[0]).toMatchObject({ strategy: null, strategySource: null });
   });
+
+  it("marks recovered timestamps and preserves the snapshot provenance of restored cards", async () => {
+    qaFindMany.mockResolvedValue([row({
+      id: "qa-recovered-v1-123",
+      strategySnapshot: JSON.stringify({ summaryItems: [], parsed: { rsi: 30 }, recovery: { source: "StrategyChatLog" } }),
+    })]);
+    const data = await (await GET(req(""))).json();
+    expect(data.logs[0]).toMatchObject({ recoveredFromSnapshot: true, strategySource: "chat_snapshot" });
+  });
+
 });

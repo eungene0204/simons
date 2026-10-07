@@ -239,35 +239,52 @@ export async function consumeBacktestQuota(
   userId: number,
   now: Date = new Date()
 ): Promise<void> {
-  const user = await client.user.findUnique({
-    where: { id: userId },
-    select: {
-      planTier: true,
-      planStartDate: true,
-      createdAt: true,
-      backtestUsageMonth: true,
-      backtestCountThisMonth: true,
-    },
-  });
-  if (!user) throw new Error("USER_NOT_FOUND");
+  // Compare-and-swap also protects the first request of a new usage period.
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const user = await client.user.findUnique({
+      where: { id: userId },
+      select: {
+        planTier: true,
+        planStartDate: true,
+        createdAt: true,
+        backtestUsageMonth: true,
+        backtestCountThisMonth: true,
+        lastBacktestAt: true,
+      },
+    });
+    if (!user) throw new Error("USER_NOT_FOUND");
 
-  const plan = await getEffectivePlan(client, user.planTier);
-  const { periodKey, raw: usedThisPeriod } = backtestUsageInCurrentPeriod(user, now);
+    const plan = await getEffectivePlan(client, user.planTier);
+    const { periodKey, raw: usedThisPeriod } = backtestUsageInCurrentPeriod(user, now);
 
-  if (usedThisPeriod >= plan.monthlyBacktestLimit) {
-    throw new Error(PLAN_LIMIT_BACKTESTS);
+    if (usedThisPeriod >= plan.monthlyBacktestLimit) {
+      throw new Error(PLAN_LIMIT_BACKTESTS);
+    }
+
+    try {
+      await client.user.update({
+        where: {
+          id: userId,
+          planTier: user.planTier,
+          planStartDate: user.planStartDate,
+          backtestUsageMonth: user.backtestUsageMonth,
+          backtestCountThisMonth: user.backtestCountThisMonth,
+        },
+        data: {
+          backtestUsageMonth: periodKey,
+          backtestCountThisMonth: usedThisPeriod + 1,
+          // Keep quota and lifetime activity in the same conditional write.
+          backtestRunTotal: { increment: 1 },
+          lastBacktestAt: user.lastBacktestAt > now ? user.lastBacktestAt : now,
+        },
+      });
+      return;
+    } catch (error) {
+      // Prisma rejects the write if another request changed the counter or plan.
+      if ((error as { code?: string })?.code !== "P2025") throw error;
+    }
   }
-
-  await client.user.update({
-    where: { id: userId },
-    data: {
-      backtestUsageMonth: periodKey,
-      backtestCountThisMonth: usedThisPeriod + 1,
-      // 활동 지표(관리자 콘솔) — 한도 카운터와 달리 주기마다 리셋되지 않는다.
-      backtestRunTotal: { increment: 1 },
-      lastBacktestAt: now,
-    },
-  });
+  throw new Error("BACKTEST_USAGE_CONFLICT");
 }
 
 export interface PlanUsage {

@@ -203,18 +203,26 @@ export type QaLogPayload = {
   strategy: QaStrategySnapshot | null;
 };
 
-/** 기록 전송은 대화를 막지 않는다 — 실패해도 조용히 버린다. */
-export function sendQaLog(payload: QaLogPayload): void {
+/** Acknowledgement controls removal from the outbox. */
+export async function sendQaLog(payload: QaLogPayload): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
   try {
-    void fetch("/api/chat-log", {
+    const body = JSON.stringify(payload);
+    const response = await fetch("/api/chat-log", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body,
       credentials: "same-origin",
-      keepalive: true,
-    }).catch(() => {});
+      signal: controller.signal,
+      // Large strategy snapshots exceed the browser's 64 KiB keepalive budget.
+      keepalive: new TextEncoder().encode(body).byteLength < 60_000,
+    });
+    return response.ok;
   } catch {
-    // 기록 실패가 대화를 깨뜨리지 않는다.
+    return false;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

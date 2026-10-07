@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 
 const PAGE_SIZE = 20
 
-// GET: 사용자별 백테스트 사용 현황. ?userId=N 이면 해당 사용자의 최근 실행 기록 포함
+// GET: usage counters, or saved results for ?userId=N (not an execution ledger).
 export async function GET(request: NextRequest) {
   const admin = await requireAdmin()
   if (!admin) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
@@ -100,9 +100,9 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json()
     const userId = Number(body.userId)
     const action = String(body.action || '')
-    const amount = Math.max(1, Number(body.amount) || 1)
+    const amount = body.amount === undefined ? 1 : Number(body.amount)
 
-    if (!Number.isInteger(userId)) {
+    if (!Number.isSafeInteger(userId) || userId <= 0 || !Number.isSafeInteger(amount) || amount <= 0) {
       return NextResponse.json({ error: 'Invalid userId' }, { status: 400 })
     }
 
@@ -132,7 +132,12 @@ export async function PATCH(request: NextRequest) {
     const next = Math.max(0, nextRaw)
 
     await prisma.user.update({
-      where: { id: userId },
+      where: {
+        id: userId,
+        planStartDate: user.planStartDate,
+        backtestUsageMonth: user.backtestUsageMonth,
+        backtestCountThisMonth: user.backtestCountThisMonth,
+      },
       data: { backtestUsageMonth: periodKey, backtestCountThisMonth: nextRaw },
     })
     await writeAuditLog(admin, {
@@ -146,6 +151,9 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ ok: true, used: next })
   } catch (error) {
+    if ((error as { code?: string })?.code === 'P2025') {
+      return NextResponse.json({ error: 'Usage changed. Reload and retry.' }, { status: 409 })
+    }
     console.error('Admin backtest usage error:', error)
     return NextResponse.json({ error: 'Internal error' }, { status: 500 })
   }

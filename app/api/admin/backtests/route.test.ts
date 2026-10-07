@@ -96,7 +96,7 @@ describe("/api/admin/backtests PATCH", () => {
 
     expect(data.used).toBe(20);
     expect(userUpdate).toHaveBeenCalledWith({
-      where: { id: 2 },
+      where: expect.objectContaining({ id: 2 }),
       data: { backtestUsageMonth: periodKey, backtestCountThisMonth: 20 },
     });
     expect(writeAuditLog).toHaveBeenCalledWith(
@@ -116,8 +116,25 @@ describe("/api/admin/backtests PATCH", () => {
     await PATCH({ json: async () => ({ userId: 2, action: "reset" }) });
 
     expect(userUpdate).toHaveBeenCalledWith({
-      where: { id: 2 },
+      where: expect.objectContaining({ id: 2 }),
       data: { backtestUsageMonth: periodKey, backtestCountThisMonth: -5 },
     });
   });
+});
+
+
+it("rejects stale admin adjustments instead of overwriting a concurrent run", async () => {
+  userFindUnique.mockResolvedValue({ backtestUsageMonth: periodKey, backtestCountThisMonth: 26, planStartDate });
+  userUpdate.mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2025" }));
+  const res = await PATCH({ json: async () => ({ userId: 2, action: "decrease" }) });
+  expect(res.status).toBe(409);
+  expect(userUpdate.mock.calls[0][0].where).toMatchObject({
+    backtestUsageMonth: periodKey, backtestCountThisMonth: 26,
+  });
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
+
+it("rejects fractional usage adjustments", async () => {
+  expect((await PATCH({ json: async () => ({ userId: 2, action: "increase", amount: 0.5 }) })).status).toBe(400);
+  expect(userUpdate).not.toHaveBeenCalled();
 });

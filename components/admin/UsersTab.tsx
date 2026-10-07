@@ -244,7 +244,7 @@ export default function UsersTab() {
         <select value={sort} onChange={(e) => setSort(e.target.value)} className={inputClass}>
           <option value="createdAt">가입일순</option>
           <option value="lastLoginAt">최근 로그인순</option>
-          <option value="lastBacktestAt">최근 실행순</option>
+          <option value="lastBacktestAt">최근 요청순</option>
           <option value="email">이메일순</option>
         </select>
       </div>
@@ -261,8 +261,8 @@ export default function UsersTab() {
                 <th className={thClass}>전략</th>
                 <th className={thClass}>계좌</th>
                 <th className={thClass}>주기 사용량</th>
-                <th className={thClass}>누적 실행</th>
-                <th className={thClass}>최근 실행</th>
+                <th className={thClass}>누적 요청</th>
+                <th className={thClass}>최근 요청</th>
                 <th className={thClass}>가입일</th>
                 <th className={thClass}>최근 로그인</th>
               </tr>
@@ -357,11 +357,11 @@ export default function UsersTab() {
                 </dd>
               </div>
               <div className="flex justify-between">
-                <dt className="font-bold text-gray-500">누적 실행</dt>
+                <dt className="font-bold text-gray-500">누적 요청</dt>
                 <dd className="font-bold text-gray-200">{selected.backtestRunTotal}회</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="font-bold text-gray-500">최근 실행</dt>
+                <dt className="font-bold text-gray-500">최근 요청</dt>
                 <dd className="font-bold text-gray-200">{formatDateTime(selected.lastBacktestAt)}</dd>
               </div>
               <div className="flex justify-between">
