@@ -14,7 +14,7 @@ describe("PrivacyPolicyPage", () => {
     vi.stubEnv("BUSINESS_REGISTRATION_NUMBER", "898-50-00737");
     vi.stubEnv("BUSINESS_MAIL_ORDER_NUMBER", "2026-서울서대문-0758");
     vi.stubEnv("BUSINESS_PHONE", "070-8027-2252");
-    vi.stubEnv("BUSINESS_EMAIL", "nullspace.support@gmail.com");
+    vi.stubEnv("BUSINESS_EMAIL", "support@nullstock.im");
 
     const { container } = render(<PrivacyPolicyPage />);
 
@@ -32,7 +32,7 @@ describe("PrivacyPolicyPage", () => {
     expect(screen.getByText("전화번호")).toBeInTheDocument();
     expect(screen.getByText("070-8027-2252")).toBeInTheDocument();
     expect(screen.getByText("이메일")).toBeInTheDocument();
-    expect(screen.getByText("nullspace.support@gmail.com")).toBeInTheDocument();
+    expect(screen.getByText("support@nullstock.im")).toBeInTheDocument();
     // 전자상거래법 제10조 표시 항목 전부와 그 순서(이용약관·푸터와 동일).
     expect(Array.from(container.querySelectorAll("dl dt")).map((el) => el.textContent)).toEqual([
       "상호",

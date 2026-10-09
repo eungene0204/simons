@@ -49,8 +49,8 @@ describe("StrategyExampleTabs legal links", () => {
       )
     ).toBeInTheDocument();
     expect(
-      within(usageNotice).getByRole("link", { name: "nullspace.support@gmail.com" })
-    ).toHaveAttribute("href", "mailto:nullspace.support@gmail.com");
+      within(usageNotice).getByRole("link", { name: "support@nullstock.im" })
+    ).toHaveAttribute("href", "mailto:support@nullstock.im");
   });
 
   it("글로벌(/us) 푸터에는 연락처(이메일)만 남기고 사업자 정보를 표시하지 않는다", () => {
@@ -59,8 +59,8 @@ describe("StrategyExampleTabs legal links", () => {
 
     const usageNotice = screen.getByRole("contentinfo", { name: "전략연구소 이용 안내" });
     expect(
-      within(usageNotice).getByRole("link", { name: "nullspace.support@gmail.com" })
-    ).toHaveAttribute("href", "mailto:nullspace.support@gmail.com");
+      within(usageNotice).getByRole("link", { name: "support@nullstock.im" })
+    ).toHaveAttribute("href", "mailto:support@nullstock.im");
 
     const noticeText = usageNotice.textContent ?? "";
     expect(noticeText).not.toContain("Company:"); // 상호

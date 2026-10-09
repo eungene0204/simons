@@ -15,7 +15,7 @@ describe("HomePage", () => {
     vi.stubEnv("COMPANY_NAME", "널스페이스");
     vi.stubEnv("BUSINESS_REPRESENTATIVE_NAME", "이응준");
     vi.stubEnv("BUSINESS_REGISTRATION_NUMBER", "898-50-00737");
-    vi.stubEnv("BUSINESS_EMAIL", "nullspace.support@gmail.com");
+    vi.stubEnv("BUSINESS_EMAIL", "support@nullstock.im");
 
     const { container } = render(<HomePage />);
 
@@ -30,7 +30,7 @@ describe("HomePage", () => {
     expect(screen.queryByText("상호명")).not.toBeInTheDocument();
     expect(screen.queryByText("대표자명")).not.toBeInTheDocument();
     expect(screen.queryByText("사업자등록번호")).not.toBeInTheDocument();
-    expect(screen.queryByText("nullspace.support@gmail.com")).not.toBeInTheDocument();
+    expect(screen.queryByText("support@nullstock.im")).not.toBeInTheDocument();
   });
 
   it("renders 널스탁 terms when the legal query is terms", () => {
