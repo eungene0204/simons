@@ -167,19 +167,37 @@ def test_unsupported_indicator_and_price_field_are_errors():
     assert all(issue["category"] == "unsupported_field" for issue in result["issues"])
 
 
+def test_consecutive_up_is_not_flagged_unsupported():
+    """'5거래일 연속 상승'(technical.consecutive_up)은 엔진·인터프리터·레지스트리 모두
+    지원하는데도 검증 패널의 하드코딩 사본에 빠져 있어 "현재 시스템에서 지원하지 않는
+    필드입니다"로 막혔다(2026-10-08 실측, "거래대금·5일 상승 조건" 예시). 캔들 패턴 10종·
+    volatility도 같은 이유로 빠져 있었다 — 아래 SOT 전수 대조 테스트가 재발을 막는다."""
+    result = StrategyValidationAgent().validate(_valid_strategy(entry_rule=[
+        {"indicator": "consecutive_up", "operator": ">=", "value": 1, "period": 5},
+    ]))
+
+    assert not any(code.startswith("UNSUPPORTED_FIELD_") for code in _codes(result))
+
+
 def test_engine_supported_metrics_are_not_flagged_unsupported():
-    """엔진 SOT(FUNDAMENTAL_CIDS)의 재무 지표와 후기 추가 기술 지표를 '미지원 필드'로
-    오탐하지 않는다 — 하드코딩 사본이 뒤처져 순이익증가율이 차단되던 사고의 회귀 가드."""
+    """엔진 SOT(FUNDAMENTAL_CIDS)의 재무 지표와 지표 레지스트리 SOT의 기술 지표를
+    '미지원 필드'로 오탐하지 않는다 — 하드코딩 사본이 뒤처져 순이익증가율이 차단되던
+    사고의 회귀 가드. 기술 지표는 strategy_conversation.registry.indicator_registry
+    (지표 지원 여부의 단일 진실 소스)를 전수 대조한다 — engine.data_resolver.TECHNICAL_IDS는
+    더 좁고 어디서도 쓰이지 않는 구버전 사본이라(2026-10-08 확인) 대조 기준에서 뺐다."""
     from engine.signals import FUNDAMENTAL_CIDS
 
     metric_rules = [{"metric": cid, "operator": ">=", "value": 1} for cid in FUNDAMENTAL_CIDS]
-    # 기술 지표도 엔진 SOT(data_resolver.TECHNICAL_IDS) 전부를 대조한다 — 2026-09-15 실측:
-    # v16.10 신설 volume_ratio가 화이트리스트에 없어 전략 검증 패널이 "지원하지 않는 필드"를 냈다.
-    from engine.data_resolver import TECHNICAL_IDS
+    from strategy_conversation.registry.indicator_registry import REGISTRY
 
+    technical_ids = sorted(
+        spec_id.split(".", 1)[1]
+        for spec_id, spec in REGISTRY.items()
+        if spec_id.startswith("technical.") and spec.supported != "UNSUPPORTED"
+    )
     indicator_rules = [
         {"indicator": name, "operator": ">=", "value": 1}
-        for name in sorted(TECHNICAL_IDS)
+        for name in technical_ids
     ]
     result = StrategyValidationAgent().validate(
         _valid_strategy(entry_rule=metric_rules + indicator_rules)

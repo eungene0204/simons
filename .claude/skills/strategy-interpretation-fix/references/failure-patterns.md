@@ -39,6 +39,30 @@ SKILL.md 2단계 표의 기호별 상세. 각 절은 **식별 신호 → 실제 
   뜻이 없는 범위 위반은 capability_validator에서 오류로 잡고 그 조건만 제외한 뒤 안내한다.
 - **예방**: 새 스펙 칸을 만들 때 ParsedStrategy 제약 범위를 capability_validator에 **먼저** 옮긴다. (project_tranche_ladder_v16_36.md)
 
+### C' — 전략 검증 패널의 화이트리스트 드리프트("지원하지 않는 필드")
+
+- **신호**: `compile_strategy`는 예외 없이 통과했는데(`gate: "ok"`), 확정 후 "전략 검증" 패널에 "현재 시스템에서
+  지원하지 않는 필드입니다"가 뜬다. 채팅 에이전트 트레이스(`agent_traces/*.jsonl`)에는 이 턴이 아예 안 잡힌다 —
+  `/api/strategy/compile`·`/api/strategy/coach`는 별도 HTTP 경로라 트레이서가 안 본다. 프론트 dev 로그의
+  `POST /api/strategy/compile 200`만 남는다.
+- **원인**: `backend/ai/strategy_validation_agent.py::_TECHNICAL_CONDITIONS`가 `strategy_conversation/registry/
+  indicator_registry.py::REGISTRY`(지표 지원 여부의 정본, "단일 진실 소스"라고 모듈 docstring에 명시)의 **수동
+  하드코딩 사본**이고, 새 지표를 레지스트리에 추가해도 이 사본은 갱신되지 않는다. 2026-09-15 `volume_ratio`
+  사고와 같은 모양이며, 2026-10-08 실측 때는 `consecutive_up`(5거래일 연속 상승)과 캔들 패턴 10종·`volatility`
+  까지 15개가 한꺼번에 빠져 있었다 — 엔진·인터프리터·레지스트리 전부 지원하는데 검증 패널만 모른다.
+  같은 파일이 참조하던 회귀 테스트(`test_engine_supported_metrics_are_not_flagged_unsupported`)도
+  `engine/data_resolver.py::TECHNICAL_IDS`라는 **세 번째, 더 좁고 아무 데서도 안 쓰이는 사본**을 기준으로 돌아
+  이 드리프트를 못 잡았다.
+- **통한 수리**: `_TECHNICAL_CONDITIONS`를 `indicator_registry.REGISTRY`에서 `technical.*` id를 걸러 **derive**하도록
+  바꿨다(레지스트리에 없는 `price`·`price_level`·`price_limit_exit`는 리스크/청산 식별자라 별도 유지). 회귀
+  테스트도 `TECHNICAL_IDS` 대신 같은 레지스트리를 SOT로 전수 대조하도록 같이 고쳤다 — 그렇지 않으면 다음 신규
+  지표도 같은 구멍으로 샌다.
+- **진단 팁**: 이 유형은 agent_traces 그라운딩만으로는 안 잡힌다. "확정 직후 떴다"·"백엔드 에러 로그 없음"이면
+  바로 `grep -rn "지원하지 않는 필드\|지원하지 않는" backend/ai/*.py`로 화이트리스트 소스를 찾는다.
+- **예방**: "엔진/레지스트리는 지원하는데 어딘가 차단된다" 유형을 다시 만나면, 그 차단 지점의 화이트리스트가
+  `indicator_registry.REGISTRY`·`engine.signals.FUNDAMENTAL_CIDS` 같은 SOT를 **참조**하는지 먼저 확인한다.
+  수동 리터럴 집합이면 그 자체가 의심 1순위다. (project_strategy_validation_whitelist_drift_2026_10_08.md)
+
 ## R — 수리(재생성) 턴의 목록 필드 소실
 
 - **신호**: Interpreter LLM 호출이 2회 이상이고, 1차 원출력의 `unsupported_features`·`clarification_questions`가 최종 결과에 없다.

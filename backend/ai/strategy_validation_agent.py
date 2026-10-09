@@ -8,6 +8,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from engine.signals import FUNDAMENTAL_CIDS
+from strategy_conversation.registry.indicator_registry import REGISTRY
 
 
 class StrategyValidationAgent:
@@ -15,29 +16,19 @@ class StrategyValidationAgent:
 
     # 재무 지표는 engine.signals.FUNDAMENTAL_CIDS(SOT)를 그대로 따른다 — 하드코딩 사본이
     # 뒤처지면 엔진이 지원하는 지표를 '미지원 필드'로 오탐한다(순이익증가율 사고).
+    # 기술 지표도 같은 이유로 indicator_registry.REGISTRY(SOT)에서 derive한다 — 수동
+    # 사본에 consecutive_up·캔들패턴 10종·volatility가 빠져 있었다(2026-10-08 실측:
+    # "5거래일 연속 상승" 조건이 엔진·인터프리터 모두 지원하는데도 검증 패널이 미지원으로
+    # 막았다). registry에 없는 price/price_level/price_limit_exit는 지표가 아니라 리스크·
+    # 청산 조건 식별자라 별도로 더한다.
     _TECHNICAL_CONDITIONS = {
-        "adx",
-        "ai_drop_model",
-        "ai_model",
-        "bollinger_bands",
-        "breakout",
-        "cci",
-        "ema",
-        "ma_crossover",
-        "macd",
-        "mfi",
+        spec_id.split(".", 1)[1]
+        for spec_id, spec in REGISTRY.items()
+        if spec_id.startswith("technical.") and spec.supported != "UNSUPPORTED"
+    } | {
         "price",
         "price_level",
         "price_limit_exit",
-        "roc",
-        "rsi",
-        "stochastic",
-        "trading_value",
-        "volume_spike",
-        "volume_ratio",
-        "trading_value_ratio",
-        "relative_return",
-        "williams_r",
     }
     _RISK_CONDITIONS = {
         "max_holding_days",
