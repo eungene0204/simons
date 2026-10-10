@@ -147,6 +147,29 @@ class TestDataResolverResolve:
 
         assert "pbr" in result_df.columns
 
+    @pytest.mark.parametrize("ratio,denom", [("per", "eps"), ("pbr", "bps")])
+    def test_ratio_is_null_when_denominator_not_positive(self, ratio, denom):
+        """적자(EPS≤0)·자본잠식(BPS≤0)이면 비율은 null — fundamental_fetcher와 같은 규칙.
+
+        parquet은 적자 기업 PER을 null로 둔다. 그 칸이 전부 null이면 resolver가 '누락'으로 보고
+        close÷EPS로 다시 계산했는데, 음수 EPS를 그대로 나눠 음수 PER이 'PER ≤ 8'을 통과했다
+        (2026-10-10: 적자 318종목 유입, 'PER 8 이하' 5년 -91.93%).
+        """
+        denoms = np.array([-1854.0, 0.0, 500.0, np.nan] * 25)
+        df = _make_ohlcv().with_columns(
+            pl.Series(denom, denoms),
+            pl.Series(ratio, [None] * 100, dtype=pl.Float64),  # parquet처럼 칸은 있지만 전부 null
+        )
+        entry = _make_entry_group(_make_condition(ratio, {"operator": "<=", "value": 8}))
+
+        with patch("engine.data_resolver.DataResolver._resolve_fundamentals", return_value=df):
+            result_df, _ = DataResolver().resolve("145210", df, entry, None)
+
+        vals = result_df[ratio].to_numpy().astype(float)
+        positive = denoms > 0
+        assert np.all(np.isnan(vals[~positive]))
+        assert np.all(vals[positive] > 0)
+
     @patch("engine.data_resolver.DataResolver._fetch_shares_outstanding", return_value=1000000)
     def test_market_cap_computed(self, mock_shares):
         """market_cap 누락 시 상장주식수 × close로 계산."""

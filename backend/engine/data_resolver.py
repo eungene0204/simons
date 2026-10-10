@@ -330,7 +330,13 @@ class DataResolver:
         return df_pl
 
     def _resolve_computable_ratios(self, symbol: str, df_pl: pl.DataFrame, missing: set) -> pl.DataFrame:
-        """per/pbr를 eps/bps + close에서 직접 계산 (fundamental_fetcher 이후 fallback)."""
+        """per/pbr를 eps/bps + close에서 직접 계산 (fundamental_fetcher 이후 fallback).
+
+        분모가 양수일 때만 계산한다 — 적자(EPS≤0)·자본잠식(BPS≤0)이면 비율이 금융적으로 무의미해
+        fundamental_fetcher가 null로 두는 규칙과 같다. parquet은 적자 기업 PER을 null로 저장하므로
+        칸이 전부 null인 종목이 여기로 오는데, 음수 분모를 나누면 음수 PER이 'PER ≤ X'·저PER 랭킹을
+        통과한다(2026-10-10 적자 318종목 유입, v16.40.0).
+        """
         cols = set(df_pl.columns)
 
         if 'per' in missing and 'eps' in cols:
@@ -338,7 +344,7 @@ class DataResolver:
                 close = df_pl['close'].to_numpy().astype(float)
                 eps = df_pl['eps'].to_numpy().astype(float)
                 with np.errstate(divide='ignore', invalid='ignore'):
-                    per = np.where((eps != 0) & np.isfinite(eps), close / eps, np.nan)
+                    per = np.where((eps > 0) & np.isfinite(eps), close / eps, np.nan)
                 per[~np.isfinite(per)] = np.nan
                 df_pl = df_pl.with_columns(pl.Series("per", per))
                 missing.discard('per')
@@ -351,7 +357,7 @@ class DataResolver:
                 close = df_pl['close'].to_numpy().astype(float)
                 bps = df_pl['bps'].to_numpy().astype(float)
                 with np.errstate(divide='ignore', invalid='ignore'):
-                    pbr = np.where((bps != 0) & np.isfinite(bps), close / bps, np.nan)
+                    pbr = np.where((bps > 0) & np.isfinite(bps), close / bps, np.nan)
                 pbr[~np.isfinite(pbr)] = np.nan
                 df_pl = df_pl.with_columns(pl.Series("pbr", pbr))
                 missing.discard('pbr')
