@@ -33,6 +33,7 @@ import { BacktestResult, type OptimizationResponse } from "@/types/strategy";
 import { mapRawBacktestResult } from "./backtestResultMapper";
 import { buildBacktestResultFacts } from "./backtestResultFacts";
 import { ChatLogPanel } from "./ChatLogPanel";
+import { readStrategyPromptParam, withoutStrategyPromptParam } from "@/lib/strategy/strategyOpenLink";
 import {
   chatStorageOwnerOf,
   reconcileStrategyChatStorage,
@@ -3731,6 +3732,16 @@ function StrategyLabContent() {
     chatInputRef.current?.set(restoredDraftRef.current);
     restoredDraftRef.current = null;
   }, [messages.length]);
+
+  // "이 전략 그대로 열기" 링크(?prompt=…)로 들어오면 문장을 입력창에 채우기만 한다 — 보내기는 방문자가 누른다.
+  useEffect(() => {
+    const prompt = readStrategyPromptParam(searchParams);
+    if (!prompt || isChatPage) return;
+    chatInputRef.current?.set(prompt);
+    chatInputRef.current?.focus();
+    window.history.replaceState(null, "", withoutStrategyPromptParam(window.location.pathname, window.location.search));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 첫 진입 때 한 번만 읽는다
+  }, []);
 
   const returnToPreviousCondition = (message: ChatMessage) => {
     if (isSending) return;

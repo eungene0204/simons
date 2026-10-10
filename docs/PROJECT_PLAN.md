@@ -2235,3 +2235,9 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 - 과거분 복원 실측: 카드 턴 881건 중 224건(관리자 제외 실사용자 113건 중 110건).
 - 검증: 회귀 `qaLog.test.ts`·`chat-log/route.test.ts`·`lib/server/qaLogStrategy.test.ts`·`admin/qa-logs/route.test.ts`·`UserConversationPanel.test.tsx`. 프론트 전체 2,349건 통과.
 - 남은 한계: 기록은 여전히 브라우저가 보낸다(탭 닫힘·통신 실패 시 누락) — 서버 직접 기록은 미착수(제안 2번).
+
+### "이 전략 그대로 열기" 링크 + X 영상·속설 검증 시리즈 (2026-10-10) — 링크 구현 ✅ 완료(배포 전) / 속설 시리즈 보류
+- 링크: `https://www.nullstock.im/?prompt=<문장>&utm_*` → 전략연구소 입력창에 문장을 **채우기만**(보내기는 방문자, 비로그인은 기존 로그인 게이트가 문장 보관 후 이어서 처리). `lib/strategy/strategyOpenLink.ts`(+테스트), `app/analytics/new/page.tsx` 첫 진입 effect, 채운 뒤 `prompt`만 주소창에서 제거(utm 유지). 경로는 홈이어야 한다 — 다른 경로는 비로그인 방문자를 홈으로 보내며 쿼리를 잃는다(실측).
+- X 게시 스크립트: `scripts/post_to_x.py --video`(조각 업로드+처리 대기), `--open-link/--campaign`(링크 생성), 링크=23자 가중 길이. 스킬 `x-backtest-post`에 영상 모드·링크·속설 시리즈 절차.
+- 속설 시리즈 보류 사유 2건: ① "RSI가 70 이상으로 올라오면 매도"가 "RSI 70 하향 반전"으로 해석됨(미수리) ② 엔진 결함(아래 v16.40.0에서 수리).
+- ✅ 완료 — **엔진 v16.40.0 적자·자본잠식 PER·PBR 재계산 차단**: `engine/data_resolver.py::_resolve_computable_ratios`가 PER(PBR) 칸이 전부 빈 종목에 `주가÷EPS(BPS)`를 음수 분모 그대로 계산해, 적자 318종목(전체 3,230 중)이 "PER ≤ X"·저PER 랭킹을 통과했다. 분모 양수일 때만 계산하도록 수정(fundamental_fetcher 규칙과 동일). 회귀 `test_data_resolver.py::test_ratio_is_null_when_denominator_not_positive`(PER·PBR). 실측 "KOSPI PER 8 이하·63일 보유·손절 -8%·5년": 수정 전 매수 375회·CAGR -41.07%·MDD -92.17% → 수정 후 322회·-15.15%·-70.02%, 거래 상하위 6종목 음수 PER 0일. 백엔드 5,566 통과(기존 무관 실패 1: `test_backfill_us_stocks` 칸 목록).

@@ -214,3 +214,101 @@ def test_long_flag_lifts_the_280_limit_only_when_given(post_to_x, monkeypatch, c
     monkeypatch.setattr(sys, "argv", ["post_to_x.py", long_text, "--long"])
     post_to_x.main()
     assert "미리보기만" in capsys.readouterr().out
+
+
+def test_check_video_rejects_bad_inputs(post_to_x, tmp_path):
+    video = tmp_path / "a.mp4"
+    video.write_bytes(b"x")
+    post_to_x.check_video(video, [])  # 통과
+    with pytest.raises(SystemExit):
+        post_to_x.check_video(tmp_path / "missing.mp4", [])
+    webm = tmp_path / "a.webm"
+    webm.write_bytes(b"x")
+    with pytest.raises(SystemExit):
+        post_to_x.check_video(webm, [])
+    with pytest.raises(SystemExit):  # X는 동영상과 사진을 한 글에 같이 받지 않는다
+        post_to_x.check_video(video, [tmp_path / "a.png"])
+
+
+def test_upload_video_chunks_then_waits_for_processing(post_to_x, monkeypatch, tmp_path):
+    video = tmp_path / "a.mp4"
+    video.write_bytes(b"v" * 10)
+    monkeypatch.setattr(post_to_x, "VIDEO_CHUNK_BYTES", 4)  # 10바이트 → 조각 3개
+    monkeypatch.setattr(post_to_x.time, "sleep", lambda _s: None)
+    posts, gets = [], []
+
+    def _fake_post(url, **kwargs):
+        posts.append((url, kwargs.get("json"), kwargs.get("data")))
+        if url.endswith("/initialize"):
+            return _FakeResponse(200, {"data": {"id": "555"}})
+        if url.endswith("/finalize"):
+            return _FakeResponse(200, {"data": {"id": "555", "processing_info": {"state": "pending", "check_after_secs": 1}}})
+        return _FakeResponse(204, {})
+
+    def _fake_get(url, **kwargs):
+        gets.append(kwargs["params"])
+        state = "in_progress" if len(gets) == 1 else "succeeded"
+        return _FakeResponse(200, {"data": {"id": "555", "processing_info": {"state": state}}})
+
+    monkeypatch.setattr(post_to_x.requests, "post", _fake_post)
+    monkeypatch.setattr(post_to_x.requests, "get", _fake_get)
+    assert post_to_x.upload_video(video, _CREDS) == "555"
+    assert posts[0][1] == {"media_type": "video/mp4", "total_bytes": 10, "media_category": "tweet_video"}
+    assert [p[2]["segment_index"] for p in posts[1:4]] == ["0", "1", "2"]
+    assert posts[4][0].endswith("/555/finalize")
+    assert gets == [{"command": "STATUS", "media_id": "555"}] * 2
+
+
+def test_upload_video_fails_fast_when_processing_fails(post_to_x, monkeypatch, tmp_path):
+    video = tmp_path / "a.mp4"
+    video.write_bytes(b"v")
+
+    def _fake_post(url, **kwargs):
+        if url.endswith("/finalize"):
+            return _FakeResponse(200, {"data": {"id": "1", "processing_info": {"state": "failed"}}})
+        return _FakeResponse(200, {"data": {"id": "1"}})
+
+    monkeypatch.setattr(post_to_x.requests, "post", _fake_post)
+    with pytest.raises(SystemExit):
+        post_to_x.upload_video(video, _CREDS)
+
+
+def test_weighted_length_counts_any_url_as_23(post_to_x):
+    long_url = "https://www.nullstock.im/?prompt=" + "%EA%B0%80" * 200
+    assert post_to_x.weighted_length(f"가 {long_url}") == 2 + 1 + 23
+
+
+def test_strategy_open_url_prefills_home_with_utm(post_to_x):
+    from urllib.parse import parse_qs, urlsplit
+
+    prompt = "KOSPI 종목 중 RSI가 30 아래로 내려가면 매수하고, 손절은 -8%로 해 주세요."
+    url = post_to_x.strategy_open_url(f"  {prompt}\n", "myth-01")
+    parts = urlsplit(url)
+    # 비로그인 방문자를 홈으로 돌려보내며 쿼리를 잃는 경로가 아니라 홈 자체로 보낸다(2026-10-10 실측)
+    assert f"{parts.scheme}://{parts.netloc}{parts.path}" == "https://www.nullstock.im/"
+    assert parse_qs(parts.query) == {
+        "prompt": [prompt], "utm_source": ["x"], "utm_medium": ["social"], "utm_campaign": ["myth-01"],
+    }
+    assert " " not in url  # 공백이 남으면 X가 링크를 거기서 끊는다
+
+
+def test_strategy_open_url_rejects_empty_or_too_long(post_to_x):
+    with pytest.raises(SystemExit):
+        post_to_x.strategy_open_url("  ", "myth-01")
+    with pytest.raises(SystemExit):
+        post_to_x.strategy_open_url("가" * (post_to_x.MAX_OPEN_LINK_PROMPT_LENGTH + 1), "myth-01")
+    with pytest.raises(SystemExit):
+        post_to_x.strategy_open_url("문장", " ")
+
+
+def test_open_link_is_appended_to_preview(post_to_x, monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(post_to_x.requests, "post", lambda *a, **k: (_ for _ in ()).throw(AssertionError("전송됨")))
+    prompt_file = tmp_path / "prompt.txt"
+    prompt_file.write_text("RSI 30 아래면 매수", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["post_to_x.py", "본문", "--open-link", str(prompt_file), "--campaign", "myth-01"])
+    post_to_x.main()
+    out = capsys.readouterr().out
+    assert "이 전략 그대로 열기: https://www.nullstock.im/?prompt=" in out
+    monkeypatch.setattr(sys, "argv", ["post_to_x.py", "본문", "--open-link", str(prompt_file)])
+    with pytest.raises(SystemExit):  # --campaign 없이 링크만은 받지 않는다
+        post_to_x.main()

@@ -11,8 +11,9 @@ import fs from 'fs';
 
 const prefix = process.argv[2] || 'shot';
 const browser = await chromium.connectOverCDP('http://localhost:9222');
-const ctx = browser.contexts()[0];
-const page = ctx.pages()[0];
+// 녹화 브라우저(record_server.mjs)는 로그인용 컨텍스트를 닫고 새 컨텍스트를 쓴다 — 앱 화면이 열린 페이지를 찾는다
+const page = browser.contexts().flatMap((c) => c.pages()).find((p) => p.url().startsWith('http://localhost'));
+const ctx = page.context();
 const cdp = await ctx.newCDPSession(page);
 
 const shot = async (name, c) => {
