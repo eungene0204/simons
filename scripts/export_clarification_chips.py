@@ -73,6 +73,8 @@ def build_fixture() -> dict:
         + list(strategy_slots.MARKET_REGIME_VOL_MULTIPLE_CHIP_VALUES)
         + list(strategy_slots.ALLOCATION_LOOKBACK_CHIP_VALUES)
     )
+    # ⑦ 볼린저 하단 터치 인정 기간 칩(엔진 v16.39) — 정본 표 그대로.
+    chips["bollinger_touch"] = list(strategy_slots.BOLLINGER_TOUCH_CHIP_VALUES)
     return chips
 
 

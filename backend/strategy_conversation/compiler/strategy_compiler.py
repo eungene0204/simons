@@ -50,6 +50,17 @@ class StrategyCompileError(ValueError):
     pass
 
 
+# 밴드 지정 볼린저 개념 ID → 엔진 밴드(v16.39). 중심선 회복은 컴파일러가 따로 다룬다.
+_BOLLINGER_BAND_FACTORS = {
+    "technical.bollinger_upper_breakout": ("upper", "above"),
+    "technical.bollinger_upper_fall": ("upper", "below"),
+    "technical.bollinger_middle_up": ("middle", "above"),
+    "technical.bollinger_middle_down": ("middle", "below"),
+    "technical.bollinger_lower_touch": ("lower", "below"),
+    "technical.bollinger_lower_rebound": ("lower", "above"),
+}
+
+
 def _compile_fundamental(cond: StrategyCondition, metric: str) -> FundamentalFilter:
     if cond.operator not in ("<", "<=", ">", ">=") or cond.value is None:
         raise StrategyCompileError(
@@ -132,6 +143,28 @@ def _compile_technical(
                 kwargs["long_period"] = _int_param("long_period") or _int_param("short_period")
     elif indicator == "macd":
         kwargs["mode"] = "crossover"
+    elif indicator == "bollinger_bands":
+        kwargs["period"] = _int_param("period")
+        band = _BOLLINGER_BAND_FACTORS.get(cond.factor)
+        if cond.factor == "technical.bollinger_middle_recovery":
+            # 하단 터치 후 중심선 회복(v16.39) — 터치 인정 기간은 되묻기 대상이라 없으면 컴파일하지 않는다
+            # (값 대기 조건은 compile_partial이 먼저 거른다 — 여기 오면 검증 누락이다).
+            lookback = _int_param("touch_lookback")
+            if lookback is None:
+                raise StrategyCompileError(
+                    f"'{cond.factor}' 조건에 하단 터치 인정 기간이 없습니다 (검증 누락?)")
+            kwargs.update(band="middle", cross="above", touch_lookback=lookback)
+        elif band is not None:
+            # 밴드 지정(v16.39) — 밴드와 교차 방향을 개념 ID가 정한다(연산자는 읽지 않는다).
+            kwargs.update(band=band[0], cross=band[1])
+        else:
+            # 역할 고정 레거시(매수=종가≤하단, 매도=종가≥상단) — 그 의미와 맞는 방향만 받는다.
+            # 종전에는 연산자를 버려 '상단 돌파 매수'가 하단 매수로 조용히 뒤집혔다(2026-10-10).
+            legacy = "crosses_below" if signal_type == "buy" else "crosses_above"
+            if cond.operator is not None and cond.operator != legacy:
+                raise StrategyCompileError(
+                    f"'{cond.factor}' 조건의 방향 '{cond.operator}'은(는) {signal_type} 신호로 "
+                    f"표현할 수 없습니다 (밴드를 지정한 볼린저 조건을 쓰세요)")
     elif indicator == "breakout":
         kwargs["lookback_period"] = _int_param("lookback_period")
     elif indicator in ("ai_model", "ai_drop_model"):

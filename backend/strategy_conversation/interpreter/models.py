@@ -160,6 +160,14 @@ class StrategyCondition(BaseModel):
 
     _coerce_approximated = field_validator("approximated", mode="before")(_coerce_flag)
 
+    @field_validator("value_source", mode="before")
+    @classmethod
+    def _default_value_source(cls, v):
+        # 수정 턴 패치 값에 형태 키를 전부 베끼며 "value_source": null을 낸다(2026-10-10 실측 120B,
+        # '볼린저밴드 상단 닿으면 매도') — 스키마 위반으로 패치 전체가 거부돼 "해석하지 못했어요"가 됐다.
+        # null은 '값 없음'이므로 기본값으로 둔다(값이 없으면 아래 검증이 MISSING으로 내린다).
+        return "USER_PROVIDED" if v is None else v
+
     @field_validator("buy_amount", mode="before")
     @classmethod
     def _coerce_buy_amount(cls, v):

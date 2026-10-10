@@ -9,6 +9,7 @@ suggested_fixes로 명시 제안만 한다(사용자 확인 필요).
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import List, Tuple
 
@@ -23,6 +24,8 @@ from strategy_conversation.registry.concept_ontology import (
 from strategy_conversation.registry.indicator_registry import (
     RANKING_INGREDIENTS, REGISTRY, factor_ids_named_in, resolve, with_same_name_variants,
 )
+
+logger = logging.getLogger("strategy_interpreter.capability")
 
 # 스키마 필드 경로 꼴의 factor(concept.time_based_exit·technical.beta …)는 LLM이 지어낸
 # **내부 식별자**다 — 사용자 안내에 그대로 인용하면 쓴 적 없는 영문 경로가 화면에 나간다
@@ -52,6 +55,9 @@ _CROSS_TO_COMPARISON = {"crosses_above": ">", "crosses_below": "<"}
 # buy=golden/sell=dead로 고정한다. 매수 칸의 crosses_below는 표현 불가(컴파일러도 같은 판정).
 _DIRECTIONAL_CROSS_LEAVES = frozenset({"technical.ma_crossover", "technical.ema", "technical.macd"})
 _ROLE_CROSS_DIRECTION = {"진입": "crosses_above", "청산": "crosses_below"}
+# 역할 고정 레거시 볼린저(매수=종가≤하단, 매도=종가≥상단)가 표현하는 방향 — 디컴파일 표기와 같다.
+# 반대 방향('상단 돌파 매수'·'하단 닿으면 청산')은 밴드 지정 볼린저(v16.39)로만 표현된다.
+_LEGACY_BOLLINGER_DIRECTION = {"진입": "crosses_below", "청산": "crosses_above"}
 
 
 def _condition_identity(cond) -> tuple:
@@ -216,6 +222,18 @@ def carry_lookback(cond, rank) -> None:
     lookback = cond.parameters.get("lookback_days") or cond.parameters.get("period")
     if lookback:
         rank.lookback_days = int(lookback)
+
+
+def _us_etf_tickers_under_kr_etf_market(strategy) -> bool:
+    """/us 요청에서 시장이 국내 'ETF' 하나뿐이고 지정 상품이 전부 미국 ETF인가(LLM 출력 대조)."""
+    if ui_language.get_ui_language() != "en" or list(strategy.universe.markets) != ["ETF"]:
+        return False
+    symbols = [s.strip().upper() for s in strategy.universe.symbols if isinstance(s, str) and s.strip()]
+    if not symbols:
+        return False
+    from engine.universe_pit import is_us_etf_symbol
+
+    return all(is_us_etf_symbol(s) for s in symbols)
 
 
 def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], List[str], List[str]]:
@@ -454,6 +472,17 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                     f"{role} 조건 '{spec.display_name}'의 교차 방향 '{cond.operator}'은(는) "
                     f"{role} 신호로 표현할 수 없습니다 ({role}은 {expected_cross}만 가능)"
                 )
+            # 볼린저(2026-10-10) — 레거시 표기의 반대 방향은 컴파일러가 거부한다(종전에는 연산자를
+            # 버려 정반대로 백테스트됐다). 밴드 지정 볼린저(v16.39)는 방향을 개념 ID가 담는다.
+            # 위 규칙과 같은 이유로 검증 단계에서 에러를 남겨 그 조건만 제외+안내로 흐르게 한다.
+            legacy_cross = _LEGACY_BOLLINGER_DIRECTION.get(role)
+            if spec.id == "technical.bollinger_bands" and legacy_cross is not None \
+                    and cond.operator in ("crosses_above", "crosses_below") \
+                    and cond.operator != legacy_cross:
+                errors.append(
+                    f"{role} 조건 '{spec.display_name}'의 교차 방향 '{cond.operator}'은(는) "
+                    f"밴드를 지정하지 않으면 표현할 수 없습니다"
+                )
         setattr(strategy, attr, _drop_valueless_quote_twins(
             role, _dedupe_identical_conditions(role, kept)))
 
@@ -539,6 +568,19 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
             carry_approximation(c, mirrored)
             carry_lookback(c, mirrored)
         strategy.entry_conditions = kept_conditions
+
+    # /us 요청의 '미국 ETF 티커 + 시장 ETF' — 120B는 "미국 반도체 ETF인 SOXX"·"SPY, QQQ, DIA, IWM 네 가지
+    # 지수 ETF"에서 상품은 symbols에 정확히 적고, 낱말 'ETF'를 국내 ETF 시장 코드로 한 번 더 적는다
+    # (2026-10-10 실측: US 게이트 ETF 예시 8건이 전부 이 형태로 '미국 시장 전용' 거절 → KOSPI200 표시).
+    # 함께 적힌 상품이 **전부 미국 ETF 마스터**에 있으면 그 'ETF'는 국내 시장 요청이 아니라 상품 수식이다 —
+    # 프롬프트 계약(티커는 상품 지정, markets는 비움)과 같은 형태로 맞춘다. 판정 입력은 LLM이 뽑은
+    # 티커의 종목 사전 대조뿐이다(원문을 읽지 않는다). 국내 종목이 섞이거나 상품이 없으면 종전대로 거절.
+    if _us_etf_tickers_under_kr_etf_market(strategy):
+        logger.info("미국 ETF 티커의 시장 'ETF' 정규화 | symbols=%s etf_theme=%s → markets=[]",
+                    strategy.universe.symbols, strategy.universe.etf_theme)
+        strategy.universe.markets = []
+        # 티커 앞의 설명구('반도체 ETF')는 테마가 아니라 그 상품의 수식이다(프롬프트 규칙 6).
+        strategy.universe.etf_theme = None
 
     # 유니버스별 팩터 검증 — ETF는 여러 기업을 묶은 상품이라 기업 재무지표를 조건으로 쓸
     # 수 없다(engine/universe_capabilities와 동일 계약). 조용히 제거하지 않고 오류+대안

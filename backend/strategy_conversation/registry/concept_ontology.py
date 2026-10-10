@@ -319,7 +319,7 @@ def concept_spec(factor: Optional[str]) -> Optional[ConceptSpec]:
 def _leaf_line(leaf_id: str) -> Optional[str]:
     """잎 한 줄 요약 — 구 평면 목록(supported_factor_lines, 2.7까지)과 동일 표기."""
     spec = REGISTRY.get(leaf_id)
-    if spec is None or spec.supported == "UNSUPPORTED":
+    if spec is None or spec.supported == "UNSUPPORTED" or spec.prompt_hidden:
         return None
     ops = "/".join(spec.allowed_operators) if spec.allowed_operators else "-"
     unit = spec.value_type or "-"

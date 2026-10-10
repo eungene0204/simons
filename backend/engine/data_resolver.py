@@ -114,7 +114,10 @@ def _get_required_columns_base(cond: Dict) -> List[str]:
         period = p.get('period', 60)
         return [f'relative_return_{period}']
     elif cid == 'bollinger_bands':
-        return ['boll_ub', 'boll_lb', 'close']
+        cols = ['boll_ub', 'boll_lb', 'close']
+        if p.get('band') == 'middle':
+            cols.append(f"close_{p.get('period', 20)}_sma")   # 밴드 지정 중심선(v16.39)
+        return cols
     elif cid == 'volume_spike':
         period = p.get('period', 20)
         return ['obv', f'obv_{period}_sma']

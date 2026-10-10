@@ -249,3 +249,51 @@ def test_kr_lane_us_market_with_industry_compiles_to_us_industry():
     assert parsed.universe == ["SP500"]
     assert parsed.us_industry == "Semiconductors"
     assert parsed.sector is None
+
+
+# ── 미국 ETF 티커 + 시장 'ETF'(2026-10-10) ──────────────────────────────────────
+# 120B는 "미국 반도체 ETF인 SOXX"·"SPY, QQQ, DIA, IWM 네 가지 지수 ETF"에서 상품을 symbols에 정확히
+# 적고 낱말 'ETF'를 국내 ETF 시장 코드로 한 번 더 적었다 → '미국 시장 전용' 거절, KOSPI200 표시.
+
+def _etf_intent(markets, symbols, **kw) -> StrategyIntent:
+    spec = StrategySpec(
+        universe=UniverseSpec(markets=markets, symbols=symbols, **kw),
+        entry_conditions=[StrategyCondition(
+            factor="technical.bollinger_lower_rebound", source_text="하단에 닿았다가 반등하면 매수")],
+    )
+    return StrategyIntent(intent="CREATE_STRATEGY", strategy=spec)
+
+
+@pytest.mark.parametrize("symbols", [["SOXX"], ["SPY", "QQQ", "DIA", "IWM"], ["gld"]])
+def test_us_etf_tickers_under_kr_etf_market_are_not_refused(symbols):
+    intent = _etf_intent(["ETF"], symbols, etf_theme="반도체")
+    with ui_language.bind("en"):
+        errors, *_ = validate_capability(intent)
+    assert not any("US markets only" in e for e in errors)
+    assert intent.strategy.universe.markets == []
+    assert intent.strategy.universe.etf_theme is None   # 티커 수식은 테마가 아니다
+
+
+@needs_us_data  # 지정 상품 해석은 미국 파케이 보유분만 인정한다
+def test_us_etf_tickers_compile_to_the_named_products():
+    intent = _etf_intent(["ETF"], ["SOXX"])
+    with ui_language.bind("en"):
+        validate_capability(intent)
+        parsed = compile_strategy(intent, _ready(), None)
+    assert parsed.target_symbols == ["SOXX"]
+
+
+def test_kr_etf_market_without_us_tickers_still_refused():
+    """국내 ETF 시장만(상품 없음)·미국 ETF가 아닌 상품이 섞이면 종전대로 거절한다."""
+    for symbols in ([], ["SOXX", "069500"], ["AAPL"]):
+        intent = _etf_intent(["ETF"], symbols)
+        with ui_language.bind("en"):
+            errors, *_ = validate_capability(intent)
+        assert any("US markets only" in e for e in errors), symbols
+
+
+def test_kr_request_etf_market_untouched():
+    intent = _etf_intent(["ETF"], ["SOXX"])
+    with ui_language.bind("ko"):
+        validate_capability(intent)
+    assert intent.strategy.universe.markets == ["ETF"]

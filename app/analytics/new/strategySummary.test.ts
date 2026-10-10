@@ -132,6 +132,22 @@ describe("getSignalLabel — 크로스 방향 구체화", () => {
     expect(getSignalLabel({ indicator: "rsi", signal_type: "buy" }, "entry")).toBe("RSI");
   });
 
+  it("밴드 지정 볼린저(엔진 v16.39)는 밴드·방향을 적고, 레거시는 일반 라벨을 유지한다", () => {
+    expect(
+      getSignalLabel({ indicator: "bollinger_bands", signal_type: "buy", band: "upper", cross: "above" }, "entry")
+    ).toBe("종가가 볼린저 밴드 상단 상향 돌파");
+    expect(
+      getSignalLabel({ indicator: "bollinger_bands", signal_type: "sell", band: "lower", cross: "below" }, "exit")
+    ).toBe("종가가 볼린저 밴드 하단 하향 이탈");
+    expect(
+      getSignalLabel(
+        { indicator: "bollinger_bands", signal_type: "buy", band: "middle", cross: "above", touch_lookback: 10 },
+        "entry"
+      )
+    ).toBe("최근 10거래일 내 하단 터치 후 종가가 볼린저 밴드 중심선 상향 돌파");
+    expect(getSignalLabel({ indicator: "bollinger_bands", signal_type: "buy" }, "entry")).toBe("볼린저밴드");
+  });
+
   it("RSI 반등(rebound)은 임계선 재돌파를 상향 반등/하향 반전으로 표기한다", () => {
     expect(
       getSignalLabel({ indicator: "rsi", signal_type: "buy", mode: "rebound", value: 30 }, "entry")

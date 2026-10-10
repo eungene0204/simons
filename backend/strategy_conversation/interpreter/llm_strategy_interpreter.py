@@ -38,6 +38,8 @@ from strategy_conversation.interpreter.output_repair import (
     is_bare_unsupported_request,
     misfiled_trading_value_error,
     misfiled_trading_value_fields,
+    split_bollinger_recovery_error,
+    split_bollinger_recovery_fields,
     salvage_unsupported_features,
     extract_json_object,
     salvage_clarification_questions,
@@ -462,6 +464,22 @@ class StrategyInterpreter:
                         build_repair_prompt(user_input, current_raw, error_message, draft),
                     )
                     _log_llm(f"◀ 지표 어긋남 재생성 응답({attempts}회차)", current_raw.strip())
+                    continue
+                # 출력 형식 위반 — AND 매수 칸의 볼린저 하단 터치+중심선 상향 돌파(같은 날 성립 불가,
+                # '하단 터치 후 중심선 회복'을 두 조각으로 쪼갠 흔적 — split_bollinger_recovery_fields).
+                # 같은 레인으로 1회 재생성한다. 남으면 그대로 진행한다. 생성 턴만 본다.
+                split_bb = split_bollinger_recovery_fields(intent) if draft is None else []
+                if (split_bb and format_fallback_raw is None
+                        and attempts < config.MAX_REPAIR_ATTEMPTS):
+                    format_fallback_raw = current_raw
+                    attempts += 1
+                    error_message = split_bollinger_recovery_error(split_bb)
+                    _log_llm(f"⟳ 볼린저 차례 신호 재생성 요청({attempts}회차)", error_message)
+                    current_raw = self._chat(
+                        self._system_prompt,
+                        build_repair_prompt(user_input, current_raw, error_message, draft),
+                    )
+                    _log_llm(f"◀ 볼린저 차례 신호 재생성 응답({attempts}회차)", current_raw.strip())
                     continue
                 if format_violations:
                     _log_llm("△ 입력 전체 인용 잔존",

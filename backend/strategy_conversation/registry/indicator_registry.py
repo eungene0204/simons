@@ -53,6 +53,9 @@ class IndicatorSpec:
     data_pending: bool = False
     alternatives: Tuple[str, ...] = ()                 # UNSUPPORTED 시 제안 가능한 대체 지표
     notes: Optional[str] = None
+    # 지원은 하지만 인터프리터 어휘에는 내지 않는 지표 — 저장된 전략을 다시 읽을 때만 쓰는
+    # 레거시 형태(볼린저 역할 고정, v16.39 이전). 새 해석은 대체 개념 ID로 나간다.
+    prompt_hidden: bool = False
 
 
 def _fundamental(
@@ -302,9 +305,47 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                {},
                notes="엔진은 fast/slow/signal 기간 커스텀을 지원하지 않음(12/26/9 고정). "
                      "crosses_above/below=시그널선 교차"),
-    _technical("bollinger_bands", "볼린저 밴드", "event",
-               ("crosses_above", "crosses_below"),
-               {"period": ParamSpec(default=20, minimum=5, maximum=250)}),
+    # 역할 고정 레거시(매수=종가≤하단, 매도=종가≥상단) — 저장된 전략을 다시 읽을 때만 쓴다.
+    # 매수+crosses_below(하단 터치)·매도+crosses_above(상단 도달)만 컴파일된다(그 밖은 제외+안내).
+    replace(
+        _technical("bollinger_bands", "볼린저 밴드", "event",
+                   ("crosses_above", "crosses_below"),
+                   {"period": ParamSpec(default=20, minimum=5, maximum=250)}),
+        prompt_hidden=True,
+    ),
+    # 밴드 지정 볼린저(엔진 v16.39) — 밴드와 교차 방향을 **개념 ID 이름**이 담는다(연산자 없음).
+    # 첫 설계(밴드=ID, 방향=연산자)는 120B가 '하단에 닿으면 청산'을 bollinger_lower+crosses_above로
+    # 내 하단 상향 교차 청산이 됐다(2026-10-10 실측) — '닿다'는 방향이 아니라 사건이라 이름으로 고른다.
+    *(
+        replace(
+            _technical(leaf, name, "event", (),
+                       {"period": ParamSpec(default=20, minimum=5, maximum=250)}, notes=notes),
+            engine_binding=("technical_signal", "bollinger_bands"),
+        )
+        for leaf, name, notes in (
+            ("bollinger_upper_breakout", "볼린저 밴드 상단 돌파",
+             "종가가 상단을 위로 돌파·도달·터치. operator/value 없음"),
+            ("bollinger_upper_fall", "볼린저 밴드 상단 아래로 되밀림",
+             "상단 위에 있던 종가가 상단 아래로 내려옴. operator/value 없음"),
+            ("bollinger_middle_up", "볼린저 밴드 중심선 상향 돌파",
+             "종가가 중심선(기간 이동평균)을 위로 돌파·회복. operator/value 없음"),
+            ("bollinger_middle_down", "볼린저 밴드 중심선 하향 이탈",
+             "종가가 중심선 아래로 이탈. operator/value 없음"),
+            ("bollinger_lower_touch", "볼린저 밴드 하단 터치",
+             "종가가 하단에 닿거나 아래로 이탈. operator/value 없음"),
+            ("bollinger_lower_rebound", "볼린저 밴드 하단 반등",
+             "하단에 닿았다가(아래로 갔다가) 다시 하단 위로 올라옴. 중심선 회복까지 말하면 "
+             "bollinger_middle_recovery. operator/value 없음"),
+        )
+    ),
+    replace(
+        _technical("bollinger_middle_recovery", "볼린저 밴드 하단 터치 후 중심선 회복", "event", (),
+                   {"period": ParamSpec(default=20, minimum=5, maximum=250),
+                    "touch_lookback": ParamSpec(minimum=1, maximum=250, required=True)},
+                   notes="'하단 터치 후 중심선 회복' — 하단을 터치한 뒤 중심선을 상향 돌파. operator/value 없음. "
+                         "parameters.touch_lookback=하단 터치를 인정할 거래일 수(말한 경우만, 없으면 비움)"),
+        engine_binding=("technical_signal", "bollinger_bands"),
+    ),
     _technical("breakout", "신고가 돌파", "event", ("crosses_above",),
                {"lookback_period": ParamSpec(default=60, minimum=5, maximum=500, required=True)}),
     _technical("consecutive_up", "종가 연속 상승", "event", (),
@@ -546,6 +587,9 @@ _ALIASES: Dict[str, str] = {
     "macd": "technical.macd",
     "볼린저밴드": "technical.bollinger_bands", "bollinger": "technical.bollinger_bands",
     "bollinger_bands": "technical.bollinger_bands", "볼린저": "technical.bollinger_bands",
+    # 밴드 지정 볼린저(v16.39) — 120B가 대칭으로 지어낸 잎 이름(LLM 출력 표기 정규화, 2026-10-10 실측).
+    "bollinger_upper_touch": "technical.bollinger_upper_breakout",
+    "bollinger_lower_breakout": "technical.bollinger_lower_touch",
     "breakout": "technical.breakout", "신고가돌파": "technical.breakout", "신고가": "technical.breakout",
     "고가돌파": "technical.breakout",
     "consecutive_up": "technical.consecutive_up", "연속상승": "technical.consecutive_up",
@@ -711,6 +755,13 @@ def factor_ids_named_in(text: str) -> set:
 _SAME_NAME_VARIANTS: Dict[str, frozenset] = {
     "fundamental.trading_value": frozenset({"technical.trading_value",
                                             "technical.trading_value_ratio"}),
+    # '볼린저밴드'라는 이름은 레거시 정본 하나로 이어지지만 밴드 지정 개념(v16.39)도 같은 지표다 —
+    # 빠지면 정확히 반영한 '상단 돌파'에 대체 안내가 붙고, 조건 회수가 레거시를 매수 칸에 되살린다.
+    "technical.bollinger_bands": frozenset({
+        "technical.bollinger_upper_breakout", "technical.bollinger_upper_fall",
+        "technical.bollinger_middle_up", "technical.bollinger_middle_down",
+        "technical.bollinger_lower_touch", "technical.bollinger_lower_rebound",
+        "technical.bollinger_middle_recovery"}),
 }
 
 

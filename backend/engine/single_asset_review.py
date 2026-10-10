@@ -76,7 +76,8 @@ def _signal_stat_for(profile: StockResearchProfile, sig) -> tuple[Optional[str],
                     f"{pair[0]}/{pair[1]}일 골든크로스(유사 조건 기준)")
     if ind == "macd" and sig.signal_type == "buy":
         return read("macd_buy_cross", "MACD 상향 교차")
-    if ind == "bollinger_bands" and sig.signal_type == "buy":
+    if ind == "bollinger_bands" and sig.signal_type == "buy" and getattr(sig, "band", None) is None:
+        # 역할 고정 레거시(매수=하단 도달)만 이 통계와 같은 조건이다 — 밴드 지정(v16.39)은 다르다.
         return read("bollinger_lower_touch", "볼린저밴드 하단 도달")
     if ind == "breakout" and sig.signal_type == "buy":
         lb = _nearest((20, 60, 120), sig.lookback_period or 60)

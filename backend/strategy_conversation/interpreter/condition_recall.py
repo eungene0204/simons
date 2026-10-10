@@ -221,7 +221,10 @@ def recover_missing_conditions(
         for factor_id in sorted(named):
             if len(recovered) >= _MAX_RECOVERED:
                 break
-            if factor_id in known:
+            # 같은 이름을 공유하는 변형이 이미 있으면 빠진 것이 아니다 — '볼린저밴드' 구절의 정본은
+            # 레거시 하나인데 1차가 밴드 지정 개념(v16.39)을 고르면, 경계가 다른 구절이 레거시
+            # 매수(하단 이하)로 되살아났다(2026-10-10 실측 120B, 예시 '볼린저 상단 돌파 거래량 확인').
+            if factor_id in known or with_same_name_variants({factor_id}) & known:
                 continue
             spec = REGISTRY.get(factor_id)
             # ① registry가 모르거나 엔진에 붙지 않는 개념은 버린다.

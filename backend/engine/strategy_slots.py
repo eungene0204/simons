@@ -461,6 +461,41 @@ CASH_RESERVE_CHIP_VALUES: dict[str, float] = {
 }
 
 
+# 볼린저 '하단 터치 후 중심선 회복'(엔진 v16.39)의 하단 터치 인정 기간 칩 — 2026-10-10 사용자 결정:
+# 되묻기 + 5·10·20거래일 칩. 값 대기 조건은 parsed에 없으므로 칩은 신호 전체를 추가하는 패치로
+# 결속하고, 역할(매수/매도)은 칩 문구가 담는다(크로스 기간 칩과 같은 무상태 계약).
+BOLLINGER_TOUCH_LOOKBACK_OPTIONS: tuple[int, ...] = (5, 10, 20)
+
+
+def bollinger_touch_chip(role: str, days: int) -> str:
+    action = "매수" if role == "entry" else "매도"
+    return f"볼린저 하단 터치 후 {days}거래일 안에 중심선 회복 시 {action}"
+
+
+BOLLINGER_TOUCH_CHIP_VALUES: dict[str, tuple[str, int]] = {
+    bollinger_touch_chip(role, days): (role, days)
+    for role in ("entry", "exit") for days in BOLLINGER_TOUCH_LOOKBACK_OPTIONS
+}
+
+
+def bollinger_touch_chip_patch(chip: str, parsed_dump: dict) -> Optional[dict]:
+    """하단 터치 인정 기간 칩이면 신호를 덧붙인 ParsedStrategy 패치, 아니면 None.
+    같은 신호가 이미 있으면 바꿀 것이 없으므로 None(결속 실패 = 칩 미노출)."""
+    picked = BOLLINGER_TOUCH_CHIP_VALUES.get((chip or "").strip())
+    if picked is None:
+        return None
+    role, days = picked
+    key = "entry_signals" if role == "entry" else "exit_signals"
+    signal = {
+        "indicator": "bollinger_bands", "signal_type": "buy" if role == "entry" else "sell",
+        "band": "middle", "cross": "above", "touch_lookback": days,
+    }
+    current = list(parsed_dump.get(key) or [])
+    if any(isinstance(s, dict) and all(s.get(k) == v for k, v in signal.items()) for s in current):
+        return None
+    return {key: current + [signal]}
+
+
 def portfolio_chip_patch(chip: str, parsed_dump: dict) -> Optional[dict]:
     """위 표들의 칩이면 ParsedStrategy 패치(최상위 필드), 아니면 None.
 

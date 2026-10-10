@@ -39,6 +39,8 @@ STRUCTURAL_PARAM_KEYS = frozenset({
     "lookbackPeriod",
     # 캔들 패턴·다중 타임프레임(v16.29) — 어느 패턴·어느 봉으로 계산했는지가 지표 열을 바꾼다.
     "pattern", "timeframe",
+    # 볼린저 밴드 지정(v16.39) — 중심선이면 이동평균 열이 필요하고, 하단 터치 이력은 워밍업 길이를 바꾼다.
+    "band", "touchLookback",
 })
 
 _DEFAULT_BUDGET_MB = 2048

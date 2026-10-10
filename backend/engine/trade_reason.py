@@ -69,6 +69,23 @@ VOLATILITY_LEVEL = "변동성({0}일, 연환산) {1}% {2}"
 PRICE_LEVEL = "현재가 {0} {1}"
 BOLLINGER_LOWER = "볼린저 밴드 하단 돌파(매수)"
 BOLLINGER_UPPER = "볼린저 밴드 상단 돌파(매도)"
+# 밴드 지정 볼린저(v16.39) — (밴드, 교차 방향)마다 한 문장. 하단 터치 이력은 앞에 덧붙인다.
+# (i18n 게이트가 최상위 상수만 스캔하므로 표 대신 상수로 둔다.)
+BOLLINGER_UPPER_CROSS_UP = "종가가 볼린저 밴드 상단 상향 돌파"
+BOLLINGER_UPPER_CROSS_DOWN = "종가가 볼린저 밴드 상단 하향 이탈"
+BOLLINGER_MIDDLE_CROSS_UP = "종가가 볼린저 밴드 중심선 상향 돌파"
+BOLLINGER_MIDDLE_CROSS_DOWN = "종가가 볼린저 밴드 중심선 하향 이탈"
+BOLLINGER_LOWER_CROSS_UP = "종가가 볼린저 밴드 하단 상향 돌파"
+BOLLINGER_LOWER_CROSS_DOWN = "종가가 볼린저 밴드 하단 하향 이탈"
+BOLLINGER_AFTER_LOWER_TOUCH = "최근 {0}거래일 내 하단 터치 후"
+BOLLINGER_BAND_CROSS = {
+    ("upper", "above"): BOLLINGER_UPPER_CROSS_UP,
+    ("upper", "below"): BOLLINGER_UPPER_CROSS_DOWN,
+    ("middle", "above"): BOLLINGER_MIDDLE_CROSS_UP,
+    ("middle", "below"): BOLLINGER_MIDDLE_CROSS_DOWN,
+    ("lower", "above"): BOLLINGER_LOWER_CROSS_UP,
+    ("lower", "below"): BOLLINGER_LOWER_CROSS_DOWN,
+}
 TRADING_VALUE = "거래대금 {0}억 이상"
 VOLUME_OBV_GOLDEN_CROSS = "거래량 OBV 골든크로스"
 VOLUME_OBV_DEAD_CROSS = "거래량 OBV 데드크로스"

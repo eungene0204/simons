@@ -30,6 +30,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -45,6 +48,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -255,6 +261,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -270,6 +279,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -379,6 +391,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -394,6 +409,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -513,6 +531,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -639,6 +660,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -760,6 +784,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -880,6 +907,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -1000,6 +1030,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -1121,6 +1154,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -1242,6 +1278,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -1362,6 +1401,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -1486,6 +1528,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -1605,6 +1650,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -1723,6 +1771,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -1738,6 +1789,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -1856,6 +1910,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -1871,6 +1928,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -1991,6 +2051,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -2006,6 +2069,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -2125,6 +2191,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -2140,6 +2209,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -2260,6 +2332,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -2275,6 +2350,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -2394,6 +2472,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -2409,6 +2490,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -2528,6 +2612,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -2543,6 +2630,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -2665,6 +2755,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -2680,6 +2773,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -2803,6 +2899,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -2818,6 +2917,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -2940,6 +3042,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -2955,6 +3060,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -3074,6 +3182,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -3089,6 +3200,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -3207,6 +3321,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -3222,6 +3339,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -3340,6 +3460,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -3355,6 +3478,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -3474,6 +3600,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -3489,6 +3618,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -3610,6 +3742,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -3625,6 +3760,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -3745,6 +3883,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -3862,6 +4003,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -3877,6 +4021,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -3995,6 +4142,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -4010,6 +4160,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -4130,6 +4283,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -4145,6 +4301,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -4264,6 +4423,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -4279,6 +4441,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -4399,6 +4564,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }
@@ -4414,6 +4582,9 @@
             "value": null,
             "mode": null,
             "lookback_period": null,
+            "band": null,
+            "cross": null,
+            "touch_lookback": null,
             "threshold": null,
             "timeframe": null
           }

@@ -81,10 +81,14 @@ def test_prompt_sections_cover_all_supported_leaves():
     """
     rendered = "\n".join(ontology_prompt_sections())
     for spec in _SPECS:
+        line = f"- {spec.id} "
         if spec.supported == "UNSUPPORTED":
-            assert spec.id not in rendered, f"미지원 잎이 어휘에 노출: {spec.id}"
+            assert line not in rendered, f"미지원 잎이 어휘에 노출: {spec.id}"
+        elif spec.prompt_hidden:
+            # 저장된 전략을 다시 읽을 때만 쓰는 레거시 형태(볼린저 역할 고정) — 새 해석에 내지 않는다.
+            assert line not in rendered, f"숨김 잎이 어휘에 노출: {spec.id}"
         else:
-            assert spec.id in rendered, f"지원 잎이 어휘에서 누락: {spec.id}"
+            assert line in rendered, f"지원 잎이 어휘에서 누락: {spec.id}"
 
 
 def test_concept_lines_match_seed_expansion():

@@ -36,6 +36,17 @@ from strategy_conversation.interpreter.models import (
 )
 
 
+# 밴드 지정 볼린저(v16.39)의 (밴드, 교차 방향) → 개념 ID — 컴파일러 표의 역방향.
+_BOLLINGER_BAND_LEAVES = {
+    ("upper", "above"): "technical.bollinger_upper_breakout",
+    ("upper", "below"): "technical.bollinger_upper_fall",
+    ("middle", "above"): "technical.bollinger_middle_up",
+    ("middle", "below"): "technical.bollinger_middle_down",
+    ("lower", "below"): "technical.bollinger_lower_touch",
+    ("lower", "above"): "technical.bollinger_lower_rebound",
+}
+
+
 def _decompile_technical(sig: TechnicalSignal) -> StrategyCondition:
     factor = f"technical.{sig.indicator}"
     operator: Optional[str] = None
@@ -66,6 +77,16 @@ def _decompile_technical(sig: TechnicalSignal) -> StrategyCondition:
     elif sig.indicator == "trading_value":
         operator = sig.operator
         value = sig.value
+    elif sig.indicator == "bollinger_bands" and sig.band is not None:
+        # 밴드 지정(v16.39) — 컴파일러의 역방향: 하단 터치 이력이 있으면 중심선 회복 개념,
+        # 아니면 밴드 개념 ID + 교차 방향 연산자.
+        if sig.touch_lookback:
+            factor = "technical.bollinger_middle_recovery"
+            parameters["touch_lookback"] = float(sig.touch_lookback)
+        else:
+            factor = _BOLLINGER_BAND_LEAVES[(sig.band, "below" if sig.cross == "below" else "above")]
+        if sig.period is not None:
+            parameters["period"] = float(sig.period)
     elif sig.indicator == "bollinger_bands":
         # 볼린저는 방향을 operator가 아니라 signal_type으로 표현한다(엔진: buy=하단 터치,
         # sell=상단 터치, signals.py). 그대로 operator=None으로 되짚으면 진입/청산이 둘 다

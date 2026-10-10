@@ -98,6 +98,15 @@
 - `PROMPT_VERSION`을 올린다. 되묻기 하니스 modify/fill 전후를 대조한다. 예시 게이트를 돌린다.
 - 인터프리터가 모르는 칸(전용 판정이 채우는 칸)은 형태와 수정 초안 **둘 다**에서 가린다.
 
+## 8-1. 기존 엔진 지표의 새 변형 잎 (볼린저 v16.39 실측)
+
+- 레지스트리 잎(`engine_binding`은 기존 엔진 지표) + 컴파일러 표(잎→엔진 파라미터) + 디컴파일러 역표 — 왕복 테스트.
+- 레거시 잎을 남기면 `prompt_hidden=True`(저장 전략 재읽기 전용) — `test_prompt_sections_cover_all_supported_leaves`가 예외를 안다.
+- `_SAME_NAME_VARIANTS`(근사 안내·조건 회수), `quote_check`의 대조 문장, 검증기 역할-방향 가드.
+- 엔진: 벡터(`_eval_vec`)·행별(`evaluate_condition`)·사유(`_base_condition_segments`) 3곳 + 워밍업(`backtest_engine`) + 해결기 컬럼 + `prep_cache.STRUCTURAL_PARAM_KEYS`.
+- 사유 템플릿은 **최상위 상수**로(i18n 게이트가 표 안 문구를 못 본다) + `en.ts`, 프론트 `getSignalLabel`·`conditionToSignal`.
+- 게이트 정답표(`qa_template_detect.BOLLINGER_EXPECTED` 패턴) — 커버리지 검사는 지표 존재만 본다.
+
 ## 9. 새 전용 판정 패스 (`interpreter/<이름>_check.py`)
 
 - 입력은 LLM 출력(조건·인용 조각)이다. 사용자 원문 전체를 다시 해석시키지 않는다.

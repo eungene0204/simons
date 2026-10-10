@@ -6,7 +6,8 @@ import polars as pl
 import numpy as np
 
 from engine.indicator_columns import (
-    bollinger_columns, macd_columns, stochastic_columns, trading_value_sma_col,
+    bollinger_band_column, bollinger_columns, macd_columns, stochastic_columns,
+    trading_value_sma_col,
 )
 from engine import trade_reason as tr
 from engine.indicators import timeframe_of, timeframe_column
@@ -404,6 +405,25 @@ class SignalEngine:
             c = get_col('close')
             if c is None:
                 return result
+            band_col = bollinger_band_column(p)
+            if band_col is not None:
+                # 밴드 지정(v16.39): 종가가 그 밴드를 상향(cross='above')/하향(cross='below') 교차한
+                # 날. touchLookback=N이면 직전 N거래일 안에 종가가 하단 이하였던 적이 있어야 한다
+                # ('하단 터치 후 중심선 회복'). 밴드가 없으면 아래 역할 고정 레거시를 그대로 쓴다.
+                direction = 'dead' if p.get('cross') == 'below' else 'golden'
+                res = crossover(c, get_col(band_col), direction)
+                lookback = int(p.get('touchLookback') or 0)
+                if lookback > 0:
+                    lb = get_col(bollinger_columns(p)[1])
+                    if lb is None:
+                        return result
+                    with np.errstate(invalid='ignore'):
+                        touched = (c <= lb).astype(np.int64)
+                    csum = np.concatenate(([0], np.cumsum(touched)))
+                    idx = np.arange(data_len)
+                    start = np.maximum(idx - lookback, 0)
+                    res &= (csum[idx] - csum[start]) > 0      # [t-N, t-1] 안의 하단 터치 횟수
+                return res
             ub_col, lb_col = bollinger_columns(p)
             if p.get('signalType') == 'sell':
                 ub = get_col(ub_col)
@@ -809,6 +829,27 @@ class SignalEngine:
             return compare(c, op, val)
 
         elif cid == 'bollinger_bands':
+            band_col = bollinger_band_column(p)
+            if band_col is not None:
+                # 밴드 지정(v16.39) — 벡터화 경로(_eval_vec)와 동일 의미.
+                if idx == 0:
+                    return False
+                c, band = safe_get('close', idx), safe_get(band_col, idx)
+                p_c, p_band = safe_get('close', idx - 1), safe_get(band_col, idx - 1)
+                if None in (c, band, p_c, p_band):
+                    return False
+                crossed = (p_c >= p_band and c < band) if p.get('cross') == 'below' \
+                    else (p_c <= p_band and c > band)
+                lookback = int(p.get('touchLookback') or 0)
+                if not crossed or lookback <= 0:
+                    return crossed
+                lb_col = bollinger_columns(p)[1]
+                return any(
+                    (cc := safe_get('close', day)) is not None
+                    and (ll := safe_get(lb_col, day)) is not None
+                    and cc <= ll
+                    for day in range(max(idx - lookback, 0), idx)
+                )
             ub_col, lb_col = bollinger_columns(p)
             c, ub, lb = safe_get('close', idx), safe_get(ub_col, idx), safe_get(lb_col, idx)
             return compare(c, '>=', ub) if p.get('signalType') == 'sell' else compare(c, '<=', lb)
@@ -1064,6 +1105,14 @@ class SignalEngine:
             val = float(p.get('value') or 0)
             return [tr.part(tr.PRICE_LEVEL, val, op_seg, money=[0])]
         elif cid == 'bollinger_bands':
+            band = p.get('band')
+            if band in ('upper', 'middle', 'lower'):
+                cross = 'below' if p.get('cross') == 'below' else 'above'
+                segs = [tr.part(tr.BOLLINGER_BAND_CROSS[(band, cross)])]
+                lookback = int(p.get('touchLookback') or 0)
+                if lookback > 0:
+                    segs = [tr.part(tr.BOLLINGER_AFTER_LOWER_TOUCH, lookback), tr.literal(" ")] + segs
+                return segs
             sell = p.get('signalType') == 'sell'
             return [tr.part(tr.BOLLINGER_UPPER if sell else tr.BOLLINGER_LOWER)]
         elif cid == 'trading_value':

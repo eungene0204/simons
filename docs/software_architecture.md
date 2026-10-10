@@ -728,6 +728,7 @@ LLM Strategy Interpreter (interpreter/llm_strategy_interpreter.py)
         조건은 primary 환각 가드가 안내 없이 제거하고 Trace span에만 기록(2026-09-17)
     ▼
 조건 인용 대조 (interpreter/quote_check.py, LLM — 이동평균·볼린저 조건이 있을 때만, 턴당 1회)
+> 볼린저(엔진 v16.39, 2026-10-10): 인터프리터는 방향을 이름에 담은 볼린저 개념 ID(상단 돌파·상단 되밀림·중심선 상향/하향·하단 터치·하단 반등·하단 터치 후 중심선 회복)를 고르고 컴파일러가 `TechnicalSignal.band/cross/touch_lookback`으로 옮긴다. 레거시 `technical.bollinger_bands`(역할 고정)는 저장 전략 재읽기 전용이며 반대 방향은 검증기·컴파일러가 제외+안내한다. AND 매수 칸의 하단 터치+중심선 돌파 쌍은 output_repair가 오류를 돌려 1회 재생성한다.
     └── 조건을 평이한 문장으로 옮겨 적어 보여주고 항목마다 expresses(yes/no/unclear)·
         describes(moving_average/bollinger/new_high_breakout/other) enum을 받음 →
         결정론은 enum 소속만: new_high_breakout=신고가 오분류 교정, 분명한 no=다른 설정 문구

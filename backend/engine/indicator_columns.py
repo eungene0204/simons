@@ -6,7 +6,7 @@ MACD/스토캐스틱/볼린저는 원래 stockstats 기본값(12/26/9, KDJ 9, BO
 """
 
 import re
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 MACD_DEFAULTS = (12, 26, 9)
 STOCHASTIC_DEFAULT_PERIOD = 9
@@ -64,6 +64,23 @@ def bollinger_columns(p: Dict[str, Any]) -> Tuple[str, str]:
         return f"boll_ub_{period}", f"boll_lb_{period}"
     std_tag = f"{std:g}".replace(".", "p")
     return f"boll_ub_{period}_{std_tag}", f"boll_lb_{period}_{std_tag}"
+
+
+def bollinger_middle_column(p: Dict[str, Any]) -> str:
+    """중심선 컬럼명 — 볼린저 중심선은 기간 이동평균이다(indicators.py가 함께 산출)."""
+    period, _ = bollinger_params(p)
+    return f"close_{period}_sma"
+
+
+def bollinger_band_column(p: Dict[str, Any]) -> Optional[str]:
+    """밴드 지정 볼린저 조건(v16.39)의 대상 밴드 컬럼. band가 없으면 None(역할 고정 레거시)."""
+    band = p.get("band")
+    if band not in ("upper", "middle", "lower"):
+        return None
+    if band == "middle":
+        return bollinger_middle_column(p)
+    ub_col, lb_col = bollinger_columns(p)
+    return ub_col if band == "upper" else lb_col
 
 
 # N일 평균 거래대금 컬럼(v16.14) — 조건 평가(signals)와 해결기(data_resolver)가 같은 이름을 쓴다.

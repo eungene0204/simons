@@ -454,7 +454,15 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
         params["mode"] = sig.mode or "crossover"
 
     elif sig.indicator == "bollinger_bands":
-        pass  # signalType 만으로 충분
+        # 밴드 미지정 레거시는 signalType 만으로 충분(매수=하단 이하, 매도=상단 이상) — 요청을
+        # 바꾸지 않아 기존 전략의 결과·해시가 그대로다. 밴드 지정(v16.39)만 아래 키를 싣는다.
+        if sig.band is not None:
+            params["band"] = sig.band
+            params["cross"] = sig.cross or "above"
+            if sig.period:
+                params["period"] = sig.period
+            if sig.touch_lookback:
+                params["touchLookback"] = sig.touch_lookback
 
     elif sig.indicator == "breakout":
         params["lookbackPeriod"] = sig.lookback_period or 20

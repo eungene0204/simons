@@ -48,6 +48,13 @@ _EN_LABELS = {
     "fundamental.financing_cf_amount": "Financing cash flow",
     "technical.ma_crossover": "Moving-average crossover", "technical.ema": "EMA",
     "technical.rsi": "RSI", "technical.macd": "MACD", "technical.bollinger_bands": "Bollinger Bands",
+    "technical.bollinger_upper_breakout": "Bollinger upper-band breakout",
+    "technical.bollinger_upper_fall": "Fall back below the Bollinger upper band",
+    "technical.bollinger_middle_up": "Bollinger middle-band cross up",
+    "technical.bollinger_middle_down": "Bollinger middle-band cross down",
+    "technical.bollinger_lower_touch": "Bollinger lower-band touch",
+    "technical.bollinger_lower_rebound": "Bollinger lower-band rebound",
+    "technical.bollinger_middle_recovery": "Bollinger middle-band recovery after a lower-band touch",
     "technical.breakout": "New-high breakout", "technical.volume_spike": "Volume spike (OBV)",
     "technical.stochastic": "Stochastic", "technical.cci": "CCI", "technical.adx": "ADX",
     "technical.williams_r": "Williams %R", "technical.mfi": "MFI", "technical.roc": "ROC",
@@ -63,7 +70,7 @@ _EN_LABELS = {
 
 _EN_PARAM_LABELS = {
     "short_period": "short period", "long_period": "long period", "period": "period",
-    "lookback_period": "lookback period", "lookback_days": "lookback days", "threshold": "threshold",
+    "lookback_period": "lookback period", "touch_lookback": "lower-band touch window", "lookback_days": "lookback days", "threshold": "threshold",
 }
 
 # 값 단위 표기 — 한국어 정본(ratio='배', 억원)과 영어 표기가 다르다.

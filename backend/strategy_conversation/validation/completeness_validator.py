@@ -35,6 +35,7 @@ _PARAM_LABELS = {
     "long_period": "장기 기간",
     "period": "기간",
     "lookback_period": "기준 기간",
+    "touch_lookback": "하단 터치 인정 기간(거래일)",
     "lookback_days": "조회 기간",
     "threshold": "기준값",
 }

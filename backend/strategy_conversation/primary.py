@@ -97,6 +97,10 @@ _CROSS_PERIOD_FIELD_RE = re.compile(
     r"^strategy\.(entry|exit)_conditions\[(\d+)\]\.parameters\.(short_period|long_period)$"
 )
 _CROSS_PERIOD_OPTIONS = ((5, 20), (20, 60), (60, 120))
+# 볼린저 하단 터치 인정 기간 되묻기(v16.39) — 칩은 engine.strategy_slots 정본 표.
+_BOLLINGER_TOUCH_FIELD_RE = re.compile(
+    r"^strategy\.(entry|exit)_conditions\[(\d+)\]\.parameters\.touch_lookback$"
+)
 
 
 def _cross_period_chip(role: str, short: int, long: int) -> str:
@@ -300,6 +304,17 @@ def _clarification_items(
                     for n in _numeric_options(q.recommended_value, *alternates)
                 )
             topic = "매수 조건"
+        elif _BOLLINGER_TOUCH_FIELD_RE.fullmatch(q.field or ""):
+            # 볼린저 하단 터치 인정 기간(v16.39, 2026-10-10 사용자 결정: 되묻기 + 5·10·20거래일 칩).
+            # 칩은 기본 기간(20일) 볼린저 신호를 결속한다 — 사용자가 다른 볼린저 기간을 말했으면
+            # 칩이 그 기간을 잃으므로 무칩으로 묻는다(자유 서술 답은 답변 판정이 받는다).
+            touch_match = _BOLLINGER_TOUCH_FIELD_RE.fullmatch(q.field)
+            role = touch_match.group(1)
+            touch_cond = conditions_by_field.get(f"strategy.{role}_conditions[{touch_match.group(2)}]")
+            period = (touch_cond.parameters or {}).get("period") if touch_cond is not None else None
+            if period in (None, 20, 20.0):
+                chips.extend(strategy_slots.bollinger_touch_chip(role, n)
+                             for n in strategy_slots.BOLLINGER_TOUCH_LOOKBACK_OPTIONS)
         elif q.field == "strategy.market_filter.exposure_pct":
             # 시장 국면 약세일 투자 비중(v16.14) — 정본 표의 칩(값 결속은 발행 시 확정).
             chips.extend(strategy_slots.MARKET_REGIME_EXPOSURE_CHIP_VALUES)
@@ -3022,6 +3037,13 @@ def _bind_chips(
             # (원문 해석은 LLM 소관, 대원칙 1) 정본 표로 직접 결속한다.
             bound.append(text)
             bindings[text] = {"rebalance_method": method_value}
+            continue
+        touch_patch = strategy_slots.bollinger_touch_chip_patch(text, base)
+        if touch_patch is not None:
+            # 볼린저 하단 터치 인정 기간 칩(v16.39) — 값 대기 조건은 parsed에 없으므로 정본 표가
+            # 신호 전체를 추가하는 패치로 결속한다(원문 보정 파서에 어휘를 넣지 않는다).
+            bound.append(text)
+            bindings[text] = touch_patch
             continue
         portfolio_patch = strategy_slots.portfolio_chip_patch(text, base)
         if portfolio_patch is not None:

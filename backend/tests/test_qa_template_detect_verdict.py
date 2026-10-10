@@ -497,3 +497,43 @@ def test_value_pending_notice_is_not_fatal(qatd):
         },
     )
     assert not any(x.startswith("미지원 안내(") for x in flags.fatal)
+
+
+# ── 볼린저 방향 대조(2026-10-10) ──────────────────────────────────────────────
+# 커버리지 검사는 볼린저 '존재'만 봐서 '상단 돌파 매수·하단 닿으면 청산'이 정반대로 컴파일돼도
+# 통과했다. 정답표(BOLLINGER_EXPECTED)가 있는 예시는 밴드·방향까지 대조한다.
+
+_BB_TITLE = "볼린저 상단 돌파 거래량 확인"
+
+
+def _bb(signal_type, band=None, cross=None, touch=None):
+    return {"indicator": "bollinger_bands", "signal_type": signal_type,
+            "band": band, "cross": cross, "touch_lookback": touch}
+
+
+def test_inverted_bollinger_signals_are_fatal(qatd):
+    legacy = {"entry_signals": [_bb("buy")], "exit_signals": [_bb("sell")]}
+    flags = qatd.bollinger_mismatches(_BB_TITLE, legacy, "")
+    assert flags and any("기대 신호 없음" in x for x in flags)
+
+
+def test_expected_bollinger_signals_pass(qatd):
+    good = {"entry_signals": [_bb("buy", "upper", "above")],
+            "exit_signals": [_bb("sell", "lower", "below")]}
+    assert qatd.bollinger_mismatches(_BB_TITLE, good, "") == []
+
+
+def test_touch_lookback_waiting_is_not_fatal(qatd):
+    """하단 터치 인정 기간을 되묻는 중이면 중심선 회복 신호는 값 대기라 parsed에 없다."""
+    waiting = {"entry_signals": [], "exit_signals": [_bb("sell", "upper", "above")]}
+    asked = "볼린저 밴드 하단 터치 후 중심선 회복의 하단 터치 인정 기간(거래일)을(를) 몇으로 할까요?"
+    assert qatd.bollinger_mismatches("볼린저 하단 반등 스윙", waiting, asked) == []
+    assert qatd.bollinger_mismatches("볼린저 하단 반등 스윙", waiting, "")  # 묻지도 않았으면 소실
+
+
+def test_bollinger_table_titles_exist_in_examples(qatd):
+    """정답표 키가 실제 예시 제목과 어긋나면 대조가 조용히 꺼진다."""
+    root = Path(__file__).resolve().parents[2] / "components" / "strategy"
+    source = (root / "StrategyExampleTabs.tsx").read_text() + (root / "usExamples.ts").read_text()
+    for title in qatd.BOLLINGER_EXPECTED:
+        assert f'title: "{title}"' in source

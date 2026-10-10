@@ -33,6 +33,10 @@ export interface ParsedSummary {
     short_period?: number | null;
     long_period?: number | null;
     period?: number | null;
+    // 볼린저 밴드 지정(엔진 v16.39) — 백엔드 TechnicalSignal과 동일 계약.
+    band?: string | null;
+    cross?: string | null;
+    touch_lookback?: number | null;
   }>;
   exit_signals: Array<{
     indicator: string;
@@ -44,6 +48,9 @@ export interface ParsedSummary {
     short_period?: number | null;
     long_period?: number | null;
     period?: number | null;
+    band?: string | null;
+    cross?: string | null;
+    touch_lookback?: number | null;
   }>;
   // 진입 게이트 필터(추세·거래대금·RSI 결합) — 진입 신호와 AND 결합. 빌더 전용, 없으면 생략.
   entry_filters?: Array<{
@@ -479,6 +486,16 @@ export function formatRebalancingText(
 
 export const FUNDAMENTAL_FILTER_SECTION_LABEL = "진입 신호";
 
+// 볼린저 밴드 지정 라벨 — backend/engine/trade_reason.py BOLLINGER_*_CROSS_* 정본과 같은 문구.
+const BOLLINGER_BAND_CROSS_LABELS: Record<string, string> = {
+  "upper:above": "종가가 볼린저 밴드 상단 상향 돌파",
+  "upper:below": "종가가 볼린저 밴드 상단 하향 이탈",
+  "middle:above": "종가가 볼린저 밴드 중심선 상향 돌파",
+  "middle:below": "종가가 볼린저 밴드 중심선 하향 이탈",
+  "lower:above": "종가가 볼린저 밴드 하단 상향 돌파",
+  "lower:below": "종가가 볼린저 밴드 하단 하향 이탈",
+};
+
 export const INDICATOR_LABELS: Record<string, string> = {
   ma_crossover: "MA 크로스",
   rsi: "RSI",
@@ -583,6 +600,9 @@ export function getSignalLabel(
     long_period?: number | null;
     period?: number | null;
     timeframe?: string | null;
+    band?: string | null;
+    cross?: string | null;
+    touch_lookback?: number | null;
   },
   context: "entry" | "exit"
 ): string {
@@ -599,6 +619,17 @@ function getSignalLabelBase(
 ): string {
   if (signal.indicator === "ai_drop_model") {
     return t(INDICATOR_LABELS.ai_drop_model);
+  }
+
+  // 볼린저 밴드 지정(엔진 v16.39) — 밴드·교차 방향을 매매사유와 같은 문구로 적는다. 밴드가 없으면
+  // 역할 고정 레거시(매수=하단 터치, 매도=상단 도달)라 아래 일반 라벨("볼린저밴드")을 그대로 쓴다.
+  if (signal.indicator === "bollinger_bands" && signal.band) {
+    const label = BOLLINGER_BAND_CROSS_LABELS[`${signal.band}:${signal.cross === "below" ? "below" : "above"}`];
+    if (label) {
+      return signal.touch_lookback
+        ? `${t("최근 {0}거래일 내 하단 터치 후", signal.touch_lookback)} ${t(label)}`
+        : t(label);
+    }
   }
 
   if (signal.indicator === "consecutive_up") {
@@ -1741,6 +1772,9 @@ function conditionToSignal(condition: CompiledCondition & { id: string }) {
     short_period: paramNumber(params, "shortMA") ?? paramNumber(params, "shortPeriod"),
     long_period: paramNumber(params, "longMA") ?? paramNumber(params, "longPeriod"),
     lookback_period: paramNumber(params, "lookbackPeriod"),
+    band: typeof params?.band === "string" ? params.band : null,
+    cross: typeof params?.cross === "string" ? params.cross : null,
+    touch_lookback: paramNumber(params, "touchLookback"),
   };
 }
 

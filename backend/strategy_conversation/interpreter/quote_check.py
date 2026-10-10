@@ -42,7 +42,18 @@ logger = logging.getLogger(__name__)
 MA_FACTORS = ("technical.ema", "technical.ma_crossover",
               "concept.golden_cross", "concept.dead_cross")
 BOLLINGER_FACTOR = "technical.bollinger_bands"
-CHECKED_FACTORS = MA_FACTORS + (BOLLINGER_FACTOR,)
+# 밴드 지정 볼린저(엔진 v16.39) — 대조 문장에 밴드를 적어 인용이 그 밴드를 말하는지 묻는다.
+BOLLINGER_BAND_NAMES = {
+    "technical.bollinger_upper_breakout": "상단을 위로 돌파하면",
+    "technical.bollinger_upper_fall": "상단 위에 있다가 상단 아래로 내려오면",
+    "technical.bollinger_middle_up": "중심선을 위로 돌파하면",
+    "technical.bollinger_middle_down": "중심선 아래로 이탈하면",
+    "technical.bollinger_lower_touch": "하단에 닿거나 아래로 이탈하면",
+    "technical.bollinger_lower_rebound": "하단 아래로 갔다가 다시 하단 위로 올라오면",
+}
+BOLLINGER_MIDDLE_RECOVERY = "technical.bollinger_middle_recovery"
+BOLLINGER_FACTORS = (BOLLINGER_FACTOR, *BOLLINGER_BAND_NAMES, BOLLINGER_MIDDLE_RECOVERY)
+CHECKED_FACTORS = MA_FACTORS + BOLLINGER_FACTORS
 
 EXPRESSES = frozenset({"yes", "no", "unclear"})
 DESCRIBES = frozenset({"moving_average", "bollinger", "new_high_breakout", "ranking", "other"})
@@ -149,9 +160,13 @@ def render_condition(cond: Any, role: str) -> str:
         motion = "아래에 있으면"
     else:
         motion = "관계가 성립하면"
-    if factor == BOLLINGER_FACTOR:
+    if factor in BOLLINGER_FACTORS:
         period = _period(params.get("period"))
         band = f"{period}일 볼린저 밴드" if period else "볼린저 밴드"
+        if factor == BOLLINGER_MIDDLE_RECOVERY:
+            return f"{side} — 종가가 {band} 하단을 터치한 뒤 중심선을 위로 교차하면"
+        if factor in BOLLINGER_BAND_NAMES:
+            return f"{side} — 종가가 {band} {BOLLINGER_BAND_NAMES[factor]}"
         return f"{side} — 종가가 {band}를 {motion}"
     if factor in ("concept.golden_cross", "concept.dead_cross"):
         name = "골든크로스" if factor == "concept.golden_cross" else "데드크로스"
@@ -325,4 +340,4 @@ def quote_describes_breakout(verdicts: Optional[QuoteVerdicts], cond: Any) -> bo
     """볼린저·단순이동평균 조건인데 LLM이 인용을 신고가·고점·박스권 돌파로 답했는가."""
     verdict = _verdict(verdicts, cond)
     return (verdict is not None and verdict.describes == "new_high_breakout"
-            and _canonical_factor(cond.factor) in (BOLLINGER_FACTOR, "technical.ma_crossover"))
+            and _canonical_factor(cond.factor) in (*BOLLINGER_FACTORS, "technical.ma_crossover"))

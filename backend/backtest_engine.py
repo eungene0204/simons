@@ -149,7 +149,10 @@ def _max_indicator_period(*groups) -> int:
                 cands = [p.get('period', 14)]
             elif cid == 'roc':
                 cands = [p.get('period', 12)]
-            elif cid in ('bollinger_bands', 'volume_spike'):
+            elif cid == 'bollinger_bands':
+                # 밴드 지정(v16.39)의 하단 터치 이력 N거래일만큼 앞 봉이 더 필요하다.
+                cands = [int(p.get('period', 20)) + int(p.get('touchLookback') or 0)]
+            elif cid == 'volume_spike':
                 cands = [p.get('period', 20)]
             elif cid == 'breakout':
                 cands = [p.get('lookbackPeriod', 20)]

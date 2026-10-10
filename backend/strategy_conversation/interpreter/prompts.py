@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "8.7"
+PROMPT_VERSION = "8.9"  # 8.9: 볼린저 하단 반등↔중심선 회복 구분 문구 / 8.8: 볼린저 밴드 지정 개념, 레거시 볼린저 어휘 숨김
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가

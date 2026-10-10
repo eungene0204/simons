@@ -789,6 +789,13 @@ class TechnicalSignal(BaseModel):
     # 브레이크아웃
     lookback_period: Optional[int] = Field(default=None, description="브레이크아웃 기준 기간 (breakout)")
 
+    # 볼린저 밴드 지정(엔진 v16.39) — band가 있으면 '종가가 그 밴드를 cross 방향으로 교차'한 날이고,
+    # touch_lookback=N이면 직전 N거래일 안에 종가가 하단 이하였던 적이 있어야 한다('하단 터치 후
+    # 중심선 회복'). band가 없으면 역할 고정 레거시(매수=종가≤하단, 매도=종가≥상단)다.
+    band: Optional[Literal["upper", "middle", "lower"]] = Field(default=None, description="볼린저 대상 밴드 (bollinger_bands)")
+    cross: Optional[Literal["above", "below"]] = Field(default=None, description="볼린저 밴드 교차 방향 (bollinger_bands, band와 함께)")
+    touch_lookback: Optional[int] = Field(default=None, ge=1, le=250, description="볼린저 하단 터치 인정 기간(거래일, bollinger_bands)")
+
     # AI 모델
     threshold: Optional[float] = Field(default=None, description="AI 모델 신뢰도 임계값 (ai_model, ai_drop_model). 예: 70 = 70% 이상 확률")
     # 다중 타임프레임(엔진 v16.29): 주봉·월봉 기준으로 지표를 계산한다(일봉=None).

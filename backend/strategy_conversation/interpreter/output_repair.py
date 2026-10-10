@@ -283,6 +283,48 @@ def misfiled_trading_value_error(fields: list) -> str:
     )
 
 
+_BOLLINGER_TOUCH = "technical.bollinger_lower_touch"
+_BOLLINGER_MIDDLE_UP = "technical.bollinger_middle_up"
+_BOLLINGER_MIDDLE_RECOVERY = "technical.bollinger_middle_recovery"
+
+
+def split_bollinger_recovery_fields(intent) -> list:
+    """AND 매수 칸에 볼린저 하단 터치와 중심선 상향 돌파가 **함께** 있는 조건 경로 목록(형식 위반).
+
+    종가가 하단 이하이면서 같은 날 중심선을 위로 돌파할 수는 없다 — 이 출력은 엔진에서 신호가
+    한 번도 나지 않는다. 120B는 '볼린저밴드 하단을 터치한 뒤 중심선을 회복하는 시점에 매수'를
+    인용 두 조각·조건 두 개로 쪼갰다(2026-10-10 실측 3/3). 판정은 LLM 출력의 지표 조합만 본다 —
+    원문을 읽지 않고, 둘을 합치는 해석도 하지 않는다(재생성에서 LLM이 다시 옮긴다).
+    """
+    from strategy_conversation.registry.indicator_registry import resolve
+
+    strategy = getattr(intent, "strategy", None)
+    if strategy is None or (getattr(strategy, "entry_logic", None) or "AND") != "AND":
+        return []
+    # 하단 터치 + 중심선 회복도 같다 — 중심선 회복 개념이 하단 터치 이력을 이미 품고, 오늘 하단 아래로
+    # 교차하면서 오늘 중심선을 위로 교차할 수는 없다(2026-10-10 실측 1/3: 회복 개념 옆에 하단 터치를 덧붙임).
+    paths = {}
+    for index, cond in enumerate(strategy.entry_conditions):
+        spec = resolve(cond.factor)
+        if spec is not None and spec.id in (_BOLLINGER_TOUCH, _BOLLINGER_MIDDLE_UP, _BOLLINGER_MIDDLE_RECOVERY):
+            paths.setdefault(spec.id, f"strategy.entry_conditions[{index}]")
+    partner = paths.get(_BOLLINGER_MIDDLE_UP) or paths.get(_BOLLINGER_MIDDLE_RECOVERY)
+    if _BOLLINGER_TOUCH not in paths or partner is None:
+        return []
+    return [paths[_BOLLINGER_TOUCH], partner]
+
+
+def split_bollinger_recovery_error(paths: list) -> str:
+    """쪼개진 볼린저 하단 터치·중심선 돌파를 LLM에 되돌려줄 검증 오류 문구."""
+    return (
+        f"{' / '.join(paths)}: 같은 매수 칸에 볼린저 하단 터치와 중심선 상향 돌파(또는 중심선 회복)가 AND로 함께 있습니다 — "
+        "종가가 하단 아래이면서 같은 날 중심선을 위로 돌파할 수는 없어 이대로는 매수 신호가 나지 않습니다. "
+        "하단을 터치한 뒤 중심선을 회복하는 차례 신호라면 technical.bollinger_middle_recovery 조건 "
+        "하나로만 옮기고 하단 터치 조건은 따로 두지 마세요(하단 터치를 인정할 거래일 수를 말했으면 "
+        "parameters.touch_lookback에, 말하지 않았으면 비움)."
+    )
+
+
 def is_bare_unsupported_request(intent) -> bool:
     """무엇이 지원되지 않는지 적지 않은 UNSUPPORTED_REQUEST인가(형식 위반).
 

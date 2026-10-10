@@ -530,6 +530,43 @@ _UNSUPPORTED_NOTICE_RE = re.compile(
 )
 
 
+# 볼린저 예시별 기대 신호 — 사람이 정한 정답표(예시 제목 키, 원문을 해석하지 않는다).
+# 커버리지 검사(`_has_sig`)는 볼린저가 **있는지**만 봐서, '상단 돌파 매수·하단 닿으면 청산'이
+# 하단 매수·상단 청산으로 정반대 컴파일돼도 통과했다(2026-10-10). 항목은 (역할, 밴드, 교차 방향,
+# 하단 터치 이력 여부)이며 밴드가 None이면 역할 고정 레거시다. 되묻는 중(값 대기)인 신호는 제외한다.
+BOLLINGER_EXPECTED: dict[str, set[tuple[str, Optional[str], Optional[str], bool]]] = {
+    "볼린저밴드 상단 돌파 + 거래량 확인": {("entry", "upper", "above", False), ("exit", "lower", "below", False)},
+    "볼린저 하단 반등 스윙": {("entry", "middle", "above", True), ("exit", "upper", "above", False)},
+    "볼린저 상단 돌파 거래량 확인": {("entry", "upper", "above", False), ("exit", "lower", "below", False)},
+    "나스닥 볼린저 하단 반등": {("entry", "lower", "above", False)},
+    "다우 볼린저 상단 돌파 추세": {("entry", "upper", "above", False)},
+    "다우 저PBR 볼린저 반등": {("entry", "lower", "above", False)},
+    "반도체 ETF 볼린저 반등 역추세": {("entry", "lower", "above", False), ("exit", "upper", "above", False)},
+}
+
+
+def bollinger_mismatches(title: str, p: dict, asked: str) -> list[str]:
+    """정답표가 있는 예시의 볼린저 신호가 기대와 다르면 그 차이를 돌려준다."""
+    want = BOLLINGER_EXPECTED.get(title)
+    if want is None:
+        return []
+    got = {
+        (role, s.get("band"), s.get("cross"), bool(s.get("touch_lookback")))
+        for role, key in (("entry", "entry_signals"), ("exit", "exit_signals"))
+        for s in (p.get(key) or []) if s.get("indicator") == "bollinger_bands"
+    }
+    # 하단 터치 인정 기간을 되묻는 중이면 그 신호는 값 대기라 parsed에 없다 — 소실이 아니다.
+    waiting = "하단 터치" in asked or "lower-band touch" in asked
+    missing = [w for w in want if w not in got and not (w[3] and waiting)]
+    extra = [g for g in got if g not in want]
+    out = []
+    if missing:
+        out.append(f"볼린저 기대 신호 없음({sorted(missing, key=str)})")
+    if extra:
+        out.append(f"볼린저 기대 밖 신호({sorted(extra, key=str)})")
+    return out
+
+
 def analyze(tpl: Template, res: dict) -> Flags:
     f = Flags()
     p = res.get("parsed", {})
@@ -609,6 +646,8 @@ def analyze(tpl: Template, res: dict) -> Flags:
     for name, pat, check in COVERAGE_CHECKS:
         if re.search(pat, prompt) and not check(p) and not asked_has(pat):
             f.missing.append(name)
+    # 볼린저 방향·밴드 대조(정답표 예시만) — 뒤집힘은 소실보다 나쁘므로 치명이다.
+    f.fatal.extend(bollinger_mismatches(tpl.title, p, asked))
 
     # ── 값 대조: "있는지"가 아니라 "얼마인지"를 본다 ────────────────────────────
     # 위 커버리지 검사는 `_has_fund`/`_has_sig`로 **지표 존재만** 본다. 2026-08-18 사고
