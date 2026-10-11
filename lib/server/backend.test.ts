@@ -111,3 +111,23 @@ describe("backend path confinement (2026-10-11 경로 이탈)", () => {
     expect(undiciFetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("internal token header (NFR-SEC-012)", () => {
+  beforeEach(() => {
+    undiciFetch.mockReset();
+    delete process.env.BACKEND_URL;
+  });
+  afterEach(() => {
+    delete process.env.INTERNAL_API_TOKEN;
+  });
+
+  it("fetchBackend carries X-Internal-Token when configured, and not otherwise", async () => {
+    undiciFetch.mockResolvedValue(new Response("{}"));
+    await fetchBackend("/admin/trace-triage");
+    expect(undiciFetch.mock.calls[0][1].headers["X-Internal-Token"]).toBeUndefined();
+
+    process.env.INTERNAL_API_TOKEN = "s3cret";
+    await fetchBackend("/admin/trace-triage");
+    expect(undiciFetch.mock.calls[1][1].headers["X-Internal-Token"]).toBe("s3cret");
+  });
+});

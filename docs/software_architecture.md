@@ -1478,6 +1478,8 @@ install_socket_tracking). 토큰은 contextvar라 워커 스레드 진입 함수
 
 **백엔드 경로 가두기 계약(NFR-SEC-011, 2026-10-11)** — FastAPI 백엔드는 외부에 노출되지 않는다는 전제로 인증 없이 동작한다. 그래서 Next 라우트가 백엔드 URL 경로에 끼우는 값은 반드시 `backendPathSegment`(`lib/server/backend.ts`)로 조각 하나에 가둔다 — 라우트 파라미터는 디코드돼 들어오므로 `..%2F..%2Fadmin%3F`가 그대로 끼워지면 URL 정규화로 백엔드의 다른 경로에 닿는다(실측: 비로그인 요청이 `/ontology/graph` 응답을 받았고, 로그인 사용자는 리서치 프록시로 POST·DELETE까지 닿았다). 여러 조각을 받는 리서치 프록시는 최종 URL이 `/research/` 아래인지 검사한다. `fetchBackend`는 `.`·`..` 조각을 거부하고, `lib/server/backendPathGuard.test.ts`가 가두지 않은 보간을 소스 검사로 막는다.
 
+**백엔드 내부 토큰(NFR-SEC-012, 2026-10-11)** — 경로 가두기가 다시 뚫려도 위험한 엔드포인트에는 닿지 않도록, 백엔드 미들웨어(`backend/internal_auth.py`)가 관리자·내부·운영 변경 엔드포인트에 `X-Internal-Token`(환경변수 `INTERNAL_API_TOKEN`, backend·web·scheduler가 같은 `.env`를 공유)을 요구한다. 틀리거나 없으면 404, 토큰 미설정이면 전부 거부(fail-closed). Next는 `fetchBackend`(`internalTokenHeader`)가 자동으로 싣고, 날 `fetch`로 보호 엔드포인트를 부르는 곳(`/api/stocks/sync`)과 `scripts/sync_data.py`는 직접 싣는다.
+
 **사용자 데이터 접근 계약** — 사용자에게 귀속된 데이터(계좌·주문·포지션·전략·검증 결과·관심종목·백테스트 목록)를 다루는 라우트는
 예외 없이 세션에서 얻은 사용자로 쿼리를 묶는다: `getOwnershipContext()`로 사용자를 확인하고 `withOwnership()`으로 `where`에 `userId`를 넣는다
 (비로그인은 `UnauthorizedAccessError` → 401). 경로 파라미터의 id를 그대로 조회 키로 쓰지 않는다.

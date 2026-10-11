@@ -61,6 +61,13 @@ function uiLanguageHeader(): Record<string, string> {
   }
 }
 
+// 백엔드의 관리자·내부·운영 변경 엔드포인트는 내부 토큰을 요구한다(backend/internal_auth.py,
+// NFR-SEC-012). 백엔드는 내부망에만 있으므로 모든 요청에 실어도 노출되지 않는다.
+export function internalTokenHeader(): Record<string, string> {
+  const token = process.env.INTERNAL_API_TOKEN?.trim();
+  return token ? { "X-Internal-Token": token } : {};
+}
+
 /**
  * 백엔드 URL 경로에 끼워 넣을 값 하나를 조각 하나로 만든다. 거부하면 null.
  *
@@ -108,7 +115,7 @@ export async function fetchBackend(
       : Array.isArray(requestInit.headers)
         ? Object.fromEntries(requestInit.headers)
         : ((requestInit.headers as Record<string, string> | undefined) ?? {});
-  requestInit.headers = { ...uiLanguageHeader(), ...callerHeaders };
+  requestInit.headers = { ...uiLanguageHeader(), ...internalTokenHeader(), ...callerHeaders };
 
   for (const baseUrl of getBackendBaseUrls()) {
     // 호출자가 이미 끊었으면(클라이언트 연결 종료) 다음 후보 URL로 넘어가지 않는다.

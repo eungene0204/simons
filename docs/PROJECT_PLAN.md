@@ -2258,5 +2258,5 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 
 - 사고: 실패 분류 콘솔을 만들다 계약 검토가 리서치 프록시의 경로 이탈 가능성을 짚었고, 실측하니 더 넓었다 — `[symbol]`·`[id]` 라우트 17곳이 디코드된 파라미터를 백엔드 URL에 그대로 끼워 **비로그인 요청이 백엔드의 아무 GET 경로**에 닿았다(`/api/stock/..%2F..%2Fontology%2Fgraph%3F/ohlcv` → `/ontology/graph`). 리서치 프록시는 로그인 사용자의 POST·DELETE까지 백엔드 다른 경로로 넘겼다(변경 엔드포인트는 실측하지 않음).
 - 수리: `backendPathSegment`(`/`·`?`·`#` 인코딩, `.`·`..`·빈 값 거부)로 17곳을 가두고, 리서치 프록시는 최종 URL `/research/` 접두 검사, `fetchBackend`는 `.`·`..` 조각 거부. 재발 방지 소스 검사 `lib/server/backendPathGuard.test.ts`(NFR-SEC-011).
-- 후속: 백엔드 이중 잠금(관리자·내부·변경 엔드포인트에 내부 토큰 헤더).
+- ✅ 후속 완료: 백엔드 이중 잠금 — `backend/internal_auth.py` 미들웨어가 관리자·내부·운영 변경 엔드포인트에 `X-Internal-Token`(`INTERNAL_API_TOKEN`) 요구, 미설정이면 fail-closed, 거부는 404(NFR-SEC-012). 호출자: `fetchBackend` 자동, `/api/stocks/sync`·`scripts/sync_data.py` 직접.
 

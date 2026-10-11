@@ -143,6 +143,13 @@ jobs:
             git fetch origin main
             git reset --hard origin/main      # 박스 로컬 드리프트 무시, main과 정합
 
+            # 내부 토큰(NFR-SEC-012) — 없으면 백엔드 관리자·내부·운영 변경 엔드포인트가 전부 404가
+            # 되어(fail-closed) 상장폐지 동기화 등이 조용히 멈춘다. 빌드 전에 배포를 멈춘다(값은 찍지 않는다).
+            if ! grep -qE '^INTERNAL_API_TOKEN=.+' .env; then
+              echo "::error::박스 .env에 INTERNAL_API_TOKEN 값이 없습니다 — 배포를 중단합니다"
+              exit 1
+            fi
+
             # .env 환경 변수 자동 업데이트 (중복 방지)
             if ! grep -q "NEWSV2_COLLECTION_ENABLED" .env; then
               echo "" >> .env

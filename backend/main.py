@@ -120,6 +120,12 @@ async def lifespan(_app):
 app = FastAPI(lifespan=lifespan)
 
 
+# 관리자·내부·운영 변경 엔드포인트의 내부 토큰 이중 잠금(internal_auth, NFR-SEC-012)
+import internal_auth  # noqa: E402
+
+app.middleware("http")(internal_auth.middleware)
+
+
 @app.middleware("http")
 async def bind_ui_language_middleware(request, call_next):
     """프론트 프록시(lib/server/backend.ts)가 실어 보내는 X-UI-Language 헤더를 요청 컨텍스트에

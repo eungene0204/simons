@@ -14,6 +14,12 @@ from datetime import datetime
 import FinanceDataReader as fdr
 from dotenv import load_dotenv
 
+def _internal_headers() -> dict:
+    """백엔드 내부·운영 변경 엔드포인트의 내부 토큰(backend/internal_auth.py, NFR-SEC-012)."""
+    token = os.environ.get("INTERNAL_API_TOKEN", "").strip()
+    return {"X-Internal-Token": token} if token else {}
+
+
 def _notify_backend(event: str, **kwargs):
     """백엔드 서버에 동기화 이벤트를 알린다. 서버가 꺼져 있으면 조용히 무시한다."""
     try:
@@ -22,6 +28,7 @@ def _notify_backend(event: str, **kwargs):
         requests.post(
             f"{backend_url}/internal/sync/event",
             json={"event": event, **kwargs},
+            headers=_internal_headers(),
             timeout=3,
         )
     except Exception:
@@ -34,7 +41,8 @@ def _sync_listing_status_from_dart(days: int = 7) -> None:
     try:
         import requests as req_lib
         backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
-        resp = req_lib.get(f"{backend_url}/market/dart/notices", params={"days": days}, timeout=60)
+        resp = req_lib.get(f"{backend_url}/market/dart/notices", params={"days": days},
+                           headers=_internal_headers(), timeout=60)
         payload = resp.json() if resp.status_code == 200 else {}
         notices = payload.get("notices") or []
         print(f"  DART 상장폐지 관련 공시 {len(notices)}건 발견")
@@ -66,7 +74,12 @@ def _mark_delisted(symbol: str, name: str) -> bool:
     try:
         import requests as req_lib
         backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
-        r = req_lib.post(f"{backend_url}/market/delist/{symbol}", json={"name": name}, timeout=5)
+        r = req_lib.post(f"{backend_url}/market/delist/{symbol}", json={"name": name},
+                         headers=_internal_headers(), timeout=5)
+        if r.status_code == 404:
+            # 내부 토큰(INTERNAL_API_TOKEN)이 없거나 틀리면 보호 경로는 404다 — 조용히 넘기지 않는다.
+            print(f"  [WARNING] 상장폐지 원장 등록 거부({symbol}): 404 — INTERNAL_API_TOKEN 설정을 확인하세요")
+            return False
         return r.status_code == 200 and bool(r.json().get("added"))
     except Exception as e:
         print(f"  [WARNING] 상장폐지 원장 등록 실패({symbol}): {e}")

@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loadStockList, StockListItem } from "@/lib/krx-stocks";
 import { requireAdmin } from "@/lib/server/adminAuth";
+import { internalTokenHeader } from "@/lib/server/backend";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
@@ -24,7 +25,7 @@ export async function POST(_request: NextRequest) {
   try {
     const backendRes = await fetch(`${BACKEND_URL}/sync-stocks`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...internalTokenHeader() },
     });
 
     if (!backendRes.ok) {
