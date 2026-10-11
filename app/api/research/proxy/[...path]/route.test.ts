@@ -46,4 +46,20 @@ describe("/api/research/proxy", () => {
     expect(res.status).toBe(200);
     expect(backendFetch.mock.calls[0][1].headers["X-User-Id"]).toBe("42");
   });
+
+  it("디코드된 '..' 조각으로 /research 밖의 백엔드 경로에 닿지 못한다(2026-10-11 경로 이탈 실측)", async () => {
+    getCurrentUser.mockResolvedValue({ id: 53 });
+
+    for (const path of [["../admin", "trace-triage"], ["..", "ontology", "graph"], ["../../admin/clear-cache"]]) {
+      const res = await GET(makeRequest("/api/research/proxy/x"), { params: Promise.resolve({ path }) });
+      const post = await POST(makeRequest("/api/research/proxy/x"), { params: Promise.resolve({ path }) });
+      expect(res.status).toBe(400);
+      expect(post.status).toBe(400);
+    }
+    expect(backendFetch).not.toHaveBeenCalled();
+
+    const ok = await GET(makeRequest("/api/research/proxy/runs/a..b"), { params: Promise.resolve({ path: ["runs", "a..b"] }) });
+    expect(ok.status).toBe(200);
+    expect(String(backendFetch.mock.calls[0][0])).toMatch(/\/research\/runs\/a\.\.b$/);
+  });
 });

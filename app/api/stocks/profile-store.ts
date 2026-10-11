@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { backendPathSegment } from "@/lib/server/backend";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 const BACKEND_STOCK_DETAIL_TIMEOUT_MS = 5000;
@@ -186,7 +187,9 @@ export function buildStockInfoProfileFromDetail(
 export async function fetchStockInfoProfileFromSource(
   seed: StockMetadataSeed,
 ): Promise<ReturnType<typeof buildStockInfoProfileFromDetail>> {
-  const detailUrl = new URL(`${BACKEND_URL}/market/stock-detail/${seed.symbol}`);
+  const symbolSegment = backendPathSegment(seed.symbol);
+  if (!symbolSegment) throw new Error(`invalid stock symbol: ${seed.symbol}`);
+  const detailUrl = new URL(`${BACKEND_URL}/market/stock-detail/${symbolSegment}`);
   detailUrl.searchParams.set("include_profile", "false");
   detailUrl.searchParams.set("include_listing", "true");
   detailUrl.searchParams.set("include_public_info", "true");

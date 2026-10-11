@@ -23,7 +23,14 @@ async function proxyToBackend(
   }
 
   const pathStr = pathSegments.join("/");
-  const target = `${BACKEND}/research/${pathStr}${req.nextUrl.search}`;
+  // 경로 조각은 디코드돼 들어온다 — '..%2Fadmin'이 '../admin'이 되어 URL 정규화로 /research 밖의
+  // 백엔드 경로(관리자 조회 등)에 닿았다(2026-10-11 실측: 일반 계정이 /ontology/graph 응답을 받음).
+  // 최종 URL을 계산해 /research/ 아래에 머무는지 확인한다.
+  const researchRoot = new URL(`${BACKEND}/research/`);
+  const target = new URL(`${BACKEND}/research/${pathStr}${req.nextUrl.search}`);
+  if (target.origin !== researchRoot.origin || !target.pathname.startsWith(researchRoot.pathname)) {
+    return NextResponse.json({ error: "잘못된 경로입니다." }, { status: 400 });
+  }
 
   try {
     const res = await fetch(target, {

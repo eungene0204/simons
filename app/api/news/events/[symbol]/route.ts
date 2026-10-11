@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { backendPathSegment } from '@/lib/server/backend'
 
 const BACKEND = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -13,7 +14,9 @@ export async function GET(
     if (searchParams.get('as_of')) query.set('as_of', searchParams.get('as_of')!)
 
     const q = query.toString()
-    const url = `${BACKEND}/news/events/${params.symbol}${q ? `?${q}` : ''}`
+    const symbolSegment = backendPathSegment(params.symbol)
+    if (!symbolSegment) return NextResponse.json({ error: '잘못된 요청입니다.' }, { status: 400 })
+    const url = `${BACKEND}/news/events/${symbolSegment}${q ? `?${q}` : ''}`
     const res = await fetch(url, { next: { revalidate: 60 } })
 
     if (!res.ok) {

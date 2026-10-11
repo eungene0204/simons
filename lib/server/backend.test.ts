@@ -85,3 +85,29 @@ describe("fetchBackend signal propagation", () => {
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 });
+
+describe("backend path confinement (2026-10-11 경로 이탈)", () => {
+  beforeEach(() => {
+    undiciFetch.mockReset();
+    delete process.env.BACKEND_URL;
+  });
+
+  it("backendPathSegment encodes separators and rejects dot segments", async () => {
+    const { backendPathSegment } = await import("./backend");
+    expect(backendPathSegment("005930")).toBe("005930");
+    expect(backendPathSegment("BRK.B")).toBe("BRK.B");
+    expect(backendPathSegment("../../admin/trace-triage?")).toBe("..%2F..%2Fadmin%2Ftrace-triage%3F");
+    expect(backendPathSegment("a#b")).toBe("a%23b");
+    for (const bad of ["", ".", "..", null, undefined]) expect(backendPathSegment(bad)).toBeNull();
+  });
+
+  it("fetchBackend refuses paths with dot segments before any request", async () => {
+    for (const path of ["/stock/../admin/trace-triage", "/a/%2E%2E/admin", "/research/./x", "/x/..?q=1", "/stock/..\\..\\ontology/graph"]) {
+      await expect(fetchBackend(path)).rejects.toThrow(/unsafe backend path/);
+    }
+    expect(undiciFetch).not.toHaveBeenCalled();
+    undiciFetch.mockResolvedValue(new Response("{}"));
+    await fetchBackend("/stock/BRK.B/ohlcv?x=..");
+    expect(undiciFetch).toHaveBeenCalledTimes(1);
+  });
+});

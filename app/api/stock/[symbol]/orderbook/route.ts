@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { backendPathSegment } from "@/lib/server/backend";
 
 /**
  * 호가창 데이터를 제공하는 API
@@ -19,7 +20,9 @@ export async function GET(
     }
 
     const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
-    const res = await fetch(`${BACKEND_URL}/market/orderbook/${symbol}`, {
+    const symbolSegment = backendPathSegment(symbol);
+    if (!symbolSegment) return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
+    const res = await fetch(`${BACKEND_URL}/market/orderbook/${symbolSegment}`, {
       cache: "no-store",
     });
     if (!res.ok) {

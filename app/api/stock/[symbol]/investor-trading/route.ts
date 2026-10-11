@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { backendPathSegment } from "@/lib/server/backend";
 import { cache } from "@/lib/cache";
 
 const CACHE_TTL_SECONDS = 60;
@@ -22,7 +23,9 @@ export async function GET(
     }
 
     const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
-    const res = await fetch(`${BACKEND_URL}/market/investor-trading/${symbol}`, {
+    const symbolSegment = backendPathSegment(symbol);
+    if (!symbolSegment) return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
+    const res = await fetch(`${BACKEND_URL}/market/investor-trading/${symbolSegment}`, {
       cache: "no-store",
     });
 

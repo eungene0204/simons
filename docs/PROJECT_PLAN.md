@@ -2252,3 +2252,10 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 - 검증: 회귀 `backend/tests/test_triage_traces.py`·`test_claude_hooks.py`, 실세션 훅 차단 확인, 워크트리 생성→pytest·vitest 통과→제거 실측. 계약 검토 에이전트 첫 실측이 리포트 원문 보관 초과(이름=실행일·`--summary` 미정리)와 가드 미탐(히어독 `commit -a`·`env`/절대경로/`bash -c`·`data/` 통째 전송)·오탐(메시지 속 `-a`)을 잡아 수리.
 - 후속(10-11): 운영 Trace 볼륨 `./backend/logs/agent_traces`만 마운트(docker-compose.yml, 다음 배포부터 — 보관 정리가 없는 다른 로그는 휘발 유지). 첫 리포트 결함 묶음 수리 — ① 플래너 예산 소진 50건: 보조 추출 출력 형태를 `{quote, market}`으로 바꿔 표가 모르는 시장 표기("다우지수 종목"·"KOSPI stocks")를 LLM 정본 코드로 지름길 처리(120B 실측 26/37 지름길·좁힌 구절 46/46 플래너 유지, `qa_template_detect` 120B 재측정은 한도 회복 후) ② 되묻기 답 미흡수·보유 기간 해석은 병렬 세션의 해석 안정화 후속 6·7이 진행 중이라 중복 수리하지 않음 ③ 전면 재작성 JSON 잘림은 같은 작업(전면 재작성→패치 레인)의 부작용이라 그쪽에 넘김 ④ triage 신호 `silent_drop`→`dropped_condition` 개명(빠진 조건엔 항상 안내가 나간다).
 - 남은 일(별도 결정): 루트 metadata `model` 오기록.
+
+### ✅ 완료 — 보안: Next → 백엔드 경로 이탈 차단 (2026-10-11)
+
+- 사고: 실패 분류 콘솔을 만들다 계약 검토가 리서치 프록시의 경로 이탈 가능성을 짚었고, 실측하니 더 넓었다 — `[symbol]`·`[id]` 라우트 17곳이 디코드된 파라미터를 백엔드 URL에 그대로 끼워 **비로그인 요청이 백엔드의 아무 GET 경로**에 닿았다(`/api/stock/..%2F..%2Fontology%2Fgraph%3F/ohlcv` → `/ontology/graph`). 리서치 프록시는 로그인 사용자의 POST·DELETE까지 백엔드 다른 경로로 넘겼다(변경 엔드포인트는 실측하지 않음).
+- 수리: `backendPathSegment`(`/`·`?`·`#` 인코딩, `.`·`..`·빈 값 거부)로 17곳을 가두고, 리서치 프록시는 최종 URL `/research/` 접두 검사, `fetchBackend`는 `.`·`..` 조각 거부. 재발 방지 소스 검사 `lib/server/backendPathGuard.test.ts`(NFR-SEC-011).
+- 후속: 백엔드 이중 잠금(관리자·내부·변경 엔드포인트에 내부 토큰 헤더).
+

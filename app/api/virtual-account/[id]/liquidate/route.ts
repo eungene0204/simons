@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { backendPathSegment } from '@/lib/server/backend';
 import { prisma } from '@/lib/prisma';
 import {
   calcFee, calcTransactionTax, calcSellProceeds, calcRealizedPnl,
@@ -81,8 +82,9 @@ export async function POST(
     const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
     let executionPrice = moneyToNumber(position.currentPrice ?? position.avgPrice);
     try {
-      const priceRes = await fetch(`${BACKEND_URL}/market/price/${symbol}`);
-      if (priceRes.ok) {
+      const symbolSegment = backendPathSegment(symbol);
+      const priceRes = symbolSegment ? await fetch(`${BACKEND_URL}/market/price/${symbolSegment}`) : null;
+      if (priceRes?.ok) {
         const data = await priceRes.json();
         if (data.price > 0) executionPrice = data.price;
       }

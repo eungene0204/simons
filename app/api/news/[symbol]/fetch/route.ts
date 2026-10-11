@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { backendPathSegment } from '@/lib/server/backend'
 import { prisma } from '@/lib/prisma'
 
 const BACKEND = process.env.BACKEND_URL || 'http://localhost:8000'
@@ -8,7 +9,9 @@ const FETCH_LOCK_MS = 3 * 60 * 1000       // 3-minute lock to prevent double-fet
 
 async function fetchArticlesFromBackend(symbol: string, pageSize: number): Promise<object[]> {
   try {
-    const res = await fetch(`${BACKEND}/news/symbol/${symbol}?page_size=${pageSize}`, {
+    const symbolSegment = backendPathSegment(symbol)
+    if (!symbolSegment) return []
+    const res = await fetch(`${BACKEND}/news/symbol/${symbolSegment}?page_size=${pageSize}`, {
       cache: 'no-store',
     })
     if (!res.ok) return []

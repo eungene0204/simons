@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchBackend } from "@/lib/server/backend";
+import { backendPathSegment, fetchBackend } from "@/lib/server/backend";
 
 export async function GET(
   request: Request,
@@ -16,7 +16,9 @@ export async function GET(
   }
 
   try {
-    const res = await fetchBackend(`/market/orderbook-stream/${symbol}`, {
+    const symbolSegment = backendPathSegment(symbol);
+    if (!symbolSegment) return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
+    const res = await fetchBackend(`/market/orderbook-stream/${symbolSegment}`, {
       method: "GET",
       cache: "no-store",
       timeoutMs: 600_000,

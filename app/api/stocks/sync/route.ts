@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from "next/server";
 import { loadStockList, StockListItem } from "@/lib/krx-stocks";
+import { requireAdmin } from "@/lib/server/adminAuth";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
@@ -16,6 +17,10 @@ const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
  *      문제가 있었으므로 더 이상 사용하지 않는다.
  */
 export async function POST(_request: NextRequest) {
+  // 전체 종목 명부를 다시 쓰는 운영 작업이다 — 화면에서 부르는 곳이 없는 수동 엔드포인트인데
+  // 권한 확인 없이 열려 있었다(2026-10-11 보안 점검). 관리자만, 비관리자에게는 존재를 숨긴다.
+  const admin = await requireAdmin();
+  if (!admin) return NextResponse.json({ error: "Not Found" }, { status: 404 });
   try {
     const backendRes = await fetch(`${BACKEND_URL}/sync-stocks`, {
       method: "POST",

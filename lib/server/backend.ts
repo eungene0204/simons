@@ -61,10 +61,45 @@ function uiLanguageHeader(): Record<string, string> {
   }
 }
 
+/**
+ * 백엔드 URL 경로에 끼워 넣을 값 하나를 조각 하나로 만든다. 거부하면 null.
+ *
+ * 라우트 파라미터(`[symbol]` 등)는 Next가 디코드해 넘긴다 — '..%2F..%2Fadmin%3F'가
+ * '../../admin?'이 되어, 그대로 끼우면 URL 정규화로 백엔드의 다른 경로(관리자 조회 등)에
+ * 닿았다(2026-10-11 실측: 비로그인 요청이 /ontology/graph 응답을 받음). 백엔드는 외부에
+ * 노출되지 않는다는 전제로 인증 없이 동작하므로, Next에서 경로 조각을 반드시 가둔다.
+ * '/'·'?'·'#'은 인코딩하고, 정규화로 상위로 올라가는 '.'·'..'와 빈 값은 거부한다.
+ */
+export function backendPathSegment(value: unknown): string | null {
+  const text = value == null ? "" : String(value);
+  if (text === "" || text === "." || text === "..") return null;
+  return encodeURIComponent(text);
+}
+
+// fetchBackend 경로의 '.'·'..' 조각 — 경로를 조립한 쪽이 조각을 가두지 않았을 때의 마지막 그물.
+function hasDotSegment(path: string): boolean {
+  const pathname = path.split(/[?#]/)[0];
+  // URL 해석기는 http 주소의 '\\'를 '/'로 취급한다 — '..\\..\\admin'도 상위로 올라간다.
+  if (pathname.includes("\\")) return true;
+  return pathname.split("/").some((segment) => {
+    const decoded = (() => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })();
+    return decoded === "." || decoded === "..";
+  });
+}
+
 export async function fetchBackend(
   path: string,
   init?: RequestInit & { timeoutMs?: number }
 ): Promise<Response> {
+  if (hasDotSegment(path)) {
+    throw new Error(`unsafe backend path: ${path.slice(0, 80)}`);
+  }
   const { timeoutMs, signal, ...requestInit } = init ?? {};
   const errors: string[] = [];
   const callerHeaders =

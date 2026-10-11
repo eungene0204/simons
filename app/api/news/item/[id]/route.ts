@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { backendPathSegment } from '@/lib/server/backend'
 
 const BACKEND = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -7,7 +8,9 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const res = await fetch(`${BACKEND}/news/item/${params.id}`, { next: { revalidate: 300 } })
+    const idSegment = backendPathSegment(params.id)
+    if (!idSegment) return NextResponse.json({ error: '잘못된 요청입니다.' }, { status: 400 })
+    const res = await fetch(`${BACKEND}/news/item/${idSegment}`, { next: { revalidate: 300 } })
     if (!res.ok) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }

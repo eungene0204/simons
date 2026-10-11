@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { backendPathSegment } from "@/lib/server/backend";
 
 import type { NewsResponseV2 } from "@/types/news-v2";
 
@@ -29,7 +30,9 @@ export async function GET(
   const { searchParams } = request.nextUrl;
   const limit = searchParams.get("limit") ?? "30";
 
-  const url = new URL(`${BACKEND}/v2/news/${encodeURIComponent(symbol)}`);
+  const symbolSegment = backendPathSegment(symbol);
+  if (!symbolSegment) return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
+  const url = new URL(`${BACKEND}/v2/news/${symbolSegment}`);
   url.searchParams.set("limit", limit);
   const companyName = searchParams.get("company_name");
   if (companyName) url.searchParams.set("company_name", companyName);

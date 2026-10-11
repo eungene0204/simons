@@ -1,4 +1,5 @@
 import { cache } from "@/lib/cache";
+import { backendPathSegment } from "@/lib/server/backend";
 import {
   emptyStockPriceSnapshot,
   isUsSymbol,
@@ -59,7 +60,9 @@ async function fetchSnapshotFromProxy(
   proxyBase: string
 ): Promise<StockPriceSnapshot> {
   try {
-    const res = await fetch(`${proxyBase}/api/stock/${symbol}/price`, {
+    const symbolSegment = backendPathSegment(symbol);
+    if (!symbolSegment) throw new Error(`invalid stock symbol: ${symbol}`);
+    const res = await fetch(`${proxyBase}/api/stock/${symbolSegment}/price`, {
       signal: AbortSignal.timeout(8000),
       cache: "no-store",
     });

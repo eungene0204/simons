@@ -4,6 +4,7 @@ import { loadStockList } from '@/lib/krx-stocks'
 import { loadUsStockList } from '@/lib/us-stocks'
 import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices'
 import { prisma } from '@/lib/prisma'
+import { backendPathSegment } from '@/lib/server/backend'
 import {
   buildStockInfoProfileFromDetail,
   hasStoredInfoProfile,
@@ -121,6 +122,10 @@ export async function GET(
   try {
     const resolvedParams = await Promise.resolve(params);
     const symbol = resolvedParams.symbol;
+    const symbolSegment = backendPathSegment(symbol);
+    if (!symbolSegment) {
+      return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
+    }
     const useStockMetadataStore = process.env.NODE_ENV !== "test";
 
     // Check cache first
@@ -203,7 +208,7 @@ export async function GET(
 
     // 외부 호출 3개(OHLCV, 실시간 시세, KIS 상세)를 병렬로 동시에 시작
     const ohlcvPromise = Promise.resolve(
-      fetch(`${BACKEND_URL}/stock/${symbol}/ohlcv?limit=2`, {
+      fetch(`${BACKEND_URL}/stock/${symbolSegment}/ohlcv?limit=2`, {
         signal: AbortSignal.timeout(800),
       })
     )
@@ -216,7 +221,7 @@ export async function GET(
       mode: "realtime",
     });
 
-    const detailUrl = new URL(`${BACKEND_URL}/market/stock-detail/${symbol}`);
+    const detailUrl = new URL(`${BACKEND_URL}/market/stock-detail/${symbolSegment}`);
     detailUrl.searchParams.set("include_profile", "false");
     detailUrl.searchParams.set("include_listing", storedStock?.listingDate ? "false" : "true");
     detailUrl.searchParams.set("include_public_info", hasPersistedInfo ? "false" : "true");

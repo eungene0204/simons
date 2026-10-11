@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { backendPathSegment } from '@/lib/server/backend';
 import { cache } from "@/lib/cache";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,9 @@ export async function GET(
   }
 
   try {
-    const res = await fetch(`${BACKEND_URL}/stock/${symbol}/ohlcv?limit=${limit}`, {
+    const symbolSegment = backendPathSegment(symbol);
+    if (!symbolSegment) return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
+    const res = await fetch(`${BACKEND_URL}/stock/${symbolSegment}/ohlcv?limit=${limit}`, {
       cache: "no-store",
     });
     if (!res.ok) {
