@@ -2241,3 +2241,14 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 - X 게시 스크립트: `scripts/post_to_x.py --video`(조각 업로드+처리 대기), `--open-link/--campaign`(링크 생성), 링크=23자 가중 길이. 스킬 `x-backtest-post`에 영상 모드·링크·속설 시리즈 절차.
 - 속설 시리즈 보류 사유 2건: ① "RSI가 70 이상으로 올라오면 매도"가 "RSI 70 하향 반전"으로 해석됨(미수리) ② 엔진 결함(아래 v16.40.0에서 수리).
 - ✅ 완료 — **엔진 v16.40.0 적자·자본잠식 PER·PBR 재계산 차단**: `engine/data_resolver.py::_resolve_computable_ratios`가 PER(PBR) 칸이 전부 빈 종목에 `주가÷EPS(BPS)`를 음수 분모 그대로 계산해, 적자 318종목(전체 3,230 중)이 "PER ≤ X"·저PER 랭킹을 통과했다. 분모 양수일 때만 계산하도록 수정(fundamental_fetcher 규칙과 동일). 회귀 `test_data_resolver.py::test_ratio_is_null_when_denominator_not_positive`(PER·PBR). 실측 "KOSPI PER 8 이하·63일 보유·손절 -8%·5년": 수정 전 매수 375회·CAGR -41.07%·MDD -92.17% → 수정 후 322회·-15.15%·-70.02%, 거래 상하위 6종목 음수 PER 0일. 백엔드 5,566 통과(기존 무관 실패 1: `test_backfill_us_stocks` 칸 목록).
+
+### ✅ 완료 — 실패 루프: Trace triage · 계약 검토 · 가드 훅 · 세션 격리 (2026-10-11)
+
+- 배경: "시스템으로 사고하고 반복 루프로 출시하기"(GeekNews 35043)의 세 성질(다층 검증·반복 실패의 스킬화·재사용 부품)을 대조하니, 테스트·하니스·Trace·스킬은 있었지만 **실패 → 다음 수리**로 잇는 고리가 없었다(Trace는 3일간 쌓였다 지워질 뿐 정기적으로 읽히지 않음, 교훈은 메모리 글로만 남음, 병렬 세션이 한 디렉터리 공유).
+- 1단계 Trace triage: `backend/scripts/triage_traces.py`(구조 신호 13종 → 4등급 묶음, 원문 판정 없음, 리포트 3일 보관) + SessionStart 훅 요약 줄 + 스킬 `trace-triage`(묶음 → strategy-interpretation-fix 레이어 기호 매핑). 첫 실행(10-09~11, Trace 956건): 결함 후보 89건/14그룹 — 수정 턴 되묻기 답(종목 수·익절 배수 표현) 미흡수(ask_repeat·modify_unapplied), "진입 후 10거래일 경과" 청산이 보유 기간 대신 미지 지표로 해석돼 빠짐(dropped_condition), 플래너 턴 예산 소진 50건 등.
+- 2단계 반복 사고 → 장치: `.claude/hooks/guard_bash.py`(PreToolUse) — 공유 디렉터리 일괄 스테이징(`git add -A/./-u`·`commit -a`·`stash`)과 로컬 parquet 원격 전송 차단. 엔진 버전 상향은 CI(`check_engine_version_bump.sh`)가 이미 강제해 훅을 더하지 않았다.
+- 3단계 계약 검토 에이전트: `.claude/agents/contract-reviewer.md` — 커밋 전 diff를 원문 정규식 금지·규제 표현·의무 게이트·회귀 테스트·노출 식별자에 대조(읽기 전용, 위반만 보고).
+- 4단계 세션 격리: `scripts/worktree.sh new|link|rm` — 워크트리 + git 무시 자원(데이터·의존성·.env·logs) 원본 링크, 링크 경로는 `info/exclude`로 숨김.
+- 검증: 회귀 `backend/tests/test_triage_traces.py`·`test_claude_hooks.py`, 실세션 훅 차단 확인, 워크트리 생성→pytest·vitest 통과→제거 실측. 계약 검토 에이전트 첫 실측이 리포트 원문 보관 초과(이름=실행일·`--summary` 미정리)와 가드 미탐(히어독 `commit -a`·`env`/절대경로/`bash -c`·`data/` 통째 전송)·오탐(메시지 속 `-a`)을 잡아 수리.
+- 후속(10-11): 운영 Trace 볼륨 `./backend/logs/agent_traces`만 마운트(docker-compose.yml, 다음 배포부터 — 보관 정리가 없는 다른 로그는 휘발 유지). 첫 리포트 결함 묶음 수리 — ① 플래너 예산 소진 50건: 보조 추출 출력 형태를 `{quote, market}`으로 바꿔 표가 모르는 시장 표기("다우지수 종목"·"KOSPI stocks")를 LLM 정본 코드로 지름길 처리(120B 실측 26/37 지름길·좁힌 구절 46/46 플래너 유지, `qa_template_detect` 120B 재측정은 한도 회복 후) ② 되묻기 답 미흡수·보유 기간 해석은 병렬 세션의 해석 안정화 후속 6·7이 진행 중이라 중복 수리하지 않음 ③ 전면 재작성 JSON 잘림은 같은 작업(전면 재작성→패치 레인)의 부작용이라 그쪽에 넘김 ④ triage 신호 `silent_drop`→`dropped_condition` 개명(빠진 조건엔 항상 안내가 나간다).
+- 남은 일(별도 결정): 루트 metadata `model` 오기록.

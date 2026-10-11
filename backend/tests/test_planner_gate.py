@@ -23,3 +23,25 @@ def test_market_only_uses_canonical_observation_without_llm():
 ])
 def test_omissions_conflicts_themes_and_restrictions_keep_planner(terms, universe):
     assert settle_plain_markets(intent(**universe), ParseEvidence(universe_terms=terms)) is None
+
+
+def test_llm_market_code_settles_unknown_market_wording():
+    """2026-10-11 triage: '다우지수 종목'이 표에 없어 CONCEPT → planner가 4턴을 돌다 예산 소진(50건).
+    보조 추출 LLM이 구절별로 적은 정본 시장 코드로 지름길을 탄다."""
+    us = StrategyIntent.model_validate({"intent": "CREATE_STRATEGY", "strategy": {
+        "universe": {"markets": ["DOW30"]}}})
+    plan = settle_plain_markets(us, ParseEvidence(universe_terms=["다우지수 종목"],
+                                                  universe_markets=["DOW30"]))
+    assert plan.outcome == "universe_settled" and plan.llm_turns == 0
+    assert plan.executed["market_0"].observation == {"universe_type": "MARKET", "canonical": "DOW30"}
+
+
+@pytest.mark.parametrize("terms,markets,universe", [
+    (["다우지수 종목"], [None], {"markets": ["DOW30"]}),          # LLM이 시장만이 아니라고 봄
+    (["다우지수 종목"], ["SP500"], {"markets": ["DOW30"]}),       # 인터프리터와 불일치
+    (["삼성전자"], ["KOSPI"], {}),                                  # 표가 종목으로 짚은 구절은 덮지 않음
+    (["코스피", "보안 관련주"], ["KOSPI", None], {}),               # 한 구절이라도 시장이 아니면
+])
+def test_llm_market_code_never_overrides_narrowing(terms, markets, universe):
+    assert settle_plain_markets(intent(**universe), ParseEvidence(
+        universe_terms=terms, universe_markets=markets)) is None

@@ -174,6 +174,33 @@ Trace JSONL에는 사용자 발화 **원문**이 들어 있다. 원문의 용도
 회귀 테스트: `backend/tests/test_trace_retention.py`(기한 파일만 삭제·집계에 원문
 부재·파손 파일도 폐기·하루 1회 트리거).
 
+### 4.3 실패 분류(triage) — Trace를 다음 수리의 입력으로 (2026-10-11)
+
+쌓인 Trace를 사람이 우연히 볼 때만 읽던 것을 매 세션의 입력으로 만든다.
+`backend/scripts/triage_traces.py`가 실패 후보를 **신호 × 판별 키** 묶음으로 세고
+(등급: 결함 후보·확인 필요·제품 공백·인프라), Claude Code의 SessionStart 훅이 한 줄
+요약을 띄운다. 묶음을 고르고 수리 스킬로 넘기는 절차는 `.claude/skills/trace-triage/`.
+
+| 신호 | 구조 근거 |
+|---|---|
+| interpreter/planner/span_error · infra_error | span `error`의 예외 클래스(상류 429·취소는 인프라, 턴당 1건) |
+| modify_unapplied · sector_unresolved | Responder `clarification_priority` |
+| ask_repeat | 입력 `pending_question` == 출력 `clarification_question`(우리 질문 문장 동일성) |
+| dropped_condition | 마지막 compile의 `dropped` 중 `pending_conditions`에 없는 라벨 |
+| validation_error · unsupported | 마지막 validate_intent의 `report.errors`(답 턴 제외)·`unsupported_features` |
+| approximated | 인터프리터 조건의 `approximated` |
+| classifier_failed · slow_turn | 분류 `interpretation_failed` · 루트 `total_ms` > 120초 |
+
+- 판정은 위 구조 필드만 본다. `user_input`은 표본으로 옮겨 적기만 한다(대원칙 1).
+  새 신호가 필요하면 원문을 읽지 말고 그 사실을 span 출력에 남기게 계측한다.
+- 리포트(`backend/logs/triage/`)도 원문을 담으므로 4.2와 같은 3일 기한으로 지운다.
+- 운영: backend 컨테이너의 `logs/agent_traces/`만 호스트 `./backend/logs/agent_traces`에 마운트한다(2026-10-11,
+  docker-compose.yml) — 그 전에는 재배포마다 Trace가 사라졌다. 박스에서
+  `docker compose exec backend python scripts/triage_traces.py --no-write`(리포트 파일을 쓰지 않음 — 기한 지난 리포트 정리는 돈다)로 본다.
+- 알려진 공백: 루트 metadata `model`은 실제 레인 모델이 아니다(인터프리터 span 값을 쓴다).
+
+회귀 테스트: `backend/tests/test_triage_traces.py`.
+
 ---
 
 ## 5. 스레드 경계 — 가장 중요한 함정

@@ -388,6 +388,14 @@ agent 파이프라인(전략 해석·플래너·분류기·빌더·수정·검�
 - 구조와 무관한 수정(파라미터 값, 프롬프트 문구, 버그 수정, 리팩터링)은 갱신 불필요
 - 새 agent 파이프라인을 신설하면 AgentsTab에 서브탭을 추가하고 훅의 경로 목록에도 추가한다
 
+### 실패 루프 — Trace triage · 계약 검토 · 가드 훅 · 세션 격리 (2026-10-11)
+실패를 사람이 화면에서 우연히 보기 전에 시스템이 먼저 꺼내고, 반복 실패는 글이 아니라 실행되는 장치로 고정한다.
+- **Trace triage**: 세션 시작 시 `[trace-triage]` 요약 줄이 뜬다(SessionStart 훅). 결함 후보가 있으면 `trace-triage` 스킬로 묶음을 보고 고른 뒤 `strategy-interpretation-fix`로 넘긴다. 직접 실행: `cd backend && uv run --frozen python scripts/triage_traces.py`. 판정은 구조 신호만(원문 판정 금지), 리포트(`backend/logs/triage/`)도 원문 3일 보관.
+- **계약 검토**: 커밋 전에 `contract-reviewer` 서브에이전트에 **내가 만진 경로 목록**을 넘겨 diff를 검토받는다(원문 정규식·규제 표현·의무 게이트·회귀 테스트). '위반'이 남아 있으면 커밋하지 않는다.
+- **가드 훅**(`.claude/hooks/guard_bash.py`, PreToolUse): `git add -A/./-u`·`git commit -a`·`git stash`와 로컬 parquet의 원격 rsync/scp를 실행 전에 막는다. 막히면 우회하지 말고 경로 명시 스테이징·프로덕션 실행으로 바꾼다.
+- **세션 격리**: 다른 세션과 겹칠 작업(특히 `backend/` 편집 — 남의 `--reload`를 끊는다)은 `scripts/worktree.sh new <slug>`로 `../simons-wt/<slug>`에서 한다. 데이터·의존성·`.env`·`backend/logs`는 원본 링크라 공유된다(데이터를 쓰면 원본도 바뀐다). 끝나면 `scripts/worktree.sh rm <slug>`.
+- 반복 실패를 고정 장치로 승격할 때(훅·스킬·테스트·계측) `trace-triage` 스킬 4절과 `triage_traces.py`의 `SIGNALS`를 함께 갱신한다.
+
 ### 계획서 완료 표시 자동 업데이트
 작업 완료 시 `docs/PROJECT_PLAN.md`의 해당 항목을 자동으로 `✅ 완료`로 업데이트한다.
 

@@ -27,6 +27,16 @@ and disagreement keep the original planner. For OpenRouter, complex planning beg
 independent evidence arrives and overlaps the main interpretation. It does not wait for the full
 interpretation. Existing tool observations are returned in the same DAG result contract.
 
+Evidence terms carry a per-quote canonical market code (`{"quote", "market"}`, 2026-10-11). The
+evidence LLM writes a `SUPPORTED_MARKETS` code only when the quote names a whole market or index,
+and null when a sector, theme, symbol, ETF or exclusion narrows it. The canonical table is checked
+first; the LLM code is used only when the table does not know the wording (`CONCEPT`, e.g. "다우지수
+종목", "KOSPI stocks"), never over a table verdict of symbol, sector or ETF. Deterministic code only
+checks enum membership and that the quote exists in the input. Before this, every unknown market
+wording sent the planner through concept, sector and search tools until its turn budget ran out
+(50 `TurnBudgetExhausted` traces in the 2026-10-11 triage; with OpenRouter 120B, 26 of 37 now settle
+and 46 of 46 narrowed quotes still run the planner).
+
 ## Step 4: condition checks
 
 `interpreter/check_batch.py` batches quote, trading-value, and contribution checks when at least

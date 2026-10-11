@@ -72,6 +72,10 @@ services:
     volumes:
       - ./prisma/prisma:/app/prisma/prisma             # 11GB SQLite (호스트 bind = 시드/백업 용이)
       - ./data:/app/data                               # 9GB parquet/json + chroma
+      # Agent Trace(원문 3일 보관 후 자동 폐기) — 볼륨 밖이면 재배포마다 사라져 실패 분류
+      # (backend/scripts/triage_traces.py)가 운영 실패를 못 본다. git 밖(/backend/logs/)이라 reset --hard 무관.
+      # agent_traces만 올린다 — logs/의 다른 파일(그림자 모드 로그 등)은 보관 정리가 없어 지금처럼 휘발시킨다.
+      - ./backend/logs/agent_traces:/app/backend/logs/agent_traces
     depends_on:
       postgres:
         condition: service_healthy

@@ -122,3 +122,23 @@ def test_complex_planning_overlaps_interpretation_after_evidence(monkeypatch):
     with cancellation.bind(token):
         assert primary.run_primary_parse("보안주") is not None
     assert saw == [token]
+
+
+def _evidence(text, terms):
+    return parse_evidence.extract_evidence(text, lambda *a, **k: json.dumps({
+        "conditions": {"phrases": []}, "backtest": {"quote": None, "period": None},
+        "universe": {"terms": terms}}))
+
+
+def test_universe_terms_carry_llm_market_codes_in_order():
+    evidence = _evidence("다우지수 종목 중 코스피 보안주", [
+        {"quote": "다우지수 종목", "market": "DOW30"}, {"quote": "코스피 보안주", "market": None}])
+    assert evidence.universe_terms == ["다우지수 종목", "코스피 보안주"]
+    assert evidence.universe_markets == ["DOW30", None]
+    legacy = _evidence("코스피 종목", ["코스피"])
+    assert legacy.universe_terms == ["코스피"] and legacy.universe_markets == [None]
+
+
+def test_universe_market_code_outside_canonical_list_drops_section():
+    evidence = _evidence("니케이 종목", [{"quote": "니케이 종목", "market": "NIKKEI"}])
+    assert evidence.universe_terms is None and evidence.universe_markets is None
