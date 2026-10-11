@@ -17,7 +17,8 @@ description: 널스탁 에이전트 Trace(backend/logs/agent_traces)에서 최�
 - **원문 보관 3일**: 리포트(`backend/logs/triage/`)에도 원문이 들어가므로 같은 기한으로 지워진다. 원문을
   메모리·문서·커밋 메시지로 옮기지 않는다(필요하면 구조 사실과 trace_id만).
 - **운영 Trace**: backend 컨테이너의 `logs/agent_traces/`만 호스트에 마운트된다(2026-10-11 — 그 전 배포분은
-  재배포 때 사라졌다). 박스에서 `docker compose exec backend python scripts/triage_traces.py --no-write`(리포트 파일을 쓰지 않음).
+  재배포 때 사라졌다). 운영 실패는 콘솔 `Failure Triage` 탭에서 본다(같은 분류 로직). 대표 Trace 상세가 필요하면
+  박스의 `backend/logs/agent_traces/<날짜>.jsonl`에서 trace_id 줄을 읽는다(읽기 전용).
 
 ## 1. 묶어 보기
 

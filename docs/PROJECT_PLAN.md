@@ -2251,6 +2251,7 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 - 4단계 세션 격리: `scripts/worktree.sh new|link|rm` — 워크트리 + git 무시 자원(데이터·의존성·.env·logs) 원본 링크, 링크 경로는 `info/exclude`로 숨김.
 - 검증: 회귀 `backend/tests/test_triage_traces.py`·`test_claude_hooks.py`, 실세션 훅 차단 확인, 워크트리 생성→pytest·vitest 통과→제거 실측. 계약 검토 에이전트 첫 실측이 리포트 원문 보관 초과(이름=실행일·`--summary` 미정리)와 가드 미탐(히어독 `commit -a`·`env`/절대경로/`bash -c`·`data/` 통째 전송)·오탐(메시지 속 `-a`)을 잡아 수리.
 - 후속(10-11): 운영 Trace 볼륨 `./backend/logs/agent_traces`만 마운트(docker-compose.yml, 다음 배포부터 — 보관 정리가 없는 다른 로그는 휘발 유지). 첫 리포트 결함 묶음 수리 — ① 플래너 예산 소진 50건: 보조 추출 출력 형태를 `{quote, market}`으로 바꿔 표가 모르는 시장 표기("다우지수 종목"·"KOSPI stocks")를 LLM 정본 코드로 지름길 처리(120B 실측 26/37 지름길·좁힌 구절 46/46 플래너 유지, `qa_template_detect` 120B 재측정은 한도 회복 후) ② 되묻기 답 미흡수·보유 기간 해석은 병렬 세션의 해석 안정화 후속 6·7이 진행 중이라 중복 수리하지 않음 ③ 전면 재작성 JSON 잘림은 같은 작업(전면 재작성→패치 레인)의 부작용이라 그쪽에 넘김 ④ triage 신호 `silent_drop`→`dropped_condition` 개명(빠진 조건엔 항상 안내가 나간다).
+- 후속(10-11) ✅ 운영 콘솔 `Failure Triage` 메뉴(FR-ADM-008): 분류 로직을 `backend/observability/triage.py`로 옮겨 CLI와 공용, 백엔드 `GET /admin/trace-triage` → Next `GET /api/admin/trace-triage`(requireAdmin, 404 은닉) → `components/admin/TraceTriageTab.tsx`(기간·등급 필터, 묶음 펼치면 대표 사례). 실데이터 1,065건 0.25초·34KB.
 - 남은 일(별도 결정): 루트 metadata `model` 오기록.
 
 ### ✅ 완료 — 보안: Next → 백엔드 경로 이탈 차단 (2026-10-11)

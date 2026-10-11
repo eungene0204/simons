@@ -162,6 +162,10 @@ app.include_router(coach_router)
 from api.intent_routes import router as intent_router
 app.include_router(intent_router)
 
+# 운영 콘솔 실패 분류(관찰 계층 Trace 읽기 뷰)
+from api.observability_routes import router as observability_router
+app.include_router(observability_router)
+
 # 단일 종목 연구 프로파일(FR-STR-068b)
 from api.stock_profile_routes import router as stock_profile_router
 app.include_router(stock_profile_router)

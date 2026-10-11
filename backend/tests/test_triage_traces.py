@@ -1,4 +1,4 @@
-"""Trace 실패 분류(scripts/triage_traces.py) 회귀.
+"""Trace 실패 분류(observability/triage.py + CLI scripts/triage_traces.py) 회귀.
 
 고정할 계약:
 1. 판정은 구조 신호만 본다 — 사용자 원문이 달라도 구조가 같으면 신호가 같다(대원칙 1).
@@ -13,7 +13,8 @@ from __future__ import annotations
 import datetime as dt
 import json
 
-from scripts import triage_traces as tt
+from observability import triage as tt
+from scripts import triage_traces as cli
 
 
 def _agent_record(user_input="코스피 전략", *, outputs=None, inputs=None, children=None,
@@ -120,7 +121,7 @@ def test_triage_groups_by_tier_then_count():
     groups = tt.triage(iter([_agent_record(children=drop), _agent_record(children=drop), slow]))
     assert [(g["signal"], g["count"], g["tier"]) for g in groups] == [
         ("dropped_condition", 2, "결함 후보"), ("slow_turn", 1, "인프라")]
-    assert "결함 후보 2" in tt.render_summary(groups)
+    assert "결함 후보 2" in cli.render_summary(groups)
 
 
 def test_error_class_normalization():
@@ -134,7 +135,7 @@ def test_report_sweep_follows_trace_retention(tmp_path):
     for day in ("2026-10-08", "2026-10-09", "2026-10-11"):
         (tmp_path / f"{day}.md").write_text("x", encoding="utf-8")
     (tmp_path / "README.md").write_text("keep", encoding="utf-8")
-    tt.sweep_reports(tmp_path, today)
+    cli.sweep_reports(tmp_path, today)
     assert sorted(p.name for p in tmp_path.iterdir()) == ["2026-10-09.md", "2026-10-11.md", "README.md"]
 
 
@@ -144,7 +145,7 @@ def test_main_reads_dated_files_only(tmp_path, capsys):
     (traces / "2026-10-10.jsonl").write_text(json.dumps(_agent_record(total_ms=200_000)) + "\n",
                                              encoding="utf-8")
     (traces / "coverage-summary.jsonl").write_text('{"date": "x"}\n', encoding="utf-8")
-    assert tt.main(["--dir", str(traces), "--report-dir", str(tmp_path / "r"), "--summary"]) == 0
+    assert cli.main(["--dir", str(traces), "--report-dir", str(tmp_path / "r"), "--summary"]) == 0
     assert "인프라 1" in capsys.readouterr().out
 
 
@@ -154,14 +155,24 @@ def test_report_named_by_oldest_trace_and_swept_in_every_mode(tmp_path):
     traces, reports = tmp_path / "traces", tmp_path / "reports"
     traces.mkdir()
     reports.mkdir()
-    oldest = today - dt.timedelta(days=tt.RETENTION_DAYS - 1)
+    oldest = today - dt.timedelta(days=cli.RETENTION_DAYS - 1)
     for day in (oldest, today):
         (traces / f"{day.isoformat()}.jsonl").write_text(json.dumps(_agent_record()) + "\n",
                                                         encoding="utf-8")
-    assert tt.main(["--dir", str(traces), "--report-dir", str(reports)]) == 0
+    assert cli.main(["--dir", str(traces), "--report-dir", str(reports)]) == 0
     assert sorted(p.name for p in reports.iterdir()) == [f"{oldest.isoformat()}.md"]
 
     expired = reports / f"{(oldest - dt.timedelta(days=1)).isoformat()}.md"
     expired.write_text("원문", encoding="utf-8")
-    assert tt.main(["--dir", str(traces), "--report-dir", str(reports), "--summary"]) == 0
+    assert cli.main(["--dir", str(traces), "--report-dir", str(reports), "--summary"]) == 0
     assert not expired.exists()
+
+
+def test_load_returns_range_total_and_groups(tmp_path):
+    (tmp_path / "2026-10-10.jsonl").write_text(json.dumps(_agent_record(total_ms=200_000)) + "\n",
+                                               encoding="utf-8")
+    (tmp_path / "2026-10-11.jsonl").write_text(json.dumps(_agent_record()) + "\n", encoding="utf-8")
+    result = tt.load(tmp_path)
+    assert result["range"] == ["2026-10-10", "2026-10-11"] and result["total"] == 2
+    assert [g["signal"] for g in result["groups"]] == ["slow_turn"]
+    assert tt.load(tmp_path / "missing") == {"range": None, "total": 0, "groups": []}
