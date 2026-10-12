@@ -121,10 +121,11 @@ def test_apply_observed_theme_companies(monkeypatch):
 
 
 def test_apply_observed_learned_sector():
+    # 관찰 형태는 kg_resolve_sector의 {"sector"} — 해석 전 플래너는 검색 학습을 하지 않는다(2026-10-13).
     parsed = ParsedStrategy(description="테스트")
     notices: list = []
     result = _plan_result([
-        ("ground_term", "이상한테마", {"sector": "반도체"}),
+        ("kg_resolve_sector", "이상한테마", {"sector": "반도체"}),
     ])
     resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, notices)
     assert resolved == {"이상한테마"} and unresolved == set()
@@ -715,7 +716,7 @@ def test_us_context_blocks_kr_theme_and_sector_merge():
     parsed = ParsedStrategy(description="테스트", universe=["US"])
     notices: list = []
     result = _plan_result([
-        ("ground_term", "semiconductor", {"sector": "반도체"}),
+        ("kg_resolve_sector", "semiconductor", {"sector": "반도체"}),
     ])
     resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, notices)
     assert parsed.sector is None
@@ -731,7 +732,7 @@ def test_us_context_leaves_unknown_theme_unresolved():
     """미국 문맥에서 카탈로그·KG 밖 표현은 KR 폴백 없이 미해결로 남는다(되묻기 표면화)."""
     parsed = ParsedStrategy(description="테스트", universe=["US"])
     result = _plan_result([
-        ("ground_term", "used cars", {"sector": "유통"}),
+        ("kg_resolve_sector", "used cars", {"sector": "유통"}),
     ])
     resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, [])
     assert parsed.sector is None
@@ -744,7 +745,7 @@ def test_us_context_resolves_catalog_theme_to_us_tickers():
     영어 시장 접두("US")·범주 접미("stocks")는 테마 정체성이 아니므로 벗겨 매칭한다."""
     parsed = ParsedStrategy(description="테스트", universe=["US"])
     result = _plan_result([
-        ("ground_term", "US cloud software stocks", {"sector": "IT/소프트웨어"}),
+        ("kg_resolve_sector", "US cloud software stocks", {"sector": "IT/소프트웨어"}),
     ])
     resolved, unresolved, _applied = _apply_planner_first_universe(result, parsed, [])
     assert resolved == {"US cloud software stocks"} and unresolved == set()

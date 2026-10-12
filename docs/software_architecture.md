@@ -935,13 +935,17 @@ prod=미설정(off).
 **Phase 4 — DAG Planner (planner/dag*.py, 기본 off)**: 대화 턴 전체를 Action DAG로
 계획한다(계약 정본: `docs/planner_dag_contract.md`). Planner LLM의 **유일한 출력은
 DAG(JSON)**이고 실행은 전부 결정론 러너다: `dag.py`가 구조 검증(비순환·id 고유·도구
-화이트리스트 7종·노드 예산·done 노드 불변·finish→compile_strategy→validate_intent
+화이트리스트 8종(검색 학습 ground_term 제외 — 2026-10-13)·노드 예산·done 노드 불변·finish→compile_strategy→validate_intent
 의존 사슬 강제)과 ready 스케줄링을, `dag_planner.py`가 턴 루프(발행→검증→ready
 실행 가능 도구 전이 실행→관찰 제시)를 담당한다. ask 노드는 새 관찰이 없는 턴에만
 하나 표면화하며(관찰이 질문을 불필요하게 만들 수 있어 LLM에 수정 1턴), 질문은 출력
 관문(output_guard)을 통과한다. 동일 도구+인자는 한 번만 실행(관찰 재사용),
-ground_term 학습 후 테마 재조회는 결정론 에필로그, 확정값(sector·companies)은 도구
-관찰값에서만 채택한다. **채택 규칙은 planner가 어떤 노드를 계획했는지와 무관하게 고정
+CONCEPT 분류 뒤 후보 조회→(후보 0개면) KG 업종·테마 조회와 단일 정확 후보의 테마 재조회는
+결정론 에필로그(관찰 enum·후보 수로 다음 걸음이 정해지는 절차 — LLM은 관찰을 한 번에 보고
+질문·종결만 정한다, 2026-10-13: 한 턴 한 도구로 예산 4턴에서 끊기던 TurnBudgetExhausted 해소),
+확정값(sector·companies)은 도구 관찰값에서만 채택한다. **검색 학습(ground_term)은 하지 않는다** —
+해석 전이라 시장 문맥이 없어 엉성한 구절을 공유 어휘집에 써 넣었다(2026-10-11 오염 4건, 삭제·
+백업). 학습은 해석 뒤 시장 문맥이 정해진 정상 경로(term-in 체인·mini_planner, US는 공시 그라운딩)만. **채택 규칙은 planner가 어떤 노드를 계획했는지와 무관하게 고정
 체인과 동일하다** — 개념 표현에 업종 근사(sector) 관찰만 있어도 병합 전에
 apply_theme_companies로 테마 상장사를 한 번 더 결정론 조회해 있으면 그쪽을 채택한다
 (2026-08-24 '블랙핑크' 사고: 학습된 업종 근사가 kg_resolve_sector에 히트하자 9B가 테마

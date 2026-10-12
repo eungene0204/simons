@@ -2261,3 +2261,11 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 - 수리: `backendPathSegment`(`/`·`?`·`#` 인코딩, `.`·`..`·빈 값 거부)로 17곳을 가두고, 리서치 프록시는 최종 URL `/research/` 접두 검사, `fetchBackend`는 `.`·`..` 조각 거부. 재발 방지 소스 검사 `lib/server/backendPathGuard.test.ts`(NFR-SEC-011).
 - ✅ 후속 완료: 백엔드 이중 잠금 — `backend/internal_auth.py` 미들웨어가 관리자·내부·운영 변경 엔드포인트에 `X-Internal-Token`(`INTERNAL_API_TOKEN`) 요구, 미설정이면 fail-closed, 거부는 404(NFR-SEC-012). 호출자: `fetchBackend` 자동, `/api/stocks/sync`·`scripts/sync_data.py` 직접.
 
+### ✅ 완료 — 플래너 예산 소진 해소 + 공유 어휘집 오염 차단 (2026-10-13)
+
+- 증상: 실패 분류에서 해석 전 플래너의 TurnBudgetExhausted가 매일 반복(10-11~12 31건) — 결과는 고정 파이프라인이 이어받지만 턴마다 10초+·LLM 4~8콜 낭비.
+- 원인: CONCEPT 해석 사슬(분류→후보→KG→검색 학습→질문)이 LLM 5턴인데 예산 상한 4. 사슬 끝 검색 학습이 해석 전(시장 문맥 없음)에 엉성한 구절을 운영 공유 어휘집에 써 넣어 오염 — 'US energy sector'→국내 38종목, 'US airline'→23, '미국 빅테크'→6, 'Samsung Electronics'→66.
+- 수리: C 플래너에서 검색 학습 제거(학습은 해석 뒤 시장별 정상 경로만), D 오염 4건 삭제(백업 `~/nullalgo/backups/term-lexicon-polluted-2026-10-13.json`, 사용자 승인), A 보조 추출 시장 코드를 구절별 목록으로('KOSPI/KOSDAQ 공통 유니버스'), B CONCEPT 조회 사슬을 러너 결정론 에필로그로.
+- 실측(OpenRouter 120B 81콜 전부 120B): 실패 21건 → 21건 2턴 내 결론, 학습 호출 0. 대조군 30건 중 28 동일, 2건은 LLM 구절 추출 변동. E2E 4건 결론·안내 무변화.
+- 미실행: 예시 전수 게이트(qa_template_detect) 120B 재측정.
+

@@ -186,7 +186,7 @@ Planner ──── 매 턴 Action DAG(JSON) 발행/수정  ←─ 유일한 �
 |---|---|
 | ASK_USER | `ask` 노드 |
 | KG_LOOKUP | `tool: kg_resolve_sector` / `kg_theme_companies` |
-| INTERNET_SEARCH | `tool: ground_term` (어휘집→KG→내부 LLM→검색 체인) |
+| INTERNET_SEARCH | 없음 — 해석 전 플래너는 검색 학습을 하지 않는다(2026-10-13, 해석 뒤 term-in 체인·mini_planner 몫) |
 | RESOLVE_CONCEPT / RESOLVE_ASSET | `tool: resolve_universe` |
 | VALIDATE | `tool: validate_intent` (+ `lookup_capabilities`) |
 | GENERATE_STRATEGY | `tool: compile_strategy` → `finish` |
@@ -245,15 +245,19 @@ Planner ──── 매 턴 Action DAG(JSON) 발행/수정  ←─ 유일한 �
 ### 유니버스별 디테일
 
 **① 코스피 / 코스닥 / 업종·테마 유니버스** — 8슬롯 전부 진행. 매수 조건 칩은
-재무 지표(PER·ROE 등)와 기술 지표 모두 가능. 미해석 테마·업종 표현이 있으면
-ask보다 먼저 해석 tool 체인을 DAG에 넣는다:
+재무 지표(PER·ROE 등)와 기술 지표 모두 가능. 미해석 테마·업종 표현은 classify_universe만
+계획하면 된다 — CONCEPT 분류 뒤의 조회 사슬은 러너가 결정론으로 실행한다(2026-10-13):
 
 ```
-kg_resolve_sector ──┐
-kg_theme_companies ─┴→ (미해석 시) ground_term → kg_theme_companies 재조회
-                            ↓ 검색 소진
-                      '전략 구성 불가' 종결 안내 또는 ask
+classify_universe → (CONCEPT) list_concept_candidates ─┬→ 후보 0개: kg_resolve_sector + kg_theme_companies
+                    [러너 자동]                         └→ 정확 후보 1개: 그 정본 표기의 kg_theme_companies
+                            ↓ LLM은 관찰을 한 번에 보고
+                      질문(ask) 또는 다음 슬롯 — 미해석이어도 더 조사하지 않는다
 ```
+
+검색 학습(ground_term)은 하지 않는다. 해석 전이라 시장 문맥이 없어, 엉성한 구절을 지역 구분 없이
+운영 공유 어휘집에 써 넣었다(2026-10-11 오염 4건). 새 용어의 학습은 해석 뒤 시장 문맥이 정해진
+정상 경로(term-in 체인·mini_planner, 미국 문맥은 공시 그라운딩)만 한다.
 
 **② ETF 유니버스** — 8슬롯 전부 진행하되 개별 기업 재무정보 사용 불가
 (universe_capabilities가 정본). 매수/매도 조건의 질문·칩에 PER·PBR·ROE·EPS·
@@ -299,15 +303,11 @@ FR-STR-068 반대신호 추천 notice) — 같은 골격, 디테일 분화 확�
 ### Tool 화이트리스트
 
 tool 노드에 쓸 수 있는 도구는 `backend/strategy_conversation/tools/catalog.py`에
-등록된 9종뿐이다: classify_universe(유니버스 표현 타입 결정 —
+등록된 8종뿐이다: classify_universe(유니버스 표현 타입 결정 —
 MARKET/ETF/SINGLE_STOCK/SECTOR/CONCEPT), list_concept_candidates(CONCEPT 표현의
 카탈로그 범위 후보 — 되묻기 chips 재료), kg_resolve_sector, kg_theme_companies,
-ground_term(어휘집 캐시 — 이미 학습된 용어 재검색 노드 금지), resolve_universe,
-lookup_capabilities, validate_intent, compile_strategy.
-
-해석 순서는 항상 지식그래프 → 인터넷 검색이다. ground_term 노드는 표현이
-산업·기술·투자 테마로 해석될 여지가 있을 때만 만들고, 투자와 무관하거나
-무의미한 표현이면 ask 노드로 되묻는다. 불필요한 검색 노드를 만들지 않는다.
+resolve_universe, lookup_capabilities, validate_intent, compile_strategy.
+ground_term(검색 학습)은 화이트리스트 밖이다 — 노드로 내면 계약 위반 폴백(2026-10-13).
 
 ### Universe-first (Phase 5, 2026-07-28 — 제어 역전)
 
@@ -348,8 +348,9 @@ planner는 `run_primary_parse` **최선두**에서 실행된다(`_plan_first`,
 - ready인 ask 노드가 여러 개여도 러너는 한 번에 하나만 사용자에게 전달한다.
   ready인 tool 노드는 ask보다 먼저 실행한다(묻기 전에 도구로 해결)
 - 동일 도구+인자는 한 번만 실행된다(관찰 재사용 — 루프의 구조적 차단)
-- ground_term 학습 성공 후 테마 재조회는 판단이 아니라 절차 — LLM 턴 없이
-  결정론 에필로그로 실행된다. list_concept_candidates 후보가 **정확히 1개**일 때
+- CONCEPT 분류 뒤 후보 조회, 후보 0개일 때의 KG 업종·테마 조회는 판단이 아니라 절차 —
+  LLM 턴 없이 결정론 에필로그로 실행된다(2026-10-13: 한 턴 한 도구로 예산 4턴에서 결론 전에
+  끊기던 TurnBudgetExhausted 해소). list_concept_candidates 후보가 **정확히 1개**일 때
   그 정본 표기의 kg_theme_companies 조회도 같은 에필로그다(2026-08-02 감사 #3:
   9B가 관찰된 카탈로그 후보 60곳을 두고 조건 ask로 건너뛰어, 폴백 레인이 원문
   표기 시드 앵커 2곳을 적용하는 조용한 범위 축소가 났다. 후보 2개 이상은 종전

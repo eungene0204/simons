@@ -931,3 +931,25 @@ def test_ask_node_free_question_without_topic_stays_none():
     """정본 문구가 아니면 보완하지 않는다 — 부분 일치는 문구 해석이라 금지."""
     nodes = parse_dag({"dag": {"nodes": [_bare_ask_node("ask_x", "매수 조건을 어떻게 정할까요?")]}})
     assert nodes[0].topic is None
+
+
+def test_concept_lookup_chain_runs_without_llm_turns(monkeypatch):
+    """CONCEPT 분류 뒤 후보 조회(0개)→KG 업종·테마 조회는 러너의 결정론 에필로그다 —
+    종전에는 한 턴에 한 도구씩 LLM이 골라 예산 4턴에서 결론 전에 끊겼다(2026-10-11 Trace 50건)."""
+    from strategy_conversation.tools import catalog as cat
+
+    calls = []
+    monkeypatch.setattr(cat, "_classify_universe",
+                        lambda inp: cat.ClassifyUniverseOut(universe_type="CONCEPT"))
+    monkeypatch.setattr(kg, "catalog_theme_candidates", lambda text: calls.append(("cand", text)) or [])
+    monkeypatch.setattr(kg, "resolve_sector_from_text", lambda text: calls.append(("sector", text)) or None)
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: calls.append(("theme", text)) or None)
+    first = _dag_json(_tool_node("cls", "classify_universe", text="미지테마"))
+    ask = _dag_json(_ask_node("ask1", "어떤 조건에서 매수할까요?", deps=["cls"]))
+    chat = ScriptedChat([first, ask])
+    result = plan_strategy_dag("미지테마로 전략", chat)
+    assert result is not None and result.outcome == "ask"
+    assert chat.calls == 2                       # 분류 1턴 + 질문 1턴
+    assert calls == [("cand", "미지테마"), ("sector", "미지테마"), ("theme", "미지테마")]
+    assert [s["tool"] for s in result.auto_steps] == [
+        "list_concept_candidates", "kg_resolve_sector", "kg_theme_companies"]

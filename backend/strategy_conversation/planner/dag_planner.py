@@ -153,15 +153,15 @@ def _system_prompt() -> str:
         "2. 관찰의 universe_type이 MARKET·SECTOR·SINGLE_STOCK·ETF면 추가 해석이 필요 "
         "없습니다 — 다음 슬롯으로 진행하세요. NOT_UNIVERSE면 그 표현은 지표 조건입니다 — "
         "유니버스 표현 없음과 동일하게 진행하고 추가 해석·검색을 만들지 마세요.\n"
-        "3. universe_type이 CONCEPT면 **먼저 list_concept_candidates로 범위 후보를 "
-        "조회**하세요.\n"
+        "3. universe_type이 CONCEPT면 러너가 범위 후보 조회(list_concept_candidates)와, "
+        "후보가 0개일 때의 KG 해석(kg_resolve_sector·kg_theme_companies)을 **자동으로 실행해 "
+        "관찰로 보여줍니다** — 이 도구 노드를 따로 만들지 말고 관찰을 보고 정하세요:\n"
         "   - 후보가 2개 이상: 범위가 갈리는 표현입니다 — kg 해석으로 조용히 확정하지 "
         '말고 ask(topic은 반드시 "유니버스")로 범위를 물으세요 — 선택지는 시스템이 '
         "관찰된 후보 표기로 붙입니다.\n"
         "   - 후보가 1개: 그래도 ask로 확인받으세요(자동 확정 금지).\n"
-        "   - 후보가 0개: kg_resolve_sector·kg_theme_companies로 해석하세요. 그래도 "
-        "미해석이면 더 조사하지 말고 다음 슬롯으로 진행하세요 — 새 용어의 검색 학습은 "
-        "해석이 끝나 시장이 정해진 뒤 시스템이 수행합니다.\n"
+        "   - 후보가 0개: KG 관찰이 해석했든 못 했든 더 조사하지 말고 다음 슬롯으로 "
+        "진행하세요 — 새 용어의 검색 학습은 해석이 끝나 시장이 정해진 뒤 시스템이 수행합니다.\n"
         "4. 매수/매도 조건 등 모든 ask 노드는 유니버스 해석 노드(tool 또는 유니버스 ask)에 "
         "depends_on으로 의존해야 합니다 — 유니버스가 조건보다 선행 결정 사항입니다.\n\n"
         "## 계획 범위 — State가 없는 턴에는 한 걸음만\n"
@@ -189,9 +189,8 @@ def _system_prompt() -> str:
         "- 지원하지 않는 개념(뉴스·공시 기반 조건 등)은 ask로 채우지 말고 미지원 "
         "안내로 종결합니다. 지원 여부의 정본은 도구 관찰값입니다.\n\n"
         "## 유니버스별 디테일 (큰 줄기는 같고 디테일만 다릅니다)\n"
-        "① 코스피/코스닥/업종·테마: 8슬롯 전부. 미해석 테마·업종 표현은 ask보다 먼저 해석 tool 체인"
-        "(kg_resolve_sector·kg_theme_companies)을 넣으세요. "
-        "미해석이면 다음 슬롯으로 진행합니다(검색 학습은 해석 뒤 시스템 몫).\n"
+        "① 코스피/코스닥/업종·테마: 8슬롯 전부. CONCEPT 표현의 후보·KG 조회는 러너가 자동으로 "
+        "합니다 — 관찰이 미해석이어도 다음 슬롯으로 진행합니다(검색 학습은 해석 뒤 시스템 몫).\n"
         "② ETF: 8슬롯 전부, 단 개별 기업 재무정보 사용 불가 — 매수/매도 조건 **질문 문구**에 "
         "PER·PBR·ROE·EPS·영업이익·순이익·매출·재무 성장률을 넣으면 계약 위반입니다"
         "(선택지는 시스템이 유니버스에 맞춰 거릅니다). ETF는 단독 유니버스"
@@ -522,36 +521,54 @@ def _plan_strategy_dag(
             action_trace.output(status="COMPLETED", observation=observation)
         call_cache[key] = observation
         executed[node.id] = ExecutedNode(node, observation)
+        if node.tool == "classify_universe" and (observation or {}).get("universe_type") == "CONCEPT":
+            _concept_epilogue(node.args.get("text"))
         if node.tool == "list_concept_candidates":
-            # 후보가 **표기 동일성 1개**면 범위가 갈리지 않는다('ESS'='전력저장장치(ESS)')
-            # — 그 후보 정본 표기로의 테마 조회는 판단이 아니라 절차다. 9B에게 맡기면
-            # 관찰을 두고 매수 질문으로 건너뛰어, 폴백 레인이 원문 표기 시드 앵커(2곳)를
-            # 적용하는 조용한 범위 축소가 났다(2026-08-02 감사 #3 #4: 'ESS' 관찰 60곳 ↔
-            # 적용 2곳).
-            # 부분 문자열 일치는 후보가 하나여도 자동 조회하지 않는다 — 이름 안에 글자가
-            # 들어 있을 뿐 사용자가 말한 범위가 아니다('종목'→'철강 주요종목' 사고
-            # 2026-09-10, '2차전지'→'2차전지 장비' 조용한 축소). 확인 되묻기는
-            # 결정론(primary._planner_scope_ask)이 표면화한다.
-            candidates = (observation or {}).get("candidates") or []
-            if len(candidates) == 1 and (candidates[0] or {}).get("exact"):
-                term = (candidates[0] or {}).get("term")
-                _auto_theme_requery(term)
+            _after_candidates(node.args.get("text"), observation)
         return True
 
-    def _auto_theme_requery(text: Optional[str]) -> None:
-        """kg_theme_companies 결정론 에필로그 — 관찰 캐시를 공유하고 실패는 무시한다."""
-        requery = DagNode(id=f"auto:{len(auto_steps)}", type="tool",
-                          tool="kg_theme_companies", args={"text": text})
-        requery_key = requery.call_key()
-        if not text or requery_key in call_cache:
-            return
+    def _auto_call(tool: str, text: Optional[str]) -> Optional[dict]:
+        """조회 도구 결정론 에필로그 — 관찰 캐시를 공유하고 실패는 관찰 없음으로 계속한다."""
+        if not text:
+            return None
+        auto = DagNode(id=f"auto:{len(auto_steps)}", type="tool", tool=tool, args={"text": text})
+        key = auto.call_key()
+        if key in call_cache:
+            return call_cache[key]
         try:
-            requery_obs = call_tool("kg_theme_companies", text=text).model_dump()
-            call_cache[requery_key] = requery_obs
-            auto_steps.append({"id": requery.id, "tool": requery.tool,
-                               "args": requery.args, "observation": requery_obs})
-        except Exception:  # noqa: BLE001 — 재조회 실패는 관찰 없음으로 계속
-            logger.debug("dag planner 테마 결정론 재조회 실패", exc_info=True)
+            obs = call_tool(tool, text=text).model_dump()
+        except Exception:  # noqa: BLE001 — 조회 실패는 관찰 없음으로 계속
+            logger.debug("dag planner 결정론 에필로그 실패 | tool=%s", tool, exc_info=True)
+            return None
+        call_cache[key] = obs
+        auto_steps.append({"id": auto.id, "tool": tool, "args": auto.args, "observation": obs})
+        return obs
+
+    def _concept_epilogue(text: Optional[str]) -> None:
+        """CONCEPT 분류 뒤의 조회 사슬 — 다음 걸음이 관찰값(분류 종류·후보 수)만으로 정해지는
+        절차라 LLM 턴 없이 실행한다. 종전에는 분류→후보→KG→검색을 한 턴에 한 도구씩
+        LLM이 고르다 예산 4턴에서 결론 전에 끊겼다(2026-10-11 Trace 50건 TurnBudgetExhausted).
+        LLM은 이 관찰들을 한 번에 보고 질문·종결만 정한다."""
+        obs = _auto_call("list_concept_candidates", text)
+        if obs is not None:
+            _after_candidates(text, obs)
+
+    def _after_candidates(text: Optional[str], observation: Optional[dict]) -> None:
+        """후보 조회 관찰 뒤의 결정론 절차.
+
+        - 후보가 **표기 동일성 1개**면 범위가 갈리지 않는다('ESS'='전력저장장치(ESS)') — 그 후보
+          정본 표기의 테마 조회는 판단이 아니라 절차다(2026-08-02 감사 #3 #4: 9B가 관찰을 두고
+          매수 질문으로 건너뛰어 시드 앵커 2곳이 적용되던 조용한 범위 축소). 부분 문자열 일치는
+          후보가 하나여도 자동 조회하지 않는다('종목'→'철강 주요종목' 2026-09-10) — 확인 되묻기는
+          결정론(primary._planner_scope_ask)이 표면화한다.
+        - 후보가 0개면 KG 업종·테마 조회(읽기 전용)를 이어서 한다. 검색 학습은 하지 않는다.
+        """
+        candidates = (observation or {}).get("candidates") or []
+        if len(candidates) == 1 and (candidates[0] or {}).get("exact"):
+            _auto_call("kg_theme_companies", (candidates[0] or {}).get("term"))
+        elif not candidates:
+            _auto_call("kg_resolve_sector", text)
+            _auto_call("kg_theme_companies", text)
 
     # 턴 예산은 **무진전 LLM 루프**를 막기 위한 것이지 생산적인 도구 사슬을 자르기 위한
     # 것이 아니다. 직전 턴이 새 관찰을 만들었으면 hard_cap까지 연장한다 — CONCEPT
