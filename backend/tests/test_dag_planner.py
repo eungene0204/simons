@@ -289,26 +289,19 @@ def test_state_absent_turn_is_contracted_to_one_step():
     assert "ask **하나**만 발행" in prompt
 
 
-def test_ground_term_epilogue_requeries_theme(monkeypatch):
-    """ground_term 학습 성공 후 테마 재조회는 LLM 턴 없는 결정론 에필로그다."""
-    monkeypatch.setattr(tg, "resolve_sector", lambda text, chat, **kw: "반도체")
-    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: {
-        "term": "미지테마", "companies": [{"symbol": "005930", "name": "삼성전자"}],
-        "first_known_date": None,
-    })
+def test_planner_never_runs_search_learning(monkeypatch):
+    """해석 전 플래너는 검색 학습(ground_term)을 하지 않는다 — 시장 문맥 없이 엉성한 구절을
+    공유 어휘집에 써 넣었다(2026-10-11: 'US energy sector'→국내 38종목 등). 학습 노드는
+    화이트리스트 밖이라 계약 위반 폴백이고, 학습 함수는 한 번도 불리지 않는다."""
+    learned = []
+    monkeypatch.setattr(tg, "resolve_sector", lambda *a, **kw: learned.append(a) or "반도체")
     dag = _dag_json(
         _tool_node("g", "ground_term", text="미지테마"),
         _ask_node("ask1", "손절 기준을 정할까요?", deps=["g"]),
-        *_finish_chain(deps=["ask1"]),
     )
-    chat = ScriptedChat([dag, dag])
-    result = plan_strategy_dag("미지테마 전략 만들어줘", chat)
-    assert result is not None and result.outcome == "ask"
-    assert result.sector == "반도체"
-    assert result.companies[0]["symbol"] == "005930"
-    assert len(result.auto_steps) == 1
-    assert result.auto_steps[0]["tool"] == "kg_theme_companies"
-    assert chat.calls == 2
+    assert plan_strategy_dag("미지테마 전략 만들어줘", ScriptedChat([dag])) is None
+    assert learned == []
+    assert "ground_term" not in _system_prompt()
 
 
 def test_single_concept_candidate_triggers_theme_requery_epilogue(monkeypatch):

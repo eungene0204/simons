@@ -102,9 +102,6 @@ _TOOL_EFFECTS: Dict[str, Dict[str, List[str]]] = {
         "produces": ["universe.symbols"],
         "invalidated_by": ["universe.term", "universe.type", "universe.sectors"],
     },
-    "ground_term": {
-        "produces": ["universe.term_definition"], "invalidated_by": ["universe.term"],
-    },
     "resolve_universe": {
         "requires": ["universe.type"], "produces": ["universe.symbols"],
         "invalidated_by": ["universe.term", "universe.type", "universe.sectors"],

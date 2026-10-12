@@ -14,8 +14,9 @@ mini_planner(Phase 3)의 안전 계약을 DAG로 확장한 것이다:
   실행하지 않는다(러너 보유 intent 상태가 필요 — primary 승격 시 배선)
 - **확정값은 도구 관찰값에서만 채택한다** — finish·ask 문구의 LLM 주장값 무시
 - 표면화되는 ask 질문은 출력 관문(output_guard)을 통과한다
-- ground_term 학습 성공 후 테마 재조회는 판단이 아니라 절차 — LLM 턴 없이
-  결정론 에필로그로 실행한다(고정 체인·mini_planner와 같은 계약)
+- 검색 학습(ground_term)은 하지 않는다 — 해석 전이라 시장 문맥이 없어 공유 어휘집을
+  오염시켰다(2026-10-11). 학습은 해석 뒤 정상 경로(term-in 체인·mini_planner)만 한다
+- 단일 정확 후보의 테마 재조회는 판단이 아니라 절차 — LLM 턴 없이 결정론 에필로그로 실행한다
 
 실패는 전부 None 반환 — 고정 파이프라인이 그대로 담당한다(planner는 어떤
 경우에도 단독 실패 지점이 아니다).
@@ -47,17 +48,20 @@ from observability.agent_trace import dag_ascii, dag_snapshot, node_status_count
 
 logger = logging.getLogger("strategy_interpreter.planner.dag")
 
-# DAG 구조에 등장할 수 있는 도구 전체(화이트리스트).
+# DAG 구조에 등장할 수 있는 도구 전체(화이트리스트). 검색 학습(ground_term)은 없다 —
+# 이 플래너는 해석 전(시장 문맥 미정)에 돌아, 학습이 지역 구분 없이 엉성한 구절을 공유
+# 어휘집에 써 넣었다(2026-10-11: 'US energy sector'→국내 38종목 등 4건). 학습은 해석 뒤
+# 시장 문맥이 정해진 정상 경로(term-in 체인·mini_planner, US는 US 그라운딩)만 한다.
 _ALLOWED_TOOLS = (
     "classify_universe", "list_concept_candidates",
-    "kg_resolve_sector", "kg_theme_companies", "ground_term", "resolve_universe",
+    "kg_resolve_sector", "kg_theme_companies", "resolve_universe",
     "lookup_capabilities", "validate_intent", "compile_strategy",
 )
 # 러너가 실제 실행하는 도구 — validate/compile은 러너 보유 intent 상태가 필요해
 # 레인(primary.py)이 결정론으로 실행한다(구조상 노드로는 허용 — finish 사슬 계약).
 _EXECUTABLE_TOOLS = (
     "classify_universe", "list_concept_candidates",
-    "kg_resolve_sector", "kg_theme_companies", "ground_term", "resolve_universe",
+    "kg_resolve_sector", "kg_theme_companies", "resolve_universe",
     "lookup_capabilities",
 )
 
@@ -155,8 +159,9 @@ def _system_prompt() -> str:
         '말고 ask(topic은 반드시 "유니버스")로 범위를 물으세요 — 선택지는 시스템이 '
         "관찰된 후보 표기로 붙입니다.\n"
         "   - 후보가 1개: 그래도 ask로 확인받으세요(자동 확정 금지).\n"
-        "   - 후보가 0개: kg_resolve_sector·kg_theme_companies로 해석하고, 미해석이면 "
-        "ground_term(검색 학습)을 시도하세요. 그래도 미해석이면 ask로 물으세요.\n"
+        "   - 후보가 0개: kg_resolve_sector·kg_theme_companies로 해석하세요. 그래도 "
+        "미해석이면 더 조사하지 말고 다음 슬롯으로 진행하세요 — 새 용어의 검색 학습은 "
+        "해석이 끝나 시장이 정해진 뒤 시스템이 수행합니다.\n"
         "4. 매수/매도 조건 등 모든 ask 노드는 유니버스 해석 노드(tool 또는 유니버스 ask)에 "
         "depends_on으로 의존해야 합니다 — 유니버스가 조건보다 선행 결정 사항입니다.\n\n"
         "## 계획 범위 — State가 없는 턴에는 한 걸음만\n"
@@ -185,8 +190,8 @@ def _system_prompt() -> str:
         "안내로 종결합니다. 지원 여부의 정본은 도구 관찰값입니다.\n\n"
         "## 유니버스별 디테일 (큰 줄기는 같고 디테일만 다릅니다)\n"
         "① 코스피/코스닥/업종·테마: 8슬롯 전부. 미해석 테마·업종 표현은 ask보다 먼저 해석 tool 체인"
-        "(kg_resolve_sector·kg_theme_companies → 미해석 시 ground_term)을 넣으세요. "
-        "검색이 소진되면 종결 안내 또는 ask.\n"
+        "(kg_resolve_sector·kg_theme_companies)을 넣으세요. "
+        "미해석이면 다음 슬롯으로 진행합니다(검색 학습은 해석 뒤 시스템 몫).\n"
         "② ETF: 8슬롯 전부, 단 개별 기업 재무정보 사용 불가 — 매수/매도 조건 **질문 문구**에 "
         "PER·PBR·ROE·EPS·영업이익·순이익·매출·재무 성장률을 넣으면 계약 위반입니다"
         "(선택지는 시스템이 유니버스에 맞춰 거릅니다). ETF는 단독 유니버스"
@@ -512,19 +517,11 @@ def _plan_strategy_dag(
                 action_trace.meta(cache_hit=True)
                 action_trace.output(status="COMPLETED", reused_observation=True)
                 return False
-            payload: Dict[str, Any] = dict(node.args)
-            if node.tool == "ground_term":
-                payload["chat"] = chat_fn  # 비결정론 도구 — 공유 LLM 주입 계약
-            observation = call_tool(node.tool, **payload).model_dump()
+            observation = call_tool(node.tool, **dict(node.args)).model_dump()
             action_trace.meta(cache_hit=False)
             action_trace.output(status="COMPLETED", observation=observation)
         call_cache[key] = observation
         executed[node.id] = ExecutedNode(node, observation)
-        if node.tool == "ground_term":
-            # 검색 학습이 테마 앵커를 새로 만들 수 있다 — 학습 후 테마 재조회는
-            # 판단이 아니라 절차라 LLM 턴 없이 결정론 에필로그로 수행한다.
-            text = node.args.get("text")
-            _auto_theme_requery(text)
         if node.tool == "list_concept_candidates":
             # 후보가 **표기 동일성 1개**면 범위가 갈리지 않는다('ESS'='전력저장장치(ESS)')
             # — 그 후보 정본 표기로의 테마 조회는 판단이 아니라 절차다. 9B에게 맡기면
