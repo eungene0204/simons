@@ -132,13 +132,21 @@ def _evidence(text, terms):
 
 def test_universe_terms_carry_llm_market_codes_in_order():
     evidence = _evidence("다우지수 종목 중 코스피 보안주", [
-        {"quote": "다우지수 종목", "market": "DOW30"}, {"quote": "코스피 보안주", "market": None}])
+        {"quote": "다우지수 종목", "markets": ["DOW30"]}, {"quote": "코스피 보안주", "markets": None}])
     assert evidence.universe_terms == ["다우지수 종목", "코스피 보안주"]
-    assert evidence.universe_markets == ["DOW30", None]
+    assert evidence.universe_markets == [["DOW30"], None]
     legacy = _evidence("코스피 종목", ["코스피"])
     assert legacy.universe_terms == ["코스피"] and legacy.universe_markets == [None]
 
 
 def test_universe_market_code_outside_canonical_list_drops_section():
-    evidence = _evidence("니케이 종목", [{"quote": "니케이 종목", "market": "NIKKEI"}])
+    evidence = _evidence("니케이 종목", [{"quote": "니케이 종목", "markets": ["NIKKEI"]}])
     assert evidence.universe_terms is None and evidence.universe_markets is None
+
+
+def test_one_quote_can_name_two_markets():
+    """'KOSPI/KOSDAQ 공통 유니버스'는 한 구절이 두 시장 — 단수 칸이라 null로 적혀 지름길을 놓쳤다(2026-10-12)."""
+    evidence = _evidence("KOSPI/KOSDAQ 공통 유니버스에서", [
+        {"quote": "KOSPI/KOSDAQ 공통 유니버스", "markets": ["KOSPI", "KOSDAQ"]}])
+    assert evidence.universe_markets == [["KOSPI", "KOSDAQ"]]
+    assert _evidence("코스피", [{"quote": "코스피", "markets": []}]).universe_terms is None

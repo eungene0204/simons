@@ -32,21 +32,26 @@ def observe_plain_markets(evidence):
     """
     if not evidence.universe_terms:
         return None
-    markets = evidence.universe_markets or [None] * len(evidence.universe_terms)
+    markets_per_term = evidence.universe_markets or [None] * len(evidence.universe_terms)
     executed = {}
     try:
-        for index, (term, market) in enumerate(zip(evidence.universe_terms, markets)):
+        for index, (term, markets) in enumerate(zip(evidence.universe_terms, markets_per_term)):
             observation = call("classify_universe", text=term).model_dump()
             # 표가 모르는 표기(CONCEPT)일 때만 대신한다 — 표가 종목·업종·ETF로 짚은 구절은 덮지 않는다.
-            if observation.get("universe_type") == "CONCEPT" and market is not None:
-                observation = {"universe_type": "MARKET", "canonical": market}
-            if observation.get("universe_type") != "MARKET":
-                return None
-            if observation.get("canonical") in (None, "ETF", "US_ETF"):
-                return None
-            node = DagNode(id=f"market_{index}", type="tool", tool="classify_universe",
-                           args={"text": term})
-            executed[node.id] = ExecutedNode(node, observation)
+            # 한 구절이 두 시장을 가리키면('KOSPI/KOSDAQ 공통 유니버스') 시장마다 관찰을 만든다.
+            if observation.get("universe_type") == "CONCEPT" and markets:
+                observations = [{"universe_type": "MARKET", "canonical": m} for m in markets]
+            else:
+                observations = [observation]
+            for sub, obs in enumerate(observations):
+                if obs.get("universe_type") != "MARKET":
+                    return None
+                if obs.get("canonical") in (None, "ETF", "US_ETF"):
+                    return None
+                node_id = f"market_{index}" if len(observations) == 1 else f"market_{index}_{sub}"
+                node = DagNode(id=node_id, type="tool", tool="classify_universe",
+                               args={"text": term})
+                executed[node.id] = ExecutedNode(node, obs)
     except Exception:
         return None
     return DagPlanResult(outcome="universe_settled", question=None, chips=[], sector=None,

@@ -27,8 +27,9 @@ and disagreement keep the original planner. For OpenRouter, complex planning beg
 independent evidence arrives and overlaps the main interpretation. It does not wait for the full
 interpretation. Existing tool observations are returned in the same DAG result contract.
 
-Evidence terms carry a per-quote canonical market code (`{"quote", "market"}`, 2026-10-11). The
-evidence LLM writes a `SUPPORTED_MARKETS` code only when the quote names a whole market or index,
+Evidence terms carry per-quote canonical market codes (`{"quote", "markets"}`, 2026-10-11; a list
+since 2026-10-13 because one quote can name two markets, e.g. "KOSPI/KOSDAQ 공통 유니버스"). The
+evidence LLM writes `SUPPORTED_MARKETS` codes only when the quote names whole markets or indices,
 and null when a sector, theme, symbol, ETF or exclusion narrows it. The canonical table is checked
 first; the LLM code is used only when the table does not know the wording (`CONCEPT`, e.g. "다우지수
 종목", "KOSPI stocks"), never over a table verdict of symbol, sector or ETF. Deterministic code only
