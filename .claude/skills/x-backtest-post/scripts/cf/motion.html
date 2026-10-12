@@ -1,0 +1,344 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!-- 홍보 CF 금융 모션그래픽 — render_motion.mjs가 draw(scene, t)를 프레임마다 불러 찍는다(시간을 직접 넘겨 결정적으로 그린다).
+     데이터는 window.DATA(실제 KOSPI 지수·KOSPI200 종가/등락률), 로고는 window.LOGO(data URL). 평가·전망 문구는 넣지 않는다. -->
+<style>html,body{margin:0;background:#000}canvas{display:block}</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+const W = 1920, H = 1080;
+const cv = document.getElementById('c');
+const g = cv.getContext('2d');
+window.__g = g;
+const ACC = '#f07a4a', UP = '#ff5b5b', DN = '#4f8dff', INK = '#f3f1ec', MUT = '#a9a39a';
+const FONT = "'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif";
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const ease = (u) => { u = clamp(u); return u < .5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2; };
+const eo = (u) => 1 - Math.pow(1 - clamp(u), 3);
+function rng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+let logoImg = null;
+// 화면 문구 — 대본과 함께 고친다(window.COPY를 미리 넣으면 덮어쓴다)
+const COPY = Object.assign({
+  open: ['복잡한 주식 시장,', '어떤 전략을 만들어야 할지 고민되시나요?'],
+  heat: ['떠오른 아이디어를', '어디서부터 확인해야 할지 막막하다면'],
+  tagline: '아이디어를 전략으로, 전략을 검증으로',
+  wf: '한 번 더, 확실하게 검증',
+  mc: '2,000개 시나리오로 다시 검증',
+}, window.COPY || {});
+// 흐림(filter blur)은 소프트웨어 렌더에서 매우 느리다(프레임당 수 초) — 정적 레이어는 한 번만 그려 캐시하고 drawImage만 한다
+const CACHE = {}, LIVEW = {};
+function layer(key, w, h, fn, blur = 0) {
+  if (CACHE[key]) return CACHE[key];
+  const a = new OffscreenCanvas(Math.ceil(w), Math.ceil(h)); fn(a.getContext('2d'));
+  if (!blur) return (CACHE[key] = a);
+  const b = new OffscreenCanvas(a.width, a.height); const bx = b.getContext('2d'); bx.filter = `blur(${blur}px)`; bx.drawImage(a, 0, 0);
+  return (CACHE[key] = b);
+}
+
+function bgBase(warm = 1) {
+  const grd = g.createRadialGradient(W * .32, H * .25, 50, W * .5, H * .5, W * .85);
+  grd.addColorStop(0, warm ? '#1f1b18' : '#14161a'); grd.addColorStop(1, '#070707');
+  g.fillStyle = grd; g.fillRect(0, 0, W, H);
+}
+function grain(t, a = .05) {
+  const r = rng(Math.floor(t * 30) + 7);
+  g.save(); g.globalAlpha = a;
+  for (let i = 0; i < 1400; i++) { g.fillStyle = r() > .5 ? '#fff' : '#000'; g.fillRect(r() * W, r() * H, 2, 2); }
+  g.restore();
+}
+function vignette(a = .65) {
+  const v = g.createRadialGradient(W / 2, H / 2, H * .35, W / 2, H / 2, W * .75);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, `rgba(0,0,0,${a})`);
+  g.fillStyle = v; g.fillRect(0, 0, W, H);
+}
+function text(s, x, y, size, color, alpha = 1, weight = 800, align = 'left', spacing = 0) {
+  if (alpha <= 0) return;
+  g.save(); g.globalAlpha = alpha; g.fillStyle = color; g.font = `${weight} ${size}px ${FONT}`; g.textAlign = align; g.textBaseline = 'alphabetic';
+  if (spacing) g.letterSpacing = spacing + 'px';
+  g.fillText(s, x, y); g.restore();
+}
+function headline(lines, t, t0, x = 140, y = 820, size = 84) {
+  lines.forEach((ln, i) => {
+    const u = eo((t - t0 - i * .25) / .6);
+    text(ln.s, x, y + i * (size * 1.25) + (1 - u) * 40, size, ln.c || INK, u * (ln.a ?? 1));
+  });
+}
+function bokeh(t, n = 40, seed = 3, alpha = .18) {
+  const r = rng(seed);
+  g.save();
+  for (let i = 0; i < n; i++) {
+    const x = (r() * W + t * (20 + r() * 40)) % (W + 200) - 100, y = r() * H, rad = Math.round((20 + r() * 70) / 10) * 10;
+    const a = alpha * (.4 + r() * .6);
+    const col = r() > .7 ? ACC : (r() > .5 ? '#6f86b8' : '#d8cfc3');
+    const sp = layer(`bk${col}${rad}`, rad * 2 + 60, rad * 2 + 60, (c) => { c.fillStyle = col; c.beginPath(); c.arc(rad + 30, rad + 30, rad, 0, Math.PI * 2); c.fill(); }, 10);
+    g.globalAlpha = a; g.drawImage(sp, x - rad - 30, y - rad - 30);
+  }
+  g.restore();
+}
+function floatingNumbers(t, seed = 11, alpha = .10) {
+  const r = rng(seed); const k = DATA.k200;
+  g.save();
+  for (let i = 0; i < 38; i++) {
+    const it = k[Math.floor(r() * k.length)];
+    const x = (r() * W - t * (25 + r() * 35) + W * 3) % (W + 300) - 150, y = 60 + r() * (H - 120);
+    const a = alpha * (.5 + r());
+    const s = `${it.n}  ${it.c.toLocaleString('ko-KR')}  ${it.ch >= 0 ? '+' : ''}${it.ch.toFixed(2)}%`;
+    const sp = layer(`fn${it.s}`, 560, 50, (c) => { c.font = `700 26px ${FONT}`; c.fillStyle = it.ch >= 0 ? UP : DN; c.fillText(s, 10, 34); }, 2.5);
+    g.globalAlpha = a; g.drawImage(sp, x - 10, y - 34);
+  }
+  g.restore();
+}
+
+// ── 장면 ────────────────────────────────────────────────────────────────
+function candles(data, x0, x1, yTop, yBot, opt = {}) {
+  const g = opt.ctx || window.__g;
+  const lo = Math.min(...data.map((d) => d[3])), hi = Math.max(...data.map((d) => d[2]));
+  const sx = (x1 - x0) / data.length, Y = (v) => yBot - (v - lo) / (hi - lo) * (yBot - yTop);
+  const n = opt.reveal == null ? data.length : Math.floor(data.length * opt.reveal);
+  for (let i = 0; i < n; i++) {
+    const [, o, h, l, c] = data[i]; const up = c >= o; const x = x0 + i * sx + sx / 2;
+    g.strokeStyle = g.fillStyle = up ? UP : DN;
+    g.globalAlpha = opt.alpha ?? 1;
+    g.lineWidth = Math.max(1, sx * .12); g.beginPath(); g.moveTo(x, Y(h)); g.lineTo(x, Y(l)); g.stroke();
+    const top = Y(Math.max(o, c)), bot = Y(Math.min(o, c));
+    g.fillRect(x - sx * .34, top, sx * .68, Math.max(1.5, bot - top));
+  }
+  g.globalAlpha = 1;
+  return { Y, sx, n };
+}
+
+function sceneOpen(t, D) {
+  bgBase(1);
+  bokeh(t, 34, 5, .16);
+  floatingNumbers(t, 21, .09);
+  const data = DATA.kospi_daily;
+  const u = ease(t / D);
+  // 원경(흐림, 크게) — 시차
+  const far = layer('openFar', W * 1.6 + 200, H, (c) => candles(data, 0, W * 1.6, 120, 760, { alpha: .5, ctx: c }), 7);
+  g.save(); g.globalAlpha = .35; g.drawImage(far, -200 - u * 260, 0); g.restore();
+  // 근경 — 확대에서 빠지며 오른쪽으로 흐른다
+  const z = 2.2 - 1.05 * u;
+  g.save(); g.translate(W * .55, H * .52); g.scale(z, z); g.translate(-W * .55 - (1 - u) * 520, -H * .52);
+  const cs = candles(data, 120, W - 120, 250, 760, { reveal: .35 + .65 * eo(t / (D * .8)) });
+  // 종가 선 + 머리 점
+  g.strokeStyle = 'rgba(255,255,255,.85)'; g.lineWidth = 2.2 / z; g.beginPath();
+  for (let i = 0; i < cs.n; i++) { const x = 120 + i * cs.sx + cs.sx / 2, y = cs.Y(data[i][4]); i ? g.lineTo(x, y) : g.moveTo(x, y); }
+  g.stroke();
+  const hi = cs.n - 1, hx = 120 + hi * cs.sx + cs.sx / 2, hy = cs.Y(data[hi][4]);
+  g.fillStyle = ACC; g.shadowColor = ACC; g.shadowBlur = 30; g.beginPath(); g.arc(hx, hy, 7 / z, 0, Math.PI * 2); g.fill();
+  g.restore();
+  // 지수 라벨(실제 값)
+  const d = data[hi];
+  const la = clamp((t - .4) / .5) * clamp((D - t) / .4);
+  text(`KOSPI  ${d[4].toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, W - 140, 150, 40, INK, la * .9, 800, 'right');
+  text(d[0].replaceAll('-', '.'), W - 140, 196, 26, MUT, la * .8, 600, 'right');
+  // 아래 어둡게 + 문구
+  const sh = g.createLinearGradient(0, H * .55, 0, H); sh.addColorStop(0, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(0,0,0,.85)');
+  g.fillStyle = sh; g.fillRect(0, 0, W, H);
+  headline([{ s: COPY.open[0] }, { s: COPY.open[1], c: ACC }], t, 0.6, 140, 840, 76);
+  vignette(.7); grain(t);
+}
+
+function sceneHeat(t, D) {
+  bgBase(0);
+  const k = [...DATA.k200].sort((a, b) => (a.sec || '~').localeCompare(b.sec || '~') || b.cap - a.cap);
+  const cols = 20, rows = 10, pad = 6;
+  const z = 1.04 + .12 * ease(t / D);
+  g.save(); g.translate(W / 2, H / 2); g.scale(z, z); g.translate(-W / 2, -H / 2 - 30);
+  const tw = (W - 120) / cols, th = (H - 160) / rows;
+  k.slice(0, cols * rows).forEach((it, i) => {
+    const cx = i % cols, cy = Math.floor(i / cols);
+    const dist = Math.hypot(cx - cols / 2, (cy - rows / 2) * 1.6) / 12;
+    const u = eo((t - dist * .9) / .45);
+    if (u <= 0) return;
+    const x = 60 + cx * tw, y = 80 + cy * th;
+    const a = clamp(Math.abs(it.ch) / 3.5, .12, 1);
+    const base = it.ch >= 0 ? [255, 91, 91] : [79, 141, 255];
+    g.save(); g.globalAlpha = u;
+    g.translate(x + tw / 2, y + th / 2); g.scale(1, .2 + .8 * u); g.translate(-(x + tw / 2), -(y + th / 2));
+    g.fillStyle = `rgba(${base[0]},${base[1]},${base[2]},${.18 + a * .62})`;
+    g.beginPath(); g.roundRect(x + pad / 2, y + pad / 2, tw - pad, th - pad, 8); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.92)'; g.font = `700 15px ${FONT}`; g.textAlign = 'center';
+    const nm = it.n.length > 6 ? it.n.slice(0, 6) : it.n;
+    g.fillText(nm, x + tw / 2, y + th / 2 - 2);
+    g.font = `800 15px ${FONT}`; g.fillStyle = 'rgba(255,255,255,.8)';
+    g.fillText(`${it.ch >= 0 ? '+' : ''}${it.ch.toFixed(2)}%`, x + tw / 2, y + th / 2 + 18);
+    g.restore();
+  });
+  g.restore();
+  const sh = g.createLinearGradient(0, H * .38, 0, H); sh.addColorStop(0, 'rgba(0,0,0,0)'); sh.addColorStop(.45, 'rgba(0,0,0,.8)'); sh.addColorStop(1, 'rgba(0,0,0,.96)');
+  g.fillStyle = sh; g.fillRect(0, 0, W, H);
+  text(`KOSPI 200 · ${DATA.kospi_daily.at(-1)[0].replaceAll('-', '.')} 등락률`, 140, 735, 26, MUT, clamp((t - .3) / .5) * .9, 700);
+  headline([{ s: COPY.heat[0] }, { s: COPY.heat[1], c: ACC }], t, 0.5, 140, 860, 76);
+  vignette(.55); grain(t);
+}
+
+function lineSeries(vals, x0, x1, yTop, yBot, reveal = 1) {
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const X = (i) => x0 + i / (vals.length - 1) * (x1 - x0), Y = (v) => yBot - (v - lo) / (hi - lo) * (yBot - yTop);
+  const n = Math.max(2, Math.floor(vals.length * reveal));
+  g.beginPath(); for (let i = 0; i < n; i++) i ? g.lineTo(X(i), Y(vals[i])) : g.moveTo(X(i), Y(vals[i]));
+  return { X, Y, n };
+}
+
+function sceneTitle(t, D) {
+  g.fillStyle = '#060606'; g.fillRect(0, 0, W, H);
+  bokeh(t, 18, 9, .10);
+  const vals = DATA.kospi_weekly.map((d) => d[1]);
+  const draw = eo(t / 1.1), fade = 1 - clamp((t - 1.0) / .6);
+  g.save(); g.globalAlpha = fade; g.strokeStyle = ACC; g.lineWidth = 4; g.shadowColor = ACC; g.shadowBlur = 24;
+  lineSeries(vals, 160, W - 160, 380, 700, draw); g.stroke(); g.restore();
+  const u = eo((t - .95) / .7);
+  if (logoImg && u > 0) {
+    const w = 190 * (.85 + .15 * u), h = w * 330 / 400;
+    g.save(); g.globalAlpha = u; g.shadowColor = 'rgba(240,122,74,.55)'; g.shadowBlur = 40;
+    g.drawImage(logoImg, W / 2 - w / 2, 300 - (1 - u) * 30, w, h); g.restore();
+  }
+  text('널스탁', W / 2, 640 + (1 - u) * 30, 132, INK, u, 800, 'center', -2);
+  const v = eo((t - 1.45) / .6);
+  text(COPY.tagline, W / 2, 740 + (1 - v) * 24, 46, MUT, v, 600, 'center');
+  vignette(.6); grain(t, .04);
+}
+
+function sceneWF(t, D) {
+  bgBase(0);
+  const vals = DATA.kospi_weekly.map((d) => d[1]);
+  const x0 = 140, x1 = W - 140, yT = 300, yB = 840;
+  // 축선
+  g.strokeStyle = 'rgba(255,255,255,.06)'; g.lineWidth = 1;
+  for (let i = 0; i <= 6; i++) { const y = yT + (yB - yT) * i / 6; g.beginPath(); g.moveTo(x0, y); g.lineTo(x1, y); g.stroke(); }
+  // 창 이동: 학습(넓게) + 검증(좁게), 세 위치를 차례로 미끄러진다
+  const seg = (x1 - x0) / 5.5; // 세 번째 창의 검증 끝이 오른쪽 여백 안에 들어오게(.2 + 2 + 3.2 = 5.4칸)
+  const k = t < .7 ? 0 : t < 1.6 ? ease((t - .7) / .6) : t < 2.5 ? 1 + ease((t - 1.6) / .6) : 2;
+  const pos = x0 + seg * .2 + k * seg;
+  const isW = seg * 2.3, oosW = seg * .9;
+  const ia = clamp(t / .35);
+  g.fillStyle = `rgba(111,134,184,${.22 * ia})`; g.fillRect(pos, yT - 30, isW, yB - yT + 60);
+  g.fillStyle = `rgba(240,122,74,${.28 * ia})`; g.fillRect(pos + isW, yT - 30, oosW, yB - yT + 60);
+  g.strokeStyle = `rgba(240,122,74,${.9 * ia})`; g.lineWidth = 2; g.strokeRect(pos + isW, yT - 30, oosW, yB - yT + 60);
+  text('학습', pos + 18, yT - 46, 34, '#b9c6e4', ia, 800);
+  text('검증', pos + isW + 18, yT - 46, 34, ACC, ia, 800);
+  // 지나간 검증 구간 흔적
+  for (let s = 0; s < Math.floor(k + 1e-6); s++) {
+    const p = x0 + seg * .2 + s * seg + isW;
+    g.fillStyle = 'rgba(240,122,74,.10)'; g.fillRect(p, yT - 30, oosW, yB - yT + 60);
+  }
+  g.save(); g.strokeStyle = INK; g.lineWidth = 3; g.globalAlpha = .9;
+  lineSeries(vals, x0, x1, yT, yB, eo(t / .9)); g.stroke(); g.restore();
+  text('WALK-FORWARD', 140, 150, 30, ACC, clamp(t / .4), 800, 'left', 6);
+  text('워크포워드 분석', 140, 225, 72, INK, eo((t - .1) / .5), 800);
+  text(COPY.wf, 140, 282, 40, ACC, eo((t - .5) / .5), 700);
+  vignette(.55); grain(t);
+}
+
+function sceneMC(t, D) {
+  bgBase(0);
+  const w = DATA.kospi_weekly.map((d) => d[1]);
+  const rets = w.slice(1).map((v, i) => Math.log(v / w[i]));
+  const r = rng(42), N = 420, L = 160, block = 8;
+  const x0 = 180, x1 = W - 420, yMid = 560, scale = 720;
+  const prog = eo(t / (D * .75));
+  const finals = [];
+  g.save(); g.lineWidth = 1.2;
+  for (let p = 0; p < N; p++) {
+    let v = 0; const pts = [[x0, yMid]];
+    for (let i = 0; i < L;) {
+      const s = Math.floor(r() * (rets.length - block));
+      for (let b = 0; b < block && i < L; b++, i++) { v += rets[s + b]; pts.push([x0 + (i + 1) / L * (x1 - x0), yMid - v * scale * .55]); }
+    }
+    finals.push(v);
+    const n = Math.max(2, Math.floor(pts.length * prog));
+    const hue = v >= 0 ? '255,140,110' : '120,160,255';
+    g.strokeStyle = `rgba(${hue},${p % 37 === 0 ? .55 : .07})`;
+    g.beginPath(); for (let i = 0; i < n; i++) i ? g.lineTo(pts[i][0], pts[i][1]) : g.moveTo(pts[i][0], pts[i][1]); g.stroke();
+  }
+  g.restore();
+  // 오른쪽 분포(최종값 히스토그램)
+  const ha = clamp((t - D * .55) / .5);
+  if (ha > 0) {
+    const bins = new Array(40).fill(0); const lo = -1.2, hi = 1.6;
+    finals.forEach((v) => { const b = Math.floor((v - lo) / (hi - lo) * 40); if (b >= 0 && b < 40) bins[b]++; });
+    const mx = Math.max(...bins);
+    bins.forEach((c, i) => {
+      const v = lo + (i + .5) / 40 * (hi - lo), y = yMid - v * scale * .55;
+      g.fillStyle = v >= 0 ? `rgba(255,91,91,${.75 * ha})` : `rgba(79,141,255,${.75 * ha})`;
+      g.fillRect(x1 + 40, y - 6, c / mx * 300 * ha, 11);
+    });
+  }
+  g.fillStyle = ACC; g.shadowColor = ACC; g.shadowBlur = 24; g.beginPath(); g.arc(x0, yMid, 8, 0, Math.PI * 2); g.fill(); g.shadowBlur = 0;
+  text('MONTE CARLO', 140, 150, 30, ACC, clamp(t / .4), 800, 'left', 6);
+  text('몬테카를로 시뮬레이션', 140, 225, 72, INK, eo((t - .1) / .5), 800);
+  text(COPY.mc, 140, 282, 40, ACC, eo((t - .5) / .5), 700);
+  vignette(.55); grain(t);
+}
+
+function sceneLive(t, D) {
+  bgBase(1);
+  const k = DATA.k200;
+  const rowsY = [250, 400, 560, 720, 870], speeds = [-140, 190, -260, 170, -120], sizes = [34, 40, 64, 40, 34], alphas = [.35, .55, 1, .55, .35];
+  rowsY.forEach((y, ri) => {
+    const sz = sizes[ri];
+    // 줄 하나(14종목)를 한 번만 그려 두고 이어 붙여 흘린다. 실제 마지막 종가·등락률 그대로(가격을 지어내지 않는다)
+    const strip = layer(`live${ri}`, 6000, sz * 1.8, (c) => {
+      const r = rng(100 + ri); const items = Array.from({ length: 14 }, () => k[Math.floor(r() * k.length)]);
+      c.font = `800 ${sz}px ${FONT}`; let x = 10; const yy = sz * 1.3;
+      for (const it of items) {
+        const price = it.c.toLocaleString('ko-KR'), ch = `${it.ch >= 0 ? '▲' : '▼'} ${Math.abs(it.ch).toFixed(2)}%`;
+        c.fillStyle = INK; c.fillText(it.n, x, yy); x += c.measureText(it.n).width + sz * .5;
+        c.fillStyle = '#d9d3ca'; c.fillText(price, x, yy); x += c.measureText(price).width + sz * .4;
+        c.fillStyle = it.ch >= 0 ? UP : DN; c.fillText(ch, x, yy); x += c.measureText(ch).width + sz * 1.6;
+      }
+      LIVEW[ri] = x;
+    }, ri === 2 ? 0 : (ri === 0 || ri === 4 ? 3 : 1.2));
+    const period = Math.min(LIVEW[ri], 5980);
+    let x0 = ((t * speeds[ri]) % period + period) % period - period;
+    g.save(); g.globalAlpha = alphas[ri];
+    for (let x = x0; x < W; x += period) g.drawImage(strip, 0, 0, period, strip.height, x, y - sz * 1.3, period, strip.height);
+    g.restore();
+  });
+  const sh = g.createLinearGradient(0, 0, W, 0);
+  sh.addColorStop(0, 'rgba(0,0,0,.9)'); sh.addColorStop(.18, 'rgba(0,0,0,0)'); sh.addColorStop(.82, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(0,0,0,.9)');
+  g.fillStyle = sh; g.fillRect(0, 0, W, H);
+  g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(0, 0, W, 175);
+  text('PAPER TRADING', 140, 100, 30, ACC, clamp(t / .4), 800, 'left', 6);
+  text('가상계좌 모의투자', 140, 160, 56, INK, eo((t - .1) / .5), 800);
+  vignette(.5); grain(t);
+}
+
+function sceneBG(t, D) {
+  // 제품 화면 뒤 배경 — 10초 고리. 흐린 캔들 실루엣 + 보케 + 느린 격자
+  bgBase(1);
+  const ph = t / D * Math.PI * 2;
+  const far = layer('bgFar', W + 400, H, (c) => candles(DATA.kospi_daily, 100, W + 300, 200, 900, { alpha: .6, ctx: c }), 9);
+  g.save(); g.globalAlpha = .22; g.drawImage(far, -200 + Math.sin(ph) * 60, 0); g.restore();
+  bokeh(t * .6, 26, 31, .12);
+  g.strokeStyle = 'rgba(255,255,255,.035)'; g.lineWidth = 1;
+  for (let x = (t * 12) % 80; x < W; x += 80) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
+  for (let y = 0; y < H; y += 80) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+  vignette(.75); grain(t, .035);
+}
+
+function sceneEnd(t, D) {
+  sceneBG(t % 10, 10);
+  g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(0, 0, W, H);
+  const u = eo((t - .1) / .7);
+  if (logoImg) { const w = 210, h = w * 330 / 400; g.save(); g.globalAlpha = u; g.shadowColor = 'rgba(240,122,74,.5)'; g.shadowBlur = 40; g.drawImage(logoImg, W / 2 - w / 2, 230 - (1 - u) * 30, w, h); g.restore(); }
+  text('널스탁', W / 2, 560 + (1 - eo((t - .4) / .6)) * 30, 128, INK, eo((t - .4) / .6), 800, 'center', -2);
+  const a = eo((t - .8) / .6);
+  text('설계   ·   검증   ·   모의투자', W / 2, 660 + (1 - a) * 20, 48, MUT, a, 700, 'center');
+  const b = eo((t - 1.2) / .6);
+  if (b > 0) {
+    g.save(); g.font = `800 46px ${FONT}`; const tw = g.measureText('nullstock.im').width; g.restore();
+    g.save(); g.globalAlpha = b; g.fillStyle = ACC; g.beginPath(); g.roundRect(W / 2 - tw / 2 - 46, 730 + (1 - b) * 20, tw + 92, 86, 43); g.fill(); g.restore();
+    text('nullstock.im', W / 2, 789 + (1 - b) * 20, 46, '#fff', b, 800, 'center');
+  }
+  text('모든 결과는 과거 데이터 기반 시뮬레이션이며 미래 수익을 보장하지 않습니다.', W / 2, 1040, 15, '#7a746b', eo((t - 1.6) / .6), 500, 'center');
+  if (t > D - .7) { g.fillStyle = `rgba(0,0,0,${ease((t - (D - .7)) / .7)})`; g.fillRect(0, 0, W, H); }
+}
+
+const SCENES = { open: sceneOpen, heat: sceneHeat, title: sceneTitle, wf: sceneWF, mc: sceneMC, live: sceneLive, bg: sceneBG, end: sceneEnd };
+window.draw = (scene, t, D) => { g.save(); SCENES[scene](t, D); g.restore(); };
+window.ready = new Promise((res) => {
+  if (!window.LOGO) return res();
+  logoImg = new Image(); logoImg.onload = res; logoImg.src = window.LOGO;
+});
+</script></body></html>
