@@ -29,6 +29,16 @@ skip() {
   return 1
 }
 
+# 링크 대신 복사하는 경로 — QA 하니스 캐시(scripts/.qa_*·.template_parse_cache)는 입력이자 결과라
+# 링크하면 워크트리의 측정이 원본을 덮어써, 다른 세션의 조사가 이쪽 코드의 결과를 읽는다
+# (2026-10-13 발견). 워크트리마다 독립 사본을 갖는다.
+copy_instead() {
+  case "$1" in
+    scripts/.qa_*|scripts/.template_parse_cache*) return 0 ;;
+  esac
+  return 1
+}
+
 link_resources() {
   local wt="$1" n=0
   [ -d "$wt" ] || { echo "워크트리가 없습니다: $wt" >&2; exit 1; }
@@ -51,7 +61,11 @@ link_resources() {
     local parent; parent="$(dirname "$dst")"
     [ -L "$parent" ] && continue
     mkdir -p "$parent"
-    ln -s "$src" "$dst"
+    if copy_instead "$rel"; then
+      cp -pR "$src" "$dst"
+    else
+      ln -s "$src" "$dst"
+    fi
     grep -qxF "/$rel" "$exclude" || echo "/$rel" >> "$exclude"
     n=$((n + 1))
   done < <(git -C "$MAIN" ls-files --others --ignored --exclude-standard --directory)
