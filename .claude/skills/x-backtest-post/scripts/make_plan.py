@@ -4,7 +4,8 @@
 사람이 정하는 것은 meta.json(제목 문구·사건 구간 자막)뿐이다.
 
 사용: uv run python make_plan.py <녹화 폴더> meta.json
-  meta: { "eyebrow": "속설 검증 #2", "title": "“…”", "subtitle": "…",
+  meta: { "chip_captions": {"10거래일 안에": "하단 터치 인정 기간 — 10거래일", "익절 안 함": "익절 — 안 함"},   # 선택 사항: 칩 답변 → 자막(항목 — 값). 없으면 "④ <칩 글자>"
+          "eyebrow": "속설 검증 #2", "title": "“…”", "subtitle": "…",
           "end_eyebrow": "속설 검증 #2 결과",          # 생략하면 eyebrow + " 결과"
           "events": [ {"caption": "2023년 10월 …", "box": [x, y, w, h]} ] }   # 결과 화면 CSS px, 선택
 출력: <폴더>/plan.json, title.json, end.json
@@ -132,7 +133,7 @@ def build(folder: Path, meta: dict) -> dict:
     for ans in result["answered"]:
         a = find(marks, "click", "approach", ans, after=c_from)
         p = find(marks, "click", "press", ans, after=a["t"])
-        clips.append({"from": a["t"] - 200, "to": p["t"] + CHIP_TAIL_MS, "speed": CHIP_SPEED, "caption": CAPTIONS["chip"]})
+        clips.append({"from": a["t"] - 200, "to": p["t"] + CHIP_TAIL_MS, "speed": CHIP_SPEED, "caption": "④ " + meta.get("chip_captions", {}).get(ans, ans)})  # 항목·값만 적는다("문장에 없던 값은 버튼으로 답합니다" 안내 문구는 뺐다 — 10-13 사용자 지시)
         shots.append({"t": a["t"] + 500, "box": chip_box(a["box"]), "move": 500})
         shots.append({"t": p["t"] + CHIP_TAIL_MS, "box": chip_box(a["box"])})
         last_press = p

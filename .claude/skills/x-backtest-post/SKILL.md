@@ -266,6 +266,10 @@ uv run python scripts/post_to_x.py --file post1.txt --long --video out.mp4 --ope
 
 ## ⑤⑥ 미리보기와 게시
 
+- **게시 전 영상 방향 확인**(10-13 #8 실측): `ffprobe -v error -select_streams v:0 -show_entries stream=width,height:stream_side_data=rotation -of default=nw=1 <영상>` — 1920×1080에 `rotation=` 줄이 없어야 한다.
+  QuickTime Player에서 회전(⌘L/⌘R)하면 닫을 때 **파일에 자동 저장**돼 가로 영상이 세로로 보인다(컨테이너가 `mp42`로 바뀌고 `rotation=-90`이 들어간다). 영상은 Quick Look(스페이스바)로 보거나 복사본으로 열게 하고,
+  회전이 들어갔으면 작업 폴더의 원본(`final*.mp4`)을 다시 복사한다(회전 파일은 백업).
+
 ```bash
 uv run python scripts/post_to_x.py --file post1.txt --long --image b.png --image c.png --image d.png   # 미리보기(기본) — 사진 3~4장
 uv run python scripts/post_to_x.py --file post1.txt --long --image b.png --image c.png --image d.png --post     # 게시 → 마지막 줄 POSTED_ID=<id>
