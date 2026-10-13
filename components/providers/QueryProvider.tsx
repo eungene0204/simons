@@ -9,11 +9,17 @@ import { stripRegionPrefix } from "@/lib/geo/region";
 // 로그인하지 않고 열 수 있는 화면 — 인증 화면 자체가 여기 들어가야 한다.
 // 빠지면 AuthSessionGuard가 비로그인 방문자를 홈으로 되돌려 페이지에 머물 수 없다.
 const PUBLIC_PATHS = new Set(["/", "/login", "/register", "/guest"]);
+// 하위 경로까지 공개인 화면 — 백테스트 가이드(`/guide`, `/guide/<slug>`)는 검색 유입용 공개 글이다.
+const PUBLIC_PATH_PREFIXES = ["/guide"];
 
 function isPublicPath(pathname: string | null) {
   if (!pathname) return true;
   // 지역 프리픽스(/us)를 벗겨 판정한다 — /us·/us/login도 공개 경로다.
-  return PUBLIC_PATHS.has(stripRegionPrefix(pathname));
+  const path = stripRegionPrefix(pathname);
+  return (
+    PUBLIC_PATHS.has(path) ||
+    PUBLIC_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))
+  );
 }
 
 function AuthSessionGuard() {

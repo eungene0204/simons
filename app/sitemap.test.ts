@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { GUIDE_ARTICLES } from "@/lib/guide/articles";
 import sitemap from "./sitemap";
 
 afterEach(() => {
@@ -15,6 +16,8 @@ describe("sitemap", () => {
       "https://www.nullstock.im",
       "https://www.nullstock.im/us",
       "https://www.nullstock.im/us/pricing",
+      "https://www.nullstock.im/guide",
+      ...GUIDE_ARTICLES.map((article) => `https://www.nullstock.im/guide/${article.slug}`),
     ]);
     // 한국 요금제는 비로그인 요청을 `/`로 리다이렉트한다 — 리다이렉트 URL은 사이트맵에 넣지 않는다.
     expect(urls).not.toContain("https://www.nullstock.im/pricing");

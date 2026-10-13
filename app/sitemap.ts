@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { GUIDE_ARTICLES, GUIDE_BASE_PATH, guideArticlePath } from "@/lib/guide/articles";
 import { HOME_LANGUAGE_ALTERNATES, siteUrl } from "@/lib/seo/site";
 
 // 공개 페이지만 담는다 — 지역별 진입점을 모두 노출해 양쪽 서비스가 각각 색인되게 한다.
@@ -16,5 +17,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: absolute("/"), changeFrequency: "weekly", priority: 1, alternates: homeAlternates },
     { url: absolute("/us"), changeFrequency: "weekly", priority: 1, alternates: homeAlternates },
     { url: absolute("/us/pricing"), changeFrequency: "monthly", priority: 0.6 },
+    // 백테스트 가이드(한국어 전용 공개 글) — 검색어 '백테스트'에 답하는 본문 페이지.
+    { url: absolute(GUIDE_BASE_PATH), changeFrequency: "monthly", priority: 0.8 },
+    ...GUIDE_ARTICLES.map((article) => ({
+      url: absolute(guideArticlePath(article.slug)),
+      lastModified: article.updated,
+      changeFrequency: "monthly" as const,
+      priority: 0.7,
+    })),
   ];
 }

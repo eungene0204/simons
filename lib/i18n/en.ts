@@ -1451,6 +1451,7 @@ export const en: Record<string, string> = {
   "원자력 업종 월간 모멘텀 교체": "Nuclear sector monthly momentum rotation",
   "유동성 필터 모멘텀 월간": "Monthly momentum with liquidity filter",
   "이용약관": "Terms of Service",
+  "백테스트 가이드": "Backtesting Guide",
   "이중 기술 신호 확인 스윙": "Double technical-signal confirmation swing",
   "이중 이동평균 추세 유지": "Dual moving-average trend holding",
   "이평선 골든크로스 따라가기": "Follow moving-average golden crosses",

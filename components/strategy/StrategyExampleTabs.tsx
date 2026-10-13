@@ -992,6 +992,14 @@ export function StrategyExampleTabs({
           aria-label={t("전략연구소 이용 안내")}
           className="border-t border-white/[0.06] pt-4 text-center"
         >
+          {region !== "us" && (
+            <Link
+              href="/guide"
+              className="mb-3 mr-4 inline-flex text-xs font-black text-gray-400 underline-offset-4 transition-colors hover:text-white hover:underline"
+            >
+              {t("백테스트 가이드")}
+            </Link>
+          )}
           <Link
             href={regionHref("/?legal=terms")}
             className="mb-3 inline-flex text-xs font-black text-gray-400 underline-offset-4 transition-colors hover:text-white hover:underline"
