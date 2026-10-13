@@ -26,12 +26,13 @@ logger = logging.getLogger(__name__)
 TRADING_VALUE_FACTORS = ("fundamental.trading_value", "technical.trading_value")
 RATIO_FACTOR = "technical.trading_value_ratio"
 
-COMPARES = frozenset({"amount", "own_average", "unclear"})
+COMPARES = frozenset({"amount", "own_average", "volume", "unclear"})
 OPERATORS = frozenset({">", ">=", "<", "<="})
 
 _SYSTEM = """당신은 **대조기**입니다. 전략 문장에서 뽑은 거래대금 조건의 인용 조각마다, 거래대금을 무엇과 비교하는지 답하세요.
 
-compares — 억 원·달러 같은 금액 기준과 비교하면 "amount", 그 종목의 과거 평균 거래대금과 비교하면 "own_average", 판단이 어려우면 "unclear".
+compares — 거래량(주식 수)을 말하면 "volume", 억 원·달러 같은 거래대금 금액 기준과 비교하면 "amount", 그 종목의 과거 평균 거래대금과 비교하면 "own_average", 판단이 어려우면 "unclear".
+인용이 거래량을 말하면 비교 기준이나 숫자를 밝히지 않았어도 "volume"입니다.
 "일평균 거래대금이 높은"·"최근 20일 평균 거래대금이 많은"처럼 평균 거래대금 자체가 많다·높다고만 말하면 평균과 비교하는 것이 아니라 거래대금 수준을 말하는 것이므로 "amount"입니다. "평균보다"·"평균의 N배"·"평균을 넘으면"·"평소보다"처럼 평균을 비교 상대로 삼을 때만 "own_average"입니다.
 own_average일 때만 아래 세 값을 인용에 적힌 그대로 옮겨 적습니다(인용에 없으면 null).
 average_days — 평균 기간을 일(日) 수로 말했으면 그 숫자("30일 평균" → 30).

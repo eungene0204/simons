@@ -90,16 +90,16 @@ _CONFIRM_SYSTEM = _SYSTEM + """
 인용이 이동평균과 무관한 다른 설정이거나 원문에 없는 조작 인용임이 명확할 때만
 no/other로 답하세요. 매수 조건의 역방향 청산을 원문에 없는데 만들어낸 것은 조작 인용입니다."""
 
-_ROLE_SYSTEM = """당신은 전략 원문에 없는 청산 규칙을 찾는 대조기입니다.
-[전략 문장]만 보고 [후보 청산]을 사용자가 실제로 요청했는지 답하세요.
-매수 조건이 이동평균선 위라는 사실로 그 선 아래에서 자동 청산한다고 추론하지 마세요.
+_ROLE_SYSTEM = """당신은 전략 원문에 없는 매수·청산 규칙을 찾는 대조기입니다.
+[전략 문장]만 보고 [후보 조건]을 사용자가 그 역할로 실제 요청했는지 답하세요.
+매수 조건에서 자동 청산을, 청산 조건에서 자동 매수를 추론하지 마세요.
 매도 문장에 MACD만 있으면 이동평균 매도 조건은 요청되지 않았습니다.
 후보가 원문에 없으면 {"items":[{"expresses":"no","describes":"other"}]},
 있으면 {"items":[{"expresses":"yes","describes":"moving_average"}]}처럼 JSON만 출력하세요."""
 
 _ROLE_CONFIRM_SYSTEM = _ROLE_SYSTEM + """
-조건을 제거하기 전의 독립 재확인입니다. 후보 청산을 매수 조건에서 역으로 추론하지 말고,
-원문이 명시적으로 그 청산을 요청했는지만 다시 판정하세요."""
+조건을 제거하기 전의 독립 재확인입니다. 반대 역할의 조건에서 후보를 역으로 추론하지 말고,
+원문이 명시적으로 그 역할의 조건을 요청했는지만 다시 판정하세요."""
 
 
 def build_system_prompt() -> str:
@@ -233,22 +233,21 @@ def check_quotes(
     ]
 
     compact_input = _compact(user_input)
-    entries = [c for c, role in targets if role == "entry_conditions"]
-    suspect_exits = [
+    suspect_roles = [
         (c, role) for c, role in targets
-        if role == "exit_conditions" and _compact(c.source_text or "") not in compact_input
-        and any(_canonical_factor(c.factor) == _canonical_factor(entry.factor)
-                for entry in entries)
+        if _compact(c.source_text or "") not in compact_input
+        and any(other_role != role and _canonical_factor(c.factor) == _canonical_factor(other.factor)
+                for other, other_role in targets)
     ]
-    if verdicts is None and not suspect_exits:
+    if verdicts is None and not suspect_roles:
         return None
-    # The quote can itself invent a plausible exit. Ask about the original
-    # sentence without that quote; two independent no verdicts are required.
-    if suspect_exits:
-        first = _request_verdicts(user_input, suspect_exits, chat, system=_ROLE_SYSTEM)
-        second = _request_verdicts(user_input, suspect_exits, chat, system=_ROLE_CONFIRM_SYSTEM)
+    # A quote can invent a plausible condition in the opposite role. Ask
+    # about the original sentence without that quote; two no verdicts are required.
+    if suspect_roles:
+        first = _request_verdicts(user_input, suspect_roles, chat, system=_ROLE_SYSTEM)
+        second = _request_verdicts(user_input, suspect_roles, chat, system=_ROLE_CONFIRM_SYSTEM)
         for index, (cond, _role) in enumerate(targets):
-            if any(cond is candidate for candidate, _ in suspect_exits):
+            if any(cond is candidate for candidate, _ in suspect_roles):
                 a = first.get(cond) if first else None
                 b = second.get(cond) if second else None
                 if a and b and a.expresses == b.expresses == "no":
@@ -271,9 +270,9 @@ def _request_verdicts(
     if system in (_ROLE_SYSTEM, _ROLE_CONFIRM_SYSTEM):
         rows = "\n".join(f"{i}. {render_condition(cond, role)}"
                          for i, (cond, role) in enumerate(targets, 1))
-        user = f"[전략 문장]\n{user_input}\n\n[후보 청산]\n{rows}"
-    trace_name = ("Quote Check · 원문 청산 재확인" if system == _ROLE_CONFIRM_SYSTEM
-                  else "Quote Check · 원문 청산 대조" if system == _ROLE_SYSTEM
+        user = f"[전략 문장]\n{user_input}\n\n[후보 조건]\n{rows}"
+    trace_name = ("Quote Check · 원문 역할 재확인" if system == _ROLE_CONFIRM_SYSTEM
+                  else "Quote Check · 원문 역할 대조" if system == _ROLE_SYSTEM
                   else "Quote Check · 제거 재확인" if system == _CONFIRM_SYSTEM
                   else "Quote Check · 조건 인용 대조")
     with span(trace_name, "chain",

@@ -310,6 +310,21 @@ def test_split_lower_touch_and_middle_up_is_flagged_for_regeneration():
     assert "technical.bollinger_middle_recovery" in split_bollinger_recovery_error(paths)
 
 
+def test_split_bollinger_marks_all_duplicate_parts_as_affected():
+    from strategy_conversation.interpreter.output_repair import split_bollinger_recovery_fields
+
+    intent = _intent_with([
+        {"factor": "technical.bollinger_lower_touch", "source_text": "하단 터치"},
+        {"factor": "technical.bollinger_lower_touch", "source_text": "다시 하단 터치"},
+        {"factor": "technical.bollinger_middle_up", "source_text": "중심선 돌파"},
+    ])
+
+    assert split_bollinger_recovery_fields(intent) == [
+        "strategy.entry_conditions[0]", "strategy.entry_conditions[1]",
+        "strategy.entry_conditions[2]",
+    ]
+
+
 def test_single_bollinger_entry_is_not_flagged():
     from strategy_conversation.interpreter.output_repair import split_bollinger_recovery_fields
 

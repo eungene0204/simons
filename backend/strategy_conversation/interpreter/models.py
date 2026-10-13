@@ -1297,20 +1297,29 @@ class StrategySpec(BaseModel):
         # 청산은 진입과 다른 인용을 달고 있으면 새 정보로 남긴다 — 조작 인용은 하류의 출처
         # 대조·조건 인용 대조가 거른다. 인용이 없거나 진입 인용을 그대로 복제한 것만 미러다.
         if self.exit_conditions and self.entry_conditions:
-            entry_ops: Dict[str, set] = {}
-            entry_quotes: Dict[str, set] = {}
-            for c in self.entry_conditions:
-                entry_ops.setdefault(c.factor, set()).add(c.operator)
-                entry_quotes.setdefault(c.factor, set()).add((c.source_text or "").strip())
-            self.exit_conditions = [
-                c for c in self.exit_conditions
-                if not (
-                    c.value is None
-                    and c.factor in entry_ops
-                    and not _opposes_entry_direction(c.operator, entry_ops[c.factor])
-                    and not _is_distinct_bollinger_exit(c, entry_quotes[c.factor])
+            def is_mirrored(exit_cond: StrategyCondition) -> bool:
+                if exit_cond.value is not None:
+                    return False
+                # Explicitly different indicator parameters identify separate signals.
+                # Missing parameters retain the existing drift recovery behavior.
+                matching = [
+                    entry for entry in self.entry_conditions
+                    if entry.factor == exit_cond.factor
+                    and not (
+                        entry.parameters and exit_cond.parameters
+                        and entry.parameters != exit_cond.parameters
+                    )
+                ]
+                if not matching:
+                    return False
+                entry_ops = {entry.operator for entry in matching}
+                entry_quotes = {(entry.source_text or "").strip() for entry in matching}
+                return (
+                    not _opposes_entry_direction(exit_cond.operator, entry_ops)
+                    and not _is_distinct_bollinger_exit(exit_cond, entry_quotes)
                 )
-            ]
+
+            self.exit_conditions = [c for c in self.exit_conditions if not is_mirrored(c)]
         return self
 
     @model_validator(mode="after")

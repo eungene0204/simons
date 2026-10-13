@@ -336,16 +336,15 @@ def test_llm_first_modify_never_falls_back_to_legacy_lane(monkeypatch):
     assert result["parsed"]["target_symbols"] == ["005930", "000660"]
 
 
-def test_fast_path_first_rollback_keeps_legacy_lane(monkeypatch):
+def test_legacy_modify_mode_cannot_fall_back_to_raw_text_parser(monkeypatch):
     monkeypatch.setenv("STRATEGY_INTERPRETER_MODE", "primary")
     monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "fast_path_first")
     monkeypatch.setattr(primary, "run_primary_modification", lambda *a, **k: None)
 
     prev = _prev_cross_strategy().model_dump()
     result = _run_nl_parse(NLParseRequest(prompt="손절 10%로 바꿔줘", previous_parsed=prev))
-    # 롤백 모드에서는 레거시 결정적 수정이 그대로 동작한다
-    assert result.get("clarification_priority") != "interpretation_failed"
-    assert result["parsed"]["stop_loss_pct"] == 10.0
+    assert result["clarification_priority"] == "interpretation_failed"
+    assert result["parsed"]["stop_loss_pct"] == prev["stop_loss_pct"]
 
 
 # ── ④ 테마 유니버스 교체 (2026-07-30 "쿠팡 관련주로 수정해줘" 사고 회귀) ─────────

@@ -114,14 +114,6 @@ def test_fast_path_exception_degrades_to_next_layer(monkeypatch):
     assert parsed.stop_loss_pct == 7.0
 
 
-def test_primary_fast_path_probe_treats_exception_as_not_applicable(monkeypatch):
-    def boom(*_args, **_kwargs):
-        raise ValueError("오염된 previous")
-
-    monkeypatch.setattr(nl_parser, "_modify_rule_based", boom)
-    assert primary.fast_path_can_handle("손절 10%로", _previous()) is False
-
-
 # ── ③ 모든 해석 실패는 500이 아니라 되묻기로 귀결된다 ──────────────────────────
 
 def test_modify_interpretation_failure_returns_clarification_and_keeps_strategy(monkeypatch):
@@ -183,26 +175,66 @@ def test_modify_interpreter_mode_defaults_to_llm_first(monkeypatch):
     assert sc_config.modify_interpreter_mode() == "llm_first"
 
 
-def test_modify_interpreter_mode_rollback_value_is_honored(monkeypatch):
+def test_full_rewrite_request_reaches_primary_interpreter(monkeypatch):
+    """A deterministic rewrite cue must not preempt the LLM modification lane."""
+    monkeypatch.setenv("STRATEGY_INTERPRETER_MODE", "primary")
+    monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "llm_first")
+    seen = []
+
+    def primary_modify(user_input, previous_parsed, **_kwargs):
+        seen.append(user_input)
+        return None
+
+    monkeypatch.setattr(primary, "run_primary_modification", primary_modify)
+    result = _run_nl_parse(NLParseRequest(
+        prompt="그거 말고 완전 다르게 해줘",
+        previous_parsed=_previous(),
+    ))
+
+    assert seen == ["그거 말고 완전 다르게 해줘"]
+    assert result["parsed"]["description"] == "PBR 1 이하 종목 10개"
+
+
+def test_legacy_modify_mode_setting_cannot_restore_raw_text_authority(monkeypatch):
     monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "fast_path_first")
-    assert sc_config.modify_interpreter_mode() == "fast_path_first"
+    assert sc_config.modify_interpreter_mode() == "llm_first"
     monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "nonsense")
     assert sc_config.modify_interpreter_mode() == "llm_first"
 
 
-def test_fast_path_first_mode_skips_the_interpreter(monkeypatch):
-    """롤백 모드에서는 결정론 fast-path가 인터프리터를 선점한다(LLM 호출 없음)."""
-    monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "fast_path_first")
+def test_coach_context_never_overwrites_primary_llm_result(monkeypatch):
+    monkeypatch.setenv("STRATEGY_INTERPRETER_MODE", "primary")
+    previous = _previous(stop_loss_pct=6.0)
+    seen = []
+    grounding_calls = []
+    monkeypatch.setattr(main, "_learn_unknown_sector_term",
+                        lambda *_args, **_kwargs: grounding_calls.append(1))
 
-    def fail_if_called(*_a, **_k):
-        raise AssertionError("fast_path_first 모드에서 인터프리터가 호출되면 안 된다")
+    def primary_result(_user_input, _previous_parsed, **kwargs):
+        seen.append(kwargs.get("previous_coach_text"))
+        return {"parsed": ParsedStrategy.model_validate(previous),
+                "interpreter": {"mode": "primary_modify", "model_name": "stub"},
+                "notices": [], "clarification_question": None,
+                "clarification_suggestions": None}
 
-    monkeypatch.setattr(primary, "_get_interpreter", fail_if_called)
-    assert primary.run_primary_modification("손절 10%로 바꿔줘", _previous()) is None
+    monkeypatch.setattr(primary, "run_primary_modification", primary_result)
+    monkeypatch.setattr(
+        nl_parser, "resolve_coach_context_risk",
+        lambda *_args: ("stop_loss_pct", 10.0),
+    )
+    result = _run_nl_parse(NLParseRequest(
+        prompt="10%", previous_parsed=previous,
+        previous_coach_text="손절은 몇 퍼센트로 설정할까요?",
+    ))
+
+    assert seen == ["손절은 몇 퍼센트로 설정할까요?"]
+    assert grounding_calls == []
+    assert result["parsed"]["stop_loss_pct"] == 6.0
 
 
-def test_llm_first_mode_delivers_llm_clarification_without_fast_path_probe(monkeypatch):
-    """llm_first에서 원문 해석 권한은 LLM뿐이다(2026-07-26 계약 전환).
+@pytest.mark.parametrize("mode", ["llm_first", "fast_path_first"])
+def test_llm_first_mode_delivers_llm_clarification_without_fast_path_probe(monkeypatch, mode):
+    """Every primary modify mode must leave raw-text interpretation to the LLM.
 
     과거에는 인터프리터가 패치를 못 내면 결정론 fast-path(_modify_rule_based, 원문
     정규식)에게 처리 가능 여부를 물어 양보했다 — 원문 파서 상담 자체가 계약 위반이라
@@ -210,7 +242,7 @@ def test_llm_first_mode_delivers_llm_clarification_without_fast_path_probe(monke
     """
     from strategy_conversation.interpreter.models import StrategyIntent
 
-    monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "llm_first")
+    monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", mode)
 
     probe_calls: list = []
     monkeypatch.setattr(

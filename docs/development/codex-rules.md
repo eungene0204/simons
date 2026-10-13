@@ -24,6 +24,7 @@ Allowed:
 - Backtest Core (limited)
 - AI Summary / Explain
 - AI Runtime Orchestration
+- Strategy Interpretation Stabilization
 - Optimization Runtime
 - Virtual Trading Runtime
 - Delisted Stock Names

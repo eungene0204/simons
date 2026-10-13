@@ -118,6 +118,11 @@ def _close_unbalanced_containers(text: str, start: int) -> Optional[str]:
             stack.pop()
             if not stack:
                 return "".join(out)
+    # A complete final array/object can leave only the outermost brace open.
+    # Closing that brace adds no value or field. Do not complete a scalar,
+    # string, or nested container cut off at EOF: its content may be missing.
+    if stack == ["{"] and not in_string and out and out[-1] in "]}":
+        return "".join(out) + "}"
     return None
 
 
@@ -307,11 +312,11 @@ def split_bollinger_recovery_fields(intent) -> list:
     for index, cond in enumerate(strategy.entry_conditions):
         spec = resolve(cond.factor)
         if spec is not None and spec.id in (_BOLLINGER_TOUCH, _BOLLINGER_MIDDLE_UP, _BOLLINGER_MIDDLE_RECOVERY):
-            paths.setdefault(spec.id, f"strategy.entry_conditions[{index}]")
-    partner = paths.get(_BOLLINGER_MIDDLE_UP) or paths.get(_BOLLINGER_MIDDLE_RECOVERY)
-    if _BOLLINGER_TOUCH not in paths or partner is None:
+            paths.setdefault(spec.id, []).append(f"strategy.entry_conditions[{index}]")
+    partners = paths.get(_BOLLINGER_MIDDLE_UP, []) + paths.get(_BOLLINGER_MIDDLE_RECOVERY, [])
+    if _BOLLINGER_TOUCH not in paths or not partners:
         return []
-    return [paths[_BOLLINGER_TOUCH], partner]
+    return paths[_BOLLINGER_TOUCH] + partners
 
 
 def split_bollinger_recovery_error(paths: list) -> str:

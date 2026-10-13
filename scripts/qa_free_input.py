@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import urllib.request
+from copy import deepcopy
 from pathlib import Path
 
 BASE_URL = os.environ.get("QA_BACKEND_URL", "http://localhost:8000") + "/strategy/parse"
@@ -31,11 +32,11 @@ _BASE_PROMPT = (
 #  modify= conversationDecision.ts MODIFICATION_CLARIFICATIONS / takeProfitPrompt
 QUESTIONS = {
     "entry": {
-        "fill": "매수 조건이 빠져 있습니다. 어떤 조건에서 매수할까요?",
+        "fill": "다음으로 어떤 조건에서 매수할지 정해볼까요?",
         "modify": "어떤 진입 신호로 변경할까요? 아래 옵션을 선택하거나 원하는 조건을 직접 입력해 주세요.",
     },
     "exit": {
-        "fill": "청산 조건이 빠져 있습니다. 어떤 조건에서 청산할까요?",
+        "fill": "이제 언제 매도할지 정해볼까요?",
         "modify": "어떤 청산 신호로 변경할까요? 아래 옵션을 선택하거나 원하는 조건을 직접 입력해 주세요.",
     },
     "max_positions": {
@@ -43,15 +44,15 @@ QUESTIONS = {
         "modify": "최대 보유 종목 수를 몇 종목으로 변경할까요? 아래에서 선택하거나 원하는 수를 직접 입력해 주세요.",
     },
     "rebalancing": {
-        "fill": "리밸런싱 주기가 빠져 있습니다. 포트폴리오를 얼마나 자주 다시 구성할까요?",
+        "fill": "다음으로 포트폴리오를 얼마나 자주 다시 구성할지 정해볼까요?",
         "modify": "리밸런싱 주기를 어떻게 변경할까요? 아래에서 선택하거나 원하는 주기를 직접 입력해 주세요.",
     },
     "stop_loss": {
-        "fill": "손절 기준이 빠져 있습니다. 손절 기준을 몇 %로 설정할까요?",
+        "fill": "이제 손절 기준을 몇 %로 정할까요?",
         "modify": "손절 기준을 몇 %로 변경할까요? 아래에서 선택하거나 원하는 값을 직접 입력해 주세요.",
     },
     "take_profit": {
-        "fill": "익절 기준이 빠져 있습니다. 익절 기준을 몇 %로 설정할까요?",
+        "fill": "이제 익절 기준을 몇 %로 정할까요?",
         "modify": "익절 기준은 매수가 대비 수익률로 설정합니다. 예시 값은 5%, 10%, 15%입니다. 적용할 익절 기준을 몇 %로 할까요?",
     },
     "backtest_period": {
@@ -67,24 +68,30 @@ QUESTIONS = {
 
 def sig_entry(indicator, **kw):
     def check(p):
+        mismatches = []
         for s in p.get("entry_signals") or []:
             if s.get("indicator") != indicator:
                 continue
             if all(s.get(k) == v for k, v in kw.items()):
                 return True, ""
-            return False, f"파라미터 불일치: {json.dumps(s, ensure_ascii=False)}"
+            mismatches.append(s)
+        if mismatches:
+            return False, f"파라미터 불일치: {json.dumps(mismatches, ensure_ascii=False)}"
         return False, f"entry_signals={json.dumps(p.get('entry_signals'), ensure_ascii=False)}"
     return check
 
 
 def sig_exit(indicator, **kw):
     def check(p):
+        mismatches = []
         for s in p.get("exit_signals") or []:
             if s.get("indicator") != indicator:
                 continue
             if all(s.get(k) == v for k, v in kw.items()):
                 return True, ""
-            return False, f"파라미터 불일치: {json.dumps(s, ensure_ascii=False)}"
+            mismatches.append(s)
+        if mismatches:
+            return False, f"파라미터 불일치: {json.dumps(mismatches, ensure_ascii=False)}"
         return False, f"exit_signals={json.dumps(p.get('exit_signals'), ensure_ascii=False)}"
     return check
 
@@ -330,10 +337,22 @@ _SLOT_TOPICS = {
 }
 
 
-def call(prompt, question, slot=None):
+def _case_previous_parsed(family, slot):
+    if family != "fill" or slot not in ("entry", "exit"):
+        return PREV
+    draft = deepcopy(PREV)
+    draft["entry_signals" if slot == "entry" else "exit_signals"] = []
+    # The cached description still names the removed signal and would contradict
+    # the pending question even after the structured signal list is cleared.
+    draft["description"] = ""
+    return draft
+
+
+def call(prompt, question, slot=None, previous_parsed=None):
     body = {
         "prompt": prompt, "backend": "ollama",
-        "previous_parsed": PREV, "previous_explicit_fields": PREV_EXPLICIT,
+        "previous_parsed": PREV if previous_parsed is None else previous_parsed,
+        "previous_explicit_fields": PREV_EXPLICIT,
         "pending_question": question,
     }
     topic = _SLOT_TOPICS.get(slot or "")
@@ -348,9 +367,10 @@ def run(family):
     rows = []
     for slot, prompt, check in CASES:
         question = QUESTIONS[slot][family]
+        previous = _case_previous_parsed(family, slot)
         started = time.perf_counter()
         try:
-            out = call(prompt, question, slot)
+            out = call(prompt, question, slot, previous_parsed=previous)
         except Exception as exc:  # noqa: BLE001
             rows.append((slot, prompt, "ERROR", str(exc)[:90], 0))
             print(f"  ERROR {slot} {prompt!r} {exc}", flush=True)
@@ -363,8 +383,8 @@ def run(family):
         for key, label in GUARDED.items():
             if key in OWNED[slot]:
                 continue
-            if parsed.get(key) != PREV.get(key):
-                collateral.append(f"{label}:{PREV.get(key)!r}→{parsed.get(key)!r}")
+            if parsed.get(key) != previous.get(key):
+                collateral.append(f"{label}:{previous.get(key)!r}→{parsed.get(key)!r}")
         clar = out.get("clarification_question")
         notices = out.get("notices") or []
         # 되묻기는 실패가 아니다 — 값이 빠진 파라미터를 묻는 것은 정상 동작이다

@@ -32,7 +32,34 @@ const previousParsed: ParsedSummary = {
 };
 
 describe("mergeStrategyModification", () => {
-  it("작년도 흑자종목은 EPS 양수 조건만 남기고 순이익증가율 환각을 제거한다", () => {
+  it("흑자 조건 추가 요청에서 기존 순이익증가율 조건을 보존한다", () => {
+    const growth = { metric: "net_income_growth", operator: ">=", value: 100 };
+    const eps = { metric: "eps", operator: ">", value: 0 };
+    const result = mergeStrategyModification({
+      previousParsed: { ...previousParsed, fundamental_filters: [growth] },
+      nextParsed: { ...previousParsed, fundamental_filters: [growth, eps] },
+      previousBacktestRequest: {
+        entry: { conditions: [{ type: "filter", id: "net_income_growth" }] },
+      },
+      nextBacktestRequest: {
+        entry: {
+          conditions: [
+            { type: "filter", id: "net_income_growth" },
+            { type: "filter", id: "eps" },
+          ],
+        },
+      },
+      userPrompt: "흑자 종목만 추가해줘",
+    });
+
+    expect(result.parsed.fundamental_filters).toEqual([growth, eps]);
+    expect(result.backtestRequest?.entry?.conditions?.map((condition) => condition.id)).toEqual([
+      "net_income_growth",
+      "eps",
+    ]);
+  });
+
+  it("백엔드가 확정한 조건은 원문 어휘로 프론트에서 다시 삭제하지 않는다", () => {
     const result = mergeStrategyModification({
       previousParsed: null,
       nextParsed: {
@@ -66,9 +93,15 @@ describe("mergeStrategyModification", () => {
     });
 
     expect(result.parsed.fundamental_filters).toEqual([
+      { metric: "net_income_growth", operator: ">=", value: 100 },
       { metric: "eps", operator: ">", value: 0 },
     ]);
     expect(result.backtestRequest?.entry?.conditions).toEqual([
+      {
+        type: "filter",
+        id: "net_income_growth",
+        params: { operator: ">=", value: 100 },
+      },
       {
         type: "filter",
         id: "eps",

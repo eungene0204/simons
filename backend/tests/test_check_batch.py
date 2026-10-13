@@ -78,6 +78,27 @@ def test_invalid_section_alone_retries_original_checker():
     assert len(calls) == 2
 
 
+def test_ambiguous_batched_trading_verdict_retries_individual_checker():
+    calls = []
+
+    def chat(system, user, **kwargs):
+        calls.append(system)
+        if system == check_batch._SYSTEM:
+            data = sections()
+            data["trading"]["items"][0]["compares"] = "unclear"
+            return json.dumps({"checks": data})
+        assert system == trading_value_check.build_system_prompt()
+        return json.dumps({"items": [{"compares": "volume"}]})
+
+    intent = make_intent()
+    checked = check_batch.prepare_chat(intent, TEXT, chat)
+    targets = trading_value_check.conditions_to_check(intent.strategy)
+    verdicts = trading_value_check.check_trading_value_quotes(TEXT, targets, checked)
+
+    assert verdicts[0][1].compares == "volume"
+    assert calls == [check_batch._SYSTEM, trading_value_check.build_system_prompt()]
+
+
 def test_verdicts_reorder_by_ids_and_reject_duplicate_ids():
     rows = [{"id": f"quote:{i}", "expresses": "yes", "describes": "moving_average"} for i in (2, 1)]
     result = check_batch._validated_section("quote", {"items": rows}, 2)

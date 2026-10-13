@@ -185,6 +185,49 @@ Runtime coordination for local LLM inference, model preloading, and latency-sens
 
 ---
 
+## Boundary W: Strategy Interpretation Stabilization
+
+### Purpose
+Preserve user-stated strategy meaning across primary interpretation, provenance checks, and modification patches.
+
+### Files
+- backend/strategy_conversation/primary.py
+- backend/strategy_conversation/config.py
+- backend/strategy_conversation/interpreter/**
+- backend/strategy_conversation/conversation/patch_applier.py
+- backend/strategy_conversation/validation/capability_validator.py (operator error notice wording only)
+- backend/main.py
+- backend/tests/**
+- components/admin/AgentsTab.tsx
+- scripts/qa_free_input.py
+- scripts/qa_template_detect.py
+- scripts/qa_template_expectations.json
+
+### Allowed Tasks
+- fix interpretation provenance and numeric evidence handoff
+- keep dependent modification patches atomic and preserve unrelated conditions
+- repair narrowly scoped auxiliary LLM checks and their runtime wiring
+- update the existing agent-flow diagram to match changed guards
+- add regression tests for these paths
+- localize user-facing invalid-operator notices without changing validation decisions
+- keep the existing free-input QA fixture and semantic assertions consistent with the draft supplied to the interpreter
+- retire raw-text modification fast-path routing across the primary entry point and its rollback setting
+- replace regex-derived QA expectations with human-authored example expectations without reducing checked meaning
+
+### Strict Rules
+- Do not infer meaning from raw `user_input` with regexes, keywords, or vocabulary lists
+- Do not invent parameter values or silently remove conditions
+- Use LLM verdicts for semantic judgments; validate only output format and quoted provenance deterministically
+- Preserve public response contracts and fail open when an auxiliary verdict is invalid
+- Keep each implementation task narrow and verify the original failure before changing code
+
+### Forbidden
+- new Agent, parser, State model, or DSL
+- compiler, engine, provider, database, or data-file changes
+- strategy recommendation or market prediction
+
+---
+
 ## Boundary L: Optimization Runtime
 
 ### Purpose

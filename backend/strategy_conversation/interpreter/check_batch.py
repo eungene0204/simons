@@ -87,6 +87,12 @@ def prepare_chat(intent, user_input, chat, only=None):
         if isinstance(sections, dict):
             for name, (system, user, _) in requests.items():
                 section = _validated_section(name, sections.get(name), counts[name])
+                # A bundled "unclear" is inconclusive. The focused checker can
+                # distinguish the metric without the other checks' context.
+                if (name == "trading" and section is not None
+                        and any(item["compares"] == "unclear"
+                                for item in section["items"])):
+                    section = None
                 if section is not None:
                     responses[(system, user)] = json.dumps(section, ensure_ascii=False)
     except Exception:

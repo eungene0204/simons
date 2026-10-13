@@ -32,6 +32,7 @@ def _active_model(slot_model: str) -> str:
     return active_chat_model(slot_model)
 from strategy_conversation import config
 from strategy_conversation.interpreter.models import StrategyIntent
+from strategy_conversation.interpreter.holding_period_check import reconcile_holding_days
 from strategy_conversation.interpreter.output_repair import (
     bare_unsupported_request_error,
     build_repair_prompt,
@@ -73,6 +74,53 @@ def _recall_gap(user_input: str, intent) -> list[str]:
     return find_unreflected_numbers(user_input, intent)
 
 ChatFn = Callable[[str, str], str]  # (system_prompt, user_message) -> raw text
+
+
+def _unaffected_conditions(intent: StrategyIntent, affected_paths: list[str]) -> list:
+    """Snapshot validated conditions outside the fields named in a format repair."""
+    strategy = intent.strategy
+    if strategy is None:
+        return []
+    return [
+        (role, cond.model_copy(deep=True))
+        for role in ("entry_conditions", "exit_conditions")
+        for index, cond in enumerate(getattr(strategy, role))
+        if not any(path.startswith(f"strategy.{role}[{index}]") for path in affected_paths)
+    ]
+
+
+def _restore_unaffected_conditions(intent: StrategyIntent, protected: list) -> int:
+    """Copy omitted independent conditions; refuse ambiguous same-factor rewrites."""
+    strategy = intent.strategy
+    if strategy is None:
+        return -1 if protected else 0
+    remaining = {
+        role: list(getattr(strategy, role))
+        for role in ("entry_conditions", "exit_conditions")
+    }
+    output_factors = {
+        cond.factor for conditions in remaining.values() for cond in conditions
+    }
+    missing = []
+    for role, original in protected:
+        signature = original.model_dump(exclude={"source_text"})
+        match = next((index for index, cond in enumerate(remaining[role])
+                      if cond.model_dump(exclude={"source_text"}) == signature), None)
+        if match is not None:
+            remaining[role].pop(match)
+        elif original.factor in output_factors:
+            return -1
+        else:
+            missing.append((role, original))
+    for role, original in missing:
+        getattr(strategy, role).append(original)
+    return len(missing)
+
+
+def _other_strategy_slots(intent: StrategyIntent):
+    strategy = intent.strategy
+    return (strategy.model_dump(exclude={"entry_conditions", "exit_conditions"})
+            if strategy is not None else None)
 
 # 스트리밍 출력에서 '지금 생성 중인 섹션'을 진행 단계로 매핑한다. 입력은 사용자 원문이
 # 아니라 LLM이 생성 중인 StrategyIntent JSON이며, 따옴표 포함 키 문자열의 위치만 본다
@@ -294,6 +342,7 @@ class StrategyInterpreter:
         self, user_input: str, draft: Optional[dict] = None,
         pending_question: Optional[str] = None,
         on_stage: Optional[Callable[[str], None]] = None,
+        previous_coach_text: Optional[str] = None,
     ) -> InterpreterResult:
         """본체는 _interpret다 — 이 래퍼는 관찰 span만 연다(비활성 시 no-op).
 
@@ -306,11 +355,12 @@ class StrategyInterpreter:
         with span(
             "Interpreter · 전략 해석", "chain",
             inputs={"user_input": user_input, "draft": draft,
-                    "pending_question": pending_question},
+                    "pending_question": pending_question,
+                    "previous_coach_text": previous_coach_text},
             metadata={"model": _active_model(self.model_name), "prompt_version": PROMPT_VERSION,
                       "mode": "modify" if draft else "create"},
         ) as trace:
-            result = self._interpret(user_input, draft, pending_question, on_stage)
+            result = self._interpret(user_input, draft, pending_question, on_stage, previous_coach_text)
             # 복구 재시도 = LLM 출력이 스키마를 못 맞춰 다시 부른 횟수(스펙 § Retry Count).
             trace.meta(retry_count=result.repair_attempts,
                        interpreter_latency_ms=result.latency_ms,
@@ -330,9 +380,10 @@ class StrategyInterpreter:
         self, user_input: str, draft: Optional[dict] = None,
         pending_question: Optional[str] = None,
         on_stage: Optional[Callable[[str], None]] = None,
+        previous_coach_text: Optional[str] = None,
     ) -> InterpreterResult:
         started = time.perf_counter()
-        user_prompt = build_user_prompt(user_input, draft, pending_question)
+        user_prompt = build_user_prompt(user_input, draft, pending_question, previous_coach_text)
         # UI 언어가 영어면 자유 서술(clarification 질문 등)을 영어로 쓰라는 지시를 **사용자
         # 프롬프트 끝**에 붙인다 — 시스템 프롬프트(프리픽스 캐시)는 언어와 무관하게 고정.
         from ui_language import append_directive
@@ -362,6 +413,8 @@ class StrategyInterpreter:
         # 재생성본이 스키마를 깨면 턴을 해석 실패로 만들지 않고 이 출력으로 진행한다 —
         # 위반 조건은 primary 환각 가드가 인용 없이 뺀다(재생성은 1회뿐, 무한 재시도 금지).
         format_fallback_raw: Optional[str] = None
+        format_protected_conditions: list = []
+        format_original_other_slots = None
         fallback_used = False
         while True:
             try:
@@ -404,6 +457,21 @@ class StrategyInterpreter:
                         _log_llm("△ 미지원 목록 복원", (
                             f"수리본이 지운 unsupported_features {len(dropped)}개를 원출력에서 되살림"
                         ))
+                if format_fallback_raw is not None and not fallback_used:
+                    if (format_original_other_slots is not None
+                            and _other_strategy_slots(intent) != format_original_other_slots):
+                        _log_llm("△ 형식 재생성 손실", "무관 전략 필드 변경 감지 — 원출력으로 진행")
+                        fallback_used = True
+                        current_raw = format_fallback_raw
+                        continue
+                    restored = _restore_unaffected_conditions(intent, format_protected_conditions)
+                    if restored < 0:
+                        _log_llm("△ 형식 재생성 손실", "무관 조건 변경 감지 — 원출력으로 진행")
+                        fallback_used = True
+                        current_raw = format_fallback_raw
+                        continue
+                    if restored:
+                        _log_llm("△ 조건 복원", f"재생성본이 빠뜨린 무관 조건 {restored}개 복원")
                 # 문맥 보정(결정론): 기존 초안이 없으면 MODIFY/CLARIFY는 성립 불가 —
                 # 4B가 단문 전략 서술을 MODIFY_STRATEGY로 오분류하는 드리프트 실측(2026-07-16).
                 if draft is None and intent.intent in ("MODIFY_STRATEGY", "CLARIFY_STRATEGY") \
@@ -421,6 +489,8 @@ class StrategyInterpreter:
                 if (format_violations and format_fallback_raw is None
                         and attempts < config.MAX_REPAIR_ATTEMPTS):
                     format_fallback_raw = current_raw
+                    format_protected_conditions = _unaffected_conditions(intent, format_violations)
+                    format_original_other_slots = _other_strategy_slots(intent)
                     attempts += 1
                     error_message = whole_input_quote_error(format_violations)
                     _log_llm(f"⟳ 형식 재생성 요청({attempts}회차)", error_message)
@@ -439,6 +509,7 @@ class StrategyInterpreter:
                         and format_fallback_raw is None
                         and attempts < config.MAX_REPAIR_ATTEMPTS):
                     format_fallback_raw = current_raw
+                    format_original_other_slots = _other_strategy_slots(intent)
                     attempts += 1
                     error_message = bare_unsupported_request_error()
                     _log_llm(f"⟳ 빈 라벨 재생성 요청({attempts}회차)", error_message)
@@ -456,6 +527,10 @@ class StrategyInterpreter:
                 if (misfiled and format_fallback_raw is None
                         and attempts < config.MAX_REPAIR_ATTEMPTS):
                     format_fallback_raw = current_raw
+                    format_protected_conditions = _unaffected_conditions(
+                        intent, [path for path, _ in misfiled]
+                    )
+                    format_original_other_slots = _other_strategy_slots(intent)
                     attempts += 1
                     error_message = misfiled_trading_value_error(misfiled)
                     _log_llm(f"⟳ 지표 어긋남 재생성 요청({attempts}회차)", error_message)
@@ -472,6 +547,8 @@ class StrategyInterpreter:
                 if (split_bb and format_fallback_raw is None
                         and attempts < config.MAX_REPAIR_ATTEMPTS):
                     format_fallback_raw = current_raw
+                    format_protected_conditions = _unaffected_conditions(intent, split_bb)
+                    format_original_other_slots = _other_strategy_slots(intent)
                     attempts += 1
                     error_message = split_bollinger_recovery_error(split_bb)
                     _log_llm(f"⟳ 볼린저 차례 신호 재생성 요청({attempts}회차)", error_message)
@@ -507,6 +584,15 @@ class StrategyInterpreter:
                                  f"{', '.join(cleared)} — 확정 대신 되묻기")
                 if residual:
                     _log_llm("△ 수치 누락 잔존", f"미반영: {', '.join(residual)}")
+                if (draft is not None and residual
+                        and intent.intent in ("MODIFY_STRATEGY", "CLARIFY_STRATEGY")):
+                    checked = reconcile_holding_days(intent, user_input, self._chat)
+                    if checked is not intent:
+                        intent = checked
+                        residual = (
+                            _recall_gap(user_input, intent) if config.recall_check_enabled() else []
+                        )
+                        _log_llm("△ 보유 기간 대조", "명시된 거래일 수를 패치에 반영")
                 _log_llm("✓ 해석", (
                     f"intent={intent.intent} "
                     f"patches={len(intent.patches)} repairs={attempts} "

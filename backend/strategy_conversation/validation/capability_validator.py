@@ -51,6 +51,17 @@ _COMPARISON_OPS = ("<", "<=", ">", ">=")
 # 교차 연산자 → 같은 방향의 수준 비교(오실레이터 전용 정규화, 위 주석 참조)
 _CROSS_TO_COMPARISON = {"crosses_above": ">", "crosses_below": "<"}
 
+
+def _operator_notice_label(operator: str) -> str:
+    """Render a validator operator for users without exposing internal enum names."""
+    if operator == "crosses_above":
+        return ui_language.msg("상향 돌파", "upward crossover")
+    if operator == "crosses_below":
+        return ui_language.msg("하향 돌파", "downward crossover")
+    if operator in _COMPARISON_OPS:
+        return operator
+    return ui_language.msg("선택한 연산자", "the selected operator")
+
 # 교차 방향이 역할(signal_type)로만 정해지는 지표 — 엔진 signals.py의 crossover(direction)이
 # buy=golden/sell=dead로 고정한다. 매수 칸의 crosses_below는 표현 불가(컴파일러도 같은 판정).
 _DIRECTIONAL_CROSS_LEAVES = frozenset({"technical.ma_crossover", "technical.ema", "technical.macd"})
@@ -66,7 +77,11 @@ def _condition_identity(cond) -> tuple:
         (name, float(value) if isinstance(value, (int, float)) else str(value))
         for name, value in cond.parameters.items() if value is not None
     ))
-    return (cond.factor, cond.operator, cond.value, cond.unit, params)
+    amount_mode = (cond.buy_amount_mode or "set") if cond.buy_amount is not None else None
+    return (
+        cond.factor, cond.operator, cond.value, cond.unit, params,
+        cond.buy_amount, amount_mode,
+    )
 
 
 def _dedupe_identical_conditions(role: str, conditions: list) -> list:
@@ -454,10 +469,13 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                 cond.operator = _CROSS_TO_COMPARISON[cond.operator]
             if cond.operator is not None and spec.allowed_operators \
                     and cond.operator not in spec.allowed_operators:
-                errors.append(
-                    f"'{spec.display_name}'에 연산자 '{cond.operator}'은(는) 허용되지 않습니다 "
-                    f"(허용: {', '.join(spec.allowed_operators)})"
-                )
+                errors.append(ui_language.msg(
+                    "'{name}'에 연산자 '{operator}'은(는) 허용되지 않습니다 (허용: {allowed})",
+                    "The operator '{operator}' is not supported for '{name}' (allowed: {allowed})",
+                    name=spec.display_name,
+                    operator=_operator_notice_label(cond.operator),
+                    allowed=", ".join(_operator_notice_label(op) for op in spec.allowed_operators),
+                ))
             # 교차 방향과 역할의 모순 — 엔진은 이동평균·EMA·MACD의 교차 방향을 signal_type으로만
             # 정한다(매수=상향, 매도=하향). 매수 칸의 crosses_below·매도 칸의 crosses_above는
             # 표현할 수 없고, 종전 컴파일러는 연산자를 읽지 않아 "20일선 이탈 시 청산"이 매수
@@ -469,8 +487,9 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                     and cond.operator in ("crosses_above", "crosses_below") \
                     and cond.operator != expected_cross:
                 errors.append(
-                    f"{role} 조건 '{spec.display_name}'의 교차 방향 '{cond.operator}'은(는) "
-                    f"{role} 신호로 표현할 수 없습니다 ({role}은 {expected_cross}만 가능)"
+                    f"{role} 조건 '{spec.display_name}'의 교차 방향 "
+                    f"'{_operator_notice_label(cond.operator)}'은(는) {role} 신호로 표현할 수 없습니다 "
+                    f"({role}은 {_operator_notice_label(expected_cross)}만 가능)"
                 )
             # 볼린저(2026-10-10) — 레거시 표기의 반대 방향은 컴파일러가 거부한다(종전에는 연산자를
             # 버려 정반대로 백테스트됐다). 밴드 지정 볼린저(v16.39)는 방향을 개념 ID가 담는다.
@@ -480,7 +499,8 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
                     and cond.operator in ("crosses_above", "crosses_below") \
                     and cond.operator != legacy_cross:
                 errors.append(
-                    f"{role} 조건 '{spec.display_name}'의 교차 방향 '{cond.operator}'은(는) "
+                    f"{role} 조건 '{spec.display_name}'의 교차 방향 "
+                    f"'{_operator_notice_label(cond.operator)}'은(는) "
                     f"밴드를 지정하지 않으면 표현할 수 없습니다"
                 )
         setattr(strategy, attr, _drop_valueless_quote_twins(

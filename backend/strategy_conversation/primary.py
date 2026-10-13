@@ -1641,8 +1641,9 @@ def _shape_example_quotes() -> frozenset:
 def _drop_fabricated_conditions(
     intent: StrategyIntent, user_input: str,
     quote_verdicts: Optional[Any] = None,
+    only: Optional[List[Any]] = None,
 ) -> List[str]:
-    """create 턴 조건의 출처 인용 대조 — 인용이 입력에 없는 조건은 환각으로 보고 뺀다.
+    """조건의 출처 인용 대조; 수정 턴에는 이번에 추가한 조건만 검사한다.
 
     수정 패치 환각 게이트 ①(출처 인용 대조)과 같은 판정이다(§ 3-1 대조 — 어휘도 의미도
     판단하지 않고, LLM의 출처 주장(source_text)이 실제 입력에 존재하는지만 본다).
@@ -1671,18 +1672,24 @@ def _drop_fabricated_conditions(
     from strategy_conversation.interpreter.output_repair import extracted_other_slots
 
     # 입력 전체 인용이 형식 위반이 되는 조건 — 인터프리터 재생성 판정과 같은 술어(결정 (a)).
-    whole_input_is_violation = extracted_other_slots(strategy)
+    # A short modification answer may consist entirely of one condition quote;
+    # its provenance was already checked at the patch gate. The whole-input
+    # format rule belongs to the create-turn regeneration path only.
+    whole_input_is_violation = only is None and extracted_other_slots(strategy)
     whole_input_dropped: List[Dict[str, Any]] = []
     shape_copies: List[Dict[str, Any]] = []
     for role in ("entry_conditions", "exit_conditions"):
         kept = []
         for cond in getattr(strategy, role):
+            if only is not None and not any(cond is candidate for candidate in only):
+                kept.append(cond)
+                continue
             # 랭킹이 이미 담은 지표의 값 없는 껍데기 — 인용이 "PER, PBR, EV/EBITDA가 낮고"를
             # 쪼갠 "PER이 낮은"처럼 입력에 없는 꼴이어도 사용자는 그 말을 했고 랭킹이 반영한다.
             # 출처 대조 안내("요청 문장에서 확인되지 않아 반영하지 않았어요")를 내면 반영된
             # 조건에 거짓 딱지가 붙는다(2026-09-19 실측: PER·PBR·ROE 3줄). 검증기의 거울
             # 정리와 같은 판정으로 안내 없이 뺀다(대체였다면 근사 신고는 랭킹으로 옮긴다).
-            if role == "entry_conditions":
+            if only is None and role == "entry_conditions":
                 mirrored = ranking_mirrored_by(cond, strategy.ranking)
                 if mirrored is not None:
                     carry_approximation(cond, mirrored)
@@ -1827,21 +1834,6 @@ def _diff_fields(before: Dict[str, Any], after: Dict[str, Any]) -> List[str]:
     ]
 
 
-def fast_path_can_handle(user_input: str, previous_parsed: dict) -> bool:
-    """결정론 fast-path(_modify_rule_based)가 이 수정 발화를 완전히 해석하는가?
-
-    예외는 "내 소관 아님"으로 강등한다 — 해석 레이어의 예외가 요청을 죽이지 못하게 한다
-    (오염된 previous_parsed 하나가 이후 모든 수정을 500으로 만들던 2026-07-26 사고).
-    """
-    from engine.nl_parser import _modify_rule_based
-
-    try:
-        return _modify_rule_based(user_input, previous_parsed) is not None
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("modify fast-path raised, treating as not-applicable | err=%r", exc)
-        return False
-
-
 def _explicit_fields(strategy: Any, previous: Optional[List[str]]) -> List[str]:
     """이번 턴 LLM 출력의 명시 필드 + 이전 턴 에코를 누적한다(provenance 단일 진실 소스)."""
     from strategy_conversation.response.provenance import (
@@ -1970,7 +1962,8 @@ def _check_condition_quotes(
 def _resolve_trading_value_comparisons(
     intent: Any, user_input: str, chat: Any,
     only: Optional[List[Any]] = None,
-) -> None:
+    rejected_volume: Optional[List[Any]] = None,
+) -> List[str]:
     """금액(값)이 없는 거래대금 조건이 금액 비교인지 자기 평균 비교인지 LLM에 묻고,
     평균 비교면 거래대금 배수로 옮긴다(interpreter/trading_value_check.py).
 
@@ -1983,18 +1976,38 @@ def _resolve_trading_value_comparisons(
 
     strategy = getattr(intent, "strategy", None)
     if strategy is None or not callable(chat):
-        return
+        return []
     targets = trading_value_check.conditions_to_check(strategy, only=only)
     if not targets:
-        return
+        return []
     pairs = trading_value_check.check_trading_value_quotes(user_input, targets, chat)
     if pairs is None:
         _log_llm("△ 거래대금 비교 대상 대조 실패", f"{len(targets)}개 조건 — 판정 없음으로 진행")
-        return
+        return []
     moved = trading_value_check.apply_verdicts(pairs)
+    # A quantity-of-shares quote cannot be represented by the money-valued
+    # trading_value factor. Keep it visible as unsupported instead of asking
+    # the user for a money threshold they never requested.
+    notices: List[str] = []
+    for cond, verdict in pairs:
+        if verdict.compares != "volume":
+            continue
+        for role in ("entry_conditions", "exit_conditions"):
+            conditions = getattr(strategy, role)
+            if any(candidate is cond for candidate in conditions):
+                conditions[:] = [candidate for candidate in conditions if candidate is not cond]
+                if rejected_volume is not None:
+                    rejected_volume.append((role, cond))
+                if only is None and cond.source_text not in intent.unsupported_features:
+                    intent.unsupported_features.append(cond.source_text)
+                notices.append(
+                    f"'{cond.source_text}'은 거래량 조건인데 거래대금으로 해석되어 반영하지 않았어요."
+                )
+                break
     _log_llm("✓ 거래대금 비교 대상 대조", "; ".join(
         f"{cond.source_text}={verdict.compares}" for cond, verdict in pairs
     ) + (f" → 거래대금 배수 {len(moved)}개" if moved else ""))
+    return notices
 
 
 def _resolve_liquidity_exclusions(intent: Any, user_input: str, chat: Any) -> None:
@@ -2167,8 +2180,12 @@ def run_primary_parse(
     check_chat = (prepare_chat(result.intent, user_input, recall_chat)
                   if config.call_reduction_enabled() else recall_chat)
     quote_verdicts = _check_condition_quotes(result.intent, user_input, check_chat)
-    _resolve_trading_value_comparisons(result.intent, user_input, check_chat)
+    # Resolve previously reported liquidity before checking the resulting
+    # condition's measurement unit. Otherwise a rejected share-volume quote
+    # can be reintroduced as a money-valued trading_value condition.
     _resolve_liquidity_exclusions(result.intent, user_input, recall_chat)
+    trading_notices = _resolve_trading_value_comparisons(
+        result.intent, user_input, check_chat)
     # 적립식 판정(통합) — 파라미터 보정보다 먼저: 계획을 채우고 조건에 금액·상태 연산자를 달아야
     # 아래 보정(매도 선언 재배치 등)이 이 턴을 적립식으로 알아본다(2026-09-22).
     _resolve_contribution_plan(result.intent, user_input, check_chat)
@@ -2184,7 +2201,19 @@ def run_primary_parse(
                 planner_first = _plan_first(user_input)
     _recover_kr_etf_product(result.intent, planner_first)
 
-    repair_notices = _fill_deterministic_condition_params(result.intent, quote_verdicts)
+    from strategy_conversation.interpreter.holding_period_check import (
+        recover_create_misfiled_holding_period,
+    )
+
+    repair_notices = trading_notices + recover_create_misfiled_holding_period(
+        result.intent, user_input, recall_chat)
+    from strategy_conversation.interpreter.relative_return_check import (
+        reconcile_qualitative_return,
+    )
+
+    repair_notices += reconcile_qualitative_return(
+        result.intent, user_input, recall_chat)
+    repair_notices += _fill_deterministic_condition_params(result.intent, quote_verdicts)
     _normalize_size_class_labels(result.intent)
     repair_notices += _dedupe_relative_return_against_ranking(result.intent)
     # 조건 누락 대조 패스 — 1차 해석은 조건이 여러 개 나열되면 하나를 밀어낸다(2026-08-18
@@ -2320,7 +2349,7 @@ def run_primary_parse(
             },
         })
 
-    notices: List[str] = list(report.warnings) + repair_notices
+    notices: List[str] = list(report.warnings) + list(report.errors) + repair_notices
     notices += _preparing_notice(report)
     try:
         compiled = call_tool("compile_strategy", intent=validated, report=report,
@@ -4821,6 +4850,7 @@ def run_primary_modification(
     previous_explicit_fields: Optional[List[str]] = None,
     pending_ask: Optional[Dict[str, Any]] = None,
     pending_question: Optional[str] = None,
+    previous_coach_text: Optional[str] = None,
     previous_declined_fields: Optional[List[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """수정 요청의 LLM Interpreter 기본 경로. 성공 시 결과 dict, 폴백 필요 시 None.
@@ -4864,18 +4894,8 @@ def run_primary_modification(
     from strategy_conversation.compiler.engine_defaults import materialize_engine_defaults
     prev = materialize_engine_defaults(prev)
 
-    # 해석 권한 순서(STRATEGY_MODIFY_INTERPRETER_MODE):
-    #  · llm_first(기본) — LLM이 유일한 원문 해석자다. 이 경로는 결정론 fast-path
-    #    (_modify_rule_based, 원문 정규식)를 상담하지 않는다(2026-07-26 계약 전환).
-    #    인터프리터가 패치·질문·설명을 못 내면 None으로 폴백하고, 레거시 계층의 처리
-    #    여부는 호출부 소관이다(§ 11 격차 1·3의 이관 대상).
-    #  · fast_path_first(롤백) — 기존 동작. fast-path가 완전히 해석하는 수정("손절 10%로")은
-    #    인터프리터를 건너뛴다(LLM 왕복 지연·수치/날짜 드리프트 회피).
-    if config.modify_interpreter_mode() == "fast_path_first":
-        if fast_path_can_handle(user_input, previous_parsed):
-            _log_llm("↩ 폴백", "결정적 fast-path 처리 가능 — 인터프리터 생략")
-            logger.info("modify primary skipped, deterministic fast-path handles input")
-            return None
+    # The primary modification lane never asks the legacy raw-text parser to
+    # decide whether a request is eligible for interpretation.
 
     def _carry_over(parsed):
         return parsed.model_copy(update={
@@ -4912,6 +4932,7 @@ def run_primary_modification(
             or _first_buy_answer_result(draft_spec, user_input, pending_question) \
             or _get_interpreter(StrategyInterpreter).interpret(
                 user_input, draft=_draft_for_interpreter(draft_spec), pending_question=pending_question,
+                previous_coach_text=previous_coach_text if not pending_question else None,
             )
     except InterpreterError as exc:
         logger.warning("modify primary interpreter failed, falling back | err=%s", str(exc)[:200])
@@ -5083,6 +5104,150 @@ def run_primary_modification(
             ))
         for i in idxs:
             verdicts[i] = True
+    numeric_candidates = [
+        (i, p) for i, p in enumerate(intent.patches)
+        if not verdicts[i] and p.op in ("add", "replace") and p.source_text
+        and isinstance(p.value, (int, float)) and not isinstance(p.value, bool)
+    ]
+    if numeric_candidates:
+        from strategy_conversation.interpreter.numeric_patch_check import confirmed_numeric_patches
+
+        chat = getattr(_get_interpreter(StrategyInterpreter), "_chat", None)
+        for index in confirmed_numeric_patches(numeric_candidates, user_input, chat):
+            verdicts[index] = True
+            _log_llm("✓ 수치 패치 출처 대조", intent.patches[index].path)
+    # A literal source quote proves only that the words exist, not that a
+    # separate market patch was requested. Ask the existing LLM lane for that
+    # semantic verdict; an invalid or unavailable verdict leaves the patch as is.
+    market_scope_notices: List[str] = []
+    market_candidates = [
+        (i, p) for i, p in enumerate(intent.patches)
+        if verdicts[i] and p.path == "/universe/markets"
+    ]
+    if market_candidates:
+        from strategy_conversation.interpreter.patch_scope_check import (
+            market_patch_scope_verdict,
+        )
+
+        chat = getattr(_get_interpreter(StrategyInterpreter), "_chat", None)
+        for index, patch in market_candidates:
+            if market_patch_scope_verdict(patch, user_input, chat) is False:
+                verdicts[index] = False
+                market_scope_notices.append(
+                    "시장 범위 변경은 요청에서 확인되지 않아 기존 범위를 유지했어요."
+                )
+                _log_llm("✗ 시장 패치 출처 대조", patch.path)
+    # An add and an ungrounded remove in the same condition list are one proposed
+    # replacement. Applying only the add silently keeps the old condition too.
+    pair_ambiguous = False
+    for list_field in _CONDITION_LIST_FIELDS:
+        adds = [(i, p) for i, p in enumerate(intent.patches)
+                if verdicts[i] and p.op == "add" and p.path == f"/{list_field}/-"]
+        removes = [(i, p) for i, p in enumerate(intent.patches)
+                   if not verdicts[i] and p.op == "remove"
+                   and p.path.startswith(f"/{list_field}/")]
+        if not adds or not removes:
+            continue
+        if len(adds) != 1 or len(removes) != 1:
+            pair_ambiguous = True
+            break
+        add_index, add_patch = adds[0]
+        remove_index, remove_patch = removes[0]
+        token = remove_patch.path.removeprefix(f"/{list_field}/")
+        old_conditions = getattr(draft_spec, list_field)
+        if (remove_patch.source_text or not token.isdigit()
+                or not 0 <= int(token) < len(old_conditions)):
+            pair_ambiguous = True
+            break
+        from strategy_conversation.interpreter.patch_pair_check import classify_condition_pair
+
+        new_quote = add_patch.source_text or (
+            add_patch.value.get("source_text") if isinstance(add_patch.value, dict) else None
+        )
+        verdict = classify_condition_pair(
+            user_input, pending_question, list_field,
+            old_conditions[int(token)].model_dump(), add_patch.value, new_quote,
+            getattr(_get_interpreter(StrategyInterpreter), "_chat", None),
+        )
+        if verdict == "replace":
+            verdicts[remove_index] = True
+            _log_llm("✓ 조건 교체 대조", f"{list_field}[{token}] → 새 조건")
+        elif verdict != "add":
+            pair_ambiguous = True
+            break
+    if pair_ambiguous:
+        question = "기존 조건을 새 조건으로 바꿀까요, 아니면 새 조건을 추가할까요?"
+        _log_llm("? 조건 패치 원자성", "추가·삭제의 관계를 확인하지 못해 둘 다 적용하지 않음")
+        return finalize_user_response({
+            "parsed": prev,
+            "clarification_question": question,
+            "clarification_suggestions": None,
+            "clarification_priority": "modify_unapplied",
+            "pending_ask": {"question": question,
+                            "topic": "매수 조건" if list_field == "entry_conditions" else "매도 조건",
+                            "chips": []},
+            "notices": [],
+            "interpreter": {"mode": "primary_modify_ambiguous_patches",
+                            "model_name": result.model_name,
+                            "prompt_version": result.prompt_version,
+                            "repair_attempts": result.repair_attempts,
+                            "llm_latency_ms": result.latency_ms,
+                            "patch_count": 0,
+                            "confidence": intent.confidence},
+        })
+    # A doubtful condition can be independent of another accepted add. When a
+    # question names one of several added conditions, confirm that particular
+    # condition before allowing its question to veto the whole modification.
+    questioned_adds: Dict[int, int] = {}
+    condition_groups = {
+        field: [i for i, patch in enumerate(intent.patches)
+                if verdicts[i] and patch.op == "add"
+                and patch.path == f"/{field}/-" and isinstance(patch.value, dict)]
+        for field in _CONDITION_LIST_FIELDS
+    }
+    for question_index, question in enumerate(intent.clarification_questions):
+        match = re.match(
+            r"^(?:strategy\.)?(entry_conditions|exit_conditions)\[(\d+)\](?:\.|$)",
+            question.field or "",
+        )
+        if match:
+            group = condition_groups.get(match.group(1), [])
+            ordinal = int(match.group(2))
+            if len(group) >= 2 and ordinal < len(group):
+                questioned_adds[question_index] = group[ordinal]
+    condition_scope_notices: List[str] = []
+    rejected_questioned_adds: set[int] = set()
+    # An incomplete second add can block an independent complete add even when
+    # the model files its question under another structured field. Check that
+    # candidate's provenance without interpreting the utterance here.
+    scope_targets = set(questioned_adds.values())
+    for group in condition_groups.values():
+        if len(group) >= 2:
+            scope_targets.update(
+                index for index in group
+                if intent.patches[index].value.get("value") is None
+            )
+    if scope_targets:
+        from strategy_conversation.interpreter.patch_scope_check import (
+            condition_patch_scope_verdicts,
+        )
+
+        candidate_indices = sorted(set(i for group in condition_groups.values() for i in group))
+        candidates = [(i, intent.patches[i]) for i in candidate_indices]
+        chat = getattr(_get_interpreter(StrategyInterpreter), "_chat", None)
+        scope_verdicts = condition_patch_scope_verdicts(candidates, user_input, chat)
+        for index in scope_targets:
+            if scope_verdicts.get(index) is False:
+                verdicts[index] = False
+                rejected_questioned_adds.add(index)
+                condition_scope_notices.append(
+                    "요청에서 확인되지 않은 추가 조건은 반영하지 않았어요."
+                )
+                _log_llm("✗ 질문 조건 출처 대조", intent.patches[index].path)
+    remaining_questions = [
+        question for question_index, question in enumerate(intent.clarification_questions)
+        if questioned_adds.get(question_index) not in rejected_questioned_adds
+    ]
     cued_patches: List[Any] = [p for i, p in enumerate(intent.patches) if verdicts[i]]
     rejected_patches: List[Any] = [p for i, p in enumerate(intent.patches) if not verdicts[i]]
     if rejected_patches:
@@ -5094,11 +5259,11 @@ def run_primary_modification(
     # 모델이 자기 해석을 불확실하다고 표시한 것이다("삼성전자 관련 etf"를 KOSPI200으로
     # 재해석하며 'KOSPI200인가요, 테마 ETF인가요?' 질문을 병행한 2026-07-27 사고).
     # 그 패치를 적용하는 대신 그 질문을 표면화한다(전략 무변경 — 조용한 오해석 차단).
-    doubt_fields = _self_doubt_patch_fields(cued_patches, intent.clarification_questions)
+    doubt_fields = _self_doubt_patch_fields(cued_patches, remaining_questions)
     if doubt_fields:
         question, chips, ask = _modify_clarification(
-            ValidationReport(clarification_questions=intent.clarification_questions),
-            intent, prev,
+            ValidationReport(clarification_questions=remaining_questions),
+            intent.model_copy(update={"clarification_questions": remaining_questions}), prev,
         )
         if question:
             _log_llm("? 자기 의심 패치", (
@@ -5272,13 +5437,136 @@ def run_primary_modification(
     quote_verdicts = _check_condition_quotes(
         modify_intent, user_input, check_chat, only=added_conditions,
     )
-    _resolve_trading_value_comparisons(
+    new_condition_roles = {
+        id(cond): field for field in _CONDITION_LIST_FIELDS
+        for cond in getattr(modify_intent.strategy, field)
+        if any(cond is added for added in added_conditions)
+    }
+    rejected_volume: List[Any] = []
+    trading_notices = _resolve_trading_value_comparisons(
         modify_intent, user_input, check_chat, only=added_conditions,
+        rejected_volume=rejected_volume,
     )
+    if rejected_volume:
+        # The checked draft and the patch list must agree. An add can be
+        # excluded independently; a replacement or paired deletion must not
+        # erase the old condition when its new condition was rejected.
+        rejected_patch_ids: set[int] = set()
+        rejected_fields = {field for field, _ in rejected_volume}
+        for field, cond in rejected_volume:
+            matches = [p for p in cued_patches
+                       if p.op in ("add", "replace")
+                       and (p.path == f"/{field}/-" or p.path.startswith(f"/{field}/"))
+                       and isinstance(p.value, dict)
+                       and StrategyCondition.model_validate(p.value) == cond]
+            if len(matches) != 1:
+                return finalize_user_response({
+                    "parsed": prev, "clarification_question": None,
+                    "clarification_suggestions": None,
+                    "notices": trading_notices + ["조건 변경을 확인하지 못해 기존 전략을 그대로 유지했어요."],
+                    "interpreter": {"mode": "primary_modify_rejected_condition_pair",
+                                    "model_name": result.model_name,
+                                    "prompt_version": result.prompt_version,
+                                    "repair_attempts": result.repair_attempts,
+                                    "llm_latency_ms": result.latency_ms,
+                                    "patch_count": 0, "confidence": intent.confidence},
+                })
+            rejected_patch_ids.add(id(matches[0]))
+        paired_patches = [
+            p for p in cued_patches if p.op in ("remove", "replace")
+            and any(p.path.startswith(f"/{field}/") for field in rejected_fields)
+        ]
+        rejected_patch_ids.update(id(p) for p in paired_patches)
+        cued_patches = [p for p in cued_patches if id(p) not in rejected_patch_ids]
+        if paired_patches:
+            _log_llm("? 조건 교체 보류", "거래량 오분류와 짝인 기존 조건 변경은 적용하지 않음")
+            try:
+                patched_spec = apply_patches(draft_spec, cued_patches)
+            except PatchError:
+                return None
+            modify_intent.strategy = patched_spec
+            added_conditions = [
+                cond for cond in list(patched_spec.entry_conditions)
+                + list(patched_spec.exit_conditions)
+                if not any(cond == prior for prior in draft_conditions)
+            ]
+            trading_notices.append("조건 교체는 확인되지 않아 이전 조건을 유지했어요.")
+            if not cued_patches:
+                return finalize_user_response({
+                    "parsed": prev, "clarification_question": None,
+                    "clarification_suggestions": None,
+                    "notices": trading_notices,
+                    "interpreter": {"mode": "primary_modify_rejected_condition_pair",
+                                    "model_name": result.model_name,
+                                    "prompt_version": result.prompt_version,
+                                    "repair_attempts": result.repair_attempts,
+                                    "llm_latency_ms": result.latency_ms,
+                                    "patch_count": 0, "confidence": intent.confidence},
+                })
     _resolve_contribution_plan(
         modify_intent, user_input, check_chat, only=added_conditions,
     )
-    repair_notices = _fill_deterministic_condition_params(modify_intent, quote_verdicts)
+    param_notices = _fill_deterministic_condition_params(modify_intent, quote_verdicts)
+    drop_notices = _drop_fabricated_conditions(
+        modify_intent, user_input, quote_verdicts, only=added_conditions,
+    )
+    repair_notices = (param_notices + drop_notices + trading_notices + market_scope_notices
+                      + condition_scope_notices)
+    # A rejected new condition must not commit its paired remove or replace:
+    # either destructive patch would erase the old condition.
+    kept_condition_ids = {
+        id(cond) for field in _CONDITION_LIST_FIELDS
+        for cond in getattr(modify_intent.strategy, field)
+    }
+    rejected_added_lists = {
+        field for cond_id, field in new_condition_roles.items()
+        if cond_id not in kept_condition_ids
+    }
+    # When the only proposed condition was rejected as an unsupported indicator
+    # reading, ask the existing holding-period checker whether the quoted
+    # request instead specifies a time-based hold. Reapply to the original
+    # draft so a rejected replacement cannot erase its old condition.
+    if (len(intent.patches) == len(cued_patches) == len(added_conditions) == 1
+            and ((cued_patches[0].op == "add"
+                  and any(cued_patches[0].path == f"/{field}/-"
+                          for field in _CONDITION_LIST_FIELDS))
+                 or (cued_patches[0].op == "replace"
+                     and any(cued_patches[0].path.startswith(f"/{field}/")
+                             for field in _CONDITION_LIST_FIELDS)))
+            and rejected_added_lists):
+        from strategy_conversation.interpreter.holding_period_check import (
+            recover_misfiled_holding_period,
+        )
+
+        hold_patch = recover_misfiled_holding_period(
+            user_input, added_conditions[0].source_text or "", pending_question,
+            modify_chat,
+        )
+        if hold_patch is not None:
+            try:
+                patched_spec = apply_patches(draft_spec, [hold_patch])
+            except PatchError:
+                pass
+            else:
+                modify_intent.strategy = patched_spec
+                cued_patches = [hold_patch]
+                repair_notices = param_notices
+                _log_llm("✓ 보유 기간 재해석", f"{hold_patch.path}={hold_patch.value}")
+    if any(p.op in ("remove", "replace") and p.path.startswith(f"/{field}/")
+           for p in cued_patches for field in rejected_added_lists):
+        _log_llm("? 조건 교체 보류", "새 조건의 인용 대조가 실패해 기존 조건 변경도 적용하지 않음")
+        return finalize_user_response({
+            "parsed": prev,
+            "clarification_question": None,
+            "clarification_suggestions": None,
+            "notices": repair_notices + ["조건 교체를 확인하지 못해 기존 전략을 그대로 유지했어요."],
+            "interpreter": {"mode": "primary_modify_rejected_condition_pair",
+                            "model_name": result.model_name,
+                            "prompt_version": result.prompt_version,
+                            "repair_attempts": result.repair_attempts,
+                            "llm_latency_ms": result.latency_ms,
+                            "patch_count": 0, "confidence": intent.confidence},
+        })
     _normalize_size_class_labels(modify_intent)
     validation = call_tool("validate_intent", intent=modify_intent)
     validated, report = validation.intent, validation.report

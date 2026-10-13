@@ -3985,12 +3985,11 @@ def _run_nl_parse_impl(request: NLParseRequest, on_stage=None,
         # 어휘 밖 업종/테마 사전 학습(FR-STR-069) — 큐가 있는데 결정적 추출이 실패한 입력만
         # 검색 그라운딩으로 학습한다(어휘집 캐시 — 같은 용어 재검색 없음). 학습되면 아래
         # 파싱(규칙·수정)의 결정적 섹터 추출이 그대로 해석한다.
-        # primary '초기 파스'는 이 원문 스캔 학습을 건너뛴다 — 인터프리터가 뽑은 미해결
-        # 표현만 term-in으로 학습한다(§ 11-3, primary._ground_sector_term). 수정 레인은
-        # 결정적 섹터 배선이 학습 어휘를 소비하므로 유지(단계 3 이관 대상).
+        # Primary turns learn only terms extracted by the interpreter.
+        # Raw-text vocabulary learning belongs solely to the legacy lane.
         from strategy_conversation.primary import primary_enabled as _primary_on
         grounding_notice = None
-        if request.previous_parsed or not _primary_on():
+        if not _primary_on():
             grounding_notice = _learn_unknown_sector_term(request.prompt, parser, on_stage=on_stage)
         parse_started = time.perf_counter()
         # 룰베이스 파싱 결과의 LLM 검증 리포트(on_validation 콜백으로 수집). 스레드 로컬한
@@ -4035,37 +4034,8 @@ def _run_nl_parse_impl(request: NLParseRequest, on_stage=None,
             if _chip_result is not None:
                 primary_holder.update(_chip_result)
                 parsed = _chip_result["parsed"]
-            # "완전 다르게 해줘"류 전면 재작성 요청은 임의 해석 대신 방향을 되묻는다(QA 19-4).
-            # [대원칙 1] 재무 팩터 추가 의도인데 기준값이 없는 경우(예: "영업이익률을 추가해
-            # 볼까?")를 여기서 원문 정규식(구 clarification_for_add)으로 가로채던 코드는
-            # 제거했다 — 그 판정은 사용자 원문 해석이라 LLM 전담이어야 한다. 아래
-            # run_primary_modification이 인터프리터로 패치를 뽑은 뒤 validate_intent(→
-            # validate_completeness)가 같은 상황(패치 필드에 값 없음)을 이미 구조화 출력
-            # 기준으로 감지해 동일한 모양의 되묻기를 낸다(clarification_priority=
-            # modify_unapplied, primary_modify_needs_value — 테스트:
-            # test_strategy_conversation.py 내 "영업이익률 높고 PER 10 이하" 케이스).
-            # 2026-08-02 감사에서 이 가로채기가 "ESS 종목 중에서 거래대금 상위만 넣어줘"
-            # 같은 다중 의도 발화의 나머지 부분(테마 전환·랭킹)을 통째로 삼키는 것을 확인
-            # (LLM 호출 0회로 응답) — 제거로 항상 인터프리터가 원문 전체를 본다.
-            from engine.nl_parser import full_rewrite_clarification
-            _clar = None if parsed is not None else full_rewrite_clarification(request.prompt)
-            if _clar is not None:
-                from engine.nl_parser import ParsedStrategy
-                prev_parsed = ParsedStrategy.model_validate(request.previous_parsed)
-                result = _build_parse_result(
-                    request, backend, prev_parsed, None,
-                    load_ms=load_ms,
-                    parse_ms=round((time.perf_counter() - parse_started) * 1000, 2),
-                    request_started=request_started,
-                )
-                # 전략은 그대로 유지하고 되묻기 질문+칩만 실어 보낸다(프론트가 칩으로 렌더링).
-                result["clarification_question"] = _clar["question"]
-                result["clarification_suggestions"] = _clar["suggestions"]
-                _nl_parser_status["status"] = "ok"
-                _finalize_parse_result(result, request)
-                _record_ai_runtime("parse", result["runtime"])
-                _store_nl_parse_cache(cache_key, result)
-                return result
+            # Let the interpreter classify rewrite requests together with any other
+            # requested changes. A deterministic preflight can swallow the full turn.
             # LLM Interpreter Primary Mode (Phase 2): 수정 요청도 인터프리터가 우선 처리
             # (patches 방식). 라운드트립 불가 전략·patches 미출력·검증 미통과는 기존
             # 하이브리드 수정 경로로 폴백한다. 값 없는 팩터 추가는 아래 검증 단계
@@ -4080,35 +4050,22 @@ def _run_nl_parse_impl(request: NLParseRequest, on_stage=None,
                     previous_explicit_fields=request.previous_explicit_fields,
                     pending_ask=request.pending_ask,
                     pending_question=request.pending_question,
+                    previous_coach_text=request.previous_coach_text,
                     previous_declined_fields=request.previous_declined_fields,
                 )
                 if _primary_mod is not None:
                     primary_holder.update(_primary_mod)
                     parsed = _primary_mod["parsed"]
             if parsed is None:
-                # 2026-07-26 사용자 지시: llm_first에서는 레거시 수정 레인(parse_modification —
-                # 결정적 원문 해석 포함)으로 폴백하지 않는다. 인터프리터가 처리하지 못한
-                # 수정은 전략 보존+되묻기로 끝낸다(FR-STR-019h 재사용 — "제주반도체 추가"가
-                # 레거시 레인에서 유니버스 교체로 처리되던 사고의 재발 방지).
-                # 롤백: STRATEGY_MODIFY_INTERPRETER_MODE=fast_path_first(레거시 전체 보존).
-                from strategy_conversation.config import modify_interpreter_mode
-                if _interp_primary_enabled() and modify_interpreter_mode() == "llm_first":
+                # Primary modification failure preserves the draft and asks;
+                # it must not hand the raw request to the legacy parser.
+                if _interp_primary_enabled():
                     fallback = _interpretation_failure_result(request, backend, request_started)
                     if fallback is not None:
                         _nl_parser_status["status"] = "ok"
                         _record_ai_runtime("parse", fallback["runtime"])
                         return fallback
                 parsed = parser.parse_modification(request.prompt, request.previous_parsed, on_stage=on_stage)
-            # 코치 맥락 리스크 해석(프론트 inferPendingRiskChange 이관): 코치가 물은 리스크
-            # 필드에 사용자의 "10%" 같은 필드 없는 답을 귀속한다. 백엔드가 코치 맥락으로 판단
-            # → 프론트는 파스 결과를 재판정하지 않고 그대로 신뢰한다(FR-STR-019e).
-            from engine.nl_parser import resolve_coach_context_risk
-            _ctx_risk = None if _chip_result is not None else resolve_coach_context_risk(
-                request.prompt, request.previous_coach_text, request.previous_parsed
-            )
-            if _ctx_risk is not None:
-                _field, _value = _ctx_risk
-                parsed = parsed.model_copy(update={_field: _value})
         else:
             # LLM Interpreter Primary Mode (Phase 2): STRATEGY_INTERPRETER_MODE=primary면
             # 초기 파스를 인터프리터 파이프라인(해석→검증→컴파일)이 담당한다. 실패/비전략

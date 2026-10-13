@@ -31,8 +31,21 @@ def qatd():
     sys.modules.pop(spec.name, None)
 
 
-def _template(qatd, prompt: str):
-    return qatd.Template(category="가치투자", level="beginner", title="t", prompt=prompt)
+def _template(qatd, prompt: str, expect: dict | None = None):
+    return qatd.Template(category="가치투자", level="beginner", title="t",
+                         prompt=prompt, expect=expect or {"coverage": []})
+
+
+def test_kr_expectation_rejects_changed_example_prompt(qatd, tmp_path, monkeypatch):
+    source, anchor = qatd._SOURCES["kr"]
+    text = source.read_text(encoding="utf-8")
+    prompt_start = text.index('prompt: "', text.index(anchor)) + len('prompt: "')
+    changed = tmp_path / "StrategyExampleTabs.tsx"
+    changed.write_text(text[:prompt_start] + "다른 " + text[prompt_start:], encoding="utf-8")
+    monkeypatch.setitem(qatd._SOURCES, "kr", (changed, anchor))
+
+    with pytest.raises(ValueError, match="원문 변경"):
+        qatd.load_templates("kr")
 
 
 EMPTY_ENTRY = {"universe": ["KOSPI"], "max_positions": 10, "fundamental_filters": []}
@@ -42,7 +55,7 @@ def test_asking_for_missing_values_is_not_fatal(qatd):
     """값 없이 언급된 조건을 되묻는 중이면 진입 규칙 공백은 치명이 아니다."""
     prompt = "KOSPI에서 부채비율과 ROE 조건을 충족하는 종목을 대상으로 설정해 주세요."
     flags = qatd.analyze(
-        _template(qatd, prompt),
+        _template(qatd, prompt, {"coverage": ["ROE", "부채비율"]}),
         {
             "parsed": EMPTY_ENTRY,
             "clarification_question": "부채비율과 ROE 조건을 충족하는 종목을 매수할까요?",
@@ -56,7 +69,8 @@ def test_asking_for_missing_values_is_not_fatal(qatd):
 def test_silent_empty_entry_is_still_fatal(qatd):
     """되묻지도 않고 진입 규칙이 비면 빈 전략이 그대로 나간다 — 치명 유지."""
     prompt = "KOSPI에서 부채비율과 ROE 조건을 충족하는 종목을 대상으로 설정해 주세요."
-    flags = qatd.analyze(_template(qatd, prompt), {"parsed": EMPTY_ENTRY})
+    flags = qatd.analyze(_template(qatd, prompt, {"coverage": ["ROE", "부채비율"]}),
+                         {"parsed": EMPTY_ENTRY})
     assert any("진입 규칙 없음" in x for x in flags.fatal)
     # 질문 없이 사라진 조건은 미탐지로 드러나야 한다.
     assert set(flags.missing) >= {"ROE", "부채비율"}
@@ -78,7 +92,8 @@ def test_interpretation_failure_stays_fatal_even_with_question(qatd):
 def test_value_given_but_dropped_without_question_is_missing(qatd):
     """값을 명시했는데 파싱에도 없고 묻지도 않으면 조용한 소실 — 미탐지."""
     flags = qatd.analyze(
-        _template(qatd, "KOSPI에서 PER 10 이하인 종목을 매수"),
+        _template(qatd, "KOSPI에서 PER 10 이하인 종목을 매수",
+                  {"coverage": ["PER"], "fundamental": {"per": [10]}}),
         {"parsed": {**EMPTY_ENTRY, "entry_signals": [{"indicator": "rsi"}]}},
     )
     assert "PER" in flags.missing
@@ -92,7 +107,7 @@ def test_pending_condition_is_not_missing(qatd):
     """
     prompt = "KOSPI 종목 중 PER이 낮고 부채비율이 낮은 기업만 남긴 뒤 8종목 정도 투자해 주세요."
     flags = qatd.analyze(
-        _template(qatd, prompt),
+        _template(qatd, prompt, {"coverage": ["PER", "부채비율"], "positions": 8}),
         {
             "parsed": EMPTY_ENTRY,
             "clarification_question": "진입 조건의 PER 기준값을 얼마로 할까요?",
@@ -133,7 +148,7 @@ def test_notice_covered_condition_is_not_missing(qatd):
     """
     prompt = "KOSDAQ에서 최근 거래대금이 30일 평균보다 높은 경우만 진입해 주세요."
     flags = qatd.analyze(
-        _template(qatd, prompt),
+        _template(qatd, prompt, {"coverage": ["거래대금"]}),
         {
             "parsed": {**EMPTY_ENTRY, "entry_signals": [{"indicator": "volume_spike"}]},
             "notices": ["'최근 거래대금이 30일 평균보다 높은 경우' 조건은 거래대금의 평균"
@@ -148,6 +163,9 @@ def test_notice_covered_condition_is_not_missing(qatd):
 
 _AMOUNT_PROMPT = ("KOSPI에서 시가총액 1조 원 이상 대형주 중 PBR 1배 이하, ROE 10% 이상인 "
                   "종목만 10종목으로 추려 주세요.")
+_AMOUNT_EXPECT = {"coverage": ["시가총액", "PBR", "ROE"],
+                  "fundamental": {"market_cap": [10000], "pbr": [1], "roe_or_gpa": [10]},
+                  "positions": 10}
 
 
 def _amount_parsed(qatd, market_cap: float):
@@ -162,14 +180,14 @@ def test_amount_threshold_magnitude_error_is_fatal(qatd):
     """사고(2026-08-18): "시가총액 1조 원 이상"이 100000(=10조, 10배)으로 파싱됐는데
     커버리지 검사가 `_has_fund`로 **지표 존재만** 봐서 08-14 전수 검증을 치명 0으로
     통과했다. 억원 단위 임계값은 자릿수 하나가 전략을 10배 바꾸므로 값까지 대조한다."""
-    flags = qatd.analyze(_template(qatd, _AMOUNT_PROMPT),
+    flags = qatd.analyze(_template(qatd, _AMOUNT_PROMPT, _AMOUNT_EXPECT),
                          {"parsed": _amount_parsed(qatd, 100000.0)})
     assert any("시가총액 임계값 오차" in x for x in flags.fatal)
 
 
 def test_amount_threshold_match_is_clean(qatd):
     """정상 값(1조=10000억)은 아무 판정도 남기지 않는다."""
-    flags = qatd.analyze(_template(qatd, _AMOUNT_PROMPT),
+    flags = qatd.analyze(_template(qatd, _AMOUNT_PROMPT, _AMOUNT_EXPECT),
                          {"parsed": _amount_parsed(qatd, 10000.0)})
     assert flags.fatal == [] and flags.missing == []
 
@@ -179,7 +197,7 @@ def test_amount_threshold_absent_metric_is_left_to_missing_lane(qatd):
     소관이며, 두 레인이 같은 결손을 이중으로 세면 되묻기 예외가 무력해진다."""
     parsed = {"universe": ["KOSPI"], "max_positions": 10, "fundamental_filters": [
         {"metric": "pbr", "operator": "<=", "value": 1.0}]}
-    flags = qatd.analyze(_template(qatd, _AMOUNT_PROMPT),
+    flags = qatd.analyze(_template(qatd, _AMOUNT_PROMPT, _AMOUNT_EXPECT),
                          {"parsed": parsed,
                           "clarification_question": "시가총액 기준을 얼마로 할까요?"})
     assert not any("임계값 오차" in x for x in flags.fatal)
@@ -192,15 +210,16 @@ def test_amount_threshold_partial_extraction_does_not_false_alarm(qatd):
     parsed = {"universe": ["KOSPI"], "max_positions": 8, "fundamental_filters": [
         {"metric": "market_cap", "operator": ">=", "value": 3000.0},
         {"metric": "market_cap", "operator": "<=", "value": 30000.0}]}
-    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    flags = qatd.analyze(_template(qatd, prompt, {"coverage": ["시가총액"],
+                                                 "fundamental": {"market_cap": [3000, 30000]},
+                                                 "positions": 8}), {"parsed": parsed})
     assert flags.fatal == []
 
 
-def test_expected_amount_thresholds_converts_trillion_unit(qatd):
-    """기대값 추출은 조×10,000+억 산술 합산이다(표기 환산 — 의미 해석 아님)."""
-    assert ("market_cap", 10000.0) in qatd.expected_amount_thresholds("시가총액 1조 원 이상")
-    assert ("market_cap", 25000.0) in qatd.expected_amount_thresholds("시총 2조 5000억 넘는")
-    assert ("trading_value", 50.0) in qatd.expected_amount_thresholds("거래대금 50억 원 이상")
+def test_human_authored_amount_expectations_include_both_bounds(qatd):
+    """명시적인 금액 기대값은 원문 추출기 없이 억원 단위로 기록한다."""
+    assert _AMOUNT_EXPECT["fundamental"]["market_cap"] == [10000]
+    assert qatd.KR_EXPECTATIONS["중형주 퀄리티-밸류-모멘텀 결합"]["fundamental"]["market_cap"] == [3000, 30000]
 
 
 # ── 값 대조 확장: 스칼라 설정·신호 수치(2026-08-18) ────────────────────────────
@@ -211,7 +230,10 @@ def test_risk_percent_value_error_is_fatal(qatd):
     parsed = {"universe": ["KOSPI"], "max_positions": 10,
               "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1.0}],
               "stop_loss_pct": 1.0, "take_profit_pct": 20.0}
-    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    flags = qatd.analyze(_template(qatd, prompt, {"coverage": ["PBR"],
+                                                 "fundamental": {"pbr": [1]},
+                                                 "scalar": {"stop_loss_pct": 10, "take_profit_pct": 20}}),
+                         {"parsed": parsed})
     assert any("손절 값 오차" in x for x in flags.fatal)
     assert not any("익절" in x for x in flags.fatal)
 
@@ -222,7 +244,10 @@ def test_rebalancing_value_error_is_fatal(qatd):
     parsed = {"universe": ["KOSPI"], "max_positions": 10,
               "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1.0}],
               "rebalancing_period": "quarterly"}
-    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    flags = qatd.analyze(_template(qatd, prompt, {"coverage": ["PBR"],
+                                                 "fundamental": {"pbr": [1]},
+                                                 "scalar": {"rebalancing_period": "monthly"},
+                                                 "positions": 10}), {"parsed": parsed})
     assert any("리밸런싱 값 오차" in x for x in flags.fatal)
 
 
@@ -233,7 +258,9 @@ def test_moving_average_period_loss_is_fatal(qatd):
     prompt = "KOSPI에서 20일 EMA가 60일 EMA 위에 있는 종목을 매수해 주세요."
     parsed = {"universe": ["KOSPI"], "max_positions": 10,
               "entry_signals": [{"indicator": "ema", "long_period": 60, "mode": "above"}]}
-    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    flags = qatd.analyze(_template(qatd, prompt, {"coverage": ["EMA"],
+                                                 "signal_numbers": {"이동평균 기간": [20, 60]}}),
+                         {"parsed": parsed})
     assert any("이동평균 기간 소실" in x and "20" in x for x in flags.fatal)
 
 
@@ -242,7 +269,9 @@ def test_moving_average_periods_present_anywhere_is_clean(qatd):
     prompt = "KOSPI에서 5일 이동평균선이 20일 이동평균선을 위로 뚫으면 매수해 주세요."
     parsed = {"universe": ["KOSPI"], "max_positions": 10, "entry_signals": [
         {"indicator": "ma_crossover", "short_period": 5, "long_period": 20}]}
-    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    flags = qatd.analyze(_template(qatd, prompt, {"coverage": ["이동평균"],
+                                                 "signal_numbers": {"이동평균 기간": [5, 20]}}),
+                         {"parsed": parsed})
     assert flags.fatal == []
 
 
@@ -252,7 +281,9 @@ def test_trading_value_average_window_is_not_compared(qatd):
     prompt = "KOSPI에서 최근 20일 평균 거래대금이 30억 원 이상인 종목만 매수해 주세요."
     parsed = {"universe": ["KOSPI"], "max_positions": 10, "entry_signals": [
         {"indicator": "trading_value", "operator": ">=", "value": 30.0}]}
-    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    flags = qatd.analyze(_template(qatd, prompt, {"coverage": ["거래대금"],
+                                                 "fundamental": {"trading_value": [30]}}),
+                         {"parsed": parsed})
     assert flags.fatal == []
 
 
@@ -298,8 +329,12 @@ def test_stated_scalar_lost_entirely_is_fatal(qatd):
     """
     prompt = ("KOSPI 종목 중 20일 신고가 경신 종목만 편입하고 월간 리밸런싱으로 최대 12종목"
               " 포트폴리오를 유지하겠습니다. 손절 -7%, 보유 기간 상한 40거래일을 추가해 주세요.")
-    # ① 기대값 추출: '상한' 표기를 읽는다.
-    assert ("보유기간", "hold_period_days", 40) in qatd.expected_scalar_values(prompt)
+    # The fixed example expectation records the stated upper holding period.
+    expect = {"coverage": ["신고가돌파"],
+              "scalar": {"hold_period_days": 40, "rebalancing_period": "monthly",
+                         "stop_loss_pct": 7}, "positions": 12,
+              "signal_numbers": {"신고가 룩백": [20]}}
+    assert expect["scalar"]["hold_period_days"] == 40
 
     parsed = {
         "universe": ["KOSPI"],
@@ -310,12 +345,12 @@ def test_stated_scalar_lost_entirely_is_fatal(qatd):
         "fundamental_filters": [],
         "hold_period_days": None,
     }
-    flags = qatd.analyze(_template(qatd, prompt), {"parsed": parsed})
+    flags = qatd.analyze(_template(qatd, prompt, expect), {"parsed": parsed})
     assert any("보유기간 소실" in x for x in flags.fatal), flags.fatal
 
     # 값이 살아 있으면 조용하다(정상 예시를 붉히지 않는다).
     parsed_ok = {**parsed, "hold_period_days": 40}
-    assert qatd.analyze(_template(qatd, prompt), {"parsed": parsed_ok}).fatal == []
+    assert qatd.analyze(_template(qatd, prompt, expect), {"parsed": parsed_ok}).fatal == []
 
 
 # ── --lang en (US 영어 레인, 2026-08-25) ──────────────────────────────────
@@ -351,7 +386,7 @@ def test_en_asked_exclusion_matches_english(qatd):
     old = qatd.LANG
     qatd.LANG = "en"
     try:
-        flags = qatd.analyze(_template(qatd, prompt), res)
+        flags = qatd.analyze(_template(qatd, prompt, {"coverage": ["PBR"]}), res)
     finally:
         qatd.LANG = old
     assert "PBR" not in flags.missing, flags.missing
@@ -368,7 +403,7 @@ def test_kr_lang_keeps_case_sensitive_asked(qatd):
         "clarification_question": "pbr 기준값을 알려 주세요.",  # 소문자 — kr 모드는 민감 대조
     }
     assert qatd.LANG == "kr"
-    flags = qatd.analyze(_template(qatd, prompt), res)
+    flags = qatd.analyze(_template(qatd, prompt, {"coverage": ["PBR"]}), res)
     assert "PBR" in flags.missing
 
 
@@ -391,10 +426,11 @@ def test_signal_number_pending_in_ask_is_not_fatal(qatd):
         "clarification_question": "청산 조건의 ADX 기준값을 얼마로 할까요?",
         "pending_conditions": [{"role": "exit", "label": "ADX", "source_text": "ADX 20 하향 이탈"}],
     }
-    assert not any("ADX 기준값 소실" in x for x in qatd.analyze(_template(qatd, prompt), asked).fatal)
+    expect = {"coverage": ["ADX"], "signal_numbers": {"ADX 기준값": [20, 23]}}
+    assert not any("ADX 기준값 소실" in x for x in qatd.analyze(_template(qatd, prompt, expect), asked).fatal)
     # 질문도 값 대기도 없이 20이 사라지면 종전대로 치명이다.
     silent = {"parsed": parsed}
-    assert any("ADX 기준값 소실" in x for x in qatd.analyze(_template(qatd, prompt), silent).fatal)
+    assert any("ADX 기준값 소실" in x for x in qatd.analyze(_template(qatd, prompt, expect), silent).fatal)
 
 
 # ── 미지원 안내는 치명(2026-09-14) ───────────────────────────────────────────
@@ -451,7 +487,7 @@ def test_trading_value_ratio_counts_as_trading_value_coverage(qatd):
     '미탐지[거래대금]'으로 세진다(2026-09-18 게이트 실측)."""
     prompt = "KOSDAQ에서 최근 거래대금이 30일 평균보다 높은 경우만 진입해 주세요."
     flags = qatd.analyze(
-        _template(qatd, prompt),
+        _template(qatd, prompt, {"coverage": ["거래대금"]}),
         {"parsed": {**EMPTY_ENTRY, "entry_signals": [
             {"indicator": "trading_value_ratio", "period": 30, "operator": ">", "value": 1}]}},
     )
@@ -463,7 +499,7 @@ def test_volume_ratio_counts_as_volume_coverage(qatd):
     게이트에서 정본 착지(volume_ratio 20일 >1)가 '미탐지[거래량]'으로 세졌다(2026-09-18)."""
     prompt = "KOSDAQ에서 종가가 20일 이동평균선 위에 있고 거래량이 최근 평균보다 늘어난 종목을 매수"
     flags = qatd.analyze(
-        _template(qatd, prompt),
+        _template(qatd, prompt, {"coverage": ["이동평균", "거래량"]}),
         {"parsed": {**EMPTY_ENTRY, "entry_signals": [
             {"indicator": "ma_crossover"},
             {"indicator": "volume_ratio", "period": 20, "operator": ">", "value": 1}]}},

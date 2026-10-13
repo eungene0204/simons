@@ -28,13 +28,10 @@ def interpreter_mode() -> str:
     return os.environ.get("STRATEGY_INTERPRETER_MODE", "primary").strip().lower()
 
 
-# 수정(modify) 경로의 해석 권한 순서:
-#   llm_first(기본)      — LLM 인터프리터가 최초 해석자, 결정론 fast-path는 폴백으로 강등
-#   fast_path_first(롤백) — 기존 동작(결정론 fast-path가 인터프리터를 선점)
-# 어떤 값이든 fast-path는 살아 있다 — 순서만 바뀐다(롤백 = 이 값을 fast_path_first로).
+# The legacy raw-text modification fast-path is no longer an interpretation
+# authority, including when an old deployment still sets its rollback value.
 def modify_interpreter_mode() -> str:
-    mode = os.environ.get("STRATEGY_MODIFY_INTERPRETER_MODE", "llm_first").strip().lower()
-    return mode if mode in ("llm_first", "fast_path_first") else "llm_first"
+    return "llm_first"
 
 
 # 결정적 프롬프트 보정(_apply_prompt_overrides)의 적용 여부:

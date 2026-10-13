@@ -186,8 +186,46 @@ def validate_parameters(intent: StrategyIntent) -> List[str]:
     ):
         if value is not None and not (0 < value <= 100):
             errors.append(f"{label} 비율 {value}%은(는) 0 초과 100 이하여야 합니다")
+    for index, stage in enumerate(risk.partial_take_profits):
+        if stage.profit_percent is not None and stage.profit_percent <= 0:
+            errors.append(
+                f"분할 익절 {index + 1}단계 수익률 {stage.profit_percent}%은(는) 0보다 커야 합니다"
+            )
+            stage.profit_percent = None
+    sizing = risk.position_sizing
+    if sizing is not None:
+        for field, label, valid, limit in (
+            ("risk_per_trade_percent", "거래당 위험 비율", lambda v: 0 < v <= 100, "0 초과 100 이하"),
+            ("atr_period", "ATR 기간", lambda v: 2 <= v <= 250, "2~250"),
+            ("atr_multiple", "ATR 배수", lambda v: 0 < v <= 20, "0 초과 20 이하"),
+            ("kelly_fraction", "켈리 배수", lambda v: 0 < v <= 1, "0 초과 1 이하"),
+        ):
+            value = getattr(sizing, field)
+            if value is not None and not valid(value):
+                errors.append(f"{label} {value}은(는) {limit} 범위여야 합니다")
+                setattr(sizing, field, None)
 
     bt = strategy.backtest
+    tranches = bt.entry_tranches
+    if tranches is not None:
+        for field, label, valid, limit in (
+            ("count", "분할 매수 회차 수", lambda v: 2 <= v <= 20, "2~20"),
+            ("step_percent", "분할 매수 간격", lambda v: 0 < v < 50, "0 초과 50 미만"),
+            ("first_percent", "첫 매수 비중", lambda v: 0 < v <= 100, "0 초과 100 이하"),
+        ):
+            value = getattr(tranches, field)
+            if value is not None and not valid(value):
+                errors.append(f"{label} {value}은(는) {limit} 범위여야 합니다")
+                setattr(tranches, field, None)
+        for index, level in enumerate(tranches.levels):
+            for field, label, valid, limit in (
+                ("drop_percent", "하락 폭", lambda v: 0 < v < 100, "0 초과 100 미만"),
+                ("buy_percent", "매수 비중", lambda v: 0 < v <= 100, "0 초과 100 이하"),
+            ):
+                value = getattr(level, field)
+                if value is not None and not valid(value):
+                    errors.append(f"추가 매수 {index + 1}단계 {label} {value}은(는) {limit} 범위여야 합니다")
+                    setattr(level, field, None)
     if bt.initial_capital is not None and bt.initial_capital <= 0:
         errors.append("초기 자본금은 0보다 커야 합니다")
     if bt.contribution_amount is not None and bt.contribution_amount <= 0:

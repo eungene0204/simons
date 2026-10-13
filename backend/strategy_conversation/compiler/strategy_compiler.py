@@ -501,13 +501,16 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
             continue
         ranks.append(rank)
     if len(ranks) >= 2:
-        # 복합 순위 합산(FR-BT-063): 랭킹 항목 2개 이상 = 각 지표 순위를 합산해 선정.
-        # 같은 지표가 중복 기입되면 한 번만 센다(가중치 조작으로 둔갑 방지).
+        # Distinct lookbacks of the same metric are distinct ranking components.
+        # Collapse exact repeats to avoid counting one component twice.
         seen: Set[Tuple[Any, ...]] = set()
         ranking_components = []
         for rank in ranks:
             comp = _rank_component_from_spec(rank)
-            key = (comp["metric"], comp["direction"], comp.get("skip_days"), comp.get("group"))
+            key = (
+                comp["metric"], comp["direction"], comp.get("lookback_days"),
+                comp.get("skip_days"), comp.get("group"),
+            )
             if key in seen:
                 continue
             seen.add(key)

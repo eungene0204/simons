@@ -144,6 +144,60 @@ def test_mirrored_valueless_exit_conditions_dropped():
     )
 
 
+def test_distinct_ma_period_exit_survives_unrelated_entry():
+    """Adding another MA pair must not remove an existing exit signal."""
+    exit_condition = {
+        "factor": "technical.ma_crossover", "operator": ">", "value": None,
+        "parameters": {"short_period": 20, "long_period": 60},
+        "source_text": "20일선이 60일선 위에 있을 때 청산",
+    }
+    entry_condition = {
+        "factor": "technical.ma_crossover", "operator": ">", "value": None,
+        "parameters": {"short_period": 5, "long_period": 20},
+        "source_text": "5일선이 20일선 위에 있을 때 매수",
+    }
+    alone = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[], exit_conditions=[exit_condition],
+    ))
+    together = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[entry_condition], exit_conditions=[exit_condition],
+    ))
+    assert len(alone.strategy.exit_conditions) == 1
+    assert together.strategy.exit_conditions == alone.strategy.exit_conditions
+    validated, report = run_validation(together)
+    assert report.is_valid, (report.errors, report.missing_fields)
+    parsed = compile_strategy(validated, report, "Distinct MA periods")
+    assert [(s.short_period, s.long_period) for s in parsed.exit_signals] == [(20, 60)]
+
+
+def test_same_signal_with_distinct_contribution_rules_is_not_deduped():
+    """Identical triggers with different amounts or modes remain separate rules."""
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.rsi", "operator": "<", "value": 30,
+             "parameters": {"period": 14}, "buy_amount": 120000,
+             "buy_amount_mode": "set"},
+            {"factor": "technical.rsi", "operator": "<", "value": 30,
+             "parameters": {"period": 14}, "buy_amount": 20000,
+             "buy_amount_mode": "add"},
+        ],
+        backtest={"contribution_amount": 100000, "contribution_period": "monthly"},
+        risk_management={},
+        universe={"markets": ["KOSPI"], "symbols": ["005930"]},
+    ))
+    validated, report = run_validation(intent)
+    assert len(validated.strategy.entry_conditions) == 2
+    assert [(c.buy_amount, c.buy_amount_mode)
+            for c in validated.strategy.entry_conditions] == [
+                (120000, "set"), (20000, "add"),
+            ]
+    assert report.is_valid, (report.errors, report.missing_fields)
+    parsed = compile_strategy(validated, report, "Distinct contribution amounts")
+    assert [(r.amount, r.mode) for r in parsed.contribution_rules] == [
+        (120000, "set"), (20000, "add"),
+    ]
+
+
 def test_opposite_event_exit_survives_mirror_guard():
     """골든크로스 진입 / 데드크로스 청산은 정당한 짝이다 — 미러 가드가 삼키면 안 된다.
 
@@ -1301,6 +1355,42 @@ def test_compile_technical_and_ranking():
     assert parsed.ranking_lookback_days == 90
 
 
+def test_distinct_ranking_lookbacks_survive_compile_and_roundtrip():
+    """Two return horizons remain distinct regardless of input order."""
+    from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
+
+    compiled = []
+    for days in ([20, 60], [60, 20]):
+        intent = StrategyIntent.model_validate(_full_intent_dict(
+            ranking=[{"metric": "ranking.return", "lookback_days": day} for day in days],
+        ))
+        validated, report = run_validation(intent)
+        assert report.is_valid, (report.errors, report.missing_fields)
+        parsed = compile_strategy(validated, report, "Two return horizons")
+        assert parsed.ranking_metric == "composite"
+        assert sorted(c.lookback_days for c in parsed.ranking_components) == [20, 60]
+
+        roundtrip = decompile_strategy(parsed)
+        revalidated, rereport = run_validation(StrategyIntent(
+            intent="CREATE_STRATEGY", strategy=roundtrip, confidence=1.0,
+        ))
+        recompiled = compile_strategy(revalidated, rereport, "Two return horizons")
+        assert recompiled.ranking_components == parsed.ranking_components
+        compiled.append(parsed)
+
+    assert sorted((c.metric, c.lookback_days) for c in compiled[0].ranking_components) == \
+        sorted((c.metric, c.lookback_days) for c in compiled[1].ranking_components)
+
+    duplicate = StrategyIntent.model_validate(_full_intent_dict(
+        ranking=[{"metric": "ranking.return", "lookback_days": 20}] * 2,
+    ))
+    validated, report = run_validation(duplicate)
+    parsed = compile_strategy(validated, report, "Repeated return horizon")
+    assert parsed.ranking_metric == "return"
+    assert parsed.ranking_lookback_days == 20
+    assert parsed.ranking_components is None
+
+
 def test_multi_entry_condition_defaults_to_and_logic():
     """실측 사고(2026-08-03): "RSI 50 돌파하면서 MACD 골든크로스 동시에"처럼 진입 조건이
     2개 이상이면 to_backtest_request가 'logic'을 명시하지 않는 한 엔진(SignalEngine)의
@@ -1510,6 +1600,135 @@ def test_primary_ready_strategy_compiles_without_questions(monkeypatch):
     assert result["parsed"].fundamental_filters[0].metric == "per"
     assert result["clarification_question"] is None
     assert result["interpreter"]["validation_status"] == "READY"
+
+
+def test_qualitative_return_check_requires_grounded_verdict():
+    from strategy_conversation.interpreter.relative_return_check import (
+        reconcile_qualitative_return,
+    )
+
+    quote = "최근 60거래일 수익률도 양호한"
+    utterance = f"{quote} 종목을 10개 고르자"
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[{"factor": "technical.relative_return", "operator": ">",
+                           "value": 0, "parameters": {"period": 60},
+                           "source_text": quote}],
+    ))
+    original = intent.model_dump()
+
+    assert reconcile_qualitative_return(
+        intent, utterance, lambda *_a, **_k: '{"kind":"return_rank","quote":"없는 구절"}',
+    ) == []
+    assert intent.model_dump() == original
+
+    assert reconcile_qualitative_return(
+        intent, utterance,
+        lambda *_a, **_k: json.dumps({"kind": "relative_positive", "quote": quote},
+                                    ensure_ascii=False),
+    ) == []
+    assert intent.model_dump() == original
+    assert reconcile_qualitative_return(
+        intent, utterance, lambda *_a, **_k: '{"kind":"unclear","quote":null}',
+    ) == []
+    assert intent.model_dump() == original
+
+
+def test_primary_qualitative_return_does_not_invent_zero(monkeypatch):
+    from strategy_conversation.interpreter import relative_return_check
+
+    quote = "최근 60거래일 수익률도 양호한"
+    utterance = f"KOSPI에서 PER 10 이하이고 {quote} 종목 10개"
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.per", "operator": "<=", "value": 10,
+             "source_text": "PER 10 이하"},
+            {"factor": "technical.relative_return", "operator": ">", "value": 0,
+             "parameters": {"period": 60}, "source_text": quote},
+        ],
+        portfolio={"selection_count": 10, "rebalance_frequency": "monthly"},
+    )
+    monkeypatch.setattr(relative_return_check, "classify_return_quote",
+                        lambda *_a, **_k: "qualitative_return")
+    result = _run_primary_with(monkeypatch, data, utterance)
+
+    assert result is not None
+    assert [(f.metric, f.value) for f in result["parsed"].fundamental_filters] == [("per", 10)]
+    assert not any(getattr(s, "metric", None) == "relative_return"
+                   and getattr(s, "value", None) == 0
+                   for s in result["parsed"].entry_signals)
+    assert result["clarification_question"]
+    assert any(quote in n and "기준값" in n for n in result["notices"])
+
+
+def test_primary_qualitative_return_rank_keeps_other_conditions(monkeypatch):
+    from strategy_conversation.interpreter import relative_return_check
+
+    quote = "최근 60거래일 수익률 상위"
+    utterance = f"KOSPI에서 PER 10 이하이고 {quote} 10개"
+    data = _full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.per", "operator": "<=", "value": 10,
+             "source_text": "PER 10 이하"},
+            {"factor": "technical.relative_return", "operator": ">", "value": 0,
+             "parameters": {"period": 60}, "source_text": quote},
+        ],
+        portfolio={"selection_count": 10, "rebalance_frequency": "monthly"},
+    )
+    monkeypatch.setattr(relative_return_check, "classify_return_quote",
+                        lambda *_a, **_k: "return_rank")
+    result = _run_primary_with(monkeypatch, data, utterance)
+
+    assert result is not None
+    assert result["parsed"].ranking_metric == "return"
+    assert result["parsed"].ranking_lookback_days == 60
+    assert [(f.metric, f.value) for f in result["parsed"].fundamental_filters] == [("per", 10)]
+
+
+def test_invalid_breakout_operator_notice_uses_readable_direction():
+    """The KR display sweep exposed raw crossover enum names in a notice."""
+    data = _full_intent_dict(entry_conditions=[
+        {"factor": "technical.breakout", "operator": "crosses_below",
+         "value": None, "parameters": {"lookback_period": 20},
+         "source_text": "20일 고점을 넘기는 날"},
+    ])
+
+    _validated, report = run_validation(StrategyIntent.model_validate(data))
+
+    assert report.errors
+    assert any("하향 돌파" in error and "상향 돌파" in error for error in report.errors)
+    assert all("crosses_below" not in error and "crosses_above" not in error
+               for error in report.errors)
+
+
+def test_primary_invalid_breakout_notice_is_user_readable(monkeypatch):
+    quote = "20일 고점을 넘기는 날"
+    data = _full_intent_dict(entry_conditions=[
+        {"factor": "technical.breakout", "operator": "crosses_below",
+         "value": None, "parameters": {"lookback_period": 20},
+         "source_text": quote},
+    ])
+
+    result = _run_primary_with(monkeypatch, data, f"KOSPI에서 {quote} 매수")
+
+    assert result is not None
+    assert any("하향 돌파" in notice and "상향 돌파" in notice
+               for notice in result["notices"])
+    assert all("crosses_below" not in notice and "crosses_above" not in notice
+               for notice in result["notices"])
+
+
+def test_primary_reports_invalid_risk_value_and_preserves_entry(monkeypatch):
+    data = _full_intent_dict(
+        risk_management={"position_sizing": {"method": "kelly", "kelly_fraction": 2}},
+    )
+    result = _run_primary_with(
+        monkeypatch, data, "KOSPI에서 PER 10 이하 20종목 매월 리밸런싱, 켈리 배수 2",
+    )
+
+    assert result is not None
+    assert [f.metric for f in result["parsed"].fundamental_filters] == ["per"]
+    assert result["clarification_question"]
+    assert any("켈리 배수" in notice and "범위" in notice for notice in result["notices"])
 
 
 def test_primary_relative_strength_duplicate_condition_folds_into_ranking(monkeypatch):
@@ -2674,6 +2893,137 @@ def test_modify_primary_applies_patches(monkeypatch):
     assert result["interpreter"]["mode"] == "primary_modify"
 
 
+def test_modify_market_patch_needs_independent_scope_evidence(monkeypatch):
+    """A valid PER add must not carry an unrelated market replacement."""
+    from engine.nl_parser import ParsedStrategy
+    from strategy_conversation import primary
+    from strategy_conversation.interpreter.quote_check import QuoteVerdicts
+
+    utter = "per 10 이하인 저평가 종목"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [
+            {"op": "add", "path": "/entry_conditions/-",
+             "value": {"factor": "fundamental.per", "operator": "<=", "value": 10,
+                       "unit": "ratio", "source_text": utter}},
+            {"op": "replace", "path": "/universe/markets",
+             "value": ["KOSPI", "KOSDAQ"], "source_text": utter},
+        ],
+    })
+    primary._interpreter_singleton._chat = lambda *_args, **_kwargs: json.dumps({
+        "verdict": "no", "quote": None,
+    })
+    monkeypatch.setattr(primary, "_check_condition_quotes",
+                        lambda *_args, **_kwargs: QuoteVerdicts([]))
+    prev_data = _rich_parsed().model_dump()
+    prev_data["universe"] = ["KOSPI200"]
+    prev = ParsedStrategy.model_validate(prev_data)
+    result = primary.run_primary_modification(utter, prev.model_dump())
+
+    assert result is not None
+    assert result["parsed"].universe == prev.universe
+    assert ("per", "<=", 10.0) in [
+        (f.metric, f.operator, f.value)
+        for f in result["parsed"].fundamental_filters
+    ]
+    assert any("시장 범위 변경" in notice for notice in result["notices"])
+
+
+def test_market_patch_scope_verdict_preserves_explicit_change_and_fails_open():
+    from strategy_conversation.interpreter.models import PatchOp
+    from strategy_conversation.interpreter.patch_scope_check import (
+        market_patch_scope_verdict,
+    )
+
+    utter = "코스피와 코스닥으로 바꾸고 PER 10 이하 추가해줘"
+    patch = PatchOp(op="replace", path="/universe/markets",
+                    value=["KOSPI", "KOSDAQ"], source_text=utter)
+    yes = lambda *_args, **_kwargs: json.dumps({
+        "verdict": "yes", "quote": "코스피와 코스닥으로 바꾸고",
+    }, ensure_ascii=False)
+    assert market_patch_scope_verdict(patch, utter, yes) is True
+    assert market_patch_scope_verdict(
+        patch, utter, lambda *_args, **_kwargs: '{"verdict":"no","quote":null}',
+    ) is False
+    assert market_patch_scope_verdict(
+        patch, utter, lambda *_args, **_kwargs: '{"verdict":"yes","quote":"없는 말"}',
+    ) is None
+    assert market_patch_scope_verdict(patch, utter, None) is None
+
+
+@pytest.mark.parametrize("question_field", [
+    "entry_conditions[1].value", "universe.market_cap_top_n",
+])
+def test_modify_drops_unrequested_questioned_condition_but_keeps_per(
+    monkeypatch, question_field,
+):
+    """A doubtful invented second add must not cancel an independent PER add."""
+    from strategy_conversation import primary
+    from strategy_conversation.interpreter.quote_check import QuoteVerdicts
+
+    utter = "per 10 이하인 저평가 종목"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [
+            {"op": "add", "path": "/entry_conditions/-",
+             "value": {"factor": "fundamental.per", "operator": "<=", "value": 10,
+                       "unit": "ratio", "source_text": utter}},
+            {"op": "add", "path": "/entry_conditions/-",
+             "value": {"factor": "fundamental.market_cap", "operator": "<=",
+                       "value": None, "unit": "억원", "source_text": "저평가 종목"}},
+        ],
+        "clarification_questions": [{
+            "field": question_field,
+            "question": "저평가 종목의 시가총액 기준을 정할까요?",
+        }],
+    })
+    primary._interpreter_singleton._chat = lambda *_args, **_kwargs: json.dumps({
+        "items": [
+            {"id": "1", "verdict": "yes", "quote": utter},
+            {"id": "2", "verdict": "no", "quote": None},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr(primary, "_check_condition_quotes",
+                        lambda *_args, **_kwargs: QuoteVerdicts([]))
+    prev = _rich_parsed()
+    result = primary.run_primary_modification(utter, prev.model_dump())
+
+    assert result is not None
+    assert result["clarification_question"] is None
+    assert result["parsed"].universe == prev.universe
+    assert ("per", "<=", 10.0) in [
+        (f.metric, f.operator, f.value)
+        for f in result["parsed"].fundamental_filters
+    ]
+    assert not any(f.metric == "market_cap" for f in result["parsed"].fundamental_filters)
+    assert any("추가 조건" in notice for notice in result["notices"])
+
+
+def test_questioned_condition_scope_preserves_explicit_and_uncertain_adds():
+    from strategy_conversation.interpreter.models import PatchOp
+    from strategy_conversation.interpreter.patch_scope_check import (
+        condition_patch_scope_verdicts,
+    )
+
+    utter = "PER 10 이하와 시가총액 50억 이하 조건을 추가해줘"
+    candidates = [
+        (4, PatchOp(op="add", path="/entry_conditions/-",
+                    value={"factor": "fundamental.per", "operator": "<=",
+                           "value": 10, "source_text": "PER 10 이하"})),
+        (7, PatchOp(op="add", path="/entry_conditions/-",
+                    value={"factor": "fundamental.market_cap", "operator": "<=",
+                           "value": 50, "source_text": "시가총액 50억 이하"})),
+    ]
+    valid = lambda *_args, **_kwargs: json.dumps({"items": [
+        {"id": "1", "verdict": "yes", "quote": "PER 10 이하"},
+        {"id": "2", "verdict": "yes", "quote": "시가총액 50억 이하"},
+    ]}, ensure_ascii=False)
+    assert condition_patch_scope_verdicts(candidates, utter, valid) == {4: True, 7: True}
+    assert condition_patch_scope_verdicts(
+        candidates, utter, lambda *_args, **_kwargs: '{"items":[]}',
+    ) == {}
+
+
 def test_modify_primary_sibling_condition_patches_share_provenance(monkeypatch):
     """2026-07-31 사고: '매주조건을 per 50이하로 변경해줘'에 인터프리터가 조건 하나를
     통째로 갈아끼우는 패치 3개(factor/operator/value)를 냈는데, factor 패치의 인용만
@@ -2928,6 +3278,570 @@ def test_patch_provenance_rejects_numeric_scalar_backed_by_numberless_quote():
         "데드크로스 나오면 팔아") is True
 
 
+@pytest.mark.parametrize("utter,path,value,expected_field", [
+    ("여덟 종목", "/portfolio/selection_count", 8, "max_positions"),
+    ("두 배", "/risk_management/take_profit", 100, "take_profit_pct"),
+])
+def test_modify_primary_preserves_llm_numeric_word_patch(
+    monkeypatch, utter, path, value, expected_field,
+):
+    from strategy_conversation import primary
+
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [{"op": "replace", "path": path, "value": value,
+                     "source_text": utter}],
+    })
+    calls = []
+
+    def evidence_chat(_system, _user, **_kwargs):
+        calls.append(1)
+        item = ({"id": "1", "quote": utter, "number_text": "두 배",
+                 "value": 2, "unit": "total_multiplier"} if utter == "두 배" else
+                {"id": "1", "quote": utter, "number_text": "여덟",
+                 "value": 8, "unit": "count"})
+        return json.dumps({"items": [item]},
+                          ensure_ascii=False)
+
+    primary._interpreter_singleton._chat = evidence_chat
+    prev = _rich_parsed()
+    result = primary.run_primary_modification(utter, prev.model_dump())
+
+    assert result is not None
+    assert getattr(result["parsed"], expected_field) == value
+    assert result["parsed"].entry_signals == prev.entry_signals
+    assert len(calls) == 1
+
+
+def test_modify_primary_preserves_explicit_english_month_hold_patch(monkeypatch):
+    """A correct 21-day patch must survive the numeric provenance check."""
+    from strategy_conversation import primary
+
+    utter = "close it out after a month"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [{"op": "replace", "path": "/portfolio/hold_period_days",
+                     "value": 21, "source_text": utter}],
+    })
+    primary._interpreter_singleton._chat = lambda *_args, **_kwargs: json.dumps({
+        "items": [{"id": "1", "quote": "after a month", "number_text": "a month",
+                   "value": 1, "unit": "month"}],
+    })
+    prev = _rich_parsed()
+    result = primary.run_primary_modification(utter, prev.model_dump())
+
+    assert result is not None
+    assert result["parsed"].hold_period_days == 21
+    assert result["parsed"].exit_signals == prev.exit_signals
+
+
+@pytest.mark.parametrize("unit,count,expected_days", [
+    ("day", 20, 20), ("month", 1, 21), ("year", 1, 252),
+])
+def test_numeric_patch_hold_units_only_apply_to_hold_paths(unit, count, expected_days):
+    from strategy_conversation.interpreter.models import PatchOp
+    from strategy_conversation.interpreter.numeric_patch_check import confirmed_numeric_patches
+
+    utter = "hold for one period"
+    answer = lambda *_args, **_kwargs: json.dumps({"items": [
+        {"id": "1", "quote": utter, "number_text": "one period",
+         "value": count, "unit": unit},
+    ]})
+    hold = PatchOp(op="replace", path="/portfolio/hold_period_days",
+                   value=expected_days, source_text=utter)
+    risk = PatchOp(op="replace", path="/risk_management/take_profit",
+                   value=expected_days, source_text=utter)
+    assert confirmed_numeric_patches([(0, hold)], utter, answer) == {0}
+    assert confirmed_numeric_patches([(0, risk)], utter, answer) == set()
+
+
+def test_modify_primary_applies_confirmed_add_remove_as_one_replacement(monkeypatch):
+    from strategy_conversation import primary
+
+    utter = "60일 신고가 뚫을때"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [
+            {"op": "add", "path": "/entry_conditions/-", "source_text": utter,
+             "value": {"factor": "technical.breakout", "operator": "crosses_above",
+                       "parameters": {"lookback_period": 60}, "source_text": utter}},
+            {"op": "remove", "path": "/entry_conditions/0"},
+        ],
+    })
+    calls = []
+
+    def check_chat(_system, _user, **_kwargs):
+        calls.append(1)
+        return json.dumps({"items": [{"id": "1", "action": "replace", "quote": utter}]},
+                          ensure_ascii=False)
+
+    primary._interpreter_singleton._chat = check_chat
+    from engine.nl_parser import ParsedStrategy
+
+    prev_data = _rich_parsed().model_dump()
+    prev_data["fundamental_filters"] = []
+    prev_data["entry_signals"] = [{"indicator": "breakout", "signal_type": "buy",
+                                   "lookback_period": 20}]
+    prev = ParsedStrategy.model_validate(prev_data)
+    result = primary.run_primary_modification(utter, prev.model_dump(),
+        pending_ask={"topic": "매수 조건", "question": "어떤 진입 신호로 변경할까요?", "chips": []},
+        pending_question="어떤 진입 신호로 변경할까요?")
+
+    assert result is not None
+    assert [(s.indicator, s.lookback_period) for s in result["parsed"].entry_signals] == [
+        ("breakout", 60),
+    ]
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("action,expected_periods", [
+    ("add", [20, 60]),
+    ("unclear", [20]),
+])
+def test_modify_primary_pair_verdict_prevents_silent_partial_apply(
+    monkeypatch, action, expected_periods,
+):
+    from engine.nl_parser import ParsedStrategy
+    from strategy_conversation import primary
+
+    utter = "60일 신고가 뚫을때"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [
+            {"op": "add", "path": "/entry_conditions/-", "source_text": utter,
+             "value": {"factor": "technical.breakout", "operator": "crosses_above",
+                       "parameters": {"lookback_period": 60}, "source_text": utter}},
+            {"op": "remove", "path": "/entry_conditions/0"},
+        ],
+    })
+    primary._interpreter_singleton._chat = lambda *_args, **_kwargs: json.dumps({
+        "items": [{"id": "1", "action": action,
+                   "quote": utter if action != "unclear" else None}],
+    }, ensure_ascii=False)
+    prev_data = _rich_parsed().model_dump()
+    prev_data["fundamental_filters"] = []
+    prev_data["entry_signals"] = [{"indicator": "breakout", "signal_type": "buy",
+                                   "lookback_period": 20}]
+    prev = ParsedStrategy.model_validate(prev_data)
+    result = primary.run_primary_modification(utter, prev.model_dump())
+
+    assert result is not None
+    assert [s.lookback_period for s in result["parsed"].entry_signals] == expected_periods
+    if action == "unclear":
+        assert result["clarification_question"]
+        from strategy_conversation.response.output_guard import guard_text
+        assert guard_text(result["clarification_question"]) == result["clarification_question"]
+        assert result["interpreter"]["mode"] == "primary_modify_ambiguous_patches"
+    else:
+        assert result["clarification_question"] is None
+
+
+def test_modify_rejected_quote_does_not_apply_invented_exit(monkeypatch):
+    """A quoted holding period cannot silently become an MA sell signal."""
+    from strategy_conversation import primary
+    from strategy_conversation.interpreter.quote_check import QuoteVerdicts, Verdict
+
+    utter = "한 달 지나면 정리"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [{"op": "add", "path": "/exit_conditions/-",
+                     "value": {"factor": "technical.ma_crossover",
+                               "operator": "crosses_below", "value": None,
+                               "parameters": {"short_period": 1, "long_period": 20},
+                               "source_text": utter}, "source_text": utter}],
+    })
+    monkeypatch.setattr(primary, "_check_condition_quotes",
+                        lambda intent, *_args, **_kwargs: QuoteVerdicts([
+                            (intent.strategy.exit_conditions[-1], Verdict("no", "other"))]))
+    prev = _rich_parsed()
+    result = primary.run_primary_modification(utter, prev.model_dump())
+
+    assert result is not None
+    assert result["parsed"].exit_signals == prev.exit_signals
+    assert result["parsed"].entry_signals == prev.entry_signals
+    assert any("반영하지 않았" in notice for notice in result["notices"])
+
+
+def test_modify_rejected_replace_keeps_existing_exit(monkeypatch):
+    """A wrong replacement rejected by quote check must not erase its target."""
+    from strategy_conversation import primary
+    from strategy_conversation.interpreter.quote_check import QuoteVerdicts, Verdict
+
+    utter = "한 달 지나면 정리"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [{"op": "replace", "path": "/exit_conditions/0",
+                     "value": {"factor": "technical.ma_crossover",
+                               "operator": "crosses_below", "value": None,
+                               "parameters": {"short_period": 1, "long_period": 21},
+                               "source_text": utter}, "source_text": utter}],
+    })
+    monkeypatch.setattr(primary, "_check_condition_quotes",
+                        lambda intent, *_args, **_kwargs: QuoteVerdicts([
+                            (cond, Verdict("no", "other"))
+                            for cond in intent.strategy.exit_conditions
+                            if cond.factor == "technical.ma_crossover"
+                        ]))
+    prev = _rich_parsed()
+    result = primary.run_primary_modification(utter, prev.model_dump())
+
+    assert result is not None
+    assert result["parsed"].exit_signals == prev.exit_signals
+    assert any("반영하지 않았" in notice for notice in result["notices"])
+
+
+def test_modify_rejected_replace_recovers_explicit_holding_period(monkeypatch):
+    """A rejected replacement can change the hold while restoring the old exit."""
+    from strategy_conversation import primary
+    from strategy_conversation.interpreter.quote_check import QuoteVerdicts, Verdict
+
+    utter = "한 달 지나면 정리"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [{"op": "replace", "path": "/exit_conditions/0",
+                     "value": {"factor": "technical.ma_crossover",
+                               "operator": "crosses_below", "value": None,
+                               "parameters": {"short_period": 1, "long_period": 21},
+                               "source_text": utter}, "source_text": utter}],
+    })
+    primary._interpreter_singleton._chat = lambda *_args, **_kwargs: json.dumps({
+        "kind": "max_hold", "quote": "한 달 지나면", "number_text": "한",
+        "count": 1, "unit": "month",
+    }, ensure_ascii=False)
+    monkeypatch.setattr(primary, "_check_condition_quotes",
+                        lambda intent, *_args, **_kwargs: QuoteVerdicts([
+                            (cond, Verdict("no", "other"))
+                            for cond in intent.strategy.exit_conditions
+                            if cond.factor == "technical.ma_crossover"
+                        ]))
+    prev = _rich_parsed()
+    result = primary.run_primary_modification(utter, prev.model_dump())
+
+    assert result is not None
+    assert result["parsed"].hold_period_days == 21
+    assert result["parsed"].entry_signals == prev.entry_signals
+    assert result["parsed"].exit_signals == prev.exit_signals
+    assert not any("반영하지 않았" in notice for notice in result["notices"])
+
+
+def test_modify_rejected_condition_recovers_explicit_holding_period(monkeypatch):
+    """A rejected indicator signal can become a verified holding-period patch."""
+    from strategy_conversation import primary
+    from strategy_conversation.interpreter.quote_check import QuoteVerdicts, Verdict
+
+    utter = "한 달 지나면 정리"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [{"op": "add", "path": "/exit_conditions/-",
+                     "value": {"factor": "technical.ma_crossover",
+                               "operator": "crosses_below", "value": None,
+                               "parameters": {"short_period": 1, "long_period": 20},
+                               "source_text": utter}, "source_text": utter}],
+    })
+    primary._interpreter_singleton._chat = lambda *_args, **_kwargs: json.dumps({
+        "kind": "max_hold", "quote": "한 달 지나면", "number_text": "한",
+        "count": 1, "unit": "month",
+    }, ensure_ascii=False)
+    monkeypatch.setattr(primary, "_check_condition_quotes",
+                        lambda intent, *_args, **_kwargs: QuoteVerdicts([
+                            (cond, Verdict("no", "other"))
+                            for cond in intent.strategy.exit_conditions
+                            if cond.factor == "technical.ma_crossover"
+                        ]))
+    prev = _rich_parsed()
+    result = primary.run_primary_modification(utter, prev.model_dump())
+
+    assert result is not None
+    assert result["parsed"].hold_period_days == 21
+    assert result["parsed"].entry_signals == prev.entry_signals
+    assert result["parsed"].exit_signals == prev.exit_signals
+    assert not any("반영하지 않았" in notice for notice in result["notices"])
+
+
+@pytest.mark.parametrize("answer,path,value", [
+    ({"kind": "max_hold", "quote": "3개월 보유 후", "number_text": "3",
+      "count": 3, "unit": "month"}, "/portfolio/hold_period_days", 63),
+    ({"kind": "min_hold", "quote": "최소 20일 보유", "number_text": "20",
+      "count": 20, "unit": "day"}, "/portfolio/min_hold_period_days", 20),
+    ({"kind": "none", "quote": None, "number_text": None,
+      "count": None, "unit": None}, None, None),
+    ({"kind": "max_hold", "quote": "3개월 보유 후", "number_text": "3",
+      "count": 1, "unit": "week"}, None, None),
+    ({"kind": "max_hold", "quote": "3개월 보유 후", "number_text": "3",
+      "count": 1, "unit": "month"}, None, None),
+    ({"kind": "max_hold", "quote": "3개월 보유 후", "number_text": "3개월",
+      "count": 1, "unit": "month"}, None, None),
+    ({"kind": "max_hold", "quote": "없는 표현", "number_text": "3",
+      "count": 3, "unit": "month"}, None, None),
+])
+def test_rejected_condition_holding_check_requires_quoted_duration(answer, path, value):
+    from strategy_conversation.interpreter.holding_period_check import (
+        recover_misfiled_holding_period,
+    )
+
+    utter = "3개월 보유 후 정리하고 최소 20일 보유"
+    patch = recover_misfiled_holding_period(
+        utter, utter, "어떤 조건에서 청산할까요?",
+        lambda *_args, **_kwargs: json.dumps(answer, ensure_ascii=False),
+    )
+    assert (patch.path if patch else None) == path
+    assert (patch.value if patch else None) == value
+
+
+def test_create_unknown_time_exit_recovers_explicit_hold_without_losing_other_exit():
+    from strategy_conversation.interpreter.holding_period_check import (
+        recover_create_misfiled_holding_period,
+    )
+
+    phrase = "진입 후 10거래일 경과"
+    data = _full_intent_dict(
+        exit_conditions=[
+            {"factor": "technical.ma_crossover", "operator": "crosses_below",
+             "parameters": {"short_period": 1, "long_period": 20},
+             "source_text": "20일선 이탈 시"},
+            {"factor": "concept.time_based_exit", "operator": None,
+             "parameters": {"days": 10}, "source_text": phrase},
+        ],
+    )
+    data["clarification_questions"] = [
+        {"field": "strategy.exit_conditions[1].factor",
+         "question": "시간 기준인가요?"},
+        {"field": "strategy.exit_conditions.10.factor",
+         "question": "다른 조건의 질문"},
+    ]
+    intent = StrategyIntent.model_validate(data)
+    calls = []
+
+    def chat(*_args, **_kwargs):
+        calls.append(True)
+        return json.dumps({"kind": "max_hold", "quote": phrase,
+                           "number_text": "10", "count": 10, "unit": "day"})
+
+    notices = recover_create_misfiled_holding_period(
+        intent, f"20일선 이탈 시 또는 {phrase} 청산", chat)
+
+    assert calls == [True]
+    assert intent.strategy.portfolio.hold_period_days == 10
+    assert [c.factor for c in intent.strategy.exit_conditions] == ["technical.ma_crossover"]
+    assert [q.field for q in intent.clarification_questions] == [
+        "strategy.exit_conditions.10.factor",
+    ]
+    assert notices
+
+
+def test_trading_value_check_does_not_turn_share_volume_into_money():
+    from strategy_conversation import primary
+
+    phrase = "최근 거래량도 너무 적지 않은"
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.trading_value", "operator": ">=",
+             "value": None, "source_text": phrase},
+        ],
+    ))
+    primary._resolve_trading_value_comparisons(
+        intent, phrase,
+        lambda *_args, **_kwargs: '{"items":[{"compares":"volume",'
+                                 '"average_days":null,"multiple":null,"operator":null}]}',
+    )
+
+    assert intent.strategy.entry_conditions == []
+    assert phrase in intent.unsupported_features
+
+
+def test_primary_create_recovers_time_exit_without_dropping_ma_exit(monkeypatch):
+    import llm_backend
+    from strategy_conversation import config, primary
+    from strategy_conversation.interpreter.quote_check import QuoteVerdicts
+
+    phrase = "진입 후 10거래일 경과"
+    data = _full_intent_dict(exit_conditions=[
+        {"factor": "technical.ma_crossover", "operator": "crosses_below",
+         "parameters": {"short_period": 1, "long_period": 20},
+         "source_text": "20일선 이탈 시"},
+        {"factor": "concept.time_based_exit", "operator": None,
+         "parameters": {"days": 10}, "source_text": phrase},
+    ])
+    data["clarification_questions"] = [
+        {"field": "strategy.exit_conditions[1].factor",
+         "question": "시간 기준인가요?"},
+    ]
+    stub = _StubPrimaryInterpreter(data)
+    stub._chat = lambda *_args, **_kwargs: json.dumps({
+        "kind": "max_hold", "quote": phrase,
+        "number_text": "10", "count": 10, "unit": "day",
+    })
+    monkeypatch.setattr(primary, "_interpreter_singleton", stub)
+    monkeypatch.setattr(primary, "_check_condition_quotes", lambda *_args: QuoteVerdicts([]))
+    monkeypatch.setattr(config, "condition_recall_enabled", lambda: False)
+    monkeypatch.setattr(llm_backend, "is_openrouter", lambda: False)
+
+    result = primary.run_primary_parse(f"20일선 이탈 시 또는 {phrase} 청산")
+
+    assert result is not None
+    assert result["parsed"].hold_period_days == 10
+    assert len(result["parsed"].exit_signals) == 1
+    assert result["parsed"].exit_signals[0].indicator == "ma_crossover"
+    assert any("보유 기간 10거래일" in notice for notice in result["notices"])
+
+
+def test_primary_create_reports_volume_instead_of_asking_for_money(monkeypatch):
+    import llm_backend
+    from strategy_conversation import config, primary
+    from strategy_conversation.interpreter import liquidity_exclusion_check
+    from strategy_conversation.interpreter.quote_check import QuoteVerdicts
+
+    phrase = "최근 거래량도 너무 적지 않은"
+    data = _full_intent_dict(entry_conditions=[
+        {"factor": "technical.ma_crossover", "operator": ">",
+         "parameters": {"short_period": 1, "long_period": 20},
+         "source_text": "종가가 20일선 위에 있고"},
+        {"factor": "fundamental.trading_value", "operator": ">=",
+         "value": None, "source_text": phrase},
+    ])
+    data["clarification_questions"] = [
+        {"field": "strategy.entry_conditions.1.value",
+         "question": "일평균거래대금 기준은 얼마인가요?"},
+    ]
+    stub = _StubPrimaryInterpreter(data)
+    def chat(system, *_args, **_kwargs):
+        if system == liquidity_exclusion_check._SYSTEM:
+            return '{"items":[{"kind":"liquidity"}]}'
+        return ('{"items":[{"compares":"volume","average_days":null,'
+                '"multiple":null,"operator":null}]}')
+
+    stub._chat = chat
+    monkeypatch.setattr(primary, "_interpreter_singleton", stub)
+    monkeypatch.setattr(primary, "_check_condition_quotes", lambda *_args: QuoteVerdicts([]))
+    monkeypatch.setattr(config, "condition_recall_enabled", lambda: False)
+    monkeypatch.setattr(llm_backend, "is_openrouter", lambda: False)
+
+    result = primary.run_primary_parse(f"종가가 20일선 위에 있고 {phrase}")
+
+    assert result is not None
+    assert result["parsed"].fundamental_filters == []
+    assert any(phrase in notice for notice in result["notices"])
+    assert "일평균거래대금" not in (result["clarification_question"] or "")
+
+
+def test_modify_quote_rejection_preserves_paired_old_condition(monkeypatch):
+    """Rejecting the proposed replacement must also undo its paired remove."""
+    from strategy_conversation import primary
+    from strategy_conversation.interpreter.quote_check import QuoteVerdicts, Verdict
+
+    utter = "한 달 지나면 정리"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [
+            {"op": "add", "path": "/exit_conditions/-", "source_text": utter,
+             "value": {"factor": "technical.ma_crossover",
+                       "operator": "crosses_below", "value": None,
+                       "parameters": {"short_period": 1, "long_period": 20},
+                       "source_text": utter}},
+            {"op": "remove", "path": "/exit_conditions/0"},
+        ],
+    })
+    primary._interpreter_singleton._chat = lambda *_args, **_kwargs: json.dumps({
+        "items": [{"id": "1", "action": "replace", "quote": utter}],
+    }, ensure_ascii=False)
+    monkeypatch.setattr(primary, "_check_condition_quotes",
+                        lambda intent, *_args, **_kwargs: QuoteVerdicts([
+                            (intent.strategy.exit_conditions[-1], Verdict("no", "other"))]))
+    prev = _rich_parsed()
+    result = primary.run_primary_modification(utter, prev.model_dump())
+
+    assert result is not None
+    assert result["parsed"].exit_signals == prev.exit_signals
+    assert any("반영하지 않았" in notice for notice in result["notices"])
+
+
+def test_modify_volume_misfiled_as_money_preserves_independent_patch(monkeypatch):
+    from strategy_conversation import primary
+
+    quote = "최근 거래량도 너무 적지 않은"
+    utter = f"{quote} 조건을 추가하고 종목은 12개로 바꿔줘"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [
+            {"op": "add", "path": "/entry_conditions/-", "source_text": quote,
+             "value": {"factor": "fundamental.trading_value", "operator": ">=",
+                       "value": None, "source_text": quote}},
+            {"op": "replace", "path": "/portfolio/selection_count", "value": 12,
+             "source_text": "종목은 12개"},
+        ],
+    })
+    primary._interpreter_singleton._chat = lambda *_args, **_kwargs: json.dumps({
+        "items": [{"compares": "volume", "average_days": None,
+                   "multiple": None, "operator": None}],
+    })
+    prev = _rich_parsed()
+    result = primary.run_primary_modification(utter, prev.model_dump())
+
+    assert result is not None
+    assert result["parsed"].max_positions == 12
+    assert result["parsed"].entry_signals == prev.entry_signals
+    assert result["parsed"].fundamental_filters == prev.fundamental_filters
+    assert result["interpreter"]["patch_count"] == 1
+    assert any(quote in notice for notice in result["notices"])
+
+
+def test_modify_volume_misfiled_replacement_keeps_old_condition(monkeypatch):
+    from strategy_conversation import primary
+
+    quote = "최근 거래량도 너무 적지 않은"
+    utter = f"ROE 대신 {quote} 조건으로 바꿔줘"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [
+            {"op": "remove", "path": "/entry_conditions/0", "source_text": "ROE 대신"},
+            {"op": "add", "path": "/entry_conditions/-", "source_text": quote,
+             "value": {"factor": "fundamental.trading_value", "operator": ">=",
+                       "value": None, "source_text": quote}},
+        ],
+    })
+    primary._interpreter_singleton._chat = lambda *_args, **_kwargs: json.dumps({
+        "items": [{"compares": "volume", "average_days": None,
+                   "multiple": None, "operator": None}],
+    })
+    prev = _rich_parsed()
+    result = primary.run_primary_modification(utter, prev.model_dump())
+
+    assert result is not None
+    assert result["parsed"].model_dump() == prev.model_dump()
+    assert any(quote in notice for notice in result["notices"])
+
+
+def test_modify_volume_rejected_pair_keeps_independent_scalar_patch(monkeypatch):
+    from strategy_conversation import primary
+
+    quote = "최근 거래량도 너무 적지 않은"
+    utter = f"ROE 대신 {quote} 조건으로 바꾸고 종목은 12개로"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [
+            {"op": "remove", "path": "/entry_conditions/0", "source_text": "ROE 대신"},
+            {"op": "add", "path": "/entry_conditions/-", "source_text": quote,
+             "value": {"factor": "fundamental.trading_value", "operator": ">=",
+                       "value": None, "source_text": quote}},
+            {"op": "replace", "path": "/portfolio/selection_count", "value": 12,
+             "source_text": "종목은 12개"},
+        ],
+    })
+    primary._interpreter_singleton._chat = lambda *_args, **_kwargs: json.dumps({
+        "items": [{"compares": "volume", "average_days": None,
+                   "multiple": None, "operator": None}],
+    })
+    prev = _rich_parsed()
+    result = primary.run_primary_modification(utter, prev.model_dump())
+
+    assert result is not None
+    assert result["parsed"].max_positions == 12
+    assert result["parsed"].entry_signals == prev.entry_signals
+    assert result["parsed"].fundamental_filters == prev.fundamental_filters
+    assert result["interpreter"]["patch_count"] == 1
+    assert any(quote in notice for notice in result["notices"])
+
+
 def test_modify_primary_clarify_returns_question_with_strategy_intact(monkeypatch):
     # 2026-07-17 사고 재현: "pbr이 뭐야?"가 수정 경로로 흘러 인터프리터가 CLARIFY로
     # 정확히 판단했는데, 폴백이 질문을 버리고 기존 수정 LLM이 무변경 전략을 반환해
@@ -3057,28 +3971,6 @@ def test_modify_primary_unsupported_condition_returns_notice(monkeypatch):
     assert result["interpreter"]["mode"] == "primary_modify_unsupported"
 
 
-def test_modify_primary_deterministic_fast_path_skips_interpreter(monkeypatch):
-    # **롤백 모드(fast_path_first) 전용 동작** — 결정적 fast-path가 완전히 해석하는 수정은
-    # 인터프리터(LLM)를 호출하지 않고 폴백한다(LLM 왕복 지연·수치/날짜 드리프트 회피).
-    # 기본 모드(llm_first)는 2026-07-26 계약 전환으로 fast-path를 상담하지 않는다 —
-    # 원문 해석 권한은 LLM에만 있다.
-    from strategy_conversation import primary
-
-    monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "fast_path_first")
-
-    class _MustNotBeCalled:
-        def interpret(self, user_input, draft=None, on_stage=None, **kwargs):
-            raise AssertionError("결정적 fast-path 처리 가능한 입력에 인터프리터가 호출됨")
-
-    monkeypatch.setattr(primary, "_interpreter_singleton", _MustNotBeCalled())
-    prev = _rich_parsed().model_dump()
-    assert primary.run_primary_modification("손절 10%로 바꿔줘", prev) is None
-    # 2026-07-17 사고 입력: 월 포함 명시 날짜 범위도 fast-path가 처리한다
-    assert primary.run_primary_modification(
-        "백테스트를 2020년 1월 부터 2025년 12월 까지 해줘", prev
-    ) is None
-
-
 def test_modify_primary_explicit_dates_from_patches(monkeypatch):
     # 수정 경로의 명시 날짜는 인터프리터 패치가 옮긴다(2026-07-26 계약 전환 — 이전에는
     # 결정적 추출이 최종 덮어썼다). 모델이 오늘 날짜를 몰라 '2025-12=미래'로 오판하던
@@ -3156,6 +4048,89 @@ def test_user_prompt_carries_pending_question_on_modify_turn():
     assert "답을 기다리는 질문" not in build_user_prompt("3억원", pending_question=question)
 
 
+def test_user_prompt_carries_coach_context_without_overriding_pending_question():
+    from strategy_conversation.interpreter.prompts import build_user_prompt
+
+    coach = "손절은 몇 퍼센트로 설정할까요?"
+    prompt = build_user_prompt("10%", draft={"risk_management": {}},
+                               previous_coach_text=coach)
+    assert coach in prompt
+    assert "코치 응답" in prompt
+    assert "초안 값을 복사하지 말고" in prompt
+
+    pending = "익절은 몇 퍼센트로 설정할까요?"
+    prompt = build_user_prompt("10%", draft={"risk_management": {}},
+                               pending_question=pending, previous_coach_text=coach)
+    assert pending in prompt
+    assert coach not in prompt
+
+
+def test_free_input_fill_uses_an_empty_condition_slot_and_matches_all_signals():
+    """The fill fixture must not claim a populated entry slot is missing."""
+    import importlib.util
+    from pathlib import Path
+
+    qa_path = Path(__file__).resolve().parents[2] / "scripts" / "qa_free_input.py"
+    spec = importlib.util.spec_from_file_location("qa_free_input_fixture", qa_path)
+    qa = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(qa)
+    qa.PREV = {
+        "description": "20일 고점에서 매수하고 데드크로스에서 매도",
+        "entry_signals": [{"indicator": "breakout", "lookback_period": 20}],
+        "exit_signals": [{"indicator": "ma_crossover"}],
+        "max_positions": 3,
+    }
+
+    entry_draft = qa._case_previous_parsed("fill", "entry")
+    assert entry_draft["entry_signals"] == []
+    assert "20일 고점" not in entry_draft["description"]
+    assert entry_draft["exit_signals"] == qa.PREV["exit_signals"]
+    assert qa.PREV["entry_signals"][0]["lookback_period"] == 20
+
+    exit_draft = qa._case_previous_parsed("fill", "exit")
+    assert exit_draft["exit_signals"] == []
+    assert entry_draft["max_positions"] == qa.PREV["max_positions"]
+    assert qa._case_previous_parsed("modify", "entry") == qa.PREV
+
+    both = {"entry_signals": [
+        {"indicator": "breakout", "lookback_period": 20},
+        {"indicator": "breakout", "lookback_period": 60},
+    ]}
+    assert qa.sig_entry("breakout", lookback_period=60)(both)[0]
+
+    sent = []
+    qa.PREV_EXPLICIT = []
+    qa.CASES = [("entry", "60일 신고가 뚫을때",
+                 qa.sig_entry("breakout", lookback_period=60))]
+
+    def fake_post(body):
+        sent.append(body)
+        parsed = dict(body["previous_parsed"])
+        parsed["entry_signals"] = [{"indicator": "breakout", "lookback_period": 60}]
+        return {"parsed": parsed}
+
+    qa._post = fake_post
+    assert qa.run("fill")[0][2] == "PASS"
+    assert sent[0]["previous_parsed"]["entry_signals"] == []
+
+
+def test_free_input_fill_questions_match_ui_slot_prompts():
+    import importlib.util
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    qa_path = root / "scripts" / "qa_free_input.py"
+    spec = importlib.util.spec_from_file_location("qa_free_input_questions", qa_path)
+    qa = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(qa)
+    slots = json.loads((root / "app" / "analytics" / "new" / "__fixtures__"
+                        / "slot-prompts.json").read_text(encoding="utf-8"))["slots"]
+
+    for slot, questions in qa.QUESTIONS.items():
+        assert questions["fill"] == slots[slot]["question"], slot
+
+
 def test_user_prompt_forbids_fabricated_value_for_valueless_answer():
     """[회귀 2026-08-10] 익절 질문이 걸린 상태에서 "리스크 관리"처럼 값 없는 발화가 오자
     9B가 초안의 손절 8을 복사해 take_profit=8 패치를 지어냈다. 값 없는 답은 패치 대신
@@ -3191,6 +4166,24 @@ def test_modify_primary_forwards_pending_question_to_interpreter(monkeypatch):
         pending_question="초기자금을 얼마로 변경할까요?",
     )
     assert seen["pending_question"] == "초기자금을 얼마로 변경할까요?"
+
+
+def test_modify_primary_forwards_coach_context_to_interpreter(monkeypatch):
+    from strategy_conversation import primary
+
+    seen = {}
+
+    class _Interpreter:
+        def interpret(self, user_input, draft=None, **kwargs):
+            seen.update(kwargs)
+            raise RuntimeError("stop")
+
+    monkeypatch.setattr(primary, "_get_interpreter", lambda _cls: _Interpreter())
+    primary.run_primary_modification(
+        "10%", _rich_parsed().model_dump(),
+        previous_coach_text="손절은 몇 퍼센트로 설정할까요?",
+    )
+    assert seen["previous_coach_text"] == "손절은 몇 퍼센트로 설정할까요?"
 
 
 def test_modify_primary_clarify_without_questions_falls_back(monkeypatch):
@@ -3271,6 +4264,20 @@ def test_missing_closing_brace_in_nested_patch_value_repaired():
     assert fixed["unsupported_features"] == []
 
 
+def test_missing_outer_brace_after_complete_patch_arrays_repaired():
+    """A 9B reply ending after a complete question array keeps its PER patch."""
+    broken = (
+        '{"intent":"MODIFY_STRATEGY","strategy":null,"patches":['
+        '{"op":"add","path":"/entry_conditions/-","value":'
+        '{"factor":"fundamental.per","operator":"<=","value":10,'
+        '"unit":"ratio","source_text":"per 10 이하인 저평가 종목"}}],'
+        '"unsupported_features":[],"clarification_questions":[]'
+    )
+    fixed = json.loads(extract_json_object(broken))
+    assert fixed["patches"][0]["value"]["value"] == 10
+    assert fixed["clarification_questions"] == []
+
+
 def test_bracket_repair_is_idempotent_and_does_not_overreach():
     """올바른 출력에는 손대지 않고, 삽입만으로 설명되지 않는 붕괴는 기존 실패 경로로 보낸다.
 
@@ -3319,10 +4326,31 @@ def test_repair_prompt_instructs_content_preservation():
     assert "삭제하거나 바꾸지 마세요" in prompt
 
 
+def test_complete_question_array_survives_outer_brace_repair():
+    """[회귀 2026-08-10] 완결된 질문 배열은 바깥 중괄호 수리 후에도 보존된다."""
+    from strategy_conversation.interpreter.llm_strategy_interpreter import (
+        StrategyInterpreter,
+    )
+
+    outputs = [_TRUNCATED_SELF_DOUBT_OUTPUT]
+
+    def fake_chat(system_prompt, user_message):
+        return outputs.pop(0)
+
+    interpreter = StrategyInterpreter(chat_fn=fake_chat, model="stub-model")
+    result = interpreter.interpret(
+        "리스크 관리", draft={"risk_management": {"stop_loss": 8.0}},
+        pending_question="이제 익절 기준을 몇 %로 정할까요?",
+    )
+    assert result.repair_attempts == 0
+    assert len(result.intent.patches) == 1
+    questions = result.intent.clarification_questions
+    assert len(questions) == 1
+    assert questions[0].field == "risk_management.take_profit"
+
+
 def test_repair_turn_restores_dropped_clarification_questions():
-    """[회귀 2026-08-10] 첫 출력이 절단돼 수리가 돌았고, 수리본이 패치만 남기고 자기 의심
-    질문을 지웠다 — 질문이 사라지면 자기 의심 패치 게이트가 침묵해 지어낸 값(익절 8%)이
-    확정된다. 수리 성공 후 원출력의 질문을 결정적으로 되살려야 한다."""
+    """An unpaired trailing closer still uses regeneration and restores its question."""
     from strategy_conversation.interpreter.llm_strategy_interpreter import (
         StrategyInterpreter,
     )
@@ -3332,7 +4360,7 @@ def test_repair_turn_restores_dropped_clarification_questions():
         '"path": "/risk_management/take_profit", "value": 8.0, "source_text": "리스크 관리"}], '
         '"unsupported_features": [], "clarification_questions": []}'
     )
-    outputs = [_TRUNCATED_SELF_DOUBT_OUTPUT, repaired_without_questions]
+    outputs = [_TRUNCATED_SELF_DOUBT_OUTPUT + "]", repaired_without_questions]
 
     def fake_chat(system_prompt, user_message):
         return outputs.pop(0)
@@ -4190,6 +5218,33 @@ def test_absent_condition_promotion_requires_factor():
             {"op": "replace", "path": "/exit_conditions/0/operator", "value": "crosses_above"})])
 
 
+def test_absent_condition_promotion_does_not_swallow_another_invalid_group():
+    """A valid promoted group must not hide an unrelated invalid patch."""
+    spec = StrategySpec()
+    patches = [
+        PatchOp(op="replace", path="/entry_conditions/0/factor", value="fundamental.per"),
+        PatchOp(op="replace", path="/entry_conditions/0/value", value=10),
+        PatchOp(op="replace", path="/exit_conditions/0/value", value=70),
+    ]
+    with pytest.raises(PatchError):
+        apply_patches(spec, patches)
+
+
+def test_negative_condition_index_cannot_change_last_condition():
+    """A negative JSON Pointer index must not select the last list item."""
+    spec = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.per", "operator": "<=", "value": 10},
+            {"factor": "fundamental.pbr", "operator": "<=", "value": 1},
+        ],
+    )).strategy
+    with pytest.raises(PatchError):
+        apply_patches(spec, [PatchOp(
+            op="replace", path="/entry_conditions/-1/value", value=15,
+        )])
+    assert [c.value for c in spec.entry_conditions] == [10, 1]
+
+
 def test_non_bucket_relative_period_becomes_explicit_dates():
     """[회귀 2026-07-31] period는 1y/3y/5y/full 넷뿐이라 '10년'을 뜻하는 "10y"가 오면
     Literal 검증에서 탈락해 패치가 통째로 폐기됐다("해석하지 못했어요" 2/2 재현).
@@ -4854,6 +5909,126 @@ def test_whole_input_quote_regeneration_output_is_used():
     assert result.intent.strategy.entry_conditions == []
     assert result.intent.clarification_questions == []
     assert result.intent.strategy.risk_management.stop_loss == 15
+
+
+def test_format_regeneration_keeps_unrelated_condition_from_first_output():
+    user_input = "PER 10 이하, PBR 1 이하인 종목 10개"
+    first = _full_intent_dict(entry_conditions=[
+        {"factor": "fundamental.per", "operator": "<=", "value": 10,
+         "source_text": user_input},
+        {"factor": "fundamental.pbr", "operator": "<=", "value": 1,
+         "source_text": "PBR 1 이하"},
+    ])
+    repaired = _full_intent_dict(entry_conditions=[
+        {"factor": "fundamental.per", "operator": "<=", "value": 10,
+         "source_text": "PER 10 이하"},
+    ])
+    outputs = iter((json.dumps(first, ensure_ascii=False),
+                    json.dumps(repaired, ensure_ascii=False)))
+    calls = []
+
+    def chat(_system, user, **_kw):
+        calls.append(user)
+        return next(outputs)
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(user_input)
+
+    assert len(calls) == 2
+    assert {(c.factor, c.value) for c in result.intent.strategy.entry_conditions} == {
+        ("fundamental.per", 10), ("fundamental.pbr", 1),
+    }
+
+
+def test_format_regeneration_does_not_union_changed_same_factor_condition():
+    user_input = "PER 10 이하 또는 PER 20 이상인 종목 10개"
+    first = _full_intent_dict(entry_conditions=[
+        {"factor": "fundamental.per", "operator": "<=", "value": 10,
+         "source_text": user_input},
+        {"factor": "fundamental.per", "operator": ">=", "value": 20,
+         "source_text": "PER 20 이상"},
+    ], entry_logic="OR")
+    repaired = _full_intent_dict(entry_conditions=[
+        {"factor": "fundamental.per", "operator": "<=", "value": 10,
+         "source_text": "PER 10 이하"},
+        {"factor": "fundamental.per", "operator": ">=", "value": 25,
+         "source_text": "PER 20 이상"},
+    ], entry_logic="OR")
+    outputs = iter((json.dumps(first, ensure_ascii=False),
+                    json.dumps(repaired, ensure_ascii=False)))
+
+    def chat(_system, _user, **_kw):
+        return next(outputs)
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(user_input)
+
+    assert [c.value for c in result.intent.strategy.entry_conditions] == [10, 20]
+    assert result.repair_attempts == 1
+
+
+def test_format_regeneration_does_not_erase_unrelated_ranking():
+    user_input = "PER 10 이하 중 60일 수익률 상위 10종목"
+    first = _full_intent_dict(
+        entry_conditions=[{"factor": "fundamental.per", "operator": "<=", "value": 10,
+                           "source_text": user_input}],
+        ranking=[{"metric": "ranking.return", "lookback_days": 60}],
+    )
+    repaired = _full_intent_dict(
+        entry_conditions=[{"factor": "fundamental.per", "operator": "<=", "value": 10,
+                           "source_text": "PER 10 이하"}],
+        ranking=[],
+    )
+    outputs = iter((json.dumps(first, ensure_ascii=False),
+                    json.dumps(repaired, ensure_ascii=False)))
+
+    def chat(_system, _user, **_kw):
+        return next(outputs)
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(user_input)
+
+    assert [r.lookback_days for r in result.intent.strategy.ranking] == [60]
+
+
+@pytest.mark.parametrize("risk,missing_field", [
+    ({"partial_take_profits": [{"profit_percent": -5, "sell_percent": 50}]},
+     "strategy.risk_management.partial_take_profits.0"),
+    ({"position_sizing": {"method": "kelly", "kelly_fraction": 2}},
+     "strategy.risk_management.position_sizing.kelly_fraction"),
+])
+def test_invalid_nested_risk_value_does_not_abort_other_conditions(risk, missing_field):
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "fundamental.per", "operator": "<=", "value": 10,
+             "source_text": "PER 10 이하"},
+            {"factor": "fundamental.pbr", "operator": "<=", "value": 1,
+             "source_text": "PBR 1 이하"},
+        ],
+        risk_management=risk,
+    ))
+
+    validated, report = run_validation(intent)
+    parsed, _, _ = compile_partial(validated, report, "원문")
+
+    assert report.status == "NEEDS_CLARIFICATION"
+    assert report.errors and missing_field in report.missing_fields
+    assert {f.metric for f in parsed.fundamental_filters} == {"per", "pbr"}
+
+
+@pytest.mark.parametrize("tranches", [
+    {"count": 1, "step_percent": 5},
+    {"count": 3, "step_percent": 50},
+    {"levels": [{"drop_percent": 100, "buy_percent": None}]},
+])
+def test_invalid_tranche_value_does_not_abort_other_conditions(tranches):
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        backtest={"entry_tranches": tranches},
+    ))
+
+    validated, report = run_validation(intent)
+    parsed, _, _ = compile_partial(validated, report, "원문")
+
+    assert report.status == "NEEDS_CLARIFICATION"
+    assert report.errors
+    assert [f.metric for f in parsed.fundamental_filters] == ["per"]
 
 
 def test_whole_input_quote_regeneration_schema_failure_keeps_original_output():
@@ -6516,3 +7691,140 @@ def test_parameter_validator_bounds_sell_tax_rate():
     assert any("거래세율" in e for e in errors)
     data["strategy"]["backtest"]["sell_tax_rate"] = 0.0
     assert not any("거래세율" in e for e in validate_parameters(StrategyIntent.model_validate(data)))
+
+
+def test_prompt_does_not_contradict_supported_minimum_holding_period():
+    from strategy_conversation.interpreter.prompts import _OUTPUT_SHAPE, build_system_prompt
+
+    prompt = build_system_prompt()
+    assert "최소 N거래일 보유→portfolio.min_hold_period_days=N" in prompt
+    assert "최대 N거래일 보유→portfolio.hold_period_days=N" in prompt
+    assert "'최소 N개월 보유'·'최소 보유" not in prompt
+    portfolio_keys = list(_OUTPUT_SHAPE["strategy"]["portfolio"])
+    assert portfolio_keys.index("min_hold_period_days") == portfolio_keys.index("hold_period_days") - 1
+
+
+def test_modify_holding_day_copy_preserves_unrelated_patch():
+    """A 9B month-length guess must not replace an explicitly stated day count."""
+    first = {
+        "intent": "MODIFY_STRATEGY", "strategy": None,
+        "patches": [
+            {"op": "replace", "path": "/portfolio/hold_period_days", "value": 21,
+             "source_text": "20일 보유 후 청산"},
+            {"op": "replace", "path": "/portfolio/selection_count", "value": 8,
+             "source_text": "8개 종목"},
+        ],
+        "unsupported_features": [], "clarification_questions": [],
+    }
+    checked = {"items": [{"id": "1", "quote": "20일 보유 후 청산",
+                          "number_text": "20", "unit": "day"}]}
+    outputs = iter((json.dumps(first, ensure_ascii=False),
+                    json.dumps(checked, ensure_ascii=False)))
+    calls = []
+
+    def chat(system, user, **_kwargs):
+        calls.append((system, user))
+        return next(outputs)
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(
+        "20일 보유 후 청산, 8개 종목", draft=StrategySpec().model_dump(),
+    )
+
+    assert [(p.path, p.value) for p in result.intent.patches] == [
+        ("/portfolio/hold_period_days", 20),
+        ("/portfolio/selection_count", 8),
+    ]
+    assert len(calls) == 2
+
+
+def test_modify_holding_day_check_skips_reflected_value():
+    first = {
+        "intent": "MODIFY_STRATEGY", "strategy": None,
+        "patches": [{"op": "replace", "path": "/portfolio/hold_period_days",
+                     "value": 20, "source_text": "20일 보유 후 청산"}],
+    }
+    calls = []
+
+    def chat(system, user, **_kwargs):
+        calls.append((system, user))
+        return json.dumps(first, ensure_ascii=False)
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(
+        "20일 보유 후 청산", draft=StrategySpec().model_dump(),
+    )
+
+    assert result.intent.patches[0].value == 20
+    assert len(calls) == 1
+
+
+def test_modify_holding_day_check_accepts_korean_unit_in_llm_output():
+    from strategy_conversation.interpreter.holding_period_check import reconcile_holding_days
+
+    intent = StrategyIntent.model_validate({
+        "intent": "MODIFY_STRATEGY", "strategy": None,
+        "patches": [{"op": "replace", "path": "/portfolio/hold_period_days",
+                     "value": 21, "source_text": "20일 보유 후 청산"}],
+    })
+    verdict = {"items": [{"id": "1", "quote": "20일 보유 후 청산",
+                          "number_text": "20", "unit": "일"}]}
+
+    checked = reconcile_holding_days(
+        intent, "20일 보유 후 청산",
+        lambda *_args, **_kwargs: json.dumps(verdict, ensure_ascii=False),
+    )
+
+    assert checked.patches[0].value == 20
+
+
+def test_modify_holding_day_check_keeps_minimum_and_maximum_identity():
+    from strategy_conversation.interpreter.holding_period_check import reconcile_holding_days
+
+    intent = StrategyIntent.model_validate({
+        "intent": "MODIFY_STRATEGY", "strategy": None,
+        "patches": [
+            {"op": "replace", "path": "/portfolio/min_hold_period_days",
+             "value": 11, "source_text": "최소 10일 보유"},
+            {"op": "replace", "path": "/portfolio/hold_period_days",
+             "value": 21, "source_text": "최대 20일 보유"},
+            {"op": "replace", "path": "/portfolio/selection_count",
+             "value": 8, "source_text": "8종목"},
+        ],
+    })
+    verdict = {"items": [
+        {"id": "2", "quote": "최대 20일 보유", "number_text": "20", "unit": "일"},
+        {"id": "1", "quote": "최소 10일 보유", "number_text": "10", "unit": "일"},
+    ]}
+
+    checked = reconcile_holding_days(
+        intent, "최소 10일 보유하고 최대 20일 보유, 8종목",
+        lambda *_args, **_kwargs: json.dumps(verdict, ensure_ascii=False),
+    )
+
+    assert [(p.path, p.value) for p in checked.patches] == [
+        ("/portfolio/min_hold_period_days", 10),
+        ("/portfolio/hold_period_days", 20),
+        ("/portfolio/selection_count", 8),
+    ]
+
+
+@pytest.mark.parametrize("verdict", [
+    {"items": [{"id": "1", "quote": "한 달 후 청산", "number_text": "1", "unit": "month"}]},
+    {"items": [{"id": "1", "quote": "20일 보유 후 청산", "number_text": "20", "unit": "unknown"}]},
+    {"items": [{"id": "1", "quote": "20일 보유 후 청산", "number_text": "20", "unit": "day"},
+               {"id": "1", "quote": "20일 보유 후 청산", "number_text": "20", "unit": "day"}]},
+])
+def test_modify_holding_day_check_fails_open(verdict):
+    from strategy_conversation.interpreter.holding_period_check import reconcile_holding_days
+
+    intent = StrategyIntent.model_validate({
+        "intent": "MODIFY_STRATEGY", "strategy": None,
+        "patches": [{"op": "replace", "path": "/portfolio/hold_period_days",
+                     "value": 21, "source_text": "20일 보유 후 청산"}],
+    })
+    checked = reconcile_holding_days(
+        intent, "20일 보유 후 청산",
+        lambda *_args, **_kwargs: json.dumps(verdict, ensure_ascii=False),
+    )
+
+    assert checked is intent
+    assert checked.patches[0].value == 21

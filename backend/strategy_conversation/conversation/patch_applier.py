@@ -43,7 +43,10 @@ def _resolve_parent(doc: Any, path: str):
     for token in tokens[:-1]:
         if isinstance(node, list):
             try:
-                node = node[int(token)]
+                index = int(token)
+                if not 0 <= index < len(node):
+                    raise IndexError(index)
+                node = node[index]
             except (ValueError, IndexError):
                 raise PatchError(f"경로의 배열 인덱스가 유효하지 않습니다: {path!r}")
         elif isinstance(node, dict):
@@ -133,7 +136,7 @@ def _promote_patches_on_absent_condition(doc: Any, patches: List[PatchOp]) -> Li
         return patches
 
     promoted: List[PatchOp] = []
-    absorbed = {id(p) for group in groups.values() for p in group}
+    absorbed: set[int] = set()
     for (list_field, _index), group in groups.items():
         value = {p.path.rsplit("/", 1)[1]: p.value for p in group}
         if not value.get("factor"):
@@ -142,6 +145,7 @@ def _promote_patches_on_absent_condition(doc: Any, patches: List[PatchOp]) -> Li
         promoted.append(PatchOp.model_validate({
             "op": "add", "path": f"/{list_field}/-", "value": value, "source_text": source,
         }))
+        absorbed.update(id(p) for p in group)
     if not promoted:
         return patches
     return [p for p in patches if id(p) not in absorbed] + promoted

@@ -84,6 +84,62 @@ def test_valid_ma_needs_no_confirmation():
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("batched", [False, True])
+@pytest.mark.parametrize("confirmation,removed", [("no", True), ("yes", False)])
+def test_fabricated_ma_entry_from_exit_needs_independent_role_confirmation(
+    batched, confirmation, removed,
+):
+    intent = intent_for("20일선 이탈 시 청산")
+    intent.strategy.entry_conditions.append(intent.strategy.exit_conditions[0].model_copy(
+        update={"operator": ">", "source_text": "20일선 위에 있는 동안"}))
+    if batched:
+        intent.strategy.backtest.contribution_amount = 1000000
+        intent.strategy.backtest.contribution_period = "monthly"
+    calls = []
+
+    def chat(system, user, **kwargs):
+        calls.append((system, user))
+        if len(calls) == 1:
+            quote_response = {"items": [
+                {"expresses": "yes", "describes": "moving_average"},
+                {"expresses": "yes", "describes": "moving_average"},
+            ]}
+            if system == check_batch._SYSTEM:
+                for index, item in enumerate(quote_response["items"], 1):
+                    item["id"] = f"quote:{index}"
+                quote_response = {"checks": {"quote": quote_response}}
+            return json.dumps(quote_response)
+        return response(confirmation, "other" if confirmation == "no" else "moving_average")
+
+    checked_chat = check_batch.prepare_chat(intent, TEXT, chat) if batched else chat
+    verdicts = primary._check_condition_quotes(intent, TEXT, checked_chat)
+    primary._drop_fabricated_conditions(intent, TEXT, verdicts)
+    assert bool(intent.strategy.entry_conditions) is not removed
+    assert len(intent.strategy.exit_conditions) == 1
+    assert len(calls) == 3
+    assert all("20일선 위에 있는 동안" not in user for _, user in calls[1:])
+
+
+def test_literal_entry_and_exit_quotes_need_no_role_confirmation():
+    text = "종가가 20일선 위에 있으면 매수하고 20일선 이탈 시 청산해 주세요."
+    intent = intent_for("20일선 이탈 시 청산")
+    intent.strategy.entry_conditions.append(intent.strategy.exit_conditions[0].model_copy(
+        update={"operator": ">", "source_text": "20일선 위에 있으면 매수"}))
+    calls = []
+
+    def chat(system, user, **kwargs):
+        calls.append(system)
+        return json.dumps({"items": [
+            {"expresses": "yes", "describes": "moving_average"},
+            {"expresses": "yes", "describes": "moving_average"},
+        ]})
+
+    verdicts = primary._check_condition_quotes(intent, text, chat)
+    assert primary._drop_fabricated_conditions(intent, text, verdicts) == []
+    assert len(intent.strategy.entry_conditions) == len(intent.strategy.exit_conditions) == 1
+    assert len(calls) == 1
+
+
 def test_confirmation_propagates_cancellation():
     calls = []
     def chat(*args, **kwargs):

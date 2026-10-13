@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "8.9"  # 8.9: 볼린저 하단 반등↔중심선 회복 구분 문구 / 8.8: 볼린저 밴드 지정 개념, 레거시 볼린저 어휘 숨김
+PROMPT_VERSION = "8.13"  # 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -76,9 +76,10 @@ _OUTPUT_SHAPE = {
             "max_sector_weight_percent": None,
             "rebalance_frequency": None,
             "rebalance_method": None,
+            "min_hold_period_days": None,
             "hold_period_days": None,
             # 경쟁 격차 1차(v7.0) — 형태에 키가 없으면 자리를 채우지 않는다(etf_theme 실측).
-            "target_weights": None, "rebalance_band_percent": None, "min_hold_period_days": None,
+            "target_weights": None, "rebalance_band_percent": None,
             "cash_asset": None, "absolute_momentum_threshold_percent": None,
         },
         "risk_management": {
@@ -300,9 +301,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
    매도', 'RSI 70 이상이면 매도'는 보유 기간을 함께 말했더라도 exit_conditions에 반드시
    남깁니다("20일선을 이탈하면 청산하고, 최대 보유 기간은 6개월" → exit_conditions에
    ma_crossover crosses_below(1/20) **그리고** portfolio.hold_period_days=126, 둘 다).
-   hold_period_days는 **최대** 보유(만료 시 청산)입니다 — '최소 N개월 보유'·'최소 보유
-   기간 N일'(그 전에는 팔지 않기, 하한)은 지원되지 않는 개념이므로 hold_period_days로
-   뒤집어 넣지 말고 unsupported_features에 원문 표현을 넣으세요.
+   최소 N거래일 보유→portfolio.min_hold_period_days=N, 최대 N거래일 보유→portfolio.hold_period_days=N(만료 시 청산).
    영어 입력의 위험·보유 표기도 같은 슬롯입니다(실측 2026-08-26: 아래 표기가 조건으로
    오배치되거나 통째로 소실됐습니다): "Set the stop-loss (example value) to -9%" →
    risk_management.stop_loss=9 (조건이 아닙니다 — trading_value 등 다른 지표로 옮기지
@@ -523,7 +522,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
    '리스크 패리티(위험 기여 균등)'="risk_parity" / '시가총액 비중(가치 가중)'="market_cap" / '최소 분산(최소 변동성)'="min_variance" /
    '최대 샤프·평균-분산 최적화(MVO)'="max_sharpe" / '최소 CVaR'="min_cvar" / '종목별 비중을 직접 정한 정적 배분(60/40 등)'="fixed"
    + portfolio.target_weights={{"종목 표기":비중%}}(표기는 말한 그대로, 코드 변환은 시스템). 산정 기간을 말했을 때만 weighting_lookback_days.
-7-1-1. '비중이 N%p 벗어나면 되돌림(밴드 리밸런싱)'→portfolio.rebalance_band_percent=N. '최소 N일은 보유'→portfolio.min_hold_period_days=N.
+7-1-1. '비중이 N%p 벗어나면 되돌림(밴드 리밸런싱)'→portfolio.rebalance_band_percent=N.
    '나머지(현금)는 X로 보유'·'안전자산 X'→portfolio.cash_asset="X"(표기 그대로). '수익률이 N% 이하면 편입하지 않음(절대 모멘텀)'→
    portfolio.absolute_momentum_threshold_percent=N. 값을 말하지 않았으면 null(되묻기는 시스템).
 7-1-2. risk_management: '손절 후 N일 재매수 금지'→stop_cooldown_days=N. '+N% 오른 뒤부터 트레일링'→trailing_stop_activation=N.
@@ -933,6 +932,7 @@ def _number_checklist(user_input: str) -> str:
 
 def build_user_prompt(
     user_input: str, draft: dict | None = None, pending_question: str | None = None,
+    previous_coach_text: str | None = None,
 ) -> str:
     # 오늘 날짜는 매 요청 주입한다 — 모델이 학습 시점 기억으로 과거 연도를 미래로
     # 오판해 명시 날짜를 누락하는 드리프트 방지(시스템 프롬프트 규칙 12와 짝).
@@ -956,6 +956,10 @@ def build_user_prompt(
             if pending_question and pending_question.strip()
             else ""
         )
+        if not pending_block and previous_coach_text and previous_coach_text.strip():
+            pending_block = (
+                f"직전 코치 응답(답변의 문맥):\n\"{previous_coach_text.strip()}\"\n\n"
+            )
         # 값 없는 답 규칙: "리스크 관리"처럼 항목 이름만 말한 발화에 9B가 초안의 다른
         # 필드 값(손절 8)을 복사해 패치를 지어낸 사고(2026-08-10 익절 8%) 방지 —
         # 값이 없으면 패치 대신 CLARIFY_STRATEGY로 질문을 유지하게 계약한다.
@@ -965,9 +969,14 @@ def build_user_prompt(
             "지어내 패치하지 마세요 — 초안의 다른 필드 값을 복사하지 말고, "
             "intent=CLARIFY_STRATEGY에 patches는 비우고 clarification_questions로 그 "
             "질문을 다시 내세요."
-            if pending_block
+            if pending_question and pending_question.strip()
             else ""
         )
+        if not answer_rule and pending_block:
+            answer_rule = (
+                " 코치 응답에 질문이 있고 사용자 입력이 그 답이면 해당 필드의 패치로 "
+                "출력하세요. 사용자 입력에 값이 없으면 초안 값을 복사하지 말고 되물으세요."
+            )
         return (
             f"{today_line}\n\n"
             f"현재 전략 초안:\n{json.dumps(draft, ensure_ascii=False)}\n\n"
