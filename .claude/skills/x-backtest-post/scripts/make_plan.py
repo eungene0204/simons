@@ -32,7 +32,7 @@ ZOOM_W = 560                     # 입력·카드를 당길 때 담는 폭(CSS p
 CAPTIONS = {
     "type": "① 전략을 한 문장으로 적습니다",
     "wait": "② 널스탁이 문장을 전략 조건으로 해석합니다",
-    "card": "③ 해석한 조건을 카드로 보여 줍니다",
+    "card": "③ 널스탁이 해석한 전략을 항목별로 정리해 줍니다",  # 실제 화면은 카드가 아니라 채팅의 정리 목록이다(10-13 사용자 지적)
     "chip": "④ 문장에 없던 설정은 버튼으로 답합니다",
     "confirm": "⑤ 조건이 다 채워지면 확정합니다",
     "run": "⑥ 과거 데이터로 백테스트를 돌립니다",
@@ -96,6 +96,8 @@ def build(folder: Path, meta: dict) -> dict:
     card_appear = find(marks, "appear", "appear", "card")
     w_from = max(send["t"] + 1500, (label["t"] + 700) if label else 0)
     w_to = card_appear["t"] - 400
+    if w_to - w_from < 2 * WAIT_TARGET_SEC * 1000:  # '대화 기록 닫기' 클릭이 늦으면 창이 0.7초로 줄어 ②가 스쳐 간다(10-13 #8) — 전송 직후부터 쓴다
+        w_from = max(send["t"] + 1000, w_to - 2 * WAIT_TARGET_SEC * 1000)
     w_speed = max(2, round((w_to - w_from) / 1000 / WAIT_TARGET_SEC))
     clips.append({"from": w_from, "to": w_to, "speed": w_speed, "caption": CAPTIONS["wait"], "badge": f"빨리 감기 ×{w_speed}"})
     shots.append({"t": send["t"] + 1600, "full": True, "move": 900})
@@ -107,7 +109,14 @@ def build(folder: Path, meta: dict) -> dict:
     # ③ 해석 카드
     summary = find(marks, "card", "card", "summary")
     c_from = card_appear["t"] - 300
-    clips.append({"from": c_from, "to": c_from + CARD_SEC * 1000, "speed": 1, "caption": CAPTIONS["card"]})
+    c_to = c_from + CARD_SEC * 1000
+    first_chip = find(marks, "click", "approach", result["answered"][0], after=c_from) if result["answered"] else None
+    c_speed = 1
+    if first_chip and first_chip["t"] - 200 < c_to:  # 카드와 첫 질문이 거의 동시에 뜨면 6초 창이 첫 칩 클릭을 품어 ④에서 같은 클릭이 반복된다(10-13 #8)
+        c_from = card_appear["t"] - 50  # 느리게 늘리는 구간이라 카드가 뜨기 전 빈 화면이 길어지지 않게 시작을 당긴다
+        c_to = first_chip["t"] - 200
+        c_speed = max(0.1, (c_to - c_from) / 1000 / CARD_SEC)  # 짧은 구간을 CARD_SEC만큼 천천히 보여 준다
+    clips.append({"from": c_from, "to": c_to, "speed": c_speed, "caption": CAPTIONS["card"]})
     if summary:
         b = summary["box"]
         box = [b["x"], b["y"], min(b["width"], 600), min(b["height"], 280)]
@@ -115,7 +124,7 @@ def build(folder: Path, meta: dict) -> dict:
         b = card_appear["box"]
         box = [b["x"], b["y"], 600, 190]
     shots.append({"t": card_appear["t"] + 700, "box": box, "move": 900})
-    shots.append({"t": c_from + CARD_SEC * 1000, "box": box})
+    shots.append({"t": c_to, "box": box})
 
     # ④ 칩 답변 — 칩마다 다가가는 순간부터 누른 직후까지
     confirm_a = find(marks, "click", "approach", "이 전략으로 확정")

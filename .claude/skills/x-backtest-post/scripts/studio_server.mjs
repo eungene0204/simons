@@ -22,6 +22,8 @@ const CURSOR_SCRIPT = `(() => {
     Object.assign(c.style, { position: 'fixed', left: '0', top: '0', zIndex: '2147483647', pointerEvents: 'none',
       transform: 'translate(-200px,-200px)', filter: 'drop-shadow(0 2px 3px rgba(0,0,0,.45))' });
     document.documentElement.appendChild(c);
+    // 화면이 바뀌면(다음 카드가 같은 자리에 뜸) 남은 물결을 바로 지운다 — 다른 칩 위에 번지지 않게
+    new MutationObserver(() => { const now = performance.now(); (window.__rip || []).forEach((x) => { if (now - x.t >= 80) x.r.remove(); }); }).observe(document.body || document.documentElement, { childList: true, subtree: true });
     document.addEventListener('mousemove', (e) => { c.style.transform = 'translate(' + (e.clientX - 5) + 'px,' + (e.clientY - 3) + 'px)'; }, true);
     document.addEventListener('mousedown', (e) => {
       const r = document.createElement('div');
@@ -29,6 +31,7 @@ const CURSOR_SCRIPT = `(() => {
         borderRadius: '50%', border: '3px solid #f07a4a', background: 'rgba(240,122,74,.18)', zIndex: '2147483646', pointerEvents: 'none',
         transition: 'transform .5s ease-out, opacity .5s ease-out', transform: 'scale(.35)', opacity: '1' });
       document.documentElement.appendChild(r);
+      (window.__rip = window.__rip || []).push({ r, t: performance.now() });
       requestAnimationFrame(() => requestAnimationFrame(() => { r.style.transform = 'scale(1.7)'; r.style.opacity = '0'; }));
       setTimeout(() => r.remove(), 700);
     }, true);

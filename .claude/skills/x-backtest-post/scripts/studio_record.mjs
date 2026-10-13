@@ -32,9 +32,11 @@ log('해석 카드:', firstCard ? 'ok' : '위치 못 찾음');
 
 const answers = [...spec.answers];
 const answered = [];
+let misses = 0;
 for (let i = 0; i < 12; i++) {
   if (await button('이 전략으로 확정').count()) break;
   const hit = await (async () => { for (const a of answers) if (await button(a).count()) return a; return null; })();
+  if (!hit && misses++ < 4) { await page.waitForTimeout(1500); i--; continue; } // 다음 질문이 그려지기 전에 확인하는 경쟁 — 잠깐 기다려 다시 본다
   if (!hit) {
     const qs = (await page.innerText('body')).split('\n').filter((l) => /까요\?|주세요\.?$/.test(l.trim()));
     const q = qs.at(-1);
@@ -58,6 +60,7 @@ for (let i = 0; i < 12; i++) {
     }
     throw new Error(`준비된 답이 없는 질문: ${q ?? '(질문 문구 못 찾음)'} — spec.answers에 칩 글자(또는 spec.typed에 직접 입력)를 넣고 다시 녹화한다`);
   }
+  misses = 0;
   await press(page, button(hit), hit);
   answers.splice(answers.indexOf(hit), 1);
   answered.push(hit);
@@ -100,14 +103,19 @@ await visibleText(page, '매매 기록').click();
 await page.waitForTimeout(3000);
 fs.writeFileSync('trades.txt', await page.innerText('body'));
 
+fs.writeFileSync('result.json', JSON.stringify({ prompt: spec.prompt, answered, summary: summaryText, metrics, log: logLines, ai_summary: '' }, null, 2));
+let aiSummary = '';
+try {
 // AI 리포트 — 이미 생성돼 있을 수 있다(없으면 생성 버튼)
 await visibleText(page, 'AI 리포트').click();
 await page.waitForTimeout(2500);
 if (await button('리포트 생성').count()) await button('리포트 생성').click();
-await visibleText(page, '/ 100').waitFor({ state: 'visible', timeout: 600000 });
+await page.waitForTimeout(2500);
+if (await button('리포트 생성').count()) await button('리포트 생성').click();
+await visibleText(page, '/ 100').waitFor({ state: 'visible', timeout: 180000 });
 await page.waitForTimeout(1500);
 const aiText = await page.innerText('body');
-const aiSummary = (aiText.split('핵심 요약')[1] || '').split('핵심 통찰')[0].trim();
+aiSummary = (aiText.split('핵심 요약')[1] || '').split('핵심 통찰')[0].trim();
 const aiBox = await page.evaluate(() => {
   const leaf = (t) => [...document.querySelectorAll('body *')].find((e) => e.children.length === 0 && e.textContent.trim().startsWith(t));
   let n = leaf('/ 100'); const other = leaf('일관성');
@@ -120,6 +128,8 @@ await page.evaluate(() => [...document.querySelectorAll('*')].filter((e) => ['fi
 // 가짜 커서도 숨긴다 — 남겨 두면 점수 카드의 '안정성' 숫자를 가린다(10-11 #2·#3 실측)
 await page.evaluate(() => { const c = document.getElementById('__studio_cursor'); if (c) c.style.visibility = 'hidden'; });
 await page.screenshot({ path: spec.aiShot || 'ai.png', clip: aiBox });
+
+} catch (e) { log('AI 리포트 단계 실패(영상 재료는 유지):', String(e).slice(0, 120)); }
 mark('done', { phase: 'done' });
 
 fs.writeFileSync('result.json', JSON.stringify({ prompt: spec.prompt, answered, summary: summaryText, metrics, log: logLines, ai_summary: aiSummary }, null, 2));
