@@ -1,7 +1,46 @@
 # Software Architecture
 
+### 2026-10-15 보유기간 복구의 정본 개념 제외
+
+생성 턴의 미지 청산 조건 복구 대상은 잎 registry 외에도 기존 concept ontology의 전개 선언을 확인한다. 데드크로스 같은 정상 개념은 기존 quote/도메인/컴파일 경로로 보내며 holding 미해결을 잘못 부여하지 않는다. 실제 미지 시간 조건의 복구/보류 정책은 유지한다. 원문 어휘 분기·새 호출·모델/엔진 변경은 없다. 최소 재현/API 5 PASS, 직접 관련 53 PASS이며 전체 검사 실패와 live 미실행을 구분한다. [수리 기록](development/interpretation-stability-first-fail-2026-10-15.md).
+
+### 2026-10-15 실모델 예시 측정
+
+승인된 KR 81예시를 새 8017 서버의 현재 작업트리 parse 코어에서 실행했다. 모델 ID·제품 해석 정책을 유지하고 학습 어휘집·revision ledger를 임시 저장소로 격리했다. 결과는 71 PASS / 8 FAIL / 전송 오류 분리 2건, 전송 312회, 완료 모델 응답 310개 모두 Nemotron 무료 120B다. 데드크로스 6건은 초기 추출 뒤 required_holding에서 잘못 보류된 후처리 실패다. 도메인/quote 보류 2건과 표시 식별자 노출도 남아 있다. 하네스 요약 함수 충돌만 수리해 관련 회귀 76 PASS이며 backend 회귀는 470 FAIL / 11 ERROR다. 전용 서버는 종료했다. [실행 조건 및 결과](development/interpretation-stability-live-gate-2026-10-15.md).
+
+### 2026-10-14 KR 예시 재생 검사
+
+격리 작업트리의 revision 요청 스키마 Field import 누락을 수정했다. 고정 Interpreter/보조 판정/외부 결과를 사용하는 KR 9개 예시가 현재 primary→실제 API 후처리→프런트 표시까지 PASS했다. 하네스 회귀 75 PASS이며 실모델 81개 및 호출/지연은 사전 승인 전 NOT_RUN이다. backend 회귀는 4,552 PASS / 470 FAIL / 11 ERROR로 실패했다(US 이름 필터 제외). 빌더의 주입 interpreter 예외 미처리와 파서 미정의 변수 등 실행 오류가 남아 있어 전체 새 구현 검증 완료를 뜻하지 않는다. [게이트 기록](development/interpretation-stability-example-gate-2026-10-14.md).
+
+### 2026-10-14 KR 전체 잔여 구현의 현재 구조
+
+의도 분류의 정형 turn/research/기간 축이 프론트 턴 분기를 소유하며, KR builder ops와 primary가 자연어의 의미를 해석한다. KR의 legacy/off 설정은 raw lexer를 다시 열지 않는다. NoticeText/NoticeList의 내부 근거는 기존 고지 생산자의 문자열 계약을 유지하면서 최종 필드 값과 CURRENT/STALE를 대조한다. 거부 사건은 TRANSITION으로 보존하며 두 내부 근거 handoff를 응답 전에 제거한다. 기존 최소값 계산은 유지한다.
+
+서버 revision ledger는 같은 파일 저장소의 process lock·원자적 교체로 요청 간 revision/hash 및 최신 요청 lease를 시작/최종 반영 시 대조한다. 본문 대신 hash/counter만 저장하고 DB schema는 바꾸지 않는다. 옵션 요청 version과 응답 strategy_version을 SSE/비-SSE에 추가한다. 프론트는 채팅 메시지에 version/서버 parsed를 보관·복원하며 늦은 응답 적용을 막는다. 구현은 기존 격리 작업트리, 모든 검증은 사용자 지시로 NOT_RUN이다. [전체 범위·계약](development/interpretation-stability-all-remaining-2026-10-14.md).
+
+
+### 2026-10-14 KR 잔여 구현의 현재 구조
+
+기존 격리 작업트리에 domain_approval(실제 validator의 그룹별 되돌림 결과 대조), 연속 사본의 조건 정체성 이월, KR universe 범위 질문/시장 소속 실패의 선택적 보류를 연결했다. notice_assembly는 KR 생성·수정·fill·ETF receipt와 실제 컴파일 결과를 마지막 API 상태에 다시 투영하며 내부 handoff를 공개 응답 전에 제거한다. 구조화 semantic_reconciliation의 배치 LLM 대조로 KR primary의 역할·EMA·기간 어휘 판정을 비활성화했고 원문 override 호출을 차단했다. 의미 판단은 LLM, 결정론은 출력 표기·인용·enum·수량 환산이다. 새 대조 대상이 있으면 런타임 호출 최대 1회 증가한다. 사용자가 검증을 제외했으므로 현재 변경은 NOT_RUN이며 아래 단계별 검사 수치는 이전 코드 기록이다. 다른 boundary의 원문 의미 부채와 서버 간 버전 검사, US는 범위 밖이다. [구현과 제한](development/interpretation-stability-remaining-2026-10-14.md).
+
+
 > 한국/글로벌 주식 퀀트 투자 플랫폼 — Simons
 > **최종 갱신일:** 2026-06-12
+
+### 안내 조립과 승인 경계의 현행 격차 — 2026-10-14 조사
+
+- 승인된 5단계는 Request-local RequiredChecks로 기존 검사 대상·필수 여부와 후보별 근거를 연결한다. 미해결 신규 조건/패치를 보류하고 PatchApproval의 안정적 정체성·사본 선택으로 이전 교체와 독립 변경을 보존한다. 실제 holding 대조의 LLM 수량 출력 정규화·정본 단위 환산과 universe 후보 연결을 보완했고, 정당한 breakout/적립식 복구는 별도 후보와 부모·근거를 남긴다. 원 REJECT는 부활시키지 않으며 superseded 과거 후보는 이력으로 보존한다. 상태·공개 스키마·검사 호출 대상/예산은 유지했다. 전체 domain/notice 통합과 실제 서버 요청 간 버전 검사는 별도 범위다. [5단계 구현·검증](development/interpretation-stability-stage5-implementation-2026-10-14.md).
+
+- 5단계 정책안 작성 당시에는 구현되지 않았다. 검사 적용 계획과 후보별 성공 근거를 구분해 기존 대상 중 필수 미해결/거부 그룹만 보류하는 안을 보고한 뒤 사용자 승인을 받았다. 현재의 구현 결과와 당시 영향 추정은 구분한다. [승인 정책과 당시 측정 한계](development/interpretation-stability-stage5-policy-2026-10-14.md).
+
+- 4단계 격리 구현은 요청별 DecisionLog로 기존 보조 가족의 결과·근거·후보·변경 그룹을 연결한다. 마지막 후보/단계 판정으로 `REJECT > UNRESOLVED > ACCEPT`를 계산하고 충돌 기록을 유지한다. 수정의 기존 적용 정책과 조건 제외 REJECT 행을 소비하며, 같은 조건/확인된 교체 그룹을 보류하고 독립 변경을 유지한다. PatchApproval은 순차 배열 정체성·JSON Pointer 재배치·로컬 기준 초안 해시를 관리한다. 선택 제안·검증 후 실제 StrategySpec 차분·최종 ParsedStrategy를 따로 기록한다. 공개 스키마·State DAG·보조 실패 계약은 유지한다. contribution/liquidity·전역 검증/복구 lineage·전체 안내의 공통화는 남아 있다. [4단계 범위·검증](development/interpretation-stability-stage4-2026-10-14.md).
+
+- 3단계 격리 구현: 생성 KR sector 검증 소스는 PrivateAttr finding으로 errors/unsupported 두 기록을 연결하고 즉시 notices 복사를 예약한다. term-in/mini-planner/planner-first가 표현별 실제 적용 값을 기록하며, 마지막 값과 대조한 notice_assembly가 해소·미해결·범위 선택 대기를 구분한다. 원본 진단은 추적에 남고 공개 응답/보조 실패 계약은 유지한다. 일반 조건·warnings·수정/ETF/US 안내의 공통 조립은 확장 대상이다. [3단계 경계와 검증](development/interpretation-stability-stage3-2026-10-14.md).
+
+- 테스트 계층은 기록된 Interpreter 완료 intent·원본 출력·보조/지식 결과로 primary→실제 API 후처리→기존 프런트 표시 함수를 재생한다. 전 단계를 새 LLM 호출 없이 실행하며 녹화가 빠지면 HARNESS_INVALID다. 로컬 Trace는 full JSON+hash와 실제 응답 모델/생성 메타·요청·최종 API를 3일만 보관하고 외부 telemetry는 preview를 유지한다. API 외부 상태는 converter가 소비한 목록/종목명 projection으로 고정하며 전체 profile 기록과 구분한다. Trace→fixture는 사람 기대를 요구하고 임시 메모리에서만 실행한다. 초기 해석·recall·복구 품질, 공통 승인·안내 조립은 바꾸지 않았으며 과거 잘린 Trace는 복구되지 않는다. [2단계 실행 계약](development/interpretation-stability-stage2-2026-10-14.md).
+
+- 1단계 조사 시점의 생성은 검증 errors를 notices에 복사한 뒤 테마/업종 체인으로 parsed를 변경한다. 체인 성공 시 unsupported_features만 정리해 오류 복사본이 남는다. 최종 output_guard는 규제 문구와 질문/칩 결속을 검사하며 최종 전략과 안내의 모순은 검사하지 않는다. 수정·ETF·지정종목의 중간 안내 생산도 조사했지만 동일 결함으로 일괄 확정하지 않았다.
+- 1단계 조사 당시 보조 판정은 서로 다른 enum/객체/인덱스 결과이며 공통 승인 단계가 없었다. 현재 격리 구현의 위 공통 기록/그룹 승인과 구분한다. 정체성이 확인되지 않은 같은 목록의 삭제는 보수적으로 함께 보류하므로 독립 변경 보존을 모든 삭제의 보장으로 읽지 않는다. 1단계 이전 Trace는 JSONL 저장 전에 프롬프트도 4,000자로 잘라 정식 replay 원본으로 사용할 수 없는 사례가 있다. 당시 구현 변경 없이 [1단계 조사](development/interpretation-stability-stage1-2026-10-14.md)에 격차를 기록했다.
 
 ### 검증 오류의 사용자 표기 — 2026-10-13 후속
 

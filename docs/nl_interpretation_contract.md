@@ -1,5 +1,27 @@
 # 자연어 해석 계약 — LLM 의미 해석 / 결정론 형식 검증
 
+### 2026-10-15 정본 개념의 holding 복구 비대상 처리
+
+생성 청산 조건이 잎 registry 밖이어도 기존 concept_spec의 전개 선언이 있으면 미지 시간 조건 복구에 보내지 않는다. 정본 개념은 quote/도메인/컴파일 검증을 그대로 거친다. 이는 LLM factor에 대한 정본 조회이며 사용자 원문 의미 재판정이나 보조 실패의 일괄 ACCEPT 변경이 아니다. 미지 시간 조건의 필수 실패/미해결 보류와 기존 복구는 유지한다. [첫 예시 수리와 검증](development/interpretation-stability-first-fail-2026-10-15.md).
+
+### 2026-10-14 KR 남은 세 구현 항목 전체
+
+- 사용자 “이번엔 모든 작업을 다 마무리 해” 승인으로 앞서 남긴 세 항목 전체를 작성했다. US와 게이트/검증 실행 제외는 유지한다. 아래 단계별 잔여 표는 과거 범위 기록이며 이번 세 항목의 현재 상태는 이 기록을 따른다.
+- 프론트 실행 확인·연구 지표·후속 질문·기간 비교는 기존 분류 LLM의 구조화 축이다. KR 빌더 시드/자유 입력/제어·KR 레거시 parse/modify도 기존 LLM/primary 레인만 사용하며 regex 롤백은 활성화하지 않는다. 정본 선택지의 정확 일치와 출력 형식/수치/인용/registry 대조만 결정론으로 처리한다.
+- 모든 KR 고지 생산자는 내부 ID·kind·생산자·필드/값 근거를 전달한다. 최소값 보정은 각 append의 실제 변경 필드를 결속하고, 최종 상태와 어긋난 고지는 STALE로 추적·제외한다. 거부/보류의 사건 고지는 TRANSITION으로 유지한다. 자유 문자열을 무근거로 최종 응답에 바로 넘기지 않으며 내부 근거는 API에서 소비·제거한다.
+- 실제 서버 요청간 CAS는 draft ID별 revision/hash/최신 요청 lease를 사용한다. 같은 저장소 worker와 재시작에도 비교하며 stale=409, 저장 실패=503이다. 옵션 draft_id/expected_revision/expected_state_hash 및 응답 strategy_version을 추가하고, 구형 요청에는 새 draft를 발급한다. 같은 draft의 후속 변경은 version 및 실제 기준 상태 hash를 함께 대조한다. 채팅 복원·늦은 응답 차단도 연결했다. 전략/원문 본문과 인증 정보는 ledger에 저장하지 않는다.
+- 공개 필드의 옵션 추가를 명시하며 이전 이름/의미·기존 State/Agent/DSL은 유지한다. 모든 검증은 NOT_RUN, 커밋/운영 적용은 하지 않았다. [전체 구현과 계약](development/interpretation-stability-all-remaining-2026-10-14.md).
+
+
+### 2026-10-14 사용자 승인 KR 잔여 구현 계약
+
+- 사용자 “us는 신경쓰지마. 게이트/검증 빼고 남은 작업을 마무리 해” 지시로 KR 잔여 범위를 확장했다. 아래 5단계의 기존 호출 유지 정책과 구분하며 새 의미 대조 대상이 있는 요청은 배치 모델 호출 최대 1회 증가한다. 작업 중 외부 호출은 없다.
+- 도메인 진단은 실제 validator의 그룹별 되돌림 결과로 귀속하며 독립 변경을 유지한다. 귀속하지 못한 오류·분리 근거가 없는 의존성은 기존 보수적 거절/보류를 유지한다. catalog 조회 예정인 KR sector finding은 도메인 오류 보류와 분리한다.
+- KR 테마 범위 질문·시장 소속 실패는 universe 변경을 보류하며 독립 변경·질문 결속/큐를 유지한다. 고지는 KR 생성·수정·fill·ETF의 실제 적용 receipt 및 컴파일 결과와 API 마지막 상태를 대조한다. 원 진단은 보존하고 내부 handoff는 응답 전에 제거한다.
+- KR primary의 인용 낱말 기반 역할·EMA·기간·보유기간 보정 및 원문 override 호출을 비활성화했다. 구조화 보조 LLM의 항목 ID/인용/정형 의미 필드와 수량/단위만 검증·환산하며 실패 시 원문 어휘로 복구하지 않는다. 기존 필수 거부/보류를 임의로 부활시키지 않는다. US 호환 분기는 범위 밖이다.
+- 모든 검증은 사용자 지시로 NOT_RUN이다. 다른 boundary의 프론트/레거시 원문 의미 부채는 미이관 위반이다. 공개 스키마·Agent·State·DSL·엔진·DB는 변경하지 않는다. [현재 구현과 지원 한계](development/interpretation-stability-remaining-2026-10-14.md).
+
+
 > 대상: `backend/strategy_conversation/` (LLM Strategy Interpreter 파이프라인)
 > 원칙: **자연어의 의미는 LLM만 해석한다. 결정론 코드(Regex 포함)는 LLM이 생성한
 > 제한된 구조화 출력의 형식만 검증·정규화한다.**
@@ -7,6 +29,25 @@
 ---
 
 ## 0. 이 문서의 위치
+
+### 2026-10-14 승인된 5단계 필수 판정 보류 계약
+
+- 사용자가 5단계 정책안의 구현을 승인했다. 격리 작업트리에서 기존 검사 대상의 필수 근거가 미해결인 신규/교체 그룹만 보류한다. 판정 함수의 기존 반환형은 유지하며 public StrategyIntent/StrategySpec/ParsedStrategy·JSON Patch·State DAG는 바꾸지 않는다. [승인 정책과 목록](development/interpretation-stability-stage5-policy-2026-10-14.md), [구현·검증](development/interpretation-stability-stage5-implementation-2026-10-14.md).
+- Q/T/R/N/M/C/P/H/G의 대상·필수 여부·근거와 실제 승인/보류를 기록한다. 기존 호출을 하지 않는 조건까지 새 필수 검사나 호출을 추가하지 않는다. H는 기존 residual 대조 호출의 대상이며 정상 day/month/year 출력은 1/21/252 거래일로 환산한다. 한글 수량은 LLM이 수량 필드로 옮긴 표기를 정규화하거나 제공한 수치 근거로 확인하며 사용자 원문 어휘로 수량을 추정하지 않는다.
+- 정성 수익률 분류가 실패·불명확하면 기존 relative_return 0을 실행 조건으로 확정하지 않고 수익률 확인을 우선한다. 의미가 확인되고 값만 없으면 기존 missing/pending_conditions를 사용한다. quote/trading 미해결 신규 조건과 market/scope/numeric/holding 미해결 패치도 해당 그룹만 보류한다. 같은 조건의 형제 패치·확인된 교체·의존성이 불명확한 파괴적 재작성은 기존 상태를 보존한다.
+- 종목 지역 분류는 실제 universe 후보/패치 그룹에 연결한다. KR/OTHER 분류만으로 정본 종목 해소를 승인하지 않는다. 미해결 신규 universe는 보류하고 기존 universe와 독립 변경을 유지한다. 실제 보조 판정 대상 밖의 기존 지역 격리 거절·전역 도메인 오류 계약은 유지한다.
+- 정당한 breakout/holding 복구는 원 후보·LLM 분류/인용 근거와 함께 기록한다. 처음 보류된 조건을 되살리려고 기존 예산 밖의 복구 호출을 새로 추가하지 않는다. 보유기간 확인 실패도 추가 수치 확인 호출을 만들지 않는다. 완료 Interpreter replay는 내부 holding 요청/응답 tape로 필수 근거를 복원하며 요청 불일치는 HARNESS_INVALID다.
+- 보류 후보는 실행 상태에 섞지 않으며 기존 상태·독립 변경의 최종 차분을 별도로 기록한다. clarification 우선순위와 기존 질문 큐를 유지하고, 판정 장애를 미지원·잘못된 사용자 표현으로 바꾸지 않는다. contribution/liquidity·전체 지식 체인/도메인 결과·전 안내 채널 공통화와 운영 검증은 확장 범위다. 원문 의미 패턴 매칭 부채는 미이관 위반으로 남는다.
+
+### 2026-10-14 4단계 격리 구현의 판정·적용 계약
+
+- 구현 위치는 `../simons-wt/interpretation-replay-stage2`의 미커밋 작업트리다. 원래 checkout의 런타임이나 운영에 적용된 것으로 읽지 않는다. [4단계 범위·검증](development/interpretation-stability-stage4-2026-10-14.md).
+- 기존 quote/trading/numeric/scope/pair/return/holding/market 검사 결과를 `candidate_id`, `change_group_id`, `status`, `reason_code`, `evidence_ref`, `stage`로 기록한다. 공개 StrategyIntent/StrategySpec/ParsedStrategy 및 JSON Patch 계약은 유지한다. 분류기 단계의 ACCEPT는 유효한 분류 결과이며, 그것만으로 변경 전체의 정확성을 승인하지 않는다.
+- 같은 후보·단계의 마지막 판정으로 그룹 상태를 계산하고 `REJECT > UNRESOLVED > ACCEPT` 순서를 적용한다. 과거 충돌 판정과 근거도 보존한다. 현재 적용 정책의 ACCEPT/REJECT는 `patch_application_policy`로 구분하고, 필요한 의미 근거가 충족됐다는 보증으로 사용하지 않는다.
+- 수정 제안은 사본에서 기존 검사를 거친다. 같은 조건의 형제 패치와 기존 LLM이 확인한 remove/add 교체는 한 그룹이다. 기존 검사에 의해 제외된 새 조건의 그룹은 전체 보류하고 원래 조건을 유지하며, 독립 수량·식별 가능한 다른 조건 수정은 유지한다. 추가·삭제 관계가 미확정이거나 모델 질문이 필드를 보류한 경우에도 독립 변경을 분리한다.
+- 배열 경로는 요청 안에서 안정적인 조건 정체성에 연결하고 일부 패치 제외 후 다시 JSON Pointer로 변환한다. 적용 직전 기준 상태 해시는 같은 요청의 로컬 초안 변경을 탐지한다. 저장 서버의 요청 간 버전 충돌 검사로 확대 해석하지 않는다.
+- 모델 제안, 선택된 제안, 검증 후 실제 StrategySpec 차분, 최종 ParsedStrategy를 별도로 기록한다. 실제 차분은 선택된 원본 패치 수와 같다고 가정하지 않는다. 구조·도메인 검증은 기존 파이프라인이 수행하며, 전체 영역 오류·값 누락의 그룹 분리는 아직 모든 경로에 적용되지 않았다.
+- 4단계 당시 보조 검사 실패·불명확·형식 오류는 UNRESOLVED로 기록하면서 기존 적용 정책을 유지했다. 정성 수익률의 임의 0 확정 결함도 잔존했다. 승인된 5단계의 현재 보류 범위는 위 계약·검증 기록을 따른다. 기존 원문 의미 패턴 매칭은 미이관 위반이며 이번 결과 기록·원자성으로 정당화하지 않는다.
 
 우리 시스템에서 "LLM이 생성하는 제한된 구조화 문자열"은 별도 DSL이 아니라
 **`StrategyIntent` JSON (schema_version 1.0)** 이다
