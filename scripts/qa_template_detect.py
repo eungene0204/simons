@@ -232,6 +232,7 @@ COVERAGE_CHECKS: list[tuple[str, str, Any]] = [
     ("ADX", r"ADX", lambda p: _has_sig(p, "adx")),
     ("스토캐스틱", r"스토캐스틱|Stochastic", lambda p: _has_sig(p, "stochastic")),
     ("CCI", r"CCI", lambda p: _has_sig(p, "cci")),
+    ("MFI", r"MFI|자금흐름", lambda p: _has_sig(p, "mfi")),
     # 신고가/박스권만 breakout으로 본다(EMA/볼린저 '상향 돌파'와 구분).
     ("신고가돌파", r"신고가|박스권|new\s+high|\d+[- ]?day\s+high|box\s*range|breakout",
      lambda p: _has_sig(p, "breakout")),

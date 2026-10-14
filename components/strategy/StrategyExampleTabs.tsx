@@ -359,6 +359,12 @@ export const EXAMPLES: Example[] = [
   {
     level: "beginner",
     category: "기술분석",
+    title: "MFI 과매도·과매수 단순 매매",
+    prompt: "KOSPI200 종목 중 MFI(자금흐름지표)가 20 이하로 내려가면 매수하고, MFI가 80 이상으로 올라가면 매도하는 단순한 전략으로 만들어 주세요. 최대 10종목, 손절 -8%로 부탁드립니다.",
+  },
+  {
+    level: "beginner",
+    category: "기술분석",
     title: "단기 골든크로스 추종",
     prompt: "KOSPI에서 5일 이동평균선이 20일 이동평균선을 위로 뚫는 골든크로스에 매수하고, 데드크로스가 나오면 매도하고 싶어요. 종목은 8개, 손절은 -7%로 설정해 주세요.",
   },
