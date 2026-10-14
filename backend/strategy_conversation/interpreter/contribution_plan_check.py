@@ -246,9 +246,13 @@ def apply_verdict(intent: Any, verdict: PlanVerdict, *, only: Optional[List[Any]
         rule = verdict.rules.get(_compact(cond.source_text or ""))
         if rule is None or cond.buy_amount is not None:
             continue
+        before = cond.model_dump()
         cond.buy_amount, cond.buy_amount_mode = rule.amount, rule.mode
         if rule.state_operator and (cond.operator is None or cond.operator in EVENT_OPERATORS):
             cond.operator = rule.state_operator
+            from .required_checks import policy
+            if policy() is not None and before["operator"] != cond.operator:
+                policy().recover(cond, {"original": before, "confirmed_rule": rule})
         notes.append(f"{cond.source_text}={rule.mode} {rule.amount:g}{' ' + rule.state_operator if rule.state_operator else ''}")
 
     if verdict.cash_pool is not None and bt.cash_pool is None:

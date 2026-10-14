@@ -3,6 +3,9 @@ import { fetchBackend } from "@/lib/server/backend";
 
 type ParseStreamBody = {
   prompt?: string;
+  draft_id?: string;
+  expected_revision?: number;
+  expected_state_hash?: string | null;
   backend?: string;
   model?: string;
   previous_parsed?: Record<string, unknown>;
@@ -140,7 +143,8 @@ export async function POST(req: NextRequest) {
       };
 
       send({ type: "accepted" });
-      send(buildSkeleton(body));
+      // Progress is structural; interpreting prompt words belongs to the backend LLM.
+      send({ type: "skeleton", data: { description: body.prompt ?? "", universe: previousUniverse(body), max_positions: null, recognized_terms: [], confidence: "low" } });
 
       // 백엔드 parse-stream의 SSE 이벤트를 받아 클라이언트용 이벤트로 변환한다.
       // - stage: 그대로 전달(parsing→thinking 진행 표시)
@@ -162,6 +166,7 @@ export async function POST(req: NextRequest) {
           send({
             type: "parsed_final",
             parsed: data.parsed,
+            strategy_version: data.strategy_version ?? null,
             clarification_question: data.clarification_question ?? null,
             clarification_suggestions: data.clarification_suggestions ?? null,
             // 우선순위 마커가 빠지면 프론트의 theme_universe 우선 게이트가 되묻기를
@@ -218,13 +223,14 @@ export async function POST(req: NextRequest) {
           send({
             type: "parsed_updated",
             parsed: data.parsed,
+            strategy_version: data.strategy_version ?? null,
             backtest_request: data.backtest_request,
             symbol_count: data.symbol_count ?? null,
             risk_overrides: data.risk_overrides ?? null,
             notices: data.notices ?? null,
           });
         } else if (event.type === "error") {
-          send({ type: "error", detail: event.detail ?? "파싱 실패" });
+          send({ type: "error", detail: typeof event.detail === "object" ? event.detail?.message ?? "파싱 실패" : event.detail ?? "파싱 실패", code: event.detail?.code, status: event.status });
         }
       };
 

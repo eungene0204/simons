@@ -200,6 +200,12 @@ SYSTEM_PROMPT = (
     "    list_count_only를 true로 한다 — 목록을 보여 달라는 발화('어떤 회사들이 있어?',\n"
     "    '목록 보여줘')는 false다.\n"
     "\n"
+    "추가 출력: turn_action은 run_backtest(실행 확인), follow_up(다음 진행 질문), "
+    "horizon_compare(단기/장기 연구 가정 비교), research_metric(성과 지표 연구 목표), "
+    "해당 없으면 null입니다. 전략 조건을 함께 말하면 실행 확인으로 분류하지 마세요. "
+    "research_metric은 sharpe/sortino/calmar/treynor/choose 중 하나 또는 null입니다. "
+    "backtest_period_years는 명시한 백테스트 기간의 연 수 또는 null이며 보유/지표 기간은 제외합니다. "
+    "backtest_period_quote는 해당 짧은 인용 또는 null입니다.\n"
     "출력 형식(JSON 한 줄, 다른 말 금지):\n"
     '{"intent": "<라벨>", "stock_name": "<원문에 나온 종목명 또는 null>", '
     '"refers_to_last_stock": <직전에 다루던 종목을 \'이 종목\'처럼 가리키면 true, 아니면 false>, '
@@ -208,7 +214,8 @@ SYSTEM_PROMPT = (
     '"modify_removes": <지우거나 빼 달라는 요청이면 true, 아니면 false>, '
     '"fact_metric": "<지표 키 또는 null>", '
     '"list_scope": "<업종/테마/시장/지수 표기 또는 null>", '
-    '"list_count_only": <종목 수만 물으면 true, 아니면 false>}'
+    '"list_count_only": <종목 수만 물으면 true, 아니면 false>, '
+    '"turn_action":null,"research_metric":null,"backtest_period_years":null,"backtest_period_quote":null}'
 )
 
 
@@ -241,6 +248,10 @@ class IntentInterpretation(BaseModel):
     # 종목 수만 물었는가('몇 종목?'). 목록 답변에서 회사명 나열을 생략하는 표시 축이다 —
     # 값이 틀려도 답의 사실은 같고 장황함만 달라진다(미출력·표기 불량은 False 안전 방향).
     list_count_only: bool = False
+    # Structured turn routing; only the existing classification LLM assigns meaning.
+    turn_action: Optional[str] = None
+    research_metric: Optional[str] = None
+    backtest_period_years: Optional[float] = None
 
 
 # ── 형식 정규화 (입력이 LLM 출력이므로 결정론 코드 소관) ─────────────────────
@@ -384,6 +395,16 @@ def interpret(
             # stock_lists에 위임한다(형식 정규화와 지식 조회의 분리).
             list_scope=_clean_stock_name(payload.get("list_scope")),
             list_count_only=bool(payload.get("list_count_only")),
+            turn_action=payload.get("turn_action") if payload.get("turn_action") in
+                ("run_backtest", "follow_up", "horizon_compare", "research_metric") else None,
+            research_metric=payload.get("research_metric") if payload.get("research_metric") in
+                ("sharpe", "sortino", "calmar", "treynor", "choose") else None,
+            backtest_period_years=payload.get("backtest_period_years") if
+                isinstance(payload.get("backtest_period_years"), (int, float))
+                and not isinstance(payload.get("backtest_period_years"), bool)
+                and 0 < payload["backtest_period_years"] < 1000
+                and isinstance(payload.get("backtest_period_quote"), str)
+                and payload["backtest_period_quote"] and payload["backtest_period_quote"] in query else None,
         )
     except ValidationError:
         return None

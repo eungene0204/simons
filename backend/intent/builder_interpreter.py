@@ -1,23 +1,15 @@
-"""빌더 자유 서술 LLM 해석기 — 자연어 해석 계약 단계 3, C안 (2026-07-26 사용자 결정).
+"""Existing structured builder interpreter, authoritative for KR free input.
 
-경계: 칩 클릭·현재 질문에 대한 값 답변("10프로")은 빌더의 결정적 형식 정규화가 즉답하고
-(제한된 답의 형식 검증 — 계약 위반 아님), **결정적 레이어가 해석하지 못한 자유 서술만**
-이 모듈이 LLM으로 해석한다. 미인식 표현에 regex를 추가하는 것은 금지
-([feedback_nl_parser_hybrid]) — 긴 꼬리의 해석 책임은 이 레인에 있다.
-
-구조(계약 § 3): LLM이 제한된 ops JSON을 출력 → 결정적 검증이 형식만 판정
-(필드 화이트리스트·enum·값 범위·수치는 입력 수치와 대조·source_text 인용 실재·
-삭제는 채워진 필드만) → 기존 BuilderState patch 계약으로 변환. 검증 탈락 op는
-조용히 버리지 않고 안내 노트로 알린다. LLM 실패·해석 불가는 None(호출부의 기존
-미인식 안내 유지 — 원문 재해석 폴백 없음).
-
-롤백: BUILDER_FREETEXT_MODE=deterministic (라우트가 해석기 주입을 생략).
+The LLM emits grounded ops; deterministic code checks enum, output format,
+quoted provenance, numeric transcription and registry terms. KR lexical
+fallback is disabled. The excluded US compatibility setting is preserved.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 from typing import Callable, List, Optional
@@ -37,6 +29,9 @@ logger = logging.getLogger("builder_interpreter")
 
 def freetext_llm_enabled() -> bool:
     """자유 서술 LLM 레인 사용 여부. 롤백=BUILDER_FREETEXT_MODE=deterministic."""
+    import ui_language
+    if ui_language.get_ui_language() != "en":
+        return True
     mode = os.environ.get("BUILDER_FREETEXT_MODE", "llm_first").strip().lower()
     return mode != "deterministic"
 
@@ -96,6 +91,8 @@ def _build_system_prompt() -> str:
         "너는 주식 전략 빌더 대화의 자유 서술 해석기다. 사용자의 입력 문장을 ops JSON으로만 "
         "변환한다.\n"
         "허용 op:\n"
+        '- "control": field="workflow", value="cancel"|"exit"|"restart"|"confirm"\n'
+
         '- "set": 필드에 새 값 설정(value 필수)\n'
         '- "remove": 이미 설정된 조건의 삭제 요청(빼줘/없애줘/제거/취소)\n'
         '- "reopen": 값 없이 바꾸고 싶다는 의사만 밝힘("시장 바꿔줘") — 그 항목을 다시 묻게 한다\n'
@@ -110,6 +107,10 @@ def _build_system_prompt() -> str:
         "- lookback_days·hold_period_days: 거래일 수(1주=5, 1개월=21, 1년=252로 환산)\n"
         "- stop_loss_pct·take_profit_pct·trailing_stop_pct: 퍼센트 숫자\n"
         "- sector: 업종/테마 표현(사용자가 말한 그대로)\n"
+        "- single_symbol: 직접 지정한 한국 종목/ETF의 짧은 이름 또는 코드\n"
+        "- entry_rule: custom 진입 조건의 원문 인용 / filters_asked: 필터 생략 의사의 boolean\n"
+        "- new_listing_only: 신규 상장 제한 boolean / listing_from·listing_to: YYYY-MM-DD\n"
+
         "- trend_filter_ma(일)·liquidity_min(억 원)·rsi_filter·rsi_period·rsi_oversold·"
         "rsi_overbought·ma_short·ma_long·cci_period·cci_threshold·volume_period·"
         "value_pbr·value_roe: 숫자\n"
@@ -157,6 +158,25 @@ def _number_matches(value: float, field: str, text_nums: set[float]) -> bool:
 
 def _validate_set(field: str, value, state: BuilderState, text_nums: set[float]) -> Optional[dict]:
     """set op 하나를 검증해 patch로 변환한다(탈락=None). 형식·범위 판정만 — 의미 해석 없음."""
+    if field == "single_symbol" and isinstance(value, str):
+        from strategy_conversation.registry.universe_resolver import resolve_symbols
+        codes, unresolved = resolve_symbols([value])
+        if unresolved or len(codes) != 1 or not codes[0].isdecimal() or len(codes[0]) != 6:
+            return None
+        patch = {"single_symbol": codes[0], "single_label": value}
+        if state.strategy_type in _SINGLE_ASSET_BLOCKED_TYPES:
+            patch.update({"strategy_type": None, **_TYPE_PARAM_RESET})
+        return patch
+    if field in ("filters_asked", "new_listing_only"):
+        return {field: value} if isinstance(value, bool) else None
+    if field == "entry_rule":
+        return {field: value} if isinstance(value, str) and value.strip() else None
+    if field in ("listing_from", "listing_to"):
+        from datetime import date
+        try:
+            return {field: date.fromisoformat(value).isoformat()} if isinstance(value, str) else None
+        except ValueError:
+            return None
     if field in _ENUM_FIELDS:
         if not isinstance(value, str) or value not in _ENUM_FIELDS[field]:
             return None
@@ -177,11 +197,14 @@ def _validate_set(field: str, value, state: BuilderState, text_nums: set[float])
 
         canonical = normalize_sector(value) if isinstance(value, str) else None
         return {"sector": canonical, "sector_unresolved": False, "sector_hint": None} \
-            if canonical else None
+            if canonical else ({"sector": None, "sector_unresolved": True, "sector_hint": value,
+                                "sector_hint_weak": False} if isinstance(value, str) and value.strip() else None)
     if field in _INT_FIELDS or field in _FLOAT_FIELDS:
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
             return None
         value = float(value)
+        if field in _INT_FIELDS and not value.is_integer():
+            return None
         if not _number_matches(value, field, text_nums):
             return None  # 입력에 없는 수치 — 환각 게이트(§ 3-1 수치 대조)
         if field in RISK_FIELDS:  # hold_period_days 포함 — 하나라도 채워지면 청산 완료
@@ -245,7 +268,7 @@ def interpret_utterance(
         f"지금 묻는 항목: {expecting_label}\n"
         f"사용자 입력: {text}"
     )
-    raw = chat(_build_system_prompt(), user_msg, max_tokens=300)
+    raw = chat(_build_system_prompt(), user_msg, max_tokens=600)
     ops = _extract_ops(raw)
     if not ops:
         return None
@@ -261,11 +284,13 @@ def interpret_utterance(
         source = op.get("source_text")
         label = str(source or field or "요청")
         # 출처 인용 실재 확인(§ 3-1 (b)) — LLM이 인용한 조각이 실제 입력에 있어야 한다.
-        if not isinstance(source, str) or _compact(source) not in compact_input:
+        if not isinstance(source, str) or not source.strip() or _compact(source) not in compact_input:
             dropped.append(label)
             continue
         entry: Optional[dict] = None
-        if kind == "set":
+        if kind == "control" and field == "workflow" and op.get("value") in ("cancel", "exit", "restart", "confirm"):
+            entry = {"__control": op["value"]}
+        elif kind == "set":
             entry = _validate_set(str(field), op.get("value"), state, text_nums)
         elif kind == "remove":
             template = _REMOVABLE_PATCH.get(str(field))
@@ -282,6 +307,9 @@ def interpret_utterance(
         patch.update(entry)
 
     if not patch:
+        if dropped:
+            quoted = ", ".join(f"'{d}'" for d in dict.fromkeys(dropped))
+            return {}, [f"{quoted} 부분은 확인하지 못해 변경을 보류했어요. 기준값과 적용 대상을 다시 알려주세요."]
         return None
     # 청산 값 삭제로 청산이 전부 비면 청산 단계를 다시 연다(청산 필수 — FR-SA-002e와 동일).
     removed_risk = any(field in patch and patch[field] is None for field in RISK_FIELDS)

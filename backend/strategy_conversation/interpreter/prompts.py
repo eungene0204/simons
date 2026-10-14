@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "8.13"  # 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
+PROMPT_VERSION = "8.14"  # 8.14: EMA 한 선 이탈 청산 예시(진입 EMA 쌍 복사 방지). 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -873,6 +873,12 @@ exit_conditions=[{{"factor":"technical.ema","operator":"crosses_below","value":n
 진입에 이미 그 지표가 있다는 이유로 생략하면 사용자가 말한 매도 규칙이 사라집니다.
 연산자는 정본 표기만 씁니다: 위/아래 상태는 `>`·`<`, 교차 사건은 `crosses_above`·
 `crosses_below`입니다("above"·"golden_cross" 같은 낱말 표기 금지).
+입력: "20일 EMA가 60일 EMA 위에 있는 종목만 진입하고, 20일 EMA 이탈 시 청산해 주세요"
+출력 요점: entry_conditions=[{{"factor":"technical.ema","operator":">","value":null,
+"parameters":{{"short_period":20,"long_period":60}}}}],
+exit_conditions=[{{"factor":"technical.ema","operator":"crosses_below","value":null,
+"parameters":{{"short_period":1,"long_period":20}}}}].
+청산 문장이 '20일 EMA 이탈'처럼 EMA 한 선만 말하면 진입의 EMA 쌍을 복사하지 말고 종가(1)와 그 선입니다.
 
 ## 예시 5 (수정 요청 — 현재 전략 초안이 함께 주어진 경우)
 현재 전략 초안: {{"entry_conditions":[{{"factor":"fundamental.per","operator":"<=","value":10}},

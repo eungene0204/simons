@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .decisions import observed_verdict
+
 import json
 import math
 from typing import Callable, Sequence
@@ -13,6 +15,7 @@ from .output_repair import extract_json_object
 _SYSTEM = """전략 수정 요청에서 각 패치 경로에 사용자가 명시한 수량 표현을 독립적으로 옮겨 적으세요. quote는 그 표현의 짧은 원문 인용, number_text는 인용 안의 수량 표현 그대로, value는 그 수량, unit은 count/percent/total_multiplier/day/month/year/unknown 중 하나입니다. total_multiplier는 원금 대비 최종 금액의 배수이고 day/month/year는 보유 기간 단위입니다. 요청에 해당 경로의 수량이 없으면 quote, number_text, value를 null로 쓰세요. 다른 전략 값이나 질문의 예시값을 복사하거나 추측하지 마세요. JSON만 출력하세요: {"items":[{"id":"1","quote":null,"number_text":null,"value":null,"unit":"unknown"}]}"""
 
 
+@observed_verdict("numeric")
 def confirmed_numeric_patches(
     candidates: Sequence[tuple[int, PatchOp]], user_input: str, chat: Callable,
 ) -> set[int]:

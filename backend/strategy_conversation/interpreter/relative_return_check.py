@@ -7,6 +7,8 @@ phrase; this module never classifies the user's words in deterministic code.
 
 from __future__ import annotations
 
+from .decisions import observed_verdict
+
 import json
 import logging
 from typing import Any, Callable, Optional
@@ -33,6 +35,7 @@ unclear: 위 구분을 확정할 수 없음.
 JSON만 출력: {"kind":"unclear","quote":null}"""
 
 
+@observed_verdict("return")
 def classify_return_quote(
     user_input: str, quote: str, chat: Callable[..., str],
 ) -> Optional[str]:
@@ -64,6 +67,12 @@ def reconcile_qualitative_return(
 ) -> list[str]:
     """Apply only a grounded correction to a zero relative-return condition."""
     strategy = intent.strategy
+    from .required_checks import policy
+    targets = [c for field in ("entry_conditions", "exit_conditions")
+               for c in getattr(strategy, field) if c.factor == "technical.relative_return"
+               and c.operator in (">", ">=") and c.value == 0 and c.source_text] if strategy and not strategy.ranking else []
+    if policy() is not None:
+        policy().plan("return", targets)
     if strategy is None or strategy.ranking:
         return []
     notices: list[str] = []
@@ -75,6 +84,9 @@ def reconcile_qualitative_return(
                     or condition.value != 0 or not condition.source_text):
                 continue
             kind = classify_return_quote(user_input, condition.source_text, chat)
+            from .required_checks import note
+            note("return", condition, "UNRESOLVED" if kind in (None, "unclear") else "ACCEPT",
+                 role, kind)
             if kind in (None, "unclear", "relative_positive"):
                 continue
             if kind in ("return_rank", "relative_rank"):

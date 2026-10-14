@@ -26,6 +26,9 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import json
+from dataclasses import asdict, is_dataclass
 import logging
 import os
 import time
@@ -53,6 +56,41 @@ _COUNTER = {"tool": "tool_count", "llm": "llm_calls", "action": "action_count"}
 # 출력 직렬화 상한 — Trace에 전략 State 전문이 들어가면 UI에서 읽을 수 없고 전송량만
 # 커진다. 잘린 값은 프리뷰이며, 판정에 쓰지 않는다.
 _VALUE_LIMIT = 4000
+
+
+def replay_snapshot(value: Any) -> Dict[str, Any]:
+    """Serialize complete local evidence; redact credential fields, never infer text meaning."""
+    complete = True
+    secret_keys = {"authorization", "api_key", "apikey", "password", "access_token",
+                   "refresh_token", "jwt_secret", "database_url"}
+    def encode(item):
+        nonlocal complete
+        if item is None or isinstance(item, (str, bool, int, float)):
+            return item
+        if hasattr(item, "model_dump"):
+            return encode(item.model_dump(mode="json"))
+        if is_dataclass(item) and not isinstance(item, type):
+            return encode(asdict(item))
+        if isinstance(item, dict):
+            result = {}
+            for key, child in item.items():
+                if str(key).lower() in secret_keys:
+                    result[str(key)] = "[redacted]"
+                    complete = False
+                else:
+                    result[str(key)] = encode(child)
+            return result
+        if isinstance(item, (list, tuple, set)):
+            return [encode(child) for child in item]
+        complete = False
+        return f"[unserializable:{type(item).__name__}]"
+    try:
+        values = encode(value)
+        digest = hashlib.sha256(json.dumps(values, ensure_ascii=False, sort_keys=True,
+                                          allow_nan=False).encode()).hexdigest()
+        return {"values": values, "sha256": digest, "complete": complete}
+    except Exception:
+        return {"values": None, "sha256": None, "complete": False}
 
 
 def tracing_enabled() -> bool:
@@ -123,11 +161,17 @@ class TraceHandle:
     def active(self) -> bool:
         return self._run is not None or self._local is not None
 
+    @property
+    def recording_active(self) -> bool:
+        return self._local is not None
+
     def output(self, **values: Any) -> None:
         """이 span의 산출값. 여러 번 부르면 병합된다."""
         if not self.active:
             return
-        truncated = {k: _truncate(v) for k, v in values.items()}
+        snapshot = replay_snapshot(values)
+        safe = snapshot["values"] or {}
+        truncated = {k: _truncate(v) for k, v in safe.items()}
         if self._run is not None:
             try:
                 merged = dict(getattr(self._run, "outputs", None) or {})
@@ -138,6 +182,11 @@ class TraceHandle:
         if self._local is not None:
             try:
                 self._local.outputs.update(truncated)
+                previous = self._local.metadata.get("replay_outputs", {})
+                merged = {**(previous.get("values") or {}), **safe}
+                combined = replay_snapshot(merged)
+                combined["complete"] &= snapshot["complete"] and previous.get("complete", True)
+                self._local.metadata["replay_outputs"] = combined
             except Exception:  # noqa: BLE001
                 logger.debug("로컬 trace output 기록 실패", exc_info=True)
 
@@ -145,7 +194,8 @@ class TraceHandle:
         """이 span의 메타데이터."""
         if not self.active:
             return
-        truncated = {k: _truncate(v) for k, v in values.items()}
+        safe = replay_snapshot(values)["values"] or {}
+        truncated = {k: _truncate(v) for k, v in safe.items()}
         if self._run is not None:
             try:
                 self._run.metadata.update(truncated)
@@ -156,6 +206,18 @@ class TraceHandle:
                 self._local.metadata.update(truncated)
             except Exception:  # noqa: BLE001
                 logger.debug("로컬 trace metadata 기록 실패", exc_info=True)
+
+    def local_evidence(self, **values: Any) -> None:
+        """Complete evidence stays local and shares the existing Trace retention."""
+        if self._local is not None:
+            try:
+                previous = self._local.metadata.get("replay_evidence", {})
+                snapshot = replay_snapshot(values)
+                combined = replay_snapshot({**(previous.get("values") or {}), **(snapshot["values"] or {})})
+                combined["complete"] &= snapshot["complete"] and previous.get("complete", True)
+                self._local.metadata["replay_evidence"] = combined
+            except Exception:
+                logger.debug("local replay evidence failed", exc_info=True)
 
     def error(self, kind: str, message: str) -> None:
         """실패 원인의 분류와 메시지(스펙 § Error Trace).
@@ -193,6 +255,7 @@ def span(
     metadata: Optional[Dict[str, Any]] = None,
     run_type: Optional[str] = None,
     root: bool = False,
+    local_only: bool = False,
 ) -> Iterator[TraceHandle]:
     """관찰 span 하나. 두 sink(LangSmith·로컬) 모두 비활성이면 no-op 손잡이를 즉시 내준다.
 
@@ -202,7 +265,7 @@ def span(
     root=True면 이 span이 Trace 루트다 — 성능 지표 누적기를 새로 걸고, 끝날 때
     누적 결과를 메타데이터로 붙인다.
     """
-    ls_on = tracing_enabled()
+    ls_on = tracing_enabled() and not local_only
     local_on = _local_trace.enabled()
     if not ls_on and not local_on:
         yield _NOOP
@@ -210,9 +273,12 @@ def span(
 
     started = time.perf_counter()
     token = _metrics.bind(_metrics.new_metrics()) if root else None
-    safe_inputs = {k: _truncate(v) for k, v in (inputs or {}).items()}
+    snapshot = replay_snapshot(inputs or {})
+    safe_inputs = {k: _truncate(v) for k, v in (snapshot["values"] or {}).items()}
     meta = base_metadata() if root else {}
     meta.update(metadata or {})
+    initial_metadata = replay_snapshot(meta)
+    meta = initial_metadata["values"] or {}
 
     run = None
     cm = None
@@ -240,6 +306,8 @@ def span(
             local_node, local_token = _local_trace.start(
                 name, role=role, inputs=safe_inputs, metadata=meta,
             )
+            local_node.metadata["replay_inputs"] = snapshot
+            local_node.metadata["replay_initial_metadata"] = initial_metadata
         except Exception:  # noqa: BLE001
             logger.debug("로컬 trace span 개시 실패 | name=%s", name, exc_info=True)
             local_node = None
@@ -272,6 +340,7 @@ def span(
             with contextlib.suppress(Exception):
                 cm.__exit__(*exc_info)
         if local_node is not None:
+            local_node.metadata["replay_completed"] = exc_info[0] is None
             with contextlib.suppress(Exception):
                 _local_trace.finish(local_node, local_token, elapsed_ms)
         if token is not None:

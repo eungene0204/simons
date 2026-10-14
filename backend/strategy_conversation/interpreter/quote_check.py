@@ -32,6 +32,8 @@ enum인지 확인 ③ enum 값에 따른 분기. 인용 문자열은 읽지 않�
 
 from __future__ import annotations
 
+from .decisions import observed_verdict
+
 import json
 import logging
 from dataclasses import dataclass
@@ -215,6 +217,7 @@ def build_request(user_input, targets):
     return _SYSTEM, f"[전략 문장]\n{user_input}\n\n[조건]\n{rows}", 64 + 32 * len(targets)
 
 
+@observed_verdict("quote")
 def check_quotes(
     user_input: str, targets: List[Tuple[Any, str]], chat: Callable[..., str],
 ) -> Optional[QuoteVerdicts]:
@@ -225,12 +228,19 @@ def check_quotes(
     rejected = [(c, role) for c, role in targets if quote_does_not_express(verdicts, c)]
     confirmed = (_request_verdicts(user_input, rejected, chat, system=_CONFIRM_SYSTEM)
                  if rejected else None)
-    resolved = [
-        (cond, Verdict(None, None) if quote_does_not_express(verdicts, cond)
-         and not quote_does_not_express(confirmed, cond)
-         else verdicts.get(cond) if verdicts is not None else Verdict(None, None))
-        for cond, _ in targets
-    ]
+    resolved = []
+    for cond, _ in targets:
+        initial = verdicts.get(cond) if verdicts is not None else None
+        confirmation = confirmed.get(cond) if confirmed is not None else None
+        if quote_does_not_express(verdicts, cond) and not quote_does_not_express(confirmed, cond):
+            # Conflicting verdicts remain unresolved. Retain only the independently
+            # confirmed signal family so the semantic batch can verify changed fields.
+            family = ("moving_average" if confirmation is not None
+                      and confirmation.expresses == "yes"
+                      and confirmation.describes == "moving_average" else None)
+            resolved.append((cond, Verdict(None, family)))
+        else:
+            resolved.append((cond, initial or Verdict(None, None)))
 
     compact_input = _compact(user_input)
     suspect_roles = [

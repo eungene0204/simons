@@ -346,8 +346,10 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                          "parameters.touch_lookback=하단 터치를 인정할 거래일 수(말한 경우만, 없으면 비움)"),
         engine_binding=("technical_signal", "bollinger_bands"),
     ),
-    _technical("breakout", "신고가 돌파", "event", ("crosses_above",),
-               {"lookback_period": ParamSpec(default=60, minimum=5, maximum=500, required=True)}),
+    _technical("breakout", "신고가 돌파", "event", ("crosses_above", "crosses_below"),
+               {"lookback_period": ParamSpec(default=60, minimum=5, maximum=500, required=True)},
+               notes="매수는 crosses_above로 최근 N일 고가 돌파, 청산은 crosses_below로 최근 N일 저가 이탈. "
+                     "역할과 반대인 방향은 지원하지 않음. parameters.lookback_period=N"),
     _technical("consecutive_up", "종가 연속 상승", "event", (),
                {"period": ParamSpec(minimum=1, maximum=250, required=True)},
                notes="최근 N거래일 각각의 종가가 직전 거래일 종가보다 높음. "

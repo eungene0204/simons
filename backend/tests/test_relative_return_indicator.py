@@ -216,7 +216,9 @@ def test_primary_prunes_inverted_relative_return_exit_beside_ranking(monkeypatch
     정상 반영하고도 `relative_return > 0` **청산** 조건을 함께 낸다 — 그대로 두면 "시장을
     이기면 판다"는, 사용자가 말한 적 없고 뜻도 뒤집힌 매도 규칙이 된다. 09-14 진입 슬롯
     중복 제거가 매도 슬롯을 보지 않아 열려 있던 구멍."""
-    from tests.test_strategy_conversation import _full_intent_dict, _run_primary_with
+    from tests.test_strategy_conversation import _full_intent_dict, _run_primary_with, _confirmed_ma_quotes
+    from strategy_conversation import primary
+    monkeypatch.setattr(primary, "_check_condition_quotes", _confirmed_ma_quotes)
 
     data = _full_intent_dict(
         universe={"markets": ["KOSPI", "KOSDAQ"], "sectors": ["반도체"]},
@@ -298,6 +300,8 @@ def test_relative_return_panel_subtracts_each_symbols_own_market_index(tmp_path,
 
 def test_primary_lane_compiles_relative_return_condition(monkeypatch):
     from tests.test_strategy_conversation import _full_intent_dict, _run_primary_with
+    from strategy_conversation.interpreter import relative_return_check
+    monkeypatch.setattr(relative_return_check, "classify_return_quote", lambda *a: "relative_positive")
 
     data = _full_intent_dict(
         entry_conditions=[{"factor": "technical.relative_return", "operator": ">", "value": 0,

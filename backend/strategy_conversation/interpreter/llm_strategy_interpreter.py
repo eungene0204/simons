@@ -258,6 +258,9 @@ def _default_ollama_chat(model: str) -> ChatFn:
             metadata={"model": model, "temperature": 0,
                       "num_ctx": _OLLAMA_NUM_CTX, "max_tokens": max_tokens or 2048},
         ) as trace:
+            trace.local_evidence(requested_model=active_chat_model(model),
+                                 chat_arguments={"system": system_prompt, "user": user_message,
+                                                 **({"max_tokens": max_tokens} if max_tokens is not None else {})})
             # per-call 상한. 비용은 프롬프트 길이가 아니라 **생성 토큰 수 ÷ 그 시각의
             # 처리량**이다 — 인터프리터 한 호출이 400~500토큰을 생성하므로 처리량이
             # 4 tok/s까지 떨어지면 125초가 되어 120초 상한에 걸렸다(실측 2026-08-07).
@@ -288,6 +291,7 @@ def _default_ollama_chat(model: str) -> ChatFn:
                     content = "".join(parts)
             # 실제 서빙 모델·프로바이더 — OpenRouter 레인에서는 슬롯명(model)과 다르다.
             served = {k: data[k] for k in ("model", "provider") if data.get(k)}
+            trace.local_evidence(response_model=data.get("model"), response_provider=data.get("provider"))
             trace.meta(**ollama_usage(data), **served)
             trace.output(response=content)
             return content
@@ -361,6 +365,9 @@ class StrategyInterpreter:
                       "mode": "modify" if draft else "create"},
         ) as trace:
             result = self._interpret(user_input, draft, pending_question, on_stage, previous_coach_text)
+            trace.local_evidence(interpreter_result={"intent": result.intent,
+                "raw_output": result.raw_output, "unreflected_numbers": result.unreflected_numbers,
+                "repair_attempts": result.repair_attempts, "prompt_version": result.prompt_version})
             # 복구 재시도 = LLM 출력이 스키마를 못 맞춰 다시 부른 횟수(스펙 § Retry Count).
             trace.meta(retry_count=result.repair_attempts,
                        interpreter_latency_ms=result.latency_ms,

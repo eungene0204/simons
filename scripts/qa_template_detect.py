@@ -555,6 +555,9 @@ def summarize(p: dict) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=None)
+    ap.add_argument("--replay", type=Path, help="Replay complete fixed interpreter/check/knowledge fixtures offline")
+    ap.add_argument("--replay-trace", type=Path, help="Replay one complete local JSONL trace in memory")
+    ap.add_argument("--replay-expectations", type=Path, help="Human annotations keyed by trace_id")
     ap.add_argument("--use-cache", action="store_true",
                     help="백엔드를 부르지 않고 저장된 원시 파스 캐시만 읽는다(판정 로직만 손볼 때). "
                          "**게이트 용도로 쓰지 말 것** — 낡은 답으로 '치명 0'이 나온다")
@@ -567,6 +570,44 @@ def main() -> int:
     ap.add_argument("--lang", default="kr", choices=["kr", "en"],
                     help="파서 입력 언어: kr(원문, 기본) | en(en.ts 번역 — /us 전송 경로 재현)")
     args = ap.parse_args()
+    if args.replay_expectations and not args.replay_trace:
+        ap.error("--replay-expectations requires --replay-trace")
+    if args.replay or args.replay_trace:
+        if args.use_cache or (args.replay and args.replay_trace):
+            ap.error("--replay and --use-cache are different verification modes")
+        sys.path.insert(0, str(ROOT / "backend/tests"))
+        from interpretation_replay import replay
+        from interpretation_replay_contract import summarize as summarize_replay
+        try:
+            if args.replay_trace:
+                if not args.replay_expectations or args.out:
+                    raise ValueError("Captured replay requires human gold; --out is disabled to retain no raw copy")
+                from interpretation_trace_fixture import from_trace
+                annotations = json.loads(args.replay_expectations.read_text(encoding="utf-8"))
+                cases = [from_trace(record, annotations[record["span"]["trace_id"]]) for record in
+                         (json.loads(line) for line in args.replay_trace.read_text().splitlines())
+                         if record["span"]["trace_id"] in annotations]
+            else:
+                cases = json.loads(args.replay.read_text(encoding="utf-8"))["cases"]
+            if not isinstance(cases, list) or not cases:
+                raise ValueError("No replay cases")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(json.dumps({"status": "HARNESS_INVALID", "reason": str(exc)}))
+            return 1
+        results = [replay(case) for case in cases]
+        from interpretation_display_replay import attach_display
+        attach_display(cases, results)
+        if args.replay_trace:
+            # Raw captured evidence stays in memory and in the original three-day Trace only.
+            results = [{k: r[k] for k in ("case_id", "status", "measurement", "execution_mode",
+                        "mode", "region", "execution_identity") if k in r} for r in results]
+        report = json.dumps({"execution_mode": "replay", "results": results,
+                             "groups": summarize_replay(results)}, ensure_ascii=False, indent=2)
+        if args.out:
+            Path(args.out).write_text(report, encoding="utf-8")
+        else:
+            print(report)
+        return 1 if any(r["status"] != "PASS" for r in results) else 0
     if args.source == "us":
         ap.error("US 예시 기대값은 아직 작성되지 않았습니다. 이 하니스는 한국어 예시만 검증합니다")
     if args.lang == "en" and args.source != "us":
@@ -580,6 +621,9 @@ def main() -> int:
     if args.category:
         wanted = {c.strip() for c in args.category.split(",") if c.strip()}
         templates = [t for t in templates if t.category in wanted]
+    if not templates:
+        print("HARNESS_INVALID: No selected templates", file=sys.stderr)
+        return 1
     # 원시 파스 캐시는 **기록**이지 근거가 아니다 — 기본 경로는 매번 백엔드에 다시 묻는다.
     # 종전엔 캐시에 있으면 무조건 재사용했고(--refresh를 붙여야만 재파싱), CLAUDE.md가
     # 지정한 US 게이트 명령 두 개에는 그 플래그가 없다 → **"치명 0"이라는 합격선이 임의로
@@ -610,7 +654,9 @@ def main() -> int:
         if args.use_cache:
             res = cache.get(text)
             if res is None:
-                print(f"[{i}] 캐시 없음, 건너뜀", file=sys.stderr)
+                n_fatal += 1
+                lines.append(f"\n## {i}. {tpl.title}\n- HARNESS_INVALID: 캐시 응답 없음")
+                print(f"[{i}] HARNESS_INVALID: 캐시 응답 없음", file=sys.stderr)
                 continue
         else:
             try:

@@ -174,6 +174,10 @@ export function buildStrategyHorizonComparisonResponse(prompt: string): string |
     return null;
   }
 
+  return strategyHorizonComparisonResponse();
+}
+
+export function strategyHorizonComparisonResponse(): string {
   return [
     "단기와 장기는 어느 한쪽이 더 좋다고 정할 수 있는 관계가 아니라, 연구할 보유기간과 거래 빈도 가정이 다릅니다.",
     "",

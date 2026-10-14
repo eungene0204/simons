@@ -1,13 +1,9 @@
 import {
   BACKTEST_MIN_PERIOD_MESSAGE,
-  backtestPeriodTooShort,
-  isBacktestConfirmation,
-  isBacktestPrompt,
 } from "./backtestConfirmation";
 import {
-  buildStrategyHorizonComparisonResponse,
+  strategyHorizonComparisonResponse,
   fundamentalFactorPromptFor,
-  isAdvisorFollowUpPrompt,
   takeProfitPrompt,
 } from "./parsedStrategyMerge";
 import { t } from "@/lib/i18n";
@@ -106,6 +102,9 @@ export type SemanticClassification = {
   // 다르다 — 실패는 실패로 안내해야 하며, 일반 지식 답변으로 보내면 정의 설명이
   // 답변으로 위장된다(2026-08-03 사고).
   interpretationFailed?: boolean;
+  turnAction?: "run_backtest" | "follow_up" | "horizon_compare" | "research_metric" | null;
+  researchMetric?: "sharpe" | "sortino" | "calmar" | "treynor" | "choose" | null;
+  backtestPeriodYears?: number | null;
 };
 
 export type ResearchMetric = "sharpe" | "sortino" | "calmar";
@@ -249,15 +248,9 @@ export function parseMetricOptimizationRange(input: string): MetricOptimizationR
   return { type: "number", min, max, step };
 }
 
-function researchMetricDecision(prompt: string, pendingPrompt?: string | null): ConversationDecision | null {
-  const mentioned = RESEARCH_METRIC_PATTERNS.filter(([, pattern]) => pattern.test(prompt)).map(([metric]) => metric);
+function researchMetricDecision(prompt: string, metric: SemanticClassification["researchMetric"], pendingPrompt?: string | null): ConversationDecision | null {
+  const mentioned = metric && metric !== "choose" ? [metric] : [];
   const strategyPrompt = pendingPrompt ?? prompt;
-  const isNewRequest =
-    /(?:샤프|sharpe|소르티노|sortino|칼마|칼미|calmar|트레이너|treynor|위험\s*조정|리스크\s*조정|성과\s*지표)/i.test(prompt) &&
-    /(?:최대화|극대화|높(?:이|은)|개선|최적화|목표|기준|중심)/i.test(prompt) &&
-    /(?:(?:전략|매매\s*규칙).*(?:만들|생성|구성|설계|연구|찾|최적화)|(?:만들|생성|구성|설계|연구|찾|최적화).*(?:전략|매매\s*규칙))/i.test(prompt);
-  if (!pendingPrompt && !isNewRequest) return null;
-
   if (mentioned.length !== 1 || mentioned[0] === "treynor") {
     const treynorUnavailable = mentioned.length === 1 && mentioned[0] === "treynor";
     return {
@@ -667,84 +660,11 @@ export function decideConversationTurn(
   context: ConversationContext,
   classification?: SemanticClassification,
 ): ConversationDecision {
-  // ── L2 (원문 지목) ──────────────────────────────────────────────
-  if (backtestPeriodTooShort(prompt)) {
-    return {
-      action: "respond",
-      speechAct: "modify",
-      topic: "backtest",
-      confidence: 1,
-      reason: "backtest_period_below_minimum",
-      message: BACKTEST_MIN_PERIOD_MESSAGE,
-    };
-  }
-
-  if (
-    context.stage === "ready" &&
-    context.hasBacktestRequest &&
-    isBacktestPrompt(context.lastCoachText) &&
-    isBacktestConfirmation(prompt)
-  ) {
-    return {
-      action: "run_backtest",
-      speechAct: "confirm",
-      topic: "backtest",
-      confidence: 1,
-      reason: "confirmed_backtest_prompt",
-    };
-  }
-
-  // ── L1 (진행 중인 하위 대화) ────────────────────────────────────
-  // 사용자가 "이건 바꾸겠다"고 고른 항목들의 재질문 — 진행 골격 순서대로 하나씩 묻는다.
-  // 큐는 물어보는 순간 소모된다: 답하면 슬롯이 채워지고, 답하지 않으면 그 슬롯은 비어
-  // 있으므로 L4(상태 기본 액션)가 나중에 다시 데려간다 — 질문이 사라지지 않는다.
-  if (context.reaskNext) {
-    return {
-      action: "ask_next_condition",
-      speechAct: "ask",
-      topic: "strategy",
-      confidence: 1,
-      reason: "reask_after_keep_selection",
-      field: context.reaskNext.field,
-      message: context.reaskNext.question,
-      suggestions: context.reaskNext.suggestions,
-    };
-  }
-
-  const metricResearch = researchMetricDecision(prompt, context.pendingResearchMetricPrompt);
-  if (metricResearch) return metricResearch;
-
-  const horizonResponse = buildStrategyHorizonComparisonResponse(prompt);
-  if (horizonResponse) {
-    return {
-      action: "respond",
-      speechAct: "compare",
-      topic: "strategy",
-      confidence: 1,
-      reason: "strategy_horizon_comparison",
-      message: horizonResponse,
-    };
-  }
-
   if (context.builderMode) {
-    return {
-      action: "continue_builder",
-      speechAct: "unknown",
-      topic: "strategy",
-      confidence: 1,
-      reason: "active_builder_session",
-    };
+    return { action: "continue_builder", speechAct: "unknown", topic: "strategy", confidence: 1, reason: "active_builder_session" };
   }
-
-  // ── L3 (라벨 분기) ──────────────────────────────────────────────
   if (!classification) {
-    return {
-      action: "classify",
-      speechAct: "unknown",
-      topic: "unknown",
-      confidence: 0,
-      reason: "requires_semantic_classification",
-    };
+    return { action: "classify", speechAct: "unknown", topic: "unknown", confidence: 0, reason: "requires_semantic_classification" };
   }
 
   const { intent, suggestedReply = null, symbol = null } = classification;
@@ -763,6 +683,25 @@ export function decideConversationTurn(
       reason: `workflow_${workflowEffect.toLowerCase()}`,
       message: suggestedReply,
     };
+  }
+
+  const semanticAxesAllowed = !classification.interpretationFailed &&
+    ["STRATEGY_ADVICE", "STRATEGY_PICK", "GENERAL_INVESTMENT", "UNKNOWN"].includes(classification.intent);
+  if (semanticAxesAllowed && classification.backtestPeriodYears != null &&
+      classification.backtestPeriodYears > 0 && classification.backtestPeriodYears < 1) {
+    return { action: "respond", speechAct: "modify", topic: "backtest", confidence: 1,
+      reason: "backtest_period_below_minimum", message: BACKTEST_MIN_PERIOD_MESSAGE };
+  }
+  if (semanticAxesAllowed && classification.turnAction === "run_backtest" && workflowEffect === "NONE" && context.stage === "ready" && context.hasBacktestRequest) {
+    return { action: "run_backtest", speechAct: "confirm", topic: "backtest", confidence: 1, reason: "confirmed_backtest_prompt" };
+  }
+  if (semanticAxesAllowed && (classification.turnAction === "research_metric" || context.pendingResearchMetricPrompt)) {
+    const research = researchMetricDecision(prompt, classification.researchMetric, context.pendingResearchMetricPrompt);
+    if (research) return research;
+  }
+  if (semanticAxesAllowed && classification.turnAction === "horizon_compare") {
+    return { action: "respond", speechAct: "compare", topic: "strategy", confidence: 1,
+      reason: "strategy_horizon_comparison", message: strategyHorizonComparisonResponse(), preservesOpenQuestion: true };
   }
 
   // STOCK_ANALYSIS 포함: 전략이 진행 중일 때 종목명이 섞인 발화("제주반도체도 추가해줘")는
@@ -960,7 +899,7 @@ export function decideConversationTurn(
   // 진입 판정(isAdvisorFollowUpPrompt)이 원문 정규식인 것은 L2와 같은 이관 대상 부채다.
   if (
     context.hasCurrentStrategy &&
-    isAdvisorFollowUpPrompt(prompt)
+    classification.turnAction === "follow_up"
   ) {
     return nextConditionDecision(context, "active_strategy_next_condition") ?? {
       action: "answer_follow_up",

@@ -24,6 +24,8 @@ LLM이 고른 시장 enum(universe.markets ∩ US_MARKETS)과, registry가 미�
 
 from __future__ import annotations
 
+from .decisions import observed_verdict
+
 import json
 import logging
 from typing import Callable, Dict, List, Optional
@@ -45,6 +47,7 @@ def build_system_prompt() -> str:
     return _SYSTEM
 
 
+@observed_verdict("market")
 def check_markets(terms: List[str], chat: Callable[..., str]) -> Optional[Dict[str, str]]:
     """종목 표현 → 시장 판정({표현: "KR"|"US"|"OTHER"}). 실패·enum 밖은 제외, 전체 실패는 None."""
     from observability import span

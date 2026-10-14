@@ -1,13 +1,8 @@
-"""Strategy Builder Mode — 열린 종목 추천을 전략 설계 대화로 잇는 결정적 상태 머신.
+"""Strategy builder using the existing structured LLM lane for KR free input.
 
-[규제 안전] "어떤 종목을 사야 하나" 같은 열린 추천(STOCK_PICK)으로 전환 안내를 보낸 뒤,
-이 모듈이 사용자의 짧은 답변을 전략 필드(유니버스 → 전략유형 → 기준기간 → 보유수 →
-리밸런싱)로 누적한다. 필수 필드가 채워지면 요약을 보여주고, 사용자가 확정하면 검증된
-자연어 프롬프트로 합성해 기존 백테스트 파서로 넘긴다.
-
-[feedback_nl_parser_hybrid] 핵심만 결정적 regex로 처리하고 phrasing마다 규칙을 늘리지
-않는다. LLM 없이 동작한다. parser/state-transition/response-generation을 분리한다.
-짧은 답·비질문 입력을 거절하지 않는다(파싱 실패 시 같은 질문을 자연스럽게 다시 한다).
+Published entry chips bind by exact equality. Other KR seed/input/control turns
+are interpreted as validated builder ops; unavailable verdicts preserve state.
+Legacy lexical helpers remain solely for the excluded US compatibility lane.
 """
 
 from __future__ import annotations
@@ -1287,6 +1282,8 @@ def seed_state(text: str) -> BuilderState:
     업종/섹터("반도체 주도주"·"2차전지 관련주")도 여기서 기억한다 — 종목 질문 리다이렉트
     뒤 업종 전략으로 넘어온 사용자에게 종목 범위를 다시 묻지 않는다(NL 파서의 결정적
     섹터 추출을 재사용, 정본=universe_pit)."""
+    if not _is_en():
+        return BuilderState()
     patch: dict = {}
     # 지연 import(무거운 엔진 모듈)
     from engine.nl_parser import _extract_sector, _mentioned_unsupported_concepts
@@ -2228,6 +2225,59 @@ def _answer_sector_reask(
 
 # 테마 되묻기 답 판정 — 칩 문구('이 종목들로만 백테스트' / '~업종 전체로 백테스트')와
 # 자유 표현을 모두 커버한다. 종목 선택은 '종목' 어휘가 있고 업종/전체 어휘가 없을 때만.
+def semantic_seed(state, text, interpreter):
+    if not text or interpreter is None:
+        return state
+    interpreted = interpreter(text, state)
+    if interpreted is None:
+        return state
+    patch, _ = interpreted
+    patch = {key: value for key, value in patch.items() if key in BuilderState.model_fields}
+    return BuilderState.model_validate({**state.model_dump(), **patch})
+
+
+def _step_semantic(state, text, sector_resolver, interpreter):
+    if not (text or "").strip():
+        return _semantic_reply(state, sector_resolver)
+    patch = _entry_chip_patch(text, state)
+    notes = []
+    if patch is None:
+        interpreted = interpreter(text, state) if interpreter is not None else None
+        if interpreted is None:
+            message, chips = next_question(state)
+            return StepResult(state=state.model_copy(update={"miss_streak": state.miss_streak + 1}),
+                reply=UNRECOGNIZED_HINT + "\n\n" + message, suggestions=chips, status="collecting")
+        patch, notes = interpreted
+    patch = dict(patch)
+    control = patch.pop("__control", None)
+    if control in ("cancel", "exit"):
+        return StepResult(state=BuilderState(), reply=CANCEL_REPLY if control == "cancel" else EXIT_REPLY, status="exited")
+    if control == "restart":
+        state = BuilderState(single_symbol=state.single_symbol, single_label=state.single_label)
+    patch = {key: value for key, value in patch.items() if key in BuilderState.model_fields}
+    if not patch and control != "confirm":
+        question, chips = next_question(state)
+        return StepResult(state=state, reply=question, suggestions=chips, notices=notes, status="collecting")
+    updated = BuilderState.model_validate({**state.model_dump(), **patch})
+    return _semantic_reply(updated, sector_resolver, notes)
+
+
+def _semantic_reply(state, sector_resolver, notes=()):
+    notice, reask, state = _consume_sector_notice(state, sector_resolver)
+    notices = [value for value in [notice, *notes] if value]
+    if state.sector_unresolved and reask is None:
+        term = state.sector_hint or "요청한 투자 대상"
+        question = f"'{term}' 투자 대상을 확인하지 못했어요. 적용할 범위를 다시 말씀해 주세요."
+        return StepResult(state=state, reply=question, suggestions=[], notices=notices, status="collecting")
+    if reask:
+        question, chips = reask
+        return StepResult(state=state, reply=question, suggestions=chips, notices=notices, status="collecting")
+    if required_missing(state) is None:
+        return StepResult(state=state, status="confirmed", prompt=synthesize_prompt(state), notices=notices)
+    question, chips = next_question(state)
+    return StepResult(state=state, reply=question, suggestions=chips, notices=notices, status="collecting")
+
+
 def step(
     state: BuilderState,
     text: str,
@@ -2251,6 +2301,8 @@ def step(
     단계 3 C안). None/실패면 기존 미인식 안내를 유지한다. 미인식 표현에 regex를
     추가하는 대신 이 레인이 긴 꼬리를 맡는다.
     """
+    if not _is_en():
+        return _step_semantic(state, text, sector_resolver, freetext_interpreter)
     if not (text or "").strip():
         notice, reask, state = _consume_sector_notice(state, sector_resolver)
         if reask:

@@ -38,6 +38,9 @@ def _cross_intent() -> StrategyIntent:
 
 
 def _stub_interpreter(monkeypatch, intent: StrategyIntent):
+    # Period tests begin after a fixed, successful semantic quote verdict.
+    from tests.test_strategy_conversation import _confirmed_ma_quotes
+    monkeypatch.setattr(primary, "_check_condition_quotes", _confirmed_ma_quotes)
     class _Result:
         pass
 

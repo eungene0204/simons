@@ -1591,6 +1591,14 @@ def _run_primary_with(monkeypatch, intent_data, user_input="테스트", unreflec
     return primary.run_primary_parse(user_input)
 
 
+def _confirmed_ma_quotes(intent, *_args, **_kwargs):
+    """Fixed accepted evidence for tests whose subject is outside quote policy."""
+    from strategy_conversation.interpreter.quote_check import QuoteVerdicts, Verdict, MA_FACTORS
+    return QuoteVerdicts([(c, Verdict("yes", "moving_average"))
+                          for field in ("entry_conditions", "exit_conditions")
+                          for c in getattr(intent.strategy, field) if c.factor in MA_FACTORS])
+
+
 def test_primary_ready_strategy_compiles_without_questions(monkeypatch):
     # user_input은 조건 인용("PER 10 이하")을 포함해야 한다 — 출처 인용 대조 가드(2026-08-14)가
     # 입력에 없는 인용의 조건을 환각으로 보고 빼기 때문(운영에선 인용이 발화에서 나온다).
@@ -2356,6 +2364,8 @@ def test_primary_unsupported_feature_already_reflected_not_noticed(monkeypatch):
     """[회귀 2026-09-10] 조건으로 반영된 인용을 미지원으로도 보고하면(프롬프트 4-1 위반)
     반영된 조건에 "지원하지 않아 반영하지 못했어요"가 붙는다 — 값-대기 대조와 같은 표기
     포함 판정으로 걷어낸다. 조건에 담을 수 없는 짧은 조각(배수 등)은 그대로 안내한다."""
+    from strategy_conversation import primary
+    monkeypatch.setattr(primary, "_check_condition_quotes", _confirmed_ma_quotes)
     data = _full_intent_dict(
         exit_conditions=[
             {"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
@@ -2528,6 +2538,8 @@ def test_primary_single_asset_target_from_llm_symbols(monkeypatch):
     + universe_resolver가 담당한다(nl_interpretation_contract § 3-2). 종목명→코드 매핑은
     LLM이 대체할 수 없는 지식 조회이므로 결정론 코드가 맡되, 입력은 원문이 아닌 term이다.
     """
+    from strategy_conversation import primary
+    monkeypatch.setattr(primary, "_check_condition_quotes", _confirmed_ma_quotes)
     data = _full_intent_dict(
         universe={"markets": ["KOSPI"], "sectors": [], "symbols": ["삼성전자"]},
         entry_conditions=[{"factor": "technical.ma_crossover", "source_text": "골든크로스",
@@ -2574,6 +2586,8 @@ def test_primary_unknown_theme_sector_reaches_term_in_chain(monkeypatch):
 
 def test_primary_universe_strategy_keeps_exit_question(monkeypatch):
     """지정 종목이 없으면 청산 누락 되묻기는 그대로 유지된다."""
+    from strategy_conversation import primary
+    monkeypatch.setattr(primary, "_check_condition_quotes", _confirmed_ma_quotes)
     data = _full_intent_dict(
         entry_conditions=[{"factor": "technical.ma_crossover", "source_text": "골든크로스",
                            "parameters": {"short_period": 5, "long_period": 20}}],
@@ -3146,6 +3160,9 @@ def test_modify_primary_survives_bollinger_entry_exit_pair(monkeypatch):
         "patches": [{"op": "replace", "path": "/universe/markets", "value": ["KOSDAQ"],
                      "source_text": "코스닥으로 유니버스를 변경"}],
     })
+    from strategy_conversation import primary
+    primary._interpreter_singleton._chat = lambda *a, **k: json.dumps({
+        "verdict": "yes", "quote": "코스닥으로 유니버스를 변경"})
     prev_data = _rich_parsed().model_dump()
     prev_data["fundamental_filters"] = []
     prev_data["entry_signals"] = [
@@ -3672,7 +3689,7 @@ def test_primary_create_recovers_time_exit_without_dropping_ma_exit(monkeypatch)
         "number_text": "10", "count": 10, "unit": "day",
     })
     monkeypatch.setattr(primary, "_interpreter_singleton", stub)
-    monkeypatch.setattr(primary, "_check_condition_quotes", lambda *_args: QuoteVerdicts([]))
+    monkeypatch.setattr(primary, "_check_condition_quotes", _confirmed_ma_quotes)
     monkeypatch.setattr(config, "condition_recall_enabled", lambda: False)
     monkeypatch.setattr(llm_backend, "is_openrouter", lambda: False)
 

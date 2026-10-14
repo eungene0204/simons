@@ -131,6 +131,10 @@ class IntentResult(BaseModel):
     # 질문**("어떤 회사들이 있어?")을 가른다 — 소속은 분류 사실이라 거절하지 않는다.
     # 값이 있으면 suggested_reply는 정본 데이터에서 만든 가나다순 목록이다.
     list_scope: Optional[str] = None
+    # Structured turn routing; only the existing classification LLM assigns meaning.
+    turn_action: Optional[str] = None
+    research_metric: Optional[str] = None
+    backtest_period_years: Optional[float] = None
 
 
 class ChatTurn(BaseModel):

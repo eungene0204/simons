@@ -197,6 +197,8 @@ interface ChatMessage {
   role: "user" | "assistant";
   content?: string;
   parsed?: ParsedSummary;
+  strategyVersion?: { draft_id: string; revision: number; state_hash: string };
+  serverParsed?: ParsedSummary;
   coachText?: string;
   clarification?: string;
   clarificationSuggestions?: string[];
@@ -1905,6 +1907,11 @@ function StrategyLabContent() {
   // 보낼 때까지 꺼 두고, 위치는 위 pendingScrollToEnd(최대 스크롤)가 정한다.
   const chatAutoScrollEnabledRef = useRef(false);
   const latestParsedRef = useRef<ParsedSummary | null>(null);
+  const strategyVersionRef = useRef<{ draft_id: string; revision: number; state_hash: string | null } | null>(null);
+  const serverParsedRef = useRef<ParsedSummary | null>(null);
+  const versionDisplayRef = useRef<ParsedSummary | null>(null);
+  const parseSequenceRef = useRef(0);
+  const versionRestoreAllowedRef = useRef(true);
   const backtestReqRef = useRef<any>(null);
   const coachSessionIdRef = useRef<string | null>(null);
   const coachConversationRef = useRef<CoachConversationMessage[]>([]);
@@ -2051,6 +2058,11 @@ function StrategyLabContent() {
     setBuilderFreeTextRequested(false);
     setExplicitNoRebalancing(false);
     latestParsedRef.current = null;
+    strategyVersionRef.current = null;
+    serverParsedRef.current = null;
+    versionDisplayRef.current = null;
+    versionRestoreAllowedRef.current = false;
+    parseSequenceRef.current += 1;
     backtestReqRef.current = null;
     coachSessionIdRef.current = null;
     coachConversationRef.current = [];
@@ -2398,7 +2410,15 @@ function StrategyLabContent() {
 
   useEffect(() => {
     latestParsedRef.current = latestParsed;
-  }, [latestParsed]);
+    if (versionRestoreAllowedRef.current && !strategyVersionRef.current && latestParsed) {
+      const saved = [...messages].reverse().find(message => message.parsed);
+      if (saved?.strategyVersion && saved.serverParsed && JSON.stringify(saved.parsed) === JSON.stringify(latestParsed)) {
+        strategyVersionRef.current = saved.strategyVersion;
+        serverParsedRef.current = saved.serverParsed;
+        versionDisplayRef.current = latestParsed;
+      }
+    }
+  }, [latestParsed, messages]);
 
   useEffect(() => {
     backtestReqRef.current = backtestReq;
@@ -3312,13 +3332,16 @@ function StrategyLabContent() {
         // 소속 목록이 성립한 업종/테마 — 있으면 suggested_reply가 정본 목록이다.
         listScope: data.list_scope ?? null,
         interpretationFailed: Boolean(data.interpretation_failed),
+        turnAction: data.turn_action ?? null,
+        researchMetric: data.research_metric ?? null,
+        backtestPeriodYears: data.backtest_period_years ?? null,
       };
       return { classification, history };
     } catch (e) {
       // '대화 종료'로 끊긴 분류는 폴백 분류로 이어가지 않는다 — 턴 자체를 끝낸다.
       if (isChatAbort(e)) throw e;
       return {
-        classification: { intent: "STRATEGY_ADVICE" as const },
+        classification: { intent: "UNKNOWN" as const, interpretationFailed: true },
         history,
       };
     }
@@ -3348,6 +3371,19 @@ function StrategyLabContent() {
         pendingAsk: pendingAskRef.current,
       },
     };
+    const requestSequence = ++parseSequenceRef.current;
+    if (JSON.stringify(currentParsed) !== JSON.stringify(versionDisplayRef.current)) {
+      versionRestoreAllowedRef.current = false;
+      strategyVersionRef.current = null;
+      serverParsedRef.current = currentParsed;
+    }
+    if (!strategyVersionRef.current) {
+      strategyVersionRef.current = { draft_id: crypto.randomUUID(), revision: 0, state_hash: null };
+      serverParsedRef.current = currentParsed;
+      versionDisplayRef.current = currentParsed;
+    }
+    const requestVersion = { ...strategyVersionRef.current };
+    const serverBaseline = serverParsedRef.current ?? currentParsed;
     // NL 파서 규칙 파싱 단계 — 'parsing...' 표시. LLM 폴백 시 'thinking...'으로 전환된다.
     updateLastAssistant({ isLoading: true, loadingStage: "parsing" });
     const res = await fetch("/api/strategy/parse/stream", {
@@ -3357,7 +3393,10 @@ function StrategyLabContent() {
       body: JSON.stringify({
         prompt: promptText,
         backend: "ollama",
-        ...(currentParsed ? { previous_parsed: currentParsed } : {}),
+        ...(serverBaseline ? { previous_parsed: serverBaseline } : {}),
+        draft_id: requestVersion.draft_id,
+        expected_revision: requestVersion.revision,
+        expected_state_hash: requestVersion.state_hash,
         // 코치 맥락 리스크 해석을 백엔드가 하도록 직전 코치 문장을 넘긴다(수정 모드).
         // "익절 추천" 뒤 "10%" 같은 필드 없는 답을 백엔드가 코치 맥락으로 귀속한다(FR-STR-019e).
         ...(currentParsed ? { previous_coach_text: lastCoachText() } : {}),
@@ -3381,6 +3420,10 @@ function StrategyLabContent() {
         previous_field_states: fieldStatesRef.current,
       }),
     });
+    if (requestSequence !== parseSequenceRef.current) {
+      await res.body?.cancel();
+      return;
+    }
     if (!res.ok || !res.body) {
       const err = await res.json();
       throw new Error(err.detail ?? t("파싱 실패"));
@@ -3426,7 +3469,7 @@ function StrategyLabContent() {
     };
 
     const finalizeParse = (backtestRequest: any, symbolCount?: number | null) => {
-      if (!parsedPayload) return;
+      if (!parsedPayload || requestSequence !== parseSequenceRef.current) return;
       const nextBacktestRequest = backtestRequest
         ? { ...backtestRequest, symbol_count: symbolCount ?? backtestRequest.symbol_count }
         : backtestRequest;
@@ -3440,6 +3483,15 @@ function StrategyLabContent() {
       });
 
       const nextParsed = mergedResponse.parsed;
+      if (parsedPayload.strategy_version) {
+        strategyVersionRef.current = parsedPayload.strategy_version;
+        serverParsedRef.current = parsedPayload.parsed;
+        versionDisplayRef.current = nextParsed;
+      } else {
+        strategyVersionRef.current = null;
+        serverParsedRef.current = null;
+        versionDisplayRef.current = null;
+      }
       const nextBacktestReq = mergedResponse.backtestRequest;
 
       coachSessionIdRef.current = null;
@@ -3583,6 +3635,8 @@ function StrategyLabContent() {
           ? metricOptimizationSuggestions(optimizationDraft)
           : undefined,
         parsed: nextParsed,
+        strategyVersion: parsedPayload.strategy_version ?? undefined,
+        serverParsed: parsedPayload.strategy_version ? parsedPayload.parsed : undefined,
         clarification: clarificationText ?? undefined,
         clarificationSuggestions: clarificationText ? clarificationSuggestions : undefined,
         clarificationField: clarificationText
@@ -3611,6 +3665,10 @@ function StrategyLabContent() {
 
     while (true) {
       const { done, value } = await reader.read();
+      if (requestSequence !== parseSequenceRef.current) {
+        await reader.cancel();
+        return;
+      }
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const parts = buffer.split("\n\n");

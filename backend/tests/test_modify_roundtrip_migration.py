@@ -446,6 +446,8 @@ def test_market_only_patch_filters_theme_symbols(monkeypatch):
     시장 패치는 검증을 통과해도 지정 종목 모드에선 실행에 반영되지 않아(변환기가
     target_symbols 우선) 무변경으로 끝났다. 패치 적용 후 테마 유래 종목을 종목
     마스터 정본 소속으로 결정론 필터링한다(삼성전자=KOSPI 유지, 고영=KOSDAQ 제외)."""
+    from strategy_conversation.interpreter import patch_scope_check
+    monkeypatch.setattr(patch_scope_check, "market_patch_scope_verdict", lambda *a: True)
     _stub_interpreter(monkeypatch, StrategyIntent.model_validate({
         "intent": "MODIFY_STRATEGY",
         "patches": [{"op": "replace", "path": "/universe/markets",
@@ -474,6 +476,8 @@ def test_market_switch_rederives_from_full_theme(monkeypatch):
     """[회귀 2026-08-02 2차] 코스피로 좁힌 테마 전략에 "코스닥 종목만" — 현재 목록엔
     코스닥이 0곳이므로 테마 전체 구성에서 코스닥 소속으로 다시 좁힌다(무변경 금지)."""
     import engine.knowledge_graph as kg
+    from strategy_conversation.interpreter import patch_scope_check
+    monkeypatch.setattr(patch_scope_check, "market_patch_scope_verdict", lambda *a: True)
 
     monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: {
         "term": "HBM",
@@ -509,6 +513,8 @@ def test_unmet_market_constraint_keeps_strategy_and_notifies(monkeypatch):
     되돌려 전략을 원상 유지하고, 반영하지 못했음을 안내한다(침묵 금지: universe만
     뒤집힌 채 무안내로 끝나 오타 미해석으로 오인되던 사고)."""
     import engine.knowledge_graph as kg
+    from strategy_conversation.interpreter import patch_scope_check
+    monkeypatch.setattr(patch_scope_check, "market_patch_scope_verdict", lambda *a: True)
 
     monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: {
         "term": "HBM",

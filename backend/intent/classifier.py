@@ -827,6 +827,10 @@ def _apply_domain_policy(
         clarify_target=clarify_target,
         fact_metric=fact_metric,
         list_scope=list_scope,
+        turn_action=interp.turn_action if interp.intent in (QueryIntent.STRATEGY_ADVICE,
+            QueryIntent.GENERAL_INVESTMENT, QueryIntent.STRATEGY_PICK, QueryIntent.UNKNOWN) else None,
+        research_metric=interp.research_metric,
+        backtest_period_years=interp.backtest_period_years,
     )
 
 
@@ -851,7 +855,8 @@ def classify(
 
     롤백(INTENT_CLASSIFIER_MODE=legacy): 아래 원문 정규식 레인. 계약 위반 상태로
     보존만 하며 기본 경로가 아니다. 워크플로 제어는 지원하지 않고 상태만 통과시킨다."""
-    if classifier_mode() == "legacy":
+    import ui_language
+    if ui_language.get_ui_language() == "en" and classifier_mode() == "legacy":
         legacy = _classify_legacy(query, last_symbol, llm, history)
         return legacy.model_copy(update={"workflow_status": workflow_status})
 
