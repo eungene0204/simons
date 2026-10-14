@@ -1,5 +1,10 @@
 # CLAUDE.md
 
+### 2026-10-14 KR 남은 구현 전체 반영
+
+사용자 승인으로 앞서 남긴 세 구현을 모두 `../simons-wt/interpretation-replay-stage2`에 작성했다. 활성 KR 프론트/파서·빌더는 구조화 LLM 판정만 의미 권위로 사용하고 regex 롤백을 열지 않는다. 모든 고지 후보의 생산자/필드 근거를 최종 값과 대조한다. 서버 revision/hash/최신 요청 lease의 실제 CAS, 채팅 복원의 version 에코와 늦은 응답 차단을 연결했다. 레거시 정의는 보존하며 활성 KR 해석기로 쓰지 않는다. US·검증은 제외했고 모든 검사는 NOT_RUN, 원래 checkout backend 복사·커밋·운영 적용은 하지 않았다. 아래 격차 표는 원래 checkout 및 과거 상태를 포함한다. 현재 격리 구현의 범위는 [전체 완료 기록](docs/development/interpretation-stability-all-remaining-2026-10-14.md)을 따른다.
+
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ---
@@ -216,6 +221,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 
 ## 개발 명령어
+
+### KR 잔여 안정화 구현 상태 (2026-10-14)
+
+사용자 지시로 US와 게이트/검증을 제외한 잔여 구현을 `../simons-wt/interpretation-replay-stage2`에 작성했다. KR primary의 역할·EMA·기간·보유/리스크 신고 의미 대조는 구조화 LLM 출력으로 옮기고 원문 override 호출을 차단했다. 도메인 그룹 보류와 KR 최종 고지 조립도 연결했다. 원래 checkout backend에는 적용하지 않았으며 모든 검증은 NOT_RUN이다. 아래 미이관 표의 다른 boundary/레거시 부채를 해결 완료로 바꾸지 않는다. [현재 범위·추가 호출·미검증 상태](docs/development/interpretation-stability-remaining-2026-10-14.md).
 
 ### 테스트
 ```bash
