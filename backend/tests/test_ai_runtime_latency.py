@@ -1,6 +1,8 @@
 import os
 import sys
 
+import time
+
 import pytest
 
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
@@ -101,17 +103,24 @@ async def _collect_sse(response):
 
 
 @pytest.mark.asyncio
-async def test_parse_stream_emits_thinking_stage_when_parser_falls_back(monkeypatch):
-    """파서가 on_stage('thinking')을 호출하면 스트림에 thinking 단계가 실린다."""
+async def test_parse_stream_emits_thinking_stage_when_interpreter_reports_it(monkeypatch):
+    """해석기가 on_stage('thinking')을 알리면 스트림에 thinking 단계가 parsing 뒤에 실린다."""
     monkeypatch.setenv("LLM_BACKEND", "ollama")
+    from strategy_conversation import primary
+    from test_strategy_conversation import _StubPrimaryInterpreter, _full_intent_dict
 
-    class _LLMFallbackParser:
-        def parse(self, _prompt, on_stage=None, on_validation=None, defer_validation=False):
+    class _ThinkingInterpreter(_StubPrimaryInterpreter):
+        def interpret(self, user_input, draft=None, pending_question=None, on_stage=None, **kwargs):
             if on_stage is not None:
                 on_stage("thinking")
-            return _DummyParsed()
+            time.sleep(0.25)  # 스트림의 단계 폴링(0.1s) 주기가 전환을 확실히 관측하도록
+            return super().interpret(user_input, draft, pending_question, on_stage=on_stage, **kwargs)
 
-    main._nl_parsers["ollama"] = _LLMFallbackParser()
+    monkeypatch.setattr(primary, "_interpreter_singleton", _ThinkingInterpreter(_full_intent_dict()))
+    monkeypatch.setattr(primary.config, "condition_recall_enabled", lambda: False)
+    monkeypatch.setattr(primary.config, "call_reduction_enabled", lambda: False)
+    monkeypatch.setattr(primary.config, "dag_planner_mode", lambda: "off")
+    monkeypatch.setattr(primary.config, "parallel_parse_enabled", lambda: False)
     main._nl_parse_cache.clear()
     main._reset_ai_runtime_metrics_for_tests()
 
@@ -125,7 +134,6 @@ async def test_parse_stream_emits_thinking_stage_when_parser_falls_back(monkeypa
         payloads = await _collect_sse(response)
     finally:
         main._nl_parse_cache.clear()
-        main._nl_parsers.pop("ollama", None)
 
     import json
     stages = [json.loads(p)["stage"] for p in payloads if p != "[DONE]" and json.loads(p)["type"] == "stage"]

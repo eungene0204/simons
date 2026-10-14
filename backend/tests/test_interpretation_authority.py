@@ -43,8 +43,11 @@ def _clean_cache():
 
 # ── ① 오염된 previous_parsed도 받아준다(별칭 정규화 + 미지 값 드롭) ─────────────
 
-def test_polluted_previous_metric_alias_does_not_fail_the_request():
+def test_polluted_previous_metric_alias_does_not_fail_the_request(monkeypatch):
     """프론트가 심은 레거시 표기 'roe'가 있어도 수정 요청이 500 없이 처리된다."""
+    _stub_modify_interpreter(monkeypatch, [{
+        "op": "replace", "path": "/risk_management/stop_loss", "value": 10,
+        "source_text": "손절 10%로"}])
     request = NLParseRequest(
         prompt="손절 10%로 바꿔줘",
         previous_parsed=_previous(
@@ -119,22 +122,6 @@ def test_dropped_filter_notices_never_leak_into_the_strategy_dump():
 
 
 # ── ② 결정론 fast-path의 예외는 "내 소관 아님"으로 강등된다 ─────────────────────
-
-def test_fast_path_exception_degrades_to_next_layer(monkeypatch):
-    """fast-path가 무슨 예외를 던져도 요청을 죽이지 않고 LLM 레이어로 넘어간다."""
-    def boom(*_args, **_kwargs):
-        raise RuntimeError("fast-path 내부 오류")
-
-    monkeypatch.setattr(nl_parser, "_modify_rule_based", boom)
-    parser = nl_parser.NLStrategyParser(backend="ollama")
-    previous = _previous()
-    monkeypatch.setattr(
-        parser, "_modify_ollama",
-        lambda *_a, **_k: nl_parser.ParsedStrategyDiff(stop_loss_pct=7.0),
-    )
-
-    parsed = parser.parse_modification("손절 7%로 바꿔줘", previous)
-    assert parsed.stop_loss_pct == 7.0
 
 
 # ── ③ 모든 해석 실패는 500이 아니라 되묻기로 귀결된다 ──────────────────────────

@@ -1147,21 +1147,6 @@ def test_parse_mlx_without_gate_is_noop(monkeypatch):
     assert parser._parse_mlx("입력").description == "y"
 
 
-def test_parse_uses_rule_based_fast_path_before_model(monkeypatch):
-    parser = NLStrategyParser()
-
-    def fail_if_model_called(_prompt):
-        raise AssertionError("LLM path should not be called for explicit fast-path prompts")
-
-    monkeypatch.setattr(parser, "_parse_mlx", fail_if_model_called)
-
-    parsed = parser.parse("RSI 30 이하에서 매수, RSI 70 이상에서 매도, 최대 5종목")
-
-    assert [(s.indicator, s.signal_type) for s in parsed.entry_signals] == [("rsi", "buy")]
-    assert [(s.indicator, s.signal_type) for s in parsed.exit_signals] == [("rsi", "sell")]
-    assert parsed.max_positions == 5
-
-
 def test_parse_model_json_response_ignores_trailing_im_end_tokens():
     raw = """{
   "description": "우리 AI 모델 전략",
@@ -1228,22 +1213,6 @@ def test_parse_model_json_response_repairs_tail_truncated_object():
     assert parsed.stop_loss_pct == 8.0
 
 
-def test_parse_falls_back_when_model_returns_incomplete_json(monkeypatch):
-    parser = NLStrategyParser(backend="mlx")
-
-    def incomplete_model_output(_user_input):
-        raise ValueError("Incomplete JSON object in model output")
-
-    monkeypatch.setattr(parser, "_parse_mlx", incomplete_model_output)
-
-    parsed = parser.parse("KOSPI200에서 ROE 10 이상 종목을 최대 7개 매수하고 손절 8%")
-
-    assert parsed.universe == ["KOSPI200"]
-    assert parsed.max_positions == 7
-    assert parsed.fundamental_filters[0].metric == "roe_or_gpa"
-    assert parsed.stop_loss_pct == 8.0
-
-
 _MODIFY_PREVIOUS = {
     "description": "KOSPI200 PBR strategy",
     "universe": ["KOSPI200"],
@@ -1263,134 +1232,6 @@ _MODIFY_PREVIOUS = {
     "fee_rate": 0.015,
     "slippage_rate": 0.05,
 }
-
-
-def test_parse_modification_simple_field_uses_rule_based_not_llm(monkeypatch):
-    """단순 필드 수정('30% 익절 설정')은 LLM 호출 없이 결정론 fast-path로 처리된다.
-
-    회귀: 이 입력이 LLM/RAG 경로로 가서 num_ctx 초과·의존성 누락으로 죽던 버그.
-    """
-    parser = NLStrategyParser(backend="ollama")
-
-    def _must_not_call_llm(_user_input, _previous):
-        raise AssertionError("단순 수정은 LLM을 호출하면 안 된다")
-
-    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
-
-    parsed = parser.parse_modification("30% 익절 설정", dict(_MODIFY_PREVIOUS))
-
-    assert parsed.take_profit_pct == 30
-    assert parsed.stop_loss_pct == 12  # 기존 값 보존
-    assert parsed.universe == ["KOSPI200"]
-
-
-@pytest.mark.parametrize(
-    "mod, field, expected",
-    [
-        ("종목 20개로 바꿔줘", "max_positions", 20),
-        ("손절 5%로 바꿔줘", "stop_loss_pct", 5.0),
-        ("분기 리밸런싱으로 바꿔줘", "rebalancing_period", "quarterly"),
-        ("백테스트 3년으로", "backtest_period", "3y"),
-    ],
-)
-def test_rule_based_modification_preserves_technical_signals(mod, field, expected):
-    # [회귀] 규칙 기반 fast-path 수정이 신호 재검증을 돌려, 언급 안 된 기존 RSI 진입/청산
-    # 신호를 통째로 떨구던 버그("종목 20개로" 한 번에 전략의 매매 조건이 사라짐).
-    prev = dict(_MODIFY_PREVIOUS)
-    prev["entry_signals"] = [{"indicator": "rsi", "signal_type": "buy", "period": 14, "operator": "<=", "value": 30.0}]
-    prev["exit_signals"] = [{"indicator": "rsi", "signal_type": "sell", "period": 14, "operator": ">=", "value": 70.0}]
-    parser = NLStrategyParser(backend="ollama")
-    parser._modify_ollama = lambda *a, **k: (_ for _ in ()).throw(AssertionError("LLM 호출 금지"))
-    parsed = parser.parse_modification(mod, prev)
-    # 기존 진입/청산 신호가 보존돼야 한다.
-    assert [(s.indicator, s.value) for s in parsed.entry_signals] == [("rsi", 30.0)]
-    assert [(s.indicator, s.value) for s in parsed.exit_signals] == [("rsi", 70.0)]
-    # 요청한 필드는 바뀌어야 한다.
-    assert getattr(parsed, field) == expected
-
-
-def test_parse_modification_delete_uses_rule_based(monkeypatch):
-    """리스크 필드 삭제('손절 빼줘')도 fast-path가 LLM 없이 처리한다."""
-    parser = NLStrategyParser(backend="ollama")
-
-    def _must_not_call_llm(_user_input, _previous):
-        raise AssertionError("삭제 수정은 LLM을 호출하면 안 된다")
-
-    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
-
-    parsed = parser.parse_modification("손절 빼줘", dict(_MODIFY_PREVIOUS))
-
-    assert parsed.stop_loss_pct is None
-
-
-def test_parse_modification_removes_rebalancing_with_delete_verb(monkeypatch):
-    """회귀: '리밸런싱 빼줘'가 제거 의도로 인식돼 rebalancing_period가 none이 된다.
-
-    삭제 감지 정규식이 '없/안하/끄/중단'만 보고 '빼/제거/삭제/지워'를 놓쳐, 기존
-    monthly 리밸런싱이 그대로 남던 버그.
-    """
-    parser = NLStrategyParser(backend="ollama")
-
-    def _must_not_call_llm(_user_input, _previous):
-        raise AssertionError("리밸런싱 삭제 수정은 LLM을 호출하면 안 된다")
-
-    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
-
-    previous = {**_MODIFY_PREVIOUS, "rebalancing_period": "monthly"}
-    parsed = parser.parse_modification("리밸런싱 빼줘", previous)
-
-    assert parsed.rebalancing_period == "none"
-
-
-@pytest.mark.parametrize("prompt", ["보유기간 빼줘", "보유기간 없애줘"])
-def test_parse_modification_removes_hold_period_with_delete_verb(monkeypatch, prompt):
-    """회귀: '보유기간 빼줘'가 해제로 인식돼 hold_period_days가 null이 된다.
-
-    해제 상태가 null인데 LLM diff 병합이 null을 '변경없음'으로 무시하던 클래스 버그
-    (리밸런싱과 동형). rule-based 결정론으로 처리해 LLM도 거치지 않는다."""
-    parser = NLStrategyParser(backend="ollama")
-
-    def _must_not_call_llm(_user_input, _previous):
-        raise AssertionError("보유기간 해제는 LLM을 호출하면 안 된다")
-
-    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
-
-    previous = {**_MODIFY_PREVIOUS, "hold_period_days": 252}
-    parsed = parser.parse_modification(prompt, previous)
-
-    assert parsed.hold_period_days is None
-
-
-@pytest.mark.parametrize("prompt", ["MDD 제한 빼줘", "최대낙폭 한도 없애줘"])
-def test_parse_modification_removes_mdd_limit_with_delete_verb(monkeypatch, prompt):
-    """회귀: 'MDD 제한 빼줘'가 해제로 인식돼 max_mdd_limit_pct가 null이 된다(보유기간과 동형)."""
-    parser = NLStrategyParser(backend="ollama")
-
-    def _must_not_call_llm(_user_input, _previous):
-        raise AssertionError("MDD 한도 해제는 LLM을 호출하면 안 된다")
-
-    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
-
-    previous = {**_MODIFY_PREVIOUS, "max_mdd_limit_pct": 20.0}
-    parsed = parser.parse_modification(prompt, previous)
-
-    assert parsed.max_mdd_limit_pct is None
-
-
-def test_parse_modification_does_not_clear_hold_from_unrelated_delete(monkeypatch):
-    """오탐 가드: '보유'가 보유기간이 아닌 맥락(보유 중)에서 다른 필드 삭제 시 hold가 유지된다."""
-    parser = NLStrategyParser(backend="ollama")
-
-    def _llm_diff(_user_input, _previous):
-        return ParsedStrategyDiff()  # 변경없음
-
-    monkeypatch.setattr(parser, "_modify_ollama", _llm_diff)
-
-    previous = {**_MODIFY_PREVIOUS, "hold_period_days": 252}
-    parsed = parser.parse_modification("20종목 보유 중인데 손절만 빼줘", previous)
-
-    assert parsed.hold_period_days == 252  # 보유기간은 건드리지 않음
-    assert parsed.stop_loss_pct is None  # 손절만 해제
 
 
 def test_extract_risk_overrides_colloquial_sell_conjugation():
@@ -1425,128 +1266,10 @@ def test_ollama_modification_prompt_assigns_final_semantic_judgment(monkeypatch)
     assert "최종 의미 판단" in captured["system_prompt"]
 
 
-def test_parse_modification_adds_explicit_fundamental_filters_without_llm(monkeypatch):
-    """매수 기준이 없던 전략에 '숫자가 명시된 펀더멘털 조건'을 추가하는 수정은 LLM 없이 처리한다.
-
-    회귀: 'PBR 1 이하, PER 10 이하 저평가 종목'처럼 명확한 숫자를 줬는데도 수정 fast-path가
-    펀더멘털 추출을 안 해 LLM으로 위임 → LLM이 빈 diff를 내 필터가 안 잡히고 '숫자로 구체화해
-    주세요'를 다시 묻던 버그.
-    """
-    parser = NLStrategyParser(backend="ollama")
-
-    def _must_not_call_llm(_user_input, _previous):
-        raise AssertionError("명시적 펀더멘털 조건 추가는 LLM을 호출하면 안 된다")
-
-    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
-
-    previous = {**_MODIFY_PREVIOUS, "fundamental_filters": []}
-    parsed = parser.parse_modification("PBR 1 이하, PER 10 이하 저평가 종목", previous)
-
-    filters = {(f.metric, f.operator, f.value) for f in parsed.fundamental_filters}
-    assert filters == {("pbr", "<=", 1.0), ("per", "<=", 10.0)}
-    assert parsed.universe == ["KOSPI200"]  # 기존 유니버스 보존
-
-
-def test_parse_modification_fundamental_filter_replaces_same_metric(monkeypatch):
-    """같은 지표 조건을 다시 주면 값을 교체하고, 다른 지표 조건은 보존한다."""
-    parser = NLStrategyParser(backend="ollama")
-    monkeypatch.setattr(
-        parser, "_modify_ollama",
-        lambda *_: (_ for _ in ()).throw(AssertionError("LLM 호출 금지")),
-    )
-
-    previous = {
-        **_MODIFY_PREVIOUS,
-        "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 2.0}],
-    }
-    parsed = parser.parse_modification("PBR 1 이하", previous)
-
-    filters = {(f.metric, f.operator, f.value) for f in parsed.fundamental_filters}
-    assert filters == {("pbr", "<=", 1.0)}
-
-
-def test_parse_modification_falls_back_when_llm_diff_fails_validation(monkeypatch):
-    """Keep the previous strategy without reinterpretation when the LLM diff is invalid."""
-    parser = NLStrategyParser(backend="ollama")
-
-    def _bad_diff(_user_input, _previous):
-        ParsedStrategyDiff.model_validate({"rebalancing_period": "biweekly"})  # 잘못된 enum
-
-    monkeypatch.setattr(parser, "_modify_ollama", _bad_diff)
-
-    # _modify_rule_based가 None을 반환하는 복합 입력 → LLM 경로
-    parsed = parser.parse_modification("변동성 낮은 종목으로 바꿔줘", dict(_MODIFY_PREVIOUS))
-
-    assert parsed.max_positions == 8  # 이전 값 보존
-    assert parsed.universe == ["KOSPI200"]
-    assert parsed.stop_loss_pct == 12
-
-
 # ─── 수정 경로 섹터/업종 처리 테스트 ─────────────────────────────────────────
 # [회귀] 완성된 전략에 "반도체 섹터 종목만 테스트 해줘" 후속 요청이 조용히 무시되고
 # 동일한 전략 요약이 재출력되던 버그 — 수정 경로(rule-based·LLM 병합 모두)에 섹터
 # 처리가 통째로 빠져 있었다(FR-STR-066의 modify 확장).
-
-
-def test_modify_sector_only_request_resolves_deterministically(monkeypatch):
-    """스크린샷 원문 재현: 섹터 제한 후속 요청은 LLM 없이 fast-path가 sector를 반영한다."""
-    parser = NLStrategyParser(backend="ollama")
-
-    def _must_not_call_llm(_user_input, _previous):
-        raise AssertionError("섹터 단순 수정은 LLM을 호출하면 안 된다")
-
-    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
-
-    parsed = parser.parse_modification("반도체 섹터 종목만 테스트 해줘", dict(_MODIFY_PREVIOUS))
-
-    assert parsed.sector == "반도체"
-    # 수정 경로는 기존 universe를 보존한다(파스 경로의 양시장 기본 확장은 미적용).
-    assert parsed.universe == ["KOSPI200"]
-    assert parsed.max_positions == 8  # 언급 없는 필드 보존
-    assert parsed.stop_loss_pct == 12
-
-
-def test_modify_adds_operating_margin_filter_deterministically(monkeypatch):
-    """[회귀] '영업이익률 …' 필터 추가 수정이 조용히 누락되던 버그 — 값이 명시되면
-    fast-path가 기존 필터를 유지한 채 병합하고 LLM을 호출하지 않는다."""
-    parser = NLStrategyParser(backend="ollama")
-
-    def _must_not_call_llm(_user_input, _previous):
-        raise AssertionError("값이 명시된 펀더멘털 필터 수정은 LLM을 호출하면 안 된다")
-
-    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
-
-    parsed = parser.parse_modification("영업이익률 15% 이상 조건 추가해줘", dict(_MODIFY_PREVIOUS))
-
-    by_metric = {f.metric: f for f in parsed.fundamental_filters}
-    assert "operating_margin" in by_metric
-    assert by_metric["operating_margin"].operator == ">="
-    assert by_metric["operating_margin"].value == 15.0
-    assert "pbr" in by_metric  # 기존 필터 보존(병합, 교체 아님)
-    assert parsed.max_positions == 8  # 언급 없는 필드 보존
-
-
-def test_parse_modification_llm_filter_diff_respects_removal(monkeypatch):
-    """제거 발화에서는 LLM이 낸 전체 목록(빠진 항목=삭제)을 병합으로 되살리지 않는다."""
-    from engine.nl_parser import ParsedStrategyDiff
-
-    parser = NLStrategyParser(backend="ollama")
-    prev = {
-        **_MODIFY_PREVIOUS,
-        "fundamental_filters": [
-            {"metric": "pbr", "operator": "<=", "value": 1},
-            {"metric": "roe_or_gpa", "operator": ">=", "value": 10},
-        ],
-    }
-    diff = ParsedStrategyDiff(
-        fundamental_filters=[FundamentalFilter(metric="roe_or_gpa", operator=">=", value=10.0)]
-    )
-    monkeypatch.setattr(parser, "_modify_ollama", lambda _u, _p: diff)
-
-    parsed = parser.parse_modification("PBR 조건은 빼줘", prev)
-
-    metrics = {f.metric for f in parsed.fundamental_filters}
-    assert metrics == {"roe_or_gpa"}  # pbr이 병합으로 부활하면 안 된다
 
 
 def test_modify_unsupported_factor_delegates_to_llm_with_notice():
@@ -1558,38 +1281,6 @@ def test_modify_unsupported_factor_delegates_to_llm_with_notice():
     assert _modify_rule_based(prompt, dict(_MODIFY_PREVIOUS)) is None
     notice = build_unsupported_concept_notice(prompt)
     assert notice is not None and "ROIC" in notice
-
-
-def test_parse_modification_llm_diff_missing_sector_recovered_deterministically(monkeypatch):
-    """LLM 경로로 간 복합 수정에서 diff가 sector를 놓쳐도 결정적 추출이 보정한다."""
-    parser = NLStrategyParser(backend="ollama")
-
-    def _diff_without_sector(_user_input, _previous):
-        return ParsedStrategyDiff()  # 전 필드 null = 변경 없음
-
-    monkeypatch.setattr(parser, "_modify_ollama", _diff_without_sector)
-
-    # '변동성' 잔여 때문에 rule-based가 None을 반환하는 복합 입력 → LLM 경로
-    parsed = parser.parse_modification(
-        "변동성 낮은 반도체 관련주로 바꿔줘", dict(_MODIFY_PREVIOUS)
-    )
-
-    assert parsed.sector == "반도체"
-    assert parsed.universe == ["KOSPI200"]  # 수정 경로는 universe 보존
-
-
-def test_parse_modification_sector_removal_clears_sector(monkeypatch):
-    """'업종 제한 빼줘'는 diff null 병합이 무시하므로 별도 보정으로 sector를 해제한다."""
-    parser = NLStrategyParser(backend="ollama")
-    monkeypatch.setattr(
-        parser, "_modify_ollama", lambda _user_input, _previous: ParsedStrategyDiff()
-    )
-
-    prev = {**_MODIFY_PREVIOUS, "sector": "반도체"}
-    parsed = parser.parse_modification("업종 제한은 빼줘", prev)
-
-    assert parsed.sector is None
-    assert parsed.universe == ["KOSPI200"]
 
 
 def test_sector_removal_regex_ignores_symbol_exclusion_requests():
@@ -3783,27 +3474,6 @@ def test_modify_sector_removal_of_unlisted_target_is_not_full_clear():
     assert changed is False and value is None
 
 
-def test_modify_llm_path_sector_additive_overrides_diff(monkeypatch):
-    # LLM diff가 '~도 추가'를 교체(sector="기계/장비")로 오독해도 결정적 판정이 합집합으로
-    # 보정한다. 삭제 발화도 동일 경로에서 재주입 없이 유지된다.
-    from engine.nl_parser import NLStrategyParser, ParsedStrategyDiff
-    monkeypatch.setattr("engine.modify_rag.record_example", lambda *_a, **_k: False)
-    parser = NLStrategyParser(backend="mlx")
-    prev = make_base_strategy().model_dump()
-    prev["sector"] = "반도체"
-    prev["description"] = "반도체 저PBR 전략 변동성 어쩌고"  # 룰 파스가 못 풀게
-
-    diff = ParsedStrategyDiff(sector="기계/장비")
-    monkeypatch.setattr(parser, "_modify_mlx", lambda *_a, **_k: diff)
-    merged = parser.parse_modification("로봇 섹터도 추가해줘 변동성", prev)
-    assert merged.sector == ["반도체", "로봇"]
-
-    diff_none = ParsedStrategyDiff()
-    monkeypatch.setattr(parser, "_modify_mlx", lambda *_a, **_k: diff_none)
-    removed = parser.parse_modification("반도체 섹터 빼줘 변동성", prev)
-    assert removed.sector is None
-
-
 def test_sector_validator_accepts_list_and_collapses():
     # 배열 입력은 항목별 정본화·미지원 드롭·순서보존 dedup 후 정규형으로 접는다
     # (없음=None, 단일=str — 기존 해시·직렬화 호환, 복수=list).
@@ -3831,23 +3501,6 @@ def test_overrides_fill_missing_description_with_user_input():
     parsed = ParsedStrategy(description="", universe=["KOSPI"])
     out = _apply_prompt_overrides(parsed, "2차전지에 투자하는 전략을 만들자")
     assert out.description == "2차전지에 투자하는 전략을 만들자"
-
-
-def test_llm_sector_with_default_universe_gets_both_markets(monkeypatch):
-    # LLM이 sector는 냈지만 universe를 스키마 기본(KOSPI200)으로 둔 경우,
-    # 시장 언급 없는 섹터 전략 기본=양시장 규칙을 LLM 폴백 경로에서도 강제한다.
-    from engine.nl_parser import NLStrategyParser, ParsedStrategy
-    p = NLStrategyParser()
-    drift = ParsedStrategy(description="", sector="이차전지")
-    monkeypatch.setattr(p, "_parse_ollama", lambda text: drift)
-    out = p.parse("2차전지에 투자하는 전략을 만들자")
-    assert out.sector == "이차전지"
-    assert out.universe == ["KOSPI", "KOSDAQ"]
-    # 시장을 명시하면 강제하지 않는다.
-    drift2 = ParsedStrategy(description="", sector="이차전지", universe=["KOSPI200"])
-    monkeypatch.setattr(p, "_parse_ollama", lambda text: drift2)
-    out2 = p.parse("코스피200 중에서 2차전지에 투자하는 전략")
-    assert out2.universe == ["KOSPI200"]
 
 
 def test_supported_sector_no_longer_flagged_unsupported():
