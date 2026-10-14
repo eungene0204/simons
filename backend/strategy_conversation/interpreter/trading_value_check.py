@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+from .decisions import observed_verdict
+
 import json
 import logging
 from dataclasses import dataclass
@@ -100,6 +102,7 @@ def build_request(user_input, targets):
     return _SYSTEM, f"[전략 문장]\n{user_input}\n\n[거래대금 조건]\n{rows}", 64 + 48 * len(targets)
 
 
+@observed_verdict("trading")
 def check_trading_value_quotes(
     user_input: str, targets: List[Any], chat: Callable[..., str],
 ) -> Optional[List[Tuple[Any, Verdict]]]:

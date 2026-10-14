@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .decisions import observed_verdict
+
 import json
 from typing import Callable, Sequence
 
@@ -14,6 +16,7 @@ _MARKET_SYSTEM = """전략 수정 패치의 출처를 독립적으로 확인합�
 _CONDITION_SYSTEM = """사용자 발화와 전략 수정 조건을 독립적으로 대조합니다. 각 candidate의 factor와 비교 기준을 사용자 발화가 실제로 요청했는지 yes/no/unclear로 답하세요. 기존 전략이나 질문의 예시값에서 근거를 가져오지 마세요. yes일 때만 그 조건을 말한 짧은 원문 quote를 적고, no/unclear이면 null로 두세요. id를 그대로 유지하세요. JSON만 출력하세요: {"items":[{"id":"1","verdict":"no","quote":null}]}"""
 
 
+@observed_verdict("market_scope")
 def market_patch_scope_verdict(
     patch: PatchOp, user_input: str, chat: Callable,
 ) -> bool | None:
@@ -43,6 +46,7 @@ def market_patch_scope_verdict(
     return None
 
 
+@observed_verdict("scope")
 def condition_patch_scope_verdicts(
     candidates: Sequence[tuple[int, PatchOp]], user_input: str, chat: Callable,
 ) -> dict[int, bool]:

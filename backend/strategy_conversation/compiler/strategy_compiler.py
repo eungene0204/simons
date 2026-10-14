@@ -97,7 +97,7 @@ def _compile_technical(
     if indicator.startswith("candle_"):
         return TechnicalSignal(**kwargs)                   # 캔들 패턴(v16.29): 파라미터 없음
 
-    if indicator in ("ma_crossover", "ema", "macd", "rsi") \
+    if indicator in ("ma_crossover", "ema", "macd", "rsi", "breakout") \
             and cond.operator in ("crosses_above", "crosses_below"):
         # 엔진은 이 지표들의 교차 방향을 signal_type으로만 정한다(buy=상향, sell=하향) —
         # 연산자를 읽지 않고 buy를 붙이면 매수 칸에 앉은 "20일선 이탈 시 청산"(crosses_below)이

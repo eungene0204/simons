@@ -80,7 +80,8 @@ def validate_conflicts(intent: StrategyIntent) -> Tuple[List[str], List[str], Li
                     "단기 < 장기여야 합니다",
                     "'{factor}' short period ({short}) is not shorter than the long period "
                     "({long}) — short must be < long",
-                    factor=cond.factor, short=f"{short:g}", long=f"{long:g}",
+                    factor=REGISTRY.get(cond.factor).display_name if REGISTRY.get(cond.factor) else "해당 지표",
+                    short=f"{short:g}", long=f"{long:g}",
                 ))
                 conflicted.add(slot)
 

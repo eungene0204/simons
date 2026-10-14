@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .decisions import observed_verdict
+
 import json
 from typing import Any, Callable, Optional
 
@@ -11,6 +13,7 @@ from .output_repair import extract_json_object
 _SYSTEM = """사용자 발화가 기존 조건을 새 조건으로 교체하는지, 기존 조건은 두고 새 조건을 추가하는지 판정하세요. 패치 자체의 add/remove 연산을 정답으로 믿지 말고 사용자 발화와 직전 질문을 읽으세요. 명확하지 않으면 unclear로 답하세요. quote는 판단 근거인 사용자 발화의 짧은 조각을 그대로 인용하세요. JSON만 출력하세요: {"items":[{"id":"1","action":"unclear","quote":null}]}"""
 
 
+@observed_verdict("pair")
 def classify_condition_pair(
     user_input: str, pending_question: Optional[str], list_field: str,
     old_condition: Any, new_condition: Any, new_quote: str, chat: Callable,

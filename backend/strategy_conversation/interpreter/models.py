@@ -17,7 +17,7 @@ import re
 from datetime import date
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator, model_validator
 
 # ─── Enum 계약 ────────────────────────────────────────────────────────────────
 
@@ -1513,6 +1513,8 @@ class ValidationReport(BaseModel):
     """검증 계층의 통합 결과. 오류/경고/누락/지원불가를 구분한다."""
 
     is_valid: bool = False
+    # Internal notice evidence must not extend serialized validation/API contracts.
+    _universe_findings: List[Dict[str, Any]] = PrivateAttr(default_factory=list)
     status: IntentStatus = "NEEDS_CLARIFICATION"
     errors: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)

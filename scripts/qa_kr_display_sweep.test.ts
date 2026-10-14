@@ -7,7 +7,7 @@
  * 이 조사는 그 다음 단계, "이해한 것을 화면이 맞게 보여주나"를 본다.
  *
  * 실행: QA_DISPLAY_SWEEP=1 npx vitest run scripts/qa_kr_display_sweep.test.ts
- * (캐시 scripts/.template_parse_cache.json은 게이트 실행이 남긴다 — 없으면 건너뛴다)
+ * (캐시가 없거나 일부 응답이 누락되면 요청된 검증은 실패한다)
  */
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -18,7 +18,7 @@ import { listStrategyItems } from "@/app/analytics/new/strategyItems";
 import type { ParsedSummary } from "@/lib/strategy-summary";
 
 const CACHE = "scripts/.template_parse_cache.json";
-const ENABLED = process.env.QA_DISPLAY_SWEEP === "1" && existsSync(CACHE);
+const ENABLED = process.env.QA_DISPLAY_SWEEP === "1";
 
 // 한국어 화면에 남아도 되는 영문: 지표·시장·티커 약어(대문자), 단위. 소문자 낱말은 전부 의심한다.
 const LOWER_WORD = /\b[a-z][a-z_]{2,}\b/g;
@@ -36,6 +36,7 @@ function inspect(example: string, where: string, label: string, value: unknown, 
 
 describe.skipIf(!ENABLED)("KR 예시 화면 표시 전수 조사", () => {
   it("요약 카드·설정 목록에 영문 enum·내부 식별자·빈값이 남지 않는다", () => {
+    expect(existsSync(CACHE), "Missing cached responses: HARNESS_INVALID").toBe(true);
     const cache = JSON.parse(readFileSync(CACHE, "utf-8")) as Record<string, any>;
     const findings: Finding[] = [];
     let covered = 0;
@@ -66,7 +67,8 @@ describe.skipIf(!ENABLED)("KR 예시 화면 표시 전수 조사", () => {
     console.log(`\n=== KR 화면 표시 전수 조사: 예시 ${covered}/${EXAMPLES.length} 대조, 결함 ${findings.length}건, 캐시 없음 ${missing.length}건 ===`);
     if (missing.length) console.log("캐시 없음:", missing.join(" | "));
     if (lines.length) console.log(lines.join("\n"));
-    expect(covered).toBeGreaterThan(0);
+    expect(missing, "Incomplete display coverage: HARNESS_INVALID").toEqual([]);
+    expect(covered).toBe(EXAMPLES.length);
     expect(findings, lines.join("\n")).toEqual([]);
   });
 });

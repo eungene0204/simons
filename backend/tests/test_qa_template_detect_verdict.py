@@ -36,6 +36,20 @@ def _template(qatd, prompt: str, expect: dict | None = None):
                          prompt=prompt, expect=expect or {"coverage": []})
 
 
+def test_live_cli_summarizes_result_without_replay_name_collision(qatd, tmp_path, monkeypatch):
+    example = _template(qatd, "조건을 입력합니다")
+    result = {"parsed": {"universe": ["KOSPI"], "max_positions": 10},
+              "clarification_question": "매수 조건을 입력해 주세요."}
+    report = tmp_path / "live-report.md"
+    monkeypatch.setattr(qatd, "load_templates", lambda *_: [example])
+    monkeypatch.setattr(qatd, "parse_strategy", lambda _: result)
+    monkeypatch.setattr(qatd, "RAW_CACHE", tmp_path / "responses.json")
+    monkeypatch.setattr(sys, "argv", ["qa_template_detect.py", "--out", str(report)])
+
+    assert qatd.main() == 0
+    assert "**요약**:" in report.read_text(encoding="utf-8")
+
+
 def test_kr_expectation_rejects_changed_example_prompt(qatd, tmp_path, monkeypatch):
     source, anchor = qatd._SOURCES["kr"]
     text = source.read_text(encoding="utf-8")
@@ -137,6 +151,15 @@ def test_parse_call_failure_counts_fatal(qatd, monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(sys, "argv", ["qa_template_detect.py", "--refresh"])
     assert qatd.main() == 1
     assert "파싱 호출 실패" in capsys.readouterr().out
+
+
+def test_missing_cache_cannot_pass(qatd, monkeypatch, tmp_path, capsys):
+    tpl = _template(qatd, "synthetic template")
+    monkeypatch.setattr(qatd, "load_templates", lambda *a: [tpl])
+    monkeypatch.setattr(qatd, "RAW_CACHE", tmp_path / "absent.json")
+    monkeypatch.setattr(sys, "argv", ["qa_template_detect.py", "--use-cache"])
+    assert qatd.main() == 1
+    assert "HARNESS_INVALID" in capsys.readouterr().out
 
 
 def test_notice_covered_condition_is_not_missing(qatd):

@@ -64,7 +64,7 @@ def _operator_notice_label(operator: str) -> str:
 
 # 교차 방향이 역할(signal_type)로만 정해지는 지표 — 엔진 signals.py의 crossover(direction)이
 # buy=golden/sell=dead로 고정한다. 매수 칸의 crosses_below는 표현 불가(컴파일러도 같은 판정).
-_DIRECTIONAL_CROSS_LEAVES = frozenset({"technical.ma_crossover", "technical.ema", "technical.macd"})
+_DIRECTIONAL_CROSS_LEAVES = frozenset({"technical.ma_crossover", "technical.ema", "technical.macd", "technical.breakout"})
 _ROLE_CROSS_DIRECTION = {"진입": "crosses_above", "청산": "crosses_below"}
 # 역할 고정 레거시 볼린저(매수=종가≤하단, 매도=종가≥상단)가 표현하는 방향 — 디컴파일 표기와 같다.
 # 반대 방향('상단 돌파 매수'·'하단 닿으면 청산')은 밴드 지정 볼린저(v16.39)로만 표현된다.
@@ -251,7 +251,7 @@ def _us_etf_tickers_under_kr_etf_market(strategy) -> bool:
     return all(is_us_etf_symbol(s) for s in symbols)
 
 
-def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], List[str], List[str]]:
+def validate_capability(intent: StrategyIntent, universe_findings=None) -> Tuple[List[str], List[str], List[str], List[str]]:
     """(errors, warnings, unsupported_features, suggested_fixes)를 반환한다.
 
     intent.strategy의 조건 factor를 canonical ID로 제자리 정규화한다.
@@ -871,6 +871,10 @@ def validate_capability(intent: StrategyIntent) -> Tuple[List[str], List[str], L
             if not canonical:
                 unsupported.append(f"섹터 '{sector}'")
                 errors.append(f"'{sector}'은(는) 지원 섹터 목록에 없습니다")
+                if universe_findings is not None:
+                    universe_findings.append({"term": sector, "field": "strategy.universe.sectors",
+                        "reason_code": "KR_SECTOR_NOT_IN_CATALOG", "stage": "capability",
+                        "message": errors[-1], "feature": unsupported[-1]})
                 continue
             normalized_sectors.extend(c for c in canonical if c not in normalized_sectors)
         strategy.universe.sectors = normalized_sectors

@@ -20,6 +20,7 @@ BASE_URL = os.environ.get("QA_BACKEND_URL", "http://localhost:8000") + "/strateg
 # 지역 격리 가드가 발동하지 않는다(실측 2026-08-29: 시장 미언급 EN 발화가 KOSPI200으로
 # 파스). 기준 전략이 시장을 명시해도 답변 턴의 US 레인 판정이 달라진다.
 HEADERS: dict[str, str] = {}
+_RUN_ID = str(time.time_ns())
 # 진행 골격 8칸이 모두 채워진 기준 전략. 파일이 없으면 한 번 파싱해 만들어 캐시한다.
 _BASE_PATH = Path(__file__).with_name(".qa_free_input_base.json")
 _BASE_PROMPT = (
@@ -100,9 +101,10 @@ def filt(metric, operator, value):
     def check(p):
         for f in p.get("fundamental_filters") or []:
             if f.get("metric") == metric:
-                if f.get("operator") == operator and abs((f.get("value") or 0) - value) < 1e-6:
+                got = f.get("value")
+                if (f.get("operator") == operator and isinstance(got, (int, float))
+                        and not isinstance(got, bool) and abs(got - value) < 1e-6):
                     return True, ""
-                return False, f"조건 불일치: {json.dumps(f, ensure_ascii=False)}"
         return False, f"fundamental_filters={json.dumps(p.get('fundamental_filters'), ensure_ascii=False)}"
     return check
 
@@ -348,6 +350,32 @@ def _case_previous_parsed(family, slot):
     return draft
 
 
+_FILL_FIELDS = {
+    "entry": ("entry_signals", "entry_filters", "fundamental_filters", "ranking_metric"),
+    "exit": ("exit_signals", "hold_period_days"),
+    **{slot: tuple(fields) for slot, fields in OWNED.items() if slot not in ("entry", "exit")},
+}
+
+
+def fixture_error(family, slot, previous, question, pending_ask=None):
+    """Check structured fixture consistency; never rewrite a captured conversation."""
+    if family not in ("fill", "modify") or slot not in QUESTIONS:
+        return "Unknown mode or question slot"
+    if question != QUESTIONS[slot][family]:
+        return "Question does not match the intended slot"
+    if pending_ask and (pending_ask.get("topic") != _SLOT_TOPICS[slot]
+                        or pending_ask.get("question", question) != question):
+        return "pending_ask does not match the question"
+    if family == "fill":
+        canonical = json.loads((Path(__file__).resolve().parents[1] / "app/analytics/new"
+                                / "__fixtures__/slot-prompts.json").read_text())["slots"]
+        if question != canonical[slot]["question"]:
+            return "Question differs from the UI canonical prompt"
+        if any(previous.get(field) not in (None, [], {}) for field in _FILL_FIELDS[slot]):
+            return "The draft already fills the questioned slot"
+    return None
+
+
 def call(prompt, question, slot=None, previous_parsed=None):
     body = {
         "prompt": prompt, "backend": "ollama",
@@ -363,19 +391,37 @@ def call(prompt, question, slot=None, previous_parsed=None):
     return _post(body)
 
 
-def run(family):
+def _checkpoint(path, family, rows, completed=False):
+    if path:
+        Path(path).write_text(json.dumps({"execution_mode": "live", "family": family,
+            "run_id": _RUN_ID, "completed": completed, "rows": rows}, ensure_ascii=False), encoding="utf-8")
+
+
+def run(family, journal=None):
     rows = []
+    _checkpoint(journal, family, rows)
     for slot, prompt, check in CASES:
         question = QUESTIONS[slot][family]
         previous = _case_previous_parsed(family, slot)
+        invalid = fixture_error(family, slot, previous, question)
+        if invalid:
+            rows.append((slot, prompt, "HARNESS_INVALID", invalid, 0))
+            print(f"  HARNESS_INVALID [{slot}] {invalid}", flush=True)
+            _checkpoint(journal, family, rows)
+            continue
         started = time.perf_counter()
         try:
             out = call(prompt, question, slot, previous_parsed=previous)
         except Exception as exc:  # noqa: BLE001
-            rows.append((slot, prompt, "ERROR", str(exc)[:90], 0))
-            print(f"  ERROR {slot} {prompt!r} {exc}", flush=True)
+            rows.append((slot, prompt, "INFRA_BLOCKED", str(exc)[:90], 0))
+            print(f"  INFRA_BLOCKED {slot} {prompt!r} {exc}", flush=True)
+            _checkpoint(journal, family, rows)
             continue
         took = time.perf_counter() - started
+        if not isinstance(out, dict) or not isinstance(out.get("parsed"), dict):
+            rows.append((slot, prompt, "INFRA_BLOCKED", "Incomplete response", took))
+            _checkpoint(journal, family, rows)
+            continue
         parsed = out["parsed"]
         ok, detail = check(parsed)
         # 다른 슬롯을 건드렸는지
@@ -389,20 +435,32 @@ def run(family):
         notices = out.get("notices") or []
         # 되묻기는 실패가 아니다 — 값이 빠진 파라미터를 묻는 것은 정상 동작이다
         # (CLAUDE.md: 말하지 않은 값을 기본값으로 확정 금지). 별도 판정으로 센다.
-        if ok and not collateral:
+        if ok and not collateral and not notices:
             verdict = "PASS"
+        elif ok and not collateral:
+            verdict = "NOT_RUN"
+            detail += " | Notice expectations have not been reviewed"
         elif not ok and clar:
-            verdict = "ASK"
+            verdict = "NOT_RUN"
         elif not ok:
             verdict = "FAIL"
         else:
-            verdict = "COLLATERAL"
-        rows.append((slot, prompt, verdict, detail, took, collateral, clar, notices))
-        mark = {"PASS": "✅", "FAIL": "❌", "ASK": "❓", "COLLATERAL": "⚠️"}[verdict]
+            verdict = "FAIL"
+        runtime = out.get("runtime") or {}
+        model = (runtime.get("interpreter") or {}).get("model_name")
+        measurement = {"reported_model": model, "cache_hit": runtime.get("cache_hit"),
+                       "completed": True, "region": "US" if HEADERS.get("X-UI-Language") == "en" else "KR"}
+        if "runtime" in out and verdict == "PASS" and (not model or runtime.get("cache_hit") is not False):
+            verdict = "NOT_RUN"
+            detail += " | Fresh model identity is not verified"
+        rows.append((slot, prompt, verdict, detail, took, collateral, clar, notices, measurement))
+        _checkpoint(journal, family, rows)
+        mark = {"PASS": "✅", "FAIL": "❌", "NOT_RUN": "❓"}[verdict]
         print(f"  {mark} [{slot}] {prompt!r} → {detail}"
               + (f" | 침범: {', '.join(collateral)}" if collateral else "")
               + (f" | 되묻기: {clar[:40]}" if clar else "")
               + f" ({took:.1f}s)", flush=True)
+    _checkpoint(journal, family, rows, completed=True)
     return rows
 
 
@@ -413,17 +471,24 @@ if __name__ == "__main__":
     if LANG == "en":
         _BASE_PATH, _BASE_PROMPT, CASES = _BASE_PATH_EN, _BASE_PROMPT_EN, CASES_EN
         HEADERS["X-UI-Language"] = "en"
+    out_path = str(Path(__file__).with_name(
+        f".qa_free_input_result_{family}{'_us' if LANG == 'en' else ''}.json"))
+    _checkpoint(out_path, family, [])
     BASE = load_base()
     PREV = BASE["parsed"]
     PREV_EXPLICIT = BASE.get("explicit_fields") or []
     print(f"=== 질문 계열: {family} / 언어 {LANG} / 케이스 {len(CASES)}개 ===", flush=True)
     print("  기준 전략(이 값들과의 차이로 판정한다):", flush=True)
     print_base(BASE)
-    rows = run(family)
-    out_path = str(Path(__file__).with_name(
-        f".qa_free_input_result_{family}{'_us' if LANG == 'en' else ''}.json"))
-    json.dump(rows, open(out_path, "w"), ensure_ascii=False, default=str)
+    rows = run(family, journal=out_path)
     counts = {}
     for r in rows:
         counts[r[2]] = counts.get(r[2], 0) + 1
     print(f"\n요약({family}): " + " ".join(f"{k}={v}" for k, v in sorted(counts.items())), flush=True)
+    groups = {}
+    for row in rows:
+        identity = json.dumps(row[8] if len(row) > 8 else {"reported_model": None}, sort_keys=True)
+        group = groups.setdefault(identity, {})
+        group[row[2]] = group.get(row[2], 0) + 1
+    print(json.dumps({"measurement_groups": groups}, ensure_ascii=False), flush=True)
+    raise SystemExit(1 if any(row[2] != "PASS" for row in rows) else 0)

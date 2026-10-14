@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .decisions import observed_verdict, record, current_log
+
 import json
 import math
 import re
@@ -20,8 +22,13 @@ _SYSTEM = """당신은 전략 수정 패치의 보유 기간 숫자를 대조합
 _MISFILED_SYSTEM = """당신은 인용 대조에서 거부된 전략 조건의 원래 요청을 다시 확인합니다. 사용자 발화의 짧은 구절이 '사고 나서 얼마 동안 보유한 뒤 청산'하는 기간을 명시했다면 kind를 max_hold로, '최소 얼마 동안 보유'라면 min_hold로 답하세요. 지표의 계산 기간, 이동평균선, 손절률, 청산 신호만 말했거나 보유 기간의 수량이 명확하지 않으면 kind를 none으로 답하세요. 직전 질문이나 기존 전략의 숫자를 기간 값으로 복사하지 마세요. quote와 number_text는 사용자 발화에서 그대로 짧게 옮겨 적고, count는 그 수량, unit은 day/month/year 중 하나로 쓰세요. 월·년을 거래일로 환산하지 마세요. 여러 기간이 섞여 하나를 특정할 수 없거나 확신이 없으면 none으로 답하세요. JSON만 출력하세요: {"kind":"none","quote":null,"number_text":null,"count":null,"unit":null}"""
 
 _HOLD_UNIT_DAYS = {"day": 1, "month": 21, "year": 252}
+# Numeric token aliases apply only to the LLM's number_text field, never the utterance.
+_COUNT_ALIASES = {"한": 1, "하나": 1, "두": 2, "둘": 2, "세": 3, "셋": 3,
+                  "네": 4, "넷": 4, "다섯": 5, "여섯": 6, "일곱": 7, "여덟": 8,
+                  "아홉": 9, "열": 10}
 
 
+@observed_verdict("holding")
 def recover_misfiled_holding_period(
     user_input: str, source_text: str, pending_question: str | None,
     chat: Callable,
@@ -69,22 +76,28 @@ def recover_create_misfiled_holding_period(
 ) -> list[str]:
     """Move one invalid exit into an explicitly quoted holding-period field."""
     from strategy_conversation.registry.indicator_registry import REGISTRY
+    from strategy_conversation.registry.concept_ontology import concept_spec
 
     strategy = intent.strategy
     if strategy is None or not callable(chat):
         return []
-    candidates = [
-        (index, condition)
-        for index, condition in enumerate(strategy.exit_conditions)
-        if condition.factor not in REGISTRY and condition.source_text
-        and condition.source_text in user_input
-    ]
+    candidates = []
+    for index, condition in enumerate(strategy.exit_conditions):
+        concept = concept_spec(condition.factor)
+        # Declared concepts are expanded by capability validation, not repaired
+        # as unknown holding exits before that validation has run.
+        if condition.factor in REGISTRY or (concept is not None and concept.expansion):
+            continue
+        if condition.source_text and condition.source_text in user_input:
+            candidates.append((index, condition))
     if len(candidates) != 1:
         return []
     index, condition = candidates[0]
     patch = recover_misfiled_holding_period(
         user_input, condition.source_text, None, chat)
     if patch is None:
+        from .required_checks import note
+        note("holding", condition, "UNRESOLVED", "exit_conditions")
         return []
     field = ("hold_period_days" if patch.path == "/portfolio/hold_period_days"
              else "min_hold_period_days")
@@ -108,7 +121,7 @@ def recover_create_misfiled_holding_period(
 def reconcile_holding_days(
     intent: StrategyIntent, user_input: str, chat: Callable,
 ) -> StrategyIntent:
-    """Correct only an explicit day count; leave every other patch unchanged."""
+    """Confirm transcribed quantities and normalize supported holding units."""
     targets = [
         (index, patch)
         for index, patch in enumerate(intent.patches)
@@ -119,6 +132,13 @@ def reconcile_holding_days(
     if not targets:
         return intent
 
+    from .required_checks import policy
+    if policy() is not None:
+        policy().plan("holding", [patch for _, patch in targets])
+
+    confirmed = set()
+    confirmed_evidence = {}
+    result_patches = intent.patches
     payload = {
         "utterance": user_input,
         "patches": [
@@ -145,16 +165,45 @@ def reconcile_holding_days(
             item = by_id[str(position)]
             quote = item.get("quote")
             number_text = item.get("number_text")
-            if (item.get("unit") not in ("day", "일") or not isinstance(quote, str)
-                    or not isinstance(number_text, str) or not number_text.isdecimal()
+            unit = {"일": "day", "월": "month", "년": "year"}.get(item.get("unit"), item.get("unit"))
+            if (unit not in _HOLD_UNIT_DAYS or not isinstance(quote, str)
+                    or not isinstance(number_text, str) or not number_text
                     or quote not in user_input or quote not in patch.source_text
                     or number_text not in quote):
                 continue
-            value = int(number_text)
+            from .models import _SINO_DIGITS
+            transcribed = (int(number_text) if number_text.isdecimal() else
+                           {**_SINO_DIGITS, **_COUNT_ALIASES}.get(number_text))
+            count = transcribed if transcribed is not None else item.get("count")
+            if transcribed is not None and item.get("count") is not None and (
+                    isinstance(item["count"], bool) or item["count"] != transcribed):
+                continue
+            if (isinstance(count, bool) or not isinstance(count, (int, float))
+                    or not math.isfinite(count) or count <= 0 or not float(count).is_integer()):
+                continue
+            value = int(count) * _HOLD_UNIT_DAYS[unit]
+            confirmed_evidence[index] = {"quote": quote, "number_text": number_text,
+                                         "count": count, "unit": unit,
+                                         "unit_days": _HOLD_UNIT_DAYS[unit]}
+            if value > 0:
+                confirmed.add(index)
             if value > 0 and value != patch.value:
                 patches[index] = patch.model_copy(update={"value": value})
                 changed = True
+        result_patches = patches
         return intent.model_copy(update={"patches": patches}) if changed else intent
     except Exception:
         # A failed auxiliary check must not discard the original interpretation.
         return intent
+    finally:
+        for index, patch in targets:
+            log = current_log()
+            if log is not None and id(patch) in log.bindings:
+                log.bind(result_patches[index], *log.bindings[id(patch)])
+            record("holding_days", patch, "ACCEPT" if index in confirmed else "UNRESOLVED",
+                   "QUOTED_DURATION_CONFIRMED" if index in confirmed else "DURATION_NOT_CONFIRMED",
+                   {"path": patch.path, "original_value": patch.value})
+            from .required_checks import note
+            note("holding", result_patches[index], "ACCEPT" if index in confirmed else "UNRESOLVED",
+                 patch.path, {"original": patch.model_dump(), "confirmed_value": result_patches[index].value,
+                              "transcription": confirmed_evidence.get(index)})

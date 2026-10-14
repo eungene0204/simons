@@ -142,6 +142,7 @@ def recover_missing_conditions(
     """
     from strategy_conversation.interpreter.models import StrategyCondition
     from strategy_conversation.primary import _quote_has_echo
+    from strategy_conversation.registry.concept_ontology import concept_spec
     from engine.nl_parser import _compact
 
     strategy = getattr(intent, "strategy", None)
@@ -153,6 +154,14 @@ def recover_missing_conditions(
     # 소실됐는데 매도 '10일 저가 이탈'이 같은 신고가 돌파 지표라 되살리지 않았다). 매도 조건의
     # 구절은 아래 '이미 쓰인 근거' 대조가 걸러 매수로 되살아나지 않는다.
     known = {cond.factor for cond in strategy.entry_conditions}
+    # 선언된 개념(concept.golden_cross)은 전개 잎(technical.ma_crossover)과 같은 신호다 —
+    # 구절 경계가 어긋나 ②-1 대조를 빠져나가도 같은 신호가 한 번 더 붙으면 안 된다
+    # (2026-10-15 예시 74: '골든크로스가 나오면 매수하고'가 20/60 ma_crossover로 되살아나
+    # 기간 되묻기가 나갔다). 입력은 LLM이 낸 factor ID다.
+    for cond in strategy.entry_conditions:
+        concept = concept_spec(cond.factor)
+        if concept is not None and concept.expansion and concept.expansion.get("factor"):
+            known.add(concept.expansion["factor"])
     # 랭킹으로 이미 표현된 지표도 빠진 것이 아니다(2026-09-19 실측 120B: '12개월 수익률에서
     # 1개월 제외한 모멘텀'·'60일 변동성이 낮은'이 랭킹에 있는데 ROC·변동성 **조건**으로 되살아나
     # 엉뚱한 기준값 질문이 먼저 나갔다). 랭킹 정본과 같은 개념의 조건 지표를 함께 안다고 본다.

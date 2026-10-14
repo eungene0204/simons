@@ -2010,6 +2010,10 @@ class NLStrategyParser:
         슬롯이 충분하면 ParsedStrategy를, 모호하면 None을 반환한다. 모델·추론 락이
         전혀 필요 없으므로, 호출 측이 코치 LLM 생성과 무관하게 즉시 결과를 받을 수 있다.
         None이면 호출 측이 LLM 폴백(parse)을 결정한다."""
+        import ui_language
+        if ui_language.get_ui_language() != "en":
+            return None
+
         return _parse_rule_based_strategy(user_input)
 
     def _consult_rule_parse_guard(self, user_input: str, parsed: ParsedStrategy) -> bool:
@@ -2049,6 +2053,14 @@ class NLStrategyParser:
             호출 측(SSE 스트림)이 결과를 먼저 내보낸 뒤 후행 검증을 직접 실행하는 용도 —
             on_validation에 {"pending": True} 리포트를 전달해 검증 필요를 알린다.
         """
+        import ui_language
+        if ui_language.get_ui_language() != "en":
+            from strategy_conversation.primary import run_primary_parse
+            result = run_primary_parse(user_input, on_stage=on_stage)
+            if result is None:
+                raise RuntimeError("전략 해석을 완료하지 못했어요. 기존 전략은 유지합니다.")
+            return result["parsed"]
+
         parsed_by_rules = _parse_rule_based_strategy(user_input)
         if parsed_by_rules is not None and self._consult_rule_parse_guard(user_input, parsed_by_rules):
             # 룰 파싱이 원문의 모든 어휘를 설명한 '확신 파싱'이면 LLM 검증을 건너뛴다(규칙만으로
@@ -2109,6 +2121,14 @@ class NLStrategyParser:
         즉답한다(초기 parse와 동일한 하이브리드 구조). 복합·모호한 수정만 LLM으로 위임.
         on_stage: LLM diff 추출로 넘어가기 직전 호출되는 콜백(stage 문자열 전달).
         """
+        import ui_language
+        if ui_language.get_ui_language() != "en":
+            from strategy_conversation.primary import run_primary_modification
+            result = run_primary_modification(user_input, previous, on_stage=on_stage)
+            if result is None:
+                raise RuntimeError("전략 변경 해석을 완료하지 못했어요. 기존 전략은 유지합니다.")
+            return result["parsed"]
+
         # 결정론 fast-path의 예외는 "내 소관 아님"으로 강등한다 — 해석 레이어의 예외가
         # 요청을 죽이지 못하게(오염된 previous 하나가 이후 모든 수정을 500으로 만들던
         # 2026-07-26 사고). 다음 레이어(LLM diff)가 그대로 이어받는다.
@@ -4273,7 +4293,12 @@ def enforce_strategy_minimums(parsed: ParsedStrategy) -> list[str]:
     비현실적 입력(초기자금 300원, 0일 보유, 3일 모멘텀, 0% 손절 등)을 자동 보정/제거해
     백테스트가 무의미해지는 것을 막는다. 모든 파싱 경로(규칙/LLM/수정) 뒤에서 호출한다.
     """
-    notices: list[str] = []
+    import ui_language
+    if ui_language.get_ui_language() != "en":
+        from strategy_conversation.response.notice_evidence import NoticeList
+        notices = NoticeList(parsed, "minimums")
+    else:
+        notices = []
 
     capital_notice = enforce_initial_capital_bounds(parsed)
     if capital_notice:
@@ -5199,6 +5224,10 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
     contains enough deterministic slots to build the same ParsedStrategy shape.
     Ambiguous prompts still fall through to the LLM.
     """
+    import ui_language
+    if ui_language.get_ui_language() != "en":
+        return None
+
     # 표현할 수 없는 개념(변동성·현금흐름·섹터 분산 등)이 섞여 있으면, 지원되는 슬롯만
     # 채운 부분 파싱 결과를 조용히 내놓지 않고 None으로 LLM 폴백에 위임한다.
     if _mentions_unsupported_concept(user_input):
@@ -5590,6 +5619,10 @@ def _modify_rule_based(user_input: str, previous: dict) -> Optional[ParsedStrate
     반환해 LLM 경로로 위임한다(핵심만 결정적, 긴 꼬리는 LLM). 기술적 신호 추가 같은 복합
     수정은 의도적으로 LLM에 맡긴다.
     """
+    import ui_language
+    if ui_language.get_ui_language() != "en":
+        return None
+
     compact = _compact(user_input)
     changes: dict[str, object] = {}
 
@@ -6439,6 +6472,10 @@ def _detect_qualitative_metrics(compact: str) -> list[tuple[str, str, str, str]]
     실제 임계값의 구조화 여부는 호출부가 결정적 추출 결과나 parsed 필터와 비교해 판정한다.
     반환 튜플: (되묻기 문구, 느슨한 칩, 엄격한 칩, 키).
     """
+    import ui_language
+    if ui_language.get_ui_language() != "en":
+        return parsed
+
     found: list[tuple[int, tuple[str, str, str, str]]] = []
     for key, patterns, ask, loose, strict in _QUALITATIVE_METRIC_SPECS:
         pos = min(

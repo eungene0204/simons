@@ -102,6 +102,8 @@ def test_recall_validator_reflects_compound_units():
 def test_universe_switch_capability_error_returns_clarification(monkeypatch):
     """B1-T2 재현: '유니버스를 ETF로 바꿔줘' 패치는 정확했고 검증이 거부했다.
     폴백('해석하지 못했어요' 오보고) 대신 전략 무변경 + 검증기 문구 되묻기여야 한다."""
+    from strategy_conversation.interpreter import patch_scope_check
+    monkeypatch.setattr(patch_scope_check, "market_patch_scope_verdict", lambda *a: True)
     monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "llm_first")
     _stub(monkeypatch, {
         "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,

@@ -118,8 +118,8 @@ async def classify_query(req: IntentRequest) -> IntentResult:
     # 구조화 출력(intent + stock_name + refers_to_last_stock + workflow_effect +
     # clarify_target + fact_metric + list_scope + list_count_only)을 담을 만큼의 토큰을
     # 준다. 필드가 늘면 JSON이 절단돼 해석 실패(UNKNOWN)로 떨어지므로 여유를 둔다
-    # (2026-07-31 clarify_target 추가로 180→220, 2026-08-11 축 3개 추가로 220→280).
-    llm = (lambda s, u: _mlx_llm_structured(s, u, max_tokens=280)) if _llm_available() else None
+    # (2026-10-14: structured KR turn axes use a 400-token output budget).
+    llm = (lambda s, u: _mlx_llm_structured(s, u, max_tokens=400)) if _llm_available() else None
     # 관찰 전용 span — 전략 파싱 레인(NullStock Strategy Agent)과 달리 이 레인은
     # Trace가 없어 "예상 못한 질문이 어느 라벨로 떨어졌나"를 사후 조회할 수 없었다.
     # 실행 경로는 건드리지 않는다(관찰 계층 계약: 읽기만).
@@ -183,14 +183,18 @@ class BuilderStepRequest(BaseModel):
 
 
 def _run_builder_step(state, input_text, risk_extractor, sector_resolver,
-                      freetext_interpreter=None) -> strategy_builder.StepResult:
+                      freetext_interpreter=None, seed_text=None) -> strategy_builder.StepResult:
     """빌더 한 턴을 처리하고, 완성(confirmed)되면 DSL을 직접 구성해 붙인다.
 
     [전략별 특화 빌더] 한국어 재파싱 왕복 대신 build_parsed_strategy로 ParsedStrategy를
     직접 만들어(파라미터 유실 방지) 기존 to_backtest_request로 요청까지 생성한다. custom
     유형은 DSL을 만들 수 없어 parsed=None → 프론트가 prompt 재파싱 경로로 폴백한다."""
+    if seed_text and ui_language.get_ui_language() != "en":
+        state = strategy_builder.semantic_seed(state, seed_text, freetext_interpreter)
+    seed_recognized = strategy_builder.seed_recognized(state)
     result = strategy_builder.step(state, input_text, risk_extractor, sector_resolver,
                                    freetext_interpreter)
+    result.seed_recognized = seed_recognized
     if result.status == "confirmed":
         parsed = strategy_builder.build_parsed_strategy(result.state)
         if parsed is not None:
@@ -217,9 +221,11 @@ async def strategy_builder_step(req: BuilderStepRequest) -> strategy_builder.Ste
         seed_recognized = strategy_builder.seed_recognized(state)
     risk_extractor, sector_resolver, freetext_interpreter = _builder_llm_helpers()
     result = await asyncio.to_thread(
-        _run_builder_step, state, req.input, risk_extractor, sector_resolver, freetext_interpreter
+        _run_builder_step, state, req.input, risk_extractor, sector_resolver, freetext_interpreter,
+        req.seed if strategy_builder.is_empty(req.state) else None
     )
-    result.seed_recognized = seed_recognized
+    if ui_language.get_ui_language() == "en":
+        result.seed_recognized = seed_recognized
     return result
 
 
@@ -300,9 +306,11 @@ async def strategy_builder_step_stream(req: BuilderStepRequest):
                 llm_progress.bind(stage_holder):
             try:
                 step_result = _run_builder_step(
-                    state, req.input, risk_extractor, sector_resolver, freetext_interpreter
+                    state, req.input, risk_extractor, sector_resolver, freetext_interpreter,
+                    req.seed if strategy_builder.is_empty(req.state) else None
                 )
-                step_result.seed_recognized = seed_recognized
+                if request_language == "en":
+                    step_result.seed_recognized = seed_recognized
                 result_holder["data"] = step_result.model_dump()
             except cancellation.OperationCancelled:
                 print("[BUILDER-STEP] 취소됨(클라이언트 연결 종료)", flush=True)

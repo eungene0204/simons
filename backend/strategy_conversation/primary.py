@@ -28,13 +28,22 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 import ui_language
 from engine import strategy_slots
+from observability.agent_trace import observed_call, replay_dependency
+from strategy_conversation.response.notice_assembly import (
+    assemble_sector_notices, inherit_resolution, initial_validation_notices, remember_resolution,
+    notice_context, finalize_user_response,
+)
 from strategy_conversation import config
 from strategy_conversation.conversation.change_log import changed_field_names
 from strategy_conversation.interpreter.llm_strategy_interpreter import _log_llm
 from strategy_conversation.interpreter import quote_check
+from strategy_conversation.interpreter.decisions import (
+    approve_legacy_patches, bind_conditions, current_log, decision_session, digest, record,
+)
+from strategy_conversation.conversation.patch_approval import PatchApproval, committed_delta
+from strategy_conversation.interpreter.required_checks import policy as required_policy, note as required_note
 from strategy_conversation.interpreter.models import StrategyCondition, StrategyIntent, ValidationReport
 from strategy_conversation.registry.indicator_registry import REGISTRY, resolve
-from strategy_conversation.response.output_guard import finalize_user_response
 
 logger = logging.getLogger("strategy_interpreter.primary")
 
@@ -42,7 +51,7 @@ _STRATEGY_INTENTS = ("CREATE_STRATEGY", "MODIFY_STRATEGY", "CLARIFY_STRATEGY")
 
 
 def primary_enabled() -> bool:
-    return config.interpreter_mode() == "primary"
+    return ui_language.get_ui_language() != "en" or config.interpreter_mode() == "primary"
 
 
 def _prune_clarifications_filled_by_overrides(
@@ -1076,7 +1085,7 @@ def _renamed_symbol_notices(symbol_terms: Iterable[Any], target_symbols: List[st
         code = former_name_symbol(term.strip())
         if code is None or code not in target_symbols or code in seen:
             continue
-        current = resolve_by_symbol(code)
+        current = observed_call("stock_analysis.symbol_resolver.resolve_by_symbol", resolve_by_symbol, code)
         if current is None or current.name == term.strip():
             continue
         seen.add(code)
@@ -1350,50 +1359,12 @@ def _dedupe_relative_return_against_ranking(intent: StrategyIntent) -> List[str]
 
 
 def _fill_deterministic_condition_params(
-    intent: StrategyIntent, quote_verdicts: Optional[Any] = None,
-) -> None:
-    """LLM 인터프리터가 놓치거나 오분류한 조건을 **그 조건의 source_text**로 교정한다.
+    intent: StrategyIntent, quote_verdicts: Optional[Any] = None, *, semantic_authority: bool = False,
+) -> List[str]:
+    """Normalize numeric output; KR semantic changes require structured LLM verdicts.
 
-    입력은 사용자 원문이 아니라 LLM 출력이다 — LLM이 '이 조건의 출처'라고 인용한 짧은
-    조각 안에서만 정본을 식별하므로 § 3-2 지식 조회에 해당한다(2026-07-26 전체 입력 폴백
-    제거 — 원문 스캔은 계약 위반). LLM이 인용하지 않았으면 교정하지 않고 되묻기에 맡긴다.
-
-    완결성 검증은 raw LLM intent에 대해 돌기 때문에, LLM의 누락/오분류가 '이미 사용자가
-    말한 값'을 되묻는 사고로 이어진다. 여기서 인용에 남은 확실한 것을 미리 채워 헛질문을 막는다.
-
-    ① breakout(신고가 돌파) lookback_period: LLM이 '52주 신고가'의 기간을 파라미터로 옮기지
-       못하고 비우는 드리프트(프롬프트 규칙 5-1이 1차 방어) → 인용에 명시적 기간이 있을
-       때만 채운다(없으면 그대로 두어 되묻기에 맡김).
-    ② (삭제 2026-09-18) 종전엔 trading_value 조건의 인용을 어휘 정규식(_mentions_volume_surge)으로
-       다시 읽어 '급증·평균 대비' 표현이면 volume_spike로 바꿔치고 안내를 붙였다 — 인용의 의미를
-       정규식이 판정하고 LLM이 고른 지표를 뒤집는 재심 구조(대원칙 1 위반)였고, 근사 안내와
-       겹쳐 같은 인용에 안내 두 줄이 나갔다. '거래대금이 N일 평균보다 높은'의 정본은 v16.13
-       거래대금 배수(technical.trading_value_ratio)이며, 옛 자리(trading_value + 평균 기간)는
-       capability_validator가 LLM 출력 형태만 보고 옮긴다.
-
-    ③ 매도 선언 개념의 진입 오배치: concept.dead_cross류(선언이 '매도 신호'·crosses_below)를
-       LLM이 entry_conditions에 앉히는 드리프트(실측 2026-08-14, '반도체 업종 골든크로스'
-       예시 — 명시한 매도 규칙이 사라지고 진입에 동일 매수 신호 2개가 남았다. 프롬프트
-       예시 3-0-1이 1차 방어지만 temp 0에서도 배치가 흔들린다) → 청산이 비어 있으면
-       선언대로 청산 레인으로 옮긴다(연산자 덮어쓰기와 같은 선언 기반 정규화 — 원문을
-       읽지 않는다). 단 인용에 매수 계열 표기가 있으면 역발상 진입 발화이므로 옮기지 않는다
-       (인용 판독은 § 3-2 — ②와 같은 형태).
-       같은 선언은 잎 팩터에도 있다 — registry가 ma_crossover/ema의 crosses_below를 데드크로스
-       (매도 방향)로 선언하고 엔진은 그 방향을 signal_type으로만 정한다(매수 칸의 crosses_below는
-       표현 불가). 2026-09-08 실측(예시 81 '… 8종목 담고 싶습니다. 월간 리밸런싱, 20일선 이탈 시
-       청산'): 120B가 청산절을 technical.ma_crossover crosses_below(1/20)으로 entry_conditions에
-       냈고, 개념명만 보던 이 재배치가 지나쳐 컴파일러가 buy(상향 돌파)로 뒤집었다 → 잎 팩터의
-       crosses_below도 매도 선언으로 보고 같은 규칙으로 옮긴다.
-
-    ④ 금액 임계 검산: 억원 단위 지표(시가총액·거래대금 등)의 value를 인용의 금액
-       표기와 대조해 다르면 인용의 환산값으로 교정한다(9B의 영어 단위 미환산 드리프트,
-       2026-08-26 실측 — 프롬프트 명시 예시로도 고정 불가).
-
-    ⑤ 신고가/박스권 인용의 볼린저·이동평균 오분류: quote_verdicts(조건 인용 대조 — LLM이 조건마다
-       답한 인용의 신호 종류)가 신고가 돌파라고 답한 조건만 breakout으로 되돌린다. 판정이 없으면
-       교정하지 않는다.
-
-    반환값은 사용자에게 보일 안내 문구 목록이다(호출부가 notices에 합친다).
+    The lexical compatibility branches are retained only for the excluded US
+    lane. Quoted raw fragments are not a semantic authority in the KR lane.
     """
     from engine.nl_parser import _compact
 
@@ -1415,52 +1386,53 @@ def _fill_deterministic_condition_params(
                     and any(quote in feature or feature in quote
                             for feature in unsupported_quotes))
         ])
-    _SELL_DECLARED_CONCEPTS = {"concept.dead_cross", "concept.macd_dead_cross"}
-    # 잎 팩터의 매도 방향 선언 — registry notes "crosses_below=데드크로스"(ma_crossover)이고
-    # 엔진(signals.py)은 두 지표의 교차 방향을 signal_type으로만 정한다.
-    _SELL_DECLARED_LEAVES = {"technical.ma_crossover", "technical.ema"}
-    # 해석 레인은 KR/US 공유라 인용이 영어로 올 수 있다 — 영어 매수 표기도 같은 자리.
-    _BUY_CUES = ("매수", "진입", "편입", "사고", "사줘", "사면", "삽",
-                 "buy", "enter", "entry", "purchase")
+    if not semantic_authority:
+        _SELL_DECLARED_CONCEPTS = {"concept.dead_cross", "concept.macd_dead_cross"}
+        # 잎 팩터의 매도 방향 선언 — registry notes "crosses_below=데드크로스"(ma_crossover)이고
+        # 엔진(signals.py)은 두 지표의 교차 방향을 signal_type으로만 정한다.
+        _SELL_DECLARED_LEAVES = {"technical.ma_crossover", "technical.ema"}
+        # 해석 레인은 KR/US 공유라 인용이 영어로 올 수 있다 — 영어 매수 표기도 같은 자리.
+        _BUY_CUES = ("매수", "진입", "편입", "사고", "사줘", "사면", "삽",
+                     "buy", "enter", "entry", "purchase")
 
-    def _sell_declared(c) -> bool:
-        return (c.factor in _SELL_DECLARED_CONCEPTS
-                or (c.factor in _SELL_DECLARED_LEAVES and c.operator == "crosses_below"))
+        def _sell_declared(c) -> bool:
+            return (c.factor in _SELL_DECLARED_CONCEPTS
+                    or (c.factor in _SELL_DECLARED_LEAVES and c.operator == "crosses_below"))
 
-    # 적립식(납입 계획이 있는 턴)엔 매도가 없다 — "200일선 아래에 있으면"을 crosses_below로 낸 출력을
-    # 매도 선언으로 보고 청산 칸에 옮기면 그 순간 '매수·매도 조건이 있는 적립식'이 되어 계획이 통째로
-    # 빠진다(2026-09-22 실측). 적립식 판정이 이 보정보다 먼저 돌아 계획 칸이 채워져 있다.
-    _bt = strategy.backtest
-    _contribution_turn = _bt.contribution_amount is not None or _bt.contribution_period is not None
-    if not strategy.exit_conditions and not _contribution_turn:
-        relocated = []
-        for cond in list(strategy.entry_conditions):
-            quote = (cond.source_text or "").lower()
-            if (_sell_declared(cond)
-                    and not any(cue in quote for cue in _BUY_CUES)):
-                strategy.entry_conditions.remove(cond)
-                relocated.append(cond)
-        if relocated:
-            strategy.exit_conditions = list(strategy.exit_conditions) + relocated
-    # 'EMA 골든크로스/데드크로스'는 EMA 두 선의 교차인데, 개념 전개는 단순이동평균으로
-    # 간다(concept.golden_cross → technical.ma_crossover, 엔진에서 close_N_sma). 인용이
-    # EMA를 지목하면 EMA 잎으로 착지시키고, 개념 선언의 정본 기간(5/20)은 **빈 자리에만**
-    # 옮겨 숫자를 바꾸지 않는다 — 잎의 registry 기본값(20/60)으로 떨어지면 사용자가 말한
-    # 적 없는 기간이 된다(2026-08-18 예시 29·51·64·73·77).
-    from strategy_conversation.registry.concept_ontology import concept_spec
+        # 적립식(납입 계획이 있는 턴)엔 매도가 없다 — "200일선 아래에 있으면"을 crosses_below로 낸 출력을
+        # 매도 선언으로 보고 청산 칸에 옮기면 그 순간 '매수·매도 조건이 있는 적립식'이 되어 계획이 통째로
+        # 빠진다(2026-09-22 실측). 적립식 판정이 이 보정보다 먼저 돌아 계획 칸이 채워져 있다.
+        _bt = strategy.backtest
+        _contribution_turn = _bt.contribution_amount is not None or _bt.contribution_period is not None
+        if not strategy.exit_conditions and not _contribution_turn:
+            relocated = []
+            for cond in list(strategy.entry_conditions):
+                quote = (cond.source_text or "").lower()
+                if (_sell_declared(cond)
+                        and not any(cue in quote for cue in _BUY_CUES)):
+                    strategy.entry_conditions.remove(cond)
+                    relocated.append(cond)
+            if relocated:
+                strategy.exit_conditions = list(strategy.exit_conditions) + relocated
+        # 'EMA 골든크로스/데드크로스'는 EMA 두 선의 교차인데, 개념 전개는 단순이동평균으로
+        # 간다(concept.golden_cross → technical.ma_crossover, 엔진에서 close_N_sma). 인용이
+        # EMA를 지목하면 EMA 잎으로 착지시키고, 개념 선언의 정본 기간(5/20)은 **빈 자리에만**
+        # 옮겨 숫자를 바꾸지 않는다 — 잎의 registry 기본값(20/60)으로 떨어지면 사용자가 말한
+        # 적 없는 기간이 된다(2026-08-18 예시 29·51·64·73·77).
+        from strategy_conversation.registry.concept_ontology import concept_spec
 
-    for cond in list(strategy.entry_conditions) + list(strategy.exit_conditions):
-        concept = concept_spec(cond.factor)
-        expansion = concept.expansion if concept is not None else None
-        if not expansion or expansion.get("factor") != "technical.ma_crossover":
-            continue
-        if not _quotes_ema(cond.source_text):
-            continue
-        cond.factor = "technical.ema"
-        cond.operator = expansion.get("operator") or cond.operator
-        for pname, pvalue in (expansion.get("default_parameters") or {}).items():
-            if cond.parameters.get(pname) is None:
-                cond.parameters[pname] = float(pvalue)
+        for cond in list(strategy.entry_conditions) + list(strategy.exit_conditions):
+            concept = concept_spec(cond.factor)
+            expansion = concept.expansion if concept is not None else None
+            if not expansion or expansion.get("factor") != "technical.ma_crossover":
+                continue
+            if not _quotes_ema(cond.source_text):
+                continue
+            cond.factor = "technical.ema"
+            cond.operator = expansion.get("operator") or cond.operator
+            for pname, pvalue in (expansion.get("default_parameters") or {}).items():
+                if cond.parameters.get(pname) is None:
+                    cond.parameters[pname] = float(pvalue)
 
     for cond in list(strategy.entry_conditions) + list(strategy.exit_conditions):
         spec = REGISTRY.get(cond.factor)
@@ -1475,7 +1447,7 @@ def _fill_deterministic_condition_params(
         if quote_check.quote_describes_breakout(quote_verdicts, cond):
             cond.factor = "technical.breakout"
             spec = REGISTRY.get(cond.factor) or spec
-        if spec.id == "technical.breakout":
+        if not semantic_authority and spec.id == "technical.breakout":
             lookback = _explicit_breakout_lookback(cond.source_text)
             current = cond.parameters.get("lookback_period")
             # 인용이 기간을 명시했는데 파라미터가 **다른 값**이면 파라미터가 틀린 것이다 —
@@ -1487,7 +1459,7 @@ def _fill_deterministic_condition_params(
                 current is None or abs(float(current) - float(lookback)) > 1e-6
             ):
                 cond.parameters["lookback_period"] = float(lookback)
-        elif spec.id in ("technical.ema", "technical.ma_crossover"):
+        elif not semantic_authority and spec.id in ("technical.ema", "technical.ma_crossover"):
             # 인용이 EMA를 말하는데 factor가 단순이동평균(ma_crossover)이면 지표가 바뀐다 —
             # 엔진에서 ma_crossover는 SMA 컬럼(close_N_sma), ema는 EMA 컬럼을 쓴다.
             # 프롬프트 규칙 5-3이 1차 방어지만 '종가가 20일 EMA를 회복' 같은 표현에서
@@ -1536,43 +1508,44 @@ def _fill_deterministic_condition_params(
             ):
                 cond.value = want
 
-    # ④-2 리스크 인용의 조건 오배치: 인용이 손절/익절 선언으로 **시작**하는 조건은
-    #    리스크 슬롯의 오배치다(실측 2026-08-26, /us 영어 게이트 83: "Set the stop-loss
-    #    example value to -9%" 인용이 fundamental.trading_value>=9 조건으로 나가고
-    #    stop_loss는 비었다). 인용 판독은 § 3-2(LLM 출력 두 조각의 대조)이며, 인용
-    #    선두가 리스크 선언일 때만 옮긴다 — 조건+리스크가 섞인 긴 인용을 오폭하지
-    #    않기 위한 보수 조건. 옮긴 값은 빈 슬롯에만 넣는다(숫자를 바꾸지 않는다).
-    for cond in list(strategy.entry_conditions) + list(strategy.exit_conditions):
-        quote = cond.source_text or ""
-        for rx, slot in ((_SL_QUOTE_RE, "stop_loss"), (_TP_QUOTE_RE, "take_profit")):
-            m = rx.match(quote)
-            if m is None:
-                continue
-            if cond in strategy.entry_conditions:
-                strategy.entry_conditions.remove(cond)
-            elif cond in strategy.exit_conditions:
-                strategy.exit_conditions.remove(cond)
-            if strategy.risk_management is not None and                     getattr(strategy.risk_management, slot, None) is None:
-                setattr(strategy.risk_management, slot, float(m.group(1)))
-            break
+    if not semantic_authority:
+        # ④-2 리스크 인용의 조건 오배치: 인용이 손절/익절 선언으로 **시작**하는 조건은
+        #    리스크 슬롯의 오배치다(실측 2026-08-26, /us 영어 게이트 83: "Set the stop-loss
+        #    example value to -9%" 인용이 fundamental.trading_value>=9 조건으로 나가고
+        #    stop_loss는 비었다). 인용 판독은 § 3-2(LLM 출력 두 조각의 대조)이며, 인용
+        #    선두가 리스크 선언일 때만 옮긴다 — 조건+리스크가 섞인 긴 인용을 오폭하지
+        #    않기 위한 보수 조건. 옮긴 값은 빈 슬롯에만 넣는다(숫자를 바꾸지 않는다).
+        for cond in list(strategy.entry_conditions) + list(strategy.exit_conditions):
+            quote = cond.source_text or ""
+            for rx, slot in ((_SL_QUOTE_RE, "stop_loss"), (_TP_QUOTE_RE, "take_profit")):
+                m = rx.match(quote)
+                if m is None:
+                    continue
+                if cond in strategy.entry_conditions:
+                    strategy.entry_conditions.remove(cond)
+                elif cond in strategy.exit_conditions:
+                    strategy.exit_conditions.remove(cond)
+                if strategy.risk_management is not None and                     getattr(strategy.risk_management, slot, None) is None:
+                    setattr(strategy.risk_management, slot, float(m.group(1)))
+                break
 
-    # ⑤ 지원되는 설정을 미지원으로 신고하고 슬롯은 비운 모순(2026-08-18 실측): "손절 -7%,
-    #    보유 기간 상한 40거래일을 추가해 주세요"처럼 **문장 끝에 온** 보유 기간이
-    #    unsupported_features에 '최대 보유 기간 40거래일'로 인용된 채 portfolio는 비었다.
-    #    LLM 자신이 '최대 보유 기간'이라 부른 개념은 프롬프트 규칙 5가 지원한다고 명시한
-    #    슬롯이므로 두 출력 조각이 서로 모순이다 — 인용대로 슬롯을 채우고 미지원 목록에서
-    #    뺀다(신고가 룩백에서 '인용이 이긴다'와 같은 계약, FR-STR-019y ⑤). 프롬프트 보강만
-    #    으로는 문장 끝 위치에서 재발했고(어휘·규칙 위치를 바꾼 3회 실측), 방치하면 사용자가
-    #    말한 조건이 사라지는 동시에 지원되는 개념을 "지원하지 않는다"고 안내하게 된다.
-    if strategy.portfolio is not None and strategy.portfolio.hold_period_days is None:
-        kept: List[str] = []
-        for feature in intent.unsupported_features:
-            days = _hold_days_from_unsupported_feature(feature)
-            if days is not None and strategy.portfolio.hold_period_days is None:
-                strategy.portfolio.hold_period_days = days
-                continue
-            kept.append(feature)
-        intent.unsupported_features = kept
+        # ⑤ 지원되는 설정을 미지원으로 신고하고 슬롯은 비운 모순(2026-08-18 실측): "손절 -7%,
+        #    보유 기간 상한 40거래일을 추가해 주세요"처럼 **문장 끝에 온** 보유 기간이
+        #    unsupported_features에 '최대 보유 기간 40거래일'로 인용된 채 portfolio는 비었다.
+        #    LLM 자신이 '최대 보유 기간'이라 부른 개념은 프롬프트 규칙 5가 지원한다고 명시한
+        #    슬롯이므로 두 출력 조각이 서로 모순이다 — 인용대로 슬롯을 채우고 미지원 목록에서
+        #    뺀다(신고가 룩백에서 '인용이 이긴다'와 같은 계약, FR-STR-019y ⑤). 프롬프트 보강만
+        #    으로는 문장 끝 위치에서 재발했고(어휘·규칙 위치를 바꾼 3회 실측), 방치하면 사용자가
+        #    말한 조건이 사라지는 동시에 지원되는 개념을 "지원하지 않는다"고 안내하게 된다.
+        if strategy.portfolio is not None and strategy.portfolio.hold_period_days is None:
+            kept: List[str] = []
+            for feature in intent.unsupported_features:
+                days = _hold_days_from_unsupported_feature(feature)
+                if days is not None and strategy.portfolio.hold_period_days is None:
+                    strategy.portfolio.hold_period_days = days
+                    continue
+                kept.append(feature)
+            intent.unsupported_features = kept
     return notices
 
 
@@ -2069,6 +2042,7 @@ def _resolve_contribution_plan(
         _log_llm("✓ 적립식 판정", "; ".join(notes))
 
 
+@decision_session
 def run_primary_parse(
     user_input: str, on_stage=None,
     previous_explicit_fields: Optional[List[str]] = None,
@@ -2177,6 +2151,9 @@ def run_primary_parse(
                 planner_first = _plan_first(user_input)
     from strategy_conversation.interpreter.check_batch import prepare_chat
 
+    bind_conditions(result.intent.strategy)
+    checks = required_policy()
+    required_targets = checks.conditions(result.intent, user_input)
     check_chat = (prepare_chat(result.intent, user_input, recall_chat)
                   if config.call_reduction_enabled() else recall_chat)
     quote_verdicts = _check_condition_quotes(result.intent, user_input, check_chat)
@@ -2184,8 +2161,11 @@ def run_primary_parse(
     # condition's measurement unit. Otherwise a rejected share-volume quote
     # can be reintroduced as a money-valued trading_value condition.
     _resolve_liquidity_exclusions(result.intent, user_input, recall_chat)
+    bind_conditions(result.intent.strategy)
+    required_targets = (required_targets[0], checks.conditions(result.intent, user_input)[1])
     trading_notices = _resolve_trading_value_comparisons(
         result.intent, user_input, check_chat)
+    checks.settle(required_targets, quote_verdicts)
     # 적립식 판정(통합) — 파라미터 보정보다 먼저: 계획을 채우고 조건에 금액·상태 연산자를 달아야
     # 아래 보정(매도 선언 재배치 등)이 이 턴을 적립식으로 알아본다(2026-09-22).
     _resolve_contribution_plan(result.intent, user_input, check_chat)
@@ -2213,7 +2193,14 @@ def run_primary_parse(
 
     repair_notices += reconcile_qualitative_return(
         result.intent, user_input, recall_chat)
-    repair_notices += _fill_deterministic_condition_params(result.intent, quote_verdicts)
+    from strategy_conversation.registry.capability_registry import US_MARKETS
+    kr_semantic = result.intent.strategy is not None and not (
+        set(result.intent.strategy.universe.markets or []) & set(US_MARKETS))
+    repair_notices += _fill_deterministic_condition_params(result.intent, quote_verdicts,
+                                                          semantic_authority=kr_semantic)
+    if kr_semantic:
+        from strategy_conversation.interpreter.semantic_reconciliation import reconcile_semantic_fields
+        reconcile_semantic_fields(result.intent, user_input, recall_chat)
     _normalize_size_class_labels(result.intent)
     repair_notices += _dedupe_relative_return_against_ranking(result.intent)
     # 조건 누락 대조 패스 — 1차 해석은 조건이 여러 개 나열되면 하나를 밀어낸다(2026-08-18
@@ -2268,6 +2255,7 @@ def run_primary_parse(
     # 출처 인용 대조(환각 조건 가드) — 파라미터 보정 뒤, 검증 전에 뺀다(환각 조건이
     # 완결성 검증에 들어가면 지어낸 조건의 값을 사용자에게 되묻는 사고가 된다).
     repair_notices += _drop_fabricated_conditions(result.intent, user_input, quote_verdicts)
+    held_conditions = checks.filter_conditions(result.intent.strategy) if result.intent.strategy else []
     # 검증 전 스냅샷: capability validator는 정본 목록 밖 섹터 표현('이재명 관련주')을
     # 미지원으로 판정하며 universe.sectors에서 제거한다. term-in 해석 체인(§ 11-3)의
     # 입력은 'LLM이 뽑은 표현'이므로 제거 전 값을 보존해야 한다 — 검증 후 값을 읽으면
@@ -2349,7 +2337,34 @@ def run_primary_parse(
             },
         })
 
-    notices: List[str] = list(report.warnings) + list(report.errors) + repair_notices
+    notices: List[str] = initial_validation_notices(report) + repair_notices
+    if checks.blocked(validated.strategy.universe):
+        held_conditions += [i for i in checks.items if i["subject"] is validated.strategy.universe
+                            and i["status"] != "ACCEPT"]
+        validated.strategy.universe.symbols = []
+        validated.strategy.universe.sectors = []
+        pre_validation_sectors = []
+        planner_first = None
+    create_domain_ask = None
+    if kr_semantic and report.errors:
+        from strategy_conversation.interpreter.domain_approval import approve_domains, create_domain_candidates
+        from strategy_conversation.conversation.patch_applier import apply_patches
+
+        baseline, create_approval = create_domain_candidates(validated.strategy)
+        origins = create_approval.condition_origins(validated.strategy)
+        spec, _, blocked, domain_result, diagnostics, domain_questions = approve_domains(
+            create_approval, baseline, validated.strategy, origins, set(),
+            lambda candidate: call_tool("validate_intent", intent=candidate.model_copy(update={
+                "intent": "CREATE_STRATEGY", "unsupported_features": validated.unsupported_features})),
+            apply_patches)
+        if blocked:
+            validated, report = domain_result.intent, domain_result.report
+            notices.extend(diagnostics)
+            question = (domain_questions[0].question if domain_questions else
+                        "보류한 조건의 값과 적용 범위를 다시 알려주시겠어요?")
+            create_domain_ask = (question, None, {"question": question, "topic": "보류한 조건", "chips": []})
+            if any(op["field"] == "universe" and op["group"] in blocked for op in create_approval.operations):
+                pre_validation_sectors, planner_first = [], None
     notices += _preparing_notice(report)
     try:
         compiled = call_tool("compile_strategy", intent=validated, report=report,
@@ -2371,7 +2386,7 @@ def run_primary_parse(
     # 시총 100조→100억 단위 오류(24-2), 슬리피지 드롭(24-10) 등 인터프리터 LLM의 수치
     # 드리프트가 그대로 노출됐다. 프롬프트에 명시된 값만 덮어쓰므로 인터프리터 해석과
     # 충돌하지 않는다(레거시 LLM 폴백과 같은 계약).
-    if config.prompt_overrides_enabled():
+    if _us_market_context(parsed) and config.prompt_overrides_enabled():
         from engine.nl_parser import _apply_prompt_overrides
         compiled_dump = parsed.model_dump()
         parsed = _apply_prompt_overrides(parsed, user_input)
@@ -2384,13 +2399,22 @@ def run_primary_parse(
     # Phase 5: planner-first 관찰값의 결정론 적용 — planner가 최선두에서 해석한
     # 유니버스(테마 상장사·학습 섹터)를 확정값으로 병합한다(관찰값에서만 채택,
     # 적용은 고정 체인과 동일한 결정론 경로 재사용).
+    universe_resolutions = [] if not _us_market_context(parsed) or report._universe_findings else None
+    if not _us_market_context(parsed):
+        from engine.universe_pit import normalize_sector
+        for term in pre_validation_sectors:
+            if normalize_sector(term) in (validated.strategy.universe.sectors or []):
+                remember_resolution(universe_resolutions, term, parsed, "compiled_sector", field="sector")
+        if parsed.etf_theme:
+            remember_resolution(universe_resolutions, parsed.etf_theme, parsed, "compiled_etf", field="etf_theme")
     planner_resolved_terms: set = set()
     planner_unresolved_terms: set = set()
     planner_applied_terms: set = set()
     if planner_first is not None:
         (planner_resolved_terms, planner_unresolved_terms,
          planner_applied_terms) = _apply_planner_first_universe(
-            planner_first, parsed, notices
+            planner_first, parsed, notices,
+            **({"resolution_evidence": universe_resolutions} if universe_resolutions is not None else {}),
         )
     # 범위 모호성(카탈로그 후보 2개 이상) 되묻기는 **결정론이 소유한다** — planner가
     # 유니버스 ask를 계획하지 않고 조건 ask로 드리프트해도('미용기기' 사고 2026-07-28)
@@ -2405,7 +2429,7 @@ def run_primary_parse(
             planner_scope_question, planner_scope_chips, planner_scope_terms = scope
             # 범위 질문이 나가는 표현의 미지원 안내는 지운다 — 질문이 그 표현을 다루는데
             # "반영되지 않았어요" 안내가 함께 나가면 모순.
-            if report.unsupported_features:
+            if _us_market_context(parsed) and report.unsupported_features:
                 report.unsupported_features = [
                     f for f in report.unsupported_features
                     if not any(t and t in f for t in planner_scope_terms)
@@ -2451,6 +2475,7 @@ def run_primary_parse(
             # planner 실패는 표현 단위로 아래 고정 체인 폴백(단독 실패 지점 불가).
             sector_question, sector_suggestions = _resolve_sector_terms_planner_primary(
                 parsed, unresolved_sector_terms, notices, on_stage=on_stage,
+                **({"resolution_evidence": universe_resolutions} if universe_resolutions is not None else {}),
             )
         else:
             # Phase 3 shadow: mini-planner 관측 실행(기본 off, STRATEGY_PLANNER_MODE=
@@ -2463,11 +2488,12 @@ def run_primary_parse(
                 logger.debug("planner shadow launch failed", exc_info=True)
             sector_question, sector_suggestions = _resolve_sector_terms_term_in(
                 parsed, unresolved_sector_terms, notices, on_stage=on_stage,
+                **({"resolution_evidence": universe_resolutions} if universe_resolutions is not None else {}),
             )
     # 보정·term-in 체인이 섹터를 해석했으면(검색 그라운딩 학습분·테마 상장사 적용 포함)
     # 같은 테마를 가리키는 미지원 안내도 지운다 — "'마운자로 관련주'는 반영되지 않았어요"가
     # 반영된 전략과 모순.
-    if (parsed.sector or parsed.target_symbols) and report.unsupported_features:
+    if universe_resolutions is None and (parsed.sector or parsed.target_symbols) and report.unsupported_features:
         from engine.nl_parser import _extract_sector
         # 체인이 전부 해석했으면(sector_question 없음) 그 표현들의 미지원 항목도 지운다 —
         # 검증기가 걸렀던 '섹터 X'가 테마 상장사로 반영됐는데 안내가 남으면 모순.
@@ -2480,13 +2506,13 @@ def run_primary_parse(
         resolved_theme_terms += sorted(planner_applied_terms)
         report.unsupported_features = [
             f for f in report.unsupported_features
-            if _extract_sector(f) is None
+            if observed_call("engine.nl_parser._extract_sector", _extract_sector, f) is None
             and not any(t and t in f for t in resolved_theme_terms)
         ]
     # ETF 테마가 반영됐으면 같은 테마를 가리키는 미지원 안내도 지운다 — 실측 사고
     # (2026-07-27): etf_theme="배당"으로 반영된 전략에 "'배당 조건'은 아직 지원되지 않아요"
     # 안내가 함께 나갔다(모델이 테마를 etf_theme와 unsupported_features 양쪽에 넣은 드리프트).
-    if parsed.etf_theme and report.unsupported_features:
+    if _us_market_context(parsed) and parsed.etf_theme and report.unsupported_features:
         theme_key = parsed.etf_theme.replace(" ", "").lower()
         report.unsupported_features = [
             f for f in report.unsupported_features
@@ -2638,115 +2664,125 @@ def run_primary_parse(
     # 제외됐지만 질문이 다루지 않는 조건이 있으면 정직하게 알린다.
     # 이월 큐(queue)에 실린 질문은 "다음 턴에 물을 예정"이므로 다룬 것으로 친다 —
     # 안 그러면 한 턴에 한 질문 분할이 뒤 질문의 조건마다 미반영 안내를 만든다.
-    notices.extend(pending_value_notices(
-        dropped, pending_conditions, clarification_question=clarification_question,
-        clarification_suggestions=clarification_suggestions, pending_ask=pending_ask, notices=notices,
-    ))
-    # 아래 잔여 미지원 안내가 '이미 다룬 글'을 대조할 때 같은 재료를 쓴다.
-    queued_question_text = _queued_ask_text(pending_ask)
-    pending_labels = {(p or {}).get("label") for p in (pending_conditions or [])}
-    # ── 근사 반영 안내(LLM 신고 채널, 2026-09-10 신설) ──
-    # 정확히 같은 지표가 없어 가까운 지표로 대신 반영한 조건을 사용자에게 알린다.
-    # 종전에는 이 알림을 **원문 정규식**(build_unsupported_concept_notice)이 냈다 —
-    # 낱말만 보고 판정하니 정확히 반영된 요청에도 "지원되지 않아요"가 붙었고(사고
-    # 2026-09-10: PER로 반영된 "실적 대비 가격"), 그것은 LLM의 의미 판정을 정규식이
-    # 원문을 다시 읽고 뒤집는 재심 구조였다(대원칙 1 위반). 이제 판정은 LLM이 자기
-    # 출력에 적은 approximated 플래그이고, 여기서는 그 신고를 문구로 옮기기만 한다.
-    notices.extend(_approximation_notices(getattr(validated, "strategy", None)))
-    # ── 잔여 미지원 안내(LLM 보고 채널, 2026-08-12 부활 — 사용자 결정) ──
-    # 인터프리터가 unsupported_features로 보고했지만 어떤 채널(되묻기·큐·제외 조건 안내·
-    # 값 대기)도 다루지 않은 개념의 조용한 소실 방지. 2026-08-01 폐지의 원인은 채널이
-    # 아니라 **무필터 인용**이었다 — 수정 레인(primary_modify_unsupported)에서 검증된
-    # 가드를 그대로 얹는다: ① 발화 전체 에코 오라벨이면 침묵(기존 채널이 담당),
-    # ② 내부 식별자·개념 ID는 평이화(_humanize_features).
-    # [2026-09-10 이관] 종전 ③(미지원 개념 목록 34개에 매칭되면 제외 — 그 안내는 원문
-    # 정규식 게이트 소관)은 폐지했다. primary 레인에서 그 게이트를 끄면서(main.py —
-    # 원문 재심 구조 제거) 이 채널이 미지원 안내의 **단일 정본**이 됐다: 제외를 남겨
-    # 두면 LLM이 정직하게 보고한 미지원 개념이 아무 데서도 안내되지 않는다.
-    # 판정 입력은 전부 LLM 출력·자기 응답 문자열이다(라벨 정규식 매칭은
-    # concepts_covered_by_pending과 같은 계약 — 원문을 읽지 않는다).
-    if report.unsupported_features and not _reported_features_echo_input(
-        report.unsupported_features, user_input
-    ):
-        from engine.nl_parser import concepts_expressed_in_strategy
+    if _us_market_context(parsed):
+        notices.extend(pending_value_notices(
+            dropped, pending_conditions, clarification_question=clarification_question,
+            clarification_suggestions=clarification_suggestions, pending_ask=pending_ask, notices=notices,
+        ))
+        # 아래 잔여 미지원 안내가 '이미 다룬 글'을 대조할 때 같은 재료를 쓴다.
+        queued_question_text = _queued_ask_text(pending_ask)
+        pending_labels = {(p or {}).get("label") for p in (pending_conditions or [])}
+        # ── 근사 반영 안내(LLM 신고 채널, 2026-09-10 신설) ──
+        # 정확히 같은 지표가 없어 가까운 지표로 대신 반영한 조건을 사용자에게 알린다.
+        # 종전에는 이 알림을 **원문 정규식**(build_unsupported_concept_notice)이 냈다 —
+        # 낱말만 보고 판정하니 정확히 반영된 요청에도 "지원되지 않아요"가 붙었고(사고
+        # 2026-09-10: PER로 반영된 "실적 대비 가격"), 그것은 LLM의 의미 판정을 정규식이
+        # 원문을 다시 읽고 뒤집는 재심 구조였다(대원칙 1 위반). 이제 판정은 LLM이 자기
+        # 출력에 적은 approximated 플래그이고, 여기서는 그 신고를 문구로 옮기기만 한다.
+        notices.extend(_approximation_notices(getattr(validated, "strategy", None)))
+        # ── 잔여 미지원 안내(LLM 보고 채널, 2026-08-12 부활 — 사용자 결정) ──
+        # 인터프리터가 unsupported_features로 보고했지만 어떤 채널(되묻기·큐·제외 조건 안내·
+        # 값 대기)도 다루지 않은 개념의 조용한 소실 방지. 2026-08-01 폐지의 원인은 채널이
+        # 아니라 **무필터 인용**이었다 — 수정 레인(primary_modify_unsupported)에서 검증된
+        # 가드를 그대로 얹는다: ① 발화 전체 에코 오라벨이면 침묵(기존 채널이 담당),
+        # ② 내부 식별자·개념 ID는 평이화(_humanize_features).
+        # [2026-09-10 이관] 종전 ③(미지원 개념 목록 34개에 매칭되면 제외 — 그 안내는 원문
+        # 정규식 게이트 소관)은 폐지했다. primary 레인에서 그 게이트를 끄면서(main.py —
+        # 원문 재심 구조 제거) 이 채널이 미지원 안내의 **단일 정본**이 됐다: 제외를 남겨
+        # 두면 LLM이 정직하게 보고한 미지원 개념이 아무 데서도 안내되지 않는다.
+        # 판정 입력은 전부 LLM 출력·자기 응답 문자열이다(라벨 정규식 매칭은
+        # concepts_covered_by_pending과 같은 계약 — 원문을 읽지 않는다).
+        if universe_resolutions is not None:
+            assembled = assemble_sector_notices(report, parsed, universe_resolutions,
+                scope_terms=planner_scope_terms if planner_scope_question is not None else ())
+            notices.extend(assembled["notices"])
+            report.unsupported_features = assembled["unsupported_features"]
+            from observability import span
+            with span("Create universe notice assembly", "chain") as trace:
+                trace.local_evidence(universe_notice_decisions=assembled["decisions"])
 
-        covered_text = " ".join(
-            [clarification_question or "", queued_question_text]
-            + notices
-            + [str(label) for label in pending_labels if label]
-        )
-        # 스키마 필드 경로(technical.beta 등)는 검증기가 담는 내부 식별자다 — 그
-        # 조건의 탈락은 제외 조건 안내가 source_text(사용자 표현)로 이미 알리고,
-        # 내부명은 노출 금지(레드팀 QA 20-5)이므로 여기서 제외한다.
-        field_path_rx = re.compile(r"\b[a-z_]{2,}\.[a-z_0-9]{2,}")
-        field_name_rx = _INTERNAL_FIELD_NAME_RE
-        # 개념 ID 영문 표기('volatility' 등)는 사용자에게 보일 말이 아니다 — 정본
-        # 한국어 라벨로 옮긴다(_humanize_features). 종전에는 결정론 게이트가 같은
-        # 개념을 한국어로 안내했으므로 여기서 버렸지만, 게이트가 꺼진 지금 버리면
-        # 그 개념은 어디서도 안내되지 않는다.
-        # 검증을 통과해 **전략에 남은** 조건의 사용자 인용 — 같은 표현이 조건으로도
-        # 반영되고 미지원으로도 보고되면(프롬프트 4-1 위반) 반영된 조건에 "반영하지
-        # 못했어요"가 붙는다. 값-대기 대조와 같은 표기 포함 판정으로 걷어낸다.
-        reflected_conditions = (
-            list(validated.strategy.entry_conditions)
-            + list(validated.strategy.exit_conditions)
-        ) if validated.strategy is not None else []
-        reflected_texts = [cond.source_text or "" for cond in reflected_conditions]
-        if validated.strategy is not None:
-            from engine.nl_parser import MacroFilter
-            executable_macro = MacroFilter.executable(parsed.macro_filters)
-            reflected_texts += [
-                spec.source_text or ""
-                for spec, compiled in zip(validated.strategy.macro_filters, parsed.macro_filters)
-                if compiled in executable_macro
+        if report.unsupported_features and not _reported_features_echo_input(
+            report.unsupported_features, user_input
+        ):
+            from engine.nl_parser import concepts_expressed_in_strategy
+
+            covered_text = " ".join(
+                [clarification_question or "", queued_question_text]
+                + notices
+                + [str(label) for label in pending_labels if label]
+            )
+            # 스키마 필드 경로(technical.beta 등)는 검증기가 담는 내부 식별자다 — 그
+            # 조건의 탈락은 제외 조건 안내가 source_text(사용자 표현)로 이미 알리고,
+            # 내부명은 노출 금지(레드팀 QA 20-5)이므로 여기서 제외한다.
+            field_path_rx = re.compile(r"\b[a-z_]{2,}\.[a-z_0-9]{2,}")
+            field_name_rx = _INTERNAL_FIELD_NAME_RE
+            # 개념 ID 영문 표기('volatility' 등)는 사용자에게 보일 말이 아니다 — 정본
+            # 한국어 라벨로 옮긴다(_humanize_features). 종전에는 결정론 게이트가 같은
+            # 개념을 한국어로 안내했으므로 여기서 버렸지만, 게이트가 꺼진 지금 버리면
+            # 그 개념은 어디서도 안내되지 않는다.
+            # 검증을 통과해 **전략에 남은** 조건의 사용자 인용 — 같은 표현이 조건으로도
+            # 반영되고 미지원으로도 보고되면(프롬프트 4-1 위반) 반영된 조건에 "반영하지
+            # 못했어요"가 붙는다. 값-대기 대조와 같은 표기 포함 판정으로 걷어낸다.
+            reflected_conditions = (
+                list(validated.strategy.entry_conditions)
+                + list(validated.strategy.exit_conditions)
+            ) if validated.strategy is not None else []
+            reflected_texts = [cond.source_text or "" for cond in reflected_conditions]
+            if validated.strategy is not None:
+                from engine.nl_parser import MacroFilter
+                executable_macro = MacroFilter.executable(parsed.macro_filters)
+                reflected_texts += [
+                    spec.source_text or ""
+                    for spec, compiled in zip(validated.strategy.macro_filters, parsed.macro_filters)
+                    if compiled in executable_macro
+                ]
+            # 전략이 실제로 표현한 개념(랭킹으로 반영된 현금흐름·이동평균 정배열 등)은
+            # 제외한다 — 결정론 게이트가 하던 '의도적 제외'의 이관분이다(판정 입력은 컴파일
+            # 결과이고, 개념 대조는 LLM이 보고한 라벨 문자열에 건다).
+            expressed = concepts_expressed_in_strategy(parsed, user_input)
+            # 전략에 남은 랭킹이 계산 안에 이미 품은 것(재료 지표·내장 처리)의 이중 보고
+            # (2026-09-21 실측 9B: pead 랭킹이 반영된 턴에 '윈저라이즈 처리'·'실적 발표일 전후
+            # 초과수익률 계산'이 미지원으로 나갔다). 보고 조각 ↔ 레지스트리 대조(§ 3-2).
+            from strategy_conversation.registry.indicator_registry import ranking_covers
+
+            ranking_ids = [
+                rank.metric for rank in (validated.strategy.ranking if validated.strategy else [])
             ]
-        # 전략이 실제로 표현한 개념(랭킹으로 반영된 현금흐름·이동평균 정배열 등)은
-        # 제외한다 — 결정론 게이트가 하던 '의도적 제외'의 이관분이다(판정 입력은 컴파일
-        # 결과이고, 개념 대조는 LLM이 보고한 라벨 문자열에 건다).
-        expressed = concepts_expressed_in_strategy(parsed, user_input)
-        # 전략에 남은 랭킹이 계산 안에 이미 품은 것(재료 지표·내장 처리)의 이중 보고
-        # (2026-09-21 실측 9B: pead 랭킹이 반영된 턴에 '윈저라이즈 처리'·'실적 발표일 전후
-        # 초과수익률 계산'이 미지원으로 나갔다). 보고 조각 ↔ 레지스트리 대조(§ 3-2).
-        from strategy_conversation.registry.indicator_registry import ranking_covers
-
-        ranking_ids = [
-            rank.metric for rank in (validated.strategy.ranking if validated.strategy else [])
-        ]
-        leftover_features = [
-            f for f in _humanize_features(report.unsupported_features)
-            if f and f not in covered_text
-            and not _concept_expressed(f, expressed)
-            # 값-대기 조건의 사용자 표현을 담은 이중 기입은 거짓 미반영 안내가 된다 —
-            # source_text 포함 대조로 걷어낸다(2026-08-14, _covered_by_pending_texts).
-            and not _covered_by_pending_texts(f, pending_conditions)
-            and not _covered_by_source_texts(f, reflected_texts)
-            and not _covered_by_risk_values(f, parsed)
-            # 근사 반영된 조건의 인용문 **안에 든** 조각도 이중 기입이다(2026-09-13,
-            # _covered_by_approximated_texts) — 근사 안내가 이미 그 문장을 다뤘다.
-            and not _covered_by_approximated_texts(f, reflected_conditions)
-            and not ranking_covers(f, ranking_ids)
-            and not field_path_rx.search(f)
-            and not field_name_rx.search(f)
-        ]
-        leftover_features = _drop_fragments_wrapping_others(leftover_features)
-        # 무엇을 지원하지 않는지는 **항상 이름으로** 알린다(2026-09-21 사용자 지시). 종전에는
-        # 25자를 넘는 조각을 "말씀하신 조건 중 일부는 지원하지 않아…"로 뭉뚱그렸는데(2026-08-12
-        # 결정 — 자기 말 반 토막을 되돌려받는 안내 방지), 그러면 사용자는 **무엇이** 빠졌는지 알
-        # 길이 없다(실측: "단일 매수 금액은 보유 현금의 10%를 넘지 않으며"가 27자라 일반 문구만
-        # 나갔다). 짧은 이름은 종전대로 한 줄에 모으고, 긴 조각은 한 줄에 하나씩 그대로 인용한다.
-        # 발화 전체를 담은 오라벨은 위 _reported_features_echo_input이 이미 걸렀다.
-        named = [f for f in leftover_features if len(f) <= _QUOTED_FEATURE_MAX_LEN]
-        long_fragments = [f for f in leftover_features if len(f) > _QUOTED_FEATURE_MAX_LEN]
-        for names in ([", ".join(named)] if named else []) + long_fragments:
-            notices.append(ui_language.msg(
-                "'{names}' 조건은 지원하지 않아 전략에 반영하지 못했어요.",
-                "The condition '{names}' is not supported, so it was not reflected in the strategy.",
-                names=names,
-            ))
-        if leftover_features:
-            _log_llm("△ 잔여 미지원 안내", (
-                f"지목={named or '[]'} 긴조각={long_fragments or '[]'}"
-            ))
+            leftover_features = [
+                f for f in _humanize_features(report.unsupported_features)
+                if f and f not in covered_text
+                and not _concept_expressed(f, expressed)
+                # 값-대기 조건의 사용자 표현을 담은 이중 기입은 거짓 미반영 안내가 된다 —
+                # source_text 포함 대조로 걷어낸다(2026-08-14, _covered_by_pending_texts).
+                and not _covered_by_pending_texts(f, pending_conditions)
+                and not _covered_by_source_texts(f, reflected_texts)
+                and not _covered_by_risk_values(f, parsed)
+                # 근사 반영된 조건의 인용문 **안에 든** 조각도 이중 기입이다(2026-09-13,
+                # _covered_by_approximated_texts) — 근사 안내가 이미 그 문장을 다뤘다.
+                and not _covered_by_approximated_texts(f, reflected_conditions)
+                and not ranking_covers(f, ranking_ids)
+                and not field_path_rx.search(f)
+                and not field_name_rx.search(f)
+            ]
+            leftover_features = _drop_fragments_wrapping_others(leftover_features)
+            # 무엇을 지원하지 않는지는 **항상 이름으로** 알린다(2026-09-21 사용자 지시). 종전에는
+            # 25자를 넘는 조각을 "말씀하신 조건 중 일부는 지원하지 않아…"로 뭉뚱그렸는데(2026-08-12
+            # 결정 — 자기 말 반 토막을 되돌려받는 안내 방지), 그러면 사용자는 **무엇이** 빠졌는지 알
+            # 길이 없다(실측: "단일 매수 금액은 보유 현금의 10%를 넘지 않으며"가 27자라 일반 문구만
+            # 나갔다). 짧은 이름은 종전대로 한 줄에 모으고, 긴 조각은 한 줄에 하나씩 그대로 인용한다.
+            # 발화 전체를 담은 오라벨은 위 _reported_features_echo_input이 이미 걸렀다.
+            named = [f for f in leftover_features if len(f) <= _QUOTED_FEATURE_MAX_LEN]
+            long_fragments = [f for f in leftover_features if len(f) > _QUOTED_FEATURE_MAX_LEN]
+            for names in ([", ".join(named)] if named else []) + long_fragments:
+                notices.append(ui_language.msg(
+                    "'{names}' 조건은 지원하지 않아 전략에 반영하지 못했어요.",
+                    "The condition '{names}' is not supported, so it was not reflected in the strategy.",
+                    names=names,
+                ))
+            if leftover_features:
+                _log_llm("△ 잔여 미지원 안내", (
+                    f"지목={named or '[]'} 긴조각={long_fragments or '[]'}"
+                ))
     # 미반영 수치 **안내**는 폐지했다(2026-08-01, 사용자 판단) — 로그로만 남긴다.
     # 대조는 크기만 보는 수치 대조라 라벨이 맥락 없는 숫자 나열("'1, 20일' 수치는…")이 되고,
     # 정작 '월 1회 리밸런싱'·'20일 평균 거래대금'처럼 **이미 반영된** 표현이 자주 걸린다
@@ -2762,6 +2798,24 @@ def run_primary_parse(
         still_missing = labels_absent_from(result.unreflected_numbers, strategy_payload)
         if still_missing:
             _log_llm("△ 미반영(안내 없음)", f"{', '.join(still_missing)}")
+
+    if held_conditions:
+        old_ask = pending_ask
+        clarification_question, clarification_suggestions, pending_ask = checks.question(held_conditions)
+        clarification_priority = "pending_values"
+        queued = list((old_ask or {}).get("queue") or [])
+        if pending_conditions and old_ask and old_ask.get("question") != clarification_question:
+            queued.insert(0, {k: old_ask[k] for k in ("question", "topic", "chips") if k in old_ask})
+        if queued:
+            pending_ask.setdefault("queue", []).extend(queued)
+
+    elif create_domain_ask is not None:
+        old_ask = pending_ask
+        clarification_question, clarification_suggestions, pending_ask = create_domain_ask
+        clarification_priority = "pending_values"
+        if old_ask and old_ask.get("question") != clarification_question:
+            pending_ask["queue"] = [{k: old_ask[k] for k in ("question", "topic", "chips") if k in old_ask}]
+            pending_ask["queue"].extend(old_ask.get("queue") or [])
 
     # 결속 체인 판정 — 되묻기로 끝나는 턴인데 pending_ask가 없으면 다음 턴의 답변은
     # 귀속 근거 없이 일반 분류 레인으로 떨어진다. 그 손실이 어느 게이트에서 났는지를
@@ -2792,6 +2846,9 @@ def run_primary_parse(
     turn_declined = list(getattr(validated.strategy, "declined", None) or []) \
         if validated.strategy is not None else []
     return finalize_user_response({
+        **({"_notice_context": notice_context(report, validated.strategy, user_input,
+            universe_resolutions, planner_scope_terms if planner_scope_question else (),
+            pending_conditions, dropped)} if not _us_market_context(parsed) else {}),
         "parsed": parsed,
         "clarification_question": clarification_question,
         "clarification_suggestions": clarification_suggestions,
@@ -2926,6 +2983,7 @@ def _dag_state_summary(
     return summary
 
 
+@replay_dependency
 def _dag_planner_clarification(
     user_input: str, parsed: Any, explicit_fields: Optional[Iterable[str]] = None,
     declined_fields: Optional[Iterable[str]] = None,
@@ -3218,6 +3276,7 @@ def _start_parallel(fn: Callable[..., Any], *args: Any) -> concurrent.futures.Fu
     return _PARALLEL_POOL.submit(contextvars.copy_context().run, fn, *args)
 
 
+@replay_dependency
 def _plan_first(user_input: str) -> Optional[Any]:
     """Phase 5 제어 역전(2026-07-28) — 파스 최선두에서 대화 턴을 DAG로 계획한다.
 
@@ -3481,18 +3540,26 @@ def _kr_region_us_market_refusal(
     # "나스닥 ETF"는 국내에 상장돼 있다, _recover_kr_etf_product).
     terms = [t for t in unresolved
              if (only_terms is None or t in only_terms) and not _is_etf_expression(t)]
-    if not terms or not callable(chat):
+    if not terms:
         return None
     from strategy_conversation.interpreter import market_region_check
 
-    verdicts = market_region_check.check_markets(terms, chat)
+    verdicts = market_region_check.check_markets(terms, chat) if callable(chat) else None
+    if verdicts is None or any(verdicts.get(term) not in ("KR", "US", "OTHER") for term in terms):
+        required_note("region", strategy.universe, "UNRESOLVED", "universe",
+                      {"terms": terms, "classification": verdicts})
     if verdicts is None:
         _log_llm("△ 종목 시장 판정 실패", f"{terms} — 판정 없음으로 진행(거절하지 않음)")
         return None
     us_terms = sorted(t for t, market in verdicts.items() if market == "US")
     if us_terms:
         _log_llm("⛔ 지역 격리", f"미국 상품 표현 거절: {us_terms}")
+        required_note("region", strategy.universe, "REJECT", "universe",
+                      {"terms": terms, "classification": verdicts})
         return KR_ONLY_MARKET_REFUSAL
+    # Region classification alone cannot resolve these still-unknown symbols.
+    required_note("region", strategy.universe, "UNRESOLVED", "universe",
+                  {"terms": terms, "classification": verdicts, "canonical_symbols": []})
     return None
 
 
@@ -3566,6 +3633,7 @@ def _resolve_sector_terms_us(
     return question, None
 
 
+@replay_dependency
 def _apply_us_theme_companies(parsed: Any, term: str) -> bool:
     """US 테마 카탈로그 정본이면 구성 티커를 '테마 유래 지정 종목'으로 적용한다.
 
@@ -3587,6 +3655,7 @@ def _apply_us_theme_companies(parsed: Any, term: str) -> bool:
     return True
 
 
+@replay_dependency
 def _apply_us_company_related(parsed: Any, term: str, on_stage=None) -> bool:
     """'X 관련주'(X=미국 상장사)를 관계 기업 집합으로 전개한다(FR-STR-074 ⑦, 2026-08-27).
 
@@ -3631,6 +3700,7 @@ def _apply_us_company_related(parsed: Any, term: str, on_stage=None) -> bool:
     return True
 
 
+@replay_dependency
 def _apply_us_industry(parsed: Any, term: str) -> bool:
     """분류(GICS 섹터·산업) 표현이면 미국 업종 **필터**로 확정한다(FR-STR-074 ⑩).
 
@@ -3662,6 +3732,7 @@ def _apply_us_industry(parsed: Any, term: str) -> bool:
     return True
 
 
+@replay_dependency
 def _ground_us_theme_term(parsed: Any, term: str, on_stage=None) -> bool:
     """카탈로그 밖 테마어를 SEC 공시 전문검색으로 학습해 지정 종목으로 적용한다.
 
@@ -3788,7 +3859,7 @@ def _append_sector_notice(notices: List[str], sector: str, text: str) -> None:
 
 
 def _apply_planner_first_universe(
-    result: Any, parsed: Any, notices: List[str]
+    result: Any, parsed: Any, notices: List[str], resolution_evidence=None
 ) -> tuple[set, set, set]:
     """planner-first 도구 관찰값을 결정론으로 parsed에 병합한다(관찰값에서만 채택).
 
@@ -3852,12 +3923,16 @@ def _apply_planner_first_universe(
             if _classification_reflected(parsed, _utype, obs.get("canonical")):
                 resolved.add(term)
                 applied.add(term)
+                remember_resolution(resolution_evidence, term, parsed, "planner_first",
+                    field={"MARKET": "universe", "SECTOR": "sector", "SINGLE_STOCK": "target_symbols",
+                           "ETF": "etf_theme"}.get(_utype))
                 unresolved.discard(term)
             elif _apply_designated_symbol(parsed, term, _utype, obs.get("canonical")):
                 _log_llm("✓ 지정 종목 복구",
                          f"'{term}' → {obs.get('canonical')} (해석기 미반영분 결정론 적용)")
                 resolved.add(term)
                 applied.add(term)
+                remember_resolution(resolution_evidence, term, parsed, "planner_first")
                 unresolved.discard(term)
             else:
                 _log_llm("· 분류 미반영",
@@ -3878,6 +3953,7 @@ def _apply_planner_first_universe(
                          f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
                 resolved.add(term)
                 applied.add(term)
+                remember_resolution(resolution_evidence, term, parsed, "planner_first")
                 unresolved.discard(term)
             else:
                 unresolved.add(term)
@@ -3885,11 +3961,12 @@ def _apply_planner_first_universe(
         if obs.get("found") and obs.get("companies"):
             # 적용 안내는 사용자 notices에 싣지 않는다(2026-08-02 사용자 지시 —
             # 요약 카드가 유니버스를 이미 표시, 반환 문구는 적용 신호 전용).
-            if apply_theme_companies(parsed, term):
+            if observed_call("engine.nl_parser.apply_theme_companies", apply_theme_companies, parsed, term):
                 _log_llm("✓ planner-first 테마",
                          f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
                 resolved.add(term)
                 applied.add(term)
+                remember_resolution(resolution_evidence, term, parsed, "planner_first")
                 unresolved.discard(term)
                 continue
         if obs.get("sector"):
@@ -3898,11 +3975,12 @@ def _apply_planner_first_universe(
             # '블랙핑크' 사고 2차: 학습된 업종 근사가 kg_resolve_sector에 히트하자
             # 9B DAG가 테마 조회 노드를 생략한 턴에서 '관련주'가 업종 전체(미디어/엔터
             # 수십 곳)로 확정됐다. 테마 조회는 결정론 지식 조회(~ms)라 여기서 보충한다.
-            if apply_theme_companies(parsed, term):
+            if observed_call("engine.nl_parser.apply_theme_companies", apply_theme_companies, parsed, term):
                 _log_llm("✓ planner-first 테마",
                          f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳(업종 근사 대체)")
                 resolved.add(term)
                 applied.add(term)
+                remember_resolution(resolution_evidence, term, parsed, "planner_first")
                 unresolved.discard(term)
                 continue
             _merge_learned_sector(parsed, obs["sector"])
@@ -3914,6 +3992,7 @@ def _apply_planner_first_universe(
             )
             resolved.add(term)
             applied.add(term)
+            remember_resolution(resolution_evidence, term, parsed, "planner_first_sector", field="sector")
             unresolved.discard(term)
             continue
         unresolved.add(term)
@@ -3937,6 +4016,7 @@ def _apply_planner_first_universe(
             # 정본 표기가 유니버스에 반영됐으면 원 표현도 반영된 것이다(같은 전파).
             if str(candidates[0]).replace(" ", "").lower() in applied_keys:
                 applied.add(term)
+                inherit_resolution(resolution_evidence, term, candidates[0])
     return resolved, unresolved, applied
 
 
@@ -4296,7 +4376,7 @@ def _apply_universe_chip(
         # 않는다)는 유지된다.
         # 적용 안내는 사용자 notices에 싣지 않는다(2026-08-02 사용자 지시 — 요약
         # 카드가 유니버스를 이미 표시, 반환 문구는 적용 신호 전용).
-        if replace_theme_universe(prev, chip_text) is None:
+        if observed_call("engine.nl_parser.replace_theme_universe", replace_theme_universe, prev, chip_text) is None:
             _log_llm("↩ 유니버스 칩 미적용",
                      f"칩 '{chip_text}' 카탈로그 정합 실패 — 수정 인터프리터로")
             return None
@@ -4344,6 +4424,7 @@ def _resolve_sector_terms_term_in(
     unresolved_terms: List[str],
     notices: List[str],
     on_stage=None,
+    resolution_evidence=None,
 ) -> tuple[Optional[str], Optional[List[str]]]:
     """미해결 업종/테마 표현(LLM 추출)을 지식 조회 체인으로 해석한다(§ 11-3 term-in).
 
@@ -4365,20 +4446,24 @@ def _resolve_sector_terms_term_in(
     for term in unresolved_terms:
         # 테마 적용 안내는 사용자 notices에 싣지 않는다(2026-08-02 사용자 지시 —
         # 요약 카드가 유니버스를 이미 표시, 반환 문구는 적용 신호 전용).
-        if apply_theme_companies(parsed, term):
+        if observed_call("engine.nl_parser.apply_theme_companies", apply_theme_companies, parsed, term):
             _log_llm("✓ 테마 상장사", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
+            remember_resolution(resolution_evidence, term, parsed, "_resolve_sector_terms_term_in")
             continue
         # 표기 변형 흡수 — 결정론 스캔이 놓쳤을 때만(닫힌 목록 LLM 선택)
         if _apply_theme_via_canonical_match(parsed, term):
+            remember_resolution(resolution_evidence, term, parsed, "_resolve_sector_terms_term_in")
             continue
         learned = _ground_sector_term(term, on_stage=on_stage)
         if learned:
             # 학습이 테마 앵커를 만들었으면 상장사 적용이 우선(레거시 학습→테마 순서와 동일),
             # 아니면 업종 근사로 병합한다.
-            if apply_theme_companies(parsed, term):
+            if observed_call("engine.nl_parser.apply_theme_companies", apply_theme_companies, parsed, term):
                 _log_llm("✓ 검색 학습→테마", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
+                remember_resolution(resolution_evidence, term, parsed, "term_in_grounded_theme")
             else:
                 _merge_learned_sector(parsed, learned)
+                remember_resolution(resolution_evidence, term, parsed, "term_in_grounded_sector", field="sector")
                 _log_llm("✓ 검색 학습", f"'{term}' → 섹터 '{learned}'")
                 _append_sector_notice(
                     notices, learned,
@@ -4406,6 +4491,7 @@ def _resolve_sector_terms_planner_primary(
     unresolved_terms: List[str],
     notices: List[str],
     on_stage=None,
+    resolution_evidence=None,
 ) -> tuple[Optional[str], Optional[List[str]]]:
     """미해결 표현을 mini-planner가 담당한다(STRATEGY_PLANNER_MODE=primary, Phase 3 승격).
 
@@ -4443,11 +4529,13 @@ def _resolve_sector_terms_planner_primary(
             # 건너뛰어, 같은 입력이 레인·표본에 따라 갈렸다(2026-09-16 사용자 제보:
             # '석유 관련주'가 한 레인에선 네이버 업종 '석유와가스' 13종목으로, 다른
             # 레인에선 "'섹터 '석유''는 지원하지 않아 반영하지 못했어요"로 끝났다).
-            if apply_theme_companies(parsed, term):
+            if observed_call("engine.nl_parser.apply_theme_companies", apply_theme_companies, parsed, term):
                 _log_llm("✓ planner 테마(되묻기 전 조회)",
                          f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
+                remember_resolution(resolution_evidence, term, parsed, "_resolve_sector_terms_planner_primary")
                 continue
             if _apply_theme_via_canonical_match(parsed, term):
+                remember_resolution(resolution_evidence, term, parsed, "_resolve_sector_terms_planner_primary")
                 continue
             # 되묻기 질문은 planner 내부에서 이미 output_guard를 통과했다
             _log_llm("? planner 되묻기", f"'{term}': {result.question}")
@@ -4457,14 +4545,17 @@ def _resolve_sector_terms_planner_primary(
         # resolved — planner의 ground_term 학습이 어휘집·KG에 반영된 뒤라 고정 체인과
         # 같은 결정적 적용이 성립한다. 적용 안내는 사용자 notices에 싣지 않는다
         # (2026-08-02 사용자 지시 — 요약 카드가 유니버스를 이미 표시, 반환 문구는 신호 전용).
-        if apply_theme_companies(parsed, term):
+        if observed_call("engine.nl_parser.apply_theme_companies", apply_theme_companies, parsed, term):
             _log_llm("✓ planner 테마", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
+            remember_resolution(resolution_evidence, term, parsed, "_resolve_sector_terms_planner_primary")
             continue
         # 고정 체인과 같은 순서 — 업종 근사보다 테마 정본 매핑이 먼저다
         if _apply_theme_via_canonical_match(parsed, term):
+            remember_resolution(resolution_evidence, term, parsed, "_resolve_sector_terms_planner_primary")
             continue
         if result.sector:
             _merge_learned_sector(parsed, result.sector)
+            remember_resolution(resolution_evidence, term, parsed, "mini_planner_sector", field="sector")
             _log_llm("✓ planner 해석", f"'{term}' → 섹터 '{result.sector}'")
             _append_sector_notice(
                 notices, result.sector,
@@ -4478,6 +4569,7 @@ def _resolve_sector_terms_planner_primary(
             if symbols:
                 parsed.target_symbols = list(dict.fromkeys(
                     [*(parsed.target_symbols or []), *symbols]))
+                remember_resolution(resolution_evidence, term, parsed, "mini_planner_companies")
                 _log_llm("✓ planner 상장사", f"'{term}' → 지정 종목 {len(symbols)}곳")
                 notices.append(
                     f"'{term}'은(는) 관련 상장사 {len(symbols)}곳으로 해석해 "
@@ -4488,11 +4580,14 @@ def _resolve_sector_terms_planner_primary(
     if fallback_terms:
         question, suggestions = _resolve_sector_terms_term_in(
             parsed, fallback_terms, notices, on_stage=on_stage,
+            **({"resolution_evidence": resolution_evidence} if resolution_evidence is not None else {}),
         )
         if clarify is None and question:
             clarify = (question, suggestions)
     return clarify if clarify is not None else (None, None)
 
+
+@replay_dependency
 
 def _apply_theme_via_canonical_match(parsed: Any, term: str) -> bool:
     """결정론 조회가 놓친 표기를 KG 테마 정본 이름으로 매핑해 다시 적용한다(KR 레인).
@@ -4520,13 +4615,14 @@ def _apply_theme_via_canonical_match(parsed: Any, term: str) -> bool:
     except Exception:  # noqa: BLE001 — 정본 매핑 실패가 파스를 깨면 안 된다
         logger.debug("KG 테마 정본 매핑 실패 | term=%r", term, exc_info=True)
         return False
-    if not canonical or not apply_theme_companies(parsed, canonical):
+    if not canonical or not observed_call("engine.nl_parser.apply_theme_companies", apply_theme_companies, parsed, canonical):
         return False
     _log_llm("✓ 테마 정본 매핑",
              f"'{term}' → '{canonical}' → 지정 종목 {len(parsed.target_symbols)}곳")
     return True
 
 
+@replay_dependency
 def _ground_sector_term(term: str, on_stage=None) -> Optional[str]:
     """표현 하나를 검색 그라운딩으로 학습한다(ground_term 도구 — 어휘집→KG→내부 LLM→검색).
 
@@ -4567,6 +4663,7 @@ def _merge_learned_sector(parsed: Any, sector: str) -> None:
         parsed.sector = [*current, sector]
 
 
+@replay_dependency
 def _searched_unresolved_lexicon_entry(term: str) -> Optional[dict]:
     """검색이 실제 수행됐지만(searched_at 원장) 업종 매핑에 실패한 어휘집 항목(term-in)."""
     try:
@@ -4680,7 +4777,7 @@ def _resolve_theme_change(
     )
 
     try:
-        raw_candidates = [c for c in catalog_theme_candidates(term) if c.get("term")]
+        raw_candidates = [c for c in observed_call("engine.knowledge_graph.catalog_theme_candidates", catalog_theme_candidates, term) if c.get("term")]
     except Exception:  # noqa: BLE001 — 후보 열거 실패가 교체 자체를 막으면 안 된다
         logger.warning("테마 후보 열거 실패 | term=%r", term, exc_info=True)
         raw_candidates = []
@@ -4699,11 +4796,11 @@ def _resolve_theme_change(
             "이 범위로 바꿀까요?",
             candidates,
         )
-    notice = replace_theme_universe(parsed, term)
+    notice = observed_call("engine.nl_parser.replace_theme_universe", replace_theme_universe, parsed, term)
     if notice is None:
         learned = _ground_sector_term(term, on_stage=on_stage)
         if learned:
-            notice = replace_theme_universe(parsed, term)
+            notice = observed_call("engine.nl_parser.replace_theme_universe", replace_theme_universe, parsed, term)
             if notice is None:
                 _merge_learned_sector(parsed, learned)
                 _log_llm("✓ 검색 학습(테마 교체)", f"'{term}' → 섹터 '{learned}'")
@@ -4845,6 +4942,7 @@ def _contribution_symbol_answer_result(draft_spec: Any, user_input: str, pending
                              model_name=getattr(interpreter, "model_name", "") or "")
 
 
+@decision_session
 def run_primary_modification(
     user_input: str, previous_parsed: dict, on_stage=None,
     previous_explicit_fields: Optional[List[str]] = None,
@@ -5076,6 +5174,17 @@ def run_primary_modification(
         logger.info("modify primary without patches (intent=%s), falling back", intent.intent)
         return None
 
+    decision_log = current_log()
+    checks = required_policy()
+    if decision_log is not None:
+        for index, patch in enumerate(intent.patches):
+            prior_identity = decision_log.bindings.get(id(patch))
+            decision_log.bind(patch, prior_identity[0] if prior_identity else f"patch:{index}:{digest(patch)[:16]}",
+                              _patch_group_key(patch.path) or f"patch:{index}")
+    linked_pairs = []
+    blocked_groups_final = set()
+    pair_question = None
+    held_clarification = None
     # 환각 게이트: 출처 인용도 수치 근거도 없는 패치는 지어낸 것이다 — 거부한다(대조, § 3-1).
     from engine.nl_parser import _compact
     compact_input = _compact(user_input)
@@ -5083,6 +5192,12 @@ def run_primary_modification(
     verdicts = [
         _patch_provenance_supported(p, compact_input, input_numbers) for p in intent.patches
     ]
+    for index, patch in enumerate(intent.patches):
+        if checks.blocked(patch):
+            verdicts[index] = False
+        elif any(i["subject"] is patch and i["kind"] == "holding" and i["status"] == "ACCEPT"
+                 for i in checks.items):
+            verdicts[index] = True
     # 같은 조건 객체를 겨냥한 형제 패치는 **한 덩어리의 수정**이다(factor·operator·value를
     # 함께 갈아끼우는 조건 교체). 개별 판정하면 일부만 통과해 LLM이 제안한 적 없는 상태가
     # 만들어진다 — "매수조건을 per 50이하로"에서 factor 패치만 인용 오기로 거부돼
@@ -5107,13 +5222,18 @@ def run_primary_modification(
     numeric_candidates = [
         (i, p) for i, p in enumerate(intent.patches)
         if not verdicts[i] and p.op in ("add", "replace") and p.source_text
+        and not checks.blocked(p)
         and isinstance(p.value, (int, float)) and not isinstance(p.value, bool)
     ]
+    checks.plan("numeric", [p for _, p in numeric_candidates])
     if numeric_candidates:
         from strategy_conversation.interpreter.numeric_patch_check import confirmed_numeric_patches
 
         chat = getattr(_get_interpreter(StrategyInterpreter), "_chat", None)
-        for index in confirmed_numeric_patches(numeric_candidates, user_input, chat):
+        confirmed_numeric = confirmed_numeric_patches(numeric_candidates, user_input, chat)
+        for index, patch in numeric_candidates:
+            required_note("numeric", patch, "ACCEPT" if index in confirmed_numeric else "UNRESOLVED", patch.path)
+        for index in confirmed_numeric:
             verdicts[index] = True
             _log_llm("✓ 수치 패치 출처 대조", intent.patches[index].path)
     # A literal source quote proves only that the words exist, not that a
@@ -5124,6 +5244,7 @@ def run_primary_modification(
         (i, p) for i, p in enumerate(intent.patches)
         if verdicts[i] and p.path == "/universe/markets"
     ]
+    checks.plan("market", [p for _, p in market_candidates])
     if market_candidates:
         from strategy_conversation.interpreter.patch_scope_check import (
             market_patch_scope_verdict,
@@ -5131,11 +5252,14 @@ def run_primary_modification(
 
         chat = getattr(_get_interpreter(StrategyInterpreter), "_chat", None)
         for index, patch in market_candidates:
-            if market_patch_scope_verdict(patch, user_input, chat) is False:
+            scope = market_patch_scope_verdict(patch, user_input, chat)
+            required_note("market", patch, "ACCEPT" if scope is True else "REJECT" if scope is False else "UNRESOLVED", patch.path)
+            if scope is not True:
                 verdicts[index] = False
-                market_scope_notices.append(
+                if scope is False:
+                    market_scope_notices.append(
                     "시장 범위 변경은 요청에서 확인되지 않아 기존 범위를 유지했어요."
-                )
+                    )
                 _log_llm("✗ 시장 패치 출처 대조", patch.path)
     # An add and an ungrounded remove in the same condition list are one proposed
     # replacement. Applying only the add silently keeps the old condition too.
@@ -5169,14 +5293,34 @@ def run_primary_modification(
             old_conditions[int(token)].model_dump(), add_patch.value, new_quote,
             getattr(_get_interpreter(StrategyInterpreter), "_chat", None),
         )
+        record("patch_relation", add_patch, "ACCEPT" if verdict in ("replace", "add") else "UNRESOLVED",
+               "RELATION_CONFIRMED" if verdict in ("replace", "add") else "RELATION_NOT_CONFIRMED", verdict)
+        required_note("pair", add_patch, "ACCEPT" if verdict in ("replace", "add") else "UNRESOLVED", list_field, verdict)
+
         if verdict == "replace":
+            linked_pairs.append((add_patch, remove_patch))
             verdicts[remove_index] = True
             _log_llm("✓ 조건 교체 대조", f"{list_field}[{token}] → 새 조건")
         elif verdict != "add":
             pair_ambiguous = True
             break
     if pair_ambiguous:
-        question = "기존 조건을 새 조건으로 바꿀까요, 아니면 새 조건을 추가할까요?"
+        pair_question = "기존 조건을 새 조건으로 바꿀까요, 아니면 새 조건을 추가할까요?"
+        for field in _CONDITION_LIST_FIELDS:
+            adds = [i for i, p in enumerate(intent.patches) if verdicts[i] and p.op == "add" and p.path == f"/{field}/-"]
+            removes = [i for i, p in enumerate(intent.patches) if not verdicts[i] and p.op == "remove" and p.path.startswith(f"/{field}/")]
+            if adds and removes:
+                for index in adds + removes:
+                    verdicts[index] = False
+                    required_note("pair", intent.patches[index], "UNRESOLVED", field)
+                    record("patch_dependency", intent.patches[index], "UNRESOLVED",
+                           "RELATION_NOT_CONFIRMED", group_id=f"ambiguous:{field}")
+                if decision_log is not None:
+                    decision_log.groups.append({"stage": "dependency_group_hold",
+                        "change_group_id": f"ambiguous:{field}", "status": "UNRESOLVED",
+                        "action": "HOLD", "reason_code": "RELATION_NOT_CONFIRMED"})
+    if pair_ambiguous and not any(verdicts):
+        question = pair_question
         _log_llm("? 조건 패치 원자성", "추가·삭제의 관계를 확인하지 못해 둘 다 적용하지 않음")
         return finalize_user_response({
             "parsed": prev,
@@ -5227,6 +5371,7 @@ def run_primary_modification(
                 index for index in group
                 if intent.patches[index].value.get("value") is None
             )
+    checks.plan("condition", [intent.patches[index] for index in sorted(scope_targets)])
     if scope_targets:
         from strategy_conversation.interpreter.patch_scope_check import (
             condition_patch_scope_verdicts,
@@ -5237,19 +5382,35 @@ def run_primary_modification(
         chat = getattr(_get_interpreter(StrategyInterpreter), "_chat", None)
         scope_verdicts = condition_patch_scope_verdicts(candidates, user_input, chat)
         for index in scope_targets:
-            if scope_verdicts.get(index) is False:
+            scope = scope_verdicts.get(index)
+            required_note("condition", intent.patches[index], "ACCEPT" if scope is True else "REJECT" if scope is False else "UNRESOLVED", intent.patches[index].path)
+            if scope is not True:
                 verdicts[index] = False
                 rejected_questioned_adds.add(index)
-                condition_scope_notices.append(
+                if scope is False:
+                    condition_scope_notices.append(
                     "요청에서 확인되지 않은 추가 조건은 반영하지 않았어요."
-                )
+                    )
                 _log_llm("✗ 질문 조건 출처 대조", intent.patches[index].path)
     remaining_questions = [
         question for question_index, question in enumerate(intent.clarification_questions)
         if questioned_adds.get(question_index) not in rejected_questioned_adds
     ]
-    cued_patches: List[Any] = [p for i, p in enumerate(intent.patches) if verdicts[i]]
-    rejected_patches: List[Any] = [p for i, p in enumerate(intent.patches) if not verdicts[i]]
+    cued_patches, rejected_patches = approve_legacy_patches(intent.patches, verdicts)
+    # Confirmed replacement dependencies must be held even when scope rejects
+    # the add before the speculative condition checks.
+    for left, right in linked_pairs:
+        if left in rejected_patches or right in rejected_patches:
+            cued_patches = [p for p in cued_patches if p is not left and p is not right]
+    if checks.question() is not None:
+        held_clarification = checks.question()
+        held_patches = [i["subject"] for i in checks.items if i["status"] == "UNRESOLVED"
+                        and hasattr(i["subject"], "path")]
+        if _self_doubt_patch_fields(held_patches, remaining_questions):
+            specific_question = _modify_clarification(
+                ValidationReport(clarification_questions=remaining_questions), intent, prev)
+            if specific_question[0]:
+                held_clarification = specific_question
     if rejected_patches:
         _log_llm("✗ 패치 거부", (
             "발화에 근거 없음(환각 게이트 — 인용 부재·불일치 또는 인용↔값 자릿수 어긋남): "
@@ -5266,6 +5427,18 @@ def run_primary_modification(
             intent.model_copy(update={"clarification_questions": remaining_questions}), prev,
         )
         if question:
+            independent = [patch for patch in cued_patches
+                           if not _self_doubt_patch_fields([patch], remaining_questions)]
+            if independent:
+                for patch in cued_patches:
+                    if not any(patch is other for other in independent):
+                        record("model_field_question", patch, "UNRESOLVED", "MODEL_REQUESTED_CLARIFICATION")
+                cued_patches = independent
+                held_clarification = (question, chips, ask)
+                if decision_log is not None:
+                    decision_log.groups.append({"stage": "model_question_group_hold",
+                        "fields": doubt_fields, "status": "UNRESOLVED", "action": "HOLD"})
+        if question and held_clarification is None:
             _log_llm("? 자기 의심 패치", (
                 f"패치 필드={', '.join(doubt_fields)}에 모델 자신의 질문 병행 — "
                 "적용 대신 되묻기(전략 유지)"
@@ -5292,6 +5465,15 @@ def run_primary_modification(
                 },
             })
     if not cued_patches:
+        if held_clarification is not None:
+            question, chips, ask = held_clarification
+            return finalize_user_response({"parsed": prev, "clarification_question": question,
+                "clarification_suggestions": chips, "pending_ask": ask,
+                "clarification_priority": "modify_unapplied", "notices": [],
+                "interpreter": {"mode": "primary_modify_required_hold", "patch_count": 0,
+                                "model_name": result.model_name, "prompt_version": result.prompt_version,
+                                "repair_attempts": result.repair_attempts, "llm_latency_ms": result.latency_ms,
+                                "confidence": intent.confidence}})
         # 인터프리터가 유효 패치를 못 냈어도, 결정적 지정 종목/섹터 변경은 StrategySpec 밖이라
         # 여기서 구제한다 — 종목-only 수정("삼성전자 투자 하는 전략")은 _modify_rule_based
         # fast-path도 못 잡아(신호·수치 키워드 부재) 여기 도달하는데, 그대로 '해석 못 함'으로
@@ -5300,7 +5482,7 @@ def run_primary_modification(
         from engine.nl_parser import _apply_prompt_overrides
         det = (
             _apply_prompt_overrides(prev, user_input, preserve_universe=True)
-            if config.prompt_overrides_enabled() else prev
+            if _us_market_context(prev) and config.prompt_overrides_enabled() else prev
         )
         if det.target_symbols != prev.target_symbols or det.sector != prev.sector:
             _log_llm("✓ 결정적 종목/섹터 수정", "인터프리터 무효 패치 — 결정적 오버라이드로 구제")
@@ -5364,6 +5546,8 @@ def run_primary_modification(
         f"{p.op} {p.path}={_short(p.value)}" for p in cued_patches
     ))
     try:
+        approval = PatchApproval(draft_spec, cued_patches, linked_pairs)
+        approval.bind_log(decision_log)
         patched_spec = apply_patches(draft_spec, cued_patches)
     except PatchError as exc:
         _log_llm("↩ 폴백", f"패치 거부: {str(exc)[:150]} — 기존 수정 경로로")
@@ -5394,6 +5578,7 @@ def run_primary_modification(
         intent="MODIFY_STRATEGY", strategy=patched_spec,
         confidence=intent.confidence, unsupported_features=intent.unsupported_features,
     )
+    approval.bind_universe(modify_intent.strategy.universe, decision_log)
     # 조건 인용 대조는 **이번 턴에 새로 들어온** 이동평균·볼린저 조건만 묻는다 — 이월된 조건은
     # 자기 턴에서 이미 판정됐다(해당 조건이 없는 수정 턴은 호출이 없다).
     draft_conditions = list(draft_spec.entry_conditions) + list(draft_spec.exit_conditions)
@@ -5413,7 +5598,10 @@ def run_primary_modification(
     _region_refusal = _kr_region_us_market_refusal(
         modify_intent, modify_chat, only_terms=_added_symbols,
     )
-    if _region_refusal is not None:
+    if _region_refusal is not None and checks.blocked(modify_intent.strategy.universe):
+        held_clarification = (_region_refusal, None,
+                              {"question": _region_refusal, "topic": "시장", "chips": []})
+    elif _region_refusal is not None:
         return finalize_user_response({
             "parsed": prev,
             "clarification_question": _region_refusal,
@@ -5434,6 +5622,9 @@ def run_primary_modification(
 
     check_chat = (prepare_chat(modify_intent, user_input, modify_chat, only=added_conditions)
                   if config.call_reduction_enabled() else modify_chat)
+    bind_conditions(modify_intent.strategy, approval)
+    condition_origins = approval.condition_origins(modify_intent.strategy)
+    required_targets = checks.conditions(modify_intent, user_input, added_conditions)
     quote_verdicts = _check_condition_quotes(
         modify_intent, user_input, check_chat, only=added_conditions,
     )
@@ -5447,69 +5638,26 @@ def run_primary_modification(
         modify_intent, user_input, check_chat, only=added_conditions,
         rejected_volume=rejected_volume,
     )
-    if rejected_volume:
-        # The checked draft and the patch list must agree. An add can be
-        # excluded independently; a replacement or paired deletion must not
-        # erase the old condition when its new condition was rejected.
-        rejected_patch_ids: set[int] = set()
-        rejected_fields = {field for field, _ in rejected_volume}
-        for field, cond in rejected_volume:
-            matches = [p for p in cued_patches
-                       if p.op in ("add", "replace")
-                       and (p.path == f"/{field}/-" or p.path.startswith(f"/{field}/"))
-                       and isinstance(p.value, dict)
-                       and StrategyCondition.model_validate(p.value) == cond]
-            if len(matches) != 1:
-                return finalize_user_response({
-                    "parsed": prev, "clarification_question": None,
-                    "clarification_suggestions": None,
-                    "notices": trading_notices + ["조건 변경을 확인하지 못해 기존 전략을 그대로 유지했어요."],
-                    "interpreter": {"mode": "primary_modify_rejected_condition_pair",
-                                    "model_name": result.model_name,
-                                    "prompt_version": result.prompt_version,
-                                    "repair_attempts": result.repair_attempts,
-                                    "llm_latency_ms": result.latency_ms,
-                                    "patch_count": 0, "confidence": intent.confidence},
-                })
-            rejected_patch_ids.add(id(matches[0]))
-        paired_patches = [
-            p for p in cued_patches if p.op in ("remove", "replace")
-            and any(p.path.startswith(f"/{field}/") for field in rejected_fields)
-        ]
-        rejected_patch_ids.update(id(p) for p in paired_patches)
-        cued_patches = [p for p in cued_patches if id(p) not in rejected_patch_ids]
-        if paired_patches:
-            _log_llm("? 조건 교체 보류", "거래량 오분류와 짝인 기존 조건 변경은 적용하지 않음")
-            try:
-                patched_spec = apply_patches(draft_spec, cued_patches)
-            except PatchError:
-                return None
-            modify_intent.strategy = patched_spec
-            added_conditions = [
-                cond for cond in list(patched_spec.entry_conditions)
-                + list(patched_spec.exit_conditions)
-                if not any(cond == prior for prior in draft_conditions)
-            ]
-            trading_notices.append("조건 교체는 확인되지 않아 이전 조건을 유지했어요.")
-            if not cued_patches:
-                return finalize_user_response({
-                    "parsed": prev, "clarification_question": None,
-                    "clarification_suggestions": None,
-                    "notices": trading_notices,
-                    "interpreter": {"mode": "primary_modify_rejected_condition_pair",
-                                    "model_name": result.model_name,
-                                    "prompt_version": result.prompt_version,
-                                    "repair_attempts": result.repair_attempts,
-                                    "llm_latency_ms": result.latency_ms,
-                                    "patch_count": 0, "confidence": intent.confidence},
-                })
+    checks.settle(required_targets, quote_verdicts)
     _resolve_contribution_plan(
         modify_intent, user_input, check_chat, only=added_conditions,
     )
-    param_notices = _fill_deterministic_condition_params(modify_intent, quote_verdicts)
+    param_notices = _fill_deterministic_condition_params(modify_intent, quote_verdicts,
+                                                        semantic_authority=not _us_market_context(prev))
+    if not _us_market_context(prev):
+        from strategy_conversation.interpreter.semantic_reconciliation import reconcile_semantic_fields
+        reconcile_semantic_fields(modify_intent, user_input, modify_chat, only=added_conditions)
     drop_notices = _drop_fabricated_conditions(
         modify_intent, user_input, quote_verdicts, only=added_conditions,
     )
+    guard_kept_ids = {id(c) for field in _CONDITION_LIST_FIELDS
+                      for c in getattr(modify_intent.strategy, field)}
+    guard_rejected_lists = {field for cond_id, field in new_condition_roles.items()
+                            if cond_id not in guard_kept_ids}
+    held_conditions = checks.filter_conditions(modify_intent.strategy)
+    universe_held = checks.blocked(modify_intent.strategy.universe)
+    if held_conditions or universe_held:
+        held_clarification = checks.question() or held_clarification
     repair_notices = (param_notices + drop_notices + trading_notices + market_scope_notices
                       + condition_scope_notices)
     # A rejected new condition must not commit its paired remove or replace:
@@ -5526,6 +5674,7 @@ def run_primary_modification(
     # reading, ask the existing holding-period checker whether the quoted
     # request instead specifies a time-based hold. Reapply to the original
     # draft so a rejected replacement cannot erase its old condition.
+    holding_recovered = False
     if (len(intent.patches) == len(cued_patches) == len(added_conditions) == 1
             and ((cued_patches[0].op == "add"
                   and any(cued_patches[0].path == f"/{field}/-"
@@ -5533,7 +5682,7 @@ def run_primary_modification(
                  or (cued_patches[0].op == "replace"
                      and any(cued_patches[0].path.startswith(f"/{field}/")
                              for field in _CONDITION_LIST_FIELDS)))
-            and rejected_added_lists):
+            and guard_rejected_lists):
         from strategy_conversation.interpreter.holding_period_check import (
             recover_misfiled_holding_period,
         )
@@ -5542,6 +5691,9 @@ def run_primary_modification(
             user_input, added_conditions[0].source_text or "", pending_question,
             modify_chat,
         )
+        if hold_patch is None:
+            required_note("holding", added_conditions[0], "UNRESOLVED", "conditions")
+            held_clarification = checks.question()
         if hold_patch is not None:
             try:
                 patched_spec = apply_patches(draft_spec, [hold_patch])
@@ -5550,23 +5702,54 @@ def run_primary_modification(
             else:
                 modify_intent.strategy = patched_spec
                 cued_patches = [hold_patch]
+                holding_recovered = True
+                held_clarification = None
+                required_note("holding", hold_patch, "ACCEPT", hold_patch.path,
+                              {"recovered_from": added_conditions[0].model_dump()})
                 repair_notices = param_notices
                 _log_llm("✓ 보유 기간 재해석", f"{hold_patch.path}={hold_patch.value}")
-    if any(p.op in ("remove", "replace") and p.path.startswith(f"/{field}/")
-           for p in cued_patches for field in rejected_added_lists):
-        _log_llm("? 조건 교체 보류", "새 조건의 인용 대조가 실패해 기존 조건 변경도 적용하지 않음")
-        return finalize_user_response({
-            "parsed": prev,
-            "clarification_question": None,
-            "clarification_suggestions": None,
-            "notices": repair_notices + ["조건 교체를 확인하지 못해 기존 전략을 그대로 유지했어요."],
-            "interpreter": {"mode": "primary_modify_rejected_condition_pair",
-                            "model_name": result.model_name,
-                            "prompt_version": result.prompt_version,
-                            "repair_attempts": result.repair_attempts,
-                            "llm_latency_ms": result.latency_ms,
-                            "patch_count": 0, "confidence": intent.confidence},
-        })
+    if (rejected_added_lists or universe_held) and not holding_recovered:
+        rejected_cells = {condition_origins[cond_id] for cond_id in new_condition_roles
+                          if cond_id not in kept_condition_ids}
+        rejection_decisions = []
+        for cell in sorted(rejected_cells):
+            unresolved = any(condition_origins.get(id(i["subject"])) == cell and i["status"] == "UNRESOLVED"
+                             for i in held_conditions)
+            row = record("condition_exclusion", cell, "UNRESOLVED" if unresolved else "REJECT", "REQUIRED_HOLD" if unresolved else "EXCLUDED_BY_EXISTING_GUARDS",
+                         group_id=approval.owners[cell])
+            rejection_decisions.append(row or {"change_group_id": approval.owners[cell], "status": "REJECT"})
+        if universe_held:
+            rejection_decisions += [{"change_group_id": op["group"], "status": "UNRESOLVED"}
+                                   for op in approval.operations if op["field"] == "universe"]
+            theme_terms, universe_changed = [], False
+        try:
+            selected_spec, cued_patches, blocked = approval.restore_rejected(
+                draft_spec, modify_intent.strategy, condition_origins, rejected_cells, apply_patches,
+                decisions=rejection_decisions)
+        except PatchError:
+            return None
+        blocked_groups_final.update(blocked)
+        if decision_log is not None:
+            decision_log.groups.append({"stage": "modification_group_approval",
+                "base_hash": approval.base_hash, "blocked_groups": sorted(blocked),
+                "approved_patches": [patch.model_dump() for patch in cued_patches],
+                "auxiliary_unresolved_policy": "required_group_hold"})
+        modify_intent.strategy = selected_spec
+        patched_spec = selected_spec
+        repair_notices.append("확인되지 않은 변경은 보류하고 이전 조건을 유지했어요." if held_conditions or universe_held else
+                              "거부된 조건 변경은 적용하지 않고 이전 조건을 유지했어요.")
+        if not cued_patches:
+            return finalize_user_response({
+                "parsed": prev, "clarification_question": held_clarification[0] if held_clarification else None,
+                "clarification_suggestions": None,
+                "pending_ask": held_clarification[2] if held_clarification else None,
+                "clarification_priority": "modify_unapplied" if held_clarification else None,
+                "notices": repair_notices,
+                "interpreter": {"mode": "primary_modify_rejected_condition_pair",
+                                "model_name": result.model_name, "prompt_version": result.prompt_version,
+                                "repair_attempts": result.repair_attempts, "llm_latency_ms": result.latency_ms,
+                                "patch_count": 0, "confidence": intent.confidence},
+            })
     _normalize_size_class_labels(modify_intent)
     validation = call_tool("validate_intent", intent=modify_intent)
     validated, report = validation.intent, validation.report
@@ -5574,7 +5757,36 @@ def run_primary_modification(
         f"status={report.status} patches={len(cued_patches)} "
         f"오류={len(report.errors)} 미지원={report.unsupported_features or '[]'}"
     ))
-    modification_partial = False
+    # Domain validation owns the candidate group, not the entire turn.
+    if not _us_market_context(prev) and (report.errors or report.clarification_questions):
+        from strategy_conversation.interpreter.domain_approval import approve_domains
+
+        before_blocked = set(blocked_groups_final)
+        domain_spec, domain_patches, domain_blocked, domain_result, domain_notices, domain_questions = approve_domains(
+            approval, draft_spec, modify_intent.strategy, condition_origins,
+            before_blocked, lambda candidate: call_tool("validate_intent", intent=candidate.model_copy(update={
+                "unsupported_features": modify_intent.unsupported_features})), apply_patches)
+        if domain_blocked != before_blocked:
+            blocked_groups_final.update(domain_blocked)
+            cued_patches, patched_spec = domain_patches, domain_spec
+            modify_intent.strategy = domain_spec
+            validated, report = domain_result.intent, domain_result.report
+            repair_notices.extend(domain_notices)
+            repair_notices.append("확인되지 않은 변경은 보류하고 이전 조건을 유지했어요.")
+            if domain_questions:
+                held_report = report.model_copy(deep=True)
+                held_report.clarification_questions = domain_questions
+                question, chips, ask = _modify_clarification(held_report, modify_intent, prev)
+                if question:
+                    held_clarification = (question, chips, ask)
+            elif domain_notices and held_clarification is None:
+                held_clarification = (domain_notices[0], None,
+                                      {"question": domain_notices[0], "topic": "전략 조건", "chips": []})
+            if any(op["field"] == "universe" and op["group"] in domain_blocked
+                   for op in approval.operations):
+                theme_terms, universe_changed = [], False
+    modification_partial = (not _us_market_context(prev) and not report.errors
+                            and bool(report.unsupported_features))
     if not report.is_valid:
         # 오류 없이 질문만 남은 미완성은 두 경우를 구분한다(2026-07-27 재정의):
         #  · 질문이 이번 패치 필드 자체를 가리킴("데드크로스 청산 추가해줘" — 기간 미지정)
@@ -5665,11 +5877,11 @@ def run_primary_modification(
     # 값으로는 '말했다'와 '기본값'을 구분할 수 없다.
     from strategy_conversation.response.provenance import explicit_fields_from_patches
 
-    if "max_positions" in explicit_fields_from_patches(intent.patches):
+    if "max_positions" in explicit_fields_from_patches(cued_patches):
         parsed = parsed.model_copy(update={"max_positions_explicit": True})
     # 레거시 수정 경로와 동일한 결정적 보정(신호 재검증 생략·universe 보존) — 명시된
     # 수치·날짜·리스크 값은 결정적 추출이 최종 진실이다.
-    if config.prompt_overrides_enabled():
+    if _us_market_context(parsed) and config.prompt_overrides_enabled():
         from engine.nl_parser import _apply_prompt_overrides
         compiled_dump = parsed.model_dump()
         parsed = _apply_prompt_overrides(
@@ -5693,6 +5905,11 @@ def run_primary_modification(
         parsed.target_symbols = []
         parsed.theme_universe = None
         _log_llm("✓ 이전 테마 종목 해제", f"'{prev.theme_universe}' 유래 지정 종목 비움")
+    universe_resolutions = []
+    if not _us_market_context(parsed) and parsed.etf_theme:
+        remember_resolution(universe_resolutions, parsed.etf_theme, parsed, "compiled_etf", field="etf_theme")
+    theme_hold = False
+    held_theme_terms = []
     if theme_terms:
         # 교체 체인의 입력 상태를 이전 테마로 되돌린다 — replace_theme_universe가
         # "무엇을 비워도 되는지"를 이 출처 표기로 판정한다.
@@ -5703,28 +5920,49 @@ def run_primary_modification(
             if _us_market_context(parsed)
             else _resolve_theme_change(parsed, theme_terms[0], notices, on_stage)
         )
-        if theme_ask is not None:
-            # 해석 못 한 테마로 전략을 바꾸지 않는다 — 전략은 그대로 두고 범위를 묻는다.
-            # 우선순위 마커: 유니버스 범위는 조건 질문보다 선행 결정 사항이라, 프론트
-            # explicit 설정 게이트가 이 질문을 삼키면 요청이 조용히 사라진다.
+        if theme_ask is not None and not _us_market_context(prev):
             question, chips = theme_ask
-            return finalize_user_response({
-                "parsed": prev,
-                "clarification_question": question,
-                "clarification_suggestions": chips,
-                "clarification_priority": "sector_unresolved",
-                "pending_ask": _pending_ask_payload(question, chips, "유니버스"),
-                "notices": [],
-                "interpreter": {
-                    "mode": "primary_modify_theme_ask",
-                    "model_name": result.model_name,
-                    "prompt_version": result.prompt_version,
-                    "repair_attempts": result.repair_attempts,
-                    "llm_latency_ms": result.latency_ms,
-                    "patch_count": 0,
-                    "confidence": intent.confidence,
-                },
-            })
+            held_clarification = (question, chips, _pending_ask_payload(question, chips, "유니버스"))
+            theme_hold = True
+            held_theme_terms = list(theme_terms)
+            universe_groups = {op["group"] for op in approval.operations if op["field"] == "universe"}
+            blocked_groups_final.update(universe_groups)
+            restored, cued_patches, blocked = approval.restore_rejected(
+                draft_spec, modify_intent.strategy, condition_origins, set(), apply_patches,
+                decisions=[{"change_group_id": group, "status": "UNRESOLVED"}
+                           for group in blocked_groups_final])
+            blocked_groups_final.update(blocked)
+            validation = call_tool("validate_intent", intent=_Intent(intent="MODIFY_STRATEGY", strategy=restored))
+            validated, report = validation.intent, validation.report
+            if report.errors:
+                return finalize_user_response({"parsed": prev, "clarification_question": question,
+                    "clarification_suggestions": chips, "clarification_priority": "sector_unresolved",
+                    "pending_ask": held_clarification[2], "notices": list(report.errors),
+                    "interpreter": {"mode": "primary_modify_theme_ask", "patch_count": 0,
+                                    "model_name": result.model_name, "prompt_version": result.prompt_version,
+                                    "repair_attempts": result.repair_attempts, "llm_latency_ms": result.latency_ms,
+                                    "confidence": intent.confidence}})
+            parsed = _carry_over(call_tool("compile_strategy", intent=validated, report=report,
+                                 user_input=prev.description, partial=not report.is_valid).parsed)
+            parsed.target_symbols, parsed.theme_universe = list(prev.target_symbols), prev.theme_universe
+            patched_spec = validated.strategy
+            theme_terms, universe_changed = [], False
+            notices.append("투자 대상 변경은 확인을 기다리고, 다른 확인된 변경은 반영했어요.")
+            for group in universe_groups:
+                record("theme_resolution", group, "UNRESOLVED", "UNIVERSE_SCOPE_PENDING",
+                       group_id=group, value={"question": question})
+        elif theme_ask is not None:
+            question, chips = theme_ask
+            return finalize_user_response({"parsed": prev, "clarification_question": question,
+                "clarification_suggestions": chips, "clarification_priority": "sector_unresolved",
+                "pending_ask": _pending_ask_payload(question, chips, "유니버스"), "notices": [],
+                "interpreter": {"mode": "primary_modify_theme_ask", "patch_count": 0,
+                                "model_name": result.model_name, "prompt_version": result.prompt_version,
+                                "repair_attempts": result.repair_attempts, "llm_latency_ms": result.latency_ms,
+                                "confidence": intent.confidence}})
+        elif not _us_market_context(parsed):
+            if parsed.target_symbols != prev.target_symbols or parsed.sector != prev.sector:
+                remember_resolution(universe_resolutions, theme_terms[0], parsed, "modify_theme")
     elif parsed.target_symbols == prev.target_symbols:
         # 종목 구성이 그대로면 출처 표기도 그대로 — 컴파일이 초안 표기를 옮겨 놓았을 뿐
         # 이므로 원본 값으로 확정한다(종목이 바뀐 턴이면 위에서 이미 None으로 비웠다).
@@ -5745,11 +5983,29 @@ def run_primary_modification(
             # 패치까지 되돌려 전략을 원상 유지하고 그 사실을 알린다. 침묵 금지:
             # 2026-08-02 "미안해 코피닥 종목만 선택 해줘" 사고 — universe만 KOSDAQ으로
             # 뒤집힌 채 종목은 그대로, 안내도 없어 오타 미해석으로 오인됐다.
+            if not _us_market_context(prev):
+                universe_groups = {op["group"] for op in approval.operations if op["field"] == "universe"}
+                blocked_groups_final.update(universe_groups)
+                cued_patches, _ = approval.select(blocked_groups_final)
+                restored = validated.strategy.model_copy(deep=True)
+                restored.universe = draft_spec.universe.model_copy(deep=True)
+                validation = call_tool("validate_intent", intent=_Intent(intent="MODIFY_STRATEGY", strategy=restored,
+                                       unsupported_features=validated.unsupported_features))
+                validated, report = validation.intent, validation.report
+                if report.errors:
+                    return None
+                parsed = _carry_over(call_tool("compile_strategy", intent=validated, report=report,
+                    user_input=prev.description, partial=not report.is_valid).parsed)
+                parsed.target_symbols, parsed.theme_universe = list(prev.target_symbols), prev.theme_universe
+                patched_spec = validated.strategy
+                universe_resolutions = []
+                for group in universe_groups:
+                    record("market_constraint", group, "REJECT", "NO_MEMBERS_IN_REQUESTED_MARKET", group_id=group)
             parsed.universe = list(prev.universe or [])
             market_label = {"KOSPI": "코스피", "KOSDAQ": "코스닥"}.get(unmet, unmet)
             notices.append(
                 f"'{parsed.theme_universe}' 관련 종목에서 {market_label} 소속을 찾지 "
-                "못해 요청을 반영하지 못했어요. 기존 전략을 그대로 유지했어요."
+                "못해 투자 대상의 시장 변경을 보류하고 기존 범위를 유지했어요."
             )
             _log_llm("△ 시장 필터 미반영", f"{unmet} 소속 0곳 — 전략 유지+안내")
     # 이번 턴에 이름으로 지목된 종목이 구 사명이면 그 사실을 알린다 — 요약 카드에는
@@ -5757,7 +6013,8 @@ def run_primary_modification(
     notices += _renamed_symbol_notices(patched_spec.universe.symbols, parsed.target_symbols)
     # 근사 반영 안내 — 초기 파스 레인과 같은 채널(LLM이 신고한 approximated 조건).
     # 수정 레인도 원문 정규식 안내를 더는 받지 않으므로 여기서 함께 낸다.
-    notices += _approximation_notices(patched_spec)
+    if _us_market_context(parsed):
+        notices += _approximation_notices(patched_spec)
     final_diff = _diff_fields(prev_dump, parsed.model_dump())
     _log_llm("✓ 수정 완료", f"변경 필드(원본 대비): {'; '.join(final_diff) or '없음'}")
 
@@ -5787,7 +6044,16 @@ def run_primary_modification(
     # ('직접 입력' 후 "12% 이상")로 답한 턴에도 남은 기준값 질문이 이어져야 한다.
     # 이미 반영된 항목은 큐 소비가 건너뛴다(재질문 금지).
     queued_next = _next_ask_from_queue(pending_ask, parsed, turn_explicit_fields)
-    if queued_next is not None:
+    if held_clarification is not None:
+        dag_question, dag_suggestions, dag_pending_ask = held_clarification
+        dag_priority = "sector_unresolved" if theme_hold else "modify_unapplied"
+        queued = list((pending_ask or {}).get("queue") or [])
+        if queued:
+            dag_pending_ask.setdefault("queue", []).extend(queued)
+    elif pair_question is not None:
+        dag_question, dag_suggestions, dag_priority = pair_question, None, "modify_unapplied"
+        dag_pending_ask = {"question": pair_question, "topic": "매수 조건" if list_field == "entry_conditions" else "매도 조건", "chips": []}
+    elif queued_next is not None:
         dag_question, dag_suggestions, dag_priority, dag_pending_ask = queued_next
     else:
         # Phase 4 primary — 수정 턴 재계획: 최신 입력이 State를 바꿨으니(위 패치 적용),
@@ -5797,7 +6063,17 @@ def run_primary_modification(
         dag_question, dag_suggestions, dag_priority, dag_pending_ask = _replan_next_question(
             user_input, parsed, turn_explicit_fields, previous_declined_fields
         )
+    if decision_log is not None:
+        decision_log.groups.append({"stage": "modification_commit", "base_hash": approval.base_hash,
+            "approved_proposals": [patch.model_dump(mode="json") for patch in cued_patches],
+            "committed_spec_delta": [patch.model_dump(mode="json") for patch in committed_delta(draft_spec, validated.strategy)],
+            "final_state_hash": digest(parsed), "policy": "required_group_hold",
+            "groups": [{"change_group_id": group, "verdict_status": decision_log.status(group),
+                        "action": "HOLD" if group in blocked_groups_final else "APPLY_CHECKED_POLICY"}
+                       for group in sorted({operation["group"] for operation in approval.operations})]})
     return finalize_user_response({
+        **({"_notice_context": notice_context(report, validated.strategy, user_input,
+            universe_resolutions, held_theme_terms)} if not _us_market_context(parsed) else {}),
         "parsed": parsed,
         "clarification_question": dag_question,
         "clarification_suggestions": dag_suggestions,
@@ -5860,6 +6136,10 @@ def apply_primary_meta(result: dict, primary: Dict[str, Any]) -> None:
         # 기존 되묻기("PBR은 몇 이하로 할까요?")는 설명·안내와 모순되므로 억제한다.
         result["clarification_question"] = None
         result["clarification_suggestions"] = None
+    if primary.get("_notice_evidence") is not None:
+        result["_notice_evidence"] = list(result.get("_notice_evidence") or []) + primary["_notice_evidence"]
+    if primary.get("_notice_context") is not None:
+        result["_notice_context"] = primary["_notice_context"]
     if primary["notices"]:
         result["notices"] = list(result.get("notices") or []) + primary["notices"]
     # provenance는 인터프리터가 판정한 경로에서만 갱신한다 — 폴백 경로(질문/설명/미반영)는
@@ -5882,3 +6162,16 @@ def apply_primary_meta(result: dict, primary: Dict[str, Any]) -> None:
     if primary.get("changed_fields") is not None:
         result["changed_fields"] = primary["changed_fields"]
     result["runtime"]["interpreter"] = primary["interpreter"]
+
+
+# Dedicated producers retain structured scope even while their public return
+# contract remains list[str]. Remaining root messages bind to the result snapshot.
+from strategy_conversation.response.notice_evidence import wrap_producer as _notice_producer
+_renamed_symbol_notices = _notice_producer(_renamed_symbol_notices, "renamed_symbols")
+_approximation_notices = _notice_producer(_approximation_notices, "approximation")
+_preparing_notice = _notice_producer(_preparing_notice, "data_preparing", kind="TRANSITION")
+_drop_fabricated_conditions = _notice_producer(_drop_fabricated_conditions, "condition_exclusion", kind="TRANSITION")
+
+_resolve_trading_value_comparisons = _notice_producer(_resolve_trading_value_comparisons, "trading_comparison", kind="TRANSITION")
+_dedupe_relative_return_against_ranking = _notice_producer(_dedupe_relative_return_against_ranking, "return_ranking",
+    fields=("ranking_metric", "ranking_components", "ranking_lookback_days"))

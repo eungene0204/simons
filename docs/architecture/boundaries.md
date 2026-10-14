@@ -23,6 +23,9 @@ User-facing strategy builder and prompt interface.
 - types/strategy.ts
 - backend/tests/**
 
+- app/api/strategy/parse/stream/route.ts (KR request revision and structured progress only)
+- app/api/strategy/parse/route.ts (KR request revision pass-through only)
+
 ### Allowed Tasks
 - UI improvements
 - form validation
@@ -193,15 +196,34 @@ Preserve user-stated strategy meaning across primary interpretation, provenance 
 ### Files
 - backend/strategy_conversation/primary.py
 - backend/strategy_conversation/config.py
+- backend/strategy_conversation/conversation/versioning.py (KR request revision CAS only)
+- backend/strategy_conversation/response/notice_evidence.py (structured final-state notice evidence only)
+- backend/strategy_conversation/response/** (KR notice evidence handoff only)
+- backend/intent/interpreter.py (structured KR turn axes only)
+- backend/intent/schemas.py (additive KR turn axes only)
+- backend/intent/classifier.py (KR semantic routing and turn-axis handoff only)
+- backend/intent/strategy_builder.py (retire KR raw-text semantic paths only)
+- backend/intent/builder_interpreter.py (existing structured builder path wiring only)
+- backend/api/intent_routes.py (existing LLM builder wiring only)
 - backend/strategy_conversation/interpreter/**
 - backend/strategy_conversation/conversation/patch_applier.py
-- backend/strategy_conversation/validation/capability_validator.py (operator error notice wording only)
+- backend/strategy_conversation/conversation/patch_approval.py (internal patch groups, identity, and atomic selection only)
+- backend/strategy_conversation/validation/capability_validator.py (operator wording and KR sector notice findings only)
+- backend/strategy_conversation/registry/indicator_registry.py (existing breakout buy-high/sell-low operator contract only)
+- backend/strategy_conversation/compiler/strategy_compiler.py (existing breakout role/direction guard only)
+- backend/strategy_conversation/validation/conflict_validator.py (localized parameter conflict labels only)
+- backend/strategy_conversation/validation/pipeline.py (KR sector notice evidence handoff only)
+- backend/strategy_conversation/response/notice_assembly.py (KR create/modify/fill/ETF final-state notice assembly only)
 - backend/main.py
 - backend/tests/**
 - components/admin/AgentsTab.tsx
 - scripts/qa_free_input.py
 - scripts/qa_template_detect.py
 - scripts/qa_template_expectations.json
+- backend/observability/tracing.py (complete local replay snapshots only)
+- backend/observability/agent_trace.py (replay dependency and API response evidence only)
+- scripts/qa_kr_display_sweep.test.ts (coverage and replay display checks only)
+- tests/interpretationReplayDisplay.test.ts
 
 ### Allowed Tasks
 - fix interpretation provenance and numeric evidence handoff
@@ -213,17 +235,26 @@ Preserve user-stated strategy meaning across primary interpretation, provenance 
 - keep the existing free-input QA fixture and semantic assertions consistent with the draft supplied to the interpreter
 - retire raw-text modification fast-path routing across the primary entry point and its rollback setting
 - replace regex-derived QA expectations with human-authored example expectations without reducing checked meaning
+- record complete local interpretation replay evidence without changing execution or external telemetry payloads
+- replay API postprocessing and existing frontend display functions using fixed external observations
+- assemble create-turn KR sector/theme notices from final state and structured resolution evidence
+- normalize existing auxiliary verdicts into internal decisions and consume them in modification group approval
+- apply the approved stage-five required-verdict hold policy within existing checker targets, preserving original conditions and independent changes
+- finish user-approved remaining KR domain-validation group holds, final-state notices, and primary semantic reconciliation; US-specific implementation is excluded
+- repair all user-authorized remaining KR example failures using existing engine bindings, including breakout role directions and verified EMA recovery
+- preserve independent changes when a rejected or ambiguous condition replacement is held, without changing auxiliary fail-open policy
 
 ### Strict Rules
 - Do not infer meaning from raw `user_input` with regexes, keywords, or vocabulary lists
 - Do not invent parameter values or silently remove conditions
 - Use LLM verdicts for semantic judgments; validate only output format and quoted provenance deterministically
-- Preserve public response contracts and fail open when an auxiliary verdict is invalid
+- Preserve public response contracts. Invalid auxiliary verdicts keep their existing policy except for the explicitly approved stage-five required checks, which hold only the affected new or replacement group.
 - Keep each implementation task narrow and verify the original failure before changing code
+- Keep raw replay evidence inside the existing three-day local Trace retention; never persist credentials
 
 ### Forbidden
 - new Agent, parser, State model, or DSL
-- compiler, engine, provider, database, or data-file changes
+- compiler changes outside the registered breakout role/direction guard; engine, provider, database, or data-file changes
 - strategy recommendation or market prediction
 
 ---
@@ -366,6 +397,7 @@ Codex 작업 규칙, boundary 정의, 운영 정책 문서 유지보수.
 - .agents/skills/strategy-interpretation/SKILL.md
 - docs/architecture/**
 - docs/development/**
+- docs/nl_interpretation_contract.md
 - docs/PROJECT_PLAN.md
 - docs/software_architecture.md
 - docs/SRS.md

@@ -96,7 +96,8 @@ def run_validation(intent: StrategyIntent) -> Tuple[StrategyIntent, ValidationRe
         report.errors.append("MODIFY_STRATEGY 의도인데 strategy도 patches도 없습니다")
 
     # ── Capability / Registry
-    cap_errors, cap_warnings, unsupported, fixes = validate_capability(intent)
+    cap_errors, cap_warnings, unsupported, fixes = validate_capability(
+        intent, universe_findings=report._universe_findings)
     report.errors.extend(cap_errors)
     report.warnings.extend(cap_warnings)
     report.unsupported_features.extend(unsupported)

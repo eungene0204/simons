@@ -11,9 +11,89 @@ strategy_conversation을 import하지 않는다(덕타이핑). 관찰 계층이 
 from __future__ import annotations
 
 import logging
+import hashlib
+from pathlib import Path
+from functools import wraps
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 logger = logging.getLogger("observability.agent_trace")
+
+
+def replay_versions() -> Dict[str, str]:
+    """Identify source files without loading catalogs or querying shared state."""
+    backend = Path(__file__).resolve().parents[1]
+    root = backend.parent
+    sources = sorted((backend / "strategy_conversation").rglob("*.py")) + [backend / "main.py"]
+    def digest(paths):
+        return hashlib.sha256(b"".join(p.relative_to(root).as_posix().encode() + p.read_bytes()
+                                       for p in paths)).hexdigest()
+    return {"code": digest(sources),
+            "schema": digest([backend / "strategy_conversation/interpreter/models.py"]),
+            "catalog": digest([root / "data/indicator-ontology.json"]),
+            "questions": digest([root / "app/analytics/new/__fixtures__/slot-prompts.json"]),
+            "engine": digest([backend / "engine/version.py"])}
+
+
+def observed_call(target, function, *args, **kwargs):
+    """Observe a dependency's inputs and effects; return its original object unchanged."""
+    from observability.tracing import span, replay_snapshot
+    with span("Replay dependency", "chain", local_only=True) as trace:
+        if not trace.active:
+            return function(*args, **kwargs)
+        try:
+            state = args[0] if args and hasattr(args[0], "model_dump") else None
+            before = state.model_dump() if state is not None else {}
+            inputs = replay_snapshot({"args": list(args[1:] if state is not None else args),
+                       "kwargs": {k: v for k, v in kwargs.items() if k != "on_stage"}})
+        except Exception:
+            state, before, inputs = None, {}, {"values": None, "complete": False}
+        output = function(*args, **kwargs)
+        try:
+            after = state.model_dump() if state is not None else {}
+            updates = {k: v for k, v in after.items() if before.get(k) != v}
+            record = {"target": target, "inputs": inputs["values"], "input_complete": inputs["complete"],
+                      "output": output, "updates": updates}
+            if isinstance(output, tuple):
+                record["result_type"] = "tuple"
+            elif target == "stock_analysis.symbol_resolver.resolve_by_symbol":
+                record["result_type"] = "stock_ref"
+            elif hasattr(output, "executed") and hasattr(output, "nodes"):
+                record["result_type"] = "planner"
+            trace.local_evidence(recorded_call=record)
+        except Exception:
+            logger.debug("dependency recording failed", exc_info=True)
+        return output
+
+
+def replay_dependency(function):
+    @wraps(function)
+    def call(*args, **kwargs):
+        return observed_call(f"{function.__module__}.{function.__name__}", function, *args, **kwargs)
+    return call
+
+
+def record_api_world(parsed, result):
+    """Record only the external projection consumed by API conversion, without requerying it."""
+    from observability.tracing import span
+    try:
+        with span("API world checkpoint", "chain", local_only=True) as trace:
+            if not trace.active:
+                return
+            if not getattr(parsed, "target_symbols", None):
+                calls = [{"target": "engine.strategy_converter._load_universe",
+                    "inputs": {"args": [list(parsed.universe)], "kwargs": {}},
+                    "output": result["symbols"], "source": "converted_universe_checkpoint"}]
+            else:
+                calls = [{"target": "stock_analysis.symbol_resolver.resolve_by_symbol",
+                    "inputs": {"args": [stock["symbol"]], "kwargs": {}},
+                    "output": {"name": stock["name"]}, "result_type": "stock_ref",
+                    "source": "consumed_name_projection"}
+                    for stock in result.get("target_stocks") or []]
+            for call in calls:
+                with span("API dependency projection", "chain", local_only=True) as child:
+                    child.local_evidence(recorded_call={**call, "input_complete": True})
+    except Exception:
+        logger.debug("API world recording failed", exc_info=True)
 
 
 def dag_snapshot(

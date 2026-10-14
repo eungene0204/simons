@@ -13,7 +13,7 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from schemas import (
     BacktestRequest, BacktestResponse,
@@ -2749,6 +2749,9 @@ def sync_stocks():
 
 class NLParseRequest(BaseModel):
     prompt: str
+    draft_id: Optional[str] = Field(default=None, min_length=16, max_length=128)
+    expected_revision: Optional[int] = Field(default=None, ge=0)
+    expected_state_hash: Optional[str] = Field(default=None, min_length=64, max_length=64)
     # UI 표시 언어("ko"|"en"). 영어면 LLM 자유 서술(되묻기 질문 등)을 영어로 쓰게 한다 —
     # 결정론 문구·칩은 프론트 사전이 옮기므로 백엔드 프로토콜 값은 언어와 무관하다.
     language: Optional[str] = None
@@ -2784,6 +2787,7 @@ class NLParseRequest(BaseModel):
     previous_field_states: Optional[dict] = None
 
 class NLParseResponse(BaseModel):
+    strategy_version: Optional[dict] = None
     parsed: dict
     backtest_request: dict
     symbol_count: int
@@ -3317,6 +3321,9 @@ def _finalize_parse_result(result: dict, request: NLParseRequest) -> dict:
     _ensure_artifacts(result, request)
     _ensure_impact(result, request)
     _flag_unresolved_universe_ask(result, request)
+    from strategy_conversation.response.notice_assembly import assemble_response_notices
+
+    assemble_response_notices(result, consume=True)
     return result
 
 
@@ -3507,7 +3514,8 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         reask_fields.append("backtest_period")
     # 설정값 범위 보정 — 비현실적 입력(초기자금 300원·0일 보유·3일 모멘텀·0% 손절 등)을
     # 자동 보정/제거하고 사용자에게 안내한다(모든 파싱 경로 공통).
-    notices = enforce_strategy_minimums(parsed)
+    from strategy_conversation.response.notice_evidence import producer as notice_producer
+    notices = notice_producer(enforce_strategy_minimums(parsed), "minimums", parsed)
     # 스키마가 표현할 수 없는 재무 조건은 그 항목만 드롭됐다(전체 실패 금지) — 조용한 드롭은
     # 전략 의미를 몰래 바꾸므로 비차단 안내로 알린다.
     dropped_filters = list(getattr(parsed, "dropped_filter_notices", None) or [])
@@ -3523,14 +3531,16 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
     # 지정 종목(단일 종목) 백테스트: 청산 조건 누락을 추천 기본값/안내로 보정한다(FR-STR-068).
     # 조용한 임의 실행 방지 — 무엇이 추천 적용됐는지 notices로 알린다.
     parsed, single_asset_notices = apply_single_asset_adjustments(parsed)
-    notices.extend(single_asset_notices)
+    notices.extend(notice_producer(single_asset_notices, "single_asset_adjustments", parsed))
     # 단일 종목 프로파일 리뷰(FR-STR-068b): 종목의 실제 데이터 통계와 대조해 희소/과다
     # 신호·재무 데이터 미보유·PIT 적용 사실·데이터 품질을 비차단 안내한다. 프로파일 조회
     # 실패는 조용히 무시된다(파싱 흐름 보호).
     if len(getattr(parsed, "target_symbols", None) or []) == 1:
         from engine.single_asset_review import review_single_asset_strategy
-        profile_notices = review_single_asset_strategy(parsed)
-        notices.extend(profile_notices)
+        from observability.agent_trace import observed_call
+        profile_notices = observed_call("engine.single_asset_review.review_single_asset_strategy",
+                                       review_single_asset_strategy, parsed)
+        notices.extend(notice_producer(profile_notices, "single_asset_review", parsed))
         if profile_notices:
             print(
                 f"[SINGLE-ASSET-REVIEW] symbol={parsed.target_symbols[0]} "
@@ -3576,6 +3586,8 @@ def _build_parse_result(request: NLParseRequest, backend: str, parsed, validatio
         notices.append(unsupported_notice)
     convert_started = time.perf_counter()
     backtest_req = to_backtest_request(parsed)
+    from observability.agent_trace import record_api_world
+    record_api_world(parsed, backtest_req)
     convert_ms = round((time.perf_counter() - convert_started) * 1000, 2)
 
     print(f"[NL-PARSE] filters={len(parsed.fundamental_filters)}, entry={len(parsed.entry_signals)}, symbols={len(backtest_req['symbols'])}", flush=True)
@@ -3857,6 +3869,28 @@ def _interpretation_failure_result(request: NLParseRequest, backend: str, reques
 
 
 def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | None = None):
+    if (request.language or ui_language.get_ui_language()) == "en":
+        return _run_nl_parse_observed(request, on_stage, defer_holder)
+    from copy import deepcopy
+    from uuid import uuid4
+    from strategy_conversation.conversation.versioning import RevisionLedger, RevisionConflict
+
+    draft_id = request.draft_id or str(uuid4())
+    revision = request.expected_revision if request.draft_id else 0
+    if revision is None:
+        raise HTTPException(status_code=409, detail="전략 버전이 누락됐어요. 최신 상태에서 다시 입력해 주세요.")
+    ledger = RevisionLedger()
+    try:
+        ticket = ledger.begin(draft_id, revision, request.expected_state_hash, request.previous_parsed)
+        return _run_nl_parse_observed(request, on_stage, defer_holder, (ledger, draft_id, ticket))
+    except RevisionConflict as exc:
+        raise HTTPException(status_code=409, detail={"code": "STALE_STRATEGY", "message": str(exc),
+                            "strategy_version": exc.current}) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail="전략 버전을 보관하지 못했어요. 변경을 반영하지 않았습니다.") from exc
+
+
+def _run_nl_parse_observed(request: NLParseRequest, on_stage=None, defer_holder: dict | None = None, version_ticket=None):
     """파싱 코어 로직 — 사용자 요청 하나당 Trace 하나의 루트.
 
     본체는 _run_nl_parse_traced다. 이 함수는 관찰 span만 연다(LangSmith와 로컬
@@ -3879,7 +3913,29 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
                 "pending_question": request.pending_question},
         metadata={**identity, "backend": request.backend, "model": request.model},
     ) as trace:
+        from observability.agent_trace import replay_versions
+        from strategy_conversation import config as replay_config
+        if trace.recording_active:
+            try:
+                trace.local_evidence(request=request.model_dump(mode="json"),
+                    region="US" if ui_language.get_ui_language() == "en" else "KR",
+                    configuration={"STRATEGY_INTERPRETER_MODE": replay_config.interpreter_mode(),
+                        "STRATEGY_DAG_PLANNER_MODE": replay_config.dag_planner_mode(),
+                        "STRATEGY_PLANNER_MODE": replay_config.planner_mode(),
+                        **{key: os.environ.get(key, "on") for key in (
+                            "STRATEGY_CONDITION_RECALL", "STRATEGY_CALL_REDUCTION", "STRATEGY_PARALLEL_PARSE")},
+                        "STRATEGY_PROMPT_OVERRIDE_MODE": replay_config.prompt_override_mode()},
+                    versions=replay_versions())
+            except Exception:
+                logger.debug("replay request evidence failed", exc_info=True)
         result = _run_nl_parse_traced(request, on_stage=on_stage, defer_holder=defer_holder)
+        if version_ticket is not None:
+            from copy import deepcopy
+            result = deepcopy(result)
+            cancellation.raise_if_cancelled()
+            ledger, draft_id, ticket = version_ticket
+            result["strategy_version"] = ledger.commit(draft_id, ticket, result["parsed"])
+        trace.local_evidence(api_response=result)
         # 후행 검증(SSE)은 응답을 내보낸 뒤 다른 스레드에서 돈다 — 부모를 실어 보내야
         # 같은 Trace에 붙는다(안 그러면 고아 Trace가 하나 더 생긴다).
         if defer_holder is not None and defer_holder.get("parsed") is not None:
@@ -3910,7 +3966,7 @@ def _run_nl_parse_traced(request: NLParseRequest, on_stage=None, defer_holder=No
     from llm_backend import resolve_llm_backend
 
     # Legacy deferred validation owns mutable per-subscriber state; do not share it.
-    if interpreter_mode() != "primary":
+    if ui_language.get_ui_language() == "en" and interpreter_mode() != "primary":
         return _run_nl_parse_impl(request, on_stage, defer_holder)
     backend = _downgrade_unloaded_mlx(resolve_llm_backend(request.backend))
     return _nl_parse_flights.run(
@@ -4219,6 +4275,7 @@ async def parse_nl_strategy_stream(request: NLParseRequest):
                 print(f"[NL-PARSE] 취소됨(클라이언트 연결 종료) prompt='{request.prompt}'", flush=True)
             except HTTPException as exc:
                 error_holder["detail"] = exc.detail
+                error_holder["status"] = exc.status_code
             except Exception as exc:
                 error_holder["detail"] = str(exc)
 
@@ -4246,7 +4303,7 @@ async def parse_nl_strategy_stream(request: NLParseRequest):
                 yield stage_event(stage_holder["stage"])
 
             if "detail" in error_holder:
-                yield f"data: {json.dumps({'type': 'error', 'detail': error_holder['detail']}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'detail': error_holder['detail'], 'status': error_holder.get('status', 500)}, ensure_ascii=False)}\n\n"
             elif "data" in result_holder:
                 yield f"data: {json.dumps({'type': 'result', 'data': result_holder['data']}, ensure_ascii=False)}\n\n"
                 # 후행 검증. 'validating' stage 이벤트는 보내지 않는다 — 프론트가 로딩 버블로
