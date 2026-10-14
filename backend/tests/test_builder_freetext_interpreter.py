@@ -37,8 +37,11 @@ def test_hallucinated_number_is_rejected():
         {"op": "set", "field": "stop_loss_pct", "value": 15,
          "source_text": "적당히 잃으면 팔아"},
     ])
-    # 입력에 15가 없다 — 수치 대조 게이트가 거부, 전 op 탈락이면 None(미인식 흐름 유지)
-    assert interpret_utterance("적당히 잃으면 팔아", state, chat) is None
+    # 입력에 15가 없다 — 수치 대조 게이트가 거부한다. 전 op 탈락이면 변경 없이(patch={})
+    # 보류한 구절을 안내로 알린다(2026-10-14: 조용한 None이 아니라 보류 고지).
+    patch, notes = interpret_utterance("적당히 잃으면 팔아", state, chat)
+    assert patch == {}
+    assert len(notes) == 1 and "적당히 잃으면 팔아" in notes[0] and "보류" in notes[0]
 
 
 def test_missing_quote_is_rejected():
@@ -46,8 +49,10 @@ def test_missing_quote_is_rejected():
     chat = _chat_returning([
         {"op": "set", "field": "holding_count", "value": 5, "source_text": "다섯 종목 부탁"},
     ])
-    # source_text가 입력에 실재하지 않으면 거부(출처 대조)
-    assert interpret_utterance("5개 종목으로 부탁해", state, chat) is None
+    # source_text가 입력에 실재하지 않으면 거부(출처 대조) — 변경 없이 보류 고지
+    patch, notes = interpret_utterance("5개 종목으로 부탁해", state, chat)
+    assert patch == {}
+    assert len(notes) == 1 and "다섯 종목 부탁" in notes[0] and "보류" in notes[0]
 
 
 def test_remove_only_filled_fields():
@@ -55,7 +60,10 @@ def test_remove_only_filled_fields():
         {"op": "remove", "field": "take_profit_pct", "source_text": "익절은 없던 걸로"},
     ])
     empty = sb.BuilderState()
-    assert interpret_utterance("익절은 없던 걸로 하자", empty, chat) is None
+    # 채워지지 않은 필드의 삭제는 적용하지 않고 보류 고지(조용한 None 아님)
+    patch, notes = interpret_utterance("익절은 없던 걸로 하자", empty, chat)
+    assert patch == {}
+    assert len(notes) == 1 and "익절은 없던 걸로" in notes[0] and "보류" in notes[0]
 
     filled = sb.BuilderState(take_profit_pct=20.0, stop_loss_pct=10.0, risk_done=True)
     patch, _ = interpret_utterance("익절은 없던 걸로 하자", filled, chat)
@@ -114,18 +122,6 @@ def test_step_routes_unrecognized_freetext_to_llm_lane():
     assert result.state.miss_streak == 0
 
 
-def test_step_deterministic_answer_skips_llm_lane():
-    """값 답변("10개")은 결정적 형식 정규화가 즉답 — LLM 레인 미호출(경계 계약)."""
-    state = sb.BuilderState(strategy_type="momentum", universe="KOSPI",
-                            lookback_days=63, lookback_label="3개월")
-
-    def interpreter(text, st):
-        raise AssertionError("결정적으로 해석된 답변이 LLM 레인으로 가면 안 된다")
-
-    result = sb.step(state, "10개", freetext_interpreter=interpreter)
-    assert result.state.holding_count == 10
-
-
 def test_step_llm_failure_keeps_unrecognized_flow():
     state = sb.BuilderState(strategy_type="momentum", universe="KOSPI",
                             lookback_days=63, lookback_label="3개월")
@@ -139,8 +135,3 @@ def test_step_llm_failure_keeps_unrecognized_flow():
     assert result.state.miss_streak == 1
 
 
-def test_freetext_mode_env_gate(monkeypatch):
-    monkeypatch.delenv("BUILDER_FREETEXT_MODE", raising=False)
-    assert freetext_llm_enabled()
-    monkeypatch.setenv("BUILDER_FREETEXT_MODE", "deterministic")
-    assert not freetext_llm_enabled()

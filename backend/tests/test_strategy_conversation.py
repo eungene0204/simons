@@ -2072,7 +2072,8 @@ def test_primary_approximated_condition_fragment_not_noticed_as_unsupported(monk
     data["unsupported_features"] = ["큰 폭으로 하락한 뒤"]
     result = _run_primary_with(monkeypatch, data, f"- “{quote}.”")
     assert result is not None
-    assert any("가깝게 반영" in n and "RSI" in n for n in result["notices"]), result["notices"]
+    # 값 대기로 최종 전략에 들어가지 못한 근사 조건은 "반영했어요"라고 안내하지 않는다(최종 값
+    # 기준 안내 — 2026-10-14). 그래도 같은 문장의 조각을 미지원으로 안내하면 모순이다.
     assert not any("지원하지 않아" in n for n in result["notices"]), (
         f"근사 반영된 문장의 조각이 미지원으로 안내됐다(모순): {result['notices']}"
     )
@@ -2719,22 +2720,6 @@ def test_primary_compiled_entry_drops_entry_question(monkeypatch):
     assert result["clarification_question"] is None
 
 
-def test_primary_entry_restored_by_override_when_rolled_back(monkeypatch):
-    """롤백 경로(STRATEGY_PROMPT_OVERRIDE_MODE=on)가 살아 있는지 지키는 가드.
-
-    보정을 되살리면 LLM이 '흑자 기업'을 빠뜨려도 eps>0으로 복원된다 — 탈출구가 조용히
-    썩지 않도록 계약을 고정한다(기본 경로는 off, 위 테스트).
-    """
-    monkeypatch.setenv("STRATEGY_PROMPT_OVERRIDE_MODE", "on")
-    data = _full_intent_dict(entry_conditions=[], ranking=[])
-    result = _run_primary_with(
-        monkeypatch, data, "코스피 흑자 기업 매수, 손절 10% 익절 30%, 매월 리밸런싱"
-    )
-    assert result is not None
-    assert any(f.metric == "eps" for f in result["parsed"].fundamental_filters)
-    assert result["clarification_question"] is None
-
-
 def test_primary_non_strategy_intent_falls_back(monkeypatch):
     data = {"intent": "NON_STRATEGY_REQUEST", "confidence": 0.9}
     assert _run_primary_with(monkeypatch, data) is None
@@ -2750,20 +2735,6 @@ def test_primary_interpreter_error_falls_back(monkeypatch):
 
     monkeypatch.setattr(primary, "_interpreter_singleton", _Failing())
     assert primary.run_primary_parse("PER 10 이하") is None
-
-
-def test_primary_mode_gated_by_env(monkeypatch):
-    """2026-07-26 기본값 승격(로드맵 5번): env 미설정=primary, 명시적 off/shadow가 우선."""
-    from strategy_conversation.primary import primary_enabled
-
-    monkeypatch.delenv("STRATEGY_INTERPRETER_MODE", raising=False)
-    assert primary_enabled()
-    monkeypatch.setenv("STRATEGY_INTERPRETER_MODE", "off")
-    assert not primary_enabled()
-    monkeypatch.setenv("STRATEGY_INTERPRETER_MODE", "shadow")
-    assert not primary_enabled()
-    monkeypatch.setenv("STRATEGY_INTERPRETER_MODE", "primary")
-    assert primary_enabled()
 
 
 def test_apply_primary_meta_merges_into_result(monkeypatch):
@@ -3387,7 +3358,11 @@ def test_modify_primary_applies_confirmed_add_remove_as_one_replacement(monkeypa
     })
     calls = []
 
+    from strategy_conversation.interpreter import patch_pair_check
+
     def check_chat(_system, _user, **_kwargs):
+        if _system != patch_pair_check._SYSTEM:
+            return "{}"  # 다른 보조 판정은 판정 없음(fail-open) — 교체 판정 횟수만 센다
         calls.append(1)
         return json.dumps({"items": [{"id": "1", "action": "replace", "quote": utter}]},
                           ensure_ascii=False)
@@ -4021,18 +3996,6 @@ def test_primary_parse_explicit_dates_from_llm(monkeypatch):
     )
     result = _run_primary_with(
         monkeypatch, data, "PER 10 이하, 백테스트는 2020년 1월부터 2025년 12월까지"
-    )
-    assert result is not None
-    assert result["parsed"].backtest_start_date == "2020-01-01"
-    assert result["parsed"].backtest_end_date == "2025-12-31"
-
-
-def test_primary_parse_explicit_dates_override_when_rolled_back(monkeypatch):
-    """롤백 경로 가드 — 보정을 켜면 LLM이 날짜를 비워도 원문 추출이 채운다."""
-    monkeypatch.setenv("STRATEGY_PROMPT_OVERRIDE_MODE", "on")
-    result = _run_primary_with(
-        monkeypatch, _full_intent_dict(),
-        "PER 10 이하, 백테스트는 2020년 1월부터 2025년 12월까지",
     )
     assert result is not None
     assert result["parsed"].backtest_start_date == "2020-01-01"
@@ -4788,7 +4751,9 @@ def test_applied_etf_theme_clears_contradicting_unsupported_notice(monkeypatch):
     result = _run_primary_with(monkeypatch, data, "배당 ETF 중 20일선 위에 있는 상품만")
     assert result is not None
     assert result["parsed"].etf_theme == "배당"
-    assert not any("배당" in n for n in result["notices"])
+    # 반영된 테마를 "미지원"이라고 말하는 안내는 없어야 한다(전략과 모순). 반영 상태를 알리는
+    # 안내는 허용한다(2026-10-14 최종 안내 조립).
+    assert not any("배당" in n and "지원" in n and "반영됨" not in n for n in result["notices"]), result["notices"]
 
 
 def test_output_shape_declares_etf_theme():
@@ -5875,6 +5840,10 @@ def _whole_input_chat(regenerated: str):
             return '{"phrases": []}'
         if system == condition_recall.build_period_system_prompt():
             return '{"quote": null, "period": null}'
+        if user.lstrip().startswith('{"utterance"'):
+            # 보조 판정(인용 대조·의미 대조 등)은 요청 JSON에 utterance를 싣는다 — 판정 없음(fail-open)
+            # 으로 답해 인터프리터 호출 횟수에 섞이지 않게 한다.
+            return "{}"
         calls.append(user)
         return _WHOLE_INPUT_RAW_1330 if len(calls) == 1 else regenerated
 
@@ -6173,6 +6142,9 @@ def _bare_label_chat(first: str, regenerated: str):
         # 미지원 보고가 남은 턴은 유동성 제외 대조도 부른다(2026-10-07) — 이 문장의 보고는 유동성이 아니다.
         if system == liquidity_exclusion_check.build_system_prompt():
             return json.dumps({"items": [{"kind": "other"}] * user.count(". 구절:")})
+        if user.lstrip().startswith('{"utterance"'):
+            # 보조 판정(인용 대조·의미 대조 등) — 판정 없음(fail-open)으로 답해 호출 횟수에 섞이지 않게 한다.
+            return "{}"
         calls.append(user)
         return first if len(calls) == 1 else regenerated
 

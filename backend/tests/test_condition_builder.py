@@ -282,33 +282,6 @@ def test_clarification_per_direction():
     assert c["suggestions"][0] == "PER 10배 이하"
 
 
-@pytest.mark.parametrize("prompt", ["영업이익률을 추가해 볼까?", "PER도 넣자", "배당수익률도 추가해줘"])
-def test_clarification_chips_roundtrip_through_modify(prompt):
-    """되묻기 칩을 클릭하면(=칩 텍스트를 수정 메시지로 재전송) 기존 필터를 보존한 채
-    새 조건이 결정적으로 병합되어야 한다(백엔드 무상태 계약의 핵심)."""
-    from engine.nl_parser import _modify_rule_based
-
-    prev = {
-        "description": "x", "universe": ["KOSPI"],
-        "fundamental_filters": [
-            {"metric": "roe_or_gpa", "operator": ">=", "value": 10.0},
-            {"metric": "debt_ratio", "operator": "<=", "value": 100.0},
-        ],
-        "entry_signals": [], "exit_signals": [], "max_positions": 10,
-        "rebalancing_period": "quarterly", "stop_loss_pct": 10.0,
-    }
-    clar = cb.clarification_for_add(prompt)
-    assert clar is not None
-    chip = clar["suggestions"][2 if len(clar["suggestions"]) > 2 else 0]
-    result = _modify_rule_based(chip, prev)
-    assert result is not None, f"칩 {chip!r}이 규칙 기반 병합으로 완결되지 않음"
-    metrics = {f.metric for f in result.fundamental_filters}
-    # 기존 필터 보존 + 새 지표 추가
-    assert {"roe_or_gpa", "debt_ratio"} <= metrics
-    assert clar["metric"] in metrics
-    assert result.stop_loss_pct == 10.0  # 리스크 조건도 보존
-
-
 # ─── 공유 레지스트리(단일 소스) 계약 ────────────────────────────────────────────────
 
 def test_shared_registry_keys_are_valid_engine_metrics():

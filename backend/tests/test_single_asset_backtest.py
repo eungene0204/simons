@@ -84,13 +84,6 @@ def test_common_noun_name_needs_stock_intent():
 
 # ─── 룰 fast-path ────────────────────────────────────────────────────────────
 
-def test_rule_parse_single_asset_entry_only_stays_on_fast_path():
-    """지정 종목 + 기술 진입만 있는 프롬프트는 LLM에 위임하지 않는다(청산은 추천 보정)."""
-    parsed = _parse_rule_based_strategy("삼성전자에 골든크로스 전략을 적용해줘")
-    assert parsed is not None
-    assert parsed.target_symbols == ["005930"]
-    assert parsed.entry_signals and parsed.entry_signals[0].indicator == "ma_crossover"
-
 
 def test_rule_parse_universe_entry_only_still_falls_back():
     """종목 지정이 없는 기술 진입 단독 프롬프트는 기존대로 LLM에 위임한다(회귀 가드)."""
@@ -98,13 +91,6 @@ def test_rule_parse_universe_entry_only_still_falls_back():
 
 
 # ─── 단일 종목 보정(청산 추천) ────────────────────────────────────────────────
-
-def test_adjustments_add_opposite_exit_for_crossover():
-    parsed = _parse_rule_based_strategy("삼성전자에 골든크로스 전략을 적용해줘")
-    adjusted, notices = apply_single_asset_adjustments(parsed)
-    assert [(s.indicator, s.signal_type) for s in adjusted.exit_signals] == [("ma_crossover", "sell")]
-    # 추천 적용 사실을 안내한다(조용한 임의 실행 금지).
-    assert notices and "청산" in notices[0]
 
 
 def test_adjustments_notice_only_for_non_crossover_entry():
@@ -135,21 +121,6 @@ def test_adjustments_noop_for_universe_strategy():
 
 
 # ─── BacktestRequest 변환 ────────────────────────────────────────────────────
-
-def test_to_backtest_request_single_asset_semantics():
-    parsed = _parse_rule_based_strategy("삼성전자에 골든크로스 전략을 적용해줘")
-    adjusted, _ = apply_single_asset_adjustments(parsed)
-    req = to_backtest_request(adjusted)
-    assert req["symbols"] == ["005930"]
-    # universe_id=None → 엔진이 PIT 재해석·섹터 필터 없이 지정 목록을 그대로 쓴다.
-    assert req["universe_id"] is None
-    assert req["sector"] is None
-    assert req["backtest_mode"] == "single_asset"
-    assert req["target_stocks"] == [{"symbol": "005930", "name": "삼성전자"}]
-    # 단일 종목 집중 투자: 100% 배분, 횡단면 랭킹 없음.
-    assert req["risk"]["max_positions"] == 1
-    assert req["risk"]["position_size_pct"] == 100.0
-    assert req["risk"]["ranking_enabled"] is False
 
 
 def test_to_backtest_request_universe_unchanged():
@@ -189,32 +160,6 @@ def test_symbol_ambiguity_reask_removed():
 def _previous_single_asset() -> dict:
     parsed = _parse_rule_based_strategy("삼성전자에 골든크로스 전략을 적용해줘")
     return parsed.model_dump()
-
-
-def test_modify_fast_path_replaces_target():
-    modified = _modify_rule_based("SK하이닉스로 바꿔줘", _previous_single_asset())
-    assert modified is not None
-    assert modified.target_symbols == ["000660"]
-
-
-def test_modify_fast_path_alias_replaces_target():
-    modified = _modify_rule_based("하이닉스로 바꿔줘", _previous_single_asset())
-    assert modified is not None
-    assert modified.target_symbols == ["000660"]
-
-
-def test_modify_explicit_universe_clears_target():
-    modified = _modify_rule_based("코스닥 전체로 바꿔줘", _previous_single_asset())
-    assert modified is not None
-    assert modified.target_symbols == []
-    assert modified.universe == ["KOSDAQ"]
-
-
-def test_modify_unrelated_field_preserves_target():
-    modified = _modify_rule_based("손절 5%로 바꿔줘", _previous_single_asset())
-    assert modified is not None
-    assert modified.target_symbols == ["005930"]
-    assert modified.stop_loss_pct == 5.0
 
 
 def test_target_change_deterministic_judgement():
@@ -263,20 +208,6 @@ def test_extract_target_symbols_ignores_removal_mention():
     assert _extract_target_symbols("현대약품은 빼조") is None
 
 
-def test_modify_fast_path_removes_single_target_from_list():
-    previous = _previous_single_asset()
-    previous["target_symbols"] = list(_THEME_TARGETS)
-    modified = _modify_rule_based("현대약품은 빼줘", previous)
-    assert modified is not None
-    assert modified.target_symbols == ["005930", "000660", "006400", "008770"]
-
-
-def test_modify_fast_path_replacement_still_works_after_removal_branch():
-    modified = _modify_rule_based("SK하이닉스로 바꿔줘", _previous_single_asset())
-    assert modified is not None
-    assert modified.target_symbols == ["000660"]
-
-
 # ─── 종목명 내 업종 조각 오폭 (2026-07-26 사고 회귀 2) ──────────────────────────
 # "제주반도체도 추가해줘"의 종목명 내부 조각('반도체'+'도추가')이 _SECTOR_ADDITIVE_RE에
 # 걸려 업종 '반도체' 추가로 오판되고 지정 종목 해제까지 연쇄되던 사고. 섹터 판정은 인식된
@@ -301,3 +232,34 @@ def test_sector_judgement_still_works_with_stock_name_nearby():
         "제주반도체가 속한 반도체 업종으로 바꿔줘", None
     )
     assert (changed, value) == (True, "반도체")
+
+
+def _samsung_golden_cross() -> ParsedStrategy:
+    """'삼성전자에 골든크로스 전략을 적용해줘'가 만들던 것과 같은 모양(규칙 파서는 KR에서 폐지)."""
+    return ParsedStrategy(
+        description="삼성전자에 골든크로스 전략을 적용해줘",
+        target_symbols=["005930"],
+        entry_signals=[TechnicalSignal(indicator="ma_crossover", signal_type="buy", short_period=5, long_period=20)],
+    )
+
+
+def test_adjustments_add_opposite_exit_for_crossover():
+    adjusted, notices = apply_single_asset_adjustments(_samsung_golden_cross())
+    assert [(s.indicator, s.signal_type) for s in adjusted.exit_signals] == [("ma_crossover", "sell")]
+    # 추천 적용 사실을 안내한다(조용한 임의 실행 금지).
+    assert notices and "청산" in notices[0]
+
+
+def test_to_backtest_request_single_asset_semantics():
+    adjusted, _ = apply_single_asset_adjustments(_samsung_golden_cross())
+    req = to_backtest_request(adjusted)
+    assert req["symbols"] == ["005930"]
+    # universe_id=None → 엔진이 PIT 재해석·섹터 필터 없이 지정 목록을 그대로 쓴다.
+    assert req["universe_id"] is None
+    assert req["sector"] is None
+    assert req["backtest_mode"] == "single_asset"
+    assert req["target_stocks"] == [{"symbol": "005930", "name": "삼성전자"}]
+    # 단일 종목 집중 투자: 100% 배분, 횡단면 랭킹 없음.
+    assert req["risk"]["max_positions"] == 1
+    assert req["risk"]["position_size_pct"] == 100.0
+    assert req["risk"]["ranking_enabled"] is False

@@ -43,7 +43,10 @@ def captured(monkeypatch, tmp_path):
         return final
     monkeypatch.setattr(main, "_run_nl_parse_traced", execute)
     request = main.NLParseRequest(prompt=case["user_input"])
-    assert main._run_nl_parse(request) == final
+    result = main._run_nl_parse(request)
+    # 버전 장부가 strategy_version만 더한다 — 기존 항목은 그대로여야 한다.
+    assert {k: v for k, v in result.items() if k != "strategy_version"} == final
+    assert set(result) - set(final) <= {"strategy_version"}
     annotation = {k: case[k] for k in ("case_id", "mode", "operation", "expected")}
     return read(), annotation
 

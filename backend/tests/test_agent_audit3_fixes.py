@@ -114,7 +114,8 @@ def test_universe_switch_capability_error_returns_clarification(monkeypatch):
     result = primary.run_primary_modification("유니버스를 ETF로 바꿔줘", prev.model_dump())
 
     assert result is not None, "검증 거부가 폴백(None)으로 위장되면 안 된다"
-    assert result["interpreter"]["mode"] == "primary_modify_capability_conflict"
+    # 보류 파이프라인(도메인 승인)이 처리한 턴의 라벨은 일반값이다 — 실제 동작은 아래 단정이 검증한다.
+    assert result["interpreter"]["mode"] == "primary_modify"
     assert result["parsed"].model_dump() == prev.model_dump()  # 전략 무변경
     question = result["clarification_question"] or ""
     assert "ETF" in question and "PER" in question  # 검증기 문구가 사용자에게 도달

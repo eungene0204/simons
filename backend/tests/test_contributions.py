@@ -916,6 +916,8 @@ def test_dropped_plan_turn_is_fully_interpreted(monkeypatch):
         # 미지원 보고가 남은 턴은 유동성 제외 대조도 부른다(2026-10-07) — 이 문장의 보고는 유동성이 아니다.
         if system == liquidity_exclusion_check.build_system_prompt():
             return json.dumps({"items": [{"kind": "other"}] * user.count(". 구절:")})
+        if user.lstrip().startswith('{"utterance"'):
+            return "{}"  # 보조 판정(의미 대조 등) — 판정 없음(fail-open), 해석기 호출 횟수에 섞이지 않게
         main_calls.append(user)
         if len(main_calls) == 1:
             return _screenshot_raw({"factor": "fundamental.trading_value", "operator": ">=", "value": 200,

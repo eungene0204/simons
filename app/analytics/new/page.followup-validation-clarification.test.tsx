@@ -84,6 +84,7 @@ function sseResultResponse(data: Record<string, unknown>) {
 }
 
 function mockFetch(parsed: Record<string, unknown>, explicitFields: string[]) {
+  let classifyCalls = 0;
   fetchMock.mockImplementation((input: RequestInfo | URL) => {
     const url = String(input);
 
@@ -96,7 +97,11 @@ function mockFetch(parsed: Record<string, unknown>, explicitFields: string[]) {
       );
     }
     if (url === "/api/query/classify") {
-      return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+      // 첫 입력은 전략 생성, 이후 입력("어떻게 해야 할까?")은 LLM 분류의 후속 질문 축이다.
+      classifyCalls += 1;
+      return Promise.resolve(createJsonResponse({
+        intent: "STRATEGY_ADVICE", symbols: [], ...(classifyCalls > 1 ? { turn_action: "follow_up" } : {}),
+      }));
     }
     if (url === "/api/strategy/parse/stream") {
       return Promise.resolve(sseResultResponse({

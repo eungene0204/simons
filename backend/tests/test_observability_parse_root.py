@@ -31,7 +31,7 @@ def _request(prompt="코스피 전략 만들어줘", **kwargs):
 
 
 _RESULT = {
-    "parsed": {"universe": {"type": "KOSPI"}},
+    "parsed": {"description": "코스피 전략", "universe": ["KOSPI"]},
     "backtest_request": {},
     "symbol_count": 30,
     "clarification_question": "어떤 조건에서 매수할까요?",
@@ -39,17 +39,23 @@ _RESULT = {
 }
 
 
+def _assert_untouched(result):
+    """관찰은 결과를 바꾸지 않는다 — 기존 항목은 그대로이고, 버전 장부가 strategy_version만 더한다."""
+    assert {k: v for k, v in result.items() if k != "strategy_version"} == _RESULT
+    assert set(result) - set(_RESULT) <= {"strategy_version"}
+
+
 def test_result_passes_through_untouched_when_disabled(monkeypatch):
     monkeypatch.delenv("LANGSMITH_TRACING", raising=False)
     monkeypatch.setattr(main, "_run_nl_parse_traced", lambda req, **kw: _RESULT)
-    assert main._run_nl_parse(_request()) is _RESULT
+    _assert_untouched(main._run_nl_parse(_request()))
 
 
 def test_result_passes_through_untouched_when_enabled(monkeypatch):
     """추적을 켜도 반환값은 같은 객체다 — 관찰이 결과를 만지지 않는다."""
     monkeypatch.setenv("LANGSMITH_TRACING", "true")
     monkeypatch.setattr(main, "_run_nl_parse_traced", lambda req, **kw: _RESULT)
-    assert main._run_nl_parse(_request()) is _RESULT
+    _assert_untouched(main._run_nl_parse(_request()))
 
 
 def test_exception_propagates_unchanged(monkeypatch):
@@ -114,7 +120,7 @@ def test_modify_turn_links_to_previous_strategy(monkeypatch):
     monkeypatch.setenv("LANGSMITH_TRACING", "true")
     from observability.identity import content_hash
 
-    previous = {"universe": {"type": "KOSPI"}}
+    previous = {"description": "코스피 전략", "universe": ["KOSPI"]}
     captured = {}
 
     def _inner(req, **kw):

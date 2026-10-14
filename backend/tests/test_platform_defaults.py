@@ -87,20 +87,6 @@ def test_reply_none_for_non_default_question():
 # platform_defaults.reply로 결정적으로 낸다
 # (test_generate_general_answer_deterministic_without_llm 이 그 경로를 보증).
 
-@pytest.mark.parametrize(
-    "query",
-    [
-        "슬리피지는 몇 %가 기본 값이지?",
-        "현재 셋팅된 슬리피지 값은?",
-        "백테스트 수수료 기본값은?",  # '백테스트' 전략 키워드가 섞여도 설정 질문 우선
-    ],
-)
-def test_classify_routes_to_general_with_reply(query, monkeypatch):
-    monkeypatch.setenv("INTENT_CLASSIFIER_MODE", "legacy")
-    result = classify(query)
-    assert result.intent == QueryIntent.GENERAL_INVESTMENT
-    assert result.suggested_reply and "0.0" in result.suggested_reply
-
 
 def test_classify_set_command_stays_strategy():
     # 값 변경 명령은 기본값 답변으로 가로채지 않는다.

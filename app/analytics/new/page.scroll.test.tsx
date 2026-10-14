@@ -1455,6 +1455,7 @@ describe("StrategyLabPage scroll behavior", () => {
 
   it("scrolls to the bottom when a follow-up coach reply updates the existing assistant message", async () => {
     const followUpResponse = createDeferred<Response>();
+    let classifyCalls = 0;
 
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -1473,7 +1474,11 @@ describe("StrategyLabPage scroll behavior", () => {
       }
 
       if (url === "/api/query/classify") {
-        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+        // 첫 입력은 전략 생성, 두 번째 입력("어떻게 개선할까?")은 LLM 분류의 후속 질문 축이다.
+        classifyCalls += 1;
+        return Promise.resolve(createJsonResponse({
+          intent: "STRATEGY_ADVICE", symbols: [], ...(classifyCalls > 1 ? { turn_action: "follow_up" } : {}),
+        }));
       }
 
       if (url === "/api/strategy/parse/stream") {
@@ -1683,6 +1688,11 @@ describe("StrategyLabPage scroll behavior", () => {
 
       if (url === "/api/model/status") {
         return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+
+      if (url === "/api/query/classify") {
+        // 보유기간 비교 질문은 LLM 분류의 구조화 축이다(원문을 규칙으로 읽지 않는다).
+        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [], turn_action: "horizon_compare" }));
       }
 
       if (url === "/api/user") {

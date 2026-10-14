@@ -63,45 +63,6 @@ def test_no_duplicate_free_input_chip(monkeypatch):
     assert "직접 설명하기" not in result.suggestions
 
 
-def test_free_description_becomes_custom_entry():
-    """유형 미매칭 자유 서술('직접 입력' 경로)은 custom 진입 규칙으로 저장돼 막다른 길이 없다."""
-    result = sb.step(_single_state(), "3일 연속 하락하면 매수해줘")
-    assert result.state.strategy_type == "custom"
-    assert result.state.entry_rule == "3일 연속 하락하면 매수해줘"
-    # 맨숫자·짧은 답은 서술로 오인하지 않는다(같은 질문 유지).
-    again = sb.step(_single_state(), "14")
-    assert again.state.strategy_type is None
-
-
-def test_momentum_and_value_blocked_with_explanation():
-    state = _single_state()
-    r_momentum = sb.step(state, "모멘텀")
-    assert r_momentum.state.strategy_type is None
-    assert "단일 종목에는 적용할 수 없어요" in r_momentum.reply
-    r_value = sb.step(state, "저평가 가치주")
-    assert r_value.state.strategy_type is None
-    assert "단일 종목에는 적용할 수 없어요" in r_value.reply
-
-
-def test_confirmed_dsl_uses_single_asset_engine_contract():
-    state = _single_state(strategy_type="golden_cross", ma_kind="sma",
-                          ma_short=5, ma_long=20, filters_asked=True)
-    result = sb.step(state, "10% 손절")
-    assert result.status == "confirmed"
-    parsed = sb.build_parsed_strategy(result.state)
-    assert parsed.target_symbols == ["005930"]
-    assert parsed.max_positions == 1
-    assert parsed.rebalancing_period == "none"
-    assert parsed.stop_loss_pct == 10.0
-
-    req = to_backtest_request(parsed)
-    assert req["backtest_mode"] == "single_asset"
-    assert req["symbols"] == ["005930"]
-    assert req["universe_id"] is None
-    assert req["risk"]["max_positions"] == 1
-    assert req["risk"]["ranking_enabled"] is False
-
-
 def test_synthesized_prompt_describes_single_asset():
     state = _single_state(strategy_type="golden_cross", ma_kind="sma",
                           ma_short=5, ma_long=20, filters_asked=True,
@@ -118,3 +79,23 @@ def test_universe_builder_unchanged():
     state = sb.BuilderState(universe="KOSPI", strategy_type="golden_cross",
                             ma_kind="sma", ma_short=5, ma_long=20, filters_asked=True)
     assert sb.required_missing(state) == "holding_count"
+
+
+def test_confirmed_dsl_uses_single_asset_engine_contract():
+    # 값 답변("10% 손절")은 KR에서 LLM 해석기가 채운다 — 여기서는 채워진 상태의 변환 계약을 본다.
+    state = _single_state(strategy_type="golden_cross", ma_kind="sma",
+                          ma_short=5, ma_long=20, filters_asked=True,
+                          stop_loss_pct=10.0, risk_done=True)
+    assert sb.required_missing(state) is None
+    parsed = sb.build_parsed_strategy(state)
+    assert parsed.target_symbols == ["005930"]
+    assert parsed.max_positions == 1
+    assert parsed.rebalancing_period == "none"
+    assert parsed.stop_loss_pct == 10.0
+
+    req = to_backtest_request(parsed)
+    assert req["backtest_mode"] == "single_asset"
+    assert req["symbols"] == ["005930"]
+    assert req["universe_id"] is None
+    assert req["risk"]["max_positions"] == 1
+    assert req["risk"]["ranking_enabled"] is False

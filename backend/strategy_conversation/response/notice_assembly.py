@@ -178,6 +178,9 @@ def assemble_response_notices(result, *, consume=False):
             p._queued_ask_text(result.get("pending_ask"))] + candidates + generated
             + [str(item.get("label") or "") for item in context["pending"]])
         features = assembled["unsupported_features"]
+        # 이중 기입 대조는 값 대기로 최종 전략에 못 들어간 근사 조건의 인용도 포함한다 — 그 문장은
+        # 근사 조건이 맡고 있어 조각을 "지원하지 않아"로 알리면 모순이다(안내 문구만 반영된 조건 기준).
+        validated_conditions = (list(strategy.entry_conditions) + list(strategy.exit_conditions)) if strategy else []
         if features and not p._reported_features_echo_input(features, context["utterance"]):
             expressed = concepts_expressed_in_strategy(parsed, context["utterance"])
             ranking_ids = [rank.metric for rank in (strategy.ranking if strategy else [])]
@@ -185,7 +188,8 @@ def assemble_response_notices(result, *, consume=False):
                 if f and f not in covered and not p._concept_expressed(f, expressed)
                 and not p._covered_by_pending_texts(f, context["pending"])
                 and not p._covered_by_source_texts(f, reflected_texts)
-                and not p._covered_by_approximated_texts(f, reflected)
+                and not p._covered_by_risk_values(f, parsed)
+                and not p._covered_by_approximated_texts(f, validated_conditions)
                 and not ranking_covers(f, ranking_ids)
                 and not re.search(r"\b[a-z_]{2,}\.[a-z_0-9]{2,}", f)
                 and not p._INTERNAL_FIELD_NAME_RE.search(f)])

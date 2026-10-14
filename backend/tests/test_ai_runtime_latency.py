@@ -32,19 +32,26 @@ class _DummyParsed:
         return {"universe": ["KOSPI200"]}
 
 
-class _DummyParser:
-    def __init__(self):
-        self.parse_calls = 0
-
-    def parse(self, _prompt, on_stage=None, on_validation=None, defer_validation=False):
-        self.parse_calls += 1
-        return _DummyParsed()
-
-
 def test_parse_nl_strategy_reports_runtime_and_cache_hit(monkeypatch):
-    monkeypatch.setenv("LLM_BACKEND", "ollama")  # 테스트는 ollama 파서를 주입하므로 환경도 ollama로 고정
-    parser = _DummyParser()
-    main._nl_parsers["ollama"] = parser
+    monkeypatch.setenv("LLM_BACKEND", "ollama")  # 테스트는 ollama 레인으로 고정
+    from strategy_conversation import primary
+    from test_strategy_conversation import _StubPrimaryInterpreter, _full_intent_dict
+
+    # KR 레인(primary)이 부르는 인터프리터를 스텁으로 대체하고 호출 횟수를 센다.
+    interpreter = _StubPrimaryInterpreter(_full_intent_dict())
+    calls = {"n": 0}
+    interpret = interpreter.interpret
+
+    def counted(*args, **kwargs):
+        calls["n"] += 1
+        return interpret(*args, **kwargs)
+
+    interpreter.interpret = counted
+    monkeypatch.setattr(primary, "_interpreter_singleton", interpreter)
+    monkeypatch.setattr(primary.config, "condition_recall_enabled", lambda: False)
+    monkeypatch.setattr(primary.config, "call_reduction_enabled", lambda: False)
+    monkeypatch.setattr(primary.config, "dag_planner_mode", lambda: "off")
+    monkeypatch.setattr(primary.config, "parallel_parse_enabled", lambda: False)
     main._nl_parse_cache.clear()
     main._reset_ai_runtime_metrics_for_tests()
 
@@ -62,14 +69,13 @@ def test_parse_nl_strategy_reports_runtime_and_cache_hit(monkeypatch):
         second = main.parse_nl_strategy(request)
     finally:
         main._nl_parse_cache.clear()
-        main._nl_parsers.pop("ollama", None)
 
     assert first["runtime"]["cache_hit"] is False
     assert first["runtime"]["backend"] == "ollama"
     assert first["runtime"]["parse_ms"] >= 0
     assert first["runtime"]["convert_ms"] >= 0
     assert second["runtime"]["cache_hit"] is True
-    assert parser.parse_calls == 1
+    assert calls["n"] == 1  # 두 번째 요청은 캐시 적중 — 인터프리터는 한 번만 호출된다
 
     metrics = main.get_ai_runtime_metrics()
     parse_metrics = metrics["stages"]["parse"]
@@ -92,35 +98,6 @@ async def _collect_sse(response):
         for block in text.split("\n\n")
         if block.startswith("data: ")
     ]
-
-
-@pytest.mark.asyncio
-async def test_parse_stream_emits_parsing_stage_and_result(monkeypatch):
-    """규칙 기반 경로: stage('parsing') → result → [DONE], thinking 없음."""
-    monkeypatch.setenv("LLM_BACKEND", "ollama")
-    main._nl_parsers["ollama"] = _DummyParser()
-    main._nl_parse_cache.clear()
-    main._reset_ai_runtime_metrics_for_tests()
-
-    import engine.strategy_converter as strategy_converter
-    monkeypatch.setattr(strategy_converter, "to_backtest_request", lambda _p: {"symbols": ["005930"]})
-
-    try:
-        response = await main.parse_nl_strategy_stream(
-            main.NLParseRequest(prompt="PBR 1 이하", backend="ollama")
-        )
-        payloads = await _collect_sse(response)
-    finally:
-        main._nl_parse_cache.clear()
-        main._nl_parsers.pop("ollama", None)
-
-    import json
-    events = [json.loads(p) for p in payloads if p != "[DONE]"]
-    stages = [e["stage"] for e in events if e["type"] == "stage"]
-    assert stages == ["parsing"]
-    assert payloads[-1] == "[DONE]"
-    result = next(e for e in events if e["type"] == "result")
-    assert result["data"]["parsed"] == {"universe": ["KOSPI200"]}
 
 
 @pytest.mark.asyncio
@@ -246,3 +223,41 @@ def test_ai_runtime_metrics_reset_endpoint():
 
     assert main.reset_ai_runtime_metrics() == {"ok": True}
     assert main.get_ai_runtime_metrics()["stages"] == {}
+
+
+@pytest.mark.asyncio
+async def test_parse_stream_starts_with_parsing_stage_and_ends_with_result_then_done(monkeypatch):
+    """SSE 순서 계약: stage('parsing')으로 시작 → result → [DONE]. KR 레인(primary)은 중간에
+    thinking 등 단계가 더 흐를 수 있지만 첫 단계와 종료 순서는 같다."""
+    monkeypatch.setenv("LLM_BACKEND", "ollama")
+    from strategy_conversation import primary
+    from test_strategy_conversation import _StubPrimaryInterpreter, _full_intent_dict
+
+    monkeypatch.setattr(primary, "_interpreter_singleton", _StubPrimaryInterpreter(_full_intent_dict()))
+    monkeypatch.setattr(primary.config, "condition_recall_enabled", lambda: False)
+    monkeypatch.setattr(primary.config, "call_reduction_enabled", lambda: False)
+    monkeypatch.setattr(primary.config, "dag_planner_mode", lambda: "off")
+    monkeypatch.setattr(primary.config, "parallel_parse_enabled", lambda: False)
+    main._nl_parse_cache.clear()
+    main._reset_ai_runtime_metrics_for_tests()
+
+    import engine.strategy_converter as strategy_converter
+    monkeypatch.setattr(strategy_converter, "to_backtest_request", lambda _p: {"symbols": ["005930"]})
+
+    try:
+        response = await main.parse_nl_strategy_stream(
+            main.NLParseRequest(prompt="PBR 1 이하", backend="ollama")
+        )
+        payloads = await _collect_sse(response)
+    finally:
+        main._nl_parse_cache.clear()
+
+    import json
+    events = [json.loads(p) for p in payloads if p != "[DONE]"]
+    stages = [e["stage"] for e in events if e["type"] == "stage"]
+    assert stages and stages[0] == "parsing"
+    assert payloads[-1] == "[DONE]"
+    types = [e["type"] for e in events]
+    assert types.index("stage") < types.index("result")  # 단계가 결과보다 먼저 흐른다
+    result = next(e for e in events if e["type"] == "result")
+    assert result["data"]["parsed"]["universe"] == ["KOSPI"]

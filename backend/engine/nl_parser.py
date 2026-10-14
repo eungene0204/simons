@@ -6474,7 +6474,7 @@ def _detect_qualitative_metrics(compact: str) -> list[tuple[str, str, str, str]]
     """
     import ui_language
     if ui_language.get_ui_language() != "en":
-        return parsed
+        return []
 
     found: list[tuple[int, tuple[str, str, str, str]]] = []
     for key, patterns, ask, loose, strict in _QUALITATIVE_METRIC_SPECS:

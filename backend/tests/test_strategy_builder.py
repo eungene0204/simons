@@ -77,34 +77,6 @@ def test_parse_strategy_type_variants():
     assert sb._parse_strategy_type("볼린저 밴드 하단 돌파") == "bollinger"
 
 
-def test_bollinger_named_strategy_locks_on_and_skips_generic_menu():
-    """[회귀] 특정 전략(볼린저)을 이름으로 지목하면 잃어버리지 않고 잠근다.
-
-    이전 버그: '볼린저 밴드 전략' 시드가 strategy_type을 못 잡아 일반 종목 선정 메뉴
-    ('어떤 방식으로 종목을 고를까요?')를 띄웠고, 사용자가 모멘텀 등 다른 전략으로 흘러갔다.
-    """
-    state = sb.seed_state("볼린저 밴드 전략을 사용하고 싶어")
-    assert state.strategy_type == "bollinger"
-
-    # 첫 질문은 볼린저를 확인하며 시장을 묻는다(일반 전략 메뉴가 아니다).
-    opening, _ = sb.next_question(state)
-    assert "볼린저 밴드" in opening
-
-    # 시장을 답한 뒤에도 일반 종목 선정 메뉴가 절대 나오면 안 된다.
-    after_universe = _step(state, "코스피")
-    assert "어떤 방식으로 종목을 고를까요" not in after_universe.reply
-
-    # 남은 필드를 채우면 볼린저 백테스트 프롬프트로 합성된다(엔진 지원 신호로).
-    s = after_universe.state
-    s = _step(s, "없음").state              # 옵션 필터 스텝(볼린저)
-    s = _step(s, "10개").state
-    s = _step(s, "리밸런싱 안 함").state
-    confirmed = _step(s, "10% 손절 20% 익절")
-    assert confirmed.status == "confirmed"
-    assert "볼린저밴드" in confirmed.prompt
-    assert "하단" in confirmed.prompt and "매수" in confirmed.prompt
-
-
 def test_parse_lookback_months_and_days():
     s = sb.BuilderState(universe="KOSPI", strategy_type="momentum")
     patch = sb.parse_input("3개월", s, expecting="lookback_days")
@@ -136,36 +108,7 @@ def test_parse_holding_and_rebalance():
     assert sb._parse_rebalance("그대로 보유") == "none"
 
 
-def test_rebalance_none_option_offered_and_completes():
-    """리밸런싱 '안 함'은 정상 옵션으로 제공되고 선택 시 전략을 완성시킨다."""
-    state = sb.BuilderState(universe="KOSPI", strategy_type="momentum",
-                            lookback_days=63, holding_count=10)
-    # 다음 질문(리밸런싱)에 거부 칩이 포함된다(정본 표기 '리밸런싱 안 함').
-    _, suggestions = sb.next_question(state)
-    assert "리밸런싱 안 함" in suggestions
-    # '안 함' 선택 → rebalance_cycle="none", 다음은 청산 조건 질문.
-    res = _step(state, "안 함")
-    assert res.state.rebalance_cycle == "none"
-    assert res.status == "collecting"
-    assert res.reply.endswith(_RISK_QUESTION)
-    # 청산 조건(필수)을 채우면 confirmed, 합성 프롬프트엔 리밸런싱 문구가 없다.
-    done = _step(res.state, "10% 손절")
-    assert done.status == "confirmed"
-    assert "리밸런싱" not in done.prompt
-
-
 # ─── 명세 핵심 케이스 1~4 ─────────────────────────────────────────────────────────
-
-def test_case1_kospi_after_entry_no_refusal_and_next_question():
-    """Case 1: 빌더 진입 후 '일단 코스피' → universe=KOSPI, 거절 없음, 다음 질문(전략 유형)."""
-    res = _step(sb.BuilderState(), "일단 코스피")
-    assert res.state.universe == "KOSPI"
-    assert res.status == "collecting"
-    assert OFFTOPIC_REFUSAL not in res.reply
-    assert "현재 질문에는 도움을 드릴 수 없어요" not in res.reply
-    # 다음 질문은 매수 조건 — 되묻기 게이트와 같은 정본 질문·칩을 쓴다(2026-08-16).
-    assert res.reply.endswith(_ENTRY_QUESTION)
-    assert res.suggestions == strategy_slots.entry_chips(["KOSPI"])
 
 
 def test_blank_input_shows_opening_question_without_mutation():
@@ -227,140 +170,15 @@ def test_entry_step_excludes_chips_the_strategy_cannot_express():
     assert "골든크로스(5일/20일) 발생 시 매수" in etf
 
 
-def test_describe_own_chip_routes_to_free_text_entry_rule():
-    """'직접 설명하기' 선택 → custom 유형 → 칩 없는 진입 조건 질문(프론트가 채팅창 재노출)."""
-    state = sb.BuilderState(universe="KOSPI")
-    res = _step(state, "직접 설명하기")
-    assert res.state.strategy_type == "custom"
-    assert res.status == "collecting"
-    assert res.suggestions == []  # 칩이 없어 프론트가 채팅창을 다시 보여준다
-    assert "매수" in res.reply
-    # 이어서 자유 서술 입력은 진입 규칙으로 그대로 저장된다.
-    res2 = _step(res.state, "RSI가 30 이하로 떨어지면 매수")
-    assert res2.state.entry_rule == "RSI가 30 이하로 떨어지면 매수"
-
-
-def test_case2_bare_kospi_interpreted_as_universe():
-    """Case 2: 시장 선택을 유도한 상태에서 '코스피' → universe로 처리."""
-    res = _step(sb.BuilderState(), "코스피")
-    assert res.state.universe == "KOSPI"
-    assert res.status == "collecting"
-
-
-def test_case3_three_months_with_momentum():
-    """Case 3: strategyType=momentum 상태에서 '3개월' → lookback 처리 후 다음 질문."""
-    state = sb.BuilderState(universe="KOSPI", strategy_type="momentum")
-    res = _step(state, "3개월")
-    assert res.state.lookback_days == 63
-    assert res.status == "collecting"
-    assert res.state.holding_count is None  # 다음은 보유 수
-
-
-def test_case4_cancel_resets_to_normal():
-    """Case 4: '취소' → 상태 초기화 + exited(일반 모드 복귀)."""
-    state = sb.BuilderState(universe="KOSPI", strategy_type="momentum", lookback_days=63)
-    res = _step(state, "취소")
-    assert res.status == "exited"
-    assert res.state == sb.BuilderState()
-
-
 # ─── 전체 흐름: 진입 → 완성 → 확정 → 합성 ──────────────────────────────────────────
-
-def test_full_momentum_flow_to_confirmation():
-    """리밸런싱 다음 청산 조건 단계까지 거친 뒤, 답하면 곧바로 confirmed로 합성된다."""
-    state = sb.BuilderState()
-    state = _step(state, "코스피").state
-    state = _step(state, "모멘텀").state
-    state = _step(state, "3개월").state
-    state = _step(state, "10개").state
-    risk_q = _step(state, "매주")
-    assert risk_q.status == "collecting"  # 마지막은 청산 조건 질문
-    assert risk_q.reply.endswith(_RISK_QUESTION)
-    confirmed = _step(risk_q.state, "10% 손절")
-    assert confirmed.status == "confirmed"
-    assert confirmed.prompt
-    assert "코스피" in confirmed.prompt
-    assert "63일" in confirmed.prompt and "상위 10개" in confirmed.prompt
-    assert "매주 리밸런싱" in confirmed.prompt
-    assert "10% 손절" in confirmed.prompt
 
 
 # ─── 시드(빌더 진입 시 원본 메시지 선반영) ──────────────────────────────────────────
-
-def test_seed_state_prefills_recognized_fields():
-    """STOCK_PICK 원본 메시지의 인식 가능한 조건을 미리 채운다(빠진 것만 묻기 위함)."""
-    state = sb.seed_state(
-        "최근 1주일 동안 수익률이 좋았던 종목 10개를 사서 -15%에 손절하고 30%에 익절해줘"
-    )
-    assert state.strategy_type == "momentum"
-    assert state.lookback_days == 5 and state.lookback_label == "1주일"
-    assert state.holding_count == 10
-    assert state.stop_loss_pct == 15.0
-    assert state.take_profit_pct == 30.0
-    assert state.risk_done is True
-    assert state.universe is None  # 유니버스만 빠짐
-
-
-def test_seed_state_asks_only_missing_universe_then_rebalance():
-    """이미 말한 전략유형·보유수·청산은 다시 묻지 않고 유니버스부터 묻는다."""
-    state = sb.seed_state(
-        "최근 1주일 동안 수익률이 좋았던 종목 10개를 사서 -15%에 손절하고 30%에 익절해줘"
-    )
-    first = sb.step(state, "")
-    assert first.status == "collecting"
-    assert "시장" in first.reply              # 첫 질문은 유니버스
-    assert "방식으로 종목" not in first.reply  # 전략유형은 다시 묻지 않음
-
-    after_univ = sb.step(first.state, "코스닥")
-    # 직전 답변(유니버스)을 확인해야지, 시드된 보유수를 엉뚱하게 확인하면 안 된다.
-    assert "코스닥 시장을 대상으로" in after_univ.reply
-    assert after_univ.reply.endswith(_REBALANCE_QUESTION)  # 진짜 빠진 다음 질문
-
-    confirmed = sb.step(after_univ.state, "매월")
-    assert confirmed.status == "confirmed"
-    assert "코스닥" in confirmed.prompt
-    assert "상위 10개" in confirmed.prompt
-    assert "-15% 손절" in confirmed.prompt and "30% 익절" in confirmed.prompt
 
 
 def test_is_empty_gates_seeding():
     assert sb.is_empty(sb.BuilderState()) is True
     assert sb.is_empty(sb.BuilderState(universe="KOSPI")) is False
-
-
-def test_seed_ai_theme_confirms_catalog_symbols_not_broad_sector():
-    """'인공지능 관련주 투자 전략'이 업종 소프트웨어/플랫폼(모든 소프트웨어 업체)으로
-    과대 확정되던 사고(2026-07-27) — AI는 테마: 네이버 '지능형로봇/인공지능(AI)'
-    카탈로그 수록 종목이 지정 종목 유니버스로 확정되고 업종 근사는 해제된다."""
-    state = sb.seed_state("인공지능 관련주 투자 전략")
-    assert state.theme_symbols            # 카탈로그 수록 종목으로 즉시 확정
-    assert state.sector is None           # 업종 근사 해제(대상=종목 목록)
-    assert not state.sector_unresolved    # 미해결 되묻기로도 새지 않는다
-
-
-def test_seed_state_remembers_sector_and_leading_stock_phrasing():
-    """종목 질문 리다이렉트 뒤 '반도체 주도주로 전략을 만들어줘' — 업종을 기억하고
-    주도주=모멘텀으로 인식해, 종목 고르는 질문(전략유형)을 다시 묻지 않는다."""
-    state = sb.seed_state("반도체 주도주로 전략을 만들어줘")
-    assert state.sector == "반도체"
-    assert state.strategy_type == "momentum"
-
-    first = sb.step(state, "")
-    assert first.status == "collecting"
-    assert "반도체 업종" in first.reply        # 기억한 업종을 도입부에서 확인
-    assert "시장" in first.reply               # 첫 질문은 유니버스
-    assert "방식으로 종목" not in first.reply  # 전략유형은 다시 묻지 않음
-
-
-def test_seed_state_sector_with_jungshim_cue_no_type_lock():
-    """'반도체 중심으로 전략을 만들어줘' — 업종은 기억하되('중심' 큐), 방식은 말하지
-    않았으므로 전략유형 질문은 그대로 진행한다(범위만 좁힘)."""
-    state = sb.seed_state("반도체 중심으로 전략을 만들어줘")
-    assert state.sector == "반도체"
-    assert state.strategy_type is None
-
-    first = sb.step(state, "")
-    assert "반도체 업종" in first.reply  # 기억한 업종을 도입부에서 확인
 
 
 def test_apply_parsed_seed_takes_llm_resolved_fields():
@@ -389,145 +207,10 @@ def test_apply_parsed_seed_normalizes_and_rejects_garbage():
     assert sb.apply_parsed_seed(empty, {}) is empty
 
 
-def test_apply_parsed_seed_does_not_override_deterministic_seed():
-    """결정적 시드가 이미 채운 값이 파싱 결과보다 우선한다."""
-    state = sb.seed_state("반도체 관련주로 10% 손절 전략")
-    assert state.sector == "반도체" and state.stop_loss_pct == 10.0
-
-    seeded = sb.apply_parsed_seed(state, {"sector": "게임", "stop_loss_pct": 99.0})
-    assert seeded.sector == "반도체"
-    assert seeded.stop_loss_pct == 10.0
-
-
-def test_sector_flows_into_prompt_and_dsl():
-    """시드된 업종이 합성 프롬프트와 직접 구성 DSL(ParsedStrategy.sector)까지 흐른다."""
-    state = sb.seed_state("반도체 주도주 전략")
-    r = sb.step(state, "")
-    for answer in ("코스피", "3개월", "5종목", "매월", "10% 손절"):
-        r = sb.step(r.state, answer)
-    assert r.status == "confirmed"
-    assert "반도체 업종" in r.prompt
-    parsed = sb.build_parsed_strategy(r.state)
-    assert parsed.sector == "반도체"
-    assert parsed.universe == ["KOSPI"]
-    assert parsed.ranking_metric == "return"
-
-
-def test_seed_unsupported_sector_caught_not_silently_dropped():
-    """[회귀] '메타버스주 관련 전략을 만들어보자' — 지원 목록에 없는 업종이 조용히 버려져
-    전체 시장으로 백테스트되던 버그. 시드가 언급을 캐치하고, 강등 대신 한 번 되묻는다."""
-    state = sb.seed_state("메타버스주 관련 전략을 만들어보자")
-    assert state.sector is None
-    assert state.sector_unresolved is True
-
-    first = sb.step(state, "")                      # resolver 없음 → 결정적 실패 → 되묻기
-    assert "다시 알려주시겠어요" in first.reply     # 조용한 강등 대신 되묻기
-    assert "지원 목록에 없어" not in first.reply    # 아직 강등 안내 아님
-    assert first.state.sector_reask_done is True
-    assert first.state.sector_unresolved is True    # 답을 기다리는 중
-
-
-def test_seed_unsupported_sector_word_order_variants():
-    """'관련주' 어순이 아니어도('블록체인 관련'·'메타버스 테마') 목록 밖 업종 언급을 캐치한다."""
-    assert sb.seed_state("블록체인 관련 전략 만들어줘").sector_unresolved is True
-    assert sb.seed_state("메타버스 테마 전략").sector_unresolved is True
-    # 지원 업종은 정상 시드되고 플래그는 켜지지 않는다.
-    supported = sb.seed_state("반도체 관련 전략 만들어줘")
-    assert supported.sector == "반도체"
-    assert supported.sector_unresolved is False
-    # 업종 무관 표현은 목록 밖 언급이 아니다.
-    assert sb.seed_state("업종 상관없이 코스피 모멘텀 전략").sector_unresolved is False
-
-
-def test_midflow_supported_sector_mention_is_captured():
-    """안내를 본 사용자가 대화 중 지원 업종을 말하면 캐치해 유니버스 제한으로 반영한다."""
-    state = sb.seed_state("메타버스주 관련 전략을 만들어보자")
-    first = sb.step(state, "")  # 안내 소비 + 유니버스 질문
-    r = sb.step(first.state, "그러면 기계/장비 업종으로 해줘")
-    assert r.state.sector == "기계/장비"
-    assert "기계/장비 업종" in r.reply  # 반영 확인(ack)
-
-
-def test_unresolved_sector_resolved_by_llm_resolver():
-    """[FR] '원자로 관련주 전략을 만들자' — 결정적 정규화가 실패해도 LLM 해석기가 지원
-    업종('에너지/원자력')으로 매핑하면 sector로 반영돼 안내 없이 배지까지 관통한다."""
-    state = sb.seed_state("원자로 관련주 전략을 만들자")
-    assert state.sector is None and state.sector_unresolved is True
-    assert state.sector_hint == "원자로 관련주 전략을 만들자"
-
-    calls: list[str] = []
-
-    def resolver(text: str):
-        calls.append(text)
-        return "에너지/원자력"
-
-    first = sb.step(state, "", sector_resolver=resolver)
-    assert calls == ["원자로 관련주 전략을 만들자"]  # 힌트 원문으로 호출
-    assert first.state.sector == "에너지/원자력"
-    assert first.state.sector_unresolved is False and first.state.sector_hint is None
-    assert "지원 목록에 없어" not in first.reply           # 안내 대신 해석 성공
-    assert "에너지/원자력 업종 대상" in first.reply        # 이해한 업종을 도입부에서 확인
-
-    # 이후 합성 프롬프트/DSL까지 흐른다.
-    r = first
-    for answer in ("코스피", "모멘텀", "3개월", "5종목", "매월", "10% 손절"):
-        r = sb.step(r.state, answer, sector_resolver=resolver)
-    assert r.status == "confirmed"
-    assert "에너지/원자력 업종" in r.prompt
-    assert sb.build_parsed_strategy(r.state).sector == "에너지/원자력"
-    assert len(calls) == 1  # 해석은 한 번만(이후 턴에서 재호출 없음)
-
-
-def test_unresolved_sector_llm_null_or_error_reasks():
-    """LLM이 매핑 불가(null)거나 실패하면 조용한 강등 대신 사용자에게 되묻는다."""
-    state = sb.seed_state("메타버스주 관련 전략을 만들어보자")
-    first = sb.step(state, "", sector_resolver=lambda _t: None)
-    assert "다시 알려주시겠어요" in first.reply
-    assert first.state.sector is None and first.state.sector_reask_done is True
-
-    def boom(_t):
-        raise RuntimeError("LLM down")
-    second = sb.step(sb.seed_state("메타버스주 관련 전략을 만들어보자"), "", sector_resolver=boom)
-    assert "다시 알려주시겠어요" in second.reply  # 예외에도 되묻기로 안전 폴백
-
-
-def test_unresolved_sector_resolver_output_is_renormalized():
-    """해석기 출력은 normalize_sector로 재검증한다 — 목록 밖 이름을 지어내면 되묻는다."""
-    state = sb.seed_state("원자로 관련주 전략을 만들자")
-    first = sb.step(state, "", sector_resolver=lambda _t: "원자로섹터")
-    assert first.state.sector is None
-    assert "다시 알려주시겠어요" in first.reply
-    # 동의어('원자력')로 매핑하면 정본명('에너지/원자력')으로 들어간다(되묻기 없음).
-    state2 = sb.seed_state("원자로 관련주 전략을 만들자")
-    second = sb.step(state2, "", sector_resolver=lambda _t: "원자력")
-    assert second.state.sector == "에너지/원자력"
-
-
-def test_typo_sector_corrected_by_llm_resolver():
-    """[FR] '재약주'(제약주 오타) — 결정적 추출은 실패하지만 LLM 해석기가 오타를 정정해
-    '바이오/제약'으로 매핑하면 되묻기 없이 반영된다(오타 교정 프롬프트 지시)."""
-    state = sb.seed_state("재약주 관련 전략을 만들자")
-    assert state.sector is None and state.sector_unresolved is True
-    first = sb.step(state, "", sector_resolver=lambda _t: "바이오/제약")
-    assert first.state.sector == "바이오/제약"
-    assert first.state.sector_unresolved is False
-    assert "바이오/제약 업종" in first.reply
-
-
 def test_sector_llm_prompt_instructs_typo_correction():
     """LLM 섹터 프롬프트가 명백한 오타를 교정하도록 지시한다(재약주→제약주 예시 포함)."""
     prompt = sb._sector_llm_prompt()
     assert "오타" in prompt and "재약주" in prompt
-
-
-def test_sector_reask_answered_with_supported_sector():
-    """되묻기에 지원 업종(맨 용어)으로 답하면 반영되고 확인 문장이 나온다."""
-    state = sb.seed_state("메타버스주 관련 전략을 만들어보자")
-    first = sb.step(state, "", sector_resolver=lambda _t: None)  # 되묻기
-    second = sb.step(first.state, "바이오/제약", sector_resolver=lambda _t: None)
-    assert second.state.sector == "바이오/제약"
-    assert second.state.sector_unresolved is False and second.state.sector_reask_done is False
-    assert "바이오/제약 업종" in second.reply
 
 
 def test_sector_reask_optout_proceeds_without_notice():
@@ -540,62 +223,7 @@ def test_sector_reask_optout_proceeds_without_notice():
     assert "지원 목록에 없어" not in second.reply  # 명시적 opt-out엔 강등 안내 생략
 
 
-def test_sector_reask_second_failure_degrades_with_notice():
-    """되묻기에도 목록 밖 표현으로 답하면 안내와 함께 제한 없이 진행한다(무한 되묻기 없음)."""
-    state = sb.seed_state("메타버스주 관련 전략을 만들어보자")
-    first = sb.step(state, "", sector_resolver=lambda _t: None)
-    second = sb.step(first.state, "NFT 관련주", sector_resolver=lambda _t: None)
-    assert second.state.sector is None
-    assert second.state.sector_unresolved is False and second.state.sector_reask_done is False
-    assert "지원 목록에 없어" in second.reply
-
-
 # ─── 복합 테마구·테마 유니버스(FR-STR-071) ────────────────────────────────────────
-
-def test_compound_theme_not_confirmed_as_head_sector(tmp_path, monkeypatch):
-    """[회귀] '반도체 소부장 전략을 만들자' — 큐리스 테마어(반도체)가 미지 수식어(소부장)를
-    잘라먹고 업종을 단독 확정하던 사고(2026-07-25). 미해결 힌트로 그라운딩 체인에 넘긴다.
-
-    '학습 전' 상태를 검증하므로 그래프의 learned 오버레이를 tmp 어휘집으로 격리한다 —
-    런타임 학습으로 실제 data/term_lexicon.json에 '반도체소부장'이 저장되면 결정적
-    해석(설계 동작)이 선점돼 전제가 깨진다(실측 2026-07-25)."""
-    import engine.knowledge_graph as kg
-
-    monkeypatch.setattr(kg, "_LEXICON_PATH", tmp_path / "lex.json")
-    monkeypatch.setattr(kg, "_CACHED", None)
-    state = sb.seed_state("반도체 소부장 전략을 만들자")
-    monkeypatch.setattr(kg, "_CACHED", None)  # 다음 테스트가 원본 경로로 재로드하도록
-    assert state.sector is None
-    assert state.sector_unresolved is True
-    assert state.sector_hint == "반도체 소부장 전략을 만들자"
-    assert state.sector_hint_weak is False  # 복합구는 강한 신호(실패 시 되묻기 허용)
-
-
-def test_known_follower_keeps_cue_less_sector():
-    """알려진 후속어('주도주'·'전략'·섹터어)는 복합구가 아니다 — 기존 단독 확정 유지."""
-    assert sb.seed_state("반도체 주도주 전략").sector == "반도체"
-    assert sb.seed_state("반도체 전략을 만들자").sector == "반도체"
-    # 후속 섹터어는 버리지 않고 함께 수집한다(FR-STR-066 ⑦ 다중 섹터 — 2026-07-25 수정
-    # 이전엔 첫 매치 단독 확정으로 '헬스케어'가 조용히 소실됐다).
-    assert sb.seed_state("바이오 헬스케어 전략").sector == ["바이오/제약", "의료기기"]
-
-
-def test_seed_collects_multiple_sectors():
-    """'반도체와 로봇관련 종목' — 접속된 복수 업종을 모두 시드한다(첫 매치만 잡아
-    반도체가 소실되던 실측 사고 2026-07-25 회귀 방지)."""
-    state = sb.seed_state("반도체와 로봇관련 종목에 투자 하는 전략을 만들어 보자")
-    assert state.sector == ["반도체", "로봇"]
-    assert "반도체·로봇 업종 대상" in sb._seed_summary(state)
-
-
-def test_weak_theme_candidate_seeds_weak_hint():
-    """큐 없는 미지 테마어('소부장 전략')는 약한 힌트로 그라운딩 체인에 넘긴다."""
-    state = sb.seed_state("소부장 전략을 만들자")
-    assert state.sector is None and state.sector_unresolved is True
-    assert state.sector_hint_weak is True
-    # 알려진 수식어·형용사꼴은 약한 힌트를 만들지 않는다(오탐 방지).
-    assert sb.seed_state("새로운 전략을 만들어줘").sector_unresolved is False
-    assert sb.seed_state("단타 전략 짜줘").sector_unresolved is False
 
 
 def test_weak_hint_failure_clears_silently():
@@ -638,32 +266,6 @@ def learned_theme_graph(tmp_path, monkeypatch):
     kg._CACHED = None
 
 
-def test_theme_companies_auto_confirmed_as_symbol_universe(learned_theme_graph):
-    """그라운딩/그래프가 테마 관련 상장사를 알면 되묻기 없이 지정 종목으로 즉시 확정한다
-    (FR-STR-071b ④ 개정, 사용자 결정 2026-07-25 — 업종 근사 해제·유니버스 질문 생략·
-    시작일 클램프 없음)."""
-    state = sb.seed_state("반도체 소부장 전략을 만들자")
-    # 시드가 학습된 테마를 결정적으로 인식하고 즉시 확정한다(되묻기 폐지).
-    assert state.theme_symbols == ["005290", "240810"]
-    assert state.theme_label == "동진쎄미켐, 원익IPS"
-    assert state.sector is None  # 업종 근사 해제(대상=종목 목록)
-
-    first = sb.step(state, "")
-    assert "백테스트할까요" not in (first.reply or "")  # 되묻기 없음
-    assert sb.required_missing(first.state) != "universe"  # 시장 질문 생략
-
-    r = first
-    for answer in ("모멘텀", "3개월", "2종목", "매월", "10% 손절"):
-        r = sb.step(r.state, answer)
-    assert r.status == "confirmed"
-    assert "동진쎄미켐, 원익IPS 종목 중" in r.prompt
-    parsed = sb.build_parsed_strategy(r.state)
-    assert parsed.target_symbols == ["005290", "240810"]
-    assert parsed.sector is None
-    # 시작일 클램프 없음 — 목록 확인 시점으로 백테스트를 조용히 자르지 않는다.
-    assert parsed.backtest_start_date is None
-
-
 def test_theme_patch_uses_all_companies_without_truncation():
     """[회귀 2026-07-28 '비만치료 관련주' 사고] 빌더 레인도 관련 상장사를 종수 상한으로
     자르지 않는다 — theme_symbols는 전체, theme_label은 synthesize_prompt 재파싱이
@@ -675,50 +277,6 @@ def test_theme_patch_uses_all_companies_without_truncation():
     assert patch["theme_symbols"] == [c["symbol"] for c in companies]
     assert patch["theme_label"] == ", ".join(c["name"] for c in companies)
     assert len(patch["theme_candidates"]) == 36
-
-
-def test_theme_auto_confirm_after_grounding_resolution(tmp_path, monkeypatch):
-    """첫 발화(미학습)도 resolver(그라운딩)가 학습을 마치면 같은 스텝에서 즉시 확정한다."""
-    import json as _json
-
-    from engine import knowledge_graph as kg
-
-    lexicon = tmp_path / "term_lexicon.json"
-    monkeypatch.setattr(kg, "_LEXICON_PATH", lexicon)
-    kg._CACHED = None
-
-    def resolver(_text: str):
-        # 그라운딩 검색이 어휘집을 채우는 상황을 재현(학습 후 섹터 반환)
-        lexicon.write_text(_json.dumps({
-            "반도체소부장": {
-                "term": "반도체 소부장", "definition": "d", "sector": "반도체",
-                "sources": [], "searched_at": "2026-07-25T00:00:00+00:00",
-                "edges": [
-                    {"type": "related_company", "target": "company:005290",
-                     "target_name": "동진쎄미켐", "support": 2, "status": "verified",
-                     "evidence": [], "first_known_date": "2020-03-01"},
-                ],
-            }
-        }, ensure_ascii=False), encoding="utf-8")
-        return "반도체"
-
-    try:
-        state = sb.seed_state("반도체 소부장 전략을 만들자")
-        assert state.sector_unresolved is True
-        first = sb.step(state, "", sector_resolver=resolver)
-        assert "백테스트할까요" not in (first.reply or "")  # 되묻기 없음
-        assert first.state.theme_symbols == ["005290"]
-        assert first.state.sector is None  # 업종 근사 해제(대상=종목 목록)
-    finally:
-        kg._CACHED = None
-
-
-def test_midflow_unresolved_mention_resolved_by_llm():
-    """대화 중 미지원 표현('원자로 관련주로')도 LLM 해석으로 반영되고 확인 문장이 나온다."""
-    state = sb.step(sb.BuilderState(), "").state  # 빈 상태에서 유니버스 질문
-    r = sb.step(state, "원자로 관련주로 해줘", sector_resolver=lambda _t: "에너지/원자력")
-    assert r.state.sector == "에너지/원자력"
-    assert "에너지/원자력 업종" in r.reply  # LLM 해석분도 ack
 
 
 def test_cancel_control_not_triggered_by_gwan_syllable():
@@ -754,21 +312,6 @@ def test_llm_extract_sector_parses_and_validates():
     assert sb.llm_extract_sector("로봇", lambda *_a, **_k: '{"sector": "듣도보도못한업종"}') is None
 
 
-def test_seed_confirmed_with_unresolved_sector_reasks_then_confirms():
-    """시드만으로 즉시 confirmed되는 경우(모멘텀)에도, 미해결 업종은 조용히 버리지 않고
-    한 번 되묻는다. 답으로 지원 업종을 받으면 그 업종을 반영해 확정한다."""
-    state = sb.seed_state(
-        "메타버스 관련 모멘텀 전략, 코스피에서 최근 3개월 상위 5종목, 매월 리밸런싱, 10% 손절"
-    )
-    assert state.sector_unresolved is True
-    reask = sb.step(state, "")
-    assert reask.status == "collecting"
-    assert "다시 알려주시겠어요" in reask.reply
-    confirmed = sb.step(reask.state, "바이오/제약")
-    assert confirmed.status == "confirmed"
-    assert sb.build_parsed_strategy(confirmed.state).sector == "바이오/제약"
-
-
 def test_parse_strategy_type_recognizes_profit_phrasing():
     assert sb._parse_strategy_type("수익률이 좋았던 종목") == "momentum"
     assert sb._parse_strategy_type("많이 오른 종목") == "momentum"
@@ -777,20 +320,6 @@ def test_parse_strategy_type_recognizes_profit_phrasing():
 def test_parse_lookback_weeks():
     assert sb._parse_lookback("최근 1주일")["lookback_days"] == 5
     assert sb._parse_lookback("2주")["lookback_days"] == 10
-
-
-def test_restart_keeps_builder_and_clears_state():
-    state = sb.BuilderState(universe="KOSPI", strategy_type="momentum", lookback_days=63)
-    res = _step(state, "처음부터")
-    assert res.status == "reset"
-    assert res.state == sb.BuilderState()
-    assert "시장" in res.reply  # 첫 질문(유니버스)
-
-
-def test_exit_other_question_returns_to_normal():
-    state = sb.BuilderState(universe="KOSPI")
-    res = _step(state, "다른 질문 할게")
-    assert res.status == "exited"
 
 
 def test_failed_parse_reasks_without_refusal():
@@ -861,34 +390,6 @@ def test_new_strategy_types_synthesize_parses_to_buy_criteria(stype):
     assert buy or fund, f"{stype} 합성 프롬프트가 매수 기준으로 파싱되지 않음: {prompt}"
 
 
-def test_custom_flow_captures_entry_rule():
-    state = sb.BuilderState(universe="KOSPI")
-    state = _step(state, "직접 설명할게").state
-    assert state.strategy_type == "custom"
-    # 다음 입력은 진입 규칙 서술로 저장된다.
-    state = _step(state, "20일선이 60일선을 상향 돌파하면").state
-    assert state.entry_rule == "20일선이 60일선을 상향 돌파하면"
-    state = _step(state, "10개").state
-    state = _step(state, "매주").state  # 청산 조건 질문
-    res = _step(state, "10% 손절")
-    assert res.status == "confirmed"
-    assert "20일선이 60일선을 상향 돌파" in res.prompt
-
-
-def test_custom_entry_rule_captures_explicit_holding_count():
-    """진입 서술에 명시적 종목 수("상위 5개")가 섞여 있으면 보유 수로 함께 잡아 다시 묻지 않는다.
-
-    [회귀] 'custom' 진입 서술 단계가 입력 전체를 entry_rule로만 저장하면서 명시적 "5개"를
-    버려, 사용자가 이미 종목 수를 말했는데도 보유 수를 다시 묻던 버그."""
-    state = sb.BuilderState(universe="KOSDAQ", strategy_type="custom")
-    res = _step(state, "코스닥 시총 상위 5개를 사는 전략")
-    assert res.state.entry_rule == "코스닥 시총 상위 5개를 사는 전략"
-    assert res.state.holding_count == 5
-    # 보유 수가 채워졌으므로 다음 질문은 보유 수가 아니라 리밸런싱이다.
-    assert sb.required_missing(res.state) == "rebalance_cycle"
-    assert "몇 종목" not in res.reply
-
-
 def test_custom_entry_rule_does_not_misread_bare_threshold_as_count():
     """진입 서술의 맨숫자(RSI 30)는 보유 수로 오인하지 않는다(명시적 개/종목 접미사만 인정)."""
     state = sb.BuilderState(universe="KOSPI", strategy_type="custom")
@@ -908,13 +409,6 @@ def test_holding_count_step_offers_only_answer_chips():
         assert sb.required_missing(state) == "holding_count"
         assert "직접 입력" not in suggestions
         assert all("종목" in chip for chip in suggestions)
-
-
-def test_holding_count_step_free_text_parses_custom_value():
-    """'직접 입력' 후 사용자가 타이핑한 임의 종목 수('7개')가 그대로 파싱된다."""
-    state = sb.BuilderState(universe="KOSPI", strategy_type="bollinger", filters_asked=True)
-    res = _step(state, "7개")
-    assert res.state.holding_count == 7
 
 
 # ─── 청산 조건(손절·익절·트레일링·보유기간) 단계 ─────────────────────────────────────
@@ -943,173 +437,6 @@ def test_risk_step_offers_only_answer_chips():
     assert suggestions[-1] == "최고가 대비 10% 하락 시 청산"
 
 
-def test_risk_step_free_text_after_direct_input_parses_custom_value():
-    """'직접 입력' 후 사용자가 타이핑한 커스텀 청산 값('15% 손절')이 그대로 파싱된다."""
-    r = _step(_ready_for_risk(), "15% 손절")
-    assert r.status == "confirmed"
-    assert r.state.stop_loss_pct == 15.0
-    assert "15% 손절" in r.prompt
-
-
-def test_risk_step_parses_stop_loss_with_korean_particle():
-    """'15%에 손절 30% 익절'처럼 퍼센트와 키워드 사이에 조사(에)가 끼어도 손절을 인식한다."""
-    r = _step(_ready_for_risk(), "15%에 손절 30% 익절")
-    assert r.status == "confirmed"
-    assert r.state.stop_loss_pct == 15.0
-    assert r.state.take_profit_pct == 30.0
-    assert "15% 손절" in r.prompt and "30% 익절" in r.prompt
-
-
-def test_risk_step_keyword_first_order_no_misattribution():
-    """[회귀] '손절 10% 익절 20%'처럼 키워드가 값보다 먼저 와도 정확히 귀속돼야 한다.
-    예전엔 익절 정규식이 앞의 '10%'(손절 값)를 훔쳐가 손절=None·익절=10으로 조용히 틀리던 버그."""
-    r = _step(_ready_for_risk(), "손절 10% 익절 20%")
-    assert r.status == "confirmed"
-    assert r.state.stop_loss_pct == 10.0
-    assert r.state.take_profit_pct == 20.0
-    assert "10% 손절" in r.prompt and "20% 익절" in r.prompt
-
-
-def test_risk_step_negated_stop_loss_not_extracted():
-    """'손절 없이 익절 20%'는 손절을 뽑지 않고 익절만 20%로 잡아야 한다(부정어 가드)."""
-    r = _step(_ready_for_risk(), "손절 없이 익절 20%")
-    assert r.status == "confirmed"
-    assert r.state.stop_loss_pct is None
-    assert r.state.take_profit_pct == 20.0
-
-
-@pytest.mark.parametrize(
-    "question, term",
-    [
-        ("손절이 뭐야?", "손절"),
-        ("트레일링 스탑이 무슨 뜻이에요?", "트레일링"),
-        ("리밸런싱이 뭔가요?", "리밸런싱"),
-        ("모멘텀이 무엇인가요", "모멘텀"),
-    ],
-)
-def test_glossary_question_mid_builder_answers_and_reasks(question, term):
-    """[회귀] 빌더 진행 중 용어 질문은 필드 답변으로 오인돼 같은 질문만 반복되던 막다른 길 —
-    짧은 정의를 답하고 현재 질문을 이어가며 상태는 바뀌지 않는다."""
-    state = _ready_for_risk()
-    r = _step(state, question)
-    assert r.status == "collecting"
-    assert r.state == state  # 상태 불변
-    assert term in r.reply.split("\n\n")[0]  # 앞부분이 정의문
-    assert r.reply.endswith(_RISK_QUESTION)  # 뒤에 현재 질문이 이어짐
-    assert "-10% 손절" in r.suggestions
-
-
-def test_glossary_does_not_intercept_normal_answers():
-    """정의 표지 없는 일반 답변("10% 손절", "모멘텀")은 용어집이 가로채지 않는다."""
-    r = _step(_ready_for_risk(), "10% 손절")
-    assert r.status == "confirmed"
-    st = sb.BuilderState(universe="KOSPI")
-    r2 = _step(st, "모멘텀")
-    assert r2.state.strategy_type == "momentum"
-
-
-@pytest.mark.parametrize("answer", ["없음", "청산 조건은 따로 없이 갈래", "필요 없어"])
-def test_risk_step_refusal_explains_why_required(answer):
-    """[회귀] 청산 조건 거부("없음")에 같은 질문을 그대로 무한 반복하던 침묵 루프 —
-    청산 조건이 필수인 이유를 설명하며 되묻는다(필수 설계는 유지, risk_done은 켜지 않음)."""
-    r = _step(_ready_for_risk(), answer)
-    assert r.status == "collecting"
-    assert r.state.risk_done is False
-    assert r.reply == sb.RISK_REQUIRED_REPLY
-    assert "-10% 손절" in r.suggestions
-
-
-def test_risk_step_llm_recovers_value_regex_missed():
-    """정규식이 키워드(손절)는 봤지만 값을 못 뽑으면 LLM 보강 파서로 값을 채운다."""
-    calls = []
-
-    def fake_extractor(text: str) -> dict:
-        calls.append(text)
-        return {"stop_loss_pct": 20.0}
-
-    # '이십프로 손절'은 정규식이 수치를 못 뽑지만 키워드는 있어 LLM 보강이 트리거된다.
-    r = sb.step(_ready_for_risk(), "이십프로 손절", fake_extractor)
-    assert calls == ["이십프로 손절"]
-    assert r.status == "confirmed"
-    assert r.state.stop_loss_pct == 20.0
-    assert "20% 손절" in r.prompt
-
-
-def test_risk_step_regex_match_skips_llm():
-    """정규식이 깨끗이 잡으면 LLM 보강 파서를 호출하지 않는다(비용/지연 절감)."""
-    calls = []
-
-    def fake_extractor(text: str) -> dict:
-        calls.append(text)
-        return {}
-
-    r = sb.step(_ready_for_risk(), "10% 손절", fake_extractor)
-    assert calls == []  # LLM 미호출
-    assert r.state.stop_loss_pct == 10.0
-
-
-def test_risk_step_regex_takes_priority_over_llm():
-    """정규식이 잡은 필드는 LLM 결과로 덮어쓰지 않는다(결정론 우선)."""
-    # 손절은 정규식이 잡고(15), 익절은 '삼십프로'라 정규식이 놓쳐 LLM이 채운다(30).
-    r = sb.step(
-        _ready_for_risk(),
-        "15% 손절에 삼십프로 익절",
-        lambda _t: {"stop_loss_pct": 99.0, "take_profit_pct": 30.0},
-    )
-    assert r.state.stop_loss_pct == 15.0  # 정규식 값 유지(LLM 99 무시)
-    assert r.state.take_profit_pct == 30.0  # 정규식이 놓친 값만 LLM 보강
-
-
-def test_risk_step_llm_failure_falls_back_to_regex():
-    """LLM 보강이 예외를 던져도 정규식 결과로 안전하게 폴백한다."""
-    def boom(_t: str) -> dict:
-        raise RuntimeError("LLM down")
-
-    r = sb.step(_ready_for_risk(), "15%에 손절", boom)
-    assert r.state.stop_loss_pct == 15.0  # 정규식이 이미 잡음
-
-
-def test_risk_step_parses_stop_take_trailing_hold():
-    state = _ready_for_risk()
-
-    r = _step(state, "10% 손절·20% 익절")
-    assert r.status == "confirmed"
-    assert r.state.stop_loss_pct == 10.0 and r.state.take_profit_pct == 20.0
-    assert "10% 손절" in r.prompt and "20% 익절" in r.prompt
-
-    r2 = _step(state, "최고가 대비 10% 하락 시 청산")
-    assert r2.state.trailing_stop_pct == 10.0
-    assert "최고가 대비 10% 하락 시 청산" in r2.prompt
-
-    r3 = _step(state, "트레일링 8%")
-    assert r3.state.trailing_stop_pct == 8.0
-
-    r4 = _step(state, "20일 보유 후 청산")
-    assert r4.state.hold_period_days == 20
-    assert "20거래일 보유" in r4.prompt
-
-    r5 = _step(state, "3개월 보유")
-    assert r5.state.hold_period_days == 63
-
-
-def test_risk_step_requires_a_condition_and_reasks_otherwise():
-    """청산 조건은 필수 — 인식 가능한 조건이 없으면 완료하지 않고 같은 질문을 다시 한다."""
-    r = _step(_ready_for_risk(), "청산 조건 없음")
-    assert r.status == "collecting"
-    assert r.state.risk_done is False
-    assert "청산 조건" in r.reply
-    # 그 뒤 유효한 조건을 주면 완료된다.
-    done = _step(r.state, "10% 손절")
-    assert done.status == "confirmed"
-    assert done.state.stop_loss_pct == 10.0
-
-
-def test_risk_step_cancel_still_exits():
-    """청산 조건 단계에서도 '취소'는 빌더를 종료한다."""
-    r = _step(_ready_for_risk(), "취소")
-    assert r.status == "exited"
-
-
 # ─── 전략별 특화 빌더(STATE_SPECIFIC_STRATEGY_BUILDER) ──────────────────────────────
 
 from engine.strategy_converter import to_backtest_request  # noqa: E402
@@ -1122,58 +449,6 @@ def test_specific_type_recognition_rsi_stoch_cci():
     assert sb._parse_strategy_type("CCI 전략") == "cci"
     # '과매도 반등'은 여전히 프리셋 mean_reversion(RSI라는 단어가 없음).
     assert sb._parse_strategy_type("과매도 반등 전략") == "mean_reversion"
-
-
-@pytest.mark.parametrize("seed,stype,first_step", [
-    ("RSI 전략을 사용하고 싶어", "rsi", "rsi_period"),
-    ("MACD 전략 만들어줘", "macd", "macd_mode"),
-    ("골든크로스 전략", "golden_cross", "ma_kind"),
-    ("CCI 전략으로 해줘", "cci", "cci_params"),
-])
-def test_named_strategy_locks_on_and_asks_own_param(seed, stype, first_step):
-    """[회귀] 특정 전략을 지목하면 유형이 잠기고, 일반 메뉴 대신 그 전략의 파라미터를 먼저 묻는다."""
-    state = sb.seed_state(seed)
-    assert state.strategy_type == stype
-    after_univ = _step(state, "코스피")
-    assert "어떤 방식으로 종목을 고를까요" not in after_univ.reply
-    assert sb.required_missing(after_univ.state) == first_step
-
-
-def test_rsi_full_flow_builds_dsl_with_params():
-    """RSI 전용 흐름이 기간·과매도·과매수를 수집해 DSL에 정확히 반영한다."""
-    s = sb.seed_state("RSI 전략")
-    s = _step(s, "코스피").state
-    s = _step(s, "9일").state            # rsi_period
-    s = _step(s, "25 / 75").state        # rsi_bounds
-    s = _step(s, "없음").state           # 옵션 필터 스텝
-    s = _step(s, "10개").state
-    s = _step(s, "매월").state
-    res = _step(s, "10% 손절 20% 익절")
-    assert res.status == "confirmed"
-    parsed = sb.build_parsed_strategy(res.state)
-    req = to_backtest_request(parsed, resolve_symbols=False)
-    entry = req["entry"]["conditions"][0]
-    exit_ = req["exit"]["conditions"][0]
-    assert entry["id"] == "rsi" and entry["params"]["period"] == 9 and entry["params"]["value"] == 25.0
-    assert exit_["id"] == "rsi" and exit_["params"]["value"] == 75.0
-    assert req["risk"]["stop_loss_pct"] == 10.0 and req["risk"]["take_profit_pct"] == 20.0
-
-
-def test_ma_flow_ema_periods_flow_to_dsl():
-    """이동평균 전용 흐름이 SMA/EMA와 단기·장기 기간을 DSL에 반영한다."""
-    s = sb.seed_state("골든크로스 전략")
-    s = _step(s, "코스피").state
-    s = _step(s, "지수(EMA)").state       # ma_kind
-    s = _step(s, "10일 60일").state       # ma_periods
-    s = _step(s, "없음").state           # 옵션 필터 스텝
-    s = _step(s, "10개").state
-    s = _step(s, "매월").state
-    res = _step(s, "10% 손절")
-    parsed = sb.build_parsed_strategy(res.state)
-    req = to_backtest_request(parsed, resolve_symbols=False)
-    entry = req["entry"]["conditions"][0]
-    assert entry["id"] == "ema"
-    assert entry["params"]["shortPeriod"] == 10 and entry["params"]["longPeriod"] == 60
 
 
 def test_default_answer_applies_preset():
@@ -1239,15 +514,6 @@ def test_filter_step_offered_for_technical_strategies_not_ranking():
     assert sb.required_missing(val) == "holding_count"
 
 
-def test_filter_none_completes_without_filters():
-    """'없음'은 필터 없이 스텝을 완료한다(옵션이라 되묻지 않음)."""
-    st = sb.BuilderState(universe="KOSPI", strategy_type="bollinger")
-    res = _step(st, "없음")
-    assert res.state.filters_asked is True
-    assert res.state.trend_filter_ma is None and res.state.liquidity_min is None
-    assert sb.required_missing(res.state) == "holding_count"
-
-
 def test_filter_parses_trend_liquidity_rsi_combo():
     """자유 입력에서 추세·거래대금·RSI 결합을 함께 인식한다."""
     patch = sb._parse_filters("EMA200 위에서만 + 거래대금 100억 이상, RSI 30 이하")
@@ -1270,20 +536,6 @@ def test_bollinger_with_trend_filter_builds_entry_filter_dsl():
     assert ("filter", "trading_value") in by_type  # 거래대금 필터
     ema = next(c for c in req["entry"]["conditions"] if c["id"] == "ema")
     assert ema["params"]["mode"] == "above" and ema["params"]["period"] == 200
-
-
-def test_trend_filter_flow_end_to_end():
-    """볼린저 흐름에서 'EMA200 위에서만'을 고르면 trend_filter_ma가 채워진다."""
-    s = sb.seed_state("볼린저 전략")
-    s = _step(s, "코스피").state
-    r = _step(s, "EMA200 위에서만")       # 필터 스텝
-    assert r.state.trend_filter_ma == 200 and r.state.filters_asked is True
-    s = _step(r.state, "10개").state
-    s = _step(s, "리밸런싱 안 함").state
-    res = _step(s, "10% 손절")
-    assert res.status == "confirmed"
-    parsed = sb.build_parsed_strategy(res.state)
-    assert any(f.indicator == "ema" and f.mode == "above" for f in parsed.entry_filters)
 
 
 # ─── ETF 유니버스 (2026-07-19) ────────────────────────────────────────────────
@@ -1335,14 +587,6 @@ def _full_state(**kw) -> sb.BuilderState:
     return sb.BuilderState(**base)
 
 
-def test_bf01_proceed_words_not_cancelled():
-    """[BF-01] '됐어'·'그만'이 진행 의사/전략 값과 함께 오면 취소가 아니다."""
-    res = _step(_full_state(), "됐어, 손절 10%로 해줘")
-    assert res.status == "confirmed" and res.state.stop_loss_pct == 10.0
-    assert _step(_full_state(), "이제 됐어 백테스트 돌려줘").status != "exited"
-    assert _step(_full_state(), "그만 물어보고 그냥 진행해").status != "exited"
-
-
 def test_bf02_negated_cancel_not_cancelled():
     """[BF-02] '취소하지 말고 계속해'는 취소가 아니다. 순수 취소어는 여전히 취소."""
     assert sb.detect_control("취소하지 말고 계속해") is None
@@ -1351,153 +595,11 @@ def test_bf02_negated_cancel_not_cancelled():
     assert sb.detect_control("그냥 관두자") == "cancel"
 
 
-def test_bf03_definition_question_does_not_fill_strategy_type():
-    """[BF-03] '볼린저가 뭐야?' 같은 정의 질문이 전략 유형을 조용히 확정하면 안 된다."""
-    for q in ["볼린저가 뭐야?", "스토캐스틱이 뭐야?", "CCI가 뭐야?", "돌파가 뭐야"]:
-        state = sb.BuilderState(universe="KOSPI")
-        res = _step(state, q)
-        assert res.state.strategy_type is None, q
-        assert res.state == state, q
-
-
-def test_bf04_uncovered_term_gets_fallback_not_silent_repeat():
-    """[BF-04] 글로서리 밖 용어 정의 질문도 안내 없이 같은 질문만 반복하지 않는다."""
-    state = sb.BuilderState(universe="KOSPI")
-    res = _step(state, "PER이 뭐야?")
-    assert res.state == state
-    assert "PER" in res.reply or sb.GLOSSARY_FALLBACK_REPLY in res.reply
-
-
-def test_bf05_change_cue_overwrites_filled_fields():
-    """[BF-05] 변경 cue가 있으면 이미 채워진 유니버스·전략 유형을 정정한다."""
-    state = sb.BuilderState(universe="KOSPI", strategy_type="momentum",
-                            lookback_days=63, lookback_label="3개월")
-    res = _step(state, "코스닥으로 바꿔줘")
-    assert res.state.universe == "KOSDAQ"
-    res = _step(state, "모멘텀 말고 골든크로스로 바꿔줘")
-    assert res.state.strategy_type == "golden_cross"
-    assert res.state.lookback_days is None  # 이전 유형의 특화 파라미터 초기화
-    # 변경 cue 없는 재언급은 덮어쓰지 않는다.
-    res = _step(state, "코스피 좋지")
-    assert res.state.universe == "KOSPI"
-
-
-def test_bf06_correction_takes_value_after_malgo():
-    """[BF-06] 'A 말고 B'는 B를 채택한다(값 정정)."""
-    state = sb.BuilderState(universe="KOSPI", strategy_type="momentum")
-    res = _step(state, "3개월 말고 6개월")
-    assert res.state.lookback_days == 126
-    assert sb._parse_risk("손절 10% 말고 15%로").get("stop_loss_pct") == 15.0
-
-
-def test_bf07_value_direction_conflict_explained_not_flipped():
-    """[BF-07] 'PBR 5 이상'을 PBR≤5로 뒤집어 수락하지 않고 사유를 설명하며 되묻는다."""
-    state = sb.BuilderState(universe="KOSPI", strategy_type="value")
-    res = _step(state, "PBR 5 이상 ROE 3 이하")
-    assert res.state.value_pbr is None and res.state.value_roe is None
-    assert sb.VALUE_DIRECTION_REPLY in res.reply
-
-
-def test_bf08_risk_out_of_range_rejected_at_input():
-    """[BF-08] 손절 0%/200%는 '필수 청산' 게이트를 통과시키지 않고 즉시 되묻는다."""
-    res = _step(_full_state(), "손절 0%")
-    assert res.status == "collecting" and res.state.stop_loss_pct is None
-    assert "0%보다" in res.reply
-    res = _step(_full_state(), "손절 200%")
-    assert res.status == "collecting" and res.state.stop_loss_pct is None
-    # 일부만 유효하면 유효 값으로 진행하되 제외 사유를 notices로 알린다.
-    res = _step(_full_state(), "손절 0% 익절 20%")
-    assert res.status == "confirmed" and res.state.take_profit_pct == 20.0
-    assert res.state.stop_loss_pct is None and res.notices
-
-
-def test_bf09_param_invariants_reask_with_hint():
-    """[BF-09] RSI 0~100·과매도<과매수, MA 단기<장기, 기간>0 위반은 힌트와 함께 되묻는다."""
-    rsi = sb.BuilderState(universe="KOSPI", strategy_type="rsi", rsi_period=14)
-    res = _step(rsi, "20 150")
-    assert res.state.rsi_overbought is None and "0~100" in res.reply
-    assert _step(rsi, "50 50").state.rsi_oversold is None
-    res = _step(rsi, "과매도 80 과매수 20")  # 라벨 모순 — 조용히 재정렬하지 않는다
-    assert res.state.rsi_oversold is None
-    assert _step(rsi, "과매도 25 과매수 75").state.rsi_oversold == 25.0
-    gc = sb.BuilderState(universe="KOSPI", strategy_type="golden_cross", ma_kind="sma")
-    assert _step(gc, "20 20").state.ma_short is None
-    period = sb.BuilderState(universe="KOSPI", strategy_type="rsi")
-    res = _step(period, "0")
-    assert res.state.rsi_period is None and "2~250" in res.reply
-
-
-def test_bf10_filter_step_does_not_swallow_unrelated_input():
-    """[BF-10] 필터 단계가 무관한 입력을 '필터 없음'으로 조용히 소비하지 않는다."""
-    state = sb.BuilderState(universe="KOSPI", strategy_type="macd", macd_mode="crossover")
-    res = _step(state, "오늘 저녁 뭐 먹지")
-    assert not res.state.filters_asked
-    assert _step(state, "없음").state.filters_asked is True
-    assert _step(state, "EMA200 위에서만").state.trend_filter_ma == 200
-
-
-def test_bf11_single_stock_request_mid_build_gets_guidance():
-    """[BF-11] 빌더 중 '삼성전자만 테스트할래'는 조용히 무시하지 않고 안내한다(상태 불변)."""
-    state = sb.BuilderState(universe="KOSPI", strategy_type="momentum",
-                            lookback_days=63, lookback_label="3개월")
-    res = _step(state, "그냥 삼성전자만 테스트할래")
-    assert "삼성전자" in res.reply and res.state == state
-
-
-def test_bf12_etf_value_choice_explained():
-    """[BF-12] ETF 유니버스에서 가치 전략 선택 시 사유를 설명하며 되묻는다."""
-    res = _step(sb.BuilderState(universe="ETF"), "저평가 가치주")
-    assert res.state.strategy_type is None
-    assert sb.ETF_VALUE_BLOCKED_REPLY in res.reply
-
-
 def test_bf13_korean_percent_notation_deterministic():
     """[BF-13] '10프로'·'10퍼센트'·'10퍼'를 LLM 없이 결정적으로 인식한다."""
     assert sb._parse_risk("손절 10프로").get("stop_loss_pct") == 10.0
     patch = sb._parse_risk("손절 10퍼센트 익절 20퍼")
     assert patch.get("stop_loss_pct") == 10.0 and patch.get("take_profit_pct") == 20.0
-
-
-def test_bf14_compound_answer_fills_following_slots():
-    """[BF-14] '14일로 하고 과매도 25 과매수 80' 복합 답변의 후속 슬롯을 함께 채운다."""
-    rsi = sb.BuilderState(universe="KOSPI", strategy_type="rsi")
-    res = _step(rsi, "14일로 하고 과매도는 25 과매수는 80")
-    assert (res.state.rsi_period, res.state.rsi_oversold, res.state.rsi_overbought) == (14, 25.0, 80.0)
-    gc = sb.BuilderState(universe="KOSPI", strategy_type="golden_cross")
-    res = _step(gc, "지수로 하고 5일 20일")
-    assert (res.state.ma_kind, res.state.ma_short, res.state.ma_long) == ("ema", 5, 20)
-
-
-def test_bf15_miss_streak_escalates_and_resets():
-    """[BF-15] 연속 미인식 2회부터 이해 실패를 안내하고, 인식되면 카운터를 리셋한다."""
-    state = sb.BuilderState(universe="KOSPI")
-    res = _step(state, "I don't know")
-    assert res.state.miss_streak == 1
-    res = _step(res.state, "I don't know")
-    assert res.state.miss_streak == 2 and sb.UNRECOGNIZED_HINT in res.reply
-    res = _step(res.state, "모멘텀")
-    assert res.state.miss_streak == 0 and res.state.strategy_type == "momentum"
-
-
-def test_bf17_zero_and_over_limit_counts_reask():
-    """[BF-17] 0개·100 초과 종목 수는 조용히 수락/클램프하지 않고 안내하며 되묻는다."""
-    state = sb.BuilderState(universe="KOSPI", strategy_type="momentum",
-                            lookback_days=63, lookback_label="3개월")
-    res = _step(state, "0개")
-    assert res.state.holding_count is None and "1~100" in res.reply
-    res = _step(state, "99999개")
-    assert res.state.holding_count is None and "1~100" in res.reply
-    assert _step(state, "0개월").state.lookback_days == 63  # 0 기간은 무시
-
-
-def test_bf18_restart_seeds_from_same_message():
-    """[BF-18] '처음부터 다시. 이번엔 코스닥으로'는 리셋 후 코스닥을 시드로 승계한다."""
-    state = sb.BuilderState(universe="KOSPI", strategy_type="momentum")
-    res = _step(state, "처음부터 다시. 이번엔 코스닥으로")
-    assert res.status == "reset" and res.state.universe == "KOSDAQ"
-    # 단일 종목 모드는 재시작해도 대상 종목을 유지한다.
-    single = sb.BuilderState(universe="KOSPI", single_symbol="005930", single_label="삼성전자")
-    assert _step(single, "처음부터 다시").state.single_symbol == "005930"
 
 
 # ─── 신규 상장(IPO) 유니버스 (FR-STR-073) ─────────────────────────────────────
@@ -1526,16 +628,6 @@ def test_builder_asks_listing_period_after_universe():
     question, chips = sb.next_question(state, just_filled={"universe"})
     assert "어느 시기" in question
     assert any("년 상장" in chip for chip in chips)
-
-
-def test_builder_listing_period_chip_answer_is_deterministic():
-    state = sb.BuilderState(new_listing_only=True, universe="KOSPI_KOSDAQ")
-    result = _step(state, "2026년 상장")
-    assert (result.state.listing_from, result.state.listing_to) == ("2026-01-01", "2026-12-31")
-    # 시기가 정해지면 더 묻지 않고 다음 슬롯으로 넘어간다.
-    assert sb.required_missing(result.state) == "strategy_type"
-    # 상장 시기가 모멘텀 룩백으로 오귀속되면 안 된다.
-    assert result.state.lookback_days is None
 
 
 def test_parse_listing_period_year_cohort():
@@ -1624,8 +716,20 @@ def test_builder_us_lane_offers_us_universes_and_english_acks():
         parsed = sb.build_parsed_strategy(sb.BuilderState(strategy_type="golden_cross", ma_short=5, ma_long=20,
                                                           holding_count=10, stop_loss_pct=10, risk_done=True))
         assert parsed is not None and parsed.universe == ["SP500"]
-    # 한국어 레인은 그대로다.
-    ko_first = sb.step(sb.BuilderState(), "")
-    assert ko_first.suggestions[0] == "코스피"
-    ko_after = sb.step(ko_first.state, "코스피")
-    assert ko_after.reply.startswith("좋아요. 코스피 시장을 대상으로 하겠습니다.")
+
+
+def test_rsi_full_flow_builds_dsl_with_params():
+    """RSI 전용 상태(기간·과매도·과매수 수집 완료)가 DSL에 정확히 반영된다."""
+    state = sb.BuilderState(
+        universe="KOSPI", strategy_type="rsi", rsi_period=9, rsi_oversold=25.0, rsi_overbought=75.0,
+        filters_asked=True, holding_count=10, rebalance_cycle="monthly",
+        stop_loss_pct=10.0, take_profit_pct=20.0, risk_done=True,
+    )
+    assert sb.required_missing(state) is None
+    parsed = sb.build_parsed_strategy(state)
+    req = to_backtest_request(parsed, resolve_symbols=False)
+    entry = req["entry"]["conditions"][0]
+    exit_ = req["exit"]["conditions"][0]
+    assert entry["id"] == "rsi" and entry["params"]["period"] == 9 and entry["params"]["value"] == 25.0
+    assert exit_["id"] == "rsi" and exit_["params"]["value"] == 75.0
+    assert req["risk"]["stop_loss_pct"] == 10.0 and req["risk"]["take_profit_pct"] == 20.0

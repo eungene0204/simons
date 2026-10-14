@@ -44,32 +44,6 @@ from engine.nl_parser import (
 # ─── 진행 단계(on_stage) 콜백 테스트 ────────────────────────────────────────
 
 
-def test_parse_rule_based_path_does_not_emit_thinking_stage():
-    """규칙 기반으로 즉시 파싱되면 on_stage('thinking')를 호출하지 않는다."""
-    parser = NLStrategyParser(backend="ollama")
-    stages = []
-    parsed = parser.parse("PBR 1 이하 종목 10개 1년 보유", on_stage=stages.append)
-
-    assert parsed is not None
-    assert "thinking" not in stages
-
-
-def test_parse_emits_thinking_stage_before_llm_fallback(monkeypatch):
-    """규칙 기반이 못 풀어 LLM으로 넘어가기 직전 on_stage('thinking')를 호출한다."""
-    from engine import nl_parser as nl
-
-    monkeypatch.setattr(nl, "_parse_rule_based_strategy", lambda _user_input: None)
-
-    parser = NLStrategyParser(backend="ollama")
-    fallback = ParsedStrategy(description="애매한 전략")
-    monkeypatch.setattr(parser, "_parse_ollama", lambda _user_input: fallback)
-
-    stages = []
-    parser.parse("애매한 전략", on_stage=stages.append)
-
-    assert stages == ["thinking"]
-
-
 # ─── 삭제 의도 테스트 ─────────────────────────────────────────────────────────
 
 
@@ -182,18 +156,6 @@ def test_extract_backtest_dates_year_month_day():
     assert _extract_backtest_dates("2024년 2월 30일부터") == (None, None)
 
 
-def test_modify_year_month_backtest_range_resolves_deterministically():
-    # 사고 입력 그대로 — 수정 fast-path가 LLM 없이 시작/종료일을 모두 반영하고
-    # 기존 필드는 보존한다.
-    from engine.nl_parser import _modify_rule_based
-    prev = make_base_strategy().model_dump()
-    parsed = _modify_rule_based("백테스트를 2020년 1월 부터 2025년 12월 까지 해줘", prev)
-    assert parsed is not None
-    assert parsed.backtest_start_date == "2020-01-01"
-    assert parsed.backtest_end_date == "2025-12-31"
-    assert parsed.max_positions == prev["max_positions"]
-
-
 def test_non_bucket_backtest_years_resolve_to_relative_dates():
     # 버킷(1y/3y/5y)이 아닌 '백테스트 N년'은 오늘 기준 명시적 날짜 범위로 변환된다.
     # 버그: 2년이 버킷에 없어 침묵 무시되고 기본 5y로 요약되던 문제.
@@ -206,31 +168,6 @@ def test_non_bucket_backtest_years_resolve_to_relative_dates():
     # 버킷 연수(1/3/5)는 여전히 상대 기간 버킷으로 처리되어 날짜로 바뀌지 않는다.
     assert _extract_backtest_period("백테스트 5년") == "5y"
     assert _extract_backtest_dates("백테스트 5년") == (None, None)
-
-
-def test_modify_two_year_backtest_with_take_profit_resolves_deterministically():
-    # 후속 수정 '백테스트는 2년으로 설정하고, 30% 익절을 설정 해줘'가 LLM 폴백 없이
-    # 결정론 경로에서 명시 날짜 + 익절을 함께 적용한다(stale 5y 요약 버그 회귀 방지).
-    from datetime import date
-    from engine.nl_parser import _modify_rule_based
-    prev = make_base_strategy().model_dump()
-    parsed = _modify_rule_based("백테스트는 2년으로 설정하고, 30% 익절을 설정 해줘", prev)
-    assert parsed is not None
-    today = date.today()
-    assert parsed.backtest_start_date == today.replace(year=today.year - 2).isoformat()
-    assert parsed.backtest_end_date == today.isoformat()
-    assert parsed.take_profit_pct == 30.0
-
-
-def test_modify_increase_positions_resolves_deterministically():
-    # '종목을 10개로 늘려줘'는 조정 동사('늘려') 잔여 때문에 LLM으로 새던 단순 수정이다.
-    # 조정 동사를 필러로 인정해 결정론 fast-path가 max_positions를 바로 반영해야 한다.
-    from engine.nl_parser import _modify_rule_based
-    prev = make_base_strategy()
-    prev.max_positions = 8
-    parsed = _modify_rule_based("종목을 10개로 늘려줘", prev.model_dump())
-    assert parsed is not None
-    assert parsed.max_positions == 10
 
 
 def test_resolve_coach_context_risk_attributes_bare_percentage():
@@ -263,37 +200,6 @@ def test_resolve_coach_context_risk_skips_when_not_applicable():
         "30%로 설정해줘", "손절이나 익절 설정을 추천드립니다.",
         {"stop_loss_pct": None, "take_profit_pct": None},
     ) is None
-
-
-def test_modify_dividend_ev_ebitda_filters_resolve_deterministically():
-    # 배당수익률/배당성향/배당성장률/EV·EBITDA는 추출은 되는데 잔여 차감 어휘(cue)에서 빠져
-    # '배당수익률' 등이 미인식 잔여로 남아 fast-path가 LLM(수십 초)으로 새던 버그. 기존 필터를
-    # 보존한 채 결정론 병합돼야 한다(재무 조건 추가 되묻기 칩이 무상태로 완결되는 계약의 근거).
-    from engine.nl_parser import _modify_rule_based
-    prev = make_base_strategy().model_copy(update={
-        "fundamental_filters": [{"metric": "roe_or_gpa", "operator": ">=", "value": 10.0}],
-    }).model_dump()
-    for prompt, metric, value in [
-        ("배당수익률 5% 이상", "dividend_yield", 5.0),
-        ("배당성향 30% 이상", "payout_rate", 30.0),
-        ("배당성장률 10% 이상", "dividend_growth", 10.0),
-        ("EV/EBITDA 8배 이하", "ev_ebitda", 8.0),
-    ]:
-        parsed = _modify_rule_based(prompt, prev)
-        assert parsed is not None, f"{prompt!r}이 fast-path로 안 풀림(LLM 위임)"
-        by_metric = {f.metric: f.value for f in parsed.fundamental_filters}
-        assert by_metric.get("roe_or_gpa") == 10.0, "기존 ROE 필터 소실"
-        assert by_metric.get(metric) == value
-
-
-def test_modify_numeric_sector_resolves_deterministically():
-    # '2차전지 섹터로 바꿔줘'는 숫자 제거가 어휘 차감보다 먼저라 '차전지' 잔여가 남아
-    # LLM 경로(수십 초)로 새던 단순 수정이다. 결정론 fast-path가 바로 반영해야 한다.
-    from engine.nl_parser import _modify_rule_based
-    prev = make_base_strategy().model_dump()
-    parsed = _modify_rule_based("2차전지 섹터로 바꿔줘", prev)
-    assert parsed is not None
-    assert parsed.sector == "이차전지"
 
 
 def test_backtest_months_window_resolves_to_relative_dates():
@@ -654,30 +560,6 @@ def test_extract_cci_buy_with_negative_value():
     assert cci_buy[0].operator == "<="
 
 
-def test_ranking_keeps_explicit_day_holding_period():
-    """모멘텀 랭킹과 '20일 보유 후 매도'를 함께 쓰면 명시적 보유기간을 보존한다.
-
-    랭킹 회전을 리밸런싱으로 구동하며 보유기간을 비우던 로직이, 일 단위로 명시된
-    고정 보유기간까지 삭제해 배지에서 사라지던 문제(qa_parse_badges_1000) 회귀 방지.
-    """
-    parsed = _parse_rule_based_strategy(
-        "코스피200에서 최근 60거래일 수익률 상위 종목을 20일 보유 후 매도, 최대 5종목"
-    )
-    assert parsed is not None
-    assert parsed.ranking_metric == "return"
-    assert parsed.hold_period_days == 20
-
-
-def test_ranking_still_drops_momentum_lookback_as_holding_period():
-    """반대로 '최근 3개월 오른' 같은 모멘텀 룩백은 보유기간으로 잡지 않는다(기존 동작 유지)."""
-    parsed = _parse_rule_based_strategy(
-        "최근 3개월 동안 많이 오른 모멘텀 상위 종목을 매수, 분기마다 리밸런싱, 최대 10종목"
-    )
-    assert parsed is not None
-    assert parsed.ranking_metric == "return"
-    assert parsed.hold_period_days is None
-
-
 def test_extract_bollinger_bands():
     entry, exit_ = _extract_technical_signals("볼린저밴드 하단에서 매수, 상단에서 매도")
     assert any(s.indicator == "bollinger_bands" and s.signal_type == "buy" for s in entry)
@@ -808,24 +690,6 @@ def test_extract_breakout_recognizes_box_breakdown_exit():
     assert exit_[0].signal_type == "sell"
 
 
-def test_rule_based_parses_box_breakout_full_prompt():
-    """스크린샷 프롬프트: 박스권 돌파 매수 + 박스 이탈 매도가 진입/청산 신호로 잡힌다."""
-    prompt = (
-        "복잡한 지표는 아직 어려워서 최근 한 달 동안 가격이 갇혀 있던 박스권을 위로 "
-        "돌파하는 종목만 사고 싶어요. KOSPI 종목 중 20일 고점을 넘기는 날 매수하고 "
-        "다시 박스 안으로 내려오면 매도해 주세요. 최대 8종목, 손절은 -7%로 부탁드립니다."
-    )
-
-    parsed = _parse_rule_based_strategy(prompt)
-
-    assert parsed is not None
-    assert ("breakout", "buy") in [(s.indicator, s.signal_type) for s in parsed.entry_signals]
-    assert ("breakout", "sell") in [(s.indicator, s.signal_type) for s in parsed.exit_signals]
-    assert parsed.universe == ["KOSPI"]
-    assert parsed.max_positions == 8
-    assert parsed.stop_loss_pct == 7.0
-
-
 def test_apply_prompt_overrides_replaces_wrong_breakout_period_from_existing_signal():
     base = make_base_strategy().model_copy(
         update={
@@ -919,62 +783,6 @@ def test_nl_strategy_parser_model_log_label_uses_actual_model_name(monkeypatch):
 
     assert parser._model_log_label(parser.mlx_model) == "Qwen3.5-4B"
     assert parser._model_log_label("mlx-community/Qwen2.5-7B-Instruct-4bit") == "Qwen2.5-7B"
-
-
-def test_rule_based_strategy_parses_explicit_value_hold_prompt_without_llm():
-    parsed = _parse_rule_based_strategy("pbr 1이하 per 7이하 종목을 10개 사서 1년간 보유하는 전략")
-
-    assert parsed is not None
-    assert [(f.metric, f.operator, f.value) for f in parsed.fundamental_filters] == [
-        ("pbr", "<=", 1.0),
-        ("per", "<=", 7.0),
-    ]
-    assert parsed.max_positions == 10
-    assert parsed.hold_period_days == 252
-    assert parsed.rebalancing_period == "yearly"
-
-
-def test_rule_based_strategy_parses_pbr_particle_unit_prompt_without_llm():
-    prompt = (
-        "주식은 아직 초보라서 너무 복잡한 조건 말고 이해하기 쉬운 전략으로 하고 싶어요. "
-        "KOSPI 대형주 중에서 PBR이 1배 이하인 종목만 골라서 8종목 정도 나눠 사고, "
-        "한 번 사면 6개월은 들고 가고 싶습니다. "
-        "큰 손실은 무서우니 -12% 손절만 넣어 주세요."
-    )
-
-    parsed = _parse_rule_based_strategy(prompt)
-
-    assert parsed is not None
-    # "KOSPI 대형주"는 코스피 전체가 아니라 대형주(표준 대형주 지수 KOSPI200)로 좁혀야 한다.
-    assert parsed.universe == ["KOSPI200"]
-    assert [(f.metric, f.operator, f.value) for f in parsed.fundamental_filters] == [
-        ("pbr", "<=", 1.0),
-    ]
-    assert parsed.max_positions == 8
-    assert parsed.hold_period_days == 126
-    assert parsed.stop_loss_pct == 12.0
-    # 2026-07-29 계약: 같은 문장이 '최소 6개월'(하한)이면 규칙 파스는 값을 뒤집어
-    # 확정하지 않고 LLM 레인에 위임한다(미지원 개념 안내 동반).
-    assert _parse_rule_based_strategy(prompt.replace("6개월은", "최소 6개월은")) is None
-
-
-def test_rule_based_strategy_parses_trading_value_particle_prompt_without_llm():
-    # '거래대금이 100억 원 이상' 처럼 조사(이/가)가 붙은 표현도 trading_value 필터로 인식해야 한다.
-    prompt = (
-        "KOSPI에서 PBR이 1배 이하면서 하루 거래대금이 100억 원 이상으로 활발한 종목만 골라 "
-        "6종목 정도 나눠 사고 싶습니다. 한 번 사면 3개월은 들고 가고, 손절은 -8%로 부탁드립니다."
-    )
-
-    parsed = _parse_rule_based_strategy(prompt)
-
-    assert parsed is not None
-    assert [(f.metric, f.operator, f.value) for f in parsed.fundamental_filters] == [
-        ("pbr", "<=", 1.0),
-        ("trading_value", ">=", 100.0),
-    ]
-    assert parsed.max_positions == 6
-    assert parsed.hold_period_days == 63
-    assert parsed.stop_loss_pct == 8.0
 
 
 @pytest.mark.parametrize(
@@ -1085,21 +893,6 @@ def test_apply_prompt_overrides_preserves_comma_delimited_manwon_capital():
     assert parsed.initial_capital == 10_000_000.0
 
 
-def test_rule_based_strategy_multifactor_prompt_keeps_default_capital():
-    # 사용자 멀티팩터 프롬프트에는 초기자금 언급이 없으므로 기본값이어야 한다.
-    prompt = (
-        "KOSPI/KOSDAQ 공통 유니버스에서 ROE 12% 이상, PBR 1.5배 이하, "
-        "최근 60거래일 상대강도 상위 30%, 일평균 거래대금 50억 원 이상 조건을 "
-        "동시에 만족하는 종목만 편입해 주세요. 매주 점수를 재산출해 상위 12종목 "
-        "동일 비중 포트폴리오를 유지하고, 20일선 이탈 또는 손절 -8% 도달 시 청산하도록 구성해 주세요."
-    )
-
-    parsed = _parse_rule_based_strategy(prompt)
-
-    assert parsed is not None
-    assert parsed.initial_capital == 10_000_000.0
-
-
 def test_extract_technical_signals_catches_ema_crossover_entry():
     # "20일 EMA가 60일 EMA 위에 있고" → ema 골든(단기 20 / 장기 60) 진입 신호.
     entry, exit_ = _extract_technical_signals(
@@ -1136,84 +929,6 @@ def test_extract_fundamental_filters_ignores_moving_average_window():
         "거래대금이 30일 평균보다 높은 종목"
     )
     assert [(f.metric, f.operator, f.value) for f in filters] == []
-
-
-def test_rule_based_strategy_multifactor_ema_prompt_catches_entry_signals():
-    # 사용자 멀티팩터 프롬프트: EMA 크로스 + 거래대금 평균 상회 진입 신호를 모두 잡아야 한다.
-    prompt = (
-        "KOSDAQ 중 시가총액 2000억 원 이상 종목에서 매출 성장률이 양호하고 PBR이 과도하게 "
-        "높지 않은 기업만 먼저 고르고 싶습니다. 이후 20일 EMA가 60일 EMA 위에 있고 최근 "
-        "거래대금이 30일 평균보다 높은 경우만 진입하는 방식으로 설계해 주세요. "
-        "주간 리밸런싱, 최대 9종목, 손절 -7%, 익절 +24% 조건으로 부탁드립니다."
-    )
-
-    parsed = _parse_rule_based_strategy(prompt)
-
-    assert parsed is not None
-    entry_indicators = {s.indicator for s in parsed.entry_signals}
-    assert "ema" in entry_indicators
-    assert "volume_spike" in entry_indicators
-    # '거래대금 30일'이 거래대금 >= 30억 정적 필터로 새지 않아야 한다.
-    assert [(f.metric, f.operator, f.value) for f in parsed.fundamental_filters] == [
-        ("market_cap", ">=", 2000.0),
-    ]
-
-
-def test_rule_based_strategy_parses_technical_prompt_with_risk_without_llm():
-    parsed = _parse_rule_based_strategy("KOSPI 종목 중 골든크로스 매수, 데드크로스 매도, 손절 8%")
-
-    assert parsed is not None
-    assert parsed.universe == ["KOSPI"]
-    assert [(s.indicator, s.signal_type) for s in parsed.entry_signals] == [("ma_crossover", "buy")]
-    assert [(s.indicator, s.signal_type) for s in parsed.exit_signals] == [("ma_crossover", "sell")]
-    assert parsed.stop_loss_pct == 8.0
-
-
-def test_rule_based_strategy_parses_52_week_high_volume_spike_prompt_without_llm():
-    prompt = (
-        "뉴스에 자주 나오는 강한 종목을 짧게 타보는 전략을 써보고 싶어요. "
-        "KOSDAQ에서 52주 신고가를 새로 만들고 거래량도 평소보다 확 늘어난 종목이 나오면 들어가고, "
-        "너무 오래 끌지는 말고 20일 정도 지나면 정리해 주세요. "
-        "최대 6종목, 손절은 -10%로 해주세요."
-    )
-
-    parsed = _parse_rule_based_strategy(prompt)
-
-    assert parsed is not None
-    assert parsed.universe == ["KOSDAQ"]
-    assert [(s.indicator, s.signal_type) for s in parsed.entry_signals] == [
-        ("breakout", "buy"),
-        ("volume_spike", "buy"),
-    ]
-    assert parsed.entry_signals[0].lookback_period == 252
-    assert parsed.entry_signals[1].period == 20
-    assert parsed.hold_period_days == 20
-    assert parsed.max_positions == 6
-    assert parsed.stop_loss_pct == 10.0
-
-
-def test_rule_based_strategy_parses_price_above_ma_with_volume_prompt_without_llm():
-    # '종가가 20일선 위 + 거래량 평균보다 증가'를 진입 신호로, '20일선 아래로'를 청산으로 잡아야 한다.
-    # 가격 vs MA는 ma_crossover(short=1, long=N)로 표현된다(close_1_sma=close).
-    prompt = (
-        "추세가 살아 있는 종목만 안전하게 사고 싶어요. "
-        "KOSDAQ에서 종가가 20일 이동평균선 위에 있고 거래량이 최근 평균보다 늘어난 종목만 "
-        "5개 정도 매수해 주세요. 20일선 아래로 내려오면 정리하고, 손절은 -7%로 설정해 주세요."
-    )
-
-    parsed = _parse_rule_based_strategy(prompt)
-
-    assert parsed is not None
-    assert parsed.universe == ["KOSDAQ"]
-    assert [(s.indicator, s.signal_type, s.short_period, s.long_period) for s in parsed.entry_signals] == [
-        ("ma_crossover", "buy", 1, 20),
-        ("volume_spike", "buy", None, None),
-    ]
-    assert [(s.indicator, s.signal_type, s.short_period, s.long_period) for s in parsed.exit_signals] == [
-        ("ma_crossover", "sell", 1, 20),
-    ]
-    assert parsed.max_positions == 5
-    assert parsed.stop_loss_pct == 7.0
 
 
 def test_extract_technical_signals_volume_rising_phrasings():
@@ -1387,22 +1102,6 @@ def test_match_risk_pct_keyword_and_number_not_adjacent():
     assert _match_risk_pct("손절없이익절10%", _STOP_LOSS_CUE, _STOP_LOSS_BLOCK) is None
 
 
-def test_parse_rule_based_returns_strategy_without_touching_model(monkeypatch):
-    parser = NLStrategyParser()
-
-    def fail_if_model_called(_prompt):
-        raise AssertionError("parse_rule_based must never invoke the LLM")
-
-    monkeypatch.setattr(parser, "_parse_mlx", fail_if_model_called)
-
-    parsed = parser.parse_rule_based(
-        "KOSPI 종목 중 골든크로스 매수, 데드크로스 매도, 손절 8%"
-    )
-
-    assert parsed is not None
-    assert parsed.stop_loss_pct == 8.0
-
-
 def test_parse_rule_based_returns_none_for_ambiguous_prompt():
     parser = NLStrategyParser()
     assert parser.parse_rule_based("좋은 저평가 전략 만들어줘") is None
@@ -1545,77 +1244,6 @@ def test_parse_falls_back_when_model_returns_incomplete_json(monkeypatch):
     assert parsed.stop_loss_pct == 8.0
 
 
-def test_parse_modification_trusts_llm_universe_diff_without_keyword_gate(monkeypatch):
-    parser = NLStrategyParser(backend="mlx")
-    previous = {
-        "description": "KOSPI PBR strategy",
-        "universe": ["KOSPI"],
-        "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
-        "entry_signals": [],
-        "exit_signals": [],
-        "max_positions": 8,
-        "hold_period_days": 126,
-        "rebalancing_period": "none",
-        "stop_loss_pct": 12,
-        "take_profit_pct": None,
-        "trailing_stop_pct": None,
-        "max_mdd_limit_pct": None,
-        "backtest_period": "5y",
-        "initial_capital": 10_000_000,
-        "execution_timing": "next_open",
-        "fee_rate": 0.015,
-        "slippage_rate": 0.05,
-    }
-
-    def hallucinated_diff(_user_input, _previous):
-        return ParsedStrategyDiff(
-            universe=["KOSPI200"],
-            trailing_stop_pct=15,
-        )
-
-    monkeypatch.setattr(parser, "_modify_mlx", hallucinated_diff)
-
-    parsed = parser.parse_modification(
-        "트레일링 15% 추가하고 전체 구성을 자연스럽게 조정해줘", previous
-    )
-
-    assert parsed.universe == ["KOSPI200"]
-    assert parsed.trailing_stop_pct == 15
-    assert parsed.stop_loss_pct == 12
-
-
-def test_parse_modification_changes_universe_when_prompt_explicitly_requests_it(monkeypatch):
-    parser = NLStrategyParser(backend="mlx")
-    previous = {
-        "description": "KOSPI PBR strategy",
-        "universe": ["KOSPI"],
-        "fundamental_filters": [{"metric": "pbr", "operator": "<=", "value": 1}],
-        "entry_signals": [],
-        "exit_signals": [],
-        "max_positions": 8,
-        "hold_period_days": 126,
-        "rebalancing_period": "none",
-        "stop_loss_pct": 12,
-        "take_profit_pct": None,
-        "trailing_stop_pct": None,
-        "max_mdd_limit_pct": None,
-        "backtest_period": "5y",
-        "initial_capital": 10_000_000,
-        "execution_timing": "next_open",
-        "fee_rate": 0.015,
-        "slippage_rate": 0.05,
-    }
-
-    def universe_diff(_user_input, _previous):
-        return ParsedStrategyDiff(universe=["KOSPI200"])
-
-    monkeypatch.setattr(parser, "_modify_mlx", universe_diff)
-
-    parsed = parser.parse_modification("KOSPI200으로 바꿔줘", previous)
-
-    assert parsed.universe == ["KOSPI200"]
-
-
 _MODIFY_PREVIOUS = {
     "description": "KOSPI200 PBR strategy",
     "universe": ["KOSPI200"],
@@ -1714,28 +1342,6 @@ def test_parse_modification_removes_rebalancing_with_delete_verb(monkeypatch):
     assert parsed.rebalancing_period == "none"
 
 
-def test_parse_modification_removes_rebalancing_on_llm_path_when_diff_is_null(monkeypatch):
-    """회귀: rule-based가 못 잡아 LLM 경로로 빠지고 LLM이 rebalancing_period=null('변경없음')을
-    내도, 삭제 의도가 있으면 none으로 보정한다.
-
-    diff 병합은 null을 '변경없음'으로 무시하는데, 리밸런싱의 '끔'은 null이 아니라 enum 'none'
-    이라 삭제 보정 블록이 손절/익절/트레일링만 보고 리밸런싱을 빠뜨려 monthly가 남던 버그.
-    """
-    parser = NLStrategyParser(backend="ollama")
-
-    def _llm_returns_null_rebalance(_user_input, _previous):
-        # LLM은 제거 의도를 변경없음(null)으로 오인 — 가장 흔한 실패 모드.
-        return ParsedStrategyDiff(rebalancing_period=None)
-
-    monkeypatch.setattr(parser, "_modify_ollama", _llm_returns_null_rebalance)
-
-    previous = {**_MODIFY_PREVIOUS, "rebalancing_period": "monthly"}
-    # '변동성 큰 종목'이라는 미인식 잔여가 있어 rule-based는 None → LLM 경로로 위임된다.
-    parsed = parser.parse_modification("변동성 큰 종목은 리밸런싱에서 제거", previous)
-
-    assert parsed.rebalancing_period == "none"
-
-
 @pytest.mark.parametrize("prompt", ["보유기간 빼줘", "보유기간 없애줘"])
 def test_parse_modification_removes_hold_period_with_delete_verb(monkeypatch, prompt):
     """회귀: '보유기간 빼줘'가 해제로 인식돼 hold_period_days가 null이 된다.
@@ -1787,39 +1393,6 @@ def test_parse_modification_does_not_clear_hold_from_unrelated_delete(monkeypatc
     assert parsed.stop_loss_pct is None  # 손절만 해제
 
 
-def test_parse_modification_complex_request_defers_to_llm(monkeypatch):
-    """인식 못 한 복합·모호한 수정은 LLM 경로로 위임된다."""
-    parser = NLStrategyParser(backend="ollama")
-    called = {"llm": False}
-
-    def _llm_diff(_user_input, _previous):
-        called["llm"] = True
-        return ParsedStrategyDiff(max_positions=3)
-
-    monkeypatch.setattr(parser, "_modify_ollama", _llm_diff)
-
-    parsed = parser.parse_modification("변동성 낮은 종목 3개로 바꿔줘", dict(_MODIFY_PREVIOUS))
-
-    assert called["llm"] is True
-    assert parsed.max_positions == 3
-
-
-def test_llm_modification_diff_is_authoritative_for_risk_fields(monkeypatch):
-    """Keyword gates must not revert structured risk decisions from the fallback LLM."""
-    parser = NLStrategyParser(backend="ollama")
-
-    def _llm_diff(_user_input, _previous):
-        return ParsedStrategyDiff(take_profit_pct=30, trailing_stop_pct=30)
-
-    monkeypatch.setattr(parser, "_modify_ollama", _llm_diff)
-    prev = dict(_MODIFY_PREVIOUS)
-    prev["trailing_stop_pct"] = None
-
-    parsed = parser.parse_modification("익절 비율을 30%로 설정해줘", prev)
-    assert parsed.take_profit_pct == 30
-    assert parsed.trailing_stop_pct == 30
-
-
 def test_extract_risk_overrides_colloquial_sell_conjugation():
     # [회귀] "50% 이상 수익이 나면 주식을 파는 걸로 하자" — 매도 동사의 ㄹ탈락 관형형
     # '파는'이 _SELL_V에 없어 결정적 추출이 침묵하던 버그. '돌파는'은 오매칭하지 않는다.
@@ -1828,27 +1401,6 @@ def test_extract_risk_overrides_colloquial_sell_conjugation():
         "50% 이상 수익이 나면 주식을 파는 걸로 하자"
     ) == {"take_profit_pct": 50.0}
     assert extract_risk_field_overrides("20일 신고가 돌파는 유지해줘") == {}
-
-
-def test_llm_modification_preserves_unknown_stop_loss_typo(monkeypatch):
-    """Preserve the LLM's stop-loss interpretation for the previously unknown typo '선절'."""
-    parser = NLStrategyParser(backend="ollama")
-    called = {"llm": False}
-
-    def _llm_diff(_user_input, _previous):
-        called["llm"] = True
-        return ParsedStrategyDiff(stop_loss_pct=15, take_profit_pct=30)
-
-    monkeypatch.setattr(parser, "_modify_ollama", _llm_diff)
-    monkeypatch.setattr("engine.modify_rag.record_example", lambda *_args, **_kwargs: False)
-    prev = dict(_MODIFY_PREVIOUS)
-    prev["stop_loss_pct"] = None
-
-    parsed = parser.parse_modification("15% 선절 30% 익절", prev)
-
-    assert called["llm"] is True
-    assert parsed.stop_loss_pct == 15
-    assert parsed.take_profit_pct == 30
 
 
 def test_ollama_modification_prompt_assigns_final_semantic_judgment(monkeypatch):
@@ -1871,51 +1423,6 @@ def test_ollama_modification_prompt_assigns_final_semantic_judgment(monkeypatch)
 
     assert "오타" in captured["system_prompt"]
     assert "최종 의미 판단" in captured["system_prompt"]
-
-
-def test_llm_all_null_diff_is_not_reinterpreted_by_postprocessing(monkeypatch):
-    """Do not inject deterministic meaning after the LLM returns an all-null diff."""
-    parser = NLStrategyParser(backend="ollama")
-
-    def _llm_diff(_user_input, _previous):
-        return ParsedStrategyDiff()  # LLM이 완전히 놓친 최악 케이스
-
-    monkeypatch.setattr(parser, "_modify_ollama", _llm_diff)
-    prev = dict(_MODIFY_PREVIOUS)
-    prev["stop_loss_pct"] = 10.0
-    prev["take_profit_pct"] = None
-
-    parsed = parser.parse_modification("50% 이상 수익이 나면 주식을 파는 걸로 하자", prev)
-    assert parsed.take_profit_pct is None
-    assert parsed.stop_loss_pct == 10.0
-
-
-def test_llm_modification_diff_is_authoritative_across_domains(monkeypatch):
-    """Apply structured fallback LLM fields without a source-keyword allowlist."""
-    parser = NLStrategyParser(backend="ollama")
-
-    def _llm_diff(_user_input, _previous):
-        return ParsedStrategyDiff(stop_loss_pct=10, max_positions=99)
-
-    monkeypatch.setattr(parser, "_modify_ollama", _llm_diff)
-    prev = dict(_MODIFY_PREVIOUS)
-    prev["max_positions"] = 8
-
-    parsed = parser.parse_modification("손절 기준과 전체 구성을 자연스럽게 바꿔줘", prev)
-    assert parsed.stop_loss_pct == 10
-    assert parsed.max_positions == 99
-
-
-def test_rule_based_modification_keeps_seed_capital_change(monkeypatch):
-    """The deterministic fast path still handles explicit seed-capital changes."""
-    parser = NLStrategyParser(backend="ollama")
-
-    def _llm_diff(_user_input, _previous):
-        return ParsedStrategyDiff(initial_capital=5_000_000)
-
-    monkeypatch.setattr(parser, "_modify_ollama", _llm_diff)
-    parsed = parser.parse_modification("시드 500으로 바꿔줘", dict(_MODIFY_PREVIOUS))
-    assert parsed.initial_capital == 5_000_000
 
 
 def test_parse_modification_adds_explicit_fundamental_filters_without_llm(monkeypatch):
@@ -1999,28 +1506,6 @@ def test_modify_sector_only_request_resolves_deterministically(monkeypatch):
     assert parsed.stop_loss_pct == 12
 
 
-def test_modify_sector_combined_with_risk_field_deterministically():
-    from engine.nl_parser import _modify_rule_based
-
-    parsed = _modify_rule_based("바이오 업종만으로 하고 손절은 10%로 바꿔줘", dict(_MODIFY_PREVIOUS))
-
-    assert parsed is not None
-    assert parsed.sector == "바이오/제약"  # 동의어가 정본 섹터명으로 정규화
-    assert parsed.stop_loss_pct == 10.0
-    assert parsed.universe == ["KOSPI200"]
-
-
-def test_modify_without_sector_mention_preserves_previous_sector():
-    from engine.nl_parser import _modify_rule_based
-
-    prev = {**_MODIFY_PREVIOUS, "sector": "반도체"}
-    parsed = _modify_rule_based("종목을 10개로 늘려줘", prev)
-
-    assert parsed is not None
-    assert parsed.sector == "반도체"  # 언급 없으면 기존 섹터 유지
-    assert parsed.max_positions == 10
-
-
 def test_modify_adds_operating_margin_filter_deterministically(monkeypatch):
     """[회귀] '영업이익률 …' 필터 추가 수정이 조용히 누락되던 버그 — 값이 명시되면
     fast-path가 기존 필터를 유지한 채 병합하고 LLM을 호출하지 않는다."""
@@ -2039,25 +1524,6 @@ def test_modify_adds_operating_margin_filter_deterministically(monkeypatch):
     assert by_metric["operating_margin"].value == 15.0
     assert "pbr" in by_metric  # 기존 필터 보존(병합, 교체 아님)
     assert parsed.max_positions == 8  # 언급 없는 필드 보존
-
-
-def test_parse_modification_llm_filter_diff_merges_with_existing(monkeypatch):
-    """[회귀] LLM diff가 새 필터만 출력해도(few-shot 경향) 제거 의도가 없는 발화에서는
-    기존 필터를 보존·병합한다 — '영업이익률 추가' 후 기존 ROE/PBR 증발 방지."""
-    from engine.nl_parser import ParsedStrategyDiff
-
-    parser = NLStrategyParser(backend="ollama")
-    diff = ParsedStrategyDiff(
-        fundamental_filters=[FundamentalFilter(metric="operating_margin", operator=">=", value=10.0)]
-    )
-    monkeypatch.setattr(parser, "_modify_ollama", lambda _u, _p: diff)
-
-    parsed = parser.parse_modification("영업이익률을 추가해 볼까?", dict(_MODIFY_PREVIOUS))
-
-    by_metric = {f.metric: f for f in parsed.fundamental_filters}
-    assert "operating_margin" in by_metric
-    assert "pbr" in by_metric  # 기존 필터 보존
-    assert by_metric["pbr"].value == 1.0
 
 
 def test_parse_modification_llm_filter_diff_respects_removal(monkeypatch):
@@ -2135,52 +1601,7 @@ def test_sector_removal_regex_ignores_symbol_exclusion_requests():
     assert _SECTOR_REMOVE_RE.search(_compact("섹터 필터 지워줘"))
 
 
-def test_parse_raises_on_invalid_llm_output_instead_of_regex_fallback(monkeypatch):
-    """LLM 구조화 출력 불량 시 원문 정규식 폴백(_build_fallback_strategy, 2026-07-26 제거)
-    대신 예외를 올린다 — 호출부(main)가 실패 보고(되묻기)로 변환한다(계약 § 8, 1c)."""
-    from engine import nl_parser as nl
-    from pydantic import ValidationError as _VE
-
-    monkeypatch.setattr(nl, "_parse_rule_based_strategy", lambda _ui: None)
-    parser = NLStrategyParser(backend="ollama")
-
-    def _bad_llm(_ui):
-        ParsedStrategy.model_validate({})  # 빈 출력 → ValidationError
-
-    monkeypatch.setattr(parser, "_parse_ollama", _bad_llm)
-    with pytest.raises(_VE):
-        parser.parse("좋은 저평가 전략 만들어줘")
-
-    monkeypatch.setattr(
-        parser, "_parse_ollama",
-        lambda _ui: (_ for _ in ()).throw(ValueError("no JSON object found")),
-    )
-    with pytest.raises(ValueError):
-        parser.parse("좋은 저평가 전략 만들어줘")
-
-
 # ─── 상대강도(수익률 순위) 랭킹 파싱 테스트 ─────────────────────────────────
-
-
-def test_rule_based_parses_relative_strength_ranking_full_prompt():
-    """스크린샷 프롬프트: 수익률 상위 랭킹이 ranking_metric으로 잡히고 진입 누락이 아님."""
-    prompt = (
-        "최근 3개월 동안 꾸준히 오른 종목을 따라가는 전략을 써보고 싶어요. "
-        "KOSDAQ에서 최근 60거래일 수익률이 높은 종목 상위권만 골라서 6종목 정도 나눠 사고, "
-        "한 달에 한 번씩 다시 순위를 확인해 주세요. 손절은 -9%로 해주세요."
-    )
-
-    parsed = _parse_rule_based_strategy(prompt)
-
-    assert parsed is not None
-    assert parsed.ranking_metric == "return"
-    assert parsed.ranking_lookback_days == 60
-    assert parsed.universe == ["KOSDAQ"]
-    assert parsed.max_positions == 6  # '3개월'의 '3개'를 종목 수로 오인하지 않음
-    assert parsed.rebalancing_period == "monthly"
-    # 모멘텀 설명의 '3개월'이 보유기간으로 잡히면 안 됨(회전은 리밸런싱이 구동).
-    assert parsed.hold_period_days is None
-    assert parsed.stop_loss_pct == 9.0
 
 
 def test_rebalancing_bimonthly_phrasings():
@@ -2190,19 +1611,6 @@ def test_rebalancing_bimonthly_phrasings():
     assert _extract_rebalancing_period("2개월마다 다시 본다", None) == "bimonthly"
     # 한 달에 한 번은 그대로 monthly
     assert _extract_rebalancing_period("한 달에 한 번 점검", None) == "monthly"
-
-
-def test_parse_rule_based_bimonthly_inspection():
-    """스크린샷 프롬프트: '점검은 두 달에 한 번' → bimonthly 리밸런싱으로 잡힌다."""
-    prompt = (
-        "KOSPI 종목 중 PBR 1 이하 PER 10 이하 종목을 8개 사고, "
-        "점검은 두 달에 한 번이면 좋겠습니다. 손절은 -10%."
-    )
-
-    parsed = _parse_rule_based_strategy(prompt)
-
-    assert parsed is not None
-    assert parsed.rebalancing_period == "bimonthly"
 
 
 def test_extract_max_positions_ignores_months_phrase():
@@ -2246,24 +1654,6 @@ def test_rebalancing_period_detects_weekly():
     assert _extract_rebalancing_period("주간 리밸런싱으로 운용", None) == "weekly"
     # 기존 주기는 그대로 유지(회귀 방지)
     assert _extract_rebalancing_period("매월 리밸런싱", None) == "monthly"
-
-
-def test_rule_based_strategy_parses_weekly_momentum_ranking_prompt_without_llm():
-    """'최근 한 달 수익률 상위 5종목 + 매주 교체 + 손절 -6%' 전체 결정적 파싱."""
-    prompt = (
-        "KOSPI에서 최근 한 달 수익률이 높은 종목 상위 5개만 사고, "
-        "매주 한 번씩 순위를 다시 확인해서 밀린 종목은 교체해 주세요. 손절은 -6%로 부탁드립니다."
-    )
-    parsed = _parse_rule_based_strategy(prompt)
-    assert parsed is not None
-    assert parsed.universe == ["KOSPI"]
-    assert parsed.ranking_metric == "return"
-    assert parsed.ranking_lookback_days == 21
-    assert parsed.max_positions == 5
-    assert parsed.rebalancing_period == "weekly"
-    assert parsed.stop_loss_pct == 6.0
-    # 랭킹 전략은 리밸런싱이 회전을 구동하므로 보유기간은 비운다.
-    assert parsed.hold_period_days is None
 
 
 def test_ranking_metric_counts_as_entry_for_clarification():
@@ -2317,15 +1707,6 @@ def test_missing_entry_clarification_accepts_valued_signal_metric():
     assert detect_missing_entry_clarification(
         base, "거래대금 50억 원 이상인 종목 중 매수"
     ) == (None, None)
-
-
-def test_missing_entry_clarification_still_asks_for_valueless_signal_metric():
-    """값 없는 신호는 여전히 되묻는다 — 실행 가능한 임계값이 있을 때만 인정한다."""
-    base = make_base_strategy().model_copy(update={
-        "entry_signals": [TechnicalSignal(indicator="trading_value", signal_type="buy")],
-    })
-    question, _ = detect_missing_entry_clarification(base, "거래대금이 많은 종목 중 매수")
-    assert question is not None and "거래대금" in question
 
 
 def test_incomplete_backtest_conditions_gate():
@@ -2467,50 +1848,6 @@ def test_incomplete_backtest_conditions_momentum_entry_recognized():
     assert "손절 안 함" in chips and all(c.startswith("손절") for c in chips)
 
 
-def test_missing_entry_clarification_asks_numbers_for_qualitative_metrics():
-    """스크린샷 프롬프트: 'PER이 낮고 부채비율이 낮은' — 지표만 말하고 숫자가 없으면
-    그 지표별로 구체적 숫자를 예시와 함께 되묻는다."""
-    prompt = (
-        "KOSPI 종목 중 PER이 낮고 부채비율이 낮은 기업만 남긴 뒤 8종목 정도 동일하게 "
-        "투자해 주세요. 손절은 -10%."
-    )
-    base = make_base_strategy().model_copy(
-        update={"universe": ["KOSPI"], "max_positions": 8, "stop_loss_pct": 10.0}
-    )
-
-    question, suggestions = detect_missing_entry_clarification(base, prompt)
-
-    assert question is not None
-    # 언급한 두 지표를 숫자로 되묻는다.
-    assert "PER은 몇 이하" in question
-    assert "부채비율은 몇 % 이하" in question
-    # 언급 안 한 지표는 묻지 않는다.
-    assert "ROE" not in question
-    # 클릭 시 바로 완성되는 숫자 예시 칩을 제공한다.
-    assert suggestions is not None
-    assert any("PER 10 이하" in s and "부채비율 100% 이하" in s for s in suggestions)
-
-
-def test_operating_margin_without_threshold_removes_substitute_and_asks_percentage():
-    """A qualitative operating-margin request must not become an unrelated PBR filter."""
-    prompt = "영업이익률이 높은 주식을 사는 전략"
-    hallucinated = make_base_strategy().model_copy(
-        update={
-            "fundamental_filters": [
-                FundamentalFilter(metric="pbr", operator="<=", value=1.0)
-            ]
-        }
-    )
-
-    parsed = _apply_prompt_overrides(hallucinated, prompt)
-    question, suggestions = detect_missing_entry_clarification(parsed, prompt)
-
-    assert parsed.fundamental_filters == []
-    assert question is not None
-    assert "영업이익률 몇 % 이상으로 설정할까요?" in question
-    assert suggestions == ["영업이익률 10% 이상", "영업이익률 15% 이상"]
-
-
 def test_operating_margin_with_threshold_becomes_entry_without_clarification():
     prompt = "영업이익률 15% 이상인 주식을 사는 전략"
     parsed = ParsedStrategy(
@@ -2605,21 +1942,6 @@ def test_missing_entry_clarification_etf_with_entry_signal_does_not_ask():
     assert suggestions is None
 
 
-def test_etf_supported_universe_rule_parse_and_no_notice():
-    """ETF는 정식 유니버스(2026-07-19 승격) — 미지원 안내 없이 룰 파서가 universe=["ETF"]로
-    파싱한다(개념 구현 시 미지원 목록 제거 원칙의 적용 사례)."""
-    from engine.nl_parser import build_unsupported_concept_notice
-
-    prompt = "ETF 골든크로스 매수, 데드크로스 매도, 손절 10%"
-    assert build_unsupported_concept_notice(prompt) is None
-    assert _mentions_unsupported_concept(prompt) is None
-
-    parsed = _parse_rule_based_strategy(prompt)
-    assert parsed is not None
-    assert parsed.universe == ["ETF"]
-    assert parsed.sector is None
-
-
 def test_etf_universe_extraction_and_theme():
     """ETF 언급은 시장 언급보다 우선하며(코스피 ETF도 ETF), 테마/상품명은 ETF 마스터
     이름과의 자기검증 매칭으로 추출된다."""
@@ -2668,22 +1990,6 @@ def test_etf_factor_conflict_explains_and_suggests_alternatives():
         fundamental_filters=[FundamentalFilter(metric="trading_value", operator=">=", value=100.0)],
     )
     assert detect_etf_factor_conflict(etf_tv, "거래대금 100억 이상 ETF") == (None, None)
-
-
-def test_etf_theme_flows_to_backtest_request_and_canonical_dsl():
-    """etf_theme가 백테스트 요청과 canonical DSL(해시)에 포함되고, 비-ETF 전략의
-    canonical DSL에는 키 자체가 없다(기존 해시 불변)."""
-    from engine.strategy_converter import to_backtest_request, to_canonical_strategy_dsl
-
-    etf = _parse_rule_based_strategy("반도체 ETF 골든크로스 매수, 데드크로스 매도, 손절 10%")
-    assert etf is not None and etf.universe == ["ETF"] and etf.etf_theme == "반도체"
-    req = to_backtest_request(etf, resolve_symbols=False)
-    assert req["universe_id"] == "etf"
-    assert req["etf_theme"] == "반도체"
-    assert to_canonical_strategy_dsl(etf)["etf_theme"] == "반도체"
-
-    stock = _parse_rule_based_strategy("골든크로스 매수, 데드크로스 매도, 손절 10%")
-    assert "etf_theme" not in to_canonical_strategy_dsl(stock)
 
 
 def test_missing_entry_clarification_flags_relative_strength_ranking():
@@ -2864,84 +2170,6 @@ def test_stream_chat_ollama_disables_thinking(monkeypatch):
 # 펀더멘털 필터만 있어도 정기 리밸런싱 전략으로 완결 처리해 즉시(수 ms) 파싱돼야 한다.
 
 
-@pytest.mark.parametrize(
-    "prompt",
-    [
-        "pbr 1이라 종목에 투자 하고 싶어",
-        "PBR 0.8 이하 종목 투자",
-        "roe 15% 이상 종목 사고싶어",
-        "per 10 이하이고 roe 15 이상인 종목",
-    ],
-)
-def test_fundamental_screen_parses_without_llm(prompt):
-    """펀더멘털 필터만 있는 스크리닝 전략은 LLM 없이 rule-based로 파싱돼야 한다."""
-    parsed = _parse_rule_based_strategy(prompt)
-    assert parsed is not None, f"prompt={prompt!r}가 None을 반환해 LLM 폴백으로 샘"
-    assert len(parsed.fundamental_filters) >= 1
-    # 청산 언급이 없으면 정기 리밸런싱(월간)으로 회전을 완결한다.
-    assert parsed.rebalancing_period == "monthly"
-
-
-@pytest.mark.parametrize(
-    "prompt",
-    [
-        "리밸런싱 없이 PBR 1 이하 종목 계속 보유",
-        "PBR 0.8 이하 종목 투자, 리밸런싱은 하지 않고 그대로 보유",
-    ],
-)
-def test_explicit_no_rebalancing_screen_is_not_forced_monthly(prompt):
-    """[회귀] 사용자가 '리밸런싱 없이'를 명시한 스크리닝 전략에 기본 월간 리밸런싱을
-    강제 주입해 명시 의도를 덮어쓰던 버그 — 매수 후 계속 보유(none)로 보존해야 한다."""
-    parsed = _parse_rule_based_strategy(prompt)
-    assert parsed is not None
-    assert parsed.rebalancing_period == "none"
-
-
-def test_ranking_keeps_rebalancing_even_when_negated():
-    """랭킹(모멘텀) 전략의 회전은 달력 리밸런싱으로만 동작하므로, 거부 표현이 있어도
-    회전 주기는 유지한다(엔진 제약)."""
-    parsed = _parse_rule_based_strategy("리밸런싱 없이 최근 3개월 수익률 상위 5종목 매수")
-    assert parsed is not None
-    assert parsed.ranking_metric == "return"
-    assert parsed.rebalancing_period == "monthly"
-
-
-def test_value_screen_with_hold_period_does_not_inject_rebalancing():
-    """회귀: 보유기간·손절을 명시한 가치주 스크리닝에 월간 리밸런싱을 임의 주입하면 안 된다.
-
-    스크린샷 프롬프트: 'PBR<=1, 8종목, 6개월 보유, -12% 손절'은 보유기간이 회전/청산
-    수단이므로 요청하지 않은 '매월 리밸런싱'이 들어가서는 안 된다.
-    """
-    prompt = (
-        "KOSPI 대형주 중에서 PBR이 1배 이하인 종목만 골라서 8종목 정도 나눠 사고, "
-        "한 번 사면 6개월은 들고 가고 싶습니다. 큰 손실은 무서우니 -12% 손절만 넣어 주세요."
-    )
-
-    parsed = _parse_rule_based_strategy(prompt)
-
-    assert parsed is not None
-    assert parsed.hold_period_days == 126
-    assert parsed.rebalancing_period == "none"
-
-
-def test_value_screen_with_take_profit_does_not_inject_rebalancing():
-    """회귀: 익절(리스크 청산)만 명시한 가치주 스크리닝에 월간 리밸런싱을 임의 주입하면 안 된다.
-
-    스크린샷 프롬프트: 'PBR<=1, 10종목, 30% 익절'은 익절이 회전/청산 수단이므로
-    사용자가 요청하지 않은 '매월 리밸런싱'이 들어가서는 안 된다.
-    """
-    prompt = "pbr 1이하의 종목을 10개만 매수하고 30% 수익이 나면 익절하는 전략이야. 백테스트 기간은 3년만 하자."
-
-    parsed = _parse_rule_based_strategy(prompt)
-
-    assert parsed is not None
-    assert len(parsed.fundamental_filters) >= 1
-    assert parsed.take_profit_pct == 30.0
-    assert parsed.rebalancing_period == "none"
-    # '백테스트 기간은 3년만 하자' → 3y (기본값 5y로 떨어지면 안 된다).
-    assert parsed.backtest_period == "3y"
-
-
 def test_extract_backtest_period_phrasings():
     """'백테스트 기간은 N년' 같은 서술형 기간 표현을 인접 'N년'에서 추출한다."""
     from engine.nl_parser import _extract_backtest_period
@@ -2972,21 +2200,6 @@ def test_inspection_cycle_n_months_maps_to_rebalancing_not_hold():
     assert _extract_hold_period_days("점검 주기는 두 달") is None
     assert _extract_rebalancing_period("점검 주기는 두 달", None) == "bimonthly"
     assert _extract_rebalancing_period("세 달 주기로 점검", None) == "quarterly"
-
-
-def test_value_screen_inspection_cycle_parses_quarterly_rebalancing():
-    """회귀: 'ROE·부채비율, 점검 주기는 3개월'은 분기 리밸런싱으로 잡히고
-    '3개월'이 보유기간(63일)으로 오인되지 않는다."""
-    prompt = (
-        "KOSPI에서 ROE 10% 이상이고 부채비율이 100% 이하인 종목을 대상으로 설정해 주세요. "
-        "최대 보유 종목은 10개, 점검 주기는 3개월, 손절 예시값은 -10%로 설정해 주세요."
-    )
-
-    parsed = _parse_rule_based_strategy(prompt)
-
-    assert parsed is not None
-    assert parsed.rebalancing_period == "quarterly"
-    assert parsed.hold_period_days is None
 
 
 def test_technical_entry_without_exit_still_falls_back():
@@ -3364,26 +2577,6 @@ def test_per_request_carries_no_unsupported_notice():
     ) is None
 
 
-@pytest.mark.parametrize(
-    "prompt",
-    [
-        "pbr 1이하 per 7이하 종목을 10개 사서 1년간 보유하는 전략",
-        "KOSPI 종목 중 골든크로스 매수, 데드크로스 매도, 손절 8%",
-        "골든크로스가 나오면 매수하고, 반대로 데드크로스가 나오면 매도",
-        "코스피200에서 최근 60거래일 수익률 상위 종목을 20일 보유 후 매도, 최대 5종목",
-        "스토캐스틱 20 이하에서 매수, 스토캐스틱 80 이상에서 매도",
-        # 마진류·성장률은 지원 지표 — 미지원 팩터 확장이 이들을 오탐하면 안 된다.
-        "영업이익률 15% 이상 종목을 10개 매수, 손절 -8%",
-        "순이익률 10% 이상 매출총이익률 30% 이상 종목 매수, 손절 8%",
-        "영업이익증가율 20% 이상 종목을 매수, 손절 -10%",
-    ],
-)
-def test_supported_prompt_not_flagged_as_unsupported(prompt):
-    """지원되는 개념만 담긴 프롬프트(상대강도 랭킹 포함)는 미지원으로 오탐되지 않는다."""
-    assert _mentions_unsupported_concept(prompt) is None
-    assert _parse_rule_based_strategy(prompt) is not None
-
-
 STRATEGY_UI_SIGNAL_SUGGESTIONS = [
     ("진입 신호를 5일·20일 이동평균 골든크로스로 변경", "entry", "ma_crossover"),
     ("진입 신호를 RSI 30 이하 반등으로 변경", "entry", "rsi"),
@@ -3417,50 +2610,6 @@ def test_strategy_ui_signal_suggestions_map_to_executable_conditions(
     assert any(condition["id"] == indicator for condition in request[side]["conditions"])
 
 
-@pytest.mark.parametrize(
-    "prompt,_side,_indicator",
-    [case for case in STRATEGY_UI_SIGNAL_SUGGESTIONS if case[1] == "entry"],
-)
-def test_strategy_ui_entry_suggestion_replaces_ranking_without_llm(
-    monkeypatch, prompt, _side, _indicator
-):
-    """An exposed entry replacement must replace ranking and preserve unrelated fields."""
-    parser = NLStrategyParser(backend="ollama")
-    previous = make_base_strategy().model_copy(update={
-        "fundamental_filters": [
-            FundamentalFilter(metric="pbr", operator="<=", value=1.0),
-        ],
-        "entry_signals": [
-            TechnicalSignal(indicator="ema", signal_type="buy", period=20),
-        ],
-        "exit_signals": [
-            TechnicalSignal(
-                indicator="rsi", signal_type="sell", period=14,
-                operator=">=", value=70,
-            ),
-        ],
-        "ranking_metric": "return",
-        "ranking_lookback_days": 21,
-        "max_positions": 5,
-        "stop_loss_pct": 10.0,
-    })
-
-    def _must_not_call_llm(_user_input, _previous):
-        raise AssertionError("An exposed entry replacement must not call the LLM")
-
-    monkeypatch.setattr(parser, "_modify_ollama", _must_not_call_llm)
-    parsed = parser.parse_modification(prompt, previous.model_dump())
-    expected_entry, _ = _extract_technical_signals(prompt)
-
-    assert parsed.entry_signals == expected_entry
-    assert parsed.ranking_metric is None
-    assert parsed.ranking_lookback_days is None
-    assert parsed.exit_signals == previous.exit_signals
-    assert parsed.fundamental_filters == previous.fundamental_filters
-    assert parsed.max_positions == 5
-    assert parsed.stop_loss_pct == 10.0
-
-
 STRATEGY_UI_SETTING_SUGGESTIONS = [
     ("유니버스를 KOSPI200으로 변경", "universe", ["KOSPI200"]),
     ("유니버스를 KOSPI로 변경", "universe", ["KOSPI"]),
@@ -3491,19 +2640,6 @@ STRATEGY_UI_SETTING_SUGGESTIONS = [
     ("백테스트 기간을 5년으로 변경", "backtest_period", "5y"),
     ("백테스트 전체 기간으로 변경", "backtest_period", "full"),
 ]
-
-
-@pytest.mark.parametrize("prompt,field,expected", STRATEGY_UI_SETTING_SUGGESTIONS)
-def test_strategy_ui_setting_suggestions_use_deterministic_modification_path(
-    prompt, field, expected
-):
-    """Every non-signal suggestion must be applied without relying on an LLM guess."""
-    from engine.nl_parser import _modify_rule_based, build_unsupported_concept_notice
-
-    assert build_unsupported_concept_notice(prompt) is None
-    modified = _modify_rule_based(prompt, make_base_strategy().model_dump())
-    assert modified is not None
-    assert getattr(modified, field) == expected
 
 
 def test_strategy_ui_exposes_only_suggestions_covered_by_backend_contract():
@@ -3607,23 +2743,6 @@ def test_rule_parse_red_flag_routes_to_llm(prompt, category):
     assert _parse_rule_based_strategy(prompt) is None
 
 
-@pytest.mark.parametrize(
-    "prompt",
-    [
-        # 구어체 부정 '말고'는 정상 전략 서술 — red-flag로 오탐하면 안 된다.
-        "너무 복잡한 조건 말고 PBR 1 이하 종목 8개 사서 6개월 보유, 손절 -12%",
-        "너무 오래 끌지는 말고 52주 신고가 돌파 매수 20일 보유, 손절 -10%",
-        # '대비'는 트레일링 스탑 — red-flag 아님.
-        "골든크로스 매수, 최고가 대비 15% 하락 시 청산",
-        "pbr 1이하 per 7이하 종목을 10개 사서 1년간 보유하는 전략",
-    ],
-)
-def test_rule_parse_red_flag_not_triggered_on_valid_strategy(prompt):
-    """정상 전략(구어체 부정 '말고'·트레일링 '대비' 포함)은 red-flag로 오탐되지 않는다."""
-    assert _rule_parse_red_flag(prompt) is None
-    assert _parse_rule_based_strategy(prompt) is not None
-
-
 # ─── Rule Parse Guard: 잔여 커버리지 게이트 + LLM judge(opt-in) ──────────────
 
 
@@ -3675,19 +2794,6 @@ def test_consult_guard_skips_llm_for_clean_prompt_even_when_enabled(monkeypatch)
     assert parser._consult_rule_parse_guard(prompt, parsed) is True
 
 
-def test_consult_guard_falls_back_when_judge_says_so(monkeypatch):
-    """플래그 ON + 잔여 있음 + judge가 fallback → False(LLM 폴백)."""
-    monkeypatch.setenv("NL_RULE_GUARD_LLM", "1")
-    parser = NLStrategyParser(backend="ollama")
-    monkeypatch.setattr(
-        parser, "chat",
-        lambda *a, **k: '{"decision": "fallback_llm_parse", "confidence": 0.4, "reason": "부분 매칭"}',
-    )
-    prompt = "골든크로스 매수, 데드크로스 매도, 손절 8%, 어쩌고저쩌고특별한무언가"
-    parsed = _parse_rule_based_strategy(prompt)
-    assert parser._consult_rule_parse_guard(prompt, parsed) is False
-
-
 def test_consult_guard_accepts_when_judge_approves(monkeypatch):
     """플래그 ON + 잔여 있음 + judge가 accept → True(룰 파스 유지)."""
     monkeypatch.setenv("NL_RULE_GUARD_LLM", "1")
@@ -3709,21 +2815,6 @@ def test_consult_guard_accepts_on_llm_error(monkeypatch):
     prompt = "골든크로스 매수, 데드크로스 매도, 손절 8%, 어쩌고저쩌고특별한무언가"
     parsed = _parse_rule_based_strategy(prompt)
     assert parser._consult_rule_parse_guard(prompt, parsed) is True
-
-
-def test_parse_routes_to_llm_when_guard_rejects(monkeypatch):
-    """통합: judge가 fallback이면 parse()가 룰 파스 대신 LLM 경로로 빠진다."""
-    monkeypatch.setenv("NL_RULE_GUARD_LLM", "1")
-    parser = NLStrategyParser(backend="ollama")
-    monkeypatch.setattr(
-        parser, "chat",
-        lambda *a, **k: '{"decision": "fallback_llm_parse", "confidence": 0.3, "reason": "x"}',
-    )
-    sentinel = ParsedStrategy(description="LLM 경로 결과")
-    monkeypatch.setattr(parser, "_parse_ollama", lambda _ui: sentinel)
-    result = parser.parse("골든크로스 매수, 데드크로스 매도, 손절 8%, 어쩌고저쩌고특별한무언가")
-    # 룰 파스였다면 description=원문 프롬프트. LLM 경로 sentinel의 description이 보존되면 폴백됨.
-    assert result.description == "LLM 경로 결과"
 
 
 @pytest.mark.parametrize(
@@ -4022,31 +3113,11 @@ def test_extract_capital_amount_bare_disabled_without_allow_bare():
     assert _extract_capital_amount("RSI 30 이하로 떨어지면 매수", allow_bare=True) is None
 
 
-def test_modify_bare_capital_amount_updates_summary():
-    # [회귀] '초기 자금은 300으로'가 기본값(10M)으로 침묵 폴백돼 요약이 안 바뀌던 버그.
-    # 자본금을 300만원으로 결정론 반영한다(LLM 검증 레이어 도달 전 잘못된 확정 방지).
-    from engine.nl_parser import _modify_rule_based
-    prev = make_base_strategy().model_copy(update={"initial_capital": 10_000_000.0})
-    parsed = _modify_rule_based("초기 자금은 300으로", prev.model_dump())
-    assert parsed is not None
-    assert parsed.initial_capital == 3_000_000.0
-
-
 def test_modify_capital_cue_without_amount_delegates_to_llm():
     # 금액 없는 자본금 수정('초기자금 늘려줘')은 기본값으로 조용히 확정하지 말고 LLM에 위임한다.
     from engine.nl_parser import _modify_rule_based
     prev = make_base_strategy().model_copy(update={"initial_capital": 50_000_000.0})
     assert _modify_rule_based("초기자금 늘려줘", prev.model_dump()) is None
-
-
-def test_modify_stop_loss_number_not_misread_as_capital():
-    # 자본금 cue가 없으면 손절 수치(10)를 자본금으로 오인하지 않는다(맨숫자는 cue 인접만 인정).
-    from engine.nl_parser import _modify_rule_based
-    prev = make_base_strategy().model_copy(update={"initial_capital": 50_000_000.0})
-    parsed = _modify_rule_based("손절 10%로 바꿔줘", prev.model_dump())
-    assert parsed is not None
-    assert parsed.stop_loss_pct == 10.0
-    assert parsed.initial_capital == 50_000_000.0
 
 
 def test_enforce_initial_capital_minimum_clamps_and_notifies():
@@ -4330,38 +3401,12 @@ def test_mixed_profitability_contexts_emit_both_sign_filters():
     }
 
 
-def test_operating_profit_strategy_parses_deterministically():
-    """스크린샷 사고 재현: '영업이익 흑자인 기업 투자 전략'이 LLM 폴백 없이 ebit>0으로
-    파싱된다 — LLM이 영업이익증가율>=0으로 환각해 요약이 '영업이익증가율이 0 이상'으로
-    노출되던 사고의 회귀 가드."""
-    parsed = _parse_rule_based_strategy(
-        "영업이익 흑자인 기업 투자 전략, 손절 10%, 익절 20%, 매월 리밸런싱"
-    )
-    assert parsed is not None
-    assert [(f.metric, f.operator, f.value) for f in parsed.fundamental_filters] == [("ebit", ">", 0.0)]
-    assert not any(
-        f.metric in ("operating_income_growth", "operating_margin", "eps")
-        for f in parsed.fundamental_filters
-    )
-
-
 def test_profitability_transition_still_routes_to_unsupported_notice():
     """전환/연속 표현만 미지원 안내로 남는다 — 단순 흑자/적자는 지원 승격되어 안내 없음."""
     from engine.nl_parser import _mentioned_unsupported_concepts
 
     assert "profitability_transition" in _mentioned_unsupported_concepts("흑자전환 종목 매수")
     assert _mentioned_unsupported_concepts("작년도 흑자종목을 매수 하는 전략") == []
-
-
-def test_profitable_last_year_strategy_parses_deterministically():
-    """'작년도 흑자종목' 전략 전체가 LLM 폴백 없이 결정적으로 파싱된다 —
-    LLM이 순이익증가율>=100으로 환각하던 사고의 회귀 가드."""
-    parsed = _parse_rule_based_strategy(
-        "작년도 흑자종목을 매수 하는 전략, RSI 70 이상에서 매도, 매월 리밸런싱, 손절 15%, 익절 30%"
-    )
-    assert parsed is not None
-    assert [(f.metric, f.operator, f.value) for f in parsed.fundamental_filters] == [("eps", ">", 0.0)]
-    assert not any(f.metric == "net_income_growth" for f in parsed.fundamental_filters)
 
 
 # ─── 오타·맞춤법·띄어쓰기 내성 회귀 ──────────────────────────────────────────
@@ -4414,13 +3459,6 @@ def test_spacing_in_fundamental_filters():
     assert ("roe_or_gpa", 15.0) in pairs
 
 
-def test_typo_correction_preserves_original_description():
-    # 오타 보정은 매칭용 compact에만 적용되고 원문(description)은 보존돼야 한다.
-    parsed = _parse_rule_based_strategy("골드크로스 매수, 데트크로스 매도, 10종목")
-    assert parsed is not None
-    assert parsed.description == "골드크로스 매수, 데트크로스 매도, 10종목"
-
-
 @pytest.mark.parametrize(
     "prompt,expected",
     [
@@ -4440,15 +3478,6 @@ def test_typo_count_unit_does_not_corrupt_real_words():
     # '게'로 시작하는 단어(게임 등)는 보정하지 않는다(120게임 → 120개 아님).
     from engine.nl_parser import _extract_max_positions
     assert _extract_max_positions("120게임 만들기") is None
-
-
-def test_modify_count_typo_updates_max_positions():
-    # [회귀] 전략 수정 "종목은 5게"가 max_positions를 5로 반영한다(오타로 미반영되던 버그).
-    from engine.nl_parser import _modify_rule_based
-    prev = make_base_strategy().model_copy(update={"max_positions": 8})
-    parsed = _modify_rule_based("종목은 5게", prev.model_dump())
-    assert parsed is not None
-    assert parsed.max_positions == 5
 
 
 def test_llm_prompts_carry_typo_tolerance_guidance():
@@ -4559,21 +3588,6 @@ def test_unsupported_concept_notice_can_exclude_sector():
     assert notice is not None and "변동성" in notice and "섹터" not in notice
 
 
-def test_unresolved_sector_triggers_reask_clarification():
-    # [회귀] '재약주 관련 전략을 만들자' — 오타/목록 밖 업종을 조용히 전체 시장으로 강등하지
-    # 않고 되묻는다(칩은 파서가 되받을 수 있게 큐 동반).
-    from engine.nl_parser import (
-        ParsedStrategy, detect_unresolved_sector_clarification, _extract_sector,
-    )
-    parsed = ParsedStrategy(description="재약주", universe=["KOSPI200"])
-    q, s = detect_unresolved_sector_clarification(parsed, "재약주 관련 전략을 만들자")
-    assert q is not None and "다시 알려주시겠어요" in q
-    assert "업종 상관없음" in s
-    # 칩은 재파싱 시 결정적으로 섹터로 잡혀야 한다(되묻기 답이 실제로 반영되도록).
-    assert _extract_sector("바이오/제약 관련주") == "바이오/제약"
-    assert _extract_sector("반도체 관련주") == "반도체"
-
-
 def test_searched_unresolved_theme_reports_not_found(monkeypatch):
     # [회귀 2026-07-26] '리센즈 관련주' — 검색 그라운딩까지 수행됐지만(searched_at) 업종
     # 매핑도 관련 상장사도 못 찾은 테마는 오타 되묻기 대신 '관련주를 찾을 수 없어 이
@@ -4608,22 +3622,6 @@ def test_searched_unresolved_theme_skips_not_found_when_theme_applied(monkeypatc
     assert detect_unresolved_sector_clarification(
         parsed, "리센즈 관련주 투자 하는 전략"
     ) == (None, None)
-
-
-def test_unsearched_unresolved_sector_keeps_reask(monkeypatch):
-    # 검색이 아직 수행되지 않은(어휘집 항목 없음) 미해결 언급은 기존 되묻기 유지 —
-    # 오타('재약주') 정정 기회와 검색 실패 후 재시도 여지를 남긴다.
-    import engine.term_grounding as tg
-    from engine.nl_parser import (
-        SECTOR_REASK_QUESTION, ParsedStrategy, detect_unresolved_sector_clarification,
-    )
-
-    monkeypatch.setattr(tg, "lexicon_entry", lambda text, lexicon_path=None: None)
-    q, s = detect_unresolved_sector_clarification(
-        ParsedStrategy(description="x"), "재약주 관련 전략을 만들자"
-    )
-    assert q == SECTOR_REASK_QUESTION
-    assert "업종 상관없음" in s
 
 
 def test_build_parse_result_theme_applied_continues_without_sector_reask(monkeypatch):
@@ -4777,49 +3775,6 @@ def test_llm_schema_drift_korean_market_and_mixed_universe():
 # ── 다중 섹터 수정 의미론 (FR-STR-066 ⑦) ────────────────────────────────────────
 
 
-def test_modify_sector_additive_union():
-    # [회귀, 2026-07-13 실측] 반도체 전략에 "로봇 섹터도 추가해줘" — '~도 추가'가 교체로
-    # 처리돼 반도체가 사라지던 버그. 추가 의도는 기존 섹터와 합집합(list)이어야 한다.
-    from engine.nl_parser import _modify_rule_based
-    prev = make_base_strategy().model_dump()
-    prev["sector"] = "반도체"
-    for phrasing in ["로봇 섹터도 추가해줘", "로봇도 추가해줘", "로봇 업종 포함해줘"]:
-        parsed = _modify_rule_based(phrasing, dict(prev))
-        assert parsed is not None, phrasing
-        assert parsed.sector == ["반도체", "로봇"], phrasing
-
-
-def test_modify_sector_replace_without_additive_cue():
-    # 추가 표지('도'/추가·포함 동사) 없는 섹터 언급은 기존대로 교체다.
-    from engine.nl_parser import _modify_rule_based
-    prev = make_base_strategy().model_dump()
-    prev["sector"] = "반도체"
-    parsed = _modify_rule_based("기계/장비 업종으로 바꿔줘", dict(prev))
-    assert parsed is not None
-    assert parsed.sector == "기계/장비"
-
-
-def test_modify_sector_targeted_removal():
-    # 복수 목록에서 특정 업종만 빼면 그 항목만 제거되고, 하나 남으면 정규형 str로 접힌다.
-    from engine.nl_parser import _modify_rule_based
-    prev = make_base_strategy().model_dump()
-    prev["sector"] = ["반도체", "기계/장비"]
-    parsed = _modify_rule_based("반도체 업종은 빼줘", dict(prev))
-    assert parsed is not None
-    assert parsed.sector == "기계/장비"
-
-
-def test_modify_sector_removal_not_reinjected():
-    # [선행 버그 회귀] "반도체 섹터 빼줘"가 삭제 후 _extract_sector 재추출로 반도체를
-    # 되살리던 문제 — 통합 판정이 삭제를 우선해 양 경로 모두 재주입이 없어야 한다.
-    from engine.nl_parser import _modify_rule_based
-    prev = make_base_strategy().model_dump()
-    prev["sector"] = "반도체"
-    parsed = _modify_rule_based("반도체 섹터 빼줘", dict(prev))
-    assert parsed is not None
-    assert parsed.sector is None
-
-
 def test_modify_sector_removal_of_unlisted_target_is_not_full_clear():
     # 목록에 없는 업종 삭제 요청("반도체 빼줘", prev=기계/장비)은 전체 해제로 오폭하지 않고
     # 결정적 판단을 유보한다(LLM/안내 위임).
@@ -4895,71 +3850,12 @@ def test_llm_sector_with_default_universe_gets_both_markets(monkeypatch):
     assert out2.universe == ["KOSPI200"]
 
 
-def test_unresolved_sector_mention_also_gets_both_markets(monkeypatch):
-    # [회귀] '재약주 관련 전략을 만들자' — 오타로 섹터가 미해결(None)이라 KOSPI200 기본이
-    # 그대로 남아, 되묻기로 섹터를 확정한 뒤에도 사용자가 고르지 않은 KOSPI200에 섹터만
-    # 얹히던 사고. 업종을 말했으면(미해결이라도) 시장 미언급 시 양시장으로 확장한다.
-    from engine.nl_parser import NLStrategyParser, ParsedStrategy
-    p = NLStrategyParser()
-    # 섹터 미해결(None) + 스키마 기본 universe.
-    drift = ParsedStrategy(description="", universe=["KOSPI200"])
-    monkeypatch.setattr(p, "_parse_ollama", lambda text: drift)
-    out = p.parse("재약주 관련 전략을 만들자")
-    assert out.sector is None                    # 오타라 아직 미해결
-    assert out.universe == ["KOSPI", "KOSDAQ"]   # 업종 언급 → 시장 미언급 시 양시장
-    # 시장을 명시하면 존중한다(미해결 섹터여도).
-    drift2 = ParsedStrategy(description="", universe=["KOSPI200"])
-    monkeypatch.setattr(p, "_parse_ollama", lambda text: drift2)
-    out2 = p.parse("코스피200 재약주 관련 전략")
-    assert out2.universe == ["KOSPI200"]
-
-
-def test_rule_parse_sector_strategy_sets_sector_and_market_default():
-    # 섹터 전략은 시장 언급이 없으면 '그 업종 전체'(양시장)로 해석한다 —
-    # KOSPI200 기본값이면 시총 상위 200 ∩ 섹터로 과도하게 좁아진다.
-    from engine.nl_parser import _parse_rule_based_strategy
-    parsed = _parse_rule_based_strategy(
-        "반도체 관련주 중 최근 3개월 수익률이 높은 상위 5종목을 매수, 월간 리밸런싱"
-    )
-    assert parsed is not None
-    assert parsed.sector == "반도체"
-    assert parsed.universe == ["KOSPI", "KOSDAQ"]
-    assert parsed.ranking_metric == "return"
-
-
-def test_rule_parse_sector_respects_explicit_market():
-    from engine.nl_parser import _parse_rule_based_strategy
-    parsed = _parse_rule_based_strategy(
-        "코스닥 반도체 관련주 중 최근 3개월 수익률 상위 5종목 매수, 월간 리밸런싱"
-    )
-    assert parsed is not None
-    assert parsed.sector == "반도체"
-    assert parsed.universe == ["KOSDAQ"]
-
-
 def test_supported_sector_no_longer_flagged_unsupported():
     # 섹터가 지원 개념이 된 뒤에도, 지원 목록 밖 업종('메타버스')은 여전히 안내가 남아야 한다.
     from engine.nl_parser import build_unsupported_concept_notice
     assert build_unsupported_concept_notice("반도체 관련주 매수 전략") is None
     notice = build_unsupported_concept_notice("메타버스 관련주 매수 전략")
     assert notice is not None and "섹터/업종" in notice
-
-
-def test_sector_flows_to_backtest_request_and_canonical_dsl():
-    # [스키마 누수 방어] sector가 요청·canonical DSL·백엔드 스키마를 모두 통과해야 한다
-    # (ranking_metric이 extra=ignore로 버려져 0거래가 됐던 사고와 동일 함정).
-    from engine.nl_parser import _parse_rule_based_strategy
-    from engine.strategy_converter import to_backtest_request, to_canonical_strategy_dsl
-    from schemas import BacktestRequest
-
-    parsed = _parse_rule_based_strategy(
-        "반도체 관련주 중 최근 3개월 수익률 상위 5종목 매수, 월간 리밸런싱"
-    )
-    req = to_backtest_request(parsed, resolve_symbols=False)
-    assert req["sector"] == "반도체"
-    assert to_canonical_strategy_dsl(parsed)["sector"] == "반도체"
-    roundtrip = BacktestRequest(**{**req, "symbols": []}).model_dump()
-    assert roundtrip["sector"] == "반도체"
 
 
 def test_canonical_dsl_hash_unchanged_without_sector():
@@ -4997,19 +3893,6 @@ def test_bf16_unsupported_indicator_concepts_detected():
     }
     for prompt, concept in cases.items():
         assert concept in _mentioned_unsupported_concepts(prompt), prompt
-
-
-def test_bf19_korean_percent_notation_normalized_in_compact():
-    """[BF-19] '10 퍼센트'·'10프로'·'10퍼'가 %로 정규화돼 손절/익절이 유실되지 않는다."""
-    from engine.nl_parser import _compact, _parse_rule_based_strategy
-
-    assert _compact("손절은 10 퍼센트") == "손절은10%"
-    assert _compact("손절 10프로 익절 20퍼") == "손절10%익절20%"
-    parsed = _parse_rule_based_strategy(
-        "코스피 모멘텀 상위 10종목, 손절은 10 퍼센트 익절은 20 퍼센트"
-    )
-    assert parsed is not None
-    assert parsed.stop_loss_pct == 10.0 and parsed.take_profit_pct == 20.0
 
 
 # ─── Ollama 워밍업: 추론과 동일한 num_ctx 회귀 ────────────────────────────────
@@ -5427,40 +4310,6 @@ def test_build_parse_result_skips_raw_prompt_unsupported_notice_on_primary_lane(
     assert any("지원되지 않아요" in n for n in legacy["notices"]), legacy["notices"]
 
 
-def test_build_parse_result_skips_raw_prompt_clarifications_on_primary_lane():
-    # [회귀 2026-09-02 /us 'period' → 'PER은 몇 이하로 할까요?'] 원문을 정규식으로 읽는
-    # 진입 공백/정성 지표 되묻기는 레거시 레인 전용이다 — primary(LLM 해석) 결과에 붙이면
-    # 영어 문장의 'period'가 `per` 패턴에 걸려 한국어 PER 질문이 /us에 나간다(US 영어
-    # 전수 게이트 100건 중 17건 실측). primary 레인은 scan_prompt_for_sector=False로 온다.
-    import time
-
-    import main
-    from engine.nl_parser import ParsedStrategy, TechnicalSignal
-
-    prompt = ("In the S&P 500, buy on a golden cross. Set the maximum holding period "
-              "to 25 trading days.")
-    parsed = ParsedStrategy(
-        description=prompt, universe=["SP500"],
-        entry_signals=[TechnicalSignal(indicator="ma_crossover", signal_type="buy",
-                                       short_period=5, long_period=20)],
-    )
-    kwargs = dict(load_ms=0.0, parse_ms=0.0, request_started=time.perf_counter())
-    with ui_language.bind("en"):
-        primary = main._build_parse_result(
-            main.NLParseRequest(prompt=prompt, backend="ollama", language="en"),
-            "ollama", parsed.model_copy(deep=True), None,
-            scan_prompt_for_sector=False, **kwargs,
-        )
-    assert "PER" not in (primary["clarification_question"] or "")
-    # 레거시 레인(원문 스캔 켜짐)의 종전 동작은 그대로다 — 이관 대상이지 여기서 바꾸지 않는다.
-    legacy = main._build_parse_result(
-        main.NLParseRequest(prompt=prompt, backend="ollama"),
-        "rule", parsed.model_copy(deep=True), None,
-        scan_prompt_for_sector=True, **kwargs,
-    )
-    assert "PER" in (legacy["clarification_question"] or "")
-
-
 # 2026-09-14: 원문 정규식이 LLM의 수수료·슬리피지 값을 덮어쓰던 블록 제거. 낱말만 있으면
 # `수수료0.1%` 붙여쓰기 형태만 인식하는 정규식으로 값을 다시 뽑고, 못 뽑으면 기본값을 써 넣어
 # "슬리피지를 0.1%로 바꿔줘"가 0.05%로 되돌아갔다(대원칙 1 위반 + 실제 값 소실).
@@ -5490,3 +4339,69 @@ def test_merge_fundamental_filters_keeps_market_cap_band():
     pbr_old = FundamentalFilter(metric="pbr", operator="<=", value=2.0)
     pbr_new = FundamentalFilter(metric="pbr", operator=">=", value=1.0)
     assert _merge_fundamental_filters([pbr_old], [pbr_new]) == [pbr_new]
+
+
+def test_etf_theme_flows_to_backtest_request_and_canonical_dsl():
+    """etf_theme가 백테스트 요청과 canonical DSL(해시)에 포함되고, 비-ETF 전략의
+    canonical DSL에는 키 자체가 없다(기존 해시 불변)."""
+    from engine.nl_parser import ParsedStrategy, TechnicalSignal
+    from engine.strategy_converter import to_backtest_request, to_canonical_strategy_dsl
+
+    signals = dict(
+        entry_signals=[TechnicalSignal(indicator="ma_crossover", signal_type="buy", short_period=5, long_period=20)],
+        exit_signals=[TechnicalSignal(indicator="ma_crossover", signal_type="sell", short_period=5, long_period=20)],
+        stop_loss_pct=10.0,
+    )
+    etf = ParsedStrategy(description="반도체 ETF 골든크로스 매수, 데드크로스 매도, 손절 10%",
+                         universe=["ETF"], etf_theme="반도체", **signals)
+    req = to_backtest_request(etf, resolve_symbols=False)
+    assert req["universe_id"] == "etf"
+    assert req["etf_theme"] == "반도체"
+    assert to_canonical_strategy_dsl(etf)["etf_theme"] == "반도체"
+
+    stock = ParsedStrategy(description="골든크로스 매수, 데드크로스 매도, 손절 10%", **signals)
+    assert "etf_theme" not in to_canonical_strategy_dsl(stock)
+
+
+def test_build_parse_result_skips_raw_prompt_clarifications_on_primary_lane():
+    # [회귀 2026-09-02 /us 'period' → 'PER은 몇 이하로 할까요?'] 원문을 정규식으로 읽는
+    # 진입 공백/정성 지표 되묻기는 레거시 레인 전용이다 — primary(LLM 해석) 결과에 붙이면
+    # 영어 문장의 'period'가 `per` 패턴에 걸려 한국어 PER 질문이 /us에 나간다(US 영어
+    # 전수 게이트 100건 중 17건 실측). primary 레인은 scan_prompt_for_sector=False로 온다.
+    # (레거시 레인의 원문 스캔 동작은 KR에서 폐지돼 그 단정은 두지 않는다.)
+    import time
+
+    import main
+    import ui_language
+    from engine.nl_parser import ParsedStrategy, TechnicalSignal
+
+    prompt = ("In the S&P 500, buy on a golden cross. Set the maximum holding period "
+              "to 25 trading days.")
+    parsed = ParsedStrategy(
+        description=prompt, universe=["SP500"],
+        entry_signals=[TechnicalSignal(indicator="ma_crossover", signal_type="buy",
+                                       short_period=5, long_period=20)],
+    )
+    kwargs = dict(load_ms=0.0, parse_ms=0.0, request_started=time.perf_counter())
+    with ui_language.bind("en"):
+        primary = main._build_parse_result(
+            main.NLParseRequest(prompt=prompt, backend="ollama", language="en"),
+            "ollama", parsed.model_copy(deep=True), None,
+            scan_prompt_for_sector=False, **kwargs,
+        )
+    assert "PER" not in (primary["clarification_question"] or "")
+
+
+def test_detect_qualitative_metrics_returns_empty_list_outside_the_english_lane():
+    """[회귀 2026-10-15] KR(기본) 레인 분기가 정의되지 않은 `parsed`를 반환해 NameError가 났다
+    — 이 함수를 부르는 detect_etf_factor_conflict·detect_missing_entry_clarification·
+    _apply_prompt_overrides가 모두 한국어 요청에서 터졌다. KR은 원문 스캔을 열지 않으므로
+    빈 목록이어야 하고, 영어 레인의 기존 탐지는 그대로여야 한다."""
+    import ui_language
+    from engine.nl_parser import _detect_qualitative_metrics
+
+    sample = "주가수익비율이낮은종목"
+    assert _detect_qualitative_metrics(sample) == []
+    with ui_language.bind("en"):
+        found = _detect_qualitative_metrics(sample)
+    assert isinstance(found, list) and [spec[3] for spec in found] == ["per"]

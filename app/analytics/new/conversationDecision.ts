@@ -269,15 +269,15 @@ function researchMetricDecision(prompt: string, metric: SemanticClassification["
     };
   }
 
-  const metric = mentioned[0] as ResearchMetric;
+  const selectedMetric = mentioned[0] as ResearchMetric;
   return {
     action: "start_builder",
     speechAct: "create",
     topic: "strategy",
     confidence: 1,
     reason: "research_metric_selected",
-    researchMetric: metric,
-    seedPrompt: `${strategyPrompt}\n과거 데이터 연구 목표: ${getResearchMetricLabel(metric)}. 사용자가 선택하는 전략 조건의 파라미터 조합을 이 지표 기준으로 비교한다.`,
+    researchMetric: selectedMetric,
+    seedPrompt: `${strategyPrompt}\n과거 데이터 연구 목표: ${getResearchMetricLabel(selectedMetric)}. 사용자가 선택하는 전략 조건의 파라미터 조합을 이 지표 기준으로 비교한다.`,
   };
 }
 

@@ -59,8 +59,31 @@ def test_polluted_previous_metric_alias_does_not_fail_the_request():
     ]
 
 
-def test_unknown_metric_is_dropped_with_a_notice_not_a_500():
+def _stub_modify_interpreter(monkeypatch, patches):
+    """KR 레인(primary)이 부르는 인터프리터를 고정 패치로 대체한다."""
+    from strategy_conversation.interpreter.models import StrategyIntent
+
+    class _Result:
+        intent = StrategyIntent.model_validate(
+            {"intent": "MODIFY_STRATEGY", "patches": patches, "confidence": 1.0})
+        model_name = "test"
+        prompt_version = "test"
+        repair_attempts = 0
+        latency_ms = 0.0
+        unreflected_numbers = []
+
+    class _Interpreter:
+        def interpret(self, *_a, **_k):
+            return _Result()
+
+    monkeypatch.setattr(primary, "_get_interpreter", lambda _cls: _Interpreter())
+
+
+def test_unknown_metric_is_dropped_with_a_notice_not_a_500(monkeypatch):
     """별칭 표에도 없는 지표는 그 조건만 제외하고 비차단 안내로 알린다(조용한 드롭 금지)."""
+    _stub_modify_interpreter(monkeypatch, [{
+        "op": "replace", "path": "/risk_management/stop_loss", "value": 10,
+        "source_text": "손절 10%로"}])
     request = NLParseRequest(
         prompt="손절 10%로 바꿔줘",
         previous_parsed=_previous(
@@ -117,10 +140,7 @@ def test_fast_path_exception_degrades_to_next_layer(monkeypatch):
 # ── ③ 모든 해석 실패는 500이 아니라 되묻기로 귀결된다 ──────────────────────────
 
 def test_modify_interpretation_failure_returns_clarification_and_keeps_strategy(monkeypatch):
-    monkeypatch.setattr(
-        nl_parser.NLStrategyParser, "parse_modification",
-        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("해석 불가")),
-    )
+    monkeypatch.setattr(primary, "run_primary_modification", lambda *_a, **_k: None)
     request = NLParseRequest(prompt="제주반도체를 추가해줘", previous_parsed=_previous())
     result = _run_nl_parse(request)
 
@@ -146,7 +166,7 @@ def test_initial_parse_interpretation_failure_returns_clarification(monkeypatch)
 def test_llm_connection_failure_still_raises_503_not_a_clarification(monkeypatch):
     """인프라 장애는 되묻기로 위장하지 않는다 — 500/503은 시스템 장애 전용으로 예약."""
     monkeypatch.setattr(
-        nl_parser.NLStrategyParser, "parse",
+        primary, "run_primary_parse",
         lambda *_a, **_k: (_ for _ in ()).throw(ConnectionError("Connection refused")),
     )
     with pytest.raises(HTTPException) as exc:

@@ -21,6 +21,18 @@ from engine.parse_validator import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _english_lane_feature():
+    """후행 검증·파스 검증기는 규칙 하이브리드가 남은 영어(/us) 레인의 기능이다.
+
+    KR은 구조화 LLM 해석(primary)만 쓰므로 이 경로를 타지 않는다(2026-10-14 승인).
+    코드가 살아 있는 영어 레인을 직접 검증하므로 그 레인에 명시적으로 묶는다.
+    """
+    import ui_language
+    with ui_language.bind("en"):
+        yield
+
+
 @pytest.fixture
 def parser():
     return NLStrategyParser(backend="ollama")

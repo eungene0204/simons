@@ -21,7 +21,6 @@ from engine.nl_parser import (
     _extract_hold_period_days,
     _extract_technical_signals,
     _extract_fundamental_filters,
-    _parse_rule_based_strategy,
 )
 from api import coach_routes
 from api.coach_routes import CoachRequest, _unparsed_mentions, _strip_internal_context_leak
@@ -117,33 +116,6 @@ class TestParserCoverage:
         }
         assert ("roe_or_gpa", ">=", 10.0) in metrics
         assert ("debt_ratio", "<=", 100.0) in metrics
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# #4 비결정성 — 완전 명시 프롬프트는 규칙 기반에서 결정적으로 처리되어야 한다
-# ──────────────────────────────────────────────────────────────────────────
-# 규칙 기반이 None을 반환하면 LLM 폴백(샘플링)으로 넘어가 실행마다 결과가 달라진다.
-# 아래 프롬프트는 진입·청산 슬롯이 명시돼 있어 규칙 기반에서 결정적으로 끝나야 한다.
-_DETERMINISTIC_PROMPTS = [
-    "KOSPI 대형주 중 PBR이 1배 이하인 종목만 골라서 8종목, 6개월 보유, 손절 -12%",
-    "KOSPI 종목 중 골든크로스가 나오면 매수하고 데드크로스가 나오면 매도, 최대 10개, 손절 -8%",
-    "KOSDAQ ADX가 25 이상 후 5일 EMA가 20일 EMA를 상향 돌파 시 매수, 최대 8종목, 손절 -6%",
-    "KOSPI200 볼린저밴드 상단을 돌파하면서 거래량 급증 시 진입, 하단 닿으면 청산, 10종목, 손절 -6%, 익절 +20%",
-]
-
-
-class TestParseDeterminism:
-    @pytest.mark.parametrize("prompt", _DETERMINISTIC_PROMPTS)
-    def test_fully_specified_prompt_handled_by_rules(self, prompt):
-        # 규칙 기반이 처리해야 LLM 폴백의 비결정성을 피한다.
-        assert _parse_rule_based_strategy(prompt) is not None
-
-    @pytest.mark.parametrize("prompt", _DETERMINISTIC_PROMPTS)
-    def test_rule_based_parse_is_deterministic(self, prompt):
-        first = _parse_rule_based_strategy(prompt)
-        second = _parse_rule_based_strategy(prompt)
-        assert first is not None and second is not None
-        assert first.model_dump() == second.model_dump()
 
 
 # ──────────────────────────────────────────────────────────────────────────

@@ -81,12 +81,16 @@ describe("POST /api/strategy/parse/stream", () => {
 
     const events = await readEvents(response);
     expect(JSON.parse(events[0])).toEqual({ type: "accepted" });
-    expect(JSON.parse(events[1])).toMatchObject({
+    // 진행 표시용 스켈레톤은 구조값뿐이다 — 프롬프트 단어(PBR·10개 등)는 읽지 않고
+    // 해석은 백엔드 LLM이 한다(자연어 해석 계약).
+    expect(JSON.parse(events[1])).toEqual({
       type: "skeleton",
       data: {
-        universe: ["KOSPI200"],
-        max_positions: 10,
-        confidence: "partial",
+        description: "pbr 1이하 10개 1년 보유",
+        universe: null,
+        max_positions: null,
+        recognized_terms: [],
+        confidence: "low",
       },
     });
     expect(JSON.parse(events[2])).toEqual({ type: "stage", stage: "parsing" });
@@ -172,7 +176,7 @@ describe("POST /api/strategy/parse/stream", () => {
     });
   });
 
-  it("uses explicit prompt universe over previous parsed universe", async () => {
+  it("keeps the previous parsed universe in the skeleton and never reads prompt words", async () => {
     fetchBackend.mockResolvedValueOnce(
       sseBackendResponse(
         backendResultEvents({
@@ -200,10 +204,12 @@ describe("POST /api/strategy/parse/stream", () => {
     }));
 
     const events = await readEvents(response);
+    // 스켈레톤의 유니버스는 이전 전략에서만 온다 — 프롬프트의 "KOSPI200"은 읽지 않는다.
     expect(JSON.parse(events[1])).toMatchObject({
       type: "skeleton",
       data: {
-        universe: ["KOSPI200"],
+        universe: ["KOSPI"],
+        confidence: "low",
       },
     });
   });

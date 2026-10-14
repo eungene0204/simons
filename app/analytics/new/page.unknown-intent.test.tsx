@@ -122,6 +122,12 @@ describe("StrategyLab unknown intent fallback", () => {
       if (url === "/api/user") {
         return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
       }
+      if (url === "/api/query/classify") {
+        // 연구 지표 선택은 LLM 분류의 구조화 축(turn_action·research_metric)이다.
+        return Promise.resolve(createJsonResponse({
+          intent: "STRATEGY_ADVICE", symbols: [], turn_action: "research_metric", research_metric: "sharpe",
+        }));
+      }
       if (url === "/api/strategy/builder/step") {
         expect(JSON.parse(String(init?.body))).toMatchObject({
           state: {},
@@ -144,7 +150,8 @@ describe("StrategyLab unknown intent fallback", () => {
 
     expect(await screen.findByText(/어떤 시장을 대상으로 할까요/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "코스피" })).toBeInTheDocument();
-    expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/query/classify")).toBe(false);
+    // 연구 지표 판정은 원문이 아니라 분류 결과로 한다 — 분류가 먼저 호출된다.
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/query/classify")).toBe(true);
   });
 
   it("collects a parameter range and runs the selected metric calculation", async () => {
@@ -183,7 +190,9 @@ describe("StrategyLab unknown intent fallback", () => {
       if (url === "/api/model/status") return Promise.resolve(createJsonResponse({ status: "ready" }));
       if (url === "/api/user") return Promise.resolve(createJsonResponse({ user: { name: "Tester" } }));
       if (url === "/api/query/classify") {
-        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+        return Promise.resolve(createJsonResponse({
+          intent: "STRATEGY_ADVICE", symbols: [], turn_action: "research_metric", research_metric: "sharpe",
+        }));
       }
       if (url === "/api/strategy/builder/step") {
         const body = JSON.parse(String(init?.body));

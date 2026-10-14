@@ -5762,6 +5762,10 @@ def run_primary_modification(
         from strategy_conversation.interpreter.domain_approval import approve_domains
 
         before_blocked = set(blocked_groups_final)
+        # 보류 전의 의도·보고서 — 보류된 패치가 의도에서 빠진 뒤에는 옵션 칩(조건 전체를 담은
+        # 재전송 칩, "…조건을 빼고 ETF로 바꿔줘")을 만들 재료가 없다.
+        pre_domain_validated, pre_domain_report = validated, report
+        pre_domain_spec = patched_spec
         domain_spec, domain_patches, domain_blocked, domain_result, domain_notices, domain_questions = approve_domains(
             approval, draft_spec, modify_intent.strategy, condition_origins,
             before_blocked, lambda candidate: call_tool("validate_intent", intent=candidate.model_copy(update={
@@ -5774,14 +5778,23 @@ def run_primary_modification(
             repair_notices.extend(domain_notices)
             repair_notices.append("확인되지 않은 변경은 보류하고 이전 조건을 유지했어요.")
             if domain_questions:
-                held_report = report.model_copy(deep=True)
+                held_report = pre_domain_report.model_copy(deep=True)
                 held_report.clarification_questions = domain_questions
-                question, chips, ask = _modify_clarification(held_report, modify_intent, prev)
+                question, chips, ask = _modify_clarification(held_report, pre_domain_validated, prev)
                 if question:
                     held_clarification = (question, chips, ask)
             elif domain_notices and held_clarification is None:
-                held_clarification = (domain_notices[0], None,
-                                      {"question": domain_notices[0], "topic": "전략 조건", "chips": []})
+                conflict = (_capability_conflict_clarification(
+                    pre_domain_report, pre_domain_spec, draft_spec, prev)
+                    if pre_domain_report.errors else (None, None, None))
+                if conflict[0]:
+                    # 검증 오류(capability 충돌)는 종전 분기와 같은 질문·제거 칩을 쓴다.
+                    held_clarification = (conflict[0], conflict[1],
+                                          conflict[2] or _pending_ask_payload(
+                                              conflict[0], conflict[1], "전략 조건", prev))
+                else:
+                    held_clarification = (domain_notices[0], None,
+                                          {"question": domain_notices[0], "topic": "전략 조건", "chips": []})
             if any(op["field"] == "universe" and op["group"] in domain_blocked
                    for op in approval.operations):
                 theme_terms, universe_changed = [], False

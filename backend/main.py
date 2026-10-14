@@ -4112,6 +4112,12 @@ def _run_nl_parse_impl(request: NLParseRequest, on_stage=None,
                 if _primary_mod is not None:
                     primary_holder.update(_primary_mod)
                     parsed = _primary_mod["parsed"]
+                    # 이전 전략 검증에서 제외된 재무 조건은 그 인스턴스에만 붙는다(exclude 필드) —
+                    # primary가 결과를 새로 만들면서 잃으면 조용한 드롭이 된다. 안내를 이어 붙인다.
+                    if not parsed.dropped_filter_notices:
+                        from engine.nl_parser import ParsedStrategy
+                        parsed.dropped_filter_notices = list(
+                            ParsedStrategy.model_validate(request.previous_parsed).dropped_filter_notices)
             if parsed is None:
                 # Primary modification failure preserves the draft and asks;
                 # it must not hand the raw request to the legacy parser.

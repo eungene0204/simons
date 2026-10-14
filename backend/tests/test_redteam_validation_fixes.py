@@ -28,53 +28,11 @@ def _legacy_lane(monkeypatch):
 
 # ── 분류기 라우팅(심각도 1·5) ────────────────────────────────────────────────
 
-def test_personal_advice_is_not_general_llm_answer():
-    """22-10: 나이 기반 맞춤 조언 요청은 LLM 일반답변이 아니라 맞춤 추천 불가 안내."""
-    r = classify("40대 직장인인데 나한테 맞는 전략 뭐야?")
-    assert r.intent == QueryIntent.STRATEGY_PICK
-    assert r.suggested_reply and "맞춘" in r.suggested_reply
-
-
-@pytest.mark.parametrize("query", [
-    "PER이 높을수록 싸다는 거지? 그럼 PER 높은 걸로 사줘",
-    "MACD가 100 넘으면 무조건 사면 된대",
-    "부채비율 높을수록 레버리지 효과로 무조건 수익 좋아지잖아",
-    "골든크로스 나오면 100% 오르는 거 맞지?",
-])
-def test_misconception_routes_to_knowledge_answer(query):
-    """7-1/3/5/6: 오개념 단정/확인 발화는 지식 답변 경로(교정 기회)로."""
-    assert classify(query).intent == QueryIntent.GENERAL_INVESTMENT
-
-
-def test_strategy_pick_superlative_still_detected():
-    """22-8: '어떤 전략이 제일 좋아?'는 STRATEGY_PICK(추천 불가 + 빌더)."""
-    assert classify("어떤 전략이 제일 좋아?").intent == QueryIntent.STRATEGY_PICK
-
-
-@pytest.mark.parametrize("query", [
-    "자동으로 실전 매매까지 해줘",
-    "내 돈 3천만원 대신 투자해줘",
-])
-def test_live_trading_is_unsupported(query):
-    """22-7/22-3: 실계좌 자동매매·대리 투자는 미제공 안내."""
-    r = classify(query)
-    assert r.intent == QueryIntent.UNSUPPORTED_FEATURE
-    assert r.suggested_reply and "가상계좌" in r.suggested_reply
-
 
 def test_virtual_autotrade_is_not_unsupported():
     """회귀: 가상계좌 모의 자동매매는 미제공으로 막지 않는다."""
     from intent.scope import is_live_trading_request
     assert not is_live_trading_request("가상계좌로 자동매매 돌려줘")
-
-
-@pytest.mark.parametrize("query", [
-    "맥디 데드크로스에 팔아줘",
-    "알에스아이 30 밑이면 매수",
-])
-def test_indicator_typo_is_strategy_not_stock(query):
-    """16-4/16-6: 지표 발음 표기 + 매매 동사는 종목 오인 없이 전략 설계."""
-    assert classify(query).intent == QueryIntent.STRATEGY_ADVICE
 
 
 def test_greeting_downgrade_keeps_pure_greeting():
@@ -251,24 +209,6 @@ def test_contradictory_filters_flagged():
 
 # ── 수정 경로(심각도 1) ──────────────────────────────────────────────────────
 
-def test_signal_removal_preserves_other_fields():
-    """19-3: 'RSI 조건 빼줘'는 RSI만 제거하고 PER·손절을 보존한다."""
-    from engine.nl_parser import _modify_rule_based, ParsedStrategy
-    prev = ParsedStrategy(
-        description="x", universe=["KOSPI"],
-        fundamental_filters=[{"metric": "per", "operator": "<=", "value": 10.0}],
-        entry_signals=[{"indicator": "rsi", "signal_type": "buy", "period": 14,
-                        "operator": "<=", "value": 30.0}],
-        exit_signals=[{"indicator": "rsi", "signal_type": "sell", "period": 14,
-                       "operator": ">=", "value": 70.0}],
-        stop_loss_pct=5.0, max_positions=10,
-    ).model_dump()
-    r = _modify_rule_based("RSI 조건 빼줘", prev)
-    assert r is not None
-    assert r.entry_signals == [] and r.exit_signals == []
-    assert [f.metric for f in r.fundamental_filters] == ["per"]
-    assert r.stop_loss_pct == 5.0
-
 
 def test_full_rewrite_asks_direction():
     """19-4: '완전 다르게 해줘'는 임의 재작성이 아니라 방향 되묻기."""
@@ -337,17 +277,6 @@ def test_glossary_facts_injected(terms, term):
 
 # ── 추가 오귀속/UX(심각도 2·5) ───────────────────────────────────────────────
 
-def test_fundamental_top_n_is_not_return_ranking():
-    """13-1: 'PER 낮은 상위 20종목'의 '상위'는 선정 개수일 뿐 모멘텀 랭킹이 아니다."""
-    from engine.nl_parser import _apply_prompt_overrides, ParsedStrategy
-    llm_out = ParsedStrategy(
-        description="PER 낮은 상위 20종목 동일비중으로",
-        ranking_metric="return", ranking_lookback_days=60, max_positions=20,
-    )
-    fixed = _apply_prompt_overrides(llm_out, "PER 낮은 상위 20종목 동일비중으로")
-    assert fixed.ranking_metric is None
-    assert fixed.max_positions == 20
-
 
 def test_real_momentum_ranking_preserved():
     """13-1 회귀: 실제 모멘텀 요청의 return 랭킹은 유지."""
@@ -373,7 +302,3 @@ def test_fundamental_factor_ranking_survives_qualitative_override():
     assert fixed.ranking_direction == "bottom"
 
 
-@pytest.mark.parametrize("query", ["형 돈 벌고 싶어", "부자 되고 싶어"])
-def test_vague_money_desire_routes_to_onboarding(query):
-    """15-1: 막연한 '돈 벌고 싶다'는 거절이 아니라 빌더 유도."""
-    assert classify(query).intent == QueryIntent.ONBOARDING

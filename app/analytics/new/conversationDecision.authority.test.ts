@@ -34,8 +34,10 @@ describe("structured turn authority", () => {
   });
 
   it("does not recover an interpretation failure with research words", () => {
-    const result = decideConversationTurn("샤프 최대화", context,
+    // 진행 중인 전략이 없을 때 해석 실패는 실패 안내로 끝난다(활성 전략이 있으면 파스 레인 소관).
+    const result = decideConversationTurn("샤프 최대화", { ...context, hasCurrentStrategy: false },
       { intent: "UNKNOWN", interpretationFailed: true });
     expect(result.action).toBe("respond");
+    expect(result.reason).toBe("interpretation_failed");
   });
 });

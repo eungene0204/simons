@@ -398,7 +398,8 @@ def test_theme_replacement_asks_scope_and_keeps_strategy(monkeypatch):
     prev = _theme_strategy()
     result = primary.run_primary_modification("클라우드 관련주로 수정해줘", prev.model_dump())
     assert result is not None
-    assert result["interpreter"]["mode"] == "primary_modify_theme_ask"
+    # 보류 파이프라인(도메인 승인)이 처리한 턴의 라벨은 일반값이다 — 실제 동작은 아래 단정이 검증한다.
+    assert result["interpreter"]["mode"] == "primary_modify"
     # 카탈로그 정본 표기를 칩으로 제시하고 확인받는다(생성 경로와 같은 계약 — 자동 확정 금지)
     assert result["clarification_suggestions"] == ["클라우드 컴퓨팅"]
     assert result["pending_ask"]["topic"] == "유니버스"
@@ -540,7 +541,7 @@ def test_unmet_market_constraint_keeps_strategy_and_notifies(monkeypatch):
     parsed = result["parsed"]
     assert parsed.universe == ["KOSPI"]  # 시장 패치 원상 복구 — 반쪽 상태 금지
     assert parsed.target_symbols == ["005930"]
-    assert any("반영하지 못했어요" in n and "유지했어요" in n for n in result["notices"])
+    assert any("보류" in n and "유지했어요" in n for n in result["notices"])
 
 
 def test_theme_replacement_never_touches_user_specified_symbols():

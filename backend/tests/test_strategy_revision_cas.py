@@ -39,14 +39,14 @@ def test_forged_baseline_cannot_use_current_revision(tmp_path):
 def test_commit_cannot_be_repeated(tmp_path):
     ledger = RevisionLedger(tmp_path)
     ticket = ledger.begin(DRAFT, 0, None, None)
-    ledger.commit(DRAFT, ticket, ParsedStrategy())
+    ledger.commit(DRAFT, ticket, ParsedStrategy(max_positions=5))
     with pytest.raises(RevisionConflict):
-        ledger.commit(DRAFT, ticket, ParsedStrategy())
+        ledger.commit(DRAFT, ticket, ParsedStrategy(max_positions=5))
 
 
 def test_distinct_drafts_do_not_conflict(tmp_path):
     ledger = RevisionLedger(tmp_path)
     left = ledger.begin(DRAFT, 0, None, None)
     right = ledger.begin("other-draft-identity-123456", 0, None, None)
-    assert ledger.commit(DRAFT, left, ParsedStrategy())["revision"] == 1
-    assert ledger.commit("other-draft-identity-123456", right, ParsedStrategy())["revision"] == 1
+    assert ledger.commit(DRAFT, left, ParsedStrategy(max_positions=5))["revision"] == 1
+    assert ledger.commit("other-draft-identity-123456", right, ParsedStrategy(max_positions=5))["revision"] == 1

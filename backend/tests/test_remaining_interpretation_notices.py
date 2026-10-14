@@ -35,7 +35,7 @@ def test_api_removal_of_reflected_theme_recalculates_notice():
 
 def test_api_final_assembly_accepts_dict_parsed_and_is_idempotent():
     report = ValidationReport(unsupported_features=["파동 이론"])
-    result = {"parsed": ParsedStrategy().model_dump(), "notices": ["기존 안내", "기존 안내"],
+    result = {"parsed": ParsedStrategy(description="x").model_dump(), "notices": ["기존 안내", "기존 안내"],
               "_notice_context": notice_context(report, StrategySpec(), "파동 이론으로 전략 작성")}
     assemble_response_notices(result)
     notices = list(result["notices"])
@@ -47,7 +47,7 @@ def test_api_final_assembly_accepts_dict_parsed_and_is_idempotent():
 
 def test_scope_pending_has_no_false_unsupported_notice():
     report = ValidationReport(unsupported_features=["북극항로"])
-    result = {"parsed": ParsedStrategy(), "notices": [],
+    result = {"parsed": ParsedStrategy(description="x"), "notices": [],
               "clarification_question": "북극항로의 어느 범위인가요?",
               "_notice_context": notice_context(report, StrategySpec(), "북극항로로 변경",
                                                  scope_terms=["북극항로"])}
@@ -67,7 +67,7 @@ def test_dropped_condition_quote_cannot_suppress_an_unsupported_report():
     report = ValidationReport(unsupported_features=["PER 기준"])
     strategy = StrategySpec(entry_conditions=[{"factor": "fundamental.per", "operator": "<=",
                                                "value": 10, "source_text": "PER 기준"}])
-    result = {"parsed": ParsedStrategy(), "notices": [], "_notice_context":
+    result = {"parsed": ParsedStrategy(description="x"), "notices": [], "_notice_context":
               notice_context(report, strategy, "PER 기준으로 종목 선정")}
     assemble_response_notices(result)
     assert any("PER 기준" in notice for notice in result["notices"])

@@ -35,7 +35,9 @@ describe("decideConversationTurn", () => {
   });
 
   it("starts the builder with an explicit Sharpe research objective", () => {
-    expect(decideConversationTurn("샤프지수를 최대화할 수 있는 전략을 만들어줘", baseContext)).toMatchObject({
+    expect(decideConversationTurn("샤프지수를 최대화할 수 있는 전략을 만들어줘", baseContext, {
+      intent: "STRATEGY_ADVICE", turnAction: "research_metric", researchMetric: "sharpe",
+    })).toMatchObject({
       action: "start_builder",
       reason: "research_metric_selected",
       researchMetric: "sharpe",
@@ -45,7 +47,9 @@ describe("decideConversationTurn", () => {
 
   it("asks for one objective before starting broad metric research", () => {
     const prompt = "위험 조정 성과 지표를 기준으로 전략을 만들고 싶어";
-    expect(decideConversationTurn(prompt, baseContext)).toMatchObject({
+    expect(decideConversationTurn(prompt, baseContext, {
+      intent: "STRATEGY_ADVICE", turnAction: "research_metric", researchMetric: "choose",
+    })).toMatchObject({
       action: "ask_research_metric",
       reason: "research_metric_required",
       strategyPrompt: prompt,
@@ -55,7 +59,7 @@ describe("decideConversationTurn", () => {
     expect(decideConversationTurn("소르티노 지수", {
       ...baseContext,
       pendingResearchMetricPrompt: prompt,
-    })).toMatchObject({
+    }, { intent: "STRATEGY_ADVICE", turnAction: "research_metric", researchMetric: "sortino" })).toMatchObject({
       action: "start_builder",
       researchMetric: "sortino",
       seedPrompt: expect.stringContaining("과거 데이터 연구 목표: 소르티노 지수"),
@@ -63,7 +67,9 @@ describe("decideConversationTurn", () => {
   });
 
   it("explains why Treynor is unavailable and keeps the metric step open", () => {
-    expect(decideConversationTurn("트레이너 지수를 최대화하는 전략을 만들어줘", baseContext)).toMatchObject({
+    expect(decideConversationTurn("트레이너 지수를 최대화하는 전략을 만들어줘", baseContext, {
+      intent: "STRATEGY_ADVICE", turnAction: "research_metric", researchMetric: "treynor",
+    })).toMatchObject({
       action: "ask_research_metric",
       reason: "treynor_metric_unavailable",
       message: expect.stringContaining("시장 벤치마크와 전략 베타 데이터가 필요"),
@@ -78,7 +84,9 @@ describe("decideConversationTurn", () => {
   });
 
   it("responds to an invalid backtest period before semantic routing", () => {
-    const decision = decideConversationTurn("백테스트를 6개월로 돌려줘", baseContext);
+    const decision = decideConversationTurn("백테스트를 6개월로 돌려줘", baseContext, {
+      intent: "STRATEGY_ADVICE", backtestPeriodYears: 0.5,
+    });
 
     expect(decision).toMatchObject({
       action: "respond",
@@ -95,7 +103,7 @@ describe("decideConversationTurn", () => {
       stage: "ready",
       hasBacktestRequest: true,
       lastCoachText: "현재 상태로도 백테스트를 실행할 수 있습니다. 백테스트를 시작할까요?",
-    });
+    }, { intent: "STRATEGY_ADVICE", turnAction: "run_backtest" });
 
     expect(decision).toMatchObject({
       action: "run_backtest",
@@ -106,7 +114,9 @@ describe("decideConversationTurn", () => {
   });
 
   it("answers a strategy-horizon comparison instead of starting the builder", () => {
-    const decision = decideConversationTurn("단타와 장투 중 뭐가 나아?", baseContext);
+    const decision = decideConversationTurn("단타와 장투 중 뭐가 나아?", baseContext, {
+      intent: "STRATEGY_ADVICE", turnAction: "horizon_compare",
+    });
 
     expect(decision).toMatchObject({
       action: "respond",
@@ -499,7 +509,7 @@ describe("decideConversationTurn", () => {
     expect(decideConversationTurn(
       "어디를 개선해 볼까?",
       { ...baseContext, hasCurrentStrategy: true },
-      { intent: "STRATEGY_ADVICE" },
+      { intent: "STRATEGY_ADVICE", turnAction: "follow_up" },
     )).toMatchObject({
       action: "answer_follow_up",
       reason: "active_strategy_follow_up",
@@ -765,6 +775,7 @@ describe("액션 계층 — 상태 기본 액션(L4)과 발화 지목 규칙(L2)
     // 되묻기 이관 이후 후속 질문 판정은 분류 뒤에 온다(지목 대상이 먼저 이길 수 있어야 하므로).
     const decision = decideConversationTurn("어떻게 해야 할까?", activeContext, {
       intent: "STRATEGY_ADVICE",
+      turnAction: "follow_up",
     });
     expect(decision).toMatchObject({
       action: "ask_next_condition",
@@ -779,7 +790,7 @@ describe("액션 계층 — 상태 기본 액션(L4)과 발화 지목 규칙(L2)
       decideConversationTurn(
         "어떻게 해야 할까?",
         { ...activeContext, slots: { next: null } },
-        { intent: "STRATEGY_ADVICE" },
+        { intent: "STRATEGY_ADVICE", turnAction: "follow_up" },
       ),
     ).toMatchObject({ action: "answer_follow_up" });
   });

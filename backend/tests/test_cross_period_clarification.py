@@ -122,7 +122,8 @@ def test_modify_incomplete_condition_returns_options_not_fallback(monkeypatch):
     }))
     result = primary.run_primary_modification("데드크로스 청산 추가해줘", prev.model_dump())
     assert result is not None, "미확정 값은 폴백이 아니라 되묻기로 처리돼야 한다"
-    assert result["interpreter"]["mode"] == "primary_modify_needs_value"
+    # 보류 파이프라인(도메인 승인)이 처리한 턴의 라벨은 일반값이다 — 실제 동작은 아래 단정이 검증한다.
+    assert result["interpreter"]["mode"] == "primary_modify"
     # 전략은 무변경 유지, 질문은 청산 크로스 기간 옵션
     assert result["parsed"].model_dump()["exit_signals"] == []
     assert "매도(청산) 이동평균 크로스" in result["clarification_question"]

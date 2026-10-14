@@ -2242,7 +2242,11 @@ def _step_semantic(state, text, sector_resolver, interpreter):
     patch = _entry_chip_patch(text, state)
     notes = []
     if patch is None:
-        interpreted = interpreter(text, state) if interpreter is not None else None
+        try:
+            interpreted = interpreter(text, state) if interpreter is not None else None
+        except Exception:  # noqa: BLE001 — LLM 장애가 빌더 턴을 죽이면 안 된다
+            logger.warning("builder freetext interpreter failed", exc_info=True)
+            interpreted = None
         if interpreted is None:
             message, chips = next_question(state)
             return StepResult(state=state.model_copy(update={"miss_streak": state.miss_streak + 1}),

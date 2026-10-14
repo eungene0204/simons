@@ -50,19 +50,6 @@ def test_primary_parse_failure_reports_instead_of_rule_parser(monkeypatch):
     assert result["parsed"]["description"] == "골든크로스 매수 전략"
 
 
-def test_primary_off_keeps_rule_hybrid_as_primary(monkeypatch):
-    """off/shadow 환경의 규칙 하이브리드는 폴백이 아니라 기본 경로 — 차단 대상이 아니다."""
-    monkeypatch.setenv("STRATEGY_INTERPRETER_MODE", "off")
-
-    from engine.nl_parser import NLStrategyParser, ParsedStrategy
-
-    sentinel = ParsedStrategy(description="규칙 경로 결과")
-    monkeypatch.setattr(NLStrategyParser, "parse", lambda self, *a, **k: sentinel)
-
-    result = _run_nl_parse(NLParseRequest(prompt="골든크로스 매수 전략"))
-    assert result["parsed"]["description"] == "규칙 경로 결과"
-
-
 def test_run_primary_parse_returns_none_on_interpreter_error(monkeypatch):
     class _Interpreter:
         def interpret(self, *_a, **_k):

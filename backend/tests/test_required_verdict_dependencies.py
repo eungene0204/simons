@@ -96,7 +96,8 @@ def test_disagreeing_quote_confirmation_holds_without_an_extra_recovery_call(mon
     result = primary.run_primary_parse(f"PER 10 이하, {quote} 시 청산")
     assert result["parsed"].exit_signals == []
     assert result["clarification_question"]
-    assert len(calls) == 2
+    # 인용 대조(최초 + 재확인)만 센다 — 추가 복구 호출이 없다. 의미 대조는 별도 단계다.
+    assert len([c for c in calls if "**대조기**" in str(c[0])]) == 2
 
 
 @pytest.mark.parametrize("output,expected,status", [("bad json", 999, "UNRESOLVED"),

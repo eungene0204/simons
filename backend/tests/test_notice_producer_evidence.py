@@ -28,7 +28,7 @@ def test_independent_field_does_not_discard_minimum_notice():
 
 
 def test_every_unwrapped_producer_gets_a_structured_receipt():
-    result = {"parsed": ParsedStrategy(), "notices": ["기존 안내"]}
+    result = {"parsed": ParsedStrategy(description="x"), "notices": ["기존 안내"]}
     decisions = project(result)
     assert decisions[0]["producer"] == "response_projection"
     assert decisions[0]["fields"]
@@ -36,7 +36,7 @@ def test_every_unwrapped_producer_gets_a_structured_receipt():
 
 
 def test_transition_remains_an_explanation_of_held_change():
-    result = {"parsed": ParsedStrategy(), "notices": producer(["변경을 보류했어요"], "domain_approval",
+    result = {"parsed": ParsedStrategy(description="x"), "notices": producer(["변경을 보류했어요"], "domain_approval",
                                                              kind="TRANSITION")}
     project(result)
     result["parsed"].max_positions = 12
@@ -45,6 +45,6 @@ def test_transition_remains_an_explanation_of_held_change():
 
 
 def test_api_removes_all_internal_notice_evidence():
-    result = {"parsed": ParsedStrategy(), "notices": ["기존 안내"]}
+    result = {"parsed": ParsedStrategy(description="x"), "notices": ["기존 안내"]}
     assemble_response_notices(result, consume=True)
     assert "_notice_evidence" not in result
